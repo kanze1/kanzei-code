@@ -492,12 +492,12 @@ mod tests {
         // 越过起点的 .. 必须保留,不能被消解成看似合法的相对路径
         assert_eq!(normalize_resource("a/../../etc/passwd"), "../etc/passwd");
         assert_eq!(
-            normalize_resource(".kanzei/./project/goals.md"),
-            ".kanzei/project/goals.md"
+            normalize_resource(".kanzei/./project/ideas.md"),
+            ".kanzei/project/ideas.md"
         );
         assert_eq!(
-            normalize_resource(".kanzei//project/goals.md"),
-            ".kanzei/project/goals.md"
+            normalize_resource(".kanzei//project/ideas.md"),
+            ".kanzei/project/ideas.md"
         );
         assert_eq!(normalize_resource("/a/b/../c"), "/a/c");
         // 无分隔符的资源(bash 命令)原样返回
@@ -548,10 +548,10 @@ mod tests {
             },
         ]);
         for path in [
-            ".kanzei/project/goals.md",
-            ".kanzei/./project/goals.md",
-            ".kanzei//project/goals.md",
-            "x/.kanzei/project/../project/goals.md",
+            ".kanzei/project/ideas.md",
+            ".kanzei/./project/ideas.md",
+            ".kanzei//project/ideas.md",
+            "x/.kanzei/project/../project/ideas.md",
         ] {
             assert_eq!(
                 rs.evaluate("write", &normalize_resource(path)),
@@ -605,19 +605,19 @@ mod tests {
     #[test]
     fn windows_paths_normalize_separator_and_parent_segments() {
         assert_eq!(
-            normalize_resource(r"C:\Workspace\.KANZEI\project\..\project\goals.md"),
+            normalize_resource(r"C:\Workspace\.KANZEI\project\..\project\ideas.md"),
             if cfg!(windows) {
-                "c:/workspace/.kanzei/project/goals.md"
+                "c:/workspace/.kanzei/project/ideas.md"
             } else {
-                "C:/Workspace/.KANZEI/project/goals.md"
+                "C:/Workspace/.KANZEI/project/ideas.md"
             }
         );
         assert_eq!(
-            normalize_resource(r"\\SERVER\Share\.KANZEI\project\goals.md"),
+            normalize_resource(r"\\SERVER\Share\.KANZEI\project\ideas.md"),
             if cfg!(windows) {
-                "//server/share/.kanzei/project/goals.md"
+                "//server/share/.kanzei/project/ideas.md"
             } else {
-                "//SERVER/Share/.KANZEI/project/goals.md"
+                "//SERVER/Share/.KANZEI/project/ideas.md"
             }
         );
     }
@@ -926,10 +926,10 @@ mod tests {
     fn 路径类action的规范化分流一字不变() {
         for action in ["write", "edit", "read", "glob", "grep", "task"] {
             for resource in [
-                r".KANZEI\project\..\project\goals.md",
+                r".KANZEI\project\..\project\ideas.md",
                 "src//main.rs",
                 "./scripts/release.ps1",
-                r"C:\Workspace\.KANZEI\project\goals.md",
+                r"C:\Workspace\.KANZEI\project\ideas.md",
                 "plain-token",
             ] {
                 assert_eq!(

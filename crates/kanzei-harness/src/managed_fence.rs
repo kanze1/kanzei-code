@@ -47,7 +47,7 @@ const MANAGED_WRITERS: &[ManagedWriterSpec] = &[
         prefixes: &[".kanzei/project/"],
     },
     ManagedWriterSpec {
-        tool: "goal",
+        tool: "idea",
         prefixes: &[".kanzei/project/"],
     },
     ManagedWriterSpec {

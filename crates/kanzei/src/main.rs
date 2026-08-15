@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
             usage();
             anyhow::bail!("未知参数: {arg}");
         }
-        Some("req" | "defect" | "source" | "finding" | "goal" | "decision") => {
+        Some("req" | "defect" | "source" | "finding" | "idea" | "decision") => {
             tracker_cli(&args).await
         }
         Some("work") => work_cli(&args[1..]).await,
@@ -1299,14 +1299,14 @@ fn parse_tracker_flags(args: &[String], input: &mut serde_json::Value) -> Vec<St
 }
 
 async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
-    use kanzei_tools::docstore::{DECISIONS, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
+    use kanzei_tools::docstore::{DECISIONS, DEFECTS, FINDINGS, IDEAS, REQUIREMENTS, SOURCES};
     use kanzei_tools::tracker::TrackerTool;
 
     let tool = match args[0].as_str() {
-        "goal" => TrackerTool {
-            tool_name: "goal",
-            noun: "goal",
-            kind: &GOALS,
+        "idea" => TrackerTool {
+            tool_name: "idea",
+            noun: "idea",
+            kind: &IDEAS,
             requires_refs: None,
         },
         "decision" => TrackerTool {

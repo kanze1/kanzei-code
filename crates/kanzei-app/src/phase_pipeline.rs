@@ -69,7 +69,7 @@ const SCOUT_ROLES: &[(&str, &str)] = &[
     ),
     (
         "docs_scout",
-        "requirements/defects/goals/design 与代码状态的一致性:本次任务相关的文档说法与代码是否对得上。",
+        "requirements/defects/ideas/design 与代码状态的一致性:本次任务相关的文档说法与代码是否对得上。",
     ),
 ];
 

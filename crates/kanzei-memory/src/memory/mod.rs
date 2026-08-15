@@ -21,7 +21,7 @@ pub use tools::{MemoryNoteTool, MemorySearchTool, MemoryStatsTool};
 use std::path::PathBuf;
 
 use crate::docstore::{
-    DocStore, DECISIONS, DEFECTS, FINDINGS, GOALS, MEMORY, REQUIREMENTS, SOURCES,
+    DocStore, DECISIONS, DEFECTS, FINDINGS, IDEAS, MEMORY, REQUIREMENTS, SOURCES,
 };
 use crate::embed::Embedder;
 use kanzei_harness::ToolCtx;
@@ -253,7 +253,7 @@ pub fn render_entry(entry: &MemoryEntry) -> String {
 }
 
 /// R-070 来源 ID 契约(硬校验,先例:tracker.rs check_refs):
-/// 每个 ref 必须是项目内真实存在的引用——`[RDAMGSF]-<数字>` 命中对应 doc 的
+/// 每个 ref 必须是项目内真实存在的引用——`[RDAISFM]-<数字>` 命中对应 doc 的
 /// 活跃或归档条目;否则按相对文件路径,须真实存在于项目根下。
 /// 任一 ref 非法即整体拒绝,不在提示词层面兜底。
 pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String> {
@@ -261,7 +261,7 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
         Some(b'R') => Some(&REQUIREMENTS),
         Some(b'D') => Some(&DEFECTS),
         Some(b'A') => Some(&DECISIONS),
-        Some(b'G') => Some(&GOALS),
+        Some(b'I') => Some(&IDEAS),
         Some(b'S') => Some(&SOURCES),
         Some(b'F') => Some(&FINDINGS),
         Some(b'M') => Some(&MEMORY),
@@ -275,7 +275,7 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
         }
         let bytes = id.as_bytes();
         let looks_like_id = bytes.len() > 2
-            && matches!(bytes[0], b'R' | b'D' | b'A' | b'G' | b'S' | b'F' | b'M')
+            && matches!(bytes[0], b'R' | b'D' | b'A' | b'I' | b'S' | b'F' | b'M')
             && bytes[1] == b'-'
             && id[2..].chars().all(|c| c.is_ascii_digit());
         if looks_like_id {

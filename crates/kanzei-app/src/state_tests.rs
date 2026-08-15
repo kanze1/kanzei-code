@@ -224,7 +224,7 @@ fn docs_snapshot缓存依赖并按需加载归档正文() {
     legacy["archived_entries"] = serde_json::json!({
         "req": archive,
         "defect": [],
-        "goal": [],
+        "idea": [],
         "source": [],
         "finding": []
     });

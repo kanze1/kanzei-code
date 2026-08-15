@@ -555,11 +555,11 @@ impl TrackerTool {
     /// 触发:另一个项目的 agent 登记需求时漏掉复杂度评估——根因就是 add 只校验 title,
     /// 「复杂度/severity/priority/标签」全凭自觉。跨项目一致性不能靠每个项目各自记,
     /// 要在这里硬拦:req 必带 复杂度(小|中|大)+ 优先级 + 标签;defect 必带
-    /// severity + 优先级 + 标签。goal/source/finding(severities/priorities/tags 均 None)
+    /// severity + 优先级 + 标签。idea/source/finding(severities/priorities/tags 均 None)
     /// 不受影响。
     fn check_add_required(&self, input: &TrackerInput) -> Option<String> {
         // 只有带 priorities 的追踪文档(req/defect)有登记硬约束;
-        // goal/source/finding/memory/decision(priorities None)不受影响。
+        // idea/source/finding/memory/decision(priorities None)不受影响。
         self.kind.priorities?;
         let mut missing: Vec<&str> = Vec::new();
         if self.kind.severities.is_some() {
@@ -665,7 +665,7 @@ fn unknown_id(id: &str, entries: &[Entry]) -> String {
 #[cfg(test)]
 mod tests {
     use super::TrackerTool;
-    use crate::docstore::{DocStore, Entry, DEFECTS, GOALS, REQUIREMENTS};
+    use crate::docstore::{DocStore, Entry, DEFECTS, IDEAS, REQUIREMENTS};
     use kanzei_harness::{Tool, ToolCtx};
     use serde_json::json;
     use std::process::Command;
@@ -2395,38 +2395,38 @@ mod tests {
         let project = dir.join(".kanzei/project");
         std::fs::create_dir_all(&project).unwrap();
         std::fs::write(
-            project.join("goals.md"),
-            "# Goals\n\n## G-001 长期目标 [active]\n- 进展: 旧\n\n## G-002 新长期目标 [active]\n- 来源: R-093\n",
+            project.join("ideas.md"),
+            "# Ideas\n\n## I-001 原始想法 [inbox]\n- 进展: 旧\n\n## I-002 新想法 [inbox]\n- 来源: R-093\n",
         )
         .unwrap();
         std::fs::write(
-            project.join("goals-archive.md"),
-            "# Goals Archive\n\n## G-002 旧短期目标 [achieved]\n- 验收: 达成即 `goal update G-002 achieved`\n\n手写归档说明 G-002 不能丢\n\n## G-003 另一目标 [achieved]\n",
+            project.join("ideas-archive.md"),
+            "# Ideas Archive\n\n## I-002 旧想法 [split]\n- 验收: 拆解即 `idea update I-002 split`\n\n手写归档说明 I-002 不能丢\n\n## I-003 另一想法 [split]\n",
         )
         .unwrap();
         let tool = TrackerTool {
-            tool_name: "goal",
-            noun: "goal",
-            kind: &GOALS,
+            tool_name: "idea",
+            noun: "idea",
+            kind: &IDEAS,
             requires_refs: None,
         };
         let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
         let repaired = tool
-            .execute(json!({"action": "repair_reused_id", "id": "G-002"}), &ctx)
+            .execute(json!({"action": "repair_reused_id", "id": "I-002"}), &ctx)
             .await;
         assert!(!repaired.is_error, "{}", repaired.content);
-        assert!(repaired.content.contains("G-004"), "{}", repaired.content);
-        let active = std::fs::read_to_string(project.join("goals.md")).unwrap();
-        let archive = std::fs::read_to_string(project.join("goals-archive.md")).unwrap();
-        assert!(active.contains("## G-002 新长期目标 [active]"));
-        assert!(archive.contains("## G-004 旧短期目标 [achieved]"));
-        assert!(archive.contains("goal update G-004 achieved"));
-        assert!(archive.contains("手写归档说明 G-004 不能丢"));
+        assert!(repaired.content.contains("I-004"), "{}", repaired.content);
+        let active = std::fs::read_to_string(project.join("ideas.md")).unwrap();
+        let archive = std::fs::read_to_string(project.join("ideas-archive.md")).unwrap();
+        assert!(active.contains("## I-002 新想法 [inbox]"));
+        assert!(archive.contains("## I-004 旧想法 [split]"));
+        assert!(archive.contains("idea update I-004 split"));
+        assert!(archive.contains("手写归档说明 I-004 不能丢"));
 
         let updated = tool
             .execute(
-                json!({"action": "update", "id": "G-001", "fields": {"进展": "新"}}),
+                json!({"action": "update", "id": "I-001", "fields": {"进展": "新"}}),
                 &ctx,
             )
             .await;
@@ -2435,7 +2435,7 @@ mod tests {
             "修复后普通写操作应恢复: {}",
             updated.content
         );
-        let store = DocStore::open(&dir, &GOALS);
+        let store = DocStore::open(&dir, &IDEAS);
         let entries = store.load().unwrap();
         assert!(store.integrity_issues(&entries).is_empty());
         std::fs::remove_dir_all(dir).ok();
@@ -3035,7 +3035,7 @@ mod tests {
     }
 
     // R-191:登记硬约束——新建 req 缺 复杂度/优先级/标签 即拒并提示补什么,
-    // 新建 defect 缺 severity 即拒;补全后放行;goal(severities/priorities/tags
+    // 新建 defect 缺 severity 即拒;补全后放行;idea(severities/priorities/tags
     // 全 None)不受影响。跨项目一致性的机械门禁:登记缺字段不再静默放行。
     #[tokio::test]
     async fn add_requires_registration_fields() {
@@ -3144,24 +3144,24 @@ mod tests {
             .await;
         assert!(!out.is_error, "{}", out.content);
 
-        // goal(无必填 kind 字段):裸 add 不受影响。
-        let goal_tool = TrackerTool {
-            tool_name: "goal",
-            noun: "goal",
-            kind: &GOALS,
+        // idea(无必填 kind 字段):裸 add 不受影响。
+        let idea_tool = TrackerTool {
+            tool_name: "idea",
+            noun: "idea",
+            kind: &IDEAS,
             requires_refs: None,
         };
-        let out = goal_tool
-            .execute(json!({"action": "add", "title": "目标"}), &ctx)
+        let out = idea_tool
+            .execute(json!({"action": "add", "title": "想法"}), &ctx)
             .await;
-        assert!(!out.is_error, "goal 裸 add 不应被拦: {}", out.content);
+        assert!(!out.is_error, "idea 裸 add 不应被拦: {}", out.content);
         std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
     async fn tag_validation_skips_documents_without_vocabulary() {
         let dir = std::env::temp_dir().join(format!(
-            "kz-tag-goal-{}-{}",
+            "kz-tag-idea-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -3169,19 +3169,19 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
-        let store = DocStore::open(&dir, &GOALS);
-        store.save(&[entry("G-001")]).unwrap();
+        let store = DocStore::open(&dir, &IDEAS);
+        store.save(&[entry("I-001")]).unwrap();
         let tool = TrackerTool {
-            tool_name: "goal",
-            noun: "goal",
-            kind: &GOALS,
+            tool_name: "idea",
+            noun: "idea",
+            kind: &IDEAS,
             requires_refs: None,
         };
         let ctx = ToolCtx::new(dir.clone(), dir.clone());
         // 无词表的文档:任意标签值放行,不受校验约束。
         let out = tool
             .execute(
-                json!({"action": "update", "id": "G-001", "fields": {"标签": "任意值"}}),
+                json!({"action": "update", "id": "I-001", "fields": {"标签": "任意值"}}),
                 &ctx,
             )
             .await;

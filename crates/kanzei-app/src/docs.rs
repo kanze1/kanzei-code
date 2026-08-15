@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use kanzei_tools::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
+use kanzei_tools::docstore::{DocStore, DEFECTS, FINDINGS, IDEAS, REQUIREMENTS, SOURCES};
 use serde_json::json;
 
 pub(crate) const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
@@ -200,7 +200,7 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
     // 限时锁——拿不到就跳过,下次刷新再归档,绝不让文档面板为了一次归档卡住。
     // 预算故意给得很短:UI 刷新的响应性优先级高于"这一轮就把归档做掉"。
     let mut warnings: Vec<String> = Vec::new();
-    for kind in [&REQUIREMENTS, &DEFECTS, &GOALS] {
+    for kind in [&REQUIREMENTS, &DEFECTS, &IDEAS] {
         let store = DocStore::open(&root, kind);
         match store.try_lock(std::time::Duration::from_millis(200)) {
             // 拿到锁才归档;archive_terminal 内部同线程重入,不会自锁死。
@@ -232,7 +232,7 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
     // 还让前端拿到两个恒空数组去渲染两块永远的「(空)」。文件不存在就不入列;
     // 下游全部走 active_entries/archived_entries 的 &[] 回落,一行都不用改。
     let mut kinds: Vec<&'static kanzei_tools::docstore::DocKind> =
-        vec![&REQUIREMENTS, &DEFECTS, &GOALS];
+        vec![&REQUIREMENTS, &DEFECTS, &IDEAS];
     for optional in [&SOURCES, &FINDINGS] {
         let store = DocStore::open(&root, optional);
         if store.path.is_file() || store.archive_file().is_file() {
@@ -333,9 +333,9 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
         // warnings 是新增字段:前端忽略未知键,所以不需要改 .js。它承载"读成功了,
         // 但顺手做的那次写没做成"这种半程状态——以前这类信息被 `let _ =` 吃掉。
         "warnings": warnings,
-        "requirements": load(&REQUIREMENTS)?, "defects": load(&DEFECTS)?, "goals": load(&GOALS)?,
+        "requirements": load(&REQUIREMENTS)?, "defects": load(&DEFECTS)?, "ideas": load(&IDEAS)?,
         "sources": load(&SOURCES)?, "findings": load(&FINDINGS)?,
-        "archived": { "req": archived_entries(&REQUIREMENTS).len(), "defect": archived_entries(&DEFECTS).len(), "goal": archived_entries(&GOALS).len(), "source": archived_entries(&SOURCES).len(), "finding": archived_entries(&FINDINGS).len() },
+        "archived": { "req": archived_entries(&REQUIREMENTS).len(), "defect": archived_entries(&DEFECTS).len(), "idea": archived_entries(&IDEAS).len(), "source": archived_entries(&SOURCES).len(), "finding": archived_entries(&FINDINGS).len() },
     }))
 }
 
@@ -350,7 +350,7 @@ pub fn docs_archive_entries(
     let doc_kind = match kind.as_str() {
         "req" => &REQUIREMENTS,
         "defect" => &DEFECTS,
-        "goal" => &GOALS,
+        "idea" => &IDEAS,
         "source" => &SOURCES,
         "finding" => &FINDINGS,
         other => return Err(format!("未知归档类型:{other}")),
@@ -411,10 +411,10 @@ pub async fn docs_update(
             kind: &FINDINGS,
             requires_refs: Some(&SOURCES),
         },
-        "goal" => TrackerTool {
-            tool_name: "goal",
-            noun: "goal",
-            kind: &GOALS,
+        "idea" => TrackerTool {
+            tool_name: "idea",
+            noun: "idea",
+            kind: &IDEAS,
             requires_refs: None,
         },
         other => return Err(format!("unknown kind `{other}`")),
@@ -451,12 +451,12 @@ fn docs_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
     let path = match kind {
         "req" => root.join(REQUIREMENTS.rel_path),
         "defect" => root.join(DEFECTS.rel_path),
-        "goal" => root.join(GOALS.rel_path),
+        "idea" => root.join(IDEAS.rel_path),
         "conventions" => root.join(CONVENTIONS_REL),
         "architecture" => root.join(".kanzei/project/architecture/README.md"),
         "req-archive" => DocStore::open(&root, &REQUIREMENTS).archive_file(),
         "defect-archive" => DocStore::open(&root, &DEFECTS).archive_file(),
-        "goal-archive" => DocStore::open(&root, &GOALS).archive_file(),
+        "idea-archive" => DocStore::open(&root, &IDEAS).archive_file(),
         "source" => root.join(SOURCES.rel_path),
         "finding" => root.join(FINDINGS.rel_path),
         "report" => root.join(".kanzei/research/report.md"),

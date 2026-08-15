@@ -2153,7 +2153,7 @@ impl Component for TrackerWritePolicyComponent {
             return Ok(());
         }
         for action in [
-            "req", "defect", "goal", "decision", "source", "finding", "work",
+            "req", "defect", "idea", "decision", "source", "finding", "work",
         ] {
             draft.permissions.push_denial_note(
                 Rule {

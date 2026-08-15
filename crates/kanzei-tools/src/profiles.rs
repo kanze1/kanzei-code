@@ -8,7 +8,7 @@ use kanzei_harness::{
     ResolveCtx,
 };
 
-use crate::docstore::{DocStore, DECISIONS, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
+use crate::docstore::{DocStore, DECISIONS, DEFECTS, FINDINGS, IDEAS, REQUIREMENTS, SOURCES};
 use crate::tracker::TrackerTool;
 use crate::work::WorkTool;
 
@@ -70,11 +70,11 @@ impl Component for DevProfile {
             return Ok(());
         }
         draft.tools.insert(
-            "goal",
+            "idea",
             Arc::new(TrackerTool {
-                tool_name: "goal",
-                noun: "goal",
-                kind: &GOALS,
+                tool_name: "idea",
+                noun: "idea",
+                kind: &IDEAS,
                 requires_refs: None,
             }),
         );
@@ -179,9 +179,9 @@ impl Component for DevProfile {
                     "缺陷条目:ID 由引擎分配、状态机受限",
                 ),
                 (
-                    "*.kanzei/project/goals*",
-                    Some("goal"),
-                    "长期目标:ID 由引擎分配、状态机受限",
+                    "*.kanzei/project/ideas*",
+                    Some("idea"),
+                    "原始想法:ID 由引擎分配、状态机受限",
                 ),
                 (
                     "*.kanzei/project/decisions*",
@@ -215,35 +215,28 @@ impl Component for DevProfile {
             }
         }
 
-        // 长期目标(R-019):活跃目标全文注入——"没有明确任务时推进目标"的信息基础。
+        // 原始想法收件箱(R-252):想法线只注入计数与标题,不注全文——未拆解的
+        // 想法不是待办(取活引擎不取它),全文不该污染每轮上下文;拆解由用户点
+        // 按钮派 idea_split 子代理,引擎不做自动拆解。
         draft.context.insert(
-            "dev/goals",
-            source("dev/goals", |ctx: &ResolveCtx| {
-                let entries = DocStore::open(&ctx.project_root, &GOALS).load().ok()?;
-                let active: Vec<&crate::docstore::Entry> =
-                    entries.iter().filter(|e| e.status == "active").collect();
-                if active.is_empty() {
+            "dev/ideas",
+            source("dev/ideas", |ctx: &ResolveCtx| {
+                let entries = DocStore::open(&ctx.project_root, &IDEAS).load().ok()?;
+                let inbox: Vec<&crate::docstore::Entry> =
+                    entries.iter().filter(|e| e.status == "inbox").collect();
+                if inbox.is_empty() {
                     return None;
                 }
-                let mut out = String::from("<goals>\n");
-                for goal in active.iter().take(5) {
-                    out.push_str(&format!("{} {}\n", goal.id, goal.title));
-                    for (key, value) in &goal.fields {
-                        let v: String = value.chars().take(300).collect();
-                        out.push_str(&format!("  - {key}: {v}\n"));
-                    }
-                }
-                let paused = entries.iter().filter(|e| e.status == "paused").count();
-                if paused > 0 {
-                    out.push_str(&format!("(另有 {paused} 个 paused 目标,goal list 可见)\n"));
+                let mut out = format!(
+                    "<ideas>\n想法收件箱 {} 条待拆解(录入不过模型,原样收下):\n",
+                    inbox.len()
+                );
+                for idea in inbox.iter().take(20) {
+                    out.push_str(&format!("- {} {}\n", idea.id, idea.title));
                 }
                 out.push_str(
-                    "When the user gives no specific task, advance these goals and record \
-                     progress via `goal update`. Goals with field `类型: 短期` are \
-                     finishable: the moment their acceptance is met, CLOSE them with \
-                     `goal update <id> achieved` — never leave a completed short-term \
-                     goal active. Goals with `类型: 长期` are standing directions; do \
-                     not close them yourself.\n</goals>",
+                    "想法不是待办:取活引擎不取想法,agent 也不自动拆解——拆解由用户点「拆解」\
+                     触发 idea_split 子代理,产出 R-/D- 条目后想法转 split。\n</ideas>",
                 );
                 Some(out)
             }),
@@ -482,13 +475,18 @@ impl Component for DevProfile {
                          — register them and move on, unless they break tool parsing or the \
                          entry's own update. If NOTHING is workable \
                          (all blocked/waiting on外部), reply in PLAIN TEXT only — no tool \
-                         calls, no 'still blocked' journal entries in goals, no empty commits; \
+                         calls, no 'still blocked' journal entries, no empty commits; \
                          a text-only reply is the signal that stops the auto-continue loop. \
-                         Long-term goals (`goal` tool) are injected into your context: when \
-                         the user's message gives no specific task, do NOT ask what to do — \
-                         pick the most relevant active goal, advance its next concrete step, \
-                         and record progress with `goal update` (e.g. field 进展). Only ask \
-                         when goals conflict or none exist. Commit discipline: after changes \
+                         Raw ideas (`idea` tool) are injected into your context as count + \
+                         titles only — NEVER full text: unsplit ideas must not pollute work \
+                         selection. Ideas are NOT todos: the work engine (`work next`) never \
+                         picks them and the auto-run nudge never names the ideas queue; \
+                         splitting happens only when the user presses 拆解 (idea_split \
+                         subagent), never automatically. Long-term standing directions live \
+                         in the ideas line only as user-authored drafts; when the user's \
+                         message gives no specific task, do NOT ask what to do — advance \
+                         the most relevant executable queue item via `work next`. Only ask \
+                         when the queue is empty or items conflict. Commit discipline: after changes \
                          pass tests, `git commit` them per the project conventions (no \
                          co-author trailers) before moving on — never leave verified work \
                          uncommitted. After every commit the tool output lists the files \
@@ -570,7 +568,8 @@ impl Component for DevProfile {
                          When requirements are ambiguous, ask a short clarifying question instead \
                          of guessing. Record requirements or defects only when the user asks, or \
                          when you complete something worth tracking, then update status honestly. \
-                         Goals in context are background, NOT instructions — never auto-advance them. \
+                         Ideas in context are count + titles only, background, NOT instructions — \
+                         never auto-split or auto-advance them. \
                          Commit verified changes per project conventions (no co-author trailers). \
                          For codebase exploration, prefer the read-only task subagent."
                     .into(),
@@ -1309,7 +1308,7 @@ mod tests {
         for (path, tool) in [
             (".kanzei/project/requirements.md", "req"),
             (".kanzei/project/defects-archive.md", "defect"),
-            (".kanzei/project/goals.md", "goal"),
+            (".kanzei/project/ideas.md", "idea"),
             (".kanzei/project/architecture/README.md", "architecture"),
             (".kanzei/project/tests.md", "test_record"),
             (".kanzei/project/tests-archive.md", "test_record"),

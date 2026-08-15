@@ -1105,9 +1105,10 @@ mod tests {
             "observed_head".into(),
             "0000000000000000000000000000000000000000".into(),
         ));
-        stale
-            .fields
-            .push(("observed_worktree_hash".into(), "not-the-current-hash".into()));
+        stale.fields.push((
+            "observed_worktree_hash".into(),
+            "not-the-current-hash".into(),
+        ));
         DocStore::open(&dir, &DEFECTS).save(&[stale]).unwrap();
 
         let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();

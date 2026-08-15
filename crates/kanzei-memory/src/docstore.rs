@@ -27,7 +27,9 @@ pub const ALL_STATUS_TOKENS: &[&str] = &[
     "active",
     "archived",
     "paused",
-    "achieved", // sources / goals
+    "achieved", // sources
+    "inbox",
+    "split", // ideas
     "draft",
     "confirmed",
     "accepted",
@@ -173,17 +175,22 @@ pub const DECISIONS: DocKind = DocKind {
     reopen_from: &[],
 };
 
-/// 长期目标(R-019):agent 每次运行注入活跃目标,无明确任务时自主推进。
-pub const GOALS: DocKind = DocKind {
-    rel_path: ".kanzei/project/goals.md",
-    heading: "Goals",
-    prefix: "G",
-    statuses: &["active", "paused", "achieved", "dropped"],
-    terminal: &["achieved", "dropped"],
+/// 原始想法收件箱(R-252):用户侧未经拆解的设计需求/想法,原样录入不过模型;
+/// 由人点「拆解」派子代理转成 requirements/defects 条目。goals 线已于同批退役
+/// (R-252 验收②:现存 G 条目推 dropped 并归档,全仓 grep 零残留)。
+/// 状态机 inbox → split/dropped:split=已拆解出 R/D(转 split 有 refs 硬门禁,
+/// 见 tracker actions::update_close),dropped=用户放弃。想法不是待办——
+/// 取活引擎(work)与鞭挞推进指令都不看这条线。
+pub const IDEAS: DocKind = DocKind {
+    rel_path: ".kanzei/project/ideas.md",
+    heading: "Ideas",
+    prefix: "I",
+    statuses: &["inbox", "split", "dropped"],
+    terminal: &["split", "dropped"],
     severities: None,
     priorities: None,
     tags: None,
-    bidirectional: true,
+    bidirectional: false,
     reopen_from: &[],
 };
 
@@ -2467,5 +2474,57 @@ mod tests {
             fields: vec![("refs".into(), "S-001, S-002".into())],
         };
         assert_eq!(e.refs(), vec!["S-001", "S-002"]);
+    }
+
+    /// R-252 验收①:IDEAS 文档线状态机 inbox→split/dropped 有测试。
+    /// 前置语义:录入不过模型原样收下(inbox 是初始态)、拆解后转 split、
+    /// 用户放弃转 dropped;split/dropped 是终态(不再回流)。
+    #[test]
+    fn ideas_state_machine_inbox_to_split_or_dropped() {
+        let kind: &DocKind = &IDEAS;
+        assert_eq!(kind.prefix, "I");
+        assert_eq!(kind.statuses, &["inbox", "split", "dropped"]);
+        assert_eq!(kind.terminal, &["split", "dropped"]);
+        assert_eq!(kind.statuses[0], "inbox");
+        // 不设优先级/严重度/标签:想法是原始收件箱,不参与取活与分类。
+        assert!(kind.severities.is_none());
+        assert!(kind.priorities.is_none());
+        assert!(kind.tags.is_none());
+
+        let dir = std::env::temp_dir().join(format!(
+            "kz-ideas-state-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let store = DocStore::open(&dir, kind);
+        // inbox → split / inbox → dropped 放行(终态可达)。
+        assert!(store.transition_allowed("inbox", "split").is_ok());
+        assert!(store.transition_allowed("inbox", "dropped").is_ok());
+        // 终态不可回流到非终态:split/dropped 不再回到 inbox(forward-only,非双向)。
+        assert!(store.transition_allowed("split", "inbox").is_err());
+        assert!(store.transition_allowed("dropped", "inbox").is_err());
+        // 终态→终态按关闭语义放行(close 可任意走到终态);split/dropped 互转合法。
+        assert!(store.transition_allowed("dropped", "split").is_ok());
+        // 未知状态拒绝;split 是合法目标。
+        assert!(store.transition_allowed("inbox", "banana").is_err());
+        // 实际走一遍 add → split 的落盘闭环。
+        store
+            .save(&[Entry {
+                id: "I-001".into(),
+                title: "一个原始想法".into(),
+                status: "inbox".into(),
+                severity: None,
+                fields: vec![],
+            }])
+            .unwrap();
+        let entries = store.load().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].status, "inbox");
+        // ID 前缀与下一个编号正确。
+        assert_eq!(store.next_id(&entries), "I-002");
+        std::fs::remove_dir_all(dir).ok();
     }
 }

@@ -258,7 +258,7 @@ fn breach_report(process: &crate::background::BackgroundProcess) -> String {
     }
     out.push_str(
         "The shell is not a write channel for .kanzei/project or .kanzei/memory, background or \
-         not. Redo the change through the dedicated tool (`req`/`defect`/`goal`/`decision`, \
+         not. Redo the change through the dedicated tool (`req`/`defect`/`idea`/`decision`, \
          `architecture`, `test_record`, `memory_*`).",
     );
     out

@@ -451,10 +451,7 @@ mod tests {
              struct Real {}\n",
         );
         let symbols = scan_symbols(&file);
-        let names: Vec<(&str, &str)> = symbols
-            .iter()
-            .map(|s| (s.kind, s.name.as_str()))
-            .collect();
+        let names: Vec<(&str, &str)> = symbols.iter().map(|s| (s.kind, s.name.as_str())).collect();
         for bogus in ["d_writer.lock", "els.iter", "ant_foo", "ural.rebuild"] {
             assert!(
                 !names.iter().any(|(_, n)| *n == bogus),

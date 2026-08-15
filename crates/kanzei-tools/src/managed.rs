@@ -196,12 +196,12 @@ pub(crate) fn quarantine_and_restore(
 fn known_active_doc_paths(project_root: &Path) -> Vec<PathBuf> {
     use crate::architecture::ARCHITECTURE_REL;
     use crate::conventions::CONVENTIONS_REL;
-    use crate::docstore::{DECISIONS, DEFECTS, GOALS, MEMORY, REQUIREMENTS};
+    use crate::docstore::{DECISIONS, DEFECTS, IDEAS, MEMORY, REQUIREMENTS};
     use crate::test_record::TEST_RUNS_REL;
     [
         REQUIREMENTS.rel_path,
         DEFECTS.rel_path,
-        GOALS.rel_path,
+        IDEAS.rel_path,
         DECISIONS.rel_path,
         MEMORY.rel_path,
         TEST_RUNS_REL,
@@ -408,7 +408,7 @@ pub(crate) fn enforce_managed_files(
          touched: {listed}\n\
          restored {restored} file(s) to their pre-command contents; your versions were kept at \
          {} so nothing is lost.\n\
-         Redo the change through the dedicated tool (`req`/`defect`/`goal`/`decision` for tracker \
+         Redo the change through the dedicated tool (`req`/`defect`/`idea`/`decision` for tracker \
          entries, `architecture` for the architecture index, `memory_note` for memory). If no \
          tool covers what you need, that is an unimplemented capability: record it and tell the \
          user — do not look for another shell route.{incomplete}",
@@ -499,7 +499,7 @@ mod tests {
         for expected in [
             ".kanzei/project/requirements.md",
             ".kanzei/project/defects.md",
-            ".kanzei/project/goals.md",
+            ".kanzei/project/ideas.md",
             ".kanzei/project/decisions.md",
             ".kanzei/project/memory.md",
             ".kanzei/project/tests.md",
