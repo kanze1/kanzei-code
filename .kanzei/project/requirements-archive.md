@@ -3376,3 +3376,19 @@
 - observed_head: 4b855af46cf35d780878de2c7aed5a816ceef762
 - observed_worktree_hash: fnv1a64:94e39c39b25fca90
 - recorded_at: 1786819895087
+
+## R-266 workspace crate 清单与 README 项目结构表机械同步 [done]
+- refs: R-258
+- 为什么是这个形态: 只校验清单一致性,不生成 README。生成会把人写的职责描述冲掉,而实际漂移的一向是「新 crate 忘了写进表」而非「描述过期」——本次漏的正是 kanzei-base 与 kanzei-memory 两个新成员,表里六行描述本身都还准。校验是集合比对,零新依赖、零耗时,属于本仓一贯的做法:能确定性执行的事不靠人记。
+- 内容: Cargo.toml [workspace] members 现有 8 个 crate,README ## 项目结构 表只列 6 个——缺 kanzei-base 与 kanzei-memory。①先把这两行补进表并写清职责;②加一道机械校验:从 Cargo.toml members 取 crate 名,与 README 表格第一列反引号里的 crate 名做集合比对,不一致即失败并点名缺/多的那个;③校验同时挂进 scripts/verify.ps1 与 .github/workflows/ci.yml,两处口径机械一致(CI 配置里本就要求 checklist 与 verify.ps1 同步)。
+- 复杂度: 小
+- 来源: 2026-08-15 第三方对 dev 分支的仓库评审指出 README 结构表落后于 Cargo.toml,实测属实(members 8 个,表里 6 个)。同轮机器核对该评审提出的另四条建议,结论是均不新增条目:①拆 git.rs 已在 R-257 ③,且在册版本定性更准(真问题是 finalize 从 git 适配器长成交付工作流,不是行数);②前端迁 ESM 已在 R-264,附完整勘察与设计文档并已明确降 P3;③coverage 阈值正踩 R-258 记的负向激励陷阱(测试与生产码同文件,搬走测试即可过线);④settings.rs 实测 857 生产行/671 测试行,够不上 R-257 第二梯队门槛(1218)。该评审的热点排名整体建立在 GitHub 页面行数上,即 R-258 明令禁用的口径——其点名的 permission.rs 1147 行里 698 行是测试,生产码仅 449;真正的生产码前二 drive.rs 1851 与 main.rs 1640 反而没被它看见。故只本条落地。
+- 标签: 流程
+- 边界: 不校验职责描述的内容是否准确;不扩到 docs/design 下的其它清单;不引入任何文档生成器或模板引擎。
+- 验收: ①README ## 项目结构 表含全部 8 个 crate,kanzei-base 与 kanzei-memory 各有职责描述;②校验脚本存在且真能拦:临时给 Cargo.toml 加一个假 member(或从 README 删一行)后校验必须失败并点名该 crate,给出实测输出,不接受「应该会失败」;③verify.ps1 与 ci.yml 两处都跑到该校验;④对表格行顺序差异、crate 名大小写、多余空格不误报(各给一个反证用例)。
+- 优先级: P2
+- 批次: 1/1
+- 进展: 完成:①README ## 项目结构 表补 kanzei-base(零依赖底层原语 atomic_file/FileLock)与 kanzei-memory(记忆控制平面, docstore/embed/回放评估),8 crate 与 Cargo.toml members 对齐;②新增 scripts/check-readme-crates.mjs(解析 Cargo.toml [workspace] members 取 crate 名,与 README 项目结构表首列精确比对,缺/多余即失败并点名);③挂进 scripts/verify.ps1(crate_sync 步骤)与 .github/workflows/ci.yml(ui smoke 步骤末尾);④反例实测:删 README 一行 → 脚本报『缺少 kanzei-base』exit 1,恢复 → 通过 exit 0。验收②③④满足。
+- observed_head: c8e4ca748693a5d11259f55c72ea4375e8721ed8
+- observed_worktree_hash: fnv1a64:cb38942f21061b5b
+- recorded_at: 1786822056815
