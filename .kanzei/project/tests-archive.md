@@ -4252,3 +4252,10 @@
 - 摘要: R-264 批3 回退后六条前端冒烟全绿(ui-runtime 21 文件 classic 路径/ui-lint 37 文件 globals 同步 608/parallel-lines/a11y/i18n 157 key/markdown);批3 迁移中间态已回退,批2 状态恢复。
 - 关联: R-264
 - 收尾: 1786823530
+
+## T-1786824104 verify.ps1 六条前端冒烟 (R-264 批3 TDZ 攻坚回退) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: R-264 批3 TDZ 攻坚回退验证:六条前端冒烟全绿(ui-runtime 21 文件/ui-lint 37 文件 globals 同步 608/parallel-lines/a11y/i18n 157 key/markdown);冒烟桩 DOMContentLoaded 支持(classic no-op)保留。
+- 关联: R-264
+- 收尾: 1786824104
+- 源码指纹: dc3d8ef0a616b269

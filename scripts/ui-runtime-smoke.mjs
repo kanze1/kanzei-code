@@ -511,6 +511,8 @@ function queryAllFrom(node, selector) {
 const documentElement = new Element("html");
 const body = new Element("body");
 const byId = new Map();
+// R-264 ESM:DOMContentLoaded 回调收集(冒烟手动触发,见 runUiSources 末尾)。
+const domReadyCallbacks = [];
 const document = {
   documentElement,
   body,
@@ -553,7 +555,14 @@ const document = {
   getElementById: (id) => byId.get(id) ?? null,
   querySelector: (selector) => queryAllFrom(documentElement, selector)[0] ?? null,
   querySelectorAll: (selector) => queryAllFrom(documentElement, selector),
-  addEventListener: () => {},
+  // R-264 ESM:模拟浏览器 module 求值期——DOM 还在 loading,顶层延迟执行的点
+  // 走 DOMContentLoaded 收集,由冒烟在全部模块求值后触发。
+  readyState: "loading",
+  // R-264 ESM:收集 DOMContentLoaded 回调,evaluate 完所有模块后由冒烟手动触发
+  // (模拟浏览器 `<script type="module">` 的 deferred 语义——模块求值完后 DOM 就绪)。
+  addEventListener: (type, fn) => {
+    if (type === "DOMContentLoaded") domReadyCallbacks.push(fn);
+  },
   hasFocus: () => true,
 };
 
@@ -1205,14 +1214,7 @@ async function runUiSources() {
     // 循环依赖的 TDZ 由 ESM 实例化顺序处理,与浏览器一致)。
     for (const name of esmOrder) {
       const module = esmModuleCache.get(name);
-      if (module) {
-        try {
-          await module.evaluate();
-        } catch (err) {
-          console.log(`DEBUG eval ${name} FAILED: ${err?.message?.slice(0, 120)}`);
-          throw err;
-        }
-      }
+      if (module) await module.evaluate();
     }
     // 兼容桥:ESM export 挂 context 全局(渐进迁移期对 classic 消费者可见)。
     // 直接给 sandbox 对象赋值——Node contextify 后该对象属性变化对 vm 可见,
@@ -1223,12 +1225,14 @@ async function runUiSources() {
         for (const key of Object.keys(ns)) {
           if (typeof ns[key] !== "undefined") sandbox[key] = ns[key];
         }
-        if (name === "15-views-misc.js" || name === "09-sessions.js") {
-          console.log(`DEBUG compat-bridge ${name}: ns keys=${Object.keys(ns).length} hasRefreshManual=${"refreshManual" in ns}`);
-        }
-      } catch (err) {
-        console.log(`DEBUG compat-bridge ${name} FAILED: ${err?.message}`);
+      } catch {
+        // 忽略不可读 namespace。
       }
+    }
+    // R-264 ESM:模拟浏览器 deferred module 语义——所有模块求值完后 DOM 就绪,
+    // 触发收集到的 DOMContentLoaded 回调(顶层延迟执行的点在这里跑)。
+    for (const fn of domReadyCallbacks.splice(0)) {
+      fn();
     }
   } catch (err) {
     fail(`ui/*.js 顶层执行抛异常: ${err.stack ?? err}`);
