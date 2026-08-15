@@ -379,7 +379,10 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         }
     };
 
-    let outcome = tokio::time::timeout(timeout, capture).await;
+    // R-259:timeout 骨架收编进 wrapper(with_timeout)——tokio::time::timeout
+    // 只在 tool_pipeline 实现一处;超时后的业务善后(kill_tree/部分输出/围栏)
+    // 是命令执行语义,依赖 body 内局部状态,保留在 Err 分支处理。
+    let outcome = kanzei_harness::tool_pipeline::with_timeout(capture, timeout).await;
     match outcome {
         Ok((status, out_capped, err_capped)) => {
             let mut text = String::from_utf8_lossy(&out_buf).into_owned();

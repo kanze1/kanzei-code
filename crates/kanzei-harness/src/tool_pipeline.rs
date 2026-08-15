@@ -52,6 +52,55 @@ pub trait ToolObserver: Send + Sync {
     fn observe(&self, tool_name: &str, output: &ToolOutput);
 }
 
+/// Wrap 段执行(R-259):timeout/cancellation/progress 三能力的唯一实现点。
+///
+/// runner 串行(drive.rs)与并行(tool_exec.rs)执行工具时**都**调它,把
+/// 「注入 progress scope + 执行前 cancel 检查」收敛进 wrapper——工具 body
+/// 不再各自实现这三者的注入/检查代码。
+///
+/// - `progress_tx`:注入后工具内 `progress::emit` 上报到该通道;None = 不注入
+///   (测试/CLI 直调 no-op)。channel 由调用方建(串行一条、并行 wave 共用一条),
+///   wrapper 只负责 handle 注入与 scope 包裹,不拥有通道生命周期。
+/// - `halted`:执行前取消检查;返回 true 则 body 不执行,直接回 cancelled 错误。
+///   **执行中**的取消由调用方 select 循环负责(D-342 drop future 中断)——那
+///   是 runner 的事件循环职责,不是 wrap 段;wrap 段管「启动前门禁」。
+pub async fn wrap_execute<B>(
+    tool_call_id: String,
+    progress_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::progress::ProgressChunk>>,
+    halted: Option<&(dyn Fn() -> bool + Send + Sync)>,
+    body: B,
+) -> ToolOutput
+where
+    B: std::future::Future<Output = ToolOutput>,
+{
+    if halted.is_some_and(|h| h()) {
+        return ToolOutput::error("cancelled: run stopped by user during execution");
+    }
+    match progress_tx {
+        Some(tx) => {
+            let handle = crate::progress::ProgressHandle::new(tool_call_id, tx);
+            crate::progress::scope(handle, body).await
+        }
+        None => body.await,
+    }
+}
+
+/// 限时执行辅助(R-259):对任意 future 施加 `tokio::time::timeout` 骨架。
+///
+/// 这是 timeout 机制的**唯一**实现点——工具 body 需要超时语义时调它,不再
+/// 各自写 `tokio::time::timeout`。超时后的**业务善后**(杀进程树/回传部分
+/// 输出/围栏检查,如 bash)由调用方在 `Err` 分支处理:那是工具的执行语义,
+/// 依赖 body 内局部状态(pid/缓冲),不属于通用 wrapper 机制。
+pub async fn with_timeout<F, T>(fut: F, timeout: std::time::Duration) -> Result<T, ()>
+where
+    F: std::future::Future<Output = T>,
+{
+    match tokio::time::timeout(timeout, fut).await {
+        Ok(v) => Ok(v),
+        Err(_) => Err(()),
+    }
+}
+
 /// 执行统一流水线。
 ///
 /// 顺序固定:guards 全部通过 → body(工具本体,调用方提供)执行 → result
@@ -285,5 +334,71 @@ mod tests {
             1,
             "body 必须恰好执行一次(无双执行)"
         );
+    }
+
+    #[tokio::test]
+    async fn wrap_execute_注入progress_作用域内上报可达() {
+        // R-259 验收①progress 单点:wrap_execute 注入 handle 后,body 内
+        // progress::emit 上报到调用方通道;未注入(tx=None)时静默 no-op。
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let out = wrap_execute("call_1".into(), Some(tx), None, async {
+            crate::progress::emit("阶段一");
+            ToolOutput::ok("done")
+        })
+        .await;
+        assert!(!out.is_error);
+        assert_eq!(
+            rx.recv().await.unwrap(),
+            ("call_1".into(), "阶段一".into()),
+            "wrap 注入后 emit 必须到达调用方通道"
+        );
+        // 未注入:emit 静默,不 panic。
+        let out = wrap_execute("call_2".into(), None, None, async {
+            crate::progress::emit("孤儿");
+            ToolOutput::ok("done")
+        })
+        .await;
+        assert!(!out.is_error);
+    }
+
+    #[tokio::test]
+    async fn wrap_execute_halted_前置拦截_不执行body() {
+        // R-259 验收①cancellation 单点:halted 为 true 时 body 不执行,
+        // 直接回 cancelled 错误;为 false 时正常执行。
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = Arc::new(AtomicU32::new(0));
+        let calls2 = Arc::clone(&calls);
+        let out = wrap_execute("call_1".into(), None, Some(&|| true), async move {
+            calls2.fetch_add(1, Ordering::SeqCst);
+            ToolOutput::ok("executed")
+        })
+        .await;
+        assert!(out.is_error);
+        assert!(out.content.contains("cancelled"));
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "halted 前置拦截后 body 不得执行"
+        );
+
+        let out = wrap_execute("call_2".into(), None, Some(&|| false), async {
+            ToolOutput::ok("executed")
+        })
+        .await;
+        assert!(!out.is_error);
+    }
+
+    #[tokio::test]
+    async fn with_timeout_timeout_returns_err_else_ok() {
+        // R-259 验收①timeout 骨架单点:with_timeout 是 tokio::time::timeout 的
+        // 唯一实现点;未超时 Ok、超时 Err(业务善后由调用方 Err 分支负责)。
+        let ok = with_timeout(async { 42u32 }, std::time::Duration::from_secs(5)).await;
+        assert_eq!(ok, Ok(42));
+        let timed_out = with_timeout(
+            tokio::time::sleep(std::time::Duration::from_millis(100)),
+            std::time::Duration::from_millis(1),
+        )
+        .await;
+        assert!(timed_out.is_err(), "超时必须返回 Err");
     }
 }

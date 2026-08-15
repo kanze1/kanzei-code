@@ -236,7 +236,7 @@
 - observed_worktree_hash: fnv1a64:2c14aeaf67acb614
 - recorded_at: 1786808777088
 
-## R-259 pipeline Wrap 阶段收敛:timeout/cancellation/progress 只在 wrapper 实现一处(R-244 残余) [todo]
+## R-259 pipeline Wrap 阶段收敛:timeout/cancellation/progress 只在 wrapper 实现一处(R-244 残余) [doing]
 - refs: R-244
 - 优先级: P3
 - 内容: R-244 收口后残余(验收④未完全收敛):把 timeout/cancellation/progress 从 runner 层(drive.rs 串行 progress 旁路 + tool_exec.rs 并行 progress 通道 + bash_body 内 timeout)抽象进 harness tool_pipeline 的 Wrap 阶段,使「timeout/cancellation/progress 只在 wrapper 实现一处」字面成立。骨架已立(ToolPhase::Wrap 预留),本条目做收敛 + 契约测试(同一工具串行/并行路径走同一 wrapper,行为逐字节一致)。
@@ -245,6 +245,12 @@
 - 来源: R-244 批5 收口时验收④评估:progress 现实现于 runner 层两处(串行旁路/并行通道),timeout 在 bash body——功能统一但未字面收敛进 pipeline Wrap 阶段。
 - 标签: 核心
 - 验收: ①timeout/cancellation/progress 三能力都只在一处 wrapper 实现,工具 body 不再含三者的实现代码;②bash 超时/进度行为与 R-244 前逐字节一致(既有测试全绿);③串行与并行执行路径共用同一 wrapper 实现;④cargo test --workspace 全绿。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-259
+- 批次: 2/3
+- 进展: 批1+批2 完成。批1:tool_pipeline.rs 新增 wrap_execute(progress 注入+halted 前置拦截)与 with_timeout(tokio::time::timeout 骨架唯一实现点),8 测试全绿(含 progress 注入可达/halted 拦截/超时 Err 三契约)。批2:收编 runner 两处——drive.rs 串行旁路(L1339)与 tool_exec.rs 并行通道(L122)均改调 wrap_execute,删除各自 ProgressHandle::new+progress::scope;bash.rs timeout 改调 with_timeout(超时善后 kill_tree/partial output/围栏保留在 body,属命令执行语义);机械核验:ProgressHandle::new 仅剩 progress.rs 定义+tool_pipeline 注入点 2 处,kanzei-core 无 progress::scope 直调。kanzei-core 147 + kanzei-tools + kanzei-harness 199 全绿,clippy 零警告。批3:契约测试(bash 超时/进度既有测试逐字节一致)+ workspace 全量 + close。
+- observed_head: bed9fd043363f1b8ee39be8fccacea7f5747b16d
+- observed_worktree_hash: fnv1a64:1a34b4f67cbd17b2
+- recorded_at: 1786810625779
 
 ## R-265 symbols 加「符号名 → 定义位置」反查,穿透跨 crate re-export [todo]
 - refs: R-234

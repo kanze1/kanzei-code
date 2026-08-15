@@ -4033,3 +4033,10 @@
 - 摘要: R-258 批2 关闭前全量(复杂度中):workspace 15 段全 ok(kanzei 37+31、kanzei-app 169、kanzei-tools 270、kanzei-harness 199 等),零失败。
 - 关联: R-258
 - 收尾: 1786809483
+
+## T-1786813514 cargo test -p kanzei-core -p kanzei-tools -p kanzei-harness (R-259 B1+B2 提交背书) [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-tools -p kanzei-harness
+- 摘要: R-259 批1+批2 提交门禁背书:kanzei-harness 199 + kanzei-core 147 + kanzei-tools 273 passed(1 ignored)全绿,clippy 零警告。
+- 关联: R-259
+- 收尾: 1786813514
+- 源码指纹: 20082215b0f0cdf5
