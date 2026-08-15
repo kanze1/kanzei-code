@@ -2,17 +2,9 @@
 //! 每次工具调用过硬门禁(deny 回喂模型 / ask 问用户,用户拒绝则整轮停,与 V2 语义一致)。
 //! steer/queue/持久化调度在 M2 引入。
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
 use futures::StreamExt;
-use kanzei_harness::{
-    tolerant_parse, tool::repair_hint, AgentDef, Effect, HarnessSnapshot, Tool, ToolCtx,
-};
-use kanzei_llm::{
-    FinishReason, LlmClient, LlmEvent, LlmRequest, Message, Part, ReasoningEffort, Role, Route,
-    ToolSpec, Usage,
-};
+use kanzei_harness::{AgentDef, HarnessSnapshot, ToolCtx};
+use kanzei_llm::{FinishReason, LlmClient, Message, Part, ReasoningEffort, Route, ToolSpec};
 
 mod event;
 pub use event::*;
@@ -24,6 +16,8 @@ pub use metrics::*;
 mod context;
 mod redundancy;
 pub(crate) use context::*;
+mod assembly;
+pub(crate) use assembly::*;
 mod compaction;
 pub use context::compaction_budget;
 mod drive;
@@ -31,12 +25,14 @@ mod recall;
 /// R-250:子代理结构化返回的 schema 校验(聚焦子集,精确到字段的诊断)。
 mod schema_check;
 pub use recall::{RecallHit, RecallOutcome, RecallPolicy, RecallTrigger, RecallWatch};
+mod stream;
+pub(crate) use stream::*;
 mod subagent;
 mod tool_exec;
 pub use drive::{run_once, run_once_with_parts};
 
+pub(crate) use subagent::run_subagent;
 pub use subagent::*;
-pub(crate) use subagent::{run_subagent, task_spec};
 
 pub(crate) use tool_exec::*;
 
