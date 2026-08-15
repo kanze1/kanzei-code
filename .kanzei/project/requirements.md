@@ -254,24 +254,6 @@
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 
-## R-253 run.rs 二次拆解:2885 行生产码切成装配/协调/执行/事件汇/持久化,models_list 与 summarize_chat 等非编排 IPC 迁出 [doing]
-- refs: R-153 R-155 R-202 docs/design/monolith_decomposition.md docs/design/monolith_decomposition_round2.md(批次地图:A 节)
-- 为什么是这个形态: 不是"文件大",是整个桌面 Agent Runtime 的 application service 树被压进一个 .rs。call tree 本身合理(run_prompt 到 run_task 到 assemble/execution/persist),问题在于旁边还夹着 models_list/summarize_chat 这类与运行编排无关的 IPC;而 build_event_handler 把 UI 投影/typed event 持久化/trace/metrics/LiveRun 五种投影揉成一个 giant reducer——加一个 RunEvent 就要读懂整个 runtime。R-153 把 app/main.rs 6413 行拆出 run.rs 时它还只是"运行主链路",此后 memory/scout/review/phase pipeline/write lease/子代理/autonomous 逐个叠进来,重新长成 attractor。
-- 内容: ①先迁非编排 IPC(纯搬迁零风险):app_info/models_list/summarize_chat/stop_run/stop_task/pending_asks_get/answer_ask/run_metrics 移出到 commands 侧模块;②build_event_handler 按投影拆 sink——UiEventSink/TypedEventSink/TraceSink/MetricsSink/LiveRunSink + 一个 fanout 广播,新增 RunEvent 只碰对应 sink;③assemble_run 按生命周期切三层——RuntimeDeps(不变依赖:config/profile/harness/agent/model/route/client/RunnerConfig)、SessionContext(会话事务:SessionStore/create session/admit input/attachment/TypedEventWriter/flush task)、RoundContext(单轮:run id/timing/trace/pipeline/write lease/身份);严禁做成一个 28 字段的 RunContext,那只是把 parameter monolith 换成 context monolith;④persist_round_outcome + finalize_round 独立成 persistence 模块(怎么跑 与 跑完怎么落库 是两个变更理由);⑤run_execution_loop 的隐式流水线(recovery→attachment→memory 预检索→scout→run_once→review/fixup)与 review/fixup 的 primary→critic→corrective 复合阶段,给出显式输入输出边界;⑥build_subagent_runtime 独立成模块。
-- 复杂度: 大
-- 来源: 2026-08-15 用户提供的第二轮巨石扫描(按当日 main 源码逐文件读 + 本轮机器复核生产行数),本条是其排序里的 R1。
-- 标签: 核心
-- 现状(2026-08-15 实测 dev@f09242c): crates/kanzei-app/src/run.rs 总 3268 行、生产码 2885 行(同文件测试仅 383 行),全仓生产行数第一。单文件内同住:装配 assemble_run(L79-438,359 行)、事件归约 build_event_handler(L452-762,310 行)、ask 处理 build_ask_handler(L763)、子代理 runtime build_subagent_runtime(L827)、执行流水线 run_execution_loop(L911-1057)、落库 persist_round_outcome(L1058-1246) 与 finalize_round(L1247-1771,524 行)、以及 9 个 tauri command(app_info/models_list/pending_asks_get/answer_ask/summarize_chat/stop_run/stop_task/run_prompt/run_metrics)。全仓 9 处 clippy::too_many_arguments 全在本文件,是最高密度。
-- 边界: 零行为变更、零 IPC 契约变更(命令名与入参返回结构一字不动,ui/*.js 不改);不做 Desktop/CLI 合流(另立条目);不改 phase_pipeline / write lease / 记忆召回语义;不引入新的 async 抽象层或 trait 体操,普通函数与结构体能表达就不要 trait;搬迁批 diff 只允许 move + use + 可见性调整,出现逻辑 diff 即回退重来(沿用 monolith_decomposition.md 执行纪律 4)。
-- 验收: ①run.rs 生产行数 ≤ 400(只留 mod 声明与装配),按生产行数口径核,不用 wc -l;②每个新模块文件头 //! 写清独立理由(照抄 files_view.rs 模式);③本文件 9 处 too_many_arguments 至少消掉 6 处,且不得靠塞进一个大 context struct——必须能指出每个新参数组对应哪一层生命周期;④kanzei-app 全量 + 四条前端冒烟 + cargo test --workspace 全绿;⑤可局部推理实测:新增一个 RunEvent 变体的改动面只落在对应 sink,给出实际 diff 作为证据,不接受"看起来更清楚了"。
-- 优先级: P0
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-253
-- 批次: 8/10
-- 进展: 批0-6b 完成已 push;批7a(293aa51,已 push)RunAssembly 三分:RuntimeDeps/SessionContext/RoundContext,coordinator 三分解构+按需展开(SessionStore move 规避非 Sync),run_task 零行为变更。kanzei-app 166 passed,clippy 零警告。批7b 下一步:深度 too_many 消减——finalize_round/run_execution_loop 收三分组引用,assemble_run/run_task 参数打包(消至≤7 参数/处),达成验收③(需消 6 处:persist_round_outcome 已保留 allow 因 SessionStore 非 Sync 不能收 struct 整体,改消 assemble_run/run_task/run_execution_loop/finalize_round/run_review_and_fixup/build_event_handler 六处)。批8(events 拆 sink)与批7b 合并推进,最后批9 全量+验收逐项。
-- observed_head: 293aa51679a924c074cda9b43a3e770d506962db
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786770227620
-
 ## R-254 processes.rs 拆解:进程注册/生命周期 与 工作树生命周期/门禁/合并/收割分家,主根与工作树根类型化 [todo]
 - refs: R-207 R-177 R-182 D-176 D-267 D-365 D-367 docs/design/parallel_lines_ui.md docs/design/monolith_decomposition_round2.md(批次地图:C 节)
 - 内容: ①按变更理由切两组:process 侧(registry / lifecycle / persistence / commands)与 workspace 侧(lifecycle / merge / gate / harvest);②完成 R-207 的下沉收尾——本文件仍有 19 处 wt:: 转发壳,函数体只是转调 kanzei_tools::worktree,注释自述"实现已下沉",两层抽象长期并存(见配套缺陷),删壳让调用点直接用下沉后的实现;③把文件头 L3-18 那条只靠注释维持的硬不变式类型化:project_dir/origin_project 恒为主根、工作树只由 worktree_path 承担 → 引入 ProjectRoot / WorktreeRoot 两个 newtype,让 rustc 替注释站岗;④集成门禁(fmt/clippy/test/ui-smoke + 合并后主根全量)独立成模块,它是 Integration Gate 子系统,不是 Process 子系统。

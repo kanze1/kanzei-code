@@ -3787,3 +3787,23 @@
 - 摘要: R-253 批7a:RunAssembly 三分为 RuntimeDeps/SessionContext/RoundContext(装配产物按生命周期分组),coordinator 三分解构+按需展开(SessionStore move 规避 Send 约束),run_task 体内零行为变更;kanzei-app 166 passed,clippy 零警告
 - 关联: R-253
 - 收尾: 1786770193
+
+## T-1786771585 cargo test -p kanzei-app (R-253 B8 fmt 后) [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 17.8s
+- 摘要: R-253 B8 fmt 后定向测试:166 passed, 0 failed
+- 关联: R-253
+- 收尾: 1786771619
+- 源码指纹: df63a6e57551189a
+
+## T-1786771658 R-253 批9 四条前端冒烟(ui-runtime/i18n/a11y/markdown) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 四条前端冒烟全过:ui-runtime(21 js 按序+9 视图 0 错误)、ui-i18n(155 key/105 文案)、ui-a11y、ui-markdown
+- 关联: R-253
+- 收尾: 1786771665
+
+## T-1786771659 cargo test --workspace (R-253 批9 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: cargo test --workspace 15 段全 ok,合计约 1009 passed, 0 failed
+- 关联: R-253
+- 收尾: 1786771852
