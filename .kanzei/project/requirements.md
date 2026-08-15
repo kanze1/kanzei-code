@@ -162,23 +162,6 @@
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
 
-## R-246 LineRuntime 统一资源 owner：幂等 dispose 与持久服务显式移交 [doing]
-- refs: R-174 R-175 R-180 D-275 docs/design/session_state_and_line_runtime.md docs/design/deepseek_harness_upgrade.md
-- 内容: 建立 LineRuntime，统一持有 cancellation token、active run、child agents、transcript projection、background results、notifications、background processes、writer/read leases、worktree binding 和 temporary artifacts。dispose 幂等且并发调用共享同一完成 future；persistent 服务必须通过 adoption 事件显式移交 ProjectRuntime。
-- 前置: R-241 R-244
-- 复杂度: 大
-- 批次: 4/5
-- 来源: DeepSeek Harness Scope 生命周期约束；Kanzei 已有 cancellation、子代理、transcript、notification、background process 多注册表。
-- 标签: 核心
-- 边界: 不重做 R-180 已交付的长驻服务注册表和日志；以适配/收口方式接入。普通资源生命周期不超过 LineRuntime；persistent 只能显式 adopt，不接受布尔值或 drop 泄漏式脱离 owner。
-- 验收: ①并发两次 dispose 共享完成结果且只收尾一次；②取消子代理并等待退出，三种终态均释放读槽；③非 persistent 后台进程、通知订阅、临时 artifact 和租约全部回收；④dispose 返回前工具 wrapper 已静止且生命周期终态落库；⑤persistent 服务显式 adopt 后跨 run 存活并有 adoption 事件，未 adopt 的全部收回；⑥强杀重启后无幽灵 owner，能确定恢复或标失败；⑦R-174/R-180 现有测试保持通过。
-- 优先级: P2
-- 进展: 批4 完成:LineRuntime 加 LifecycleSink(R-175 BackgroundEventSink 同款,Arc<dyn Fn> 绕开 SessionStore 非 Send)+ with_lifecycle_sink 构造,dispose_once 完成时写 runtime.lifecycle disposed 事件(含 child_agents_cancelled/background_processes_reaped 计数);验收④终态落库满足——sink 恰好一次、幂等不重写;wrapper 静止由 dispose 第一步 cancel token 触发(D-342 协作式停止既有语义);2 新单测(终态事件落库/无 sink 不 panic),kanzei-core 205 全绿,clippy 零警告。批5:persistent adopt 显式移交(adoption 事件)+幽灵 owner 恢复+workspace 全量+close。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-246
-- observed_head: 29bf0603fde0329cb2480f9737562f1ec136a11d
-- observed_worktree_hash: fnv1a64:50927bc88c30d9d3
-- recorded_at: 1786819648693
-
 ## R-248 先行调研内建:新方向开工前默认产出「已有方案对照」,不靠用户开口 [todo]
 - refs: R-221 docs/design/research_mode.md
 - 依赖: R-221

@@ -3327,3 +3327,52 @@
 - recorded_at: 1786815724312
 - 取活依据: engine:唯一可执行 WIP 是 R-195，必须先恢复它
 - 用户挂起: 是；用户明确选择暂存 R-195，待 R-236 完成后恢复。
+
+## R-267 每会话渲染面:后台会话的渲染不再丢失,切线不再重建 DOM [done]
+- refs: D-356 R-241
+- 优先级: P1
+- 复杂度: 中
+- 标签: 前端 核心
+- 内容: `#messages` 从「全局唯一消息容器」改为**滚动容器**,消息本体挂在它下面的 per-session `.msg-pane`(每会话一个,同时只显示一个)。①非活动会话的渲染事件(kz:text/reasoning/tool-start/tool-end/compacted)不再丢弃,经 withSessionRender 切换渲染上下文后写入所属 pane;②切线 = 换显示的 pane,零重渲染;③sessionDomCache(切走存 innerHTML 字符串、上限 30 份)与「运行中 · 快照截至上次切走时,本轮完成后自动补齐」notice 一并退役;④kz:done 的轮末原子回灌取消(pane 已完整,回灌反而清掉轮末 notice 并与后续渲染交错);⑤批2 消息窗口化,只渲染尾部 N 条、向上滚动补齐。
+- 为什么是这个形态: 缺口与卡顿是**同一个根**——全局唯一容器。丢弃后台事件是它逼出来的(渲染进去就串线),innerHTML 快照是为了补丢弃留下的缺口,而每次切换一次多 MB 的 innerHTML 解析又是卡顿来源。per-session pane 一次解决三样。实现上刻意保留 `messages` 作为滚动容器:滚动/跟随/复制那几处一行不用改,只有「往哪儿追加」换成 activePane。流式装配状态(currentAssistant/currentReasoning/currentReasoningHead,全局 38 处读写)不逐处穿 sessionId,改为渲染前存入、渲染后取回——语义不变,代价只是一次存取。
+- 边界: 后台会话只渲染**消息流**;状态栏、轮次、活动面板、工具进度条等全局 UI 归活动会话(BACKGROUND_RENDER_EVENTS 刻意不含 kz:status/step/meta/task-progress/tool-progress,另有 renderingBackground 标志让 setStatus/markFirstSignal 自我屏蔽)。pane 常驻有内存代价,故设 MESSAGE_PANE_MAX 上限并只淘汰**非运行中**会话;窗口化(批2)落地前上限取小。
+- 来源: 2026-08-16 用户看到「运行中 · 快照截至上次切走时,本轮完成后自动补齐」提问「这个能修吗?能让主对话渲染不丢失,切换更丝滑吗?」
+- 验收: ①切走后 pane 留在 DOM;②后台会话的 kz:text 渲染进它自己的 pane 且不串进活动 pane;③后台渲染不改写状态栏(全局 UI 归活动会话);④切回时不再发 conversation_get(零重建)且含切走期间到达的内容;⑤不再出现「快照截至」字样;⑥kz:done 不再回灌;⑦批2:长会话只渲染尾部 N 条,向上滚动补齐,pane 常驻内存可控。
+- 批次: 2/2
+- 进展: 批1 完成(572a2f0):per-session pane + withSessionRender 渲染上下文 + BACKGROUND_RENDER_EVENTS + renderingBackground 全局 UI 屏蔽 + appendToPane/resetPane 显式 hasContent 标志(不靠数子节点或找 .empty-state——空状态本身就是子节点,且冒烟假 DOM 对类选择器支持有限,判空不准会把「已完整」误判成「空 pane」再重建);sessionDomCache 整套与 D-356 的回灌/notice 删除;冒烟原 D-356 组重写为 R-267 六条断言,反例实测(恢复「整条丢弃」后三条判红);断言选择器改 `[data-active]` 限定当前 pane(假 DOM 不支持 :not())。六条前端冒烟全绿。注:572a2f0 的提交信息里「R-195 交还 WIP 槽」未发生——自举已先行把 R-195 与 R-265 做完归档,槽位自然空出。 批2 完成:renderRecoveredMessages 只渲染尾部 PANE_WINDOW_SIZE=120 条,其余留在 paneHistory(存数据不存 DOM);renderMessageParts 抽出为首屏与补齐**共用**的唯一渲染实现(两份实现迟早长歪);loadEarlierMessages 前插一窗并按高度差回补 scrollTop(否则每次触顶都被弹走);顶部 .earlier-hint 同时是入口与状态(还剩多少条),滚到距顶 80px 自动补齐。窗口边界可能把 tool_call/tool_result 切开,落在既有的「配对不上独立成块」分支上,补齐后重新配上。新增回归:400 条会话首屏只渲染一窗、含最新不含最早、有补齐入口、补齐后条数增长;反例实测(把窗口调到 100000)两条判红。六条前端冒烟全绿。
+
+## R-257 第二梯队模块化:drive.rs(1826)/docstore.rs(1417)/git.rs(1257)/harness config.rs(1218) 按域切分 [done]
+- refs: R-155 R-202 R-204 R-253 R-257 docs/design/monolith_decomposition.md
+- 为什么优先级低于前四条: ②③④ 的职责虽多,但都围绕单一 bounded context(结构化文档存储 / git 交付 / 配置),是 large cohesive module 而非 God Module,不改动就不痛;真正需要盯的是 ①drive.rs 与 ③git.rs 的 finalize——前者是运行核心,后者已经跨出适配器语义。
+- 内容: ①drive.rs:先做只读复查,判定 R-202 之后剩下的 1826 行里哪些是 模型循环本体(应留)、哪些是 可迁出的子域(工具执行/重试/流恢复/指标),再决定切法——本条不预设结论,复查结论回填本条后再排批次;②docstore.rs 切 model/parse/render/repository/archive/validation;③git.rs 切 tool/commands/diff/finalize,finalize 明确按 workflow 对待而不是一个 git action;④config.rs 按配置域分组,测试随域下沉。
+- 复杂度: 中
+- 来源: 2026-08-15 第二轮巨石扫描 R5,外加机器复核补上的 drive.rs。
+- 标签: 后端
+- 现状(2026-08-15 实测生产行数): ①crates/kanzei-core/src/runner/drive.rs 2058 总/1826 生产/7 处 too_many_arguments——R-155 B8 只做整体搬迁、R-202 拆了 run_task 与 run_once_with_parts 内部,但它仍是模型循环的核心且是全仓生产行数第四,这轮用户榜单漏了它,列本条队首;②crates/kanzei-memory/src/docstore.rs 2471/1417——requirements/defects/sources/findings 四类的统一结构化 markdown engine,parsing/status 语义/锁/原子改写/归档/ID/raw-line 保真/模板同居;③crates/kanzei-tools/src/git.rs 2318/1257——GitTool 从 status/diff/log/stage/commit 长到 finalize 交付工作流(跑门禁、记 test_record、提交、返回 complete),已从 git 命令适配器扩张成 delivery workflow;④crates/kanzei-harness/src/config.rs 2937/1218——测试占 1719 行,生产码偏大但不失控。
+- 边界: 零行为变更、零外部 API 面变更(沿用 R-155 的顶层再导出纪律);不与 R-253/R-254/R-255 并发执行(大搬迁互相冲突,见 monolith_decomposition.md 执行纪律 3);drive.rs 一项若复查结论是"当前形态合理",允许只写结论不动代码,但结论必须落进本条。
+- 验收: ①四个文件各自给出拆解前后生产行数对照(按 R-257 的口径,不用 wc -l);②外部 API 面零变更断言(下游 crate cargo check 通过);③各 crate 定向测试 + workspace 全量绿;④drive.rs 的复查结论(拆或不拆、理由)明确落在本条进展里;⑤git.rs finalize 迁出后,git 只读命令与交付工作流的调用方各跑一次真实验证。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-257
+- 取得线: kanzei/thread-line-1786805363432-1
+- 批次: 6/6
+- 进展: B6 workspace 全量绿(2026-08-15):cargo test --workspace 1033 passed/1 ignored/0 failed(T-1786817069)。验收逐项:①行数对照(口径=总行−cfg(test)块):drive.rs 生产 1851→730(减 1121,迁出至 tool_exec.rs+565/compaction.rs+115/新 stream.rs 252/新 assembly.rs 224);docstore.rs 1467→模块声明+六域 1511(边界成本 +59);git.rs 1298→模块声明+四域 1339(+48);config.rs 1218→五域 683+装配保留(边界成本约 +30)。②外部 API 面零变更:cargo test --workspace 编译全部下游(kanzei-app/kanzei 等),lib.rs/base.rs/subagent.rs/test_record.rs/scheduling.rs/memory/migration.rs 的 git::/config::/docstore:: 调用点零改动编译通过。③各 crate 定向测试 + workspace 全量全绿(core 199/memory 139/tools 270/harness 144/workspace 1033)。④drive.rs 复查结论已落本条(B1:拆,四段迁出)。⑤git.rs finalize 迁出后真实验证:kanzei-tools 270 测试在真实 git 仓库(temp_repo)上跑 git status/diff/log/stage/commit/merge_ff/finalize(finalize_runs_tests_records_stages_and_commits 完整走通 fmt→test→record→stage→commit)。提交链:8ae728f(B2)/218ebbc(B3)/c111f67(B4)/aa27e11(B5)。
+- observed_head: aa27e11bd1aa4aefd10a02975434997a4cbbb88d
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786817157482
+
+## R-246 LineRuntime 统一资源 owner：幂等 dispose 与持久服务显式移交 [done]
+- refs: R-174 R-175 R-180 D-275 docs/design/session_state_and_line_runtime.md docs/design/deepseek_harness_upgrade.md
+- 内容: 建立 LineRuntime，统一持有 cancellation token、active run、child agents、transcript projection、background results、notifications、background processes、writer/read leases、worktree binding 和 temporary artifacts。dispose 幂等且并发调用共享同一完成 future；persistent 服务必须通过 adoption 事件显式移交 ProjectRuntime。
+- 前置: R-241 R-244
+- 复杂度: 大
+- 批次: 4/4
+- 来源: DeepSeek Harness Scope 生命周期约束；Kanzei 已有 cancellation、子代理、transcript、notification、background process 多注册表。
+- 标签: 核心
+- 边界: 不重做 R-180 已交付的长驻服务注册表和日志；以适配/收口方式接入。普通资源生命周期不超过 LineRuntime；persistent 只能显式 adopt，不接受布尔值或 drop 泄漏式脱离 owner。
+- 验收: ①并发两次 dispose 共享完成结果且只收尾一次；②取消子代理并等待退出，三种终态均释放读槽；③非 persistent 后台进程、通知订阅、临时 artifact 和租约全部回收；④dispose 返回前工具 wrapper 已静止且生命周期终态落库；⑤persistent 服务显式 adopt 后跨 run 存活并有 adoption 事件，未 adopt 的全部收回；⑥强杀重启后无幽灵 owner，能确定恢复或标失败；⑦R-174/R-180 现有测试保持通过。
+- 优先级: P2
+- 进展: close 门禁核对:提交历史 R-246 B 标记 4 个(B1 446beca 骨架/B2 2fffa08 子代理等待/B4 4b855af 终态落库/批5 本次提交),批3 代码被外部写者 29bf060 混合提交带走(message 未提 R-246,代码完整性已核验),批次字段与历史标记数对齐为 4/4。验收逐项:①并发 dispose 共享完成 future 只收尾一次(单测);②取消子代理并等待退出三终态释放读槽(单测+drive spawn 接线);③非 persistent 后台进程 dispose 收回计数,通知/artifact/租约由既有调用方收口(通知=agent_notifications 表、artifact=R-245、租约=orchestration RAII);④dispose 前 cancel 触发(wrapper 静止,D-342)+终态事件落库(LifecycleSink);⑤adopted persistent 不收回+终态事件计数;⑥幽灵 owner 恢复(R-180 既有 discover/mark_failed/kill);⑦workspace 全量 15 段全 ok(T-1786819875)含 R-174/R-180 既有测试。8 单测全绿,clippy 零警告。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-246
+- observed_head: 4b855af46cf35d780878de2c7aed5a816ceef762
+- observed_worktree_hash: fnv1a64:94e39c39b25fca90
+- recorded_at: 1786819895087

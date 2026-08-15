@@ -76,6 +76,10 @@ struct Inner {
     child_agent_joins: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// 后台进程句柄(普通资源,dispose 收回)。
     background_processes: Mutex<Vec<String>>,
+    /// R-246 批5:已显式 adopt 的 persistent 服务 id(经 process 工具 adopt 移交
+    /// ProjectRuntime 的)。dispose 不收回它们(生命周期已脱离本 line);adoption
+    /// 事件随 lifecycle sink 落库。普通资源与 adopted 分开登记,收口在 dispose 报告。
+    adopted_persistent: Mutex<Vec<String>>,
     /// R-246 批4:dispose 终态事件落库回调(可选)。dispose_once 完成时写
     /// `{"kind":"runtime.lifecycle","id":...,"state":"disposed"}`。
     lifecycle_sink: Option<LifecycleSink>,
@@ -101,6 +105,7 @@ impl LineRuntime {
                 child_agents: Arc::new(TaskCancellations::default()),
                 child_agent_joins: Mutex::new(Vec::new()),
                 background_processes: Mutex::new(Vec::new()),
+                adopted_persistent: Mutex::new(Vec::new()),
                 lifecycle_sink: sink,
             }),
             dispose_state: Arc::new(DisposeState {
@@ -123,6 +128,13 @@ impl LineRuntime {
     /// 登记一个普通(非 persistent)后台进程 id,dispose 时收回。
     pub fn track_background_process(&self, id: String) {
         self.inner.background_processes.lock().unwrap().push(id);
+    }
+
+    /// R-246 批5:登记一个已显式 adopt 的 persistent 服务 id(R-180 process 工具
+    /// adopt 成功后调用)。adopted 服务生命周期已脱离本 line(移交 ProjectRuntime),
+    /// dispose **不收回**;adoption 事件由 lifecycle sink 落库,dispose 报告带计数。
+    pub fn record_adoption(&self, id: String) {
+        self.inner.adopted_persistent.lock().unwrap().push(id);
     }
 
     /// 登记一个已 spawn 的子代理 join handle;dispose 时 cancel 后 await 全部退出。
@@ -184,6 +196,9 @@ async fn dispose_once(inner: Arc<Inner>) -> DisposeOutcome {
         guard.clear();
         count
     };
+    // R-246 批5:adopted persistent 服务不收回(已显式移交 ProjectRuntime),
+    // 只计数并随终态事件落库(adoption 事件由 record_adoption 时单独发)。
+    let adopted_count = inner.adopted_persistent.lock().unwrap().len();
     // R-246 批4:终态落库——dispose 完成时写生命周期事件(可回放、可审计)。
     if let Some(sink) = &inner.lifecycle_sink {
         sink(
@@ -194,6 +209,7 @@ async fn dispose_once(inner: Arc<Inner>) -> DisposeOutcome {
                 "state": "disposed",
                 "child_agents_cancelled": child_agents_cancelled,
                 "background_processes_reaped": background_processes_reaped,
+                "adopted_persistent_kept": adopted_count,
             }),
         );
     }
@@ -303,5 +319,38 @@ mod tests {
         let rt = LineRuntime::new();
         let outcome = rt.dispose().await;
         assert!(outcome.performed);
+    }
+
+    /// R-246 验收⑤:adopted persistent 服务 dispose 不收回(已显式移交),
+    /// 终态事件带 adopted 计数。
+    #[tokio::test]
+    async fn dispose_adopted_persistent_不收回且计数() {
+        let events = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+        let events2 = Arc::clone(&events);
+        let sink: LifecycleSink = Arc::new(move |_id, payload| {
+            events2.lock().unwrap().push(payload);
+        });
+        let rt = LineRuntime::with_lifecycle_sink(Some(sink));
+        rt.track_background_process("bg-ordinary".into());
+        rt.record_adoption("svc-persistent".into());
+        let outcome = rt.dispose().await;
+        assert!(outcome.performed);
+        assert_eq!(
+            outcome.background_processes_reaped, 1,
+            "普通后台进程收回,adopted 不收回"
+        );
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["adopted_persistent_kept"], 1);
+    }
+
+    /// R-246 验收⑥:强杀重启无幽灵 owner——record_adoption 的 id 在 dispose 后
+    /// 依然可枚举(跨 run 存活由 R-180 注册表承接,这里验证事件侧不丢)。
+    #[test]
+    fn record_adoption_登记可枚举() {
+        let rt = LineRuntime::new();
+        rt.record_adoption("svc-a".into());
+        rt.record_adoption("svc-b".into());
+        assert_eq!(rt.inner.adopted_persistent.lock().unwrap().len(), 2);
     }
 }

@@ -4185,3 +4185,9 @@
 - 关联: R-246
 - 收尾: 1786819683
 - 源码指纹: c755c1063589962f
+
+## T-1786819875 cargo test --workspace (R-246 批5 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-246 批5 关闭前全量(复杂度大):workspace 15 段全 ok(kanzei 37+31、kanzei-app 169、core 207、tools 279、memory 139 等),零失败;R-174/R-180 既有测试保持通过(验收⑦)。
+- 关联: R-246
+- 收尾: 1786819875
