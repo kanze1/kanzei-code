@@ -3619,3 +3619,15 @@
 - 摘要: D-367 关闭前全量:cargo test --workspace 全绿(kanzei-app 163 + kanzei-tools 251 + kanzei-memory 129 + 其余 crate;主根/工作树根类型化无回归)
 - 关联: D-367
 - 收尾: 1786749437
+
+## T-1786757954 cargo test -p kanzei-tools 围栏持memory [passed]
+- 命令: cargo test -p kanzei-tools 围栏持memory
+- 摘要: managed.rs D-368 树锁单测:围栏持 memory 树锁挡并发写者、越界写仍回滚、释放后写者成功
+- 关联: D-368
+- 收尾: 1786757954
+
+## T-1786757955 cargo test -p kanzei --test integration d368 [passed]
+- 命令: cargo test -p kanzei --test integration d368
+- 摘要: d368 集成 3/3 全绿:真 bash 围栏窗口内并发 memory_add 等待后落盘不被误回滚;窗口超锁预算明确报错;两并发 add 编号互异条目齐全
+- 关联: D-368
+- 收尾: 1786757954

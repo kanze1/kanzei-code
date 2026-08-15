@@ -4324,3 +4324,18 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786749437446
 - 验收核验: ①主根/工作树根类型化:ProjectRoot/WorktreeRoot newtype(state.rs),反例 &WorktreeRoot = &process.project_dir 编译报 E0308(expected &WorktreeRoot, found &ProjectRoot),原文固化在 ProjectRoot 注释——互相传反编译不过的实证成立。②processes.rs 文件头注释已降级:标题从『F4 定死,先读这一段再改本文件』改为『F4 定死,设计说明』,并注明『这段约束已由类型层强制(D-367)…互相传反编译不过』——注释没了也不会写错。③三条行为零回归:进程编号 next_process_index 按 project_dir.0 分桶、state.db 落点 process_update/process_close 用 &project_dir.0 反推、session_id process_info 用 &project_dir.0 推导,逻辑与改动前逐字节一致只换类型;worktree_tests 全绿(含 project_dir恒主根三构造点/建线后真实路径/删树后会话历史回放/注销后不复用旧身份)+ close_process 建线→关线闭环实跑 ok;cargo test --workspace 全绿(T-1786749437)。
+
+## D-368 围栏窗口内 .kanzei/memory/ 动态文件并发合法写仍可能被 bash 围栏误回滚(D-364 同族残余) [fixed] (medium)
+- 复现: D-364 修复只覆盖 known_active_doc_paths(requirements/defects/goals/decisions/memory.md/tests/conventions/architecture 八个活动文档)。`.kanzei/memory/` 下的动态条目文件(M-xxx.md、inbox.md 等)无法预锁:bash 围栏命令窗口内,另一进程/另一 run 的 memory 工具合法新建或写入这些文件,围栏 after 快照会把它们当 bash 越界 created/modified 回滚删除。memory 条目写路径(kanzei-memory/src/memory/store.rs:704 write_atomic 无锁)是否已由调用方持锁需确认。
+- 影响: 同 D-364 的静默丢失类别,但收敛到 .kanzei/memory/ 动态文件:并发 memory_add/记忆整理在自举轮 bash 窗口内被围栏误回滚。频率低于 tracker 登记,但丢的是记忆条目,同样报成功却查无此条。
+- 来源: D-364 关闭时登记的残余(known_active_doc_paths 覆盖范围的边界)
+- 标签: 核心
+- 根因: 围栏快照覆盖 MANAGED_ROOTS=[.kanzei/project, .kanzei/memory] 整树,而持锁清单只枚举了固定路径的活动文档;动态创建的文件不可能预锁,归因仍会把并发合法写入判成 bash 越界。
+- 验收: ①memory 写入口(含新建文件)与围栏互斥:窗口内并发 memory_add 不被回滚;②失败必须报错不假成功;③确定性回归测试(窗口内并发写 memory 文件不丢)。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-368
+- 批次: 1/1
+- 进展: 实现已完成(代码已在 HEAD,含 8d36efa 等提交):①围栏侧 managed.rs acquire_managed_locks(285)chain memory_tree_lock_path(224)——锁目标 .kanzei/memory 目录、锁文件 .kanzei/memory.lock(collect_files 按 .lock 扩展名跳过,不进镜像);②memory 侧 store.rs tree_lock(162,lock_exclusive 3s 预算 DEFAULT_LOCK_BUDGET),写入口 add(266)/write_entry(725)/refresh_derived(764)/clear_inbox(1604)/append_note(1626)/discard_note(1703)/void_id(1292) 全部持树锁,同线程重入由 FileLock 重入计数放行(atomic_file.rs:294);record_hits(1072) 用 50ms try-lock,围栏持锁时跳过(可丢可重建);③migrate_legacy 经 write_entry/refresh_derived 持锁,legacy memory.md 由 known_active_doc_paths 的活动文档锁罩住。验证(2026-08-16):cargo test -p kanzei-tools 围栏持memory 通过(managed.rs D-368 单测);cargo test -p kanzei --test integration d368 3/3 全绿(真 BashTool 管线+真 MemoryStore::add 并发落盘/预算超时明确报错/双写者编号互异)。验收对照见关闭说明。已知残留(非本缺陷,记入关闭说明):open_db 首次建 index.db 与 search_candidates 的 fts_desynced 重建(store.rs:1003-1008)不持树锁,自举轮 bash 窗口内首次检索可能产生 spurious [managed-files] 报告但自愈(内容被回滚后重建,无数据丢失)。
+- observed_head: f5d0178662ae2d7df5903689cd118adfc3f85ec3
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786757954260
