@@ -663,7 +663,7 @@ select {
 #chat-search-count { color: var(--dim); font-size: var(--fs-11); min-width: 34px; text-align: center; }
 .search-hit { outline: 1px solid var(--accent-hover); background: rgba(14,99,156,.18); }
 .search-current { outline-color: var(--warn); }
-#empty-state {
+.empty-state {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   color: var(--dim);
 }
@@ -672,7 +672,7 @@ select {
   color: var(--on-accent); font-size: var(--fs-34); font-weight: 700; display: flex; align-items: center; justify-content: center;
   opacity: .35;
 }
-#empty-state .hint { font-size: var(--fs-12); }
+.empty-state .hint { font-size: var(--fs-12); }
 
 .msg { line-height: 1.68; animation: fadein .15s ease; }
 @keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
@@ -1836,3 +1836,8 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .change-file { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .change-file-path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-family: var(--mono); font-size: var(--fs-11); }
 .change-file-tag { flex: 0 0 auto; font-size: var(--fs-10-5); }
+
+/* R-267:每会话渲染面。#messages 是滚动容器,pane 是消息本体的容器——
+   同时只显示一个,切线 = 换 hidden,不重建 DOM。 */
+.msg-pane { display: flex; flex-direction: column; }
+.msg-pane.hidden { display: none; }

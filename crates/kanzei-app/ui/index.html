@@ -158,10 +158,16 @@
             <summary class="manual-summary"><span data-i18n-key="使用手册">使用手册</span> <span id="manual-toggle-hint" class="dim"></span></summary>
             <div id="manual-body" class="manual-body"></div>
           </details>
+          <!-- R-267:#messages 是**滚动容器**,消息本体挂在它下面的 per-session
+               `.msg-pane` 里(每个会话一个,同时只显示一个)。切线 = 换显示的 pane,
+               不再重建 DOM;后台会话的实时事件也直接渲染进各自 pane,不再丢弃。
+               下面这个 pane 是启动期的占位,拿到 session 身份后由 paneFor 接管。 -->
           <section id="messages">
-            <div id="empty-state">
-              <div class="logo-mark">K</div>
-              <div class="hint" data-i18n-key="输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止">输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止</div>
+            <div class="msg-pane" data-session-id="" data-active="1">
+              <div class="empty-state">
+                <div class="logo-mark">K</div>
+                <div class="hint" data-i18n-key="输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止">输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止</div>
+              </div>
             </div>
           </section>
           <button id="jump-latest" class="ghost hidden"><span data-i18n-key="回到最新">回到最新</span></button>

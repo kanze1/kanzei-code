@@ -1,6 +1,8 @@
 // ---------- 消息渲染 ----------
 function clearEmptyState() {
-  const empty = $("empty-state");
+  // R-267:空状态改为每个 pane 各有一份(按类名在 pane 内定位)。原来用 id 定位,
+  // 多 pane 下会出现重复 id,而且清的可能是别的会话那一份。
+  const empty = activePane?.querySelector(".empty-state");
   if (empty) empty.remove();
 }
 
@@ -47,7 +49,7 @@ function addMessage(cls, text) {
   actions.className = "msg-actions";
   actions.appendChild(copyButton());
   el.append(body, actions);
-  messages.appendChild(el);
+  appendToPane(el);
   scrollBottom();
   return el;
 }
@@ -430,7 +432,7 @@ function chatAgentFold(role) {
     caret.textContent = open ? "▸" : "▾";
   });
   wrap.append(head, body);
-  messages.appendChild(wrap);
+  appendToPane(wrap);
   group = { head, body, countEl, count: 0 };
   chatAgentFolds.set(role, group);
   return group;
@@ -449,7 +451,7 @@ function chatToolStart(id, name, summary, input) {
     group.count += 1;
     group.countEl.textContent = `(${group.count})`;
   } else {
-    messages.appendChild(block.wrap);
+    appendToPane(block.wrap);
   }
   chatToolBlocks.set(id, block);
   if (chatToolBlocks.size > CHAT_TOOL_KEEP) {
@@ -498,7 +500,7 @@ function appendReasoning(text) {
     // 思考块:每个思考段独立一块,头部实时显示摘要首行,默认折叠(R-015 修正)。
     clearEmptyState();
     const block = buildReasoningBlock("");
-    messages.appendChild(block.wrap);
+    appendToPane(block.wrap);
     currentReasoning = block.body;
     currentReasoningHead = block.head;
   }

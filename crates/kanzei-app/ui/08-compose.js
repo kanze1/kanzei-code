@@ -258,9 +258,6 @@ async function sendAutoToSession(prompt, sessionId) {
 function handleBackgroundSessionDone(payload) {
   const sessionId = payload?.sessionId;
   if (!sessionId) return;
-  // D-356:后台线轮末——删除运行中缓存,下次切回时由 loadConversation 拿完整 snapshot
-  // (后端已在 kz:done 前写入本轮完整 conversation.updated)。
-  if (typeof dropSessionDomCache === "function") dropSessionDomCache(sessionId);
   const action = payload.autoAction || { type: "NoContinue" };
   const state = sessionState(sessionId);
   state.auto_rounds = action.rounds ?? state.auto_rounds ?? 0;

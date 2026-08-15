@@ -38,6 +38,17 @@ const SESSION_PROGRESS_EVENTS = new Set([
 // D-381:kz:annotate-progress 是项目级批处理进度(文件标注),同样没有 session 归属。
 // 它此前用裸 listen 绕过本函数,于是「没有 sessionId 就丢弃」这条纪律只覆盖了一半的
 // 订阅——规则写在代码里,但只写在一条路径上。
+// R-267:后台会话也要渲染的事件——它们往消息流里写东西,必须进所属会话的 pane。
+// 刻意**不含** kz:status/kz:step/kz:meta/kz:task-progress/kz:tool-progress:
+// 那几条改的是状态栏、轮次显示、活动面板与工具进度条,都是**全局 UI**,
+// 后台会话触发它们才是串线(用户会看到别的线的状态盖在当前线上)。
+const BACKGROUND_RENDER_EVENTS = new Set([
+  "kz:text",
+  "kz:reasoning",
+  "kz:tool-start",
+  "kz:tool-end",
+  "kz:compacted",
+]);
 const SESSIONLESS_EVENTS = new Set([
   "kz:ask",
   "kz:fast-setup",
@@ -111,7 +122,21 @@ function on(event, handler) {
       event === "kz:error" ||
       event === "kz:stopped" ||
       event === "kz:idle";
-    if (!controlEvent && !SESSIONLESS_EVENTS.has(event) && sessionId !== activeSessionId) return;
+    // R-267:后台会话的渲染事件不再丢弃,改为渲染进**它自己**的 pane。
+    //
+    // 丢弃是「全局唯一容器」时代的必然:渲染进去就串线。有了 per-session pane
+    // 之后,正确做法是把渲染上下文切到所属会话——切回来时 DOM 已经是最新的,
+    // 不需要快照、不需要「本轮完成后自动补齐」那句 notice。
+    //
+    // 只有**渲染类**事件走这条路(SESSION_PROGRESS_EVENTS + tool-end/compacted);
+    // 其余非控制事件仍按原样忽略——它们改的是全局 UI(状态栏、活动面板、待办),
+    // 不属于任何一条会话的消息流,后台会话触发它们才是真的串线。
+    if (!controlEvent && !SESSIONLESS_EVENTS.has(event) && sessionId !== activeSessionId) {
+      if (BACKGROUND_RENDER_EVENTS.has(event)) {
+        withSessionRender(sessionId, () => handler(eventPayload));
+      }
+      return;
+    }
     if (controlEvent) {
       // R-086:控制事件先按 sessionId 更新对应会话状态机,再决定是否投影视图——
       // 后台会话的终态也必须收敛,不能只靠 refreshProcesses 间接拉后端
@@ -184,7 +209,145 @@ function agentRoleAccent(role) {
   return (sum % 4) + 1;
 }
 
+// R-267:`messages` 只是**滚动容器**;消息本体挂在它下面的 per-session pane 里。
+// 这个分工是整个改造能低风险落地的关键——滚动/跟随/复制那几处照旧读 `messages`,
+// 一行不用改;只有「往哪儿追加」换成 activePane。
 const messages = $("messages");
+
+// ---------- R-267:每会话渲染面 ----------
+//
+// 改造前:全局唯一容器 + 切走时存一份 innerHTML 字符串(sessionDomCache,上限 30)。
+// 于是非活动会话的 kz:text/kz:tool-*/kz:reasoning 只能整条丢掉(渲染进去就串线),
+// 切回来把字符串塞回去,中间那段是缺的,只好挂一句「快照截至上次切走时」等轮末补齐。
+// 代价还不止缺口:两条运行中的线来回切,每次都是一次多 MB 字符串的 innerHTML 解析。
+//
+// 改造后:每个会话一个 pane,事件永远渲染进**自己那个** pane,切线只是换显示。
+// 缺口消失、切换零重渲染、sessionDomCache 整个不需要了。
+const messagePanes = new Map();
+/// pane 保活上限。超出后淘汰最久未访问的(仅**非运行中**会话),下次切回按
+/// loadConversation 重建——退化成改造前的行为,而不是退回「有缺口」。
+/// 上限取小是因为消息本体没有窗口化(批2 前一个会话可到 993 条/1665 个 part),
+/// 多个长会话的 pane 常驻会把内存放大。批2 落地后可以调大。
+const MESSAGE_PANE_MAX = 4;
+let activePane = messages.querySelector(".msg-pane");
+
+function paneFor(sessionId) {
+  const key = sessionId || "";
+  let pane = messagePanes.get(key);
+  if (!pane) {
+    // 启动期那个 data-session-id="" 的占位 pane 直接认领给第一个真实会话,
+    // 免得首屏白闪一下再换。
+    const placeholder = messages.querySelector('.msg-pane[data-session-id=""]');
+    pane = placeholder && !messagePanes.has("") ? placeholder : document.createElement("div");
+    pane.className = "msg-pane";
+    pane.dataset.sessionId = key;
+    if (!pane.parentNode) messages.appendChild(pane);
+    messagePanes.set(key, pane);
+  }
+  pane.dataset.usedAt = String(Date.now());
+  return pane;
+}
+
+/// 切到某个会话的 pane:隐藏旧的、显示新的。**不重建 DOM**。
+/// 返回 true = 该 pane 已有内容(切回来即见),false = 新建的空 pane(调用方需要装历史)。
+function showPane(sessionId) {
+  const pane = paneFor(sessionId);
+  if (activePane && activePane !== pane) {
+    activePane.classList.add("hidden");
+    delete activePane.dataset.active;
+  }
+  pane.classList.remove("hidden");
+  // 当前显示的 pane 打属性标记:隐藏的 pane 仍在 DOM 里,断言/查询要能只看这一个。
+  pane.dataset.active = "1";
+  activePane = pane;
+  evictStalePanes();
+  return pane.dataset.hasContent === "1";
+}
+
+/// 往当前 pane 追加消息节点。顺手打上「有内容」标志——切回时靠它判断是否需要装载,
+/// 而不是去数子节点或找 .empty-state:空状态本身也是子节点,而冒烟的假 DOM 对
+/// 类选择器支持有限,判空一旦不准就会把「已有完整内容」误判成「空 pane」再重建一遍。
+function appendToPane(node) {
+  activePane.dataset.hasContent = "1";
+  activePane.appendChild(node);
+}
+/// 清空当前 pane 并复位「有内容」标志。
+function resetPane() {
+  activePane.replaceChildren();
+  delete activePane.dataset.hasContent;
+}
+
+/// 超出上限时淘汰最久未访问的 pane。**运行中的会话永不淘汰**——它正在往里写,
+/// 淘汰了就等于把缺口又造回来。
+function evictStalePanes() {
+  if (messagePanes.size <= MESSAGE_PANE_MAX) return;
+  const candidates = [...messagePanes.entries()]
+    .filter(([id, pane]) => pane !== activePane && !(typeof sessionLiveNow === "function" && sessionLiveNow(id)))
+    .sort((a, b) => Number(a[1].dataset.usedAt || 0) - Number(b[1].dataset.usedAt || 0));
+  for (const [id, pane] of candidates) {
+    if (messagePanes.size <= MESSAGE_PANE_MAX) break;
+    pane.remove();
+    messagePanes.delete(id);
+    dropSessionStream(id);
+  }
+}
+
+// ---------- R-267:每会话的流式装配状态 ----------
+//
+// currentAssistant / currentReasoning / currentReasoningHead 是「正在拼接的那条
+// 消息/思考块」,原本是模块级单例(全局共 38 处读写)。后台会话也要渲染之后,
+// 它们必须按会话分开,否则两条线的文本增量会拼进同一个气泡。
+//
+// **不改那 38 处读写**:改成在渲染前把目标会话的状态**存进**全局变量、渲染后
+// **取回**。渲染函数照旧读写全局,语义不变;代价只是一次存取。这比把 sessionId
+// 一路穿进 addMessage/appendAssistant/chatToolStart 要小一个数量级,也不会在
+// 调用链上留下几十个「这个 id 是哪来的」。
+const sessionStreams = new Map();
+function streamStateFor(sessionId) {
+  const key = sessionId || "";
+  let state = sessionStreams.get(key);
+  if (!state) {
+    state = { assistant: null, reasoning: null, reasoningHead: null };
+    sessionStreams.set(key, state);
+  }
+  return state;
+}
+function dropSessionStream(sessionId) {
+  sessionStreams.delete(sessionId || "");
+}
+
+/// 在 `sessionId` 的渲染上下文里执行 `fn`:pane 与流式状态都临时切过去,结束后还原。
+/// 活动会话直接跑(省掉一次存取),后台会话走存取路径。
+/// 后台渲染进行中。事件 handler 里混着**全局 UI**副作用(状态栏文案、首响应计时),
+/// 那些只属于活动会话——后台会话触发它们就会把别人的状态盖在当前线上。
+/// 用一个标志让那几处自我屏蔽,比把 sessionId 穿进每个 handler 便宜得多。
+let renderingBackground = false;
+function withSessionRender(sessionId, fn) {
+  if (!sessionId || sessionId === activeSessionId) return fn();
+  const state = streamStateFor(sessionId);
+  const savedPane = activePane;
+  const savedAssistant = currentAssistant;
+  const savedReasoning = currentReasoning;
+  const savedHead = currentReasoningHead;
+  const savedBackground = renderingBackground;
+  renderingBackground = true;
+  activePane = paneFor(sessionId);
+  currentAssistant = state.assistant;
+  currentReasoning = state.reasoning;
+  currentReasoningHead = state.reasoningHead;
+  try {
+    return fn();
+  } finally {
+    state.assistant = currentAssistant;
+    state.reasoning = currentReasoning;
+    state.reasoningHead = currentReasoningHead;
+    renderingBackground = savedBackground;
+    activePane = savedPane;
+    currentAssistant = savedAssistant;
+    currentReasoning = savedReasoning;
+    currentReasoningHead = savedHead;
+  }
+}
 const promptBox = $("prompt");// R-260:process_list 定时轮询。01-core 事件处理与 09-sessions 的 renderProcesses
 // 校正逻辑都假定「下一次 process_list 轮询」会兜底事件丢失与列表结构变化(外部创建/
 // 注销进程、Tauri 事件偶发丢失),但轮询定时器从未实现——侧边栏任务列表只能靠事件

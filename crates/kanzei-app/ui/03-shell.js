@@ -406,6 +406,8 @@ $("log-clear").addEventListener("click", () => ($("log-lines").innerHTML = ""));
 let statusTextSource = "";
 let statusRunning = false;
 function setStatus(text, isRunning) {
+  // R-267:后台会话的渲染不得改写状态栏——那是活动会话的位置。
+  if (typeof renderingBackground !== "undefined" && renderingBackground) return;
   statusTextSource = String(text ?? "");
   statusRunning = !!isRunning;
   $("status-text").textContent = localizeDynamic(statusTextSource);
@@ -436,6 +438,8 @@ function stopElapsed() {
   $("status-elapsed").textContent = "";
 }
 function markFirstSignal() {
+  // R-267:首响应计时属于活动会话的这一轮,后台会话的事件不参与。
+  if (typeof renderingBackground !== "undefined" && renderingBackground) return;
   if (!firstSignal) {
     firstSignal = true;
     log(`模型开始响应(${((Date.now() - runStart) / 1000).toFixed(1)}s)`);

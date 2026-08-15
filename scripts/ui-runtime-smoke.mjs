@@ -2706,7 +2706,7 @@ assert(listText("memory-flags-count").includes("2"), "整理后未刷新空闲�
 // .tool-msg 上取 textContent:harness 的 textContent 会把 innerHTML 文本与子节点文本拼接,
 // 对整个 #messages 取会把别的消息里的同款文案一起算进来。
 {
-  const blocks = document.querySelectorAll("#messages .tool-msg");
+  const blocks = document.querySelectorAll("#messages [data-active] .tool-msg");
   assert(blocks.length === 4, `历史回放应按 call_id 配出 4 个工具块,实得 ${blocks.length}`);
   const [h1, h2, h3, h4] = blocks;
   const resultOf = (block) => block.querySelector(".tool-msg-result")?.textContent ?? "";
@@ -3083,14 +3083,14 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
 // 实时事件里的 preview 是后端 runner::preview 的单行摘要(首行 120 字 + " (+N lines)"),
 // 本身就超过 ⎿ 行预算——双写在这条路径上是每次失败都能看见的。
 {
-  const toolMsgAt = (index) => document.querySelectorAll("#messages .tool-msg")[index];
+  const toolMsgAt = (index) => document.querySelectorAll("#messages [data-active] .tool-msg")[index];
   const LIVE_PREVIEW =
     "old_string 未命中:crates/kanzei-tools/src/edit.rs:202-209 的空白与换行与磁盘上的内容不一致," +
     "请改用插入式替换,或者先确认 allow_deletion 这个参数的语义之后再重试一次 (+2 lines)";
   assert(LIVE_PREVIEW.length > 120, `夹具失效:实时 preview 必须超过 ⎿ 行预算才验得到双写,实得 ${LIVE_PREVIEW.length} 字`);
 
   // ① 失败的长摘要:同一段文案在一个块里只能出现一次。
-  let index = document.querySelectorAll("#messages .tool-msg").length;
+  let index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
   toolStart({ payload: { id: "X1", name: "edit", summary: "crates/kanzei-tools/src/edit.rs", input: { path: "crates/kanzei-tools/src/edit.rs" }, sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "X1", name: "edit", ok: false, preview: LIVE_PREVIEW, display: null, sessionId: "sess-smoke" } });
   await flush();
@@ -3113,7 +3113,7 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   assert(x1Rest.endsWith("(+2 lines)"), `被截掉的尾巴读不到了:"${x1Rest.slice(-30)}"`);
 
   // ② 成功的短结果:零退化——⎿ 行原样,不出展开区,不加 has-detail。
-  index = document.querySelectorAll("#messages .tool-msg").length;
+  index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
   toolStart({ payload: { id: "X2", name: "edit", summary: "ui/x.js", sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "X2", name: "edit", ok: true, preview: "replaced 1 occurrence", display: null, sessionId: "sess-smoke" } });
   await flush();
@@ -3123,7 +3123,7 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   assert(!x2.classList.contains("has-detail"), "成功短结果不该标 has-detail");
 
   // 结构化终态:no-op/受控拒绝/真实故障必须三分，不能继续全部画成红叉。
-  index = document.querySelectorAll("#messages .tool-msg").length;
+  index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
   toolStart({ payload: { id: "XNOOP", name: "edit", summary: "ui/noop.js", sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "XNOOP", name: "edit", ok: false, outcome: "noop", code: "EDIT_IDENTICAL_INPUT", preview: "无需修改", display: null, sessionId: "sess-smoke" } });
   await flush();
@@ -3131,7 +3131,7 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   assert(xNoop.classList.contains("noop") && !xNoop.classList.contains("err"), "no-op 仍被渲染成真实失败");
   assert(xNoop.querySelector(".tool-msg-status")?.textContent === "↪", "no-op 缺少独立形状标记");
 
-  index = document.querySelectorAll("#messages .tool-msg").length;
+  index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
   toolStart({ payload: { id: "XWARN", name: "edit", summary: "ui/warn.js", sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "XWARN", name: "edit", ok: false, outcome: "needs_correction", code: "EDIT_ANCHOR_NOT_FOUND", preview: "请重读锚点", display: null, sessionId: "sess-smoke" } });
   await flush();
@@ -3141,7 +3141,7 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   const warnActivity = document.querySelector("#bg-list .bg-entry[data-bg-id=XWARN]");
   assert(warnActivity?.dataset.bgStatus === "warn", "活动栏没有保留受控拒绝终态");
 
-  index = document.querySelectorAll("#messages .tool-msg").length;
+  index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
   toolStart({ payload: { id: "XFAIL", name: "edit", summary: "ui/fail.js", sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "XFAIL", name: "edit", ok: false, outcome: "failed", code: "EDIT_WRITE_FAILED", preview: "磁盘写入失败", display: null, sessionId: "sess-smoke" } });
   await flush();
@@ -3150,7 +3150,7 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   assert(xFail.querySelector(".tool-msg-status")?.textContent === "✗", "真实执行故障图标漂移");
 
   // ③ ⎿ 行截断点与剩余部分的切分必须严丝合缝:一个字要么在摘要里、要么在详情里。
-  index = document.querySelectorAll("#messages .tool-msg").length;
+  index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
   toolStart({ payload: { id: "X3", name: "edit", summary: "ui/y.js", sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "X3", name: "edit", ok: true, preview: "x".repeat(200), display: null, sessionId: "sess-smoke" } });
   await flush();
@@ -4404,7 +4404,7 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
     "R-224:自动切模式后鞭挞勾选被复位(应保持勾选)",
   );
   assert(
-    [...document.querySelectorAll("#messages .msg, #messages div")].some((el) =>
+    [...document.querySelectorAll("#messages [data-active] .msg, #messages [data-active] div")].some((el) =>
       el.textContent.includes("已切换到自主推进") || el.textContent.includes("Switched to self-directed")
     ),
     "R-224:自动切模式未落 notice 说明",
@@ -4721,10 +4721,10 @@ assert(
   const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
   localStorageShim.setItem("kz-language", "en");
   sandbox.applyLanguage();
-  const before = sandbox.document.querySelectorAll("#messages .msg").length;
+  const before = sandbox.document.querySelectorAll("#messages [data-active] .msg").length;
   sandbox.appendAssistant("运行中 · 失败 · 复制 是用户数据片段,不得改写");
   await flush();
-  const assistant = sandbox.document.querySelectorAll("#messages .msg.assistant .message-body").at(-1);
+  const assistant = sandbox.document.querySelectorAll("#messages [data-active] .msg.assistant .message-body").at(-1);
   assert(assistant, "追加模型输出后找不到 .msg.assistant .message-body(前置失效)");
   const assistantMsg = assistant.closest(".msg");
   assert(
@@ -4747,7 +4747,7 @@ assert(
   );
   outside.remove();
   // 清掉追加的消息,避免污染后续用例。
-  const msgs = sandbox.document.querySelectorAll("#messages .msg");
+  const msgs = sandbox.document.querySelectorAll("#messages [data-active] .msg");
   for (const m of msgs) if (msgs.length > before) m.remove();
   localStorageShim.setItem("kz-language", priorLanguage);
   sandbox.applyLanguage();
@@ -6690,7 +6690,7 @@ const docsB = {
     projects: [PROJECT, PROJECT_B],
     names: { [PROJECT]: "smoke", [PROJECT_B]: "smoke-b" },
   });
-  const visibleHistory = () => [...document.querySelectorAll("#messages .message-body")]
+  const visibleHistory = () => [...document.querySelectorAll("#messages [data-active] .message-body")]
     .map((el) => el.textContent)
     .join("\n");
 
@@ -6758,6 +6758,13 @@ const docsB = {
   invokeGates.set("conversation_get", new Promise((resolve) => { releaseConv = resolve; }));
   payloads.docs_snapshot = docsB;
   payloads.projects_select = projPayload(PROJECT_B);
+  // R-267:pane 常驻之后,目标会话的 pane 若已有内容就**不会**再发 conversation_get
+  // ——那正是本次改造要的效果。但本用例验的是「在途响应的项目守卫」,必须真的发出
+  // 一次请求才有东西可迟到,所以先把 pane 全清掉,逼出装载路径。
+  vm.runInContext(
+    'for (const [id, pane] of [...messagePanes]) { pane.remove(); messagePanes.delete(id); }; activePane = paneFor(activeSessionId || "");',
+    sandbox,
+  );
   const bSwitchLate = sandbox.selectWorkspaceProject(PROJECT_B); // B 的 conversation_get 卡在闸门
   await settle();
   assert(
@@ -6798,33 +6805,26 @@ const docsB = {
   assert(visibleHistory().includes(A_HISTORY), "D-355 收尾失败:项目 A 的历史没有恢复");
 }
 
-// ---------- D-356:运行中切线路只恢复旧快照且轮末不回灌导致对话上下文回滚 ----------
-// 实时 typed facts 落库,但 UI 恢复读 legacy 轮末 snapshot(conversation.updated 仅在本轮
-// run 收尾前写入)。修复:切走缓存 DOM(per-session)、切回运行中会话恢复缓存+显式标注、
-// kz:done 轮末原子回灌完整 snapshot。验收①不缺失/不重复/不串 session:切回运行中会话
-// 走缓存恢复(不重复拉 legacy),kz:done 回灌后完整;验收②恢复缓存时标注边界。
+// ---------- R-267:每会话渲染面——后台会话的渲染不再丢失,切换不再重建 ----------
+// 改造前(D-356)的形态:非活动会话的 kz:text/kz:tool-* 被整条丢弃,切走时把 DOM 存成
+// innerHTML 字符串(sessionDomCache,上限 30 份),切回来塞回去 + 一句「快照截至上次
+// 切走时,本轮完成后自动补齐」,轮末再由 kz:done 原子回灌。缺口、免责声明、每次切换
+// 一次多 MB 的 innerHTML 解析,三样都是「全局唯一容器」逼出来的。
+// 本组钉的是它的替代品:pane 常驻、后台事件进各自 pane、切换只换显示。
 {
-  const CACHE_MARKER = "运行中缓存标记消息";
-  // 前置:清掉所有 autoContinue 定时器(跨用例隔离,理由同 D-355 块)。
   vm.runInContext('autoContinueTimers.clear()', sandbox);
-  // 再清掉全部挂起定时器:前面用例 arm 的 update_check/gitLiveTimer 等残留回调在 flush 里
-  // 可能异步清空 messages,导致本用例的 DOM 断言竞态失败(有时绿有时红)。
   for (const h of [...pendingTimers]) pendingTimers.delete(h);
-  // 用 running:true 的进程桩模拟「线路 A 运行中」——只靠 transitionSession 会被
-  // renderProcesses 按 process_list 的 running=false 拨回 idle(09-sessions.js:351)。
-  const savedD356ProcessList = payloads.process_list;
+  const savedR267ProcessList = payloads.process_list;
   payloads.process_list = [
     { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: true, branch: "main", authority: "primary", stage: "实现" },
     { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", authority: "parallel" },
   ];
-  // 项目 A、活动会话 d|smoke/sess-smoke(切回项目 A 的干净状态)。
   await gotoProject(PROJECT, savedDocsPayload);
   await flush();
-  // 模拟线路 A 运行中:状态机拨到 running(事件路由对活动会话正常投影)。
   vm.runInContext('transitionSession("sess-smoke", "running")', sandbox);
   await flush();
-  // 切到线路 B(后台线):switchProcess 切走前应保存 A 的 DOM 缓存(键存在即验证保存点触发;
-  // harness 桩的 innerHTML getter 只返回显式 set 值,不能拿它判断子树内容)。
+
+  // 切到线路 B。A 的 pane 必须**留在 DOM 里**——切回来才可能零重建。
   await sandbox.switchProcess("p|bg");
   await flush();
   assert(
@@ -6832,69 +6832,72 @@ const docsB = {
     `前置失败:切到线路 B 失败(activeSessionId=${vm.runInContext("activeSessionId", sandbox)})`,
   );
   assert(
-    vm.runInContext('sessionDomCache.has("sess-smoke")', sandbox),
-    "切到线路 B 后 sess-smoke 没有保存 per-session 缓存(switchProcess 保存点未触发)",
-  );
-  const phaseAtSwitchBack = vm.runInContext('sessionState("sess-smoke").phase', sandbox);
-  assert(
-    phaseAtSwitchBack === "running",
-    `前置失败:切回 A 前 sess-smoke 不是 running(phase=${phaseAtSwitchBack})——sessionLiveNow 判活会拒绝缓存恢复`,
-  );
-  // harness 桩下 switchProcess 保存的缓存 html 为空(innerHTML getter 桩限制);手动
-  // 补一个有真实内容的缓存,验证「切回运行中会话恢复缓存」的机制与标注。
-  vm.runInContext(
-    `sessionDomCache.set("sess-smoke", { html: '<div class="msg user"><div class="message-body">${CACHE_MARKER}</div></div>', at: Date.now() })`,
-    sandbox,
+    vm.runInContext('messagePanes.has("sess-smoke")', sandbox),
+    "切走后 sess-smoke 的 pane 不在了:切回来又得重建,R-267 的前提就不成立",
   );
 
-  // 切回线路 A(运行中):应恢复 per-session 缓存,而不是重新拉 legacy snapshot。
+  // 核心:B 活动时给 **A** 发渲染事件。改造前这条被整条丢弃(缺口的来源)。
+  const BG_MARK = "后台渲染标记A";
+  const paneText = (id) =>
+    vm.runInContext(`(messagePanes.get(${JSON.stringify(id)})?.textContent) ?? ""`, sandbox);
+  handlers.get("kz:text")({ payload: { sessionId: "sess-smoke", text: BG_MARK } });
+  await flush();
+  assert(
+    paneText("sess-smoke").includes(BG_MARK),
+    "后台会话的 kz:text 没有渲染进它自己的 pane——切回去就会缺这一段(R-267)",
+  );
+  assert(
+    !paneText("sess-bg").includes(BG_MARK),
+    "后台会话的渲染串进了活动会话的 pane:这正是改造前必须整条丢弃的原因",
+  );
+
+  // 全局 UI 不得被后台渲染带偏:状态栏归活动会话。
+  const statusBefore = byId.get("status-text").textContent;
+  handlers.get("kz:text")({ payload: { sessionId: "sess-smoke", text: "又一段后台文本" } });
+  await flush();
+  assert(
+    byId.get("status-text").textContent === statusBefore,
+    `后台会话的渲染改写了状态栏(${statusBefore} → ${byId.get("status-text").textContent}):全局 UI 只归活动会话`,
+  );
+
+  // 切回 A:不重拉 conversation_get(零重建),内容含切走期间到达的那段,且**没有**免责 notice。
   const convBefore = invokeArgs.filter((entry) => entry.cmd === "conversation_get").length;
   await sandbox.switchProcess("d|smoke");
   await flush();
-  const convAfter = invokeArgs.filter((entry) => entry.cmd === "conversation_get").length;
   assert(
-    convAfter === convBefore,
-    `切回运行中的线路 A 没有走缓存恢复分支,又拉了 conversation_get:` +
-      `${JSON.stringify(invokeArgs.slice(convBefore))}`,
+    invokeArgs.filter((entry) => entry.cmd === "conversation_get").length === convBefore,
+    "切回运行中的线路 A 又拉了 conversation_get:pane 已有内容就不该重建",
+  );
+  const activeText = vm.runInContext("activePane.textContent", sandbox);
+  assert(
+    activeText.includes(BG_MARK),
+    "切回线路 A 后,切走期间到达的后台渲染不见了(缺口又回来了)",
   );
   assert(
-    vm.runInContext('messages.textContent', sandbox).includes(CACHE_MARKER),
-    "切回运行中的线路 A 后缓存标记消息丢失(per-session DOM 缓存未恢复)",
-  );
-  assert(
-    ((vm.runInContext('messages.textContent', sandbox).includes("运行中")
-      || vm.runInContext('messages.textContent', sandbox).includes("Running"))
-      && (vm.runInContext('messages.textContent', sandbox).includes("快照")
-        || vm.runInContext('messages.textContent', sandbox).includes("snapshot"))),
-    "切回运行中的线路 A 没有标注「运行中快照」边界(不得伪装为完整历史)",
+    !activeText.includes("快照截至") && !activeText.includes("snapshot as of"),
+    "切回后仍在挂「快照截至上次切走时」——缺口已消失,这句免责声明不该再出现",
   );
 
-  // kz:done 轮末原子回灌:活动会话重载完整 snapshot(conversation_get 再次发出)。
+  // kz:done 不再原子回灌:pane 已是完整的,回灌只会清掉轮末 notice 并与后续渲染交错。
+  const getBeforeDone = invokeArgs.filter((entry) => entry.cmd === "conversation_get").length;
   await handlers.get("kz:done")({
     payload: { sessionId: "sess-smoke", steps: 1, halted: false, autoAction: { type: "NoContinue" } },
   });
   await flush();
-  const getAfterDone = invokeArgs.filter((entry) => entry.cmd === "conversation_get").length;
   assert(
-    getAfterDone > convAfter,
-    "kz:done 后没有原子回灌最新完整 snapshot(运行中快照停在切走时,轮末上下文回滚)",
+    invokeArgs.filter((entry) => entry.cmd === "conversation_get").length === getBeforeDone,
+    "kz:done 仍在回灌 conversation_get:pane 已完整,回灌是多余的且会吞掉轮末 notice",
   );
   assert(
-    [...document.querySelectorAll("#messages .message-body")]
-      .some((el) => el.textContent.includes("冒烟历史消息")),
-    "kz:done 回灌后消息区不是后端完整 snapshot 的内容",
+    vm.runInContext("activePane.textContent", sandbox).includes(BG_MARK),
+    "kz:done 之后 pane 内容被冲掉了",
   );
 
-  // 收尾:会话收敛为 idle(缓存失效),复位状态机与进程桩。
   await handlers.get("kz:idle")({ payload: { reason: "completed", sessionId: "sess-smoke" } });
   await flush();
   vm.runInContext('transitionSession("sess-smoke", "idle")', sandbox);
   await flush();
-  assert(
-    !vm.runInContext("sessionDomCache.has('sess-smoke')", sandbox),
-    "D-356 收尾失败:会话收敛后运行中缓存仍残留(内存泄漏)",
-  );
-  payloads.process_list = savedD356ProcessList;
+  payloads.process_list = savedR267ProcessList;
   await gotoProject(PROJECT, savedDocsPayload);
   await flush();
 }

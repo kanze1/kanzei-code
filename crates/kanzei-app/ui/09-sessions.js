@@ -531,9 +531,7 @@ async function switchProcess(processId, forceReload = false) {
   if (activeProcessId) {
     rememberAutoUiState(activeProcessId);
   }
-  // D-356:切走前保存当前会话 DOM 快照——切回运行中的会话时恢复它,避免回退到
-  // 轮末 legacy 快照(运行中增量会被滞后 snapshot 吞掉,显示旧上下文)。
-  if (activeSessionId) cacheSessionDom(activeSessionId);
+  // R-267:切走不再需要存快照——pane 留在 DOM 里,内容原样还在。
   hideAsk(true);
   activeProcessId = processId;
   activeSessionId = target.session_id;
@@ -707,8 +705,6 @@ function renderProjects(prefs) {
   // R-147:手册内容随项目走——启动首次确定项目与切换/移除项目时都刷新一次。
   if (typeof refreshManual === "function") refreshManual();
   if (previousProject !== currentProject) {
-    // D-356:切项目同样先缓存旧会话 DOM,切回运行中的项目时恢复(与切线共用机制)。
-    if (activeSessionId) cacheSessionDom(activeSessionId);
     activeProcessId = null;
     activeSessionId = null;
   }

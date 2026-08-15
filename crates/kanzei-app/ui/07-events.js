@@ -312,8 +312,6 @@ on("kz:compacted", (e) => {
 });
 on("kz:stopped", (e) => {
   cancelAutoContinueTimer(e.payload?.sessionId || activeSessionId);
-  // D-356:停止后会话收敛为 stopped,缓存不再需要(切回走 legacy/typed 完整恢复)。
-  dropSessionDomCache(e.payload?.sessionId || activeSessionId);
   hideAsk();
   const cancelled = e.payload?.cancelled_queue ?? 0;
   addMessage("notice", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
@@ -330,30 +328,15 @@ on("kz:stopped", (e) => {
 // 视图的收尾归 kz:done/kz:error/kz:stopped,这里只把标签页按状态机重画一次——
 // 订阅本身也是必需的:on() 里的会话状态机收敛逻辑挂在订阅回调上。
 on("kz:idle", (e) => {
-  // D-356:会话级终态,运行中缓存失效。
-  dropSessionDomCache(e.payload?.sessionId);
   renderProcesses(processItems);
 });
 
 on("kz:done", async (e) => {
   const p = e.payload;
-  // D-356:kz:done 轮末原子回灌。后端在发 kz:done 前已写入完整 conversation.updated
-  // (run.rs 轮末 flush)——**只有切回过(运行中缓存存在)的会话**才需要回灌替换:消息区
-  // 是切走时的旧快照,重载完整投影升级(工具调用/结果由 renderRecoveredMessages 配对)。
-  // 一直活动的会话消息区已是完整实时渲染,回灌替换反而会清掉轮末「完成/权限被拦」等
-  // notice(R-223/R-224 回归);回灌是异步的,调用方不 await 时还会与后续渲染交错吞块。
-  // 后台会话清缓存,下次切回时由 loadConversation 拿完整。
-  if (p.sessionId) {
-    if (p.sessionId === activeSessionId) {
-      if (sessionDomCache.has(p.sessionId)) {
-        dropSessionDomCache(p.sessionId);
-        await loadConversation();
-        cacheSessionDom(p.sessionId);
-      }
-    } else {
-      dropSessionDomCache(p.sessionId);
-    }
-  }
+  // R-267:轮末不再需要「原子回灌」。那套是为了修补「切走期间缺一段」——而缺口
+  // 本身已经不存在了:后台会话的渲染事件全程进它自己的 pane,轮末 pane 里就是完整的。
+  // 一并去掉的还有回灌带来的两个老毛病:清掉轮末「完成/权限被拦」notice(R-223/R-224),
+  // 以及异步回灌与后续渲染交错吞块。
   // 「本轮完成」是**阶段**不是**停机原因**,写进原因槽等于每轮都往里灌一句与
   // 「为什么不再继续」无关的话——而原因槽是无参重绘的回落值,灌进去之后轮次
   // 「3/34」下一帧就被它顶掉。正常完成时清空原因槽,阶段交给 renderAutoRun 算。
@@ -726,7 +709,7 @@ messages.addEventListener("click", (event) => {
 // ---------- 复制上下文:整段对话导出为 markdown(贴给其他 AI 用) ----------
 $("copy-context").addEventListener("click", async () => {
   const parts = [];
-  for (const el of messages.children) {
+  for (const el of activePane.children) {
     if (el.classList.contains("user")) {
       const text = (el.querySelector(".message-body")?.textContent ?? el.textContent).trim();
       if (text) parts.push(`## ${t("用户")}\n${text}`);
