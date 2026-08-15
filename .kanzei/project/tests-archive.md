@@ -3951,3 +3951,19 @@
 - 关联: R-256
 - 收尾: 1786800989
 - 源码指纹: 38df2cec5b226f47
+
+## T-1786801043 cargo test -p kanzei-app -p kanzei (R-256 B2 提交门禁复测) [passed]
+- 命令: cargo test -p kanzei-app -p kanzei
+- 时长: 13.0s
+- 摘要: R-256 B2 提交门禁复测:kanzei-app 166 + kanzei 61 全绿
+- 关联: R-256
+- 收尾: 1786801043
+- 源码指纹: 17759df6666fe7ff
+
+## T-1786801103 cargo test -p kanzei-tools (R-256 B2 提交门禁) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 28.8s
+- 摘要: R-256 B2 提交门禁 kanzei-tools 覆盖:269 passed
+- 关联: R-256
+- 收尾: 1786801103
+- 源码指纹: 17759df6666fe7ff

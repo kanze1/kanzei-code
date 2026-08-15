@@ -229,12 +229,12 @@
 - 验收: ①harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once 只有一处实现(机械核验:grep 只剩一个装配点);②桌面端与 CLI 各跑一次真实闭环(改代码→跑测试→提交)无回归;③kz main.rs 生产行数 ≤ 500;④第③步的漂移对照表落进设计文档,逐条给出 有意/漂移 判定;⑤workspace 全量绿 + 前端冒烟绿。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-256
-- 批次: 1/4
+- 批次: 2/4
 - 现状(2026-08-16 实测复核): crates/kanzei/src/main.rs 总 2330 行、生产码 1378。核心 run_cli(L335-1043,713 行)自带 harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once/Ctrl-C/落库,与桌面 run/ 模块概念重复;另有 replay_eval/tracker/work/config/lock/worktree 命令适配层。
-- 进展: 批1 完成(只读对照,零代码改动):run_cli 713 行逐段通读,与桌面 run/ 五域(assembly/coordinator/execution/persistence/events)逐项比对,26 项装配步骤对照表已落进 docs/design/monolith_decomposition.md 新章节 F(验收④)。判定汇总:重复 9 项(ResolveCtx/route+client/ToolCtx/typed writer/subagent runtime/记忆预检索/轮末采集/episode/candidate 处置,可直共);漂移 10 项(配置告警/harness 装配/dev 提示/模型解析/proxy/RunnerConfig/session 准入/prior 恢复/run_once/轮末落库,需先对齐再合并,其中 harness/RunnerConfig/轮末落库是两端各写一套的完整重复);有意差异 7 项收敛为三注入点(EventSink=终端 vs UI、AskRouter=stdin+非交互策略 vs UI 表、RuntimePolicy=ctrl_c vs halt_token)+ 输入源差异(env/IPC 参数)。批2 下一步:漂移项对齐(harness 装配/RunnerConfig/轮末落库先逐字对齐),抽 RunService 单一编排入口,两端差异收敛为三注入点;批3 CLI 命令模块化+main.rs≤500;批4 双端闭环+全量+close。
-- observed_head: 8ffa9b9bac0b72f3e5f926fb08fa5941257333e5
-- observed_worktree_hash: fnv1a64:01b4f5629bac2580
-- recorded_at: 1786799987408
+- 进展: 批2 完成已 push(01da3ee):公共装配层 kanzei-tools/src/run.rs 建立——build_runner_config(对照表#12)与 build_subagent_runtime(对照表#16)两端逐字节重复收成单一实现;桌面差异(登记读槽 R-171 批6、单条停止注册表 R-174)参数化为 coordinator/cancellations Option;kanzei-core 提升为 tools 普通依赖(R-203 拆出后首次,方向 core←tools 单向无循环);桌面 execution.rs 删本地 build_subagent_runtime、assembly.rs 删本地 build_runner_config,coordinator/assembly 改调 tools 版;CLI main.rs 两处内联(subagent 构造 68 行+RunnerConfig 22 行)替换为 tools 调用(传 None/None);main.rs 生产码 1378→1276(减 102)。行为零变更:workspace 编译零警告,kanzei-app 166(T-1786801043)+ kanzei 61 + tools 269(T-1786801103)全绿,clippy 零警告。批3 下一步:继续漂移项对齐——harness 装配(#5)下沉 tools/run.rs(两端 Base/Dev/Research/Markdown/Config 公共部分 + Readonly/FrontendTools/TrackerWritePolicy 差异参数化),dev 提示(#7)与模型解析(#8)/proxy(#9)对齐;然后 CLI 命令模块化(replay_eval/tracker/work/config/lock/worktree 各自成模块,main.rs ≤500 验收③);批4 双端闭环(验收②)+ workspace 全量+前端冒烟(验收⑤)+ 机械核验(验收①:grep 装配点)+ close。
+- observed_head: 01da3eeeb85e330e8e1dc69d0cfdb9716785444b
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786801134585
 
 ## R-257 第二梯队模块化:drive.rs(1826)/docstore.rs(1417)/git.rs(1257)/harness config.rs(1218) 按域切分 [todo]
 - refs: R-155 R-202 R-204 R-253 R-257 docs/design/monolith_decomposition.md
