@@ -23,7 +23,7 @@ use crate::{
     conversation, record_live_trace, with_session_id, LiveRun, PendingAsk, PromptAttachment,
 };
 
-use super::assembly::{assemble_run, RunAssembly};
+use super::assembly::{assemble_run, RunAssembly, RuntimeDeps};
 use super::events::{build_ask_handler, build_event_handler};
 use super::execution::{build_subagent_runtime, run_execution_loop};
 use super::persistence::{finalize_round, persist_round_outcome};
@@ -87,33 +87,9 @@ pub(crate) async fn run_task(
     *halt_slot.lock().unwrap() = Some(halt_token.clone());
 
     let RunAssembly {
-        project_root,
-        config,
-        profile,
-        rctx,
-        snapshot,
-        agent,
-        work_priority,
-        resolved,
-        proxy,
-        route,
-        client,
-        runner_config,
-        ask_source,
-        state_path,
-        store,
-        run_id,
-        promoted_input_id,
-        prompt,
-        initial_parts,
-        typed_writer,
-        typed_flush_task,
-        run_started,
-        run_epoch_ms,
-        orchestration_trace,
-        mut pipeline,
-        _write_lease,
-        ctx,
+        deps,
+        session,
+        round,
     } = assemble_run(
         window,
         &stage,
@@ -139,6 +115,40 @@ pub(crate) async fn run_task(
         halt_token,
     )
     .await?;
+
+    // R-253 批7:RunAssembly 三分后按需展开——move 型字段(typed_flush_task/pipeline)
+    // 经分组变量取,其余字段经引用访问,避免部分 move 破坏整体借用。
+    let RuntimeDeps {
+        project_root,
+        config,
+        profile,
+        rctx,
+        snapshot,
+        agent,
+        work_priority,
+        resolved,
+        proxy,
+        route,
+        client,
+        runner_config,
+        ask_source,
+    } = deps;
+    let state_path = session.state_path.clone();
+    // SessionStore 非 Sync:recover_messages 同步用后即弃,不跨 await 持引用
+    // (危险点③——跨 await 持引用会破坏 future Send 约束)。move owned 而非借用。
+    let store = session.store;
+    let promoted_input_id = session.promoted_input_id.clone();
+    let prompt = session.prompt.clone();
+    let initial_parts = &session.initial_parts;
+    let typed_writer = session.typed_writer.clone();
+    let typed_flush_task = session.typed_flush_task;
+    let run_id = round.run_id.clone();
+    let run_started = round.run_started;
+    let run_epoch_ms = round.run_epoch_ms;
+    let orchestration_trace = round.orchestration_trace.clone();
+    let mut pipeline = round.pipeline;
+    let _write_lease = round._write_lease;
+    let ctx = round.ctx;
 
     let event_window = window.clone();
     let session_id_for_events = session_id.clone();
@@ -225,7 +235,7 @@ pub(crate) async fn run_task(
     // (run_once_with_parts)→ 复核修正(run_review_and_fixup),收敛为独立函数。
     let run_result = run_execution_loop(
         &stage,
-        &initial_parts,
+        initial_parts,
         &prompt,
         &ctx,
         autonomous,

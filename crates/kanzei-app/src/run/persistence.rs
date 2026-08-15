@@ -24,7 +24,9 @@ use super::assembly::WriterLeaseTrace;
 use super::{append_run_notification, compaction_input_tokens, report_persistence_failure};
 
 /// 轮末落库:状态/事件/episode/通知(原 run.rs persist_round_outcome)。
-#[allow(clippy::too_many_arguments)] // 落库输入来自 run_task 的三段编排,拆 struct 会改调用链;批8 随 RunAssembly 三分收敛。
+/// 注:不能收 SessionContext/RoundContext 整体——run_task 内部分字段被 move 给
+/// 子函数后 struct 不可整体借用,故仍传展开字段(保留 allow)。
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn persist_round_outcome(
     state_path: &std::path::Path,
     window: &tauri::Window,

@@ -27,7 +27,12 @@ use crate::{prompt_attachment_parts, typed_events, with_session_id, PromptAttach
 /// R-202 批1:run_task 装配段的产物聚合。装配(配置/harness/模型/鉴权/会话/typed/
 /// 写租约/执行身份)收敛为一次函数调用返回,run_task 主体只管三段编排
 /// (装配 → 事件循环 → 轮末收尾),不再背负 300+ 行前置准备。
-pub(crate) struct RunAssembly {
+/// R-253 批7:装配产物按生命周期三分——`RuntimeDeps`(本轮不变的依赖:配置解析的
+/// 产物)、`SessionContext`(会话事务:开库、准入、typed 写入器)、`RoundContext`
+/// (单轮身份与编排:run id/timing/trace/pipeline/写租约/执行身份)。
+/// 严禁做成一个 28 字段的 `RunContext`——那只是把 parameter monolith 换成
+/// context monolith;对每一个参数组都要能说出它属于哪一层生命周期。
+pub(crate) struct RuntimeDeps {
     pub(crate) project_root: PathBuf,
     pub(crate) config: Arc<KanzeiConfig>,
     pub(crate) profile: kanzei_harness::ProfileKind,
@@ -41,20 +46,33 @@ pub(crate) struct RunAssembly {
     pub(crate) client: kanzei_llm::LlmClient,
     pub(crate) runner_config: kanzei_core::RunnerConfig,
     pub(crate) ask_source: &'static str,
+}
+
+pub(crate) struct SessionContext {
     pub(crate) state_path: PathBuf,
     pub(crate) store: kanzei_core::SessionStore,
-    pub(crate) run_id: String,
     pub(crate) promoted_input_id: String,
     pub(crate) prompt: String,
     pub(crate) initial_parts: Vec<kanzei_llm::Part>,
     pub(crate) typed_writer: Arc<Mutex<typed_events::TypedEventWriter>>,
     pub(crate) typed_flush_task: tauri::async_runtime::JoinHandle<()>,
+}
+
+pub(crate) struct RoundContext {
+    pub(crate) run_id: String,
     pub(crate) run_started: std::time::Instant,
     pub(crate) run_epoch_ms: i64,
     pub(crate) orchestration_trace: Arc<crate::orchestration_trace::SessionEventObserver>,
     pub(crate) pipeline: Option<crate::phase_pipeline::PhasePipeline>,
     pub(crate) _write_lease: Option<WriterLeaseTrace>,
     pub(crate) ctx: ToolCtx,
+}
+
+/// 装配产物(内部结构,由三个生命周期分组组成)。
+pub(crate) struct RunAssembly {
+    pub(crate) deps: RuntimeDeps,
+    pub(crate) session: SessionContext,
+    pub(crate) round: RoundContext,
 }
 
 /// R-202 批1:run_task 的装配段(原 :85-399)——从 run_task 内联的 300+ 行收敛为
@@ -411,33 +429,39 @@ pub(crate) async fn assemble_run(
     );
 
     Ok(RunAssembly {
-        project_root,
-        config,
-        profile,
-        rctx,
-        snapshot,
-        agent,
-        work_priority,
-        resolved,
-        proxy,
-        route,
-        client,
-        runner_config,
-        ask_source,
-        state_path,
-        store,
-        run_id,
-        promoted_input_id,
-        prompt,
-        initial_parts,
-        typed_writer,
-        typed_flush_task,
-        run_started,
-        run_epoch_ms,
-        orchestration_trace,
-        pipeline,
-        _write_lease,
-        ctx,
+        deps: RuntimeDeps {
+            project_root,
+            config,
+            profile,
+            rctx,
+            snapshot,
+            agent,
+            work_priority,
+            resolved,
+            proxy,
+            route,
+            client,
+            runner_config,
+            ask_source,
+        },
+        session: SessionContext {
+            state_path,
+            store,
+            promoted_input_id,
+            prompt,
+            initial_parts,
+            typed_writer,
+            typed_flush_task,
+        },
+        round: RoundContext {
+            run_id,
+            run_started,
+            run_epoch_ms,
+            orchestration_trace,
+            pipeline,
+            _write_lease,
+            ctx,
+        },
     })
 }
 
