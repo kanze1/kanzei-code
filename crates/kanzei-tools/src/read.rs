@@ -45,7 +45,9 @@ impl Tool for ReadTool {
     fn description(&self) -> String {
         "Read a file. Text files: params path; optional offset (1-based line), limit (max lines), \
          tail (last N lines). Image files (PNG/JPEG/WebP/GIF) are detected by content and returned \
-         as a viewable image — offset/limit/tail do not apply to them."
+         as a viewable image — offset/limit/tail do not apply to them. \
+         Multiple read calls in the SAME step run in parallel: when you know several files to \
+         open, emit them together instead of one per step."
             .into()
     }
 

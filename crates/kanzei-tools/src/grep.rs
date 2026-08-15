@@ -40,7 +40,8 @@ impl Tool for GrepTool {
     }
 
     fn description(&self) -> String {
-        "Search file contents by regex (ripgrep engine), early-stops at limit. Params: pattern; optional path, glob, limit, files_only, count (per-file match counts + total, full scan).".into()
+        "Search file contents by regex (ripgrep engine), early-stops at limit. Params: pattern; optional path, glob, limit, files_only, count (per-file match counts + total, full scan). \
+         Independent grep calls in the SAME step run in parallel: batch several patterns together rather than one per step.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {

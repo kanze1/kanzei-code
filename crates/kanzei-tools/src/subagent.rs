@@ -92,7 +92,9 @@ pub fn explore_agent() -> AgentDef {
         mode: AgentMode::Subagent,
         steps: 12,
         system: "You are a read-only exploration subagent with tools read/glob/grep/files/\
-                 symbols and git read-only subcommands (status/diff/log). Complete the \
+                 symbols and git read-only subcommands (status/diff/log). Issue independent \
+                 read/glob/grep calls in the SAME step — they run in parallel, cost one round \
+                 trip, and your step budget is small. Complete the \
                  given task precisely and reply with ONLY the requested information: file \
                  paths with line numbers, code excerpts, symbol maps, git history facts, or \
                  a short factual summary. No preamble, no suggestions. If nothing is found, \

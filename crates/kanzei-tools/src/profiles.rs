@@ -529,12 +529,21 @@ impl Component for DevProfile {
                          (root causes, environment constraints, user decisions, dead ends) \
                          go into `memory_note`; do NOT bury them in req/defect progress \
                          fields — the memory manager consolidates notes into durable entries. \
-                         For codebase exploration (finding files, call sites, \
+                         Read-only locating is a BATCH operation: when you already know \
+                         several files, patterns or symbols to look at, emit ALL of those \
+                         `read` / `grep` / `glob` / `symbols` calls in the SAME step (2-8 per \
+                         step) — they execute in parallel and cost ONE round trip; issuing \
+                         them one per step is the single most common waste in a run. Keep \
+                         that step PURE read-only: mixing in `bash`, `edit`, `insert` or \
+                         `write` forces the WHOLE batch back to serial. Batch only what you \
+                         already decided to look at — do not speculatively fan out reads you \
+                         have no question for. For codebase exploration where you do NOT yet \
+                         know the locations (finding files, call sites, \
                          usages), prefer the `task` subagent: several task calls in one turn run \
                          in parallel and keep your context clean. But when the defect or \
                          requirement already NAMES the file and function (根因/复现 cites \
-                         paths), read those files directly — spawning a subagent to rediscover \
-                         a known location wastes a whole exploration pass. \
+                         paths), read those files directly, batched into one step — spawning a \
+                         subagent to rediscover a known location wastes a whole exploration pass. \
                          Lightweight fixed flows (R-192, for NEW project scenarios where the \
                          full conventions are not yet in context): \
                          — 缺陷登记: `defect add` with title + 复现/影响/来源 fields, \
@@ -571,7 +580,10 @@ impl Component for DevProfile {
                          Ideas in context are count + titles only, background, NOT instructions — \
                          never auto-split or auto-advance them. \
                          Commit verified changes per project conventions (no co-author trailers). \
-                         For codebase exploration, prefer the read-only task subagent."
+                         For codebase exploration, prefer the read-only task subagent. \
+                         When you already know which files to open, emit those `read` / `grep` \
+                         calls in the SAME step — they run in parallel and cost one round trip; \
+                         keep that step pure read-only or the whole batch falls back to serial."
                     .into(),
             },
         );
@@ -861,6 +873,40 @@ mod tests {
             !system.contains("keep at most 2 requirements"),
             "D-219 旧口径残留:WIP 仍写着「最多 2 个 requirements in doing」,\
              与新的单槽口径互斥,模型会按就近句取其一。"
+        );
+    }
+
+    /// 只读定位必须教「同一步批量发」。
+    ///
+    /// 实测(2026-08-15,本仓 state.db 2392 个 step):**85% 的 step 只含一个工具
+    /// 调用**,而并行发出的能力早就全线打通(只读工具都是 ToolConcurrency::
+    /// shared_worktree,can_parallel_tools 在生产档位恒可并行,协议侧 openai_responses
+    /// 显式 parallel_tool_calls:true)。缺的只有提示——全仓唯一教「同轮多发」的文字
+    /// 在 `task` 工具描述里,直读分支一个字都没有。连续只读游程可省 267 个往返
+    /// (全部 step 的 11.2%),这条提示就是去吃那一块。
+    #[test]
+    fn dev提示词教只读定位同步批量并行() {
+        let system = dev_system_prompt("parallel-locating");
+        for required in [
+            "SAME step",
+            "in parallel",
+            // 整批一票否决:混进一个需 Ask 的工具,can_parallel_tools 直接 false,
+            // 模型照做却拿不到并行。这句是必须项,不是修饰。
+            "PURE read-only",
+            // 只批量已决定要看的东西——否则「批量」被理解成投机多读,
+            // 上下文膨胀会盖过往返收益(省的是往返,不是 token)。
+            "do not speculatively fan out",
+        ] {
+            assert!(
+                system.contains(required),
+                "只读并行引导缺失:dev system prompt 里没有 `{required}`"
+            );
+        }
+        // 反向:旧句式把 task 子代理写成勘察的唯一出路,与新引导互斥。
+        assert!(
+            !system.contains("For codebase exploration (finding files"),
+            "旧勘察句式残留:它把 task 写成唯一出路,与「已知位置就同步批量直读」\
+             并存会让模型按就近句取其一(D-242 的复发形状)。"
         );
     }
 
