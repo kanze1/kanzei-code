@@ -230,9 +230,13 @@
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-257
 - 取得线: kanzei/thread-line-1786805363432-1
-- 批次: 0/5
+- 批次: 1/6
+- 进展: B1 drive.rs 只读复查(2026-08-15):现状 2083 行,R-202 已拆 7 段函数(stream_request_step:410/run_subagent_calls:631/execute_tool_calls:873/assemble_run_once:1443/commit_step_messages:1630/finalize_step:1692/enforce_context_budget:1748),run_once_with_parts 主循环本体 270 行薄编排。模型循环本体(应留):run_once(动态分发边界,签名即锁)+ 主循环 + 段间类型(StepOutcome/ToolRunOutcome/StepMessageOutcome/StepFinalOutcome/RunOnceAssembly)+ 辅助小函数;可迁出子域(均 drive 私有、仅主循环调用):execute_tool_calls 537 行→tool_exec.rs(同域:wave 构建/并发执行已在那),stream_request_step 221 行→新 stream.rs(重试/流恢复),enforce_context_budget 105 行→compaction.rs(预算同域),assemble_run_once 173 行→新 assembly.rs(装配);步骤收尾段(commit_step_messages/finalize_step)与主循环强耦合(messages/final_text 直接互操作)留 drive.rs。指标:drive.rs 无指标代码(metrics.rs 已独立,drive 仅持 RedundancyWatch/RecallWatch 传 finalize_step),指标子域无遗留。结论:拆——4 段迁出约 1036 行,d rive.rs 余约 1050 行(含测试),沿用 R-155 顶层再导出纪律零外部 API 面变更,R-202 段函数单测兜底。批次重排 1/6:B2=drive.rs 切分,B3=docstore.rs,B4=git.rs,B5=config.rs,B6=workspace 全量+关闭。
+- observed_head: 219dcdaf63e72875afeab9a00e77000b0cc3a5ac
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786808777088
 
-## R-258 巨石度量口径:生产行数/测试行数/最大函数行数/参数train,禁止拿 wc -l 当门禁 [todo]
+## R-258 巨石度量口径:生产行数/测试行数/最大函数行数/参数train,禁止拿 wc -l 当门禁 [doing]
 - refs: R-253 R-254 R-255 R-256 R-257 R-191 docs/design/monolith_decomposition.md
 - 为什么是这个形态: 本仓大量 Rust 文件把测试放在同文件 cfg(test) mod tests 里,raw 行数与巨石程度不相关。若把文件行数直接做成 harness 门禁,自举 agent 会去"优化"测试最密集的文件——把测试搬走或删掉就能过线,正好惩罚了测试写得最足的模块。口径错了,门禁就是负向激励。
 - 内容: ①出一个度量入口(kz 子命令或 harness 指标皆可),按文件产出:总行数、生产行数(扣 cfg(test) 块,按大括号配平算,不能只找第一个 cfg(test) 就一刀切——processes.rs 第一处 cfg(test) 在 L468,那是外挂测试文件声明,一刀切会把 1628 行生产码误报成 467)、测试行数、函数数、最大函数行数、too_many_arguments 处数;②给出全仓 Top-N 榜单与阈值建议;③conventions 写明阈值与超阈值动作——超了必须登记条目,不自动拒绝提交(自用工具,威胁模型里没有敌对模型,防线放可见性不放闸门);④榜单落一次快照,作为 R-253/R-254/R-255 的验收对照基线。
@@ -242,6 +246,12 @@
 - 边界: 不做提交闸门、不做 CI 硬失败;不引入外部复杂度分析工具进依赖树;扇入扇出若实现成本高可降级为仅统计 use 行数并在条目里说明,不为指标齐全拖成大工程。
 - 验收: ①对 crates/kanzei-tools/src/tracker.rs 报生产 660 行而非 3253;②对 crates/kanzei-app/src/run.rs 报生产 2885 行;③对 crates/kanzei-app/src/processes.rs 报生产 1628 行(验证 cfg(test) 块识别正确,不被 L468 的外挂测试模块声明骗过);④输出全仓 Top-20 榜单,drive.rs 出现在前五;⑤conventions 文本落地且 grep 单一来源;⑥基线快照可被后续拆解条目引用做前后对照。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-258
+- 批次: 0/2
+- 进展: 批1:度量工具实现+测试;批2:全仓榜单+conventions+基线快照+close。勘察结论:验收②③引用的 run.rs/processes.rs 已被 R-253/R-254 拆解消失,验收基准文件过时——本批用现存同类形态验证算法(tracker.rs L17-18 `#[cfg(test)] mod scheduling_tests;` 外挂声明 + L712 内联测试块),并在验收证据里说明基准迁移。
+- observed_head: 68a2232c3d5bc3ca8f663deb9de72c09b17454b0
+- observed_worktree_hash: fnv1a64:f942ffb698473c93
+- recorded_at: 1786808839775
 
 ## R-259 pipeline Wrap 阶段收敛:timeout/cancellation/progress 只在 wrapper 实现一处(R-244 残余) [todo]
 - refs: R-244

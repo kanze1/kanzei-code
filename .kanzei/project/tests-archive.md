@@ -4020,3 +4020,10 @@
 - 关联: R-256
 - 收尾: 1786808659
 - 源码指纹: 3495ba459156a8e5
+
+## T-1786809323 cargo test -p kanzei (R-258 B1 提交背书) [passed]
+- 命令: cargo test -p kanzei
+- 摘要: R-258 批1 提交门禁背书:cargo test -p kanzei 37+31 passed 全绿(含 metrics 7 单测),clippy 零警告,fmt 已归一。
+- 关联: R-258
+- 收尾: 1786809323
+- 源码指纹: 32e148b8e8a234e4
