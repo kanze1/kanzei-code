@@ -8,7 +8,7 @@ use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::docstore::{DocKind, DocStore, Entry};
+use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 
 // R-204:取活调度域独立成模块(scheduling.rs),供 auto_run/CLI/docs/memory 四方统一消费。
 // 本文件保留既有 pub 面(re-export),消费方调用点零改动;行为零变更。
@@ -596,6 +596,53 @@ impl TrackerTool {
                 missing.join("、")
             ))
         }
+    }
+
+    /// R-252 验收④(内容④):想法转 split 的 refs 硬门禁——refs 必须非空,且每个
+    /// ID 在 requirements/defects 的活跃或归档里真实存在;否则「已拆解」就是一句
+    /// 空话(拆解没有产出任何真实 R/D,却声称 split)。只在想法线转 split 时触发。
+    /// 2026-08-16 用户定调:B2 先只提交方法本身,接线(actions.rs update_close)
+    /// 与正反测试在用户调整代码后继续——此期间方法无调用方,标 allow(dead_code)。
+    #[allow(dead_code)]
+    fn check_idea_split_gate(&self, ctx: &ToolCtx, refs: &[String]) -> Result<(), String> {
+        if self.kind.prefix != "I" {
+            return Ok(());
+        }
+        if refs.is_empty() {
+            return Err(
+                "想法转 split 必须携带 refs(产出的 R-/D- 编号);refs 为空时「已拆解」是空话,拒绝。"
+                    .into(),
+            );
+        }
+        // 硬门禁真源:requirements/defects 的活跃 ∪ 归档。归档条目也放行——
+        // 想法拆解出的 R/D 可能随后就完成并归档了,不能因时序拒绝合法拆解。
+        let mut existing: Vec<String> = Vec::new();
+        for kind in [&REQUIREMENTS, &DEFECTS] {
+            let store = DocStore::open(&ctx.project_root, kind);
+            if let Ok(entries) = store.load() {
+                existing.extend(entries.iter().map(|e| e.id.clone()));
+            }
+            if let Ok(entries) = store.load_archive() {
+                existing.extend(entries.iter().map(|e| e.id.clone()));
+            }
+        }
+        for id in refs {
+            let id = id.trim();
+            if id.is_empty() {
+                continue;
+            }
+            if !(id.starts_with("R-") || id.starts_with("D-")) {
+                return Err(format!(
+                    "ref `{id}` 不是 R-/D- 编号;想法拆解只能产出需求或缺陷。"
+                ));
+            }
+            if !existing.iter().any(|e| e == id) {
+                return Err(format!(
+                    "ref `{id}` 在 requirements/defects 的活跃或归档中都不存在;拆解必须指向真实条目。"
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn check_refs(&self, ctx: &ToolCtx, refs: &[String], adding: bool) -> Result<(), String> {
