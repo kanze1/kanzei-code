@@ -3837,3 +3837,11 @@
 - 摘要: R-254 批2 全量:15 段全 ok(含 worktree_tests 2448 行),0 failed;四条前端冒烟全过
 - 关联: R-254
 - 收尾: 1786772983
+
+## T-1786773385 cargo test -p kanzei-memory (R-255 B1 inbox/migration/telemetry 迁出) [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.2s
+- 摘要: R-255 B1 迁出后:kanzei-memory 130 passed, 0 failed; clippy 零警告; store.rs 生产码 1742→1506
+- 关联: R-255
+- 收尾: 1786773391
+- 源码指纹: 18b929089ab72f78

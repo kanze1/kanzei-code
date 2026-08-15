@@ -55,7 +55,7 @@ pub struct RecallHit {
     pub fetched: bool,
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -159,7 +159,7 @@ impl MemoryStore {
     /// 为什么锁目录而不是逐文件:动态条目文件(M-xxx.md、inbox.md)创建前无法预锁,
     /// 锁整树一劳永逸;写操作毫秒级,持有窗口极短。锁文件落在 `.kanzei/`(非托管根,
     /// 不进围栏镜像)且被 `.kanzei/**/*.lock` 忽略,围栏快照对它无感。
-    fn tree_lock(&self) -> anyhow::Result<crate::atomic_file::FileLock> {
+    pub(crate) fn tree_lock(&self) -> anyhow::Result<crate::atomic_file::FileLock> {
         Ok(crate::atomic_file::lock_exclusive(&self.root)?)
     }
 
@@ -719,7 +719,11 @@ impl MemoryStore {
         .unwrap_or(0)
     }
 
-    fn write_entry(&self, entry: &MemoryEntry, existing_path: Option<&Path>) -> anyhow::Result<()> {
+    pub(crate) fn write_entry(
+        &self,
+        entry: &MemoryEntry,
+        existing_path: Option<&Path>,
+    ) -> anyhow::Result<()> {
         // D-368:所有条目落盘统一持记忆树锁——围栏窗口内并发写入等锁、窗口结束落盘,
         // 不被误回滚;超过预算则明确报错。
         let _tree_lock = self.tree_lock()?;
@@ -844,7 +848,7 @@ impl MemoryStore {
         fts_ids != file_ids
     }
 
-    fn open_db(&self) -> anyhow::Result<Connection> {
+    pub(crate) fn open_db(&self) -> anyhow::Result<Connection> {
         std::fs::create_dir_all(&self.root)?;
         let conn = Connection::open(self.db_path())?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -1064,28 +1068,6 @@ impl MemoryStore {
     /// 检索命中追踪(观测,R-125):对最终命中的条目 hits+1。
     /// hits 不参与排序(R-150 自增强退役),只作效果画像;由检索门面在
     /// 决策排序完成后调用(纯探测不记,避免污染观测)。
-    pub fn record_hits(&self, ids: &[String]) {
-        // D-368:检索的观测副作用(命中计数)可跳可丢——bash 围栏窗口(持有记忆树锁)
-        // 内直接跳过记录,绝不让一次只读检索把 index.db 改出窗口、被围栏当越界回滚
-        // (那会让 bash 误报 [managed-files],命中计数也照样丢,两边都亏)。可丢性
-        // 成立:hits 是效果画像(观测),不参与排序(R-150 自增强退役)。
-        let Ok(Some(_tree_lock)) = crate::atomic_file::try_lock_exclusive(
-            &self.root,
-            std::time::Duration::from_millis(50),
-        ) else {
-            return;
-        };
-        let Ok(conn) = self.open_db() else { return };
-        let now = now_ms();
-        for id in ids {
-            let _ = conn.execute(
-                "INSERT INTO memory_hits(id, hits, last_hit_at) VALUES (?1, 1, ?2)
-                 ON CONFLICT(id) DO UPDATE SET hits = hits + 1, last_hit_at = ?2",
-                params![id, now],
-            );
-        }
-    }
-
     /// R-165 批2 novelty gate 三档:明显新 → PROPOSE、明显重复 → NOOP、
     /// 不确定 → 才起 LLM 判断(验收④)。
     /// 机械判据:标题规范化精确命中既有 active 记忆 = 明显重复;
@@ -1546,261 +1528,6 @@ impl MemoryStore {
             hit.get_or_insert(entry);
         }
         hit
-    }
-
-    /// 效果画像(R-125):id → (累计命中, 最近命中时间毫秒)。最近命中时间为 0 = 从未命中,
-    /// 前端据此标"长期零命中",这是判断某条记忆该不该留的直接依据。
-    pub fn hit_profile(&self) -> std::collections::BTreeMap<String, (u64, i64)> {
-        let mut out = std::collections::BTreeMap::new();
-        let Ok(conn) = self.open_db() else { return out };
-        let Ok(mut statement) = conn.prepare("SELECT id, hits, last_hit_at FROM memory_hits")
-        else {
-            return out;
-        };
-        if let Ok(rows) = statement.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-            ))
-        }) {
-            for (id, hits, last) in rows.flatten() {
-                out.insert(id, (hits.max(0) as u64, last));
-            }
-        }
-        out
-    }
-
-    /// 命中统计(UI 展示):id → hits。库缺失返回空表(派生物语义)。
-    pub fn hits_map(&self) -> std::collections::BTreeMap<String, u64> {
-        let mut out = std::collections::BTreeMap::new();
-        let Ok(conn) = self.open_db() else {
-            return out;
-        };
-        let Ok(mut statement) = conn.prepare("SELECT id, hits FROM memory_hits") else {
-            return out;
-        };
-        if let Ok(rows) =
-            statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
-        {
-            for row in rows.flatten() {
-                out.insert(row.0, row.1.max(0) as u64);
-            }
-        }
-        out
-    }
-
-    pub fn read_inbox(&self) -> String {
-        std::fs::read_to_string(self.root.join("inbox.md")).unwrap_or_default()
-    }
-
-    /// manager 消化完毕后清空草稿箱(整箱内容已在触发 prompt 里,清空即"已消费")。
-    pub fn clear_inbox(&self) -> anyhow::Result<()> {
-        let path = self.root.join("inbox.md");
-        // R-215 语义不变 + D-368:改用记忆树锁——与 append_note/discard_note 共用
-        // 同一把锁,整箱清空锁内执行避免与并发 append 交错(append 持锁读-拼-写回,
-        // clear 持锁覆盖,不会互吃);同时树锁与 bash 围栏窗口互斥,窗口内清空不被
-        // 围栏误回滚。
-        let _lock = self.tree_lock()?;
-        if path.is_file() {
-            crate::atomic_file::write_atomic(&path, "# Memory Inbox\n")?;
-        }
-        Ok(())
-    }
-
-    /// inbox 草稿箱:主 agent 的唯一写入口(memory_note),manager 在 M2 消化。
-    /// refs 为来源引用(R-070):以 `- refs: R-012 D-044` 行写入草稿,
-    /// manager 消化时经 memory_add 的 refs 参数把引用带进正式条目。
-    pub fn append_note(
-        &self,
-        summary: &str,
-        detail: &str,
-        category_hint: &str,
-        refs: &[String],
-    ) -> anyhow::Result<PathBuf> {
-        std::fs::create_dir_all(&self.root)?;
-        let path = self.root.join("inbox.md");
-        // R-215 语义不变 + D-368:改用记忆树锁——读-拼接-写回整体持锁,并发 append
-        // 各读各的再各自写回时后写者不会覆盖先写者(note 无痕丢失);同时树锁与
-        // bash 围栏窗口互斥,窗口内 memory_note 落盘不被围栏误回滚。
-        let _lock = self.tree_lock()?;
-        let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| "# Memory Inbox\n".into());
-        let refs_line = {
-            let refs: Vec<&str> = refs
-                .iter()
-                .map(|r| r.trim())
-                .filter(|r| !r.is_empty())
-                .collect();
-            if refs.is_empty() {
-                String::new()
-            } else {
-                format!("- refs: {}\n", refs.join(" "))
-            }
-        };
-        text.push_str(&format!(
-            "\n## note {} {}\n- summary: {}\n{}{}",
-            today(),
-            if category_hint.is_empty() {
-                "".to_string()
-            } else {
-                format!("[{category_hint}]")
-            },
-            summary.trim(),
-            refs_line,
-            if detail.trim().is_empty() {
-                String::new()
-            } else {
-                format!("{}\n", detail.trim())
-            },
-        ));
-        crate::atomic_file::write_atomic(&path, &text)?;
-        Ok(path)
-    }
-
-    /// 同一失败指纹是否已投递过草稿(跨轮去重:同一个坑不该每轮都投)。
-    /// inbox 被 manager 清空后指纹随之失效——那时该坑要么已入库、要么被判 NOOP,
-    /// 再次复现时重新投递是正确行为。
-    pub fn note_fingerprint_seen(&self, fingerprint: &str) -> bool {
-        self.read_inbox().contains(fingerprint)
-    }
-
-    /// 解析 inbox 里的待处理草稿(R-124:SOP 候选要能被用户逐条看见并处置)。
-    /// 返回 (分类提示, 摘要行, 明细)。
-    pub fn pending_note_list(&self) -> Vec<(String, String, String)> {
-        let text = self.read_inbox();
-        let mut out = Vec::new();
-        let mut current: Option<(String, String, Vec<String>)> = None;
-        for line in text.lines() {
-            if let Some(head) = line.strip_prefix("## note ") {
-                if let Some((hint, summary, detail)) = current.take() {
-                    out.push((hint, summary, detail.join("\n")));
-                }
-                let hint = head
-                    .split_once('[')
-                    .and_then(|(_, rest)| rest.split_once(']'))
-                    .map(|(h, _)| h.to_string())
-                    .unwrap_or_default();
-                current = Some((hint, String::new(), Vec::new()));
-            } else if let Some(entry) = current.as_mut() {
-                match line.strip_prefix("- summary: ") {
-                    Some(summary) => entry.1 = summary.trim().to_string(),
-                    None if !line.trim().is_empty() => entry.2.push(line.to_string()),
-                    None => {}
-                }
-            }
-        }
-        if let Some((hint, summary, detail)) = current {
-            out.push((hint, summary, detail.join("\n")));
-        }
-        out
-    }
-
-    /// 丢弃一条草稿(按其摘要里的指纹定位)。用户说不要的候选不该再进 manager 的消化范围。
-    pub fn discard_note(&self, fingerprint: &str) -> anyhow::Result<bool> {
-        // R-215 语义不变 + D-368:改用记忆树锁——与 append_note/clear_inbox 共用
-        // 同一把锁,锁内读-改-写回,不会把并发 append 的内容当旧快照覆盖掉;同时
-        // 树锁与 bash 围栏窗口互斥。
-        let _lock = self.tree_lock()?;
-        let text = self.read_inbox();
-        if !text.contains(fingerprint) {
-            return Ok(false);
-        }
-        // 按 `## note` 切块,整块保留或整块丢弃——只删摘要行会留下孤儿明细。
-        let mut kept: Vec<&str> = Vec::new();
-        let mut block: Vec<&str> = Vec::new();
-        let mut in_block = false;
-        let mut removed = false;
-        for line in text.lines() {
-            if line.starts_with("## note ") {
-                if in_block {
-                    if block.iter().any(|l| l.contains(fingerprint)) {
-                        removed = true;
-                    } else {
-                        kept.extend(block.iter());
-                    }
-                    block.clear();
-                }
-                in_block = true;
-            }
-            if in_block {
-                block.push(line);
-            } else {
-                kept.push(line);
-            }
-        }
-        if in_block {
-            if block.iter().any(|l| l.contains(fingerprint)) {
-                removed = true;
-            } else {
-                kept.extend(block.iter());
-            }
-        }
-        let mut next = kept.join("\n");
-        if !next.ends_with('\n') {
-            next.push('\n');
-        }
-        crate::atomic_file::write_atomic(&self.root.join("inbox.md"), &next)?;
-        Ok(removed)
-    }
-
-    pub fn pending_notes(&self) -> usize {
-        std::fs::read_to_string(self.root.join("inbox.md"))
-            .map(|t| t.lines().filter(|l| l.starts_with("## note ")).count())
-            .unwrap_or(0)
-    }
-
-    /// legacy 迁移:R-098 的 .kanzei/project/memory.md(tracker M-条目)→ 一条一文件。
-    /// 幂等:legacy 文件不存在即跳过;迁移后原文件改写为指路牌。
-    fn migrate_legacy(&self, project_root: &Path) {
-        let legacy = project_root
-            .join(".kanzei")
-            .join("project")
-            .join("memory.md");
-        if !legacy.is_file() {
-            return;
-        }
-        let Ok(text) = std::fs::read_to_string(&legacy) else {
-            return;
-        };
-        let entries = crate::docstore::parse(&crate::docstore::MEMORY, &text);
-        if entries.is_empty() {
-            return;
-        }
-        let now = today();
-        for legacy_entry in &entries {
-            if legacy_entry.id.is_empty() {
-                continue;
-            }
-            let body: String = legacy_entry
-                .fields
-                .iter()
-                .map(|(k, v)| format!("- {k}: {v}\n"))
-                .collect();
-            let entry = MemoryEntry {
-                id: legacy_entry.id.clone(),
-                scope: self.scope.label().into(),
-                category: "fact".into(),
-                title: legacy_entry.title.clone(),
-                description: format!("{}(迁移自 memory.md)", legacy_entry.title),
-                status: if legacy_entry.status == "stale" {
-                    "deprecated"
-                } else {
-                    "active"
-                }
-                .into(),
-                created: now.clone(),
-                updated: now.clone(),
-                source: "migration".into(),
-                extras: Vec::new(),
-                body,
-            };
-            let _ = self.write_entry(&entry, None);
-        }
-        let _ = self.refresh_derived();
-        let _ = crate::atomic_file::write_atomic(
-            &legacy,
-            "# Memory\n\n(已迁移至 .kanzei/memory/,由 memory_search 检索;本文件不再使用。)\n",
-        );
     }
 }
 

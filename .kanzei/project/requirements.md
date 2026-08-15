@@ -254,7 +254,7 @@
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 
-## R-255 MemoryStore 收缩回仓储:准入/生命周期/合并/检索/效果画像/收件箱/迁移七域迁出(2073 行生产码) [todo]
+## R-255 MemoryStore 收缩回仓储:准入/生命周期/合并/检索/效果画像/收件箱/迁移七域迁出(2073 行生产码) [doing]
 - refs: R-216 R-195 R-235 R-155 D-366 docs/design/memory_control_plane.md docs/design/monolith_decomposition_round2.md(批次地图:B 节)
 - 为什么是这个形态: 它比 run.rs 更迷惑,因为"都和 memory 有关"看起来内聚——但语义相关不等于同一个抽象。真正的危害在可迭代性:准入(什么有资格成为记忆)、压缩、合并、episodic 到 semantic 固化,是记忆研究里变更最频繁的一层;把它锁在 Repository 私有逻辑里等于让 research policy 与 storage mechanics 强耦合,每做一次记忆实验都要动仓储。
 - 内容: 分三刀,每刀独立可提交可回滚。第一刀(零行为变更,最容易):inbox 一族、migrate_legacy、hit_profile/hits_map 三块迁出成 memory/inbox.rs、memory/migration.rs、memory/telemetry.rs。第二刀:准入策略从 add 提成 MemoryAdmission(枚举校验/description 必填/近似标题判重/refs 契约/subject 不变式/指纹与新颖度),生命周期从 promote/deprecate 提成 MemoryLifecycle(candidate 老化、晋升、清退、provenance 门禁),Store 只接 save/load。第三刀:检索与排序迁进 retrieval 子目录并与 memory/index.rs 收口(见配套缺陷:index 反过来调 store.search 取 BM25,排序有两个落点)。最终 MemoryStore 只剩 load/save/archive/事务原子性。
@@ -265,6 +265,7 @@
 - 边界: 不改记忆的对外语义与 CLI/桌面/工具契约(kz memory、Memory 页、memory 工具一字不动);不动 SQLite schema 与派生索引结构;不趁机改召回排序权重(那是 R-150 系的独立话题,混进来无法归因);不删零调用 pub 方法。
 - 验收: ①store.rs 生产行数 ≤ 600;②准入策略有独立可测入口(不经 add 也能构造场景测),生命周期同理;③检索/排序实现只有一处(机械核验:BM25 与状态加权代码只出现在 retrieval 侧);④memory crate 全量 + workspace 全量绿;⑤召回质量无回归:同一组 query 在拆解前后 top-k 命中集合一致(给出对照,不接受"应该没变");⑥迁出后做一次真实记忆实验(如调准入门槛)只需改 admission 一处,给出 diff 为证。
 - 优先级: P0
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-255
 
 ## R-256 Desktop 与 CLI 共用 RunService:kz main.rs 的第二套 application layer 收敛,两端只剩 EventSink/AskRouter/RuntimePolicy 之差 [todo]
 - refs: R-253 R-254 R-255 R-183 docs/design/monolith_decomposition.md

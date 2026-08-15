@@ -5,9 +5,12 @@
 //! 分级:scope(Global=~/.kanzei/memory, Project=<root>/.kanzei/memory)
 //!     × category(preference/habit/fact/sop;episode 走 state.db 不落文件)。
 
+mod inbox;
 mod index;
 mod manager;
+mod migration;
 mod store;
+mod telemetry;
 mod tools;
 
 pub use index::{IndexHit, IndexQuery, MemoryIndex, RetrievalTiming, SqliteMemoryIndex};
