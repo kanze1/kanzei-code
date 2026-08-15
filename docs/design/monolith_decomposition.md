@@ -179,6 +179,58 @@ S1 拆壳:`store.rs`→`store/mod.rs` 原样改名,`connection`/`path` 字段 `p
 - R-153/R-155 触碰 `crates/kanzei-app/src/`、`crates/kanzei-core/src/`;R-154 触碰 `crates/kanzei-app/ui/*.js`、`index.html` script 区、四个冒烟脚本、deep_parallel_dev.md 一行。
 - 全程零行为变更、零外部契约变更;发布节奏不受影响(任意批次间可发版)。
 
+## F. Desktop 与 CLI 共用 RunService(R-256)
+
+来源:第二轮巨石扫描 R4(收益最大、风险最大,排在三巨头之后)。目的:两端各写一遍
+编排,每加一个运行期能力要改两处,且只有桌面端被真实验证。合并前**先做只读对照**
+——装配步骤逐项比对,漂移的先对齐再合并,不在合并动作里顺手改行为。
+
+对照基准:`crates/kanzei/src/main.rs`(生产码 1378,核心 `run_cli` L335-1043,713 行)
+vs 桌面端 `crates/kanzei-app/src/run/`(R-253 后 assembly/coordinator/execution/
+persistence/events 五域)。
+
+### 装配步骤对照表(2026-08-16 实测)
+
+| # | 装配/运行步骤 | CLI(run_cli) | 桌面(run/) | 判定 |
+|---|---|---|---|---|
+| 1 | 取根 | `main_project_root(explicit_main_root)` L361 | run_prompt 入口解析后显式传 main_root(R-141) | **有意**(CLI 自解析;桌面 IPC 入口一次解析) |
+| 2 | 配置加载+告警 | `load_with_warnings_at_root` + eprintln L363 | 同函数 + `report_config_warnings`(UI) | **漂移**(加载逻辑重复,仅输出端不同) |
+| 3 | profile 解析 | KANZEI_PROFILE env / readonly / default L371 | run_task 参数 profile | **有意**(env vs IPC 参数) |
+| 4 | ResolveCtx 构造 | L377 四字段 | assembly.rs 同结构 | **重复** |
+| 5 | harness 装配 | Base/Dev/Research/**Readonly**/Markdown/Config L385 | build_run_harness:Base/Dev/Research/**FrontendTools/Markdown/Config/TrackerWritePolicy**(+Collaboration) | **漂移**(基础组件重复;两端各有独有组件) |
+| 6 | agent 选择 | `select_agent(KANZEI_AGENT env)` L395 | `select_agent(agent_name 参数)` | **有意**(env vs 参数) |
+| 7 | dev 提示注入 | `resolved_control_prompt` L399 | `append_dev_guidance` + `resolve_work_decision` | **漂移**(两套注入逻辑) |
+| 8 | 模型解析 | `resolve_model_chain(KANZEI_MODEL,None)` L411 | `resolve_model_chain(model_override,None)` | **漂移**(同函数,参数源不同) |
+| 9 | proxy 解析 | KANZEI_PROXY env 覆盖 L418 | `resolve_proxy(&config)` | **漂移**(CLI 有 env 覆盖,桌面无) |
+| 10 | route/client | `build_route` + `LlmClient::new` L427 | 相同 | **重复** |
+| 11 | ToolCtx | `with_work_priority` + `with_identity` L435 | 同(R-141 两键) | **重复** |
+| 12 | RunnerConfig | 手写 L449(recall/execution_policy/ask_policy/halt) | `build_runner_config`(同字段+reasoning_override) | **漂移**(两个构造函数,字段重复) |
+| 13 | session/输入准入 | `create_session`/`admit_input`/`promote_next_queue` L474 | `create_session`/`admit_input`/`promote_next_input` | **漂移**(核心重复;两个 promote 名待核是否同义) |
+| 14 | typed writer | `TypedSessionWriter` + 250ms flush task L516 | 同(R-241 共用契约) | **重复**(契约已共用) |
+| 15 | prior 恢复 | `latest_event` + `filter_message_history` L538 | `conversation::recover_messages` | **漂移**(两套恢复逻辑) |
+| 16 | subagent runtime | 内联 L743 | `build_subagent_runtime`(execution.rs) | **重复**(几乎逐字节:fast/compact/primary/tier/max_tokens) |
+| 17 | 事件汇 | 终端 `on_event` L557(逐行转印) | `build_event_handler`(UiEventSink/TypedEventSink/TraceSink/MetricsSink) | **有意差异=EventSink 注入点** |
+| 18 | 询问路由 | 终端 `ask` L676(交互读 stdin + 非交互策略 R-183) | `build_ask_handler`(UI + pending asks 表) | **有意差异=AskRouter 注入点** |
+| 19 | 记忆预检索 | `prompt_hints` L815 | run_execution_loop 内同函数 | **重复**(共用) |
+| 20 | run_once | 直调 `run_once` L841 | `run_execution_loop`(含 scout/复核流水线) | **漂移**(CLI 无流水线;桌面有) |
+| 21 | Ctrl-C/停止 | `tokio::select! ctrl_c` → `finalize_interrupt` L855 | halt_token(协作式停止) | **有意**(CLI 信号 vs 桌面 token=RuntimePolicy 注入点) |
+| 22 | 轮末落库 | 内联 set_status/append_event/conversation.updated/shadow L874 | `persist_round_outcome` + `finalize_round` | **漂移**(核心重复;episode/harvest 共用但状态/事件写两套) |
+| 23 | 轮末采集 | `harvest_end_of_run` L947 | persist 内同函数 | **重复**(共用) |
+| 24 | episode 落库 | `append_episode` L971 | persist 内同 | **重复**(共用) |
+| 25 | inbox 整理/candidate | `consolidate_memory_inbox`/`reconcile_candidates` L1002 | persist 内同 | **重复**(共用) |
+| 26 | backlog 提示 | `backlog_status` → stderr 提示 L1029 | finalize 后 → auto_action payload | **有意**(CLI 提示 vs 桌面 payload) |
+
+### 判定汇总
+
+- **重复(可直接共用,合并零风险)**:4 ResolveCtx、10 route/client、11 ToolCtx、14 typed writer、16 subagent runtime、19 记忆预检索、23-25 轮末采集/episode/candidate 处置。
+- **漂移(需先对齐再合并)**:2 配置告警、5 harness 装配、7 dev 提示、8 模型解析、9 proxy、12 RunnerConfig、13 session 准入、15 prior 恢复、20 run_once、22 轮末落库——其中 5/7/12/22 是两端各写一套的完整重复,合并时逐项对齐后再收进 RunService。
+- **有意差异(保留,收敛为三个注入点)**:17 事件汇→EventSink(UI vs 终端)、18 询问路由→AskRouter(UI 表 vs stdin+非交互策略)、21 停止→RuntimePolicy(桌面 halt_token vs CLI ctrl_c),外加 1/3/6/26 的输入源差异(env/IPC 参数)保持调用方传参。
+
+### 下一步(批次)
+
+- 批2:漂移项对齐(5/7/12/22 先逐字对齐再抽),抽 RunService 单一编排入口;两端差异收敛为 EventSink/AskRouter/RuntimePolicy 三注入点。
+- 批3:CLI main.rs 其余命令(replay_eval/tracker/work/config/lock/worktree)各自成模块,main.rs 收敛为命令分发+装配(验收③ ≤500)。
+- 批4:双端真实闭环(验收②)+ 全量验证(验收⑤)+ 机械核验(验收①)+ close。
 ## 变更记录
 
 - 2026-08-09 初版:三份结构探查(逐文件通读+外部引用 Grep)汇总成批次计划,交自举执行。

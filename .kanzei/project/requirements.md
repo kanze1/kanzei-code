@@ -217,7 +217,7 @@
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 
-## R-256 Desktop 与 CLI 共用 RunService:kz main.rs 的第二套 application layer 收敛,两端只剩 EventSink/AskRouter/RuntimePolicy 之差 [todo]
+## R-256 Desktop 与 CLI 共用 RunService:kz main.rs 的第二套 application layer 收敛,两端只剩 EventSink/AskRouter/RuntimePolicy 之差 [doing]
 - refs: R-253 R-254 R-255 R-183 docs/design/monolith_decomposition.md
 - 为什么是这个形态: 两端各写一遍编排的直接代价是 每加一个运行期能力就要改两处,而且只有一处会被真正验证(桌面端有人用、CLI 靠自举跑);R-183 的非交互放行、R-186 的越界回滚、记忆召回这些都落在编排层,双份实现会持续漂移。把 main.rs 切成 8 个文件解决不了这个,共用 service 才能。
 - 内容: ①抽出 RunService(或等价的单一编排入口),桌面 run_prompt 与 CLI run 都只调它;②两端差异收敛成三个注入点——事件汇(UI EventSink vs 终端 EventSink)、询问路由(交互 AskRouter vs 非交互 AskRouter)、运行策略(桌面 RuntimePolicy vs CLI RuntimePolicy);③CLI 侧剩下的 replay eval / memory manager / tracker / work / config / lock / worktree 各自成模块,main.rs 收敛为命令分发 + 装配;④先做只读对照:把两边的装配步骤逐项列表比对,差异逐条判定是 有意的 还是 漂移的,漂移的先对齐再合并——不要在合并动作里顺手改行为。
@@ -228,6 +228,13 @@
 - 边界: 排在 R-253/R-254/R-255 之后,前三条未稳定前不动(边界还在漂就合不出正确的公共面);不改 CLI 命令面与桌面 IPC 面;不引入新的运行期能力;合并过程中发现的行为差异一律登记为独立缺陷,不在本条顺手改。
 - 验收: ①harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once 只有一处实现(机械核验:grep 只剩一个装配点);②桌面端与 CLI 各跑一次真实闭环(改代码→跑测试→提交)无回归;③kz main.rs 生产行数 ≤ 500;④第③步的漂移对照表落进设计文档,逐条给出 有意/漂移 判定;⑤workspace 全量绿 + 前端冒烟绿。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-256
+- 批次: 1/4
+- 现状(2026-08-16 实测复核): crates/kanzei/src/main.rs 总 2330 行、生产码 1378。核心 run_cli(L335-1043,713 行)自带 harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once/Ctrl-C/落库,与桌面 run/ 模块概念重复;另有 replay_eval/tracker/work/config/lock/worktree 命令适配层。
+- 进展: 批1 完成(只读对照,零代码改动):run_cli 713 行逐段通读,与桌面 run/ 五域(assembly/coordinator/execution/persistence/events)逐项比对,26 项装配步骤对照表已落进 docs/design/monolith_decomposition.md 新章节 F(验收④)。判定汇总:重复 9 项(ResolveCtx/route+client/ToolCtx/typed writer/subagent runtime/记忆预检索/轮末采集/episode/candidate 处置,可直共);漂移 10 项(配置告警/harness 装配/dev 提示/模型解析/proxy/RunnerConfig/session 准入/prior 恢复/run_once/轮末落库,需先对齐再合并,其中 harness/RunnerConfig/轮末落库是两端各写一套的完整重复);有意差异 7 项收敛为三注入点(EventSink=终端 vs UI、AskRouter=stdin+非交互策略 vs UI 表、RuntimePolicy=ctrl_c vs halt_token)+ 输入源差异(env/IPC 参数)。批2 下一步:漂移项对齐(harness 装配/RunnerConfig/轮末落库先逐字对齐),抽 RunService 单一编排入口,两端差异收敛为三注入点;批3 CLI 命令模块化+main.rs≤500;批4 双端闭环+全量+close。
+- observed_head: 8ffa9b9bac0b72f3e5f926fb08fa5941257333e5
+- observed_worktree_hash: fnv1a64:01b4f5629bac2580
+- recorded_at: 1786799987408
 
 ## R-257 第二梯队模块化:drive.rs(1826)/docstore.rs(1417)/git.rs(1257)/harness config.rs(1218) 按域切分 [todo]
 - refs: R-155 R-202 R-204 R-253 R-257 docs/design/monolith_decomposition.md
