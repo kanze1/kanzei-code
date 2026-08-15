@@ -189,7 +189,7 @@
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 
-## R-264 前端迁移原生 ESM(勘察已完成,方案见 docs/design/ui_esm_migration.md) [todo]
+## R-264 前端迁移原生 ESM(勘察已完成,方案见 docs/design/ui_esm_migration.md) [doing]
 - refs: docs/design/ui_esm_migration.md R-142 R-154
 - 优先级: P3
 - 复杂度: 大
@@ -200,6 +200,12 @@
 - 边界: 不删 vendor/monaco/basic-languages(独立决策,与本条无关);不引入打包器/TypeScript;不借机重构业务逻辑,迁移期间只改模块边界。
 - 来源: 2026-08-15 用户提出「前端改成打包呢」。勘察(21 文件逐文件审计 + index.html 专项 + 外部依赖专项)结论:前端本身不是障碍(587 个真顶层符号、零重名冲突、零内联事件处理器),阻塞全在测试 harness——ui-runtime-smoke.mjs 的 6799 行断言建立在 vm.runInContext 逐文件跑经典脚本之上,ESM 下整体作废;且 ui-sources.mjs 修好正则后会出现「三个冒烟静默变绿」的失效模式。同轮用户问「做了对自举有收益吗」,结论是没有:ESM 不影响 cargo 任何耗时,前端六个冒烟合计约 4 秒;唯一收益(模型读代码时 import 自带溯源)已被 20467db 修好白名单后大体覆盖。故降为 P3 留档。
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-264
+- 批次: 1/4
+- 进展: 批1(B1)完成:scripts/ui-sources.mjs 重写——loadUiSources 不再解析 index.html 取 <script src>(ESM 单入口下会静默退化),改为遍历 ui/*.js 全目录按名排序,scriptSrcs 保留为相对文件名清单兼容旧签名;加 MIN_UI_FILES=20 文件数下限断言(低于即抛错,防清单静默退化);实测 21 文件/joined 528KB,四个依赖冒烟(runtime/a11y/i18n/markdown)全绿。批2:B2 runtime-smoke 执行模型重建 + B3 __kzTest export;批3:21 文件逐文件迁移;批4:删补偿机制+eslint module+close。
+- observed_head: 4cdf6b72501402ab79f935a34d283ff903557c4f
+- observed_worktree_hash: fnv1a64:44c13b8ecb647c83
+- recorded_at: 1786819998197
 
 ## R-266 workspace crate 清单与 README 项目结构表机械同步 [todo]
 - refs: R-258

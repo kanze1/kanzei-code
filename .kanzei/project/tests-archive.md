@@ -4191,3 +4191,10 @@
 - 摘要: R-246 批5 关闭前全量(复杂度大):workspace 15 段全 ok(kanzei 37+31、kanzei-app 169、core 207、tools 279、memory 139 等),零失败;R-174/R-180 既有测试保持通过(验收⑦)。
 - 关联: R-246
 - 收尾: 1786819875
+
+## T-1786820034 verify.ps1 六条前端冒烟 (R-264 B1) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: R-264 批1(B1 ui-sources 重写)提交背书:verify.ps1 六条前端冒烟全绿(ui-runtime 21 文件/ui-lint 608 标识符/parallel-lines/a11y/i18n 157 key/markdown),ui-sources 遍历目录+MIN_UI_FILES=20 下限生效。
+- 关联: R-264
+- 收尾: 1786820034
+- 源码指纹: 31a87ca8e4b4ddf3
