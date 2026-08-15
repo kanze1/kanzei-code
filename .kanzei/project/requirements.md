@@ -247,11 +247,11 @@
 - 验收: ①对 crates/kanzei-tools/src/tracker.rs 报生产 660 行而非 3253;②对 crates/kanzei-app/src/run.rs 报生产 2885 行;③对 crates/kanzei-app/src/processes.rs 报生产 1628 行(验证 cfg(test) 块识别正确,不被 L468 的外挂测试模块声明骗过);④输出全仓 Top-20 榜单,drive.rs 出现在前五;⑤conventions 文本落地且 grep 单一来源;⑥基线快照可被后续拆解条目引用做前后对照。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-258
-- 批次: 0/2
-- 进展: 批1:度量工具实现+测试;批2:全仓榜单+conventions+基线快照+close。勘察结论:验收②③引用的 run.rs/processes.rs 已被 R-253/R-254 拆解消失,验收基准文件过时——本批用现存同类形态验证算法(tracker.rs L17-18 `#[cfg(test)] mod scheduling_tests;` 外挂声明 + L712 内联测试块),并在验收证据里说明基准迁移。
-- observed_head: 68a2232c3d5bc3ca8f663deb9de72c09b17454b0
-- observed_worktree_hash: fnv1a64:f942ffb698473c93
-- recorded_at: 1786808839775
+- 批次: 2/2
+- 进展: 批2 完成:①conventions §9.2 新增「巨石度量与阈值」(R-258):kz metrics 入口说明、阈值(生产>1200 巨石、>7参函数≥4 失控、最大函数>400 函数巨石)、超阈值动作=登记拆解条目不阻塞提交、基线快照落点(grep 单一来源);②基线快照 docs/design/metrics_baseline.md(2026-08-16,kz metrics --top 30 全仓 193 文件 Top-30 榜单+读数:巨石 9 个、drive.rs 6 处 >7参、最大函数 drive.rs 516/profiles.rs 524/cli-run.rs 637、tracker.rs 生产 712 对照验收①基准);③architecture 索引登记 metrics_baseline.md 并补齐历史缺失 9 文档(33 链接全验证)。验收⑤conventions 落地 ✅、验收⑥基线快照 ✅。
+- observed_head: 2463c3aa72c5b6af7d08d74bfd0bd1a9a95458ab
+- observed_worktree_hash: fnv1a64:7b3e1ac4436c3d60
+- recorded_at: 1786809420529
 
 ## R-259 pipeline Wrap 阶段收敛:timeout/cancellation/progress 只在 wrapper 实现一处(R-244 残余) [todo]
 - refs: R-244

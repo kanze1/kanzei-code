@@ -57,5 +57,10 @@
 - **发布树(worktree)**:发布统一从 `C:\Users\kanzei\Documents\kanzei-release`(`git worktree`,跟踪 main)执行:`git -C <发布树> pull` 后跑其中的 `package.ps1 -Publish`——与 dev 工作树完全隔离,发布时不需要 stash/打断正在进行的开发。**提交了不等于发布了**:安装版用户只认 Releases,合并 main 后记得发布。
 - **Release 标签与保留规范**:tag = `build-<short-hash>`,标题 `kanzei <日期> (<hash>)`;公开 Releases 只保留最新稳定版及其安装器,旧 Release 对象与资产发布新版后清理,对应 Git tags 与提交历史保留用于审计和恢复。
 - **产物卫生**:`dist/` 只保留最新安装器,`dist/`、`target/`、安装器一律不入库。
+### 9.2 巨石度量与阈值(R-258)
+
+- **度量入口**:`kz metrics [--top N]`——按文件输出 总行数/生产行数/测试行数/函数数/最大函数行数/参数>7 处数,全仓 Top-N 榜单。生产行数 = 总行数 − cfg(test) 块行数(cfg(test) 块按大括号配平识别;外挂声明 `#[cfg(test)] mod x;` 不算测试块;`_tests.rs` 后缀与 `tests/` 目录的外挂测试文件整文件算测试行)。
+- **阈值(超了必须登记条目,不自动拒绝提交)**:生产行数 > 1200 视为巨石;单文件参数 > 7 的函数 ≥ 4 处视为参数失控;最大函数行数 > 400 视为函数巨石。超阈值动作 = 在需求/缺陷里登记拆解条目(如「R-xxx 拆解」),不阻塞当前提交(自用工具,威胁模型里没有敌对模型,防线放可见性不放闸门)。
+- **基线快照**:每次发布前跑一次 `kz metrics --top 30`,把榜单落进 `docs/design/metrics-baseline.md`(或随拆解条目进展更新),供后续拆解前后对照。
 
 

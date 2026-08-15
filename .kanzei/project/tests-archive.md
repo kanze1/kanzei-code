@@ -4027,3 +4027,9 @@
 - 关联: R-258
 - 收尾: 1786809323
 - 源码指纹: 32e148b8e8a234e4
+
+## T-1786809483 cargo test --workspace (R-258 批2 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-258 批2 关闭前全量(复杂度中):workspace 15 段全 ok(kanzei 37+31、kanzei-app 169、kanzei-tools 270、kanzei-harness 199 等),零失败。
+- 关联: R-258
+- 收尾: 1786809483
