@@ -4086,3 +4086,9 @@
 - 关联: R-265
 - 收尾: 1786815313
 - 源码指纹: e751317984c55f7b
+
+## T-1786815425 cargo test --workspace (R-265 批3 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-265 批3 关闭前全量(复杂度中):workspace 15 段全 ok(kanzei 37+31、kanzei-app 169、harness 199、core 147、memory 139、tools 279 等),零失败。
+- 关联: R-265
+- 收尾: 1786815425

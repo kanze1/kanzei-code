@@ -235,24 +235,6 @@
 - observed_worktree_hash: fnv1a64:2c14aeaf67acb614
 - recorded_at: 1786815183926
 
-## R-265 symbols 加「符号名 → 定义位置」反查,穿透跨 crate re-export [doing]
-- refs: R-234
-- 优先级: P2
-- 复杂度: 中
-- 标签: harness 流程
-- 内容: symbols 现在只能「给定文件 → 列符号」与「给定符号 → 列引用点(callers)」,缺第三问「这个符号定义在哪」。新增 define 参数:输入裸名或限定路径(crate::atomic_file::try_lock_exclusive),全树按名精确命中后再解释模块路径为何对不上。**跨 crate re-export 是核心情形不是边角**,要吃下三型:①模块整体跨 crate 再导出(kanzei-tools/src/lib.rs:6 pub use kanzei_base::atomic_file);②带 as 改名(lib.rs:43/:45 pub use background::kill_process as kill_background_processes_for_process——搜新名时定义名根本不叫这个);③跨行花括号列表(tracker.rs:25-29)。配套需要 crate ident → 源码目录映射(读 workspace members 的 [package].name,`-`→`_`),toml 依赖已有不新增。
-- 为什么是这个形态: 不新建工具。symbols 已注册进主代理 BaseComponent 与勘察子代理 SubagentBase,并有三处「只读快照 6 件套」硬断言(subagent.rs:170、parallel_scouting_under_serial_writer.rs:169、state_tests.rs:141);新建工具要动这些加 explore_agent 的工具清单,纯收税且与列表模式共享 90% 解析代码,拆开后两份解析器迟早漂移。callers(R-234 B2)已确立「symbols 是符号查询入口」,define 是同族第三问。
-- 边界: 不引入 syn 等语法解析依赖(与 R-154 轻量哲学一致,行级扫描够用);不做 IDE 级跳转;模块路径只参与输出解释、不参与命中判定——事故成因正是「按路径字面解析→扑空」。
-- 来源: 2026-08-15 自举勘察实测事故:agent 在 managed.rs:299 看到 `crate::atomic_file::try_lock_exclusive`,按字面去 crates/kanzei-tools/src/atomic_file.rs 找,扑空;真实定义在 crates/kanzei-base/src/atomic_file.rs:256,kanzei-tools 只是 lib.rs:6 再导出。同轮另修两个前置缺陷(关键字词边界假符号、表头无条件入队把命中埋掉,见提交 a26df63)——那两个不修,反查会直接给出错误答案。
-- 验收: ①`symbols` 传 define=try_lock_exclusive 能定位到 crates/kanzei-base/src/atomic_file.rs 并给出经 kanzei-tools/src/lib.rs:6 的再导出链;②对 as 改名(kill_background_processes_for_process)能回落原名找到定义;③对跨行花括号再导出(tracker.rs:25-29)不漏;④define 与 callers 同时给出时显式报错而非静默取其一;⑤输出带上限与「已截断」提示,与 grep 的 DEFAULT_LIMIT 口径一致(现 callers 无上限,`callers: "self"` 能灌上万行);⑥description 的 Params 补齐 define 与 callers(callers 自 B2 起就没进描述)。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-265
-- 批次: 2/3
-- 进展: 批2 完成:crate ident→源码目录映射(crate_ident_to_dir 读 workspace members 的 [package].name,`-`→`_`,只收 [workspace] 段内 members 引号行);限定路径 define(如 kanzei_tools::helper)输出该 crate 源码目录提示(不参与命中判定,只解释路径)。2 新单测全绿(crate 映射下划线 ident→目录、限定路径提示),symbols 共 11 测试全绿。批3:workspace 全量 + close。
-- observed_head: ae0dd2d7c5049b97cc510807377d94f9b6f865ee
-- observed_worktree_hash: fnv1a64:5e31a9e59ca9cfcc
-- recorded_at: 1786815230454
-- 阻塞: 2026-08-16 park(用户指示,零损失):默认线的唯一 WIP 槽改由 R-195 接管。本条是引擎在 addd88f 之后按「无可执行 WIP」自动取的活,批次 0/3、尚未动手,park 不丢任何工作。同线另有 R-186/R-216/R-249 三条前提已达成的条目一并排队(见各自阻塞字段);R-257 由 worktree 线 thread-line-1786805363432-1 持有,属他线 WIP,不占默认线槽位。解除动作: R-195 关闭后按队列自然取回本条(P2)。解除人: 依赖自然解除。
-
 ## R-264 前端迁移原生 ESM(勘察已完成,方案见 docs/design/ui_esm_migration.md) [todo]
 - refs: docs/design/ui_esm_migration.md R-142 R-154
 - 优先级: P3
