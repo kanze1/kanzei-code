@@ -24,7 +24,7 @@ use super::assembly::{assemble_run, RoundRequest, RunAssembly, RunMode, RuntimeH
 use super::events::{
     build_ask_handler, build_event_handler, MetricsSink, TraceSink, TypedEventSink, UiEventSink,
 };
-use super::execution::{build_subagent_runtime, run_execution_loop};
+use super::execution::run_execution_loop;
 use super::persistence::{
     finalize_round, persist_round_outcome, FinalizeOutcome, FinalizeRound, FinalizeSession,
     RoundReport,
@@ -155,14 +155,19 @@ pub(crate) async fn run_task(
     // **无条件构造**(2026-08-11 用户定调):模型自己派 `task` 这条路永远开着,不受
     // 「勘察复核」开关控制。构造与 prior 恢复无数据依赖(顺序互换行为不变,失败
     // 同样提前终止本轮),故先构造再进 run_execution_loop。
-    let subagent_rt = build_subagent_runtime(
+    // task 子代理运行时:R-256 与 CLI 共用 kanzei_tools::run::build_subagent_runtime,
+    // 桌面差异(登记读槽 R-171 批6、单条停止注册表 R-174)经参数注入。
+    let subagent_rt = kanzei_tools::run::build_subagent_runtime(
         &deps.rctx,
         &deps.config,
         &deps.proxy,
         &deps.resolved,
         &deps.route,
-        &handles.coordinator,
-        handles.task_cancellations.clone(),
+        Some(Arc::clone(&handles.coordinator)
+            as Arc<
+                dyn kanzei_harness::orchestration::ProjectExecutionCoordinator,
+            >),
+        Some(handles.task_cancellations.clone()),
     )
     .await?;
 

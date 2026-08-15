@@ -28,10 +28,11 @@ anyhow.workspace = true
 tracing.workspace = true
 similar.workspace = true
 toml.workspace = true
+kanzei-core.workspace = true
 
-# R-203:生产依赖已移除 kanzei-core(验收①)。write.rs 的 runner 集成测试要驱动
-# 完整 runner(run_once/AskPolicy),且 write 模块是私有(mod write)、测试用私有
-# 函数 diff_display,无法外迁到 kanzei 集成测试——仅此测试需要 core,留在 dev。
+# R-203:生产依赖曾移除 kanzei-core(验收①)。R-256:运行装配公共层(run.rs 的
+# RunnerConfig/SubagentRuntime 构造)需要 core 类型,提升为普通依赖(方向
+# core←tools 单向,无循环);write.rs 的 runner 集成测试仍需要 core,保留 dev 引用。
 [dev-dependencies]
 kanzei-core.workspace = true
 

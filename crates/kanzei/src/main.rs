@@ -446,28 +446,16 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             ),
             "cli".into(),
         );
-    let runner_config = RunnerConfig {
-        model: resolved.model.clone(),
-        max_tokens: config.limits.max_tokens(),
-        reasoning: config
-            .models
-            .reasoning
-            .as_deref()
-            .map(kanzei_llm::ReasoningEffort::parse)
-            .unwrap_or_default(),
-        service_tier: config.service_tier_for(&resolved),
-        // 轮内主动压缩的预算基准(D-176)。
-        context_limit: resolved.provider.context_limit,
-        limits: config.limits.clone(),
-        // R-162 事件触发召回:工具失败瞬间注入相关记忆 Packet(验收⑤ CLI 侧)。
-        recall: Some(Box::new(kanzei_tools::memory::FailureRecallPolicy::new(
-            &ctx.project_root,
-        ))),
-        // R-171:CLI 单运行实例用默认策略;桌面端多进程场景才启用串行写。
-        execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
-        ask_policy: kanzei_core::AskPolicy::Interactive,
-        halt: None,
-    };
+    // R-256:RunnerConfig 构造与桌面共用 kanzei_tools::run::build_runner_config(对照表 #12)。
+    // CLI 无 reasoning 覆盖(取配置默认)、交互式询问、无停止令牌。
+    let runner_config = kanzei_tools::run::build_runner_config(
+        &resolved,
+        &config,
+        None,
+        &ctx.project_root,
+        kanzei_core::AskPolicy::Interactive,
+        None,
+    );
 
     let session_id = kanzei_core::project_session_id(&ctx.project_root);
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
@@ -739,74 +727,12 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         Box::pin(async move { response })
     };
 
-    // task 子代理运行时:独立只读快照;fast 角色缺席时两个档位都退回主模型。
-    let subagent_rt = {
-        let mut sub_harness = Harness::default();
-        sub_harness
-            .add(kanzei_tools::SubagentBase)
-            .add(ConfigComponent);
-        let sub_snapshot = sub_harness.resolve(&rctx)?;
-        let fast = match config.resolve_model("fast") {
-            Ok(r) => (kanzei_core::build_route(&r, &proxy).await)
-                .ok()
-                .map(|fr| (fr, r.model.clone(), config.service_tier_for(&r))),
-            Err(_) => None,
-        };
-        let primary_tier = config.service_tier_for(&resolved);
-        let fast_tier = fast
-            .as_ref()
-            .map(|(_, _, tier)| tier.clone())
-            .unwrap_or_else(|| primary_tier.clone());
-        // R-236 B3:压缩纪要模型——[models].compact 显式配置才建独立路由;
-        // 缺省传 None,运行时回落主模型(digest_model),少建一条重复路由。
-        let compact = match config
-            .models
-            .compact
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            Some(_) => match config.resolve_model("compact") {
-                Ok(r) => (kanzei_core::build_route(&r, &proxy).await)
-                    .ok()
-                    .map(|cr| (cr, r.model.clone(), config.service_tier_for(&r))),
-                Err(_) => None,
-            },
-            None => None,
-        };
-        kanzei_core::SubagentRuntime {
-            snapshot: sub_snapshot,
-            agent: kanzei_tools::explore_agent(),
-            fast: fast
-                .map(|(r, m, _)| (r, m))
-                .unwrap_or_else(|| (route.clone(), resolved.model.clone())),
-            primary: (route.clone(), resolved.model.clone()),
-            fast_service_tier: fast_tier,
-            primary_service_tier: primary_tier,
-            compact,
-            max_tokens: config.limits.subagent_max_tokens(),
-            // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
-            timeout_secs: config.limits.subagent_timeout_secs(),
-            limits: config.limits.clone(),
-            // R-171 批6:CLI 单运行不参与共享仲裁,不登记读槽。
-            coordinator: None,
-            // R-176 B2:CLI 单运行的 task 子代理只读勘察,不启用可写档位。
-            writable: false,
-            ask_router: None,
-            change_log: None,
-            // R-174:CLI 单运行无前端停止按钮,不挂取消注册表。
-            cancellations: None,
-            // R-175:CLI 单运行保持轮内等齐语义,不开后台模式。
-            background: false,
-            // R-175 B1b:CLI 单运行无后台结果暂存。
-            background_results: None,
-            // R-175 B2:CLI 单运行不落后台生命周期事件。
-            background_events: None,
-            // R-175 B3:CLI 单运行不启用 transcript 续跑。
-            transcripts: None,
-            // R-175 B4:CLI 单运行不发后台通知。
-            background_notifications: None,
-        }
-    };
+    // task 子代理运行时:R-256 与桌面共用 kanzei_tools::run::build_subagent_runtime(对照表
+    // #16);CLI 单运行不参与共享仲裁(R-171 批6)、无前端停止按钮(R-174),传 None/None。
+    let subagent_rt = kanzei_tools::run::build_subagent_runtime(
+        &rctx, &config, &proxy, &resolved, &route, None, None,
+    )
+    .await?;
 
     // 开跑预检索(R-106):prompt 命中既有记忆时前置提示块(只给索引行)。
     // D-185:提示块不再拼进 prompt,改由 run_once 作为本轮 system 一次性注入——
@@ -848,7 +774,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             &run_prompt,
             memory_hints.as_deref(),
             &prior,
-            Some(&subagent_rt),
+            subagent_rt.as_ref(),
             &mut on_event,
             &mut ask,
         ) => result,

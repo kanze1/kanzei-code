@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use kanzei_core::{run_once_with_parts, AskFuture, RunEvent};
-use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ResolveCtx, ToolCtx};
+use kanzei_harness::ToolCtx;
 
 use super::assembly::{RoundContext, RuntimeDeps};
 
@@ -44,85 +44,6 @@ pub(crate) struct ReviewExec<'a> {
     pub(crate) prompt: &'a str,
     pub(crate) subagent_rt: Option<&'a kanzei_core::SubagentRuntime>,
     pub(crate) stage: &'a (dyn Fn(&str, String) + Sync),
-}
-
-/// 装配 task 子代理运行时(原 run.rs build_subagent_runtime)。
-pub(crate) async fn build_subagent_runtime(
-    rctx: &ResolveCtx,
-    config: &KanzeiConfig,
-    proxy: &kanzei_llm::ProxyConfig,
-    resolved: &kanzei_harness::config::ResolvedModel,
-    route: &kanzei_llm::Route,
-    coordinator: &Arc<kanzei_core::orchestration::MemoryCoordinator>,
-    task_cancellations: Arc<kanzei_core::TaskCancellations>,
-) -> anyhow::Result<Option<kanzei_core::SubagentRuntime>> {
-    let mut sub_harness = Harness::default();
-    sub_harness
-        .add(kanzei_tools::SubagentBase)
-        .add(ConfigComponent);
-    let sub_snapshot = sub_harness.resolve(rctx)?;
-    let fast = match config.resolve_model("fast") {
-        Ok(r) => (kanzei_core::build_route(&r, proxy).await)
-            .ok()
-            .map(|fr| (fr, r.model.clone(), config.service_tier_for(&r))),
-        Err(_) => None,
-    };
-    let primary_tier = config.service_tier_for(resolved);
-    let fast_tier = fast
-        .as_ref()
-        .map(|(_, _, tier)| tier.clone())
-        .unwrap_or_else(|| primary_tier.clone());
-    // R-236 B3:压缩纪要模型——[models].compact 显式配置才建独立路由;
-    // 缺省传 None,运行时回落主模型(digest_model),少建一条重复路由。
-    let compact = match config
-        .models
-        .compact
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        Some(_) => match config.resolve_model("compact") {
-            Ok(r) => (kanzei_core::build_route(&r, proxy).await)
-                .ok()
-                .map(|cr| (cr, r.model.clone(), config.service_tier_for(&r))),
-            Err(_) => None,
-        },
-        None => None,
-    };
-    Ok(Some(kanzei_core::SubagentRuntime {
-        snapshot: sub_snapshot,
-        agent: kanzei_tools::explore_agent(),
-        fast: fast
-            .map(|(r, m, _)| (r, m))
-            .unwrap_or_else(|| (route.clone(), resolved.model.clone())),
-        primary: (route.clone(), resolved.model.clone()),
-        fast_service_tier: fast_tier,
-        primary_service_tier: primary_tier,
-        compact,
-        max_tokens: config.limits.subagent_max_tokens(),
-        // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
-        timeout_secs: config.limits.subagent_timeout_secs(),
-        limits: config.limits.clone(),
-        // R-171 批6:task 子代理登记读槽(并行查身份可见,结束自动释放)。
-        coordinator: Some(Arc::clone(coordinator)
-            as Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>),
-        // R-176 B2:主对话的 task 子代理是只读勘察/复核——不启用可写档位。
-        writable: false,
-        ask_router: None,
-        change_log: None,
-        // R-174:主对话 run 持单条停止注册表,stop_task 命令按 id 命中取消。
-        cancellations: Some(task_cancellations),
-        // R-175:桌面端主对话本轮保持等齐语义;后台模式由 phase_pipeline
-        // (编排角色)开启——run.rs 是用户直连对话,不后台化。
-        background: false,
-        // R-175 B1b:主对话无后台结果暂存。
-        background_results: None,
-        // R-175 B2:主对话无后台生命周期事件落库(仅编排角色后台化时开)。
-        background_events: None,
-        // R-175 B3:主对话不后台化,不启用 transcript 续跑。
-        transcripts: None,
-        // R-175 B4:主对话不后台化,不发后台通知。
-        background_notifications: None,
-    }))
 }
 
 /// R-202 批2:run_task 的事件循环段(原 run_task :1043-1188)——会话恢复 → 附件提示 →

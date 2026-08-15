@@ -25,6 +25,7 @@ mod managed;
 mod process;
 mod question;
 mod read;
+pub mod run;
 mod shell;
 pub mod test_record;
 mod todowrite;

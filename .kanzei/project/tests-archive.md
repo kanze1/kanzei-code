@@ -3936,3 +3936,18 @@
 - 关联: D-371
 - 收尾: 1786799800
 - 源码指纹: 415c71ec37526ba7
+
+## T-1786800899 R-256 B2 公共装配层(kanzei-app 166 + kanzei 61 + tools 269) [passed]
+- 命令: cargo test -p kanzei-app; cargo test -p kanzei; cargo test -p kanzei-tools
+- 时长: 48.0s
+- 摘要: R-256 B2 公共装配层:kanzei-app 166 + kanzei 30/31 + tools 269 全绿,clippy workspace 零警告
+- 关联: R-256
+- 收尾: 1786800909
+
+## T-1786800989 cargo test -p kanzei-app -p kanzei (R-256 B2 fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-app -p kanzei
+- 时长: 14.0s
+- 摘要: R-256 B2 fmt 后复测:kanzei-app 166 + kanzei 61 全绿
+- 关联: R-256
+- 收尾: 1786800989
+- 源码指纹: 38df2cec5b226f47

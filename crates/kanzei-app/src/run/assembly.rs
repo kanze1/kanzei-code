@@ -231,7 +231,8 @@ pub(crate) async fn assemble_run(
     let client = new_llm_client(&proxy)?;
     let ctx = ToolCtx::new(cwd.clone(), project_root.clone())
         .with_work_priority(crate::auto_run::work_priority_enum(work_priority));
-    let runner_config = build_runner_config(
+    // R-256:RunnerConfig 构造与 CLI 共用 kanzei_tools::run::build_runner_config(对照表 #12)。
+    let runner_config = kanzei_tools::run::build_runner_config(
         &resolved,
         &config,
         mode.reasoning_override.as_deref(),
@@ -584,36 +585,6 @@ impl Drop for WriterLeaseTrace {
     }
 }
 
-pub(crate) fn build_runner_config(
-    resolved: &kanzei_harness::config::ResolvedModel,
-    config: &kanzei_harness::config::KanzeiConfig,
-    reasoning_override: Option<&str>,
-    project_root: &std::path::Path,
-    ask_policy: kanzei_core::AskPolicy,
-    halt: Option<kanzei_core::CancellationToken>,
-) -> kanzei_core::RunnerConfig {
-    kanzei_core::RunnerConfig {
-        model: resolved.model.clone(),
-        max_tokens: config.limits.max_tokens(),
-        reasoning: resolve_reasoning_override(
-            reasoning_override,
-            config.models.reasoning.as_deref(),
-        ),
-        service_tier: config.service_tier_for(resolved),
-        context_limit: resolved.provider.context_limit,
-        limits: config.limits.clone(),
-        // R-162 事件触发召回:工具失败瞬间注入相关记忆 Packet(验收⑤ 桌面端)。
-        recall: Some(Box::new(kanzei_tools::memory::FailureRecallPolicy::new(
-            project_root,
-        ))),
-        // R-171:桌面端主对话(writer)默认 Default,批3 接协调器后由调用方
-        // 按执行策略传入 ReadParallelWriteSerial。
-        execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
-        ask_policy,
-        halt,
-    }
-}
-
 pub(crate) fn new_llm_client(
     proxy: &kanzei_llm::ProxyConfig,
 ) -> anyhow::Result<kanzei_llm::LlmClient> {
@@ -631,16 +602,6 @@ pub(crate) fn auth_stage_detail(provider_name: &str, model: &str, has_auth: bool
             ""
         }
     )
-}
-
-pub(crate) fn resolve_reasoning_override(
-    override_value: Option<&str>,
-    configured_value: Option<&str>,
-) -> kanzei_llm::ReasoningEffort {
-    override_value
-        .or(configured_value)
-        .map(kanzei_llm::ReasoningEffort::parse)
-        .unwrap_or_default()
 }
 
 pub(crate) fn resolve_proxy(
