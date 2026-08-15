@@ -317,7 +317,23 @@ function transitionSession(sessionId, phase, detail = {}) {
     // R-206:stopping 是用户已发出的控制意图——清掉实时事件权威(live_running),
     // 否则 09-sessions 轮询校正会把停止中的会话翻回运行中(状态闪跳)。
     state.live_running = false;
-  } else if (["idle", "stopped", "failed"].includes(phase)) {
+  } else if (["idle", "stopped", "failed", "auto_pending"].includes(phase)) {
+    // auto_pending 是**轮终态**,不是运行中的中间态:kz:done 已到、本轮事件流已经结束,
+    // 下一轮由 kz:turn(不在 SESSION_PROGRESS_EVENTS 里,专管解除收敛)或 armAutoContinue
+    // 的 "starting" 宣告。它必须和 idle/stopped/failed 一样收敛。
+    //
+    // 漏掉它的代价是鞭挞**确定性饿死**(实测 21:40:57 运行完成 → 21:41:29 报「上一轮尚未
+    // 结束」,正好 32 秒 = 首次 2s + 15×2s 重试耗尽):
+    //   ① 本轮 "running" 置 live_running=true、converged=false;
+    //   ② kz:done(Continue) → "auto_pending",旧相位表三个分支一个都不匹配,
+    //      于是 converged 仍 false、live_running 仍 true;
+    //   ③ kz:idle 到达时 01-core 算 targetPhase = auto_pending ? "auto_pending" : "idle",
+    //      又回到 auto_pending —— 唯一那次能收敛的机会也被自己吃掉;
+    //   ④ ≤3s 后 process_list 轮询走 09-sessions 校正:converged 为 false 不跳过,
+    //      live_running===true 命中第一分支 → transitionSession(sid,"running") 复活;
+    //   ⑤ armAutoContinue 每 2 秒复查 processRunning 恒为 true,16 次后放弃。
+    // 而 09-sessions 末尾那条 `!["auto_pending","stopping",...].includes(phase)` 的例外
+    // 说明作者本来就把 auto_pending 当静止态,只是相位表这边没跟上。
     state.converged = true;
     state.live_running = false;
     state.local_start_pending = false;

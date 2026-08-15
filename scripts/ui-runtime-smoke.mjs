@@ -4285,6 +4285,46 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   expectedPersistentError = null;
 }
 
+// ---------- auto_pending 必须收敛:轮末→轮询复活→鞭挞饿死 32 秒 ----------
+// 实测现场:21:40:57 运行完成 → 21:41:29 报「上一轮尚未结束」,正好 2s + 15×2s。
+// 旧相位表(03-shell.js)三个分支是 starting/running、stopping、idle/stopped/failed,
+// auto_pending 一个都不匹配 → converged 不置真、live_running 残留 true →
+// ≤3s 后 process_list 校正命中 `live_running===true` 把已结束的一轮翻回 running →
+// armAutoContinue 每 2 秒复查恒为真,16 次后放弃。四条断言按这条链逐环钉死。
+{
+  const sid = "sess-whip-converge";
+  const savedWhipList = payloads.process_list;
+  // ① 轮内:与真实一轮开跑同形。
+  sandbox.transitionSession(sid, "running");
+  assert(sandbox.sessionState(sid).converged === false, "前置:running 应为未收敛");
+  assert(sandbox.sessionState(sid).live_running === true, "前置:running 应置 live_running=true");
+  // ② 轮末 Continue → auto_pending。这是**轮终态**,不是运行中的中间态。
+  sandbox.transitionSession(sid, "auto_pending", { auto_rounds: 1 });
+  const pend = sandbox.sessionState(sid);
+  assert(pend.converged === true, "auto_pending 未收敛:迟到事件与轮询都能把已结束的一轮复活");
+  assert(pend.live_running === false, "auto_pending 未清 live_running:09-sessions 校正会命中第一分支翻回运行中");
+  assert(pend.running === false, "auto_pending 不是运行态");
+  assert(pend.phase === "auto_pending", "收敛不得改写 phase(界面「等待下一轮」与待命徽标靠它)");
+  // ③ 3 秒轮询到达:已收敛会话必须被 `if (state.converged) continue` 跳过。
+  sandbox.renderProcesses([...savedWhipList, { id: "w|whip", label: "鞭挞线", session_id: sid, running: false }]);
+  assert(
+    sandbox.sessionState(sid).phase === "auto_pending",
+    `process_list 校正把 auto_pending 复活成 ${sandbox.sessionState(sid).phase}(鞭挞饿死的直接成因)`,
+  );
+  // ④ 迟到的进度事件(轮末落库/压缩的 kz:status)同样不得复活。
+  handlers.get("kz:status")?.({ payload: { stage: "记忆", detail: "轮末落库", sessionId: sid } });
+  assert(
+    sandbox.sessionState(sid).running === false,
+    "迟到进度事件复活了已收敛的一轮:只有 kz:turn 有权解除收敛",
+  );
+  // ⑤ 于是续跑闸门第一次复查就放行,不再走 16 次重试。
+  assert(
+    sandbox.processRunning({ session_id: sid, running: false }) === false,
+    "processRunning 在 auto_pending 下仍报运行中:鞭挞会重试到耗尽并报「上一轮尚未结束」",
+  );
+  sandbox.renderProcesses(savedWhipList);
+}
+
 // ---------- D-323 暂停→恢复路径不得持有前端私有否决 ----------
 // R-199 档位判定已下沉引擎(decide→Stop/ProfileMismatch 带 reason 可见收口);
 // 恢复分支若仍被 autoContinueAllowed() 静默拦下,引擎计数与状态不知情(验收①未兑现)。

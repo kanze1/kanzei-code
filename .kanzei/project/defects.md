@@ -84,3 +84,16 @@
 - 阻塞: 等待 R-244 Tool Pipeline 结果阶段稳定并由 R-245 实施。R-244 已于 2026-08-14 由用户定调列入主任务、主线串行做,依赖链有确定落点,不再是「等用户决定」。当前仍作为事实丢失缺陷登记(high),不单独修——在 R-244/R-245 的 Result Policy 与 spill 落点上一并解决。解除人: 依赖自然解除。
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
+
+## D-372 鞭挞确定性饿死:auto_pending 不在相位表里,轮询把已结束的一轮复活,重试耗尽报「上一轮尚未结束」 [fixed] (high)
+- refs: D-291 D-323 R-086 R-206
+- 复现: 开鞭挞(dev-auto)跑完任意一轮 → kz:done 带 autoAction=Continue → 等 32 秒。实测现场 2026-08-15 21:40:57 运行完成(60 轮/3040.7s) → 21:41:29 报「鞭挞未续跑:上一轮尚未结束」,正好 2s + 15×2s = 首次 + AUTO_CONTINUE_RUNNING_GRACE 次重试全部耗尽。
+- 根因: 03-shell.js transitionSession 相位表只有三个分支(starting/running、stopping、idle/stopped/failed),**auto_pending 一个都不匹配**,于是它既不置 converged 也不清 live_running。链路:①轮内 "running" 置 live_running=true/converged=false;②kz:done→"auto_pending",两个字段原样残留;③kz:idle 到达时 01-core.js 算 targetPhase = auto_pending ? "auto_pending" : "idle",唯一一次能收敛的机会被自己吃掉;④≤3s 后 process_list 校正(09-sessions.js:397-403)因 converged 为假不跳过、命中 live_running===true 分支 transitionSession(sid,"running") 复活;⑤armAutoContinue 每 2 秒复查 processRunning 恒为真。09-sessions.js 末尾那条 `!["auto_pending","stopping",...]` 例外说明作者本来就把 auto_pending 当静止态,只是相位表没跟上。
+- 影响: 鞭挞是自举的主循环。它停摆 = 自举停摆,且失败形态是「界面显示待命、实际永不续跑」,不报错、不重试,只能人工再点一次。D-291 修的是「静默不续跑」,本条是「出声了但结论是错的」——同一入口的另一侧。
+- 来源: 2026-08-15 用户截图报告 + 日志时间戳比对(32 秒签名与 01-core.js:78 注释里记录的上一次现场同型)。
+- 证据等级: E1(反证实测:把 auto_pending 从相位表移除后 ui-runtime-smoke 5 条断言全红,其中「process_list 校正把 auto_pending 复活成 running」直接复现根因;加回后全绿)
+- 验收: ①auto_pending 与 idle/stopped/failed 同组收敛(converged=true、live_running=false、local_start_pending=false,terminal_status 保持空);②收敛不得改写 phase(界面「等待下一轮」与待命徽标靠 phase);③process_list 校正与迟到进度事件都不得复活已收敛的一轮;④processRunning 在 auto_pending 下为假,续跑闸门第一次复查即放行;⑤宽限耗尽但后端权威 item.running=false 时按后端收敛并继续(自愈),而不是一律放弃;⑥ui-runtime-smoke 有反证型回归,移除修复即红。
+- 优先级: P0
+- 标签: 核心
+- 进展: 已修。03-shell.js 相位表把 auto_pending 并入终态分支(带完整链路注释);08-compose.js armAutoContinue 宽限耗尽路径按后端权威自愈(item.running 为假则收敛本地态继续,为真才放弃),顺手删掉一处死变量 targetState;02-i18n.js 补自愈提示词条。ui-runtime-smoke 新增 5 条反证断言(①~⑤逐环)。六条前端冒烟全绿(ui-runtime/ui-lint/parallel-lines/ui-a11y/ui-i18n/ui-markdown)。
+- observed_head: 9e79edc71bffaf52d9fd5b25f1c9bd4773382853

@@ -194,15 +194,23 @@ function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0) {
       abortAutoContinue(blocked, sessionId);
       return;
     }
-    const targetState = sessionState(sessionId);
     const item = processItems.find((candidate) => candidate.session_id === sessionId);
     if (item && processRunning(item)) {
       if (waited < AUTO_CONTINUE_RUNNING_GRACE) {
         armAutoContinue(prompt, sessionId, waited + 1);
-      } else {
-        abortAutoContinue("上一轮尚未结束", sessionId);
+        return;
       }
-      return;
+      if (item.running) {
+        // 后端也说在跑 = 上一轮真没结束,放弃是对的。
+        abortAutoContinue("上一轮尚未结束", sessionId);
+        return;
+      }
+      // 宽限耗尽、但**后端权威说没在跑**:那就是本地状态机被某条路径卡在了运行态,
+      // 不是上一轮没结束。原实现在这里一律放弃,于是任何一次本地态卡死都升级成
+      // 鞭挞永久停摆——auto_pending 不收敛那个 bug 正是这么烧掉 32 秒的。
+      // 后端是运行态权威(R-086):按它收敛本地态再继续,让这一类错误自愈而不是致命。
+      log(`${t("鞭挞")}:${t("本地运行态与后端不符,按后端空闲继续")}`, "warn");
+      transitionSession(sessionId, "idle");
     }
     transitionSession(sessionId, "starting", { local_start_pending: true });
     if (sessionId === activeSessionId) clearRunPending();

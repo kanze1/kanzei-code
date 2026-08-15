@@ -735,6 +735,7 @@ const I18N_DYNAMIC_EN = {
   "鞭挞未续跑": "Auto-run did not continue",
   "当前模式不是自主推进": "Current mode is not self-directed progress",
   "上一轮尚未结束": "The previous round has not finished",
+  "本地运行态与后端不符,按后端空闲继续": "Local run state disagrees with the backend; continuing on the backend's idle state",
   "已暂停": "Paused",
   "当前模式不支持鞭挞，已自动关闭": "Auto-run disabled: current mode does not support it",
   "鞭挞已关闭：当前进程不是自主推进模式": "Auto-run disabled: current process is not self-directed",
