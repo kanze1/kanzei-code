@@ -1,0 +1,7 @@
+# 构建性能配置。这里只放对**开发内环**(改一行 → 重建 → 跑测试)有效的设置；
+# 发布产物的取舍在根 Cargo.toml 的 [profile.release](lto/strip)，两处不要混。
+
+# 链接器：用 rustup 随工具链分发的 rust-lld 替代 MSVC 的 link.exe。
+# 依赖 rlib 不参与链接，改这里只影响最终二进制的链接步骤，不会让编译产物全部失效。
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
