@@ -23,7 +23,8 @@ use tauri::Emitter;
 use tokio::sync::oneshot;
 
 use crate::{
-    record_live_trace, record_live_trace_at_path, typed_events, with_session_id, LiveRun, PendingAsk,
+    record_live_trace, record_live_trace_at_path, typed_events, with_session_id, LiveRun,
+    PendingAsk,
 };
 
 use super::{now_ms, subagent_round_tool, TRACE_INPUT_KEEP_CHARS};

@@ -28,8 +28,7 @@ pub use runner::{
 pub use store::{
     compare_shadow, prepare_typed_session, project_session_facts, project_session_id,
     project_state_path, store_open_count, AdmittedInput, Delivery, EpisodeRecord, FunnelCounts,
-    RecallEvent,
-    RecallMetrics, Session, SessionFact, SessionFactEnvelope, SessionFactError, SessionInvariant,
-    SessionProjection, SessionStore, SessionTurnTerminal, ShadowComparison, StoreError,
-    StoredEvent, StoredProcess, TypedSessionWriter,
+    RecallEvent, RecallMetrics, Session, SessionFact, SessionFactEnvelope, SessionFactError,
+    SessionInvariant, SessionProjection, SessionStore, SessionTurnTerminal, ShadowComparison,
+    StoreError, StoredEvent, StoredProcess, TypedSessionWriter,
 };
