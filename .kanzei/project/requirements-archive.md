@@ -3259,3 +3259,20 @@
 - observed_head: 68a2232c3d5bc3ca8f663deb9de72c09b17454b0
 - observed_worktree_hash: fnv1a64:f942ffb698473c93
 - recorded_at: 1786808710677
+
+## R-258 巨石度量口径:生产行数/测试行数/最大函数行数/参数train,禁止拿 wc -l 当门禁 [done]
+- refs: R-253 R-254 R-255 R-256 R-257 R-191 docs/design/monolith_decomposition.md
+- 为什么是这个形态: 本仓大量 Rust 文件把测试放在同文件 cfg(test) mod tests 里,raw 行数与巨石程度不相关。若把文件行数直接做成 harness 门禁,自举 agent 会去"优化"测试最密集的文件——把测试搬走或删掉就能过线,正好惩罚了测试写得最足的模块。口径错了,门禁就是负向激励。
+- 内容: ①出一个度量入口(kz 子命令或 harness 指标皆可),按文件产出:总行数、生产行数(扣 cfg(test) 块,按大括号配平算,不能只找第一个 cfg(test) 就一刀切——processes.rs 第一处 cfg(test) 在 L468,那是外挂测试文件声明,一刀切会把 1628 行生产码误报成 467)、测试行数、函数数、最大函数行数、too_many_arguments 处数;②给出全仓 Top-N 榜单与阈值建议;③conventions 写明阈值与超阈值动作——超了必须登记条目,不自动拒绝提交(自用工具,威胁模型里没有敌对模型,防线放可见性不放闸门);④榜单落一次快照,作为 R-253/R-254/R-255 的验收对照基线。
+- 复杂度: 中
+- 来源: 2026-08-15 第二轮巨石扫描的方法论副产物:用户按 GitHub 页面行数排的榜单里 tracker.rs 进了第二梯队,机器复核后发现它 3253 行中 2593 行是同文件测试,生产码只有 660 行,纯误诊;反向也成立——drive.rs 页面上 2058 行看着不起眼,生产码 1826 行、7 处 too_many_arguments,是那轮榜单漏掉的第四块真巨石。
+- 标签: 流程
+- 边界: 不做提交闸门、不做 CI 硬失败;不引入外部复杂度分析工具进依赖树;扇入扇出若实现成本高可降级为仅统计 use 行数并在条目里说明,不为指标齐全拖成大工程。
+- 验收: ①对 crates/kanzei-tools/src/tracker.rs 报生产 660 行而非 3253;②对 crates/kanzei-app/src/run.rs 报生产 2885 行;③对 crates/kanzei-app/src/processes.rs 报生产 1628 行(验证 cfg(test) 块识别正确,不被 L468 的外挂测试模块声明骗过);④输出全仓 Top-20 榜单,drive.rs 出现在前五;⑤conventions 文本落地且 grep 单一来源;⑥基线快照可被后续拆解条目引用做前后对照。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-258
+- 批次: 2/2
+- 进展: 批2 完成:①conventions §9.2 新增「巨石度量与阈值」(R-258):kz metrics 入口说明、阈值(生产>1200 巨石、>7参函数≥4 失控、最大函数>400 函数巨石)、超阈值动作=登记拆解条目不阻塞提交、基线快照落点(grep 单一来源);②基线快照 docs/design/metrics_baseline.md(2026-08-16,kz metrics --top 30 全仓 193 文件 Top-30 榜单+读数:巨石 9 个、drive.rs 6 处 >7参、最大函数 drive.rs 516/profiles.rs 524/cli-run.rs 637、tracker.rs 生产 712 对照验收①基准);③architecture 索引登记 metrics_baseline.md 并补齐历史缺失 9 文档(33 链接全验证)。验收⑤conventions 落地 ✅、验收⑥基线快照 ✅。
+- observed_head: 2463c3aa72c5b6af7d08d74bfd0bd1a9a95458ab
+- observed_worktree_hash: fnv1a64:7b3e1ac4436c3d60
+- recorded_at: 1786809420529
