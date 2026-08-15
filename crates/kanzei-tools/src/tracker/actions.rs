@@ -506,6 +506,22 @@ pub(crate) fn update_close(
     };
     let entry = &mut entries[pos];
     if let Some(status) = target_status {
+        // R-252 验收④:想法转 split 的 refs 硬门禁——refs 必须非空且每个 ID 在
+        // requirements/defects 活跃或归档真实存在。refs 可能走顶层参数或 fields
+        // 键,两处合并后一并校验;非想法线(prefix != I)不触发。
+        if status == "split" {
+            let mut refs = input.refs.clone();
+            if let Some(raw) = input.fields.get("refs") {
+                refs.extend(
+                    raw.split([' ', ','])
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string),
+                );
+            }
+            if let Err(e) = tool.check_idea_split_gate(ctx, &refs) {
+                return ToolOutput::error(e);
+            }
+        }
         if let Err(e) = store.transition_allowed(&entry.status, &status) {
             return ToolOutput::error(e);
         }
