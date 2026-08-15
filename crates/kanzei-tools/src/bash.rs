@@ -307,6 +307,13 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         ));
     }
 
+    // R-186 跨树保护:命令窗口内不得改动**其它线的工作树**(串台防护——A 线的命令
+    // 跑进 B 线的树、把人家未提交的活覆盖了)。前台 bash 执行前拍其它线树镜像,
+    // 执行后对账回滚;非 git 目录快照为空,静默放行。后台任务不在此列:命令已脱离
+    // 本 run,由后台守卫按自己的生命周期对账(bash_body 的 background 分支)。
+    let other_trees_before =
+        crate::cross_tree::capture_other_trees(&ctx.project_root, &ctx.cwd).unwrap_or_default();
+
     let shell = detected_shell();
     let mut command = tokio::process::Command::new(&shell.program);
     command
@@ -412,6 +419,16 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
                 rendered.push('\n');
                 rendered.push_str(report);
             }
+            // R-186:跨树越界(改了其它线工作树)与托管文档越界同样按错误回喂。
+            let cross_tree = crate::cross_tree::enforce_other_trees(
+                &ctx.project_root,
+                &ctx.cwd,
+                &other_trees_before,
+            );
+            if let Some(report) = &cross_tree {
+                rendered.push('\n');
+                rendered.push_str(report);
+            }
             let display = serde_json::json!({
                 "kind": "terminal",
                 "command": input.command,
@@ -422,7 +439,7 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
                 // 前端 detail 展开区消费;上限 200k 防事件体被单条输出打爆。
                 "full": text.chars().take(200_000).collect::<String>(),
             });
-            let output = if ok && breach.is_none() {
+            let output = if ok && breach.is_none() && cross_tree.is_none() {
                 ToolOutput::ok(rendered)
             } else {
                 ToolOutput::error(rendered)
@@ -454,6 +471,15 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
             }
             // 被杀掉的命令一样可能已经改过托管文件,围栏必须照跑。
             if let Some(report) = enforce_managed_files(&ctx.project_root, managed_before) {
+                text.push('\n');
+                text.push_str(&report);
+            }
+            // R-186:跨树越界对账同样在超时路径照跑(命令被杀前可能已改了别的树)。
+            if let Some(report) = crate::cross_tree::enforce_other_trees(
+                &ctx.project_root,
+                &ctx.cwd,
+                &other_trees_before,
+            ) {
                 text.push('\n');
                 text.push_str(&report);
             }

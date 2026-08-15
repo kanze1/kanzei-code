@@ -14,6 +14,7 @@ mod background;
 mod base;
 pub mod bash;
 pub mod conventions;
+mod cross_tree;
 mod edit;
 pub mod files;
 pub mod frontend;

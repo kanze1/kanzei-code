@@ -4294,3 +4294,16 @@
 - 关联: R-264
 - 收尾: 1786835419
 - 源码指纹: 97b9034c770f3062
+
+## T-1786836335 R-186 批1 跨树保护(kanzei-tools cross_tree) [passed]
+- 命令: cargo test -p kanzei-tools --lib cross_tree; cargo test -p kanzei-tools --lib bash::tests; cargo test -p kanzei-tools --lib managed::; cargo test -p kanzei-tools --lib background::
+- 摘要: R-186 批1:cross_tree 5 测试全绿(A 线 bash 写 B 线树检出/隔离/回滚、worktree 视角保护面排除自身、非 git 目录放行、touch 不误伤、越界新建删除)+ bash 19 + managed 6 + background 22 全绿无回归;clippy/fmt 通过
+- 关联: R-186
+- 收尾: 1786836335
+
+## T-1786836412 R-186 批1 跨树保护(fmt 后复跑) [passed]
+- 命令: cargo test -p kanzei-tools --lib cross_tree; cargo test -p kanzei-tools --lib bash::tests
+- 摘要: fmt 归一后复跑:cross_tree 5 + bash 19 全绿(fmt 只改排版不改语义)
+- 关联: R-186
+- 收尾: 1786836412
+- 源码指纹: a160f7933b285a0a
