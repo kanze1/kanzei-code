@@ -234,3 +234,14 @@
 - 背景: D-364 不变式「窗口内没有写者」靠锁实现:围栏共享锁贯穿整个 bash 窗口(默认 120s/上限 600s),排他写者(req/defect/idea/decision/test_record/memory)预算仅 3s,撞上任一线的长 bash 即报错。两线 bash 窗口交叠时写者可长期挤不进去——轮末 test_record/req update 被外线 cargo build 拖住,是 D-382 修完围栏互斥后并行吞吐被吃掉的主要残余。设计基线 parallel_read_serial_write_orchestration.md §285 已预言「等全局静默会被后来的写者饿死,需要另设策略」,策略至今未落地
 - 验收: 一条线 cargo build(分钟级)期间,另一条线 req update/test_record/memory_add 毫秒级完成且不被围栏误回滚;bash 越界写照旧被检出并回滚(D-364/D-368 全部回归绿);窗口内合法写+越界写混合场景回滚到合法日志终态而非窗口开点
 - 优先级: P1
+
+## R-269 浏览器工具:playwright-core 辅进程 headless 自检通道 [todo]
+- refs: R-101 D-319 R-249 R-059
+- 内容: ①Rust 工具起 Node 辅进程,playwright-core 以 channel 模式 launch 本机 Edge/Chrome headless(不下载 playwright 浏览器二进制),Rust↔Node 走 JSON-RPC over stdio;②能力:open(URL/本地文件)、screenshot(内置移动 viewport 预设,图片经 ToolOutput images 通道回模型——R-249 批1 已交付)、dom(可选 selector 的可读结构)、console、click/type;③自 launch 实例不碰 WebView2,天然绕开 D-319;④注册进桌面端与自举 harness 工具集,权限档位按 profiles 既有口径;⑤辅进程生命周期:空闲超时回收、工具关闭即收尾,不留僵尸 headless。拆批:批1 辅进程骨架+open+screenshot(含移动 viewport);批2 dom+console;批3 click/type 交互。
+- 复杂度: 大
+- 批次: 0/3
+- 来源: 2026-08-16 移动端开发前置盘点。用户定调:浏览器工具属开发工具必要范畴,直接登记;技术路线经用户拍板选 playwright-core 辅进程(devDependencies 已有 ^1.62.1,e2e-smoke 同款地基);首要消费场景是移动端 UI 的自举自检,兼收 R-101/webfetch 两侧收益。
+- 标签: 核心
+- 边界: 不 attach WebView2(R-101 的 CDP 路线另论);不做多 tab/多上下文并发;不做网络拦截与请求 mock;无 Node 或无 Edge/Chrome 时给明确诊断,不静默降级;截图体积口径沿用 R-249。
+- 验收: ①打开本地 HTML 与 http URL 各有实测轨迹;②移动 viewport 截图被模型真实消费(实测轨迹,不是单测断言);③click/type 后 DOM 变化可读回;④页面 console 错误可读;⑤缺 Node/缺浏览器时诊断明确;⑥工具生命周期结束后无残留辅进程与 headless 实例(实测进程列表);⑦附带给出 e2e-smoke 切本路线绕开 D-319 的可行性结论(只要结论,不要求实施)。
+- 优先级: P1
