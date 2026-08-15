@@ -203,10 +203,10 @@
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-264
 - 批次: 2/4
-- 进展: 批2 完成(6c90aba)。**批3 完整实证(2026-08-16)**:整体迁移已推进——依赖图工具链(gen-esm-graph/migrate/rebuild/fixheaders/fiximports + ui-esm-graph.json,21 文件 608 导出 147 导入零冲突)、全量 export+import、index.html 全 module、runtime-smoke 两阶段 link 执行器(创建即入缓存支持循环依赖)。**三层不可行实证**:①逐文件迁移断链(01-core invoke 被 17 文件裸引用);②全量 export 渐进时序破坏(14 断言红);③整体迁移到 TDZ 层——循环依赖的顶层立即执行跨模块引用(agentPanelSetup 用 `$`、withSessionRender 读写 5 个跨模块 let)需逐处改 DOMContentLoaded + setter 封装,冒烟桩需适配 DOMContentLoaded 事件,是设计文档 §四 完整工程的持续攻坚。**本轮回退**全部 ui/index.html 到 HEAD(批2 状态恢复,六冒烟全绿),保留 runtime-smoke 两阶段执行器(classic no-op,B2 增强)与 5 个工具链脚本(后续批次资产)。R-264 保持 doing,批3/批4 待专用批次(设计文档自述对自举无收益,P3 留档)。
-- observed_head: 81e67378e37c83bf01d9c6a3edddc72cf62b3407
-- observed_worktree_hash: fnv1a64:a21dd35f8d714137
-- recorded_at: 1786823538486
+- 进展: 批2 完成(6c90aba)+工具链(ef89d20)。**批3 TDZ 攻坚实证(2026-08-16)**:重应用整体迁移(608 export/148 import/index.html module)后,首个 TDZ 错误为 agentPanelSetup 顶层调用 `$`(06-agent-panel,经 03-shell 与 01-core 成环)——**用 Node 原生 ESM 独立验证:无环依赖 b 顶层调用 a 的 `$` 正常(a 先求值);有环时求值顺序不确定,模块求值期跨模块顶层调用会 TDZ——浏览器同样行为,非执行器缺陷**。结论:TDZ 修复需逐处把「模块求值期跨模块顶层调用」延迟(DOMContentLoaded/事件驱动),21 文件每个都要审计+修改+冒烟桩适配(DOMContentLoaded 事件模拟)——设计文档 §四 完整工程的持续攻坚,单轮不可完成。已再次回退 ui 文件到 HEAD(批2 状态,六冒烟全绿),工具链脚本+执行器增强保留(ef89d20 已提交)。R-264 保持 doing,批3 待专用批次(设计文档自述对自举无收益,P3 留档)。
+- observed_head: ef89d2020c82ff68f50d226191917e814f4c0b54
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786823745695
 
 ## R-268 写者与 bash 围栏窗口解耦:托管文档写入不再等全局 bash 静默,不变式从「窗口内没有写者」换成「窗口内的变化可归因」 [todo]
 - 关联: D-382(围栏共享档,已修)、D-383(注册表毒化,残余机械缺陷)、D-364/D-368(围栏归因不变式)、D-258(absorb_paths 按路径吸收)
