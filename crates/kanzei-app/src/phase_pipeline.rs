@@ -454,7 +454,13 @@ impl PhasePipeline {
         let prompts: Vec<String> = roles
             .iter()
             .map(|(role, brief)| {
-                review_prompt(role, brief, task_prompt, run_summary, task_context.as_deref())
+                review_prompt(
+                    role,
+                    brief,
+                    task_prompt,
+                    run_summary,
+                    task_context.as_deref(),
+                )
             })
             .collect();
         let (reports, outcome) = self
@@ -851,7 +857,10 @@ mod tests {
         }
         // 无裁决(非 dev 档或队列为空)时不拼空块,免得给角色一段空壳。
         let bare = scout_prompt("architecture_scout", "b", "任务", None);
-        assert!(!bare.contains("[本轮条目]"), "无上下文时不应出现空块: {bare}");
+        assert!(
+            !bare.contains("[本轮条目]"),
+            "无上下文时不应出现空块: {bare}"
+        );
     }
 
     #[test]

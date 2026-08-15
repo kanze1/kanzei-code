@@ -536,7 +536,9 @@ impl BarrierKind {
 pub enum ScoutOutcome {
     Completed,
     Failed(String),
-    TimedOut { after_secs: u64 },
+    TimedOut {
+        after_secs: u64,
+    },
     /// 跑完了、没报错、但一个字都没说。
     ///
     /// 此前这种情况被记成 Completed:简报上一个绿勾,与真查清楚了的 scout 长得

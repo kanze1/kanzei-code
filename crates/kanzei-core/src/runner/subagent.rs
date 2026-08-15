@@ -749,7 +749,10 @@ pub(crate) async fn run_subagent(
             break if summary.text.trim().is_empty() {
                 kanzei_harness::ToolOutput::noop(
                     "subagent_empty_answer",
-                    format!("subagent produced no text answer after {} step(s)", summary.steps),
+                    format!(
+                        "subagent produced no text answer after {} step(s)",
+                        summary.steps
+                    ),
                 )
             } else {
                 kanzei_harness::ToolOutput::ok(text)

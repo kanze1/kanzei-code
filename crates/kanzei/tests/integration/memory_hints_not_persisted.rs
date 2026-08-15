@@ -209,7 +209,8 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
     );
 }
 
-const BRIEF_BLOCK: &str = "<scout-brief>\narchitecture_scout: 本次任务涉及 kanzei-tools/src/managed.rs\n</scout-brief>";
+const BRIEF_BLOCK: &str =
+    "<scout-brief>\narchitecture_scout: 本次任务涉及 kanzei-tools/src/managed.rs\n</scout-brief>";
 
 /// 勘察简报与 memory_hints 同病同治:原先被 `run_prompt = format!("{brief}\n\n{run_prompt}")`
 /// 拼进 prompt,于是随 User message 进 summary.messages → 落 conversations → 下轮
