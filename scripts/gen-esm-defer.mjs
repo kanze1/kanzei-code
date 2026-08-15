@@ -1,6 +1,6 @@
-// R-264 批3:恢复 defer 工具到 01-core(export),并批量把顶层单行 `$()` 调用包进 defer。
-// defer 是 ESM 下的正确模式(module 本就 deferred,DOMContentLoaded 后执行),
-// classic 下 readyState 非 loading → 立即执行,no-op。留在生产代码是正解。
+// R-264 批3:批量把顶层 `$("...").xxx(...)` / `on("...")` 调用(单行与跨行)包进 defer。
+// 幂等:已 defer 包裹的跳过。跨行用花括号配平识别语句结束。
+// defer 是 ESM 下的正确模式(module deferred),classic 下 readyState 非 loading 立即执行。
 import fs from "node:fs";
 
 const uiDir = "crates/kanzei-app/ui";
@@ -27,33 +27,61 @@ export function defer(fn) {
   console.log("01-core: defer restored");
 }
 
-// 2) 批量包裹:每个文件顶层单行 `$("...").xxx(...);` 调用 → defer(() => ...)。
-// 只处理单行(以 ; 或 }); 结尾且不含未闭合花括号的),跨行需手动。
+// 2) 批量包裹:识别顶层调用起点(行首无缩进的 `$("...").` 或 `on(`),
+//    收集到语句结束(花括号配平 + 分号/`});`),包进 defer(() => {...})。
 const files = fs.readdirSync(uiDir).filter((f) => f.endsWith(".js"));
 for (const f of files) {
   if (f === "01-core.js") continue;
   const p = `${uiDir}/${f}`;
   const src = fs.readFileSync(p, "utf8");
   const lines = src.split(/\r?\n/);
+  const out = [];
   let changed = 0;
-  for (let i = 0; i < lines.length; i++) {
+  let i = 0;
+  while (i < lines.length) {
     const line = lines[i];
-    if (/^\s/.test(line)) continue;
-    if (/^(import|export|const|let|var|function|async function|class|\/\/|\/\*|\*|})/.test(line)) continue;
-    if (/^defer\(/.test(line)) continue;
-    // 单行顶层 `$("...").xxx(...)` 以 ; 结尾,花括号闭合。
-    if (/^\$\("[^"]+"\)\.[\w$]+\(.*\);$/.test(line) && !/=>\s*\{[^}]*$/.test(line)) {
-      lines[i] = `defer(() => ${line.slice(0, -1)});`;
-      changed++;
+    const isTopCall =
+      !/^\s/.test(line) &&
+      !/^(import|export|const|let|var|function|async function|class|\/\/|\/\*|\*|})/.test(line) &&
+      !/^defer\(/.test(line) &&
+      // 顶层裸函数调用:setupResize(...)/$("x")?.addEventListener(...)/document.add.../syncActivityPanel()
+      /^[A-Za-z_$][\w$]*(\.[\w$]+)*\(/.test(line);
+    if (isTopCall) {
+      // 收集本语句(从该行到闭合:括号配平)。
+      let depth = 0;
+      let started = false;
+      const block = [];
+      let j = i;
+      let done = false;
+      while (j < lines.length) {
+        const l = lines[j];
+        block.push(l);
+        for (const ch of l) {
+          if (ch === "(" || ch === "{") { depth += 1; started = true; }
+          else if (ch === ")" || ch === "}") depth -= 1;
+        }
+        j += 1;
+        if (started && depth <= 0) { done = true; break; }
+        if (depth < 0) break; // 括号过度闭合:异常,不包裹
+      }
+      if (done) {
+        const stmt = block.join("\n").replace(/;\s*$/, "");
+        out.push(`defer(() => {\n  ${stmt.replace(/\n/g, "\n  ")};\n});`);
+        changed += 1;
+        i = j;
+        continue;
+      }
     }
+    out.push(line);
+    i += 1;
   }
-  if (changed > 0) {
-    // 补 import defer(脚本生成的 defer 引用,依赖图扫描不到)。
-    const needImport = `import { defer } from "./01-core.js";\n`;
-    const joined = lines.join("\n");
-    const updated = joined.startsWith("import") ? needImport + joined : needImport + joined;
-    fs.writeFileSync(p, updated);
-    console.log(`${f}: defer'd ${changed} + import`);
+  const joined = out.join("\n");
+  const hasDeferImport = /import\s*\{[^}]*\bdefer\b[^}]*\}\s*from\s*["']\.\/01-core\.js["']/.test(joined) || /import\s*\{ defer \} from "\.\/01-core\.js"/.test(joined);
+  const needImport = hasDeferImport ? "" : `import { defer } from "./01-core.js";\n`;
+  const finalText = joined.startsWith("import") ? needImport + joined : needImport + joined;
+  if (joined !== src || (!hasDeferImport && needImport)) {
+    fs.writeFileSync(p, finalText);
+    console.log(`${f}: defer'd ${changed}`);
   }
 }
 console.log("done");

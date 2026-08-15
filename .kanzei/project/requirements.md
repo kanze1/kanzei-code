@@ -203,10 +203,10 @@
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-264
 - 批次: 2/4
-- 进展: 批2 完成(6c90aba)+工具链(ef89d20)+冒烟桩 DOMContentLoaded(e80114a)。批3 defer 批量包裹实证:01-core 加 export defer 工具(ESM 下延迟到 DOMContentLoaded=浏览器 module deferred 语义,classic 下 no-op 可留生产);gen-esm-defer.mjs 自动包裹 10 文件 49 处单行顶层调用(含自动补 import defer);手动 defer 06-agent-panel agentPanelSetup 与 05-chat-render messages.addEventListener,defer 方法验证有效(错误从 module 7 前进)。跨行调用(07-events on 订阅 42 处等)需手动,完整迁移=100+ 处 defer 持续工程。已回退 ui 到 HEAD(批2 稳定六冒烟全绿),gen-esm-defer.mjs 保留为工具链。R-264 保持 doing,批3 待专用批次(设计文档自述对自举无收益,P3 留档)。
-- observed_head: e80114a6d89248d467721d0f50309bc150d1ea07
-- observed_worktree_hash: fnv1a64:53a73233f1d6dee6
-- recorded_at: 1786824814076
+- 进展: 批2 完成(6c90aba)+工具链(ef89d20)+冒烟桩 DOMContentLoaded(e80114a)+defer 工具链(66098a6)。**批3 里程碑:TDZ 全部消除(2026-08-16)**——defer 工具(01-core export,ESM 延迟到 DOMContentLoaded,classic no-op 留生产)+gen-esm-defer.mjs 扩展为包裹所有顶层裸函数调用(150+ 处);Node 原生 ESM 逐错迭代修复:15-views for 循环、07-events on() 跨行、08-compose 顶层块+syncAutoRunState、16-settings 三个 for、02-i18n languageSelect(const→let+defer)。**Node 原生 import 01-core 验证:TDZ 全消,仅剩测试桩 DOM 缺失(非代码问题)**。冒烟推进到下一层:**跨模块可变状态写入**(renderProjects 给 import 的 currentProject 赋值→Assignment to constant)——ESM import 绑定只读,需提供方 export setter,是设计文档 §三 未预估的深层持续工程。已回退 ui 到 HEAD(批2 稳定六冒烟全绿)。R-264 保持 doing,跨模块写 setter 化待专用批次(设计文档自述对自举无收益,P3 留档)。
+- observed_head: 66098a6922cb189a46aedcc8c1755b7e22653aa8
+- observed_worktree_hash: fnv1a64:3d123f715a4957ce
+- recorded_at: 1786826098507
 
 ## R-268 写者与 bash 围栏窗口解耦:托管文档写入不再等全局 bash 静默,不变式从「窗口内没有写者」换成「窗口内的变化可归因」 [todo]
 - 关联: D-382(围栏共享档,已修)、D-383(注册表毒化,残余机械缺陷)、D-364/D-368(围栏归因不变式)、D-258(absorb_paths 按路径吸收)

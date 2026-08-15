@@ -4266,3 +4266,10 @@
 - 关联: R-264
 - 收尾: 1786824856
 - 源码指纹: e8ee8ea578b5518b
+
+## T-1786826122 ui-runtime-smoke (R-264 批3 TDZ 里程碑背书) [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 摘要: R-264 批3 TDZ 全消里程碑验证:ui-runtime 21 文件全绿(classic 路径),gen-esm-defer.mjs 扩展(包裹所有顶层裸函数调用 150+ 处)保留,Node 原生 ESM 验证 01-core 环 TDZ 全消。
+- 关联: R-264
+- 收尾: 1786826122
+- 源码指纹: 5430ba1436601e6d
