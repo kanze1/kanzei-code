@@ -4273,3 +4273,10 @@
 - 关联: R-264
 - 收尾: 1786826122
 - 源码指纹: 5430ba1436601e6d
+
+## T-1786826730 ui-runtime-smoke (R-264 setter 样板背书) [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 摘要: R-264 批3 收尾验证:ui-runtime 21 文件全绿,gen-esm-defer.mjs 增强(for/if/void 前缀)保留,currentProject setter 样板与跨模块写全景实证。
+- 关联: R-264
+- 收尾: 1786826730
+- 源码指纹: ca75c673dd5a454d

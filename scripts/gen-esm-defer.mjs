@@ -45,7 +45,12 @@ for (const f of files) {
       !/^(import|export|const|let|var|function|async function|class|\/\/|\/\*|\*|})/.test(line) &&
       !/^defer\(/.test(line) &&
       // 顶层裸函数调用:setupResize(...)/$("x")?.addEventListener(...)/document.add.../syncActivityPanel()
-      /^[A-Za-z_$][\w$]*(\.[\w$]+)*\(/.test(line);
+      // 或顶层 for/if/裸块:块内 $()/跨模块引用是求值期执行。
+      (/^[A-Za-z_$][\w$]*(\.[\w$]+)*\(/.test(line) ||
+       /^for\s*\(/.test(line) ||
+       /^if\s*\(/.test(line) ||
+       /^\{/.test(line) ||
+       /^(void|await)\s+[A-Za-z_$][\w$]*\s*\(/.test(line));
     if (isTopCall) {
       // 收集本语句(从该行到闭合:括号配平)。
       let depth = 0;

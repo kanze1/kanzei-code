@@ -203,10 +203,10 @@
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-264
 - 批次: 2/4
-- 进展: 批2 完成(6c90aba)+工具链(ef89d20/e80114a/66098a6/634c9dc)。**批3 TDZ 全消里程碑 + 跨模块写全景实证(2026-08-16)**:defer 工具包裹全部顶层裸函数调用(150+ 处),Node 原生 ESM 逐错迭代修复 5 处跨行/for/顶层块/languageSelect,验证 01-core 环 TDZ 全消。**下一层全景**:跨模块可变状态写有 103 个 export let/var、100+ 写点(01-core 6 处 currentAssistant 等、05 2、07 21 处 ctxLimit/autoRounds 等,currentProject 仅 1 处)——ESM import 绑定只读,全部需提供方 export setter + 消费方改调,是设计文档 §三 完全未预估的深层持续工程。已回退 ui 到 HEAD(批2 稳定六冒烟全绿),工具链完备可复用。R-264 保持 doing,setter 化待专用批次(设计文档自述对自举无收益,P3 留档)。
+- 进展: 批2 完成(6c90aba)+工具链(ef89d20/e80114a/66098a6/634c9dc)。**批3 TDZ 全消 + setter 化样板(2026-08-16)**:defer 工具包裹全部顶层裸函数调用(150+ 处,扩展支持 for/if/void 前缀);Node 原生 ESM 迭代验证 TDZ 全消;currentProject setter 样板验证(03-shell 加 setCurrentProject + 09-sessions 改调+import)。**跨模块写全景**:103 个 export let/var、100+ 写点(renderProjects 的 activeProcessId/activeSessionId 等)需 setter 化——ESM import 绑定只读,无论 setter 或对象包装都是数百处改动,设计文档 §三 未预估的深层持续工程。**工具链教训**:gen-esm-migrate/fixheaders 从 HEAD 生成覆盖手动修复,迁移只跑一次后仅跑幂等 defer。已回退 ui 到 HEAD(批2 稳定六冒烟全绿)。R-264 保持 doing,setter 化待专用批次(设计文档自述对自举无收益,P3 留档)。
 - observed_head: 634c9dca38d2dabbc21ca03efb3b01a9b4c5acf0
-- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
-- recorded_at: 1786826280567
+- observed_worktree_hash: fnv1a64:027f5752d7ead4d4
+- recorded_at: 1786826688386
 
 ## R-268 写者与 bash 围栏窗口解耦:托管文档写入不再等全局 bash 静默,不变式从「窗口内没有写者」换成「窗口内的变化可归因」 [todo]
 - 关联: D-382(围栏共享档,已修)、D-383(注册表毒化,残余机械缺陷)、D-364/D-368(围栏归因不变式)、D-258(absorb_paths 按路径吸收)
