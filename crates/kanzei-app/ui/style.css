@@ -1392,12 +1392,12 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .sop-entry { display: flex; flex-direction: column; gap: 3px; text-align: left; background: var(--input); color: var(--fg); border: 1px solid var(--border-soft); }
 .sop-entry:hover, .sop-entry:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
 
-.goal-add-form input, .doc-progress input {
+.idea-add-form input, .doc-progress input {
   width: 100%; background: var(--input); border: 1px solid var(--border);
   color: var(--fg); border-radius: 4px; padding: 4px 8px; font-size: 12px;
   margin: 4px 0;
 }
-.goal-add-form input:focus, .doc-progress input:focus { outline: 1px solid var(--accent); }
+.idea-add-form input:focus, .doc-progress input:focus { outline: 1px solid var(--accent); }
 
 /* ---------- 记忆页(R-107) ---------- */
 #memory-scroll { padding: 16px 24px; overflow-y: auto; height: 100%; box-sizing: border-box; }

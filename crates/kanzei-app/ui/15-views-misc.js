@@ -11,7 +11,7 @@ function quickCaptureForm(kind, sectionId, noun) {
     opened.remove();
   }
   const form = document.createElement("div");
-  form.className = "goal-add-form quickreq-form";
+  form.className = "idea-add-form quickreq-form";
   form.dataset.kind = kind;
   const input = document.createElement("textarea");
   input.rows = 3;
@@ -82,14 +82,14 @@ function renderConventions(conv) {
   el.appendChild(item);
 }
 
-// 新建目标:内联输入(webview 无 window.prompt)。
-$("goal-add").addEventListener("click", () => {
-  const list = $("goal-list");
-  if (list.querySelector(".goal-add-form")) return;
+// 新建想法:内联输入(webview 无 window.prompt)。录入不过模型,原样收下(R-252 ②)。
+$("idea-add").addEventListener("click", () => {
+  const list = $("idea-list");
+  if (list.querySelector(".idea-add-form")) return;
   const form = document.createElement("div");
-  form.className = "goal-add-form";
+  form.className = "idea-add-form";
   const input = document.createElement("input");
-  input.placeholder = t("目标描述,回车创建(Esc 取消)");
+  input.placeholder = t("想法描述,回车创建(Esc 取消)");
   input.addEventListener("keydown", async (e) => {
     if (e.key === "Escape") {
       form.remove();
@@ -99,7 +99,7 @@ $("goal-add").addEventListener("click", () => {
     try {
       const msg = await invoke("docs_update", {
         projectDir: currentProject,
-        kind: "goal",
+        kind: "idea",
         action: "add",
         id: "",
         title: input.value.trim(),
@@ -628,7 +628,7 @@ $("summarize-btn").addEventListener("click", async () => {
   }
 });
 
-for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["goal-open", "goal"], ["report-open", "report"]]) {
+for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["idea-open", "idea"], ["report-open", "report"]]) {
   $(btn).addEventListener("click", () => openDocViewer(kind));
 }
 

@@ -1,7 +1,7 @@
 // ---------- 文档条目(可展开 + 状态流转) ----------
 // 完整需求/缺陷列表已整体收进单页视图(用户定调:侧栏只显示当前在做),侧栏不再持有
 // 一份筛选状态——两份状态各自漂移的话,同一条件下两处会给出不同条目集合。
-// goal/source/finding 三类列表本来就没有筛选控件,统一用这份中性口径当占位;
+// idea/source/finding 三类列表本来就没有筛选控件,统一用这份中性口径当占位;
 // 冻结是为了防止有人顺手往共享占位里写值,把三个列表一起搞坏。
 const NEUTRAL_DOC_FILTERS = Object.freeze({
   status: "all", priority: "all", complexity: "all", tag: "all", blocked: "all", sort: "manual", grouped: false,

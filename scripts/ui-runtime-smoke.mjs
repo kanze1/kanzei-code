@@ -692,13 +692,15 @@ const payloads = {
   },
   // R-147:使用手册内容源——docs/目录.md 的文件预览桩。
   file_preview: { content: "# 使用手册\n\n冒烟手册段落:kanzei 使用说明与作者的话。", binary: false, truncated: false, size: 96 },
+  // R-252:拆解子代理命令桩——返回新产出的 R/D 编号,前端 toast/log/刷新用。
+  idea_split: (args) => `I-${args?.id?.replace(/^I-/, "") ?? "001"} → R-101 D-101`,
   docs_snapshot: {
     requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]], dependencies: [], dependents: ["R-002"] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 }, dependencies: ["R-001"], dependents: [] })],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待澄清: 用户视角的易用性还是模型可消费性?"]] })],
-    goals: [{ id: "G-001", title: "冒烟目标", status: "active", fields: [] }],
+    ideas: [{ id: "I-001", title: "冒烟想法", status: "inbox", fields: [] }],
     sources: [],
     findings: [],
-    archived: { req: 1, defect: 2, goal: 0, source: 0, finding: 0 },
+    archived: { req: 1, defect: 2, idea: 0, source: 0, finding: 0 },
     conventions: { exists: true, headings: ["开发规则", "测试要求"] },
   },
   docs_archive_entries: (args) => args?.kind === "req" ? [docEntry("R-000", "已归档需求", "done")] : [docEntry("D-000", "已归档缺陷", "fixed")],
@@ -1278,7 +1280,25 @@ assert(listText("documents-defect-list").includes("冒烟缺陷"), "缺陷列表
   payloads.docs_snapshot = savedBatchDocs;
   await sandbox.refreshDocs();
 }
-assert(listText("goal-list").includes("冒烟目标"), "目标列表未渲染出桩数据");
+assert(listText("idea-list").includes("冒烟想法"), "想法列表未渲染出桩数据");
+// R-252 验收④:想法区有「拆解」按钮,点击派 idea_split 子代理(不做自动拆解)。
+{
+  const ideaItem = [...document.querySelectorAll('#idea-list .doc-item')]
+    .find((el) => el.dataset.docId === "I-001");
+  assert(ideaItem, "想法条目 I-001 未渲染");
+  ideaItem.click();
+  const splitBtn = [...document.querySelectorAll('#idea-list .doc-progress button')]
+    .find((b) => b.textContent.includes("拆解"));
+  assert(splitBtn, "inbox 想法应渲染「拆解成需求/缺陷」按钮");
+  const before = invokeLog.filter((cmd) => cmd === "idea_split").length;
+  splitBtn.click();
+  assert(
+    invokeLog.filter((cmd) => cmd === "idea_split").length > before,
+    "点拆解按钮未调用 idea_split 子代理命令",
+  );
+  const splitCall = invokeArgs.find(({ cmd }) => cmd === "idea_split");
+  assert(splitCall?.args?.id === "I-001", "idea_split 未带想法 id 参数");
+}
 assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲染出桩数据");
 // R-130:测试→条目映射——关联的 R-/D- 条目号渲染成可点击跳转的徽标。
 {
@@ -2343,12 +2363,12 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
     "收尾失败:筛选没调回全部,后续用例会连带假失败",
   );
 }
-// ③ 冻结对象护栏:goal/source/finding 三张列表拿的是**冻结的** NEUTRAL_DOC_FILTERS。
+// ③ 冻结对象护栏:idea/source/finding 三张列表拿的是**冻结的** NEUTRAL_DOC_FILTERS。
 // 这两个按钮在它们身上渲染不出来(筛选分支只对 req/defect 生效 → 不可能"被筛空";
 // 锁提示显式限定 kind),而且写回一律走 documentFilters[kind](这三类取不到就不写)。
 // 两道保险都要在:机械钉住"根本没渲染",免得哪天筛选放开了顺手踩到冻结对象上抛异常。
 {
-  for (const listId of ["goal-list", "source-list", "finding-list"]) {
+  for (const listId of ["idea-list", "source-list", "finding-list"]) {
     assert(
       !document.querySelector(`#${listId} .doc-filtered-empty`) && !document.querySelector(`#${listId} .drag-hint`),
       `#${listId} 渲染出了会写筛选状态的按钮,但它拿到的是冻结的 NEUTRAL_DOC_FILTERS`,
@@ -3404,7 +3424,7 @@ assert(
     "read", "files", "symbols", "write", "edit", "insert", "bash", "process",
     "grep", "glob", "git", "webfetch", "websearch", "todowrite", "work",
     "test_record", "architecture", "conventions", "question", "task",
-    "req", "defect", "goal", "decision", "source", "finding",
+    "req", "defect", "idea", "decision", "source", "finding",
     "frontend_locate", "frontend_check", "memory_note", "memory_search",
     "ui_dom", "ui_console", "ui_style",
   ];

@@ -126,7 +126,7 @@ function isActivityTool(name, input) {
 const BG_TOOL_TYPES = {
   bash: "terminal", process: "terminal",
   read: "file", write: "file", edit: "file", multiedit: "file", glob: "file", grep: "file",
-  req: "tracker", defect: "tracker", goal: "tracker", source: "tracker", finding: "tracker", decision: "tracker",
+  req: "tracker", defect: "tracker", idea: "tracker", source: "tracker", finding: "tracker", decision: "tracker",
   task: "agent",
   memory_note: "memory", memory_search: "memory", memory_stats: "memory",
 };

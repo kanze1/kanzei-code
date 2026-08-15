@@ -7,7 +7,7 @@ function reqDragEnabled(filters = NEUTRAL_DOC_FILTERS) {
 // 职责分离(用户定调,替代 R-123 的两 surface 平分):侧栏只留「当前在做」焦点卡片
 // (只读详情 + 切状态,见 renderFocusPanel),完整需求/缺陷列表连同筛选、排序、分组、
 // 拖拽改序、字段编辑、批量操作、依赖视图整体收进单页视图。renderDocList 仍保留
-// surface 概念——goal/source/finding 这些侧栏轻列表还走它,它们没有深度管理能力。
+// surface 概念——idea/source/finding 这些侧栏轻列表还走它,它们没有深度管理能力。
 // D-211 的教训继续有效:锁提示渲染出来了就必须真的能解锁并拖动,承诺与能力不能脱节。
 function docSurface(listEl) {
   return String(listEl?.id ?? "").startsWith("documents-") ? "documents" : "sidebar";
@@ -157,7 +157,7 @@ async function jumpToEntry(ref) {
     [...document.querySelectorAll("[data-doc-id]")].filter((item) => item.dataset.docId === ref);
   let matches = findAll();
   if (!matches.length) {
-    const kind = ref.startsWith("R-") ? "req" : ref.startsWith("D-") ? "defect" : ref.startsWith("G-") ? "goal" : ref.startsWith("S-") ? "source" : ref.startsWith("F-") ? "finding" : null;
+    const kind = ref.startsWith("R-") ? "req" : ref.startsWith("D-") ? "defect" : ref.startsWith("I-") ? "idea" : ref.startsWith("S-") ? "source" : ref.startsWith("F-") ? "finding" : null;
     const loader = kind ? archiveLoaders.get(kind) : null;
     if (loader) {
       await loader.load();
@@ -301,7 +301,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
     clear.addEventListener("click", () => {
       // 写回一律落到底层 documentFilters[kind]。传进来的 reqFilterState 可能是对照页的
       // **中性显示副本**(见 12-docs-pages.js 的 neutralizedDocFilters):写副本等于按钮
-      // 点了没反应,也不会落盘。goal/source/finding 没有筛选状态(它们那三张列表也渲染
+      // 点了没反应,也不会落盘。idea/source/finding 没有筛选状态(它们那三张列表也渲染
       // 不出本按钮——不走 req/defect 的筛选分支就不可能"被筛空"),取不到就不写,免得
       // 踩到冻结的 NEUTRAL_DOC_FILTERS 上抛异常。
       const filterState = documentFilters[kind];
@@ -712,31 +712,41 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
       complexityRow.append(`${t("复杂度")}: `, complexitySelect);
       detail.appendChild(complexityRow);
     }
-    // 目标专属:状态速记(写入 fields.状态,同时保留计划字段用于展示)。
-    if (kind === "goal" && !entry.closed) {
-      const progressRow = document.createElement("div");
-      progressRow.className = "doc-progress";
-      const input = document.createElement("input");
-      input.placeholder = t("记录状态/调整方向,回车保存");
-      input.addEventListener("click", (e) => e.stopPropagation());
-      input.addEventListener("keydown", async (e) => {
-        if (e.key !== "Enter" || !input.value.trim()) return;
-        try {
-          const msg = await invoke("docs_update", {
-            projectDir: currentProject,
-            kind,
-            action: "update",
-            id: entry.id,
-            fields: { "状态": input.value.trim() },
-          });
-          log(msg);
-          refreshDocs();
-        } catch (err) {
-          toastError(String(err));
+    // 想法专属(R-252):inbox 显示「拆解」按钮(派 idea_split 子代理产出 R/D),
+    // 已拆解(split)显示产出的 refs 编号。拆解由人点按钮触发,不做自动拆解。
+    if (kind === "idea" && !entry.closed) {
+      if (entry.status === "inbox") {
+        const splitRow = document.createElement("div");
+        splitRow.className = "doc-progress";
+        const btn = document.createElement("button");
+        btn.className = "ghost mini";
+        btn.textContent = t("拆解成需求/缺陷");
+        btn.title = t("派子代理把这条想法拆成 R-/D- 条目,拆解后显示产出编号");
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          btn.disabled = true;
+          try {
+            const msg = await invoke("idea_split", { projectDir: currentProject, id: entry.id });
+            log(msg);
+            toast(msg);
+            refreshDocs();
+          } catch (err) {
+            toastError(String(err));
+            btn.disabled = false;
+          }
+        });
+        splitRow.appendChild(btn);
+        detail.appendChild(splitRow);
+      } else {
+        const refs = entry.fields?.find(([k]) => k === "refs")?.[1];
+        if (refs) {
+          const refsRow = document.createElement("div");
+          refsRow.className = "doc-progress";
+          refsRow.textContent = `${t("已拆解产出")}: ${refs}`;
+          refsRow.title = t("这些 R-/D- 条目由本想法拆解而来");
+          detail.appendChild(refsRow);
         }
-      });
-      progressRow.appendChild(input);
-      detail.appendChild(progressRow);
+      }
     }
     if ((entry.nextStatuses ?? []).length > 0) {
       const actions = document.createElement("div");

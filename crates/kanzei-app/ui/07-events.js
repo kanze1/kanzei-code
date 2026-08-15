@@ -214,8 +214,8 @@ on("kz:tool-end", (e) => {
       : outcome === "needs_correction" ? t("需要修正")
         : p.ok ? t("成功") : t("失败");
   log(`${t("工具结果")} ${p.name}: ${outcomeLabel} — ${p.preview}`, outcome === "success" ? "" : "warn");
-  // 工作焦点:req/defect/goal 的增改结果最能代表"它在干哪件事"。
-  if (p.ok && ["req", "defect", "goal"].includes(p.name)) {
+  // 工作焦点:req/defect/idea 的增改结果最能代表"它在干哪件事"。
+  if (p.ok && ["req", "defect", "idea"].includes(p.name)) {
     liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
     // 「在做」运行证据①:update 型 tracker 结果(取活时标 doing/fixing、批次进展
     // 都走这里)。add(快记新增)与 close(刚收尾)不指向正在做的条目,不采。
@@ -440,7 +440,7 @@ on("kz:done", async (e) => {
       addMessage("notice", `${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")} (${action.max ?? autoContinueMax()})`);
       setAutoStopReason(`${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")}`);
     } else if (reason === "NoAction") {
-      addMessage("notice", `${t("鞭挞停止")}:${t("连续两轮没有实质动作(可能目标已达成或确实无可推进项)")}`);
+      addMessage("notice", `${t("鞭挞停止")}:${t("连续两轮没有实质动作(可能条目已完成或确实无可推进项)")}`);
       log(`${t("鞭挞停止")}:${t("连续两轮无动作,鞭挞停止")}`);
       setAutoStopReason(t("连续两轮无动作,鞭挞停止"));
     } else if (reason === "AllBlocked") {

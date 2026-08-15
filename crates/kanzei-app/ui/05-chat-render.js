@@ -220,7 +220,7 @@ const TOOL_GROUPS = {
   grep: ["search", "search"], glob: ["search", "wildcard"],
   git: ["vcs", "branch"],
   webfetch: ["net", "link"], websearch: ["net", "globe"],
-  req: ["tracker", "clipboard"], defect: ["tracker", "bug"], goal: ["tracker", "target"],
+  req: ["tracker", "clipboard"], defect: ["tracker", "bug"], idea: ["tracker", "target"],
   decision: ["tracker", "fork"], source: ["tracker", "book"], finding: ["tracker", "bulb"],
   todowrite: ["plan", "checklist"], work: ["plan", "inbox"],
   task: ["agent", "fanout"],
@@ -277,7 +277,7 @@ function toolCallSummary(name, input) {
     case "memory_note": arg = pick("summary"); break;
     case "webfetch": arg = pick("url"); break;
     case "question": arg = pick("question"); break;
-    case "req": case "defect": case "goal": case "decision": case "memory": case "source": case "finding":
+    case "req": case "defect": case "idea": case "decision": case "memory": case "source": case "finding":
       arg = [pick("action"), pick("id", "title")].filter(Boolean).join(" ");
       break;
     default:

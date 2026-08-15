@@ -778,7 +778,7 @@ $("auto-continue").addEventListener("change", () => {
   if (!$('auto-continue').checked) cancelAutoContinueTimer();
   // R-169:开关同步后端状态机(enabled)。
   void syncAutoRunState();
-  log($("auto-continue").checked ? `${t("鞭挞已开启:每轮结束自动推进目标")} (${t("轮")} ${autoContinueMax()})` : t("鞭挞已关闭"));
+  log($("auto-continue").checked ? `${t("鞭挞已开启:每轮结束自动推进队列")} (${t("轮")} ${autoContinueMax()})` : t("鞭挞已关闭"));
   // BUG 修复(触发):空闲时勾上鞭挞必须立刻抽第一鞭——原来只挂在"上一轮结束"上,
   // 冷启动勾选后永远没有第一轮,必须手点"继续"才动。
   if ($("auto-continue").checked && !running && !autoPaused) {

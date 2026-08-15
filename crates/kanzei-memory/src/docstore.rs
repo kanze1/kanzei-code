@@ -176,8 +176,8 @@ pub const DECISIONS: DocKind = DocKind {
 };
 
 /// 原始想法收件箱(R-252):用户侧未经拆解的设计需求/想法,原样录入不过模型;
-/// 由人点「拆解」派子代理转成 requirements/defects 条目。goals 线已于同批退役
-/// (R-252 验收②:现存 G 条目推 dropped 并归档,全仓 grep 零残留)。
+/// 由人点「拆解」派子代理转成 requirements/defects 条目。旧的长期目标线已于
+/// 同批退役(R-252 验收②:现存条目推 dropped 并归档,全仓 grep 零残留)。
 /// 状态机 inbox → split/dropped:split=已拆解出 R/D(转 split 有 refs 硬门禁,
 /// 见 tracker actions::update_close),dropped=用户放弃。想法不是待办——
 /// 取活引擎(work)与鞭挞推进指令都不看这条线。

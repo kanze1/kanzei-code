@@ -78,15 +78,15 @@
         <div class="section-title"><span><span data-i18n-key="隔离工作树">隔离工作树</span> <em id="worktree-count"></em></span></div>
         <div id="worktree-list" class="doc-list worktree-readonly"></div>
       </div>
-      <div class="sidebar-section" data-collapse-key="goals">
+      <div class="sidebar-section" data-collapse-key="ideas">
         <div class="section-title">
-          <span><span data-i18n-key="目标">目标</span> <em id="goal-count"></em></span>
+          <span><span data-i18n-key="想法">想法</span> <em id="idea-count"></em></span>
           <span>
-            <button id="goal-add" class="icon-btn" title="新建目标" data-i18n-title="新建目标" aria-label="新建目标">＋</button>
-            <button id="goal-open" class="icon-btn" title="打开 goals.md(活跃目标会注入 agent 上下文,没有明确任务时它会自主推进)" data-i18n-title="打开 goals.md(活跃目标会注入 agent 上下文,没有明确任务时它会自主推进)" aria-label="打开 goals.md">↗</button>
+            <button id="idea-add" class="icon-btn" title="新建想法(原样录入,不过模型)" data-i18n-title="新建想法(原样录入,不过模型)" aria-label="新建想法">＋</button>
+            <button id="idea-open" class="icon-btn" title="打开 ideas.md(想法收件箱,拆解由人点按钮触发子代理)" data-i18n-title="打开 ideas.md(想法收件箱,拆解由人点按钮触发子代理)" aria-label="打开 ideas.md">↗</button>
           </span>
         </div>
-        <div id="goal-list" class="doc-list"></div>
+        <div id="idea-list" class="doc-list"></div>
       </div>
       <!-- 研究区只属于 research 档。source/finding 这两条文档线在 dev 档下零写入方
            (提示词里根本没让 agent 写)、零消费者,常驻侧栏只会永远显示两个「(空)」。
@@ -281,7 +281,7 @@
                     <kbd class="menu-key">4</kbd>
                     <input type="checkbox" id="process-phase-pipeline" />
                   </label>
-                  <label id="process-tracker-writes-wrap" class="menu-row hidden" title="允许当前分支线修改主项目唯一的需求、缺陷、目标、决策等 tracker 文档。默认关闭；读取始终可用。" data-i18n-title="允许当前分支线修改主项目唯一的需求、缺陷、目标、决策等 tracker 文档。默认关闭；读取始终可用。">
+                  <label id="process-tracker-writes-wrap" class="menu-row hidden" title="允许当前分支线修改主项目唯一的需求、缺陷、想法、决策等 tracker 文档。默认关闭；读取始终可用。" data-i18n-title="允许当前分支线修改主项目唯一的需求、缺陷、想法、决策等 tracker 文档。默认关闭；读取始终可用。">
                     <span class="menu-row-main">
                       <span class="menu-row-title" data-i18n-key="写主根追踪器">写主根追踪器</span>
                       <span class="menu-row-desc" data-i18n-key="允许本线改主项目的需求/缺陷文档,默认关闭">允许本线改主项目的需求/缺陷文档,默认关闭</span>
