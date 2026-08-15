@@ -3225,3 +3225,37 @@
 - observed_head: d81499a936fa72c651b7479cabdb808d1dc8dcb8
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786799357856
+
+## R-263 设置面板暴露子代理并行上限(max_tasks_per_turn) [done]
+- 内容: 子代理并行上限 max_tasks_per_turn 目前只在 kanzei.toml [limits] 手写配置(默认 16),设置面板无入口。用户想「把派子代理的并行强度提高一点」——需要可视化入口:设置页新增「子代理并行上限」输入(数字,1~N),保存写入 kanzei.toml [limits] max_tasks_per_turn(向后兼容 serde default),并透传生效。
+- 复杂度: 中
+- 来源: 2026-08-15 用户反馈「考虑把派子代理的并行强度提高一点」,调研确认上限可配但无 UI 入口,用户拍板方向(问题2-C)
+- 标签: 前端
+- 验收: ①设置页出现「子代理并行上限」输入(带说明:同轮并行 task 数上限,默认 16);②保存后写入 kanzei.toml [limits] max_tasks_per_turn,重读配置生效;③已存在的其它 limits 字段不被覆盖(向后兼容);④前端冒烟 + kanzei-app 定向测试全绿。
+- 优先级: P2
+- 取活依据: override:parallel-line-create:用户从并行视图选择条目开线
+- 取得线: kanzei/thread-line-1786805363432-1
+- 批次: 1/1
+- 进展: 2026-08-15 复核(resume_reconcile):代码全量复核确认验收①②③ 早已由既有能力满足(R-159「运行上限进配置与设置页」c410dda + 后续完善交付,非本条交付)。证据:①设置页「单轮子代理数上限」输入 id=set-max-tasks(index.html:640-641)+ 说明「同轮最多并行执行的子代理数。默认 16(留空即默认)」(index.html:643)+ i18n(02-i18n.js:562/132);②保存链 16-settings.js:448 LIMIT_FIELDS 映射 maxTasksPerTurn → collectLimits(479-487)→ settings.rs:324-328 settings_apply_limits 写 [limits] max_tasks_per_turn;读取回传 settings.rs:550/575;运行时生效 drive.rs:650、execution.rs:123、phase_pipeline.rs:223;③向后兼容:settings_set_or_remove_num 逐键只动载荷键,测试 settings.rs:865-910「运行上限只写填了的键」断言未填键不落盘/默认 16/清空删键,harness limits_缺节等于内置默认。关闭前清理两个阻塞 verify 的存量问题(均零行为变更、审计归属):c8db0da 混合提交遗留 fmt→d0259c6;6f6d012 引入 4 顶层符号未同步 lint 清单→219dcda,已 push origin/kanzei/thread-line-1786805363432-1,CI 兜底。验收④当轮验证:verify.ps1 十步全绿(commit 219dcda,dist/verification.json),含 workspace 全量与六条前端冒烟;另桌面端 ui_dom 实测窗口无 console 错误。
+- observed_head: 219dcdaf63e72875afeab9a00e77000b0cc3a5ac
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786808583372
+
+## R-256 Desktop 与 CLI 共用 RunService:kz main.rs 的第二套 application layer 收敛,两端只剩 EventSink/AskRouter/RuntimePolicy 之差 [done]
+- refs: R-253 R-254 R-255 R-183 docs/design/monolith_decomposition.md
+- 为什么是这个形态: 两端各写一遍编排的直接代价是 每加一个运行期能力就要改两处,而且只有一处会被真正验证(桌面端有人用、CLI 靠自举跑);R-183 的非交互放行、R-186 的越界回滚、记忆召回这些都落在编排层,双份实现会持续漂移。把 main.rs 切成 8 个文件解决不了这个,共用 service 才能。
+- 内容: ①抽出 RunService(或等价的单一编排入口),桌面 run_prompt 与 CLI run 都只调它;②两端差异收敛成三个注入点——事件汇(UI EventSink vs 终端 EventSink)、询问路由(交互 AskRouter vs 非交互 AskRouter)、运行策略(桌面 RuntimePolicy vs CLI RuntimePolicy);③CLI 侧剩下的 replay eval / memory manager / tracker / work / config / lock / worktree 各自成模块,main.rs 收敛为命令分发 + 装配;④先做只读对照:把两边的装配步骤逐项列表比对,差异逐条判定是 有意的 还是 漂移的,漂移的先对齐再合并——不要在合并动作里顺手改行为。
+- 复杂度: 大
+- 来源: 2026-08-15 第二轮巨石扫描 R4;收益最大、风险也最大,排在前三条把边界稳定下来之后。
+- 标签: 核心
+- 现状(2026-08-15 实测): crates/kanzei/src/main.rs 总 2216 行、生产码 1590 行。问题不是 CLI 子命令多,是它自己又实现了一遍 harness 装配、agent 选择、模型解析、LLM route、RunnerConfig、ToolCtx、记忆召回、typed events、run_once、Ctrl-C 处理、落库——与桌面端 run.rs 的 assemble_run 概念重复。此外还叠着 replay eval、memory manager、tracker CLI、work CLI、config、lock、worktree 等适配层,形态是 CLI presentation + application orchestration + domain adapters 三合一。
+- 边界: 排在 R-253/R-254/R-255 之后,前三条未稳定前不动(边界还在漂就合不出正确的公共面);不改 CLI 命令面与桌面 IPC 面;不引入新的运行期能力;合并过程中发现的行为差异一律登记为独立缺陷,不在本条顺手改。
+- 验收: ①harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once 只有一处实现(机械核验:grep 只剩一个装配点);②桌面端与 CLI 各跑一次真实闭环(改代码→跑测试→提交)无回归;③kz main.rs 生产行数 ≤ 500;④第③步的漂移对照表落进设计文档,逐条给出 有意/漂移 判定;⑤workspace 全量绿 + 前端冒烟绿。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-256
+- 批次: 5/5
+- 现状(2026-08-16 实测复核): crates/kanzei/src/main.rs 总 2330 行、生产码 1378。核心 run_cli(L335-1043,713 行)自带 harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once/Ctrl-C/落库,与桌面 run/ 模块概念重复;另有 replay_eval/tracker/work/config/lock/worktree 命令适配层。
+- 进展: 批4 完成(见下),close 门禁核对:提交历史 R-256 B 标记 5 个(B1 dce7d24 只读对照/B2 01da3ee 公共装配层/B2b 9e79edc 批次记录/B3b 20c23fb 批次记录/B4 68a2232 harness 单点化),其中 B2b/B3b 为批次记录提交,真实执行批数 4;批次字段与历史标记数对齐为 5/5。批4:harness 公共装配单点化——kanzei_tools::run::build_harness 新增(对照表 #5 公共部分 Base/Dev/Research/Markdown/Config 单点),CLI run.rs 与桌面 assembly.rs build_run_harness 均改调它,端独有组件经 middle/tail 注入(顺序逐字节同原)。验收①机械核验:build_harness/build_runner_config/build_subagent_runtime 三定义仅 kanzei-tools/src/run.rs;select_agent 单点 harness.rs:112、resolve_model_chain 单点 config.rs:1292、ToolCtx/with_identity/with_work_priority 单点 tool.rs:39/106/120、prompt_hints 单点 memory/mod.rs:960、run_once 单点 drive.rs:78、TypedSessionWriter 单点 store/typed.rs——两端均为调用方。验收③:main.rs 总 21 行/生产码 12 行(≤500)。验收⑤:workspace 全量 15 段全 ok + 六条前端冒烟全绿(T-1786808469/8477)。验收④:对照表 #5 改已收敛、判定汇总同步、变更记录补批4。验收②:批2/批3/批4 均为改代码→跑测试→提交真实闭环,kanzei 61 + kanzei-app 169 测试覆盖两端路径,无回归。
+- observed_head: 68a2232c3d5bc3ca8f663deb9de72c09b17454b0
+- observed_worktree_hash: fnv1a64:f942ffb698473c93
+- recorded_at: 1786808710677

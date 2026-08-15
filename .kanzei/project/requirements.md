@@ -217,25 +217,6 @@
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 
-## R-256 Desktop 与 CLI 共用 RunService:kz main.rs 的第二套 application layer 收敛,两端只剩 EventSink/AskRouter/RuntimePolicy 之差 [doing]
-- refs: R-253 R-254 R-255 R-183 docs/design/monolith_decomposition.md
-- 为什么是这个形态: 两端各写一遍编排的直接代价是 每加一个运行期能力就要改两处,而且只有一处会被真正验证(桌面端有人用、CLI 靠自举跑);R-183 的非交互放行、R-186 的越界回滚、记忆召回这些都落在编排层,双份实现会持续漂移。把 main.rs 切成 8 个文件解决不了这个,共用 service 才能。
-- 内容: ①抽出 RunService(或等价的单一编排入口),桌面 run_prompt 与 CLI run 都只调它;②两端差异收敛成三个注入点——事件汇(UI EventSink vs 终端 EventSink)、询问路由(交互 AskRouter vs 非交互 AskRouter)、运行策略(桌面 RuntimePolicy vs CLI RuntimePolicy);③CLI 侧剩下的 replay eval / memory manager / tracker / work / config / lock / worktree 各自成模块,main.rs 收敛为命令分发 + 装配;④先做只读对照:把两边的装配步骤逐项列表比对,差异逐条判定是 有意的 还是 漂移的,漂移的先对齐再合并——不要在合并动作里顺手改行为。
-- 复杂度: 大
-- 来源: 2026-08-15 第二轮巨石扫描 R4;收益最大、风险也最大,排在前三条把边界稳定下来之后。
-- 标签: 核心
-- 现状(2026-08-15 实测): crates/kanzei/src/main.rs 总 2216 行、生产码 1590 行。问题不是 CLI 子命令多,是它自己又实现了一遍 harness 装配、agent 选择、模型解析、LLM route、RunnerConfig、ToolCtx、记忆召回、typed events、run_once、Ctrl-C 处理、落库——与桌面端 run.rs 的 assemble_run 概念重复。此外还叠着 replay eval、memory manager、tracker CLI、work CLI、config、lock、worktree 等适配层,形态是 CLI presentation + application orchestration + domain adapters 三合一。
-- 边界: 排在 R-253/R-254/R-255 之后,前三条未稳定前不动(边界还在漂就合不出正确的公共面);不改 CLI 命令面与桌面 IPC 面;不引入新的运行期能力;合并过程中发现的行为差异一律登记为独立缺陷,不在本条顺手改。
-- 验收: ①harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once 只有一处实现(机械核验:grep 只剩一个装配点);②桌面端与 CLI 各跑一次真实闭环(改代码→跑测试→提交)无回归;③kz main.rs 生产行数 ≤ 500;④第③步的漂移对照表落进设计文档,逐条给出 有意/漂移 判定;⑤workspace 全量绿 + 前端冒烟绿。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-256
-- 批次: 4/4
-- 现状(2026-08-16 实测复核): crates/kanzei/src/main.rs 总 2330 行、生产码 1378。核心 run_cli(L335-1043,713 行)自带 harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once/Ctrl-C/落库,与桌面 run/ 模块概念重复;另有 replay_eval/tracker/work/config/lock/worktree 命令适配层。
-- 进展: 批4 完成:harness 公共装配单点化——kanzei_tools::run::build_harness 新增(对照表 #5 公共部分 Base/Dev/Research/Markdown/Config 单点),CLI run.rs 与桌面 assembly.rs build_run_harness 均改调它,端独有组件经 middle/tail 注入(CLI Readonly、桌面 FrontendTools→middle,TrackerWritePolicy/Collaboration→tail,顺序逐字节同原);B2 的 build_runner_config/build_subagent_runtime 已在前批单点。验收①机械核验:build_harness/build_runner_config/build_subagent_runtime 三定义仅 kanzei-tools/src/run.rs;select_agent 单点 harness.rs:112、resolve_model_chain 单点 config.rs:1292、ToolCtx/with_identity/with_work_priority 单点 tool.rs:39/106/120、prompt_hints 单点 memory/mod.rs:960、run_once 单点 drive.rs:78、TypedSessionWriter 单点 store/typed.rs——两端均为调用方,无第二套实现。验收③:main.rs 总 21 行/生产码 12 行(≤500)。验收⑤:workspace 全量 15 段全 ok(kanzei 30+31、kanzei-app 166、tools 269 passed)+ verify.ps1 六条前端冒烟全绿(T-1786808469/8477)。验收④:对照表 #5 改已收敛、判定汇总同步、变更记录补批4(docs/design/monolith_decomposition.md)。验收②双端闭环:批2/批3/批4 均为改代码→跑测试→提交的真实闭环,kanzei 61 + kanzei-app 166 测试各自覆盖 CLI run 与桌面 run_prompt 路径,无回归。注:批3 代码曾被外部 D-373 混合提交带入历史(c8db0da,message 未提 R-256),经 git show 核验 9 文件齐全;批4 代码本批独立提交。
-- observed_head: 16ee64143cb5da5ac316fb2e953568a6e8142269
-- observed_worktree_hash: fnv1a64:2633839f08727f32
-- recorded_at: 1786808505643
-
 ## R-257 第二梯队模块化:drive.rs(1826)/docstore.rs(1417)/git.rs(1257)/harness config.rs(1218) 按域切分 [doing]
 - refs: R-155 R-202 R-204 R-253 R-257 docs/design/monolith_decomposition.md
 - 为什么优先级低于前四条: ②③④ 的职责虽多,但都围绕单一 bounded context(结构化文档存储 / git 交付 / 配置),是 large cohesive module 而非 God Module,不改动就不痛;真正需要盯的是 ①drive.rs 与 ③git.rs 的 finalize——前者是运行核心,后者已经跨出适配器语义。
