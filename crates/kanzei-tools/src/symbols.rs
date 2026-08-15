@@ -135,8 +135,13 @@ impl Tool for SymbolsTool {
             return ToolOutput::ok("(no symbols found)".to_string());
         }
         let mut lines: Vec<String> = Vec::new();
+        let mut shown = 0usize;
         for (path, symbols) in &all {
-            lines.push(format!("== {path}"));
+            // 表头惰性:该文件零命中就不吐 `== path`。
+            // 原先无条件先 push 表头再过滤,目录扫描 + filter 时每个「含任意符号」的
+            // 文件都留下一行空表头(全 workspace 约 150 行),把真正的命中埋掉——
+            // 这正是「已有 filter 为什么不能当符号反查用」的原因。
+            let mut block: Vec<String> = Vec::new();
             for sym in symbols {
                 if let Some(filter) = &input.filter {
                     if !sym.name.contains(filter.as_str()) {
@@ -147,10 +152,17 @@ impl Tool for SymbolsTool {
                     continue;
                 }
                 let vis = if sym.public { "pub" } else { "  " };
-                lines.push(format!("  {vis} {} {}:{}", sym.kind, sym.name, sym.line));
+                block.push(format!("  {vis} {} {}:{}", sym.kind, sym.name, sym.line));
+            }
+            if !block.is_empty() {
+                lines.push(format!("== {path}"));
+                shown += block.len();
+                lines.append(&mut block);
             }
         }
-        if lines.len() == 1 {
+        // 判空按**符号行数**,不按 lines.len()==1——后者只在单文件扫描时成立,
+        // 目录扫描下永远为假,于是空结果被渲染成一堆表头而不是一句"无命中"。
+        if shown == 0 {
             return ToolOutput::ok("(no symbols match filter)".to_string());
         }
         ToolOutput::ok(lines.join("\n"))
@@ -296,7 +308,17 @@ fn parse_symbol_line(code: &str, line: usize) -> Option<Symbol> {
     }
     for kw in ["fn", "struct", "enum", "trait", "type", "mod"] {
         if let Some(rest) = body.strip_prefix(kw) {
-            // 必须是词边界:fn name / struct Name。
+            // 真·词边界:剥掉关键字后必须**紧跟空白**。
+            //
+            // 原先只检查 trim 之后的首字符是不是字母——那是词边界的反面:
+            // `typed_writer.lock()` 剥掉 `type` 剩 `d_writer.lock()`,首字符 `d`
+            // 是字母于是照过,产出假符号 `type d_writer.lock`。实测假阳性:
+            // crates/kanzei/src/main.rs:522/:573、crates/kanzei-app/src/fast_model.rs:209
+            // (`models.iter()` → `mod els.iter`)。列表模式下这只是噪声,一旦拿
+            // symbols 当「符号定义在哪」用,它就是直接给出错误答案。
+            if !rest.starts_with(char::is_whitespace) {
+                continue;
+            }
             let after = rest.trim_start();
             if after.is_empty()
                 || !after
@@ -326,6 +348,11 @@ fn parse_symbol_line(code: &str, line: usize) -> Option<Symbol> {
     // const/static NAME: 带类型标注的。
     for kw in ["const", "static"] {
         if let Some(rest) = body.strip_prefix(kw) {
+            // 同上的词边界。这里原先连空白检查都没有:`constant_foo: X` 会被剥成
+            // 符号 `ant_foo`,任何以 const/static 开头的标识符都中招。
+            if !rest.starts_with(char::is_whitespace) {
+                continue;
+            }
             let after = rest.trim_start();
             let name = after.split(':').next().unwrap_or(after).trim().to_string();
             if !name.is_empty()
@@ -399,6 +426,45 @@ mod tests {
             "{names:?}"
         );
         assert!(!names.contains(&("fn", "not_a_fn", false)), "{names:?}");
+        std::fs::remove_file(&file).ok();
+    }
+
+    /// 关键字必须按词边界匹配:以关键字为**前缀**的标识符不是符号声明。
+    ///
+    /// 这三行都是从仓里真实抄来的假阳性来源:
+    /// - `typed_writer.lock()`  crates/kanzei/src/main.rs:522(剥 `type` → `d_writer.lock`)
+    /// - `models.iter()`        crates/kanzei-app/src/fast_model.rs:209(剥 `mod` → `els.iter`)
+    /// - `constant_foo`         const/static 分支原先连空白都不检查
+    ///
+    /// 列表模式下这些只是噪声;拿 symbols 回答「符号定义在哪」时,它们就是错答案。
+    #[test]
+    fn 符号扫描_关键字前缀的标识符不得误判为声明() {
+        let file = fixture(
+            "typed_writer.lock().unwrap().record_error(error);\n\
+             models.iter().any(|m| m.id == want);\n\
+             constant_foo: i32 = 3;\n\
+             structural.rebuild();\n\
+             // 真声明必须仍然命中:\n\
+             type Alias = u32;\n\
+             mod inner;\n\
+             const REAL: i32 = 1;\n\
+             struct Real {}\n",
+        );
+        let symbols = scan_symbols(&file);
+        let names: Vec<(&str, &str)> = symbols
+            .iter()
+            .map(|s| (s.kind, s.name.as_str()))
+            .collect();
+        for bogus in ["d_writer.lock", "els.iter", "ant_foo", "ural.rebuild"] {
+            assert!(
+                !names.iter().any(|(_, n)| *n == bogus),
+                "关键字前缀被当成声明剥出了假符号 {bogus}: {names:?}"
+            );
+        }
+        assert!(names.contains(&("type", "Alias")), "{names:?}");
+        assert!(names.contains(&("mod", "inner")), "{names:?}");
+        assert!(names.contains(&("const", "REAL")), "{names:?}");
+        assert!(names.contains(&("struct", "Real")), "{names:?}");
         std::fs::remove_file(&file).ok();
     }
 
