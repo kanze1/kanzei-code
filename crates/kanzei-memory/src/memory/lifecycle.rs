@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use super::{MemoryEntry, MemoryScope};
+use super::{today, MemoryEntry, MemoryScope, MemoryStore};
 
 /// 记忆生命周期策略:纯判定(should_promote/should_deprecate)+ 带库的门禁
 /// (promote_guard)。无自有状态。
@@ -118,6 +118,41 @@ impl MemoryLifecycle {
         } else {
             None
         }
+    }
+}
+
+impl MemoryStore {
+    /// candidate → shadow(R-166):进入评估期,可被离线回放评估但不注入生产检索。
+    /// 与 promote 不同,to_shadow 不需要 provenance——评估本身就是验证,
+    /// 评估通过后 promote(带证据)才进 active。状态机:只有 candidate 可进 shadow。
+    pub fn to_shadow(&self, id: &str) -> anyhow::Result<MemoryEntry> {
+        let entries = self.load_all();
+        let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
+            anyhow::bail!("unknown memory id `{id}`");
+        };
+        if entry.status != "candidate" {
+            anyhow::bail!(
+                "cannot to_shadow `{id}`: status is `{}`, only candidate can enter shadow",
+                entry.status
+            );
+        }
+        entry.status = "shadow".into();
+        entry.updated = today();
+        self.write_entry(&entry, Some(&path))?;
+        self.refresh_derived()?;
+        Ok(entry)
+    }
+
+    /// candidate 派生索引计数(recency 报告/收尾统计用)。
+    pub(crate) fn candidate_index_count(&self) -> usize {
+        let Ok(conn) = self.open_db() else { return 0 };
+        conn.query_row(
+            "SELECT COUNT(*) FROM memory_fts WHERE status = 'candidate'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|count| count.max(0) as usize)
+        .unwrap_or(0)
     }
 }
 

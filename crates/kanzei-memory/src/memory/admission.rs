@@ -238,6 +238,46 @@ pub(crate) fn is_cjk(ch: char) -> bool {
     matches!(ch as u32,
         0x2E80..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2FA1F)
 }
+/// D-282:主题 token 交集计数。英文按词(小写)、CJK 按单字,去掉高频虚词
+/// (的/了/是/在/与…),避免「新 description 全是通用字」被误判为同主题。
+/// 返回 0 表示两段文本没有共同主题词——description 与条目主题漂移的判据。
+pub(crate) fn topic_overlap(a: &str, b: &str) -> usize {
+    fn tokens(text: &str) -> std::collections::HashSet<String> {
+        let mut set = std::collections::HashSet::new();
+        let mut word = String::new();
+        for ch in text.chars() {
+            if ch.is_ascii_alphanumeric() {
+                word.push(ch.to_ascii_lowercase());
+            } else {
+                if word.len() >= 2 {
+                    set.insert(word.clone());
+                }
+                word.clear();
+                if is_cjk(ch) && !STOP_CHARS.contains(&ch) {
+                    set.insert(ch.to_string());
+                }
+            }
+        }
+        if word.len() >= 2 {
+            set.insert(word);
+        }
+        set
+    }
+    let ta = tokens(a);
+    let tb = tokens(b);
+    ta.intersection(&tb).count()
+}
+
+/// 主题判据里忽略的 CJK 虚词/通用字(单字交集噪音源)。
+const STOP_CHARS: &[char] = &[
+    '的', '了', '是', '在', '与', '和', '或', '及', '对', '为', '时', '要', '不', '会', '能', '可',
+    '等', '这', '那', '就', '也', '被', '把', '从', '到', '以', '于', '之', '其', '它', '他', '她',
+    '个', '条', '种', '次', '项', '处', '点', '段', '行', '列', '张', '件', '份', '页', '步', '轮',
+    '批', '并', '且', '但', '而', '若', '则', '即', '如', '虽', '还', '又', '再', '更', '最', '很',
+    '太', '仅', '只', '已', '未', '无', '有', '没', '别', '自', '各', '每', '某', '几', '两', '多',
+    '少', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '百', '千', '万', '零',
+];
+
 #[cfg(test)]
 mod tests {
     // R-255 验收②:准入策略的独立可测入口——不经 store.add,直接构造 MemoryEntry

@@ -14,8 +14,27 @@ use std::path::PathBuf;
 use crate::memory::fp_markers;
 
 use super::store::MemoryStore;
+use super::MemoryEntry;
 
 impl MemoryStore {
+    /// ID 分配扫活跃+归档,编号绝不复用(同 tracker 哲学)。
+    pub fn next_id(&self, entries: &[(PathBuf, MemoryEntry)]) -> String {
+        let prefix = self.scope.prefix();
+        let parse = |id: &str| {
+            id.strip_prefix(prefix)?
+                .strip_prefix('-')?
+                .parse::<u32>()
+                .ok()
+        };
+        let max = entries
+            .iter()
+            .filter_map(|(_, e)| parse(&e.id))
+            .chain(self.load_archived_ids().iter().filter_map(|id| parse(id)))
+            .max()
+            .unwrap_or(0);
+        format!("{}-{:03}", prefix, max + 1)
+    }
+
     /// 合并重复:并入首个 id(保住最老引用),其余 stale 并留 superseded_by 墓碑链接。
     pub fn merge(
         &self,

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection};
 
-use super::admission::{is_cjk, MemoryAdmission};
+use super::admission::{topic_overlap, MemoryAdmission};
 use super::lifecycle::MemoryLifecycle;
 pub(crate) use super::retrieval::{intent_query, segment_cjk};
 use super::{date_days, parse_entry, render_entry, today, MemoryEntry, MemoryScope, STATUSES};
@@ -229,24 +229,6 @@ impl MemoryStore {
             .count()
     }
 
-    /// ID 分配扫活跃+归档,编号绝不复用(同 tracker 哲学)。
-    pub fn next_id(&self, entries: &[(PathBuf, MemoryEntry)]) -> String {
-        let prefix = self.scope.prefix();
-        let parse = |id: &str| {
-            id.strip_prefix(prefix)?
-                .strip_prefix('-')?
-                .parse::<u32>()
-                .ok()
-        };
-        let max = entries
-            .iter()
-            .filter_map(|(_, e)| parse(&e.id))
-            .chain(self.load_archived_ids().iter().filter_map(|id| parse(id)))
-            .max()
-            .unwrap_or(0);
-        format!("{}-{:03}", prefix, max + 1)
-    }
-
     /// 写入门禁:枚举校验 + description 必填 + 精确标题去重(可 force)+ refs 来源契约
     /// + subject 状态不变量(同 category+subject 至多一条 active,force 不可绕,R-149)。
     #[allow(clippy::too_many_arguments)] // 记忆条目的稳定写入接口；参数均直接映射持久化字段。
@@ -451,27 +433,6 @@ impl MemoryStore {
         Ok(entry)
     }
 
-    /// candidate → shadow(R-166):进入评估期,可被离线回放评估但不注入生产检索。
-    /// 与 promote 不同,to_shadow 不需要 provenance——评估本身就是验证,
-    /// 评估通过后 promote(带证据)才进 active。状态机:只有 candidate 可进 shadow。
-    pub fn to_shadow(&self, id: &str) -> anyhow::Result<MemoryEntry> {
-        let entries = self.load_all();
-        let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
-            anyhow::bail!("unknown memory id `{id}`");
-        };
-        if entry.status != "candidate" {
-            anyhow::bail!(
-                "cannot to_shadow `{id}`: status is `{}`, only candidate can enter shadow",
-                entry.status
-            );
-        }
-        entry.status = "shadow".into();
-        entry.updated = today();
-        self.write_entry(&entry, Some(&path))?;
-        self.refresh_derived()?;
-        Ok(entry)
-    }
-
     /// 升级 candidate|shadow → active(R-165 生命周期 PROMOTE)。
     /// provenance 硬约束:必须提供至少一条 memory_sources 证据(episode 区间),
     /// 无来源不入 active——证据编译语义的引擎强制,不靠 manager 自觉。
@@ -585,17 +546,6 @@ impl MemoryStore {
             .count();
         report.candidate_index_after = self.candidate_index_count();
         Ok(report)
-    }
-
-    fn candidate_index_count(&self) -> usize {
-        let Ok(conn) = self.open_db() else { return 0 };
-        conn.query_row(
-            "SELECT COUNT(*) FROM memory_fts WHERE status = 'candidate'",
-            [],
-            |row| row.get::<_, i64>(0),
-        )
-        .map(|count| count.max(0) as usize)
-        .unwrap_or(0)
     }
 
     pub(crate) fn write_entry(
@@ -773,98 +723,7 @@ impl MemoryStore {
         )?;
         Ok(conn)
     }
-
-    /// 按标题前缀找一条 active 偏好条目(开发重心这类"随时会改的定调")。
-    pub fn find_preference(&self, title_prefix: &str) -> Option<MemoryEntry> {
-        self.load_all().into_iter().map(|(_, e)| e).find(|e| {
-            e.category == "preference" && e.status == "active" && e.title.starts_with(title_prefix)
-        })
-    }
-
-    /// 用户直写的偏好 upsert:标题前缀命中就改,否则新增。
-    /// 定调会被反复调整,必须复用同一条目——每次切换都新增会把索引撑爆且历史无从对照。
-    /// (用户手改路径,不经 memory-manager;A-005:用户编辑本就不受写读分离约束。)
-    pub fn upsert_preference(
-        &self,
-        title_prefix: &str,
-        title: &str,
-        description: &str,
-        body: &str,
-    ) -> anyhow::Result<MemoryEntry> {
-        if let Some(existing) = self.find_preference(title_prefix) {
-            let entries = self.load_all();
-            let (path, mut entry) = entries
-                .into_iter()
-                .find(|(_, e)| e.id == existing.id)
-                .expect("found above");
-            entry.title = title.trim().to_string();
-            entry.description = description.trim().to_string();
-            entry.body = body.trim().to_string();
-            entry.updated = today();
-            self.write_entry(&entry, Some(&path))?;
-            self.refresh_derived()?;
-            return Ok(entry);
-        }
-        match self.add(
-            "preference",
-            title,
-            description,
-            body,
-            "user",
-            &[],
-            None,
-            true,
-        )? {
-            AddOutcome::Added(entry)
-            | AddOutcome::Duplicate(entry)
-            | AddOutcome::SubjectConflict(entry) => Ok(entry),
-            // force=true 已跳过语义闸,Uncertain 不应出现;保守处理为取候选首条。
-            AddOutcome::Uncertain(mut candidates) => Ok(candidates
-                .pop()
-                .ok_or_else(|| anyhow::anyhow!("force add failed: no entry"))?),
-        }
-    }
 }
-
-/// D-282:主题 token 交集计数。英文按词(小写)、CJK 按单字,去掉高频虚词
-/// (的/了/是/在/与…),避免「新 description 全是通用字」被误判为同主题。
-/// 返回 0 表示两段文本没有共同主题词——description 与条目主题漂移的判据。
-fn topic_overlap(a: &str, b: &str) -> usize {
-    fn tokens(text: &str) -> std::collections::HashSet<String> {
-        let mut set = std::collections::HashSet::new();
-        let mut word = String::new();
-        for ch in text.chars() {
-            if ch.is_ascii_alphanumeric() {
-                word.push(ch.to_ascii_lowercase());
-            } else {
-                if word.len() >= 2 {
-                    set.insert(word.clone());
-                }
-                word.clear();
-                if is_cjk(ch) && !STOP_CHARS.contains(&ch) {
-                    set.insert(ch.to_string());
-                }
-            }
-        }
-        if word.len() >= 2 {
-            set.insert(word);
-        }
-        set
-    }
-    let ta = tokens(a);
-    let tb = tokens(b);
-    ta.intersection(&tb).count()
-}
-
-/// 主题判据里忽略的 CJK 虚词/通用字(单字交集噪音源)。
-const STOP_CHARS: &[char] = &[
-    '的', '了', '是', '在', '与', '和', '或', '及', '对', '为', '时', '要', '不', '会', '能', '可',
-    '等', '这', '那', '就', '也', '被', '把', '从', '到', '以', '于', '之', '其', '它', '他', '她',
-    '个', '条', '种', '次', '项', '处', '点', '段', '行', '列', '张', '件', '份', '页', '步', '轮',
-    '批', '并', '且', '但', '而', '若', '则', '即', '如', '虽', '还', '又', '再', '更', '最', '很',
-    '太', '仅', '只', '已', '未', '无', '有', '没', '别', '自', '各', '每', '某', '几', '两', '多',
-    '少', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '百', '千', '万', '零',
-];
 
 #[cfg(test)]
 mod tests {

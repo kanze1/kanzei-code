@@ -3884,3 +3884,18 @@
 - 摘要: R-255 B3b ledger 域迁移后:138 passed, 0 failed; clippy 零警告; store.rs 生产码 936→707
 - 关联: R-255
 - 收尾: 1786798582
+
+## T-1786798931 cargo test -p kanzei-memory (R-255 B3c 剩余域迁移) [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 4.3s
+- 摘要: R-255 B3c 剩余域迁移后:138 passed, 0 failed; clippy 零警告; store.rs 生产码 602→586(验收①≤600 达标)
+- 关联: R-255
+- 收尾: 1786798941
+
+## T-1786799025 cargo test -p kanzei-memory (R-255 B3c fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.4s
+- 摘要: R-255 B3c fmt 后复测:138 passed, 0 failed
+- 关联: R-255
+- 收尾: 1786799025
+- 源码指纹: b40c30d6fb8e447d
