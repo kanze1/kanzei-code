@@ -134,6 +134,17 @@ pub struct ResolvedControlState {
     /// 不参与本线的 Resume/WipViolation/候选裁决。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub foreign_wip: Vec<WorkItemSummary>,
+    /// Resume 且进展锚点已陈旧时的**强制前置动作**:先复核已落地范围。
+    ///
+    /// D-368 实测形态:条目 `fixing`、批次 0/1、进展改动面写着三处待做,而
+    /// `observed_head` 已落后于当前 HEAD——三处代码其实早已整块落在一个提交里。
+    /// 照着进展字段动手就是把已完成的活重做一遍。当时 agent 是靠自己从文件系统
+    /// 反推才没重复实现,这条把「靠自觉」变成裁决面的一等公民。
+    ///
+    /// 放在裁决顶层而不是拼进 `reason`:reason 会被 claim 原样写进条目的
+    /// 「取活依据」字段,那会把整段提示灌进 tracker 文档留下噪音审计行。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_reconcile: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -540,6 +551,30 @@ fn reference_index(
     index
 }
 
+/// Resume 前的复核提示。只在进展锚点与当前仓库对不上时给出——锚点新鲜就不啰嗦,
+/// 免得每轮都念一遍把它念成背景噪音。
+///
+/// 判据直接复用 `provenance()` 已经算好的 status(current/stale/unanchored/
+/// future_timestamp),不重算锚点比对:同一个判断在一个文件里只该有一处实现。
+fn resume_reconcile_hint(item: &WorkItem) -> Option<String> {
+    let provenance = &item.progress_provenance;
+    if !matches!(provenance.status.as_str(), "stale" | "unanchored") {
+        return None;
+    }
+    let why = if provenance.reasons.is_empty() {
+        format!("进展锚点状态为 {}", provenance.status)
+    } else {
+        provenance.reasons.join(";")
+    };
+    Some(format!(
+        "恢复 {} 的第一步是复核已落地范围,不是接着写:{why}。\
+         进展字段可能落后于代码——先用 git log / git log -S <符号> 与实际文件确认哪些批次\
+         已经实现并提交,把真实进度写回条目,再决定还剩什么要做。\
+         D-368 实测:条目写着批次 0/1、改动面三处待做,而三处代码早已整块落在一个提交里。",
+        item.id
+    ))
+}
+
 fn compact_for_context(mut state: ResolvedControlState) -> ResolvedControlState {
     if state.decision != WorkDecision::Blocked {
         state.blocked_items.clear();
@@ -759,6 +794,11 @@ pub fn resolve_work_decision(
     };
 
     let decision_locked = matches!(decision, WorkDecision::Resume | WorkDecision::Start);
+    // D-368:Resume 且进展锚点陈旧时,恢复的第一步是复核而不是接着写。
+    let resume_reconcile = match (&decision, &selected) {
+        (WorkDecision::Resume, Some(item)) => resume_reconcile_hint(item),
+        _ => None,
+    };
     Ok(ResolvedControlState {
         schema_version: 1,
         work_priority: priority_name(priority).into(),
@@ -771,6 +811,7 @@ pub fn resolve_work_decision(
         integrity_errors,
         line: me,
         foreign_wip,
+        resume_reconcile,
     })
 }
 
@@ -788,7 +829,9 @@ pub fn resolved_control_prompt(
          This block is the engine's authoritative work decision for the turn. Execute it; do not \
          re-arbitrate queue priority from tracker prose. Call `work next` to refresh after state changes.\n\
          decision_locked=true 时该裁决已冻结:没有新的控制面事实(队列变化/阻塞解除/用户指示)就\
-         不要重新讨论做哪个、做不做——直接执行 selected。\n"
+         不要重新讨论做哪个、做不做——直接执行 selected。\n\
+         resume_reconcile 非空时:冻结的是「做哪个」,不是「已经做到哪」。先按该字段复核代码与\
+         提交、确认哪些批次已落地并把真实进度写回条目,再继续实现——否则会把已完成的批次重做一遍。\n"
     )
 }
 
@@ -1042,6 +1085,87 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// D-368:Resume 且进展锚点已陈旧时,裁决必须把「先复核已落地范围」作为前置动作给出。
+    ///
+    /// 事故形态:条目 fixing、批次 0/1、改动面写着三处待做,而 observed_head 已落后于
+    /// 当前 HEAD——三处代码其实早已整块落在一个提交里。当时 agent 是靠自己从文件系统
+    /// 反推才没重复实现一遍;这条把它变成裁决面强制输出。
+    #[test]
+    fn d368_resume时锚点陈旧给出复核前置() {
+        let dir = fixture("d368-stale");
+        let mut stale = entry("D-368", "fixing");
+        stale.fields.push(("进展".into(), "批次 0/1".into()));
+        // 三个锚点齐全(否则算 unanchored),但 head/worktree 都对不上当前仓库 → stale
+        stale
+            .fields
+            .push(("recorded_at".into(), current_unix_ms().to_string()));
+        stale.fields.push((
+            "observed_head".into(),
+            "0000000000000000000000000000000000000000".into(),
+        ));
+        stale
+            .fields
+            .push(("observed_worktree_hash".into(), "not-the-current-hash".into()));
+        DocStore::open(&dir, &DEFECTS).save(&[stale]).unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Resume, "{}", state.reason);
+        let hint = state
+            .resume_reconcile
+            .expect("锚点陈旧的 Resume 必须给出复核前置动作");
+        assert!(hint.contains("D-368"), "提示要点名条目: {hint}");
+        assert!(hint.contains("复核"), "{hint}");
+        assert!(
+            hint.contains("git log"),
+            "提示要给出可执行的复核手段而不是空喊: {hint}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 锚点与当前仓库一致时不给复核提示——每轮都念会把它念成背景噪音,
+    /// 真正陈旧那次就没人当回事了。
+    #[test]
+    fn d368_锚点新鲜时不给复核前置() {
+        let dir = fixture("d368-fresh");
+        let observation = repo_observation(&dir);
+        let mut fresh = entry("D-368", "fixing");
+        fresh.fields.push(("进展".into(), "批次 1/1".into()));
+        fresh
+            .fields
+            .push(("recorded_at".into(), observation.recorded_at.clone()));
+        fresh
+            .fields
+            .push(("observed_head".into(), observation.observed_head.clone()));
+        fresh.fields.push((
+            "observed_worktree_hash".into(),
+            observation.observed_worktree_hash.clone(),
+        ));
+        DocStore::open(&dir, &DEFECTS).save(&[fresh]).unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Resume, "{}", state.reason);
+        assert!(
+            state.resume_reconcile.is_none(),
+            "锚点新鲜不该给复核提示: {:?}",
+            state.resume_reconcile
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 非 Resume 裁决不给复核提示——它是「恢复」这个动作的前置,不是通用告示。
+    #[test]
+    fn d368_非resume裁决不给复核前置() {
+        let dir = fixture("d368-start");
+        DocStore::open(&dir, &DEFECTS)
+            .save(&[entry("D-001", "open")])
+            .unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_ne!(state.decision, WorkDecision::Resume, "{}", state.reason);
+        assert!(state.resume_reconcile.is_none());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
