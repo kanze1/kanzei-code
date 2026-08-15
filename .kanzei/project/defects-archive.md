@@ -4351,3 +4351,19 @@
 - observed_head: b3cd5029a12118365def9fe5a4e6e63e05aca2b6
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786765467260
+
+## D-371 门禁跑子集却宣布「全绿」:自举只跑四条前端冒烟,崩掉的那条红了十几个提交无人察觉 [fixed] (medium)
+- refs: D-264 R-209
+- 复现: 检出 e06a226(R-253 B1「run.rs 整体改名 run/mod.rs」)之后的任一提交,跑 `node scripts/parallel-lines-regression.mjs` —— ENOENT 崩溃(脚本第 31 行硬编码读 crates/kanzei-app/src/run.rs,该文件已改名)。而 e06a226 到 cfe9f64 之间十余个提交的提交信息里,R-253 B9 关闭写的是「四条前端冒烟全过(ui-runtime/i18n/a11y/markdown)」——六条只跑了四条,漏掉的正是崩掉的这条与 ui-lint。
+- 影响: verify.ps1 的门禁清单是确定的十步(含六条前端冒烟),自举跑其中一个子集就宣布「全绿」,于是 dev 分支带着一条红门禁前进了十几个提交无人察觉,期间每条提交信息都写着全绿。**这是 D-264 的同族复发**:那条的标题是「cargo test 全绿但 fmt/clippy 从未跑到」,同样是「跑了子集、报了全称」。D-264 的修法是把 fmt/clippy 做成代码强制的提交门禁;本条说明该模式在**前端冒烟**这一侧还没有对应的强制,规则层写过也拦不住。
+- 根因(两层): ①无强制:前端冒烟无代码层入口,靠自觉;②声称不可核:「四条全过」无机械判据比对清单。本次修②:test_record 对「声称冒烟且 passed」的记录强制比对六条清单(D-264 同族,补上声称不可核这一侧)。
+- 边界: 不要把六条冒烟直接加进每次提交的硬门禁——它们合计约 4 秒,但提交门禁已含 check --all-targets + clippy(约 12 秒),再叠会让内环变贵;本条要解决的是「声称与实际的差集不可见」,不是「每次提交都跑全套」。
+- 来源: 2026-08-15 用户四件修复期间,我跑六条冒烟时 parallel-lines-regression 报 ENOENT;用 git stash 验证确认与本次改动无关,回溯到 e06a226。脚本路径已在提交 5373dc9 修好(改成递归扫整棵 src/,不再锁死单文件名),但「跑子集报全绿」这个模式本身未修,故单独登记。
+- 验收: ①存在机械判据,能在「声称跑过前端冒烟」时比对实际跑过的条目与 verify.ps1 清单,差集非空即判红(形态不限:test_record 的 coverage 字段校验、专用门禁、或收尾时强制跑 verify.ps1 全套皆可);②构造反例——只跑四条冒烟就宣布完成,该判据必须拦下;③正例不误伤:六条全跑时正常通过;④修复后回溯核查 e06a226..cfe9f64 区间,确认此类声称在新判据下会被识别;⑤conventions 或提示词侧同步写明「全绿」的定义是 verify.ps1 十步,不是任意子集。
+- 优先级: P2
+- 标签: 流程
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-371
+- 进展: 已修(8ffa9b9)。test_record 新增机械判据 check_frontend_smoke_claim:title 声称「冒烟」且 status=passed 时,command 必须覆盖 verify.ps1 六条前端冒烟(ui-runtime/ui-lint/parallel-lines/ui-a11y/ui-i18n/ui-markdown),差集非空即拒写入;record(继承 running 命令后)与 append 两入口接入;5 个新测试覆盖反例/正例/非冒烟/running/历史声称形态。conventions §9 同步「全绿=verify.ps1 十步」定义。kanzei-tools 269 passed(T-1786799656/9746/9800),clippy 零警告,下游 workspace check 全过。验收逐项:①机械判据存在(check_frontend_smoke_claim,差集非空即 Err);②反例:d371_声称冒烟但只跑四条被拒;③正例:d371_六条全跑通过 + 非冒烟/running 不误伤;④回溯:d371_历史声称四条的记录会被新判据拦下(R-253 B9 形态);⑤conventions §9 写明全绿=verify.ps1 十步。
+- observed_head: 8ffa9b9bac0b72f3e5f926fb08fa5941257333e5
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786799829719
