@@ -3106,3 +3106,15 @@
 - observed_head: 87f5b4c5cc3c93b3d611a63c4463ef2e810ebeb2
 - observed_worktree_hash: fnv1a64:255559cce223d55d
 - recorded_at: 1786745938931
+
+## R-251 试用手册配置移至设置模块 [done]
+- 复杂度: 小
+- 标签: 流程
+- 验收: 试验相关配置已迁移至主界面→设置→高级功能区域
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-251
+- 取活释放: line=kanzei/thread-line-1786750035674-1;reason=parallel-line-unregister;at_ms=1786750192782
+- 进展: 2026-08-16 交付(d590d9e):设置页「版本与更新」后新增「高级功能」settings-group,内含「对话顶部显示使用手册」checkbox(set-show-manual);15-views-misc.js 新增 MANUAL_SHOW_KEY/readManualShowPref/saveManualShowPref(localStorage 本地偏好,默认开,参照 R-187 sound),refreshManual 顶部检查——关闭则隐藏面板且不读 docs/目录.md;16-settings.js loadManualShowControl 回填 + change 即存并触发 refreshManual;02-i18n.js 登记 4 词条;ui-lint-globals.json 由生成器同步;ui-runtime-smoke.mjs 新增断言(关闭→隐藏且不读文件,重开→恢复)。验证:node --check + ui-i18n(1151 key)/ui-lint(591 全局)/ui-a11y/ui-runtime 冒烟全绿 + cargo test -p kanzei-app 163 passed(T-1786758664/T-1786758725)。既有 R-147 手册渲染链路未动,开关关闭时保持原隐藏逻辑。
+- observed_head: d590d9ea992c2c3932f54f7f48b85902126c43b0
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786758751043

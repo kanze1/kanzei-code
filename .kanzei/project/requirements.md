@@ -263,11 +263,11 @@
 - 验收: ①IDEAS 文档线可增删改查,状态机 inbox→split/dropped 有测试;②goal 线退役:现存三条推 dropped 并归档,tracker/CLI/前端/managed_fence/记忆控制平面里的 goal 全部改指 idea,全仓 grep 零残留;③转 split 的 refs 硬门禁有正反测试(refs 空拒、指向不存在的 ID 拒、指向归档条目放行);④前端:侧栏「目标」区换成「想法」,有录入入口与「拆解」按钮,拆解后显示产出的 R/D 编号;⑤idea_split 子代理跑通一次真实拆解(fake server 集成测试即可);⑥取活引擎不看想法(work.rs 不动),鞭挞的推进指令也不点名想法队列——想法不是待办。
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-252
-- 批次: 1/7
-- 进展: B1 完成(1b24966,已 push):IDEAS DocKind+状态机测试、全后端 goal→idea 替换,五 crate 全绿(T-1786759741/9860/9937)。B2 刚起步即被用户暂停(2026-08-16 用户要自己调整代码):tracker.rs 已插入 check_idea_split_gate 方法(R-252 验收④硬门禁:想法转 split 时 refs 非空 + 每个 ID 在 requirements/defects 活跃或归档真实存在,仅在 prefix==I 时触发),但尚未接线到 actions.rs update_close、未写正反测试、未提交——工作树里 crates/kanzei-tools/src/tracker.rs 有未提交改动。恢复点:B2 剩余工作 = ①actions.rs update_close 在 transition_allowed 前调用 check_idea_split_gate(target_status==split 时)②正反测试(refs 空拒/指向不存在 ID 拒/指向归档放行)③定向测试+提交。用户调整代码期间本条目暂停,不占用执行槽。
-- observed_head: 1b24966d13e7238bb90bcc209c76f63d9fc64fdc
-- observed_worktree_hash: fnv1a64:7593f185bc3f65f9
-- recorded_at: 1786760056377
+- 批次: 5/5
+- 进展: 全部批次完成。B1(1b24966)IDEAS DocKind+状态机+全后端 goal→idea;B2(b7eef3a)split refs 硬门禁接线+3 正反测试;B3(47c5755)前端想法区+拆解按钮+i18n;B4(b3cd502)idea_split 子代理命令+fake server 集成测试;B5(2026-08-16)goal 线数据退役:goals.md/goals-archive.md 由用户手动删除(goal 工具已退役,无写通道——见 D-370),遗留 G-001~G-003 随文件删除不再存在。关闭前全量 cargo test --workspace 全绿(T-1786765114)。验收逐项:①IDEAS 可增删改查+状态机测试(docstore.rs IDEAS/ideas_state_machine_inbox_to_split_or_dropped、profiles.rs idea 工具、main.rs CLI、docs.rs);②goal 退役+全仓 grep 零残留(goals.md 已删、G 条目不存在);③refs 硬门禁正反测试(tracker.rs idea_split_refs_gate_*);④前端想法区+录入+拆解按钮+refs 展示(index.html/11-docs-list.js/ui-runtime-smoke 断言);⑤idea_split fake server 集成测试(subagents.rs idea_split_runs_subagent_and_marks_idea_split_with_real_refs);⑥work.rs 未动、auto_run 不点名想法(profiles.rs dev/ideas 只注入计数+标题)。
+- observed_head: b3cd5029a12118365def9fe5a4e6e63e05aca2b6
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786765134704
 
 ## R-253 run.rs 二次拆解:2885 行生产码切成装配/协调/执行/事件汇/持久化,models_list 与 summarize_chat 等非编排 IPC 迁出 [todo]
 - refs: R-153 R-155 R-202 docs/design/monolith_decomposition.md docs/design/monolith_decomposition_round2.md(批次地图:A 节)

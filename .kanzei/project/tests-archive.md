@@ -3631,3 +3631,97 @@
 - 摘要: d368 集成 3/3 全绿:真 bash 围栏窗口内并发 memory_add 等待后落盘不被误回滚;窗口超锁预算明确报错;两并发 add 编号互异条目齐全
 - 关联: D-368
 - 收尾: 1786757954
+
+## T-1786758664 R-251 ui 冒烟套件(ui-runtime/i18n/lint/a11y) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 时长: 90.0s
+- 摘要: 纯前端改动(ui/ + scripts):node --check 通过;ui-runtime 冒烟 21 文件按序执行 + 新增 R-251 断言(关闭开关→面板隐藏且不读文件→重开→恢复)通过;ui-i18n 1151 key/404 HTML 文案覆盖通过;ui-lint 591 全局零 no-undef;ui-a11y 通过
+- 关联: R-251
+- 收尾: 1786758664
+- 源码指纹: 2bf4fd3cbc0a3e5a
+
+## T-1786758725 cargo test -p kanzei-app (R-251 提交门禁) [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 21.0s
+- 摘要: kanzei-app 定向测试 163 passed(提交门禁:ui/ 改动属于 kanzei-app crate;前端冒烟四连已另行登记 T-1786758664)
+- 关联: R-251
+- 收尾: 1786758725
+- 源码指纹: 2bf4fd3cbc0a3e5a
+
+## T-1786759741 cargo test -p kanzei-memory + kanzei-tools (R-252 B1) [passed]
+- 命令: cargo test -p kanzei-memory; cargo test -p kanzei-tools
+- 摘要: B1:R-252 IDEAS 文档线——docstore.rs 新增 IDEAS DocKind(前缀 I,状态 inbox/split/dropped,终态 split/dropped),kanzei-memory 130 passed 含新 ideas_state_machine 测试;kanzei-tools 259 passed(managed/profiles/tracker 的 goal→idea 替换后全绿)
+- 关联: R-252
+- 收尾: 1786759741
+
+## T-1786759860 cargo test -p kanzei-memory + kanzei-tools (R-252 B1 fmt 后) [passed]
+- 命令: cargo test -p kanzei-memory --lib; cargo test -p kanzei-tools --lib (fmt 后复测)
+- 摘要: R-252 B1 fmt 后复测:kanzei-memory 130 passed + kanzei-tools 259 passed,与提交暂存内容一致
+- 关联: R-252
+- 收尾: 1786759860
+- 源码指纹: 5cbb24cd3d94f508
+
+## T-1786759937 cargo test kanzei/kanzei-app/kanzei-harness (R-252 B1) [passed]
+- 命令: cargo test -p kanzei --lib; cargo test -p kanzei-app; cargo test -p kanzei-harness
+- 摘要: R-252 B1 剩余 crate 定向测试:kanzei 143 + kanzei-app 163 + kanzei-harness 143 全绿,goal→idea 替换对全 workspace 编译/测试无回归
+- 关联: R-252
+- 收尾: 1786759937
+- 源码指纹: 5cbb24cd3d94f508
+
+## T-1786760572 cargo test -p kanzei-tools (R-252 B2 门禁方法) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-252 B2 门禁方法提交前定向测试:kanzei-tools 259 passed(check_idea_split_gate 方法已插入但未接线,dead_code 显式 allow)
+- 关联: R-252
+- 收尾: 1786760572
+
+## T-1786762973 cargo test -p kanzei-tools (R-252 B2 接线+门禁测试) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: R-252 B2 完成:check_idea_split_gate 接线到 actions.rs update_close(target_status==split 时,refs 合并顶层+fields 校验),3 个正反测试(refs 空拒/指向不存在拒/非 R-D 编号拒/活跃放行/归档放行/非 idea 线跳过),kanzei-tools 262 passed
+- 关联: R-252
+- 收尾: 1786762973
+
+## T-1786763070 cargo test -p kanzei-tools (R-252 B2 fmt 后) [passed]
+- 命令: cargo test -p kanzei-tools (fmt 后复测)
+- 摘要: R-252 B2 fmt 后复测:kanzei-tools 262 passed,与提交暂存内容一致(actions.rs refs 合并行排版归一)
+- 关联: R-252
+- 收尾: 1786763070
+- 源码指纹: a287d19ca7de067d
+
+## T-1786763607 R-252 B3 前端冒烟套件(ui-runtime/i18n/lint/a11y) [passed]
+- 命令: node --check 全 ui js; node scripts/ui-i18n-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 摘要: R-252 B3 前端冒烟五连:index.html 想法区+idea-add/idea-open,11-docs-list 拆解按钮(idea_split)与 refs 展示,08/10/11/12/15 js+02-i18n+style.css 全部 goal→idea;i18n 1155 key、runtime 21 文件含新 idea_split 断言、lint 588 globals、a11y 全绿;全仓 grep goal 零残留
+- 关联: R-252
+- 收尾: 1786763607
+
+## T-1786763634 cargo test -p kanzei-memory (R-252 B3) [passed]
+- 命令: cargo test -p kanzei-memory --lib (B3 docstore 注释)
+- 摘要: R-252 B3 提交门禁:kanzei-memory 130 passed(docstore.rs 注释 goal→长期目标线改写后无回归)
+- 关联: R-252
+- 收尾: 1786763634
+- 源码指纹: b090b5390614400b
+
+## T-1786763686 cargo test -p kanzei-app (R-252 B3) [passed]
+- 命令: cargo test -p kanzei-app (R-252 B3 提交门禁)
+- 摘要: R-252 B3 提交门禁:kanzei-app 164 passed(ui/ 改动属 kanzei-app crate,前端冒烟已登记 T-1786763607)
+- 关联: R-252
+- 收尾: 1786763686
+- 源码指纹: b090b5390614400b
+
+## T-1786764414 cargo test -p kanzei-app (R-252 B4) [passed]
+- 命令: cargo test -p kanzei-app (R-252 B4 idea_split)
+- 摘要: R-252 B4:idea_split 子代理命令完成——写租约+组件挂 req/defect/idea+before/after 差集取真实新增 ID+主进程转 split 经 refs 硬门禁;fake server 集成测试(idea get→req add→defect add→转 split,验证 R-001/D-001 真实落库与 refs)通过,契约测试通过,kanzei-app 166 passed
+- 关联: R-252
+- 收尾: 1786764414
+
+## T-1786764471 cargo test -p kanzei-app (R-252 B4 fmt 后) [passed]
+- 命令: cargo test -p kanzei-app (R-252 B4 fmt 后复测)
+- 摘要: R-252 B4 fmt 后复测:kanzei-app 166 passed,与提交暂存内容一致
+- 关联: R-252
+- 收尾: 1786764471
+- 源码指纹: 0d7d5ea635553196
+
+## T-1786765114 cargo test --workspace (R-252 关闭前全量) [passed]
+- 命令: cargo test --workspace (R-252 关闭前全量)
+- 摘要: R-252 关闭前全量:cargo test --workspace 全绿(kanzei-tools 262 + kanzei-app 166 + kanzei-memory 130 + 其余 crate 全部 passed),goal 退役后零回归
+- 关联: R-252
+- 收尾: 1786765114

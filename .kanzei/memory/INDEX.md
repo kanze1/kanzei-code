@@ -25,5 +25,6 @@
 - M-059 [sop] 记忆清理 SOP:归档不裸删,动全局先确认恢复源,清后三处一致 — 手动清理 .kanzei/memory 或 ~/.kanzei/memory 前必读:防数据永久丢失与索引悬空
 - M-061 [sop] 自举复盘 SOP:审提交流水、验收证据、测试面匹配、证据链、残留 — 每次自举运行结束后做质量复盘时必读;方法来自 2026-08-13 对 R-199 运行的复盘(逮出 D-320)
 - M-062 [fact] 环境约束:本机 WebView2 151 DevTools 端口从不绑定,e2e CDP 路线不可用 — 想走 e2e-smoke / connectOverCDP / WebView2 DevTools 端口路线前必读:当前机器已 9 轮实验证实不可用,不要重推
+- M-070 [preference] 开发重心:需求优先 — 取活/排优先级时必读:当前项目该先做什么
 
 (9 candidate 条待验证晋升)

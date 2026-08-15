@@ -84,3 +84,11 @@
 - 阻塞: 等待 R-244 Tool Pipeline 结果阶段稳定并由 R-245 实施。R-244 已于 2026-08-14 由用户定调列入主任务、主线串行做,依赖链有确定落点,不再是「等用户决定」。当前仍作为事实丢失缺陷登记(high),不单独修——在 R-244/R-245 的 Result Policy 与 spill 落点上一并解决。解除人: 依赖自然解除。
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
+
+## D-370 goal 线退役后 goals.md 无删除/编辑写通道:write/edit 与 bash 双拒,退役数据文件只能用户手删 [open] (low)
+- 复现: R-252 B5 数据迁移时尝试删除 .kanzei/project/goals.md:write/edit 被 ruleset 拒('用户手写的项目资产,模型只读' + 无专用工具),bash Remove-Item 被 managed fence 检测并回滚(quarantine 留副本)。
+- 影响: goal 线退役(R-252 B1)删除了 goal 工具与 GOALS DocKind,但存量数据文件 goals.md/goals-archive.md 留在磁盘上——引擎对 .kanzei/project 的托管围栏不区分'已退役文件'与'活跃 tracker 文档',退役文件的删除/编辑成了无工具可走的死路。当前只能由用户手动删除(用户手改不受围栏限制)。
+- 来源: self-found R-252 B5
+- 标签: 后端
+- 进展: 2026-08-16 用户拍板:goals.md 没用了直接删除。agent 实测 write/edit(permission denied by ruleset)与 bash Remove-Item(managed-files BLOCKED AND ROLLED BACK)双通道均被拦,删除动作需用户手动执行:Remove-Item .kanzei/project/goals.md(如需一并删 goals-archive.md)。
+- 优先级: P2
