@@ -1,13 +1,34 @@
 //! kanzei.toml:全局(~/.kanzei/)→ 项目(.kanzei/,从 cwd 向上发现),后者覆盖前者。
 //! 配置本身以组件形式进入 harness(贡献权限规则),没有第二条 config→runtime 路径。
+//!
+//! 按域切分(R-257 B5):limits/cadence/models/permissions/embeddings 五个纯结构域
+//! 迁到子模块,本文件保留 KanzeiConfig 装配(加载/合并/默认值)+ schema 参考 + 测试。
+//! 零外部 API 面变更。
+
+mod cadence;
+pub(crate) use cadence::{overlay_cadence, CADENCE_KEYS};
+pub use cadence::{Cadence, CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence};
+mod embeddings;
+pub use embeddings::EmbeddingsSection;
+pub(crate) use embeddings::EMBEDDINGS_KEYS;
+mod limits;
+pub use limits::Limits;
+pub(crate) use limits::LIMITS_KEYS;
+mod models;
+pub use models::{
+    builtin_context_limit, builtin_provider_names, ModelRoles, ProviderConfig, ResolvedModel,
+};
+pub(crate) use models::{known_context_limit, MODELS_KEYS, PROVIDER_KEYS};
+mod permissions;
+#[cfg(test)]
+use crate::permission::{Rule, BASH_ACTION};
+pub use permissions::{NonInteractive, PermissionsSection, ProfileSection};
+pub(crate) use permissions::{PERMISSIONS_KEYS, PERMISSION_RULE_KEYS, PROFILE_KEYS};
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-
-use crate::permission::{is_structured_bash_resource, normalize_resource, Rule, BASH_ACTION};
-use crate::permission_persist::{is_wildcard_resource, rule_digest};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct KanzeiConfig {
@@ -35,286 +56,11 @@ pub struct KanzeiConfig {
     pub embeddings: EmbeddingsSection,
 }
 
-/// 运行时上限与阈值。此前全部是散落在各 crate 里的硬编码常量,配置层没有任何入口——
-/// 想调一个输出预算就得改代码重编译。
-///
-/// 每个字段都是 Option:None = 用内置默认(即改造前那个常量值),所以旧配置没有
-/// `[limits]` 节时行为逐字节不变(conventions §4 向后兼容);层叠合并也照既有规矩来——
-/// 项目层只覆盖它显式写了的那几个键,不会把没写的键打回默认值。
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct Limits {
-    /// 主对话单次输出上限(tokens)
-    #[serde(default)]
-    pub max_tokens: Option<u32>,
-    /// 子代理单次输出上限(tokens)
-    #[serde(default)]
-    pub subagent_max_tokens: Option<u32>,
-    /// 单个子代理的墙钟上限(秒)
-    #[serde(default)]
-    pub subagent_timeout_secs: Option<u64>,
-    /// R-173 汇总/复核屏障的墙钟上界(秒)。None = 由 subagent_timeout_secs 推导
-    #[serde(default)]
-    pub barrier_timeout_secs: Option<u64>,
-    /// 轮内主动压缩的触发线:占上下文窗口的比例
-    #[serde(default)]
-    pub context_budget_ratio: Option<f64>,
-    /// 压缩时末尾逐字保留的比例
-    #[serde(default)]
-    pub recent_verbatim_ratio: Option<f64>,
-    /// 单轮最多派发多少个 task 子代理
-    #[serde(default)]
-    pub max_tasks_per_turn: Option<usize>,
-    /// 单波最多并行多少个工具
-    #[serde(default)]
-    pub max_parallel_tools: Option<usize>,
-    /// 传输层重试次数
-    #[serde(default)]
-    pub transport_retries: Option<u32>,
-    /// 限流重试次数
-    #[serde(default)]
-    pub rate_limit_retries: Option<u32>,
-    /// 流中断后重放本轮的次数上限
-    #[serde(default)]
-    pub stream_restarts: Option<u32>,
-    /// R-236 B1:压缩触发的 headroom 预留(tokens)。触发线 = context_limit −
-    /// max(max_tokens, 本值);对齐 opencode 的 `limit − max(output, buffer 20k)`,
-    /// 替代旧的 context_budget_ratio 比例线(该键保留但不再被触发路径消费)。
-    #[serde(default)]
-    pub compact_buffer_tokens: Option<u64>,
-    /// R-236 B4:prune(机械清理旧工具结果)保护窗——最近这么多 token 的工具
-    /// 结果与最近两个用户轮逐字保留,不清。
-    #[serde(default)]
-    pub prune_protect_tokens: Option<u64>,
-    /// R-236 B4:prune 最小收益门槛——可回收量低于此值就不做(不值得打破缓存前缀)。
-    #[serde(default)]
-    pub prune_min_gain_tokens: Option<u64>,
-}
+/// 运行时上限与阈值已迁至 `config/limits.rs`;向量检索通道配置已迁至 `config/embeddings.rs`。
 
-impl Limits {
-    pub fn max_tokens(&self) -> u32 {
-        self.max_tokens.unwrap_or(8192)
-    }
-    pub fn subagent_max_tokens(&self) -> u32 {
-        self.subagent_max_tokens.unwrap_or(4096)
-    }
-    pub fn subagent_timeout_secs(&self) -> u64 {
-        self.subagent_timeout_secs.unwrap_or(900)
-    }
-    /// R-173 屏障上界:默认由 `subagent_timeout_secs` 推导(×2),不另拍一个数。
-    ///
-    /// **外层必须永远宽于内层**——每个勘察子代理已被 `subagent_timeout_secs`
-    /// 的墙钟包住(见 runner drive 的 task 派发),屏障只是"内层失效时"的兜底。
-    /// 把本值配成小于等于子代理上界,会让屏障在子代理**正常工作**时就把它判成
-    /// 超时,凭空制造假失败。所以显式配置也按下界夹紧(与本节 `max_parallel_tools`
-    /// 的 `.max(1)`、`context_budget_ratio` 的 `.clamp()` 同一口径)。
-    pub fn barrier_timeout_secs(&self) -> u64 {
-        let inner = self.subagent_timeout_secs();
-        self.barrier_timeout_secs
-            .unwrap_or(inner.saturating_mul(2))
-            .max(inner.saturating_add(1))
-    }
-    pub fn context_budget_ratio(&self) -> f64 {
-        self.context_budget_ratio.unwrap_or(0.7).clamp(0.1, 0.95)
-    }
-    pub fn recent_verbatim_ratio(&self) -> f64 {
-        self.recent_verbatim_ratio.unwrap_or(0.35).clamp(0.05, 0.9)
-    }
-    pub fn compact_buffer_tokens(&self) -> u64 {
-        self.compact_buffer_tokens.unwrap_or(20_000).max(1_000)
-    }
-    pub fn prune_protect_tokens(&self) -> u64 {
-        self.prune_protect_tokens.unwrap_or(40_000)
-    }
-    pub fn prune_min_gain_tokens(&self) -> u64 {
-        self.prune_min_gain_tokens.unwrap_or(20_000)
-    }
-    pub fn max_tasks_per_turn(&self) -> usize {
-        // R-174:默认从 8 上调到 16——用户要「远不止 8」(2026-08-10 看过 Claude Code
-        // 的后台面板后定调)。编排勘察角色表共 8 名(5 勘察 + 3 复核),16 容得下完整
-        // 角色表,又给模型自派 task 留出双倍并行余量。
-        self.max_tasks_per_turn.unwrap_or(16).max(1)
-    }
-    pub fn max_parallel_tools(&self) -> usize {
-        self.max_parallel_tools.unwrap_or(8).max(1)
-    }
-    pub fn transport_retries(&self) -> u32 {
-        self.transport_retries.unwrap_or(2)
-    }
-    pub fn rate_limit_retries(&self) -> u32 {
-        self.rate_limit_retries.unwrap_or(2)
-    }
-    pub fn stream_restarts(&self) -> u32 {
-        self.stream_restarts.unwrap_or(2)
-    }
-}
+/// 验证与提交节奏(Cadence + 四档位枚举)已迁至 `config/cadence.rs`。
 
-/// 向量检索通道配置(R-164)。两个字段都带 serde default:
-/// 旧配置没有 `[embeddings]` 节时通道关闭,检索退化为 lexical(设计 §5 验收①)。
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct EmbeddingsSection {
-    /// provider 名(providers 表里的键,如 "ollama")。None = 通道关闭。
-    #[serde(default)]
-    pub provider: Option<String>,
-    /// 模型名(如 "nomic-embed-text" / "text-embedding-3-small")。
-    #[serde(default)]
-    pub model: Option<String>,
-}
-
-impl EmbeddingsSection {
-    /// 通道是否启用:provider 与 model 都配置了才生效。
-    pub fn enabled(&self) -> bool {
-        self.provider.as_deref().is_some_and(|p| !p.is_empty())
-            && self.model.as_deref().is_some_and(|m| !m.is_empty())
-    }
-}
-
-/// 验证与提交节奏(R-157):把 conventions §1.4 的节奏参数从提示词硬化成可调配置。
-/// 每个字段都带 serde default,旧配置没有 `[cadence]` 节时行为与 §1.4 当前默认
-/// 逐项一致(conventions §4 向后兼容);层叠合并照既有规矩——项目层只覆盖显式写的键。
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct Cadence {
-    /// 全量测试触发档位。默认 EntryClose:条目关闭前一次(发版前 verify.ps1 是
-    /// 独立硬门禁,不受本参数影响,见 A-010)。
-    #[serde(default)]
-    pub full_test: FullTestCadence,
-    /// full_test == EveryNBatches 时的批次间隔 n。
-    #[serde(default)]
-    pub full_test_batches: Option<u32>,
-    /// 定向测试:每次提交前必跑(默认)| off。
-    #[serde(default)]
-    pub targeted_test: TargetedTestCadence,
-    /// 提交粒度:每条目一提交 | 每批一提交(默认,多批大条目按批提交)。
-    #[serde(default)]
-    pub commit: CommitCadence,
-    /// push 频率:条目完成后 push(默认)| 每提交后 push | 定期(与 R-143 并轨)。
-    #[serde(default)]
-    pub push: PushCadence,
-    /// R-144:验收核查节律——自主推进(鞭挞)每关闭 N 条自动插入一轮只读核查
-    /// (复用 SubagentBase read/glob/grep,核对已完成条目的验收证据与真实调用方,
-    /// 发现问题生成候选缺陷或退回依据,不进入主 conversation/queue)。
-    /// 0 = 关闭该机制(默认 3)。
-    #[serde(default = "default_verify_every_n")]
-    pub verify_every_n: u32,
-}
-
-fn default_verify_every_n() -> u32 {
-    3
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FullTestCadence {
-    /// 条目关闭前一次(§1.4 默认)。
-    #[default]
-    EntryClose,
-    /// 每次提交前全量。
-    EveryCommit,
-    /// 每 n 批全量一次,间隔见 Cadence::full_test_batches。
-    EveryNBatches,
-    /// 只发版前跑(verify.ps1 硬门禁,本地开发不跑全量)。
-    ReleaseOnly,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TargetedTestCadence {
-    /// 每次提交前必跑(§1.4 默认)。
-    #[default]
-    EveryCommit,
-    /// 关闭定向测试(不推荐;改动面与验证匹配的判断交给模型)。
-    Off,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CommitCadence {
-    /// 多批大条目每批一提交(§1.4 默认)。
-    #[default]
-    PerBatch,
-    /// 整条目一提交(复杂度小的条目适用)。
-    PerEntry,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PushCadence {
-    /// 条目完成后 push(§1.4 默认)。
-    #[default]
-    PerEntry,
-    /// 每提交后顺手 push。
-    PerCommit,
-    /// 定期自动 push(与 R-143 自举循环自动 push 并轨)。
-    Periodic,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct ModelRoles {
-    pub primary: Option<String>,
-    pub fast: Option<String>,
-    /// 思考强度默认档:"off"(默认)| "low" | "medium" | "high"。
-    /// 运行时可被桌面端的每进程选择覆盖;未配置时保持 off,行为与既有一致。
-    #[serde(default)]
-    pub reasoning: Option<String>,
-    /// Codex Fast mode:同一模型使用更高消耗的 priority 服务档位。
-    #[serde(default)]
-    pub codex_fast_mode: Option<bool>,
-    /// R-173:阶段编排派发的只读代理(勘察 + 复核)用哪条路由。
-    ///
-    /// 取值与 primary/fast 同一套解析(角色名或 `provider:model`)。
-    /// `None` = 沿用 `fast`,与引入前逐字节一致。
-    ///
-    /// 单独一个键的理由:勘察/复核是**读密集、上下文短、要看懂代码**的活,
-    /// 它该用哪个模型与「主对话用哪个」「机械检索用哪个」都不是同一个问题。
-    /// 写死 fast 等于假定勘察是廉价活——用户跑 DeepSeek 时这个假设不成立,
-    /// 白白让勘察质量降级。
-    #[serde(default)]
-    pub scout: Option<String>,
-    /// R-236 B3:上下文压缩纪要用哪条路由。取值与 primary/fast 同一套解析。
-    ///
-    /// `None` = 跟随 **primary**(不是 fast——这是对旧实现的刻意纠偏:纪要质量
-    /// 随模型能力显著变化,弱模型摘要在长任务上有 -8pp 的实测消融;主流实现的
-    /// 缺省也都是主模型)。想省钱就显式配弱模型,压缩质量闸负责兜底。
-    #[serde(default)]
-    pub compact: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ProviderConfig {
-    /// "anthropic" | "openai" | "openai-responses" | "deepseek-responses"
-    pub protocol: String,
-    pub base_url: String,
-    #[serde(default)]
-    pub api_key_env: Option<String>,
-    /// 直填 API key(个人工具的便利通道,优先于 api_key_env;明文存 toml,自担风险)。
-    #[serde(default)]
-    pub api_key: Option<String>,
-    /// 特殊认证:"codex" = 复用 Codex CLI 登录态,"claude" = 复用 Claude Code 登录态。
-    #[serde(default)]
-    pub auth: Option<String>,
-    /// 上下文窗口(token)。用于界面占用比例显示与(M2)压缩预检。
-    #[serde(default)]
-    pub context_limit: Option<u64>,
-}
-
-impl ProviderConfig {
-    /// 返回运行时真正使用的 wire protocol。
-    ///
-    /// 旧版本把内置 DeepSeek 写成 `openai`。只对“内置名 + 官方地址”的旧配置
-    /// 升级到 Responses；自定义兼容服务和显式协议都保持用户原意。
-    pub fn effective_protocol<'a>(&'a self, provider_name: &str) -> &'a str {
-        if self.protocol == "openai"
-            && provider_name.eq_ignore_ascii_case("deepseek")
-            && self
-                .base_url
-                .trim_end_matches('/')
-                .eq_ignore_ascii_case("https://api.deepseek.com")
-        {
-            "deepseek-responses"
-        } else {
-            &self.protocol
-        }
-    }
-}
+/// 模型角色与 provider 配置已迁至 `config/models.rs`。
 
 #[cfg(test)]
 mod context_limit_tests {
@@ -405,96 +151,8 @@ mod context_limit_tests {
     }
 }
 
-/// 已知 provider 的上下文窗口。名字优先,其次看 base_url 主机名(用户可能改名)。
-/// 认不出来就返回 None——宁可让 UI 显示"未知",也不编一个数字当预算基准。
-fn known_context_limit(name: &str, base_url: &str) -> Option<u64> {
-    let name = name.to_ascii_lowercase();
-    for (needle, limit) in [
-        ("anthropic", 200_000u64),
-        ("claude", 200_000),
-        ("codex", 272_000),
-        ("openai", 272_000),
-        ("deepseek", 1_000_000),
-        ("moonshot", 128_000),
-        ("kimi", 128_000),
-        ("ollama", 32_000),
-    ] {
-        if name.contains(needle) || base_url.contains(needle) {
-            return Some(limit);
-        }
-    }
-    None
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct ProfileSection {
-    pub default: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct PermissionsSection {
-    #[serde(default)]
-    pub rules: Vec<Rule>,
-    /// 无 TTY 时(脚手架派发、CI)遇到 Ask 该怎么办。缺键 = [`NonInteractive::Deny`],
-    /// 也就是**今天的行为**:EOF → Deny → 停机。
-    ///
-    /// 类型故意留成 `Option<String>` 而不是枚举:未知取值(来自更新版本的 kanzei,
-    /// 或者手抖拼错)**不能炸掉启动**,只能 fail-closed 回落 deny 再产一条告警。
-    /// 读的时候走 [`KanzeiConfig::non_interactive_policy`],别直接读这个字段。
-    ///
-    /// 本批只落 schema 与告警,**暂时没有消费者**——策略真正生效在后续批次。
-    /// 三处接线(`unknown_keys` / `merge` / 告警)在本批一次做齐,各有一条命名测试守着:
-    /// `Limits::barrier_timeout_secs` 就栽在只加字段没接 merge,项目层设了却静默不生效
-    /// (D-300 已补,`limits_全字段_层叠往返不丢值_且名单穷举` 在防复发)。
-    #[serde(default)]
-    pub non_interactive: Option<String>,
-}
-
-/// 无 TTY 时的 Ask 处置策略(R-183 内容①)。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum NonInteractive {
-    /// 今天的行为:问不出来就停机。**缺省档**,也是所有解析失败的回落档。
-    #[default]
-    Deny,
-    /// 不问,直接按规则集判定;Ask 当作 deny 回喂模型并继续本轮。
-    RulesOnly,
-    /// 同 `RulesOnly`,外加本次运行由操作员显式提供的 allowlist。
-    AllowListed,
-}
-
-impl NonInteractive {
-    /// 配置里认的取值。写在一处,解析与告警文案共用,免得两边漂移。
-    const KNOWN: [(&'static str, NonInteractive); 3] = [
-        ("deny", NonInteractive::Deny),
-        ("rules_only", NonInteractive::RulesOnly),
-        ("allow_listed", NonInteractive::AllowListed),
-    ];
-
-    fn parse(text: &str) -> Option<NonInteractive> {
-        let key = text.trim().to_ascii_lowercase();
-        Self::KNOWN
-            .iter()
-            .find(|(name, _)| *name == key)
-            .map(|(_, value)| *value)
-    }
-
-    fn known_names() -> String {
-        Self::KNOWN
-            .iter()
-            .map(|(name, _)| format!("`{name}`"))
-            .collect::<Vec<_>>()
-            .join(" / ")
-    }
-}
-
-/// 解析后的模型指向。
-#[derive(Debug, Clone)]
-pub struct ResolvedModel {
-    pub provider_name: String,
-    pub provider: ProviderConfig,
-    pub model: String,
-}
-
+// 权限配置节(ProfileSection/PermissionsSection/NonInteractive/ResolvedModel)已迁至
+// `config/permissions.rs` 与 `config/models.rs`。
 impl KanzeiConfig {
     /// 全局 + 项目层叠加载。语法/类型错误返回错误(配置错误要炸在启动,不能静默);
     /// 未知字段宽容忽略但产生告警(D-084:schema 向后兼容,新旧二进制可共用同一文件)。
@@ -551,180 +209,7 @@ impl KanzeiConfig {
         Ok((config, warnings))
     }
 
-    /// 找出升级到结构化 bash 资源前遗留的裸命令规则；只读，不修改配置。
-    pub fn legacy_bash_rules(&self) -> Vec<&Rule> {
-        self.permissions
-            .rules
-            .iter()
-            .filter(|rule| {
-                rule.action == BASH_ACTION && !is_structured_bash_resource(&rule.resource)
-            })
-            .collect()
-    }
-
-    /// 裸 bash 规则中需要降级为逐次询问的规则；显式 `bash/*` 放行另行提示。
-    /// deny 规则是仍然生效的护栏,不该被算作"将逐次询问"(D-139)。
-    pub fn legacy_bash_rules_needing_downgrade(&self) -> Vec<&Rule> {
-        self.legacy_bash_rules()
-            .into_iter()
-            .filter(|rule| {
-                !is_wildcard_resource(&rule.resource)
-                    && rule.effect != crate::permission::Effect::Deny
-            })
-            .collect()
-    }
-
-    /// **结构化**但无法证明「没被路径规范化改写过」的 bash 规则(D-269 收敛路径)。
-    ///
-    /// 背景:修复前 drive.rs 落盘规则时对 bash 资源也跑了 `normalize_resource`,而那是**路径**
-    /// 语义——`\`→`/`、折 `//` 与 `/./`、弹 `..` 前一段、Windows 整串小写。于是已落盘的结构化
-    /// 规则分成三类:
-    /// - 命令里有 `\`(JSON 里的 `\"` 转义)→ 变成 `/"`,整串**不再是合法 JSON**,
-    ///   [`Self::legacy_bash_rules`] 已经把它们算进去了;
-    /// - 命令里有大写(`Get-Content`、`-SkipTests`)→ 被整串小写,**仍是合法 JSON**,于是
-    ///   `legacy_bash_rules` 一条都认不出来:用户零告警、零指引,只看到命令莫名其妙又开始逐次询问。
-    ///   本函数补的就是这一类。
-    /// - 本来就全小写、也没有会被折叠的分隔符 → 规范化是恒等,规则今天仍然命中。
-    ///
-    /// **判据只能过宽,这是可证明的**:落盘的是 `P = N(J)`,而 `N` 幂等,所以 `N(P) == P` 对
-    /// **每一条**历史规则都成立——单看 `P` 反推 `J` 就是求非单射函数的原像,答案是一个类不是一个点
-    /// (与 D-269 拒绝"反解迁移"是同一个理由)。因此这里取 `N(P) == P` 作判据:
-    /// - **零漏报**:凡被改写过的规则必然满足它,一条都不会漏;
-    /// - **会多报**:天生全小写的规则(`git status --short`)也满足它,而那种规则其实还活着。
-    ///
-    /// 多报是可接受的,因为告警给出的动作是**有条件的**——"下次这条命令又来问你时重新授权一次"。
-    /// 规则还活着的用户永远等不到那个询问,也就不需要做任何事。
-    ///
-    /// 唯一能**证明**没被改写的一类要排掉:整串一个分隔符都没有。`normalize_resource`
-    /// 对无分隔符的串直接原样返回(连 Windows 小写那步都走不到),所以 `J` 无分隔符 ⇒
-    /// `P = N(J) = J` ⇒ 规则今天照样命中。这类不点名。
-    pub fn structured_bash_rules_possibly_stale(&self) -> Vec<&Rule> {
-        self.permissions
-            .rules
-            .iter()
-            .filter(|rule| {
-                rule.action == BASH_ACTION
-                    && rule.effect != crate::permission::Effect::Deny
-                    && !is_wildcard_resource(&rule.resource)
-                    && is_structured_bash_resource(&rule.resource)
-                    && (rule.resource.contains('/') || rule.resource.contains('\\'))
-                    && normalize_resource(&rule.resource) == rule.resource
-            })
-            .collect()
-    }
-
-    /// 无 TTY 时的 Ask 处置策略。缺键、空串、无法识别的取值一律 **fail-closed 回落
-    /// [`NonInteractive::Deny`]** —— 也就是今天的行为,旧配置逐字节不变。
-    pub fn non_interactive_policy(&self) -> NonInteractive {
-        self.permissions
-            .non_interactive
-            .as_deref()
-            .filter(|text| !text.trim().is_empty())
-            .and_then(NonInteractive::parse)
-            .unwrap_or_default()
-    }
-
-    /// 非交互策略键写了但认不出来时的告警。**必须有**:悄悄回落到 deny 而不吭声,
-    /// 用户会以为自己已经开了 rules_only,实际每次都停机,还归不到因。
-    pub fn non_interactive_policy_warning(&self) -> Option<String> {
-        let raw = self.permissions.non_interactive.as_deref()?;
-        if raw.trim().is_empty() || NonInteractive::parse(raw).is_some() {
-            return None;
-        }
-        Some(format!(
-            "permissions.non_interactive = `{raw}` 无法识别，已 fail-closed 回落到 `deny`(无 TTY 时遇到询问即停机)；\
-             可用取值：{}。",
-            NonInteractive::known_names()
-        ))
-    }
-
-    /// 显式 `bash/* = allow` 保持全量放行语义，启动时必须明确告知用户。
-    pub fn explicit_bash_wildcard_allows(&self) -> Vec<&Rule> {
-        self.permissions
-            .rules
-            .iter()
-            .filter(|rule| {
-                rule.action == BASH_ACTION
-                    && is_wildcard_resource(&rule.resource)
-                    && rule.effect == crate::permission::Effect::Allow
-            })
-            .collect()
-    }
-
-    /// 启动告警(D-139):文案必须由**实际评估结果**推导,而不是按规则形态猜。
-    ///
-    /// 原实现按规则形态分别计数各说各话:legacy 规则与显式 `bash/*` 并存时
-    /// last-match-wins 让一切直接放行,告警却照样说"将逐次询问"——在安全边界上
-    /// 给出错误告知。现在先用代表性命令跑一遍 Ruleset::evaluate,以真实判定为准。
-    ///
-    /// **yolo 判据修正(F8 ①,D-139 以新形态复发的必修点)**:光看"探针评估成 Allow"
-    /// 推不出"全量放行"。探针是一条**具体**命令,用户完全可能只授权过它自己——那时
-    /// 告警会把"你授权过 git status"说成"你把 bash 全放开了",又是一条假话。
-    /// 改成两个条件同时成立才敢说 yolo:探针 Allow **且** 确实存在显式 `bash/*` 放行规则。
-    /// 探针 Allow 但没有 `*` 规则时,如实说"是这条探针命令被某条规则直接命中,其余仍会询问"。
-    pub fn bash_permission_warnings(&self) -> Vec<String> {
-        let mut warnings = Vec::new();
-        let mut ruleset = crate::permission::Ruleset::default();
-        for rule in &self.permissions.rules {
-            ruleset.push(rule.clone());
-        }
-        // 代表性命令:一条普通只读命令即可探明"默认会不会问"。
-        let probe = serde_json::json!({ "command": "git status", "workdir": "." }).to_string();
-        let probe_allowed =
-            ruleset.evaluate(BASH_ACTION, &probe) == crate::permission::Effect::Allow;
-
-        let legacy = self.legacy_bash_rules_needing_downgrade();
-        let stale = self.structured_bash_rules_possibly_stale();
-        let wildcard_count = self.explicit_bash_wildcard_allows().len();
-
-        if probe_allowed && wildcard_count > 0 {
-            // 无论有多少条 legacy 规则,实际结果就是全量放行——必须如实说。
-            warnings.push(format!(
-                "检测到 bash 权限最终判定为全量放行(yolo)，来自 {wildcard_count} 条显式 bash/* 放行规则；\
-                 不会再逐次询问，请确认这是有意设置。"
-            ));
-            if !legacy.is_empty() {
-                warnings.push(format!(
-                    "另有 {} 条旧 bash 规则被上述放行覆盖(last-match-wins)，实际不生效。",
-                    legacy.len()
-                ));
-            }
-            return warnings;
-        }
-        if probe_allowed {
-            // 探针命中了某条具体规则,但没有整体放行规则——说清范围,别冒充 yolo。
-            warnings.push(
-                "探针命令 `git status` 已被某条已有 bash 规则直接放行，但配置里没有整体 bash/* 放行规则；\
-                 其余命令仍会逐次询问。"
-                    .to_string(),
-            );
-        }
-        // D-269 收敛路径:两类失效各说各的,并且都给**可执行的动作**,不是"请重新选择作用域"
-        // 这种没有落点的话。用户看到的症状是同一句"命令又开始问了",指引必须能直接照做。
-        if !legacy.is_empty() {
-            warnings.push(format!(
-                "检测到 {} 条旧 bash 权限规则(升级前的裸命令形态，如 {})：\
-                 它们对今天的结构化请求恒不命中，等于已经失效。\
-                 这些命令会重新逐次询问，遇到时按一次「总是允许」就好，新规则会覆盖旧的；\
-                 旧条目留在配置里不影响判定，想清爽可以自行删掉。",
-                legacy.len(),
-                rule_digest(&legacy)
-            ));
-        }
-        if !stale.is_empty() {
-            warnings.push(format!(
-                "另有 {} 条结构化 bash 规则可能是修复前写下的(如 {})：\
-                 那时命令文本会被路径规范化整串小写(`Get-Content` → `get-content`)，\
-                 改写过的规则再也对不上原命令。无法从改写后的文本反推原文，所以这里只能按最宽的判据点名，\
-                 其中确实还有效的那些你不会遇到询问；\
-                 真遇到某条命令又开始问，同样按一次「总是允许」即可。",
-                stale.len(),
-                rule_digest(&stale)
-            ));
-        }
-        warnings
-    }
-
+    // 权限相关方法(legacy bash 规则/非交互策略/启动告警)已迁至 `config/permissions.rs`。
     pub fn fill_defaults(&mut self) {
         self.providers
             .entry("anthropic".into())
@@ -862,29 +347,7 @@ impl KanzeiConfig {
     }
 }
 
-/// fill_defaults 无条件回填的内置 provider 名单(R-184 P6 / D-246)。
-/// 与 fill_defaults 中的五个 `entry().or_insert()` 保持同步;UI 据此把内置
-/// provider 的删除入口换成「内置」标记,避免「删了重开又回来」的误导。
-/// 这是只读元数据,不参与配置解析。
-pub fn builtin_provider_names() -> &'static [&'static str] {
-    &["anthropic", "ollama", "codex", "claude", "deepseek"]
-}
-
-/// 内置 provider 的出厂 `context_limit`(取自 fill_defaults 本身,不另立名单——
-/// 名单漂移比没有名单更糟,见 D-246)。
-///
-/// D-288:设置页保存时把**每个** provider 的 context_limit 都写进用户 toml,于是
-/// 一次「保存」就把当时的出厂默认冻成了用户配置。deepseek 的出厂值后来从 128k
-/// 改成 1M,用户那份 toml 却永远停在 128000——`fill_defaults` 只补 `None`,不会
-/// 覆盖已有值,所以内置默认再怎么改都追不上。设置页据此判断「这个数只是出厂默认」,
-/// 相同就不落盘,留空即跟随内置。
-pub fn builtin_context_limit(name: &str) -> Option<u64> {
-    let mut config = KanzeiConfig::default();
-    config.providers.clear();
-    config.fill_defaults();
-    config.providers.get(name).and_then(|p| p.context_limit)
-}
-
+// 内置 provider 名单与出厂 context_limit 已迁至 `config/models.rs`。
 fn merge_file(
     config: &mut KanzeiConfig,
     path: &Path,
@@ -920,29 +383,6 @@ fn merge_file(
     Ok(())
 }
 
-/// D-245:cadence 逐键 overlay。字段非 Option,「没写」与「显式写成默认值」在
-/// merge 层不可区分(serde default 把两者都落成默认),所以由调用方把 raw toml
-/// `[cadence]` 表里**显式出现的键**传进来,只覆盖这些——与 [limits] 的
-/// 「项目层只覆盖显式写的键」同一套层叠语义,避免项目层只调一个 full_test
-/// 就把其余字段全部打回默认。
-fn overlay_cadence(base: &mut Cadence, layer: &Cadence, written: &std::collections::HashSet<&str>) {
-    if written.contains("full_test") {
-        base.full_test = layer.full_test;
-    }
-    if written.contains("full_test_batches") {
-        base.full_test_batches = layer.full_test_batches;
-    }
-    if written.contains("targeted_test") {
-        base.targeted_test = layer.targeted_test;
-    }
-    if written.contains("commit") {
-        base.commit = layer.commit;
-    }
-    if written.contains("push") {
-        base.push = layer.push;
-    }
-}
-
 /// R-205:权限规则持久化(append_allow_rule/generalize_resource/rule_digest/通配判定)
 /// 已拆至 `crate::permission_persist`,re-export 保持调用点零变更。
 pub use crate::permission_persist::{append_allow_rule, generalize_resource};
@@ -963,50 +403,9 @@ pub(crate) const TOP_LEVEL_KEYS: &[&str] = &[
     "cadence",
     "embeddings",
 ];
-pub(crate) const MODELS_KEYS: &[&str] = &[
-    "primary",
-    "fast",
-    "reasoning",
-    "codex_fast_mode",
-    "scout",
-    "compact",
-];
-pub(crate) const EMBEDDINGS_KEYS: &[&str] = &["provider", "model"];
-pub(crate) const LIMITS_KEYS: &[&str] = &[
-    "max_tokens",
-    "subagent_max_tokens",
-    "subagent_timeout_secs",
-    "barrier_timeout_secs",
-    "context_budget_ratio",
-    "recent_verbatim_ratio",
-    "max_tasks_per_turn",
-    "max_parallel_tools",
-    "transport_retries",
-    "rate_limit_retries",
-    "stream_restarts",
-    "compact_buffer_tokens",
-    "prune_protect_tokens",
-    "prune_min_gain_tokens",
-];
-pub(crate) const PROVIDER_KEYS: &[&str] = &[
-    "protocol",
-    "base_url",
-    "api_key_env",
-    "api_key",
-    "auth",
-    "context_limit",
-];
-pub(crate) const PROFILE_KEYS: &[&str] = &["default"];
-pub(crate) const CADENCE_KEYS: &[&str] = &[
-    "full_test",
-    "full_test_batches",
-    "targeted_test",
-    "commit",
-    "push",
-    "verify_every_n",
-];
-pub(crate) const PERMISSIONS_KEYS: &[&str] = &["rules", "non_interactive"];
-pub(crate) const PERMISSION_RULE_KEYS: &[&str] = &["action", "resource", "effect"];
+// 各节已知键名单随域下沉:MODELS_KEYS/EMBEDDINGS_KEYS/LIMITS_KEYS/PROVIDER_KEYS/
+// PROFILE_KEYS/CADENCE_KEYS/PERMISSIONS_KEYS/PERMISSION_RULE_KEYS 见对应域文件
+// (config/{models,embeddings,limits,cadence,permissions}.rs)。
 
 /// 列出 schema 未识别的键路径。schema 变更时同步维护;
 /// `unknown_keys_schema_matches_struct` 测试守护两者不漂移。
