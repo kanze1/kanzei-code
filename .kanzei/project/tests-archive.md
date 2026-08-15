@@ -4046,3 +4046,36 @@
 - 摘要: R-259 批3 关闭前全量(复杂度中):workspace 15 段全 ok(kanzei 37+31、kanzei-app 169、harness 199、core 147、tools 273 等),零失败;含 bash 超时/进度既有测试全绿(验收②)。
 - 关联: R-259
 - 收尾: 1786813630
+
+## T-1786814226 R-257 B2 cargo test -p kanzei-core(drive.rs 切分) [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: B2 drive.rs 切分后定向测试:199 passed,0 failed(四段迁出零行为变更)
+- 关联: R-257
+- 收尾: 1786814226
+
+## T-1786814367 R-257 B2 cargo test -p kanzei-core(fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: B2 fmt 后复测:199 passed,0 failed
+- 关联: R-257
+- 收尾: 1786814367
+- 源码指纹: bc66439b5ee799f4
+
+## T-1786814858 R-257 B3 cargo test -p kanzei-memory(docstore.rs 切分) [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: B3 docstore.rs 切分后定向测试:139 passed,0 failed(六域迁出零行为变更)
+- 关联: R-257
+- 收尾: 1786814858
+
+## T-1786814959 R-257 B3 cargo test -p kanzei-memory(fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: B3 fmt 后复测:139 passed,0 failed
+- 关联: R-257
+- 收尾: 1786814959
+- 源码指纹: bc2ddc82420ce324
+
+## T-1786815040 cargo test -p kanzei-tools (R-265 B1 提交背书) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: R-265 批1 提交门禁背书:cargo test -p kanzei-tools 277 passed(1 ignored)全绿(含 symbols 9 测试),clippy 零警告。
+- 关联: R-265
+- 收尾: 1786815040
+- 源码指纹: 95192e387572630d

@@ -28,6 +28,12 @@ struct SymbolsInput {
     /// (file:line)。填符号名(如 `parse_symbol_line`),与 path 配合使用。
     #[serde(default)]
     callers: Option<String>,
+    /// R-265:查「这个符号定义在哪」——输入裸名或限定路径
+    /// (如 `try_lock_exclusive` 或 `crate::atomic_file::try_lock_exclusive`),
+    /// 全树按符号名精确命中定义点,并给出跨 crate re-export 链。
+    /// 与 callers 互斥(同时给出会显式报错)。
+    #[serde(default)]
+    define: Option<String>,
 }
 
 /// 一个符号:名称、种类、行号、可见性。
@@ -54,7 +60,10 @@ impl Tool for SymbolsTool {
          Fills the granularity gap between `files` (line counts) and `read` (full text): \
          use it to locate quality hotspots (huge functions, orphan impls, non-pub \
          surface) before deciding what to read. Params: path (file or dir, relative to \
-         cwd), filter (substring match on symbol name), public_only."
+         cwd), filter (substring match on symbol name), public_only, callers (symbol \
+         name — list reference points that call it, capped at 50), define (bare name or \
+         crate::path — locate its definition anywhere in the tree, resolving cross-crate \
+         re-exports; mutually exclusive with callers)."
             .into()
     }
 
@@ -83,6 +92,17 @@ impl Tool for SymbolsTool {
         if files.is_empty() {
             return ToolOutput::ok(format!("(no .rs files under {})", target.display()));
         }
+        // R-265:define 与 callers 互斥——同时给出是参数错误,显式报错而非静默取其一。
+        if input.define.is_some() && input.callers.is_some() {
+            return ToolOutput::error(
+                "symbols: `define` 与 `callers` 互斥,一次只能查一个(定义位置 vs 调用点)。",
+            );
+        }
+        // R-265:符号反查——全树按名精确命中定义点,并解释跨 crate re-export 链。
+        if let Some(define) = &input.define {
+            let report = resolve_define(&files, define, &ctx.project_root);
+            return ToolOutput::ok(report);
+        }
         // R-234 B2:调用链查询——列出对指定符号的引用点。
         if let Some(callers) = &input.callers {
             let mut hits: Vec<String> = Vec::new();
@@ -97,6 +117,7 @@ impl Tool for SymbolsTool {
                         let mut rest = line.trim_start();
                         rest = rest.strip_prefix("pub ").unwrap_or(rest);
                         rest = rest.strip_prefix("pub(crate) ").unwrap_or(rest);
+                        rest = rest.strip_prefix("async ").unwrap_or(rest);
                         ["fn ", "struct ", "enum ", "trait "]
                             .iter()
                             .any(|p| rest.starts_with(p))
@@ -114,14 +135,21 @@ impl Tool for SymbolsTool {
                     }
                 }
             }
-            return if hits.is_empty() {
+            // R-265 验收⑤:输出带上限与「已截断」提示,对齐 grep 的 DEFAULT_LIMIT。
+            const DEFAULT_LIMIT: usize = 50;
+            let total = hits.len();
+            let shown = hits.iter().take(DEFAULT_LIMIT).cloned().collect::<Vec<_>>();
+            return if total == 0 {
                 ToolOutput::ok(format!("(no callers of `{callers}` found)"))
             } else {
-                ToolOutput::ok(format!(
-                    "callers of `{callers}` ({} hits):\n{}",
-                    hits.len(),
-                    hits.join("\n")
-                ))
+                let mut report = format!("callers of `{callers}` ({} hits):\n", total);
+                report.push_str(&shown.join("\n"));
+                if total > DEFAULT_LIMIT {
+                    report.push_str(&format!(
+                        "\n... (stopped at limit {DEFAULT_LIMIT}; narrow the pattern or raise limit)"
+                    ));
+                }
+                ToolOutput::ok(report)
             };
         }
         let mut all: Vec<(String, Vec<Symbol>)> = Vec::new();
@@ -201,6 +229,250 @@ fn collect_rs_files(path: &Path) -> Vec<std::path::PathBuf> {
     out
 }
 
+/// R-265:符号反查。`define` 输入裸名或限定路径(crate::mod::sym),全树按
+/// **符号名精确命中**定义点(路径只参与输出解释,不参与命中判定——事故成因正是
+/// 按路径字面解析扑空),再解释跨 crate re-export 链。
+///
+/// 返回逐行报告:命中定义位置 + 再导出链。未命中给出明确「未找到」。
+fn resolve_define(
+    files: &[std::path::PathBuf],
+    define: &str,
+    project_root: &std::path::Path,
+) -> String {
+    // 裸名或限定路径,一律取末段作为符号名。
+    let symbol = define.split("::").last().unwrap_or(define).trim();
+    let mut hits: Vec<(std::path::PathBuf, usize, String, bool)> = Vec::new();
+    for file in files {
+        for sym in scan_symbols(file) {
+            if sym.name == symbol {
+                hits.push((file.clone(), sym.line, sym.kind.to_string(), sym.public));
+            }
+        }
+    }
+    let reexports = collect_reexports(files);
+    let mut out = String::new();
+    // 未直接命中:可能查询的是 as 改名后的**新名**(定义名不叫这个)。
+    // 回落:找 exported == symbol 且带 source_name 的 re-export,用原名重查定义。
+    if hits.is_empty() {
+        let mut fallback_name: Option<String> = None;
+        let mut fallback_chain: Vec<String> = Vec::new();
+        for re in &reexports {
+            if re.exported == symbol {
+                fallback_chain.push(format!(
+                    "  {}:{}  {}",
+                    re.file.display(),
+                    re.line,
+                    re.source_line.trim()
+                ));
+                if let Some(orig) = &re.source_name {
+                    fallback_name = Some(orig.clone());
+                }
+            }
+        }
+        if let Some(orig) = &fallback_name {
+            for file in files {
+                for sym in scan_symbols(file) {
+                    if sym.name == orig.as_str() {
+                        hits.push((file.clone(), sym.line, sym.kind.to_string(), sym.public));
+                    }
+                }
+            }
+            if !hits.is_empty() {
+                out.push_str(&format!(
+                    "`{symbol}` is a re-export alias of `{orig}` (as-renamed):\n"
+                ));
+                out.push_str(&format!("re-export chain:\n{}", fallback_chain.join("\n")));
+                out.push('\n');
+            }
+        }
+        if hits.is_empty() {
+            out.push_str(&format!(
+                "(no definition of `{symbol}` found in {} files; it may be a re-export alias — check `pub use` chains)\n",
+                files.len()
+            ));
+            if !fallback_chain.is_empty() {
+                out.push_str(&format!(
+                    "re-export chain for `{symbol}`:\n{}",
+                    fallback_chain.join("\n")
+                ));
+            }
+            return out;
+        }
+    }
+    out.push_str(&format!("definition of `{symbol}` ({} hit):\n", hits.len()));
+    for (file, line, kind, public) in &hits {
+        let vis = if *public { "pub" } else { "  " };
+        let rel = file.strip_prefix(project_root).unwrap_or(file);
+        out.push_str(&format!(
+            "  {vis} {kind} {symbol}  {}:{line}\n",
+            rel.display()
+        ));
+    }
+    // 再导出链:两型都算——①符号直连(exported == symbol:as 新名/花括号列表项);
+    // ②模块整体(exported == 宿主模块名,该模块内符号经此链可见)。
+    let mut chain: Vec<String> = Vec::new();
+    for re in &reexports {
+        if re.exported == symbol {
+            chain.push(format!(
+                "  {}:{}  {}",
+                re.file.display(),
+                re.line,
+                re.source_line.trim()
+            ));
+            continue;
+        }
+        // 模块整体型:命中定义文件的宿主模块名(stem)与导出名一致。
+        for (file, _, _, _) in &hits {
+            let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned());
+            if stem.as_deref() == Some(re.exported.as_str()) {
+                chain.push(format!(
+                    "  {}:{}  {}",
+                    re.file.display(),
+                    re.line,
+                    re.source_line.trim()
+                ));
+                break;
+            }
+        }
+    }
+    chain.sort();
+    chain.dedup();
+    if !chain.is_empty() {
+        out.push_str(&format!(
+            "re-export chain (how `{symbol}` reaches other crates):\n{}",
+            chain.join("\n")
+        ));
+    } else {
+        out.push_str("(no `pub use` re-export of this symbol found in tree)\n");
+    }
+    out
+}
+
+/// 一条 `pub use` 再导出记录(三种形态统一:模块整体 / as 改名 / 花括号列表)。
+struct ReExport {
+    file: std::path::PathBuf,
+    line: usize,
+    /// 导出后的可见名:模块整体 = 模块名,as 改名 = 新名,花括号 = 列表项。
+    exported: String,
+    /// 源路径末段:as 改名的原名(如 `kill_process`),供 hits 为空时回落重查。
+    source_name: Option<String>,
+    /// 该 pub use 的原始行(供报告展示)。
+    source_line: String,
+}
+
+/// 全树收集 `pub use` 再导出记录。行级扫描 + 跨行花括号列表合并;
+/// 不引入 syn(与 R-154 轻量哲学一致)。
+fn collect_reexports(files: &[std::path::PathBuf]) -> Vec<ReExport> {
+    let mut out = Vec::new();
+    for file in files {
+        let Ok(text) = std::fs::read_to_string(file) else {
+            continue;
+        };
+        let mut lines = text.lines().enumerate();
+        // 跨行状态:正在积累 `pub use x::{ a, b, ... }` 列表。
+        let mut pending: Option<(usize, String, Vec<String>)> = None;
+        for (idx, raw) in lines.by_ref() {
+            let line = raw.trim();
+            // 跨行列表继续:追加列表项直到 `};`。
+            if let Some((start, prefix, mut items)) = pending.take() {
+                for part in line.split(',') {
+                    let part = part.trim().trim_end_matches(';');
+                    if !part.is_empty() {
+                        items.push(part.to_string());
+                    }
+                }
+                if line.contains('}') {
+                    for item in items {
+                        out.push(ReExport {
+                            file: file.clone(),
+                            line: start + 1,
+                            exported: item.clone(),
+                            source_name: None,
+                            source_line: format!(
+                                "pub use {}::{{ ... }} (跨行列表,首行 {})",
+                                prefix,
+                                start + 1
+                            ),
+                        });
+                    }
+                } else {
+                    pending = Some((start, prefix, items));
+                }
+                continue;
+            }
+            if !line.starts_with("pub use ") {
+                continue;
+            }
+            let rest = &line["pub use ".len()..];
+            // 花括号列表跨行:`pub use path::{ a, b,` 还没闭合 → 挂起。
+            if rest.contains("::{") && !rest.contains('}') {
+                let prefix = rest.split("::{").next().unwrap_or("").trim().to_string();
+                let tail = rest.split("::{").nth(1).unwrap_or("").to_string();
+                let mut items: Vec<String> = Vec::new();
+                for part in tail.split(',') {
+                    let part = part.trim().trim_end_matches(';');
+                    if !part.is_empty() {
+                        items.push(part.to_string());
+                    }
+                }
+                pending = Some((idx, prefix, items));
+                continue;
+            }
+            // as 改名:`pub use path::orig as new;`
+            if let Some((orig, new)) = rest.split_once(" as ") {
+                let orig_name = orig
+                    .split("::")
+                    .last()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                out.push(ReExport {
+                    file: file.clone(),
+                    line: idx + 1,
+                    exported: new.trim().trim_end_matches(';').to_string(),
+                    source_name: orig_name,
+                    source_line: line.to_string(),
+                });
+                continue;
+            }
+            // 单行花括号列表:`pub use path::{ a, b };`
+            if let Some((_prefix, list)) = rest.split_once("::{") {
+                let list = list.trim_end_matches('}').trim_end_matches(';');
+                for item in list.split(',') {
+                    let item = item.trim();
+                    if !item.is_empty() {
+                        out.push(ReExport {
+                            file: file.clone(),
+                            line: idx + 1,
+                            exported: item.to_string(),
+                            source_name: None,
+                            source_line: line.to_string(),
+                        });
+                    }
+                }
+                continue;
+            }
+            // 模块整体:`pub use path::module;`
+            let exported = rest
+                .split("::")
+                .last()
+                .unwrap_or(rest)
+                .trim_end_matches(';')
+                .trim()
+                .to_string();
+            if !exported.is_empty() {
+                out.push(ReExport {
+                    file: file.clone(),
+                    line: idx + 1,
+                    exported,
+                    source_name: None,
+                    source_line: line.to_string(),
+                });
+            }
+        }
+    }
+    out
+}
+
 /// 行级扫描符号。状态机跳过字符串/注释内的伪命中。
 fn scan_symbols(file: &Path) -> Vec<Symbol> {
     let Ok(text) = std::fs::read_to_string(file) else {
@@ -271,7 +543,10 @@ fn parse_symbol_line(code: &str, line: usize) -> Option<Symbol> {
     };
     let body = body
         .trim_start_matches("pub(crate) ")
-        .trim_start_matches("pub(super) ");
+        .trim_start_matches("pub(super) ")
+        // R-265:async fn 也识别——`pub async fn kill_process` 剥掉 async 前缀,
+        // 否则 as 改名回落的原名找不到定义(验收② real: kill_process 是 async fn)。
+        .trim_start_matches("async ");
     // 顺序:impl(可带泛型) > fn > struct > enum > trait > type > const/static。
     if let Some(rest) = body.strip_prefix("impl") {
         let after = rest.trim_start();
@@ -525,5 +800,157 @@ mod tests {
         assert!(!out.content.contains("pub fn helper"), "{}", out.content);
         assert!(out.content.contains("2 hits"), "{}", out.content);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-265 验收④:define 与 callers 同时给出时显式报错,而非静默取其一。
+    #[tokio::test]
+    async fn define与callers互斥_显式报错() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-symbols-excl-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("lib.rs"), "pub fn helper() {}\n").unwrap();
+        let ctx = kanzei_harness::ToolCtx::new(dir.clone(), dir.clone());
+        let tool = SymbolsTool;
+        let out = tool
+            .execute(
+                serde_json::json!({"path": ".", "define": "helper", "callers": "helper"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "互斥必须显式报错, {}", out.content);
+        assert!(out.content.contains("互斥"), "{}", out.content);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-265 验收①/②/③:resolve_define 按名命中定义,三型 re-export 都进链
+    /// (模块整体 / as 改名 / 跨行花括号列表)。
+    #[test]
+    fn define_命中定义点并收集三型再导出链() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-symbols-define-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("lib.rs"),
+            "pub use kanzei_base::atomic_file;\n\
+             pub use background::kill_process as kill_background_processes_for_process;\n\
+             pub use scheduling::{\n\
+                 append_progress, backlog_status,\n\
+                 workable_titles,\n\
+             };\n",
+        )
+        .unwrap();
+        let files = vec![dir.join("lib.rs")];
+        // ①模块整体:define=atomic_file 命中 re-export 链(模块名即导出名)。
+        let report = resolve_define(&files, "atomic_file", &dir);
+        assert!(report.contains("atomic_file"), "{}", report);
+        // ②as 改名:define=kill_background_processes_for_process 命中链。
+        let report2 = resolve_define(&files, "kill_background_processes_for_process", &dir);
+        assert!(
+            report2.contains("kill_background_processes_for_process"),
+            "{}",
+            report2
+        );
+        // ③跨行花括号:define=workable_titles 命中链(跨行列表合并不丢项)。
+        let report3 = resolve_define(&files, "workable_titles", &dir);
+        assert!(report3.contains("workable_titles"), "{}", report3);
+        let report4 = resolve_define(&files, "backlog_status", &dir);
+        assert!(report4.contains("backlog_status"), "{}", report4);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-265 验收⑤:callers 输出带上限与「已截断」提示(对齐 grep DEFAULT_LIMIT)。
+    #[tokio::test]
+    async fn callers_超过上限给出截断提示() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-symbols-limit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut src = String::from("pub fn helper() {}\n");
+        for i in 0..80 {
+            src.push_str(&format!("fn caller_{i}() {{ helper(); }}\n"));
+        }
+        std::fs::write(dir.join("lib.rs"), src).unwrap();
+        let ctx = kanzei_harness::ToolCtx::new(dir.clone(), dir.clone());
+        let tool = SymbolsTool;
+        let out = tool
+            .execute(serde_json::json!({"path": ".", "callers": "helper"}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("80 hits"), "{}", out.content);
+        assert!(
+            out.content.contains("stopped at limit 50"),
+            "{}",
+            out.content
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-265 验收①/②:对**真实仓库**穿透跨 crate re-export——try_lock_exclusive
+    /// 定义在 kanzei-base,经 kanzei-tools lib.rs 再导出;as 改名回落原名。
+    #[tokio::test]
+    async fn define_真实仓库穿透跨crate再导出() {
+        // CARGO_MANIFEST_DIR = crates/kanzei-tools;上两级 = 仓库根。
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("repo root");
+        let crates = repo.join("crates");
+        if !crates
+            .join("kanzei-base")
+            .join("src")
+            .join("atomic_file.rs")
+            .exists()
+        {
+            return; // 非本仓库环境(如打包后),跳过真实文件断言。
+        }
+        let files = collect_rs_files(&crates);
+        // ①验收①:define=try_lock_exclusive 命中 kanzei-base/src/atomic_file.rs。
+        let report = resolve_define(&files, "try_lock_exclusive", repo);
+        assert!(
+            report.contains("atomic_file.rs") && report.contains("try_lock_exclusive"),
+            "{}",
+            report
+        );
+        // 再导出链:kanzei-tools/src/lib.rs 的 `pub use kanzei_base::atomic_file;`
+        // 让 try_lock_exclusive 在 kanzei-tools crate 可见——模块整体型链。
+        assert!(
+            report.contains("re-export chain") && report.contains("kanzei-tools"),
+            "{}",
+            report
+        );
+        // ②验收②:as 改名——define=kill_background_processes_for_process(新名,
+        // 定义名 kill_process 不叫这个)必须回落原名命中 background.rs 定义。
+        let report2 = resolve_define(&files, "kill_background_processes_for_process", repo);
+        assert!(
+            report2.contains("background.rs")
+                && report2.contains("kill_background_processes_for_process"),
+            "{}",
+            report2
+        );
+        // ③验收③:跨行花括号再导出——define=workable_titles(tracker.rs:25-29
+        // 的 `pub use scheduling::{ ... }` 列表项)必须命中 scheduling.rs 定义。
+        let report3 = resolve_define(&files, "workable_titles", repo);
+        assert!(
+            report3.contains("scheduling.rs") && report3.contains("workable_titles"),
+            "{}",
+            report3
+        );
     }
 }
