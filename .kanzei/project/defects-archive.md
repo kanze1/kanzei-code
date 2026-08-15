@@ -4480,3 +4480,32 @@
 - 标签: 核心
 - 进展: 已修。①10 处交互态逃逸 token 化(--shadow/--shadow-strong/--sunken*/--hover-wash/--on-ok/--danger-btn-hover/--deny-hover/--border-on-accent,暗亮两组成对给值;亮色阴影不照抄 53% 纯黑),另清掉 10 处 var() 死回退;②17 个字号 token(221 处引用)+ 11 个层级 token(14 处引用)+ 6 档间距目标音阶(引用点未迁移,见边界);③活动栏 4 个字形换成同规格描边 SVG;④判据进 ui-a11y-smoke 三节,反例逐条实测(还原一处 #0008 → 报出行号与修法;把 memory 图标还原成 ❖ → 报 data-view="memory");⑤顺带把 D-351 的字号护栏从「断言源码字面量 15px」改成「解析 token 后比数值」——原写法在纯 token 化后全落空而可读性一点没变,正是审视里点名的「测试断言源码文本」。六条前端冒烟全绿。
 - observed_head: 2b0373c
+
+## D-381 Rust↔JS 是全仓最弱的一条缝:93 个命令手搓 JSON,而冒烟断言的是前端自己写的 fixture [fixed] (high)
+- refs: D-207 D-005
+- 复现: 把 docs.rs 里 `"title": e.title` 改成 `"titel": e.title`,跑 `cargo test --workspace` + 六条前端冒烟——**全绿**,而真实界面上所有条目标题变空。改名不会让任何既有测试变红。
+- 根因: 93 个 `#[tauri::command]` 里 30+ 个返回 serde_json::Value、错误一律 String;应用最丰富的数据结构(docs_snapshot/conversation_*/memory_*)是在 IPC 上手搓 JSON 过去的,每个字段名在两侧各写一遍字符串字面量,中间没有编译期或测试期的连接。而 ui-runtime-smoke 的 payloads 是**前端作者手写的夹具**——它验的是"前端能正确渲染前端想象中的后端响应"。对照:Rust 内部为了防止根目录传反专门造了 ProjectRoot/WorktreeRoot newtype 让编译器报 E0308,同一个仓里两种严格度差得刺眼。
+- 影响: D-207 那类「界面展示的值与后端事实对不上」的结构性来源。实测本条落地时,契约一比对就抓到既有漂移:夹具缺 root/warnings/blocked/block_reasons/claimed_by/severity,ideas 条目缺 6 个字段——而 blocked/block_reasons/claimed_by 正是 backlog 界面在读的(R-247/D-354)。
+- 边界: 不在本条里把 30 个命令改成 typed struct(那是 R 级改造)。先把**形状**钉在一份两侧共读的产物上,把「改了没人知道」变成「改了必然有一侧红」。
+- 来源: 2026-08-15 用户要求三维度审视。
+- 证据等级: E1(反例实测:后端改名 → Rust 侧判据红并打印实际形状;夹具去字段 → 前端冒烟红并指出「后端会发,fixture 里没有」)
+- 验收: ①有一份两侧共读的形状契约,由真实命令跑出来而不是手写;②Rust 侧改形状即红,并写明「三处一起动」的修法;③前端夹具与契约不符即红,分别指出「后端会发夹具没有」与「夹具独有后端不发」;④更新契约要显式开关(自动写回等于没有判据);⑤kz:* 事件名两侧对齐,发了没人听/听了没人发都判红;⑥裸 listen 绕过 on() 的 sessionId 纪律判红。
+- 优先级: P1
+- 标签: 核心
+- 进展: 已修。新增 crates/kanzei-app/src/ipc_contract.rs(shape 抽取:对象递归保留键、数组取样、标量退化成类型名、null 记 nullable)+ scripts/ipc-contract.json(由 `KZ_UPDATE_IPC_CONTRACT=1 cargo test -p kanzei-app 形状` 产出,刻意做成显式开关);ui-runtime-smoke 读同一份文件校验 payloads.docs_snapshot,并把夹具补齐到与后端一致(docEntry 补 severity/complexity/batches/blocked/block_reasons/claimed_by/dependencies/dependents,ideas 改用 docEntry,补 root/warnings)。事件名判据:扫 kanzei-app/src 全部 .rs 的 "kz:*" 与 ui/*.js 的 on() 订阅集合对比,并禁止裸 listen;kz:annotate-progress 从裸 listen 改走 on() 并登记进 SESSIONLESS_EVENTS(它此前绕开了「没有 sessionId 就丢弃」那条纪律,规则只覆盖了一半订阅)。三条判据均有反例实证。kanzei-app 169 passed,六条前端冒烟全绿。
+- observed_head: 219ed94
+
+## D-382 并行两条线互相饿死:bash 围栏持全部托管文档的排他锁直到命令结束 [fixed] (high)
+- refs: D-364 D-368 D-338 D-173 R-182
+- 复现: 开两条并行线,让其中一条跑 `cargo check` / `cargo test`(分钟级)。另一条线的每个 bash 立刻报 `bash refused before execution: cannot lock managed path ...requirements.md`,连续十次以上;桌面端同时报 `项目文档刷新失败:等待 3s 仍拿不到写锁`。两条线互为对方的阻塞源,不会自愈。实测现场 2026-08-16 00:12:17–00:18:04。
+- 根因: 三个预算凑出来的必然结果——围栏持锁时长默认 120s、上限 600s(bash.rs:20-21),另一条线取锁预算 500ms(managed.rs:230),桌面端读文档预算 3s(atomic_file.rs:174)。600s vs 500ms = 1200:1,不是"可能抢不到"是"必然抢不到"。而锁只有排他一档,于是三类互不冲突的动作被迫排队:①围栏之间(两条线诉求完全相同,本无冲突);②围栏与读者(DocStore::load 为 D-338 也取排他锁);③围栏与写者(这一类才是真冲突)。放大器:所有并行线共用主根那套 .kanzei(R-182/F6 判据),这把锁是**跨全部线路的全局互斥**——代码树并行,bash 却排成一队。
+- 影响: 产品主张是"真正的任务级并行",实际每条线的每一次 bash 都在这里串行化;一旦有线跑构建,另一条线与文档面板一起停摆。用户视角是"一开始好好的,然后突然不再刷新"——前两分钟命令都是亚秒级,500ms 够用;开始跑构建就再也抢不到。
+- 边界: **不是**调预算能解决的:命令能跑 10 分钟,预算调到多少都不够。也**不能**靠猜命令文本决定要不要上锁(D-173 明确:能不能绕过绝不靠字符串匹配)。
+- 来源: 2026-08-16 用户报告并行线突然不刷新,附桌面端日志与活动轨迹。
+- 证据等级: E1(反例实测:把围栏改回排他档,新增的「两条线的围栏可以同时持有」「围栏在场时文档仍读得出来」立刻判红,而「围栏在场时写者仍被挡住」照旧绿——证明 D-364 的不变式不依赖本次改动)
+- 验收: ①atomic_file 提供共享档原语,共享之间相容、与排他互斥,OS 句柄层同样成立(不只是进程内注册表);②bash 围栏取共享档,两条线可同时持有;③DocStore::load 取共享档,围栏在场时文档照样读得出;④D-364 不变式不松:围栏在场时写者仍被完全挡住,释放后靠广播立刻唤醒;⑤D-338 不变式不松:写者持排他时读者等待,看不到 rename 中间态;⑥排他持有者内部取共享按重入放行(archive_terminal→load 路径不自锁);⑦同线程共享升排他快速失败而不是等到超时。
+- 优先级: P0
+- 标签: 核心
+- 进展: 已修。atomic_file 加 LockMode 共享/排他两档:SlotState 增 shared(线程→重入计数)与 acquiring(占位中,防"句柄没开"被误判成"没人持锁"),Drop 按档位分别归还、最后一个持有者才关句柄;Windows 侧 open_shared 用 read + FILE_SHARE_READ(请求写权限会把后来的共享者挤掉),非 Windows 降级为排他(语义正确,并发度退回原状)。调用点:managed.rs 围栏 try_lock_exclusive→try_lock_shared,docstore load 改 lock_shared。测试 9 条:atomic_file 6 条(共享相容/跨线程、排他挡共享+释放唤醒、共享挡排他+最后一个才放行、排他内取共享重入、升级快速失败、OS 句柄层互斥)+ managed 3 条(两条线围栏共存、围栏挡写者、围栏不挡读者)。workspace 1054 passed,clippy 零警告,fmt 干净,六条前端冒烟全绿。
+- 残留: 写者(kz req add / docs_update)撞上另一条线的长命令围栏时仍按 3s 预算失败后由模型重试——这是 D-364 要求的正确行为(窗口内不能有写者),只是失败而非等待。若实测中变成困扰,再单独评估"写者等到底 + 移出 tokio worker"(直接加长预算会把 runtime 工作线程挂住,不能只改数字)。
+- observed_head: b143414

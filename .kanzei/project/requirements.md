@@ -18,7 +18,7 @@
 - 前置(不写进依赖,按 D-239 教训): **R-177**(要有 `worktree_path` 才知道"本线的树"是哪棵)。R-177 之前可以先做托管文档侧的重构与 mtime 粗筛。
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-186
 - 进展: 自动运行已认领(doing)。2026-08-13 用户明确指示暂停本条、先交付 R-200(测试隔离夹具)并按其批次发版——本条 park,不占可执行槽位。未开工。
-- 阻塞: 2026-08-14 复核:原阻塞的解除条件「R-200 及其后续完成后再开」已达成——R-200 已 done 并归档。剩的只是队列位置:本条 P0 但 R-202 占着唯一 WIP 槽,且缺陷队列现有 D-357/D-358/D-359 三条未阻塞条目按 defect-first 排在前面。用户原话是「先做 R-200 再发版,不是做这条」,发版已在本轮执行。解除动作: 用户说一声恢复推进,或 R-202 与缺陷队列清空后按队列自然取到本条。解除人: 用户(一句话即可,不需要额外信息)。
+- 阻塞: 2026-08-16 复核:实质前置**全部达成**——R-200 已 done 并归档、R-202 已 done(不再占 WIP 槽)、原文点名的缺陷队列 D-357/D-358/D-359 已全部 fixed 并归档、发版也已多轮执行。剩下唯一原因是队列位置:唯一 WIP 槽由 R-195 持有(用户 2026-08-16 指定)。解除动作: R-195 关闭腾出槽后按队列自然取到本条(P0,不需要额外信息);或用户改指定本条接管。解除人: 依赖自然解除 / 用户。
 - observed_head: d124749aabe65ec0cde4f2280c9583dd4f33be40
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786609593506
@@ -50,7 +50,7 @@
 - refs: R-194 R-195 R-196 D-299 D-282
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-216
 - 进展: 2026-08-16 收口此前引擎取活留下的半成品实现(工作树未提交,6 测试红)。已完成:①三闸实现确认完整(store.rs add 内:交付状态拒收 has_tracker_id、指纹一致性 fp_markers、语义探测下沉 classify_novelty 双 scope);②修复 6 个失败 fixture(5 个自造指纹被新指纹闸拦——merge_gate/find_by_marker/merge_conservative/merge_自动搬运 注入来源 note 或 force,1 个 novelty_gate 语义断言适配 R-216 口径);③新增 3 个验收单测:自造指纹的add被拒_来源note指纹放行、交付状态内容被拒并指路tracker、英文改写被add硬闸拦截返回候选。验证:memory 95 passed + kanzei-tools 346 passed + clippy/fmt 全过。验收对照:①英文改写被拦并指路 memory_update——英文改写被add硬闸拦截返回候选 测试(Uncertain 返回候选);②伪造指纹的 add 被拒——自造指纹的add被拒 测试;③存量 6 条交付状态记忆逐条处置——数据工作待做(见剩余);④各拦截路径有单测——三测试覆盖指纹/交付状态/语义三闸。剩余:验收③存量 6 条交付状态记忆逐条处置(数据工作)。
-- 阻塞: 2026-08-14 复核:本条不存在外部阻塞——原阻塞写的「解除人:本 agent 后续轮」是自己阻塞自己,那不是阻塞,是没做完。真实状态:三闸实现已完整交付且全绿(memory 95 + kanzei-tools 346 passed),验收①②④齐,只剩验收③的数据工作(逐条查 memory 库定位 6 条交付状态记忆并归档/改写)。当前挂 doing 却被阻塞字段整条 park,是因为 R-202 占着唯一 WIP 槽——清掉阻塞会让 work next 判 wip_violation 禁止全线取活(本轮在 R-183 上实测过)。用户 2026-08-14 明确本条数据工作不交给本会话代做。解除动作: R-202 关闭腾出槽位后直接续做验收③并关闭本条,不需要用户拍板。解除人: agent。
+- 阻塞: 2026-08-16 复核:不存在外部阻塞,实现已完整交付且全绿,只剩验收③的数据工作(逐条查 memory 库定位 6 条交付状态记忆并归档/改写)。原阻塞成因"R-202 占着唯一 WIP 槽"已消失(R-202 done),但槽现由 R-195 持有(用户 2026-08-16 指定),故仍 park——清掉阻塞会让可执行 WIP 达 2 条,work next 直接判 wip_violation 禁止全线取活。解除动作: R-195 关闭后清本字段直接做验收③并关闭本条,不需要用户拍板。解除人: agent。
 - observed_head: a104ba12af981e0e591aff0c9a5057385ce2f854
 - observed_worktree_hash: fnv1a64:025c9fc9adc6d9d2
 - recorded_at: 1786637389551
@@ -65,13 +65,12 @@
 - 验收: ①存量 5 条 candidate 全部有归宿(晋升 active 或 deprecated 归档),逐条给出依据;②有机制测试:满足条件的 candidate 能被自动处置,不满足的不动;③candidate 存量不再单调增长——用 index.db 与文件数给出前后对照。
 - 优先级: P2
 - 批次: 2/2
-- 进展: 用户于本轮明确选择暂存本条，暂不推进；保留原验收与 0/2 计划，待 R-236 释放 WIP 槽后再恢复。来源：用户本轮选择 1。
+- 进展: 用户于本轮明确选择暂存本条，暂不推进；保留原验收与 0/2 计划，待 R-236 释放 WIP 槽后再恢复。来源：用户本轮选择 1。 2026-08-16 阻塞解除(用户指示):点名的前置 R-236 早已 done 并归档,原文自述"这条现在是纯决策点,不是等待",用户已就"要不要恢复推进"给出结论=恢复。四条前提均已达成的 doing 条目里由本条接管唯一 WIP 槽(R-186/R-216/R-249 同批复核但继续 park,理由见各自阻塞字段——多于一条可执行 WIP 会直接判 WipViolation 禁止全线取活)。注意 R-235(28 条零证据 active 记忆逐条拍板)仍挂用户阻塞,本条推进到需要那批数据结论时会撞上它。
 - observed_head: 79d3c4e383a13032ff26c4cd0a13bcd74128c2f2
 - observed_worktree_hash: fnv1a64:fe871977f10a5179
 - recorded_at: 1786648602102
 - 取活依据: engine:唯一可执行 WIP 是 R-195，必须先恢复它
 - 用户挂起: 是；用户明确选择暂存 R-195，待 R-236 完成后恢复。
-- 阻塞: 2026-08-14 复核:原阻塞「待 R-236 完成后决定恢复本条」的前置已达成——R-236(上下文压缩重设计)已 done 并归档。所以这条现在是纯决策点,不是等待:candidate 记忆的晋升与清退闭环要不要现在恢复推进。相关:R-235(28 条零证据 active 记忆逐条拍板)是同一批记忆治理工作,两条宜一起定。解除动作: 用户说恢复即按 P2 入队。解除人: 用户。
 
 ## R-235 存量 28 条零证据 active 记忆逐条复核:保留(存量豁免)或降级 candidate,用户拍板 [todo]
 - 优先级: P3
@@ -146,7 +145,7 @@
 - 标签: 核心
 - 边界: 本需求只负责事件投影真源切换与 segment reset，不实现会话物理删除、Spill artifact 联动删除、WAL/VACUUM 或迁移备份安全整理；这些统一由 R-245 的删除计划与显式整理入口承担。第一批不改事件 format_version 与 SessionFact 公共词表；任一读路径可通过 feature gate 独立回退 legacy snapshot。
 - 迁移与回滚: 不新增表、列或索引时不创建空 migration。切换按五条读路径分别启用 feature gate，legacy snapshot 在观察期只读保留；任一路径出现未知差异即回退该路径。全部 gate 稳定后才停止新增 conversation.updated，既有 snapshot 不删除。
-- 阻塞: 2026-08-14 前置已满足一半:含 R-241 的安装版本已发布(build-9a06e05,R-241 typed event 真源已 done 并归档;此前装机版停在 08-09,根本产不出 shadow 样本)。剩的是攒样本,不是等决策:装新版后正常使用,直到达到门槛——至少 30 个真实 turn;typed_write_errors 为 0;正常可比较 turn 全部 equal=true;停止、权限拒绝、工具错误、多工具部分完成及受控 draft/tool 重启路径均有可解释证据。解除动作: 用户装新版后正常用几天,样本达标即开工五条读路径真源切换(R-243 随后串行)。解除人: 使用量自然积累(不需要拍板)。
+- 阻塞: 2026-08-16 实测复核:原阻塞写的"剩的是攒样本,不是等决策"**已不准确**。样本侧三条里两条已达标:shadow_compared 样本 45 条(门槛 ≥30 个真实 turn,库内 turn_started 4168)、typed_write_errors 合计 0;但"正常可比较 turn 全部 equal=true"**未达成**——45 条里 7 条 equal=false,且**全部 interrupted_assistants=0**,即不落在停止/中断/权限拒绝这些被门槛排除的异常路径上。7 条形态一致:projected 远大于 legacy(607→2163、42→1206、87→608、227→574、146→238、873→1076、0→521),疑似上下文压缩把 legacy 快照换成纪要、而 typed 流仍留全量,属 R-243(Surface Compaction)要处理的语义。解除动作: 先解释这 7 条差异是"投影正确、legacy 被压缩"还是"投影有 bug",再决定门槛是否按压缩语义重写。解除人: 依赖自然解除 / 用户改口径。
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
 
@@ -173,7 +172,7 @@
 - 标签: 核心
 - 边界: 任何事件仍引用的 artifact 不得被静默清理；整理前显示预计释放空间和不可恢复范围，执行后给清单与实际释放量。32 KiB 先做 shadow telemetry。普通会话删除保证产品不可检索且重启不复生；安全整理才处理 SQLite freelist、WAL 和含旧正文备份。当前库为 WAL、secure_delete=OFF、auto_vacuum=NONE，不能把 DELETE 行等同磁盘字节已擦除。弹窗必须区分仅删除与删除并安全整理，取消零写入；显式整理不是定时任务。
 - 迁移与回滚: artifact 原子写入后再提交引用事件；任一步失败不得留下有效事件指向缺失文件。删除使用引用图和事务清单，失败可重试；schema 迁移前备份。关闭 Spill 可回到 Inline，但已有引用仍必须可读。
-- 阻塞: 未完成依赖 R-242、R-244(依赖式阻塞,非人工 park)。原文里「R-244 是否列入主任务待用户决定」这一条已在 2026-08-14 由用户拍板:R-244 列入主任务、主线串行做。故本条剩纯依赖:等 R-242 固定 segment/会话投影边界、等 R-244 冻结 Result Policy 与 ToolOutput 公共契约;契约冻结后 telemetry、artifact 适配和整理 UI 可拆给自举线,物理删除与安全整理事务仍由主线审查。解除人: 依赖自然解除(R-242 + R-244 完成即解)。
+- 阻塞: 2026-08-16 复核收窄:两个依赖里 **R-244 已 done 并归档**(Result Policy 与 ToolOutput 公共契约已冻结),故本条只剩等 R-242 固定 segment/会话投影边界;而 R-242 自身卡在 7 条 shadow equal=false(见该条阻塞)。契约冻结后 telemetry、artifact 适配和整理 UI 可拆给自举线,物理删除与安全整理事务仍由主线审查。解除人: 依赖自然解除(R-242 完成即解)。
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
 
@@ -186,9 +185,9 @@
 - 来源: DeepSeek Harness Scope 生命周期约束；Kanzei 已有 cancellation、子代理、transcript、notification、background process 多注册表。
 - 标签: 核心
 - 边界: 不重做 R-180 已交付的长驻服务注册表和日志；以适配/收口方式接入。普通资源生命周期不超过 LineRuntime；persistent 只能显式 adopt，不接受布尔值或 drop 泄漏式脱离 owner。
-- 阻塞: 依赖 R-244 的 Tool Pipeline 契约冻结(R-244 已于 2026-08-14 由用户定为主线串行的主任务,不再是「是否列入」的悬案)。本条自己那半——是否交给自举线实施——仍待用户定,但不必现在定:R-244 落地前本条无论如何开不了工。解除人: 依赖自然解除后由用户决定实施线路。
 - 验收: ①并发两次 dispose 共享完成结果且只收尾一次；②取消子代理并等待退出，三种终态均释放读槽；③非 persistent 后台进程、通知订阅、临时 artifact 和租约全部回收；④dispose 返回前工具 wrapper 已静止且生命周期终态落库；⑤persistent 服务显式 adopt 后跨 run 存活并有 adoption 事件，未 adopt 的全部收回；⑥强杀重启后无幽灵 owner，能确定恢复或标失败；⑦R-174/R-180 现有测试保持通过。
 - 优先级: P2
+- 进展: 2026-08-16 阻塞解除:点名的依赖 R-244(Tool Pipeline 契约冻结)已 done 并归档,"R-244 落地前本条无论如何开不了工"这一前提消失。本条为 todo,清阻塞不占 WIP 槽,按队列入候选。原文遗留的另半"是否交给自举线实施"不是阻塞而是实施路线选择,取活时按当时线路情况定即可。
 
 ## R-248 先行调研内建:新方向开工前默认产出「已有方案对照」,不靠用户开口 [todo]
 - refs: R-221 docs/design/research_mode.md
@@ -213,7 +212,7 @@
 - 标签: 核心
 - 边界: ToolOutput 是 harness 核心契约,R-244 明确要冻结「ToolOutput 公共契约」、R-245 要把它改成 Inline/Spilled 二态——本条**不得抢在 R-244 之前改这个结构**,否则必然返工。图片体积走 R-245 的 spill 口径,不在 ToolOutput 内联大 base64。不实现 UI 点击/输入/滚动(那是 R-101 的 E2 harness 范围),本条只做「看得见」不做「动得了」。deepseek_responses 协议当前丢弃 Image part,本条不负责补齐该 provider,但要在 provider 不支持时给出显式降级提示,不静默丢弃。
 - 进展: 2026-08-14 批1 交付(1831239)。勘察修正了原条目的一处前提:`Part::Image` 的三协议映射早在 R-014 就通了,缺的只是**工具侧出口**,协议层零改动即可打通——不必等 R-244。实现:①ToolOutput 增 images 载荷(空 vec 与既有行为逐字节一致,53 处 `ToolOutput {` 里只有 4 个真构造点,其余是解构模式);②read 按 magic bytes 而非扩展名识图(PNG/JPEG/WebP/GIF),扩展名撒谎会让 media_type 与真实字节不符、provider 400 且报错指向请求体;③图片 Part 只能追加在所有 ToolResult 之后——Anthropic 要求 tool_result 块在 user 消息最前,而 results[i]↔calls[i] 由 note_step 的 debug_assert 锁着,中间也不能插;④provider 不支持时**在进 messages 前**降级为显式文本说明,判据收敛为 Route::supports_images() 与 client.rs 硬拒绝共用一处。新增 10 条测试。**剩余批次**:批3 图片 artifact 走 R-245 spill(仍等 R-244/R-245);批4 deepseek 协议补齐(不在本条范围,只保证降级不静默)。 || 2026-08-14 批2 交付:新增 ui_screenshot 工具(kanzei-app/src/screenshot.rs)。实窗验证三轮才对,两次假绿都值得记——①未声明 DPI 感知时 GetWindowRect 返回虚拟化坐标(2582px 的窗口报成 1295px),抓到的是横跨多个窗口的错误区域;②改用正确矩形后,屏幕 DC 抓取拿到的是压在上面那个应用的界面(kzapp 被完全遮挡),内容丰富所以 looks_blank 一路放行。两次都是「测试通过但抓的不是那个窗口」。最终改用 PrintWindow+PW_RENDERFULLCONTENT 离屏渲染,免疫遮挡,在完全被盖住的状态下抓到 kzapp 完整界面并经人眼与用户实拍逐项比对一致;屏幕 DC 仅在 PrintWindow 失效且本窗口为前台时作回退,不是前台宁可报错——返回别人的界面比返回错误坏得多。测试记录 T-1786705800。
-- 阻塞: 批1 已解除(协议层无需改动,不依赖 R-244)。批2 无阻塞、随时可开工——本条目前挂 doing 且被阻塞字段整条 park,调度看不到批2;R-202 关闭腾出 WIP 槽后应直接续做批2(不需要用户拍板)。批3 仍等 R-244 冻结 ToolOutput 公共契约与 Result Policy、R-245 确定图片类 artifact 的 spill 落点——原文「R-244 是否列入主任务待用户决定」已于 2026-08-14 拍板:列入主任务、主线串行做,故批3 是纯依赖等待。解除人: agent(批2)/ 依赖自然解除(批3)。
+- 阻塞: 2026-08-16 复核:批1 已解除;批2 无阻塞、随时可开工且**不需要用户拍板**(原文即如此写);批3 的依赖 R-244 已 done 并归档(Tool Pipeline 契约已冻结),只余 R-245 确定图片类 artifact 的 spill 落点,而 R-245 自身仍等 R-242。当前 park 的唯一原因是 WIP 槽由 R-195 持有(用户 2026-08-16 指定)。解除动作: R-195 关闭后清本字段直接续做批2。解除人: agent(批2)/ 依赖自然解除(批3 等 R-245)。
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 
@@ -230,13 +229,13 @@
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-257
 - 取得线: kanzei/thread-line-1786805363432-1
-- 批次: 1/6
-- 进展: B1 drive.rs 只读复查(2026-08-15):现状 2083 行,R-202 已拆 7 段函数(stream_request_step:410/run_subagent_calls:631/execute_tool_calls:873/assemble_run_once:1443/commit_step_messages:1630/finalize_step:1692/enforce_context_budget:1748),run_once_with_parts 主循环本体 270 行薄编排。模型循环本体(应留):run_once(动态分发边界,签名即锁)+ 主循环 + 段间类型(StepOutcome/ToolRunOutcome/StepMessageOutcome/StepFinalOutcome/RunOnceAssembly)+ 辅助小函数;可迁出子域(均 drive 私有、仅主循环调用):execute_tool_calls 537 行→tool_exec.rs(同域:wave 构建/并发执行已在那),stream_request_step 221 行→新 stream.rs(重试/流恢复),enforce_context_budget 105 行→compaction.rs(预算同域),assemble_run_once 173 行→新 assembly.rs(装配);步骤收尾段(commit_step_messages/finalize_step)与主循环强耦合(messages/final_text 直接互操作)留 drive.rs。指标:drive.rs 无指标代码(metrics.rs 已独立,drive 仅持 RedundancyWatch/RecallWatch 传 finalize_step),指标子域无遗留。结论:拆——4 段迁出约 1036 行,d rive.rs 余约 1050 行(含测试),沿用 R-155 顶层再导出纪律零外部 API 面变更,R-202 段函数单测兜底。批次重排 1/6:B2=drive.rs 切分,B3=docstore.rs,B4=git.rs,B5=config.rs,B6=workspace 全量+关闭。
+- 批次: 2/6
+- 进展: B2 drive.rs 切分完成(2026-08-15):四段迁出,零行为变更、零外部 API 面变更。①enforce_context_budget(112 行)→compaction.rs(预算同域,use 增 compaction_budget/budgeted_tokens/trim_tail/RunEvent/RunnerConfig/ToolSpec/MAX_FUTILE_COMPACTIONS);②assemble_run_once+RunOnceAssembly(205 行)→新模块 assembly.rs(字段全 pub(crate),task_spec/filter_message_history/RedundancyWatch/RecallWatch 全路径引入);③stream_request_step+StepOutcome(232 行)→新模块 stream.rs(依赖 estimate_prompt_tokens/recover_context_overflow/update_calibration/add_usage/decay_overflow_recoveries,halt_signalled 借 drive pub(super));④execute_tool_calls+ToolRunOutcome+describe_rule(545 行)→tool_exec.rs(同域,PreparedToolCall/execute_prepared_tools/Gate 已在那,tool_images_to_parts 去前缀)。drive.rs 保留:run_once/run_once_with_parts 主循环(270 行编排)/run_subagent_calls/commit_step_messages/finalize_step/辅助(halt_signalled/append_halted_tool_results/commit_assistant_message/commit_tool_results 改 pub(super))。mod.rs 声明 assembly/stream 模块并平铺,清理迁移副产物 unused imports(BTreeMap/tolerant_parse/LlmEvent/LlmRequest/Usage/Role/Effect/Tool/repair_hint/Arc)。行数对照(R-257 口径=总行−cfg(test)块):drive.rs 生产 1851→730(减 1121);迁出落点 assembly.rs 224 行(纯生产)、stream.rs 252 行、compaction.rs 936→1051(+115)、tool_exec.rs 529→1094(+565)。验证:cargo check -p kanzei-core 零 warning,cargo test -p kanzei-core 199 passed(T-1786814226)。教训:insert 锚点重复 3 次(compaction/tool_exec Gate/if 块),均同型(把锚点抄进 content),已修复;Role 供 drive tests 用需显式 import。
 - observed_head: 219dcdaf63e72875afeab9a00e77000b0cc3a5ac
-- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
-- recorded_at: 1786808777088
+- observed_worktree_hash: fnv1a64:86b49c7ec3f2d6c3
+- recorded_at: 1786814268977
 
-## R-265 symbols 加「符号名 → 定义位置」反查,穿透跨 crate re-export [todo]
+## R-265 symbols 加「符号名 → 定义位置」反查,穿透跨 crate re-export [doing]
 - refs: R-234
 - 优先级: P2
 - 复杂度: 中
@@ -246,6 +245,13 @@
 - 边界: 不引入 syn 等语法解析依赖(与 R-154 轻量哲学一致,行级扫描够用);不做 IDE 级跳转;模块路径只参与输出解释、不参与命中判定——事故成因正是「按路径字面解析→扑空」。
 - 来源: 2026-08-15 自举勘察实测事故:agent 在 managed.rs:299 看到 `crate::atomic_file::try_lock_exclusive`,按字面去 crates/kanzei-tools/src/atomic_file.rs 找,扑空;真实定义在 crates/kanzei-base/src/atomic_file.rs:256,kanzei-tools 只是 lib.rs:6 再导出。同轮另修两个前置缺陷(关键字词边界假符号、表头无条件入队把命中埋掉,见提交 a26df63)——那两个不修,反查会直接给出错误答案。
 - 验收: ①`symbols` 传 define=try_lock_exclusive 能定位到 crates/kanzei-base/src/atomic_file.rs 并给出经 kanzei-tools/src/lib.rs:6 的再导出链;②对 as 改名(kill_background_processes_for_process)能回落原名找到定义;③对跨行花括号再导出(tracker.rs:25-29)不漏;④define 与 callers 同时给出时显式报错而非静默取其一;⑤输出带上限与「已截断」提示,与 grep 的 DEFAULT_LIMIT 口径一致(现 callers 无上限,`callers: "self"` 能灌上万行);⑥description 的 Params 补齐 define 与 callers(callers 自 B2 起就没进描述)。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-265
+- 批次: 0/3
+- 进展: 批1:define 参数 + 全树按名命中 + crate ident→目录映射(读 workspace members [package].name,`-`→`_`);批2:re-export 三型穿透(模块整体/as 改名/跨行花括号)+ define/callers 互斥报错 + 输出上限(对齐 grep DEFAULT_LIMIT=50);批3:description 补 define/callers + 契约测试 + workspace 全量 + close。勘察:三型实据 lib.rs:6/43、tracker.rs:25-29 已确认;grep 上限文案 `... (stopped at limit N; narrow the pattern or raise limit)`。
+- observed_head: addd88f7c6d3a1411fe090e70080908acd0e8913
+- observed_worktree_hash: fnv1a64:f942ffb698473c93
+- recorded_at: 1786814197592
+- 阻塞: 2026-08-16 park(用户指示,零损失):默认线的唯一 WIP 槽改由 R-195 接管。本条是引擎在 addd88f 之后按「无可执行 WIP」自动取的活,批次 0/3、尚未动手,park 不丢任何工作。同线另有 R-186/R-216/R-249 三条前提已达成的条目一并排队(见各自阻塞字段);R-257 由 worktree 线 thread-line-1786805363432-1 持有,属他线 WIP,不占默认线槽位。解除动作: R-195 关闭后按队列自然取回本条(P2)。解除人: 依赖自然解除。
 
 ## R-264 前端迁移原生 ESM(勘察已完成,方案见 docs/design/ui_esm_migration.md) [todo]
 - refs: docs/design/ui_esm_migration.md R-142 R-154
