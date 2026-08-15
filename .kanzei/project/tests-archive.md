@@ -3823,3 +3823,17 @@
 - 关联: R-254
 - 收尾: 1786772767
 - 源码指纹: 36272434c46b2313
+
+## T-1786772831 cargo test -p kanzei-app (R-254 B1b 提交门禁) [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 19.3s
+- 摘要: R-254 B1b 提交门禁复测:166 passed, 0 failed
+- 关联: R-254
+- 收尾: 1786772831
+- 源码指纹: 2ac720f913116b1b
+
+## T-1786772886 cargo test --workspace (R-254 批2 全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-254 批2 全量:15 段全 ok(含 worktree_tests 2448 行),0 failed;四条前端冒烟全过
+- 关联: R-254
+- 收尾: 1786772983
