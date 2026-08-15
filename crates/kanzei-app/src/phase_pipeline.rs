@@ -302,6 +302,11 @@ impl PhasePipeline {
                     )
                     .await
                     {
+                        // 顺序要紧:空结果走 ToolOutput::noop(is_error=true),
+                        // 放在下面的 is_error 分支之后会被吞进 Failed。
+                        Ok(output) if output.code == Some("subagent_empty_answer") => {
+                            (ScoutOutcome::Empty, output.content, false)
+                        }
                         Ok(output) if output.is_error => (
                             ScoutOutcome::Failed(output.content.chars().take(200).collect()),
                             output.content,

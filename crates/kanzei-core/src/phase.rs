@@ -455,6 +455,15 @@ impl PhaseOrchestrator {
                 agent_name: name.to_string(),
                 reason: format!("timed out after {after_secs}s"),
             },
+            // 刻意复用 AgentFailed 而不新增事件类型:「事件类型名全变体唯一」的守护
+            // 与面板渲染都不用动,而「跑完没说话」在轨迹上本来就该与失败同侧——
+            // 它唯一不同的是原因,写进 reason 即可。
+            ScoutOutcome::Empty => OrchestrationEvent::AgentFailed {
+                project_root: self.project_root.clone(),
+                run_id: self.run_id.clone(),
+                agent_name: name.to_string(),
+                reason: "produced no answer".into(),
+            },
         }
     }
 

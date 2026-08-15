@@ -529,7 +529,7 @@ impl BarrierKind {
 
 /// 单个勘察/复核任务的终态。
 ///
-/// **三个变体全是终态**——这是类型层面的「屏障不永久挂起」:没有
+/// **四个变体全是终态**——这是类型层面的「屏障不永久挂起」:没有
 /// `Running`/`Pending` 变体可以表达,任务一旦被记录进屏障就必然已收敛。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -537,6 +537,13 @@ pub enum ScoutOutcome {
     Completed,
     Failed(String),
     TimedOut { after_secs: u64 },
+    /// 跑完了、没报错、但一个字都没说。
+    ///
+    /// 此前这种情况被记成 Completed:简报上一个绿勾,与真查清楚了的 scout 长得
+    /// 一模一样。实测 D-368 那轮的勘察就是这样——几个 scout 返回
+    /// "(subagent finished without a text answer)",而编排层照单全收。
+    /// 「跑完没说话」不是成功,必须与 Completed 区分,否则勘察完成率是个假指标。
+    Empty,
 }
 
 impl ScoutOutcome {
@@ -545,6 +552,7 @@ impl ScoutOutcome {
             ScoutOutcome::Completed => "completed",
             ScoutOutcome::Failed(_) => "failed",
             ScoutOutcome::TimedOut { .. } => "timed_out",
+            ScoutOutcome::Empty => "empty",
         }
     }
 
@@ -565,6 +573,9 @@ pub struct BarrierOutcome {
     pub completed: usize,
     pub failed: usize,
     pub timed_out: usize,
+    /// 跑完但零产出。serde default:老 payload 反序列化不炸。
+    #[serde(default)]
+    pub empty: usize,
     /// 屏障自身触顶上界(而非等到全部任务自然终态)。
     pub barrier_timed_out: bool,
     pub outcomes: Vec<(String, ScoutOutcome)>,
@@ -578,6 +589,7 @@ impl BarrierOutcome {
             completed: 0,
             failed: 0,
             timed_out: 0,
+            empty: 0,
             barrier_timed_out: false,
             outcomes: Vec::new(),
         }
@@ -589,6 +601,7 @@ impl BarrierOutcome {
             ScoutOutcome::Completed => self.completed += 1,
             ScoutOutcome::Failed(_) => self.failed += 1,
             ScoutOutcome::TimedOut { .. } => self.timed_out += 1,
+            ScoutOutcome::Empty => self.empty += 1,
         }
         self.outcomes.push((agent_name.into(), outcome));
     }
@@ -607,7 +620,8 @@ impl BarrierOutcome {
         if self.agent_count == 0 {
             return None;
         }
-        if self.failed == 0 && self.timed_out == 0 && !self.barrier_timed_out {
+        // empty 必须进这道门槛,否则「跑完没说话」照旧静默——那正是本变体存在的理由。
+        if self.failed == 0 && self.timed_out == 0 && self.empty == 0 && !self.barrier_timed_out {
             return None;
         }
         let scope = match self.barrier {
@@ -616,19 +630,20 @@ impl BarrierOutcome {
         };
         let mut notice = if self.completed == 0 {
             format!(
-                "(system) {scope}阶段 {} 个任务全部未产出结果(失败 {},超时 {})。\
+                "(system) {scope}阶段 {} 个任务全部未产出结果(失败 {},超时 {},空结果 {})。\
                  你**没有**拿到任何{scope}结论,不要假装已经了解现状:\
                  要么在本阶段用自己的只读工具补查,要么明确说出缺的是什么。",
-                self.agent_count, self.failed, self.timed_out
+                self.agent_count, self.failed, self.timed_out, self.empty
             )
         } else {
             format!(
-                "(system) {scope}阶段 {} 个任务中 {} 个未产出结果(失败 {},超时 {})。\
+                "(system) {scope}阶段 {} 个任务中 {} 个未产出结果(失败 {},超时 {},空结果 {})。\
                  下列范围没有被{scope}到,据此判断时要说明这一点:",
                 self.agent_count,
                 self.agent_count - self.completed,
                 self.failed,
-                self.timed_out
+                self.timed_out,
+                self.empty
             )
         };
         for (agent, outcome) in &self.outcomes {
@@ -639,6 +654,9 @@ impl BarrierOutcome {
                 }
                 ScoutOutcome::TimedOut { after_secs } => {
                     notice.push_str(&format!("\n- {agent}: 超时({after_secs}s 未返回)"));
+                }
+                ScoutOutcome::Empty => {
+                    notice.push_str(&format!("\n- {agent}: 跑完但未产出任何结论"));
                 }
             }
         }
@@ -928,5 +946,38 @@ mod tests {
         let mut review = BarrierOutcome::new(BarrierKind::Review, 1);
         review.record("r", ScoutOutcome::Failed("x".into()));
         assert!(review.model_notice().unwrap().contains("复核阶段"));
+    }
+
+    /// 「跑完了但一个字没说」必须与 Completed 分开,并且要告知模型。
+    ///
+    /// 此前空结果被记成 Completed:简报上一个绿勾,和真查清楚了的 scout 长得一样,
+    /// 勘察完成率因此是个假指标。实测 D-368 那轮就是几个 scout 返回
+    /// "(subagent finished without a text answer)" 而编排层照单全收。
+    #[test]
+    fn 空结果不算成功且必须告知模型() {
+        let mut outcome = BarrierOutcome::new(BarrierKind::Synthesis, 2);
+        outcome.record("architecture_scout", ScoutOutcome::Completed);
+        outcome.record("write_surface_scout", ScoutOutcome::Empty);
+
+        assert_eq!(outcome.completed, 1, "空结果不得计入 completed");
+        assert_eq!(outcome.empty, 1);
+        assert!(
+            !ScoutOutcome::Empty.is_ok(),
+            "Empty 必须为非 ok,否则下游按成功处理"
+        );
+        assert_eq!(ScoutOutcome::Empty.label(), "empty");
+
+        // 门槛:只有失败/超时时才告知的话,空结果会照旧静默——那正是本变体要修的。
+        let notice = outcome
+            .model_notice()
+            .expect("有空结果就必须告知模型,不能静默当成功");
+        assert!(
+            notice.contains("write_surface_scout"),
+            "必须点名是哪个角色空手而归: {notice}"
+        );
+        assert!(
+            notice.contains("空结果"),
+            "统计行要把空结果单列,不能混进失败数: {notice}"
+        );
     }
 }

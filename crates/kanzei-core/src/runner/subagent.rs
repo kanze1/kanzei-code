@@ -737,7 +737,23 @@ pub(crate) async fn run_subagent(
 
         // R-250:没传 schema 时,下面整段都不执行——行为与本条目之前逐字节一致。
         let Some(schema) = schema.as_ref() else {
-            break kanzei_harness::ToolOutput::ok(text);
+            // 「跑完了一个字没说」不是成功。原先这里无条件 ToolOutput::ok,于是
+            // 编排层把空结果记成 ScoutOutcome::Completed——简报上一个绿勾,与真
+            // 查清楚了的 scout 长得一样,勘察完成率成了假指标(实测 D-368 那轮)。
+            // 给一个稳定 code 让编排层能机器识别,而不是去匹配那句散文哨兵。
+            //
+            // 刻意不走「给勘察传 schema 让 R-250 校验重试」那条路:勘察跑在
+            // fast/本地路由那一档,给最弱的模型加强制 JSON 契约是逆向操作;而且
+            // 合法的「确实没发现问题」会因不合规被重试、最终记成 Failed——把
+            // 「没问题」记成失败,方向相反、同样是撒谎。
+            break if summary.text.trim().is_empty() {
+                kanzei_harness::ToolOutput::noop(
+                    "subagent_empty_answer",
+                    format!("subagent produced no text answer after {} step(s)", summary.steps),
+                )
+            } else {
+                kanzei_harness::ToolOutput::ok(text)
+            };
         };
         let problem = match crate::runner::schema_check::extract_json(&text) {
             None => "the answer is not JSON at all".to_string(),
