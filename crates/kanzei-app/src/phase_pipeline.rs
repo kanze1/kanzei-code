@@ -828,7 +828,6 @@ mod tests {
         assert!(brief.contains("drive.rs:57"));
     }
 
-    #[test]
     /// 角色提示必须带上「本次任务」的指代物。
     ///
     /// 角色表的 brief 是写死的通用描述(「本次任务会写到哪里」),没有指代物时
