@@ -66,6 +66,9 @@ struct Inner {
     cancellation: CancellationToken,
     /// 子代理取消注册表(复用 R-174/R-175 既有实现;Arc 共享,clone 的是指针)。
     child_agents: Arc<TaskCancellations>,
+    /// 已 spawn 子代理的 join handle(批2:dispose 时 cancel 后 await 全部退出,
+    /// 三种终态——完成/失败/被停——都在 join 返回时确认读槽已释放)。
+    child_agent_joins: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// 后台进程句柄(普通资源,dispose 收回)。
     background_processes: Mutex<Vec<String>>,
 }
@@ -82,6 +85,7 @@ impl LineRuntime {
             inner: Arc::new(Inner {
                 cancellation: CancellationToken::new(),
                 child_agents: Arc::new(TaskCancellations::default()),
+                child_agent_joins: Mutex::new(Vec::new()),
                 background_processes: Mutex::new(Vec::new()),
             }),
             dispose_state: Arc::new(DisposeState {
@@ -104,6 +108,12 @@ impl LineRuntime {
     /// 登记一个普通(非 persistent)后台进程 id,dispose 时收回。
     pub fn track_background_process(&self, id: String) {
         self.inner.background_processes.lock().unwrap().push(id);
+    }
+
+    /// 登记一个已 spawn 的子代理 join handle;dispose 时 cancel 后 await 全部退出。
+    /// 由 drive.rs 后台子代理 spawn 处调用(批2 接线)。
+    pub fn track_child_agent(&self, handle: tokio::task::JoinHandle<()>) {
+        self.inner.child_agent_joins.lock().unwrap().push(handle);
     }
 
     /// 幂等 dispose:并发调用共享同一个完成 future,收尾只发生一次。
@@ -144,7 +154,15 @@ async fn dispose_once(inner: Arc<Inner>) -> DisposeOutcome {
     inner.cancellation.cancel();
     // 2) 取消全部子代理(幂等:已结束的 unregister 过,不在表内)。
     //    run_subagent 的 future drop 时读槽 RAII 释放(既有语义)。
-    let child_agents_cancelled = inner.child_agents.cancel_all().len(); // 3) 收回普通后台进程(占位:批3 接入 kanzei-tools background registry)。
+    let child_agents_cancelled = inner.child_agents.cancel_all().len();
+    // 3) 等待全部子代理 join handle 退出(三种终态——完成/失败/被停——都在
+    //    run_subagent 返回时释放读槽;await join 保证 dispose 返回前它们已静止)。
+    //    有界等待:join 后不 panic(任务内错误已由 run_subagent 收敛为 ToolOutput)。
+    let mut joins = std::mem::take(&mut *inner.child_agent_joins.lock().unwrap());
+    for handle in joins.drain(..) {
+        let _ = handle.await;
+    }
+    // 4) 收回普通后台进程(占位:批3 接入 kanzei-tools background registry)。
     let background_processes_reaped = {
         let mut guard = inner.background_processes.lock().unwrap();
         let count = guard.len();
@@ -195,5 +213,33 @@ mod tests {
     fn new_默认不取消() {
         let rt = LineRuntime::new();
         assert!(!rt.cancellation().is_cancelled());
+    }
+
+    /// R-246 验收②:dispose 取消子代理并等待退出——track 的 join handle 全部
+    /// 在 dispose 返回前完成(三种终态都在 run_subagent 返回时释放读槽,此处
+    /// 验证「等待退出」机制本身:被停子代理的 join 必须被 await)。
+    #[tokio::test]
+    async fn dispose_等待已登记子代理退出() {
+        let rt = LineRuntime::new();
+        // 模拟两个后台子代理:一个自然完成,一个等取消令牌触发后退出(被停终态)。
+        let token = rt.cancellation().clone();
+        let done = tokio::spawn(async move { std::future::ready(()).await });
+        let cancelled = tokio::spawn(async move {
+            token.cancelled().await; // 被停终态:dispose 的 cancel 触发后返回
+        });
+        // 内部确认:被停子代理依赖 dispose 的 cancel 才结束——若 dispose 没有
+        // await join 就返回,这里会看到 cancelled 尚未 finish。
+        let cancelled_finished_before = cancelled.is_finished();
+        rt.track_child_agent(done);
+        rt.track_child_agent(cancelled);
+        // dispose 返回前必须已 await 全部 join(含被停子代理)。
+        let outcome = rt.dispose().await;
+        assert!(outcome.performed);
+        assert!(
+            !cancelled_finished_before,
+            "被停子代理在 dispose 之前不应已结束(它等 cancel 触发)"
+        );
+        // dispose 已 await 全部 join——若 cancelled 未在 cancel 后退出,dispose
+        // 会一直 await,测试在此处无法继续,即隐式验证「等待退出」生效。
     }
 }

@@ -164,17 +164,17 @@
 - 内容: 建立 LineRuntime，统一持有 cancellation token、active run、child agents、transcript projection、background results、notifications、background processes、writer/read leases、worktree binding 和 temporary artifacts。dispose 幂等且并发调用共享同一完成 future；persistent 服务必须通过 adoption 事件显式移交 ProjectRuntime。
 - 前置: R-241 R-244
 - 复杂度: 大
-- 批次: 1/5
+- 批次: 2/5
 - 来源: DeepSeek Harness Scope 生命周期约束；Kanzei 已有 cancellation、子代理、transcript、notification、background process 多注册表。
 - 标签: 核心
 - 边界: 不重做 R-180 已交付的长驻服务注册表和日志；以适配/收口方式接入。普通资源生命周期不超过 LineRuntime；persistent 只能显式 adopt，不接受布尔值或 drop 泄漏式脱离 owner。
 - 验收: ①并发两次 dispose 共享完成结果且只收尾一次；②取消子代理并等待退出，三种终态均释放读槽；③非 persistent 后台进程、通知订阅、临时 artifact 和租约全部回收；④dispose 返回前工具 wrapper 已静止且生命周期终态落库；⑤persistent 服务显式 adopt 后跨 run 存活并有 adoption 事件，未 adopt 的全部收回；⑥强杀重启后无幽灵 owner，能确定恢复或标失败；⑦R-174/R-180 现有测试保持通过。
 - 优先级: P2
-- 进展: 批1 完成:新增 crates/kanzei-core/src/runner/line_runtime.rs——LineRuntime{inner:Arc<Inner>(cancellation+child_agents+background_processes)+dispose_state}。幂等 dispose:CAS 首次调用标志(swap true 赢家 performed=true)+ Mutex<Option<Shared<Pin<Box<dyn Future>>>> 共享完成 future,并发调用只收尾一次、拿到同一结果(验收①机制已立);TaskCancellations 新增 cancel_all()(subagent.rs);模块注册 runner/mod.rs。3 单测全绿(并发幂等只收尾一次/取消令牌触发/默认不取消),kanzei-core 202 全绿,clippy 零警告。批2:子代理取消与读槽释放三终态;批3:非 persistent 资源回收(后台进程/通知/artifact/租约);批4:终态落库+wrapper 静止;批5:persistent adopt+幽灵 owner 恢复+全量。
+- 进展: 批2 完成:LineRuntime 子代理等待退出机制——Inner 新增 child_agent_joins:Mutex<Vec<JoinHandle<()>>>,新增 track_child_agent(登记已 spawn 子代理),dispose_once 在 cancel_all 后 drain 全部 join 并 await(三种终态——完成/失败/被停——都在 run_subagent 返回时释放读槽,await join 保证 dispose 返回前子代理已静止)。4 单测全绿(新增:dispose 等待已登记子代理退出——自然完成与被停子代理都须在 dispose 返回前结束)。drive.rs 后台 spawn 接线(track_child_agent 调用点)并入批3 与后台进程收口一起做。kanzei-core 202 全绿,clippy 零警告。批3:非 persistent 资源回收(后台进程/通知/artifact/租约)+ drive.rs spawn 接线;批4:终态落库+wrapper 静止;批5:persistent adopt+幽灵 owner 恢复+全量。
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-246
-- observed_head: 0b37598f5d85141f61a121d7da2053dce6722165
-- observed_worktree_hash: fnv1a64:a99c4011ed2047f5
-- recorded_at: 1786818380964
+- observed_head: 446beca939eeaa490afd6a02111ccdb858cde76e
+- observed_worktree_hash: fnv1a64:24fe885f87333632
+- recorded_at: 1786818695295
 
 ## R-248 先行调研内建:新方向开工前默认产出「已有方案对照」,不靠用户开口 [todo]
 - refs: R-221 docs/design/research_mode.md

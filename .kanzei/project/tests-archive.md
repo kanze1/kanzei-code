@@ -4158,3 +4158,10 @@
 - 关联: R-246
 - 收尾: 1786818476
 - 源码指纹: c4d80f14f78be791
+
+## T-1786818730 cargo test -p kanzei-core (R-246 B2 提交背书) [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: R-246 批2 提交门禁背书:kanzei-core 203 passed 全绿(含 line_runtime 4 单测),clippy 零警告。
+- 关联: R-246
+- 收尾: 1786818730
+- 源码指纹: 3e9e08ea603c627e
