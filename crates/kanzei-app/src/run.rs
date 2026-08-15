@@ -1860,45 +1860,11 @@ pub(crate) async fn maybe_push_after_commit(
     on_trace(entry);
 }
 
-pub(crate) async fn push_ollama_models(
-    items: &mut Vec<serde_json::Value>,
-    name: &str,
-    base_url: &str,
-) {
-    let tags_url = format!("{}/api/tags", base_url.trim_end_matches("/v1"));
-    let Ok(client) = reqwest::Client::builder()
-        .no_proxy()
-        .timeout(std::time::Duration::from_secs(2))
-        .build()
-    else {
-        return;
-    };
-    let Ok(resp) = client.get(&tags_url).send().await else {
-        return;
-    };
-    let Ok(v) = resp.json::<serde_json::Value>().await else {
-        return;
-    };
-    for m in v["models"].as_array().unwrap_or(&Vec::new()) {
-        if let Some(n) = m["name"].as_str() {
-            items.push(json!({ "id": format!("{name}:{n}"), "label": format!("{name}:{n}") }));
-        }
-    }
-}
-
 pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: String) {
     let _ = window.emit(
         "kz:status",
         with_session_id(json!({ "stage": name, "detail": detail }), session_id),
     );
-}
-
-#[allow(dead_code)] // 供独立启动路径复用；主运行链当前走 build_run_harness 后的统一 route。
-pub(crate) async fn build_model_route(
-    resolved: &kanzei_harness::config::ResolvedModel,
-    proxy: &kanzei_llm::ProxyConfig,
-) -> anyhow::Result<kanzei_llm::Route> {
-    kanzei_core::build_route(resolved, proxy).await
 }
 
 /// R-173 批6:集成 → 复核屏障 → 复核 → 修正。
@@ -2293,90 +2259,6 @@ pub(crate) fn report_config_warnings(
 }
 
 #[tauri::command]
-pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, String> {
-    let cwd = project_dir
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .or_else(|| std::env::current_dir().ok())
-        .ok_or("no working dir")?;
-    let config = kanzei_harness::config::KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?;
-    let mut items = Vec::new();
-    for role in ["primary", "fast"] {
-        if let Ok(resolved) = config.resolve_model(role) {
-            let direct = format!("{}:{}", resolved.provider_name, resolved.model);
-            items.push(json!({ "id": role, "label": format!("{role} → {direct}") }));
-            // 角色项用于显示配置来源，直指项用于顶栏按进程选择。即使 provider 的
-            // /models 探测失败，当前配置的实际模型也不能从下拉里消失(例如 DeepSeek)。
-            if !items.iter().any(|item| item["id"] == direct) {
-                items.push(json!({ "id": direct, "label": direct }));
-            }
-        }
-    }
-    for (name, provider) in &config.providers {
-        if provider.auth.as_deref() == Some("codex") {
-            for model in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
-                items.push(
-                    json!({ "id": format!("{name}:{model}"), "label": format!("{name}:{model}") }),
-                );
-            }
-        } else if provider.auth.as_deref() == Some("claude") {
-            for model in [
-                "claude-opus-5",
-                "claude-sonnet-5",
-                "claude-haiku-4-5-20251001",
-            ] {
-                items.push(
-                    json!({ "id": format!("{name}:{model}"), "label": format!("{name}:{model}") }),
-                );
-            }
-        } else if matches!(
-            provider.protocol.as_str(),
-            "openai" | "openai-responses" | "deepseek-responses"
-        ) {
-            if provider.base_url.contains("11434") {
-                push_ollama_models(&mut items, name, &provider.base_url).await;
-                continue;
-            }
-            let key = provider
-                .api_key
-                .clone()
-                .filter(|key| !key.trim().is_empty())
-                .or_else(|| {
-                    provider
-                        .api_key_env
-                        .as_deref()
-                        .and_then(|env| std::env::var(env).ok())
-                });
-            let url = format!("{}/models", provider.base_url.trim_end_matches('/'));
-            let proxy = match config.proxy.as_deref() {
-                Some("off") => kanzei_llm::ProxyConfig::Disabled,
-                Some("env") | None => kanzei_llm::ProxyConfig::Env,
-                Some(custom) => kanzei_llm::ProxyConfig::Explicit(custom.to_string()),
-            };
-            let Ok(client) = kanzei_llm::proxy::build_http_client(&proxy) else {
-                continue;
-            };
-            let mut request = client.get(&url).timeout(std::time::Duration::from_secs(6));
-            if let Some(key) = &key {
-                request = request.bearer_auth(key);
-            }
-            if let Ok(response) = request.send().await {
-                if let Ok(value) = response.json::<serde_json::Value>().await {
-                    for model in value["data"].as_array().unwrap_or(&Vec::new()) {
-                        if let Some(id) = model["id"].as_str() {
-                            items.push(json!({ "id": format!("{name}:{id}"), "label": format!("{name}:{id}") }));
-                        }
-                    }
-                }
-            }
-        } else if provider.base_url.contains("11434") {
-            push_ollama_models(&mut items, name, &provider.base_url).await;
-        }
-    }
-    Ok(json!(items))
-}
-
-#[tauri::command]
 pub(crate) fn pending_asks_get(
     state: tauri::State<'_, AppState>,
     project_dir: String,
@@ -2438,58 +2320,6 @@ pub(crate) fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, re
     let _ = pending
         .sender
         .send(kanzei_core::AskResponse::Permission(decision));
-}
-
-pub(crate) async fn fast_summarize(cwd: &Path, transcript: &str) -> Result<String, String> {
-    use futures::StreamExt;
-    let config = kanzei_harness::config::KanzeiConfig::load(cwd).map_err(|e| e.to_string())?;
-    let resolved = config.resolve_model("fast").map_err(|e| e.to_string())?;
-    let proxy = match config.proxy.as_deref() {
-        Some("off") => kanzei_llm::ProxyConfig::Disabled,
-        Some("env") | None => kanzei_llm::ProxyConfig::Env,
-        Some(p) => kanzei_llm::ProxyConfig::Explicit(p.to_string()),
-    };
-    let route = kanzei_core::build_route(&resolved, &proxy)
-        .await
-        .map_err(|e| e.to_string())?;
-    let client = kanzei_llm::LlmClient::new(&proxy).map_err(|e| e.to_string())?;
-    let request = kanzei_llm::LlmRequest { model: resolved.model.clone(), system: vec!["把下面的人机协作对话记录总结成简洁的中文纪要:做了什么、改了哪些文件、结论、遗留问题/下一步。markdown 列表,300 字以内。".into()], messages: vec![kanzei_llm::Message::user_text(transcript)], tools: vec![], max_tokens: 2048, temperature: None, reasoning: kanzei_llm::ReasoningEffort::Off, service_tier: config.service_tier_for(&resolved) };
-    let mut stream = client
-        .stream(&route, &request)
-        .await
-        .map_err(|e| e.to_string())?;
-    let mut summary = String::new();
-    while let Some(event) = stream.next().await {
-        if let kanzei_llm::LlmEvent::TextDelta { text, .. } = event.map_err(|e| e.to_string())? {
-            summary.push_str(&text);
-        }
-    }
-    if summary.trim().is_empty() {
-        return Err("模型没有产出总结(fast 模型是否在运行?)".into());
-    }
-    Ok(summary)
-}
-
-// render_transcript 已随 R-021 轮末整段替换一并删除(R-236 B1):轮末压缩的
-// 纪要输入渲染统一走 core 的 render_for_digest,不留第二份渲染实现。
-
-#[tauri::command]
-pub(crate) async fn summarize_chat(
-    project_dir: String,
-    transcript: String,
-) -> Result<serde_json::Value, String> {
-    let cwd = PathBuf::from(&project_dir);
-    let summary = fast_summarize(&cwd, &transcript).await?;
-    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
-    let dir = root.join(".kanzei").join("summaries");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let path = dir.join(format!("summary-{secs}.md"));
-    std::fs::write(&path, &summary).map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({ "summary": summary, "path": path.display().to_string() }))
 }
 
 #[tauri::command]

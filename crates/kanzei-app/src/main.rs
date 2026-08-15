@@ -13,6 +13,7 @@ pub(crate) use kanzei_harness::ConfigComponent;
 mod agent_container;
 mod auto_run;
 mod collaboration;
+mod commands;
 mod conversation;
 mod docs;
 mod fast_model;
@@ -192,10 +193,10 @@ fn main() {
             memory::memory_context_bill,
             memory::memory_consolidate,
             run::app_info,
-            run::models_list,
+            commands::models::models_list,
             docs::docs_update,
             docs::docs_open,
-            run::summarize_chat,
+            commands::summarize::summarize_chat,
             docs::git_status,
             docs::conventions_init,
             conversation::conversation_clear,
