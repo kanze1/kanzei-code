@@ -1,5 +1,18 @@
 # Requirements
 
+## R-267 每会话渲染面:后台会话的渲染不再丢失,切线不再重建 DOM [doing]
+- refs: D-356 R-241
+- 优先级: P1
+- 复杂度: 中
+- 标签: 前端 核心
+- 内容: `#messages` 从「全局唯一消息容器」改为**滚动容器**,消息本体挂在它下面的 per-session `.msg-pane`(每会话一个,同时只显示一个)。①非活动会话的渲染事件(kz:text/reasoning/tool-start/tool-end/compacted)不再丢弃,经 withSessionRender 切换渲染上下文后写入所属 pane;②切线 = 换显示的 pane,零重渲染;③sessionDomCache(切走存 innerHTML 字符串、上限 30 份)与「运行中 · 快照截至上次切走时,本轮完成后自动补齐」notice 一并退役;④kz:done 的轮末原子回灌取消(pane 已完整,回灌反而清掉轮末 notice 并与后续渲染交错);⑤批2 消息窗口化,只渲染尾部 N 条、向上滚动补齐。
+- 为什么是这个形态: 缺口与卡顿是**同一个根**——全局唯一容器。丢弃后台事件是它逼出来的(渲染进去就串线),innerHTML 快照是为了补丢弃留下的缺口,而每次切换一次多 MB 的 innerHTML 解析又是卡顿来源。per-session pane 一次解决三样。实现上刻意保留 `messages` 作为滚动容器:滚动/跟随/复制那几处一行不用改,只有「往哪儿追加」换成 activePane。流式装配状态(currentAssistant/currentReasoning/currentReasoningHead,全局 38 处读写)不逐处穿 sessionId,改为渲染前存入、渲染后取回——语义不变,代价只是一次存取。
+- 边界: 后台会话只渲染**消息流**;状态栏、轮次、活动面板、工具进度条等全局 UI 归活动会话(BACKGROUND_RENDER_EVENTS 刻意不含 kz:status/step/meta/task-progress/tool-progress,另有 renderingBackground 标志让 setStatus/markFirstSignal 自我屏蔽)。pane 常驻有内存代价,故设 MESSAGE_PANE_MAX 上限并只淘汰**非运行中**会话;窗口化(批2)落地前上限取小。
+- 来源: 2026-08-16 用户看到「运行中 · 快照截至上次切走时,本轮完成后自动补齐」提问「这个能修吗?能让主对话渲染不丢失,切换更丝滑吗?」
+- 验收: ①切走后 pane 留在 DOM;②后台会话的 kz:text 渲染进它自己的 pane 且不串进活动 pane;③后台渲染不改写状态栏(全局 UI 归活动会话);④切回时不再发 conversation_get(零重建)且含切走期间到达的内容;⑤不再出现「快照截至」字样;⑥kz:done 不再回灌;⑦批2:长会话只渲染尾部 N 条,向上滚动补齐,pane 常驻内存可控。
+- 批次: 1/2
+- 进展: 批1 完成(572a2f0):per-session pane + withSessionRender 渲染上下文 + BACKGROUND_RENDER_EVENTS + renderingBackground 全局 UI 屏蔽 + appendToPane/resetPane 显式 hasContent 标志(不靠数子节点或找 .empty-state——空状态本身就是子节点,且冒烟假 DOM 对类选择器支持有限,判空不准会把「已完整」误判成「空 pane」再重建);sessionDomCache 整套与 D-356 的回灌/notice 删除;冒烟原 D-356 组重写为 R-267 六条断言,反例实测(恢复「整条丢弃」后三条判红);断言选择器改 `[data-active]` 限定当前 pane(假 DOM 不支持 :not())。六条前端冒烟全绿。注:572a2f0 的提交信息里「R-195 交还 WIP 槽」未发生——自举已先行把 R-195 与 R-265 做完归档,槽位自然空出。
+
 ## R-186 跨树越界检测与回滚:ManagedSnapshot 范围从托管文档扩到「不属于本线的 worktree」 [doing]
 - 优先级: P0
 - 复杂度: 中
