@@ -218,6 +218,11 @@
 - 边界: 不校验职责描述的内容是否准确;不扩到 docs/design 下的其它清单;不引入任何文档生成器或模板引擎。
 - 验收: ①README ## 项目结构 表含全部 8 个 crate,kanzei-base 与 kanzei-memory 各有职责描述;②校验脚本存在且真能拦:临时给 Cargo.toml 加一个假 member(或从 README 删一行)后校验必须失败并点名该 crate,给出实测输出,不接受「应该会失败」;③verify.ps1 与 ci.yml 两处都跑到该校验;④对表格行顺序差异、crate 名大小写、多余空格不误报(各给一个反证用例)。
 - 优先级: P2
+- 批次: 1/1
+- 进展: 完成:①README ## 项目结构 表补 kanzei-base(零依赖底层原语 atomic_file/FileLock)与 kanzei-memory(记忆控制平面, docstore/embed/回放评估),8 crate 与 Cargo.toml members 对齐;②新增 scripts/check-readme-crates.mjs(解析 Cargo.toml [workspace] members 取 crate 名,与 README 项目结构表首列精确比对,缺/多余即失败并点名);③挂进 scripts/verify.ps1(crate_sync 步骤)与 .github/workflows/ci.yml(ui smoke 步骤末尾);④反例实测:删 README 一行 → 脚本报『缺少 kanzei-base』exit 1,恢复 → 通过 exit 0。验收②③④满足。
+- observed_head: c8e4ca748693a5d11259f55c72ea4375e8721ed8
+- observed_worktree_hash: fnv1a64:cb38942f21061b5b
+- recorded_at: 1786822056815
 
 ## R-268 写者与 bash 围栏窗口解耦:托管文档写入不再等全局 bash 静默,不变式从「窗口内没有写者」换成「窗口内的变化可归因」 [todo]
 - 关联: D-382(围栏共享档,已修)、D-383(注册表毒化,残余机械缺陷)、D-364/D-368(围栏归因不变式)、D-258(absorb_paths 按路径吸收)

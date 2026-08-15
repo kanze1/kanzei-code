@@ -4239,3 +4239,10 @@
 - 摘要: D-383 修复:①acquiring 期间 shared 请求直接探测 OS(不再被 condvar 干等);②try_lock_exclusive/shared 成功分支补 notify_all;③预算耗尽后重试一次直接探测(不直接 None)。kanzei-base 17 测试全绿(含 2 新回归),clippy 零警告。
 - 关联: D-383
 - 收尾: 1786821876
+
+## T-1786822073 check-readme-crates.mjs (R-266 crate 清单同步) [passed]
+- 命令: node scripts/check-readme-crates.mjs
+- 摘要: R-266 校验通过:8 个 crate 与 README 项目结构表一致;反例实测(删 README 一行 → 报缺少 kanzei-base exit 1)已做。
+- 关联: R-266
+- 收尾: 1786822073
+- 源码指纹: 0808a3fd0280480b

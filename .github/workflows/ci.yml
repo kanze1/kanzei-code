@@ -45,3 +45,4 @@ jobs:
           node scripts/ui-a11y-smoke.mjs
           node scripts/ui-i18n-smoke.mjs
           node scripts/ui-markdown-smoke.mjs
+          node scripts/check-readme-crates.mjs

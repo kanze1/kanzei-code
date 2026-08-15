@@ -65,6 +65,10 @@ Step-With-Timing "ui_i18n" "ui_i18n" {
 Step-With-Timing "ui_markdown" "ui_markdown" {
     node "$root\scripts\ui-markdown-smoke.mjs"
 }
+Step-With-Timing "crate_sync" "crate_sync (R-266 README 项目结构表与 workspace 一致)" {
+    node "$root\scripts\check-readme-crates.mjs"
+    if ($LASTEXITCODE -ne 0) { throw "README 项目结构表与 Cargo.toml members 不同步(R-266)" }
+}
 
 New-Item -ItemType Directory -Force "$root\dist" | Out-Null
 [ordered]@{

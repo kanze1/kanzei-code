@@ -95,6 +95,8 @@ kanzei 为**永久工作**而设计：一次投入的决策、证据与经验要
 
 | Crate | 职责 |
 |---|---|
+| `kanzei-base` | 零依赖底层原语：原子写与文件锁(atomic_file/FileLock,R-208) |
+| `kanzei-memory` | 记忆控制平面：分层记忆系统、docstore 结构化文档存储、embed 通道、回放评估(R-203) |
 | `kanzei-harness` | agents、tools、commands、skills、context sources、permissions 六类注册表与拦截器硬门禁 |
 | `kanzei-llm` | 多协议 LLM、流式事件、代理与认证适配 |
 | `kanzei-core` | session runner、调度、事件存储、压缩、记忆与执行协调 |
