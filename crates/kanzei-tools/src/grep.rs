@@ -82,7 +82,12 @@ async fn grep_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     if !base.exists() {
         return ToolOutput::error(format!("path not found: {}", base.display()));
     }
-    let result = tokio::task::spawn_blocking(move || run_grep(&base, input)).await;
+    // 输出路径一律相对 cwd,**不**相对 `path` 参数:否则 `path="crates"` 搜出来的
+    // `kanzei/tests/x.rs` 直接喂给 read 就扑空,而输出里没有任何地方交代 base 是
+    // `crates`。实测自举因此连续两次 read 失败,还花了一大段推理去猜"为什么 glob
+    // 有 crates/ 前缀而 grep 没有"。检索工具的输出必须能直接当路径用。
+    let rel_root = ctx.cwd.clone();
+    let result = tokio::task::spawn_blocking(move || run_grep(&base, &rel_root, input)).await;
     match result {
         Ok(Ok(text)) => ToolOutput::ok(text),
         Ok(Err(e)) => ToolOutput::error(e),
@@ -90,7 +95,23 @@ async fn grep_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     }
 }
 
-fn run_grep(base: &std::path::Path, input: GrepInput) -> Result<String, String> {
+/// 展示用路径:相对 cwd,可直接喂给 read/edit。
+///
+/// 必须与**匹配用**的 base 相对路径分开:`glob` 参数是相对 `path` 子树匹配的
+/// (`glob="*.rs"` 配 `path="crates"` 时匹配 `kanzei/src/x.rs`),把匹配基准也改成
+/// cwd 会静默改变 glob 语义。这里只改显示。
+pub(crate) fn display_path(path: &std::path::Path, rel_root: &std::path::Path) -> String {
+    path.strip_prefix(rel_root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn run_grep(
+    base: &std::path::Path,
+    rel_root: &std::path::Path,
+    input: GrepInput,
+) -> Result<String, String> {
     use grep_searcher::sinks::UTF8;
     use grep_searcher::{BinaryDetection, SearcherBuilder};
 
@@ -109,7 +130,7 @@ fn run_grep(base: &std::path::Path, input: GrepInput) -> Result<String, String> 
     let limit = input.limit.unwrap_or(DEFAULT_LIMIT).max(1);
 
     if input.count {
-        return run_count(base, &input, &matcher, &glob_matcher);
+        return run_count(base, rel_root, &input, &matcher, &glob_matcher);
     }
 
     let mut searcher = SearcherBuilder::new()
@@ -148,6 +169,7 @@ fn run_grep(base: &std::path::Path, input: GrepInput) -> Result<String, String> 
                 continue;
             }
         }
+        let shown = display_path(entry.path(), rel_root);
         let mut file_hit = false;
         let _ = searcher.search_path(
             &matcher,
@@ -159,13 +181,13 @@ fn run_grep(base: &std::path::Path, input: GrepInput) -> Result<String, String> 
                 }
                 if input.files_only {
                     if !file_hit {
-                        lines.push(rel.clone());
+                        lines.push(shown.clone());
                         file_hit = true;
                     }
                     return Ok(false); // 文件级:首个命中即跳下一个文件
                 }
                 let trimmed: String = text.trim_end().chars().take(MAX_LINE_CHARS).collect();
-                lines.push(format!("{rel}:{line_no}: {trimmed}"));
+                lines.push(format!("{shown}:{line_no}: {trimmed}"));
                 Ok(true)
             }),
         );
@@ -188,6 +210,7 @@ fn run_grep(base: &std::path::Path, input: GrepInput) -> Result<String, String> 
 /// 不是默认路径上的全仓扫描。
 fn run_count(
     base: &std::path::Path,
+    rel_root: &std::path::Path,
     input: &GrepInput,
     matcher: &grep_regex::RegexMatcher,
     glob_matcher: &Option<globset::GlobMatcher>,
@@ -234,7 +257,7 @@ fn run_count(
             }),
         );
         if count > 0 {
-            file_counts.push((rel, count));
+            file_counts.push((display_path(entry.path(), rel_root), count));
         }
     }
 
@@ -289,7 +312,7 @@ mod tests {
             count: true,
         };
         let matcher = grep_regex::RegexMatcher::new("fn").unwrap();
-        let out = run_count(&root, &input, &matcher, &None).unwrap();
+        let out = run_count(&root, &root, &input, &matcher, &None).unwrap();
         assert!(out.contains("src/a.rs: 2"), "{out}");
         assert!(out.contains("docs/c.md: 1"), "{out}");
         assert!(!out.contains("src/b.rs"), "{out}");
@@ -310,8 +333,61 @@ mod tests {
             count: true,
         };
         let matcher = grep_regex::RegexMatcher::new("zzz_none_zzz").unwrap();
-        let out = run_count(&root, &input, &matcher, &None).unwrap();
+        let out = run_count(&root, &root, &input, &matcher, &None).unwrap();
         assert_eq!(out, "(no matches for `zzz_none_zzz`)");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 传了 `path` 子目录时,输出路径必须仍相对 cwd——即带上该子目录前缀,
+    /// 让模型可以把结果直接喂给 read。
+    ///
+    /// 修复前:输出相对 `path` 参数(这里会是 `a.rs`),而输出里没有一个字交代
+    /// base 是 `src`。实测自举把 `kanzei/tests/x.rs` 直接喂给 read 连扑两次空,
+    /// 还花了一大段推理去猜"为什么 glob 有 crates/ 前缀而 grep 没有"。
+    #[test]
+    fn 传了path子目录时输出路径仍相对cwd() {
+        let root = fixture("relroot");
+        let input = GrepInput {
+            pattern: "fn".into(),
+            path: Some("src".into()),
+            glob: None,
+            limit: None,
+            files_only: true,
+            count: false,
+        };
+        // base = 子目录(决定扫描范围),rel_root = cwd(决定显示基准)
+        let out = run_grep(&root.join("src"), &root, input).unwrap();
+        assert!(
+            out.contains("src/a.rs"),
+            "输出应带 src/ 前缀、可直接当路径用,实际: {out}"
+        );
+        assert!(
+            !out.lines().any(|l| l.trim() == "a.rs"),
+            "不应出现相对 path 参数的裸文件名(那种路径喂给 read 会扑空): {out}"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 显示基准换成 cwd 之后,`glob` 过滤的语义必须原样不变——它仍相对 `path`
+    /// 子树匹配。把匹配基准也一起改掉会静默改变 glob 行为,这条钉住边界。
+    #[test]
+    fn glob过滤仍相对path子树匹配不受显示基准影响() {
+        let root = fixture("globsem");
+        let input = GrepInput {
+            pattern: "fn".into(),
+            path: Some("src".into()),
+            // 相对 src/ 子树是 `a.rs`;若匹配基准被误改成 cwd,则实际待匹配串是
+            // `src/a.rs`,这个模式就会落空。
+            glob: Some("a.rs".into()),
+            limit: None,
+            files_only: true,
+            count: false,
+        };
+        let out = run_grep(&root.join("src"), &root, input).unwrap();
+        assert!(
+            out.contains("src/a.rs"),
+            "glob 应相对 src/ 子树匹配到 a.rs,实际: {out}"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 }

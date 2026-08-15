@@ -77,7 +77,12 @@ async fn glob_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     let limit = input.limit.unwrap_or(DEFAULT_LIMIT).max(1);
     let pattern = input.pattern.clone();
 
-    let result = tokio::task::spawn_blocking(move || run_glob(&base, &pattern, limit)).await;
+    // 输出路径一律相对 cwd,与 grep 同口径(见 grep.rs 的 display_path):模型要能把
+    // 检索结果直接当路径喂给 read。匹配基准仍是 base——pattern 相对 `path` 子树,
+    // 改了会静默改变 glob 语义。
+    let rel_root = ctx.cwd.clone();
+    let result =
+        tokio::task::spawn_blocking(move || run_glob(&base, &rel_root, &pattern, limit)).await;
     match result {
         Ok(Ok(text)) => ToolOutput::ok(text),
         Ok(Err(e)) => ToolOutput::error(e),
@@ -85,7 +90,12 @@ async fn glob_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     }
 }
 
-fn run_glob(base: &std::path::Path, pattern: &str, limit: usize) -> Result<String, String> {
+fn run_glob(
+    base: &std::path::Path,
+    rel_root: &std::path::Path,
+    pattern: &str,
+    limit: usize,
+) -> Result<String, String> {
     let matcher = globset::GlobBuilder::new(pattern)
         .literal_separator(false)
         .build()
@@ -121,7 +131,7 @@ fn run_glob(base: &std::path::Path, pattern: &str, limit: usize) -> Result<Strin
                 .ok()
                 .and_then(|m| m.modified().ok())
                 .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            hits.push((mtime, rel));
+            hits.push((mtime, crate::grep::display_path(entry.path(), rel_root)));
         }
     }
     if hits.is_empty() {
