@@ -32,35 +32,25 @@ function selectedWorkPriority() {
 function syncWorkPriorityControl() {
   const saved = localStorage.getItem(workPriorityStorageKey());
   $("work-priority-select").value = saved === "requirement-first" ? saved : "defect-first";
-  loadWorkFocus();
 }
 
-// 开发重心 = preference 记忆条目(真源)。下拉框只是快捷写法,记忆页可手写任意细度
-// (「先收完这批缺陷再转需求」这类二元开关表达不了的意图);提示词由记忆生成,
-// 所以开关与提示词不可能再互相矛盾——D-128 的根因就是二者写死后对打。
-let workFocusMemory = null;
-const WORK_FOCUS_PRESETS = {
-  "defect-first": {
-    title: "开发重心:缺陷优先",
-    body: "取活顺序:先从上到下扫描 defects.md,再扫描 requirements.md;前一个队列没有可做项时才看后一个。\npriority 标签只是背景信息,不改变列表顺序。",
-  },
-  "requirement-first": {
-    title: "开发重心:需求优先",
-    body: "取活顺序:先从上到下扫描 requirements.md,再扫描 defects.md;前一个队列没有可做项时才看后一个。\npriority 标签只是背景信息,不改变列表顺序。",
-  },
-};
-async function loadWorkFocus() {
-  if (!currentProject) return;
-  try {
-    workFocusMemory = await invoke("memory_focus_get", { projectDir: currentProject });
-  } catch {
-    workFocusMemory = null;
-  }
-  // 回显:手写的自定义重心不强行归入两个预设,保持用户当前选择不被覆盖。
-  const title = workFocusMemory?.title || "";
-  if (title.includes("需求优先")) $("work-priority-select").value = "requirement-first";
-  else if (title.includes("缺陷优先")) $("work-priority-select").value = "defect-first";
-}
+// 取活序只有一个真源:这个开关 → localStorage → work_priority → 引擎的
+// resolve_work_decision → <resolved-control-state>。
+//
+// 这里原先还把开关镜像成一条 preference 记忆(开发重心),理由写着「提示词由记忆
+// 生成,所以开关与提示词不可能再互相矛盾」。那个理由在当时成立,后来不成立了:
+// 权威提示词现在由 run.rs work_priority_guidance 从**枚举**生成,而 preference
+// 记忆走的是另一条路——它以「STANDING DIRECTIVES(obey these; they are the
+// user's own words)」的抬头全文常驻注入,与 <resolved-control-state> 里那句
+// 「do not re-arbitrate queue priority from tracker prose」正面对撞。
+//
+// 于是模型每轮同时收到两条都自称最高优先级的指令。而那条记忆改不动队列顺序
+// (引擎只读枚举),它唯一能起的作用是怂恿模型借 WorkInput.reason 偏离引擎裁决,
+// 并把一条过期理由写进审计记录。实测后果:同一条规则被反复复活三代
+// (M-002 → M-063 → M-070),每次退役后开关一切就再生一条。
+//
+// 所以镜像写入去掉,开关只写自己那份枚举。回显由上面 syncWorkPriorityControl
+// 从 localStorage 做——它本来就在做,记忆那份是会覆盖它的第二个回显源。
 
 // 「勘察复核」= 阶段流水线总闸(2026-08-11 用户定调),勾选框在顶栏「更多」里。
 function phasePipelineOn() {
@@ -976,21 +966,12 @@ $("profile-select").addEventListener("change", () => {
   syncAutoContinueWithProfile();
   rememberAutoUiState();
 });
-$("work-priority-select").addEventListener("change", async () => {
+$("work-priority-select").addEventListener("change", () => {
   const value = selectedWorkPriority();
+  // 只写这一处。引擎读的就是它(run.rs normalize_work_priority → WorkPriority
+  // → resolve_work_decision);不再镜像成 preference 记忆,理由见文件上方说明。
   localStorage.setItem(workPriorityStorageKey(), value);
-  if (!currentProject) return;
-  try {
-    // 切换 = 写记忆(真源),不是只改本地开关;记忆页随后可把正文改成任意细度。
-    workFocusMemory = await invoke("memory_focus_set", {
-      projectDir: currentProject,
-      title: WORK_FOCUS_PRESETS[value].title,
-      body: WORK_FOCUS_PRESETS[value].body,
-    });
-    log(localizeDynamic(value === "requirement-first" ? "已切换为需求优先" : "已切换为缺陷优先"));
-  } catch (err) {
-    toastError(`${t("开发重心保存失败")}:${err}`);
-  }
+  log(localizeDynamic(value === "requirement-first" ? "已切换为需求优先" : "已切换为缺陷优先"));
 });
 $("stop").addEventListener("click", async () => {
   const targetSessionId = activeSessionId;

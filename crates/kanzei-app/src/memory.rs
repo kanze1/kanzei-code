@@ -256,40 +256,20 @@ pub(crate) fn memory_search_page(project_dir: String, query: String) -> serde_js
     json!(out)
 }
 
-const FOCUS_TITLE_PREFIX: &str = "开发重心";
-
-#[tauri::command]
-pub(crate) fn memory_focus_get(project_dir: String) -> serde_json::Value {
-    let cwd = PathBuf::from(&project_dir);
-    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
-    let store = kanzei_tools::memory::MemoryStore::project(&root);
-    match store.find_preference(FOCUS_TITLE_PREFIX) {
-        Some(entry) => {
-            json!({"id": entry.id, "title": entry.title, "body": entry.body, "updated": entry.updated})
-        }
-        None => serde_json::Value::Null,
-    }
-}
-
-#[tauri::command]
-pub(crate) fn memory_focus_set(
-    project_dir: String,
-    title: String,
-    body: String,
-) -> Result<serde_json::Value, String> {
-    let cwd = PathBuf::from(&project_dir);
-    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
-    let store = kanzei_tools::memory::MemoryStore::project(&root);
-    let entry = store
-        .upsert_preference(
-            FOCUS_TITLE_PREFIX,
-            title.trim(),
-            "取活/排优先级时必读:当前项目该先做什么",
-            body.trim(),
-        )
-        .map_err(|e| e.to_string())?;
-    Ok(json!({"id": entry.id, "title": entry.title, "body": entry.body}))
-}
+// 「开发重心」的 memory_focus_get / memory_focus_set 已移除。
+//
+// 它们把取活序开关镜像成一条 preference 记忆,而 preference 会以 STANDING
+// DIRECTIVES 的抬头全文常驻注入,与引擎 <resolved-control-state> 里那句
+// "do not re-arbitrate queue priority from tracker prose" 正面对撞——同一个决策
+// 两套机制、两个权威。实测让同一条规则复活三代(M-002 → M-063 → M-070):
+// 每次退役后开关一切,upsert_preference 就再生一条。
+//
+// 取活序现在单源:前端开关 → localStorage → run.rs normalize_work_priority
+// → WorkPriority → resolve_work_decision。详见 ui/08-compose.js 的说明。
+//
+// MemoryStore 的 find_preference/upsert_preference 保留:preference 类别与
+// STANDING DIRECTIVES 注入机制本身没有问题(问题只在拿它承载引擎已经权威裁决的
+// 那个决策),将来写真正的用户偏好仍要用这对原语。
 
 #[tauri::command]
 pub(crate) fn memory_context_bill(project_dir: String) -> serde_json::Value {

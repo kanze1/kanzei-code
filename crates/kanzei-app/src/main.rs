@@ -190,8 +190,6 @@ fn main() {
             memory::memory_search_page,
             memory::memory_context_bill,
             memory::memory_consolidate,
-            memory::memory_focus_get,
-            memory::memory_focus_set,
             run::app_info,
             run::models_list,
             docs::docs_update,
