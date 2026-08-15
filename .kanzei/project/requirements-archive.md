@@ -3151,3 +3151,21 @@
 - observed_head: e3d861de535b9df73960702e977afdb0263aa557
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786771872268
+
+## R-254 processes.rs 拆解:进程注册/生命周期 与 工作树生命周期/门禁/合并/收割分家,主根与工作树根类型化 [done]
+- refs: R-207 R-177 R-182 D-176 D-267 D-365 D-367 docs/design/parallel_lines_ui.md docs/design/monolith_decomposition_round2.md(批次地图:C 节)
+- 内容: ①按变更理由切两组:process 侧(registry / lifecycle / persistence / commands)与 workspace 侧(lifecycle / merge / gate / harvest);②完成 R-207 的下沉收尾——本文件仍有 19 处 wt:: 转发壳,函数体只是转调 kanzei_tools::worktree,注释自述"实现已下沉",两层抽象长期并存(见配套缺陷),删壳让调用点直接用下沉后的实现;③把文件头 L3-18 那条只靠注释维持的硬不变式类型化:project_dir/origin_project 恒为主根、工作树只由 worktree_path 承担 → 引入 ProjectRoot / WorktreeRoot 两个 newtype,让 rustc 替注释站岗;④集成门禁(fmt/clippy/test/ui-smoke + 合并后主根全量)独立成模块,它是 Integration Gate 子系统,不是 Process 子系统。
+- 复杂度: 大
+- 来源: 2026-08-15 第二轮巨石扫描 R3。
+- 标签: 核心
+- 现状(2026-08-15 实测): crates/kanzei-app/src/processes.rs 总 1651 行、生产码 1628 行(同文件测试仅 23 行,真测试在同级 worktree_tests.rs 2437 行),48 个函数、4 处 clippy::too_many_arguments。它不是 Process Manager,是并行开发子系统总入口:进程注册与编号(process_index/register_process/next_process_index)、进程持久化、运行时控制(process_update/process_close/close_process)、工作树生命周期(worktree_create/list/diff/discard/reclaim)、写租约(acquire_project_write_lease)、集成门禁(gate_steps/run_gate_step/worktree_gate/worktree_post_merge_gate,fmt+clippy+test+ui-smoke)、合并工作流(merge_worktree/merge_preview/merge_and_release)、tracker 收割回写(harvest_candidates/harvest_writeback)。process_close 一个函数同时收三条生命周期:逻辑进程、执行运行时、工作区。
+- 边界: 零行为变更;不改进程编号规则、state.db 落点、session_id 推导(D-176 红线)、并行线 UI 契约与 IPC 命令面;不动 git 合并策略与 merge-tree 预检;newtype 化只做 processes.rs 与其直接调用点,不做全仓路径类型统一(那会把 diff 铺到所有 crate)。
+- 验收: ①processes.rs 生产行数 ≤ 400(现 processes/mod.rs 22 行代码);②wt:: 转发壳数量 0(D-365 已修+批1 搬迁保持,批2 机械 grep 复核);③主根与工作树根传反编译不过(D-367 已落地:state.rs ProjectRoot/WorktreeRoot newtype+编译期反例注释,既有能力);④worktree_tests 2448 行全绿 + kanzei-app 全量 + workspace 全量(批2 验证);⑤实跑一次并行线闭环无回归(批3)。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-254
+- 批次: 3/3
+- 现状(2026-08-16 实测复核): processes.rs 现 1562 行、代码 1231 行、48 函数、4 处 too_many_arguments(process_create/create_process/create_process_with_tracker/process_update)。D-365 已修:转发壳已清,现有 wt:: 调用均为业务直接调用下沉实现;D-367 已修:ProjectRoot/WorktreeRoot newtype 在 state.rs L341/346 且带编译期反例注释(验收③已满足,记为既有能力非本次交付)。未做:①按变更理由拆 process 侧(registry/lifecycle/persistence/commands)与 workspace 侧(lifecycle/merge/harvest);④gate 独立模块;验收①(≤400)与④⑤验证。批次地图:批1 mod.rs 骨架+process 侧 commands/registry 迁出;批2 process 侧 lifecycle/persistence 迁出;批3 workspace 侧(lifecycle/merge/harvest)迁出;批4 gate 独立模块;批5 全量+实跑闭环+验收 close。
+- 进展: 全部批次完成。批2(3e5181d)机械核验+全量:转发壳 0(grep 单行转调模式空结果,现有 49 处 wt:: 均为业务函数内直接调用下沉实现);newtype 反例注释在 state.rs L330-338(ProjectRoot/WorktreeRoot + rustc E0308 实测证据,D-367 既有能力非本次交付);cargo test --workspace 15 段全 ok(T-1786772886);四条前端冒烟全过;worktree_tests 2448 行闭环集成测试全绿。批3:验收逐项归档并关闭。验收:①processes/mod.rs 生产码 22 行(原 processes.rs 1231 行代码)→≤400;②wt:: 转发壳 0(机械 grep 复核);③根类型化反例:D-367 已落地 state.rs ProjectRoot/WorktreeRoot newtype,编译期反例注释(既有能力);④worktree_tests 2448 行全绿(166 passed 含 processes::tests)+ kanzei-app 全量 + workspace 全量(15 段 ok);⑤实跑闭环:worktree_tests 集成测试真实 git 操作覆盖建线(带 worktree 建线/R-247 条目绑定/并发 K2)→合并(clean no-ff 631/冲突保留 662/释放 claims 417)→门禁(2386/2404 真实执行)→收割(2282/2311/2333)→关线(127/386),全部通过无回归。边界核对:零行为变更(166+全量含全部既有断言)、未改进程编号规则/state.db 落点/session_id 推导、未动 git 合并策略、newtype 只在既有范围。关闭。
+- observed_head: 79a99105a948d12973957dcd90771ac62b8ba318
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786773021180

@@ -254,24 +254,6 @@
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 
-## R-254 processes.rs 拆解:进程注册/生命周期 与 工作树生命周期/门禁/合并/收割分家,主根与工作树根类型化 [doing]
-- refs: R-207 R-177 R-182 D-176 D-267 D-365 D-367 docs/design/parallel_lines_ui.md docs/design/monolith_decomposition_round2.md(批次地图:C 节)
-- 内容: ①按变更理由切两组:process 侧(registry / lifecycle / persistence / commands)与 workspace 侧(lifecycle / merge / gate / harvest);②完成 R-207 的下沉收尾——本文件仍有 19 处 wt:: 转发壳,函数体只是转调 kanzei_tools::worktree,注释自述"实现已下沉",两层抽象长期并存(见配套缺陷),删壳让调用点直接用下沉后的实现;③把文件头 L3-18 那条只靠注释维持的硬不变式类型化:project_dir/origin_project 恒为主根、工作树只由 worktree_path 承担 → 引入 ProjectRoot / WorktreeRoot 两个 newtype,让 rustc 替注释站岗;④集成门禁(fmt/clippy/test/ui-smoke + 合并后主根全量)独立成模块,它是 Integration Gate 子系统,不是 Process 子系统。
-- 复杂度: 大
-- 来源: 2026-08-15 第二轮巨石扫描 R3。
-- 标签: 核心
-- 现状(2026-08-15 实测): crates/kanzei-app/src/processes.rs 总 1651 行、生产码 1628 行(同文件测试仅 23 行,真测试在同级 worktree_tests.rs 2437 行),48 个函数、4 处 clippy::too_many_arguments。它不是 Process Manager,是并行开发子系统总入口:进程注册与编号(process_index/register_process/next_process_index)、进程持久化、运行时控制(process_update/process_close/close_process)、工作树生命周期(worktree_create/list/diff/discard/reclaim)、写租约(acquire_project_write_lease)、集成门禁(gate_steps/run_gate_step/worktree_gate/worktree_post_merge_gate,fmt+clippy+test+ui-smoke)、合并工作流(merge_worktree/merge_preview/merge_and_release)、tracker 收割回写(harvest_candidates/harvest_writeback)。process_close 一个函数同时收三条生命周期:逻辑进程、执行运行时、工作区。
-- 边界: 零行为变更;不改进程编号规则、state.db 落点、session_id 推导(D-176 红线)、并行线 UI 契约与 IPC 命令面;不动 git 合并策略与 merge-tree 预检;newtype 化只做 processes.rs 与其直接调用点,不做全仓路径类型统一(那会把 diff 铺到所有 crate)。
-- 验收: ①processes.rs 生产行数 ≤ 400(现 processes/mod.rs 22 行代码);②wt:: 转发壳数量 0(D-365 已修+批1 搬迁保持,批2 机械 grep 复核);③主根与工作树根传反编译不过(D-367 已落地:state.rs ProjectRoot/WorktreeRoot newtype+编译期反例注释,既有能力);④worktree_tests 2448 行全绿 + kanzei-app 全量 + workspace 全量(批2 验证);⑤实跑一次并行线闭环无回归(批3)。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-254
-- 批次: 1/3
-- 现状(2026-08-16 实测复核): processes.rs 现 1562 行、代码 1231 行、48 函数、4 处 too_many_arguments(process_create/create_process/create_process_with_tracker/process_update)。D-365 已修:转发壳已清,现有 wt:: 调用均为业务直接调用下沉实现;D-367 已修:ProjectRoot/WorktreeRoot newtype 在 state.rs L341/346 且带编译期反例注释(验收③已满足,记为既有能力非本次交付)。未做:①按变更理由拆 process 侧(registry/lifecycle/persistence/commands)与 workspace 侧(lifecycle/merge/harvest);④gate 独立模块;验收①(≤400)与④⑤验证。批次地图:批1 mod.rs 骨架+process 侧 commands/registry 迁出;批2 process 侧 lifecycle/persistence 迁出;批3 workspace 侧(lifecycle/merge/harvest)迁出;批4 gate 独立模块;批5 全量+实跑闭环+验收 close。
-- 进展: 批1 完成已 push(58fab9c + 79a9910):processes.rs 1562 行拆为 processes/ 目录五文件——mod.rs 收敛 22 行代码(验收①≤400 达标,含 //! 独立理由头与 D-367 不变式说明)、registry.rs(进程注册/持久化/编号/查重)、lifecycle.rs(进程生命周期+IPC 命令)、workspace.rs(工作树生命周期/合并/收割/写租约)、gate.rs(集成门禁=需求④ 已一并落地);main.rs invoke_handler 改子模块路径(tauri 宏辅助符号不随 re-export 走),mod.rs re-export 服务 projects/collaboration/commands/process_tests/worktree_tests;worktree_tests #[path] 改 ../worktree_tests.rs、include_str 改 processes/registry.rs;kanzei-app 166 passed(T-1786772603/2767/2831),clippy 零警告,零行为变更。批次计划修正(原 5 批→3 批):批1=拆分(完成);批2=机械核验(转发壳 0 grep、newtype 反例证据 state.rs L330-338、行数)+ cargo test --workspace 全量 + 前端冒烟;批3=实跑并行线闭环(建线→跑→门禁→合并→收割→关线)+ 验收逐项 + close。
-- observed_head: 79a99105a948d12973957dcd90771ac62b8ba318
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786772863971
-
 ## R-255 MemoryStore 收缩回仓储:准入/生命周期/合并/检索/效果画像/收件箱/迁移七域迁出(2073 行生产码) [todo]
 - refs: R-216 R-195 R-235 R-155 D-366 docs/design/memory_control_plane.md docs/design/monolith_decomposition_round2.md(批次地图:B 节)
 - 为什么是这个形态: 它比 run.rs 更迷惑,因为"都和 memory 有关"看起来内聚——但语义相关不等于同一个抽象。真正的危害在可迭代性:准入(什么有资格成为记忆)、压缩、合并、episodic 到 semantic 固化,是记忆研究里变更最频繁的一层;把它锁在 Repository 私有逻辑里等于让 research policy 与 storage mechanics 强耦合,每做一次记忆实验都要动仓储。
