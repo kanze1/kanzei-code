@@ -23,9 +23,18 @@ $hash = (git rev-parse --short HEAD 2>$null); if (-not $hash) { $hash = "nogit" 
 $build_at = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
 $env:KANZEI_BUILD_INFO = "$hash $build_at"
 
-Write-Host "==> cargo install --path crates/kanzei" -ForegroundColor Cyan
-cargo install --path crates/kanzei --force
-if ($LASTEXITCODE -ne 0) { throw "install failed" }
+# `cargo install --path` 默认在自己的私有 target 目录里从头构建，不复用 target/release；
+# 紧接着的 kanzei-app 构建又要把同一批依赖重编一遍 = 整整一轮全量 release 构建白烧。
+# 改成「构建 → 拷贝」：两步共享 target/release 的依赖产物，落点仍是 ~\.cargo\bin\kz.exe。
+Write-Host "==> cargo build --release -p kanzei (kz CLI)" -ForegroundColor Cyan
+cargo build --release -p kanzei
+if ($LASTEXITCODE -ne 0) { throw "kz build failed" }
+
+$cargo_bin = "$env:USERPROFILE\.cargo\bin"
+New-Item -ItemType Directory -Force $cargo_bin | Out-Null
+# 与 cargo install --force 同语义：目标正在运行时 Windows 会拒绝覆盖，照样当场报错。
+Copy-Item "$root\target\release\kz.exe" "$cargo_bin\kz.exe" -Force
+if (-not $?) { throw "install failed" }
 
 Write-Host "==> cargo build --release -p kanzei-app (kzapp)" -ForegroundColor Cyan
 cargo build --release -p kanzei-app

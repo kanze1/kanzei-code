@@ -6,7 +6,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
 
-mod common;
+use crate::common;
 
 async fn read_request(stream: &mut TcpStream) -> Value {
     let mut request = Vec::new();

@@ -5,6 +5,20 @@
 
 use std::path::PathBuf;
 
+/// 递归收集 `tests/` 下的 `.rs`。这里必须递归:集成测试合并成单一 target 后源文件
+/// 都在 `tests/integration/` 子目录里,原先的非递归 read_dir 会一个文件都扫不到,
+/// 于是本守护静默全绿、形同虚设。下面的下限断言就是防这一手。
+fn collect_rs(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rs(&path, out);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            out.push(path);
+        }
+    }
+}
+
 /// 扫描会 spawn 子进程的测试与脚本:设置 USERPROFILE 隔离全局根的同时必须设
 /// KANZEI_HOME(官方隔离通道,harness/src/home.rs 优先读它)。
 #[test]
@@ -14,12 +28,14 @@ fn test_spawns_isolate_kanzei_home_alongside_userprofile() {
         .unwrap()
         .parent()
         .unwrap();
-    let mut files: Vec<PathBuf> = std::fs::read_dir(repo_root.join("crates/kanzei/tests"))
-        .unwrap()
-        .flatten()
-        .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
-        .map(|e| e.path())
-        .collect();
+    let mut files: Vec<PathBuf> = Vec::new();
+    collect_rs(&repo_root.join("crates/kanzei/tests"), &mut files);
+    assert!(
+        files.len() >= 10,
+        "tests/ 下只扫到 {} 个 .rs——目录结构变了而本守护没跟着改。\
+         扫不到文件时断言会全部跳过、测试照样绿,那时它已经不再保护任何东西。",
+        files.len()
+    );
     files.push(repo_root.join("scripts/e2e-smoke.mjs"));
     files.push(repo_root.join("scripts/probe-webview-cdp.mjs"));
     for file in files {

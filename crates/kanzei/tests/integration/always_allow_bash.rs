@@ -7,7 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::process::Command;
 
-mod common;
+use crate::common;
 
 /// 桩服务器等一次模型请求的上限。
 ///
