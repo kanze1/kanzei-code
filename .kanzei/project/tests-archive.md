@@ -4325,3 +4325,9 @@
 - 摘要: R-268 批1:写日志机制(write_log.rs:JSONL 落盘 .kanzei/.write-log, 路径+sha256+身份, 按时间过滤/清理)+围栏收口对账(enforce_managed_files_with_writer_log:日志命中且终态一致→吸收, 未命中→隔离回滚;bash 前台两处接入传窗口起点)。新增测试 6 条:write_log 3(记录/过滤/清理/指纹)+围栏对账 3(合法写不误回滚/越界写回滚/混合只回滚越界侧)。kanzei-tools 全量 292 passed, clippy/fmt 通过
 - 关联: R-268
 - 收尾: 1786837811
+
+## T-1786838042 R-268 批2 写者侧接入 tracker 写日志 [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-268 批2:写者侧接入——tracker.rs 写动作(add/update/close/archive 等)成功后 record 写日志(路径+写后指纹+run/process 身份),围栏收口对账的归因凭据真实产出;新增测试「写动作产出写日志_路径指纹与身份齐备」验证 add 产出日志且指纹=磁盘内容、身份=ctx。kanzei-tools 全量 293 passed, clippy/fmt 通过
+- 关联: R-268
+- 收尾: 1786838042

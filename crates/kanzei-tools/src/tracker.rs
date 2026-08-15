@@ -282,6 +282,9 @@ impl Tool for TrackerTool {
             Ok(v) => v,
             Err(out) => return out,
         };
+        // R-268:写日志判定在 match(input.action) 之后还要用 action——先缓存字符串
+        // (match 会部分 move input,函数尾再读 input.action 会 borrow-after-move)。
+        let action_str = input.action.clone();
         // 顶层结构化字段落到既有文档字段体系；顶层值优先，避免同一调用双写冲突。
         if let Some(tag) = input.tag.take() {
             input.fields.insert("标签".into(), tag);
@@ -438,6 +441,30 @@ impl Tool for TrackerTool {
                         self.kind.rel_path,
                         issues.join("; ")
                     ));
+                }
+            }
+        }
+        // R-268 批2:写动作成功且确实落盘后,记一条写日志(路径+写后指纹+身份)。
+        // 这是围栏收口对账的归因凭据——bash 窗口内看到这个文档变了,查日志即可
+        // 区分「专用工具的合法写入」与「shell 越界写」,写者从此不必等全局 bash
+        // 静默。先写文档再记日志(「写后」凭据,见 write_log 模块头契约)。
+        if !output.is_error && WRITE_ACTIONS.contains(&action_str.as_str()) {
+            if let Ok(content) = std::fs::read(&store.path) {
+                if let Ok(relative) = store.path.strip_prefix(&ctx.project_root) {
+                    let _ = crate::write_log::record(
+                        &ctx.project_root,
+                        &crate::write_log::WriteLogEntry {
+                            at_ms: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis())
+                                .unwrap_or_default(),
+                            path: relative.display().to_string().replace('\\', "/"),
+                            sha256: crate::write_log::fingerprint(&content),
+                            content: content.clone(),
+                            run_id: ctx.run_id.clone(),
+                            process_id: ctx.process_id.clone(),
+                        },
+                    );
                 }
             }
         }
@@ -3478,6 +3505,59 @@ mod tests {
             "非想法线不应触发 refs 门禁: {}",
             out.content
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-268 批2:写动作(add)成功后必须产出写日志——围栏收口对账的归因凭据,
+    /// 「专用工具写文档」与「bash 越界写」由此可区分。
+    #[tokio::test]
+    async fn 写动作产出写日志_路径指纹与身份齐备() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-writelog-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone(), dir.clone()).with_identity(
+            "wt".into(),
+            "key".into(),
+            "run-1".into(),
+            "proc-1".into(),
+        );
+        let out = tool
+            .execute(
+                json!({"action": "add", "title": "写日志验证条目", "priority": "P3", "tag": "后端", "complexity": "小"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+
+        // 写日志落盘,且路径/指纹/身份与本次写入一致。
+        let logs = crate::write_log::entries_after(&dir, 0);
+        assert_eq!(logs.len(), 1, "一次 add 应产出一条写日志");
+        let log = &logs[0];
+        assert_eq!(
+            log.path, ".kanzei/project/requirements.md",
+            "日志路径必须指向被写文档"
+        );
+        let on_disk = std::fs::read(&store.path).unwrap();
+        assert_eq!(
+            log.sha256,
+            crate::write_log::fingerprint(&on_disk),
+            "日志指纹必须等于写后内容指纹"
+        );
+        assert_eq!(log.run_id.as_deref(), Some("run-1"));
+        assert_eq!(log.process_id.as_deref(), Some("proc-1"));
         std::fs::remove_dir_all(dir).ok();
     }
 }
