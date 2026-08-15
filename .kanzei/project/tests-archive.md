@@ -3981,3 +3981,42 @@
 - 摘要: R-256 B3 CLI 模块化(c8db0da 混合提交核验):kanzei 30+31 passed,clippy 零警告;main.rs 18 行(验收③≤500)
 - 关联: R-256
 - 收尾: 1786803153
+
+## T-1786805482 R-263 verify.ps1 十步全量(验收④ + 复杂度中关闭前全量) [passed]
+- 命令: cargo test -p kanzei
+- 摘要: 定向测试背书:cargo test -p kanzei 31 passed(import 重排后全绿)
+- 关联: R-263
+- 收尾: 1786805652
+- 源码指纹: 4adbccb3d46b8317
+
+## T-1786805962 cargo test -p kanzei(ui-lint-globals 提交背书) [passed]
+- 命令: cargo test -p kanzei
+- 摘要: 门禁背书:cargo test -p kanzei 31 passed(暂存 ui-lint-globals.json 之后)
+- 关联: R-263
+- 收尾: 1786805962
+- 源码指纹: fe5c7f1b912589d4
+
+## T-1786806117 R-263 verify.ps1 十步全量(验收④) [passed]
+- 命令: .\scripts\verify.ps1
+- 摘要: verify.ps1 十步全绿(fmt/clippy/test 全量 167app/ui_syntax/ui_runtime/ui_lint/parallel_lines/ui_a11y/ui_i18n/ui_markdown),commit 219dcda,dist/verification.json 已产出
+- 关联: R-263
+- 收尾: 1786806117
+
+## T-1786808469 cargo test --workspace (R-256 批4 harness 单点化) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-256 批4 harness 单点化收尾:workspace 15 段全 ok(kanzei 30+31 passed、kanzei-app 166 passed、tools 269 passed 等),clippy 零警告;验收①机械核验:build_harness/build_runner_config/build_subagent_runtime 单点在 kanzei-tools/src/run.rs,select_agent(resolve_model_chain/ToolCtx/prompt_hints/run_once 各单点在 harness.rs/config.rs/tool.rs/memory/mod.rs/drive.rs),两端均为调用方。
+- 关联: R-256
+- 收尾: 1786808469
+
+## T-1786808477 verify.ps1 六条前端冒烟 (R-256 批4) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: R-256 验收⑤前端冒烟六条全绿(D-371 清单):ui-runtime 21 个 ui/*.js 按序执行+初始化序+9 主视图切换 0 运行时错误;ui-lint no-undef 零错误 globals 与源码同步(592 标识符);parallel-lines 护栏通过;ui-a11y 静态冒烟通过;ui-i18n 156 key 通过;ui-markdown 通过。注:ui-lint 首次红为外部写者 p11 正写 ui-lint-globals.json 的瞬时态,非 R-256 引入。
+- 关联: R-256
+- 收尾: 1786808477
+
+## T-1786808659 cargo test -p kanzei -p kanzei-app -p kanzei-tools (R-256 B4 提交背书) [passed]
+- 命令: cargo test -p kanzei -p kanzei-app -p kanzei-tools
+- 摘要: R-256 批4 提交门禁背书:kanzei 30+31 passed、kanzei-app 169 passed、kanzei-tools 270 passed(1 ignored),全绿;改动面三 crate 均覆盖。
+- 关联: R-256
+- 收尾: 1786808659
+- 源码指纹: 3495ba459156a8e5

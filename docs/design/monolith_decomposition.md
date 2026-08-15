@@ -197,7 +197,7 @@ persistence/events 五域)。
 | 2 | 配置加载+告警 | `load_with_warnings_at_root` + eprintln L363 | 同函数 + `report_config_warnings`(UI) | **漂移**(加载逻辑重复,仅输出端不同) |
 | 3 | profile 解析 | KANZEI_PROFILE env / readonly / default L371 | run_task 参数 profile | **有意**(env vs IPC 参数) |
 | 4 | ResolveCtx 构造 | L377 四字段 | assembly.rs 同结构 | **重复** |
-| 5 | harness 装配 | Base/Dev/Research/**Readonly**/Markdown/Config L385 | build_run_harness:Base/Dev/Research/**FrontendTools/Markdown/Config/TrackerWritePolicy**(+Collaboration) | **漂移**(基础组件重复;两端各有独有组件) |
+| 5 | harness 装配 | Base/Dev/Research/**Readonly**/Markdown/Config L385 | build_run_harness:Base/Dev/Research/**FrontendTools/Markdown/Config/TrackerWritePolicy**(+Collaboration) | **已收敛**(R-256 批4:公共部分 Base/Dev/Research/Markdown/Config 单点在 `kanzei_tools::run::build_harness`;CLI Readonly 与桌面 FrontendTools 经 middle 注入(Research 后、Markdown 前,逐字节同序),TrackerWritePolicy/Collaboration 经 tail 注入(Config 后)) |
 | 6 | agent 选择 | `select_agent(KANZEI_AGENT env)` L395 | `select_agent(agent_name 参数)` | **有意**(env vs 参数) |
 | 7 | dev 提示注入 | `resolved_control_prompt` L399 | `append_dev_guidance` + `resolve_work_decision` | **漂移**(两套注入逻辑) |
 | 8 | 模型解析 | `resolve_model_chain(KANZEI_MODEL,None)` L411 | `resolve_model_chain(model_override,None)` | **漂移**(同函数,参数源不同) |
@@ -223,7 +223,8 @@ persistence/events 五域)。
 ### 判定汇总
 
 - **重复(可直接共用,合并零风险)**:4 ResolveCtx、10 route/client、11 ToolCtx、14 typed writer、16 subagent runtime、19 记忆预检索、23-25 轮末采集/episode/candidate 处置。
-- **漂移(需先对齐再合并)**:2 配置告警、5 harness 装配、7 dev 提示、8 模型解析、9 proxy、12 RunnerConfig、13 session 准入、15 prior 恢复、20 run_once、22 轮末落库——其中 5/7/12/22 是两端各写一套的完整重复,合并时逐项对齐后再收进 RunService。
+- **漂移(需先对齐再合并)**:2 配置告警、7 dev 提示、8 模型解析、9 proxy、13 session 准入、15 prior 恢复、20 run_once、22 轮末落库——其中 7/22 是两端各写一套的完整重复,合并时逐项对齐后再收进 RunService。
+- **已收敛(R-256 落地)**:5 harness 装配(批4 build_harness 单点)、12 RunnerConfig(批2 build_runner_config)、16 subagent runtime(批2 build_subagent_runtime)——后两项 CLI 内联与桌面构造函数在批2 已收成单一实现。
 - **有意差异(保留,收敛为三个注入点)**:17 事件汇→EventSink(UI vs 终端)、18 询问路由→AskRouter(UI 表 vs stdin+非交互策略)、21 停止→RuntimePolicy(桌面 halt_token vs CLI ctrl_c),外加 1/3/6/26 的输入源差异(env/IPC 参数)保持调用方传参。
 
 ### 下一步(批次)
@@ -233,6 +234,7 @@ persistence/events 五域)。
 - 批4:双端真实闭环(验收②)+ 全量验证(验收⑤)+ 机械核验(验收①)+ close。
 ## 变更记录
 
+- 2026-08-16 批4 落地(R-256):装配对照表 #5 harness 装配单点化——`kanzei_tools::run::build_harness` 成为公共装配唯一实现,CLI Readonly 与桌面 FrontendTools 经 middle 注入、TrackerWritePolicy/Collaboration 经 tail 注入(顺序逐字节同原);对照表 #5 由「漂移」改为「已收敛」,判定汇总同步。验收①机械核验:harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once 八个能力各自单点实现,两端均为调用方;main.rs 生产码 12 行(验收③≤500);workspace 全量绿 + 六条前端冒烟全绿(验收⑤)。
 - 2026-08-09 初版:三份结构探查(逐文件通读+外部引用 Grep)汇总成批次计划,交自举执行。
 - 2026-08-09 节奏修订(用户定调效率优先):批内验证改定向(cargo test -p + 下游 cargo check),全量降频到条目关闭前与发版前,批提交后 push 由 CI 异步全量兜底;执行纪律 1/2 与危险点 A#6 同步,详见 conventions §1.4 与 A-010。
 

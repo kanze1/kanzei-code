@@ -637,21 +637,24 @@ pub(crate) fn build_run_harness(
     block_tracker_writes: bool,
     collaboration_probe: Option<crate::collaboration::CollaborationProbe>,
 ) -> kanzei_harness::Harness {
-    let mut harness = kanzei_harness::Harness::default();
-    harness
-        .add(kanzei_tools::BaseComponent)
-        .add(kanzei_tools::DevProfile)
-        .add(kanzei_tools::ResearchProfile)
-        .add(crate::harness_ext::FrontendToolsComponent)
-        .add(kanzei_harness::MarkdownComponent)
-        .add(kanzei_harness::ConfigComponent)
-        .add(TrackerWritePolicyComponent {
-            block: block_tracker_writes,
-        });
-    if let Some(probe) = collaboration_probe {
-        harness.add(crate::collaboration::CollaborationComponent { probe });
-    }
-    harness
+    // R-256 批4:与 CLI 共用 kanzei_tools::run::build_harness(对照表 #5 公共部分单点);
+    // FrontendTools 在 Markdown 前(middle),TrackerWritePolicy/Collaboration 在
+    // Config 后(tail),顺序与原来逐字节一致。
+    kanzei_tools::run::build_harness(
+        |harness| {
+            harness.add(crate::harness_ext::FrontendToolsComponent);
+        },
+        |harness| {
+            harness.add(TrackerWritePolicyComponent {
+                block: block_tracker_writes,
+            });
+            if let Some(probe) = collaboration_probe.as_ref() {
+                harness.add(crate::collaboration::CollaborationComponent {
+                    probe: probe.clone(),
+                });
+            }
+        },
+    )
 }
 
 /// R-177 F11:分支线默认只读主根 tracker。规则放在 ConfigComponent 之后,

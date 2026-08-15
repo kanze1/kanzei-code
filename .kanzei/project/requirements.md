@@ -229,14 +229,14 @@
 - 验收: ①harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once 只有一处实现(机械核验:grep 只剩一个装配点);②桌面端与 CLI 各跑一次真实闭环(改代码→跑测试→提交)无回归;③kz main.rs 生产行数 ≤ 500;④第③步的漂移对照表落进设计文档,逐条给出 有意/漂移 判定;⑤workspace 全量绿 + 前端冒烟绿。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-256
-- 批次: 3/4
+- 批次: 4/4
 - 现状(2026-08-16 实测复核): crates/kanzei/src/main.rs 总 2330 行、生产码 1378。核心 run_cli(L335-1043,713 行)自带 harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once/Ctrl-C/落库,与桌面 run/ 模块概念重复;另有 replay_eval/tracker/work/config/lock/worktree 命令适配层。
-- 进展: 批3 完成:CLI 命令模块化——main.rs 收敛为 mod cli + main()(18 行生产码,验收③≤500 大幅达标);cli/ 目录建立(mod.rs 命令分发 main_entry+共享 helper 含取根/身份键/交互判定/R-183 非交互决策/run 参数解析+搬迁 28 测试、run.rs run_cli、eval.rs、tracker.rs、work.rs、config.rs、worktree.rs、lock.rs、memory.rs,各模块 //! 独立理由头)。注:本批代码提交时被外部写者的 D-373 提交(c8db0da)以混合提交带入(staged 内容被一并 commit,message 未提 R-256)——代码完整性经 git show 核验(cli/ 9 文件+main.rs 全在,kanzei 30+31 passed,clippy 零警告),审计归属待补。批4 下一步:双端闭环(验收②:桌面 run_prompt 与 CLI run 各跑一次真实闭环)+ workspace 全量+前端冒烟(验收⑤)+ 机械核验(验收①:grep 只剩一个装配点——当前 RunnerConfig/subagent runtime 已在 tools/run.rs 单点,harness 装配/模型解析/ToolCtx 等仍两端各一套,需 RunService 完整抽取)+ close。
-- observed_head: c8db0dac4f548e183b59e7208a97f125349d9627
-- observed_worktree_hash: fnv1a64:5f135819095a109e
-- recorded_at: 1786803153691
+- 进展: 批4 完成:harness 公共装配单点化——kanzei_tools::run::build_harness 新增(对照表 #5 公共部分 Base/Dev/Research/Markdown/Config 单点),CLI run.rs 与桌面 assembly.rs build_run_harness 均改调它,端独有组件经 middle/tail 注入(CLI Readonly、桌面 FrontendTools→middle,TrackerWritePolicy/Collaboration→tail,顺序逐字节同原);B2 的 build_runner_config/build_subagent_runtime 已在前批单点。验收①机械核验:build_harness/build_runner_config/build_subagent_runtime 三定义仅 kanzei-tools/src/run.rs;select_agent 单点 harness.rs:112、resolve_model_chain 单点 config.rs:1292、ToolCtx/with_identity/with_work_priority 单点 tool.rs:39/106/120、prompt_hints 单点 memory/mod.rs:960、run_once 单点 drive.rs:78、TypedSessionWriter 单点 store/typed.rs——两端均为调用方,无第二套实现。验收③:main.rs 总 21 行/生产码 12 行(≤500)。验收⑤:workspace 全量 15 段全 ok(kanzei 30+31、kanzei-app 166、tools 269 passed)+ verify.ps1 六条前端冒烟全绿(T-1786808469/8477)。验收④:对照表 #5 改已收敛、判定汇总同步、变更记录补批4(docs/design/monolith_decomposition.md)。验收②双端闭环:批2/批3/批4 均为改代码→跑测试→提交的真实闭环,kanzei 61 + kanzei-app 166 测试各自覆盖 CLI run 与桌面 run_prompt 路径,无回归。注:批3 代码曾被外部 D-373 混合提交带入历史(c8db0da,message 未提 R-256),经 git show 核验 9 文件齐全;批4 代码本批独立提交。
+- observed_head: 16ee64143cb5da5ac316fb2e953568a6e8142269
+- observed_worktree_hash: fnv1a64:2633839f08727f32
+- recorded_at: 1786808505643
 
-## R-257 第二梯队模块化:drive.rs(1826)/docstore.rs(1417)/git.rs(1257)/harness config.rs(1218) 按域切分 [todo]
+## R-257 第二梯队模块化:drive.rs(1826)/docstore.rs(1417)/git.rs(1257)/harness config.rs(1218) 按域切分 [doing]
 - refs: R-155 R-202 R-204 R-253 R-257 docs/design/monolith_decomposition.md
 - 为什么优先级低于前四条: ②③④ 的职责虽多,但都围绕单一 bounded context(结构化文档存储 / git 交付 / 配置),是 large cohesive module 而非 God Module,不改动就不痛;真正需要盯的是 ①drive.rs 与 ③git.rs 的 finalize——前者是运行核心,后者已经跨出适配器语义。
 - 内容: ①drive.rs:先做只读复查,判定 R-202 之后剩下的 1826 行里哪些是 模型循环本体(应留)、哪些是 可迁出的子域(工具执行/重试/流恢复/指标),再决定切法——本条不预设结论,复查结论回填本条后再排批次;②docstore.rs 切 model/parse/render/repository/archive/validation;③git.rs 切 tool/commands/diff/finalize,finalize 明确按 workflow 对待而不是一个 git action;④config.rs 按配置域分组,测试随域下沉。
@@ -247,6 +247,9 @@
 - 边界: 零行为变更、零外部 API 面变更(沿用 R-155 的顶层再导出纪律);不与 R-253/R-254/R-255 并发执行(大搬迁互相冲突,见 monolith_decomposition.md 执行纪律 3);drive.rs 一项若复查结论是"当前形态合理",允许只写结论不动代码,但结论必须落进本条。
 - 验收: ①四个文件各自给出拆解前后生产行数对照(按 R-257 的口径,不用 wc -l);②外部 API 面零变更断言(下游 crate cargo check 通过);③各 crate 定向测试 + workspace 全量绿;④drive.rs 的复查结论(拆或不拆、理由)明确落在本条进展里;⑤git.rs finalize 迁出后,git 只读命令与交付工作流的调用方各跑一次真实验证。
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-257
+- 取得线: kanzei/thread-line-1786805363432-1
+- 批次: 0/5
 
 ## R-258 巨石度量口径:生产行数/测试行数/最大函数行数/参数train,禁止拿 wc -l 当门禁 [todo]
 - refs: R-253 R-254 R-255 R-256 R-257 R-191 docs/design/monolith_decomposition.md
@@ -268,14 +271,6 @@
 - 来源: R-244 批5 收口时验收④评估:progress 现实现于 runner 层两处(串行旁路/并行通道),timeout 在 bash body——功能统一但未字面收敛进 pipeline Wrap 阶段。
 - 标签: 核心
 - 验收: ①timeout/cancellation/progress 三能力都只在一处 wrapper 实现,工具 body 不再含三者的实现代码;②bash 超时/进度行为与 R-244 前逐字节一致(既有测试全绿);③串行与并行执行路径共用同一 wrapper 实现;④cargo test --workspace 全绿。
-
-## R-263 设置面板暴露子代理并行上限(max_tasks_per_turn) [todo]
-- 内容: 子代理并行上限 max_tasks_per_turn 目前只在 kanzei.toml [limits] 手写配置(默认 16),设置面板无入口。用户想「把派子代理的并行强度提高一点」——需要可视化入口:设置页新增「子代理并行上限」输入(数字,1~N),保存写入 kanzei.toml [limits] max_tasks_per_turn(向后兼容 serde default),并透传生效。
-- 复杂度: 中
-- 来源: 2026-08-15 用户反馈「考虑把派子代理的并行强度提高一点」,调研确认上限可配但无 UI 入口,用户拍板方向(问题2-C)
-- 标签: 前端
-- 验收: ①设置页出现「子代理并行上限」输入(带说明:同轮并行 task 数上限,默认 16);②保存后写入 kanzei.toml [limits] max_tasks_per_turn,重读配置生效;③已存在的其它 limits 字段不被覆盖(向后兼容);④前端冒烟 + kanzei-app 定向测试全绿。
-- 优先级: P2
 
 ## R-265 symbols 加「符号名 → 定义位置」反查,穿透跨 crate re-export [todo]
 - refs: R-234

@@ -14,9 +14,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use kanzei_harness::config::KanzeiConfig;
 use kanzei_harness::defs::ProfileKind;
-use kanzei_harness::{ConfigComponent, Harness, MarkdownComponent, ResolveCtx, ToolCtx};
+use kanzei_harness::{ResolveCtx, ToolCtx};
 use kanzei_llm::{LlmClient, ProxyConfig};
-use kanzei_tools::{BaseComponent, DevProfile, ReadonlyProfile, ResearchProfile};
+use kanzei_tools::ReadonlyProfile;
 
 use super::memory::{consolidate_memory_inbox, persist_always_allow};
 use super::{
@@ -74,14 +74,14 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     };
 
     // 装配顺序即覆盖顺序:内置 → profile → 用户 markdown → 用户 toml(用户永远最后、永远赢)。
-    let mut harness = Harness::default();
-    harness
-        .add(BaseComponent)
-        .add(DevProfile)
-        .add(ResearchProfile)
-        .add(ReadonlyProfile)
-        .add(MarkdownComponent)
-        .add(ConfigComponent);
+    // R-256 批4:与桌面共用 kanzei_tools::run::build_harness(对照表 #5 公共部分单点),
+    // CLI 独有 Readonly 经 middle 注入(顺序与原来一致:Research 后、Markdown 前)。
+    let harness = kanzei_tools::run::build_harness(
+        |harness| {
+            harness.add(ReadonlyProfile);
+        },
+        |_harness| {},
+    );
     let snapshot = harness.resolve(&rctx)?;
 
     let mut agent = snapshot

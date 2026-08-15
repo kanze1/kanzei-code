@@ -14,8 +14,29 @@ use std::sync::Arc;
 use kanzei_core::{RunnerConfig, SubagentRuntime, TaskCancellations};
 use kanzei_harness::config::{KanzeiConfig, ResolvedModel};
 use kanzei_harness::orchestration::ProjectExecutionCoordinator;
-use kanzei_harness::{ConfigComponent, Harness, ResolveCtx};
+use kanzei_harness::{ConfigComponent, Harness, MarkdownComponent, ResolveCtx};
 use kanzei_llm::{ProxyConfig, Route};
+
+use crate::{BaseComponent, DevProfile, ResearchProfile};
+
+/// R-256 批4:两端共用的 harness 装配(对照表 #5 公共部分:Base/Dev/Research/
+/// Markdown/Config 在此单点)。端独有组件经 `middle`/`tail` 注入,顺序与两端原装配
+/// 逐字节一致:CLI 的 Readonly 在 Research 后(→middle),桌面的 FrontendTools 同
+/// 位置、TrackerWritePolicy/Collaboration 在 Config 后(→tail)。
+pub fn build_harness(
+    middle: impl FnOnce(&mut Harness),
+    tail: impl FnOnce(&mut Harness),
+) -> Harness {
+    let mut harness = Harness::default();
+    harness
+        .add(BaseComponent)
+        .add(DevProfile)
+        .add(ResearchProfile);
+    middle(&mut harness);
+    harness.add(MarkdownComponent).add(ConfigComponent);
+    tail(&mut harness);
+    harness
+}
 
 /// R-256:两端共用的 RunnerConfig 构造(对照表 #12——CLI 内联与桌面 build_runner_config
 /// 字段逐项重复)。与桌面原 `run/assembly.rs::build_runner_config` 行为逐字节一致。
