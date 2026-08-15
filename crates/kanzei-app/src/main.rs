@@ -19,6 +19,11 @@ mod docs;
 mod fast_model;
 mod files_view;
 mod harness_ext;
+/// D-381:Rust↔JS 的 IPC 形状契约(见模块头:93 个命令里 30+ 个手搓 JSON 过 IPC,
+/// 而前端冒烟断言的是前端自己写的 fixture,后端改名两侧全绿、界面碎)。
+/// 纯判据模块,不参与产品构建。
+#[cfg(test)]
+mod ipc_contract;
 mod memory;
 mod mobile;
 mod orchestration_trace;

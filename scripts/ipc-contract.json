@@ -1,0 +1,105 @@
+{
+  "docs_snapshot": {
+    "archived": {
+      "defect": "number",
+      "finding": "number",
+      "idea": "number",
+      "req": "number",
+      "source": "number"
+    },
+    "conventions": {
+      "exists": "bool",
+      "headings": [
+        "string"
+      ]
+    },
+    "defects": [
+      {
+        "batches": {
+          "done": "number",
+          "total": "number"
+        },
+        "block_reasons": "array",
+        "blocked": "bool",
+        "claimed_by": "nullable",
+        "closed": "bool",
+        "complexity": "string",
+        "dependencies": "array",
+        "dependents": "array",
+        "fields": [
+          [
+            "string"
+          ]
+        ],
+        "id": "string",
+        "nextStatuses": [
+          "string"
+        ],
+        "priority": "string",
+        "severity": "string",
+        "status": "string",
+        "title": "string"
+      }
+    ],
+    "findings": "array",
+    "ideas": [
+      {
+        "batches": {
+          "done": "number",
+          "total": "number"
+        },
+        "block_reasons": "array",
+        "blocked": "bool",
+        "claimed_by": "nullable",
+        "closed": "bool",
+        "complexity": "nullable",
+        "dependencies": "array",
+        "dependents": "array",
+        "fields": [
+          [
+            "string"
+          ]
+        ],
+        "id": "string",
+        "nextStatuses": [
+          "string"
+        ],
+        "priority": "string",
+        "severity": "nullable",
+        "status": "string",
+        "title": "string"
+      }
+    ],
+    "requirements": [
+      {
+        "batches": {
+          "done": "number",
+          "total": "number"
+        },
+        "block_reasons": "array",
+        "blocked": "bool",
+        "claimed_by": "string",
+        "closed": "bool",
+        "complexity": "string",
+        "dependencies": "array",
+        "dependents": "array",
+        "fields": [
+          [
+            "string"
+          ]
+        ],
+        "id": "string",
+        "nextStatuses": [
+          "string"
+        ],
+        "priority": "string",
+        "severity": "nullable",
+        "status": "string",
+        "title": "string"
+      }
+    ],
+    "root": "string",
+    "sources": "array",
+    "warnings": "array"
+  }
+}

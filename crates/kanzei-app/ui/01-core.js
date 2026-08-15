@@ -35,7 +35,15 @@ const SESSION_PROGRESS_EVENTS = new Set([
 ]);
 // 这些是全局辅助事件,不是某一条运行会话的进度投影:权限询问由自身
 // 的队列归属,快速模型安装与 UI 探针也没有运行 session。
-const SESSIONLESS_EVENTS = new Set(["kz:ask", "kz:fast-setup", "kz:ui-probe"]);
+// D-381:kz:annotate-progress 是项目级批处理进度(文件标注),同样没有 session 归属。
+// 它此前用裸 listen 绕过本函数,于是「没有 sessionId 就丢弃」这条纪律只覆盖了一半的
+// 订阅——规则写在代码里,但只写在一条路径上。
+const SESSIONLESS_EVENTS = new Set([
+  "kz:ask",
+  "kz:fast-setup",
+  "kz:ui-probe",
+  "kz:annotate-progress",
+]);
 function on(event, handler) {
   listen(event, (eventPayload) => {
     const sessionId = eventPayload.payload?.sessionId;

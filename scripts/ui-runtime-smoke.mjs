@@ -1,7 +1,7 @@
 // 前端运行时冒烟(R-084):在 Node 中以最小 DOM harness 真实执行 main.js,
 // 补 node --check(纯语法)与静态正则冒烟都抓不到的 ReferenceError / 初始化崩坏(D-048 类问题)。
 // 覆盖:整页加载与初始化、需求/缺陷/目标/测试列表非空渲染、主视图切换、console.error 与未捕获异常 → 非零退出码。
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import vm from "node:vm";
 import { loadUiSources } from "./ui-sources.mjs";
@@ -661,7 +661,14 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)\bdata-i18n-key="
 // ---------- Tauri 桥桩:启动序列与各列表需要真实形状的负载 ----------
 const PROJECT = "C:/smoke/project";
 // nextStatuses 是状态流转按钮的数据源:桩里缺它,侧栏"能不能切状态"就无从断言。
-const docEntry = (id, title, status, extra = {}) => ({ id, title, status, priority: "P1", closed: false, fields: [], nextStatuses: ["done"], ...extra });
+// D-381:字段清单跟着 scripts/ipc-contract.json 走——夹具少一个键,界面读它就是
+// undefined,而这类漏洞过去没有任何一条测试会红(冒烟验的是夹具自己)。
+const docEntry = (id, title, status, extra = {}) => ({
+  id, title, status, priority: "P1", closed: false, fields: [], nextStatuses: ["done"],
+  severity: null, complexity: null, batches: { done: 0, total: 1 },
+  blocked: false, block_reasons: [], claimed_by: null, dependencies: [], dependents: [],
+  ...extra,
+});
 // ---------- 工具块夹具:历史回放里的四种结果形态 ----------
 // 双写缺陷(⎿ 摘要行与展开详情各渲染一遍同一段文案)只在"首行超过 ⎿ 预算"或"多行"时
 // 显形,单行短结果永远看不出来——夹具必须真的超预算,否则断言恒真。
@@ -697,9 +704,11 @@ const payloads = {
   docs_snapshot: {
     requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]], dependencies: [], dependents: ["R-002"] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 }, dependencies: ["R-001"], dependents: [] })],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待澄清: 用户视角的易用性还是模型可消费性?"]] })],
-    ideas: [{ id: "I-001", title: "冒烟想法", status: "inbox", fields: [] }],
+    ideas: [docEntry("I-001", "冒烟想法", "inbox")],
     sources: [],
     findings: [],
+    root: "C:/smoke/parent",
+    warnings: [],
     archived: { req: 1, defect: 2, idea: 0, source: 0, finding: 0 },
     conventions: { exists: true, headings: ["开发规则", "测试要求"] },
   },
@@ -6888,6 +6897,84 @@ const docsB = {
   payloads.process_list = savedD356ProcessList;
   await gotoProject(PROJECT, savedDocsPayload);
   await flush();
+}
+
+// ---------- D-381 事件名两侧对齐 ----------
+// kz:* 的名字目前在三处各存一份:Rust 侧 window.emit、前端 on() 订阅、01-core 的
+// SESSION_PROGRESS_EVENTS/SESSIONLESS_EVENTS 集合。手工同步三份的结果是「发了没人听」
+// 和「听了没人发」都不产生任何信号——本仓就有过一个 kz:annotate-progress 用裸 listen
+// 绕开 on()、因而绕开「没有 sessionId 就丢弃」纪律的实例。
+{
+  const rustFiles = [];
+  const walk = async (dir) => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = resolve(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.name.endsWith(".rs")) rustFiles.push(full);
+    }
+  };
+  await walk(resolve(root, "crates/kanzei-app/src"));
+  const emitted = new Set();
+  for (const file of rustFiles) {
+    const text = await readFile(file, "utf8");
+    for (const match of text.matchAll(/"(kz:[a-z-]+)"/g)) emitted.add(match[1]);
+  }
+  const subscribed = new Set([...source.matchAll(/\bon\("(kz:[a-z-]+)"/g)].map((m) => m[1]));
+  const rawListen = [...source.matchAll(/(?<!function )\blisten\("(kz:[a-z-]+)"/g)].map((m) => m[1]);
+  const unheard = [...emitted].filter((name) => !subscribed.has(name)).sort();
+  const unsent = [...subscribed].filter((name) => !emitted.has(name)).sort();
+  if (unheard.length) issues.push(`D-381:后端发了但前端没有 on() 订阅:${unheard.join(", ")}`);
+  if (unsent.length) issues.push(`D-381:前端订阅了但后端从不发送:${unsent.join(", ")}`);
+  if (rawListen.length) {
+    issues.push(
+      `D-381:裸 listen() 绕过 on() 的 sessionId 纪律:${rawListen.join(", ")}——` +
+        `无 session 归属的事件请登记进 SESSIONLESS_EVENTS 后走 on()`,
+    );
+  }
+}
+
+// ---------- D-381 IPC 形状契约:fixture 必须与后端真实形状一致 ----------
+// 这是全仓唯一一条「两侧都改对了才对、但没人检查」的缝:93 个 tauri command 里 30+ 个
+// 手搓 JSON 过 IPC,而上面那些 payloads 是**前端自己写的**。后端改一个字段名,
+// cargo test 全绿、六条前端冒烟全绿、真实界面碎。契约文件由 kanzei-app 的
+// ipc_contract 测试拿真实命令跑出来,两侧共读同一份。
+{
+  const contract = JSON.parse(await readFile(resolve(root, "scripts/ipc-contract.json"), "utf8"));
+  const shapeOf = (value) => {
+    if (Array.isArray(value)) return value.length ? [shapeOf(value[0])] : "array";
+    if (value === null || value === undefined) return "nullable";
+    if (typeof value === "object") {
+      return Object.fromEntries(Object.keys(value).sort().map((k) => [k, shapeOf(value[k])]));
+    }
+    return { string: "string", number: "number", boolean: "bool" }[typeof value] ?? typeof value;
+  };
+  // 后端取样到 null 的 Option 字段记 "nullable";fixture 给了具体值同样合法,反之亦然。
+  // 除此之外必须逐键逐类型相等。
+  const compatible = (expected, actual, path, problems) => {
+    if (expected === "nullable" || actual === "nullable") return;
+    const expectedIsList = Array.isArray(expected) || expected === "array";
+    const actualIsList = Array.isArray(actual) || actual === "array";
+    if (expectedIsList || actualIsList) {
+      if (!expectedIsList || !actualIsList) {
+        problems.push(`${path}: 契约 ${JSON.stringify(expected)} vs fixture ${JSON.stringify(actual)}`);
+      } else if (Array.isArray(expected) && Array.isArray(actual)) {
+        compatible(expected[0], actual[0], `${path}[]`, problems);
+      }
+      return;
+    }
+    if (typeof expected === "object" && typeof actual === "object") {
+      for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
+        if (!(key in actual)) { problems.push(`${path}.${key}:后端会发,fixture 里没有(界面读它就是 undefined)`); continue; }
+        if (!(key in expected)) { problems.push(`${path}.${key}:fixture 独有,后端不发(测试在验一个不存在的字段)`); continue; }
+        compatible(expected[key], actual[key], `${path}.${key}`, problems);
+      }
+      return;
+    }
+    if (expected !== actual) problems.push(`${path}: 契约 ${JSON.stringify(expected)} vs fixture ${JSON.stringify(actual)}`);
+  };
+  const problems = [];
+  compatible(contract.docs_snapshot, shapeOf(payloads.docs_snapshot), "docs_snapshot", problems);
+  for (const problem of problems) issues.push(`D-381 IPC 契约:${problem}`);
 }
 
 if (issues.length) {

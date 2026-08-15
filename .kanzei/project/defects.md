@@ -85,15 +85,16 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-380 设计语言只有色彩成体系:字面量逃逸集中在交互态、排版无音阶、活动栏图标两套 [fixed] (medium)
-- refs: R-189 D-154 D-351
-- 复现: ①切亮色主题后把鼠标移到权限对话框的「拒绝」键——hover 变成深灰实心块(#2a2a2a);移到并行线路条——完全没有反馈(#ffffff05 白上加白);看消息附件分隔线——不可见(#ffffff44)。②`grep -oE 'font-size: *[0-9.]*px' style.css | sort -u` 得 17 个不同值,含 9.5/10.5/11.5/12.5/13.5 五个半像素档,共 221 条声明;z-index 11 个裸数字。③活动栏 11 个入口里 7 个是 24 viewBox/stroke 1.6 的内联 SVG(CSS 渲染 22px),4 个是 Unicode 字形 ⌂ ☷ ❖ ◉(继承 body 13px)。
-- 根因: R-189 的亮色主题是「在暗色之上把 token 覆盖一遍」做出来的,漏掉 token 的字面量就在亮色下照旧渲染暗色;而逃逸恰好集中在 hover/active——静态看不出来,人眼复查抓不住。排版/层级从来没有 token 层,密度是靠往下压字号压出来的。style.css 里那条「整套图标必须是单色描边」的注释拦住了彩色 emoji,没拦住「SVG 与字形混用」本身。
-- 影响: 亮色主题在若干高频交互态上是坏的(权限对话框是打断最频繁的界面);同屏出现 10px 与 10.5px 时它们不构成层级只构成噪声;活动栏是产品第一眼,同一列图标尺寸差 1.7 倍、笔画粗细由系统字体决定。
-- 边界: **不在本条里并档**。把 10.5/11.5/12.5 并进相邻整档会改变用户看到的像素(共 52 处),是设计决定不是重构;间距的 28 个不同 px 值同理。本条只做零像素变化的 token 化 + 判据,并档留给用户拍板(token 值改一处即可)。
+## D-381 Rust↔JS 是全仓最弱的一条缝:93 个命令手搓 JSON,而冒烟断言的是前端自己写的 fixture [fixed] (high)
+- refs: D-207 D-005
+- 复现: 把 docs.rs 里 `"title": e.title` 改成 `"titel": e.title`,跑 `cargo test --workspace` + 六条前端冒烟——**全绿**,而真实界面上所有条目标题变空。改名不会让任何既有测试变红。
+- 根因: 93 个 `#[tauri::command]` 里 30+ 个返回 serde_json::Value、错误一律 String;应用最丰富的数据结构(docs_snapshot/conversation_*/memory_*)是在 IPC 上手搓 JSON 过去的,每个字段名在两侧各写一遍字符串字面量,中间没有编译期或测试期的连接。而 ui-runtime-smoke 的 payloads 是**前端作者手写的夹具**——它验的是"前端能正确渲染前端想象中的后端响应"。对照:Rust 内部为了防止根目录传反专门造了 ProjectRoot/WorktreeRoot newtype 让编译器报 E0308,同一个仓里两种严格度差得刺眼。
+- 影响: D-207 那类「界面展示的值与后端事实对不上」的结构性来源。实测本条落地时,契约一比对就抓到既有漂移:夹具缺 root/warnings/blocked/block_reasons/claimed_by/severity,ideas 条目缺 6 个字段——而 blocked/block_reasons/claimed_by 正是 backlog 界面在读的(R-247/D-354)。
+- 边界: 不在本条里把 30 个命令改成 typed struct(那是 R 级改造)。先把**形状**钉在一份两侧共读的产物上,把「改了没人知道」变成「改了必然有一侧红」。
 - 来源: 2026-08-15 用户要求三维度审视。
-- 验收: ①主题块之外零字面量颜色(白名单仅 mask-image,遮罩取 alpha 与主题无关),var(--x,#fallback) 的死回退一并清除;②字号与 z-index 全部走 token,引用点零裸值;③活动栏图标全部为同规格描边 SVG(viewBox 0 0 24 24 + stroke-width 1.6/1.8);④三条判据都有反例实证;⑤六条前端冒烟全绿。
-- 优先级: P2
+- 证据等级: E1(反例实测:后端改名 → Rust 侧判据红并打印实际形状;夹具去字段 → 前端冒烟红并指出「后端会发,fixture 里没有」)
+- 验收: ①有一份两侧共读的形状契约,由真实命令跑出来而不是手写;②Rust 侧改形状即红,并写明「三处一起动」的修法;③前端夹具与契约不符即红,分别指出「后端会发夹具没有」与「夹具独有后端不发」;④更新契约要显式开关(自动写回等于没有判据);⑤kz:* 事件名两侧对齐,发了没人听/听了没人发都判红;⑥裸 listen 绕过 on() 的 sessionId 纪律判红。
+- 优先级: P1
 - 标签: 核心
-- 进展: 已修。①10 处交互态逃逸 token 化(--shadow/--shadow-strong/--sunken*/--hover-wash/--on-ok/--danger-btn-hover/--deny-hover/--border-on-accent,暗亮两组成对给值;亮色阴影不照抄 53% 纯黑),另清掉 10 处 var() 死回退;②17 个字号 token(221 处引用)+ 11 个层级 token(14 处引用)+ 6 档间距目标音阶(引用点未迁移,见边界);③活动栏 4 个字形换成同规格描边 SVG;④判据进 ui-a11y-smoke 三节,反例逐条实测(还原一处 #0008 → 报出行号与修法;把 memory 图标还原成 ❖ → 报 data-view="memory");⑤顺带把 D-351 的字号护栏从「断言源码字面量 15px」改成「解析 token 后比数值」——原写法在纯 token 化后全落空而可读性一点没变,正是审视里点名的「测试断言源码文本」。六条前端冒烟全绿。
-- observed_head: 2b0373c
+- 进展: 已修。新增 crates/kanzei-app/src/ipc_contract.rs(shape 抽取:对象递归保留键、数组取样、标量退化成类型名、null 记 nullable)+ scripts/ipc-contract.json(由 `KZ_UPDATE_IPC_CONTRACT=1 cargo test -p kanzei-app 形状` 产出,刻意做成显式开关);ui-runtime-smoke 读同一份文件校验 payloads.docs_snapshot,并把夹具补齐到与后端一致(docEntry 补 severity/complexity/batches/blocked/block_reasons/claimed_by/dependencies/dependents,ideas 改用 docEntry,补 root/warnings)。事件名判据:扫 kanzei-app/src 全部 .rs 的 "kz:*" 与 ui/*.js 的 on() 订阅集合对比,并禁止裸 listen;kz:annotate-progress 从裸 listen 改走 on() 并登记进 SESSIONLESS_EVENTS(它此前绕开了「没有 sessionId 就丢弃」那条纪律,规则只覆盖了一半订阅)。三条判据均有反例实证。kanzei-app 169 passed,六条前端冒烟全绿。
+- observed_head: 219ed94

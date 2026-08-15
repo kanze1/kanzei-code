@@ -273,8 +273,13 @@ $("files-annotate").addEventListener("click", async () => {
     renderFilesTree();
   }
 });
-listen("kz:annotate-progress", (e) => {
+// D-381:走 on() 而不是裸 listen。01-core 的 on() 里那套「没有 sessionId 就丢弃」的
+// 纪律(注释写得很重:「没有身份就不能安全地投影到当前对话,宁可只留下后端持久事实
+// 也不能串线」)只在它自己那条路径上强制;这里绕过去,规则就只覆盖了一半的订阅。
+// 本事件确实没有 session 归属(标注是项目级批处理),已登记进 SESSIONLESS_EVENTS。
+// 附带好处:订阅失败不再是 `.catch(() => {})` 静默,而是走 on() 的可见报错(D-005)。
+on("kz:annotate-progress", (e) => {
   const p = e.payload;
   const btn = $("files-annotate");
   if (btn.disabled) btn.textContent = `${t("标注中")} ${p.done + p.failed}/${p.total}`;
-}).catch(() => {});
+});
