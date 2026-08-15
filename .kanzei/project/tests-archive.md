@@ -4172,3 +4172,9 @@
 - 关联: R-246
 - 收尾: 1786819480
 - 源码指纹: a4b19c84f959817a
+
+## T-1786819519 cargo test -p kanzei (R-246 B3 提交背书) [passed]
+- 命令: cargo test -p kanzei
+- 摘要: R-246 批3 提交门禁补充背书(integration 测试在 kanzei crate):cargo test -p kanzei 37+31 passed 全绿。
+- 关联: R-246
+- 收尾: 1786819519
