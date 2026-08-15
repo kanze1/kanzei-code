@@ -230,10 +230,10 @@
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-257
 - 取得线: kanzei/thread-line-1786805363432-1
 - 批次: 3/6
-- 进展: B3 docstore.rs 切分完成(2026-08-15):六域迁出,零行为变更、零外部 API 面变更。docstore.rs 改为总模块(mod 声明 + 顶层再导出,lib.rs pub mod docstore 不变,memory/migration.rs 的 docstore::parse/MEMORY、scheduling.rs 的 DocStore/Entry 等调用方零改动),tests 原样保留在 docstore.rs(use super::* 经再导出)。六域:model.rs(282 行:DocKind/7 常量/Entry/RawLine/MAX_BATCHES/batch 系列/ALL_STATUS_TOKENS)、parse.rs(194:标题清洗/模板结构/parse 系列)、render.rs(137:render/render_with_template/entry 渲染)、repository.rs(115:DocStore struct+open/lock/load/save/next_id/archive_file,preserved 字段改 pub(crate))、archive.rs(463:ARCHIVE_CACHE/load_archive/archive_terminal/correct_archived_terminal/dedupe/fill/normalize,扩展 impl DocStore)、validation.rs(320:ledger/void/restore/integrity/transition/raw_lines/delete_raw_line,扩展 impl DocStore)。impl DocStore 分散三文件(repository/archive/validation),方法经类型合并解析。行数对照:docstore.rs 2624 总/1467 生产 → 拆解后 docstore.rs 1188 总(模块声明 15 + tests 1173)+ 六域 1511 生产(合计 1526,模块边界 use/注释成本 +59)。验证:cargo check -p kanzei-memory 零 warning,cargo test -p kanzei-memory 139 passed(T-1786814858/4959)。提交 218ebbc。
+- 进展: B4 切分方案(2026-08-15 侦察完毕,待实施):git.rs 2467 总/1298 生产,结构已全读。4 域:①tool.rs=GitInput/GitTool+impl Tool(execute)/git_body/ensure_repository/normalize_files/preserve_case_path(1-308,工具适配层+命令分发);②commands.rs=stage/unstaged_changes/staged_paths/staged_state/commit/merge_ff/run_git/run_git_owned/hide_console_window/GIT_TIMEOUT/MAX_OUTPUT(具体 git 命令执行);③finalize.rs=staged_source_fingerprint/staged_paths_sync/is_source_path/is_tracker_path/placeholder_id_gate/modified_secs/compile_gate/fmt_gate/clippy_gate/source_test_gate/source_crates/now_secs/finalize/validate_ref(交付工作流+门禁组件,按 R-257『finalize 是 workflow 不是 git action』对待);④worktree.rs=WorktreeEntry/parse_worktree_list/worktree_for_branch(1115-1174)。git.rs 改总模块(4 子模块声明+顶层再导出,tests 1300-2467 原样保留)。可见性:commands/finalize 函数 pub(crate)(git_body 与 commit/finalize 互调),staged_source_fingerprint 保持 pub。依赖:tool→commands/finalize,commands→finalize(placeholder_id_gate/fmt_gate/clippy_gate/source_test_gate),finalize→commands(stage/commit),worktree 独立;同 crate 模块循环 use 合法。diff 域不独立(仅 git_body 121-146 分支,并入 commands 语义)。实施步骤:读 tests 全文→建 4 文件(write)→git.rs 重写(模块声明+tests)→修可见性/use→cargo check→cargo test -p kanzei-tools(346)→行数对照→提交。
 - observed_head: 218ebbced272dace58b9b06b12d0e17ce41bdc30
 - observed_worktree_hash: fnv1a64:2c14aeaf67acb614
-- recorded_at: 1786815044682
+- recorded_at: 1786815183926
 
 ## R-265 symbols 加「符号名 → 定义位置」反查,穿透跨 crate re-export [doing]
 - refs: R-234
@@ -246,11 +246,11 @@
 - 来源: 2026-08-15 自举勘察实测事故:agent 在 managed.rs:299 看到 `crate::atomic_file::try_lock_exclusive`,按字面去 crates/kanzei-tools/src/atomic_file.rs 找,扑空;真实定义在 crates/kanzei-base/src/atomic_file.rs:256,kanzei-tools 只是 lib.rs:6 再导出。同轮另修两个前置缺陷(关键字词边界假符号、表头无条件入队把命中埋掉,见提交 a26df63)——那两个不修,反查会直接给出错误答案。
 - 验收: ①`symbols` 传 define=try_lock_exclusive 能定位到 crates/kanzei-base/src/atomic_file.rs 并给出经 kanzei-tools/src/lib.rs:6 的再导出链;②对 as 改名(kill_background_processes_for_process)能回落原名找到定义;③对跨行花括号再导出(tracker.rs:25-29)不漏;④define 与 callers 同时给出时显式报错而非静默取其一;⑤输出带上限与「已截断」提示,与 grep 的 DEFAULT_LIMIT 口径一致(现 callers 无上限,`callers: "self"` 能灌上万行);⑥description 的 Params 补齐 define 与 callers(callers 自 B2 起就没进描述)。
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-265
-- 批次: 1/3
-- 进展: 批1 完成:SymbolsInput 新增 define 字段(注释含互斥语义);execute 加 define/callers 互斥显式报错(验收④);resolve_define 实现——全树按符号名精确命中(路径不参与命中判定),再导出链两型(符号直连 exported==symbol / 模块整体 exported==宿主模块名),as 改名回落(hits 空时经 source_name 原名重查,验收②);collect_reexports 收集三型(模块整体/as 改名/跨行花括号列表,source_name 字段);parse_symbol_line 支持 async fn(否则 as 回落找不到 async 定义);callers 上限 DEFAULT_LIMIT=50+已截断提示(验收⑤);description 补 define/callers(验收⑥)。9 测试全绿(含真实仓库穿透:try_lock_exclusive→atomic_file.rs、kill_background_processes_for_process→background.rs、workable_titles→scheduling.rs)。clippy 零警告。
-- observed_head: addd88f7c6d3a1411fe090e70080908acd0e8913
-- observed_worktree_hash: fnv1a64:f963d2fc96f99366
-- recorded_at: 1786814963009
+- 批次: 2/3
+- 进展: 批2 完成:crate ident→源码目录映射(crate_ident_to_dir 读 workspace members 的 [package].name,`-`→`_`,只收 [workspace] 段内 members 引号行);限定路径 define(如 kanzei_tools::helper)输出该 crate 源码目录提示(不参与命中判定,只解释路径)。2 新单测全绿(crate 映射下划线 ident→目录、限定路径提示),symbols 共 11 测试全绿。批3:workspace 全量 + close。
+- observed_head: ae0dd2d7c5049b97cc510807377d94f9b6f865ee
+- observed_worktree_hash: fnv1a64:5e31a9e59ca9cfcc
+- recorded_at: 1786815230454
 - 阻塞: 2026-08-16 park(用户指示,零损失):默认线的唯一 WIP 槽改由 R-195 接管。本条是引擎在 addd88f 之后按「无可执行 WIP」自动取的活,批次 0/3、尚未动手,park 不丢任何工作。同线另有 R-186/R-216/R-249 三条前提已达成的条目一并排队(见各自阻塞字段);R-257 由 worktree 线 thread-line-1786805363432-1 持有,属他线 WIP,不占默认线槽位。解除动作: R-195 关闭后按队列自然取回本条(P2)。解除人: 依赖自然解除。
 
 ## R-264 前端迁移原生 ESM(勘察已完成,方案见 docs/design/ui_esm_migration.md) [todo]

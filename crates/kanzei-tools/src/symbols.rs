@@ -102,8 +102,7 @@ impl Tool for SymbolsTool {
         if let Some(define) = &input.define {
             let report = resolve_define(&files, define, &ctx.project_root);
             return ToolOutput::ok(report);
-        }
-        // R-234 B2:调用链查询——列出对指定符号的引用点。
+        } // R-234 B2:调用链查询——列出对指定符号的引用点。
         if let Some(callers) = &input.callers {
             let mut hits: Vec<String> = Vec::new();
             for file in &files {
@@ -299,6 +298,23 @@ fn resolve_define(
             return out;
         }
     }
+    // R-265:限定路径解释——`crate::atomic_file::try_lock_exclusive` 等带 crate
+    // 前缀时,附该 crate 的源码目录提示(不参与命中判定,只回答「这个 crate 在哪」)。
+    if define.contains("::") {
+        let prefix = define.split("::").next().unwrap_or("").trim();
+        if !prefix.is_empty() && prefix != "crate" && prefix != "self" && prefix != "super" {
+            let crate_map = crate_ident_to_dir(project_root);
+            for (ident, dir) in &crate_map {
+                if ident == prefix {
+                    out.push_str(&format!(
+                        "crate `{prefix}` 源码目录: {}\n",
+                        dir.strip_prefix(project_root).unwrap_or(dir).display()
+                    ));
+                    break;
+                }
+            }
+        }
+    }
     out.push_str(&format!("definition of `{symbol}` ({} hit):\n", hits.len()));
     for (file, line, kind, public) in &hits {
         let vis = if *public { "pub" } else { "  " };
@@ -344,6 +360,63 @@ fn resolve_define(
         ));
     } else {
         out.push_str("(no `pub use` re-export of this symbol found in tree)\n");
+    }
+    out
+}
+
+/// R-265:crate ident → 源码目录映射。读 workspace members 的 `[package].name`,
+/// `-` → `_`(crate ident 约定)。供限定路径(`crate::module::sym`)解释时
+/// 定位「这个 crate 的源码在哪」,输出目录提示。
+fn crate_ident_to_dir(project_root: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
+    let mut out = Vec::new();
+    let Ok(workspace_toml) = std::fs::read_to_string(project_root.join("Cargo.toml")) else {
+        return out;
+    };
+    // 提取 [workspace] members = [...] 里的 crate 相对目录(形如 crates/kanzei-base)。
+    let mut members: Vec<String> = Vec::new();
+    let mut in_workspace = false;
+    let mut in_members = false;
+    for line in workspace_toml.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            in_workspace = t.starts_with("[workspace]");
+            in_members = false;
+            continue;
+        }
+        if !in_workspace {
+            continue;
+        }
+        if t.starts_with("members") {
+            in_members = true;
+            continue;
+        }
+        if !in_members {
+            continue;
+        }
+        if t.starts_with('"') {
+            let name = t.trim_end_matches(',').trim_matches('"');
+            if !name.is_empty() {
+                members.push(name.to_string());
+            }
+        }
+        if t == "]" {
+            in_members = false;
+        }
+    }
+    for member in members {
+        let manifest = project_root.join(&member).join("Cargo.toml");
+        let Ok(text) = std::fs::read_to_string(&manifest) else {
+            continue;
+        };
+        for line in text.lines() {
+            let t = line.trim();
+            if let Some(rest) = t.strip_prefix("name = ") {
+                let name = rest.trim().trim_matches('"').to_string();
+                let ident = name.replace('-', "_");
+                out.push((ident, project_root.join(&member)));
+                break;
+            }
+        }
     }
     out
 }
@@ -899,6 +972,88 @@ mod tests {
             "{}",
             out.content
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-265:crate ident → 源码目录映射(`-`→`_`)。
+    #[test]
+    fn crate_ident_to_dir_映射_下划线ident到目录() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-symbols-crates-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("crates/kanzei-base")).unwrap();
+        std::fs::create_dir_all(dir.join("crates/kanzei-tools")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[workspace]\nmembers = [\n    \"crates/kanzei-base\",\n    \"crates/kanzei-tools\",\n]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("crates/kanzei-base/Cargo.toml"),
+            "[package]\nname = \"kanzei-base\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("crates/kanzei-tools/Cargo.toml"),
+            "[package]\nname = \"kanzei-tools\"\n",
+        )
+        .unwrap();
+        let map = crate_ident_to_dir(&dir);
+        let base = map
+            .iter()
+            .find(|(ident, _)| ident == "kanzei_base")
+            .map(|(_, d)| d.clone());
+        assert!(
+            base.is_some() && base.unwrap().ends_with("crates/kanzei-base"),
+            "{map:?}"
+        );
+        let tools = map
+            .iter()
+            .find(|(ident, _)| ident == "kanzei_tools")
+            .map(|(_, d)| d.clone());
+        assert!(
+            tools.is_some() && tools.unwrap().ends_with("crates/kanzei-tools"),
+            "{map:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-265:限定路径 define 输出 crate 源码目录提示。
+    #[test]
+    fn define_限定路径_输出crate目录提示() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-symbols-cratepath-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("crates/kanzei-tools/src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[workspace]\nmembers = [\n    \"crates/kanzei-tools\",\n]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("crates/kanzei-tools/Cargo.toml"),
+            "[package]\nname = \"kanzei-tools\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("crates/kanzei-tools/src/lib.rs"),
+            "pub fn helper() {}\n",
+        )
+        .unwrap();
+        let files = collect_rs_files(&dir.join("crates"));
+        let report = resolve_define(&files, "kanzei_tools::helper", &dir);
+        assert!(report.contains("kanzei_tools"), "{}", report);
+        assert!(report.contains("crates/kanzei-tools"), "{}", report);
         std::fs::remove_dir_all(&dir).ok();
     }
 

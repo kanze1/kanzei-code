@@ -4079,3 +4079,10 @@
 - 关联: R-265
 - 收尾: 1786815040
 - 源码指纹: 95192e387572630d
+
+## T-1786815313 cargo test -p kanzei-tools (R-265 B2 提交背书) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: R-265 批2 提交门禁背书:cargo test -p kanzei-tools 279 passed(1 ignored)全绿(含 symbols 11 测试),clippy 零警告。
+- 关联: R-265
+- 收尾: 1786815313
+- 源码指纹: e751317984c55f7b
