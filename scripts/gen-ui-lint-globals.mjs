@@ -30,9 +30,9 @@ for (const file of fs.readdirSync(uiDir).filter((f) => f.endsWith(".js")).sort()
       names.add(m[1]);
     } else if ((m = t.match(/^(?:export\s+)?class\s+([A-Za-z_$][\w$]*)/))) {
       names.add(m[1]);
-    } else if ((m = t.match(/^(?:const|let|var)\s+([A-Za-z_$][\w$]*)/))) {
+    } else if ((m = t.match(/^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/))) {
       names.add(m[1]);
-    } else if ((m = t.match(/^(?:const|let|var)\s*\{\s*([^}]+)\s*\}\s*=/))) {
+    } else if ((m = t.match(/^(?:export\s+)?(?:const|let|var)\s*\{\s*([^}]+)\s*\}\s*=/))) {
       // 解构声明:const { invoke, listen } = window.__TAURI__.* / const { a: x } = ...
       for (const binding of m[1].split(",")) {
         const name = binding.trim().split(":")[0].trim().replace(/["']/g, "");

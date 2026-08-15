@@ -203,10 +203,10 @@
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-264
 - 批次: 2/4
-- 进展: 批2 完成(6c90aba)。**批3 勘察实证(2026-08-16)**:尝试迁移 01-core.js(加 15 export + B2 兼容桥挂全局)——发现 01-core 的 invoke/listen/on 被 17 个文件裸引用,ESM 模块作用域不共享,单个基建文件迁移立即断链(18-startup 报 invoke is not defined);兼容桥(export 挂全局)只能覆盖 export 符号,内部 const(invoke/listen)不覆盖。**结论:逐文件迁移不可行,必须整体迁移**(21 文件 + 17+ 消费者同步 import + 循环依赖 + 每批冒烟)——这是独立大工程,设计文档 §四『每迁一个文件跑全套冒烟』在基建文件上不成立。已回退 01-core export 改动(工作树干净),B2 兼容桥保留(批2 合法增强,无 ESM 文件时行为不变,冒烟全绿)。R-264 保持 doing,B3/批3/批4 留待专用批次(设计文档自述对自举无收益,P3 留档)。
-- observed_head: 2483818d709a67feb9149d7be7d52088ed94680f
-- observed_worktree_hash: fnv1a64:138c80e2f0006aa4
-- recorded_at: 1786821005871
+- 进展: 批2 完成(6c90aba)。**批3 两条路径均已实证(2026-08-16)**:①逐文件迁移不可行——01-core 的 invoke/listen 被 17 文件裸引用,ESM 模块作用域不共享,单基建文件迁移立即断链;②全量 export 渐进不可行——21 文件全 export 后兼容桥虽挂全局,但 ESM 模块 evaluate 的异步时序破坏逐文件执行语义(TDZ/顶层副作用顺序),14 条断言红。**结论:批3 唯一正确形态是整体一次性迁移**(21 文件同时 export+import、index.html 全改 module、冒烟执行器整批 ESM 链接保顺序)——设计文档 §四 完整工程,需专用批次连续执行。已回退全部批3 残留(ui 文件 0 export,eslint/globals 还原,临时脚本删除),B1/B2 保持交付(六冒烟全绿)。gen-ui-lint-globals.mjs 增强 export const/let 识别(向前兼容,迁移时有用)。R-264 保持 doing,B3/批3/批4 待专用批次(设计文档自述对自举无收益,P3 留档)。
+- observed_head: 9eaf30accfd3cbbdaa432871be485fa17774b628
+- observed_worktree_hash: fnv1a64:0406d21833af5cc6
+- recorded_at: 1786821317174
 
 ## R-266 workspace crate 清单与 README 项目结构表机械同步 [todo]
 - refs: R-258
