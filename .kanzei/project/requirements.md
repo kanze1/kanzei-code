@@ -32,10 +32,10 @@
 - 内容: 原按设计文档六批实施,2026-08-14 用户定调后重排:①档位收口(桌面注册 ReadonlyProfile、files/git 只读入列)——**bash 硬 deny 一项作废**,新定位要跑 LaTeX 编译与绘图,须改为白名单或专用工具通道;②topic 工件落点——**待重推**,论文形态需容纳 paper.tex/figures/refs.bib,不是单个 report.md;③证据等级 V 表进 conventions——**已定**,四档待按文献口径扩展;④回流通道(finding→req/defect 草稿)——**待重推**,research 独立后是否仍属本模式职责需重判;⑤记忆一元化——**待复核**,论文引用管理(refs.bib)与记忆晋升是两件事;⑥三形态收敛——**作废**,research 独立后不与 dev 侧 task 勘察/SCOUT_ROLES 收敛。
 - 边界: research 不可提交 git、不动既有条目状态(add 草稿除外);不做报告 schema 校验。「不可写 docs/design」一条待重推(新定位下产出是论文而非设计文档,问法需重新表述)。**dev 侧「先计划后自举」的勘察工件落点问题不由本条承接**——那是独立课题,需另立条目。
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
-- refs: D-276 R-201 D-304
+- refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 docs/design/research_mode_prior_art.md
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-221
 - 进展: 2026-08-16 取活。勘察结论:R-221 的设计真源 docs/design/research_mode.md 状态为「设计基线草案(2026-08-12 八维度审计维度8 产出;定调点待用户逐项确认后转正)」——§2 的八个定调点(主形态/工件落点/证据等级 V 表/回流通道/记忆一元化/档位矩阵/可写 docs 边界/三形态收敛)全部标注「待用户确认」,括号内为本设计的默认建议。按 §1「需求边界不清楚时必须先提问确认,不允许在关键问题上自行假设后直接实现」,八个定调点未获用户拍板前实施会踩边界(如「research 不可写 docs/design」「证据等级单列 V 表」都是用户层面决策)。现状盘点(供解除阻塞后立即开工):批1 档位收口的 files/git 只读已在 R-218 完成(SubagentBase 6 件套),ReadonlyProfile 与 bash 硬 deny+替代指引是既有模式(profiles.rs:652-658 先例);批2-批6 的 topic 工件/证据口径/回流/记忆/三形态均未动。阻塞:等用户对 research_mode.md §2 八个定调点逐项拍板(解除人:用户;方案与默认建议已在 docs/design/research_mode.md §2)。 || 2026-08-14 用户过审:定调点1 被否——research 是**独立深度研究模式**(文献+仓库深度调研,产出论文/LaTeX/图表),不是「先计划后自举」载体,网络检索是主力不是辅助;连带定调点8(三形态收敛)作废;定调点3(V 表单列)已定,四档待按文献口径扩展;定调点2/4/6/7 待 §1 重写后重推,其中6 已知冲突(原案 bash 硬 deny 与跑 LaTeX 编译/绘图直接矛盾)。设计文档 §1/§2 已同步改写,§3 之后各节按旧命题写成尚未同步。
-- 阻塞: ①排期阻塞已解除:2026-08-16 用户定调 research mode 可以开始做。②设计阻塞仍在:research_mode.md §3 以后各节按已作废旧命题写成,须按 §1 新定位重写,§2 四条待重推(工件落点/回流通道/档位矩阵/可写 docs)须重新过审。2026-08-16 用户追加范围定向:LaTeX 编译与科研绘图(含调色板推荐、配色网站方案引入)是必备配套(正好化解定调点6 的 bash 冲突——走专用工具通道),research 前端设计复杂需专门设计;先行调查(现有 auto research 系统 / LaTeX+绘图工具链 / 科研配色体系 三路)已发起,结果落盘后重写设计文档并重推定调点。解除动作: 调查落盘→重写 research_mode.md→§2 待重推各条经用户过审。解除人: 用户(定调点过审)。
+- 阻塞: ①排期已解除(2026-08-16 用户定调开工)。②设计阻塞收窄:三路先行调查已完成并落盘 docs/design/research_mode_prior_art.md(auto research 系统盘点/LaTeX+绘图工具链/科研配色),工具配套已登记 R-273(LaTeX)/R-274(绘图)/R-275(调色板)/R-276(前端);剩余动作=按调查结论重写 research_mode.md §3 以后各节,并把 §2 四条待重推定调点(工件落点/回流通道/档位矩阵/可写 docs)连同调查依据提交用户过审。解除动作: 定调点过审后本条按新设计分批实施。解除人: 用户。
 - observed_head: b644f1657f2aadede85b26ef65050605740ceb04
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786633950047
@@ -270,4 +270,50 @@
 - 标签: 前端
 - 边界: 不做视觉回归像素比对;不做性能量化(D-202/R-101 范围);不替代 R-101 E2 harness 的事件路由类用例;巡检遍历深度设上限,防状态爆炸;不巡检需要真实模型运行的状态。
 - 验收: ①人为造一个孤岛视图与一个死链,巡检各能点名(定向反证,给实测输出);②桌面端与 PWA 各有一份真实巡检报告轨迹;③关键路径清单以配置文件维护,增删路径不改巡检代码;④单次巡检耗时有实测数字。
+- 优先级: P2
+
+## R-273 LaTeX 编译工具通道:Tectonic 侧车+系统发行增强 [todo]
+- refs: R-221 R-249 docs/design/research_mode_prior_art.md
+- 内容: ①Tectonic CLI 侧车:随包分发官方 exe(或首启下载校验),封装 latex 编译工具(输入 .tex 与工作目录,输出 PDF+诊断);预热常用宏包后默认 --only-cached 免每次联网核对 bundle(上游 #1224),失败再放开网络重试;②bib 路线:默认 natbib/bibtex(Tectonic 内置纯 Rust 实现,循环全自动),biblatex 仅在检测到 biber 二进制时可用并向 agent 显式声明;③系统发行版增强:PATH 检测 kpsewhich/latexmk,检测到 MiKTeX/TeX Live 优先用(全量宏包+biber),否则回落 Tectonic,不要求用户装;④PDF→PNG 回传:pdfium-render + pdfium.dll 侧车,编译产物页面转 PNG 经 ToolOutput images 通道回模型(R-249 已交付);⑤编译错误诊断透传(行号+上下文),支持 agent 编译回环修错(AI Scientist v1 先例)。拆批:批1 侧车+编译工具+诊断;批2 PDF→PNG 回传;批3 系统发行检测增强+bib 收口。
+- 复杂度: 中
+- 批次: 0/3
+- 来源: 2026-08-16 用户定调 research mode 配套必备(「我们肯定还需要latex绘制」);技术路线依据 docs/design/research_mode_prior_art.md §2 调查:Tectonic 2026 年活跃维护、Windows 官方预编译、CLI 侧车优于嵌 crate(官方认证的脆构建链)、biber 不内置。
+- 标签: 核心
+- 边界: 不嵌 tectonic crate;不内置 biber;不做 Typst 通道(调查给出诚实对比,是否加挂另行评估);编译工作目录限研究工件目录与显式指定目录;不做 SyncTeX 编辑器联动。
+- 验收: ①无系统 TeX 的机器上编译含数学公式+图+bibtex 参考文献的 .tex 成功出 PDF(实测);②PDF 页面转 PNG 被模型消费有轨迹;③断网时 --only-cached 编译已预热文档成功,未预热宏包给明确诊断;④检测到系统发行版优先用之、缺失回落 Tectonic,两路径各有测试;⑤编译错误诊断含行号不静默;⑥侧车 exe 缺失时给下载指引不崩溃。
+- 优先级: P1
+
+## R-274 科研绘图工具通道:Vega-Lite+PGFPlots 双轨 [todo]
+- refs: R-221 R-249 R-273 R-275 docs/design/research_mode_prior_art.md
+- 依赖: R-273
+- 内容: ①主轨 Vega-Lite:agent 产 JSON spec,vl-convert 独立 CLI 侧车渲染 SVG/PNG(不嵌 crate,避开 deno_runtime/v8 编译负担);spec 先 JSON 校验,错误给 agent 可一轮修复的诊断;②终稿轨 PGFPlots/TikZ:走 R-273 Tectonic 通道,零新增依赖,图字体与论文正文一致;③增强轨 matplotlib+scienceplots:检测到 uv/Python 才启用(uv run --with matplotlib,scienceplots 按需环境化),检测不到明确降级;④色板注入与 R-275 对接:Vega-Lite 经 spec config/scale.range,matplotlib 经 rcParams 前导代码;⑤输出统一转 PNG 回模型(R-249 通道),原始 SVG/PDF 落盘给用户。拆批:批1 Vega-Lite 主轨;批2 PGFPlots 轨+统一落盘回传;批3 matplotlib 增强轨+色板对接。
+- 复杂度: 中
+- 批次: 0/3
+- 来源: 2026-08-16 用户定调「科研绘图,这个绘图工具也是很重要的」;路线依据 docs/design/research_mode_prior_art.md §2 七方案对比:Vega-Lite(vl-convert)是最优纯 Rust 零安装路线且 JSON 规格对 agent 最友好、PGFPlots 投稿场景不可替代、matplotlib 是检测到 Python/uv 时的上限增强;plotters(无抗锯齿)/gnuplot/charming/plotly.rs 排除。
+- 标签: 核心
+- 边界: plotters/gnuplot/charming/plotly.rs 不引入;不做交互式图表与图表编辑 UI;图产物目录限研究工件目录与显式指定;不做动画/3D。
+- 验收: ①零外部安装机器上 Vega-Lite spec→PNG 实测成功且被模型消费(轨迹);②同一数据 PGFPlots 轨出 PDF 实测;③检测到 uv/Python 时 matplotlib 轨出图、检测不到时明确降级诊断(两路径测试);④注入指定色板后图中系列颜色与色板逐色一致(机械断言);⑤构造一个非法 spec,诊断可让 agent 一轮修复(实测轨迹);⑥辅进程无残留。
+- 优先级: P1
+
+## R-275 调色板子系统:内置科学配色/推荐校验/用户导入 [todo]
+- refs: R-274 docs/design/research_mode_prior_art.md
+- 内容: ①内置科学配色打包:ColorBrewer(Apache-2.0,需致谢)/viridis 系(CC0)/Crameri Scientific Colour Maps(MIT)/Paul Tol(BSD-3)/Okabe-Ito(注出处)/cmocean(MIT)/petroff10(CC0),一次性转内部规范 JSON(name/type[seq|div|qual|cyclic]/colors[]/max_classes/source_url/license),零运行时联网;②推荐规则机械化:无序分类→qual(≤12 色)、有序连续→seq、有中点→div、周期→cyclic(Vega-Lite 按字段类型默认规则先例);硬禁忌机械拒绝(jet/rainbow 用于连续量、定性板插值);③校验链 Rust 本地实现:CVD 模拟(Machado 矩阵)→两两 CIEDE2000(palette crate 内置)→WCAG 图形对比度≥3:1→连续板亮度单调性,导入即评分;④用户导入:粘贴 hex 列表/GIMP .gpl/Adobe .ase 统一转内部 JSON;定性板不够长默认拒绝并提示改分面/高亮,兜底循环+线型区分,绝不插值;⑤对 R-274 暴露统一色板查询接口(按 type+色数返回,用户板同类型优先)。拆批:批1 内置数据+规范 JSON+查询接口;批2 推荐规则+校验链;批3 用户导入三格式。
+- 复杂度: 中
+- 批次: 0/3
+- 来源: 2026-08-16 用户原话「科研绘图要支持调色版推荐,我给AI一些调色版,他自己做,这里可能还需要爬取一些配色网站的方案」;调查结论(prior_art §3):内置源许可证全干净且机器可读、爬配色网站砍掉(Coolors ToS 明确禁爬、Adobe API 已死、ColorHunt 灰色;纯色值组合无版权,风险在 ToS;开源聚合库覆盖更优)、Rust 生态足以本地实现全部校验。
+- 标签: 核心
+- 边界: 不爬配色网站(用户原「可能爬取」的想法经调查以免爬替代落地:官方源+开源聚合质量更高,「自己喂色板」由粘贴/导入入口覆盖);colorcet(CC-BY 要求署名)不入首批;不做色板编辑器 UI;不做专色/CMYK 印刷流程。
+- 验收: ①内置各族色板与上游源逐色一致(抽查断言),license 与致谢字段齐全;②四类数据特征各返回正确类型色板,jet 用于连续量被拒(定向测试);③构造红绿不安全板,校验链给低分并点名冲突色对(实测输出);④hex/.gpl/.ase 三种导入各有测试,非法输入诊断明确;⑤定性板超长请求默认被拒并给分面建议;⑥R-274 注入联通实测(图中颜色与用户板一致)。
+- 优先级: P1
+
+## R-276 research 模式前端:双面板/计划审批/来源呈现 [todo]
+- refs: R-221 R-267 R-273 R-274 docs/design/research_mode_prior_art.md
+- 依赖: R-221
+- 内容: ①布局:「会话+文档」双面板(Gemini 式)——左会话右报告文档,研究步骤折叠于报告下方,层级明确「结果>过程」;②计划先行:研究计划树是一等 UI 对象,开跑前可编辑、运行中可转向(Gemini/ChatGPT 先例;与 research_mode 定调「计划审批闸口」对应);③来源呈现:内联数字引用+来源卡+独立 Sources 页三处冗余(Perplexity 式),引用点击回源——文献 URL 与代码 file:line 双形态;④进行中活动流:检索/阅读步骤滚动展示,完成后折叠成紧凑卡;⑤topic 工件浏览:paper.tex/figures/refs.bib 浏览与图预览(figures 用 R-274 产物,PDF 预览用 R-273 的 PNG 转换)。**设计先行**:批1 只出交互设计稿(四组件权重取舍+页面流),经用户过审后才进批2-4 实施。拆批:批1 设计稿过审;批2 双面板+报告阅读;批3 计划树编辑+活动流;批4 来源交互+工件浏览。
+- 复杂度: 大
+- 批次: 0/4
+- 来源: 2026-08-16 用户「researchmode的前端设计这些比较复杂」;设计输入为 prior_art §1 前端横评(Gemini 报告至上双面板/ChatGPT 计划编辑与运行中转向/Perplexity 来源三处冗余/Manus 过程至上反例)与四组件通用 schema(document/steps/sources/annotations)。
+- 标签: 前端
+- 边界: 不做协作/分享/导出站外;不做在线 LaTeX 编辑器(Monaco 已有);research 下连跑禁用沿用 interaction_modes 既有定调;长报告渲染沿用 R-267 窗口化模式,不另造。
+- 验收: ①批1 设计稿经用户过审(含四组件权重取舍的明确理由);②计划编辑→运行→中途转向全链路可操作有轨迹;③引用点击回源双形态各实测(URL 与 file:line);④长报告与长活动流滚动不卡(窗口化生效);⑤与桌面既有 UI 风格与 i18n 纪律一致。
 - 优先级: P2
