@@ -3974,3 +3974,10 @@
 - 摘要: R-256 B3 CLI 模块化:kanzei 30+31 passed(含搬迁测试),clippy 零警告;main.rs 生产码 21 行(验收③≤500)
 - 关联: R-256
 - 收尾: 1786802971
+
+## T-1786803153 cargo test -p kanzei (R-256 B3 c8db0da 核验) [passed]
+- 命令: cargo test -p kanzei
+- 时长: 4.0s
+- 摘要: R-256 B3 CLI 模块化(c8db0da 混合提交核验):kanzei 30+31 passed,clippy 零警告;main.rs 18 行(验收③≤500)
+- 关联: R-256
+- 收尾: 1786803153
