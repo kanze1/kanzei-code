@@ -97,3 +97,17 @@
 - 标签: 核心
 - 进展: 已修。03-shell.js 相位表把 auto_pending 并入终态分支(带完整链路注释);08-compose.js armAutoContinue 宽限耗尽路径按后端权威自愈(item.running 为假则收敛本地态继续,为真才放弃),顺手删掉一处死变量 targetState;02-i18n.js 补自愈提示词条。ui-runtime-smoke 新增 5 条反证断言(①~⑤逐环)。六条前端冒烟全绿(ui-runtime/ui-lint/parallel-lines/ui-a11y/ui-i18n/ui-markdown)。
 - observed_head: 9e79edc71bffaf52d9fd5b25f1c9bd4773382853
+
+## D-373 加进建表批的 DDL 对存量库永久无效:D-297 的下推索引在真实主库里从不存在,验收却在新库上通过 [fixed] (high)
+- refs: D-297 R-155
+- 复现: 任意存量库(schema_version 已等于 SCHEMA_VERSION)执行 `EXPLAIN QUERY PLAN SELECT ... FROM session_events WHERE session_id=? AND sequence>? AND event_type=?`。实测本仓主库(132MB/74,184 行):计划为 `SEARCH USING INDEX session_events_session_sequence (session_id=? AND sequence>?)`,即按 (session_id,sequence) 扫完该会话 72,751 行再逐行过滤 event_type;代码里写着的 session_events_session_type_sequence 在 sqlite_master 里根本不存在(代码 DDL 与真库对象集合差集恰好只有它一个)。
+- 根因: D-297 把 `CREATE INDEX ... session_events_session_type_sequence` 加进 migrate 的**建表批**,但没有提升 SCHEMA_VERSION。migrate 在 `version == SCHEMA_VERSION` 时直接 `return Ok(())`(schema.rs:34),于是建表批对**所有已经停在当前版本的库**一次都不会执行。新建的临时库走的是另一条路(无版本记录→跑全批),所以单测、验收、CI 全绿——「代码里有、真实库里没有」不产生任何信号。
+- 影响: ①D-297 的读路径优化在真实环境从未生效,list_events_by_type 仍是全扫;②更要紧的是这是一个**类**而不是一条:今后任何加进建表批的表/索引/列都会静默跳过存量库,而唯一的使用者就是本机这一份长期库。
+- 边界: 不要改成「每次 open 无条件跑全批」——open 是高频路径(每个 Tauri 命令/每条轨迹事件各一次),把建表批塞进去等于给每次 open 加一串 DDL 解析。正确修法是版本号 +1 加机械判据。
+- 来源: 2026-08-15 用户要求三维度审视,只读核查真库 sqlite_master 与 EXPLAIN QUERY PLAN 时发现。
+- 证据等级: E1(真库 EXPLAIN 实证 + 代码 DDL 与真库对象集合逐项差集 + 迁移后计划切换与耗时实测)
+- 验收: ①SCHEMA_VERSION 提升到 14,存量库 open 后补齐缺失对象;②存在机械判据,往建表批加对象而不提版本号必然判红并指出修法;③反例实证该判据会拦下;④下推索引真的被查询计划选中(不只是「存在」);⑤顺带删除与 UNIQUE(session_id,sequence) 自动索引完全重复的 session_events_session_sequence。
+- 优先级: P0
+- 标签: 核心
+- 进展: 已修。SCHEMA_VERSION 13→14(mod.rs 版本注释写明「改建表批=同时+1并更新 SCHEMA_OBJECTS」);建表批加 `DROP INDEX IF EXISTS session_events_session_sequence`。三条新测试:①建表批新增对象必须伴随schema版本提升(对象集合按版本冻结的机械判据,反例实测——插一条 zz_counterexample_idx 立刻判红并打印修法);②停在上一版的存量库open后补齐到与新库一致;③按类型取事件走下推复合索引而不是全扫(EXPLAIN 断言,挡「存在但用不上」)。真库副本(132MB)实测:迁移 268ms + 升级前整库备份 95ms;查询计划切到 session_events_session_type_sequence;run.completed 类查询 64ms→5.1ms;删冗余索引回收 5.3MB(132.0→126.7MB)。kanzei-core 196 passed,clippy 零警告。
+- observed_head: bbf2241

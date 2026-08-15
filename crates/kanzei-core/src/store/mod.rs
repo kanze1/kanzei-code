@@ -25,7 +25,15 @@ use serde_json::Value;
 // v12:R-178 批3——processes 补 manual_models 列(项目级手填模型候选,JSON 数组,
 //     由默认进程行承载;localStorage kz-manual-models 旧键上迁的目标)。
 // v13:R-226——retired_processes 保存已注销线路身份,确保 p{n}/session_id 永不复用。
-const SCHEMA_VERSION: i64 = 13;
+// v14:D-373——补齐 D-297 的 session_events_session_type_sequence 下推索引(它被加进
+//     v13 的建表批却没提版本号,于是 migrate 的 `version == SCHEMA_VERSION` 早退让
+//     **所有存量库**永远拿不到它:实测主库仍走 (session_id, sequence) 索引全扫 72,751
+//     行再过滤 event_type);同时丢弃与 UNIQUE 自动索引完全重复的
+//     session_events_session_sequence。
+//
+// **改建表批 = 同时 +1 本常量并更新 SCHEMA_OBJECTS**(schema.rs 的机械判据会拦):
+// 早退分支让「代码里有、存量库里没有」不产生任何编译或测试信号,只能靠判据站岗。
+const SCHEMA_VERSION: i64 = 14;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;

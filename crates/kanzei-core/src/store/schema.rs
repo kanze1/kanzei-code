@@ -63,8 +63,11 @@ impl SessionStore {
                      created_at INTEGER NOT NULL,
                      UNIQUE(session_id, sequence)
                  );
-                 CREATE INDEX IF NOT EXISTS session_events_session_sequence
-                     ON session_events(session_id, sequence);
+                 -- D-373:session_events_session_sequence 与 UNIQUE(session_id, sequence)
+                 -- 的自动索引列完全相同,是一份纯重复的写放大(实测 74k 行的库上白付一份
+                 -- 索引体积与每次插入的一次额外 B-tree 维护)。查询计划本来就在两者之间
+                 -- 二选一,删掉不改变任何一条 SQL 的可服务性。存量库经 v14 迁移丢弃。
+                 DROP INDEX IF EXISTS session_events_session_sequence;
                  -- D-297:event_type 下推过滤的复合索引,list_events_by_type 用。
                  CREATE INDEX IF NOT EXISTS session_events_session_type_sequence
                      ON session_events(session_id, event_type, sequence);
@@ -217,7 +220,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS retired_processes_origin
                      ON retired_processes(origin_project);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '13')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '14')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -306,6 +309,134 @@ mod tests {
     use super::*;
     use crate::store::*;
     use rusqlite::params;
+
+    /// D-373 机械判据:建表批产出的对象集合按版本冻结。
+    ///
+    /// **要改这份清单,先 +1 `SCHEMA_VERSION`。** 这不是风格要求:`migrate` 在
+    /// `version == SCHEMA_VERSION` 时直接早退,于是往建表批里新加对象**对存量库
+    /// 完全无效**——新库有、老库没有,而两者跑的是同一份代码,编译、clippy、
+    /// 所有在临时新库上跑的测试都是绿的。D-297 的 `session_events_session_type_sequence`
+    /// 就是这么在真实主库里缺席的:优化写了、验收过了,EXPLAIN 里仍是全扫 72,751 行。
+    ///
+    /// 这条判据把「加了对象」变成一个必然的红灯,逼出版本号提升那一步。
+    const SCHEMA_OBJECTS: &[&str] = &[
+        "agent_notifications",
+        "agent_notifications_thread_sequence",
+        "delivery_cursors",
+        "episodes",
+        "episodes_session_created",
+        "memory_eval",
+        "memory_eval_agg",
+        "memory_eval_memory",
+        "memory_sources",
+        "processes",
+        "processes_origin",
+        "recall_events",
+        "recall_events_episode",
+        "retired_processes",
+        "retired_processes_origin",
+        "schema_meta",
+        "session_events",
+        "session_events_session_type_sequence",
+        "session_inputs",
+        "session_inputs_pending",
+        "sessions",
+    ];
+
+    fn user_objects(connection: &Connection) -> Vec<String> {
+        let mut statement = connection
+            .prepare(
+                "SELECT name FROM sqlite_master
+                     WHERE name NOT LIKE 'sqlite_%' ORDER BY name",
+            )
+            .unwrap();
+        let rows = statement.query_map([], |row| row.get::<_, String>(0)).unwrap();
+        rows.map(Result::unwrap).collect()
+    }
+
+    #[test]
+    fn 建表批新增对象必须伴随schema版本提升() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let actual = user_objects(&store.connection);
+        assert_eq!(
+            actual,
+            SCHEMA_OBJECTS,
+            "建表批的对象集合变了。改动本身没问题,但**必须同时把 SCHEMA_VERSION +1** \
+             并更新 SCHEMA_OBJECTS——否则 migrate 的 `version == SCHEMA_VERSION` 早退会让 \
+             所有存量库永远拿不到新对象(D-297/D-373)。"
+        );
+    }
+
+    /// D-373 验收②:停在上一版的存量库,open 之后必须与新库逐对象一致。
+    /// 这是「早退不再吃掉补齐」的正面证据,反例是 D-297 的索引在 v13 库里永久缺席。
+    #[test]
+    fn 停在上一版的存量库open后补齐到与新库一致() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-schema-catchup-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        // 造一个「上一版」的库:建到当前版本,删掉本版新增的对象,版本号改回去。
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store
+                .connection
+                .execute_batch(
+                    "DROP INDEX IF EXISTS session_events_session_type_sequence;
+                     CREATE INDEX IF NOT EXISTS session_events_session_sequence
+                         ON session_events(session_id, sequence);",
+                )
+                .unwrap();
+            store
+                .connection
+                .execute(
+                    "UPDATE schema_meta SET value = ?1 WHERE key = 'schema_version'",
+                    params![(SCHEMA_VERSION - 1).to_string()],
+                )
+                .unwrap();
+        }
+        let store = SessionStore::open(&path).unwrap();
+        assert_eq!(
+            user_objects(&store.connection),
+            SCHEMA_OBJECTS,
+            "存量库 open 后没有补齐到新库的对象集合"
+        );
+        let version: String = store
+            .connection
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION.to_string(), "迁移后版本号未落到当前版");
+        drop(store);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// D-373:下推索引必须真的被查询计划选中——只断言「索引存在」挡不住
+    /// 「存在但用不上」(列序写反、谓词不匹配都能让它当摆设)。
+    #[test]
+    fn 按类型取事件走下推复合索引而不是全扫() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let plan: String = store
+            .connection
+            .query_row(
+                "EXPLAIN QUERY PLAN
+                     SELECT event_id FROM session_events
+                     WHERE session_id = 'x' AND sequence > 0 AND event_type = 'y'
+                     ORDER BY sequence",
+                [],
+                |row| row.get(3),
+            )
+            .unwrap();
+        assert!(
+            plan.contains("session_events_session_type_sequence"),
+            "list_events_by_type 没有走下推索引,实际计划:{plan}"
+        );
+    }
 
     #[test]
     fn v11给存量进程补tracker开关且默认关闭() {
