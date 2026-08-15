@@ -1094,30 +1094,95 @@ const listText = (id) => byId.get(id)?.textContent ?? "";
 // ---------- 执行 ui/*.js ----------
 // 诊断:main.js 的初始化 IIFE 逐步 catch 只 toast 不抛出,冒烟里 toast 不可见;
 // 注入 reporter 把"吞掉的初始化异常"变成冒烟失败(同时保持生产行为不变)。
-// 逐文件 vm.runInContext(与浏览器多 <script> 语义一致,含 TDZ):拼接后一次执行会把
+// 逐文件执行(与浏览器多 <script> 语义一致,含 TDZ):拼接后一次执行会把
 // 函数声明提升到整串顶部,浏览器多脚本下会炸的 ReferenceError 在 vm 里反而跑通。
+//
+// R-264 B2:执行器分支——classic script(无 import/export)走 vm.runInContext
+// (现状不变);含 import/export 的 ESM 文件走 vm.SourceTextModule(共享同一
+// context,探针与逐文件 TDZ 语义保住)。ESM 的 linker 解析相对 import 到同目录
+// 其他 ui 文件,按已在 context 执行过的模块返回(跨文件绑定经 context 全局)。
 const PROBE_INIT = /toastError\(`\$\{label\}加载失败:\$\{err\}`\);/;
 const PROBE_PERSIST = /function reportPersistentError\(text, \{ retry = null \} = \{\}\) \{/;
 let probeHits = 0;
-try {
-  for (let i = 0; i < sources.length; i += 1) {
-    let instrumented = sources[i].replace(
-      PROBE_INIT,
-      "toastError(`${label}加载失败:${err}`); __reportInitError?.(label, err);"
-    );
-    if (instrumented !== sources[i]) probeHits += 1;
-    const beforePersist = instrumented;
-    instrumented = instrumented.replace(
-      PROBE_PERSIST,
-      "function reportPersistentError(text, { retry = null } = {}) { __reportPersistentError?.(text);"
-    );
-    if (instrumented !== beforePersist) probeHits += 1;
-    vm.runInContext(instrumented, sandbox, { filename: scriptSrcs[i] });
-  }
-} catch (err) {
-  fail(`ui/*.js 顶层执行抛异常: ${err.stack ?? err}`);
+
+// ESM 模块缓存:文件路径 → 已 link 的 SourceTextModule。同一 context 下多次
+// import 同一模块返回同一实例(浏览器语义)。跨文件绑定经 context 全局变量
+// (迁移后文件显式 import 需要的符号,提供方仍在 context)——与经典脚本一致。
+const esmModuleCache = new Map();
+
+/**
+ * 递归链接并执行一个 ESM 模块(处理任意深度相对 import 图)。
+ * `sourcesByName`:文件名 → 源码;`esmModuleCache`:已链接模块缓存(浏览器
+ * 语义:同 context 多次 import 同一模块返回同一实例)。共享同一 context,
+ * 跨文件绑定经 context 全局变量——与经典脚本语义一致(设计文档 §二 B2 路线①)。
+ */
+async function linkAndEvaluate(specifier, filename, instrumentedSource, sandbox, sourcesByName) {
+  const module = new vm.SourceTextModule(instrumentedSource, {
+    context: sandbox,
+    filename,
+  });
+  await module.link(async (childSpec) => {
+    const match = /^\.\/([^/]+\.js)$/.exec(childSpec);
+    if (!match) {
+      throw new Error(`unsupported import specifier "${childSpec}" in ${filename}`);
+    }
+    const target = match[1];
+    const cached = esmModuleCache.get(target);
+    if (cached) return cached;
+    const childSource = sourcesByName.get(target);
+    if (childSource === undefined) {
+      throw new Error(`import "${childSpec}" in ${filename}: target ${target} not in ui/`);
+    }
+    const linked = await linkAndEvaluate(childSpec, target, childSource, sandbox, sourcesByName);
+    esmModuleCache.set(target, linked);
+    return linked;
+  });
+  esmModuleCache.set(filename, module);
+  await module.evaluate();
+  return module;
 }
-if (probeHits < 2) fail(`注入初始化异常探针失败:累计命中 ${probeHits}/2,启动序列的 catch 或错误上报形态已变化,请同步冒烟脚本`);
+
+/**
+ * 执行一个 ui 源文件(经典脚本或 ESM)。
+ * - classic:vm.runInContext(现状,逐文件执行保 TDZ)。
+ * - ESM(vm.SourceTextModule):await link + evaluate,共享同一 context。
+ * 抛错向上传播,由调用方统一 fail。
+ */
+async function executeUiSource(instrumented, filename, sandbox, sourcesByName) {
+  const isEsm = /^\s*(import|export)\b/m.test(instrumented);
+  if (!isEsm) {
+    vm.runInContext(instrumented, sandbox, { filename });
+    return;
+  }
+  await linkAndEvaluate(filename, filename, instrumented, sandbox, sourcesByName);
+}
+
+async function runUiSources() {
+  const sourcesByName = new Map();
+  sources.forEach((src, i) => sourcesByName.set(scriptSrcs[i], src));
+  try {
+    for (let i = 0; i < sources.length; i += 1) {
+      let instrumented = sources[i].replace(
+        PROBE_INIT,
+        "toastError(`${label}加载失败:${err}`); __reportInitError?.(label, err);"
+      );
+      if (instrumented !== sources[i]) probeHits += 1;
+      const beforePersist = instrumented;
+      instrumented = instrumented.replace(
+        PROBE_PERSIST,
+        "function reportPersistentError(text, { retry = null } = {}) { __reportPersistentError?.(text);"
+      );
+      if (instrumented !== beforePersist) probeHits += 1;
+      await executeUiSource(instrumented, scriptSrcs[i], sandbox, sourcesByName);
+    }
+  } catch (err) {
+    fail(`ui/*.js 顶层执行抛异常: ${err.stack ?? err}`);
+  }
+  if (probeHits < 2) fail(`注入初始化异常探针失败:累计命中 ${probeHits}/2,启动序列的 catch 或错误上报形态已变化,请同步冒烟脚本`);
+}
+
+await runUiSources();
+
 // R-076:追加鞭挞状态测试钩子(访问模块级 let 状态,冒烟外部拿不到)。hook 单独最后执行,
 // 不拼进任何脚本文件——拆分后它属于冒烟注入层,不属于生产代码。
 try {
@@ -6478,9 +6543,13 @@ const docsB = {
   const fastEl = byId.get("status-fast");
   assert(fastEl, "R-190:状态栏缺少 #status-fast 常驻指示位");
   await flush();
+  // D-384:首跑是 03-shell 顶层触发的 async invoke,可能被后续断言的 flush 挤掉
+  // (R-267 批2 消息窗口化新增的 await 改变了时序)。手动驱动一次确保已渲染——
+  // 断言测的是「托管且未就绪 → 显示缺环文案」的映射,不是「首跑恰好抢到窗口」。
+  await sandbox.refreshFastStatusBar?.();
   // 首次轮询已跑(启动即查),桩状态 serviceUp=false → 显示「服务未运行」并标 warn。
   assert(
-    fastEl.textContent.includes("服务未运行"),
+    fastEl.textContent.includes("服务未运行") || fastEl.textContent.includes("service is not running"),
     `R-190:常驻指示未反映服务未运行,实得 "${fastEl.textContent}"`,
   );
   assert(fastEl.classList.contains("warn-text"), "R-190:未就绪时指示应标红(warn-text)");
@@ -6594,8 +6663,10 @@ const docsB = {
   const fastEl = byId.get("status-fast");
   assert(fastEl, "R-190:状态栏缺少 #status-fast 常驻指示位");
   await flush();
+  // D-384:手动驱动首跑(见上方同款注释),断言测映射而非首跑时序。
+  await sandbox.refreshFastStatusBar?.();
   assert(
-    fastEl.textContent.includes("服务未运行"),
+    fastEl.textContent.includes("服务未运行") || fastEl.textContent.includes("service is not running"),
     `R-190:常驻指示未反映服务未运行,实得 "${fastEl.textContent}"`,
   );
   assert(fastEl.classList.contains("warn-text"), "R-190:未就绪时指示应标红(warn-text)");

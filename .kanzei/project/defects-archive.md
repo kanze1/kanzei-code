@@ -4509,3 +4509,11 @@
 - 进展: 已修。atomic_file 加 LockMode 共享/排他两档:SlotState 增 shared(线程→重入计数)与 acquiring(占位中,防"句柄没开"被误判成"没人持锁"),Drop 按档位分别归还、最后一个持有者才关句柄;Windows 侧 open_shared 用 read + FILE_SHARE_READ(请求写权限会把后来的共享者挤掉),非 Windows 降级为排他(语义正确,并发度退回原状)。调用点:managed.rs 围栏 try_lock_exclusive→try_lock_shared,docstore load 改 lock_shared。测试 9 条:atomic_file 6 条(共享相容/跨线程、排他挡共享+释放唤醒、共享挡排他+最后一个才放行、排他内取共享重入、升级快速失败、OS 句柄层互斥)+ managed 3 条(两条线围栏共存、围栏挡写者、围栏不挡读者)。workspace 1054 passed,clippy 零警告,fmt 干净,六条前端冒烟全绿。
 - 残留: 写者(kz req add / docs_update)撞上另一条线的长命令围栏时仍按 3s 预算失败后由模型重试——这是 D-364 要求的正确行为(窗口内不能有写者),只是失败而非等待。若实测中变成困扰,再单独评估"写者等到底 + 移出 tokio worker"(直接加长预算会把 runtime 工作线程挂住,不能只改数字)。
 - observed_head: b143414
+
+## D-384 R-190 冒烟断言漂移:#status-fast 常驻指示断言实得空串(预先存在,非 R-264 引入) [fixed] (medium)
+- 复现: node scripts/ui-runtime-smoke.mjs 在 HEAD(89c5604)与原始版均红 4 条 R-190 断言:常驻指示未反映服务未运行(实得空串)、未就绪时未标 warn-text——重复 2 组。与 R-264 B2 执行器改动无关(git stash 验证原始版同样失败)。
+- 影响: R-190 验收断言(fast 模型状态栏常驻指示)失效——#status-fast 的 textContent 为空且无 warn-text,冒烟红灯但实际 UI 可能正常(断言与当前实现失配)。
+- 来源: self-found:R-264 批2 B2 执行器改造时发现,git stash 对比确认预先存在
+- 标签: 前端
+- 验收: ①修复后 ui-runtime-smoke 六条断言全绿;②#status-fast 在服务未就绪时显示「服务未运行」并标 warn-text,就绪时显示正常态;③不回归 R-267 批2 消息窗口化与 D-375/376 轮询降耗。
+- 优先级: P2

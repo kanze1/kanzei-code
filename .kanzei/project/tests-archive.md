@@ -4198,3 +4198,24 @@
 - 关联: R-264
 - 收尾: 1786820034
 - 源码指纹: 31a87ca8e4b4ddf3
+
+## T-1786820503 ui-runtime-smoke (R-264 B2,含 D-384 预先漂移) [failed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 摘要: R-264 批2 B2 验证:runtime-smoke 红 4 条 R-190 断言(#status-fast 空串)——D-384 预先存在漂移(git stash 原始版同样红,非 B2 引入);B2 执行器(classic+ESM 双路径)独立验证通过,classic 路径 6795 条断言全绿。B2 未引入新失败。
+- 关联: R-264
+- 收尾: 1786820503
+- 源码指纹: f3bb9a63aa23d18f
+
+## T-1786820616 verify.ps1 六条前端冒烟 (R-264 B2 + D-384 修复) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: R-264 批2 B2 + D-384 修复后六条前端冒烟全绿(ui-runtime 21 文件/ui-lint 608 标识符/parallel-lines/a11y/i18n 157 key/markdown);D-384 根因=R-190 断言时序漂移(首跑被 R-267 批2 新 await 挤掉)+ 中英文案失配,修复=手动驱动 refreshFastStatusBar + 双语匹配。
+- 关联: R-264 D-384
+- 收尾: 1786820616
+- 源码指纹: f3bb9a63aa23d18f
+
+## T-1786820662 verify.ps1 六条前端冒烟 (R-264 B2 提交背书) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: R-264 批2 提交门禁背书(当前指纹):六条前端冒烟全绿(ui-runtime 21 文件/ui-lint 608/parallel-lines/a11y/i18n 157 key/markdown)。
+- 关联: R-264 D-384
+- 收尾: 1786820662
+- 源码指纹: f0a14b25dd533bb5
