@@ -3,7 +3,7 @@
 //! 存储层只负责持久化事实，不负责 runner 的执行策略。事件序列按 session
 //! 独立递增；输入先进入 inbox，只有 runner 在安全边界提升后才成为可见消息。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
@@ -43,6 +43,37 @@ const HOUSEKEEPING_INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
 /// D-298:freelist 死页占比超过该阈值才 VACUUM。实测主会话库 82MB 中约 68MB
 /// (83%)是 freelist,50% 是合理的触发线——低于它说明库还健康,不必付整理成本。
 const HOUSEKEEPING_FREELIST_THRESHOLD: f64 = 0.5;
+
+/// D-374:`SessionStore::open` 的累计次数,**按库路径分桶**。
+///
+/// open **不便宜**(见 `session.rs::open`:create_dir_all + Connection::open + 三个
+/// pragma + migrate 版本查询 + housekeeping 节流查询,132MB 库上实测约 4.3ms),
+/// 而它曾经就坐在逐事件的轨迹落库路径上。这个计数器把「这条路径每个事件开一次连接」
+/// 从"读代码才知道"变成可断言的事实——回归时是一条硬判据,不是注释里的自觉。
+///
+/// 为什么按路径而不是一个全局计数:测试是多线程并行跑的,全局计数的"前后差值"会把
+/// 别的测试开的连接算进来(实测:单跑绿、并跑红)。按路径分桶后每个测试用自己的
+/// 临时库路径,判据与并发无关。锁的代价相对 open 自身是噪声。
+static OPEN_COUNTS: std::sync::Mutex<Option<std::collections::HashMap<PathBuf, u64>>> =
+    std::sync::Mutex::new(None);
+
+pub(crate) fn note_store_open(path: &Path) {
+    let mut counts = OPEN_COUNTS.lock().unwrap_or_else(|e| e.into_inner());
+    *counts
+        .get_or_insert_with(std::collections::HashMap::new)
+        .entry(path.to_path_buf())
+        .or_insert(0) += 1;
+}
+
+/// 见 [`OPEN_COUNTS`]:某个 state.db 被打开过多少次。
+pub fn store_open_count(path: &Path) -> u64 {
+    let counts = OPEN_COUNTS.lock().unwrap_or_else(|e| e.into_inner());
+    counts
+        .as_ref()
+        .and_then(|map| map.get(path))
+        .copied()
+        .unwrap_or(0)
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {

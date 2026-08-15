@@ -22,7 +22,9 @@ use serde_json::json;
 use tauri::Emitter;
 use tokio::sync::oneshot;
 
-use crate::{record_live_trace_at_path, typed_events, with_session_id, LiveRun, PendingAsk};
+use crate::{
+    record_live_trace, record_live_trace_at_path, typed_events, with_session_id, LiveRun, PendingAsk,
+};
 
 use super::{now_ms, subagent_round_tool, TRACE_INPUT_KEEP_CHARS};
 
@@ -86,18 +88,53 @@ pub(crate) struct TraceSink {
     live: Arc<Mutex<LiveRun>>,
     state_path: PathBuf,
     session_id: String,
+    /// D-374:本 run 期间复用同一条连接。
+    ///
+    /// 原实现每条 RunEvent 都走 `SessionStore::open`,而一次 open 不是"打开个文件"那么
+    /// 便宜:create_dir_all + Connection::open + busy_timeout/journal_mode/synchronous
+    /// 三个 pragma + migrate 的建表批与版本查询 + housekeeping 的节流时间戳查询。
+    /// 在本仓 132MB 的主库上实测约 4.3ms/次;历史 48,582 条 run.trace 折合约 210 秒,
+    /// 全部花在反复打开一个刚刚关掉的文件上。
+    ///
+    /// 为什么是 `Mutex` 而不是直接持有:`rusqlite::Connection` 是 Send 但**不是** Sync,
+    /// 而 EventSink 要求 Sync(原注释"事件回调需要 Send + Sync,不能捕获 rusqlite 连接"
+    /// 说的就是这一条)。`Mutex<Connection>` 补上 Sync,连接因此可以跨事件存活。
+    /// 并发事件从"各开一条连接在 SQLite 层用 busy_timeout 抢"变成"在这把锁上排队",
+    /// 单行 insert 的临界区是微秒级,严格优于原状。
+    ///
+    /// 打不开就留 None,逐事件回落到原来的短开连接路径——轨迹落库失败不打断模型运行,
+    /// 与原语义一致。
+    store: Mutex<Option<kanzei_core::SessionStore>>,
 }
 
 impl TraceSink {
     pub(crate) fn new(live: Arc<Mutex<LiveRun>>, state_path: PathBuf, session_id: String) -> Self {
+        let store = kanzei_core::SessionStore::open(&state_path)
+            .map_err(|error| {
+                tracing::warn!(
+                    target: "kanzei::run",
+                    path = %state_path.display(),
+                    %error,
+                    "轨迹连接打开失败,本轮回落到逐事件短开连接"
+                );
+            })
+            .ok();
         Self {
             live,
             state_path,
             session_id,
+            store: Mutex::new(store),
         }
     }
     fn record(&self, payload: serde_json::Value) {
-        record_live_trace_at_path(&self.state_path, &self.session_id, &self.live, payload);
+        let store = self.store.lock().unwrap();
+        match store.as_ref() {
+            Some(store) => record_live_trace(store, &self.session_id, &self.live, payload),
+            None => {
+                drop(store);
+                record_live_trace_at_path(&self.state_path, &self.session_id, &self.live, payload);
+            }
+        }
     }
     fn note_step(&self, step: u32) {
         let mut live = self.live.lock().unwrap();
@@ -471,5 +508,58 @@ pub(crate) fn build_ask_handler(
                 .await
                 .unwrap_or(kanzei_core::AskResponse::Cancelled)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// D-374 机械判据:轨迹落库在一次 run 里**只开一条连接**。
+    ///
+    /// 断言的是 `SessionStore::open` 的调用次数,不是"读代码看起来复用了"。原实现
+    /// 每条 RunEvent 开一条(N 条事件 = N+ 次 open,132MB 库上 ~4.3ms/次);把
+    /// `record` 换回 `record_live_trace_at_path` 这条判据立刻红。
+    #[test]
+    fn 轨迹落库整轮只开一条连接() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-trace-conn-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.db");
+        {
+            let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+            store.create_session("ses_trace", "C:/proj", None).unwrap();
+        }
+
+        let live = Arc::new(Mutex::new(LiveRun::default()));
+        live.lock().unwrap().begin("run-1", "in-1", "头", "p", "m");
+
+        let before = kanzei_core::store_open_count(&state_path);
+        let sink = TraceSink::new(live, state_path.clone(), "ses_trace".into());
+        const EVENTS: usize = 20;
+        for index in 0..EVENTS {
+            sink.record(json!({ "kind": "test.event", "i": index }));
+        }
+        let opened = kanzei_core::store_open_count(&state_path) - before;
+        assert_eq!(
+            opened, 1,
+            "{EVENTS} 条轨迹事件开了 {opened} 条连接:逐事件 open 的成本又回来了(D-374)"
+        );
+
+        // 复用连接不得以少写事件为代价:事件必须全部落库。
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        let events = store
+            .list_events_by_type("ses_trace", 0, "run.trace")
+            .unwrap();
+        assert_eq!(events.len(), EVENTS, "轨迹事件落库条数不符");
+        drop(store);
+        drop(sink);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -12,6 +12,8 @@ use super::{
 
 impl SessionStore {
     pub fn open(path: &Path) -> Result<Self, StoreError> {
+        // D-374:见 mod.rs::OPEN_COUNTS——open 的次数是一条可断言的性能事实。
+        super::note_store_open(path);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;

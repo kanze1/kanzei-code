@@ -85,29 +85,15 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-372 鞭挞确定性饿死:auto_pending 不在相位表里,轮询把已结束的一轮复活,重试耗尽报「上一轮尚未结束」 [fixed] (high)
-- refs: D-291 D-323 R-086 R-206
-- 复现: 开鞭挞(dev-auto)跑完任意一轮 → kz:done 带 autoAction=Continue → 等 32 秒。实测现场 2026-08-15 21:40:57 运行完成(60 轮/3040.7s) → 21:41:29 报「鞭挞未续跑:上一轮尚未结束」,正好 2s + 15×2s = 首次 + AUTO_CONTINUE_RUNNING_GRACE 次重试全部耗尽。
-- 根因: 03-shell.js transitionSession 相位表只有三个分支(starting/running、stopping、idle/stopped/failed),**auto_pending 一个都不匹配**,于是它既不置 converged 也不清 live_running。链路:①轮内 "running" 置 live_running=true/converged=false;②kz:done→"auto_pending",两个字段原样残留;③kz:idle 到达时 01-core.js 算 targetPhase = auto_pending ? "auto_pending" : "idle",唯一一次能收敛的机会被自己吃掉;④≤3s 后 process_list 校正(09-sessions.js:397-403)因 converged 为假不跳过、命中 live_running===true 分支 transitionSession(sid,"running") 复活;⑤armAutoContinue 每 2 秒复查 processRunning 恒为真。09-sessions.js 末尾那条 `!["auto_pending","stopping",...]` 例外说明作者本来就把 auto_pending 当静止态,只是相位表没跟上。
-- 影响: 鞭挞是自举的主循环。它停摆 = 自举停摆,且失败形态是「界面显示待命、实际永不续跑」,不报错、不重试,只能人工再点一次。D-291 修的是「静默不续跑」,本条是「出声了但结论是错的」——同一入口的另一侧。
-- 来源: 2026-08-15 用户截图报告 + 日志时间戳比对(32 秒签名与 01-core.js:78 注释里记录的上一次现场同型)。
-- 证据等级: E1(反证实测:把 auto_pending 从相位表移除后 ui-runtime-smoke 5 条断言全红,其中「process_list 校正把 auto_pending 复活成 running」直接复现根因;加回后全绿)
-- 验收: ①auto_pending 与 idle/stopped/failed 同组收敛(converged=true、live_running=false、local_start_pending=false,terminal_status 保持空);②收敛不得改写 phase(界面「等待下一轮」与待命徽标靠 phase);③process_list 校正与迟到进度事件都不得复活已收敛的一轮;④processRunning 在 auto_pending 下为假,续跑闸门第一次复查即放行;⑤宽限耗尽但后端权威 item.running=false 时按后端收敛并继续(自愈),而不是一律放弃;⑥ui-runtime-smoke 有反证型回归,移除修复即红。
-- 优先级: P0
+## D-374 轨迹落库坐在逐事件 open 上:每条 RunEvent 开一条 SQLite 连接 [fixed] (medium)
+- refs: D-297 R-253
+- 复现: 任一次 run。TraceSink::record → record_live_trace_at_path → SessionStore::open,每条 RunEvent 一次。open 不是"打开文件":create_dir_all + Connection::open + busy_timeout/journal_mode/synchronous 三个 pragma + migrate 的建表批与版本查询 + housekeeping 节流查询。132MB 主库上实测约 4.3ms/次;库里 48,582 条 run.trace 折合约 210 秒纯开销,按每轮约 13 条算是每轮 ~56ms。
+- 根因: state.rs 的注释「事件回调需要 Send + Sync,不能捕获 rusqlite 连接」判断正确(Connection 是 Send 非 Sync),但结论跳过了一步——`Mutex<Connection>` 就是 Sync。于是"不能持有"被落实成了"每次重开"。
+- 影响: 纯浪费,且随库增大而变贵(open 要解析整个 schema)。不影响正确性,所以一直没有信号。
+- 来源: 2026-08-15 用户要求三维度审视,实测 open 成本时发现。
+- 证据等级: E1(真库副本计时 + 机械判据反例:改回逐事件 open 后测试报「20 条轨迹事件开了 21 条连接」)
+- 验收: ①TraceSink 在一次 run 内复用单条连接;②打不开时回落逐事件短开连接,轨迹落库失败仍不打断模型运行;③复用不得少写事件;④存在按库路径计数的机械判据,改回逐事件 open 即判红。
+- 优先级: P2
 - 标签: 核心
-- 进展: 已修。03-shell.js 相位表把 auto_pending 并入终态分支(带完整链路注释);08-compose.js armAutoContinue 宽限耗尽路径按后端权威自愈(item.running 为假则收敛本地态继续,为真才放弃),顺手删掉一处死变量 targetState;02-i18n.js 补自愈提示词条。ui-runtime-smoke 新增 5 条反证断言(①~⑤逐环)。六条前端冒烟全绿(ui-runtime/ui-lint/parallel-lines/ui-a11y/ui-i18n/ui-markdown)。
-- observed_head: 9e79edc71bffaf52d9fd5b25f1c9bd4773382853
-
-## D-373 加进建表批的 DDL 对存量库永久无效:D-297 的下推索引在真实主库里从不存在,验收却在新库上通过 [fixed] (high)
-- refs: D-297 R-155
-- 复现: 任意存量库(schema_version 已等于 SCHEMA_VERSION)执行 `EXPLAIN QUERY PLAN SELECT ... FROM session_events WHERE session_id=? AND sequence>? AND event_type=?`。实测本仓主库(132MB/74,184 行):计划为 `SEARCH USING INDEX session_events_session_sequence (session_id=? AND sequence>?)`,即按 (session_id,sequence) 扫完该会话 72,751 行再逐行过滤 event_type;代码里写着的 session_events_session_type_sequence 在 sqlite_master 里根本不存在(代码 DDL 与真库对象集合差集恰好只有它一个)。
-- 根因: D-297 把 `CREATE INDEX ... session_events_session_type_sequence` 加进 migrate 的**建表批**,但没有提升 SCHEMA_VERSION。migrate 在 `version == SCHEMA_VERSION` 时直接 `return Ok(())`(schema.rs:34),于是建表批对**所有已经停在当前版本的库**一次都不会执行。新建的临时库走的是另一条路(无版本记录→跑全批),所以单测、验收、CI 全绿——「代码里有、真实库里没有」不产生任何信号。
-- 影响: ①D-297 的读路径优化在真实环境从未生效,list_events_by_type 仍是全扫;②更要紧的是这是一个**类**而不是一条:今后任何加进建表批的表/索引/列都会静默跳过存量库,而唯一的使用者就是本机这一份长期库。
-- 边界: 不要改成「每次 open 无条件跑全批」——open 是高频路径(每个 Tauri 命令/每条轨迹事件各一次),把建表批塞进去等于给每次 open 加一串 DDL 解析。正确修法是版本号 +1 加机械判据。
-- 来源: 2026-08-15 用户要求三维度审视,只读核查真库 sqlite_master 与 EXPLAIN QUERY PLAN 时发现。
-- 证据等级: E1(真库 EXPLAIN 实证 + 代码 DDL 与真库对象集合逐项差集 + 迁移后计划切换与耗时实测)
-- 验收: ①SCHEMA_VERSION 提升到 14,存量库 open 后补齐缺失对象;②存在机械判据,往建表批加对象而不提版本号必然判红并指出修法;③反例实证该判据会拦下;④下推索引真的被查询计划选中(不只是「存在」);⑤顺带删除与 UNIQUE(session_id,sequence) 自动索引完全重复的 session_events_session_sequence。
-- 优先级: P0
-- 标签: 核心
-- 进展: 已修。SCHEMA_VERSION 13→14(mod.rs 版本注释写明「改建表批=同时+1并更新 SCHEMA_OBJECTS」);建表批加 `DROP INDEX IF EXISTS session_events_session_sequence`。三条新测试:①建表批新增对象必须伴随schema版本提升(对象集合按版本冻结的机械判据,反例实测——插一条 zz_counterexample_idx 立刻判红并打印修法);②停在上一版的存量库open后补齐到与新库一致;③按类型取事件走下推复合索引而不是全扫(EXPLAIN 断言,挡「存在但用不上」)。真库副本(132MB)实测:迁移 268ms + 升级前整库备份 95ms;查询计划切到 session_events_session_type_sequence;run.completed 类查询 64ms→5.1ms;删冗余索引回收 5.3MB(132.0→126.7MB)。kanzei-core 196 passed,clippy 零警告。
-- observed_head: bbf2241
+- 进展: 已修。TraceSink 增 `store: Mutex<Option<SessionStore>>`,new 时开一次;record 走复用路径,None 时回落原路径。kanzei-core 增 `store_open_count(path)`(按库路径分桶计数——最初写成全局计数,实测单跑绿、并跑红,因为 cargo test 多线程并行时别的测试的 open 会算进差值,遂改按路径)。新测试「轨迹落库整轮只开一条连接」:20 条事件断言 open 次数为 1 且事件全部落库;反例实测(改回 record_live_trace_at_path)报「20 条轨迹事件开了 21 条连接」。workspace 全量 1028 passed,clippy 零警告,fmt 干净。
+- observed_head: c8db0da
