@@ -27,6 +27,16 @@ pub const TEST_RUNS_ARCHIVE_REL: &str = ".kanzei/project/tests-archive.md";
 
 const VALID_STATUS: &[&str] = &["running", "passed", "failed", "skipped"];
 
+/// 工具文本的渲染上限(口径照 grep.rs 的 DEFAULT_LIMIT / MAX_LINE_CHARS)。
+///
+/// 存在的理由:render_snapshot 原先把**整份归档索引**逐条无上限拼进返回文本。
+/// 实测 2026-08-15:归档 683 条 / 241KB,渲染出的 `○` 行合计约 5 万字符,而活动
+/// 记录 0 条——每次调用回灌的内容 ≥99% 是与本次写入无关的历史清单。更糟的是它
+/// 单调增长:每记一条终态测试,此后**所有**调用永久加约 73 字符,同一会话里后面
+/// 的调用比前面更贵。这不是某次输出偏大,是随项目寿命线性膨胀的上下文税
+/// (实测占全部工具结果体量的 38%,是 read 的 8 倍)。
+const RENDER_TITLE_CHARS: usize = 120;
+
 /// 快照顺手做那次幂等归档的取锁预算。写事务本身是毫秒级的,等到 200ms 还没轮到
 /// 说明对面正忙;归档是幂等的,跳过一轮下次刷新就补上,而面板卡住用户立刻能感觉到
 /// ——`atomic_file::try_lock_exclusive` 的定位就是这条"做不成也无所谓"的路径。
@@ -1111,8 +1121,9 @@ fn render_snapshot(snapshot: &serde_json::Value) -> String {
         )
     } else {
         format!(
-            "recorded {recorded}. active: {active}, archived: {archived} (path: {})",
-            snapshot["path"].as_str().unwrap_or_default()
+            "recorded {recorded}. active: {active}, archived: {archived} (path: {}, archive: {})",
+            snapshot["path"].as_str().unwrap_or_default(),
+            snapshot["archive_path"].as_str().unwrap_or_default()
         )
     }];
     let still_running = !recorded.is_empty()
@@ -1162,15 +1173,37 @@ fn render_snapshot(snapshot: &serde_json::Value) -> String {
              同标题的终态记录会自动认领。悬空记录会挡住相关条目的 close。"
         ));
     }
-    for record in snapshot["archived"].as_array().into_iter().flatten() {
-        lines.push(format!(
-            "○ {} {} [{}]",
-            record["id"].as_str().unwrap_or_default(),
-            record["title"].as_str().unwrap_or_default(),
-            record["status"].as_str().unwrap_or_default(),
-        ));
+    // 归档只回显**本次记录的那一条**,不再逐条打印整份索引(理由见
+    // RENDER_TITLE_CHARS 上方的注释)。总数已在表头 `archived: {n}` 给出;要查
+    // 历史去表头新增的 archive 路径 grep——那是砍掉清单后唯一需要补偿的能力
+    // 缺口,所以表头必须带上它。
+    if !recorded.is_empty() {
+        if let Some(record) = snapshot["archived"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|r| r["id"].as_str() == Some(recorded))
+        {
+            lines.push(format!(
+                "○ {} {} [{}]",
+                record["id"].as_str().unwrap_or_default(),
+                truncate_title(record["title"].as_str().unwrap_or_default()),
+                record["status"].as_str().unwrap_or_default(),
+            ));
+        }
     }
     lines.join("\n")
+}
+
+/// 标题按字符截断。走 chars() 而非字节切片——标题大量中文,按字节切会 panic 在
+/// 非字符边界(与 grep.rs 的 MAX_LINE_CHARS 同写法)。
+fn truncate_title(title: &str) -> String {
+    if title.chars().count() <= RENDER_TITLE_CHARS {
+        return title.to_string();
+    }
+    let mut out: String = title.chars().take(RENDER_TITLE_CHARS).collect();
+    out.push('…');
+    out
 }
 
 #[cfg(test)]
@@ -1821,6 +1854,60 @@ mod tests {
             out.content.contains(&format!("id={id}")),
             "running 记录必须提示带该 id 收尾:{}",
             out.content
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 返回文本不得随归档规模增长。
+    ///
+    /// 原实现把整份归档索引逐条 push 进工具文本:实测本仓归档 683 条时,单次调用
+    /// 约 3.6 万字符,其中 ≥99% 与本次写入无关,且每记一条终态测试就给此后**所有**
+    /// 调用永久加约 73 字符——一条随项目寿命线性膨胀的上下文税。
+    /// 这条测试就是那条税的闸门:归档从 3 条涨到 60 条,输出长度不得跟着涨。
+    #[tokio::test]
+    async fn 工具输出不随归档规模增长() {
+        let root = temp_project("archivescale");
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+
+        // 先造 60 条终态记录(会被 snapshot 顺手归档)。
+        for i in 0..60 {
+            let out = TestRecordTool
+                .execute(
+                    json!({ "title": format!("R-{i} 历史记录"), "status": "passed" }),
+                    &ctx,
+                )
+                .await;
+            assert!(!out.is_error, "{}", out.content);
+        }
+        let big = TestRecordTool
+            .execute(json!({ "title": "R-999 本次", "status": "passed" }), &ctx)
+            .await;
+        assert!(!big.is_error, "{}", big.content);
+
+        // 只应出现**本次**这一条归档行,不应把历史逐条列出来。
+        let bullet_lines = big.content.lines().filter(|l| l.starts_with('○')).count();
+        assert!(
+            bullet_lines <= 1,
+            "归档清单不得逐条回灌(出现 {bullet_lines} 行 ○):\n{}",
+            big.content
+        );
+        assert!(
+            big.content.contains("R-999 本次"),
+            "本次记录仍必须回显:\n{}",
+            big.content
+        );
+        // 表头要给出归档文件路径——砍掉清单后这是唯一的历史查阅入口。
+        assert!(
+            big.content.contains("archive: "),
+            "表头必须带归档路径,否则模型无处查历史 id:\n{}",
+            big.content
+        );
+        // 绝对上限:与归档条数无关的常数级输出。60 条历史时仍应远小于 4KB。
+        assert!(
+            big.content.chars().count() < 4000,
+            "输出 {} 字符,已随归档规模膨胀:\n{}",
+            big.content.chars().count(),
+            big.content
         );
         std::fs::remove_dir_all(&root).ok();
     }
