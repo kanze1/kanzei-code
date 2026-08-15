@@ -70,6 +70,19 @@ function on(event, handler) {
       // stopping 是用户已发出的控制意图；晚到的进度不能把停止按钮重新翻回运行态。
       const state = sessionState(sessionId);
       if (state.phase === "stopping") return;
+      // 已收敛的终态同理:kz:idle 之后**迟到**的进度事件不得把会话复活。
+      //
+      // 复活的代价不是「按钮闪一下」而是鞭挞卡死:processRunning() 在未收敛时读
+      // `state.running || item.running`,被迟到事件置回 running 之后就再没有东西
+      // 能把它翻回来(只有 kz:idle 会收敛,而它已经发过了)。armAutoContinue 于是
+      // 每 2 秒重试一次、满 15 次放弃,报「上一轮尚未结束」。实测现场:
+      // 13:58:31 运行完成 → 13:59:03 放弃,正好 32 秒 = 首次 2s + 15×2s。
+      //
+      // 解除收敛的权力只留给 kz:turn(上面第一段处理,且**不在**本事件集合里)——
+      // 注释写明它是「每轮开头必发的信号」,新一轮必定经它。代价是:若某一轮的
+      // 进度事件早于 kz:turn 到达,线路按钮会短暂显示空闲,直到 kz:turn 或下一次
+      // process_list 轮询纠正。拿这点显示延迟换掉一个会卡死自动续跑的状态陷阱。
+      if (state.converged) return;
       // R-206:状态写入唯一入口 transitionSession,不再手工复刻 6 布尔标志。
       transitionSession(sessionId, "running", {
         converged: false,

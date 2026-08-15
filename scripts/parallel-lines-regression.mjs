@@ -28,7 +28,22 @@ assert(!/\.line-lane\s*\{[^}]*animation\s*:/.test(style), "线路基础卡片不
 assert(!style.includes("line-lane-enter"), "线路刷新不应保留会造成闪烁的进入动画");
 assert(style.includes(".lines-header > div:first-child"), "线路页标题区域缺少窄区宽度约束");
 assert(style.includes("@media (max-width: 1400px)"), "线路页缺少按主区窄态换行规则");
-const run = await readFile(resolve(root, "crates", "kanzei-app", "src", "run.rs"), "utf8");
+// 不锁死单个文件路径:R-253 把 run.rs 拆成 run/ 目录、停止命令搬去
+// commands/run.rs,这里硬编码的 `src/run.rs` 随之 ENOENT,冒烟自 e06a226 起
+// 一直红——而那批提交每条都写着「四条前端冒烟全过」(六条只跑了四条,漏的正是
+// 本条与 ui-lint)。改成扫整棵 src/ 拼接:断言要的是「这两个契约字符串存在于
+// 后端某处」,不是「存在于某个文件名里」,再拆一次也不会断。
+async function readAllRustSources(dir) {
+  const { readdir } = await import("node:fs/promises");
+  let out = "";
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = resolve(dir, entry.name);
+    if (entry.isDirectory()) out += await readAllRustSources(full);
+    else if (entry.name.endsWith(".rs")) out += await readFile(full, "utf8");
+  }
+  return out;
+}
+const run = await readAllRustSources(resolve(root, "crates", "kanzei-app", "src"));
 assert(run.includes('"kz:stopped"'), "停止无运行态没有幂等收口事件");
 assert(run.includes('"already_idle": true'), "停止无运行态没有标记已空闲结果");
 assert(!/open\.addEventListener\([\s\S]{0,220}?await refreshProcesses\(\)/.test(lines), "线路切换前不应额外刷新进程列表");
