@@ -59,6 +59,11 @@ struct DisposeState {
     first_called: std::sync::atomic::AtomicBool,
 }
 
+/// dispose 生命周期事件回调类型(R-246 批4):dispose 完成时写终态事件。
+/// 复用 R-175 BackgroundEventSink 同款形态(`Arc<dyn Fn>` 可 Clone,绕开
+/// SessionStore 非 Send 限制)。None = 测试/CLI 不落库。
+pub type LifecycleSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+
 /// LineRuntime 的内部状态。独立结构 + Arc 包装,使 dispose future 可 'static
 /// (借 &self 的 async fn 无法存入 OnceLock<Shared>——lifetime 必须 outlive 'static)。
 struct Inner {
@@ -71,6 +76,9 @@ struct Inner {
     child_agent_joins: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// 后台进程句柄(普通资源,dispose 收回)。
     background_processes: Mutex<Vec<String>>,
+    /// R-246 批4:dispose 终态事件落库回调(可选)。dispose_once 完成时写
+    /// `{"kind":"runtime.lifecycle","id":...,"state":"disposed"}`。
+    lifecycle_sink: Option<LifecycleSink>,
 }
 
 impl Default for LineRuntime {
@@ -81,12 +89,19 @@ impl Default for LineRuntime {
 
 impl LineRuntime {
     pub fn new() -> Self {
+        LineRuntime::with_lifecycle_sink(None)
+    }
+
+    /// 带生命周期事件落库回调的构造(R-246 批4)。sink 在 dispose 完成时被调用,
+    /// 写入 `runtime.lifecycle` disposed 终态事件;None = 测试/CLI 不落库。
+    pub fn with_lifecycle_sink(sink: Option<LifecycleSink>) -> Self {
         LineRuntime {
             inner: Arc::new(Inner {
                 cancellation: CancellationToken::new(),
                 child_agents: Arc::new(TaskCancellations::default()),
                 child_agent_joins: Mutex::new(Vec::new()),
                 background_processes: Mutex::new(Vec::new()),
+                lifecycle_sink: sink,
             }),
             dispose_state: Arc::new(DisposeState {
                 future: Mutex::new(None),
@@ -169,6 +184,19 @@ async fn dispose_once(inner: Arc<Inner>) -> DisposeOutcome {
         guard.clear();
         count
     };
+    // R-246 批4:终态落库——dispose 完成时写生命周期事件(可回放、可审计)。
+    if let Some(sink) = &inner.lifecycle_sink {
+        sink(
+            "runtime",
+            serde_json::json!({
+                "kind": "runtime.lifecycle",
+                "id": "line",
+                "state": "disposed",
+                "child_agents_cancelled": child_agents_cancelled,
+                "background_processes_reaped": background_processes_reaped,
+            }),
+        );
+    }
     DisposeOutcome {
         performed: true,
         child_agents_cancelled,
@@ -241,5 +269,39 @@ mod tests {
         );
         // dispose 已 await 全部 join——若 cancelled 未在 cancel 后退出,dispose
         // 会一直 await,测试在此处无法继续,即隐式验证「等待退出」生效。
+    }
+
+    /// R-246 验收④:dispose 返回前生命周期终态落库——lifecycle sink 收到
+    /// runtime.lifecycle disposed 事件(含收尾计数)。
+    #[tokio::test]
+    async fn dispose_终态事件落库() {
+        let events = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+        let events2 = Arc::clone(&events);
+        let sink: LifecycleSink = Arc::new(move |_id, payload| {
+            events2.lock().unwrap().push(payload);
+        });
+        let rt = LineRuntime::with_lifecycle_sink(Some(sink));
+        rt.track_background_process("bg1".into());
+        let outcome = rt.dispose().await;
+        assert!(outcome.performed);
+        {
+            let events = events.lock().unwrap();
+            assert_eq!(events.len(), 1, "dispose 终态事件必须恰好一条");
+            let ev = &events[0];
+            assert_eq!(ev["kind"], "runtime.lifecycle");
+            assert_eq!(ev["state"], "disposed");
+            assert_eq!(ev["background_processes_reaped"], 1);
+        }
+        // 第二次 dispose 不重复落库(幂等)。
+        rt.dispose().await;
+        assert_eq!(events.lock().unwrap().len(), 1, "幂等:终态事件只写一次");
+    }
+
+    /// R-246 验收④:未配置 sink 时 dispose 不 panic(CLI/测试默认路径)。
+    #[tokio::test]
+    async fn dispose_无sink_不panic() {
+        let rt = LineRuntime::new();
+        let outcome = rt.dispose().await;
+        assert!(outcome.performed);
     }
 }

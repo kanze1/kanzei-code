@@ -4178,3 +4178,10 @@
 - 摘要: R-246 批3 提交门禁补充背书(integration 测试在 kanzei crate):cargo test -p kanzei 37+31 passed 全绿。
 - 关联: R-246
 - 收尾: 1786819519
+
+## T-1786819683 cargo test -p kanzei-core (R-246 B4 提交背书) [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: R-246 批4 提交门禁背书:cargo test -p kanzei-core 205 passed 全绿(含 line_runtime 6 单测),clippy 零警告。
+- 关联: R-246
+- 收尾: 1786819683
+- 源码指纹: c755c1063589962f
