@@ -3276,3 +3276,19 @@
 - observed_head: 2463c3aa72c5b6af7d08d74bfd0bd1a9a95458ab
 - observed_worktree_hash: fnv1a64:7b3e1ac4436c3d60
 - recorded_at: 1786809420529
+
+## R-259 pipeline Wrap 阶段收敛:timeout/cancellation/progress 只在 wrapper 实现一处(R-244 残余) [done]
+- refs: R-244
+- 优先级: P3
+- 内容: R-244 收口后残余(验收④未完全收敛):把 timeout/cancellation/progress 从 runner 层(drive.rs 串行 progress 旁路 + tool_exec.rs 并行 progress 通道 + bash_body 内 timeout)抽象进 harness tool_pipeline 的 Wrap 阶段,使「timeout/cancellation/progress 只在 wrapper 实现一处」字面成立。骨架已立(ToolPhase::Wrap 预留),本条目做收敛 + 契约测试(同一工具串行/并行路径走同一 wrapper,行为逐字节一致)。
+- 前置: R-244
+- 复杂度: 中
+- 来源: R-244 批5 收口时验收④评估:progress 现实现于 runner 层两处(串行旁路/并行通道),timeout 在 bash body——功能统一但未字面收敛进 pipeline Wrap 阶段。
+- 标签: 核心
+- 验收: ①timeout/cancellation/progress 三能力都只在一处 wrapper 实现,工具 body 不再含三者的实现代码;②bash 超时/进度行为与 R-244 前逐字节一致(既有测试全绿);③串行与并行执行路径共用同一 wrapper 实现;④cargo test --workspace 全绿。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-259
+- 批次: 3/3
+- 进展: 批3 完成(close 前置):验收②bash 超时/进度既有测试逐字节一致——tools 273 passed 含 timeout_kills_command_and_returns_explicit_error(L1013)与 timeout_actually_terminates_the_process_tree(L1054),超时善后 kill_tree/partial output/围栏保留在 body 未动;验收③串行/并行共用同一 wrapper——drive.rs 串行旁路与 tool_exec.rs 并行通道均调 wrap_execute;验收①机械核验:wrap_execute 含 progress 注入+halted 前置拦截、with_timeout 为 tokio::time::timeout 唯一调用点,ProgressHandle::new 仅剩 progress.rs 定义+tool_pipeline 注入 2 处,kanzei-core 无 progress::scope 直调,bash body 不再含 tokio::time::timeout;验收④workspace 全量 15 段全绿(T-1786813630)。
+- observed_head: addd88f7c6d3a1411fe090e70080908acd0e8913
+- observed_worktree_hash: fnv1a64:f942ffb698473c93
+- recorded_at: 1786813639803

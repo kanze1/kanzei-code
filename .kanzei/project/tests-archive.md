@@ -4040,3 +4040,9 @@
 - 关联: R-259
 - 收尾: 1786813514
 - 源码指纹: 20082215b0f0cdf5
+
+## T-1786813630 cargo test --workspace (R-259 批3 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-259 批3 关闭前全量(复杂度中):workspace 15 段全 ok(kanzei 37+31、kanzei-app 169、harness 199、core 147、tools 273 等),零失败;含 bash 超时/进度既有测试全绿(验收②)。
+- 关联: R-259
+- 收尾: 1786813630
