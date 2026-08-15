@@ -197,7 +197,10 @@ pub(crate) fn bound_thread_for_worktree(
 }
 
 /// 库里是否已经有线绑着这棵树(按 [`worktree_key`] 归一后比较)。
-pub(crate) fn stored_bound_thread(stored: &[kanzei_core::StoredProcess], key: &str) -> Option<String> {
+pub(crate) fn stored_bound_thread(
+    stored: &[kanzei_core::StoredProcess],
+    key: &str,
+) -> Option<String> {
     stored
         .iter()
         .find(|record| {

@@ -14,9 +14,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use kanzei_harness::orchestration::{
-    ProjectExecutionCoordinator, WriterLease, WriterLeaseRequest,
-};
+use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLease, WriterLeaseRequest};
 use kanzei_llm::{Message, Part};
 use kanzei_tools::docstore::DocStore;
 use kanzei_tools::docstore::{DEFECTS, REQUIREMENTS};
@@ -462,7 +460,10 @@ fn tracker_ids_in_text(text: &str) -> impl Iterator<Item = &str> {
         .filter(|token| parse_harvest_claim(token).is_ok())
 }
 
-pub(crate) fn harvest_tracker_candidates_from_messages(root: &Path, messages: &[Message]) -> Vec<String> {
+pub(crate) fn harvest_tracker_candidates_from_messages(
+    root: &Path,
+    messages: &[Message],
+) -> Vec<String> {
     let mut existing = std::collections::HashSet::new();
     for (kind, prefix) in [(&REQUIREMENTS, "R"), (&DEFECTS, "D")] {
         if let Ok(entries) = DocStore::open(root, kind).load() {

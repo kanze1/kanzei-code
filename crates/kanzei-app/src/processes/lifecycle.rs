@@ -425,7 +425,10 @@ pub async fn process_close(
     close_process(&state, &process).await
 }
 
-pub(crate) async fn close_process(state: &AppState, process: &ProcessHandle) -> Result<String, String> {
+pub(crate) async fn close_process(
+    state: &AppState,
+    process: &ProcessHandle,
+) -> Result<String, String> {
     let process_id = process.id.clone();
     // D-367:project_dir 恒主根(ProjectRoot),直接取路径。
     let root = &process.project_dir.0;
