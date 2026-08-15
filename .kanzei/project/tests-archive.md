@@ -3853,3 +3853,19 @@
 - 关联: R-255
 - 收尾: 1786773433
 - 源码指纹: 0e94e15bd9b17978
+
+## T-1786791658 cargo test -p kanzei-memory (R-255 B2 admission/lifecycle 提纯) [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.5s
+- 摘要: R-255 B2 提纯后:138 passed(130 存量+8 新独立测试),0 failed; clippy 零警告; store.rs 生产码 1506→1346
+- 关联: R-255
+- 收尾: 1786791676
+- 源码指纹: b4d5c2989601ecc6
+
+## T-1786792169 cargo test -p kanzei-memory (R-255 B3a 检索域迁出) [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.6s
+- 摘要: R-255 B3a 检索迁出后:138 passed(含 admission/lifecycle 8 新),0 failed; clippy 零警告; store.rs 生产码 1346→936
+- 关联: R-255
+- 收尾: 1786792176
+- 源码指纹: 7431a174b1bf04a3

@@ -12,6 +12,7 @@
 use rusqlite::params;
 
 use super::store::{now_ms, MemoryStore};
+use super::Novelty;
 
 impl MemoryStore {
     /// R-165 批2:检索命中的观测副作用——记录一次真实召回(hits 计数)。
@@ -73,5 +74,46 @@ impl MemoryStore {
             }
         }
         out
+    }
+
+    /// 落一条 novelty 三档分流计数遥测(验收④)。
+    pub fn record_novelty(&self, verdict: &Novelty, fingerprint: &str, note_head: &str) {
+        let Ok(conn) = self.open_db() else { return };
+        let _ = conn.execute(
+            "INSERT INTO novelty_events(at, verdict, fingerprint, note_head) VALUES (?1, ?2, ?3, ?4)",
+            params![now_ms(), verdict.as_str(), fingerprint, note_head.chars().take(80).collect::<String>()],
+        );
+    }
+
+    /// R-165 批2 recurrence 三段晋升的跨轮计数(验收②):
+    /// 同指纹跨轮复发计数,第 2 次才 candidate、第 3 次且带修复成功才 promote。
+    /// 返回第几次出现(1-based)。持久化在 index.db,manager 消化失败笔记时查。
+    pub fn bump_recurrence(&self, fingerprint: &str) -> u32 {
+        let Ok(conn) = self.open_db() else { return 1 };
+        let now = now_ms();
+        let _ = conn.execute(
+            "INSERT INTO recurrence_counts(fingerprint, count, last_at) VALUES (?1, 1, ?2)
+             ON CONFLICT(fingerprint) DO UPDATE SET count = count + 1, last_at = ?2",
+            params![fingerprint, now],
+        );
+        conn.query_row(
+            "SELECT count FROM recurrence_counts WHERE fingerprint = ?1",
+            params![fingerprint],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n as u32)
+        .unwrap_or(1)
+    }
+
+    /// 查询某指纹当前的复发次数(只读,不递增)。
+    pub fn recurrence_count(&self, fingerprint: &str) -> u32 {
+        let Ok(conn) = self.open_db() else { return 0 };
+        conn.query_row(
+            "SELECT count FROM recurrence_counts WHERE fingerprint = ?1",
+            params![fingerprint],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n as u32)
+        .unwrap_or(0)
     }
 }

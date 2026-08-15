@@ -11,6 +11,7 @@ mod index;
 mod lifecycle;
 mod manager;
 mod migration;
+mod retrieval;
 mod store;
 mod telemetry;
 mod tools;
