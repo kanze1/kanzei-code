@@ -4429,3 +4429,9 @@
 - 摘要: R-273 批2:PDF→PNG 回传——latex 工具 to_png 参数(默认 true),编译成功后 pdftoppm(MiKTeX/TeX Live 自带 poppler)首页转 PNG 经 ToolOutput.images 回模型(验收②);临时 PNG 清理不污染工件目录;pdftoppm 缺失给明确诊断。新增单测 2 条:pdf首页转png被消费(PNG 魔数验证+临时清理)、pdftoppm缺失给诊断。kanzei-tools 299 passed,clippy/fmt 通过
 - 关联: R-273
 - 收尾: 1786843820
+
+## T-1786844158 R-273 批3 --only-cached 预热语义+bib 声明 [passed]
+- 命令: cargo test --workspace
+- 摘要: R-273 批3:workspace 全量 15 段 ok。断网 --only-cached 预热语义(验收③):假 tectonic 脚本模拟已预热(--only-cached 成功)/未预热(失败给明确诊断);bib 路线声明(验收④ Tectonic 路径):biber_available 检测,biber 可用声明 biblatex/缺省 natbib+bibtex;compile_tectonic 失败路径补「未预热需先联网预热」指引。新增单测 2 条(tectonic已预热_onlycached成功、tectonic未预热_明确诊断含bib声明)。kanzei-tools 301 passed,clippy/fmt 通过
+- 关联: R-273
+- 收尾: 1786844158

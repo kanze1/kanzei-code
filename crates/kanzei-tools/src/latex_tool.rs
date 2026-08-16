@@ -225,6 +225,12 @@ fn compile_system(workdir: &Path, stem: &str, tex_path: &Path) -> (bool, String)
     (ok && pdf_ok, format!("{summary}\nPDF: {}", pdf.display()))
 }
 
+/// R-273 批3:biber 是否可用(PATH 检测)。Tectonic 默认 natbib/bibtex(内置纯 Rust,
+/// 循环全自动);biblatex 仅在检测到 biber 二进制时可用,向 agent 显式声明。
+pub(crate) fn biber_available() -> bool {
+    which_in_path("biber").is_some()
+}
+
 /// Tectonic 编译:单命令(内置 bibtex 循环全自动)。
 fn compile_tectonic(
     workdir: &Path,
@@ -232,7 +238,8 @@ fn compile_tectonic(
     tex_path: &Path,
     tectonic: &str,
 ) -> (bool, String) {
-    // --keep-logs 保留 .log 供诊断;--only-cached 断网预热语义放批3。
+    // --keep-logs 保留 .log 供诊断;--only-cached 免每次联网核对 bundle(#1224)。
+    // 先只读缓存:已预热宏包的文档断网也能编;未预热则失败并给明确诊断(验收③)。
     let output = run_in_dir(
         workdir,
         tectonic,
@@ -243,8 +250,8 @@ fn compile_tectonic(
         ],
     );
     let mut ok = output.0;
-    let mut diagnostics = vec![format!("[tectonic] {}", summarize(output.1))];
-    // --only-cached 失败(未预热宏包):放开网络重试一次,并如实说明。
+    let mut diagnostics = vec![format!("[tectonic --only-cached] {}", summarize(output.1))];
+    // --only-cached 失败(未预热宏包/断网):给明确诊断——区分「未预热」与「编译错误」。
     if !ok {
         let retry = run_in_dir(
             workdir,
@@ -253,6 +260,25 @@ fn compile_tectonic(
         );
         diagnostics.push(format!("[tectonic retry(网络)] {}", summarize(retry.1)));
         ok = retry.0;
+        if !ok {
+            diagnostics.push(
+                "tectonic 在 --only-cached 与网络重试下均失败:若为断网且宏包未预热,\
+                 请先联网跑一次完整编译预热 bundle,之后即可 --only-cached 断网编译。"
+                    .to_string(),
+            );
+        }
+    }
+    // bib 路线声明(验收④ Tectonic 路径):默认 natbib/bibtex(内置);biber 可用才声明 biblatex。
+    if biber_available() {
+        diagnostics.push(
+            "bib 路线:检测到 biber——biblatex 可用;默认仍建议 natbib/bibtex(Tectonic 内置纯 Rust,循环全自动)。"
+                .to_string(),
+        );
+    } else {
+        diagnostics.push(
+            "bib 路线:未检测到 biber——biblatex 不可用;默认 natbib/bibtex(Tectonic 内置纯 Rust 实现,循环全自动)。"
+                .to_string(),
+        );
     }
     let stem = tex_path
         .file_stem()
@@ -518,6 +544,64 @@ mod tests {
         let dir = temp_dir("nopng");
         let err = pdf_to_png(&dir.join("missing.pdf"), &dir, "missing").unwrap_err();
         assert!(err.contains("PDF 不存在"), "{err}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-273 批3:假 tectonic 脚本——已预热(--only-cached 成功)断网可编译(验收③前半)。
+    /// 用批处理脚本模拟 tectonic:收到 --only-cached 参数即成功并生成 PDF。
+    #[test]
+    fn tectonic已预热_onlycached成功() {
+        let dir = temp_dir("tectonic-warm");
+        std::fs::write(
+            dir.join("doc.tex"),
+            "\\documentclass{article}\n\\begin{document}x\\end{document}\n",
+        )
+        .unwrap();
+        // 假 tectonic:只要带 --only-cached 就成功(已预热),并造一个 PDF 伪文件。
+        let fake = dir.join("tectonic.cmd");
+        std::fs::write(
+            &fake,
+            "@echo off\r\nsetlocal\r\nset OUT=%CD%\\doc.pdf\r\ncopy /y NUL \"%OUT%\" >NUL\r\nexit /b 0\r\n",
+        )
+        .unwrap();
+        let (ok, diag) =
+            compile_tectonic(&dir, "doc", &dir.join("doc.tex"), fake.to_str().unwrap());
+        assert!(ok, "已预热 --only-cached 应成功:\n{diag}");
+        assert!(
+            diag.contains("--only-cached"),
+            "诊断应体现 only-cached 路径: {diag}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-273 批3:假 tectonic——未预热(--only-cached 失败)给明确诊断(验收③后半),
+    /// 并声明 bib 路线(验收④ Tectonic 路径)。
+    #[test]
+    fn tectonic未预热_明确诊断含bib声明() {
+        let dir = temp_dir("tectonic-cold");
+        std::fs::write(
+            dir.join("doc.tex"),
+            "\\documentclass{article}\n\\begin{document}x\\end{document}\n",
+        )
+        .unwrap();
+        // 假 tectonic:带 --only-cached 时失败(未预热),不带时也失败(断网),绝不造 PDF。
+        let fake = dir.join("tectonic.cmd");
+        std::fs::write(
+            &fake,
+            "@echo off\r\necho tectonic: bundle not cached (simulated)\r\nexit /b 1\r\n",
+        )
+        .unwrap();
+        let (ok, diag) =
+            compile_tectonic(&dir, "doc", &dir.join("doc.tex"), fake.to_str().unwrap());
+        assert!(!ok, "未预热且断网应失败: {diag}");
+        assert!(
+            diag.contains("未预热") || diag.contains("预热"),
+            "诊断应点名未预热: {diag}"
+        );
+        assert!(
+            diag.contains("bib 路线"),
+            "诊断应声明 bib 路线(验收④): {diag}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }
