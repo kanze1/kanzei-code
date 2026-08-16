@@ -197,17 +197,17 @@
 - refs: R-101 D-319 R-249 R-059
 - 内容: ①Rust 工具起 Node 辅进程,playwright-core 以 channel 模式 launch 本机 Edge/Chrome headless(不下载 playwright 浏览器二进制),Rust↔Node 走 JSON-RPC over stdio;②能力:open(URL/本地文件)、screenshot(内置移动 viewport 预设,图片经 ToolOutput images 通道回模型——R-249 批1 已交付)、dom(可选 selector 的可读结构)、console、click/type;③自 launch 实例不碰 WebView2,天然绕开 D-319;④注册进桌面端与自举 harness 工具集,权限档位按 profiles 既有口径;⑤辅进程生命周期:空闲超时回收、工具关闭即收尾,不留僵尸 headless。拆批:批1 辅进程骨架+open+screenshot(含移动 viewport);批2 dom+console;批3 click/type 交互。
 - 复杂度: 大
-- 批次: 1/3
+- 批次: 2/3
 - 来源: 2026-08-16 移动端开发前置盘点。用户定调:浏览器工具属开发工具必要范畴,直接登记;技术路线经用户拍板选 playwright-core 辅进程(devDependencies 已有 ^1.62.1,e2e-smoke 同款地基);首要消费场景是移动端 UI 的自举自检,兼收 R-101/webfetch 两侧收益。
 - 标签: 核心
 - 边界: 不 attach WebView2(R-101 的 CDP 路线另论);不做多 tab/多上下文并发;不做网络拦截与请求 mock;无 Node 或无 Edge/Chrome 时给明确诊断,不静默降级;截图体积口径沿用 R-249。
 - 验收: ①打开本地 HTML 与 http URL 各有实测轨迹;②移动 viewport 截图被模型真实消费(实测轨迹,不是单测断言);③click/type 后 DOM 变化可读回;④页面 console 错误可读;⑤缺 Node/缺浏览器时诊断明确;⑥工具生命周期结束后无残留辅进程与 headless 实例(实测进程列表);⑦附带给出 e2e-smoke 切本路线绕开 D-319 的可行性结论(只要结论,不要求实施)。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-269
-- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①依赖——package.json devDependencies 已有 playwright-core ^1.62.1(与 e2e-smoke 同款地基);②既有先例——scripts/e2e-smoke.mjs 走 chromium.connectOverCDP(WebView2 CDP 路线,D-319 卡住),R-269 改为 chromium.launch({channel}) 自 launch 本机 Edge/Chrome headless,天然绕开 D-319;③图片通道——R-249 批1 已交付 ToolOutput.images(Part::Image);④无 Node/浏览器时须给明确诊断。**设计冻结**:不变式——辅进程生命周期受控(空闲超时回收、工具关闭即收尾、不留僵尸 headless);权威数据源——playwright-core 自 launch 的 browser/page 实例,Rust↔Node 走 JSON-RPC over stdio(单行 JSON 请求/响应)。 || **批1 完成(2026-08-16,提交待定)**:①scripts/browser-helper.mjs(新)——playwright-core channel 模式自 launch 本机 Edge headless,JSON-RPC over stdio,open/screenshot/dom/console/click/type/shutdown 七方法,**串行队列**处理请求(并发会让截图在 open 完成前执行);②crates/kanzei-tools/src/browser_tool.rs(新)——BrowserTool(Rust 客户端:辅进程单例+空闲回收线程 120s+缺 Node 诊断+\?\ 路径前缀剥离+file:// URL 编码),execute_browser 调 open+screenshot 并以 ToolOutput.images 回模型;③base.rs 注册 browser 工具+Ask 权限档;④实测(验收①本地 HTML 轨迹):open 本地 HTML 375x667 移动 viewport → title/url 正确 + screenshot 返回真实 PNG(base64 11KB)+ shutdown 正常退出;修两个关键 bug——Node stdin 关闭竞态(open 响应丢失)、Windows \?\ 前缀与路径空格;⑤Rust 单测 4 条全绿(schema/目标解析含 file:// 转换/缺 Node 诊断/viewport 预设),kanzei-tools 294 passed,clippy/fmt 通过(T-1786839970)。**下一批**:批2 dom(可选 selector 可读结构)+console 错误读取+缺依赖诊断兜底(浏览器缺失时明确指引)。
-- observed_head: 36faa35a34f8ba76a151c9ca5fa8e5a9ebc6f204
-- observed_worktree_hash: fnv1a64:5ec683cbf15f9d72
-- recorded_at: 1786839978956
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①依赖——package.json devDependencies 已有 playwright-core ^1.62.1;②既有先例——e2e-smoke 走 connectOverCDP(D-319 卡住),R-269 改为 chromium.launch({channel}) 自 launch 本机 Edge,绕开 D-319;③图片通道——R-249 批1 已交付 ToolOutput.images;④无 Node/浏览器时须给明确诊断。**设计冻结**:不变式——辅进程生命周期受控(空闲超时回收、工具关闭即收尾、不留僵尸);权威数据源——playwright-core 自 launch 的 browser/page 实例,Rust↔Node 走 JSON-RPC over stdio。 || **批1 完成(2026-08-16,提交 5507f66 已 push)**:browser-helper.mjs(Node 辅进程:channel launch Edge headless + JSON-RPC + 串行队列)+browser_tool.rs(Rust 客户端:辅进程单例+120s 空闲回收+缺 Node 诊断+\?\ 前缀剥离)+base.rs 注册 Ask 权限;实测 open 本地 HTML 375x667 移动 viewport → title/url + screenshot 真实 PNG + shutdown;修 Node stdin 竞态与 Windows \?\ 前缀。Rust 单测 4 条,kanzei-tools 294 passed。 || **批2 完成(2026-08-16,提交待定)**:BrowserInput 加 action(open/dom/console)+selector,execute_browser 按 action 分发 execute_open/execute_dom/execute_console(dom/console 前自动 ensure open);input_schema 增 action/selector 字段。实测轨迹:dom(selector=#probe)返回 [{tag:p,id:probe,text:浏览器工具自检...,children:[]}] 可读结构;console 返回 [{type:error,text:R-269 测试页的 console 错误}](验收④页面 console 错误可读);shutdown 正常退出。Rust 单测 4 条全绿(schema 含 action/selector),kanzei-tools 294 passed,clippy/fmt 通过(T-1786840213)。**下一批(批3)**:click/type 交互(验收③,helper 已实现、Rust 侧加 action)+缺浏览器诊断兜底(验收⑤)+生命周期无残留实测(验收⑥)+e2e-smoke 绕 D-319 可行性结论(验收⑦)+workspace 全量。
+- observed_head: 5507f66c2b4393f5cd2ac209cb45cc6c73cfb2ed
+- observed_worktree_hash: fnv1a64:439090bcac69cf8a
+- recorded_at: 1786840224120
 
 ## R-270 桥接移动化:LAN 配对/SSE/approval/PWA serve 与通知桥 [todo]
 - refs: R-059 D-063 R-269 docs/design/r059_mobile_agent_communication.md

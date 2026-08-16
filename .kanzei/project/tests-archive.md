@@ -4343,3 +4343,9 @@
 - 摘要: R-269 批1:浏览器工具辅进程骨架落地。Rust 侧 browser_tool.rs(JSON-RPC 客户端/辅进程单例/空闲回收/缺 Node 诊断)+ Node 侧 browser-helper.mjs(playwright-core channel 模式自 launch 本机 Edge headless,open/screenshot/shutdown 串行处理)+ base.rs 注册+Ask 权限。实测:open 本地 HTML(375x667 移动 viewport)→ title/url 正确 + screenshot 返回真实 PNG base64 + shutdown 正常退出;修复两个关键 bug(Node stdin 关闭竞态致 open 响应丢失、Windows \\?\ 路径前缀与空格编码)。Rust 单测 4 条全绿(schema/目标解析/缺 Node 诊断/viewport 预设),kanzei-tools 294 passed,clippy/fmt 通过
 - 关联: R-269
 - 收尾: 1786839970
+
+## T-1786840213 R-269 批2 dom+console [passed]
+- 命令: cargo test -p kanzei-tools --lib; node scripts/browser-helper.mjs < output/r269-req2.jsonl
+- 摘要: R-269 批2:dom(可选 selector 可读结构)+console 错误读取。BrowserInput 加 action(open/dom/console)+selector 字段,execute_browser 按 action 分发(execute_open/execute_dom/execute_console),dom/console 前自动确保页面已 open。实测轨迹:dom(selector=#probe)返回 [{tag:p,id:probe,text:...}] 可读结构;console 返回 [{type:error,text:"R-269 测试页的 console 错误"}](验收④);shutdown 正常。Rust 单测 4 条全绿(含 schema 新增 action/selector),kanzei-tools 294 passed,clippy/fmt 通过
+- 关联: R-269
+- 收尾: 1786840213

@@ -98,6 +98,11 @@ pub(crate) struct BrowserInput {
     url: Option<String>,
     /// open: 本地文件路径(file:// 自动转换)。
     path: Option<String>,
+    /// 动作:open(默认,打开并截图)| dom(读可读结构)| console(读页面错误)。
+    #[serde(default = "default_action")]
+    action: String,
+    /// dom: 可选 selector(默认 body 整树)。
+    selector: Option<String>,
     /// screenshot / open: 移动 viewport 预设(mobile-375x667 等)。
     viewport: Option<String>,
     /// 浏览器 channel:msedge(默认) | chrome。
@@ -107,6 +112,10 @@ pub(crate) struct BrowserInput {
 
 fn default_channel() -> String {
     "msedge".into()
+}
+
+fn default_action() -> String {
+    "open".into()
 }
 
 /// 辅进程句柄:子进程 + 写请求的 stdin + 读响应的 stdout。
@@ -308,14 +317,22 @@ fn with_helper<T>(f: impl FnOnce(&mut HelperProcess) -> Result<T, String>) -> Re
 
 /// 浏览器工具的 execute 入口(供 Tool trait 调用)。
 pub(crate) async fn execute_browser(input: BrowserInput) -> ToolOutput {
-    let url = match resolve_target(&input) {
+    match input.action.as_str() {
+        "dom" => execute_dom(&input).await,
+        "console" => execute_console(&input).await,
+        _ => execute_open(&input).await,
+    }
+}
+
+/// open(默认):打开目标并截图,图片经 ToolOutput.images 回模型。
+async fn execute_open(input: &BrowserInput) -> ToolOutput {
+    let url = match resolve_target(input) {
         Ok(u) => u,
         Err(e) => return ToolOutput::error(e),
     };
     let viewport = parse_viewport(input.viewport.as_deref());
 
     match with_helper(|helper| {
-        // open:打开目标。
         let open_result = helper.rpc(
             "open",
             serde_json::json!({
@@ -351,6 +368,83 @@ pub(crate) async fn execute_browser(input: BrowserInput) -> ToolOutput {
                 data: png_b64,
             }]);
             output
+        }
+        Err(e) => ToolOutput::error(format!("浏览器工具失败: {e}")),
+    }
+}
+
+/// dom:读页面可读结构(可选 selector,默认 body 整树)。
+async fn execute_dom(input: &BrowserInput) -> ToolOutput {
+    let url = match resolve_target(input) {
+        Ok(u) => u,
+        Err(e) => return ToolOutput::error(e),
+    };
+    let viewport = parse_viewport(input.viewport.as_deref());
+    let selector = input.selector.clone().unwrap_or_default();
+
+    match with_helper(|helper| {
+        // dom 前先确保页面已打开(open 幂等:已 open 则复用 browser/page)。
+        helper.rpc(
+            "open",
+            serde_json::json!({
+                "url": url,
+                "channel": input.channel,
+                "viewport": viewport,
+            }),
+        )?;
+        let dom = helper.rpc("dom", serde_json::json!({ "selector": selector }))?;
+        let structure = dom["dom"].as_str().unwrap_or("").to_string();
+        Ok((url, structure))
+    }) {
+        Ok((url, structure)) => {
+            if structure.is_empty() {
+                return ToolOutput::error(format!("dom 读取为空(selector: {selector:?})"));
+            }
+            ToolOutput::ok(format!("页面 DOM 结构(url: {url}):\n{structure}"))
+        }
+        Err(e) => ToolOutput::error(format!("浏览器工具失败: {e}")),
+    }
+}
+
+/// console:读页面累积的 console 错误/警告。
+async fn execute_console(input: &BrowserInput) -> ToolOutput {
+    let url = match resolve_target(input) {
+        Ok(u) => u,
+        Err(e) => return ToolOutput::error(e),
+    };
+    let viewport = parse_viewport(input.viewport.as_deref());
+
+    match with_helper(|helper| {
+        // console 前同样先确保页面已打开。
+        helper.rpc(
+            "open",
+            serde_json::json!({
+                "url": url,
+                "channel": input.channel,
+                "viewport": viewport,
+            }),
+        )?;
+        let console = helper.rpc("console", serde_json::json!({}))?;
+        let errors = console["errors"].as_array().cloned().unwrap_or_default();
+        Ok((url, errors))
+    }) {
+        Ok((url, errors)) => {
+            if errors.is_empty() {
+                return ToolOutput::ok(format!("页面 console 无错误/警告(url: {url})"));
+            }
+            let lines = errors
+                .iter()
+                .map(|e| {
+                    let ty = e["type"].as_str().unwrap_or("?");
+                    let text = e["text"].as_str().unwrap_or("?");
+                    format!("[{ty}] {text}")
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            ToolOutput::error(format!(
+                "页面 console 错误/警告 {} 条(url: {url}):\n{lines}",
+                errors.len()
+            ))
         }
         Err(e) => ToolOutput::error(format!("浏览器工具失败: {e}")),
     }
@@ -409,6 +503,12 @@ pub(crate) fn input_schema() -> serde_json::Value {
         "properties": {
             "url": { "type": "string", "description": "目标 http(s) URL" },
             "path": { "type": "string", "description": "本地 HTML 文件路径(file:// 自动转换)" },
+            "action": {
+                "type": "string",
+                "enum": ["open", "dom", "console"],
+                "description": "动作:open(默认,打开并截图回模型)| dom(读可读 DOM 结构,可选 selector)| console(读页面 console 错误/警告)"
+            },
+            "selector": { "type": "string", "description": "dom 用:可选 CSS selector(默认 body 整树)" },
             "viewport": {
                 "type": "string",
                 "enum": ["mobile-375x667", "mobile-390x844", "mobile-412x915", "mobile-360x800"],
@@ -452,6 +552,8 @@ mod tests {
             path: None,
             viewport: None,
             channel: "msedge".into(),
+            action: "open".into(),
+            selector: None,
         })
         .unwrap_err();
         assert!(err.contains("url 或 path"), "{err}");
@@ -462,6 +564,8 @@ mod tests {
             path: None,
             viewport: None,
             channel: "msedge".into(),
+            action: "open".into(),
+            selector: None,
         })
         .unwrap_err();
         assert!(err.contains("http(s)"), "{err}");
@@ -476,6 +580,8 @@ mod tests {
             path: Some(abs.display().to_string()),
             viewport: None,
             channel: "msedge".into(),
+            action: "open".into(),
+            selector: None,
         })
         .unwrap();
         assert!(url.starts_with("file:///"), "本地文件应转 file://: {url}");
