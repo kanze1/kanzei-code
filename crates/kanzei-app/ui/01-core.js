@@ -171,8 +171,9 @@ function on(event, handler) {
         if (event === "kz:done" && typeof handleBackgroundSessionDone === "function") {
           handleBackgroundSessionDone(eventPayload.payload);
         }
-        if ((event === "kz:stopped" || terminalError) && typeof cancelAutoContinueTimer === "function") {
-          cancelAutoContinueTimer(sessionId);
+        if (event === "kz:stopped" || terminalError) {
+          if (typeof cancelAutoContinueTimer === "function") cancelAutoContinueTimer(sessionId);
+          if (typeof releaseAutoContinue === "function") releaseAutoContinue(sessionId);
         }
         if (typeof refreshConversationLists === "function") void refreshConversationLists();
         refreshProcesses();

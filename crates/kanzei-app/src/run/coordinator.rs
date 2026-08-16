@@ -250,7 +250,8 @@ pub(crate) async fn run_task(
             // 时,把失败按瞬态/致命分类送进同一个 auto_run 状态机:瞬态退避重试
             // (连续 MAX_FAILED_ROUNDS 轮才停),致命立即停;停摆经通知桥发手机。
             // 手动单轮(rounds==0)保持原行为——用户在场,错误直接返回。
-            let transient = crate::auto_run::is_transient_run_error(&error);
+            let rate_limited = crate::auto_run::is_rate_limited_run_error(&error);
+            let transient = !rate_limited && crate::auto_run::is_transient_run_error(&error);
             let auto_payload = {
                 let mut controllers = handles.auto_runs.lock().unwrap();
                 let ctrl = controllers.entry(session_id.clone()).or_default();
@@ -266,7 +267,9 @@ pub(crate) async fn run_task(
                             && deps.agent.name == "dev",
                         closed_this_round: 0,
                         verify_every_n: 0,
-                        round_failure: Some(if transient {
+                        round_failure: Some(if rate_limited {
+                            kanzei_harness::auto_run::RoundFailure::RateLimited
+                        } else if transient {
                             kanzei_harness::auto_run::RoundFailure::Transient
                         } else {
                             kanzei_harness::auto_run::RoundFailure::Fatal

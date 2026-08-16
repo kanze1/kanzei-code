@@ -26,7 +26,10 @@ pub mod tool_pipeline;
 pub use config::{KanzeiConfig, ResolvedModel};
 pub use context::{refreshing_source, source, ContextSource};
 pub use conventions::DEFAULT_CONVENTIONS;
-pub use defs::{AgentDef, AgentMode, CommandDef, ProfileKind, ProfileScope, SkillDef};
+pub use defs::{
+    effective_agent_steps, AgentDef, AgentMode, CommandDef, ProfileKind, ProfileScope, SkillDef,
+    DEFAULT_AGENT_STEPS,
+};
 pub use harness::{
     rule, Component, ConfigComponent, Harness, HarnessDraft, HarnessSnapshot, ResolveCtx,
 };

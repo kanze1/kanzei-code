@@ -163,6 +163,7 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
                 // D-403:连续瞬态失败停摆(max 槽复用为失败次数)/致命错误立即停。
                 AutoStopReason::RepeatedFailure(n) => ("RepeatedFailure", Some(n)),
                 AutoStopReason::FatalError => ("FatalError", None),
+                AutoStopReason::RateLimited => ("RateLimited", None),
             };
             let mut v = json!({ "type": "Stop", "reason": reason_str });
             if let Some(max) = max {
@@ -177,8 +178,20 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
 /// 瞬态 = 限流/过载(RateLimited)、传输中断(Transport)、服务端 5xx;
 /// 致命 = 认证/参数 4xx、配置/协议错、上下文溢出(压缩轨道已尽力,重试同样溢出)、
 /// 以及非 LlmError 的失败(内部错误,重试只会原样复现)。
+fn llm_error_in(error: &anyhow::Error) -> Option<&kanzei_llm::LlmError> {
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<kanzei_llm::LlmError>())
+}
+
+/// 判断错误链中是否有 provider 限流错误。`run_task` 会给底层错误增加上下文，
+/// 不能只检查 anyhow 最外层。
+pub fn is_rate_limited_run_error(error: &anyhow::Error) -> bool {
+    llm_error_in(error).is_some_and(kanzei_llm::LlmError::is_rate_limited)
+}
+
 pub fn is_transient_run_error(error: &anyhow::Error) -> bool {
-    let Some(llm) = error.downcast_ref::<kanzei_llm::LlmError>() else {
+    let Some(llm) = llm_error_in(error) else {
         return false;
     };
     match llm {
@@ -199,6 +212,21 @@ pub fn work_priority_enum(v: &str) -> WorkPriority {
 #[cfg(test)]
 mod tests {
     use super::{apply_state_update, AutoRunController};
+
+    #[test]
+    fn 限流错误链会被识别为自动推进的立即停止() {
+        let error = anyhow::Error::new(kanzei_llm::LlmError::RateLimited {
+            status: 429,
+            kind: Some("rate_limit_error".into()),
+            body: "slow down".into(),
+            retry_after: Some(30),
+        })
+        .context("run failed");
+
+        assert!(super::is_rate_limited_run_error(&error));
+        assert!(super::is_transient_run_error(&error));
+    }
+
     #[test]
     fn 开关切换会清空本会话旧轮数_上限保持边界约束() {
         let mut ctrl = AutoRunController {

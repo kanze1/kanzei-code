@@ -39,6 +39,24 @@ pub(crate) fn admit_input(
     Ok(input)
 }
 
+/// 自动续跑的队列去重：同一会话中同一条自动推进指令已经 pending 时，
+/// 重复 IPC 不得再次写入队列。手动输入不走这里的判断，保留用户有意重复发送的语义。
+pub(crate) fn has_pending_queue_prompt(
+    project_dir: &str,
+    session_id: &str,
+    prompt: &str,
+) -> anyhow::Result<bool> {
+    let project_root = crate::normalized_project_root(Path::new(project_dir));
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))?;
+    store.create_session(session_id, &project_root.display().to_string(), None)?;
+    Ok(store
+        .list_pending_inputs(session_id)?
+        .into_iter()
+        .any(|input| {
+            matches!(input.delivery, kanzei_core::Delivery::Queue) && input.prompt == prompt
+        }))
+}
+
 /// 提升队首输入为当前运行输入并记 prompt.promoted 事件(原 run.rs promote_next_input)。
 pub(crate) fn promote_next_input(
     project_dir: &str,

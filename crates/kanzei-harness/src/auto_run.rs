@@ -84,6 +84,9 @@ pub enum AutoStopReason {
     RepeatedFailure(u32),
     /// D-403:本轮以致命错误失败(认证/配置类),重试只会原样复现,立即停。
     FatalError,
+    /// provider 明确返回限流/过载(通常是 HTTP 429):本轮自动推进立即停，
+    /// 等待用户确认配额恢复后手动恢复，避免继续消耗订阅额度。
+    RateLimited,
 }
 
 /// 轮末判定结果。
@@ -237,11 +240,12 @@ impl AutoRunState {
             return self.stop_with(AutoStopReason::MaxRounds(self.max_rounds));
         }
         // D-403:失败轮不算「无动作」——模型没机会动作,不该吃 Nudge/NoAction 刹车。
-        // 瞬态失败退避重试,连续 MAX_FAILED_ROUNDS 轮才停;致命失败立即停不空转。
+        // 瞬态失败退避重试,连续 MAX_FAILED_ROUNDS 轮才停;致命/限流失败立即停不空转。
         if let Some(failure) = ctx.round_failure {
             self.no_action_rounds = 0;
             return match failure {
                 RoundFailure::Fatal => self.stop_with(AutoStopReason::FatalError),
+                RoundFailure::RateLimited => self.stop_with(AutoStopReason::RateLimited),
                 RoundFailure::Transient => {
                     self.failed_rounds += 1;
                     if self.failed_rounds >= MAX_FAILED_ROUNDS {
@@ -319,6 +323,8 @@ pub struct AutoRunCtx<'a> {
 pub enum RoundFailure {
     /// 瞬态(限流/过载/5xx/传输中断):退避后值得重试。
     Transient,
+    /// provider 已明确限流/过载；继续重试会放大订阅消耗，立即停止自动链。
+    RateLimited,
     /// 致命(认证/配置/协议/上下文压缩已尽仍溢出):重试只会原样复现,立即停。
     Fatal,
 }
@@ -389,6 +395,13 @@ mod tests {
         assert_eq!(
             state.decide(&fatal),
             AutoRunAction::Stop(AutoStopReason::FatalError)
+        );
+
+        let mut limited = ctx_with_tools(&tools);
+        limited.round_failure = Some(RoundFailure::RateLimited);
+        assert_eq!(
+            state.decide(&limited),
+            AutoRunAction::Stop(AutoStopReason::RateLimited)
         );
     }
 

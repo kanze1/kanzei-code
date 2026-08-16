@@ -206,9 +206,8 @@ pub fn run_once_with_parts<'a>(
             }
             on_event(RunEvent::TurnStart { step, max_steps });
             let last_step = max_steps > 0 && step == max_steps;
-            // 步数软预算(D-173):步数上限是 0(不设人为天花板),但"不封顶"不等于
-            // "不盘点"。检查点只要求当轮盘一次剩余范围,不强制中止——实测长轮的
-            // 成本失控几乎都始于无人察觉的目标漂移。
+            // 步数预算(D-173):旧配置中的 0 已在装配段转换为有限默认上限。
+            // 到达最后一步时收走工具并要求模型用文本收敛，防止工具/模型循环无限延长。
             let budget_checkpoint = is_budget_checkpoint(step);
 
             // R-202 批6:轮内上下文预算(主动 prune/压缩/trim,含 D-206 无效计数
@@ -1622,9 +1621,8 @@ fn assemble_run_once<'a>(
     let last_input_tokens: Option<u64> = None;
     // D-342:停止检查点用。提前初始化——halted 提前返回时它是「最近一步的文本」。
     let final_text = String::new();
-    // steps 语义:0 = 无上限(用户定调:不设人为轮数天花板——停止权在用户按钮
-    // 与上下文管理,不在计数器)。>0 时保留封顶,最后一步收工具+收尾指令。
-    let max_steps = agent.steps;
+    // 存量 agent 可能仍带 steps=0；运行边界统一转换，不能让旧配置绕过有限上限。
+    let max_steps = kanzei_harness::effective_agent_steps(agent.steps);
     // 本次运行内已放行的 (action, resource):同一资源不重复问(用户反馈:别烦我)。
     let session_approved: std::collections::HashSet<(String, String)> =
         std::collections::HashSet::new();

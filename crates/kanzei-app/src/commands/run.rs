@@ -24,7 +24,9 @@ use crate::{
 
 use crate::run::assembly::{RoundRequest, RunMode, RuntimeHandles};
 use crate::run::coordinator::run_task;
-use crate::run::input::{admit_input, code_root_for, parse_delivery, promote_next_input};
+use crate::run::input::{
+    admit_input, code_root_for, has_pending_queue_prompt, parse_delivery, promote_next_input,
+};
 
 /// R-171 批5:写租约轨迹 guard——持有租约到 run_task 返回。
 /// 正常路径在 run_task 尾部显式写 Released;异常/abort/停止路径走到这里时,
@@ -282,6 +284,15 @@ pub(crate) async fn run_prompt(
         if runtime.running.load(Ordering::SeqCst) {
             if attachments.as_ref().is_some_and(|items| !items.is_empty()) {
                 return Err("当前任务运行中不能排队附件，请等待本轮完成后再发送".into());
+            }
+            // 自动续跑的重复事件可能在窗口关闭/重开或事件重放后再次到达；
+            // 同文案的 pending 输入只保留一份。手动发送仍允许重复排队。
+            if autonomous
+                && matches!(delivery, kanzei_core::Delivery::Queue)
+                && has_pending_queue_prompt(&project_dir, &session_id, &prompt)
+                    .map_err(|e| e.to_string())?
+            {
+                return Ok(());
             }
             let queued = admit_input(&project_dir, &session_id, &prompt, delivery)
                 .map_err(|e| e.to_string())?;

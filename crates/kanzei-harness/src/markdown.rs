@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use crate::defs::{AgentDef, CommandDef, SkillDef};
+use crate::defs::{AgentDef, CommandDef, SkillDef, DEFAULT_AGENT_STEPS};
 use crate::harness::{Component, HarnessDraft, ResolveCtx};
 
 pub struct MarkdownComponent;
@@ -139,7 +139,10 @@ fn scan_agents(dir: &Path, draft: &mut HarnessDraft) {
             profile: fm.get("profile").and_then(serde_plain).unwrap_or_default(),
             model: fm.get("model").unwrap_or("primary").to_string(),
             mode: fm.get("mode").and_then(serde_plain).unwrap_or_default(),
-            steps: fm.get("steps").and_then(|s| s.parse().ok()).unwrap_or(0),
+            steps: fm
+                .get("steps")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(DEFAULT_AGENT_STEPS),
             system: fm.body,
         };
         draft.agents.insert(name, agent);
@@ -234,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_without_steps_uses_unlimited_default() {
+    fn agent_without_steps_uses_finite_default() {
         let dir =
             std::env::temp_dir().join(format!("kanzei-markdown-agent-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -247,7 +250,10 @@ mod tests {
 
         let mut draft = crate::harness::HarnessDraft::default();
         scan_agents(&dir, &mut draft);
-        assert_eq!(draft.agents.get("custom").unwrap().steps, 0);
+        assert_eq!(
+            draft.agents.get("custom").unwrap().steps,
+            DEFAULT_AGENT_STEPS
+        );
 
         std::fs::remove_dir_all(dir).unwrap();
     }

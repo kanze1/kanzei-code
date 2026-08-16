@@ -5,6 +5,9 @@ let autoRounds = 0;
 let autoPaused = false;
 let autoStopAfterRound = false;
 const autoContinueTimers = new Map();
+// 自动续跑的 IPC 会在后端真正结束前立即返回；用在途集合挡住同一会话的
+// 重复 kz:done/定时器事件，终态事件再释放。否则重复事件会不断追加 queue 输入。
+const autoContinueInFlight = new Set();
 let autoStopReason = "";
 // 连续无实质动作的轮数:第一次只追加推进指令,第二次才刹车。
 // R-169:判定已下沉 harness auto_run 状态机,前端只保留镜像赋值。
@@ -181,6 +184,9 @@ function cancelAutoContinueTimer(sessionId = activeSessionId) {
   if (entry?.timer) clearTimeout(entry.timer);
   autoContinueTimers.delete(sessionId);
 }
+function releaseAutoContinue(sessionId) {
+  if (sessionId) autoContinueInFlight.delete(sessionId);
+}
 // D-291:续跑闸门的**唯一**判据。原来这几个条件散在两处 setTimeout 里,任一不满足
 // 就 `return` ——不发下一轮、不清 auto_pending、不清横幅、不留一个字。界面于是永久
 // 钉在「鞭挞 · 等待下一轮」,而那一轮永远不会来(引擎侧还记着 rounds+1,两边状态从此
@@ -212,6 +218,7 @@ const AUTO_CONTINUE_RUNNING_GRACE = 15;
 const AUTO_CONTINUE_INTENDED_STOPS = new Set(["鞭挞已关闭", "已暂停", "本轮后停"]);
 // 闸门拦下时收口:pending 必须落地,否则横幅与线路徽标一直显示「等待下一轮」。
 function abortAutoContinue(reason, sessionId = activeSessionId) {
+  releaseAutoContinue(sessionId);
   if (sessionId) transitionSession(sessionId, "idle");
   const item = sessionId ? processItems.find((candidate) => candidate.session_id === sessionId) : null;
   if (sessionId === activeSessionId) {
@@ -228,6 +235,7 @@ function abortAutoContinue(reason, sessionId = activeSessionId) {
 // 由取消方自己收口,不在这里处理。
 function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0, delayMs = 2000) {
   if (!sessionId) return;
+  if (autoContinueInFlight.has(sessionId)) return;
   // R-199:档位条件下沉引擎——armAutoContinue 不再检查 autoContinueAllowed(),
   // 引擎在 decide() 已判 Stop(ProfileMismatch) 且计数不 +1;前端不再持有
   // 引擎不知道的续跑否决权(计数与实际轮次不再漂移)。
@@ -272,8 +280,10 @@ function scheduleAutoContinue() {
 }
 
 async function sendAutoToSession(prompt, sessionId) {
+  if (autoContinueInFlight.has(sessionId)) return;
   const item = processItems.find((candidate) => candidate.session_id === sessionId);
   if (!item) return abortAutoContinue("线路已关闭", sessionId);
+  autoContinueInFlight.add(sessionId);
   if (sessionId === activeSessionId) {
     addMessage("notice", `${t("鞭挞已触发")} · ${sessionState(sessionId).auto_rounds || 0}`);
     setRunning(true, t("准备中"));
@@ -293,6 +303,7 @@ async function sendAutoToSession(prompt, sessionId) {
       autoAllow: localStorage.getItem("kz-auto-allow") === "1",
     });
   } catch (error) {
+    releaseAutoContinue(sessionId);
     transitionSession(sessionId, "failed");
     if (sessionId === activeSessionId) {
       reportError(String(error));

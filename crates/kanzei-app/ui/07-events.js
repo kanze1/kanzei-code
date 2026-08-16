@@ -269,6 +269,7 @@ on("kz:error", (e) => {
   // 持久化告警等非终态错误不能把仍在运行的会话投影成空闲；真正运行失败由
   // 后端明确携带 terminal=true，并随后发 kz:idle 收口。
   if (terminal) {
+    releaseAutoContinue(payload.sessionId || activeSessionId);
     // D-291:取消续跑定时器只属于终态分支。原来它在函数开头无条件执行,一条
     // terminal=false 的告警(比如持久化警告)就能掐掉已排好的下一轮,而 auto_pending
     // 仍是 true——界面从此停在「等待下一轮」,不报错也不再动。
@@ -311,6 +312,7 @@ on("kz:compacted", (e) => {
   renderTokens();
 });
 on("kz:stopped", (e) => {
+  releaseAutoContinue(e.payload?.sessionId || activeSessionId);
   cancelAutoContinueTimer(e.payload?.sessionId || activeSessionId);
   hideAsk();
   const cancelled = e.payload?.cancelled_queue ?? 0;
@@ -328,6 +330,7 @@ on("kz:stopped", (e) => {
 // 视图的收尾归 kz:done/kz:error/kz:stopped,这里只把标签页按状态机重画一次——
 // 订阅本身也是必需的:on() 里的会话状态机收敛逻辑挂在订阅回调上。
 on("kz:idle", (e) => {
+  releaseAutoContinue(e.payload?.sessionId || activeSessionId);
   renderProcesses(processItems);
 });
 
@@ -337,6 +340,7 @@ on("kz:idle", (e) => {
 on("kz:auto-fail", (e) => {
   const p = e.payload;
   const action = p.autoAction || { type: "NoContinue" };
+  releaseAutoContinue(p.sessionId);
   if (action.type === "RetryAfterFailure") {
     autoRounds = action.rounds ?? autoRounds;
     const secs = Math.round((action.delayMs ?? 15000) / 1000);
@@ -353,9 +357,11 @@ on("kz:auto-fail", (e) => {
     autoRounds = 0;
     cancelAutoContinueTimer(p.sessionId || activeSessionId);
     const reasonText =
-      action.reason === "RepeatedFailure"
-        ? t("连续多轮运行失败,自动推进已停止(已发手机通知)")
-        : t("运行失败:致命错误,自动推进已停止");
+      action.reason === "RateLimited"
+        ? t("provider 限流(429)，自动推进已暂停，请等待后手动恢复")
+        : action.reason === "RepeatedFailure"
+          ? t("连续多轮运行失败,自动推进已停止(已发手机通知)")
+          : t("运行失败:致命错误,自动推进已停止");
     addMessage("notice", `${t("鞭挞停止")}:${reasonText}`);
     log(`${t("鞭挞停止")}:${reasonText}`);
     setAutoStopReason(reasonText);
@@ -364,6 +370,7 @@ on("kz:auto-fail", (e) => {
 
 on("kz:done", async (e) => {
   const p = e.payload;
+  releaseAutoContinue(p.sessionId);
   // R-267:轮末不再需要「原子回灌」。那套是为了修补「切走期间缺一段」——而缺口
   // 本身已经不存在了:后台会话的渲染事件全程进它自己的 pane,轮末 pane 里就是完整的。
   // 一并去掉的还有回灌带来的两个老毛病:清掉轮末「完成/权限被拦」notice(R-223/R-224),
@@ -476,6 +483,11 @@ on("kz:done", async (e) => {
       setAutoStopReason(msg);
       addMessage("notice", `✅ ${msg}`);
       log(t("自动推进停止:当前模式不匹配"));
+    } else if (reason === "RateLimited") {
+      const msg = t("provider 限流(429)，自动推进已暂停，请等待后手动恢复");
+      setAutoStopReason(msg);
+      addMessage("notice", `${t("鞭挞停止")}:${msg}`);
+      log(`${t("鞭挞停止")}:${msg}`);
     }
   }
   // NoContinue:用户拒绝/未开启——不续跑不重置,等手动输入重新武装。
