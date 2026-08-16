@@ -1278,9 +1278,10 @@ assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
   const manualPanel = byId.get("manual-panel");
   const manualBody = byId.get("manual-body");
   assert(manualPanel && manualBody, "使用手册区块未渲染(index.html 缺 manual-panel/manual-body)");
+  // 2026-08-16 首选 docs/使用手册.md(新手手册),docs/目录.md 降为回退。
   assert(
-    invokeArgs.some(({ cmd, args }) => cmd === "file_preview" && args?.path === "docs/目录.md"),
-    "启动后未读取 docs/目录.md(使用手册加载链路断了)",
+    invokeArgs.some(({ cmd, args }) => cmd === "file_preview" && args?.path === "docs/使用手册.md"),
+    "启动后未读取 docs/使用手册.md(使用手册加载链路断了)",
   );
   assert(!manualPanel.classList.contains("hidden"), "有手册内容时使用手册区块应可见(仍 hidden)");
   assert(
@@ -1480,12 +1481,27 @@ assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲
 assert(!byId.has("conversation-list"), "历史对话不应再有独立的全局列表");
 const lineHistories = document.querySelectorAll("#parallel-task-status .parallel-line-history");
 assert(lineHistories.length === 2, `两条线路都应有自己的历史容器,实际 ${lineHistories.length}`);
+// 历史默认**收起**:只出折叠头(带条数),不铺开标题——多线路同时展开会把
+// 「各线当前在做」挤出第一屏。展开后才渲染列表,且仍按 process_id 隔离。
+for (const history of lineHistories) {
+  assert(
+    history.querySelector(".parallel-history-head") && !history.classList.contains("open"),
+    `历史对话应默认收起并只渲染折叠头:${history.dataset.processId}`,
+  );
+  assert(
+    !history.textContent.includes("冒烟会话") && !history.textContent.includes("后台线路历史"),
+    `收起状态不应渲染历史标题:${history.textContent.slice(0, 60)}`,
+  );
+  history.querySelector(".parallel-history-head").click();
+}
+await flush();
+const openedHistories = document.querySelectorAll("#parallel-task-status .parallel-line-history");
 assert(
-  [...lineHistories].some((history) => history.dataset.processId === "d|smoke" && history.textContent.includes("冒烟会话")),
+  [...openedHistories].some((history) => history.dataset.processId === "d|smoke" && history.textContent.includes("冒烟会话")),
   "主线历史没有挂到主线按钮下面",
 );
 assert(
-  [...lineHistories].some((history) => history.dataset.processId === "p|bg" && history.textContent.includes("后台线路历史") && !history.textContent.includes("冒烟会话")),
+  [...openedHistories].some((history) => history.dataset.processId === "p|bg" && history.textContent.includes("后台线路历史") && !history.textContent.includes("冒烟会话")),
   "并行线历史没有按 process_id 隔离渲染",
 );
 const historyCalls = invokeArgs.filter(({ cmd }) => cmd === "conversation_list");

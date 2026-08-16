@@ -343,6 +343,17 @@ function renderEarlierHint() {
   activePane.prepend(hint);
 }
 
+// 空态标记 = app 图标的 K 几何(竖干 + 右上三条平行记忆层 + 右下一笔行动),
+// 与 index.html 里那份首屏静态副本同一份形状——改一处必须改两处,别让它们漂移。
+const EMPTY_STATE_LOGO = '<svg viewBox="0 0 64 64"><g fill="none" stroke="currentColor" stroke-linecap="square">'
+  + '<path d="M14 8v48" stroke-width="7"/><path d="M21 33 44 56" stroke-width="7"/>'
+  + '<path d="M21.5 31.5 43 8M25.5 35 50 8M29.5 38.5 57 8" stroke-width="3"/></g></svg>';
+function emptyStateMarkup() {
+  return `<div class="empty-state"><div class="logo-mark" aria-hidden="true">${EMPTY_STATE_LOGO}</div>`
+    + `<div class="hint hint-lead">${t("输入任务开始 · 权限请求会弹窗询问")}</div>`
+    + `<div class="hint hint-keys">${t("Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止")}</div></div>`;
+}
+
 function renderRecoveredMessages(items) {
   followLatest = true;
   resetPane();
@@ -356,7 +367,7 @@ function renderRecoveredMessages(items) {
   renderMessageParts(tail);
   if (!all.length) {
     resetPane();
-    activePane.innerHTML = `<div class="empty-state"><div class="logo-mark">K</div><div class="hint">${t("输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送")}</div></div>`;
+    activePane.innerHTML = emptyStateMarkup();
   }
   renderEarlierHint();
   scrollBottom(true);
@@ -517,6 +528,27 @@ async function deleteConversationsForProcess(processId, sequences) {
   }
 }
 
+// 历史对话默认收起。每条线路都挂一份完整快照列表,四五条线一起展开时侧栏
+// 前两屏全是历史标题,当前在做什么反而被挤下去。展开态按线路记在 localStorage,
+// 用户手动展开过的线路下次进来仍是展开的。
+const LINE_HISTORY_OPEN_KEY = "kz-line-history-open";
+const lineHistoryOpen = new Set(readLineHistoryOpen());
+function readLineHistoryOpen() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LINE_HISTORY_OPEN_KEY) ?? "[]");
+    return Array.isArray(raw) ? raw.filter((id) => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+function saveLineHistoryOpen() {
+  try {
+    localStorage.setItem(LINE_HISTORY_OPEN_KEY, JSON.stringify([...lineHistoryOpen]));
+  } catch {
+    /* localStorage 不可用时仅本次会话生效 */
+  }
+}
+
 function renderLineConversationHistory(processId) {
   const el = lineHistoryElement(processId);
   if (!el) return;
@@ -531,10 +563,32 @@ function renderLineConversationHistory(processId) {
     el.textContent = t("加载中…");
     return;
   }
-  const head = document.createElement("div");
+  const open = lineHistoryOpen.has(processId);
+  el.classList.toggle("open", open);
+  const head = document.createElement("button");
+  head.type = "button";
   head.className = "parallel-history-head";
+  head.setAttribute("aria-expanded", open ? "true" : "false");
+  head.title = t("展开或收起该线路的历史对话");
+  const caret = document.createElement("span");
+  caret.className = "parallel-history-caret";
+  caret.setAttribute("aria-hidden", "true");
+  caret.textContent = "▸";
   const label = document.createElement("span");
+  label.className = "parallel-history-label";
   label.textContent = `${t("历史对话")} (${items.length})`;
+  head.append(caret, label);
+  head.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (lineHistoryOpen.has(processId)) lineHistoryOpen.delete(processId);
+    else lineHistoryOpen.add(processId);
+    saveLineHistoryOpen();
+    renderLineConversationHistory(processId);
+  });
+  el.appendChild(head);
+  if (!open) return;
+  const body = document.createElement("div");
+  body.className = "parallel-history-body";
   const action = document.createElement("button");
   action.type = "button";
   action.className = "ghost mini parallel-history-delete";
@@ -547,13 +601,12 @@ function renderLineConversationHistory(processId) {
       .flatMap((check) => JSON.parse(check.dataset.seqs));
     void deleteConversationsForProcess(processId, sequences);
   });
-  head.append(label, action);
-  el.appendChild(head);
   if (!items.length) {
     const empty = document.createElement("div");
     empty.className = "parallel-history-empty";
     empty.textContent = t("暂无历史对话");
-    el.appendChild(empty);
+    body.appendChild(empty);
+    el.appendChild(body);
     return;
   }
   const list = document.createElement("div");
@@ -574,7 +627,8 @@ function renderLineConversationHistory(processId) {
     row.addEventListener("click", () => void openConversationForProcess(processId, item.sequence));
     list.appendChild(row);
   }
-  el.appendChild(list);
+  body.append(list, action);
+  el.appendChild(body);
 }
 
 // 兼容语言切换与完成事件的既有调用点,但实际刷新范围已经是全部线路。
@@ -697,12 +751,17 @@ for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["ide
   $(btn).addEventListener("click", () => openDocViewer(kind));
 }
 
-// ---------- R-147 使用手册:读取 docs/目录.md 并渲染到对话区顶部 ----------
-// 内容来源是项目根下 docs/目录.md(项目使用手册与作者说明文字),不存在时不显示区块。
+// ---------- R-147 使用手册:读取项目手册并渲染到设置页 ----------
+// 内容来源按顺序取项目根下 docs/使用手册.md → docs/目录.md,都没有时不显示区块。
+// 2026-08-16 加 docs/使用手册.md 为首选:原先唯一来源 docs/目录.md 在本仓是一份
+// 738 行的**代码结构梳理**,给新手当使用手册读完全不对路(用户指认「内容也不太对」)。
+// 目录.md 保留为回退,老项目不受影响。
+// 手册区块 2026-08-16 从对话区顶部搬到设置页——它是新手读一次的东西,不该每轮占主视野。
 // 启动与切换项目都会触发(见 09-sessions.js renderProjects 与 18-startup.js),此处只负责读与渲染。
-// R-251:是否在对话顶部展示手册由设置页「高级功能→对话顶部显示使用手册」控制(localStorage,
+// R-251:是否展示由设置页「高级功能→在设置页显示使用手册」控制(localStorage,
 // 本地显示偏好,不进 kanzei.toml;参照 R-187 sound 的持久化模式)。
 const MANUAL_SHOW_KEY = "kz-show-manual";
+const MANUAL_PATHS = ["docs/使用手册.md", "docs/目录.md"];
 function readManualShowPref() {
   try {
     const raw = localStorage.getItem(MANUAL_SHOW_KEY);
@@ -722,15 +781,26 @@ async function refreshManual() {
   const panel = $("manual-panel");
   const body = $("manual-body");
   if (!panel || !body || !currentProject) return;
-  // R-251:设置里关掉「对话顶部显示使用手册」后,区块直接隐藏,也不读手册文件。
+  // R-251:设置里关掉「在设置页显示使用手册」后,区块直接隐藏,也不读手册文件。
   if (!readManualShowPref()) {
     panel.classList.add("hidden");
     body.innerHTML = "";
     return;
   }
   try {
-    const r = await invoke("file_preview", { projectDir: currentProject, path: "docs/目录.md" });
-    if (r.binary) throw new Error(t("手册文件不是文本"));
+    let last = null;
+    let r = null;
+    for (const path of MANUAL_PATHS) {
+      try {
+        const candidate = await invoke("file_preview", { projectDir: currentProject, path });
+        if (candidate.binary) throw new Error(t("手册文件不是文本"));
+        r = candidate;
+        break;
+      } catch (error) {
+        last = error;
+      }
+    }
+    if (!r) throw last ?? new Error(t("没有手册文件"));
     const html = renderMarkdown(r.content || "");
     body.innerHTML = html;
     const hint = $("manual-toggle-hint");

@@ -1,17 +1,26 @@
-/* kanzei — 中性深灰底 + 蓝强调,金色运行态/橙光警告(kanzei.site 状态色) */
+/* kanzei — 配色取自 app 图标(docs/design/app_icon.md):深暖近黑底 #0d110d~#1b1e13 +
+   金色主标记 #c9962e + 高光 #ead18a。图标里没有蓝色,界面强调色也就不该是蓝色——
+   原 VSCode 蓝 #0e639c 全面退场,只在 --info / --syntax-* / --line-1 这些**信息类**
+   语义上保留冷色,让工具轨迹与代码在暖底上仍然分得开。 */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 /* R-189:默认主题 = 暗色(现状零回归)。:root 保留 dark 语义 token,
    [data-theme="light"] 覆盖为亮色组;切换只改 html[data-theme],不碰引用点。 */
 :root {
-  --bg: #111111; --panel: #181818; --panel2: #202020; --input: #2a2a2a;
-  --border: #2e2e2e; --border-soft: #262626;
-  --fg: #d4d4d4; --fg-strong: #e8e8e8; --dim: #8f8f8f;
-  --accent: #0e639c; --accent-hover: #1177bb; --accent-soft: #0d3a5c;
-  --ok: #8fb87a; --err: #d0684e; --warn: #e0ab3a; --info: #6ca3c8;
+  --bg: #121110; --panel: #191816; --panel2: #21201d; --input: #2a2825;
+  --border: #35322c; --border-soft: #272521;
+  --fg: #d6d2c9; --fg-strong: #efebe2; --dim: #928c81;
+  --accent: #c9962e; --accent-hover: #e2ab3e; --accent-soft: #3a2c11;
+  --ok: #8fb87a; --err: #d0684e; --warn: #e8b04b; --info: #7ba7c4;
   --alert: #e8842a;
   --danger: var(--err); --muted: var(--dim);
-  --statusbar: #181818; --statusbar-run: #4a3a12;
-  --statusbar-fg: #d4d4d4; --statusbar-run-fg: #f5e6b3;
+  --statusbar: #191816; --statusbar-run: #4a3a12;
+  --statusbar-fg: #d6d2c9; --statusbar-run-fg: #f5e6b3;
+  /* 对话区是全应用面积最大的一块,单独给它比 --bg 更深一档的「图标底色」,
+     让侧栏/输入区在它旁边浮起来;用户消息用金色低饱和贴纸而不是整块实心
+     强调色——实心金配任何前景都在可读性上打架,而且太吵。 */
+  --chat-bg: #0e0d0b;
+  --user-bubble: #23211a; --user-bubble-border: #4a3d1e;
+  --on-danger: #f2d6cc;
   --mono: "Cascadia Mono", "Cascadia Code", "Microsoft YaHei UI", Consolas, monospace;
   --radius: 6px;
   /* 原生控件(勾选框、下拉弹层、日期选择、文本光标)默认按浅色渲染,在深色界面里
@@ -19,22 +28,23 @@
      逐个 input 去覆盖既漏且难维护(D-154)。 */
   color-scheme: dark;
   /* R-189:暗色专属徽章/状态胶囊底色(b 类字面量 token 化,亮色组成对给值)。 */
-  --badge-err: #3a221c; --badge-warn: #3d2a10; --badge-info: #16283a;
+  --badge-err: #3a221c; --badge-warn: #3d2e10; --badge-info: #1b2a34;
   --badge-alert: #3d3113; --badge-ok: #22301c;
   --badge-err-soft: #2a8a4233; --badge-warn-soft: #b34a4a33; --badge-soft: #8883;
   /* R-189:框架面未 token 化的字面量提升(b 类)——活动栏/滚动条/代码块等。 */
-  --activitybar: #1a1a1a; --scrollbar: #383838; --scrollbar-hover: #4a4a4a;
-  --activity-fg: #7a7a7a; --activity-active: #ffffff;
+  --activitybar: #141310; --sidebar-bg: #1a1815; --scrollbar: #3b382f; --scrollbar-hover: #4e4a3f;
+  --activity-fg: #837c6f; --activity-active: #f2ede1;
 
-  --code-bg: #0a0a0a; --code-output-bg: #0d0d0d; --danger-btn: #5a2c1a;
-  --code-inline: #2a2a30;
+  --code-bg: #0c0b0a; --code-output-bg: #100f0d; --danger-btn: #5a2c1a;
+  --code-inline: #2b2823;
 
   /* R-189:diff/语法着色(c 类)与 on-accent 强调前景。 */
   --diff-add: #a5c98f; --diff-del: #dd8d72; --diff-repl: #f7768e; --diff-str: #e0af68;
-  --on-accent: #ffffff;
+  /* 强调色是金色,前景必须是深色——白字压在 #c9962e 上只有 2.1:1。 */
+  --on-accent: #1c1405;
   /* R-189:语法着色/线路主题色/状态点色/杂项(d 类字面量 token 化)。 */
   --syntax-comment: #6a9955; --syntax-string: #ce9178; --syntax-number: #b5cea8; --syntax-keyword: #569cd6;
-  --line-1: #6ca3c8; --line-2: #d3a14a; --line-3: #8fb87a; --line-4: #aa83bd;
+  --line-1: #7ba7c4; --line-2: #d3a14a; --line-3: #8fb87a; --line-4: #aa83bd;
   --dot-idle: #a9bc6f; --dot-run: #e0ab3a;
   --diff-line-number: #666; --arch-unindexed: #b45309; --log-gold: #e8b04b;
   /* D-380:主题块之外**不允许**出现字面量颜色。以下是原先逃逸在交互态里的那批
@@ -58,33 +68,38 @@
   --sunken: #00000018; --sunken-mid: #0000001c; --sunken-strong: #00000024;
   --hover-wash: #ffffff05; --on-ok: #0c0f12;
   --danger-btn-hover: #6b3620; --deny-hover: #2a2a2a;
-  --border-on-accent: #ffffff44;
+  --border-on-accent: #ffffff24;
 }
 /* R-189:亮色主题——在默认 dark 之上覆盖 token 值,引用点零改动。 */
 [data-theme="light"] {
-  --bg: #f5f5f4; --panel: #ffffff; --panel2: #f0efed; --input: #e8e7e3;
-  --border: #d6d4cf; --border-soft: #e0dfda;
-  --fg: #1f2933; --fg-strong: #111827; --dim: #6b7280;
-  --accent: #0e639c; --accent-hover: #1177bb; --accent-soft: #dbeafe;
-  --ok: #2f7d32; --err: #b3261e; --warn: #9a6700; --info: #0969da;
+  /* 亮色不是「白纸 + 金」——纯白配金会发灰发脏。底色取图标金的极低饱和同色系
+     暖纸张,金色本身压暗到 #a8761a 才够 4.5:1(#c9962e 压在白底上只有 2.4:1)。 */
+  --bg: #f6f3ec; --panel: #fffdf8; --panel2: #efebe1; --input: #f3efe6;
+  --border: #dcd5c6; --border-soft: #e8e2d6;
+  --fg: #2e2b25; --fg-strong: #16140f; --dim: #6d675b;
+  --accent: #a8761a; --accent-hover: #8d6113; --accent-soft: #f6e8c8;
+  --ok: #2f7d32; --err: #b3261e; --warn: #8a6100; --info: #1f6b96;
   --alert: #c2410c;
   --danger: var(--err); --muted: var(--dim);
-  --statusbar: #ffffff; --statusbar-run: #f6df9f;
-  --statusbar-fg: #1f2933; --statusbar-run-fg: #3f2a00;
+  --statusbar: #fffdf8; --statusbar-run: #f6df9f;
+  --statusbar-fg: #2e2b25; --statusbar-run-fg: #3f2a00;
   color-scheme: light;
-  --badge-err: #fdecea; --badge-warn: #fff7e6; --badge-info: #e8f1fb;
+  --chat-bg: #fdfbf6;
+  --user-bubble: #f6ecd6; --user-bubble-border: #e3d0a2;
+  --on-danger: #8c1d18;
+  --badge-err: #fdecea; --badge-warn: #fdf3dd; --badge-info: #e7f0f6;
   --badge-alert: #fdf1e3; --badge-ok: #e9f6e9;
   --badge-err-soft: #b3261e26; --badge-warn-soft: #9a670026; --badge-soft: #8888881f;
-  --activitybar: #e8e7e3; --scrollbar: #c9c7c2; --scrollbar-hover: #b5b2ac;
-  --activity-fg: #4b5563; --activity-active: #111827;
+  --activitybar: #eae4d5; --sidebar-bg: #f4f0e6; --scrollbar: #cfc7b6; --scrollbar-hover: #b9b09c;
+  --activity-fg: #5b5548; --activity-active: #16140f;
 
-  --code-bg: #f0efed; --code-output-bg: #eceae6; --danger-btn: #fbe4e0;
-  --code-inline: #e5e7eb;
+  --code-bg: #f1ede3; --code-output-bg: #ece7db; --danger-btn: #f8dcd6;
+  --code-inline: #e9e3d5;
 
   --diff-add: #1a7f37; --diff-del: #cf222e; --diff-repl: #8250df; --diff-str: #953800;
   --on-accent: #ffffff;
   --syntax-comment: #6a737d; --syntax-string: #032f62; --syntax-number: #005cc5; --syntax-keyword: #d73a49;
-  --line-1: #0969da; --line-2: #9a6700; --line-3: #1a7f37; --line-4: #8250df;
+  --line-1: #1f6b96; --line-2: #9a6700; --line-3: #1a7f37; --line-4: #8250df;
   --dot-idle: #2f7d32; --dot-run: #9a6700;
   --diff-line-number: #8b949e; --arch-unindexed: #9a6700; --log-gold: #953800;
   /* 亮色的阴影不能照抄 53% 纯黑:同样的值在浅底上是一块脏印子。 */
@@ -92,7 +107,7 @@
   --sunken: #0000000a; --sunken-mid: #0000000d; --sunken-strong: #00000012;
   --hover-wash: #00000008; --on-ok: #ffffff;
   --danger-btn-hover: #f6c9c1; --deny-hover: #dedcd7;
-  --border-on-accent: #ffffff66;
+  --border-on-accent: #0000001f;
 }
 /* 勾选/单选的选中色统一走强调色,不用系统蓝。 */
 input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
@@ -133,7 +148,7 @@ body {
 
 /* ---------- 侧边栏 ---------- */
 #sidebar {
-  width: 280px; background: var(--panel); border-right: 1px solid var(--border-soft);
+  width: 280px; background: var(--sidebar-bg); border-right: 1px solid var(--border-soft);
   display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; padding-bottom: 8px;
   position: relative;
 }
@@ -142,6 +157,53 @@ body {
 .resize-handle:hover, .resize-handle.dragging { background: var(--accent); opacity: .65; }
 #sidebar.collapsed { width: 0; padding: 0; border-right: 0; overflow: hidden; }
 #sidebar.collapsed > * { display: none; }
+
+/* ---------- 侧栏工作区头 ----------
+   顶栏删除后,「我在哪个项目」「怎么开新对话」这两件事落在侧栏第一屏。
+   它 sticky 在侧栏顶部:侧栏内容一长,滚动时项目身份和新对话仍然在手边。 */
+.workspace-bar {
+  position: sticky; top: 0; z-index: var(--z-sticky);
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 10px 9px;
+  background: var(--sidebar-bg); border-bottom: 1px solid var(--border-soft);
+}
+.project-switch {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 6px 8px; border-radius: 7px; background: transparent; border: 1px solid transparent;
+  color: var(--fg-strong); cursor: pointer; font: inherit; min-width: 0;
+}
+.project-switch:hover { background: var(--panel2); border-color: var(--border-soft); }
+.project-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* 品牌标记:图标的 K 几何缩到 22px。它是这套界面里唯一一处纯装饰的金色实心块,
+   放在侧栏最上角当锚点,其它地方的金色一律承载状态。 */
+.project-switch-mark {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.project-switch-mark svg { width: 15px; height: 15px; }
+.project-switch-text { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 1px; }
+.project-switch-name {
+  font-size: var(--fs-13); font-weight: 650; color: var(--fg-strong);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.project-switch-path {
+  font-size: var(--fs-10); color: var(--dim); font-family: var(--mono);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left;
+}
+.project-switch-caret { flex: 0 0 auto; color: var(--dim); font-size: var(--fs-10); transition: transform .12s ease; }
+.project-switch[aria-expanded="true"] .project-switch-caret { transform: rotate(180deg); }
+.new-chat-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
+  padding: 7px 10px; border-radius: 7px; cursor: pointer; font: inherit;
+  font-size: var(--fs-12-5); font-weight: 600;
+  background: var(--accent-soft); color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+}
+.new-chat-btn:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg-strong); }
+.new-chat-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.new-chat-btn svg { width: 14px; height: 14px; }
 
 .section-title {
   padding: 4px 14px 6px; font-size: var(--fs-11); text-transform: uppercase; letter-spacing: .6px;
@@ -333,9 +395,20 @@ button.mini { padding: 2px 10px; font-size: var(--fs-11-5); }
 .research-subtitle { font-size: var(--fs-11); color: var(--muted); margin: 6px 0 2px; }
 .ref-link { border: 0; background: transparent; color: var(--accent); cursor: pointer; padding: 0 2px; }
 .ref-highlight { outline: 1px solid var(--accent); border-radius: 4px; }
-.workspace-projects { display: grid; gap: 10px; max-width: 900px; }
-.workspace-card { padding: 12px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); cursor: pointer; }
-.workspace-card:hover, .workspace-card.current { border-color: var(--accent); }
+/* 项目卡:一行一张太浪费横向空间,窄了又读不完路径。auto-fill + 360px 下限让它
+   在宽屏自动排成两三列,窄屏退回单列,不需要断点。 */
+.workspace-projects { display: grid; gap: 12px; max-width: 1100px; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
+.workspace-card {
+  position: relative; padding: 13px 15px 13px 17px; border: 1px solid var(--border-soft); border-radius: 10px;
+  background: var(--panel); cursor: pointer; transition: border-color .12s, box-shadow .12s, transform .12s;
+}
+.workspace-card:hover { border-color: var(--border); box-shadow: 0 4px 14px var(--shadow); transform: translateY(-1px); }
+/* 当前项目靠一条金色左脊标记,而不是整圈换色——一圈金边在多卡片网格里会喊得太响。 */
+.workspace-card.current { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.workspace-card.current::before {
+  content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--accent);
+}
 .workspace-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .workspace-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .workspace-status { padding: 2px 7px; border-radius: 10px; font-size: var(--fs-11); }
@@ -593,30 +666,59 @@ button.mini { padding: 2px 10px; font-size: var(--fs-11-5); }
   .line-lane, .line-running-state.running::before { animation: none; }
 }
 
-#topbar {
-  min-height: 38px; border-bottom: 1px solid var(--border-soft);
-  display: flex; align-items: center; gap: 6px 8px; padding: 5px 14px; flex-shrink: 0;
-  flex-wrap: nowrap; position: relative; z-index: var(--z-sticky);
+/* ---------- 输入区上下文行(原顶栏的继承者) ----------
+   顶栏 2026-08-16 整条删除。它承载的项目身份、模型、思考强度、低频菜单全部
+   下沉到这一行——就贴在输入框上方,发送前视线本来就在这里。
+   #composer 的限宽规则把流内子元素统一压成 display:block,这一行必须显式恢复
+   flex(与 #composer-bar 同一处例外),否则胶囊会竖着叠。 */
+#composer > #composer-context { display: flex; }
+.composer-context {
+  align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 7px;
+  position: relative; z-index: var(--z-raised);
 }
-#topbar button, #topbar label { white-space: nowrap; flex-shrink: 0; }
-#topbar select { max-width: 220px; text-overflow: ellipsis; flex-shrink: 1; min-width: 90px; }
-#topbar .crumb { overflow: hidden; text-overflow: ellipsis; max-width: 20vw; white-space: nowrap; }
+.ctx-chip {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 34ch;
+  padding: 2px 9px; border-radius: 999px;
+  background: var(--panel2); border: 1px solid var(--border-soft);
+  color: var(--dim); font-size: var(--fs-11); font-family: var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 项目胶囊只显示末段目录名:完整路径是 title,常态占 34ch 会把模型选择器挤走。
+   direction:rtl 让省略号落在**左**边,保留最有辨识度的尾部。 */
+.ctx-project { direction: rtl; text-align: left; color: var(--fg); }
+.ctx-project::before {
+  content: ""; flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent);
+}
+.ctx-select {
+  max-width: 200px; min-width: 84px; height: 24px; padding: 0 6px;
+  border-radius: 999px; background: var(--panel2); border: 1px solid var(--border-soft);
+  color: var(--dim); font-size: var(--fs-11); text-overflow: ellipsis;
+}
+.ctx-select:hover { color: var(--fg-strong); border-color: var(--border); }
 #process-phase-pipeline-wrap, #process-tracker-writes-wrap { font-size: var(--fs-11); color: var(--dim); display: flex; gap: 4px; align-items: center; }
 #process-tracker-writes-wrap.hidden { display: none; }
-#topbar-more { position: relative; flex-shrink: 0; }
-#topbar-more > summary { list-style: none; cursor: pointer; }
-#topbar-more > summary::-webkit-details-marker { display: none; }
-#topbar-more > summary::after { content: " ▾"; color: var(--dim); }
-#topbar-more[open] > summary { color: var(--fg-strong); background: var(--accent-soft); }
-/* 800/1024 宽度预算:默认侧栏展开时主区最窄约 472px。项目完整路径和
-   自动轮次文案都是状态补充,窄屏收起后保留进程、新对话、活动、侧栏、鞭挞、更多。
-   进程区自身可横向滚动,不能靠整条 topbar 溢出来假装“单行”。 */
+#composer-more { position: relative; flex-shrink: 0; }
+#composer-more > summary {
+  list-style: none; cursor: pointer; height: 24px; display: inline-flex; align-items: center;
+  border-radius: 999px; padding: 0 10px;
+}
+#composer-more > summary::-webkit-details-marker { display: none; }
+#composer-more > summary::after { content: " ▾"; color: var(--dim); }
+#composer-more[open] > summary { color: var(--fg-strong); background: var(--accent-soft); border-color: var(--accent); }
+/* 菜单向**上**弹:锚点在窗口底部,向下会掉出视口。 */
+.composer-menu-panel {
+  position: absolute; bottom: calc(100% + 6px); right: 0; width: min(360px, calc(100vw - 28px));
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 26px var(--shadow-strong);
+  z-index: var(--z-float);
+}
+.composer-menu-panel label { display: flex; align-items: center; gap: 4px; color: var(--dim); font-size: var(--fs-11); }
+.composer-menu-panel #chat-search { display: inline-flex; align-items: center; gap: 4px; }
+.composer-menu-panel #chat-search-input { width: 120px; }
 @media (max-width: 1024px) {
-  #topbar { gap: 4px; padding-left: 8px; padding-right: 8px; }
-  /* 停机原因徽标已随鞭挞控制台搬进 composer(那里 flex-wrap,不靠隐藏让位)。
-     它原先也列在这条规则里——窄窗口下最该看见的东西反而第一个被藏掉。 */
-  #topbar .crumb { display: none; }
-  #topbar .spacer { display: none; }
+  .ctx-chip { max-width: 20ch; }
+  .ctx-select { max-width: 130px; }
 }
 /* 最小窗口把侧栏改为抽屉:它不再参与 flex 宽度计算,主对话和 composer
    始终拥有活动栏之外的整段宽度;展开时仍留出至少 432px 可读主区。 */
@@ -627,14 +729,6 @@ button.mini { padding: 2px 10px; font-size: var(--fs-11-5); }
     box-shadow: 5px 0 18px var(--shadow);
   }
 }
-.topbar-menu-panel {
-  position: absolute; top: calc(100% + 6px); right: 0; width: min(360px, calc(100vw - 28px));
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 5px; box-shadow: 0 5px 18px var(--shadow-strong);
-}
-.topbar-menu-panel label { display: flex; align-items: center; gap: 4px; color: var(--dim); font-size: var(--fs-11); }
-.topbar-menu-panel #chat-search { display: inline-flex; align-items: center; gap: 4px; }
-.topbar-menu-panel #chat-search-input { width: 120px; }
 .crumb { font-size: var(--fs-12); color: var(--dim); font-family: var(--mono); }
 .spacer { flex: 1; min-width: 6px; }
 select {
@@ -648,10 +742,17 @@ select {
    按钮**不能**放进 #messages——renderRecoveredMessages/clearChat 会
    `messages.innerHTML = ""`,一清就把按钮删了,之后 updateLatestButton 拿到
    null 直接抛 TypeError(2026-08-12 实测:恢复历史与新建并行线路全崩)。 */
-#chat-area { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
-/* R-147 使用手册:对话区顶部独立折叠区块。默认 .hidden 收起,展开后内容给上界
-   内部滚动,不让一份长手册把对话区挤没。 */
-.manual-panel { flex: 0 0 auto; margin: 10px 18px 0; border: 1px solid var(--border-soft); border-radius: 6px; background: var(--panel); }
+/* 对话区用比侧栏更深(暗色)/更暖(亮色)的一档底,取自 app 图标的画布色。
+   顶部一层极淡的金色晕是图标高光的延伸——只有几个百分点,滚动到长对话里
+   完全感知不到,只在空态和第一屏起「这块是主区」的作用。 */
+#chat-area {
+  flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative;
+  background: var(--chat-bg);
+  background-image: radial-gradient(120% 42% at 50% 0%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 72%);
+}
+/* R-147 使用手册:2026-08-16 搬进设置页(见 index.html #view-settings)。
+   展开后内容给上界内部滚动,不让一份长手册把设置项挤到看不见。 */
+.manual-panel { flex: 0 0 auto; margin: 14px 0 0; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel); }
 .manual-panel > summary {
   padding: 8px 12px; cursor: pointer; list-style: none; user-select: none;
   font-size: var(--fs-13); font-weight: 600; color: var(--fg-strong); border-radius: 6px;
@@ -669,7 +770,12 @@ select {
 .manual-body table { border-collapse: collapse; }
 .manual-body td, .manual-body th { border: 1px solid var(--border-soft); padding: 3px 8px; }
 .manual-body pre { overflow-x: auto; background: var(--panel2); padding: 8px; border-radius: 4px; }
-#messages { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; }
+/* 顶栏删除后对话直接顶到窗口边,首条消息需要自己的呼吸位;限宽与输入区同一档
+   (1080px)让两块视觉上是同一列,宽屏下不再一条到底。 */
+#messages { flex: 1; overflow-y: auto; padding: 26px 22px 18px; display: flex; flex-direction: column; gap: 12px; }
+/* flex:1 0 auto —— 空态要靠 .empty-state 的 flex:1 在整片高度里居中,pane 必须先把
+   #messages 的高度占满;有消息时 basis:auto + 不收缩,内容照常撑高并滚动。 */
+#messages > .msg-pane { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 1080px; margin: 0 auto; flex: 1 0 auto; }
 #jump-latest { position: absolute; right: 22px; bottom: 14px; z-index: var(--z-raised); box-shadow: 0 2px 8px var(--shadow); }
 #messages .message-body { min-width: 0; }
 .msg { position: relative; }
@@ -680,7 +786,7 @@ select {
 #chat-search { display: inline-flex; align-items: center; gap: 3px; }
 #chat-search input { width: 130px; padding: 3px 6px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; font: inherit; font-size: var(--fs-11); }
 #chat-search-count { color: var(--dim); font-size: var(--fs-11); min-width: 34px; text-align: center; }
-.search-hit { outline: 1px solid var(--accent-hover); background: rgba(14,99,156,.18); }
+.search-hit { outline: 1px solid var(--accent-hover); background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .search-current { outline-color: var(--warn); }
 /* 空态:整片纯色里浮一个半透明圆 + 一长串快捷键,冷清且重心散。
    改法——给背景一层极淡的径向光晕(把视线收到中央)、logo 用描边环+字面组合
@@ -688,18 +794,18 @@ select {
 .empty-state {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
   color: var(--dim);
-  background:
-    radial-gradient(58% 46% at 50% 42%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%);
 }
+/* 空态标记 = 图标本体(见 index.html 的内联 SVG),不是圆圈里塞个字母。
+   方形圆角底 + 金色描边,与任务栏图标一眼是同一个东西。 */
 .logo-mark {
-  width: 76px; height: 76px; border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  width: 74px; height: 74px; border-radius: 18px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   color: var(--accent);
-  font-size: var(--fs-34); font-weight: 600; letter-spacing: .04em;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 5%, transparent);
+  box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 4%, transparent);
 }
+.logo-mark svg { width: 40px; height: 40px; }
 .empty-state .hint {
   font-size: var(--fs-12); max-width: 46ch; text-align: center; line-height: 1.9;
   color: var(--muted);
@@ -707,9 +813,13 @@ select {
 
 .msg { line-height: 1.68; animation: fadein .15s ease; }
 @keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
+/* 用户消息不再是一整块实心强调色。金色实心配任何前景都在可读性上打架(白字
+   2.1:1、黑字在暗色主题里又太跳),而且长指令贴一大片纯色本身就吵。改成
+   金调低饱和贴纸 + 一条金色左脊:归属一眼可辨,正文仍用正常前景色。 */
 .msg.user {
-  align-self: flex-end; background: var(--accent); color: var(--on-accent);
-  border-radius: 10px 10px 3px 10px; padding: 8px 13px; max-width: 78%;
+  align-self: flex-end; background: var(--user-bubble); color: var(--fg-strong);
+  border: 1px solid var(--user-bubble-border); border-left: 2px solid var(--accent);
+  border-radius: 4px 10px 10px 4px; padding: 8px 13px; max-width: 78%;
   white-space: pre-wrap; word-break: break-word;
 }
 .message-attachments { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--border-on-accent); font-size: var(--fs-11); }
@@ -750,7 +860,10 @@ select {
    而 #change-bar(文件数/增删行)、#continue-panel 等没列进来仍是满宽,三行各一个
    宽度,看着就是「框歪了」(用户实测)。这里改成排除法——弹层类(下拉建议/SOP 选择器/
    隐藏 input)不参与流内布局,其余一律同宽同心。 */
-#composer > *:not(#file-suggestions):not(#sop-picker-panel):not(#attachment-input) {
+/* :where() 把三个 :not(#id) 的 ID 特异性抹平——否则这条是 (4,0,0),下面那两条
+   `#composer > #id { display: flex }` 只有 (2,0,0),永远赢不了它,flex 行会被
+   悄悄压成 block(上下文胶囊竖着叠、composer-bar 靠 inline 流「看起来像」一行)。 */
+#composer > *:where(:not(#file-suggestions):not(#sop-picker-panel):not(#attachment-input)) {
   max-width: 1080px;
   margin-left: auto;
   margin-right: auto;
@@ -777,17 +890,16 @@ select {
 button { border: 0; border-radius: 4px; padding: 6px 16px; cursor: pointer; font: inherit; font-size: var(--fs-12-5); }
 button.primary { background: var(--accent); color: var(--on-accent); }
 button.primary:hover { background: var(--accent-hover); }
-button.danger { background: var(--danger-btn); color: var(--on-accent); }
+button.danger { background: var(--danger-btn); color: var(--on-danger); }
 button.danger:hover { background: var(--danger-btn-hover); }
 button.ghost {
   background: transparent; color: var(--fg); border: 1px solid var(--border-soft);
   padding: 4px 12px; font-size: var(--fs-12); border-radius: 5px;
 }
 button.ghost:hover { background: var(--panel2); color: var(--fg-strong); border-color: var(--border); }
-#topbar button.ghost, #topbar select { height: 26px; padding-top: 0; padding-bottom: 0; }
+.composer-menu-panel button.ghost { height: 26px; padding-top: 0; padding-bottom: 0; }
 .auto-max { width: 44px; height: 26px; padding: 2px 4px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; font: inherit; font-size: var(--fs-11); }
 #auto-pause.active { color: var(--warn); border-color: var(--warn); }
-#activity-toggle.active { color: var(--fg-strong); border-color: var(--accent); background: var(--accent-soft); }
 button:disabled { opacity: .45; cursor: default; }
 .hidden { display: none !important; }
 .dim { color: var(--dim); font-size: var(--fs-12); }
@@ -808,11 +920,16 @@ button:disabled { opacity: .45; cursor: default; }
 #workspace-scroll, #documents-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 26px 34px 40px; }
 /* 独立文档页滚动到底时，末行需要越过底部状态栏的安全区。 */
 #documents-scroll { max-width: 1180px; padding-bottom: 64px; }
-#view-workspace h1, #view-documents h1 { font-size: var(--fs-20); font-weight: 600; color: var(--fg-strong); margin-bottom: 6px; }
+#view-workspace h1, #view-documents h1, #view-arch h1, #view-memory h1, #view-metrics h1 {
+  font-size: var(--fs-20); font-weight: 650; color: var(--fg-strong); margin-bottom: 6px; letter-spacing: -.01em;
+}
+/* 页首导语给一个可读行宽:34px 边距下它会一路铺到 1400px,读起来像散开的一条线。 */
+#view-workspace > div > p.dim:first-of-type, #view-documents > div > p.dim:first-of-type,
+#view-arch > div > p.dim:first-of-type, #view-memory > div > p.dim:first-of-type,
+#view-metrics > div > p.dim:first-of-type { max-width: 78ch; line-height: 1.6; margin-bottom: 14px; }
 .documents-project-label { color: var(--dim); font-size: var(--fs-12); }
 .documents-toolbar { flex-wrap: wrap; }
 #documents-project-select { min-width: 180px; max-width: 360px; }
-.topbar-new-chat { padding: 4px 12px; }
 
 /* ---------- 设置 ---------- */
 #settings-scroll { flex: 1; overflow-y: auto; padding: 26px 34px 40px; max-width: 1180px; }
@@ -1068,9 +1185,20 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--accent); outli
 .parallel-task-row.auto-pending { border-left: 2px solid var(--warn); }
 .parallel-task-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-size: var(--fs-11); }
 .parallel-task-state { color: var(--dim); font-size: var(--fs-10); }
-.parallel-line-history { margin: 0 3px 2px 10px; padding: 3px 5px 4px; border-left: 1px solid var(--border-soft); color: var(--dim); font-size: var(--fs-10); }
-.parallel-history-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 19px; }
-.parallel-history-delete { padding: 1px 5px; font-size: var(--fs-10); }
+.parallel-line-history { margin: 0 3px 2px 10px; padding: 0 0 2px; border-left: 1px solid var(--border-soft); color: var(--dim); font-size: var(--fs-10); }
+/* 历史对话折叠头。默认收起——每条线路一份完整快照列表,三四条线同时铺开时
+   侧栏前两屏全是历史标题,「各线当前在做」反而被挤下去。 */
+.parallel-history-head {
+  display: flex; align-items: center; gap: 5px; width: 100%; min-height: 19px;
+  padding: 2px 6px; border: 0; border-radius: 3px; background: transparent;
+  color: var(--dim); font: inherit; font-size: var(--fs-10); text-align: left; cursor: pointer;
+}
+.parallel-history-head:hover { background: var(--panel2); color: var(--fg-strong); }
+.parallel-history-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.parallel-history-caret { display: inline-block; transition: transform .12s ease; }
+.parallel-line-history.open .parallel-history-caret { transform: rotate(90deg); }
+.parallel-history-body { display: flex; flex-direction: column; gap: 3px; padding: 2px 5px 3px 6px; }
+.parallel-history-delete { align-self: flex-start; padding: 1px 5px; font-size: var(--fs-10); }
 .parallel-history-list { display: flex; flex-direction: column; gap: 1px; max-height: 180px; overflow-y: auto; }
 .parallel-history-row { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 3px 2px; border-radius: 3px; cursor: pointer; color: var(--fg); }
 .parallel-history-row:hover { background: var(--panel2); color: var(--fg-strong); }
@@ -1808,9 +1936,11 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 #arch-tree-wrap {
   width: 380px; min-width: 280px; max-width: 480px;
   display: flex; flex-direction: column; min-height: 0;
-  border: 1px solid var(--border); border-radius: 6px; background: var(--panel);
+  border: 1px solid var(--border-soft); border-radius: 10px; background: var(--panel); overflow: hidden;
 }
-#arch-summary { padding: 6px 10px; font-size: var(--fs-11); border-bottom: 1px solid var(--border); }
+/* 两块面板的头部统一压一层 panel2 底:面板边界靠「头部有底色」表达,
+   比再加一圈更重的边框安静。 */
+#arch-summary { padding: 7px 12px; font-size: var(--fs-11); background: var(--panel2); border-bottom: 1px solid var(--border-soft); }
 #arch-tree { flex: 1; overflow: auto; padding: 4px 6px 10px; }
 .arch-group-head {
   font-size: var(--fs-11); font-weight: 600; color: var(--fg-strong);
@@ -1823,17 +1953,18 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
   border-radius: 4px; cursor: pointer;
 }
 .arch-entry:hover { background: var(--panel2); }
+.arch-entry.active, .arch-entry[aria-current="true"] { background: var(--accent-soft); }
 .arch-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .arch-entry-name { color: var(--fg); }
 .arch-entry-dim { font-family: var(--mono); font-size: var(--fs-10-5); }
 #arch-index {
   flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0;
-  border: 1px solid var(--border); border-radius: 6px; background: var(--panel);
+  border: 1px solid var(--border-soft); border-radius: 10px; background: var(--panel); overflow: hidden;
 }
 #arch-index-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 10px; font-size: var(--fs-12); font-weight: 600;
-  border-bottom: 1px solid var(--border);
+  padding: 7px 12px; font-size: var(--fs-12); font-weight: 600;
+  background: var(--panel2); border-bottom: 1px solid var(--border-soft);
 }
 .arch-index-actions { display: flex; align-items: center; gap: 6px; }
 #arch-index-body {

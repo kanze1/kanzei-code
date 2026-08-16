@@ -769,9 +769,42 @@ function renderProjects(prefs) {
     list.appendChild(item);
   }
   $("project-label").textContent = prefs.current ?? `(${localizeDynamic("未选择项目")})`;
+  renderProjectSwitch(prefs);
   syncDocumentsProjectSelect(prefs);
   refreshProcesses();
 }
+
+// 侧栏工作区头。它只是 #projects-section 的开合把手 + 当前项目身份的显示位,
+// 不持有自己的列表状态——列表就是下面那个既有分区,持久化沿用 kz-collapse-projects。
+function renderProjectSwitch(prefs) {
+  const nameEl = $("project-switch-name");
+  const pathEl = $("project-switch-path");
+  if (!nameEl || !pathEl) return;
+  const current = prefs?.current ?? null;
+  nameEl.textContent = current
+    ? (prefs.names?.[current] || baseName(current))
+    : localizeDynamic("未选择项目");
+  pathEl.textContent = current ?? "";
+  pathEl.title = current ?? "";
+  syncProjectSwitchExpanded();
+}
+
+function projectsSectionTitle() {
+  return document.querySelector("#projects-section .section-title > span:first-child");
+}
+
+function syncProjectSwitchExpanded() {
+  const button = $("project-switch");
+  const section = $("projects-section");
+  if (!button || !section) return;
+  button.setAttribute("aria-expanded", section.classList.contains("collapsed") ? "false" : "true");
+}
+
+$("project-switch")?.addEventListener("click", () => {
+  // 复用分区标题的折叠处理器(它负责写 localStorage 与 aria),这里不复制一份状态。
+  projectsSectionTitle()?.click();
+  syncProjectSwitchExpanded();
+});
 
 // D-355:切项目统一事务。侧栏点击、Workspace 卡片/文档页下拉、添加/移除/初始化项目
 // 全部走这里,把「目标 process_list → 选定 active session → conversation_get」组成

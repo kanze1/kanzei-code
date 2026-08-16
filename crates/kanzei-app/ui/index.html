@@ -30,6 +30,11 @@
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm3 3h10M7 12h6M7 15h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <button type="button" id="agent-toggle" class="activity-item rail-toggle" title="子代理面板" data-i18n-title="子代理面板" aria-label="打开或收起子代理面板" data-i18n-aria-label="打开或收起子代理面板" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="18" cy="6.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="18" cy="17.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8.6 11.2 15.8 7.4M8.6 12.8l7.2 3.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      <!-- 活动面板开关从顶栏搬到 rail:它和子代理面板一样是**布局开关**不是视图切换,
+           两个同类开关放在一起;顶栏因此可以整条删掉(见 #view-chat)。 -->
+      <button type="button" id="activity-toggle" class="activity-item rail-toggle" title="显示/隐藏右侧活动面板" data-i18n-title="显示/隐藏右侧活动面板" aria-label="显示或隐藏右侧活动面板" data-i18n-aria-label="显示或隐藏右侧活动面板" aria-pressed="false">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12.5h3.6l2.2-6.2 3.7 12.4 2.4-8 1.6 3.3H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       <button type="button" class="activity-item" data-view="metrics" title="运行画像" data-i18n-title="运行画像" aria-label="切换到运行画像" data-i18n-aria-label="切换到运行画像">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h16M7 20V11M12 20V5M17 20v-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
@@ -43,7 +48,27 @@
     </aside>
 
     <aside id="sidebar">
-      <div class="sidebar-section" data-collapse-key="projects" id="projects-section">
+      <!-- 工作区头:侧栏第一屏只回答两个问题——「我在哪个项目」「怎么开新对话」。
+           顶栏被整条删掉后,新对话与项目身份都落在这里(CC 的侧栏同构)。
+           项目切换按钮不自带列表,它折叠/展开下面那个既有的 #projects-section,
+           复用 kz-collapse-projects 的持久化,不再造第二套弹层状态。 -->
+      <div id="workspace-bar" class="workspace-bar">
+        <button type="button" id="project-switch" class="project-switch" aria-controls="projects-section" aria-expanded="true" title="切换项目" data-i18n-title="切换项目">
+          <span class="project-switch-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M5 3.5v17M5 12.6 15.4 3.5M9.4 12.6 19 20.5M9.6 9.9 17.2 3.5M11.6 8.1 19 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"/></svg>
+          </span>
+          <span class="project-switch-text">
+            <span id="project-switch-name" class="project-switch-name">—</span>
+            <span id="project-switch-path" class="project-switch-path"></span>
+          </span>
+          <span class="project-switch-caret" aria-hidden="true">▾</span>
+        </button>
+        <button type="button" id="new-chat" class="new-chat-btn" title="清空多轮对话历史,开一段新会话" data-i18n-title="清空多轮对话历史,开一段新会话">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+          <span data-i18n-key="新对话">新对话</span>
+        </button>
+      </div>
+      <div class="sidebar-section" data-collapse-key="projects" data-collapse-default="collapsed" id="projects-section">
         <div class="section-title">
           <span data-i18n-key="项目">项目</span>
           <span>
@@ -120,43 +145,13 @@
 
     <main id="main">
       <!-- 对话视图 -->
+      <!-- 顶栏已整条删除(用户 2026-08-16 定调)。原先它承载五类东西,分别有了更该在的地方:
+           ①新对话 → 侧栏工作区头;②活动面板开关 → 左侧 rail(与子代理面板同类);
+           ③项目名 → 输入区上方的上下文胶囊(和模型/思考强度在一起,发送前一眼看全);
+           ④「更多」低频菜单 → 同一条上下文行的右端;⑤使用手册 → 设置页。
+           对话区因此直接顶到窗口边,主区高度多出 38px。 -->
       <div id="view-chat" class="view active">
-        <header id="topbar">
-          <span id="project-label" class="crumb"></span>
-          <button id="new-chat" class="primary topbar-new-chat" title="清空多轮对话历史,开一段新会话" data-i18n-title="清空多轮对话历史,开一段新会话"><span data-i18n-key="新对话">新对话</span></button>
-          <button id="activity-toggle" class="ghost" title="显示/隐藏右侧活动面板" data-i18n-title="显示/隐藏右侧活动面板"><span data-i18n-key="活动">活动</span></button>
-          <span class="spacer"></span>
-          <details id="topbar-more">
-            <summary class="ghost" title="打开低频操作菜单" data-i18n-title="打开低频操作菜单"><span data-i18n-key="更多">更多</span></summary>
-            <div class="topbar-menu-panel">
-              <button id="worktree-add" class="icon-btn" title="创建隔离 Git 工作树线程" data-i18n-title="创建隔离 Git 工作树线程" aria-label="创建隔离 Git 工作树线程">⑂</button>
-              <button id="summarize-btn" class="ghost" title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/" data-i18n-title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/"><span data-i18n-key="总结">总结</span></button>
-              <button id="copy-context" class="ghost" title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI" data-i18n-title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI"><span data-i18n-key="复制上下文">复制上下文</span></button>
-              <button id="chat-search-toggle" class="ghost" title="搜索当前对话" data-i18n-title="搜索当前对话"><span data-i18n-key="搜索">搜索</span></button>
-              <span id="chat-search" class="hidden">
-                <input id="chat-search-input" placeholder="搜索对话" data-i18n-placeholder="搜索对话" />
-                <span id="chat-search-count"></span>
-                <button id="chat-search-prev" class="ghost" title="上一个匹配" data-i18n-title="上一个匹配">↑</button>
-                <button id="chat-search-next" class="ghost" title="下一个匹配" data-i18n-title="下一个匹配">↓</button>
-              </span>
-              <select id="model-select" title="模型(agent 默认或直选)" data-i18n-title="模型(agent 默认或直选)"></select>
-              <select id="reasoning-select" title="思考强度(仅推理模型有效;越高越慢越贵)" data-i18n-title="思考强度(仅推理模型有效;越高越慢越贵)">
-                <option value=""><span data-i18n-key="思考:默认">思考:默认</span></option>
-                <option value="off"><span data-i18n-key="思考:关闭">思考:关闭</span></option>
-                <option value="low"><span data-i18n-key="思考:低">思考:低</span></option>
-                <option value="medium"><span data-i18n-key="思考:中">思考:中</span></option>
-                <option value="high"><span data-i18n-key="思考:高">思考:高</span></option>
-              </select>
-            </div>
-          </details>
-        </header>
         <div id="chat-area">
-          <!-- R-147:页面顶部独立「使用手册」区块——展示 docs/目录.md(项目使用手册
-               与作者说明文字),可折叠,默认收起不遮挡对话。 -->
-          <details id="manual-panel" class="manual-panel hidden">
-            <summary class="manual-summary"><span data-i18n-key="使用手册">使用手册</span> <span id="manual-toggle-hint" class="dim"></span></summary>
-            <div id="manual-body" class="manual-body"></div>
-          </details>
           <!-- R-267:#messages 是**滚动容器**,消息本体挂在它下面的 per-session
                `.msg-pane` 里(每个会话一个,同时只显示一个)。切线 = 换显示的 pane,
                不再重建 DOM;后台会话的实时事件也直接渲染进各自 pane,不再丢弃。
@@ -164,7 +159,15 @@
           <section id="messages">
             <div class="msg-pane" data-session-id="" data-active="1">
               <div class="empty-state">
-                <div class="logo-mark">K</div>
+                <!-- 空态标记 = app 图标的 K 几何(竖干 + 右上三条平行记忆层汇入一点 +
+                     右下一笔行动),不是一个圆里放个字母。见 docs/design/app_icon.md。 -->
+                <div class="logo-mark" aria-hidden="true">
+                  <svg viewBox="0 0 64 64"><g fill="none" stroke="currentColor" stroke-linecap="square">
+                    <path d="M14 8v48" stroke-width="7"/>
+                    <path d="M21 33 44 56" stroke-width="7"/>
+                    <path d="M21.5 31.5 43 8M25.5 35 50 8M29.5 38.5 57 8" stroke-width="3"/>
+                  </g></svg>
+                </div>
                 <div class="hint hint-lead" data-i18n-key="输入任务开始 · 权限请求会弹窗询问">输入任务开始 · 权限请求会弹窗询问</div>
                 <div class="hint hint-keys" data-i18n-key="Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止">Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止</div>
               </div>
@@ -174,6 +177,35 @@
         </div>
         <footer id="composer">
           <input id="attachment-input" type="file" accept="image/*,.pdf,application/pdf" multiple hidden />
+          <!-- 上下文行:发一条之前需要确认的三件事(去哪个项目、用哪个模型、想多久)
+               和输入框贴在一起,而不是散在窗口最上沿。右端收低频菜单。 -->
+          <div id="composer-context" class="composer-context">
+            <span id="project-label" class="ctx-chip ctx-project" title="当前项目" data-i18n-title="当前项目"></span>
+            <select id="model-select" class="ctx-select" title="模型(agent 默认或直选)" data-i18n-title="模型(agent 默认或直选)"></select>
+            <select id="reasoning-select" class="ctx-select" title="思考强度(仅推理模型有效;越高越慢越贵)" data-i18n-title="思考强度(仅推理模型有效;越高越慢越贵)">
+              <option value=""><span data-i18n-key="思考:默认">思考:默认</span></option>
+              <option value="off"><span data-i18n-key="思考:关闭">思考:关闭</span></option>
+              <option value="low"><span data-i18n-key="思考:低">思考:低</span></option>
+              <option value="medium"><span data-i18n-key="思考:中">思考:中</span></option>
+              <option value="high"><span data-i18n-key="思考:高">思考:高</span></option>
+            </select>
+            <span class="spacer"></span>
+            <details id="composer-more">
+              <summary class="ghost" title="打开低频操作菜单" data-i18n-title="打开低频操作菜单"><span data-i18n-key="更多">更多</span></summary>
+              <div class="composer-menu-panel">
+                <button id="worktree-add" class="icon-btn" title="创建隔离 Git 工作树线程" data-i18n-title="创建隔离 Git 工作树线程" aria-label="创建隔离 Git 工作树线程">⑂</button>
+                <button id="summarize-btn" class="ghost" title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/" data-i18n-title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/"><span data-i18n-key="总结">总结</span></button>
+                <button id="copy-context" class="ghost" title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI" data-i18n-title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI"><span data-i18n-key="复制上下文">复制上下文</span></button>
+                <button id="chat-search-toggle" class="ghost" title="搜索当前对话" data-i18n-title="搜索当前对话"><span data-i18n-key="搜索">搜索</span></button>
+                <span id="chat-search" class="hidden">
+                  <input id="chat-search-input" placeholder="搜索对话" data-i18n-placeholder="搜索对话" />
+                  <span id="chat-search-count"></span>
+                  <button id="chat-search-prev" class="ghost" title="上一个匹配" data-i18n-title="上一个匹配">↑</button>
+                  <button id="chat-search-next" class="ghost" title="下一个匹配" data-i18n-title="下一个匹配">↓</button>
+                </span>
+              </div>
+            </details>
+          </div>
           <div id="attachments" class="attachments hidden"></div>
           <textarea id="prompt" rows="3" placeholder="想做什么?可粘贴/拖拽图片或 PDF" data-i18n-placeholder="想做什么?可粘贴/拖拽图片或 PDF"></textarea>
           <div id="continue-panel" class="hidden">
@@ -556,6 +588,14 @@
             <p class="dim" data-i18n-key="从左侧选择项目，在对话框输入任务；遇到权限请求时选择允许、拒绝或总是允许。运行结果、错误和工具详情会留在当前会话中。">从左侧选择项目，在对话框输入任务；遇到权限请求时选择允许、拒绝或总是允许。运行结果、错误和工具详情会留在当前会话中。</p>
           </section>
 
+          <!-- R-147 使用手册:原先常驻对话区顶部,每开一次应用都在主视野里占一条。
+               它是**新手读一次**的东西,不是每轮都要看的东西,所以搬进设置页——
+               内容仍来自项目根 docs/目录.md,项目没有该文件时整块隐藏。 -->
+          <details id="manual-panel" class="manual-panel hidden">
+            <summary class="manual-summary"><span data-i18n-key="使用手册">使用手册</span> <span id="manual-toggle-hint" class="dim"></span></summary>
+            <div id="manual-body" class="manual-body"></div>
+          </details>
+
           <div class="form-row">
             <label data-i18n-key="界面语言">界面语言</label>
             <select id="language-select">
@@ -796,9 +836,9 @@
             <summary data-i18n-key="高级功能">高级功能</summary>
           <p class="dim" data-i18n-key="试验性功能与本地显示偏好的开关,即时生效,不需要保存。">试验性功能与本地显示偏好的开关,即时生效,不需要保存。</p>
           <div class="form-row">
-            <label><input id="set-show-manual" type="checkbox" /> <span data-i18n-key="对话顶部显示使用手册">对话顶部显示使用手册</span></label>
+            <label><input id="set-show-manual" type="checkbox" /> <span data-i18n-key="在设置页显示使用手册">在设置页显示使用手册</span></label>
           </div>
-          <p class="dim" data-i18n-key="关闭后对话区顶部不再展示 docs/目录.md 使用手册区块(有该文件时)。">关闭后对话区顶部不再展示 docs/目录.md 使用手册区块(有该文件时)。</p>
+          <p class="dim" data-i18n-key="关闭后本页不再展示 docs/目录.md 使用手册区块(有该文件时)。">关闭后本页不再展示 docs/目录.md 使用手册区块(有该文件时)。</p>
 
           </details>
           <details class="settings-group" open>

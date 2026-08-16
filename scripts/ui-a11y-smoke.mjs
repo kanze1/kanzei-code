@@ -118,11 +118,16 @@ assert.match(js, /function addUserMessage\(text, promptAttachments = \[\]\)/);
 assert.match(html, /id="continue-panel"[\s\S]*id="continue-prompt"/);
 assert.match(html, /id="continue-toggle"[\s\S]*id="continue-btn"/);
 assert.match(css, /#continue-panel[\s\S]*grid-template-columns: auto minmax\(0, 1fr\)/);
-assert.match(css, /#topbar[\s\S]*flex-wrap: nowrap/);
-// 窄窗口下顶栏做减法。原来这里连 #auto-status 一起藏——鞭挞的停机原因是窄屏第一个
-// 被丢掉的东西。它已随控制台搬进 composer(flex-wrap,不靠隐藏让位),这条只该管 crumb;
-// 反证:#auto-status 不得再出现在任何 display:none 的媒体查询里。
-assert.match(css, /@media \(max-width: 1024px\)[\s\S]*#topbar \.crumb \{ display: none; \}/);
+// 顶栏 2026-08-16 整条删除:项目名/模型/思考强度/更多菜单下沉到输入区上方的
+// 上下文行。反证——#topbar 不得以任何形式回到 HTML 或样式表里。
+assert.doesNotMatch(html, /id="topbar"/, "顶栏已删除,不得重新出现");
+assert.doesNotMatch(css, /#topbar[\s{,]/, "顶栏样式已删除,不得重新出现");
+// 上下文行必须 flex-wrap:它在窄窗口下靠换行让位,而不是像旧顶栏那样 nowrap + 隐藏内容。
+assert.match(css, /\.composer-context \{[\s\S]*?flex-wrap: wrap/, "上下文行必须可换行");
+assert.match(css, /#composer > #composer-context \{ display: flex; \}/, "上下文行须显式恢复 flex(composer 限宽规则会压成 block)");
+// 窄窗口下上下文行做减法的方式是**收窄**而不是隐藏:项目名/模型仍然看得见。
+assert.match(css, /@media \(max-width: 1024px\)[\s\S]*?\.ctx-chip \{ max-width: 20ch; \}/);
+assert.doesNotMatch(css, /\.ctx-chip[^{}]*\{\s*display: none/, "项目上下文胶囊不得在窄窗口下被整个藏掉");
 assert.doesNotMatch(css, /#auto-status[^{}]*\{\s*display: none/, "鞭挞停机原因不得在窄窗口下被整个藏掉");
 assert.doesNotMatch(html, /id="process-tabs"/, "顶部进程切换条不应与左侧线路状态按钮重复");
 assert.match(css, /@media \(max-width: 900px\)[\s\S]*#sidebar:not\(\.collapsed\)[\s\S]*position: absolute/);
@@ -134,8 +139,8 @@ assert.match(css, /#todo-panel:not\(\.hidden\) ~ #bg-panel:not\(\.hidden\)[^}]*t
 assert.match(js, /localStorage\.setItem\("kz-sidebar-collapsed"/);
 assert.ok(html.includes('id="send"'), "缺少发送按钮");
 assert.ok(html.includes('id="stop"'), "缺少停止按钮");
-assert.match(html, /id="topbar-more"[\s\S]*id="summarize-btn"/);
-assert.match(html, /id="topbar-more"[\s\S]*id="worktree-add"[\s\S]*id="process-phase-pipeline-wrap"/);
+assert.match(html, /id="composer-more"[\s\S]*id="summarize-btn"/);
+assert.match(html, /id="composer-more"[\s\S]*id="worktree-add"[\s\S]*id="process-phase-pipeline-wrap"/);
 assert.match(js, /function syncSidebar\(\)/);
 assert.match(js, /function syncActivityPanel\(\)/);
 assert.match(js, /localStorage\.setItem\("kz-activity-panel"/);

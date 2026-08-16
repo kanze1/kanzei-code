@@ -271,7 +271,9 @@ function syncActivityPanel() {
   $("bg-panel").classList.toggle("hidden", !activityPanelOpen);
   const toggle = $("activity-toggle");
   toggle.classList.toggle("active", activityPanelOpen);
-  toggle.textContent = activityPanelOpen ? `${t("活动")} ✓` : t("活动");
+  // 开关搬到 rail 后按钮内容是 SVG:再写 textContent 会把图标整个抹掉,
+  // 状态只走 class + aria-pressed + title。
+  toggle.setAttribute("aria-pressed", activityPanelOpen ? "true" : "false");
   toggle.title = activityPanelOpen ? t("隐藏右侧活动面板") : t("显示右侧活动面板");
 }
 

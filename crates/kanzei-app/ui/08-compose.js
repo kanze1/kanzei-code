@@ -169,12 +169,20 @@ function autoContinueBlockedReason(sessionId) {
 // 可能仍标着运行中——旧代码在这里静默放弃,一轮就此永远不来。正确语义是等它落地,
 // 但要有头:等满 AUTO_CONTINUE_RUNNING_GRACE 次还在跑,就当卡住了,报出来。
 const AUTO_CONTINUE_RUNNING_GRACE = 15;
+// 用户自己按下的刹车(关鞭挞/暂停/本轮后停)不需要额外提示——界面上那个开关就是
+// 解释。其余原因是**意外停摆**:线路被关掉、上一轮卡住不结束。后台线出这两种时
+// 原实现只 log() 一行,而日志面板默认收起——用户看到的就是「并行跑着跑着没消息了」,
+// 没有任何可见解释(用户 2026-08-16 报告)。这类原因必须浮到界面上。
+const AUTO_CONTINUE_INTENDED_STOPS = new Set(["鞭挞已关闭", "已暂停", "本轮后停"]);
 // 闸门拦下时收口:pending 必须落地,否则横幅与线路徽标一直显示「等待下一轮」。
 function abortAutoContinue(reason, sessionId = activeSessionId) {
   if (sessionId) transitionSession(sessionId, "idle");
+  const item = sessionId ? processItems.find((candidate) => candidate.session_id === sessionId) : null;
   if (sessionId === activeSessionId) {
     clearRunPending();
     renderAutoStatus(`${t("鞭挞未续跑")}:${t(reason)}`);
+  } else if (!AUTO_CONTINUE_INTENDED_STOPS.has(reason)) {
+    reportPersistentError(`${item?.label ?? sessionId} ${t("鞭挞未续跑")}:${t(reason)}`);
   }
   log(`${t("鞭挞未续跑")}:${t(reason)}`);
   if (sessionId) refreshParallelTaskProjection(sessionId);

@@ -959,7 +959,10 @@ document.querySelectorAll(".sidebar-section").forEach((section) => {
   const key = `kz-collapse-${collapseKey}`;
   const legacyKey = `kz-collapse-${title.textContent.replace(/[\d\s]/g, "").slice(0, 8)}`;
   const saved = localStorage.getItem(key) ?? (legacyKey === key ? null : localStorage.getItem(legacyKey));
-  if (saved === "1") {
+  // data-collapse-default="collapsed":没有存过偏好时默认收起。项目列表用它——
+  // 当前项目已经由侧栏工作区头常驻显示,整份列表只在切项目时才需要。
+  const collapsedByDefault = section.dataset.collapseDefault === "collapsed";
+  if (saved === "1" || (saved === null && collapsedByDefault)) {
     section.classList.add("collapsed");
     if (legacyKey !== key) localStorage.setItem(key, "1");
   }
@@ -979,3 +982,5 @@ document.querySelectorAll(".sidebar-section").forEach((section) => {
     toggle();
   });
 });
+// 工作区头的箭头方向要跟着上面刚恢复的折叠态走(09-sessions.js 定义)。
+if (typeof syncProjectSwitchExpanded === "function") syncProjectSwitchExpanded();
