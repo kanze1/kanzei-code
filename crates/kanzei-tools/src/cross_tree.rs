@@ -91,10 +91,18 @@ pub(crate) fn capture_other_trees(
 }
 
 fn collect_tree_files(root: &Path, files: &mut BTreeMap<String, FileImage>) {
+    collect_tree_files_in(root, root, files);
+}
+
+/// D-406:递归必须携带**树根**与当前目录两个参数——此前递归把子目录当新 root,
+/// `strip_prefix` 永远相对直接父目录,深层文件的镜像键全被扁平成裸 basename:
+/// 键跨目录碰撞让对账从未按正确路径比过,回滚更把别树深层文件按裸名写到树根
+/// (主根 defects.md/bin-kz/dep-lib-* 平铺垃圾的来源),树根同名文件还有被误删风险。
+fn collect_tree_files_in(tree_root: &Path, dir: &Path, files: &mut BTreeMap<String, FileImage>) {
     if files.len() >= OTHER_TREE_MAX_FILES {
         return;
     }
-    let Ok(entries) = std::fs::read_dir(root) else {
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
@@ -113,13 +121,13 @@ fn collect_tree_files(root: &Path, files: &mut BTreeMap<String, FileImage>) {
             continue;
         }
         if file_type.is_dir() {
-            collect_tree_files(&path, files);
+            collect_tree_files_in(tree_root, &path, files);
             continue;
         }
         if !file_type.is_file() {
             continue;
         }
-        let Ok(relative) = path.strip_prefix(root) else {
+        let Ok(relative) = path.strip_prefix(tree_root) else {
             continue;
         };
         let key = relative.display().to_string().replace('\\', "/");
@@ -384,6 +392,51 @@ mod tests {
         assert!(
             root.join(".kanzei/quarantine").is_dir(),
             "隔离留证目录必须存在"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D-406:深层文件的镜像键必须是完整相对路径——此前递归按父目录 strip_prefix,
+    /// 键被扁平成裸 basename:跨目录碰撞让对账失真,回滚把深层文件按裸名拍到树根
+    /// (主根 defects.md/bin-kz/dep-lib-* 平铺垃圾的现场)。既有测试全用顶层文件
+    /// (basename==相对路径)所以一路假绿,本测试用嵌套+根级同名文件做判别。
+    #[test]
+    fn 深层文件键为完整相对路径_回滚写回原位不落树根() {
+        let root = git_repo("kz-ct-d406");
+        let b = add_worktree(&root, "line-d406");
+        std::fs::create_dir_all(b.join("sub/inner")).unwrap();
+        std::fs::write(b.join("sub/inner/deep.txt"), "B 线深层原文\n").unwrap();
+        std::fs::write(b.join("deep.txt"), "B 线根级同名\n").unwrap();
+
+        let before = capture_other_trees(&root, &root).expect("快照失败");
+        // seed.txt(基础提交检出)+ deep.txt + sub/inner/deep.txt = 3;
+        // 带 D-406 bug 时深层与根级同名碰撞成一个键,只剩 2。
+        assert_eq!(
+            before.file_count(),
+            3,
+            "深层与根级同名必须是两个独立键(裸 basename 键碰撞即 D-406 复现)"
+        );
+
+        std::fs::write(b.join("sub/inner/deep.txt"), "A 线越界覆盖\n").unwrap();
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
+            .expect("必须检出越界");
+        assert!(
+            report.contains("sub/inner/deep.txt"),
+            "报告须点名完整相对路径: {report}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(b.join("sub/inner/deep.txt")).unwrap(),
+            "B 线深层原文\n",
+            "深层文件必须在原位复原"
+        );
+        assert_eq!(
+            std::fs::read_to_string(b.join("deep.txt")).unwrap(),
+            "B 线根级同名\n",
+            "根级同名文件不得被深层内容污染"
+        );
+        assert!(
+            !root.join("deep.txt").exists(),
+            "任何内容都不得被拍到本线树根(平铺垃圾判别)"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
