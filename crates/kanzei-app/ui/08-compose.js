@@ -1342,7 +1342,7 @@ $("reasoning-select").addEventListener("change", () => {
   }
 });
 
-$("model-select").addEventListener("change", () => {
+$("model-select").addEventListener("change", async () => {
   const select = $("model-select");
   if (select.value === SHOW_ALL_MODELS_SENTINEL) {
     const selected = processItems.find((item) => item.id === activeProcessId)?.model ||
@@ -1353,7 +1353,9 @@ $("model-select").addEventListener("change", () => {
     return;
   }
   if (select.value === MANUAL_MODEL_SENTINEL) {
-    const input = (window.prompt(t("填 provider:model,例如 deepseek:deepseek-chat")) || "").trim();
+    const input = ((await inputDialog({
+      title: t("填 provider:model,例如 deepseek:deepseek-chat"),
+    })) || "").trim();
     // provider 名必须对得上配置里的键,否则后端 resolve_model 会直接失败。
     if (!/^[\w.-]+:.+$/.test(input)) {
       if (input) toast(t("格式应为 provider:model"));

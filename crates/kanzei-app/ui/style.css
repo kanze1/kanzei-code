@@ -1454,6 +1454,24 @@ button.ghost.danger:hover { background: rgba(208, 104, 78, .14); }
 .confirm-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 #confirm-ok.danger { background: var(--danger-btn); color: var(--on-danger); border-color: var(--danger-btn); }
 #confirm-ok.danger:hover { background: var(--danger-btn-hover); }
+#input-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center; z-index: var(--z-drawer);
+}
+#input-overlay.hidden { display: none; }
+#input-dialog {
+  width: min(480px, 86vw);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 18px 20px; box-shadow: 0 12px 40px rgba(0,0,0,.5);
+}
+#input-message { color: var(--fg-strong); line-height: 1.6; white-space: pre-wrap; word-break: break-word; margin-bottom: 10px; }
+#input-message.hidden { display: none; }
+#input-value {
+  width: 100%; box-sizing: border-box; background: var(--input); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px; padding: 7px 8px;
+  font-family: inherit; font-size: var(--fs-13);
+}
+#input-value:focus { outline: none; border-color: var(--accent); }
 .reasoning-head { color: var(--dim); font-size: var(--fs-12); cursor: pointer; border: 0; padding: 0; background: transparent; text-align: left; font: inherit; }
 .reasoning-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .reasoning-head:hover { color: var(--fg); }

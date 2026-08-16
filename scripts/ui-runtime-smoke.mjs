@@ -563,6 +563,7 @@ const document = {
   addEventListener: (type, fn) => {
     if (type === "DOMContentLoaded") domReadyCallbacks.push(fn);
   },
+  removeEventListener: () => {},
   hasFocus: () => true,
 };
 
@@ -690,6 +691,8 @@ const payloads = {
   ui_prefs_get: { theme: null, work_priority: {}, auto_max: null, continue_prompt: null, process_auto_state: {} },
   update_check: { newer: false },
   projects_get: { current: PROJECT, projects: [PROJECT], names: { [PROJECT]: "smoke" } },
+  projects_rename: ({ path, name }) => ({ current: path, projects: [path], names: { [path]: name } }),
+  projects_init: ({ path, name }) => ({ current: path, projects: [path], names: { [path]: name || "新项目" } }),
   // 所选目录没有 .kanzei,实际根落在上级 —— 这正是需求串项目的形态。
   project_root_info: { selected: PROJECT, resolved: "C:/smoke/parent", shared: true },
   project_detach: null,
@@ -1261,6 +1264,28 @@ async function runUiSources() {
 
 await runUiSources();
 
+// D-420:先验证生产输入弹窗本身可打开、回填并确认,再替换为立即返回桩供后续业务用例复用。
+const inputDialogProbe = vm.runInContext(
+  'inputDialog({ title: "D-420 输入测试", value: "默认值" })',
+  sandbox,
+);
+assert(!byId.get("input-overlay").classList.contains("hidden"), "输入弹窗调用后未显示");
+assert(byId.get("input-value").value === "默认值", "输入弹窗未回填默认值");
+byId.get("input-value").value = "已输入";
+byId.get("input-ok").click();
+assert(await inputDialogProbe === "已输入", "输入弹窗确认未返回用户输入");
+assert(byId.get("input-overlay").classList.contains("hidden"), "输入弹窗确认后未关闭");
+assert(
+  !sources.some((source) => /window\.prompt\s*\(/.test(source)),
+  "生产 UI 仍保留 window.prompt 调用(WebView2 下会失效)",
+);
+// 后续业务用例需要不同输入,用队列桩模拟用户逐次提交。
+sandbox.__inputDialogResponses = [];
+vm.runInContext(
+  "inputDialog = () => Promise.resolve(__inputDialogResponses.shift() ?? null)",
+  sandbox,
+);
+
 // D-418:业务确认弹窗从 window.confirm 迁移到全局函数 confirmDialog(01-core.js)。
 // windowShim 里的 confirmDialog mock 会被页面脚本的 `function confirmDialog` 声明
 // 覆盖,必须在源码执行完后重新覆盖为「立即确认」,确认类操作的断言才不会被挂起
@@ -1346,6 +1371,25 @@ assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
     `renderProjects(${JSON.stringify(payloads.projects_get)})`,
     sandbox
   );
+  await flush();
+}
+// D-420:项目重命名与新建都走应用内输入弹窗,取消/确认语义仍由调用方消费。
+{
+  const projectItem = byId.get("project-list").children[0];
+  assert(projectItem, "输入弹窗回归缺少项目卡片夹具");
+  sandbox.__inputDialogResponses.push("重命名后的项目");
+  projectItem.querySelector(".rename").click();
+  await flush();
+  const renameCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_rename");
+  assert(renameCall?.args?.name === "重命名后的项目", "项目重命名未消费输入弹窗的值");
+
+  sandbox.__inputDialogResponses.push("C:/smoke/new-project", "新项目显示名");
+  byId.get("project-init").click();
+  await flush();
+  const initCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_init");
+  assert(initCall?.args?.path === "C:/smoke/new-project", "新建项目未消费目录输入");
+  assert(initCall?.args?.name === "新项目显示名", "新建项目未消费显示名输入");
+  vm.runInContext(`renderProjects(${JSON.stringify(payloads.projects_get)})`, sandbox);
   await flush();
 }
 const initialAutoState = invokeArgs.find(({ cmd, args }) =>
@@ -3697,6 +3741,18 @@ assert(
   );
 }
 
+// D-420:设置页三个角色的手填模型也必须使用应用内输入弹窗。
+sandbox.__inputDialogResponses.push("anthropic:claude-sonnet-5");
+primarySelect.value = "__manual__";
+primarySelect.dispatchEvent({ type: "change" });
+await flush();
+assert(primarySelect.value === "anthropic:claude-sonnet-5", "设置页手填模型未消费输入弹窗值");
+sandbox.__inputDialogResponses.push("不是模型");
+primarySelect.value = "__manual__";
+primarySelect.dispatchEvent({ type: "change" });
+await flush();
+assert(primarySelect.value === "anthropic:claude-sonnet-5", "设置页非法模型输入未回退到上一次值");
+
 // 工具图标分类覆盖率:真实存在的工具一个都不许落到兜底扳手。清单来自 crates/kanzei-tools
 // 各 Tool 实现的 fn name()——后端加了新工具而前端忘了归类,这条会红,而不是悄悄画个扳手。
 {
@@ -3975,7 +4031,7 @@ await flush();
 assert([...modelSelect.options].some((o) => o.value === "ollama:qwen3"), "展开完整模型清单后仍缺少探测模型");
 const manualOption = [...modelSelect.options].find((o) => o.value === "__manual__");
 assert(manualOption, "模型下拉缺少手填入口(端点不实现 /models 时就彻底没法选)");
-sandbox.window.prompt = () => "deepseek:deepseek-chat";
+sandbox.__inputDialogResponses.push("deepseek:deepseek-chat");
 modelSelect.value = "__manual__";
 modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
 await flush();
@@ -3992,7 +4048,7 @@ assert(
   "手填后模型未回到下拉列表里",
 );
 // 格式不对要挡住:provider 名对不上配置键时后端 resolve_model 会直接失败。
-sandbox.window.prompt = () => "随便写的";
+sandbox.__inputDialogResponses.push("随便写的");
 modelSelect.value = "__manual__";
 modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
 await flush();

@@ -758,7 +758,10 @@ function renderProjects(prefs) {
     rename.setAttribute("aria-label", `${t("重命名项目")} ${name.textContent}`);
     rename.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const nextName = window.prompt(t("项目显示名"), prefs.names?.[path] || baseName(path));
+      const nextName = await inputDialog({
+        title: t("项目显示名"),
+        value: prefs.names?.[path] || baseName(path),
+      });
       if (nextName === null || !nextName.trim()) return;
       try {
         renderProjects(await invoke("projects_rename", { path, name: nextName.trim() }));
@@ -843,9 +846,14 @@ async function enterProject(prefs, options = {}) {
 }
 
 $("project-init").addEventListener("click", async () => {
-  const path = window.prompt(t("新项目目录路径(不存在时会创建)"));
+  const path = await inputDialog({
+    title: t("新项目目录路径(不存在时会创建)"),
+  });
   if (path === null || !path.trim()) return;
-  const name = window.prompt(t("项目显示名(可留空)"), baseName(path.trim()));
+  const name = await inputDialog({
+    title: t("项目显示名(可留空)"),
+    value: baseName(path.trim()),
+  });
   if (name === null) return;
   try {
     const prefs = await invoke("projects_init", {

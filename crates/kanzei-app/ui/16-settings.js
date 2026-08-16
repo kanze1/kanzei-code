@@ -361,12 +361,14 @@ function wireManualModelRole(id) {
   const select = $(id);
   if (!select) return;
   let last = select.value;
-  select.addEventListener("change", () => {
+  select.addEventListener("change", async () => {
     if (select.value !== MANUAL_MODEL_SENTINEL) {
       last = select.value;
       return;
     }
-    const input = (window.prompt(t("填 provider:model,例如 deepseek:deepseek-chat")) || "").trim();
+    const input = ((await inputDialog({
+      title: t("填 provider:model,例如 deepseek:deepseek-chat"),
+    })) || "").trim();
     if (!/^[\w.-]+:.+$/.test(input)) {
       if (input) toast(t("格式应为 provider:model"));
       select.value = last;

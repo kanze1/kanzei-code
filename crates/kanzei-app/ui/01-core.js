@@ -252,6 +252,48 @@ function confirmDialog(options) {
     ok.focus();
   });
 }
+// D-420:WebView2 不提供 window.prompt,统一使用应用内输入弹窗。
+// options: { title, message?, value?, placeholder?, okText? }
+// 返回 Promise<string|null>;确认返回输入值,取消/Esc/遮罩返回 null。
+function inputDialog(options) {
+  return new Promise((resolve) => {
+    const overlay = $("input-overlay");
+    const ok = $("input-ok");
+    const cancel = $("input-cancel");
+    const input = $("input-value");
+    $("input-title").textContent = options.title ?? "";
+    const message = $("input-message");
+    message.textContent = options.message ?? "";
+    message.classList.toggle("hidden", !options.message);
+    input.value = options.value ?? "";
+    input.placeholder = options.placeholder ?? "";
+    input.setAttribute("aria-label", options.title ?? "");
+    ok.textContent = options.okText ?? t("确认");
+    overlay.classList.remove("hidden");
+    const done = (value) => {
+      overlay.classList.add("hidden");
+      ok.removeEventListener("click", onOk);
+      cancel.removeEventListener("click", onCancel);
+      document.removeEventListener("keydown", onKey);
+      overlay.removeEventListener("click", onBackdrop);
+      resolve(value);
+    };
+    const onOk = () => done(input.value);
+    const onCancel = () => done(null);
+    const onKey = (e) => {
+      if (e.key === "Escape") done(null);
+      else if (e.key === "Enter" && !e.isComposing) done(input.value);
+    };
+    const onBackdrop = (e) => {
+      if (e.target === overlay) done(null);
+    };
+    ok.addEventListener("click", onOk);
+    cancel.addEventListener("click", onCancel);
+    document.addEventListener("keydown", onKey);
+    overlay.addEventListener("click", onBackdrop);
+    input.focus();
+  });
+}
 // localStorage 里的 JSON 可能被手改坏;读不出来就当没有,绝不让偏好读取抛异常
 // 把整个初始化带崩。
 function readJson(key, fallback) {
