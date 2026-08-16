@@ -56,6 +56,8 @@ toml_edit = "0.22"
 dirs = "5"
 # R-275 批2:调色板校验链的 CIEDE2000/Lab 转换(palette crate 内置)。
 palette = "0.7"
+# R-275 批3:用户板注册表为进程级静态,注册/查询相关测试需串行隔离。
+serial_test = "3"
 
 [profile.release]
 lto = "thin"

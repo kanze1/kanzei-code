@@ -84,13 +84,17 @@ pub fn by_name(name: &str) -> Option<Palette> {
 /// - seq/div/cyclic(连续/发散/周期):按位置等距采样 n 档(`round(i*(len-1)/(n-1))`,
 ///   div 的偶数请求在批2 推荐规则中处理奇数档保中点),n 超过内置档位上限 → Err。
 pub fn query(kind: PaletteType, n_classes: usize) -> Result<Palette, String> {
+    if n_classes == 0 {
+        return Err("色数 n 必须 ≥1".to_string());
+    }
+    // 批3:用户板同类型优先——不足长度默认拒绝带建议;无用户板回退内置。
+    if let Some(up) = query_user(kind, n_classes)? {
+        return Ok(up);
+    }
     let builtin = load_builtin();
     let candidates: Vec<Palette> = builtin.into_iter().filter(|p| p.kind == kind).collect();
     if candidates.is_empty() {
         return Err(format!("内置色板没有 {} 类型", kind.as_str()));
-    }
-    if n_classes == 0 {
-        return Err("色数 n 必须 ≥1".to_string());
     }
     match kind {
         PaletteType::Qual => {
@@ -504,9 +508,368 @@ pub fn validate(colors: &[String], kind: PaletteType) -> ValidationReport {
     }
 }
 
+// ============================ 批3:用户导入 ============================
+
+/// 进程内用户板注册表:用户板同类型优先于内置板(验收⑤)。
+/// 进程内跨工具调用有效;跨进程/重启持久化不在本批(由后续持久化条目承接)。
+use std::sync::{Mutex, OnceLock};
+
+static USER_PALETTES: OnceLock<Mutex<Vec<Palette>>> = OnceLock::new();
+
+fn user_palettes() -> &'static Mutex<Vec<Palette>> {
+    USER_PALETTES.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// 列出已注册用户板(测试与诊断可见)。
+pub fn user_palette_list() -> Vec<Palette> {
+    user_palettes()
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or_default()
+}
+
+/// 清空用户板注册表(测试隔离与诊断;生产路径不调用)。
+#[cfg(test)]
+pub(crate) fn reset_user_palettes() {
+    if let Ok(mut g) = user_palettes().lock() {
+        g.clear();
+    }
+}
+
+/// 注册用户板(同名覆盖;与内置板名冲突拒绝)。
+pub fn register_user_palette(p: Palette) -> Result<(), String> {
+    if p.colors.len() < 2 {
+        return Err(format!(
+            "用户板 {} 至少 2 色,实际 {}",
+            p.name,
+            p.colors.len()
+        ));
+    }
+    if !p.name.is_empty() && by_name(&p.name).is_some() {
+        return Err(format!("板名 {} 与内置板冲突,请换名", p.name));
+    }
+    let mut guard = user_palettes()
+        .lock()
+        .map_err(|_| "用户板注册表锁中毒".to_string())?;
+    guard.retain(|q| q.name != p.name);
+    guard.push(p);
+    Ok(())
+}
+
+/// 解析粘贴的 hex 列表(每行/逗号/空白分隔;#RRGGBB 或 RRGGBB)。
+/// 空片段忽略;非法项点名报错(不静默丢色)。
+pub fn parse_hex_list(text: &str) -> Result<Vec<String>, String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut bad: Vec<String> = Vec::new();
+    for raw in text.split(|c: char| c == '\n' || c == ',' || c.is_whitespace()) {
+        let s = raw.trim();
+        if s.is_empty() {
+            continue;
+        }
+        let hex = s.trim_start_matches('#');
+        if hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            out.push(format!("#{}", hex.to_ascii_uppercase()));
+        } else {
+            bad.push(s.to_string());
+        }
+    }
+    if !bad.is_empty() {
+        return Err(format!(
+            "hex 列表含非法项(应为 #RRGGBB 或 RRGGBB): {}",
+            bad.join(", ")
+        ));
+    }
+    if out.len() < 2 {
+        return Err(format!("hex 列表至少 2 色,实际 {} 色", out.len()));
+    }
+    Ok(out)
+}
+
+/// 解析 GIMP .gpl 文本。返回 (板名, 色列表)。
+pub fn parse_gpl(text: &str) -> Result<(String, Vec<String>), String> {
+    let mut lines = text.lines();
+    let first = lines.next().unwrap_or("").trim();
+    if !first.eq_ignore_ascii_case("GIMP Palette") {
+        return Err(format!(
+            "不是 GIMP .gpl:首行应为 'GIMP Palette',实际 {first:?}"
+        ));
+    }
+    let mut name = "user_gpl".to_string();
+    let mut colors: Vec<String> = Vec::new();
+    let mut bad: Vec<String> = Vec::new();
+    for line in lines {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        if let Some(n) = t.strip_prefix("Name:").map(str::trim) {
+            if !n.is_empty() {
+                name = n.to_string();
+            }
+            continue;
+        }
+        if t.starts_with("Columns:") {
+            continue;
+        }
+        let parts: Vec<&str> = t.split_whitespace().collect();
+        if parts.len() >= 3 {
+            let r = parts[0].parse::<u8>();
+            let g = parts[1].parse::<u8>();
+            let b = parts[2].parse::<u8>();
+            if let (Ok(r), Ok(g), Ok(b)) = (r, g, b) {
+                colors.push(format!("#{:02X}{:02X}{:02X}", r, g, b));
+                continue;
+            }
+        }
+        bad.push(t.to_string());
+    }
+    if !bad.is_empty() {
+        return Err(format!(
+            "gpl 非法色行(应为 'R G B [name]'): {}",
+            bad.join("; ")
+        ));
+    }
+    if colors.len() < 2 {
+        return Err(format!("gpl 色行至少 2 色,实际 {} 色", colors.len()));
+    }
+    Ok((name, colors))
+}
+
+fn read_u16_be(b: &[u8], pos: usize) -> Result<u16, String> {
+    b.get(pos..pos + 2)
+        .map(|s| u16::from_be_bytes([s[0], s[1]]))
+        .ok_or_else(|| format!("ASE 数据截断(偏移 {pos})"))
+}
+
+fn read_u32_be(b: &[u8], pos: usize) -> Result<u32, String> {
+    b.get(pos..pos + 4)
+        .map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]))
+        .ok_or_else(|| format!("ASE 数据截断(偏移 {pos})"))
+}
+
+fn read_f32_be(b: &[u8], pos: usize) -> Result<f32, String> {
+    b.get(pos..pos + 4)
+        .map(|s| f32::from_be_bytes([s[0], s[1], s[2], s[3]]))
+        .ok_or_else(|| format!("ASE 数据截断(偏移 {pos})"))
+}
+
+/// 解析单个 ASE 色块(0xC001,仅 RGB 色彩空间;CMYK/LAB/Gray 跳过计数)。
+fn ase_color_block(
+    bytes: &[u8],
+    data_start: usize,
+    data_end: usize,
+    colors: &mut Vec<String>,
+    skipped: &mut usize,
+    first_name: &mut String,
+) -> Result<(), String> {
+    let model = bytes
+        .get(data_start..data_start + 4)
+        .ok_or_else(|| "ASE 色块 model 截断".to_string())?;
+    if model != b"RGB " {
+        *skipped += 1;
+        return Ok(());
+    }
+    let vals = data_start + 4;
+    let r = read_f32_be(bytes, vals)?;
+    let g = read_f32_be(bytes, vals + 4)?;
+    let b = read_f32_be(bytes, vals + 8)?;
+    // 色名:ctype(2) + namelen(2) + name
+    let name_len_off = vals + 12 + 2;
+    let nlen = read_u16_be(bytes, name_len_off)? as usize;
+    let name = bytes
+        .get(name_len_off + 2..name_len_off + 2 + nlen)
+        .map(|s| String::from_utf8_lossy(s).into_owned())
+        .unwrap_or_default();
+    if data_end < name_len_off + 2 + nlen {
+        return Err("ASE 色块长度越界".to_string());
+    }
+    if first_name.is_empty() {
+        *first_name = name;
+    }
+    colors.push(format!(
+        "#{:02X}{:02X}{:02X}",
+        (r.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (g.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (b.clamp(0.0, 1.0) * 255.0).round() as u8
+    ));
+    Ok(())
+}
+
+/// 递归解析 ASE 块流(顶层按块数;组块 0xC002 数据区递归)。
+fn ase_blocks(
+    bytes: &[u8],
+    start: usize,
+    end: usize,
+    colors: &mut Vec<String>,
+    skipped: &mut usize,
+    first_name: &mut String,
+) -> Result<(), String> {
+    let mut pos = start;
+    while pos + 6 <= end {
+        let btype = read_u16_be(bytes, pos)?;
+        let blen = read_u32_be(bytes, pos + 2)? as usize;
+        let ds = pos + 6;
+        let de = ds + blen;
+        if de > end {
+            return Err(format!("ASE 块长度越界(偏移 {pos},块长 {blen})"));
+        }
+        match btype {
+            0xC001 => ase_color_block(bytes, ds, de, colors, skipped, first_name)?,
+            0xC002 => ase_blocks(bytes, ds, de, colors, skipped, first_name)?,
+            _ => *skipped += 1,
+        }
+        pos = de;
+    }
+    Ok(())
+}
+
+/// 解析 Adobe .ase 二进制(ASEF 魔数 + 版本 + 块流;仅收 RGB 色块)。
+/// 返回 (首个色块名或 ase_import, 色列表)。
+pub fn parse_ase(bytes: &[u8]) -> Result<(String, Vec<String>), String> {
+    if bytes.len() < 4 || &bytes[0..4] != b"ASEF" {
+        return Err(
+            "不是 Adobe .ase:魔数应为 'ASEF'(Adobe Swatch Exchange 二进制格式)".to_string(),
+        );
+    }
+    if bytes.len() < 14 {
+        return Err(format!(
+            "ASEF 头截断:仅 {} 字节(需 ≥14:魔数+版本+块数+至少一个块头)",
+            bytes.len()
+        ));
+    }
+    let num_blocks = read_u32_be(bytes, 6)?;
+    let mut pos = 10usize;
+    let mut colors: Vec<String> = Vec::new();
+    let mut skipped = 0usize;
+    let mut first_name = String::new();
+    for _ in 0..num_blocks {
+        if pos + 6 > bytes.len() {
+            return Err("ASE 块头截断".to_string());
+        }
+        let btype = read_u16_be(bytes, pos)?;
+        let blen = read_u32_be(bytes, pos + 2)? as usize;
+        let ds = pos + 6;
+        let de = ds + blen;
+        if de > bytes.len() {
+            return Err(format!("ASE 块长度越界(偏移 {pos},块长 {blen})"));
+        }
+        match btype {
+            0xC001 => ase_color_block(bytes, ds, de, &mut colors, &mut skipped, &mut first_name)?,
+            0xC002 => ase_blocks(bytes, ds, de, &mut colors, &mut skipped, &mut first_name)?,
+            _ => skipped += 1,
+        }
+        pos = de;
+    }
+    if colors.len() < 2 {
+        return Err(format!(
+            "ASE 解析到 {} 个 RGB 色(需 ≥2);跳过非 RGB 色块 {skipped} 个",
+            colors.len()
+        ));
+    }
+    let name = if first_name.is_empty() {
+        "ase_import".to_string()
+    } else {
+        first_name
+    };
+    Ok((name, colors))
+}
+
+/// 组装用户板并注册:导入即评分(批2 validate 在导入路径被调用),
+/// note 记评分摘要与最差冲突对;同名覆盖,内置名冲突拒绝。
+pub fn import_palette(
+    kind: PaletteType,
+    name: String,
+    colors: Vec<String>,
+) -> Result<Palette, String> {
+    if colors.len() < 2 {
+        return Err(format!("用户板至少 2 色,实际 {}", colors.len()));
+    }
+    let name = name.trim();
+    let max_classes = colors.len();
+    let p = Palette {
+        name: if name.is_empty() {
+            "user_palette".to_string()
+        } else {
+            name.to_string()
+        },
+        kind,
+        colors,
+        max_classes,
+        source_url: "user".into(),
+        license: "user".into(),
+        note: String::new(),
+    };
+    let report = validate(&p.colors, p.kind);
+    let worst = report
+        .worst_pairs
+        .first()
+        .map(|w| format!("最差对 {} vs {} (CVD DE {:.0})", w.a, w.b, w.delta_e_cvd))
+        .unwrap_or_default();
+    let p = Palette {
+        note: format!("用户导入;评分 {}/100;{}", report.score, worst),
+        ..p
+    };
+    register_user_palette(p.clone())?;
+    Ok(p)
+}
+
+/// query 内部:用户板同类型优先(验收⑤)。返回:
+/// - Ok(Some(p)):用户板命中(够长)
+/// - Err:有同类型用户板但不够长 → 默认拒绝并给建议(绝不插值)
+/// - Ok(None):无同类型用户板 → 回退内置板
+fn query_user(kind: PaletteType, n: usize) -> Result<Option<Palette>, String> {
+    let guard = user_palettes()
+        .lock()
+        .map_err(|_| "用户板注册表锁中毒".to_string())?;
+    let user: Vec<Palette> = guard.iter().filter(|p| p.kind == kind).cloned().collect();
+    if user.is_empty() {
+        return Ok(None);
+    }
+    let mut exact: Option<Palette> = None;
+    let mut larger: Option<Palette> = None;
+    for p in user {
+        if p.colors.len() == n {
+            exact = Some(p);
+            break;
+        }
+        if p.colors.len() > n {
+            larger = Some(larger.map_or(p.clone(), |cur| {
+                if p.colors.len() < cur.colors.len() {
+                    p.clone()
+                } else {
+                    cur
+                }
+            }));
+        }
+    }
+    if let Some(p) = exact.or(larger) {
+        let cut = match kind {
+            PaletteType::Qual => Palette {
+                colors: p.colors[..n].to_vec(),
+                ..p
+            },
+            _ => sample(&p, n),
+        };
+        return Ok(Some(cut));
+    }
+    let max = guard
+        .iter()
+        .filter(|p| p.kind == kind)
+        .map(|p| p.colors.len())
+        .max()
+        .unwrap_or(0);
+    Err(format!(
+        "用户板({} 类型)最长 {max} 色,请求 {n} 色超长。\
+         建议:改分面/高亮关键系列,或接受循环+线型区分兜底;定性板绝不插值。\
+         可用 palette_name 显式点名内置板绕过用户板。",
+        kind.as_str()
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     /// 验收①:内置板数量与四类覆盖(每类至少 1 板)。
     #[test]
@@ -596,6 +959,7 @@ mod tests {
     }
 
     /// 验收②(批1 部分):四类数据特征各返回正确类型色板。
+    #[serial]
     #[test]
     fn 四类查询各返回正确类型() {
         assert_eq!(query(PaletteType::Qual, 8).unwrap().kind, PaletteType::Qual);
@@ -611,6 +975,7 @@ mod tests {
     }
 
     /// 验收②:qual 查询返回 ==n 的精确板(8 色请求得到 okabe_ito 或 set2 全 8 色)。
+    #[serial]
     #[test]
     fn qual精确匹配返回全色板() {
         let p = query(PaletteType::Qual, 8).unwrap();
@@ -621,6 +986,7 @@ mod tests {
     }
 
     /// 验收⑤:定性板超长请求默认被拒,并给分面建议。
+    #[serial]
     #[test]
     fn 定性板超长请求被拒并给建议() {
         let err = query(PaletteType::Qual, 11).unwrap_err();
@@ -634,6 +1000,7 @@ mod tests {
     }
 
     /// 连续板按位置采样:n 档等距,两端与整板两端一致。
+    #[serial]
     #[test]
     fn 连续板等距采样保持两端() {
         let v = by_name("viridis").unwrap();
@@ -649,6 +1016,7 @@ mod tests {
     }
 
     /// 未知板名 / 0 色 / 非法类型参数给明确错误。
+    #[serial]
     #[test]
     fn 非法参数诊断明确() {
         assert!(by_name("no_such_palette").is_none());
@@ -657,6 +1025,7 @@ mod tests {
     }
 
     /// 验收②:四类数据特征各返回正确类型色板;jet 用于连续量被拒(硬禁忌)。
+    #[serial]
     #[test]
     fn 推荐规则四类映射且jet拒绝() {
         assert_eq!(
@@ -755,5 +1124,128 @@ mod tests {
             pair.delta_e_cvd,
             pair.delta_e
         );
+    }
+
+    // ============================ 批3 测试 ============================
+
+    /// 验收④:hex 列表导入——多分隔符混合、非法项点名报错。
+    #[test]
+    fn hex导入解析与非法诊断() {
+        let colors = parse_hex_list("  #FF0000\n#00ff00 , 112233 \n#ABCDEF \n").unwrap();
+        assert_eq!(
+            colors,
+            ["#FF0000", "#00FF00", "#112233", "#ABCDEF"],
+            "大小写归一 + 分隔符混合解析"
+        );
+        let err = parse_hex_list("#FF0000\nxyz\n#00FF00").unwrap_err();
+        assert!(err.contains("xyz"), "点名非法项: {err}");
+        let err2 = parse_hex_list("#FF0000").unwrap_err();
+        assert!(err2.contains("至少 2 色"), "不足 2 色报错: {err2}");
+    }
+
+    /// 验收④:GIMP .gpl 导入——Name/注释/色行解析;首行与非法色行诊断。
+    #[test]
+    fn gpl导入解析与非法诊断() {
+        let (name, colors) = parse_gpl(
+            "GIMP Palette\nName: My Board\nColumns: 8\n# a comment\n255 0 0 Red\n0 255 0 Green\n",
+        )
+        .unwrap();
+        assert_eq!(name, "My Board");
+        assert_eq!(colors, ["#FF0000", "#00FF00"]);
+        let err = parse_gpl("not a palette\n255 0 0").unwrap_err();
+        assert!(err.contains("GIMP Palette"), "首行诊断: {err}");
+        let err2 = parse_gpl("GIMP Palette\n255 0\n999 0 0\n").unwrap_err();
+        assert!(err2.contains("非法色行"), "非法色行点名: {err2}");
+    }
+
+    /// 验收④:Adobe .ase 导入——二进制 fixture 解析(2 个 RGB 色块);魔数诊断。
+    #[test]
+    fn ase导入解析与非法诊断() {
+        let fixture = include_bytes!("../assets/palettes/fixtures/sample.ase");
+        let (name, colors) = parse_ase(fixture).unwrap();
+        assert_eq!(name, "Red", "首色块名作板名");
+        assert_eq!(colors, ["#E6194B", "#3CB44B"], "RGB 浮点→hex 逐色一致");
+        let err = parse_ase(b"NOTASEF..........").unwrap_err();
+        assert!(err.contains("ASEF"), "魔数诊断: {err}");
+        let err2 = parse_ase(&fixture[..12]).unwrap_err();
+        assert!(
+            err2.contains("截断") || err2.contains("越界"),
+            "截断诊断: {err2}"
+        );
+    }
+
+    /// 验收④⑤:导入即评分(校验链真实调用,note 记评分);用户板同类型优先;
+    /// 用户板不够长默认拒绝;内置名冲突拒绝;同名覆盖。
+    /// 合并为单个顺序测试:注册表是进程级静态,并行测试会互相踩(clear/import 竞态)。
+    #[serial]
+    #[test]
+    fn 用户板注册与同类型优先() {
+        reset_user_palettes();
+        // 导入即评分:note 记评分摘要。
+        let p = import_palette(
+            PaletteType::Qual,
+            "my_qual".into(),
+            vec!["#111111".into(), "#222222".into(), "#333333".into()],
+        )
+        .unwrap();
+        assert!(p.note.contains("评分"), "导入即评分记入 note: {}", p.note);
+        assert_eq!(user_palette_list().len(), 1);
+        // 同类型优先:query(qual, 2) 返回用户板而非内置。
+        let q = query(PaletteType::Qual, 2).unwrap();
+        assert_eq!(q.name, "my_qual");
+        assert_eq!(q.colors, ["#111111", "#222222"]);
+        // 用户板不足:请求 4 色拒绝并给建议(绝不插值)。
+        let err = query(PaletteType::Qual, 4).unwrap_err();
+        assert!(err.contains("用户板"), "点名用户板: {err}");
+        assert!(err.contains("改分面"), "给分面建议: {err}");
+        // 未注册类型的查询不受影响。
+        assert!(query(PaletteType::Seq, 5).is_ok());
+        // 用户 seq 板同类型优先:recommend(Sequential) 走用户板。
+        import_palette(
+            PaletteType::Seq,
+            "my_gray".into(),
+            vec![
+                "#000000".into(),
+                "#555555".into(),
+                "#AAAAAA".into(),
+                "#FFFFFF".into(),
+            ],
+        )
+        .unwrap();
+        let ps = recommend(DataFeature::Sequential, 4).unwrap();
+        assert_eq!(ps.name, "my_gray", "用户板优先: {}", ps.name);
+        let p3 = recommend(DataFeature::Sequential, 3).unwrap();
+        assert_eq!(p3.colors.len(), 3, "用户连续板按位采样");
+        // 内置名冲突拒绝。
+        let err2 = register_user_palette(Palette {
+            name: "viridis".into(),
+            kind: PaletteType::Qual,
+            colors: vec!["#111111".into(), "#222222".into()],
+            max_classes: 2,
+            source_url: "user".into(),
+            license: "user".into(),
+            note: String::new(),
+        });
+        assert!(err2.is_err(), "内置名冲突拒绝");
+        // 同名覆盖。
+        register_user_palette(Palette {
+            name: "my_qual".into(),
+            kind: PaletteType::Qual,
+            colors: vec!["#333333".into(), "#444444".into()],
+            max_classes: 2,
+            source_url: "user".into(),
+            license: "user".into(),
+            note: String::new(),
+        })
+        .unwrap();
+        assert_eq!(
+            user_palette_list()
+                .iter()
+                .filter(|x| x.name == "my_qual")
+                .count(),
+            1,
+            "同名覆盖"
+        );
+        reset_user_palettes();
     }
 }

@@ -72,6 +72,20 @@ impl Tool for PlotTool {
                     "type": "string",
                     "enum": ["nominal", "sequential", "diverging", "cyclic"],
                     "description": "R-275 批2:数据特征→推荐色板(nominal 无序分类→qual/sequential 有序连续→seq/diverging 有中点→div/cyclic 周期→cyclic);与 palette_name 同给时按特征做硬禁忌检查(jet/rainbow 用于连续量被机械拒绝)"
+                },
+                "palette_import_format": {
+                    "type": "string",
+                    "enum": ["hex", "gpl", "ase"],
+                    "description": "R-275 批3:用户色板导入格式——hex(粘贴 hex 列表)/gpl(GIMP Palette 文本)/ase(Adobe .ase 二进制 base64);导入即评分并注册为用户板(同类型优先)"
+                },
+                "palette_import_content": {
+                    "type": "string",
+                    "description": "R-275 批3:导入内容(hex/gpl 为文本;ase 为 base64 编码的 .ase 二进制)"
+                },
+                "palette_import_type": {
+                    "type": "string",
+                    "enum": ["qual", "seq", "div", "cyclic"],
+                    "description": "R-275 批3:导入板的类型(默认 qual;影响校验链的亮度单调检查与同类型优先)"
                 }
             },
             "required": ["workdir"],
@@ -175,7 +189,47 @@ fn resolve_palette(
     let name = input["palette_name"].as_str().unwrap_or_default();
     let kind = input["palette_type"].as_str().unwrap_or_default();
     let feature = input["palette_feature"].as_str().unwrap_or_default();
+    let import_format = input["palette_import_format"].as_str().unwrap_or_default();
+    let import_content = input["palette_import_content"].as_str().unwrap_or_default();
     let n = input["palette_n"].as_u64().map(|v| v as usize);
+    // R-275 批3:用户色板导入(hex/gpl/ase)→ 注册用户板并注入本次绘图。
+    if !import_format.is_empty() {
+        if import_content.is_empty() {
+            return Err("palette_import_content 不能为空".to_string());
+        }
+        let import_kind = match input["palette_import_type"].as_str().unwrap_or("qual") {
+            "qual" => PaletteType::Qual,
+            "seq" => PaletteType::Seq,
+            "div" => PaletteType::Div,
+            "cyclic" => PaletteType::Cyclic,
+            other => {
+                return Err(format!(
+                    "palette_import_type 非法: {other:?}(取值 qual|seq|div|cyclic)"
+                ))
+            }
+        };
+        let (iname, icolors) = match import_format {
+            "hex" => (
+                "user_hex".to_string(),
+                crate::palette::parse_hex_list(import_content)?,
+            ),
+            "gpl" => crate::palette::parse_gpl(import_content)?,
+            "ase" => {
+                use base64::Engine as _;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(import_content)
+                    .map_err(|e| format!("ase 内容不是合法 base64: {e}"))?;
+                crate::palette::parse_ase(&bytes)?
+            }
+            other => {
+                return Err(format!(
+                    "palette_import_format 非法: {other:?}(取值 hex|gpl|ase)"
+                ))
+            }
+        };
+        let p = crate::palette::import_palette(import_kind, iname, icolors)?;
+        return Ok(p.colors);
+    }
     if !name.is_empty() {
         // 点名板 + 数据特征:连续量下的硬禁忌板(jet/rainbow)机械拒绝(批2)。
         if !feature.is_empty() {
@@ -562,6 +616,7 @@ fn base64_engine_encode(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use base64::Engine as _;
+    use serial_test::serial;
     use std::path::PathBuf;
 
     fn temp_dir(tag: &str) -> PathBuf {
@@ -801,6 +856,7 @@ mod tests {
     }
 
     /// R-275 批1:palette_type+palette_n 查询(验收②四类各返回正确类型色板)。
+    #[serial]
     #[test]
     fn palette_type查询内置板() {
         let q = serde_json::json!({ "palette_type": "qual", "palette_n": 8 });
@@ -817,6 +873,7 @@ mod tests {
 
     /// R-275 批1:非法参数诊断明确(未知板名点名可用名 / 非法类型点名取值 /
     /// qual 超长给分面建议)。
+    #[serial]
     #[test]
     fn palette参数诊断() {
         let bad = serde_json::json!({ "palette_name": "no_such" });
@@ -831,6 +888,7 @@ mod tests {
     }
 
     /// R-275 批2:palette_feature 推荐(四类特征→正确类型色板);jet 用于连续量被拒。
+    #[serial]
     #[test]
     fn palette_feature推荐与禁忌() {
         let q = serde_json::json!({ "palette_feature": "nominal", "palette_n": 8 });
@@ -855,5 +913,47 @@ mod tests {
             err2.contains("nominal|sequential|diverging|cyclic"),
             "点名取值: {err2}"
         );
+    }
+
+    /// R-275 批3:palette_import 导入三格式(hex/gpl/ase)→ 注入颜色;非法诊断。
+    #[serial]
+    #[test]
+    fn palette_import对接() {
+        let hex = serde_json::json!({
+            "palette_import_format": "hex",
+            "palette_import_content": "#FF0000\n#00FF00\n#0000FF",
+            "palette_import_type": "qual"
+        });
+        let c = resolve_palette(&hex, vec![]).unwrap();
+        assert_eq!(c, vec!["#FF0000", "#00FF00", "#0000FF"]);
+        let gpl = serde_json::json!({
+            "palette_import_format": "gpl",
+            "palette_import_content": "GIMP Palette\nName: G\n255 0 0\n0 255 0",
+        });
+        let cg = resolve_palette(&gpl, vec![]).unwrap();
+        assert_eq!(cg, vec!["#FF0000", "#00FF00"]);
+        let fixture = include_bytes!("../assets/palettes/fixtures/sample.ase");
+        let b64 = base64::engine::general_purpose::STANDARD.encode(fixture);
+        let ase = serde_json::json!({
+            "palette_import_format": "ase",
+            "palette_import_content": b64,
+        });
+        let ca = resolve_palette(&ase, vec![]).unwrap();
+        assert_eq!(ca, vec!["#E6194B", "#3CB44B"]);
+        // 非法输入诊断明确。
+        let bad = serde_json::json!({
+            "palette_import_format": "hex",
+            "palette_import_content": "zzz"
+        });
+        let err = resolve_palette(&bad, vec![]).unwrap_err();
+        assert!(err.contains("zzz"), "点名非法项: {err}");
+        let badf = serde_json::json!({
+            "palette_import_format": "xyz",
+            "palette_import_content": "a"
+        });
+        let err2 = resolve_palette(&badf, vec![]).unwrap_err();
+        assert!(err2.contains("hex|gpl|ase"), "点名取值: {err2}");
+        // 导入的板经 import_palette 已注册为用户板(同类型优先由 palette 测试验证)。
+        crate::palette::reset_user_palettes();
     }
 }
