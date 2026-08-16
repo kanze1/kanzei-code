@@ -67,6 +67,11 @@ impl Tool for PlotTool {
                 "palette_n": {
                     "type": "integer",
                     "description": "R-275 批1:色数(与 palette_type 搭配;默认该类型内置最大档数;qual 超长请求被拒并给分面建议)"
+                },
+                "palette_feature": {
+                    "type": "string",
+                    "enum": ["nominal", "sequential", "diverging", "cyclic"],
+                    "description": "R-275 批2:数据特征→推荐色板(nominal 无序分类→qual/sequential 有序连续→seq/diverging 有中点→div/cyclic 周期→cyclic);与 palette_name 同给时按特征做硬禁忌检查(jet/rainbow 用于连续量被机械拒绝)"
                 }
             },
             "required": ["workdir"],
@@ -156,8 +161,9 @@ impl Tool for PlotTool {
     }
 }
 
-/// R-275 批1:解析最终色板——显式 palette 数组优先;否则按 palette_name 或
-/// palette_type+palette_n 查询内置科学配色库(零运行时联网)。均未指定 → 空(不注入)。
+/// R-275 批1/批2:解析最终色板——显式 palette 数组优先;否则按 palette_name
+/// (点名板,批2 加特征硬禁忌检查)或 palette_type+palette_n / palette_feature+palette_n
+/// (推荐规则)查询内置科学配色库(零运行时联网)。均未指定 → 空(不注入)。
 fn resolve_palette(
     input: &serde_json::Value,
     explicit: Vec<String>,
@@ -165,9 +171,17 @@ fn resolve_palette(
     if !explicit.is_empty() {
         return Ok(explicit);
     }
+    use crate::palette::{DataFeature, PaletteType};
     let name = input["palette_name"].as_str().unwrap_or_default();
     let kind = input["palette_type"].as_str().unwrap_or_default();
+    let feature = input["palette_feature"].as_str().unwrap_or_default();
+    let n = input["palette_n"].as_u64().map(|v| v as usize);
     if !name.is_empty() {
+        // 点名板 + 数据特征:连续量下的硬禁忌板(jet/rainbow)机械拒绝(批2)。
+        if !feature.is_empty() {
+            let f = DataFeature::parse(feature)?;
+            crate::palette::check_hard_forbidden(name, f.to_kind())?;
+        }
         return crate::palette::by_name(name)
             .map(|p| p.colors)
             .ok_or_else(|| {
@@ -177,7 +191,6 @@ fn resolve_palette(
             });
     }
     if !kind.is_empty() {
-        use crate::palette::PaletteType;
         let k = match kind {
             "seq" => PaletteType::Seq,
             "div" => PaletteType::Div,
@@ -189,12 +202,20 @@ fn resolve_palette(
                 ))
             }
         };
-        let n = input["palette_n"].as_u64().map(|v| v as usize);
         let n = match n {
             Some(n) => n,
             None => crate::palette::max_classes(k)?,
         };
         return crate::palette::query(k, n).map(|p| p.colors);
+    }
+    if !feature.is_empty() {
+        let f = DataFeature::parse(feature)?;
+        let k = f.to_kind();
+        let n = match n {
+            Some(n) => n,
+            None => crate::palette::max_classes(k)?,
+        };
+        return crate::palette::recommend(f, n).map(|p| p.colors);
     }
     Ok(Vec::new())
 }
@@ -807,5 +828,32 @@ mod tests {
         let toolong = serde_json::json!({ "palette_type": "qual", "palette_n": 11 });
         let err3 = resolve_palette(&toolong, vec![]).unwrap_err();
         assert!(err3.contains("改分面"), "qual 超长给分面建议: {err3}");
+    }
+
+    /// R-275 批2:palette_feature 推荐(四类特征→正确类型色板);jet 用于连续量被拒。
+    #[test]
+    fn palette_feature推荐与禁忌() {
+        let q = serde_json::json!({ "palette_feature": "nominal", "palette_n": 8 });
+        let c = resolve_palette(&q, vec![]).unwrap();
+        assert_eq!(c.len(), 8);
+        let s = serde_json::json!({ "palette_feature": "sequential", "palette_n": 5 });
+        let cs = resolve_palette(&s, vec![]).unwrap();
+        assert_eq!(cs.len(), 5);
+        assert_eq!(cs[0], "#440154", "seq 默认 viridis 首色");
+        let d = serde_json::json!({ "palette_feature": "diverging", "palette_n": 11 });
+        let cd = resolve_palette(&d, vec![]).unwrap();
+        assert_eq!(cd.len(), 11);
+        assert_eq!(cd[5], "#F7F7F7", "div 中点浅色(RdBu)");
+        // jet 用于连续量被拒(硬禁忌,验收②)。
+        let jet = serde_json::json!({ "palette_feature": "sequential", "palette_name": "jet" });
+        let err = resolve_palette(&jet, vec![]).unwrap_err();
+        assert!(err.contains("硬禁忌"), "点名硬禁忌: {err}");
+        // 非法 feature 诊断。
+        let badf = serde_json::json!({ "palette_feature": "rainbow" });
+        let err2 = resolve_palette(&badf, vec![]).unwrap_err();
+        assert!(
+            err2.contains("nominal|sequential|diverging|cyclic"),
+            "点名取值: {err2}"
+        );
     }
 }

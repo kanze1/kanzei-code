@@ -54,6 +54,8 @@ async-trait = "0.1"
 toml = "0.8"
 toml_edit = "0.22"
 dirs = "5"
+# R-275 批2:调色板校验链的 CIEDE2000/Lab 转换(palette crate 内置)。
+palette = "0.7"
 
 [profile.release]
 lto = "thin"
