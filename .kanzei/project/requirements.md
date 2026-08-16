@@ -96,7 +96,7 @@
 - 标签: 后端
 
 - 进展: 2026-08-16 交付形态已拍板:PWA+现成通知桥(手机为 Android),原生壳不做(息屏通知由 LAN 推送桥零开发补齐);双向通信与通知推送两条验收的实施载体为 R-270(服务端)+R-271(PWA 界面),本条在其交付后按新载体核销;第三条『子代理升级为管理项目容器』与移动端无关,待用户重估是否保留。 || 2026-08-08 复核:验收三条原文要求「在移动端完成」,本仓库不存在移动端工程;2026-08-07 退回原因明确本需求保留移动端三条验收、待用户排期。桌面桥接(阶段 B)属既有能力,按退回意见应拆为独立子需求,不在本条验收范围内。 || 2026-08-16 复核:R-270(桥接移动化)与 R-271(移动端 PWA)均已 done——①双向通信:POST /v1/messages(R-270)+PWA 发消息界面(R-271 批2);②通知推送:R-270 通知桥出口(完成/失败经 LAN 推送桥发手机通知)+PWA SSE 通知流(R-271 批1)。两条验收的实施载体齐备,依赖自然解除;第三条『子代理升级为项目容器』与移动端无关,待用户重估。
-- 阻塞: 2026-08-16 交付质量审计推翻此前核销依据:R-270/R-271 虽归档但真实链路断裂(D-390 PWA 被鉴权闸挡死、D-385 LAN 未接 UI、D-387 发消息死信、D-389 验收证据虚增)——双向通信与通知推送两条验收实际未达成。解除动作: D-390/D-385/D-387/D-389 修复并补真链路验收后再核销;第三条「子代理升级为项目容器」仍待用户重估。解除人: 依赖自然解除(缺陷修复)/用户(第三条)。
+- 阻塞: 2026-08-16 复核收窄:原阻塞的缺陷前置(D-390 鉴权闸死锁/D-385 LAN/D-387 消息死信/D-389 验收证据)已全部修复,D-389 已补机器侧真链路验收(真实桥接端口端到端);剩余:①「子代理升级为项目容器」待用户重估;②真机全链路实测(手机访问 LAN 地址)待用户执行。解除动作:用户对第三条拍板+真机实测后核销。解除人: 用户。
 - observed_head: 49b65e2030c7dae4958963a6f9c5babe52b703da
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786842800288
@@ -111,9 +111,13 @@
 - 标签: 核心
 - 边界: 本需求只负责事件投影真源切换与 segment reset，不实现会话物理删除、Spill artifact 联动删除、WAL/VACUUM 或迁移备份安全整理；这些统一由 R-245 的删除计划与显式整理入口承担。第一批不改事件 format_version 与 SessionFact 公共词表；任一读路径可通过 feature gate 独立回退 legacy snapshot。
 - 迁移与回滚: 不新增表、列或索引时不创建空 migration。切换按五条读路径分别启用 feature gate，legacy snapshot 在观察期只读保留；任一路径出现未知差异即回退该路径。全部 gate 稳定后才停止新增 conversation.updated，既有 snapshot 不删除。
-- 阻塞: 2026-08-16 实测复核:原阻塞写的"剩的是攒样本,不是等决策"**已不准确**。样本侧三条里两条已达标:shadow_compared 样本 45 条(门槛 ≥30 个真实 turn,库内 turn_started 4168)、typed_write_errors 合计 0;但"正常可比较 turn 全部 equal=true"**未达成**——45 条里 7 条 equal=false,且**全部 interrupted_assistants=0**,即不落在停止/中断/权限拒绝这些被门槛排除的异常路径上。7 条形态一致:projected 远大于 legacy(607→2163、42→1206、87→608、227→574、146→238、873→1076、0→521),疑似上下文压缩把 legacy 快照换成纪要、而 typed 流仍留全量,属 R-243(Surface Compaction)要处理的语义。解除动作: 先解释这 7 条差异是"投影正确、legacy 被压缩"还是"投影有 bug",再决定门槛是否按压缩语义重写。解除人: 依赖自然解除 / 用户改口径。
+- 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
+- 进展: 2026-08-16 复核:阻塞字段「解除人:用户/依赖自然解除」不成立——7 条 shadow equal=false 的差异解释(projected 远大于 legacy,疑似上下文压缩把 legacy 快照换成纪要)是 agent 可执行的调查分析,不属于四类外部阻塞,已清阻塞转入推进。样本侧两条已达标:shadow_compared 45 条(门槛 ≥30 真实 turn,库内 turn_started 4168)、typed_write_errors 合计 0;剩 7 条 equal=false(全部 interrupted_assistants=0)待分析。下一步:读 shadow 样本与 SessionProjection/legacy 快照生成逻辑,判定差异根因后按压缩语义重写门槛。
+- observed_head: b4245f6c84fc0dbe276be8235ce8e72f548c0e3c
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786891443925
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]
 - refs: R-236 D-209 docs/design/context_compaction.md docs/design/deepseek_harness_upgrade.md
@@ -218,5 +222,5 @@
 - 来源: 2026-08-16 research mode 定调点全部过审后按 docs/design/research_mode.md §5 立项;架构采纳先行对照(prior_art §1)全行业收敛结论:四段流水线、研究并行写作串行、引用收集时绑定、预算显式旋钮、计划给人审。
 - 标签: 核心
 - 边界: 不做真·多 agent 并行编排(先行对照:15 倍 token 单用户不值,隔离+压缩回传同样解上下文冲突);不做 RL 专训模型(纪律放系统侧);不做常驻知识库服务(索引随课题建随课题用);不做模拟审稿与自动选题;计划审批前端由 R-276 承接,本条只出数据结构与状态机。
-- 验收: ①一个真实课题走完整链路(计划→审批→检索→带引用报告)有轨迹;②FACT 式抽查:随机抽论断,文献 URL 与代码 file:line 逐条支撑(实测,不接受自评);③预算旋钮实测:设小预算提前收敛出报告不崩;④机械核验原始工具输出不进主上下文(只有压缩摘要);⑤文献与代码经同一检索接口命中各有实测;⑥中途强杀重启可恢复续跑;⑦轻课题(只产 report.md)与重课题(paper.tex 编译通过)各走通一次。
+- 验收: ①一个真实课题走完整链路(计划→审批→检索→带引用报告)有轨迹;②FACT 式抽查:随机抽论断,文献 URL 与代码 file:line 逐条支撑(实测,不接受自评);③预算旋钮实测:设小预算提前收敛出报告不崩;④机械核验原始工具输出不进主上下文(只有压缩摘要);⑤文献与代码经同一检索接口命中各有实测;⑥中途强杀重启可恢复续跑;⑦轻课题(只产 report.md)与重课题(paper.tex 编译通过)各走通一次。验收②补充(D-412 反例):「出处是否真含支撑文本」做成机械抽查——文献论断的支撑文本必须落在正文内(取回正文全文 grep 关键词,摘要命中不算),仅摘要级来源不得支撑正文级论断;D-412 反例样本=CoALA 四类记忆划分不在摘要而在正文 §2.3(working/episodic/semantic/procedural),机械抽查应能检出此类越界(摘要含 modular memory components 但无四词)。
 - 优先级: P1
