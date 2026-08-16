@@ -104,19 +104,6 @@
 - 标签: 前端
 - 优先级: P2
 
-## D-422 OPEN-code(opencode zen)/responses 方言下工具调用整轮丢失:缺 output_item.done 时 ToolCall 永不产出,鞭挞误判「连续两轮无动作」 [fixed] (high)
-- 复杂度: 小
-- 标签: 模型
-- 优先级: P1
-- 来源: 用户 2026-08-17 04:18 截图:新开对话点继续推进,连跑两轮都是「完成 · steps 1」、对话流零助手动作,鞭挞追加推进指令后仍无动作,只能手动停止。
-- 复现: `[providers.OPEN-code] protocol = "deepseek-responses"` + 模型 mimo-v2.5 / mimo-v2.5-pro,跑任意需要工具的一轮。runs 表实证:run_1786911527173308400 与 run_1786911535668104400 均 completed 且 `total_calls: 0`,每轮照付 ~70k 字符系统提示。
-- 根因: `ToolCall` 事件**只**在 `response.output_item.done` 分支产出(openai_responses.rs)。抓包(2026-08-17,curl 直连 https://opencode.ai/zen/go/v1/responses)显示该网关的 mimo 系模型事件序列只有 `response.output_item.added` + `response.function_call_arguments.delta` × N + `response.completed`——**不发 output_item.done,也不发 response.created**。于是攒在 `self.calls` 里的调用在收尾时被整轮丢弃,`saw_tool_call` 保持 false,finish 落 EndTurn。模型明明调了工具,引擎看到的是 0 次调用;鞭挞据此判「无动作」,第二轮 NUDGE、第三轮就会以「可能条目已完成或确实无可推进项」停机——一个与事实相反的诊断。对照 deepseek-v4-flash 在同一网关发完整事件集,所以此前一直没暴露。
-- 影响: 任何缺 output_item.done 的 Responses 方言下,agent 完全不可用(每轮只出文本、零动作),且失败态伪装成「没活可干」,用户无从判断。
-- 修复: openai_responses.rs 三处:①`emit_tool_call` 抽出物化逻辑,`response.completed|incomplete` 收尾时把仍挂在 `self.calls` 里的调用一次性物化(参数非法 JSON 的截断轮跳过,不喂假调用);②补 `response.function_call_arguments.done` 分支收权威 arguments;③`response.created` 缺席时按「本流第一条有产出的事件」补 StepStart(同 openai.rs 懒起点,合规 provider 行为不变)。
-- 验证: 新增两条定向回归(缺 output_item_done 的方言也能拿到工具调用 / 收尾兜底不物化参数残缺的调用);kanzei-llm 48 + kanzei-app 193 + kanzei-core 214 全绿;fmt/clippy 干净。端到端 `KANZEI_MODEL=OPEN-code:mimo-v2.5-pro kz run --readonly` 实测 steps 3、glob+read 两次真实工具调用并给出正确答案(修复前同一命令 steps 1 / 0 次调用)。
-- 验收: ①缺 output_item.done 的事件序列能产出 ToolCall,有定向测试;②截断轮不物化半截调用;③合规 provider(codex/deepseek 官方)行为零变更,既有测试保持绿;④实测 mimo 系模型能完成多轮工具循环。
-- 备注: 修复本条后暴露 D-423(同一网关 /responses 对 assistant 侧条目一律 500),用户侧真正的解法是把 provider 协议切到 openai;本条的价值是让这类「静默吞掉工具调用」不再伪装成无动作。
-
 ## D-423 opencode zen /responses 对 assistant 侧输入条目一律 500:多轮工具循环第二轮必死(kanzei 侧应能识别并给出可操作诊断) [open] (medium)
 - 复杂度: 中
 - 标签: 模型
@@ -133,3 +120,29 @@
 - 处置(已做): 用户配置 `[providers.OPEN-code]` 协议由 deepseek-responses 改为 openai(/chat/completions)。实测 deepseek-v4-flash / mimo-v2.5 / mimo-v2.5-pro 三个模型的多轮工具循环(assistant.tool_calls + role:tool 回灌)全部 200 且 finish_reason=tool_calls,端到端 kz run --readonly 三轮真实工具调用通过。
 - 待办: 引擎侧目前把这类方言不兼容表达成裸 HTTP 500 + 两次无意义重试。应在 responses 路径识别「带 assistant 历史即 500」这一形态,给出可操作诊断(点名 provider/协议,建议改 openai 协议),而不是让用户从 500 反推。是否再做一个 responses 方言开关(assistant content 降级为纯字符串、跳过 function_call 条目)由用户拍板——改协议已能解决,方言开关只对「必须走 /responses」的场景有价值。
 - 验收: ①带 assistant 历史的 responses 请求失败时,错误信息点名 provider/协议并给出改协议的建议,不是裸 500;②该形态的失败不做无意义重试(500 当前会退避重试 2 次);③若实现方言开关,mimo 系在 /responses 下能跑通多轮工具循环。
+
+## D-424 chat completions 流式 tool_call 组装两处丢失:同 index/缺 index 的多条调用被拼成一条(workread),finish_reason 提前收尾丢掉后续参数增量 [fixed] (high)
+- 复杂度: 小
+- 标签: 模型
+- 优先级: P1
+- refs: D-422 D-425
+- 来源: 用户 2026-08-17 会话 #122581(OPEN-code:mimo-v2.5-pro 走 openai 协议):模型连续两条工具调用全部失败,`unknown tool workread` 与 `Invalid input ... 你的原始输入是 {"action": "claim", "id": `,整轮取活死掉。
+- 复现: state.db 里该轮 assistant 消息实证——`{"id":"call_332be4c46d0a4e6d8b1f79a7call_d6d78b1a7a604df0a48329d4","input":{},"name":"workread","type":"tool_call"}`:两条调用的 id 首尾相接、name 拼成 `workread`、arguments 是两段 JSON 相接故解析成空。
+- 根因(两处,同在 openai.rs 的 30 行内):
+  ①**槽位塌缩**:`tc["index"].as_u64().unwrap_or(0)` —— provider 不发 `index`(或把多条调用都标成同一 index)时全部落 0 号槽,而槽里 id/name/arguments 都是 `push_str` 累加的,于是两条调用被拼成一条不存在的工具。opencode zen 把模型吐的 Hermes XML 二次转 tool_calls 时正是这个形态(见 D-425)。
+  ②**提前收尾**:`finish_reason` 一到就 `settle`,`calls_emitted` 置位后,finish_reason 之后还在来的参数增量被永久丢弃 —— 放出去的是 `{"action": "claim", "id": ` 这类切在 chunk 边界上的半截 JSON。原意是兜「服务端不发 [DONE]」,代价是任何「finish_reason 不在最后一帧」的方言都被截断。
+- 修复: ①新增 `slot_for`:`index` 是权威键,但已被别的 id 占住的槽不接受新 id(另起一槽);`index` 缺席时带**新** id 的帧开新调用、不带 id 的帧是续帧。整条 id 每帧重发的 provider 不再被接成两遍。②`ProtocolState` 加 `finish()` 流末收尾钩子(默认空实现),client 在 SSE 循环退出后调一次;`finish_reason` 只记原因 + 关闭文本/推理块,工具调用改由 `[DONE]` 或流末 `finish()` 放出。顺带补上了旧路径的一个洞:不发 `[DONE]` 的 provider 此前**永远收不到 StepFinish**。
+- 验证: 新增三条定向回归(同槽/缺 index 两条调用不得被拼成一条、缺 index 时无 id 的帧是续帧、finish_reason 之后的参数增量不丢且不发 [DONE] 也能收尾);既有 `incremental_tool_call_assembly` 按新时序更新(ToolCall 落在 [DONE] 帧)。kanzei-llm 51 + kanzei-app 193 + kanzei-core 214 全绿,fmt/clippy 干净。
+- 验收: ①同 index / 缺 index 的多条调用各自独立,不再出现拼接工具名;②finish_reason 之后到达的参数增量计入最终调用;③不发 [DONE] 的 provider 能收到完整调用 + StepFinish;④合规 provider(OpenAI/Ollama/DeepSeek chat)行为无回归,既有测试保持绿。
+- 备注: 本条只修「引擎把好好的流组装坏了」这一半。另一半(模型压根没发原生 tool_calls,而是把 Hermes XML 写进 content、由网关有损二次转换)是 D-425,不在本条范围。
+
+## D-425 mimo-v2.5-pro 在大提示面下退化为 Hermes XML 工具语法写进 content,网关二次转换有损:是否加 XML 打捞垫片待定 [open] (medium)
+- 复杂度: 中
+- 标签: 模型
+- 优先级: P3
+- refs: D-424 D-422
+- 来源: 2026-08-17 排查 D-424 时读 state.db 发现。
+- 复现: 会话 #122581 的 assistant 消息里,text part 是完整的 Hermes/Qwen 工具语法——`<tool_call>\n<function=work>\n<parameter=action>claim</parameter>\n<parameter=id>D-419</parameter>\n<parameter=reason>…</parameter>\n</function>\n</tool_call>`——而同一条消息的 tool_call part 是网关据此二次转换出来的畸形调用(参数截断/多条塌缩)。对照:同一模型在**小**请求下(1~2 个工具、短 system)curl 直连实测发的是干净的原生 tool_calls,`index` 也正常。差异变量是 kanzei 的真实提示面(36 个工具 / tools schema ~37k 字符 / system ~14k + conventions ~13k)。
+- 影响: mimo-v2.5-pro 在本 harness 下不可用——一旦退化,工具调用要么名字错要么参数残缺,轮轮报 needs_correction。同网关的 deepseek-v4-flash 不退化(历史 run 里 217/258 次工具调用),是当前可用选择。
+- 待办(待用户拍板): 模型侧的事引擎改不动,但**模型吐出来的 XML 本身是完整正确的**,坏的只是网关的转换。所以可以在 openai 协议层加一层打捞:content 里出现完整 `<tool_call>…</tool_call>` 且本帧没有原生 tool_calls 时,解析成真调用。收益=让这类模型可用;风险=误报——本仓的对话内容里天然会出现讨论工具格式的散文,把散文里的 `<tool_call>` 当真调用会很难查。若做,必须限定「整条 content 就是这个块」而不是「content 里含有这个块」,并且只在原生 tool_calls 缺席时生效。
+- 验收: ①若实现打捞:mimo 系在完整 dev 提示面下能跑通多轮工具循环;②散文里提到 `<tool_call>` 不被误判成调用,有定向测试;③打捞不改变任何发原生 tool_calls 的 provider 的行为。

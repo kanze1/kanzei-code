@@ -157,8 +157,42 @@ pub struct OpenAiState {
 }
 
 impl OpenAiState {
-    /// 关闭未闭合的文本/推理块并放出累计的 tool calls(幂等)。
-    fn settle(&mut self, out: &mut Vec<LlmEvent>) {
+    /// D-424:决定这一帧 tool_call delta 落进哪个累加槽。
+    ///
+    /// 旧实现是 `tc["index"].as_u64().unwrap_or(0)`——`index` 缺席(或 provider 把
+    /// 多条调用都标成同一个 index)时,所有调用挤进 0 号槽,而槽里的 id/name/arguments
+    /// 都是 `push_str` 累加的。实测(opencode zen 网关把模型吐的 Hermes XML 二次转成
+    /// tool_calls 时就这样):`work` + `read` 两条调用被拼成一条 name=`workread`、
+    /// id=`call_332b…call_d6d7…`、arguments 是两段 JSON 首尾相接的畸形调用,引擎侧
+    /// 报「unknown tool `workread`」,整轮取活直接死掉。
+    ///
+    /// 规则:`index` 是权威键,但一个已被别的 id 占住的槽不接受新 id——那种情况另起
+    /// 一槽。`index` 缺席时,带**新** id 的帧开新调用,不带 id 的帧是上一条的续帧。
+    /// 合规 provider(id 只在首帧给、index always present)走不到任何一条分支。
+    fn slot_for(&self, index: Option<u64>, id: Option<&str>) -> u64 {
+        let last = self.calls.keys().next_back().copied();
+        let next = last.map_or(0, |k| k + 1);
+        let occupied_by_other = |slot: u64| {
+            id.is_some_and(|id| {
+                self.calls
+                    .get(&slot)
+                    .is_some_and(|c| !c.id.is_empty() && c.id != id)
+            })
+        };
+        match index {
+            Some(i) if occupied_by_other(i) => next,
+            Some(i) => i,
+            None => match last {
+                Some(k) if !occupied_by_other(k) => k,
+                Some(_) => next,
+                None => 0,
+            },
+        }
+    }
+
+    /// 关闭未闭合的文本/推理块(幂等)。finish_reason 一到就该关——文本确实到此为止,
+    /// 与「工具调用什么时候放出去」是两件事(D-424 把后者挪到了流末)。
+    fn close_blocks(&mut self, out: &mut Vec<LlmEvent>) {
         if self.text_open {
             self.text_open = false;
             out.push(LlmEvent::TextEnd { index: 0 });
@@ -170,6 +204,11 @@ impl OpenAiState {
                 signature: None,
             });
         }
+    }
+
+    /// 关闭未闭合的块并放出累计的 tool calls(幂等)。只在真正的流末调用。
+    fn settle(&mut self, out: &mut Vec<LlmEvent>) {
+        self.close_blocks(out);
         if !self.calls_emitted {
             self.calls_emitted = true;
             for (_, call) in std::mem::take(&mut self.calls) {
@@ -278,11 +317,16 @@ impl ProtocolState for OpenAiState {
 
         if let Some(tool_calls) = delta["tool_calls"].as_array() {
             for tc in tool_calls {
-                let index = tc["index"].as_u64().unwrap_or(0);
+                let incoming_id = tc["id"].as_str().unwrap_or("");
+                let index = self.slot_for(
+                    tc["index"].as_u64(),
+                    Some(incoming_id).filter(|s| !s.is_empty()),
+                );
                 let is_new = !self.calls.contains_key(&index);
                 let call = self.calls.entry(index).or_default();
-                if let Some(id) = tc["id"].as_str() {
-                    call.id.push_str(id);
+                // 整条 id 每帧重发的 provider 不能把它接成两遍(续帧式的分片 id 仍照接)。
+                if !incoming_id.is_empty() && incoming_id != call.id {
+                    call.id.push_str(incoming_id);
                 }
                 if let Some(name) = tc["function"]["name"].as_str() {
                     call.name.push_str(name);
@@ -308,11 +352,31 @@ impl ProtocolState for OpenAiState {
         }
 
         if let Some(reason) = choice["finish_reason"].as_str() {
+            // D-424:只记 finish_reason,**不**在这里收尾。此前这里 settle 是为了
+            // 兜「服务端不发 [DONE]」,代价是 finish_reason 之后还在来的参数增量被
+            // 永久丢弃(calls_emitted 已置位)——放出去的就是 `{"action":"claim","id": `
+            // 这种半截 JSON。兜底改由流末 finish() 承担,两头都不丢。
             self.finish = Some(map_finish(reason));
-            // finish_reason 一到就 settle:即使服务端不发 [DONE],工具调用也不丢。
-            self.settle(&mut out);
+            self.close_blocks(&mut out);
         }
         Ok(out)
+    }
+
+    /// 流末收尾:[DONE] 没来过就在这里放调用 + StepFinish(幂等,来过就是空)。
+    fn finish(&mut self) -> Vec<LlmEvent> {
+        let mut out = Vec::new();
+        if self.finished {
+            return out;
+        }
+        self.finished = true;
+        self.settle(&mut out);
+        if self.started {
+            out.push(LlmEvent::StepFinish {
+                reason: self.finish.clone().unwrap_or(FinishReason::EndTurn),
+                usage: self.usage,
+            });
+        }
+        out
     }
 }
 
@@ -403,12 +467,95 @@ mod tests {
             &mut s,
             r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":".txt\"}"}}]},"index":0}]}"#,
         );
+        // D-424:finish_reason 只记原因,不再当收尾——参数增量可能还在后面。
         let ev = feed(
             &mut s,
             r#"{"choices":[{"delta":{},"finish_reason":"tool_calls","index":0}]}"#,
         );
+        assert!(ev.is_empty(), "finish_reason 不该提前放出工具调用: {ev:?}");
+        let ev = feed(&mut s, "[DONE]");
         assert_eq!(
             ev,
+            vec![
+                LlmEvent::ToolCall {
+                    id: "call_1".into(),
+                    name: "read".into(),
+                    input: serde_json::json!({"path": "a.txt"}),
+                    raw_input: r#"{"path":"a.txt"}"#.into(),
+                },
+                LlmEvent::StepFinish {
+                    reason: FinishReason::ToolUse,
+                    usage: Usage::default()
+                }
+            ]
+        );
+    }
+
+    /// D-424:provider 把两条调用挤在同一个 index(或干脆不发 index)时,旧实现
+    /// 全塞进 0 号槽,而槽里的 id/name/arguments 都是 push_str 累加的——`work`+`read`
+    /// 会拼成 name=`workread`、参数是两段 JSON 首尾相接的畸形调用,引擎报
+    /// 「unknown tool `workread`」。实测来自 opencode zen 网关(2026-08-17)。
+    #[test]
+    fn 同槽或缺_index_的两条调用不得被拼成一条() {
+        for frames in [
+            // ① 两条都标 index:0
+            [
+                r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"work","arguments":"{\"action\":\"claim\"}"}}]},"index":0}]}"#,
+                r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_b","function":{"name":"read","arguments":"{\"path\":\"a.txt\"}"}}]},"index":0}]}"#,
+            ],
+            // ② 干脆不发 index
+            [
+                r#"{"choices":[{"delta":{"tool_calls":[{"id":"call_a","function":{"name":"work","arguments":"{\"action\":\"claim\"}"}}]},"index":0}]}"#,
+                r#"{"choices":[{"delta":{"tool_calls":[{"id":"call_b","function":{"name":"read","arguments":"{\"path\":\"a.txt\"}"}}]},"index":0}]}"#,
+            ],
+        ] {
+            let mut s = OpenAiState::default();
+            for frame in frames {
+                feed(&mut s, frame);
+            }
+            let calls: Vec<_> = feed(&mut s, "[DONE]")
+                .into_iter()
+                .filter(|e| matches!(e, LlmEvent::ToolCall { .. }))
+                .collect();
+            assert_eq!(
+                calls,
+                vec![
+                    LlmEvent::ToolCall {
+                        id: "call_a".into(),
+                        name: "work".into(),
+                        input: serde_json::json!({"action": "claim"}),
+                        raw_input: r#"{"action":"claim"}"#.into(),
+                    },
+                    LlmEvent::ToolCall {
+                        id: "call_b".into(),
+                        name: "read".into(),
+                        input: serde_json::json!({"path": "a.txt"}),
+                        raw_input: r#"{"path":"a.txt"}"#.into(),
+                    }
+                ],
+                "两条调用被合并了(旧实现拼出 workread)"
+            );
+        }
+    }
+
+    /// D-424:缺 index 时不带 id 的帧是**续帧**,必须接在上一条上,不能另起一槽。
+    #[test]
+    fn 缺_index_时无_id_的帧是上一条的续帧() {
+        let mut s = OpenAiState::default();
+        feed(
+            &mut s,
+            r#"{"choices":[{"delta":{"tool_calls":[{"id":"call_1","function":{"name":"read","arguments":"{\"path\":"}}]},"index":0}]}"#,
+        );
+        feed(
+            &mut s,
+            r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"\"a.txt\"}"}}]},"index":0}]}"#,
+        );
+        let calls: Vec<_> = feed(&mut s, "[DONE]")
+            .into_iter()
+            .filter(|e| matches!(e, LlmEvent::ToolCall { .. }))
+            .collect();
+        assert_eq!(
+            calls,
             vec![LlmEvent::ToolCall {
                 id: "call_1".into(),
                 name: "read".into(),
@@ -416,15 +563,44 @@ mod tests {
                 raw_input: r#"{"path":"a.txt"}"#.into(),
             }]
         );
-        // settle 幂等:[DONE] 不重复放出 ToolCall。
-        let ev = feed(&mut s, "[DONE]");
-        assert_eq!(
-            ev,
-            vec![LlmEvent::StepFinish {
-                reason: FinishReason::ToolUse,
-                usage: Usage::default()
-            }]
+    }
+
+    /// D-424:finish_reason 之后还在来参数增量的 provider——旧实现在 finish_reason
+    /// 处 settle,把后续增量永久锁在门外,放出去的是 `{"action":"claim","id": ` 这类
+    /// 半截 JSON。收尾挪到流末后,完整参数才是放出去的那份。且不发 [DONE] 也不丢。
+    #[test]
+    fn finish_reason_之后的参数增量不丢且不发_done_也能收尾() {
+        let mut s = OpenAiState::default();
+        feed(
+            &mut s,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"work","arguments":"{\"action\": \"claim\", \"id\": "}}]},"index":0}]}"#,
         );
+        feed(
+            &mut s,
+            r#"{"choices":[{"delta":{},"finish_reason":"tool_calls","index":0}]}"#,
+        );
+        feed(
+            &mut s,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"D-419\"}"}}]},"index":0}]}"#,
+        );
+        // 服务端不发 [DONE],流直接断——收尾由 client 调的 finish() 承担。
+        assert_eq!(
+            ProtocolState::finish(&mut s),
+            vec![
+                LlmEvent::ToolCall {
+                    id: "call_1".into(),
+                    name: "work".into(),
+                    input: serde_json::json!({"action": "claim", "id": "D-419"}),
+                    raw_input: r#"{"action": "claim", "id": "D-419"}"#.into(),
+                },
+                LlmEvent::StepFinish {
+                    reason: FinishReason::ToolUse,
+                    usage: Usage::default()
+                }
+            ]
+        );
+        // 幂等:再调一次是空。
+        assert!(ProtocolState::finish(&mut s).is_empty());
     }
 
     #[test]

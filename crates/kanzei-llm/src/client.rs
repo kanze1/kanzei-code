@@ -256,6 +256,11 @@ impl LlmClient {
                     }
                 }
             }
+            // D-424:流末收尾。没有 [DONE] 的 provider 靠这一步放出攒着的工具调用
+            // 与 StepFinish;已在流内收过尾的状态机这里返回空。
+            for event in state.finish() {
+                yield event;
+            }
         };
         Ok(Box::pin(stream))
     }

@@ -23,6 +23,16 @@ pub enum ProtocolKind {
 
 pub trait ProtocolState: Send {
     fn step(&mut self, event: &SseEvent) -> Result<Vec<LlmEvent>, LlmError>;
+
+    /// D-424:字节流走完后的收尾,由 client 在 SSE 循环退出后调一次。
+    ///
+    /// 不发 `[DONE]` 的 provider 此前只能靠 `finish_reason` 提前收尾——而提前收尾
+    /// 会把「finish_reason 之后还在来的 tool_call 参数增量」永久锁在门外(累加器
+    /// 已被 take 走、发射标志已置位),放出去的是半截 JSON。收尾点挪到真正的流末,
+    /// 这类截断就不存在了。默认空实现:已在流内收过尾的状态机什么都不用做。
+    fn finish(&mut self) -> Vec<LlmEvent> {
+        Vec::new()
+    }
 }
 
 pub fn build_body(kind: ProtocolKind, request: &LlmRequest) -> serde_json::Value {
