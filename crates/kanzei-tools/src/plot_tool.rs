@@ -29,7 +29,9 @@ impl Tool for PlotTool {
          vl-convert (official Rust CLI, zero-install) when available, else vega-cli's vl2png; if \
          neither is installed it reports download guidance instead of crashing. The SVG is also \
          saved to workdir for your use. JSON spec errors are reported with enough context to fix \
-         in one pass."
+         in one pass. Color: pass palette (hex array) directly, or ask the built-in scientific \
+         palette subsystem (R-275) with palette_name (e.g. \"viridis\"/\"okabe_ito\") or \
+         palette_type (seq|div|qual|cyclic) + palette_n; palette array wins when both given."
             .into()
     }
 
@@ -51,7 +53,20 @@ impl Tool for PlotTool {
                 "palette": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "R-274 验收④:色板(hex 颜色数组,如 [\"#4C72B0\",\"#DD8452\"])——Vega-Lite 注入 spec scale.range,matplotlib 注入 rcParams prop_cycle"
+                    "description": "R-274 验收④:色板(hex 颜色数组,如 [\"#4C72B0\",\"#DD8452\"])——Vega-Lite 注入 spec scale.range,matplotlib 注入 rcParams prop_cycle;与 palette_name/palette_type 二选一,本数组优先"
+                },
+                "palette_name": {
+                    "type": "string",
+                    "description": "R-275 批1:内置科学配色板名(如 viridis/cividis/twilight/okabe_ito/petroff10/tol_bright/colorbrewer_set2/colorbrewer_dark2/colorbrewer_blues/colorbrewer_rdbu),零运行时联网"
+                },
+                "palette_type": {
+                    "type": "string",
+                    "enum": ["seq", "div", "qual", "cyclic"],
+                    "description": "R-275 批1:按类型查询内置板——seq 有序连续/div 有中点发散/qual 无序分类/cyclic 周期"
+                },
+                "palette_n": {
+                    "type": "integer",
+                    "description": "R-275 批1:色数(与 palette_type 搭配;默认该类型内置最大档数;qual 超长请求被拒并给分面建议)"
                 }
             },
             "required": ["workdir"],
@@ -86,6 +101,14 @@ impl Tool for PlotTool {
                     .collect()
             })
             .unwrap_or_default();
+        // R-275 批1:内置科学配色查询——未显式传 palette 数组时,按 palette_name 或
+        // palette_type+palette_n 从内置库解析(零运行时联网,数据转录自官方上游)。
+        let palette = match resolve_palette(&input, palette) {
+            Ok(p) => p,
+            Err(e) => {
+                return ToolOutput::error(format!("调色板解析失败: {e}"));
+            }
+        };
         if workdir.is_empty() {
             return ToolOutput::error("plot 需要 workdir 参数".to_string());
         }
@@ -131,6 +154,49 @@ impl Tool for PlotTool {
         };
         render_vega(&workdir_path, &spec, &out, &palette)
     }
+}
+
+/// R-275 批1:解析最终色板——显式 palette 数组优先;否则按 palette_name 或
+/// palette_type+palette_n 查询内置科学配色库(零运行时联网)。均未指定 → 空(不注入)。
+fn resolve_palette(
+    input: &serde_json::Value,
+    explicit: Vec<String>,
+) -> Result<Vec<String>, String> {
+    if !explicit.is_empty() {
+        return Ok(explicit);
+    }
+    let name = input["palette_name"].as_str().unwrap_or_default();
+    let kind = input["palette_type"].as_str().unwrap_or_default();
+    if !name.is_empty() {
+        return crate::palette::by_name(name)
+            .map(|p| p.colors)
+            .ok_or_else(|| {
+                let builtin = crate::palette::load_builtin();
+                let available: Vec<&str> = builtin.iter().map(|p| p.name.as_str()).collect();
+                format!("未知内置色板名 {name:?}。可用名: {}", available.join(", "))
+            });
+    }
+    if !kind.is_empty() {
+        use crate::palette::PaletteType;
+        let k = match kind {
+            "seq" => PaletteType::Seq,
+            "div" => PaletteType::Div,
+            "qual" => PaletteType::Qual,
+            "cyclic" => PaletteType::Cyclic,
+            other => {
+                return Err(format!(
+                    "palette_type 非法: {other:?}(取值 seq|div|qual|cyclic)"
+                ))
+            }
+        };
+        let n = input["palette_n"].as_u64().map(|v| v as usize);
+        let n = match n {
+            Some(n) => n,
+            None => crate::palette::max_classes(k)?,
+        };
+        return crate::palette::query(k, n).map(|p| p.colors);
+    }
+    Ok(Vec::new())
 }
 
 /// R-274 批2:PGFPlots 轨——把 TikZ/PGFPlots 代码片段包成最小 .tex(standalone 文档,
@@ -696,5 +762,50 @@ mod tests {
         );
         assert_eq!(out.images.len(), 1, "应有 1 张图回模型");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-275 批1:内置板名解析——palette_name 返回该板全色(验收⑥联通前置:
+    /// 内置板经 plot 工具注入渲染,图中颜色与板逐色一致)。
+    #[test]
+    fn palette_name解析内置板() {
+        let input = serde_json::json!({ "palette_name": "viridis" });
+        let colors = resolve_palette(&input, vec![]).expect("viridis 应存在");
+        assert_eq!(colors.len(), 9);
+        assert_eq!(colors[0], "#440154");
+        assert_eq!(colors[8], "#FDE725");
+        // 显式 palette 数组优先于内置板名。
+        let input2 = serde_json::json!({ "palette_name": "viridis" });
+        let colors2 = resolve_palette(&input2, vec!["#4C72B0".to_string()]).unwrap();
+        assert_eq!(colors2, vec!["#4C72B0".to_string()]);
+    }
+
+    /// R-275 批1:palette_type+palette_n 查询(验收②四类各返回正确类型色板)。
+    #[test]
+    fn palette_type查询内置板() {
+        let q = serde_json::json!({ "palette_type": "qual", "palette_n": 8 });
+        let c = resolve_palette(&q, vec![]).unwrap();
+        assert_eq!(c.len(), 8);
+        let d = serde_json::json!({ "palette_type": "div", "palette_n": 11 });
+        let cd = resolve_palette(&d, vec![]).unwrap();
+        assert_eq!(cd.len(), 11);
+        assert_eq!(cd[0], "#67001F", "RdBu 深红端");
+        let cy = serde_json::json!({ "palette_type": "cyclic" });
+        let cc = resolve_palette(&cy, vec![]).unwrap();
+        assert_eq!(cc.len(), 9, "cyclic 默认取该类型最大档");
+    }
+
+    /// R-275 批1:非法参数诊断明确(未知板名点名可用名 / 非法类型点名取值 /
+    /// qual 超长给分面建议)。
+    #[test]
+    fn palette参数诊断() {
+        let bad = serde_json::json!({ "palette_name": "no_such" });
+        let err = resolve_palette(&bad, vec![]).unwrap_err();
+        assert!(err.contains("可用名"), "点名可用名: {err}");
+        let badt = serde_json::json!({ "palette_type": "rainbow" });
+        let err2 = resolve_palette(&badt, vec![]).unwrap_err();
+        assert!(err2.contains("seq|div|qual|cyclic"), "点名取值: {err2}");
+        let toolong = serde_json::json!({ "palette_type": "qual", "palette_n": 11 });
+        let err3 = resolve_palette(&toolong, vec![]).unwrap_err();
+        assert!(err3.contains("改分面"), "qual 超长给分面建议: {err3}");
     }
 }
