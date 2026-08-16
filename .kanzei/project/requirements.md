@@ -225,3 +225,24 @@
 - 边界: 不做真·多 agent 并行编排(先行对照:15 倍 token 单用户不值,隔离+压缩回传同样解上下文冲突);不做 RL 专训模型(纪律放系统侧);不做常驻知识库服务(索引随课题建随课题用);不做模拟审稿与自动选题;计划审批前端由 R-276 承接,本条只出数据结构与状态机。
 - 验收: ①一个真实课题走完整链路(计划→审批→检索→带引用报告)有轨迹;②FACT 式抽查:随机抽论断,文献 URL 与代码 file:line 逐条支撑(实测,不接受自评);③预算旋钮实测:设小预算提前收敛出报告不崩;④机械核验原始工具输出不进主上下文(只有压缩摘要);⑤文献与代码经同一检索接口命中各有实测;⑥中途强杀重启可恢复续跑;⑦轻课题(只产 report.md)与重课题(paper.tex 编译通过)各走通一次。验收②补充(D-412 反例):「出处是否真含支撑文本」做成机械抽查——文献论断的支撑文本必须落在正文内(取回正文全文 grep 关键词,摘要命中不算),仅摘要级来源不得支撑正文级论断;D-412 反例样本=CoALA 四类记忆划分不在摘要而在正文 §2.3(working/episodic/semantic/procedural),机械抽查应能检出此类越界(摘要含 modular memory components 但无四词)。
 - 优先级: P1
+
+## R-280 子代理总开关:进程级「子代理」勾选框,关掉即 task 工具不注册 [todo]
+- 优先级: P1
+- 复杂度: 小
+- 标签: 前端 后端
+- 来源: 2026-08-17 用户「非勘察模式也能默认能用子代理,我觉得这个应该弄个开关吧」;同轮用户拍板开关形状=进程级、放「更多」菜单。
+- 背景: 全局没有任何开关能关掉子代理。crates/kanzei-app/src/run/coordinator.rs:162 无条件构造 SubagentRuntime(注释标着 2026-08-11 定调「模型自己派 task 这条路永远开着,不受『勘察复核』开关控制」);phase_pipeline.rs:14-16 同样明说那个勾选框管的是「每轮强制勘察与复核」而非「有没有子代理」。用户看到的现象=非勘察模式下模型照样派子代理且无从关闭。本条部分推翻 2026-08-11 那条定调(2026-08-17 用户重新拍板)。
+- 内容: 新增进程级开关「子代理」,与 phase_pipeline_enabled 同形状(ProcessHandle 字段 + process_create/process_update + 落库回显),UI 放 index.html「更多」菜单 #process-phase-pipeline 那一行旁,默认开(保持现状行为)。关掉时 coordinator 不构造 SubagentRuntime,runner 因此不 push task_spec —— 模型工具面上根本没有 task,而不是注册了再拒(D-173 的反面教材:合法路径不可达会让模型去找旁路,这里是能力整体不提供,不存在旁路问题)。CLI 侧(crates/kanzei/src/cli/run.rs)同步同一口径。
+- 边界: 不改「勘察复核」的语义(它仍只管七阶段);关掉子代理时若「勘察复核」开着,走 phase_pipeline.rs:405 既有的空屏障路径(该路径已实现,注释写明「『这一轮没有勘察』与『这一轮压根没有勘察阶段』的区别」),不新造分支;不做全局设置项(用户 2026-08-17 拍板进程级);不做三档选择。
+- 验收: ①「更多」菜单出现「子代理」行,切换经 process_update 落库、重启回显一致(与 process_tests.rs:205 勘察复核开关同测法);②关掉后该进程新一轮的工具面上不含 task —— 断言 ToolSpec 列表里没有它,不接受「注册了再拒」;③关掉子代理 + 开着「勘察复核」的组合能跑完整一轮,勘察简报如实说明本轮无勘察(走空屏障路径);④默认值为开,新建进程与默认进程都必须默认可用(反向断言,防默认被悄悄改掉);⑤i18n 中英文案齐,且不得出现把「勘察复核」描述成子代理开关的旧说法(02-i18n.js:448-450 的注释已明令禁止)。
+
+## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [todo]
+- 优先级: P1
+- 复杂度: 中
+- 标签: 前端 后端
+- 来源: 2026-08-17 用户「左侧的子代理按钮弹出的东西太简单了,没啥用,我们要的是能看到子代理的运行状态、可以看到内容」;同轮用户拍板形态=完整对话读取器(留在右侧面板,不做独立主视图)。
+- 背景: 面板看不到内容是**后端没发**,不是前端没渲染。crates/kanzei-core/src/runner/subagent.rs:593 一行 `RunEvent::AssistantMessageCommitted { .. } | RunEvent::ToolResultsCommitted { .. } => None` 把子代理正文显式丢弃,其余事件走 `_ => None`;面板能拿到的只有轮次、ToolStart 原始 JSON 入参、ToolEnd preview、StepEnd usage 四类。最终答案也只以 preview 到达:编排派发路径 phase_pipeline.rs:390 取 `text.lines().next()`(只有首行)。前端侧 06-agent-panel.js:243 每次进度强制 `detail.classList.remove("hidden")`,renderAgentTranscript 直接 `JSON.stringify(input)` —— 于是右栏被原始 JSON 糊满(用户 2026-08-17 截图)。
+- 内容: 数据真源已经就位——R-279 把子代理完整消息历史落 `subagent.transcript` 事件,crates/kanzei-core/src/store/typed.rs:770 有 recover_subagent_transcript(session, call_id),projection_gate.rs:24 已缺省启用。缺的是三件:批1 后端补正文——run_subagent 的 on_event 把子代理每轮文本折成 TaskTrace(新 phase="text")上抛,终态把**完整答案原文**带给面板(编排路径同步改掉 lines().next() 截断);批2 读取通道——新增 Tauri 命令按 (session_id, call_id) 取 subagent.transcript 的完整消息历史,复用 projection_gate 既有开关;批3 阅读器 UI——面板条目点开进完整对话读取器,子代理每轮正文按主对话同一 markdown 渲染,工具调用**默认折叠**(一行名称+摘要,展开才看入参与输出),运行中实时追加、结束后从事件重放(含跨重启)。
+- 边界: 不做独立主视图(用户拍板留右侧面板读取器形态);不改 subagent.transcript 事件格式(R-279 是真源,本条只读它);不给子代理开思考(RunnerConfig reasoning 仍 Off,subagent.rs:490);不重做活动面板。
+- 验收: ①运行中能逐轮看到子代理**自己说的话**,不只是工具名(实测一轮真实 task,事件轨迹或截图为证);②结束后点开条目看到的是完整最终答案原文,不是被截成首行的 preview(反向断言:编排路径不得再用 lines().next() 当终态文本);③工具调用默认折叠、展开才显示入参与输出,进度事件不得强制展开 detail(反向断言 06-agent-panel.js:243 那行 remove("hidden") 已消失);④重启后打开历史子代理条目仍能读到完整对话——数据来自 subagent.transcript 事件,不依赖进程内 TranscriptStore(跨进程实测);⑤编排派发的角色(architecture_scout 等)与模型自派的 task 走同一个读取器,不出现第二套渲染;⑥六条前端冒烟全绿(node --check 不算证据)。
+- refs: R-279 R-174 R-175 D-419

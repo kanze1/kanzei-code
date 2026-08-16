@@ -84,3 +84,23 @@
 - 阻塞: 2026-08-16 复核收窄:**R-244 已 done 并归档**(Tool Pipeline 结果阶段已稳定),原阻塞的前半已解除;只剩等 R-245 实施,而 R-245 自身只剩等 R-242(见该两条)。当前仍作为事实丢失缺陷登记(high),不单独修——在 R-245 的 Result Policy 与 spill 落点上一并解决。解除人: 依赖自然解除。
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
+
+## D-418 确认弹窗与软件设计不一致:删除会话无确认弹窗、清空文案与实现不符、确认类操作全用原生 window.confirm [fixing] (medium)
+- 复现: ①删除历史对话:15-views-misc.js:559-572 勾选后直接 invoke('conversation_delete'),无任何确认弹窗——高风险不可撤销操作;②清空对话:15-views-misc.js:764-767 直接 invoke('conversation_clear'),文案「历史已清空」,但 R-242 批7 后实现已改为追加 conversation.reset(保留历史)——文案与实现不符;③确认类操作(放弃工作树 09-sessions:89/创建并行线路 09-sessions:182/关闭线路 09-sessions:253/移除项目 09-sessions:732/删除记忆条目 13-memory:588/删除权限规则 16-settings:175/合并门禁覆盖 20-lines:483)全部用浏览器原生 window.confirm,与应用自定义弹窗体系(ask-overlay/viewer-overlay)风格不统一。
+- 影响: ①删除会话违反 R-245 设计(弹窗列清单、取消无写入),误删历史无挽回;②清空文案误导用户(实际历史保留);③原生 confirm 与自定义弹窗观感割裂,且无法承载清单/风险分级等结构化内容。
+- 来源: 用户 2026-08-16 全局检查诉求「确认弹窗和软件设计不一致」;勘察确认三处不一致(设计约束:deepseek_harness_upgrade.md L176-183 删除弹窗列清单、L170 清空保留历史)。
+- 标签: 前端
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 D-418
+
+## D-419 编排派发的子代理条目卡在「运行中」:ToolEnd 要等整波过屏障才统一发,单条停止必然报「不在运行中或已结束」 [open]
+- 严重程度: medium
+- 优先级: P2
+- 标签: 前端 后端
+- 复现: 2026-08-17 01:27 用户实测截图——子代理面板头部显示「运行中 5 · 已完成 3」,architecture_scout 条目仍是 running 态并带「停止」按钮;点停止后运行日志连续 5 次「停止失败:子代理 architecture_scout 不在运行中或已结束」(01:27:31、01:27:36 ×4)。同轮该条目显示「43s · 工具调用 8 · token 0」。
+- 根因: crates/kanzei-app/src/phase_pipeline.rs:386-401——`dispatch_roles` 把全部角色的 `RunEvent::ToolEnd` 放在 `join_scouts`/`join_reviewers` 屏障**过完之后**统一发。而单个 scout 一返回,它的 `TaskCancellationGuard` 就 drop 并从 `TaskCancellations` 注销(crates/kanzei-core/src/runner/subagent.rs:687 注册、77-81 Drop 注销)。于是存在一个必然窗口:后端该子代理已终态且不可取消,面板却还没收到 ToolEnd、仍显示 running 并给出停止按钮 —— 点必失败。波内有一个角色慢(或超时,timeout_secs 兜底)时,窗口等于最慢角色的剩余时长。
+- 影响: ①面板「运行中 N」计数在整波结束前不可信,用户无法判断子代理是否真的还在跑;②停止按钮对已结束条目仍可点且必然失败,连报错刷屏;③与 R-174「子代理单条停止通道」的设计意图相悖——单条停止在编排派发路径上对已完成角色形同虚设。
+- 修复方向: 角色终态即发 ToolEnd,不等屏障。ScoutTask 的 async 块里 reports.push 之后(phase_pipeline.rs:348)就把该角色的终态经既有 tx 通道发出去(与进度事件同一条通道,select 循环已在转发),屏障之后那段循环改为只补发未见终态的角色(超时/未产出结果那一类)兜底,避免重复发。
+- 来源: 2026-08-17 用户实测截图并问「看下这个为啥卡住了」;勘察确认事件侧确实有发 ToolEnd(phase_pipeline.rs:392),断点在**发的时机**而非有没有发。
+- refs: R-174 R-173 R-281
+- 备注: 同轮「token 0」是另一回事——子代理跑 fast 路由(qwen3.5:4b / Ollama),StepEnd usage 由供应商回报,本地模型多半不报数,与本条终态时机无关,未并入本条。
