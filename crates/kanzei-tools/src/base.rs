@@ -48,6 +48,11 @@ impl Component for BaseComponent {
         draft
             .tools
             .insert("websearch", Arc::new(crate::websearch::WebSearchTool));
+        // R-269:浏览器工具(playwright-core 辅进程 headless 自检)。默认 Ask——
+        // 启动 headless 浏览器与截图都有副作用面,交互轮放行、自主轮按权限判定。
+        draft
+            .tools
+            .insert("browser", Arc::new(crate::browser_tool::BrowserTool));
 
         // 默认权限:读/检索全放行;写/改/命令/联网走 ask(用户可在 kanzei.toml 覆盖,后注册者胜)。
         draft.permissions.extend([
@@ -66,6 +71,7 @@ impl Component for BaseComponent {
             rule("bash", "*", Effect::Ask),
             rule("webfetch", "*", Effect::Ask),
             rule("websearch", "*", Effect::Ask),
+            rule("browser", "*", Effect::Ask),
         ]);
 
         draft.context.insert(

@@ -197,17 +197,17 @@
 - refs: R-101 D-319 R-249 R-059
 - 内容: ①Rust 工具起 Node 辅进程,playwright-core 以 channel 模式 launch 本机 Edge/Chrome headless(不下载 playwright 浏览器二进制),Rust↔Node 走 JSON-RPC over stdio;②能力:open(URL/本地文件)、screenshot(内置移动 viewport 预设,图片经 ToolOutput images 通道回模型——R-249 批1 已交付)、dom(可选 selector 的可读结构)、console、click/type;③自 launch 实例不碰 WebView2,天然绕开 D-319;④注册进桌面端与自举 harness 工具集,权限档位按 profiles 既有口径;⑤辅进程生命周期:空闲超时回收、工具关闭即收尾,不留僵尸 headless。拆批:批1 辅进程骨架+open+screenshot(含移动 viewport);批2 dom+console;批3 click/type 交互。
 - 复杂度: 大
-- 批次: 0/3
+- 批次: 1/3
 - 来源: 2026-08-16 移动端开发前置盘点。用户定调:浏览器工具属开发工具必要范畴,直接登记;技术路线经用户拍板选 playwright-core 辅进程(devDependencies 已有 ^1.62.1,e2e-smoke 同款地基);首要消费场景是移动端 UI 的自举自检,兼收 R-101/webfetch 两侧收益。
 - 标签: 核心
 - 边界: 不 attach WebView2(R-101 的 CDP 路线另论);不做多 tab/多上下文并发;不做网络拦截与请求 mock;无 Node 或无 Edge/Chrome 时给明确诊断,不静默降级;截图体积口径沿用 R-249。
 - 验收: ①打开本地 HTML 与 http URL 各有实测轨迹;②移动 viewport 截图被模型真实消费(实测轨迹,不是单测断言);③click/type 后 DOM 变化可读回;④页面 console 错误可读;⑤缺 Node/缺浏览器时诊断明确;⑥工具生命周期结束后无残留辅进程与 headless 实例(实测进程列表);⑦附带给出 e2e-smoke 切本路线绕开 D-319 的可行性结论(只要结论,不要求实施)。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-269
-- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①依赖——package.json devDependencies 已有 playwright-core ^1.62.1(与 e2e-smoke 同款地基);②既有先例——scripts/e2e-smoke.mjs 走 chromium.connectOverCDP(WebView2 CDP 路线,D-319 卡住),R-269 改为 chromium.launch({channel}) 自 launch 本机 Edge/Chrome headless,天然绕开 D-319(自 launch 实例不碰 WebView2);③图片通道——R-249 批1 已交付 ToolOutput.images(Part::Image),screenshot 结果直接经该通道回模型;④无 Node/浏览器时须给明确诊断(e2e-smoke 无此兜底,R-269 新增)。**设计冻结**:不变式——辅进程生命周期受控(空闲超时回收、工具关闭即收尾、不留僵尸 headless);权威数据源——playwright-core 自 launch 的 browser/page 实例,Rust↔Node 走 JSON-RPC over stdio(单行 JSON 请求/响应);预期改动文件——crates/kanzei-tools/src/browser_tool.rs(新:Rust 侧工具+Node 辅进程 spawn+JSON-RPC 编解码)、scripts/browser-helper.mjs(新:Node 侧 playwright-core 封装,channel 模式 launch 本机 Edge)、profiles.rs(注册工具与权限档位)、tools 注册面(桌面端+自举 harness);最小测试——打开本地 HTML/http URL 各有轨迹、移动 viewport 截图被模型消费、缺 Node/缺浏览器诊断明确、生命周期结束后无残留进程。**批次规划**:批1=辅进程骨架(Rust spawn Node + JSON-RPC over stdio)+open(URL/本地文件)+screenshot(含移动 viewport)+定向测试;批2=dom(可选 selector 可读结构)+console 错误读取+缺依赖诊断;批3=click/type 交互+生命周期回收(空闲超时/无残留实测)+e2e-smoke 绕 D-319 可行性结论(验收⑦)+workspace 全量。本条验收原文无外部阻塞,纯工程,复杂度大,关闭前跑 workspace 全量。
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①依赖——package.json devDependencies 已有 playwright-core ^1.62.1(与 e2e-smoke 同款地基);②既有先例——scripts/e2e-smoke.mjs 走 chromium.connectOverCDP(WebView2 CDP 路线,D-319 卡住),R-269 改为 chromium.launch({channel}) 自 launch 本机 Edge/Chrome headless,天然绕开 D-319;③图片通道——R-249 批1 已交付 ToolOutput.images(Part::Image);④无 Node/浏览器时须给明确诊断。**设计冻结**:不变式——辅进程生命周期受控(空闲超时回收、工具关闭即收尾、不留僵尸 headless);权威数据源——playwright-core 自 launch 的 browser/page 实例,Rust↔Node 走 JSON-RPC over stdio(单行 JSON 请求/响应)。 || **批1 完成(2026-08-16,提交待定)**:①scripts/browser-helper.mjs(新)——playwright-core channel 模式自 launch 本机 Edge headless,JSON-RPC over stdio,open/screenshot/dom/console/click/type/shutdown 七方法,**串行队列**处理请求(并发会让截图在 open 完成前执行);②crates/kanzei-tools/src/browser_tool.rs(新)——BrowserTool(Rust 客户端:辅进程单例+空闲回收线程 120s+缺 Node 诊断+\?\ 路径前缀剥离+file:// URL 编码),execute_browser 调 open+screenshot 并以 ToolOutput.images 回模型;③base.rs 注册 browser 工具+Ask 权限档;④实测(验收①本地 HTML 轨迹):open 本地 HTML 375x667 移动 viewport → title/url 正确 + screenshot 返回真实 PNG(base64 11KB)+ shutdown 正常退出;修两个关键 bug——Node stdin 关闭竞态(open 响应丢失)、Windows \?\ 前缀与路径空格;⑤Rust 单测 4 条全绿(schema/目标解析含 file:// 转换/缺 Node 诊断/viewport 预设),kanzei-tools 294 passed,clippy/fmt 通过(T-1786839970)。**下一批**:批2 dom(可选 selector 可读结构)+console 错误读取+缺依赖诊断兜底(浏览器缺失时明确指引)。
 - observed_head: 36faa35a34f8ba76a151c9ca5fa8e5a9ebc6f204
-- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
-- recorded_at: 1786839438411
+- observed_worktree_hash: fnv1a64:5ec683cbf15f9d72
+- recorded_at: 1786839978956
 
 ## R-270 桥接移动化:LAN 配对/SSE/approval/PWA serve 与通知桥 [todo]
 - refs: R-059 D-063 R-269 docs/design/r059_mobile_agent_communication.md

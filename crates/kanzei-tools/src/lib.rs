@@ -15,6 +15,7 @@ pub use kanzei_memory::replay_eval;
 mod background;
 mod base;
 pub mod bash;
+mod browser_tool;
 pub mod conventions;
 mod cross_tree;
 mod edit;

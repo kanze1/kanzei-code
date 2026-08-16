@@ -4337,3 +4337,9 @@
 - 摘要: R-268 批3:workspace 全量 15 段全 ok。围栏去锁(共享档贯穿窗口→收口毫秒锁)+写日志下沉 kanzei-base(纯 std 行编码,content_hash 指纹,ADS 冒号 sanitize 修复)+tracker/memory(write_entry+INDEX.md+index.db)写入口全接日志。D-364 集成 4 条+D-368 集成 3 条全绿(真进程 CLI 窗口内合法写入不被围栏误回滚)。kanzei-base 20+kanzei-tools 290+kanzei-memory 139 passed,clippy/fmt 通过
 - 关联: R-268
 - 收尾: 1786839347
+
+## T-1786839970 R-269 批1 辅进程骨架+open+screenshot [passed]
+- 命令: cargo test -p kanzei-tools --lib browser_tool; node scripts/browser-helper.mjs < output/r269-req.jsonl
+- 摘要: R-269 批1:浏览器工具辅进程骨架落地。Rust 侧 browser_tool.rs(JSON-RPC 客户端/辅进程单例/空闲回收/缺 Node 诊断)+ Node 侧 browser-helper.mjs(playwright-core channel 模式自 launch 本机 Edge headless,open/screenshot/shutdown 串行处理)+ base.rs 注册+Ask 权限。实测:open 本地 HTML(375x667 移动 viewport)→ title/url 正确 + screenshot 返回真实 PNG base64 + shutdown 正常退出;修复两个关键 bug(Node stdin 关闭竞态致 open 响应丢失、Windows \\?\ 路径前缀与空格编码)。Rust 单测 4 条全绿(schema/目标解析/缺 Node 诊断/viewport 预设),kanzei-tools 294 passed,clippy/fmt 通过
+- 关联: R-269
+- 收尾: 1786839970
