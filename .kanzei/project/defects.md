@@ -118,6 +118,7 @@
   即:该网关的 /responses shim 只认纯字符串形式的 assistant content,任何数组式 content 与 function_call 条目都 500。而 kanzei 的 deepseek_responses::build_body 两种都发。
 - 影响: 用该 provider 的 responses 协议时,凡历史里有助手输出(即第二轮起)必然整轮失败。用户侧现象是重试两次后「provider returned HTTP 500」。
 - 处置(已做): 用户配置 `[providers.OPEN-code]` 协议由 deepseek-responses 改为 openai(/chat/completions)。实测 deepseek-v4-flash / mimo-v2.5 / mimo-v2.5-pro 三个模型的多轮工具循环(assistant.tool_calls + role:tool 回灌)全部 200 且 finish_reason=tool_calls,端到端 kz run --readonly 三轮真实工具调用通过。
+- 社区侧确认(2026-08-17): 不是我们配错,是**这个端点压根没实现**。anomalyco/opencode#23655(feature request,open、无维护者回复)原文:「The OpenCode Go service currently only supports the `/v1/chat/completions` endpoint (OpenAI Chat Completions API format)」,请求的正是给 `https://opencode.ai/zen/go/v1/responses` 补上 Responses 支持。也就是说 zen/go 这一支只有 chat completions 是正规军,/responses 是个半吊子(deepseek-v4-flash 能跑纯属它那条路径恰好完整)。改协议是唯一正解,不是绕路。
 - 待办: 引擎侧目前把这类方言不兼容表达成裸 HTTP 500 + 两次无意义重试。应在 responses 路径识别「带 assistant 历史即 500」这一形态,给出可操作诊断(点名 provider/协议,建议改 openai 协议),而不是让用户从 500 反推。是否再做一个 responses 方言开关(assistant content 降级为纯字符串、跳过 function_call 条目)由用户拍板——改协议已能解决,方言开关只对「必须走 /responses」的场景有价值。
 - 验收: ①带 assistant 历史的 responses 请求失败时,错误信息点名 provider/协议并给出改协议的建议,不是裸 500;②该形态的失败不做无意义重试(500 当前会退避重试 2 次);③若实现方言开关,mimo 系在 /responses 下能跑通多轮工具循环。
 
@@ -135,6 +136,8 @@
 - 验证: 新增三条定向回归(同槽/缺 index 两条调用不得被拼成一条、缺 index 时无 id 的帧是续帧、finish_reason 之后的参数增量不丢且不发 [DONE] 也能收尾);既有 `incremental_tool_call_assembly` 按新时序更新(ToolCall 落在 [DONE] 帧)。kanzei-llm 51 + kanzei-app 193 + kanzei-core 214 全绿,fmt/clippy 干净。
 - 验收: ①同 index / 缺 index 的多条调用各自独立,不再出现拼接工具名;②finish_reason 之后到达的参数增量计入最终调用;③不发 [DONE] 的 provider 能收到完整调用 + StepFinish;④合规 provider(OpenAI/Ollama/DeepSeek chat)行为无回归,既有测试保持绿。
 - 备注: 本条只修「引擎把好好的流组装坏了」这一半。另一半(模型压根没发原生 tool_calls,而是把 Hermes XML 写进 content、由网关有损二次转换)是 D-425,不在本条范围。
+- 社区侧确认(2026-08-17,槽位塌缩是生态通病而非本仓独有): ollama#15457「tool_calls index is always 0 for multiple tool calls」的描述与本条逐字同构——「When all indices are 0, the second tool call either gets merged into the first or silently dropped, causing 100% failure rate on any task requiring multiple tool calls in one response」,受害方是 Vercel AI SDK 的 @ai-sdk/openai-compatible(同样拿 index 当数组键);ollama#7881 是「OpenAI 兼容接口根本不填 index」;litellm 为此修了两轮(#14587 多调用 index 分配、#15962 流式 n>1 时 index 不填),另有 Bedrock 侧 index 从 1 起算(#32759)与 grok2api#239 缺 index。ollama#15457 里提到的既有绕法是「HTTP proxy that reassigns correct sequential indices based on unique tool call id values」——本条的 slot_for 就是把这件事做进进程内,方向与生态一致。pipecat#4987(id 与 name 分帧到达导致 tool_call_id 为空)也被 slot_for 一并覆盖。
+- 社区侧确认(提前收尾/丢参数增量): litellm#20711「Responses API Streaming Drops Tool Call Argument Deltas」是同一类账——累加器键错(遇到 `id: None` 的续帧直接 continue,没有 index 映射),约 90% 的参数增量被静默丢掉,只有首片到达用户。同源病灶:把「哪一帧属于哪条调用」这件事判错,后果一律是半截参数。另见 NVIDIA NIM GLM-5 经 OpenCode 的 OpenAI 兼容端点吐出缺 `}` 的畸形工具 JSON,与本条 `{"action": "claim", "id": ` 同形。
 
 ## D-425 mimo-v2.5-pro 在大提示面下退化为 Hermes XML 工具语法写进 content,网关二次转换有损:是否加 XML 打捞垫片待定 [open] (medium)
 - 复杂度: 中
@@ -144,5 +147,11 @@
 - 来源: 2026-08-17 排查 D-424 时读 state.db 发现。
 - 复现: 会话 #122581 的 assistant 消息里,text part 是完整的 Hermes/Qwen 工具语法——`<tool_call>\n<function=work>\n<parameter=action>claim</parameter>\n<parameter=id>D-419</parameter>\n<parameter=reason>…</parameter>\n</function>\n</tool_call>`——而同一条消息的 tool_call part 是网关据此二次转换出来的畸形调用(参数截断/多条塌缩)。对照:同一模型在**小**请求下(1~2 个工具、短 system)curl 直连实测发的是干净的原生 tool_calls,`index` 也正常。差异变量是 kanzei 的真实提示面(36 个工具 / tools schema ~37k 字符 / system ~14k + conventions ~13k)。
 - 影响: mimo-v2.5-pro 在本 harness 下不可用——一旦退化,工具调用要么名字错要么参数残缺,轮轮报 needs_correction。同网关的 deepseek-v4-flash 不退化(历史 run 里 217/258 次工具调用),是当前可用选择。
-- 待办(待用户拍板): 模型侧的事引擎改不动,但**模型吐出来的 XML 本身是完整正确的**,坏的只是网关的转换。所以可以在 openai 协议层加一层打捞:content 里出现完整 `<tool_call>…</tool_call>` 且本帧没有原生 tool_calls 时,解析成真调用。收益=让这类模型可用;风险=误报——本仓的对话内容里天然会出现讨论工具格式的散文,把散文里的 `<tool_call>` 当真调用会很难查。若做,必须限定「整条 content 就是这个块」而不是「content 里含有这个块」,并且只在原生 tool_calls 缺席时生效。
-- 验收: ①若实现打捞:mimo 系在完整 dev 提示面下能跑通多轮工具循环;②散文里提到 `<tool_call>` 不被误判成调用,有定向测试;③打捞不改变任何发原生 tool_calls 的 provider 的行为。
+- 社区调查结论(2026-08-17,**不做打捞垫片**): 这是被反复讨论过的生态通病,而且结论是一边倒的反对客户端文本打捞。
+  · LiveKit《Your Model Isn't Bad at Tool Calling. Your Serving Stack Is.》明确拒绝:框架「deliberately never scrapes tool calls out of text content」,理由是逐个模型家族去 scrape 语法既脆弱又破坏流式;并给出判据「no framework can recover a tool call the server never structured」。正解只有三条,全在服务端:换能正确解析该模型的 provider、自托管并配上对应的 tool-call parser(vLLM/SGLang 都支持按模型配)、或改用模型的原生 API。
+  · Roo-Code 走过这条路又退回来了:#11526 直接把 XML 工具调用支持删掉(「XML tool calls are no longer supported」)。
+  · 同类报障遍布 lmstudio-bug-tracker#2115、continue#11453 与 discussion#10534、mlx-lm#1096、openclaw#49508——共同点是「serving stack 的 parser 没接上,原生语法漏进 content」,没有一个是靠客户端解析收场的。
+  · 我原先担心的误报(本仓散文里天然会出现讨论工具格式的 `<tool_call>`)在这里只是次要理由;主要理由是打捞会把「网关转换有损」这件事永久掩盖掉,而且流式下无法可靠切分。
+- 处置: 关闭打捞方案,不实现。mimo 系在本 harness 下判定为不可用,改用同网关的 deepseek-v4-flash(历史 run 217/258 次工具调用,不退化)。
+- 旁证(mimo 的工具调用在多个 agent 项目独立踩雷): opencode#24095(mimo-v2.5 调不存在的工具名,closed as not planned)、oh-my-pi#2005(MiMo V2.5 Pro 走 Anthropic 协议时 tool-call 渲染崩溃+无限重试)、opencode#39873(mimo-v2 系整体 Upstream request failed)。
+- 验收: ①不实现打捞垫片(本条以 wontfix 收);②模型选择上记住 mimo 系不进自动推进档位。
