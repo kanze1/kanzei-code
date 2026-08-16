@@ -19,6 +19,32 @@ impl MemoryStore {
         std::fs::read_to_string(self.root.join("inbox.md")).unwrap_or_default()
     }
 
+    /// D-409:分批读 inbox——取前 `max_notes` 个 `## note` 块的原文。
+    /// 返回 (批次文本, 本批 note 数)。不再整箱(曾达 251KB/201 条)塞进单轮 prompt。
+    pub fn read_inbox_batch(&self, max_notes: usize) -> (String, usize) {
+        let text = self.read_inbox();
+        let mut blocks: Vec<String> = Vec::new();
+        let mut block: Vec<&str> = Vec::new();
+        let mut in_block = false;
+        for line in text.lines() {
+            if line.starts_with("## note ") {
+                if in_block {
+                    blocks.push(block.join("\n"));
+                    block.clear();
+                }
+                in_block = true;
+            }
+            if in_block {
+                block.push(line);
+            }
+        }
+        if in_block {
+            blocks.push(block.join("\n"));
+        }
+        let take = blocks.len().min(max_notes);
+        (blocks[..take].join("\n\n"), take)
+    }
+
     /// manager 消化完毕后清空草稿箱(整箱内容已在触发 prompt 里,清空即"已消费")。
     pub fn clear_inbox(&self) -> anyhow::Result<()> {
         let path = self.root.join("inbox.md");
@@ -172,5 +198,77 @@ impl MemoryStore {
         std::fs::read_to_string(self.root.join("inbox.md"))
             .map(|t| t.lines().filter(|l| l.starts_with("## note ")).count())
             .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn temp_memory(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-inbox-batch-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_inbox(dir: &Path, blocks: usize) {
+        let mut text = String::new();
+        for i in 0..blocks {
+            text.push_str(&format!(
+                "## note {i}\n- summary: 第 {i} 条\n- detail: 内容 {i}\n\n"
+            ));
+        }
+        // project() 的 root 是 project_memory_root(project_root 下记忆目录),写入同位置。
+        let memory_root = crate::memory::project_memory_root(dir);
+        std::fs::create_dir_all(&memory_root).unwrap();
+        std::fs::write(memory_root.join("inbox.md"), text).unwrap();
+    }
+
+    /// D-409:分批读——取前 max_notes 个完整 `## note` 块,不截断块内容。
+    #[test]
+    fn read_inbox_batch_取前N块且块完整() {
+        let dir = temp_memory("take3");
+        write_inbox(&dir, 10);
+        let store = MemoryStore::project(&dir);
+        assert_eq!(store.pending_notes(), 10);
+        let (batch, count) = store.read_inbox_batch(3);
+        assert_eq!(count, 3, "取 3 块");
+        assert!(batch.contains("## note 0"), "首块在");
+        assert!(batch.contains("第 0 条"));
+        assert!(batch.contains("## note 2"), "第三块在");
+        assert!(!batch.contains("## note 3"), "第四块不在(只取前 3)");
+        // 块完整:detail 与 summary 都在。
+        assert!(batch.contains("- detail: 内容 2"), "第三块 detail 完整");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-409:max_notes 超块数取全部;0 取空;空 inbox 返回空。
+    #[test]
+    fn read_inbox_batch_边界() {
+        let dir = temp_memory("edge");
+        write_inbox(&dir, 4);
+        let store = MemoryStore::project(&dir);
+        let (all, count) = store.read_inbox_batch(100);
+        assert_eq!(count, 4, "超块数取全部");
+        assert_eq!(all.matches("## note ").count(), 4);
+        let (zero, zcount) = store.read_inbox_batch(0);
+        assert_eq!(zcount, 0);
+        assert_eq!(zero, "");
+        // 空 inbox。
+        let dir2 = temp_memory("empty");
+        let store2 = MemoryStore::project(&dir2);
+        let (empty, ec) = store2.read_inbox_batch(10);
+        assert_eq!(ec, 0);
+        assert_eq!(empty, "");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&dir2).ok();
     }
 }
