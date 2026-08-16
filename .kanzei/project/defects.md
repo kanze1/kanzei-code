@@ -103,3 +103,33 @@
 - 来源: D-418 修复复核(test_reviewer 发现 window.prompt 遗留);grep 全量确认 5 处 + 15-views-misc.js:85 的 webview 无 prompt 注释佐证。
 - 标签: 前端
 - 优先级: P2
+
+## D-422 OPEN-code(opencode zen)/responses 方言下工具调用整轮丢失:缺 output_item.done 时 ToolCall 永不产出,鞭挞误判「连续两轮无动作」 [fixed] (high)
+- 复杂度: 小
+- 标签: 模型
+- 优先级: P1
+- 来源: 用户 2026-08-17 04:18 截图:新开对话点继续推进,连跑两轮都是「完成 · steps 1」、对话流零助手动作,鞭挞追加推进指令后仍无动作,只能手动停止。
+- 复现: `[providers.OPEN-code] protocol = "deepseek-responses"` + 模型 mimo-v2.5 / mimo-v2.5-pro,跑任意需要工具的一轮。runs 表实证:run_1786911527173308400 与 run_1786911535668104400 均 completed 且 `total_calls: 0`,每轮照付 ~70k 字符系统提示。
+- 根因: `ToolCall` 事件**只**在 `response.output_item.done` 分支产出(openai_responses.rs)。抓包(2026-08-17,curl 直连 https://opencode.ai/zen/go/v1/responses)显示该网关的 mimo 系模型事件序列只有 `response.output_item.added` + `response.function_call_arguments.delta` × N + `response.completed`——**不发 output_item.done,也不发 response.created**。于是攒在 `self.calls` 里的调用在收尾时被整轮丢弃,`saw_tool_call` 保持 false,finish 落 EndTurn。模型明明调了工具,引擎看到的是 0 次调用;鞭挞据此判「无动作」,第二轮 NUDGE、第三轮就会以「可能条目已完成或确实无可推进项」停机——一个与事实相反的诊断。对照 deepseek-v4-flash 在同一网关发完整事件集,所以此前一直没暴露。
+- 影响: 任何缺 output_item.done 的 Responses 方言下,agent 完全不可用(每轮只出文本、零动作),且失败态伪装成「没活可干」,用户无从判断。
+- 修复: openai_responses.rs 三处:①`emit_tool_call` 抽出物化逻辑,`response.completed|incomplete` 收尾时把仍挂在 `self.calls` 里的调用一次性物化(参数非法 JSON 的截断轮跳过,不喂假调用);②补 `response.function_call_arguments.done` 分支收权威 arguments;③`response.created` 缺席时按「本流第一条有产出的事件」补 StepStart(同 openai.rs 懒起点,合规 provider 行为不变)。
+- 验证: 新增两条定向回归(缺 output_item_done 的方言也能拿到工具调用 / 收尾兜底不物化参数残缺的调用);kanzei-llm 48 + kanzei-app 193 + kanzei-core 214 全绿;fmt/clippy 干净。端到端 `KANZEI_MODEL=OPEN-code:mimo-v2.5-pro kz run --readonly` 实测 steps 3、glob+read 两次真实工具调用并给出正确答案(修复前同一命令 steps 1 / 0 次调用)。
+- 验收: ①缺 output_item.done 的事件序列能产出 ToolCall,有定向测试;②截断轮不物化半截调用;③合规 provider(codex/deepseek 官方)行为零变更,既有测试保持绿;④实测 mimo 系模型能完成多轮工具循环。
+- 备注: 修复本条后暴露 D-423(同一网关 /responses 对 assistant 侧条目一律 500),用户侧真正的解法是把 provider 协议切到 openai;本条的价值是让这类「静默吞掉工具调用」不再伪装成无动作。
+
+## D-423 opencode zen /responses 对 assistant 侧输入条目一律 500:多轮工具循环第二轮必死(kanzei 侧应能识别并给出可操作诊断) [open] (medium)
+- 复杂度: 中
+- 标签: 模型
+- 优先级: P2
+- 来源: 2026-08-17 修 D-422 后暴露:工具调用恢复了,第二轮却 HTTP 500(重试 2 次后整轮失败)。
+- 复现: curl 直连 https://opencode.ai/zen/go/v1/responses(model=mimo-v2.5-pro),逐项对照 `input` 里的条目形态——
+  `[user, assistant(content 数组: output_text / input_text / text 三种都试)]` → **500**;
+  `[user, function_call, user]` → **500**;
+  `[user, function_call_output, user]` → 200;
+  `[user, assistant(content 纯字符串), user]` → 200;
+  `[user, user]` → 200。
+  即:该网关的 /responses shim 只认纯字符串形式的 assistant content,任何数组式 content 与 function_call 条目都 500。而 kanzei 的 deepseek_responses::build_body 两种都发。
+- 影响: 用该 provider 的 responses 协议时,凡历史里有助手输出(即第二轮起)必然整轮失败。用户侧现象是重试两次后「provider returned HTTP 500」。
+- 处置(已做): 用户配置 `[providers.OPEN-code]` 协议由 deepseek-responses 改为 openai(/chat/completions)。实测 deepseek-v4-flash / mimo-v2.5 / mimo-v2.5-pro 三个模型的多轮工具循环(assistant.tool_calls + role:tool 回灌)全部 200 且 finish_reason=tool_calls,端到端 kz run --readonly 三轮真实工具调用通过。
+- 待办: 引擎侧目前把这类方言不兼容表达成裸 HTTP 500 + 两次无意义重试。应在 responses 路径识别「带 assistant 历史即 500」这一形态,给出可操作诊断(点名 provider/协议,建议改 openai 协议),而不是让用户从 500 反推。是否再做一个 responses 方言开关(assistant content 降级为纯字符串、跳过 function_call 条目)由用户拍板——改协议已能解决,方言开关只对「必须走 /responses」的场景有价值。
+- 验收: ①带 assistant 历史的 responses 请求失败时,错误信息点名 provider/协议并给出改协议的建议,不是裸 500;②该形态的失败不做无意义重试(500 当前会退避重试 2 次);③若实现方言开关,mimo 系在 /responses 下能跑通多轮工具循环。

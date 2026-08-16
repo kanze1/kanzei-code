@@ -143,6 +143,45 @@ pub struct ResponsesState {
     finished: bool,
 }
 
+impl ResponsesState {
+    /// 把一条攒够的 function_call 物化成 ToolCall 事件。
+    ///
+    /// `authoritative` 是 done 事件里的完整 arguments(有就压过增量拼装);
+    /// `call_id`/`name` 同理——收尾兜底路径没有这些字段,传 None 用累积值。
+    fn emit_tool_call(
+        &mut self,
+        pending: PendingCall,
+        call_id: Option<&str>,
+        name: Option<&str>,
+        authoritative: Option<&str>,
+        out: &mut Vec<LlmEvent>,
+    ) {
+        self.saw_tool_call = true;
+        let raw = authoritative
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or(pending.arguments);
+        let raw = if raw.is_empty() {
+            "{}".to_string()
+        } else {
+            raw
+        };
+        let input = serde_json::from_str(&raw).unwrap_or(Value::Null);
+        out.push(LlmEvent::ToolCall {
+            id: call_id
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&pending.call_id)
+                .to_string(),
+            name: name
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&pending.name)
+                .to_string(),
+            input,
+            raw_input: raw,
+        });
+    }
+}
+
 impl ProtocolState for ResponsesState {
     fn step(&mut self, event: &SseEvent) -> Result<Vec<LlmEvent>, LlmError> {
         if self.finished || event.data.trim() == "[DONE]" {
@@ -224,34 +263,32 @@ impl ProtocolState for ResponsesState {
                     delta: delta.to_string(),
                 });
             }
+            "response.function_call_arguments.done" => {
+                // 方言差异:有的网关只在这里给完整 arguments,后面不再补
+                // output_item.done。收下当权威值,增量拼装作兜底。
+                let index = data["output_index"].as_u64().unwrap_or(0);
+                if let (Some(call), Some(args)) =
+                    (self.calls.get_mut(&index), data["arguments"].as_str())
+                {
+                    if !args.is_empty() {
+                        call.arguments = args.to_string();
+                    }
+                }
+            }
             "response.output_item.done" => {
                 let index = data["output_index"].as_u64().unwrap_or(0);
                 let item = &data["item"];
                 match item["type"].as_str().unwrap_or("") {
                     "function_call" => {
-                        self.saw_tool_call = true;
                         let pending = self.calls.remove(&index).unwrap_or_default();
                         // done 事件里的 arguments 是完整权威版本,优先于增量拼装。
-                        let raw = item["arguments"]
-                            .as_str()
-                            .filter(|s| !s.is_empty())
-                            .map(str::to_string)
-                            .unwrap_or(pending.arguments);
-                        let raw = if raw.is_empty() {
-                            "{}".to_string()
-                        } else {
-                            raw
-                        };
-                        let input = serde_json::from_str(&raw).unwrap_or(Value::Null);
-                        out.push(LlmEvent::ToolCall {
-                            id: item["call_id"]
-                                .as_str()
-                                .unwrap_or(&pending.call_id)
-                                .to_string(),
-                            name: item["name"].as_str().unwrap_or(&pending.name).to_string(),
-                            input,
-                            raw_input: raw,
-                        });
+                        self.emit_tool_call(
+                            pending,
+                            item["call_id"].as_str(),
+                            item["name"].as_str(),
+                            item["arguments"].as_str(),
+                            &mut out,
+                        );
                     }
                     "reasoning" => {
                         self.reasoning_open = false;
@@ -270,6 +307,30 @@ impl ProtocolState for ResponsesState {
             }
             "response.completed" | "response.incomplete" => {
                 self.finished = true;
+                // D-422:收尾时把仍挂在 self.calls 里的调用一次性物化。
+                //
+                // ToolCall 事件此前**只**在 output_item.done 里产出,而 output_item.done
+                // 不是所有方言都发:opencode zen 网关上的 mimo 系模型只发
+                // output_item.added + function_call_arguments.delta,然后直接
+                // response.completed。于是整轮的工具调用攒在 self.calls 里被静默丢弃,
+                // 表现成「跑完一轮 0 次工具调用」,再被鞭挞判成「无动作」——模型明明
+                // 调了工具,用户看到的却是连续两轮空转后「可能条目已完成或确实无可推进项」。
+                //
+                // 参数残缺(截断轮)不物化:宁可少一条,也不把 input=null 的半截调用喂给
+                // runner——那会变成一次必然失败的工具执行,比丢掉更难查。
+                let pending: Vec<PendingCall> =
+                    std::mem::take(&mut self.calls).into_values().collect();
+                for call in pending {
+                    let raw = if call.arguments.is_empty() {
+                        "{}"
+                    } else {
+                        call.arguments.as_str()
+                    };
+                    if serde_json::from_str::<Value>(raw).is_err() {
+                        continue;
+                    }
+                    self.emit_tool_call(call, None, None, None, &mut out);
+                }
                 let usage = &data["response"]["usage"];
                 let input = usage["input_tokens"].as_u64().unwrap_or(0);
                 let cached = usage["input_tokens_details"]["cached_tokens"]
@@ -327,6 +388,13 @@ impl ProtocolState for ResponsesState {
                 return Err(LlmError::classify_provider(kind.to_string(), message));
             }
             _ => {} // 大量细粒度事件(*.in_progress/*.done 等)按需忽略
+        }
+        // D-422:response.created 同样不是所有方言都发(mimo 系就不发)。步骤起点
+        // 缺席会让上层分步记账落空,按「本流第一条有产出的事件」补一次——合规
+        // provider 的 created 先到,这里永远命中不了,行为不变(同 openai.rs 的懒起点)。
+        if !self.started && !out.is_empty() {
+            self.started = true;
+            out.insert(0, LlmEvent::StepStart);
         }
         Ok(out)
     }
@@ -392,6 +460,90 @@ mod tests {
                     output: 9,
                     reasoning: 3,
                     cache_read: 40,
+                    cache_write: 0
+                },
+            }]
+        );
+    }
+
+    /// D-422:缺 response.created / output_item.done 的方言(实测 opencode zen 网关上的
+    /// mimo-v2.5 与 mimo-v2.5-pro,事件序列逐字来自 2026-08-17 的抓包)。工具调用只靠
+    /// added + arguments.delta 两类事件到齐,收尾必须把它物化——否则整轮 0 次工具调用。
+    #[test]
+    fn 缺_output_item_done_的方言也能拿到工具调用() {
+        let mut s = ResponsesState::default();
+        let ev = feed(
+            &mut s,
+            r#"{"type":"response.output_item.added","output_index":0,"item":{"id":"call_7db8","type":"function_call","name":"read","call_id":"call_7db8","arguments":""}}"#,
+        );
+        // created 缺席:起点由第一条有产出的事件补上。
+        assert_eq!(
+            ev,
+            vec![
+                LlmEvent::StepStart,
+                LlmEvent::ToolInputStart {
+                    index: 0,
+                    id: "call_7db8".into(),
+                    name: "read".into(),
+                },
+            ]
+        );
+        for delta in [r#"{\"path\": "#, r#"\""#, "./", "README.md", r#"\""#, "}"] {
+            feed(
+                &mut s,
+                &format!(
+                    r#"{{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{delta}"}}"#
+                ),
+            );
+        }
+        // mimo 的 response.completed 连 usage 都不带,直接收尾。
+        let ev = feed(
+            &mut s,
+            r#"{"type":"response.completed","response":{"id":"r1","model":"mimo-v2.5-pro"}}"#,
+        );
+        assert_eq!(
+            ev,
+            vec![
+                LlmEvent::ToolCall {
+                    id: "call_7db8".into(),
+                    name: "read".into(),
+                    input: serde_json::json!({"path": "./README.md"}),
+                    raw_input: r#"{"path": "./README.md"}"#.into(),
+                },
+                LlmEvent::StepFinish {
+                    reason: FinishReason::ToolUse,
+                    usage: Usage::default(),
+                },
+            ]
+        );
+    }
+
+    /// 截断轮:参数只拼到一半就 response.incomplete。半截 JSON 物化出来是 input=null 的
+    /// 假调用,执行必失败且难查——收尾兜底必须跳过它,finish 仍是 MaxTokens。
+    #[test]
+    fn 收尾兜底不物化参数残缺的调用() {
+        let mut s = ResponsesState::default();
+        feed(
+            &mut s,
+            r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"read","arguments":""}}"#,
+        );
+        feed(
+            &mut s,
+            r#"{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"path\": \"a"}"#,
+        );
+        let ev = feed(
+            &mut s,
+            r#"{"type":"response.incomplete","response":{"usage":{"input_tokens":10,"output_tokens":2}}}"#,
+        );
+        assert_eq!(
+            ev,
+            vec![LlmEvent::StepFinish {
+                reason: FinishReason::MaxTokens,
+                usage: Usage {
+                    input: 10,
+                    output: 2,
+                    reasoning: 0,
+                    cache_read: 0,
                     cache_write: 0
                 },
             }]
