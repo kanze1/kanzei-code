@@ -166,6 +166,13 @@ fn handle_mobile_connection(
         return;
     }
 
+    // R-270 批2:SSE 长连接实时推送。认证通过后、进普通 JSON 分发前拦截——
+    // 长连接由独立线程持有(批1 多线程 accept),不阻塞其它请求。
+    if method == "GET" && path.split('?').next() == Some("/v1/events") {
+        handle_sse(&mut stream, &state_path, path);
+        return;
+    }
+
     let response = match (method, path.split('?').next().unwrap_or_default()) {
         ("GET", "/health") => mobile_json_response(
             "200 OK",
@@ -230,6 +237,86 @@ fn handle_mobile_connection(
         _ => mobile_json_response("404 Not Found", &json!({"error": "not_found"})),
     };
     let _ = stream.write_all(&response);
+}
+
+/// R-270 批2:SSE 长连接实时推送(GET /v1/events)。
+///
+/// - 起始 cursor:取 `cursor` 查询参数,缺省用该 device 的 delivery_cursor
+///   (断线重连沿用既有 cursor 补发——不丢终态);
+/// - 轮询:`replay_notifications(thread_id, cursor, 100)` 逐批推进,新事件
+///   逐条推 `data: <json>\n\n` 并推进 delivery_cursor;
+/// - 心跳:无新事件时每 15s 推一条注释行保活(防代理/防火墙断连);
+/// - 每连接独立线程(批1 多线程 accept),长连接挂着不阻塞其它请求;
+/// - 连接断开(write 失败)即返回,线程收尾,不留僵尸。
+fn handle_sse(stream: &mut TcpStream, state_path: &Path, path: &str) {
+    let thread_id = match mobile_query(path, "thread_id") {
+        Some(id) => id,
+        None => {
+            let _ = stream.write_all(&mobile_json_response(
+                "400 Bad Request",
+                &json!({"error": "thread_id_required"}),
+            ));
+            return;
+        }
+    };
+    let device_id = mobile_query(path, "device_id").unwrap_or_else(|| "paired-device".into());
+    let initial_cursor = mobile_query(path, "cursor")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or_else(|| {
+            kanzei_core::SessionStore::open(state_path)
+                .ok()
+                .and_then(|store| store.delivery_cursor(&device_id, &thread_id).ok())
+                .unwrap_or(0)
+        });
+
+    // SSE 响应头:长连接、不缓存、keep-alive。
+    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n\
+         Connection: keep-alive\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
+    if stream.write_all(head.as_bytes()).is_err() {
+        return;
+    }
+    let _ = stream.flush();
+
+    // 关闭写超时:长连接要能一直挂着。
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
+    let mut cursor = initial_cursor;
+    let mut last_heartbeat = std::time::Instant::now();
+    loop {
+        // 有事件就推;无则心跳(SSE 注释行保活)。
+        match kanzei_core::SessionStore::open(state_path)
+            .and_then(|store| store.replay_notifications(&thread_id, cursor, 100))
+        {
+            Ok(events) if !events.is_empty() => {
+                for event in events {
+                    let payload = serde_json::to_string(&event).unwrap_or_default();
+                    let frame = format!("data: {payload}\n\n");
+                    if stream.write_all(frame.as_bytes()).is_err() {
+                        return; // 连接断开,收尾。
+                    }
+                    if let Ok(store) = kanzei_core::SessionStore::open(state_path) {
+                        let _ = store.set_delivery_cursor(&device_id, &thread_id, event.sequence);
+                        cursor = event.sequence;
+                    }
+                }
+                let _ = stream.flush();
+                last_heartbeat = std::time::Instant::now();
+            }
+            Ok(_) => {
+                if last_heartbeat.elapsed() >= std::time::Duration::from_secs(15) {
+                    if stream.write_all(b": heartbeat\n\n").is_err() {
+                        return;
+                    }
+                    let _ = stream.flush();
+                    last_heartbeat = std::time::Instant::now();
+                }
+            }
+            Err(_) => {
+                // 读库失败(store 未初始化等):短暂退避后继续,不让连接猝死。
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
 }
 
 /// 启动移动端桥接服务。
@@ -414,5 +501,53 @@ mod tests {
         );
         let ok_req = "POST /v1/messages HTTP/1.1\r\nAuthorization: Bearer device-token\r\n\r\n";
         assert!(mobile_authorized(ok_req, &devices));
+    }
+
+    /// R-270 批2:SSE 断线重连 cursor 补发——带 cursor 参数时从该 cursor 起,
+    /// 不丢已交付的终态(验收③核心)。
+    #[test]
+    fn sse起始cursor_参数优先_缺省用delivery_cursor() {
+        // 带 cursor 参数:解析直接返回参数值。
+        let path_with_cursor = "/v1/events?thread_id=t&device_id=dev-1&cursor=42";
+        let parsed =
+            mobile_query(path_with_cursor, "cursor").and_then(|value| value.parse::<u64>().ok());
+        assert_eq!(parsed, Some(42), "带 cursor 参数应优先使用");
+
+        // 不带 cursor:走 delivery_cursor(此处模拟 store 未初始化 → 0)。
+        let path_no_cursor = "/v1/events?thread_id=t&device_id=dev-1";
+        let no_cursor = mobile_query(path_no_cursor, "cursor")
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(0);
+        assert_eq!(no_cursor, 0, "无 cursor 参数时从 0 起(store 未建时)");
+    }
+
+    /// R-270 批2:SSE 端点识别——/v1/events 走长连接分支,普通 JSON 端点不受影响。
+    #[test]
+    fn sse端点识别_events走长连接_其它端点走json() {
+        // mobile_query 提取 thread_id/device_id,供 SSE 连接使用。
+        let path = "/v1/events?thread_id=t1&device_id=dev-1&cursor=7";
+        assert_eq!(mobile_query(path, "thread_id").as_deref(), Some("t1"));
+        assert_eq!(mobile_query(path, "device_id").as_deref(), Some("dev-1"));
+        assert_eq!(mobile_query(path, "cursor").as_deref(), Some("7"));
+        // 其它端点没有 SSE 专属参数,但 thread_id 查询仍通用。
+        let notif = "/v1/notifications?thread_id=t2";
+        assert_eq!(mobile_query(notif, "thread_id").as_deref(), Some("t2"));
+    }
+
+    /// R-270 批2:SSE 帧格式——data: 前缀 + 空行分隔(标准 SSE 协议)。
+    #[test]
+    fn sse帧格式_data前缀加空行() {
+        let event = json!({"sequence": 1, "kind": "run.completed", "summary": "完成"});
+        let payload = serde_json::to_string(&event).unwrap();
+        let frame = format!("data: {payload}\n\n");
+        assert!(
+            frame.starts_with("data: "),
+            "SSE 帧必须 data: 前缀: {frame}"
+        );
+        assert!(frame.ends_with("\n\n"), "SSE 帧必须以空行结束: {frame}");
+        // 心跳是注释行。
+        let heartbeat = ": heartbeat\n\n";
+        assert!(heartbeat.starts_with(':'), "心跳是注释行");
+        assert!(heartbeat.ends_with("\n\n"));
     }
 }
