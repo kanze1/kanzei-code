@@ -206,15 +206,15 @@
 - 根因: 本轮 research 的文献检索通道是 arXiv API,拿到的只有 title+summary(摘要),全程未取正文。报告把这类来源一律标 V2「一手来源」,且未声明「仅摘要级」。抽查发现一处实质越界:report.md:31 称 CoALA(arXiv 2309.02427)确立「working/episodic/semantic/procedural」四类模块化记忆并标 V2/S-008,但实测该论文摘要里 working/episodic/semantic/procedural 四词一个都没有(只有 memory)——结论本身是对的(在正文里),但**引用的那份证据支撑不了它**。同一段落对 LangGraph(S-009,取的是正文 HTML)的三类映射则证据充分。
 - 优先级: P2
 
-## D-414 来源点不开(接线互相抵消):开了编辑器就吞掉链接渲染 [fixed] (high)
-- refs: D-413 R-276
-- 影响: D-413 宣称交付的「文献可点开」在真实点击路径上不成立;用户原话「我点来源应该直接MD显示呢?」
-- 期望: ①可打开字段(URL/证据锚)与 refs 同待遇,豁免 hasEditor 跳过,即使开着编辑器也给一份只读链接;②更进一步:条目行内直接给 ↗ 一键打开,不必先展开再找链接——「点来源就该直接看到内容」是用户的原始期待。
-- 来源: 2026-08-16 用户装 build-524196a 后实测点击来源无反应。
+## D-415 composer 限宽只覆盖 5 个子元素:三行各一宽度,框看着歪了 [fixed] (medium)
+- refs: D-410 R-276
+- 影响: 用户实测反馈「著对话的框有问题了」。
+- 期望: 改排除法:#composer 全部流内子元素统一同宽同心,只排除弹层类(下拉建议/SOP 选择器/隐藏 input);新增子元素自动继承,不再靠人工维护清单。
+- 来源: 2026-08-16 用户装 build-8c821c0 后实测截图。
 - 标签: 前端
-- 根因: D-413 两处改动各自正确、合起来互相抵消:①给 source/finding 开了 deepManage(可编辑);②给 URL/证据锚加了只读链接渲染。但字段只读循环开头是 `if (hasEditor && !isRefs) continue`(11-docs-list.js:736)——deepManage 一开 hasEditor 即真,所有非 refs 字段跳过只读渲染,URL 只剩编辑框里的文本输入,链接分支根本走不到。用户实测:点来源展开后没有任何可点的东西。
-- 优先级: P1
-- 进展: 2026-08-16 修复(提交见下)。①行内一键打开——crates/kanzei-app/ui/11-docs-list.js:503 起,source/finding 条目行在有可打开字段时渲染 ↗ 按钮,点击直接走 researchOpenLink(文献进内置 viewer,代码域跳文件定位),无需展开;②抵消修复——同文件 755-760 行,可打开字段与 refs 同待遇豁免 `hasEditor` 跳过,开着编辑器仍给只读链接;③样式 crates/kanzei-app/ui/style.css:399 .doc-open-src 默认 opacity .55 悬停/聚焦提亮。验证:六条前端冒烟全绿(runtime/lint/parallel/a11y/i18n/markdown)。验收降级: 真实点击效果由用户装下一版后实测。
-- observed_head: cc55ca56db26769c5b0fa07f431bbc1e9745beea
+- 根因: D-410 给输入区限宽时按 id 逐个列了 5 个子元素(#attachments/#prompt/#composer-bar/.composer-queue/#continue-editor),但 #composer 有十来个直接子元素,#change-bar(文件数/增删行)、#continue-panel 等漏网仍是满宽;而 #continue-editor 这个 id 在 HTML 里压根不存在(真实是 #continue-panel),等于列了个空规则。三行各一个宽度,视觉上就是「框歪了」。
+- 优先级: P2
+- 进展: 2026-08-16 修复(提交 4c95b2e)。crates/kanzei-app/ui/style.css:732 改排除法 `#composer > *:not(#file-suggestions):not(#sop-picker-panel):not(#attachment-input)` 统一限宽 1080px 居中,覆盖全部流内子元素含此前漏网的 #change-bar/#continue-panel,新增子元素自动继承。同批把 scripts/ui-runtime-smoke.mjs:719 的 sources/findings 从空数组换成真实夹具(URL/证据锚/refs)并加断言:↗ 必须渲染两个、点击必须调 webfetch_preview 且 URL 正确——此前整条研究列表渲染路径从未被冒烟走过,才会「六条全绿但真机点不开」。验证:六条前端冒烟全绿。验收降级: 三行对齐的视觉确认由用户装新版后实测。
+- observed_head: 571b3f25b35fafdfd0fd02398fc8f82cc21d0fee
 - observed_worktree_hash: fnv1a64:079b10c5eaac5321
-- recorded_at: 1786863063082
+- recorded_at: 1786866450401

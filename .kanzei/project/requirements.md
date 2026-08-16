@@ -198,16 +198,16 @@
 - 依赖: R-221
 - 内容: 按 docs/design/research_workspace.md(2026-08-16 用户首轮实测反馈驱动的设计稿)实施研究工作台六批:批1 设计稿过审;批2 交互修复(去 kind gating,source/finding 与 req/defect 同权:可开/可编/可删/不截断,即 D-413);批3 双面板工作台+报告 tab(内联 [S-00x] 与 file:line 可跳、V 等级徽章与过滤);批4 来源/发现卡片化+筛选+反查+复制引用(BibTeX);批5 全文通道(read 支持 PDF、arXiv 正文通道、来源卡标注摘要级/正文级并与 V 表联动);批6 计划树面板(依赖 R-277)。设计原则取自 prior_art §1 前端横评:结果>过程、溯源三处冗余、计划先行可编辑、数据已结构化的 UI 不许降级成字符串。建议顺序:批2 与批5 先行(不依赖引擎,正是用户点名痛点)。
 - 复杂度: 大
-- 批次: 0/6
+- 批次: 3/6
 - 来源: 2026-08-16 用户「researchmode的前端设计这些比较复杂」;设计输入为 prior_art §1 前端横评(Gemini 报告至上双面板/ChatGPT 计划编辑与运行中转向/Perplexity 来源三处冗余/Manus 过程至上反例)与四组件通用 schema(document/steps/sources/annotations)。
 - 标签: 前端
 - 边界: 不做协作/分享/导出站外;不做在线 LaTeX 编辑器(Monaco 已有);research 下连跑禁用沿用 interaction_modes 既有定调;长报告渲染沿用 R-267 窗口化模式,不另造。
 - 验收: ①批1 设计稿经用户过审(含四组件权重取舍的明确理由);②计划编辑→运行→中途转向全链路可操作有轨迹;③引用点击回源双形态各实测(URL 与 file:line);④长报告与长活动流滚动不卡(窗口化生效);⑤与桌面既有 UI 风格与 i18n 纪律一致。
 - 优先级: P2
-- 进展: 2026-08-16 批1 设计稿已产出(docs/design/research_workspace.md),待用户过审。诊断:用户首轮实测六条反馈全部对到代码——研究档只在侧栏挂 section(index.html:98-107)、交互 gate 在 req/defect(11-docs-list.js:249-262)而后端 docs_update 早已支持 source/finding(docs.rs:402-413)、sources.md 存了 URL 却不可点、read 不支持 PDF。共性根因是「数据结构化但前端渲染成截断字符串且没接写通道」,与本日波次审计的「最后一公里不接线」同一失败模式。待拍板三项:打开文献走外部浏览器还是内置 viewer;research 档下 dev 视图隐藏还是折叠;来源用卡片流还是紧凑表格。
-- observed_head: 16409515e0a95b58acdd91bdd54812ad8d1e1de4
-- observed_worktree_hash: fnv1a64:0ebf0be70945bc85
-- recorded_at: 1786860369137
+- 进展: 2026-08-16 批1 设计稿过审(用户拍板:内置 viewer/dev 视图完全隐藏/卡片流),批2 交互修复(D-413/D-414),批3 独立工作台交付(提交 571b3f2)。批3 内容:新增 crates/kanzei-app/ui/19-research.js 与 #view-research 主视图——左卡片流(来源/发现 tab,完整标题、类型与 V 等级徽章、要点、作者年份、↗ 打开、行内编辑走 docs_update、状态流转按钮)+右报告面板(markdown 渲染,[S-00x]/[F-00x] 自动变可点角标 → 跳对应卡片并高亮,溯源双向);research 档才出现入口并完全隐藏 dev 视图,停在被隐藏视图上退回对话;空态给操作指引。六条前端冒烟全绿(a11y 护栏拦下我写的字面色,已换语义 token)。余批4(筛选/反查/BibTeX 复制)、批5(全文通道 read PDF+arXiv 正文+证据深度)、批6(计划树,依赖 R-277)。
+- observed_head: 571b3f25b35fafdfd0fd02398fc8f82cc21d0fee
+- observed_worktree_hash: fnv1a64:079b10c5eaac5321
+- recorded_at: 1786866469845
 
 ## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [todo]
 - refs: R-221 R-273 R-274 R-276 docs/design/research_mode.md docs/design/research_mode_prior_art.md
