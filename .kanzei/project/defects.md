@@ -197,26 +197,11 @@
 - 根因: ①无分批:consolidation_prompt(kanzei-memory/src/memory/manager.rs:1092)把整个 inbox 原样拼进 prompt——现已 251612 字节/201 条,单轮 max_tokens 仅 4096、steps 10,模型既读不完也逐条销不完账;②失败静默:consolidate_memory_inbox(kanzei-app/src/memory.rs:374)`let _ = run_once_with_parts(...)` 丢弃全部错误,primary/fast 两档都失败时无任何诊断、无事件、无通知,轮末照常「成功」;③无上限反馈:inbox 只增不减,越大越难消化、越难消化越大——用户端表现为「待确认候选 201」持续堆积,记忆晋升事实停摆。
 - 优先级: P1
 
-## D-410 composer 三处体验:设置离鞭挞太远/鞭挞独占一行/输入框过宽 [fixed] (low)
-- 复现: 宽屏(2000px)下 composer 自上而下三行:输入框(占满整宽)、鞭挞控制台独占一行(「鞭挞」在最左、「设置」被 spacer 顶到最右)、发送行。
-- 影响: ①设置与它所配置的鞭挞开关分处一行两端,找不到关联;②控制台白占一整行,压缩对话可视高度;③输入框行宽过长,扫读与落笔都别扭。
-- 期望: ①设置紧随鞭挞勾选框;②鞭挞控制台并入发送行,不单独占行;③输入区(附件条/输入框/发送行)限宽居中。
-- 来源: 2026-08-16 用户看图指出布局不合理。
-- 标签: 前端
+## D-412 研究文献侧仅读摘要却标 V2 一手来源:CoALA 分类学归因不成立 [open] (medium)
+- refs: R-221 R-277
+- 影响: V 表的可信度被稀释:V2 语义是「一手来源(论文原文/官方文档/仓库源码)」,摘要级证据混入 V2 后,读者无法分辨哪些结论经得起正文核验。本轮 12 篇文献里绝大多数结论确实落在摘要覆盖范围内(已抽查 Zep 94.8/93.4/18.5、Mem0 91%/90%、A-MEM NeurIPS 2025、Generative Agents 消融 均属实),问题不在幻觉而在**方法论披露缺失**与个别越界。
+- 期望: ①V 表文献域补「摘要级」与「正文级」的区分(或规定摘要级封顶 V1),写进 conventions 时一并定(R-221 批3);②R-277 引擎的验收④「FACT 式论断-出处逐条核验」应把「该出处是否真含支撑文本」做成机械抽查,本次即为反例样本;③本报告 report.md:31 的 CoALA 归因改为取正文核验或降级标注。
+- 来源: 2026-08-16 用户要求评估本轮 research 质量,机械核验 18 个 file:line 锚(全中)+9 个 arXiv ID(全真)+数值断言(全实)后,唯一抽出的实质问题。
+- 标签: 流程
+- 根因: 本轮 research 的文献检索通道是 arXiv API,拿到的只有 title+summary(摘要),全程未取正文。报告把这类来源一律标 V2「一手来源」,且未声明「仅摘要级」。抽查发现一处实质越界:report.md:31 称 CoALA(arXiv 2309.02427)确立「working/episodic/semantic/procedural」四类模块化记忆并标 V2/S-008,但实测该论文摘要里 working/episodic/semantic/procedural 四词一个都没有(只有 memory)——结论本身是对的(在正文里),但**引用的那份证据支撑不了它**。同一段落对 LangGraph(S-009,取的是正文 HTML)的三类映射则证据充分。
 - 优先级: P2
-- 进展: 2026-08-16 修复(提交 1640951)。①设置紧随鞭挞——index.html:208 起 autorun-bar 内顺序改为 鞭挞→设置(details)→轮次→阶段→状态,原先夹在中间的 spacer 移到设置之后;②并入发送行——autorun-bar 整块移进 crates/kanzei-app/ui/index.html:208 的 #composer-bar,style.css:725 给 composer-bar 加 flex-wrap 与 gap、composer-actions 用 margin-left:auto 靠右,鞭挞不再独占一行;③输入区限宽——style.css:716 给 #attachments/#prompt/#composer-bar/.composer-queue/#continue-editor 统一 max-width:1080px 居中,窄屏仍 100%。验证:六条前端冒烟全绿(runtime/lint/parallel/a11y/i18n/markdown)。
-- observed_head: 16409515e0a95b58acdd91bdd54812ad8d1e1de4
-- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
-- recorded_at: 1786858851501
-
-## D-411 权限弹窗全屏模态挡住判断依据:看不到上下文没法确认 [fixed] (medium)
-- 复现: 权限/提问弹出时 #ask-overlay 以 inset:0 + rgba(0,0,0,.55) 罩住整个应用,对话区被遮住且不可滚动、不可选中。
-- 影响: 要判断「该不该放行这条命令」往往得回看刚才的工具轨迹与对话原文,而模态恰恰把判断依据挡在背后——用户只能凭记忆按钮,或先拒绝再回看重来。
-- 期望: 改非阻塞停靠:卡片贴右下角浮起,遮罩层 pointer-events 穿透,对话区照常滚动与选中;aria-modal 同步改 false(非模态宣称 true 会让读屏把背景整块隐藏,与事实相反)。
-- 来源: 2026-08-16 用户原话:提问弹出,但是我需要浏览著对话的上下文才能确认。
-- 标签: 前端
-- 优先级: P1
-- 进展: 2026-08-16 修复(提交 1640951)。改非阻塞停靠:style.css:828 起 #ask-overlay 由 inset:0+rgba(0,0,0,.55) 全屏遮罩改为 inset:auto 0 0 0、background:none、pointer-events:none 的底部停靠层,#ask-dialog 自身 pointer-events:auto 并加 max-height:60vh 可滚、accent 描边保持醒目;index.html:932 aria-modal 由 true 改 false(非模态宣称 true 会让读屏把背景整块隐藏,与可读可交互的事实相反)。效果:弹窗浮在右下角,对话区照常滚动、选中、复制,判断依据与决策同屏。验证:crates/kanzei-app/ui/style.css:828 与 index.html:932 已落地,ui-a11y 断言随契约更新后六条前端冒烟全绿。
-- observed_head: 16409515e0a95b58acdd91bdd54812ad8d1e1de4
-- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
-- recorded_at: 1786858852056
