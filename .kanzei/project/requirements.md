@@ -102,7 +102,7 @@
 - recorded_at: 1786842800288
 
 ## R-242 会话投影真源切换与分段清空恢复 [doing]
-- refs: D-209 D-342 D-417 R-236 docs/design/deepseek_harness_upgrade.md
+- refs: D-209 D-342 D-417 R-236 R-279 docs/design/deepseek_harness_upgrade.md
 - 依赖: R-241
 - 内容: 在 shadow gate 通过后，将 conversation_get/list、runner prior、子代理 transcript 和 UI 历史恢复逐项切到事件投影；进程内 Vec<Message> 仅作缓存。清空对话追加 conversation.reset 并开启新 segment，新 segment 的模型 prior 为空，旧 segment 仍可审计。验证期保留 legacy snapshot 只读对照，五条读路径全部稳定后停止新增 conversation.updated。
 - 复杂度: 大
@@ -114,10 +114,10 @@
 - 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
-- 进展: 2026-08-16 批8 完成(真实库复核+全量+关闭评估):①cargo test --workspace 全绿(kanzei-core 213/kanzei-app 139/kanzei-tools 317/kanzei-llm 148/harness 46,0 failed,T-1786896335);②真实库复核(83 条 shadow_compared):修复后新增 3 轮(seq 111534/112540/113746)仍带写错误「already terminal」且无 expected_mismatch 字段——判定为**旧安装版 kz 产物**(批4/5 修复未部署,自举跑的是 ~/.cargo/bin 旧二进制),不能证明修复效果;修复效果验证需安装新 kz 后跑新轮(集成测试 always_allow_bash 已在修复后代码上断言 typed_write_errors=[],链路正确性已证)。观察项:112540/113746 为 legacy 比投影多 1 条(264vs263、388vs387,first=260/384),新代码 classify 会判 unknown——疑似 legacy 快照含 interrupted 草稿而 surface 排除,待新 kz 新轮数据确认后补 classify 或确认为预期。关闭评估:验收②③④主体达标(强杀恢复三边界测试齐/reset 幂等+旧段可审计);①⑥ 4/5 路径切换+4 条 gate(conversation_get/list/runner_prior/ui_history),subagent_transcript 缺口;⑤差异侧达标(16 条差异全预期分类、未知差异=0)、写错误侧待新 kz 部署后新轮验证;⑦顺延(compaction 持久化依赖 R-243)。**结论:R-242 保持 doing**——剩余缺口 subagent_transcript 事件投影真源(独立子工程)与验收⑦(compaction 事件化)均为结构性依赖,不属批8 可收口范围,进展持续记录;下步:部署新 kz 后真实库新轮验证 typed_write_errors=0 + 补齐 subagent_transcript/验收⑦。
+- 进展: 2026-08-16 批8 完成(真实库复核+全量+关闭评估)后拆分:R-242 批次已满 8/8,剩余缺口按批次上限规则拆 follow-up——subagent_transcript 事件投影真源拆为 **R-279**(子代理对话落 typed facts+续跑投影恢复+gate 注册,独立子工程,验收①⑥ 第五条由它回填);验收⑦(停止 conversation.updated)依赖 R-243 compaction 事件化,跨条目;验收⑤写错误侧待部署新 kz 后真实库新轮验证。R-242 保持 doing:验收②③④达标、①⑥ 4/5 路径+4 条 gate、⑤差异侧达标(未知差异=0);剩余=等 R-279 完成回填 subagent_transcript + 等 R-243 后回填验收⑦ + 部署新 kz 后真实库新轮核验 typed_write_errors=0。
 - observed_head: 1d3a915e5e5273a6b96c3d592581921bbe7d9692
-- observed_worktree_hash: fnv1a64:3f5783566ef67c1c
-- recorded_at: 1786896345384
+- observed_worktree_hash: fnv1a64:f0264567c13198eb
+- recorded_at: 1786896732431
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-242
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]
@@ -225,3 +225,13 @@
 - 边界: 不做真·多 agent 并行编排(先行对照:15 倍 token 单用户不值,隔离+压缩回传同样解上下文冲突);不做 RL 专训模型(纪律放系统侧);不做常驻知识库服务(索引随课题建随课题用);不做模拟审稿与自动选题;计划审批前端由 R-276 承接,本条只出数据结构与状态机。
 - 验收: ①一个真实课题走完整链路(计划→审批→检索→带引用报告)有轨迹;②FACT 式抽查:随机抽论断,文献 URL 与代码 file:line 逐条支撑(实测,不接受自评);③预算旋钮实测:设小预算提前收敛出报告不崩;④机械核验原始工具输出不进主上下文(只有压缩摘要);⑤文献与代码经同一检索接口命中各有实测;⑥中途强杀重启可恢复续跑;⑦轻课题(只产 report.md)与重课题(paper.tex 编译通过)各走通一次。验收②补充(D-412 反例):「出处是否真含支撑文本」做成机械抽查——文献论断的支撑文本必须落在正文内(取回正文全文 grep 关键词,摘要命中不算),仅摘要级来源不得支撑正文级论断;D-412 反例样本=CoALA 四类记忆划分不在摘要而在正文 §2.3(working/episodic/semantic/procedural),机械抽查应能检出此类越界(摘要含 modular memory components 但无四词)。
 - 优先级: P1
+
+## R-279 子代理 transcript 事件投影真源:子代理对话落 typed facts、续跑从投影恢复、注册 subagent_transcript gate [todo]
+- 优先级: P1
+- 内容: 子代理(background_subagent/task 派发)的对话历史当前只存进程内 TranscriptStore(HashMap,重启即失),无事件投影真源——R-242 验收①⑥ 的第五条读路径(subagent_transcript)因此无法切换。本条目:①子代理运行期把对话事实(user/assistant/tool 消息)落 session_events(与主会话同库,事件带子代理标识,走同一 typed writer/invariant 契约);②续跑恢复从事件投影重建 transcript(进程内 HashMap 仅作缓存);③注册 subagent_transcript feature gate,可独立回退到进程内行为;④回填 R-242 验收①(五条读路径从同一事件日志恢复一致消息)与验收⑥(五条 gate 独立回滚)。
+- 复杂度: 中
+- 来源: R-242 批8 拆分:subagent_transcript 无事件投影真源(子代理对话不落 typed facts),R-242 批次已满(8/8)且该项为独立子工程,按批次上限规则拆为 follow-up 条目。
+- 标签: 核心
+- 边界: 本条目只负责子代理 transcript 的事件投影真源建立与读路径切换,不扩展主会话 typed 词表;子代理对话落库沿用既有 session_events(带 subagent 前缀标识),不改 SessionFact 公共枚举;进程内 TranscriptStore 降为缓存。验收⑤真实库新轮验证与验收⑦(compaction 事件化)不属于本条目(见 R-242 进展)。
+- 验收: ①子代理对话事实落库后,新开进程可从事件日志投影恢复该子代理 transcript(非空);②续跑 prior 从事件投影恢复,与进程内 TranscriptStore 内容一致;③注册 subagent_transcript gate,剔除该路径后回退进程内行为,行为与切换前一致;④R-242 验收①⑥ 回填(subagent_transcript 成为第五条约切换路径/第五条 gate)。
+- refs: R-242
