@@ -20,7 +20,7 @@ use serde_json::json;
 use tauri::State;
 
 use crate::normalized_project_root;
-use crate::state::{MobileDeviceInfo, MobileService, MobileServiceInfo};
+use crate::state::{MobileDeviceInfo, MobileService, MobileServiceInfo, SessionRuntime};
 use crate::AppState;
 
 fn mobile_json_response(status: &str, body: &serde_json::Value) -> Vec<u8> {
@@ -104,6 +104,7 @@ fn handle_mobile_connection(
     project_root: PathBuf,
     devices: Arc<Mutex<HashMap<String, String>>>,
     pair_code: Arc<Mutex<Option<String>>>,
+    runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
 ) {
     let Some((request_head, body)) = read_request(&mut stream) else {
         return;
@@ -173,6 +174,32 @@ fn handle_mobile_connection(
         return;
     }
 
+    // R-270 批3:approval 通道。GET pending(脱敏摘要)+ POST answer(回答)。
+    // 回答走 runner 既有 ask 流(PendingAsk.sender),最终门禁仍在 harness 侧。
+    match (method, path.split('?').next().unwrap_or_default()) {
+        ("GET", "/v1/approval/pending") => {
+            let pending = approval_pending_list(&runtimes);
+            let _ = stream.write_all(&mobile_json_response("200 OK", &pending));
+            return;
+        }
+        ("POST", "/v1/approval/answer") => {
+            let payload: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+            let reply = match approval_answer(&runtimes, &payload) {
+                Ok(rendered) => rendered,
+                Err(error) => {
+                    let _ = stream.write_all(&mobile_json_response(
+                        "400 Bad Request",
+                        &json!({"error": error}),
+                    ));
+                    return;
+                }
+            };
+            let _ = stream.write_all(&mobile_json_response("200 OK", &reply));
+            return;
+        }
+        _ => {}
+    }
+
     let response = match (method, path.split('?').next().unwrap_or_default()) {
         ("GET", "/health") => mobile_json_response(
             "200 OK",
@@ -237,6 +264,98 @@ fn handle_mobile_connection(
         _ => mobile_json_response("404 Not Found", &json!({"error": "not_found"})),
     };
     let _ = stream.write_all(&response);
+}
+
+/// R-270 批3:approval pending 列表——遍历所有 runtime 的 asks,产出**脱敏摘要**
+/// (不暴露对话/资源全文,只给 id/kind/action/session;resource 截断到 80 字符)。
+fn approval_pending_list(
+    runtimes: &Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
+) -> serde_json::Value {
+    let runtimes = runtimes.lock().unwrap();
+    let mut items = Vec::new();
+    for runtime in runtimes.values() {
+        let asks = runtime.asks.lock().unwrap();
+        for (id, pending) in asks.iter() {
+            let (kind, action, resource) = match &pending.request {
+                kanzei_core::AskRequest::Permission { action, resource } => {
+                    ("permission", action.clone(), resource.clone())
+                }
+                kanzei_core::AskRequest::Question { question, .. } => {
+                    ("question", "question".into(), question.clone())
+                }
+            };
+            // 脱敏:resource 截断,避免把完整路径/敏感内容推给 LAN 设备。
+            let resource_truncated: String = resource.chars().take(80).collect();
+            let truncated = if resource.chars().count() > 80 {
+                format!("{resource_truncated}…")
+            } else {
+                resource_truncated
+            };
+            items.push(json!({
+                "id": id,
+                "kind": kind,
+                "action": action,
+                "resource": truncated,
+                "session_id": pending.session_id,
+            }));
+        }
+    }
+    json!({ "pending": items, "count": items.len() })
+}
+
+/// R-270 批3:回答一个 pending ask。`reply` 取值:
+/// - permission: "allow" | "deny"(always 与 once 的持久化/会话语义由桌面端处理,
+///   移动端只做放行/拒绝二选一——approval 门禁仍在 harness 侧);
+/// - question: 任意文本(answer)或 "cancel"。
+///
+/// 回答走 runner 既有 ask 流:找到 PendingAsk 后通过 sender 发送 AskResponse,
+/// runner 的权限门禁按回复放行/拒绝——本通道不新增能力面,只回答既有询问。
+fn approval_answer(
+    runtimes: &Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
+    payload: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let id = payload
+        .get("id")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| "answer 需要 id(数字)".to_string())?;
+    let reply = payload
+        .get("reply")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if reply.is_empty() {
+        return Err("answer 需要 reply(allow|deny 或回答文本)".to_string());
+    }
+    let runtimes = runtimes.lock().unwrap();
+    let mut found = None;
+    for runtime in runtimes.values() {
+        if let Some(pending) = runtime.asks.lock().unwrap().remove(&id) {
+            found = Some(pending);
+            break;
+        }
+    }
+    let pending = found.ok_or_else(|| format!("ask {id} 不存在或已回答"))?;
+    let response = match &pending.request {
+        kanzei_core::AskRequest::Question { .. } => {
+            if reply == "cancel" {
+                kanzei_core::AskResponse::Cancelled
+            } else {
+                kanzei_core::AskResponse::Answer(reply.clone())
+            }
+        }
+        kanzei_core::AskRequest::Permission { .. } => {
+            let decision = match reply.as_str() {
+                "allow" => kanzei_core::AskReply::AllowOnce,
+                _ => kanzei_core::AskReply::Deny,
+            };
+            kanzei_core::AskResponse::Permission(decision)
+        }
+    };
+    pending
+        .sender
+        .send(response)
+        .map_err(|_| format!("ask {id} 的接收端已关闭(runner 已取消该询问)"))?;
+    Ok(json!({ "answered": id, "session_id": pending.session_id }))
 }
 
 /// R-270 批2:SSE 长连接实时推送(GET /v1/events)。
@@ -363,16 +482,24 @@ pub fn mobile_service_start(
     let thread_root = root.clone();
     let thread_devices = devices.clone();
     let thread_pair = pair_slot.clone();
+    let thread_runtimes = state.runtimes.clone();
     std::thread::spawn(move || {
         while thread_active.load(Ordering::SeqCst) {
             match listener.accept() {
                 Ok((stream, _)) => {
-                    // R-270:每连接独立线程——长请求(后续 SSE)不阻塞其它连接。
+                    // R-270:每连接独立线程——长请求(SSE/approval)不阻塞其它连接。
                     let conn_devices = thread_devices.clone();
                     let conn_pair = thread_pair.clone();
                     let conn_root = thread_root.clone();
+                    let conn_runtimes = thread_runtimes.clone();
                     std::thread::spawn(move || {
-                        handle_mobile_connection(stream, conn_root, conn_devices, conn_pair)
+                        handle_mobile_connection(
+                            stream,
+                            conn_root,
+                            conn_devices,
+                            conn_pair,
+                            conn_runtimes,
+                        )
                     });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -549,5 +676,133 @@ mod tests {
         let heartbeat = ": heartbeat\n\n";
         assert!(heartbeat.starts_with(':'), "心跳是注释行");
         assert!(heartbeat.ends_with("\n\n"));
+    }
+
+    /// R-270 批3:approval pending 列表——遍历所有 runtime 的 asks 产出脱敏摘要,
+    /// resource 截断不暴露完整内容。
+    #[test]
+    fn approval_pending_列出脱敏摘要() {
+        let runtime = Arc::new(SessionRuntime::default());
+        let (_sender, _rx) = tokio::sync::oneshot::channel();
+        runtime.asks.lock().unwrap().insert(
+            7,
+            crate::PendingAsk {
+                sender: _sender,
+                request: kanzei_core::AskRequest::Permission {
+                    action: "bash".into(),
+                    resource: "long-resource-".repeat(30),
+                },
+                action: "bash".into(),
+                resource: "long-resource-".repeat(30),
+                project_root: PathBuf::from("."),
+                session_id: "ses-1".into(),
+            },
+        );
+        let mut runtimes = HashMap::new();
+        runtimes.insert("ses-1".to_string(), runtime);
+        let runtimes = Arc::new(Mutex::new(runtimes));
+
+        let list = approval_pending_list(&runtimes);
+        assert_eq!(list["count"], 1, "应列出 1 条 pending");
+        assert_eq!(list["pending"][0]["id"], 7);
+        assert_eq!(list["pending"][0]["kind"], "permission");
+        assert_eq!(list["pending"][0]["action"], "bash");
+        // 脱敏:resource 截断到 80 字符。
+        let resource = list["pending"][0]["resource"].as_str().unwrap();
+        assert!(
+            resource.chars().count() <= 81,
+            "resource 必须截断: {resource}"
+        );
+    }
+
+    /// R-270 批3:approval answer——permission allow/deny 经 sender 送达 runner,
+    /// 门禁决策由 runner 侧执行(本通道不旁路)。
+    #[test]
+    fn approval_answer_permission放行与拒绝送达() {
+        let runtime = Arc::new(SessionRuntime::default());
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        runtime.asks.lock().unwrap().insert(
+            3,
+            crate::PendingAsk {
+                sender: tx,
+                request: kanzei_core::AskRequest::Permission {
+                    action: "bash".into(),
+                    resource: "cargo build".into(),
+                },
+                action: "bash".into(),
+                resource: "cargo build".into(),
+                project_root: PathBuf::from("."),
+                session_id: "ses-1".into(),
+            },
+        );
+        let mut runtimes = HashMap::new();
+        runtimes.insert("ses-1".to_string(), runtime.clone());
+        let runtimes = Arc::new(Mutex::new(runtimes));
+
+        // allow → AllowOnce 送达。
+        let answered = approval_answer(&runtimes, &json!({"id": 3, "reply": "allow"})).unwrap();
+        assert_eq!(answered["answered"], 3);
+        match rx.try_recv() {
+            Ok(kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce)) => {}
+            other => panic!("allow 应送达 AllowOnce,实得: {other:?}"),
+        }
+        // 回答后 pending 移除:再答报不存在。
+        let err = approval_answer(&runtimes, &json!({"id": 3, "reply": "deny"})).unwrap_err();
+        assert!(err.contains("不存在或已回答"), "{err}");
+    }
+
+    /// R-270 批3:approval answer——deny 送达 Deny;question 回答送 Answer 文本。
+    #[test]
+    fn approval_answer_拒绝与问题回答() {
+        let runtime = Arc::new(SessionRuntime::default());
+        // deny 场景。
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        runtime.asks.lock().unwrap().insert(
+            4,
+            crate::PendingAsk {
+                sender: tx,
+                request: kanzei_core::AskRequest::Permission {
+                    action: "bash".into(),
+                    resource: "rm -rf".into(),
+                },
+                action: "bash".into(),
+                resource: "rm -rf".into(),
+                project_root: PathBuf::from("."),
+                session_id: "ses-1".into(),
+            },
+        );
+        // question 场景。
+        let (tx2, mut rx2) = tokio::sync::oneshot::channel();
+        runtime.asks.lock().unwrap().insert(
+            5,
+            crate::PendingAsk {
+                sender: tx2,
+                request: kanzei_core::AskRequest::Question {
+                    question: "确认继续?".into(),
+                    options: vec!["是".into(), "否".into()],
+                    default: None,
+                    multiple: false,
+                },
+                action: "question".into(),
+                resource: "确认继续?".into(),
+                project_root: PathBuf::from("."),
+                session_id: "ses-1".into(),
+            },
+        );
+        let mut runtimes = HashMap::new();
+        runtimes.insert("ses-1".to_string(), runtime.clone());
+        let runtimes = Arc::new(Mutex::new(runtimes));
+
+        approval_answer(&runtimes, &json!({"id": 4, "reply": "deny"})).unwrap();
+        match rx.try_recv() {
+            Ok(kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny)) => {}
+            other => panic!("deny 应送达 Deny,实得: {other:?}"),
+        }
+
+        approval_answer(&runtimes, &json!({"id": 5, "reply": "是"})).unwrap();
+        match rx2.try_recv() {
+            Ok(kanzei_core::AskResponse::Answer(text)) => assert_eq!(text, "是"),
+            other => panic!("question 回答应送达 Answer,实得: {other:?}"),
+        }
     }
 }

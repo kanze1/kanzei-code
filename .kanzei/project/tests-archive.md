@@ -4374,3 +4374,9 @@
 - 摘要: R-270 批2:SSE 长连接实时推送(GET /v1/events)。handle_sse:起始 cursor 参数优先/缺省 delivery_cursor(断线重连补发不丢终态)、replay_notifications 逐批推进、无事件 15s 心跳保活、每连接独立线程(批1 多线程 accept)不阻塞其它端点、连接断开即收尾。新增单测 3 条(起始 cursor 参数优先/SSE 端点识别/SSE 帧格式 data: 前缀+空行)。kanzei-app 175 passed,clippy/fmt 通过
 - 关联: R-270
 - 收尾: 1786841335
+
+## T-1786841628 R-270 批3 approval 通道 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-270 批3:approval 通道——GET /v1/approval/pending(脱敏摘要:只给 id/kind/action/resource 截断 80 字符/session_id)+POST /v1/approval/answer(permission allow→AllowOnce/deny→Deny、question 文本/cancel,经 PendingAsk.sender 送达 runner 既有 ask 流,门禁在 harness 侧不旁路)。runtimes 传入连接线程。新增单测 3 条(pending 脱敏摘要/allow 与 deny 送达/拒绝与问题回答)。kanzei-app 178 passed,clippy/fmt 通过
+- 关联: R-270
+- 收尾: 1786841628
