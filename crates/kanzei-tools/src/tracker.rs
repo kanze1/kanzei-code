@@ -449,22 +449,16 @@ impl Tool for TrackerTool {
         // 区分「专用工具的合法写入」与「shell 越界写」,写者从此不必等全局 bash
         // 静默。先写文档再记日志(「写后」凭据,见 write_log 模块头契约)。
         if !output.is_error && WRITE_ACTIONS.contains(&action_str.as_str()) {
-            if let Ok(content) = std::fs::read(&store.path) {
-                if let Ok(relative) = store.path.strip_prefix(&ctx.project_root) {
-                    let _ = crate::write_log::record(
-                        &ctx.project_root,
-                        &crate::write_log::WriteLogEntry {
-                            at_ms: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis())
-                                .unwrap_or_default(),
-                            path: relative.display().to_string().replace('\\', "/"),
-                            fingerprint: crate::content_hash(&content),
-                            content: content.clone(),
-                            run_id: ctx.run_id.clone(),
-                            process_id: ctx.process_id.clone(),
-                        },
-                    );
+            // 活动文件记写日志(D-398 收敛到共享 helper;路径+写后指纹+身份)。
+            if let Ok(relative) = store.path.strip_prefix(&ctx.project_root) {
+                crate::record_write_log(ctx, &relative.display().to_string(), &store.path);
+            }
+            // D-398:archive 动作同时写归档文件——不记日志则归档侧新增被围栏
+            // 回滚,条目从活动+归档两份同时消失(D-112 级数据丢失)。
+            if action_str == "archive" {
+                let archive_file = store.archive_file();
+                if let Ok(relative) = archive_file.strip_prefix(&ctx.project_root) {
+                    crate::record_write_log(ctx, &relative.display().to_string(), &archive_file);
                 }
             }
         }
@@ -2835,6 +2829,56 @@ mod tests {
         assert!(!out.is_error, "{}", out.content);
         assert!(out.content.contains("R-001"), "{}", out.content);
         assert!(out.content.contains("SAME commit"), "{}", out.content);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-398:tracker archive 动作写活动+归档两个文件——都记写日志
+    /// (归档侧不记则新增被围栏回滚,条目从两份同时消失 D-112)。
+    #[tokio::test]
+    async fn archive_写日志含活动与归档文件() {
+        let dir = std::env::temp_dir().join(format!("kz-arch-log-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let mut done = entry("R-001");
+        done.status = "done".into();
+        store.save(&[done, entry("R-002")]).unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let out = tool
+            .execute(
+                json!({"action": "archive"}),
+                &ToolCtx::new(dir.clone(), dir.clone()),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let logs = crate::write_log::entries_after(&dir, 0);
+        let active_rel = store
+            .path
+            .strip_prefix(&dir)
+            .unwrap()
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        let archive_rel = store
+            .archive_file()
+            .strip_prefix(&dir)
+            .unwrap()
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        let paths: Vec<String> = logs.iter().map(|l| l.path.clone()).collect();
+        assert!(
+            paths.iter().any(|p| p.ends_with(&active_rel)),
+            "活动文件应有写日志: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.ends_with(&archive_rel)),
+            "归档文件应有写日志(否则归档侧新增被回滚): {paths:?}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

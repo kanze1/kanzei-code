@@ -163,6 +163,8 @@ impl Tool for ArchitectureTool {
                 {
                     return ToolOutput::error(e);
                 }
+                // D-398:architecture 专用写者写盘后记写日志(围栏收口归因凭据,此前零接入)。
+                crate::record_write_log(ctx, ARCHITECTURE_REL, &path);
                 let diff_lines = content.lines().count() as i64 - current.lines().count() as i64;
                 ToolOutput::ok(format!(
                     "updated {ARCHITECTURE_REL} ({} lines, {diff_lines:+} vs before)\nhash: {}\n\

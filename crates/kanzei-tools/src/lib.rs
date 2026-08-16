@@ -149,7 +149,35 @@ pub(crate) fn resolve_research_workdir(
     Ok(canonical)
 }
 
-/// Windows 上禁止外部子进程新建控制台窗口(D-238)。/// Windows 上禁止外部子进程新建控制台窗口(D-238)。///
+/// D-398:写者工具统一记写日志(路径+写后指纹+身份)——围栏收口对账的归因凭据。
+/// 专用写者(写者工具)成功落盘后调用;先写文档再记日志(「写后」凭据,
+/// write_log 模块头契约)。所有专用写者必须接线:test_record/conventions/
+/// architecture/tracker 活动+归档——半上线(部分写者有凭据、部分没有)比不接
+/// 线更危险:无凭据的合法写者会被围栏当越界回滚。
+pub(crate) fn record_write_log(
+    ctx: &kanzei_harness::ToolCtx,
+    rel_path: &str,
+    abs_path: &std::path::Path,
+) {
+    if let Ok(content) = std::fs::read(abs_path) {
+        let _ = crate::write_log::record(
+            &ctx.project_root,
+            &crate::write_log::WriteLogEntry {
+                at_ms: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or_default(),
+                path: rel_path.replace('\\', "/"),
+                fingerprint: crate::content_hash(&content),
+                content: content.clone(),
+                run_id: ctx.run_id.clone(),
+                process_id: ctx.process_id.clone(),
+            },
+        );
+    }
+}
+
+/// Windows 上禁止外部子进程新建控制台窗口(D-238)。
 /// 桌面端是 GUI 进程(没有控制台可继承),不设 CREATE_NO_WINDOW 时,每次
 /// spawn git/cargo/taskkill 等外部程序都会闪出一个黑色 cmd 窗口。std 与
 /// tokio 两种 Command 各自有 creation_flags,统一收敛到这里,避免各处重复。
