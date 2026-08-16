@@ -23,11 +23,15 @@ let lastError = null; // 上一次操作的错误(供诊断,不吞)
 
 // 从 channel 名解析浏览器可执行文件:msedge -> Edge(channel: "msedge"),
 // chrome -> Chrome(channel: "chrome")。playwright-core 会找系统安装路径。
+// 未知 channel 明确报错(验收⑤:无浏览器/非法配置诊断明确,不静默降级)。
 function resolveChannel(channel) {
   if (channel === "msedge" || channel === "chrome") {
     return channel;
   }
-  return "msedge"; // 默认 Edge(Win 上几乎必装)
+  throw new Error(
+    `未知浏览器 channel: ${channel ?? "(空)"}。支持 msedge(默认)或 chrome;` +
+      `若本机未安装 Edge/Chrome,请安装其一后重试。`,
+  );
 }
 
 async function ensureBrowser(channel) {

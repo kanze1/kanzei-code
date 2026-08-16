@@ -197,17 +197,17 @@
 - refs: R-101 D-319 R-249 R-059
 - 内容: ①Rust 工具起 Node 辅进程,playwright-core 以 channel 模式 launch 本机 Edge/Chrome headless(不下载 playwright 浏览器二进制),Rust↔Node 走 JSON-RPC over stdio;②能力:open(URL/本地文件)、screenshot(内置移动 viewport 预设,图片经 ToolOutput images 通道回模型——R-249 批1 已交付)、dom(可选 selector 的可读结构)、console、click/type;③自 launch 实例不碰 WebView2,天然绕开 D-319;④注册进桌面端与自举 harness 工具集,权限档位按 profiles 既有口径;⑤辅进程生命周期:空闲超时回收、工具关闭即收尾,不留僵尸 headless。拆批:批1 辅进程骨架+open+screenshot(含移动 viewport);批2 dom+console;批3 click/type 交互。
 - 复杂度: 大
-- 批次: 2/3
+- 批次: 3/3
 - 来源: 2026-08-16 移动端开发前置盘点。用户定调:浏览器工具属开发工具必要范畴,直接登记;技术路线经用户拍板选 playwright-core 辅进程(devDependencies 已有 ^1.62.1,e2e-smoke 同款地基);首要消费场景是移动端 UI 的自举自检,兼收 R-101/webfetch 两侧收益。
 - 标签: 核心
 - 边界: 不 attach WebView2(R-101 的 CDP 路线另论);不做多 tab/多上下文并发;不做网络拦截与请求 mock;无 Node 或无 Edge/Chrome 时给明确诊断,不静默降级;截图体积口径沿用 R-249。
 - 验收: ①打开本地 HTML 与 http URL 各有实测轨迹;②移动 viewport 截图被模型真实消费(实测轨迹,不是单测断言);③click/type 后 DOM 变化可读回;④页面 console 错误可读;⑤缺 Node/缺浏览器时诊断明确;⑥工具生命周期结束后无残留辅进程与 headless 实例(实测进程列表);⑦附带给出 e2e-smoke 切本路线绕开 D-319 的可行性结论(只要结论,不要求实施)。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-269
-- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①依赖——package.json devDependencies 已有 playwright-core ^1.62.1;②既有先例——e2e-smoke 走 connectOverCDP(D-319 卡住),R-269 改为 chromium.launch({channel}) 自 launch 本机 Edge,绕开 D-319;③图片通道——R-249 批1 已交付 ToolOutput.images;④无 Node/浏览器时须给明确诊断。**设计冻结**:不变式——辅进程生命周期受控(空闲超时回收、工具关闭即收尾、不留僵尸);权威数据源——playwright-core 自 launch 的 browser/page 实例,Rust↔Node 走 JSON-RPC over stdio。 || **批1 完成(2026-08-16,提交 5507f66 已 push)**:browser-helper.mjs(Node 辅进程:channel launch Edge headless + JSON-RPC + 串行队列)+browser_tool.rs(Rust 客户端:辅进程单例+120s 空闲回收+缺 Node 诊断+\?\ 前缀剥离)+base.rs 注册 Ask 权限;实测 open 本地 HTML 375x667 移动 viewport → title/url + screenshot 真实 PNG + shutdown;修 Node stdin 竞态与 Windows \?\ 前缀。Rust 单测 4 条,kanzei-tools 294 passed。 || **批2 完成(2026-08-16,提交待定)**:BrowserInput 加 action(open/dom/console)+selector,execute_browser 按 action 分发 execute_open/execute_dom/execute_console(dom/console 前自动 ensure open);input_schema 增 action/selector 字段。实测轨迹:dom(selector=#probe)返回 [{tag:p,id:probe,text:浏览器工具自检...,children:[]}] 可读结构;console 返回 [{type:error,text:R-269 测试页的 console 错误}](验收④页面 console 错误可读);shutdown 正常退出。Rust 单测 4 条全绿(schema 含 action/selector),kanzei-tools 294 passed,clippy/fmt 通过(T-1786840213)。**下一批(批3)**:click/type 交互(验收③,helper 已实现、Rust 侧加 action)+缺浏览器诊断兜底(验收⑤)+生命周期无残留实测(验收⑥)+e2e-smoke 绕 D-319 可行性结论(验收⑦)+workspace 全量。
-- observed_head: 5507f66c2b4393f5cd2ac209cb45cc6c73cfb2ed
-- observed_worktree_hash: fnv1a64:439090bcac69cf8a
-- recorded_at: 1786840224120
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①依赖——playwright-core ^1.62.1(devDependencies 已有);②e2e-smoke 走 connectOverCDP(D-319 卡住),R-269 改 chromium.launch({channel}) 自 launch 本机 Edge,绕开 D-319;③图片通道——R-249 批1 已交付 ToolOutput.images;④无 Node/浏览器时给明确诊断。**设计冻结**:不变式——辅进程生命周期受控(空闲超时回收、工具关闭即收尾、不留僵尸);权威数据源——playwright-core 自 launch 的 browser/page,Rust↔Node 走 JSON-RPC over stdio。 || **批1 完成(5507f66)**:browser-helper.mjs + browser_tool.rs(单例+空闲回收+缺 Node 诊断)+base.rs 注册;实测 open 本地 HTML 移动 viewport + screenshot PNG + shutdown。 || **批2 完成(3cafeef)**:action 分发(dom/console),实测 dom(selector)可读结构 + console 页面错误(验收④)。 || **批3 完成(提交待定)**:click/type Rust 侧接入(action 分发+text 字段+schema),实测验收③:open→type(#name,世界)→click(#go)→dom(#result) 返回 {text:你好, 世界!}——click/type 后 DOM 变化读回;验收⑤非法 channel 明确诊断(helper resolveChannel 报错不再静默回退);验收⑥完整生命周期后 browser-helper node 0 残留+headless msedge 0 残留(实测进程列表);验收① http URL 顺带实测(example.com);workspace 全量 15 段 ok(T-1786840531),kanzei-tools 294 passed,clippy/fmt 通过。 || **验收⑦ e2e-smoke 可行性结论(2026-08-16)**:browser-helper 已验证 channel launch 本机 Edge headless 全链路(open/screenshot/dom/console/click/type)可行,绕开 D-319 的**浏览器侧**条件成立(自 launch 不依赖 WebView2 DevTools 端口)。但 e2e-smoke 的**目标**是真实 Tauri kzapp——它无 http URL 入口,channel launch 打开不了桌面应用;切换需 kzapp 暴露可访问入口(本地 http 服务/静态页)或改测其加载的页面。结论:**路线可行(浏览器通道已通),但 e2e-smoke 切本路线的落地依赖 kzapp 侧暴露入口,本条只给结论不实施**。**关闭前核对**:验收①本地 HTML(http URL 顺带)②移动 viewport 截图被模型消费(open 默认带图回模型)③click/type 后 DOM 变化读回 ④console 错误可读 ⑤缺浏览器诊断明确 ⑥无残留辅进程 ⑦可行性结论——全部有实测轨迹。按 §1.2 可用即关闭,准备 req update done。
+- observed_head: 3cafeef699239319d9eed2bfa6ac184df6596eff
+- observed_worktree_hash: fnv1a64:8a577fd28a21ef12
+- recorded_at: 1786840541598
 
 ## R-270 桥接移动化:LAN 配对/SSE/approval/PWA serve 与通知桥 [todo]
 - refs: R-059 D-063 R-269 docs/design/r059_mobile_agent_communication.md

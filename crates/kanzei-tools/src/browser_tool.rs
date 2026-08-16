@@ -98,11 +98,14 @@ pub(crate) struct BrowserInput {
     url: Option<String>,
     /// open: 本地文件路径(file:// 自动转换)。
     path: Option<String>,
-    /// 动作:open(默认,打开并截图)| dom(读可读结构)| console(读页面错误)。
+    /// 动作:open(默认,打开并截图)| dom(读可读结构)| console(读页面错误)
+    /// | click(点元素)| type(填输入框)。
     #[serde(default = "default_action")]
     action: String,
-    /// dom: 可选 selector(默认 body 整树)。
+    /// dom / click / type: CSS selector。
     selector: Option<String>,
+    /// type: 要填入的文本。
+    text: Option<String>,
     /// screenshot / open: 移动 viewport 预设(mobile-375x667 等)。
     viewport: Option<String>,
     /// 浏览器 channel:msedge(默认) | chrome。
@@ -320,6 +323,8 @@ pub(crate) async fn execute_browser(input: BrowserInput) -> ToolOutput {
     match input.action.as_str() {
         "dom" => execute_dom(&input).await,
         "console" => execute_console(&input).await,
+        "click" => execute_click(&input).await,
+        "type" => execute_type(&input).await,
         _ => execute_open(&input).await,
     }
 }
@@ -450,6 +455,75 @@ async fn execute_console(input: &BrowserInput) -> ToolOutput {
     }
 }
 
+/// click:点击页面元素(selector 必填)。
+async fn execute_click(input: &BrowserInput) -> ToolOutput {
+    let url = match resolve_target(input) {
+        Ok(u) => u,
+        Err(e) => return ToolOutput::error(e),
+    };
+    let selector = match input.selector.as_deref() {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return ToolOutput::error("click 需要 selector 参数".to_string()),
+    };
+    let viewport = parse_viewport(input.viewport.as_deref());
+
+    match with_helper(|helper| {
+        helper.rpc(
+            "open",
+            serde_json::json!({
+                "url": url,
+                "channel": input.channel,
+                "viewport": viewport,
+            }),
+        )?;
+        let result = helper.rpc("click", serde_json::json!({ "selector": selector }))?;
+        let page_url = result["url"].as_str().unwrap_or(&url).to_string();
+        Ok(page_url)
+    }) {
+        Ok(page_url) => ToolOutput::ok(format!("已点击 {selector:?};当前 url: {page_url}")),
+        Err(e) => ToolOutput::error(format!("浏览器工具失败: {e}")),
+    }
+}
+
+/// type:向输入框填入文本(selector + text 必填)。
+async fn execute_type(input: &BrowserInput) -> ToolOutput {
+    let url = match resolve_target(input) {
+        Ok(u) => u,
+        Err(e) => return ToolOutput::error(e),
+    };
+    let selector = match input.selector.as_deref() {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return ToolOutput::error("type 需要 selector 参数".to_string()),
+    };
+    let text = match input.text.as_deref() {
+        Some(t) => t.to_string(),
+        None => return ToolOutput::error("type 需要 text 参数".to_string()),
+    };
+    let viewport = parse_viewport(input.viewport.as_deref());
+
+    match with_helper(|helper| {
+        helper.rpc(
+            "open",
+            serde_json::json!({
+                "url": url,
+                "channel": input.channel,
+                "viewport": viewport,
+            }),
+        )?;
+        helper.rpc(
+            "type",
+            serde_json::json!({ "selector": selector, "text": text }),
+        )?;
+        Ok(())
+    }) {
+        Ok(()) => ToolOutput::ok(format!(
+            "已向 {selector:?} 填入文本({} 字符)",
+            text.chars().count()
+        )),
+        Err(e) => ToolOutput::error(format!("浏览器工具失败: {e}")),
+    }
+}
+
 /// 解析目标:path(本地文件)转 file:// URL;url 原样。
 fn resolve_target(input: &BrowserInput) -> Result<String, String> {
     if let Some(path) = &input.path {
@@ -505,10 +579,11 @@ pub(crate) fn input_schema() -> serde_json::Value {
             "path": { "type": "string", "description": "本地 HTML 文件路径(file:// 自动转换)" },
             "action": {
                 "type": "string",
-                "enum": ["open", "dom", "console"],
-                "description": "动作:open(默认,打开并截图回模型)| dom(读可读 DOM 结构,可选 selector)| console(读页面 console 错误/警告)"
+                "enum": ["open", "dom", "console", "click", "type"],
+                "description": "动作:open(默认,打开并截图回模型)| dom(读可读 DOM 结构,可选 selector)| console(读页面 console 错误/警告)| click(点击 selector 元素)| type(向 selector 输入框填入 text)"
             },
-            "selector": { "type": "string", "description": "dom 用:可选 CSS selector(默认 body 整树)" },
+            "selector": { "type": "string", "description": "dom/click/type 用:CSS selector" },
+            "text": { "type": "string", "description": "type 用:要填入输入框的文本" },
             "viewport": {
                 "type": "string",
                 "enum": ["mobile-375x667", "mobile-390x844", "mobile-412x915", "mobile-360x800"],
@@ -554,6 +629,7 @@ mod tests {
             channel: "msedge".into(),
             action: "open".into(),
             selector: None,
+            text: None,
         })
         .unwrap_err();
         assert!(err.contains("url 或 path"), "{err}");
@@ -566,6 +642,7 @@ mod tests {
             channel: "msedge".into(),
             action: "open".into(),
             selector: None,
+            text: None,
         })
         .unwrap_err();
         assert!(err.contains("http(s)"), "{err}");
@@ -582,6 +659,7 @@ mod tests {
             channel: "msedge".into(),
             action: "open".into(),
             selector: None,
+            text: None,
         })
         .unwrap();
         assert!(url.starts_with("file:///"), "本地文件应转 file://: {url}");

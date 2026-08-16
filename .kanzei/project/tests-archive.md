@@ -4349,3 +4349,9 @@
 - 摘要: R-269 批2:dom(可选 selector 可读结构)+console 错误读取。BrowserInput 加 action(open/dom/console)+selector 字段,execute_browser 按 action 分发(execute_open/execute_dom/execute_console),dom/console 前自动确保页面已 open。实测轨迹:dom(selector=#probe)返回 [{tag:p,id:probe,text:...}] 可读结构;console 返回 [{type:error,text:"R-269 测试页的 console 错误"}](验收④);shutdown 正常。Rust 单测 4 条全绿(含 schema 新增 action/selector),kanzei-tools 294 passed,clippy/fmt 通过
 - 关联: R-269
 - 收尾: 1786840213
+
+## T-1786840531 R-269 批3 click/type+诊断+无残留实测 [passed]
+- 命令: cargo test --workspace
+- 摘要: R-269 批3:workspace 全量 15 段 ok。click/type Rust 侧接入(action 分发+text 字段+schema),实测验收③:open→type(#name,世界)→click(#go)→dom(#result) 返回 {text:你好, 世界!}(DOM 变化读回);验收⑤非法 channel 明确诊断(不静默降级);验收⑥完整生命周期后 browser-helper node 0 残留+headless msedge 0 残留;验收① http URL 顺带实测(example.com title/url 正确)。kanzei-tools 294 passed,clippy/fmt 通过
+- 关联: R-269
+- 收尾: 1786840531
