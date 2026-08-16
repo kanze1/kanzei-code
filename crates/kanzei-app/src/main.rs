@@ -58,8 +58,8 @@ pub(crate) use state::{
     normalized_project_root, pending_ask_payload, process_info, process_session_id,
     prompt_attachment_parts, record_live_trace, record_live_trace_at_path, runtime_for,
     stop_runtime_and_finalize, take_pending_ask, ui_probe, ui_probe_result, with_session_id,
-    AppState, LiveRun, MobileService, MobileServiceInfo, PendingAsk, ProcessHandle, ProcessInfo,
-    ProjectRoot, PromptAttachment, SessionRuntime, WorktreeInfo, WorktreeRoot, UI_PROBE_EMIT,
+    AppState, LiveRun, PendingAsk, ProcessHandle, ProcessInfo, ProjectRoot, PromptAttachment,
+    SessionRuntime, WorktreeInfo, WorktreeRoot, UI_PROBE_EMIT,
 };
 
 #[cfg(test)]
@@ -236,6 +236,8 @@ fn main() {
             docs::test_runs_init_refs,
             mobile::mobile_service_start,
             mobile::mobile_service_stop,
+            mobile::mobile_device_revoke,
+            mobile::mobile_device_list,
             agent_container::agent_container_create,
             agent_container::agent_container_upgrade,
             agent_container::agent_container_rollback

@@ -407,11 +407,27 @@ pub(crate) struct ProcessInfo {
 }
 pub(crate) struct MobileService {
     pub(crate) active: Arc<AtomicBool>,
+    /// R-270 批1:已配对设备表(device_id → device_token)。撤销 = 从表移除,
+    /// 移除后该 token 立即 401,其它设备不受影响(替换原单一共享 token)。
+    pub(crate) devices: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    /// R-270 批1:当前有效的一次性配对码(桌面端生成,配对成功后清空)。
+    pub(crate) pair_code: Arc<std::sync::Mutex<Option<String>>>,
+    /// R-270 批1:服务监听是否在 LAN(0.0.0.0)。默认回环(127.0.0.1)行为不变。
+    pub(crate) lan: bool,
 }
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct MobileServiceInfo {
     pub(crate) address: String,
+    /// 单一共享 token(旧行为)或当前配对码(R-270 批1:配对码用于换取设备 token)。
     pub(crate) token: String,
+    pub(crate) lan: bool,
+    pub(crate) devices: Vec<MobileDeviceInfo>,
+}
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct MobileDeviceInfo {
+    pub(crate) device_id: String,
+    pub(crate) name: String,
+    pub(crate) paired_at_ms: u128,
 }
 /// Worktree 信息类型下沉 kanzei-tools(R-207),这里 re-export 保持引用点零改动。
 pub(crate) use kanzei_tools::worktree::WorktreeInfo;

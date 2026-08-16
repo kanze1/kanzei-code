@@ -193,32 +193,21 @@
 - 状态: todo
 - 阻塞: 队列让位(2026-08-16):R-186(P0 队首)本轮推进中,单 WIP 槽不足,本条让位等待队列轮转。解除动作: R-186 关闭后清本字段,做剩余批4(withSessionRender setter 化、B3、defer 时序与冒烟断言适配、删补偿)。P3 留档。解除人: agent。
 
-## R-269 浏览器工具:playwright-core 辅进程 headless 自检通道 [doing]
-- refs: R-101 D-319 R-249 R-059
-- 内容: ①Rust 工具起 Node 辅进程,playwright-core 以 channel 模式 launch 本机 Edge/Chrome headless(不下载 playwright 浏览器二进制),Rust↔Node 走 JSON-RPC over stdio;②能力:open(URL/本地文件)、screenshot(内置移动 viewport 预设,图片经 ToolOutput images 通道回模型——R-249 批1 已交付)、dom(可选 selector 的可读结构)、console、click/type;③自 launch 实例不碰 WebView2,天然绕开 D-319;④注册进桌面端与自举 harness 工具集,权限档位按 profiles 既有口径;⑤辅进程生命周期:空闲超时回收、工具关闭即收尾,不留僵尸 headless。拆批:批1 辅进程骨架+open+screenshot(含移动 viewport);批2 dom+console;批3 click/type 交互。
-- 复杂度: 大
-- 批次: 3/3
-- 来源: 2026-08-16 移动端开发前置盘点。用户定调:浏览器工具属开发工具必要范畴,直接登记;技术路线经用户拍板选 playwright-core 辅进程(devDependencies 已有 ^1.62.1,e2e-smoke 同款地基);首要消费场景是移动端 UI 的自举自检,兼收 R-101/webfetch 两侧收益。
-- 标签: 核心
-- 边界: 不 attach WebView2(R-101 的 CDP 路线另论);不做多 tab/多上下文并发;不做网络拦截与请求 mock;无 Node 或无 Edge/Chrome 时给明确诊断,不静默降级;截图体积口径沿用 R-249。
-- 验收: ①打开本地 HTML 与 http URL 各有实测轨迹;②移动 viewport 截图被模型真实消费(实测轨迹,不是单测断言);③click/type 后 DOM 变化可读回;④页面 console 错误可读;⑤缺 Node/缺浏览器时诊断明确;⑥工具生命周期结束后无残留辅进程与 headless 实例(实测进程列表);⑦附带给出 e2e-smoke 切本路线绕开 D-319 的可行性结论(只要结论,不要求实施)。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-269
-- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①依赖——playwright-core ^1.62.1(devDependencies 已有);②e2e-smoke 走 connectOverCDP(D-319 卡住),R-269 改 chromium.launch({channel}) 自 launch 本机 Edge,绕开 D-319;③图片通道——R-249 批1 已交付 ToolOutput.images;④无 Node/浏览器时给明确诊断。**设计冻结**:不变式——辅进程生命周期受控(空闲超时回收、工具关闭即收尾、不留僵尸);权威数据源——playwright-core 自 launch 的 browser/page,Rust↔Node 走 JSON-RPC over stdio。 || **批1 完成(5507f66)**:browser-helper.mjs + browser_tool.rs(单例+空闲回收+缺 Node 诊断)+base.rs 注册;实测 open 本地 HTML 移动 viewport + screenshot PNG + shutdown。 || **批2 完成(3cafeef)**:action 分发(dom/console),实测 dom(selector)可读结构 + console 页面错误(验收④)。 || **批3 完成(提交待定)**:click/type Rust 侧接入(action 分发+text 字段+schema),实测验收③:open→type(#name,世界)→click(#go)→dom(#result) 返回 {text:你好, 世界!}——click/type 后 DOM 变化读回;验收⑤非法 channel 明确诊断(helper resolveChannel 报错不再静默回退);验收⑥完整生命周期后 browser-helper node 0 残留+headless msedge 0 残留(实测进程列表);验收① http URL 顺带实测(example.com);workspace 全量 15 段 ok(T-1786840531),kanzei-tools 294 passed,clippy/fmt 通过。 || **验收⑦ e2e-smoke 可行性结论(2026-08-16)**:browser-helper 已验证 channel launch 本机 Edge headless 全链路(open/screenshot/dom/console/click/type)可行,绕开 D-319 的**浏览器侧**条件成立(自 launch 不依赖 WebView2 DevTools 端口)。但 e2e-smoke 的**目标**是真实 Tauri kzapp——它无 http URL 入口,channel launch 打开不了桌面应用;切换需 kzapp 暴露可访问入口(本地 http 服务/静态页)或改测其加载的页面。结论:**路线可行(浏览器通道已通),但 e2e-smoke 切本路线的落地依赖 kzapp 侧暴露入口,本条只给结论不实施**。**关闭前核对**:验收①本地 HTML(http URL 顺带)②移动 viewport 截图被模型消费(open 默认带图回模型)③click/type 后 DOM 变化读回 ④console 错误可读 ⑤缺浏览器诊断明确 ⑥无残留辅进程 ⑦可行性结论——全部有实测轨迹。按 §1.2 可用即关闭,准备 req update done。
-- observed_head: 3cafeef699239319d9eed2bfa6ac184df6596eff
-- observed_worktree_hash: fnv1a64:8a577fd28a21ef12
-- recorded_at: 1786840541598
-
-## R-270 桥接移动化:LAN 配对/SSE/approval/PWA serve 与通知桥 [todo]
+## R-270 桥接移动化:LAN 配对/SSE/approval/PWA serve 与通知桥 [doing]
 - refs: R-059 D-063 R-269 docs/design/r059_mobile_agent_communication.md
 - 内容: 现状 mobile.rs 只绑 127.0.0.1、Connection: close 单线程 accept、三个 JSON 端点、单一共享 token。本条:①监听可切 LAN(默认仍回环,桌面设置页开关+显示地址);②设备配对:桌面端生成配对码/二维码(地址+一次性配对 token),每设备独立 token,设备列表可单独撤销(替换现单一共享 token);③SSE 端点 GET /v1/events 长连接实时推送,断线重连沿用既有 delivery_cursor 补发,每连接独立线程,不阻塞其它请求;④approval 通道:GET pending 权限询问(脱敏摘要)+ POST 回答,接 runner 既有 ask 流,最终门禁仍在 harness 侧;⑤静态页 serve:桥接直接 serve PWA 页面(随桌面端发版分发,不另起服务);⑥息屏通知出口:approval/失败/完成等关键事件经现成 LAN 推送桥(KDE Connect 类,具体工具实施时定)发手机系统通知。拆批:批1 LAN+配对/撤销;批2 SSE;批3 approval;批4 PWA serve+通知桥出口。
 - 复杂度: 大
-- 批次: 0/4
+- 批次: 1/4
 - 来源: 2026-08-16 移动端方案定案(用户逐项拍板):形态 PWA+现成通知桥(手机为 Android);实时通道 SSE;第一批含 approval 远程回答;原生壳不做——息屏通知由 LAN 推送桥零开发补齐,不为舒适性引入 Android 工具链。必要性口径:本条是移动端唯一的硬必要部分,无替代。
 - 标签: 后端
 - 边界: 公网监听禁止(既有定调不变);不做 TLS(LAN 自用威胁模型,token 即门);不自研推送协议,不接 FCM/Web Push 等公网推送;不开放远程 shell/write——approval 只回答既有询问,不新增能力面;协议契约沿用 docs/design/r059_mobile_agent_communication.md 阶段A字段定义。
 - 验收: ①LAN 另一设备实测连通,默认回环行为不变;②撤销某设备后其 token 立即 401,其它设备不受影响;③SSE 断线重连 cursor 补发无丢终态,长连接挂着时其它端点仍可用;④移动端回答 approval 后 runner 真实放行/拒绝各有实测轨迹,harness 门禁无旁路;⑤手机浏览器打开桥接地址能加载 PWA 页面;⑥手机息屏状态收到 approval 事件的系统通知(实测);⑦既有回环+token 行为与 D-063 回归全绿。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-270
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①现状 mobile.rs(223 行)——TcpListener::bind((127.0.0.1, port)) 单线程 accept 循环 + 单一共享 token(kz-mobile-{pid}-{ns})+ 三端点(GET /v1/notifications、POST /v1/messages、health),MobileService{active} 存 AppState;②设计文档 r059_mobile_agent_communication.md 已定调:LAN 监听 + 每设备独立 token 配对/撤销、不做 TLS(token 即门)、设备须授权、未授权 401、协议契约阶段A字段沿用;③D-063(Content-Length trim)已修,既有回环+token 行为有回归测试。**设计冻结**:不变式——公网监听禁止、默认回环行为不变、approval 门禁仍在 harness 侧;权威数据源——mobile.rs 设备表(每设备独立 device_id+token+授权态)持久化于 AppState,配对一次性 token 由桌面端生成;预期改动文件——crates/kanzei-app/src/mobile.rs(多连接 accept+设备表+配对/撤销端点)、state.rs(设备表类型)、settings 页(LAN 开关+地址显示)、run/assembly 或 main.rs(桥接装配);最小测试——LAN 另一设备连通、撤销后 401 其它设备不受影响、既有回环+token 回归绿。 || **批1 完成(2026-08-16,提交待定)**:①mobile.rs 重构——mobile_service_start 加 lan 参数(默认回环 127.0.0.1 行为不变,lan=true 绑 0.0.0.0);设备表认证 mobile_authorized(撤销=从表移除,立即 401);POST /v1/pair 配对端点(一次性配对码换 device_id+独立 token,成功后清码);accept 循环改每连接独立线程(长请求不阻塞其它连接);②state.rs——MobileService 加 devices/pair_code/lan 字段,MobileServiceInfo 加 lan/devices,MobileDeviceInfo 新类型;③main.rs 注册 mobile_device_revoke/mobile_device_list 两个 Tauri 命令;④单测 3 条全绿:设备token认证表内通过撤销后拒绝、撤销不影响其它设备、配对码与普通token分开判定;kanzei-app 172 passed,clippy/fmt 通过(T-1786840966)。**下一批**:批2 SSE——GET /v1/events 长连接实时推送,断线重连沿用既有 delivery_cursor 补发,每连接独立线程(批1 已铺多线程 accept),不阻塞其它端点。
+- observed_head: 2eb9df1e025609598fe338471e8ee1e7ee0ac838
+- observed_worktree_hash: fnv1a64:54509285e0d2884b
+- recorded_at: 1786840975221
 
 ## R-271 移动端 PWA:配对/通知流/发消息/approval 界面 [todo]
 - refs: R-059 R-269 R-270 R-267

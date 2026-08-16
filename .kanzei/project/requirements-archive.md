@@ -3430,4 +3430,20 @@
 - observed_head: 36faa35a34f8ba76a151c9ca5fa8e5a9ebc6f204
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786839404583
+
+## R-269 浏览器工具:playwright-core 辅进程 headless 自检通道 [done]
+- refs: R-101 D-319 R-249 R-059
+- 内容: ①Rust 工具起 Node 辅进程,playwright-core 以 channel 模式 launch 本机 Edge/Chrome headless(不下载 playwright 浏览器二进制),Rust↔Node 走 JSON-RPC over stdio;②能力:open(URL/本地文件)、screenshot(内置移动 viewport 预设,图片经 ToolOutput images 通道回模型——R-249 批1 已交付)、dom(可选 selector 的可读结构)、console、click/type;③自 launch 实例不碰 WebView2,天然绕开 D-319;④注册进桌面端与自举 harness 工具集,权限档位按 profiles 既有口径;⑤辅进程生命周期:空闲超时回收、工具关闭即收尾,不留僵尸 headless。拆批:批1 辅进程骨架+open+screenshot(含移动 viewport);批2 dom+console;批3 click/type 交互。
+- 复杂度: 大
+- 批次: 3/3
+- 来源: 2026-08-16 移动端开发前置盘点。用户定调:浏览器工具属开发工具必要范畴,直接登记;技术路线经用户拍板选 playwright-core 辅进程(devDependencies 已有 ^1.62.1,e2e-smoke 同款地基);首要消费场景是移动端 UI 的自举自检,兼收 R-101/webfetch 两侧收益。
+- 标签: 核心
+- 边界: 不 attach WebView2(R-101 的 CDP 路线另论);不做多 tab/多上下文并发;不做网络拦截与请求 mock;无 Node 或无 Edge/Chrome 时给明确诊断,不静默降级;截图体积口径沿用 R-249。
+- 验收: ①打开本地 HTML 与 http URL 各有实测轨迹;②移动 viewport 截图被模型真实消费(实测轨迹,不是单测断言);③click/type 后 DOM 变化可读回;④页面 console 错误可读;⑤缺 Node/缺浏览器时诊断明确;⑥工具生命周期结束后无残留辅进程与 headless 实例(实测进程列表);⑦附带给出 e2e-smoke 切本路线绕开 D-319 的可行性结论(只要结论,不要求实施)。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-269
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①依赖——playwright-core ^1.62.1(devDependencies 已有);②e2e-smoke 走 connectOverCDP(D-319 卡住),R-269 改 chromium.launch({channel}) 自 launch 本机 Edge,绕开 D-319;③图片通道——R-249 批1 已交付 ToolOutput.images;④无 Node/浏览器时给明确诊断。**设计冻结**:不变式——辅进程生命周期受控(空闲超时回收、工具关闭即收尾、不留僵尸);权威数据源——playwright-core 自 launch 的 browser/page,Rust↔Node 走 JSON-RPC over stdio。 || **批1 完成(5507f66)**:browser-helper.mjs + browser_tool.rs(单例+空闲回收+缺 Node 诊断)+base.rs 注册;实测 open 本地 HTML 移动 viewport + screenshot PNG + shutdown。 || **批2 完成(3cafeef)**:action 分发(dom/console),实测 dom(selector)可读结构 + console 页面错误(验收④)。 || **批3 完成(2eb9df1)**:click/type 接入+缺浏览器诊断+无残留实测。 || **关闭(2026-08-16)**:七条验收逐项核对——①本地 HTML 与 http URL 各有实测轨迹(批1 本地 HTML title/url+截图;批3 example.com);②移动 viewport 截图经 ToolOutput.images 被模型消费(open 默认带图,375x667 PNG 11KB);③click/type 后 DOM 变化读回(open→type→click→dom 返回「你好, 世界!」);④console 错误可读(测试页 console.error 被读出);⑤缺 Node/缺浏览器诊断明确(缺 Node 单测+非法 channel 实测报错不静默);⑥生命周期结束无残留(browser-helper node 0+headless msedge 0,实测进程列表);⑦e2e-smoke 切本路线可行性结论已给(浏览器通道可行,落地依赖 kzapp 暴露 URL 入口,本条只给结论)。交付物:crates/kanzei-tools/src/browser_tool.rs(新,Rust 客户端+辅进程管理)+scripts/browser-helper.mjs(新,playwright-core channel launch)+base.rs 注册 Ask 权限;三批提交 5507f66/3cafeef/2eb9df1 已 push。workspace 全量 15 段 ok(T-1786840531)。按 §1.2 可用即关闭,本条 done。
+- observed_head: 2eb9df1e025609598fe338471e8ee1e7ee0ac838
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786840582167
 - 阻塞: 

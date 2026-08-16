@@ -4355,3 +4355,16 @@
 - 摘要: R-269 批3:workspace 全量 15 段 ok。click/type Rust 侧接入(action 分发+text 字段+schema),实测验收③:open→type(#name,世界)→click(#go)→dom(#result) 返回 {text:你好, 世界!}(DOM 变化读回);验收⑤非法 channel 明确诊断(不静默降级);验收⑥完整生命周期后 browser-helper node 0 残留+headless msedge 0 残留;验收① http URL 顺带实测(example.com title/url 正确)。kanzei-tools 294 passed,clippy/fmt 通过
 - 关联: R-269
 - 收尾: 1786840531
+
+## T-1786840966 R-270 批1 LAN+设备配对/撤销 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-270 批1:LAN 监听可切(默认回环不变)+设备配对(token 表)+单独撤销+每连接独立线程。mobile.rs 重构(设备表认证 mobile_authorized、POST /v1/pair 配对端点、mobile_device_revoke/list Tauri 命令注册 invoke_handler、accept 循环改每连接 spawn 线程),state.rs 扩展(MobileService 加 devices/pair_code/lan,MobileServiceInfo 加 lan/devices,MobileDeviceInfo 新类型)。单测 3 条:设备token认证表内通过撤销后拒绝、撤销不影响其它设备、配对码与普通token分开判定。kanzei-app 172 passed,clippy/fmt 通过
+- 关联: R-270
+- 收尾: 1786840966
+
+## T-1786841051 R-270 批1 LAN+配对(fmt 后复跑) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-270 批1 fmt 归一后复跑:kanzei-app 172 passed(fmt 只改排版不改语义)
+- 关联: R-270
+- 收尾: 1786841051
+- 源码指纹: 8c3212a5abd4fe02
