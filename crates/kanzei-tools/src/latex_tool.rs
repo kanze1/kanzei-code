@@ -156,16 +156,19 @@ pub(crate) fn compile_latex(workdir: &Path, tex_name: &str) -> (bool, String) {
     match detect_backend() {
         TeXBackend::System { .. } => compile_system(workdir, stem, &tex_path),
         TeXBackend::Tectonic { tectonic } => compile_tectonic(workdir, stem, &tex_path, &tectonic),
-        TeXBackend::Missing => (
-            false,
-            "未检测到 LaTeX 编译后端。\n\
-             方案一(推荐):安装 MiKTeX 或 TeX Live(全量宏包 + biber),并确保 kpsewhich 在 PATH。\n\
-             方案二:Tectonic 侧车——从 https://github.com/tectonic-typesetting/tectonic/releases \
-             下载官方 Windows 预编译 exe,放到 PATH 或本工具侧车目录,首次运行会自动预热 bundle。\n\
-             侧车缺失不崩溃:本工具如实报告,等待安装后重试。"
-                .into(),
-        ),
+        TeXBackend::Missing => (false, missing_guidance()),
     }
+}
+
+/// D-394:后端缺失指引文案单源——生产 Missing 分支与测试共用,防测试内硬编码
+/// 副本漂移(此前测试断言的是副本,生产分支零执行)。
+pub(crate) fn missing_guidance() -> String {
+    "未检测到 LaTeX 编译后端。\n\
+     方案一(推荐):安装 MiKTeX 或 TeX Live(全量宏包 + biber),并确保 kpsewhich 在 PATH。\n\
+     方案二:Tectonic 侧车——从 https://github.com/tectonic-typesetting/tectonic/releases \
+     下载官方 Windows 预编译 exe,放到 PATH 或本工具侧车目录,首次运行会自动预热 bundle。\n\
+     侧车缺失不崩溃:本工具如实报告,等待安装后重试。"
+        .into()
 }
 
 /// D-391:统一「文件名 → stem」口径(与 `Path::file_stem` 一致)。execute 与
@@ -443,6 +446,7 @@ fn summarize(text: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::path::PathBuf;
 
     fn temp_dir(tag: &str) -> PathBuf {
@@ -485,8 +489,14 @@ mod tests {
     }
 
     /// 错误诊断含行号(验收⑤):语法错误应点名 `!` 错误与 `l.<line>`。
+    /// D-394:加 skip guard——本机无 LaTeX 后端时 compile_latex 走 Missing 分支
+    /// (指引文案无行号),测试不得假失败。
     #[test]
     fn 错误诊断含行号() {
+        if which_in_path("pdflatex").is_none() && which_in_path("tectonic").is_none() {
+            eprintln!("跳过:本机无 LaTeX 后端,无法验证行号诊断");
+            return;
+        }
         let dir = temp_dir("errors");
         std::fs::write(
             dir.join("bad.tex"),
@@ -508,32 +518,40 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// 后端缺失:给下载指引不崩溃(验收⑥)。
+    /// 后端缺失:给下载指引不崩溃(验收⑥)。D-394:走真生产分支——临时把 PATH
+    /// 指向空目录让 detect_backend 真返回 Missing,compile_latex 产出必须等于
+    /// 单源 missing_guidance()(不再断言测试内硬编码副本)。
+    #[serial]
     #[test]
     fn 后端缺失给下载指引() {
-        let backend = TeXBackend::Missing;
-        assert_eq!(backend, TeXBackend::Missing);
         let dir = temp_dir("missing");
         std::fs::write(
             dir.join("x.tex"),
             "\\documentclass{article}\n\\begin{document}x\\end{document}\n",
         )
         .unwrap();
-        // 直接构造 Missing 路径验证指引文案(不依赖本机环境)。
-        let (ok, diag) = (false, compile_latex_missing(&dir));
-        assert!(!ok);
-        assert!(diag.contains("MiKTeX"), "指引要点名 MiKTeX: {diag}");
-        assert!(diag.contains("tectonic"), "指引要点名 Tectonic: {diag}");
+        let (ok, diag) = with_empty_path(|| compile_latex(&dir, "x.tex"));
+        assert!(!ok, "无后端必须失败");
+        assert!(
+            diag.contains("MiKTeX") && diag.contains("tectonic"),
+            "指引要点名 MiKTeX 与 Tectonic: {diag}"
+        );
+        assert_eq!(diag, missing_guidance(), "真 Missing 分支产出=单源文案");
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// 强制走 Missing 分支的编译(隔离环境依赖)。
-    fn compile_latex_missing(workdir: &Path) -> String {
-        let tex_path = workdir.join("x.tex");
-        let stem = "x";
-        let _ = stem;
-        let _ = tex_path;
-        "未检测到 LaTeX 编译后端。\n方案一(推荐):安装 MiKTeX 或 TeX Live(全量宏包 + biber),并确保 kpsewhich 在 PATH。\n方案二:Tectonic 侧车——从 https://github.com/tectonic-typesetting/tectonic/releases 下载官方 Windows 预编译 exe,放到 PATH 或本工具侧车目录,首次运行会自动预热 bundle。\n侧车缺失不崩溃:本工具如实报告,等待安装后重试。".into()
+    /// D-394:临时清空 PATH(指向空目录)——detect_backend/pdf_to_png 的 which_in_path
+    /// 查不到任何后端,走真生产 Missing/缺失分支。进程级副作用,须 #[serial] 隔离
+    /// 且立即恢复(窗口 ms 级)。
+    fn with_empty_path<T>(f: impl FnOnce() -> T) -> T {
+        let saved = std::env::var("PATH").unwrap_or_default();
+        let empty = std::env::temp_dir().join(format!("kz-empty-path-{}", std::process::id()));
+        std::fs::create_dir_all(&empty).unwrap();
+        std::env::set_var("PATH", &empty);
+        let result = f();
+        std::env::set_var("PATH", &saved);
+        std::fs::remove_dir_all(&empty).ok();
+        result
     }
 
     /// R-273 批2:PDF 首页转 PNG(验收②轨迹——编译产物页面转 PNG 被模型消费)。
@@ -639,14 +657,20 @@ mod tests {
         assert_eq!(stem_of("doc"), "doc", "无扩展名原样");
     }
 
-    /// R-273 批2:pdftoppm 缺失时给明确诊断(不静默)。
+    /// R-273 批2:pdftoppm 缺失时给明确诊断(不静默)。D-394:走真生产分支——
+    /// 临时清空 PATH + 真实存在的 PDF(否则落在「PDF 不存在」分支,名不副实)。
+    #[serial]
     #[test]
     fn pdftoppm缺失给诊断() {
-        // 构造一个不存在 pdftoppm 的环境:临时清空 PATH 中相关项不可行,
-        // 用不存在的 PDF 路径触发「PDF 不存在」分支(等价路径校验)。
         let dir = temp_dir("nopng");
-        let err = pdf_to_png(&dir.join("missing.pdf"), &dir, "missing").unwrap_err();
-        assert!(err.contains("PDF 不存在"), "{err}");
+        // 真实存在的 PDF(内容无关,is_file 检查通过后才会走到 pdftoppm 检测)。
+        std::fs::write(dir.join("real.pdf"), b"placeholder").unwrap();
+        let err = with_empty_path(|| pdf_to_png(&dir.join("real.pdf"), &dir, "real")).unwrap_err();
+        assert!(err.contains("pdftoppm"), "真缺失分支应点名 pdftoppm: {err}");
+        assert!(
+            !err.contains("PDF 不存在"),
+            "不得落在 PDF 不存在分支: {err}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -705,6 +729,27 @@ mod tests {
             diag.contains("bib 路线"),
             "诊断应声明 bib 路线(验收④): {diag}"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-273 验收③:D-394——tectonic 真 exe 至少一次真编译实测(真文档→真 PDF,
+    /// 不再用假 .cmd 脚本替代)。本机无 tectonic 时跳过(测试就位,具备 tectonic
+    /// 的环境自动真跑,留记录)。
+    #[test]
+    fn tectonic真exe真编译() {
+        let Some(tectonic) = which_in_path("tectonic") else {
+            eprintln!("跳过:本机无 tectonic 真 exe;真编译实测由具备 tectonic 的环境执行");
+            return;
+        };
+        let dir = temp_dir("tectonic-real");
+        std::fs::write(
+            dir.join("doc.tex"),
+            "\\documentclass{article}\n\\begin{document}x\\end{document}\n",
+        )
+        .unwrap();
+        let (ok, diag) = compile_tectonic(&dir, "doc", &dir.join("doc.tex"), &tectonic);
+        assert!(ok, "真 tectonic 应编译真文档:\n{diag}");
+        assert!(dir.join("doc.pdf").is_file(), "真 PDF 必须产出");
         std::fs::remove_dir_all(&dir).ok();
     }
 }
