@@ -57,6 +57,12 @@
 - **发布树(worktree)**:发布统一从 `C:\Users\kanzei\Documents\kanzei-release`(`git worktree`,跟踪 main)执行:`git -C <发布树> pull` 后跑其中的 `package.ps1 -Publish`——与 dev 工作树完全隔离,发布时不需要 stash/打断正在进行的开发。**提交了不等于发布了**:安装版用户只认 Releases,合并 main 后记得发布。
 - **Release 标签与保留规范**:tag = `build-<short-hash>`,标题 `kanzei <日期> (<hash>)`;公开 Releases 只保留最新稳定版及其安装器,旧 Release 对象与资产发布新版后清理,对应 Git tags 与提交历史保留用于审计和恢复。
 - **产物卫生**:`dist/` 只保留最新安装器,`dist/`、`target/`、安装器一律不入库。
+### 9.15 波次质量审计(手动触发,2026-08-16)
+
+- 触发方式:**用户手动发起**,不进定时任务、不挂关闭门禁——审计频率由用户按波次节奏掌握,避免拖慢自举吞吐。建议时机:一波密集交付(≥10 提交)后、或发版前。
+- 流程、三路只读派发模板与四种失败模式清单(最后一公里接线/证据替身/注释假承诺/沉默降级)见 `docs/design/bootstrap_quality_audit.md`;产物一律 `defect add` 登记,只列真问题不凑数。
+- 审计纪律:只读;不跑任何构建(并行线互踩);以已提交 HEAD 为准,工作树未提交改动只标注不定论;关键指控先当场核验(file:line 复查)再登记。
+
 ### 9.2 巨石度量与阈值(R-258)
 
 - **度量入口**:`kz metrics [--top N]`——按文件输出 总行数/生产行数/测试行数/函数数/最大函数行数/参数>7 处数,全仓 Top-N 榜单。生产行数 = 总行数 − cfg(test) 块行数(cfg(test) 块按大括号配平识别;外挂声明 `#[cfg(test)] mod x;` 不算测试块;`_tests.rs` 后缀与 `tests/` 目录的外挂测试文件整文件算测试行)。

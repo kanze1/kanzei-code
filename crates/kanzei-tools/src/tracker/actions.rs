@@ -451,6 +451,11 @@ pub(crate) fn update_close(
             if let Some(evidence_err) = check_close_classification_evidence(&merged) {
                 return ToolOutput::error(format!("{id} {evidence_err}"));
             }
+            // 2026-08-16 审计门禁:验收条款对账——带圈条款号必须在进展中逐条覆盖
+            // 并带证据锚,沉默降级即拒(详见函数注释;真伪由波次审计另查)。
+            if let Some(reconcile_err) = check_close_acceptance_reconciliation(&merged) {
+                return ToolOutput::error(format!("{id} {reconcile_err}"));
+            }
             let derived_done = crate::git_batches::completed_batches(&ctx.project_root, id)
                 .ok()
                 .filter(|done| *done > 0);
@@ -1133,6 +1138,128 @@ fn check_close_classification_evidence(entry: &Entry) -> Option<String> {
     } else {
         None
     }
+}
+
+/// 2026-08-16 审计门禁(D-389/D-401 一类的机制化):验收条款对账。
+/// 验收字段用带圈数字(①…⑳)列条款时,关闭时的进展字段必须逐条覆盖:每个条款号
+/// 至少出现一次,且其后到下一个条款号(至多 400 字符)内带证据锚——T- 测试记录、
+/// file:line 引证、7 位以上提交号,或显式的「验收降级」/「由用户」缓办声明。
+/// 防的是**沉默降级**(条款被跳过而关闭文本只字不提,或整段叙述不落到条款上);
+/// 证据本身的真伪由波次审计(docs/design/bootstrap_quality_audit.md)负责——
+/// 语法门禁不判语义,本仓一贯口径。无编号条款的验收、无验收字段的条目不受影响。
+fn check_close_acceptance_reconciliation(entry: &Entry) -> Option<String> {
+    fn is_circled(c: char) -> bool {
+        ('\u{2460}'..='\u{2473}').contains(&c) // ①..⑳
+    }
+    /// 7 位以上十六进制小写/数字 token(提交号形态,如 `2483818`/`b0bb1fc`),
+    /// 按 ASCII 词边界认定——CJK 字节不是 ASCII 字母数字,天然成边界。
+    fn has_commit_token(segment: &str) -> bool {
+        let bytes = segment.as_bytes();
+        let mut i = 0usize;
+        while i < bytes.len() {
+            let is_hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
+            if is_hex(bytes[i]) {
+                let start = i;
+                while i < bytes.len() && is_hex(bytes[i]) {
+                    i += 1;
+                }
+                let bounded_left = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
+                let bounded_right = i >= bytes.len() || !bytes[i].is_ascii_alphanumeric();
+                if i - start >= 7 && bounded_left && bounded_right {
+                    return true;
+                }
+            } else {
+                i += 1;
+            }
+        }
+        false
+    }
+    fn has_anchor(segment: &str) -> bool {
+        if segment.contains("验收降级") || segment.contains("由用户") {
+            return true;
+        }
+        // T-<数字> 测试记录引用。
+        if segment.match_indices("T-").any(|(i, _)| {
+            segment[i + 2..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_digit())
+        }) {
+            return true;
+        }
+        if !file_line_citations(segment).is_empty() {
+            return true;
+        }
+        has_commit_token(segment)
+    }
+    let acceptance = entry
+        .fields
+        .iter()
+        .find(|(k, _)| k == "验收")
+        .map(|(_, v)| v.as_str())
+        .unwrap_or("");
+    let mut markers: Vec<char> = Vec::new();
+    for c in acceptance.chars().filter(|c| is_circled(*c)) {
+        if !markers.contains(&c) {
+            markers.push(c);
+        }
+    }
+    if markers.is_empty() {
+        return None;
+    }
+    let progress = entry
+        .fields
+        .iter()
+        .find(|(k, _)| k == "进展")
+        .map(|(_, v)| v.as_str())
+        .unwrap_or("");
+    let chars: Vec<char> = progress.chars().collect();
+    let mut unmentioned: Vec<char> = Vec::new();
+    let mut unanchored: Vec<char> = Vec::new();
+    for &marker in &markers {
+        let occurrences: Vec<usize> = chars
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| **c == marker)
+            .map(|(i, _)| i)
+            .collect();
+        if occurrences.is_empty() {
+            unmentioned.push(marker);
+            continue;
+        }
+        let covered = occurrences.iter().any(|&start| {
+            let cap = (start + 1 + 400).min(chars.len());
+            let end = chars[start + 1..cap]
+                .iter()
+                .position(|c| is_circled(*c))
+                .map(|off| start + 1 + off)
+                .unwrap_or(cap);
+            let segment: String = chars[start + 1..end].iter().collect();
+            has_anchor(&segment)
+        });
+        if !covered {
+            unanchored.push(marker);
+        }
+    }
+    if unmentioned.is_empty() && unanchored.is_empty() {
+        return None;
+    }
+    let fmt = |v: &[char]| v.iter().map(|c| c.to_string()).collect::<Vec<_>>().join("");
+    let mut problems = Vec::new();
+    if !unmentioned.is_empty() {
+        problems.push(format!("{} 在进展中未提及", fmt(&unmentioned)));
+    }
+    if !unanchored.is_empty() {
+        problems.push(format!("{} 提及了但无证据锚", fmt(&unanchored)));
+    }
+    Some(format!(
+        "验收条款对账未过:验收列出条款 {},其中 {}。关闭前每条验收必须在进展里逐条\
+         覆盖并带证据锚——T- 测试记录 / file:line / 提交号;做不到的条款要显式写\
+         『验收降级: <条款号> 原文→实际+理由』或『<条款号> 由用户执行』,沉默跳过即拒。\
+         (证据真伪由波次审计另查,见 docs/design/bootstrap_quality_audit.md)",
+        fmt(&markers),
+        problems.join(";")
+    ))
 }
 
 /// R-232:条目的用户可见字段视图——剔除引擎维护的仓库锚点键,并把 status/title/

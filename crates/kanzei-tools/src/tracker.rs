@@ -1075,6 +1075,96 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// 2026-08-16 审计门禁:验收条款对账——带圈条款号必须在关闭进展中逐条覆盖并带
+    /// 证据锚(T-/file:line/提交号),否则显式降级;沉默跳过即拒。真伪由波次审计另查。
+    #[tokio::test]
+    async fn 验收条款对账_沉默降级拒关_带锚或显式降级放行() {
+        let dir = std::env::temp_dir().join(format!("kz-acc-rec-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let store = || DocStore::open(&dir, &REQUIREMENTS);
+        let with_fields = |fields: Vec<(&str, &str)>| {
+            let mut e = entry("R-001");
+            e.fields = fields
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            e
+        };
+
+        // ② 在进展中完全未提及:拒关并点名 ②。
+        let e = with_fields(vec![
+            ("验收", "①编译成功有实测;②截图被模型消费"),
+            ("进展", "关闭:①T-1786000000 实测通过"),
+        ]);
+        store().save(&[e]).unwrap();
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(out.content.contains('②'), "{}", out.content);
+        assert!(out.content.contains("未提及"), "{}", out.content);
+
+        // 条款提及了但 400 字符邻域内没有任何证据锚:拒关。
+        let e = with_fields(vec![
+            ("验收", "①编译成功有实测"),
+            ("进展", "关闭:①做完了,效果很好,大家都说好"),
+        ]);
+        store().save(&[e]).unwrap();
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(out.content.contains("无证据锚"), "{}", out.content);
+
+        // 逐条带锚(T- 记录 / file:line / 提交号)放行。
+        let e = with_fields(vec![
+            ("验收", "①编译成功有实测;②截图被模型消费;③发版"),
+            (
+                "进展",
+                "关闭:①T-1786000000 实测;②见 crates/kanzei-tools/src/plot_tool.rs:185;\
+                 ③随 build-9a06e05 发布",
+            ),
+        ]);
+        store().save(&[e]).unwrap();
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+
+        // 显式降级与「由用户」缓办是合法覆盖形态:放行。
+        let e = with_fields(vec![
+            ("验收", "①真机全链路实测;②锁屏恢复"),
+            (
+                "进展",
+                "关闭:①验收降级: 真机实测改为 viewport 自检,真机部分待补;②由用户执行",
+            ),
+        ]);
+        store().save(&[e]).unwrap();
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+
+        // 无编号条款的验收不受影响(门禁只认带圈数字)。
+        let e = with_fields(vec![
+            ("验收", "一句话验收,无编号条款"),
+            ("进展", "关闭:做完了"),
+        ]);
+        store().save(&[e]).unwrap();
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// R-227 验收②配套:archive_fill 通过 tracker 动作回填归档条目占位符。
     #[tokio::test]
     async fn archive_fill_回填归档占位符_缺参报错() {
