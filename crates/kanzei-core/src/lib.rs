@@ -21,9 +21,10 @@ pub use runner::{
     is_usable_failure_kind, mask_volatile_payload, normalize_fp_marker,
     pending_background_subagents, prune_conversation, run_once, run_once_with_parts,
     run_read_agent, summarize_failures, summarize_metrics, summarize_tools, AskFuture, AskPolicy,
-    AskReply, AskRequest, AskResponse, CancellationToken, CompletedEntry, FailureSignal, RecallHit,
-    RecallOutcome, RecallPolicy, RecallTrigger, RecallWatch, RunEvent, RunMetrics, RunSummary,
-    RunnerConfig, SubagentRuntime, TaskCancellationGuard, TaskCancellations, TaskTrace,
+    AskReply, AskRequest, AskResponse, BackgroundEventSink, CancellationToken, CompletedEntry,
+    FailureSignal, RecallHit, RecallOutcome, RecallPolicy, RecallTrigger, RecallWatch, RunEvent,
+    RunMetrics, RunSummary, RunnerConfig, SubagentRuntime, SubagentTranscriptProvider,
+    TaskCancellationGuard, TaskCancellations, TaskTrace,
 };
 pub use store::{
     compare_shadow, prepare_typed_session, project_session_facts, project_session_id,
@@ -31,5 +32,5 @@ pub use store::{
     EpisodeRecord, FunnelCounts, RecallEvent, RecallMetrics, Session, SessionFact,
     SessionFactEnvelope, SessionFactError, SessionInvariant, SessionProjection, SessionStore,
     SessionTurnTerminal, ShadowComparison, ShadowVerdictStats, StoreError, StoredEvent,
-    StoredProcess, TypedSessionWriter,
+    StoredProcess, TypedSessionWriter, SUBAGENT_TRANSCRIPT,
 };

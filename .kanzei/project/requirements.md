@@ -111,7 +111,7 @@
 - 标签: 核心
 - 边界: 本需求只负责事件投影真源切换与 segment reset，不实现会话物理删除、Spill artifact 联动删除、WAL/VACUUM 或迁移备份安全整理；这些统一由 R-245 的删除计划与显式整理入口承担。第一批不改事件 format_version 与 SessionFact 公共词表；任一读路径可通过 feature gate 独立回退 legacy snapshot。
 - 迁移与回滚: 不新增表、列或索引时不创建空 migration。切换按五条读路径分别启用 feature gate，legacy snapshot 在观察期只读保留；任一路径出现未知差异即回退该路径。全部 gate 稳定后才停止新增 conversation.updated，既有 snapshot 不删除。
-- 阻塞: 
+- 阻塞: 验收⑤写错误侧(typed_write_errors=0)真实库核验需部署新 kz 后产生新轮 shadow_compared——部署为发版动作(release.ps1 装 kz 到 ~/.cargo/bin),解除人=用户(执行发版后运行数轮,`kz shadow` 核验 typed_write_errors=0)。验收①⑥/⑦ 由 R-279(子代理 transcript 投影)/R-243(compaction 事件化)承接,属 agent 队列内工作量,不阻塞。
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
 - 进展: 2026-08-16 复核补丁(交付后自审):批7a 的 conversation_list 切换能力已实现但未加入 DEFAULT_PROJECTION_PATHS(缺省仍走 legacy),不符合验收①'五条读路径切到事件投影'——已补:①DEFAULT_PROJECTION_PATHS 加 conversation_list(4 条,缺省启用,注释同步批7 落地);②conversation_list_projected 空 facts 回退 legacy 快照段(与 project_latest_segment 空回退同语义,mobile 线程等无 typed facts 会话仍显示快照段);③gate 测试断言同步(conversation_list 缺省启用,仅 subagent_transcript 不启用)。kanzei-app 192 passed(T-1786896965)。前置状态见批8 记录:验收②③④达标、①⑥ 4/5(补丁后 conversation_list 缺省投影,实为 4.5/5)+4 条 gate 缺省启用、⑤差异侧达标;剩余=等 R-279 回填 subagent_transcript + 等 R-243 回填验收⑦ + 部署新 kz 后真实库新轮核验 typed_write_errors=0。
@@ -226,7 +226,7 @@
 - 验收: ①一个真实课题走完整链路(计划→审批→检索→带引用报告)有轨迹;②FACT 式抽查:随机抽论断,文献 URL 与代码 file:line 逐条支撑(实测,不接受自评);③预算旋钮实测:设小预算提前收敛出报告不崩;④机械核验原始工具输出不进主上下文(只有压缩摘要);⑤文献与代码经同一检索接口命中各有实测;⑥中途强杀重启可恢复续跑;⑦轻课题(只产 report.md)与重课题(paper.tex 编译通过)各走通一次。验收②补充(D-412 反例):「出处是否真含支撑文本」做成机械抽查——文献论断的支撑文本必须落在正文内(取回正文全文 grep 关键词,摘要命中不算),仅摘要级来源不得支撑正文级论断;D-412 反例样本=CoALA 四类记忆划分不在摘要而在正文 §2.3(working/episodic/semantic/procedural),机械抽查应能检出此类越界(摘要含 modular memory components 但无四词)。
 - 优先级: P1
 
-## R-279 子代理 transcript 事件投影真源:子代理对话落 typed facts、续跑从投影恢复、注册 subagent_transcript gate [todo]
+## R-279 子代理 transcript 事件投影真源:子代理对话落 typed facts、续跑从投影恢复、注册 subagent_transcript gate [doing]
 - 优先级: P1
 - 内容: 子代理(background_subagent/task 派发)的对话历史当前只存进程内 TranscriptStore(HashMap,重启即失),无事件投影真源——R-242 验收①⑥ 的第五条读路径(subagent_transcript)因此无法切换。本条目:①子代理运行期把对话事实(user/assistant/tool 消息)落 session_events(与主会话同库,事件带子代理标识,走同一 typed writer/invariant 契约);②续跑恢复从事件投影重建 transcript(进程内 HashMap 仅作缓存);③注册 subagent_transcript feature gate,可独立回退到进程内行为;④回填 R-242 验收①(五条读路径从同一事件日志恢复一致消息)与验收⑥(五条 gate 独立回滚)。
 - 复杂度: 中
@@ -235,3 +235,9 @@
 - 边界: 本条目只负责子代理 transcript 的事件投影真源建立与读路径切换,不扩展主会话 typed 词表;子代理对话落库沿用既有 session_events(带 subagent 前缀标识),不改 SessionFact 公共枚举;进程内 TranscriptStore 降为缓存。验收⑤真实库新轮验证与验收⑦(compaction 事件化)不属于本条目(见 R-242 进展)。
 - 验收: ①子代理对话事实落库后,新开进程可从事件日志投影恢复该子代理 transcript(非空);②续跑 prior 从事件投影恢复,与进程内 TranscriptStore 内容一致;③注册 subagent_transcript gate,剔除该路径后回退进程内行为,行为与切换前一致;④R-242 验收①⑥ 回填(subagent_transcript 成为第五条约切换路径/第五条 gate)。
 - refs: R-242
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-279
+- 批次: 1/2
+- 进展: 2026-08-16 批1 完成(待提交):①子代理 transcript 事件落库——SubagentRuntime 增 transcript_sink(BackgroundEventSink 同款),run_subagent 完成时把 summary.messages 写 session_events 的 subagent.transcript 事件(payload 含 call_id+完整历史,快照式,非 typed fact 不污染主会话投影);②恢复——SubagentRuntime 增 transcript_provider(SubagentTranscriptProvider),run_subagent 续跑 prior 优先从 provider 读事件(gate 开时 app 层闭包内判断),空则回退进程内 TranscriptStore;③store 层 recover_subagent_transcript 按 call_id 取最新事件;④build_subagent_runtime 加 2 参数(桌面 coordinator.rs 接线,CLI 单轮传 None),5 个测试 fixture 构造补字段;⑤projection_gate DEFAULT_PROJECTION_PATHS 加 subagent_transcript(5 条缺省启用,gate 可独立回退)。测试:kanzei-core 214(含 recover_subagent_transcript 写入/过滤/最新优先单测)+app 192+kanzei 37+31+tools 317 全绿。下一步批2:集成验证(background_subagent_dispatch 风格:真实 run_subagent 落库+gate 开关恢复对比)+ R-242 验收①⑥ 回填确认。
+- observed_head: 3b30bc0ddb9bb8128a865091f468729f26078c40
+- observed_worktree_hash: fnv1a64:264888421ea5d479
+- recorded_at: 1786898364393

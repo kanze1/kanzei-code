@@ -424,7 +424,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // task 子代理运行时:R-256 与桌面共用 kanzei_tools::run::build_subagent_runtime(对照表
     // #16);CLI 单运行不参与共享仲裁(R-171 批6)、无前端停止按钮(R-174),传 None/None。
     let subagent_rt = kanzei_tools::run::build_subagent_runtime(
-        &rctx, &config, &proxy, &resolved, &route, None, None,
+        &rctx, &config, &proxy, &resolved, &route, None, None, None, None,
     )
     .await?;
 

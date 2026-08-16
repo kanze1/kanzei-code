@@ -164,6 +164,33 @@ pub(crate) async fn run_task(
     // 同样提前终止本轮),故先构造再进 run_execution_loop。
     // task 子代理运行时:R-256 与 CLI 共用 kanzei_tools::run::build_subagent_runtime,
     // 桌面差异(登记读槽 R-171 批6、单条停止注册表 R-174)经参数注入。
+    // R-279:子代理 transcript 事件落库/恢复回调——sink 写主会话 session_events
+    // (subagent.transcript 快照事件),provider 按 subagent_transcript gate 从事件
+    // 恢复续跑 prior(gate 关回退进程内 TranscriptStore)。
+    let transcript_sink_state = state_path.clone();
+    let transcript_sink_session = session_id.clone();
+    let transcript_sink: Option<kanzei_core::BackgroundEventSink> = Some(std::sync::Arc::new(
+        move |_call_id: &str, payload: serde_json::Value| {
+            if let Ok(store) = kanzei_core::SessionStore::open(&transcript_sink_state) {
+                let _ =
+                    store.append_event(&transcript_sink_session, "subagent.transcript", &payload);
+            }
+        },
+    ));
+    let transcript_provider_state = state_path.clone();
+    let transcript_provider_session = session_id.clone();
+    let transcript_provider: Option<kanzei_core::SubagentTranscriptProvider> = Some(
+        std::sync::Arc::new(move |call_id: &str| -> Option<Vec<kanzei_llm::Message>> {
+            if !crate::projection_gate::read_path_uses_projection("subagent_transcript") {
+                return None; // gate 关:回退进程内 TranscriptStore,行为与切换前一致
+            }
+            let store = kanzei_core::SessionStore::open(&transcript_provider_state).ok()?;
+            store
+                .recover_subagent_transcript(&transcript_provider_session, call_id)
+                .ok()
+                .flatten()
+        }),
+    );
     let subagent_rt = kanzei_tools::run::build_subagent_runtime(
         &deps.rctx,
         &deps.config,
@@ -175,6 +202,8 @@ pub(crate) async fn run_task(
                 dyn kanzei_harness::orchestration::ProjectExecutionCoordinator,
             >),
         Some(handles.task_cancellations.clone()),
+        transcript_sink,
+        transcript_provider,
     )
     .await?;
 

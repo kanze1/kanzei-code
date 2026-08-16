@@ -238,6 +238,8 @@ async fn 执行中停止_取消占位配对_历史无孤儿() {
         background_events: None,
         transcripts: None,
         background_notifications: None,
+        transcript_sink: None,
+        transcript_provider: None,
     };
     let halt = kanzei_core::CancellationToken::new();
     let runner_config = runner_config(&config, halt.clone());

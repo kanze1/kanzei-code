@@ -196,6 +196,8 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
                 .unwrap()
                 .push((call_id.to_string(), status.to_string()));
         })),
+        transcript_sink: None,
+        transcript_provider: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
         model: "mock".into(),
@@ -402,6 +404,8 @@ async fn 同一id续跑_prior恢复此前transcript_不重开空历史() {
         background_events: None,
         transcripts: Some(transcripts.clone()),
         background_notifications: None,
+        transcript_sink: None,
+        transcript_provider: None,
     };
     let ctx = ToolCtx::new(project.clone(), project.clone());
     let id = "call_task_b3".to_string();
@@ -547,6 +551,8 @@ async fn 失败与被停终态_读槽均释放_快照无残留读者() {
         background_events: None,
         transcripts: None,
         background_notifications: None,
+        transcript_sink: None,
+        transcript_provider: None,
     };
     let fail_id = "call_task_fail".to_string();
     let failed = kanzei_core::run_read_agent(
@@ -605,6 +611,8 @@ async fn 失败与被停终态_读槽均释放_快照无残留读者() {
         background_events: None,
         transcripts: None,
         background_notifications: None,
+        transcript_sink: None,
+        transcript_provider: None,
     };
     let stop_id = "call_task_stop".to_string();
     let stop_runner = tokio::spawn({
@@ -704,6 +712,8 @@ async fn 超时终态_读槽释放_快照无残留读者() {
         background_events: None,
         transcripts: None,
         background_notifications: None,
+        transcript_sink: None,
+        transcript_provider: None,
     };
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<kanzei_core::RunEvent>();
 

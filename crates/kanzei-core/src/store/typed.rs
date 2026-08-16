@@ -31,6 +31,9 @@ pub const TOOL_RESULT_INTERRUPTED: &str = "session.tool_result_interrupted";
 pub const TURN_STOPPED: &str = "session.turn_stopped";
 pub const TURN_COMPLETED: &str = "session.turn_completed";
 pub const TURN_FAILED: &str = "session.turn_failed";
+/// R-279:子代理 transcript 事件(快照式,payload 含 call_id + 完整消息历史)。
+/// 非 typed fact(不进 SessionFact 枚举),不影响主会话投影。
+pub const SUBAGENT_TRANSCRIPT: &str = "subagent.transcript";
 
 const FACT_TYPES: [&str; 12] = [
     LEGACY_SEEDED,
@@ -758,6 +761,28 @@ impl SessionStore {
             closed_events: recovery.len(),
             skipped_post_terminal,
         })
+    }
+
+    /// R-279:从事件日志恢复指定子代理的最新 transcript(快照式事件恢复)。
+    ///
+    /// 事件类型 `subagent.transcript`(非 typed fact),payload 含 call_id +
+    /// 完整消息历史;多个事件(同 id 多次运行)取最新。无匹配返回 None。
+    pub fn recover_subagent_transcript(
+        &self,
+        session_id: &str,
+        call_id: &str,
+    ) -> Result<Option<Vec<Message>>, SessionFactError> {
+        let mut latest = None;
+        for event in self.list_events_by_type(session_id, 0, SUBAGENT_TRANSCRIPT)? {
+            if event.payload["call_id"].as_str() == Some(call_id) {
+                if let Ok(messages) =
+                    serde_json::from_value::<Vec<Message>>(event.payload["messages"].clone())
+                {
+                    latest = Some(messages);
+                }
+            }
+        }
+        Ok(latest)
     }
 }
 
@@ -1786,6 +1811,57 @@ mod tests {
         // 历史脏条(terminal 后追加的 tool result)被跳过计数。
         assert_eq!(report.closed_events, 0);
         assert_eq!(report.skipped_post_terminal, 1);
+    }
+    #[test]
+    fn recover_subagent_transcript_reads_latest_event_for_call_id() {
+        // R-279:subagent.transcript 事件按 call_id 恢复,同 id 多次运行取最新。
+        let store = store();
+        store.create_session("ses", "t", None).unwrap();
+        store
+            .append_event(
+                "ses",
+                SUBAGENT_TRANSCRIPT,
+                &serde_json::json!({
+                    "call_id": "sub-a",
+                    "messages": [Message::user_text("第一跑")]
+                }),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses",
+                SUBAGENT_TRANSCRIPT,
+                &serde_json::json!({
+                    "call_id": "sub-b",
+                    "messages": [Message::user_text("其它子代理")]
+                }),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses",
+                SUBAGENT_TRANSCRIPT,
+                &serde_json::json!({
+                    "call_id": "sub-a",
+                    "messages": [Message::user_text("第一跑"), Message::user_text("续跑")]
+                }),
+            )
+            .unwrap();
+        let recovered = store
+            .recover_subagent_transcript("ses", "sub-a")
+            .unwrap()
+            .expect("sub-a 应有 transcript");
+        assert_eq!(recovered.len(), 2, "同 id 多次运行取最新事件");
+        // call_id 过滤:其它子代理的事件不串扰;无匹配返回 None。
+        let other = store
+            .recover_subagent_transcript("ses", "sub-b")
+            .unwrap()
+            .unwrap();
+        assert_eq!(other.len(), 1);
+        assert!(store
+            .recover_subagent_transcript("ses", "sub-missing")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

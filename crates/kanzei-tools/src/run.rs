@@ -11,7 +11,10 @@
 
 use std::sync::Arc;
 
-use kanzei_core::{RunnerConfig, SubagentRuntime, TaskCancellations};
+use kanzei_core::{
+    BackgroundEventSink, RunnerConfig, SubagentRuntime, SubagentTranscriptProvider,
+    TaskCancellations,
+};
 use kanzei_harness::config::{KanzeiConfig, ResolvedModel};
 use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 use kanzei_harness::{ConfigComponent, Harness, MarkdownComponent, ResolveCtx};
@@ -84,6 +87,7 @@ fn resolve_reasoning_override(
 /// `run/execution.rs::build_subagent_runtime` 除 coordinator/cancellations 外逐字节相同)。
 /// 桌面端传 `Some(coordinator)`/`Some(cancellations)`(登记读槽 R-171 批6、单条停止
 /// 注册表 R-174);CLI 单运行传 `None`/`None`(不参与共享仲裁、无前端停止按钮)。
+#[allow(clippy::too_many_arguments)] // 对外装配函数,参数对应装配点差异(coordinator/cancellations/transcript 钩子),收拢成对象会扰动全部调用方(R-256/R-279)。
 pub async fn build_subagent_runtime(
     rctx: &ResolveCtx,
     config: &KanzeiConfig,
@@ -92,6 +96,10 @@ pub async fn build_subagent_runtime(
     route: &Route,
     coordinator: Option<Arc<dyn ProjectExecutionCoordinator>>,
     cancellations: Option<Arc<TaskCancellations>>,
+    // R-279:子代理 transcript 事件落库/恢复回调。桌面端传(写主会话事件 +
+    // gate 判断读事件);CLI 单轮 task 传 None(续跑与跨进程恢复非 CLI 场景)。
+    transcript_sink: Option<BackgroundEventSink>,
+    transcript_provider: Option<SubagentTranscriptProvider>,
 ) -> anyhow::Result<Option<SubagentRuntime>> {
     let mut sub_harness = Harness::default();
     sub_harness.add(crate::SubagentBase).add(ConfigComponent);
@@ -151,5 +159,7 @@ pub async fn build_subagent_runtime(
         background_events: None,
         transcripts: None,
         background_notifications: None,
+        transcript_sink,
+        transcript_provider,
     }))
 }

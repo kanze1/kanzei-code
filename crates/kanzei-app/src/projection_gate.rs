@@ -10,17 +10,18 @@
 //!
 //! 批6 边界:conversation_list 的投影段边界依赖 conversation.reset 事件
 //! (批7 segment reset 已落地,conversation_list 已加入缺省启用);subagent_transcript
-//! 无事件投影真源(子代理对话不落 typed facts),拆为 R-279 独立子工程——进展
-//! 里如实记录缺口。
+//! 由 R-279 建立事件投影真源(子代理对话落 subagent.transcript 事件)后加入缺省
+//! 启用——进展里如实记录。
 
 /// 缺省启用事件投影的读路径(未设置环境变量时)。
-/// 批7a 后 conversation_list 的 reset 段边界已落地,加入缺省(验收①第五条约切换
-/// 路径由 R-279 承接)。
-const DEFAULT_PROJECTION_PATHS: [&str; 4] = [
+/// 批7a 后 conversation_list 的 reset 段边界已落地;R-279 后 subagent_transcript
+/// 第五条路径加入(事件投影真源建立)。
+const DEFAULT_PROJECTION_PATHS: [&str; 5] = [
     "conversation_get",
     "conversation_list",
     "runner_prior",
     "ui_history",
+    "subagent_transcript",
 ];
 
 /// 该读路径是否使用事件投影(而非 legacy snapshot)。
@@ -57,8 +58,11 @@ mod tests {
                 "{path} 缺省应启用投影"
             );
         }
-        // 未注册/未切换的路径不因缺省而启用(仅 subagent_transcript,拆 R-279)。
-        assert!(!read_path_uses_projection_with(None, "subagent_transcript"));
+        // 五条读路径全部缺省启用(R-279 后 subagent_transcript 加入)。
+        assert!(
+            read_path_uses_projection_with(None, "subagent_transcript"),
+            "subagent_transcript 缺省应启用投影(R-279)"
+        );
     }
 
     #[test]

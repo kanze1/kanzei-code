@@ -553,6 +553,8 @@ impl PhasePipeline {
             background_events: template.background_events.clone(),
             transcripts: template.transcripts.clone(),
             background_notifications: template.background_notifications.clone(),
+            transcript_sink: template.transcript_sink.clone(),
+            transcript_provider: template.transcript_provider.clone(),
         }
     }
 }

@@ -157,6 +157,8 @@ impl Fixture {
             background_events: None,
             transcripts: None,
             background_notifications: None,
+            transcript_sink: None,
+            transcript_provider: None,
         }
     }
 

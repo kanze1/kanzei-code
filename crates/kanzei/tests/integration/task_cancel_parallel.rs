@@ -193,6 +193,8 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         background_events: None,
         transcripts: None,
         background_notifications: None,
+        transcript_sink: None,
+        transcript_provider: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
         model: "mock".into(),

@@ -87,6 +87,13 @@ impl Drop for TaskCancellationGuard {
 /// Connection 非 Send)直接进 spawn 的限制。type 别名:避免 clippy type_complexity。
 pub type BackgroundEventSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 
+/// R-279:子代理 transcript 事件恢复回调(读侧)。app 层把 state_path/session_id
+/// 与 `subagent_transcript` gate 判断包进闭包传入;返回 None 表示事件不可用/
+/// gate 关闭,run_subagent 回退进程内 TranscriptStore(缓存)。type 别名:避免
+/// clippy type_complexity。
+pub type SubagentTranscriptProvider =
+    Arc<dyn Fn(&str) -> Option<Vec<kanzei_llm::Message>> + Send + Sync>;
+
 /// R-175 B3:子代理 transcript 暂存类型(进程内,按 id → 消息历史)。
 /// type 别名:避免 clippy type_complexity。
 pub type TranscriptStore =
@@ -279,6 +286,15 @@ pub struct SubagentRuntime {
     /// 闭包传入;sink(call_id, status)在 drive.rs spawn 块三终态(完成/失败/超时)
     /// 时调用,status ∈ done|failed|timeout。None = CLI/测试不通知。
     pub background_notifications: Option<BackgroundNotificationSink>,
+    /// R-279:子代理 transcript 事件落库回调(写侧)。run_subagent 完成时把完整
+    /// 消息历史写进 session_events 的 `subagent.transcript` 事件(带 call_id),
+    /// 跨进程/重启可恢复(进程内 TranscriptStore 降为缓存)。app 层包
+    /// state_path/session_id 传入;None = CLI 单轮 task 不落库。
+    pub transcript_sink: Option<BackgroundEventSink>,
+    /// R-279:子代理 transcript 事件恢复回调(读侧)。续跑 prior 优先从事件日志
+    /// 恢复(provider 含 `subagent_transcript` gate 判断);None/事件无时回退
+    /// 进程内 TranscriptStore。None = CLI 单轮 task 不启用。
+    pub transcript_provider: Option<SubagentTranscriptProvider>,
 }
 
 impl SubagentRuntime {
@@ -635,14 +651,21 @@ pub(crate) async fn run_subagent(
             }
         }
     };
-    // R-175 B3:续跑恢复——同一 id 再次调用 run_subagent 时,从 transcripts 恢复
-    // 此前完整历史作为 prior(验收④:续跑请求里可见此前 transcript,不是从空历史
-    // 重开)。首次派发(无历史)行为不变,仍从空 prior 开始。
+    // R-175 B3 + R-279:续跑恢复——同一 id 再次调用 run_subagent 时,prior 优先
+    // 从事件日志恢复(transcript_provider,gate 开时 app 层已接线,跨进程可恢复),
+    // 事件无/未启用时回退进程内 TranscriptStore(缓存);首次派发仍从空 prior 开始。
     let mut prior: Vec<Message> = rt
-        .transcripts
+        .transcript_provider
         .as_ref()
-        .and_then(|store| store.lock().unwrap().get(parent_call_id).cloned())
+        .and_then(|provider| provider(parent_call_id))
         .unwrap_or_default();
+    if prior.is_empty() {
+        prior = rt
+            .transcripts
+            .as_ref()
+            .and_then(|store| store.lock().unwrap().get(parent_call_id).cloned())
+            .unwrap_or_default();
+    }
     // R-250:本轮要投递给子代理的指令。首跑=原 prompt;schema 不合规重试时换成
     // 纠错指令,并把上一跑的完整历史当 prior 续上——重跑整个子代理太贵,而且
     // 它已经查到的东西不该丢。
@@ -740,6 +763,17 @@ pub(crate) async fn run_subagent(
                 .lock()
                 .unwrap()
                 .insert(parent_call_id.to_string(), summary.messages.clone());
+        }
+        // R-279:transcript 事件落库(跨进程/重启可恢复)。payload 含 call_id +
+        // 完整消息历史;恢复端按 call_id 取最新事件。
+        if let Some(sink) = rt.transcript_sink.as_ref() {
+            sink(
+                parent_call_id,
+                serde_json::json!({
+                    "call_id": parent_call_id,
+                    "messages": summary.messages,
+                }),
+            );
         }
         let text = if summary.text.trim().is_empty() {
             "(subagent finished without a text answer)".to_string()
