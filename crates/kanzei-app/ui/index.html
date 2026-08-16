@@ -205,99 +205,98 @@
                原来这些挤在顶栏——那是全屏唯一一条 nowrap 且已在做减法的容器,窄窗口下
                @media 直接把鞭挞状态 display:none 掉;而轮次只在瞬时调用里出现,下一帧就被
                无参重绘抹回上一次的停止原因,「跑到第几轮」实际从来看不见。 -->
-          <div id="autorun-bar" class="autorun-bar" role="group" aria-label="鞭挞控制台" data-i18n-aria-label="鞭挞控制台">
-            <label id="auto-continue-wrap" title="每轮跑完自动发「继续推进目标」" data-i18n-title="每轮跑完自动发「继续推进目标」">
-              <input type="checkbox" id="auto-continue" /> <span data-i18n-key="鞭挞">鞭挞</span>
-            </label>
-            <span id="auto-progress" class="auto-progress" role="img" aria-label="鞭挞轮次" data-i18n-aria-label="鞭挞轮次"><b id="auto-round-now">0</b>/<span id="auto-round-max">10</span></span>
-            <span id="auto-phase" class="auto-phase"></span>
-            <span class="spacer"></span>
-            <span id="auto-status" class="auto-reason hidden" role="status" aria-live="polite"></span>
-            <button id="auto-resume" class="ghost mini hidden" type="button" title="清零轮次并重新开始鞭挞" data-i18n-title="清零轮次并重新开始鞭挞"><span data-i18n-key="继续鞭挞">继续鞭挞</span></button>
-            <details id="autorun-more">
-              <summary class="autorun-trigger" title="鞭挞设置" data-i18n-title="鞭挞设置"><span data-i18n-key="设置">设置</span></summary>
-              <div class="autorun-menu" role="group" aria-label="鞭挞设置" data-i18n-aria-label="鞭挞设置">
-                <div class="menu-section">
-                  <span class="menu-section-label" data-i18n-key="模式">模式</span>
-                  <label class="menu-row" for="profile-select">
-                    <span class="menu-row-main">
-                      <span class="menu-row-title" data-i18n-key="运行模式">运行模式</span>
-                      <span class="menu-row-desc" data-i18n-key="只有自主推进档允许鞭挞;档位不对引擎会直接停机">只有自主推进档允许鞭挞;档位不对引擎会直接停机</span>
-                    </span>
-                    <select id="profile-select" title="模式" data-i18n-title="模式">
-                      <option value="dev-pair"><span data-i18n-key="结伴开发">结伴开发</span></option>
-                      <option value="dev-auto"><span data-i18n-key="自主推进">自主推进</span></option>
-                      <option value="research"><span data-i18n-key="research 研究">research 研究</span></option>
-                    </select>
-                  </label>
-                  <label class="menu-row" for="work-priority-select">
-                    <span class="menu-row-main">
-                      <span class="menu-row-title" data-i18n-key="取活顺序">取活顺序</span>
-                      <span class="menu-row-desc" data-i18n-key="两条队列都有可执行条目时先取哪一队">两条队列都有可执行条目时先取哪一队</span>
-                    </span>
-                    <select id="work-priority-select" title="自动推进取活顺序" data-i18n-title="自动推进取活顺序">
-                      <option value="defect-first"><span data-i18n-key="缺陷优先">缺陷优先</span></option>
-                      <option value="requirement-first"><span data-i18n-key="需求优先">需求优先</span></option>
-                    </select>
-                  </label>
-                </div>
-                <div class="menu-section">
-                  <span class="menu-section-label" data-i18n-key="刹车">刹车</span>
-                  <div class="menu-row" data-shortcut="1">
-                    <span class="menu-row-main">
-                      <span class="menu-row-title" data-i18n-key="暂停与恢复">暂停与恢复</span>
-                      <span class="menu-row-desc" data-i18n-key="立刻挂起,已排的下一轮不再发出">立刻挂起,已排的下一轮不再发出</span>
-                    </span>
-                    <kbd class="menu-key">1</kbd>
-                    <button id="auto-pause" class="ghost mini" type="button" aria-pressed="false" title="暂停/恢复自动鞭挞" data-i18n-title="暂停/恢复自动鞭挞"><span data-i18n-key="暂停鞭挞">暂停鞭挞</span></button>
-                  </div>
-                  <label id="auto-stop-round-wrap" class="menu-row" data-shortcut="2" title="当前轮完成后停止鞭挞" data-i18n-title="当前轮完成后停止鞭挞">
-                    <span class="menu-row-main">
-                      <span class="menu-row-title" data-i18n-key="本轮后停">本轮后停</span>
-                      <span class="menu-row-desc" data-i18n-key="让当前这一轮跑完,之后不再自动继续">让当前这一轮跑完,之后不再自动继续</span>
-                    </span>
-                    <kbd class="menu-key">2</kbd>
-                    <input type="checkbox" id="auto-stop-round" />
-                  </label>
-                  <label class="menu-row" for="auto-max">
-                    <span class="menu-row-main">
-                      <span class="menu-row-title" data-i18n-key="连续推进上限">连续推进上限</span>
-                      <span class="menu-row-desc" data-i18n-key="到达后停下等你,防失控">到达后停下等你,防失控</span>
-                    </span>
-                    <input id="auto-max" class="auto-max" type="number" min="1" max="100" step="1" value="10" title="鞭挞上限(1-100)" data-i18n-title="鞭挞上限(1-100)" />
-                  </label>
-                </div>
-                <div class="menu-section">
-                  <span class="menu-section-label" data-i18n-key="闸门">闸门</span>
-                  <label id="auto-allow-wrap" class="menu-row" data-shortcut="3" title="自动放行:所有权限询问直接通过;此选择会被记住,跨重启仍生效(相当于 yolo)" data-i18n-title="自动放行:所有权限询问直接通过;此选择会被记住,跨重启仍生效(相当于 yolo)">
-                    <span class="menu-row-main">
-                      <span class="menu-row-title" data-i18n-key="自动放行">自动放行</span>
-                      <span class="menu-row-desc" data-i18n-key="权限询问全部直接通过;跨重启仍生效">权限询问全部直接通过;跨重启仍生效</span>
-                    </span>
-                    <kbd class="menu-key">3</kbd>
-                    <input type="checkbox" id="auto-allow" />
-                  </label>
-                  <label id="process-phase-pipeline-wrap" class="menu-row" data-shortcut="4" title="开启后本进程每个任务强制走:并行勘察 → 实现 → 并行复核 →(有发现时)修正;关闭时是一问一答,模型仍可自己派子代理。成本:每轮多 5 个勘察 + 3 个复核子代理,复核只要不是全部回 NO_ISSUES(失败/超时也算有发现)就再多跑一段修正,弱模型下几乎每轮都会跑;并行角色数上限由 [limits] max_tasks_per_turn 控制。" data-i18n-title="开启后本进程每个任务强制走:并行勘察 → 实现 → 并行复核 →(有发现时)修正;关闭时是一问一答,模型仍可自己派子代理。成本:每轮多 5 个勘察 + 3 个复核子代理,复核只要不是全部回 NO_ISSUES(失败/超时也算有发现)就再多跑一段修正,弱模型下几乎每轮都会跑;并行角色数上限由 [limits] max_tasks_per_turn 控制。">
-                    <span class="menu-row-main">
-                      <span class="menu-row-title" data-i18n-key="勘察复核">勘察复核</span>
-                      <span class="menu-row-desc" data-i18n-key="每轮强制走 勘察→实现→复核;关掉则每轮直接实现">每轮强制走 勘察→实现→复核;关掉则每轮直接实现</span>
-                    </span>
-                    <kbd class="menu-key">4</kbd>
-                    <input type="checkbox" id="process-phase-pipeline" />
-                  </label>
-                  <label id="process-tracker-writes-wrap" class="menu-row hidden" title="允许当前分支线修改主项目唯一的需求、缺陷、想法、决策等 tracker 文档。默认关闭；读取始终可用。" data-i18n-title="允许当前分支线修改主项目唯一的需求、缺陷、想法、决策等 tracker 文档。默认关闭；读取始终可用。">
-                    <span class="menu-row-main">
-                      <span class="menu-row-title" data-i18n-key="写主根追踪器">写主根追踪器</span>
-                      <span class="menu-row-desc" data-i18n-key="允许本线改主项目的需求/缺陷文档,默认关闭">允许本线改主项目的需求/缺陷文档,默认关闭</span>
-                    </span>
-                    <input type="checkbox" id="process-tracker-writes" />
-                  </label>
-                </div>
-              </div>
-            </details>
-          </div>
           <div id="composer-bar">
             <span id="hint" class="dim"></span>
+            <div id="autorun-bar" class="autorun-bar" role="group" aria-label="鞭挞控制台" data-i18n-aria-label="鞭挞控制台">
+              <label id="auto-continue-wrap" title="每轮跑完自动发「继续推进目标」" data-i18n-title="每轮跑完自动发「继续推进目标」">
+                <input type="checkbox" id="auto-continue" /> <span data-i18n-key="鞭挞">鞭挞</span>
+              </label>
+              <details id="autorun-more">
+                <summary class="autorun-trigger" title="鞭挞设置" data-i18n-title="鞭挞设置"><span data-i18n-key="设置">设置</span></summary>
+                <div class="autorun-menu" role="group" aria-label="鞭挞设置" data-i18n-aria-label="鞭挞设置">
+                  <div class="menu-section">
+                    <span class="menu-section-label" data-i18n-key="模式">模式</span>
+                    <label class="menu-row" for="profile-select">
+                      <span class="menu-row-main">
+                        <span class="menu-row-title" data-i18n-key="运行模式">运行模式</span>
+                        <span class="menu-row-desc" data-i18n-key="只有自主推进档允许鞭挞;档位不对引擎会直接停机">只有自主推进档允许鞭挞;档位不对引擎会直接停机</span>
+                      </span>
+                      <select id="profile-select" title="模式" data-i18n-title="模式">
+                        <option value="dev-pair"><span data-i18n-key="结伴开发">结伴开发</span></option>
+                        <option value="dev-auto"><span data-i18n-key="自主推进">自主推进</span></option>
+                        <option value="research"><span data-i18n-key="research 研究">research 研究</span></option>
+                      </select>
+                    </label>
+                    <label class="menu-row" for="work-priority-select">
+                      <span class="menu-row-main">
+                        <span class="menu-row-title" data-i18n-key="取活顺序">取活顺序</span>
+                        <span class="menu-row-desc" data-i18n-key="两条队列都有可执行条目时先取哪一队">两条队列都有可执行条目时先取哪一队</span>
+                      </span>
+                      <select id="work-priority-select" title="自动推进取活顺序" data-i18n-title="自动推进取活顺序">
+                        <option value="defect-first"><span data-i18n-key="缺陷优先">缺陷优先</span></option>
+                        <option value="requirement-first"><span data-i18n-key="需求优先">需求优先</span></option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="menu-section">
+                    <span class="menu-section-label" data-i18n-key="刹车">刹车</span>
+                    <div class="menu-row" data-shortcut="1">
+                      <span class="menu-row-main">
+                        <span class="menu-row-title" data-i18n-key="暂停与恢复">暂停与恢复</span>
+                        <span class="menu-row-desc" data-i18n-key="立刻挂起,已排的下一轮不再发出">立刻挂起,已排的下一轮不再发出</span>
+                      </span>
+                      <kbd class="menu-key">1</kbd>
+                      <button id="auto-pause" class="ghost mini" type="button" aria-pressed="false" title="暂停/恢复自动鞭挞" data-i18n-title="暂停/恢复自动鞭挞"><span data-i18n-key="暂停鞭挞">暂停鞭挞</span></button>
+                    </div>
+                    <label id="auto-stop-round-wrap" class="menu-row" data-shortcut="2" title="当前轮完成后停止鞭挞" data-i18n-title="当前轮完成后停止鞭挞">
+                      <span class="menu-row-main">
+                        <span class="menu-row-title" data-i18n-key="本轮后停">本轮后停</span>
+                        <span class="menu-row-desc" data-i18n-key="让当前这一轮跑完,之后不再自动继续">让当前这一轮跑完,之后不再自动继续</span>
+                      </span>
+                      <kbd class="menu-key">2</kbd>
+                      <input type="checkbox" id="auto-stop-round" />
+                    </label>
+                    <label class="menu-row" for="auto-max">
+                      <span class="menu-row-main">
+                        <span class="menu-row-title" data-i18n-key="连续推进上限">连续推进上限</span>
+                        <span class="menu-row-desc" data-i18n-key="到达后停下等你,防失控">到达后停下等你,防失控</span>
+                      </span>
+                      <input id="auto-max" class="auto-max" type="number" min="1" max="100" step="1" value="10" title="鞭挞上限(1-100)" data-i18n-title="鞭挞上限(1-100)" />
+                    </label>
+                  </div>
+                  <div class="menu-section">
+                    <span class="menu-section-label" data-i18n-key="闸门">闸门</span>
+                    <label id="auto-allow-wrap" class="menu-row" data-shortcut="3" title="自动放行:所有权限询问直接通过;此选择会被记住,跨重启仍生效(相当于 yolo)" data-i18n-title="自动放行:所有权限询问直接通过;此选择会被记住,跨重启仍生效(相当于 yolo)">
+                      <span class="menu-row-main">
+                        <span class="menu-row-title" data-i18n-key="自动放行">自动放行</span>
+                        <span class="menu-row-desc" data-i18n-key="权限询问全部直接通过;跨重启仍生效">权限询问全部直接通过;跨重启仍生效</span>
+                      </span>
+                      <kbd class="menu-key">3</kbd>
+                      <input type="checkbox" id="auto-allow" />
+                    </label>
+                    <label id="process-phase-pipeline-wrap" class="menu-row" data-shortcut="4" title="开启后本进程每个任务强制走:并行勘察 → 实现 → 并行复核 →(有发现时)修正;关闭时是一问一答,模型仍可自己派子代理。成本:每轮多 5 个勘察 + 3 个复核子代理,复核只要不是全部回 NO_ISSUES(失败/超时也算有发现)就再多跑一段修正,弱模型下几乎每轮都会跑;并行角色数上限由 [limits] max_tasks_per_turn 控制。" data-i18n-title="开启后本进程每个任务强制走:并行勘察 → 实现 → 并行复核 →(有发现时)修正;关闭时是一问一答,模型仍可自己派子代理。成本:每轮多 5 个勘察 + 3 个复核子代理,复核只要不是全部回 NO_ISSUES(失败/超时也算有发现)就再多跑一段修正,弱模型下几乎每轮都会跑;并行角色数上限由 [limits] max_tasks_per_turn 控制。">
+                      <span class="menu-row-main">
+                        <span class="menu-row-title" data-i18n-key="勘察复核">勘察复核</span>
+                        <span class="menu-row-desc" data-i18n-key="每轮强制走 勘察→实现→复核;关掉则每轮直接实现">每轮强制走 勘察→实现→复核;关掉则每轮直接实现</span>
+                      </span>
+                      <kbd class="menu-key">4</kbd>
+                      <input type="checkbox" id="process-phase-pipeline" />
+                    </label>
+                    <label id="process-tracker-writes-wrap" class="menu-row hidden" title="允许当前分支线修改主项目唯一的需求、缺陷、想法、决策等 tracker 文档。默认关闭；读取始终可用。" data-i18n-title="允许当前分支线修改主项目唯一的需求、缺陷、想法、决策等 tracker 文档。默认关闭；读取始终可用。">
+                      <span class="menu-row-main">
+                        <span class="menu-row-title" data-i18n-key="写主根追踪器">写主根追踪器</span>
+                        <span class="menu-row-desc" data-i18n-key="允许本线改主项目的需求/缺陷文档,默认关闭">允许本线改主项目的需求/缺陷文档,默认关闭</span>
+                      </span>
+                      <input type="checkbox" id="process-tracker-writes" />
+                    </label>
+                  </div>
+                </div>
+              </details>
+              <span id="auto-progress" class="auto-progress" role="img" aria-label="鞭挞轮次" data-i18n-aria-label="鞭挞轮次"><b id="auto-round-now">0</b>/<span id="auto-round-max">10</span></span>
+              <span id="auto-phase" class="auto-phase"></span>
+              <span id="auto-status" class="auto-reason hidden" role="status" aria-live="polite"></span>
+              <button id="auto-resume" class="ghost mini hidden" type="button" title="清零轮次并重新开始鞭挞" data-i18n-title="清零轮次并重新开始鞭挞"><span data-i18n-key="继续鞭挞">继续鞭挞</span></button>
+            </div>
             <div class="composer-actions">
               <button id="continue-toggle" class="ghost" type="button" aria-expanded="false" title="展开或收起继续文案编辑" data-i18n-title="展开或收起继续文案编辑"><span data-i18n-key="继续文案">继续文案</span></button>
               <button id="sop-picker" class="ghost" type="button" title="选择已沉淀的 SOP" data-i18n-title="选择已沉淀的 SOP">SOP</button>
@@ -930,7 +929,7 @@
     </aside>
   </div>
 
-  <div id="ask-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="ask-title">
+  <div id="ask-overlay" class="hidden" role="dialog" aria-modal="false" aria-labelledby="ask-title">
     <div id="ask-dialog">
       <div class="ask-title" id="ask-title" data-i18n-key="权限请求">权限请求</div>
       <div id="ask-queue-status" class="ask-queue-status"></div>

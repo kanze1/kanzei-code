@@ -4676,9 +4676,26 @@ assert(
 {
   const consoleBar = byId.get("autorun-bar");
   assert(consoleBar, "鞭挞控制台 #autorun-bar 不存在(控件仍留在顶栏?)");
+  // 判定改为**配对标签扫描出的真实包含区间**,不再用两个 id 的位置切片:原实现取
+  // autorun-bar 与 composer-bar 之间的字符串,2026-08-16 把控制台挪进 composer-bar
+  // (鞭挞与发送同行)后两者先后颠倒、切片变空,契约没破测试却红。DOM 桩是扁平的
+  // (按 id 造节点直接挂 body),祖先链走不通,所以判定落在源码文本上。
   assert(
-    html.slice(html.indexOf('id="autorun-bar"'), html.indexOf('id="composer-bar"'))
-      .includes('id="process-phase-pipeline"'),
+    (() => {
+      const open = html.indexOf('<div id="autorun-bar"');
+      if (open < 0) return false;
+      let depth = 0;
+      const tag = /<\/?div\b/g;
+      tag.lastIndex = open;
+      for (let m = tag.exec(html); m; m = tag.exec(html)) {
+        depth += m[0] === "<div" ? 1 : -1;
+        if (depth === 0) {
+          const end = html.indexOf(">", m.index) + 1;
+          return html.slice(open, end).includes('id="process-phase-pipeline"');
+        }
+      }
+      return false;
+    })(),
     "「勘察复核」开关必须落在鞭挞控制台里,不能还挂在顶栏「更多」",
   );
   assert(!pipelineToggle.checked, "勘察复核此刻应为关闭态");

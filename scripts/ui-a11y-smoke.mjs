@@ -15,7 +15,11 @@ assert.equal(
   "静态 icon-btn 必须有 aria-label"
 );
 
-assert.match(html, /id="ask-overlay"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="ask-title"/);
+// 权限/提问弹窗是**非模态**停靠卡片(2026-08-16 起):要判断该不该放行往往得回看
+// 刚才的工具轨迹与对话,全屏模态恰恰把判断依据挡在背后。非阻塞形态下 aria-modal
+// 必须如实为 false——宣称 true 会让读屏软件把背景内容整块隐藏,与实际可读可交互
+// 的事实相反,那才是真的无障碍缺陷。role/aria-labelledby 仍是硬要求。
+assert.match(html, /id="ask-overlay"[^>]*role="dialog"[^>]*aria-modal="false"[^>]*aria-labelledby="ask-title"/);
 assert.match(html, /id="viewer-overlay"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="viewer-title"/);
 assert.match(js, /if \(event\.key !== "Escape"\) return/);
 assert.match(js, /answerAsk\(askActive\.kind === "question" \? "cancel" : "deny"\)/);

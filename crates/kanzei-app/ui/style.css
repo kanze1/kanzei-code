@@ -713,6 +713,13 @@ select {
 .msg.notice { color: var(--dim); font-size: var(--fs-11-5); text-align: center; }
 
 #composer { border-top: 1px solid var(--border-soft); padding: 12px 14px; flex-shrink: 0; position: relative; }
+/* 输入区限宽居中:宽屏(2000px+)下整行输入框既难扫读也难落笔,给它一个
+   舒适的行宽上限,窄屏时 100% 照旧。附件条/输入框/发送行同宽,视觉成块。 */
+#composer > #attachments,
+#composer > #prompt,
+#composer > #composer-bar,
+#composer > .composer-queue,
+#composer > #continue-editor { max-width: 1080px; margin-left: auto; margin-right: auto; }
 .attachments { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 7px; }
 .attachment-chip { background: var(--accent-soft); color: var(--fg-strong); border: 1px solid var(--accent); border-radius: 4px; padding: 3px 7px; cursor: pointer; font-size: var(--fs-11); font: inherit; }
 .attachment-chip:hover { background: var(--accent); }
@@ -722,8 +729,9 @@ select {
   border-radius: var(--radius); padding: 9px 12px; font: inherit; resize: none;
 }
 #prompt:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
-#composer-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
-.composer-actions { display: flex; gap: 8px; }
+#composer-bar { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin-top: 8px; flex-wrap: wrap; }
+.composer-actions { display: flex; gap: 8px; margin-left: auto; }
+#composer-bar #hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 button { border: 0; border-radius: 4px; padding: 6px 16px; cursor: pointer; font: inherit; font-size: var(--fs-12-5); }
 button.primary { background: var(--accent); color: var(--on-accent); }
@@ -825,14 +833,22 @@ button:disabled { opacity: .45; cursor: default; }
 .settings-actions { display: flex; gap: 10px; margin-top: 28px; }
 
 /* ---------- 权限弹窗 / toast ---------- */
+/* 权限/提问:**非阻塞停靠**,不是全屏模态。
+   要判断「该不该放行」往往得回看刚才的工具轨迹与对话——旧实现用 inset:0 的
+   深色遮罩罩住整个应用,恰恰把判断依据挡在了背后,用户只能凭记忆按钮。
+   现在贴右下角浮起:对话区照常滚动、可选中复制,决策与依据同屏。
+   遮罩层 pointer-events:none 让点击穿透到底下的应用,只有卡片自身接事件。 */
 #ask-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.55);
-  display: flex; align-items: center; justify-content: center; z-index: var(--z-overlay);
+  position: fixed; inset: auto 0 0 0; background: none;
+  display: flex; align-items: flex-end; justify-content: flex-end;
+  padding: 0 22px 18px; z-index: var(--z-overlay); pointer-events: none;
 }
 #ask-dialog {
-  background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;
-  padding: 20px 22px; min-width: 400px; max-width: 640px;
+  background: var(--panel2); border: 1px solid var(--accent); border-radius: 10px;
+  padding: 16px 18px; min-width: 380px; max-width: 560px;
+  max-height: 60vh; overflow-y: auto;
   box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  pointer-events: auto;
 }
 .ask-title { font-weight: 600; margin-bottom: 14px; color: var(--warn); }
 .ask-queue-status { color: var(--dim); font-size: var(--fs-11); margin: -8px 0 10px; }
@@ -1555,11 +1571,16 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 /* 常驻条只放状态(开关/轮次/阶段/停机原因),设置全在弹出面板里。
    状态槽位化:轮次、阶段、原因各占各的元素,谁也覆盖不了谁——旧实现把三样
    揉进一条自由文本,任何无参重绘都会把另外两样抹掉。 */
+/* 鞭挞控制台与发送行同处一行(不再单独占一行):composer-bar 是 flex 行,
+   本条只描述自身的内部排布与外观,位置由 #composer-bar 的布局给出。
+   设置紧随「鞭挞」勾选框——它是这个开关的配置入口,分隔到行尾会让人找不到。 */
 .autorun-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin-bottom: 6px; padding: 4px 8px; font-size: var(--fs-11-5); color: var(--dim);
+  padding: 3px 8px; font-size: var(--fs-11-5); color: var(--dim);
   border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--panel);
+  min-width: 0; /* 状态文案长时让它自己截断,不撑开整行把发送按钮挤出去 */
 }
+.autorun-bar .auto-reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; }
 .autorun-bar.armed { border-color: var(--accent); color: var(--fg); }
 .autorun-bar[data-phase="running"] { border-color: var(--warn); background: var(--statusbar-run); color: var(--statusbar-run-fg); }
 .autorun-bar[data-phase="paused"] { border-color: var(--warn); }
