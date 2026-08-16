@@ -406,6 +406,11 @@ button.mini { padding: 2px 10px; font-size: var(--fs-11-5); }
    the Secon...」等于看不见。研究侧改为换行显示,不省略。 */
 #source-list .doc-item .title,
 #finding-list .doc-item .title { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.45; }
+/* 行内「打开」:点一下直达正文,不必先展开再找链接。默认低调,悬停/聚焦才提亮
+   ——它是常驻按钮,不能盖过标题本身。 */
+.doc-open-src { flex: 0 0 auto; opacity: .55; padding: 0 4px; }
+.doc-item:hover .doc-open-src,
+.doc-open-src:focus-visible { opacity: 1; color: var(--accent); }
 .doc-item.external-blocked { border-left: 2px solid var(--warn); }
 .blocked-badge { color: var(--warn); border: 1px solid currentColor; border-radius: 3px; padding: 1px 4px; font-size: var(--fs-10); white-space: nowrap; }
 .clarify-badge { color: var(--accent); border: 1px solid currentColor; border-radius: 3px; padding: 1px 4px; font-size: var(--fs-10); white-space: nowrap; }

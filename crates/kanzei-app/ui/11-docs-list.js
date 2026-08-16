@@ -503,6 +503,26 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
     const st = document.createElement("span");
     st.className = `st st-${entry.status || "todo"}`;
     st.textContent = localizedDocStatus(entry.status || "todo") + (entry.severity ? `/${entry.severity}` : "");
+    // D-413 续:研究来源要**一键直达正文**,不该先展开再在字段里找链接。
+    // (且展开后若开着编辑器,字段走的是编辑输入而非只读链接——两个改动会互相抵消,
+    //  见下方 researchLinkField 的 hasEditor 豁免。)行内 ↗ 是最短路径:点一下就
+    //  在应用内看到这篇文献/这段代码。
+    if (kind === "source" || kind === "finding") {
+      const openable = (entry.fields ?? []).find(([k, v]) => researchLinkField(k, v));
+      if (openable) {
+        const open = document.createElement("button");
+        open.className = "icon-btn doc-open-src";
+        open.type = "button";
+        open.textContent = "↗";
+        open.title = t("在应用内打开");
+        open.setAttribute("aria-label", `${t("在应用内打开")} ${entry.id}`);
+        open.addEventListener("click", (event) => {
+          event.stopPropagation();
+          researchOpenLink(openable[0], String(openable[1])).click();
+        });
+        placeFlag(open);
+      }
+    }
     const claimed = claimedCollaborationLineFor(entry);
     if (claimed) {
       const claimBadge = document.createElement("span");
@@ -733,7 +753,11 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
     }
     for (const [key, value] of entry.fields ?? []) {
       const isRefs = key.toLowerCase() === "refs";
-      if (hasEditor && !isRefs) continue;
+      // D-413:可打开字段(URL / 证据锚)与 refs 一样,即使开着编辑器也要再给一份
+      // **只读链接**。否则 deepManage 一开,这些字段只剩编辑输入框,「点开文献」
+      // 的入口凭空消失——本轮实测就是这么栽的:两个改动各自正确,合起来互相抵消。
+      const isOpenable = researchLinkField(key, value);
+      if (hasEditor && !isRefs && !isOpenable) continue;
       const f = document.createElement("div");
       f.className = "doc-field";
       if (isRefs) {
