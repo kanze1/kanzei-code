@@ -220,6 +220,31 @@ function writeJson(key, value) {
   }
 }
 
+// D-404:关键 UI 偏好后端持久化通道。WebView2 localStorage 在本机数据文件缺失
+// (EBWebView\Default\Local Storage\leveldb 无 .ldb/.log,重启即丢),theme/鞭挞
+// 等偏好经 ui_prefs_get/ui_prefs_set 存 ~/.kanzei/app.json;localStorage 仅作
+// 旧值兼容(读时先本地后后端,写时双写)。uiPrefsSave 失败静默——偏好丢失可接受,
+// 不该打断当前操作。
+let uiPrefsCache = null;
+async function uiPrefsLoad() {
+  if (!uiPrefsCache) {
+    try {
+      uiPrefsCache = (await invoke("ui_prefs_get")) || {};
+    } catch {
+      uiPrefsCache = {};
+    }
+  }
+  return uiPrefsCache;
+}
+async function uiPrefsSave(patch) {
+  try {
+    await invoke("ui_prefs_set", patch);
+    if (uiPrefsCache) uiPrefsCache = { ...uiPrefsCache, ...patch };
+  } catch {
+    /* 写入失败静默:下次启动回退 localStorage 旧值 */
+  }
+}
+
 // R-184 P2:子代理角色名 → 确定性强调色(0-4)。活动面板角色色点与主对话折叠组共用,
 // 只做确定性映射(同一角色刷新不变),不承诺语义排序;角色名文本是主标识,颜色是辅助
 // (design §2.2 不得只靠颜色区分)。

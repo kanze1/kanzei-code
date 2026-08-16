@@ -210,11 +210,11 @@
 - 标签: 前端
 - 优先级: P1
 - 取活依据: override:用户明确指示「直接开修」新登记的两条缺陷,按消息顺序先修 D-404
-- 批次: 0/2
-- 进展: 根因已定位(2026-08-16):用户丢的是主题(亮暗)+鞭挞设置(work-priority/auto-max/continue-prompt/process-auto-state)——全部存 WebView2 localStorage,而本机 EBWebView\Default\Local Storage\leveldb 数据文件缺失(仅 CURRENT/LOCK/LOG/MANIFEST,M ANIFEST 残留 8/8 的 kz-sidebar-width 键但 .ldb/.log 零文件;Session Storage 有 5711B 证明引擎可写盘),localStorage 重启即丢。代码与安装脚本均无清理逻辑,路径/后端 settings_save 链路(15 测试全绿)与本次现象无关。设计冻结:不变式=关键 UI 偏好权威存储为 ~/.kanzei/app.json(AppPrefs 扩展:theme/work_priority/auto_max/continue_prompt/process_auto_state),localStorage 仅作旧值兼容;权威源=prefs.rs load_prefs/save_prefs;改动文件=prefs.rs(扩展+ui_prefs_get/ui_prefs_set)、main.rs(invoke_handler)、03-shell.js(theme)、08-compose.js(鞭挞 4 项)、scripts/ui-runtime-smoke.mjs(mock 同步);最小测试=kanzei-app prefs 往返单测+node --check+ui-runtime-smoke。批次1=Rust 侧+单测;批次2=前端+冒烟。下一步:批1 prefs.rs 扩展。
-- observed_head: 7d9ece2f588988451432503042b22ef2afe79bed
-- observed_worktree_hash: fnv1a64:a541170457de21e7
-- recorded_at: 1786853079126
+- 批次: 1/2
+- 进展: 批1完成(commit fc152cb):prefs.rs AppPrefs 扩展(theme/work_priority/auto_max/continue_prompt/process_auto_state,serde default 兼容旧 app.json)+ui_prefs_get/ui_prefs_set 命令(apply_ui_prefs 纯函数,None=不变)+3 单测(往返/旧格式兼容/None 不变更)全绿;main.rs invoke_handler 注册;projects.rs 测试初始化补 ..Default::default()。验证:T-1786853291(cargo test -p kanzei-app prefs 3 passed)。下一步批2:前端 03-shell.js(theme)+08-compose.js(work-priority/auto-max/continue-prompt/process-auto-state)读写迁 invoke,ui-runtime-smoke.mjs mock 同步,node --check+冒烟。
+- observed_head: fc152cb95640a884a6b81fe81bf9a135398c9bf7
+- observed_worktree_hash: fnv1a64:e6eaded24b17e2c9
+- recorded_at: 1786853325489
 
 ## D-405 主题切换位置不合理:占侧栏整块,建议移到左下角图标与设置同级 [open] (low)
 - 复现: 当前主题切换是侧栏底部一整块 sidebar-section(index.html:114-119,#theme-section + #theme-toggle「亮色」按钮),低频操作却占用侧栏一个区块;activitybar(左下角 #activitybar)是视图切换图标的常驻区,设置按钮在底部(index.html:35),主题入口与设置层级不对称。

@@ -32,6 +32,11 @@ function selectedWorkPriority() {
 function syncWorkPriorityControl() {
   const saved = localStorage.getItem(workPriorityStorageKey());
   $("work-priority-select").value = saved === "requirement-first" ? saved : "defect-first";
+  // D-404:localStorage 数据文件缺失时重启即丢;后端 app.json 是权威,有值则覆盖。
+  void uiPrefsLoad().then((p) => {
+    const v = p.work_priority?.[currentProject || "default"];
+    if (v === "requirement-first" || v === "defect-first") $("work-priority-select").value = v;
+  });
 }
 
 // 取活序只有一个真源:这个开关 → localStorage → work_priority → 引擎的
@@ -662,13 +667,28 @@ renderAutoStatus();
 {
   const stored = (localStorage.getItem("kz-continue-prompt") || "").trim();
   $("continue-prompt").value = stored || DEFAULT_CONTINUE_PROMPT;
+  // D-404:localStorage 可能重启即丢;后端 app.json 权威值覆盖。
+  void uiPrefsLoad().then((p) => {
+    if (p.continue_prompt) $("continue-prompt").value = p.continue_prompt;
+  });
 }
 $("continue-prompt").addEventListener("change", () => {
   const value = $("continue-prompt").value.trim();
   localStorage.setItem("kz-continue-prompt", value || DEFAULT_CONTINUE_PROMPT);
   $("continue-prompt").value = value || DEFAULT_CONTINUE_PROMPT;
+  // D-404:后端持久化。
+  void uiPrefsSave({ continue_prompt: value || DEFAULT_CONTINUE_PROMPT });
 });
 $("auto-max").value = Math.min(100, Math.max(1, Number.parseInt(localStorage.getItem("kz-auto-max"), 10) || DEFAULT_AUTO_CONTINUE_MAX));
+// D-404:localStorage 可能重启即丢;后端 app.json 权威值覆盖(缺省回落默认)。
+// 同步回写 localStorage,normalizeAutoState 的 legacyMax 回退路径也能拿到后端值。
+void uiPrefsLoad().then((p) => {
+  if (Number.isFinite(p.auto_max)) {
+    const max = Math.min(100, Math.max(1, Number(p.auto_max)));
+    localStorage.setItem("kz-auto-max", String(max));
+    $("auto-max").value = String(max);
+  }
+});
 // 「本轮后停」是一次性意图,不是偏好:绝不持久化。
 // 曾经持久化过——勾一次后 localStorage 永远是 "1",每次启动都重新武装,
 // 表现为"鞭挞跑一轮就停,怎么都停不掉"(D-111)。这里顺手清掉存量键。
@@ -740,6 +760,7 @@ $("auto-max").addEventListener("change", () => {
   const max = autoContinueMax();
   $("auto-max").value = max;
   localStorage.setItem("kz-auto-max", String(max));
+  void uiPrefsSave({ auto_max: max }); // D-404:后端持久化
   rememberAutoUiState();
   renderAutoStatus();
   autoRounds = 0;
@@ -828,6 +849,18 @@ const PROCESS_AUTO_STATE_KEY = "kz-process-auto-state";
 const processAutoState = new Map(
   Object.entries(readJson(PROCESS_AUTO_STATE_KEY, {})).filter(([, value]) => value && typeof value === "object"),
 );
+// D-404:localStorage 可能重启即丢;后端 app.json 是权威。合并完成前 persist 只写
+// localStorage(禁止用本地旧值先覆盖后端权威值),合并后双写并刷新当前线控件。
+let uiPrefsAutoStateMerged = false;
+void uiPrefsLoad().then((p) => {
+  const saved = p.process_auto_state || {};
+  for (const [k, v] of Object.entries(saved)) {
+    if (v && typeof v === "object") processAutoState.set(k, v);
+  }
+  uiPrefsAutoStateMerged = true;
+  if (activeProcessId && $("auto-continue")) applyAutoUiState(activeProcessId);
+  else persistProcessAutoState();
+});
 function normalizeAutoState(value, _processId) {
   const storedMax = Number.parseInt(value?.maxRounds, 10);
   const legacyMax = Number.parseInt(localStorage.getItem("kz-auto-max"), 10);
@@ -845,6 +878,9 @@ function normalizeAutoState(value, _processId) {
 }
 function persistProcessAutoState() {
   writeJson(PROCESS_AUTO_STATE_KEY, Object.fromEntries(processAutoState));
+  // D-404:后端 app.json 双写;权威值合并完成前禁止先写(避免本地旧值覆盖权威)。
+  if (!uiPrefsAutoStateMerged) return;
+  void uiPrefsSave({ process_auto_state: Object.fromEntries(processAutoState) });
 }
 // D-290:回显期间(applyProfileValue 把存档值刷回控件)一律不许落盘。控件在这一刻
 // 显示的是**算出来的值**,不是用户意图;把它当意图写回去,一次算错就永久固化——
@@ -976,6 +1012,11 @@ $("work-priority-select").addEventListener("change", () => {
   // 只写这一处。引擎读的就是它(run.rs normalize_work_priority → WorkPriority
   // → resolve_work_decision);不再镜像成 preference 记忆,理由见文件上方说明。
   localStorage.setItem(workPriorityStorageKey(), value);
+  // D-404:同时写后端 app.json(每项目一份,全量 map)。
+  void uiPrefsLoad().then((p) => {
+    const wp = { ...(p.work_priority || {}), [currentProject || "default"]: value };
+    void uiPrefsSave({ work_priority: wp });
+  });
   log(localizeDynamic(value === "requirement-first" ? "已切换为需求优先" : "已切换为缺陷优先"));
 });
 $("stop").addEventListener("click", async () => {

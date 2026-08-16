@@ -529,6 +529,8 @@ function currentTheme() {
 function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   localStorage.setItem(THEME_STORAGE_KEY, theme);
+  // D-404:后端 app.json 持久化(WebView2 localStorage 数据文件缺失时重启不丢)。
+  void uiPrefsSave({ theme });
   // Monaco 已初始化时同步编辑器主题(vs-dark/vs)。
   if (typeof monaco !== "undefined" && monaco.editor) {
     monaco.editor.setTheme(theme === "light" ? "vs" : "vs-dark");
@@ -542,8 +544,11 @@ function applyTheme(theme) {
 }
 function initTheme() {
   const saved = localStorage.getItem(THEME_STORAGE_KEY);
-  const theme = saved === "light" || saved === "dark" ? saved : "dark";
-  applyTheme(theme);
+  applyTheme(saved === "light" || saved === "dark" ? saved : "dark");
+  // D-404:localStorage 旧值可能已丢;后端 app.json 是权威,有值则覆盖。
+  void uiPrefsLoad().then((p) => {
+    if (p.theme === "light" || p.theme === "dark") applyTheme(p.theme);
+  });
 }
 initTheme();
 $("theme-toggle")?.addEventListener("click", () => applyTheme(currentTheme() === "light" ? "dark" : "light"));

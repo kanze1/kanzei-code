@@ -685,6 +685,9 @@ const HISTORY_LONG_FIRST_LINE = `历史失败首行 ${"abcdefghijklmnopqrstuvwxy
 const HISTORY_HUGE_OUTPUT = `第一行输出\n${"这是一段很长的历史输出。".repeat(800)}`; // 远超 8000
 const payloads = {
   app_info: { version: "0.0.0-smoke", build: "smoke" },
+  // D-404:关键 UI 偏好后端持久化通道。冒烟默认空 = 回退 localStorage 旧值,
+  // 与真实首次启动(后端无记录)行为一致。
+  ui_prefs_get: { theme: null, work_priority: {}, auto_max: null, continue_prompt: null, process_auto_state: {} },
   update_check: { newer: false },
   projects_get: { current: PROJECT, projects: [PROJECT], names: { [PROJECT]: "smoke" } },
   // 所选目录没有 .kanzei,实际根落在上级 —— 这正是需求串项目的形态。
