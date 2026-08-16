@@ -206,15 +206,15 @@
 - 根因: 本轮 research 的文献检索通道是 arXiv API,拿到的只有 title+summary(摘要),全程未取正文。报告把这类来源一律标 V2「一手来源」,且未声明「仅摘要级」。抽查发现一处实质越界:report.md:31 称 CoALA(arXiv 2309.02427)确立「working/episodic/semantic/procedural」四类模块化记忆并标 V2/S-008,但实测该论文摘要里 working/episodic/semantic/procedural 四词一个都没有(只有 memory)——结论本身是对的(在正文里),但**引用的那份证据支撑不了它**。同一段落对 LangGraph(S-009,取的是正文 HTML)的三类映射则证据充分。
 - 优先级: P2
 
-## D-415 composer 限宽只覆盖 5 个子元素:三行各一宽度,框看着歪了 [fixed] (medium)
-- refs: D-410 R-276
-- 影响: 用户实测反馈「著对话的框有问题了」。
-- 期望: 改排除法:#composer 全部流内子元素统一同宽同心,只排除弹层类(下拉建议/SOP 选择器/隐藏 input);新增子元素自动继承,不再靠人工维护清单。
-- 来源: 2026-08-16 用户装 build-8c821c0 后实测截图。
+## D-416 输入框仍不居中:textarea 是 inline-block,margin auto 不生效 [fixed] (medium)
+- refs: D-415 D-410
+- 影响: 用户连续两版实测反馈「还是错位呢?」。
+- 期望: 限宽规则里统一 display:block 让 auto 边距生效;#composer-bar 是 flex 行需例外保住 display:flex。
+- 来源: 2026-08-16 用户装 build-e01aa66 后实测截图,输入框中心比相邻两行左偏约 160px。
 - 标签: 前端
-- 根因: D-410 给输入区限宽时按 id 逐个列了 5 个子元素(#attachments/#prompt/#composer-bar/.composer-queue/#continue-editor),但 #composer 有十来个直接子元素,#change-bar(文件数/增删行)、#continue-panel 等漏网仍是满宽;而 #continue-editor 这个 id 在 HTML 里压根不存在(真实是 #continue-panel),等于列了个空规则。三行各一个宽度,视觉上就是「框歪了」。
+- 根因: D-415 把限宽改成排除法覆盖全部流内子元素后,旁边两行(#change-bar/#composer-bar 都是 div=block 盒)正常居中,唯独 #prompt 仍贴左——因为 <textarea> 默认 display:inline-block,CSS 规范里 `margin: auto` 只对 block-level 盒计算为居中值,对 inline-block 一律计算成 0。宽度受 max-width 约束生效了,水平居中没生效,于是三行看着仍错位。
 - 优先级: P2
-- 进展: 2026-08-16 修复(提交 4c95b2e)。crates/kanzei-app/ui/style.css:732 改排除法 `#composer > *:not(#file-suggestions):not(#sop-picker-panel):not(#attachment-input)` 统一限宽 1080px 居中,覆盖全部流内子元素含此前漏网的 #change-bar/#continue-panel,新增子元素自动继承。同批把 scripts/ui-runtime-smoke.mjs:719 的 sources/findings 从空数组换成真实夹具(URL/证据锚/refs)并加断言:↗ 必须渲染两个、点击必须调 webfetch_preview 且 URL 正确——此前整条研究列表渲染路径从未被冒烟走过,才会「六条全绿但真机点不开」。验证:六条前端冒烟全绿。验收降级: 三行对齐的视觉确认由用户装新版后实测。
+- 进展: 2026-08-16 修复(提交见下)。crates/kanzei-app/ui/style.css:732 的限宽规则补 display:block——textarea 从 inline-block 变 block 后 margin auto 才计算为居中;同处补 `#composer > #composer-bar { display: flex }` 例外,保住它 flex 行布局不被压成 block。同批调整主对话空态(用户要求):.empty-state 加极淡径向光晕收拢视线、.logo-mark 改描边环+主题色字(不再是半透明色块)、提示文案拆主次两行(hint-lead/hint-keys),全部走主题 token 亮暗色均成立。验证:六条前端冒烟全绿。验收降级: 三行对齐与新空态观感由用户装新版后实测。
 - observed_head: 571b3f25b35fafdfd0fd02398fc8f82cc21d0fee
-- observed_worktree_hash: fnv1a64:079b10c5eaac5321
-- recorded_at: 1786866450401
+- observed_worktree_hash: fnv1a64:b1c764c94b75c0df
+- recorded_at: 1786866965567
