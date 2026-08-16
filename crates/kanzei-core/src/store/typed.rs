@@ -35,7 +35,7 @@ pub const TURN_FAILED: &str = "session.turn_failed";
 /// 非 typed fact(不进 SessionFact 枚举),不影响主会话投影。
 pub const SUBAGENT_TRANSCRIPT: &str = "subagent.transcript";
 
-const FACT_TYPES: [&str; 12] = [
+pub(crate) const FACT_TYPES: [&str; 12] = [
     LEGACY_SEEDED,
     TURN_STARTED,
     USER_MESSAGE_COMMITTED,

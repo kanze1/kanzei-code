@@ -98,6 +98,59 @@ impl SessionStore {
         Ok(deleted)
     }
 
+    /// 按 sequence 查事件(任意类型)。D-421:投影模式下列表返回 typed fact 的
+    /// sequence,删除前需判断该 sequence 指向快照还是 typed fact。
+    pub fn event_by_sequence(
+        &self,
+        session_id: &str,
+        sequence: i64,
+    ) -> Result<Option<StoredEvent>, StoreError> {
+        self.connection
+            .query_row(
+                "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
+                     FROM session_events
+                     WHERE session_id = ?1 AND sequence = ?2",
+                params![session_id, sequence],
+                event_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// 删除 (start, end] 范围内的一段历史对话数据:D-421 修复——投影模式下
+    /// 勾选的是投影段(段 = typed facts + conversation.updated 快照),只删快照
+    /// 会「删不掉」。只删 typed facts(FACT_TYPES)与对话快照,保留调度/审计
+    /// 事件(session.status_changed、session.shadow_compared、run.trace 等)。
+    pub fn delete_conversation_segment(
+        &self,
+        session_id: &str,
+        start: i64,
+        end: i64,
+    ) -> Result<usize, StoreError> {
+        let tx = self.connection.unchecked_transaction()?;
+        let mut deleted = 0usize;
+        {
+            // rusqlite 无数组参数,展开 FACT_TYPES 为 IN 占位符链。
+            let mut statement = tx.prepare(&format!(
+                "DELETE FROM session_events
+                     WHERE session_id = ?1 AND sequence > ?2 AND sequence <= ?3
+                       AND (event_type IN ({}) OR event_type = 'conversation.updated')",
+                super::typed::FACT_TYPES
+                    .iter()
+                    .map(|_| "?")
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ))?;
+            let mut params_vec: Vec<&dyn rusqlite::types::ToSql> = vec![&session_id, &start, &end];
+            for fact in super::typed::FACT_TYPES.iter() {
+                params_vec.push(fact);
+            }
+            deleted += statement.execute(rusqlite::params_from_iter(params_vec))?;
+        }
+        tx.commit()?;
+        Ok(deleted)
+    }
+
     /// 清理当前会话的对话快照，保留 session、调度和权限事件。
     /// CLI 的 `kz run --new` 使用此入口开始新上下文，避免手动删除整个 state.db。
     pub fn clear_conversation(&self, session_id: &str) -> Result<usize, StoreError> {

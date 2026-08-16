@@ -314,9 +314,35 @@ pub(crate) fn conversation_delete(
     let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
-    store
-        .delete_events_by_sequence(&session_id, "conversation.updated", &sequences)
-        .map_err(|e| e.to_string())
+    // D-421 修复:投影模式下列表返回的是投影段(sequence = 段内最后 typed fact 的
+    // sequence),只删 conversation.updated 快照会「删不掉」(类型不匹配删 0 条)。
+    // 按 sequence 指向的事件类型分派:快照(legacy 列表)→ 删单条快照;typed fact
+    // (投影列表)→ 删该段(段边界 = conversation.reset,见 segment_boundaries)。
+    let mut deleted = 0usize;
+    for sequence in &sequences {
+        let Some(event) = store
+            .event_by_sequence(&session_id, *sequence)
+            .map_err(|e| e.to_string())?
+        else {
+            continue;
+        };
+        if event.event_type == "conversation.updated" {
+            deleted += store
+                .delete_events_by_sequence(&session_id, "conversation.updated", &[*sequence])
+                .map_err(|e| e.to_string())?;
+        } else {
+            let boundaries = segment_boundaries(&store, &session_id)?;
+            let start = boundaries
+                .iter()
+                .rfind(|boundary| **boundary < *sequence)
+                .copied()
+                .unwrap_or(0);
+            deleted += store
+                .delete_conversation_segment(&session_id, start, *sequence)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(deleted)
 }
 
 pub(crate) fn recover_messages(

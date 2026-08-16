@@ -495,6 +495,91 @@ fn conversation_list_projected_segments_by_reset_boundary() {
 
     std::fs::remove_dir_all(root).unwrap();
 }
+#[test]
+fn conversation_delete_removes_projected_segment() {
+    // D-421:投影模式下 conversation_delete 收到的是投影段末的 typed fact sequence,
+    // 必须删除整段(typed facts + 快照)而不是只删快照——否则「删不掉」。
+    use kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore};
+    use kanzei_llm::{Message, Part};
+    let _gate_guard = GATE_ENV_LOCK.lock().unwrap();
+
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-app-delseg-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let canonical = crate::normalized_project_root(&root);
+    let session_id = crate::process_session_id(&canonical, None);
+    let store = SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+    store
+        .create_session(&session_id, &canonical.display().to_string(), None)
+        .unwrap();
+    let mut invariant = SessionInvariant::default();
+    let mut write_turn = |store: &SessionStore, turn: &str, question: &str, answer: &str| {
+        let assistant = Message::assistant(vec![Part::Text {
+            text: answer.into(),
+        }]);
+        let facts = [
+            SessionFactEnvelope::new(
+                turn,
+                None,
+                SessionFact::UserMessageCommitted {
+                    input_id: format!("i-{turn}"),
+                    message: Message::user_text(question),
+                },
+            ),
+            SessionFactEnvelope::new(turn, Some(1), SessionFact::TurnStarted { max_steps: 1 }),
+            SessionFactEnvelope::new(
+                turn,
+                Some(1),
+                SessionFact::AssistantMessageCommitted {
+                    message_id: format!("m-{turn}"),
+                    content_hash: kanzei_core::store::stable_message_hash(&assistant),
+                    message: assistant,
+                },
+            ),
+            SessionFactEnvelope::new(turn, None, SessionFact::TurnCompleted),
+        ];
+        store
+            .append_session_facts_checked(&session_id, &mut invariant, &facts)
+            .unwrap();
+    };
+    write_turn(&store, "run-a", "第一段问题", "第一段回答");
+    store
+        .append_event(
+            &session_id,
+            "conversation.reset",
+            &serde_json::json!({ "cleared": true }),
+        )
+        .unwrap();
+    write_turn(&store, "run-b", "第二段问题", "第二段回答");
+    drop(store);
+
+    let before =
+        crate::conversation::conversation_list(canonical.display().to_string(), None).unwrap();
+    assert_eq!(before.len(), 2, "reset 划分两段");
+    // 新段最后 typed fact 的 sequence(UI 勾选传的就是它)。
+    let new_segment_seq = before[1]["sequence"].as_i64().expect("新段应有 sequence");
+
+    let deleted = crate::conversation::conversation_delete(
+        canonical.display().to_string(),
+        vec![new_segment_seq],
+        None,
+    )
+    .unwrap();
+    assert!(deleted > 0, "投影段删除应删多于 0 条,实得 {deleted}");
+
+    let after =
+        crate::conversation::conversation_list(canonical.display().to_string(), None).unwrap();
+    assert_eq!(after.len(), 1, "删除后只剩旧段");
+    assert_eq!(after[0]["title"], "第一段问题");
+
+    std::fs::remove_dir_all(root).unwrap();
+}
 
 #[test]
 fn user_message_survives_kill_without_terminal() {

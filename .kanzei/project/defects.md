@@ -103,3 +103,14 @@
 - 来源: D-418 修复复核(test_reviewer 发现 window.prompt 遗留);grep 全量确认 5 处 + 15-views-misc.js:85 的 webview 无 prompt 注释佐证。
 - 标签: 前端
 - 优先级: P2
+
+## D-421 历史对话删除不掉:投影模式后 conversation_delete 仍只删 conversation.updated 快照,与 conversation_list 的 typed facts 数据源脱节(删 0 条) [open] (high)
+- 复现: R-242 批7 后 conversation_list 缺省走事件投影,返回的段 sequence 是段内最后一条 typed fact 的 sequence(conversation.rs conversation_list_projected 的 last_seq);而 conversation_delete(conversation.rs:203-216)只调 delete_events_by_sequence(session, 'conversation.updated', sequences) 按 conversation.updated 类型过滤——UI 勾选历史对话(15-views-misc.js:652 data-seqs=[投影段 seq])传的 sequence 是 typed fact 的 seq,类型不匹配 → 删除 0 条,刷新后列表不变,用户看到「历史对话删除不掉」。
+- 影响: 历史对话删除功能完全失效(投影模式缺省启用);删除按钮点了没效果,用户无法清理历史对话段。
+- 来源: 用户 2026-08-16 明确报障「历史对话删除不掉」;根因=R-242 投影切换后 conversation_delete 数据源(conversation.updated 快照)与 conversation_list 数据源(typed facts)脱节。
+- 标签: 后端
+- 优先级: P1
+- 进展: 2026-08-16 修复完成(待提交):①根因——R-242 批7 后 conversation_list 缺省投影,返回的段 sequence 是段内最后 typed fact 的 seq,而 conversation_delete 只删 conversation.updated 快照(类型不匹配删 0 条);②修复——conversation_delete 按 sequence 指向事件类型分派:conversation.updated(legacy 列表)→ 删单条快照;typed fact(投影列表)→ 按 conversation.reset 段边界删除整段(events.rs 新增 event_by_sequence 任意类型查询 + delete_conversation_segment 删 (start,end] 内 FACT_TYPES + conversation.updated,保留调度/审计事件);③回归测试 conversation_delete_removes_projected_segment(投影两段→删新段→列表只剩旧段)。验证:kanzei-app 193 + kanzei-core 214 全绿(T-1786907306)。
+- observed_head: 5f867da1e46c7fa0ff7e530df211803cc9d3dc51
+- observed_worktree_hash: fnv1a64:90c8ff96ddf80b77
+- recorded_at: 1786907313596
