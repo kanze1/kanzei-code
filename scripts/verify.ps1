@@ -1,4 +1,4 @@
-# kanzei 验证证据：门禁全绿后产出绑定 commit 的 dist/verification.json(R-152/A-009)
+﻿# kanzei 验证证据：门禁全绿后产出绑定 commit 的 dist/verification.json(R-152/A-009)
 # 用法: .\scripts\verify.ps1；任何一步失败即中止，不产出证据
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -68,6 +68,10 @@ Step-With-Timing "ui_markdown" "ui_markdown" {
 Step-With-Timing "crate_sync" "crate_sync (R-266 README 项目结构表与 workspace 一致)" {
     node "$root\scripts\check-readme-crates.mjs"
     if ($LASTEXITCODE -ne 0) { throw "README 项目结构表与 Cargo.toml members 不同步(R-266)" }
+}
+Step-With-Timing "ps1_bom" "ps1_bom (D-408 含中文的 .ps1 须带 UTF-8 BOM)" {
+    node "$root\scripts\check-ps1-bom.mjs"
+    if ($LASTEXITCODE -ne 0) { throw "含中文的 PowerShell 脚本缺 UTF-8 BOM,在 Windows PowerShell 5.1 下会解析失败(D-408)" }
 }
 
 New-Item -ItemType Directory -Force "$root\dist" | Out-Null

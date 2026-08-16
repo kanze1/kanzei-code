@@ -1,4 +1,4 @@
-# kanzei 安装器静默安装 + 装后校验(D-266)
+﻿# kanzei 安装器静默安装 + 装后校验(D-266)
 # 用法: .\scripts\install-setup.ps1 -Setup dist\kanzei-setup-<hash>.exe [-ExpectedHash <hash>]
 # 背景:setup.exe /S 在 kzapp 运行时「退出码 0、文件没换、无提示」——NSIS 模板在目标程序
 # 运行中无法处理占用,静默模式无人可问,直接放弃却仍返回成功。所以这里**不信退出码,信产物**:

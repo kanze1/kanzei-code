@@ -1,4 +1,4 @@
-# kanzei 发包流程:测试 → release 构建 → 安装到实际桌面端目录与 ~/.cargo/bin(kz) CLI。
+﻿# kanzei 发包流程:测试 → release 构建 → 安装到实际桌面端目录与 ~/.cargo/bin(kz) CLI。
 # 用法:  .\scripts\release.ps1            # 完整流程
 #        .\scripts\release.ps1 -SkipTests # 跳过测试快速装
 param([switch]$SkipTests)
