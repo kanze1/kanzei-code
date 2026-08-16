@@ -2,12 +2,11 @@
 //!
 //! 批1(Vega-Lite 主轨):agent 产 JSON spec,`vl-convert`(官方 Rust CLI,零安装
 //! 依赖)渲染 SVG/PNG。spec 先 JSON 校验——错误给 agent 可一轮修复的诊断;
-//! 输出统一转 PNG 经 R-249 images 通道回模型,原始 SVG/PDF 落盘给用户。
+//! 输出统一转 PNG 经 R-249 images 通道回模型,原始 SVG 落盘给用户。
 //!
-//! 渲染通道检测顺序:
-//! 1. `vl-convert`(官方 CLI,检测 PATH/侧车目录)——最优(纯 Rust 零安装);
-//! 2. `vl2png`(vega-cli,npm 包)——回退,同样渲染 Vega-Lite spec;
-//! 3. 两者皆无 → 给明确下载指引,不崩溃。
+//! 渲染通道检测(D-392:vega-cli 回退轨已删——.cmd shim 检测不到+调用缺输出参数,
+//! 三重失效且从未被真实使用,保留即假承诺):
+//! 仅 `vl-convert`(官方 Rust CLI,检测 PATH);缺失 → 给明确下载指引,不崩溃。
 
 use std::path::Path;
 
@@ -25,11 +24,11 @@ impl Tool for PlotTool {
     fn description(&self) -> String {
         "Render a scientific plot from a Vega-Lite JSON spec and return a PNG through the image \
          channel. Params: spec (Vega-Lite JSON spec string) or spec_file (path to a .json spec in \
-         workdir); optional out (output stem, default 'plot'); optional width/height. Uses \
-         vl-convert (official Rust CLI, zero-install) when available, else vega-cli's vl2png; if \
-         neither is installed it reports download guidance instead of crashing. The SVG is also \
-         saved to workdir for your use. JSON spec errors are reported with enough context to fix \
-         in one pass."
+         workdir); optional out (output stem, default 'plot'); optional width/height (numbers, \
+         injected into the spec top level; vega engine only). Uses vl-convert (official Rust CLI, \
+         zero-install); if not installed it reports download guidance instead of crashing. The SVG \
+         is also saved to workdir for your use. JSON spec errors are reported with enough context \
+         to fix in one pass."
             .into()
     }
 
@@ -41,6 +40,8 @@ impl Tool for PlotTool {
                 "spec_file": { "type": "string", "description": "workdir 内的 .json spec 文件名(与 spec 二选一)" },
                 "workdir": { "type": "string", "description": "输出工作目录(图产物限研究工件目录与显式指定)" },
                 "out": { "type": "string", "description": "输出文件名前缀(默认 plot)" },
+                "width": { "type": "number", "description": "输出宽度(注入 spec 顶层 width,vega 引擎)" },
+                "height": { "type": "number", "description": "输出高度(注入 spec 顶层 height,vega 引擎)" },
                 "engine": {
                     "type": "string",
                     "enum": ["vega", "pgfplots", "matplotlib"],
@@ -129,7 +130,10 @@ impl Tool for PlotTool {
         } else {
             return ToolOutput::error("plot 需要 spec 或 spec_file 参数".to_string());
         };
-        render_vega(&workdir_path, &spec, &out, &palette)
+        // D-392:width/height 参数(vega 引擎注入 spec 顶层)。
+        let width = input["width"].as_f64();
+        let height = input["height"].as_f64();
+        render_vega(&workdir_path, &spec, &out, &palette, width, height)
     }
 }
 
@@ -284,32 +288,36 @@ fn render_matplotlib(workdir: &Path, python: &str, out: &str, palette: &[String]
     output
 }
 
-/// 渲染通道检测。
+/// 渲染通道检测(D-392:vega-cli 回退轨已删,只认 vl-convert 官方 CLI)。
 fn detect_renderer() -> Result<Renderer, String> {
     if let Some(vl_convert) = which_in_path("vl-convert") {
         return Ok(Renderer::VlConvert(vl_convert));
     }
-    if let Some(vl2png) = which_in_path("vl2png") {
-        return Ok(Renderer::VegaCli(vl2png));
-    }
     Err("未检测到 Vega-Lite 渲染器。\n\
-         方案一(推荐):vl-convert 官方 Rust CLI(零安装)——从 \
+         方案:vl-convert 官方 Rust CLI(零安装)——从 \
          https://github.com/vega/vl-convert/releases 下载 Windows 预编译 exe,放到 PATH。\n\
-         方案二:vega-cli(npm)——`npm install -g vega-cli`,提供 vl2png。\n\
          渲染器缺失不崩溃:本工具如实报告,等待安装后重试。"
         .into())
 }
 
 enum Renderer {
     VlConvert(String),
-    VegaCli(String),
 }
 
-/// Vega-Lite spec → PNG。返回 ToolOutput(图片经 images 通道回模型,SVG 落盘)。
+/// Vega-Lite spec → PNG + SVG。返回 ToolOutput(图片经 images 通道回模型,SVG 落盘)。
 ///
 /// R-274 验收④:`palette` 非空时注入 spec 的 encoding.color.scale.range——
 /// 图中系列颜色与色板逐色一致。
-fn render_vega(workdir: &Path, spec: &str, out: &str, palette: &[String]) -> ToolOutput {
+/// D-392:width/height 注入 spec 顶层(Vega-Lite 合法字段);SVG 真落盘
+/// (vl-convert vl2svg 子命令,不再是「SVG 已落盘」假承诺)。
+fn render_vega(
+    workdir: &Path,
+    spec: &str,
+    out: &str,
+    palette: &[String],
+    width: Option<f64>,
+    height: Option<f64>,
+) -> ToolOutput {
     // ① JSON 校验:非法 spec 给可一轮修复的诊断(验收⑤)。
     let mut parsed: serde_json::Value = match serde_json::from_str(spec) {
         Ok(v) => v,
@@ -353,6 +361,13 @@ fn render_vega(workdir: &Path, spec: &str, out: &str, palette: &[String]) -> Too
             "range": { "category": colors }
         });
     }
+    // D-392:width/height 注入 spec 顶层(Vega-Lite 支持顶层 width/height 数字)。
+    if let Some(w) = width {
+        parsed["width"] = serde_json::json!(w);
+    }
+    if let Some(h) = height {
+        parsed["height"] = serde_json::json!(h);
+    }
     // ④ 写 spec 文件 + 渲染。
     let spec_path = workdir.join(format!("{out}.json"));
     if std::fs::write(
@@ -367,34 +382,56 @@ fn render_vega(workdir: &Path, spec: &str, out: &str, palette: &[String]) -> Too
         Ok(r) => r,
         Err(e) => return ToolOutput::error(e),
     };
-    let (ok, diag) = match &renderer {
-        Renderer::VlConvert(bin) => {
-            // vl-convert 是子命令结构:vl2png -i <spec.json> -o <out.png>。
-            let png_out = workdir.join(format!("{out}.png"));
-            run_in_dir(
-                workdir,
-                bin,
-                &[
-                    "vl2png",
-                    "-i",
-                    spec_path.to_str().unwrap_or(out),
-                    "-o",
-                    png_out.to_str().unwrap_or(out),
-                ],
-            )
-        }
-        Renderer::VegaCli(bin) => run_in_dir(workdir, bin, &[spec_path.to_str().unwrap_or(out)]),
-    };
-    if !ok {
-        return ToolOutput::error(format!("渲染失败:\n{}", summarize(diag)));
+    // vl-convert 是子命令结构:vl2png -i <spec.json> -o <out.png> / vl2svg 同理。
+    let Renderer::VlConvert(bin) = &renderer;
+    let png_out = workdir.join(format!("{out}.png"));
+    let (png_ok, png_diag) = run_in_dir(
+        workdir,
+        bin,
+        &[
+            "vl2png",
+            "-i",
+            spec_path.to_str().unwrap_or(out),
+            "-o",
+            png_out.to_str().unwrap_or(out),
+        ],
+    );
+    if !png_ok {
+        return ToolOutput::error(format!("渲染失败:\n{}", summarize(png_diag)));
     }
-    // ④ 产物:vl-convert 输出 <out>.png;vega-cli 输出 <out>.png。
+    // D-392:SVG 真落盘——vl-convert vl2svg 子命令产 <out>.svg 供复用。
+    let svg_path = workdir.join(format!("{out}.svg"));
+    let (svg_ok, svg_diag) = run_in_dir(
+        workdir,
+        bin,
+        &[
+            "vl2svg",
+            "-i",
+            spec_path.to_str().unwrap_or(out),
+            "-o",
+            svg_path.to_str().unwrap_or(out),
+        ],
+    );
+    if !svg_ok {
+        return ToolOutput::error(format!(
+            "PNG 已渲染但 SVG 落盘失败:\n{}",
+            summarize(svg_diag)
+        ));
+    }
+    if !svg_path.is_file() {
+        return ToolOutput::error(format!(
+            "PNG 已渲染但找不到 SVG 产物 {}。诊断: {}",
+            svg_path.display(),
+            summarize(svg_diag)
+        ));
+    }
+    // ④ 产物:vl-convert 输出 <out>.png。
     let png_path = workdir.join(format!("{out}.png"));
     let Ok(png_bytes) = std::fs::read(&png_path) else {
         return ToolOutput::error(format!(
             "渲染完成但找不到 PNG 产物 {}。诊断: {}",
             png_path.display(),
-            summarize(diag)
+            summarize(png_diag)
         ));
     };
     // PNG 魔数校验(确认真是 PNG,不是错误页)。
@@ -402,15 +439,16 @@ fn render_vega(workdir: &Path, spec: &str, out: &str, palette: &[String]) -> Too
         return ToolOutput::error(format!(
             "渲染产物不是合法 PNG({} 字节,魔数不符)。诊断: {}",
             png_bytes.len(),
-            summarize(diag)
+            summarize(png_diag)
         ));
     }
     let base64 = base64_engine_encode(&png_bytes);
     let mut output = ToolOutput::ok(format!(
-        "Vega-Lite 渲染成功:\nspec: {}\nPNG: {}({} 字节)\nSVG 已落盘供复用。",
+        "Vega-Lite 渲染成功:\nspec: {}\nPNG: {}({} 字节)\nSVG: {}(已落盘供复用)。",
         spec_path.display(),
         png_path.display(),
-        png_bytes.len()
+        png_bytes.len(),
+        svg_path.display()
     ));
     output = output.with_images(vec![kanzei_harness::ToolImage {
         media_type: "image/png".into(),
@@ -494,7 +532,14 @@ mod tests {
     #[test]
     fn 非法spec_json诊断可修复() {
         let dir = temp_dir("badjson");
-        let out = render_vega(&dir, r#"{ "mark": "bar" "data": [] }"#, "bad", &[]);
+        let out = render_vega(
+            &dir,
+            r#"{ "mark": "bar" "data": [] }"#,
+            "bad",
+            &[],
+            None,
+            None,
+        );
         assert!(out.is_error, "非法 JSON 必须报错");
         assert!(
             out.content.contains("不是合法 JSON"),
@@ -518,6 +563,8 @@ mod tests {
             r#"{ "data": { "values": [{ "a": 1 }] } }"#,
             "nomark",
             &[],
+            None,
+            None,
         );
         assert!(out.is_error);
         assert!(
@@ -543,7 +590,6 @@ mod tests {
             return;
         }
         assert!(err.contains("vl-convert"), "指引要点名 vl-convert: {err}");
-        assert!(err.contains("vega-cli"), "指引要点名 vega-cli: {err}");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -551,7 +597,7 @@ mod tests {
     #[test]
     fn 缺data字段诊断() {
         let dir = temp_dir("nodata");
-        let out = render_vega(&dir, r#"{ "mark": "bar" }"#, "nodata", &[]);
+        let out = render_vega(&dir, r#"{ "mark": "bar" }"#, "nodata", &[], None, None);
         assert!(out.is_error);
         assert!(
             out.content.contains("data"),
@@ -561,12 +607,13 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// R-274 批1 端到端(验收①):若环境有 vl-convert(在 PATH),Vega-Lite spec→PNG
-    /// 被模型消费(images 通道 + PNG 魔数)。无渲染器则跳过(缺失诊断由单测覆盖)。
+    /// R-274 批1 端到端(验收①)+ D-392:若环境有 vl-convert(在 PATH),Vega-Lite
+    /// spec→PNG 被模型消费(images 通道 + PNG 魔数)+ SVG 真落盘(不再是 chart.json 冒充)。
+    /// 无渲染器则跳过(缺失诊断由单测覆盖)。
     #[test]
     fn vegalite_spec转png被模型消费() {
         let Ok(renderer) = detect_renderer() else {
-            eprintln!("跳过:本机无 vl-convert/vega-cli 渲染器");
+            eprintln!("跳过:本机无 vl-convert 渲染器");
             return;
         };
         let _ = renderer;
@@ -579,7 +626,7 @@ mod tests {
                 "y": { "field": "value", "type": "quantitative" }
             }
         }"#;
-        let out = render_vega(&dir, spec, "chart", &[]);
+        let out = render_vega(&dir, spec, "chart", &[], Some(420.0), Some(260.0));
         assert!(!out.is_error, "渲染应成功: {}", out.content);
         // 图片经 images 通道回模型(R-249):PNG 魔数 + 非空。
         assert_eq!(out.images.len(), 1, "应有 1 张图片回模型");
@@ -594,8 +641,44 @@ mod tests {
             "PNG 魔数"
         );
         assert!(decoded.len() > 100, "PNG 非空");
-        // SVG 落盘给用户。
+        // D-392:SVG 真落盘(此前文案声称但从未产出,测试用 chart.json 冒充)。
         assert!(dir.join("chart.json").is_file(), "spec 应落盘");
+        let svg = dir.join("chart.svg");
+        assert!(svg.is_file(), "SVG 应真落盘: {}", svg.display());
+        let svg_text = std::fs::read_to_string(&svg).unwrap_or_default();
+        assert!(
+            svg_text.starts_with("<svg"),
+            "SVG 文件应以 <svg 开头(魔数级验证)"
+        );
+        // D-392:width/height 注入 spec 顶层且被渲染消费。
+        let spec_written = std::fs::read_to_string(dir.join("chart.json")).unwrap_or_default();
+        assert!(
+            spec_written.contains("\"width\":420.0") && spec_written.contains("\"height\":260.0"),
+            "width/height 应注入 spec 顶层: {}",
+            spec_written
+        );
+        assert!(
+            out.content.contains("chart.svg"),
+            "成功文案应点名真实 SVG 路径: {}",
+            out.content
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-392:width/height 参数注入 spec 顶层(不依赖渲染器,直接验证注入逻辑)。
+    #[test]
+    fn width_height_注入spec顶层() {
+        let dir = temp_dir("wh");
+        let spec = r#"{ "mark": "bar", "data": { "values": [{ "a": 1 }] } }"#;
+        // 无渲染器环境:注入发生在渲染前,spec 文件已写入(渲染失败不影响注入验证)。
+        let out = render_vega(&dir, spec, "wh", &[], Some(640.0), Some(480.0));
+        let written = std::fs::read_to_string(dir.join("wh.json")).unwrap_or_default();
+        assert!(
+            written.contains("\"width\":640.0") && written.contains("\"height\":480.0"),
+            "width/height 应写入 spec 文件: {}",
+            written
+        );
+        let _ = out;
         std::fs::remove_dir_all(&dir).ok();
     }
 
