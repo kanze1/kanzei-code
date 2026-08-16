@@ -9,6 +9,14 @@
 </head>
 <body>
   <div id="app"></div>
+  <script>
+    // 注册 service worker(R-271 批3:可添加主屏 + 离线提示)。
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch((err) => {
+        console.warn("service worker 注册失败:", err);
+      });
+    }
+  </script>
   <script src="/app.js"></script>
 </body>
 </html>

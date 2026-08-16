@@ -105,6 +105,93 @@ function connectNotifications(device, threadId, onEvent, onStatus) {
 
 let lastCursor = 0;
 let sseController = null;
+let approvalTimer = null;
+
+// ---- approval(R-271 批3):GET pending(脱敏摘要)+ POST answer(批准/拒绝)----
+async function fetchPendingApprovals(device) {
+  const res = await fetch("/v1/approval/pending", {
+    headers: { Authorization: `Bearer ${device.token}` },
+  });
+  if (!res.ok) throw new Error(`查询失败(${res.status})`);
+  return res.json();
+}
+
+async function answerApproval(device, id, reply) {
+  const res = await fetch("/v1/approval/answer", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${device.token}`,
+    },
+    body: JSON.stringify({ id, reply }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `回答失败(${res.status})`);
+  }
+  return res.json();
+}
+
+// 轮询 pending approval 并渲染卡片。3s 间隔(轻交互遥控器,不频繁打桥接)。
+function startApprovalPolling(device) {
+  if (approvalTimer) clearInterval(approvalTimer);
+  const render = async () => {
+    const container = document.getElementById("approval-list");
+    if (!container) return;
+    try {
+      const data = await fetchPendingApprovals(device);
+      container.innerHTML = "";
+      const pending = data.pending || [];
+      if (pending.length === 0) {
+        container.innerHTML = `<p class="muted">当前无待批准请求</p>`;
+        return;
+      }
+      for (const ask of pending) {
+        const card = document.createElement("div");
+        card.className = "card approval";
+        const desc =
+          ask.kind === "question"
+            ? `${ask.resource}`
+            : `${ask.action}: ${ask.resource}`;
+        card.innerHTML = `
+          <p class="approval-desc">${escapeHtml(desc)}</p>
+          <p class="muted">${ask.session_id || ""} · 请求 #${ask.id}</p>
+          <div class="approval-actions">
+            <button class="approve" data-id="${ask.id}">批准</button>
+            <button class="reject" data-id="${ask.id}">拒绝</button>
+          </div>`;
+        card.querySelector(".approve").addEventListener("click", async () => {
+          await submitAnswer(device, ask.id, "allow", card);
+        });
+        card.querySelector(".reject").addEventListener("click", async () => {
+          await submitAnswer(device, ask.id, "deny", card);
+        });
+        container.appendChild(card);
+      }
+    } catch (err) {
+      container.innerHTML = `<p class="muted">approval 查询失败: ${escapeHtml(String(err.message || err))}</p>`;
+    }
+  };
+  render();
+  approvalTimer = setInterval(render, 3000);
+}
+
+async function submitAnswer(device, id, reply, card) {
+  try {
+    await answerApproval(device, id, reply);
+    card.innerHTML = `<p class="muted">已${reply === "allow" ? "批准" : "拒绝"} #${id}</p>`;
+  } catch (err) {
+    card.innerHTML = `<p class="muted">失败: ${escapeHtml(String(err.message || err))}</p>`;
+  }
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 // ---- 发消息(R-271 批2):POST /v1/messages(thread_id + 消息体)----
 async function sendMessage(device, threadId, text) {
@@ -161,6 +248,10 @@ function renderNotifications(device) {
       <button id="send-btn">发送</button>
       <p id="send-msg"></p>
     </div>
+    <div class="card">
+      <h2>待批准请求</h2>
+      <div id="approval-list"><p class="muted">加载中…</p></div>
+    </div>
     <div class="card"><div id="notice-list"></div></div>
     <button id="unpair-btn" class="danger">解除配对</button>`;
 
@@ -187,9 +278,12 @@ function renderNotifications(device) {
   });
   document.getElementById("unpair-btn").addEventListener("click", () => {
     if (sseController) sseController.abort();
+    if (approvalTimer) clearInterval(approvalTimer);
     localStorage.removeItem(STORAGE_KEY);
     location.reload();
   });
+  // approval 轮询(已配对即启动,不依赖订阅会话)。
+  startApprovalPolling(device);
   // 默认自动订阅上次会话。
   if (lastThreadId) subscribe(device, lastThreadId);
 }

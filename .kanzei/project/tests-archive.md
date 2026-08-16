@@ -4405,3 +4405,9 @@
 - 摘要: R-271 批2 发消息:app.js 加 sendMessage(POST /v1/messages,thread_id+text,带设备 token)+渲染发消息区(输入框+发送按钮+发送后清空+结果提示),未配对移动 viewport 自检通过(title/DOM/截图,R-269 工具)。kanzei-app 180 passed,node --check 通过
 - 关联: R-271
 - 收尾: 1786842532
+
+## T-1786842732 R-271 批3 approval 卡片+PWA manifest/SW [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-271 批3:approval 卡片(fetchPendingApprovals GET /v1/approval/pending 轮询 3s+脱敏摘要卡片+批准/拒绝 POST /v1/approval/answer+escapeHtml)+PWA manifest 补全(display standalone/scope/icons 192+512 生成)+service worker(sw.js:壳缓存 install/activate/fetch 网络优先离线回退+离线提示页)+index.html 注册 SW。未配对移动 viewport 自检通过(R-269 工具,title/DOM/截图),PWA 资源全部 HTTP 200,node --check 通过,kanzei-app 180 passed
+- 关联: R-271
+- 收尾: 1786842732

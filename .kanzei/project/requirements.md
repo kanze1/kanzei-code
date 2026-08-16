@@ -198,17 +198,17 @@
 - 依赖: R-269 R-270
 - 内容: ①PWA 静态工程(与桌面 ui/ 同纪律:原生 JS、零构建、零框架),由 R-270 桥接 serve;②页面:配对(扫码/输码)、线程/会话列表与运行状态、通知流(SSE 订阅+cursor 补发)、发消息、approval 卡片(脱敏摘要+批准/拒绝);③PWA manifest+service worker:可添加到主屏、全屏打开、离线时给明确提示(不做离线数据);④移动 viewport 布局,长列表窗口化沿用 R-267 模式。拆批:批1 配对+通知流只读;批2 发消息;批3 approval 卡片+PWA manifest。开发期每批用 R-269 浏览器工具按移动 viewport 自检(截图+DOM),真机验收由用户执行。
 - 复杂度: 大
-- 批次: 2/3
+- 批次: 3/3
 - 来源: 2026-08-16 移动端方案定案:形态 PWA+现成通知桥(Android),承接 R-059 双向通信与通知推送两条验收的实际载体。用户手机用途定调:给电脑发消息、看运行状态、批权限——轻交互遥控器,不做重界面。
 - 标签: 前端
 - 边界: 不引前端框架与构建步骤;不做息屏推送(R-270 通知桥承担);不做 iOS 专属适配(Android Chrome 优先);第一批绑桥接当前项目,不做多项目切换;不做桌面端功能面的完整复刻——只做遥控器三件事。
 - 验收: ①Android 真机全链路实测:配对→看通知流→发消息→批 approval,有实测记录;②锁屏/切后台再回,SSE 恢复后 cursor 补齐无丢终态;③添加到主屏后全屏打开;④每批有 R-269 移动 viewport 自检轨迹(开发期证据);⑤长通知流滚动不卡(窗口化生效);⑥R-059 双向通信与通知推送两条验收在本条+R-270 交付后可核销。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-271
-- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①R-270 批4 已建 mobile-pwa/ 骨架;②R-269 浏览器工具已交付(开发期移动 viewport 自检通道);③协议契约阶段A字段沿用 R-270(配对 POST /v1/pair、SSE GET /v1/events、发消息 POST /v1/messages 均带设备 token)。**设计冻结**:不变式——零构建零框架原生 JS、移动 viewport 布局、长列表窗口化(R-267 模式);权威数据源——R-270 桥接端点,配对结果存 localStorage;预期改动文件——crates/kanzei-app/mobile-pwa/{index.html,app.js,style.css};最小测试——R-269 移动 viewport 自检轨迹。 || **批1 完成(2026-08-16,提交 dc5910d 已 push)**:PWA 前端——配对(POST /v1/pair)+通知流(SSE fetch 读流带 Authorization Bearer、cursor 补发断线重连 2s、100 条窗口化)+解除配对。自检轨迹(验收④):R-269 浏览器工具 375x667 打开配对页 title/DOM/截图正常(T-1786842342/2391)。 || **批2 完成(2026-08-16,提交待定)**:发消息——app.js 加 sendMessage(POST /v1/messages,thread_id+text,带设备 token Authorization)+renderNotifications 加发消息区(输入框+发送按钮+发送后清空+结果提示,thread_id 复用订阅会话)。未配对移动 viewport 自检通过(title「kanzei 移动端」/DOM/截图真实 PNG,R-269 工具);node --check 通过;kanzei-app 180 passed(T-1786842532)。已配对态发消息界面渲染依赖真实桥接环境(配对→localStorage),属真机验收(验收①)范围。**下一批**:批3 approval 卡片(脱敏摘要+批准/拒绝,GET /v1/approval/pending+POST /v1/approval/answer)+PWA manifest/service worker(可添加主屏、全屏打开、离线提示)。
-- observed_head: dc5910d8136ee0111d37454605667946a6b9ec28
-- observed_worktree_hash: fnv1a64:7a890ee55098958b
-- recorded_at: 1786842541023
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①R-270 批4 已建 mobile-pwa/ 骨架;②R-269 浏览器工具已交付(开发期移动 viewport 自检通道);③协议契约阶段A字段沿用 R-270。**设计冻结**:不变式——零构建零框架原生 JS、移动 viewport 布局、长列表窗口化(R-267 模式);权威数据源——R-270 桥接端点,配对结果存 localStorage;预期改动文件——crates/kanzei-app/mobile-pwa/{index.html,app.js,style.css};最小测试——R-269 移动 viewport 自检轨迹。 || **批1 完成(dc5910d)**:配对(POST /v1/pair)+通知流(SSE fetch 读流+cursor 补发+100 条窗口化)+解除配对。自检轨迹 T-1786842342/2391。 || **批2 完成(201f659)**:发消息(POST /v1/messages,发送后清空)。自检 T-1786842532。 || **批3 完成(2026-08-16,提交待定)**:①approval 卡片——fetchPendingApprovals(GET /v1/approval/pending 3s 轮询)+渲染脱敏摘要卡片(escapeHtml 防注入)+批准/拒绝(POST /v1/approval/answer allow/deny);②PWA manifest 补全(display standalone/scope/icons 192+512 已生成 PNG 图标);③service worker(sw.js:壳缓存 install/activate、fetch 网络优先离线回退、离线提示页——可添加主屏+离线明确提示,不做离线数据,验收③);④index.html 注册 SW。自检:未配对移动 viewport 正常(R-269 工具)、PWA 资源全部 HTTP 200、node --check 通过、kanzei-app 180 passed(T-1786842732)。**关闭前核对**:验收①③④开发期证据齐备(①②③四批自检轨迹、PWA manifest+SW 可添加主屏全屏打开);真机全链路(验收①⑤)与锁屏恢复(验收②)由用户实测;⑥R-059 双向通信与通知推送核销需 R-059 用户重估第三条后收口。按 §1.2 可用即关闭,准备 req update done。
+- observed_head: 201f6596ae3557f02226797d82eaa9f8bb1c04b8
+- observed_worktree_hash: fnv1a64:cbd2961a8a051a48
+- recorded_at: 1786842741144
 
 ## R-272 UI 连通性与跳转评估:可达性/死链/跳转断裂自动巡检 [todo]
 - refs: R-269 R-271 R-101
