@@ -4411,3 +4411,9 @@
 - 摘要: R-271 批3:approval 卡片(fetchPendingApprovals GET /v1/approval/pending 轮询 3s+脱敏摘要卡片+批准/拒绝 POST /v1/approval/answer+escapeHtml)+PWA manifest 补全(display standalone/scope/icons 192+512 生成)+service worker(sw.js:壳缓存 install/activate/fetch 网络优先离线回退+离线提示页)+index.html 注册 SW。未配对移动 viewport 自检通过(R-269 工具,title/DOM/截图),PWA 资源全部 HTTP 200,node --check 通过,kanzei-app 180 passed
 - 关联: R-271
 - 收尾: 1786842732
+
+## T-1786843057 R-272 UI 连通性巡检+反证 [passed]
+- 命令: cargo test -p kanzei-app; node scripts/ui-connectivity.mjs --serve --json
+- 摘要: R-272 UI 连通性巡检:scripts/ui-connectivity.mjs 完成。桌面端 9 入口/9 容器零死链零孤岛、关键路径全通过;PWA 配对页可达(3 条 pending 标注需配对);单次巡检 2129ms(验收④);JSON 机器可读报告(验收③)。验收①反证:造死链(ghost)+孤岛(orphan)HTML,巡检各点名、exit=1。kanzei-app 180 passed
+- 关联: R-272
+- 收尾: 1786843057

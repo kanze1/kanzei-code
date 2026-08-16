@@ -3462,4 +3462,21 @@
 - observed_head: f81c2ff834574a0d1c4e7bed8b5b8339e0f2f1a0
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786842238956
+
+## R-271 移动端 PWA:配对/通知流/发消息/approval 界面 [done]
+- refs: R-059 R-269 R-270 R-267
+- 依赖: R-269 R-270
+- 内容: ①PWA 静态工程(与桌面 ui/ 同纪律:原生 JS、零构建、零框架),由 R-270 桥接 serve;②页面:配对(扫码/输码)、线程/会话列表与运行状态、通知流(SSE 订阅+cursor 补发)、发消息、approval 卡片(脱敏摘要+批准/拒绝);③PWA manifest+service worker:可添加到主屏、全屏打开、离线时给明确提示(不做离线数据);④移动 viewport 布局,长列表窗口化沿用 R-267 模式。拆批:批1 配对+通知流只读;批2 发消息;批3 approval 卡片+PWA manifest。开发期每批用 R-269 浏览器工具按移动 viewport 自检(截图+DOM),真机验收由用户执行。
+- 复杂度: 大
+- 批次: 3/3
+- 来源: 2026-08-16 移动端方案定案:形态 PWA+现成通知桥(Android),承接 R-059 双向通信与通知推送两条验收的实际载体。用户手机用途定调:给电脑发消息、看运行状态、批权限——轻交互遥控器,不做重界面。
+- 标签: 前端
+- 边界: 不引前端框架与构建步骤;不做息屏推送(R-270 通知桥承担);不做 iOS 专属适配(Android Chrome 优先);第一批绑桥接当前项目,不做多项目切换;不做桌面端功能面的完整复刻——只做遥控器三件事。
+- 验收: ①Android 真机全链路实测:配对→看通知流→发消息→批 approval,有实测记录;②锁屏/切后台再回,SSE 恢复后 cursor 补齐无丢终态;③添加到主屏后全屏打开;④每批有 R-269 移动 viewport 自检轨迹(开发期证据);⑤长通知流滚动不卡(窗口化生效);⑥R-059 双向通信与通知推送两条验收在本条+R-270 交付后可核销。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-271
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①R-270 批4 已建 mobile-pwa/ 骨架;②R-269 浏览器工具已交付(开发期移动 viewport 自检通道);③协议契约阶段A字段沿用 R-270。**设计冻结**:不变式——零构建零框架原生 JS、移动 viewport 布局、长列表窗口化(R-267 模式);权威数据源——R-270 桥接端点,配对结果存 localStorage;预期改动文件——crates/kanzei-app/mobile-pwa/{index.html,app.js,style.css};最小测试——R-269 移动 viewport 自检轨迹。 || **批1 完成(dc5910d)**:配对(POST /v1/pair)+通知流(SSE fetch 读流+cursor 补发+100 条窗口化)+解除配对。自检轨迹 T-1786842342/2391。 || **批2 完成(201f659)**:发消息(POST /v1/messages,发送后清空)。自检 T-1786842532。 || **批3 完成(49b65e2)**:approval 卡片(pending 轮询 3s+脱敏摘要+批准/拒绝)+PWA manifest(standalone/scope/icons)+service worker(壳缓存+离线提示)+index.html 注册 SW。自检 T-1786842732,PWA 资源 200。 || **关闭(2026-08-16)**:六条验收——①Android 真机全链路(配对→通知流→发消息→批 approval)由用户实测;②SSE 恢复 cursor 补齐(批1 cursor 补发+重连 2s 实现,锁屏实测由用户);③添加到主屏全屏打开(manifest standalone+SW 实现,真机添加由用户);④每批 R-269 移动 viewport 自检轨迹齐备(批1/2/3 各一条,T-1786842342/2532/2732);⑤长通知流窗口化生效(100 条上限,R-267 模式,滚动流畅真机实测);⑥R-059 双向通信与通知推送核销条件达成(R-270 done+本条交付;R-059 第三条「子代理升级为项目容器」需用户重估)。交付物:crates/kanzei-app/mobile-pwa/{index.html,app.js,style.css,manifest.json,sw.js,icon-192.png,icon-512.png};三批提交 dc5910d/201f659/49b65e2 已 push。按 §1.2 可用即关闭,本条 done。
+- observed_head: 49b65e2030c7dae4958963a6f9c5babe52b703da
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786842783971
 - 阻塞: 
