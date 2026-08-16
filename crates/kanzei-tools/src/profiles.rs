@@ -707,11 +707,12 @@ impl Component for ReadonlyProfile {
         // 写与命令:硬 deny 且带合法替代指引——硬 deny 只说"不准走这条路",
         // 不说"那该怎么走"就是能力死区,模型会去找旁路(D-173)。
         // 用 ManagedResource 而非裸 push_hard_deny,拒绝理由能点名替代工具。
-        for action in ["write", "edit", "insert", "bash"] {
+        // D-393:latex/plot 也写盘(tex/spec/图产物落 workdir),只读档一并硬 deny。
+        for action in ["write", "edit", "insert", "bash", "latex", "plot"] {
             draft.permissions.push_managed_hard_deny(
                 rule(action, "*", Effect::Deny),
                 None,
-                Some("只读档位:write/edit/insert/bash 一律禁止;需要结果请用 read/glob/grep/files/git status|diff|log/webfetch 观察,确需修改则告诉用户手动执行"),
+                Some("只读档位:write/edit/insert/bash/latex/plot 一律禁止(后两者会把 tex/spec/图写进研究工件目录);需要结果请用 read/glob/grep/files/git status|diff|log/webfetch 观察,确需修改则告诉用户手动执行"),
             );
         }
         // task 子代理天然只读(SubagentBase 快照),无需规则——runner 直接放行。
@@ -1529,7 +1530,8 @@ mod tests {
         let snapshot = harness.resolve(&ctx).unwrap();
 
         // 写与命令:整体 deny(工具会被摘除,模型看不见)。
-        for action in ["write", "edit", "insert", "bash"] {
+        // D-393:latex/plot 也写盘(tex/spec/图落研究工件目录),一并硬 deny。
+        for action in ["write", "edit", "insert", "bash", "latex", "plot"] {
             assert_eq!(
                 snapshot.evaluate(action, "*"),
                 Effect::Deny,
@@ -1563,7 +1565,7 @@ mod tests {
             .iter()
             .map(|t| t.name())
             .collect();
-        for gone in ["write", "edit", "insert", "bash"] {
+        for gone in ["write", "edit", "insert", "bash", "latex", "plot"] {
             assert!(
                 !names.contains(&gone),
                 "{gone} 应被整体摘除,实际工具表: {names:?}"

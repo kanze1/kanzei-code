@@ -68,10 +68,11 @@ impl Tool for LatexTool {
         if tex.is_empty() || workdir.is_empty() {
             return ToolOutput::error("latex 需要 tex 与 workdir 参数".to_string());
         }
-        let workdir_path = ctx.cwd.join(&workdir);
-        if !workdir_path.is_dir() {
-            return ToolOutput::error(format!("工作目录不存在: {}", workdir_path.display()));
-        }
+        // D-393:workdir 路径边界——相对路径、防 `..`、canonicalize 后限研究工件目录。
+        let workdir_path = match crate::resolve_research_workdir(&ctx.cwd, &workdir) {
+            Ok(p) => p,
+            Err(e) => return ToolOutput::error(format!("workdir 校验失败: {e}")),
+        };
         let (ok, diag) = compile_latex(&workdir_path, &tex);
         if !ok {
             return ToolOutput::error(diag);
