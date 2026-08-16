@@ -4399,3 +4399,9 @@
 - 关联: R-271
 - 收尾: 1786842391
 - 源码指纹: 1abd3aacaaad973c
+
+## T-1786842532 R-271 批2 发消息 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-271 批2 发消息:app.js 加 sendMessage(POST /v1/messages,thread_id+text,带设备 token)+渲染发消息区(输入框+发送按钮+发送后清空+结果提示),未配对移动 viewport 自检通过(title/DOM/截图,R-269 工具)。kanzei-app 180 passed,node --check 通过
+- 关联: R-271
+- 收尾: 1786842532

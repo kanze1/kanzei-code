@@ -106,6 +106,23 @@ function connectNotifications(device, threadId, onEvent, onStatus) {
 let lastCursor = 0;
 let sseController = null;
 
+// ---- 发消息(R-271 批2):POST /v1/messages(thread_id + 消息体)----
+async function sendMessage(device, threadId, text) {
+  const res = await fetch("/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${device.token}`,
+    },
+    body: JSON.stringify({ thread_id: threadId, text }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `发送失败(${res.status})`);
+  }
+  return res.json();
+}
+
 // ---- 渲染 ----
 function renderPairForm() {
   app.innerHTML = `
@@ -138,6 +155,12 @@ function renderNotifications(device) {
       <input id="thread-id" placeholder="输入会话 ID(如 session-1)" value="${lastThreadId}">
       <button id="subscribe-btn">订阅</button>
     </div>
+    <div class="card" id="send-row">
+      <label>发消息到电脑</label>
+      <input id="msg-text" placeholder="输入消息内容">
+      <button id="send-btn">发送</button>
+      <p id="send-msg"></p>
+    </div>
     <div class="card"><div id="notice-list"></div></div>
     <button id="unpair-btn" class="danger">解除配对</button>`;
 
@@ -146,6 +169,21 @@ function renderNotifications(device) {
     if (!threadId) return alert("请输入会话 ID");
     lastThreadId = threadId;
     subscribe(device, threadId);
+  });
+  document.getElementById("send-btn").addEventListener("click", async () => {
+    const threadId = document.getElementById("thread-id").value.trim();
+    const text = document.getElementById("msg-text").value.trim();
+    const sendMsg = document.getElementById("send-msg");
+    if (!threadId) return alert("请先输入会话 ID");
+    if (!text) return alert("消息内容不能为空");
+    sendMsg.textContent = "发送中…";
+    try {
+      await sendMessage(device, threadId, text);
+      sendMsg.textContent = "已发送";
+      document.getElementById("msg-text").value = ""; // 发送后清空
+    } catch (err) {
+      sendMsg.textContent = String(err.message || err);
+    }
   });
   document.getElementById("unpair-btn").addEventListener("click", () => {
     if (sseController) sseController.abort();
