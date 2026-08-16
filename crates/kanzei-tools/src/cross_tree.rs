@@ -34,8 +34,18 @@ const OTHER_TREE_FILE_LIMIT: u64 = 4 * 1024 * 1024;
 /// 单树镜像文件数上限,防止把一整棵大树的文件都读进内存拖垮每次 bash。
 const OTHER_TREE_MAX_FILES: usize = 2000;
 
-/// 单个被保护文件的镜像:内容超限时记 `None`(只记指纹)。
-type FileImage = Option<Vec<u8>>;
+/// 单个被保护文件的镜像三态(D-396,照搬 managed.rs 口径——此前 Option<Vec<u8>>
+/// 把「超限」与「不存在」都编码为 None,回滚时超限文件被当新建删除):
+#[derive(Debug, Clone, PartialEq)]
+enum FileImage {
+    /// 动作前存在,内容已镜像(≤4MiB),可逐字节回滚。
+    Content(Vec<u8>),
+    /// 动作前存在但超限(或读取失败)——只记 len+mtime 指纹,改动可检出但无法回滚;
+    /// 回滚时保持现状并如实报告,绝不当作「不存在」删除(D-396)。
+    Fingerprint { len: u64, mtime_ms: u128 },
+    /// 动作前不存在。
+    Absent,
+}
 
 /// 其它线工作树的执行前镜像。
 ///
@@ -123,11 +133,31 @@ fn collect_tree_files(root: &Path, files: &mut BTreeMap<String, FileImage>) {
             continue;
         };
         let key = relative.display().to_string().replace('\\', "/");
-        let size = entry.metadata().map(|m| m.len()).unwrap_or(u64::MAX);
-        let content = (size <= OTHER_TREE_FILE_LIMIT)
-            .then(|| std::fs::read(&path).ok())
-            .flatten();
-        files.insert(key, content);
+        // D-396:三态镜像——≤4MiB 读内容;超限/读取失败只记 len+mtime 指纹
+        // (改动可检出,回滚保持现状,不当作不存在)。
+        let metadata = entry.metadata().ok();
+        let size = metadata.as_ref().map(|m| m.len()).unwrap_or(u64::MAX);
+        let mtime_ms = metadata
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let image = if size <= OTHER_TREE_FILE_LIMIT {
+            match std::fs::read(&path) {
+                Ok(bytes) => FileImage::Content(bytes),
+                Err(_) => FileImage::Fingerprint {
+                    len: size,
+                    mtime_ms,
+                },
+            }
+        } else {
+            FileImage::Fingerprint {
+                len: size,
+                mtime_ms,
+            }
+        };
+        files.insert(key, image);
     }
 }
 
@@ -171,20 +201,23 @@ pub(crate) fn enforce_other_trees(
         .map(|root| root.display().to_string())
         .collect::<Vec<_>>();
     let mut touched = Vec::new();
-    let mut changes: BTreeMap<PathBuf, BTreeMap<String, (FileImage, FileImage)>> = BTreeMap::new();
+    let mut changes: BTreeMap<PathBuf, BTreeMap<String, (FileImage, Option<FileImage>)>> =
+        BTreeMap::new();
     for (root, before_files) in &before.trees {
         let after_files = after.trees.get(root).cloned().unwrap_or_default();
         let mut tree_changes = BTreeMap::new();
-        for (rel, before_content) in before_files {
+        for (rel, before_image) in before_files {
             match after_files.get(rel) {
-                // 执行后不存在:被删。回滚 = 写回执行前内容。
+                // 执行后不存在:被删。回滚 = 写回执行前内容(超限无法回滚,保持删除并报告)。
                 None => {
-                    tree_changes.insert(rel.clone(), (before_content.clone(), None));
+                    tree_changes.insert(rel.clone(), (before_image.clone(), None));
                 }
-                // 都存在:只有 mtime 级粗筛命中(内容不同)才算越界;相同是 touch。
-                Some(after_content) if after_content != before_content => {
-                    tree_changes
-                        .insert(rel.clone(), (before_content.clone(), after_content.clone()));
+                // 都存在但不同:改动。Content 回滚原内容;Fingerprint 指纹变检出,保持现状。
+                Some(after_image) if after_image != before_image => {
+                    tree_changes.insert(
+                        rel.clone(),
+                        (before_image.clone(), Some(after_image.clone())),
+                    );
                 }
                 Some(_) => {}
             }
@@ -192,7 +225,10 @@ pub(crate) fn enforce_other_trees(
         // 执行后新增的文件(执行前没有):越界新建,回滚 = 删除。
         for rel in after_files.keys() {
             if !before_files.contains_key(rel) {
-                tree_changes.insert(rel.clone(), (None, after_files.get(rel).cloned().flatten()));
+                tree_changes.insert(
+                    rel.clone(),
+                    (FileImage::Absent, after_files.get(rel).cloned()),
+                );
             }
         }
         if !tree_changes.is_empty() {
@@ -227,6 +263,7 @@ pub(crate) fn enforce_other_trees(
         owner_line,
     ];
     let mut restored = 0usize;
+    let mut unrestored: Vec<String> = Vec::new();
     let mut quota = std::collections::BTreeMap::new();
     for (root, tree_changes) in &changes {
         let root_display = root.display().to_string();
@@ -237,24 +274,30 @@ pub(crate) fn enforce_other_trees(
                 .map(|d| d.as_millis())
                 .unwrap_or_default()
         ));
-        for (rel, (before_content, after_content)) in tree_changes {
+        for (rel, (before_image, after_image)) in tree_changes {
             let absolute = root.join(rel);
-            // 隔离留证:改后版本一份不丢,可原样取回。
-            if let Some(after_content) = after_content {
+            // 隔离留证:改后版本(有内容镜像的)一份不丢,可原样取回;
+            // 超限改动体积过大不隔离,如实报告。
+            if let Some(FileImage::Content(after_content)) = after_image {
                 let saved = quarantine.join(rel);
                 if let Some(parent) = saved.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
                 let _ = std::fs::write(&saved, after_content);
             }
-            match before_content {
-                Some(original) => {
-                    // 执行前存在(含执行前就是空文件):写回原内容。
+            match before_image {
+                FileImage::Content(original) => {
+                    // 执行前存在且有内容镜像:写回原内容(逐字节复原)。
                     if std::fs::write(&absolute, original).is_ok() {
                         restored += 1;
                     }
                 }
-                None => {
+                FileImage::Fingerprint { .. } => {
+                    // D-396:执行前存在但超限——原内容无法回滚,保持现状,绝不删除;
+                    // 改动已由 len+mtime 指纹检出,点名报告。
+                    unrestored.push(format!("{root_display}/{rel}"));
+                }
+                FileImage::Absent => {
                     // 执行前不存在:删除这个新建文件。
                     if std::fs::remove_file(&absolute).is_ok() {
                         restored += 1;
@@ -274,6 +317,13 @@ pub(crate) fn enforce_other_trees(
             "  · 整树消失(执行前存在、执行后不可见): {}. 镜像只含文件内容,无法重建目录 \
              — 请从 git 或备份恢复。",
             removed_trees.join(", ")
+        ));
+    }
+    if !unrestored.is_empty() {
+        lines.push(format!(
+            "  · 超限文件(>{other_limit} 字节)改动已检出但无法回滚,保持现状(不删除): {list}",
+            other_limit = OTHER_TREE_FILE_LIMIT,
+            list = unrestored.join(", ")
         ));
     }
     lines.push(format!(
@@ -562,6 +612,69 @@ mod tests {
             "[cross-tree perf] 5 worktrees × 30 files snapshot took {:?}",
             elapsed
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D-396:超限文件(>4MiB)改动——指纹检出,回滚保持现状(不当作新建删除),
+    /// 小文件照常逐字节回滚,报告点名超限。
+    #[test]
+    fn 超限文件改动_检出并保持现状不删除() {
+        let root = git_repo("kz-ct-overlimit");
+        let b = add_worktree(&root, "line-b");
+        let big = vec![0x42u8; OTHER_TREE_FILE_LIMIT as usize + 1];
+        std::fs::write(b.join("big.bin"), &big).unwrap();
+        std::fs::write(b.join("small.txt"), "small\n").unwrap();
+
+        let before = capture_other_trees(&root, &root).unwrap();
+        let bfiles = &before.trees[&b];
+        assert!(
+            matches!(bfiles["big.bin"], FileImage::Fingerprint { .. }),
+            "超限文件应以指纹入镜像(不占内存)"
+        );
+        assert!(
+            matches!(bfiles["small.txt"], FileImage::Content(_)),
+            "小文件以内容入镜像"
+        );
+
+        // 越界:改超限文件内容 + 改小文件。
+        let mut big2 = big.clone();
+        big2[0] = 0x41;
+        std::fs::write(b.join("big.bin"), &big2).unwrap();
+        std::fs::write(b.join("small.txt"), "CHANGED\n").unwrap();
+
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
+            .expect("必须检出越界");
+        // 超限文件保持现状(改动后内容,未被删除);小文件回滚原内容。
+        let after_big = std::fs::read(b.join("big.bin")).unwrap();
+        assert_eq!(after_big, big2, "超限文件改动无法回滚,保持现状");
+        assert_eq!(
+            std::fs::read_to_string(b.join("small.txt")).unwrap(),
+            "small\n",
+            "小文件逐字节回滚"
+        );
+        assert!(report.contains("超限"), "报告必须点名超限: {report}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D-396:超限文件被删除——检出但无法回滚(保持删除),报告如实说明,
+    /// 不编「已恢复」。
+    #[test]
+    fn 超限文件被删_检出并如实报告() {
+        let root = git_repo("kz-ct-overdel");
+        let b = add_worktree(&root, "line-b");
+        let big = vec![0x42u8; OTHER_TREE_FILE_LIMIT as usize + 1];
+        std::fs::write(b.join("big.bin"), &big).unwrap();
+        let before = capture_other_trees(&root, &root).unwrap();
+
+        // 越界:删除超限文件。
+        std::fs::remove_file(b.join("big.bin")).unwrap();
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
+            .expect("必须检出越界");
+        assert!(
+            !b.join("big.bin").exists(),
+            "超限文件被删无法回滚原内容(保持删除),如实说明"
+        );
+        assert!(report.contains("超限"), "报告必须点名超限: {report}");
         let _ = std::fs::remove_dir_all(&root);
     }
 }
