@@ -85,35 +85,6 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-389 R-270/R-271 验收证据虚增:替身自检真机零记录 [fixing] (high)
-- refs: R-270 R-271 R-059
-- 影响: R-271 验收①真机全链路零记录仍标 done;虚假完成已传播到 R-059 阻塞解除依据。
-- 期望: 鉴权闸/LAN 两缺陷修复后补真链路验收(R-269 走真桥接端口+用户真机),R-059 核销以此为门;测试记录不得以替身冒充目标链路。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 流程
-- 根因: 自检记录 T-1786842342/2532/2732 打开的是 http://127.0.0.1:8123/(output/r271-req1.jsonl),全仓无代码绑 8123——临时静态服务器替身,对「经桥接加载」零证明力;T-1786842178「手机浏览器打开桥接地址可加载」是未验证断言(实际被鉴权闸挡死)。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-389
-- 取得线: kanzei/thread-line-1786851588846-1
-
-## D-390 PWA 被鉴权闸挡死:裸 GET 恒 401,配对成鸡生蛋 [open] (high)
-- refs: R-270 R-271
-- 影响: R-270 验收⑤「手机浏览器打开桥接地址能加载 PWA」当前代码不可能成立;移动端产品入口死锁——打不开配对页就拿不到 token,拿不到 token 就打不开配对页。
-- 期望: 静态资源(GET 非 /v1/*)免设备鉴权(敏感数据都在 /v1/* 后)或配对页单独放行;附带修 serve_pwa 用编译期 CARGO_MANIFEST_DIR(mobile.rs:378)——安装版 serve 的是开发机源码树实时内容、异机 404,改运行时资源目录。
-- 来源: 2026-08-16 交付质量三路只读审计
-- 标签: 后端
-- 根因: handle_mobile_connection 顺序为 /v1/pair 免鉴权→设备 token 鉴权(mobile.rs:162-168)→serve_pwa(179-185);浏览器导航/manifest/sw.js 均不带 Authorization,恒 401。已当场核验。
-- 优先级: P0
-
-## D-391 多页 PDF 转 PNG 失败+临时件泄漏:页号零填充 [open] (high)
-- refs: R-273
-- 影响: 论文常态 10+ 页,主用例上 PDF→PNG 回传必失败,且整份 PDF 每页临时 PNG 留在工件目录。
-- 期望: 传 -f 1 -l 1 只渲染首页(命名/浪费一并解决);失败路径也清理;附带修 execute 的 stem 用 split(".")与编译侧 file_stem 口径分裂(latex_tool.rs:83,含点文件名 PNG 静默丢失)。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 核心
-- 根因: pdftoppm 按总页数零填充页号(≥10 页产 -01.png),代码只找 -1.png(latex_tool.rs:324-330);失败提前 return 跳过清理循环(331-337);未传 -f 1 -l 1,长文档全页 150dpi 渲染纯浪费。
-- 优先级: P1
-
 ## D-392 plot 回退轨失效+假承诺:vega-cli 三重断 SVG 没落盘 [open] (medium)
 - refs: R-274
 - 影响: 回退轨等于不存在且零测试;假承诺文案把 agent 引去读不存在的 .svg、传被忽略的参数——按「弱模型也能照着走」准绳危害放大。
@@ -217,15 +188,15 @@
 - observed_worktree_hash: fnv1a64:28d67e2167c4069d
 - recorded_at: 1786853843829
 
-## D-406 跨树快照键扁平化:递归按父目录 strip_prefix,回滚喷垃圾到树根 [fixed] (high)
-- refs: R-186 D-395 D-396 D-397
-- 影响: ①镜像键跨目录碰撞(同名文件互相覆盖),R-186 跨树保护实际从未按正确路径对账——保护失效;②回滚 root.join(裸名) 把别树深层文件内容写到树根(垃圾)/对树根同名文件执行删除(README.md/Cargo.toml 等根级文件有被误删风险);③build-735ebb3 已装机,活跃线每个前台 bash 收口都在触发。与 D-395(并发误伤)/D-396(超限语义)/D-397(粗筛缺席)同模块不同缺陷,审计漏网。
-- 期望: 递归携带 tree_root 与当前 dir 两个参数,relative 一律 strip_prefix(tree_root);回归测试:嵌套文件键必须是完整相对路径(a/b/c.txt),回滚写回嵌套路径不落树根;主根平铺垃圾清理。
-- 来源: 2026-08-16 用户发现根目录异常文件,当场取证定位。
+## D-407 跨树围栏回滚活库WAL写坏 state.db,并回滚修复者自身改动 [fixed] (high)
+- refs: R-186 D-406 D-395 D-396
+- 影响: 228MB state.db 一度不可打开(用户 research 模式首测即撞);并行自举下任何线的正当写入都可能被另一线的 bash 窗口回滚;修复动作本身被回滚导致文件处于半修复状态。数据经抢救备份+进程退出后 integrity_check=ok,未永久损坏。
+- 期望: ①.kanzei/target/node_modules/dist/.git 不入保护面(运行态与派生产物永远不该被回滚);②D-395 落地前自动回滚整体停用,降级为检测+归因+隔离留证(可见性保住,破坏面清零);③恢复回滚需以「变化可归因到具体 owner」为前提,不是「检测到就写回」。
+- 来源: 2026-08-16 用户 research 模式首测报 disk I/O error,截图取证后逐层定位。
 - 标签: 核心
-- 根因: collect_tree_files 递归调用 collect_tree_files(&path, files) 把子目录当新 root,relative=path.strip_prefix(root) 永远相对直接父目录——深层文件的镜像键全是裸 basename(cross_tree.rs:93-131)。已当场核验:主根 12:12-12:26 出现 defects.md/defects-archive.md/inbox.md/index.db/bin-kz/dep-lib-*/.rustc_info.json 等平铺副本,内容与深层原件一致。
+- 根因: D-406 把镜像键修正为完整相对路径后,回滚第一次精准命中真实路径,于是两类活状态遭殃:①.kanzei/state.db-wal(3.8MB<4MiB 上限,内容入镜像)与 -shm 被当作「其它线的未提交心血」,旧 WAL 被写回正在被 SQLite 打开的库上→研究会话 sqlite error: disk I/O error,只读连接都打不开(隔离目录 cross-tree-1786855961740 内即 .kanzei/state.db-wal+shm 铁证);②主树源码同理——我在主树修本文件时,worktree 线每条 bash 收口都把我的改动判为越界并回滚(隔离目录 cross-tree-1786856271949/crates/kanzei-tools/src/cross_tree.rs),修复者与缺陷互搏。根因链:D-395(无法区分「A 越界写 B」与「B 在自己树里正常干活」)在 D-406 修好路径后从「喷垃圾」升级为「毁数据」——正是今晨写进 conventions §2 的「机制半上线比不上线更危险」。
 - 优先级: P0
-- 进展: 2026-08-16 修复(提交 4b0b921)。collect_tree_files 拆为外壳+collect_tree_files_in(tree_root, dir, files),strip_prefix 一律相对树根,深层文件镜像键回归完整相对路径;新增判别测试「深层文件键为完整相对路径_回滚写回原位不落树根」(嵌套+根级同名两键独立、越界回滚写回 sub/inner/ 原位、树根无平铺)——既有测试全用顶层文件因而假绿,已补该盲区。cross_tree 8/8 绿,clippy 零警告。主根 151 个平铺垃圾文件(指纹族+托管文档旧副本,正本逐一核对在位)已清理。注意:活跃线仍跑旧二进制,重启 kzapp 装上热修版前垃圾可能再生,再生即再清。
-- observed_head: 4b0b921cf1e1f6e2387486b51efb3e1c124f723d
+- 进展: 2026-08-16 修复(提交 a4ec73e)。①EXCLUDED_TREE_DIRS(.kanzei/target/node_modules/dist/.git)在 collect_tree_files_in 入口跳过,运行态与派生产物不再入保护面——定向测试「运行态与派生产物不入保护面」断言四类目录变化不触发报告且活库文件字节不变;②自动回滚/删除整体停用降级为报告态(检测+归因+隔离留证照旧),报告文案明说「未自动回滚」,既有 4 条回滚断言按新契约改写(a线越界→检出归因不动现状、新建→检出不删、build.rs→检出不删、深层键→留证按层级);cross_tree 9/9 绿 clippy 零警告。数据处置:抢救备份 kanzei-db-rescue-20260816-1300(state.db+wal+shm+隔离的旧WAL),停 kzapp 后重开 integrity_check=ok、17 会话/112136 事件/483 episode 齐全,未永久损坏。验收降级: 真实并行双线场景的回归由下次自举实跑观察(隔离目录不再出现 .kanzei/* 即为通过)。
+- observed_head: a4ec73eb4551ef1fa85d02d7d26fc19514629f64
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
-- recorded_at: 1786855543953
+- recorded_at: 1786856743353
