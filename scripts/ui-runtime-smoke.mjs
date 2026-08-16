@@ -1277,6 +1277,11 @@ await runUiSources();
     "主对话神经流必须对辅助技术隐藏",
   );
   assert(typeof windowShim.neuralFlowEmit === "function", "R-285 neuralFlowEmit 运行时入口未注册");
+  assert(
+    source.includes("const idleAlpha = isMemory ? 0.22 : 0.075") && source.includes("const ambientProgress ="),
+    "R-285 记忆流静息轨迹必须保持清晰亮度与定向流光",
+  );
+  assert(source.includes("const trailSteps = 5"), "R-285 业务事件脉冲必须带可辨识的流动尾迹");
   windowShim.neuralFlowEmit("memory_search_started", { query_length: 6 });
   assert(memoryState.textContent === "检索中", `记忆检索动画状态错误:${memoryState.textContent}`);
   windowShim.neuralFlowEmit("memory_search_completed", { hit_count: 2 });
@@ -1400,6 +1405,12 @@ assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
   );
   await flush();
 }
+assert(byId.get("project-label").textContent === "smoke", "项目胶囊应显示项目名而非裁坏的完整路径");
+assert(byId.get("project-label").title === PROJECT, "项目胶囊 title 应保留完整路径");
+assert(
+  byId.get("project-label").getAttribute("aria-label")?.includes(PROJECT),
+  "项目胶囊无障碍标签应保留完整路径",
+);
 // D-420:项目重命名与新建都走应用内输入弹窗,取消/确认语义仍由调用方消费。
 {
   const projectItem = byId.get("project-list").children[0];

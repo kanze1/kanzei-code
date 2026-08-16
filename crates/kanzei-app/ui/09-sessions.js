@@ -780,7 +780,15 @@ function renderProjects(prefs) {
     });
     list.appendChild(item);
   }
-  $("project-label").textContent = prefs.current ?? `(${localizeDynamic("未选择项目")})`;
+  const projectLabel = $("project-label");
+  const currentProjectLabel = prefs.current
+    ? (prefs.names?.[prefs.current] || baseName(prefs.current))
+    : `(${localizeDynamic("未选择项目")})`;
+  projectLabel.textContent = currentProjectLabel;
+  projectLabel.title = prefs.current ?? localizeDynamic("未选择项目");
+  projectLabel.setAttribute("aria-label", prefs.current
+    ? `${currentProjectLabel}: ${prefs.current}`
+    : localizeDynamic("未选择项目"));
   renderProjectSwitch(prefs);
   syncDocumentsProjectSelect(prefs);
   refreshProcesses();

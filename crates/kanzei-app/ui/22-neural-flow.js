@@ -128,6 +128,9 @@
             to: otherIndex,
             bend: (this.random() - 0.5) * Math.min(34, distance * 0.24),
             weight: 0.25 + this.random() * 0.75,
+            phase: this.random(),
+            speed: 0.000035 + this.random() * 0.000035,
+            signal: this.random() > (this.variant === "memory" ? 0.82 : 0.9),
           });
         });
       });
@@ -198,8 +201,9 @@
       const base = themeColor("--memory-flow", "#c9962e");
       const hot = themeColor("--memory-flow-hot", "#f0d58c");
       const error = themeColor("--err", "#d0684e");
-      const idleAlpha = this.variant === "memory" ? 0.11 : 0.045;
-      const breathing = reducedMotion ? 0.55 : 0.52 + Math.sin(now / 1500) * 0.12;
+      const isMemory = this.variant === "memory";
+      const idleAlpha = isMemory ? 0.22 : 0.075;
+      const breathing = reducedMotion ? 0.72 : 0.74 + Math.sin(now / 1500) * 0.14;
       const energy = Math.max(this.variant === "memory" ? 0.18 : 0.08, this.energy);
 
       ctx.lineCap = "round";
@@ -207,22 +211,59 @@
         const from = this.nodes[edge.from];
         const to = this.nodes[edge.to];
         const point = quadraticPoint(from, to, edge.bend, 0.5);
+        ctx.save();
         ctx.beginPath();
         ctx.moveTo(from.x, from.y);
         ctx.quadraticCurveTo(point.mx, point.my, to.x, to.y);
-        ctx.strokeStyle = base;
+        ctx.strokeStyle = edge.weight > 0.78 ? hot : base;
         ctx.globalAlpha = idleAlpha * (0.55 + edge.weight * 0.45) * (0.75 + energy * 0.5);
-        ctx.lineWidth = 0.45 + edge.weight * 0.42;
+        ctx.lineWidth = (isMemory ? 0.72 : 0.48) + edge.weight * (isMemory ? 0.52 : 0.42);
+        if (edge.weight > 0.72) {
+          ctx.shadowColor = base;
+          ctx.shadowBlur = isMemory ? 5 : 2.5;
+        }
         ctx.stroke();
+        ctx.restore();
+
+        // 静息时仍有少量定向流光，让“神经流”不依赖业务事件也能一眼读出流向。
+        if (edge.signal) {
+          const ambientProgress = reducedMotion ? edge.phase : (edge.phase + now * edge.speed) % 1;
+          const ambientFade = Math.sin(ambientProgress * Math.PI);
+          const tailProgress = Math.max(0, ambientProgress - 0.045);
+          const tail = quadraticPoint(from, to, edge.bend, tailProgress);
+          const head = quadraticPoint(from, to, edge.bend, ambientProgress);
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(tail.x, tail.y);
+          ctx.lineTo(head.x, head.y);
+          ctx.strokeStyle = hot;
+          ctx.lineWidth = isMemory ? 1.6 : 0.9;
+          ctx.globalAlpha = (isMemory ? 0.5 : 0.18) * (0.68 + ambientFade * 0.32);
+          ctx.shadowColor = hot;
+          ctx.shadowBlur = isMemory ? 10 : 5;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(head.x, head.y, (isMemory ? 1.05 : 0.7) + edge.weight * 0.5, 0, Math.PI * 2);
+          ctx.fillStyle = hot;
+          ctx.globalAlpha = (isMemory ? 0.72 : 0.3) * (0.72 + ambientFade * 0.28);
+          ctx.fill();
+          ctx.restore();
+        }
       }
 
       for (const node of this.nodes) {
         const pulse = reducedMotion ? 1 : 0.82 + Math.sin(now / 1250 + node.phase) * 0.18;
+        ctx.save();
         ctx.beginPath();
         ctx.arc(node.x, node.y, node.radius * pulse, 0, Math.PI * 2);
         ctx.fillStyle = node.weight > 0.76 ? hot : base;
-        ctx.globalAlpha = (idleAlpha * 1.8 + energy * 0.045) * breathing;
+        ctx.globalAlpha = (idleAlpha * 1.55 + energy * 0.055) * breathing;
+        if (node.weight > 0.72) {
+          ctx.shadowColor = node.weight > 0.76 ? hot : base;
+          ctx.shadowBlur = isMemory ? 8 : 4;
+        }
         ctx.fill();
+        ctx.restore();
       }
 
       const nextPulses = [];
@@ -239,11 +280,32 @@
         const fade = Math.sin(progress * Math.PI);
         ctx.save();
         ctx.beginPath();
-        ctx.arc(point.x, point.y, 1.15 + pulse.strength * 1.9, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.42 + fade * 0.58;
+        ctx.moveTo(from.x, from.y);
+        const edgeMidpoint = quadraticPoint(from, to, pulse.reverse ? -edge.bend : edge.bend, 0.5);
+        ctx.quadraticCurveTo(edgeMidpoint.mx, edgeMidpoint.my, to.x, to.y);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 0.8 + pulse.strength * 0.7;
+        ctx.globalAlpha = (0.1 + pulse.strength * 0.12) * fade;
         ctx.shadowColor = color;
-        ctx.shadowBlur = 8 + pulse.strength * 12;
+        ctx.shadowBlur = 5 + pulse.strength * 6;
+        ctx.stroke();
+
+        const trailSteps = 5;
+        for (let step = trailSteps; step >= 1; step -= 1) {
+          const trailProgress = Math.max(0, progress - step * 0.026);
+          const trailPoint = quadraticPoint(from, to, pulse.reverse ? -edge.bend : edge.bend, trailProgress);
+          ctx.beginPath();
+          ctx.arc(trailPoint.x, trailPoint.y, 0.55 + pulse.strength * 0.6, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.globalAlpha = fade * (1 - step / (trailSteps + 1)) * 0.52;
+          ctx.fill();
+        }
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 1.45 + pulse.strength * 2.35, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.68 + fade * 0.32;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 12 + pulse.strength * 18;
         ctx.fill();
         ctx.restore();
         nextPulses.push(pulse);
@@ -261,10 +323,10 @@
         ctx.beginPath();
         ctx.arc(node.x, node.y, 5 + progress * 25 * burst.strength, 0, Math.PI * 2);
         ctx.strokeStyle = color;
-        ctx.lineWidth = 1.1;
-        ctx.globalAlpha = (1 - progress) * 0.72;
+        ctx.lineWidth = 1.45;
+        ctx.globalAlpha = (1 - progress) * 0.86;
         ctx.shadowColor = color;
-        ctx.shadowBlur = 12;
+        ctx.shadowBlur = 18;
         ctx.stroke();
         ctx.restore();
         nextBursts.push(burst);
