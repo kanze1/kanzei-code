@@ -4459,3 +4459,9 @@
 - 摘要: R-274 验收④色板注入+机械断言:plot 工具加 palette 参数(hex 数组),render_vega 注入 spec encoding.color.scale.range+config.category(未指定 color 时兜底)、render_matplotlib 注入 rcParams prop_cycle 前导代码。单测 matplotlib_注入色板后系列颜色与色板一致(注入 #4C72B0/#DD8452 渲染 2 系列,prop_cycle 前两色逐色一致机械断言,验收④)。kanzei-tools 311 passed、workspace 全量 15 段 ok,clippy/fmt 通过
 - 关联: R-274
 - 收尾: 1786846770
+
+## T-1786846967 D-385 LAN 开关接入 UI [passed]
+- 命令: cargo test -p kanzei-app; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-i18n-smoke.mjs; node --experimental-vm-modules scripts/ui-lint-smoke.mjs
+- 摘要: D-385 LAN 开关:设置页加 LAN 监听 checkbox(index.html),16-settings.js 启动桥接时读取 checked 并传 lan 给 mobile_service_start(R-270 批1 的 lan 参数首次被 UI 传),状态区显示 LAN/回环+地址+token;i18n 资源表加 2 键+更新说明文案。三条前端冒烟(ui-runtime 21 文件/ui-i18n 159 key/ui-lint 608 标识符)全绿,kanzei-app 180 passed
+- 关联: D-385 R-270
+- 收尾: 1786846967

@@ -697,8 +697,16 @@ $("set-proxy-url").addEventListener("input", updateProxyHint);
 
 $("mobile-service-start").addEventListener("click", async () => {
   try {
-    const info = await invoke("mobile_service_start", { projectDir: currentProject, port: null });
-    $("mobile-service-status").textContent = `${info.address} · token ${info.token}`;
+    // D-385:LAN 开关——开启传 lan=true 监听 0.0.0.0(手机连同一 Wi-Fi 可访问),
+    // 关闭保持回环。后端 mobile_service_start 的 lan 参数(R-270 批1)此前 UI 从未传。
+    const lan = !!$("mobile-service-lan")?.checked;
+    const info = await invoke("mobile_service_start", {
+      projectDir: currentProject,
+      port: null,
+      lan,
+    });
+    const lanLabel = lan ? "LAN" : "回环";
+    $("mobile-service-status").textContent = `${lanLabel} · ${info.address} · token ${info.token}`;
     $("mobile-service-start").classList.add("hidden");
     $("mobile-service-stop").classList.remove("hidden");
     toast(t("移动端本机桥接已启动"));

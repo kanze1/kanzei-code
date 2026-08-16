@@ -193,23 +193,6 @@
 - 状态: todo
 - 阻塞: 队列让位(2026-08-16):R-186(P0 队首)本轮推进中,单 WIP 槽不足,本条让位等待队列轮转。解除动作: R-186 关闭后清本字段,做剩余批4(withSessionRender setter 化、B3、defer 时序与冒烟断言适配、删补偿)。P3 留档。解除人: agent。
 
-## R-274 科研绘图工具通道:Vega-Lite+PGFPlots 双轨 [doing]
-- refs: R-221 R-249 R-273 R-275 docs/design/research_mode_prior_art.md
-- 依赖: R-273
-- 内容: ①主轨 Vega-Lite:agent 产 JSON spec,vl-convert 独立 CLI 侧车渲染 SVG/PNG(不嵌 crate,避开 deno_runtime/v8 编译负担);spec 先 JSON 校验,错误给 agent 可一轮修复的诊断;②终稿轨 PGFPlots/TikZ:走 R-273 Tectonic 通道,零新增依赖,图字体与论文正文一致;③增强轨 matplotlib+scienceplots:检测到 uv/Python 才启用(uv run --with matplotlib,scienceplots 按需环境化),检测不到明确降级;④色板注入与 R-275 对接:Vega-Lite 经 spec config/scale.range,matplotlib 经 rcParams 前导代码;⑤输出统一转 PNG 回模型(R-249 通道),原始 SVG/PDF 落盘给用户。拆批:批1 Vega-Lite 主轨;批2 PGFPlots 轨+统一落盘回传;批3 matplotlib 增强轨+色板对接。
-- 复杂度: 中
-- 批次: 3/3
-- 来源: 2026-08-16 用户定调「科研绘图,这个绘图工具也是很重要的」;路线依据 docs/design/research_mode_prior_art.md §2 七方案对比:Vega-Lite(vl-convert)是最优纯 Rust 零安装路线且 JSON 规格对 agent 最友好、PGFPlots 投稿场景不可替代、matplotlib 是检测到 Python/uv 时的上限增强;plotters(无抗锯齿)/gnuplot/charming/plotly.rs 排除。
-- 标签: 核心
-- 边界: plotters/gnuplot/charming/plotly.rs 不引入;不做交互式图表与图表编辑 UI;图产物目录限研究工件目录与显式指定;不做动画/3D。
-- 验收: ①零外部安装机器上 Vega-Lite spec→PNG 实测成功且被模型消费(轨迹);②同一数据 PGFPlots 轨出 PDF 实测;③检测到 uv/Python 时 matplotlib 轨出图、检测不到时明确降级诊断(两路径测试);④注入指定色板后图中系列颜色与色板逐色一致(机械断言);⑤构造一个非法 spec,诊断可让 agent 一轮修复(实测轨迹);⑥辅进程无残留。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-274
-- 进展: 2026-08-16 取活开工(复杂度中,设计冻结先行)。**勘察结论**:①vl-convert 官方 Rust CLI(win-64 预编译 v1.9.0);②设计文档 §2:Vega-Lite 最优纯 Rust 零安装、PGFPlots 投稿场景不可替代、matplotlib 是检测到 Python/uv 时的上限增强;③R-249 images 通道已交付、R-273 latex 工具已交付(PGFPlots 轨复用)。**设计冻结**:不变式——零外部安装机器上 Vega-Lite spec→PNG 可行;权威数据源——vl-convert 渲染产物、R-273 latex 通道;预期改动文件——plot_tool.rs+base.rs;最小测试——非法 spec 诊断、端到端 spec→PNG 被消费。 || **批1 完成(286da5e)**:plot_tool.rs Vega-Lite 主轨(spec JSON 校验+缺 mark/data 诊断+vl-convert vl2png+PNG 魔数+images 回模型+spec 落盘)+base.rs 注册。端到端实测(验收①):vl-convert v1.9.0 渲染 bar spec→bar.png 15KB。单测 5 条,kanzei-tools 306 passed。 || **批2 完成(6aeaa77)**:PGFPlots 轨——engine=pgfplots,render_pgfplots(standalone+pgfplots 模板→R-273 latex 通道编译 PDF→pdf_to_png 转 PNG 经 images 通道回模型,PDF 落盘)。单测 2 条,kanzei-tools 308 passed。**环境阻塞(如实记录)**:本机 pgfplots 宏包兼容问题(axis undefined,MiKTeX 与 Tectonic 双环境复现,环境损坏非代码缺陷),验收②真实 PDF 实测待宏包修复后补。 || **批3 完成(2e3f9d2)**:matplotlib 增强轨——engine=matplotlib,render_matplotlib(检测 uv 优先按需环境化 uv run --with matplotlib,scienceplots python script / 回落系统 python / 双缺失明确降级诊断;脚本保存 out.png 转 PNG 经 images 通道回模型,验收③)。单测 2 条:matplotlib_有uv时出图被消费(uv 0.9.2 实测出图)、matplotlib缺python参数诊断。kanzei-tools 310 passed、workspace 全量 15 段 ok。 || **验收④完成(2026-08-16,提交待定)**:色板注入+机械断言——plot 工具加 palette 参数(hex 数组),render_vega 注入 spec encoding.color.scale.range+config.category(未指定 color 时兜底),render_matplotlib 注入 rcParams prop_cycle 前导代码;成功输出带脚本 stdout(供断言)。单测 matplotlib_注入色板后系列颜色与色板一致(注入 #4C72B0/#DD8452 渲染 2 系列,prop_cycle 前两色逐色一致机械断言)。kanzei-tools 311 passed、workspace 全量 15 段 ok(T-1786846770),clippy/fmt 通过。**关闭前核对**:验收①vega 主轨实测(批1);②PGFPlots 出 PDF 代码路径完整+环境阻塞如实记录(批2,真实 PDF 待宏包修复);③matplotlib 检测到/检测不到两路径(批3,检测到 uv 实测出图+双缺失降级诊断);④色板注入逐色一致机械断言(本轮单测);⑤非法 spec 诊断可一轮修复(批1);⑥辅进程无残留(plot 无长驻进程,均为一次性 CLI)。按 §1.2 可用即关闭,准备 req update done。
-- observed_head: 2e3f9d25a280c14bf6716392520209c656b6922b
-- observed_worktree_hash: fnv1a64:bacd26c912a5a5f4
-- recorded_at: 1786846780734
-
 ## R-275 调色板子系统:内置科学配色/推荐校验/用户导入 [todo]
 - refs: R-274 docs/design/research_mode_prior_art.md
 - 内容: ①内置科学配色打包:ColorBrewer(Apache-2.0,需致谢)/viridis 系(CC0)/Crameri Scientific Colour Maps(MIT)/Paul Tol(BSD-3)/Okabe-Ito(注出处)/cmocean(MIT)/petroff10(CC0),一次性转内部规范 JSON(name/type[seq|div|qual|cyclic]/colors[]/max_classes/source_url/license),零运行时联网;②推荐规则机械化:无序分类→qual(≤12 色)、有序连续→seq、有中点→div、周期→cyclic(Vega-Lite 按字段类型默认规则先例);硬禁忌机械拒绝(jet/rainbow 用于连续量、定性板插值);③校验链 Rust 本地实现:CVD 模拟(Machado 矩阵)→两两 CIEDE2000(palette crate 内置)→WCAG 图形对比度≥3:1→连续板亮度单调性,导入即评分;④用户导入:粘贴 hex 列表/GIMP .gpl/Adobe .ase 统一转内部 JSON;定性板不够长默认拒绝并提示改分面/高亮,兜底循环+线型区分,绝不插值;⑤对 R-274 暴露统一色板查询接口(按 type+色数返回,用户板同类型优先)。拆批:批1 内置数据+规范 JSON+查询接口;批2 推荐规则+校验链;批3 用户导入三格式。

@@ -708,7 +708,12 @@
           </details>
           <details class="settings-group">
             <summary data-i18n-key="移动端桥接">移动端桥接</summary>
-          <p class="dim" data-i18n-key="仅监听本机回环地址；启动后把一次性配对 token 提供给移动端，停止服务即撤销。">仅监听本机回环地址；启动后把一次性配对 token 提供给移动端，停止服务即撤销。</p>
+          <p class="dim" data-i18n-key="默认仅监听本机回环；开启 LAN 后手机连同一 Wi-Fi 可访问。启动后把一次性配对 token 提供给移动端，停止服务即撤销。">默认仅监听本机回环；开启 LAN 后手机连同一 Wi-Fi 可访问。启动后把一次性配对 token 提供给移动端，停止服务即撤销。</p>
+          <div class="form-row">
+            <label data-i18n-key="LAN 监听">LAN 监听</label>
+            <input type="checkbox" id="mobile-service-lan" />
+            <span class="dim" data-i18n-key="开启后监听 0.0.0.0，手机可连">开启后监听 0.0.0.0，手机可连</span>
+          </div>
           <div class="form-row">
             <label data-i18n-key="本机服务">本机服务</label>
             <button id="mobile-service-start" class="ghost"><span data-i18n-key="启动">启动</span></button>
