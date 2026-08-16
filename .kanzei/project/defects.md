@@ -210,7 +210,7 @@
 - 标签: 前端
 - 优先级: P2
 - 取活依据: override:D-404 已关闭,按用户消息顺序修第二条:主题切换移到左下角 activitybar 与设置同级
-- 进展: 修复落地:①index.html 移除侧栏 #theme-section(原 114-119),在 #activitybar 设置按钮前(35 行)插入 #theme-toggle 图标按钮(太阳/月亮双 SVG,class=activity-item 与设置同级);②03-shell.js applyTheme 按钮更新从文本改图标 hidden 切换(sun/moon)+title/aria 保持。验证:T-1786853796 node --check+ui-runtime-smoke 全过(R-189 断言:theme-toggle 存在/不在 statusbar/位置在 statusbar 前/切换持久化/Monaco 联动均绿)。待提交。
-- observed_head: 3c2060cd37ec820616c3d00b41357c0c0c3ba306
-- observed_worktree_hash: fnv1a64:ed56858c97799d50
-- recorded_at: 1786853808329
+- 进展: 关闭证据(2026-08-16,commit 0d79d5b):①index.html:35 #theme-toggle 图标按钮(太阳 #theme-icon-sun/月亮 #theme-icon-moon 双 SVG,class=activity-item)插入 #activitybar 设置按钮前,与设置同级同层级;侧栏 #theme-section 整块移除(原 114-119);②03-shell.js:538-547 applyTheme 按钮更新从 textContent 改图标 hidden 切换+title/aria 保持,主题切换点击逻辑不变(558 行)。验证:T-1786853796 node --check+ui-runtime-smoke 全过(R-189 断言:theme-toggle 存在/不在 statusbar/位于 statusbar 前/点击切换 data-theme 与 localStorage kz-theme 双持久化/Monaco setTheme 联动均绿)。生效依赖:新版 kzapp 构建后运行(当前运行版不含此修复),构建发布走发版 SOP。
+- observed_head: 0d79d5b130531e4e938e959bf49020f5ac369ca8
+- observed_worktree_hash: fnv1a64:28d67e2167c4069d
+- recorded_at: 1786853843829
