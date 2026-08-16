@@ -201,3 +201,25 @@
 - 标签: 流程
 - 根因: 交付为纯静态 regex 差集(ui-connectivity.mjs:54-89)+关键路径只查 HTML 存在性(77-89);PWA 4 条路径 3 条 needs_pair 跳过(146-150),唯一真开的是配对页;KEY_PATHS 为脚本内 const(33-51)非验收③要求的配置文件;原案「基于 R-269 从入口遍历+跳转失败/console 报错」运行时判定全部缺席。关闭证据如实描述静态形态但未点名与原案落差,四条验收照单核销(对比 R-264 对做不到的部分明确记「待专用批次」)。
 - 优先级: P2
+
+## D-404 设置页修改似乎未持久化:保存后重启丢失 [fixing] (high)
+- 复现: 用户报告:设置页修改设置后(含点「保存」)重启应用,改动未保留。现行机制:设置页需显式点「保存」(ui/16-settings.js:819 settings_save invoke)→后端 settings_save(settings.rs:624)→settings_write_document 写全局 ~/.kanzei/kanzei.toml 或项目 .kanzei/kanzei.toml(settings.rs:208/218 std::fs::write);settings_get(settings.rs:496)读回时全局+项目级合并。改动是否写入、重启后读取是否走同路径需复现核实:用户改的具体字段、是否点了保存、有无「未保存」提示被忽略。
+- 影响: 用户配置(模型角色/proxy/limits/cadence/providers 等)重启后丢失,设置页可信度为零;若发生在密钥/模型角色上会连带运行行为回退。
+- 期望: 保存后的设置重启后仍然生效;先复现确认是写入失败(路径/权限/合并逻辑)还是读取路径不一致,或用户未走「保存」按钮的 UX 误导——按根因修,不能只加提示。
+- 来源: 用户消息(2026-08-16)
+- 标签: 前端
+- 优先级: P1
+- 取活依据: override:用户明确指示「直接开修」新登记的两条缺陷,按消息顺序先修 D-404
+- 批次: 0/2
+- 进展: 根因已定位(2026-08-16):用户丢的是主题(亮暗)+鞭挞设置(work-priority/auto-max/continue-prompt/process-auto-state)——全部存 WebView2 localStorage,而本机 EBWebView\Default\Local Storage\leveldb 数据文件缺失(仅 CURRENT/LOCK/LOG/MANIFEST,M ANIFEST 残留 8/8 的 kz-sidebar-width 键但 .ldb/.log 零文件;Session Storage 有 5711B 证明引擎可写盘),localStorage 重启即丢。代码与安装脚本均无清理逻辑,路径/后端 settings_save 链路(15 测试全绿)与本次现象无关。设计冻结:不变式=关键 UI 偏好权威存储为 ~/.kanzei/app.json(AppPrefs 扩展:theme/work_priority/auto_max/continue_prompt/process_auto_state),localStorage 仅作旧值兼容;权威源=prefs.rs load_prefs/save_prefs;改动文件=prefs.rs(扩展+ui_prefs_get/ui_prefs_set)、main.rs(invoke_handler)、03-shell.js(theme)、08-compose.js(鞭挞 4 项)、scripts/ui-runtime-smoke.mjs(mock 同步);最小测试=kanzei-app prefs 往返单测+node --check+ui-runtime-smoke。批次1=Rust 侧+单测;批次2=前端+冒烟。下一步:批1 prefs.rs 扩展。
+- observed_head: 7d9ece2f588988451432503042b22ef2afe79bed
+- observed_worktree_hash: fnv1a64:a541170457de21e7
+- recorded_at: 1786853079126
+
+## D-405 主题切换位置不合理:占侧栏整块,建议移到左下角图标与设置同级 [open] (low)
+- 复现: 当前主题切换是侧栏底部一整块 sidebar-section(index.html:114-119,#theme-section + #theme-toggle「亮色」按钮),低频操作却占用侧栏一个区块;activitybar(左下角 #activitybar)是视图切换图标的常驻区,设置按钮在底部(index.html:35),主题入口与设置层级不对称。
+- 影响: 侧栏空间被低频操作占用;主题切换入口位置不直观,与设置同级操作不在同一视觉层级。
+- 期望: 移除侧栏 #theme-section;在 #activitybar 底部(设置按钮旁/左下角)加一个主题切换图标按钮,与设置同级;点击切换亮/暗色并沿用 localStorage kz-theme 持久化(03-shell.js applyTheme 既有逻辑可复用,只需改挂载点与图标样式)。
+- 来源: 用户消息(2026-08-16)
+- 标签: 前端
+- 优先级: P2

@@ -178,6 +178,8 @@ fn main() {
             settings::settings_get,
             settings::settings_save,
             settings::settings_open,
+            prefs::ui_prefs_get,
+            prefs::ui_prefs_set,
             projects::export_pick_dir,
             projects::export_project_data,
             settings::permission_rules_get,

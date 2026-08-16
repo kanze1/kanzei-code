@@ -479,6 +479,7 @@ mod tests {
                 ("missing".into(), "旧项目".into()),
                 ("kept".into(), "保留项目".into()),
             ]),
+            ..Default::default()
         };
 
         let prefs = normalize_prefs(prefs, |path| path == "kept");
