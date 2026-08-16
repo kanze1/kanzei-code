@@ -34,17 +34,41 @@ const OTHER_TREE_FILE_LIMIT: u64 = 4 * 1024 * 1024;
 /// 单树镜像文件数上限,防止把一整棵大树的文件都读进内存拖垮每次 bash。
 const OTHER_TREE_MAX_FILES: usize = 2000;
 
-/// 单个被保护文件的镜像三态(D-396,照搬 managed.rs 口径——此前 Option<Vec<u8>>
-/// 把「超限」与「不存在」都编码为 None,回滚时超限文件被当新建删除):
+/// 单个被保护文件的镜像三态(D-396 三态口径;D-397 加粗筛指纹):
 #[derive(Debug, Clone, PartialEq)]
 enum FileImage {
-    /// 动作前存在,内容已镜像(≤4MiB),可逐字节回滚。
-    Content(Vec<u8>),
+    /// 动作前存在,内容已镜像(≤4MiB),可逐字节回滚。len+mtime 是 D-397 粗筛指纹
+    /// (执行后扫描只采指纹,命中才读内容比对,不每条 bash 全量读)。
+    Content {
+        bytes: Vec<u8>,
+        len: u64,
+        mtime_ms: u128,
+    },
     /// 动作前存在但超限(或读取失败)——只记 len+mtime 指纹,改动可检出但无法回滚;
     /// 回滚时保持现状并如实报告,绝不当作「不存在」删除(D-396)。
     Fingerprint { len: u64, mtime_ms: u128 },
     /// 动作前不存在。
     Absent,
+}
+
+impl FileImage {
+    /// D-397:粗筛指纹——(len, mtime) 都相同视为「未变」;任一变化命中,
+    /// Content 读内容二次确认(touch 只改 mtime 会命中但内容相同→不算越界),
+    /// Fingerprint 无内容可比对,命中即判改动。
+    fn matches_fingerprint(&self, len: u64, mtime_ms: u128) -> bool {
+        match self {
+            FileImage::Content {
+                len: before_len,
+                mtime_ms: before_mtime,
+                ..
+            } => *before_len == len && *before_mtime == mtime_ms,
+            FileImage::Fingerprint {
+                len: before_len,
+                mtime_ms: before_mtime,
+            } => *before_len == len && *before_mtime == mtime_ms,
+            FileImage::Absent => false,
+        }
+    }
 }
 
 /// 其它线工作树的执行前镜像。
@@ -54,6 +78,8 @@ enum FileImage {
 #[derive(Debug, Default, Clone)]
 pub(crate) struct OtherTreesSnapshot {
     trees: BTreeMap<PathBuf, BTreeMap<String, FileImage>>,
+    /// D-397:快照是否因文件数上限截断(保护面不完整,对账时显式报告)。
+    truncated: bool,
 }
 
 impl OtherTreesSnapshot {
@@ -84,6 +110,7 @@ pub(crate) fn capture_other_trees(
     let entries = crate::worktree::git_worktrees(project_root)?;
     let self_key = crate::worktree::worktree_key(self_tree);
     let mut snapshot = OtherTreesSnapshot::default();
+    let mut truncated = false;
     for entry in entries {
         if entry.bare {
             continue;
@@ -92,24 +119,28 @@ pub(crate) fn capture_other_trees(
             continue; // 本线自己的树。
         }
         let mut files = BTreeMap::new();
-        collect_tree_files(&entry.path, &mut files);
+        truncated |= collect_tree_files(&entry.path, &mut files);
         if !files.is_empty() {
             snapshot.trees.insert(entry.path.clone(), files);
         }
     }
+    snapshot.truncated = truncated;
     Ok(snapshot)
 }
 
-fn collect_tree_files(root: &Path, files: &mut BTreeMap<String, FileImage>) {
+/// 递归收集树内文件镜像。返回 true = 达到文件数上限被截断(保护面不完整,
+/// D-397 显式报告,不再静默)。
+fn collect_tree_files(root: &Path, files: &mut BTreeMap<String, FileImage>) -> bool {
     if files.len() >= OTHER_TREE_MAX_FILES {
-        return;
+        return true;
     }
     let Ok(entries) = std::fs::read_dir(root) else {
-        return;
+        return false;
     };
+    let mut truncated = false;
     for entry in entries.flatten() {
         if files.len() >= OTHER_TREE_MAX_FILES {
-            return;
+            return true;
         }
         let path = entry.path();
         let Ok(file_type) = entry.file_type() else {
@@ -123,7 +154,7 @@ fn collect_tree_files(root: &Path, files: &mut BTreeMap<String, FileImage>) {
             continue;
         }
         if file_type.is_dir() {
-            collect_tree_files(&path, files);
+            truncated |= collect_tree_files(&path, files);
             continue;
         }
         if !file_type.is_file() {
@@ -133,8 +164,8 @@ fn collect_tree_files(root: &Path, files: &mut BTreeMap<String, FileImage>) {
             continue;
         };
         let key = relative.display().to_string().replace('\\', "/");
-        // D-396:三态镜像——≤4MiB 读内容;超限/读取失败只记 len+mtime 指纹
-        // (改动可检出,回滚保持现状,不当作不存在)。
+        // D-396:三态镜像——≤4MiB 读内容;超限/读取失败只记 len+mtime 指纹。
+        // D-397:Content 也带 len+mtime 指纹(执行后粗筛用)。
         let metadata = entry.metadata().ok();
         let size = metadata.as_ref().map(|m| m.len()).unwrap_or(u64::MAX);
         let mtime_ms = metadata
@@ -145,7 +176,11 @@ fn collect_tree_files(root: &Path, files: &mut BTreeMap<String, FileImage>) {
             .unwrap_or(0);
         let image = if size <= OTHER_TREE_FILE_LIMIT {
             match std::fs::read(&path) {
-                Ok(bytes) => FileImage::Content(bytes),
+                Ok(bytes) => FileImage::Content {
+                    len: size,
+                    mtime_ms,
+                    bytes,
+                },
                 Err(_) => FileImage::Fingerprint {
                     len: size,
                     mtime_ms,
@@ -159,6 +194,55 @@ fn collect_tree_files(root: &Path, files: &mut BTreeMap<String, FileImage>) {
         };
         files.insert(key, image);
     }
+    truncated
+}
+
+/// D-397:执行后对账的指纹粗筛——只采 (len, mtime),不读文件内容。
+/// 返回 (指纹表, 是否截断)。与 collect_tree_files 同构(.git 跳过、递归、
+/// 2000 上限),但零内容读取:真仓(含 target/node_modules 未跟踪大目录)下
+/// 每条 bash 的扫描开销从「全量读内容」降为「全量 stat」。
+fn collect_tree_metadata(root: &Path, files: &mut BTreeMap<String, (u64, u128)>) -> bool {
+    if files.len() >= OTHER_TREE_MAX_FILES {
+        return true;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return false;
+    };
+    let mut truncated = false;
+    for entry in entries.flatten() {
+        if files.len() >= OTHER_TREE_MAX_FILES {
+            return true;
+        }
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let is_git_dir = path.file_name().and_then(|name| name.to_str()) == Some(".git");
+        if is_git_dir {
+            continue;
+        }
+        if file_type.is_dir() {
+            truncated |= collect_tree_metadata(&path, files);
+            continue;
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+        let Ok(relative) = path.strip_prefix(root) else {
+            continue;
+        };
+        let key = relative.display().to_string().replace('\\', "/");
+        let metadata = entry.metadata().ok();
+        let size = metadata.as_ref().map(|m| m.len()).unwrap_or(u64::MAX);
+        let mtime_ms = metadata
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        files.insert(key, (size, mtime_ms));
+    }
+    truncated
 }
 
 /// 执行后对账:重扫其它线树,比对执行前镜像。
@@ -179,32 +263,34 @@ pub(crate) fn enforce_other_trees(
     owner_run: Option<&str>,
     owner_process: Option<&str>,
 ) -> Option<String> {
+    // D-397:执行后对账按 before 的树目录直接扫描(不再重新枚举 git worktrees,
+    // 也不需排除本线),self_tree 参数保留仅为兼容调用方签名。
+    let _ = self_tree;
     if before.is_empty() {
         return None;
     }
-    let after = match capture_other_trees(project_root, self_tree) {
-        Ok(snapshot) => snapshot,
-        // 执行前有树、执行后 git 失败:保护面失效,如实说明而不是假装成功。
-        Err(error) => {
-            return Some(format!(
-                "[cross-tree] WARNING: post-command worktree scan failed ({error}); \
-                 cross-tree protection was NOT enforced for this command."
-            ));
-        }
-    };
-    // 执行前存在、执行后消失的树:整棵树被删(rm -rf 目标树)是最严重的越界,
+    // D-397:执行后对账只采 (len, mtime) 指纹(全量 stat,零内容读取)——真仓
+    // (含 target/node_modules 未跟踪大目录)下每条 bash 的扫描开销不再翻倍全量读。
+    let mut after_meta: BTreeMap<PathBuf, BTreeMap<String, (u64, u128)>> = BTreeMap::new();
+    let mut after_truncated = false;
+    for root in before.trees.keys() {
+        let mut meta = BTreeMap::new();
+        after_truncated |= collect_tree_metadata(root, &mut meta);
+        after_meta.insert(root.clone(), meta);
+    }
+    // 执行前存在、执行后目录消失的树:整棵树被删(rm -rf 目标树)是最严重的越界,
     // 必须点名。此时无法回滚整棵树(镜像里只有文件内容没有目录语义),如实说明。
     let removed_trees = before
         .trees
         .keys()
-        .filter(|root| !after.trees.contains_key(*root))
+        .filter(|root| !root.exists())
         .map(|root| root.display().to_string())
         .collect::<Vec<_>>();
     let mut touched = Vec::new();
     let mut changes: BTreeMap<PathBuf, BTreeMap<String, (FileImage, Option<FileImage>)>> =
         BTreeMap::new();
     for (root, before_files) in &before.trees {
-        let after_files = after.trees.get(root).cloned().unwrap_or_default();
+        let after_files = after_meta.get(root).cloned().unwrap_or_default();
         let mut tree_changes = BTreeMap::new();
         for (rel, before_image) in before_files {
             match after_files.get(rel) {
@@ -212,22 +298,45 @@ pub(crate) fn enforce_other_trees(
                 None => {
                     tree_changes.insert(rel.clone(), (before_image.clone(), None));
                 }
-                // 都存在但不同:改动。Content 回滚原内容;Fingerprint 指纹变检出,保持现状。
-                Some(after_image) if after_image != before_image => {
-                    tree_changes.insert(
-                        rel.clone(),
-                        (before_image.clone(), Some(after_image.clone())),
-                    );
+                // 指纹粗筛命中(执行后与执行前 len/mtime 不同):Content 读内容
+                // 二次确认(touch 只改 mtime 内容相同 → 不算越界);Fingerprint 判改动。
+                Some((len, mtime)) if !before_image.matches_fingerprint(*len, *mtime) => {
+                    let after_image = match before_image {
+                        FileImage::Content { bytes, .. } => match std::fs::read(root.join(rel)) {
+                            Ok(after_bytes) if after_bytes == *bytes => continue,
+                            Ok(after_bytes) => Some(FileImage::Content {
+                                len: *len,
+                                mtime_ms: *mtime,
+                                bytes: after_bytes,
+                            }),
+                            Err(_) => Some(FileImage::Fingerprint {
+                                len: *len,
+                                mtime_ms: *mtime,
+                            }),
+                        },
+                        FileImage::Fingerprint { .. } => Some(FileImage::Fingerprint {
+                            len: *len,
+                            mtime_ms: *mtime,
+                        }),
+                        FileImage::Absent => unreachable!("before_files 只含存在文件"),
+                    };
+                    tree_changes.insert(rel.clone(), (before_image.clone(), after_image));
                 }
-                Some(_) => {}
+                Some(_) => {} // 指纹相同:无变化(零内容读取)。
             }
         }
         // 执行后新增的文件(执行前没有):越界新建,回滚 = 删除。
-        for rel in after_files.keys() {
+        for (rel, (len, mtime)) in &after_files {
             if !before_files.contains_key(rel) {
                 tree_changes.insert(
                     rel.clone(),
-                    (FileImage::Absent, after_files.get(rel).cloned()),
+                    (
+                        FileImage::Absent,
+                        Some(FileImage::Fingerprint {
+                            len: *len,
+                            mtime_ms: *mtime,
+                        }),
+                    ),
                 );
             }
         }
@@ -278,7 +387,11 @@ pub(crate) fn enforce_other_trees(
             let absolute = root.join(rel);
             // 隔离留证:改后版本(有内容镜像的)一份不丢,可原样取回;
             // 超限改动体积过大不隔离,如实报告。
-            if let Some(FileImage::Content(after_content)) = after_image {
+            if let Some(FileImage::Content {
+                bytes: after_content,
+                ..
+            }) = after_image
+            {
                 let saved = quarantine.join(rel);
                 if let Some(parent) = saved.parent() {
                     let _ = std::fs::create_dir_all(parent);
@@ -286,7 +399,9 @@ pub(crate) fn enforce_other_trees(
                 let _ = std::fs::write(&saved, after_content);
             }
             match before_image {
-                FileImage::Content(original) => {
+                FileImage::Content {
+                    bytes: original, ..
+                } => {
                     // 执行前存在且有内容镜像:写回原内容(逐字节复原)。
                     if std::fs::write(&absolute, original).is_ok() {
                         restored += 1;
@@ -311,6 +426,12 @@ pub(crate) fn enforce_other_trees(
     }
     for (root_display, quarantine) in &quota {
         lines.push(format!("  · {root_display}: 隔离留证于 {quarantine}"));
+    }
+    if before.truncated || after_truncated {
+        lines.push(format!(
+            "  · WARNING: 快照文件数达上限 {OTHER_TREE_MAX_FILES},保护面不完整——\
+             截断显式报告(D-397),超出部分不在保护面内。"
+        ));
     }
     if !removed_trees.is_empty() {
         lines.push(format!(
@@ -577,40 +698,84 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// 验收⑤性能:快照开销随其它线树数量增长,给出实测数字并断言上界
-    /// (不随 N 线性劣化到不可用)。
+    /// 验收⑤性能 + D-397 真仓规模实测:快照开销随其它线树数量增长,给出实测
+    /// 数字并断言上界(不随 N 线性劣化到不可用)。
     ///
-    /// 构造:git 仓 + 5 棵 worktree,每棵塞 30 个小文件(共 150 个 f-文件
-    /// 加 5 个 seed commit 的 seed.txt = 155 个镜像文件),量单次
-    /// `capture_other_trees` 的耗时。上界取 2s(远宽于正常机器上的
-    /// 几十毫秒),防的是"快照把每条 bash 拖到秒级以上"这类不可用劣化;
-    /// 实测数字通过 test_record 的 summary 落档。
+    /// 构造:git 仓 + 5 棵 worktree,每棵塞 300 个小文件(≈1500 文件,接近
+    /// target/node_modules 未跟踪大目录量级)。量两个阶段耗时:
+    /// 执行前 `capture_other_trees`(读内容,回滚需要)与执行后
+    /// `collect_tree_metadata`(粗筛,只 stat 不读内容——D-397 核心:真仓规模下
+    /// 每条 bash 的执行后扫描不翻倍全量读)。上界:读内容 4s、粗筛 2s。
     #[test]
     fn 快照性能_多线树耗时上界() {
         let root = git_repo("kz-ct-perf");
         let mut trees = Vec::new();
         for i in 0..5 {
             let t = add_worktree(&root, &format!("line-{i}"));
-            for f in 0..30 {
-                std::fs::write(t.join(format!("f-{f:02}.txt")), format!("content {f}\n")).unwrap();
+            for f in 0..300 {
+                std::fs::write(
+                    t.join(format!("f-{f:03}.txt")),
+                    format!("content {f} with payload padding padding padding\n"),
+                )
+                .unwrap();
             }
             trees.push(t);
         }
         let started = std::time::Instant::now();
         let before = capture_other_trees(&root, &root).expect("快照失败");
-        let elapsed = started.elapsed();
+        let capture_elapsed = started.elapsed();
         assert_eq!(
             before.file_count(),
-            5 * 31,
-            "5 棵树 × (30 个 f-文件 + seed commit 的 seed.txt) 应全部镜像"
+            5 * 301,
+            "5 棵树 × (300 个 f-文件 + seed commit 的 seed.txt) 应全部镜像"
         );
         assert!(
-            elapsed < std::time::Duration::from_secs(2),
-            "5 棵线树快照耗时 {elapsed:?} 超过 2s 上界——快照随 N 线性劣化到不可用"
+            capture_elapsed < std::time::Duration::from_secs(4),
+            "执行前快照(读内容)耗时 {capture_elapsed:?} 超 4s 上界"
+        );
+        // 执行后粗筛:只 stat 不读内容(D-397)。
+        let started_meta = std::time::Instant::now();
+        let mut meta = BTreeMap::new();
+        let mut truncated = false;
+        for t in &trees {
+            truncated |= collect_tree_metadata(t, &mut meta);
+        }
+        let meta_elapsed = started_meta.elapsed();
+        assert!(!truncated, "1500 文件不应触发截断");
+        assert!(
+            meta_elapsed < std::time::Duration::from_secs(2),
+            "执行后粗筛(只 stat)耗时 {meta_elapsed:?} 超 2s 上界"
         );
         eprintln!(
-            "[cross-tree perf] 5 worktrees × 30 files snapshot took {:?}",
-            elapsed
+            "[cross-tree perf] 5 worktrees × 300 files: capture(读内容) {capture_elapsed:?}, \
+             after-metadata(粗筛) {meta_elapsed:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D-397:文件数超上限(2000)截断——保护面不完整必须显式报告,不再静默。
+    #[test]
+    fn 快照截断_显式报告保护面不完整() {
+        let root = git_repo("kz-ct-trunc");
+        let b = add_worktree(&root, "line-b");
+        // 超过 OTHER_TREE_MAX_FILES(2000)个文件。
+        for f in 0..(OTHER_TREE_MAX_FILES + 1) {
+            std::fs::write(b.join(format!("f-{f:04}.txt")), format!("{f}\n")).unwrap();
+        }
+        let before = capture_other_trees(&root, &root).expect("快照失败");
+        assert!(before.truncated, "超过 2000 文件必须标记截断(不再静默)");
+        // 改动已镜像的文件 → 报告必须点名截断警告,回滚照常。
+        std::fs::write(b.join("f-0000.txt"), "CHANGED\n").unwrap();
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
+            .expect("必须检出越界");
+        assert!(
+            report.contains("截断") && report.contains("不完整"),
+            "截断显式报告: {report}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(b.join("f-0000.txt")).unwrap(),
+            "0\n",
+            "回滚照常"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -632,7 +797,7 @@ mod tests {
             "超限文件应以指纹入镜像(不占内存)"
         );
         assert!(
-            matches!(bfiles["small.txt"], FileImage::Content(_)),
+            matches!(bfiles["small.txt"], FileImage::Content { .. }),
             "小文件以内容入镜像"
         );
 
