@@ -4975,3 +4975,15 @@
 - observed_head: dcc088d3631522034136c0b055e58f465e07400d
 - observed_worktree_hash: fnv1a64:6bd3df54ce497cfe
 - recorded_at: 1786891564946
+
+## D-417 typed writer 用内存 invariant 校验 append,不查库内既有 terminal,产生 terminal 后追加脏序列并让每轮 prepare 失败 [fixed] (high)
+- 复现: state.db 实查:turn run_1786814079237200400 在 seq 76740 已有 session.turn_failed(terminal),其后 seq 76744-78160 仍继续落 turn 同 id 的 tool_result_committed/turn_started 等事实(append_session_facts_checked L523 用 writer 传入的内存 invariant 检查,不校验库内既有 turn 状态,跨 writer/recovery 并发写同一 session 时内存态漂移)。此后每一轮 prepare_typed_session → recover_interrupted_session_facts 重建 invariant,apply 到 76740 后撞上后续 turn A 事实即报 'turn run_1786814079237200400 already terminal',错误经 record_error 进入当轮 writer.errors,write_shadow_report 原样写入 typed_write_errors。真实库 80 条 shadow_compared 中 43 条 typed_write_errors 非空,全部为此错误。
+- 影响: ①typed_write_errors≠0 直接违反 R-242 验收⑤(shadow gate 达标要求 typed_write_errors=0);②terminal 后事实仍落库违反事件溯源的全局不变量,投影/审计可能读到矛盾序列;③每轮 prepare 必失败,错误污染每轮 shadow report,统计失真。
+- 来源: 自发现(2026-08-16 R-242 批4 对真实 state.db 的 80 条 shadow_compared 全量取证:16 条 equal=false 中 11 条按预期归因,但 43 条 typed_write_errors 非空全部为同一 'already terminal' 错误,追查 turn 事实序列定位根因)
+- 标签: 核心
+- refs: R-242
+- 优先级: P1
+- 进展: 2026-08-16 修复完成(R-242 批5,提交 d23a2405):①append_session_facts_checked 增库内 terminal 预检(turn_has_terminal SQL 查该 session 该 turn 已有 turn_stopped/completed/failed 即整批拒绝),杜绝跨 writer/recovery 内存 invariant 漂移产生的 terminal 后追加脏序列;②recover_interrupted_session_facts 重建 invariant 容忍历史脏条(already terminal 跳过计数,返回 RecoveryReport{closed_events, skipped_post_terminal}),每轮 prepare 不再失败、typed_write_errors 不再被历史污染。测试:kanzei-core 213 passed(新增 append_rejects_facts_for_turn_already_terminal_in_db 库内 terminal 拒 append 零落库、recover_tolerates_historical_post_terminal_append 历史脏序列 recover 成功 skipped=1)。真实库旧 43 条带错 shadow_compared 为修复前产物;修复后新轮 typed_write_errors=0 验证属 R-242 验收⑤(需部署新 kz 后真实库新轮,集成测试 always_allow_bash 已在修复后代码断言 typed_write_errors=[])。
+- observed_head: 3b30bc0ddb9bb8128a865091f468729f26078c40
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786897567621
