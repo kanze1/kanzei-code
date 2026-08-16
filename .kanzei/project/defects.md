@@ -85,21 +85,6 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-388 approval 不发手机通知;SSE 旧连接无视撤销停服 [fixing] (medium)
-- refs: R-270
-- 影响: R-270 验收⑥「息屏收到 approval 通知」未实现——移动端第一价值场景缺席;被撤销设备断线前仍收事件;停服线程泄漏。
-- 期望: ask 建立时调 notify_mobile 并进 SSE 事件流;handle_sse 每轮检查 active 与设备表。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 后端
-- 根因: notify_mobile 只接完成/失败(run/persistence.rs:184/257),ask 流不调且 SSE 流无 approval 事件;handle_sse 无 active 检查(mobile.rs 停服只停 accept 循环 641-648),已建长连接继续推送直到客户端断开。
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-388
-- 进展: 2026-08-16 取活修复。**根因**:①notify_mobile 只接完成/失败(run/persistence.rs),ask 流不调——approval 不发手机通知(R-270 验收⑥缺席);②handle_sse 无 active 检查(停服只停 accept 循环),已建长连接继续推送直到客户端断开,被撤销设备断线前仍收事件、停服线程泄漏。**修复**:①build_ask_handler(events/mod.rs)建立 ask 时调 notify_mobile——permission→「kanzei 需要批准: action resource」、question→「kanzei 询问: question」,尽力而为不阻塞;②handle_sse 加 active(AtomicBool)与 devices 参数(经 handle_mobile_connection 与 accept 线程传递),循环每轮检查——active=false 停服即断开、device_id 不在表(被撤销)即断开。**验证**:kanzei-app 182 passed,clippy/fmt 通过(T-1786848710)。
-- 阻塞: 
-- observed_head: d12bac979ae064c0625135651af4071017bd6a60
-- observed_worktree_hash: fnv1a64:11087b41807c6c9e
-- recorded_at: 1786848718860
-
 ## D-389 R-270/R-271 验收证据虚增:替身自检真机零记录 [open] (high)
 - refs: R-270 R-271 R-059
 - 影响: R-271 验收①真机全链路零记录仍标 done;虚假完成已传播到 R-059 阻塞解除依据。
@@ -216,3 +201,21 @@
 - 标签: 流程
 - 根因: 交付为纯静态 regex 差集(ui-connectivity.mjs:54-89)+关键路径只查 HTML 存在性(77-89);PWA 4 条路径 3 条 needs_pair 跳过(146-150),唯一真开的是配对页;KEY_PATHS 为脚本内 const(33-51)非验收③要求的配置文件;原案「基于 R-269 从入口遍历+跳转失败/console 报错」运行时判定全部缺席。关闭证据如实描述静态形态但未点名与原案落差,四条验收照单核销(对比 R-264 对做不到的部分明确记「待专用批次」)。
 - 优先级: P2
+
+## D-402 llm 重试轨道缺 5xx 与 overloaded:夜间过载一发即致命 [open] (high)
+- refs: R-022
+- 影响: state.db 现场:503「upstream connect error/reset」39 次、server_is_overloaded 14+ 次、transport 34 次——全是夜间 provider 过载窗口的瞬态错误,每一发都终止整轮并在 UI 报「致命错误」(05-chat-render.js:83 的不可重试分支)。用户过夜长跑报致命错误的直接成因之一。
+- 期望: ①流建立前 5xx(500/502/503/504)进退避重试轨道(尊重 Retry-After,上限沿用 MAX_RATE_LIMIT_RETRIES 口径);②is_rate_limit_kind 按 contains("overload") 模糊匹配补上 server_is_overloaded 一族;③SSE 流内 overloaded/5xx 类错误在本步尚无 parts/calls 产出时安全重放(有产出则不重放,沿用「流一旦建立不重放」的副作用纪律,但空步例外是安全的);④各路径有定向测试。
+- 来源: 2026-08-16 用户报告过夜长跑后报致命错误;state.db 二进制取证+读码定位。
+- 标签: 模型
+- 根因: client.rs 流建立前只重试 429/529 与 connect/timeout(stream_with_retry_notice 186-220);HTTP 500/502/503 走 classify_http→LlmError::Http 直接抛,零重试;SSE 流内错误 kind「server_is_overloaded」不在 is_rate_limit_kind 白名单(error.rs:105-110 只有 overloaded/overloaded_error,前缀不匹配)→归 Provider 致命;drive.rs 对非 Transport 的 stream_error 一律 return Err(594-632,只有 Transport 有 stream_restarts、overflow 有压缩)。
+- 优先级: P1
+
+## D-403 自动循环失败轮停摆:run_result? 跳过续跑判定,过夜一错全停 [open] (high)
+- refs: D-388
+- 影响: 过夜自主推进撞上任何一发致命分类错误(夜间 503/overloaded 常态,见关联缺陷)即整夜停摆,早上看到的就是一条「致命错误」和停住的循环;当晚剩余时间全部浪费。
+- 期望: ①失败轮也进 auto_run 判定:瞬态类(RateLimited/Http 5xx/Transport/overloaded)退避后重试本轮或跳到下一轮,连续失败 N 轮(建议 3)才停并给出停摆原因;②致命类(401 认证/Config/4xx 非限流)立即停,不空转烧钱;③停摆时经 notify_mobile 发手机通知(通知桥已接失败事件),让过夜用户第一时间知道;④退避期间可被用户手动停止;⑤有「连续瞬态失败→退避→恢复」与「连续 N 轮失败→停摆+通知」的定向测试。
+- 来源: 2026-08-16 用户报告过夜长跑后报致命错误;读码定位 coordinator 提前返回。
+- 标签: 后端
+- 根因: coordinator.rs 轮末「let summary = run_result?」提前返回,失败轮完全跳过 decide_auto_run 判定块——自动续跑/退避/停止的决策根本没机会运行;auto_run 状态机(harness/auto_run.rs)只认「连续无实质动作」刹车,没有「瞬态失败退避重试」的概念。
+- 优先级: P1
