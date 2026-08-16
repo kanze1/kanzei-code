@@ -202,6 +202,55 @@ on("kz:mobile-message", (eventPayload) => {
 });
 
 const $ = (id) => document.getElementById(id);
+// D-418:统一确认弹窗(替代浏览器原生 window.confirm)。
+// options: { title, message, list?: string[], okText?, danger?: boolean }
+// 返回 Promise<boolean>;确认 resolve(true),取消/Esc/遮罩 resolve(false)。
+// 与应用自定义弹窗体系(ask/viewer)同构,可承载清单与风险分级(R-245 删除弹窗规范)。
+function confirmDialog(options) {
+  return new Promise((resolve) => {
+    const overlay = $("confirm-overlay");
+    const ok = $("confirm-ok");
+    const cancel = $("confirm-cancel");
+    $("confirm-title").textContent = options.title ?? t("确认");
+    $("confirm-message").textContent = options.message ?? "";
+    const listEl = $("confirm-list");
+    if (options.list && options.list.length) {
+      listEl.textContent = "";
+      for (const item of options.list) {
+        const li = document.createElement("li");
+        li.textContent = item;
+        listEl.appendChild(li);
+      }
+      listEl.classList.remove("hidden");
+    } else {
+      listEl.classList.add("hidden");
+    }
+    ok.textContent = options.okText ?? t("确认");
+    ok.classList.toggle("danger", !!options.danger);
+    overlay.classList.remove("hidden");
+    const done = (value) => {
+      overlay.classList.add("hidden");
+      ok.removeEventListener("click", onOk);
+      cancel.removeEventListener("click", onCancel);
+      document.removeEventListener("keydown", onKey);
+      overlay.removeEventListener("click", onBackdrop);
+      resolve(value);
+    };
+    const onOk = () => done(true);
+    const onCancel = () => done(false);
+    const onKey = (e) => {
+      if (e.key === "Escape") done(false);
+    };
+    const onBackdrop = (e) => {
+      if (e.target === overlay) done(false);
+    };
+    ok.addEventListener("click", onOk);
+    cancel.addEventListener("click", onCancel);
+    document.addEventListener("keydown", onKey);
+    overlay.addEventListener("click", onBackdrop);
+    ok.focus();
+  });
+}
 // localStorage 里的 JSON 可能被手改坏;读不出来就当没有,绝不让偏好读取抛异常
 // 把整个初始化带崩。
 function readJson(key, fallback) {

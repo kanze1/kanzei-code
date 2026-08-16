@@ -1037,6 +1037,18 @@
     </div>
   </div>
 
+  <div id="confirm-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div id="confirm-dialog">
+      <div class="confirm-title" id="confirm-title" data-i18n-raw></div>
+      <div id="confirm-message" data-i18n-raw></div>
+      <ul id="confirm-list" class="confirm-list hidden"></ul>
+      <div class="confirm-buttons">
+        <button id="confirm-cancel" data-i18n-key="取消">取消</button>
+        <button id="confirm-ok" data-i18n-key="确认">确认</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 命令面板(Ctrl/Cmd+P):视图 / 项目 / 线路 / 动作 四类目标的键盘检索入口。
        候选项行为一律委托给既有控件的 click,见 21-palette.js 顶部说明。 -->
   <div id="palette" class="palette hidden" role="dialog" aria-modal="true" aria-label="命令面板" data-i18n-aria-label="命令面板">

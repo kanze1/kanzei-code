@@ -561,6 +561,15 @@ async function deleteConversationsForProcess(processId, sequences) {
     toast(t("先勾选要删除的历史对话"));
     return;
   }
+  // D-418:R-245 设计——删除弹窗列清单,取消不产生任何写入。
+  const ok = await confirmDialog({
+    title: t("确认删除"),
+    message: `${t("将删除勾选的")} ${sequences.length} ${t("份历史对话快照")}${t("此操作不可撤销")}`,
+    list: [t("消息与运行轨迹"), t("工具调用与结果引用")],
+    okText: t("删除"),
+    danger: true,
+  });
+  if (!ok) return;
   try {
     const n = await invoke("conversation_delete", { projectDir: currentProject, processId, sequences });
     toast(`${t("已删除")} ${n}${t("份对话快照")}`);
@@ -762,9 +771,9 @@ $("new-chat").addEventListener("click", async () => {
   }
   try {
     await invoke("conversation_clear", { projectDir: currentProject, processId: activeProcessId });
-    clearChat(t("已开启新对话(历史已清空)"));
+    clearChat(t("已开启新对话(历史保留可审计)"));
     await refreshConversationList();
-    log(t("新对话:多轮历史已清空"));
+    log(t("新对话:历史保留,开启新段"));
   } catch (err) {
     toastError(String(err), { retry: () => $("new-chat").click() });
   }

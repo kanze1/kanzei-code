@@ -480,9 +480,12 @@ function buildHarvestPanel(line, projectDir, agentCode) {
     const gateRan = mergeButton.dataset.gateRan === "1";
     if (!gateRan || !gateOk) {
       const reason = gateRan ? t("门禁未通过") : t("门禁未运行");
-      const ok = window.confirm(
-        `${reason}。${t("合并前请先在线上跑通门禁;仍要继续合并吗")}\n${t("覆盖确认将记录到活动轨迹")}`,
-      );
+      const ok = await confirmDialog({
+        title: t("覆盖确认"),
+        message: `${reason}。${t("合并前请先在线上跑通门禁;仍要继续合并吗")}\n${t("覆盖确认将记录到活动轨迹")}`,
+        okText: t("确认"),
+        danger: true,
+      });
       if (!ok) return;
       // 覆盖确认落轨迹:活动面板能回溯「谁在什么状态下强行合并」。
       console.info(`[harvest-override] merge without passing gate (${reason}) for ${line.branch || line.process_id}`);

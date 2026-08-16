@@ -86,7 +86,7 @@ async function handleWorktreeAction(item, action) {
         ?.querySelector(".line-harvest-toggle")?.click();
       return;
     }
-    if (action === "discard" && !window.confirm(`${t("放弃工作树")} ${item.branch}？${t("未提交改动会阻止删除并保留现场")}`)) return;
+    if (action === "discard" && !(await confirmDialog({ title: t("放弃工作树"), message: `${item.branch}？${t("未提交改动会阻止删除并保留现场")}` }))) return;
     const result = await invoke("worktree_discard", { projectDir: forProject, worktreePath: item.path });
     if (String(result).length > 160) {
       log(String(result), "info");
@@ -179,20 +179,35 @@ async function createWorktreeLine(event) {
   // R-179 内容④:建线成本提示(D6 定案)——每树独立 target/ = 磁盘占用 ×N,
   // 首次冷编译需数分钟。让用户在建线前知道代价,不是悄悄发生。
   const binding = workItemId ? `\n${t("开线条目")}:${workItemId}` : "";
-  if (!window.confirm(`${t("创建并行线路将新建独立工作树")}:${t("每线独立 target/ 目录,磁盘占用随线路数成倍增加;首次冷编译需数分钟")}。${binding}\n${t("继续创建吗")}`)) return;
-  // 同 handleWorktreeAction(D-251):projectDir 在 await 前认领。
-  const forProject = currentProject;
-  worktreeLineCreateInFlight = true;
   const addButtons = [$("worktree-add"), $("lines-add")].filter(Boolean);
   const workItemSelect = $("lines-work-item");
   // 真实 DOM 取内层 i18n span；运行时测试桩没有复建 id 节点的子树，回退到按钮本身。
   const linesAddLabel = $("lines-add")?.querySelector("[data-i18n-key]") || $("lines-add");
+  const restore = () => {
+    worktreeLineCreateInFlight = false;
+    for (const button of addButtons) {
+      button.disabled = button.id === "lines-add" && !String(workItemSelect?.value ?? "").trim();
+      button.removeAttribute("aria-busy");
+    }
+    if (workItemSelect) workItemSelect.disabled = workItemSelect.options.length <= 1;
+    if (linesAddLabel) linesAddLabel.textContent = t("按条目开线");
+  };
+  // D-418:确认弹窗异步化——in-flight + 禁用/aria-busy/创建中反馈提前到 confirm
+  // 前,弹窗期间防重入防误操作(await 期间重复点击不会二次 process_create);
+  // 取消/失败统一走 restore。
+  worktreeLineCreateInFlight = true;
   for (const button of addButtons) {
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
   }
   if (workItemSelect) workItemSelect.disabled = true;
   if (linesAddLabel) linesAddLabel.textContent = t("创建中…");
+  if (!(await confirmDialog({ title: t("创建并行线路"), message: `${t("创建并行线路将新建独立工作树")}:${t("每线独立 target/ 目录,磁盘占用随线路数成倍增加;首次冷编译需数分钟")}。${binding}\n${t("继续创建吗")}` }))) {
+    restore();
+    return;
+  }
+  // 同 handleWorktreeAction(D-251):projectDir 在 await 前认领。
+  const forProject = currentProject;
   const name = `line-${Date.now()}-${worktreeLineCreateSequence += 1}`;
   try {
     // 建线必须原子完成「建 worktree + 注册进程绑定」；只调用 worktree_create 会留下
@@ -211,13 +226,7 @@ async function createWorktreeLine(event) {
   } catch (error) {
     toastError(`${t("创建并行线路失败")}:${error}`);
   } finally {
-    worktreeLineCreateInFlight = false;
-    for (const button of addButtons) {
-      button.disabled = button.id === "lines-add" && !String(workItemSelect?.value ?? "").trim();
-      button.removeAttribute("aria-busy");
-    }
-    if (workItemSelect) workItemSelect.disabled = workItemSelect.options.length <= 1;
-    if (linesAddLabel) linesAddLabel.textContent = t("按条目开线");
+    restore();
   }
 }
 $("worktree-add").addEventListener("click", createWorktreeLine);
@@ -250,7 +259,7 @@ async function closeParallelProcess(processId) {
   const warning = runningNow
     ? t("线路仍在运行，关闭会先停止并等待收口。")
     : t("关闭会注销线路身份。已合并且干净的工作树会自动回收；有独有内容的工作树会保留。");
-  if (!window.confirm(`${t("关闭线路")} ${item.label} (${item.id})？\n${warning}`)) return;
+  if (!(await confirmDialog({ title: t("关闭线路"), message: `${item.label} (${item.id})？\n${warning}` }))) return;
   cancelAutoContinueTimer(item.session_id);
   if (runningNow) transitionSession(item.session_id, "stopping");
   try {
@@ -729,7 +738,7 @@ function renderProjects(prefs) {
     remove.setAttribute("aria-label", `${t("移除项目")} ${name.textContent}`);
     remove.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (!window.confirm(`${t("移除项目")}“${name.textContent}”吗？${t("只解除登记,不会删除磁盘文件。")}`)) return;
+      if (!(await confirmDialog({ title: t("移除项目"), message: `“${name.textContent}”吗？${t("只解除登记,不会删除磁盘文件。")}` }))) return;
       try {
         const wasCurrent = currentProject === path;
         const next = await invoke("projects_remove", { path });

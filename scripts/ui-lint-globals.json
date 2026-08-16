@@ -207,6 +207,7 @@
   "complexityRank",
   "computeAgentFocus",
   "computeLineAgentFocuses",
+  "confirmDialog",
   "confirmWorktreeMerge",
   "consumePendingJump",
   "continuePrompt",

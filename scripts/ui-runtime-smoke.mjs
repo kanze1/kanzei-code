@@ -989,6 +989,9 @@ const windowShim = {
   __TAURI__: { core: { invoke }, event: { listen } },
   addEventListener: () => {},
   confirm: () => true,
+  // D-418:业务确认弹窗从 window.confirm 迁移到 confirmDialog(01-core.js),
+  // 冒烟同样 mock 成立(立即确认),否则确认类操作断言会挂在挂起的 Promise 上。
+  confirmDialog: () => true,
   innerWidth: 1280,
   innerHeight: 800,
 };
@@ -1257,6 +1260,12 @@ async function runUiSources() {
 }
 
 await runUiSources();
+
+// D-418:业务确认弹窗从 window.confirm 迁移到全局函数 confirmDialog(01-core.js)。
+// windowShim 里的 confirmDialog mock 会被页面脚本的 `function confirmDialog` 声明
+// 覆盖,必须在源码执行完后重新覆盖为「立即确认」,确认类操作的断言才不会被挂起
+// 的 Promise 卡住(放弃工作树/新建线路等)。
+vm.runInContext("confirmDialog = () => true", sandbox);
 
 // R-076:追加鞭挞状态测试钩子(访问模块级 let 状态,冒烟外部拿不到)。hook 单独最后执行,
 // 不拼进任何脚本文件——拆分后它属于冒烟注入层,不属于生产代码。

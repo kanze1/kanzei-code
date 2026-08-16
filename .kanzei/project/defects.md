@@ -92,6 +92,10 @@
 - 标签: 前端
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 D-418
+- 进展: 2026-08-16 修复完成(待提交):①新增统一确认弹窗 confirm-overlay/confirmDialog(01-core.js,替代原生 window.confirm,支持清单与 danger 风险分级,对齐 R-245 删除弹窗设计);②删除历史对话补确认弹窗列清单(15-views-misc.js deleteConversationsForProcess:消息与运行轨迹/工具调用与结果引用,取消无写入);③清空对话文案更正(15-views-misc.js:765/767「历史已清空」→「历史保留可审计」「历史保留,开启新段」,对齐 conversation.reset 保留历史语义);④9 处 window.confirm 迁移(09-sessions 放弃工作树/创建并行线路/关闭线路/移除项目,13-memory 删除记忆,16-settings 删除权限规则,20-lines 合并覆盖);⑤创建并行线路防重入(in-flight+禁用提前到 confirm 前,异步期间防二次 process_create);⑥i18n 8 新键、lint globals 补 confirmDialog、ui-runtime-smoke windowShim mock confirmDialog 适配。验证:六条前端冒烟全绿(T-1786901792,ui-runtime 23 项 0 错误)。
+- observed_head: 9747d68012a5e50a668f8a02ccc3a9e6d31416a6
+- observed_worktree_hash: fnv1a64:4ccac6b57679e6db
+- recorded_at: 1786901825845
 
 ## D-419 编排派发的子代理条目卡在「运行中」:ToolEnd 要等整波过屏障才统一发,单条停止必然报「不在运行中或已结束」 [open]
 - 严重程度: medium

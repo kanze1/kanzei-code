@@ -585,7 +585,7 @@ function showMemoryDetail(scope, entry) {
   deleteBtn.textContent = t("删除");
   deleteBtn.title = t("从磁盘删除该记忆文件,不可撤销");
   deleteBtn.addEventListener("click", async () => {
-    if (!window.confirm(`${t("确认删除")} ${entry.id}?${t("此操作不可撤销")}`)) return;
+    if (!(await confirmDialog({ title: t("确认删除"), message: `${entry.id}?${t("此操作不可撤销")}`, okText: t("删除"), danger: true }))) return;
     try {
       await invoke("memory_entry_delete", { projectDir: currentProject, scope, id: entry.id });
       toast(t("已删除"));

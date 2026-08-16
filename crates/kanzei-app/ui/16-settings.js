@@ -172,7 +172,7 @@ function renderPermissionRules(data) {
     remove.setAttribute("aria-label", `${t("删除权限规则")} ${rule.action} ${rule.resource}`);
     remove.textContent = "×";
     remove.addEventListener("click", async () => {
-      if (!confirm(`${t("删除")} ${rule.action} / ${rule.resource}？`)) return;
+      if (!(await confirmDialog({ title: t("删除权限规则"), message: `${rule.action} / ${rule.resource}？`, okText: t("删除"), danger: true }))) return;
       await deletePermissionRule(rule);
     });
     controls.appendChild(remove);
