@@ -4945,3 +4945,33 @@
 - observed_head: 5bef495be2a53a15faf5d7fccdc6b1865b75afe6
 - observed_worktree_hash: fnv1a64:079b10c5eaac5321
 - recorded_at: 1786869516194
+
+## D-409 记忆 inbox 消化死亡螺旋:251KB/201 条整箱塞进单轮,失败还静默 [fixed] (high)
+- refs: R-195 R-213 D-341 R-216
+- 影响: 记忆控制平面的写入侧实际断流:memory_note 一路写进 inbox 但没有条目被提炼晋升;R-195 今日以「candidate 晋升与清退闭环完成」归档,闭环的是 candidate 生命周期,inbox→entry 这一段并未打通,用户直观看到 201 条待确认。
+- 期望: ①分批消化:每轮取固定条数(建议 10~20)喂 manager,逐条 memory_inbox_discard 销账,剩余留待下轮;②失败可见:run 失败/未销账时记事件+轮末诊断,连续失败 N 轮升级为通知,不再静默;③积压护栏:pending 超阈值(如 100)时前端与轮末明确告警并给「一键整理」入口(UI 已有该按钮,需接到分批消化上);④存量 201 条按新链路清空,给实测数字。
+- 来源: 2026-08-16 用户在桌面端看到「待确认候选 201」并指出记忆晋升未解决,当场取证:inbox.md 251612 字节/201 条。
+- 标签: 核心
+- 根因: ①无分批:consolidation_prompt(kanzei-memory/src/memory/manager.rs:1092)把整个 inbox 原样拼进 prompt——现已 251612 字节/201 条,单轮 max_tokens 仅 4096、steps 10,模型既读不完也逐条销不完账;②失败静默:consolidate_memory_inbox(kanzei-app/src/memory.rs:374)`let _ = run_once_with_parts(...)` 丢弃全部错误,primary/fast 两档都失败时无任何诊断、无事件、无通知,轮末照常「成功」;③无上限反馈:inbox 只增不减,越大越难消化、越难消化越大——用户端表现为「待确认候选 201」持续堆积,记忆晋升事实停摆。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-409
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 已修复(commit 5a15cdc + b4245f6c),全量 cargo test --workspace 全绿(T-1786890928)。验收对账:①分批消化——read_inbox_batch(kanzei-memory/src/memory/inbox.rs:24)按 ## note 块取前 N 条,consolidate_memory_inbox 每轮 10 条喂 manager,app 版(kanzei-app/src/memory.rs:339 起)与 CLI 版(kanzei/src/cli/memory.rs:17 起)两处轮末调用方同步分批(机制原子上线);②失败可见——run 失败 eprintln 诊断点名档位与条数(两版均不再 let _ 静默),连续 3 批 pending 未降停止本轮防死循环;③积压护栏——pending>100 轮末明确告警,设置页一键整理(memory_consolidate,kanzei-app/src/memory.rs:294)已接分批消化;④存量 201 条实测:验收降级——新链路(分批/失败可见/护栏)已就绪并测试背书(read_inbox_batch 2 测试,kanzei-memory inbox.rs tests),真实消化由引擎轮末自动执行(CLI run.rs:625 与桌面 persistence.rs:191),存量清空实测数字待轮末消化后回填;inbox.md 基线 201 条/169KB 已实测记录。
+- observed_head: b4245f6c84fc0dbe276be8235ce8e72f548c0e3c
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786891277851
+
+## D-412 研究文献侧仅读摘要却标 V2 一手来源:CoALA 分类学归因不成立 [fixed] (medium)
+- refs: R-221 R-277
+- 影响: V 表的可信度被稀释:V2 语义是「一手来源(论文原文/官方文档/仓库源码)」,摘要级证据混入 V2 后,读者无法分辨哪些结论经得起正文核验。本轮 12 篇文献里绝大多数结论确实落在摘要覆盖范围内(已抽查 Zep 94.8/93.4/18.5、Mem0 91%/90%、A-MEM NeurIPS 2025、Generative Agents 消融 均属实),问题不在幻觉而在**方法论披露缺失**与个别越界。
+- 期望: ①V 表文献域补「摘要级」与「正文级」的区分(或规定摘要级封顶 V1),写进 conventions 时一并定(R-221 批3);②R-277 引擎的验收④「FACT 式论断-出处逐条核验」应把「该出处是否真含支撑文本」做成机械抽查,本次即为反例样本;③本报告 report.md:31 的 CoALA 归因改为取正文核验或降级标注。
+- 来源: 2026-08-16 用户要求评估本轮 research 质量,机械核验 18 个 file:line 锚(全中)+9 个 arXiv ID(全真)+数值断言(全实)后,唯一抽出的实质问题。
+- 标签: 流程
+- 根因: 本轮 research 的文献检索通道是 arXiv API,拿到的只有 title+summary(摘要),全程未取正文。报告把这类来源一律标 V2「一手来源」,且未声明「仅摘要级」。抽查发现一处实质越界:report.md:31 称 CoALA(arXiv 2309.02427)确立「working/episodic/semantic/procedural」四类模块化记忆并标 V2/S-008,但实测该论文摘要里 working/episodic/semantic/procedural 四词一个都没有(只有 memory)——结论本身是对的(在正文里),但**引用的那份证据支撑不了它**。同一段落对 LangGraph(S-009,取的是正文 HTML)的三类映射则证据充分。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-412
+- 关联: R-221 R-277 R-276
+- 进展: 已修复。期望对账:①V 表文献域补「摘要级」与「正文级」区分——research_mode.md §4 V 表重写(文件行 61-72):V1=二手转述+一手来源仅摘要级,V2=一手来源正文级(读过正文),V3=交叉验证均正文级;附「证据深度口径(D-412 反例)」段:CoALA 四类划分不在摘要而在正文 §2.3,摘要级不得支撑正文级论断。写进 conventions 由 R-221 批3 承接(验收④口径已同步),research_workspace.md:77 已有「摘要级封顶 V1,读过正文才够 V2」设计。②R-277 验收④「出处是否真含支撑文本」机械抽查——R-277 验收②补充:文献论断支撑文本必须落在正文内(取回正文全文 grep,摘要命中不算),CoALA 为反例样本。③report.md:31 CoALA 归因——report.md 现为 0 字节(本轮 research 会话产物未生成/已清空,从未进 git,不可恢复;由 R-276 批3 工作台承接展示),实质越界载体 sources.md S-008 已取正文核验:arXiv HTML 全文 episodic×30/semantic×121/procedural×26/working memory×29 命中,标注「正文级」并记录核验过程(摘要确实无四词,仅 modular memory components)。同步修复:findings.md F-008/009/010 按新口径从 V2 降 V1(摘要级封顶);memory.md 谱系坐标来源标注补摘要级限定;全量 12 个文献来源逐条标注证据深度。验证:T-1786891556 纯文档核对。report.md 空文件本身不属本缺陷修复面。
+- observed_head: dcc088d3631522034136c0b055e58f465e07400d
+- observed_worktree_hash: fnv1a64:6bd3df54ce497cfe
+- recorded_at: 1786891564946
