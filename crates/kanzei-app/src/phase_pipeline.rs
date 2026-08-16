@@ -38,6 +38,7 @@
 //! **主对话的 `run_once` 次数**:无复核发现时 1 次(与引入前相同);有发现时 2 次
 //! (第二次是修正段,`prior` 接第一段的完整 messages,历史连续)。
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use kanzei_core::RunEvent;
@@ -311,18 +312,20 @@ impl PhasePipeline {
         }
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<RunEvent>();
         let reports = Arc::new(std::sync::Mutex::new(Vec::<RoleReport>::new()));
+        let ended_roles = Arc::new(std::sync::Mutex::new(HashSet::<String>::new()));
         let tasks: Vec<(String, ScoutTask<'_>)> = roles
             .iter()
             .zip(runtimes.iter())
             .zip(prompts.iter())
             .map(|(((role, _), rt), prompt)| {
                 let reports = reports.clone();
+                let ended_roles = ended_roles.clone();
                 let tx = tx.clone();
                 let task: ScoutTask<'_> = Box::pin(async move {
                     let bound = std::time::Duration::from_secs(rt.timeout_secs);
                     let (outcome, text, ok) = match tokio::time::timeout(
                         bound,
-                        kanzei_core::run_read_agent(client, rt, ctx, role, prompt, tx),
+                        kanzei_core::run_read_agent(client, rt, ctx, role, prompt, tx.clone()),
                     )
                     .await
                     {
@@ -345,7 +348,23 @@ impl PhasePipeline {
                             false,
                         ),
                     };
+                    let preview = text.lines().next().unwrap_or("").to_string();
                     reports.lock().unwrap().push(RoleReport { role, text, ok });
+                    // 角色自己的 future 一返回就发 ToolEnd。TaskCancellationGuard 也在
+                    // 此刻释放,因此终态事件必须先于屏障收尾,否则 UI 会把已不可取消的
+                    // 角色继续显示成 running。
+                    let end = RunEvent::ToolEnd {
+                        id: role.to_string(),
+                        name: "task".into(),
+                        ok,
+                        outcome: if ok { "success" } else { "failed" }.into(),
+                        code: None,
+                        preview,
+                        display: None,
+                    };
+                    if tx.send(end).is_ok() {
+                        ended_roles.lock().unwrap().insert(role.to_string());
+                    }
                     outcome
                 });
                 (role.to_string(), task)
@@ -383,7 +402,11 @@ impl PhasePipeline {
             on_event(event);
         }
         let reports = std::mem::take(&mut *reports.lock().unwrap());
+        let ended_roles = ended_roles.lock().unwrap();
         for (role, _) in roles {
+            if ended_roles.contains(*role) {
+                continue;
+            }
             let report = reports.iter().find(|r| r.role == *role);
             let ok = report.map(|r| r.ok).unwrap_or(false);
             let preview = report

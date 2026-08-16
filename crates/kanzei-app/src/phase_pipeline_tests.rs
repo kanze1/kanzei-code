@@ -785,6 +785,84 @@ async fn 编排派发的子代理上抛既有形状的进度事件() {
     std::fs::remove_dir_all(&fx.project).ok();
 }
 
+/// D-419:单个角色完成后必须在其它角色仍等待屏障时立即发 ToolEnd。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 编排角色终态不等屏障立即上报() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    // 只响应第一个请求,但保持 listener 存活;其余角色会保持连接直到自己的超时。
+    let server = tokio::spawn(async move {
+        serve_response(&listener, text_response("快速完成", 1, 1)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    });
+
+    let fx = fixture("terminal_event_timing", address);
+    let rt = fx.subagent_rt();
+    let limits = kanzei_harness::config::Limits {
+        subagent_timeout_secs: Some(2),
+        barrier_timeout_secs: Some(4),
+        max_tasks_per_turn: Some(5),
+        ..Default::default()
+    };
+    let mut pipeline = PhasePipeline::start(
+        fx.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>,
+        fx.recorder.clone() as Arc<dyn PhaseObserver>,
+        fx.project.clone(),
+        fx.project.clone(),
+        "run_terminal_event_timing",
+        "proc_terminal_event_timing",
+        &limits,
+        None,
+    );
+    let (end_tx, end_rx) = tokio::sync::oneshot::channel();
+    let client = fx.client;
+    let ctx = fx.ctx;
+    let project = fx.project;
+    let task = tokio::spawn(async move {
+        let mut end_tx = Some(end_tx);
+        let mut on_event = move |event: kanzei_core::RunEvent| {
+            if let kanzei_core::RunEvent::ToolEnd { id, name, .. } = event {
+                if name == "task" {
+                    if let Some(tx) = end_tx.take() {
+                        let _ = tx.send(id);
+                    }
+                }
+            }
+        };
+        let result = pipeline
+            .scout(&client, &rt, &ctx, "验证终态时机", &mut on_event)
+            .await;
+        pipeline.abort("test done");
+        result
+    });
+
+    let id = tokio::time::timeout(std::time::Duration::from_secs(1), end_rx)
+        .await
+        .expect("单个角色完成后应在屏障结束前收到 ToolEnd")
+        .expect("ToolEnd 通知通道不应提前关闭");
+    assert!(
+        [
+            "architecture_scout",
+            "docs_scout",
+            "runtime_scout",
+            "test_scout",
+            "write_surface_scout",
+        ]
+        .contains(&id.as_str()),
+        "ToolEnd id 必须对应角色: {id}"
+    );
+    assert!(
+        !task.is_finished(),
+        "仍有角色等待超时时,单个角色的 ToolEnd 不应等到整个屏障完成"
+    );
+
+    task.await
+        .expect("勘察任务不应 panic")
+        .expect("其余角色超时应作为失败结果收敛");
+    server.abort();
+    std::fs::remove_dir_all(project).ok();
+}
+
 /// D-301:编排角色必须在自己的墙钟上界收敛,不能把唯一角色拖到外层屏障上界。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn 编排单角色超时在内层收敛且不触发屏障超时() {
