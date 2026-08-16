@@ -4380,3 +4380,9 @@
 - 摘要: R-270 批3:approval 通道——GET /v1/approval/pending(脱敏摘要:只给 id/kind/action/resource 截断 80 字符/session_id)+POST /v1/approval/answer(permission allow→AllowOnce/deny→Deny、question 文本/cancel,经 PendingAsk.sender 送达 runner 既有 ask 流,门禁在 harness 侧不旁路)。runtimes 传入连接线程。新增单测 3 条(pending 脱敏摘要/allow 与 deny 送达/拒绝与问题回答)。kanzei-app 178 passed,clippy/fmt 通过
 - 关联: R-270
 - 收尾: 1786841628
+
+## T-1786842178 R-270 批4 PWA serve+通知桥出口 [passed]
+- 命令: cargo test --workspace
+- 摘要: R-270 批4:workspace 全量 15 段 ok。PWA serve(mobile-pwa/index.html+manifest.json 静态资源,serve_pwa 函数含路径穿越防护,/ 与 /mobile-pwa/* 路由,手机浏览器打开桥接地址可加载)+通知桥出口(mobile_notify.rs 检测 kdeconnect-cli 调用 --notification,无桥给明确诊断;persistence.rs 完成/失败事件接入,尽力而为不阻塞)。kanzei-app 180 passed,clippy/fmt 通过
+- 关联: R-270
+- 收尾: 1786842178

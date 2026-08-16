@@ -26,6 +26,7 @@ mod harness_ext;
 mod ipc_contract;
 mod memory;
 mod mobile;
+mod mobile_notify;
 mod orchestration_trace;
 mod phase_pipeline;
 mod prefs;

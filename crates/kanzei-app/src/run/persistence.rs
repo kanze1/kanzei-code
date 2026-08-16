@@ -178,6 +178,13 @@ pub(crate) fn persist_round_outcome(
                 {
                     report_persistence_failure(window, session_id, "写入完成通知", error);
                 }
+                // R-270 批4:完成事件经现成 LAN 推送桥发手机系统通知(尽力而为,
+                // 无桥时只记诊断不阻塞)。
+                if let Ok(message) =
+                    crate::mobile_notify::notify_mobile("kanzei 任务完成", "运行已成功结束")
+                {
+                    tracing::debug!("{message}");
+                }
                 // 轮末记忆整理(R-105):独立任务消化 inbox 草稿,不阻塞完成事件。
                 // 传**主根**:记忆是主根一份的资产,而 project_dir 线上线后是 worktree,
                 // 传它会让 memory 内部的发现式取根拐进分支副本(R-177 内容⑧同一条判据)。
@@ -245,6 +252,13 @@ pub(crate) fn persist_round_outcome(
                         "写入失败通知",
                         persistence_error,
                     );
+                }
+                // R-270 批4:失败事件经 LAN 推送桥发手机系统通知(尽力而为)。
+                if let Ok(message) = crate::mobile_notify::notify_mobile(
+                    "kanzei 任务失败",
+                    &format!("运行失败: {error}"),
+                ) {
+                    tracing::debug!("{message}");
                 }
             }
         }

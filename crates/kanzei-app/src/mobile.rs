@@ -174,6 +174,16 @@ fn handle_mobile_connection(
         return;
     }
 
+    // R-270 批4:PWA 静态页 serve。手机浏览器打开桥接地址加载 PWA(随桌面端发版
+    // 分发,不另起服务)。serve 目录 = 应用资源 mobile-pwa/(R-271 填充完整界面)。
+    if method == "GET"
+        && !path.starts_with("/v1/")
+        && path != "/health"
+        && serve_pwa(&mut stream, path)
+    {
+        return;
+    }
+
     // R-270 批3:approval 通道。GET pending(脱敏摘要)+ POST answer(回答)。
     // 回答走 runner 既有 ask 流(PendingAsk.sender),最终门禁仍在 harness 侧。
     match (method, path.split('?').next().unwrap_or_default()) {
@@ -356,6 +366,67 @@ fn approval_answer(
         .send(response)
         .map_err(|_| format!("ask {id} 的接收端已关闭(runner 已取消该询问)"))?;
     Ok(json!({ "answered": id, "session_id": pending.session_id }))
+}
+
+/// R-270 批4:PWA 静态页 serve。serve 应用资源目录 `mobile-pwa/` 下的文件
+/// (随桌面端发版分发,不另起服务)。
+///
+/// 路径安全:只允许请求 `/` 或 `/mobile-pwa/...` 下的相对路径,拒绝 `..` 穿越。
+/// 返回 true = 已 serve(200/404);false = 非静态资源路径(落回 JSON 分发)。
+fn serve_pwa(stream: &mut TcpStream, path: &str) -> bool {
+    // 定位 mobile-pwa 目录:应用资源在 crates/kanzei-app/mobile-pwa。
+    let pwa_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("mobile-pwa");
+    if !pwa_root.is_dir() {
+        return false;
+    }
+    // 规范化请求路径:/ → index.html;/mobile-pwa/xxx → mobile-pwa/xxx。
+    let relative = if path == "/" {
+        "index.html"
+    } else {
+        match path.strip_prefix('/') {
+            Some(rest) => rest,
+            None => return false,
+        }
+    };
+    // 路径穿越防护:任何含 `..` 或反斜杠的请求直接 404(不拼文件系统路径)。
+    if relative.contains("..") || relative.contains('\\') {
+        let _ = stream.write_all(&mobile_json_response(
+            "404 Not Found",
+            &json!({"error": "not_found"}),
+        ));
+        return true;
+    }
+    let file = pwa_root.join(relative);
+    if !file.is_file() {
+        let _ = stream.write_all(&mobile_json_response(
+            "404 Not Found",
+            &json!({"error": "not_found"}),
+        ));
+        return true;
+    }
+    let Ok(bytes) = std::fs::read(&file) else {
+        let _ = stream.write_all(&mobile_json_response(
+            "500 Internal Server Error",
+            &json!({"error": "read_failed"}),
+        ));
+        return true;
+    };
+    let content_type = match file.extension().and_then(|e| e.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "application/javascript",
+        Some("css") => "text/css",
+        Some("json") => "application/json",
+        Some("png") => "image/png",
+        Some("svg") => "image/svg+xml",
+        _ => "application/octet-stream",
+    };
+    let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        bytes.len()
+    );
+    let _ = stream.write_all(head.as_bytes());
+    let _ = stream.write_all(&bytes);
+    true
 }
 
 /// R-270 批2:SSE 长连接实时推送(GET /v1/events)。
