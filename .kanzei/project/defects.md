@@ -188,15 +188,11 @@
 - observed_worktree_hash: fnv1a64:28d67e2167c4069d
 - recorded_at: 1786853843829
 
-## D-407 跨树围栏回滚活库WAL写坏 state.db,并回滚修复者自身改动 [fixed] (high)
-- refs: R-186 D-406 D-395 D-396
-- 影响: 228MB state.db 一度不可打开(用户 research 模式首测即撞);并行自举下任何线的正当写入都可能被另一线的 bash 窗口回滚;修复动作本身被回滚导致文件处于半修复状态。数据经抢救备份+进程退出后 integrity_check=ok,未永久损坏。
-- 期望: ①.kanzei/target/node_modules/dist/.git 不入保护面(运行态与派生产物永远不该被回滚);②D-395 落地前自动回滚整体停用,降级为检测+归因+隔离留证(可见性保住,破坏面清零);③恢复回滚需以「变化可归因到具体 owner」为前提,不是「检测到就写回」。
-- 来源: 2026-08-16 用户 research 模式首测报 disk I/O error,截图取证后逐层定位。
-- 标签: 核心
-- 根因: D-406 把镜像键修正为完整相对路径后,回滚第一次精准命中真实路径,于是两类活状态遭殃:①.kanzei/state.db-wal(3.8MB<4MiB 上限,内容入镜像)与 -shm 被当作「其它线的未提交心血」,旧 WAL 被写回正在被 SQLite 打开的库上→研究会话 sqlite error: disk I/O error,只读连接都打不开(隔离目录 cross-tree-1786855961740 内即 .kanzei/state.db-wal+shm 铁证);②主树源码同理——我在主树修本文件时,worktree 线每条 bash 收口都把我的改动判为越界并回滚(隔离目录 cross-tree-1786856271949/crates/kanzei-tools/src/cross_tree.rs),修复者与缺陷互搏。根因链:D-395(无法区分「A 越界写 B」与「B 在自己树里正常干活」)在 D-406 修好路径后从「喷垃圾」升级为「毁数据」——正是今晨写进 conventions §2 的「机制半上线比不上线更危险」。
-- 优先级: P0
-- 进展: 2026-08-16 修复(提交 a4ec73e)。①EXCLUDED_TREE_DIRS(.kanzei/target/node_modules/dist/.git)在 collect_tree_files_in 入口跳过,运行态与派生产物不再入保护面——定向测试「运行态与派生产物不入保护面」断言四类目录变化不触发报告且活库文件字节不变;②自动回滚/删除整体停用降级为报告态(检测+归因+隔离留证照旧),报告文案明说「未自动回滚」,既有 4 条回滚断言按新契约改写(a线越界→检出归因不动现状、新建→检出不删、build.rs→检出不删、深层键→留证按层级);cross_tree 9/9 绿 clippy 零警告。数据处置:抢救备份 kanzei-db-rescue-20260816-1300(state.db+wal+shm+隔离的旧WAL),停 kzapp 后重开 integrity_check=ok、17 会话/112136 事件/483 episode 齐全,未永久损坏。验收降级: 真实并行双线场景的回归由下次自举实跑观察(隔离目录不再出现 .kanzei/* 即为通过)。
-- observed_head: a4ec73eb4551ef1fa85d02d7d26fc19514629f64
-- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
-- recorded_at: 1786856743353
+## D-408 含中文 .ps1 缺 UTF-8 BOM:PS 5.1 下解析失败装不了包 [open] (high)
+- 影响: 用户按发版说明装紧急修复版时 install-setup.ps1 直接跑不起来(2026-08-16 实况);agent 侧一路不复现——PowerShell 7 默认 UTF-8,verify/release 在自动化里全绿,典型「开发机测不出、用户必炸」。
+- 期望: ①三脚本补 BOM;②加机械校验:含 CJK 的 .ps1 必须带 BOM,缺即失败并点名;③挂 verify.ps1 与 ci.yml 两处。
+- 来源: 2026-08-16 用户执行安装命令报 ParserError,乱码特征定位为编码问题。
+- 标签: 发布
+- 根因: install-setup.ps1/release.ps1/verify.ps1 三个脚本含大量中文(427/730/233 字)却以 UTF-8 无 BOM 保存。Windows PowerShell 5.1(powershell.exe,用户复制文档命令走的就是它)读无 BOM 文件按系统 ANSI 代码页(中文机 GBK)解码,中文字节被拆成乱码致引号错位→整脚本 ParserError。package.ps1 顶部早写明「必须以 UTF-8 BOM 保存」,规则在但无机械校验,三个后来的脚本全漏。
+- 验收: ①三脚本头三字节为 EF BB BF 且 PS 5.1 实测解析 OK;②反证:临时去 BOM 校验必须变红并点名该文件;③verify 与 CI 两处都跑到。
+- 优先级: P1
