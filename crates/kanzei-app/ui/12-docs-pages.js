@@ -632,14 +632,24 @@ function buildFocusCard(entry, kind, focusSource = agentFocus.activeSource) {
     card.appendChild(box);
   }
 
-  // 业务字段:取前 3 条(进展/验收/复现之类),值截到 160 字——卡片是概览不是全文。
-  for (const [key, value] of (entry.fields ?? []).slice(0, 3)) {
+  // R-282:焦点卡片概览字段固定化——按 key 优先显示 进展/验收/复现/内容/影响
+  // (固定顺序,缺失隐藏,最多 3 条),不再 slice(0,3) 依赖字段顺序(不同条目字段
+  // 顺序不同导致头部块参差)。进展折叠:卡片只显示最新一段(|| 分隔首段),全文
+  // 走详情查看器。
+  const FOCUS_FIELD_KEYS = ["进展", "验收", "复现", "内容", "影响"];
+  const fieldMap = new Map(entry.fields ?? []);
+  let shownFields = 0;
+  for (const key of FOCUS_FIELD_KEYS) {
+    if (!fieldMap.has(key) || shownFields >= 3) continue;
+    let text = String(fieldMap.get(key) ?? "");
+    if (key === "进展") text = text.split("||")[0].trim();
+    if (text.length > 160) text = `${text.slice(0, 160)}…`;
     const field = document.createElement("div");
     field.className = "doc-field";
     field.setAttribute("data-i18n-raw", "");
-    const text = String(value ?? "");
-    field.textContent = `${key}: ${text.length > 160 ? `${text.slice(0, 160)}…` : text}`;
+    field.textContent = `${key}: ${text}`;
     card.appendChild(field);
+    shownFields += 1;
   }
 
   // 状态流转留在侧栏:取活时要能直接切,这条链路不能因为列表搬家而断掉。
