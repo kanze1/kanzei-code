@@ -36,7 +36,9 @@ mod shell;
 pub mod test_record;
 mod todowrite;
 pub mod tracker;
-mod webfetch;
+/// D-413:研究工作台要在应用内打开文献正文,桌面命令直接复用本工具的抓取与
+/// HTML→文本管线(不另造第二套抓取逻辑,免得代理/超时/截断口径分叉)。
+pub mod webfetch;
 mod websearch;
 pub mod work;
 /// R-207:worktree 生命周期内核(建线/回执/回滚/合并预检),桌面与 CLI 共用。

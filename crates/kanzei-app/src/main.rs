@@ -212,6 +212,7 @@ fn main() {
             run::app_info,
             commands::models::models_list,
             docs::docs_update,
+            docs::webfetch_preview,
             docs::docs_open,
             commands::summarize::summarize_chat,
             docs::git_status,

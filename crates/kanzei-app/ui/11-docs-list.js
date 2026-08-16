@@ -152,6 +152,61 @@ function consumePendingJump() {
 function clearPendingJump() {
   pendingJumpId = null;
 }
+// D-413:研究工件里两类「本该可点」的字段——文献 URL 与代码域证据锚(file:line)。
+// 判据放这里单点定义,渲染侧只问「这个字段是不是可打开的」,不各自认字符串。
+function researchLinkField(key, value) {
+  const k = String(key).toLowerCase();
+  const v = String(value ?? "").trim();
+  if (!v) return false;
+  if (k === "url" || /^https?:\/\//i.test(v)) return true;
+  // 证据锚形态:`path/to/file.rs:12` 或 `path/to/file.rs:12-34`(允许多个,取第一个)。
+  return (k === "证据锚" || k === "anchor") && /[\w./\\-]+\.\w+:\d+/.test(v);
+}
+
+/// 造一个真入口按钮:文献进内置 viewer(用户 2026-08-16 定调,不跳出应用),
+/// 代码域按 file:line 打开文件预览。取不到内容时如实报错,不静默变成死按钮。
+function researchOpenLink(key, value) {
+  const raw = String(value).trim();
+  const btn = document.createElement("button");
+  btn.className = "ref-link";
+  btn.type = "button";
+  const urlMatch = raw.match(/https?:\/\/\S+/i);
+  const anchorMatch = raw.match(/([\w./\\-]+\.\w+):(\d+)/);
+  if (urlMatch) {
+    const url = urlMatch[0];
+    btn.textContent = url;
+    btn.title = t("在应用内打开");
+    btn.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      btn.disabled = true;
+      try {
+        const page = await invoke("webfetch_preview", { url });
+        openRuntimeMarkdown(page.title || url, page.text || "");
+      } catch (error) {
+        toastError(`${t("打开失败")}:${error}`);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  } else if (anchorMatch) {
+    const [, path, line] = anchorMatch;
+    btn.textContent = `${path}:${line}`;
+    btn.title = t("打开文件并定位");
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      // 视图切换没有全局函数,入口是 activitybar 上那颗按钮(03-shell.js 绑在
+      // `.activity-item[data-view]` 上)。点它而不是自己 toggle class:视图切换
+      // 还带着侧栏、高亮、刷新等一串副作用,复刻一遍必然漏。
+      document.querySelector('.activity-item[data-view="files"]')?.click();
+      openFilePreview({ path: path.replace(/\\/g, "/") });
+    });
+  } else {
+    btn.textContent = raw;
+    btn.disabled = true;
+  }
+  return btn;
+}
+
 async function jumpToEntry(ref) {
   const findAll = () =>
     [...document.querySelectorAll("[data-doc-id]")].filter((item) => item.dataset.docId === ref);
@@ -591,7 +646,15 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
     detail.appendChild(full);
     // R-123:字段编辑只在独立文档页。侧栏展开详情因此退回只读呈现,高度显著下降,
     // 回到"浏览与取活"的本职;编辑能力没有丢,在文档页有完整入口。
-    const deepManage = surface === "documents" && (kind === "req" || kind === "defect") && !entry.closed;
+    // R-123 的「字段编辑只在独立文档页」是针对 req/defect 说的——它们**有**文档页。
+    // source/finding 压根没有文档页(index.html 无 view-sources/view-findings),
+    // 沿用同一句话等于把研究工件的编辑入口锁死在一个不存在的地方:用户实测
+    // 「打开也没法编辑」正是这么来的(D-413)。故按「有没有页」分流:有页的去页里改,
+    // 没页的就在侧栏详情里改。研究工件是研究模式的核心资产,不能只读。
+    const kindHasDocPage = kind === "req" || kind === "defect";
+    const researchKind = kind === "source" || kind === "finding";
+    const deepManage =
+      !entry.closed && (researchKind || (surface === "documents" && kindHasDocPage));
     if (deepManage) {
       const editBox = document.createElement("div");
       editBox.className = "doc-edit";
@@ -686,6 +749,13 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
           f.appendChild(link);
           f.append(" ");
         }
+      } else if (researchLinkField(key, value)) {
+        // D-413:研究工件的 `URL:`(文献)与 `证据锚:`(代码域)在数据里是结构化的,
+        // 渲染成纯文本等于「看得见打不开」——用户实测的头号痛点。这里与 refs 同
+        // 手法给一个真入口:文献进内置 viewer(用户定调,不跳出应用),代码域按
+        // file:line 打开文件并定位行。
+        f.append(`${key}: `);
+        f.appendChild(researchOpenLink(key, String(value)));
       } else {
         f.textContent = `${key}: ${value}`;
       }

@@ -445,6 +445,38 @@ pub async fn docs_update(
     }
 }
 
+/// D-413:研究工作台「点开参考文献」的后端。抓取与 HTML→文本复用 webfetch 工具
+/// 本体(同一套代理/超时/截断口径),不另造第二条抓取路径;返回纯文本给内置 viewer
+/// 渲染——用户 2026-08-16 定调「在应用内打开,不跳出去」。
+///
+/// 只接受 http/https:研究来源的 URL 就是这两种;放开 file:// 等 scheme 等于给
+/// 前端开一条读任意本地文件的旁路(代码域来源走的是 file_preview,不经这里)。
+#[tauri::command]
+pub async fn webfetch_preview(url: String) -> Result<serde_json::Value, String> {
+    use kanzei_harness::Tool as _;
+    let trimmed = url.trim();
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        return Err(format!("只支持 http/https 链接:{trimmed}"));
+    }
+    let ctx = kanzei_harness::ToolCtx::default();
+    let output = kanzei_tools::webfetch::WebFetchTool
+        .execute(json!({ "url": trimmed }), &ctx)
+        .await;
+    if output.is_error {
+        return Err(output.content);
+    }
+    // webfetch 输出形如 `HTTP 200 · <url>\n\n<正文>`:标题行留给 viewer 标题,
+    // 正文进 markdown 渲染面。切不出来时整体当正文,不假装解析成功。
+    let (head, body) = output
+        .content
+        .split_once("\n\n")
+        .unwrap_or(("", output.content.as_str()));
+    Ok(json!({
+        "title": if head.is_empty() { trimmed } else { head },
+        "text": body,
+    }))
+}
+
 fn docs_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(project_dir))
         .unwrap_or_else(|| PathBuf::from(project_dir));
