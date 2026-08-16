@@ -504,6 +504,20 @@ pub(crate) fn build_ask_handler(
             },
         );
         let _ = ask_window.emit("kz:ask", payload);
+        // D-388:approval 建立时发手机系统通知(验收⑥「息屏收到 approval 通知」)。
+        // 尽力而为:无推送桥只记诊断不阻塞。
+        let (notify_title, notify_body) = match &asks.lock().unwrap()[&id].request {
+            kanzei_core::AskRequest::Permission { action, resource } => (
+                "kanzei 需要批准".to_string(),
+                format!("{action}: {resource}"),
+            ),
+            kanzei_core::AskRequest::Question { question, .. } => {
+                ("kanzei 询问".to_string(), question.clone())
+            }
+        };
+        if let Ok(message) = crate::mobile_notify::notify_mobile(&notify_title, &notify_body) {
+            tracing::debug!("{message}");
+        }
         Box::pin(async move {
             receiver
                 .await

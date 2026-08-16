@@ -4477,3 +4477,9 @@
 - 摘要: D-387 POST /v1/messages 消费方闭环:consume_mobile_message 把手机消息注入对应会话 conversation(内存,会话在跑时)+append_event conversation.updated 持久化(即使会话未在跑也落库,conversation_get 可读)+MOBILE_MESSAGE_EMIT 全局发射器(main.rs setup 注入 emit kz:mobile-message)+UI 01-core.js 订阅刷新会话列表。单测手机消息消费_事件落库可读验证消息注入事件可读。kanzei-app 182 passed、三条前端冒烟全绿(610 标识符/170 key),clippy/fmt 通过
 - 关联: D-387 R-270 R-271 R-059
 - 收尾: 1786848418
+
+## T-1786848710 D-388 approval 通知+SSE 停服/撤销检查 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: D-388:①approval 手机通知——build_ask_handler 建立 ask 时调 notify_mobile(permission→"kanzei 需要批准: action resource",question→"kanzei 询问: question",尽力而为不阻塞,R-270 验收⑥);②SSE 长连接不无视停服/撤销——handle_sse 加 active(停服即断开,不留泄漏线程)+devices 参数(每轮检查 device_id 在表,被撤销即断开不再收事件)。kanzei-app 182 passed,clippy/fmt 通过
+- 关联: D-388 R-270
+- 收尾: 1786848710

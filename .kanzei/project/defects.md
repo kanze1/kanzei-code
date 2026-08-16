@@ -85,22 +85,7 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-387 POST /v1/messages 死信复发:mobile.message 无消费方 [fixing] (high)
-- refs: R-270 R-271 D-063 R-059
-- 影响: R-271「发消息」=前端提示成功+落库进坟场;R-059「双向通信」验收的核销依据失效。
-- 期望: 定义并实现消费方(注入对应线程对话或触发通知),端到端测试:手机发→桌面可见。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 后端
-- 根因: mobile.rs:264 append_event("mobile.message")后全仓唯一引用,零消费方——与 D-063 时代同端点同病(当年修 Content-Length,消费方始终没人接)。已当场核验 grep。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-387
-- 进展: 2026-08-16 取活修复。**根因**:POST /v1/messages 只 append_event("mobile.message") 全仓零消费方(与 D-063 时代同病,Content-Length 修了消费方始终没人接)——手机消息落库即死信,R-271「发消息」提示成功但桌面不可见。**修复(消费方闭环)**:①consume_mobile_message——把手机消息注入对应会话 conversation(内存,会话在跑时)+ append_event("conversation.updated", {messages})持久化(即使会话未在跑也落库,conversation_get 可读——D-387 核心,消息不再死信);②MOBILE_MESSAGE_EMIT 全局发射器(state.rs OnceLock,main.rs setup 注入 window.emit("kz:mobile-message"));③UI 01-core.js——SESSIONLESS_EVENTS 加 kz:mobile-message、on() 订阅调用、handleMobileMessage 处理,收到消息刷新会话列表。**验证**:单测手机消息消费_事件落库可读(消息注入 conversation.updated 事件,role=user+text 可读),kanzei-app 182 passed、三条前端冒烟全绿(ui-runtime 21 文件/ui-i18n 170 key/ui-lint 610 标识符),clippy/fmt 通过(T-1786848418)。R-059「双向通信」核销依据恢复(手机发→桌面 conversation 可见)。
-- 阻塞: 
-- observed_head: 7bf0edcf2b7aba2813726ae727a34539e979e18e
-- observed_worktree_hash: fnv1a64:6ccff8ec6999ed5f
-- recorded_at: 1786848426862
-
-## D-388 approval 不发手机通知;SSE 旧连接无视撤销停服 [open] (medium)
+## D-388 approval 不发手机通知;SSE 旧连接无视撤销停服 [fixing] (medium)
 - refs: R-270
 - 影响: R-270 验收⑥「息屏收到 approval 通知」未实现——移动端第一价值场景缺席;被撤销设备断线前仍收事件;停服线程泄漏。
 - 期望: ask 建立时调 notify_mobile 并进 SSE 事件流;handle_sse 每轮检查 active 与设备表。
@@ -108,6 +93,12 @@
 - 标签: 后端
 - 根因: notify_mobile 只接完成/失败(run/persistence.rs:184/257),ask 流不调且 SSE 流无 approval 事件;handle_sse 无 active 检查(mobile.rs 停服只停 accept 循环 641-648),已建长连接继续推送直到客户端断开。
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-388
+- 进展: 2026-08-16 取活修复。**根因**:①notify_mobile 只接完成/失败(run/persistence.rs),ask 流不调——approval 不发手机通知(R-270 验收⑥缺席);②handle_sse 无 active 检查(停服只停 accept 循环),已建长连接继续推送直到客户端断开,被撤销设备断线前仍收事件、停服线程泄漏。**修复**:①build_ask_handler(events/mod.rs)建立 ask 时调 notify_mobile——permission→「kanzei 需要批准: action resource」、question→「kanzei 询问: question」,尽力而为不阻塞;②handle_sse 加 active(AtomicBool)与 devices 参数(经 handle_mobile_connection 与 accept 线程传递),循环每轮检查——active=false 停服即断开、device_id 不在表(被撤销)即断开。**验证**:kanzei-app 182 passed,clippy/fmt 通过(T-1786848710)。
+- 阻塞: 
+- observed_head: d12bac979ae064c0625135651af4071017bd6a60
+- observed_worktree_hash: fnv1a64:11087b41807c6c9e
+- recorded_at: 1786848718860
 
 ## D-389 R-270/R-271 验收证据虚增:替身自检真机零记录 [open] (high)
 - refs: R-270 R-271 R-059

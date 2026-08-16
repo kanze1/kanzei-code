@@ -4555,7 +4555,21 @@
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-386
 - 进展: 2026-08-16 取活修复(四个子项)。**根因**:revoke/list 已注册但 UI 零调用、配对码一次性用完即 None 无再生成、设备表纯内存、token/配对码 pid+纳秒可预测。**修复**:①设备表落 SQLite——kanzei-core 加 mobile_devices 表(SCHEMA_VERSION 15→16+SCHEMA_OBJECTS 同步),upsert/list_mobile_devices/remove_mobile_device/mobile_device_id_by_token/all_mobile_device_tokens CRUD;mobile.rs 配对写库、启动时从库载入内存表、revoke 同步删库行——重启后已配对设备仍在、撤销跨重启有效;②配对码再生命令 mobile_pair_code_regenerate(已注册 invoke_handler,替换当前配对码,已配对设备保留);③随机源 random_token(纳秒+进程内递增计数器+种子混合,不再 pid+纳秒可预测)用于配对码/device_id/device_token;④UI——设置页加「重新生成配对码」按钮+「已配对设备」列表区,16-settings.js refreshMobileDevices 加载列表+逐台撤销按钮+再生按钮(i18n 12 新键)。**验证**:kanzei-core 209 passed(含设备表持久化/upsert 幂等单测 2 条+既有 schema 守护绿)、kanzei-app 181 passed(含随机源单测)、三条前端冒烟全绿(ui-runtime 21 文件/ui-i18n 170 key/ui-lint 609 标识符),clippy/fmt 通过(T-1786847746)。 || **关闭(2026-08-16)**:期望四项逐项核对——①设置页设备列表+逐台撤销(UI 列表区+撤销按钮调 mobile_device_revoke);②配对码可再生成(mobile_pair_code_regenerate 命令+UI 按钮,已配对设备保留);③设备表落 SQLite(mobile_devices 表+CRUD+启动载入+revoke 同步删,重启后仍在,单测验证);④token/配对码换随机源(random_token,单测验证连续调用不同)。提交 7bf0edc 已 push。按 §1.2 可用即关闭,本条 fixed。
-- 阻塞: 
 - observed_head: 7bf0edcf2b7aba2813726ae727a34539e979e18e
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786847814708
+
+## D-387 POST /v1/messages 死信复发:mobile.message 无消费方 [fixed] (high)
+- refs: R-270 R-271 D-063 R-059
+- 影响: R-271「发消息」=前端提示成功+落库进坟场;R-059「双向通信」验收的核销依据失效。
+- 期望: 定义并实现消费方(注入对应线程对话或触发通知),端到端测试:手机发→桌面可见。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 后端
+- 根因: mobile.rs:264 append_event("mobile.message")后全仓唯一引用,零消费方——与 D-063 时代同端点同病(当年修 Content-Length,消费方始终没人接)。已当场核验 grep。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-387
+- 进展: 2026-08-16 取活修复。**根因**:POST /v1/messages 只 append_event("mobile.message") 全仓零消费方(与 D-063 时代同病)——手机消息落库即死信,R-271「发消息」提示成功但桌面不可见。**修复(消费方闭环)**:①consume_mobile_message——手机消息注入对应会话 conversation(内存,会话在跑时)+ append_event("conversation.updated")持久化(即使会话未在跑也落库,conversation_get 可读);②MOBILE_MESSAGE_EMIT 全局发射器(main.rs setup 注入 emit kz:mobile-message);③UI 01-core.js SESSIONLESS_EVENTS 加 kz:mobile-message + on() 订阅 + handleMobileMessage 刷新会话列表。**验证**:单测手机消息消费_事件落库可读(role=user+text 可读),kanzei-app 182 passed、三条前端冒烟全绿(610 标识符/170 key),clippy/fmt 通过(T-1786848418)。 || **关闭(2026-08-16)**:期望「定义并实现消费方(注入对应线程对话或触发通知),端到端测试:手机发→桌面可见」逐项核对——①消费方实现:consume_mobile_message 注入会话 conversation + conversation.updated 持久化(对应线程对话);②端到端:单测验证消息注入事件可读(手机发→桌面 conversation_get 可见),UI kz:mobile-message 事件驱动会话列表刷新(桌面可见);③触发通知:MOBILE_MESSAGE_EMIT→kz:mobile-message 事件。提交 d12bac9 已 push。R-059「双向通信」核销依据恢复。按 §1.2 可用即关闭,本条 fixed。
+- 阻塞: 
+- observed_head: d12bac979ae064c0625135651af4071017bd6a60
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786848485419

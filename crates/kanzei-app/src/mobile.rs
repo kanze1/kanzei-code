@@ -139,6 +139,7 @@ fn handle_mobile_connection(
     devices: Arc<Mutex<HashMap<String, String>>>,
     pair_code: Arc<Mutex<Option<String>>>,
     runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
+    active: Arc<AtomicBool>,
 ) {
     let Some((request_head, body)) = read_request(&mut stream) else {
         return;
@@ -202,7 +203,8 @@ fn handle_mobile_connection(
     // R-270 批2:SSE 长连接实时推送。认证通过后、进普通 JSON 分发前拦截——
     // 长连接由独立线程持有(批1 多线程 accept),不阻塞其它请求。
     if method == "GET" && path.split('?').next() == Some("/v1/events") {
-        handle_sse(&mut stream, &state_path, path);
+        // D-388:传 active(停服检查)与 devices(撤销检查)——长连接不无视停服/撤销。
+        handle_sse(&mut stream, &state_path, path, &active, &devices);
         return;
     }
 
@@ -520,8 +522,16 @@ fn serve_pwa(stream: &mut TcpStream, path: &str) -> bool {
 ///   逐条推 `data: <json>\n\n` 并推进 delivery_cursor;
 /// - 心跳:无新事件时每 15s 推一条注释行保活(防代理/防火墙断连);
 /// - 每连接独立线程(批1 多线程 accept),长连接挂着不阻塞其它请求;
-/// - 连接断开(write 失败)即返回,线程收尾,不留僵尸。
-fn handle_sse(stream: &mut TcpStream, state_path: &Path, path: &str) {
+/// - 连接断开(write 失败)即返回,线程收尾,不留僵尸;
+/// - D-388:每轮检查 `active`(停服即断开)与设备表(被撤销即断开)——长连接
+///   不无视停服/撤销,避免已撤销设备继续收事件、停服线程泄漏。
+fn handle_sse(
+    stream: &mut TcpStream,
+    state_path: &Path,
+    path: &str,
+    active: &AtomicBool,
+    devices: &Arc<Mutex<HashMap<String, String>>>,
+) {
     let thread_id = match mobile_query(path, "thread_id") {
         Some(id) => id,
         None => {
@@ -555,6 +565,15 @@ fn handle_sse(stream: &mut TcpStream, state_path: &Path, path: &str) {
     let mut cursor = initial_cursor;
     let mut last_heartbeat = std::time::Instant::now();
     loop {
+        // D-388:停服检查——active=false 时断开长连接(停服不留泄漏线程)。
+        if !active.load(Ordering::SeqCst) {
+            return;
+        }
+        // D-388:撤销检查——设备已从表移除(token 失效)时断开,不再收事件。
+        let device_exists = devices.lock().unwrap().contains_key(&device_id);
+        if !device_exists {
+            return;
+        }
         // 有事件就推;无则心跳(SSE 注释行保活)。
         match kanzei_core::SessionStore::open(state_path)
             .and_then(|store| store.replay_notifications(&thread_id, cursor, 100))
@@ -651,6 +670,7 @@ pub fn mobile_service_start(
                     let conn_pair = thread_pair.clone();
                     let conn_root = thread_root.clone();
                     let conn_runtimes = thread_runtimes.clone();
+                    let conn_active = thread_active.clone();
                     std::thread::spawn(move || {
                         handle_mobile_connection(
                             stream,
@@ -658,6 +678,7 @@ pub fn mobile_service_start(
                             conn_devices,
                             conn_pair,
                             conn_runtimes,
+                            conn_active,
                         )
                     });
                 }
