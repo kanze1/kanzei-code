@@ -1,0 +1,17 @@
+{
+  "desktop": [
+    { "name": "chat", "view": "chat", "trigger": "[data-view=\"chat\"]" },
+    { "name": "workspace", "view": "workspace", "trigger": "[data-view=\"workspace\"]" },
+    { "name": "lines", "view": "lines", "trigger": "[data-view=\"lines\"]" },
+    { "name": "documents", "view": "documents", "trigger": "[data-view=\"documents\"]" },
+    { "name": "memory", "view": "memory", "trigger": "[data-view=\"memory\"]" },
+    { "name": "files", "view": "files", "trigger": "[data-view=\"files\"]" },
+    { "name": "settings", "view": "settings", "trigger": "[data-view=\"settings\"]" }
+  ],
+  "pwa": [
+    { "name": "pair", "assert": "\"id\":\"app\"" },
+    { "name": "notifications", "assert": "\"id\":\"conn-status\"", "needs_pair": true },
+    { "name": "message", "assert": "\"id\":\"send-btn\"", "needs_pair": true },
+    { "name": "approval", "assert": "\"id\":\"approval-list\"", "needs_pair": true }
+  ]
+}
