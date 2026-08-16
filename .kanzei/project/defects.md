@@ -188,15 +188,35 @@
 - observed_worktree_hash: fnv1a64:28d67e2167c4069d
 - recorded_at: 1786853843829
 
-## D-408 含中文 .ps1 缺 UTF-8 BOM:PS 5.1 下解析失败装不了包 [fixed] (high)
-- 影响: 用户按发版说明装紧急修复版时 install-setup.ps1 直接跑不起来(2026-08-16 实况);agent 侧一路不复现——PowerShell 7 默认 UTF-8,verify/release 在自动化里全绿,典型「开发机测不出、用户必炸」。
-- 期望: ①三脚本补 BOM;②加机械校验:含 CJK 的 .ps1 必须带 BOM,缺即失败并点名;③挂 verify.ps1 与 ci.yml 两处。
-- 来源: 2026-08-16 用户执行安装命令报 ParserError,乱码特征定位为编码问题。
-- 标签: 发布
-- 根因: install-setup.ps1/release.ps1/verify.ps1 三个脚本含大量中文(427/730/233 字)却以 UTF-8 无 BOM 保存。Windows PowerShell 5.1(powershell.exe,用户复制文档命令走的就是它)读无 BOM 文件按系统 ANSI 代码页(中文机 GBK)解码,中文字节被拆成乱码致引号错位→整脚本 ParserError。package.ps1 顶部早写明「必须以 UTF-8 BOM 保存」,规则在但无机械校验,三个后来的脚本全漏。
-- 验收: ①三脚本头三字节为 EF BB BF 且 PS 5.1 实测解析 OK;②反证:临时去 BOM 校验必须变红并点名该文件;③verify 与 CI 两处都跑到。
+## D-409 记忆 inbox 消化死亡螺旋:251KB/201 条整箱塞进单轮,失败还静默 [open] (high)
+- refs: R-195 R-213 D-341 R-216
+- 影响: 记忆控制平面的写入侧实际断流:memory_note 一路写进 inbox 但没有条目被提炼晋升;R-195 今日以「candidate 晋升与清退闭环完成」归档,闭环的是 candidate 生命周期,inbox→entry 这一段并未打通,用户直观看到 201 条待确认。
+- 期望: ①分批消化:每轮取固定条数(建议 10~20)喂 manager,逐条 memory_inbox_discard 销账,剩余留待下轮;②失败可见:run 失败/未销账时记事件+轮末诊断,连续失败 N 轮升级为通知,不再静默;③积压护栏:pending 超阈值(如 100)时前端与轮末明确告警并给「一键整理」入口(UI 已有该按钮,需接到分批消化上);④存量 201 条按新链路清空,给实测数字。
+- 来源: 2026-08-16 用户在桌面端看到「待确认候选 201」并指出记忆晋升未解决,当场取证:inbox.md 251612 字节/201 条。
+- 标签: 核心
+- 根因: ①无分批:consolidation_prompt(kanzei-memory/src/memory/manager.rs:1092)把整个 inbox 原样拼进 prompt——现已 251612 字节/201 条,单轮 max_tokens 仅 4096、steps 10,模型既读不完也逐条销不完账;②失败静默:consolidate_memory_inbox(kanzei-app/src/memory.rs:374)`let _ = run_once_with_parts(...)` 丢弃全部错误,primary/fast 两档都失败时无任何诊断、无事件、无通知,轮末照常「成功」;③无上限反馈:inbox 只增不减,越大越难消化、越难消化越大——用户端表现为「待确认候选 201」持续堆积,记忆晋升事实停摆。
 - 优先级: P1
-- 进展: 2026-08-16 修复交付。①三脚本补 BOM——scripts/install-setup.ps1:1、scripts/release.ps1:1、scripts/verify.ps1:1 头三字节改 EF BB BF(提交 a002772),用 Windows PowerShell 5.1 的 Parser::ParseFile 逐个实测,三个均「解析 OK」(此前 install-setup 报 UnexpectedToken)。②机械校验——新增 scripts/check-ps1-bom.mjs:1(提交 a002772),含 CJK 的 .ps1 缺 BOM 即列名失败并打印修复命令;反证实测:剥掉 verify.ps1 的 BOM 后校验立刻变红点名该文件、退出码 1,恢复 BOM 后复绿。③两处挂载——scripts/verify.ps1:68 新增 ps1_bom 步、.github/workflows/ci.yml:49 追加同一脚本(提交 a002772),口径一致。
-- observed_head: a002772eec91ddbf1b28d4ba02913d80ce336f36
+
+## D-410 composer 三处体验:设置离鞭挞太远/鞭挞独占一行/输入框过宽 [fixed] (low)
+- 复现: 宽屏(2000px)下 composer 自上而下三行:输入框(占满整宽)、鞭挞控制台独占一行(「鞭挞」在最左、「设置」被 spacer 顶到最右)、发送行。
+- 影响: ①设置与它所配置的鞭挞开关分处一行两端,找不到关联;②控制台白占一整行,压缩对话可视高度;③输入框行宽过长,扫读与落笔都别扭。
+- 期望: ①设置紧随鞭挞勾选框;②鞭挞控制台并入发送行,不单独占行;③输入区(附件条/输入框/发送行)限宽居中。
+- 来源: 2026-08-16 用户看图指出布局不合理。
+- 标签: 前端
+- 优先级: P2
+- 进展: 2026-08-16 修复(提交 1640951)。①设置紧随鞭挞——index.html:208 起 autorun-bar 内顺序改为 鞭挞→设置(details)→轮次→阶段→状态,原先夹在中间的 spacer 移到设置之后;②并入发送行——autorun-bar 整块移进 crates/kanzei-app/ui/index.html:208 的 #composer-bar,style.css:725 给 composer-bar 加 flex-wrap 与 gap、composer-actions 用 margin-left:auto 靠右,鞭挞不再独占一行;③输入区限宽——style.css:716 给 #attachments/#prompt/#composer-bar/.composer-queue/#continue-editor 统一 max-width:1080px 居中,窄屏仍 100%。验证:六条前端冒烟全绿(runtime/lint/parallel/a11y/i18n/markdown)。
+- observed_head: 16409515e0a95b58acdd91bdd54812ad8d1e1de4
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
-- recorded_at: 1786857364480
+- recorded_at: 1786858851501
+
+## D-411 权限弹窗全屏模态挡住判断依据:看不到上下文没法确认 [fixed] (medium)
+- 复现: 权限/提问弹出时 #ask-overlay 以 inset:0 + rgba(0,0,0,.55) 罩住整个应用,对话区被遮住且不可滚动、不可选中。
+- 影响: 要判断「该不该放行这条命令」往往得回看刚才的工具轨迹与对话原文,而模态恰恰把判断依据挡在背后——用户只能凭记忆按钮,或先拒绝再回看重来。
+- 期望: 改非阻塞停靠:卡片贴右下角浮起,遮罩层 pointer-events 穿透,对话区照常滚动与选中;aria-modal 同步改 false(非模态宣称 true 会让读屏把背景整块隐藏,与事实相反)。
+- 来源: 2026-08-16 用户原话:提问弹出,但是我需要浏览著对话的上下文才能确认。
+- 标签: 前端
+- 优先级: P1
+- 进展: 2026-08-16 修复(提交 1640951)。改非阻塞停靠:style.css:828 起 #ask-overlay 由 inset:0+rgba(0,0,0,.55) 全屏遮罩改为 inset:auto 0 0 0、background:none、pointer-events:none 的底部停靠层,#ask-dialog 自身 pointer-events:auto 并加 max-height:60vh 可滚、accent 描边保持醒目;index.html:932 aria-modal 由 true 改 false(非模态宣称 true 会让读屏把背景整块隐藏,与可读可交互的事实相反)。效果:弹窗浮在右下角,对话区照常滚动、选中、复制,判断依据与决策同屏。验证:crates/kanzei-app/ui/style.css:828 与 index.html:932 已落地,ui-a11y 断言随契约更新后六条前端冒烟全绿。
+- observed_head: 16409515e0a95b58acdd91bdd54812ad8d1e1de4
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786858852056
