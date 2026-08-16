@@ -121,6 +121,7 @@ document.querySelectorAll(".activity-item[data-view]").forEach((item) => {
     if (view === "settings" && previousView !== "view-settings") loadSettings();
     if (view === "workspace") refreshWorkspace();
     if (view === "documents") refreshDocs();
+    if (view === "research") refreshResearch();
     if (view === "memory") refreshMemory();
     if (view === "metrics") refreshMetrics();
     if (view === "files") showFilesView();

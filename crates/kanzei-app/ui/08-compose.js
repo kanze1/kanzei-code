@@ -820,6 +820,8 @@ function syncResearchSectionVisibility() {
   const section = $("research-section");
   if (!section) return;
   section.classList.toggle("hidden", $("profile-select")?.value !== "research");
+  // R-276 批3:侧栏研究区与主视图工作台同一个档位判据,一处切换两处同步。
+  if (typeof syncResearchWorkspaceVisibility === "function") syncResearchWorkspaceVisibility();
 }
 const PROFILE_STORAGE_KEY = "kz-profile";
 const savedProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
