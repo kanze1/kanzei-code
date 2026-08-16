@@ -193,22 +193,7 @@
 - 状态: todo
 - 阻塞: 队列让位(2026-08-16):R-186(P0 队首)本轮推进中,单 WIP 槽不足,本条让位等待队列轮转。解除动作: R-186 关闭后清本字段,做剩余批4(withSessionRender setter 化、B3、defer 时序与冒烟断言适配、删补偿)。P3 留档。解除人: agent。
 
-## R-268 写者与 bash 围栏窗口解耦:托管文档写入不再等全局 bash 静默,不变式从「窗口内没有写者」换成「窗口内的变化可归因」 [doing]
-- 关联: D-382(围栏共享档,已修)、D-383(注册表毒化,残余机械缺陷)、D-364/D-368(围栏归因不变式)、D-258(absorb_paths 按路径吸收)
-- 复杂度: 大
-- 方向: 专用工具写入走写日志(路径+写后内容指纹,必要时含内容):围栏窗口收口时对 diff 逐路径对账,终态与日志一致的吸收进基线(同 D-258 absorb_paths 的按路径吸收口径),不一致的按越界回滚到最后一次合法日志内容(不是窗口开点快照)。写者从此不取跨窗口互斥,只保留毫秒级文件锁。远期与「tracker 事件化:append-only event store + 物化投影」同向(该方向另行立项),本条只做到写日志+吸收即可交付吞吐
-- 标签: 核心
-- 背景: D-364 不变式「窗口内没有写者」靠锁实现:围栏共享锁贯穿整个 bash 窗口(默认 120s/上限 600s),排他写者(req/defect/idea/decision/test_record/memory)预算仅 3s,撞上任一线的长 bash 即报错。两线 bash 窗口交叠时写者可长期挤不进去——轮末 test_record/req update 被外线 cargo build 拖住,是 D-382 修完围栏互斥后并行吞吐被吃掉的主要残余。设计基线 parallel_read_serial_write_orchestration.md §285 已预言「等全局静默会被后来的写者饿死,需要另设策略」,策略至今未落地
-- 验收: 一条线 cargo build(分钟级)期间,另一条线 req update/test_record/memory_add 毫秒级完成且不被围栏误回滚;bash 越界写照旧被检出并回滚(D-364/D-368 全部回归绿);窗口内合法写+越界写混合场景回滚到合法日志终态而非窗口开点
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-268
-- 批次: 3/3
-- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①现状机制——bash 围栏(D-364)持**共享档**(D-382)贯穿命令窗口(120s/600s),写者取**排他锁**(预算 3s),撞上长 bash 即报错;后台守卫(background.rs reconcile:405)用 managed_fence::write_in_progress 分流合法/越界,absorb_paths 按路径精确吸收(D-258);②锁语义——atomic_file.rs FileLock 双层,Shared/Exclusive 二档;③设计基线 §285 已预言「等全局静默会被后来的写者饿死」。**设计冻结**:不变式从「窗口内没有写者」换成「窗口内的变化可归因」(写日志为唯一合法写入凭据,围栏收口对账)。 || **批1 完成(2187703)**:write_log 机制(JSONL 落盘)+enforce_managed_files_with_writer_log 围栏收口对账(日志命中吸收、未命中回滚)+bash 接入。 || **批2 完成(46693d7)**:tracker 写动作成功后 record 写日志。 || **批3 完成(提交待定)**:①围栏去锁——bash_body 删贯穿窗口的 acquire_managed_locks,收口时取毫秒级锁(预算 500ms)再拍 after 快照;②写日志下沉 kanzei-base(纯 std 行编码六行:at_ms/path/fingerprint/hex content/run_id/process_id,content_hash 指纹,文件名 sanitize 修复 Windows ADS 冒号陷阱——`:` 会写进隐藏流主文件 0 字节,实测修前整条日志静默消失);③memory 写入口接日志——MemoryStore 加 project_root 字段,write_entry(条目)+refresh_derived(INDEX.md+index.db)写后 record;④D-364 集成 4 条+D-368 集成 3 条全绿(真进程 CLI 窗口内合法写入不被围栏误回滚,验收①核心);⑤workspace 全量 15 段 ok(T-1786839347),kanzei-base 20+kanzei-tools 290+kanzei-memory 139 passed,clippy/fmt 通过。**关闭前核对**:验收①(长 bash 期间写者毫秒级完成=围栏去锁,集成测试验证 CLI 窗口内落住不被误回滚)②(越界写照旧回滚,D-364/D-368 全绿)③(混合场景回滚到合法日志终态=批1 混合测试)。按 §1.2 可用即关闭,准备 req update done。
-- observed_head: 46693d7628f6153344de2f836f1785eabbbd7cc3
-- observed_worktree_hash: fnv1a64:2cb56361f9707d0d
-- recorded_at: 1786839356135
-
-## R-269 浏览器工具:playwright-core 辅进程 headless 自检通道 [todo]
+## R-269 浏览器工具:playwright-core 辅进程 headless 自检通道 [doing]
 - refs: R-101 D-319 R-249 R-059
 - 内容: ①Rust 工具起 Node 辅进程,playwright-core 以 channel 模式 launch 本机 Edge/Chrome headless(不下载 playwright 浏览器二进制),Rust↔Node 走 JSON-RPC over stdio;②能力:open(URL/本地文件)、screenshot(内置移动 viewport 预设,图片经 ToolOutput images 通道回模型——R-249 批1 已交付)、dom(可选 selector 的可读结构)、console、click/type;③自 launch 实例不碰 WebView2,天然绕开 D-319;④注册进桌面端与自举 harness 工具集,权限档位按 profiles 既有口径;⑤辅进程生命周期:空闲超时回收、工具关闭即收尾,不留僵尸 headless。拆批:批1 辅进程骨架+open+screenshot(含移动 viewport);批2 dom+console;批3 click/type 交互。
 - 复杂度: 大
@@ -218,6 +203,11 @@
 - 边界: 不 attach WebView2(R-101 的 CDP 路线另论);不做多 tab/多上下文并发;不做网络拦截与请求 mock;无 Node 或无 Edge/Chrome 时给明确诊断,不静默降级;截图体积口径沿用 R-249。
 - 验收: ①打开本地 HTML 与 http URL 各有实测轨迹;②移动 viewport 截图被模型真实消费(实测轨迹,不是单测断言);③click/type 后 DOM 变化可读回;④页面 console 错误可读;⑤缺 Node/缺浏览器时诊断明确;⑥工具生命周期结束后无残留辅进程与 headless 实例(实测进程列表);⑦附带给出 e2e-smoke 切本路线绕开 D-319 的可行性结论(只要结论,不要求实施)。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-269
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①依赖——package.json devDependencies 已有 playwright-core ^1.62.1(与 e2e-smoke 同款地基);②既有先例——scripts/e2e-smoke.mjs 走 chromium.connectOverCDP(WebView2 CDP 路线,D-319 卡住),R-269 改为 chromium.launch({channel}) 自 launch 本机 Edge/Chrome headless,天然绕开 D-319(自 launch 实例不碰 WebView2);③图片通道——R-249 批1 已交付 ToolOutput.images(Part::Image),screenshot 结果直接经该通道回模型;④无 Node/浏览器时须给明确诊断(e2e-smoke 无此兜底,R-269 新增)。**设计冻结**:不变式——辅进程生命周期受控(空闲超时回收、工具关闭即收尾、不留僵尸 headless);权威数据源——playwright-core 自 launch 的 browser/page 实例,Rust↔Node 走 JSON-RPC over stdio(单行 JSON 请求/响应);预期改动文件——crates/kanzei-tools/src/browser_tool.rs(新:Rust 侧工具+Node 辅进程 spawn+JSON-RPC 编解码)、scripts/browser-helper.mjs(新:Node 侧 playwright-core 封装,channel 模式 launch 本机 Edge)、profiles.rs(注册工具与权限档位)、tools 注册面(桌面端+自举 harness);最小测试——打开本地 HTML/http URL 各有轨迹、移动 viewport 截图被模型消费、缺 Node/缺浏览器诊断明确、生命周期结束后无残留进程。**批次规划**:批1=辅进程骨架(Rust spawn Node + JSON-RPC over stdio)+open(URL/本地文件)+screenshot(含移动 viewport)+定向测试;批2=dom(可选 selector 可读结构)+console 错误读取+缺依赖诊断;批3=click/type 交互+生命周期回收(空闲超时/无残留实测)+e2e-smoke 绕 D-319 可行性结论(验收⑦)+workspace 全量。本条验收原文无外部阻塞,纯工程,复杂度大,关闭前跑 workspace 全量。
+- observed_head: 36faa35a34f8ba76a151c9ca5fa8e5a9ebc6f204
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786839438411
 
 ## R-270 桥接移动化:LAN 配对/SSE/approval/PWA serve 与通知桥 [todo]
 - refs: R-059 D-063 R-269 docs/design/r059_mobile_agent_communication.md

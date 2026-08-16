@@ -3411,8 +3411,23 @@
 - 前置(不写进依赖,按 D-239 教训): **R-177**(要有 `worktree_path` 才知道"本线的树"是哪棵)。R-177 之前可以先做托管文档侧的重构与 mtime 粗筛。
 - 取活依据: engine:唯一可执行 WIP 是 R-186，必须先恢复它
 - 进展: 自动运行已认领(doing)。2026-08-13 用户明确指示暂停本条、先交付 R-200(测试隔离夹具)并按其批次发版——本条 park,不占可执行槽位。未开工。 || 2026-08-16 复核:实质前置全部达成——R-200/R-202 done、缺陷队列 D-357/358/359 全部 fixed、发版多轮执行。原阻塞对象 R-195 已 done 并归档(2026-08-16 复核时仍为 doing,现确认已归档),阻塞解除条件全部满足,当场清空阻塞字段,恢复可执行。 || 2026-08-16 取活开工。勘察:①现有围栏=ManagedSnapshot(kanzei-tools/src/managed.rs)只拍 .kanzei/project+.kanzei/memory,前/后台 bash_body(kanzei-tools/src/bash.rs:300/410/456)共用;②其它线工作树清单通道已存在:kanzei-tools/src/worktree.rs:225 git_worktrees() 返回全仓 worktree(含主树),bash 用 ctx.cwd 判定本线后排除;③归因身份已在 ToolCtx(run_id/process_id),ProcessHandle.worktree_path(R-177)在 kanzei-app 侧。**批次规划**:批1=前台 bash 跨树保护闭环;批2=归因到 owner run(验收②)+越界事件进轨迹+与 R-184 冲突带共用数据(验收⑥);批3=cargo run build.rs 定向测试(验收③)+性能实测(验收⑤)+D-174 回归全绿(验收④)。 || **批1 完成(2026-08-16,提交 e40a93b)**:新增 crates/kanzei-tools/src/cross_tree.rs, bash.rs 前台路径接入。单测 5 条全绿,既有 bash 19+managed 6+background 22 全绿无回归。 || **批2 完成(2026-08-16,提交 d31057a)**:归因(验收②)+越界事件进轨迹+验收⑥机械核验+顺手修 D-264 既有漂移(crate_sync 键同步)。kanzei-tools 全量 284 passed。 || **批3 完成(2026-08-16,提交 a13cbb6)**:验收③ build.rs 定向测试、验收⑤性能实测(5×31 文件 155 镜像 73.9ms)、验收④ workspace 全量 15 段全 ok(T-1786837373)。 || **关闭(2026-08-16)**:六条验收逐项核对证据——①A线bash写b线树检出隔离回滚逐字节复原(cross_tree.rs:346 测试,bash.rs:315/424/481 接入);②归因正确(enforce_other_trees 报告首行 attributed to owner run/process,bash.rs 传 ctx.run_id/process_id,测试断言含 run-a);③cargo build 的 build.rs 写 B 线树被抓(cross_tree.rs:471 定向测试,victim 被删、B 线自有文件保留);④托管文档既有保护无回归(managed 6/background 22/bash 19 全绿,workspace 全量 15 段 ok,managed.rs 零改动);⑤性能实测(5 worktree×31 文件=155 镜像文件 capture 73.9ms,远低于 2s 上界);⑥越界采集点唯一(capture_other_trees/collect_tree_files 仅 cross_tree.rs 定义,R-184 冲突带 changed_files 是 git status 既有展示数据,非越界采集)。交付物:crates/kanzei-tools/src/cross_tree.rs(新模块)+ bash.rs 前台接入 + git.rs 门禁清单同步;三批提交 e40a93b/d31057a/a13cbb6 已 push。按 §1.2 可用即关闭,本条 done。
-- 阻塞: 
 - observed_head: a13cbb62d18c03c499f2bd203cec0f10c39af45a
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786837432394
 - 批次: 3/3
+
+## R-268 写者与 bash 围栏窗口解耦:托管文档写入不再等全局 bash 静默,不变式从「窗口内没有写者」换成「窗口内的变化可归因」 [done]
+- 关联: D-382(围栏共享档,已修)、D-383(注册表毒化,残余机械缺陷)、D-364/D-368(围栏归因不变式)、D-258(absorb_paths 按路径吸收)
+- 复杂度: 大
+- 方向: 专用工具写入走写日志(路径+写后内容指纹,必要时含内容):围栏窗口收口时对 diff 逐路径对账,终态与日志一致的吸收进基线(同 D-258 absorb_paths 的按路径吸收口径),不一致的按越界回滚到最后一次合法日志内容(不是窗口开点快照)。写者从此不取跨窗口互斥,只保留毫秒级文件锁。远期与「tracker 事件化:append-only event store + 物化投影」同向(该方向另行立项),本条只做到写日志+吸收即可交付吞吐
+- 标签: 核心
+- 背景: D-364 不变式「窗口内没有写者」靠锁实现:围栏共享锁贯穿整个 bash 窗口(默认 120s/上限 600s),排他写者(req/defect/idea/decision/test_record/memory)预算仅 3s,撞上任一线的长 bash 即报错。两线 bash 窗口交叠时写者可长期挤不进去——轮末 test_record/req update 被外线 cargo build 拖住,是 D-382 修完围栏互斥后并行吞吐被吃掉的主要残余。设计基线 parallel_read_serial_write_orchestration.md §285 已预言「等全局静默会被后来的写者饿死,需要另设策略」,策略至今未落地
+- 验收: 一条线 cargo build(分钟级)期间,另一条线 req update/test_record/memory_add 毫秒级完成且不被围栏误回滚;bash 越界写照旧被检出并回滚(D-364/D-368 全部回归绿);窗口内合法写+越界写混合场景回滚到合法日志终态而非窗口开点
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-268
+- 批次: 3/3
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①现状机制——bash 围栏(D-364)持**共享档**(D-382)贯穿命令窗口(120s/600s),写者取**排他锁**(预算 3s),撞上长 bash 即报错;后台守卫(background.rs reconcile:405)用 managed_fence::write_in_progress 分流合法/越界,absorb_paths 按路径精确吸收(D-258);②锁语义——atomic_file.rs FileLock 双层,Shared/Exclusive 二档;③设计基线 §285 已预言「等全局静默会被后来的写者饿死」。**设计冻结**:不变式从「窗口内没有写者」换成「窗口内的变化可归因」(写日志为唯一合法写入凭据,围栏收口对账)。 || **批1 完成(2187703)**:write_log 机制+enforce_managed_files_with_writer_log 围栏收口对账+bash 接入。 || **批2 完成(46693d7)**:tracker 写动作成功后 record 写日志。 || **批3 完成(36faa35)**:围栏去锁+写日志下沉 kanzei-base+memory 写入口接日志。 || **关闭(2026-08-16)**:三条验收逐项核对——①长 bash 期间写者毫秒级完成且不被误回滚:围栏去锁(bash.rs 删贯穿窗口共享档,收口改毫秒锁 500ms),D-364「真bash围栏窗口内并发cli登记不被误回滚」+D-368「真bash围栏窗口内并发memory_add等待后落盘不被误回滚」集成测试全绿(真进程 CLI 窗口内落住);②越界写照旧检出回滚:D-364/D-368 集成 7 条全绿+managed.rs「无写日志的越界写照旧回滚」单测+围栏收口对无日志路径仍隔离回滚;③混合场景回滚到合法日志终态:managed.rs「合法写与越界写混合_只回滚越界侧」单测(有日志保留、无日志回滚)。workspace 全量 15 段 ok(T-1786839347),kanzei-base 20+kanzei-tools 290+kanzei-memory 139 passed,clippy/fmt 通过。交付物:kanzei-base/src/write_log.rs(新,纯 std 行编码,ADS 冒号 sanitize)、managed.rs(enforce 带日志对账+收口毫秒锁)、bash.rs(围栏去锁)、tracker.rs/memory store.rs(写日志接入);四批提交 2187703/46693d7/36faa35 已 push。按 §1.2 可用即关闭,本条 done。
+- observed_head: 36faa35a34f8ba76a151c9ca5fa8e5a9ebc6f204
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786839404583
+- 阻塞: 
