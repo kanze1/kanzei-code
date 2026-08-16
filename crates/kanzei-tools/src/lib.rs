@@ -160,7 +160,9 @@ pub(crate) fn record_write_log(
     abs_path: &std::path::Path,
 ) {
     if let Ok(content) = std::fs::read(abs_path) {
-        let _ = crate::write_log::record(
+        // D-399:record 失败至少告警(模块契约「宁可失败不静默」)——日志丢失 =
+        // 该次写入失去归因凭据,围栏收口会把它当越界,必须让调用方看到。
+        if let Err(e) = crate::write_log::record(
             &ctx.project_root,
             &crate::write_log::WriteLogEntry {
                 at_ms: std::time::SystemTime::now()
@@ -173,7 +175,9 @@ pub(crate) fn record_write_log(
                 run_id: ctx.run_id.clone(),
                 process_id: ctx.process_id.clone(),
             },
-        );
+        ) {
+            eprintln!("[write-log] record failed for {rel_path}: {e}");
+        }
     }
 }
 

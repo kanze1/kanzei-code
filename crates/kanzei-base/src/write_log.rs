@@ -72,7 +72,36 @@ pub fn record(project_root: &Path, entry: &WriteLogEntry) -> std::io::Result<Pat
         key
     ));
     crate::atomic_file::write_atomic(&file, &encode(entry))?;
+    // D-399:按量自愈——日志超阈值删最旧(每条含全文 hex,不清理会无限膨胀)。
+    self_prune(&root);
     Ok(file)
+}
+
+/// D-399:写日志按量自愈——文件数超 `WRITE_LOG_MAX_FILES` 时按 at_ms 删最旧。
+/// 在 record 内自触发,调用方无需单独接 prune(prune_before 保留给按时间清理)。
+fn self_prune(root: &Path) {
+    let Ok(files) = std::fs::read_dir(root) else {
+        return;
+    };
+    let mut logs: Vec<(u128, PathBuf)> = files
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let at = name
+                .split('-')
+                .next()
+                .and_then(|s| s.parse::<u128>().ok())?;
+            Some((at, entry.path()))
+        })
+        .collect();
+    if logs.len() <= WRITE_LOG_MAX_FILES {
+        return;
+    }
+    logs.sort_by_key(|(at, _)| *at);
+    let excess = logs.len() - WRITE_LOG_MAX_FILES;
+    for (_, path) in logs.into_iter().take(excess) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// 行编码:每文件六行,换行分隔。
@@ -150,6 +179,21 @@ pub fn entries_after(project_root: &Path, at_ms: u128) -> Vec<WriteLogEntry> {
         .collect();
     out.sort_by_key(|entry| entry.at_ms);
     out
+}
+
+/// 单项目写日志文件数上限(D-399:每条含全文 hex,超出即删最旧,防无限膨胀)。
+const WRITE_LOG_MAX_FILES: usize = 500;
+
+/// D-399:某路径最后一次合法写日志的内容——围栏回滚目标:同路径「先合法写
+/// 后越界写」时,回滚到最后一次合法日志内容,而不是窗口开点(窗口开点会丢
+/// 掉合法写的内容)。
+pub fn last_content(project_root: &Path, path: &str) -> Option<Vec<u8>> {
+    entries_after(project_root, 0)
+        .into_iter()
+        .filter(|entry| entry.path == path)
+        .max_by_key(|entry| entry.at_ms)
+        .filter(|entry| !entry.content.is_empty())
+        .map(|entry| entry.content)
 }
 
 /// 删除 `at_ms` 之前的日志条目(围栏收口推进窗口后调用,防止日志无限增长)。
@@ -279,6 +323,96 @@ mod tests {
             assert!(!name.contains(':'), "文件名不得含冒号: {name}");
             assert!(name.ends_with(".log"), "文件名必须带 .log 后缀: {name}");
         }
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// D-399:last_content 返回同路径最后一次合法日志内容(围栏回滚目标)。
+    #[test]
+    fn last_content_返回同路径最后合法日志() {
+        let root = temp_root("last-content");
+        let t0 = now_ms();
+        let p = ".kanzei/project/requirements.md";
+        record(
+            &root,
+            &WriteLogEntry {
+                at_ms: t0,
+                path: p.into(),
+                fingerprint: "a".into(),
+                content: b"v1".to_vec(),
+                run_id: None,
+                process_id: None,
+            },
+        )
+        .unwrap();
+        record(
+            &root,
+            &WriteLogEntry {
+                at_ms: t0 + 1,
+                path: p.into(),
+                fingerprint: "b".into(),
+                content: b"v2".to_vec(),
+                run_id: None,
+                process_id: None,
+            },
+        )
+        .unwrap();
+        // 另一路径不受影响。
+        record(
+            &root,
+            &WriteLogEntry {
+                at_ms: t0 + 2,
+                path: ".kanzei/project/defects.md".into(),
+                fingerprint: "c".into(),
+                content: b"d".to_vec(),
+                run_id: None,
+                process_id: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(last_content(&root, p).unwrap(), b"v2", "取同路径最后一条");
+        assert!(
+            last_content(&root, ".kanzei/project/none.md").is_none(),
+            "无日志路径 None"
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// D-399:record 按量自愈——日志文件数超阈值时删最旧,防无限膨胀。
+    #[test]
+    fn record_按量自愈_超阈值删最旧() {
+        let root = temp_root("self-prune");
+        let t0 = now_ms();
+        // 写超过阈值+余量(500 + 20)条日志。
+        for i in 0..(WRITE_LOG_MAX_FILES + 20) {
+            record(
+                &root,
+                &WriteLogEntry {
+                    at_ms: t0 + i as u128,
+                    path: format!(".kanzei/project/f-{i}.md"),
+                    fingerprint: "x".into(),
+                    content: format!("content {i}").into_bytes(),
+                    run_id: None,
+                    process_id: None,
+                },
+            )
+            .unwrap();
+        }
+        let remaining = std::fs::read_dir(log_root(&root)).unwrap().count();
+        assert!(
+            remaining <= WRITE_LOG_MAX_FILES,
+            "自愈后不超过阈值: {remaining}"
+        );
+        // 最旧 20 条被删(保留的是最近的)。
+        let all = entries_after(&root, 0);
+        let paths: Vec<&str> = all.iter().map(|e| e.path.as_str()).collect();
+        assert!(
+            !paths.contains(&".kanzei/project/f-0.md"),
+            "最旧的应被删: {paths:?}"
+        );
+        assert!(
+            paths.contains(&".kanzei/project/f-518.md"),
+            "最新的应保留: {paths:?}"
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

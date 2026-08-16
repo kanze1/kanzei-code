@@ -157,7 +157,11 @@ pub(crate) fn quarantine_and_restore(
         match before.files.get(path) {
             // 动作前存在:写回原内容(内容超限没镜像的只能保持现状,由调用方点名)。
             Some(Some(original)) => {
-                if std::fs::write(&absolute, original).is_ok() {
+                // D-399:该路径若有合法写日志(同路径「先合法写后越界写」),回滚到
+                // 最后一次合法日志内容,而不是窗口开点(窗口开点会丢掉合法写)。
+                let restore_content = crate::write_log::last_content(project_root, path)
+                    .unwrap_or_else(|| original.clone());
+                if std::fs::write(&absolute, restore_content).is_ok() {
                     restored += 1;
                 }
             }
@@ -173,10 +177,13 @@ pub(crate) fn quarantine_and_restore(
     for path in &change.deleted {
         if let Some(Some(original)) = before.files.get(path) {
             let absolute = project_root.join(path);
+            // D-399:被删文件若有合法写日志,回滚到合法终态(同先合法写后越界删)。
+            let restore_content = crate::write_log::last_content(project_root, path)
+                .unwrap_or_else(|| original.clone());
             if let Some(parent) = absolute.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            if std::fs::write(&absolute, original).is_ok() {
+            if std::fs::write(&absolute, restore_content).is_ok() {
                 restored += 1;
             }
         }
@@ -880,6 +887,51 @@ mod tests {
             std::fs::read_to_string(&defects).unwrap(),
             "# Defects\n",
             "越界写必须回滚到窗口开点"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-399:同路径混合——同一文件先合法写(有日志)再越界写(无日志覆盖),
+    /// 回滚到最后一次合法日志内容,而非窗口开点(合法写不丢)。
+    #[test]
+    fn 同路径_先合法写后越界写_回滚到日志内容() {
+        let root = temp_project("r268-same-path");
+        let req = root.join(".kanzei/project/requirements.md");
+        std::fs::write(&req, "# Requirements\n\n## R-001 既存 [todo]\n").unwrap();
+        let window_start = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let before = ManagedSnapshot::capture(&root);
+
+        // 窗口内:先合法写(记日志),再越界写(无日志,覆盖同一文件)。
+        let legit = "# Requirements\n\n## R-001 既存 [todo]\n\n## R-268 合法新增 [todo]\n";
+        std::fs::write(&req, legit).unwrap();
+        crate::write_log::record(
+            &root,
+            &crate::write_log::WriteLogEntry {
+                at_ms: window_start + 1,
+                path: ".kanzei/project/requirements.md".into(),
+                fingerprint: crate::content_hash(legit.as_bytes()),
+                content: legit.as_bytes().to_vec(),
+                run_id: Some("run-a".into()),
+                process_id: Some("proc-a".into()),
+            },
+        )
+        .unwrap();
+        std::fs::write(&req, "# Requirements\n\n## R-999 越界覆盖 [open]\n").unwrap();
+
+        let report = enforce_managed_files_with_writer_log(&root, before, window_start)
+            .expect("越界写必须报");
+        assert!(
+            report.contains("requirements.md"),
+            "报告要点名越界文件: {report}"
+        );
+        // 回滚到日志内容(合法终态),而非窗口开点。
+        assert_eq!(
+            std::fs::read_to_string(&req).unwrap(),
+            legit,
+            "同路径先合法后越界:回滚到最后一次合法日志内容(合法写不丢)"
         );
         std::fs::remove_dir_all(&root).ok();
     }
