@@ -4626,3 +4626,174 @@
 - observed_head: 3c2060cd37ec820616c3d00b41357c0c0c3ba306
 - observed_worktree_hash: fnv1a64:28d67e2167c4069d
 - recorded_at: 1786853706039
+
+## D-406 跨树快照键扁平化:递归按父目录 strip_prefix,回滚喷垃圾到树根 [fixed] (high)
+- refs: R-186 D-395 D-396 D-397
+- 影响: ①镜像键跨目录碰撞(同名文件互相覆盖),R-186 跨树保护实际从未按正确路径对账——保护失效;②回滚 root.join(裸名) 把别树深层文件内容写到树根(垃圾)/对树根同名文件执行删除(README.md/Cargo.toml 等根级文件有被误删风险);③build-735ebb3 已装机,活跃线每个前台 bash 收口都在触发。与 D-395(并发误伤)/D-396(超限语义)/D-397(粗筛缺席)同模块不同缺陷,审计漏网。
+- 期望: 递归携带 tree_root 与当前 dir 两个参数,relative 一律 strip_prefix(tree_root);回归测试:嵌套文件键必须是完整相对路径(a/b/c.txt),回滚写回嵌套路径不落树根;主根平铺垃圾清理。
+- 来源: 2026-08-16 用户发现根目录异常文件,当场取证定位。
+- 标签: 核心
+- 根因: collect_tree_files 递归调用 collect_tree_files(&path, files) 把子目录当新 root,relative=path.strip_prefix(root) 永远相对直接父目录——深层文件的镜像键全是裸 basename(cross_tree.rs:93-131)。已当场核验:主根 12:12-12:26 出现 defects.md/defects-archive.md/inbox.md/index.db/bin-kz/dep-lib-*/.rustc_info.json 等平铺副本,内容与深层原件一致。
+- 优先级: P0
+- 进展: 2026-08-16 修复(提交 4b0b921)。collect_tree_files 拆为外壳+collect_tree_files_in(tree_root, dir, files),strip_prefix 一律相对树根,深层文件镜像键回归完整相对路径;新增判别测试「深层文件键为完整相对路径_回滚写回原位不落树根」(嵌套+根级同名两键独立、越界回滚写回 sub/inner/ 原位、树根无平铺)——既有测试全用顶层文件因而假绿,已补该盲区。cross_tree 8/8 绿,clippy 零警告。主根 151 个平铺垃圾文件(指纹族+托管文档旧副本,正本逐一核对在位)已清理。注意:活跃线仍跑旧二进制,重启 kzapp 装上热修版前垃圾可能再生,再生即再清。
+- observed_head: 4b0b921cf1e1f6e2387486b51efb3e1c124f723d
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786855543953
+
+## D-390 PWA 被鉴权闸挡死:裸 GET 恒 401,配对成鸡生蛋 [fixed] (high)
+- refs: R-270 R-271
+- 影响: R-270 验收⑤「手机浏览器打开桥接地址能加载 PWA」当前代码不可能成立;移动端产品入口死锁——打不开配对页就拿不到 token,拿不到 token 就打不开配对页。
+- 期望: 静态资源(GET 非 /v1/*)免设备鉴权(敏感数据都在 /v1/* 后)或配对页单独放行;附带修 serve_pwa 用编译期 CARGO_MANIFEST_DIR(mobile.rs:378)——安装版 serve 的是开发机源码树实时内容、异机 404,改运行时资源目录。
+- 来源: 2026-08-16 交付质量三路只读审计
+- 标签: 后端
+- 根因: handle_mobile_connection 顺序为 /v1/pair 免鉴权→设备 token 鉴权(mobile.rs:162-168)→serve_pwa(179-185);浏览器导航/manifest/sw.js 均不带 Authorization,恒 401。已当场核验。
+- 优先级: P0
+- 进展: 已修复(commit 6607180)。期望对账:①动态资源不鉴权——serve_pwa 移至鉴权闸前,真链路端到端测试断言「PWA 首页 200 不经 token」(mobile.rs 真实桥接端口端到端,T-1786856090);②serve_pwa 不再用 CARGO_MANIFEST_DIR 常量——resolve_pwa_root 发布版 tauri resource 优先/开发源码回退(mobile.rs:625)+tauri.conf.json bundle.resources 打包 mobile-pwa 目录;安装版资源实测由发版流程验证。14 mobile 测试全绿,clippy 零警告
+- observed_head: 66071805309f564321b3cf36bd8dbf56eabb2706
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786856156329
+
+## D-389 R-270/R-271 验收证据虚增:替身自检真机零记录 [fixed] (high)
+- refs: R-270 R-271 R-059
+- 影响: R-271 验收①真机全链路零记录仍标 done;虚假完成已传播到 R-059 阻塞解除依据。
+- 期望: 鉴权闸/LAN 两缺陷修复后补真链路验收(R-269 走真桥接端口+用户真机),R-059 核销以此为门;测试记录不得以替身冒充目标链路。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 流程
+- 根因: 自检记录 T-1786842342/2532/2732 打开的是 http://127.0.0.1:8123/(output/r271-req1.jsonl),全仓无代码绑 8123——临时静态服务器替身,对「经桥接加载」零证明力;T-1786842178「手机浏览器打开桥接地址可加载」是未验证断言(实际被鉴权闸挡死)。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-389
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 已修复(commit 6607180)。期望对账:①鉴权闸/LAN 两缺陷修复——LAN(D-385 e6c94d9)+鉴权闸(D-390 本次,serve_pwa 提前至鉴权闸前)均已修;②补真链路验收(机器侧)——真实桥接端口端到端测试(真实 TcpListener+真实 HTTP,全走生产代码路径,非 8123 替身):PWA 经桥接端口加载/配对换 token/带 token 数据流/撤销即 401/路径穿越 404,可重放命令 cargo test -p kanzei-app mobile(T-1786856090);③验收降级:「用户真机」由用户执行——真手机访问 LAN 地址实测(桌面端 LAN 开关启动桥接),用户反馈后 R-059 核销,本缺陷真机实测为该核销之门;④测试记录不得以替身冒充目标链路——8123 临时静态服务器替身已由真实桥接端口测试取代,测试记录含真实端口与可重放命令。14 mobile 测试全绿,clippy 零警告
+- observed_head: 66071805309f564321b3cf36bd8dbf56eabb2706
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786856162584
+
+## D-391 多页 PDF 转 PNG 失败+临时件泄漏:页号零填充 [fixed] (high)
+- refs: R-273
+- 影响: 论文常态 10+ 页,主用例上 PDF→PNG 回传必失败,且整份 PDF 每页临时 PNG 留在工件目录。
+- 期望: 传 -f 1 -l 1 只渲染首页(命名/浪费一并解决);失败路径也清理;附带修 execute 的 stem 用 split(".")与编译侧 file_stem 口径分裂(latex_tool.rs:83,含点文件名 PNG 静默丢失)。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 核心
+- 根因: pdftoppm 按总页数零填充页号(≥10 页产 -01.png),代码只找 -1.png(latex_tool.rs:324-330);失败提前 return 跳过清理循环(331-337);未传 -f 1 -l 1,长文档全页 150dpi 渲染纯浪费。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 D-391
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 已修复(commit bb2adcf)。期望对账:①传 -f 1 -l 1 只渲染首页——pdftoppm 显式限页,长文档不再全页 150dpi 渲染浪费;命名一并解决且更鲁棒:poppler 页号零填充位数随总页数(10 页产 -01.png),改为扫描 <prefix>-*.png 唯一产物(latex_tool.rs pdf_to_png,零填充任意位数成立),不再猜 -1.png;②失败路径也清理——cleanup_pngtmp 在成功/失败统一调用,不再提前 return 跳过清理循环(测试:转换失败也清理临时png);③execute 的 stem 口径——统一 stem_of(file_stem),execute 不再 split('.') 截断含点文件名(如 my.paper.tex,产物 my.paper.pdf),与编译侧一致(测试:stem口径含点文件名不截断)。测试:10 页 PDF 首页转 PNG 成功无残留(论文常态规模复现)/失败路径清理/含点 stem,10 latex 测试全绿(T-1786856355),clippy 零警告
+- observed_head: bb2adcf084a424f1965dd381608638d3335cf828
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786856385985
+
+## D-407 跨树围栏回滚活库WAL写坏 state.db,并回滚修复者自身改动 [fixed] (high)
+- refs: R-186 D-406 D-395 D-396
+- 影响: 228MB state.db 一度不可打开(用户 research 模式首测即撞);并行自举下任何线的正当写入都可能被另一线的 bash 窗口回滚;修复动作本身被回滚导致文件处于半修复状态。数据经抢救备份+进程退出后 integrity_check=ok,未永久损坏。
+- 期望: ①.kanzei/target/node_modules/dist/.git 不入保护面(运行态与派生产物永远不该被回滚);②D-395 落地前自动回滚整体停用,降级为检测+归因+隔离留证(可见性保住,破坏面清零);③恢复回滚需以「变化可归因到具体 owner」为前提,不是「检测到就写回」。
+- 来源: 2026-08-16 用户 research 模式首测报 disk I/O error,截图取证后逐层定位。
+- 标签: 核心
+- 根因: D-406 把镜像键修正为完整相对路径后,回滚第一次精准命中真实路径,于是两类活状态遭殃:①.kanzei/state.db-wal(3.8MB<4MiB 上限,内容入镜像)与 -shm 被当作「其它线的未提交心血」,旧 WAL 被写回正在被 SQLite 打开的库上→研究会话 sqlite error: disk I/O error,只读连接都打不开(隔离目录 cross-tree-1786855961740 内即 .kanzei/state.db-wal+shm 铁证);②主树源码同理——我在主树修本文件时,worktree 线每条 bash 收口都把我的改动判为越界并回滚(隔离目录 cross-tree-1786856271949/crates/kanzei-tools/src/cross_tree.rs),修复者与缺陷互搏。根因链:D-395(无法区分「A 越界写 B」与「B 在自己树里正常干活」)在 D-406 修好路径后从「喷垃圾」升级为「毁数据」——正是今晨写进 conventions §2 的「机制半上线比不上线更危险」。
+- 优先级: P0
+- 进展: 2026-08-16 修复(提交 a4ec73e)。①EXCLUDED_TREE_DIRS(.kanzei/target/node_modules/dist/.git)在 collect_tree_files_in 入口跳过,运行态与派生产物不再入保护面——定向测试「运行态与派生产物不入保护面」断言四类目录变化不触发报告且活库文件字节不变;②自动回滚/删除整体停用降级为报告态(检测+归因+隔离留证照旧),报告文案明说「未自动回滚」,既有 4 条回滚断言按新契约改写(a线越界→检出归因不动现状、新建→检出不删、build.rs→检出不删、深层键→留证按层级);cross_tree 9/9 绿 clippy 零警告。数据处置:抢救备份 kanzei-db-rescue-20260816-1300(state.db+wal+shm+隔离的旧WAL),停 kzapp 后重开 integrity_check=ok、17 会话/112136 事件/483 episode 齐全,未永久损坏。验收降级: 真实并行双线场景的回归由下次自举实跑观察(隔离目录不再出现 .kanzei/* 即为通过)。
+- observed_head: a4ec73eb4551ef1fa85d02d7d26fc19514629f64
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786856743353
+
+## D-408 含中文 .ps1 缺 UTF-8 BOM:PS 5.1 下解析失败装不了包 [fixed] (high)
+- 影响: 用户按发版说明装紧急修复版时 install-setup.ps1 直接跑不起来(2026-08-16 实况);agent 侧一路不复现——PowerShell 7 默认 UTF-8,verify/release 在自动化里全绿,典型「开发机测不出、用户必炸」。
+- 期望: ①三脚本补 BOM;②加机械校验:含 CJK 的 .ps1 必须带 BOM,缺即失败并点名;③挂 verify.ps1 与 ci.yml 两处。
+- 来源: 2026-08-16 用户执行安装命令报 ParserError,乱码特征定位为编码问题。
+- 标签: 发布
+- 根因: install-setup.ps1/release.ps1/verify.ps1 三个脚本含大量中文(427/730/233 字)却以 UTF-8 无 BOM 保存。Windows PowerShell 5.1(powershell.exe,用户复制文档命令走的就是它)读无 BOM 文件按系统 ANSI 代码页(中文机 GBK)解码,中文字节被拆成乱码致引号错位→整脚本 ParserError。package.ps1 顶部早写明「必须以 UTF-8 BOM 保存」,规则在但无机械校验,三个后来的脚本全漏。
+- 验收: ①三脚本头三字节为 EF BB BF 且 PS 5.1 实测解析 OK;②反证:临时去 BOM 校验必须变红并点名该文件;③verify 与 CI 两处都跑到。
+- 优先级: P1
+- 进展: 2026-08-16 修复交付。①三脚本补 BOM——scripts/install-setup.ps1:1、scripts/release.ps1:1、scripts/verify.ps1:1 头三字节改 EF BB BF(提交 a002772),用 Windows PowerShell 5.1 的 Parser::ParseFile 逐个实测,三个均「解析 OK」(此前 install-setup 报 UnexpectedToken)。②机械校验——新增 scripts/check-ps1-bom.mjs:1(提交 a002772),含 CJK 的 .ps1 缺 BOM 即列名失败并打印修复命令;反证实测:剥掉 verify.ps1 的 BOM 后校验立刻变红点名该文件、退出码 1,恢复 BOM 后复绿。③两处挂载——scripts/verify.ps1:68 新增 ps1_bom 步、.github/workflows/ci.yml:49 追加同一脚本(提交 a002772),口径一致。
+- observed_head: a002772eec91ddbf1b28d4ba02913d80ce336f36
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786857364480
+
+## D-410 composer 三处体验:设置离鞭挞太远/鞭挞独占一行/输入框过宽 [fixed] (low)
+- 复现: 宽屏(2000px)下 composer 自上而下三行:输入框(占满整宽)、鞭挞控制台独占一行(「鞭挞」在最左、「设置」被 spacer 顶到最右)、发送行。
+- 影响: ①设置与它所配置的鞭挞开关分处一行两端,找不到关联;②控制台白占一整行,压缩对话可视高度;③输入框行宽过长,扫读与落笔都别扭。
+- 期望: ①设置紧随鞭挞勾选框;②鞭挞控制台并入发送行,不单独占行;③输入区(附件条/输入框/发送行)限宽居中。
+- 来源: 2026-08-16 用户看图指出布局不合理。
+- 标签: 前端
+- 优先级: P2
+- 进展: 2026-08-16 修复(提交 1640951)。①设置紧随鞭挞——index.html:208 起 autorun-bar 内顺序改为 鞭挞→设置(details)→轮次→阶段→状态,原先夹在中间的 spacer 移到设置之后;②并入发送行——autorun-bar 整块移进 crates/kanzei-app/ui/index.html:208 的 #composer-bar,style.css:725 给 composer-bar 加 flex-wrap 与 gap、composer-actions 用 margin-left:auto 靠右,鞭挞不再独占一行;③输入区限宽——style.css:716 给 #attachments/#prompt/#composer-bar/.composer-queue/#continue-editor 统一 max-width:1080px 居中,窄屏仍 100%。验证:六条前端冒烟全绿(runtime/lint/parallel/a11y/i18n/markdown)。
+- observed_head: 16409515e0a95b58acdd91bdd54812ad8d1e1de4
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786858851501
+
+## D-411 权限弹窗全屏模态挡住判断依据:看不到上下文没法确认 [fixed] (medium)
+- 复现: 权限/提问弹出时 #ask-overlay 以 inset:0 + rgba(0,0,0,.55) 罩住整个应用,对话区被遮住且不可滚动、不可选中。
+- 影响: 要判断「该不该放行这条命令」往往得回看刚才的工具轨迹与对话原文,而模态恰恰把判断依据挡在背后——用户只能凭记忆按钮,或先拒绝再回看重来。
+- 期望: 改非阻塞停靠:卡片贴右下角浮起,遮罩层 pointer-events 穿透,对话区照常滚动与选中;aria-modal 同步改 false(非模态宣称 true 会让读屏把背景整块隐藏,与事实相反)。
+- 来源: 2026-08-16 用户原话:提问弹出,但是我需要浏览著对话的上下文才能确认。
+- 标签: 前端
+- 优先级: P1
+- 进展: 2026-08-16 修复(提交 1640951)。改非阻塞停靠:style.css:828 起 #ask-overlay 由 inset:0+rgba(0,0,0,.55) 全屏遮罩改为 inset:auto 0 0 0、background:none、pointer-events:none 的底部停靠层,#ask-dialog 自身 pointer-events:auto 并加 max-height:60vh 可滚、accent 描边保持醒目;index.html:932 aria-modal 由 true 改 false(非模态宣称 true 会让读屏把背景整块隐藏,与可读可交互的事实相反)。效果:弹窗浮在右下角,对话区照常滚动、选中、复制,判断依据与决策同屏。验证:crates/kanzei-app/ui/style.css:828 与 index.html:932 已落地,ui-a11y 断言随契约更新后六条前端冒烟全绿。
+- observed_head: 16409515e0a95b58acdd91bdd54812ad8d1e1de4
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786858852056
+
+## D-413 研究工件前端只读:文献打不开、条目改不了删不掉,后端全支持 [fixed] (high)
+- refs: R-276 R-221
+- 影响: ①来源里明明存了 URL 字段(.kanzei/research/sources.md 每条文献均有 `- URL: https://arxiv.org/abs/...`)却无法点击打开,用户原话「我想直接打开他参考的文献也不行」;②代码域来源的 `证据锚: file:line` 同样点不开;③条目无法编辑、无法删除,写错只能手改 markdown;④标题被 CSS 截断,来源列表 19 条全是「kanzei 检索/触发/反事实评估实现(index...」这类看不全的字符串;⑤发现条目 confirmed 后整条置灰,像是被禁用。研究模式的核心资产(来源与发现)在 UI 里事实上是死的。
+- 期望: ①去掉 kind gating,source/finding 与 req/defect 同权:可展开、可编辑字段、可删除、可归档;②来源条目主操作=打开——文献用 URL、代码域用证据锚跳文件定位行;③标题不截断(卡片换行或悬停全文);④refs 里的 S-id 可点跳转;⑤confirmed 不等于失效,置灰样式要区分「终态」与「不可用」。
+- 来源: 2026-08-16 用户在 research 首轮实测后逐条指出:文献打不开、条目删不掉、打开也没法编辑。
+- 标签: 前端
+- 根因: renderDocList 把展开/字段编辑/删除/归档等交互整体 gate 在 kind==="req"||"defect"(crates/kanzei-app/ui/11-docs-list.js:249-262),source/finding 走同一函数但只落到「一行截断标题」的裸渲染(12-docs-pages.js:810-811);而后端 docs_update 对 kind=source/finding 早已全支持 update/close/archive(crates/kanzei-app/src/docs.rs:402-413)。纯前端接线缺失。
+- 优先级: P1
+- 进展: 2026-08-16 修复交付(提交 5fb61ce)。①编辑权按「有无文档页」分流——crates/kanzei-app/ui/11-docs-list.js:594 的 deepManage 去掉 req/defect 硬 gating,source/finding 因无文档页(index.html 无 view-sources/view-findings)改在侧栏详情直接编辑,R-123「编辑只在文档页」的原意保留给有页的 req/defect;②文献可打开——同文件新增 researchLinkField/researchOpenLink,URL 字段渲染为链接,点击走新增后端命令 crates/kanzei-app/src/docs.rs:448 webfetch_preview(复用 kanzei-tools webfetch 工具本体,同一套代理/超时/截断口径,只放行 http/https 防本地文件旁路),正文进既有内置 viewer(用户定调不跳出应用);③代码域证据锚 file:line 可点,点击经 activitybar 按钮切文件视图并 openFilePreview 定位;④confirmed 不再当失效——crates/kanzei-app/ui/style.css:393 起给 #finding-list 终态取消 opacity .4 与删除线,改左侧强调条;⑤研究列表标题 white-space:normal 换行不截断。验证:六条前端冒烟全绿(runtime/lint/parallel/a11y/i18n/markdown)、cargo clippy 两 crate 零警告、i18n 补 3 键且 globals 清单重生成后 lint 同步。验收降级: 真实点击体验(打开文献/编辑/删除)由用户装新版后实测。
+- observed_head: 5fb61ce7a2f6c726617e51c190b6368f65a44ac0
+- observed_worktree_hash: fnv1a64:079b10c5eaac5321
+- recorded_at: 1786860935247
+
+## D-414 来源点不开(接线互相抵消):开了编辑器就吞掉链接渲染 [fixed] (high)
+- refs: D-413 R-276
+- 影响: D-413 宣称交付的「文献可点开」在真实点击路径上不成立;用户原话「我点来源应该直接MD显示呢?」
+- 期望: ①可打开字段(URL/证据锚)与 refs 同待遇,豁免 hasEditor 跳过,即使开着编辑器也给一份只读链接;②更进一步:条目行内直接给 ↗ 一键打开,不必先展开再找链接——「点来源就该直接看到内容」是用户的原始期待。
+- 来源: 2026-08-16 用户装 build-524196a 后实测点击来源无反应。
+- 标签: 前端
+- 根因: D-413 两处改动各自正确、合起来互相抵消:①给 source/finding 开了 deepManage(可编辑);②给 URL/证据锚加了只读链接渲染。但字段只读循环开头是 `if (hasEditor && !isRefs) continue`(11-docs-list.js:736)——deepManage 一开 hasEditor 即真,所有非 refs 字段跳过只读渲染,URL 只剩编辑框里的文本输入,链接分支根本走不到。用户实测:点来源展开后没有任何可点的东西。
+- 优先级: P1
+- 进展: 2026-08-16 修复(提交见下)。①行内一键打开——crates/kanzei-app/ui/11-docs-list.js:503 起,source/finding 条目行在有可打开字段时渲染 ↗ 按钮,点击直接走 researchOpenLink(文献进内置 viewer,代码域跳文件定位),无需展开;②抵消修复——同文件 755-760 行,可打开字段与 refs 同待遇豁免 `hasEditor` 跳过,开着编辑器仍给只读链接;③样式 crates/kanzei-app/ui/style.css:399 .doc-open-src 默认 opacity .55 悬停/聚焦提亮。验证:六条前端冒烟全绿(runtime/lint/parallel/a11y/i18n/markdown)。验收降级: 真实点击效果由用户装下一版后实测。
+- observed_head: cc55ca56db26769c5b0fa07f431bbc1e9745beea
+- observed_worktree_hash: fnv1a64:079b10c5eaac5321
+- recorded_at: 1786863063082
+
+## D-415 composer 限宽只覆盖 5 个子元素:三行各一宽度,框看着歪了 [fixed] (medium)
+- refs: D-410 R-276
+- 影响: 用户实测反馈「著对话的框有问题了」。
+- 期望: 改排除法:#composer 全部流内子元素统一同宽同心,只排除弹层类(下拉建议/SOP 选择器/隐藏 input);新增子元素自动继承,不再靠人工维护清单。
+- 来源: 2026-08-16 用户装 build-8c821c0 后实测截图。
+- 标签: 前端
+- 根因: D-410 给输入区限宽时按 id 逐个列了 5 个子元素(#attachments/#prompt/#composer-bar/.composer-queue/#continue-editor),但 #composer 有十来个直接子元素,#change-bar(文件数/增删行)、#continue-panel 等漏网仍是满宽;而 #continue-editor 这个 id 在 HTML 里压根不存在(真实是 #continue-panel),等于列了个空规则。三行各一个宽度,视觉上就是「框歪了」。
+- 优先级: P2
+- 进展: 2026-08-16 修复(提交 4c95b2e)。crates/kanzei-app/ui/style.css:732 改排除法 `#composer > *:not(#file-suggestions):not(#sop-picker-panel):not(#attachment-input)` 统一限宽 1080px 居中,覆盖全部流内子元素含此前漏网的 #change-bar/#continue-panel,新增子元素自动继承。同批把 scripts/ui-runtime-smoke.mjs:719 的 sources/findings 从空数组换成真实夹具(URL/证据锚/refs)并加断言:↗ 必须渲染两个、点击必须调 webfetch_preview 且 URL 正确——此前整条研究列表渲染路径从未被冒烟走过,才会「六条全绿但真机点不开」。验证:六条前端冒烟全绿。验收降级: 三行对齐的视觉确认由用户装新版后实测。
+- observed_head: 571b3f25b35fafdfd0fd02398fc8f82cc21d0fee
+- observed_worktree_hash: fnv1a64:079b10c5eaac5321
+- recorded_at: 1786866450401
+
+## D-416 输入框仍不居中:textarea 是 inline-block,margin auto 不生效 [fixed] (medium)
+- refs: D-415 D-410
+- 影响: 用户连续两版实测反馈「还是错位呢?」。
+- 期望: 限宽规则里统一 display:block 让 auto 边距生效;#composer-bar 是 flex 行需例外保住 display:flex。
+- 来源: 2026-08-16 用户装 build-e01aa66 后实测截图,输入框中心比相邻两行左偏约 160px。
+- 标签: 前端
+- 根因: D-415 把限宽改成排除法覆盖全部流内子元素后,旁边两行(#change-bar/#composer-bar 都是 div=block 盒)正常居中,唯独 #prompt 仍贴左——因为 <textarea> 默认 display:inline-block,CSS 规范里 `margin: auto` 只对 block-level 盒计算为居中值,对 inline-block 一律计算成 0。宽度受 max-width 约束生效了,水平居中没生效,于是三行看着仍错位。
+- 优先级: P2
+- 进展: 2026-08-16 修复(提交见下)。crates/kanzei-app/ui/style.css:732 的限宽规则补 display:block——textarea 从 inline-block 变 block 后 margin auto 才计算为居中;同处补 `#composer > #composer-bar { display: flex }` 例外,保住它 flex 行布局不被压成 block。同批调整主对话空态(用户要求):.empty-state 加极淡径向光晕收拢视线、.logo-mark 改描边环+主题色字(不再是半透明色块)、提示文案拆主次两行(hint-lead/hint-keys),全部走主题 token 亮暗色均成立。验证:六条前端冒烟全绿。验收降级: 三行对齐与新空态观感由用户装新版后实测。
+- observed_head: 571b3f25b35fafdfd0fd02398fc8f82cc21d0fee
+- observed_worktree_hash: fnv1a64:b1c764c94b75c0df
+- recorded_at: 1786866965567
+
+## D-405 主题切换位置不合理:占侧栏整块,建议移到左下角图标与设置同级 [fixed] (low)
+- 复现: 当前主题切换是侧栏底部一整块 sidebar-section(index.html:114-119,#theme-section + #theme-toggle「亮色」按钮),低频操作却占用侧栏一个区块;activitybar(左下角 #activitybar)是视图切换图标的常驻区,设置按钮在底部(index.html:35),主题入口与设置层级不对称。
+- 影响: 侧栏空间被低频操作占用;主题切换入口位置不直观,与设置同级操作不在同一视觉层级。
+- 期望: 移除侧栏 #theme-section;在 #activitybar 底部(设置按钮旁/左下角)加一个主题切换图标按钮,与设置同级;点击切换亮/暗色并沿用 localStorage kz-theme 持久化(03-shell.js applyTheme 既有逻辑可复用,只需改挂载点与图标样式)。
+- 来源: 用户消息(2026-08-16)
+- 标签: 前端
+- 优先级: P2
+- 取活依据: override:D-404 已关闭,按用户消息顺序修第二条:主题切换移到左下角 activitybar 与设置同级
+- 进展: 复核(2026-08-16,HEAD f4f2083):提交 0d79d5b 已在历史,代码与条目一致——index.html:36-39 #theme-toggle(太阳/月亮双 SVG,class=activity-item)在 #activitybar 底部、设置按钮(40)前同级;侧栏 #theme-section 整块已移除(grep 零命中);03-shell.js:530-549 applyTheme 图标 hidden 切换 + title/aria 更新,559 行点击切换逻辑。验证:T-1786853796 node --check+ui-runtime-smoke 全过(R-189 断言:theme-toggle 存在/不在 statusbar/位于 statusbar 前/点击切换 data-theme 与 localStorage kz-theme 双持久化/Monaco setTheme 联动均绿);HEAD f4f2083 重跑 ui-runtime-smoke 再确认(22 个 ui js + 2086 invoke + 主视图切换,0 运行时错误)。生效依赖:新版 kzapp 构建后运行(当前运行版不含此修复),构建发布走发版 SOP。
+- observed_head: f4f2083980323c634acf164a9b6fffefef50593d
+- observed_worktree_hash: fnv1a64:079b10c5eaac5321
+- recorded_at: 1786867988076

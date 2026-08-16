@@ -175,19 +175,6 @@
 - 根因: 交付为纯静态 regex 差集(ui-connectivity.mjs:54-89)+关键路径只查 HTML 存在性(77-89);PWA 4 条路径 3 条 needs_pair 跳过(146-150),唯一真开的是配对页;KEY_PATHS 为脚本内 const(33-51)非验收③要求的配置文件;原案「基于 R-269 从入口遍历+跳转失败/console 报错」运行时判定全部缺席。关闭证据如实描述静态形态但未点名与原案落差,四条验收照单核销(对比 R-264 对做不到的部分明确记「待专用批次」)。
 - 优先级: P2
 
-## D-405 主题切换位置不合理:占侧栏整块,建议移到左下角图标与设置同级 [fixing] (low)
-- 复现: 当前主题切换是侧栏底部一整块 sidebar-section(index.html:114-119,#theme-section + #theme-toggle「亮色」按钮),低频操作却占用侧栏一个区块;activitybar(左下角 #activitybar)是视图切换图标的常驻区,设置按钮在底部(index.html:35),主题入口与设置层级不对称。
-- 影响: 侧栏空间被低频操作占用;主题切换入口位置不直观,与设置同级操作不在同一视觉层级。
-- 期望: 移除侧栏 #theme-section;在 #activitybar 底部(设置按钮旁/左下角)加一个主题切换图标按钮,与设置同级;点击切换亮/暗色并沿用 localStorage kz-theme 持久化(03-shell.js applyTheme 既有逻辑可复用,只需改挂载点与图标样式)。
-- 来源: 用户消息(2026-08-16)
-- 标签: 前端
-- 优先级: P2
-- 取活依据: override:D-404 已关闭,按用户消息顺序修第二条:主题切换移到左下角 activitybar 与设置同级
-- 进展: 关闭证据(2026-08-16,commit 0d79d5b):①index.html:35 #theme-toggle 图标按钮(太阳 #theme-icon-sun/月亮 #theme-icon-moon 双 SVG,class=activity-item)插入 #activitybar 设置按钮前,与设置同级同层级;侧栏 #theme-section 整块移除(原 114-119);②03-shell.js:538-547 applyTheme 按钮更新从 textContent 改图标 hidden 切换+title/aria 保持,主题切换点击逻辑不变(558 行)。验证:T-1786853796 node --check+ui-runtime-smoke 全过(R-189 断言:theme-toggle 存在/不在 statusbar/位于 statusbar 前/点击切换 data-theme 与 localStorage kz-theme 双持久化/Monaco setTheme 联动均绿)。生效依赖:新版 kzapp 构建后运行(当前运行版不含此修复),构建发布走发版 SOP。
-- observed_head: 0d79d5b130531e4e938e959bf49020f5ac369ca8
-- observed_worktree_hash: fnv1a64:28d67e2167c4069d
-- recorded_at: 1786853843829
-
 ## D-409 记忆 inbox 消化死亡螺旋:251KB/201 条整箱塞进单轮,失败还静默 [open] (high)
 - refs: R-195 R-213 D-341 R-216
 - 影响: 记忆控制平面的写入侧实际断流:memory_note 一路写进 inbox 但没有条目被提炼晋升;R-195 今日以「candidate 晋升与清退闭环完成」归档,闭环的是 candidate 生命周期,inbox→entry 这一段并未打通,用户直观看到 201 条待确认。
@@ -205,16 +192,3 @@
 - 标签: 流程
 - 根因: 本轮 research 的文献检索通道是 arXiv API,拿到的只有 title+summary(摘要),全程未取正文。报告把这类来源一律标 V2「一手来源」,且未声明「仅摘要级」。抽查发现一处实质越界:report.md:31 称 CoALA(arXiv 2309.02427)确立「working/episodic/semantic/procedural」四类模块化记忆并标 V2/S-008,但实测该论文摘要里 working/episodic/semantic/procedural 四词一个都没有(只有 memory)——结论本身是对的(在正文里),但**引用的那份证据支撑不了它**。同一段落对 LangGraph(S-009,取的是正文 HTML)的三类映射则证据充分。
 - 优先级: P2
-
-## D-416 输入框仍不居中:textarea 是 inline-block,margin auto 不生效 [fixed] (medium)
-- refs: D-415 D-410
-- 影响: 用户连续两版实测反馈「还是错位呢?」。
-- 期望: 限宽规则里统一 display:block 让 auto 边距生效;#composer-bar 是 flex 行需例外保住 display:flex。
-- 来源: 2026-08-16 用户装 build-e01aa66 后实测截图,输入框中心比相邻两行左偏约 160px。
-- 标签: 前端
-- 根因: D-415 把限宽改成排除法覆盖全部流内子元素后,旁边两行(#change-bar/#composer-bar 都是 div=block 盒)正常居中,唯独 #prompt 仍贴左——因为 <textarea> 默认 display:inline-block,CSS 规范里 `margin: auto` 只对 block-level 盒计算为居中值,对 inline-block 一律计算成 0。宽度受 max-width 约束生效了,水平居中没生效,于是三行看着仍错位。
-- 优先级: P2
-- 进展: 2026-08-16 修复(提交见下)。crates/kanzei-app/ui/style.css:732 的限宽规则补 display:block——textarea 从 inline-block 变 block 后 margin auto 才计算为居中;同处补 `#composer > #composer-bar { display: flex }` 例外,保住它 flex 行布局不被压成 block。同批调整主对话空态(用户要求):.empty-state 加极淡径向光晕收拢视线、.logo-mark 改描边环+主题色字(不再是半透明色块)、提示文案拆主次两行(hint-lead/hint-keys),全部走主题 token 亮暗色均成立。验证:六条前端冒烟全绿。验收降级: 三行对齐与新空态观感由用户装新版后实测。
-- observed_head: 571b3f25b35fafdfd0fd02398fc8f82cc21d0fee
-- observed_worktree_hash: fnv1a64:b1c764c94b75c0df
-- recorded_at: 1786866965567

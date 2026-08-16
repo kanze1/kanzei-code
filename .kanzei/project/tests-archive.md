@@ -4483,3 +4483,102 @@
 - 摘要: D-388:①approval 手机通知——build_ask_handler 建立 ask 时调 notify_mobile(permission→"kanzei 需要批准: action resource",question→"kanzei 询问: question",尽力而为不阻塞,R-270 验收⑥);②SSE 长连接不无视停服/撤销——handle_sse 加 active(停服即断开,不留泄漏线程)+devices 参数(每轮检查 device_id 在表,被撤销即断开不再收事件)。kanzei-app 182 passed,clippy/fmt 通过
 - 关联: D-388 R-270
 - 收尾: 1786848710
+
+## T-1786852191 R-275 批1:cargo test -p kanzei-tools(内置色板/查询接口/plot 对接) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 33.6s
+- 摘要: R-275 批1 全绿:322 passed 0 failed 1 ignored(doc 注释修复后重跑;含 palette 模块 8 测试与 plot_tool 3 新测试)
+- 关联: R-275
+- 收尾: 1786852666
+- 源码指纹: a1495627c3f82794
+
+## T-1786853183 R-275 批2:cargo test -p kanzei-tools(推荐规则/校验链) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 34.6s
+- 摘要: R-275 批2 全绿:326 passed 0 failed 1 ignored(推荐规则四类映射+jet 硬禁忌拒绝+红绿板低分点名冲突对+校验链数值环节)
+- 关联: R-275
+- 收尾: 1786853183
+
+## T-1786853291 D-404 B1 cargo test -p kanzei-app prefs [passed]
+- 命令: cargo test -p kanzei-app prefs
+- 时长: 17.0s
+- 摘要: D-404 B1 Rust 侧:prefs.rs AppPrefs 扩展(theme/work_priority/auto_max/continue_prompt/process_auto_state)+ui_prefs_get/set 命令,3 单测(往返/旧格式兼容/None 不变更)全绿。
+- 关联: D-404
+- 收尾: 1786853291
+- 源码指纹: d001e2c3f0ca4754
+
+## T-1786853480 D-404 B2 node --check + ui-runtime-smoke [passed]
+- 命令: node --check crates/kanzei-app/ui/{01-core,03-shell,08-compose}.js scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 时长: 22.0s
+- 摘要: D-404 B2 前端:node --check 四文件语法过;ui-runtime-smoke 21 个 ui/*.js 按序执行+2083 invoke+9 视图切换 0 运行时错误(ui_prefs_get 桩空默认=回退 localStorage)。
+- 关联: D-404
+- 收尾: 1786853480
+
+## T-1786853691 D-404 关闭前 cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 时长: 90.0s
+- 摘要: D-404 关闭前全量:cargo test --workspace 全绿(含 kanzei-app 185、prefs 3 单测;跨树隔离回滚了 p13 worktree 的构建产物,不影响结果)。
+- 关联: D-404
+- 收尾: 1786853691
+
+## T-1786853796 D-405 node --check + ui-runtime-smoke [passed]
+- 命令: node --check crates/kanzei-app/ui/03-shell.js; node scripts/ui-runtime-smoke.mjs
+- 时长: 20.0s
+- 摘要: D-405 主题位置:node --check + ui-runtime-smoke 全过(R-189 主题断言:theme-toggle 存在、不在 statusbar、位置在 statusbar 前、切换持久化、Monaco 联动均绿)。
+- 关联: D-405
+- 收尾: 1786853796
+
+## T-1786854057 R-275 批3:cargo test -p kanzei-tools(用户导入三格式/注册表) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 34.9s
+- 摘要: R-275 批3 全绿:331 passed 0 failed 1 ignored(hex/gpl/ase 三格式导入+非法诊断+导入即评分+用户板同类型优先+serial_test 串行隔离)
+- 关联: R-275
+- 收尾: 1786854057
+
+## T-1786854124 R-275 关闭前全量:cargo test --workspace [passed]
+- 摘要: R-275 关闭前全量全绿:base 37 + harness 31 + memory 182 + tools 332 + core 209 + llm 148 + kz 46 + app 139,0 failed(含 palette_import 联通渲染实测)
+- 收尾: 1786854281
+
+## T-1786854416 R-275 B3 补充:cargo test -p kanzei-tools(验收⑥联通) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 33.7s
+- 摘要: R-275 验收⑥联通测试最终背书:332 passed 0 failed 1 ignored(含 palette_import联通注入渲染实测)
+- 关联: R-275
+- 收尾: 1786854416
+- 源码指纹: 4f0ab9234af1c7ad
+
+## T-1786854866 设置图标改齿轮 node --check + ui-runtime-smoke [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs
+- 时长: 18.0s
+- 摘要: 设置图标改为标准齿轮造型(Feather gear,区别于主题太阳/月亮),ui-runtime-smoke 21 JS/2083 invoke/9 视图 0 错误。
+- 关联: D-405
+- 收尾: 1786854866
+
+## T-1786854906 设置图标改齿轮 cargo test -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.0s
+- 摘要: 设置图标改齿轮后 kanzei-app 185 passed(HTML 改动属该 crate)。
+- 关联: D-405
+- 收尾: 1786854906
+
+## T-1786855234 ui-lint-globals 同步后 ui-lint-smoke [passed]
+- 命令: node scripts/ui-lint-smoke.mjs
+- 时长: 6.0s
+- 摘要: ui-lint 冒烟绿:40 文件 no-undef 零错误,globals 清单与源码同步 614 标识符(含 uiPrefs*),verify ui_lint 步修复验证。
+- 关联: D-404
+- 收尾: 1786855234
+- 源码指纹: f06fe94beffb933a
+
+## T-1786856090 D-389/D-390:cargo test -p kanzei-app mobile(真链路端到端) [passed]
+- 命令: cargo test -p kanzei-app mobile
+- 时长: 0.1s
+- 摘要: D-390 修复+真链路验收:14 passed 0 failed——真实桥接端口端到端(PWA 首页经桥接加载不鉴权/静态 JS/路径穿越404/无token 401/错误配对码401/配对换token/带token 200/撤销即401),全走生产代码路径真实端口,非替身
+- 关联: D-389 D-390
+- 收尾: 1786856090
+
+## T-1786856355 D-391:cargo test -p kanzei-tools latex(多页 PDF 转 PNG) [passed]
+- 命令: cargo test -p kanzei-tools latex
+- 时长: 2.0s
+- 摘要: D-391 修复:10 latex 测试全绿——多页(10 页)PDF 首页转 PNG 成功无残留(页号零填充修复)、转换失败路径也清理临时 PNG、stem 口径统一(含点文件名不截断)
+- 关联: D-391
+- 收尾: 1786856355
