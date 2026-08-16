@@ -79,6 +79,11 @@ pub enum AutoStopReason {
     /// R-199:当前模式不允许自主推进(如 research/结对模式),引擎判定停止——
     /// 档位作为输入进 AutoRunCtx,前端不再持有引擎不知道的否决权。
     ProfileMismatch,
+    /// D-403:连续 N 轮瞬态失败(退避重试仍失败),停止并通知——
+    /// provider 可能长时间不可用,继续空转只会烧钱。
+    RepeatedFailure(u32),
+    /// D-403:本轮以致命错误失败(认证/配置类),重试只会原样复现,立即停。
+    FatalError,
 }
 
 /// 轮末判定结果。
@@ -96,6 +101,9 @@ pub enum AutoRunAction {
     Stop(AutoStopReason),
     /// 用户拒绝/手动停止本轮:不续跑、不重置计数(等手动输入重新武装)。
     NoContinue,
+    /// D-403:本轮瞬态失败,退避后重试(attempt = 当前连续失败次数,计数已 +1;
+    /// 退避时长由调用方按 attempt 换算,引擎不持时钟)。
+    RetryAfterFailure { attempt: u32 },
 }
 
 /// 取活顺序(与 `work_priority_guidance` 同源)。
@@ -169,7 +177,13 @@ pub struct AutoRunState {
     /// R-144:自上次核查以来累计关闭的条目数。达阈值(verify_every_n)即触发
     /// 一轮只读验收核查,触发后归零。
     pub closed_since_verify: u32,
+    /// D-403:连续瞬态失败的轮数。成功轮归零;达 MAX_FAILED_ROUNDS 即停。
+    failed_rounds: u32,
 }
+
+/// D-403:连续瞬态失败多少轮后停止(过夜场景:单发 503 退避重试可自愈,
+/// provider 长时间不可用则不再空转烧钱,停止并通知)。
+pub const MAX_FAILED_ROUNDS: u32 = 3;
 
 impl AutoRunState {
     pub fn new(max_rounds: u32) -> Self {
@@ -180,6 +194,7 @@ impl AutoRunState {
             stop_after_round: false,
             no_action_rounds: 0,
             closed_since_verify: 0,
+            failed_rounds: 0,
         }
     }
 
@@ -188,6 +203,7 @@ impl AutoRunState {
         self.rounds = 0;
         self.no_action_rounds = 0;
         self.closed_since_verify = 0;
+        self.failed_rounds = 0;
     }
 
     /// 轮末判定。判定顺序与前端 07-events.js:288-352 完全一致:
@@ -220,6 +236,26 @@ impl AutoRunState {
         if self.rounds >= self.max_rounds {
             return self.stop_with(AutoStopReason::MaxRounds(self.max_rounds));
         }
+        // D-403:失败轮不算「无动作」——模型没机会动作,不该吃 Nudge/NoAction 刹车。
+        // 瞬态失败退避重试,连续 MAX_FAILED_ROUNDS 轮才停;致命失败立即停不空转。
+        if let Some(failure) = ctx.round_failure {
+            self.no_action_rounds = 0;
+            return match failure {
+                RoundFailure::Fatal => self.stop_with(AutoStopReason::FatalError),
+                RoundFailure::Transient => {
+                    self.failed_rounds += 1;
+                    if self.failed_rounds >= MAX_FAILED_ROUNDS {
+                        self.stop_with(AutoStopReason::RepeatedFailure(self.failed_rounds))
+                    } else {
+                        self.rounds += 1;
+                        AutoRunAction::RetryAfterFailure {
+                            attempt: self.failed_rounds,
+                        }
+                    }
+                }
+            };
+        }
+        self.failed_rounds = 0;
         let no_action = ctx.steps <= 1 || !has_progress_tools(ctx.tools);
         if no_action && self.rounds > 0 {
             if self.no_action_rounds == 0 {
@@ -245,6 +281,7 @@ impl AutoRunState {
     fn stop_with(&mut self, reason: AutoStopReason) -> AutoRunAction {
         self.rounds = 0;
         self.no_action_rounds = 0;
+        self.failed_rounds = 0;
         AutoRunAction::Stop(reason)
     }
 }
@@ -272,6 +309,18 @@ pub struct AutoRunCtx<'a> {
     pub closed_this_round: u32,
     /// R-144:验收核查阈值——每关闭 N 条插入一轮只读核查;0 = 关闭该机制。
     pub verify_every_n: u32,
+    /// D-403:本轮运行失败及其性质;None = 本轮正常完成。失败轮由调用方分类后
+    /// 送进判定(瞬态=退避重试,致命=立即停),不再在轮末判定之前提前返回。
+    pub round_failure: Option<RoundFailure>,
+}
+
+/// D-403:失败轮的性质分类(由调用方按 LlmError 变体判定)。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoundFailure {
+    /// 瞬态(限流/过载/5xx/传输中断):退避后值得重试。
+    Transient,
+    /// 致命(认证/配置/协议/上下文压缩已尽仍溢出):重试只会原样复现,立即停。
+    Fatal,
 }
 
 #[cfg(test)]
@@ -291,7 +340,56 @@ mod tests {
             auto_allowed: true,
             closed_this_round: 0,
             verify_every_n: 0,
+            round_failure: None,
         }
+    }
+
+    /// D-403:瞬态失败退避重试,连续 MAX_FAILED_ROUNDS 轮才停;成功轮清零;
+    /// 致命失败立即停;失败轮不吃 NoAction 刹车(steps=1 也不判空转)。
+    #[test]
+    fn 失败轮_瞬态退避重试_连续三轮停_致命立即停_成功清零() {
+        let tools = mk_tools(&["edit"]);
+        let mut state = AutoRunState::new(10);
+        let mut fail = ctx_with_tools(&tools);
+        fail.round_failure = Some(RoundFailure::Transient);
+        assert_eq!(
+            state.decide(&fail),
+            AutoRunAction::RetryAfterFailure { attempt: 1 }
+        );
+        assert_eq!(
+            state.decide(&fail),
+            AutoRunAction::RetryAfterFailure { attempt: 2 }
+        );
+        // 中间一轮成功:连续失败清零,下次失败从 attempt=1 重新起算。
+        let mut ok = ctx_with_tools(&tools);
+        ok.steps = 2;
+        assert_eq!(state.decide(&ok), AutoRunAction::Continue);
+        assert_eq!(
+            state.decide(&fail),
+            AutoRunAction::RetryAfterFailure { attempt: 1 },
+            "成功轮必须清零连续失败计数"
+        );
+        assert_eq!(
+            state.decide(&fail),
+            AutoRunAction::RetryAfterFailure { attempt: 2 }
+        );
+        // 连续第 MAX_FAILED_ROUNDS 轮:停止并携带次数,计数重置。
+        assert_eq!(
+            state.decide(&fail),
+            AutoRunAction::Stop(AutoStopReason::RepeatedFailure(MAX_FAILED_ROUNDS))
+        );
+        assert_eq!(
+            state.decide(&fail),
+            AutoRunAction::RetryAfterFailure { attempt: 1 },
+            "停止已重置计数,新失败重新起算"
+        );
+        // 致命失败:立即停,不退避不占次数。
+        let mut fatal = ctx_with_tools(&tools);
+        fatal.round_failure = Some(RoundFailure::Fatal);
+        assert_eq!(
+            state.decide(&fatal),
+            AutoRunAction::Stop(AutoStopReason::FatalError)
+        );
     }
 
     /// D-361:委派轮不是空转轮。子代理内部用过的工具由调用方上卷进画像后,
@@ -468,6 +566,7 @@ mod tests {
             tools: &mk_tools(&["req", "edit"]),
             closed_this_round: 1,
             verify_every_n: 3,
+            round_failure: None,
             ..ctx_with_tools(&[])
         };
         assert_eq!(state.decide(&ok), AutoRunAction::Continue);
@@ -477,6 +576,7 @@ mod tests {
             tools: &mk_tools(&["req", "edit"]),
             closed_this_round: 2,
             verify_every_n: 3,
+            round_failure: None,
             ..ctx_with_tools(&[])
         };
         assert_eq!(
@@ -494,6 +594,7 @@ mod tests {
             tools: &mk_tools(&["req", "edit"]),
             closed_this_round: 99,
             verify_every_n: 0,
+            round_failure: None,
             ..ctx_with_tools(&[])
         };
         assert_eq!(off.decide(&close_many), AutoRunAction::Continue);
@@ -506,6 +607,7 @@ mod tests {
             tools: &mk_tools(&["req", "edit"]),
             closed_this_round: 5,
             verify_every_n: 3,
+            round_failure: None,
             ..ctx_with_tools(&[])
         };
         assert_eq!(burst.decide(&burst_ctx), AutoRunAction::VerifyRound);
@@ -605,6 +707,7 @@ mod tests {
             auto_allowed: true,
             closed_this_round: 0,
             verify_every_n: 0,
+            round_failure: None,
         };
         assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
     }

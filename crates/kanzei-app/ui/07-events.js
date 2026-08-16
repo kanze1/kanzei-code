@@ -331,6 +331,37 @@ on("kz:idle", (e) => {
   renderProcesses(processItems);
 });
 
+// D-403:失败轮的自动续跑判定(后端在 run 失败且自动链已武装时发 kz:auto-fail,
+// 携带与 kz:done 同构的 autoAction)。瞬态失败 → 按 delayMs 退避重试;
+// RepeatedFailure/FatalError → 停止并展示原因(停摆通知已由后端经推送桥发手机)。
+on("kz:auto-fail", (e) => {
+  const p = e.payload;
+  const action = p.autoAction || { type: "NoContinue" };
+  if (action.type === "RetryAfterFailure") {
+    autoRounds = action.rounds ?? autoRounds;
+    const secs = Math.round((action.delayMs ?? 15000) / 1000);
+    const label = `${t("失败重试")} ${action.attempt}/${action.maxAttempts ?? 3} · ${secs}s`;
+    addMessage("notice", `${t("本轮运行失败(瞬态错误),将自动退避重试")} · ${label}`);
+    log(`${t("鞭挞")}:${label}`);
+    renderAutoStatus(label);
+    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: autoRounds });
+    if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(label);
+    armAutoContinue(continuePrompt(), p.sessionId, 0, action.delayMs ?? 15000);
+  } else if (action.type === "Stop") {
+    if (p.sessionId) transitionSession(p.sessionId, "idle");
+    if (!p.sessionId || p.sessionId === activeSessionId) clearRunPending();
+    autoRounds = 0;
+    cancelAutoContinueTimer(p.sessionId || activeSessionId);
+    const reasonText =
+      action.reason === "RepeatedFailure"
+        ? t("连续多轮运行失败,自动推进已停止(已发手机通知)")
+        : t("运行失败:致命错误,自动推进已停止");
+    addMessage("notice", `${t("鞭挞停止")}:${reasonText}`);
+    log(`${t("鞭挞停止")}:${reasonText}`);
+    setAutoStopReason(reasonText);
+  }
+});
+
 on("kz:done", async (e) => {
   const p = e.payload;
   // R-267:轮末不再需要「原子回灌」。那套是为了修补「切走期间缺一段」——而缺口

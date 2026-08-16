@@ -177,7 +177,7 @@ function abortAutoContinue(reason, sessionId = activeSessionId) {
 // 续跑定时器:闸门在**触发时刻**复查(2 秒内用户可能暂停/切模式/新一轮已开跑)。
 // generation 不符属于「被更新的一枪取代」,静默是对的——但那条路径的 pending
 // 由取消方自己收口,不在这里处理。
-function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0) {
+function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0, delayMs = 2000) {
   if (!sessionId) return;
   // R-199:档位条件下沉引擎——armAutoContinue 不再检查 autoContinueAllowed(),
   // 引擎在 decide() 已判 Stop(ProfileMismatch) 且计数不 +1;前端不再持有
@@ -215,7 +215,7 @@ function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0) {
     transitionSession(sessionId, "starting", { local_start_pending: true });
     if (sessionId === activeSessionId) clearRunPending();
     await sendAutoToSession(prompt, sessionId);
-  }, 2000);
+  }, delayMs);
   autoContinueTimers.set(sessionId, { timer, generation });
 }
 function scheduleAutoContinue() {

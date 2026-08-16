@@ -610,6 +610,33 @@ async fn stream_request_step(
                 }
                 return Err(error.into());
             }
+            // D-402:SSE 流内的限流/过载(server_is_overloaded 一族)——本步尚无
+            // 任何产出(无文本/推理增量、无工具调用)时重放是安全的,与「流一旦
+            // 建立不重放」的副作用纪律不冲突:没有副作用可重复。有产出则照旧
+            // 抛给上层,绝不冒重复副作用的险。
+            Some(error)
+                if error.is_rate_limited()
+                    && parts.is_empty()
+                    && calls.is_empty()
+                    && text_buffers.is_empty()
+                    && reasoning_buffers.is_empty()
+                    && stream_restarts < config.limits.stream_restarts() =>
+            {
+                stream_restarts += 1;
+                let delay = std::time::Duration::from_millis(2000 * stream_restarts as u64);
+                tracing::warn!(
+                    attempt = stream_restarts,
+                    delay_ms = delay.as_millis(),
+                    error = %error,
+                    "provider overloaded mid-stream with empty step, re-requesting"
+                );
+                on_event(RunEvent::StreamRestart {
+                    attempt: stream_restarts,
+                    max: config.limits.stream_restarts(),
+                    delay_ms: delay.as_millis(),
+                });
+                tokio::time::sleep(delay).await;
+            }
             // 只重放传输层中断:协议错误重放只会原样复现,白烧钱。
             Some(error)
                 if matches!(error, kanzei_llm::LlmError::Transport(_))

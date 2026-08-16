@@ -143,6 +143,14 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
             "prompt": kanzei_harness::auto_run::verify_prompt(),
         }),
         AutoRunAction::NoContinue => json!({ "type": "NoContinue" }),
+        // D-403:瞬态失败退避重试——退避时长在此换算(attempt1=15s,attempt2=30s,
+        // 封顶 60s),引擎不持时钟;前端只按 delayMs 定时,不再造第二套退避表。
+        AutoRunAction::RetryAfterFailure { attempt } => json!({
+            "type": "RetryAfterFailure",
+            "attempt": attempt,
+            "maxAttempts": kanzei_harness::auto_run::MAX_FAILED_ROUNDS,
+            "delayMs": (15000u64 << attempt.saturating_sub(1).min(2)).min(60000),
+        }),
         AutoRunAction::Stop(reason) => {
             let (reason_str, max) = match reason {
                 AutoStopReason::AllBlocked => ("AllBlocked", None),
@@ -152,6 +160,9 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
                 AutoStopReason::MaxRounds(max) => ("MaxRounds", Some(max)),
                 AutoStopReason::NoAction => ("NoAction", None),
                 AutoStopReason::ProfileMismatch => ("ProfileMismatch", None),
+                // D-403:连续瞬态失败停摆(max 槽复用为失败次数)/致命错误立即停。
+                AutoStopReason::RepeatedFailure(n) => ("RepeatedFailure", Some(n)),
+                AutoStopReason::FatalError => ("FatalError", None),
             };
             let mut v = json!({ "type": "Stop", "reason": reason_str });
             if let Some(max) = max {
@@ -159,6 +170,21 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
             }
             v
         }
+    }
+}
+
+/// D-403:失败轮的瞬态/致命分类——按 anyhow 链里的 LlmError 变体判定。
+/// 瞬态 = 限流/过载(RateLimited)、传输中断(Transport)、服务端 5xx;
+/// 致命 = 认证/参数 4xx、配置/协议错、上下文溢出(压缩轨道已尽力,重试同样溢出)、
+/// 以及非 LlmError 的失败(内部错误,重试只会原样复现)。
+pub fn is_transient_run_error(error: &anyhow::Error) -> bool {
+    let Some(llm) = error.downcast_ref::<kanzei_llm::LlmError>() else {
+        return false;
+    };
+    match llm {
+        kanzei_llm::LlmError::RateLimited { .. } | kanzei_llm::LlmError::Transport(_) => true,
+        kanzei_llm::LlmError::Http { status, .. } => matches!(status, 500 | 502 | 503 | 504 | 529),
+        _ => false,
     }
 }
 

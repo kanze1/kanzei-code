@@ -13,6 +13,14 @@ use crate::sse::SseParser;
 pub const MAX_TRANSPORT_RETRIES: u32 = 2;
 pub const MAX_RATE_LIMIT_RETRIES: u32 = 2;
 
+/// D-402:流建立前可原地退避重试的状态码——限流(429/529)与服务端瞬态错误
+/// (500/502/503/504)。夜间 provider 过载窗口的 503「一发即致命」是过夜自动
+/// 运行停摆的主因(state.db 取证 39 次);有界重试(MAX_RATE_LIMIT_RETRIES)
+/// 并尊重 Retry-After。非瞬态 4xx(认证/参数错)重试只会原样复现,不在此列。
+fn pre_stream_retryable_status(status: u16) -> bool {
+    matches!(status, 429 | 529 | 500 | 502 | 503 | 504)
+}
+
 fn transport_retry_delay(attempt: u32) -> std::time::Duration {
     std::time::Duration::from_millis(500 * attempt as u64)
 }
@@ -189,7 +197,7 @@ impl LlmClient {
                 .ok_or_else(|| LlmError::Config("request not clonable for retry".into()))?;
             match rb.send().await {
                 Ok(response)
-                    if matches!(response.status().as_u16(), 429 | 529)
+                    if pre_stream_retryable_status(response.status().as_u16())
                         && rate_limit_attempt < MAX_RATE_LIMIT_RETRIES =>
                 {
                     rate_limit_attempt += 1;
@@ -203,7 +211,7 @@ impl LlmClient {
                         attempt = rate_limit_attempt,
                         delay_ms = delay.as_millis(),
                         status = response.status().as_u16(),
-                        "provider rate limited before stream, retrying"
+                        "provider rate limited or server error before stream, retrying"
                     );
                     let _ = response.bytes().await;
                     tokio::time::sleep(delay).await;
@@ -256,14 +264,25 @@ impl LlmClient {
 #[cfg(test)]
 mod tests {
     use super::{
-        rate_limit_retry_delay, transport_retry_delay, LlmClient, Route, MAX_RATE_LIMIT_RETRIES,
-        MAX_TRANSPORT_RETRIES,
+        pre_stream_retryable_status, rate_limit_retry_delay, transport_retry_delay, LlmClient,
+        Route, MAX_RATE_LIMIT_RETRIES, MAX_TRANSPORT_RETRIES,
     };
     use crate::proxy::ProxyConfig;
     use crate::request::{LlmRequest, Message, ReasoningEffort};
     use futures::StreamExt;
     use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// D-402:5xx 服务端瞬态错误进入流建立前重试轨道;非瞬态 4xx 不重试。
+    #[test]
+    fn pre_stream_retry_covers_server_errors_not_client_errors() {
+        for status in [429u16, 529, 500, 502, 503, 504] {
+            assert!(pre_stream_retryable_status(status), "{status} 应重试");
+        }
+        for status in [400u16, 401, 403, 404, 413, 422] {
+            assert!(!pre_stream_retryable_status(status), "{status} 不应重试");
+        }
+    }
 
     #[test]
     fn transport_retry_is_bounded_and_uses_backoff() {

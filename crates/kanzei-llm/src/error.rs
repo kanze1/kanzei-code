@@ -103,10 +103,15 @@ impl LlmError {
 }
 
 fn is_rate_limit_kind(kind: &str) -> bool {
-    matches!(
-        kind.to_ascii_lowercase().as_str(),
-        "rate_limit_error" | "rate_limit" | "too_many_requests" | "overloaded_error" | "overloaded"
-    )
+    let lower = kind.to_ascii_lowercase();
+    // D-402:overload 族按子串匹配——DeepSeek 报 `server_is_overloaded`,与
+    // Anthropic 的 `overloaded_error` 拼法不同;精确枚举漏掉它,过载被判成
+    // 致命错误终止整轮(state.db 取证 14+ 次,过夜停摆成因之一)。
+    lower.contains("overload")
+        || matches!(
+            lower.as_str(),
+            "rate_limit_error" | "rate_limit" | "too_many_requests"
+        )
 }
 
 fn is_overflow_message(message: &str) -> bool {
@@ -199,6 +204,18 @@ mod tests {
                 retry_after: Some(7)
             } if body == "slow down"
         ));
+    }
+
+    /// D-402:DeepSeek 的 `server_is_overloaded` 必须归限流族(可重试),
+    /// 不得因拼法与 overloaded_error 不同而被判致命。
+    #[test]
+    fn server_is_overloaded_classifies_as_rate_limited() {
+        let error = LlmError::classify_provider(
+            "server_is_overloaded".into(),
+            "Our servers are currently overloaded. Please try again later.".into(),
+        );
+        assert!(error.is_rate_limited());
+        assert!(!error.is_context_overflow());
     }
 
     #[test]

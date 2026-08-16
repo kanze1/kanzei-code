@@ -207,7 +207,69 @@ pub(crate) async fn run_task(
         run_epoch_ms,
         &live,
     );
-    let summary = run_result?;
+    let summary = match run_result {
+        Ok(summary) => summary,
+        Err(error) => {
+            // D-403:失败轮不再在轮末判定之前提前返回。自动链已武装(rounds>0)
+            // 时,把失败按瞬态/致命分类送进同一个 auto_run 状态机:瞬态退避重试
+            // (连续 MAX_FAILED_ROUNDS 轮才停),致命立即停;停摆经通知桥发手机。
+            // 手动单轮(rounds==0)保持原行为——用户在场,错误直接返回。
+            let transient = crate::auto_run::is_transient_run_error(&error);
+            let auto_payload = {
+                let mut controllers = handles.auto_runs.lock().unwrap();
+                let ctrl = controllers.entry(session_id.clone()).or_default();
+                if ctrl.state.rounds == 0 {
+                    None
+                } else {
+                    let ctx = kanzei_harness::auto_run::AutoRunCtx {
+                        backlog: crate::auto_run::backlog_status(&deps.project_root),
+                        halted: false,
+                        steps: 0,
+                        tools: &[],
+                        auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev)
+                            && deps.agent.name == "dev",
+                        closed_this_round: 0,
+                        verify_every_n: 0,
+                        round_failure: Some(if transient {
+                            kanzei_harness::auto_run::RoundFailure::Transient
+                        } else {
+                            kanzei_harness::auto_run::RoundFailure::Fatal
+                        }),
+                    };
+                    let action = crate::auto_run::decide_auto_run(ctrl, ctx);
+                    if let kanzei_harness::auto_run::AutoRunAction::Stop(
+                        kanzei_harness::auto_run::AutoStopReason::RepeatedFailure(n),
+                    ) = action
+                    {
+                        // 过夜停摆必须让人知道:经 LAN 推送桥发手机通知(尽力而为)。
+                        if let Ok(message) = crate::mobile_notify::notify_mobile(
+                            "kanzei 自动运行停摆",
+                            &format!("连续 {n} 轮运行失败,自动推进已停止。最后错误: {error}"),
+                        ) {
+                            tracing::debug!("{message}");
+                        }
+                    }
+                    let mut payload = crate::auto_run::serialize_action(
+                        action,
+                        crate::auto_run::work_priority_enum(deps.work_priority),
+                    );
+                    payload["rounds"] = json!(ctrl.state.rounds);
+                    payload["max"] = json!(ctrl.state.max_rounds);
+                    Some(payload)
+                }
+            };
+            if let Some(auto) = auto_payload {
+                let _ = window.emit(
+                    "kz:auto-fail",
+                    with_session_id(
+                        json!({ "autoAction": auto, "error": error.to_string() }),
+                        &session_id,
+                    ),
+                );
+            }
+            return Err(error);
+        }
+    };
 
     let history_len = summary.messages.len();
     // R-076:本轮工具画像随 kz:done 带给前端,鞭挞据此判定「实质进展」——
@@ -246,6 +308,8 @@ pub(crate) async fn run_task(
             verify_every_n: kanzei_harness::KanzeiConfig::load_at_root(&deps.project_root)
                 .map(|c| c.cadence.verify_every_n)
                 .unwrap_or(0),
+            // D-403:本轮正常完成——失败轮走上面的失败分支,不经过这里。
+            round_failure: None,
         };
         let action = crate::auto_run::decide_auto_run(ctrl, ctx);
         let mut payload = crate::auto_run::serialize_action(

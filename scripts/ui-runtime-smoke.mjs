@@ -4342,6 +4342,17 @@ sandbox.__kzTest.setRounds(1);
 handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 2, max: 10 }, sessionId: "sess-smoke" } });
 await flush();
 assert(byId.get("auto-continue").checked, "Continue 不得误刹车");
+// ⑤b D-403 失败轮执行层(kz:auto-fail):判定在 harness auto_run 单测覆盖,
+// 这里验证前端执行——RetryAfterFailure→失败重试提示+按 delayMs 武装续跑;
+// Stop(RepeatedFailure)→计数清零+停摆原因可见(先重试后停,收尾清掉挂着的定时器)。
+handlers.get("kz:auto-fail")?.({ payload: { error: "provider returned HTTP 503: upstream reset", autoAction: { type: "RetryAfterFailure", attempt: 1, maxAttempts: 3, delayMs: 15000, rounds: 3, max: 10 }, sessionId: "sess-smoke" } });
+await flush();
+assert(byId.get("auto-status").textContent.includes("失败重试"), `#auto-status 未提示失败重试: ${byId.get("auto-status")?.textContent}`);
+assert(byId.get("auto-status").textContent.includes("1/3"), `失败重试应显示 attempt/maxAttempts: ${byId.get("auto-status")?.textContent}`);
+handlers.get("kz:auto-fail")?.({ payload: { error: "provider returned HTTP 503", autoAction: { type: "Stop", reason: "RepeatedFailure", max: 3 }, sessionId: "sess-smoke" } });
+await flush();
+assert(sandbox.__kzTest.rounds() === 0, "连续失败停摆后推进计数应清零");
+assert(sandbox.__kzTest.stopReason().includes("连续多轮运行失败"), `停摆原因不对: ${sandbox.__kzTest.stopReason()}`);
 // ⑥ Stop(BacklogEmpty):清空,停并取消开关。
 byId.get("auto-continue").checked = true;
 sandbox.__kzTest.setRounds(2);
