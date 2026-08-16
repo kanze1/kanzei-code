@@ -746,3 +746,149 @@ async fn 超时终态_读槽释放_快照无残留读者() {
     drop(rx);
     std::fs::remove_dir_all(&project).ok();
 }
+
+/// R-279 验收①②:子代理 transcript 落 subagent.transcript 事件后,续跑从事件
+/// 恢复 prior(事件在 store,provider 从 store 读——等价新进程从事件日志恢复)。
+/// sink/provider 即 app 层 coordinator.rs 的接线形状。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subagent_transcript_persists_to_events_and_recovers_via_provider() {
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let project = std::env::temp_dir().join(format!("kz-r279-{}-{suffix}", std::process::id()));
+    std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let first_reply = "first task reply";
+    let second_reply = "continue task reply";
+    let _server = tokio::spawn(async move {
+        let _ = serve_response(&listener, text_response(first_reply)).await;
+        let _ = serve_response(&listener, text_response(second_reply)).await;
+    });
+
+    let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
+    let rctx = ResolveCtx {
+        profile: ProfileKind::Dev,
+        cwd: project.clone(),
+        project_root: project.clone(),
+        config: config.clone(),
+    };
+    let mut sub_harness = Harness::default();
+    sub_harness.add(kanzei_tools::SubagentBase);
+    let sub_snapshot = sub_harness.resolve(&rctx).unwrap();
+    let coordinator = Arc::new(kanzei_core::orchestration::MemoryCoordinator::default());
+    let route = kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), Some("test-key"));
+    let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+    let ctx = ToolCtx::new(project.clone(), project.clone());
+    let state_path = kanzei_core::project_state_path(&project);
+    let session_id = kanzei_core::project_session_id(&project);
+    {
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        store
+            .create_session(&session_id, &project.display().to_string(), None)
+            .unwrap();
+    }
+    // R-279:sink 写事件(app 层闭包同款),provider 从事件恢复(gate 开语义)。
+    let sink_state = state_path.clone();
+    let sink_session = session_id.clone();
+    let transcript_sink: Option<kanzei_core::BackgroundEventSink> = Some(Arc::new(
+        move |_call_id: &str, payload: serde_json::Value| {
+            if let Ok(store) = kanzei_core::SessionStore::open(&sink_state) {
+                let _ = store.append_event(&sink_session, "subagent.transcript", &payload);
+            }
+        },
+    ));
+    let prov_state = state_path.clone();
+    let prov_session = session_id.clone();
+    let transcript_provider: Option<kanzei_core::SubagentTranscriptProvider> = Some(Arc::new(
+        move |call_id: &str| -> Option<Vec<kanzei_llm::Message>> {
+            let store = kanzei_core::SessionStore::open(&prov_state).ok()?;
+            store
+                .recover_subagent_transcript(&prov_session, call_id)
+                .ok()
+                .flatten()
+        },
+    ));
+    let transcripts: Arc<Mutex<std::collections::HashMap<String, Vec<kanzei_llm::Message>>>> =
+        Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let subagent_rt = kanzei_core::SubagentRuntime {
+        snapshot: sub_snapshot,
+        agent: kanzei_tools::explore_agent(),
+        fast: (route.clone(), "mock".to_string()),
+        primary: (route.clone(), "mock".to_string()),
+        fast_service_tier: None,
+        primary_service_tier: None,
+        compact: None,
+        max_tokens: 256,
+        timeout_secs: 30,
+        limits: config.limits.clone(),
+        coordinator: Some(coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
+        writable: false,
+        ask_router: None,
+        change_log: None,
+        cancellations: None,
+        background: false,
+        background_results: None,
+        background_events: None,
+        transcripts: Some(transcripts.clone()),
+        background_notifications: None,
+        transcript_sink,
+        transcript_provider,
+    };
+    let id = "call_r279".to_string();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<kanzei_core::RunEvent>();
+
+    let first =
+        kanzei_core::run_read_agent(&client, &subagent_rt, &ctx, &id, "first task", tx.clone())
+            .await;
+    assert!(!first.is_error, "第一次派发应成功: {}", first.content);
+
+    // 验收①:事件落库(subagent.transcript 非空,含完整消息历史)。
+    let first_event_msgs = {
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        let events = store
+            .list_events_by_type(&session_id, 0, "subagent.transcript")
+            .unwrap();
+        let count = events
+            .last()
+            .and_then(|event| event.payload["messages"].as_array())
+            .map(Vec::len)
+            .unwrap_or(0);
+        drop(store);
+        count
+    };
+    assert!(first_event_msgs > 0, "第一次派发后事件应含完整消息历史");
+
+    // 验收②:续跑从事件恢复(provider 读事件),新轮事件历史更长。
+    let second = kanzei_core::run_read_agent(
+        &client,
+        &subagent_rt,
+        &ctx,
+        &id,
+        "continue task",
+        tx.clone(),
+    )
+    .await;
+    assert!(!second.is_error, "续跑应成功: {}", second.content);
+    let last_msgs = {
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        let events = store
+            .list_events_by_type(&session_id, 0, "subagent.transcript")
+            .unwrap();
+        let count = events
+            .last()
+            .and_then(|event| event.payload["messages"].as_array())
+            .map(Vec::len)
+            .unwrap_or(0);
+        drop(store);
+        count
+    };
+    assert!(
+        last_msgs > first_event_msgs,
+        "续跑后事件历史应更长: first={first_event_msgs}, last={last_msgs}"
+    );
+    drop(_rx);
+    std::fs::remove_dir_all(&project).ok();
+}

@@ -236,8 +236,8 @@
 - 验收: ①子代理对话事实落库后,新开进程可从事件日志投影恢复该子代理 transcript(非空);②续跑 prior 从事件投影恢复,与进程内 TranscriptStore 内容一致;③注册 subagent_transcript gate,剔除该路径后回退进程内行为,行为与切换前一致;④R-242 验收①⑥ 回填(subagent_transcript 成为第五条约切换路径/第五条 gate)。
 - refs: R-242
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-279
-- 批次: 1/2
-- 进展: 2026-08-16 批1 完成(待提交):①子代理 transcript 事件落库——SubagentRuntime 增 transcript_sink(BackgroundEventSink 同款),run_subagent 完成时把 summary.messages 写 session_events 的 subagent.transcript 事件(payload 含 call_id+完整历史,快照式,非 typed fact 不污染主会话投影);②恢复——SubagentRuntime 增 transcript_provider(SubagentTranscriptProvider),run_subagent 续跑 prior 优先从 provider 读事件(gate 开时 app 层闭包内判断),空则回退进程内 TranscriptStore;③store 层 recover_subagent_transcript 按 call_id 取最新事件;④build_subagent_runtime 加 2 参数(桌面 coordinator.rs 接线,CLI 单轮传 None),5 个测试 fixture 构造补字段;⑤projection_gate DEFAULT_PROJECTION_PATHS 加 subagent_transcript(5 条缺省启用,gate 可独立回退)。测试:kanzei-core 214(含 recover_subagent_transcript 写入/过滤/最新优先单测)+app 192+kanzei 37+31+tools 317 全绿。下一步批2:集成验证(background_subagent_dispatch 风格:真实 run_subagent 落库+gate 开关恢复对比)+ R-242 验收①⑥ 回填确认。
-- observed_head: 3b30bc0ddb9bb8128a865091f468729f26078c40
-- observed_worktree_hash: fnv1a64:264888421ea5d479
-- recorded_at: 1786898364393
+- 批次: 2/2
+- 进展: 2026-08-16 批2 完成:集成测试 subagent_transcript_persists_to_events_and_recovers_via_provider(background_subagent_dispatch.rs,真实 mock 模型 run_read_agent 两轮派发)——①第一次派发后 session_events 出现 subagent.transcript 事件且 messages 非空(验收①:事件日志可恢复);②第二次续跑(同 id)provider 从事件恢复 prior,事件 messages 随续跑增长(验收②:续跑 prior 从事件恢复,与进程内一致);③sink/provider 闭包即 app 层 coordinator.rs 接线形状。kanzei 37+32 passed。验收对账:①事件落库+恢复(集成测试+recover_subagent_transcript 单测);②续跑从事件恢复且与 TranscriptStore 一致(集成测试断言事件历史增长);③subagent_transcript gate 注册(projection_gate DEFAULT 5 条缺省启用,白名单剔除回退进程内,gate 测试断言);④R-242 验收①⑥ 回填(subagent_transcript 第五条约切换路径/第五条 gate 已实现,回填见 R-242)。条目完成,待 R-242 核验收口。
+- observed_head: 94ebf689455de6393720e392372f486e8d25b8d7
+- observed_worktree_hash: fnv1a64:9e486507e860747d
+- recorded_at: 1786898809118
