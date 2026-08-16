@@ -505,8 +505,16 @@ pub fn worktree_harvest_candidates(
     let state_path = kanzei_core::project_state_path(&root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|error| error.to_string())?;
     let session_id = process_session_id(&root, Some(&process_id));
-    let messages = crate::conversation::recover_messages_raw(&store, &session_id, None)
-        .map_err(|error| error.to_string())?;
+    // R-242 批6:UI 历史恢复(收活候选对话)真源切到事件投影;gate 回退时走 legacy。
+    let messages = if crate::projection_gate::read_path_uses_projection("ui_history") {
+        let facts = store
+            .list_session_facts(&session_id)
+            .map_err(|error| error.to_string())?;
+        kanzei_core::project_session_facts(&facts).surface_messages
+    } else {
+        crate::conversation::recover_messages_raw(&store, &session_id, None)
+            .map_err(|error| error.to_string())?
+    };
     Ok(harvest_tracker_candidates_from_messages(&root, &messages))
 }
 

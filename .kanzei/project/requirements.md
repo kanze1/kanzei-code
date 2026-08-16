@@ -106,7 +106,7 @@
 - 依赖: R-241
 - 内容: 在 shadow gate 通过后，将 conversation_get/list、runner prior、子代理 transcript 和 UI 历史恢复逐项切到事件投影；进程内 Vec<Message> 仅作缓存。清空对话追加 conversation.reset 并开启新 segment，新 segment 的模型 prior 为空，旧 segment 仍可审计。验证期保留 legacy snapshot 只读对照，五条读路径全部稳定后停止新增 conversation.updated。
 - 复杂度: 大
-- 批次: 4/7
+- 批次: 6/7
 - 来源: 2026-08-14 DeepSeek Harness 升级方案；用户确认清空保留、删除确定性物理清除并弹窗提示风险。
 - 标签: 核心
 - 边界: 本需求只负责事件投影真源切换与 segment reset，不实现会话物理删除、Spill artifact 联动删除、WAL/VACUUM 或迁移备份安全整理；这些统一由 R-245 的删除计划与显式整理入口承担。第一批不改事件 format_version 与 SessionFact 公共词表；任一读路径可通过 feature gate 独立回退 legacy snapshot。
@@ -114,10 +114,10 @@
 - 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
-- 进展: 2026-08-16 批4 完成:compare_shadow 增 expected_mismatch/mismatch_class 字段+classify_mismatch 三分类(失败轮 failed_turn=diagnostics 非空/快照空 empty_legacy/快照滞后 stale_snapshot=legacy 是投影完整前缀,其余 !equal 一律 unknown),ShadowVerdictStats+summarize_shadow_reports 按「未知差异=0」统计,新增 `kz shadow [--mismatches]` 只读诊断命令(cli/shadow.rs,注册 cli/mod.rs),typed.rs 单测覆盖四场景+统计(kanzei-core 211 passed)。真实 state.db 全量取证(80 条 shadow_compared):64 equal + 16 条 equal=false,其中 8 条 first_mismatch=0 且 legacy=0(empty_legacy 新场景,含 108168/108498/109903 legacy=0 projected>0)、6 条快照滞后(stale_snapshot)、2 条失败轮(failed_turn)——全部可按新 classify 归入预期,未知差异=0。但发现 blocker:43 条 typed_write_errors 非空,全部为同一错误「turn run_1786814079237200400 already terminal」,已登记 D-417(append 用 writer 内存 invariant 不查库内既有 terminal,产生 terminal 后追加脏序列,每轮 prepare 必失败)。验收⑤ typed_write_errors=0 未达标,批5 先修 D-417。批次重估 3/4→4/7。
-- observed_head: a3444b13a947aff8ad8529c57b84ca3da73f3016
-- observed_worktree_hash: fnv1a64:1fe59e1e53281ce9
-- recorded_at: 1786893547555
+- 进展: 2026-08-16 批6 完成(五条读路径切换第 1 波,待提交):新增 projection_gate.rs 读路径 feature gate(KANZEI_PROJECTION_GATES 白名单,缺省启用 conversation_get/runner_prior/ui_history,显式设置即白名单、剔除即回退 legacy),三条路径切到事件投影:①conversation_get(sequence=None 时投影 surface,sequence=Some 历史快照读保持 legacy);②runner_prior(coordinator.rs:148 投影 surface,gate 回退走 recover_messages);③ui_history(workspace.rs:508 收活候选对话投影)。测试:projection_gate 2 单测(缺省/白名单/回退)+conversation_get_gate_controls_projection_vs_legacy(gate 开投影 3 条 vs 关 legacy 1 条),kanzei-app 188 passed。缺口(验收①⑥未全达标,保持 doing):conversation_list 投影段边界依赖 conversation.reset 事件(批7 segment reset 落地后切);subagent_transcript 无事件投影真源(子代理对话不落 typed facts,TranscriptStore 是进程内 HashMap,投影化需先建子代理事件投影,独立子工程)——两条 gate 未注册,进展如实记录。下一步批7:conversation.reset segment 语义(新段 prior 空、旧段可审计、重复 reset 幂等,验收④)+ conversation_list 投影切换 + 停止新增 conversation.updated(验收⑦)+ 强杀恢复测试(验收②)+ 真实库 30 turn 复核(验收⑤,修复后新增 turn typed_write_errors=0)+ 全量测试 + 关闭。
+- observed_head: d23a2405cc69f32c9079623f351277e871cf13ab
+- observed_worktree_hash: fnv1a64:a71f44e72dd34d7d
+- recorded_at: 1786894698876
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-242
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]

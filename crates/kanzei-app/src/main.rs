@@ -31,6 +31,7 @@ mod orchestration_trace;
 mod phase_pipeline;
 mod prefs;
 mod processes;
+mod projection_gate;
 mod projects;
 mod run;
 mod screenshot;

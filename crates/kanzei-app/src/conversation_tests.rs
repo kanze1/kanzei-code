@@ -108,3 +108,99 @@ fn recover_messages_filters_orphan_tool_calls_from_persisted_snapshot() {
     drop(store);
     std::fs::remove_dir_all(root).unwrap();
 }
+#[test]
+fn conversation_get_gate_controls_projection_vs_legacy() {
+    // R-242 批6:conversation_get 在 gate 开启(白名单含该路径)时从事件投影
+    // surface,关闭(白名单剔除)时回退 legacy 快照,行为与切换前一致(验收⑥)。
+    use kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore};
+    use kanzei_llm::{Message, Part};
+
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-app-gate-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let canonical = crate::normalized_project_root(&root);
+    let session_id = crate::process_session_id(&canonical, None);
+    let state_path = kanzei_core::project_state_path(&canonical);
+    {
+        let store = SessionStore::open(&state_path).unwrap();
+        store
+            .create_session(&session_id, &canonical.display().to_string(), None)
+            .unwrap();
+        // legacy 快照:旧历史(轮末 conversation.updated)。
+        store
+            .append_event(
+                &session_id,
+                "conversation.updated",
+                &serde_json::json!({ "messages": [Message::user_text("旧历史")] }),
+            )
+            .unwrap();
+        // typed facts:seed 旧快照 + 新轮消息。
+        kanzei_core::prepare_typed_session(&store, &session_id).unwrap();
+        let mut invariant = SessionInvariant::default();
+        let assistant = Message::assistant(vec![Part::Text {
+            text: "新回答".into(),
+        }]);
+        let facts = [
+            SessionFactEnvelope::new(
+                "run-gate-test",
+                None,
+                SessionFact::UserMessageCommitted {
+                    input_id: "i".into(),
+                    message: Message::user_text("新提问"),
+                },
+            ),
+            SessionFactEnvelope::new(
+                "run-gate-test",
+                Some(1),
+                SessionFact::TurnStarted { max_steps: 1 },
+            ),
+            SessionFactEnvelope::new(
+                "run-gate-test",
+                Some(1),
+                SessionFact::AssistantMessageCommitted {
+                    message_id: "m".into(),
+                    content_hash: kanzei_core::store::stable_message_hash(&assistant),
+                    message: assistant,
+                },
+            ),
+            SessionFactEnvelope::new("run-gate-test", None, SessionFact::TurnCompleted),
+        ];
+        store
+            .append_session_facts_checked(&session_id, &mut invariant, &facts)
+            .unwrap();
+    }
+
+    // gate 关:白名单不含 conversation_get → legacy 快照(仅旧历史)。
+    std::env::set_var("KANZEI_PROJECTION_GATES", "runner_prior");
+    let legacy =
+        crate::conversation::conversation_get(canonical.display().to_string(), None, None).unwrap();
+    assert_eq!(legacy.len(), 1, "legacy 快照只有旧历史");
+    assert_eq!(
+        legacy[0].parts[0],
+        Part::Text {
+            text: "旧历史".into()
+        }
+    );
+
+    // gate 开:白名单含 conversation_get → 事件投影(seed 旧历史 + 新轮消息)。
+    std::env::set_var("KANZEI_PROJECTION_GATES", "conversation_get");
+    let projected =
+        crate::conversation::conversation_get(canonical.display().to_string(), None, None).unwrap();
+    let texts: Vec<String> = projected
+        .iter()
+        .filter_map(|m| match &m.parts[0] {
+            Part::Text { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(texts, vec!["旧历史", "新提问", "新回答"]);
+    std::env::remove_var("KANZEI_PROJECTION_GATES");
+
+    std::fs::remove_dir_all(root).unwrap();
+}

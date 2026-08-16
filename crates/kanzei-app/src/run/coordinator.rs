@@ -145,7 +145,14 @@ pub(crate) async fn run_task(
     // 会话连续:同项目续上内存历史；应用重启后从事件日志恢复最近一次完整消息投影。
     // (同步完成——SessionStore 非 Sync,跨 await 持引用会破坏 future Send 约束,
     // 故 prior 在 run_task 恢复、run_execution_loop 只消费它,行为与内联时一致。)
-    let persisted = conversation::recover_messages(&store, &session_id)?;
+    // R-242 批6:runner prior 真源切到事件投影(surface);gate 回退时走 legacy
+    // recover_messages(legacy snapshot + filter_message_history)。
+    let persisted = if crate::projection_gate::read_path_uses_projection("runner_prior") {
+        let facts = store.list_session_facts(&session_id)?;
+        kanzei_core::project_session_facts(&facts).surface_messages
+    } else {
+        conversation::recover_messages(&store, &session_id)?
+    };
     let prior = conversation::conversation_prior(&handles.conversation, &session_id, persisted);
     if !prior.is_empty() {
         stage("会话", format!("延续对话({} 条历史消息)", prior.len()));

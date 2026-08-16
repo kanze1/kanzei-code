@@ -48,6 +48,15 @@ pub(crate) fn conversation_get(
     store
         .create_session(&session_id, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;
+    // R-242 批6:事件投影真源。sequence=None(最新历史)且 gate 开启时,从同一
+    // 事件日志投影 surface;sequence=Some 是 legacy 快照的历史版本读(投影无
+    // 版本语义),gate 无论开关都保持 legacy。
+    if sequence.is_none() && crate::projection_gate::read_path_uses_projection("conversation_get") {
+        let facts = store
+            .list_session_facts(&session_id)
+            .map_err(|e| e.to_string())?;
+        return Ok(kanzei_core::project_session_facts(&facts).surface_messages);
+    }
     recover_messages_raw(&store, &session_id, sequence).map_err(|e| e.to_string())
 }
 
