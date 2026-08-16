@@ -297,7 +297,8 @@ fn compile_tectonic(
 
 /// R-273 批2:PDF 首页转 PNG(pdftoppm,poppler——MiKTeX/TeX Live 自带)。
 /// 返回 PNG 字节。pdftoppm 缺失给明确诊断(不静默降级)。
-fn pdf_to_png(pdf: &Path, workdir: &Path, stem: &str) -> Result<Vec<u8>, String> {
+/// pub(crate):R-274 批2 PGFPlots 轨复用(图转 PNG 回模型)。
+pub(crate) fn pdf_to_png(pdf: &Path, workdir: &Path, stem: &str) -> Result<Vec<u8>, String> {
     if !pdf.is_file() {
         return Err(format!("PDF 不存在: {}", pdf.display()));
     }

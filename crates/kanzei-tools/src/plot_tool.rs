@@ -40,7 +40,13 @@ impl Tool for PlotTool {
                 "spec": { "type": "string", "description": "Vega-Lite JSON spec(字符串)" },
                 "spec_file": { "type": "string", "description": "workdir 内的 .json spec 文件名(与 spec 二选一)" },
                 "workdir": { "type": "string", "description": "输出工作目录(图产物限研究工件目录与显式指定)" },
-                "out": { "type": "string", "description": "输出文件名前缀(默认 plot)" }
+                "out": { "type": "string", "description": "输出文件名前缀(默认 plot)" },
+                "engine": {
+                    "type": "string",
+                    "enum": ["vega", "pgfplots"],
+                    "description": "渲染引擎:vega(默认,Vega-Lite spec→PNG)| pgfplots(TikZ/PGFPlots 代码→PDF+PNG,走 R-273 latex 通道)"
+                },
+                "tikz": { "type": "string", "description": "pgfplots 引擎用:TikZ/PGFPlots 代码片段(含 axis 环境)" }
             },
             "required": ["workdir"],
             "additionalProperties": false
@@ -63,12 +69,24 @@ impl Tool for PlotTool {
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
         let workdir = input["workdir"].as_str().unwrap_or_default().to_string();
         let out = input["out"].as_str().unwrap_or("plot").to_string();
+        let engine = input["engine"].as_str().unwrap_or("vega").to_string();
         if workdir.is_empty() {
             return ToolOutput::error("plot 需要 workdir 参数".to_string());
         }
         let workdir_path = ctx.cwd.join(&workdir);
         if !workdir_path.is_dir() {
             return ToolOutput::error(format!("工作目录不存在: {}", workdir_path.display()));
+        }
+        // R-274 批2:PGFPlots 轨——TikZ/PGFPlots 代码走 R-273 latex 通道(零新增依赖,
+        // 图字体与论文正文一致,验收②)。
+        if engine == "pgfplots" {
+            let tikz = input["tikz"].as_str().unwrap_or_default().to_string();
+            if tikz.is_empty() {
+                return ToolOutput::error(
+                    "pgfplots 引擎需要 tikz 参数(TikZ/PGFPlots 代码)".to_string(),
+                );
+            }
+            return render_pgfplots(&workdir_path, &tikz, &out);
         }
         // spec 来源:直接字符串或 spec_file 文件。
         let spec = if let Some(spec) = input["spec"].as_str().filter(|s| !s.is_empty()) {
@@ -85,6 +103,60 @@ impl Tool for PlotTool {
         };
         render_vega(&workdir_path, &spec, &out)
     }
+}
+
+/// R-274 批2:PGFPlots 轨——把 TikZ/PGFPlots 代码片段包成最小 .tex(standalone 文档,
+/// 含 pgfplots 宏包),走 R-273 latex 通道编译出 PDF,再转 PNG 回模型。
+/// 图字体与论文正文一致(同 LaTeX 通道);PDF 落盘给用户。
+fn render_pgfplots(workdir: &Path, tikz: &str, out: &str) -> ToolOutput {
+    if tikz.trim().is_empty() {
+        return ToolOutput::error(
+            "pgfplots 引擎需要 tikz 参数(TikZ/PGFPlots 代码片段)".to_string(),
+        );
+    }
+    let tex = pgfplots_tex_template(tikz);
+    let tex_path = workdir.join(format!("{out}.tex"));
+    if std::fs::write(&tex_path, &tex).is_err() {
+        return ToolOutput::error(format!("写入 .tex 失败: {}", tex_path.display()));
+    }
+    // 走 R-273 latex 通道(系统发行优先/回落 Tectonic)。
+    let (ok, diag) = crate::latex_tool::compile_latex(workdir, &format!("{out}.tex"));
+    if !ok {
+        return ToolOutput::error(format!("PGFPlots 编译失败:\n{diag}"));
+    }
+    // PDF 首页转 PNG 回模型(复用 R-273 pdf_to_png)。
+    let pdf = workdir.join(format!("{out}.pdf"));
+    match crate::latex_tool::pdf_to_png(&pdf, workdir, out) {
+        Ok(png_bytes) => {
+            let base64 = base64_engine_encode(&png_bytes);
+            let mut output = ToolOutput::ok(format!(
+                "PGFPlots 渲染成功:\ntex: {}\nPDF: {}(已落盘)\nPNG({} 字节)已回模型",
+                tex_path.display(),
+                pdf.display(),
+                png_bytes.len()
+            ));
+            output = output.with_images(vec![kanzei_harness::ToolImage {
+                media_type: "image/png".into(),
+                data: base64,
+            }]);
+            output
+        }
+        Err(e) => ToolOutput::ok(format!("{diag}\n[PNG] 转换失败(PDF 已产出): {e}")),
+    }
+}
+
+/// PGFPlots .tex 模板:standalone 文档 + pgfplots 宏包 + TikZ 代码片段。
+/// 独立函数便于单测(不依赖真实 latex 环境)。
+fn pgfplots_tex_template(tikz: &str) -> String {
+    format!(
+        "\\documentclass[border=2pt]{{standalone}}\n\
+         \\usepackage{{tikz}}\n\
+         \\usepackage{{pgfplots}}\n\
+         \\pgfplotsset{{compat=1.18}}\n\
+         \\begin{{document}}\n\
+         {tikz}\n\
+         \\end{{document}}\n"
+    )
 }
 
 /// 渲染通道检测。
@@ -366,6 +438,36 @@ mod tests {
         assert!(decoded.len() > 100, "PNG 非空");
         // SVG 落盘给用户。
         assert!(dir.join("chart.json").is_file(), "spec 应落盘");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-274 批2:PGFPlots 轨 .tex 模板生成正确(standalone+pgfplots+TikZ 代码)。
+    /// 不依赖真实 latex 环境(本机 pgfplots 宏包兼容问题见进展,模板本身可独立验证)。
+    #[test]
+    fn pgfplots模板_包含宏包与tikz代码() {
+        let tex = pgfplots_tex_template("\\begin{axis}\\addplot coordinates {(1,2)};\\end{axis}");
+        assert!(
+            tex.contains("\\documentclass[border=2pt]{standalone}"),
+            "standalone 类"
+        );
+        assert!(tex.contains("\\usepackage{tikz}"), "tikz 宏包");
+        assert!(tex.contains("\\usepackage{pgfplots}"), "pgfplots 宏包");
+        assert!(tex.contains("\\pgfplotsset{compat=1.18}"), "compat 设置");
+        assert!(tex.contains("\\begin{axis}"), "TikZ 代码片段嵌入");
+        assert!(tex.contains("\\end{document}"), "文档闭合");
+    }
+
+    /// R-274 批2:pgfplots 引擎缺 tikz 参数给明确诊断(不崩溃)。
+    #[test]
+    fn pgfplots缺tikz参数诊断() {
+        let dir = temp_dir("notikz");
+        let out = render_pgfplots(&dir, "", "x");
+        assert!(out.is_error);
+        assert!(
+            out.content.contains("tikz"),
+            "诊断要点名 tikz 参数: {}",
+            out.content
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

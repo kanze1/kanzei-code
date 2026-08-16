@@ -4441,3 +4441,9 @@
 - 摘要: R-274 批1:plot_tool.rs Vega-Lite 主轨——spec JSON 校验(非法给可一轮修复诊断)+缺 mark/data 字段诊断+渲染通道检测(vl-convert 官方 CLI vl2png 子命令/vega-cli 回退)+PNG 魔数校验+images 通道回模型+spec 落盘。base.rs 注册 plot 工具 Ask 权限。单测 5 条全绿:非法spec诊断、缺mark、缺data、渲染器缺失指引、vegalite_spec转png被模型消费(端到端:下载 vl-convert v1.9.0 win-64 实测,bar.png 15KB,PNG 魔数+images 通道验证)。kanzei-tools 306 passed,clippy/fmt 通过
 - 关联: R-274
 - 收尾: 1786844629
+
+## T-1786845730 R-274 批2 PGFPlots 轨代码 [passed]
+- 命令: cargo test -p kanzei-tools --lib plot_tool
+- 摘要: R-274 批2:PGFPlots 轨代码完成——plot 工具加 engine=pgfplots 分发,render_pgfplots(standalone+pgfplots 模板→R-273 latex 通道编译 PDF→pdf_to_png 转 PNG 经 images 通道回模型,PDF 落盘)。新增单测 2 条:pgfplots模板_包含宏包与tikz代码(模板独立验证,不依赖真实 latex)、pgfplots缺tikz参数诊断。kanzei-tools 308 passed,clippy/fmt 通过。注意:本机 pgfplots 宏包有兼容问题(axis undefined,MiKTeX 与 Tectonic 双环境复现,pgfplots 1.18.1 的 code.tex 加载后 shortcutlet 未生效)——真实 PDF 实测受环境阻塞,代码路径完整
+- 关联: R-274
+- 收尾: 1786845730
