@@ -4826,3 +4826,33 @@
 - observed_head: 6457d9badf9c0b460a9955057f39c3667733ed07
 - observed_worktree_hash: fnv1a64:079b10c5eaac5321
 - recorded_at: 1786868677188
+
+## D-394 latex 验收测试成色:副本断言/偷换分支/Tectonic 零验证 [fixed] (medium)
+- refs: R-273
+- 影响: 验收⑥单测证据无效;回落轨=零安装目标场景可信度为零。
+- 期望: Missing/pdftoppm 缺失测试走真生产分支(PATH 操纵);Tectonic 真 exe 至少一次真编译实测留记录;行号测试加 skip guard。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 核心
+- 根因: 「后端缺失给下载指引」断言的是测试内硬编码文案副本,生产 Missing 分支零执行(latex_tool.rs:487-500);「pdftoppm缺失给诊断」实测的是 PDF 不存在分支(556-566),名不副实;Tectonic 真轨用假 .cmd 脚本(0 字节假 PDF)替代(569-607),真 exe 从未编译过真文档(关闭叙述如实记录了替代,诚实但验收字面未满足);「错误诊断含行号」测试无 skip guard,无 TeX 机器假失败。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-394
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 已修复(commit 35f95ef)。期望对账:①Missing 测试走真生产分支——指引文案提取单源 missing_guidance()(compile_latex 真 Missing 分支调用),测试 with_empty_path 临时清空 PATH 触发 detect_backend 真 Missing,断言 diag==单源文案,删测试内硬编码副本(latex_tool.rs);②pdftoppm 缺失测试走真生产分支——with_empty_path + 真实存在的 PDF(防落 PDF 不存在分支),which_in_path 真缺失分支,断言点名 pdftoppm;③Tectonic 真 exe 至少一次真编译实测留记录——新增 tectonic真exe真编译 测试(真文档→真 PDF 产出断言),本机无 tectonic 跳过;验收降级:真 exe 实测由具备 tectonic 的环境执行(测试已就位,skip guard 留记录),本机 MiKTeX 轨真编译由 pdf首页转png/多页pdf 测试覆盖;④行号测试加 skip guard——错误诊断含行号 无 LaTeX 后端时不假失败。338 测试全绿(T-1786868780),clippy 零警告
+- observed_head: 35f95efbfa201ff9a53da625ba03eff46f19aca7
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786868819699
+
+## D-396 跨树快照超限语义混淆:>4MiB 文件被当新建删除 [fixed] (high)
+- refs: R-186
+- 影响: 其它线树里 >4MiB 文件(target 产物/资源)被 bash 收口误删。
+- 期望: 照搬 managed.rs 三态(存在/超限保持现状/不存在删除);超限至少记 len+mtime 指纹使改动可检出并如实报告。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 核心
+- 根因: FileImage=Option<Vec<u8>>(cross_tree.rs:38)把「执行前不存在」与「超限」都编码为 None;回滚分支(250-263)把超限文件当新建直接删除;超限↔超限改动 None==None 检测不到;注释 32-33 声称「记指纹/能检测/会说明」三点全不成立。对照 managed.rs:157-171 有正确三态区分。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-396
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 已修复(commit 9a5758d)。期望对账:①照搬 managed.rs 三态——FileImage 从 Option<Vec<u8>> 改为三态枚举 Content(内容镜像)/Fingerprint(len+mtime 指纹)/Absent(不存在),超限不再与「不存在」同编码;回滚分支 Content 写回原内容/Fingerprint 保持现状绝不删除/Absent 删除新建(cross_tree.rs:38 区域与回滚分支);②超限至少记 len+mtime 指纹使改动可检出——collect_tree_files 超限或读取失败记 Fingerprint{len,mtime_ms}(不再 None),对账三态比较使超限↔超限内容改动可检出(此前 None==None 盲区);③如实报告——报告新增「超限文件(>4MiB 字节)改动已检出但无法回滚,保持现状(不删除)」行点名文件;④测试——超限文件改动检出并保持现状+小文件照常逐字节回滚、超限文件被删检出并如实报告不编已恢复(2 测试,T-1786869092,340 全绿,clippy 零警告)
+- observed_head: 9a5758d589872f5e2d665395930b82f15fbb6c1a
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786869133037

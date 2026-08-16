@@ -4597,3 +4597,55 @@
 - 关联: D-392
 - 收尾: 1786868662
 - 源码指纹: 4dd673559d5d157a
+
+## T-1786868780 D-394:cargo test -p kanzei-tools(latex 验收测试成色) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 32.2s
+- 摘要: D-394 全绿:338 passed(missing_guidance 单源+PATH 操纵走真 Missing/pdftoppm 缺失分支+行号 skip guard+tectonic 真 exe 测试就位)
+- 关联: D-394
+- 收尾: 1786868780
+
+## T-1786869092 D-396:cargo test -p kanzei-tools(跨树快照三态) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 31.7s
+- 摘要: D-396 全绿:340 passed(FileImage 三态+超限文件改动保持现状/被删如实报告 2 测试+既有 cross_tree 回归)
+- 关联: D-396
+- 收尾: 1786869092
+
+## T-1786869242 D-395 cargo test -p kanzei-tools(跨树写日志吸收+并行双线) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 30.3s
+- 摘要: D-395 修复后 kanzei-tools 全量:317 passed 0 failed(新增 2 条并行双线测试:①B 线窗口内自写有写日志→被吸收不误报;②无写日志的越界写照旧检出)。edit/write/insert 写成功后记写日志(record_worktree_write_log,路径=相对 cwd=相对树根,与跨树快照 key 同口径);enforce_other_trees 加 window_start_ms 参数,变化逐路径查写日志吸收合法自写;bash.rs 两处调用点传窗口起点。既有 cross_tree 9 条全绿(含 build.rs 越界抓取/D-407 报告态断言)。
+- 关联: D-395
+- 收尾: 1786869242
+
+## T-1786869299 D-395 cargo test -p kanzei-tools cross_tree(fmt 后确认) [passed]
+- 命令: cargo test -p kanzei-tools cross_tree
+- 时长: 1.6s
+- 摘要: D-395 fmt 归一后 cross_tree 定向复跑:11 passed 0 failed(与 T-1786869242 同结果,fmt 仅改 retain 缩进一行,无行为变化)。
+- 关联: D-395
+- 收尾: 1786869299
+
+## T-1786869333 D-395 cargo test -p kanzei-tools cross_tree(clippy 修复后) [passed]
+- 命令: cargo test -p kanzei-tools cross_tree
+- 时长: 1.3s
+- 摘要: D-395 clippy 修复(去掉多余 as u128 转换)后 cross_tree 复跑:11 passed 0 failed,无行为变化。
+- 关联: D-395
+- 收尾: 1786869333
+- 源码指纹: 3f1bbac1444b6ed3
+
+## T-1786869363 D-395 cargo test -p kanzei-tools cross_tree(fmt 后确认2) [passed]
+- 命令: cargo test -p kanzei-tools cross_tree
+- 时长: 1.3s
+- 摘要: D-395 fmt 归一后 cross_tree 复跑:11 passed 0 failed,无行为变化。
+- 关联: D-395
+- 收尾: 1786869363
+- 源码指纹: 8811da90369b5e91
+
+## T-1786869387 D-395 cargo test -p kanzei-tools cross_tree(提交前确认) [passed]
+- 命令: cargo test -p kanzei-tools cross_tree
+- 时长: 1.3s
+- 摘要: D-395 提交前最终确认:cross_tree 11 passed 0 failed(源码指纹与暂存一致)。
+- 关联: D-395
+- 收尾: 1786869387
+- 源码指纹: 208f1dedc8a2a63e

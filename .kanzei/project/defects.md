@@ -85,18 +85,7 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-394 latex 验收测试成色:副本断言/偷换分支/Tectonic 零验证 [fixing] (medium)
-- refs: R-273
-- 影响: 验收⑥单测证据无效;回落轨=零安装目标场景可信度为零。
-- 期望: Missing/pdftoppm 缺失测试走真生产分支(PATH 操纵);Tectonic 真 exe 至少一次真编译实测留记录;行号测试加 skip guard。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 核心
-- 根因: 「后端缺失给下载指引」断言的是测试内硬编码文案副本,生产 Missing 分支零执行(latex_tool.rs:487-500);「pdftoppm缺失给诊断」实测的是 PDF 不存在分支(556-566),名不副实;Tectonic 真轨用假 .cmd 脚本(0 字节假 PDF)替代(569-607),真 exe 从未编译过真文档(关闭叙述如实记录了替代,诚实但验收字面未满足);「错误诊断含行号」测试无 skip guard,无 TeX 机器假失败。
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-394
-- 取得线: kanzei/thread-line-1786851588846-1
-
-## D-395 跨树围栏并发误伤:他线窗口内合法自写被回滚 [open] (high)
+## D-395 跨树围栏并发误伤:他线窗口内合法自写被回滚 [fixing] (high)
 - refs: R-186 R-268 R-184
 - 影响: A 线一条分钟级 cargo build 收口时,B 线并发工作被整体回滚、新建文件被删、误归因到 A(隔离区可捞但 live 工作被破坏)——并行自举的正常形态互相绞杀;叠加 2000 文件上限在 before/after 间成员漂移的误判放大。无测试、无记录覆盖此场景。
 - 期望: 跨树面接写日志吸收(B 线自写有凭据即吸收)或按变化 owner 放行;补并行双线真场景测试(A 长 bash 期间 B 写自己树不被回滚)。
@@ -104,17 +93,9 @@
 - 标签: 核心
 - 根因: enforce_other_trees 把 A 线 bash 窗口内 B 树的任何变化判为 A 的越界并回滚(cross_tree.rs:145-284)——并行自举里 B 线在窗口内写自己的树是常态;跨树面没有 R-268 式写日志吸收,也不按变化的实际 owner 判定。
 - 优先级: P0
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-395
 
-## D-396 跨树快照超限语义混淆:>4MiB 文件被当新建删除 [open] (high)
-- refs: R-186
-- 影响: 其它线树里 >4MiB 文件(target 产物/资源)被 bash 收口误删。
-- 期望: 照搬 managed.rs 三态(存在/超限保持现状/不存在删除);超限至少记 len+mtime 指纹使改动可检出并如实报告。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 核心
-- 根因: FileImage=Option<Vec<u8>>(cross_tree.rs:38)把「执行前不存在」与「超限」都编码为 None;回滚分支(250-263)把超限文件当新建直接删除;超限↔超限改动 None==None 检测不到;注释 32-33 声称「记指纹/能检测/会说明」三点全不成立。对照 managed.rs:157-171 有正确三态区分。
-- 优先级: P1
-
-## D-397 跨树 mtime 粗筛未实现:注释假承诺每 bash 双全量读 [open] (medium)
+## D-397 跨树 mtime 粗筛未实现:注释假承诺每 bash 双全量读 [fixing] (medium)
 - refs: R-186 D-233
 - 影响: 验收④点名的 D-233 反模式复现(比哈希更重);真仓多线+未跟踪 target/node_modules 场景开销未知;截断静默留检测盲区。R-186 关闭证据对粗筛未实现只字未提。
 - 期望: 真实现 mtime/len 粗筛(命中再读内容);截断显式报告;补真仓规模实测数字。
@@ -122,6 +103,8 @@
 - 标签: 核心
 - 根因: 注释(cross_tree.rs:13-18/184)承诺 mtime 粗筛,实现是每条前台 bash 对每棵其它树两次全文件内容读取+整树驻内存(93-132/155),零 mtime 采集;2000 文件上限静默截断(35),不像 managed 有 truncated 标志拒绝;性能实测仅 5 树×31 小文件玩具规模(73.9ms)。
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-397
+- 取得线: kanzei/thread-line-1786851588846-1
 
 ## D-398 写日志覆盖洞:test_record/conventions/archive 未接线 [open] (high)
 - refs: R-268 D-364 D-112
