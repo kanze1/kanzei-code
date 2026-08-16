@@ -29,6 +29,24 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// D-407:**运行态与派生产物不入保护面**——这些目录里的东西不是「另一条线未提交的
+/// 心血」,而是随时在变的活状态与可重建产物,把它们纳入保护面只会两头坏事:
+/// ①`.kanzei/` 下是活的 SQLite(state.db 与其 -wal/-shm)——回滚一份旧 WAL 盖到
+/// 正在被打开的库上,直接把库写坏(2026-08-16 实况:研究会话 disk I/O error,
+/// 只读都打不开);②`target/`、`node_modules/`、`dist/` 是构建产物,分钟级全量变化,
+/// 既撑爆 2000 文件上限又让每条 bash 白读几百兆。
+///
+/// 主根托管文档的保护由 ManagedSnapshot 独立承担(D-173/D-174),不依赖本模块;
+/// 其它树里的 `.kanzei/` 是分支副本,不是权威真源,漏保护不造成事实丢失。
+const EXCLUDED_TREE_DIRS: &[&str] = &[".kanzei", "target", "node_modules", "dist", ".git"];
+
+/// D-407:是否为不入保护面的目录名(见 `EXCLUDED_TREE_DIRS`)。
+/// `.git` 一并收在这里:主树的 `.git` 是目录、worktree 的是文件(gitdir: 指针),
+/// 两种形态都靠名字判定,与原先的单独判断等价。
+fn is_excluded_entry(name: &str) -> bool {
+    EXCLUDED_TREE_DIRS.contains(&name)
+}
+
 /// 单文件镜像上限:超过就只记指纹,能检测但无法回滚(会如实说明)。
 const OTHER_TREE_FILE_LIMIT: u64 = 4 * 1024 * 1024;
 /// 单树镜像文件数上限,防止把一整棵大树的文件都读进内存拖垮每次 bash。
@@ -113,11 +131,13 @@ fn collect_tree_files_in(tree_root: &Path, dir: &Path, files: &mut BTreeMap<Stri
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
-        // git 内部状态不入镜像:误回滚 .git 会直接破坏仓库完整性。
-        // 注意主树的 .git 是目录,worktree 的 .git 是**文件**(gitdir: 指针),
-        // 两种形态都要跳过。
-        let is_git_dir = path.file_name().and_then(|name| name.to_str()) == Some(".git");
-        if is_git_dir {
+        // D-407:运行态(.kanzei 活库)与派生产物(target/node_modules/dist)、
+        // git 内部状态一律不入镜像——理由见 EXCLUDED_TREE_DIRS。
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(is_excluded_entry)
+        {
             continue;
         }
         if file_type.is_dir() {
@@ -227,14 +247,13 @@ pub(crate) fn enforce_other_trees(
         }
     };
     let mut lines = vec![
-        "[cross-tree] BLOCKED AND ROLLED BACK. This command modified files in another line's \
-         worktree — those trees are protected (R-186): another line's uncommitted work must \
-         not be overwritten, no matter which mechanism is used (redirect, cp/mv, cargo build.rs, \
-         python/node one-liner, git checkout of a single file)."
+        "[cross-tree] DETECTED (report-only, evidence quarantined; automatic rollback is \
+         DISABLED pending D-395). Files in another line's worktree changed during this command \
+         — those trees are protected (R-186). Verify whether this command crossed into another \
+         line's tree; if it did, restore from the quarantine copy listed below."
             .to_string(),
         owner_line,
     ];
-    let mut restored = 0usize;
     let mut quota = std::collections::BTreeMap::new();
     for (root, tree_changes) in &changes {
         let root_display = root.display().to_string();
@@ -255,20 +274,18 @@ pub(crate) fn enforce_other_trees(
                 }
                 let _ = std::fs::write(&saved, after_content);
             }
-            match before_content {
-                Some(original) => {
-                    // 执行前存在(含执行前就是空文件):写回原内容。
-                    if std::fs::write(&absolute, original).is_ok() {
-                        restored += 1;
-                    }
-                }
-                None => {
-                    // 执行前不存在:删除这个新建文件。
-                    if std::fs::remove_file(&absolute).is_ok() {
-                        restored += 1;
-                    }
-                }
-            }
+            // D-407:**自动回滚已停用,待 D-395 落地后再开**。
+            //
+            // 停用理由(2026-08-16 实况,不是假想):本机制无法区分「A 线越界写了 B 树」
+            // 与「B 线在自己树里正常干活」——D-395 记的就是这个设计缺口。并行自举下
+            // 后者是常态,于是回滚的对象大概率是**另一条线的正当工作**:今天它把主树
+            // 活动 SQLite 的 WAL 回滚成旧版本,直接写坏了 228 MB 的 state.db(只读都
+            // 打不开)。在归属判定补上之前,「检测到就写回」的期望收益为负。
+            //
+            // 现在的姿态:照常检测、照常隔离留证(改后内容一份不丢)、照常归因进报告,
+            // 但**不动磁盘上的现状**——可见性保住,破坏面清零。要恢复请从上面隔离
+            // 目录里取回,或用 git 自己的手段。
+            let _ = (&absolute, before_content);
             touched.push(format!("{root_display}/{rel}"));
         }
         // 每棵树只留一个隔离目录,记录到该树的报告行。
@@ -285,8 +302,9 @@ pub(crate) fn enforce_other_trees(
         ));
     }
     lines.push(format!(
-        "  touched: {} (共 {restored} 个文件已恢复执行前内容)",
-        touched.join(", ")
+        "  touched: {} (检测到 {} 个文件变化;**未自动回滚**,现状保持不变,改后内容已隔离留证)",
+        touched.join(", "),
+        touched.len()
     ));
     Some(lines.join("\n"))
 }
@@ -349,9 +367,11 @@ mod tests {
         path
     }
 
-    /// A 线(主树)的 bash 写 B 线工作树 → 检出、隔离、回滚,B 线逐字节复原。
+    /// A 线(主树)的 bash 写 B 线工作树 → 检出、归因、隔离留证。
+    /// D-407:自动回滚已停用(见 enforce_other_trees 内注释),现状保持不变——
+    /// 断言从「逐字节复原」改为「改后内容原样保留 + 隔离目录里有可取回的副本」。
     #[test]
-    fn a线bash写b线树_检出隔离回滚_b线逐字节复原() {
+    fn a线bash写b线树_检出归因并隔离留证_不动现状() {
         let root = git_repo("kz-ct-b1");
         let b = add_worktree(&root, "line-b");
         // B 线有未提交的活。
@@ -378,22 +398,43 @@ mod tests {
             report.contains("run-a") && report.contains("proc-a"),
             "归因必须点名 owner run/process(验收②): {report}"
         );
+        // D-407:不再自动回滚——磁盘现状保持「改后」的样子。
         assert_eq!(
             std::fs::read_to_string(b.join("seed.txt")).unwrap(),
-            "B 线的未提交修改\n",
-            "B 线未提交修改必须逐字节复原"
+            "A 线覆盖!\n",
+            "报告态下不得改动磁盘现状(自动回滚已停用)"
         );
-        assert_eq!(
-            std::fs::read_to_string(b.join("new-file.txt")).unwrap(),
-            "B 线新建\n",
-            "B 线新建文件必须逐字节复原"
+        assert!(
+            report.contains("未自动回滚"),
+            "报告须明说未回滚,不能让人以为已复原: {report}"
         );
         assert!(!b.join(".kanzei").is_dir()); // 无托管根,隔离目录在主根。
+        // 隔离留证仍是硬要求:改后内容一份不丢,可原样取回。
+        let quarantine_root = root.join(".kanzei/quarantine");
+        assert!(quarantine_root.is_dir(), "隔离留证目录必须存在");
+        let saved: Vec<_> = walk_files(&quarantine_root);
         assert!(
-            root.join(".kanzei/quarantine").is_dir(),
-            "隔离留证目录必须存在"
+            saved.iter().any(|p| p.ends_with("seed.txt")),
+            "隔离目录里必须留有改后副本: {saved:?}"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 递归收集目录下全部文件(测试用:核对隔离留证内容)。
+    fn walk_files(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return out;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                out.extend(walk_files(&path));
+            } else {
+                out.push(path);
+            }
+        }
+        out
     }
 
     /// D-406:深层文件的镜像键必须是完整相对路径——此前递归按父目录 strip_prefix,
@@ -401,7 +442,7 @@ mod tests {
     /// (主根 defects.md/bin-kz/dep-lib-* 平铺垃圾的现场)。既有测试全用顶层文件
     /// (basename==相对路径)所以一路假绿,本测试用嵌套+根级同名文件做判别。
     #[test]
-    fn 深层文件键为完整相对路径_回滚写回原位不落树根() {
+    fn 深层文件键为完整相对路径_留证按原层级不落树根() {
         let root = git_repo("kz-ct-d406");
         let b = add_worktree(&root, "line-d406");
         std::fs::create_dir_all(b.join("sub/inner")).unwrap();
@@ -424,19 +465,68 @@ mod tests {
             report.contains("sub/inner/deep.txt"),
             "报告须点名完整相对路径: {report}"
         );
-        assert_eq!(
-            std::fs::read_to_string(b.join("sub/inner/deep.txt")).unwrap(),
-            "B 线深层原文\n",
-            "深层文件必须在原位复原"
+        // 键正确性的判别落在隔离留证的层级上:必须是 sub/inner/deep.txt,
+        // 不是裸 deep.txt(后者即 D-406 扁平化复现)。
+        let saved = walk_files(&root.join(".kanzei/quarantine"));
+        assert!(
+            saved.iter().any(|p| p.ends_with("sub\\inner\\deep.txt")
+                || p.to_string_lossy().replace('\\', "/").ends_with("sub/inner/deep.txt")),
+            "隔离留证须按完整层级存放,不得扁平成裸文件名: {saved:?}"
         );
         assert_eq!(
             std::fs::read_to_string(b.join("deep.txt")).unwrap(),
             "B 线根级同名\n",
-            "根级同名文件不得被深层内容污染"
+            "根级同名文件不得被深层内容污染(键碰撞判别)"
         );
         assert!(
             !root.join("deep.txt").exists(),
             "任何内容都不得被拍到本线树根(平铺垃圾判别)"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D-407:运行态与派生产物不入保护面——`.kanzei/`(活 SQLite)、`target/`、
+    /// `node_modules/`、`dist/` 一律跳过。这条是本次事故的直接护栏:回滚一份旧
+    /// WAL 盖到正在被打开的库上会把库写坏(2026-08-16 实况)。
+    #[test]
+    fn 运行态与派生产物不入保护面() {
+        let root = git_repo("kz-ct-d407");
+        let b = add_worktree(&root, "line-d407");
+        for (dir, name) in [
+            (".kanzei", "state.db-wal"),
+            ("target", "artifact.bin"),
+            ("node_modules", "pkg.js"),
+            ("dist", "bundle.js"),
+        ] {
+            std::fs::create_dir_all(b.join(dir)).unwrap();
+            std::fs::write(b.join(dir).join(name), "before\n").unwrap();
+        }
+        std::fs::write(b.join("src.txt"), "源码\n").unwrap();
+
+        let before = capture_other_trees(&root, &root).expect("快照失败");
+        assert_eq!(
+            before.file_count(),
+            2,
+            "保护面只应含 seed.txt 与 src.txt:运行态与派生产物必须被排除"
+        );
+
+        // 改这些被排除的文件:不得被判越界(活库 WAL 变化是常态,判越界会毁库)。
+        for (dir, name) in [
+            (".kanzei", "state.db-wal"),
+            ("target", "artifact.bin"),
+            ("node_modules", "pkg.js"),
+            ("dist", "bundle.js"),
+        ] {
+            std::fs::write(b.join(dir).join(name), "after\n").unwrap();
+        }
+        assert!(
+            enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a")).is_none(),
+            "被排除目录的变化不得触发越界报告"
+        );
+        assert_eq!(
+            std::fs::read_to_string(b.join(".kanzei/state.db-wal")).unwrap(),
+            "after\n",
+            "活库文件绝不能被动"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -499,7 +589,7 @@ mod tests {
 
     /// 越界**新建**文件(执行前不存在):被删除回滚。
     #[test]
-    fn 越界新建文件_被删除回滚() {
+    fn 越界新建文件_被检出但不删除() {
         let root = git_repo("kz-ct-b4");
         let b = add_worktree(&root, "line-b");
 
@@ -509,7 +599,11 @@ mod tests {
         let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
             .expect("必须检出");
         assert!(report.contains("intruder.txt"), "{report}");
-        assert!(!b.join("intruder.txt").exists(), "新建越界文件必须被删");
+        // D-407:不再自动删除——删的可能正是另一条线自己新建的文件(D-395)。
+        assert!(
+            b.join("intruder.txt").exists(),
+            "报告态下不得删除文件(自动回滚已停用)"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -568,9 +662,11 @@ mod tests {
             report.contains("victim.txt"),
             "报告必须点名 build.rs 写入的文件: {report}"
         );
+        // D-407:报告态——检出与归因照旧(这正是本条相对语法闸门的核心优势),
+        // 但不再自动删除;改后内容进隔离目录留证。
         assert!(
-            !b.join("victim.txt").exists(),
-            "build.rs 越界新建必须被回滚删除"
+            b.join("victim.txt").exists(),
+            "报告态下不得删除文件(自动回滚已停用)"
         );
         assert_eq!(
             std::fs::read_to_string(b.join("b-own.txt")).unwrap(),
