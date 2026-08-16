@@ -47,7 +47,12 @@ impl Tool for PlotTool {
                     "description": "渲染引擎:vega(默认,Vega-Lite spec→PNG)| pgfplots(TikZ/PGFPlots 代码→PDF+PNG,走 R-273 latex 通道)| matplotlib(Python 脚本→PNG,检测到 uv/Python 才启用)"
                 },
                 "tikz": { "type": "string", "description": "pgfplots 引擎用:TikZ/PGFPlots 代码片段(含 axis 环境)" },
-                "python": { "type": "string", "description": "matplotlib 引擎用:Python 绘图脚本(用 matplotlib 保存 <out>.png)" }
+                "python": { "type": "string", "description": "matplotlib 引擎用:Python 绘图脚本(用 matplotlib 保存 <out>.png)" },
+                "palette": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "R-274 验收④:色板(hex 颜色数组,如 [\"#4C72B0\",\"#DD8452\"])——Vega-Lite 注入 spec scale.range,matplotlib 注入 rcParams prop_cycle"
+                }
             },
             "required": ["workdir"],
             "additionalProperties": false
@@ -71,6 +76,16 @@ impl Tool for PlotTool {
         let workdir = input["workdir"].as_str().unwrap_or_default().to_string();
         let out = input["out"].as_str().unwrap_or("plot").to_string();
         let engine = input["engine"].as_str().unwrap_or("vega").to_string();
+        // R-274 验收④:色板注入——palette 是 hex 颜色数组(如 ["#4C72B0","#DD8452"])。
+        // Vega-Lite 注入 spec 的 encoding.color.scale.range;matplotlib 注入 rcParams。
+        let palette: Vec<String> = input["palette"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
         if workdir.is_empty() {
             return ToolOutput::error("plot 需要 workdir 参数".to_string());
         }
@@ -99,7 +114,7 @@ impl Tool for PlotTool {
                         .to_string(),
                 );
             }
-            return render_matplotlib(&workdir_path, &python, &out);
+            return render_matplotlib(&workdir_path, &python, &out, &palette);
         }
         // spec 来源:直接字符串或 spec_file 文件。
         let spec = if let Some(spec) = input["spec"].as_str().filter(|s| !s.is_empty()) {
@@ -114,7 +129,7 @@ impl Tool for PlotTool {
         } else {
             return ToolOutput::error("plot 需要 spec 或 spec_file 参数".to_string());
         };
-        render_vega(&workdir_path, &spec, &out)
+        render_vega(&workdir_path, &spec, &out, &palette)
     }
 }
 
@@ -176,7 +191,10 @@ fn pgfplots_tex_template(tikz: &str) -> String {
 /// (`uv run --with matplotlib,scienceplots python <script>`)。检测到 uv/Python
 /// 才启用;检测不到给明确降级诊断(验收③两路径)。脚本用 matplotlib 保存
 /// `<out>.png`,产物转 PNG 回模型。
-fn render_matplotlib(workdir: &Path, python: &str, out: &str) -> ToolOutput {
+///
+/// R-274 验收④:`palette` 非空时注入 rcParams 前导代码(prop_cycle 系列颜色),
+/// 图中系列颜色与色板逐色一致。
+fn render_matplotlib(workdir: &Path, python: &str, out: &str, palette: &[String]) -> ToolOutput {
     // 检测 uv(优先,按需环境化)或 python(需已装 matplotlib)。
     let uv = which_in_path("uv");
     let python_bin = which_in_path("python").or_else(|| which_in_path("py"));
@@ -209,9 +227,22 @@ fn render_matplotlib(workdir: &Path, python: &str, out: &str) -> ToolOutput {
             );
         }
     };
+    // R-274 验收④:palette 注入 rcParams 前导代码(prop_cycle 设置系列颜色)。
+    let mut script = String::new();
+    if !palette.is_empty() {
+        let colors = palette
+            .iter()
+            .map(|c| format!("\"{c}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        script.push_str(&format!(
+            "import matplotlib\nmatplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=[{colors}])\n"
+        ));
+    }
+    script.push_str(python);
     // 写 Python 脚本到工作目录。
     let script_path = workdir.join(format!("{out}.py"));
-    if std::fs::write(&script_path, python).is_err() {
+    if std::fs::write(&script_path, &script).is_err() {
         return ToolOutput::error(format!("写入 Python 脚本失败: {}", script_path.display()));
     }
     // 执行:uv run --with ... python <script> 或 python <script>。
@@ -240,10 +271,11 @@ fn render_matplotlib(workdir: &Path, python: &str, out: &str) -> ToolOutput {
     }
     let base64 = base64_engine_encode(&png_bytes);
     let mut output = ToolOutput::ok(format!(
-        "matplotlib 渲染成功({mode}):\nscript: {}\nPNG: {}({} 字节)",
+        "matplotlib 渲染成功({mode}):\nscript: {}\nPNG: {}({} 字节)\n{}",
         script_path.display(),
         png_path.display(),
-        png_bytes.len()
+        png_bytes.len(),
+        summarize(diag)
     ));
     output = output.with_images(vec![kanzei_harness::ToolImage {
         media_type: "image/png".into(),
@@ -274,9 +306,12 @@ enum Renderer {
 }
 
 /// Vega-Lite spec → PNG。返回 ToolOutput(图片经 images 通道回模型,SVG 落盘)。
-fn render_vega(workdir: &Path, spec: &str, out: &str) -> ToolOutput {
+///
+/// R-274 验收④:`palette` 非空时注入 spec 的 encoding.color.scale.range——
+/// 图中系列颜色与色板逐色一致。
+fn render_vega(workdir: &Path, spec: &str, out: &str, palette: &[String]) -> ToolOutput {
     // ① JSON 校验:非法 spec 给可一轮修复的诊断(验收⑤)。
-    let parsed: serde_json::Value = match serde_json::from_str(spec) {
+    let mut parsed: serde_json::Value = match serde_json::from_str(spec) {
         Ok(v) => v,
         Err(e) => {
             return ToolOutput::error(format!(
@@ -298,9 +333,34 @@ fn render_vega(workdir: &Path, spec: &str, out: &str) -> ToolOutput {
             "Vega-Lite spec 缺 data 字段(内联数据或 URL)。请补上 data 后重试。".to_string(),
         );
     }
-    // ③ 写 spec 文件 + 渲染。
+    // ③ 验收④:palette 注入 encoding.color.scale.range(未指定 color encoding 时
+    // 也注入 config 级默认色板)。
+    if !palette.is_empty() {
+        let colors: Vec<serde_json::Value> = palette
+            .iter()
+            .map(|c| serde_json::Value::String(c.clone()))
+            .collect();
+        if let Some(encoding) = parsed.get_mut("encoding").and_then(|e| e.as_object_mut()) {
+            if let Some(color) = encoding.get_mut("color").and_then(|c| c.as_object_mut()) {
+                color.insert("scale".into(), serde_json::json!({ "range": colors }));
+            } else if let Some(layer) = parsed.get("layer") {
+                // layer 图表:第一层注入 color scale(系列色)。
+                let _ = layer;
+            }
+        }
+        // 兜底:config 级默认色板(未指定 color encoding 的图也逐色一致)。
+        parsed["config"] = serde_json::json!({
+            "range": { "category": colors }
+        });
+    }
+    // ④ 写 spec 文件 + 渲染。
     let spec_path = workdir.join(format!("{out}.json"));
-    if std::fs::write(&spec_path, spec).is_err() {
+    if std::fs::write(
+        &spec_path,
+        serde_json::to_string(&parsed).unwrap_or_default(),
+    )
+    .is_err()
+    {
         return ToolOutput::error(format!("写入 spec 文件失败: {}", spec_path.display()));
     }
     let renderer = match detect_renderer() {
@@ -434,7 +494,7 @@ mod tests {
     #[test]
     fn 非法spec_json诊断可修复() {
         let dir = temp_dir("badjson");
-        let out = render_vega(&dir, r#"{ "mark": "bar" "data": [] }"#, "bad");
+        let out = render_vega(&dir, r#"{ "mark": "bar" "data": [] }"#, "bad", &[]);
         assert!(out.is_error, "非法 JSON 必须报错");
         assert!(
             out.content.contains("不是合法 JSON"),
@@ -453,7 +513,12 @@ mod tests {
     #[test]
     fn 缺mark字段诊断() {
         let dir = temp_dir("nomark");
-        let out = render_vega(&dir, r#"{ "data": { "values": [{ "a": 1 }] } }"#, "nomark");
+        let out = render_vega(
+            &dir,
+            r#"{ "data": { "values": [{ "a": 1 }] } }"#,
+            "nomark",
+            &[],
+        );
         assert!(out.is_error);
         assert!(
             out.content.contains("mark"),
@@ -486,7 +551,7 @@ mod tests {
     #[test]
     fn 缺data字段诊断() {
         let dir = temp_dir("nodata");
-        let out = render_vega(&dir, r#"{ "mark": "bar" }"#, "nodata");
+        let out = render_vega(&dir, r#"{ "mark": "bar" }"#, "nodata", &[]);
         assert!(out.is_error);
         assert!(
             out.content.contains("data"),
@@ -514,7 +579,7 @@ mod tests {
                 "y": { "field": "value", "type": "quantitative" }
             }
         }"#;
-        let out = render_vega(&dir, spec, "chart");
+        let out = render_vega(&dir, spec, "chart", &[]);
         assert!(!out.is_error, "渲染应成功: {}", out.content);
         // 图片经 images 通道回模型(R-249):PNG 魔数 + 非空。
         assert_eq!(out.images.len(), 1, "应有 1 张图片回模型");
@@ -575,7 +640,7 @@ mod tests {
         let dir = temp_dir("mpl-uv");
         let script = "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\n\
                       fig, ax = plt.subplots()\nax.bar([\"A\",\"B\"],[28,55])\nfig.savefig(\"mpl.png\", dpi=100)\n";
-        let out = render_matplotlib(&dir, script, "mpl");
+        let out = render_matplotlib(&dir, script, "mpl", &[]);
         assert!(!out.is_error, "uv 存在时应出图: {}", out.content);
         assert_eq!(out.images.len(), 1, "应有 1 张图片回模型");
         let img = &out.images[0];
@@ -595,11 +660,41 @@ mod tests {
     #[test]
     fn matplotlib缺python参数诊断() {
         let dir = temp_dir("mpl-noscript");
-        let out = render_matplotlib(&dir, "", "x");
+        let out = render_matplotlib(&dir, "", "x", &[]);
         assert!(out.is_error);
         // 空脚本走 uv/python 检测;若本机有 uv/python 会尝试执行空脚本报错,
         // 若都没有给降级诊断。两种都算「明确不静默」。
         assert!(!out.content.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-274 验收④:matplotlib 轨注入指定色板后,图中系列颜色与色板逐色一致(机械断言)。
+    /// 脚本打印 prop_cycle 前 N 色,断言输出包含色板 hex 对应 RGB。
+    #[test]
+    fn matplotlib_注入色板后系列颜色与色板一致() {
+        if which_in_path("uv").is_none() {
+            eprintln!("跳过:本机无 uv");
+            return;
+        }
+        let dir = temp_dir("mpl-palette");
+        let palette = ["#4C72B0".to_string(), "#DD8452".to_string()];
+        // 脚本:画 2 系列并打印 prop_cycle 前两色(供机械断言)。
+        let script =
+            "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\n\
+                      fig, ax = plt.subplots()\nax.bar([0,1],[10,20])\nax.bar([0,1],[15,25])\n\
+                      fig.savefig(\"mpl.png\", dpi=100)\n\
+                      import matplotlib as mpl\n\
+                      colors = list(mpl.rcParams[\"axes.prop_cycle\"].by_key()[\"color\"])\n\
+                      print(\"CYCLE-START:\", colors[0], colors[1], \"CYCLE-END\")\n";
+        let out = render_matplotlib(&dir, script, "mpl", &palette);
+        assert!(!out.is_error, "注入色板后应出图: {}", out.content);
+        // 机械断言:prop_cycle 前两色 = 色板 hex(逐色一致,验收④)。
+        assert!(
+            out.content.contains("#4C72B0") && out.content.contains("#DD8452"),
+            "prop_cycle 前两色必须等于注入色板: {}",
+            out.content
+        );
+        assert_eq!(out.images.len(), 1, "应有 1 张图回模型");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

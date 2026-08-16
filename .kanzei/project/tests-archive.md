@@ -4453,3 +4453,9 @@
 - 摘要: R-274 批3:workspace 全量 15 段 ok。matplotlib 增强轨——plot 工具加 engine=matplotlib,render_matplotlib(检测 uv 优先按需环境化 uv run --with matplotlib,scienceplots python script / 回落系统 python / 双缺失明确降级诊断;脚本保存 out.png 转 PNG 经 images 通道回模型)。单测 2 条:matplotlib_有uv时出图被消费(uv 0.9.2 实测出 PNG 魔数+images 验证)、matplotlib缺python参数诊断。kanzei-tools 310 passed,clippy/fmt 通过
 - 关联: R-274
 - 收尾: 1786846188
+
+## T-1786846770 R-274 验收④ 色板注入+机械断言 [passed]
+- 命令: cargo test --workspace
+- 摘要: R-274 验收④色板注入+机械断言:plot 工具加 palette 参数(hex 数组),render_vega 注入 spec encoding.color.scale.range+config.category(未指定 color 时兜底)、render_matplotlib 注入 rcParams prop_cycle 前导代码。单测 matplotlib_注入色板后系列颜色与色板一致(注入 #4C72B0/#DD8452 渲染 2 系列,prop_cycle 前两色逐色一致机械断言,验收④)。kanzei-tools 311 passed、workspace 全量 15 段 ok,clippy/fmt 通过
+- 关联: R-274
+- 收尾: 1786846770
