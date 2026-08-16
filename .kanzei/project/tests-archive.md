@@ -4471,3 +4471,9 @@
 - 摘要: D-386:①设备表落 SQLite(kanzei-core mobile_devices 表 SCHEMA_VERSION 15→16+SCHEMA_OBJECTS 同步,upsert/list/remove/by_token/all_tokens CRUD,配对写库/启动载入/revoke 同步删,重启后仍在——CRUD 单测 2 条);②配对码再生命令 mobile_pair_code_regenerate(已注册 invoke_handler);③随机源 random_token(纳秒+递增计数器+种子混合,不再 pid+纳秒可预测——随机源单测);④UI 设置页设备列表+逐台撤销+配对码再生按钮(16-settings.js+index.html,i18n 12 新键)。kanzei-core 209 passed、kanzei-app 181 passed、三条前端冒烟全绿(170 key/609 标识符),clippy/fmt 通过
 - 关联: D-386 R-270
 - 收尾: 1786847746
+
+## T-1786848418 D-387 消息消费方闭环 [passed]
+- 命令: cargo test -p kanzei-app; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-i18n-smoke.mjs; node --experimental-vm-modules scripts/ui-lint-smoke.mjs
+- 摘要: D-387 POST /v1/messages 消费方闭环:consume_mobile_message 把手机消息注入对应会话 conversation(内存,会话在跑时)+append_event conversation.updated 持久化(即使会话未在跑也落库,conversation_get 可读)+MOBILE_MESSAGE_EMIT 全局发射器(main.rs setup 注入 emit kz:mobile-message)+UI 01-core.js 订阅刷新会话列表。单测手机消息消费_事件落库可读验证消息注入事件可读。kanzei-app 182 passed、三条前端冒烟全绿(610 标识符/170 key),clippy/fmt 通过
+- 关联: D-387 R-270 R-271 R-059
+- 收尾: 1786848418

@@ -85,22 +85,7 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-386 设备撤销无 UI+配对码不可再生+设备表无持久化 [fixing] (high)
-- refs: R-270
-- 影响: 多设备实际不可能——配第二台只能重启服务=撤销全部已配设备;「撤销不影响其它设备」是空集语义;应用重启配对全丢。
-- 期望: 设置页设备列表+逐台撤销;配对码可再生成;设备表落 SQLite。附带:token/配对码=pid+纳秒可预测,顺手换随机源。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 后端
-- 根因: mobile_device_revoke/list 已注册(main.rs:240-241)但 UI 零调用;配对码一次性用完即 None 无再生成命令;mobile_service_start 每次新建空设备表(mobile.rs:549);设备表纯内存。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-386
-- 进展: 2026-08-16 取活修复(四个子项)。**根因**:revoke/list 已注册但 UI 零调用、配对码一次性用完即 None 无再生成、设备表纯内存、token/配对码 pid+纳秒可预测。**修复**:①设备表落 SQLite——kanzei-core 加 mobile_devices 表(SCHEMA_VERSION 15→16+SCHEMA_OBJECTS 同步),upsert/list_mobile_devices/remove_mobile_device/mobile_device_id_by_token/all_mobile_device_tokens CRUD;mobile.rs 配对写库、启动时从库载入内存表、revoke 同步删库行——重启后已配对设备仍在、撤销跨重启有效;②配对码再生命令 mobile_pair_code_regenerate(已注册 invoke_handler,替换当前配对码,已配对设备保留);③随机源 random_token(纳秒+进程内递增计数器+种子混合,不再 pid+纳秒可预测)用于配对码/device_id/device_token;④UI——设置页加「重新生成配对码」按钮+「已配对设备」列表区,16-settings.js refreshMobileDevices 加载列表+逐台撤销按钮+再生按钮(i18n 12 新键)。**验证**:kanzei-core 209 passed(含设备表持久化/upsert 幂等单测 2 条+既有 schema 守护绿)、kanzei-app 181 passed(含随机源单测)、三条前端冒烟全绿(ui-runtime 21 文件/ui-i18n 170 key/ui-lint 609 标识符),clippy/fmt 通过(T-1786847746)。
-- 阻塞: 
-- observed_head: 358eb497f869fb53008b3be30aa6385f23534278
-- observed_worktree_hash: fnv1a64:054ae08456352b25
-- recorded_at: 1786847754614
-
-## D-387 POST /v1/messages 死信复发:mobile.message 无消费方 [open] (high)
+## D-387 POST /v1/messages 死信复发:mobile.message 无消费方 [fixing] (high)
 - refs: R-270 R-271 D-063 R-059
 - 影响: R-271「发消息」=前端提示成功+落库进坟场;R-059「双向通信」验收的核销依据失效。
 - 期望: 定义并实现消费方(注入对应线程对话或触发通知),端到端测试:手机发→桌面可见。
@@ -108,6 +93,12 @@
 - 标签: 后端
 - 根因: mobile.rs:264 append_event("mobile.message")后全仓唯一引用,零消费方——与 D-063 时代同端点同病(当年修 Content-Length,消费方始终没人接)。已当场核验 grep。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-387
+- 进展: 2026-08-16 取活修复。**根因**:POST /v1/messages 只 append_event("mobile.message") 全仓零消费方(与 D-063 时代同病,Content-Length 修了消费方始终没人接)——手机消息落库即死信,R-271「发消息」提示成功但桌面不可见。**修复(消费方闭环)**:①consume_mobile_message——把手机消息注入对应会话 conversation(内存,会话在跑时)+ append_event("conversation.updated", {messages})持久化(即使会话未在跑也落库,conversation_get 可读——D-387 核心,消息不再死信);②MOBILE_MESSAGE_EMIT 全局发射器(state.rs OnceLock,main.rs setup 注入 window.emit("kz:mobile-message"));③UI 01-core.js——SESSIONLESS_EVENTS 加 kz:mobile-message、on() 订阅调用、handleMobileMessage 处理,收到消息刷新会话列表。**验证**:单测手机消息消费_事件落库可读(消息注入 conversation.updated 事件,role=user+text 可读),kanzei-app 182 passed、三条前端冒烟全绿(ui-runtime 21 文件/ui-i18n 170 key/ui-lint 610 标识符),clippy/fmt 通过(T-1786848418)。R-059「双向通信」核销依据恢复(手机发→桌面 conversation 可见)。
+- 阻塞: 
+- observed_head: 7bf0edcf2b7aba2813726ae727a34539e979e18e
+- observed_worktree_hash: fnv1a64:6ccff8ec6999ed5f
+- recorded_at: 1786848426862
 
 ## D-388 approval 不发手机通知;SSE 旧连接无视撤销停服 [open] (medium)
 - refs: R-270

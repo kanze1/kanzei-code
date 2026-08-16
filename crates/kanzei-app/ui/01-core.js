@@ -54,6 +54,7 @@ const SESSIONLESS_EVENTS = new Set([
   "kz:fast-setup",
   "kz:ui-probe",
   "kz:annotate-progress",
+  "kz:mobile-message", // D-387:手机消息注入桌面后刷新会话列表(全局,无运行会话)。
 ]);
 function on(event, handler) {
   listen(event, (eventPayload) => {
@@ -157,10 +158,16 @@ function on(event, handler) {
           refreshParallelTaskProjection(sessionId);
         }
       }
+      // D-387:手机消息注入桌面——刷新会话列表(消息已由后端持久化,打开会话可见)。
+      if (event === "kz:mobile-message") {
+        if (typeof refreshConversationLists === "function") void refreshConversationLists();
+        if (typeof refreshProcesses === "function") refreshProcesses();
+        if (typeof handleMobileMessage === "function") handleMobileMessage(eventPayload.payload);
+        return;
+      }
       // kz:ask 不走路由分支:它必须始终进 handler,按 sessionId 入队
       // (handler 内只在活动会话时弹窗),否则后台 ask 会被丢弃挂死(D-055 根因)。
-      if (event !== "kz:ask" && sessionId !== activeSessionId) {
-        // 控制事件的 UI 副作用不能串到活动线路，但所属线路的历史与自主推进必须执行。
+      if (event !== "kz:ask" && sessionId !== activeSessionId) {        // 控制事件的 UI 副作用不能串到活动线路，但所属线路的历史与自主推进必须执行。
         if (event === "kz:done" && typeof handleBackgroundSessionDone === "function") {
           handleBackgroundSessionDone(eventPayload.payload);
         }
@@ -179,6 +186,20 @@ function on(event, handler) {
     $("log-panel").classList.remove("hidden");
   });
 }
+
+// D-387:手机消息到达桌面——标记对应会话有未读新消息(打开会话即见持久化消息)。
+// 轻量:只 log 提示,不打断当前界面;会话列表已由 kz:mobile-message 刷新。
+function handleMobileMessage(payload) {
+  const sessionId = payload?.session_id;
+  if (!sessionId) return;
+  const text = payload?.text || "";
+  log(`手机消息 → ${sessionId}: ${text}`, "info");
+}
+
+// D-387:订阅手机消息事件(与 SESSIONLESS_EVENTS 手动同源,冒烟校验要求 on() 调用)。
+on("kz:mobile-message", (eventPayload) => {
+  if (typeof handleMobileMessage === "function") handleMobileMessage(eventPayload.payload);
+});
 
 const $ = (id) => document.getElementById(id);
 // localStorage 里的 JSON 可能被手改坏;读不出来就当没有,绝不让偏好读取抛异常

@@ -4544,4 +4544,18 @@
 - observed_head: c252d41517495c476aff56c2f0c720e6c96150e7
 - observed_worktree_hash: fnv1a64:906547062ee0c565
 - recorded_at: 1786847014924
+
+## D-386 设备撤销无 UI+配对码不可再生+设备表无持久化 [fixed] (high)
+- refs: R-270
+- 影响: 多设备实际不可能——配第二台只能重启服务=撤销全部已配设备;「撤销不影响其它设备」是空集语义;应用重启配对全丢。
+- 期望: 设置页设备列表+逐台撤销;配对码可再生成;设备表落 SQLite。附带:token/配对码=pid+纳秒可预测,顺手换随机源。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 后端
+- 根因: mobile_device_revoke/list 已注册(main.rs:240-241)但 UI 零调用;配对码一次性用完即 None 无再生成命令;mobile_service_start 每次新建空设备表(mobile.rs:549);设备表纯内存。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-386
+- 进展: 2026-08-16 取活修复(四个子项)。**根因**:revoke/list 已注册但 UI 零调用、配对码一次性用完即 None 无再生成、设备表纯内存、token/配对码 pid+纳秒可预测。**修复**:①设备表落 SQLite——kanzei-core 加 mobile_devices 表(SCHEMA_VERSION 15→16+SCHEMA_OBJECTS 同步),upsert/list_mobile_devices/remove_mobile_device/mobile_device_id_by_token/all_mobile_device_tokens CRUD;mobile.rs 配对写库、启动时从库载入内存表、revoke 同步删库行——重启后已配对设备仍在、撤销跨重启有效;②配对码再生命令 mobile_pair_code_regenerate(已注册 invoke_handler,替换当前配对码,已配对设备保留);③随机源 random_token(纳秒+进程内递增计数器+种子混合,不再 pid+纳秒可预测)用于配对码/device_id/device_token;④UI——设置页加「重新生成配对码」按钮+「已配对设备」列表区,16-settings.js refreshMobileDevices 加载列表+逐台撤销按钮+再生按钮(i18n 12 新键)。**验证**:kanzei-core 209 passed(含设备表持久化/upsert 幂等单测 2 条+既有 schema 守护绿)、kanzei-app 181 passed(含随机源单测)、三条前端冒烟全绿(ui-runtime 21 文件/ui-i18n 170 key/ui-lint 609 标识符),clippy/fmt 通过(T-1786847746)。 || **关闭(2026-08-16)**:期望四项逐项核对——①设置页设备列表+逐台撤销(UI 列表区+撤销按钮调 mobile_device_revoke);②配对码可再生成(mobile_pair_code_regenerate 命令+UI 按钮,已配对设备保留);③设备表落 SQLite(mobile_devices 表+CRUD+启动载入+revoke 同步删,重启后仍在,单测验证);④token/配对码换随机源(random_token,单测验证连续调用不同)。提交 7bf0edc 已 push。按 §1.2 可用即关闭,本条 fixed。
 - 阻塞: 
+- observed_head: 7bf0edcf2b7aba2813726ae727a34539e979e18e
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786847814708

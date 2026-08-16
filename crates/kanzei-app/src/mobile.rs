@@ -296,7 +296,19 @@ fn handle_mobile_connection(
                 store.append_event(thread_id, "mobile.message", &payload)?;
                 Ok(())
             }) {
-                Ok(()) => mobile_json_response("202 Accepted", &json!({"accepted": true})),
+                Ok(()) => {
+                    // D-387:消费方——把手机发的消息注入对应线程的对话历史(内存
+                    // conversation + 事件),桌面端打开该会话即可见。此前只 append_event
+                    // 零消费,手机消息落库即死信(R-059「双向通信」核销失效)。
+                    let text = payload
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
+                    if !text.is_empty() {
+                        consume_mobile_message(&runtimes, thread_id, text, &state_path);
+                    }
+                    mobile_json_response("202 Accepted", &json!({"accepted": true}))
+                }
                 Err(error) => mobile_json_response(
                     "500 Internal Server Error",
                     &json!({"error": error.to_string()}),
@@ -306,6 +318,45 @@ fn handle_mobile_connection(
         _ => mobile_json_response("404 Not Found", &json!({"error": "not_found"})),
     };
     let _ = stream.write_all(&response);
+}
+
+/// D-387:手机消息消费方——把 POST /v1/messages 的消息注入对应线程的对话历史,
+/// 让桌面端可见(此前只 append_event 零消费,消息落库即死信)。
+///
+/// ①注入内存 conversation(对应 runtime,若在跑):后续轮末写回自动持久化;
+/// ②立即 append_event("conversation.updated", {messages: 全量})持久化(会话未在
+/// 跑也能被 conversation_get 读到);
+/// ③MOBILE_MESSAGE_EMIT 通知 UI 刷新(kz:mobile-message 事件)。
+fn consume_mobile_message(
+    runtimes: &Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
+    thread_id: &str,
+    text: &str,
+    state_path: &Path,
+) {
+    let message = kanzei_llm::Message::user_text(text);
+    // ①注入内存 conversation(会话在跑时),并收集该会话消息全量用于持久化。
+    let mut persisted_messages: Option<Vec<kanzei_llm::Message>> = None;
+    let runtimes = runtimes.lock().unwrap();
+    if let Some(runtime) = runtimes.get(thread_id) {
+        let mut conversation = runtime.conversation.lock().unwrap();
+        let messages = conversation.entry(thread_id.to_string()).or_default();
+        messages.push(message.clone());
+        persisted_messages = Some(messages.clone());
+    }
+    // ②持久化 conversation.updated 事件(D-387 核心:即使会话未在跑也落库,
+    // conversation_get 可读,消息不再死信;在跑时带上全量历史与轮末写回同构)。
+    if let Ok(store) = kanzei_core::SessionStore::open(state_path) {
+        let messages = persisted_messages.unwrap_or_else(|| vec![message.clone()]);
+        let _ = store.append_event(
+            thread_id,
+            "conversation.updated",
+            &json!({ "messages": messages }),
+        );
+    }
+    // ③UI 通知(桌面端可见,即使会话未在跑也刷新列表)。
+    if let Some(emit) = crate::state::MOBILE_MESSAGE_EMIT.get() {
+        emit(thread_id.to_string(), text.to_string());
+    }
 }
 
 /// R-270 批3:approval pending 列表——遍历所有 runtime 的 asks,产出**脱敏摘要**
@@ -961,5 +1012,43 @@ mod tests {
             Ok(kanzei_core::AskResponse::Answer(text)) => assert_eq!(text, "是"),
             other => panic!("question 回答应送达 Answer,实得: {other:?}"),
         }
+    }
+
+    /// D-387:手机消息消费方——注入 conversation.updated 事件持久化,桌面端
+    /// conversation_get 可读到(不再死信)。用临时 state.db 验证事件落库。
+    #[test]
+    fn 手机消息消费_事件落库可读() {
+        // 临时文件库(内存库无 project_state_path,用临时目录建 state.db)。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-mobile-consume-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = kanzei_core::SessionStore::open(&dir.join("state.db")).unwrap();
+        store.create_session("thread-x", "C:/p", None).unwrap();
+        drop(store);
+
+        // 消费:注入消息(空 runtimes=会话未在跑,仍应持久化事件)。
+        let runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        consume_mobile_message(&runtimes, "thread-x", "你好, 桌面!", &dir.join("state.db"));
+
+        // 事件落库:conversation.updated 含注入的消息(conversation_get 数据源)。
+        let store = kanzei_core::SessionStore::open(&dir.join("state.db")).unwrap();
+        let events = store
+            .list_events_by_type("thread-x", 0, "conversation.updated")
+            .unwrap();
+        assert!(!events.is_empty(), "必须产出 conversation.updated 事件");
+        let last = events.last().unwrap();
+        let payload: serde_json::Value = last.payload.clone();
+        let messages = payload["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1, "注入一条消息");
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[0]["parts"][0]["text"], "你好, 桌面!");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

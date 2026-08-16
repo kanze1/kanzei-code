@@ -264,6 +264,7 @@
   "gitLiveTimer",
   "gitRefreshGeneration",
   "handleBackgroundSessionDone",
+  "handleMobileMessage",
   "handleWorktreeAction",
   "harvestClaimId",
   "hideAsk",

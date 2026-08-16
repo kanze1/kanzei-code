@@ -59,6 +59,11 @@ pub(crate) static UI_PROBES: std::sync::LazyLock<
 pub(crate) static UI_PROBE_SEQ: AtomicU64 = AtomicU64::new(1);
 pub(crate) static UI_PROBE_EMIT: std::sync::OnceLock<Box<dyn Fn(serde_json::Value) + Send + Sync>> =
     std::sync::OnceLock::new();
+/// D-387:手机消息注入桌面后的 UI 通知出口。桌面端装配时注入 window.emit("kz:mobile-message"),
+/// mobile.rs 收到 POST /v1/messages 后经此通知 UI 刷新会话列表(消费方)。
+pub(crate) static MOBILE_MESSAGE_EMIT: std::sync::OnceLock<
+    Box<dyn Fn(String, String) + Send + Sync>,
+> = std::sync::OnceLock::new();
 /// R-249 批2:主窗口的原生句柄。与 UI_PROBE_EMIT 同一手法——建窗口时装一次,
 /// 工具侧只认这个静态,不依赖 tauri 类型,截图模块因此可以纯 Win32 无 tauri 依赖。
 pub(crate) static UI_WINDOW_HANDLE: std::sync::OnceLock<isize> = std::sync::OnceLock::new();

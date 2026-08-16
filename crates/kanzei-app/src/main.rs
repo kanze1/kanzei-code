@@ -103,6 +103,15 @@ fn main() {
             let _ = UI_PROBE_EMIT.set(Box::new(move |payload| {
                 let _ = handle.emit("kz:ui-probe", payload);
             }));
+            // D-387:手机消息注入桌面后的 UI 通知出口——kz:mobile-message 事件驱动
+            // 前端刷新会话列表(消费方闭环:手机发→桌面可见)。
+            let msg_handle = app.handle().clone();
+            let _ = crate::state::MOBILE_MESSAGE_EMIT.set(Box::new(move |session_id, text| {
+                let _ = msg_handle.emit(
+                    "kz:mobile-message",
+                    serde_json::json!({ "session_id": session_id, "text": text }),
+                );
+            }));
             // 窗口从 tauri.conf.json 自动创建改为这里手动创建(R-101 E2 harness):
             // 配置里 `"create": false`,由 from_config 按同一份配置建窗口,生产路径
             // 行为不变;仅当环境变量 KANZEI_E2E_CDP 非空时注入 --remote-debugging-port
