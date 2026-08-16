@@ -85,69 +85,12 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-419 编排派发的子代理条目卡在「运行中」:ToolEnd 要等整波过屏障才统一发,单条停止必然报「不在运行中或已结束」 [open]
-- 严重程度: medium
-- 优先级: P2
-- 标签: 前端 后端
-- 复现: 2026-08-17 01:27 用户实测截图——子代理面板头部显示「运行中 5 · 已完成 3」,architecture_scout 条目仍是 running 态并带「停止」按钮;点停止后运行日志连续 5 次「停止失败:子代理 architecture_scout 不在运行中或已结束」(01:27:31、01:27:36 ×4)。同轮该条目显示「43s · 工具调用 8 · token 0」。
-- 根因: crates/kanzei-app/src/phase_pipeline.rs:386-401——`dispatch_roles` 把全部角色的 `RunEvent::ToolEnd` 放在 `join_scouts`/`join_reviewers` 屏障**过完之后**统一发。而单个 scout 一返回,它的 `TaskCancellationGuard` 就 drop 并从 `TaskCancellations` 注销(crates/kanzei-core/src/runner/subagent.rs:687 注册、77-81 Drop 注销)。于是存在一个必然窗口:后端该子代理已终态且不可取消,面板却还没收到 ToolEnd、仍显示 running 并给出停止按钮 —— 点必失败。波内有一个角色慢(或超时,timeout_secs 兜底)时,窗口等于最慢角色的剩余时长。
-- 影响: ①面板「运行中 N」计数在整波结束前不可信,用户无法判断子代理是否真的还在跑;②停止按钮对已结束条目仍可点且必然失败,连报错刷屏;③与 R-174「子代理单条停止通道」的设计意图相悖——单条停止在编排派发路径上对已完成角色形同虚设。
-- 修复方向: 角色终态即发 ToolEnd,不等屏障。ScoutTask 的 async 块里 reports.push 之后(phase_pipeline.rs:348)就把该角色的终态经既有 tx 通道发出去(与进度事件同一条通道,select 循环已在转发),屏障之后那段循环改为只补发未见终态的角色(超时/未产出结果那一类)兜底,避免重复发。
-- 来源: 2026-08-17 用户实测截图并问「看下这个为啥卡住了」;勘察确认事件侧确实有发 ToolEnd(phase_pipeline.rs:392),断点在**发的时机**而非有没有发。
-- refs: R-174 R-173 R-281
-- 备注: 同轮「token 0」是另一回事——子代理跑 fast 路由(qwen3.5:4b / Ollama),StepEnd usage 由供应商回报,本地模型多半不报数,与本条终态时机无关,未并入本条。
-
-## D-420 window.prompt 输入弹窗在 WebView2 下失效:5 处(自定义 provider/项目重命名/新建项目)需迁到内联输入或自定义输入弹窗 [open] (medium)
-- 复现: 5 处输入弹窗仍用浏览器原生 window.prompt:08-compose.js:1345(填 provider:model)、09-sessions.js:761(重命名项目显示名)、09-sessions.js:846(新项目目录路径)、09-sessions.js:848(新项目显示名)、16-settings.js:369(填 provider:model)。桌面端为 WebView2,15-views-misc.js:85 注释明确『webview 无 window.prompt』(新建想法已因此改为内联输入 R-252)——这 5 处在真实桌面端弹不出输入框/返回 null,输入功能失效。
-- 影响: ①桌面端 5 个输入功能(自定义 provider 模型、重命名/新建项目)实际不可用(webview 下 window.prompt 返回 null,输入丢失);②与 D-418 确认弹窗收敛同源:原生浏览器弹窗在自定义 UI 体系下割裂。
-- 来源: D-418 修复复核(test_reviewer 发现 window.prompt 遗留);grep 全量确认 5 处 + 15-views-misc.js:85 的 webview 无 prompt 注释佐证。
-- 标签: 前端
-- 优先级: P2
-
-## D-423 opencode zen /responses 对 assistant 侧输入条目一律 500:多轮工具循环第二轮必死(kanzei 侧应能识别并给出可操作诊断) [open] (medium)
-- 复杂度: 中
-- 标签: 模型
-- 优先级: P2
-- 来源: 2026-08-17 修 D-422 后暴露:工具调用恢复了,第二轮却 HTTP 500(重试 2 次后整轮失败)。
-- 复现: curl 直连 https://opencode.ai/zen/go/v1/responses(model=mimo-v2.5-pro),逐项对照 `input` 里的条目形态——
-  `[user, assistant(content 数组: output_text / input_text / text 三种都试)]` → **500**;
-  `[user, function_call, user]` → **500**;
-  `[user, function_call_output, user]` → 200;
-  `[user, assistant(content 纯字符串), user]` → 200;
-  `[user, user]` → 200。
-  即:该网关的 /responses shim 只认纯字符串形式的 assistant content,任何数组式 content 与 function_call 条目都 500。而 kanzei 的 deepseek_responses::build_body 两种都发。
-- 影响: 用该 provider 的 responses 协议时,凡历史里有助手输出(即第二轮起)必然整轮失败。用户侧现象是重试两次后「provider returned HTTP 500」。
-- 处置(最终): `[providers.OPEN-code]` **保持 deepseek-responses**。中途曾改成 openai(/chat/completions)去救 mimo——实测三个模型的多轮工具循环在那条路上都是 200 且 finish_reason=tool_calls——但 D-425 判定 mimo 无解之后,改协议就只剩代价:chat completions 回放不了无签名的 Reasoning part(openai.rs build_body 直接跳过该 assistant 消息),推理模型跑多步工具循环时每步都看不到自己上一步的思考,而 deepseek-responses 会原样回放(deepseek_responses.rs 的 `Part::Reasoning` 分支)。已回退并复验:`KANZEI_MODEL=OPEN-code:deepseek-v4-flash kz run --readonly` 两步、真实 read 调用、缓存命中 5248。
-- 端点按模型分裂(同一个 zen/go/v1,实测存档): deepseek-v4-flash 的 /responses 事件集完整(created / output_item.done 都发)、吃 assistant 历史 → 该走 responses;mimo 系两头都不通(responses 缺 done + assistant 条目 500;chat completions 退化成 XML)→ 不配进来。protocol 是按 provider 配的、不是按模型,真要同时用两类模型得拆成两个 provider 条目。
-- 社区侧确认(2026-08-17): 不是我们配错,是**这个端点压根没实现**。anomalyco/opencode#23655(feature request,open、无维护者回复)原文:「The OpenCode Go service currently only supports the `/v1/chat/completions` endpoint (OpenAI Chat Completions API format)」,请求的正是给 `https://opencode.ai/zen/go/v1/responses` 补上 Responses 支持。也就是说 zen/go 这一支只有 chat completions 是正规军,/responses 是个半吊子(deepseek-v4-flash 能跑纯属它那条路径恰好完整)。改协议是唯一正解,不是绕路。
-- 待办: 引擎侧目前把这类方言不兼容表达成裸 HTTP 500 + 两次无意义重试。应在 responses 路径识别「带 assistant 历史即 500」这一形态,给出可操作诊断(点名 provider/协议,建议改 openai 协议),而不是让用户从 500 反推。是否再做一个 responses 方言开关(assistant content 降级为纯字符串、跳过 function_call 条目)由用户拍板——改协议已能解决,方言开关只对「必须走 /responses」的场景有价值。
-- 验收: ①带 assistant 历史的 responses 请求失败时,错误信息点名 provider/协议并给出改协议的建议,不是裸 500;②该形态的失败不做无意义重试(500 当前会退避重试 2 次);③若实现方言开关,mimo 系在 /responses 下能跑通多轮工具循环。
-
-## D-425 mimo-v2.5-pro 在大提示面下退化为 Hermes XML 工具语法写进 content,网关二次转换有损:是否加 XML 打捞垫片待定 [open] (medium)
-- 复杂度: 中
-- 标签: 模型
-- 优先级: P3
-- refs: D-424 D-422
-- 来源: 2026-08-17 排查 D-424 时读 state.db 发现。
-- 复现: 会话 #122581 的 assistant 消息里,text part 是完整的 Hermes/Qwen 工具语法——`<tool_call>\n<function=work>\n<parameter=action>claim</parameter>\n<parameter=id>D-419</parameter>\n<parameter=reason>…</parameter>\n</function>\n</tool_call>`——而同一条消息的 tool_call part 是网关据此二次转换出来的畸形调用(参数截断/多条塌缩)。对照:同一模型在**小**请求下(1~2 个工具、短 system)curl 直连实测发的是干净的原生 tool_calls,`index` 也正常。差异变量是 kanzei 的真实提示面(36 个工具 / tools schema ~37k 字符 / system ~14k + conventions ~13k)。
-- 影响: mimo-v2.5-pro 在本 harness 下不可用——一旦退化,工具调用要么名字错要么参数残缺,轮轮报 needs_correction。同网关的 deepseek-v4-flash 不退化(历史 run 里 217/258 次工具调用),是当前可用选择。
-- 社区调查结论(2026-08-17,**不做打捞垫片**): 这是被反复讨论过的生态通病,而且结论是一边倒的反对客户端文本打捞。
-  · LiveKit《Your Model Isn't Bad at Tool Calling. Your Serving Stack Is.》明确拒绝:框架「deliberately never scrapes tool calls out of text content」,理由是逐个模型家族去 scrape 语法既脆弱又破坏流式;并给出判据「no framework can recover a tool call the server never structured」。正解只有三条,全在服务端:换能正确解析该模型的 provider、自托管并配上对应的 tool-call parser(vLLM/SGLang 都支持按模型配)、或改用模型的原生 API。
-  · Roo-Code 走过这条路又退回来了:#11526 直接把 XML 工具调用支持删掉(「XML tool calls are no longer supported」)。
-  · 同类报障遍布 lmstudio-bug-tracker#2115、continue#11453 与 discussion#10534、mlx-lm#1096、openclaw#49508——共同点是「serving stack 的 parser 没接上,原生语法漏进 content」,没有一个是靠客户端解析收场的。
-  · 我原先担心的误报(本仓散文里天然会出现讨论工具格式的 `<tool_call>`)在这里只是次要理由;主要理由是打捞会把「网关转换有损」这件事永久掩盖掉,而且流式下无法可靠切分。
-- 处置: 关闭打捞方案,不实现。mimo 系在本 harness 下判定为不可用,改用同网关的 deepseek-v4-flash(历史 run 217/258 次工具调用,不退化)。
-- 旁证(mimo 的工具调用在多个 agent 项目独立踩雷): opencode#24095(mimo-v2.5 调不存在的工具名,closed as not planned)、oh-my-pi#2005(MiMo V2.5 Pro 走 Anthropic 协议时 tool-call 渲染崩溃+无限重试)、opencode#39873(mimo-v2 系整体 Upstream request failed)。
-- 验收: ①不实现打捞垫片(本条以 wontfix 收);②模型选择上记住 mimo 系不进自动推进档位。
-
-## D-426 Anthropic 拒收顶层 allOf 的 input_schema:tracker 系工具(idea/req/defect/…)的 R-191 条件必填约束让 claude 全系模型 400,一个工具都用不了 [fixed] (high)
-- 来源: 用户 2026-08-17 05:35 截图,模型 claude:claude-sonnet-5、agent dev、36 个工具。
-- 复现: 桌面端选 claude 系模型发任意一句话,首轮即 `provider returned HTTP 400: tools.18.custom.input_schema: input_schema does not support oneOf, allOf, or anyOf at the top level`(带 Anthropic 真实 request_id,证明请求已到达、不是代理问题)。序号对得上:按工具注册顺序 …latex(16)/plot(17)/**idea(18)**,idea 是第一个 tracker 系工具。
-- 根因: tracker.rs `input_schema()` 往 schema **顶层**塞 `allOf` + `if/then`,表达 R-191 的「action=add 时 severity/priority/复杂度/标签(及 refs)必填」。这份约束对 OpenAI/DeepSeek 合法且有用,但 Anthropic 的 input_schema 明确不接受顶层 oneOf/allOf/anyOf——一个工具违规,**整条请求**被拒,于是 claude 全系模型一个工具都用不了。全仓扫过:这是唯一一处顶层组合器(工具的 Input 类型里没有 enum 形状,schemars 不会另外生成),properties 里的 anyOf(Option<T> 渲染出来的)是嵌套的,Anthropic 不禁。
-- 修复: 不动工具侧(那份约束对别的 provider 还要用),只在 anthropic.rs 这条 wire 上摘:`sanitize_input_schema` 去掉顶层 oneOf/allOf/anyOf,其余部分(含 properties 里的嵌套组合器)逐字保留。摘掉只损失一条**提示**——必填仍由工具自身的登记门禁强制,缺字段返回 needs_correction 并点名缺哪几个,模型下一步就能补齐。
-- 验证: 新增定向回归(顶层组合器被摘掉而 schema 其余部分逐字保留,含嵌套 anyOf 不得被误删);kanzei-llm 52 全绿,fmt/clippy 干净。**实弹验证欠一次**:用户的 claude 订阅当时正在 429、环境无 ANTHROPIC_API_KEY,没能跑通一轮真实请求。
-- 验收: ①claude 系模型带完整 dev 工具面能正常发出请求并调用工具(**待补:装新包后实跑一轮**);②properties 里的嵌套组合器不被误删,有测试;③其它协议(OpenAI/DeepSeek/Responses)照旧收到带 allOf 的完整 schema,行为无变化。
-- 备注: 这条把「claude 完全不可用」和 mimo 那条(D-425 不可用)叠在一起看,才是用户当时无模型可用的全貌:deepseek-v4-flash 是唯一没被挡住的一条路。
-- 复杂度: 小
-- 标签: 模型
+## D-428 D-428 归档 fixed 的 D-409 提交不在当前 dev，记忆 inbox 分批修复未接入 [open] (high)
+- 复现: 当前 dev 中 crates/kanzei-app/src/memory.rs:311-374 与 crates/kanzei/src/cli/memory.rs:29-75 仍调用 read_inbox/整箱 consolidation，且 run 结果被忽略；全仓无 read_inbox_batch 符号。D-409 归档进展引用的 5a15cdc/b4245f6c 不在当前 dev 历史。
+- 影响: requirements、defects、tests 与实现互相矛盾；系统仍可能无法按批消化 inbox，R-286 的 P0 事实恢复被错误 fixed 状态掩盖。
+- 期望: 在当前 dev 原子接入分批读取、checkpoint、错误可见和 CLI/桌面共用服务；重新跑定向测试并把 D-409/R-286/tests/实现证据绑定到当前 dev 提交。
+- 来源: self-found：R-283 Wave 0 事实复核
+- 标签: 核心
+- 根因: D-409 的修复提交来自另一条线/历史观察点，归档状态先于实现进入当前 dev，缺少当前分支提交存在性门禁。
+- refs: D-409 R-286 R-283
 - 优先级: P0

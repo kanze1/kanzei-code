@@ -4649,3 +4649,242 @@
 - 关联: D-395
 - 收尾: 1786869387
 - 源码指纹: 208f1dedc8a2a63e
+
+## T-1786869474 D-397:cargo test -p kanzei-tools(mtime/len 粗筛+截断报告) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 32.4s
+- 摘要: D-397 全绿:341 passed(mtime/len 粗筛实现,执行后扫描只 stat:5 树×300 文件实测 119ms 读内容 vs 2.16ms 粗筛,55 倍;截断显式报告测试)
+- 关联: D-397
+- 收尾: 1786869474
+
+## T-1786870028 D-398:cargo test -p kanzei-tools(写日志覆盖洞接线) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 30.8s
+- 摘要: D-398 全绿:344 passed(record_write_log 共享 helper 接入 tracker 活动+归档/test_record 双文件/conventions patch/architecture update;3 个写日志测试)
+- 关联: D-398
+- 收尾: 1786870028
+
+## T-1786870354 D-399:cargo test --workspace(回滚目标/prune 接线/record 告警) [passed]
+- 命令: cargo test --workspace
+- 时长: 54.0s
+- 摘要: D-399 全量全绿(tools 345 passed):回滚目标改最后合法日志内容+同路径混合测试+record 按量自愈+record 失败告警(4 处)
+- 关联: D-399
+- 收尾: 1786870354
+
+## T-1786870604 D-400:cargo test -p kanzei-tools(浏览器工具错误通道) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 32.1s
+- 摘要: D-400 全绿:346 passed(rpc 嵌套 result.error 透传+reader 线程超时兜底+Drop kill+reaper 常驻;rpc 错误透传测试用真实 node 假 helper)
+- 关联: D-400
+- 收尾: 1786870604
+
+## T-1786870961 D-401:ui-connectivity 浏览器遍历+配置化实测 [passed]
+- 命令: node scripts/ui-connectivity-browser.mjs --probe; node scripts/ui-connectivity.mjs --json
+- 时长: 2.0s
+- 摘要: D-401 巡检脚本实测:probe 反证 ok 可见/broken 切换崩被检出(exit=0),PWA 配对页 #app 真实遍历无逻辑错误,静态巡检读 key-paths.json 配置(耗时 940ms)
+- 关联: D-401 R-272
+- 收尾: 1786870961
+
+## T-1786890928 D-409 关闭前全量:cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 时长: 60.0s
+- 摘要: D-409 关闭前全量全绿:base 37 + harness 31 + memory 183(含 read_inbox_batch 2 新测试)+ core 209 + llm 148 + kz 46 + app 141 + tools 346,0 failed
+- 关联: D-409
+- 收尾: 1786891030
+
+## T-1786891235 D-409 CLI 版分批:cargo test -p kanzei [passed]
+- 命令: cargo test -p kanzei
+- 时长: 8.7s
+- 摘要: D-409 CLI 版分批改造后 kanzei crate 全绿:37+31 passed 0 failed
+- 关联: D-409
+- 收尾: 1786891235
+
+## T-1786891556 D-412 修复验证:V 表证据深度口径+来源标注一致性核对 [passed]
+- 摘要: 纯文档/流程改动(design V 表 + research 工件 + R-277 验收口径),无代码断言受影响。核对:①research_mode.md §4 V 表文献域已补「摘要级封顶 V1、正文级才够 V2」+D-412 反例口径;②sources.md S-002~S-013 全部 12 个文献来源逐一标注证据深度(摘要级 S-002~007/012~013,正文级 S-008 经 arXiv HTML 全文核验 episodic×30/semantic×121/procedural×26/working memory×29、S-009~011 官方文档);③findings.md F-008/009/010 从 V2 降 V1 并标「摘要级」;④memory.md 谱系坐标来源标注补摘要级限定;⑤R-277 验收②补「出处是否真含支撑文本」机械抽查口径(CoALA 为反例样本);⑥research_workspace.md:77 已有「摘要级封顶 V1,读过正文才够 V2」设计,前端批5 承接。report.md 为 0 字节(本轮 research 会话产物未生成/已清空,不属本缺陷修复面)。
+- 关联: D-412
+- 收尾: 1786891556
+
+## T-1786893634 R-242 批4:cargo test -p kanzei-core + cargo build -p kanzei [passed]
+- 命令: cargo test -p kanzei-core; cargo build -p kanzei
+- 摘要: R-242 批4 fmt 后复测:kanzei-core 211 passed(含 shadow_mismatch_classification_distinguishes_expected_from_unknown、summarize_shadow_reports_counts_verdicts_and_write_errors 两个新测试),kanzei 编译通过(kz shadow 命令链)
+- 关联: R-242 D-417
+- 收尾: 1786893634
+- 源码指纹: 11c04328720e0401
+
+## T-1786893668 R-242 批4:cargo test -p kanzei [passed]
+- 命令: cargo test -p kanzei
+- 摘要: R-242 批4 kanzei crate 测试:31 passed(kz shadow CLI 命令注册链编译+既有集成测试全绿)
+- 关联: R-242 D-417
+- 收尾: 1786893668
+- 源码指纹: 11c04328720e0401
+
+## T-1786893905 R-242 批5:cargo test -p kanzei-core [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: R-242 批5(D-417 修复):213 passed(新增 append_rejects_facts_for_turn_already_terminal_in_db 库内 terminal 预检拒、recover_tolerates_historical_post_terminal_append 历史脏序列容忍 2 测试)
+- 关联: R-242 D-417
+- 收尾: 1786893905
+
+## T-1786894065 R-242 批5 fmt 后:cargo test -p kanzei-core [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: R-242 批5 fmt 后复测:213 passed(库内 terminal 预检拒 append + 历史脏序列 recover 容忍 skipped 计数,RecoveryReport 签名适配后全绿)
+- 关联: R-242 D-417
+- 收尾: 1786894065
+- 源码指纹: 6044c6ebe0bc04b6
+
+## T-1786894681 R-242 批6:cargo test -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-242 批6:188 passed(新增 projection_gate 2 测试:缺省启用/白名单独立回滚;conversation_get_gate_controls_projection_vs_legacy:gate 开投影 3 条 vs 关 legacy 1 条)
+- 关联: R-242
+- 收尾: 1786894681
+
+## T-1786895638 R-242 批7a:cargo test -p kanzei-app + cargo test -p kanzei [passed]
+- 命令: cargo test -p kanzei-app; cargo test -p kanzei
+- 摘要: R-242 批7a:kanzei-app 192 passed(新增 segment reset 新段/空/幂等、conversation_get 空投影回退 legacy、conversation_list 投影分段、user 边界强杀恢复 4 测试);kanzei 37+31 passed(集成测试对轮末快照断言不受影响)
+- 关联: R-242
+- 收尾: 1786895638
+
+## T-1786895785 R-242 批7a rfind 后:cargo test -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-242 批7a clippy 改写(rfind)后复测:kanzei-app 192 passed
+- 关联: R-242
+- 收尾: 1786895785
+- 源码指纹: bff359d7b284ffc3
+
+## T-1786895818 R-242 批7a 提交前:cargo test -p kanzei [passed]
+- 命令: cargo test -p kanzei
+- 摘要: R-242 批7a 提交前:kanzei 37+31 passed(cli/run.rs 注释 diff 编译链与集成测试全绿)
+- 关联: R-242
+- 收尾: 1786895818
+- 源码指纹: bff359d7b284ffc3
+
+## T-1786896335 R-242 批8:cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: R-242 批8 关闭前全量:workspace 全绿(kanzei-core 213、kanzei-app 139、kanzei-tools 317、kanzei-llm 148、harness 46 等,0 failed)
+- 关联: R-242
+- 收尾: 1786896335
+
+## T-1786896965 R-242 conversation_list gate 补丁:cargo test -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-242 conversation_list 缺省 gate 补丁:kanzei-app 192 passed(DEFAULT_PROJECTION_PATHS 加 conversation_list + 投影空 facts 回退 legacy + gate 测试断言同步)
+- 关联: R-242
+- 收尾: 1786896965
+
+## T-1786898357 R-279 批1:core/app/kanzei/tools 定向测试 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-app; cargo test -p kanzei; cargo test -p kanzei-tools
+- 摘要: R-279 批1:kanzei-core 214(含 recover_subagent_transcript 单测)、kanzei-app 192、kanzei 37+31、kanzei-tools 317 全绿
+- 关联: R-279 R-242
+- 收尾: 1786898357
+
+## T-1786898479 R-279 批1 clippy 后:cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: R-279 批1 clippy allow 后复测:kanzei-tools 317 passed(build_subagent_runtime too_many_arguments allow)
+- 关联: R-279 R-242
+- 收尾: 1786898479
+- 源码指纹: 21ce0d6279def662
+
+## T-1786898684 R-279 批1 提交前:cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: R-279 批1 提交前全量:workspace 15 套件 0 failed(kanzei-core 214/app 192/kanzei 37+31/tools 317 等)
+- 关联: R-279 R-242
+- 收尾: 1786898684
+- 源码指纹: 21ce0d6279def662
+
+## T-1786898801 R-279 批2:kanzei 集成测试 [passed]
+- 命令: cargo test -p kanzei --test integration subagent_transcript_persists_to_events_and_recovers_via_provider; cargo test -p kanzei
+- 摘要: R-279 批2:subagent_transcript_persists_to_events_and_recovers_via_provider 集成测试通过(真实 run_subagent 落库 subagent.transcript 事件 + provider 从事件恢复续跑,事件历史随续跑增长);kanzei 37+32 passed
+- 关联: R-279 R-242
+- 收尾: 1786898801
+
+## T-1786901792 D-418:六条前端冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: D-418 六条前端冒烟全绿:ui-runtime 23 项/0 错误(含确认弹窗 mock 适配)、ui-lint no-undef 零错误(confirmDialog 入 globals)、ui-i18n 1216 键(新增 8 键)、a11y/parallel/markdown 全过
+- 关联: D-418
+- 收尾: 1786901792
+
+## T-1786901878 D-418 提交前:cargo test -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: D-418 提交前:kanzei-app 192 passed(ui 改动 crate 覆盖)
+- 关联: D-418
+- 收尾: 1786901878
+- 源码指纹: e218ebb8d7e60c68
+
+## T-1786903020 R-282:六条前端冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: R-282 六条前端冒烟全绿(焦点卡片字段固定化 FOCUS_FIELD_KEYS + 进展折叠,ui-runtime 23 项 0 错误)
+- 关联: R-282
+- 收尾: 1786903020
+
+## T-1786907306 D-421 修复:kanzei-app + kanzei-core 定向测试 [passed]
+- 命令: cargo test -p kanzei-app; cargo test -p kanzei-core
+- 摘要: D-421 修复:kanzei-app 193(新增 conversation_delete_removes_projected_segment 投影段删除回归测试)+kanzei-core 214 全绿
+- 关联: D-421
+- 收尾: 1786907306
+
+## T-1786907380 D-421 rfind 后复测 [passed]
+- 命令: cargo test -p kanzei-app conversation_delete_removes_projected_segment
+- 摘要: D-421 clippy 改写(rfind)后复测:conversation_delete_removes_projected_segment 通过
+- 关联: D-421
+- 收尾: 1786907380
+- 源码指纹: db5d0f21f2de2a31
+
+## T-1786907432 D-421 提交前:cargo test -p kanzei-app + kanzei-core [passed]
+- 命令: cargo test -p kanzei-app; cargo test -p kanzei-core
+- 摘要: D-421 rfind 改写后全量:kanzei-app 193 + kanzei-core 214 全绿(待提交)
+- 关联: D-421
+- 收尾: 1786907432
+- 源码指纹: d9ab54194cba4d4d
+
+## T-1786917668 D-419 编排角色终态即时 ToolEnd 定向测试 [passed]
+- 命令: cargo test -p kanzei-app phase_pipeline
+- 时长: 3.0s
+- 摘要: kanzei-app phase_pipeline 模块 16 项测试全部通过，包含新增的「编排角色终态不等屏障立即上报」回归用例。
+- 关联: D-419
+- 收尾: 1786917668
+
+## T-1786919911 D-420 输入弹窗迁移六条前端冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 六条前端冒烟均已实际通过：ui-runtime 23 个 ui/*.js、2114 次 invoke、0 运行时错误；ui-lint 43 文件零 no-undef；并行线路、无障碍、i18n 1217 keys/426 HTML 文案、Markdown 全绿。
+- 关联: D-420
+- 收尾: 1786919911
+
+## T-1786920527 D-420 D-427 kanzei-app 提交前定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.7s
+- 摘要: kanzei-app 完整定向测试 196/196 通过，包含 D-427 legacy reset 回归测试与 D-420 相关 UI 代码编译覆盖。
+- 关联: D-420 D-427
+- 收尾: 1786920527
+- 源码指纹: bcfee39f931fccee
+
+## T-1786920587 D-420 D-427 clippy 修正后提交前定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.5s
+- 摘要: 修正 clippy 未使用函数后 kanzei-app 完整定向测试 196/196 通过，fmt check 通过。
+- 关联: D-420 D-427
+- 收尾: 1786920587
+- 源码指纹: bcfee39f931fccee
+
+## T-1786920727 D-427 当前暂存源码提交前测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.2s
+- 摘要: 当前暂存源码指纹下 kanzei-app 完整定向测试 196/196 通过；用于 D-427 提交门禁。
+- 关联: D-427
+- 收尾: 1786920727
+- 源码指纹: 075eab7610a2dc6c
+
+## T-1786922726035 R-285 金色神经流前端回归 [passed]
+- 命令: UI 全部 JS node --check;npm run lint;node scripts/ui-runtime-smoke.mjs;node scripts/ui-a11y-smoke.mjs;node scripts/ui-i18n-smoke.mjs;node scripts/ui-markdown-smoke.mjs;node scripts/parallel-lines-regression.mjs;node scripts/ui-connectivity.mjs
+- 摘要: 24 个 UI 脚本按 index.html 顺序初始化通过(2114 次 invoke,10 个主视图,0 运行时错误);R-285 画布/API/事件接线断言通过;ESLint、1226 i18n key、无障碍、Markdown、并行线路和 10/10 导航连通性全绿。
+- 证据等级: E2(模拟 Tauri 运行时+跨脚本事件契约;不代表真实 WebView2 帧率)
+- 关联: R-285
+
+## T-1786922726036 R-285 Chromium Canvas 视觉验收 [passed]
+- 命令: playwright-cli 打开 output/playwright/neural-flow-preview.html(生产 style.css+22-neural-flow.js),1440x1000 与 800x720 截图,运行态循环触发 memory_recall_injected/memory_candidate_promoted
+- 摘要: 真实 Chromium Canvas 下呼吸/流动/结晶可见;主对话神经场集中在右侧外围且未压正文;记忆页强度更高;800px 构图仍成立。截图:output/playwright/neural-flow-active.png、neural-flow-800.png。唯一 console error 为预览页 favicon.ico 404,与产品代码无关。
+- 证据等级: E2(真实浏览器渲染生产 JS/CSS;未启动 Tauri、未测 WebView2 长会话性能)
+- 关联: R-285
+
+## T-1786922726037 R-283 B2 文档与架构索引一致性检查 [passed]
+- 命令: architecture check
+- 摘要: 架构索引收录全部 37 个 docs/design/*.md，链接存在、无重复且无遗漏；R-283 Wave 0 文档记录可复核。
+- 关联: R-283 D-429
+- 收尾: 1786924338

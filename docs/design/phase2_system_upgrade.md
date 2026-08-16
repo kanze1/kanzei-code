@@ -298,6 +298,13 @@ voice：`voice_listening`、`voice_transcribing`、`voice_thinking`、`voice_spe
 
 Go：inbox 可分批下降、失败可见、台账与 dev 一致；事件不依赖当前页签猜归属。
 
+#### Wave 0 事实记录（本批复核：No-Go）
+
+- **状态：No-Go。** 当前 `dev` 仍不满足 inbox 分批、失败可见和台账一致三项门槛；不得把 D-409 的归档状态当作当前交付证据。
+- **实现证据：** `crates/kanzei-app/src/memory.rs:311-374` 与 `crates/kanzei/src/cli/memory.rs:29-75` 仍整箱读取 inbox，且 app 在 `:374`、CLI 在 `:75` 丢弃整理 run 结果；当前代码树不存在 `read_inbox_batch`。
+- **状态证据：** D-409 归档进展引用的 `5a15cdc`、`b4245f6c` 不在当前 `dev` 历史；其归档测试 `T-1786890928` 因此不能单独证明当前实现已接入。该矛盾登记为 D-428，R-286 保持 P0 待修。
+- **决策与交接：** R-283 批2 只完成事实校正；R-286 必须在当前 `dev` 恢复分批读取、checkpoint、错误回传及桌面/CLI 共用服务，并以当前提交重新生成测试证据后，Wave 0 才允许重新评估 Go。R-284 的事件契约仍不得被下游动画或研究实现绕过。
+
 ### Wave 1：研究与记忆引擎
 
 1. R-221 topic 工件和记忆一元化；

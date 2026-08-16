@@ -27,7 +27,10 @@
 
 - [`continue_prompt_dissection.md`](../../../docs/design/continue_prompt_dissection.md)：继续文案拆解与鞭挞引擎化——保留必要性评估(草案,待用户拍板方案 A/B/C;鞭挞核心部件下沉 harness,R-128 承接阻塞停止分支)。
 - [`deepseek_harness_upgrade.md`](../../../docs/design/deepseek_harness_upgrade.md)：Typed Session Events、Surface Projection、Tool Pipeline/Spill 与 LineRuntime 的升级草案(R-241～R-246,A-012 待转 accepted)。
+- [`phase2_system_upgrade.md`](../../../docs/design/phase2_system_upgrade.md)：自举二期 research/memory/运行体验/动画/voice 的依赖、波次、Go/No-Go 与联合验收总纲(R-283)。
 - [`research_mode.md`](../../../docs/design/research_mode.md)：研究模式设计基线草案(2026-08-12 八维度审计维度 8 产出;八个定调点待用户确认,R-221 承接)。
+- [`research_mode_prior_art.md`](../../../docs/design/research_mode_prior_art.md)：research 模式先行调研与同类系统对照资料，作为 R-221/R-277 的设计输入。
+- [`research_workspace.md`](../../../docs/design/research_workspace.md)：research 工作台与来源/发现工件交互设计，作为 R-276 的设计输入。
 - [`session_state_and_line_runtime.md`](../../../docs/design/session_state_and_line_runtime.md)：会话状态与线路运行态设计(状态持久化、恢复与并发线路隔离)。
 - [`ui_esm_migration.md`](../../../docs/design/ui_esm_migration.md)：前端 ESM 迁移评估(结论:保持有序 classic script,A-008)。
 
@@ -43,4 +46,5 @@
 
 ### 规范
 
+- [`bootstrap_quality_audit.md`](../../../docs/design/bootstrap_quality_audit.md)：自举质量波次审计 SOP，规定只读审计、证据替身、最后一公里接线与注释承诺检查。
 - [`readme.md`](../../../docs/design/readme.md)：docs/design 的记录规范与文档模板。
