@@ -343,6 +343,11 @@ const PANE_LIVE_HARD_MAX = PANE_LIVE_MAX * 3;
 
 function trimLivePane(pane) {
   if (!pane || typeof pane.children?.length !== "number") return;
+  // renderMessagesInto 会把 activePane 临时换成一个**游离的 holder** 再渲染
+  // (15-views-misc.js),补齐一窗历史时那个 holder 可能有上千个节点。在游离节点上
+  // 裁剪等于把还没 prepend 进页面的消息直接删掉,而调用方随后只搬 childNodes,
+  // 被删的那批再也回不来。没挂进文档的容器一律不裁。
+  if (pane.isConnected === false) return;
   if (pane.children.length <= PANE_LIVE_MAX) return;
   // 看得见的那个 pane 才有「阅读位置」可言;后台 pane 随便裁。
   const visible = pane === activePane;
@@ -352,7 +357,13 @@ function trimLivePane(pane) {
   // 节点自己没被删时才兜得住,而「翻上去读刚才那段」恰好落在删除区里:实测 scrollTop
   // 数值一动不动,画面却无声跳过 200 条,正在读的那条已从 DOM 消失。
   // loadEarlierMessages 早就用了正确做法(按高度差回补 scrollTop),裁剪这条路上漏了。
+  // 两个取样都必须在**删除之前**。删头部节点时浏览器会先把 scrollTop 夹到新的上限,
+  // 删完再读到的已经是夹紧后的值——拿它再减一次高度差,等于同一个 delta 扣两遍,
+  // 落点直接溢出到 0。实测:纯流式、用户零操作,第 601 条触发裁剪就被甩到离底
+  // 7635px 且 followLatest 永久翻成 false(于是 pane 进入「读历史」态、裁剪推迟到
+  // 硬顶,反噬性能目标本身)。落点为 0 还会顺手触发触顶补齐,凭空塞进一窗更早的历史。
   const heightBefore = visible ? messages.scrollHeight : 0;
+  const topBefore = visible ? messages.scrollTop : 0;
   let dropped = Number(pane.dataset.droppedLive || 0);
   const isHint = (el) =>
     el?.classList?.contains("earlier-hint") || el?.classList?.contains("pane-trimmed-hint");
@@ -370,7 +381,21 @@ function trimLivePane(pane) {
     dropped += 1;
   }
   pane.dataset.droppedLive = String(dropped);
-  if (visible && heightBefore) messages.scrollTop -= heightBefore - messages.scrollHeight;
+  // 回补只在**用户正在读历史**时才是对的语义(硬顶强裁那一支)。跟随态下用户要的
+  // 不是「保住看的位置」而是「一直贴着底」,此时算位置反而会把自己算离底——而且
+  // 这次赋值产生的 scroll 事件会被当成人为滚动,把 followLatest 关掉,从此再也回不来。
+  // 跟随态直接交给 scrollBottom 重新钉底,并把落点登记成程序滚动。
+  if (visible && heightBefore) {
+    if (reading) {
+      messages.scrollTop = topBefore - (heightBefore - messages.scrollHeight);
+    }
+    // 删头部节点时浏览器会**自己**把 scrollTop 夹到新上限,那一下同样会发 scroll 事件。
+    // 不先把落点登记成程序滚动,它就会被当成「用户往上滚了」——实测跟随态下 601 条触发
+    // 裁剪后 followLatest 立刻翻成 false,此后 flushScrollBottom 不再钉底,永远回不到最新。
+    if (typeof noteProgrammaticScroll === "function") noteProgrammaticScroll();
+    // 跟随态下用户要的是「一直贴着底」,不是保住某个位置:交给 scrollBottom 重新钉底。
+    if (!reading && typeof scrollBottom === "function") scrollBottom(true);
+  }
   // 折叠组的组头可能刚被裁掉;留着失效引用会让后续子代理工具块写进游离节点、
   // 界面上凭空少一批轨迹。清掉引用,下一次 chatAgentFold 会重建组头。
   if (typeof chatAgentFolds !== "undefined") {

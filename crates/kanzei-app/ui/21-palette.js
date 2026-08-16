@@ -52,11 +52,11 @@ function collectPaletteEntries() {
   const action = (label, id) => {
     const el = $(id);
     if (!el || el.disabled || el.classList.contains("hidden")) return;
-    const collapsed = typeof el.closest === "function" ? el.closest("details:not([open])") : null;
-    push(t("动作"), label, "", () => {
-      if (collapsed) collapsed.open = true;
-      el.click();
-    });
+    // 这里**不替它展开宿主 details**。预先展开会让处理器看到「宿主已开 + 自己没有
+    // hidden 类」从而判定为"当前可见"、反手执行关闭——被修的那条高危路径原样复活。
+    // 展开责任统一留在各自的 click 处理器里(见 07-events.js chat-search-toggle),
+    // 那样无论从菜单点还是从面板点,行为都是同一套。
+    push(t("动作"), label, "", () => el.click());
   };
   action(t("新对话"), "new-chat");
   action(t("停止"), "stop");

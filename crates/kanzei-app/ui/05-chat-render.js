@@ -17,7 +17,33 @@ function updateLatestButton() {
   const button = $("jump-latest");
   if (button) button.classList.toggle("hidden", followLatest);
 }
+// 我们自己写 scrollTop 时浏览器同样会发 scroll 事件。合帧之后这变成了一个陷阱:
+// 一帧里追加几十条,帧末只滚一次;那一次滚动产生的 scroll 事件到达时,后面又追加了
+// 更多内容,nearBottom() 已经是 false —— 于是「跟随」被自己的滚动关掉,而关掉之后
+// flushScrollBottom 不再滚,再也回不来。实测:纯流式、用户零操作,700 条之后离底
+// 20635px 且 followLatest 永久为 false(顺带让 pane 进入「读历史」态、裁剪推迟到硬顶)。
+// 判据:落点正好等于我们刚写进去的值 = 这不是人滚的,不参与跟随态重算。
+/// 「这次滚动是谁干的」不能靠比对 scrollTop 数值来判断:一帧里可能连着发生两次
+/// 程序滚动(裁剪时浏览器自己夹一次 + flushScrollBottom 钉底一次),两个 scroll 事件
+/// 的投递顺序与 rAF 回调先后并不保证,记下的值在事件送达前就已经被下一次覆盖——
+/// 实测差 49px 就认不出来,于是被当成「用户往上滚了」,跟随态从此关掉再也回不来。
+///
+/// 改用意图判定:自己滚过之后的一小段时间内不重算跟随态;而**真实手势**(滚轮、
+/// 按住滚动条、触摸、按键)立刻作废这个窗口,让用户随时能滚上去停住。
+/// 退化方向是安全的:万一漏掉某种手势,最坏也只是晚 120ms 才认出用户在读历史。
+const PROGRAMMATIC_SCROLL_WINDOW_MS = 120;
+let programmaticUntil = 0;
+function noteProgrammaticScroll() {
+  programmaticUntil = Date.now() + PROGRAMMATIC_SCROLL_WINDOW_MS;
+}
+for (const gesture of ["wheel", "pointerdown", "touchstart", "keydown"]) {
+  messages.addEventListener(gesture, () => { programmaticUntil = 0; }, { passive: true });
+}
 messages.addEventListener("scroll", () => {
+  if (Date.now() < programmaticUntil) {
+    updateLatestButton();
+    return;
+  }
   const wasReading = !followLatest;
   followLatest = nearBottom();
   updateLatestButton();
@@ -40,7 +66,10 @@ function flushScrollBottom() {
   scrollFlushScheduled = false;
   const force = scrollFlushForce;
   scrollFlushForce = false;
-  if (force || followLatest) messages.scrollTop = messages.scrollHeight;
+  if (force || followLatest) {
+    messages.scrollTop = messages.scrollHeight;
+    noteProgrammaticScroll();
+  }
   updateLatestButton();
 }
 function scrollBottom(force = false) {

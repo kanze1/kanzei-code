@@ -317,15 +317,11 @@ function loadEarlierMessages() {
   activePane.prepend(...[...holder.childNodes]);
   history.rendered += chunk.length;
   messages.scrollTop += messages.scrollHeight - before;
-  // 补进来的这一窗是 prepend 的,绕过了 appendToPane,所以 trimLivePane 的
-  // droppedLive 账本不知道它们的存在。不同步的话:补了 120 条上来,下一次实时裁剪
-  // 又从头部把它们删掉,而「较早的 N 条」里的 N 只算实时那部分——界面上会出现
-  // 一段没有任何标记的断层,用户以为对话本来就是连着的。
-  const droppedNow = Number(activePane.dataset.droppedLive || 0);
-  if (droppedNow > 0) {
-    activePane.dataset.droppedLive = String(Math.max(0, droppedNow - chunk.length));
-    renderTrimmedHint(activePane);
-  }
+  // 这里**不能**去冲抵 droppedLive。补进来的 chunk 取自 history.items 里
+  // rendered 之前、从未渲染过的段;而 droppedLive 记的是已被 trimLivePane 从 pane
+  // 头部裁掉、且因 history.rendered 从不回退而永不重渲的那批。两个集合按构造互斥,
+  // 相减无条件是错的:受控 A/B 实测,减了之后每补一窗就少记一窗,补两次提示条直接
+  // 归零消失,而中间那段断层仍在——正好造出这段注释本想避免的「无标记断层」。
   renderEarlierHint();
   return true;
 }
@@ -384,7 +380,7 @@ const EMPTY_STATE_LOGO = '<svg viewBox="0 0 64 64"><g fill="none" stroke="curren
 function emptyStateMarkup() {
   return `<div class="empty-state"><div class="logo-mark" aria-hidden="true">${EMPTY_STATE_LOGO}</div>`
     + `<div class="hint hint-lead">${t("输入任务开始 · 权限请求会弹窗询问")}</div>`
-    + `<div class="hint hint-keys">${t("Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止")}</div></div>`;
+    + `<div class="hint hint-keys">${t("Ctrl+Enter 发送 · Ctrl/Cmd+P 命令面板 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止")}</div></div>`;
 }
 
 function renderRecoveredMessages(items) {
@@ -492,9 +488,10 @@ async function loadConversation(sequence = null, switchGeneration = null) {
     scrollBottom(true);
     return;
   }
-  // 走真装载:先把 pane 认领并清空,免得历史内容叠在当前会话那段后面。
+  // 走真装载:只认领 pane,**不提前清空**。renderRecoveredMessages 拿到结果后自己会
+  // resetPane,提前清只在两种坏情况下露头:conversation_get 失败时当前会话内容被抹掉
+  // 且错误行又把 hasContent 置回 1(切走切回都不自愈),以及请求在途时主区白屏。
   if (activeSessionId) showPane(activeSessionId);
-  if (sequence !== null) resetPane();
   // 线程切换是异步的:conversation_get 与 trace_get 之间用户可能再次切线。
   // 两个 IPC 必须锁定同一项目/同一进程,且晚返回的旧请求不能覆盖当前线程。
   const forProject = currentProject;

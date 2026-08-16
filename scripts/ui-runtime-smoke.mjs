@@ -1525,6 +1525,25 @@ assert(
   assert(hints === 1, `裁剪说明条应始终只有一条，实际 ${hints}`);
   vm.runInContext("activePane = globalThis.__paneSave; delete globalThis.__paneSave;", sandbox);
 }
+// 跟随态判定契约（假 DOM 做不了真手势，静态锁）：不得回到「每个 scroll
+// 事件都重算 nearBottom」——我们自己写 scrollTop 同样会发 scroll 事件，合帧之后
+// 那一下会被误判成「用户往上滚了」，跟随态关掉后就再也钉不住底了。
+{
+  const render = sources[scriptSrcs.indexOf("05-chat-render.js")] ?? "";
+  assert(
+    render.includes("programmaticUntil") && render.includes("noteProgrammaticScroll"),
+    "05-chat-render 丢失程序滚动窗口：自己的滚动会把跟随态关掉",
+  );
+  assert(
+    render.includes('"wheel", "pointerdown", "touchstart", "keydown"'),
+    "05-chat-render 丢失真实手势监听：用户滚上去后新消息会把他拽回底部",
+  );
+  const core = sources[scriptSrcs.indexOf("01-core.js")] ?? "";
+  assert(
+    core.includes("const topBefore = visible ? messages.scrollTop : 0;"),
+    "trimLivePane 的 scrollTop 取样必须在删除之前：删完再读到的是夹紧后的值，同一个 delta 会扣两遍",
+  );
+}
 // 命令面板:开面板必须让背景**整体**惰性化,否则 aria-modal 只是一句声明——
 // Tab 两下就走到背后的 rail,回车能在遮罩下真的切视图、点「新对话」(清空历史)。
 // 关面板必须摘干净,否则界面整个点不动。
@@ -1554,10 +1573,16 @@ assert(
     "点搜索后搜索条仍是 hidden",
   );
   const handler = sources[scriptSrcs.indexOf("07-events.js")] ?? "";
-  const guard = handler.slice(handler.indexOf('$("chat-search-toggle").addEventListener'));
+  const guard = handler.slice(handler.indexOf('$("chat-search-toggle").addEventListener')).slice(0, 1600);
   assert(
-    /closest\("details"\)/.test(guard.slice(0, 800)) && /\.open = true/.test(guard.slice(0, 800)),
+    /closest\("details"\)/.test(guard) && /\.open = true/.test(guard),
     "chat-search-toggle 处理器不再展开它所在的 details：命令面板触发时搜索框看不见，击键会掉进待发消息",
+  );
+  // 判据必须是「实际看得见吗」而不是裸 toggle：搜索条无 hidden 类但宿主菜单收起时，
+  // toggle 会把它“关掉”，然后击键照旧掉进 #prompt、裸 Enter 发给 agent。
+  assert(
+    /hiddenByAncestor|effectivelyHidden/.test(guard) && !/classList\.toggle\("hidden"\)/.test(guard),
+    "chat-search-toggle 退回了裸 toggle：宿主菜单收起时会把搜索条反向关掉，关键词会被当任务发给 agent",
   );
 }
 const historyCalls = invokeArgs.filter(({ cmd }) => cmd === "conversation_list");

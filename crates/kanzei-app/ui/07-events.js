@@ -787,7 +787,12 @@ function updateSearch() {
   if (searchMatches.length) {
     const current = searchMatches[searchIndex];
     current.classList.add("search-current");
+    // 跳到搜索命中 = 用户明确在读某一处旧内容,不再跟随最新。这一步是**程序滚动**,
+    // 跟随态的推断(05-chat-render.js)会把它当自己人忽略掉,所以在这里显式表态;
+    // 否则新消息一来就把人从命中位置拽回底部,而且裁剪也不会让步。
+    followLatest = false;
     current.scrollIntoView({ block: "center" });
+    updateLatestButton();
   }
   $("chat-search-count").textContent = query ? `${searchMatches.length ? searchIndex + 1 : 0}/${searchMatches.length}` : "";
 }
@@ -803,11 +808,21 @@ $("chat-search-toggle").addEventListener("click", () => {
   // 宿主是关着的,摘掉 hidden 也没人看得见:屏幕零变化、焦点落进 content-visibility
   // 隐藏子树、接着敲的关键词全丢进 #prompt,裸 Enter 就把它当任务发给了 agent。
   // 宿主的展开责任放在这里而不是调用方:凡是点这个按钮,行为就该一致。
+  // 判据必须是「**实际看得见吗**」,不能只看自己的 hidden 类。
+  // 可达状态:用户点开更多 → 点搜索(搜索条 hidden 摘掉)→ 再点更多把菜单收起。
+  // 此时搜索条没有 hidden 类,但整块在收起的 details 里,一个像素都看不见。
+  // 旧写法把它当"开着"于是执行关闭:菜单弹开、搜索条被藏掉、焦点原地不动,
+  // 用户接着敲的关键词全落进 #prompt,裸 Enter 直接把它当任务发给了 agent。
   const host = bar.closest("details");
-  const opening = bar.classList.contains("hidden");
-  if (host && opening) host.open = true;
-  bar.classList.toggle("hidden");
-  if (!bar.classList.contains("hidden")) $("chat-search-input").focus();
+  const hiddenByAncestor = Boolean(host && !host.open);
+  const effectivelyHidden = bar.classList.contains("hidden") || hiddenByAncestor;
+  if (effectivelyHidden) {
+    if (host) host.open = true;
+    bar.classList.remove("hidden");
+    $("chat-search-input").focus();
+  } else {
+    bar.classList.add("hidden");
+  }
 });
 $("chat-search-input").addEventListener("input", () => { searchIndex = 0; updateSearch(); });
 $("chat-search-input").addEventListener("keydown", (event) => {
@@ -817,7 +832,13 @@ $("chat-search-input").addEventListener("keydown", (event) => {
 $("chat-search-prev").addEventListener("click", () => moveSearch(-1));
 $("chat-search-next").addEventListener("click", () => moveSearch(1));
 $("jump-latest").addEventListener("click", () => {
+  // 这里先把 followLatest 置 true,于是随后 scroll 事件里的 wasReading 恒为 false,
+  // 05-chat-render.js 那条「滚回底部补裁」永远轮不到执行(实测:点按钮后 pane 仍是
+  // 880 条、dropped=0)。补裁在这个最主要的入口上自己收口。
+  // 顺序要紧:先恢复跟随,再补裁。反过来的话 trimLivePane 仍按「用户在读历史」让步,
+  // 这次补裁等于没调(实测 pane 仍是 900 条、dropped=0)。
   followLatest = true;
+  if (typeof trimLivePane === "function") trimLivePane(activePane);
   scrollBottom(true);
   messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
 });

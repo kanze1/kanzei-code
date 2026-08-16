@@ -760,6 +760,25 @@ $("auto-resume").addEventListener("click", () => {
 });
 // 面板开着时数字键直接命中对应行(参照 Claude 的 Mode 菜单)。只在 details[open]
 // 且焦点不在输入框里时生效——否则会把用户在上限框里敲的数字吞掉。
+/// 把鞭挞设置面板夹在视口里。它原先靠 CSS 锚一条固定边(right:0 / left:0),
+/// 而触发器的横坐标随 #composer-bar 换行与侧栏宽度(可拖 220~460)大幅漂移——
+/// 锚哪边都会在某一段窗口宽度下把 420px 宽的面板整个顶出视口,那一片里
+/// 「自动放行」这类开关看得见也点不到。改成以触发器为原点算 left,再夹进
+/// [8, innerWidth-width-8];position:fixed 让它不受祖先裁剪影响。
+function placeAutorunMenu() {
+  const host = $("autorun-more");
+  const menu = host?.querySelector(".autorun-menu");
+  if (!host || !menu || !host.open) return;
+  if (typeof host.getBoundingClientRect !== "function") return;
+  const anchor = host.getBoundingClientRect();
+  const width = menu.offsetWidth || Math.min(420, window.innerWidth - 16);
+  const left = Math.min(Math.max(8, anchor.left), Math.max(8, window.innerWidth - width - 8));
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.bottom = `${Math.round(Math.max(8, window.innerHeight - anchor.top + 6))}px`;
+}
+$("autorun-more").addEventListener("toggle", placeAutorunMenu);
+window.addEventListener("resize", placeAutorunMenu);
+
 $("autorun-more").addEventListener("keydown", (event) => {
   if (!$("autorun-more").open) return;
   const tag = String(event.target?.tagName || "").toLowerCase();

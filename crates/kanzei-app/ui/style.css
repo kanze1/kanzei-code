@@ -1820,11 +1820,14 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 #autorun-more[open] > summary { color: var(--fg); border-color: var(--accent); }
 /* 面板向**上**弹:控制台贴在输入框上方,向下会被输入框盖住 */
 .autorun-menu {
-  /* 触发器贴在 #composer-bar 左端,菜单就该从左边缘展开。原先写 right: 0,
-     420px 宽的面板会整体伸到视口外(实测 900px 窗口下左边缘在 -225px),
-     「自动放行」这类开关看不见也点不到——而它正是那一栏里最要紧的一个。 */
-  position: absolute; left: 0; right: auto; bottom: calc(100% + 6px); z-index: var(--z-float);
-  width: min(420px, calc(100vw - 28px)); max-height: 60vh; overflow-y: auto;
+  /* 固定锚一条边(无论 right:0 还是 left:0)都只是在选**往哪个方向溢出**:
+     #composer-bar 会 flex-wrap,触发器横坐标随侧栏宽度(可拖 220~460)大幅漂移,
+     实测 right:0 在 800px 窗口左溢出 225px、left:0 在 960px 窗口 + 宽侧栏右溢出 356px,
+     两种写法各自都有一片开关点不到的窗口宽度带。
+     改用 position: fixed + 脚本按触发器位置夹在视口内(08-compose.js placeAutorunMenu),
+     不再赌哪一边有空间。CSS 只给出兜底位置,真值由脚本写 left/bottom。 */
+  position: fixed; left: 8px; bottom: 64px; z-index: var(--z-float);
+  width: min(420px, calc(100vw - 16px)); max-height: 60vh; overflow-y: auto;
   display: flex; flex-direction: column;
   padding: 6px; border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--panel2); box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
