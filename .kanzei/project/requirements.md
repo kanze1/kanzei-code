@@ -22,13 +22,13 @@
 - 内容: 以 docs/design/phase2_system_upgrade.md 为二期真源维护五批:批1 设计/依赖/需求映射;批2 P0 事实恢复(D-409 与 memory backlog);批3 research+memory 引擎 E2;批4 animation+voice E3/E4;批5 真实联合闭环(语音研究请求→research 报告→dev 实施→memory 晋升→动画可见→定制声音复述)。
 - 边界: 本条只做跨条目编排、依赖和结项门禁,不重复实现 R-221/R-277/R-286/R-287;一期 loop/dev 主链进入稳定维护,存量缺陷仍按原条目处理;每个边界分别报告静态、测试、WebView2、provider、安装和工作树状态。
 - 验收: ①所有二期子条目有明确依赖、批次、风险、数据边界和证据等级;②Wave 0～4 各有 Go/No-Go 记录;③联合闭环按 session/topic/memory id 可回溯;④二期结项时 requirements/defects/tests/实现无相互矛盾状态。
-- 批次: 2/5
-- 进展: 批次: 2/5。Wave 0 事实复核已完成并明确 No-Go：当前 dev 仍在 app `crates/kanzei-app/src/memory.rs:311-374` 与 CLI `crates/kanzei/src/cli/memory.rs:29-75` 整箱读取且丢弃 run 结果，`read_inbox_batch` 不存在；D-409 归档引用的 5a15cdc/b4245f6c 不在当前 dev，已登记 D-428。已更新 docs/design/phase2_system_upgrade.md 的 Wave 0 Go/No-Go 记录，并补齐 .kanzei/project/architecture/README.md 的 4 个遗漏设计文档；architecture check 通过 T-1786922726037。下一步由 R-286 在当前 dev 恢复 P0 实现后再重评 Wave 0，R-283 不重复实现。
+- 批次: 3/5
+- 进展: 批次: 3/5。Wave 0～4 当前门禁均已记录：Wave 0 No-Go（D-428，inbox 分批修复未在当前 dev）；Wave 1 No-Go（R-221/R-277/R-286 尚未共同达到 E2）；Wave 2 No-Go（R-284 事件契约与 R-285 WebView2 E3 未完成，既有 R-285 B1/B2 明确标为复用）；Wave 3 No-Go（R-287 尚无真实设备/provider/授权证据）；Wave 4 No-Go（无真实 session/topic/memory 联合闭环）。索引与文档检查通过 T-1786922726038。下一步仍由 R-286/R-284/R-277/R-287 等子条目推进后，R-283 按当前提交重新评估对应波次；本条不重复实现子条目。
 - 状态: doing
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-283
-- observed_head: 6588076683514425814b4c6266de4680f42f5f23
-- observed_worktree_hash: fnv1a64:d84b033afbc0cfee
-- recorded_at: 1786924345925
+- observed_head: cb120d26aae53596f23aaa1f86ebede8bf7b9ba7
+- observed_worktree_hash: fnv1a64:986322d7d47a0660
+- recorded_at: 1786924587577
 
 ## R-284 运行体验事件契约:统一 session/tool/memory/research/voice 的事实投影和瞬时表现事件 [todo]
 - 优先级: P1

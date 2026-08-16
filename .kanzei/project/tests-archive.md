@@ -4888,3 +4888,9 @@
 - 摘要: 架构索引收录全部 37 个 docs/design/*.md，链接存在、无重复且无遗漏；R-283 Wave 0 文档记录可复核。
 - 关联: R-283 D-429
 - 收尾: 1786924338
+
+## T-1786922726038 R-283 B3 Wave 门禁记录一致性检查 [passed]
+- 命令: architecture check
+- 摘要: Wave 0～4 均已在 docs/design/phase2_system_upgrade.md 建立当前 Go/No-Go 记录；索引仍验证通过，未把既有 E2 或静态配置冒充联合闭环。
+- 关联: R-283
+- 收尾: 1786924580
