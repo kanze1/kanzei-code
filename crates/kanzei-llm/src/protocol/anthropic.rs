@@ -58,7 +58,7 @@ pub fn build_body(request: &LlmRequest) -> Value {
                 json!({
                     "name": t.name,
                     "description": t.description,
-                    "input_schema": t.input_schema,
+                    "input_schema": sanitize_input_schema(&t.input_schema),
                 })
             })
             .collect();
@@ -294,6 +294,37 @@ impl ProtocolState for AnthropicState {
     }
 }
 
+/// D-426:Anthropic 的 `input_schema` 不接受**顶层** oneOf/allOf/anyOf,整条请求会被
+/// 400 拒掉(`tools.N.custom.input_schema: input_schema does not support oneOf, allOf,
+/// or anyOf at the top level`)——一个工具违规,claude 系模型就一个工具都用不了。
+///
+/// 我们的 tracker 类工具(req/defect/idea/source/finding/decision)正是用顶层
+/// `allOf` + `if/then` 表达 R-191 的「action=add 时 severity/priority/复杂度/标签必填」。
+/// 那份约束对 OpenAI/DeepSeek 合法且有用,所以不在工具侧删,只在这条 wire 上摘掉。
+///
+/// 摘掉只损失一条**提示**:必填本身仍由工具自己的登记门禁强制——缺字段会返回
+/// needs_correction 并点名缺哪几个,模型下一步就能补齐。嵌套在 properties 里的
+/// 组合器不受影响(Anthropic 只禁顶层)。
+fn sanitize_input_schema(schema: &Value) -> Value {
+    let Some(obj) = schema.as_object() else {
+        return schema.clone();
+    };
+    if !["oneOf", "allOf", "anyOf"]
+        .iter()
+        .any(|k| obj.contains_key(*k))
+    {
+        return schema.clone();
+    }
+    let mut schema = schema.clone();
+    let obj = schema
+        .as_object_mut()
+        .expect("just checked it is an object");
+    obj.remove("oneOf");
+    obj.remove("allOf");
+    obj.remove("anyOf");
+    schema
+}
+
 fn map_stop_reason(reason: &str) -> FinishReason {
     match reason {
         "end_turn" => FinishReason::EndTurn,
@@ -496,6 +527,48 @@ mod tests {
             .unwrap_err();
         assert!(err.is_rate_limited());
         assert!(!err.is_context_overflow());
+    }
+
+    /// D-426:顶层 allOf/oneOf/anyOf 必须在发出前摘掉,否则 Anthropic 400 整条请求。
+    /// schema 的其余部分(含 properties 里的嵌套组合器)必须逐字保留。
+    #[test]
+    fn 顶层组合器被摘掉而_schema_其余部分逐字保留() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": { "enum": ["add", "list"] },
+                // 嵌套的组合器是合法的,不许动。
+                "refs": { "anyOf": [{"type": "array"}, {"type": "null"}] }
+            },
+            "required": ["action"],
+            "allOf": [{
+                "if": { "properties": { "action": { "const": "add" } }, "required": ["action"] },
+                "then": { "required": ["title", "severity", "priority"] }
+            }]
+        });
+        let req = LlmRequest {
+            model: "claude-sonnet-5".into(),
+            system: vec![],
+            messages: vec![Message::user_text("hi")],
+            tools: vec![ToolSpec {
+                name: "defect".into(),
+                description: "track defects".into(),
+                input_schema: schema,
+            }],
+            max_tokens: 1024,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+            service_tier: None,
+        };
+        let sent = &build_body(&req)["tools"][0]["input_schema"];
+        assert!(sent.get("allOf").is_none(), "顶层 allOf 未摘掉: {sent}");
+        assert_eq!(sent["type"], "object");
+        assert_eq!(sent["required"], serde_json::json!(["action"]));
+        assert_eq!(
+            sent["properties"]["refs"]["anyOf"],
+            serde_json::json!([{"type": "array"}, {"type": "null"}]),
+            "properties 里的嵌套组合器被误删了"
+        );
     }
 
     #[test]
