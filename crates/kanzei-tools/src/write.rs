@@ -17,6 +17,31 @@ struct WriteInput {
 
 pub struct WriteTool;
 
+/// R-268/D-395:专用写工具(write/edit/insert)写成功后记写日志。
+///
+/// 写日志是 bash 围栏收口对账的归因凭据:跨树围栏看到其它线树里的文件变了,
+/// 查日志即可区分「该线专用工具的合法自写」与「他线 shell 越界写」。
+/// `path` 用相对 `ctx.cwd` 的路径(跨树快照的 key 就是相对树根的路径,而
+/// worktree 线的 cwd 就是树根,两端口径天然一致)。先写文档再记日志(「写后」
+/// 凭据,见 write_log 模块头契约)。
+pub(crate) fn record_worktree_write_log(ctx: &ToolCtx, rel_path: &str, content: &[u8]) {
+    let key = rel_path.replace('\\', "/");
+    let _ = crate::write_log::record(
+        &ctx.project_root,
+        &crate::write_log::WriteLogEntry {
+            at_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or_default(),
+            path: key,
+            fingerprint: crate::content_hash(content),
+            content: content.to_vec(),
+            run_id: ctx.run_id.clone(),
+            process_id: ctx.process_id.clone(),
+        },
+    );
+}
+
 #[async_trait]
 impl Tool for WriteTool {
     fn name(&self) -> &'static str {
@@ -57,6 +82,8 @@ impl Tool for WriteTool {
         if let Err(e) = tokio::fs::write(&path, input.content.as_bytes()).await {
             return ToolOutput::error(format!("cannot write {}: {e}", path.display()));
         }
+        // D-395:写日志凭据——write 是专用写者,写后留痕供跨树围栏吸收。
+        record_worktree_write_log(ctx, &input.path, input.content.as_bytes());
         let mut message = format!("wrote {} bytes to {}", input.content.len(), path.display());
         if let Some(warning) = validate_syntax(&path, &input.content) {
             message.push_str(&format!("\nWARNING: {warning}"));

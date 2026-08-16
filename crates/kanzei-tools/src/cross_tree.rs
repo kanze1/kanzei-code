@@ -168,7 +168,9 @@ fn collect_tree_files_in(tree_root: &Path, dir: &Path, files: &mut BTreeMap<Stri
 
 /// 执行后对账:重扫其它线树,比对执行前镜像。
 ///
-/// 有差异 → 隔离留证 + 回滚到执行前内容,并返回回喂模型的报告;
+/// 有差异 → 逐路径查写日志(R-268/D-395):窗口内该树自己线的专用工具写入
+/// (write/edit/insert 留了日志,路径=相对树根、指纹=写后内容)视为**合法自写**,
+/// 吸收不进报告;无日志解释的变化 → 隔离留证 + 报告(D-407 姿态,不自动回滚)。
 /// 无差异 → 返回 None。**非 git 仓库 / git 失败 → 返回 None 不阻塞**
 /// (没有其它线树可保护,保护面为空集,与执行前的判定一致)。
 ///
@@ -177,12 +179,17 @@ fn collect_tree_files_in(tree_root: &Path, dir: &Path, files: &mut BTreeMap<Stri
 ///
 /// `owner_run` / `owner_process` 是执行这条命令的线身份(R-186 验收②归因):
 /// 越界报告必须点名是哪条线越的界,轨迹(ToolOutput error)里据此可审计。
+///
+/// `window_start_ms` 是命令窗口起点(拍 `before` 快照的时刻):写日志对账只认
+/// 这个时刻之后的条目——窗口之前的历史写入不参与本次对账,与托管围栏同口径
+/// (R-268)。
 pub(crate) fn enforce_other_trees(
     project_root: &Path,
     self_tree: &Path,
     before: &OtherTreesSnapshot,
     owner_run: Option<&str>,
     owner_process: Option<&str>,
+    window_start_ms: u128,
 ) -> Option<String> {
     if before.is_empty() {
         return None;
@@ -207,16 +214,26 @@ pub(crate) fn enforce_other_trees(
         .collect::<Vec<_>>();
     let mut touched = Vec::new();
     let mut changes: BTreeMap<PathBuf, BTreeMap<String, (FileImage, FileImage)>> = BTreeMap::new();
+    // D-395:写日志对账——窗口内该树自己线的专用工具写入(有日志且写后指纹 ==
+    // 当前快照指纹)视为合法自写,吸收进基线不回滚不报告。与托管围栏同口径
+    // (R-268):只认窗口起点之后的日志,终态一致才算命中。
+    let logs = crate::write_log::entries_after(project_root, window_start_ms);
+    let covered_by_log = |rel: &str, after_content: &FileImage| -> bool {
+        let fingerprint = crate::content_hash(after_content.as_deref().unwrap_or_default());
+        logs.iter().any(|entry| {
+            entry.path == rel && entry.fingerprint == fingerprint && entry.at_ms >= window_start_ms
+        })
+    };
     for (root, before_files) in &before.trees {
         let after_files = after.trees.get(root).cloned().unwrap_or_default();
         let mut tree_changes = BTreeMap::new();
         for (rel, before_content) in before_files {
             match after_files.get(rel) {
-                // 执行后不存在:被删。回滚 = 写回执行前内容。
+                // 执行后不存在:被删。
                 None => {
                     tree_changes.insert(rel.clone(), (before_content.clone(), None));
                 }
-                // 都存在:只有 mtime 级粗筛命中(内容不同)才算越界;相同是 touch。
+                // 都存在:内容不同才算变化;相同是 touch。
                 Some(after_content) if after_content != before_content => {
                     tree_changes
                         .insert(rel.clone(), (before_content.clone(), after_content.clone()));
@@ -224,12 +241,15 @@ pub(crate) fn enforce_other_trees(
                 Some(_) => {}
             }
         }
-        // 执行后新增的文件(执行前没有):越界新建,回滚 = 删除。
+        // 执行后新增的文件(执行前没有)。
         for rel in after_files.keys() {
             if !before_files.contains_key(rel) {
                 tree_changes.insert(rel.clone(), (None, after_files.get(rel).cloned().flatten()));
             }
         }
+        // D-395:吸收合法自写——有写日志解释(路径+指纹+窗口内)的变化是
+        // 该树自己线的正常写入,不是本命令越界;从未被吸收的才留下。
+        tree_changes.retain(|rel, (_, after_content)| !covered_by_log(rel, after_content));
         if !tree_changes.is_empty() {
             changes.insert(root.clone(), tree_changes);
         }
@@ -395,7 +415,7 @@ mod tests {
         std::fs::write(b.join("seed.txt"), "A 线覆盖!\n").unwrap();
         std::fs::write(b.join("new-file.txt"), "A 线追加\n").unwrap();
 
-        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"), 0)
             .expect("必须检出越界");
         assert!(
             report.contains("seed.txt") && report.contains("new-file.txt"),
@@ -423,6 +443,97 @@ mod tests {
         assert!(
             saved.iter().any(|p| p.ends_with("seed.txt")),
             "隔离目录里必须留有改后副本: {saved:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D-395:并行双线真场景——A 线长 bash 窗口内,B 线用专用工具(write/edit)
+    /// 写自己的树。写日志是该线合法自写的凭据:围栏收口对账时命中(路径=相对树根、
+    /// 指纹=写后内容、时刻在窗口内)即**吸收**,不得把 B 线的正当工作误判为 A 越界。
+    #[test]
+    fn 并行双线_b线窗口内自写有写日志_被吸收不误报() {
+        let root = git_repo("kz-ct-d395");
+        let b = add_worktree(&root, "line-b");
+        std::fs::write(b.join("b-own.txt"), "B 线原文\n").unwrap();
+        let window_start = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+
+        // A 线(主树)执行前拍快照,保护面含 B 树。
+        let before = capture_other_trees(&root, &root).expect("快照失败");
+        assert!(before.contains_tree(&b), "B 线工作树必须在保护面内");
+
+        // 窗口内 B 线专用工具(write 语义)写自己的树,并留写日志凭据——
+        // 路径用相对树根(worktree 线 cwd==树根),与跨树快照 key 同口径。
+        let rel = "b-own.txt";
+        let new_content = "B 线窗口内自己的修改\n".as_bytes();
+        std::fs::write(b.join(rel), new_content).unwrap();
+        crate::write_log::record(
+            &root,
+            &crate::write_log::WriteLogEntry {
+                at_ms: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis(),
+                path: rel.to_string(),
+                fingerprint: crate::content_hash(new_content),
+                content: new_content.to_vec(),
+                run_id: Some("run-b".into()),
+                process_id: Some("proc-b".into()),
+            },
+        )
+        .unwrap();
+
+        // 收口:A 的命令没碰 B 树——变化全部有 B 线写日志解释,必须吸收。
+        let report = enforce_other_trees(
+            &root,
+            &root,
+            &before,
+            Some("run-a"),
+            Some("proc-a"),
+            window_start,
+        );
+        assert!(
+            report.is_none(),
+            "B 线窗口内自写(有写日志凭据)必须被吸收,不得误报: {report:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(b.join(rel)).unwrap(),
+            "B 线窗口内自己的修改\n",
+            "B 线的自写必须原样保留"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D-395:同一窗口内 A 越界写 B 树(无写日志凭据)照旧检出——吸收只认
+    /// 「B 线自己的专用工具写入」,不豁免真正的越界。
+    #[test]
+    fn 并行双线_无写日志的越界写照旧检出() {
+        let root = git_repo("kz-ct-d395b");
+        let b = add_worktree(&root, "line-b");
+        std::fs::write(b.join("seed.txt"), "B 线原文\n").unwrap();
+        let window_start = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+
+        let before = capture_other_trees(&root, &root).expect("快照失败");
+        // A 的命令越界改 B 树——没有对应写日志。
+        std::fs::write(b.join("seed.txt"), "A 线越界覆盖\n").unwrap();
+
+        let report = enforce_other_trees(
+            &root,
+            &root,
+            &before,
+            Some("run-a"),
+            Some("proc-a"),
+            window_start,
+        )
+        .expect("无写日志的越界必须检出");
+        assert!(
+            report.contains("seed.txt"),
+            "报告必须点名被改文件: {report}"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -466,7 +577,7 @@ mod tests {
         );
 
         std::fs::write(b.join("sub/inner/deep.txt"), "A 线越界覆盖\n").unwrap();
-        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"), 0)
             .expect("必须检出越界");
         assert!(
             report.contains("sub/inner/deep.txt"),
@@ -529,7 +640,7 @@ mod tests {
             std::fs::write(b.join(dir).join(name), "after\n").unwrap();
         }
         assert!(
-            enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a")).is_none(),
+            enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"), 0).is_none(),
             "被排除目录的变化不得触发越界报告"
         );
         assert_eq!(
@@ -567,7 +678,7 @@ mod tests {
         assert!(before.is_err() || before.unwrap().is_empty());
         // 没有树可保护:enforce 直接 None,不报假成功。
         let before = capture_other_trees(&dir, &dir).unwrap_or_default();
-        assert!(enforce_other_trees(&dir, &dir, &before, None, None).is_none());
+        assert!(enforce_other_trees(&dir, &dir, &before, None, None, 0).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -587,7 +698,7 @@ mod tests {
         // 只 open 不改写,内容不变;再确保 mtime 前进。
         std::fs::write(&file, "未提交内容\n").unwrap();
 
-        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"));
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"), 0);
         assert!(
             report.is_none(),
             "内容相同的 touch 不应算越界,实得: {report:?}"
@@ -605,7 +716,7 @@ mod tests {
         let before = capture_other_trees(&root, &root).expect("快照失败");
         std::fs::write(b.join("intruder.txt"), "A 线塞进来的\n").unwrap();
 
-        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"), 0)
             .expect("必须检出");
         assert!(report.contains("intruder.txt"), "{report}");
         // D-407:不再自动删除——删的可能正是另一条线自己新建的文件(D-395)。
@@ -665,7 +776,7 @@ mod tests {
             String::from_utf8_lossy(&build.stderr)
         );
 
-        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"), 0)
             .expect("build.rs 写别的树必须被抓");
         assert!(
             report.contains("victim.txt"),

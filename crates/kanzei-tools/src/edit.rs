@@ -269,6 +269,8 @@ impl Tool for EditTool {
                 format!("cannot write {}: {e}", path.display()),
             );
         }
+        // D-395:写日志凭据——edit 是专用写者,写后留痕供跨树围栏吸收。
+        crate::write::record_worktree_write_log(ctx, &input.path, updated.as_bytes());
         self.misses.lock().unwrap().remove(&path);
         let mut message = format!(
             "replaced {count} occurrence(s) in {}{ending_note}",
@@ -499,6 +501,8 @@ impl Tool for InsertTool {
                 format!("cannot write {}: {error}", path.display()),
             );
         }
+        // D-395:写日志凭据——insert 是专用写者,写后留痕供跨树围栏吸收。
+        crate::write::record_worktree_write_log(ctx, &input.path, updated.as_bytes());
         let mut message = format!(
             "inserted content {} unique anchor in {}",
             match input.position {

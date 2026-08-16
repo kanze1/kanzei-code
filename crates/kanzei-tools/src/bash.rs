@@ -423,6 +423,7 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
                 &other_trees_before,
                 ctx.run_id.as_deref(),
                 ctx.process_id.as_deref(),
+                fence_window_start_ms,
             );
             if let Some(report) = &cross_tree {
                 rendered.push('\n');
@@ -485,6 +486,7 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
                 &other_trees_before,
                 ctx.run_id.as_deref(),
                 ctx.process_id.as_deref(),
+                fence_window_start_ms,
             ) {
                 text.push('\n');
                 text.push_str(&report);
