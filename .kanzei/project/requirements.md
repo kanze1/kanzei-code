@@ -193,28 +193,21 @@
 - 状态: todo
 - 阻塞: 队列让位(2026-08-16):R-186(P0 队首)本轮推进中,单 WIP 槽不足,本条让位等待队列轮转。解除动作: R-186 关闭后清本字段,做剩余批4(withSessionRender setter 化、B3、defer 时序与冒烟断言适配、删补偿)。P3 留档。解除人: agent。
 
-## R-275 调色板子系统:内置科学配色/推荐校验/用户导入 [todo]
-- refs: R-274 docs/design/research_mode_prior_art.md
-- 内容: ①内置科学配色打包:ColorBrewer(Apache-2.0,需致谢)/viridis 系(CC0)/Crameri Scientific Colour Maps(MIT)/Paul Tol(BSD-3)/Okabe-Ito(注出处)/cmocean(MIT)/petroff10(CC0),一次性转内部规范 JSON(name/type[seq|div|qual|cyclic]/colors[]/max_classes/source_url/license),零运行时联网;②推荐规则机械化:无序分类→qual(≤12 色)、有序连续→seq、有中点→div、周期→cyclic(Vega-Lite 按字段类型默认规则先例);硬禁忌机械拒绝(jet/rainbow 用于连续量、定性板插值);③校验链 Rust 本地实现:CVD 模拟(Machado 矩阵)→两两 CIEDE2000(palette crate 内置)→WCAG 图形对比度≥3:1→连续板亮度单调性,导入即评分;④用户导入:粘贴 hex 列表/GIMP .gpl/Adobe .ase 统一转内部 JSON;定性板不够长默认拒绝并提示改分面/高亮,兜底循环+线型区分,绝不插值;⑤对 R-274 暴露统一色板查询接口(按 type+色数返回,用户板同类型优先)。拆批:批1 内置数据+规范 JSON+查询接口;批2 推荐规则+校验链;批3 用户导入三格式。
-- 复杂度: 中
-- 批次: 0/3
-- 来源: 2026-08-16 用户原话「科研绘图要支持调色版推荐,我给AI一些调色版,他自己做,这里可能还需要爬取一些配色网站的方案」;调查结论(prior_art §3):内置源许可证全干净且机器可读、爬配色网站砍掉(Coolors ToS 明确禁爬、Adobe API 已死、ColorHunt 灰色;纯色值组合无版权,风险在 ToS;开源聚合库覆盖更优)、Rust 生态足以本地实现全部校验。
-- 标签: 核心
-- 边界: 不爬配色网站(用户原「可能爬取」的想法经调查以免爬替代落地:官方源+开源聚合质量更高,「自己喂色板」由粘贴/导入入口覆盖);colorcet(CC-BY 要求署名)不入首批;不做色板编辑器 UI;不做专色/CMYK 印刷流程。
-- 验收: ①内置各族色板与上游源逐色一致(抽查断言),license 与致谢字段齐全;②四类数据特征各返回正确类型色板,jet 用于连续量被拒(定向测试);③构造红绿不安全板,校验链给低分并点名冲突色对(实测输出);④hex/.gpl/.ase 三种导入各有测试,非法输入诊断明确;⑤定性板超长请求默认被拒并给分面建议;⑥R-274 注入联通实测(图中颜色与用户板一致)。
-- 优先级: P1
-
 ## R-276 research 模式前端:双面板/计划审批/来源呈现 [todo]
-- refs: R-221 R-267 R-273 R-274 docs/design/research_mode_prior_art.md
+- refs: R-221 R-267 R-273 R-274 D-412 D-413 docs/design/research_workspace.md docs/design/research_mode_prior_art.md
 - 依赖: R-221
-- 内容: ①布局:「会话+文档」双面板(Gemini 式)——左会话右报告文档,研究步骤折叠于报告下方,层级明确「结果>过程」;②计划先行:研究计划树是一等 UI 对象,开跑前可编辑、运行中可转向(Gemini/ChatGPT 先例;与 research_mode 定调「计划审批闸口」对应);③来源呈现:内联数字引用+来源卡+独立 Sources 页三处冗余(Perplexity 式),引用点击回源——文献 URL 与代码 file:line 双形态;④进行中活动流:检索/阅读步骤滚动展示,完成后折叠成紧凑卡;⑤topic 工件浏览:paper.tex/figures/refs.bib 浏览与图预览(figures 用 R-274 产物,PDF 预览用 R-273 的 PNG 转换)。**设计先行**:批1 只出交互设计稿(四组件权重取舍+页面流),经用户过审后才进批2-4 实施。拆批:批1 设计稿过审;批2 双面板+报告阅读;批3 计划树编辑+活动流;批4 来源交互+工件浏览。
+- 内容: 按 docs/design/research_workspace.md(2026-08-16 用户首轮实测反馈驱动的设计稿)实施研究工作台六批:批1 设计稿过审;批2 交互修复(去 kind gating,source/finding 与 req/defect 同权:可开/可编/可删/不截断,即 D-413);批3 双面板工作台+报告 tab(内联 [S-00x] 与 file:line 可跳、V 等级徽章与过滤);批4 来源/发现卡片化+筛选+反查+复制引用(BibTeX);批5 全文通道(read 支持 PDF、arXiv 正文通道、来源卡标注摘要级/正文级并与 V 表联动);批6 计划树面板(依赖 R-277)。设计原则取自 prior_art §1 前端横评:结果>过程、溯源三处冗余、计划先行可编辑、数据已结构化的 UI 不许降级成字符串。建议顺序:批2 与批5 先行(不依赖引擎,正是用户点名痛点)。
 - 复杂度: 大
-- 批次: 0/4
+- 批次: 0/6
 - 来源: 2026-08-16 用户「researchmode的前端设计这些比较复杂」;设计输入为 prior_art §1 前端横评(Gemini 报告至上双面板/ChatGPT 计划编辑与运行中转向/Perplexity 来源三处冗余/Manus 过程至上反例)与四组件通用 schema(document/steps/sources/annotations)。
 - 标签: 前端
 - 边界: 不做协作/分享/导出站外;不做在线 LaTeX 编辑器(Monaco 已有);research 下连跑禁用沿用 interaction_modes 既有定调;长报告渲染沿用 R-267 窗口化模式,不另造。
 - 验收: ①批1 设计稿经用户过审(含四组件权重取舍的明确理由);②计划编辑→运行→中途转向全链路可操作有轨迹;③引用点击回源双形态各实测(URL 与 file:line);④长报告与长活动流滚动不卡(窗口化生效);⑤与桌面既有 UI 风格与 i18n 纪律一致。
 - 优先级: P2
+- 进展: 2026-08-16 批1 设计稿已产出(docs/design/research_workspace.md),待用户过审。诊断:用户首轮实测六条反馈全部对到代码——研究档只在侧栏挂 section(index.html:98-107)、交互 gate 在 req/defect(11-docs-list.js:249-262)而后端 docs_update 早已支持 source/finding(docs.rs:402-413)、sources.md 存了 URL 却不可点、read 不支持 PDF。共性根因是「数据结构化但前端渲染成截断字符串且没接写通道」,与本日波次审计的「最后一公里不接线」同一失败模式。待拍板三项:打开文献走外部浏览器还是内置 viewer;research 档下 dev 视图隐藏还是折叠;来源用卡片流还是紧凑表格。
+- observed_head: 16409515e0a95b58acdd91bdd54812ad8d1e1de4
+- observed_worktree_hash: fnv1a64:0ebf0be70945bc85
+- recorded_at: 1786860369137
 
 ## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [todo]
 - refs: R-221 R-273 R-274 R-276 docs/design/research_mode.md docs/design/research_mode_prior_art.md
