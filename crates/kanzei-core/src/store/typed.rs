@@ -513,6 +513,30 @@ pub fn decode_session_fact(
 }
 
 impl SessionStore {
+    /// 库内该 turn 是否已有 terminal 事实(R-242 批5 / D-417)。
+    ///
+    /// 调用方内存 invariant 只反映它自己的写入;库内可能已有其它 writer /
+    /// recovery 写入的 terminal(崩溃恢复闭合了主 writer 还在推进的 turn)。
+    fn turn_has_terminal(&self, session_id: &str, turn_id: &str) -> Result<bool, SessionFactError> {
+        let count: i64 = self
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM session_events
+                 WHERE session_id = ?1 AND event_type IN (?2, ?3, ?4)
+                   AND json_extract(payload_json, '$.turn_id') = ?5",
+                params![
+                    session_id,
+                    TURN_STOPPED,
+                    TURN_COMPLETED,
+                    TURN_FAILED,
+                    turn_id
+                ],
+                |row| row.get(0),
+            )
+            .map_err(StoreError::from)?;
+        Ok(count > 0)
+    }
+
     /// 一批 fact 在内存中完整过 invariant 后，于同一 SQLite 事务连续追加。
     pub fn append_session_facts_checked(
         &self,
@@ -520,6 +544,19 @@ impl SessionStore {
         invariant: &mut SessionInvariant,
         facts: &[SessionFactEnvelope],
     ) -> Result<Vec<StoredEvent>, SessionFactError> {
+        // R-242 批5 / D-417:库内 terminal 预检。调用方 invariant 只反映它自己的
+        // 内存写入,不知道库内其它 writer/recovery 已写入的 terminal——不加预检
+        // 时「terminal 之后的事实」仍会落库,形成脏序列,让此后每一轮 prepare
+        // 重建 invariant 失败、typed_write_errors 永久非零(实证:真实库 43 条
+        // shadow report 携带同一 already-terminal 错误)。预检命中即整批拒绝。
+        let batch_turns: HashSet<&str> = facts.iter().map(|fact| fact.turn_id.as_str()).collect();
+        for turn_id in batch_turns {
+            if self.turn_has_terminal(session_id, turn_id)? {
+                return Err(SessionFactError::Invariant(format!(
+                    "turn {turn_id} already terminal"
+                )));
+            }
+        }
         let mut next = invariant.clone();
         for fact in facts {
             next.apply(fact)?;
@@ -690,23 +727,53 @@ impl SessionStore {
         &self,
         session_id: &str,
         reason: &str,
-    ) -> Result<usize, SessionFactError> {
+    ) -> Result<RecoveryReport, SessionFactError> {
         let facts = self.list_session_facts(session_id)?;
         let mut invariant = SessionInvariant::default();
+        let mut skipped_post_terminal = 0usize;
         for (_, fact) in &facts {
-            invariant.apply(fact)?;
+            match invariant.apply(fact) {
+                Ok(()) => {}
+                // R-242 批5 / D-417:历史脏序列——旧版 append 不查库内既有
+                // terminal,曾产生「terminal 之后的事实仍落库」的脏条。跳过不
+                // 阻塞 prepare;未来由 append_session_facts_checked 的库内
+                // terminal 预检杜绝新脏序列。
+                Err(SessionFactError::Invariant(message))
+                    if message.contains("already terminal") =>
+                {
+                    skipped_post_terminal += 1;
+                }
+                Err(error) => return Err(error),
+            }
         }
         let recovery = invariant.recovery_facts(reason);
         if recovery.is_empty() {
-            return Ok(0);
+            return Ok(RecoveryReport {
+                closed_events: 0,
+                skipped_post_terminal,
+            });
         }
         self.append_session_facts_checked(session_id, &mut invariant, &recovery)?;
-        Ok(recovery.len())
+        Ok(RecoveryReport {
+            closed_events: recovery.len(),
+            skipped_post_terminal,
+        })
     }
 }
 
 const DRAFT_BATCH_CHARS: usize = 2 * 1024;
 const DRAFT_BATCH_AGE: Duration = Duration::from_millis(750);
+
+/// `recover_interrupted_session_facts` 的结果(R-242 批5 / D-417)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryReport {
+    /// 本次闭合的 open draft/call 事件数(含 turn failed)。
+    pub closed_events: usize,
+    /// 重建 invariant 时跳过的历史「terminal 后追加」脏条数。
+    /// 旧版 append 不查库内既有 terminal 的产物;未来由库内 terminal
+    /// 预检杜绝新脏序列,此计数只反映存量历史数据。
+    pub skipped_post_terminal: usize,
+}
 
 /// 新 turn 开始前的兼容准备：latest legacy snapshot 幂等 seed，再闭合上一次
 /// 进程崩溃遗留的 open draft/tool。两步都只追加事实，不改 legacy snapshot。
@@ -1630,6 +1697,98 @@ mod tests {
     }
 
     #[test]
+    fn append_rejects_facts_for_turn_already_terminal_in_db() {
+        // R-242 批5 / D-417:调用方内存 invariant 不知道库内已存在的 terminal
+        // (跨 writer / recovery 写入),append 必须整批拒绝而不是继续落库。
+        let store = store();
+        let mut writer_invariant = SessionInvariant::default();
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut writer_invariant,
+                &[
+                    envelope(
+                        "turn-x",
+                        None,
+                        SessionFact::UserMessageCommitted {
+                            input_id: "i".into(),
+                            message: Message::user_text("q"),
+                        },
+                    ),
+                    envelope("turn-x", Some(1), SessionFact::TurnStarted { max_steps: 1 }),
+                    envelope("turn-x", None, SessionFact::TurnStopped),
+                ],
+            )
+            .unwrap();
+        // 新 writer:内存 invariant 完全不知道库内 turn-x 已 terminal。
+        let mut fresh = SessionInvariant::default();
+        let error = store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut fresh,
+                &[envelope(
+                    "turn-x",
+                    None,
+                    SessionFact::UserMessageCommitted {
+                        input_id: "i2".into(),
+                        message: Message::user_text("q2"),
+                    },
+                )],
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("already terminal"), "{error}");
+        // 整批拒绝,未落任何新事件(第一批 3 条仍在)。
+        assert_eq!(store.list_events("ses_test", 0).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn recover_tolerates_historical_post_terminal_append() {
+        // R-242 批5 / D-417:旧版 append 不查库内既有 terminal,曾产生
+        // 「terminal 之后的事实仍落库」的历史脏序列。prepare 重建 invariant
+        // 遇脏条必须跳过而非失败,否则每轮 prepare 都报错、typed_write_errors
+        // 永久非零。未来脏序列由库内 terminal 预检杜绝。
+        let store = store();
+        let dirty = [
+            SessionFactEnvelope::new("t", Some(1), SessionFact::TurnStarted { max_steps: 0 }),
+            SessionFactEnvelope::new(
+                "t",
+                None,
+                SessionFact::TurnFailed {
+                    error: "crash".into(),
+                },
+            ),
+            // terminal 之后仍落库的脏条(直接 append_event 绕过 checked 入口)。
+            SessionFactEnvelope::new(
+                "t",
+                Some(1),
+                SessionFact::ToolResultCommitted {
+                    call_id: "c".into(),
+                    content: "ok".into(),
+                    is_error: false,
+                },
+            ),
+        ];
+        for fact in &dirty {
+            store
+                .append_event(
+                    "ses_test",
+                    fact.event_type(),
+                    &serde_json::to_value(fact).unwrap(),
+                )
+                .unwrap();
+        }
+        // 修复前:重建 invariant 撞 already terminal 报错;修复后:跳过脏条,成功。
+        let report = store
+            .recover_interrupted_session_facts("ses_test", "process_restarted")
+            .unwrap();
+        // turn t 已 terminal,无 open draft/call → 无 recovery 闭合事件;
+        // 历史脏条(terminal 后追加的 tool result)被跳过计数。
+        assert_eq!(report.closed_events, 0);
+        assert_eq!(report.skipped_post_terminal, 1);
+    }
+
+    #[test]
     fn interrupted_draft_is_transcript_only_and_projection_is_deterministic() {
         let store = store();
         let mut invariant = SessionInvariant::default();
@@ -2088,10 +2247,11 @@ mod tests {
         store
             .append_session_facts_checked("ses_test", &mut invariant, &facts)
             .unwrap();
-        let count = store
+        let report = store
             .recover_interrupted_session_facts("ses_test", "process_restarted")
             .unwrap();
-        assert_eq!(count, 2, "tool interrupted + turn failed");
+        assert_eq!(report.closed_events, 2, "tool interrupted + turn failed");
+        assert_eq!(report.skipped_post_terminal, 0);
         assert_eq!(
             store
                 .list_events_by_type("ses_test", 0, TOOL_RESULT_INTERRUPTED)
@@ -2102,7 +2262,8 @@ mod tests {
         assert_eq!(
             store
                 .recover_interrupted_session_facts("ses_test", "again")
-                .unwrap(),
+                .unwrap()
+                .closed_events,
             0,
             "重复恢复幂等"
         );
@@ -2134,7 +2295,8 @@ mod tests {
         assert_eq!(
             store
                 .recover_interrupted_session_facts("ses_test", "process_restarted")
-                .unwrap(),
+                .unwrap()
+                .closed_events,
             2,
             "assistant interrupted + turn failed"
         );
@@ -2149,7 +2311,8 @@ mod tests {
         assert_eq!(
             store
                 .recover_interrupted_session_facts("ses_test", "again")
-                .unwrap(),
+                .unwrap()
+                .closed_events,
             0
         );
     }
