@@ -3542,3 +3542,36 @@
 - observed_head: 358eb497f869fb53008b3be30aa6385f23534278
 - observed_worktree_hash: fnv1a64:659fe895a4330d3a
 - recorded_at: 1786847440823
+
+## R-275 调色板子系统:内置科学配色/推荐校验/用户导入 [done]
+- refs: R-274 docs/design/research_mode_prior_art.md
+- 内容: ①内置科学配色打包:ColorBrewer(Apache-2.0,需致谢)/viridis 系(CC0)/Crameri Scientific Colour Maps(MIT)/Paul Tol(BSD-3)/Okabe-Ito(注出处)/cmocean(MIT)/petroff10(CC0),一次性转内部规范 JSON(name/type[seq|div|qual|cyclic]/colors[]/max_classes/source_url/license),零运行时联网;②推荐规则机械化:无序分类→qual(≤12 色)、有序连续→seq、有中点→div、周期→cyclic(Vega-Lite 按字段类型默认规则先例);硬禁忌机械拒绝(jet/rainbow 用于连续量、定性板插值);③校验链 Rust 本地实现:CVD 模拟(Machado 矩阵)→两两 CIEDE2000(palette crate 内置)→WCAG 图形对比度≥3:1→连续板亮度单调性,导入即评分;④用户导入:粘贴 hex 列表/GIMP .gpl/Adobe .ase 统一转内部 JSON;定性板不够长默认拒绝并提示改分面/高亮,兜底循环+线型区分,绝不插值;⑤对 R-274 暴露统一色板查询接口(按 type+色数返回,用户板同类型优先)。拆批:批1 内置数据+规范 JSON+查询接口;批2 推荐规则+校验链;批3 用户导入三格式。
+- 复杂度: 中
+- 批次: 3/3
+- 来源: 2026-08-16 用户原话「科研绘图要支持调色版推荐,我给AI一些调色版,他自己做,这里可能还需要爬取一些配色网站的方案」;调查结论(prior_art §3):内置源许可证全干净且机器可读、爬配色网站砍掉(Coolors ToS 明确禁爬、Adobe API 已死、ColorHunt 灰色;纯色值组合无版权,风险在 ToS;开源聚合库覆盖更优)、Rust 生态足以本地实现全部校验。
+- 标签: 核心
+- 边界: 不爬配色网站(用户原「可能爬取」的想法经调查以免爬替代落地:官方源+开源聚合质量更高,「自己喂色板」由粘贴/导入入口覆盖);colorcet(CC-BY 要求署名)不入首批;不做色板编辑器 UI;不做专色/CMYK 印刷流程。
+- 验收: ①内置各族色板与上游源逐色一致(抽查断言),license 与致谢字段齐全;②四类数据特征各返回正确类型色板,jet 用于连续量被拒(定向测试);③构造红绿不安全板,校验链给低分并点名冲突色对(实测输出);④hex/.gpl/.ase 三种导入各有测试,非法输入诊断明确;⑤定性板超长请求默认被拒并给分面建议;⑥R-274 注入联通实测(图中颜色与用户板一致)。
+- 优先级: P1
+- 取活依据: override:parallel-line-create:用户从并行视图选择条目开线
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 三批全部交付:批1 5eaed2f(内置10板+查询接口+plot对接)、批2 f2f6f92(推荐规则+校验链)、批3 f7eb783+f8b240c(用户导入+同类型优先+联通实测);全量 cargo test --workspace 全绿(T-1786854124)。验收对账:①逐色一致+license/致谢——palette.rs tests「内置色板与上游源逐色一致_抽查」「内置数据四类覆盖且字段齐全」(T-1786853183)+builtin_palettes.json 每板 source_url/license/note 齐全(5eaed2f);②四类各返回正确类型+jet 连续量拒——palette.rs「四类查询各返回正确类型」「推荐规则四类映射且jet拒绝」+plot_tool.rs「palette_type查询内置板」「palette_feature推荐与禁忌」(f2f6f92);③红绿板低分点名冲突对——palette.rs「红绿板低分并点名冲突对」score<70+worst_pairs[0]=红绿对+CVD退化+「校验链数值环节」(f2f6f92);④hex/.gpl/.ase 三导入各有测试+非法诊断——palette.rs「hex导入解析与非法诊断」「gpl导入解析与非法诊断」「ase导入解析与非法诊断」+plot_tool.rs「palette_import对接」(f7eb783);⑤定性板超长默认拒绝给分面建议——palette.rs「定性板超长请求被拒并给建议」+recommend Nominal>12+query_user 用户板不足(f2f6f92/f7eb783);⑥R-274 注入联通实测——plot_tool.rs「palette_import联通注入渲染」用户板hex导入→matplotlib注入 prop_cycle 逐色一致(f8b240c)
+- observed_head: f8b240c14d0a267dd9bbfbdaec8836c1ed8af011
+- observed_worktree_hash: fnv1a64:66f2a4ab5a0bf111
+- recorded_at: 1786854468725
+
+## R-279 子代理 transcript 事件投影真源:子代理对话落 typed facts、续跑从投影恢复、注册 subagent_transcript gate [done]
+- 优先级: P1
+- 内容: 子代理(background_subagent/task 派发)的对话历史当前只存进程内 TranscriptStore(HashMap,重启即失),无事件投影真源——R-242 验收①⑥ 的第五条读路径(subagent_transcript)因此无法切换。本条目:①子代理运行期把对话事实(user/assistant/tool 消息)落 session_events(与主会话同库,事件带子代理标识,走同一 typed writer/invariant 契约);②续跑恢复从事件投影重建 transcript(进程内 HashMap 仅作缓存);③注册 subagent_transcript feature gate,可独立回退到进程内行为;④回填 R-242 验收①(五条读路径从同一事件日志恢复一致消息)与验收⑥(五条 gate 独立回滚)。
+- 复杂度: 中
+- 来源: R-242 批8 拆分:subagent_transcript 无事件投影真源(子代理对话不落 typed facts),R-242 批次已满(8/8)且该项为独立子工程,按批次上限规则拆为 follow-up 条目。
+- 标签: 核心
+- 边界: 本条目只负责子代理 transcript 的事件投影真源建立与读路径切换,不扩展主会话 typed 词表;子代理对话落库沿用既有 session_events(带 subagent 前缀标识),不改 SessionFact 公共枚举;进程内 TranscriptStore 降为缓存。验收⑤真实库新轮验证与验收⑦(compaction 事件化)不属于本条目(见 R-242 进展)。
+- 验收: ①子代理对话事实落库后,新开进程可从事件日志投影恢复该子代理 transcript(非空);②续跑 prior 从事件投影恢复,与进程内 TranscriptStore 内容一致;③注册 subagent_transcript gate,剔除该路径后回退进程内行为,行为与切换前一致;④R-242 验收①⑥ 回填(subagent_transcript 成为第五条约切换路径/第五条 gate)。
+- refs: R-242
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-279
+- 批次: 3/3
+- 进展: 2026-08-16 批2 完成,回填落库(提交 5170dc86:R-242 验收①⑥ 回填)。验收对账:①事件落库后可恢复(非空):recover_subagent_transcript(typed.rs)+集成测试 background_subagent_dispatch.rs:754(T-1786898801,提交 9747d680);②续跑 prior 从事件恢复且与进程内一致:background_subagent_dispatch.rs:754 续跑后事件历史增长 first<last(T-1786898801);③gate 注册可独立回退:projection_gate.rs DEFAULT_PROJECTION_PATHS 五条(提交 94ebf689)+ gate 测试(T-1786898357);④R-242 验收①⑥ 回填:background_subagent_dispatch.rs:754 与 projection_gate.rs 即第五条约切换路径/第五条 gate 的实现(T-1786898801,提交 9747d680/94ebf689),回填落库 R-242 提交 5170dc86;⑥同④(提交 5170dc86,五条 gate 全注册)。桌面 coordinator.rs 接线 sink/provider(带 gate 判断),CLI 单轮传 None。
+- observed_head: 9747d68012a5e50a668f8a02ccc3a9e6d31416a6
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786898963117
