@@ -117,6 +117,9 @@ impl Novelty {
 pub struct MemoryStore {
     pub scope: MemoryScope,
     pub root: PathBuf,
+    /// R-268:项目主根(写日志用,global scope 为 None——global 记忆不在任何项目的
+    /// 托管围栏内,无需记写日志)。
+    pub project_root: Option<PathBuf>,
 }
 
 impl Clone for MemoryStore {
@@ -124,13 +127,18 @@ impl Clone for MemoryStore {
         MemoryStore {
             scope: self.scope,
             root: self.root.clone(),
+            project_root: self.project_root.clone(),
         }
     }
 }
 
 impl MemoryStore {
     pub fn open(scope: MemoryScope, root: PathBuf) -> Self {
-        MemoryStore { scope, root }
+        MemoryStore {
+            scope,
+            root,
+            project_root: None,
+        }
     }
 
     pub fn project(project_root: &Path) -> Self {
@@ -139,7 +147,11 @@ impl MemoryStore {
             super::project_memory_root(project_root),
         );
         store.migrate_legacy(project_root);
-        store
+        MemoryStore {
+            scope: store.scope,
+            root: store.root,
+            project_root: Some(project_root.to_path_buf()),
+        }
     }
 
     pub fn global() -> Option<Self> {
@@ -562,6 +574,27 @@ impl MemoryStore {
             None => self.root.join(format!("{}.md", entry.file_stem())),
         };
         crate::atomic_file::write_atomic(&path, &render_entry(entry))?;
+        // R-268:写后记写日志——围栏收口对账的归因凭据(memory 写入口与 tracker
+        // 同口径:先写文档再记日志)。global scope 无项目主根,不记。
+        if let Some(project_root) = &self.project_root {
+            if let Ok(relative) = path.strip_prefix(project_root) {
+                let rendered = render_entry(entry);
+                let _ = kanzei_base::write_log::record(
+                    project_root,
+                    &kanzei_base::write_log::WriteLogEntry {
+                        at_ms: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis())
+                            .unwrap_or_default(),
+                        path: relative.display().to_string().replace('\\', "/"),
+                        fingerprint: kanzei_base::content_hash(rendered.as_bytes()),
+                        content: rendered.into_bytes(),
+                        run_id: None,
+                        process_id: None,
+                    },
+                );
+            }
+        }
         Ok(())
     }
 
@@ -614,6 +647,25 @@ impl MemoryStore {
             index.push_str(&format!("\n({candidates} candidate 条待验证晋升)\n"));
         }
         crate::atomic_file::write_atomic(&self.index_md(), &index)?;
+        // R-268:INDEX.md 是围栏可见的托管文件,写后记日志(同 write_entry 口径)。
+        if let Some(project_root) = &self.project_root {
+            if let Ok(relative) = self.index_md().strip_prefix(project_root) {
+                let _ = kanzei_base::write_log::record(
+                    project_root,
+                    &kanzei_base::write_log::WriteLogEntry {
+                        at_ms: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis())
+                            .unwrap_or_default(),
+                        path: relative.display().to_string().replace('\\', "/"),
+                        fingerprint: kanzei_base::content_hash(index.as_bytes()),
+                        content: index.into_bytes(),
+                        run_id: None,
+                        process_id: None,
+                    },
+                );
+            }
+        }
 
         let conn = self.open_db()?;
         conn.execute("DELETE FROM memory_fts", [])?;
@@ -631,6 +683,28 @@ impl MemoryStore {
                     e.status
                 ],
             )?;
+        }
+        // R-268:FTS index.db 是围栏可见的托管文件(SQLite 二进制),写后记日志——
+        // 指纹 + 内容快照(库通常小;围栏收口按日志吸收,不把它当越界回滚)。
+        if let Some(project_root) = &self.project_root {
+            if let Ok(relative) = self.db_path().strip_prefix(project_root) {
+                if let Ok(db_bytes) = std::fs::read(self.db_path()) {
+                    let _ = kanzei_base::write_log::record(
+                        project_root,
+                        &kanzei_base::write_log::WriteLogEntry {
+                            at_ms: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis())
+                                .unwrap_or_default(),
+                            path: relative.display().to_string().replace('\\', "/"),
+                            fingerprint: kanzei_base::content_hash(&db_bytes),
+                            content: db_bytes,
+                            run_id: None,
+                            process_id: None,
+                        },
+                    );
+                }
+            }
         }
         Ok(())
     }

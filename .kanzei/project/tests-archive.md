@@ -4331,3 +4331,9 @@
 - 摘要: R-268 批2:写者侧接入——tracker.rs 写动作(add/update/close/archive 等)成功后 record 写日志(路径+写后指纹+run/process 身份),围栏收口对账的归因凭据真实产出;新增测试「写动作产出写日志_路径指纹与身份齐备」验证 add 产出日志且指纹=磁盘内容、身份=ctx。kanzei-tools 全量 293 passed, clippy/fmt 通过
 - 关联: R-268
 - 收尾: 1786838042
+
+## T-1786839347 R-268 批3 workspace 全量(围栏去锁+写日志下沉+memory 接入) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-268 批3:workspace 全量 15 段全 ok。围栏去锁(共享档贯穿窗口→收口毫秒锁)+写日志下沉 kanzei-base(纯 std 行编码,content_hash 指纹,ADS 冒号 sanitize 修复)+tracker/memory(write_entry+INDEX.md+index.db)写入口全接日志。D-364 集成 4 条+D-368 集成 3 条全绿(真进程 CLI 窗口内合法写入不被围栏误回滚)。kanzei-base 20+kanzei-tools 290+kanzei-memory 139 passed,clippy/fmt 通过
+- 关联: R-268
+- 收尾: 1786839347

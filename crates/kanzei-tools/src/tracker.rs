@@ -459,7 +459,7 @@ impl Tool for TrackerTool {
                                 .map(|d| d.as_millis())
                                 .unwrap_or_default(),
                             path: relative.display().to_string().replace('\\', "/"),
-                            sha256: crate::write_log::fingerprint(&content),
+                            fingerprint: crate::content_hash(&content),
                             content: content.clone(),
                             run_id: ctx.run_id.clone(),
                             process_id: ctx.process_id.clone(),
@@ -3552,8 +3552,8 @@ mod tests {
         );
         let on_disk = std::fs::read(&store.path).unwrap();
         assert_eq!(
-            log.sha256,
-            crate::write_log::fingerprint(&on_disk),
+            log.fingerprint,
+            crate::content_hash(&on_disk),
             "日志指纹必须等于写后内容指纹"
         );
         assert_eq!(log.run_id.as_deref(), Some("run-1"));

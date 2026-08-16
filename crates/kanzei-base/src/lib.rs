@@ -9,6 +9,7 @@
 //! 不承担任何业务规则。
 
 pub mod atomic_file;
+pub mod write_log;
 
 /// FNV-1a 64 位哈希 → 十六进制内容指纹(R-203 从 tools/files.rs 下沉单源)。
 /// 用途:记忆文件正文戳(store.rs 的 stale/改判指纹)与桌面端文件视图 stamp

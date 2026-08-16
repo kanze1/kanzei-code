@@ -441,6 +441,19 @@ pub(crate) fn enforce_managed_files_with_writer_log(
     before: ManagedSnapshot,
     window_start_ms: u128,
 ) -> Option<String> {
+    // R-268:收口时取**毫秒级**文件锁(预算 500ms)再拍 after 快照——确保此刻没有
+    // 写者在写(快照读到中间态会把合法写入误判成越界)。写者平时自由写(不再被
+    // 贯穿窗口的共享档挡),只有收口这一瞬与写者互斥;写者持锁是毫秒级 load→save,
+    // 500ms 预算内必然拿到;超预算说明异常(写者卡死),明确报错。
+    let _fence_locks = match acquire_managed_locks(project_root) {
+        Ok(locks) => locks,
+        Err(error) => {
+            return Some(format!(
+                "[managed-files] WARNING: fence close-out could not lock managed documents \
+                 ({error}); cross-fence attribution was NOT enforced for this command."
+            ));
+        }
+    };
     let after = ManagedSnapshot::capture(project_root);
     if after == before {
         return None;
@@ -453,14 +466,14 @@ pub(crate) fn enforce_managed_files_with_writer_log(
     let covered = |path: &str| -> bool {
         logs.iter().any(|entry| {
             entry.path == path && {
-                let fingerprint = crate::write_log::fingerprint(
+                let fingerprint = crate::content_hash(
                     after
                         .files
                         .get(path)
                         .map(|content| content.as_deref().unwrap_or_default())
                         .unwrap_or_default(),
                 );
-                entry.sha256 == fingerprint
+                entry.fingerprint == fingerprint
             }
         })
     };
@@ -765,7 +778,7 @@ mod tests {
             &crate::write_log::WriteLogEntry {
                 at_ms: window_start + 1,
                 path: ".kanzei/project/requirements.md".into(),
-                sha256: crate::write_log::fingerprint(new_content.as_bytes()),
+                fingerprint: crate::content_hash(new_content.as_bytes()),
                 content: new_content.as_bytes().to_vec(),
                 run_id: Some("run-a".into()),
                 process_id: Some("proc-a".into()),
@@ -838,7 +851,7 @@ mod tests {
             &crate::write_log::WriteLogEntry {
                 at_ms: window_start + 1,
                 path: ".kanzei/project/requirements.md".into(),
-                sha256: crate::write_log::fingerprint(req_new.as_bytes()),
+                fingerprint: crate::content_hash(req_new.as_bytes()),
                 content: req_new.as_bytes().to_vec(),
                 run_id: Some("run-a".into()),
                 process_id: Some("proc-a".into()),

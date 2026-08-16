@@ -4,6 +4,8 @@ pub mod architecture;
 /// 原子写原语下沉到 kanzei-llm(依赖图最底层,D-261):llm 的 auth/store 与
 /// tools 的 docstore/test_record/memory/files 共用同一套,仓里不再养第二份。
 pub use kanzei_base::atomic_file;
+pub use kanzei_base::content_hash;
+pub use kanzei_base::write_log;
 /// R-203:memory/、docstore、embed、replay_eval 拆入 kanzei-memory crate,经再导出
 /// 保持 `kanzei_tools::{memory,docstore,embed,replay_eval}` 全部调用点零改动。
 pub use kanzei_memory::docstore;
@@ -37,7 +39,6 @@ pub mod work;
 /// R-207:worktree 生命周期内核(建线/回执/回滚/合并预检),桌面与 CLI 共用。
 pub mod worktree;
 mod write;
-mod write_log;
 
 pub mod profiles;
 pub mod subagent;
