@@ -193,6 +193,11 @@ fn conversation_list_projected(
     let facts = store
         .list_session_facts(session_id)
         .map_err(|e| e.to_string())?;
+    if facts.is_empty() {
+        // 无 typed facts 的会话(mobile 线程等未被 typed writer 接管)回退
+        // legacy 快照段——与 project_latest_segment 的空回退同一防护语义。
+        return conversation_list_legacy(store, session_id, boundaries);
+    }
     let mut segments = Vec::new();
     let mut start = 0i64;
     for &boundary in boundaries {

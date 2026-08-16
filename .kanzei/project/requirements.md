@@ -114,10 +114,10 @@
 - 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
-- 进展: 2026-08-16 批8 完成(真实库复核+全量+关闭评估)后拆分:R-242 批次已满 8/8,剩余缺口按批次上限规则拆 follow-up——subagent_transcript 事件投影真源拆为 **R-279**(子代理对话落 typed facts+续跑投影恢复+gate 注册,独立子工程,验收①⑥ 第五条由它回填);验收⑦(停止 conversation.updated)依赖 R-243 compaction 事件化,跨条目;验收⑤写错误侧待部署新 kz 后真实库新轮验证。R-242 保持 doing:验收②③④达标、①⑥ 4/5 路径+4 条 gate、⑤差异侧达标(未知差异=0);剩余=等 R-279 完成回填 subagent_transcript + 等 R-243 后回填验收⑦ + 部署新 kz 后真实库新轮核验 typed_write_errors=0。
-- observed_head: 1d3a915e5e5273a6b96c3d592581921bbe7d9692
-- observed_worktree_hash: fnv1a64:f0264567c13198eb
-- recorded_at: 1786896732431
+- 进展: 2026-08-16 复核补丁(交付后自审):批7a 的 conversation_list 切换能力已实现但未加入 DEFAULT_PROJECTION_PATHS(缺省仍走 legacy),不符合验收①'五条读路径切到事件投影'——已补:①DEFAULT_PROJECTION_PATHS 加 conversation_list(4 条,缺省启用,注释同步批7 落地);②conversation_list_projected 空 facts 回退 legacy 快照段(与 project_latest_segment 空回退同语义,mobile 线程等无 typed facts 会话仍显示快照段);③gate 测试断言同步(conversation_list 缺省启用,仅 subagent_transcript 不启用)。kanzei-app 192 passed(T-1786896965)。前置状态见批8 记录:验收②③④达标、①⑥ 4/5(补丁后 conversation_list 缺省投影,实为 4.5/5)+4 条 gate 缺省启用、⑤差异侧达标;剩余=等 R-279 回填 subagent_transcript + 等 R-243 回填验收⑦ + 部署新 kz 后真实库新轮核验 typed_write_errors=0。
+- observed_head: 69c4b161834ef9f7ab3d2d9b201dcaf97217f230
+- observed_worktree_hash: fnv1a64:b06f06294cf24000
+- recorded_at: 1786896995872
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-242
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]
