@@ -511,6 +511,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 "session.status_changed",
                 &serde_json::json!({ "status": "idle" }),
             )?;
+            // 轮末快照继续写入(验收⑦顺延:压缩摘要仍经它持久化,见 R-242 进展)。
             store.append_event(
                 &session_id,
                 "conversation.updated",

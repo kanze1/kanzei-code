@@ -428,6 +428,8 @@ pub(crate) async fn finalize_round(
         // 轨迹已在运行中按事件增量写入；这里仅补写实时写入失败的尾部，避免
         // 轮末再把整轮复制一遍造成回放重复。
         flush_live_trace(store, session_id, live);
+        // 轮末快照继续写入(验收⑦顺延:上下文压缩摘要仍经 conversation.updated
+        // 持久化,停止前需 compaction 事件化,见 R-242 进展)。
         if let Err(error) = store.append_event(
             session_id,
             "conversation.updated",
