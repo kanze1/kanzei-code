@@ -106,7 +106,7 @@
 - 依赖: R-241
 - 内容: 在 shadow gate 通过后，将 conversation_get/list、runner prior、子代理 transcript 和 UI 历史恢复逐项切到事件投影；进程内 Vec<Message> 仅作缓存。清空对话追加 conversation.reset 并开启新 segment，新 segment 的模型 prior 为空，旧 segment 仍可审计。验证期保留 legacy snapshot 只读对照，五条读路径全部稳定后停止新增 conversation.updated。
 - 复杂度: 大
-- 批次: 7/8
+- 批次: 8/8
 - 来源: 2026-08-14 DeepSeek Harness 升级方案；用户确认清空保留、删除确定性物理清除并弹窗提示风险。
 - 标签: 核心
 - 边界: 本需求只负责事件投影真源切换与 segment reset，不实现会话物理删除、Spill artifact 联动删除、WAL/VACUUM 或迁移备份安全整理；这些统一由 R-245 的删除计划与显式整理入口承担。第一批不改事件 format_version 与 SessionFact 公共词表；任一读路径可通过 feature gate 独立回退 legacy snapshot。
@@ -114,10 +114,10 @@
 - 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
-- 进展: 2026-08-16 批7a 完成(segment reset 语义 + conversation_list 切换,验收④①部分):①conversation_clear 改写 conversation.reset(替代 conversation.updated 空快照,保留原始历史);②新增 segment_boundaries(reset 事件升序)与 project_latest_segment(最新 reset 后 facts 投影 surface,新段 prior 空;重复 reset 幂等;无 typed facts 会话回退 legacy 快照——mobile 线程回归防护);③conversation_get/runner_prior 走 project_latest_segment,conversation_trace_get 段边界改 reset;④conversation_list 按 reset 分段:gate 开投影 typed facts(旧段可审计),关走 legacy(段边界同为 reset);UI 有 sequences??[item.sequence] fallback 兼容。测试:+4(segment 新段空/重复 reset 幂等/旧段保留、conversation_get 空投影回退、conversation_list 投影分段、user 边界强杀恢复),kanzei-app 192 + kanzei 37+31 passed。验收⑦顺延:尝试停止轮末 conversation.updated 时 3 个集成测试红(always_allow_bash/context_overflow_recovery×2)——上下文压缩摘要仍经轮末快照持久化,停止会丢压缩结果、重启投影回原始未压缩历史;停止需先 compaction 事件化(R-243 范围),已回退停止改动,轮末快照继续写。缺口:验收⑦(compaction 持久化迁移)、subagent_transcript(无事件投影真源,独立子工程)、验收⑤真实库复核(修复后新增 turn typed_write_errors=0,待新轮运行后 kz shadow 验证)。下一步批8:真实库 30 turn 复核 + 全量测试 + 关闭评估(验收①②③④⑤⑥已主体达标,⑦与 subagent 缺口转 follow-up 评估)。
-- observed_head: f3e1bd353cbe956552a8487bfffb3a237a88f2a0
-- observed_worktree_hash: fnv1a64:b45a38cdff52abe0
-- recorded_at: 1786895649708
+- 进展: 2026-08-16 批8 完成(真实库复核+全量+关闭评估):①cargo test --workspace 全绿(kanzei-core 213/kanzei-app 139/kanzei-tools 317/kanzei-llm 148/harness 46,0 failed,T-1786896335);②真实库复核(83 条 shadow_compared):修复后新增 3 轮(seq 111534/112540/113746)仍带写错误「already terminal」且无 expected_mismatch 字段——判定为**旧安装版 kz 产物**(批4/5 修复未部署,自举跑的是 ~/.cargo/bin 旧二进制),不能证明修复效果;修复效果验证需安装新 kz 后跑新轮(集成测试 always_allow_bash 已在修复后代码上断言 typed_write_errors=[],链路正确性已证)。观察项:112540/113746 为 legacy 比投影多 1 条(264vs263、388vs387,first=260/384),新代码 classify 会判 unknown——疑似 legacy 快照含 interrupted 草稿而 surface 排除,待新 kz 新轮数据确认后补 classify 或确认为预期。关闭评估:验收②③④主体达标(强杀恢复三边界测试齐/reset 幂等+旧段可审计);①⑥ 4/5 路径切换+4 条 gate(conversation_get/list/runner_prior/ui_history),subagent_transcript 缺口;⑤差异侧达标(16 条差异全预期分类、未知差异=0)、写错误侧待新 kz 部署后新轮验证;⑦顺延(compaction 持久化依赖 R-243)。**结论:R-242 保持 doing**——剩余缺口 subagent_transcript 事件投影真源(独立子工程)与验收⑦(compaction 事件化)均为结构性依赖,不属批8 可收口范围,进展持续记录;下步:部署新 kz 后真实库新轮验证 typed_write_errors=0 + 补齐 subagent_transcript/验收⑦。
+- observed_head: 1d3a915e5e5273a6b96c3d592581921bbe7d9692
+- observed_worktree_hash: fnv1a64:3f5783566ef67c1c
+- recorded_at: 1786896345384
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-242
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]
