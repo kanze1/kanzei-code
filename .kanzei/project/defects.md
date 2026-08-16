@@ -206,7 +206,7 @@
 - 根因: 本轮 research 的文献检索通道是 arXiv API,拿到的只有 title+summary(摘要),全程未取正文。报告把这类来源一律标 V2「一手来源」,且未声明「仅摘要级」。抽查发现一处实质越界:report.md:31 称 CoALA(arXiv 2309.02427)确立「working/episodic/semantic/procedural」四类模块化记忆并标 V2/S-008,但实测该论文摘要里 working/episodic/semantic/procedural 四词一个都没有(只有 memory)——结论本身是对的(在正文里),但**引用的那份证据支撑不了它**。同一段落对 LangGraph(S-009,取的是正文 HTML)的三类映射则证据充分。
 - 优先级: P2
 
-## D-413 研究工件前端只读:文献打不开、条目改不了删不掉,后端全支持 [open] (high)
+## D-413 研究工件前端只读:文献打不开、条目改不了删不掉,后端全支持 [fixed] (high)
 - refs: R-276 R-221
 - 影响: ①来源里明明存了 URL 字段(.kanzei/research/sources.md 每条文献均有 `- URL: https://arxiv.org/abs/...`)却无法点击打开,用户原话「我想直接打开他参考的文献也不行」;②代码域来源的 `证据锚: file:line` 同样点不开;③条目无法编辑、无法删除,写错只能手改 markdown;④标题被 CSS 截断,来源列表 19 条全是「kanzei 检索/触发/反事实评估实现(index...」这类看不全的字符串;⑤发现条目 confirmed 后整条置灰,像是被禁用。研究模式的核心资产(来源与发现)在 UI 里事实上是死的。
 - 期望: ①去掉 kind gating,source/finding 与 req/defect 同权:可展开、可编辑字段、可删除、可归档;②来源条目主操作=打开——文献用 URL、代码域用证据锚跳文件定位行;③标题不截断(卡片换行或悬停全文);④refs 里的 S-id 可点跳转;⑤confirmed 不等于失效,置灰样式要区分「终态」与「不可用」。
@@ -214,3 +214,7 @@
 - 标签: 前端
 - 根因: renderDocList 把展开/字段编辑/删除/归档等交互整体 gate 在 kind==="req"||"defect"(crates/kanzei-app/ui/11-docs-list.js:249-262),source/finding 走同一函数但只落到「一行截断标题」的裸渲染(12-docs-pages.js:810-811);而后端 docs_update 对 kind=source/finding 早已全支持 update/close/archive(crates/kanzei-app/src/docs.rs:402-413)。纯前端接线缺失。
 - 优先级: P1
+- 进展: 2026-08-16 修复交付(提交 5fb61ce)。①编辑权按「有无文档页」分流——crates/kanzei-app/ui/11-docs-list.js:594 的 deepManage 去掉 req/defect 硬 gating,source/finding 因无文档页(index.html 无 view-sources/view-findings)改在侧栏详情直接编辑,R-123「编辑只在文档页」的原意保留给有页的 req/defect;②文献可打开——同文件新增 researchLinkField/researchOpenLink,URL 字段渲染为链接,点击走新增后端命令 crates/kanzei-app/src/docs.rs:448 webfetch_preview(复用 kanzei-tools webfetch 工具本体,同一套代理/超时/截断口径,只放行 http/https 防本地文件旁路),正文进既有内置 viewer(用户定调不跳出应用);③代码域证据锚 file:line 可点,点击经 activitybar 按钮切文件视图并 openFilePreview 定位;④confirmed 不再当失效——crates/kanzei-app/ui/style.css:393 起给 #finding-list 终态取消 opacity .4 与删除线,改左侧强调条;⑤研究列表标题 white-space:normal 换行不截断。验证:六条前端冒烟全绿(runtime/lint/parallel/a11y/i18n/markdown)、cargo clippy 两 crate 零警告、i18n 补 3 键且 globals 清单重生成后 lint 同步。验收降级: 真实点击体验(打开文献/编辑/删除)由用户装新版后实测。
+- observed_head: 5fb61ce7a2f6c726617e51c190b6368f65a44ac0
+- observed_worktree_hash: fnv1a64:079b10c5eaac5321
+- recorded_at: 1786860935247
