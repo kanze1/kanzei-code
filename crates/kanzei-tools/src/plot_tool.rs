@@ -956,4 +956,38 @@ mod tests {
         // 导入的板经 import_palette 已注册为用户板(同类型优先由 palette 测试验证)。
         crate::palette::reset_user_palettes();
     }
+
+    /// R-275 验收⑥:R-274 注入联通实测——用户板(hex 导入)→ resolve → matplotlib
+    /// 注入渲染,图中系列颜色与用户板逐色一致(本机有 uv 时实测;无则跳过)。
+    #[serial]
+    #[test]
+    fn palette_import联通注入渲染() {
+        if which_in_path("uv").is_none() {
+            eprintln!("跳过:本机无 uv");
+            return;
+        }
+        let dir = temp_dir("import-connect");
+        let hex = serde_json::json!({
+            "palette_import_format": "hex",
+            "palette_import_content": "#E6194B\n#3CB44B",
+            "palette_import_type": "qual"
+        });
+        let colors = resolve_palette(&hex, vec![]).unwrap();
+        assert_eq!(colors, vec!["#E6194B", "#3CB44B"]);
+        // 渲染脚本打印 prop_cycle 前两色(供逐色断言)。
+        let script = "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\n\
+                      fig, ax = plt.subplots()\nax.bar([0,1],[10,20])\nax.bar([0,1],[15,25])\n\
+                      fig.savefig(\"c.png\", dpi=100)\n\
+                      import matplotlib as mpl\n\
+                      print(\"CYCLE:\", list(mpl.rcParams[\"axes.prop_cycle\"].by_key()[\"color\"])[:2])\n";
+        let out = render_matplotlib(&dir, script, "c", &colors);
+        assert!(!out.is_error, "用户板注入后应出图: {}", out.content);
+        assert!(
+            out.content.contains("#E6194B") && out.content.contains("#3CB44B"),
+            "图中系列颜色与用户板一致: {}",
+            out.content
+        );
+        crate::palette::reset_user_palettes();
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
