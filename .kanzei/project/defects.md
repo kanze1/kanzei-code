@@ -85,7 +85,7 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-389 R-270/R-271 验收证据虚增:替身自检真机零记录 [open] (high)
+## D-389 R-270/R-271 验收证据虚增:替身自检真机零记录 [fixing] (high)
 - refs: R-270 R-271 R-059
 - 影响: R-271 验收①真机全链路零记录仍标 done;虚假完成已传播到 R-059 阻塞解除依据。
 - 期望: 鉴权闸/LAN 两缺陷修复后补真链路验收(R-269 走真桥接端口+用户真机),R-059 核销以此为门;测试记录不得以替身冒充目标链路。
@@ -93,6 +93,8 @@
 - 标签: 流程
 - 根因: 自检记录 T-1786842342/2532/2732 打开的是 http://127.0.0.1:8123/(output/r271-req1.jsonl),全仓无代码绑 8123——临时静态服务器替身,对「经桥接加载」零证明力;T-1786842178「手机浏览器打开桥接地址可加载」是未验证断言(实际被鉴权闸挡死)。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-389
+- 取得线: kanzei/thread-line-1786851588846-1
 
 ## D-390 PWA 被鉴权闸挡死:裸 GET 恒 401,配对成鸡生蛋 [open] (high)
 - refs: R-270 R-271
@@ -214,3 +216,16 @@
 - observed_head: 0d79d5b130531e4e938e959bf49020f5ac369ca8
 - observed_worktree_hash: fnv1a64:28d67e2167c4069d
 - recorded_at: 1786853843829
+
+## D-406 跨树快照键扁平化:递归按父目录 strip_prefix,回滚喷垃圾到树根 [fixed] (high)
+- refs: R-186 D-395 D-396 D-397
+- 影响: ①镜像键跨目录碰撞(同名文件互相覆盖),R-186 跨树保护实际从未按正确路径对账——保护失效;②回滚 root.join(裸名) 把别树深层文件内容写到树根(垃圾)/对树根同名文件执行删除(README.md/Cargo.toml 等根级文件有被误删风险);③build-735ebb3 已装机,活跃线每个前台 bash 收口都在触发。与 D-395(并发误伤)/D-396(超限语义)/D-397(粗筛缺席)同模块不同缺陷,审计漏网。
+- 期望: 递归携带 tree_root 与当前 dir 两个参数,relative 一律 strip_prefix(tree_root);回归测试:嵌套文件键必须是完整相对路径(a/b/c.txt),回滚写回嵌套路径不落树根;主根平铺垃圾清理。
+- 来源: 2026-08-16 用户发现根目录异常文件,当场取证定位。
+- 标签: 核心
+- 根因: collect_tree_files 递归调用 collect_tree_files(&path, files) 把子目录当新 root,relative=path.strip_prefix(root) 永远相对直接父目录——深层文件的镜像键全是裸 basename(cross_tree.rs:93-131)。已当场核验:主根 12:12-12:26 出现 defects.md/defects-archive.md/inbox.md/index.db/bin-kz/dep-lib-*/.rustc_info.json 等平铺副本,内容与深层原件一致。
+- 优先级: P0
+- 进展: 2026-08-16 修复(提交 4b0b921)。collect_tree_files 拆为外壳+collect_tree_files_in(tree_root, dir, files),strip_prefix 一律相对树根,深层文件镜像键回归完整相对路径;新增判别测试「深层文件键为完整相对路径_回滚写回原位不落树根」(嵌套+根级同名两键独立、越界回滚写回 sub/inner/ 原位、树根无平铺)——既有测试全用顶层文件因而假绿,已补该盲区。cross_tree 8/8 绿,clippy 零警告。主根 151 个平铺垃圾文件(指纹族+托管文档旧副本,正本逐一核对在位)已清理。注意:活跃线仍跑旧二进制,重启 kzapp 装上热修版前垃圾可能再生,再生即再清。
+- observed_head: 4b0b921cf1e1f6e2387486b51efb3e1c124f723d
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786855543953
