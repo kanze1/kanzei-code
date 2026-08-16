@@ -419,6 +419,81 @@ fn conversation_get_falls_back_to_legacy_when_no_typed_facts() {
 }
 
 #[test]
+fn legacy_new_segment_does_not_reuse_pre_reset_snapshot() {
+    // D-427:没有 typed facts 的 legacy 会话也必须把 reset 之后视为新 prior,
+    // 不能因 fallback 而重新读取 reset 之前的旧 conversation.updated。
+    let _gate_guard = GATE_ENV_LOCK.lock().unwrap();
+    use kanzei_llm::Message;
+
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-app-legacy-reset-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let canonical = crate::normalized_project_root(&root);
+    let session_id = crate::process_session_id(&canonical, None);
+    let state_path = kanzei_core::project_state_path(&canonical);
+    {
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        store
+            .create_session(&session_id, &canonical.display().to_string(), None)
+            .unwrap();
+        store
+            .append_event(
+                &session_id,
+                "conversation.updated",
+                &serde_json::json!({ "messages": [Message::user_text("旧对话不应进入新段")] }),
+            )
+            .unwrap();
+        store
+            .append_event(
+                &session_id,
+                "conversation.reset",
+                &serde_json::json!({ "cleared": true }),
+            )
+            .unwrap();
+    }
+
+    let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+    assert!(
+        crate::conversation::recover_messages(&store, &session_id)
+            .unwrap()
+            .is_empty(),
+        "reset 后无新快照时 prior 必须为空,不能回退到旧快照"
+    );
+    std::env::set_var("KANZEI_PROJECTION_GATES", "conversation_get");
+    let history =
+        crate::conversation::conversation_get(canonical.display().to_string(), None, None).unwrap();
+    assert!(
+        history.is_empty(),
+        "conversation_get 不能把 reset 前历史带入新对话"
+    );
+    drop(store);
+
+    let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+    store
+        .append_event(
+            &session_id,
+            "conversation.updated",
+            &serde_json::json!({ "messages": [Message::user_text("新对话内容")] }),
+        )
+        .unwrap();
+    drop(store);
+    std::env::remove_var("KANZEI_PROJECTION_GATES");
+
+    let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+    let recovered = crate::conversation::recover_messages(&store, &session_id).unwrap();
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(recovered[0], Message::user_text("新对话内容"));
+    drop(store);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn conversation_list_projected_segments_by_reset_boundary() {
     // R-242 批7(验收①/④):gate 开启时 conversation_list 按 conversation.reset
     // 分段,旧段保留(可审计)、新段可见。

@@ -67,11 +67,13 @@ pub(crate) fn project_latest_segment(
     let facts = store
         .list_session_facts(session_id)
         .map_err(|e| e.to_string())?;
-    if facts.is_empty() {
-        // 无 typed facts:真源仍是 legacy 快照(未被投影接管)。
-        return recover_messages_raw(store, session_id, None).map_err(|e| e.to_string());
-    }
     let boundary = segment_boundaries(store, session_id)?.pop();
+    if facts.is_empty() {
+        // legacy/mobile 会话没有 typed facts 时也必须尊重 reset;否则新对话会
+        // 回退到 reset 之前最后一条 conversation.updated,把旧历史重新喂给 runner。
+        return recover_latest_legacy_segment_raw(store, session_id, boundary)
+            .map_err(|e| e.to_string());
+    }
     let filtered: Vec<_> = match boundary {
         Some(seq) => facts
             .into_iter()
@@ -101,7 +103,16 @@ pub(crate) fn conversation_get(
     if sequence.is_none() && crate::projection_gate::read_path_uses_projection("conversation_get") {
         return project_latest_segment(&store, &session_id);
     }
-    recover_messages_raw(&store, &session_id, sequence).map_err(|e| e.to_string())
+    if sequence.is_none() {
+        recover_latest_legacy_segment_raw(
+            &store,
+            &session_id,
+            segment_boundaries(&store, &session_id)?.pop(),
+        )
+        .map_err(|e| e.to_string())
+    } else {
+        recover_messages_raw(&store, &session_id, sequence).map_err(|e| e.to_string())
+    }
 }
 
 /// R-241 只读 shadow 入口：返回 typed-events 投影、现有快照比较和中断草稿诊断。
@@ -345,11 +356,45 @@ pub(crate) fn conversation_delete(
     Ok(deleted)
 }
 
+fn recover_latest_legacy_segment_raw(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    boundary: Option<i64>,
+) -> anyhow::Result<Vec<kanzei_llm::Message>> {
+    let event = store
+        .list_events_by_type(session_id, 0, "conversation.updated")?
+        .into_iter()
+        .filter(|event| boundary.is_none_or(|start| event.sequence > start))
+        .rev()
+        .find(|event| {
+            event.payload["messages"]
+                .as_array()
+                .is_some_and(|messages| !messages.is_empty())
+        });
+    let Some(event) = event else {
+        return Ok(Vec::new());
+    };
+    let messages = event
+        .payload
+        .get("messages")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    Ok(serde_json::from_value(messages)?)
+}
+
 pub(crate) fn recover_messages(
     store: &kanzei_core::SessionStore,
     session_id: &str,
 ) -> anyhow::Result<Vec<kanzei_llm::Message>> {
-    recover_messages_at(store, session_id, None)
+    let boundary = segment_boundaries(store, session_id)
+        .map_err(anyhow::Error::msg)?
+        .pop();
+    if boundary.is_none() {
+        return recover_messages_at(store, session_id, None);
+    }
+    Ok(kanzei_core::filter_message_history(
+        &recover_latest_legacy_segment_raw(store, session_id, boundary)?,
+    ))
 }
 
 pub(crate) fn recover_messages_raw(
