@@ -57,6 +57,10 @@ impl Component for BaseComponent {
         draft
             .tools
             .insert("latex", Arc::new(crate::latex_tool::LatexTool));
+        // R-274:科研绘图工具(Vega-Lite spec → PNG,经 images 通道回模型)。
+        draft
+            .tools
+            .insert("plot", Arc::new(crate::plot_tool::PlotTool));
 
         // 默认权限:读/检索全放行;写/改/命令/联网走 ask(用户可在 kanzei.toml 覆盖,后注册者胜)。
         draft.permissions.extend([
@@ -77,6 +81,7 @@ impl Component for BaseComponent {
             rule("websearch", "*", Effect::Ask),
             rule("browser", "*", Effect::Ask),
             rule("latex", "*", Effect::Ask),
+            rule("plot", "*", Effect::Ask),
         ]);
 
         draft.context.insert(

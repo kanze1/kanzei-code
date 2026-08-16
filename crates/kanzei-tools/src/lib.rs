@@ -27,6 +27,7 @@ mod glob;
 mod grep;
 mod latex_tool;
 mod managed;
+mod plot_tool;
 mod process;
 mod question;
 mod read;

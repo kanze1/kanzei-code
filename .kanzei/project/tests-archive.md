@@ -4435,3 +4435,9 @@
 - 摘要: R-273 批3:workspace 全量 15 段 ok。断网 --only-cached 预热语义(验收③):假 tectonic 脚本模拟已预热(--only-cached 成功)/未预热(失败给明确诊断);bib 路线声明(验收④ Tectonic 路径):biber_available 检测,biber 可用声明 biblatex/缺省 natbib+bibtex;compile_tectonic 失败路径补「未预热需先联网预热」指引。新增单测 2 条(tectonic已预热_onlycached成功、tectonic未预热_明确诊断含bib声明)。kanzei-tools 301 passed,clippy/fmt 通过
 - 关联: R-273
 - 收尾: 1786844158
+
+## T-1786844629 R-274 批1 Vega-Lite 主轨 [passed]
+- 命令: cargo test -p kanzei-tools --lib plot_tool
+- 摘要: R-274 批1:plot_tool.rs Vega-Lite 主轨——spec JSON 校验(非法给可一轮修复诊断)+缺 mark/data 字段诊断+渲染通道检测(vl-convert 官方 CLI vl2png 子命令/vega-cli 回退)+PNG 魔数校验+images 通道回模型+spec 落盘。base.rs 注册 plot 工具 Ask 权限。单测 5 条全绿:非法spec诊断、缺mark、缺data、渲染器缺失指引、vegalite_spec转png被模型消费(端到端:下载 vl-convert v1.9.0 win-64 实测,bar.png 15KB,PNG 魔数+images 通道验证)。kanzei-tools 306 passed,clippy/fmt 通过
+- 关联: R-274
+- 收尾: 1786844629

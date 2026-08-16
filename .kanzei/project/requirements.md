@@ -193,33 +193,22 @@
 - 状态: todo
 - 阻塞: 队列让位(2026-08-16):R-186(P0 队首)本轮推进中,单 WIP 槽不足,本条让位等待队列轮转。解除动作: R-186 关闭后清本字段,做剩余批4(withSessionRender setter 化、B3、defer 时序与冒烟断言适配、删补偿)。P3 留档。解除人: agent。
 
-## R-273 LaTeX 编译工具通道:Tectonic 侧车+系统发行增强 [doing]
-- refs: R-221 R-249 docs/design/research_mode_prior_art.md
-- 内容: ①Tectonic CLI 侧车:随包分发官方 exe(或首启下载校验),封装 latex 编译工具(输入 .tex 与工作目录,输出 PDF+诊断);预热常用宏包后默认 --only-cached 免每次联网核对 bundle(上游 #1224),失败再放开网络重试;②bib 路线:默认 natbib/bibtex(Tectonic 内置纯 Rust 实现,循环全自动),biblatex 仅在检测到 biber 二进制时可用并向 agent 显式声明;③系统发行版增强:PATH 检测 kpsewhich/latexmk,检测到 MiKTeX/TeX Live 优先用(全量宏包+biber),否则回落 Tectonic,不要求用户装;④PDF→PNG 回传:pdfium-render + pdfium.dll 侧车,编译产物页面转 PNG 经 ToolOutput images 通道回模型(R-249 已交付);⑤编译错误诊断透传(行号+上下文),支持 agent 编译回环修错(AI Scientist v1 先例)。拆批:批1 侧车+编译工具+诊断;批2 PDF→PNG 回传;批3 系统发行检测增强+bib 收口。
-- 复杂度: 中
-- 批次: 3/3
-- 来源: 2026-08-16 用户定调 research mode 配套必备(「我们肯定还需要latex绘制」);技术路线依据 docs/design/research_mode_prior_art.md §2 调查:Tectonic 2026 年活跃维护、Windows 官方预编译、CLI 侧车优于嵌 crate(官方认证的脆构建链)、biber 不内置。
-- 标签: 核心
-- 边界: 不嵌 tectonic crate;不内置 biber;不做 Typst 通道(调查给出诚实对比,是否加挂另行评估);编译工作目录限研究工件目录与显式指定目录;不做 SyncTeX 编辑器联动。
-- 验收: ①无系统 TeX 的机器上编译含数学公式+图+bibtex 参考文献的 .tex 成功出 PDF(实测);②PDF 页面转 PNG 被模型消费有轨迹;③断网时 --only-cached 编译已预热文档成功,未预热宏包给明确诊断;④检测到系统发行版优先用之、缺失回落 Tectonic,两路径各有测试;⑤编译错误诊断含行号不静默;⑥侧车 exe 缺失时给下载指引不崩溃。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-273
-- 进展: 2026-08-16 取活开工(复杂度中,设计冻结先行)。**勘察结论**:①本机 MiKTeX 全量已装,无 tectonic;②设计文档 §2 定调:Tectonic CLI 侧车、预热+--only-cached、bibtex 内置/biber 检测、PDF→PNG 走 pdfium-render;③边界:编译工作目录限研究工件目录与显式指定目录。**设计冻结**:不变式——系统发行版优先、缺失回落 Tectonic、侧车缺失给下载指引不崩溃;权威数据源——PATH 检测结果与编译诊断(含行号)。 || **批1 完成(839b76c)**:latex_tool.rs(发行检测+compile_latex+行号诊断)+base.rs 注册。单测 3 条,kanzei-tools 297 passed。 || **批2 完成(275f2ef)**:PDF→PNG 回传(to_png 参数,pdftoppm 首页转 PNG 经 images 通道回模型)。单测 2 条,kanzei-tools 299 passed。 || **批3 完成(2026-08-16,提交待定)**:①断网 --only-cached 预热语义(验收③)——compile_tectonic 先 --only-cached,失败给「未预热需先联网预热」指引(假 tectonic 脚本模拟已预热成功/未预热诊断);②bib 路线声明(验收④ Tectonic 路径)——biber_available 检测,biber 可用声明 biblatex、缺省 natbib+bibtex(内置纯 Rust);③单测新增 2 条:tectonic已预热_onlycached成功、tectonic未预热_明确诊断含bib声明;kanzei-tools 301 passed、workspace 全量 15 段 ok(T-1786844158),clippy/fmt 通过。**关闭前核对**:验收①系统路径 MiKTeX 实测(含公式图 bibtex 出 PDF)+Tectonic 路径假脚本;②PDF→PNG 经 images 通道(批2 单测 PNG 魔数+清理);③--only-cached 预热语义(批3 假脚本两路径);④系统优先/回落 Tectonic 两路径各有测试(批1 系统实测+批3 假脚本);⑤错误诊断含行号(批1 l.3);⑥侧车缺失给下载指引(批1 Missing 分支)。按 §1.2 可用即关闭,准备 req update done。
-- observed_head: 275f2efa2fecf946133954f1378e1da60578fdfc
-- observed_worktree_hash: fnv1a64:bdfa2f9fe6284ae6
-- recorded_at: 1786844168213
-
-## R-274 科研绘图工具通道:Vega-Lite+PGFPlots 双轨 [todo]
+## R-274 科研绘图工具通道:Vega-Lite+PGFPlots 双轨 [doing]
 - refs: R-221 R-249 R-273 R-275 docs/design/research_mode_prior_art.md
 - 依赖: R-273
 - 内容: ①主轨 Vega-Lite:agent 产 JSON spec,vl-convert 独立 CLI 侧车渲染 SVG/PNG(不嵌 crate,避开 deno_runtime/v8 编译负担);spec 先 JSON 校验,错误给 agent 可一轮修复的诊断;②终稿轨 PGFPlots/TikZ:走 R-273 Tectonic 通道,零新增依赖,图字体与论文正文一致;③增强轨 matplotlib+scienceplots:检测到 uv/Python 才启用(uv run --with matplotlib,scienceplots 按需环境化),检测不到明确降级;④色板注入与 R-275 对接:Vega-Lite 经 spec config/scale.range,matplotlib 经 rcParams 前导代码;⑤输出统一转 PNG 回模型(R-249 通道),原始 SVG/PDF 落盘给用户。拆批:批1 Vega-Lite 主轨;批2 PGFPlots 轨+统一落盘回传;批3 matplotlib 增强轨+色板对接。
 - 复杂度: 中
-- 批次: 0/3
+- 批次: 1/3
 - 来源: 2026-08-16 用户定调「科研绘图,这个绘图工具也是很重要的」;路线依据 docs/design/research_mode_prior_art.md §2 七方案对比:Vega-Lite(vl-convert)是最优纯 Rust 零安装路线且 JSON 规格对 agent 最友好、PGFPlots 投稿场景不可替代、matplotlib 是检测到 Python/uv 时的上限增强;plotters(无抗锯齿)/gnuplot/charming/plotly.rs 排除。
 - 标签: 核心
 - 边界: plotters/gnuplot/charming/plotly.rs 不引入;不做交互式图表与图表编辑 UI;图产物目录限研究工件目录与显式指定;不做动画/3D。
 - 验收: ①零外部安装机器上 Vega-Lite spec→PNG 实测成功且被模型消费(轨迹);②同一数据 PGFPlots 轨出 PDF 实测;③检测到 uv/Python 时 matplotlib 轨出图、检测不到时明确降级诊断(两路径测试);④注入指定色板后图中系列颜色与色板逐色一致(机械断言);⑤构造一个非法 spec,诊断可让 agent 一轮修复(实测轨迹);⑥辅进程无残留。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-274
+- 进展: 2026-08-16 取活开工(复杂度中,设计冻结先行)。**勘察结论**:①vl-convert 不在 npm(E404)——是官方 Rust CLI(GitHub releases 分发,win-64 预编译 v1.9.0 可用);vega-cli 6.4.0 只提供 vg2png(吃 vega spec 非 vega-lite),故主轨必须是 vl-convert;②设计文档 §2 七方案对比:Vega-Lite(vl-convert)最优纯 Rust 零安装路线;③R-249 images 通道已交付、R-273 latex 工具已交付(PGFPlots 轨复用)。**设计冻结**:不变式——零外部安装机器上 Vega-Lite spec→PNG 可行;权威数据源——vl-convert 渲染产物(vl2png -i spec.json -o out.png),spec 先 JSON 校验;预期改动文件——crates/kanzei-tools/src/plot_tool.rs(新)+base.rs 注册;最小测试——非法 spec 诊断可一轮修复、缺字段诊断、渲染器缺失指引、端到端 spec→PNG 被消费。 || **批1 完成(2026-08-16,提交待定)**:plot_tool.rs(PlotTool)——spec JSON 校验(非法给「请检查引号、逗号、括号配对——一轮即可修复」)+缺 mark/data 字段诊断(可修复)+渲染通道检测(vl-convert 的 vl2png 子命令 -i/-o 参数;vega-cli 回退)+PNG 魔数校验+ToolOutput.images 回模型+spec 落盘;base.rs 注册 plot 工具+Ask 权限。**端到端实测(验收①轨迹)**:下载 vl-convert v1.9.0 win-64 到侧车目录,PATH 注入后渲染 bar spec→bar.png 15KB,单测验证 PNG 魔数+images 通道 1 张图+spec 落盘。单测 5 条全绿:非法spec诊断、缺mark、缺data、渲染器缺失指引、vegalite_spec转png被模型消费。kanzei-tools 306 passed,clippy/fmt 通过(T-1786844629)。**下一批**:批2 PGFPlots 轨(走 R-273 latex 通道,零新增依赖,图字体与论文正文一致)+统一落盘回传(原始 SVG/PDF 落盘给用户)。
+- observed_head: 93098a0b895740d49dc8f390b214c98f74e9f5e0
+- observed_worktree_hash: fnv1a64:9c33feb31e2bc3cf
+- recorded_at: 1786844639450
 
 ## R-275 调色板子系统:内置科学配色/推荐校验/用户导入 [todo]
 - refs: R-274 docs/design/research_mode_prior_art.md

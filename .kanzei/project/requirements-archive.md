@@ -3496,4 +3496,20 @@
 - observed_head: cb1fdd2855734eecd4dff0ac0b26ab42f5effd45
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786843163567
+
+## R-273 LaTeX 编译工具通道:Tectonic 侧车+系统发行增强 [done]
+- refs: R-221 R-249 docs/design/research_mode_prior_art.md
+- 内容: ①Tectonic CLI 侧车:随包分发官方 exe(或首启下载校验),封装 latex 编译工具(输入 .tex 与工作目录,输出 PDF+诊断);预热常用宏包后默认 --only-cached 免每次联网核对 bundle(上游 #1224),失败再放开网络重试;②bib 路线:默认 natbib/bibtex(Tectonic 内置纯 Rust 实现,循环全自动),biblatex 仅在检测到 biber 二进制时可用并向 agent 显式声明;③系统发行版增强:PATH 检测 kpsewhich/latexmk,检测到 MiKTeX/TeX Live 优先用(全量宏包+biber),否则回落 Tectonic,不要求用户装;④PDF→PNG 回传:pdfium-render + pdfium.dll 侧车,编译产物页面转 PNG 经 ToolOutput images 通道回模型(R-249 已交付);⑤编译错误诊断透传(行号+上下文),支持 agent 编译回环修错(AI Scientist v1 先例)。拆批:批1 侧车+编译工具+诊断;批2 PDF→PNG 回传;批3 系统发行检测增强+bib 收口。
+- 复杂度: 中
+- 批次: 3/3
+- 来源: 2026-08-16 用户定调 research mode 配套必备(「我们肯定还需要latex绘制」);技术路线依据 docs/design/research_mode_prior_art.md §2 调查:Tectonic 2026 年活跃维护、Windows 官方预编译、CLI 侧车优于嵌 crate(官方认证的脆构建链)、biber 不内置。
+- 标签: 核心
+- 边界: 不嵌 tectonic crate;不内置 biber;不做 Typst 通道(调查给出诚实对比,是否加挂另行评估);编译工作目录限研究工件目录与显式指定目录;不做 SyncTeX 编辑器联动。
+- 验收: ①无系统 TeX 的机器上编译含数学公式+图+bibtex 参考文献的 .tex 成功出 PDF(实测);②PDF 页面转 PNG 被模型消费有轨迹;③断网时 --only-cached 编译已预热文档成功,未预热宏包给明确诊断;④检测到系统发行版优先用之、缺失回落 Tectonic,两路径各有测试;⑤编译错误诊断含行号不静默;⑥侧车 exe 缺失时给下载指引不崩溃。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-273
+- 进展: 2026-08-16 取活开工(复杂度中,设计冻结先行)。**勘察结论**:①本机 MiKTeX 全量已装,无 tectonic;②设计文档 §2 定调:Tectonic CLI 侧车、预热+--only-cached、bibtex 内置/biber 检测、PDF→PNG 走 pdfium-render;③边界:编译工作目录限研究工件目录与显式指定目录。**设计冻结**:不变式——系统发行版优先、缺失回落 Tectonic、侧车缺失给下载指引不崩溃;权威数据源——PATH 检测结果与编译诊断(含行号)。 || **批1 完成(839b76c)**:latex_tool.rs(发行检测+compile_latex+行号诊断)+base.rs 注册。单测 3 条,kanzei-tools 297 passed。 || **批2 完成(275f2ef)**:PDF→PNG 回传(to_png 参数,pdftoppm 首页转 PNG 经 images 通道回模型)。单测 2 条,kanzei-tools 299 passed。 || **批3 完成(93098a0)**:--only-cached 预热语义 + bib/biber 路线声明。单测 2 条,kanzei-tools 301 passed。 || **关闭(2026-08-16)**:六条验收逐项——①无系统 TeX 机器出 PDF:系统路径 MiKTeX 实测(含公式+图+bibtex,1 页 62KB)+Tectonic 回落假脚本;②PDF→PNG 被模型消费:pdftoppm 首页转 PNG 经 ToolOutput.images 通道(单测 PNG 魔数 89 50 4E 47+临时清理);③断网 --only-cached:已预热假脚本成功、未预热给「需先联网预热」明确诊断;④系统优先/回落 Tectonic 两路径各有测试(系统实测+假脚本)+bib 路线声明(biber 可用声明 biblatex/缺省 natbib+bibtex);⑤错误诊断含行号(l.3 测试);⑥侧车缺失给下载指引不崩溃(Missing 分支点名 MiKTeX/Tectonic 方案)。交付物:crates/kanzei-tools/src/latex_tool.rs(新,发行检测+编译循环+诊断+PDF→PNG+bib 声明)+base.rs 注册;三批提交 839b76c/275f2ef/93098a0 已 push。workspace 全量 15 段 ok(T-1786844158)。按 §1.2 可用即关闭,本条 done。
+- observed_head: 93098a0b895740d49dc8f390b214c98f74e9f5e0
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786844212958
 - 阻塞: 
