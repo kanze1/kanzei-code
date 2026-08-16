@@ -53,6 +53,10 @@ impl Component for BaseComponent {
         draft
             .tools
             .insert("browser", Arc::new(crate::browser_tool::BrowserTool));
+        // R-273:LaTeX 编译工具(输出 PDF+诊断;系统发行优先/回落 Tectonic)。
+        draft
+            .tools
+            .insert("latex", Arc::new(crate::latex_tool::LatexTool));
 
         // 默认权限:读/检索全放行;写/改/命令/联网走 ask(用户可在 kanzei.toml 覆盖,后注册者胜)。
         draft.permissions.extend([
@@ -72,6 +76,7 @@ impl Component for BaseComponent {
             rule("webfetch", "*", Effect::Ask),
             rule("websearch", "*", Effect::Ask),
             rule("browser", "*", Effect::Ask),
+            rule("latex", "*", Effect::Ask),
         ]);
 
         draft.context.insert(

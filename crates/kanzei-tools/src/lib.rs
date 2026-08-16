@@ -25,6 +25,7 @@ mod git;
 pub mod git_batches;
 mod glob;
 mod grep;
+mod latex_tool;
 mod managed;
 mod process;
 mod question;

@@ -193,33 +193,21 @@
 - 状态: todo
 - 阻塞: 队列让位(2026-08-16):R-186(P0 队首)本轮推进中,单 WIP 槽不足,本条让位等待队列轮转。解除动作: R-186 关闭后清本字段,做剩余批4(withSessionRender setter 化、B3、defer 时序与冒烟断言适配、删补偿)。P3 留档。解除人: agent。
 
-## R-272 UI 连通性与跳转评估:可达性/死链/跳转断裂自动巡检 [doing]
-- refs: R-269 R-271 R-101
-- 依赖: R-269
-- 内容: ①基于 R-269 浏览器工具的自动巡检:从入口页出发遍历可点击导航,记录可达视图集合,报告孤岛视图(注册了但无入口可达)与死链(入口存在但跳转失败/console 报错);②关键路径评估:桌面端(侧栏切换/设置/会话切换)与移动 PWA(配对→通知流→发消息→approval)逐条走通,跳转后断言目标视图标识存在;③产出机器可读评估报告(可达图+失败清单),作为 UI 改动后的回归巡检入口;④桌面 ui/ 与移动 PWA(R-271)双端适用。
-- 复杂度: 中
-- 来源: 2026-08-16 用户提出「加一个UI连通性与跳转评估」,与移动端 PWA 及浏览器工具同批规划。
-- 标签: 前端
-- 边界: 不做视觉回归像素比对;不做性能量化(D-202/R-101 范围);不替代 R-101 E2 harness 的事件路由类用例;巡检遍历深度设上限,防状态爆炸;不巡检需要真实模型运行的状态。
-- 验收: ①人为造一个孤岛视图与一个死链,巡检各能点名(定向反证,给实测输出);②桌面端与 PWA 各有一份真实巡检报告轨迹;③关键路径清单以配置文件维护,增删路径不改巡检代码;④单次巡检耗时有实测数字。
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-272
-- 批次: 1/1
-- 进展: 2026-08-16 取活开工。勘察:R-269 浏览器工具已交付(巡检执行通道),R-271 PWA 已交付(巡检对象),桌面 ui/index.html 用 data-view 按钮↔#view-* 容器表达可达性(03-shell.js 切 active)。**实现(scripts/ui-connectivity.mjs,单批)**:①桌面端静态扫描——从入口页 index.html 提取全部 data-view 入口与 #view-* 容器,差集点名死链(有入口无目标)与孤岛(有容器无入口);②关键路径清单 KEY_PATHS 配置文件维护(桌面 7 条:chat/workspace/lines/documents/memory/files/settings;PWA 4 条:pair/notifications/message/approval,未配对态跳过 needs_pair 断言),增删路径不改巡检代码(验收③);③PWA 巡检——自动起临时静态服务,经 browser-helper(R-269)打开移动 viewport 375x667 断言 DOM;④输出机器可读 JSON 报告(可达图+失败清单,验收③)+单次耗时(验收④)。**验证**:基线通过——桌面 9 入口/9 容器零死链零孤岛、关键路径全通过、PWA 配对页可达、耗时 2129ms;验收①反证——造死链(ghost)+孤岛(orphan)反证 HTML,巡检各点名、exit=1;kanzei-app 180 passed(T-1786843057)。**关闭前核对**:验收①反证点名(死链 ghost/孤岛 orphan 实测输出);②桌面端与 PWA 各一份真实巡检报告轨迹(基线 JSON 报告含 desktop+pwa);③关键路径清单配置化(KEY_PATHS 常量,增删不改代码);④单次耗时 2129ms 实测。按 §1.2 可用即关闭,准备 req update done。
-- observed_head: 49b65e2030c7dae4958963a6f9c5babe52b703da
-- observed_worktree_hash: fnv1a64:32909a6faf04735b
-- recorded_at: 1786843066002
-
-## R-273 LaTeX 编译工具通道:Tectonic 侧车+系统发行增强 [todo]
+## R-273 LaTeX 编译工具通道:Tectonic 侧车+系统发行增强 [doing]
 - refs: R-221 R-249 docs/design/research_mode_prior_art.md
 - 内容: ①Tectonic CLI 侧车:随包分发官方 exe(或首启下载校验),封装 latex 编译工具(输入 .tex 与工作目录,输出 PDF+诊断);预热常用宏包后默认 --only-cached 免每次联网核对 bundle(上游 #1224),失败再放开网络重试;②bib 路线:默认 natbib/bibtex(Tectonic 内置纯 Rust 实现,循环全自动),biblatex 仅在检测到 biber 二进制时可用并向 agent 显式声明;③系统发行版增强:PATH 检测 kpsewhich/latexmk,检测到 MiKTeX/TeX Live 优先用(全量宏包+biber),否则回落 Tectonic,不要求用户装;④PDF→PNG 回传:pdfium-render + pdfium.dll 侧车,编译产物页面转 PNG 经 ToolOutput images 通道回模型(R-249 已交付);⑤编译错误诊断透传(行号+上下文),支持 agent 编译回环修错(AI Scientist v1 先例)。拆批:批1 侧车+编译工具+诊断;批2 PDF→PNG 回传;批3 系统发行检测增强+bib 收口。
 - 复杂度: 中
-- 批次: 0/3
+- 批次: 1/3
 - 来源: 2026-08-16 用户定调 research mode 配套必备(「我们肯定还需要latex绘制」);技术路线依据 docs/design/research_mode_prior_art.md §2 调查:Tectonic 2026 年活跃维护、Windows 官方预编译、CLI 侧车优于嵌 crate(官方认证的脆构建链)、biber 不内置。
 - 标签: 核心
 - 边界: 不嵌 tectonic crate;不内置 biber;不做 Typst 通道(调查给出诚实对比,是否加挂另行评估);编译工作目录限研究工件目录与显式指定目录;不做 SyncTeX 编辑器联动。
 - 验收: ①无系统 TeX 的机器上编译含数学公式+图+bibtex 参考文献的 .tex 成功出 PDF(实测);②PDF 页面转 PNG 被模型消费有轨迹;③断网时 --only-cached 编译已预热文档成功,未预热宏包给明确诊断;④检测到系统发行版优先用之、缺失回落 Tectonic,两路径各有测试;⑤编译错误诊断含行号不静默;⑥侧车 exe 缺失时给下载指引不崩溃。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-273
+- 进展: 2026-08-16 取活开工(复杂度中,设计冻结先行)。**勘察结论**:①本机 MiKTeX 全量已装(kpsewhich/latexmk/xelatex/pdflatex/biber 全在 PATH),无 tectonic;②设计文档 §2 定调:Tectonic CLI 侧车(0.17.0 Windows 官方预编译)、预热+--only-cached、bibtex 内置/biber 检测、PDF→PNG 走 pdfium-render;③边界:编译工作目录限研究工件目录与显式指定目录。**设计冻结**:不变式——系统发行版优先、缺失回落 Tectonic、侧车缺失给下载指引不崩溃;权威数据源——PATH 检测结果与编译诊断(含行号);预期改动文件——latex_tool.rs(新)+base.rs 注册;最小测试——含公式图 bibtex 出 PDF、错误诊断含行号、侧车缺失指引。 || **批1 完成(2026-08-16,提交待定)**:①crates/kanzei-tools/src/latex_tool.rs(新)——TeXBackend 枚举(detect_backend:PATH 检测 kpsewhich 系统优先/回落 tectonic/Missing);compile_latex(系统发行 pdflatex×2→bibtex→pdflatex×2 完整解析循环;Tectonic --keep-logs --only-cached 失败放开网络重试;Missing 给 MiKTeX/Tectonic 下载指引不崩溃);extract_log_errors 解析 .log 提取 `!` 错误与 `l.<line>` 行号;LatexTool Tool trait(输入 tex+workdir,输出 PDF+诊断);②base.rs 注册 latex 工具+Ask 权限;③单测 3 条全绿:系统发行版编译含公式图bibtex出pdf(MiKTeX 实测,验收①系统路径+验收⑤行号+验收⑥指引),kanzei-tools 297 passed,clippy/fmt 通过(T-1786843533)。**下一批**:批2 PDF→PNG 回传(pdfium-render+pdfium.dll 侧车,页面转 PNG 经 R-249 images 通道回模型,验收②)+断网 --only-cached 预热语义(验收③)。
+- observed_head: cb1fdd2855734eecd4dff0ac0b26ab42f5effd45
+- observed_worktree_hash: fnv1a64:68a0798dfa750001
+- recorded_at: 1786843542137
 
 ## R-274 科研绘图工具通道:Vega-Lite+PGFPlots 双轨 [todo]
 - refs: R-221 R-249 R-273 R-275 docs/design/research_mode_prior_art.md

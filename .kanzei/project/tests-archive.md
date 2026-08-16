@@ -4417,3 +4417,9 @@
 - 摘要: R-272 UI 连通性巡检:scripts/ui-connectivity.mjs 完成。桌面端 9 入口/9 容器零死链零孤岛、关键路径全通过;PWA 配对页可达(3 条 pending 标注需配对);单次巡检 2129ms(验收④);JSON 机器可读报告(验收③)。验收①反证:造死链(ghost)+孤岛(orphan)HTML,巡检各点名、exit=1。kanzei-app 180 passed
 - 关联: R-272
 - 收尾: 1786843057
+
+## T-1786843533 R-273 批1 发行检测+编译工具+诊断 [passed]
+- 命令: cargo test -p kanzei-tools --lib latex_tool
+- 摘要: R-273 批1:latex_tool.rs(发行检测 detect_backend 系统优先/回落 Tectonic/Missing 指引 + 编译工具 compile_latex 系统发行 pdflatex×2→bibtex→pdflatex×2、Tectonic --keep-logs --only-cached 失败网络重试 + 诊断 extract_log_errors 提取 !错误与 l.行号)+base.rs 注册 latex 工具 Ask 权限。单测 3 条全绿:系统发行版编译含公式图bibtex出pdf(MiKTeX 实测)、错误诊断含行号(l.3)、后端缺失给下载指引。kanzei-tools 297 passed,clippy/fmt 通过
+- 关联: R-273
+- 收尾: 1786843533
