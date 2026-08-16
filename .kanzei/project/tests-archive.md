@@ -4447,3 +4447,9 @@
 - 摘要: R-274 批2:PGFPlots 轨代码完成——plot 工具加 engine=pgfplots 分发,render_pgfplots(standalone+pgfplots 模板→R-273 latex 通道编译 PDF→pdf_to_png 转 PNG 经 images 通道回模型,PDF 落盘)。新增单测 2 条:pgfplots模板_包含宏包与tikz代码(模板独立验证,不依赖真实 latex)、pgfplots缺tikz参数诊断。kanzei-tools 308 passed,clippy/fmt 通过。注意:本机 pgfplots 宏包有兼容问题(axis undefined,MiKTeX 与 Tectonic 双环境复现,pgfplots 1.18.1 的 code.tex 加载后 shortcutlet 未生效)——真实 PDF 实测受环境阻塞,代码路径完整
 - 关联: R-274
 - 收尾: 1786845730
+
+## T-1786846188 R-274 批3 matplotlib 增强轨 [passed]
+- 命令: cargo test --workspace
+- 摘要: R-274 批3:workspace 全量 15 段 ok。matplotlib 增强轨——plot 工具加 engine=matplotlib,render_matplotlib(检测 uv 优先按需环境化 uv run --with matplotlib,scienceplots python script / 回落系统 python / 双缺失明确降级诊断;脚本保存 out.png 转 PNG 经 images 通道回模型)。单测 2 条:matplotlib_有uv时出图被消费(uv 0.9.2 实测出 PNG 魔数+images 验证)、matplotlib缺python参数诊断。kanzei-tools 310 passed,clippy/fmt 通过
+- 关联: R-274
+- 收尾: 1786846188

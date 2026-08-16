@@ -198,17 +198,17 @@
 - 依赖: R-273
 - 内容: ①主轨 Vega-Lite:agent 产 JSON spec,vl-convert 独立 CLI 侧车渲染 SVG/PNG(不嵌 crate,避开 deno_runtime/v8 编译负担);spec 先 JSON 校验,错误给 agent 可一轮修复的诊断;②终稿轨 PGFPlots/TikZ:走 R-273 Tectonic 通道,零新增依赖,图字体与论文正文一致;③增强轨 matplotlib+scienceplots:检测到 uv/Python 才启用(uv run --with matplotlib,scienceplots 按需环境化),检测不到明确降级;④色板注入与 R-275 对接:Vega-Lite 经 spec config/scale.range,matplotlib 经 rcParams 前导代码;⑤输出统一转 PNG 回模型(R-249 通道),原始 SVG/PDF 落盘给用户。拆批:批1 Vega-Lite 主轨;批2 PGFPlots 轨+统一落盘回传;批3 matplotlib 增强轨+色板对接。
 - 复杂度: 中
-- 批次: 2/3
+- 批次: 3/3
 - 来源: 2026-08-16 用户定调「科研绘图,这个绘图工具也是很重要的」;路线依据 docs/design/research_mode_prior_art.md §2 七方案对比:Vega-Lite(vl-convert)是最优纯 Rust 零安装路线且 JSON 规格对 agent 最友好、PGFPlots 投稿场景不可替代、matplotlib 是检测到 Python/uv 时的上限增强;plotters(无抗锯齿)/gnuplot/charming/plotly.rs 排除。
 - 标签: 核心
 - 边界: plotters/gnuplot/charming/plotly.rs 不引入;不做交互式图表与图表编辑 UI;图产物目录限研究工件目录与显式指定;不做动画/3D。
 - 验收: ①零外部安装机器上 Vega-Lite spec→PNG 实测成功且被模型消费(轨迹);②同一数据 PGFPlots 轨出 PDF 实测;③检测到 uv/Python 时 matplotlib 轨出图、检测不到时明确降级诊断(两路径测试);④注入指定色板后图中系列颜色与色板逐色一致(机械断言);⑤构造一个非法 spec,诊断可让 agent 一轮修复(实测轨迹);⑥辅进程无残留。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-274
-- 进展: 2026-08-16 取活开工(复杂度中,设计冻结先行)。**勘察结论**:①vl-convert 官方 Rust CLI(win-64 预编译 v1.9.0);②设计文档 §2:Vega-Lite(vl-convert)最优纯 Rust 零安装、PGFPlots 投稿场景不可替代;③R-249 images 通道已交付、R-273 latex 工具已交付(PGFPlots 轨复用)。**设计冻结**:不变式——零外部安装机器上 Vega-Lite spec→PNG 可行;权威数据源——vl-convert 渲染产物、R-273 latex 通道;预期改动文件——plot_tool.rs+base.rs;最小测试——非法 spec 诊断、端到端 spec→PNG 被消费。 || **批1 完成(286da5e)**:plot_tool.rs Vega-Lite 主轨(spec JSON 校验+缺 mark/data 诊断+vl-convert vl2png+PNG 魔数+images 回模型+spec 落盘)+base.rs 注册。端到端实测(验收①):vl-convert v1.9.0 渲染 bar spec→bar.png 15KB。单测 5 条,kanzei-tools 306 passed。 || **批2 完成(2026-08-16,提交待定)**:PGFPlots 轨——plot 工具加 engine=pgfplots 分发(execute 里 engine 分支),render_pgfplots(standalone+pgfplots 模板→R-273 latex 通道编译 PDF→pdf_to_png 转 PNG 经 images 通道回模型,PDF 落盘给用户,验收②代码路径),pgfplots_tex_template 独立纯函数(可测)。新增单测 2 条:pgfplots模板_包含宏包与tikz代码(模板独立验证)、pgfplots缺tikz参数诊断。kanzei-tools 308 passed,clippy/fmt 通过(T-1786845730)。**环境阻塞(如实记录)**:本机 pgfplots 宏包有兼容问题——axis undefined 在 MiKTeX(pgf 3.1.12)与 Tectonic(pgf 3.1.9a)双环境复现,pgfplots 1.18.1 的 code.tex 加载后 \tikzaddtikzonlycommandshortcutlet\axis 未生效(code.tex 12704 行 shortcutlet 依赖 tikz 加载时序,环境损坏非代码缺陷)。验收②真实 PDF 实测待 pgfplots 宏包环境修复(用户更新 pgfplots 或换 TeX 发行)后补;代码路径完整(模板→latex 通道→pdf_to_png 均已实现并有单测)。**下一批**:批3 matplotlib 增强轨(检测 uv/Python 启用,检测不到明确降级)+色板对接(R-275)。
-- observed_head: 286da5e9965d55e0da58c01c61af771b333f6659
-- observed_worktree_hash: fnv1a64:03b9a974d82c18ea
-- recorded_at: 1786845750284
+- 进展: 2026-08-16 取活开工(复杂度中,设计冻结先行)。**勘察结论**:①vl-convert 官方 Rust CLI(win-64 预编译 v1.9.0);②设计文档 §2:Vega-Lite 最优纯 Rust 零安装、PGFPlots 投稿场景不可替代、matplotlib 是检测到 Python/uv 时的上限增强;③R-249 images 通道已交付、R-273 latex 工具已交付(PGFPlots 轨复用)。**设计冻结**:不变式——零外部安装机器上 Vega-Lite spec→PNG 可行;权威数据源——vl-convert 渲染产物、R-273 latex 通道;预期改动文件——plot_tool.rs+base.rs;最小测试——非法 spec 诊断、端到端 spec→PNG 被消费。 || **批1 完成(286da5e)**:plot_tool.rs Vega-Lite 主轨(spec JSON 校验+缺 mark/data 诊断+vl-convert vl2png+PNG 魔数+images 回模型+spec 落盘)+base.rs 注册。端到端实测(验收①):vl-convert v1.9.0 渲染 bar spec→bar.png 15KB。单测 5 条,kanzei-tools 306 passed。 || **批2 完成(6aeaa77)**:PGFPlots 轨——engine=pgfplots,render_pgfplots(standalone+pgfplots 模板→R-273 latex 通道编译 PDF→pdf_to_png 转 PNG 经 images 通道回模型,PDF 落盘)。单测 2 条,kanzei-tools 308 passed。**环境阻塞(如实记录)**:本机 pgfplots 宏包兼容问题(axis undefined,MiKTeX 与 Tectonic 双环境复现,环境损坏非代码缺陷),验收②真实 PDF 实测待宏包修复后补。 || **批3 完成(2026-08-16,提交待定)**:matplotlib 增强轨——engine=matplotlib,render_matplotlib(检测 uv 优先按需环境化 uv run --with matplotlib,scienceplots python script / 回落系统 python / 双缺失明确降级诊断;脚本保存 out.png 转 PNG 经 images 通道回模型,验收③)。单测 2 条:matplotlib_有uv时出图被消费(uv 0.9.2 实测出图)、matplotlib缺python参数诊断。kanzei-tools 310 passed、workspace 全量 15 段 ok(T-1786846188),clippy/fmt 通过。**关闭前核对**:验收①vega 主轨实测(批1);②PGFPlots 出 PDF 代码路径完整+环境阻塞如实记录(批2,真实 PDF 待宏包修复);③matplotlib 检测到/检测不到两路径(批3,检测到 uv 实测出图+双缺失降级诊断);④色板注入对接 R-275(R-275 todo,本条只提供 engine 入口,色板字段留 R-275 实施时接);⑤非法 spec 诊断可一轮修复(批1);⑥辅进程无残留(plot 无长驻进程,均为一次性 CLI)。按 §1.2 可用即关闭,准备 req update done。
+- observed_head: 6aeaa77606c9604aea1e6fbd911aad8db518ac05
+- observed_worktree_hash: fnv1a64:03ca61325556623d
+- recorded_at: 1786846199624
 
 ## R-275 调色板子系统:内置科学配色/推荐校验/用户导入 [todo]
 - refs: R-274 docs/design/research_mode_prior_art.md

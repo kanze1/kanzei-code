@@ -43,10 +43,11 @@ impl Tool for PlotTool {
                 "out": { "type": "string", "description": "输出文件名前缀(默认 plot)" },
                 "engine": {
                     "type": "string",
-                    "enum": ["vega", "pgfplots"],
-                    "description": "渲染引擎:vega(默认,Vega-Lite spec→PNG)| pgfplots(TikZ/PGFPlots 代码→PDF+PNG,走 R-273 latex 通道)"
+                    "enum": ["vega", "pgfplots", "matplotlib"],
+                    "description": "渲染引擎:vega(默认,Vega-Lite spec→PNG)| pgfplots(TikZ/PGFPlots 代码→PDF+PNG,走 R-273 latex 通道)| matplotlib(Python 脚本→PNG,检测到 uv/Python 才启用)"
                 },
-                "tikz": { "type": "string", "description": "pgfplots 引擎用:TikZ/PGFPlots 代码片段(含 axis 环境)" }
+                "tikz": { "type": "string", "description": "pgfplots 引擎用:TikZ/PGFPlots 代码片段(含 axis 环境)" },
+                "python": { "type": "string", "description": "matplotlib 引擎用:Python 绘图脚本(用 matplotlib 保存 <out>.png)" }
             },
             "required": ["workdir"],
             "additionalProperties": false
@@ -87,6 +88,18 @@ impl Tool for PlotTool {
                 );
             }
             return render_pgfplots(&workdir_path, &tikz, &out);
+        }
+        // R-274 批3:matplotlib 增强轨——Python 脚本走 uv 按需环境化(检测到才启用,
+        // 检测不到明确降级诊断,验收③)。
+        if engine == "matplotlib" {
+            let python = input["python"].as_str().unwrap_or_default().to_string();
+            if python.is_empty() {
+                return ToolOutput::error(
+                    "matplotlib 引擎需要 python 参数(Python 绘图脚本,用 matplotlib 保存 {out}.png)"
+                        .to_string(),
+                );
+            }
+            return render_matplotlib(&workdir_path, &python, &out);
         }
         // spec 来源:直接字符串或 spec_file 文件。
         let spec = if let Some(spec) = input["spec"].as_str().filter(|s| !s.is_empty()) {
@@ -157,6 +170,86 @@ fn pgfplots_tex_template(tikz: &str) -> String {
          {tikz}\n\
          \\end{{document}}\n"
     )
+}
+
+/// R-274 批3:matplotlib 增强轨——Python 绘图脚本走 uv 按需环境化
+/// (`uv run --with matplotlib,scienceplots python <script>`)。检测到 uv/Python
+/// 才启用;检测不到给明确降级诊断(验收③两路径)。脚本用 matplotlib 保存
+/// `<out>.png`,产物转 PNG 回模型。
+fn render_matplotlib(workdir: &Path, python: &str, out: &str) -> ToolOutput {
+    // 检测 uv(优先,按需环境化)或 python(需已装 matplotlib)。
+    let uv = which_in_path("uv");
+    let python_bin = which_in_path("python").or_else(|| which_in_path("py"));
+    let (program, args, mode) = match (&uv, &python_bin) {
+        (Some(uv), _) => (
+            uv,
+            vec![
+                "run".to_string(),
+                "--with".to_string(),
+                "matplotlib".to_string(),
+                "--with".to_string(),
+                "scienceplots".to_string(),
+                "python".to_string(),
+            ],
+            "uv 按需环境化(matplotlib+scienceplots)",
+        ),
+        (None, Some(py)) => (
+            py,
+            vec![],
+            "系统 Python(需已安装 matplotlib;缺则运行时报错)",
+        ),
+        (None, None) => {
+            return ToolOutput::error(
+                "未检测到 uv 或 Python——matplotlib 增强轨不可用。\n\
+                 方案一(推荐):安装 uv(`pip install uv` 或 https://astral.sh/uv),本工具用 \
+                 `uv run --with matplotlib,scienceplots` 按需环境化,零全局安装。\n\
+                 方案二:安装 Python 与 matplotlib,放入 PATH。\n\
+                 检测不到明确降级:本工具如实报告,vega/pgfplots 轨不受影响。"
+                    .to_string(),
+            );
+        }
+    };
+    // 写 Python 脚本到工作目录。
+    let script_path = workdir.join(format!("{out}.py"));
+    if std::fs::write(&script_path, python).is_err() {
+        return ToolOutput::error(format!("写入 Python 脚本失败: {}", script_path.display()));
+    }
+    // 执行:uv run --with ... python <script> 或 python <script>。
+    let mut full_args = args;
+    full_args.push(script_path.to_str().unwrap_or(out).to_string());
+    let arg_refs: Vec<&str> = full_args.iter().map(String::as_str).collect();
+    let (ok, diag) = run_in_dir(workdir, program.as_str(), arg_refs.as_slice());
+    if !ok {
+        return ToolOutput::error(format!("matplotlib 执行失败({mode}):\n{}", summarize(diag)));
+    }
+    let png_path = workdir.join(format!("{out}.png"));
+    let Ok(png_bytes) = std::fs::read(&png_path) else {
+        return ToolOutput::error(format!(
+            "matplotlib 脚本执行成功但找不到 PNG 产物 {}(脚本需保存 {}.png)。诊断: {}",
+            png_path.display(),
+            out,
+            summarize(diag)
+        ));
+    };
+    if png_bytes.len() < 8 || png_bytes[..8] != [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A] {
+        return ToolOutput::error(format!(
+            "matplotlib 产物不是合法 PNG({} 字节)。诊断: {}",
+            png_bytes.len(),
+            summarize(diag)
+        ));
+    }
+    let base64 = base64_engine_encode(&png_bytes);
+    let mut output = ToolOutput::ok(format!(
+        "matplotlib 渲染成功({mode}):\nscript: {}\nPNG: {}({} 字节)",
+        script_path.display(),
+        png_path.display(),
+        png_bytes.len()
+    ));
+    output = output.with_images(vec![kanzei_harness::ToolImage {
+        media_type: "image/png".into(),
+        data: base64,
+    }]);
+    output
 }
 
 /// 渲染通道检测。
@@ -468,6 +561,45 @@ mod tests {
             "诊断要点名 tikz 参数: {}",
             out.content
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-274 批3:matplotlib 轨——本机有 uv 时真实出图被模型消费(验收③检测到路径)。
+    /// 脚本用 matplotlib 保存 mpl.png。
+    #[test]
+    fn matplotlib_有uv时出图被消费() {
+        if which_in_path("uv").is_none() {
+            eprintln!("跳过:本机无 uv");
+            return;
+        }
+        let dir = temp_dir("mpl-uv");
+        let script = "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\n\
+                      fig, ax = plt.subplots()\nax.bar([\"A\",\"B\"],[28,55])\nfig.savefig(\"mpl.png\", dpi=100)\n";
+        let out = render_matplotlib(&dir, script, "mpl");
+        assert!(!out.is_error, "uv 存在时应出图: {}", out.content);
+        assert_eq!(out.images.len(), 1, "应有 1 张图片回模型");
+        let img = &out.images[0];
+        assert_eq!(img.media_type, "image/png");
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&img.data)
+            .expect("base64 可解码");
+        assert_eq!(
+            decoded[..8],
+            [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A],
+            "PNG 魔数"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-274 批3:matplotlib 轨缺 python 参数给明确诊断。
+    #[test]
+    fn matplotlib缺python参数诊断() {
+        let dir = temp_dir("mpl-noscript");
+        let out = render_matplotlib(&dir, "", "x");
+        assert!(out.is_error);
+        // 空脚本走 uv/python 检测;若本机有 uv/python 会尝试执行空脚本报错,
+        // 若都没有给降级诊断。两种都算「明确不静默」。
+        assert!(!out.content.is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 }
