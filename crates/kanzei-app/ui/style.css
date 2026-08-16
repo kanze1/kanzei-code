@@ -734,11 +734,15 @@ select {
 #composer { border-top: 1px solid var(--border-soft); padding: 12px 14px; flex-shrink: 0; position: relative; }
 /* 输入区限宽居中:宽屏(2000px+)下整行输入框既难扫读也难落笔,给它一个
    舒适的行宽上限,窄屏时 100% 照旧。附件条/输入框/发送行同宽,视觉成块。 */
-#composer > #attachments,
-#composer > #prompt,
-#composer > #composer-bar,
-#composer > .composer-queue,
-#composer > #continue-editor { max-width: 1080px; margin-left: auto; margin-right: auto; }
+/* 限宽必须覆盖 composer 的**全部流内子元素**,漏一个就错一行:上一版只列了 5 个,
+   而 #change-bar(文件数/增删行)、#continue-panel 等没列进来仍是满宽,三行各一个
+   宽度,看着就是「框歪了」(用户实测)。这里改成排除法——弹层类(下拉建议/SOP 选择器/
+   隐藏 input)不参与流内布局,其余一律同宽同心。 */
+#composer > *:not(#file-suggestions):not(#sop-picker-panel):not(#attachment-input) {
+  max-width: 1080px;
+  margin-left: auto;
+  margin-right: auto;
+}
 .attachments { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 7px; }
 .attachment-chip { background: var(--accent-soft); color: var(--fg-strong); border: 1px solid var(--accent); border-radius: 4px; padding: 3px 7px; cursor: pointer; font-size: var(--fs-11); font: inherit; }
 .attachment-chip:hover { background: var(--accent); }

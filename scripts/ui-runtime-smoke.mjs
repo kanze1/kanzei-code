@@ -717,13 +717,23 @@ const payloads = {
     requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]], dependencies: [], dependents: ["R-002"] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 }, dependencies: ["R-001"], dependents: [] })],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待澄清: 用户视角的易用性还是模型可消费性?"]] })],
     ideas: [docEntry("I-001", "冒烟想法", "inbox")],
-    sources: [],
-    findings: [],
+    // D-414:研究工件必须带真实字段形态(URL / 证据锚 / refs)——此前这里是两个空
+    // 数组,于是「来源列表」整条渲染路径从未被冒烟走过,六条全绿而真机点不开(用户实测)。
+    // 夹具要覆盖两类可打开来源:文献(URL)与代码域(证据锚)。
+    sources: [
+      docEntry("S-001", "MemGPT: Towards LLMs as Operating Systems (arXiv 2310.08560)", "active", { fields: [["URL", "https://arxiv.org/abs/2310.08560"], ["类型", "文献(一手)"]] }),
+      docEntry("S-002", "kanzei websearch 工具实现", "active", { fields: [["证据锚", "crates/kanzei-tools/src/websearch.rs:9"], ["类型", "代码域"]] }),
+    ],
+    findings: [
+      docEntry("F-001", "kanzei 记忆定位:控制系统非 RAG 模块", "confirmed", { closed: true, fields: [["域", "代码"], ["等级", "V1"], ["refs", "S-001"]] }),
+    ],
     root: "C:/smoke/parent",
     warnings: [],
     archived: { req: 1, defect: 2, idea: 0, source: 0, finding: 0 },
     conventions: { exists: true, headings: ["开发规则", "测试要求"] },
   },
+  // D-414:点 ↗ 抓正文进内置 viewer 的后端命令。
+  webfetch_preview: { title: "MemGPT: Towards LLMs as Operating Systems", text: "# MemGPT\n\n正文摘录…" },
   docs_archive_entries: (args) => args?.kind === "req" ? [docEntry("R-000", "已归档需求", "done")] : [docEntry("D-000", "已归档缺陷", "fixed")],
   // R-122:架构浏览。含一篇未入册文档,验证"未入册"分组可见。
   architecture_snapshot: {
@@ -2513,6 +2523,31 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
       `#${listId} 渲染出了会写筛选状态的按钮,但它拿到的是冻结的 NEUTRAL_DOC_FILTERS`,
     );
   }
+}
+
+// ---------- D-414 研究工件可打开:↗ 必须渲染且点击真调后端 ----------
+// 这段是本轮实测教训的机械化:D-413 交付「文献可点开」后用户点不开,根因是两处改动
+// 互相抵消(开了编辑器就吞掉只读链接渲染),而六条冒烟全绿——因为夹具里 sources 是
+// 空数组,整条渲染路径从没被走过。断言钉三件事:①有可打开字段的来源必须出 ↗;
+// ②点击真的发起 webfetch_preview(不是死按钮);③代码域来源认 file:line 而非 URL。
+{
+  const openButtons = [...document.querySelectorAll("#source-list .doc-open-src")];
+  assert(
+    openButtons.length === 2,
+    `来源列表应为两条可打开来源各渲染一个 ↗,实得 ${openButtons.length} 个`,
+  );
+  const before = invokeArgs.filter((c) => c.cmd === "webfetch_preview").length;
+  openButtons[0].dispatchEvent({ type: "click", stopPropagation() {} });
+  await flush();
+  const after = invokeArgs.filter((c) => c.cmd === "webfetch_preview");
+  assert(
+    after.length === before + 1,
+    `点 ↗ 必须调 webfetch_preview 抓正文,实际调用数 ${before} → ${after.length}`,
+  );
+  assert(
+    after.at(-1)?.args?.url === "https://arxiv.org/abs/2310.08560",
+    `webfetch_preview 收到的 URL 不对: ${JSON.stringify(after.at(-1)?.args)}`,
+  );
 }
 
 // ---------- 筛选只能写给确实拥有该字段的队列 ----------
