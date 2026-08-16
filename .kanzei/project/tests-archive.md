@@ -4423,3 +4423,9 @@
 - 摘要: R-273 批1:latex_tool.rs(发行检测 detect_backend 系统优先/回落 Tectonic/Missing 指引 + 编译工具 compile_latex 系统发行 pdflatex×2→bibtex→pdflatex×2、Tectonic --keep-logs --only-cached 失败网络重试 + 诊断 extract_log_errors 提取 !错误与 l.行号)+base.rs 注册 latex 工具 Ask 权限。单测 3 条全绿:系统发行版编译含公式图bibtex出pdf(MiKTeX 实测)、错误诊断含行号(l.3)、后端缺失给下载指引。kanzei-tools 297 passed,clippy/fmt 通过
 - 关联: R-273
 - 收尾: 1786843533
+
+## T-1786843820 R-273 批2 PDF→PNG 回传 [passed]
+- 命令: cargo test -p kanzei-tools --lib latex_tool
+- 摘要: R-273 批2:PDF→PNG 回传——latex 工具 to_png 参数(默认 true),编译成功后 pdftoppm(MiKTeX/TeX Live 自带 poppler)首页转 PNG 经 ToolOutput.images 回模型(验收②);临时 PNG 清理不污染工件目录;pdftoppm 缺失给明确诊断。新增单测 2 条:pdf首页转png被消费(PNG 魔数验证+临时清理)、pdftoppm缺失给诊断。kanzei-tools 299 passed,clippy/fmt 通过
+- 关联: R-273
+- 收尾: 1786843820

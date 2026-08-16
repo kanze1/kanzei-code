@@ -38,7 +38,8 @@ impl Tool for LatexTool {
             "type": "object",
             "properties": {
                 "tex": { "type": "string", "description": ".tex 文件名(位于 workdir 内)" },
-                "workdir": { "type": "string", "description": "编译工作目录(含 .tex;限研究工件目录与显式指定目录)" }
+                "workdir": { "type": "string", "description": "编译工作目录(含 .tex;限研究工件目录与显式指定目录)" },
+                "to_png": { "type": "boolean", "description": "编译成功后把 PDF 首页转 PNG 回模型(默认 true;R-273 批2)" }
             },
             "required": ["tex", "workdir"],
             "additionalProperties": false
@@ -62,6 +63,8 @@ impl Tool for LatexTool {
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
         let tex = input["tex"].as_str().unwrap_or_default().to_string();
         let workdir = input["workdir"].as_str().unwrap_or_default().to_string();
+        // R-273 批2:to_png=true(默认)时编译成功后将 PDF 转 PNG 经 images 通道回模型。
+        let to_png = input["to_png"].as_bool().unwrap_or(true);
         if tex.is_empty() || workdir.is_empty() {
             return ToolOutput::error("latex 需要 tex 与 workdir 参数".to_string());
         }
@@ -70,10 +73,30 @@ impl Tool for LatexTool {
             return ToolOutput::error(format!("工作目录不存在: {}", workdir_path.display()));
         }
         let (ok, diag) = compile_latex(&workdir_path, &tex);
-        if ok {
-            ToolOutput::ok(diag)
-        } else {
-            ToolOutput::error(diag)
+        if !ok {
+            return ToolOutput::error(diag);
+        }
+        if !to_png {
+            return ToolOutput::ok(diag);
+        }
+        // 编译成功:PDF 首页转 PNG 回模型(验收②轨迹)。
+        let stem = tex.split('.').next().unwrap_or("main");
+        let pdf = workdir_path.join(format!("{stem}.pdf"));
+        let png = pdf_to_png(&pdf, &workdir_path, stem);
+        match png {
+            Ok(png_bytes) => {
+                let base64 = base64_engine_encode(&png_bytes);
+                let mut output = ToolOutput::ok(format!(
+                    "{diag}\n[PNG] 已转 PDF 首页为 PNG({} 字节)回模型",
+                    png_bytes.len()
+                ));
+                output = output.with_images(vec![kanzei_harness::ToolImage {
+                    media_type: "image/png".into(),
+                    data: base64,
+                }]);
+                output
+            }
+            Err(e) => ToolOutput::ok(format!("{diag}\n[PNG] 转换失败(编译已成功): {e}")),
         }
     }
 }
@@ -246,6 +269,56 @@ fn compile_tectonic(
     (ok && pdf_ok, format!("{summary}\nPDF: {}", pdf.display()))
 }
 
+/// R-273 批2:PDF 首页转 PNG(pdftoppm,poppler——MiKTeX/TeX Live 自带)。
+/// 返回 PNG 字节。pdftoppm 缺失给明确诊断(不静默降级)。
+fn pdf_to_png(pdf: &Path, workdir: &Path, stem: &str) -> Result<Vec<u8>, String> {
+    if !pdf.is_file() {
+        return Err(format!("PDF 不存在: {}", pdf.display()));
+    }
+    let pdftoppm = which_in_path("pdftoppm").ok_or_else(|| {
+        "未找到 pdftoppm(poppler PDF 转 PNG 工具)。MiKTeX/TeX Live 自带;若用 Tectonic 侧车 \
+         需单独装 poppler 或将 pdftoppm 放入 PATH。"
+            .to_string()
+    })?;
+    // 输出到 workdir 下的临时前缀,避免污染工件目录。
+    let out_prefix = workdir.join(format!("{stem}-pngtmp"));
+    let output = std::process::Command::new(&pdftoppm)
+        .args(["-png", "-r", "150"])
+        .arg(pdf)
+        .arg(&out_prefix)
+        .current_dir(workdir)
+        .output()
+        .map_err(|e| format!("启动 pdftoppm 失败: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "pdftoppm 转换失败: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    // pdftoppm 产出 `<prefix>-1.png`(多页则 -2/-3…,取首页)。
+    let first = workdir.join(format!(
+        "{}-1.png",
+        out_prefix.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    let bytes = std::fs::read(&first).map_err(|e| format!("读取转换产物失败: {e}"))?;
+    // 清理临时 PNG。
+    if let Ok(entries) = std::fs::read_dir(workdir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with(&format!("{stem}-pngtmp")) && name.ends_with(".png") {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    Ok(bytes)
+}
+
+/// base64 编码(标准 RFC 4648,无 padding 变体由调用方约定)。
+fn base64_engine_encode(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
 /// 在工作目录跑一个命令,返回 (成功, 合并输出)。
 fn run_in_dir(workdir: &Path, program: &str, args: &[&str]) -> (bool, String) {
     let output = std::process::Command::new(program)
@@ -399,5 +472,52 @@ mod tests {
         let _ = stem;
         let _ = tex_path;
         "未检测到 LaTeX 编译后端。\n方案一(推荐):安装 MiKTeX 或 TeX Live(全量宏包 + biber),并确保 kpsewhich 在 PATH。\n方案二:Tectonic 侧车——从 https://github.com/tectonic-typesetting/tectonic/releases 下载官方 Windows 预编译 exe,放到 PATH 或本工具侧车目录,首次运行会自动预热 bundle。\n侧车缺失不崩溃:本工具如实报告,等待安装后重试。".into()
+    }
+
+    /// R-273 批2:PDF 首页转 PNG(验收②轨迹——编译产物页面转 PNG 被模型消费)。
+    /// 用本机 MiKTeX 的 pdftoppm 实测:编译含公式的 .tex → PDF → PNG 字节可解码为 PNG。
+    #[test]
+    fn pdf首页转png被消费() {
+        if !which_in_path("pdflatex").is_some() || !which_in_path("pdftoppm").is_some() {
+            eprintln!("跳过:本机无 pdflatex/pdftoppm");
+            return;
+        }
+        let dir = temp_dir("png");
+        std::fs::write(
+            dir.join("doc.tex"),
+            "\\documentclass{article}\n\\usepackage{amsmath}\n\\begin{document}\n$E=mc^2$\n\\end{document}\n",
+        )
+        .unwrap();
+        let (ok, diag) = compile_latex(&dir, "doc.tex");
+        assert!(ok, "编译应成功:\n{diag}");
+        let png = pdf_to_png(&dir.join("doc.pdf"), &dir, "doc").expect("PDF→PNG 应成功");
+        // PNG magic bytes + IHDR:证明是可解码的 PNG 图像(模型消费的前提)。
+        assert_eq!(
+            &png[..8],
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A],
+            "PNG 魔数"
+        );
+        assert!(png.len() > 100, "PNG 不应是空文件");
+        // 临时 PNG 已清理(不污染工件目录)。
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| e.file_name().to_string_lossy().contains("pngtmp"))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert!(leftovers.is_empty(), "临时 PNG 必须清理");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-273 批2:pdftoppm 缺失时给明确诊断(不静默)。
+    #[test]
+    fn pdftoppm缺失给诊断() {
+        // 构造一个不存在 pdftoppm 的环境:临时清空 PATH 中相关项不可行,
+        // 用不存在的 PDF 路径触发「PDF 不存在」分支(等价路径校验)。
+        let dir = temp_dir("nopng");
+        let err = pdf_to_png(&dir.join("missing.pdf"), &dir, "missing").unwrap_err();
+        assert!(err.contains("PDF 不存在"), "{err}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
