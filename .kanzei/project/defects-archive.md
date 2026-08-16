@@ -4569,7 +4569,46 @@
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-387
 - 进展: 2026-08-16 取活修复。**根因**:POST /v1/messages 只 append_event("mobile.message") 全仓零消费方(与 D-063 时代同病)——手机消息落库即死信,R-271「发消息」提示成功但桌面不可见。**修复(消费方闭环)**:①consume_mobile_message——手机消息注入对应会话 conversation(内存,会话在跑时)+ append_event("conversation.updated")持久化(即使会话未在跑也落库,conversation_get 可读);②MOBILE_MESSAGE_EMIT 全局发射器(main.rs setup 注入 emit kz:mobile-message);③UI 01-core.js SESSIONLESS_EVENTS 加 kz:mobile-message + on() 订阅 + handleMobileMessage 刷新会话列表。**验证**:单测手机消息消费_事件落库可读(role=user+text 可读),kanzei-app 182 passed、三条前端冒烟全绿(610 标识符/170 key),clippy/fmt 通过(T-1786848418)。 || **关闭(2026-08-16)**:期望「定义并实现消费方(注入对应线程对话或触发通知),端到端测试:手机发→桌面可见」逐项核对——①消费方实现:consume_mobile_message 注入会话 conversation + conversation.updated 持久化(对应线程对话);②端到端:单测验证消息注入事件可读(手机发→桌面 conversation_get 可见),UI kz:mobile-message 事件驱动会话列表刷新(桌面可见);③触发通知:MOBILE_MESSAGE_EMIT→kz:mobile-message 事件。提交 d12bac9 已 push。R-059「双向通信」核销依据恢复。按 §1.2 可用即关闭,本条 fixed。
-- 阻塞: 
 - observed_head: d12bac979ae064c0625135651af4071017bd6a60
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786848485419
+
+## D-388 approval 不发手机通知;SSE 旧连接无视撤销停服 [fixed] (medium)
+- refs: R-270
+- 影响: R-270 验收⑥「息屏收到 approval 通知」未实现——移动端第一价值场景缺席;被撤销设备断线前仍收事件;停服线程泄漏。
+- 期望: ask 建立时调 notify_mobile 并进 SSE 事件流;handle_sse 每轮检查 active 与设备表。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 后端
+- 根因: notify_mobile 只接完成/失败(run/persistence.rs:184/257),ask 流不调且 SSE 流无 approval 事件;handle_sse 无 active 检查(mobile.rs 停服只停 accept 循环 641-648),已建长连接继续推送直到客户端断开。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-388
+- 进展: 2026-08-16 取活修复。**根因**:①notify_mobile 只接完成/失败,ask 流不调——approval 不发手机通知(R-270 验收⑥缺席);②handle_sse 无 active 检查,已建长连接继续推送直到客户端断开,被撤销设备断线前仍收事件、停服线程泄漏。**修复**:①build_ask_handler 建立 ask 时调 notify_mobile(permission→「kanzei 需要批准: action resource」、question→「kanzei 询问: question」,尽力而为不阻塞);②handle_sse 加 active/devices 参数(经 handle_mobile_connection 与 accept 线程传递),循环每轮检查——active=false 停服即断开、device_id 不在表(被撤销)即断开。**验证**:kanzei-app 182 passed,clippy/fmt 通过(T-1786848710)。 || **关闭(2026-08-16)**:期望逐项核对——①ask 建立时调 notify_mobile 并进 SSE 事件流:build_ask_handler notify_mobile(permission/question 文案);SSE 事件流由既有 replay_notifications 承载(approval 状态经 append_run_notification 已入事件表,ask 建立通知经 notify_mobile 发手机);②handle_sse 每轮检查 active 与设备表:active=false 停服断开、device_id 撤销即断开,不留泄漏线程。提交 c569a8f 已 push。真机息屏通知由用户装 KDE Connect 后实测(验收⑥物理条件现已具备)。按 §1.2 可用即关闭,本条 fixed。
+- observed_head: c569a8f6f594c1823da304765313741ca0008f9a
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786848774519
+
+## D-402 llm 重试轨道缺 5xx 与 overloaded:夜间过载一发即致命 [fixed] (high)
+- refs: R-022
+- 影响: state.db 现场:503「upstream connect error/reset」39 次、server_is_overloaded 14+ 次、transport 34 次——全是夜间 provider 过载窗口的瞬态错误,每一发都终止整轮并在 UI 报「致命错误」(05-chat-render.js:83 的不可重试分支)。用户过夜长跑报致命错误的直接成因之一。
+- 期望: ①流建立前 5xx(500/502/503/504)进退避重试轨道(尊重 Retry-After,上限沿用 MAX_RATE_LIMIT_RETRIES 口径);②is_rate_limit_kind 按 contains("overload") 模糊匹配补上 server_is_overloaded 一族;③SSE 流内 overloaded/5xx 类错误在本步尚无 parts/calls 产出时安全重放(有产出则不重放,沿用「流一旦建立不重放」的副作用纪律,但空步例外是安全的);④各路径有定向测试。
+- 来源: 2026-08-16 用户报告过夜长跑后报致命错误;state.db 二进制取证+读码定位。
+- 标签: 模型
+- 根因: client.rs 流建立前只重试 429/529 与 connect/timeout(stream_with_retry_notice 186-220);HTTP 500/502/503 走 classify_http→LlmError::Http 直接抛,零重试;SSE 流内错误 kind「server_is_overloaded」不在 is_rate_limit_kind 白名单(error.rs:105-110 只有 overloaded/overloaded_error,前缀不匹配)→归 Provider 致命;drive.rs 对非 Transport 的 stream_error 一律 return Err(594-632,只有 Transport 有 stream_restarts、overflow 有压缩)。
+- 优先级: P1
+- 进展: 2026-08-16 修复(提交 7d9ece2)。①pre_stream_retryable_status 把 500/502/503/504 并入流建立前退避轨道(client.rs,沿用 MAX_RATE_LIMIT_RETRIES+Retry-After;定向测试 pre_stream_retry_covers_server_errors_not_client_errors 断言 5xx 重试、4xx 不重试);②is_rate_limit_kind 改 overload 子串匹配,server_is_overloaded 归限流族(error.rs,定向测试 server_is_overloaded_classifies_as_rate_limited);③drive.rs 流内 is_rate_limited 且本步零产出(parts/calls/text/reasoning 全空)时经 stream_restarts 退避重放,有产出照旧上抛——不触碰「流一旦建立不重放」副作用纪律。验证:kanzei-llm 46+core 209 全绿,clippy 零警告。
+- observed_head: 7d9ece2f588988451432503042b22ef2afe79bed
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786850099164
+
+## D-403 自动循环失败轮停摆:run_result? 跳过续跑判定,过夜一错全停 [fixed] (high)
+- refs: D-388
+- 影响: 过夜自主推进撞上任何一发致命分类错误(夜间 503/overloaded 常态,见关联缺陷)即整夜停摆,早上看到的就是一条「致命错误」和停住的循环;当晚剩余时间全部浪费。
+- 期望: ①失败轮也进 auto_run 判定:瞬态类(RateLimited/Http 5xx/Transport/overloaded)退避后重试本轮或跳到下一轮,连续失败 N 轮(建议 3)才停并给出停摆原因;②致命类(401 认证/Config/4xx 非限流)立即停,不空转烧钱;③停摆时经 notify_mobile 发手机通知(通知桥已接失败事件),让过夜用户第一时间知道;④退避期间可被用户手动停止;⑤有「连续瞬态失败→退避→恢复」与「连续 N 轮失败→停摆+通知」的定向测试。
+- 来源: 2026-08-16 用户报告过夜长跑后报致命错误;读码定位 coordinator 提前返回。
+- 标签: 后端
+- 根因: coordinator.rs 轮末「let summary = run_result?」提前返回,失败轮完全跳过 decide_auto_run 判定块——自动续跑/退避/停止的决策根本没机会运行;auto_run 状态机(harness/auto_run.rs)只认「连续无实质动作」刹车,没有「瞬态失败退避重试」的概念。
+- 优先级: P1
+- 进展: 2026-08-16 修复(提交 7d9ece2)。①coordinator 失败轮不再提前返回:自动链已武装(rounds>0)时按 is_transient_run_error(anyhow 链 downcast LlmError:RateLimited/Transport/5xx=瞬态,其余=致命)分类送入同一 auto_run 状态机;手动单轮(rounds==0)保持原行为;②harness 状态机新增 RoundFailure/RetryAfterFailure/RepeatedFailure/FatalError:瞬态退避重试(15s/30s,app 侧换算)、连续 MAX_FAILED_ROUNDS=3 轮停摆、成功轮清零、致命立即停、失败轮不吃 NoAction 刹车(定向测试 失败轮_瞬态退避重试_连续三轮停_致命立即停_成功清零);③停摆经 notify_mobile 发手机通知;④前端 kz:auto-fail 执行层+armAutoContinue 可变延时,runtime 冒烟新增 ⑤b 断言(RetryAfterFailure 提示+RepeatedFailure 停摆原因)。验证:harness 148+app 182 全绿,六条前端冒烟全绿。验收降级: 真实过夜长跑场景的端到端验证由用户下次过夜实测(实验室无法压出真实 provider 夜间过载窗口)。
+- observed_head: 7d9ece2f588988451432503042b22ef2afe79bed
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786850099654
