@@ -85,25 +85,7 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-392 plot 回退轨失效+假承诺:vega-cli 三重断 SVG 没落盘 [open] (medium)
-- refs: R-274
-- 影响: 回退轨等于不存在且零测试;假承诺文案把 agent 引去读不存在的 .svg、传被忽略的参数——按「弱模型也能照着走」准绳危害放大。
-- 期望: vega-cli 轨删掉或修真;文案与实现对齐(真落 SVG 或删承诺);width/height 实现或删。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 核心
-- 根因: vega-cli 轨三重失效:.cmd shim 检测不到(plot_tool.rs:198-208)+调用缺输出参数(161)+指引与 R-274 自家勘察矛盾(vega-cli 只有 vg2png);「SVG 已落盘供复用」三处文案(5/30-31/185)为假,代码只产 spec JSON+PNG,e2e 用 chart.json 冒充断言(367-368);description 承诺 width/height 但 schema 无、代码不读。
-- 优先级: P2
-
-## D-393 latex/plot 路径边界未实施:任意路径可写 [open] (medium)
-- refs: R-273 R-274 R-221
-- 影响: 配 allow 规则后两工具任意路径裸写;只读档可经 Ask 写盘,档位口径不齐。
-- 期望: workdir canonicalize 后限研究工件目录+显式白名单;readonly 档 deny 或同步收窄。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 核心
-- 根因: ctx.cwd.join(workdir)对绝对路径直接替换基底、..不设防、无 canonicalize 无白名单(latex_tool.rs:71、plot_tool.rs:69);R-273/R-274 条目边界「限研究工件目录与显式指定目录」只存在于 schema 描述文本;ReadonlyProfile 硬 deny 了 write/edit/bash 却没管 latex/plot 两个写盘工具(profiles.rs:710-716)。
-- 优先级: P2
-
-## D-394 latex 验收测试成色:副本断言/偷换分支/Tectonic 零验证 [open] (medium)
+## D-394 latex 验收测试成色:副本断言/偷换分支/Tectonic 零验证 [fixing] (medium)
 - refs: R-273
 - 影响: 验收⑥单测证据无效;回落轨=零安装目标场景可信度为零。
 - 期望: Missing/pdftoppm 缺失测试走真生产分支(PATH 操纵);Tectonic 真 exe 至少一次真编译实测留记录;行号测试加 skip guard。
@@ -111,6 +93,8 @@
 - 标签: 核心
 - 根因: 「后端缺失给下载指引」断言的是测试内硬编码文案副本,生产 Missing 分支零执行(latex_tool.rs:487-500);「pdftoppm缺失给诊断」实测的是 PDF 不存在分支(556-566),名不副实;Tectonic 真轨用假 .cmd 脚本(0 字节假 PDF)替代(569-607),真 exe 从未编译过真文档(关闭叙述如实记录了替代,诚实但验收字面未满足);「错误诊断含行号」测试无 skip guard,无 TeX 机器假失败。
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-394
+- 取得线: kanzei/thread-line-1786851588846-1
 
 ## D-395 跨树围栏并发误伤:他线窗口内合法自写被回滚 [open] (high)
 - refs: R-186 R-268 R-184

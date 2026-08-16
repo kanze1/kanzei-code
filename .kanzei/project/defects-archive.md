@@ -4797,3 +4797,32 @@
 - observed_head: f4f2083980323c634acf164a9b6fffefef50593d
 - observed_worktree_hash: fnv1a64:079b10c5eaac5321
 - recorded_at: 1786867988076
+
+## D-393 latex/plot 路径边界未实施:任意路径可写 [fixed] (medium)
+- refs: R-273 R-274 R-221
+- 影响: 配 allow 规则后两工具任意路径裸写;只读档可经 Ask 写盘,档位口径不齐。
+- 期望: workdir canonicalize 后限研究工件目录+显式白名单;readonly 档 deny 或同步收窄。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 核心
+- 根因: ctx.cwd.join(workdir)对绝对路径直接替换基底、..不设防、无 canonicalize 无白名单(latex_tool.rs:71、plot_tool.rs:69);R-273/R-274 条目边界「限研究工件目录与显式指定目录」只存在于 schema 描述文本;ReadonlyProfile 硬 deny 了 write/edit/bash 却没管 latex/plot 两个写盘工具(profiles.rs:710-716)。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-393
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 已修复(commit 9142826)。期望对账:①任意路径裸写收口——共享 resolve_research_workdir(lib.rs):workdir 必须相对路径(绝对/Windows root-relative/盘符拒绝)、不含 .. 段,canonicalize 后必须落在研究工件目录白名单(<cwd>/.kanzei/research 或 <cwd>/research)内,后续写盘基于 canonical 路径;latex_tool.rs:71 / plot_tool.rs:134 的 ctx.cwd.join 裸拼全部替换为校验调用;②readonly 档 deny 或同步收窄——ReadonlyProfile 硬 deny 列表补 latex/plot(profiles.rs:710-716,写盘工具与 write/edit/insert/bash 同级 deny,替代指引同步点名);③R-273/R-274 条目边界「限研究工件目录与显式指定目录」由 schema 描述文本落码为代码强制边界;④测试——workdir 白名单 2 测试(研究目录内放行/绝对+root-relative+穿越+目录外拒绝)+readonly 断言扩展 latex/plot(T-1786868495,337 全绿,clippy 零警告)
+- observed_head: 914282666bb185a2e6b00bfb63a50495c5f84b59
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786868537941
+
+## D-392 plot 回退轨失效+假承诺:vega-cli 三重断 SVG 没落盘 [fixed] (medium)
+- refs: R-274
+- 影响: 回退轨等于不存在且零测试;假承诺文案把 agent 引去读不存在的 .svg、传被忽略的参数——按「弱模型也能照着走」准绳危害放大。
+- 期望: vega-cli 轨删掉或修真;文案与实现对齐(真落 SVG 或删承诺);width/height 实现或删。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 核心
+- 根因: vega-cli 轨三重失效:.cmd shim 检测不到(plot_tool.rs:198-208)+调用缺输出参数(161)+指引与 R-274 自家勘察矛盾(vega-cli 只有 vg2png);「SVG 已落盘供复用」三处文案(5/30-31/185)为假,代码只产 spec JSON+PNG,e2e 用 chart.json 冒充断言(367-368);description 承诺 width/height 但 schema 无、代码不读。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-392
+- 进展: 已修复(commit 6457d9b)。期望对账:①vega-cli 轨删掉——detect_renderer 只认 vl-convert(plot_tool.rs:290-302),Renderer 枚举删 VegaCli 变体,缺失指引删 vega-cli 方案(原指引称 npm vega-cli 提供 vl2png 与勘察矛盾:vega-cli 只有 vg2png);模块注释/description 同步删除回退轨描述;②文案与实现对齐(真落 SVG)——render_vega 渲染 PNG 后调 vl-convert vl2svg 子命令产 <out>.svg(plot_tool.rs:402-427),成功文案从「SVG 已落盘供复用」假承诺改为点名真实路径(446-451);e2e 测试从 chart.json 冒充断言改为真 chart.svg 存在且以 <svg 开头(634-643);③width/height 实现——input_schema 加 width/height number 字段(43-44),execute 读取(133-135),render_vega 注入 spec 顶层(Vega-Lite 合法字段,363-369),description 注明仅 vega 引擎;新增独立测试 width_height_注入spec顶层(660-675)。验证:T-1786868509/T-1786868662 cargo test -p kanzei-tools 315 passed(plot 11 条;e2e 在 vl-convert 1.9.0 真实 PATH 下真执行——此前本机无 vl-convert 时 e2e 一直跳过,「全绿」名不副实,本次下载官方 win-64 到临时 PATH 实测)。生效依赖:新版 kzapp 构建后运行,构建发布走发版 SOP。
+- observed_head: 6457d9badf9c0b460a9955057f39c3667733ed07
+- observed_worktree_hash: fnv1a64:079b10c5eaac5321
+- recorded_at: 1786868677188

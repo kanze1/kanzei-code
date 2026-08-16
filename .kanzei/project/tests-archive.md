@@ -4582,3 +4582,18 @@
 - 摘要: D-391 修复:10 latex 测试全绿——多页(10 页)PDF 首页转 PNG 成功无残留(页号零填充修复)、转换失败路径也清理临时 PNG、stem 口径统一(含点文件名不截断)
 - 关联: D-391
 - 收尾: 1786856355
+
+## T-1786868509 D-392 cargo test -p kanzei-tools(plot 修复:vega-cli 轨删+SVG 真落盘+width/height) [passed]
+- 命令: $env:PATH="$env:TEMP\vl-convert\exe\bin;$env:PATH"; cargo test -p kanzei-tools
+- 时长: 30.2s
+- 摘要: D-392 修复后 kanzei-tools 全量:315 passed 0 failed(含 plot 11 条:e2e vegalite_spec转png被模型消费 在 vl-convert 1.9.0 真实 PATH 下执行,断言 SVG 真落盘 chart.svg 以 <svg 开头、width/height 注入 spec 顶层、PNG 魔数、images 回模型;width_height_注入spec顶层 独立注入测试;渲染器缺失指引只点名 vl-convert)。vega-cli 轨已删(检测只认 vl-convert,指引删除 vega-cli 方案),「SVG 已落盘」由假变真。
+- 关联: D-392
+- 收尾: 1786868509
+
+## T-1786868662 D-392 cargo test -p kanzei-tools(fmt 后确认) [passed]
+- 命令: $env:PATH="$env:TEMP\vl-convert\exe\bin;$env:PATH"; cargo test -p kanzei-tools
+- 时长: 30.0s
+- 摘要: D-392 修复后 cargo fmt 归一重跑:315 passed 0 failed(与 T-1786868509 同结果,fmt 仅改缩进无行为变化)。plot 11 条全绿。
+- 关联: D-392
+- 收尾: 1786868662
+- 源码指纹: 4dd673559d5d157a
