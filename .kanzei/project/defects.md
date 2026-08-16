@@ -188,7 +188,7 @@
 - observed_worktree_hash: fnv1a64:28d67e2167c4069d
 - recorded_at: 1786853843829
 
-## D-408 含中文 .ps1 缺 UTF-8 BOM:PS 5.1 下解析失败装不了包 [open] (high)
+## D-408 含中文 .ps1 缺 UTF-8 BOM:PS 5.1 下解析失败装不了包 [fixed] (high)
 - 影响: 用户按发版说明装紧急修复版时 install-setup.ps1 直接跑不起来(2026-08-16 实况);agent 侧一路不复现——PowerShell 7 默认 UTF-8,verify/release 在自动化里全绿,典型「开发机测不出、用户必炸」。
 - 期望: ①三脚本补 BOM;②加机械校验:含 CJK 的 .ps1 必须带 BOM,缺即失败并点名;③挂 verify.ps1 与 ci.yml 两处。
 - 来源: 2026-08-16 用户执行安装命令报 ParserError,乱码特征定位为编码问题。
@@ -196,3 +196,7 @@
 - 根因: install-setup.ps1/release.ps1/verify.ps1 三个脚本含大量中文(427/730/233 字)却以 UTF-8 无 BOM 保存。Windows PowerShell 5.1(powershell.exe,用户复制文档命令走的就是它)读无 BOM 文件按系统 ANSI 代码页(中文机 GBK)解码,中文字节被拆成乱码致引号错位→整脚本 ParserError。package.ps1 顶部早写明「必须以 UTF-8 BOM 保存」,规则在但无机械校验,三个后来的脚本全漏。
 - 验收: ①三脚本头三字节为 EF BB BF 且 PS 5.1 实测解析 OK;②反证:临时去 BOM 校验必须变红并点名该文件;③verify 与 CI 两处都跑到。
 - 优先级: P1
+- 进展: 2026-08-16 修复交付。①三脚本补 BOM——scripts/install-setup.ps1:1、scripts/release.ps1:1、scripts/verify.ps1:1 头三字节改 EF BB BF(提交 a002772),用 Windows PowerShell 5.1 的 Parser::ParseFile 逐个实测,三个均「解析 OK」(此前 install-setup 报 UnexpectedToken)。②机械校验——新增 scripts/check-ps1-bom.mjs:1(提交 a002772),含 CJK 的 .ps1 缺 BOM 即列名失败并打印修复命令;反证实测:剥掉 verify.ps1 的 BOM 后校验立刻变红点名该文件、退出码 1,恢复 BOM 后复绿。③两处挂载——scripts/verify.ps1:68 新增 ps1_bom 步、.github/workflows/ci.yml:49 追加同一脚本(提交 a002772),口径一致。
+- observed_head: a002772eec91ddbf1b28d4ba02913d80ce336f36
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786857364480
