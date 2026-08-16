@@ -537,10 +537,14 @@ function applyTheme(theme) {
   }
   const btn = $("theme-toggle");
   if (btn) {
-    btn.textContent = theme === "light" ? t("暗色") : t("亮色");
+    // D-405:activitybar 图标按钮,不显示文本;用太阳/月亮图标表达当前主题。
     btn.setAttribute("aria-label", theme === "light" ? t("切换到暗色主题") : t("切换到亮色主题"));
     btn.title = theme === "light" ? t("切换到暗色主题") : t("切换到亮色主题");
   }
+  const sun = $("theme-icon-sun");
+  const moon = $("theme-icon-moon");
+  if (sun) sun.classList.toggle("hidden", theme !== "light");
+  if (moon) moon.classList.toggle("hidden", theme !== "dark");
 }
 function initTheme() {
   const saved = localStorage.getItem(THEME_STORAGE_KEY);

@@ -202,24 +202,15 @@
 - 根因: 交付为纯静态 regex 差集(ui-connectivity.mjs:54-89)+关键路径只查 HTML 存在性(77-89);PWA 4 条路径 3 条 needs_pair 跳过(146-150),唯一真开的是配对页;KEY_PATHS 为脚本内 const(33-51)非验收③要求的配置文件;原案「基于 R-269 从入口遍历+跳转失败/console 报错」运行时判定全部缺席。关闭证据如实描述静态形态但未点名与原案落差,四条验收照单核销(对比 R-264 对做不到的部分明确记「待专用批次」)。
 - 优先级: P2
 
-## D-404 设置页修改似乎未持久化:保存后重启丢失 [fixing] (high)
-- 复现: 用户报告:设置页修改设置后(含点「保存」)重启应用,改动未保留。现行机制:设置页需显式点「保存」(ui/16-settings.js:819 settings_save invoke)→后端 settings_save(settings.rs:624)→settings_write_document 写全局 ~/.kanzei/kanzei.toml 或项目 .kanzei/kanzei.toml(settings.rs:208/218 std::fs::write);settings_get(settings.rs:496)读回时全局+项目级合并。改动是否写入、重启后读取是否走同路径需复现核实:用户改的具体字段、是否点了保存、有无「未保存」提示被忽略。
-- 影响: 用户配置(模型角色/proxy/limits/cadence/providers 等)重启后丢失,设置页可信度为零;若发生在密钥/模型角色上会连带运行行为回退。
-- 期望: 保存后的设置重启后仍然生效;先复现确认是写入失败(路径/权限/合并逻辑)还是读取路径不一致,或用户未走「保存」按钮的 UX 误导——按根因修,不能只加提示。
-- 来源: 用户消息(2026-08-16)
-- 标签: 前端
-- 优先级: P1
-- 取活依据: override:用户明确指示「直接开修」新登记的两条缺陷,按消息顺序先修 D-404
-- 批次: 1/2
-- 进展: 批1完成(commit fc152cb):prefs.rs AppPrefs 扩展(theme/work_priority/auto_max/continue_prompt/process_auto_state,serde default 兼容旧 app.json)+ui_prefs_get/ui_prefs_set 命令(apply_ui_prefs 纯函数,None=不变)+3 单测(往返/旧格式兼容/None 不变更)全绿;main.rs invoke_handler 注册;projects.rs 测试初始化补 ..Default::default()。验证:T-1786853291(cargo test -p kanzei-app prefs 3 passed)。下一步批2:前端 03-shell.js(theme)+08-compose.js(work-priority/auto-max/continue-prompt/process-auto-state)读写迁 invoke,ui-runtime-smoke.mjs mock 同步,node --check+冒烟。
-- observed_head: fc152cb95640a884a6b81fe81bf9a135398c9bf7
-- observed_worktree_hash: fnv1a64:e6eaded24b17e2c9
-- recorded_at: 1786853325489
-
-## D-405 主题切换位置不合理:占侧栏整块,建议移到左下角图标与设置同级 [open] (low)
+## D-405 主题切换位置不合理:占侧栏整块,建议移到左下角图标与设置同级 [fixing] (low)
 - 复现: 当前主题切换是侧栏底部一整块 sidebar-section(index.html:114-119,#theme-section + #theme-toggle「亮色」按钮),低频操作却占用侧栏一个区块;activitybar(左下角 #activitybar)是视图切换图标的常驻区,设置按钮在底部(index.html:35),主题入口与设置层级不对称。
 - 影响: 侧栏空间被低频操作占用;主题切换入口位置不直观,与设置同级操作不在同一视觉层级。
 - 期望: 移除侧栏 #theme-section;在 #activitybar 底部(设置按钮旁/左下角)加一个主题切换图标按钮,与设置同级;点击切换亮/暗色并沿用 localStorage kz-theme 持久化(03-shell.js applyTheme 既有逻辑可复用,只需改挂载点与图标样式)。
 - 来源: 用户消息(2026-08-16)
 - 标签: 前端
 - 优先级: P2
+- 取活依据: override:D-404 已关闭,按用户消息顺序修第二条:主题切换移到左下角 activitybar 与设置同级
+- 进展: 修复落地:①index.html 移除侧栏 #theme-section(原 114-119),在 #activitybar 设置按钮前(35 行)插入 #theme-toggle 图标按钮(太阳/月亮双 SVG,class=activity-item 与设置同级);②03-shell.js applyTheme 按钮更新从文本改图标 hidden 切换(sun/moon)+title/aria 保持。验证:T-1786853796 node --check+ui-runtime-smoke 全过(R-189 断言:theme-toggle 存在/不在 statusbar/位置在 statusbar 前/切换持久化/Monaco 联动均绿)。待提交。
+- observed_head: 3c2060cd37ec820616c3d00b41357c0c0c3ba306
+- observed_worktree_hash: fnv1a64:ed56858c97799d50
+- recorded_at: 1786853808329

@@ -4612,3 +4612,17 @@
 - observed_head: 7d9ece2f588988451432503042b22ef2afe79bed
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786850099654
+
+## D-404 设置页修改似乎未持久化:保存后重启丢失 [fixed] (high)
+- 复现: 用户报告:设置页修改设置后(含点「保存」)重启应用,改动未保留。现行机制:设置页需显式点「保存」(ui/16-settings.js:819 settings_save invoke)→后端 settings_save(settings.rs:624)→settings_write_document 写全局 ~/.kanzei/kanzei.toml 或项目 .kanzei/kanzei.toml(settings.rs:208/218 std::fs::write);settings_get(settings.rs:496)读回时全局+项目级合并。改动是否写入、重启后读取是否走同路径需复现核实:用户改的具体字段、是否点了保存、有无「未保存」提示被忽略。
+- 影响: 用户配置(模型角色/proxy/limits/cadence/providers 等)重启后丢失,设置页可信度为零;若发生在密钥/模型角色上会连带运行行为回退。
+- 期望: 保存后的设置重启后仍然生效;先复现确认是写入失败(路径/权限/合并逻辑)还是读取路径不一致,或用户未走「保存」按钮的 UX 误导——按根因修,不能只加提示。
+- 来源: 用户消息(2026-08-16)
+- 标签: 前端
+- 优先级: P1
+- 取活依据: override:用户明确指示「直接开修」新登记的两条缺陷,按消息顺序先修 D-404
+- 批次: 2/2
+- 进展: 关闭证据(2026-08-16):根因=用户丢的主题(亮暗)+鞭挞设置全部存 WebView2 localStorage,而本机 EBWebView\Default\Local Storage\leveldb 数据文件缺失(.ldb/.log 零文件,MANIFEST 残留 8/8 键),重启即丢;设置页 kanzei.toml 链路本身正常(15 测试绿),与本次现象无关。修复=关键 UI 偏好权威存储迁 ~/.kanzei/app.json:①prefs.rs AppPrefs 扩展(theme/work_priority/auto_max/continue_prompt/process_auto_state,serde default 兼容旧文件)+ui_prefs_get/ui_prefs_set 命令(apply_ui_prefs 纯函数)+main.rs:180-181 注册;②01-core.js uiPrefsLoad/uiPrefsSave 通用通道;③03-shell.js applyTheme 双写+initTheme 后端权威异步覆盖;④08-compose.js 鞭挞四项(work-priority 回显/change 双写、continue-prompt 初始化/change、auto-max 初始化覆盖+change 且回写 localStorage 供 legacyMax、process-auto-state 启动合并后端权威,uiPrefsAutoStateMerged 合并前禁写防覆盖);⑤ui-runtime-smoke.mjs ui_prefs_get 桩。验证:批1 fc152cb(3 单测);批2 3c2060c;T-1786853291 prefs 3 passed、T-1786853480 前端冒烟 0 错误、T-1786853559 kanzei-app 185 passed、T-1786853691 cargo test --workspace 全绿。生效依赖:新版 kzapp 构建后运行(当前运行版 11:26:54 不含此修复),构建发布走发版 SOP。
+- observed_head: 3c2060cd37ec820616c3d00b41357c0c0c3ba306
+- observed_worktree_hash: fnv1a64:28d67e2167c4069d
+- recorded_at: 1786853706039

@@ -32,6 +32,10 @@
       <button type="button" class="activity-item" data-view="metrics" title="运行画像" data-i18n-title="运行画像" aria-label="切换到运行画像" data-i18n-aria-label="切换到运行画像">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h16M7 20V11M12 20V5M17 20v-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
+      <button type="button" id="theme-toggle" class="activity-item" title="切换主题" data-i18n-title="切换主题" aria-label="切换主题" data-i18n-aria-label="切换主题">
+        <svg aria-hidden="true" id="theme-icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.5v2.4M12 18.1v2.4M3.5 12h2.4M18.1 12h2.4M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M18.2 5.8l-1.7 1.7M7.5 16.5l-1.7 1.7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg aria-hidden="true" id="theme-icon-moon" class="hidden" viewBox="0 0 24 24"><path d="M20 14.6A8.6 8.6 0 0 1 9.4 4 8.6 8.6 0 1 0 20 14.6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      </button>
       <button type="button" class="activity-item" data-view="settings" title="设置" data-i18n-title="设置" aria-label="切换到设置" data-i18n-aria-label="切换到设置">
         <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
@@ -110,12 +114,6 @@
           </span>
         </div>
         <div id="conv-list" class="doc-list"></div>
-      </div>
-      <div class="sidebar-section" data-collapse-key="theme" id="theme-section">
-        <div class="section-title">
-          <span data-i18n-key="主题">主题</span>
-          <button id="theme-toggle" class="ghost mini" type="button" title="切换主题" data-i18n-title="切换主题">亮色</button>
-        </div>
       </div>
     </aside>
 
