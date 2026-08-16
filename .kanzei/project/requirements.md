@@ -193,33 +193,22 @@
 - 状态: todo
 - 阻塞: 队列让位(2026-08-16):R-186(P0 队首)本轮推进中,单 WIP 槽不足,本条让位等待队列轮转。解除动作: R-186 关闭后清本字段,做剩余批4(withSessionRender setter 化、B3、defer 时序与冒烟断言适配、删补偿)。P3 留档。解除人: agent。
 
-## R-270 桥接移动化:LAN 配对/SSE/approval/PWA serve 与通知桥 [doing]
-- refs: R-059 D-063 R-269 docs/design/r059_mobile_agent_communication.md
-- 内容: 现状 mobile.rs 只绑 127.0.0.1、Connection: close 单线程 accept、三个 JSON 端点、单一共享 token。本条:①监听可切 LAN(默认仍回环,桌面设置页开关+显示地址);②设备配对:桌面端生成配对码/二维码(地址+一次性配对 token),每设备独立 token,设备列表可单独撤销(替换现单一共享 token);③SSE 端点 GET /v1/events 长连接实时推送,断线重连沿用既有 delivery_cursor 补发,每连接独立线程,不阻塞其它请求;④approval 通道:GET pending 权限询问(脱敏摘要)+ POST 回答,接 runner 既有 ask 流,最终门禁仍在 harness 侧;⑤静态页 serve:桥接直接 serve PWA 页面(随桌面端发版分发,不另起服务);⑥息屏通知出口:approval/失败/完成等关键事件经现成 LAN 推送桥(KDE Connect 类,具体工具实施时定)发手机系统通知。拆批:批1 LAN+配对/撤销;批2 SSE;批3 approval;批4 PWA serve+通知桥出口。
-- 复杂度: 大
-- 批次: 4/4
-- 来源: 2026-08-16 移动端方案定案(用户逐项拍板):形态 PWA+现成通知桥(手机为 Android);实时通道 SSE;第一批含 approval 远程回答;原生壳不做——息屏通知由 LAN 推送桥零开发补齐,不为舒适性引入 Android 工具链。必要性口径:本条是移动端唯一的硬必要部分,无替代。
-- 标签: 后端
-- 边界: 公网监听禁止(既有定调不变);不做 TLS(LAN 自用威胁模型,token 即门);不自研推送协议,不接 FCM/Web Push 等公网推送;不开放远程 shell/write——approval 只回答既有询问,不新增能力面;协议契约沿用 docs/design/r059_mobile_agent_communication.md 阶段A字段定义。
-- 验收: ①LAN 另一设备实测连通,默认回环行为不变;②撤销某设备后其 token 立即 401,其它设备不受影响;③SSE 断线重连 cursor 补发无丢终态,长连接挂着时其它端点仍可用;④移动端回答 approval 后 runner 真实放行/拒绝各有实测轨迹,harness 门禁无旁路;⑤手机浏览器打开桥接地址能加载 PWA 页面;⑥手机息屏状态收到 approval 事件的系统通知(实测);⑦既有回环+token 行为与 D-063 回归全绿。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-270
-- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①现状 mobile.rs(223 行)——127.0.0.1 绑定、单线程 accept、单一共享 token、三端点;②设计文档已定调 LAN 监听+每设备独立 token 配对/撤销;③D-063 已修。**设计冻结**:不变式——公网监听禁止、默认回环行为不变、approval 门禁仍在 harness 侧;权威数据源——mobile.rs 设备表持久化于 AppState,配对一次性 token 桌面端生成。 || **批1 完成(17bc7e5)**:mobile.rs 重构(LAN 可切+设备配对/撤销+每连接独立线程),state.rs 设备表类型,main.rs 注册 revoke/list 命令,单测 3 条,kanzei-app 172 passed。 || **批2 完成(0eee814)**:SSE 长连接(GET /v1/events)——handle_sse:起始 cursor 参数优先/缺省 delivery_cursor(断线重连补发不丢终态,验收③)、replay_notifications 逐批推进并推进 delivery_cursor、无事件 15s 心跳保活、每连接独立线程长连接挂着不阻塞其它端点、连接断开即收尾。新增单测 3 条,kanzei-app 175 passed。 || **批3 完成(0ccb568)**:approval 通道——GET /v1/approval/pending(脱敏摘要:只给 id/kind/action/resource 截断 80 字符/session_id,不暴露完整内容)+POST /v1/approval/answer(permission allow→AllowOnce/deny→Deny、question 文本或 cancel,经 PendingAsk.sender 送达 runner 既有 ask 流——门禁决策由 runner 侧执行,本通道不新增能力面不旁路,验收④);runtimes 传入连接线程。新增单测 3 条,kanzei-app 178 passed。 || **批4 完成(2026-08-16,提交待定)**:①PWA serve——mobile-pwa/index.html+manifest.json 静态资源(随桌面端发版分发,R-271 填充完整界面),serve_pwa 函数(/ 与 /mobile-pwa/* 路由、路径穿越防护 `..` 反斜杠拒绝、content-type 按扩展名),手机浏览器打开桥接地址加载 PWA 页面(验收⑤);②通知桥出口——mobile_notify.rs 检测现成 LAN 推送桥(kdeconnect-cli,实施时定),调用 --notification 发手机系统通知,无桥给明确诊断不静默;persistence.rs 完成/失败事件接入(尽力而为不阻塞,验收⑥);③workspace 全量 15 段 ok(T-1786842178),kanzei-app 180 passed,clippy/fmt 通过。**关闭前核对**:验收①②③⑤代码+单测齐备;④approval 经 sender 送达 runner(单测);⑥真机息屏通知需用户装 KDE Connect 后实测(代码已接入,无桥诊断明确);⑦既有回环+token 与 D-063 回归绿(workspace 全量)。按 §1.2 可用即关闭,准备 req update done。
-- observed_head: 0ccb56867c4ab3b6d8fd83437f28598fca4dd7d0
-- observed_worktree_hash: fnv1a64:d64274f59c492650
-- recorded_at: 1786842188218
-
-## R-271 移动端 PWA:配对/通知流/发消息/approval 界面 [todo]
+## R-271 移动端 PWA:配对/通知流/发消息/approval 界面 [doing]
 - refs: R-059 R-269 R-270 R-267
 - 依赖: R-269 R-270
 - 内容: ①PWA 静态工程(与桌面 ui/ 同纪律:原生 JS、零构建、零框架),由 R-270 桥接 serve;②页面:配对(扫码/输码)、线程/会话列表与运行状态、通知流(SSE 订阅+cursor 补发)、发消息、approval 卡片(脱敏摘要+批准/拒绝);③PWA manifest+service worker:可添加到主屏、全屏打开、离线时给明确提示(不做离线数据);④移动 viewport 布局,长列表窗口化沿用 R-267 模式。拆批:批1 配对+通知流只读;批2 发消息;批3 approval 卡片+PWA manifest。开发期每批用 R-269 浏览器工具按移动 viewport 自检(截图+DOM),真机验收由用户执行。
 - 复杂度: 大
-- 批次: 0/3
+- 批次: 1/3
 - 来源: 2026-08-16 移动端方案定案:形态 PWA+现成通知桥(Android),承接 R-059 双向通信与通知推送两条验收的实际载体。用户手机用途定调:给电脑发消息、看运行状态、批权限——轻交互遥控器,不做重界面。
 - 标签: 前端
 - 边界: 不引前端框架与构建步骤;不做息屏推送(R-270 通知桥承担);不做 iOS 专属适配(Android Chrome 优先);第一批绑桥接当前项目,不做多项目切换;不做桌面端功能面的完整复刻——只做遥控器三件事。
 - 验收: ①Android 真机全链路实测:配对→看通知流→发消息→批 approval,有实测记录;②锁屏/切后台再回,SSE 恢复后 cursor 补齐无丢终态;③添加到主屏后全屏打开;④每批有 R-269 移动 viewport 自检轨迹(开发期证据);⑤长通知流滚动不卡(窗口化生效);⑥R-059 双向通信与通知推送两条验收在本条+R-270 交付后可核销。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-271
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①R-270 批4 已建 mobile-pwa/ 骨架(index.html+manifest.json,由桥接 serve);②R-269 浏览器工具已交付(开发期移动 viewport 自检通道);③协议契约阶段A字段沿用 R-270(R-270 已 done:配对 POST /v1/pair、SSE GET /v1/events 带设备 token)。**设计冻结**:不变式——零构建零框架原生 JS、移动 viewport 布局、长列表窗口化(R-267 模式);权威数据源——R-270 桥接的 /v1/pair 与 /v1/events,配对结果存 localStorage;预期改动文件——crates/kanzei-app/mobile-pwa/{index.html,app.js,style.css};最小测试——R-269 移动 viewport 自检轨迹(截图+DOM)。 || **批1 完成(2026-08-16,提交待定)**:PWA 前端——①index.html(挂 app.js+style.css);②app.js:配对(POST /v1/pair 换 device_id+token 存 localStorage)、通知流(SSE fetch 读流带 Authorization Bearer、cursor 补发断线重连 2s、帧解析、100 条窗口化)、解除配对;③style.css(移动 viewport 布局、卡片、输入框大触区)。**自检轨迹(验收④)**:R-269 浏览器工具 375x667 打开配对页——title 正确、DOM 渲染配对表单、截图真实 PNG(T-1786842342)。**下一批**:批2 发消息——POST /v1/messages(thread_id+text),消息输入框+发送按钮,发送后清空。
+- observed_head: f81c2ff834574a0d1c4e7bed8b5b8339e0f2f1a0
+- observed_worktree_hash: fnv1a64:2c4e2ae2d19defb5
+- recorded_at: 1786842352342
 
 ## R-272 UI 连通性与跳转评估:可达性/死链/跳转断裂自动巡检 [todo]
 - refs: R-269 R-271 R-101

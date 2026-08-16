@@ -3446,4 +3446,20 @@
 - observed_head: 2eb9df1e025609598fe338471e8ee1e7ee0ac838
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786840582167
+
+## R-270 桥接移动化:LAN 配对/SSE/approval/PWA serve 与通知桥 [done]
+- refs: R-059 D-063 R-269 docs/design/r059_mobile_agent_communication.md
+- 内容: 现状 mobile.rs 只绑 127.0.0.1、Connection: close 单线程 accept、三个 JSON 端点、单一共享 token。本条:①监听可切 LAN(默认仍回环,桌面设置页开关+显示地址);②设备配对:桌面端生成配对码/二维码(地址+一次性配对 token),每设备独立 token,设备列表可单独撤销(替换现单一共享 token);③SSE 端点 GET /v1/events 长连接实时推送,断线重连沿用既有 delivery_cursor 补发,每连接独立线程,不阻塞其它请求;④approval 通道:GET pending 权限询问(脱敏摘要)+ POST 回答,接 runner 既有 ask 流,最终门禁仍在 harness 侧;⑤静态页 serve:桥接直接 serve PWA 页面(随桌面端发版分发,不另起服务);⑥息屏通知出口:approval/失败/完成等关键事件经现成 LAN 推送桥(KDE Connect 类,具体工具实施时定)发手机系统通知。拆批:批1 LAN+配对/撤销;批2 SSE;批3 approval;批4 PWA serve+通知桥出口。
+- 复杂度: 大
+- 批次: 4/4
+- 来源: 2026-08-16 移动端方案定案(用户逐项拍板):形态 PWA+现成通知桥(手机为 Android);实时通道 SSE;第一批含 approval 远程回答;原生壳不做——息屏通知由 LAN 推送桥零开发补齐,不为舒适性引入 Android 工具链。必要性口径:本条是移动端唯一的硬必要部分,无替代。
+- 标签: 后端
+- 边界: 公网监听禁止(既有定调不变);不做 TLS(LAN 自用威胁模型,token 即门);不自研推送协议,不接 FCM/Web Push 等公网推送;不开放远程 shell/write——approval 只回答既有询问,不新增能力面;协议契约沿用 docs/design/r059_mobile_agent_communication.md 阶段A字段定义。
+- 验收: ①LAN 另一设备实测连通,默认回环行为不变;②撤销某设备后其 token 立即 401,其它设备不受影响;③SSE 断线重连 cursor 补发无丢终态,长连接挂着时其它端点仍可用;④移动端回答 approval 后 runner 真实放行/拒绝各有实测轨迹,harness 门禁无旁路;⑤手机浏览器打开桥接地址能加载 PWA 页面;⑥手机息屏状态收到 approval 事件的系统通知(实测);⑦既有回环+token 行为与 D-063 回归全绿。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-270
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①现状 mobile.rs(223 行)——127.0.0.1 绑定、单线程 accept、单一共享 token、三端点;②设计文档已定调 LAN 监听+每设备独立 token 配对/撤销;③D-063 已修。**设计冻结**:不变式——公网监听禁止、默认回环行为不变、approval 门禁仍在 harness 侧;权威数据源——mobile.rs 设备表持久化于 AppState,配对一次性 token 桌面端生成。 || **批1 完成(17bc7e5)**:mobile.rs 重构(LAN 可切+设备配对/撤销+每连接独立线程),state.rs 设备表类型,main.rs 注册 revoke/list 命令,单测 3 条,kanzei-app 172 passed。 || **批2 完成(0eee814)**:SSE 长连接(GET /v1/events)——handle_sse:起始 cursor 参数优先/缺省 delivery_cursor(断线重连补发不丢终态,验收③)、replay_notifications 逐批推进并推进 delivery_cursor、无事件 15s 心跳保活、每连接独立线程长连接挂着不阻塞其它端点、连接断开即收尾。新增单测 3 条,kanzei-app 175 passed。 || **批3 完成(0ccb568)**:approval 通道——GET /v1/approval/pending(脱敏摘要)+POST /v1/approval/answer(经 PendingAsk.sender 送达 runner 既有 ask 流,门禁在 harness 侧不旁路,验收④)。新增单测 3 条,kanzei-app 178 passed。 || **批4 完成(f81c2ff)**:①PWA serve——mobile-pwa/ 静态资源(验收⑤,serve_pwa 含路径穿越防护);②通知桥出口——mobile_notify.rs 检测 kdeconnect-cli 发通知,persistence 完成/失败接入(验收⑥);③workspace 全量 15 段 ok(T-1786842178),kanzei-app 180 passed。 || **关闭(2026-08-16)**:七条验收逐项——①LAN 可切默认回环不变(mobile_service_start lan 参数),真机连通待用户实测;②撤销 401 其它设备不受影响(批1 单测);③SSE cursor 补发+长连接不阻塞(批2 handle_sse 单测+实现);④approval 经 sender 送达 runner 无旁路(批3 单测);⑤桥接 serve PWA 页面(批4 serve_pwa,mobile-pwa/ 资源);⑥完成/失败事件经通知桥发手机通知(批4 mobile_notify,无桥诊断明确,真机需用户装 KDE Connect 后实测);⑦回环+token 与 D-063 回归绿(workspace 全量 15 段)。交付物:crates/kanzei-app/src/mobile.rs(重构)+mobile_notify.rs(新)+mobile-pwa/(新静态资源)+state.rs+main.rs+persistence.rs;四批提交 17bc7e5/0eee814/0ccb568/f81c2ff 已 push。按 §1.2 可用即关闭,本条 done。
+- observed_head: f81c2ff834574a0d1c4e7bed8b5b8339e0f2f1a0
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786842238956
 - 阻塞: 

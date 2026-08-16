@@ -4386,3 +4386,16 @@
 - 摘要: R-270 批4:workspace 全量 15 段 ok。PWA serve(mobile-pwa/index.html+manifest.json 静态资源,serve_pwa 函数含路径穿越防护,/ 与 /mobile-pwa/* 路由,手机浏览器打开桥接地址可加载)+通知桥出口(mobile_notify.rs 检测 kdeconnect-cli 调用 --notification,无桥给明确诊断;persistence.rs 完成/失败事件接入,尽力而为不阻塞)。kanzei-app 180 passed,clippy/fmt 通过
 - 关联: R-270
 - 收尾: 1786842178
+
+## T-1786842342 R-271 批1 PWA 配对页移动 viewport 自检 [passed]
+- 命令: R-269 浏览器工具移动 viewport 自检:node scripts/browser-helper.mjs < output/r271-req1.jsonl
+- 摘要: R-271 批1 自检轨迹(R-269 浏览器工具):移动 viewport 375x667 打开 PWA 配对页,title「kanzei 移动端」正确、DOM 渲染配对表单(h1 配对+card+input+button)、截图返回真实 PNG。PWA 前端渲染正常(验收④开发期自检证据)
+- 关联: R-271 R-269
+- 收尾: 1786842343
+
+## T-1786842391 R-271 批1 kanzei-app 回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-271 批1 kanzei-app 180 passed(mobile-pwa 前端文件随 crate 背书,无 Rust 代码改动)
+- 关联: R-271
+- 收尾: 1786842391
+- 源码指纹: 1abd3aacaaad973c
