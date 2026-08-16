@@ -114,10 +114,10 @@
 - 阻塞: 验收⑤写错误侧(typed_write_errors=0)真实库核验需部署新 kz 后产生新轮 shadow_compared——部署为发版动作(release.ps1 装 kz 到 ~/.cargo/bin),解除人=用户(执行发版后运行数轮,`kz shadow` 核验 typed_write_errors=0)。验收①⑥/⑦ 由 R-279(子代理 transcript 投影)/R-243(compaction 事件化)承接,属 agent 队列内工作量,不阻塞。
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
-- 进展: 2026-08-16 复核补丁(交付后自审):批7a 的 conversation_list 切换能力已实现但未加入 DEFAULT_PROJECTION_PATHS(缺省仍走 legacy),不符合验收①'五条读路径切到事件投影'——已补:①DEFAULT_PROJECTION_PATHS 加 conversation_list(4 条,缺省启用,注释同步批7 落地);②conversation_list_projected 空 facts 回退 legacy 快照段(与 project_latest_segment 空回退同语义,mobile 线程等无 typed facts 会话仍显示快照段);③gate 测试断言同步(conversation_list 缺省启用,仅 subagent_transcript 不启用)。kanzei-app 192 passed(T-1786896965)。前置状态见批8 记录:验收②③④达标、①⑥ 4/5(补丁后 conversation_list 缺省投影,实为 4.5/5)+4 条 gate 缺省启用、⑤差异侧达标;剩余=等 R-279 回填 subagent_transcript + 等 R-243 回填验收⑦ + 部署新 kz 后真实库新轮核验 typed_write_errors=0。
-- observed_head: 69c4b161834ef9f7ab3d2d9b201dcaf97217f230
-- observed_worktree_hash: fnv1a64:b06f06294cf24000
-- recorded_at: 1786896995872
+- 进展: 2026-08-16 复核补丁(交付后自审):批7a 的 conversation_list 切换能力已实现但未加入 DEFAULT_PROJECTION_PATHS(缺省仍走 legacy),不符合验收①'五条读路径切到事件投影'——已补:①DEFAULT_PROJECTION_PATHS 加 conversation_list(4 条,缺省启用,注释同步批7 落地);②conversation_list_projected 空 facts 回退 legacy 快照段(与 project_latest_segment 空回退同语义,mobile 线程等无 typed facts 会话仍显示快照段);③gate 测试断言同步(conversation_list 缺省启用,仅 subagent_transcript 不启用)。kanzei-app 192 passed(T-1786896965)。【R-279 回填 2026-08-16】subagent_transcript 完成(提交 94ebf689/9747d680):事件落库+provider 恢复+gate 注册(五条 DEFAULT 缺省启用)。验收①(五条读路径从同一事件日志恢复一致消息)达标——conversation_get/list、runner_prior、ui_history、subagent_transcript 全部切事件投影;验收⑥(五条 feature gate 可独立回滚,回滚后 legacy 行为与切换前一致)达标——五条 gate 全部注册,剔除任一即回退 legacy(gate 测试断言)。验收②③④ 达标;⑤差异侧达标(未知差异=0),写错误侧待部署新 kz 后真实库新轮核验;⑦顺延(compaction 事件化,依赖 R-243)。剩余:验收⑤写错误侧核验(等用户发版部署)+ 验收⑦(等 R-243)。
+- observed_head: 9747d68012a5e50a668f8a02ccc3a9e6d31416a6
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786898857045
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-242
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]
@@ -237,7 +237,7 @@
 - refs: R-242
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-279
 - 批次: 2/2
-- 进展: 2026-08-16 批2 完成:集成测试 subagent_transcript_persists_to_events_and_recovers_via_provider(background_subagent_dispatch.rs,真实 mock 模型 run_read_agent 两轮派发)——①第一次派发后 session_events 出现 subagent.transcript 事件且 messages 非空(验收①:事件日志可恢复);②第二次续跑(同 id)provider 从事件恢复 prior,事件 messages 随续跑增长(验收②:续跑 prior 从事件恢复,与进程内一致);③sink/provider 闭包即 app 层 coordinator.rs 接线形状。kanzei 37+32 passed。验收对账:①事件落库+恢复(集成测试+recover_subagent_transcript 单测);②续跑从事件恢复且与 TranscriptStore 一致(集成测试断言事件历史增长);③subagent_transcript gate 注册(projection_gate DEFAULT 5 条缺省启用,白名单剔除回退进程内,gate 测试断言);④R-242 验收①⑥ 回填(subagent_transcript 第五条约切换路径/第五条 gate 已实现,回填见 R-242)。条目完成,待 R-242 核验收口。
-- observed_head: 94ebf689455de6393720e392372f486e8d25b8d7
-- observed_worktree_hash: fnv1a64:9e486507e860747d
-- recorded_at: 1786898809118
+- 进展: 2026-08-16 批2 完成(2/2)。验收对账:①子代理对话事实落库后新开进程可从事件日志恢复 transcript(非空)——recover_subagent_transcript(typed.rs,SUBAGENT_TRANSCRIPT 事件按 call_id 取最新)+集成测试 subagent_transcript_persists_to_events_and_recovers_via_provider(background_subagent_dispatch.rs:第一派发后事件 messages 非空,T-1786898801,提交 9747d680);②续跑 prior 从事件投影恢复与进程内一致——同上集成测试(续跑后事件历史增长 first<last,证明 prior 从事件恢复并追加新轮);③subagent_transcript gate 注册可独立回退——projection_gate.rs DEFAULT_PROJECTION_PATHS 五条含 subagent_transcript(提交 94ebf689),gate 测试 default_paths_use_projection_when_env_absent 断言缺省启用、explicit_gate_list 断言白名单剔除回退(kanzei-app 192 passed,T-1786898357);④R-242 验收①⑥ 回填——R-242 进展已更新(五条约切换路径/五条 gate 齐,见 R-242 条目),本条目完成。真实运行链路:桌面 coordinator.rs 接线 sink/provider(带 gate 判断),CLI 单轮传 None(单轮 task 无续跑场景)。
+- observed_head: 9747d68012a5e50a668f8a02ccc3a9e6d31416a6
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786898840216
