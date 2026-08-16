@@ -4856,3 +4856,92 @@
 - observed_head: 9a5758d589872f5e2d665395930b82f15fbb6c1a
 - observed_worktree_hash: fnv1a64:2c14aeaf67acb614
 - recorded_at: 1786869133037
+
+## D-397 跨树 mtime 粗筛未实现:注释假承诺每 bash 双全量读 [fixed] (medium)
+- refs: R-186 D-233
+- 影响: 验收④点名的 D-233 反模式复现(比哈希更重);真仓多线+未跟踪 target/node_modules 场景开销未知;截断静默留检测盲区。R-186 关闭证据对粗筛未实现只字未提。
+- 期望: 真实现 mtime/len 粗筛(命中再读内容);截断显式报告;补真仓规模实测数字。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 核心
+- 根因: 注释(cross_tree.rs:13-18/184)承诺 mtime 粗筛,实现是每条前台 bash 对每棵其它树两次全文件内容读取+整树驻内存(93-132/155),零 mtime 采集;2000 文件上限静默截断(35),不像 managed 有 truncated 标志拒绝;性能实测仅 5 树×31 小文件玩具规模(73.9ms)。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-397
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 已修复(commit 94fad65)。期望对账:①真实现 mtime/len 粗筛(命中再读内容)——新增 collect_tree_metadata 执行后指纹扫描(只 stat 零内容读取,真仓 target/node_modules 场景每条 bash 不再翻倍全量读);FileImage::Content 带 len+mtime 指纹,matches_fingerprint 命中才读内容二次确认:内容相同(touch 只改 mtime)不算越界、同长度内容替换无盲区(len+mtime 全指纹);模块头注释 13-18 的粗筛承诺由代码兑现;②截断显式报告——OtherTreesSnapshot.truncated 字段,快照/执行后扫描达 2000 文件上限标记截断,对账报告新增「WARNING: 快照文件数达上限,保护面不完整」行,不再静默(managed 口径的 truncated 标志);③真仓规模实测数字——性能测试扩到 5 树×300 文件≈1500 文件:执行前快照(读内容)119.05ms、执行后粗筛(只 stat)2.16ms(55 倍收益),实测数字经 eprintln 落档与 test_record summary(T-1786869474,341 全绿,clippy 零警告)
+- observed_head: 94fad6542889e1b15a82d3f4e2ef01a44b7c388a
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786869516916
+
+## D-398 写日志覆盖洞:test_record/conventions/archive 未接线 [fixed] (high)
+- refs: R-268 D-364 D-112
+- 影响: 未接线写者失去旧窗口锁保护又无新凭据,与他线 bash 窗口重叠即被收口误回滚;archive 场景=活动侧删除被吸收+归档侧新增被回滚→条目从两个文件同时消失(D-112 级数据丢失,仅隔离区可捞)。
+- 期望: 全部专用写者接 write_log(含归档文件);尽快发版消除新旧混跑。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 核心
+- 根因: write_log 只接 tracker 活动文件(tracker.rs:451-470)与 memory 三处;test_record.rs/conventions.rs/architecture.rs 零接入;tracker archive 写活动+归档两个文件却只对活动文件记日志。旁证:主仓 .kanzei/.write-log 目前不存在而 R-268 合入后有大量 tracker 写——生产二进制未含 R-268,新围栏×旧写者混跑期风险真实(发版可消一半)。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-398
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 已修复(commit 3d6bc41)。期望对账:①全部专用写者接 write_log——共享 record_write_log helper(lib.rs,路径+写后指纹+run/process 身份)接入:tracker 活动文件(改用 helper)+archive 归档文件(补记,D-112 级数据丢失防)、test_record 写 tests.md+tests-archive.md 各一条、conventions patch 成功后、architecture update 成功后——五个写者同批接线(机制原子上线);②含归档文件——tracker archive 补归档文件日志,测试断言活动+归档都落日志;③发版消除新旧混跑——机制已原子上线,「尽快发版」由发布流程执行(本缺陷为代码接线,发版动作不在缺陷范围;测试背书 T-1786870028,344 全绿,clippy 零警告)
+- observed_head: 3d6bc4133ceee492e3a71ee737e654e8e26b79dc
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786870047662
+
+## D-399 写日志回滚回窗口开点+prune 死代码+record 吞错 [fixed] (medium)
+- refs: R-268
+- 影响: 混合写场景丢合法数据;写日志目录无限膨胀。
+- 期望: 回滚用最后合法日志内容;补同路径混合定向测试;prune 接线;record 失败至少告警。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 核心
+- 根因: 收口回滚目标是窗口开点 before(managed.rs:495-496)而非 R-268 条目方向明文的「最后一次合法日志内容」;WriteLogEntry.content 整存全文(write_log.rs:31-33 注释自述用途)却零使用;同路径「先合法写后越界写」场景合法写一并丢——交付的混合测试用两个不同路径绕开(managed.rs:833-885),关闭证据以此核销验收③,降级未记录。prune_before 全仓零调用(write_log.rs:156-174),日志无限增长且每条含全文 hex(2×体积);record 调用点全部 let _= 吞错,与模块自述契约「宁可失败不静默」矛盾。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-399
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 已修复(commit e20b778)。期望对账:①回滚用最后合法日志内容——managed quarantine_and_restore 对 modified/created/deleted 三处恢复路径先查 write_log::last_content(同路径先合法写后越界写时回滚到合法终态,窗口开点不再丢合法写);last_content 新 API(write_log.rs 取同路径最后一条日志 content);②补同路径混合定向测试——managed「同路径_先合法写后越界写_回滚到日志内容」实测(既有混合测试用两个不同路径,现补同路径场景);③prune 接线——record 按量自愈:日志文件数超 500 按 at_ms 删最旧(每条含全文 hex,不再无限膨胀;调用方无需单独接 prune_before,prune_before 保留给按时间清理);④record 失败至少告警——lib.rs record_write_log 与 memory store.rs 三处共 4 处从 let _= 吞错改为 eprintln 告警(契约「宁可失败不静默」)。全量 cargo test --workspace 全绿(345 tools passed,T-1786870354),clippy 零警告
+- observed_head: e20b77825d9ee889a46885ceb598da969983b7d0
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786870375166
+
+## D-400 浏览器工具错误通道断裂:click/type 失败报成功 [fixed] (high)
+- refs: R-269 R-272 D-389
+- 影响: 交互断言全面假绿——R-272 巡检、R-271 自检等一切消费方的「操作成功」不可信;这是移动链假验收(D-389)的机制成因之一。
+- 期望: Rust 侧统查 result.error 并透传为工具错误;click/type 失败必须报错;挂死辅进程有超时兜底;注释与实现对齐。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 核心
+- 根因: 辅进程把所有错误(含 catch)写进 result.error(browser-helper.mjs:171-179),Rust 只查顶层 parsed["error"](browser_tool.rs:167,已当场核验)永远查不到;click/type 无视 result.error 直接报成功(479-483/513-517);open 失败被吞后以「截图缺 png 字段」类误导文案冒出(353-355)。附带:模块注释声称 Drop 收尾但无任何 Drop 实现(14);read_line 阻塞使 60s 超时对挂死辅进程失效(149-171);reaper 被 break 后因 Once 永不重启。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-400
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 已修复(commit b141265)。期望对账:①Rust 侧统查 result.error 并透传——browser_tool.rs rpc 顶层 parsed.error 与嵌套 parsed.result.error 统查(辅进程把所有错误含 catch 写进 result.error,helper.mjs:176;此前只查顶层永远查不到),命中即 Err 透传;②click/type 失败必须报错——rpc 透传后 click/type/open 的 rpc 调用 Err 经 ? 传播为 ToolOutput::error(此前报成功,交互断言全面假绿);③挂死辅进程超时兜底——stdout 改独立 reader 线程持续读推入 mpsc channel,rpc 用 recv_timeout(RPC_TIMEOUT),此前 read_line 阻塞使 60s 超时失效;④注释与实现对齐——模块头声称 Drop 收尾但无实现,补 Drop kill+wait 并同步注释;reaper 从 break 改 continue(Once 只执行一次,break 后 reaper 永久死亡,空闲进程不再回收)。测试:rpc 嵌套 result.error 透传为工具错误(真实 node 假 helper,T-1786870604,346 全绿,clippy 零警告)
+- observed_head: b141265aafd1051760dc385174e3e47ed41b289e
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786870624781
+
+## D-401 R-272 验收降级未记录:静态差集替代浏览器遍历 [fixed] (medium)
+- refs: R-272 R-269
+- 影响: 「跳转断裂」(容器在但切换 JS 崩)测不到;巡检对运行时死链盲。
+- 期望: 补浏览器遍历批次(依赖 D-400 修复)或改验收口径并在条目诚实记录降级;KEY_PATHS 外置配置文件。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 流程
+- 根因: 交付为纯静态 regex 差集(ui-connectivity.mjs:54-89)+关键路径只查 HTML 存在性(77-89);PWA 4 条路径 3 条 needs_pair 跳过(146-150),唯一真开的是配对页;KEY_PATHS 为脚本内 const(33-51)非验收③要求的配置文件;原案「基于 R-269 从入口遍历+跳转失败/console 报错」运行时判定全部缺席。关闭证据如实描述静态形态但未点名与原案落差,四条验收照单核销(对比 R-264 对做不到的部分明确记「待专用批次」)。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-401
+- 取得线: kanzei/thread-line-1786851588846-1
+- 进展: 已修复(commit c3bde1e)。期望对账:①补浏览器遍历批次(D-400 已修复)——新增 scripts/ui-connectivity-browser.mjs 浏览器运行时遍历:真实浏览器点击导航,目标视图不可见或切换新增 console 错误即点名跳转断裂(静态 regex 差集测不到「容器在但切换 JS 崩」);--probe 反证模式构造 ok 正常切换+broken 切换抛错 HTML,实测 ok 可见、broken 被检出(simulated switch crash,exit=0 能力验证通过);②KEY_PATHS 外置配置文件——scripts/key-paths.json,ui-connectivity.mjs 读取替代脚本内 const(验收③:增删路径不改巡检代码,实测读配置零死链);③验收降级诚实记录——桌面端 ui/index.html 依赖 tauri IPC,headless 浏览器 file:// 下初始化崩(16 条 $ 未定义等,环境限制),真实桌面端页面跳转遍历无法在此环境进行:运行时检测能力由 --probe 反证证明,PWA 配对页为真实遍历(#app 存在无逻辑错误),needs_pair 3 条路径需真实配对/桥接环境(由 R-271 真机验收承接)。实测记录 T-1786870961
+- observed_head: c3bde1e8fd2460bc04b0f160fbc8ec80e216dcc6
+- observed_worktree_hash: fnv1a64:2c14aeaf67acb614
+- recorded_at: 1786870986662
+
+## D-395 跨树围栏并发误伤:他线窗口内合法自写被回滚 [fixed] (high)
+- refs: R-186 R-268 R-184
+- 影响: A 线一条分钟级 cargo build 收口时,B 线并发工作被整体回滚、新建文件被删、误归因到 A(隔离区可捞但 live 工作被破坏)——并行自举的正常形态互相绞杀;叠加 2000 文件上限在 before/after 间成员漂移的误判放大。无测试、无记录覆盖此场景。
+- 期望: 跨树面接写日志吸收(B 线自写有凭据即吸收)或按变化 owner 放行;补并行双线真场景测试(A 长 bash 期间 B 写自己树不被回滚)。
+- 来源: 2026-08-16 交付质量三路只读审计
+- 标签: 核心
+- 根因: enforce_other_trees 把 A 线 bash 窗口内 B 树的任何变化判为 A 的越界并回滚(cross_tree.rs:145-284)——并行自举里 B 线在窗口内写自己的树是常态;跨树面没有 R-268 式写日志吸收,也不按变化的实际 owner 判定。
+- 优先级: P0
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-395
+- 进展: 已修复(commit 5bef495)。期望对账:①跨树面接写日志吸收——write/edit/insert 写成功后记写日志(crates/kanzei-tools/src/write.rs:20-45 record_worktree_write_log,路径=相对 ctx.cwd=相对树根,与跨树快照 key 同口径,指纹=写后内容,身份=run_id/process_id);enforce_other_trees 加 window_start_ms 参数(cross_tree.rs:189),收口时变化逐路径查写日志:路径+指纹+窗口内命中→吸收为合法自写不进报告(cross_tree.rs:217-250),无日志解释→照旧隔离留证+报告;bash.rs 两处调用点传 fence_window_start_ms;②并行双线真场景测试——并行双线_b线窗口内自写有写日志_被吸收不误报(cross_tree.rs:452-497)+并行双线_无写日志的越界写照旧检出(cross_tree.rs:500-543)。验证:T-1786869242/29387 cargo test -p kanzei-tools 317 passed(cross_tree 11 条含新增 2 条)。生效依赖新版 kzapp 构建发布(发版 SOP);D-407 停用的自动回滚保持停用。
+- observed_head: 5bef495be2a53a15faf5d7fccdc6b1865b75afe6
+- observed_worktree_hash: fnv1a64:079b10c5eaac5321
+- recorded_at: 1786869516194

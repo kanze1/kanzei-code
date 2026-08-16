@@ -85,64 +85,7 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-395 跨树围栏并发误伤:他线窗口内合法自写被回滚 [fixing] (high)
-- refs: R-186 R-268 R-184
-- 影响: A 线一条分钟级 cargo build 收口时,B 线并发工作被整体回滚、新建文件被删、误归因到 A(隔离区可捞但 live 工作被破坏)——并行自举的正常形态互相绞杀;叠加 2000 文件上限在 before/after 间成员漂移的误判放大。无测试、无记录覆盖此场景。
-- 期望: 跨树面接写日志吸收(B 线自写有凭据即吸收)或按变化 owner 放行;补并行双线真场景测试(A 长 bash 期间 B 写自己树不被回滚)。
-- 来源: 2026-08-16 交付质量三路只读审计
-- 标签: 核心
-- 根因: enforce_other_trees 把 A 线 bash 窗口内 B 树的任何变化判为 A 的越界并回滚(cross_tree.rs:145-284)——并行自举里 B 线在窗口内写自己的树是常态;跨树面没有 R-268 式写日志吸收,也不按变化的实际 owner 判定。
-- 优先级: P0
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-395
-
-## D-397 跨树 mtime 粗筛未实现:注释假承诺每 bash 双全量读 [fixing] (medium)
-- refs: R-186 D-233
-- 影响: 验收④点名的 D-233 反模式复现(比哈希更重);真仓多线+未跟踪 target/node_modules 场景开销未知;截断静默留检测盲区。R-186 关闭证据对粗筛未实现只字未提。
-- 期望: 真实现 mtime/len 粗筛(命中再读内容);截断显式报告;补真仓规模实测数字。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 核心
-- 根因: 注释(cross_tree.rs:13-18/184)承诺 mtime 粗筛,实现是每条前台 bash 对每棵其它树两次全文件内容读取+整树驻内存(93-132/155),零 mtime 采集;2000 文件上限静默截断(35),不像 managed 有 truncated 标志拒绝;性能实测仅 5 树×31 小文件玩具规模(73.9ms)。
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-397
-- 取得线: kanzei/thread-line-1786851588846-1
-
-## D-398 写日志覆盖洞:test_record/conventions/archive 未接线 [open] (high)
-- refs: R-268 D-364 D-112
-- 影响: 未接线写者失去旧窗口锁保护又无新凭据,与他线 bash 窗口重叠即被收口误回滚;archive 场景=活动侧删除被吸收+归档侧新增被回滚→条目从两个文件同时消失(D-112 级数据丢失,仅隔离区可捞)。
-- 期望: 全部专用写者接 write_log(含归档文件);尽快发版消除新旧混跑。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 核心
-- 根因: write_log 只接 tracker 活动文件(tracker.rs:451-470)与 memory 三处;test_record.rs/conventions.rs/architecture.rs 零接入;tracker archive 写活动+归档两个文件却只对活动文件记日志。旁证:主仓 .kanzei/.write-log 目前不存在而 R-268 合入后有大量 tracker 写——生产二进制未含 R-268,新围栏×旧写者混跑期风险真实(发版可消一半)。
-- 优先级: P1
-
-## D-399 写日志回滚回窗口开点+prune 死代码+record 吞错 [open] (medium)
-- refs: R-268
-- 影响: 混合写场景丢合法数据;写日志目录无限膨胀。
-- 期望: 回滚用最后合法日志内容;补同路径混合定向测试;prune 接线;record 失败至少告警。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 核心
-- 根因: 收口回滚目标是窗口开点 before(managed.rs:495-496)而非 R-268 条目方向明文的「最后一次合法日志内容」;WriteLogEntry.content 整存全文(write_log.rs:31-33 注释自述用途)却零使用;同路径「先合法写后越界写」场景合法写一并丢——交付的混合测试用两个不同路径绕开(managed.rs:833-885),关闭证据以此核销验收③,降级未记录。prune_before 全仓零调用(write_log.rs:156-174),日志无限增长且每条含全文 hex(2×体积);record 调用点全部 let _= 吞错,与模块自述契约「宁可失败不静默」矛盾。
-- 优先级: P2
-
-## D-400 浏览器工具错误通道断裂:click/type 失败报成功 [open] (high)
-- refs: R-269 R-272 D-389
-- 影响: 交互断言全面假绿——R-272 巡检、R-271 自检等一切消费方的「操作成功」不可信;这是移动链假验收(D-389)的机制成因之一。
-- 期望: Rust 侧统查 result.error 并透传为工具错误;click/type 失败必须报错;挂死辅进程有超时兜底;注释与实现对齐。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 核心
-- 根因: 辅进程把所有错误(含 catch)写进 result.error(browser-helper.mjs:171-179),Rust 只查顶层 parsed["error"](browser_tool.rs:167,已当场核验)永远查不到;click/type 无视 result.error 直接报成功(479-483/513-517);open 失败被吞后以「截图缺 png 字段」类误导文案冒出(353-355)。附带:模块注释声称 Drop 收尾但无任何 Drop 实现(14);read_line 阻塞使 60s 超时对挂死辅进程失效(149-171);reaper 被 break 后因 Once 永不重启。
-- 优先级: P1
-
-## D-401 R-272 验收降级未记录:静态差集替代浏览器遍历 [open] (medium)
-- refs: R-272 R-269
-- 影响: 「跳转断裂」(容器在但切换 JS 崩)测不到;巡检对运行时死链盲。
-- 期望: 补浏览器遍历批次(依赖 D-400 修复)或改验收口径并在条目诚实记录降级;KEY_PATHS 外置配置文件。
-- 来源: 2026-08-16 交付质量审计
-- 标签: 流程
-- 根因: 交付为纯静态 regex 差集(ui-connectivity.mjs:54-89)+关键路径只查 HTML 存在性(77-89);PWA 4 条路径 3 条 needs_pair 跳过(146-150),唯一真开的是配对页;KEY_PATHS 为脚本内 const(33-51)非验收③要求的配置文件;原案「基于 R-269 从入口遍历+跳转失败/console 报错」运行时判定全部缺席。关闭证据如实描述静态形态但未点名与原案落差,四条验收照单核销(对比 R-264 对做不到的部分明确记「待专用批次」)。
-- 优先级: P2
-
-## D-409 记忆 inbox 消化死亡螺旋:251KB/201 条整箱塞进单轮,失败还静默 [open] (high)
+## D-409 记忆 inbox 消化死亡螺旋:251KB/201 条整箱塞进单轮,失败还静默 [fixing] (high)
 - refs: R-195 R-213 D-341 R-216
 - 影响: 记忆控制平面的写入侧实际断流:memory_note 一路写进 inbox 但没有条目被提炼晋升;R-195 今日以「candidate 晋升与清退闭环完成」归档,闭环的是 candidate 生命周期,inbox→entry 这一段并未打通,用户直观看到 201 条待确认。
 - 期望: ①分批消化:每轮取固定条数(建议 10~20)喂 manager,逐条 memory_inbox_discard 销账,剩余留待下轮;②失败可见:run 失败/未销账时记事件+轮末诊断,连续失败 N 轮升级为通知,不再静默;③积压护栏:pending 超阈值(如 100)时前端与轮末明确告警并给「一键整理」入口(UI 已有该按钮,需接到分批消化上);④存量 201 条按新链路清空,给实测数字。
@@ -150,6 +93,8 @@
 - 标签: 核心
 - 根因: ①无分批:consolidation_prompt(kanzei-memory/src/memory/manager.rs:1092)把整个 inbox 原样拼进 prompt——现已 251612 字节/201 条,单轮 max_tokens 仅 4096、steps 10,模型既读不完也逐条销不完账;②失败静默:consolidate_memory_inbox(kanzei-app/src/memory.rs:374)`let _ = run_once_with_parts(...)` 丢弃全部错误,primary/fast 两档都失败时无任何诊断、无事件、无通知,轮末照常「成功」;③无上限反馈:inbox 只增不减,越大越难消化、越难消化越大——用户端表现为「待确认候选 201」持续堆积,记忆晋升事实停摆。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-409
+- 取得线: kanzei/thread-line-1786851588846-1
 
 ## D-412 研究文献侧仅读摘要却标 V2 一手来源:CoALA 分类学归因不成立 [open] (medium)
 - refs: R-221 R-277
