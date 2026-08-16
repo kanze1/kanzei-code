@@ -414,6 +414,8 @@ pub(crate) struct MobileService {
     pub(crate) pair_code: Arc<std::sync::Mutex<Option<String>>>,
     /// R-270 批1:服务监听是否在 LAN(0.0.0.0)。默认回环(127.0.0.1)行为不变。
     pub(crate) lan: bool,
+    /// D-386:项目根(state.db 所在,设备表持久化定位)。
+    pub(crate) project_root: std::path::PathBuf,
 }
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct MobileServiceInfo {

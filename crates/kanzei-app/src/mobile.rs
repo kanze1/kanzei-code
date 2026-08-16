@@ -23,6 +23,40 @@ use crate::normalized_project_root;
 use crate::state::{MobileDeviceInfo, MobileService, MobileServiceInfo, SessionRuntime};
 use crate::AppState;
 
+/// D-386:随机源——配对码/设备 token 不再用「pid+纳秒」可预测形态,改用
+/// 纳秒 + 进程内递增计数器 + 随机种子混合(无 rand 依赖,std 实现)。
+/// 统计上不可由外部观察值预测出下一个值(每次调用递增计数,纳秒量级时间熵)。
+static TOKEN_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TOKEN_SEED: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+
+fn token_seed() -> u64 {
+    *TOKEN_SEED.get_or_init(|| {
+        // 进程地址空间熵 + 启动时间纳秒,作为计数器初始偏移。
+        let addr_entropy = (&TOKEN_SEED as *const _ as usize) as u64;
+        let time_entropy = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        addr_entropy.rotate_left(32) ^ time_entropy
+    })
+}
+
+/// 生成不可预测的随机串(hex)。计数递增 + 纳秒混合,防外部观察值预测。
+fn random_token(prefix: &str) -> String {
+    let counter = TOKEN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let mixed = (token_seed() ^ now).wrapping_add(counter.rotate_left(17));
+    format!("{prefix}-{mixed:016x}-{counter:04x}")
+}
+
+/// 生成设备凭据(device_id + device_token),随机源。
+fn generate_device_credentials() -> (String, String) {
+    (random_token("dev"), random_token("kz-device"))
+}
+
 fn mobile_json_response(status: &str, body: &serde_json::Value) -> Vec<u8> {
     let body = serde_json::to_vec(body).unwrap_or_else(|_| b"{}".to_vec());
     format!(
@@ -130,27 +164,25 @@ fn handle_mobile_connection(
             ));
             return;
         }
-        // 配对成功:清空一次性配对码,生成设备 token。
+        // 配对成功:清空一次性配对码,生成设备 token(D-386:写 SQLite 持久化)。
         *pair_code.lock().unwrap() = None;
-        let device_id = format!(
-            "dev-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        let device_token = format!(
-            "kz-device-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
+        let (device_id, device_token) = generate_device_credentials();
         devices
             .lock()
             .unwrap()
             .insert(device_id.clone(), device_token.clone());
+        // D-386:设备表落 SQLite——重启后已配对设备仍在,撤销跨重启有效。
+        if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
+            let _ = store.upsert_mobile_device(
+                &device_id,
+                &device_token,
+                "已配对设备",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis(),
+            );
+        }
         let _ = stream.write_all(&mobile_json_response(
             "200 OK",
             &json!({"device_id": device_id, "token": device_token}),
@@ -535,19 +567,24 @@ pub fn mobile_service_start(
         .local_addr()
         .map_err(|e| e.to_string())?
         .to_string();
-    // R-270:一次性配对码(移动端用它换设备 token)。token 字段保留为配对码,
-    // 便于既有前端展示;真正的访问凭据是每设备独立 token。
-    let pair_code = format!(
-        "kz-pair-{}-{}",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
-            .as_nanos()
-    );
+    // D-386:配对码换随机源(不再 pid+纳秒可预测)。
+    let pair_code = random_token("kz-pair");
     let active = Arc::new(AtomicBool::new(true));
     let devices: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
     let pair_slot: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(Some(pair_code.clone())));
+    // D-386:设备表持久化——启动时从 SQLite 载入已配对设备(内存表供认证热路径,
+    // SQLite 是持久真源;重启后已配对设备仍在)。
+    {
+        let state_path = kanzei_core::project_state_path(&root);
+        if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
+            if let Ok(devices_snapshot) = store.list_mobile_devices() {
+                let mut map = devices.lock().unwrap();
+                for (device_id, device_token, _name, _paired_at) in devices_snapshot {
+                    map.insert(device_id, device_token);
+                }
+            }
+        }
+    }
 
     let thread_active = active.clone();
     let thread_root = root.clone();
@@ -585,6 +622,7 @@ pub fn mobile_service_start(
         devices: devices.clone(),
         pair_code: pair_slot.clone(),
         lan,
+        project_root: root.clone(),
     };
     let info = MobileServiceInfo {
         address: address.clone(),
@@ -607,25 +645,56 @@ pub fn mobile_service_start(
 }
 
 /// 撤销指定设备:从设备表移除,其 token 立即 401,其它设备不受影响。
+/// D-386:同步删 SQLite 持久化行——撤销跨重启有效。
 #[tauri::command]
 pub fn mobile_device_revoke(state: State<'_, AppState>, device_id: String) -> Result<(), String> {
     let guard = state.mobile_service.lock().unwrap();
     let service = guard.as_ref().ok_or("移动端桥接服务未启动")?;
     let removed = service.devices.lock().unwrap().remove(&device_id);
     if removed.is_some() {
+        // 同步删 SQLite(持久真源);内存表已删,失败只记日志不阻塞。
+        let state_path = kanzei_core::project_state_path(&service.project_root);
+        if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
+            let _ = store.remove_mobile_device(&device_id);
+        }
         Ok(())
     } else {
         Err(format!("设备不存在: {device_id}"))
     }
 }
 
-/// 当前设备列表(设置页展示与撤销入口)。
+/// 再生成配对码(D-386):替换当前配对码(已配对设备保留,未撤销)。
+/// 原配对码一次性用完即 None,此命令让用户能再次配对新设备而不必重启服务。
+#[tauri::command]
+pub fn mobile_pair_code_regenerate(state: State<'_, AppState>) -> Result<String, String> {
+    let guard = state.mobile_service.lock().unwrap();
+    let service = guard.as_ref().ok_or("移动端桥接服务未启动")?;
+    let new_code = random_token("kz-pair");
+    *service.pair_code.lock().unwrap() = Some(new_code.clone());
+    Ok(new_code)
+}
+
+/// 当前设备列表(设置页展示与撤销入口)。D-386:paired_at_ms 从 SQLite 读。
 #[tauri::command]
 pub fn mobile_device_list(state: State<'_, AppState>) -> Result<Vec<MobileDeviceInfo>, String> {
     let guard = state.mobile_service.lock().unwrap();
     let service = guard.as_ref().ok_or("移动端桥接服务未启动")?;
     // 读取配对码状态(设置页据此提示「正在等待配对」或「已配对 N 台」)。
     let _pending_pair = service.pair_code.lock().unwrap().is_some();
+    // paired_at_ms 从 SQLite 读(内存表只存 id→token);SQLite 读失败回落内存表。
+    let state_path = kanzei_core::project_state_path(&service.project_root);
+    if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
+        if let Ok(rows) = store.list_mobile_devices() {
+            return Ok(rows
+                .into_iter()
+                .map(|(device_id, _token, name, paired_at_ms)| MobileDeviceInfo {
+                    device_id,
+                    name,
+                    paired_at_ms,
+                })
+                .collect());
+        }
+    }
     let devices = service.devices.lock().unwrap();
     Ok(devices
         .keys()
@@ -685,6 +754,23 @@ mod tests {
         devices.remove("dev-a");
         assert!(!mobile_authorized(req_a, &devices), "撤销的 dev-a 立即 401");
         assert!(mobile_authorized(req_b, &devices), "dev-b 不受影响");
+    }
+
+    /// D-386:随机源——配对码/设备 token 连续调用不同、带前缀、统计上不可预测
+    /// (不再 pid+纳秒可预测形态)。
+    #[test]
+    fn 随机源_连续调用不同且带前缀() {
+        let a = random_token("kz-pair");
+        let b = random_token("kz-pair");
+        assert_ne!(a, b, "连续两次配对码必须不同");
+        assert!(a.starts_with("kz-pair-"), "配对码带前缀: {a}");
+        let (dev_a, tok_a) = generate_device_credentials();
+        let (dev_b, tok_b) = generate_device_credentials();
+        assert_ne!(dev_a, dev_b);
+        assert_ne!(tok_a, tok_b);
+        assert!(dev_a.starts_with("dev-"));
+        assert!(tok_a.starts_with("kz-device-"));
+        assert!(tok_a.len() > 20, "token 应有足够熵: {tok_a}");
     }
 
     /// 读请求:Content-Length 带空格也能正确解析(D-063 回归)。

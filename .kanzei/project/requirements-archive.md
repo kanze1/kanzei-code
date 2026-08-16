@@ -3529,4 +3529,16 @@
 - observed_head: e6c94d9441601a9ebf1da799193266d5dfc21e43
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786846838276
-- 阻塞: 
+
+## R-278 自举质量五件套:对账门禁/可重放证据/审计SOP/收口/原子上线 [done]
+- refs: D-385 D-389 D-392 D-397 D-398 D-401
+- 内容: ①波次审计手动化 SOP;②close 验收条款对账门禁(带圈条款逐条覆盖+证据锚,沉默降级拒关);③可重放证据规范;④链路收口条目惯例;⑤机制原子上线原则。
+- 复杂度: 中
+- 来源: 2026-08-16 波次审计(D-385~D-401)后与用户逐条定案的系统性修复;用户批准五条并把①改为手动触发,指示直接修复。
+- 标签: 流程
+- 验收: ①审计 SOP 落盘且触发方式为手动;②对账门禁有拒关/放行/降级/无编号不波及的定向测试且全绿;③可重放证据与替身禁令入通用规范;④链路收口条目惯例入通用规范;⑤原子上线原则入通用规范。
+- 优先级: P1
+- 进展: 2026-08-16 单轮交付并关闭(用户指示直接修复)。①审计 SOP 落 docs/design/bootstrap_quality_audit.md,触发方式=手动写死于其 §1 与项目 conventions §9.15(提交 358eb49);②对账门禁:crates/kanzei-tools/src/tracker/actions.rs 新增 check_close_acceptance_reconciliation 并接入 update_close,定向测试「验收条款对账_沉默降级拒关_带锚或显式降级放行」覆盖 缺覆盖拒关/无锚拒关/带锚放行/显式降级放行/无编号不波及 五场景,kanzei-tools 312 passed+clippy 零警告;③可重放证据与替身禁令+注释假承诺纪律入 default_conventions §1.25;④链路收口条目入 §1.28;⑤机制原子上线入 §2,kanzei-harness 147 passed。均随提交 358eb49。注意:门禁与规范生效需发版——当前生产 kz/kzapp 仍是旧二进制,与 D-398 的新旧混跑消除应同一批发版解决,发版动作待本波自举收尾(工作树有 R-274 批2 半成品,现在发版会打包半成品)。
+- observed_head: 358eb497f869fb53008b3be30aa6385f23534278
+- observed_worktree_hash: fnv1a64:659fe895a4330d3a
+- recorded_at: 1786847440823

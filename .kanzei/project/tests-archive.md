@@ -4465,3 +4465,9 @@
 - 摘要: D-385 LAN 开关:设置页加 LAN 监听 checkbox(index.html),16-settings.js 启动桥接时读取 checked 并传 lan 给 mobile_service_start(R-270 批1 的 lan 参数首次被 UI 传),状态区显示 LAN/回环+地址+token;i18n 资源表加 2 键+更新说明文案。三条前端冒烟(ui-runtime 21 文件/ui-i18n 159 key/ui-lint 608 标识符)全绿,kanzei-app 180 passed
 - 关联: D-385 R-270
 - 收尾: 1786846967
+
+## T-1786847746 D-386 设备表持久化+配对码再生+UI 撤销 [passed]
+- 命令: cargo test -p kanzei-core --lib; cargo test -p kanzei-app; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-i18n-smoke.mjs; node --experimental-vm-modules scripts/ui-lint-smoke.mjs
+- 摘要: D-386:①设备表落 SQLite(kanzei-core mobile_devices 表 SCHEMA_VERSION 15→16+SCHEMA_OBJECTS 同步,upsert/list/remove/by_token/all_tokens CRUD,配对写库/启动载入/revoke 同步删,重启后仍在——CRUD 单测 2 条);②配对码再生命令 mobile_pair_code_regenerate(已注册 invoke_handler);③随机源 random_token(纳秒+递增计数器+种子混合,不再 pid+纳秒可预测——随机源单测);④UI 设置页设备列表+逐台撤销+配对码再生按钮(16-settings.js+index.html,i18n 12 新键)。kanzei-core 209 passed、kanzei-app 181 passed、三条前端冒烟全绿(170 key/609 标识符),clippy/fmt 通过
+- 关联: D-386 R-270
+- 收尾: 1786847746

@@ -4530,3 +4530,18 @@
 - observed_head: 4c55c6b5e418f9219dcc2902adddb5abba2c0b4a
 - observed_worktree_hash: fnv1a64:9f87f4be6c57f4f9
 - recorded_at: 1786821877120
+
+## D-385 LAN 开关未接 UI:桥恒绑 127.0.0.1 手机连不到 [fixed] (high)
+- refs: R-270
+- 影响: R-270 验收①「LAN 另一设备实测连通」无证据且物理不可能。
+- 期望: 设置页加 LAN 开关(默认关)+开启时显示局域网地址与配对码(二维码可后续)。
+- 来源: 2026-08-16 交付质量审计
+- 标签: 前端
+- 根因: ui/16-settings.js:700 invoke mobile_service_start 只传 projectDir/port,不传 lan;后端默认 false 恒回环(mobile.rs:527-528);UI 无任何 LAN 开关。已当场核验。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-385
+- 进展: 2026-08-16 取活修复。根因(已核验):ui/16-settings.js:700 的 mobile_service_start 调用只传 projectDir/port 不传 lan,后端默认 false 恒回环(mobile.rs:527-528),UI 无 LAN 开关。**修复**:①index.html 设置页加「LAN 监听」checkbox(mobile-service-lan)+更新说明文案(默认回环/开启 0.0.0.0);②16-settings.js 启动时读取 checkbox.checked 传 lan 给 invoke(R-270 批1 的 lan 参数首次被 UI 传),状态区显示「LAN/回环 · 地址 · token」;③02-i18n.js 资源表加 2 键+更新说明文案(159 key 通过 i18n 冒烟)。**验证**:三条前端冒烟全绿(ui-runtime 21 文件/ui-i18n 159 key/ui-lint 608 标识符),kanzei-app 180 passed(T-1786846967)。 || **关闭(2026-08-16)**:期望逐项核对——①设置页加 LAN 开关(默认关):index.html:713-714 checkbox「LAN 监听」未勾选默认回环;②开启时显示局域网地址与配对码:16-settings.js 状态区显示「LAN/回环 · 地址 · token」。提交 c252d41 已 push。真机 LAN 连通由用户开启开关后实测(R-270 验收①物理条件现已具备)。按 §1.2 可用即关闭,本条 fixed。
+- observed_head: c252d41517495c476aff56c2f0c720e6c96150e7
+- observed_worktree_hash: fnv1a64:906547062ee0c565
+- recorded_at: 1786847014924
+- 阻塞: 

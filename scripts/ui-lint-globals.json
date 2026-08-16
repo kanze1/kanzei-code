@@ -413,6 +413,7 @@
   "refreshManual",
   "refreshMemory",
   "refreshMetrics",
+  "refreshMobileDevices",
   "refreshParallelTaskProjection",
   "refreshPendingAsks",
   "refreshPendingInputs",

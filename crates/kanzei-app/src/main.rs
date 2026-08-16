@@ -239,6 +239,7 @@ fn main() {
             mobile::mobile_service_stop,
             mobile::mobile_device_revoke,
             mobile::mobile_device_list,
+            mobile::mobile_pair_code_regenerate,
             agent_container::agent_container_create,
             agent_container::agent_container_upgrade,
             agent_container::agent_container_rollback
