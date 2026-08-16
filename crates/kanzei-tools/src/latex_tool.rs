@@ -80,7 +80,9 @@ impl Tool for LatexTool {
             return ToolOutput::ok(diag);
         }
         // 编译成功:PDF 首页转 PNG 回模型(验收②轨迹)。
-        let stem = tex.split('.').next().unwrap_or("main");
+        // D-391:stem 与编译侧口径一致(file_stem)——含点文件名(如 my.paper.tex)
+        // 编译产物是 my.paper.pdf;split('.') 取 my 会找错 PDF 静默丢 PNG。
+        let stem = stem_of(&tex);
         let pdf = workdir_path.join(format!("{stem}.pdf"));
         let png = pdf_to_png(&pdf, &workdir_path, stem);
         match png {
@@ -148,10 +150,8 @@ pub(crate) fn compile_latex(workdir: &Path, tex_name: &str) -> (bool, String) {
     if !tex_path.is_file() {
         return (false, format!("找不到 .tex 文件: {}", tex_path.display()));
     }
-    let stem = tex_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("main");
+    // D-391:stem 口径统一走 stem_of(file_stem),与 execute 的 PNG 转换一致。
+    let stem = stem_of(tex_name);
     match detect_backend() {
         TeXBackend::System { .. } => compile_system(workdir, stem, &tex_path),
         TeXBackend::Tectonic { tectonic } => compile_tectonic(workdir, stem, &tex_path, &tectonic),
@@ -165,6 +165,15 @@ pub(crate) fn compile_latex(workdir: &Path, tex_name: &str) -> (bool, String) {
                 .into(),
         ),
     }
+}
+
+/// D-391:统一「文件名 → stem」口径(与 `Path::file_stem` 一致)。execute 与
+/// compile_latex 共用,避免 `split('.')` 与 `file_stem` 分裂(含点文件名丢 PNG)。
+fn stem_of(tex_name: &str) -> &str {
+    Path::new(tex_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("main")
 }
 
 /// 系统发行版编译:pdflatex ×2 → bibtex → pdflatex ×2(完整解析循环)。
@@ -298,6 +307,10 @@ fn compile_tectonic(
 /// R-273 批2:PDF 首页转 PNG(pdftoppm,poppler——MiKTeX/TeX Live 自带)。
 /// 返回 PNG 字节。pdftoppm 缺失给明确诊断(不静默降级)。
 /// pub(crate):R-274 批2 PGFPlots 轨复用(图转 PNG 回模型)。
+///
+/// D-391:显式 `-f 1 -l 1` 只渲染首页——①产物页号恒为 `-1`(pdftoppm 多页时
+/// 按总页数零填充,≥10 页产 `-01.png`,只找 `-1.png` 必失败);②长文档不再
+/// 全页 150dpi 渲染纯浪费。失败路径也清理临时 PNG(不再提前 return 跳过清理)。
 pub(crate) fn pdf_to_png(pdf: &Path, workdir: &Path, stem: &str) -> Result<Vec<u8>, String> {
     if !pdf.is_file() {
         return Err(format!("PDF 不存在: {}", pdf.display()));
@@ -309,35 +322,56 @@ pub(crate) fn pdf_to_png(pdf: &Path, workdir: &Path, stem: &str) -> Result<Vec<u
     })?;
     // 输出到 workdir 下的临时前缀,避免污染工件目录。
     let out_prefix = workdir.join(format!("{stem}-pngtmp"));
+    // D-391:只渲染首页(-f 1 -l 1)——页号确定 + 长文档不浪费。
     let output = std::process::Command::new(&pdftoppm)
-        .args(["-png", "-r", "150"])
+        .args(["-png", "-r", "150", "-f", "1", "-l", "1"])
         .arg(pdf)
         .arg(&out_prefix)
         .current_dir(workdir)
         .output()
         .map_err(|e| format!("启动 pdftoppm 失败: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
+    let result = if !output.status.success() {
+        Err(format!(
             "pdftoppm 转换失败: {}",
             String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    // pdftoppm 产出 `<prefix>-1.png`(多页则 -2/-3…,取首页)。
-    let first = workdir.join(format!(
-        "{}-1.png",
-        out_prefix.file_name().unwrap_or_default().to_string_lossy()
-    ));
-    let bytes = std::fs::read(&first).map_err(|e| format!("读取转换产物失败: {e}"))?;
-    // 清理临时 PNG。
+        ))
+    } else {
+        // D-391:只渲染首页 → 产物唯一;但页号零填充位数取决于总页数
+        // (poppler 对 10 页 PDF 产 -01.png,1 页产 -1.png),不猜页号——
+        // 直接扫描 <prefix>-*.png 取唯一产物(零填充任意位数都成立)。
+        let pngs: Vec<std::path::PathBuf> = std::fs::read_dir(workdir)
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| {
+                        let n = e.file_name().to_string_lossy().to_string();
+                        n.starts_with(&format!("{stem}-pngtmp")) && n.ends_with(".png")
+                    })
+                    .map(|e| e.path())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let first = pngs
+            .into_iter()
+            .next()
+            .ok_or_else(|| "pdftoppm 未产出 PNG(只渲染首页,应有 1 个)".to_string())?;
+        std::fs::read(&first).map_err(|e| format!("读取转换产物失败: {e}"))
+    };
+    // D-391:失败路径也清理临时 PNG(成功/失败统一走这里,不提前 return 跳过)。
+    cleanup_pngtmp(workdir, stem);
+    result
+}
+
+/// D-391:清理 `<stem>-pngtmp*.png` 临时产物(成功/失败路径共用)。
+fn cleanup_pngtmp(workdir: &Path, stem: &str) {
     if let Ok(entries) = std::fs::read_dir(workdir) {
+        let prefix = format!("{stem}-pngtmp");
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with(&format!("{stem}-pngtmp")) && name.ends_with(".png") {
+            if name.starts_with(&prefix) && name.ends_with(".png") {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
     }
-    Ok(bytes)
 }
 
 /// base64 编码(标准 RFC 4648,无 padding 变体由调用方约定)。
@@ -535,6 +569,73 @@ mod tests {
             .unwrap_or_default();
         assert!(leftovers.is_empty(), "临时 PNG 必须清理");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-391:多页 PDF(论文常态 10+ 页)——首页转 PNG 成功(页号零填充修复:
+    /// 只渲染首页 -f 1 -l 1,产物恒为 -1.png,不受 ≥10 页零填充影响),
+    /// 且临时 PNG 无残留。
+    #[test]
+    fn 多页pdf首页转png成功无残留() {
+        if !which_in_path("pdflatex").is_some() || !which_in_path("pdftoppm").is_some() {
+            eprintln!("跳过:本机无 pdflatex/pdftoppm");
+            return;
+        }
+        let dir = temp_dir("multipage");
+        // 10 页文档(论文常态规模;纯英文,避免 pdflatex 默认字体不支持中文)。
+        let mut tex = "\\documentclass{article}\n\\begin{document}\n".to_string();
+        for i in 1..=10 {
+            tex.push_str(&format!("Page number {i}\\newpage\n"));
+        }
+        tex.push_str("\\end{document}\n");
+        std::fs::write(dir.join("paper.tex"), tex).unwrap();
+        let (ok, diag) = compile_latex(&dir, "paper.tex");
+        assert!(ok, "10 页编译应成功:\n{diag}");
+        let png =
+            pdf_to_png(&dir.join("paper.pdf"), &dir, "paper").expect("多页 PDF 首页必须转换成功");
+        assert_eq!(
+            &png[..8],
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A],
+            "PNG 魔数"
+        );
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| e.file_name().to_string_lossy().contains("pngtmp"))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert!(
+            leftovers.is_empty(),
+            "10 页转换后临时 PNG 必须清理,残留: {:?}",
+            leftovers
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-391:失败路径也清理临时 PNG(此前失败提前 return 跳过清理循环)。
+    /// 用损坏 PDF 触发 pdftoppm 失败,预置假临时文件断言被清。
+    #[test]
+    fn 转换失败也清理临时png() {
+        let dir = temp_dir("failclean");
+        // 损坏 PDF(非合法内容,pdftoppm 必失败)。
+        std::fs::write(dir.join("bad.pdf"), b"not a real pdf at all").unwrap();
+        // 预置假临时文件(模拟上次失败遗留)。
+        std::fs::write(dir.join("doc-pngtmp-1.png"), b"junk").unwrap();
+        let err = pdf_to_png(&dir.join("bad.pdf"), &dir, "doc").unwrap_err();
+        assert!(!err.is_empty(), "必须报错");
+        assert!(
+            !dir.join("doc-pngtmp-1.png").exists(),
+            "失败路径也必须清理临时 PNG"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-391:stem 口径统一(file_stem)——含点文件名不再被 split('.') 截断。
+    #[test]
+    fn stem口径含点文件名不截断() {
+        assert_eq!(stem_of("my.paper.tex"), "my.paper", "含点文件名取完整 stem");
+        assert_eq!(stem_of("main.tex"), "main");
+        assert_eq!(stem_of("doc"), "doc", "无扩展名原样");
     }
 
     /// R-273 批2:pdftoppm 缺失时给明确诊断(不静默)。
