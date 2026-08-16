@@ -96,3 +96,10 @@
 - 来源: 2026-08-17 用户实测截图并问「看下这个为啥卡住了」;勘察确认事件侧确实有发 ToolEnd(phase_pipeline.rs:392),断点在**发的时机**而非有没有发。
 - refs: R-174 R-173 R-281
 - 备注: 同轮「token 0」是另一回事——子代理跑 fast 路由(qwen3.5:4b / Ollama),StepEnd usage 由供应商回报,本地模型多半不报数,与本条终态时机无关,未并入本条。
+
+## D-420 window.prompt 输入弹窗在 WebView2 下失效:5 处(自定义 provider/项目重命名/新建项目)需迁到内联输入或自定义输入弹窗 [open] (medium)
+- 复现: 5 处输入弹窗仍用浏览器原生 window.prompt:08-compose.js:1345(填 provider:model)、09-sessions.js:761(重命名项目显示名)、09-sessions.js:846(新项目目录路径)、09-sessions.js:848(新项目显示名)、16-settings.js:369(填 provider:model)。桌面端为 WebView2,15-views-misc.js:85 注释明确『webview 无 window.prompt』(新建想法已因此改为内联输入 R-252)——这 5 处在真实桌面端弹不出输入框/返回 null,输入功能失效。
+- 影响: ①桌面端 5 个输入功能(自定义 provider 模型、重命名/新建项目)实际不可用(webview 下 window.prompt 返回 null,输入丢失);②与 D-418 确认弹窗收敛同源:原生浏览器弹窗在自定义 UI 体系下割裂。
+- 来源: D-418 修复复核(test_reviewer 发现 window.prompt 遗留);grep 全量确认 5 处 + 15-views-misc.js:85 的 webview 无 prompt 注释佐证。
+- 标签: 前端
+- 优先级: P2

@@ -763,7 +763,7 @@ async function confirmWorktreeMerge(item, forProject) {
   try {
     lines = await invoke("collaboration_snapshot", { projectDir: forProject });
   } catch (error) {
-    return window.confirm(`${t("合并前检查失败")}:${error}\n${t("仍要继续进入 Git 合并吗")}`);
+    return confirmDialog({ title: t("合并前检查失败"), message: `${error}\n${t("仍要继续进入 Git 合并吗")}`, okText: t("确认"), danger: true });
   }
   if (currentProject !== forProject) return false;
   renderLines(lines);
@@ -788,11 +788,18 @@ async function confirmWorktreeMerge(item, forProject) {
   if (matching.length) {
     document.querySelector('.activity-item[data-view="lines"]').click();
     const count = matching.reduce((total, pair) => total + pair.files.length, 0);
-    return window.confirm(
-      `${conflictNote}${t("检测到跨线文件交集")}:${count} ${t("项")}\n${t("文本层已检查 · 语义层未检查")}\n${t("仍要继续进入 Git 合并吗")}`,
-    );
+    return confirmDialog({
+      title: t("检测到跨线文件交集"),
+      message: `${conflictNote}${t("检测到跨线文件交集")}:${count} ${t("项")}\n${t("文本层已检查 · 语义层未检查")}\n${t("仍要继续进入 Git 合并吗")}`,
+      okText: t("确认"),
+      danger: true,
+    });
   }
-  return window.confirm(`${conflictNote}${t("当前未发现跨线文件交集")}。${t("文本层已检查 · 语义层未检查")}。\n${t("继续进入 Git 合并吗")}`);
+  return confirmDialog({
+    title: t("继续进入 Git 合并吗"),
+    message: `${conflictNote}${t("当前未发现跨线文件交集")}。${t("文本层已检查 · 语义层未检查")}。\n${t("继续进入 Git 合并吗")}`,
+    okText: t("确认"),
+  });
 }
 
 // 侧栏的 ↻ 撤掉之后,这一颗要同时刷线路与工作树清单——否则孤儿树没有任何刷新入口。
