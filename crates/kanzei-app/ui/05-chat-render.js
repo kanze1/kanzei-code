@@ -18,15 +18,40 @@ function updateLatestButton() {
   if (button) button.classList.toggle("hidden", followLatest);
 }
 messages.addEventListener("scroll", () => {
+  const wasReading = !followLatest;
   followLatest = nearBottom();
   updateLatestButton();
+  // 读历史期间 trimLivePane 会让步(见 01-core.js);人滚回底部了就把欠下的那次补上,
+  // 否则跑一整轮回来 pane 还挂在硬顶上。
+  if (wasReading && followLatest && typeof trimLivePane === "function") trimLivePane(activePane);
   // R-267 批2:触顶自动补齐上一窗。按钮仍在(可点),但滚上去就该出来,
   // 不该让人先找到按钮再点——这是「更丝滑」的一部分。
   if (messages.scrollTop < 80 && typeof loadEarlierMessages === "function") loadEarlierMessages();
 });
-function scrollBottom(force = false) {
+/// 跟随滚动按帧合并。`messages.scrollTop = messages.scrollHeight` 是一次**强制同步
+/// 布局**,而它原先挂在每一条消息、每一个工具块的追加之后:一轮里几十个块 = 几十次
+/// 全树布局,DOM 越长每次越贵(实测见 01-core.js trimLivePane 的数字)。
+/// 一帧内追加多少条都只在帧末滚一次;force 在合并窗口里是**粘性**的——历史恢复那种
+/// 「必须落到底」的请求不能被同帧的普通追加冲掉。
+/// requestAnimationFrame 不可用时(冒烟的假 DOM)退回同步,行为与改造前一致。
+let scrollFlushScheduled = false;
+let scrollFlushForce = false;
+function flushScrollBottom() {
+  scrollFlushScheduled = false;
+  const force = scrollFlushForce;
+  scrollFlushForce = false;
   if (force || followLatest) messages.scrollTop = messages.scrollHeight;
   updateLatestButton();
+}
+function scrollBottom(force = false) {
+  if (force) scrollFlushForce = true;
+  if (typeof requestAnimationFrame !== "function") {
+    flushScrollBottom();
+    return;
+  }
+  if (scrollFlushScheduled) return;
+  scrollFlushScheduled = true;
+  requestAnimationFrame(flushScrollBottom);
 }
 function copyButton() {
   const button = document.createElement("button");
@@ -402,9 +427,21 @@ const CHAT_TOOL_KEEP = 200; // D-090 同款上界:长跑只保留最近块的活
 // R-184 P2:主对话里的 task 工具块按角色折叠成组(R-174 遗留 (a):编排派发的 8 条
 // 子代理各自生成一个平铺工具块、偏吵)。组头是唯一新增的 DOM,组内块走既有
 // buildToolBlock/fillToolBlock 渲染;同一角色跨轮复用并入同一组,组头显示累计块数。
-const chatAgentFolds = new Map(); // role -> {head, body, countEl, count}
+// 每会话一份(R-267 口径)。原先是全局单表:并行线在后台渲染时走 withSessionRender
+// 换 activePane,但折叠组表没跟着换,B 线的子代理工具块会 appendChild 进 A 线对话里的
+// 同名组头——用户在 A 线看见自己没派过的工具调用,去 B 线却找不到。
+// 用 let:withSessionRender 按会话整表换引用(01-core.js),比逐条搬运便宜也不会漏。
+let chatAgentFolds = new Map(); // role -> {head, body, countEl, count}
 function chatAgentFold(role) {
   let group = chatAgentFolds.get(role);
+  // 组头的 DOM 可能已经不在页面上了:切历史对话/切线路会 resetPane(),裁剪也会删它。
+  // 缓存里那份引用还在,于是后续子代理工具块被 appendChild 进一个游离节点——
+  // 界面上凭空少掉一整批轨迹,而且没有任何报错。isConnected 明确为 false 才重建
+  // (冒烟的假 DOM 没有这个属性,给的是 undefined,不能当"已断开")。
+  if (group && group.body?.isConnected === false) {
+    chatAgentFolds.delete(role);
+    group = null;
+  }
   if (group) return group;
   const wrap = document.createElement("div");
   wrap.className = "agent-fold";

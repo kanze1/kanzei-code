@@ -317,8 +317,41 @@ function loadEarlierMessages() {
   activePane.prepend(...[...holder.childNodes]);
   history.rendered += chunk.length;
   messages.scrollTop += messages.scrollHeight - before;
+  // 补进来的这一窗是 prepend 的,绕过了 appendToPane,所以 trimLivePane 的
+  // droppedLive 账本不知道它们的存在。不同步的话:补了 120 条上来,下一次实时裁剪
+  // 又从头部把它们删掉,而「较早的 N 条」里的 N 只算实时那部分——界面上会出现
+  // 一段没有任何标记的断层,用户以为对话本来就是连着的。
+  const droppedNow = Number(activePane.dataset.droppedLive || 0);
+  if (droppedNow > 0) {
+    activePane.dataset.droppedLive = String(Math.max(0, droppedNow - chunk.length));
+    renderTrimmedHint(activePane);
+  }
   renderEarlierHint();
   return true;
+}
+
+/// 实时裁剪的顶部说明条。与「载入更早的消息」分开是因为语义不同:那条是「数据还在
+/// 手上,点一下就补齐」;这条是「本地视图为了保持流畅丢掉了,完整内容在后端对话历史里,
+/// 切走再切回会按窗口重建」。做成静态说明而不是按钮——运行中重载对话会把正在写入的
+/// pane 整个换掉,不该给一个跑着的时候点了会出事的入口。
+function renderTrimmedHint(pane) {
+  const target = pane || activePane;
+  if (!target || typeof target.querySelector !== "function") return;
+  const dropped = Number(target.dataset.droppedLive || 0);
+  const existing = target.querySelector(".pane-trimmed-hint");
+  if (dropped <= 0) {
+    if (existing) existing.remove();
+    return;
+  }
+  const label = `${t("较早的")} ${dropped} ${t("条已移出视图以保持流畅")}`;
+  if (existing) {
+    existing.textContent = label;
+    return;
+  }
+  const hint = document.createElement("div");
+  hint.className = "pane-trimmed-hint";
+  hint.textContent = label;
+  target.prepend(hint);
 }
 
 /// 顶部提示条:还剩多少条没渲染。它同时是入口(点它补齐)与状态(还剩多少)。
@@ -451,10 +484,17 @@ async function loadConversation(sequence = null, switchGeneration = null) {
   //
   // 仅当 pane 是空的(首次进入该会话,或它被 MESSAGE_PANE_MAX 淘汰过)才往下走
   // 完整装载。这也是淘汰策略敢做的原因:最坏情况退化成改造前的重建,不是缺口。
-  if (activeSessionId && showPane(activeSessionId)) {
+  // 但这条捷径只对「装载当前会话」成立。指定了 sequence 就是用户在侧栏点了某份
+  // **历史快照**——它跟当前 pane 里那段是两回事,直接复用等于什么都没做,而调用方
+  // (openConversationForProcess)紧接着还会写一句「已打开历史对话 #N」。用户看到
+  // 提示、屏幕没变化,只会以为界面坏了。有 sequence 时一律走下面的真装载。
+  if (sequence === null && activeSessionId && showPane(activeSessionId)) {
     scrollBottom(true);
     return;
   }
+  // 走真装载:先把 pane 认领并清空,免得历史内容叠在当前会话那段后面。
+  if (activeSessionId) showPane(activeSessionId);
+  if (sequence !== null) resetPane();
   // 线程切换是异步的:conversation_get 与 trace_get 之间用户可能再次切线。
   // 两个 IPC 必须锁定同一项目/同一进程,且晚返回的旧请求不能覆盖当前线程。
   const forProject = currentProject;
@@ -489,6 +529,11 @@ async function loadConversation(sequence = null, switchGeneration = null) {
 
 // 历史对话按线路归属渲染:后端本来就按 process_id 隔离 session,前端不能再把
 // 当前线路的快照扁平化到一个全局列表,否则用户看不出「这段历史属于哪条线」。
+// 勾选态必须活在 DOM 之外。侧栏线路列表每 3 秒被 process_list 轮询整体
+// replaceChildren 重建一次(09-sessions.js renderParallelTaskStatus),勾选框是
+// 每次新建的——只要有任何一条线在跑,用户永远勾不满三条就被抹掉一次,
+// 「勾选后点删除」这条唯一的删除路径在运行期间根本走不完。
+const conversationChecked = new Map(); // processId -> Set(JSON.stringify(sequences))
 const conversationItemsByProcess = new Map();
 const conversationErrorsByProcess = new Map();
 let conversationListGeneration = 0;
@@ -522,6 +567,7 @@ async function deleteConversationsForProcess(processId, sequences) {
   try {
     const n = await invoke("conversation_delete", { projectDir: currentProject, processId, sequences });
     toast(`${t("已删除")} ${n}${t("份对话快照")}`);
+    conversationChecked.delete(processId);
     await refreshConversationLists();
   } catch (err) {
     toastError(String(err), { retry: () => deleteConversationsForProcess(processId, sequences) });
@@ -619,7 +665,18 @@ function renderLineConversationHistory(processId) {
     check.type = "checkbox";
     check.className = "parallel-history-check";
     check.dataset.seqs = JSON.stringify(item.sequences ?? [item.sequence]);
+    const checkedSet = conversationChecked.get(processId);
+    check.checked = Boolean(checkedSet?.has(check.dataset.seqs));
     check.addEventListener("click", (event) => event.stopPropagation());
+    check.addEventListener("change", () => {
+      let set = conversationChecked.get(processId);
+      if (!set) {
+        set = new Set();
+        conversationChecked.set(processId, set);
+      }
+      if (check.checked) set.add(check.dataset.seqs);
+      else set.delete(check.dataset.seqs);
+    });
     const title = document.createElement("span");
     title.className = "title";
     title.textContent = `${item.title || t("新对话")} (${item.message_count} ${t("条")})`;

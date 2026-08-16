@@ -310,17 +310,87 @@ function showPane(sessionId) {
   return pane.dataset.hasContent === "1";
 }
 
+/// D-202 家族的真正机制:恢复历史走 PANE_WINDOW_SIZE 窗口化,但**实时追加从不裁剪**。
+/// 一次自主推进跑几百轮,pane 会无上界地长下去,而每次 appendToPane 之后的
+/// scrollBottom 都要对整棵树强制一次布局——单次追加的代价随 DOM 线性增长,整段
+/// 会话就是 O(n²)。
+///
+/// 实测(playwright,真实渲染路径,每批 200 条):
+///   pane 顶层 200 → 追加 200 条耗时 36ms;800 → 151ms;1600 → 305ms;2400 → 476ms。
+/// 即单条追加在 2400 节点时已经要 ~2.4ms 布局;上万节点时主线程基本被追加占满,
+/// 表现就是「侧栏点了没反应」「跑着跑着卡住」。
+///
+/// 这里给实时面加上界:超过 PANE_LIVE_MAX 就从**头部**砍到 PANE_LIVE_KEEP。被砍掉的
+/// 只是本地视图,消息本身在后端对话历史里,切走再切回按 loadConversation 重建。
+const PANE_LIVE_MAX = 600;
+const PANE_LIVE_KEEP = 400;
+
 /// 往当前 pane 追加消息节点。顺手打上「有内容」标志——切回时靠它判断是否需要装载,
 /// 而不是去数子节点或找 .empty-state:空状态本身也是子节点,而冒烟的假 DOM 对
 /// 类选择器支持有限,判空一旦不准就会把「已有完整内容」误判成「空 pane」再重建一遍。
 function appendToPane(node) {
   activePane.dataset.hasContent = "1";
   activePane.appendChild(node);
+  trimLivePane(activePane);
+}
+
+/// 从头部裁掉超出上界的部分,并把累计裁掉的条数记在 pane 上(供顶部提示条显示)。
+/// 只在**超过** MAX 时动手并一次砍到 KEEP,避免每追加一条就删一条的抖动。
+/// 用户翻上去读历史时,允许暂时超出上界多少倍。上界本身是为了让主线程不被布局
+/// 吃掉;而**正在读的人**比那点布局更重要,所以读历史期间不裁,等他滚回底部再补。
+/// 但也不能无限让步——挂在半空的会话照样会把内存和布局拖垮,所以给一个硬顶。
+const PANE_LIVE_HARD_MAX = PANE_LIVE_MAX * 3;
+
+function trimLivePane(pane) {
+  if (!pane || typeof pane.children?.length !== "number") return;
+  if (pane.children.length <= PANE_LIVE_MAX) return;
+  // 看得见的那个 pane 才有「阅读位置」可言;后台 pane 随便裁。
+  const visible = pane === activePane;
+  const reading = visible && typeof followLatest !== "undefined" && !followLatest;
+  if (reading && pane.children.length <= PANE_LIVE_HARD_MAX) return;
+  // 从**头部**删节点会把视口下的内容整体前移。浏览器的 scroll anchoring 只在锚点
+  // 节点自己没被删时才兜得住,而「翻上去读刚才那段」恰好落在删除区里:实测 scrollTop
+  // 数值一动不动,画面却无声跳过 200 条,正在读的那条已从 DOM 消失。
+  // loadEarlierMessages 早就用了正确做法(按高度差回补 scrollTop),裁剪这条路上漏了。
+  const heightBefore = visible ? messages.scrollHeight : 0;
+  let dropped = Number(pane.dataset.droppedLive || 0);
+  const isHint = (el) =>
+    el?.classList?.contains("earlier-hint") || el?.classList?.contains("pane-trimmed-hint");
+  // 只用 children 索引寻址:firstElementChild/nextElementSibling 在冒烟的假 DOM 里
+  // 不存在,用它们这段逻辑在测试里会静默变成空操作(改了但没人验)。
+  while (pane.children.length > PANE_LIVE_KEEP) {
+    // 两条顶部提示条自己不算消息,跳过它们再取受害者(否则每次裁剪都把提示删掉再建一个,
+    // 或者把「载入更早的消息」那个真入口误删)。它们只会被 prepend,所以至多在最前两位。
+    const kids = pane.children;
+    let index = 0;
+    while (index < kids.length && index < 3 && isHint(kids[index])) index += 1;
+    const victim = kids[index];
+    if (!victim) break;
+    victim.remove();
+    dropped += 1;
+  }
+  pane.dataset.droppedLive = String(dropped);
+  if (visible && heightBefore) messages.scrollTop -= heightBefore - messages.scrollHeight;
+  // 折叠组的组头可能刚被裁掉;留着失效引用会让后续子代理工具块写进游离节点、
+  // 界面上凭空少一批轨迹。清掉引用,下一次 chatAgentFold 会重建组头。
+  if (typeof chatAgentFolds !== "undefined") {
+    for (const [role, group] of chatAgentFolds) {
+      // 只认**明确的** false:冒烟的假 DOM 没有 isConnected(undefined),
+      // 写成 `!isConnected` 会在那里每次裁剪都清空全部折叠组。
+      if (group?.body?.isConnected === false) chatAgentFolds.delete(role);
+    }
+  }
+  if (typeof renderTrimmedHint === "function") renderTrimmedHint(pane);
 }
 /// 清空当前 pane 并复位「有内容」标志。
 function resetPane() {
   activePane.replaceChildren();
   delete activePane.dataset.hasContent;
+  // 清 pane 就等于把折叠组的 DOM 一起清了;缓存里的引用不清,后续子代理工具块
+  // 会写进已经不在页面上的组头,轨迹静默消失。
+  if (typeof chatAgentFolds !== "undefined") chatAgentFolds.clear();
+  delete activePane.dataset.droppedLive;
+  if (typeof renderTrimmedHint === "function") renderTrimmedHint(activePane);
 }
 
 /// 超出上限时淘汰最久未访问的 pane。**运行中的会话永不淘汰**——它正在往里写,
@@ -353,7 +423,7 @@ function streamStateFor(sessionId) {
   const key = sessionId || "";
   let state = sessionStreams.get(key);
   if (!state) {
-    state = { assistant: null, reasoning: null, reasoningHead: null };
+    state = { assistant: null, reasoning: null, reasoningHead: null, folds: new Map() };
     sessionStreams.set(key, state);
   }
   return state;
@@ -376,17 +446,23 @@ function withSessionRender(sessionId, fn) {
   const savedReasoning = currentReasoning;
   const savedHead = currentReasoningHead;
   const savedBackground = renderingBackground;
+  const savedFolds = chatAgentFolds;
   renderingBackground = true;
   activePane = paneFor(sessionId);
   currentAssistant = state.assistant;
   currentReasoning = state.reasoning;
   currentReasoningHead = state.reasoningHead;
+  // 子代理折叠组表也必须跟着换会话。不换的话,后台线的 task 工具块会被
+  // appendChild 进前台线对话里的同名组头——用户在 A 线看见自己没派过的调用。
+  chatAgentFolds = state.folds;
   try {
     return fn();
   } finally {
     state.assistant = currentAssistant;
     state.reasoning = currentReasoning;
     state.reasoningHead = currentReasoningHead;
+    state.folds = chatAgentFolds;
+    chatAgentFolds = savedFolds;
     renderingBackground = savedBackground;
     activePane = savedPane;
     currentAssistant = savedAssistant;

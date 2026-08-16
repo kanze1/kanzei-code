@@ -331,15 +331,21 @@
               <span id="auto-status" class="auto-reason hidden" role="status" aria-live="polite"></span>
               <button id="auto-resume" class="ghost mini hidden" type="button" title="清零轮次并重新开始鞭挞" data-i18n-title="清零轮次并重新开始鞭挞"><span data-i18n-key="继续鞭挞">继续鞭挞</span></button>
             </div>
+            <!-- 次级动作收进一个分段组:五个同权重的独立按钮排在主按钮旁边,
+                 每次发送前眼睛都要把它们逐个扫一遍才能找到「发送」。合成一组、
+                 共用边框与发丝分隔线之后,这一行只剩两个视觉焦点:一组次级 + 一个主。
+                 功能一个没少——用户明确说过「我们按钮多一点」是可以的。 -->
             <div class="composer-actions">
-              <button id="continue-toggle" class="ghost" type="button" aria-expanded="false" title="展开或收起继续文案编辑" data-i18n-title="展开或收起继续文案编辑"><span data-i18n-key="继续文案">继续文案</span></button>
-              <button id="sop-picker" class="ghost" type="button" title="选择已沉淀的 SOP" data-i18n-title="选择已沉淀的 SOP">SOP</button>
-              <button id="continue-btn" class="ghost" title="按当前文案继续推进" data-i18n-title="按当前文案继续推进"><span data-i18n-key="继续">继续</span></button>
-              <button id="attach" class="ghost" title="添加图片或 PDF" data-i18n-title="添加图片或 PDF"><span data-i18n-key="附件">附件</span></button>
-              <select id="delivery-select" title="输入交付方式" data-i18n-title="输入交付方式">
-                <option value="queue" data-i18n-key="排队 queue">排队 queue</option>
-                <option value="steer" data-i18n-key="插入 steer">插入 steer</option>
-              </select>
+              <div class="composer-secondary" role="group" aria-label="次级动作" data-i18n-aria-label="次级动作">
+                <button id="attach" class="seg-btn" title="添加图片或 PDF" data-i18n-title="添加图片或 PDF"><span data-i18n-key="附件">附件</span></button>
+                <button id="sop-picker" class="seg-btn" type="button" title="选择已沉淀的 SOP" data-i18n-title="选择已沉淀的 SOP">SOP</button>
+                <button id="continue-toggle" class="seg-btn" type="button" aria-expanded="false" title="展开或收起继续文案编辑" data-i18n-title="展开或收起继续文案编辑"><span data-i18n-key="继续文案">继续文案</span></button>
+                <button id="continue-btn" class="seg-btn" title="按当前文案继续推进" data-i18n-title="按当前文案继续推进"><span data-i18n-key="继续">继续</span></button>
+                <select id="delivery-select" class="seg-select" title="输入交付方式" data-i18n-title="输入交付方式">
+                  <option value="queue" data-i18n-key="排队 queue">排队 queue</option>
+                  <option value="steer" data-i18n-key="插入 steer">插入 steer</option>
+                </select>
+              </div>
               <button id="stop" class="danger hidden"><span data-i18n-key="停止">停止</span></button>
               <button id="send" class="primary"><span data-i18n-key="发送">发送</span></button>
             </div>
@@ -1031,6 +1037,16 @@
     </div>
   </div>
 
+  <!-- 命令面板(Ctrl/Cmd+P):视图 / 项目 / 线路 / 动作 四类目标的键盘检索入口。
+       候选项行为一律委托给既有控件的 click,见 21-palette.js 顶部说明。 -->
+  <div id="palette" class="palette hidden" role="dialog" aria-modal="true" aria-label="命令面板" data-i18n-aria-label="命令面板">
+    <div class="palette-box">
+      <input id="palette-input" type="text" role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="跳转到视图、项目、线路，或执行动作" data-i18n-placeholder="跳转到视图、项目、线路，或执行动作" aria-label="命令面板检索" data-i18n-aria-label="命令面板检索" />
+      <div id="palette-list" class="palette-list" tabindex="-1" role="listbox" aria-label="命令面板候选" data-i18n-aria-label="命令面板候选"></div>
+      <div class="palette-foot"><span data-i18n-key="↑↓ 选择 · Enter 执行 · Esc 关闭">↑↓ 选择 · Enter 执行 · Esc 关闭</span></div>
+    </div>
+  </div>
+
   <div id="toast" class="hidden"></div>
 
   <script src="01-core.js" defer></script>
@@ -1054,6 +1070,7 @@
   <script src="19-arch.js" defer></script>
   <script src="20-lines.js" defer></script>
   <script src="19-research.js" defer></script>
+  <script src="21-palette.js" defer></script>
   <script src="18-startup.js" defer></script>
 </body>
 </html>

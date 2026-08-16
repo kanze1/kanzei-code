@@ -114,6 +114,42 @@ function continuePrompt() {
   return $("continue-prompt").value.trim() || DEFAULT_CONTINUE_PROMPT;
 }
 
+// 「停止中…」是个只能靠后端终态事件走出去的状态:发送禁用、停止禁用、
+// 轮询也不复位(09-sessions.js 只在 phase 属于 starting/running 时才收敛)。
+// 事件桥断开、后端异常退出或事件丢失(D-005 那类)之后按一次停止,这条线就
+// 永久焊死——重启应用才能用,而用户多半只会以为「还在收尾」而一直等下去。
+// 给它一个看门狗:超时未收到确认就自行落到停止态,并把「没收到确认」说出来,
+// 而不是假装什么都没发生。
+const STOPPING_WATCHDOG_MS = 10000;
+const stoppingWatchdogs = new Map();
+function armStoppingWatchdog(sessionId) {
+  if (!sessionId || typeof setTimeout !== "function") return;
+  clearStoppingWatchdog(sessionId);
+  stoppingWatchdogs.set(sessionId, setTimeout(() => {
+    stoppingWatchdogs.delete(sessionId);
+    if (sessionState(sessionId).phase !== "stopping") return;
+    transitionSession(sessionId, "stopped");
+    if (sessionId === activeSessionId) setRunning(false, t("已停止"));
+    log(t("停止已发出但未收到后端确认,已按停止处理"), "warn");
+    toast(t("停止已发出但未收到后端确认,已按停止处理"));
+    if (typeof refreshProcesses === "function") refreshProcesses();
+  }, STOPPING_WATCHDOG_MS));
+}
+function clearStoppingWatchdog(sessionId) {
+  const timer = stoppingWatchdogs.get(sessionId);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  stoppingWatchdogs.delete(sessionId);
+}
+
+/// 清掉鞭挞控制台里两条**跨线路/跨项目会串台**的文本槽。切线在 applyAutoUiState
+/// 里顺手做了,切项目走 09-sessions.js enterProject 调这里。
+function clearAutoNotices() {
+  autoHint = "";
+  autoStopReason = "";
+  renderAutoRun();
+}
+
 function setAutoStopReason(reason) {
   autoStopReason = reason;
   autoHint = "";
@@ -943,7 +979,15 @@ function applyAutoUiState(processId) {
   $("auto-max").value = String(next.maxRounds);
   $("auto-pause").classList.toggle("active", autoPaused);
   $("auto-pause").textContent = autoPaused ? t("继续鞭挞") : t("暂停鞭挞");
-  autoRounds = 0;
+  // 轮次不能一律清零:切回一条**正在鞭挞**的线路时,它已经跑到第 7 轮了,显示
+  // 0/10 会让人以为还能再跑十轮,实际下一轮就撞上限停机;进度条也一起回到 0%。
+  // 真源是会话状态里的 auto_rounds(07-events.js 每轮都写),这里读回来即可。
+  const target = processItems.find((item) => item.id === processId);
+  autoRounds = Number(sessionState(target?.session_id)?.auto_rounds ?? 0) || 0;
+  // 停机原因与一次性提示是**上一条线/上一个项目**留下的文本,跨线路跨项目串台会让
+  // 用户按别人的停机理由去判断当前线。切换即清,由新线自己的事件重新写。
+  autoHint = "";
+  autoStopReason = "";
   renderAutoStatus();
   persistProcessAutoState();
 }
@@ -1047,6 +1091,7 @@ $("stop").addEventListener("click", async () => {
   }
   if (targetSessionId) transitionSession(targetSessionId, "stopping");
   setStopping(t("停止中…"));
+  armStoppingWatchdog(targetSessionId);
   hideAsk();
   try {
     await invoke("stop_run", { projectDir: targetProject, processId: targetProcessId });

@@ -1504,6 +1504,62 @@ assert(
   [...openedHistories].some((history) => history.dataset.processId === "p|bg" && history.textContent.includes("后台线路历史") && !history.textContent.includes("冒烟会话")),
   "并行线历史没有按 process_id 隔离渲染",
 );
+// D-202 家族：实时追加必须有上界。恢复历史早就窗口化了（PANE_WINDOW_SIZE），
+// 但 appendToPane 原先从不裁剪：一次自主推进跑几百轮，pane 无上界地长，而每次追加
+// 后的 scrollBottom 都要对整棵树强制布局，单次代价随 DOM 线性增长（playwright 实测：
+// 顶层 200 节点时追加 200 条耗 36ms，2400 节点时 476ms）。这段锁住上界本身。
+// 压测跑在一个**临时 pane** 上：直接往当前 pane 塞一千条再 resetPane，会把 hasContent
+// 标志一并抹掉，后续 showPane 会误判为空 pane 而重拉历史，污染后面的工具块断言。
+{
+  vm.runInContext("globalThis.__paneSave = activePane; activePane = document.createElement('div'); activePane.className = 'msg-pane';", sandbox);
+  const pane = vm.runInContext("activePane", sandbox);
+  for (let i = 0; i < 700; i++) vm.runInContext(`addMessage("notice", "裁剪压测 ${i}")`, sandbox);
+  const after = pane.children.length;
+  assert(after <= 601, `实时 pane 未裁剪：追加 700 条后顶层节点 ${after}（应 ≤ 601）`);
+  assert(after >= 400, `裁剪过头：追加 700 条后只剩 ${after} 条（应 ≥ 400）`);
+  assert(Number(pane.dataset.droppedLive || 0) > 0, "裁剪发生了但没记 droppedLive（提示条拿不到数）");
+  assert(pane.querySelector(".pane-trimmed-hint"), "裁剪后缺少顶部说明条 .pane-trimmed-hint（静默丢消息）");
+  // 说明条不能反过来被裁剪循环吃掉：再追加一批后它仍只有一条。
+  for (let i = 0; i < 250; i++) vm.runInContext(`addMessage("notice", "裁剪压测二 ${i}")`, sandbox);
+  const hints = pane.querySelectorAll(".pane-trimmed-hint").length;
+  assert(hints === 1, `裁剪说明条应始终只有一条，实际 ${hints}`);
+  vm.runInContext("activePane = globalThis.__paneSave; delete globalThis.__paneSave;", sandbox);
+}
+// 命令面板:开面板必须让背景**整体**惰性化,否则 aria-modal 只是一句声明——
+// Tab 两下就走到背后的 rail,回车能在遮罩下真的切视图、点「新对话」(清空历史)。
+// 关面板必须摘干净,否则界面整个点不动。
+{
+  vm.runInContext("openPalette()", sandbox);
+  const appInert = byId.get("app")?.getAttribute("inert");
+  const paletteInert = byId.get("palette")?.getAttribute("inert");
+  assert(appInert !== null && appInert !== undefined, "开命令面板未给背景加 inert（焦点会跑到遮罩背后）");
+  assert(!paletteInert && paletteInert !== "", "面板自己不得被 inert（否则自己也点不动）");
+  vm.runInContext("closePalette()", sandbox);
+  assert(
+    !byId.get("app")?.getAttribute("inert"),
+    "关命令面板后 inert 残留，整个界面会点不动",
+  );
+}
+// 搜索开关住在收起的 <details id="composer-more"> 里。命令面板会绕过菜单直接
+// .click() 它——宿主不展开的话,摘掉 hidden 也没人看得见,接着敲的关键词会掉进
+// #prompt,裸 Enter 就把它当任务发给了 agent。
+// 假 DOM 的 HTML 解析把 #chat-search 拍平到 body 下,closest("details") 在这里
+// 天然拿不到宿主,所以**展开宿主**这一条只能静态锁(真实浏览器行为由 playwright
+// 核验);能在假 DOM 里验的是"点了确实把搜索条摘出 hidden"。
+{
+  byId.get("chat-search").classList.add("hidden");
+  byId.get("chat-search-toggle").click();
+  assert(
+    !byId.get("chat-search").classList.contains("hidden"),
+    "点搜索后搜索条仍是 hidden",
+  );
+  const handler = sources[scriptSrcs.indexOf("07-events.js")] ?? "";
+  const guard = handler.slice(handler.indexOf('$("chat-search-toggle").addEventListener'));
+  assert(
+    /closest\("details"\)/.test(guard.slice(0, 800)) && /\.open = true/.test(guard.slice(0, 800)),
+    "chat-search-toggle 处理器不再展开它所在的 details：命令面板触发时搜索框看不见，击键会掉进待发消息",
+  );
+}
 const historyCalls = invokeArgs.filter(({ cmd }) => cmd === "conversation_list");
 assert(historyCalls.some(({ args }) => args?.processId === "d|smoke"), "历史查询未带主线 process_id");
 assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查询未带并行线 process_id");

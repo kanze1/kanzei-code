@@ -820,6 +820,10 @@ async function enterProject(prefs, options = {}) {
     // 运行状态属于会话:切项目后必须按目标项目重算,否则旧项目的 kz:done 被会话过滤器
     // 丢弃,新项目会永久卡在「运行中」(发送键禁用)。refreshProcesses 会带回真实状态。
     setRunning(false, t("空闲"));
+    // 鞭挞控制台的停机原因/一次性提示是全局单例文本。不清的话,A 项目的
+    // 「需求与缺陷已清空,自动推进已停止」会原样挂在 B 项目的控制台上,
+    // 用户据此以为 B 也没活可干了。
+    if (typeof clearAutoNotices === "function") clearAutoNotices();
     await loadConversation();
     if (options.notice) addMessage("notice", options.notice);
   }

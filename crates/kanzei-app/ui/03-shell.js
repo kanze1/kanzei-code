@@ -309,6 +309,9 @@ function syncSidebar() {
 function transitionSession(sessionId, phase, detail = {}) {
   if (!sessionId) return null;
   const state = sessionState(sessionId);
+  // 真终态一到就把停止看门狗撤掉,免得它在 10 秒后对一条已经正常收尾的会话
+  // 再喊一次「未收到确认」。
+  if (phase !== "stopping" && typeof clearStoppingWatchdog === "function") clearStoppingWatchdog(sessionId);
   state.phase = phase;
   state.running = ["starting", "running", "stopping"].includes(phase);
   state.auto_pending = phase === "auto_pending";
@@ -365,6 +368,20 @@ document.addEventListener("pointerdown", (event) => {
   localStorage.setItem("kz-sidebar-collapsed", "1");
   syncSidebar();
 });
+/// 进入悬浮态(≤900px)时先把抽屉收起来。悬浮的侧栏 z-index 高于输入区上下文行,
+/// 展开着就把「当前项目 / 模型 / 思考强度」整条盖掉——顶栏删除后那一行是**唯一**
+/// 能看到自己在对哪个项目、用哪个模型说话的地方,被盖住时 Ctrl+Enter 是盲发。
+/// 只在**跨过断点的那一刻**收,不动用户在宽窗口下的选择。
+function collapseSidebarForOverlay(matches) {
+  if (!matches || sidebarCollapsed) return;
+  sidebarCollapsed = true;
+  localStorage.setItem("kz-sidebar-collapsed", "1");
+  syncSidebar();
+}
+if (typeof sidebarOverlayQuery.addEventListener === "function") {
+  sidebarOverlayQuery.addEventListener("change", (event) => collapseSidebarForOverlay(event.matches));
+}
+collapseSidebarForOverlay(sidebarOverlayQuery.matches);
 syncSidebar();
 
 // ---------- 运行日志面板 ----------

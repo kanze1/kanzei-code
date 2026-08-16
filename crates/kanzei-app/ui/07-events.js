@@ -798,6 +798,14 @@ function moveSearch(delta) {
 }
 $("chat-search-toggle").addEventListener("click", () => {
   const bar = $("chat-search");
+  // 搜索框和这个按钮一起住在 <details id="composer-more"> 里。从菜单点进来时宿主
+  // 当然是开的,但命令面板(21-palette.js)会绕过菜单直接 .click() 这个按钮——那时
+  // 宿主是关着的,摘掉 hidden 也没人看得见:屏幕零变化、焦点落进 content-visibility
+  // 隐藏子树、接着敲的关键词全丢进 #prompt,裸 Enter 就把它当任务发给了 agent。
+  // 宿主的展开责任放在这里而不是调用方:凡是点这个按钮,行为就该一致。
+  const host = bar.closest("details");
+  const opening = bar.classList.contains("hidden");
+  if (host && opening) host.open = true;
   bar.classList.toggle("hidden");
   if (!bar.classList.contains("hidden")) $("chat-search-input").focus();
 });
