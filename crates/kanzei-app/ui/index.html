@@ -152,6 +152,9 @@
            对话区因此直接顶到窗口边,主区高度多出 38px。 -->
       <div id="view-chat" class="view active">
         <div id="chat-area">
+          <!-- R-285 金色神经流:纯表现层,不接管指针也不成为运行真源。
+               动画由 22-neural-flow.js 消费真实 kz:* / memory 操作事件。 -->
+          <canvas id="neural-flow-chat" class="neural-flow-canvas neural-flow-chat" aria-hidden="true"></canvas>
           <!-- R-267:#messages 是**滚动容器**,消息本体挂在它下面的 per-session
                `.msg-pane` 里(每个会话一个,同时只显示一个)。切线 = 换显示的 pane,
                不再重建 DOM;后台会话的实时事件也直接渲染进各自 pane,不再丢弃。
@@ -489,6 +492,13 @@
             <input id="memory-search-input" type="search" placeholder="检索全部记忆(FTS)" data-i18n-placeholder="检索全部记忆(FTS)" aria-label="检索记忆" data-i18n-aria-label="检索记忆" />
             <button type="button" id="memory-consolidate-btn" title="立即让 memory-manager 消化 inbox 草稿" data-i18n-title="立即让 memory-manager 消化 inbox 草稿"><span data-i18n-key="整理 inbox">整理 inbox</span></button>
             <span id="memory-inbox-badge" class="dim"></span>
+          </div>
+          <div id="memory-flow-stage" class="memory-flow-stage" aria-hidden="true">
+            <canvas id="neural-flow-memory" class="neural-flow-canvas neural-flow-memory"></canvas>
+            <div class="memory-flow-meta">
+              <span class="memory-flow-title" data-i18n-key="记忆流">记忆流</span>
+              <span id="memory-flow-state" class="memory-flow-state" data-i18n-key="静息">静息</span>
+            </div>
           </div>
           <div id="memory-arch" class="memory-arch" aria-label="记忆架构总览" data-i18n-aria-label="记忆架构总览"></div>
           <div class="memory-columns">
@@ -1095,6 +1105,7 @@
   <script src="20-lines.js" defer></script>
   <script src="19-research.js" defer></script>
   <script src="21-palette.js" defer></script>
+  <script src="22-neural-flow.js" defer></script>
   <script src="18-startup.js" defer></script>
 </body>
 </html>

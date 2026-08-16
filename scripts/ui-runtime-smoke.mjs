@@ -1264,6 +1264,33 @@ async function runUiSources() {
 
 await runUiSources();
 
+// R-285 金色神经流:运行时 API、静态画布与真实事件接线同时存在。
+// 冒烟 DOM 不实现 CanvasRenderingContext2D,因此这里只验证初始化可降级、状态映射
+// 与生产事件调用点；像素/帧率属于真实 WebView2 E3。
+{
+  const chatFlow = byId.get("neural-flow-chat");
+  const memoryFlow = byId.get("neural-flow-memory");
+  const memoryState = byId.get("memory-flow-state");
+  assert(chatFlow && memoryFlow && memoryState, "R-285 神经流画布或状态节点未加载");
+  assert(
+    /id="neural-flow-chat"[^>]*aria-hidden="true"/.test(html),
+    "主对话神经流必须对辅助技术隐藏",
+  );
+  assert(typeof windowShim.neuralFlowEmit === "function", "R-285 neuralFlowEmit 运行时入口未注册");
+  windowShim.neuralFlowEmit("memory_search_started", { query_length: 6 });
+  assert(memoryState.textContent === "检索中", `记忆检索动画状态错误:${memoryState.textContent}`);
+  windowShim.neuralFlowEmit("memory_search_completed", { hit_count: 2 });
+  assert(memoryState.textContent === "收敛", `记忆检索完成状态错误:${memoryState.textContent}`);
+  assert(
+    source.includes('neuralFlowEmit?.("run_started"'),
+    "主对话 kz:turn 未接金色神经流",
+  );
+  assert(
+    source.includes('neuralFlowEmit?.("memory_consolidation_started"'),
+    "记忆整理操作未接金色神经流",
+  );
+}
+
 // D-420:先验证生产输入弹窗本身可打开、回填并确认,再替换为立即返回桩供后续业务用例复用。
 const inputDialogProbe = vm.runInContext(
   'inputDialog({ title: "D-420 输入测试", value: "默认值" })',

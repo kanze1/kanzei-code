@@ -15,6 +15,7 @@
      亮色档下这两个要求把它夹在中间:#a8761a 当填充配白字 3.98:1、当正文压白底 3.92:1,
      两头都够不到 4.5。拆成两个:--accent 只管填充/边框/焦点环,--accent-text 只管文字。 */
   --accent-text: #c9962e;
+  --memory-flow: #c9962e; --memory-flow-hot: #f0d58c; --memory-flow-dim: #6f5120;
   --ok: #8fb87a; --err: #d0684e; --warn: #e8b04b; --info: #7ba7c4;
   --alert: #e8842a;
   --danger: var(--err); --muted: var(--dim);
@@ -770,6 +771,14 @@ select {
   background: var(--chat-bg);
   background-image: radial-gradient(120% 42% at 50% 0%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 72%);
 }
+.neural-flow-canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
+.neural-flow-chat {
+  position: absolute; inset: 0; z-index: var(--z-base); opacity: .8;
+  /* 神经场只在主区外围显形,消息正文所在的中部保持安静。 */
+  -webkit-mask-image: radial-gradient(92% 88% at 86% 36%, #000 0 26%, rgba(0,0,0,.72) 49%, transparent 82%);
+  mask-image: radial-gradient(92% 88% at 86% 36%, #000 0 26%, rgba(0,0,0,.72) 49%, transparent 82%);
+}
+#messages { position: relative; z-index: var(--z-raised); }
 /* R-147 使用手册:2026-08-16 搬进设置页(见 index.html #view-settings)。
    展开后内容给上界内部滚动,不让一份长手册把设置项挤到看不见。 */
 .manual-panel { flex: 0 0 auto; margin: 14px 0 0; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel); }
@@ -1712,6 +1721,20 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
   color: var(--fg); border-radius: 4px; padding: 6px 10px; font-size: var(--fs-12);
 }
 .memory-toolbar input[type="search"]:focus { outline: 1px solid var(--accent); }
+.memory-flow-stage {
+  position: relative; height: clamp(138px, 19vh, 190px); overflow: hidden;
+  margin: 4px 0 18px; border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft);
+  background:
+    radial-gradient(58% 130% at 76% 50%, color-mix(in srgb, var(--memory-flow) 8%, transparent), transparent 74%),
+    linear-gradient(90deg, color-mix(in srgb, var(--chat-bg) 58%, transparent), transparent 44%);
+}
+.neural-flow-memory { position: absolute; inset: 0; }
+.memory-flow-meta {
+  position: absolute; z-index: var(--z-base); left: 0; top: 14px; display: flex; align-items: baseline; gap: 10px;
+  font-family: var(--mono); text-transform: uppercase; letter-spacing: .12em; pointer-events: none;
+}
+.memory-flow-title { color: var(--fg-strong); font-size: var(--fs-11); font-weight: 650; }
+.memory-flow-state { color: var(--memory-flow-hot); font-size: var(--fs-9-5); opacity: .78; }
 .memory-arch { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .memory-scope-card {
   flex: 1 1 340px; background: var(--panel); border: 1px solid var(--border);
@@ -1730,6 +1753,15 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .memory-warn { color: var(--warn); font-size: var(--fs-12); margin: 8px 0 0; }
 .memory-columns { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(260px, 380px); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .memory-columns { grid-template-columns: 1fr; } }
+@media (max-width: 720px) {
+  .memory-flow-stage { height: 124px; }
+  .neural-flow-chat { opacity: .58; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neural-flow-chat { opacity: .42; }
+  .memory-flow-state { transition: none; }
+}
 .memory-list { display: flex; flex-direction: column; gap: 6px; padding-bottom: 40px; }
 .memory-row {
   background: var(--panel); border: 1px solid var(--border); border-radius: 4px;

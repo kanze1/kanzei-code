@@ -1,5 +1,73 @@
 # Requirements
 
+## R-286 记忆晋升与遥测恢复:修复 inbox 分批整理真实交付、来源账本和 outcome 漏斗 [todo]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心 后端 前端 记忆
+- 来源: 2026-08-17 自举一期结项后的二期全面升级;用户反馈「记忆系统很久没有晋升」;只读审计确认 D-409 修复提交未进入 dev、当前桌面端仍整份读取 inbox 且忽略 manager 结果。
+- 依赖: D-409 R-216
+- refs: R-195 R-235 R-283 R-284 docs/design/phase2_system_upgrade.md docs/design/memory_control_plane.md docs/design/memory_system.md
+- 内容: 按 phase2_system_upgrade.md §5.2 分四批恢复记忆控制面。批1 交付事实修复:从 D-409 分支隔离出分批读取/checkpoint/错误回传,桌面与 CLI 共用整理服务,禁止直接合并无关分支;修正 defects/tests 里「已修复」与 dev 实现不一致。批2 生命周期账本:note→candidate→shadow→active/deprecated 每次转换写来源、reason code 与关联 episode。批3 遥测漏斗:AVAILABLE→RETRIEVED→INJECTED→ACTION_CHANGED→OUTCOME_IMPROVED,补 memory_eval_agg 和单条价值画像。批4 UI:backlog/最老等待/批次状态/晋升缺口/召回与 outcome 全链展示,失败可重试。
+- 边界: 不伪造历史 provenance;R-235 的 28 条存量零证据 active 仍由用户拍板;不把 action_changed 直接写成 outcome_improved;不静默删除 inbox/candidate/active;数据库 schema 变化需 Alembic 不适用(Rust SQLite migration),必须提供前滚、已有数据兼容和恢复策略。
+- 验收: ①当前 224 条 inbox 在真实 manager 运行中按批下降,任一批失败可见且重启后从 checkpoint 继续;②桌面与 CLI 调用同一服务并有集成测试;③新 candidate/active 100% 可回溯真实 episode/source,空来源晋升被拒;④一次真实 recurrence→shadow→promote 有状态事件和 UI 轨迹;⑤counterfactual arms 形成非空聚合并区分 action_changed/outcome_improved;⑥修复提交确实位于 dev,tracker/tests/代码三方一致。
+- 批次: 0/4
+- 状态: todo
+
+## R-283 自举二期系统升级编排:research/memory/运行体验/动画/voice 依赖和联合验收 [todo]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 架构 流程 自举
+- 来源: 2026-08-17 用户确认「自举一期应该差不多可以算结束,需要对已有系统全面升级改造」并要求详细拆解需求依赖加入当前自举清单。
+- refs: R-221 R-276 R-277 R-284 R-285 R-286 R-287 docs/design/phase2_system_upgrade.md
+- 内容: 以 docs/design/phase2_system_upgrade.md 为二期真源维护五批:批1 设计/依赖/需求映射;批2 P0 事实恢复(D-409 与 memory backlog);批3 research+memory 引擎 E2;批4 animation+voice E3/E4;批5 真实联合闭环(语音研究请求→research 报告→dev 实施→memory 晋升→动画可见→定制声音复述)。
+- 边界: 本条只做跨条目编排、依赖和结项门禁,不重复实现 R-221/R-277/R-286/R-287;一期 loop/dev 主链进入稳定维护,存量缺陷仍按原条目处理;每个边界分别报告静态、测试、WebView2、provider、安装和工作树状态。
+- 验收: ①所有二期子条目有明确依赖、批次、风险、数据边界和证据等级;②Wave 0～4 各有 Go/No-Go 记录;③联合闭环按 session/topic/memory id 可回溯;④二期结项时 requirements/defects/tests/实现无相互矛盾状态。
+- 批次: 1/5
+- 进展: 2026-08-17 批1 已完成:新增 docs/design/phase2_system_upgrade.md,固化现状、权威面、依赖图、WBS、Wave 0～4、测试矩阵、风险和终态;新增 R-283～R-287 并复用 R-221/R-276/R-277,未重复立 research 条目。
+- 状态: todo
+
+## R-284 运行体验事件契约:统一 session/tool/memory/research/voice 的事实投影和瞬时表现事件 [todo]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心 后端 前端
+- 来源: 2026-08-17 二期升级依赖分析;主对话已有 kz:* 事件,但 memory/research/voice 无共同事件词表,动画若直接从 DOM 推断会形成影子状态。
+- 依赖: R-242
+- refs: R-277 R-285 R-286 R-287 docs/design/phase2_system_upgrade.md docs/design/session_state_and_line_runtime.md
+- 内容: 按 phase2_system_upgrade.md §5.4 分四批。批1 定义 snake_case 事件包络、持久事实/瞬时表现/高频 delta 三类边界与词表。批2 memory/research/voice 后端生产者接线,统一 project/session/run/topic/entity 归属。批3 前端按归属先归并 store 再分发 animation/audio/工作台,重放幂等。批4 高频 delta 合并、未知事件诊断、重连恢复和跨会话回归。
+- 边界: 不改变 R-242 的 session 真源;瞬时表现事件允许丢帧且不写长期数据库;动画和音频不得反向决定业务状态;未知事件不崩 UI;事件字段不混用 camelCase,第三方/旧事件在适配层转换。
+- 验收: ①词表和 JSON 契约有 schema/单测;②同一 memory promote/research verify/voice state 事实可重放且不重复副作用;③后台会话事件不驱动当前会话动画;④text delta 压缩后长回复无事件风暴;⑤重连从持久事实恢复状态,不依赖错过的表现事件。
+- 批次: 0/4
+- 状态: todo
+
+## R-285 金色神经流:主对话与记忆层的真实事件驱动动画 [doing]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 前端 视觉
+- 来源: 2026-08-17 用户愿望「记忆层有流动的黄色神经网络,结合主对话运行触发动态效果」;同轮明确由当前主会话完成,自举模型不负责视觉 taste。
+- 执行者: 主会话(SOL)。自举循环只可运行机械检查、补明确回归测试或修已登记缺陷,不得自行重做构图、颜色、运动节奏和视觉层级。
+- 依赖: R-284(仅批3/4硬依赖;批1/2可使用现有 kz:* 与记忆页真实操作先行)
+- refs: R-276 R-286 R-287 docs/design/phase2_system_upgrade.md docs/design/app_icon.md
+- 内容: 按 phase2_system_upgrade.md §5.5 分四批。批1 Canvas 2D 金色神经场、主题 token、ResizeObserver、DPR 上限、后台暂停和 reduced-motion。批2 接现有 turn/text/tool/done/error 与 memory refresh/search/consolidate/cleanup,完成呼吸/流动/结晶三种运动。批3 接 R-284 的 recall retrieved/injected、candidate promoted、research verified、voice listening/speaking。批4 设置开关、质量档位、WebView2 E3、窗口/长对话/性能/视觉回归。
+- 视觉主张: 深暖近黑工作台中的低亮金色生命体;常态静息,真实运行才增强;主对话内容与操作状态始终高于动画。静态网络是运行场,不冒充知识图谱或伪造记忆关系。
+- 验收: ①主对话 run→text→tool→done/error 的动画状态与真实事件一致;②记忆页真实搜索/整理/清理触发对应流动且失败不播放成功结晶;③后台会话不串到当前动画;④Canvas 不拦点击/选择/滚动;⑤reduced-motion 下无连续动画仍保留静态层;⑥暗/亮主题、800/1024/1280 三档可读;⑦WebView2 长回复和记忆页实测无明显帧率/CPU 回退并留截图或录屏工件。
+- 批次: 2/4
+- 进展: 2026-08-17 主会话完成批1+批2。新增 22-neural-flow.js:确定性神经拓扑、单 RAF 调度、活动/静息节流、ResizeObserver、DPR≤1.75、窗口隐藏暂停、reduced-motion 静态降级,实现呼吸/流动/结晶与失败阻塞四类表现;index.html 接主对话 Canvas 与记忆流舞台,style.css 使用 app 金色 token 且 Canvas pointer-events:none。真实接线:07-events.js 的 turn/text/reasoning/tool start/end/compacted/stopped/done/error;13-memory.js 的 snapshot/search/consolidate/candidate discard/cleanup,失败事件独立且不播放成功结晶。测试:T-1786922726035 前端全冒烟通过;T-1786922726036 真实 Chromium 1440/800 视觉验收通过。剩余批3=依赖 R-284 的原生 recall injected/candidate promoted/research/voice 事件;批4=设置/质量档/真实 WebView2 长会话性能与录屏。
+- 状态: doing
+
+## R-287 voice 语音交互:流式 ASR/VAD、语音回复、定制声音与打断 [todo]
+- 优先级: P2
+- 复杂度: 大
+- 标签: 后端 前端 语音 集成
+- 来源: 2026-08-17 用户要求接入语音功能并优先支持定制语音;技术调研结论为 chained voice:音频→ASR→现有文本 Agent→TTS。
+- 依赖: R-284(voice 状态投影;设备/模型基准可先行)
+- refs: R-285 docs/design/phase2_system_upgrade.md
+- 内容: 按 phase2_system_upgrade.md §5.6 分五批。批1 Rust cpal/WASAPI 设备枚举、录音播放和 50 条中英/代码术语基准,sherpa-onnx 与 whisper.cpp 对照。批2 push-to-talk+partial/final 字幕回填输入框。批3 TTS provider adapter 与播放/暂停/停止。批4 经授权的 voice profile:CosyVoice 本地 sidecar、OpenAI Custom Voice、ElevenLabs 可替换。批5 VAD 自动收尾、barge-in、流式首包和 R-285 动画联动。
+- 安全: 默认不保存原始录音;参考音频/consent 放应用数据目录且不进 Git/memory/普通日志;provider key 只在 Rust/后端;删除 voice 同时报告本地与云端结果;无明确授权不得克隆声音。
+- 边界: 第一阶段不改为端到端 speech-to-speech,保留文本、工具、权限、审计和记忆链;模型下载/长时间 GPU 基准先由用户确认执行;任何 provider 激活必须有真实认证输出,配置或容器日志不算完成。
+- 验收: ①真麦克风设备切换、录音和播放;②50 条基准报告 partial/final 延迟、CER/术语修正率、实时率与资源;③ASR 文本进入现有输入和权限链;④TTS 失败不阻断文本回复;⑤真实授权定制声音输出;⑥播放中插话能中断并恢复会话状态;⑦原始音频、consent、key 的存储与删除边界有测试。
+- 批次: 0/5
+- 状态: todo
+
 ## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施独立深度研究模式(文献+仓库调研,论文级产出) [doing]
 - 优先级: P2
 - 复杂度: 大
@@ -9,7 +77,7 @@
 - 内容: 按 docs/design/research_mode.md(2026-08-16 设计基线,定调点全部过审)实施模式基座五批:批1 档位收口(桌面注册 ReadonlyProfile、bash 硬 deny+替代指引指向 latex/plot 专用工具、files/git 只读);批2 topic 工件(S-/F-/report 落 .kanzei/research/<topic>/,前端按 topic 分组);批3 证据口径(V 表双域写进 conventions);批4 回流通道(backlog 只读索引+conventions 注入、req/defect get+add 子集、finding→[todo] 草稿);批5 记忆一元化(memory_search/memory_note 进档,memory.md 停止注入)。研究引擎(四段流水线)由 R-277 承接,工具配套 R-273/R-274/R-275,前端 R-276。
 - 边界: research 不可提交 git、不动既有条目状态(add 草稿除外);不做报告 schema 校验。「不可写 docs/design」一条待重推(新定位下产出是论文而非设计文档,问法需重新表述)。**dev 侧「先计划后自举」的勘察工件落点问题不由本条承接**——那是独立课题,需另立条目。
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
-- refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 docs/design/research_mode_prior_art.md
+- refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-221
 - 进展: 2026-08-16 取活。勘察结论:R-221 的设计真源 docs/design/research_mode.md 状态为「设计基线草案(2026-08-12 八维度审计维度8 产出;定调点待用户逐项确认后转正)」——§2 的八个定调点(主形态/工件落点/证据等级 V 表/回流通道/记忆一元化/档位矩阵/可写 docs 边界/三形态收敛)全部标注「待用户确认」,括号内为本设计的默认建议。按 §1「需求边界不清楚时必须先提问确认,不允许在关键问题上自行假设后直接实现」,八个定调点未获用户拍板前实施会踩边界(如「research 不可写 docs/design」「证据等级单列 V 表」都是用户层面决策)。现状盘点(供解除阻塞后立即开工):批1 档位收口的 files/git 只读已在 R-218 完成(SubagentBase 6 件套),ReadonlyProfile 与 bash 硬 deny+替代指引是既有模式(profiles.rs:652-658 先例);批2-批6 的 topic 工件/证据口径/回流/记忆/三形态均未动。 || 2026-08-16 复核:设计已转正(2026-08-16 定调点全部过审,research_mode.md 已重写为设计基线),原阻塞对象 R-246 已 done 并归档(复核时仍为 doing,现确认已归档),阻塞解除条件全部满足,当场清空阻塞字段,按 §7 批次恢复可执行。 || 2026-08-16 让位:本轮按队列顺序取 R-186(P0 队首),本条 doing→todo 让位,待 R-186 交付后按队列轮转,届时直接开工批1(档位收口:ReadonlyProfile + bash 硬 deny+替代指引,先例 profiles.rs:652-658)。
 - 阻塞: 队列让位(2026-08-16):R-186(P0 队首)本轮推进中,单 WIP 槽不足,本条让位等待队列轮转。解除动作: R-186 关闭后清本字段,直接开工批1(档位收口:ReadonlyProfile + bash 硬 deny+替代指引,先例 profiles.rs:652-658)。解除人: agent。
@@ -199,7 +267,7 @@
 - 阻塞: 队列让位(2026-08-16):R-186(P0 队首)本轮推进中,单 WIP 槽不足,本条让位等待队列轮转。解除动作: R-186 关闭后清本字段,做剩余批4(withSessionRender setter 化、B3、defer 时序与冒烟断言适配、删补偿)。P3 留档。解除人: agent。
 
 ## R-276 research 模式前端:双面板/计划审批/来源呈现 [todo]
-- refs: R-221 R-267 R-273 R-274 D-412 D-413 docs/design/research_workspace.md docs/design/research_mode_prior_art.md
+- refs: R-221 R-267 R-273 R-274 R-283 R-284 D-412 D-413 docs/design/research_workspace.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 依赖: R-221
 - 内容: 按 docs/design/research_workspace.md(2026-08-16 用户首轮实测反馈驱动的设计稿)实施研究工作台六批:批1 设计稿过审;批2 交互修复(去 kind gating,source/finding 与 req/defect 同权:可开/可编/可删/不截断,即 D-413);批3 双面板工作台+报告 tab(内联 [S-00x] 与 file:line 可跳、V 等级徽章与过滤);批4 来源/发现卡片化+筛选+反查+复制引用(BibTeX);批5 全文通道(read 支持 PDF、arXiv 正文通道、来源卡标注摘要级/正文级并与 V 表联动);批6 计划树面板(依赖 R-277)。设计原则取自 prior_art §1 前端横评:结果>过程、溯源三处冗余、计划先行可编辑、数据已结构化的 UI 不许降级成字符串。建议顺序:批2 与批5 先行(不依赖引擎,正是用户点名痛点)。
 - 复杂度: 大
@@ -215,7 +283,7 @@
 - recorded_at: 1786866469845
 
 ## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [todo]
-- refs: R-221 R-273 R-274 R-276 docs/design/research_mode.md docs/design/research_mode_prior_art.md
+- refs: R-221 R-273 R-274 R-276 R-283 R-284 docs/design/research_mode.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 依赖: R-221
 - 内容: 四段流水线:①澄清+计划——产出显式研究计划树数据结构,经用户审批/修改后才跑(UI 由 R-276 承接);②检索-阅读-反思环——串行迭代+有限并发检索,子任务隔离上下文、回传前 RCS 式压缩(相关分+带出处摘要),原始网页/工具输出不直接进主上下文;信息写入 findings.md 时即绑定来源(STORM 信息表先例);反思步找知识缺口决定补搜;③综合写作——先 outline.md 后分节单点一次性生成,重课题写 paper.tex 走 R-273 编译回环修错;④引用校验——FACT 式论断-出处逐条核验(文献=URL 内容支撑,代码=file:line@commit 存在且语义支撑),抽查不过重写该节。支撑件:预算显式旋钮(轮次/token 上限,超限收敛写作而非报错);tantivy 本地全文索引(文献+代码)与 symbols 反查挂同一检索接口(文献论断↔代码实现互证是现有系统空白,kanzei 独有优势);断点续跑(单机状态文件,强杀可恢复)。拆批:批1 计划数据结构+澄清段;批2 检索环+压缩回传+来源绑定;批3 大纲写作+LaTeX 回环;批4 引用校验+预算旋钮;批5 tantivy 索引+symbols 同接口+断点续跑。
 - 复杂度: 大

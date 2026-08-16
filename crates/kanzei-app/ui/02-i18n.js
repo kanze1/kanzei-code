@@ -309,6 +309,7 @@ const I18N_EN = {
   "当前任务还在运行，自动鞭挞将在本轮完成后继续": "The current task is still running; auto-run will continue after this round", "先在左侧「项目」里添加并选择一个目录": "Add and select a directory under Projects first",
   "已撤销排队输入": "Queued input cancelled", "暂无测试记录": "No test runs", "撤销": "Cancel", "撤销这条排队输入": "Cancel this queued input", "跳转到": "Jump to",
   "记忆": "Memory", "检索全部记忆(FTS)": "Search all memory (FTS)", "整理 inbox": "Consolidate inbox",
+  "记忆流": "Memory field", "静息": "Resting", "检索中": "Retrieving", "注入中": "Injecting", "生长中": "Growing", "整理中": "Consolidating", "回收中": "Recycling", "收敛": "Settling", "受阻": "Blocked",
   "展开或收起工具详情": "Toggle tool detail", "开发重心保存失败": "Failed to save work focus",
   "无结果(轮次中断)": "No result (round interrupted)",
   "展开筛选与排序": "Show filters and sort", "展开需求筛选与排序": "Show requirement filters",
