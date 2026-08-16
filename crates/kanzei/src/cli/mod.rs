@@ -17,6 +17,7 @@ pub mod lock;
 pub mod memory;
 pub mod metrics;
 pub mod run;
+pub mod shadow;
 pub mod tracker;
 pub mod work;
 pub mod worktree;
@@ -48,6 +49,7 @@ pub async fn main_entry(args: &[String]) -> anyhow::Result<()> {
         Some("lock") => lock::lock_cli(&args[1..]).await,
         Some("config") => config::config_cli(&args[1..]),
         Some("metrics") => metrics::metrics_cli(&args[1..]).await,
+        Some("shadow") => shadow::shadow_cli(&args[1..]).await,
         Some("replay-eval") => eval::replay_eval_cli(&args[1..]).await,
         Some("run") => run::run_cli(&args[1..]).await,
         Some(_) => run::run_cli(args).await,
@@ -78,6 +80,7 @@ pub(crate) fn usage_text() -> &'static str {
        kz lock status                       # 外部写入者可见性:主根/git 工作树改动/活跃线(R-181)\n\
        kz config schema                     # kanzei.toml 用户面配置参考:全部已知键+说明+默认值(R-220)\n\
        kz metrics [--top N]                 # 巨石度量:生产/测试行数+函数数+最大函数行数+>7参(R-258)\n\
+       kz shadow [--mismatches]             # 会话投影 shadow gate 统计:未知差异=0 达标判定(R-242)\n\
        kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]\n\
 project-root: --project-root <path>  # 显式主根;worktree 里跑也照样落主根的 .kanzei\n\
 project-root: KANZEI_PROJECT_ROOT=<path>  # 同上的环境变量形态;优先级 参数 > 环境变量 > 从 cwd 发现\n\

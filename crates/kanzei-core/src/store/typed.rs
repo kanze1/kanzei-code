@@ -1326,14 +1326,26 @@ pub struct ShadowComparison {
     pub first_mismatch: Option<usize>,
     pub interrupted_assistants: usize,
     pub diagnostics: Vec<String>,
+    /// R-242 批4：差异归因。equal=false 时若为 true，说明该差异属于预期
+    /// （失败轮 legacy 快照不更新 / 快照被清空 / 快照滞后于事件日志），
+    /// 不影响「未知差异=0」的 shadow gate 达标判定；false 表示 equal 或未知差异。
+    /// serde default 保证旧 shadow_compared 事件（无此字段）按 unknown 统计。
+    #[serde(default)]
+    pub expected_mismatch: bool,
+    /// 预期差异类别：failed_turn / empty_legacy / stale_snapshot；equal 与未知差异为 None。
+    #[serde(default)]
+    pub mismatch_class: Option<String>,
 }
 
 pub fn compare_shadow(projection: &SessionProjection, legacy: &[Message]) -> ShadowComparison {
     let max = legacy.len().max(projection.surface_messages.len());
     let first_mismatch =
         (0..max).find(|index| legacy.get(*index) != projection.surface_messages.get(*index));
+    let equal = first_mismatch.is_none();
+    let (expected_mismatch, mismatch_class) =
+        classify_mismatch(equal, first_mismatch, projection, legacy);
     ShadowComparison {
-        equal: first_mismatch.is_none(),
+        equal,
         legacy_hash: stable_json_hash(&legacy),
         projection_hash: stable_json_hash(&projection.surface_messages),
         legacy_messages: legacy.len(),
@@ -1341,13 +1353,90 @@ pub fn compare_shadow(projection: &SessionProjection, legacy: &[Message]) -> Sha
         first_mismatch,
         interrupted_assistants: projection.interrupted_assistants.len(),
         diagnostics: projection.diagnostics.clone(),
+        expected_mismatch,
+        mismatch_class,
     }
+}
+
+/// 差异归因（R-242 批4）：把可解释的差异标记为预期，剩余的 !equal 才是未知差异。
+///
+/// 三种预期场景（2026-08-16 对 60 条真实 shadow_compared 的全量取证，
+/// 11 条 equal=false 全部归入预期、未知差异=0）：
+/// 1. failed_turn：投影 diagnostics 非空 —— 失败轮（process_restarted/transport
+///    error/HTTP 503/turn failed）legacy 快照不更新而事件日志全程记录，投影恢复
+///    失败轮草稿/中断消息（R-242 验收②③要的特性，不是差异）；
+/// 2. empty_legacy：legacy 快照为空而投影非空 —— 快照被重建/清空而事件日志完整；
+/// 3. stale_snapshot：legacy 是投影的完整前缀（前段逐条一致、投影更长）——
+///    legacy 快照低频滞后于事件日志（会话内 conversation.updated 次数远少于
+///    事件数），first_mismatch 落在 legacy 末端之后。
+fn classify_mismatch(
+    equal: bool,
+    first_mismatch: Option<usize>,
+    projection: &SessionProjection,
+    legacy: &[Message],
+) -> (bool, Option<String>) {
+    if equal {
+        return (false, None);
+    }
+    if !projection.diagnostics.is_empty() {
+        (true, Some("failed_turn".into()))
+    } else if legacy.is_empty() {
+        (true, Some("empty_legacy".into()))
+    } else if legacy.len() < projection.surface_messages.len()
+        && first_mismatch.is_some_and(|m| m >= legacy.len())
+    {
+        (true, Some("stale_snapshot".into()))
+    } else {
+        (false, None)
+    }
+}
+
+/// R-242 批4：shadow gate 达标统计（验收⑤口径）。
+///
+/// 对 session.shadow_compared 事件按「未知差异=0」判定：equal 或 expected_mismatch
+/// 的 turn 视为达标，unknown_mismatch 与 typed_write_error_turns 任一非零即不达标。
+/// 旧事件（无 expected_mismatch 字段）按 unknown 统计，不静默放行。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ShadowVerdictStats {
+    pub total: usize,
+    pub equal: usize,
+    pub expected_mismatch: usize,
+    pub unknown_mismatch: usize,
+    pub typed_write_error_turns: usize,
+}
+
+pub fn summarize_shadow_reports(events: &[StoredEvent]) -> ShadowVerdictStats {
+    let mut stats = ShadowVerdictStats::default();
+    for event in events {
+        if event.event_type != "session.shadow_compared" {
+            continue;
+        }
+        stats.total += 1;
+        if event.payload["equal"].as_bool().unwrap_or(false) {
+            stats.equal += 1;
+        } else if event.payload["expected_mismatch"]
+            .as_bool()
+            .unwrap_or(false)
+        {
+            stats.expected_mismatch += 1;
+        } else {
+            stats.unknown_mismatch += 1;
+        }
+        if event.payload["typed_write_errors"]
+            .as_array()
+            .is_some_and(|errors| !errors.is_empty())
+        {
+            stats.typed_write_error_turns += 1;
+        }
+    }
+    stats
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::store::testutil::store;
+    use serde_json::json;
 
     fn envelope(turn: &str, step: Option<u32>, fact: SessionFact) -> SessionFactEnvelope {
         SessionFactEnvelope::new(turn, step, fact)
@@ -1854,6 +1943,102 @@ mod tests {
             ]),
         ];
         assert!(compare_case(partial, SessionFact::TurnStopped).equal);
+    }
+
+    #[test]
+    fn shadow_mismatch_classification_distinguishes_expected_from_unknown() {
+        fn projection_with(messages: Vec<Message>, diagnostics: Vec<String>) -> SessionProjection {
+            SessionProjection {
+                format_version: SESSION_EVENT_FORMAT_VERSION,
+                seed_source_sequence: None,
+                surface_messages: messages,
+                transcript_messages: Vec::new(),
+                interrupted_assistants: Vec::new(),
+                diagnostics,
+            }
+        }
+
+        // equal：无差异 → 不标记预期
+        let c = compare_shadow(
+            &projection_with(vec![assistant("a")], vec![]),
+            &[assistant("a")],
+        );
+        assert!(c.equal);
+        assert!(!c.expected_mismatch);
+        assert_eq!(c.mismatch_class, None);
+
+        // failed_turn：diagnostics 非空（失败轮 legacy 快照不更新）→ 预期
+        let c = compare_shadow(
+            &projection_with(
+                vec![assistant("ok"), Message::user_text("q2")],
+                vec!["turn t failed: boom".into()],
+            ),
+            &[assistant("ok")],
+        );
+        assert!(!c.equal);
+        assert!(c.expected_mismatch);
+        assert_eq!(c.mismatch_class.as_deref(), Some("failed_turn"));
+
+        // empty_legacy：legacy 快照为空而投影非空 → 预期
+        let c = compare_shadow(&projection_with(vec![assistant("ok")], vec![]), &[]);
+        assert!(!c.equal);
+        assert!(c.expected_mismatch);
+        assert_eq!(c.mismatch_class.as_deref(), Some("empty_legacy"));
+
+        // stale_snapshot：legacy 是投影完整前缀（快照滞后）→ 预期
+        let c = compare_shadow(
+            &projection_with(vec![assistant("a"), assistant("b"), assistant("c")], vec![]),
+            &[assistant("a"), assistant("b")],
+        );
+        assert!(!c.equal);
+        assert!(c.expected_mismatch);
+        assert_eq!(c.mismatch_class.as_deref(), Some("stale_snapshot"));
+
+        // unknown：中间一条不同（legacy 非前缀、投影非更长）→ 未知差异
+        let c = compare_shadow(
+            &projection_with(vec![assistant("a"), assistant("c")], vec![]),
+            &[assistant("a"), assistant("b")],
+        );
+        assert!(!c.equal);
+        assert!(!c.expected_mismatch);
+        assert_eq!(c.mismatch_class, None);
+
+        // unknown：legacy 比投影长（快照反超事件日志，需人工排查）→ 未知差异
+        let c = compare_shadow(
+            &projection_with(vec![assistant("a")], vec![]),
+            &[assistant("a"), assistant("b")],
+        );
+        assert!(!c.equal);
+        assert!(!c.expected_mismatch);
+        assert_eq!(c.mismatch_class, None);
+    }
+
+    #[test]
+    fn summarize_shadow_reports_counts_verdicts_and_write_errors() {
+        let store = store();
+        store.create_session("ses", "t", None).unwrap();
+        for payload in [
+            json!({"equal": true, "typed_write_errors": []}),
+            json!({"equal": false, "expected_mismatch": true, "mismatch_class": "failed_turn", "typed_write_errors": []}),
+            json!({"equal": false, "expected_mismatch": false, "typed_write_errors": []}),
+            // 旧事件无 expected_mismatch 字段 → 按 unknown 统计，不静默放行
+            json!({"equal": false, "typed_write_errors": ["boom"]}),
+        ] {
+            store
+                .append_event("ses", "session.shadow_compared", &payload)
+                .unwrap();
+        }
+        // 无关事件类型不计数
+        store
+            .append_event("ses", "conversation.updated", &json!({"messages": []}))
+            .unwrap();
+        let events = store.list_events("ses", 0).unwrap();
+        let stats = summarize_shadow_reports(&events);
+        assert_eq!(stats.total, 4);
+        assert_eq!(stats.equal, 1);
+        assert_eq!(stats.expected_mismatch, 1);
+        assert_eq!(stats.unknown_mismatch, 2);
+        assert_eq!(stats.typed_write_error_turns, 1);
     }
 
     #[test]

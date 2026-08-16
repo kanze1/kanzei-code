@@ -181,12 +181,13 @@ pub use processes::StoredProcess;
 pub use telemetry::{FunnelCounts, RecallEvent, RecallMetrics};
 pub use typed::{
     compare_shadow, decode_session_fact, prepare_typed_session, project_session_facts,
-    stable_json_hash, stable_message_hash, InterruptedAssistant, SessionFact, SessionFactEnvelope,
-    SessionFactError, SessionInvariant, SessionProjection, SessionTurnTerminal, ShadowComparison,
-    TypedSessionWriter, ASSISTANT_DRAFT_APPENDED, ASSISTANT_MESSAGE_COMMITTED,
-    ASSISTANT_MESSAGE_INTERRUPTED, LEGACY_SEEDED, SESSION_EVENT_FORMAT_VERSION, TOOL_CALLED,
-    TOOL_RESULT_COMMITTED, TOOL_RESULT_INTERRUPTED, TURN_COMPLETED, TURN_FAILED, TURN_STARTED,
-    TURN_STOPPED, USER_MESSAGE_COMMITTED,
+    stable_json_hash, stable_message_hash, summarize_shadow_reports, InterruptedAssistant,
+    SessionFact, SessionFactEnvelope, SessionFactError, SessionInvariant, SessionProjection,
+    SessionTurnTerminal, ShadowComparison, ShadowVerdictStats, TypedSessionWriter,
+    ASSISTANT_DRAFT_APPENDED, ASSISTANT_MESSAGE_COMMITTED, ASSISTANT_MESSAGE_INTERRUPTED,
+    LEGACY_SEEDED, SESSION_EVENT_FORMAT_VERSION, TOOL_CALLED, TOOL_RESULT_COMMITTED,
+    TOOL_RESULT_INTERRUPTED, TURN_COMPLETED, TURN_FAILED, TURN_STARTED, TURN_STOPPED,
+    USER_MESSAGE_COMMITTED,
 };
 
 pub use session::{project_session_id, project_state_path};
