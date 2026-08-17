@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tantivy::collector::TopDocs;
+use tantivy::indexer::NoMergePolicy;
 use tantivy::query::QueryParser;
 use tantivy::schema::{Field, Schema, Value as TantivyValue, STORED, STRING, TEXT};
 use tantivy::{doc, Index, IndexReader, TantivyDocument, Term};
@@ -18,6 +19,7 @@ use crate::symbols::SymbolsTool;
 const INDEX_DIR: &str = "index";
 const CHECKPOINT_FILE: &str = "index_checkpoint.json";
 const MAX_DOCUMENT_BYTES: u64 = 3 * 1024 * 1024;
+const INDEX_COMMIT_BATCH: usize = 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct IndexCheckpoint {
@@ -314,13 +316,15 @@ impl Tool for ResearchIndexTool {
                     Ok(value) => value,
                     Err(error) => return ToolOutput::error(error),
                 };
-                let mut writer = match index.writer(50_000_000) {
+                let mut writer = match index.writer_with_num_threads(1, 50_000_000) {
                     Ok(writer) => writer,
                     Err(error) => {
                         return ToolOutput::error(format!("打开 Tantivy writer 失败: {error}"))
                     }
                 };
+                writer.set_merge_policy(Box::new(NoMergePolicy));
                 let start_path = checkpoint.next_path.clone();
+                let mut pending_paths = Vec::with_capacity(INDEX_COMMIT_BATCH);
                 for document in documents {
                     if let Some(start_path) = &start_path {
                         if document.path <= *start_path {
@@ -335,11 +339,26 @@ impl Tool for ResearchIndexTool {
                     )) {
                         return ToolOutput::error(format!("写入 Tantivy 文档失败: {error}"));
                     }
+                    pending_paths.push(document.path);
+                    if pending_paths.len() < INDEX_COMMIT_BATCH {
+                        continue;
+                    }
                     if let Err(error) = writer.commit() {
                         return ToolOutput::error(format!("提交 Tantivy 文档失败: {error}"));
                     }
-                    checkpoint.processed += 1;
-                    checkpoint.next_path = Some(document.path);
+                    checkpoint.processed += pending_paths.len();
+                    checkpoint.next_path = pending_paths.last().cloned();
+                    if let Err(error) = save_checkpoint(&dir, &checkpoint) {
+                        return ToolOutput::error(error);
+                    }
+                    pending_paths.clear();
+                }
+                if !pending_paths.is_empty() {
+                    if let Err(error) = writer.commit() {
+                        return ToolOutput::error(format!("提交 Tantivy 文档失败: {error}"));
+                    }
+                    checkpoint.processed += pending_paths.len();
+                    checkpoint.next_path = pending_paths.last().cloned();
                     if let Err(error) = save_checkpoint(&dir, &checkpoint) {
                         return ToolOutput::error(error);
                     }
@@ -486,6 +505,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(checkpoint.status, "complete");
+        std::fs::remove_dir_all(project).ok();
+    }
+
+    #[tokio::test]
+    async fn batched_index_commits_large_topic_without_write_errors() {
+        let project = root("batched");
+        for number in 0..64 {
+            std::fs::write(
+                project.join(format!("crates/kanzei-tools/src/batch_{number}.rs")),
+                format!("pub fn batch_symbol_{number}() -> &'static str {{ \"batch\" }}"),
+            )
+            .unwrap();
+        }
+        let ctx = ToolCtx::new(project.clone(), project.clone());
+        let output = ResearchIndexTool
+            .execute(json!({ "action": "index_build", "topic": "topic-a" }), &ctx)
+            .await;
+        assert!(!output.is_error, "{}", output.content);
+        let checkpoint: IndexCheckpoint = serde_json::from_str(
+            &std::fs::read_to_string(
+                project.join(".kanzei/research/topic-a/index_checkpoint.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(checkpoint.status, "complete");
+        assert!(checkpoint.total >= 64, "{}", checkpoint.total);
         std::fs::remove_dir_all(project).ok();
     }
 

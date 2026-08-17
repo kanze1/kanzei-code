@@ -5798,3 +5798,28 @@
 - observed_head: 4959cc4f6ddda666603eb56eeaedcfb5573ee1f9
 - observed_worktree_hash: fnv1a64:d31b01e72e2edf70
 - recorded_at: 1786967088790
+
+## D-475 R-277 Windows Tantivy 断点续跑在真实索引写入时 PermissionDenied [fixed] (high)
+- 复杂度: 中
+- 复现: 在真实生产 `ResearchIndexTool` runner 上，对含 5000 个 Rust 文档的 topic 执行 `index_build`：checkpoint 已写到 processed=32/5211 后，Tantivy 报 `Failed to open file for write ... .term` / Windows code 5；随后同一 topic 执行 `index_resume`，仍在写入新 .term 文件时报 code 5。
+- 影响: R-277 断点续跑在 Windows 真实大索引中无法从已有 checkpoint 继续，验收⑥尚未通过；已有部分索引与 checkpoint 会残留。
+- 来源: self-found：R-277 验收⑥真实进程 runner；runner 直接调用 `ResearchIndexTool` 生产实现，非替身服务。
+- 标签: 核心
+- 进展: D-475 修复已完成并逐项核对：①Windows Tantivy PermissionDenied 根因通过 `crates/kanzei-tools/src/research_index.rs:319-325` 固定单 worker `writer_with_num_threads(1, 50_000_000)` 并设置 `NoMergePolicy`，避免多 worker/后台 merge 的动态 segment 文件争用；②`research_index.rs:327-365` 以 1024 文档批次 commit，只有 commit 成功后才在 `349-353`/`360-364` 推进 checkpoint，强杀最多重做当前批次；③`research_index.rs:511-536` 新增 64 文档批量索引回归，T-1786922726164 3 passed/338 filtered；④真实 Windows 5211 文档生产链路通过 T-1786922726165：独立监控强杀 kz pid=96200 后 checkpoint 为 1024/5211 running，真实 `index_resume` 返回 5211/5211 complete；⑤关闭前 workspace 全量 T-1786922726166：0 failed，kanzei-tools 340 passed/1 ignored，kanzei-app 202 passed，memory 143 passed，其余 crate/doc-tests 全部通过。
+- refs: R-277
+- 优先级: P1
+- observed_head: b02a6baa061442e096d4c7385b7c9a4c2d89e171
+- observed_worktree_hash: fnv1a64:955132ac2f786246
+- recorded_at: 1786969571474
+
+## D-470 R-277 research_index 使用不匹配 Tantivy 0.22 的 API [fixed] (medium)
+- 复现: 运行 `cargo test -p kanzei-tools research_index`；`research_index.rs` 编译报 Tantivy 0.22 的 `OwnedValue::as_str` trait 未导入、`IndexWriter` 无 `delete_documents` 方法，并有 schema fields 未使用警告。
+- 影响: 批5统一 Tantivy 索引模块无法编译，无法验证文献/代码检索和断点恢复。
+- 来源: self-found：R-277 批5首次 Tantivy 单模块编译。
+- 标签: 核心
+- refs: R-277
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/research_index.rs:9-12,169-190,334-340` 已完成 Tantivy 0.22 API 对齐：导入 Value trait、用 delete_term、显式传播 add_document 错误；T-1786922726164 research_index 3 passed/338 filtered，T-178692272272? typo ignored;关闭前 T-1786922726166 workspace 0 failed。 [terminal-fix 2026-08-17] fixed → fixed: 修正 archived fixed 条目的进展证据拼写错误；状态仍为 fixed，真实引用只保留 T-1786922726164 与 T-1786922726166。
+- observed_head: b02a6baa061442e096d4c7385b7c9a4c2d89e171
+- observed_worktree_hash: fnv1a64:373496cfd18d63e4
+- recorded_at: 1786969643703

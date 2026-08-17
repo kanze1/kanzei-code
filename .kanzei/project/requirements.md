@@ -266,6 +266,7 @@
 - observed_head: b02a6baa061442e096d4c7385b7c9a4c2d89e171
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786967440115
+- 停车: D-475 是由 R-277 真实验收发现的高严重度阻断缺陷；按 defect-first 让出唯一 mutation 槽，待 D-475 修复、真实强杀续跑证据完成后恢复 R-277。恢复人：agent。
 
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1

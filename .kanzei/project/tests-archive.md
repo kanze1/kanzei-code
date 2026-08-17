@@ -5740,3 +5740,66 @@
 - 摘要: R-277 关闭前 workspace 全量验证通过：所有 workspace test 组 0 failed；kanzei-tools 339 passed/1 ignored，kanzei-app 202 passed，kanzei-memory 143 passed，其余 workspace crate 全部通过，Doc-tests 无失败。
 - 关联: R-277 R-273 R-274 R-276
 - 收尾: 1786967398
+
+## T-1786922726159 R-277 D-475 Tantivy 批量 commit 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools research_index
+- 时长: 6.7s
+- 摘要: 批量 Tantivy commit 修复定向回归：rustfmt 通过；research_index 3 passed、338 filtered，新增 64 文档批量写入无错误，并覆盖统一文献/代码检索、resume、损坏 checkpoint 保护。
+- 关联: R-277 D-475
+- 收尾: 1786968120
+
+## T-1786922726160 R-277 D-475 低频 Tantivy merge 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools research_index
+- 时长: 4.0s
+- 摘要: 将 Tantivy commit 批次从 16 调整为 1024 后，rustfmt 与 research_index 3 项定向回归通过；覆盖批量 64 文档、统一检索/resume、损坏 checkpoint 保护。
+- 关联: R-277 D-475
+- 收尾: 1786968209
+
+## T-1786922726161 R-277 D-475 NoMergePolicy 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools research_index
+- 时长: 5.3s
+- 摘要: 接入 Tantivy NoMergePolicy 后，rustfmt 通过；research_index 3 passed/338 filtered，覆盖批量索引、统一检索/resume、损坏 checkpoint 保护。
+- 关联: R-277 D-475
+- 收尾: 1786968534
+
+## T-1786922726162 R-277 D-475 低频 commit 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools research_index
+- 时长: 4.3s
+- 摘要: Tantivy 显式 commit 批次调整为 32768，rustfmt 与 research_index 3 项定向回归通过；覆盖批量索引、统一检索/resume、损坏 checkpoint 保护。
+- 关联: R-277 D-475
+- 收尾: 1786968644
+
+## T-1786922726163 R-277 D-475 单 worker Tantivy 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools research_index
+- 时长: 5.4s
+- 摘要: Tantivy writer 固定单 worker 后，rustfmt 与 research_index 3 项定向回归通过；覆盖批量索引、统一检索/resume、损坏 checkpoint 保护。
+- 关联: R-277 D-475
+- 收尾: 1786969106
+
+## T-1786922726164 R-277 D-475 5211 范围 checkpoint 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools research_index
+- 时长: 4.1s
+- 摘要: 按原始 5211 文档验收范围恢复 1024 checkpoint 批次，单 worker + NoMergePolicy 下 rustfmt 与 research_index 3 项定向回归通过。
+- 关联: R-277 D-475
+- 收尾: 1786969217
+
+## T-1786922726165 R-277 D-475 真实 5211 文档强杀与 index_resume [passed]
+- 命令: Start-Process target\debug\kz.exe -ArgumentList 'run --new --prompt-file=.kanzei/research/r277-kill-smoke/index_prompt.txt'; monitor checkpoint status=running processed>=1024 then Stop-Process -Force; Start-Process target\debug\kz.exe -ArgumentList 'run --new --prompt-file=.kanzei/research/r277-kill-smoke/resume_prompt.txt'
+- 摘要: 真实 Windows ResearchProfile 链路：独立监控捕获并强制终止 kz pid=96200，checkpoint 为 processed=1024/5211、status=running、next_path=r277-kill-fixture/fixture_00814.rs；随后同一真实 kz run 的 index_resume 成功返回 processed=5211/5211、status=complete、next_path=null。全程使用生产 ResearchIndexTool，非替身服务。
+- 关联: R-277 D-475
+- 收尾: 1786969419
+
+## T-1786922726166 R-277 D-475 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 44.2s
+- 摘要: D-475 关闭前 workspace 全量回归：所有 workspace test 组 0 failed；kanzei-tools 340 passed/1 ignored，kanzei-app 202 passed，kanzei-memory 143 passed，其余 crate/doc-tests 全部通过。
+- 关联: R-277 D-475
+- 收尾: 1786969550
+
+## T-1786922726167 R-277 D-475 当前 staged fingerprint 回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 36.1s
+- 摘要: 提交前按当前 staged research_index 源码重跑：kanzei-tools 340 passed，1 ignored；用于通过 source fingerprint 门禁，研究索引批量/单 worker/NoMergePolicy 与 resume 回归包含在全套测试中。
+- 关联: R-277 D-475
+- 收尾: 1786969765
+- 源码指纹: 7c8f6f2483e4ecc7
