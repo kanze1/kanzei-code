@@ -1,5 +1,6 @@
 //! Memory commands and inbox consolidation.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use serde_json::json;
@@ -13,6 +14,23 @@ fn memory_stores_for(project_dir: &str) -> Vec<kanzei_tools::memory::MemoryStore
     let mut stores = vec![kanzei_tools::memory::MemoryStore::project(&root)];
     stores.extend(kanzei_tools::memory::MemoryStore::global());
     stores
+}
+
+fn promotion_gap_count(
+    entries: &[(PathBuf, kanzei_tools::memory::MemoryEntry)],
+    source_backed: &HashSet<String>,
+) -> usize {
+    entries
+        .iter()
+        .filter(|(_, entry)| {
+            let legacy_exempt = entry.status == "active"
+                && entry.source.trim() == "user"
+                && entry.refs().is_empty();
+            matches!(entry.status.as_str(), "candidate" | "shadow" | "active")
+                && !legacy_exempt
+                && !source_backed.contains(&entry.id)
+        })
+        .count()
 }
 
 #[tauri::command]
@@ -53,17 +71,15 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
         .lines()
         .find_map(|line| line.strip_prefix("## note ").map(str::to_string));
     let checkpoint = store.read_inbox_checkpoint();
-    let promotion_gaps = entries
-        .iter()
-        .filter(|(_, entry)| {
-            matches!(entry.status.as_str(), "candidate" | "shadow" | "active")
-                && (entry.source.trim().is_empty() || entry.refs().is_empty())
-        })
-        .count();
+    let state = kanzei_core::project_state_path(&root);
+    let source_backed = kanzei_core::SessionStore::open(&state)
+        .ok()
+        .and_then(|session| session.memory_ids_with_sources().ok())
+        .unwrap_or_default();
+    let promotion_gaps = promotion_gap_count(&entries, &source_backed);
     let recall = store.recall_profile();
     let recalled = recall.values().map(|(count, _)| *count).sum::<u64>();
     let fetched = recall.values().map(|(_, count)| *count).sum::<u64>();
-    let state = kanzei_core::project_state_path(&root);
     let effects = kanzei_core::SessionStore::open(&state)
         .ok()
         .and_then(|session| session.memory_effects().ok())
@@ -357,4 +373,54 @@ pub(crate) async fn consolidate_memory_inbox(
         current_episode_id,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::promotion_gap_count;
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
+    fn entry(
+        id: &str,
+        status: &str,
+        source: &str,
+        refs: &[(&str, &str)],
+    ) -> kanzei_tools::memory::MemoryEntry {
+        kanzei_tools::memory::MemoryEntry {
+            id: id.into(),
+            scope: "project".into(),
+            category: "fact".into(),
+            title: id.into(),
+            description: "test hook".into(),
+            status: status.into(),
+            created: "2026-01-01".into(),
+            updated: "2026-01-01".into(),
+            source: source.into(),
+            extras: refs
+                .iter()
+                .map(|(key, value)| ((*key).into(), (*value).into()))
+                .collect(),
+            body: "test".into(),
+        }
+    }
+
+    #[test]
+    fn promotion_gaps_uses_db_provenance_and_keeps_legacy_active_exempt() {
+        let entries = vec![
+            (PathBuf::new(), entry("M-legacy", "active", "user", &[])),
+            (
+                PathBuf::new(),
+                entry("M-linked", "candidate", "manager", &[]),
+            ),
+            (
+                PathBuf::new(),
+                entry("M-unlinked", "active", "user", &[("refs", "R-1")]),
+            ),
+        ];
+        let mut source_backed = HashSet::from(["M-linked".to_string()]);
+        assert_eq!(promotion_gap_count(&entries, &source_backed), 1);
+        source_backed.insert("M-unlinked".into());
+        assert_eq!(promotion_gap_count(&entries, &source_backed), 0);
+    }
 }

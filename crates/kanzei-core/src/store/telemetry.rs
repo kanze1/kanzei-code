@@ -1,6 +1,7 @@
 //! 记忆漏斗遥测(R-161)。事实写入 state.db，CLI 与桌面端共享此接口。
 
 use rusqlite::{params, OptionalExtension};
+use std::collections::HashSet;
 
 use super::{now_ms, SessionStore, StoreError};
 
@@ -89,6 +90,15 @@ impl SessionStore {
             params![memory_id, episode_id, event_start, event_end, source_hash],
         )?;
         Ok(())
+    }
+
+    /// 返回已有机器 provenance 的记忆 ID，供控制面区分真实来源与 frontmatter 文字。
+    pub fn memory_ids_with_sources(&self) -> Result<HashSet<String>, StoreError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT DISTINCT memory_id FROM memory_sources")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.filter_map(Result::ok).collect())
     }
 
     #[allow(clippy::too_many_arguments)] // 指标列与持久化表一一对应，改为对象会同时破坏导出调用方。

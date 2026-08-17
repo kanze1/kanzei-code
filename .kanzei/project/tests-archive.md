@@ -6775,3 +6775,25 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 关联: D-507
 - 收尾: 1787009150
 - 源码指纹: 5dbb050aabe05a8b
+
+## T-1786922726301 D-507 B2 core provenance 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 0.4s
+- 摘要: D-507 批2 provenance API 定向回归：kanzei-core 226 passed，0 failed；memory_ids_with_sources 查询真实 memory_sources。
+- 关联: D-507
+- 收尾: 1787009464
+
+## T-1786922726302 D-507 B2 控制面 provenance 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.0s
+- 摘要: D-507 批2控制面回归：kanzei-app 207 passed，新增 promotion_gaps 口径测试通过，存量 active 豁免与 memory_sources 接线均覆盖。
+- 关联: D-507
+- 收尾: 1787009470
+
+## T-1786922726303 D-507 B2 当前暂存源码指纹定向回归 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-app
+- 时长: 11.5s
+- 摘要: 按当前暂存源码重新背书：kanzei-core 226 passed、kanzei-app 207 passed；覆盖 memory_ids_with_sources 与 promotion_gaps 存量豁免回归。
+- 关联: D-507
+- 收尾: 1787009537
+- 源码指纹: cf676c8cc2709dfb
