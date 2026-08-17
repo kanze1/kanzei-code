@@ -38,10 +38,10 @@
 - 验收: 四处口径各自修正并有测试;生产数据可复算;控制面数字与库中一致
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-507
-- 进展: 批2/4 已完成并待提交：① `crates/kanzei-core/src/store/telemetry.rs:95-102` 新增 `memory_ids_with_sources()`，控制面读取真实 `memory_sources` 主键集合；② `crates/kanzei-app/src/memory.rs:6-34,74-75` 的 `promotion_gap_count` 与 `memory_control_plane:76-80` 改为按数据库 provenance 计数，保留 R-235 约定的 `source=user`、active、无 refs 存量豁免；③ `memory::tests::promotion_gaps_uses_db_provenance_and_keeps_legacy_active_exempt` 覆盖存量豁免、无来源新条目和补齐来源后的缺口收敛；④ T-1786922726301（core 226 passed）、T-1786922726302（app 207 passed）。下一步批3：修 Tier0 指纹命中不写 record_hits 且 SearchHit 为空。
-- observed_head: 1f059e76c9cb8dc715ceb35f3513dededfc9c703
-- observed_worktree_hash: fnv1a64:efdf02ac4dab18e4
-- recorded_at: 1787009478851
+- 进展: 批2/4 已完成并提交：① `crates/kanzei-core/src/store/telemetry.rs:95-102` 新增 `memory_ids_with_sources()`，控制面读取真实 `memory_sources` 主键集合；② `crates/kanzei-app/src/memory.rs:6-34,74-75` 的 `promotion_gap_count` 与 `memory_control_plane:76-80` 改为按数据库 provenance 计数，保留 R-235 约定的 `source=user`、active、无 refs 存量豁免；③ `memory::tests::promotion_gaps_uses_db_provenance_and_keeps_legacy_active_exempt` 覆盖存量豁免、无来源新条目和补齐来源后的缺口收敛；④ T-1786922726301、T-1786922726302、T-1786922726303 均通过；提交 `4e78e0fd`。下一步批3：修 Tier0 指纹命中不写 record_hits 且 SearchHit 空。
+- observed_head: 4e78e0fd9563da57003b2e457443d355bc3f3f4f
+- observed_worktree_hash: fnv1a64:77df4b278f46f295
+- recorded_at: 1787009610828
 - 批次: 2/4
 
 ## D-508 工具事件落库每事件新开 SessionStore 连接(D-374 未铺到 record_live_trace_at_path) [open] (low)
