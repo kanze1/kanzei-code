@@ -14,3 +14,201 @@
 - observed_worktree_hash: fnv1a64:b5a0bda6129c84a4
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
+
+## D-489 手机发消息桌面会话列表不刷新:kz:mobile-message 刷新逻辑位于不可达分支 [open] (high)
+- 复现: crates/kanzei-app/ui/01-core.js:181-186 的 refreshConversationLists/refreshProcesses 嵌在 if(controlEvent) 内,而 controlEvent 集合(01-core.js:119-125)只含 ask/status/done/error/stopped/idle,不含 kz:mobile-message;实际生效的 01-core.js:223 handler 只做 log
+- 影响: 手机端发消息后桌面会话列表与进程列表不刷新,与 01-core.js:57/213-214 注释承诺相反,移动双向消息体验断裂
+- 来源: 2026-08-18 全库勘察(主会话五路并行审计)
+- 标签: 前端
+- 验收: 手机发消息后桌面列表自动刷新;前端冒烟断言 kz:mobile-message 路径可达;六条冒烟全绿
+- 优先级: P1
+
+## D-490 复制上下文只读活 DOM,长会话导出被 trim 静默截断 [open] (high)
+- 复现: crates/kanzei-app/ui/07-events.js:810-836 遍历 activePane.children;01-core.js:486-496 trimLivePane 超 600 条时从头部砍到 400 条;导出结果无任何截断标记(pane-trimmed-hint 不匹配任何分支被跳过)
+- 影响: 长会话导出静默丢前半段;该按钮用途正是贴给其他 AI,静默丢数据是最坏失败模式
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 前端
+- 验收: 导出改走完整会话数据源或带明确截断标记;长会话(大于600条)回归用例覆盖
+- 优先级: P1
+
+## D-491 轮次与当前工具 live-* 显示整体失效:目标 DOM 已删除,写入函数全部空转 [open] (medium)
+- 复现: crates/kanzei-app/ui/06-activity.js:880-911 liveSet/liveIdle/liveTurn 写 #live-turn/#live-action/#live-note/#live-focus,index.html 只剩 live-section/live-status 两个 id;调用点 07-events.js:28/186/427 全部静默 no-op;scripts/ui-i18n-smoke.mjs:31 白名单仍留 live-turn 后门
+- 影响: 第N/M轮与当前工具实时显示功能整体不存在,冒烟不报;07-events.js:21 注释承诺已失真
+- 来源: 2026-08-18 全库勘察(主会话);audit_20260812_eight_dimensions.md:135 曾点名
+- 标签: 前端
+- 验收: 恢复显示或删除死管线并同步清理 i18n 白名单;冒烟覆盖该路径,DOM id 不存在时报红
+- 优先级: P1
+
+## D-492 记忆检索 status 过滤在 LIMIT 之后,active 可被 candidate 挤出 top-24 窗口 [open] (high)
+- 复现: crates/kanzei-memory/src/memory/retrieval/search.rs:44,63-72 先 SQL LIMIT 24 再在 Rust 侧过滤 status;FTS 内 45 条 candidate 与 28 条 active 同池抢窗口;status 是表中列却未进 WHERE
+- 影响: 查 active 时 active 条目可被候选整体挤出,检索质量随候选堆积持续劣化(与候选堆积缺陷叠加)
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: status 过滤进 SQL WHERE;回归覆盖 active 不被 candidate 挤出场景;cargo test -p kanzei-memory 通过
+- 优先级: P1
+
+## D-493 记忆排序与一键整理读停写的 memory_recalls 表,按过期统计降级 active [open] (high)
+- 复现: crates/kanzei-memory/src/memory/index.rs:249 decision_weight 采纳率读 index.db memory_recalls,而 record_recall(retrieval/recall.rs:14)生产已无调用方,表最后写入 at=1786640788930(约08-13);crates/kanzei-app/src/memory.rs:60-62,171-178,205-216 的一键整理/零采纳清单/控制面采纳率同源
+- 影响: 排序信号冻结在 5 天前;memory_cleanup_demote 会按过期统计把 active 降级,是会造成真实数据损失的路径
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 采纳信号改接现行遥测(recall_events/生命周期账本)或明确停用该降级依据;降级操作前有数据新鲜度校验;回归测试覆盖
+- 优先级: P1
+
+## D-494 记忆写入三闸可被 force 一票绕过且候选同 subject 并存,单日堆出 96 条 candidate [open] (high)
+- refs: D-492
+- 复现: crates/kanzei-memory/src/memory/manager.rs:125,168,187 三闸均受 force=true 旁路且拒绝文案主动提示 force;admission.rs:78 subject 不变量只对 active 生效,candidate 间同 subject 无限并存;admission.rs:119 指纹闸只扫 body 不扫 description(M-177/M-178 description 躺着字面量 [fp:tool|kind]);admission.rs:26,230 近似判重共同词下限 8 对 CJK 短标题形同虚设。实证:2026-08-17 单日 96 条 candidate,M-159/160、M-168/169、M-177/178 三对字节级重复
+- 影响: 候选堆积挤占检索 top-24 窗口(与 D-492 叠加),重复记忆污染库,三闸实际拦截率无法保障
+- 来源: 2026-08-18 全库勘察(主会话);R-216 三闸交付后实测
+- 标签: 后端
+- 验收: force 降权(仅语义闸可绕或需附证据)或等效收紧;candidate 间同 subject 判重生效;description 纳入指纹闸;CJK 短标题判重有效;既有三对重复清理;新增回归测试
+- 优先级: P1
+
+## D-495 memory_fts 派生索引与主目录失步(73 行 vs 137 文件) [open] (medium)
+- 复现: crates/kanzei-memory/src/memory/store.rs:793-830 fts_desynced 守护只挂检索热路径;当前 memory_fts 73 行(active 28/candidate 45) vs 主目录 137 个 M-*.md,写路径有若干轮 refresh_derived 未生效
+- 影响: 部分条目完全不可检索;失步无自动修复
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 写路径保证派生索引刷新或提供自动检测修复;当前失步数据重建对齐;回归测试
+- 优先级: P1
+
+## D-496 ui-connectivity 修复件丢在未合并分支,归档缺陷已按已修复关闭 [open] (high)
+- 复现: scripts/ui-connectivity-browser.mjs 与 scripts/key-paths.json 只存在于分支 kanzei/thread-line-1786851588846-1(c3bde1e8),git merge-base --is-ancestor 对 HEAD 为否;defects-archive.md:4930 对应条目已标 fixed
+- 影响: 交付实际丢失:死链检查 KEY_PATHS 仍是 scripts/ui-connectivity.mjs:33 的脚本内 const,且该检查不在 verify 12 步与 ci 内;归档证据与真实状态矛盾
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 流程
+- 验收: 合并或重做该交付;核查该分支上有无其他未合并交付并逐一处置;归档条目补真实证据说明;ui-connectivity 是否入门禁给出结论
+- 优先级: P1
+
+## D-498 前端冒烟执行顺序与浏览器实际加载顺序不一致,TDZ 复刻语义失效 [open] (high)
+- refs: R-264 docs/design/ui_esm_migration.md
+- 复现: scripts/ui-sources.mjs:22-24 按 readdir 文件名排序;crates/kanzei-app/ui/index.html:1125-1148 实际加载序为 19-arch→20-lines→19-research→21→22→18-startup,18-startup.js 浏览器里最后、冒烟里第 19;06-activity/06-agent-panel 与 19-arch/19-research 两组前缀重号
+- 影响: ui_esm_migration.md:42-45 声称的逐文件 TDZ 复刻语义名存实亡;18-startup.js 顶层跨文件读从未按真实顺序验证;数字前缀=加载顺序的约定(monolith_decomposition.md:94)已失效
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 流程
+- 验收: 冒烟按 index.html 实际 script 顺序执行(解析 HTML 或显式清单);前缀与加载序恢复一致或废除该约定并留档;冒烟含顺序一致性断言
+- 优先级: P1
+
+## D-499 background.rs 日志泵同步阻塞写+全量重写 O(n^2)+full_output 与注册表无界增长 [open] (high)
+- 复现: crates/kanzei-tools/src/background.rs:213 tokio::spawn 的日志泵内 :237/:249 调用同步 write_atomic(全同步 create_dir_all+临时文件+fsync+rename,kanzei-base/src/atomic_file.rs:40);:229-239 每 5s/64KiB 把累积全量 buffer 覆写整文件;:68 full_output 只 extend 从不裁剪(对照 output 走 append_bounded :141);:131 全局注册表只有插入(:288/:631)无 remove,:665 list 含已退出;adopt 路径 :597 整份日志一次读进内存
+- 影响: 卡 tokio worker;长跑 dev server 日志 100MB 时每次刷盘写 100MB(总写入 O(n^2));常驻进程内存无限增长,每个跑过的后台进程永久驻留
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 写盘异步化或专线;改增量追加;full_output 设上界;已退出进程可回收;回归测试覆盖
+- 优先级: P1
+
+## D-500 Embedder::embed 每次新建 tokio Runtime,async 上下文调用直接 panic,且逐条调用浪费批量签名 [open] (medium)
+- 复现: crates/kanzei-memory/src/embed.rs:95-98 同步 trait 内 Runtime::new+block_on,async 上下文调用报 Cannot start a runtime from within a runtime;调用方 index.rs:193/404/653 在检索/重建路径;vectorize(index.rs:190-193) 每条 entry 单独调 embed(&[&text]),浪费 &[&str] 批量签名
+- 影响: 每次调用起整套 worker 线程+IO driver;hybrid 检索一旦启用(R-294 路线拍板)即引爆;全量 rebuild N 次 HTTP 往返
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 共享 runtime 或改 async 接口;vectorize 批量化;async 上下文调用有定向测试
+- 优先级: P1
+- refs: R-294
+
+## D-501 移动端交付游标持久化失败仍前进,重连后重复收事件 [open] (medium)
+- 复现: crates/kanzei-app/src/mobile.rs:588-590 let _ = store.set_delivery_cursor(...) 丢弃错误后无条件 cursor = event.sequence
+- 影响: 写库失败时内存游标与库中游标分叉,重连后按库中旧游标重放,手机端重复收事件——数据正确性问题
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 持久化失败不前进内存游标(或重试并告警);故障注入测试覆盖
+- 优先级: P1
+
+## D-502 移动端 SSE 每 300ms 轮询与每条事件各开一次 DB 连接 [open] (medium)
+- 复现: crates/kanzei-app/src/mobile.rs:578 每 300ms 轮询开一次 SessionStore::open,:588 每条事件再开一次;HTTP 请求路径 :265/:270 一次请求开两条;团队自测一次 open 约 4.3ms(run/events/mod.rs:92-98,D-374 已为 run trace 做连接复用)
+- 影响: 每台配对设备一条常驻线程按此频率烧连接,零收益;132MB 库含 migrate+housekeeping 查询
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 连接复用铺到 mobile 全路径;轮询循环单连接;修后耗时可量化对比
+- 优先级: P1
+
+## D-503 设置页 models_list/fast_model_status 失败被 catch return 静默吞 [open] (medium)
+- 复现: crates/kanzei-app/ui/16-settings.js:339 catch{return}(models_list 失败模型下拉停旧值),:404 同款(fast_model_status 失败状态行不更新);:393-395 注释自陈全部静默失效而界面毫无线索
+- 影响: 后端失败时用户无从判断,模型下拉与安装按钮状态不明
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 前端
+- 验收: 两处失败均有用户可见反馈(toast 或状态行);冒烟断言
+- 优先级: P2
+
+## D-504 鞭挞配置双真源与 autoRounds 双计数器,四副本靠手工互拷同步 [open] (medium)
+- 复现: crates/kanzei-app/ui/08-compose.js:1088-1097 lineAutoConfig 活动线读 DOM 复选框、其他线读 processAutoState Map;同状态另存 localStorage(kz-process-auto-state) 与后端 ui_prefs/auto_state_update(:1014-1021,:1057);autoRounds 全局(:4)与 state.auto_rounds(:337,:380) 靠 07-events.js:439/449/465 手工互拷,:1078 切线再读回
+- 影响: 四副本两条同步路径,漏一处即显示 0/10 实际下一轮撞上限;历史已翻车两次
+- 来源: 2026-08-18 全库勘察(主会话);D-290/D-353 历史翻车点
+- 标签: 前端
+- 验收: 收敛单一真源(Map/state),DOM 只做投影;切线/后台线/重启回归用例;冒烟覆盖
+- 优先级: P2
+
+## D-505 收活合并门禁用 CSS class 当闸门状态 [open] (medium)
+- 复现: crates/kanzei-app/ui/20-lines.js:788 postMergeStep.classList.contains(confirmed) 决定能否回写 tracker,是 R-222 前置(合并后全量通过)的唯一判据
+- 影响: 任何重渲染或样式重构都能抹掉或伪造闸门状态
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 前端
+- 验收: 闸门状态入 JS 状态对象,class 只做展示;回归覆盖重渲染场景
+- 优先级: P2
+
+## D-506 桌面端热路径 15 处 std Mutex lock().unwrap(),一处持锁 panic 即毒化级联应用僵死 [open] (medium)
+- 复现: crates/kanzei-app/src/state.rs:198/233/576/671/737、processes/registry.rs:65/262、run/coordinator.rs:53/61/101、run/persistence.rs:175/487、mobile.rs:341/369/424 均 .lock().unwrap();仓内已有正确写法未铺开(orchestration_trace.rs:41-44、kanzei-core/src/store/mod.rs:69 用 into_inner 恢复)
+- 影响: 任一处持锁 panic 把锁永久毒化,之后每个 Tauri 命令跟着 panic,整个应用僵死
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 统一改 into_inner 恢复(或等效策略);15 处全覆盖;防回归手段(clippy lint 或巡检)
+- 优先级: P2
+
+## D-507 记忆遥测口径批次:injected 恒真/promotion_gaps 漏查/Tier0 无 hits/23% recall 悬空 [open] (medium)
+- refs: R-235
+- 复现: crates/kanzei-memory/src/memory/tools.rs:107-114 memory_search 无条件 injected=true(precision 恒 1.0);crates/kanzei-app/src/memory.rs:53-59 promotion_gaps 用 source/refs 空判冒充 provenance 检查不查 memory_sources(28 条 source=user 零证据 active 不计入);index.rs:300-310 Tier0 指纹命中直接 return 不记 record_hits 且 SearchHit 空;kanzei-core/src/store/telemetry.rs:136-147 episode 回填仅限 append_episode 成功,803/3537 行 recall_events 悬空
+- 影响: 漏斗对 memory_search 无信息量;控制面缺口数偏低;指纹通道画像恒 0;23% 召回无法 join episodes
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 四处口径各自修正并有测试;生产数据可复算;控制面数字与库中一致
+- 优先级: P2
+
+## D-508 工具事件落库每事件新开 SessionStore 连接(D-374 未铺到 record_live_trace_at_path) [open] (low)
+- 复现: crates/kanzei-app/src/state.rs:372 record_live_trace_at_path 每次 SessionStore::open,7 处调用点
+- 影响: 每事件约 4.3ms 白烧,长会话工具密集时可感
+- 来源: 2026-08-18 全库勘察(主会话);audit_20260812_eight_dimensions.md:32 曾建议顺 D-297 做,D-297 已关闭未做
+- 标签: 后端
+- 验收: 复用连接;修后耗时对比留档
+- 优先级: P2
+
+## D-509 启动步骤等 37 处中文字面量绕过 i18n,i18n 冒烟结构性盲区 [open] (medium)
+- 复现: crates/kanzei-app/ui/18-startup.js:40,47,59-63 七个 label 经 :35 toastError 直出中文;16-settings.js:755 回环、08-compose.js:196,293 线路已关闭等 JS 侧共 37 处中文字面量未包 t() 也不在词表;scripts/ui-i18n-smoke.mjs:10-12 只校验 t(key) 的 key 在词表、:16-26 只扫 index.html
+- 影响: 英文态启动失败时唯一可见信息是中文;冒烟绿不等于覆盖
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 前端
+- 验收: 37 处入词表走 t();冒烟新增 JS 中文字面量未包 t() 的检查;i18n 冒烟通过
+- 优先级: P2
+
+## D-510 verify 步骤空集假绿与提交门禁只报首个失败 [open] (medium)
+- refs: docs/design/ci_release_evidence_chain.md
+- 复现: scripts/verify.ps1:25 Step-With-Timing 靠 LASTEXITCODE 判定,:44-49 ui 目录为空时 ForEach-Object 一次不执行沿用上一步 cargo test 的 0 直接 pass;crates/kanzei-tools/src/git.rs:893 fmt/clippy 已并行跑却在 :894-899 只返回第一个 Err
+- 影响: 假绿风险;提交阶段聚合报告缺位
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 流程
+- 验收: 空集显式失败;git.rs 侧聚合全部失败一次报出;守护测试(git.rs:1896)不回归
+- 优先级: P2
+
+## D-511 CDP 退役残留清理:e2e-smoke.mjs 与 probe-webview-cdp.mjs [open] (low)
+- refs: R-101
+- 复现: scripts/e2e-smoke.mjs:1,44 仍是 chromium.connectOverCDP;scripts/probe-webview-cdp.mjs 整份仍在
+- 影响: 退役路线代码残留误导后续维护
+- 来源: 2026-08-18 全库勘察(主会话);R-101 技术路线 2026-08-17 已宣布 CDP 退役
+- 标签: 流程
+- 验收: 删除或按新路线改造;verify/文档无 CDP 引用残留
+- 优先级: P3
+
+## D-512 前端死代码与孤儿引用批次清理 [open] (low)
+- 复现: 零调用函数四个:crates/kanzei-app/ui/15-views-misc.js:698 renderConversationList、08-compose.js:64 phasePipelineOn、05-chat-render.js:303 toolIconId、06-agent-panel.js:42 agentToolType;03-shell.js:290-296,356,366 三处 #sidebar-toggle 残留(元素已删,真身是 #rail-sidebar-toggle);06-agent-panel.js:372 与 16-settings.js:423 kz:fast-setup 双订阅;22-neural-flow.js:391 全仓唯一 window 挂载符号配 24 处 ?. 噪声守卫
+- 影响: 死代码误导维护;双订阅每事件多跑一遍路由前置
+- 来源: 2026-08-18 全库勘察(主会话,487 个顶层函数跨文件引用计数)
+- 标签: 前端
+- 验收: 清理后重生成 ui-lint-globals;kz:fast-setup 单订阅;neuralFlowEmit 改顶层声明或统一口径;六冒烟全绿
+- 优先级: P3
+
+## D-513 后端静默失败与死抽象批次清理 [open] (low)
+- 复现: kanzei-core/src/store/session.rs:36,158,187 VACUUM/备份删除 let _ 无痕迹(常年失败库膨胀也无从发现);kanzei-app/src/state.rs:684-703 stop 兜底 detach 线程睡 30s 句柄丢弃且期间重开 SessionStore;kanzei/src/cli/tracker.rs:117 无说明 unreachable!;kanzei-app/src/phase_pipeline.rs:253,475 roster_cap 静默截断角色表无诊断;kanzei-core/src/notification.rs:7 InMemoryBroker 零生产消费方
+- 影响: 维护性失败无痕迹;停止不干净无迹可循;死抽象误导
+- 来源: 2026-08-18 全库勘察(主会话);InMemoryBroker/roster_cap 为 audit_20260812 遗留项
+- 标签: 后端
+- 验收: 失败路径留 tracing;stop 兜底可观测;unreachable 带理由;截断有诊断;死抽象删除
+- 优先级: P3

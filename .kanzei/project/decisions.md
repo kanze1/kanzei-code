@@ -85,3 +85,6 @@
 - 日期: 2026-08-14
 - 状态说明: 本条先登记为 draft，待用户审核 docs/design/deepseek_harness_upgrade.md 后转 accepted。
 - 边界: 不把 state.db 里的会话正文复制成双真源 MD；会话导出 MD 是带 session_id、event_sequence、format_version 的派生工件，可删除重建。Memory 文件仍遵守 A-001/A-005 的文件优先决策，其 provenance 指向 session/event，Memory 不承担会话恢复。
+
+## A-013 独立验证者暂不建设:容忍本地 self-report 验证闭环 [draft]
+- 内容: 2026-08-18 用户拍板:ci.yml 无 runner、VerificationRun 四角色体系(reliability_usability_self_hosting_quality.md:300-352)零实现的现状予以容忍,不投入独立验证者建设;自举 agent 的测试通过继续接受 self-report,防线保持结果侧快照+回滚(与威胁模型「自用工具无敌对模型」一致)。若未来出现 self-report 与真实状态背离的实证(如 D-496 类交付丢失再发),可凭该证据重开此决策

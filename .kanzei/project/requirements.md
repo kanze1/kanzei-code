@@ -16,8 +16,9 @@
 - observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786925390809
-- 依赖: D-428 R-221 R-277 R-284 R-286 R-287
+- 依赖: R-284 R-287
 - 阻塞: 
+- 对账: 2026-08-18 对账:原依赖 D-428/R-221/R-277/R-286 已全部关闭归档,依赖收缩为 R-284 R-287;phase2 §6 Wave 门禁记录引用的状态已过期,由 R-303 文档批次订正后再更新门禁
 
 ## R-284 运行体验事件契约:统一 session/tool/memory/research/voice 的事实投影和瞬时表现事件 [todo]
 - 优先级: P1
@@ -88,7 +89,7 @@
 - 进展: 2026-08-17 用户确认 CDP 已不再使用。D-319/D-289 作为旧测试路线退役；R-101 保留延期桌面 E2 清单，但删除 WebView2 DevTools 端口/connectOverCDP 依赖，后续以 Windows 原生 UI Automation 和真实桌面路径交付。
 - 状态纠正(2026-08-09): doing→todo。用户已挂起本条,实际不在推进中,却按旧 §1.1 口径占用 doing 名额,与 R-148 一起把 R-153 拒之门外(见 D-219)。恢复推进时再转 doing;挂起前提的小缺陷中 D-185/D-184 仍 open。
 
-- 阻塞: 路线已从 CDP 切换为 Windows 原生桌面验收；本条降为 P2，等待二期 P0/P1 主线 D-428 与 R-242 完成后再建设新基座，不再受 D-319/D-289 阻塞。解除人:agent。
+- 阻塞: 路线选型由 R-302 承接:等 R-302 选定浏览器工具通道或 Windows UI Automation 并跑通最小 E2 后,按新路线重写本条验收清单再复工。2026-08-18 对账:原阻塞点名的 D-428 已修复;背景中「仓库无 package.json」已过时(根目录已有);拆批点名的 D-060/D-086/D-064/D-066/D-051/D-055/D-056 已全部 fixed,原验收清单需按新路线重定义。解除人:agent(R-302 交付后)。
 
 - 批次: 0/6
 - 技术路线: CDP/connectOverCDP 路线于 2026-08-17 退役；桌面 E2 改为 Windows 原生 UI Automation/真实 WebView2 用户路径，必要时再评估受支持的 WebDriver，而不是依赖 DevTools 端口。
@@ -109,11 +110,12 @@
 - 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
-- 进展: 修复后真实窗口继续验证：D-487 已提交 `761d4009`，D-486 已提交 `7f77b8ff`。本轮尝试一次性建立30个真实正常 turn，命令在600秒内因外部模型服务连接不稳定未完成；T-1786922726227 记录该失败尝试。随后真实 shadow 诊断 T-1786922726226 显示总 turn 由280增至293，equal=129、expected=81、unknown=83、typed_write_errors=112；新增尾部包含 TLS peer closed / process_restarted，不能计入验收⑤。当前代码修复仍有效，但验收⑤尚缺修复后至少30个无 typed_write_errors 的正常可比较 turn，验收⑦仍依赖 R-243 compaction 事务。下一步在外部模型连接稳定后分小窗口重试，每窗口先确认 run.completed，再执行 shadow 复核；不重写历史 unknown。
+- 进展: D-497 已修复：历史 session 诊断不再污染当前 shadow turn。实现位于 `crates/kanzei-core/src/store/typed.rs:1131-1165`（write_shadow_report 按当前 turn 调用 compare_shadow_for_turn）、`typed.rs:1450-1518`（按 turn_id 过滤 diagnostics），回归 `typed.rs:2410-2442`；T-1786922726240 为 kanzei-core 224 passed。重建 `kz` 后主项目最新事件 seq=158718 为 `diagnostics=[]`、`class=compacted_snapshot`、`typed_write_errors=[]`，不再错误归类 failed_turn。T-1786922726241 的全新隔离真实 CLI shadow 为 1 turn、equal=1、expected=0、unknown=0、typed_write_errors=0；T-1786922726242 同隔离项目扩展至6 turn，unknown=0、typed_write_errors=0，后续差异均为 compaction 预期差异。验收⑤仍未关闭：主项目历史 unknown=83，且 compaction 后正常 turn 属 expected mismatch，尚未取得30个 equal=true 的同一可比较窗口；验收⑦仍依赖 R-243 compaction 事务。下一步保留历史 unknown 不重写，继续在 compaction 不介入的真实窗口验证 equal=true，或等待 R-243 完成后复核。
 - observed_head: 761d40094c2b3c9012a5c8e4619c30f5caed62cc
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1786998803933
+- observed_worktree_hash: fnv1a64:bdf31ca0bc9fee7e
+- recorded_at: 1786999874592
 - 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
+- 对账: 2026-08-18 对账:与 R-243 互锁(本条验收⑦「停止新增 conversation.updated」依赖 R-243 compaction 事务,R-243 又依赖本条)。收口顺序:本条以验收①-⑥(含⑤真实 30 turn 窗口)为关闭门禁,⑦的收口动作移交 R-243 验收承接
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]
 - refs: R-236 D-209 docs/design/context_compaction.md docs/design/deepseek_harness_upgrade.md
@@ -127,6 +129,7 @@
 - 阻塞: 
 - 验收: ①压缩前后 raw event hash 不变；②边界上的 tool call/result 必须完整配对，否则拒绝压缩；③不完整 compaction transaction 重启后不生效且有可见诊断；④连续两次压缩 replay 一致，首段关键实体仍保留；⑤模型 surface 变短但 transcript/audit 仍能回看原文；⑥R-236 全部压缩回归保持通过。
 - 优先级: P1
+- 对账: 2026-08-18 对账:解开与 R-242 的依赖环——本条承接 R-242 验收⑦(对照稳定后停止新增 conversation.updated),在 compaction 事务落地后一并验收;依赖字段的 R-242 指其已交付的 surface projection(批次8/8),不要求 R-242 先关闭
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
@@ -151,7 +154,7 @@
 - 来源: 2026-08-14 用户观察——开新项目应先深度调研已有方案与设计,不适合从零开始;这是当前 coding agent 的通病(非得用户主动请求才去调研),直接影响自举质量。
 - 标签: 核心
 - 边界: 不是每条需求都调研,只在触发判据成立时启动;判据必须机械可判,不接受模型自行裁量「这算不算新方向」。websearch 轮次设上限,不做无限扩散爬取。本条只产出对照工件与开工门禁,不改 req/defect 状态机,也不自动把调研结论写成条目——那是 R-221 定调点4 的回流通道。
-- 阻塞: 
+- 阻塞: API 形态待拍板:验收要求 req refs 指向 .kanzei/research/<topic>/prior-art.md,现行通用 refs 契约只收 R-/D-/T- 编号;且首次 .kanzei/ 初始化无明确 topic 来源。解除动作:用户拍板扩展 refs 命名空间或新增独立 prior_art 字段,并确定三触发的 topic 来源(可参考 R-304 勘察工件落点约定)。解除人:用户。
 - 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-248
@@ -179,9 +182,9 @@
 - recorded_at: 1786835811870
 - 状态: todo
 
-## R-264 前端迁移原生 ESM(勘察已完成,方案见 docs/design/ui_esm_migration.md) [doing]
+## R-264 前端迁移原生 ESM(勘察已完成,方案见 docs/design/ui_esm_migration.md) [todo]
 - refs: docs/design/ui_esm_migration.md R-142 R-154
-- 优先级: P3
+- 优先级: P2
 - 复杂度: 大
 - 标签: 前端 流程
 - 内容: ui/*.js 现为 21 个经典 script 共享全局作用域,靠 gen-ui-lint-globals.mjs 生成的白名单补 no-undef。迁到原生 ESM(<script type="module">,仍零构建步骤)可得真模块作用域并删掉整套补偿机制。**动工前必须先重建测试 harness**,顺序不可颠倒——详见设计文档 §二/§四。
@@ -197,7 +200,8 @@
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786835812161
 - 状态: todo
-- 阻塞: 明确排期停车：本条为 P3 ESM 收尾，等待二期 P0/P1 主线 D-428、R-242、R-221/R-277 完成后再做批4；不是技术阻塞。解除人:agent 按队列优先级恢复。
+- 阻塞: 排期停车:等待 R-242 主线完成后按队列恢复批4;原点名的 D-428/R-221/R-277 已于 2026-08-17 前后全部关闭(2026-08-18 对账)。解除人:agent 按队列优先级恢复。
+- 对账: 2026-08-18 用户拍板 ESM 收尾「做完」,原 P3 留档提级 P2;剩余工作=批4(withSessionRender 等 5 处跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序与冒烟断言适配、删除 gen-ui-lint-globals 补偿机制);动工前先修 D-498(冒烟执行顺序与浏览器不一致),否则逐文件迁移的冒烟证据不可信;设计文档状态过期由 R-303 订正
 
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1
@@ -215,7 +219,7 @@
 - observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
 - observed_worktree_hash: fnv1a64:6aa6fbd939a238f6
 - recorded_at: 1786933041284
-- 停车: 单 WIP 槽按队列优先让位给 R-221；用户已解除原停车，但本轮不并行执行，待 R-221 结束后恢复。恢复人:agent。
+- 停车: 2026-08-18 对账:原停车原因(让位 R-221)已消失,R-221 已于 2026-08-17 关闭;待 WIP 槽空闲按队列恢复批2(transcript Tauri 读取通道)。恢复人:agent。
 
 ## R-288 Android 真机 E3 验收:移动端 PWA 通知与双向消息真实链路 [todo]
 - refs: R-059 R-270 R-271 D-389
@@ -227,3 +231,148 @@
 - 阻塞: 需要 Android 真机与当前机器位于同一 LAN 后执行 E3；这是设备验收，不阻塞二期 P0/P1 主线。解除人:用户提供设备窗口或后续人工验收。
 - 验收: ①Android 真机可访问并完成鉴权；②收到真实运行成功/失败通知；③从手机发送消息后服务端产生可追溯事件；④保存截图、端口/设备与 session 证据；⑤失败时明确网络、权限或设备边界。
 - 优先级: P3
+
+## R-291 verify 聚合报告与步骤按耗时重排 [todo]
+- refs: D-510
+- 内容: scripts/verify.ps1:20-28 Step-With-Timing 包 try/catch,失败累计继续跑,末尾统一报告全部失败;仅全绿才落盘证据(verify.ps1:77-83);按 dist/verification.json 实测耗时重排步骤,亚秒级 node 冒烟先跑、73.6s 的 cargo test 后置,先暴露廉价失败;12 步互不依赖续跑安全,预计改动约 15 行
+- 复杂度: 小
+- 来源: 2026-08-18 全库勘察;用户长期痛点一次只报一个失败(见记忆 verify-before-release)
+- 标签: 流程
+- 边界: 不改 12 步清单本身;守护测试(crates/kanzei-tools/src/git.rs:1896-1910 解析键集合)不受函数体重写影响;git.rs 侧聚合归 D-510
+- 验收: 一次运行报出全部失败步骤;失败时不写 verification.json;步骤顺序按耗时优化;守护测试通过
+- 优先级: P1
+
+## R-292 mobile-pwa 入门禁并对齐桌面 UI 纪律 [todo]
+- 内容: crates/kanzei-app/mobile-pwa/app.js(325行)/sw.js(65行) 现无任何门禁:ui_syntax 只 glob ui/*.js(verify.ps1:45),ESLint 只盖 ui/*.js 与 scripts/*.mjs(eslint.config.js:14,74);app.js:260,268,269 用 alert()(桌面端已为此做 confirmDialog/inputDialog 且清零原生弹窗),全部文案硬编码中文零 i18n(app.js:16,55,84,146,161-162,182,216-256)
+- 复杂度: 小
+- 来源: 2026-08-18 全库勘察
+- 标签: 前端
+- 边界: 不重做 PWA 功能;代码级与桌面端重复度低(仅 escapeHtml 约 7 行),重点是设计纪律传导与门禁覆盖
+- 验收: mobile-pwa 进 node --check 与 ESLint;无原生弹窗;文案接 i18n 通道;verify 通过
+- 优先级: P2
+
+## R-293 记忆价值闭环点亮:反事实评估与 outcome 漏斗产出真实数据 [todo]
+- refs: D-507 docs/design/memory_control_plane.md
+- 内容: 生产实况:memory_eval_agg 0 行(写入方 upsert_memory_effect 与消费链 kanzei-core/src/store/eval.rs:54-90、控制面 UI 全通但无人触发)、arm=outcome_improved 0 行无任何写入方(telemetry.rs:174-183 恒 N/A)、deprecate_candidates 依赖 effect_mean<=0 永远返回空集(eval.rs:76,338)、memory_eval 1670 行里 1640 行是在线 action_changed 对账挤占离线回放语义。接通 outcome 写入方与聚合调度,让 F(m) 漏斗四段真实产数
+- 复杂度: 大
+- 来源: 2026-08-18 全库勘察;memory_control_plane.md 立身之本「用数据判断记忆是否改善决策」当前无数据
+- 标签: 后端
+- 边界: 不改回放台六臂框架;先点亮既有链路再谈扩展
+- 验收: 生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED 四段有真实数据;控制面 F(m) 栏显示非空;deprecate 判定可被真实数据触发;回归测试
+- 优先级: P1
+
+## R-294 记忆检索路线拍板:启用 embeddings 走三臂门禁或正式降级 hybrid 承诺 [todo]
+- refs: D-500 docs/design/memory_control_plane.md
+- 内容: .kanzei/kanzei.toml 无 [embeddings]、index.db 无 memory_vectors 表、search_hybrid 恒走无 embedder 退化 lexical 分支(crates/kanzei-memory/src/memory/index.rs:428-431);replay_eval 六臂各仅 5 case 且 Candidate 臂自身退化(replay_eval.rs:99-163);RecallAction 七态只落地四种(memory/mod.rs:606-610)。按设计 §5 启用门禁跑三臂对比给量化结论,或在 memory_control_plane.md 正式降级 hybrid/PlanInject/StateAudit 承诺并收缩词表
+- 复杂度: 中
+- 来源: 2026-08-18 全库勘察
+- 标签: 后端
+- 边界: 启用与否由数据说话;D-500(embed runtime 缺陷)是启用路线的前置
+- 验收: 量化对比结论落文档;启用则配置+向量索引真实生效,放弃则文档与词表同步收缩;RecallAction 词表与实现一致
+- 优先级: P2
+
+## R-295 candidate 清退提速:出口策略与生产速率匹配 [todo]
+- refs: D-492 D-494
+- 内容: reconcile_candidates 现仅两条出口:recurrence>=3+指纹+当轮 episode 晋升(crates/kanzei-memory/src/memory/mod.rs:972)或 age>=14 天清退(store.rs:552-601);96 条 08-17 候选要等 08-31 才清,期间持续挤占 FTS top-24 检索窗口(与 D-492 叠加)。新增清退策略:语义近似合并、低价值提前退、单日产出上限或等效手段
+- 复杂度: 中
+- 来源: 2026-08-18 全库勘察;2026-08-17 单日 96 条 candidate 实证
+- 标签: 后端
+- 边界: 不动晋升的 provenance 门禁;清退遵循归档不裸删 SOP
+- 验收: 候选存量收敛至健康水位并可持续;策略有测试;现存 96 条按新策略处置;检索窗口占用可量化改善
+- 优先级: P1
+
+## R-296 Tauri command 与 run 链路测试基座 [todo]
+- 内容: kanzei-app 无 tests/ 目录(全仓唯一集成层在 crates/kanzei/tests/integration),104 个 #[tauri::command] 零测试;装配→执行→落库主链 commands/run.rs(604行)、processes/lifecycle.rs(593)、processes/workspace.rs(548)、run/persistence.rs(489)、run/coordinator.rs(424)、run/execution.rs(313)、harness_ext.rs(284) 全部 0 个 #[test];数据面 memory.rs(13 command)/docs.rs(16 command) 同样近零。建立可测基座(状态抽离/伪 AppHandle/集成层)并优先覆盖 run 主链
+- 复杂度: 大
+- 来源: 2026-08-18 全库勘察
+- 标签: 后端
+- 边界: 不追求覆盖率数字,优先真实断言关键路径;不重构业务逻辑
+- 验收: run 主链关键路径有自动化断言;新增 command 有明确测试落点范式;cargo test 全绿并入 verify
+- 优先级: P1
+
+## R-297 kanzei-llm auth token 刷新路径测试 [todo]
+- 内容: crates/kanzei-llm/src/auth/codex.rs(124行,含 token 过期判定+RFC3339 解析+刷新写回)0 测试,auth/mod.rs、event.rs 同为 0;全 crate 52 test/4043 行且几乎全是 SSE/JSON 形状断言
+- 复杂度: 小
+- 影响: token 刷新写错表现为莫名其妙掉线,难定位
+- 来源: 2026-08-18 全库勘察
+- 标签: 模型
+- 验收: 过期判定/刷新/写回路径有单测;伪造时钟覆盖边界;cargo test -p kanzei-llm 通过
+- 优先级: P2
+
+## R-298 发布链装后验证与证据补全 [todo]
+- refs: docs/design/ci_release_evidence_chain.md
+- 内容: 打包链止于拷进 dist(scripts/package.ps1:130-136),setup.exe 从未被自动安装验证;install-setup.ps1 全仓零调用方(仅 release.ps1:67 报错文案提及);版本双源冻结 0.1.0 无比对(Cargo.toml:15 与 crates/kanzei-app/tauri.conf.json:4);release notes 无安装器 SHA256(package.ps1:148,设计列为后续可选 ci_release_evidence_chain.md:189);dist 堆 6 个无人引用 setup.exe 约 85MB 无保留策略;release.ps1 开发通道仅 cargo test(release.ps1:15-19),能把过不了 12 步中 10 步的二进制装进系统;install-setup.ps1:41-59 装前不备份装坏不还原
+- 复杂度: 中
+- 来源: 2026-08-18 全库勘察
+- 标签: 发布
+- 边界: NSIS 路线不重做;安装验证需考虑 LOCALAPPDATA 容器重定向问题(见记忆 localappdata-container-redirect)
+- 验收: 打包后自动静默装+装后自校验入链;SHA256 入 notes;版本一致性检查;dist 保留策略;开发通道最低门禁明确并留档
+- 优先级: P2
+
+## R-299 IPC 与事件契约机械比对扩面 [todo]
+- refs: R-284
+- 内容: scripts/ipc-contract.json 仅锁 docs_snapshot 一个顶层键(1/104 command),而该机制自述正是 30+ 命令手搓 JSON 两侧各写一遍字符串(crates/kanzei-app/src/ipc_contract.rs:1-19);后端 emit 事件集合(kz:compacted/kz:meta/kz:reasoning/kz:step 等)与前端 on() 订阅集合无任何机械求差;ui-runtime 冒烟的多会话/记忆页 fixture 是前端作者手写,后端改字段名照样全绿。扩契约文件覆盖高频 command,emit/listen 求差入冒烟
+- 复杂度: 中
+- 来源: 2026-08-18 全库勘察
+- 标签: 核心
+- 边界: 作为 R-284 事件契约的前置批次,不与其四批重复;词表定义归 R-284
+- 验收: 契约覆盖高频 command;emit/listen 集合求差入冒烟;后端改事件名或字段名可被门禁捕获
+- 优先级: P2
+
+## R-300 大文件拆解第三轮与回涨闸门 [todo]
+- refs: docs/design/metrics_baseline.md docs/design/monolith_decomposition_round2.md
+- 内容: Rust 侧:background.rs 2019 生产行居全仓 Top-1 却不在 R-257/R-202/R-204 任何拆解条目范围;drive.rs:930 execute_tool_calls 582 行及同文件 307/256/249 行函数群;profiles.rs:68/:605 同一 trait 方法两份实现(537+242 行);tracker/actions.rs 已回涨至 1356 行;kanzei/src/cli/run.rs:27 单函数 651 行且文件零测试。前端侧:08-compose.js 1535 行(拆解预算 941,超 60%),09-sessions/16-settings/11-docs-list/20-lines/07-events/06-activity 五文件回涨至 900+;06-agent-panel.js 是 06-activity.js 的逐行分叉复制(八对函数一一对应共用 bg-* CSS);index.html 1150 行 8 视图未拆。拆解后行数上限回涨闸门进 verify;完成后重跑 kz metrics 前后对照
+- 复杂度: 大
+- 来源: 2026-08-18 全库勘察;metrics_baseline.md 仅 08-16 单份基线从未重跑对照
+- 标签: 核心
+- 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
+- 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
+- 优先级: P2
+
+## R-301 泳道三级卡住判据 [todo]
+- refs: docs/design/parallel_lines_ui.md
+- 内容: 按 docs/design/parallel_lines_ui.md:217,250 交付泳道状态机三态:跑着/疑似卡住/失败,禁止只按多久没动判死;判据结合事件流真实进展而非纯时间阈值
+- 复杂度: 中
+- 来源: 2026-08-18 全库勘察;parallel_lines_ui.md P3 设计验收文案已写好,承接条目 R-184 已归档无人认领
+- 标签: 前端
+- 验收: 按设计文档既有验收文案交付;三态转换有测试;真实长任务不被误判死
+- 优先级: P2
+
+## R-302 桌面 E2 路线立项:浏览器工具通道 vs Windows UI Automation 选型 [todo]
+- refs: R-101 D-511
+- 内容: R-269 结论:浏览器工具通道可行,落地依赖 kzapp 暴露 URL 入口(requirements-archive.md:3445);R-101 技术路线:Windows 原生 UI Automation(requirements.md)。二选一给出对比依据与最小可行验证(真实桌面跑通一条 E2),选定后 R-101 的延期 E2 清单挂到该路线并重写其过期验收
+- 复杂度: 中
+- 来源: 2026-08-18 全库勘察;R-269 关闭说明⑦与 R-101 技术路线两条候选互不引用均无实施条目
+- 标签: 流程
+- 边界: 本条只做选型+最小验证,不交付全部 E2 清单(那是 R-101);CDP 不再是候选
+- 验收: 选型结论有对比依据落档;最小 E2 真实桌面跑通;R-101 验收清单按新路线更新
+- 优先级: P2
+
+## R-303 文档一致性批次订正 [todo]
+- refs: R-283 R-264
+- 内容: ①README.md:65,107,149 仍把已退役的 goals 线列为事实源(R-252 B5 已删 goals.md 改指 IDEAS),:57-68 漏报 research 工作台/LaTeX 绘图/移动端 PWA+LAN 桥/浏览器工具/ui_screenshot/按线设置(R-269~R-277/R-290)等已交付能力;②docs/使用手册.md:38-45 漏「想法」收件箱整块能力,:67-74 快捷键表缺 Ctrl/Cmd+P 命令面板(ui/21-palette.js 已实现);③memory 三份设计文档落后实现约 8 个需求:memory_control_plane.md 需求清单停在 R-167(R-194/R-195/R-213/R-216/R-233/R-255/R-286 与 D-366/D-368 均未进文档),memory_system.md 状态枚举仍 active|stale(实际五态)且工具集缺 memory_promote 等,memory_decision_sufficiency.md 实施边界仍指旧路径(R-203 已迁);④docs/design/ui_esm_migration.md:3 状态过期(B1/B2 已完成,规模已从 21 文件/12389 行涨到 24 文件/15528 行,typeof 守卫 6 处涨到 44 处);⑤docs/design/phase2_system_upgrade.md:301-322 Wave 0/1 门禁记录引用的 R-221/R-277/R-286/D-428 状态全部过期,R-283 验收②依赖该记录
+- 复杂度: 小
+- 来源: 2026-08-18 全库勘察
+- 标签: 流程
+- 验收: 五组文档与现实对齐;R-283 验收②的 Wave 记录恢复可用;订正一次批次收口
+- 优先级: P3
+
+## R-304 dev 勘察工件固定落点 [todo]
+- refs: R-248 docs/design/research_mode.md
+- 内容: dev 侧勘察产物(调研笔记/证据/对照)目前无固定目录与生命周期约定;定义落点(如 .kanzei/research/ 或专用目录)、命名、与条目 refs 的关联方式及清理策略
+- 复杂度: 小
+- 来源: 2026-08-18 全库勘察;research_mode.md:27 与 R-221 关闭说明(requirements-archive.md:3652)两处明写需另立条目承接,全库无对应条目
+- 标签: 流程
+- 边界: 与 R-248 prior-art 门禁互补不重复:R-248 管开工前对照,本条管勘察产物落盘可回溯
+- 验收: 落点约定落档并有工具/文档支持;勘察产物可按条目回溯;R-248 恢复时可直接复用该约定
+- 优先级: P3
+
+## R-305 subagent 策略层与 Agent 目录 [todo]
+- refs: R-281 D-513 docs/design/subagent_management.md
+- 内容: 按 docs/design/subagent_management.md:36-84 交付三块:①Agent 目录(可用 agent 类型的注册与描述);②策略面板(每轮 task 上限/并发/超时/重试/预算可配置并生效);③运行审计摘要(每轮 subagent 派发与结果的可读汇总)。与 R-281 子代理阅读器互补:R-281 管看单个子代理说话,本条管策略与全局审计
+- 复杂度: 大
+- 来源: 2026-08-18 全库勘察;2026-08-18 用户拍板需要;docs/design/subagent_management.md P2 三块未实施,唯一演进条目 R-117 已 dropped
+- 标签: 核心
+- 边界: 不重做 R-281 的对话读取器;策略默认值保持现行为,配置生效有真实验证
+- 验收: 按设计文档三块交付;策略修改真实生效有测试;审计摘要在 UI 可见;roster_cap 类静默截断(D-513)在策略面板可见化
+- 优先级: P2
