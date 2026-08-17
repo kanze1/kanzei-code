@@ -69,6 +69,24 @@ assert(compose.includes("sendAutoToSession(prompt, sessionId)"), "后台自主�
 assert(compose.includes("const requestSessionId = activeSessionId"), "发送 IPC 未捕获发起线路身份");
 assert(compose.includes("transitionSession(targetSessionId, \"stopping\")"), "停止按钮仍缺少 stopping 过渡态");
 assert(compose.includes("queueProcessUpdate(activeProcessId"), "模型/profile/reasoning 未走保存队列");
+// 切走的线路必须继续被鞭挞:后台线的 kz:done 只走 handleBackgroundSessionDone,活动线
+// 那两条在飞释放路径(kz:done/kz:idle handler)它一条都走不到。不在这里释放,下一轮就被
+// armAutoContinue 的守卫静默吞掉,线路永久钉在「等待下一轮」。
+assert(
+  /function handleBackgroundSessionDone\(payload\) \{[\s\S]{0,800}?releaseAutoContinue\(sessionId\)/.test(compose),
+  "后台线轮末未释放自主推进在飞标记(切走线路后鞭挞一轮即停)",
+);
+assert(
+  (await readUi("01-core.js")).includes('event === "kz:auto-fail" && typeof handleBackgroundAutoFail'),
+  "后台线的失败退避重试仍被路由层整条丢弃(断一次网即永久停摆)",
+);
+assert(compose.includes("function handleBackgroundAutoFail(payload)"), "后台线失败退避重试缺少专用处理器");
+// 线路页按线操控:鞭挞与模型不再只属于「当前打开的那条线」。
+assert(compose.includes("async function setLineAutoState(processId, patch)"), "缺少按线鞭挞写入口(线路页要能操控任意线)");
+assert(compose.includes("function lineAutoConfig(processId)"), "缺少按线鞭挞读入口");
+assert(lines.includes("buildLineAutoControls(line)"), "线路页每条线缺少鞭挞控件");
+assert(lines.includes("buildLineModelSelect(item)"), "线路页每条线缺少模型选择");
+assert(lines.includes("queueProcessUpdate(item.id, { model: value })"), "线路页改模型未走按线保存队列");
 assert(sessions.includes("worktreeLineCreateInFlight"), "并行线路创建缺少单飞请求护栏");
 assert(sessions.includes("worktreeLineCreateSequence"), "并行线路创建缺少进程内唯一序号");
 assert(sessions.includes('const addButtons = [$("worktree-add"), $("lines-add")].filter(Boolean)'), "并行线路两个创建入口没有共用忙碌态");

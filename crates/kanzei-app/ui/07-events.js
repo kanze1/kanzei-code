@@ -388,12 +388,8 @@ on("kz:auto-fail", (e) => {
     if (!p.sessionId || p.sessionId === activeSessionId) clearRunPending();
     autoRounds = 0;
     cancelAutoContinueTimer(p.sessionId || activeSessionId);
-    const reasonText =
-      action.reason === "RateLimited"
-        ? t("provider 限流(429)，自动推进已暂停，请等待后手动恢复")
-        : action.reason === "RepeatedFailure"
-          ? t("连续多轮运行失败,自动推进已停止(已发手机通知)")
-          : t("运行失败:致命错误,自动推进已停止");
+    // 文案与后台线共用一份(08-compose.js autoFailStopReasonText),同一件事不能两种说法。
+    const reasonText = autoFailStopReasonText(action.reason);
     addMessage("notice", `${t("鞭挞停止")}:${reasonText}`);
     log(`${t("鞭挞停止")}:${reasonText}`);
     setAutoStopReason(reasonText);

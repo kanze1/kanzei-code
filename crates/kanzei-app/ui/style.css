@@ -631,6 +631,16 @@ button.mini { padding: 2px 10px; font-size: var(--fs-11-5); }
 .line-file-error { margin-top: 6px; color: var(--err); font-size: var(--fs-10); user-select: text; }
 .line-lane-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
 .line-lane-actions button:disabled { opacity: .55; cursor: default; }
+/* 每线鞭挞 + 每线模型:并行线路页是唯一能一屏操控所有线的地方,这一条要能在窄区换行。 */
+.line-autorun { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--border-soft); font-size: var(--fs-11); }
+.line-autorun.pending { color: var(--dim); }
+.line-auto-toggle { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--fg); }
+.line-auto-rounds { font-family: var(--mono); font-size: var(--fs-10-5); color: var(--dim); }
+.line-auto-max { width: 52px; }
+.line-autorun button.active { border-color: var(--accent); color: var(--fg-strong); }
+.line-autorun button:disabled { opacity: .55; cursor: default; }
+.line-auto-model-label { margin-left: auto; color: var(--dim); }
+.line-model-select { max-width: 190px; }
 /* R-184 P5:收活五格面板 */
 .line-harvest { margin-top: 13px; padding: 13px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--sunken); }
 .line-harvest-title { margin: 0 0 10px; color: var(--fg-strong); font-size: var(--fs-12); font-weight: 600; }

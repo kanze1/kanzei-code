@@ -5019,6 +5019,62 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   sandbox.renderProcesses(savedProcessList);
 }
 
+// ---------- 切走的线路必须**连续**被鞭挞(不是只多跑一轮) ----------
+// 上面那条只验第一轮。病根在第二轮:sendAutoToSession 会把 session 记进在飞集合,
+// 而释放只写在活动线的 kz:done/kz:idle 处理器里——后台线的控制事件在 01-core 路由层
+// 就被拦下(kz:done 只转 handleBackgroundSessionDone,kz:idle 直接 return),两条释放
+// 路径一条都走不到。于是第二轮 armAutoContinue 撞上在飞守卫静默返回:线路永久钉在
+// 「等待下一轮」,日志里一个字都没有。用户表现 = 切走线路后鞭挞失效。
+{
+  const loopLines = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+    { id: "p|bg-loop", label: "后台连跑", session_id: "sess-bg-loop", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+  ];
+  const savedLoopList = payloads.process_list;
+  payloads.process_list = loopLines;
+  sandbox.renderProcesses(loopLines);
+  sandbox.__kzTest.setAutoState("p|bg-loop", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+  const loopRuns = () => invokeArgs.filter(({ cmd, args }) => cmd === "run_prompt" && args?.processId === "p|bg-loop").length;
+  const before = loopRuns();
+  handlers.get("kz:done")?.({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-bg-loop" } });
+  await flush();
+  assert(loopRuns() === before + 1, `后台线第一轮没有续跑,实得 ${loopRuns() - before}`);
+  // 第二轮的 kz:done:这一轮是**鞭挞自己发的**(在飞标记此刻挂着),必须照样排下一枪。
+  handlers.get("kz:done")?.({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 2, max: 10 }, sessionId: "sess-bg-loop" } });
+  await flush();
+  assert(
+    loopRuns() === before + 2,
+    `切走的线路第二轮停摆(在飞标记未释放 → armAutoContinue 静默吞掉),实得 ${loopRuns() - before} 轮`,
+  );
+  // 后台线的失败退避重试:kz:auto-fail 既不是控制事件也不在 BACKGROUND_RENDER_EVENTS,
+  // 原先整条被路由层丢掉 —— 后台线断一次网就永久停摆,而它恰恰是没人看着的那条。
+  sandbox.__kzTest.cancelTimers();
+  handlers.get("kz:auto-fail")?.({
+    payload: { sessionId: "sess-bg-loop", autoAction: { type: "RetryAfterFailure", attempt: 1, maxAttempts: 3, delayMs: 15000, rounds: 2 } },
+  });
+  assert(
+    sandbox.__kzTest.timerSessions().includes("sess-bg-loop"),
+    `后台线的失败退避重试没有排上(kz:auto-fail 被路由层丢弃),实得 ${sandbox.__kzTest.timerSessions().join(",")}`,
+  );
+  assert(
+    sandbox.__kzTest.retryLabel("sess-bg-loop")?.includes("失败重试"),
+    "后台线重试定时器缺重试标记(随后到达的终态 kz:error 会把它当残留掐掉)",
+  );
+  // 线路页按线操控:后台线开鞭挞只动**它自己**的存档与后端状态机,不碰当前线勾选框。
+  sandbox.__kzTest.cancelTimers();
+  byId.get("auto-continue").checked = false;
+  await sandbox.setLineAutoState("p|bg-loop", { enabled: true, maxRounds: 7 });
+  await flush();
+  const lineSync = invokeArgs.findLast(({ cmd, args }) => cmd === "auto_state_update" && args?.sessionId === "sess-bg-loop");
+  assert(lineSync?.args?.enabled === true, "线路页开后台线鞭挞未推该线后端状态机");
+  assert(lineSync?.args?.maxRounds === 7, `线路页改上限未同步后端,实得 ${lineSync?.args?.maxRounds}`);
+  assert(sandbox.__kzTest.getAutoState("p|bg-loop")?.enabled === true, "线路页开后台线鞭挞未落该线存档");
+  assert(byId.get("auto-continue").checked === false, "线路页操控后台线污染了当前线的鞭挞勾选");
+  sandbox.__kzTest.cancelTimers();
+  payloads.process_list = savedLoopList;
+  sandbox.renderProcesses(savedLoopList);
+}
+
 // ---------- D-290 回显不得写盘 ----------
 // 「模式/鞭挞每次开 app 都要重设」的根:回显期间控件显示的是**算出来的值**,
 // 把它当用户意图写回存档,一次算错就永久固化,而且自我延续。
@@ -6451,6 +6507,18 @@ const docsB = {
   assert(
     document.querySelectorAll("#lines-list .line-lane").every((lane) => !lane.className.includes("line-lane-initial")),
     "并行线路刷新不应挂载进入动画 class",
+  );
+  // 每条线一套鞭挞控件 + 一个模型选择。少了它们就退回「管 N 条线要切 N 次」——
+  // 而并行线路页是唯一能一屏看全所有线的地方,鞭挞恰恰最需要在这里横向比对与操控。
+  const laneRows = [...document.querySelectorAll("#lines-list .line-lane")];
+  assert(laneRows.length >= 2, `线路页应渲染出全部线道,实得 ${laneRows.length}`);
+  assert(laneRows.every((lane) => lane.querySelector(".line-auto-toggle input")), "线道缺少按线鞭挞开关");
+  assert(laneRows.every((lane) => lane.querySelector(".line-auto-pause")), "线道缺少按线暂停按钮");
+  assert(laneRows.every((lane) => lane.querySelector(".line-model-select")), "线道缺少按线模型选择");
+  const mainLaneModel = document.querySelector('#lines-list .line-lane[data-process-id="d|smoke"] .line-model-select');
+  assert(
+    mainLaneModel?.value === "deepseek:deepseek-chat",
+    `线道模型下拉未回显该线自己的模型,实得 ${mainLaneModel?.value}`,
   );
   // R-184 验收⑩:800/1024/1280 三档宽度下并列视图不崩——线道、冲突预警、语义提示仍渲染。
   for (const width of [800, 1024, 1280]) {

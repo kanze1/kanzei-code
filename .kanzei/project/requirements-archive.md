@@ -3712,3 +3712,18 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1786972886838
 - 停车: 
+
+## R-290 并行线路页按线操控鞭挞与模型 [done]
+- 优先级: P1
+- 复杂度: 小
+- 标签: 前端 体验
+- 来源: 用户 2026-08-18 反馈「做不到不同线切换不同模型」「鞭挞没法很好地管理并行线路」。
+- 内容: 鞭挞控制台与模型下拉此前都是单例,绑当前打开的那条线(`syncAutoRunState` 只推 activeSessionId,模型下拉只在 switchProcess 回填);并行线路页只有打开/收活/关闭/差异/门禁/合并/回写。管 N 条线要切 N 次。本条在线路页每条线道上补一套鞭挞控件(开关/轮次·上限/暂停/本轮后停)与一个模型选择。
+- 边界: 不新造状态仓库——活动线仍以顶栏控件为真源(写控件再落盘),后台线落 `processAutoState` + 该线自己的 `auto_state_update`;模型走 `queueProcessUpdate` 落该线 process(后端 `run_prompt` 的 model 回落读的就是它,线级模型本就已通)。不改后端。
+- 验收: ①线路页每条线道有独立鞭挞开关与模型下拉,模型下拉回显该线自己的值;②操控后台线只动该线存档与后端状态机,不污染当前线勾选;③改上限同步到该线后端 auto_state;④开鞭挞且该线空闲时当场抽第一鞭,关/暂停立刻撤在途那一枪。
+- 进展: 已完成。`crates/kanzei-app/ui/08-compose.js` 新增 `lineAutoConfig`/`setLineAutoState`(含 R-224 同价:研究线拒绝、结伴线自动切自主推进);`crates/kanzei-app/ui/20-lines.js` 新增 `buildLineAutoControls`/`buildLineModelSelect`/`loadLinesModelCatalog`(模型目录按项目缓存,不随 8 秒一轮的线路刷新重探),挂进线道;`style.css` 补 `.line-autorun` 一行式布局(窄区换行);`02-i18n.js` 补 6 条文案。逐项验收:①②③由 `scripts/ui-runtime-smoke.mjs` 断言(线道控件存在、模型下拉回显 `deepseek:deepseek-chat`、后台线 auto_state_update enabled/maxRounds 正确且当前线勾选不变);④由 `setLineAutoState` 的 arm/cancel 分支实现。
+- 验证: 六条前端门禁全过(ui_syntax / ui_runtime 0 运行时错误 / ui_lint 717 标识符同步 / parallel_lines_regression / ui_a11y / ui_i18n),见 T-1786922726197。
+- refs: D-481 T-1786922726197
+- observed_head: 4985c2c4b32f3992d5df1d4bfd1b31a87d56e5a6
+- recorded_at: 1786992270
+- 停车: 

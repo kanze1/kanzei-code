@@ -100,6 +100,133 @@ function lineFact(label, value, className = "") {
   return row;
 }
 
+// 每线鞭挞 + 每线模型:原先这两样只有「当前打开的那条线」有(输入框上方那一份),
+// 要给 N 条线配不同模型、或让某条后台线开始/停止自主推进,就得切 N 次线——而并行
+// 线路页正是唯一能一屏看全所有线的地方。控件本身不持有状态:开关/暂停/本轮后停/上限
+// 一律经 setLineAutoState 落到该线存档 + 它自己的后端 auto_state;模型经
+// queueProcessUpdate 落该线 process(run_prompt 的 model 回落读的就是它)。
+let linesModelCatalog = null;
+let linesModelCatalogProject = null;
+async function loadLinesModelCatalog() {
+  if (linesModelCatalog && linesModelCatalogProject === currentProject) return linesModelCatalog;
+  const forProject = currentProject;
+  try {
+    const models = await invoke("models_list", { projectDir: forProject });
+    if (currentProject !== forProject) return linesModelCatalog ?? [];
+    linesModelCatalog = models ?? [];
+    linesModelCatalogProject = forProject;
+  } catch (error) {
+    // 探测不到不等于用不了(D-167):目录留空,下拉仍保留该线已记住的模型。
+    linesModelCatalog = linesModelCatalog ?? [];
+    log(`${t("模型列表获取失败")}:${error}`, "warn");
+  }
+  return linesModelCatalog;
+}
+
+function buildLineModelSelect(item) {
+  const select = document.createElement("select");
+  select.className = "ctx-select line-model-select";
+  select.title = t("模型改动下一轮生效");
+  const current = item.model || "";
+  const seen = new Set();
+  const add = (value, label) => {
+    if (seen.has(value)) return;
+    seen.add(value);
+    select.appendChild(new Option(label, value));
+  };
+  add("", t("模型:agent 默认"));
+  for (const model of linesModelCatalog ?? []) add(model.id, model.label);
+  // 该线记住的直指模型即使不在探测清单里也必须可见,否则一次刷新就把它从下拉里抹掉,
+  // 用户以为自己没设过(D-167 同源)。
+  if (current) add(current, `${current}(${t("已记住")})`);
+  select.value = current;
+  select.addEventListener("change", async () => {
+    const value = select.value;
+    updateLocalProcessItem(item.id, { model: value || null });
+    try {
+      await queueProcessUpdate(item.id, { model: value });
+      log(`${item.label} ${t("该线模型已切换")}:${value || t("模型:agent 默认")}`);
+      // 改的若是当前线,顶栏那一份要跟着走——两处显示同一条线却不一致最难查。
+      if (item.id === activeProcessId && typeof loadModels === "function") {
+        await loadModels();
+        $("model-select").value = value;
+      }
+    } catch (error) {
+      toastError(`${t("模型切换失败")}:${error}`);
+    }
+  });
+  return select;
+}
+
+function buildLineAutoControls(line) {
+  const box = document.createElement("div");
+  box.className = "line-autorun";
+  const item = processItems.find((process) => process.id === line.process_id);
+  if (!item) {
+    // 协作快照里有、进程列表里还没有:两份数据之间的刷新窗口。不画半截控件。
+    box.classList.add("pending");
+    box.textContent = t("线路状态同步中…");
+    return box;
+  }
+  const config = lineAutoConfig(line.process_id);
+  const rounds = Number(sessionState(item.session_id)?.auto_rounds ?? 0) || 0;
+
+  const toggle = document.createElement("label");
+  toggle.className = "line-auto-toggle";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = config.enabled;
+  checkbox.addEventListener("change", () => {
+    void setLineAutoState(line.process_id, { enabled: checkbox.checked });
+  });
+  const toggleText = document.createElement("span");
+  toggleText.textContent = t("鞭挞");
+  toggle.append(checkbox, toggleText);
+
+  const progress = document.createElement("span");
+  progress.className = "line-auto-rounds";
+  progress.textContent = `${rounds}/${config.maxRounds}`;
+  progress.title = t("鞭挞上限(轮)");
+
+  const max = document.createElement("input");
+  max.type = "number";
+  max.className = "line-auto-max";
+  max.min = "1";
+  max.max = "100";
+  max.value = String(config.maxRounds);
+  max.title = t("鞭挞上限(轮)");
+  max.addEventListener("change", () => {
+    const value = Number.parseInt(max.value, 10);
+    const clamped = Number.isFinite(value) ? Math.min(100, Math.max(1, value)) : config.maxRounds;
+    max.value = String(clamped);
+    void setLineAutoState(line.process_id, { maxRounds: clamped });
+  });
+
+  const pause = document.createElement("button");
+  pause.type = "button";
+  pause.className = `ghost mini line-auto-pause${config.paused ? " active" : ""}`;
+  pause.textContent = config.paused ? t("继续鞭挞") : t("暂停鞭挞");
+  pause.disabled = !config.enabled;
+  pause.addEventListener("click", () => {
+    void setLineAutoState(line.process_id, { paused: !config.paused });
+  });
+
+  const stopRound = document.createElement("button");
+  stopRound.type = "button";
+  stopRound.className = `ghost mini line-auto-stop-round${config.stopAfterRound ? " active" : ""}`;
+  stopRound.textContent = t("本轮后停");
+  stopRound.disabled = !config.enabled;
+  stopRound.addEventListener("click", () => {
+    void setLineAutoState(line.process_id, { stopAfterRound: !config.stopAfterRound });
+  });
+
+  const modelLabel = document.createElement("span");
+  modelLabel.className = "line-auto-model-label";
+  modelLabel.textContent = t("模型");
+  box.append(toggle, progress, max, pause, stopRound, modelLabel, buildLineModelSelect(item));
+  return box;
+}
+
 function renderLineConflicts(lines) {
   const target = $("lines-conflict-list");
   target.replaceChildren();
@@ -272,7 +399,7 @@ function renderLines(lines) {
       close.addEventListener("click", () => void closeParallelProcess(line.process_id));
       actions.appendChild(close);
     }
-    lane.append(head, claim, facts, changed, actions);
+    lane.append(head, claim, facts, buildLineAutoControls(line), changed, actions);
     const preservedPanel = preservedHarvestPanels.get(line.process_id);
     if (preservedPanel) lane.appendChild(preservedPanel);
     target.appendChild(lane);
@@ -730,6 +857,10 @@ async function refreshLines() {
   const forProject = currentProject;
   linesRefreshInFlight = true;
   try {
+    // 模型目录按项目缓存,不随每次线路刷新重探(8 秒一轮的探测既慢又白费);
+    // 目录空也照画——每线下拉至少有「agent 默认」与该线已记住的模型。
+    await loadLinesModelCatalog();
+    if (currentProject !== forProject) return;
     const lines = await invoke("collaboration_snapshot", { projectDir: forProject });
     if (currentProject !== forProject) return;
     renderLines(lines);

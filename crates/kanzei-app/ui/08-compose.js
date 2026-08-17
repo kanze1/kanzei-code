@@ -237,7 +237,13 @@ function abortAutoContinue(reason, sessionId = activeSessionId) {
 // 跟着**定时器条目**走,因为终态错误处理器要据此放它一条生路(见 07-events.js kz:error)。
 function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0, delayMs = 2000, retryLabel = null) {
   if (!sessionId) return;
-  if (autoContinueInFlight.has(sessionId)) return;
+  // 在飞 = 这条线的上一枪已经发出但还没收到它的终点事件。此时排下一枪会重复发送,
+  // 所以返回是对的;但**不能静默**——标记漏释放时(后台线曾经就是)整条鞭挞永久停摆,
+  // 而界面钉在「等待下一轮」,日志里连一行线索都没有。
+  if (autoContinueInFlight.has(sessionId)) {
+    log(`${t("鞭挞未续跑")}:${t("上一枪仍在飞")} ${sessionId}`, "warn");
+    return;
+  }
   // R-199:档位条件下沉引擎——armAutoContinue 不再检查 autoContinueAllowed(),
   // 引擎在 decide() 已判 Stop(ProfileMismatch) 且计数不 +1;前端不再持有
   // 引擎不知道的续跑否决权(计数与实际轮次不再漂移)。
@@ -320,6 +326,12 @@ async function sendAutoToSession(prompt, sessionId) {
 function handleBackgroundSessionDone(payload) {
   const sessionId = payload?.sessionId;
   if (!sessionId) return;
+  // 在飞标记必须在这里释放。活动线走 07-events 的 kz:done/kz:idle 处理器释放,而后台线
+  // 的控制事件在 01-core 路由层就被拦下(kz:done 只转到本函数,kz:idle 直接 return)——
+  // 两条释放路径后台线一条都走不到。于是切走一条正在鞭挞的线之后:那一轮的 kz:done 到达,
+  // 本函数转 auto_pending 再 armAutoContinue,而 armAutoContinue 第一行的在飞守卫直接静默
+  // 返回,下一轮永远不排。用户看到的就是「切走的线卡在等待下一轮再也不动」,且一个字都没有。
+  releaseAutoContinue(sessionId);
   const action = payload.autoAction || { type: "NoContinue" };
   const state = sessionState(sessionId);
   state.auto_rounds = action.rounds ?? state.auto_rounds ?? 0;
@@ -340,6 +352,42 @@ function handleBackgroundSessionDone(payload) {
     }
     refreshParallelTaskProjection(sessionId);
   }
+}
+
+// 失败停摆的原因文案:活动线(07-events kz:auto-fail)与后台线(下面那个)必须同一份,
+// 否则同一件事在两条线上说法不同。
+function autoFailStopReasonText(reason) {
+  if (reason === "RateLimited") return t("provider 限流(429)，自动推进已暂停，请等待后手动恢复");
+  if (reason === "RepeatedFailure") return t("连续多轮运行失败,自动推进已停止(已发手机通知)");
+  return t("运行失败:致命错误,自动推进已停止");
+}
+
+// D-403 的失败退避重试对后台线同样必须生效。kz:auto-fail 既不是控制事件、也不在
+// BACKGROUND_RENDER_EVENTS 里,路由层原本把后台线的这条整条丢掉:在飞标记不释放、
+// 重试不排、停摆原因不落——后台线断一次网就永久停摆,而它恰恰是没人看着的那条。
+// 与 handleBackgroundSessionDone 同构:只动**所属线**的状态,绝不写当前线的控制台文本槽。
+function handleBackgroundAutoFail(payload) {
+  const sessionId = payload?.sessionId;
+  if (!sessionId) return;
+  releaseAutoContinue(sessionId);
+  const action = payload.autoAction || { type: "NoContinue" };
+  const item = processItems.find((candidate) => candidate.session_id === sessionId);
+  const label = item?.label ?? sessionId;
+  if (action.type === "RetryAfterFailure") {
+    const delayMs = action.delayMs ?? 15000;
+    const retryLabel = `${t("失败重试")} ${action.attempt}/${action.maxAttempts ?? 3} · ${Math.round(delayMs / 1000)}s`;
+    transitionSession(sessionId, "auto_pending", {
+      auto_rounds: action.rounds ?? sessionState(sessionId).auto_rounds ?? 0,
+    });
+    armAutoContinue(DEFAULT_CONTINUE_PROMPT, sessionId, 0, delayMs, retryLabel);
+    log(`${label} ${t("鞭挞")}:${retryLabel}`, "warn");
+  } else if (action.type === "Stop") {
+    transitionSession(sessionId, "idle");
+    cancelAutoContinueTimer(sessionId);
+    // 后台线停摆没人看着:必须浮到界面上(abortAutoContinue 同一口径),不能只 log 一行。
+    reportPersistentError(`${label} ${t("鞭挞停止")}:${autoFailStopReasonText(action.reason)}`);
+  }
+  refreshParallelTaskProjection(sessionId);
 }
 
 // R-169:全部阻塞/清空停止已下沉 harness backlog_status + auto_run 状态机,
@@ -1022,6 +1070,74 @@ function applyAutoUiState(processId) {
   autoStopReason = "";
   renderAutoStatus();
   persistProcessAutoState();
+}
+
+// 线路页要能直接操控**任意一条线**的鞭挞,不必先切过去。真源不变:活动线以顶栏控件
+// 为准(先写控件,再由 rememberAutoUiState 落盘),后台线落该线存档并推它自己的后端
+// auto_state。谁都不许绕过 processAutoState——绕过去的话切回该线时回显与引擎判定就对
+// 不上(D-353 那半病根)。
+function lineAutoConfig(processId) {
+  if (processId && processId === activeProcessId) {
+    return {
+      enabled: $("auto-continue").checked,
+      paused: autoPaused,
+      stopAfterRound: autoStopAfterRound,
+      maxRounds: autoContinueMax(),
+    };
+  }
+  return normalizeAutoState(processAutoState.get(processId), processId);
+}
+async function setLineAutoState(processId, patch) {
+  const item = processItems.find((candidate) => candidate.id === processId);
+  if (!item) return null;
+  const next = { ...lineAutoConfig(processId), ...patch };
+  // R-224 同价:研究线没有自主推进语义,从线路页开也一样拒绝。
+  if (next.enabled && (processProfileUi.get(processId) === "research" || item.profile === "research")) {
+    toast(t("鞭挞不适用于研究模式"));
+    return null;
+  }
+  // 结伴线勾鞭挞 = 切自主推进(与顶栏勾选同语义,R-224),否则切回该线时档位回显会把
+  // 刚开的鞭挞显示成「结伴 + 勾着」这种自相矛盾的状态。
+  if (next.enabled && processProfileUi.get(processId) !== "dev-auto" && item.profile !== "research") {
+    processProfileUi.set(processId, "dev-auto");
+    persistProcessProfiles();
+    if (processId === activeProcessId) $("profile-select").value = "dev-auto";
+  }
+  if (processId === activeProcessId) {
+    $("auto-continue").checked = next.enabled;
+    autoPaused = next.paused;
+    autoStopAfterRound = next.stopAfterRound;
+    $("auto-stop-round").checked = next.stopAfterRound;
+    $("auto-max").value = String(next.maxRounds);
+    $("auto-pause").classList.toggle("active", autoPaused);
+    $("auto-pause").textContent = autoPaused ? t("继续鞭挞") : t("暂停鞭挞");
+    rememberAutoUiState(processId);
+    renderAutoStatus();
+    await syncAutoRunState();
+  } else {
+    processAutoState.set(processId, next);
+    persistProcessAutoState();
+    await invoke("auto_state_update", {
+      sessionId: item.session_id,
+      enabled: next.enabled,
+      paused: next.paused,
+      stopAfterRound: next.stopAfterRound,
+      maxRounds: next.maxRounds,
+    });
+  }
+  // 关/暂停立刻撤掉在途的那一枪;开且该线空闲就当场抽第一鞭——不然「开了没反应」要等到
+  // 下一个轮末才可见(顶栏勾选走的正是这条语义,线路页不能比它弱)。
+  if (!next.enabled || next.paused) {
+    cancelAutoContinueTimer(item.session_id);
+    if (sessionState(item.session_id).phase === "auto_pending") transitionSession(item.session_id, "idle");
+  } else if (!processRunning(item) && sessionState(item.session_id).phase !== "auto_pending") {
+    armAutoContinue(processId === activeProcessId ? continuePrompt() : DEFAULT_CONTINUE_PROMPT, item.session_id);
+  }
+  refreshParallelTaskProjection(item.session_id);
+  if (typeof renderLines === "function" && typeof collaborationLines !== "undefined" && collaborationLines.length) {
+    renderLines(collaborationLines);
+  }
+  return next;
 }
 
 // 进程级设置必须按线路串行落库。模型/profile/reasoning 原先是 fire-and-forget，

@@ -135,6 +135,11 @@ function on(event, handler) {
     if (!controlEvent && !SESSIONLESS_EVENTS.has(event) && sessionId !== activeSessionId) {
       if (BACKGROUND_RENDER_EVENTS.has(event)) {
         withSessionRender(sessionId, () => handler(eventPayload));
+      } else if (event === "kz:auto-fail" && typeof handleBackgroundAutoFail === "function") {
+        // 失败退避重试是**所属线**的自主推进事实,不是渲染:整条丢掉等于后台线一断网
+        // 就永久停摆。走专用后台分支(只动该线状态),不能直接调活动线那个 handler——
+        // 它会把别人的重试文案写进当前线的鞭挞控制台。
+        handleBackgroundAutoFail(eventPayload.payload);
       }
       return;
     }

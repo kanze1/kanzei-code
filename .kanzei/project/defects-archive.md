@@ -5889,3 +5889,18 @@
 - recorded_at: 1786983501410
 - 期望: 询问弹窗默认居中；提供明确的暂时收起/折叠操作，收起后可阅读上下文；再次打开时保留原问题、选项和已填写内容，不丢失交互状态。
 - 阻塞: 
+
+## D-481 切走线路后鞭挞停摆:后台会话不释放续跑在飞标记 [fixed] (high)
+- 原始描述: 切换线路鞭挞好像会失效。
+- 复现: A 线开鞭挞并正在跑,切到 B 线;A 这一轮结束后线路徽标停在「等待下一轮」,此后再无新轮次,日志无任何说明。
+- 根因: `sendAutoToSession` 把 session 记进 `autoContinueInFlight`,而释放只写在活动线的 kz:done/kz:idle 处理器(`07-events.js` kz:done、kz:idle)。后台线的控制事件在 `01-core.js` 路由层就被拦下——kz:done 只转 `handleBackgroundSessionDone`、kz:idle 直接 return,两条释放路径一条都走不到。下一轮 `armAutoContinue` 撞上在飞守卫静默返回(既不排枪也不收 pending),线路永久钉在 auto_pending。同源缺口:`kz:auto-fail` 既非控制事件也不在 `BACKGROUND_RENDER_EVENTS`,后台线的失败退避重试被整条丢弃,断一次网即永久停摆。
+- 影响: 并行线只要不在前台就跑不满一轮之后的任何一轮——「并行线路」实际退化成「只有当前这条线能自主推进」;且无任何可见解释。
+- 来源: 用户 2026-08-18 报告。
+- 标签: 前端 核心
+- 优先级: P1
+- 进展: 已修复。①`crates/kanzei-app/ui/08-compose.js` `handleBackgroundSessionDone` 开头补 `releaseAutoContinue(sessionId)`,与活动线 kz:done 同价;②同文件新增 `handleBackgroundAutoFail`,`crates/kanzei-app/ui/01-core.js` 路由层把后台线的 kz:auto-fail 交给它(只动所属线状态,不写当前线控制台文本槽),停摆原因经 `reportPersistentError` 浮到界面;③`armAutoContinue` 的在飞早退不再静默,落一行 warn;④失败停摆文案抽成 `autoFailStopReasonText`,活动线与后台线共用一份。
+- 验证: `scripts/ui-runtime-smoke.mjs` 新增「切走的线路必须连续被鞭挞」段:后台线连发两次 kz:done 必须产生两次 run_prompt,并验后台 kz:auto-fail 排上带重试标记的定时器。变异校验:删掉 ①那一行 → 冒烟红「第二轮停摆(在飞标记未释放),实得 1 轮」;删掉 ②的路由分支 → 冒烟红两条重试断言。`scripts/parallel-lines-regression.mjs` 增源码级护栏。
+- refs: R-290 T-1786922726197
+- observed_head: 4985c2c4b32f3992d5df1d4bfd1b31a87d56e5a6
+- recorded_at: 1786992270
+- 阻塞: 
