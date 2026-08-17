@@ -5673,3 +5673,18 @@
 - 关联: R-277 R-276
 - 收尾: 1786963931
 - 源码指纹: 570d3c176c0451a4
+
+## T-1786922726150 R-277 B2 检索反思环 kanzei-tools 最终定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 35.8s
+- 摘要: R-277 批2 research_loop 最终验证：rustfmt 通过；kanzei-tools 333 passed，1 ignored。覆盖 approved 启动、loop 持久化、begin_search 并发上限、压缩证据 task_id、reflect 收敛、finding source ref 绑定、ResearchProfile 工具/权限/prompt 装配。
+- 关联: R-277 D-461 D-462 D-463 D-464 D-465 D-466
+- 收尾: 1786965041
+
+## T-1786922726151 R-277 B2 当前 staged kanzei-tools fingerprint 回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 32.1s
+- 摘要: 当前 staged 源码单独重跑：kanzei-tools 333 passed，1 ignored；研究计划/检索环/ResearchProfile 装配及 tracker 回归通过，源码 fingerprint 已与 staged Rust 匹配。
+- 关联: R-277 D-461 D-462 D-463 D-464 D-465 D-466
+- 收尾: 1786965170
+- 源码指纹: 23a1466578ae9816

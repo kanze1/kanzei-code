@@ -623,6 +623,10 @@ impl Component for ResearchProfile {
             Arc::new(crate::research_plan::ResearchPlanTool),
         );
         draft.tools.insert(
+            "research_loop",
+            Arc::new(crate::research_loop::ResearchLoopTool),
+        );
+        draft.tools.insert(
             "finding",
             Arc::new(TrackerTool {
                 tool_name: "finding",
@@ -725,6 +729,18 @@ impl Component for ResearchProfile {
                 .permissions
                 .push(rule("research_plan", resource, Effect::Allow));
         }
+        for resource in [
+            "read:resume",
+            "write:start",
+            "write:begin_search",
+            "write:add_evidence",
+            "write:reflect",
+            "write:add_finding",
+        ] {
+            draft
+                .permissions
+                .push(rule("research_loop", resource, Effect::Allow));
+        }
 
         draft.context.insert(
             "research/docs",
@@ -766,7 +782,7 @@ impl Component for ResearchProfile {
                 mode: AgentMode::Primary,
                 // 0 = 无轮数上限(用户定调)。
                 steps: 0,
-                system: "You are the research agent. Before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. Record every consulted source \
+                system: "You are the research agent. Before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. After approval, use the `research_loop` tool with start/resume actions to drive the bounded search-read-reflect loop. For each isolated subtask call begin_search first and pass its task_id to add_evidence; the max_concurrency gate is mechanical. Use websearch/webfetch only as isolated subtasks; before returning any result to the main context, compress it via research_loop add_evidence with relevance, source_ids, and a sourced summary—never pass raw webpage or tool output into the loop. Use reflect to record knowledge gaps and decide whether another round is needed; write findings only through add_finding with source refs. Record every consulted source \
                          (`source add`) and register conclusions as findings citing those \
                          sources. Every conclusion must state its code or literature domain, \
                          V0-V3 level, evidence anchor, and literature evidence depth; use V \

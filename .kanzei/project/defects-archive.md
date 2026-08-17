@@ -5642,3 +5642,75 @@
 - observed_head: 49c9af334fe0dd13054293b2f8b990831431e214
 - observed_worktree_hash: fnv1a64:c5a7204fd03aa900
 - recorded_at: 1786963817719
+
+## D-461 R-277 research_loop 误导入不存在 placeholder crate [fixed] (medium)
+- 复现: 检查新增 `crates/kanzei-tools/src/research_loop.rs`；文件第 11 行导入不存在的 `kanzei_tools_placeholder` crate，运行 `cargo test -p kanzei-tools research_loop` 将无法解析依赖。
+- 影响: R-277 批2检索环模块无法编译。
+- 来源: self-found：R-277 批2首个代码步骤后的编译前检查。
+- 标签: 核心
+- refs: R-277
+- 优先级: P1
+- 进展: 已删除 `crates/kanzei-tools/src/research_loop.rs` 中不存在的 placeholder 导入；T-1786922726150 的 rustfmt 与 kanzei-tools 333 passed/1 ignored 证明模块可编译。
+- observed_head: db2e92d72039994e18c0adbab9abada87d4e13f9
+- observed_worktree_hash: fnv1a64:45b244eede35f065
+- recorded_at: 1786965048369
+
+## D-462 R-277 research_loop 吞掉计划读取错误 [fixed] (medium)
+- 复现: 审阅 `crates/kanzei-tools/src/research_loop.rs:148-153`；`load_plan(...).map_err(ToolOutput::error).unwrap_or(None)` 将计划读取失败转换为 None，随后返回“尚未创建研究计划”，丢失真实错误。
+- 影响: 计划 JSON 损坏或文件读取失败时，research agent 得到错误事实，无法诊断或恢复。
+- 来源: self-found：R-277 批2 research_loop 代码审阅。
+- 标签: 核心
+- refs: R-277 D-461
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/research_loop.rs:154-160` 改为显式匹配 `load_plan` 的 `Ok(Some)`、`Ok(None)`、`Err`，错误不再伪装为缺失计划；T-1786922726150 通过。
+- observed_head: db2e92d72039994e18c0adbab9abada87d4e13f9
+- observed_worktree_hash: fnv1a64:45b244eede35f065
+- recorded_at: 1786965052871
+
+## D-463 R-277 research_loop 未实施有限并发闸门 [fixed] (medium)
+- 复现: 审阅 `crates/kanzei-tools/src/research_loop.rs`；ResearchLoopState 只有 `max_concurrency` 配置值，没有 begin/complete 任务计数或活动任务集合，add_evidence/reflect 不检查并发占用。
+- 影响: 检索环无法机械限制活动检索任务数量，`max_concurrency` 只是展示字段，不能满足有限并发门。
+- 来源: self-found：R-277 批2 Design freeze 对照实现审阅。
+- 标签: 核心
+- refs: R-277
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/research_loop.rs:196-227` 新增 begin_search、active_tasks、task_id 和 max_concurrency 闸门；`add_evidence` 回收 task，`reflect` 拒绝活动任务；T-1786922726150 的 concurrency 单测和完整 suite 通过。
+- observed_head: db2e92d72039994e18c0adbab9abada87d4e13f9
+- observed_worktree_hash: fnv1a64:45b244eede35f065
+- recorded_at: 1786965057810
+
+## D-464 R-277 research_loop task_id 校验插入位置破坏语法 [fixed] (medium)
+- 复现: 运行 `cargo fmt --all -- --check` 或 `cargo test -p kanzei-tools research_loop`；`crates/kanzei-tools/src/research_loop.rs:243` 报 `expected ; found let`，原因是 task_id 校验被插入到 summary 链式表达式中间。
+- 影响: research_loop 模块无法解析，ResearchProfile 注册和全部批2测试被阻断。
+- 来源: self-found：R-277 批2并发闸门定向验证。
+- 标签: 核心
+- refs: R-277 D-463
+- 优先级: P1
+- 进展: 修复 `crates/kanzei-tools/src/research_loop.rs:229-300` 的 add_evidence task_id 代码块，恢复完整 let-else 与括号结构；`cargo fmt --all -- --check` 和 T-1786922726150 333 passed 通过。
+- observed_head: db2e92d72039994e18c0adbab9abada87d4e13f9
+- observed_worktree_hash: fnv1a64:45b244eede35f065
+- recorded_at: 1786965064667
+
+## D-465 R-277 research_loop 吞掉已有状态读取错误 [fixed] (medium)
+- 复现: 审阅 `crates/kanzei-tools/src/research_loop.rs:167-168`；`if let Ok(Some(state)) = load_state(...)` 忽略 loop.json 读取/JSON 错误，随后可能创建新状态覆盖损坏现场。
+- 影响: 断点续跑遇到损坏状态时无法报告真实错误，可能丢失恢复线索。
+- 来源: self-found：R-277 批2 D-462 修复后的同类错误处理审阅。
+- 标签: 核心
+- refs: R-277 D-462
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/research_loop.rs:167-171` 改为显式匹配已有 loop 状态的 `Ok(Some)`、`Ok(None)`、`Err`，损坏状态不再被覆盖；T-1786922726150 通过。
+- observed_head: db2e92d72039994e18c0adbab9abada87d4e13f9
+- observed_worktree_hash: fnv1a64:45b244eede35f065
+- recorded_at: 1786965076249
+
+## D-466 R-277 research prompt 反引号误把 loop action 当工具 [fixed] (low)
+- 复现: 运行 `cargo test -p kanzei-tools`；`profiles::tests::提示词点名的工具必须在同一条装配线上注册` 报 Research prompt 点名 `resume` 但装配线上没有名为 resume 的工具。原因是 prompt 使用了 `` `research_loop start` and `resume` ``，提示词解析器按反引号内容提取独立工具名。
+- 影响: kanzei-tools 全量定向测试失败，批2提交门禁无法通过。
+- 来源: self-found：R-277 批2完整定向 suite。
+- 标签: 核心
+- refs: R-277
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/profiles.rs:785` 将 research_loop action 改为普通文本，仅保留真实工具名 `research_loop` 的反引号；ResearchProfile 装配一致性测试及 T-1786922726150 通过。
+- observed_head: db2e92d72039994e18c0adbab9abada87d4e13f9
+- observed_worktree_hash: fnv1a64:45b244eede35f065
+- recorded_at: 1786965081960
