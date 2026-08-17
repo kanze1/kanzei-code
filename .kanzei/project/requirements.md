@@ -109,10 +109,10 @@
 - 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
-- 进展: 恢复复核与 D-486 修复已落地：R-242 B4/B5 的事件投影、terminal 预检和既有强杀/reset/gate 能力已由历史提交 `706321a6`、`d23a2405`、`94ebf689` 等交付；压缩后 legacy surface 被误计 unknown 的缺陷已登记 D-486，在 `crates/kanzei-core/src/store/typed.rs:1478-1489` 增加 `compacted_snapshot` 分类及 `typed.rs:2241-2251` 回归，提交 `7f77b8ff`，T-1786922726220（kanzei-core 222 passed）通过。新构建真实 CLI 诊断 T-1786922726221 为共275 turn、equal128、预期差异65、unknown82、typed_write_errors110；新增轮 typed_write_errors=0 但最新轮为 failed_turn/process_restarted，不能计入正常窗口。继续定位发现 D-487：失败收尾后迟到 writer 回调产生 terminal/source-step invariant 错误，已在 `crates/kanzei-core/src/store/typed.rs:920-1116` 所有 writer 入口增加 terminal 短路，并在 `typed.rs:1669-1728` 增加迟到回调回归；D-488 已修复 Windows 测试句柄问题。T-1786922726222（kanzei-core 223 passed）通过，D-487 待提交后关闭。R-242 尚缺验收⑤修复后至少30个正常真实 shadow turn（typed_write_errors=0、正常 turn equal=true、unknown=0）及验收⑦ R-243 compaction 事件化。
-- observed_head: 7f77b8ffa4acd1556c893d05cdc61bd59a5773a5
-- observed_worktree_hash: fnv1a64:71806aa445e9fad3
-- recorded_at: 1786997546779
+- 进展: 修复后真实窗口继续验证：D-487 已提交 `761d4009`，D-486 已提交 `7f77b8ff`。本轮尝试一次性建立30个真实正常 turn，命令在600秒内因外部模型服务连接不稳定未完成；T-1786922726227 记录该失败尝试。随后真实 shadow 诊断 T-1786922726226 显示总 turn 由280增至293，equal=129、expected=81、unknown=83、typed_write_errors=112；新增尾部包含 TLS peer closed / process_restarted，不能计入验收⑤。当前代码修复仍有效，但验收⑤尚缺修复后至少30个无 typed_write_errors 的正常可比较 turn，验收⑦仍依赖 R-243 compaction 事务。下一步在外部模型连接稳定后分小窗口重试，每窗口先确认 run.completed，再执行 shadow 复核；不重写历史 unknown。
+- observed_head: 761d40094c2b3c9012a5c8e4619c30f5caed62cc
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1786998803933
 - 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]

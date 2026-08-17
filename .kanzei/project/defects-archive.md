@@ -5980,3 +5980,16 @@
 - observed_head: 7f77b8ffa4acd1556c893d05cdc61bd59a5773a5
 - observed_worktree_hash: fnv1a64:71806aa445e9fad3
 - recorded_at: 1786997528033
+
+## D-487 typed writer 在失败收尾后继续接收迟到回调并产生 terminal invariant 错误 [fixed] (high)
+- 复现: 新构建真实 CLI 的最新 `session.shadow_compared` 事件中，`typed_write_errors` 出现 `turn ... already terminal`，并出现 `assistant commit source step 18 != active source step Some(17)`、`tool results source step 19 != active source step Some(17)`；发生在模型传输失败/`process_restarted` 收尾后仍有回调写入的场景。
+- 影响: 失败或重启后的 runner 回调继续向已 terminal 的 typed session writer 写事实，产生 writer 错误并污染 R-242 的 shadow gate；会话事实恢复与验收②⑤无法可靠判定。
+- 来源: self-found：R-242 新构建真实 state.db 的 `session.shadow_compared` payload 与 `crates/kanzei-core/src/store/typed.rs:886-1143` writer 生命周期对照。
+- 标签: 核心
+- 验收: terminal 后任何迟到的 TurnStart/assistant/tool/text 回调均被安全忽略且不新增 typed_write_errors；失败/重启收尾只产生一个 terminal 事实；新增回归覆盖 terminal 后迟到回调；kanzei-core 定向测试通过。
+- refs: R-242
+- 优先级: P1
+- 进展: 已提交 `761d4009`。验收逐项对账：①terminal 后 TurnStart/assistant/tool/text 回调安全忽略且不新增 typed_write_errors：`crates/kanzei-core/src/store/typed.rs:920-923,932-935,1005-1008,1045-1048`，回归 T-1786922726223；②flush、stream restart、迟到 finish 也短路：`typed.rs:945-948,970-976,981-984,1081-1084`，T-1786922726223；③失败/重启收尾只产生一个 terminal 事实：首次 finish 设置 terminal 的 `typed.rs:1112-1116`，测试断言仅一个 `TurnFailed` 且无后续 terminal，`typed.rs:1669-1728`；④新增 terminal 后迟到回调回归覆盖 TurnStart/文本/stream restart/assistant/tool/flush/finish：`typed.rs:1669-1728`；⑤kanzei-core 定向测试：T-1786922726223，`cargo test -p kanzei-core`，223 passed，0 failed。D-488 Windows 句柄修复已在同一回归中通过。
+- observed_head: 761d40094c2b3c9012a5c8e4619c30f5caed62cc
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1786997653867

@@ -6206,3 +6206,31 @@
 - 关联: R-242 D-487 D-488
 - 收尾: 1786997625
 - 源码指纹: 87eaf2a7e793a47e
+
+## T-1786922726224 R-242 修复后真实 shadow 诊断窗口 [passed]
+- 命令: cargo run -p kanzei -- shadow --project-root (Get-Location).Path --mismatches
+- 时长: 9.4s
+- 摘要: 当前 HEAD 真实 shadow 诊断完成但 gate 未达标：277 turn，equal 128，expected 66，unknown 83，typed_write_errors 111；输出列出未知差异，历史脏窗口仍需隔离，不能作为 R-242 验收⑤通过证据。
+- 关联: R-242 D-486 D-487
+- 收尾: 1786997716
+
+## T-1786922726225 R-242 修复后真实 CLI 正常 turn [passed]
+- 命令: $env:KANZEI_PROFILE = 'dev'; $env:KANZEI_AGENT = 'dev'; $env:KANZEI_MODEL = 'primary'; & '.\target\debug\kz.exe' run --new --project-root (Get-Location).Path '请只回复：shadow smoke ok。不要调用工具，不要修改文件。'
+- 时长: 0.6s
+- 摘要: 当前 HEAD 真实 CLI turn 完成，模型返回 `shadow smoke ok`，无工具调用、无文件修改；用于生成修复后 typed writer/shadow 事件。
+- 关联: R-242 D-487
+- 收尾: 1786997985
+
+## T-1786922726226 R-242 真实正常 turn 后 shadow 复核 [passed]
+- 命令: & '.\target\debug\kz.exe' shadow --project-root (Get-Location).Path --mismatches
+- 时长: 0.8s
+- 摘要: 真实修复后二次 shadow：总 280 turn，equal 129，expected 68，unknown 83，typed_write_errors 111；新增尾部事件未增加 unknown，但全局历史窗口仍未达标。
+- 关联: R-242 D-486 D-487
+- 收尾: 1786998002
+
+## T-1786922726227 R-242 修复后30个真实正常 turn窗口尝试 [failed]
+- 命令: $root = (Get-Location).Path; $env:KANZEI_PROFILE = 'dev'; $env:KANZEI_AGENT = 'dev'; $env:KANZEI_MODEL = 'primary'; $failed = @(); 1..30 | ForEach-Object { $n = $_; & '.\target\debug\kz.exe' run --new --project-root $root "请只回复：shadow normal turn $n ok。不要调用工具，不要修改文件。" *> $null; if ($LASTEXITCODE -ne 0) { $failed += $n } }; if ($failed.Count -gt 0) { exit 1 }
+- 时长: 600.0s
+- 摘要: 尝试建立修复后30个真实正常 turn 窗口；批处理在600秒内被终止，无完整输出。随后 shadow 诊断显示总 turn 由280增至293，新增窗口包含外部模型传输失败/进程重启，typed_write_errors 由111增至112，不能作为验收⑤证据。
+- 关联: R-242
+- 收尾: 1786998790
