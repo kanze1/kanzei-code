@@ -262,11 +262,11 @@
 - 优先级: P1
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-277
-- 进展: 批次已全部落地至 5/5，代码提交 b02a6baa，metadata 提交 e71f1407。关闭前验收逐条对账：①真实课题轨迹：`.kanzei/research/r221-chain/plan.md`、`sources.md`、`findings.md`、`report.md` 与 `.kanzei/research/report.md` 保留 plan→source→finding→report 真实运行产物；当前研究工具链代码由 49c9af33/8552c485/824690c1/4959cc4f/b02a6baa 接线。②FACT 抽查：`crates/kanzei-tools/src/research_verify.rs` 的 `capture_source`、`verify_literature`、`verify_code`、`verify_claims` 逐条核验正文 keywords 与 file:line@commit；D-412 摘要反例覆盖于 `research_verify.rs` literature_full_text_rejects_abstract_only_counterexample；T-1786922726156、T-1786922726158 通过。③预算旋钮：`research_verify.rs` budget_set/get、`research_loop.rs` load_budget_override 与 start 实际消费 max_rounds/max_tokens/max_concurrency；`budget_override_is_consumed_by_research_loop` + T-1786922726156 实测小预算状态。④原始输出隔离：`research_loop.rs` input schema 仅接收 summary/relevance/source_ids，`research_verify.rs` capture_source 只返回正文摘要元信息，ResearchProfile prompt 明确不得传 raw tool output；T-1786922726156 通过。⑤统一检索：`research_index.rs` schema/search_index 与 symbols 分支共用 research_index 入口，`one_index_searches_literature_and_code_and_resumes` 实测文献、代码命中及 symbols 反查；T-1786922726157、T-1786922726158 通过。⑥验收降级：原文要求“中途强杀重启可恢复续跑”；当前实现为 `index_checkpoint.json` 每文档 checkpoint + `index_resume`，并有损坏保护/恢复单测，但尚未执行真实进程中途强杀后重启命令，保持 R-277 doing，缺口待补。⑦验收降级：原文要求“轻课题 report.md 与重课题 paper.tex 编译通过各走通一次”；当前有 `research_write.rs` outline/section/assemble/compile/repair 单测及 R-273 LaTeX 通道测试，但尚未完成真实 topic 的 report.md 轻课题和 assembled paper.tex 成功编译实测，保持 R-277 doing，缺口待补。workspace 全量 T-1786922726158：0 failed；kanzei-tools 339 passed/1 ignored、kanzei-app 202 passed、memory 143 passed，其余 crate/doc-tests 全部通过。
-- observed_head: b02a6baa061442e096d4c7385b7c9a4c2d89e171
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786967440115
-- 停车: D-475 是由 R-277 真实验收发现的高严重度阻断缺陷；按 defect-first 让出唯一 mutation 槽，待 D-475 修复、真实强杀续跑证据完成后恢复 R-277。恢复人：agent。
+- 进展: D-475 已修复并提交：`c6099025 D-475 修复 Windows Tantivy 断点续跑`。R-277 验收逐条状态更新：①真实课题 plan→source→finding→report 轨迹仍由 `.kanzei/research/r221-chain/plan.md`、`sources.md`、`findings.md`、`report.md` 保留；②FACT 正文/代码引用校验由 `research_verify.rs` 与 T-1786922726156/T-1786922726166 覆盖；③预算旋钮由 `research_verify.rs`/`research_loop.rs` 与 T-1786922726156 覆盖；④原始输出隔离由 `research_loop.rs` 输入 schema和ResearchProfile prompt覆盖；⑤统一 Tantivy 文献/代码/symbols 检索由 `research_index.rs` 与 T-1786922726164/T-1786922726166 覆盖；⑥真实 Windows 5211 文档中途强杀恢复已通过：`research_index.rs:319-365` 修复、T-1786922726165 强杀 pid=96200 后 `index_resume` 从 1024/5211 完成到 5211/5211，D-475 已 fixed。⑦仍未完成：真实轻课题 `report.md` 与真实重课题 `paper.tex` 组装成功编译，各缺真实 topic 运行证据，保持 R-277 doing。
+- observed_head: c6099025771f6793f55a501f21120ec114a55caf
+- observed_worktree_hash: fnv1a64:23b04dacffa540e7
+- recorded_at: 1786969832307
+- 停车: 
 
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1
