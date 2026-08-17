@@ -3626,3 +3626,18 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786925474660
 - 关闭结论: 混合型旧需求已拆分并按 dropped 归档；可执行剩余工作以 R-288 为真源。
+
+## R-280 子代理总开关:进程级「子代理」勾选框,关掉即 task 工具不注册 [done]
+- 优先级: P1
+- 复杂度: 小
+- 标签: 前端 后端
+- 来源: 2026-08-17 用户「非勘察模式也能默认能用子代理,我觉得这个应该弄个开关吧」;同轮用户拍板开关形状=进程级、放「更多」菜单。
+- 背景: 全局没有任何开关能关掉子代理。crates/kanzei-app/src/run/coordinator.rs:162 无条件构造 SubagentRuntime(注释标着 2026-08-11 定调「模型自己派 task 这条路永远开着,不受『勘察复核』开关控制」);phase_pipeline.rs:14-16 同样明说那个勾选框管的是「每轮强制勘察与复核」而非「有没有子代理」。用户看到的现象=非勘察模式下模型照样派子代理且无从关闭。本条部分推翻 2026-08-11 那条定调(2026-08-17 用户重新拍板)。
+- 内容: 新增进程级开关「子代理」,与 phase_pipeline_enabled 同形状(ProcessHandle 字段 + process_create/process_update + 落库回显),UI 放 index.html「更多」菜单 #process-phase-pipeline 那一行旁,默认开(保持现状行为)。关掉时 coordinator 不构造 SubagentRuntime,runner 因此不 push task_spec —— 模型工具面上根本没有 task,而不是注册了再拒(D-173 的反面教材:合法路径不可达会让模型去找旁路,这里是能力整体不提供,不存在旁路问题)。CLI 侧(crates/kanzei/src/cli/run.rs)同步同一口径。
+- 边界: 不改「勘察复核」的语义(它仍只管七阶段);关掉子代理时若「勘察复核」开着,走 phase_pipeline.rs:405 既有的空屏障路径(该路径已实现,注释写明「『这一轮没有勘察』与『这一轮压根没有勘察阶段』的区别」),不新造分支;不做全局设置项(用户 2026-08-17 拍板进程级);不做三档选择。
+- 验收: ①「更多」菜单出现「子代理」行,切换经 process_update 落库、重启回显一致(与 process_tests.rs:205 勘察复核开关同测法);②关掉后该进程新一轮的工具面上不含 task —— 断言 ToolSpec 列表里没有它,不接受「注册了再拒」;③关掉子代理 + 开着「勘察复核」的组合能跑完整一轮,勘察简报如实说明本轮无勘察(走空屏障路径);④默认值为开,新建进程与默认进程都必须默认可用(反向断言,防默认被悄悄改掉);⑤i18n 中英文案齐,且不得出现把「勘察复核」描述成子代理开关的旧说法(02-i18n.js:448-450 的注释已明令禁止)。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-280
+- 进展: R-280 已完成，验收逐条对账：①「更多」菜单行见 crates/kanzei-app/ui/index.html:322-328；切换通过 ui/09-sessions.js:607-620 调用 process_update 的 subagentsEnabled，后端接收见 crates/kanzei-app/src/processes/lifecycle.rs:378-413，持久化投影见 processes/registry.rs:151-153、326-328，重启恢复见 registry.rs:84-99；T-1786922726069 与 T-1786922726068 通过。②关闭后不构造运行时见 crates/kanzei-app/src/run/coordinator.rs:195-211；CLI 同口径见 crates/kanzei/src/cli/run.rs:427-435；ToolSpec 构造契约见 crates/kanzei-core/src/runner/drive.rs:1501-1505、1547，关闭时不含 task 的断言见 drive.rs:1512-1517，T-1786922726069 通过。③既有能力明确复用：勘察复核空屏障路径与组合测试见 crates/kanzei-app/src/phase_pipeline_tests.rs:1153-1207，测试断言两次 barrier 留痕及 writer 在 review 前释放；本次只让子代理开关接入 coordinator，不改 phase_pipeline 语义。④默认开启见 state.rs:389、registry.rs:84、308，关闭重置见 lifecycle.rs:469；process_tests.rs:205-230、278-315 断言新建与重启回显为 true，T-1786922726069 通过。⑤中英文案见 ui/index.html:322-325、ui/02-i18n.js:457-462；勘察复核旧语义仍独立保留在 index.html:314，未改成子代理开关；六条前端冒烟 T-1786922726068 通过。
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:4aecd77effb3deeb
+- recorded_at: 1786931251006
