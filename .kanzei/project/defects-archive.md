@@ -6300,3 +6300,16 @@
 - observed_head: 799b703d19e3b6bd8d98e06434ecfe22ed8f112c
 - observed_worktree_hash: fnv1a64:7502418c934b2dcc
 - recorded_at: 1787007195742
+
+## D-503 设置页 models_list/fast_model_status 失败被 catch return 静默吞 [fixed] (medium)
+- 复现: crates/kanzei-app/ui/16-settings.js:339 catch{return}(models_list 失败模型下拉停旧值),:404 同款(fast_model_status 失败状态行不更新);:393-395 注释自陈全部静默失效而界面毫无线索
+- 影响: 后端失败时用户无从判断,模型下拉与安装按钮状态不明
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 前端
+- 验收: 两处失败均有用户可见反馈(toast 或状态行);冒烟断言
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-503
+- 进展: 实现与验收完成，待提交后关闭。验收对账：①两处失败均有用户可见反馈：`crates/kanzei-app/ui/16-settings.js:340` 的 `models_list` catch 调用 `toastError`，实际持久错误面板由 `crates/kanzei-app/ui/03-shell.js:147-155` 提供；`16-settings.js:407-410` 的 `fast_model_status` catch 写入 `fast-status` 状态行、加 `warn-text` 并隐藏 `fast-setup`。手动刷新成功 toast 仅在 `16-settings.js:392-393` 的 ok 分支显示，失败不会误报成功。②冒烟断言：`scripts/ui-runtime-smoke.mjs:3938-3961` 注入两次失败，断言持久错误出口/日志面板可见及 fast 状态行/安装按钮状态；T-1786922726290 六项前端冒烟通过。③i18n：`crates/kanzei-app/ui/02-i18n.js:368` 新增快速状态失败英文资源。下一步仅提交本条四个相关文件并关闭。
+- observed_head: 248164d44fb5e373f5ad3f97fd049de8e10c3ddd
+- observed_worktree_hash: fnv1a64:33d86451c8c6484f
+- recorded_at: 1787007566061
