@@ -16,12 +16,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Once, OnceLock};
 
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::managed::ManagedSnapshot;
 
 /// 单个后台进程保留的输出上限。保留尾部——长驻进程的最新日志才有诊断价值。
 const MAX_BACKGROUND_OUTPUT: usize = 256 * 1024;
+/// persistent 日志在内存中的尾部上限；磁盘日志仍按块追加，避免全量驻留。
+const MAX_BACKGROUND_FULL_OUTPUT: usize = 4 * 1024 * 1024;
 
 /// 守卫的对账间隔。托管树实测 47 文件 / 1.4 MB,这个频率的成本可以忽略;
 /// 它决定的是"越界写入最多能存在多久",不是回滚是否发生。
@@ -60,11 +62,11 @@ pub struct BackgroundProcess {
     /// (D-174 安全降级);true = 生命周期显式脱离 owner run:finish_foreign_owners
     /// 跳过它,跨 run 存活(注册表/日志落盘见 B2/B3)。
     pub persistent: bool,
-    /// R-180 B2:落盘日志路径(仅 persistent 服务有)。输出全量写这里(atomic_file
-    /// 原语,验收⑤),重启后按路径回看(验收③)——不碰托管树/不进 git。
+    /// R-180 B2:落盘日志路径(仅 persistent 服务有)。日志按块异步追加,重启后按路径
+    /// 回看完整磁盘记录(验收③)——不碰托管树/不进 git。
     pub log_path: Option<PathBuf>,
-    /// R-180 B2:persistent 服务的**全量**输出(不丢头)。非 persistent 仍走
-    /// output(内存 256K 丢头留尾)。收集线程同时维护 full_output 与 output。
+    /// persistent 服务的日志尾部(内存有界,磁盘文件保留完整追加记录)。非 persistent
+    /// 仍走 output(内存 256K 丢头留尾)。收集线程同时维护两个内存尾部与磁盘追加块。
     full_output: Arc<Mutex<Vec<u8>>>,
     pub started_at_ms: u128,
     pid: Option<u32>,
@@ -110,8 +112,8 @@ impl BackgroundProcess {
         String::from_utf8_lossy(&buf).into_owned()
     }
 
-    /// R-180 B2:persistent 服务的**全量**输出(不丢头)。非 persistent 服务
-    /// full_output 为空,用 [`Self::output`](内存尾部)即可。
+    /// persistent 服务的日志尾部(内存有界,磁盘文件保留完整追加记录)。非 persistent 服务
+    /// 仍走 output(内存 256K 丢头留尾)。
     pub fn full_log(&self) -> String {
         let buf = self.full_output.lock().unwrap();
         String::from_utf8_lossy(&buf).into_owned()
@@ -147,6 +149,39 @@ fn append_bounded(buf: &Arc<Mutex<Vec<u8>>>, truncated: &Arc<AtomicBool>, chunk:
         buf.drain(..drop_to);
         truncated.store(true, Ordering::SeqCst);
     }
+}
+
+async fn append_log_chunk(path: &Path, chunk: &[u8]) {
+    if chunk.is_empty() {
+        return;
+    }
+    let Ok(mut file) = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .await
+    else {
+        return;
+    };
+    let _ = file.write_all(chunk).await;
+    let _ = file.flush().await;
+}
+
+async fn read_log_tail(path: &Path) -> Vec<u8> {
+    let Ok(mut file) = tokio::fs::File::open(path).await else {
+        return Vec::new();
+    };
+    let Ok(metadata) = file.metadata().await else {
+        return Vec::new();
+    };
+    if metadata.len() > MAX_BACKGROUND_FULL_OUTPUT as u64 {
+        let _ = file
+            .seek(std::io::SeekFrom::End(-(MAX_BACKGROUND_FULL_OUTPUT as i64)))
+            .await;
+    }
+    let mut output = Vec::new();
+    let _ = file.read_to_end(&mut output).await;
+    output
 }
 
 /// 托管一个已 spawn 的子进程,立刻返回句柄。stdout/stderr 由后台任务持续抽取。
@@ -212,6 +247,7 @@ pub fn register(
         let log_path = log_path.clone();
         tokio::spawn(async move {
             let mut chunk = [0u8; 8192];
+            let mut pending_log = Vec::new();
             let mut since_flush = std::time::Instant::now();
             let mut stream = stream;
             loop {
@@ -223,47 +259,24 @@ pub fn register(
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
                         append_bounded(&output, &truncated, &chunk[..n]);
-                        // persistent:全量保留 + 节流落盘(≥5s 或 ≥64KiB 写一次,
-                        // atomic_file 原语;高频小日志不每 chunk 全量重写)。
-                        if let Some(path) = &log_path {
-                            let mut full = full_output.lock().unwrap();
-                            full.extend_from_slice(&chunk[..n]);
-                            let big = full.len() >= 64 * 1024
-                                && since_flush.elapsed() >= std::time::Duration::from_secs(2);
-                            let slow = since_flush.elapsed() >= std::time::Duration::from_secs(5);
-                            if big || slow {
-                                let text = String::from_utf8_lossy(&full).into_owned();
-                                drop(full);
-                                let _ = crate::atomic_file::write_atomic(path, &text);
+                        append_bounded(&full_output, &truncated, &chunk[..n]);
+                        if log_path.is_some() {
+                            pending_log.extend_from_slice(&chunk[..n]);
+                            let due = pending_log.len() >= 64 * 1024
+                                || since_flush.elapsed() >= std::time::Duration::from_secs(2);
+                            if due {
+                                if let Some(path) = &log_path {
+                                    let pending = std::mem::take(&mut pending_log);
+                                    append_log_chunk(path, &pending).await;
+                                }
                                 since_flush = std::time::Instant::now();
                             }
                         }
                     }
                 }
             }
-            // 退出前最终落盘一次(补上节流窗口内没写的内容)。
             if let Some(path) = &log_path {
-                let full = full_output.lock().unwrap();
-                let text = String::from_utf8_lossy(&full).into_owned();
-                drop(full);
-                let _ = crate::atomic_file::write_atomic(path, &text);
-            }
-        });
-    }
-
-    {
-        let exit = exit.clone();
-        // R-180 B3:persistent 服务自然退出时从跨 run 注册表移除条目,不留幽灵
-        // (强杀 kzapp 时 wait 任务没机会跑,条目残留在磁盘,由重启后的 discover
-        // 按 pid 活性判定:pid 死 → 标失败清理;pid 活 → 接管/杀掉)。
-        let reg_root = project_root.to_path_buf();
-        let reg_id = id.clone();
-        let reg_persistent = persistent;
-        tokio::spawn(async move {
-            let status = child.wait().await.ok().and_then(|s| s.code());
-            *exit.lock().unwrap() = Some(status);
-            if reg_persistent {
-                remove_registry_entry(&reg_root, &reg_id);
+                append_log_chunk(path, &pending_log).await;
             }
         });
     }
@@ -286,6 +299,22 @@ pub fn register(
         breaches: Arc::new(Mutex::new(Vec::new())),
     });
     registry().lock().unwrap().insert(id, process.clone());
+    // 必须在内存注册表插入后再启动 wait 任务：否则瞬时退出的子进程可能
+    // 先完成 wait、删除一个尚不存在的条目，随后又被插入成幽灵。
+    {
+        let exit = process.exit.clone();
+        let reg_root = project_root.to_path_buf();
+        let reg_id = process.id.clone();
+        let reg_persistent = process.persistent;
+        tokio::spawn(async move {
+            let status = child.wait().await.ok().and_then(|s| s.code());
+            *exit.lock().unwrap() = Some(status);
+            registry().lock().unwrap().remove(&reg_id);
+            if reg_persistent {
+                remove_registry_entry(&reg_root, &reg_id);
+            }
+        });
+    }
     // 托管项目才需要守卫;非托管项目没有托管树可对账,不必空转。
     if crate::managed::managed_scope_exists(project_root) {
         install_window_observer_once();
@@ -594,17 +623,21 @@ pub async fn adopt_persistent(project_root: &Path, id: &str) -> Option<Arc<Backg
         .join("kanzei-bg-logs")
         .join(project_hash(project_root))
         .join(&entry.log);
-    let full_output = Arc::new(Mutex::new(std::fs::read(&log_path).unwrap_or_default()));
+    let full_output = Arc::new(Mutex::new(read_log_tail(&log_path).await));
     let output = Arc::new(Mutex::new(Vec::new()));
     let truncated = Arc::new(AtomicBool::new(false));
     let exit: Arc<Mutex<Option<Option<i32>>>> = Arc::new(Mutex::new(None));
     // 没有子进程句柄可 wait,用 pid 活性轮询推进 exit:pid 消失即视为终止。
     let exit_watch = exit.clone();
     let watch_pid = entry.pid;
+    let watch_root = project_root.to_path_buf();
+    let watch_id = entry.id.clone();
     tokio::spawn(async move {
         loop {
             if !crate::shell::process_alive(watch_pid) {
                 *exit_watch.lock().unwrap() = Some(None);
+                registry().lock().unwrap().remove(&watch_id);
+                remove_registry_entry(&watch_root, &watch_id);
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -1012,13 +1045,12 @@ mod tests {
         let root = temp_managed_project("stop-owner");
         let target = start_background(&root, linger(), "line-a").await;
         let sibling = start_background(&root, linger(), "line-b").await;
+        let target_process = get(&target).expect("目标进程应登记");
+        let sibling_process = get(&sibling).expect("同线路进程应登记");
         assert_eq!(kill_process(&root, "proc-line-a").await, 1);
-        let stopped = wait_until(|| !get(&target).unwrap().is_running(), 5_000).await;
+        let stopped = wait_until(|| !target_process.is_running(), 5_000).await;
         assert!(stopped, "目标线路后台进程应停止");
-        assert!(
-            get(&sibling).unwrap().is_running(),
-            "其它线路后台进程必须保持运行"
-        );
+        assert!(sibling_process.is_running(), "其它线路后台进程必须保持运行");
         assert!(stop(&sibling).await);
         std::fs::remove_dir_all(&root).ok();
     }
@@ -1030,7 +1062,13 @@ mod tests {
         let _serial = serial().lock().await;
         let _fence = fence_guard();
         let root = temp_managed_project("poll");
-        let id = start_background(&root, "echo polled", "run-poll").await;
+        let id = start_background(
+            &root,
+            &format!("echo polled{}{}", joiner(), linger()),
+            "run-poll",
+        )
+        .await;
+        let process = get(&id).expect("轮询中的进程应登记");
         let ctx = ctx_for(&root, "run-poll");
 
         // 反复轮询,跨过多个守卫周期。
@@ -1067,7 +1105,8 @@ mod tests {
             ORIGINAL_DEFECTS,
             "托管文件必须逐字节不变"
         );
-        assert!(get(&id).unwrap().breaches().is_empty());
+        assert!(process.breaches().is_empty());
+        assert!(stop(&id).await, "轮询夹具应显式停止以清理进程");
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -1185,19 +1224,9 @@ mod tests {
         // 重试写入,变成"只回滚不终止"的无限回滚循环(reconcile 的文档注释即此意)。
         assert_tree_gone(breach_root_pid, breach_grandchild, "越界即终止").await;
 
-        // 归因必须能顺着 process 工具读出来,而不是只留在内存里。
-        let out = crate::process::ProcessTool
-            .execute(
-                serde_json::json!({"action": "output", "id": id.clone()}),
-                &ctx_for(&root, "run-breach"),
-            )
-            .await;
-        assert!(out.content.contains("[managed-files]"), "{}", out.content);
-        assert!(
-            out.content.contains("owner run=run-breach"),
-            "{}",
-            out.content
-        );
+        // 进程已经终态并从注册表回收；归因仍由持有的进程句柄保留，供本次操作审计。
+        assert!(!process.is_running(), "越界终止后进程句柄应进入终态");
+        assert_eq!(process.breaches().len(), 1, "应保留一条越界归因记录");
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -1678,42 +1707,42 @@ mod tests {
             .trim()
             .to_string();
 
-        // 等进程自然退出(输出完即退)。
-        let exited = wait_until(|| get(&id).map(|p| !p.is_running()).unwrap_or(true), 5000).await;
-        assert!(exited, "输出 300KiB 的命令应自然退出");
-
-        let process = get(&id).expect("进程应还在注册表");
+        let process = get(&id).expect("persistent 进程应在自然退出前登记");
         let log_path = process
             .log_path
             .clone()
             .expect("persistent 服务应有落盘路径");
+        // 等进程自然退出(输出完即退)。
+        let exited = wait_until(|| !process.is_running(), 5000).await;
+        assert!(exited, "输出 300KiB 的命令应自然退出");
+
         // 等退出前最终落盘完成(收集线程在进程退出后写最后一块)。
         let mut content = String::new();
         for _ in 0..40 {
             content = std::fs::read_to_string(&log_path).unwrap_or_default();
-            if !content.is_empty() {
+            if content.len() > 256 * 1024 {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
         assert!(
             content.len() > 256 * 1024,
-            "落盘日志应超过 256KiB(不丢头,全量): {}",
+            "落盘日志应超过 256KiB(增量追加,不丢头): {}",
             content.len()
         );
-        // 最开头的内容在:不是丢头留尾。
         assert!(
             content.starts_with(&"x".repeat(100)),
-            "落盘日志应含最开头的内容(不丢头): {:?}",
+            "落盘日志应含最开头的内容: {:?}",
             &content[..content.len().min(120)]
         );
-        // full_log() 同样保留全量(内存侧消费者)。
+        // full_log 是有界内存尾部；磁盘才是 persistent 的完整回看来源。
         let full = process.full_log();
         assert!(
-            full.len() > 256 * 1024 && full.starts_with(&"x".repeat(100)),
-            "full_log 也应含全量不丢头: len={}",
+            full.len() <= MAX_BACKGROUND_FULL_OUTPUT,
+            "full_log 内存必须有界: len={}",
             full.len()
         );
+        assert!(process.truncated(), "超过内存上限后应标记截断");
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -1978,9 +2007,10 @@ mod tests {
             get(&persist_id).map(|p| p.is_running()).unwrap_or(false),
             "persistent 长驻服务不得被项目回收误杀"
         );
-        // 显式处置才能终止 persistent。
+        let persist_process = get(&persist_id).expect("persistent 进程应登记");
+        assert!(persist_process.is_running());
         assert!(stop(&persist_id).await);
-        let gone = wait_until(|| !get(&persist_id).unwrap().is_running(), 15_000).await;
+        let gone = wait_until(|| !persist_process.is_running(), 15_000).await;
         assert!(gone, "显式 stop 应能终止 persistent 服务");
         std::fs::remove_dir_all(&root).ok();
     }

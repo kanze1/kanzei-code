@@ -109,8 +109,8 @@ impl Tool for ProcessTool {
                     Some(Some(code)) => format!("exited({code})"),
                     Some(None) => "terminated".to_string(),
                 };
-                // R-180 B2:persistent 服务读**全量**日志(内存不丢头);非 persistent
-                // 维持原状(内存尾部)。log_path 是落盘位置,供跨 run 回看。
+                // R-180 B2:persistent 服务读内存尾部(有界);完整日志通过 log_path
+                // 从磁盘回看。非 persistent 也维持内存尾部。
                 let body = if p.persistent {
                     p.full_log()
                 } else {
@@ -126,8 +126,13 @@ impl Tool for ProcessTool {
                     .as_ref()
                     .map(|path| format!("\n[persistent log on disk: {}]", path.display()))
                     .unwrap_or_default();
-                let head = if p.truncated() && !p.persistent {
-                    format!("state: {state}\n[earlier output dropped — showing tail]\n")
+                let head = if p.truncated() {
+                    let hint = if p.persistent {
+                        "[memory output bounded — showing tail; complete persistent log is on disk]"
+                    } else {
+                        "[earlier output dropped — showing tail]"
+                    };
+                    format!("state: {state}\n{hint}\n")
                 } else {
                     format!("state: {state}\n")
                 };

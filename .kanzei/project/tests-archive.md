@@ -6580,3 +6580,32 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 关联: D-498
 - 收尾: 1787005403
 - 源码指纹: 9cf4841fdda9c0b5
+
+## T-1786922726274 D-499 后台定向测试参数校验 [failed]
+- 命令: cargo test -p kanzei-tools background::tests::输出超上限时丢头留尾并标记截断 background::tests::后台进程可托管_可读输出_可停止
+- 时长: 0.0s
+- 摘要: 命令参数错误：cargo test 只接受一个测试过滤器，未进入编译或测试执行。随后改用 background 模块过滤器重跑。
+- 关联: D-499
+- 收尾: 1787005728
+
+## T-1786922726275 D-499 后台日志与注册表定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools background
+- 时长: 7.1s
+- 摘要: D-499 后台模块回归：24 passed，1 ignored；覆盖异步增量 persistent 日志追加、磁盘日志完整性、full_log 内存上限与截断、自然退出/显式 stop 内存注册表回收、跨 run discover/adopt/kill。
+- 关联: D-499
+- 收尾: 1787005872
+
+## T-1786922726276 D-499 kanzei-tools 提交前定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 39.1s
+- 摘要: D-499 提交前 kanzei-tools 定向回归：342 passed，1 ignored；包含 background 24 passed，日志增量追加、内存上限、注册表回收、adopt 尾读和 process 工具链路通过。
+- 关联: D-499
+- 收尾: 1787005955
+
+## T-1786922726277 D-499 当前暂存源码门禁定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 33.0s
+- 摘要: 按提交门禁针对当前 D-499 暂存源码重跑：342 passed，1 ignored；background 日志异步追加、full_output 有界、自然退出回收及 persistent adopt 回归全部通过。
+- 关联: D-499
+- 收尾: 1787006050
+- 源码指纹: cd3f68c1ea7df1a9

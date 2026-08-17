@@ -15,13 +15,18 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-499 background.rs 日志泵同步阻塞写+全量重写 O(n^2)+full_output 与注册表无界增长 [open] (high)
+## D-499 background.rs 日志泵同步阻塞写+全量重写 O(n^2)+full_output 与注册表无界增长 [fixing] (high)
 - 复现: crates/kanzei-tools/src/background.rs:213 tokio::spawn 的日志泵内 :237/:249 调用同步 write_atomic(全同步 create_dir_all+临时文件+fsync+rename,kanzei-base/src/atomic_file.rs:40);:229-239 每 5s/64KiB 把累积全量 buffer 覆写整文件;:68 full_output 只 extend 从不裁剪(对照 output 走 append_bounded :141);:131 全局注册表只有插入(:288/:631)无 remove,:665 list 含已退出;adopt 路径 :597 整份日志一次读进内存
 - 影响: 卡 tokio worker;长跑 dev server 日志 100MB 时每次刷盘写 100MB(总写入 O(n^2));常驻进程内存无限增长,每个跑过的后台进程永久驻留
 - 来源: 2026-08-18 全库勘察(主会话)
 - 标签: 后端
 - 验收: 写盘异步化或专线;改增量追加;full_output 设上界;已退出进程可回收;回归测试覆盖
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-499
+- 进展: 实现与定向验证已完成，待提交并关闭：①写盘异步化：`crates/kanzei-tools/src/background.rs:141-179,248-281` 使用 `tokio::fs::OpenOptions` + `append_log_chunk`，日志泵只追加 pending chunk，不再调用同步 `write_atomic` 全量重写；②增量追加：同文件 `:248-281` 按 64KiB/2s 节流追加，退出前追加剩余块，磁盘日志保持完整顺序记录；③full_output 上界：同文件 `:23-26,68-70,262` 通过 `append_bounded` 限制为 4MiB 尾部，`process.rs:112-136` 明示内存尾部与磁盘完整日志的区别；adopt 用 `background.rs:181-206,626` 的异步尾部读取，避免整份日志进入内存；④已退出进程回收：`background.rs:302-319` 在注册表插入后启动 wait，终态移除内存条目并清理 persistent registry；adopt pid watcher `:630-645` 同样清理，保留既有 discover/kill 消费链；⑤回归：`background.rs` persistent 日志、full_log 上限、自然退出、stop、discover/adopt/kill 测试均通过；T-1786922726275（background 24 passed）与 T-1786922726276（kanzei-tools 342 passed/1 ignored）。下一步提交后按逐条证据关闭 D-499。
+- observed_head: 29653d8381db33f81ed37952de13153536208ea5
+- observed_worktree_hash: fnv1a64:62daaa69ba055053
+- recorded_at: 1787005970578
 
 ## D-500 Embedder::embed 每次新建 tokio Runtime,async 上下文调用直接 panic,且逐条调用浪费批量签名 [open] (medium)
 - 复现: crates/kanzei-memory/src/embed.rs:95-98 同步 trait 内 Runtime::new+block_on,async 上下文调用报 Cannot start a runtime from within a runtime;调用方 index.rs:193/404/653 在检索/重建路径;vectorize(index.rs:190-193) 每条 entry 单独调 embed(&[&text]),浪费 &[&str] 批量签名
