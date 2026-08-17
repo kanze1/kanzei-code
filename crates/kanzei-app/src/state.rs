@@ -294,11 +294,11 @@ pub(crate) fn record_live_trace(
     session_id: &str,
     live: &Arc<Mutex<LiveRun>>,
     event: serde_json::Value,
-) {
+) -> bool {
     let (run_id, index) = {
         let mut live = live.lock().unwrap();
         if live.started_at.is_none() {
-            return;
+            return false;
         }
         live.trace.push(event.clone());
         (live.run_id.clone(), live.trace.len() - 1)
@@ -315,6 +315,49 @@ pub(crate) fn record_live_trace(
         if live.persisted_trace_events == index {
             live.persisted_trace_events += 1;
         }
+        true
+    } else {
+        false
+    }
+}
+
+/// 轨迹持久化失败时留下可由整理入口识别的 artifact orphan marker。
+/// marker 与原文 artifact 同目录，下一轮可按 `*.orphan.json` 对账，不把无引用原文
+/// 静默当成已收口；不影响原有运行继续执行语义。
+pub(crate) fn record_unpersisted_artifact(
+    state_path: &std::path::Path,
+    session_id: &str,
+    event: &serde_json::Value,
+) {
+    let Some(artifact) = event.get("artifact").filter(|value| !value.is_null()) else {
+        return;
+    };
+    let Some(artifact_id) = artifact.get("artifact_id").and_then(|value| value.as_str()) else {
+        return;
+    };
+    let Some(state_dir) = state_path.parent() else {
+        return;
+    };
+    let dir = state_dir.join("artifacts").join("tool-results");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let marker = dir.join(format!("{artifact_id}.orphan.json"));
+    let temp = dir.join(format!(
+        "{artifact_id}.orphan.json.tmp-{}",
+        std::process::id()
+    ));
+    let payload = json!({
+        "kind": "tool_artifact_orphan",
+        "session_id": session_id,
+        "artifact": artifact,
+        "event": event,
+    });
+    let Ok(text) = serde_json::to_vec_pretty(&payload) else {
+        return;
+    };
+    if std::fs::write(&temp, text).is_ok() {
+        let _ = std::fs::rename(temp, marker);
     }
 }
 
@@ -325,9 +368,11 @@ pub(crate) fn record_live_trace_at_path(
     session_id: &str,
     live: &Arc<Mutex<LiveRun>>,
     event: serde_json::Value,
-) {
+) -> bool {
     if let Ok(store) = kanzei_core::SessionStore::open(state_path) {
-        record_live_trace(&store, session_id, live, event);
+        record_live_trace(&store, session_id, live, event)
+    } else {
+        false
     }
 }
 
@@ -793,6 +838,36 @@ mod tests {
             .iter()
             .all(|e| e.payload.get("outcome").is_none()));
         cleanup(&path);
+    }
+
+    #[test]
+    fn trace_write_failure_leaves_artifact_orphan_marker() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-state-orphan-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = root.join(".kanzei/state.db");
+        let event = json!({
+            "kind": "tool.completed",
+            "id": "call-1",
+            "artifact": {
+                "artifact_id": "tool-bash-deadbeef",
+                "bytes": 123,
+                "sha256": "deadbeef"
+            }
+        });
+        record_unpersisted_artifact(&state_path, "session-1", &event);
+        let marker = root.join(".kanzei/artifacts/tool-results/tool-bash-deadbeef.orphan.json");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&marker).unwrap()).unwrap();
+        assert_eq!(payload["kind"], "tool_artifact_orphan");
+        assert_eq!(payload["session_id"], "session-1");
+        assert_eq!(payload["event"]["id"], "call-1");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// D-297 验收③:收尾 flush 触发保留策略,超过 keep 轮数的旧轨迹被清理。

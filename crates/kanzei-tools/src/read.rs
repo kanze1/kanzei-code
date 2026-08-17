@@ -415,6 +415,32 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    #[tokio::test]
+    async fn offset_limit_streams_only_requested_lines() {
+        let (dir, ctx) = temp_project();
+        let path = dir.join("large.log");
+        let contents = (1..=20_000)
+            .map(|line| format!("line-{line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&path, contents).unwrap();
+        let out = ReadTool
+            .execute(
+                json!({"path": "large.log", "offset": 19_999, "limit": 2}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("line-19999"), "{}", out.content);
+        assert!(out.content.contains("line-20000"), "{}", out.content);
+        assert!(
+            !out.content.contains("\tline-1\n"),
+            "offset 不应回填前段内容"
+        );
+        assert!(out.content.len() < 1_000, "offset/limit 结果不应复制整文件");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     // ---- R-249:图片读取 ----
 
     /// 1x1 PNG(最小合法 PNG),用于走通 magic bytes → base64 → ToolImage 全链路。

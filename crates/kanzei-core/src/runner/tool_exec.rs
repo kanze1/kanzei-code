@@ -476,8 +476,10 @@ mod tests {
         assert_eq!(artifact.bytes, original.len() as u64);
         assert_eq!(artifact.sha256.len(), 64);
         assert!(output.content.contains("tool_result_externalized"));
+        drop(ctx);
+        let restarted_ctx = ToolCtx::new(root.clone(), root.clone());
         assert_eq!(
-            std::fs::read(root.join(&artifact.relative_path)).unwrap(),
+            std::fs::read(restarted_ctx.project_root.join(&artifact.relative_path)).unwrap(),
             original.as_bytes()
         );
         assert!(artifact.retrieval_hint.contains(&artifact.relative_path));

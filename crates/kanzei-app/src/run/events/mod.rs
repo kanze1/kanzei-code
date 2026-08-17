@@ -129,12 +129,20 @@ impl TraceSink {
     }
     fn record(&self, payload: serde_json::Value) {
         let store = self.store.lock().unwrap();
-        match store.as_ref() {
-            Some(store) => record_live_trace(store, &self.session_id, &self.live, payload),
+        let persisted = match store.as_ref() {
+            Some(store) => record_live_trace(store, &self.session_id, &self.live, payload.clone()),
             None => {
                 drop(store);
-                record_live_trace_at_path(&self.state_path, &self.session_id, &self.live, payload);
+                record_live_trace_at_path(
+                    &self.state_path,
+                    &self.session_id,
+                    &self.live,
+                    payload.clone(),
+                )
             }
+        };
+        if !persisted {
+            crate::record_unpersisted_artifact(&self.state_path, &self.session_id, &payload);
         }
     }
     fn note_step(&self, step: u32) {

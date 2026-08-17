@@ -12,8 +12,8 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 - 取活依据: engine:唯一可执行 WIP 是 D-349，必须先恢复它
-- 批次: 2/3
-- 进展: B1 已提交(ed305ae8)。B2 已落地并验证：①统一出口 crates/kanzei-core/src/runner/tool_exec.rs:107-174 实现大结果 durable artifact（原文 bytes/sha256/artifact_id/retrieval_hint），写失败返回 TOOL_RESULT_SPILL_FAILED 且不生成引用；②并行路径 tool_exec.rs:182-260、串行路径 crates/kanzei-core/src/runner/drive.rs:1390-1451、前台/后台 task drive.rs:761-875 均在 ToolEnd/模型回喂前调用 materialize_tool_output；③事件契约 event.rs:62-78 与 TaskTrace:9-28 携带 artifact，app 转发/落盘位于 crates/kanzei-app/src/run/events/mod.rs:266-289、354-416，UI 收到 preview+artifact 元数据，外置后 display.full 被清除；④回归 T-1786922726083、T-1786922726084：kanzei-core 221 passed，kanzei-app 196 passed，artifact 原文回读字节一致、写失败无成功引用、既有权限/错误码路径全绿。B3 待做：重启后引用回读/整理入口、read offset/limit 不重复复制的专项证据，以及逐条验收收口。
-- observed_head: 851ca72c842f9b38ef6ae9304c523ab911a1aae8
-- observed_worktree_hash: fnv1a64:b41df30c6416d398
-- recorded_at: 1786941072509
+- 批次: 3/3
+- 进展: B1 已提交(ed305ae8)，B2 已提交(a1e27bdb)。B3 已完成并逐条对账：① bash/git/test_record/web 等工具统一经 crates/kanzei-core/src/runner/tool_exec.rs:107-174 与 drive.rs:761-875、1390-1451 外置；事件仅落 preview+artifact 元数据于 crates/kanzei-app/src/run/events/mod.rs:266-289，T-1786922726086/T-1786922726088/T-1786922726089 覆盖 app/tools/core 回归；② durable 文件不依赖进程内状态，tool_exec.rs:453-487 在新 ToolCtx 下重新读取 artifact.relative_path 并断言原文 bytes 一致，sha256 同时由 tool_exec.rs:152-158 写入；③ artifact 写失败无引用由 tool_exec.rs:486-510 覆盖，事件写失败由 crates/kanzei-app/src/run/events/mod.rs:130-146 调用 state.rs:327-362 生成 `.orphan.json` 整理标记，state.rs:840-875 有回归；④ UI/模型看到 `tool_result_externalized` preview 与 artifact 元数据：app events/mod.rs:266-289，前端 ui/07-events.js:217-230；⑤既有 read 流式 offset/limit 实现在 crates/kanzei-tools/src/read.rs:205-238，新增 read.rs:518-541 回归确认只返回请求区间、不复制整文件；⑥权限 gate 与既有错误码路径未改动，drive.rs:1256-1381，T-1786922726086/T-1786922726088/T-1786922726089 全绿。失败记录 T-1786922726087 仅为新增测试对子串的误断言，已收窄整行匹配并由 T-1786922726088 通过。
+- observed_head: a1e27bdbca57bf69603f22c2f89ec7851056b1e5
+- observed_worktree_hash: fnv1a64:49137dd9fe24f12e
+- recorded_at: 1786941647508
