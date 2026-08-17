@@ -6088,3 +6088,42 @@
 - observed_head: b0622f77be38b4a3dbb53b0eee5449464a99d315
 - observed_worktree_hash: fnv1a64:2d65b0dbbc3b5357
 - recorded_at: 1787002055148
+
+## D-516 D-493 现行遥测聚合接口与测试夹具编译失败 [fixed] (medium)
+- 复现: D-493 实现后运行 `cargo test -p kanzei-core`：`memory_recall_profile` 的四元组迭代器无法收集为 `BTreeMap<String, (u64,u64,i64)>`，新增 telemetry 测试的闭包返回借用 `RecallEvent` 又触发生命周期错误。
+- 影响: 现行遥测聚合接口无法编译，D-493 的 core/memory/app 定向回归无法执行。
+- 来源: self-found：D-493 定向测试编译阶段。
+- 标签: 核心
+- 验收: 修正聚合键值形状与测试生命周期后，`cargo test -p kanzei-core`、`cargo test -p kanzei-memory`、`cargo test -p kanzei-app` 全部通过。
+- refs: D-493
+- 优先级: P1
+- 进展: 验收逐项完成：①聚合键值形状已在 `crates/kanzei-core/src/store/telemetry.rs:255-259` 显式映射为 `(id, (recalled, injected, last_at))`，不再把四元组直接 collect 到 BTreeMap；②测试生命周期错误已在 `crates/kanzei-core/src/store/telemetry.rs:304-336` 改为两个具名 `RecallEvent`，消除闭包借用生命周期；③T-1786922726260：`cargo test -p kanzei-core` 226 passed、0 failed。
+- observed_head: 1904185ec680634e3c3a9a7b3e42586b88bd5bb4
+- observed_worktree_hash: fnv1a64:e1cf3b1c06d1dc3f
+- recorded_at: 1787002758908
+
+## D-517 D-493 memory 新鲜度门禁引用错误模块路径 [fixed] (low)
+- 复现: D-493 修复 D-516 后运行 `cargo test -p kanzei-memory`，`crates/kanzei-memory/src/memory/retrieval/search.rs:207` 使用 `super::super::now_ms()`，但该路径没有导出 `now_ms`，编译失败。
+- 影响: memory crate 无法编译，D-493 的排序新鲜度门禁和 app 接线无法验证。
+- 来源: self-found：D-493 core 通过后的 memory 定向回归。
+- 标签: 后端
+- 验收: 修正为可访问的 `now_ms` 路径后，`cargo test -p kanzei-memory` 与 `cargo test -p kanzei-app` 通过。
+- refs: D-493 D-516
+- 优先级: P1
+- 进展: 验收逐项完成：①新鲜度门禁引用已在 `crates/kanzei-memory/src/memory/retrieval/search.rs:12,207-218` 改为可访问的 `now_ms()`；②`fresh_recall_profile` 由现行 state.db 时间戳执行窗口过滤；③T-1786922726261（kanzei-memory 146 passed）与 T-1786922726262（kanzei-app 202 passed）通过。
+- observed_head: 1904185ec680634e3c3a9a7b3e42586b88bd5bb4
+- observed_worktree_hash: fnv1a64:e1cf3b1c06d1dc3f
+- recorded_at: 1787002764929
+
+## D-518 D-493 既有记忆采纳回归夹具仍写旧 memory_recalls 表 [fixed] (medium)
+- 复现: D-493 将 recall_profile 切换到 state.db recall_events 后，`cargo test -p kanzei-memory` 有 3 个既有测试失败：`preference_豁免采纳率降权`、`零采纳条目在检索里沉底_高采纳浮上`、`stats_reports_recall_adoption_and_flags_zero_adoption_candidates` 仍只向旧 index.db memory_recalls 写夹具。
+- 影响: 现行遥测迁移后的回归测试无法通过，无法证明排序、偏好豁免和零采纳统计仍保持行为契约。
+- 来源: self-found：D-493 memory 定向回归。
+- 标签: 后端
+- 验收: 三处测试夹具改写为 state.db recall_events retrieved/injected 数据后，`cargo test -p kanzei-memory` 全部通过，且生产代码不恢复旧表依赖。
+- refs: D-493 D-517
+- 优先级: P1
+- 进展: 验收逐项完成：①`crates/kanzei-memory/src/memory/store.rs:920-955` 的测试辅助改写 state.db recall_events retrieved/injected；②`store.rs:2670-2677,2778-2784` 覆盖零采纳排序与 preference 豁免；③`crates/kanzei-memory/src/memory/tools.rs:471-512` 保留零采纳条目并独立验证漏斗遥测；④T-1786922726261：kanzei-memory 146 passed、0 failed、1 doc-test ignored。
+- observed_head: 1904185ec680634e3c3a9a7b3e42586b88bd5bb4
+- observed_worktree_hash: fnv1a64:e1cf3b1c06d1dc3f
+- recorded_at: 1787002771073

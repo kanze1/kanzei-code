@@ -893,7 +893,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let store = MemoryStore::open(MemoryScope::Project, dir.join(".kanzei").join("memory"));
+        let store = MemoryStore::project(&dir);
         (dir, store)
     }
 
@@ -915,6 +915,37 @@ mod tests {
             AddOutcome::SubjectConflict(e) => panic!("unexpected subject conflict with {}", e.id),
             AddOutcome::Uncertain(cands) => panic!("unexpected uncertain: {:?}", cands),
         }
+    }
+
+    fn record_current_recall(store: &MemoryStore, hits: &[SearchHit], injected_ids: &[&str]) {
+        let root = store.project_root.as_deref().unwrap();
+        let retrieved: Vec<&str> = hits.iter().map(|hit| hit.entry.id.as_str()).collect();
+        let injected: Vec<&str> = retrieved
+            .iter()
+            .copied()
+            .filter(|id| injected_ids.contains(id))
+            .collect();
+        let retrieved_json = serde_json::to_string(&retrieved).unwrap();
+        let injected_json = serde_json::to_string(&injected).unwrap();
+        let recall_id = format!("test-recall-{}", now_ms());
+        let db = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(root)).unwrap();
+        db.record_recall_event(&kanzei_core::RecallEvent {
+            recall_id: &recall_id,
+            episode_id: None,
+            step_id: None,
+            trigger_type: "memory_search",
+            trigger_payload: "{}",
+            policy_action: "lexical",
+            query: "要发版了",
+            candidate_ids: &retrieved_json,
+            retrieved_ids: &retrieved_json,
+            injected_ids: &injected_json,
+            lexical_ms: 1,
+            embed_ms: 0,
+            vector_ms: 0,
+            total_ms: 1,
+        })
+        .unwrap();
     }
 
     #[test]
@@ -2667,8 +2698,7 @@ mod tests {
         let (a, b) = ("M-001".to_string(), "M-002".to_string());
         // 各召回 3 轮:甲从未被拉正文,乙每轮都被拉。recall_id 以毫秒为键,轮间隔 2ms。
         for _ in 0..3 {
-            store.record_recall("要发版了", &hits, 256);
-            store.mark_recall_fetched(&b);
+            record_current_recall(&store, &hits, &[&b]);
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         let profile = store.recall_profile();
@@ -2775,7 +2805,7 @@ mod tests {
         let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
         assert_eq!(hits.len(), 2);
         for _ in 0..3 {
-            store.record_recall("要发版了", &hits, 256);
+            record_current_recall(&store, &hits, &[]);
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         // 两条同为召回 3/采纳 0:fact 吃 ×0.6,preference 保持 ×1.0 → 严格高分在前。

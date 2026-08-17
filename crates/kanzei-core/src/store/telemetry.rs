@@ -227,6 +227,38 @@ impl SessionStore {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// 按现行 recall_events 聚合每条记忆的召回、注入次数和最后观测时间。
+    /// retrieved/injected 都按 recall_id 去重，避免同一事件 JSON 数组重复元素放大信号。
+    pub fn memory_recall_profile(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, (u64, u64, i64)>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT retrieved.value,
+                    COUNT(DISTINCT r.recall_id),
+                    COUNT(DISTINCT CASE WHEN EXISTS (
+                        SELECT 1 FROM json_each(r.injected_ids) injected
+                        WHERE injected.value = retrieved.value
+                    ) THEN r.recall_id END),
+                    MAX(r.created_at)
+             FROM recall_events r, json_each(r.retrieved_ids) retrieved
+             GROUP BY retrieved.value
+             ORDER BY retrieved.value",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?.max(0) as u64,
+                row.get::<_, i64>(2)?.max(0) as u64,
+                row.get(3)?,
+            ))
+        })?;
+        Ok(rows
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|(id, recalled, injected, last_at)| (id, (recalled, injected, last_at)))
+            .collect())
+    }
+
     /// 返回最近一次 memory_search 的时间、原始 query 与 retrieved id 集，供重复注入抑制。
     /// 去重依据与生产遥测同在 state.db；不再读取 legacy index.db 的 memory_recalls。
     pub fn latest_memory_search(&self) -> Result<Option<(i64, String, Vec<String>)>, StoreError> {
@@ -268,6 +300,52 @@ impl SessionStore {
 mod tests {
     use super::*;
     use crate::store::testutil::store;
+
+    #[test]
+    fn memory_recall_profile_聚合现行遥测并按事件去重() {
+        let store = store();
+        let first = RecallEvent {
+            recall_id: "r-1",
+            episode_id: None,
+            step_id: None,
+            trigger_type: "memory_search",
+            trigger_payload: "{}",
+            policy_action: "lexical",
+            query: "q",
+            candidate_ids: "[\"M-1\",\"M-2\"]",
+            retrieved_ids: "[\"M-1\",\"M-2\"]",
+            injected_ids: "[\"M-1\"]",
+            lexical_ms: 1,
+            embed_ms: 0,
+            vector_ms: 0,
+            total_ms: 1,
+        };
+        store.record_recall_event(&first).unwrap();
+        let second = RecallEvent {
+            recall_id: "r-2",
+            episode_id: None,
+            step_id: None,
+            trigger_type: "memory_search",
+            trigger_payload: "{}",
+            policy_action: "lexical",
+            query: "q",
+            candidate_ids: "[\"M-1\"]",
+            retrieved_ids: "[\"M-1\"]",
+            injected_ids: "[]",
+            lexical_ms: 1,
+            embed_ms: 0,
+            vector_ms: 0,
+            total_ms: 1,
+        };
+        store.record_recall_event(&second).unwrap();
+
+        let profile = store.memory_recall_profile().unwrap();
+        assert_eq!(profile["M-1"].0, 2);
+        assert_eq!(profile["M-1"].1, 1);
+        assert_eq!(profile["M-2"].0, 1);
+        assert_eq!(profile["M-2"].1, 0);
+        assert!(profile["M-1"].2 > 0);
+    }
 
     #[test]
     fn 遥测三表可写并按五段去重统计() {

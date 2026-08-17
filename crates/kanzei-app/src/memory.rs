@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
+/// 自动整理只接受最近 24 小时的现行 recall_events，避免陈旧遥测触发生命周期变更。
+const RECALL_FRESHNESS_MS: i64 = 24 * 60 * 60 * 1000;
+
 fn memory_stores_for(project_dir: &str) -> Vec<kanzei_tools::memory::MemoryStore> {
     let cwd = PathBuf::from(project_dir);
     let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
@@ -202,7 +205,9 @@ pub(crate) fn memory_cleanup_demote(project_dir: String) -> Result<serde_json::V
     let mut skipped = Vec::new();
     for store in memory_stores_for(&project_dir) {
         let entries = store.load_all();
-        let profile = store.recall_profile();
+        // D-493:自动降级只消费现行 state.db recall_events，且必须通过新鲜度门禁；
+        // 陈旧或缺失遥测一律不改变 active 生命周期。
+        let profile = store.fresh_recall_profile(RECALL_FRESHNESS_MS);
         for (_, e) in entries.iter().filter(|(_, e)| e.status == "active") {
             let Some(&(recalled, fetched)) = profile.get(&e.id) else {
                 continue;

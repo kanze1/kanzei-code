@@ -6467,3 +6467,32 @@
 - 关联: D-492
 - 收尾: 1787002095
 - 源码指纹: ed75804d5b4047a4
+
+## T-1786922726260 D-493 现行遥测聚合 core 回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.3s
+- 摘要: 修复现行 recall_events 聚合键值映射与 telemetry 测试生命周期后，kanzei-core 通过：226 passed，0 failed。
+- 关联: D-493 D-516
+- 收尾: 1787002738
+
+## T-1786922726261 D-493 memory 遥测切换与新鲜度回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 4.1s
+- 摘要: 现行 state.db recall_profile、24 小时新鲜度门禁、排序与 stats 夹具迁移回归通过：146 passed，0 failed，1 doc-test ignored。
+- 关联: D-493 D-517 D-518
+- 收尾: 1787002744
+
+## T-1786922726262 D-493 app 整理降级接线回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.3s
+- 摘要: memory_cleanup_demote 的 Tauri command 接线编译与桌面端回归通过：202 passed，0 failed。
+- 关联: D-493
+- 收尾: 1787002748
+
+## T-1786922726263 D-493 当前 staged 源码三 crate 提交前回归 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-memory; cargo test -p kanzei-app
+- 时长: 14.3s
+- 摘要: 按当前 staged 源码重新跑全部受影响 crate：kanzei-core 226 passed，kanzei-memory 146 passed/1 doc-test ignored，kanzei-app 202 passed；用于提交门禁源码指纹背书。
+- 关联: D-493 D-516 D-517 D-518
+- 收尾: 1787002899
+- 源码指纹: aa497f9a30eb198f

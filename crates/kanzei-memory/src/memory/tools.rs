@@ -469,21 +469,31 @@ mod tests {
         let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
         assert!(!hits.is_empty());
         for _ in 0..3 {
-            store.record_recall("要发版了", &hits, 128);
+            crate::memory::record_memory_search_telemetry(
+                &ctx.project_root,
+                "要发版了",
+                &hits,
+                false,
+                "lexical",
+                &crate::memory::index::RetrievalTiming::default(),
+            );
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        // R-161:state.db 同源记录一条检索遥测,stats 要能看到五段漏斗计数。
+        // R-161:用不属于文件真源的遥测 ID 单独验证漏斗，不能把 M-001 的
+        // 零采纳样本改成已注入。
+        let mut funnel_hit = hits[0].clone();
+        funnel_hit.entry.id = "M-telemetry".into();
         crate::memory::record_memory_search_telemetry(
             &ctx.project_root,
             "要发版了",
-            &hits,
+            std::slice::from_ref(&funnel_hit),
             true,
             "lexical",
             &crate::memory::index::RetrievalTiming::default(),
         );
         let stats = MemoryStatsTool.execute(json!({}), &ctx).await;
         assert!(!stats.is_error);
-        assert!(stats.content.contains("召回 3/采纳 0"), "{}", stats.content);
+        assert!(stats.content.contains("召回 4/采纳 1"), "{}", stats.content);
         assert!(
             stats.content.contains("零采纳候选 M-001"),
             "{}",
@@ -497,13 +507,13 @@ mod tests {
         // AVAILABLE 段按记忆库文件真源统计(本测试恰有 1 条 active)——旧口径数
         // 恒空的 memory_sources,首段永远 0,漏斗两端全是死数据。
         assert!(
-            stats.content.contains("漏斗 A→R→I→U→Y: 1/1/1/0/N/A"),
+            stats.content.contains("漏斗 A→R→I→U→Y: 1/2/1/0/N/A"),
             "{}",
             stats.content
         );
         assert!(
             stats.content.contains(
-                "触发 memory_search: events=1 retrieved=1 injected=1 precision=1.00 recall=1.00"
+                "触发 memory_search: events=4 retrieved=4 injected=1 precision=0.25 recall=1.00"
             ),
             "{}",
             stats.content

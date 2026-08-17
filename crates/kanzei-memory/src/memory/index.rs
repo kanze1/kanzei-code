@@ -1391,4 +1391,40 @@ mod tests {
         // 脏数据防御:fetched > recalled 按全采纳截断。
         assert!((decision_weight(3, 9) - 1.3).abs() < 1e-9);
     }
+
+    #[test]
+    fn recall_profile_读取现行遥测且陈旧数据不通过新鲜门禁() {
+        let (root, _store) = temp_root();
+        let store = MemoryStore::project(&root);
+        let db = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        let event = kanzei_core::RecallEvent {
+            recall_id: "profile-r1",
+            episode_id: None,
+            step_id: None,
+            trigger_type: "memory_search",
+            trigger_payload: "{}",
+            policy_action: "lexical",
+            query: "q",
+            candidate_ids: "[\"M-001\"]",
+            retrieved_ids: "[\"M-001\"]",
+            injected_ids: "[\"M-001\"]",
+            lexical_ms: 1,
+            embed_ms: 0,
+            vector_ms: 0,
+            total_ms: 1,
+        };
+        db.record_recall_event(&event).unwrap();
+        assert_eq!(store.recall_profile().get("M-001"), Some(&(1, 1)));
+        assert_eq!(
+            store.fresh_recall_profile(86_400_000).get("M-001"),
+            Some(&(1, 1))
+        );
+
+        let conn = rusqlite::Connection::open(kanzei_core::project_state_path(&root)).unwrap();
+        conn.execute("UPDATE recall_events SET created_at = 0", [])
+            .unwrap();
+        assert!(store.recall_profile().contains_key("M-001"));
+        assert!(store.fresh_recall_profile(86_400_000).is_empty());
+        std::fs::remove_dir_all(root).ok();
+    }
 }

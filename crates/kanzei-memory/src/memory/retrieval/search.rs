@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use rusqlite::params;
 
 use crate::memory::admission::{is_cjk, normalize_title, title_containment, TITLE_DUP_THRESHOLD};
-use crate::memory::store::{MemoryStore, SearchCandidate};
+use crate::memory::store::{now_ms, MemoryStore, SearchCandidate};
 use crate::memory::{MemoryEntry, MemoryScope, Novelty};
 
 impl MemoryStore {
@@ -193,28 +193,35 @@ impl MemoryStore {
         hit
     }
 
-    /// 召回画像:entry_id → (召回次数, 被取用次数)。取自 memory_recalls。
+    /// 召回画像:entry_id → (召回次数, 注入次数)。数据源是项目 state.db 的
+    /// recall_events，不再读取已停写的 index.db memory_recalls。
     pub fn recall_profile(&self) -> BTreeMap<String, (u64, u64)> {
-        let mut out = BTreeMap::new();
-        let Ok(conn) = self.open_db() else { return out };
-        let Ok(mut statement) = conn.prepare(
-            "SELECT entry_id, COUNT(*), COALESCE(SUM(fetched), 0)
-             FROM memory_recalls GROUP BY entry_id",
-        ) else {
-            return out;
+        self.current_recall_profile()
+            .into_iter()
+            .map(|(id, (recalled, injected, _last_at))| (id, (recalled, injected)))
+            .collect()
+    }
+
+    /// 只返回仍在新鲜窗口内的现行遥测，供任何会改变记忆生命周期的操作使用。
+    pub fn fresh_recall_profile(&self, max_age_ms: i64) -> BTreeMap<String, (u64, u64)> {
+        let now = now_ms();
+        let cutoff = now.saturating_sub(max_age_ms.max(0));
+        self.current_recall_profile()
+            .into_iter()
+            .filter(|(_, (_, _, last_at))| *last_at >= cutoff && *last_at <= now)
+            .map(|(id, (recalled, injected, _last_at))| (id, (recalled, injected)))
+            .collect()
+    }
+
+    fn current_recall_profile(&self) -> BTreeMap<String, (u64, u64, i64)> {
+        let Some(project_root) = self.project_root.as_deref() else {
+            return BTreeMap::new();
         };
-        if let Ok(rows) = statement.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-            ))
-        }) {
-            for (id, recalled, fetched) in rows.flatten() {
-                out.insert(id, (recalled.max(0) as u64, fetched.max(0) as u64));
-            }
-        }
-        out
+        let path = kanzei_core::project_state_path(project_root);
+        let Ok(store) = kanzei_core::SessionStore::open(&path) else {
+            return BTreeMap::new();
+        };
+        store.memory_recall_profile().unwrap_or_default()
     }
 }
 
