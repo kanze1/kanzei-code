@@ -265,6 +265,8 @@ impl MemoryStore {
         // 树锁,与 bash 围栏窗口互斥。内层 write_entry/refresh_derived 的 tree_lock
         // 同线程重入,由 FileLock 重入计数放行。
         let _tree_lock = self.tree_lock()?;
+        // D-495:写入前先修复已有的派生索引失步,避免 classify_novelty 使用过期 FTS。
+        self.ensure_derived_consistent()?;
         // R-255 第二刀:准入链(枚举/必填/subject 不变式/交付拒收/指纹/判重)提纯到
         // MemoryAdmission,store 只做「查全部条目 + 依结果分流」。
         MemoryAdmission::validate_basic(category, title, description, body)?;
@@ -788,6 +790,17 @@ impl MemoryStore {
     /// FTS 派生物与文件真源的 id 集合比对(只看目录文件名,不读内容——检索热路径
     /// 上的守护必须廉价)。任何差集都判失步;查询失败按未失步处理(刚建库的空表
     /// 走正常路径,不在这里制造额外故障面)。
+    /// D-495:统一的派生索引守护。失步时立即按 Markdown 真源全量重建,
+    /// 供写入和检索共同调用,避免只在检索热路径修复。
+    pub(crate) fn ensure_derived_consistent(&self) -> anyhow::Result<()> {
+        let conn = self.open_db()?;
+        if self.fts_desynced(&conn) {
+            drop(conn);
+            self.refresh_derived()?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn fts_desynced(&self, conn: &Connection) -> bool {
         let mut fts_ids: Vec<String> =
             match conn.prepare("SELECT id FROM memory_fts").and_then(|mut s| {
@@ -1012,6 +1025,35 @@ mod tests {
             rows.iter().all(|r| r.entry.id != "M-099"),
             "外部删除后幽灵条目不得再命中: {rows:?}"
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn 写入前发现失步会自动重建_fts并与主目录对齐() {
+        let (dir, store) = temp_store();
+        let first = add(&store, "fact", "写入前守护首条", "失步守护检索", "正文");
+        {
+            let conn = store.open_db().unwrap();
+            conn.execute("DELETE FROM memory_fts WHERE id = ?1", params![first.id])
+                .unwrap();
+        }
+
+        let second = add(&store, "fact", "写入前守护次条", "失步守护检索", "正文二");
+        let conn = store.open_db().unwrap();
+        let indexed: i64 = conn
+            .query_row("SELECT COUNT(*) FROM memory_fts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(indexed as usize, store.load_all().len());
+        for id in [first.id, second.id] {
+            let present: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM memory_fts WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(present, 1, "写入后 FTS 缺少 {id}");
+        }
         std::fs::remove_dir_all(dir).ok();
     }
 

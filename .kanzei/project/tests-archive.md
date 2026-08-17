@@ -6518,3 +6518,18 @@
 - 关联: D-494
 - 收尾: 1787004131
 - 源码指纹: 055a10df84cd4544
+
+## T-1786922726267 D-495 FTS 写路径自动修复定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 4.6s
+- 摘要: D-495 修复后定向回归：147 passed，0 failed，1 ignored；覆盖写入前 FTS 失步自动重建、主目录/FTS ID 对齐及既有检索守护。最终运行无编译 warning。
+- 关联: D-495
+- 收尾: 1787004355
+
+## T-1786922726268 D-495 当前暂存源码定向回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 4.3s
+- 摘要: 按提交门禁要求针对当前暂存源码重跑：147 passed，0 failed，1 ignored；D-495 FTS 失步自动修复回归通过，当前源码无 warning。
+- 关联: D-495
+- 收尾: 1787004410
+- 源码指纹: d0beb74f149b5ee4

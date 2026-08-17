@@ -28,12 +28,8 @@ impl MemoryStore {
         if match_expr.is_empty() {
             return Ok(Vec::new());
         }
-        let mut conn = self.open_db()?;
-        if self.fts_desynced(&conn) {
-            drop(conn);
-            self.refresh_derived()?;
-            conn = self.open_db()?;
-        }
+        self.ensure_derived_consistent()?;
+        let conn = self.open_db()?;
         let mut sql = String::from(
             "SELECT id, snippet(memory_fts, -1, '[', ']', '…', 12), bm25(memory_fts)
              FROM memory_fts WHERE memory_fts MATCH ?1",
