@@ -6161,3 +6161,26 @@
 - 关联: R-286
 - 收尾: 1786996395
 - 源码指纹: 6d2581818b7f3544
+
+## T-1786922726218 R-242 D-486 shadow 分类定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 4.8s
+- 摘要: D-486 修复后 kanzei-core 定向回归：222 passed，0 failed；覆盖 compacted_snapshot 预期分类、stale/unknown 分类、typed writer 与 shadow gate 全套测试。
+- 关联: R-242 D-486
+- 收尾: 1786996850
+
+## T-1786922726219 D-486 当前暂存源码 shadow 分类定向回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.3s
+- 摘要: 按当前暂存 typed.rs 指纹重跑：kanzei-core 222 passed，0 failed；覆盖 compacted_snapshot、stale/unknown 分类及 typed writer/shadow gate 回归。
+- 关联: R-242 D-486
+- 收尾: 1786997008
+- 源码指纹: a3f9cb2773c83c24
+
+## T-1786922726220 D-486 提交前最新暂存源码回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.3s
+- 摘要: 提交前按最新暂存源码指纹重跑：kanzei-core 222 passed，0 failed；shadow mismatch 分类与 typed writer 回归全部通过。
+- 关联: R-242 D-486
+- 收尾: 1786997019
+- 源码指纹: a3f9cb2773c83c24

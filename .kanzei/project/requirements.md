@@ -1,24 +1,5 @@
 # Requirements
 
-## R-286 记忆晋升与遥测恢复:修复 inbox 分批整理真实交付、来源账本和 outcome 漏斗 [doing]
-- 优先级: P0
-- 复杂度: 大
-- 标签: 核心 后端 前端 记忆
-- 来源: 2026-08-17 自举一期结项后的二期全面升级;用户反馈「记忆系统很久没有晋升」;只读审计确认 D-409 修复提交未进入 dev、当前桌面端仍整份读取 inbox 且忽略 manager 结果。
-- 依赖: 
-- refs: R-195 R-235 R-283 R-284 docs/design/phase2_system_upgrade.md docs/design/memory_control_plane.md docs/design/memory_system.md
-- 内容: 按 phase2_system_upgrade.md §5.2 分四批恢复记忆控制面。批1 交付事实修复:从 D-409 分支隔离出分批读取/checkpoint/错误回传,桌面与 CLI 共用整理服务,禁止直接合并无关分支;修正 defects/tests 里「已修复」与 dev 实现不一致。批2 生命周期账本:note→candidate→shadow→active/deprecated 每次转换写来源、reason code 与关联 episode。批3 遥测漏斗:AVAILABLE→RETRIEVED→INJECTED→ACTION_CHANGED→OUTCOME_IMPROVED,补 memory_eval_agg 和单条价值画像。批4 UI:backlog/最老等待/批次状态/晋升缺口/召回与 outcome 全链展示,失败可重试。
-- 边界: 不伪造历史 provenance;R-235 的 28 条存量零证据 active 仍由用户拍板;不把 action_changed 直接写成 outcome_improved;不静默删除 inbox/candidate/active;数据库 schema 变化需 Alembic 不适用(Rust SQLite migration),必须提供前滚、已有数据兼容和恢复策略。
-- 验收: ①当前 224 条 inbox 在真实 manager 运行中按批下降,任一批失败可见且重启后从 checkpoint 继续;②桌面与 CLI 调用同一服务并有集成测试;③新 candidate/active 100% 可回溯真实 episode/source,空来源晋升被拒;④一次真实 recurrence→shadow→promote 有状态事件和 UI 轨迹;⑤counterfactual arms 形成非空聚合并区分 action_changed/outcome_improved;⑥修复提交确实位于 dev,tracker/tests/代码三方一致。
-- 批次: 4/4
-- 状态: doing
-- 阻塞: 
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-286
-- 进展: 批4/4 已完成，待提交：①控制面真实投影在 `crates/kanzei-app/src/memory.rs:42-87` 读取 project inbox backlog、最老等待 note、`InboxCheckpoint`、晋升缺口、召回/采纳计数和 `memory_eval_agg`；CLI 与桌面继续共用 `crates/kanzei-app/src/memory.rs:298-306` 的 `consolidate_memory_inbox`，批次失败由 checkpoint 的 `failure_reason` 展示并在 `crates/kanzei-app/ui/13-memory.js:47-86` 提供重试。②Tauri 注册位于 `crates/kanzei-app/src/main.rs:197-200`，桌面调用 `13-memory.js:8-22`；共享整理服务集成证据 T-1786922726169，app 定向测试 T-1786922726210。③空来源晋升硬门禁仍由既有 `crates/kanzei-memory/src/memory/lifecycle.rs:24-87` 执行，本批控制面把 candidate/shadow/active 缺 source/refs 计为 promotion_gaps；生命周期回放 T-1786922726202。④recurrence→shadow→promote 状态事件由既有 lifecycle 写者与本批 UI 控制面消费，事件回放 T-1786922726202，UI 控制面 runtime 轨迹断言 T-1786922726211/T-1786922726212。⑤六臂回放聚合由 `crates/kanzei-core/src/replay.rs:300-318` 调用 `recompute_memory_effect`，`memory_eval_agg` 查询由 `crates/kanzei-core/src/store/eval.rs:54-74` 提供；`action_changed`/`outcome_improved` 独立统计在 `store/telemetry.rs:167-204`，证据 T-1786922726207/T-1786922726209。⑥批4代码、UI、tracker、tests 与缺陷归档尚待本提交落地；六条前端冒烟 T-1786922726212、workspace 全量 T-1786922726213 已通过。
-- observed_head: b085499ce22971141af5b9047cead01c352f3d9e
-- observed_worktree_hash: fnv1a64:bd26fbfda78459d5
-- recorded_at: 1786996289775
-
 ## R-283 自举二期系统升级编排:research/memory/运行体验/动画/voice 依赖和联合验收 [doing]
 - 优先级: P1
 - 复杂度: 大
@@ -117,7 +98,7 @@
 
 ## R-242 会话投影真源切换与分段清空恢复 [doing]
 - refs: D-209 D-342 D-417 R-236 R-279 docs/design/deepseek_harness_upgrade.md
-- 依赖: R-241
+- 依赖: 
 - 内容: 在 shadow gate 通过后，将 conversation_get/list、runner prior、子代理 transcript 和 UI 历史恢复逐项切到事件投影；进程内 Vec<Message> 仅作缓存。清空对话追加 conversation.reset 并开启新 segment，新 segment 的模型 prior 为空，旧 segment 仍可审计。验证期保留 legacy snapshot 只读对照，五条读路径全部稳定后停止新增 conversation.updated。
 - 复杂度: 大
 - 批次: 8/8
@@ -125,14 +106,14 @@
 - 标签: 核心
 - 边界: 本需求只负责事件投影真源切换与 segment reset，不实现会话物理删除、Spill artifact 联动删除、WAL/VACUUM 或迁移备份安全整理；这些统一由 R-245 的删除计划与显式整理入口承担。第一批不改事件 format_version 与 SessionFact 公共词表；任一读路径可通过 feature gate 独立回退 legacy snapshot。
 - 迁移与回滚: 不新增表、列或索引时不创建空 migration。切换按五条读路径分别启用 feature gate，legacy snapshot 在观察期只读保留；任一路径出现未知差异即回退该路径。全部 gate 稳定后才停止新增 conversation.updated，既有 snapshot 不删除。
-- 阻塞: 当前真实 shadow 聚合仍存在 unknown mismatch 与 typed_write_errors；2026-08-17 新近错误为 session fact invariant violation(event step 4 与 current step None 不一致)。先修写入/顺序问题，再建立明确的修复后统计窗口；不再把发版或旧构建写成用户阻塞。R-243 只等待 SessionProjection/segment 契约冻结里程碑，不等待 R-242 全部关闭。解除人:agent。
+- 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
-- 进展: 2026-08-16 复核补丁(交付后自审):批7a 的 conversation_list 切换能力已实现但未加入 DEFAULT_PROJECTION_PATHS(缺省仍走 legacy),不符合验收①'五条读路径切到事件投影'——已补:①DEFAULT_PROJECTION_PATHS 加 conversation_list(4 条,缺省启用,注释同步批7 落地);②conversation_list_projected 空 facts 回退 legacy 快照段(与 project_latest_segment 空回退同语义,mobile 线程等无 typed facts 会话仍显示快照段);③gate 测试断言同步(conversation_list 缺省启用,仅 subagent_transcript 不启用)。kanzei-app 192 passed(T-1786896965)。【R-279 回填 2026-08-16】subagent_transcript 完成(提交 94ebf689/9747d680):事件落库+provider 恢复+gate 注册(五条 DEFAULT 缺省启用)。验收①(五条读路径从同一事件日志恢复一致消息)达标——conversation_get/list、runner_prior、ui_history、subagent_transcript 全部切事件投影;验收⑥(五条 feature gate 可独立回滚,回滚后 legacy 行为与切换前一致)达标——五条 gate 全部注册,剔除任一即回退 legacy(gate 测试断言)。验收②③④ 达标;⑤差异侧达标(未知差异=0),写错误侧待部署新 kz 后真实库新轮核验;⑦顺延(compaction 事件化,依赖 R-243)。剩余:验收⑤写错误侧核验(等用户发版部署)+ 验收⑦(等 R-243)。
-- observed_head: 9747d68012a5e50a668f8a02ccc3a9e6d31416a6
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786898857045
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-242
+- 进展: 阻塞复核：R-241 已归档，原依赖已清除；原“阻塞”描述的是 agent 可处理的 shadow 写入/顺序修复与验证窗口，不属于外部阻塞，已移入本进展。当前已交付：五条事件投影读路径、独立 feature gate、强杀/孤立 tool/reset 语义和未知差异侧证据；未完成验收⑤写错误侧真实库核验（需先修 typed_write_errors，再建立修复后至少30个真实 shadow turn 统计窗口），验收⑦依赖 R-243 的 compaction 事件化。下一步：先定位并修复 session fact invariant violation、unknown mismatch 与 typed_write_errors，随后用真实 shadow 运行建立可复核统计窗口；不把发版或旧构建写成用户阻塞。
+- observed_head: dcf6e11c4a0557ad9283234084a431bf61f3e083
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1786996585239
+- 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]
 - refs: R-236 D-209 docs/design/context_compaction.md docs/design/deepseek_harness_upgrade.md

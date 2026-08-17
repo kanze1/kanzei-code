@@ -3738,10 +3738,28 @@
 - refs: R-194 R-195 R-196 D-299 D-282
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-216
 - 进展: R-216 已完成关闭验收：①英文改写 M-044 被拦并指路 tracker：`crates/kanzei-memory/src/memory/store.rs:1221-1230,2522-2560` 的 Uncertain/add 硬闸与 `memory::store::tests::英文改写被add硬闸拦截返回候选`，workspace 回归 T-1786922726199；②伪造 [fp:] 被拒、来源 note 指纹放行：`crates/kanzei-memory/src/memory/store.rs:2448-2468` 与对应单测，workspace 回归 T-1786922726199；③六条存量交付状态逐条处置：M-032/M-033/M-035/M-036/M-040 原有 deprecated archive 墓碑保留，M-037 归档并保留通用防重复规则 stale 墓碑，错误重复候选 M-150/M-151 归档并写明错误来源，真实 consolidation `T-1786922726196` 报告 5 条请求 completed、pending_after=0；④各拦截路径及新退役链有自动化证据：`crates/kanzei-memory/src/memory/manager.rs:1091-1131` 的 STALE prompt/断言，`crates/kanzei-memory/src/memory/store.rs:634-660` 的 archive 源/目标 write-log、`crates/kanzei-memory/src/memory/inbox.rs:111-138,251-296` 的 inbox/checkpoint write-log，`crates/kanzei-tools/src/memory_consolidation.rs:137-220,289-340,514-520` 的显式 STALE runner/parser 单测；T-1786922726198 定向通过，T-1786922726199 workspace 全量 0 failed。
-- 阻塞: 
 - observed_head: 82b5cdfce1f709b26869f888e3a319a110cab2c0
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1786993824175
 - 状态: todo
 - 依赖: 
 - 停车: 
+
+## R-286 记忆晋升与遥测恢复:修复 inbox 分批整理真实交付、来源账本和 outcome 漏斗 [done]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心 后端 前端 记忆
+- 来源: 2026-08-17 自举一期结项后的二期全面升级;用户反馈「记忆系统很久没有晋升」;只读审计确认 D-409 修复提交未进入 dev、当前桌面端仍整份读取 inbox 且忽略 manager 结果。
+- 依赖: 
+- refs: R-195 R-235 R-283 R-284 docs/design/phase2_system_upgrade.md docs/design/memory_control_plane.md docs/design/memory_system.md
+- 内容: 按 phase2_system_upgrade.md §5.2 分四批恢复记忆控制面。批1 交付事实修复:从 D-409 分支隔离出分批读取/checkpoint/错误回传,桌面与 CLI 共用整理服务,禁止直接合并无关分支;修正 defects/tests 里「已修复」与 dev 实现不一致。批2 生命周期账本:note→candidate→shadow→active/deprecated 每次转换写来源、reason code 与关联 episode。批3 遥测漏斗:AVAILABLE→RETRIEVED→INJECTED→ACTION_CHANGED→OUTCOME_IMPROVED,补 memory_eval_agg 和单条价值画像。批4 UI:backlog/最老等待/批次状态/晋升缺口/召回与 outcome 全链展示,失败可重试。
+- 边界: 不伪造历史 provenance;R-235 的 28 条存量零证据 active 仍由用户拍板;不把 action_changed 直接写成 outcome_improved;不静默删除 inbox/candidate/active;数据库 schema 变化需 Alembic 不适用(Rust SQLite migration),必须提供前滚、已有数据兼容和恢复策略。
+- 验收: ①当前 224 条 inbox 在真实 manager 运行中按批下降,任一批失败可见且重启后从 checkpoint 继续;②桌面与 CLI 调用同一服务并有集成测试;③新 candidate/active 100% 可回溯真实 episode/source,空来源晋升被拒;④一次真实 recurrence→shadow→promote 有状态事件和 UI 轨迹;⑤counterfactual arms 形成非空聚合并区分 action_changed/outcome_improved;⑥修复提交确实位于 dev,tracker/tests/代码三方一致。
+- 批次: 4/4
+- 状态: done
+- 阻塞: 
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-286
+- 进展: R-286 已完成并提交：`dcf6e11c R-286 B4 接入记忆控制面与失败重试`，提交位于 dev。关闭验收逐项对账：①真实 manager 分批整理与失败/恢复能力沿用已交付的 `crates/kanzei-memory/src/memory/inbox.rs:18-122`、`crates/kanzei-tools/src/memory_consolidation.rs:1-301`，控制面读取 `InboxCheckpoint` 并在 `crates/kanzei-app/src/memory.rs:42-87` 展示 backlog、最老等待、批次状态与 failure_reason，重试入口在 `crates/kanzei-app/ui/13-memory.js:47-86`；真实运行证据 T-1786922726169，关闭前 workspace 回归 T-1786922726213。②桌面与 CLI 共用 `crates/kanzei-app/src/memory.rs:298-306` 的 `consolidate_memory_inbox`，Tauri 注册在 `crates/kanzei-app/src/main.rs:197-200`，桌面定向测试 T-1786922726210，真实共享服务链路 T-1786922726169。③新 candidate/active 的空来源硬门禁由既有 `crates/kanzei-memory/src/memory/lifecycle.rs:24-87` 执行；控制面在 `crates/kanzei-app/src/memory.rs:55-62` 将 candidate/shadow/active 缺 source/refs 计为 promotion_gaps；生命周期回放 T-1786922726202。④recurrence→shadow→promote 由既有 lifecycle 写者产生状态事件，本次统一事件 payload 在 `crates/kanzei-memory/src/memory/mod.rs:38-77`，写者接线位于 `memory/inbox.rs:206-218`、`memory/store.rs:369-383`、`memory/lifecycle.rs`；控制面 UI 消费并展示状态，证据 T-1786922726202、T-1786922726211、T-1786922726212。⑤六臂 counterfactual 回放在 `crates/kanzei-core/src/replay.rs:300-318` 调用 `recompute_memory_effect`，`memory_eval_agg` 查询位于 `crates/kanzei-core/src/store/eval.rs:54-74`，action_changed/outcome_improved 分开统计位于 `crates/kanzei-core/src/store/telemetry.rs:167-204`，证据 T-1786922726207、T-1786922726209；控制面价值画像消费位于 `crates/kanzei-app/src/memory.rs:64-79`。⑥修复提交 `dcf6e11c` 已位于 dev；requirements、defects、tests archive 与代码同批提交，且 tracker/tests/代码三方一致；六条前端冒烟 T-1786922726212、app/core staged 定向回归 T-1786922726216/T-1786922726217、workspace 全量 T-1786922726213 均通过。既有能力已明确标注为沿用，本次交付为批4控制面投影、失败重试、聚合查询消费及配套验证。
+- observed_head: dcf6e11c4a0557ad9283234084a431bf61f3e083
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1786996479550

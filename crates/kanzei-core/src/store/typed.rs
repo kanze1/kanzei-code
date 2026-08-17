@@ -1424,7 +1424,7 @@ pub struct ShadowComparison {
     /// serde default 保证旧 shadow_compared 事件（无此字段）按 unknown 统计。
     #[serde(default)]
     pub expected_mismatch: bool,
-    /// 预期差异类别：failed_turn / empty_legacy / stale_snapshot；equal 与未知差异为 None。
+    /// 预期差异类别：failed_turn / empty_legacy / stale_snapshot / compacted_snapshot；equal 与未知差异为 None。
     #[serde(default)]
     pub mismatch_class: Option<String>,
 }
@@ -1453,14 +1453,16 @@ pub fn compare_shadow(projection: &SessionProjection, legacy: &[Message]) -> Sha
 /// 差异归因（R-242 批4）：把可解释的差异标记为预期，剩余的 !equal 才是未知差异。
 ///
 /// 三种预期场景（2026-08-16 对 60 条真实 shadow_compared 的全量取证，
-/// 11 条 equal=false 全部归入预期、未知差异=0）：
+/// 11 条 equal=false 全部归入预期、未知差异=0）加上 compaction 后的尾部 surface：
 /// 1. failed_turn：投影 diagnostics 非空 —— 失败轮（process_restarted/transport
 ///    error/HTTP 503/turn failed）legacy 快照不更新而事件日志全程记录，投影恢复
 ///    失败轮草稿/中断消息（R-242 验收②③要的特性，不是差异）；
 /// 2. empty_legacy：legacy 快照为空而投影非空 —— 快照被重建/清空而事件日志完整；
 /// 3. stale_snapshot：legacy 是投影的完整前缀（前段逐条一致、投影更长）——
 ///    legacy 快照低频滞后于事件日志（会话内 conversation.updated 次数远少于
-///    事件数），first_mismatch 落在 legacy 末端之后。
+///    事件数），first_mismatch 落在 legacy 末端之后；
+/// 4. compacted_snapshot：legacy 是 projection 的精确尾部 —— surface 已被压缩
+///    替换，但原始事件仍保留，等待 R-243 事件化 compaction。
 fn classify_mismatch(
     equal: bool,
     first_mismatch: Option<usize>,
@@ -1478,6 +1480,13 @@ fn classify_mismatch(
         && first_mismatch.is_some_and(|m| m >= legacy.len())
     {
         (true, Some("stale_snapshot".into()))
+    } else if legacy.len() < projection.surface_messages.len()
+        && projection.surface_messages.ends_with(legacy)
+    {
+        // Compaction 尚未事件化时,legacy snapshot 可能已经替换成较短的最新 surface,
+        // 而 typed projection 仍保留压缩前的原始事件。只要 legacy 精确等于 projection
+        // 的尾部,这是可解释的 surface 重建差异,不是中间事实被改写。
+        (true, Some("compacted_snapshot".into()))
     } else {
         (false, None)
     }
@@ -2228,6 +2237,18 @@ mod tests {
         assert!(!c.equal);
         assert!(c.expected_mismatch);
         assert_eq!(c.mismatch_class.as_deref(), Some("stale_snapshot"));
+
+        // compacted_snapshot：legacy 是 projection 的精确尾部（surface 已被压缩替换）→ 预期
+        let c = compare_shadow(
+            &projection_with(
+                vec![assistant("old"), assistant("kept-a"), assistant("kept-b")],
+                vec![],
+            ),
+            &[assistant("kept-a"), assistant("kept-b")],
+        );
+        assert!(!c.equal);
+        assert!(c.expected_mismatch);
+        assert_eq!(c.mismatch_class.as_deref(), Some("compacted_snapshot"));
 
         // unknown：中间一条不同（legacy 非前缀、投影非更长）→ 未知差异
         let c = compare_shadow(
