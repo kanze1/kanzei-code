@@ -5378,3 +5378,27 @@
 - observed_head: 62bc8331065caa993d93e6d60135b1a44caa8718
 - observed_worktree_hash: fnv1a64:7b3352155b88e8aa
 - recorded_at: 1786954176047
+
+## D-440 R-221 B3 profiles.rs 插入锚点重复 DevProfile 定义 [fixed] (medium)
+- 复现: B3 在 profiles.rs 的 `pub struct DevProfile;` 锚点前插入内容时，插入内容误包含锚点本身，形成 `pub struct DevProfile;pub struct DevProfile;`，cargo test -p kanzei-tools 编译报 E0428。
+- 影响: kanzei-tools 无法编译，B3 prompt 回归测试无法运行。
+- 来源: self-found；B3 定向测试与 cargo fmt --check。
+- 标签: 核心
+- refs: R-221
+- 优先级: P1
+- 进展: 已修复并验证：crates/kanzei-tools/src/profiles.rs:65 恢复单一 `DevProfile` 定义；B3 prompt 定向测试 T-1786922726109 通过，完整 kanzei-tools 定向测试 T-1786922726110 通过（325 passed，1 ignored）。
+- observed_head: 8842e2462339557e42d47f0ec879e63b408db834
+- observed_worktree_hash: fnv1a64:df5908e622eb1e12
+- recorded_at: 1786954897726
+
+## D-439 R-221 B3 dev/research 提示词缺少 V 表双域与证据深度口径 [fixed] (medium)
+- 复现: 当前 crates/kanzei-tools/src/profiles.rs:692-695 的 research system prompt 未要求每条结论标注代码域/文献域 V0-V3 与证据深度；dev 仅依赖 conventions，而项目 conventions.md 也没有 research V 表。
+- 影响: research 与 dev 无共同可检索的 V 口径，容易继续把 E0-E4 验证等级误用于研究证据，B3 的证据标注验收无法成立。
+- 来源: self-found；恢复 R-221 B3 时对照 docs/design/research_mode.md §4、§7。
+- 标签: 流程
+- refs: R-221
+- 优先级: P2
+- 进展: 已修复并验证：`.kanzei/project/conventions.md` §10 写入 V0-V3 代码域/文献域表与摘要级/正文级深度规则；`crates/kanzei-tools/src/profiles.rs:405-566` 的 dev prompt 与 `profiles.rs:692-700` 的 research prompt 同步 V/E 分离、证据锚和深度要求；T-1786922726109、T-1786922726110 通过。
+- observed_head: 8842e2462339557e42d47f0ec879e63b408db834
+- observed_worktree_hash: fnv1a64:df5908e622eb1e12
+- recorded_at: 1786954904756

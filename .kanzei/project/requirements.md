@@ -86,12 +86,12 @@
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
 - refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 取活依据: engine:唯一可执行 WIP 是 R-221，必须先恢复它
-- 进展: B2 已完成（非终局）：① topic 隔离与安全校验落在 crates/kanzei-memory/src/docstore.rs:370-437，source/finding 分 topic 文件且拒绝越界/大写 topic；② tracker topic 入参、topic store 选择与 finding 同 topic refs 校验落在 crates/kanzei-tools/src/tracker.rs:102-105、313-327、693-742 及 tracker/actions.rs:323、392；③ docs_snapshot.research_topics 与旧平铺兼容读取落在 crates/kanzei-app/src/docs.rs:22-84、410，docs_read/docs_open topic 入口落在 docs.rs:557-625；④ 研究工作台 topic 选择、分组、报告读取和编辑传递落在 crates/kanzei-app/ui/index.html:484-488、ui/19-research.js:11-365、ui/style.css:2223-2231；⑤ IPC/冒烟契约落在 scripts/ipc-contract.json:98、scripts/ui-runtime-smoke.mjs:730-805、2768-2797、4225-4228。证据：T-1786922726097、T-1786922726098、T-1786922726101、T-1786922726104、T-1786922726105 均通过；B2 下一步为 B3 V 表双域写入 conventions 与提示词同步。
+- 进展: B3 已完成（非终局）：①权威 V0-V3 双域表、E/V 分离、文献摘要级/正文级深度规则写入 `.kanzei/project/conventions.md:72-85` §10；②dev prompt 在 `crates/kanzei-tools/src/profiles.rs:405-566` 追加 V/E 分离、证据域、证据锚与文献摘要级 V1 上限；③research prompt 在 `profiles.rs:692-700` 同步同一口径；④`profiles.rs:1501-1537` 新增 dev/research 双提示词回归测试。证据：T-1786922726109、T-1786922726110 通过（325 passed，1 ignored），D-439、D-440 已 fixed。B3 下一步为 B4：backlog 只读索引/conventions 注入、req/defect get+add 子集与 finding→[todo] 草稿回流。
 - 阻塞: 
-- observed_head: 62bc8331065caa993d93e6d60135b1a44caa8718
-- observed_worktree_hash: fnv1a64:7b3352155b88e8aa
-- recorded_at: 1786954190376
-- 批次: 2/5
+- observed_head: 8842e2462339557e42d47f0ec879e63b408db834
+- observed_worktree_hash: fnv1a64:df5908e622eb1e12
+- recorded_at: 1786954913890
+- 批次: 3/5
 - 状态: todo
 - 依赖: D-428
 - 停车: 

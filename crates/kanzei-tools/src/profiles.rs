@@ -563,7 +563,10 @@ impl Component for DevProfile {
                          batching → finish → full suite if 复杂度 中/大 → `req update <id> done` \
                          with per-验收 evidence. \
                          These three flows are the fixed registration/close path; details \
-                         beyond them live in the project conventions, not here."
+                         beyond them live in the project conventions, not here. Research \
+                         evidence uses V0-V3, never E0-E4: every conclusion must carry a code \
+                         or literature domain, V level, evidence anchor, and literature evidence \
+                         depth; abstract-only evidence is capped at V1."
                     .into(),
             },
         );
@@ -691,7 +694,11 @@ impl Component for ResearchProfile {
                 steps: 0,
                 system: "You are the research agent. Record every consulted source \
                          (`source add`) and register conclusions as findings citing those \
-                         sources. The final report goes to .kanzei/research/report.md."
+                         sources. Every conclusion must state its code or literature domain, \
+                         V0-V3 level, evidence anchor, and literature evidence depth; use V \
+                         evidence, never E0-E4 verification levels, and cap abstract-only \
+                         literature evidence at V1. The final report goes to \
+                         .kanzei/research/report.md."
                     .into(),
             },
         );
@@ -1489,6 +1496,54 @@ mod tests {
             snapshot.evaluate("write", r".KANZEI\project\requirements.md"),
             Effect::Deny
         );
+    }
+
+    /// R-221 B3:dev/research 都能看到 V 表口径,且不把 E0-E4 当研究证据等级。
+    #[test]
+    fn research_evidence_prompt_uses_v_table_and_literature_depth() {
+        let dev = dev_system_prompt("r221-v-table");
+        for required in [
+            "Research evidence uses V0-V3",
+            "never E0-E4",
+            "literature evidence depth",
+            "abstract-only evidence is capped at V1",
+        ] {
+            assert!(
+                dev.contains(required),
+                "dev prompt 缺少 B3 口径: {required}"
+            );
+        }
+
+        let root = PathBuf::from("C:/kanzei-r221-v-table-research");
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Research,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness
+            .add(crate::BaseComponent)
+            .add(DevProfile)
+            .add(super::ResearchProfile)
+            .add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let research = snapshot
+            .select_agent(Some("research"))
+            .unwrap()
+            .system
+            .clone();
+        for required in [
+            "V0-V3 level",
+            "never E0-E4 verification levels",
+            "literature evidence depth",
+            "abstract-only literature evidence at V1",
+        ] {
+            assert!(
+                research.contains(required),
+                "research prompt 缺少 B3 口径: {required}"
+            );
+        }
     }
 
     /// R-221 B1:research 只保留事实观察与专用科研工具,不允许 shell/git 写入。

@@ -5377,3 +5377,31 @@
 - 关联: R-221
 - 收尾: 1786954417
 - 源码指纹: b568bb02bd8f7737
+
+## T-1786922726109 R-221 B3 V 表 prompt 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools profiles::tests::research_evidence_prompt_uses_v_table_and_literature_depth
+- 时长: 0.0s
+- 摘要: B3 新增回归通过：dev/research prompt 均包含 V0-V3、E0-E4 分离、证据深度与摘要级 V1 上限。
+- 关联: R-221 D-439
+- 收尾: 1786954887
+
+## T-1786922726110 R-221 B3 kanzei-tools 定向测试最终 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 33.5s
+- 摘要: B3 修复后最终定向测试：325 passed，1 ignored；含新增 research_evidence_prompt_uses_v_table_and_literature_depth。
+- 关联: R-221 D-439 D-440
+- 收尾: 1786954887
+
+## T-1786922726111 R-221 B3 prompt 定向测试初检 [failed]
+- 命令: cargo test -p kanzei-tools profiles::tests::research_evidence_prompt_uses_v_table_and_literature_depth
+- 摘要: 初检因 profiles.rs 插入锚点重复 DevProfile 定义报 E0428，未执行测试；已登记 D-440 并修复。
+- 关联: R-221 D-440
+- 收尾: 1786954887
+
+## T-1786922726112 R-221 B3 kanzei-tools 暂存源码定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 34.4s
+- 摘要: 按暂存源码重跑：325 passed，1 ignored；B3 V 表 prompt 回归通过。
+- 关联: R-221 D-439 D-440
+- 收尾: 1786955039
+- 源码指纹: c2bac9d271307b7d
