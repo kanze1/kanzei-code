@@ -6376,3 +6376,10 @@
 - 关联: R-242 D-514 D-515
 - 收尾: 1787000716
 - 源码指纹: 483f9f426e27ceed
+
+## T-1786922726248 R-242 真实 shadow 30 turn 门禁 [passed]
+- 命令: $temp='C:\Users\kanzei\AppData\Local\Temp\d514-shadow-d1260b2e8a324c70b748c4cf24c8a789'; $env:KANZEI_PROFILE='dev'; $env:KANZEI_AGENT='dev'; $env:KANZEI_MODEL='primary'; target\debug\kz.exe run --new --project-root $temp '只回复：r242-equal-N。不要调用工具。' (重复至累计30个真实 turn); target\debug\kz.exe shadow --project-root $temp --mismatches
+- 时长: 24.0s
+- 摘要: 同一隔离项目在已验证2 turn基础上继续执行28次真实目标 CLI `run --new`；目标 `kz shadow --mismatches` 输出共30 turn、equal=30、预期差异0、未知差异0、写错误轮0，判定达标。
+- 关联: R-242
+- 收尾: 1787000878

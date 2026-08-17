@@ -110,10 +110,10 @@
 - 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
-- 进展: D-514/D-515 已修复并关闭，当前 batch 8/8 的 reset segment 缺口已补齐：①`crates/kanzei-core/src/store/typed.rs:609-628` 新增 `list_latest_segment_facts`，按最新 `conversation.reset` sequence 过滤当前 segment，旧事实仍由 `list_session_facts` 保留可审计；typed shadow writer 在 `typed.rs:1152-1169` 使用该入口；②桌面 shadow `crates/kanzei-app/src/conversation.rs:130-137` 与 UI history harvest `crates/kanzei-app/src/processes/workspace.rs:509-517` 同步使用当前 segment；③D-514 回归 T-1786922726244：`cargo test -p kanzei-core` 225 passed，覆盖旧事实8条仍可读、新 segment仅4条、重复 reset 后空段；④D-515 回归 T-1786922726245：`cargo test -p kanzei-app` 202 passed；⑤真实目标 CLI T-1786922726246：隔离项目连续两次 `run --new` 后 `kz shadow --mismatches` 为2 turn、equal=2、expected=0、unknown=0、typed_write_errors=0。验收④现有 reset/prior/旧 segment 证据已补齐；验收⑤当前仅取得2个真实 equal turn，距离至少30个仍缺28个，不能误报完成；验收⑦仍依赖 R-243 compaction 事务。下一步在同一无 compaction 干扰的真实窗口继续累积并记录 equal turn，或等待 R-243 完成后复核。
-- observed_head: e202743946a9dd3e6968e944eef24ce38b4debf8
-- observed_worktree_hash: fnv1a64:8a854b726bfbe8bc
-- recorded_at: 1787000567850
+- 进展: 本批 reset segment 修复已提交 `7cbc06cb`（R-242 B8），并完成验收⑤真实窗口：①`crates/kanzei-core/src/store/typed.rs:609-628` 的 `list_latest_segment_facts` 按最新 `conversation.reset` sequence 过滤当前 segment，旧事实仍由 `list_session_facts` 保留可审计；typed shadow writer 在 `typed.rs:1152-1169` 使用该入口；②桌面 shadow `crates/kanzei-app/src/conversation.rs:130-137` 与 UI history harvest `crates/kanzei-app/src/processes/workspace.rs:509-517` 同步使用当前 segment；③T-1786922726244：`cargo test -p kanzei-core` 225 passed，覆盖旧事实8条仍可读、新 segment仅4条、重复 reset 后空段；④T-1786922726245：`cargo test -p kanzei-app` 202 passed；⑤T-1786922726246 先验证真实 CLI 2 turn，随后 T-1786922726248 在同一隔离项目继续执行28次真实 `run --new`，`kz shadow --mismatches` 输出共30 turn、equal=30、expected=0、unknown=0、typed_write_errors=0，验收⑤真实窗口达标；⑥现有五条 feature gate 的独立回滚能力与 legacy fallback 保持既有实现和测试证据；⑦仍依赖 R-243 compaction 事务，停止新增 conversation.updated 与最终 snapshot 对照尚未收口。R-242 不关闭，下一步等待/复核 R-243 后补验收⑦。
+- observed_head: 7cbc06cbc9d1c58f3fb3be60e322f3c4a1eda740
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787000896795
 - 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
 - 对账: 2026-08-18 对账:与 R-243 互锁(本条验收⑦「停止新增 conversation.updated」依赖 R-243 compaction 事务,R-243 又依赖本条)。收口顺序:本条以验收①-⑥(含⑤真实 30 turn 窗口)为关闭门禁,⑦的收口动作移交 R-243 验收承接
 
