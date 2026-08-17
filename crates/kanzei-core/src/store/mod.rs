@@ -183,7 +183,7 @@ mod typed;
 
 pub use eval::{EffectEstimate, EvalCaseSet};
 pub use processes::StoredProcess;
-pub use telemetry::{FunnelCounts, RecallEvent, RecallMetrics};
+pub use telemetry::{FunnelCounts, RecallEvent, RecallLinkStats, RecallMetrics};
 pub use typed::{
     compare_shadow, decode_session_fact, prepare_typed_session, project_session_facts,
     stable_json_hash, stable_message_hash, summarize_shadow_reports, InterruptedAssistant,

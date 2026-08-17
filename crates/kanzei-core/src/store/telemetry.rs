@@ -28,6 +28,14 @@ pub struct RecallMetrics {
     pub recall: f64,
 }
 
+/// recall_events 与 episodes 的可复算关联分母。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RecallLinkStats {
+    pub total: u64,
+    pub linked: u64,
+    pub orphaned: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct RecallEvent<'a> {
     pub recall_id: &'a str,
@@ -139,10 +147,11 @@ impl SessionStore {
         Ok(())
     }
 
-    /// 把 created_at >= since_ms 且尚未关联 episode 的 recall_events 回填到该 episode。
+    /// 把本轮时间窗内且尚未关联 episode 的 recall_events 回填到该 episode。
     /// 开跑预检索(R-106)发生在 episode 落库之前,写入时没有 episode_id;
     /// 轮末 append_episode 后用本轮开始时间戳回填,recall_events 才能 join episodes(验收①)。
-    /// 返回实际回填行数;没有待回填行时静默返回 0。
+    /// 上界使用目标 episode 的落库时间,避免把 episode 创建之后才产生的下一轮事件
+    /// 误归因到上一轮。返回实际回填行数;没有待回填行时静默返回 0。
     pub fn link_recall_events_to_episode(
         &self,
         episode_id: i64,
@@ -150,7 +159,11 @@ impl SessionStore {
     ) -> Result<usize, StoreError> {
         let n = self.connection.execute(
             "UPDATE recall_events SET episode_id = ?1
-             WHERE episode_id IS NULL AND created_at >= ?2",
+             WHERE episode_id IS NULL
+               AND created_at >= ?2
+               AND created_at <= (
+                   SELECT created_at FROM episodes WHERE episode_id = ?1
+               )",
             params![episode_id, since_ms],
         )?;
         Ok(n)
@@ -237,6 +250,24 @@ impl SessionStore {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// 直接从 recall_events 聚合关联分母，悬空事件保留在 total/orphaned 中，
+    /// 不把无法 join episodes 的数据静默排除。
+    pub fn recall_link_stats(&self) -> Result<RecallLinkStats, StoreError> {
+        let (total, linked): (i64, i64) = self.connection.query_row(
+            "SELECT COUNT(*), SUM(CASE WHEN episode_id IS NOT NULL THEN 1 ELSE 0 END)
+             FROM recall_events",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let total = total.max(0) as u64;
+        let linked = linked.max(0) as u64;
+        Ok(RecallLinkStats {
+            total,
+            linked,
+            orphaned: total.saturating_sub(linked),
+        })
+    }
+
     /// 按现行 recall_events 聚合每条记忆的召回、注入次数和最后观测时间。
     /// retrieved/injected 都按 recall_id 去重，避免同一事件 JSON 数组重复元素放大信号。
     pub fn memory_recall_profile(
@@ -310,6 +341,71 @@ impl SessionStore {
 mod tests {
     use super::*;
     use crate::store::testutil::store;
+
+    #[test]
+    fn recall_link_stats_保留悬空事件作为分母() {
+        let store = store();
+        store
+            .record_recall_event(&RecallEvent {
+                recall_id: "linked-stat",
+                episode_id: None,
+                step_id: None,
+                trigger_type: "memory_search",
+                trigger_payload: "{}",
+                policy_action: "lexical",
+                query: "q",
+                candidate_ids: "[]",
+                retrieved_ids: "[]",
+                injected_ids: "[]",
+                lexical_ms: 0,
+                embed_ms: 0,
+                vector_ms: 0,
+                total_ms: 0,
+            })
+            .unwrap();
+        let episode = store
+            .append_episode(&crate::store::EpisodeRecord {
+                session_id: "stats",
+                prompt_head: "p",
+                outcome: "ok",
+                tools_json: "[]",
+                context_json: "{}",
+                metrics_json: "{}",
+                provider: "",
+                model: "",
+                run_id: "r",
+                input_id: "i",
+                overflow_json: "[]",
+                ..Default::default()
+            })
+            .unwrap();
+        store
+            .record_recall_event(&RecallEvent {
+                recall_id: "orphan-stat",
+                episode_id: Some(episode),
+                step_id: None,
+                trigger_type: "event_recall",
+                trigger_payload: "{}",
+                policy_action: "lexical",
+                query: "q",
+                candidate_ids: "[]",
+                retrieved_ids: "[]",
+                injected_ids: "[]",
+                lexical_ms: 0,
+                embed_ms: 0,
+                vector_ms: 0,
+                total_ms: 0,
+            })
+            .unwrap();
+        assert_eq!(
+            store.recall_link_stats().unwrap(),
+            RecallLinkStats {
+                total: 2,
+                linked: 1,
+                orphaned: 1,
+            }
+        );
+    }
 
     #[test]
     fn memory_recall_profile_聚合现行遥测并按事件去重() {
@@ -616,6 +712,51 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
+        // episode 创建之后才产生的事件属于后续轮次，不能被这个回填调用吸收。
+        store
+            .record_recall_event(&RecallEvent {
+                recall_id: "future-recall",
+                episode_id: None,
+                step_id: None,
+                trigger_type: "memory_search",
+                trigger_payload: "{}",
+                policy_action: "lexical",
+                query: "future",
+                candidate_ids: "[]",
+                retrieved_ids: "[]",
+                injected_ids: "[]",
+                lexical_ms: 0,
+                embed_ms: 0,
+                vector_ms: 0,
+                total_ms: 0,
+            })
+            .unwrap();
+        let second_created_at: i64 = store
+            .connection
+            .query_row(
+                "SELECT created_at FROM episodes WHERE episode_id = ?1",
+                [second],
+                |row| row.get(0),
+            )
+            .unwrap();
+        store
+            .connection
+            .execute(
+                "UPDATE recall_events SET created_at = ?1 WHERE recall_id = 'future-recall'",
+                [second_created_at + 1_000_000],
+            )
+            .unwrap();
+        let linked_future = store.link_recall_events_to_episode(second, 100).unwrap();
+        assert_eq!(linked_future, 0, "episode 之后的事件不得被回填到该 episode");
+        let future_episode: Option<i64> = store
+            .connection
+            .query_row(
+                "SELECT episode_id FROM recall_events WHERE recall_id = 'future-recall'",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+        assert_eq!(future_episode, None);
         let linked2 = store.link_recall_events_to_episode(second, 100).unwrap();
         assert_eq!(linked2, 0, "时间窗外的旧事件不得被误回填");
     }

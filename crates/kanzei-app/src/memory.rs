@@ -72,14 +72,19 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
         .find_map(|line| line.strip_prefix("## note ").map(str::to_string));
     let checkpoint = store.read_inbox_checkpoint();
     let state = kanzei_core::project_state_path(&root);
-    let source_backed = kanzei_core::SessionStore::open(&state)
-        .ok()
+    let session = kanzei_core::SessionStore::open(&state).ok();
+    let source_backed = session
+        .as_ref()
         .and_then(|session| session.memory_ids_with_sources().ok())
         .unwrap_or_default();
     let promotion_gaps = promotion_gap_count(&entries, &source_backed);
     let recall = store.recall_profile();
     let recalled = recall.values().map(|(count, _)| *count).sum::<u64>();
     let fetched = recall.values().map(|(_, count)| *count).sum::<u64>();
+    let recall_links = session
+        .as_ref()
+        .and_then(|session| session.recall_link_stats().ok())
+        .unwrap_or_default();
     let effects = kanzei_core::SessionStore::open(&state)
         .ok()
         .and_then(|session| session.memory_effects().ok())
@@ -100,7 +105,13 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
         "oldest_waiting": oldest_waiting,
         "batch": checkpoint,
         "promotion_gaps": promotion_gaps,
-        "recall": {"recalled": recalled, "fetched": fetched},
+        "recall": {
+            "recalled": recalled,
+            "fetched": fetched,
+            "events_total": recall_links.total,
+            "events_linked": recall_links.linked,
+            "events_orphaned": recall_links.orphaned,
+        },
         "effects": effects,
     })
 }

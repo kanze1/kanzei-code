@@ -6820,3 +6820,56 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 关联: D-507
 - 收尾: 1787009829
 - 源码指纹: d988c2058a09291d
+
+## T-1786922726307 D-507 B4 episode 回填上界回归首轮 [failed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 4.9s
+- 摘要: 编译通过但新增回归断言失败：linked_future=1，原因是测试使用 since=0 把此前 created_at=1 的 stale-recall 纳入了统计，尚未证明未来事件被错误回填。
+- 关联: D-507
+- 收尾: 1787010069
+
+## T-1786922726308 D-507 B4 episode 回填边界定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 4.1s
+- 摘要: episode 回填上界回归修正后通过：226 passed；覆盖时间窗内回填、旧事件不回填、episode 创建后的未来事件不回填。
+- 关联: D-507
+- 收尾: 1787010089
+
+## T-1786922726309 D-507 B4 控制面关联统计接线首轮 [failed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-core; cargo test -p kanzei-app
+- 摘要: 新增 RecallLinkStats 已在 telemetry 定义并在 lib.rs 导出，但 store/mod.rs 尚未转出，导致 kanzei-core 编译 E0432；尚未进入 app 测试。
+- 收尾: 1787010274
+
+## T-1786922726310 D-507 B4 core/app 关联统计定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core; cargo test -p kanzei-app
+- 时长: 18.1s
+- 摘要: RecallLinkStats 转出修复后跨 crate 回归通过：kanzei-core 227 passed、kanzei-app 207 passed；新增关联分母测试通过。
+- 关联: D-507
+- 收尾: 1787010321
+
+## T-1786922726311 D-507 B4 控制面关联统计六项前端冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/13-memory.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/gen-ui-lint-globals.mjs --check; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 9.2s
+- 摘要: D-507 B4 六项前端门禁通过：runtime、lint、parallel-lines、a11y、i18n、markdown；新增控制面召回关联/悬空字段无运行时错误。
+- 关联: D-507
+- 收尾: 1787010341
+
+## T-1786922726312 D-507 B4 生产 recall episode 关联分母复算 [passed]
+- 命令: @'
+import sqlite3, json, pathlib
+con = sqlite3.connect('.kanzei/state.db')
+total, linked = con.execute("SELECT COUNT(*), SUM(CASE WHEN episode_id IS NOT NULL THEN 1 ELSE 0 END) FROM recall_events").fetchone()
+print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked}, ensure_ascii=False))
+'@ | python -
+- 时长: 0.2s
+- 摘要: 生产 state.db 复算与 RecallLinkStats SQL 同源：total=3923、linked=3115、orphaned=808；三数满足 total=linked+orphaned。
+- 关联: D-507
+- 收尾: 1787010382
+
+## T-1786922726313 D-507 B4 提交前源码指纹定向回归 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-app
+- 时长: 11.3s
+- 摘要: 按当前待提交源码重新背书，解决指纹门禁：kanzei-core 227 passed、kanzei-app 207 passed；RecallLinkStats 与控制面接线通过。
+- 关联: D-507
+- 收尾: 1787010495
+- 源码指纹: 521157c771ae539f

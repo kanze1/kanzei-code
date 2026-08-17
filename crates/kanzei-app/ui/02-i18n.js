@@ -327,7 +327,7 @@ const I18N_EN = {
   "上下文账单": "Context bill", "最近一轮 system 注入的各来源字符数。": "Characters injected per source in the latest run.",
   "最近轮次": "Recent rounds", "全局记忆": "Global memory", "项目记忆": "Project memory",
   "条": "entries", "命中": "hits", "条待整理": "notes pending", "该分类暂无记忆": "No entries in this category",
-  "待整理 backlog": "Inbox backlog", "最老等待": "Oldest waiting", "晋升缺口": "Promotion gaps", "召回/采纳": "Recalled/fetched", "价值画像": "Value profiles", "最近批次": "Latest batch", "未知": "unknown", "剩余": "remaining", "尚无整理批次": "No consolidation batch yet", "重试整理": "Retry consolidation",
+  "待整理 backlog": "Inbox backlog", "最老等待": "Oldest waiting", "晋升缺口": "Promotion gaps", "召回/采纳": "Recalled/fetched", "召回关联": "Recall linked", "悬空": "orphaned", "价值画像": "Value profiles", "最近批次": "Latest batch", "未知": "unknown", "剩余": "remaining", "尚无整理批次": "No consolidation batch yet", "重试整理": "Retry consolidation",
   "记忆页加载失败": "Failed to load memory page", "记忆条目加载失败": "Failed to load entries",
   "记忆标题": "Title", "召回钩子": "Recall hook", "记忆正文": "Body", "来源": "Source", "引用来源": "Source refs", "冗余提醒": "redundancy tips",
   "正文摘要": "Summary", "展开全文": "Expand", "收起": "Collapse", "编辑正文": "Edit body", "无正文": "No body",

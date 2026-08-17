@@ -40,6 +40,7 @@ function renderMemoryControlPlane(data) {
     [t("最老等待"), data?.oldest_waiting || t("暂无")],
     [t("晋升缺口"), data?.promotion_gaps ?? 0],
     [t("召回/采纳"), `${recall.recalled ?? 0}/${recall.fetched ?? 0}`],
+    [t("召回关联"), `${recall.events_linked ?? 0}/${recall.events_total ?? 0} · ${t("悬空")} ${recall.events_orphaned ?? 0}`],
     [t("价值画像"), `${effects.length} ${t("条")}`],
   ];
   const summary = document.createElement("div");
