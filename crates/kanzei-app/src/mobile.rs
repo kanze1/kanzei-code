@@ -525,6 +525,19 @@ fn serve_pwa(stream: &mut TcpStream, path: &str) -> bool {
 /// - 连接断开(write 失败)即返回,线程收尾,不留僵尸;
 /// - D-388:每轮检查 `active`(停服即断开)与设备表(被撤销即断开)——长连接
 ///   不无视停服/撤销,避免已撤销设备继续收事件、停服线程泄漏。
+fn persist_delivery_cursor_and_advance<F>(
+    cursor: &mut u64,
+    sequence: u64,
+    persist: F,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    persist()?;
+    *cursor = sequence;
+    Ok(())
+}
+
 fn handle_sse(
     stream: &mut TcpStream,
     state_path: &Path,
@@ -585,9 +598,19 @@ fn handle_sse(
                     if stream.write_all(frame.as_bytes()).is_err() {
                         return; // 连接断开,收尾。
                     }
-                    if let Ok(store) = kanzei_core::SessionStore::open(state_path) {
-                        let _ = store.set_delivery_cursor(&device_id, &thread_id, event.sequence);
-                        cursor = event.sequence;
+                    if let Err(error) =
+                        persist_delivery_cursor_and_advance(&mut cursor, event.sequence, || {
+                            let store = kanzei_core::SessionStore::open(state_path)
+                                .map_err(|error| error.to_string())?;
+                            store
+                                .set_delivery_cursor(&device_id, &thread_id, event.sequence)
+                                .map_err(|error| error.to_string())
+                        })
+                    {
+                        eprintln!(
+                            "移动端 delivery cursor 持久化失败，关闭连接等待重连重放: {error}"
+                        );
+                        return;
                     }
                 }
                 let _ = stream.flush();
@@ -1033,6 +1056,20 @@ mod tests {
             Ok(kanzei_core::AskResponse::Answer(text)) => assert_eq!(text, "是"),
             other => panic!("question 回答应送达 Answer,实得: {other:?}"),
         }
+    }
+
+    /// D-501:游标只有持久化成功后才前进；故障注入时保留旧游标。
+    #[test]
+    fn delivery_cursor持久化失败不前进_成功后才更新() {
+        let mut cursor = 7;
+        let failed = persist_delivery_cursor_and_advance(&mut cursor, 8, || {
+            Err("injected cursor write failure".into())
+        });
+        assert!(failed.is_err(), "注入的持久化失败必须向调用方报告");
+        assert_eq!(cursor, 7, "持久化失败不得推进内存游标");
+
+        persist_delivery_cursor_and_advance(&mut cursor, 8, || Ok(())).unwrap();
+        assert_eq!(cursor, 8, "持久化成功后才推进内存游标");
     }
 
     /// D-387:手机消息消费方——注入 conversation.updated 事件持久化,桌面端

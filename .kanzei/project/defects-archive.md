@@ -6273,3 +6273,17 @@
 - observed_head: 75aa9c78de6ccc290d65ab372400a15fab615954
 - observed_worktree_hash: fnv1a64:5f73383934450315
 - recorded_at: 1787006566835
+
+## D-501 移动端交付游标持久化失败仍前进,重连后重复收事件 [fixed] (medium)
+- 复现: crates/kanzei-app/src/mobile.rs:588-590 let _ = store.set_delivery_cursor(...) 丢弃错误后无条件 cursor = event.sequence
+- 影响: 写库失败时内存游标与库中游标分叉,重连后按库中旧游标重放,手机端重复收事件——数据正确性问题
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 持久化失败不前进内存游标(或重试并告警);故障注入测试覆盖
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-501
+- 进展: 验收逐项完成：①“持久化失败不前进内存游标”：`crates/kanzei-app/src/mobile.rs:528-540` 的 `persist_delivery_cursor_and_advance` 先执行注入的持久化闭包，成功后才写 `*cursor = sequence`；SSE 调用位于 `:602-612`，store 打开或 `set_delivery_cursor` 失败时输出告警并关闭连接，等待重连从持久化旧游标重放，不再无条件更新。②“故障注入测试覆盖”：`mobile.rs:1063-1073` 注入 `Err("injected cursor write failure")`，断言游标仍为 7，并验证成功路径更新为 8。③定向回归 `T-1786922726283`：`cargo fmt --all -- --check; cargo test -p kanzei-app`，203 passed、0 failed。
+- observed_head: efd1b65ad9f05f6d9d1061cb8b38cfe89149d975
+- observed_worktree_hash: fnv1a64:2bfa85e3cd1a1215
+- recorded_at: 1787006816559
+- status: fixing

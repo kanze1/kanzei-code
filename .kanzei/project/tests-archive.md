@@ -6639,3 +6639,18 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 关联: D-500 D-520 D-521 D-522
 - 收尾: 1787006623
 - 源码指纹: e76c691d9ac0456b
+
+## T-1786922726283 D-501 移动端游标持久化故障注入回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 12.8s
+- 摘要: D-501 定向回归通过：kanzei-app 203 passed；新增 delivery cursor 持久化失败不推进、成功后才更新的故障注入测试通过，SSE 既有测试全部通过。
+- 关联: D-501
+- 收尾: 1787006801
+
+## T-1786922726284 D-501 移动端游标当前暂存源码定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.4s
+- 摘要: 按提交门禁针对当前暂存 mobile.rs 重跑：kanzei-app 203 passed，0 failed；delivery cursor 故障注入与 SSE 回归全部通过。
+- 关联: D-501
+- 收尾: 1787006878
+- 源码指纹: e810db8d04d2a8d0

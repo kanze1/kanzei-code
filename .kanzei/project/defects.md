@@ -15,14 +15,6 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-501 移动端交付游标持久化失败仍前进,重连后重复收事件 [open] (medium)
-- 复现: crates/kanzei-app/src/mobile.rs:588-590 let _ = store.set_delivery_cursor(...) 丢弃错误后无条件 cursor = event.sequence
-- 影响: 写库失败时内存游标与库中游标分叉,重连后按库中旧游标重放,手机端重复收事件——数据正确性问题
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 后端
-- 验收: 持久化失败不前进内存游标(或重试并告警);故障注入测试覆盖
-- 优先级: P1
-
 ## D-502 移动端 SSE 每 300ms 轮询与每条事件各开一次 DB 连接 [open] (medium)
 - 复现: crates/kanzei-app/src/mobile.rs:578 每 300ms 轮询开一次 SessionStore::open,:588 每条事件再开一次;HTTP 请求路径 :265/:270 一次请求开两条;团队自测一次 open 约 4.3ms(run/events/mod.rs:92-98,D-374 已为 run trace 做连接复用)
 - 影响: 每台配对设备一条常驻线程按此频率烧连接,零收益;132MB 库含 migrate+housekeeping 查询
