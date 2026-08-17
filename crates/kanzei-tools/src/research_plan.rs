@@ -165,7 +165,7 @@ pub fn validate_plan(plan: &ResearchPlan, topic: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn load_plan(root: &Path, topic: &str) -> Result<Option<ResearchPlan>, String> {
+pub fn load_plan(root: &Path, topic: &str) -> Result<Option<ResearchPlan>, String> {
     let path = plan_path(root, topic)?;
     if !path.is_file() {
         return Ok(None);
@@ -177,7 +177,7 @@ fn load_plan(root: &Path, topic: &str) -> Result<Option<ResearchPlan>, String> {
     Ok(Some(plan))
 }
 
-fn save_plan(root: &Path, plan: &ResearchPlan) -> Result<(), String> {
+pub fn save_plan(root: &Path, plan: &ResearchPlan) -> Result<(), String> {
     validate_plan(plan, &plan.topic)?;
     let path = plan_path(root, &plan.topic)?;
     if let Some(parent) = path.parent() {
@@ -191,6 +191,19 @@ fn save_plan(root: &Path, plan: &ResearchPlan) -> Result<(), String> {
     kanzei_base::atomic_file::write_atomic(&path, &text)
         .map_err(|error| format!("保存研究计划失败: {error}"))?;
     Ok(())
+}
+
+pub fn approve_plan(root: &Path, topic: &str) -> Result<ResearchPlan, String> {
+    let Some(mut plan) = load_plan(root, topic)? else {
+        return Err(format!("topic `{topic}` 尚未创建研究计划"));
+    };
+    if plan.status != PlanStatus::AwaitingApproval {
+        return Err(format!("当前计划状态 {:?} 不能审批", plan.status));
+    }
+    plan.status = PlanStatus::Approved;
+    plan.revision += 1;
+    save_plan(root, &plan)?;
+    Ok(plan)
 }
 
 pub struct ResearchPlanTool;

@@ -506,6 +506,14 @@
               <h1 data-i18n-key="研究报告">研究报告</h1>
               <button type="button" id="research-report-refresh" class="ghost mini" title="重新读取 report.md" data-i18n-title="重新读取 report.md"><span data-i18n-key="刷新">刷新</span></button>
             </div>
+            <div class="research-plan-panel" id="research-plan-panel" hidden>
+              <div class="research-plan-head">
+                <strong data-i18n-key="研究计划">研究计划</strong>
+                <span id="research-plan-status" class="research-badge"></span>
+                <button type="button" id="research-plan-approve" class="primary mini" hidden data-i18n-key="批准计划">批准计划</button>
+              </div>
+              <ol id="research-plan-tree" class="research-plan-tree" aria-label="研究计划树" data-i18n-aria-label="研究计划树"></ol>
+            </div>
             <div id="research-report" class="md research-report"></div>
           </div>
         </div>

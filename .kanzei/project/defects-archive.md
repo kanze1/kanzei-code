@@ -5606,3 +5606,39 @@
 - observed_head: 4fe14544f11249ac984ca468bde7de2417a932a3
 - observed_worktree_hash: fnv1a64:06d3075b37408621
 - recorded_at: 1786962969167
+
+## D-458 R-277 计划审批 UI 新增全局符号未同步 ui-lint globals [fixed] (medium)
+- 复现: 运行六条前端冒烟；`node scripts/ui-lint-smoke.mjs` 报 `ui-lint-globals.json 与源码不同步`，缺少 `refreshResearchPlan`、`renderResearchPlan`、`researchPlan` 三个全局符号。
+- 影响: 计划审批 UI 的 lint 门禁失败，前端提交不能通过。
+- 来源: self-found：R-277 计划审批 UI 接入后的六条前端冒烟。
+- 标签: 前端
+- refs: R-277 R-276
+- 优先级: P1
+- 进展: 已运行 `node scripts/gen-ui-lint-globals.mjs` 生成 `scripts/ui-lint-globals.json`，同步新增 `renderResearchPlan`、`refreshResearchPlan`、`researchPlan` 等全局符号；T-1786922726142 六条前端冒烟全绿，globals 696 个标识符同步。
+- observed_head: 49c9af334fe0dd13054293b2f8b990831431e214
+- observed_worktree_hash: fnv1a64:19e99b3439b6e8b2
+- recorded_at: 1786963573850
+
+## D-459 R-277 计划树 aria-label 缺少 i18n 资源键 [fixed] (low)
+- 复现: 运行 `node scripts/ui-i18n-smoke.mjs`；`crates/kanzei-app/ui/index.html` 新增 `data-i18n-aria-label="研究计划树"`，但 `02-i18n.js` 没有对应资源键，静态门禁报 HTML 文案未进入资源表。
+- 影响: 计划树无障碍 aria-label 的 i18n 静态门禁失败。
+- 来源: self-found：R-277 计划审批 UI 六条前端冒烟。
+- 标签: 前端
+- refs: R-277 R-276
+- 优先级: P2
+- 进展: 已在 `crates/kanzei-app/ui/index.html` 为 `data-i18n-aria-label="研究计划树"` 补入 `crates/kanzei-app/ui/02-i18n.js` 资源键；T-1786922726142 六条前端冒烟全绿，i18n 覆盖 1254 个资源 key、443 项 HTML 文案。
+- observed_head: 49c9af334fe0dd13054293b2f8b990831431e214
+- observed_worktree_hash: fnv1a64:19e99b3439b6e8b2
+- recorded_at: 1786963580174
+
+## D-460 R-277 计划审批 IPC docs.rs 未通过 rustfmt [fixed] (low)
+- 复现: 提交 R-277 计划审批消费链时，`cargo fmt --all -- --check` 拒绝：`crates/kanzei-app/src/docs.rs:417` 的 `research_plan_get` 函数签名未按 rustfmt 归一。
+- 影响: 计划审批 IPC 提交被格式门禁拦截。
+- 来源: self-found：R-277 B1 计划审批消费链提交门禁。
+- 标签: 核心
+- refs: R-277 R-276
+- 优先级: P1
+- 进展: 已运行 `cargo fmt --all` 归一化 `crates/kanzei-app/src/docs.rs:417-440` 的 research_plan command 签名；`cargo fmt --all -- --check` 通过，T-1786922726147 app 202 passed。
+- observed_head: 49c9af334fe0dd13054293b2f8b990831431e214
+- observed_worktree_hash: fnv1a64:c5a7204fd03aa900
+- recorded_at: 1786963817719

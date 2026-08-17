@@ -171,6 +171,52 @@ function selectedResearchTopicArg() {
   return topic.legacy || !topic.topic ? {} : { topic: topic.topic };
 }
 
+let researchPlan = null;
+
+function renderResearchPlan(plan) {
+  const panel = $("research-plan-panel");
+  const status = $("research-plan-status");
+  const tree = $("research-plan-tree");
+  const approve = $("research-plan-approve");
+  if (!panel || !status || !tree || !approve) return;
+  panel.hidden = !plan;
+  tree.innerHTML = "";
+  if (!plan) return;
+  status.textContent = plan.status || "draft";
+  approve.hidden = plan.status !== "awaiting_approval";
+  const appendNode = (node, parent) => {
+    const item = document.createElement("li");
+    item.className = `research-plan-node plan-${node.status || "pending"}`;
+    item.textContent = `${node.id}: ${node.title} · ${node.status || "pending"}`;
+    if (node.objective) item.title = node.objective;
+    parent.appendChild(item);
+    if ((node.children ?? []).length) {
+      const children = document.createElement("ol");
+      for (const child of node.children) appendNode(child, children);
+      item.appendChild(children);
+    }
+  };
+  for (const node of plan.nodes ?? []) appendNode(node, tree);
+}
+
+async function refreshResearchPlan() {
+  const topic = selectedResearchTopicData();
+  if (topic.legacy || !topic.topic) {
+    researchPlan = null;
+    renderResearchPlan(null);
+    return;
+  }
+  try {
+    const snapshot = await invoke("research_plan_get", { projectDir: currentProject, topic: topic.topic });
+    researchPlan = snapshot.exists ? snapshot.plan : null;
+    renderResearchPlan(researchPlan);
+  } catch (error) {
+    researchPlan = null;
+    renderResearchPlan(null);
+    log(`${t("研究计划刷新失败")}:${error}`, "warn");
+  }
+}
+
 
 /// 取字段值(大小写与中英别名都认;取不到给空串)。
 function researchField(entry, ...names) {
@@ -485,6 +531,7 @@ async function refreshResearch() {
   if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
   if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
   renderResearchCards();
+  await refreshResearchPlan();
   await refreshResearchReport();
 }
 
@@ -503,6 +550,7 @@ $("research-topic-select")?.addEventListener("change", async (event) => {
   if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
   if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
   renderResearchCards();
+  await refreshResearchPlan();
   await refreshResearchReport();
 });
 
@@ -514,6 +562,18 @@ for (const [id, key] of [["research-filter-query", "query"], ["research-filter-t
   });
 }
 $("research-report-refresh")?.addEventListener("click", () => refreshResearchReport());
+$("research-plan-approve")?.addEventListener("click", async () => {
+  const topic = selectedResearchTopicData();
+  if (!topic.topic) return;
+  try {
+    const result = await invoke("research_plan_approve", { projectDir: currentProject, topic: topic.topic });
+    researchPlan = result.plan ?? researchPlan;
+    renderResearchPlan(researchPlan);
+    toast(t("研究计划已批准"));
+  } catch (error) {
+    toastError(`${t("研究计划审批失败")}:${error}`);
+  }
+});
 
 /// research 档才出现研究工作台;dev 档反过来藏起研究入口。
 /// 用户定调:research 档下 dev 视图(需求/缺陷/测试/git)完全隐藏,模式感优先。

@@ -415,6 +415,28 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
     }))
 }
 
+/// R-277：研究工作台读取并审批计划；审批只接受 agent 已请求审批的状态。
+#[tauri::command]
+pub fn research_plan_get(project_dir: String, topic: String) -> Result<serde_json::Value, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    match kanzei_tools::research_plan::load_plan(&root, &topic)? {
+        Some(plan) => Ok(json!({ "exists": true, "plan": plan })),
+        None => Ok(json!({ "exists": false, "topic": topic })),
+    }
+}
+
+#[tauri::command]
+pub fn research_plan_approve(
+    project_dir: String,
+    topic: String,
+) -> Result<serde_json::Value, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let plan = kanzei_tools::research_plan::approve_plan(&root, &topic)?;
+    Ok(json!({ "exists": true, "plan": plan }))
+}
+
 /// D-296:归档只在用户展开历史入口时通过此命令加载,普通快照不把历史正文塞进 IPC。
 #[tauri::command]
 pub fn docs_archive_entries(

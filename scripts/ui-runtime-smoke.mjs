@@ -684,6 +684,20 @@ const docEntry = (id, title, status, extra = {}) => ({
 // 显形,单行短结果永远看不出来——夹具必须真的超预算,否则断言恒真。
 const HISTORY_LONG_FIRST_LINE = `历史失败首行 ${"abcdefghijklmnopqrstuvwxyz".repeat(6)}`; // 163 字 > 110
 const HISTORY_HUGE_OUTPUT = `第一行输出\n${"这是一段很长的历史输出。".repeat(800)}`; // 远超 8000
+let smokeResearchPlanStatus = "awaiting_approval";
+const smokeResearchPlan = () => ({
+  version: 1,
+  topic: "alpha-study",
+  title: "Alpha 研究计划",
+  status: smokeResearchPlanStatus,
+  open_questions: [],
+  budget: { max_rounds: 3, max_tokens: 16000, max_concurrency: 2 },
+  revision: smokeResearchPlanStatus === "approved" ? 2 : 1,
+  nodes: [
+    { id: "scope", title: "界定范围", objective: "明确研究对象", status: "ready", depends_on: [], children: [] },
+    { id: "evidence", title: "收集证据", objective: "绑定文献与代码来源", status: "pending", depends_on: ["scope"], children: [] },
+  ],
+});
 const payloads = {
   app_info: { version: "0.0.0-smoke", build: "smoke" },
   // D-404:关键 UI 偏好后端持久化通道。冒烟默认空 = 回退 localStorage 旧值,
@@ -750,6 +764,14 @@ const payloads = {
     warnings: [],
     archived: { req: 1, defect: 2, idea: 0, source: 0, finding: 0 },
     conventions: { exists: true, headings: ["开发规则", "测试要求"] },
+  },
+  research_plan_get: (args) => args?.topic === "alpha-study"
+    ? ({ exists: true, plan: smokeResearchPlan() })
+    : ({ exists: false, topic: args?.topic }),
+  research_plan_approve: (args) => {
+    if (args?.topic !== "alpha-study") throw new Error("未知研究 topic");
+    smokeResearchPlanStatus = "approved";
+    return { exists: true, plan: smokeResearchPlan() };
   },
   // D-414:点 ↗ 抓正文进内置 viewer 的后端命令。
   webfetch_preview: { title: "MemGPT: Towards LLMs as Operating Systems", text: "# MemGPT\n\n正文摘录…" },
@@ -2783,6 +2805,16 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   assert(topicSelect.value === "alpha-study", `默认应选择排序后的 alpha-study,实得 ${topicSelect.value}`);
   assert(document.querySelector('#research-cards .research-topic-group[data-topic="alpha-study"]'), "alpha topic 分组未渲染");
   assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("Alpha 一手论文"), "alpha topic 来源未渲染");
+  assert(!byId.get("research-plan-panel").hidden, "alpha topic 未展示研究计划面板");
+  assert(byId.get("research-plan-status").textContent === "awaiting_approval", "研究计划初始状态不是 awaiting_approval");
+  assert(byId.get("research-plan-tree").querySelectorAll("li").length === 2, "研究计划树节点未渲染完整");
+  const approvePlan = byId.get("research-plan-approve");
+  assert(!approvePlan.hidden, "待审批计划未显示批准按钮");
+  approvePlan.click();
+  await flush();
+  assert(byId.get("research-plan-status").textContent === "approved", "计划批准后状态未更新");
+  const approveCalls = invokeArgs.filter((call) => call.cmd === "research_plan_approve");
+  assert(approveCalls.at(-1)?.args?.topic === "alpha-study", "计划审批调用未携带 alpha topic");
   assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("正文级"), "来源卡未展示正文级证据深度");
   assert(document.querySelector('#research-cards .research-card[data-doc-id="S-103"]')?.textContent.includes("摘要级"), "无 V 等级来源卡未展示摘要级证据深度");
   const arxivOpen = document.querySelector('#research-cards .research-card[data-doc-id="S-103"] .research-open');

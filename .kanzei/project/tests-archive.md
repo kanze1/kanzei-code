@@ -5605,3 +5605,71 @@
 - 关联: R-277 D-455 D-456 D-457
 - 收尾: 1786963033
 - 源码指纹: 1e928ab8a792b8de
+
+## T-1786922726141 R-277 B1 计划读取与审批 UI runtime smoke [passed]
+- 命令: node --check crates/kanzei-app/ui/19-research.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 时长: 0.8s
+- 摘要: 计划审批消费链 runtime smoke 通过：alpha 计划读取、2 节点树渲染、awaiting_approval → approved、approve topic 参数和 beta topic 隔离均通过；24 个 ui/*.js、2131 invoke、0 运行时错误。
+- 关联: R-277 R-276
+- 收尾: 1786963398
+
+## T-1786922726142 R-277 B1 计划审批消费链六条前端冒烟 [passed]
+- 命令: node scripts/gen-ui-lint-globals.mjs --check; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-lint-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/parallel-lines-regression.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-a11y-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-i18n-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-markdown-smoke.mjs
+- 时长: 4.2s
+- 摘要: 六条前端门禁全绿：globals 696 同步、runtime 24 个 ui/*.js/2131 invoke/0 错误、lint、parallel-lines、a11y、i18n、markdown 均通过；覆盖计划读取、2 节点树、awaiting_approval → approved 和 topic 隔离。
+- 关联: R-277 R-276 D-458 D-459
+- 收尾: 1786963483
+
+## T-1786922726143 R-277 B1 计划审批消费链 kanzei-tools 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 34.4s
+- 摘要: 计划审批 IPC/UI 改动后的 kanzei-tools suite：331 passed，1 ignored；覆盖公开 plan API 与既有 research_plan/profile 回归。
+- 关联: R-277 R-276
+- 收尾: 1786963557
+
+## T-1786922726144 R-277 B1 计划审批 IPC kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 9.2s
+- 摘要: 计划审批 Tauri command 注册与 arXiv 既有回归通过：202 passed，0 failed。
+- 关联: R-277 R-276
+- 收尾: 1786963563
+
+## T-1786922726145 R-277 B1 计划审批消费链暂存 kanzei-tools 重跑 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 31.0s
+- 摘要: 计划审批消费链当前暂存源码重跑：331 passed，1 ignored；包含公开 approve_plan API 与 research_plan 回归。
+- 关联: R-277 R-276
+- 收尾: 1786963659
+- 源码指纹: b37cc5cf0162c663
+
+## T-1786922726146 R-277 B1 计划审批消费链暂存 kanzei-app 重跑 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 9.4s
+- 摘要: 计划审批 command 当前暂存源码重跑：202 passed，0 failed；Tauri 注册与现有 docs/arXiv 回归通过。
+- 关联: R-277 R-276
+- 收尾: 1786963664
+- 源码指纹: b37cc5cf0162c663
+
+## T-1786922726147 R-277 B1 计划审批 IPC rustfmt 与 app 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 9.6s
+- 摘要: rustfmt 通过；修正 docs.rs 格式后 kanzei-app 202 passed，0 failed。
+- 关联: R-277 R-276 D-460
+- 收尾: 1786963811
+- 源码指纹: b37cc5cf0162c663
+
+## T-1786922726148 R-277 B1 fingerprint 更新后 kanzei-tools 重跑 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 31.0s
+- 摘要: rustfmt 后当前暂存源码重跑：kanzei-tools 331 passed，1 ignored；fingerprint 更新后与 staged 源码一致。
+- 关联: R-277 R-276
+- 收尾: 1786963922
+- 源码指纹: 570d3c176c0451a4
+
+## T-1786922726149 R-277 B1 fingerprint 更新后 kanzei-app 重跑 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 9.1s
+- 摘要: rustfmt 后当前暂存源码重跑：kanzei-app 202 passed，0 failed；计划审批 Tauri command 回归通过。
+- 关联: R-277 R-276
+- 收尾: 1786963931
+- 源码指纹: 570d3c176c0451a4

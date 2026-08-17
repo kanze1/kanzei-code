@@ -169,6 +169,8 @@ fn main() {
             projects::projects_select,
             projects::workspace_snapshot,
             docs::docs_snapshot,
+            docs::research_plan_get,
+            docs::research_plan_approve,
             docs::docs_archive_entries,
             commands::run::run_prompt,
             commands::run::stop_run,
