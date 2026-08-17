@@ -271,18 +271,21 @@ pub(crate) fn build_event_handler(
                 code,
                 preview,
                 display,
+                artifact,
             } => {
                 let duration_ms = metrics.resolve_tool_end(&id, &name, ok);
                 trace.record(json!({
                     "kind": "tool.completed", "id": id, "name": name, "ok": ok,
                     "outcome": outcome, "code": code,
                     "durationMs": duration_ms, "at": now_ms(),
-                    // 失败原因要留档,成功的预览不必——轨迹不是第二份对话记录。
+                    "preview": preview,
+                    "artifact": artifact,
+                    // D-349:终态只留紧凑 preview 与可恢复 artifact 元数据,不复制完整原文。
                     "error": (!ok).then(|| preview.chars().take(400).collect::<String>()),
                 }));
                 ui.emit(
                     "kz:tool-end",
-                    json!({ "id": id, "name": name, "ok": ok, "outcome": outcome, "code": code, "preview": preview, "display": display }),
+                    json!({ "id": id, "name": name, "ok": ok, "outcome": outcome, "code": code, "preview": preview, "display": display, "artifact": artifact }),
                 )
             }
             RunEvent::ToolResultsCommitted { step, message } => {
@@ -380,6 +383,7 @@ pub(crate) fn build_event_handler(
                         "outcome": item.outcome,
                         "code": item.code,
                         "preview": item.preview,
+                        "artifact": item.artifact,
                         "display": item.display,
                         "input": item.input,
                         "usage": item.usage,
@@ -399,6 +403,7 @@ pub(crate) fn build_event_handler(
                             "outcome": item.outcome,
                             "code": item.code,
                             "preview": item.preview,
+                            "artifact": item.artifact,
                             "display": item.display,
                             "input": item.input.as_ref().map(|input| {
                                 let text = serde_json::to_string(input).unwrap_or_default();

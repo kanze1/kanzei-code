@@ -111,7 +111,7 @@ const TOOL_RESULT_SPILL_THRESHOLD: usize = 1024 * 1024;
 /// 该函数位于所有工具的统一消费出口：工具权限、错误码和小结果路径不变；只有
 /// 大结果在事件提交前被替换为 artifact 引用。写失败时不生成 artifact 引用，并把
 /// 结果转成明确失败，避免事件看起来像一次成功的外置结果。
-fn materialize_tool_output(
+pub(crate) fn materialize_tool_output(
     output: &mut kanzei_harness::ToolOutput,
     ctx: &ToolCtx,
     tool_name: &str,
@@ -161,15 +161,13 @@ fn materialize_tool_output(
         original.len(),
         preview(&original),
     );
-    if output.display.is_none() {
-        output.display = Some(serde_json::json!({
-            "kind": "artifact",
-            "artifact_id": artifact.artifact_id,
-            "bytes": artifact.bytes,
-            "sha256": artifact.sha256,
-            "retrieval_hint": artifact.retrieval_hint,
-        }));
-    }
+    output.display = Some(serde_json::json!({
+        "kind": "artifact",
+        "artifact_id": artifact.artifact_id,
+        "bytes": artifact.bytes,
+        "sha256": artifact.sha256,
+        "retrieval_hint": artifact.retrieval_hint,
+    }));
     output.artifact = Some(artifact);
 }
 
@@ -244,6 +242,7 @@ pub(crate) async fn execute_prepared_tools(
                         code: output.code.map(str::to_owned),
                         preview: preview(&output.content),
                         display: output.display.clone(),
+                        artifact: output.artifact.clone(),
                     });
                     let mut model_content = output.model_content();
                     let (images, dropped_note) =
@@ -463,7 +462,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         let ctx = ToolCtx::new(root.clone(), root.clone());
         let original = "x".repeat(super::TOOL_RESULT_SPILL_THRESHOLD + 17);
-        let mut output = ToolOutput::ok(original.clone());
+        let mut output = ToolOutput::ok(original.clone()).with_display(serde_json::json!({
+            "kind": "terminal",
+            "full": "must not remain in the event",
+        }));
 
         super::materialize_tool_output(&mut output, &ctx, "git");
 
@@ -479,6 +481,8 @@ mod tests {
             original.as_bytes()
         );
         assert!(artifact.retrieval_hint.contains(&artifact.relative_path));
+        assert_eq!(output.display.as_ref().unwrap()["kind"], "artifact");
+        assert!(output.display.as_ref().unwrap().get("full").is_none());
         let _ = std::fs::remove_dir_all(root);
     }
 

@@ -2,6 +2,7 @@
 //! 拆分自 runner.rs(设计 §C B1);RunEvent/RunSummary/Ask* 经 mod.rs pub use 平铺,
 //! drain_task_events/preview 仅 runner 内部使用,见 mod.rs 的 use event 导入。
 
+use kanzei_harness::ToolArtifact;
 use kanzei_llm::{FinishReason, Message, Usage};
 
 #[derive(Clone, Debug)]
@@ -14,6 +15,8 @@ pub struct TaskTrace {
     pub outcome: Option<String>,
     pub code: Option<String>,
     pub preview: Option<String>,
+    /// D-349:大结果外置后的可恢复引用元数据。
+    pub artifact: Option<ToolArtifact>,
     pub display: Option<serde_json::Value>,
     /// R-174:子代理内部工具调用的**完整入参** JSON(transcript 数据源,验收⑤)。
     /// 活动面板摘要(summary)只给一行,信息量不足以复核"它到底拿什么参数调的",
@@ -70,6 +73,8 @@ pub enum RunEvent {
         preview: String,
         /// 结构化展示(diff/终端块),见 ToolOutput::display。
         display: Option<serde_json::Value>,
+        /// D-349:大结果写入 durable artifact 后的可恢复引用。
+        artifact: Option<ToolArtifact>,
     },
     /// 本步整组工具结果已进入 history。包含真实结果、权限拒绝、未知工具和停止
     /// 占位；持久化层由此生成与模型 prior 一致的 tool result facts。

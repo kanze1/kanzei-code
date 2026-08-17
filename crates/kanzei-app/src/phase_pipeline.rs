@@ -361,6 +361,7 @@ impl PhasePipeline {
                         code: None,
                         preview,
                         display: None,
+                        artifact: None,
                     };
                     if tx.send(end).is_ok() {
                         ended_roles.lock().unwrap().insert(role.to_string());
@@ -420,6 +421,7 @@ impl PhasePipeline {
                 code: None,
                 preview,
                 display: None,
+                artifact: None,
             });
         }
         Ok((reports, outcome))

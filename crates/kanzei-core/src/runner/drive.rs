@@ -724,6 +724,7 @@ async fn run_subagent_calls(
                     code: output.code.map(str::to_owned),
                     preview: preview(&output.content),
                     display: output.display.clone(),
+                    artifact: output.artifact.clone(),
                 });
                 task_results.insert(id.clone(), output);
             }
@@ -775,7 +776,7 @@ async fn run_subagent_calls(
                             );
                         }
                         let bound = std::time::Duration::from_secs(timeout_secs);
-                        let output = match tokio::time::timeout(
+                        let mut output = match tokio::time::timeout(
                             bound,
                             run_subagent(&client, &rt, &ctx, &call_id, &input, tx),
                         )
@@ -787,6 +788,7 @@ async fn run_subagent_calls(
                                 timeout_secs
                             )),
                         };
+                        materialize_tool_output(&mut output, &ctx, "task");
                         if let Some(results) = results {
                             results
                                 .lock()
@@ -804,6 +806,7 @@ async fn run_subagent_calls(
                                     "state": if output.is_error { "failed" } else { "done" },
                                     "ok": !output.is_error,
                                     "preview": preview(&output.content),
+                                    "artifact": output.artifact.clone(),
                                 }),
                             );
                         }
@@ -857,7 +860,8 @@ async fn run_subagent_calls(
                 loop {
                     tokio::select! {
                         next = jobs.next() => match next {
-                            Some((id, output)) => {
+                            Some((id, mut output)) => {
+                                materialize_tool_output(&mut output, ctx, "task");
                                 on_event(RunEvent::ToolEnd {
                                     id: id.clone(),
                                     name: "task".into(),
@@ -866,6 +870,7 @@ async fn run_subagent_calls(
                                     code: output.code.map(str::to_owned),
                                     preview: preview(&output.content),
                                     display: output.display.clone(),
+                                    artifact: output.artifact.clone(),
                                 });
                                 task_results.insert(id, output);
                             }
@@ -1061,6 +1066,7 @@ async fn execute_tool_calls(
                     code: output.code.map(str::to_owned),
                     preview: preview(&output.content),
                     display: None,
+                    artifact: None,
                 });
                 let model_content = output.model_content();
                 slots[index] = Some(Part::ToolResult {
@@ -1236,6 +1242,7 @@ async fn execute_tool_calls(
                     code: output.code.map(str::to_owned),
                     preview: preview(&output.content),
                     display: output.display.clone(),
+                    artifact: output.artifact.clone(),
                 });
                 let model_content = output.model_content();
                 results.push(Part::ToolResult {
@@ -1371,6 +1378,7 @@ async fn execute_tool_calls(
                         code: Some("USER_DECLINED".into()),
                         preview: "(user declined)".into(),
                         display: None,
+                        artifact: None,
                     });
                     append_declined_tool_results(&mut results, calls, call_index);
                     commit_tool_results(
@@ -1406,7 +1414,7 @@ async fn execute_tool_calls(
                             ),
                         );
                         tokio::pin!(exec);
-                        let output = loop {
+                        let mut output = loop {
                             tokio::select! {
                                 biased;
                                 Some((pid, chunk)) = progress_rx.recv() => {
@@ -1426,6 +1434,7 @@ async fn execute_tool_calls(
                         while let Ok((pid, chunk)) = progress_rx.try_recv() {
                             on_event(RunEvent::ToolProgress { id: pid, chunk });
                         }
+                        materialize_tool_output(&mut output, ctx, &name);
                         output
                     }
                 }
@@ -1438,6 +1447,7 @@ async fn execute_tool_calls(
                 code: output.code.map(str::to_owned),
                 preview: preview(&output.content),
                 display: output.display.clone(),
+                artifact: output.artifact.clone(),
             });
             let mut model_content = output.model_content();
             let (images, dropped_note) =

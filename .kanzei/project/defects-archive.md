@@ -5277,3 +5277,50 @@
 - observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
 - observed_worktree_hash: fnv1a64:907983d54aa63911
 - recorded_at: 1786934614027
+
+## D-433 R-280 加列未提 SCHEMA_VERSION，存量库装机即崩在 no such column: subagents_enabled [fixed] (high)
+- refs: R-280 D-373 D-297
+- 复杂度: 小
+- 复现: 用 build-ac637546 覆盖安装到已有 .kanzei/state.db(schema_version=16)的机器，启动后进程列表每次刷新报「读取进程注册失败: sqlite error: no such column: subagents_enabled」。新建库无此现象——新库走建表批，列是有的。
+- 影响: 桌面端进程列表完全不可用，自举循环拿不到进程注册；用户 2026-08-17 11:38 装机即撞。
+- 来源: 用户实测 build-ac637546 装机后报错。
+- 标签: 核心
+- 根因: R-280 把 subagents_enabled 加进 processes 建表批并补了幂等 ALTER，却没有 +1 SCHEMA_VERSION。migrate 在 version == SCHEMA_VERSION 时早退，存量库根本不执行 ALTER 批。D-373 立的判据只冻结**对象名集合**(SCHEMA_OBJECTS)，加列不改对象名，于是编译、clippy、全量测试、十步门禁全绿放行——与 D-297 同一条早退路径，只是粒度更细。
+- 证据等级: E3(用户真机装机复现 + 定向回归在缺列的存量库上复现并修复)
+- 验收: ①SCHEMA_VERSION 提到 17 且建表批里的硬编码字面量同步；②停在上一版、缺 subagents_enabled 的存量库 open 后把列补回来(回归 停在上一版的存量库open后补齐缺失的列)；③新增列级机械判据 SCHEMA_COLUMNS，加列不提版本号即红灯(回归 建表批新增列必须伴随schema版本提升)；④workspace 全量与十步门禁全绿后重新发版。
+- 优先级: P0
+- 批次: 1/1
+- 进展: 验收逐项对账：① SCHEMA_VERSION 已为 17，建表批硬编码 17 同步于 crates/kanzei-core/src/store/mod.rs:37-44；② crates/kanzei-core/src/store/schema.rs:260-266 的迁移批对停在上一版且缺 processes.subagents_enabled 的存量库执行 ALTER，回归覆盖于 schema.rs:532-558（先 DROP 列、版本回退、重新 open 后断言列恢复）；③ schema.rs:391-452 建立 SCHEMA_COLUMNS，schema.rs:500-527 的 schema_columns_change_requires_version_bump 机械测试在加列未升版本时失败；④提交 1f15d861 已通过 kanzei-core 定向/工作区全量与十步门禁记录，实际装机复验仍由发布流程执行，代码与自动化验收已完整。
+- observed_head: 1f15d861bcc424120b131c498f84afe5898a3786
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786938797199
+
+## D-428 D-428 归档 fixed 的 D-409 提交不在当前 dev，记忆 inbox 分批修复未接入 [fixed] (high)
+- 复现: 修复前复现：当前 dev 的 crates/kanzei-app/src/memory.rs:311-374 与 crates/kanzei/src/cli/memory.rs:29-75 调用 read_inbox/整箱 consolidation，且 run 结果被忽略；全仓无 read_inbox_batch 符号。修复后共享实现位于 crates/kanzei-memory/src/memory/inbox.rs:18-122 与 crates/kanzei-tools/src/memory_consolidation.rs:1-301，调用方已迁移。
+- 影响: requirements、defects、tests 与实现互相矛盾；系统仍可能无法按批消化 inbox，R-286 的 P0 事实恢复被错误 fixed 状态掩盖。
+- 期望: 在当前 dev 原子接入分批读取、checkpoint、错误可见和 CLI/桌面共用服务；重新跑定向测试并把 D-409/R-286/tests/实现证据绑定到当前 dev 提交。
+- 来源: self-found：R-283 Wave 0 事实复核
+- 标签: 核心
+- 根因: D-409 的修复提交来自另一条线/历史观察点，归档状态先于实现进入当前 dev，缺少当前分支提交存在性门禁。
+- refs: D-409 R-286 R-283
+- 优先级: P0
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-428
+- 批次: 3/3
+- 进展: 验收逐项对账：①分批读取已在 crates/kanzei-memory/src/memory/inbox.rs:18-105 实现 read_inbox_batch，按 note 块受条数/字节/token 三重预算，checkpoint 在 inbox.rs:27-37、111-123；②错误可见与 checkpoint 收尾在 crates/kanzei-tools/src/memory_consolidation.rs:90-271，失败/无进展写入 stopped_reason 与 batch error，不再静默丢弃；③共享服务真实调用方为 crates/kanzei-app/src/memory.rs:300-307 与 crates/kanzei/src/cli/memory.rs:15-33，均转发到 kanzei-tools::memory_consolidation::consolidate_memory_for_project；④当前 dev 的提交 ed305ae8 已包含实现与两侧调用方，git log 可复核，D-409 归档修复与 tracker/tests/实现对账完成。残余的 R-286 生命周期/遥测/端到端 UI 验收是后续需求，不属于本缺陷修复范围。
+- observed_head: 1f15d861bcc424120b131c498f84afe5898a3786
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786938808857
+
+## D-434 停车没有一等机制，只能写进「阻塞」字段，下一轮复核就被当失效自阻塞清掉 [fixed] (high)
+- refs: D-354 D-242 R-247
+- 复杂度: 小
+- 复现: 单 WIP 槽满时想让出一条，引擎只认「阻塞」字段判非可执行(work.rs 无 parked 概念，docstore 状态枚举只有 todo/doing/done/dropped)，于是停车只能伪装成阻塞；下一轮复核阻塞时看到「解除人是 agent 自己」判为失效自阻塞清掉，多个条目同时转为可执行，work next 返回 wip_violation 拒绝取活。2026-08-17 实测：R-221/R-216/R-281/D-349 四个可执行 WIP，取活停摆。
+- 影响: 单 WIP 纪律与阻塞复核纪律互相拆台，自举循环在「清阻塞 → 撞 wip_violation → 再补阻塞」之间来回，无法稳定取活。
+- 来源: 用户 2026-08-17「还是卡住，说 wip 被占用了」→「parked 修复呢」。
+- 标签: 核心
+- 根因: 「不可执行」被压成单一维度。阻塞(等外部前提，复核前提是否仍成立)与停车(主动让出单槽，需显式恢复)处置方式相反，却共用一个字段，谁复核谁清错。
+- 证据等级: E3(真实 tracker 上复现 wip_violation，修复后 kz work next 由 wip_violation 变 resume)
+- 验收: ①新增「停车」字段，被引擎识别为不可执行且不占 WIP 槽；②停车条目落在 parked_items 而非 blocked_items；③全员不可执行时裁决理由把停车与阻塞分开陈述并点名停车条目；④kanzei-memory 的 workable_titles 同步不把停车条目当可干的活；⑤dev system prompt 教「停车写 停车: 不写 阻塞:」「复核阻塞时不要动停车」，并有守护测试；⑥R-221/R-216/R-281 由 阻塞 迁到 停车 后 work next 仍 resume 到 D-349。
+- 优先级: P0
+- 批次: 1/1
+- 进展: 已修复并逐条对账(提交 851ca72c)。①「停车」字段被引擎识别为不可执行且不占槽:crates/kanzei-tools/src/tracker/scheduling.rs:439 is_park_key、:363 停车理由入 block_reasons;回归 crates/kanzei-tools/src/work.rs:1339 parked_wip_does_not_consume_the_single_slot 断言同队列另一条 WIP 仍 Resume。②停车落 parked_items 而非 blocked_items:work.rs:59 WorkItem.parked、:128 ResolvedControlState.parked_items、:680 路由(停车判定先于阻塞);同回归断言 blocked_items 为空。③全员不可执行时理由分开陈述并点名:work.rs:770-790 两个分支;回归 work.rs:1372 parked_and_blocked_are_reported_separately 断言 reason 含「停车」与条目号。④workable_titles 同步:crates/kanzei-memory/src/scheduling.rs:253 is_park_key、:225 入 block_reasons。⑤提示词真源:crates/kanzei-tools/src/profiles.rs:432「write a `停车:` field」「must never be written into `阻塞:`」、:436「leave `停车:` alone」,并进 D-242 守护测试 dev_system_prompt_enforces_wip_and_batch_contract 的必含清单。⑥R-221/R-216/R-281 已由 阻塞 迁到 停车:.kanzei/project/requirements.md:97、:115、:295(提交 851ca72c);源码构建的 kz(cargo run -p kanzei --bin kz -- work next)实测只剩 D-434 与 D-349 两个可执行 WIP,三条停车条目已被排除。注意:已安装的 kz(build-1f15d861)不含本修复,仍把「停车」当未知字段而报 5 个 WIP——需装上含 851ca72c 的新包才生效。验证:cargo fmt --all -- --check、cargo clippy --workspace -- -D warnings、cargo test --workspace 全绿(kanzei-tools 320 → 322)。

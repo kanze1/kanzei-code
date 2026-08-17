@@ -354,6 +354,7 @@ mod assembly_tests {
             outcome: None,
             code: None,
             preview: None,
+            artifact: None,
             display: None,
             input: None,
             usage: None,
