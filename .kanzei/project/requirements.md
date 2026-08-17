@@ -233,7 +233,7 @@
 
 ## R-276 research 模式前端:双面板/计划审批/来源呈现 [doing]
 - refs: R-221 R-267 R-273 R-274 R-283 R-284 D-412 D-413 docs/design/research_workspace.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
-- 依赖: R-221
+- 依赖: R-221 R-277
 - 内容: 按 docs/design/research_workspace.md(2026-08-16 用户首轮实测反馈驱动的设计稿)实施研究工作台六批:批1 设计稿过审;批2 交互修复(去 kind gating,source/finding 与 req/defect 同权:可开/可编/可删/不截断,即 D-413);批3 双面板工作台+报告 tab(内联 [S-00x] 与 file:line 可跳、V 等级徽章与过滤);批4 来源/发现卡片化+筛选+反查+复制引用(BibTeX);批5 全文通道(read 支持 PDF、arXiv 正文通道、来源卡标注摘要级/正文级并与 V 表联动);批6 计划树面板(依赖 R-277)。设计原则取自 prior_art §1 前端横评:结果>过程、溯源三处冗余、计划先行可编辑、数据已结构化的 UI 不许降级成字符串。建议顺序:批2 与批5 先行(不依赖引擎,正是用户点名痛点)。
 - 复杂度: 大
 - 批次: 5/6
@@ -242,10 +242,10 @@
 - 边界: 不做协作/分享/导出站外;不做在线 LaTeX 编辑器(Monaco 已有);research 下连跑禁用沿用 interaction_modes 既有定调;长报告渲染沿用 R-267 窗口化模式,不另造。
 - 验收: ①批1 设计稿经用户过审(含四组件权重取舍的明确理由);②计划编辑→运行→中途转向全链路可操作有轨迹;③引用点击回源双形态各实测(URL 与 file:line);④长报告与长活动流滚动不卡(窗口化生效);⑤与桌面既有 UI 风格与 i18n 纪律一致。
 - 优先级: P2
-- 进展: 批5已落地并提交：4fe14544 `R-276 B5 PDF 与 arXiv 正文证据通道`。实现文件：crates/kanzei-tools/src/read.rs、lib.rs、webfetch.rs；crates/kanzei-app/src/docs.rs、src/main.rs；ui/11-docs-list.js、19-research.js、02-i18n.js、style.css；scripts/ui-runtime-smoke.mjs。新增 PDF magic → pdftotext 文本通道（保留 offset/limit 与缺失工具诊断）；新增 arXiv HTML→ar5iv→PDF fallback，正文落入 `.kanzei/research/<topic>/fulltext/`，返回正文级 depth/source_url/path/fallback；研究来源卡展示证据深度，arXiv 研究入口携带 topic 调用专用 IPC，非研究侧栏继续使用 webfetch_preview。D-452/D-453/D-454 已 fixed。T-1786922726129 PDF 定向测试、T-1786922726130 arXiv URL 测试、T-1786922726131 arXiv/PDF runtime smoke、T-1786922726132/T-1786922726136 六条前端冒烟、T-1786922726133 kanzei-tools 329 passed、T-1786922726134 kanzei-app 202 passed、T-1786922726135 evidence depth runtime smoke、T-1786922726137 当前暂存 kanzei-tools 329 passed/1 ignored、T-1786922726138 当前暂存 kanzei-app 202 passed。实际 ui_dom 探针命中旧版不可见 #view-research、无新 `.research-card`，ui_console 无错误，判定当前窗口未刷新本批静态资源；不将该探针冒充新构建渲染证据。下一步：批6处理计划树面板（依赖 R-277）。
+- 进展: 批5已提交（4fe14544，追踪锚点 1b526646）。批6计划树面板依赖未完成的 R-277；已按真实依赖补入依赖字段，等待引擎裁决上游可执行项。
 - observed_head: 4fe14544f11249ac984ca468bde7de2417a932a3
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786962340634
+- recorded_at: 1786962391685
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-276
 
