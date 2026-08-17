@@ -262,10 +262,10 @@
 - 优先级: P1
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-277
-- 进展: 批1已落地：`crates/kanzei-tools/src/research_plan.rs` 提供 ResearchPlan/PlanNode/PlanBudget schema、节点 ID/依赖/topic/预算校验、`.kanzei/research/<topic>/plan.json` 原子持久化；research_plan 工具支持 get/create/clarify/request_approval，存在待澄清问题时机械阻止审批请求，agent 不提供 approve 动作。`crates/kanzei-tools/src/lib.rs` 导出模块；`profiles.rs` ResearchProfile 注册真实工具、放行四类权限，并在 research agent prompt 强制先计划→澄清→请求用户审批。T-1786922726139：kanzei-tools 331 passed、1 ignored；覆盖 research_plan 两项单测、profile 工具注册/权限/提示词及全量回归。D-455/D-456/D-457 已 fixed。下一步：补 R-276 消费的审批 IPC/计划树读取契约，继续批2检索环。
-- observed_head: 4fe14544f11249ac984ca468bde7de2417a932a3
-- observed_worktree_hash: fnv1a64:06d3075b37408621
-- recorded_at: 1786962981005
+- 进展: 批1已落地并提交：49c9af33 `R-277 B1 研究计划树与澄清闸门`。`crates/kanzei-tools/src/research_plan.rs` 提供 ResearchPlan/PlanNode/PlanBudget schema、节点 ID/依赖/topic/预算校验、`.kanzei/research/<topic>/plan.json` 原子持久化；research_plan 工具支持 get/create/clarify/request_approval，待澄清问题会机械阻止审批请求，agent 无 approve 动作。`lib.rs` 导出模块；`profiles.rs` 注册真实工具、放行四类权限，并强制 research agent 先计划→澄清→请求用户审批。T-1786922726139 全量 suite 331 passed/1 ignored；T-1786922726140 当前暂存源码重跑 331 passed/1 ignored 且 fingerprint 匹配。D-455/D-456/D-457 已 fixed。下一步：补 R-276 消费的审批 IPC/计划树读取契约，再进入批2检索环。
+- observed_head: 49c9af334fe0dd13054293b2f8b990831431e214
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786963078330
 
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1
