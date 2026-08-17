@@ -6950,6 +6950,44 @@ const docsB = {
   await flush();
 }
 
+// ---------- D-435:询问弹窗可暂时收起并恢复上下文 ----------
+{
+  const overlay = byId.get("ask-overlay");
+  const reopen = byId.get("ask-reopen");
+  const askHandler = handlers.get("kz:ask");
+  const answerCalls = () => invokeArgs.filter(({ cmd }) => cmd === "answer_ask");
+  vm.runInContext('activeSessionId = "sess-smoke"', sandbox);
+  askHandler?.({
+    payload: {
+      id: 700, sessionId: "sess-smoke", kind: "question",
+      question: "上下文问题", options: ["保留上下文"], default: "", multiple: true,
+    },
+  });
+  await flush();
+  const option = byId.get("ask-options").querySelector(".ask-option");
+  byId.get("ask-answer").value = "补充回答";
+  byId.get("ask-answer").dispatchEvent({ type: "input" });
+  option.click();
+  const beforeCollapse = answerCalls().length;
+  byId.get("ask-collapse").click();
+  await flush();
+  assert(overlay.classList.contains("hidden"), "D-435:收起后询问弹窗仍覆盖上下文");
+  assert(!reopen.classList.contains("hidden"), "D-435:收起后缺少重新打开入口");
+  assert(byId.get("ask-answer").value === "补充回答", "D-435:收起后已填写回答丢失");
+  assert(option.classList.contains("selected"), "D-435:收起后已选选项丢失");
+  assert(answerCalls().length === beforeCollapse, "D-435:收起操作不应提交回答");
+  reopen.click();
+  await flush();
+  assert(!overlay.classList.contains("hidden"), "D-435:点击重新打开后询问弹窗未恢复");
+  assert(byId.get("ask-question").textContent === "上下文问题", "D-435:重新打开后问题文本丢失");
+  assert(byId.get("ask-answer").value === "补充回答", "D-435:重新打开后回答内容丢失");
+  assert(byId.get("ask-options").querySelector(".ask-option").classList.contains("selected"), "D-435:重新打开后选项状态丢失");
+  byId.get("ask-submit").click();
+  await flush();
+  assert(answerCalls().at(-1)?.args?.reply === "保留上下文\n补充回答", `D-435:恢复后提交内容不对:${JSON.stringify(answerCalls().at(-1)?.args)}`);
+  assert(overlay.classList.contains("hidden"), "D-435:恢复后提交未关闭询问弹窗");
+}
+
 // ---------- D-337:ask 弹窗 question 档位的多选(声明多选时点选项不再立即提交) ----------
 // 老行为:question 的每个选项是"点击即提交"的按钮,问题文本写着「可多选」也选不了多个。
 // 新契约:multiple=true 或问题文本声明多选(兜底)时,选项变成可勾选,提交回答才汇总;

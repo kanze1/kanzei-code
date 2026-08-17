@@ -5934,3 +5934,46 @@
 - 关联: D-479 R-289
 - 收尾: 1786972726
 - 源码指纹: c7eece5dbdd637a6
+
+## T-1786922726186 开发通道 release.ps1 发版 [failed]
+- 命令: .\scripts\release.ps1
+- 时长: 103.0s
+- 摘要: cargo test --workspace 全部通过；CLI release 构建完成。桌面端 release 构建完成，但因 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe 正在运行，安装自动转为 kzapp.exe.pending，脚本按设计以退出码 1 提示关闭应用后下次启动接力。
+- 收尾: 1786981585
+
+## T-1786922726187 远端发版前 verify 全量门禁 [passed]
+- 命令: .\scripts\verify.ps1
+- 时长: 52.0s
+- 摘要: 绑定 HEAD d49b2b9281109bd3a81fc82a1459ca52e6e0ff35 的发布前全量证据通过：fmt、clippy、workspace tests（kanzei-tools 341 passed/1 ignored、kanzei-app 202 passed、kanzei-memory 143 passed）、UI syntax/runtime/lint/parallel-lines/a11y/i18n/markdown、crate_sync、ps1_bom 全部通过；verification.json 已写入 dist。
+- 收尾: 1786981868
+
+## T-1786922726188 远端 package.ps1 发布范围核对 [failed]
+- 命令: .\scripts\package.ps1 -Ack 20 -Publish
+- 时长: 1.2s
+- 摘要: 发布范围门禁按 build-e8aa005e..HEAD 实际识别 25 个提交，传入 Ack=20 被拒；未开始构建或创建 GitHub Release。已保留逐条提交清单，下一次按机械实际数 Ack=25 重跑。
+- 收尾: 1786981887
+
+## T-1786922726189 远端 GitHub Release build-d49b2b92 [passed]
+- 命令: .\scripts\package.ps1 -Ack 25 -Publish
+- 时长: 106.4s
+- 摘要: 远端发布成功：发布范围 build-e8aa005e..HEAD 实际 25 个提交且 Ack=25；验证证据绑定 HEAD d49b2b9281109bd3a81fc82a1459ca52e6e0ff35；Tauri/NSIS 构建成功，安装包 dist\kanzei-setup-d49b2b92.exe；GitHub Release build-d49b2b92 已创建。
+- 收尾: 1786982014
+
+## T-1786922726190 D-435 前端六条冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: D-435 前端六条门禁全部通过：runtime smoke（含收起/重开/回答内容保留断言）、ui-lint、parallel-lines、ui-a11y、ui-i18n、ui-markdown；新增 3 个全局符号后 ui-lint globals 已同步为 708 个。
+- 关联: D-435
+- 收尾: 1786983399
+
+## T-1786922726191 D-435 提交前前端六条冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 修正 ask/reopen 后再次全跑：runtime smoke 0 错误；ui-lint 708 globals；parallel-lines、a11y、i18n、markdown 全部通过。
+- 关联: D-435
+- 收尾: 1786983605
+
+## T-1786922726192 D-435 提交门禁 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 提交门禁要求的定向 app 回归通过：202 passed、0 failed、0 ignored；用于刷新当前暂存集源码指纹。
+- 关联: D-435
+- 收尾: 1786983695
+- 源码指纹: 5353203f2d50d798

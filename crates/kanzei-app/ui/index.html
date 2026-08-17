@@ -1041,7 +1041,10 @@
 
   <div id="ask-overlay" class="hidden" role="dialog" aria-modal="false" aria-labelledby="ask-title">
     <div id="ask-dialog">
-      <div class="ask-title" id="ask-title" data-i18n-key="权限请求">权限请求</div>
+      <div class="ask-head">
+        <div class="ask-title" id="ask-title" data-i18n-key="权限请求">权限请求</div>
+        <button id="ask-collapse" class="icon-btn" type="button" title="暂时收起" data-i18n-title="暂时收起" aria-label="暂时收起" data-i18n-aria-label="暂时收起">−</button>
+      </div>
       <div id="ask-queue-status" class="ask-queue-status"></div>
       <div id="ask-queue-preview" class="ask-queue-preview hidden" data-i18n-raw></div>
       <div class="ask-body">
@@ -1067,6 +1070,7 @@
       </div>
     </div>
   </div>
+  <button id="ask-reopen" class="ask-reopen hidden" type="button" title="重新打开询问" data-i18n-title="重新打开询问" aria-label="重新打开询问" data-i18n-aria-label="重新打开询问" data-i18n-key="重新打开询问">重新打开询问</button>
 
   <div id="viewer-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
     <div id="viewer-dialog">

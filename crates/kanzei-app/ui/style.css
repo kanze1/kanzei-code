@@ -1056,6 +1056,15 @@ button:disabled { opacity: .45; cursor: default; }
   display: flex; align-items: flex-end; justify-content: flex-end;
   padding: 0 22px 18px; z-index: var(--z-overlay); pointer-events: none;
 }
+.ask-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ask-head .ask-title { margin-bottom: 14px; }
+#ask-reopen {
+  position: fixed; right: 22px; bottom: 18px; z-index: var(--z-overlay);
+  background: var(--panel2); border: 1px solid var(--accent); color: var(--fg-strong);
+  border-radius: 999px; padding: 7px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+}
+#ask-reopen:hover { background: var(--accent-soft); }
+#ask-reopen.hidden { display: none; }
 #ask-dialog {
   background: var(--panel2); border: 1px solid var(--accent); border-radius: 10px;
   padding: 16px 18px; min-width: 380px; max-width: 560px;

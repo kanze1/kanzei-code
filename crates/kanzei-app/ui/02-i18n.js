@@ -288,7 +288,7 @@ const I18N_EN = {
   "上下文压缩 · 点击查看纪要": "Context compaction · click to view summary", "上下文压缩纪要": "Context compaction summary",
   "对话小总结 · 点击查看": "Conversation summary · click to view", "展开或收起上下文压缩纪要": "Expand or collapse context compaction summary",
   "展开或收起对话总结": "Expand or collapse conversation summary",
-  "需要你的回答": "Your answer is needed", "权限请求": "Permission request",
+  "需要你的回答": "Your answer is needed", "权限请求": "Permission request", "暂时收起": "Minimize for now", "重新打开询问": "Reopen request",
   "当前请求": "Current request", "还有": "remaining", "条待处理": "pending requests",
   "当前无其他待处理请求": "No other pending requests",
   "运行事件": "run event", "当前对话": "Current chat", "暂无": "None",

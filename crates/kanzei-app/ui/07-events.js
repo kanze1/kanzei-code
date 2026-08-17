@@ -529,6 +529,7 @@ on("kz:done", async (e) => {
 // ---------- 权限弹窗 ----------
 const askQueues = new Map();
 let askActive = null;
+let askCollapsed = false;
 // D-337:多选档位下已勾选的选项(question 弹窗);非多选档位不消费。
 let askSelectedOptions = [];
 
@@ -712,7 +713,29 @@ function pumpAsk() {
     $("ask-remember").textContent = `${askActive.action} ${askActive.remember ?? askActive.resource}`;
     setTimeout(() => $("ask-allow").focus(), 0);
   }
+  askCollapsed = false;
   $("ask-overlay").classList.remove("hidden");
+  $("ask-reopen").classList.add("hidden");
+  updateAskQueueStatus();
+}
+
+function collapseAsk() {
+  if (!askActive) return;
+  askCollapsed = true;
+  $("ask-overlay").classList.add("hidden");
+  $("ask-reopen").classList.remove("hidden");
+  updateAskQueueStatus();
+}
+
+function reopenAsk() {
+  if (!askActive) {
+    $("ask-reopen").classList.add("hidden");
+    pumpAsk();
+    return;
+  }
+  askCollapsed = false;
+  $("ask-overlay").classList.remove("hidden");
+  $("ask-reopen").classList.add("hidden");
   updateAskQueueStatus();
 }
 
@@ -723,7 +746,9 @@ function hideAsk(preserveActive = false) {
     askQueueFor(activeSessionId).length = 0;
   }
   askActive = null;
+  askCollapsed = false;
   $("ask-overlay").classList.add("hidden");
+  $("ask-reopen").classList.add("hidden");
   updateAskQueueStatus();
 }
 async function answerAsk(reply) {
@@ -732,7 +757,9 @@ async function answerAsk(reply) {
   const question = askActive.kind === "question";
   const summary = question ? askActive.question : `${askActive.action}: ${askActive.resource}`;
   askActive = null;
+  askCollapsed = false;
   $("ask-overlay").classList.add("hidden");
+  $("ask-reopen").classList.add("hidden");
   updateAskQueueStatus();
   const replyLabel = reply === "deny" ? t("拒绝") : reply === "always" ? t("总是允许") : reply;
   log(`${question ? t("回答") : t("权限")} ${replyLabel} — ${summary}`);
@@ -744,6 +771,8 @@ async function answerAsk(reply) {
   pumpAsk();
 }
 
+$("ask-collapse").addEventListener("click", collapseAsk);
+$("ask-reopen").addEventListener("click", reopenAsk);
 $("ask-deny").addEventListener("click", () => answerAsk("deny"));
 $("ask-always").addEventListener("click", () => answerAsk("always"));
 $("ask-allow").addEventListener("click", () => answerAsk("once"));

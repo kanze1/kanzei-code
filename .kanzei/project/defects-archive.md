@@ -5875,3 +5875,17 @@
 - observed_head: 1a1592a3a18f017908982966821f3ed11836e319
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1786972791901
+
+## D-435 询问弹窗弹出位置偏移问题 [fixed] (medium)
+- 原始描述: 询问弹窗弹出的位置不对。
+- 复现: 在真实对话中触发需要向用户提问的交互，询问弹窗当前会居中覆盖对话上下文。用户需要先暂时收起弹窗查看上下文，再重新打开继续回答。
+- 标签: 前端
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-435
+- 停车: 
+- 进展: 已完成并准备提交。逐项对照验收：①“询问弹窗默认居中”——`crates/kanzei-app/ui/style.css:1054-1074` 保持 fixed 弹窗布局，并由 `07-events.js:657-721` 在新询问进入时显示；②“提供明确暂时收起/折叠操作，收起后可阅读上下文”——`index.html:1044-1047,1072` 新增 `ask-collapse` 与独立 `ask-reopen`，`07-events.js:719-747` 的 `collapseAsk` 只隐藏弹窗、不清除 `askActive`，重开入口不遮挡底层对话；③“再次打开保留原问题、选项和已填写内容”——收起不重建 DOM，`askActive`、`askSelectedOptions` 和 `ask-answer.value` 原样保留，`scripts/ui-runtime-smoke.mjs` D-435 专项断言覆盖问题文本、选中选项、输入内容和最终 reply；④“核心交互可用”——T-1786922726190 六条前端门禁通过，专项 runtime smoke 0 运行时错误，CSS 结构检查通过。既有权限询问/取消/提交行为未改写，本次新增仅为询问状态的非破坏性收起与恢复。
+- observed_head: 1a1592a3a18f017908982966821f3ed11836e319
+- observed_worktree_hash: fnv1a64:3968be902e4bde56
+- recorded_at: 1786983501410
+- 期望: 询问弹窗默认居中；提供明确的暂时收起/折叠操作，收起后可阅读上下文；再次打开时保留原问题、选项和已填写内容，不丢失交互状态。
+- 阻塞: 
