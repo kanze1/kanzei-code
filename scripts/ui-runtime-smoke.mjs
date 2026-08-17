@@ -1672,6 +1672,13 @@ assert(
   // 说明条不能反过来被裁剪循环吃掉：再追加一批后它仍只有一条。
   for (let i = 0; i < 250; i++) vm.runInContext(`addMessage("notice", "裁剪压测二 ${i}")`, sandbox);
   const hints = pane.querySelectorAll(".pane-trimmed-hint").length;
+  // D-490:复制上下文不能把当前 pane 的裁剪提示静默丢掉。
+  byId.get("copy-context").click();
+  await flush();
+  assert(
+    copiedResearchCitation.includes("较早的") && copiedResearchCitation.includes("已移出视图以保持流畅"),
+    `长会话复制缺少明确裁剪标记: ${copiedResearchCitation.slice(0, 120)}`,
+  );
   assert(hints === 1, `裁剪说明条应始终只有一条，实际 ${hints}`);
   vm.runInContext("activePane = globalThis.__paneSave; delete globalThis.__paneSave;", sandbox);
 }

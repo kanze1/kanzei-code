@@ -6398,3 +6398,26 @@
 - 关联: D-489
 - 收尾: 1787001234
 - 源码指纹: 5d69f67ad7bcc7d1
+
+## T-1786922726251 D-490 长会话上下文复制完整前端回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/07-events.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 17.8s
+- 摘要: D-490 修复回归通过：copy-context 对 700 条实时消息剪裁后的 pane 导出包含“较早的…条已移出视图以保持流畅”明确标记；六条前端冒烟全部通过，0 运行时错误。
+- 关联: D-490
+- 收尾: 1787001403
+
+## T-1786922726252 D-490 提交前 kanzei-app 指纹门禁回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 15.1s
+- 摘要: 提交指纹门禁要求的当前定向回归：kanzei-app 202 passed，0 failed；D-490 六条前端冒烟与700条复制标记证据仍由 T-1786922726251 覆盖。
+- 关联: D-490
+- 收尾: 1787001493
+- 源码指纹: f621acf986da89aa
+
+## T-1786922726253 D-490 提交前 kanzei-app 指纹门禁回归（最终源码） [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 15.2s
+- 摘要: 提交指纹门禁要求的当前定向回归：kanzei-app 202 passed，0 failed；前端功能回归与700条复制标记仍由 T-1786922726251 覆盖。
+- 关联: D-490
+- 收尾: 1787001502
+- 源码指纹: f621acf986da89aa

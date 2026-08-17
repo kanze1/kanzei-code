@@ -6047,3 +6047,17 @@
 - observed_head: 7cbc06cbc9d1c58f3fb3be60e322f3c4a1eda740
 - observed_worktree_hash: fnv1a64:8ef646bfdb1d1194
 - recorded_at: 1787001153420
+
+## D-490 复制上下文只读活 DOM,长会话导出被 trim 静默截断 [fixed] (high)
+- 复现: crates/kanzei-app/ui/07-events.js:810-836 遍历 activePane.children;01-core.js:486-496 trimLivePane 超 600 条时从头部砍到 400 条;导出结果无任何截断标记(pane-trimmed-hint 不匹配任何分支被跳过)
+- 影响: 长会话导出静默丢前半段;该按钮用途正是贴给其他 AI,静默丢数据是最坏失败模式
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 前端
+- 验收: 导出改走完整会话数据源或带明确截断标记;长会话(大于600条)回归用例覆盖
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-490
+- 进展: 修复与验收已完成：①导出不再静默丢失：`crates/kanzei-app/ui/07-events.js:810-851` 的 `copy-context` 处理 `.pane-trimmed-hint` 与 `.earlier-hint`，将当前可见窗口不完整状态写入 markdown 的 `> ⚠ ...` 警告段；既有用户、助手、思考、工具和错误导出分支保持不变。②长会话（大于600条）回归：`scripts/ui-runtime-smoke.mjs:1664-1684` 追加700条实时消息触发剪裁，断言 `droppedLive`、`.pane-trimmed-hint` 以及复制结果同时包含“较早的…条已移出视图以保持流畅”明确标记。③验证证据：T-1786922726251 的 node --check、runtime、lint、parallel-lines、a11y、i18n、markdown 六条前端冒烟全部通过；当前页面 `#copy-context` DOM 可见且 ui_console 无错误。
+- observed_head: 43cf6ff5dda2d36628714621d6bad2350b95a5f8
+- observed_worktree_hash: fnv1a64:81248bfd8fb7cb4b
+- recorded_at: 1787001423231
+- refs: D-490

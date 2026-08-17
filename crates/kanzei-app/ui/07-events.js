@@ -828,6 +828,10 @@ $("copy-context").addEventListener("click", async () => {
       if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
     } else if (el.classList.contains("turn-divider")) {
       parts.push(`---\n${el.textContent}`);
+    } else if (el.classList.contains("pane-trimmed-hint") || el.classList.contains("earlier-hint")) {
+      // activePane 可能只是当前可见窗口:剪裁/尚未补齐都不能在导出时静默丢失。
+      const hint = el.textContent?.trim();
+      if (hint) parts.push(`> ⚠ ${hint}`);
     } else if (el.classList.contains("msg")) {
       // 其余消息形态(error 等)不再被静默跳过:主对话缺失错误上下文,导出就失真。
       const text = el.textContent?.trim();

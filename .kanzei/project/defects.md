@@ -15,14 +15,6 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-490 复制上下文只读活 DOM,长会话导出被 trim 静默截断 [open] (high)
-- 复现: crates/kanzei-app/ui/07-events.js:810-836 遍历 activePane.children;01-core.js:486-496 trimLivePane 超 600 条时从头部砍到 400 条;导出结果无任何截断标记(pane-trimmed-hint 不匹配任何分支被跳过)
-- 影响: 长会话导出静默丢前半段;该按钮用途正是贴给其他 AI,静默丢数据是最坏失败模式
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 前端
-- 验收: 导出改走完整会话数据源或带明确截断标记;长会话(大于600条)回归用例覆盖
-- 优先级: P1
-
 ## D-491 轮次与当前工具 live-* 显示整体失效:目标 DOM 已删除,写入函数全部空转 [open] (medium)
 - 复现: crates/kanzei-app/ui/06-activity.js:880-911 liveSet/liveIdle/liveTurn 写 #live-turn/#live-action/#live-note/#live-focus,index.html 只剩 live-section/live-status 两个 id;调用点 07-events.js:28/186/427 全部静默 no-op;scripts/ui-i18n-smoke.mjs:31 白名单仍留 live-turn 后门
 - 影响: 第N/M轮与当前工具实时显示功能整体不存在,冒烟不报;07-events.js:21 注释承诺已失真
