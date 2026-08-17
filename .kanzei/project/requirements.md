@@ -260,13 +260,17 @@
 - 验收: ①Android 真机可访问并完成鉴权；②收到真实运行成功/失败通知；③从手机发送消息后服务端产生可追溯事件；④保存截图、端口/设备与 session 证据；⑤失败时明确网络、权限或设备边界。
 - 优先级: P3
 
-## R-289 R-221 B4/B5 研究回流与记忆晋升运行时验收 [todo]
+## R-289 R-221 B4/B5 研究回流与记忆晋升运行时验收 [doing]
 - 回流: [todo]
 - 回流标记: [todo] 研究草稿，待 dev 审阅，不代表已实施或已验证。
 - 复杂度: 小
-- 来源: 本次 research：F-001（B4 回流通道，代码域 V1）与 F-002（B5 记忆一元化，代码域 V1）；来源 S-001/S-002/S-003，报告 .kanzei/research/r221-chain/report.md。
+- 来源: 本次 dev 验收：基于研究草稿与用户要求，非实施草稿的自动采纳。
 - 标签: 流程
-- 进展: [todo] 已由研究登记待审草稿；本次不进入开发实施。
+- 进展: 根因证据补齐：隔离项目 `.kanzei/.write-log` 记录 manager 真实写入 `M-001`、`INDEX.md`、`index.db`，所以不是 manager 未启动；它只执行了 `memory_add(candidate)`，未继续 `memory_promote` 或 `memory_inbox_discard`。第二次真实 follow-up 仍失败并登记 T-1786922726178（inbox 2→2、success_notes=0）。确定性回归 T-1786922726177 仍全绿，但不能替代真实 manager 编排；D-479 已登记为该缺口。R-289 保持 doing，V1 不升级、不得关闭。
 - 验收: dev 审阅并确认 research profile 的 source/finding→req/defect 草稿回流链路；确认既有 R-/D- 条目仍不可由 research 修改；另行运行时验证 memory_note→manager 晋升→memory_search 回读后再提升证据等级。
 - refs: F-001 F-002
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-289
+- observed_head: b89664d01d6b8e7e6064b76a3b1a945ca989fc3e
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1786971814131

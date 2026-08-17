@@ -5862,3 +5862,24 @@
 - 关联: R-276 D-477 D-478
 - 收尾: 1786971225
 - 源码指纹: ace5e0fa9df5212b
+
+## T-1786922726176 R-289 真实 memory_note→manager 首次运行（失败） [failed]
+- 命令: $env:KANZEI_PROFILE = 'research'; $env:KANZEI_AGENT = 'research'; $env:KANZEI_MODEL = 'primary'; cargo run -p kanzei -- run --new --project-root (Get-Location).Path --prompt-file '.kanzei/research/r289-runtime/memory_prompt.txt'
+- 时长: 8.7s
+- 摘要: 真实 research CLI 调用了 memory_note 并返回 pending notes=7，但轮末 manager batch failed 且 inbox 7→7 未晋升；shell 进程触碰托管 .kanzei/memory 文件后由 managed-files 回滚，不能作为成功 V2 证据。
+- 关联: R-289
+- 收尾: 1786971451
+
+## T-1786922726177 R-289 memory 与 research 回流定向运行时回归 [passed]
+- 命令: cargo test -p kanzei-memory; cargo test -p kanzei-tools tracker::tests::research_tracker_add_marks_todo_and_rejects_update; cargo test -p kanzei-tools profiles::tests::research_context_injects_backlog_conventions_and_restricted_tracker_tools
+- 时长: 1.8s
+- 摘要: 运行时定向回归：kanzei-memory 143 passed/0 failed/1 ignored，覆盖 memory_note、manager 工具、provenance promote、candidate reconcile、memory_search；research tracker `[todo]` 回流并拒绝 update 1 passed；research context/backlog/restricted tracker 权限 1 passed。
+- 关联: R-289
+- 收尾: 1786971701
+
+## T-1786922726178 R-289 隔离 manager follow-up 晋升回归（失败） [failed]
+- 命令: cargo run -p kanzei -- run --new --project-root C:\Users\kanzei\AppData\Local\Temp\kz-r289-isolated-61d6be94d8404d59bef4a35581781bec --prompt-file C:\Users\kanzei\Documents\kanzei code\.kanzei\research\r289-runtime\memory_prompt-isolated-followup.txt
+- 时长: 15.0s
+- 摘要: 隔离项目第二次真实运行：memory_note 成功追加，manager 仍报告 inbox 2→2、success_notes=0；write-log 可核验 manager 仅写入已有 candidate/索引，没有执行 promote 或 inbox_discard。
+- 关联: R-289 D-479
+- 收尾: 1786971803
