@@ -233,7 +233,9 @@ function abortAutoContinue(reason, sessionId = activeSessionId) {
 // 续跑定时器:闸门在**触发时刻**复查(2 秒内用户可能暂停/切模式/新一轮已开跑)。
 // generation 不符属于「被更新的一枪取代」,静默是对的——但那条路径的 pending
 // 由取消方自己收口,不在这里处理。
-function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0, delayMs = 2000) {
+// retryLabel:这一枪是 D-403 的失败退避重试(带展示文案),不是正常续跑。标记必须
+// 跟着**定时器条目**走,因为终态错误处理器要据此放它一条生路(见 07-events.js kz:error)。
+function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0, delayMs = 2000, retryLabel = null) {
   if (!sessionId) return;
   if (autoContinueInFlight.has(sessionId)) return;
   // R-199:档位条件下沉引擎——armAutoContinue 不再检查 autoContinueAllowed(),
@@ -254,7 +256,7 @@ function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0, delayM
     const item = processItems.find((candidate) => candidate.session_id === sessionId);
     if (item && processRunning(item)) {
       if (waited < AUTO_CONTINUE_RUNNING_GRACE) {
-        armAutoContinue(prompt, sessionId, waited + 1);
+        armAutoContinue(prompt, sessionId, waited + 1, 2000, retryLabel);
         return;
       }
       if (item.running) {
@@ -273,7 +275,7 @@ function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0, delayM
     if (sessionId === activeSessionId) clearRunPending();
     await sendAutoToSession(prompt, sessionId);
   }, delayMs);
-  autoContinueTimers.set(sessionId, { timer, generation });
+  autoContinueTimers.set(sessionId, { timer, generation, retryLabel });
 }
 function scheduleAutoContinue() {
   armAutoContinue(continuePrompt());

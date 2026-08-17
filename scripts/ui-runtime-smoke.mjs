@@ -1355,7 +1355,7 @@ vm.runInContext("confirmDialog = () => true", sandbox);
 // 不拼进任何脚本文件——拆分后它属于冒烟注入层,不属于生产代码。
 try {
   vm.runInContext(
-    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, timerSessions: () => [...autoContinueTimers.keys()], setAutoState: (id, value) => processAutoState.set(id, value), getAutoState: (id) => processAutoState.get(id), setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, paused: () => autoPaused, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; }, cancelTimers: () => { for (const s of [...autoContinueTimers.keys()]) cancelAutoContinueTimer(s); } };",
+    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, timerSessions: () => [...autoContinueTimers.keys()], retryLabel: (id) => autoContinueTimers.get(id)?.retryLabel ?? null,setAutoState: (id, value) => processAutoState.set(id, value), getAutoState: (id) => processAutoState.get(id), setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, paused: () => autoPaused, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; }, cancelTimers: () => { for (const s of [...autoContinueTimers.keys()]) cancelAutoContinueTimer(s); } };",
     sandbox,
     { filename: "__kzTest-hook.js" }
   );
@@ -4647,6 +4647,31 @@ handlers.get("kz:auto-fail")?.({ payload: { error: "provider returned HTTP 503: 
 await flush();
 assert(byId.get("auto-status").textContent.includes("失败重试"), `#auto-status 未提示失败重试: ${byId.get("auto-status")?.textContent}`);
 assert(byId.get("auto-status").textContent.includes("1/3"), `失败重试应显示 attempt/maxAttempts: ${byId.get("auto-status")?.textContent}`);
+// ⑤c 退避重试必须活过随后那条 terminal 错误。真机时序:同一次失败里后端先发
+// kz:auto-fail(排上退避重试)、紧接着 run_task 的 Err 分支发 kz:error(terminal)。
+// 这里按真机顺序连发两条且**中间不排空定时器**(flush 会把 15s 那一枪直接跑掉,
+// 掩盖问题)。旧实现在 kz:error 终态分支无条件 cancelAutoContinueTimer,刚排的重试
+// 当场被自己人掐掉:界面停在「失败重试 1/3 · 15s」,那一轮永不到来——用户
+// 2026-08-17 报告「中间断了一下网,鞭挞没自动重试,手动发继续才恢复」。
+handlers.get("kz:auto-fail")?.({ payload: { error: "transport error: connection reset", autoAction: { type: "RetryAfterFailure", attempt: 1, maxAttempts: 3, delayMs: 15000, rounds: 3, max: 10 }, sessionId: "sess-smoke" } });
+handlers.get("kz:error")?.({ payload: { message: "transport error: connection reset", terminal: true, sessionId: "sess-smoke" } });
+assert(
+  sandbox.__kzTest.timerSessions().includes("sess-smoke"),
+  "终态错误掐掉了刚排上的失败退避重试:鞭挞停在「失败重试 1/3」再也不动(断网一次就此停摆,只能手动发继续)",
+);
+assert(
+  sandbox.__kzTest.retryLabel("sess-smoke")?.includes("失败重试"),
+  `退避重试的定时器必须带重试标记(终态错误靠它认出这一枪不能掐),实得 ${JSON.stringify(sandbox.__kzTest.retryLabel("sess-smoke"))}`,
+);
+assert(
+  sandbox.sessionState("sess-smoke").phase === "auto_pending",
+  `重试在途时相位不得覆成 failed(侧栏与横幅会说「出错」而其实下一轮在等着发),实得 ${sandbox.sessionState("sess-smoke").phase}`,
+);
+assert(
+  byId.get("stop").textContent.includes("鞭挞"),
+  `退避重试等待期间停止按钮应仍是「停止鞭挞」(用户要能刹住这一枪),实得 ${byId.get("stop").textContent}`,
+);
+await flush();
 handlers.get("kz:auto-fail")?.({ payload: { error: "provider returned HTTP 503", autoAction: { type: "Stop", reason: "RepeatedFailure", max: 3 }, sessionId: "sess-smoke" } });
 await flush();
 assert(sandbox.__kzTest.rounds() === 0, "连续失败停摆后推进计数应清零");

@@ -284,18 +284,31 @@ on("kz:error", (e) => {
   // 后端明确携带 terminal=true，并随后发 kz:idle 收口。
   if (terminal) {
     window.neuralFlowEmit?.("run_failed", { session_id: payload.sessionId, message });
-    releaseAutoContinue(payload.sessionId || activeSessionId);
+    const failedSession = payload.sessionId || activeSessionId;
+    releaseAutoContinue(failedSession);
     // D-291:取消续跑定时器只属于终态分支。原来它在函数开头无条件执行,一条
     // terminal=false 的告警(比如持久化警告)就能掐掉已排好的下一轮,而 auto_pending
     // 仍是 true——界面从此停在「等待下一轮」,不报错也不再动。
-    cancelAutoContinueTimer(payload.sessionId || activeSessionId);
+    //
+    // 但 D-403 的失败退避重试是**终态错误自己排的**那一枪:同一次失败,后端先发
+    // kz:auto-fail(RetryAfterFailure) 让前端按 delayMs 排上重试,紧接着 run_task 的
+    // Err 分支发这条 terminal 错误。无条件取消等于自己掐掉刚排的重试——界面停在
+    // 「失败重试 1/3 · 15s」,那一轮永不到来(用户 2026-08-17 报告:中途断一下网,
+    // 鞭挞不再自动重试,手动发一句「继续」才恢复)。带 retryLabel 的定时器只报错、
+    // 不取消,并把等待横幅按重试文案重挂(下面的 setRunning 会清掉 runControlPending);
+    // 用户主动停止/关鞭挞/切线路走的是各自的取消路径,不受此例外影响。
+    const retryLabel = autoContinueTimers.get(failedSession)?.retryLabel ?? null;
+    if (!retryLabel) cancelAutoContinueTimer(failedSession);
     stopElapsed();
-    if (activeSessionId) {
+    if (activeSessionId && !retryLabel) {
       // R-206:状态写入唯一入口 transitionSession,不再手工复刻 6 布尔标志。
       // terminal_status 由 transitionSession failed 分支折算为「出错」。
+      // 重试在途时不改写相位:kz:auto-fail 已把它投影成 auto_pending(带轮次),
+      // 覆成 failed 会让侧栏与横幅都说「出错」,而其实下一轮正在等着发。
       transitionSession(activeSessionId, "failed");
     }
     setRunning(false, "出错");
+    if (retryLabel && (!payload.sessionId || payload.sessionId === activeSessionId)) setRunPending(retryLabel);
     bgAbortRunning(`(${localizeDynamic("出错中止")})`);
     liveIdle("出错");
     notifyRunState("failed", message);
@@ -367,7 +380,9 @@ on("kz:auto-fail", (e) => {
     renderAutoStatus(label);
     if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: autoRounds });
     if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(label);
-    armAutoContinue(continuePrompt(), p.sessionId, 0, action.delayMs ?? 15000);
+    // 第 5 个参数是重试标记:随后必然到来的 terminal kz:error 靠它认出「这一枪是
+    // 失败重试」而放行,不再把它当成残留定时器掐掉。
+    armAutoContinue(continuePrompt(), p.sessionId, 0, action.delayMs ?? 15000, label);
   } else if (action.type === "Stop") {
     if (p.sessionId) transitionSession(p.sessionId, "idle");
     if (!p.sessionId || p.sessionId === activeSessionId) clearRunPending();

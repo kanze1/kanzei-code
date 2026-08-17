@@ -145,9 +145,23 @@ function on(event, handler) {
       // 只有**会话级**终态才收敛:kz:done 是一轮的终点,kz:error 也可能只是本轮
       // 失败(后端随后仍会发 kz:idle),拿它们收敛会让排队输入的第二轮起全程显示空闲。
       const terminalError = event === "kz:error" && eventPayload.payload?.terminal !== false;
+      // D-403 的失败退避重试是这条终态错误**自己**排上的那一枪:同一次运行失败,后端先发
+      // kz:auto-fail(RetryAfterFailure,前端按 delayMs 排上重试),紧接着才发 kz:error
+      // (terminal)。路由层若照常收敛成 failed 并取消定时器,刚排的重试当场被自己人掐掉:
+      // 界面停在「失败重试 1/3 · 15s」,那一轮永不到来(用户 2026-08-17 报告:中途断一下网,
+      // 鞭挞不再自动重试,手动发一句「继续」才恢复)。有重试在途(定时器带 retryLabel)时
+      // 按 auto_pending 收敛并放过那个定时器——kz:stopped、关鞭挞、切线路各有自己的取消
+      // 路径,只有「失败自己排的重试」享受这条例外。
+      const retryPending = Boolean(sessionId && autoContinueTimers.get(sessionId)?.retryLabel);
       if (sessionId && (event === "kz:idle" || event === "kz:stopped" || terminalError)) {
         const targetPhase =
-          event === "kz:stopped" ? "stopped" : terminalError ? "failed" : sessionState(sessionId).auto_pending ? "auto_pending" : "idle";
+          event === "kz:stopped"
+            ? "stopped"
+            : terminalError && !retryPending
+              ? "failed"
+              : sessionState(sessionId).auto_pending || retryPending
+                ? "auto_pending"
+                : "idle";
         // R-206:状态写入唯一入口 transitionSession,不再手工复刻 6 布尔标志。
         // terminal_status 由 transitionSession 对 stopped/failed 分支折算,无需重复设置。
         transitionSession(sessionId, targetPhase, {
@@ -172,7 +186,10 @@ function on(event, handler) {
           handleBackgroundSessionDone(eventPayload.payload);
         }
         if (event === "kz:stopped" || terminalError) {
-          if (typeof cancelAutoContinueTimer === "function") cancelAutoContinueTimer(sessionId);
+          // 后台线路的终态错误同样不得掐掉在途的失败退避重试(上面 retryPending 同源):
+          // 后台线更没人看着,一次断网就永久停摆。in-flight 标记照旧释放——重试那一枪
+          // 到点后才发得出去。
+          if (!retryPending && typeof cancelAutoContinueTimer === "function") cancelAutoContinueTimer(sessionId);
           if (typeof releaseAutoContinue === "function") releaseAutoContinue(sessionId);
         }
         if (typeof refreshConversationLists === "function") void refreshConversationLists();
