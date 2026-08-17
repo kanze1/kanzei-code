@@ -6184,3 +6184,10 @@
 - 关联: R-242 D-486
 - 收尾: 1786997019
 - 源码指纹: a3f9cb2773c83c24
+
+## T-1786922726221 R-242 新构建真实 shadow 聚合诊断 [passed]
+- 命令: & '.\target\debug\kz.exe' shadow --project-root (Get-Location).Path --mismatches
+- 时长: 0.1s
+- 摘要: 新构建真实项目 shadow 诊断：共 275 turn，equal 128，预期差异 65，unknown 82，typed_write_errors 110；最新新增 turn 均 typed_write_errors=0，其中最新两轮为 failed_turn，未计入正常可比较窗口。历史 unknown 不重写。
+- 关联: R-242 D-486
+- 收尾: 1786997283

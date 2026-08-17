@@ -109,10 +109,10 @@
 - 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
-- 进展: 阻塞复核：R-241 已归档，原依赖已清除；原“阻塞”描述的是 agent 可处理的 shadow 写入/顺序修复与验证窗口，不属于外部阻塞，已移入本进展。当前已交付：五条事件投影读路径、独立 feature gate、强杀/孤立 tool/reset 语义和未知差异侧证据；未完成验收⑤写错误侧真实库核验（需先修 typed_write_errors，再建立修复后至少30个真实 shadow turn 统计窗口），验收⑦依赖 R-243 的 compaction 事件化。下一步：先定位并修复 session fact invariant violation、unknown mismatch 与 typed_write_errors，随后用真实 shadow 运行建立可复核统计窗口；不把发版或旧构建写成用户阻塞。
-- observed_head: dcf6e11c4a0557ad9283234084a431bf61f3e083
+- 进展: 恢复复核与 D-486 修复已落地：R-242 B4/B5 的事件投影、terminal 预检和既有强杀/reset/gate 能力已由历史提交 `706321a6`、`d23a2405`、`94ebf689` 等交付；压缩后 legacy surface 被误计 unknown 的缺陷已登记 D-486，在 `crates/kanzei-core/src/store/typed.rs:1478-1489` 增加 `compacted_snapshot` 分类及 `typed.rs:2241-2251` 回归，提交 `7f77b8ff`，T-1786922726220（kanzei-core 222 passed）通过。新构建真实 CLI 已产生 4 个新增 shadow 事件，最新诊断 T-1786922726221：共275 turn、equal128、预期差异65、unknown82、typed_write_errors110；新增轮 typed_write_errors=0，但最新轮为 `failed_turn/process_restarted`，不能计入正常可比较窗口，历史 unknown 不重写。D-486 保持停车等待新的正常/压缩场景事件；R-242 尚缺验收⑤修复后至少30个真实 shadow turn（typed_write_errors=0、正常 turn equal=true、unknown=0）及验收⑦ R-243 compaction 事件化，下一步继续用重建后的 CLI 建立正常窗口后再对账。
+- observed_head: 7f77b8ffa4acd1556c893d05cdc61bd59a5773a5
 - observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1786996585239
+- recorded_at: 1786997292713
 - 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]
