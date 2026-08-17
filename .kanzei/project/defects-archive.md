@@ -5861,3 +5861,17 @@
 - observed_head: e08eb0a0b5b3fb0f3476df18e083ba4f0598e320
 - observed_worktree_hash: fnv1a64:a3778bc65fc6cdcc
 - recorded_at: 1786971014116
+
+## D-479 轮末 memory manager 产生 candidate 但未完成晋升与 inbox 销账 [fixed] (medium)
+- 复现: 在隔离项目执行真实 `cargo run -p kanzei -- run --new --project-root <isolated-project> --prompt-file <memory_note prompt>`；research agent 成功调用 memory_note，轮末 manager 写入 `M-001` candidate，但 `.kanzei/memory/inbox.checkpoint.json` 为 `status=failed`、`success_notes=0`、`pending_after=1`；再次 follow-up 后仍为 pending。当前项目首次运行还触发 managed-files 回滚，不能作为成功链路。
+- 影响: R-289 要求的 memory_note→manager 晋升→memory_search 回读无法以真实运行时证据闭环；candidate 未 active，inbox 未逐条销账，研究记忆不能确认进入可检索状态。
+- 来源: self-found：R-289 真实运行时验收；失败记录 T-1786922726176，确定性工具回归 T-1786922726177。
+- 标签: 核心
+- 验收: 真实 research/CLI 运行中，memory_note 投递的候选由轮末 manager 使用真实 episode provenance 晋升为 active，逐条销账 inbox，并由 memory_search 回读同一条目；不得用 candidate 文件或仅单测替代。
+- refs: R-289
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-479
+- 进展: 已修复并提交 `1a1592a3`。逐项对照验收：①“真实 research/CLI 运行中”——T-1786922726183 的可重放命令在同一隔离项目完成真实 `cargo run -p kanzei -- run --new` 链路；②“memory_note 投递的候选由轮末 manager 使用真实 episode provenance 晋升为 active”——manager prompt 强制真实 `episode_id` 下 `memory_add→memory_promote`，实现位置 `crates/kanzei-memory/src/memory/manager.rs:1151-1159`，隔离项目回读确认 `M-001` 为 active 且 `episode_id=1`；③“逐条销账 inbox”——`reconcile_active_notes` 在 `crates/kanzei-tools/src/memory_consolidation.rs:90-135`，调用位置 `:271-276`，仅对本批次 changed、source=memory-manager、active 且含 summary 的条目逐条 discard，candidate-only 回归在 `:359-433` 保持 pending；T-1786922726183 证明 checkpoint `completed`、`success_notes=1`、`pending_after=0`；④“由 memory_search 回读同一条目”——T-1786922726183 第二轮同一隔离项目 `memory_search` 回读 active `M-001`、真实 `episode_id=1` 与 provenance 规则。没有使用 candidate 文件或仅单测替代真实链路。定向门禁 T-1786922726185 通过：kanzei-memory 143 passed、kanzei-tools 341 passed；提交文件与预期一致。
+- observed_head: 1a1592a3a18f017908982966821f3ed11836e319
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1786972791901

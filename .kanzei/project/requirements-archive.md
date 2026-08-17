@@ -3695,5 +3695,20 @@
 - observed_head: e08eb0a0b5b3fb0f3476df18e083ba4f0598e320
 - observed_worktree_hash: fnv1a64:a3778bc65fc6cdcc
 - recorded_at: 1786971130487
-- 阻塞: 
 - 取活依据: engine:唯一可执行 WIP 是 R-276，必须先恢复它
+
+## R-289 R-221 B4/B5 研究回流与记忆晋升运行时验收 [done]
+- 回流: [done]
+- 回流标记: [done] dev 已审阅并验证真实回流链路；研究草稿不是自动采纳，既有 R-/D- 状态修改仍由 dev 处理。
+- 复杂度: 小
+- 来源: 本次 dev 验收：基于研究草稿与用户要求，非实施草稿的自动采纳。
+- 标签: 流程
+- 进展: 已完成并关闭，逐项对照验收：①“dev 审阅并确认 research profile 的 source/finding→req/defect 草稿回流链路”——这是既有能力，本次不重复申报；真实 CLI 证据 T-1786922726121 完成 plan→S-001~S-004→F-001/F-002→两份 report→R-289 `[todo]`，工件为 `.kanzei/research/r221-chain/sources.md:3-29`、`findings.md:3-19`、`report.md:1-43`、`report.md` 总报告 `:1-18`；真实实现与消费者在 `crates/kanzei-tools/src/profiles.rs:609-706,788-836`，req/defect 草稿由 research tracker 工具实际消费。②“确认既有 R-/D- 条目仍不可由 research 修改”——硬拒绝位于 `profiles.rs:663-690`，测试断言位于 `profiles.rs:1709-1724`，T-1786922726120/T-1786922726121 通过；research 只允许 source/finding/req/defect 的 get/add，既有条目 update/close 等动作被 managed hard deny。③“另行运行时验证 memory_note→manager 晋升→memory_search 回读后再提升证据等级”——D-479 已由提交 `1a1592a3` 修复；manager 的真实 episode add→promote 约束在 `crates/kanzei-memory/src/memory/manager.rs:1151-1159`，active-only 逐条 inbox reconciliation 在 `crates/kanzei-tools/src/memory_consolidation.rs:90-135,271-276`；T-1786922726183 的真实隔离 CLI 链路确认 `M-001` active、`episode_id=1`、checkpoint completed、`success_notes=1`、`pending_after=0`，同一项目第二轮 `memory_search` 回读同一条目；T-1786922726185 定向门禁通过。既有 research 回流实现明确标为既有能力，本次交付仅包含 D-479 运行时晋升/销账修复。
+- 验收: dev 审阅并确认 research profile 的 source/finding→req/defect 草稿回流链路；确认既有 R-/D- 条目仍不可由 research 修改；另行运行时验证 memory_note→manager 晋升→memory_search 回读后再提升证据等级。
+- refs: R-221 T-1786922726120 T-1786922726121 T-1786922726177 T-1786922726183 T-1786922726185
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-289
+- observed_head: 1a1592a3a18f017908982966821f3ed11836e319
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1786972886838
+- 停车: 
