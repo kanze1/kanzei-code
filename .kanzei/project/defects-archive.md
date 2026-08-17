@@ -6364,3 +6364,19 @@
 - observed_head: 8f490d92856e1e0208efee838b55b18254d6c883
 - observed_worktree_hash: fnv1a64:64fc537eea90a7e1
 - recorded_at: 1787008839153
+
+## D-507 记忆遥测口径批次:injected 恒真/promotion_gaps 漏查/Tier0 无 hits/23% recall 悬空 [fixed] (medium)
+- refs: R-235
+- 复现: crates/kanzei-memory/src/memory/tools.rs:107-114 memory_search 无条件 injected=true(precision 恒 1.0);crates/kanzei-app/src/memory.rs:53-59 promotion_gaps 用 source/refs 空判冒充 provenance 检查不查 memory_sources(28 条 source=user 零证据 active 不计入);index.rs:300-310 Tier0 指纹命中直接 return 不记 record_hits 且 SearchHit 空;kanzei-core/src/store/telemetry.rs:136-147 episode 回填仅限 append_episode 成功,803/3537 行 recall_events 悬空
+- 影响: 漏斗对 memory_search 无信息量;控制面缺口数偏低;指纹通道画像恒 0;23% 召回无法 join episodes
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 四处口径各自修正并有测试;生产数据可复算;控制面数字与库中一致
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-507
+- 进展: 批4已完成并待提交：① episode 回填在 `crates/kanzei-core/src/store/telemetry.rs:150-170` 同时使用本轮起点与目标 episode 落库时间上界，避免下一轮事件误归因；`recall_events_回填episode后可join_episodes查询` 覆盖旧事件、窗口内事件、episode 创建后事件，T-1786922726308 通过；② `RecallLinkStats`/`SessionStore::recall_link_stats` 位于 `telemetry.rs:33-41,250-268`，直接从 state.db 统计 total/linked/orphaned，`recall_link_stats_保留悬空事件作为分母` 覆盖三数守恒；③ 控制面真实消费在 `crates/kanzei-app/src/memory.rs:75-114`，前端展示在 `crates/kanzei-app/ui/13-memory.js:31-59`，i18n 在 `02-i18n.js:330`，T-1786922726310 与 T-1786922726311 通过；④ 生产 `.kanzei/state.db` 使用同源 SQL 复算为 total=3923、linked=3115、orphaned=808，满足 total=linked+orphaned，T-1786922726312；四处口径分别由 `memory/tools.rs:99-114` 的实际命中注入、`memory.rs:75-87` 的 DB provenance、`memory/index.rs:295-317,796-820` 的持久化 hits、以及上述 episode 窗口/关联统计覆盖，批4完成。
+- observed_head: 988f665bf7136f1f6d8c50c9d28df4ca74ff347a
+- observed_worktree_hash: fnv1a64:9b72d3989599a336
+- recorded_at: 1787010411368
+- 批次: 4/4
+- status: fixing
