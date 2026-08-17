@@ -87,6 +87,53 @@ fn checkpoint(
     })
 }
 
+/// Discard notes that the manager demonstrably materialized as active entries in this batch.
+///
+/// This is a conservative safety net for the LLM runner's final tool call: it never promotes
+/// entries and never discards a note merely because a candidate exists. The entry must be a
+/// changed `memory-manager` entry in `active` state and visibly carry the note summary.
+fn reconcile_active_notes(
+    store: &MemoryStore,
+    batch_text: &str,
+    before_entries: &[(std::path::PathBuf, crate::memory::MemoryEntry)],
+) -> anyhow::Result<usize> {
+    use std::collections::HashMap;
+
+    let before_by_id = before_entries
+        .iter()
+        .map(|(_, entry)| (entry.id.clone(), entry))
+        .collect::<HashMap<_, _>>();
+    let changed_active = store
+        .load_all()
+        .into_iter()
+        .filter_map(|(_, entry)| {
+            if entry.status != "active" || entry.source != "memory-manager" {
+                return None;
+            }
+            let changed = before_by_id
+                .get(&entry.id)
+                .is_none_or(|previous| **previous != entry);
+            changed.then_some(entry)
+        })
+        .collect::<Vec<_>>();
+
+    let mut discarded = 0;
+    for (_, summary, _) in store.pending_note_list() {
+        if summary.is_empty() || !batch_text.contains(&summary) {
+            continue;
+        }
+        let materialized = changed_active.iter().any(|entry| {
+            entry.title.contains(&summary)
+                || entry.description.contains(&summary)
+                || entry.body.contains(&summary)
+        });
+        if materialized && store.discard_note(&summary)? {
+            discarded += 1;
+        }
+    }
+    Ok(discarded)
+}
+
 /// Process the current inbox in bounded, checkpointed manager runs.
 ///
 /// A batch is considered successful only when the manager run reduces the
@@ -133,6 +180,7 @@ pub async fn consolidate_memory_inbox(
         };
         let batch_id = format!("inbox-{}", now_ms());
         let pending_at_start = store.pending_notes();
+        let before_entries = store.load_all();
         if let Err(error) = checkpoint(
             &store,
             &batch_id,
@@ -223,6 +271,11 @@ pub async fn consolidate_memory_inbox(
             last_error = Some("no manager model route was available".into());
         }
 
+        if let Err(error) = reconcile_active_notes(&store, &batch.text, &before_entries) {
+            last_error = Some(format!(
+                "deterministic inbox reconciliation failed: {error}"
+            ));
+        }
         let pending_after = store.pending_notes();
         let success_notes = pending_at_start.saturating_sub(pending_after);
         let status = if success_notes == 0 {
@@ -299,4 +352,84 @@ pub async fn consolidate_memory_for_project(
         ..Default::default()
     };
     Ok(consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx, current_episode_id).await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reconcile_active_notes;
+    use crate::memory::{AddOutcome, MemoryStore};
+
+    fn temp_project(label: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kz-memory-consolidation-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        root
+    }
+
+    #[test]
+    fn deterministic_reconciliation_discards_only_changed_active_manager_entry() {
+        let active_root = temp_project("active");
+        let active_store = MemoryStore::project(&active_root);
+        active_store
+            .append_note("active sentinel", "detail", "fact", &[])
+            .unwrap();
+        let before = active_store.load_all();
+        let added = active_store
+            .add(
+                "fact",
+                "active sentinel 规则",
+                "处理 active sentinel 时必读",
+                "active sentinel detail",
+                "memory-manager",
+                &[],
+                None,
+                true,
+            )
+            .unwrap();
+        let id = match added {
+            AddOutcome::Added(entry) => entry.id,
+            other => panic!("expected added candidate, got {other:?}"),
+        };
+        active_store
+            .update(&id, None, None, None, Some("active"), None, false)
+            .unwrap();
+        let batch = active_store.read_inbox();
+        assert_eq!(
+            reconcile_active_notes(&active_store, &batch, &before).unwrap(),
+            1
+        );
+        assert_eq!(active_store.pending_notes(), 0);
+        std::fs::remove_dir_all(active_root).ok();
+
+        let candidate_root = temp_project("candidate");
+        let candidate_store = MemoryStore::project(&candidate_root);
+        candidate_store
+            .append_note("candidate sentinel", "detail", "fact", &[])
+            .unwrap();
+        candidate_store
+            .add(
+                "fact",
+                "candidate sentinel 规则",
+                "处理 candidate sentinel 时必读",
+                "candidate sentinel detail",
+                "memory-manager",
+                &[],
+                None,
+                true,
+            )
+            .unwrap();
+        let batch = candidate_store.read_inbox();
+        assert_eq!(
+            reconcile_active_notes(&candidate_store, &batch, &[]).unwrap(),
+            0
+        );
+        assert_eq!(candidate_store.pending_notes(), 1);
+        std::fs::remove_dir_all(candidate_root).ok();
+    }
 }

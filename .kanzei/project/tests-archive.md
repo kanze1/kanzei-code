@@ -5883,3 +5883,54 @@
 - 摘要: 隔离项目第二次真实运行：memory_note 成功追加，manager 仍报告 inbox 2→2、success_notes=0；write-log 可核验 manager 仅写入已有 candidate/索引，没有执行 promote 或 inbox_discard。
 - 关联: R-289 D-479
 - 收尾: 1786971803
+
+## T-1786922726179 D-479 manager add-promote 编排定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 6.6s
+- 摘要: D-479 prompt 修复定向回归：fmt check 通过；kanzei-memory 143 passed、0 failed、1 ignored；新增 manager_agent add→promote→discard/失败保留 note 断言通过。
+- 关联: D-479 R-289
+- 收尾: 1786972054
+
+## T-1786922726180 D-479 prompt 修复后真实 CLI 回归（失败） [failed]
+- 命令: $env:KANZEI_PROFILE = 'research'; $env:KANZEI_AGENT = 'research'; $env:KANZEI_MODEL = 'primary'; cargo run -p kanzei -- run --new --project-root C:\Users\kanzei\AppData\Local\Temp\kz-d479-fixed-120c451b588247369ebc3b2936660d17 --prompt-file C:\Users\kanzei\Documents\kanzei code\.kanzei\research\r289-runtime\memory_prompt-isolated.txt
+- 时长: 9.0s
+- 摘要: 应用 prompt 修复后的新隔离项目真实运行仍失败：research agent 成功 memory_note，但轮末 manager 报 `inbox 1→1`、batch failed or made no progress；尚未证明 active/promote/search 回读。
+- 关联: D-479 R-289
+- 收尾: 1786972106
+
+## T-1786922726181 D-479 manager 最终 discard 门禁定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 2.9s
+- 摘要: D-479 second prompt 编排回归：fmt check 通过；kanzei-memory 143 passed、0 failed、1 ignored；manager_agent 断言已覆盖 add→promote、promote 失败保留 note、单 note 最终工具调用必须 discard。
+- 关联: D-479 R-289
+- 收尾: 1786972230
+
+## T-1786922726182 D-479 active-only inbox reconciliation 定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-memory; cargo test -p kanzei-tools
+- 时长: 41.0s
+- 摘要: D-479 确定性销账修复定向回归：kanzei-memory 143 passed/0 failed/1 ignored；kanzei-tools 341 passed/0 failed/1 ignored；新增 active-only reconciliation 测试确认 active manager 条目销账、candidate-only 保持 pending。
+- 关联: D-479 R-289
+- 收尾: 1786972504
+
+## T-1786922726183 D-479 R-289 真实 memory_note manager promote discard search 闭环 [passed]
+- 命令: $env:KZ_D479_ROOT = C:\Users\kanzei\AppData\Local\Temp\kz-d479-accept-c8ad66ca4ee744e09e80db613970a312; $env:KANZEI_PROFILE = research; $env:KANZEI_AGENT = research; $env:KANZEI_MODEL = primary; cargo run -p kanzei -- run --new --project-root $env:KZ_D479_ROOT --prompt-file C:\Users\kanzei\Documents\kanzei code\.kanzei\research\r289-runtime\memory_prompt-isolated.txt; cargo run -p kanzei -- run --new --project-root $env:KZ_D479_ROOT --prompt-file C:\Users\kanzei\Documents\kanzei code\.kanzei\research\r289-runtime\memory_prompt-isolated-search.txt
+- 时长: 8.0s
+- 摘要: 真实 research/CLI 隔离链路通过：第一轮 memory_note→轮末 manager 使用真实 episode_id=1 晋升 M-001 为 active，并由确定性 active-only reconciliation 将 inbox 1→0、checkpoint completed；第二轮同一项目 memory_search 回读 active M-001、episode_id=1 与 provenance 规则。
+- 关联: D-479 R-289
+- 收尾: 1786972583
+
+## T-1786922726184 D-479 当前暂存源码定向门禁回归 [passed]
+- 命令: cargo test -p kanzei-memory; cargo test -p kanzei-tools
+- 时长: 34.5s
+- 摘要: 按提交门禁重新运行当前暂存源码：kanzei-memory 143 passed/0 failed/1 ignored；kanzei-tools 341 passed/0 failed/1 ignored；刷新 manager prompt 与 active-only reconciliation 的源码指纹背书。
+- 关联: D-479 R-289
+- 收尾: 1786972714
+- 源码指纹: c7eece5dbdd637a6
+
+## T-1786922726185 D-479 staged source fingerprint refresh [passed]
+- 命令: cargo test -p kanzei-memory; cargo test -p kanzei-tools
+- 时长: 34.0s
+- 摘要: 按门禁重新测试当前 staged manager/consolidation 源码：kanzei-memory 143 passed/0 failed/1 ignored；kanzei-tools 341 passed/0 failed/1 ignored；用于刷新提交源码指纹。
+- 关联: D-479 R-289
+- 收尾: 1786972726
+- 源码指纹: c7eece5dbdd637a6

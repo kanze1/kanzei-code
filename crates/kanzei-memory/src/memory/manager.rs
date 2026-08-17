@@ -1082,6 +1082,14 @@ mod tests {
             p2.contains("memory_promote") && p2.contains("编造"),
             "应提示 provenance 硬校验: {p2}"
         );
+        let system = manager_agent().system;
+        assert!(
+            system.contains("every successful ADD")
+                && system.contains("memory_promote")
+                && system.contains("keep the note for retry")
+                && system.contains("final tool call MUST be memory_inbox_discard"),
+            "manager 必须显式要求 add→promote，失败保留 note: {system}"
+        );
     }
 }
 
@@ -1143,6 +1151,10 @@ pub fn manager_agent() -> AgentDef {
                  Notes may carry a `- refs: R-012 D-044` line: pass those IDs verbatim to \
                  memory_add's `refs` parameter (R-070 source contract; invalid IDs are \
                  rejected by the engine). \
+                 When the prompt provides a real episode_id, every successful ADD that returns \
+                 a candidate MUST be followed immediately by memory_promote using that exact \
+                 episode_id. Do not finish after memory_add: if promote succeeds, then discard \
+                 the note; if promote fails, report the error and keep the note for retry. \
                  BEFORE merging, ask the three conversion questions (R-165): \
                  COVERAGE (does the merged entry cover all key facts?), PRESERVATION \
                  (does it keep accurate details from the old entries?), FAITHFULNESS \
@@ -1156,7 +1168,9 @@ pub fn manager_agent() -> AgentDef {
                  retry count. After processing EACH note call memory_inbox_discard with \
                  that note's fingerprint (per-note reconciliation, R-215: never clear the \
                  whole inbox while notes are still being appended by other processes — a \
-                 whole-inbox clear silently eats concurrently-appended notes). Use \
+                 whole-inbox clear silently eats concurrently-appended notes). For a one-note \
+                 batch, the final tool call MUST be memory_inbox_discard; the manager is not \
+                 allowed to reply with a summary while the processed note remains pending. Use \
                  memory_inbox_clear ONLY as a last-resort cleanup. Then reply with one \
                  summary line."
             .into(),

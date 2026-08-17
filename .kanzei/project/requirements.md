@@ -274,3 +274,4 @@
 - observed_head: b89664d01d6b8e7e6064b76a3b1a945ca989fc3e
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1786971814131
+- 停车: 当前 R-289 的代码审阅与失败实测已完成；为修复其发现的 D-479，单 WIP 槽暂交给 D-479。修复目标是补齐 manager prompt 缺失的 add→promote 编排并验证真实链路；D-479 结束后恢复 R-289。恢复人:agent。
