@@ -5977,3 +5977,38 @@
 - 关联: D-435
 - 收尾: 1786983695
 - 源码指纹: 5353203f2d50d798
+
+## T-1786922726193 R-216 D-480 memory-manager STALE 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 9.7s
+- 摘要: manager_agent 的 STALE/memory_stale prompt 断言通过；kanzei-memory 143 passed，1 ignored；fmt check 通过。
+- 关联: R-216 D-480
+- 收尾: 1786988715
+
+## T-1786922726194 R-216 D-480 memory archive fence regression [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 9.2s
+- 摘要: D-480 归档围栏回归通过；manager STALE prompt 断言通过；kanzei-memory 143 passed，1 ignored；fmt check 通过。deprecated 归档测试验证源文件删除与 archive 目标均有写日志。
+- 关联: R-216 D-480
+- 收尾: 1786989212
+
+## T-1786922726195 R-216 D-480 explicit stale consolidation targeted regression [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory; cargo test -p kanzei-tools
+- 时长: 47.8s
+- 摘要: 确定性 explicit STALE runner、inbox/checkpoint write-log 和归档幂等路径通过；kanzei-memory 143 passed/1 ignored，kanzei-tools 341 passed/1 ignored，fmt check 通过。
+- 关联: R-216 D-480
+- 收尾: 1786989932
+
+## T-1786922726196 R-216 D-480 真实显式 STALE 归档与 inbox 收口 [passed]
+- 命令: $env:KANZEI_PROFILE = 'dev'; $env:KANZEI_AGENT = 'dev'; $env:KANZEI_MODEL = 'primary'; cargo run -p kanzei -- run --new --no-subagents --project-root (Get-Location).Path --prompt-file C:\Users\kanzei\AppData\Local\Temp\r216-manager-only-prompt.txt
+- 时长: 10.3s
+- 摘要: 真实零工具主轮触发共享 consolidation：5 条显式 STALE 请求全部完成；checkpoint status=completed，success_notes=5，pending_after=0；M-037/M-150/M-151 已在 archive，围栏无回滚。
+- 关联: R-216 D-480
+- 收尾: 1786989984
+
+## T-1786922726197 D-481 R-290 后台线鞭挞连跑与线路页按线操控 [passed]
+- 命令: node scripts/gen-ui-lint-globals.mjs; node --check crates/kanzei-app/ui/*.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 约 40s(六条前端门禁 + markdown)
+- 摘要: 前端全绿：runtime 24 个 ui/*.js 按序执行、2198 次 invoke、0 运行时错误；lint 717 标识符与源码同步；i18n 1263 个 key;并行线路护栏通过。变异校验两次真红：删 handleBackgroundSessionDone 的 releaseAutoContinue → 「第二轮停摆(在飞标记未释放),实得 1 轮」;删 01-core 的 kz:auto-fail 后台分支 → 两条重试断言红。未跑 cargo fmt/clippy/test：本次改动只涉及 ui/*.js、style.css 与 scripts/*.mjs，且工作树存在他线 kanzei-memory WIP，跑 Rust 门禁会验到不属于本次的改动。
+- 关联: D-481 R-290
+- 收尾: 1786992270

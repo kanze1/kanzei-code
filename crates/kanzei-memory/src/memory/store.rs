@@ -215,6 +215,12 @@ impl MemoryStore {
         out
     }
 
+    pub fn has_archived_id(&self, id: &str) -> bool {
+        self.load_archived_ids()
+            .iter()
+            .any(|archived| archived == id)
+    }
+
     pub(crate) fn load_archived_ids(&self) -> Vec<String> {
         let mut out = Vec::new();
         let Ok(dir) = std::fs::read_dir(self.archive_dir()) else {
@@ -598,6 +604,29 @@ impl MemoryStore {
         Ok(())
     }
 
+    fn record_write_log(&self, path: &Path, content: Vec<u8>) {
+        let Some(project_root) = &self.project_root else {
+            return;
+        };
+        let Ok(relative) = path.strip_prefix(project_root) else {
+            return;
+        };
+        let _ = kanzei_base::write_log::record(
+            project_root,
+            &kanzei_base::write_log::WriteLogEntry {
+                at_ms: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or_default(),
+                path: relative.display().to_string().replace('\\', "/"),
+                fingerprint: kanzei_base::content_hash(&content),
+                content,
+                run_id: None,
+                process_id: None,
+            },
+        );
+    }
+
     /// 归档失效条目(D-231/R-165 验收③):deprecated/invalid 移入 archive/ 带墓碑。
     /// 返回归档条数。引擎强制:任何 refresh_derived(写操作后)都会先归档,
     /// 主目录只留 active/candidate——归档条目不在 load_all/FTS/检索范围内,
@@ -614,9 +643,15 @@ impl MemoryStore {
             let dest = archive_dir.join(format!("{}.md", entry.file_stem()));
             // 墓碑:保留文件(内容即追溯),目标已存在则跳过(防重复归档覆盖)。
             if dest.exists() {
-                let _ = std::fs::remove_file(path);
+                if std::fs::remove_file(path).is_ok() {
+                    self.record_write_log(path, Vec::new());
+                }
             } else if std::fs::rename(path, &dest).is_ok() {
                 archived += 1;
+                // D-480:rename 同时改变源路径和 archive 目标路径。两条日志都要记，
+                // 围栏才能把「源删除 + 墓碑落盘」识别为同一次合法 memory_stale。
+                self.record_write_log(path, Vec::new());
+                self.record_write_log(&dest, render_entry(entry).into_bytes());
             }
         }
         archived
@@ -1431,7 +1466,8 @@ mod tests {
     /// R-165 批3(验收③):deprecated/invalid 移入 archive/ 且默认检索不可见(D-231)。
     #[test]
     fn deprecated_moves_to_archive_and_hidden_from_search() {
-        let (dir, store) = temp_store();
+        let (dir, _) = temp_store();
+        let store = MemoryStore::project(&dir);
         let e = store
             .add(
                 "fact",
@@ -1456,6 +1492,31 @@ mod tests {
             .root
             .join(format!("{}.md", entry.file_stem()))
             .exists());
+        let logs = kanzei_base::write_log::entries_after(&dir, 0);
+        let source_path = format!(".kanzei/memory/{}.md", entry.file_stem());
+        let archive_path = format!(".kanzei/memory/archive/{}.md", entry.file_stem());
+        assert!(
+            logs.iter().any(|log| {
+                log.path == source_path
+                    && log.content.is_empty()
+                    && log.fingerprint == kanzei_base::content_hash(&[])
+            }),
+            "归档必须为源文件删除留下写日志: {logs:?}"
+        );
+        let archived_bytes = std::fs::read(
+            store
+                .archive_dir()
+                .join(format!("{}.md", entry.file_stem())),
+        )
+        .unwrap();
+        assert!(
+            logs.iter().any(|log| {
+                log.path == archive_path
+                    && log.fingerprint == kanzei_base::content_hash(&archived_bytes)
+            }),
+            "归档必须为 archive 目标留下写日志: {logs:?}"
+        );
+        // load_all 不含它(默认检索范围),load_archived_ids 保留 ID 防复用。
         assert!(store
             .archive_dir()
             .join(format!("{}.md", entry.file_stem()))

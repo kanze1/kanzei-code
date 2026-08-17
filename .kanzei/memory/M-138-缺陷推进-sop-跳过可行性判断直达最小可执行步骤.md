@@ -1,0 +1,48 @@
+---
+id: M-138
+scope: project
+category: sop
+title: R-276 推进 SOP：从内存搜索到前端冒烟测试完整的修复链路
+description: 合并 D-476/SOP 与 R-276/SOP，将通用流程作为主条目，R-276专用步骤作为补充
+status: candidate
+created: 2026-08-17
+updated: 2026-08-17
+source: memory-manager
+subject: D-476 缺陷推进流程
+---
+
+适用场景：当缺陷列表中的任务都无法推进、多轮未产生实质动作时使用。适用于需要持续推动具体缺陷解决的工作流。或者当 UI 冒烟测试不通过、需要逐层排查并修复前端问题时使用（R-276）。
+
+操作步骤（通用版用于 D-476）：
+1. 从 defects.md 最上面一条开始，阅读并说出它的下一个最小可执行步骤（必须具体到文件路径和改动内容）→ 判断依据：该步骤是否不涉及前置条件核查或跨轮等待，而是可直接执行的编辑/运行命令
+2. 立刻执行该步骤 → 判断依据：执行后系统是否返回正常反馈而非错误提示
+3. 若该条推不动，立即跳到下一个缺陷 → 判断依据：连续尝试不超过 3 个缺陷仍无进展则转入阻塞复核流程
+4. 如果所有相关条目都标着阻塞：先复核阻塞字段内容 → 判断依据：检查该「阻塞」条件是否是你自己历轮写下的已满足的旧条件（如版本、依赖、网络权限等）→ 若判断为自留条件且解除条件早已满足，清空这些条目的「阻塞」字段再取活
+5. 真正卡住的只有等待外部条件的情况
+
+ boundary与例外：
+- 仅适用于缺陷处理场景；不适用于架构评审或需求分析任务
+- 如果所有条目都真正不可动（如依赖已丢失、接口已废弃且无法恢复）则停止流程并记录根因
+
+操作步骤（R-276 专用版）：
+1. 执行 work 命令 → 判断依据：确认当前工作目录和环境状态正确
+2. 执行 memory_search → 判断依据：搜索是否与当前失败信号相关的 SOP 或 fact
+3. 执行 collaboration_status → 判断依据：确认团队协作状态，排除因他人操作导致的冲突
+4. 执行 git → 判断依据：查看分支、提交和远程状态，确认版本和同步是否正常
+5. 执行 grep → 判断依据：在 defects.md 或 requirements.md 中搜索阻塞关键词，识别是否还有未处理的「阻塞」标记
+6. 执行 read → 判断依据：阅读缺陷文件或要求文档，确认任务描述和目标状态
+7. 执行 edit → 判断依据：修改发现的不一致文件（通常是缺陷状态或缺陷理由）
+8. 执行 insert → 判断依据：向缺陷或需求文件插入新的注释或标记
+9. 执行 defect → 判断依据：执行 `defect fix_terminal` 修正错误的归档状态或修复状态
+10. 执行 bash → 判断依据：运行测试命令，检查 exit code（预期 0，若 1 则进入冒烟测试排查）
+11. 执行 ui_dom / ui_console → 判断依据：查看 DOM 结构和控制台日志，定位冒烟失败的具体位置
+12. 执行 frontend_check / frontend_locate → 判断依据：确认前端文件是否存在及路径正确
+13. 执行 test_record → 判断依据：记录测试输出，作为后续复盘和分析的证据
+14. 执行 req → 判断依据：检查 requirements.md 中是否有新的约束或要求
+
+边界与例外：
+- 若 bash exit code = 且 long report 缺失最早内容，说明冒烟探针 marker UI 运行时超时（1 处），需重点关注报告生成速度和内存占用
+- D-477 标注为 archived 时，必须使用 `defect fix_terminal id=D-477 status=<fixed|wontfix> reason=<why>` 而非普通 `defect fix`
+- 若连续执行到前端定位阶段仍无进展，需返回到 defects.md 重新评估是否还有可执行的步骤
+
+指纹标记：[fp:bash|exit code:1 smoke probe marker UI timeout] [fp:defect|is archived — this action does not apply to terminal entries. To correct a wrong terminal status (e.g. fixed should be wontfix), use `defect fix_terminal id=D-477 status=<fixed|wontfix> reason=<why>`]

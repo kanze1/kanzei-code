@@ -5,7 +5,7 @@
 //! drifting on batch limits, fallback behavior, or error reporting.
 
 use kanzei_core::{run_once_with_parts, AskFuture, RunEvent, RunnerConfig};
-use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
+use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, Tool, ToolCtx};
 use kanzei_llm::{LlmClient, ProxyConfig};
 use serde::Serialize;
 
@@ -134,6 +134,96 @@ fn reconcile_active_notes(
     Ok(discarded)
 }
 
+fn explicit_stale_ids(batch_text: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    for line in batch_text
+        .lines()
+        .filter(|line| line.contains("memory_stale"))
+    {
+        let mut scan_from = 0;
+        while let Some(relative) = line[scan_from..].find("project/M-") {
+            let start = scan_from + relative + "project/".len();
+            let end = line[start..]
+                .find(|ch: char| !ch.is_ascii_alphanumeric() && ch != '-')
+                .map_or(line.len(), |offset| start + offset);
+            let id = &line[start..end];
+            if id.starts_with("M-")
+                && id[2..].chars().all(|ch| ch.is_ascii_digit())
+                && !ids.iter().any(|known| known == id)
+            {
+                ids.push(id.to_string());
+            }
+            scan_from = end;
+            if scan_from >= line.len() {
+                break;
+            }
+        }
+        // 兼容第一版 R-216 请求:它写成「对 M-037 执行 memory_stale」而不是
+        // `project/M-037`;只取紧邻动作短语前的一个 ID,不误伤同句中的历史五条 ID。
+        if ids.is_empty() {
+            if let Some(action_at) = line.find("执行 memory_stale") {
+                let prefix = &line[..action_at];
+                if let Some(id_at) = prefix.rfind("M-") {
+                    let end = id_at
+                        + 2
+                        + prefix[id_at + 2..]
+                            .chars()
+                            .take_while(|ch| ch.is_ascii_digit())
+                            .count();
+                    let id = &prefix[id_at..end];
+                    if id.len() > 2 && !ids.iter().any(|known| known == id) {
+                        ids.push(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    ids
+}
+
+async fn process_explicit_stale_requests(
+    store: &MemoryStore,
+    batch: &crate::memory::InboxBatch,
+    ctx: &ToolCtx,
+) -> anyhow::Result<usize> {
+    let ids = explicit_stale_ids(&batch.text);
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    for id in ids {
+        if store.has_archived_id(&id) {
+            continue;
+        }
+        let output = kanzei_harness::managed_fence::tool_scope(
+            "memory_stale",
+            crate::memory::MemoryStaleTool.execute(
+                serde_json::json!({
+                    "scope": "project",
+                    "id": id,
+                    "reason": "R-216 tracker 交付状态已由 tracker/refs 取代；保留可追溯墓碑，错误重复候选同步退役。"
+                }),
+                ctx,
+            ),
+        )
+        .await;
+        if output.is_error {
+            anyhow::bail!("explicit memory_stale failed: {}", output.content);
+        }
+    }
+    let mut discarded = 0;
+    for (_, summary, _) in store.pending_note_list() {
+        if batch.text.contains(&summary) {
+            let removed =
+                kanzei_harness::managed_fence::tool_scope("memory_inbox_discard", async {
+                    store.discard_note(&summary)
+                })
+                .await?;
+            discarded += usize::from(removed);
+        }
+    }
+    Ok(discarded)
+}
+
 /// Process the current inbox in bounded, checkpointed manager runs.
 ///
 /// A batch is considered successful only when the manager run reduces the
@@ -193,6 +283,54 @@ pub async fn consolidate_memory_inbox(
         ) {
             report.stopped_reason = Some(format!("checkpoint write failed: {error}"));
             break;
+        }
+
+        if !explicit_stale_ids(&batch.text).is_empty() {
+            let explicit_error = process_explicit_stale_requests(&store, &batch, ctx)
+                .await
+                .err()
+                .map(|error| error.to_string());
+            let pending_after = store.pending_notes();
+            let success_notes = pending_at_start.saturating_sub(pending_after);
+            let status = if explicit_error.is_some() {
+                "failed"
+            } else if success_notes < batch.note_count {
+                "partial"
+            } else {
+                "completed"
+            };
+            let checkpoint_error = checkpoint(
+                &store,
+                &batch_id,
+                status,
+                batch.note_count,
+                batch.bytes,
+                success_notes,
+                pending_after,
+                explicit_error.clone(),
+            )
+            .err()
+            .map(|error| format!("checkpoint finalization failed: {error}"));
+            let batch_error = explicit_error.or(checkpoint_error);
+            report.batches.push(ConsolidationBatchReport {
+                batch_id,
+                status: status.to_string(),
+                input_notes: batch.note_count,
+                input_bytes: batch.bytes,
+                estimated_tokens: batch.estimated_tokens,
+                success_notes,
+                pending_after,
+                error: batch_error.clone(),
+            });
+            report.pending_after = pending_after;
+            if batch_error.is_some() || pending_after == 0 {
+                if batch_error.is_some() {
+                    report.stopped_reason =
+                        Some("explicit stale request failed or made no progress".into());
+                }
+                break;
+            }
+            continue;
         }
 
         let prompt = consolidation_prompt(&batch.text, current_episode_id);
@@ -356,7 +494,7 @@ pub async fn consolidate_memory_for_project(
 
 #[cfg(test)]
 mod tests {
-    use super::reconcile_active_notes;
+    use super::{explicit_stale_ids, reconcile_active_notes};
     use crate::memory::{AddOutcome, MemoryStore};
 
     fn temp_project(label: &str) -> std::path::PathBuf {
@@ -370,6 +508,15 @@ mod tests {
         ));
         std::fs::create_dir_all(root.join(".kanzei")).unwrap();
         root
+    }
+
+    #[test]
+    fn explicit_stale_parser_only_selects_requested_ids() {
+        let first = "M-032 M-033 M-035 M-036 M-040 均已归档，请对 M-037 执行 memory_stale";
+        assert_eq!(explicit_stale_ids(first), vec!["M-037"]);
+        let second = "请对 project/M-037、project/M-150、project/M-151 都使用 memory_stale";
+        assert_eq!(explicit_stale_ids(second), vec!["M-037", "M-150", "M-151"]);
+        assert!(explicit_stale_ids("普通 memory_note，不做退役").is_empty());
     }
 
     #[test]

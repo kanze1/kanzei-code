@@ -84,14 +84,14 @@
 - 验收: ①复刻「英文改写 M-044」场景被拦并指路 memory_update(单测);②伪造指纹的 add 被拒;③存量 6 条交付状态记忆逐条处置;④各拦截路径有单测。
 - refs: R-194 R-195 R-196 D-299 D-282
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-216
-- 进展: 2026-08-16 收口此前引擎取活留下的半成品实现(工作树未提交,6 测试红)。已完成:①三闸实现确认完整(store.rs add 内:交付状态拒收 has_tracker_id、指纹一致性 fp_markers、语义探测下沉 classify_novelty 双 scope);②修复 6 个失败 fixture(5 个自造指纹被新指纹闸拦——merge_gate/find_by_marker/merge_conservative/merge_自动搬运 注入来源 note 或 force,1 个 novelty_gate 语义断言适配 R-216 口径);③新增 3 个验收单测:自造指纹的add被拒_来源note指纹放行、交付状态内容被拒并指路tracker、英文改写被add硬闸拦截返回候选。验证:memory 95 passed + kanzei-tools 346 passed + clippy/fmt 全过。验收对照:①英文改写被拦并指路 memory_update——英文改写被add硬闸拦截返回候选 测试(Uncertain 返回候选);②伪造指纹的 add 被拒——自造指纹的add被拒_来源note指纹放行;③存量 6 条交付状态记忆逐条处置——**未做**(验收③数据工作);④各拦截路径有单测——3 条新增。 || 2026-08-16 复核:原阻塞对象 R-195 已 done 并归档,阻塞解除条件全部满足,当场清空。剩余工作=验收③:逐条查 memory 库定位 6 条交付状态记忆并归档/改写(数据工作,不需要用户拍板),完成即可关闭本条。 || 2026-08-16 让位:本轮按队列顺序取 R-186(P0 队首),本条 doing→todo 让位,待 R-186 交付后按队列轮转,届时直接做验收③(存量 6 条交付状态记忆逐条处置)并关闭本条。
+- 进展: D-435 已提交 `4985c2c4` 并关闭；R-221/R-289 已完成，原先“让位给 R-221”的停车条件已解除，恢复 R-216，先复核当前阻塞字段与已交付范围。
 - 阻塞: 
-- observed_head: 98d7a586f38a09f5b449b75b7a3c93c62d01852f
-- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
-- recorded_at: 1786835811578
+- observed_head: 4985c2c4b32f3992d5df1d4bfd1b31a87d56e5a6
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1786983749492
 - 状态: todo
 - 依赖: D-428
-- 停车: 单 WIP 槽按队列优先让位给 R-221；用户已解除原停车，但本轮不并行执行，待 R-221 结束后恢复。恢复人:agent。
+- 停车: 
 
 ## R-235 存量 28 条零证据 active 记忆逐条复核:保留(存量豁免)或降级 candidate,用户拍板 [todo]
 - 优先级: P3

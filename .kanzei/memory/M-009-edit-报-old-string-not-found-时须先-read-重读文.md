@@ -2,13 +2,13 @@
 id: M-009
 scope: project
 category: sop
-title: edit 报 old_string not found 时须先 read 重读文件再精确匹配
-description: 编辑旧字符串不存在：须先 read 重读文件排版再精确构造 old_string — match exactly including whitespace;多处匹配勿用 replace_all 盲改
-<span class="highlight">[fp:edit|old_string not found in — it must match exactly, including whitespace.]</span>
+title: edit 报 old_string not found + must match exactly:先重读再精确构造含 whitespace 与缩进—非唯一匹配勿设 replace_all
+description: 处理 edit old_string not found 时必读:先 read 重读文件排版再精确构造—match exactly including whitespace;多处匹配勿用 replace_all 盲改，并识别换行缩进陷阱
 status: active
 created: 2026-08-07
 updated: 2026-08-17
 source: inbox 2026-08-07;2026-08-13 自 quarantine 原版恢复
+<span class="highlight">[fp: edit|old_string not found in — it must match exactly, including whitespace.]</span>
 ---
 
 [fp:edit|old_string not found in — it must match exactly, including whitespace.] / [fp:edit|old_string matches locations in make it unique with more context, or set replace]

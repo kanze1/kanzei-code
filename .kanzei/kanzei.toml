@@ -177,3 +177,8 @@ effect = "allow"
 action = "insert"
 resource = "crates/kanzei-app/src/phase_pipeline_tests.rs"
 effect = "allow"
+
+[[permissions.rules]]
+action = "insert"
+resource = "crates/kanzei-app/ui/index.html"
+effect = "allow"

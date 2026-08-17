@@ -7,23 +7,28 @@
 - M-006 [fact] 前端需求/缺陷显示阻塞原因与筛选,独立文档页顺序与调度一致 — 处理需求/缺陷 UI 阻塞显示与筛选、独立文档页排序、docs_snapshot 或 renderDocList 相关改动/回归时必读
 - M-007 [fact] 设置页工作资料导出功能(export_project_data) — 需要了解/修改设置页导出记忆、需求、缺陷、项目配置功能(实现位置、目录约束、返回值)时必读
 - M-008 [fact] runner 首次请求统一清洗 prior 历史(filter_message_history) — 调试 runner 首请求消息构造、prior 历史孤儿 ToolCall/ToolResult、上下文压缩相关问题时必读
-- M-009 [sop] edit 报 old_string not found 时须先 read 重读文件再精确匹配 — 编辑旧字符串不存在：须先 read 重读文件排版再精确构造 old_string — match exactly including whitespace;多处匹配勿用 replace_all 盲改
+- M-009 [sop] edit 报 old_string not found + must match exactly:先重读再精确构造含 whitespace 与缩进—非唯一匹配勿设 replace_all — 处理 edit old_string not found 时必读:先 read 重读文件排版再精确构造—match exactly including whitespace;多处匹配勿用 replace_all 盲改，并识别换行缩进陷阱
 - M-010 [sop] edit 报 old/new 相同是 no-op 拒绝而非失败 — 处理 edit 报 "old_string and new_string are identical — nothing to do" 时必读:这是 no-op 拒绝(提交的 new==old 无改动),停止重试,先 read 确认目标是否已达成,未达成则让 new_string 与 old_string 不同,勿用 bash 绕过。
 - M-012 [fact] ID 同现于活动与归档时完整性门禁拒绝所有 tracker 写操作 — goal/defect/req 写操作报 tracker integrity is broken / present in BOTH active and archive 时必读
 - M-013 [fact] git commit 报 exit code 1 + "Changes not staged"表示没有暂存内容 — 处理 bash/git commit 失败必读：先 check 缺失的 git add — Git commit 失败(exit code 1、"Changes not staged for commit")时必读:先检查同批前置 git add — 不能断言用户忘记,只记症状如路径未匹配。
 - M-014 [fact] HTML 静态文案必须登记进资源表,否则断言测试失败 — 处理 edit 报 old_string not found 时必读:先 read 重读文件排排版再精确构造——match exactly including whitespace;多处匹配勿用 replace_all 盲改，保留 [fp:edit|old_string not found...]指纹
 - M-015 [fact] SSE 流内 context overflow 恢复须重建请求,OpenAI 错误分类须同查 type/code — 处理 bash git 拦截时必读:改用结构化工具显式 stage+核对 hash;保留所有 [fp:bash|...]指纹
-- M-019 [sop] bash 整文件重写(Set-Content)被环境拦截,须用 edit 做定点修改 — 处理 bash 整文件重写(Set-Content/Out-File/full-file-write guard)被环境拦截时必读:改用 edit 定点修改,勿试探 shell 整写;.kanzei 下 policy-managed 文件只能用专用工具。
 - M-021 [sop] Edit old_string not found + must match exactly:先重读再精确构造含 whitespace 与缩进 — 非唯一匹配勿设 replace_all，否则批量替换风险不可控 — 处理 edit 报 "old_string matches N locations" 时必读:先 read 找唯一上下文收窄 old_string,勿设 replace_all 盲批量替换;仅在明确批量替换意图时才 replace_all。
-- M-022 [sop] Rust/验证失败勿用 bash 反复跑测试，改用结构化验证 — 处理 Rust 测试、verify.ps1 或 smoke probe 在 bash 返回 exit code 1、但输出包含具体业务断言失败时必读：不要重复 bash/cargo 重跑；先按断言定位实现问题，并用 test_record/结构化验证记录终态。
+- M-022 [sop] [git commit] bash 拦截时须 check staged add 再提交 — [fp:bash|> action: git commit 失败...] — 处理 git commit 被 bash 拦截须先 check add — [fp:bash|git commit 失败]必查前置 add/确认 staging 状态，否则强制 stage再 commit
 - M-023 [fact] edit 报 cannot read 拒绝访问 (os error 5) 是瞬态错误,重试即成功 — 处理 edit 报 "cannot read ... 拒绝访问 (os error 5)" 时必读:这是 Windows 瞬态访问拒绝,不是真实权限/路径问题——先 read 重读再重试 edit 即可成功,不要改 bash 绕过,也不要误判为死路而放弃。
 - M-029 [fact] 所有 git mutation 在 bash 都被拦截,必须走结构化 git 工具 — 处理任何 Git 分支/索引变更(merge/restore/rebase/add/commit/reset)在 bash 报 "is blocked in bash: git mutations must use the structured git tool" 时必读:不要换别的 git 子命令重试,改用结构化 git 工具——显式 stage 指定文件、核对 staged_hash/diff,再用该 hash commit;快进合并走 git merge_ff。
 - M-030 [fact] 鞭挞与 backlog 判定集中在引擎，前端只执行 autoAction — 处理自动运行鞭挞、backlog 或继续文案改动时必读：判定逻辑只改 harness/kanzei-tools 单源，桌面端转发，前端仅执行 autoAction；不要在前端重复判定或维护旧继续文案。
 - M-041 [sop] autonomous 会话报 permission requires user approval 是档位限制,不是死路 — 处理 autonomous(自动推进)会话里 edit/bash/git/cargo/conventions_patch 被拒并报 "permission requires user approval" 时必读:这是权限档位而非工具故障——把该动作留给交互轮或先在 .kanzei/kanzei.toml 加白名单;不要反复重试、不要换等价命令绕道、也不要判定为死路而放弃整条任务。
-- M-058 [sop] 发版 SOP:dev 全绿 → 发布树 ff → verify 十步 → package -Ack → 容器外静默装 — 执行发版动作(打包/发布/装机)时必读:标准步骤序列与三个已知坑位
+- M-058 [sop] 执行发版动作时必读:标准步骤序列与三个已知坑位 (批次错配/前置未检查) — 处理 Git 批次数不一致错误必读：核对提交历史标记数再关闭批次
 - M-059 [sop] 记忆清理 SOP:归档不裸删,动全局先确认恢复源,清后三处一致 — 手动清理 .kanzei/memory 或 ~/.kanzei/memory 前必读:防数据永久丢失与索引悬空
 - M-061 [sop] 自举复盘 SOP:审提交流水、验收证据、测试面匹配、证据链、残留 — 每次自举运行结束后做质量复盘时必读;方法来自 2026-08-13 对 R-199 运行的复盘(逮出 D-320)
 - M-062 [fact] 环境约束:本机 WebView2 151 DevTools 端口从不绑定,e2e CDP 路线不可用 — 想走 e2e-smoke / connectOverCDP / WebView2 DevTools 端口路线前必读:当前机器已 9 轮实验证实不可用,不要重推
 - M-070 [preference] 开发重心:需求优先 — 取活/排优先级时必读:当前项目该先做什么
+- M-078 [sop] req 发布前版本核对:Git提交数≠batch导致失败 — 先核对再发版 — 处理 req v0.13 批次字段错误时必读：核对Git提交数再发版，否则发布失败
+- M-089 [fact] git 批次字段错误(手计数≠commit 数)必读:验证实数再修正 — 处理 req 批次数不匹配时必读：Git 标记 vs 手写 count 不一致 → 先核对再闭包
+- M-092 [sop] Git 批次字段核对 SOP — 处理发版/发布/装机时必读:核对 Git 提交历史与手写批次数是否一致;已确认第 3 次复发并有修复验证
+- M-112 [fact] Git test failure summary with failure count - 处理failures:标记显示重复失败测试时的跨轮排查 — 检查前置依赖和测试环境一致性 — 何时遇到 failures: git::tests 跨轮复发提示：检查测试前置条件与环境一致性
+- M-113 [sop] git commit staged 缺失 SOP — 处理 git commit 失败时必读:Changes not staged for commit 必须先执行 git add 同批文件;4+ 次复发并有修复经验,确认为环境契约问题
+- M-116 [sop] 处理 cargo test 失败时必读：区分编译期/运行时错误（RUST_BACKTRACE） — 处理测试框架失败时必读：区分编译期/运行时错误，保留 [fp] 标记
 
-(16 candidate 条待验证晋升)
+(86 candidate 条待验证晋升)

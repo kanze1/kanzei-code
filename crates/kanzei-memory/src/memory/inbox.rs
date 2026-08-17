@@ -108,13 +108,35 @@ impl MemoryStore {
         self.root.join("inbox.checkpoint.json")
     }
 
+    fn record_inbox_write_log(&self, path: &PathBuf, content: &[u8]) {
+        let Some(project_root) = &self.project_root else {
+            return;
+        };
+        let Ok(relative) = path.strip_prefix(project_root) else {
+            return;
+        };
+        let _ = kanzei_base::write_log::record(
+            project_root,
+            &kanzei_base::write_log::WriteLogEntry {
+                at_ms: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or_default(),
+                path: relative.display().to_string().replace('\\', "/"),
+                fingerprint: kanzei_base::content_hash(content),
+                content: content.to_vec(),
+                run_id: None,
+                process_id: None,
+            },
+        );
+    }
+
     pub fn write_inbox_checkpoint(&self, checkpoint: &InboxCheckpoint) -> anyhow::Result<()> {
         let _lock = self.tree_lock()?;
         let text = serde_json::to_string_pretty(checkpoint)? + "\n";
-        Ok(crate::atomic_file::write_atomic(
-            &self.inbox_checkpoint_path(),
-            &text,
-        )?)
+        crate::atomic_file::write_atomic(&self.inbox_checkpoint_path(), &text)?;
+        self.record_inbox_write_log(&self.inbox_checkpoint_path(), text.as_bytes());
+        Ok(())
     }
 
     pub fn read_inbox_checkpoint(&self) -> Option<InboxCheckpoint> {
@@ -132,6 +154,7 @@ impl MemoryStore {
         let _lock = self.tree_lock()?;
         if path.is_file() {
             crate::atomic_file::write_atomic(&path, "# Memory Inbox\n")?;
+            self.record_inbox_write_log(&path, b"# Memory Inbox\n");
         }
         Ok(())
     }
@@ -182,6 +205,7 @@ impl MemoryStore {
             },
         ));
         crate::atomic_file::write_atomic(&path, &text)?;
+        self.record_inbox_write_log(&path, text.as_bytes());
         Ok(path)
     }
 
@@ -267,7 +291,9 @@ impl MemoryStore {
         if !next.ends_with('\n') {
             next.push('\n');
         }
-        crate::atomic_file::write_atomic(&self.root.join("inbox.md"), &next)?;
+        let path = self.root.join("inbox.md");
+        crate::atomic_file::write_atomic(&path, &next)?;
+        self.record_inbox_write_log(&path, next.as_bytes());
         Ok(removed)
     }
 

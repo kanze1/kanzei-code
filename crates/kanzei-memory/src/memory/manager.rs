@@ -1087,7 +1087,9 @@ mod tests {
             system.contains("every successful ADD")
                 && system.contains("memory_promote")
                 && system.contains("keep the note for retry")
-                && system.contains("final tool call MUST be memory_inbox_discard"),
+                && system.contains("final tool call MUST be memory_inbox_discard")
+                && system.contains("or STALE")
+                && system.contains("memory_stale"),
             "manager 必须显式要求 add→promote，失败保留 note: {system}"
         );
     }
@@ -1119,11 +1121,16 @@ pub fn manager_agent() -> AgentDef {
         mode: AgentMode::Subagent,
         steps: 10,
         system: "You are the memory manager. Input: draft notes from the inbox. For EACH \
-                 note decide NOOP, ADD, UPDATE, or MERGE. The single criterion is DECISION \
+                 note decide NOOP, ADD, UPDATE, MERGE, or STALE. The single criterion is DECISION \
                  VALUE, not semantic richness: keep a note only if a future agent would ACT \
                  DIFFERENTLY for lack of it (wrong command, repeated dead end, violated \
-                 user constraint). If you cannot name the concrete action it changes, judge \
-                 NOOP — never invent one. \
+                 user constraint). If a note explicitly requests retiring an existing memory \
+                 because its delivery/status fact is superseded by tracker refs, use memory_stale \
+                 on that existing id instead of adding the request as a new memory; preserve \
+                 reusable evidence in the stale tombstone. If a note asks to clean an erroneous \
+                 duplicate candidate created by this workflow, use memory_stale on that candidate \
+                 as well. If you cannot name the concrete action it changes, judge NOOP — never \
+                 invent one. \
                  Write `description` as retrieval hook PLUS decision: WHEN to recall it AND \
                  what to do differently (e.g. \"处理 edit 替换失败/换行符问题时必读:先 \
                  read 重读再改\"). \

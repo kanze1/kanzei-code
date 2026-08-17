@@ -20,7 +20,7 @@ mod tools;
 
 pub use inbox::{InboxBatch, InboxCheckpoint};
 pub use index::{IndexHit, IndexQuery, MemoryIndex, RetrievalTiming, SqliteMemoryIndex};
-pub use manager::{consolidation_prompt, manager_agent, MemoryManagerComponent};
+pub use manager::{consolidation_prompt, manager_agent, MemoryManagerComponent, MemoryStaleTool};
 pub use store::{
     AddOutcome, CandidateReconcileReport, MemoryStore, Novelty, RecallHit, RecallRound, SearchHit,
 };

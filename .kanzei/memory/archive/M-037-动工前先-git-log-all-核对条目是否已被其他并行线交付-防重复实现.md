@@ -4,10 +4,12 @@ scope: project
 category: fact
 title: 动工前先 git log --all 核对条目是否已被其他并行线交付,防重复实现
 description: 接手 R/D 条目动工前必读:先 git log --all 查该目标是否已在别的线交付关闭;发现重复以 dev 权威为准弃并,不要在其上重复实现
-status: candidate
+status: deprecated
 created: 2026-08-11
-updated: 2026-08-13
+updated: 2026-08-17
 source: memory-manager
 ---
 
 R-178 已在 dev 完整交付并关闭(批1 d575549/2 c597d0a/3 540f178采用manual_models列方案/4 ba616f7 D7域选择器收口 a9a2ecc)。但 thread-line-20260811062027工作树留著独立implementation(手动表+add/command/schemav12),与dev权威互斥。已丢弃并 merge_ff 对齐 dev。教训：动工前先 git log --all 查是否已被其他线交付;R-178 的 manual_models是 processes 表的列(JSON数组)非独立表。
+
+(stale: 该交付状态已由 tracker/refs 取代，保留通用防重复实现规则的可追溯墓碑)
