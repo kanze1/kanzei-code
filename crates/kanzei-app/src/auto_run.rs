@@ -80,6 +80,15 @@ pub fn auto_state_reset(state: State<'_, AppState>, session_id: String) -> serde
     json!({ "ok": true })
 }
 
+/// D-403 后续:失败轮该不该进自动重试判定,判据是**鞭挞武装了没有**,不是「已经跑了几轮」。
+/// 原判据 `ctrl.state.rounds == 0` 想表达「手动单轮,用户在场,错误直接返回」,但 rounds 在
+/// 任何 Stop(含 RepeatedFailure)与手动发送时都归零——于是「停摆后手动发一句『继续』」
+/// 恢复的那一轮又落回 rounds==0:再断一次网就没有退避重试,链条静默断掉(正是用户
+/// 2026-08-17 现场的下一步)。鞭挞开着就该重试;没开时保持原行为。
+pub fn should_retry_failed_round(ctrl: &AutoRunController) -> bool {
+    ctrl.enabled
+}
+
 /// 轮末判定入口:未开启时直接 NoContinue(不续跑),否则交给 harness 状态机。
 /// 判定不在此处实现——它只转发,防止前端判定逻辑换个位置再长回来。
 pub fn decide_auto_run(ctrl: &mut AutoRunController, ctx: AutoRunCtx) -> AutoRunAction {
@@ -212,6 +221,53 @@ pub fn work_priority_enum(v: &str) -> WorkPriority {
 #[cfg(test)]
 mod tests {
     use super::{apply_state_update, AutoRunController};
+
+    /// D-403 后续:失败轮进不进重试判定只看鞭挞是否武装。第一轮(rounds==0)断网、
+    /// 以及「停摆后手动发继续」恢复的那一轮(同样 rounds==0)都必须能退避重试。
+    #[test]
+    fn 失败轮是否重试_只看鞭挞武装_与已跑轮数无关() {
+        let mut ctrl = AutoRunController {
+            enabled: true,
+            ..Default::default()
+        };
+        assert!(
+            super::should_retry_failed_round(&ctrl),
+            "鞭挞开着、第一轮就断网也必须走退避重试(手动发继续恢复的那轮同样是 rounds==0)"
+        );
+        ctrl.state.rounds = 5;
+        assert!(super::should_retry_failed_round(&ctrl));
+        ctrl.enabled = false;
+        assert!(
+            !super::should_retry_failed_round(&ctrl),
+            "没开鞭挞:手动单轮保持原行为,错误直接返回"
+        );
+        ctrl.state.rounds = 0;
+        assert!(!super::should_retry_failed_round(&ctrl));
+    }
+
+    /// 闸门放行后,第一轮的瞬态失败必须得到 RetryAfterFailure{attempt:1}(而不是无声无息)。
+    #[test]
+    fn 武装后第一轮瞬态失败_得到退避重试而非静默() {
+        let mut ctrl = AutoRunController {
+            enabled: true,
+            ..Default::default()
+        };
+        assert_eq!(ctrl.state.rounds, 0, "前置:第一轮尚未计数");
+        let ctx = kanzei_harness::auto_run::AutoRunCtx {
+            backlog: kanzei_harness::auto_run::BacklogStatus::Workable,
+            halted: false,
+            steps: 0,
+            tools: &[],
+            auto_allowed: true,
+            closed_this_round: 0,
+            verify_every_n: 0,
+            round_failure: Some(kanzei_harness::auto_run::RoundFailure::Transient),
+        };
+        assert_eq!(
+            super::decide_auto_run(&mut ctrl, ctx),
+            kanzei_harness::auto_run::AutoRunAction::RetryAfterFailure { attempt: 1 }
+        );
+    }
 
     #[test]
     fn 限流错误链会被识别为自动推进的立即停止() {

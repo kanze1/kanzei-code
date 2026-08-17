@@ -251,16 +251,20 @@ pub(crate) async fn run_task(
     let summary = match run_result {
         Ok(summary) => summary,
         Err(error) => {
-            // D-403:失败轮不再在轮末判定之前提前返回。自动链已武装(rounds>0)
+            // D-403:失败轮不再在轮末判定之前提前返回。鞭挞已武装(ctrl.enabled)
             // 时,把失败按瞬态/致命分类送进同一个 auto_run 状态机:瞬态退避重试
             // (连续 MAX_FAILED_ROUNDS 轮才停),致命立即停;停摆经通知桥发手机。
-            // 手动单轮(rounds==0)保持原行为——用户在场,错误直接返回。
+            // 没开鞭挞时保持原行为——用户在场,错误直接返回。
+            //
+            // 判据从「rounds > 0」改成「鞭挞武装了没有」:rounds 在任何 Stop 与手动
+            // 发送时都归零,原判据会让「停摆后手动发一句继续」恢复的那一轮再断网时
+            // 静默断链(见 crate::auto_run::should_retry_failed_round)。
             let rate_limited = crate::auto_run::is_rate_limited_run_error(&error);
             let transient = !rate_limited && crate::auto_run::is_transient_run_error(&error);
             let auto_payload = {
                 let mut controllers = handles.auto_runs.lock().unwrap();
                 let ctrl = controllers.entry(session_id.clone()).or_default();
-                if ctrl.state.rounds == 0 {
+                if !crate::auto_run::should_retry_failed_round(ctrl) {
                     None
                 } else {
                     let ctx = kanzei_harness::auto_run::AutoRunCtx {
