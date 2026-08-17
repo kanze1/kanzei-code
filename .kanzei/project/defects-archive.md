@@ -5714,3 +5714,15 @@
 - observed_head: db2e92d72039994e18c0adbab9abada87d4e13f9
 - observed_worktree_hash: fnv1a64:45b244eede35f065
 - recorded_at: 1786965081960
+
+## D-467 R-277 research_write 吞掉 compile.json 错误 [fixed] (medium)
+- 复现: 审阅 `crates/kanzei-tools/src/research_write.rs` 的 `compile_paper` 分支；`load_compile_state(&dir).unwrap_or(None)` 将损坏/读取失败的 compile.json 当作无历史状态，继续编译并覆盖回环记录。
+- 影响: LaTeX 编译回环遇到损坏状态时无法诊断，可能丢失修复次数和失败证据。
+- 来源: self-found：R-277 批3 research_write 单测后的错误处理审阅。
+- 标签: 核心
+- refs: R-277
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/research_write.rs` compile_paper 分支改为显式匹配 `load_compile_state` 的 Ok/Err，损坏 compile.json 不再覆盖；T-1786922726152 rustfmt 与 kanzei-tools 335 passed/1 ignored 通过。
+- observed_head: 8552c485b4b04f573b3e8a8fac960499f3d4ad69
+- observed_worktree_hash: fnv1a64:dec349a1ef0fc5fb
+- recorded_at: 1786965550809

@@ -5688,3 +5688,18 @@
 - 关联: R-277 D-461 D-462 D-463 D-464 D-465 D-466
 - 收尾: 1786965170
 - 源码指纹: 23a1466578ae9816
+
+## T-1786922726152 R-277 B3 大纲写作与 LaTeX 回环 kanzei-tools 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 37.7s
+- 摘要: R-277 批3 research_write 最终验证：rustfmt 通过；kanzei-tools 335 passed，1 ignored。覆盖写作收敛门、outline 先行/section 单写、source_ids、paper 组装、LaTeX compile/repair 状态及 ResearchProfile 接线。
+- 关联: R-277 D-467
+- 收尾: 1786965545
+
+## T-1786922726153 R-277 B3 当前 staged kanzei-tools fingerprint 回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 31.3s
+- 摘要: 当前 staged 源码单独重跑：kanzei-tools 335 passed，1 ignored；research_write/ResearchProfile/latex 回环测试通过，fingerprint 与 staged Rust 匹配。
+- 关联: R-277 D-467
+- 收尾: 1786965624
+- 源码指纹: b914c074d9d7b52a
