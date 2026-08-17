@@ -1,15 +1,15 @@
 # Defects
 
-## D-433 R-280 加列未提 SCHEMA_VERSION，存量库装机即崩在 no such column: subagents_enabled [fixing] (high)
-- refs: R-280 D-373 D-297
+## D-434 停车没有一等机制，只能写进「阻塞」字段，下一轮复核就被当失效自阻塞清掉 [fixing] (high)
+- refs: D-354 D-242 R-247
 - 复杂度: 小
-- 复现: 用 build-ac637546 覆盖安装到已有 .kanzei/state.db(schema_version=16)的机器，启动后进程列表每次刷新报「读取进程注册失败: sqlite error: no such column: subagents_enabled」。新建库无此现象——新库走建表批，列是有的。
-- 影响: 桌面端进程列表完全不可用，自举循环拿不到进程注册；用户 2026-08-17 11:38 装机即撞。
-- 来源: 用户实测 build-ac637546 装机后报错。
+- 复现: 单 WIP 槽满时想让出一条，引擎只认「阻塞」字段判非可执行(work.rs 无 parked 概念，docstore 状态枚举只有 todo/doing/done/dropped)，于是停车只能伪装成阻塞；下一轮复核阻塞时看到「解除人是 agent 自己」判为失效自阻塞清掉，多个条目同时转为可执行，work next 返回 wip_violation 拒绝取活。2026-08-17 实测：R-221/R-216/R-281/D-349 四个可执行 WIP，取活停摆。
+- 影响: 单 WIP 纪律与阻塞复核纪律互相拆台，自举循环在「清阻塞 → 撞 wip_violation → 再补阻塞」之间来回，无法稳定取活。
+- 来源: 用户 2026-08-17「还是卡住，说 wip 被占用了」→「parked 修复呢」。
 - 标签: 核心
-- 根因: R-280 把 subagents_enabled 加进 processes 建表批并补了幂等 ALTER，却没有 +1 SCHEMA_VERSION。migrate 在 version == SCHEMA_VERSION 时早退，存量库根本不执行 ALTER 批。D-373 立的判据只冻结**对象名集合**(SCHEMA_OBJECTS)，加列不改对象名，于是编译、clippy、全量测试、十步门禁全绿放行——与 D-297 同一条早退路径，只是粒度更细。
-- 证据等级: E3(用户真机装机复现 + 定向回归在缺列的存量库上复现并修复)
-- 验收: ①SCHEMA_VERSION 提到 17 且建表批里的硬编码字面量同步；②停在上一版、缺 subagents_enabled 的存量库 open 后把列补回来(回归 停在上一版的存量库open后补齐缺失的列)；③新增列级机械判据 SCHEMA_COLUMNS，加列不提版本号即红灯(回归 建表批新增列必须伴随schema版本提升)；④workspace 全量与十步门禁全绿后重新发版。
+- 根因: 「不可执行」被压成单一维度。阻塞(等外部前提，复核前提是否仍成立)与停车(主动让出单槽，需显式恢复)处置方式相反，却共用一个字段，谁复核谁清错。
+- 证据等级: E3(真实 tracker 上复现 wip_violation，修复后 kz work next 由 wip_violation 变 resume)
+- 验收: ①新增「停车」字段，被引擎识别为不可执行且不占 WIP 槽；②停车条目落在 parked_items 而非 blocked_items；③全员不可执行时裁决理由把停车与阻塞分开陈述并点名停车条目；④kanzei-memory 的 workable_titles 同步不把停车条目当可干的活；⑤dev system prompt 教「停车写 停车: 不写 阻塞:」「复核阻塞时不要动停车」，并有守护测试；⑥R-221/R-216/R-281 由 阻塞 迁到 停车 后 work next 仍 resume 到 D-349。
 - 优先级: P0
 - 批次: 1/1
 
@@ -30,19 +30,3 @@
 - observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
 - observed_worktree_hash: fnv1a64:907983d54aa63911
 - recorded_at: 1786934918187
-
-## D-428 D-428 归档 fixed 的 D-409 提交不在当前 dev，记忆 inbox 分批修复未接入 [fixing] (high)
-- 复现: 修复前复现：当前 dev 的 crates/kanzei-app/src/memory.rs:311-374 与 crates/kanzei/src/cli/memory.rs:29-75 调用 read_inbox/整箱 consolidation，且 run 结果被忽略；全仓无 read_inbox_batch 符号。修复后共享实现位于 crates/kanzei-memory/src/memory/inbox.rs:18-122 与 crates/kanzei-tools/src/memory_consolidation.rs:1-301，调用方已迁移。
-- 影响: requirements、defects、tests 与实现互相矛盾；系统仍可能无法按批消化 inbox，R-286 的 P0 事实恢复被错误 fixed 状态掩盖。
-- 期望: 在当前 dev 原子接入分批读取、checkpoint、错误可见和 CLI/桌面共用服务；重新跑定向测试并把 D-409/R-286/tests/实现证据绑定到当前 dev 提交。
-- 来源: self-found：R-283 Wave 0 事实复核
-- 标签: 核心
-- 根因: D-409 的修复提交来自另一条线/历史观察点，归档状态先于实现进入当前 dev，缺少当前分支提交存在性门禁。
-- refs: D-409 R-286 R-283
-- 优先级: P0
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-428
-- 批次: 3/3
-- 进展: 批次: 3/3。B1/B2 实现已接入；B3 已修复历史测试 ID 时间归一，并进一步修复 crates/kanzei-tools/src/test_record.rs:801-840 与 crates/kanzei-tools/src/git.rs:772-781：存在源码指纹时，last_passed 与提交门禁均优先选择最新源码指纹组，不再被无指纹历史前端记录遮蔽；新增 last_passed_prefers_fingerprinted_group_over_newer_legacy_record 与 source_test_gate_prefers_matching_fingerprint_over_newer_legacy_record 回归。T-1786922726066 两条回归及 fmt 通过；T-1786922726067：新 staged 代码下 fmt、kanzei-tools 320 passed/1 ignored，以及六 crate 覆盖全部通过（kanzei 37、app 196、core 214、harness 150、memory 142/1 ignored、tools 321/1 ignored）。B1/B2/B3 实现已随 ed305ae8 进入 dev(inbox.rs、memory_consolidation.rs 及 app/CLI 调用方均在该提交内)。此前挡住提交的不是运行态刷新问题，而是旧 kzapp(2026-08-09 安装版)把 13 位毫秒 id 当秒比较，详见 D-349 进展。下一步完成 D-409/R-286/tests/实现对账并关闭 D-428。
-- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
-- observed_worktree_hash: fnv1a64:b71f5d240160cea5
-- recorded_at: 1786929654689

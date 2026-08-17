@@ -27,7 +27,7 @@ pub use scheduling::{
     dependents_map, dependents_map_with_states, dispatch_verdict, schedule_for_display,
     schedule_for_display_with_states, workable_titles, DependencyStates, ScheduledEntry,
 };
-pub(crate) use scheduling::{is_prerequisite_key, tracker_ids};
+pub(crate) use scheduling::{is_prerequisite_key, park_reason, tracker_ids};
 
 pub struct TrackerTool {
     pub tool_name: &'static str,

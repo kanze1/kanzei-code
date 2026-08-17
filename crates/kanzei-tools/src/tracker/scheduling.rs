@@ -355,6 +355,14 @@ pub(crate) fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<Str
         if is_blocker_key(key) && is_present_blocker(value) {
             reasons.push(format!("阻塞字段: {}", value.trim()));
         }
+        // D-434:停车与阻塞语义分离。两者都让条目不可执行、不占 WIP 槽,但
+        // 「阻塞」= 外部前提未满足(有具名解除人),复核时该逐条查前提是否还成立;
+        // 「停车」= 显式让出单 WIP 槽的调度决定,前提本来就不存在,复核阻塞的
+        // 扫荡不该碰它。混用同一个字段的代价实测过:一轮把停车当「失效自阻塞」
+        // 清掉,下一轮四个条目同时可执行撞 wip_violation,取活直接停摆。
+        if is_park_key(key) && is_present_blocker(value) {
+            reasons.push(format!("停车: {}", value.trim()));
+        }
         if is_dependency_key(key) && cycle.is_none() {
             // R-185:只有「依赖」是阻塞依赖(调度跳过)。「前置」不在此列——
             // 它是可并行但需在协作上下文显式说明的关系,见 is_prerequisite_key。
@@ -387,6 +395,8 @@ pub(crate) fn deadlock_banner(total: usize, noun: &str) -> String {
          1. 先逐条复核阻塞是否仍成立:依赖已归档、条件已满足、方案其实早已确认的,\
          清空该条的「阻塞」字段再取活——自己历轮写下的「需先确认方案」不算外部阻塞。\n\
          2. 复核后仍全阻塞,才回复用户,并逐条点名缺的是哪一个具体决策。\n\
+         注意:带「停车」字段的条目是显式让出 WIP 槽的调度决定,不是待复核的阻塞——\
+         第 1 步的扫荡不要清它,恢复由用户或停车的那条线自己做(D-434)。\n\
          禁止以「没有可执行条目」「本轮停止」之类的纯文本收尾。"
     )
 }
@@ -422,6 +432,22 @@ pub(crate) fn structured_entry(
 fn is_blocker_key(key: &str) -> bool {
     let lower = key.trim().to_ascii_lowercase();
     key.contains("阻塞") || matches!(lower.as_str(), "blocked" | "blocker" | "blocking")
+}
+
+/// D-434:显式停车。与 [`is_blocker_key`] 严格分开——`is_blocker_key` 走
+/// `contains("阻塞")`,而停车字段名不含「阻塞」,两者不会互相命中。
+pub(crate) fn is_park_key(key: &str) -> bool {
+    let lower = key.trim().to_ascii_lowercase();
+    key.trim() == "停车" || matches!(lower.as_str(), "parked" | "park")
+}
+
+/// D-434:条目是否被显式停车。停车理由原样返回,供裁决面与协作上下文区分展示。
+pub(crate) fn park_reason(entry: &Entry) -> Option<String> {
+    entry
+        .fields
+        .iter()
+        .find(|(key, value)| is_park_key(key) && is_present_blocker(value))
+        .map(|(_, value)| value.trim().to_string())
 }
 
 fn is_dependency_key(key: &str) -> bool {

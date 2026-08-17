@@ -220,6 +220,11 @@ pub(crate) fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<Str
         if is_blocker_key(key) && is_present_blocker(value) {
             reasons.push(format!("阻塞字段: {}", value.trim()));
         }
+        // D-434:显式停车同样不可执行——workable_titles 是注入记忆上下文的
+        // 「现在能干的活」,把让出 WIP 槽的条目算进去等于把停车当没发生。
+        if is_park_key(key) && is_present_blocker(value) {
+            reasons.push(format!("停车: {}", value.trim()));
+        }
         if is_dependency_key(key) && cycle.is_none() {
             // R-185:只有「依赖」是阻塞依赖(调度跳过)。「前置」不在此列——
             // 它是可并行但需在协作上下文显式说明的关系,见 is_prerequisite_key。
@@ -242,6 +247,12 @@ pub(crate) fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<Str
         ));
     }
     reasons
+}
+
+/// D-434:显式停车。与 `is_blocker_key`(走 `contains("阻塞")`)不重叠。
+fn is_park_key(key: &str) -> bool {
+    let lower = key.trim().to_ascii_lowercase();
+    key.trim() == "停车" || matches!(lower.as_str(), "parked" | "park")
 }
 
 fn is_blocker_key(key: &str) -> bool {

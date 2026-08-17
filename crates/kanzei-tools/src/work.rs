@@ -53,6 +53,10 @@ pub struct WorkItem {
     pub references: Vec<WorkReference>,
     pub blocked: bool,
     pub block_reasons: Vec<String>,
+    /// D-434:显式停车(「停车」字段)。与 `blocked` 一样不占 WIP 槽,但语义不同:
+    /// 阻塞等外部前提,停车是主动让出单槽的调度决定,复核阻塞时不该被清掉。
+    #[serde(default)]
+    pub parked: bool,
     pub progress_provenance: ProgressProvenance,
     /// D-354:持有该条目的线(「取得线」字段,claim 时写入)。None = 默认线持有
     /// (含并行化之前的历史 WIP)。
@@ -118,6 +122,10 @@ pub struct ResolvedControlState {
     pub selected: Option<WorkItem>,
     pub executable_wip: Vec<WorkItemSummary>,
     pub blocked_items: Vec<WorkItemSummary>,
+    /// D-434:显式停车的条目。与 blocked_items 分开列,免得复核阻塞的扫荡把
+    /// 「主动让出 WIP 槽」当成「过期的自记阻塞」清掉——清完下一轮就撞 wip_violation。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parked_items: Vec<WorkItemSummary>,
     /// D-332 验收⑥:裁决被冻结的标志。Resume/Start 一旦给出且没有新的控制面事实
     /// (队列变化/阻塞解除/用户指示),Agent 不应重新讨论「做不做/做哪个」——
     /// 评估实测:同一 scope decision 反复反刍几千 token,边际信息增益≈0。
@@ -515,6 +523,7 @@ fn item(
             .collect(),
         blocked: !block_reasons.is_empty(),
         block_reasons,
+        parked: crate::tracker::park_reason(entry).is_some(),
         progress_provenance: provenance(entry, observation),
         claimed_by: field(entry, "取得线").map(str::to_string),
     }
@@ -615,6 +624,7 @@ pub fn resolve_work_decision(
 
     let mut executable_wip = Vec::new();
     let mut blocked_items = Vec::new();
+    let mut parked_items: Vec<WorkItem> = Vec::new();
     let mut foreign_wip: Vec<WorkItemSummary> = Vec::new();
     let mut integrity_errors = Vec::new();
     for (kind, scheduled, wip_status) in [
@@ -664,6 +674,10 @@ pub fn resolve_work_decision(
                 // 他线的 WIP:只作背景可见,不进本线任何裁决(blocked 也不进——
                 // 它的阻塞该由持有线处理)。
                 foreign_wip.push(WorkItemSummary::from(&view));
+            } else if view.parked {
+                // D-434:停车先于阻塞判定——停车条目照样不可执行,但要落在自己的
+                // 清单里,裁决面才分得清「等外部前提」和「主动让槽」。
+                parked_items.push(view);
             } else if view.blocked {
                 blocked_items.push(view);
             } else if view.lifecycle_status == wip_status {
@@ -753,7 +767,36 @@ pub fn resolve_work_decision(
                 ),
                 None if !blocked_items.is_empty() => (
                     WorkDecision::Blocked,
-                    "所有非终态条目都带有效阻塞；需要复核阻塞或请求外部解锁".into(),
+                    if parked_items.is_empty() {
+                        "所有非终态条目都带有效阻塞；需要复核阻塞或请求外部解锁".into()
+                    } else {
+                        // D-434:两类不可执行的处置方式相反——阻塞要复核前提,停车要
+                        // 显式恢复。合并成一句会让 agent 拿复核阻塞的手法去动停车条目。
+                        format!(
+                            "所有非终态条目都不可执行:{} 条带有效阻塞(复核前提或请求外部解锁)，\
+                             {} 条显式停车(恢复它们才取活,不要当失效阻塞清掉):{}",
+                            blocked_items.len(),
+                            parked_items.len(),
+                            parked_items
+                                .iter()
+                                .map(|item| item.id.as_str())
+                                .collect::<Vec<_>>()
+                                .join("、")
+                        )
+                    },
+                    None,
+                ),
+                None if !parked_items.is_empty() => (
+                    WorkDecision::Blocked,
+                    format!(
+                        "所有非终态条目都被显式停车({});恢复其中一条再取活——\
+                         停车是主动让出 WIP 槽,不是待复核的阻塞",
+                        parked_items
+                            .iter()
+                            .map(|item| item.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join("、")
+                    ),
                     None,
                 ),
                 None if !integrity_errors.is_empty() => (
@@ -807,6 +850,7 @@ pub fn resolve_work_decision(
         selected,
         executable_wip: executable_wip.iter().map(WorkItemSummary::from).collect(),
         blocked_items: blocked_items.iter().map(WorkItemSummary::from).collect(),
+        parked_items: parked_items.iter().map(WorkItemSummary::from).collect(),
         decision_locked,
         integrity_errors,
         line: me,
@@ -1281,6 +1325,71 @@ mod tests {
         assert_eq!(state.decision, WorkDecision::Blocked);
         assert!(state.selected.is_none());
         assert_eq!(state.blocked_items.len(), 2);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// D-434 验收①:停车的 WIP 不占单槽——同队列另一条 WIP 照常 Resume。
+    /// 反例是本条修复前的真实形态:R-221/R-216/R-281/D-349 四个可执行 WIP
+    /// 撞 wip_violation,work next 直接拒绝取活。
+    #[test]
+    fn parked_wip_does_not_consume_the_single_slot() {
+        let dir = fixture("parked-slot");
+        let mut parked = entry("R-001", "doing");
+        parked
+            .fields
+            .push(("停车".into(), "单 WIP 槽让给 D-001".into()));
+        DocStore::open(&dir, &REQUIREMENTS).save(&[parked]).unwrap();
+        DocStore::open(&dir, &DEFECTS)
+            .save(&[entry("D-001", "fixing")])
+            .unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(
+            state.decision,
+            WorkDecision::Resume,
+            "停车条目仍占槽,四个 WIP 撞单槽纪律的老毛病回来了: {}",
+            state.reason
+        );
+        assert_eq!(state.selected.unwrap().id, "D-001");
+        assert_eq!(
+            state
+                .parked_items
+                .iter()
+                .map(|i| i.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["R-001"],
+            "停车条目必须落在 parked_items,而不是 blocked_items"
+        );
+        assert!(
+            state.blocked_items.is_empty(),
+            "停车不是阻塞:混进 blocked_items 就会被复核阻塞的扫荡清掉"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// D-434 验收②:全员不可执行时,裁决面必须把「等外部前提」和「主动让槽」
+    /// 分开说——两者的处置方式相反,合并成一句会让复核阻塞的手法去动停车条目。
+    #[test]
+    fn parked_and_blocked_are_reported_separately() {
+        let dir = fixture("parked-vs-blocked");
+        let mut parked = entry("R-001", "doing");
+        parked.fields.push(("停车".into(), "让槽给别的活".into()));
+        let mut blocked = entry("R-002", "todo");
+        blocked.fields.push(("阻塞".into(), "等待外部凭证".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[parked, blocked])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS).save(&[]).unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Blocked);
+        assert_eq!(state.parked_items.len(), 1, "{:?}", state.parked_items);
+        assert_eq!(state.blocked_items.len(), 1, "{:?}", state.blocked_items);
+        assert!(
+            state.reason.contains("停车") && state.reason.contains("R-001"),
+            "理由里必须点名停车条目,否则恢复动作无处着手: {}",
+            state.reason
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

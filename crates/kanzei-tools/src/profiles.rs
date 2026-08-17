@@ -428,7 +428,12 @@ impl Component for DevProfile {
                          item that carries a valid blocking field (an external blocker with a \
                          named unblocker) or that the user explicitly parked is NOT executable \
                          and does NOT consume the slot — never refuse to start new work on the \
-                         grounds that a blocked item is sitting in doing or fixing. Hoarding \
+                         grounds that a blocked item is sitting in doing or fixing. To park, \
+                         write a `停车:` field stating why the slot was handed over; parking is \
+                         NOT a blocker and must never be written into `阻塞:`. The two are \
+                         cleared differently: a blocker is re-checked against its external \
+                         premise, a parked item is resumed deliberately — so when you sweep \
+                         stale blockers, leave `停车:` alone. Hoarding \
                          backstop: when doing plus fixing, blocked ones included, exceeds 4, \
                          open nothing new until the backlog is drained. \
                          Batch protocol: YOU decide how many batches an item takes, from its \
@@ -854,6 +859,11 @@ mod tests {
             "share the SAME single slot",
             "does NOT consume the slot",
             "exceeds 4",
+            // D-434:停车与阻塞是两个字段、两种清除方式。提示词里没有这条,
+            // 模型只能把停车写进「阻塞」,下一轮复核阻塞时又被当失效自阻塞清掉。
+            "write a `停车:` field",
+            "must never be written into `阻塞:`",
+            "leave `停车:` alone",
             // ② 批次:数量由 agent 自定,上限 10,写法与提交标记有明确规矩。
             "hard ceiling of 10",
             "批次: 0/N",
