@@ -23,10 +23,10 @@
 - 验收: 收敛单一真源(Map/state),DOM 只做投影;切线/后台线/重启回归用例;冒烟覆盖
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-504
-- 进展: 已完成第二段实现与回归：①后台 `kz:done/kz:auto-fail` 的 `transitionSession` 统一使用 `currentAutoRounds(p.sessionId)`，不再把活动线 `autoRounds` 镜像写入后台会话（`07-events.js:375,381,389,439,441,449,454,465,470,477`）；②runtime smoke 新增后台甲轮次、后台连跑第二轮轮次及 `applyAutoUiState("p|bg-loop")` 切线回显断言（`scripts/ui-runtime-smoke.mjs:5096-5102,5133-5138,5155-5163`）；③启动恢复既有 `initialAutoState` 断言覆盖 ui_prefs 重启回显（`scripts/ui-runtime-smoke.mjs:1510-1513`）。T-1786922726294：node 语法、globals、runtime、并行线路、a11y、i18n、markdown 全部通过。下一步提交本条修复，提交后再复核是否还缺真实重启链路证据。
-- observed_head: dcdb238e5c617b11fc15b5d08ff0492e939a971a
-- observed_worktree_hash: fnv1a64:ca0bb16f7cf470fc
-- recorded_at: 1787008060780
+- 进展: 本批已提交：`8f490d92 D-504 收敛自动推进轮次与线路配置真源`。①单一真源：`08-compose.js:8-15,97-100,1084-1098` 以 `sessionState(sessionId).auto_rounds` 与 `processAutoState` 为真源，DOM 仅投影；②后台线：`07-events.js:375,381,389,439,441,449,454,465,470,477` 统一按 `currentAutoRounds(p.sessionId)` 写入，不再使用活动线镜像；③切线/后台回归：`scripts/ui-runtime-smoke.mjs:1404-1415,5098-5103,5136-5140,5161-5166` 覆盖 Map 优先、后台甲、后台连跑第二轮和切线回显；④重启初始化：`scripts/ui-runtime-smoke.mjs:1510-1513` 覆盖 `ui_prefs` 启动恢复；T-1786922726295 当前暂存源码六项前端冒烟通过，T-1786922726296 `cargo test -p kanzei-app` 为 205 passed。验收缺口：尚未有真实已安装桌面应用退出→重启→读取持久化状态的可重放证据；因此 D-504 保持 fixing，下一步建立真实重启链路或明确验收降级，不关闭。
+- observed_head: 8f490d92856e1e0208efee838b55b18254d6c883
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787008227966
 
 ## D-505 收活合并门禁用 CSS class 当闸门状态 [open] (medium)
 - 复现: crates/kanzei-app/ui/20-lines.js:788 postMergeStep.classList.contains(confirmed) 决定能否回写 tracker,是 R-222 前置(合并后全量通过)的唯一判据
