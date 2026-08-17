@@ -5835,3 +5835,29 @@
 - observed_head: c6099025771f6793f55a501f21120ec114a55caf
 - observed_worktree_hash: fnv1a64:36071f97823b2349
 - recorded_at: 1786970380933
+
+## D-477 研究工作台长报告未复用窗口化渲染，长文一次性进入 DOM [fixed] (medium)
+- 复现: 在 research 工作台打开包含超长 report.md 的 topic；19-research.js:463-500 直接对全文调用 renderMarkdown 并写入 #research-report，未按窗口分段。
+- 影响: 长报告虽可滚动，但长文初始化和引用扫描会一次性构造完整 DOM，无法满足 R-276 验收④的“长报告与长活动流滚动不卡（窗口化生效）”。
+- 来源: self-found：R-276 批6逐条验收复核。
+- 标签: 前端
+- 验收: 报告首屏只渲染尾部窗口，向上滚动补齐且保持滚动位置；短报告行为与引用 [S-xxx]/[F-xxx] 跳转不回归。
+- refs: R-276 R-267
+- 优先级: P1
+- 进展: 已修复：`crates/kanzei-app/ui/19-research.js:463-488` 按 markdown 空行分块并设 `RESEARCH_REPORT_WINDOW_SIZE=40`；`:525-547` 首屏仅渲染尾部窗口并显示载入更早入口；`:549-565` 滚动到顶部/点击后向前补窗并按新增高度修正 scrollTop；`:490-523` 在每个窗口继续装饰已登记的 `[S/F-xxx]` 引用并回到卡片。短报告仍经 `:568-588` 同一入口渲染。T-1786922726173：runtime、lint、parallel-lines、a11y、i18n、markdown 六条前端门禁全通过。
+- observed_head: e08eb0a0b5b3fb0f3476df18e083ba4f0598e320
+- observed_worktree_hash: fnv1a64:a3778bc65fc6cdcc
+- recorded_at: 1786971003085
+
+## D-478 研究报告窗口向上补齐后最早内容未进入可见 DOM [fixed] (medium)
+- 复现: 执行 `node scripts/ui-runtime-smoke.mjs`，长报告窗口断言中 `loadEarlierResearchReport()` 返回 true，但 reportHost 补齐后不包含 `Report head`。
+- 影响: 长报告向上补齐的用户可见行为无法通过现有运行时冒烟确认，可能导致历史内容实际不可见或测试夹具与真实 DOM 语义不一致。
+- 来源: self-found：D-477 修复后的 runtime smoke 回归。
+- 标签: 前端
+- 验收: 补齐前只显示尾部窗口；补齐后可见最早块与 S-101 引用；真实 DOM 与 smoke 假 DOM 均通过。
+- refs: R-276 D-477
+- 优先级: P1
+- 进展: 已修复并验证：失败原因是测试夹具 97 个块从窗口起点 57 单次补窗后仍停在 17，断言错误而非产品路径丢内容；`scripts/ui-runtime-smoke.mjs:2828-2840` 调整为 77 个块并断言首屏尾窗、`.research-report-earlier`、`loadEarlierResearchReport()` 后最早块与 `S-101` 引用均可见。产品补窗实现位于 `crates/kanzei-app/ui/19-research.js:549-557`。T-1786922726173 六条前端门禁通过；UI DOM 检查确认真实 `#research-report` 节点存在且 console 无警告。
+- observed_head: e08eb0a0b5b3fb0f3476df18e083ba4f0598e320
+- observed_worktree_hash: fnv1a64:a3778bc65fc6cdcc
+- recorded_at: 1786971014116

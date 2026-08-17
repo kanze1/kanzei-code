@@ -2825,6 +2825,19 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   assert(arxivCalls.at(-1)?.args?.topic === "alpha-study", `arXiv 正文调用未携带 topic:${JSON.stringify(arxivCalls.at(-1)?.args)}`);
   assert(byId.get("viewer-body")?.textContent.includes("正文级"), "arXiv 返回的正文级标注未进入 viewer");
   assert(byId.get("research-report").textContent.includes("Alpha report"), "alpha topic 未读取对应 report");
+  const longResearchReport = [
+    "# Report head",
+    ...Array.from({ length: 75 }, (_, index) => `Section ${index} [S-101]`),
+    "Report tail [S-101]",
+  ].join("\n\n");
+  vm.runInContext(`renderResearchReport(${JSON.stringify(longResearchReport)})`, sandbox);
+  const reportHost = byId.get("research-report");
+  assert(Number(reportHost.dataset.reportWindowStart) > 0, "长报告首屏未启用尾部窗口");
+  assert(reportHost.querySelector(".research-report-earlier"), "长报告缺少载入更早内容入口");
+  assert(!reportHost.textContent.includes("Report head"), "长报告首屏意外渲染了最早内容");
+  assert(vm.runInContext("loadEarlierResearchReport()", sandbox) === true, "长报告未能向上补齐窗口");
+  assert(reportHost.textContent.includes("Report head"), "长报告补齐后未出现最早内容");
+  assert(reportHost.textContent.includes("S-101"), "长报告窗口化后引用内容丢失");
   topicSelect.value = "beta-study";
   topicSelect.dispatchEvent({ type: "change", currentTarget: topicSelect });
   await flush();

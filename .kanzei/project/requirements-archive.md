@@ -3673,10 +3673,27 @@
 - 边界: 不做真·多 agent 并行编排(先行对照:15 倍 token 单用户不值,隔离+压缩回传同样解上下文冲突);不做 RL 专训模型(纪律放系统侧);不做常驻知识库服务(索引随课题建随课题用);不做模拟审稿与自动选题;计划审批前端由 R-276 承接,本条只出数据结构与状态机。
 - 验收: ①一个真实课题走完整链路(计划→审批→检索→带引用报告)有轨迹;②FACT 式抽查:随机抽论断,文献 URL 与代码 file:line 逐条支撑(实测,不接受自评);③预算旋钮实测:设小预算提前收敛出报告不崩;④机械核验原始工具输出不进主上下文(只有压缩摘要);⑤文献与代码经同一检索接口命中各有实测;⑥中途强杀重启可恢复续跑;⑦轻课题(只产 report.md)与重课题(paper.tex 编译通过)各走通一次。验收②补充(D-412 反例):「出处是否真含支撑文本」做成机械抽查——文献论断的支撑文本必须落在正文内(取回正文全文 grep 关键词,摘要命中不算),仅摘要级来源不得支撑正文级论断;D-412 反例样本=CoALA 四类记忆划分不在摘要而在正文 §2.3(working/episodic/semantic/procedural),机械抽查应能检出此类越界(摘要含 modular memory components 但无四词)。
 - 优先级: P1
-- 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-277
 - 进展: R-277 关闭前逐条验收证据：①真实课题 plan→审批→检索→报告轨迹：既有真实 `.kanzei/research/r221-chain/plan.md`、`sources.md`、`findings.md`、`report.md` 保留完整链路；本次真实 topic `.kanzei/research/r277-write-acceptance-2/plan.json`、`loop.json`、`report.md` 由 T-1786922726169 重放验证，计划审批实现位于 `crates/kanzei-tools/src/research_plan.rs:180-206`，检索环入口位于 `research_loop.rs:162-216,255-369`。②FACT 抽查：`crates/kanzei-tools/src/research_verify.rs:116-227,264-464` 的正文文献、代码 file:line@commit、source refs、V 等级和 keywords 核验；D-412 摘要越界反例测试位于 `research_verify.rs:521-562`，T-1786922726156/T-1786922726170 通过。③预算旋钮：`research_verify.rs:235-245,411-464` 的 budget_set/get 与 `research_loop.rs:56-71,190-203` 实际消费；本次 `loop.json` 实测 max_rounds=1/max_tokens=1000/max_concurrency=1、tokens_used=18，T-1786922726169 通过。④原始输出隔离：`research_loop.rs:281-326` 只接受 summary/relevance/source_ids 且拒绝原始网页字段；本次 report.md 由真实 research agent 经受限 write 写入，T-1786922726169 read 回核验仅含压缩证据。⑤统一检索：`research_index.rs:258-407` 同一 topic index 入口覆盖文献 search、代码 search 和 symbols 反查；T-1786922726164/T-1786922726166 通过。⑥中途强杀恢复：`research_index.rs:319-365` 单 worker+NoMergePolicy+批量 checkpoint；T-1786922726165 真实 Windows 5211 文档强杀 pid=96200 后 index_resume 从 1024/5211 完成到 5211/5211，D-475 已由 c6099025 修复。⑦轻重课题真实走通：T-1786922726169 真实 agent 写入 `.kanzei/research/r277-write-acceptance-2/report.md` 并 read 回；`research_write.rs:263-340` 真实执行 write_outline→write_section→assemble_paper→compile_paper，产出 `.kanzei/research/r277-write-acceptance-2/paper.tex`、`compile.json(status=passed)`、`paper.pdf`；T-1786922726170 workspace 全量 0 failed。批次 5/5 已满，所有验收项均有实现位置、真实消费者和可重放测试证据。
 - observed_head: c6099025771f6793f55a501f21120ec114a55caf
 - observed_worktree_hash: fnv1a64:47fa0d10aca59693
 - recorded_at: 1786970281338
 - 停车: 
+
+## R-276 research 模式前端:双面板/计划审批/来源呈现 [done]
+- refs: R-221 R-267 R-273 R-274 R-277 R-283 R-284 D-412 D-413
+- 依赖: 
+- 内容: 按 docs/design/research_workspace.md(2026-08-16 用户首轮实测反馈驱动的设计稿)实施研究工作台六批:批1 设计稿过审;批2 交互修复(去 kind gating,source/finding 与 req/defect 同权:可开/可编/可删/不截断,即 D-413);批3 双面板工作台+报告 tab(内联 [S-00x] 与 file:line 可跳、V 等级徽章与过滤);批4 来源/发现卡片化+筛选+反查+复制引用(BibTeX);批5 全文通道(read 支持 PDF、arXiv 正文通道、来源卡标注摘要级/正文级并与 V 表联动);批6 计划树面板(依赖 R-277)。设计原则取自 prior_art §1 前端横评:结果>过程、溯源三处冗余、计划先行可编辑、数据已结构化的 UI 不许降级成字符串。建议顺序:批2 与批5 先行(不依赖引擎,正是用户点名痛点)。
+- 复杂度: 大
+- 批次: 6/6
+- 来源: 2026-08-16 用户「researchmode的前端设计这些比较复杂」;设计输入为 prior_art §1 前端横评(Gemini 报告至上双面板/ChatGPT 计划编辑与运行中转向/Perplexity 来源三处冗余/Manus 过程至上反例)与四组件通用 schema(document/steps/sources/annotations)。
+- 标签: 前端
+- 边界: 不做协作/分享/导出站外;不做在线 LaTeX 编辑器(Monaco 已有);research 下连跑禁用沿用 interaction_modes 既有定调;长报告渲染沿用 R-267 窗口化模式,不另造。
+- 验收: ①批1 设计稿经用户过审(含四组件权重取舍的明确理由);②计划编辑→运行→中途转向全链路可操作有轨迹;③引用点击回源双形态各实测(URL 与 file:line);④长报告与长活动流滚动不卡(窗口化生效);⑤与桌面既有 UI 风格与 i18n 纪律一致。
+- 优先级: P2
+- 进展: 批6已提交并完成关闭验收：①批1设计稿按用户首轮反馈过审，四组件取舍与结果优先/溯源冗余/计划先行原则已落到 `crates/kanzei-app/ui/index.html:509-515`、`19-research.js:176-218,578-611`，历史实现锚 `571b3f25`；②计划编辑→运行→中途转向：计划树读取/审批消费在 `19-research.js:176-218,529-576`，计划状态机在 `crates/kanzei-tools/src/research_plan.rs:168-206,217-350`，运行环在 `research_loop.rs:162-216,255-369`，T-1786922726141/T-1786922726169 真实链路通过；③引用 URL 与 file:line 双回源由 `crates/kanzei-app/ui/11-docs-list.js:157-210`、`19-research.js:295-344,490-523` 消费，T-1786922726131/T-1786922726173 通过；④长报告窗口化由 `19-research.js:463-576`（40 块尾窗、顶部补齐、scrollTop 修正）与 `style.css:2267` 提供，长活动流沿用既有 R-267 `15-views-misc.js:288-394`（PANE_WINDOW_SIZE=120、向上补齐），T-1786922726173 通过；⑤桌面 UI/i18n 纪律由 `style.css:2221-2267`、`02-i18n.js:255` 及六条前端门禁保证，T-1786922726173、UI DOM/console 检查和 T-1786922726174 全量回归通过。D-477/D-478 已分别 fixed。批次 6/6 已满。
+- observed_head: e08eb0a0b5b3fb0f3476df18e083ba4f0598e320
+- observed_worktree_hash: fnv1a64:a3778bc65fc6cdcc
+- recorded_at: 1786971130487
+- 阻塞: 
+- 取活依据: engine:唯一可执行 WIP 是 R-276，必须先恢复它

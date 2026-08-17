@@ -5840,3 +5840,25 @@
 - 关联: R-277 D-476
 - 收尾: 1786970515
 - 源码指纹: 215fc25d7c28f1c0
+
+## T-1786922726173 R-276 B6 研究报告窗口化六条前端门禁 [passed]
+- 命令: node scripts/gen-ui-lint-globals.mjs --check; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 6.8s
+- 摘要: R-276 批6研究报告窗口化回归：globals 705 同步；runtime 24 个 UI 脚本、2131 次 invoke、0 错误；ui-lint 44 文件零 no-undef；parallel-lines、a11y（22 icon-btn）、i18n（1255 key/443 HTML/57 动态）、markdown 全部通过。覆盖长报告尾部窗口、载入更早内容、向上补齐、S-101 引用保留、计划审批与 topic 隔离。
+- 关联: R-276 D-477 D-478
+- 收尾: 1786970977
+
+## T-1786922726174 R-276 B6 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 46.8s
+- 摘要: R-276 关闭前 workspace 全量回归：所有 workspace test 组 0 failed；kanzei-tools 340 passed/1 ignored、kanzei-app 202 passed、kanzei-memory 143 passed，其余 crate/doc-tests 全部通过。
+- 关联: R-276 D-477 D-478
+- 收尾: 1786971109
+
+## T-1786922726175 R-276 B6 提交门禁 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.0s
+- 摘要: 按提交门禁重新运行 kanzei-app 定向回归：202 passed，0 failed，0 ignored；为当前 staged R-276 UI 改动刷新源码背书。
+- 关联: R-276 D-477 D-478
+- 收尾: 1786971225
+- 源码指纹: ace5e0fa9df5212b

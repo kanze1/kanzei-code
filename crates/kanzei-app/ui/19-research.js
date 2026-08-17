@@ -460,11 +460,34 @@ function renderResearchCards() {
   host.appendChild(group);
 }
 
-/// 报告正文:markdown 渲染,并把 [S-00x]/[F-00x] 变成可点角标(溯源三处冗余之一)。
-function renderResearchReport(text) {
-  const host = $("research-report");
-  if (!host) return;
-  host.innerHTML = renderMarkdown(text ?? "");
+const RESEARCH_REPORT_WINDOW_SIZE = 40;
+let researchReportBlocks = [];
+let researchReportWindowStart = 0;
+let researchReportScrollHost = null;
+
+function splitResearchReportBlocks(text) {
+  const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+  let block = [];
+  let inFence = false;
+  const flush = () => {
+    if (block.length) blocks.push(block.join("\n"));
+    block = [];
+  };
+  for (const line of lines) {
+    const fence = /^\s*```/.test(line);
+    if (!inFence && !line.trim()) {
+      flush();
+      continue;
+    }
+    block.push(line);
+    if (fence) inFence = !inFence;
+  }
+  flush();
+  return blocks;
+}
+
+function decorateResearchReportReferences(host) {
   // 渲染后回扫文本节点,把引用编号替换为按钮。只认已登记的编号,避免把普通
   // 文本里的 S-/F- 误变成死链。
   const topic = selectedResearchTopicData();
@@ -497,6 +520,59 @@ function renderResearchReport(text) {
     if (last < text2.length) frag.appendChild(document.createTextNode(text2.slice(last)));
     node.parentNode?.replaceChild(frag, node);
   }
+}
+
+function renderResearchReportWindow() {
+  const host = $("research-report");
+  if (!host) return;
+  host.innerHTML = "";
+  if (researchReportWindowStart > 0) {
+    const earlier = document.createElement("button");
+    earlier.type = "button";
+    earlier.className = "earlier-hint research-report-earlier";
+    earlier.textContent = `↑ ${t("载入更早的报告内容")}`;
+    earlier.addEventListener("click", () => loadEarlierResearchReport());
+    host.appendChild(earlier);
+  }
+  const visible = researchReportBlocks.slice(researchReportWindowStart).join("\n\n");
+  if (visible) {
+    const body = document.createElement("div");
+    body.className = "research-report-window";
+    body.innerHTML = renderMarkdown(visible);
+    host.appendChild(body);
+    decorateResearchReportReferences(body);
+  }
+  host.dataset.reportWindowStart = String(researchReportWindowStart);
+  host.dataset.reportWindowSize = String(RESEARCH_REPORT_WINDOW_SIZE);
+}
+
+function loadEarlierResearchReport() {
+  const host = $("research-report");
+  if (!host || researchReportWindowStart <= 0) return false;
+  const before = host.scrollHeight || 0;
+  researchReportWindowStart = Math.max(0, researchReportWindowStart - RESEARCH_REPORT_WINDOW_SIZE);
+  renderResearchReportWindow();
+  const after = host.scrollHeight || 0;
+  host.scrollTop = (host.scrollTop || 0) + Math.max(0, after - before);
+  return true;
+}
+
+function bindResearchReportScroll(host) {
+  if (researchReportScrollHost === host) return;
+  researchReportScrollHost = host;
+  host.addEventListener("scroll", () => {
+    if (host.scrollTop < 80) loadEarlierResearchReport();
+  });
+}
+
+/// 报告正文按窗口渲染 markdown,并把 [S-00x]/[F-00x] 变成可点角标。
+function renderResearchReport(text) {
+  const host = $("research-report");
+  if (!host) return;
+  researchReportBlocks = splitResearchReportBlocks(text);
+  researchReportWindowStart = Math.max(0, researchReportBlocks.length - RESEARCH_REPORT_WINDOW_SIZE);
+  bindResearchReportScroll(host);
+  renderResearchReportWindow();
 }
 
 async function refreshResearchReport() {
