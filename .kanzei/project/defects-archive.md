@@ -5914,3 +5914,56 @@
 - observed_head: 82b5cdfce1f709b26869f888e3a319a110cab2c0
 - observed_worktree_hash: fnv1a64:2b9e0e2dc2479706
 - recorded_at: 1786993848416
+
+## D-482 顶栏模型下拉与线路存档不同源:切线路不变、发送与鞭挞跑在两个模型上 [fixed] (high)
+- 原始描述: 切换线路模型下拉不变,选的都是同一个(用户截图:下拉显示 OPEN-code:deepseek-v4-flash)。
+- 复现: state.db 里唯一的线 `d|` 存的是 `primary`,顶栏下拉却显示 `OPEN-code:deepseek-v4-flash`;冷启动后只要不切线路就一直是这个值。
+- 根因: 回显没有单一真源。①`loadModels()` 取 `本线模型 || legacyModelPrefValue()`——冷启动时它跑在 process_list 到达之前,活动线未知就回落 localStorage 旧全局键;同一时刻 `migrateLegacyModelPrefs` 因默认进程未就绪而早退,旧键不会被清,于是每次启动重演。②回显只写在 `switchProcess` 尾部,冷启动与 `renderProcesses` 兜底选中活动线这两条路径都不回显——用户现场只有一条线,永远不触发切换,下拉就永久停在旧键那个值。③`sendText` 读 `$("model-select").value`,而鞭挞续跑读 `item.model`:同一条线手动发和自动轮跑在两个模型上,界面上一点看不出来。
+- 影响: 线级模型形同虚设——看到的模型不是这条线实际在用的模型;拿并行线做模型对比,结论全错。
+- 来源: 用户 2026-08-18 截图报告。
+- 标签: 前端 核心
+- 优先级: P1
+- 进展: 已修复。①`loadModels` 的回显值改成「活动线已知就只认它,未知才用旧键」,并在末尾显式 `select.value = saved`(选项整棵重建,不能只靠 opt.selected;探测失败时 try 中途退出会把回显停在上一条线);②新增 `syncModelSelectToActiveLine()`,`renderProcesses` 选中活动线时与 `applyAutoUiState`/`applyProfileValue` 一起调用,`switchProcess` 与线路页改模型都改走它,三处共用一套规则;③新增 `lineModelFor(processId)`,`sendText` 两条发送路径改取该线存档,与鞭挞续跑同源(用户改下拉时 change 处理器已先 `updateLocalProcessItem`,读到的就是刚选的值)。
+- 验证: `scripts/ui-runtime-smoke.mjs` 新增三线路用例(primary / 直指模型 / 未设模型):切线回显、未设模型线不得回落旧键、兜底选中活动线必须回显、发送取存档值。变异校验两次真红——去掉 renderProcesses 的回显 →「兜底选中活动线时模型下拉没跟着回显,实得 OPEN-code:deepseek-v4-flash」;发送改回读下拉 →「发送用的模型必须取自该线存档,实得 primary」。`scripts/parallel-lines-regression.mjs` 增四条源码级护栏。
+- refs: R-290 D-481 T-1786922726200
+- observed_head: 82b5cdfce1f709b26869f888e3a319a110cab2c0
+- recorded_at: 1786993900
+
+## D-483 R-286 控制面新增文案未登记英文资源导致前端冒烟失败 [fixed] (medium)
+- 复现: 运行 `node scripts/ui-runtime-smoke.mjs`，新增 memory_control_plane UI 在 `t()` 中使用待整理 backlog、最老等待、晋升缺口、召回/采纳、价值画像、最近批次、未知、剩余、尚无整理批次、重试整理，但 `02-i18n.js` 没有对应键。
+- 影响: 前端运行时冒烟在 i18n 资源完整性门禁失败，控制面英文界面无法稳定显示。
+- 来源: self-found：R-286 批4 控制面 UI 接线后的真实 smoke。
+- 标签: 前端
+- 验收: 新增控制面所有文案进入资源表；六条前端冒烟与 UI runtime smoke 通过。
+- refs: R-286
+- 优先级: P1
+- 进展: 已修复并验证：新增控制面动态文案已在 `crates/kanzei-app/ui/02-i18n.js:317,329` 登记；`scripts/ui-runtime-smoke.mjs` 控制面断言通过。D-483 验收逐项：①所有新增控制面文案进入英文资源表，位置 `02-i18n.js:317,329`；②UI runtime smoke 通过且六条前端冒烟全部通过，证据 T-1786922726212；桌面定向测试 T-1786922726210、workspace 回归 T-1786922726213。
+- observed_head: b085499ce22971141af5b9047cead01c352f3d9e
+- observed_worktree_hash: fnv1a64:bd26fbfda78459d5
+- recorded_at: 1786996242193
+
+## D-484 R-286 控制面新增函数未同步 ui-lint globals [fixed] (low)
+- 复现: 运行六条前端冒烟时，`node scripts/ui-lint-smoke.mjs` 报 `ui-lint-globals.json 与源码不同步`，缺少 `renderMemoryControlPlane`。
+- 影响: 前端静态 lint 门禁失败，新增记忆控制面函数无法通过项目全量前端验证。
+- 来源: self-found：R-286 批4完整六项前端冒烟。
+- 标签: 前端
+- 验收: `node scripts/gen-ui-lint-globals.mjs --check` 通过，六条前端冒烟全部通过。
+- refs: R-286
+- 优先级: P1
+- 进展: 已修复并验证：运行 `node scripts/gen-ui-lint-globals.mjs` 生成并同步 `scripts/ui-lint-globals.json`，包含 `renderMemoryControlPlane`；随后 `node scripts/gen-ui-lint-globals.mjs --check` 通过。验收逐项：①globals 与源码同步，生成/校验命令通过；②六条前端冒烟通过，证据 T-1786922726212；workspace 回归 T-1786922726213。
+- observed_head: b085499ce22971141af5b9047cead01c352f3d9e
+- observed_worktree_hash: fnv1a64:bd26fbfda78459d5
+- recorded_at: 1786996249612
+
+## D-485 R-286 控制面 aria 文案未进入 i18n 资源表 [fixed] (low)
+- 复现: 运行 `node scripts/ui-i18n-smoke.mjs`，报告 `HTML 静态文案未进入资源表: 记忆控制面`；新增 `#memory-control-plane` 的 `aria-label` 和 `data-i18n-aria-label` 没有对应 I18N 键。
+- 影响: 前端 i18n 静态门禁失败，记忆控制面无障碍标签无法完成中英文资源校验。
+- 来源: self-found：R-286 批4完整六项前端冒烟。
+- 标签: 前端
+- 验收: `记忆控制面` 进入英文资源表；六条前端冒烟全部通过。
+- refs: R-286
+- 优先级: P1
+- 进展: 已修复并验证：`记忆控制面` 已加入 `crates/kanzei-app/ui/02-i18n.js:317` 英文资源；`node scripts/ui-i18n-smoke.mjs` 通过。验收逐项：①aria 文案有资源键，位置 `02-i18n.js:317`；②六条前端冒烟全部通过，证据 T-1786922726212；workspace 回归 T-1786922726213。
+- observed_head: b085499ce22971141af5b9047cead01c352f3d9e
+- observed_worktree_hash: fnv1a64:bd26fbfda78459d5
+- recorded_at: 1786996259416

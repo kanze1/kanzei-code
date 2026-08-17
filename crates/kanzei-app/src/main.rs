@@ -195,6 +195,7 @@ fn main() {
             subagents::idea_split,
             subagents::defect_review,
             memory::memory_overview,
+            memory::memory_control_plane,
             memory::memory_entries,
             memory::memory_recalls,
             memory::memory_value_flags,

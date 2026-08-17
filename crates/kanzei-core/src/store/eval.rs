@@ -51,6 +51,25 @@ impl SessionStore {
         Ok(row)
     }
 
+    /// 读取所有记忆价值画像，供桌面控制面展示离线回放的真实聚合结果。
+    pub fn memory_effects(&self) -> Result<Vec<EffectEstimate>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT memory_id, effect_mean, effect_ci, eval_n, last_eval
+             FROM memory_eval_agg ORDER BY last_eval DESC, memory_id ASC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(EffectEstimate {
+                memory_id: row.get(0)?,
+                effect_mean: row.get(1)?,
+                effect_ci: row.get(2)?,
+                eval_n: row.get::<_, i64>(3)? as usize,
+                last_eval: row.get(4)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
+    }
+
     /// 覆盖写入一条记忆的 F(m) 聚合(离线回放后调用,幂等)。
     pub fn upsert_memory_effect(&self, estimate: &EffectEstimate) -> Result<(), StoreError> {
         self.connection.execute(

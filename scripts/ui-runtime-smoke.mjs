@@ -964,6 +964,14 @@ const payloads = {
   },
   permission_rules_get: [],
   memory_overview: { scopes: [{ scope: "project", root: PROJECT, total: 0, hitsTotal: 0, categories: {}, integrity: [], inboxPending: 0 }] },
+  memory_control_plane: {
+    backlog: 3,
+    oldest_waiting: "2026-08-20 [fact]",
+    batch: { batch_id: "batch-7", status: "failed", pending_after: 3, failure_reason: "模拟 manager 失败" },
+    promotion_gaps: 1,
+    recall: { recalled: 8, fetched: 3 },
+    effects: [{ memory_id: "M-SOP-001", effect_mean: 0.5, effect_ci: 0.2, eval_n: 4, last_eval: 1_760_000_000_000 }],
+  },
   // 两条:一条有命中,一条陈旧且零命中(验证「长期零命中」标记与清理入口)。
   memory_entries: [
     { id: "M-SOP-001", category: "sop", title: "冒烟 SOP", description: "继续执行冒烟任务", status: "active", body: "执行冒烟任务", hits: 4, lastHitAt: 1_760_000_000_000, recalled: 4, fetched: 2, updated: "2026-08-01" },
@@ -3074,6 +3082,11 @@ assert(memoryTab, "活动栏缺少记忆入口");
 memoryTab.click();
 await flush();
 assert(invokeLog.includes("memory_recalls"), "记忆页未拉取召回明细(没有召回明细就没有评估手段)");
+assert(invokeLog.includes("memory_control_plane"), "记忆页未拉取控制面投影");
+assert(listText("memory-control-plane").includes("3"), "记忆控制面未展示 inbox backlog");
+assert(listText("memory-control-plane").includes("batch-7") && listText("memory-control-plane").includes("模拟 manager 失败"), "记忆控制面未展示批次失败状态");
+assert(document.querySelector("#memory-control-plane button")?.textContent === "重试整理", "批次失败时未提供重试入口");
+assert(listText("memory-control-plane").includes("M-SOP-001") && listText("memory-control-plane").includes("0.50"), "记忆控制面未展示价值聚合");
 
 // R-124:SOP 候选必须停在用户面前,不能自己入库。
 assert(invokeLog.includes("memory_note_candidates"), "记忆页未拉取待确认候选");

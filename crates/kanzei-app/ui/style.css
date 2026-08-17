@@ -1760,6 +1760,17 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .memory-flow-title { color: var(--fg-strong); font-size: var(--fs-11); font-weight: 650; }
 .memory-flow-state { color: var(--memory-flow-hot); font-size: var(--fs-9-5); opacity: .78; }
 .memory-arch { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.memory-control-plane {
+  display: flex; flex-direction: column; gap: 7px; margin: 0 0 14px;
+  padding: 10px 12px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.memory-control-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.memory-control-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.memory-control-cell strong { color: var(--fg-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-control-status { color: var(--dim); font-size: var(--fs-11); line-height: 1.45; }
+.memory-control-status.failed { color: var(--err); }
+.memory-control-effects { font-family: var(--mono); font-size: var(--fs-10-5); line-height: 1.45; overflow-wrap: anywhere; }
 .memory-scope-card {
   flex: 1 1 340px; background: var(--panel); border: 1px solid var(--border);
   border-radius: 6px; padding: 10px 12px; min-width: 300px;

@@ -39,6 +39,54 @@ pub(crate) fn memory_overview(project_dir: String) -> serde_json::Value {
 }
 
 #[tauri::command]
+pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
+    let cwd = PathBuf::from(&project_dir);
+    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
+    let store = kanzei_tools::memory::MemoryStore::project(&root);
+    let entries = store.load_all();
+    let pending = store.pending_notes();
+    let oldest_waiting = store
+        .read_inbox()
+        .lines()
+        .find_map(|line| line.strip_prefix("## note ").map(str::to_string));
+    let checkpoint = store.read_inbox_checkpoint();
+    let promotion_gaps = entries
+        .iter()
+        .filter(|(_, entry)| {
+            matches!(entry.status.as_str(), "candidate" | "shadow" | "active")
+                && (entry.source.trim().is_empty() || entry.refs().is_empty())
+        })
+        .count();
+    let recall = store.recall_profile();
+    let recalled = recall.values().map(|(count, _)| *count).sum::<u64>();
+    let fetched = recall.values().map(|(_, count)| *count).sum::<u64>();
+    let state = kanzei_core::project_state_path(&root);
+    let effects = kanzei_core::SessionStore::open(&state)
+        .ok()
+        .and_then(|session| session.memory_effects().ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|effect| {
+            json!({
+                "memory_id": effect.memory_id,
+                "effect_mean": effect.effect_mean,
+                "effect_ci": effect.effect_ci,
+                "eval_n": effect.eval_n,
+                "last_eval": effect.last_eval,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "backlog": pending,
+        "oldest_waiting": oldest_waiting,
+        "batch": checkpoint,
+        "promotion_gaps": promotion_gaps,
+        "recall": {"recalled": recalled, "fetched": fetched},
+        "effects": effects,
+    })
+}
+
+#[tauri::command]
 pub(crate) fn memory_entries(
     project_dir: String,
     scope: String,

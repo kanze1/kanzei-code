@@ -517,6 +517,7 @@
   "renderMemoryBill",
   "renderMemoryBodyRead",
   "renderMemoryCandidates",
+  "renderMemoryControlPlane",
   "renderMemoryRecalls",
   "renderMemoryValueFlags",
   "renderMessageParts",

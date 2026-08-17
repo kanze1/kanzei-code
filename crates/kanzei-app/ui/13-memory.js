@@ -6,14 +6,16 @@ async function refreshMemory() {
     return;
   }
   try {
-    const [overview, billData, recallData, candidates, flags] = await Promise.all([
+    const [overview, billData, recallData, candidates, flags, controlPlane] = await Promise.all([
       invoke("memory_overview", { projectDir: currentProject }),
       invoke("memory_context_bill", { projectDir: currentProject }),
       invoke("memory_recalls", { projectDir: currentProject, limit: 20 }),
       invoke("memory_note_candidates", { projectDir: currentProject }),
       invoke("memory_value_flags", { projectDir: currentProject }),
+      invoke("memory_control_plane", { projectDir: currentProject }),
     ]);
     renderMemoryArch(overview);
+    renderMemoryControlPlane(controlPlane);
     renderMemoryBill(billData);
     renderMemoryRecalls(recallData);
     renderMemoryCandidates(candidates);
@@ -23,6 +25,59 @@ async function refreshMemory() {
     if (memorySelection) await loadMemoryList(memorySelection.scope, memorySelection.category);
   } catch (err) {
     toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
+  }
+}
+
+function renderMemoryControlPlane(data) {
+  const box = $("memory-control-plane");
+  if (!box) return;
+  box.innerHTML = "";
+  const batch = data?.batch || {};
+  const recall = data?.recall || {};
+  const effects = Array.isArray(data?.effects) ? data.effects : [];
+  const facts = [
+    [t("待整理 backlog"), data?.backlog ?? 0],
+    [t("最老等待"), data?.oldest_waiting || t("暂无")],
+    [t("晋升缺口"), data?.promotion_gaps ?? 0],
+    [t("召回/采纳"), `${recall.recalled ?? 0}/${recall.fetched ?? 0}`],
+    [t("价值画像"), `${effects.length} ${t("条")}`],
+  ];
+  const summary = document.createElement("div");
+  summary.className = "memory-control-summary";
+  for (const [label, value] of facts) {
+    const cell = document.createElement("div");
+    cell.className = "memory-control-cell";
+    const name = document.createElement("span");
+    name.className = "dim";
+    name.textContent = label;
+    const content = document.createElement("strong");
+    content.textContent = String(value);
+    cell.append(name, content);
+    summary.appendChild(cell);
+  }
+  box.appendChild(summary);
+  const status = document.createElement("div");
+  status.className = `memory-control-status${batch.status === "failed" ? " failed" : ""}`;
+  status.textContent = batch.batch_id
+    ? `${t("最近批次")} ${batch.batch_id} · ${batch.status || t("未知")}${batch.pending_after == null ? "" : ` · ${t("剩余")} ${batch.pending_after}`}${batch.failure_reason ? ` · ${batch.failure_reason}` : ""}`
+    : t("尚无整理批次");
+  box.appendChild(status);
+  if (batch.status === "failed" || batch.failure_reason) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "ghost mini";
+    retry.textContent = t("重试整理");
+    retry.addEventListener("click", () => $("memory-consolidate-btn")?.click());
+    box.appendChild(retry);
+  }
+  if (effects.length) {
+    const effectList = document.createElement("div");
+    effectList.className = "memory-control-effects dim";
+    effectList.textContent = effects
+      .slice(0, 5)
+      .map((effect) => `${effect.memory_id}: ${Number(effect.effect_mean).toFixed(2)} ± ${Number(effect.effect_ci).toFixed(2)} (n=${effect.eval_n})`)
+      .join(" · ");
+    box.appendChild(effectList);
   }
 }
 

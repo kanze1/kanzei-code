@@ -6094,3 +6094,70 @@
 - 关联: R-286
 - 收尾: 1786995656
 - 源码指纹: 70f7d4874a55b834
+
+## T-1786922726209 R-286 B4 核心聚合查询回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.3s
+- 摘要: R-286 批4共享查询依赖回归：222 passed，0 failed；新增 memory_effects 查询不破坏核心回放与聚合。
+- 关联: R-286
+- 收尾: 1786996039
+
+## T-1786922726210 R-286 B4 桌面控制面定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.6s
+- 摘要: R-286 批4桌面端定向测试：202 passed，0 failed；memory_control_plane Tauri command 注册与 UI 依赖编译通过。
+- 关联: R-286 D-483
+- 收尾: 1786996039
+
+## T-1786922726211 R-286 B4 控制面 UI runtime smoke [passed]
+- 命令: node --check crates/kanzei-app/ui/13-memory.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 时长: 0.0s
+- 摘要: 控制面真实 UI runtime smoke 通过：24 个 ui/*.js 按序执行、2293 次 invoke、10 个主视图切换、0 运行时错误；覆盖 backlog、失败批次、重试入口和价值聚合展示。
+- 关联: R-286 D-483
+- 收尾: 1786996039
+
+## T-1786922726212 R-286 B4 六条前端冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 0.0s
+- 摘要: 六条前端冒烟全部通过：ui-runtime、ui-lint、parallel-lines、ui-a11y、ui-i18n、ui-markdown；控制面 backlog/失败重试/价值聚合断言通过，0 UI runtime errors。
+- 关联: R-286 D-483 D-484 D-485
+- 收尾: 1786996144
+
+## T-1786922726213 R-286 B4 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 35.1s
+- 摘要: R-286 关闭前 workspace 全量回归：所有 workspace test 组 0 failed；kanzei-tools 342 passed/1 ignored、kanzei-app 202 passed、kanzei-memory 144 passed、kanzei-core 222 passed，其余 crate/doc-tests 全部通过。
+- 关联: R-286 D-483 D-484 D-485
+- 收尾: 1786996231
+
+## T-1786922726214 R-286 B4 staged app 源码指纹回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.6s
+- 摘要: 按当前 staged 源码重跑提交门禁：kanzei-app 202 passed，0 failed；控制面 command/UI 编译与回归通过。
+- 关联: R-286
+- 收尾: 1786996375
+- 源码指纹: 6d2581818b7f3544
+
+## T-1786922726215 R-286 B4 staged core 源码指纹回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.3s
+- 摘要: 按当前 staged 源码重跑提交门禁：kanzei-core 222 passed，0 failed；memory_effects 聚合查询与回放回归通过。
+- 关联: R-286
+- 收尾: 1786996375
+- 源码指纹: 6d2581818b7f3544
+
+## T-1786922726216 R-286 B4 staged app 指纹定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.6s
+- 摘要: 当前 staged 源码指纹定向回归：kanzei-app 202 passed，0 failed。
+- 关联: R-286
+- 收尾: 1786996395
+- 源码指纹: 6d2581818b7f3544
+
+## T-1786922726217 R-286 B4 staged core 指纹定向回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.3s
+- 摘要: 当前 staged 源码指纹定向回归：kanzei-core 222 passed，0 failed。
+- 关联: R-286
+- 收尾: 1786996395
+- 源码指纹: 6d2581818b7f3544
