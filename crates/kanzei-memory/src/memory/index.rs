@@ -801,6 +801,11 @@ mod tests {
         desc: &str,
         body: &str,
     ) -> MemoryEntry {
+        if let Some(marker) = crate::memory::fp_markers(body).into_iter().next() {
+            store
+                .append_note("test fixture source", &marker, category, &[])
+                .unwrap();
+        }
         match store
             .add(category, title, desc, body, "user", &[], None, true)
             .unwrap()

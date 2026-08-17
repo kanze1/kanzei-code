@@ -63,7 +63,7 @@ impl MemoryAdmission {
         Ok(())
     }
 
-    /// 状态不变量:同 scope+category+subject 至多一条 active——同 subject 的 add
+    /// 状态不变量:同 scope+category+subject 至多一条 active/candidate——同 subject 的 add
     /// 必须先报 SubjectConflict,不能先被语义闸拦成 Uncertain(测试锚点)。
     /// 先于标题去重与 R-216 语义闸,且不受 force 影响:状态就地覆盖,绝不并存。
     pub(crate) fn find_subject_conflict<'a>(
@@ -75,7 +75,7 @@ impl MemoryAdmission {
         entries
             .iter()
             .find(|(_, e)| {
-                e.status == "active"
+                (e.status == "active" || e.status == "candidate")
                     && e.category == category
                     && e.extras.iter().any(|(k, v)| k == "subject" && v == subject)
             })
@@ -83,13 +83,8 @@ impl MemoryAdmission {
     }
 
     /// R-216 闸①:交付状态拒收——标题/subject 命中「R-/D- 编号 + 已交付/勿重复/
-    /// 验收边界」形态时,这是 tracker 的状态,不是记忆;force=true 显式跳过
-    /// (调用方声明「这是新知识,不查重不查指纹」)。
-    pub(crate) fn check_delivery_state(
-        title: &str,
-        subject: Option<&str>,
-        force: bool,
-    ) -> anyhow::Result<()> {
+    /// 验收边界」形态时,这是 tracker 的状态,不是记忆;force 也不能绕过。
+    pub(crate) fn check_delivery_state(title: &str, subject: Option<&str>) -> anyhow::Result<()> {
         let title_lc = title.to_lowercase();
         let subject_lc = subject.map(str::to_lowercase).unwrap_or_default();
         let is_delivery_state = ["已交付", "勿重复", "验收边界", "delivered", "do not repeat"]
@@ -97,7 +92,7 @@ impl MemoryAdmission {
             .any(|kw| {
                 title_lc.contains(&kw.to_lowercase()) || subject_lc.contains(&kw.to_lowercase())
             });
-        if !force && is_delivery_state && has_tracker_id(title) {
+        if is_delivery_state && has_tracker_id(title) {
             anyhow::bail!(
                 "标题/subject 命中交付状态形态(R-/D- 编号 + 已交付/勿重复/验收边界)——\
                  这是 tracker 条目的状态,不是记忆。\
@@ -107,23 +102,21 @@ impl MemoryAdmission {
         Ok(())
     }
 
-    /// R-216 闸②:指纹一致性——新条目携带 [fp:] 必须与来源 note 中引擎生成的指纹
-    /// 逐字一致。拒绝自造指纹(实证:M-055/M-056 编造 [fp:...] 冒充引擎生成)。
-    /// `existing_fps` 传入既有条目(含 global scope)的指纹迭代器;force 跳过。
+    /// R-216 闸②:指纹一致性——标题/description/body 携带 [fp:] 必须与来源 note 中
+    /// 引擎生成的指纹逐字一致。force 也不能伪造或绕过来源证据。
     pub(crate) fn check_fingerprint(
-        body: &str,
-        force: bool,
+        text: &str,
         inbox_text: &str,
         existing_fps: impl Iterator<Item = String>,
     ) -> anyhow::Result<()> {
-        let fp_markers = super::fp_markers(body);
-        if !force && !fp_markers.is_empty() {
+        let fp_markers = super::fp_markers(text);
+        if !fp_markers.is_empty() {
             let existing: Vec<String> = existing_fps.collect();
             for fp in &fp_markers {
                 let legit = inbox_text.contains(fp.as_str()) || existing.contains(fp);
                 if !legit {
                     anyhow::bail!(
-                        "body 携带指纹 {fp} 但该指纹不存在于 inbox 来源 note 或任何既有条目——\
+                        "标题/description/body 携带指纹 {fp} 但该指纹不存在于 inbox 来源 note 或任何既有条目——\
                          指纹是引擎从失败信号生成的,禁止自造(实证 M-055/M-056)。\
                          去掉自造指纹,或先用 memory_note 记录真实来源。"
                     );
@@ -133,19 +126,15 @@ impl MemoryAdmission {
         Ok(())
     }
 
-    /// 精确 + 近似标题判重(force 跳过):
+    /// 精确 + 近似标题判重(不可被 force 绕过):
     /// - 一字不差(normalize 后)即 Duplicate;
-    /// - 切词包含度 ≥ TITLE_DUP_THRESHOLD 且绝对量 ≥ TITLE_DUP_MIN_COMMON 也算重复
-    ///   (2026-08-12 实测:同一个坑换说法换 category 再落一条,旧闸门拦不住)。
+    /// - 切词包含度 ≥ TITLE_DUP_THRESHOLD 且绝对量 ≥ TITLE_DUP_MIN_COMMON 也算重复;
+    /// - CJK 短标题使用「较短标题全部被包含」的保守规则,不再被绝对量 8 拒绝。
     pub(crate) fn find_duplicate<'a>(
         entries: &'a [(PathBuf, MemoryEntry)],
         category: &str,
         title: &str,
-        force: bool,
     ) -> Option<&'a MemoryEntry> {
-        if force {
-            return None;
-        }
         let normalized = normalize_title(title);
         if let Some((_, existing)) = entries.iter().find(|(_, e)| {
             (e.status == "active" || e.status == "candidate")
@@ -222,15 +211,27 @@ fn title_tokens(title: &str) -> std::collections::BTreeSet<String> {
 
 /// 包含度 = 交集 / 较短一侧。用包含度而不是 Jaccard:同一个坑的重复条目
 /// 常常一条写得长、一条写得短,Jaccard 会被长的那条稀释掉。
-/// 比例与绝对量两道都要过,少一道就会误杀短标题(见 TITLE_DUP_MIN_COMMON)。
+/// 普通标题要求比例与绝对量;CJK 短标题则要求较短标题的全部字符被包含,
+/// 以覆盖「缓存」/「缓存清理」这类短标题，同时避免单个通用字误判。
 pub(crate) fn title_containment(a: &str, b: &str) -> f64 {
     let (ta, tb) = (title_tokens(a), title_tokens(b));
     let shorter = ta.len().min(tb.len());
     let common = ta.intersection(&tb).count();
+    if is_short_cjk_title(a) && is_short_cjk_title(b) {
+        if shorter >= 2 && common == shorter {
+            return 1.0;
+        }
+        return 0.0;
+    }
     if shorter < 6 || common < TITLE_DUP_MIN_COMMON {
         return 0.0;
     }
     common as f64 / shorter as f64
+}
+
+fn is_short_cjk_title(title: &str) -> bool {
+    let alnum: Vec<char> = title.chars().filter(|ch| ch.is_alphanumeric()).collect();
+    !alnum.is_empty() && alnum.iter().all(|ch| is_cjk(*ch)) && alnum.len() <= 8
 }
 
 /// CJK 单字判定(标题切词与 CJK 切分共用)。
@@ -336,69 +337,62 @@ mod tests {
     }
 
     #[test]
-    fn 交付状态拒收_force可跳过() {
-        assert!(MemoryAdmission::check_delivery_state("R-123 已交付", None, false).is_err());
-        assert!(MemoryAdmission::check_delivery_state("R-123 已交付", None, true).is_ok());
-        // 无 R-/D- 编号不算交付状态形态。
-        assert!(MemoryAdmission::check_delivery_state("本地代理已配置", None, false).is_ok());
+    fn 交付状态拒收_force也不可跳过() {
+        assert!(MemoryAdmission::check_delivery_state("R-123 已交付", None).is_err());
+        assert!(MemoryAdmission::check_delivery_state("本地代理已配置", None).is_ok());
     }
 
     #[test]
     fn 指纹一致性_合法与自造() {
         let body = "踩坑 [fp:abc123] 记录";
         // 指纹出现在 inbox → 合法。
+        assert!(
+            MemoryAdmission::check_fingerprint(body, "note [fp:abc123]", std::iter::empty())
+                .is_ok()
+        );
+        // 指纹不在 inbox 也不在既有条目 → 拒绝(自造),force 也不能跳过。
+        assert!(MemoryAdmission::check_fingerprint(body, "", std::iter::empty()).is_err());
         assert!(MemoryAdmission::check_fingerprint(
-            body,
-            false,
-            "note [fp:abc123]",
+            "description [fp:abc123]",
+            "",
             std::iter::empty()
         )
-        .is_ok());
-        // 指纹不在 inbox 也不在既有条目 → 拒绝(自造)。
-        assert!(MemoryAdmission::check_fingerprint(body, false, "", std::iter::empty()).is_err());
-        // force 跳过。
-        assert!(MemoryAdmission::check_fingerprint(body, true, "", std::iter::empty()).is_ok());
+        .is_err());
         // 无指纹体不查。
-        assert!(
-            MemoryAdmission::check_fingerprint("无指纹", false, "", std::iter::empty()).is_ok()
-        );
+        assert!(MemoryAdmission::check_fingerprint("无指纹", "", std::iter::empty()).is_ok());
     }
 
     #[test]
-    fn 标题判重_精确近似与force() {
+    fn 标题判重_精确近似与_cjk_短标题且_force_不可绕() {
         let entries = pack(vec![entry(
             "active",
             "fact",
             "gh 要走本地代理且要配置 http 代理地址",
             None,
         )]);
-        // 精确(normalize 后):重复。
         let exact = MemoryAdmission::find_duplicate(
             &entries,
             "fact",
             "gh 要走本地代理且要配置 http 代理地址",
-            false,
         );
         assert!(exact.is_some());
-        // 近似:同一个坑换说法(共同词 ≥ 绝对量下限 8)→ 重复。
         let near = MemoryAdmission::find_duplicate(
             &entries,
             "fact",
             "gh 必须走本地代理且配置 http 代理地址",
-            false,
         );
         assert!(near.is_some());
-        // 不同主题 → 不重复。
-        let other =
-            MemoryAdmission::find_duplicate(&entries, "fact", "完整性门禁拒绝写操作", false);
+        let other = MemoryAdmission::find_duplicate(&entries, "fact", "完整性门禁拒绝写操作");
         assert!(other.is_none());
-        // force 跳过全部判重。
+        // 标题重复不属于可 force 绕过的语义闸。
         assert!(MemoryAdmission::find_duplicate(
             &entries,
             "fact",
             "gh 要走本地代理且要配置 http 代理地址",
-            true
         )
-        .is_none());
+        .is_some());
+
+        let short = pack(vec![entry("candidate", "fact", "缓存清理", None)]);
+        assert!(MemoryAdmission::find_duplicate(&short, "fact", "缓存").is_some());
     }
 }

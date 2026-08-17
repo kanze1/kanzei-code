@@ -276,25 +276,23 @@ impl MemoryStore {
         {
             return Ok(AddOutcome::SubjectConflict(existing.clone()));
         }
-        MemoryAdmission::check_delivery_state(title, subject, force)?;
-        if !force {
-            let fp_markers = super::fp_markers(body);
-            if !fp_markers.is_empty() {
-                let inbox = self.read_inbox();
-                let existing_fps = {
-                    let mut fps = Vec::new();
-                    for (_, e) in self.load_all() {
-                        fps.extend(super::fp_markers(&e.body));
+        MemoryAdmission::check_delivery_state(title, subject)?;
+        {
+            let text = format!("{description}\n{body}");
+            let inbox = self.read_inbox();
+            let existing_fps = {
+                let mut fps = Vec::new();
+                for (_, e) in self.load_all() {
+                    fps.extend(super::fp_markers(&format!("{}\n{}", e.description, e.body)));
+                }
+                if let Some(global) = MemoryStore::global() {
+                    for (_, e) in global.load_all() {
+                        fps.extend(super::fp_markers(&format!("{}\n{}", e.description, e.body)));
                     }
-                    if let Some(global) = MemoryStore::global() {
-                        for (_, e) in global.load_all() {
-                            fps.extend(super::fp_markers(&e.body));
-                        }
-                    }
-                    fps
-                };
-                MemoryAdmission::check_fingerprint(body, force, &inbox, existing_fps.into_iter())?;
-            }
+                }
+                fps
+            };
+            MemoryAdmission::check_fingerprint(&text, &inbox, existing_fps.into_iter())?;
         }
         // 语义探测下沉:Uncertain(有 FTS 命中但非精确)即拒并返回候选(force 跳过)。
         if !force {
@@ -307,7 +305,7 @@ impl MemoryStore {
             }
         }
         // 精确 + 近似标题判重(force 跳过;判据含跨 category,见 MemoryAdmission)。
-        if let Some(existing) = MemoryAdmission::find_duplicate(&entries, category, title, force) {
+        if let Some(existing) = MemoryAdmission::find_duplicate(&entries, category, title) {
             return Ok(AddOutcome::Duplicate(existing.clone()));
         }
         let now = today();
@@ -1078,7 +1076,7 @@ mod tests {
                 true,
             )
             .unwrap();
-        assert!(matches!(forced, AddOutcome::Added(_)));
+        assert!(matches!(forced, AddOutcome::Duplicate(_)));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -2422,6 +2420,35 @@ mod tests {
                 .unwrap(),
             AddOutcome::Added(_)
         ));
+        let candidate = store
+            .add(
+                "sop",
+                "安装通道候选状态",
+                "安装通道候选验证时必读",
+                "候选正文",
+                "memory-manager",
+                &[],
+                Some("候选安装通道"),
+                false,
+            )
+            .unwrap();
+        assert!(matches!(candidate, AddOutcome::Added(ref e) if e.status == "candidate"));
+        let candidate_duplicate = store
+            .add(
+                "sop",
+                "安装通道候选状态更新",
+                "安装通道候选验证时必读",
+                "候选正文更新",
+                "memory-manager",
+                &[],
+                Some("候选安装通道"),
+                true,
+            )
+            .unwrap();
+        assert!(matches!(
+            candidate_duplicate,
+            AddOutcome::SubjectConflict(_)
+        ));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -2486,7 +2513,7 @@ mod tests {
             AddOutcome::Duplicate(existing) => assert_eq!(existing.id, first.id),
             _ => panic!("近似重复没被拦住"),
         }
-        // 真的是另一个坑时,force 仍然放行(逃生门不堵死)。
+        // force 只绕过语义不确定闸，标题判重仍然生效。
         assert!(matches!(
             store
                 .add(
@@ -2500,7 +2527,7 @@ mod tests {
                     true,
                 )
                 .unwrap(),
-            AddOutcome::Added(_)
+            AddOutcome::Duplicate(_)
         ));
         // 同子系统但确属两条知识的不能误杀(实测包含度 0.32,远低于阈值)。
         assert!(matches!(
@@ -2524,6 +2551,14 @@ mod tests {
     #[test]
     fn find_by_marker_看得见candidate且吃老口径标记() {
         let (dir, store) = temp_store();
+        store
+            .append_note(
+                "fixture source",
+                "[fp:bash|`git merge` is blocked in bash: git mutations must use the structured `git` tool]",
+                "fact",
+                &[],
+            )
+            .unwrap();
         let entry = match store
             .add(
                 "fact",
@@ -2893,6 +2928,9 @@ mod tests {
         let (dir, store) = temp_store();
         // ① 可晋升 candidate:带指纹 + 复发≥3 + 真实 episode(provenance 硬约束)。
         let fp = format!("[fp:edit|reconcile #{}-{}]", std::process::id(), "r");
+        store
+            .append_note("fixture source", &fp, "sop", &[])
+            .unwrap();
         for _ in 0..3 {
             store.bump_recurrence(&fp);
         }

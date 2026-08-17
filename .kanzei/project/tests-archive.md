@@ -6496,3 +6496,25 @@
 - 关联: D-493 D-516 D-517 D-518
 - 收尾: 1787002899
 - 源码指纹: aa497f9a30eb198f
+
+## T-1786922726264 D-494 记忆准入与重复防护定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 4.1s
+- 摘要: D-494 准入回归：146 passed，0 failed，1 ignored；覆盖 force 仅语义闸、candidate subject 判重、description 指纹、CJK 短标题及既有检索/复发链路。
+- 关联: D-494
+- 收尾: 1787003617
+
+## T-1786922726265 D-494 最终 memory 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 5.2s
+- 摘要: D-494 最终定向回归：修复测试命名警告后 146 passed、0 failed、1 ignored；fmt check 通过，无 non_snake_case warning。
+- 关联: D-494
+- 收尾: 1787004040
+
+## T-1786922726266 D-494 暂存源码提交门禁回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 4.3s
+- 摘要: 提交门禁源码指纹匹配暂存集后的最终定向回归：146 passed、0 failed、1 ignored。
+- 关联: D-494
+- 收尾: 1787004131
+- 源码指纹: 055a10df84cd4544

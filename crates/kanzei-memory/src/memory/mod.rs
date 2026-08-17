@@ -2042,8 +2042,11 @@ mod tests {
             "正常笔记未要求保留指纹: {inbox}"
         );
 
-        // manager 按要求建了条目(指纹在正文里),inbox 已清。
+        // manager 按要求建了条目(指纹在正文里),inbox 已清但来源证据仍保留。
         store.clear_inbox().unwrap();
+        store
+            .append_note("持久来源证据", &fingerprint, "fact", &[])
+            .unwrap();
         match store
             .add(
                 "fact",
@@ -2053,8 +2056,6 @@ mod tests {
                 "memory-manager",
                 &[],
                 None,
-                // force:fixture 模拟 manager 已消费 note 后的建条目(inbox 已清,
-                // 指纹来源随清空消失);此处测复发改投流程,不是 R-216 指纹闸。
                 true,
             )
             .unwrap()
@@ -2062,6 +2063,7 @@ mod tests {
             AddOutcome::Added(_) => {}
             _ => panic!("expected add"),
         }
+        store.clear_inbox().unwrap();
         // R-165:manager 编译产物须 promote 带证据才 active——复发检测只看 active 记忆。
         let (cid, _) = store
             .load_all()
@@ -2275,6 +2277,9 @@ source: user
         // 指纹带进程 id,避免撞上真实 global 记忆库里的同名指纹(测试隔离)。
         let kind = format!("old_string not found #{}", std::process::id());
         store
+            .append_note("fixture source", &format!("[fp:edit|{kind}]"), "sop", &[])
+            .unwrap();
+        store
             .add(
                 "sop",
                 "edit 失败先 read",
@@ -2370,6 +2375,9 @@ source: user
         let root = temp_memory_root("telemetry");
         let store = MemoryStore::project(&root);
         let kind = format!("old_string not found #{}", std::process::id());
+        store
+            .append_note("fixture source", &format!("[fp:edit|{kind}]"), "sop", &[])
+            .unwrap();
         store
             .add(
                 "sop",
@@ -2486,6 +2494,9 @@ source: user
         // 指纹带进程 id,避免撞上真实 global 记忆库(测试隔离)。
         let kind = format!("old_string not found #{}", std::process::id());
         store
+            .append_note("fixture source", &format!("[fp:edit|{kind}]"), "sop", &[])
+            .unwrap();
+        store
             .add(
                 "sop",
                 "edit 失败先 read",
@@ -2538,6 +2549,9 @@ source: user
         let root = temp_memory_root("e2e");
         let store = MemoryStore::project(&root);
         let kind = format!("old_string not found #{}", std::process::id());
+        store
+            .append_note("fixture source", &format!("[fp:edit|{kind}]"), "sop", &[])
+            .unwrap();
         store
             .add(
                 "sop",

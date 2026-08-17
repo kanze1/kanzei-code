@@ -134,7 +134,7 @@ impl Tool for MemoryAddTool {
     }
 
     fn description(&self) -> String {
-        "Create a durable memory entry. ALWAYS memory_search first. Params: scope(global|project), category, title, description (retrieval hook), body; optional source, refs (source IDs that must exist), force.".into()
+        "Create a durable memory entry. ALWAYS memory_search first. Params: scope(global|project), category, title, description (retrieval hook), body; optional source, refs (source IDs that must exist), subject, force (only bypasses the semantic uncertainty gate; never bypasses provenance, delivery-state, subject, or title-duplicate gates).".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -165,7 +165,7 @@ impl Tool for MemoryAddTool {
         ) {
             Ok(AddOutcome::Added(e)) => ToolOutput::ok(format!("added {} [{}] {}", e.id, e.category, e.title)),
             Ok(AddOutcome::Duplicate(e)) => ToolOutput::error(format!(
-                "duplicate of existing {} `{}` — use memory_update/memory_merge instead, or retry with force=true if genuinely distinct",
+                "duplicate of existing {} `{}` — use memory_update/memory_merge instead; force only bypasses the semantic uncertainty gate and cannot bypass title-duplicate or provenance gates",
                 e.id, e.title
             )),
             Ok(AddOutcome::SubjectConflict(e)) => ToolOutput::error(format!(
@@ -184,7 +184,8 @@ impl Tool for MemoryAddTool {
                     .join("; ");
                 ToolOutput::error(format!(
                     "语义探测命中既有记忆(候选: {cand})——新条目疑似改写/复述既有条目。\
-                     先用 memory_update 演化对应条目,而不是新增重复;确属新知识可 force=true 跳过语义闸。"
+                     先用 memory_update 演化对应条目,而不是新增重复;force 仅可跳过语义不确定闸,\
+                     不能绕过 subject、指纹、交付状态或标题判重。"
                 ))
             }
             Err(e) => ToolOutput::error(e.to_string()),

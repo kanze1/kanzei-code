@@ -332,6 +332,14 @@ mod tests {
         // 种子:一条与 SAMPLE 失败指纹(tool=edit,kind=old string not found)精确匹配的
         // 记忆条目——fingerprint 触发应命中。
         store
+            .append_note(
+                "fixture source",
+                "[fp:edit|old string not found]",
+                "fact",
+                &[],
+            )
+            .unwrap();
+        store
             .add(
                 "fact",
                 "edit 失败处理",
