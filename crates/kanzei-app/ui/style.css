@@ -2228,6 +2228,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .research-filter-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
 .research-filter-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: var(--fs-10-5); }
 .research-card-backrefs { margin: 4px 0 7px; color: var(--muted); font-size: var(--fs-11); }
+.research-badge.evidence-depth { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .research-topic-group { display: flex; flex-direction: column; gap: 8px; }
 .research-topic-title { margin: 0; color: var(--fg-strong); font-size: var(--fs-13); font-weight: 600; }
 

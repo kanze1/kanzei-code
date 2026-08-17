@@ -525,6 +525,110 @@ pub async fn docs_update(
     }
 }
 
+fn arxiv_id_from_url(url: &str) -> Result<String, String> {
+    let lower = url.to_ascii_lowercase();
+    if !(lower.contains("://arxiv.org/") || lower.contains("://export.arxiv.org/")) {
+        return Err(format!("不是受支持的 arXiv URL: {url}"));
+    }
+    let path = url.split('?').next().unwrap_or(url);
+    let id = ["/abs/", "/html/", "/pdf/"]
+        .iter()
+        .find_map(|marker| path.split_once(marker).map(|(_, rest)| rest))
+        .unwrap_or("")
+        .trim_matches('/')
+        .trim_end_matches(".pdf")
+        .to_string();
+    if id.is_empty()
+        || id.contains("..")
+        || !id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '/' | '_'))
+    {
+        return Err(format!("无法从 arXiv URL 提取安全文献 ID: {url}"));
+    }
+    Ok(id)
+}
+
+fn research_fulltext_path(
+    root: &Path,
+    topic: &str,
+    id: &str,
+    extension: &str,
+) -> Result<PathBuf, String> {
+    kanzei_tools::docstore::DocStore::validate_topic(topic).map_err(|error| error.to_string())?;
+    let safe_id = id.replace(['/', '\\'], "_");
+    let dir = root.join(".kanzei/research").join(topic).join("fulltext");
+    std::fs::create_dir_all(&dir).map_err(|error| format!("创建正文目录失败: {error}"))?;
+    Ok(dir.join(format!("{safe_id}.{extension}")))
+}
+
+/// 批5：arXiv 正文通道。HTML→ar5iv→PDF，成功结果落入 topic/fulltext 并返回正文级证据。
+#[tauri::command]
+pub async fn research_arxiv_preview(
+    project_dir: String,
+    topic: String,
+    url: String,
+) -> Result<serde_json::Value, String> {
+    let id = arxiv_id_from_url(&url)?;
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let ctx = kanzei_harness::ToolCtx::default();
+    let candidates = [
+        (format!("https://arxiv.org/html/{id}"), "html"),
+        (format!("https://ar5iv.labs.arxiv.org/html/{id}"), "html"),
+        (format!("https://arxiv.org/pdf/{id}.pdf"), "pdf"),
+    ];
+    let mut failures = Vec::new();
+    for (candidate, kind) in candidates {
+        let fetched =
+            match kanzei_tools::webfetch::fetch_bytes(&candidate, &ctx, 16 * 1024 * 1024).await {
+                Ok(value) => value,
+                Err(error) => {
+                    failures.push(format!("{candidate}: {error}"));
+                    continue;
+                }
+            };
+        if !(200..300).contains(&fetched.status) || fetched.body.is_empty() {
+            failures.push(format!("{candidate}: HTTP {}", fetched.status));
+            continue;
+        }
+        if kind == "html" {
+            let raw = String::from_utf8_lossy(&fetched.body).into_owned();
+            let text = kanzei_tools::webfetch::html_to_text(&raw);
+            if text.trim().len() < 200 {
+                failures.push(format!("{candidate}: 正文为空或过短"));
+                continue;
+            }
+            let path = research_fulltext_path(&root, &topic, &id, "html")?;
+            std::fs::write(&path, raw).map_err(|error| format!("保存 arXiv HTML 失败: {error}"))?;
+            return Ok(json!({
+                "title": format!("arXiv {id}"),
+                "text": text,
+                "depth": "正文级",
+                "source_url": candidate,
+                "path": path.display().to_string(),
+                "fallback": failures,
+            }));
+        }
+        if fetched.body.starts_with(b"%PDF-") {
+            let path = research_fulltext_path(&root, &topic, &id, "pdf")?;
+            std::fs::write(&path, &fetched.body)
+                .map_err(|error| format!("保存 arXiv PDF 失败: {error}"))?;
+            let text = kanzei_tools::pdf_to_text(&path)?;
+            return Ok(json!({
+                "title": format!("arXiv {id}"),
+                "text": text,
+                "depth": "正文级",
+                "source_url": candidate,
+                "path": path.display().to_string(),
+                "fallback": failures,
+            }));
+        }
+        failures.push(format!("{candidate}: 响应不是 PDF"));
+    }
+    Err(format!("arXiv 正文获取失败: {}", failures.join("; ")))
+}
+
 /// D-413:研究工作台「点开参考文献」的后端。抓取与 HTML→文本复用 webfetch 工具
 /// 本体(同一套代理/超时/截断口径),不另造第二条抓取路径;返回纯文本给内置 viewer
 /// 渲染——用户 2026-08-16 定调「在应用内打开,不跳出去」。
@@ -741,4 +845,23 @@ pub(crate) fn build_workspace_graph(root: &std::path::Path) -> Vec<(String, Stri
     edges.sort();
     edges.dedup();
     edges
+}
+
+#[cfg(test)]
+mod research_arxiv_tests {
+    use super::arxiv_id_from_url;
+
+    #[test]
+    fn arxiv_id_normalizes_supported_forms_and_rejects_other_hosts() {
+        assert_eq!(
+            arxiv_id_from_url("https://arxiv.org/abs/2301.12345v2").unwrap(),
+            "2301.12345v2"
+        );
+        assert_eq!(
+            arxiv_id_from_url("https://export.arxiv.org/pdf/cond-mat/0301234.pdf").unwrap(),
+            "cond-mat/0301234"
+        );
+        assert!(arxiv_id_from_url("https://example.com/abs/2301.12345").is_err());
+        assert!(arxiv_id_from_url("https://arxiv.org/abs/../../secret").is_err());
+    }
 }

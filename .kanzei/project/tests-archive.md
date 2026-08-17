@@ -5518,3 +5518,75 @@
 - 关联: R-276 D-450 D-451
 - 收尾: 1786960937
 - 源码指纹: 2cbde6079f180f27
+
+## T-1786922726129 R-276 B5 kanzei-tools PDF read 定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools read::tests::read_pdf_uses_pdftotext_and_keeps_line_window
+- 时长: 0.5s
+- 摘要: PDF magic → pdftotext → ReadPayload::Text 回归通过；使用真实环境 pdftotext，offset/limit 窗口包含 PDF smoke 文本。
+- 关联: R-276 D-452
+- 收尾: 1786961675
+
+## T-1786922726130 R-276 B5 kanzei-app arXiv URL 定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app research_arxiv_tests::arxiv_id_normalizes_supported_forms_and_rejects_other_hosts
+- 时长: 0.6s
+- 摘要: arXiv abs/export/pdf URL 规范化、非 arXiv host 拒绝、路径穿越 ID 拒绝通过。
+- 关联: R-276 D-452
+- 收尾: 1786961682
+
+## T-1786922726131 R-276 B5 arXiv 与 PDF 证据 UI runtime smoke [passed]
+- 命令: node --check crates/kanzei-app/ui/11-docs-list.js; node --check crates/kanzei-app/ui/19-research.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 时长: 0.7s
+- 摘要: 修正 S-101/S-102/S-103 fixture 括号后通过：24 个 ui/*.js、2126 invoke、10 主视图、0 运行时错误；覆盖 arXiv topic 传参、正文级 viewer、证据深度卡片。
+- 关联: R-276 D-452 D-453
+- 收尾: 1786961860
+
+## T-1786922726132 R-276 B5 六条前端冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-lint-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/parallel-lines-regression.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-a11y-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-i18n-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-markdown-smoke.mjs
+- 时长: 3.4s
+- 摘要: 六条前端冒烟全绿：runtime 24 个 ui/*.js/2126 invoke/0 错误；lint 44 文件 no-undef 零错误且 693 globals 同步；parallel-lines、a11y、i18n、markdown 全通过。
+- 关联: R-276 D-452 D-453
+- 收尾: 1786961883
+
+## T-1786922726133 R-276 B5 kanzei-tools 全量定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 32.1s
+- 摘要: 批5最终定向 suite：329 passed，1 ignored；包含新增 PDF read 测试。
+- 关联: R-276 D-452 D-453
+- 收尾: 1786961946
+
+## T-1786922726134 R-276 B5 kanzei-app 全量定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.1s
+- 摘要: 批5最终定向 suite：202 passed，0 failed；包含新增 arXiv URL 测试。
+- 关联: R-276 D-452 D-453
+- 收尾: 1786961951
+
+## T-1786922726135 R-276 B5 evidence depth badge runtime regression [passed]
+- 命令: node --check crates/kanzei-app/ui/19-research.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 时长: 0.6s
+- 摘要: 证据深度徽章移出 V 条件后 runtime smoke 通过；同时覆盖有 V2 的正文级 S-101 与无 V 等级的摘要级 S-103，24 个 ui/*.js、2126 invoke、0 运行时错误。
+- 关联: R-276 D-454
+- 收尾: 1786962075
+
+## T-1786922726136 R-276 B5 evidence depth 六条前端冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-lint-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/parallel-lines-regression.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-a11y-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-i18n-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-markdown-smoke.mjs
+- 时长: 3.4s
+- 摘要: 证据深度分支修复后六条前端冒烟全绿：runtime、lint、parallel-lines、a11y、i18n、markdown 均通过。
+- 关联: R-276 D-454
+- 收尾: 1786962095
+
+## T-1786922726137 R-276 B5 kanzei-tools 当前暂存源码重跑 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 32.0s
+- 摘要: 提交门禁要求的当前暂存源码重跑：329 passed，1 ignored；源码包含 PDF read、fetch_bytes 和 arXiv 依赖改动。
+- 关联: R-276 D-452 D-453 D-454
+- 收尾: 1786962277
+- 源码指纹: eb9c0884736427ff
+
+## T-1786922726138 R-276 B5 kanzei-app 当前暂存源码重跑 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 9.5s
+- 摘要: 提交门禁要求的当前暂存源码重跑：202 passed，0 failed；包含 arXiv command 注册与 URL helper。
+- 关联: R-276 D-452 D-453 D-454
+- 收尾: 1786962282
+- 源码指纹: eb9c0884736427ff

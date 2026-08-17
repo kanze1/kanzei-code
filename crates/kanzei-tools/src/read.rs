@@ -178,9 +178,67 @@ fn read_any(path: &std::path::Path, input: &ReadInput) -> Result<ReadPayload, St
             bytes: raw.len(),
         });
     }
+    if head[..n].starts_with(b"%PDF-") {
+        return read_pdf(path, input).map(ReadPayload::Text);
+    }
 
     file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
     read_sync_from(file, meta.len(), path, input).map(ReadPayload::Text)
+}
+
+fn read_pdf(path: &std::path::Path, input: &ReadInput) -> Result<String, String> {
+    let text = pdf_to_text(path)?;
+    let lines: Vec<&str> = text.lines().collect();
+    let offset = input.offset.unwrap_or(1).max(1);
+    let limit = input.limit.unwrap_or(DEFAULT_LIMIT);
+    let mut out = String::new();
+    let mut shown = 0usize;
+    for (index, line) in lines.iter().enumerate().skip(offset.saturating_sub(1)) {
+        if shown >= limit || out.len() >= MAX_OUTPUT_BYTES {
+            out.push_str(&format!(
+                "... (truncated at line {}; use offset to continue)\n",
+                index + 1
+            ));
+            break;
+        }
+        out.push_str(&render_line(index + 1, line));
+        shown += 1;
+    }
+    if shown == 0 {
+        return Ok(format!(
+            "(empty range: PDF text has {} lines, offset was {offset})",
+            lines.len()
+        ));
+    }
+    Ok(out)
+}
+
+/// Extract text from a real PDF using the installed `pdftotext` executable.
+/// The path is passed as an argument, never through a shell; missing tooling is explicit.
+pub fn pdf_to_text(path: &std::path::Path) -> Result<String, String> {
+    let output = std::process::Command::new("pdftotext")
+        .arg("-layout")
+        .arg(path)
+        .arg("-")
+        .output()
+        .map_err(|error| format!("启动 pdftotext 失败: {error}; 请将 pdftotext 安装并加入 PATH"))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format!(
+            "pdftotext 读取 {} 失败: {}",
+            path.display(),
+            if detail.is_empty() {
+                "未知错误"
+            } else {
+                &detail
+            }
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    if text.trim().is_empty() {
+        return Err(format!("PDF 没有可抽取文本: {}", path.display()));
+    }
+    Ok(text)
 }
 
 /// 文本读取正文。文件已开好、图片已在 [`read_any`] 里分流走,这里只管文本。
@@ -438,6 +496,51 @@ mod tests {
             "offset 不应回填前段内容"
         );
         assert!(out.content.len() < 1_000, "offset/limit 结果不应复制整文件");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    fn tiny_pdf() -> Vec<u8> {
+        let objects = [
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+            "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n",
+            "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+            "5 0 obj\n<< /Length 45 >>\nstream\nBT /F1 12 Tf 72 220 Td (PDF smoke) Tj ET\nendstream\nendobj\n",
+        ];
+        let mut pdf = b"%PDF-1.4\n".to_vec();
+        let mut offsets = Vec::new();
+        for object in objects {
+            offsets.push(pdf.len());
+            pdf.extend_from_slice(object.as_bytes());
+        }
+        let xref = pdf.len();
+        pdf.extend_from_slice(b"xref\n0 6\n0000000000 65535 f \n");
+        for offset in offsets {
+            pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        pdf.extend_from_slice(
+            format!("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+        );
+        pdf
+    }
+
+    #[tokio::test]
+    async fn read_pdf_uses_pdftotext_and_keeps_line_window() {
+        if std::process::Command::new("pdftotext")
+            .arg("-v")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let (dir, ctx) = temp_project();
+        let path = dir.join("paper.bin");
+        std::fs::write(&path, tiny_pdf()).unwrap();
+        let out = ReadTool
+            .execute(json!({"path": "paper.bin", "offset": 1, "limit": 5}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("PDF smoke"), "{}", out.content);
         std::fs::remove_dir_all(dir).ok();
     }
 

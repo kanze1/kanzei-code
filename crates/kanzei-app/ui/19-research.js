@@ -208,6 +208,14 @@ function researchCard(entry, kind) {
     badge.textContent = level;
     head.appendChild(badge);
   }
+  const depth = researchField(entry, "证据深度", "evidence_depth", "evidence depth");
+  if (depth) {
+    const badge = document.createElement("span");
+    badge.className = "research-badge evidence-depth";
+    badge.textContent = depth;
+    badge.title = t("证据深度说明");
+    head.appendChild(badge);
+  }
   const status = document.createElement("span");
   status.className = `research-badge st-${entry.status || ""}`;
   status.textContent = localizedDocStatus(entry.status || "");
@@ -243,7 +251,7 @@ function researchCard(entry, kind) {
   // 打开:文献走 URL 进内置 viewer,代码域走证据锚跳文件定位(用户定调不跳出应用)。
   const openable = (entry.fields ?? []).find(([k, v]) => researchLinkField(k, v));
   if (openable) {
-    const open = researchOpenLink(openable[0], String(openable[1]));
+    const open = researchOpenLink(openable[0], String(openable[1]), selectedResearchTopic);
     open.className = "ghost mini research-open";
     open.textContent = `↗ ${t("打开")}`;
     actions.appendChild(open);

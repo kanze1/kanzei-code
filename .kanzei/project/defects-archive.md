@@ -5534,3 +5534,39 @@
 - observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
 - observed_worktree_hash: fnv1a64:436aa829cdba0908
 - recorded_at: 1786960826069
+
+## D-453 R-276 批5 runtime smoke S-103 arXiv fixture 括号不配对 [fixed] (low)
+- 复现: 运行 node --check scripts/ui-runtime-smoke.mjs；scripts/ui-runtime-smoke.mjs:737 新增 S-103 arXiv 来源的 fields 数组闭合为 `] })`，应为 `]] })`，报 Unexpected token '}'。
+- 影响: 批5 arXiv 前端入口和正文级 viewer 断言无法执行。
+- 来源: self-found：R-276 批5 runtime smoke 夹具扩展。
+- 标签: 前端
+- refs: R-276
+- 优先级: P2
+- 进展: 已修正 `scripts/ui-runtime-smoke.mjs:737` 中 S-101/S-102/S-103 的 fields 数组闭合；T-1786922726131 runtime smoke 通过，T-1786922726132 六条前端冒烟全绿。
+- observed_head: 110c9943f4d272e26b955a8df1f684f1431a8602
+- observed_worktree_hash: fnv1a64:be26456dc1ba8b05
+- recorded_at: 1786961959717
+
+## D-452 R-276 批5 arXiv helper 插入位置错绑 webfetch_preview Tauri 属性 [fixed] (high)
+- 复现: 检查 crates/kanzei-app/src/docs.rs:528-535；批5 helper 插入在原 `#[tauri::command]` 与 `webfetch_preview` 函数之间，使属性绑定到 `arxiv_id_from_url`，而 webfetch_preview 失去 Tauri command 属性。
+- 影响: 桌面端原有 webfetch_preview 调用可能无法注册；新增 arxiv_id_from_url 反而被当作 Tauri command，导致编译或运行时 IPC 注册错误。
+- 来源: self-found：R-276 批5提交前代码审查。
+- 标签: 后端
+- refs: R-276
+- 优先级: P1
+- 进展: 已修复 `crates/kanzei-app/src/docs.rs:528-641` 的 Tauri 属性边界：`arxiv_id_from_url` 为普通内部 helper，`webfetch_preview` 保留 `#[tauri::command]`，`research_arxiv_preview` 单独注册；同时拒绝含 `..` 的 arXiv ID。T-1786922726130 arXiv URL 定向测试、T-1786922726133 kanzei-tools 329 passed、T-1786922726134 kanzei-app 202 passed、T-1786922726132 六条前端冒烟均通过。
+- observed_head: 110c9943f4d272e26b955a8df1f684f1431a8602
+- observed_worktree_hash: fnv1a64:be26456dc1ba8b05
+- recorded_at: 1786961969260
+
+## D-454 R-276 批5证据深度徽章错误嵌套在 V 等级条件内 [fixed] (low)
+- 复现: 审查 crates/kanzei-app/ui/19-research.js:203-218；证据深度 badge 的构造位于 `if (level)` 块内。来源字段只有 `证据深度`、没有 `等级` 时，卡片不渲染 evidence-depth。
+- 影响: 摘要级/正文级字段可能存在但缺少 V 等级的研究来源无法在卡片上展示证据深度，批5来源呈现不完整。
+- 来源: self-found：R-276 批5提交前 staged diff 审查。
+- 标签: 前端
+- refs: R-276
+- 优先级: P2
+- 进展: 已将 `crates/kanzei-app/ui/19-research.js:203-218` 的证据深度徽章移出 `if (level)`，无 V 等级来源也会展示 depth；`scripts/ui-runtime-smoke.mjs:2785-2786` 增加正文级 S-101 与无等级摘要级 S-103 双分支断言。T-1786922726135 runtime smoke 与 T-1786922726136 六条前端冒烟通过。
+- observed_head: 110c9943f4d272e26b955a8df1f684f1431a8602
+- observed_worktree_hash: fnv1a64:636532668458059b
+- recorded_at: 1786962103140

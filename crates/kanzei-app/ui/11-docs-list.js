@@ -165,7 +165,7 @@ function researchLinkField(key, value) {
 
 /// 造一个真入口按钮:文献进内置 viewer(用户 2026-08-16 定调,不跳出应用),
 /// 代码域按 file:line 打开文件预览。取不到内容时如实报错,不静默变成死按钮。
-function researchOpenLink(key, value) {
+function researchOpenLink(key, value, topic = "") {
   const raw = String(value).trim();
   const btn = document.createElement("button");
   btn.className = "ref-link";
@@ -180,8 +180,16 @@ function researchOpenLink(key, value) {
       event.stopPropagation();
       btn.disabled = true;
       try {
-        const page = await invoke("webfetch_preview", { url });
-        openRuntimeMarkdown(page.title || url, page.text || "");
+        const isArxiv = Boolean(topic) && /^https?:\/\/(?:export\.)?arxiv\.org\//i.test(url);
+        const page = isArxiv
+          ? await invoke("research_arxiv_preview", {
+            projectDir: currentProject,
+            topic: topic || (typeof selectedResearchTopic === "string" ? selectedResearchTopic : ""),
+            url,
+          })
+          : await invoke("webfetch_preview", { url });
+        const depth = page.depth ? `[${page.depth}]\n` : "";
+        openRuntimeMarkdown(page.title || url, `${depth}${page.text || ""}`);
       } catch (error) {
         toastError(`${t("打开失败")}:${error}`);
       } finally {

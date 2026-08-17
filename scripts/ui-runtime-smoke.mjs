@@ -734,7 +734,7 @@ const payloads = {
       {
         topic: "alpha-study",
         legacy: false,
-        sources: [docEntry("S-101", "Alpha 一手论文", "active", { topic: "alpha-study", fields: [["URL", "https://example.com/alpha"], ["类型", "文献(一手)"], ["作者", "Alpha Researcher"], ["年份", "2024"], ["等级", "V2"]] }), docEntry("S-102", "Alpha 代码来源", "active", { topic: "alpha-study", fields: [["证据锚", "crates/kanzei-tools/src/websearch.rs:9"], ["类型", "代码域"], ["年份", "2023"]] })],
+        sources: [docEntry("S-101", "Alpha 一手论文", "active", { topic: "alpha-study", fields: [["URL", "https://example.com/alpha"], ["类型", "文献(一手)"], ["作者", "Alpha Researcher"], ["年份", "2024"], ["等级", "V2"], ["证据深度", "正文级"]] }), docEntry("S-102", "Alpha 代码来源", "active", { topic: "alpha-study", fields: [["证据锚", "crates/kanzei-tools/src/websearch.rs:9"], ["类型", "代码域"], ["年份", "2023"]] }), docEntry("S-103", "Alpha arXiv 正文", "active", { topic: "alpha-study", fields: [["URL", "https://arxiv.org/abs/2301.12345"], ["类型", "文献(一手)"], ["年份", "2022"], ["证据深度", "摘要级"]] })],
         findings: [docEntry("F-101", "Alpha 发现", "draft", { topic: "alpha-study", fields: [["等级", "V2"], ["refs", "S-101"]] })],
         report: true,
       },
@@ -753,6 +753,7 @@ const payloads = {
   },
   // D-414:点 ↗ 抓正文进内置 viewer 的后端命令。
   webfetch_preview: { title: "MemGPT: Towards LLMs as Operating Systems", text: "# MemGPT\n\n正文摘录…" },
+  research_arxiv_preview: (args) => ({ title: `arXiv ${args?.url ?? ""}`, text: "# arXiv 正文\n\n正文级抽取内容…", depth: "正文级", source_url: args?.url, path: `C:/smoke/project/.kanzei/research/${args?.topic}/fulltext/2301.12345.html` }),
   docs_archive_entries: (args) => args?.kind === "req" ? [docEntry("R-000", "已归档需求", "done")] : [docEntry("D-000", "已归档缺陷", "fixed")],
   // R-122:架构浏览。含一篇未入册文档,验证"未入册"分组可见。
   architecture_snapshot: {
@@ -2782,6 +2783,15 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   assert(topicSelect.value === "alpha-study", `默认应选择排序后的 alpha-study,实得 ${topicSelect.value}`);
   assert(document.querySelector('#research-cards .research-topic-group[data-topic="alpha-study"]'), "alpha topic 分组未渲染");
   assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("Alpha 一手论文"), "alpha topic 来源未渲染");
+  assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("正文级"), "来源卡未展示正文级证据深度");
+  assert(document.querySelector('#research-cards .research-card[data-doc-id="S-103"]')?.textContent.includes("摘要级"), "无 V 等级来源卡未展示摘要级证据深度");
+  const arxivOpen = document.querySelector('#research-cards .research-card[data-doc-id="S-103"] .research-open');
+  assert(arxivOpen, "研究来源卡缺少 arXiv 正文入口");
+  arxivOpen.dispatchEvent({ type: "click", stopPropagation() {} });
+  await flush();
+  const arxivCalls = invokeArgs.filter((call) => call.cmd === "research_arxiv_preview");
+  assert(arxivCalls.at(-1)?.args?.topic === "alpha-study", `arXiv 正文调用未携带 topic:${JSON.stringify(arxivCalls.at(-1)?.args)}`);
+  assert(byId.get("viewer-body")?.textContent.includes("正文级"), "arXiv 返回的正文级标注未进入 viewer");
   assert(byId.get("research-report").textContent.includes("Alpha report"), "alpha topic 未读取对应 report");
   topicSelect.value = "beta-study";
   topicSelect.dispatchEvent({ type: "change", currentTarget: topicSelect });

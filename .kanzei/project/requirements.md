@@ -236,16 +236,16 @@
 - 依赖: R-221
 - 内容: 按 docs/design/research_workspace.md(2026-08-16 用户首轮实测反馈驱动的设计稿)实施研究工作台六批:批1 设计稿过审;批2 交互修复(去 kind gating,source/finding 与 req/defect 同权:可开/可编/可删/不截断,即 D-413);批3 双面板工作台+报告 tab(内联 [S-00x] 与 file:line 可跳、V 等级徽章与过滤);批4 来源/发现卡片化+筛选+反查+复制引用(BibTeX);批5 全文通道(read 支持 PDF、arXiv 正文通道、来源卡标注摘要级/正文级并与 V 表联动);批6 计划树面板(依赖 R-277)。设计原则取自 prior_art §1 前端横评:结果>过程、溯源三处冗余、计划先行可编辑、数据已结构化的 UI 不许降级成字符串。建议顺序:批2 与批5 先行(不依赖引擎,正是用户点名痛点)。
 - 复杂度: 大
-- 批次: 4/6
+- 批次: 5/6
 - 来源: 2026-08-16 用户「researchmode的前端设计这些比较复杂」;设计输入为 prior_art §1 前端横评(Gemini 报告至上双面板/ChatGPT 计划编辑与运行中转向/Perplexity 来源三处冗余/Manus 过程至上反例)与四组件通用 schema(document/steps/sources/annotations)。
 - 标签: 前端
 - 边界: 不做协作/分享/导出站外;不做在线 LaTeX 编辑器(Monaco 已有);research 下连跑禁用沿用 interaction_modes 既有定调;长报告渲染沿用 R-267 窗口化模式,不另造。
 - 验收: ①批1 设计稿经用户过审(含四组件权重取舍的明确理由);②计划编辑→运行→中途转向全链路可操作有轨迹;③引用点击回源双形态各实测(URL 与 file:line);④长报告与长活动流滚动不卡(窗口化生效);⑤与桌面既有 UI 风格与 i18n 纪律一致。
 - 优先级: P2
-- 进展: 批4已落地并验证。实现文件：crates/kanzei-app/ui/19-research.js、index.html、style.css、02-i18n.js、scripts/ui-runtime-smoke.mjs、scripts/ui-lint-globals.json。新增当前 topic/tab 边界内的标题/要点/作者检索、类型/V 等级/年份筛选、年份/被引排序、来源→finding 反查、BibTeX clipboard 复制；数据源仍是 docs_snapshot topic sources/findings 与 finding.refs，未改后端事实。D-450 修复筛选控件监听器从 topic change 回调移到初始化位置，D-451 修复 runtime smoke 重复 filterType 声明；D-447/D-448/D-449/D-450/D-451 已 fixed。T-1786922726123、T-1786922726126 runtime smoke 通过；T-1786922726125、T-1786922726127 六条前端冒烟全绿（runtime/lint/parallel-lines/a11y/i18n/markdown）。实际 ui_dom 探针仍命中旧版不可见 #view-research 且无新筛选节点，ui_console 无错误，判定当前窗口未刷新本轮静态资源；不将该探针冒充新构建渲染证据。下一步：提交批4，批5再处理 PDF/arXiv 正文与证据深度。
-- observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
-- observed_worktree_hash: fnv1a64:436aa829cdba0908
-- recorded_at: 1786960838723
+- 进展: 批5已落地并验证。实现文件：crates/kanzei-tools/src/read.rs、lib.rs、webfetch.rs；crates/kanzei-app/src/docs.rs、src/main.rs；ui/11-docs-list.js、19-research.js、02-i18n.js、style.css；scripts/ui-runtime-smoke.mjs。新增 PDF magic → pdftotext 文本通道（保留 offset/limit 与缺失工具诊断）；新增 arXiv HTML→ar5iv→PDF fallback，正文落入 `.kanzei/research/<topic>/fulltext/`，返回正文级 depth/source_url/path/fallback；研究来源卡展示证据深度，arXiv 研究入口携带 topic 调用专用 IPC，非研究侧栏继续使用 webfetch_preview。D-452/D-453/D-454 已 fixed。T-1786922726129 PDF 定向测试、T-1786922726130 arXiv URL 测试、T-1786922726131 arXiv/PDF runtime smoke、T-1786922726132/T-1786922726136 六条前端冒烟、T-1786922726133 kanzei-tools 329 passed、T-1786922726134 kanzei-app 202 passed、T-1786922726135 evidence depth runtime smoke。实际 ui_dom 探针命中旧版不可见 #view-research、无新 `.research-card`，ui_console 无错误，判定当前窗口未刷新本批静态资源；不将该探针冒充新构建渲染证据。下一步：提交批5，批6处理计划树面板（依赖 R-277）。
+- observed_head: 110c9943f4d272e26b955a8df1f684f1431a8602
+- observed_worktree_hash: fnv1a64:636532668458059b
+- recorded_at: 1786962117713
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-276
 
