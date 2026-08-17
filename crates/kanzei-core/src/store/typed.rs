@@ -917,6 +917,9 @@ impl TypedSessionWriter {
     /// source step 是单次 runner 调用内的局部编号；流水线可能多次从 1 开始。
     /// writer 另分配单调 logical step 落库，避免同一用户 turn 内跨阶段撞号。
     pub fn turn_started(&mut self, source_step: u32, max_steps: u32) {
+        if self.terminal {
+            return;
+        }
         self.logical_step = self.logical_step.saturating_add(1);
         if self.append(vec![SessionFactEnvelope::new(
             &self.turn_id,
@@ -929,7 +932,7 @@ impl TypedSessionWriter {
     }
 
     pub fn push_text(&mut self, text: &str) {
-        if text.is_empty() || self.draft.finalized {
+        if self.terminal || text.is_empty() || self.draft.finalized {
             return;
         }
         self.draft.buffer.push_str(text);
@@ -941,7 +944,7 @@ impl TypedSessionWriter {
     }
 
     fn flush_draft(&mut self) {
-        if self.draft.buffer.is_empty() || self.draft.finalized {
+        if self.terminal || self.draft.buffer.is_empty() || self.draft.finalized {
             return;
         }
         let text = self.draft.buffer.clone();
@@ -964,7 +967,10 @@ impl TypedSessionWriter {
 
     /// 定时器调用：provider 暂停发 delta 时仍保证可见文本在 750ms 内落一批。
     pub fn flush_due(&mut self) {
-        if !self.draft.buffer.is_empty() && self.draft.last_flush.elapsed() >= DRAFT_BATCH_AGE {
+        if !self.terminal
+            && !self.draft.buffer.is_empty()
+            && self.draft.last_flush.elapsed() >= DRAFT_BATCH_AGE
+        {
             self.flush_draft();
         }
     }
@@ -974,6 +980,9 @@ impl TypedSessionWriter {
     }
 
     pub fn stream_restarted(&mut self) {
+        if self.terminal {
+            return;
+        }
         self.flush_draft();
         if self.draft.chunk_index > 0 && !self.draft.finalized {
             let message_id = self.draft.message_id(&self.turn_id);
@@ -997,6 +1006,9 @@ impl TypedSessionWriter {
     }
 
     pub fn assistant_committed(&mut self, source_step: u32, message: Message) {
+        if self.terminal {
+            return;
+        }
         if self.source_step != Some(source_step) {
             self.errors.push(format!(
                 "assistant commit source step {source_step} != active source step {:?}",
@@ -1037,6 +1049,9 @@ impl TypedSessionWriter {
     }
 
     pub fn tool_results_committed(&mut self, source_step: u32, message: Message) {
+        if self.terminal {
+            return;
+        }
         if self.source_step != Some(source_step) {
             self.errors.push(format!(
                 "tool results source step {source_step} != active source step {:?}",
@@ -1073,6 +1088,9 @@ impl TypedSessionWriter {
     }
 
     pub fn finish(&mut self, terminal: SessionTurnTerminal) {
+        if self.terminal {
+            return;
+        }
         self.flush_draft();
         let mut facts = Vec::new();
         if self.draft.has_persistable_text() && !self.draft.finalized {
@@ -1644,6 +1662,73 @@ mod tests {
                 1
             );
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn terminal_writer_ignores_late_callbacks_without_errors_or_extra_terminal() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-typed-terminal-{}-{}",
+            std::process::id(),
+            super::super::now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let state_path = root.join("state.db");
+        {
+            let store = SessionStore::open(&state_path).unwrap();
+            store.create_session("ses", "test", None).unwrap();
+        }
+        let mut writer = TypedSessionWriter::new(&state_path, "ses", "turn");
+        writer.turn_started(1, 1);
+        writer.finish(SessionTurnTerminal::Failed("transport error".into()));
+        writer.turn_started(2, 1);
+        writer.push_text("late delta");
+        writer.stream_restarted();
+        writer.assistant_committed(
+            2,
+            Message::assistant(vec![Part::Text {
+                text: "late assistant".into(),
+            }]),
+        );
+        writer.tool_results_committed(
+            2,
+            Message::assistant(vec![Part::ToolResult {
+                call_id: "late-call".into(),
+                content: "late result".into(),
+                is_error: false,
+            }]),
+        );
+        writer.flush_due();
+        writer.finish(SessionTurnTerminal::Completed);
+
+        let store = SessionStore::open(&state_path).unwrap();
+        let facts = store.list_session_facts("ses").unwrap();
+        assert!(
+            writer.errors().is_empty(),
+            "late callbacks added errors: {:?}",
+            writer.errors()
+        );
+        assert_eq!(
+            facts
+                .iter()
+                .filter(|(_, envelope)| matches!(envelope.fact, SessionFact::TurnStarted { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            facts
+                .iter()
+                .filter(|(_, envelope)| matches!(envelope.fact, SessionFact::TurnFailed { .. }))
+                .count(),
+            1
+        );
+        assert!(!facts.iter().any(|(_, envelope)| matches!(
+            envelope.fact,
+            SessionFact::TurnCompleted
+                | SessionFact::AssistantMessageCommitted { .. }
+                | SessionFact::ToolResultCommitted { .. }
+        )));
+        drop(store);
         std::fs::remove_dir_all(root).unwrap();
     }
 

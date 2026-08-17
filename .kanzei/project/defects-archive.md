@@ -5967,3 +5967,16 @@
 - observed_head: b085499ce22971141af5b9047cead01c352f3d9e
 - observed_worktree_hash: fnv1a64:bd26fbfda78459d5
 - recorded_at: 1786996259416
+
+## D-488 terminal writer 回归测试未释放 Windows SQLite 文件句柄 [fixed] (low)
+- 复现: `cargo test -p kanzei-core` 新增 terminal writer 回归在 Windows 失败：`remove_dir_all(root)` 报 OS code 32，因为测试末尾仍持有 `SessionStore` 文件句柄。
+- 影响: R-242 新增回归无法在 Windows 完成，阻断定向验证。
+- 来源: self-found：D-487 修复后的 kanzei-core 定向测试。
+- 标签: 核心
+- 验收: terminal writer 回归在 Windows 通过，测试结束前显式释放 SQLite store 句柄。
+- refs: R-242 D-487
+- 优先级: P1
+- 进展: 已修复并验证：新增回归在 `crates/kanzei-core/src/store/typed.rs:1730-1732` 显式 `drop(store)` 后再删除临时目录，避免 Windows SQLite 文件句柄占用；T-1786922726222（cargo fmt check + cargo test -p kanzei-core，223 passed）通过。验收逐项：Windows 回归可通过（T-1786922726222）；测试结束前释放句柄（typed.rs:1730-1732）。
+- observed_head: 7f77b8ffa4acd1556c893d05cdc61bd59a5773a5
+- observed_worktree_hash: fnv1a64:71806aa445e9fad3
+- recorded_at: 1786997528033

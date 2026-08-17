@@ -6191,3 +6191,18 @@
 - 摘要: 新构建真实项目 shadow 诊断：共 275 turn，equal 128，预期差异 65，unknown 82，typed_write_errors 110；最新新增 turn 均 typed_write_errors=0，其中最新两轮为 failed_turn，未计入正常可比较窗口。历史 unknown 不重写。
 - 关联: R-242 D-486
 - 收尾: 1786997283
+
+## T-1786922726222 R-242 D-487 terminal writer 迟到回调定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 0.6s
+- 摘要: R-242 typed writer terminal-late-callback 回归：kanzei-core 223 passed，0 failed；覆盖 terminal 后迟到 TurnStart/文本/stream restart/assistant/tool/finish 均忽略，Windows 句柄释放修复后通过。
+- 关联: R-242 D-487 D-488
+- 收尾: 1786997518
+
+## T-1786922726223 D-487 当前暂存源码 terminal 迟到回调定向回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.3s
+- 摘要: 当前暂存源码定向回归通过：kanzei-core 223 passed，0 failed；覆盖 terminal 后迟到 TurnStart、文本、stream restart、assistant、tool、finish 均忽略且不新增错误，Windows 临时数据库句柄释放回归通过。
+- 关联: R-242 D-487 D-488
+- 收尾: 1786997625
+- 源码指纹: 87eaf2a7e793a47e
