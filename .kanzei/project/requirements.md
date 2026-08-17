@@ -254,7 +254,7 @@
 - 依赖: R-221
 - 内容: 四段流水线:①澄清+计划——产出显式研究计划树数据结构,经用户审批/修改后才跑(UI 由 R-276 承接);②检索-阅读-反思环——串行迭代+有限并发检索,子任务隔离上下文、回传前 RCS 式压缩(相关分+带出处摘要),原始网页/工具输出不直接进主上下文;信息写入 findings.md 时即绑定来源(STORM 信息表先例);反思步找知识缺口决定补搜;③综合写作——先 outline.md 后分节单点一次性生成,重课题写 paper.tex 走 R-273 编译回环修错;④引用校验——FACT 式论断-出处逐条核验(文献=URL 内容支撑,代码=file:line@commit 存在且语义支撑),抽查不过重写该节。支撑件:预算显式旋钮(轮次/token 上限,超限收敛写作而非报错);tantivy 本地全文索引(文献+代码)与 symbols 反查挂同一检索接口(文献论断↔代码实现互证是现有系统空白,kanzei 独有优势);断点续跑(单机状态文件,强杀可恢复)。拆批:批1 计划数据结构+澄清段;批2 检索环+压缩回传+来源绑定;批3 大纲写作+LaTeX 回环;批4 引用校验+预算旋钮;批5 tantivy 索引+symbols 同接口+断点续跑。
 - 复杂度: 大
-- 批次: 1/5
+- 批次: 2/5
 - 来源: 2026-08-16 research mode 定调点全部过审后按 docs/design/research_mode.md §5 立项;架构采纳先行对照(prior_art §1)全行业收敛结论:四段流水线、研究并行写作串行、引用收集时绑定、预算显式旋钮、计划给人审。
 - 标签: 核心
 - 边界: 不做真·多 agent 并行编排(先行对照:15 倍 token 单用户不值,隔离+压缩回传同样解上下文冲突);不做 RL 专训模型(纪律放系统侧);不做常驻知识库服务(索引随课题建随课题用);不做模拟审稿与自动选题;计划审批前端由 R-276 承接,本条只出数据结构与状态机。
@@ -262,10 +262,10 @@
 - 优先级: P1
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-277
-- 进展: 批1计划引擎及 R-276 消费契约已落地并提交：49c9af33 `R-277 B1 研究计划树与澄清闸门`；db2e92d7 `R-277 B1 接入计划审批 IPC 与研究工作台`。`research_plan.rs` 提供 schema、校验、topic 隔离、原子持久化及 load/save/approve_plan；`docs.rs`/`main.rs` 注册 research_plan_get/research_plan_approve；研究工作台展示计划树并调用审批，topic 切换隔离。T-1786922726142 六条前端冒烟全绿；T-1786922726148 kanzei-tools 331 passed/1 ignored；T-1786922726149 kanzei-app 202 passed；T-1786922726147 rustfmt + app 202 passed。D-458/D-459/D-460 已 fixed。下一步：进入批2检索环。
-- observed_head: db2e92d72039994e18c0adbab9abada87d4e13f9
+- 进展: 批1计划引擎及 R-276 消费契约已落地并提交：49c9af33 `R-277 B1 研究计划树与澄清闸门`；db2e92d7 `R-277 B1 接入计划审批 IPC 与研究工作台`。批2检索-阅读-反思环已落地并提交：8552c485 `R-277 B2 接入检索反思环与来源绑定`。新增 `research_loop` 工具与 `.kanzei/research/<topic>/loop.json`：approved 计划启动门、预算轮次/token、begin_search 的 max_concurrency/task_id 闸门、压缩 evidence(summary/relevance/source_ids)、reflect 缺口收敛、add_finding 复用 tracker 强制 source refs、resume 断点状态；ResearchProfile 已注册工具、权限和 prompt。T-1786922726151 当前 staged kanzei-tools 333 passed/1 ignored；T-1786922726150 rustfmt+完整 suite 同样通过。D-461/D-462/D-463/D-464/D-465/D-466 已 fixed。下一步：批3大纲写作与 LaTeX 回环。
+- observed_head: 8552c485b4b04f573b3e8a8fac960499f3d4ad69
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786963978517
+- recorded_at: 1786965202116
 
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1
