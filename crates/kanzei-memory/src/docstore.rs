@@ -367,6 +367,25 @@ fn archive_cache_put(path: &std::path::Path, stamp: ArchiveStamp, parsed: &Parse
         .insert(path.to_path_buf(), (stamp, parsed.clone()));
 }
 
+fn validate_topic(topic: &str) -> std::io::Result<&str> {
+    let valid = !topic.is_empty()
+        && topic.len() <= 80
+        && !topic.starts_with('-')
+        && !topic.ends_with('-')
+        && !topic.contains("--")
+        && topic
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+    if valid {
+        Ok(topic)
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("topic 必须是 1-80 个小写字母/数字组成的 kebab-case: `{topic}`"),
+        ))
+    }
+}
+
 pub struct DocStore {
     pub kind: &'static DocKind,
     pub path: PathBuf,
@@ -381,6 +400,41 @@ impl DocStore {
             preserved: Arc::new(Mutex::new(None)),
             preserved_archive: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// B2:研究来源/发现按课题隔离到 `.kanzei/research/<topic>/`。
+    /// topic 只接受小写 kebab-case，避免 `..`、绝对路径和跨目录写入。
+    pub fn open_topic(
+        project_root: &Path,
+        kind: &'static DocKind,
+        topic: &str,
+    ) -> std::io::Result<Self> {
+        let topic = validate_topic(topic)?;
+        if !matches!(kind.prefix, "S" | "F") {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "topic store 只适用于 source/finding",
+            ));
+        }
+        let filename = Path::new(kind.rel_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "无效的 topic 文档名")
+            })?;
+        Ok(DocStore {
+            kind,
+            path: project_root
+                .join(".kanzei/research")
+                .join(topic)
+                .join(filename),
+            preserved: Arc::new(Mutex::new(None)),
+            preserved_archive: Arc::new(Mutex::new(None)),
+        })
+    }
+
+    pub fn validate_topic(topic: &str) -> std::io::Result<&str> {
+        validate_topic(topic)
     }
 
     /// 取本 kind 的跨进程写锁(R-138)。
@@ -1484,6 +1538,34 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
         }
+    }
+
+    #[test]
+    fn topic_store_isolates_source_and_finding_files() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-topic-store-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let alpha = DocStore::open_topic(&root, &SOURCES, "alpha-study").unwrap();
+        let beta = DocStore::open_topic(&root, &SOURCES, "beta-study").unwrap();
+        assert_ne!(alpha.path, beta.path);
+        alpha
+            .save(&[Entry {
+                id: "S-001".into(),
+                title: "alpha source".into(),
+                status: "active".into(),
+                severity: None,
+                fields: vec![],
+            }])
+            .unwrap();
+        assert_eq!(beta.load().unwrap(), Vec::<Entry>::new());
+        assert!(DocStore::open_topic(&root, &SOURCES, "../escape").is_err());
+        assert!(DocStore::open_topic(&root, &SOURCES, "Alpha").is_err());
+        std::fs::remove_dir_all(root).ok();
     }
 
     /// D-377:归档解析缓存的唯一风险是**给旧内容**。这里钉住失效键(mtime+长度):

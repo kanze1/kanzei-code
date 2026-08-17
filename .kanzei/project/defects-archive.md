@@ -5342,3 +5342,39 @@
 - observed_head: a1e27bdbca57bf69603f22c2f89ec7851056b1e5
 - observed_worktree_hash: fnv1a64:49137dd9fe24f12e
 - recorded_at: 1786941647508
+
+## D-436 R-221 B2 半成品未把 topic 贯穿报告读取与前端分组 [fixed] (medium)
+- 复现: 当前 topic 工件已写入 .kanzei/research/<topic>/，但 docs_read/docs_open 入口未接收 topic，研究工作台仍消费扁平 sources/findings 与根 report.md。
+- 影响: 两个 topic 无法在桌面端独立浏览或打开各自 report，B2 的隔离能力只有存储层而没有真实消费者。
+- 来源: self-found；恢复 R-221 B2 时复核现有未提交实现。
+- 标签: 前端
+- refs: R-221
+- 优先级: P2
+- 进展: 已修复并验证：source/finding 写入经 crates/kanzei-tools/src/tracker.rs:313-327 选择 DocStore::open_topic，finding refs 经 tracker.rs:693-742 按同 topic 校验；报告读取经 crates/kanzei-app/src/docs.rs:557-625 传 topic；研究页经 crates/kanzei-app/ui/19-research.js:235-365 按 topic 分组、切换并读取报告。T-1786922726101、T-1786922726104、T-1786922726105 通过。
+- observed_head: 62bc8331065caa993d93e6d60135b1a44caa8718
+- observed_worktree_hash: fnv1a64:7b3352155b88e8aa
+- recorded_at: 1786954145129
+
+## D-438 ui-runtime-smoke 的 profile 回退断言未清理进程记忆前置状态 [fixed] (medium)
+- 复现: 运行 scripts/ui-runtime-smoke.mjs 时，R-115 的 applyProfileValue 回退断言在“无进程记忆”前置条件下实得 dev-pair；此前测试步骤已通过 profile change 写入 processProfileUi，未清理该 Map。
+- 影响: 完整 UI runtime smoke 在进入 R-221 B2 topic 断言前提前失败，无法验证后续前端回归；产品代码未被该断言直接证明为错误。
+- 来源: self-found；运行 R-221 B2 UI 冒烟时定位。
+- 标签: 流程
+- refs: R-221
+- 优先级: P2
+- 进展: 已修复并验证：scripts/ui-runtime-smoke.mjs:4225-4228 在 R-115「无进程记忆」断言前清理 processProfileUi，恢复真实前置条件；T-1786922726104 六条前端冒烟全部通过，runtime smoke 进入并通过 R-221 B2 topic 断言。
+- observed_head: 62bc8331065caa993d93e6d60135b1a44caa8718
+- observed_worktree_hash: fnv1a64:7b3352155b88e8aa
+- recorded_at: 1786954153734
+
+## D-437 B2 docs_path topic report 闭包缺少 Result 类型标注导致 kanzei-app 编译失败 [fixed] (medium)
+- 复现: 执行 `cargo test -p kanzei-app --bin kzapp` 时，crates/kanzei-app/src/docs.rs:591 的 report topic 闭包报 E0282/E0283，Result 错误类型无法推断。
+- 影响: kanzei-app 无法编译，B2 的 topic 报告读取入口不能交付。
+- 来源: self-found；R-221 B2 定向 app 编译。
+- 标签: 后端
+- refs: R-221
+- 优先级: P1
+- 进展: 已修复并验证：crates/kanzei-app/src/docs.rs:582-591 对 report topic 闭包明确返回 `Result<PathBuf, String>`，消除类型推断错误；`cargo test -p kanzei-app` 199 passed（T-1786922726105），IPC topic 契约通过（T-1786922726101）。
+- observed_head: 62bc8331065caa993d93e6d60135b1a44caa8718
+- observed_worktree_hash: fnv1a64:7b3352155b88e8aa
+- recorded_at: 1786954176047

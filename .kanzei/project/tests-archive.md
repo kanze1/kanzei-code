@@ -5274,3 +5274,106 @@
 - 关联: R-221
 - 收尾: 1786942966
 - 源码指纹: 86eda3fe64a9758b
+
+## T-1786922726094 R-221 B2 kanzei-memory 定向测试 [passed]
+- 命令: cargo test -p kanzei-memory --lib
+- 时长: 1.5s
+- 摘要: 143 tests passed，含 topic_store_isolates_source_and_finding_files。
+- 关联: R-221
+- 收尾: 1786950696
+
+## T-1786922726095 R-221 B2 kanzei-tools 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 时长: 33.0s
+- 摘要: 324 tests passed，1 ignored；tracker/profile 回归通过。
+- 关联: R-221
+- 收尾: 1786950696
+
+## T-1786922726096 R-221 B2 kanzei-app 定向测试 [failed]
+- 命令: cargo test -p kanzei-app --lib
+- 摘要: 失败：kanzei-app 没有 library target，命令选择错误，尚未执行 app 测试。
+- 关联: R-221
+- 收尾: 1786950696
+
+## T-1786922726097 R-221 B2 kanzei-memory 定向测试 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.5s
+- 摘要: 143 passed, 1 ignored；包含 topic_store_isolates_source_and_finding_files 回归。
+- 关联: R-221
+- 收尾: 1786953711
+
+## T-1786922726098 R-221 B2 kanzei-tools 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 31.8s
+- 摘要: 324 passed, 1 ignored；tracker topic schema、topic refs 与 research 权限回归通过。
+- 关联: R-221 D-436
+- 收尾: 1786953712
+
+## T-1786922726099 R-221 B2 前端语法初检 [failed]
+- 命令: node --check crates/kanzei-app/ui/19-research.js; node --check crates/kanzei-app/ui/index.html
+- 摘要: 19-research.js 通过；HTML 不是 Node 可解析的脚本，node --check 对 index.html 报 ERR_UNKNOWN_FILE_EXTENSION，命令本身不适合作为 HTML 验证。
+- 关联: R-221 D-436
+- 收尾: 1786953712
+
+## T-1786922726100 R-221 B2 kanzei-app 定向测试初检 [failed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.8s
+- 摘要: 198 passed, 1 failed：ipc_contract::docs_snapshot_形状与ipc契约一致，后端新增 research_topics 尚未同步 scripts/ipc-contract.json；Rust 编译本身通过。
+- 关联: R-221 D-436
+- 收尾: 1786953810
+
+## T-1786922726101 R-221 B2 IPC 契约定向回归 [passed]
+- 命令: cargo test -p kanzei-app docs_snapshot_形状与ipc契约一致
+- 时长: 0.1s
+- 摘要: IPC docs_snapshot 形状已与 scripts/ipc-contract.json 同步，research_topics 字段契约通过。
+- 关联: R-221 D-436
+- 收尾: 1786953915
+
+## T-1786922726102 R-221 B2 UI 运行时冒烟初检 [failed]
+- 命令: node scripts/ui-runtime-smoke.mjs
+- 摘要: 冒烟在既有 profile 恢复断言处提前失败：无进程记忆时实得 dev-pair 而非预期 dev-auto；未进入 R-221 B2 topic 断言，需先处理或隔离该基线失败。
+- 关联: R-221 D-436
+- 收尾: 1786953915
+
+## T-1786922726103 R-221 B2 parallel-lines 回归 [passed]
+- 命令: node scripts/parallel-lines-regression.mjs
+- 摘要: 刷新节流、线路状态/切换代次、设置串行保存和 profile 隔离回归通过。
+- 关联: R-221
+- 收尾: 1786954056
+
+## T-1786922726104 R-221 B2 前端六条冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 六条前端冒烟全部实际通过：runtime 24 个脚本/2121 次 invoke/0 运行时错误；ui-lint 44 文件零 no-undef；parallel-lines 回归通过；a11y 22 个 icon-btn 与键盘焦点规则通过；i18n 1234 key/432 HTML 文案/57 动态契约通过；Markdown 列表、表格、代码、安全外链、XSS 通过。R-221 B2 topic 断言包含在 runtime smoke 中。
+- 关联: R-221 D-436 D-438
+- 收尾: 1786954072
+
+## T-1786922726105 R-221 B2 kanzei-app 定向测试最终 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.2s
+- 摘要: 199 passed，0 failed；包含 docs_snapshot IPC 契约、Tauri docs_read/docs_open topic 参数与桌面研究装配回归。
+- 关联: R-221 D-436 D-438
+- 收尾: 1786954101
+
+## T-1786922726106 R-221 B2 kanzei-memory 格式化后定向测试 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.5s
+- 摘要: 格式化后重跑：143 passed，1 ignored；topic_store_isolates_source_and_finding_files 通过。
+- 关联: R-221
+- 收尾: 1786954417
+- 源码指纹: b568bb02bd8f7737
+
+## T-1786922726107 R-221 B2 kanzei-tools 格式化后定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 32.4s
+- 摘要: 格式化后重跑：324 passed，1 ignored；tracker topic 与 research 权限回归通过。
+- 关联: R-221
+- 收尾: 1786954417
+- 源码指纹: b568bb02bd8f7737
+
+## T-1786922726108 R-221 B2 kanzei-app 格式化后定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.6s
+- 摘要: 格式化后重跑：199 passed，0 failed；IPC topic 契约与 docs_read/docs_open topic 参数回归通过。
+- 关联: R-221
+- 收尾: 1786954417
+- 源码指纹: b568bb02bd8f7737

@@ -98,6 +98,7 @@
         "title": "string"
       }
     ],
+    "research_topics": "array",
     "root": "string",
     "sources": "array",
     "warnings": "array"

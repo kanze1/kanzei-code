@@ -730,6 +730,22 @@ const payloads = {
     findings: [
       docEntry("F-001", "kanzei 记忆定位:控制系统非 RAG 模块", "confirmed", { closed: true, fields: [["域", "代码"], ["等级", "V1"], ["refs", "S-001"]] }),
     ],
+    research_topics: [
+      {
+        topic: "alpha-study",
+        legacy: false,
+        sources: [docEntry("S-101", "Alpha 一手论文", "active", { topic: "alpha-study", fields: [["URL", "https://example.com/alpha"], ["类型", "文献(一手)"]] })],
+        findings: [docEntry("F-101", "Alpha 发现", "draft", { topic: "alpha-study", fields: [["等级", "V2"], ["refs", "S-101"]] })],
+        report: true,
+      },
+      {
+        topic: "beta-study",
+        legacy: false,
+        sources: [docEntry("S-101", "Beta 代码来源", "active", { topic: "beta-study", fields: [["证据锚", "crates/kanzei-tools/src/websearch.rs:9"], ["类型", "代码域"]] })],
+        findings: [],
+        report: true,
+      },
+    ],
     root: "C:/smoke/parent",
     warnings: [],
     archived: { req: 1, defect: 2, idea: 0, source: 0, finding: 0 },
@@ -758,7 +774,18 @@ const payloads = {
     ],
   },
   docs_read_custom: { path: "C:/smoke/parent/docs/design/memory_system.md", name: "memory_system.md", content: "# Memory 系统设计基线\n\n冒烟内容。" },
-  docs_read: { path: "C:/smoke/parent/docs/design/readme.md", name: "readme.md", content: "# 设计与 AI 讨论记录规范\n\n冒烟内容。" },
+  docs_read: (args) => {
+    const reports = {
+      "alpha-study": "# Alpha report\n\nAlpha conclusion [S-101].",
+      "beta-study": "# Beta report\n\nBeta conclusion [S-101].",
+    };
+    return {
+      path: args?.topic ? `C:/smoke/project/.kanzei/research/${args.topic}/report.md` : "C:/smoke/project/.kanzei/research/report.md",
+      name: "report.md",
+      content: args?.topic ? (reports[args.topic] ?? "# Unknown report") : "# Legacy report",
+      topic: args?.topic ?? null,
+    };
+  },
   defect_review: {
     empty: false,
     defectCount: 1,
@@ -2738,6 +2765,37 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   );
 }
 
+// ---------- R-221 B2 topic 工件:课题分组、报告读取与同名 ID 隔离 ----------
+{
+  const profile = byId.get("profile-select");
+  const savedProfile = profile.value;
+  profile.value = "research";
+  profile.dispatchEvent({ type: "change" });
+  await flush();
+  const researchActivity = document.querySelector('.activity-item[data-view="research"]');
+  assert(researchActivity && !researchActivity.classList.contains("hidden"), "research 档未显示研究工作台入口");
+  researchActivity.click();
+  await flush();
+  const topicSelect = byId.get("research-topic-select");
+  assert(topicSelect && topicSelect.options.length === 2, `研究课题选择器应有两个 topic,实得 ${topicSelect?.options.length ?? 0}`);
+  assert(topicSelect.value === "alpha-study", `默认应选择排序后的 alpha-study,实得 ${topicSelect.value}`);
+  assert(document.querySelector('#research-cards .research-topic-group[data-topic="alpha-study"]'), "alpha topic 分组未渲染");
+  assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("Alpha 一手论文"), "alpha topic 来源未渲染");
+  assert(byId.get("research-report").textContent.includes("Alpha report"), "alpha topic 未读取对应 report");
+  topicSelect.value = "beta-study";
+  topicSelect.dispatchEvent({ type: "change", currentTarget: topicSelect });
+  await flush();
+  assert(document.querySelector('#research-cards .research-topic-group[data-topic="beta-study"]'), "beta topic 分组未渲染");
+  assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("Beta 代码来源"), "相同 S-101 未切换到 beta topic 数据");
+  assert(!document.querySelector('#research-cards .research-card')?.textContent.includes("Alpha 一手论文"), "切换 topic 后仍混入 alpha 来源");
+  assert(byId.get("research-report").textContent.includes("Beta report"), "beta topic 未读取对应 report");
+  const topicReads = invokeArgs.filter(({ cmd }) => cmd === "docs_read");
+  assert(topicReads.at(-1)?.args?.topic === "beta-study", `beta report 读取未携带 topic:${JSON.stringify(topicReads.at(-1)?.args)}`);
+  profile.value = savedProfile;
+  profile.dispatchEvent({ type: "change" });
+  await flush();
+}
+
 // ---------- 筛选只能写给确实拥有该字段的队列 ----------
 // documentFilters.defect 没有 complexity/sort 两个键。凭空写进去,锁提示的
 // `key in reqFilterState` 就会把「复杂度=大」列进缺陷队列的锁,而 docDragEnabled 的
@@ -4166,6 +4224,8 @@ assert(JSON.parse(storage.get(filterKey)).docReq.status === "doing", "筛选落�
 
 // 模式回退链:本进程记忆 → 全局上次选择 → dev-pair。中间那档缺了就会静默降级。
 assert(typeof sandbox.applyProfileValue === "function", "applyProfileValue 未定义");
+// 这条用例验证“无进程记忆”分支；前面的 profile 交互会写入同一 Map，必须显式清理测试状态。
+vm.runInContext("processProfileUi.clear()", sandbox);
 storage.set("kz-profile", "dev-auto");
 sandbox.applyProfileValue("dev");
 assert(

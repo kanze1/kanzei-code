@@ -9,7 +9,61 @@
 // (卡片里能开、报告里能跳)、数据已结构化的不许降级成字符串。
 
 let researchTab = "sources";
-let researchSnapshot = { sources: [], findings: [] };
+let selectedResearchTopic = "";
+let researchSnapshot = { sources: [], findings: [], research_topics: [] };
+
+function researchTopicKey(topic) {
+  return topic?.topic ?? "";
+}
+
+function researchTopicLabel(topic) {
+  return topic?.label || topic?.topic || t("旧版平铺");
+}
+
+function selectedResearchTopicData() {
+  const topics = researchSnapshot.research_topics ?? [];
+  return topics.find((topic) => researchTopicKey(topic) === selectedResearchTopic) ?? topics[0] ?? {
+    topic: null,
+    legacy: true,
+    label: t("旧版平铺"),
+    sources: researchSnapshot.sources ?? [],
+    findings: researchSnapshot.findings ?? [],
+  };
+}
+
+function renderResearchTopicPicker() {
+  const select = $("research-topic-select");
+  if (!select) return;
+  const topics = researchSnapshot.research_topics ?? [];
+  if (!topics.length) {
+    select.innerHTML = `<option value="">${t("暂无研究课题")}</option>`;
+    select.disabled = true;
+    selectedResearchTopic = "";
+    return;
+  }
+  const available = new Set(topics.map(researchTopicKey));
+  if (!available.has(selectedResearchTopic)) selectedResearchTopic = researchTopicKey(topics[0]);
+  select.disabled = false;
+  select.innerHTML = "";
+  for (const topic of topics) {
+    const option = document.createElement("option");
+    option.value = researchTopicKey(topic);
+    option.textContent = researchTopicLabel(topic);
+    select.appendChild(option);
+  }
+  select.value = selectedResearchTopic;
+}
+
+function selectedResearchEntries() {
+  const topic = selectedResearchTopicData();
+  return researchTab === "findings" ? (topic.findings ?? []) : (topic.sources ?? []);
+}
+
+function selectedResearchTopicArg() {
+  const topic = selectedResearchTopicData();
+  return topic.legacy || !topic.topic ? {} : { topic: topic.topic };
+}
+
 
 /// 取字段值(大小写与中英别名都认;取不到给空串)。
 function researchField(entry, ...names) {
@@ -155,7 +209,7 @@ function researchEdit(entry, kind, card) {
     const fields = {};
     for (const [key, input] of inputs) fields[key] = input.value;
     try {
-      await invoke("docs_update", { projectDir: currentProject, kind, action: "update", id: entry.id, fields });
+      await invoke("docs_update", { projectDir: currentProject, kind, action: "update", id: entry.id, topic: entry.topic || undefined, fields });
       toast(`${entry.id} ${t("已保存")}`);
       refreshResearch();
     } catch (error) {
@@ -182,12 +236,21 @@ function renderResearchCards() {
   const host = $("research-cards");
   if (!host) return;
   const kind = researchTab === "findings" ? "finding" : "source";
-  const entries = researchTab === "findings" ? researchSnapshot.findings : researchSnapshot.sources;
+  const topic = selectedResearchTopicData();
+  const entries = selectedResearchEntries();
   $("research-tab-sources")?.classList.toggle("active", researchTab === "sources");
   $("research-tab-findings")?.classList.toggle("active", researchTab === "findings");
   $("research-tab-sources")?.setAttribute("aria-selected", String(researchTab === "sources"));
   $("research-tab-findings")?.setAttribute("aria-selected", String(researchTab === "findings"));
   host.innerHTML = "";
+
+  const group = document.createElement("section");
+  group.className = "research-topic-group";
+  group.dataset.topic = researchTopicKey(topic) || "legacy";
+  const heading = document.createElement("h2");
+  heading.className = "research-topic-title";
+  heading.textContent = researchTopicLabel(topic);
+  group.appendChild(heading);
   if (!entries.length) {
     const empty = document.createElement("div");
     empty.className = "doc-empty";
@@ -195,10 +258,11 @@ function renderResearchCards() {
     empty.textContent = researchTab === "findings"
       ? t("还没有发现。研究时用 finding add 记录结论,每条须挂来源。")
       : t("还没有来源。研究时用 source add 登记文献或代码位置,引用前先登记。");
-    host.appendChild(empty);
-    return;
+    group.appendChild(empty);
+  } else {
+    for (const entry of entries) group.appendChild(researchCard(entry, kind));
   }
-  for (const entry of entries) host.appendChild(researchCard(entry, kind));
+  host.appendChild(group);
 }
 
 /// 报告正文:markdown 渲染,并把 [S-00x]/[F-00x] 变成可点角标(溯源三处冗余之一)。
@@ -208,9 +272,10 @@ function renderResearchReport(text) {
   host.innerHTML = renderMarkdown(text ?? "");
   // 渲染后回扫文本节点,把引用编号替换为按钮。只认已登记的编号,避免把普通
   // 文本里的 S-/F- 误变成死链。
+  const topic = selectedResearchTopicData();
   const known = new Set([
-    ...researchSnapshot.sources.map((e) => e.id),
-    ...researchSnapshot.findings.map((e) => e.id),
+    ...(topic.sources ?? []).map((e) => e.id),
+    ...(topic.findings ?? []).map((e) => e.id),
   ]);
   if (!known.size) return;
   const walker = document.createTreeWalker(host, 4 /* TEXT_NODE */);
@@ -239,25 +304,39 @@ function renderResearchReport(text) {
   }
 }
 
-async function refreshResearch() {
-  if (!currentProject) return;
+async function refreshResearchReport() {
   try {
-    const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
-    researchSnapshot = { sources: snapshot.sources ?? [], findings: snapshot.findings ?? [] };
-  } catch (error) {
-    log(`${t("研究工件刷新失败")}:${error}`, "warn");
-  }
-  const counts = [$("research-sources-count"), $("research-findings-count")];
-  if (counts[0]) counts[0].textContent = String(researchSnapshot.sources.length);
-  if (counts[1]) counts[1].textContent = String(researchSnapshot.findings.length);
-  renderResearchCards();
-  try {
-    const doc = await invoke("docs_read", { projectDir: currentProject, kind: "report" });
+    const doc = await invoke("docs_read", {
+      projectDir: currentProject,
+      kind: "report",
+      ...selectedResearchTopicArg(),
+    });
     renderResearchReport(doc.content ?? "");
   } catch {
     // 报告还没产出是正常状态(研究刚开始),给指引不报错。
     renderResearchReport(`_${t("还没有报告。研究结束时把结论写进 .kanzei/research/report.md。")}_`);
   }
+}
+
+async function refreshResearch() {
+  if (!currentProject) return;
+  try {
+    const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
+    researchSnapshot = {
+      sources: snapshot.sources ?? [],
+      findings: snapshot.findings ?? [],
+      research_topics: snapshot.research_topics ?? [],
+    };
+  } catch (error) {
+    log(`${t("研究工件刷新失败")}:${error}`, "warn");
+  }
+  renderResearchTopicPicker();
+  const topic = selectedResearchTopicData();
+  const counts = [$("research-sources-count"), $("research-findings-count")];
+  if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
+  if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
+  renderResearchCards();
+  await refreshResearchReport();
 }
 
 $("research-tab-sources")?.addEventListener("click", () => {
@@ -268,7 +347,16 @@ $("research-tab-findings")?.addEventListener("click", () => {
   researchTab = "findings";
   renderResearchCards();
 });
-$("research-report-refresh")?.addEventListener("click", () => refreshResearch());
+$("research-topic-select")?.addEventListener("change", async (event) => {
+  selectedResearchTopic = event.currentTarget.value;
+  const topic = selectedResearchTopicData();
+  const counts = [$("research-sources-count"), $("research-findings-count")];
+  if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
+  if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
+  renderResearchCards();
+  await refreshResearchReport();
+});
+$("research-report-refresh")?.addEventListener("click", () => refreshResearchReport());
 
 /// research 档才出现研究工作台;dev 档反过来藏起研究入口。
 /// 用户定调:research 档下 dev 视图(需求/缺陷/测试/git)完全隐藏,模式感优先。

@@ -320,7 +320,7 @@ pub(crate) fn add(
     if let Some(batch_err) = tool.check_batches(&input.fields, None) {
         return ToolOutput::error(batch_err);
     }
-    if let Err(e) = tool.check_refs(ctx, &input.refs, true) {
+    if let Err(e) = tool.check_refs(ctx, &input.refs, true, input.topic.as_deref()) {
         return ToolOutput::error(e);
     }
     let id = store.next_id(entries);
@@ -389,7 +389,7 @@ pub(crate) fn update_close(
     if let Some(batch_err) = tool.check_batches(&input.fields, Some(&entries[pos])) {
         return ToolOutput::error(batch_err);
     }
-    if let Err(e) = tool.check_refs(ctx, &input.refs, false) {
+    if let Err(e) = tool.check_refs(ctx, &input.refs, false, input.topic.as_deref()) {
         return ToolOutput::error(e);
     }
     let updates_progress = input.fields.contains_key("进展");

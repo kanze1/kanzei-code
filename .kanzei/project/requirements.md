@@ -86,12 +86,12 @@
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
 - refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 取活依据: engine:唯一可执行 WIP 是 R-221，必须先恢复它
-- 进展: 恢复复核：旧进度 0/5 与当前 HEAD 不一致；既有能力是 crates/kanzei-tools/src/profiles.rs:689-729 的 CLI ReadonlyProfile 及 R-218 已交付的只读工具规则，本批不重复申报。R-221 B1 本次交付：①桌面装配 crates/kanzei-app/src/run/assembly.rs:638-660 注册 ReadonlyProfile，测试 assembly.rs:792-812 验证 ProfileKind::Readonly 能选 readonly、read 放行、bash 拒绝；②research 档在 crates/kanzei-tools/src/profiles.rs:628-665 对 bash 使用 managed hard deny，拒绝指引真实指向 latex/plot，并对 git stage/commit/merge_ff/finalize 硬拒绝，仅 status/diff/log 放行；③profiles.rs:1481-1535 的 research_profile_hard_denies_bash_and_git_writes 覆盖读族、联网工具与写操作边界。T-1786922726092：kanzei-tools 324 passed(1 ignored)、kanzei-app 198 passed。B2 待做：topic 工件落点与 source/finding/report 按 topic 分组；B3 V 表；B4 回流；B5 记忆一元化。
+- 进展: B2 已完成（非终局）：① topic 隔离与安全校验落在 crates/kanzei-memory/src/docstore.rs:370-437，source/finding 分 topic 文件且拒绝越界/大写 topic；② tracker topic 入参、topic store 选择与 finding 同 topic refs 校验落在 crates/kanzei-tools/src/tracker.rs:102-105、313-327、693-742 及 tracker/actions.rs:323、392；③ docs_snapshot.research_topics 与旧平铺兼容读取落在 crates/kanzei-app/src/docs.rs:22-84、410，docs_read/docs_open topic 入口落在 docs.rs:557-625；④ 研究工作台 topic 选择、分组、报告读取和编辑传递落在 crates/kanzei-app/ui/index.html:484-488、ui/19-research.js:11-365、ui/style.css:2223-2231；⑤ IPC/冒烟契约落在 scripts/ipc-contract.json:98、scripts/ui-runtime-smoke.mjs:730-805、2768-2797、4225-4228。证据：T-1786922726097、T-1786922726098、T-1786922726101、T-1786922726104、T-1786922726105 均通过；B2 下一步为 B3 V 表双域写入 conventions 与提示词同步。
 - 阻塞: 
-- observed_head: 0c0b4636fd57ce4ffe5eefeb8450d9f12f46e215
-- observed_worktree_hash: fnv1a64:078eb767694ff318
-- recorded_at: 1786942837701
-- 批次: 1/5
+- observed_head: 62bc8331065caa993d93e6d60135b1a44caa8718
+- observed_worktree_hash: fnv1a64:7b3352155b88e8aa
+- recorded_at: 1786954190376
+- 批次: 2/5
 - 状态: todo
 - 依赖: D-428
 - 停车: 

@@ -99,6 +99,9 @@ struct TrackerInput {
     /// 引用的条目 ID(finding 必须引用 source)
     #[serde(default)]
     refs: Vec<String>,
+    /// B2:source/finding 所属课题目录(kebab-case)。
+    #[serde(default)]
+    topic: Option<String>,
     /// void_id 必填:这个编号为什么不该有条目、依据是什么
     #[serde(default)]
     reason: Option<String>,
@@ -150,6 +153,9 @@ impl Tool for TrackerTool {
         }
         if self.requires_refs.is_some() {
             d.push_str(" `refs` (source IDs) is REQUIRED on add.");
+        }
+        if matches!(self.kind.prefix, "S" | "F") {
+            d.push_str(" `topic` (lowercase kebab-case) is REQUIRED for source/finding actions; artifacts are stored under `.kanzei/research/<topic>/`.");
         }
         if self.kind.tags.is_some() {
             d.push_str(" On add, pass the controlled `tag` as a top-level field.");
@@ -248,6 +254,9 @@ impl Tool for TrackerTool {
         if self.requires_refs.is_some() {
             required.push("refs");
         }
+        if matches!(self.kind.prefix, "S" | "F") {
+            required.push("topic");
+        }
         let mut then_schema = serde_json::json!({ "required": required });
         if self.requires_refs.is_some() {
             then_schema["properties"] = serde_json::json!({ "refs": { "minItems": 1 } });
@@ -304,7 +313,23 @@ impl Tool for TrackerTool {
                  只有登记前查重可用 reason=deduplicate_registration 显式读取。",
             );
         }
-        let store = DocStore::open(&ctx.project_root, self.kind);
+        let store = if matches!(self.kind.prefix, "S" | "F") {
+            let Some(topic) = input
+                .topic
+                .as_deref()
+                .filter(|topic| !topic.trim().is_empty())
+            else {
+                return ToolOutput::error(
+                    "source/finding 操作必须提供 topic(小写 kebab-case)，工件落点是 `.kanzei/research/<topic>/`",
+                );
+            };
+            match DocStore::open_topic(&ctx.project_root, self.kind, topic) {
+                Ok(store) => store,
+                Err(error) => return ToolOutput::error(error.to_string()),
+            }
+        } else {
+            DocStore::open(&ctx.project_root, self.kind)
+        };
         // 需求/缺陷的任何写都先拿双队列选择锁，再拿各自文档锁。`work claim`
         // 使用相同顺序，因此“读两队列 → 判 WIP → 写一个队列”与普通 close/reopen
         // 不会交错出两个 WIP。其余 tracker 文档不参与取活，不承担这笔串行成本。
@@ -672,13 +697,27 @@ impl TrackerTool {
         Ok(())
     }
 
-    fn check_refs(&self, ctx: &ToolCtx, refs: &[String], adding: bool) -> Result<(), String> {
+    fn check_refs(
+        &self,
+        ctx: &ToolCtx,
+        refs: &[String],
+        adding: bool,
+        topic: Option<&str>,
+    ) -> Result<(), String> {
         let Some(ref_kind) = self.requires_refs else {
             return Ok(());
         };
+        let source_store = || {
+            topic
+                .filter(|_| matches!(ref_kind.prefix, "S" | "F"))
+                .map(|topic| DocStore::open_topic(&ctx.project_root, ref_kind, topic))
+                .transpose()
+                .map(|store| store.unwrap_or_else(|| DocStore::open(&ctx.project_root, ref_kind)))
+        };
         if refs.is_empty() {
             if adding {
-                let available = DocStore::open(&ctx.project_root, ref_kind)
+                let available = source_store()
+                    .map_err(|error| error.to_string())?
                     .load()
                     .map(|entries| {
                         entries
@@ -700,7 +739,8 @@ impl TrackerTool {
             }
             return Ok(());
         }
-        let existing = DocStore::open(&ctx.project_root, ref_kind)
+        let existing = source_store()
+            .map_err(|error| error.to_string())?
             .load()
             .map_err(|e| e.to_string())?;
         for id in refs {

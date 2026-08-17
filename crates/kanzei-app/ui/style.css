@@ -2221,6 +2221,11 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .research-workspace { display: flex; height: 100%; min-height: 0; }
 .research-side { width: 420px; flex: 0 0 420px; display: flex; flex-direction: column; border-right: 1px solid var(--border-soft); min-height: 0; }
 .research-tabs { display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+.research-topic-picker { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px 4px; color: var(--muted); font-size: var(--fs-11); }
+.research-topic-picker select { width: 100%; background: var(--input); color: var(--fg-strong); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; font: inherit; }
+.research-topic-group { display: flex; flex-direction: column; gap: 8px; }
+.research-topic-title { margin: 0; color: var(--fg-strong); font-size: var(--fs-13); font-weight: 600; }
+
 .research-tab { background: transparent; color: var(--dim); border: 1px solid transparent; border-radius: var(--radius); padding: 4px 12px; cursor: pointer; font: inherit; }
 .research-tab.active { background: var(--panel2); color: var(--fg-strong); border-color: var(--border-soft); }
 .research-tab em { font-style: normal; color: var(--muted); }

@@ -8,6 +8,81 @@ use serde_json::json;
 
 pub(crate) const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
 
+fn research_entry_json(entry: &kanzei_tools::docstore::Entry, topic: &str) -> serde_json::Value {
+    json!({
+        "id": entry.id,
+        "title": entry.title,
+        "status": entry.status,
+        "severity": entry.severity,
+        "fields": entry.fields,
+        "topic": topic,
+    })
+}
+
+/// R-221 B2:枚举 topic 目录，来源/发现/报告以同一 topic 作为隔离边界。
+fn research_topics(root: &Path) -> Result<Vec<serde_json::Value>, String> {
+    let research_root = root.join(".kanzei/research");
+    let mut names = std::fs::read_dir(&research_root)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|topic| kanzei_tools::docstore::DocStore::validate_topic(topic).is_ok())
+        .collect::<Vec<_>>();
+    names.sort();
+    let mut topics = names
+        .into_iter()
+        .map(|topic| {
+            let sources = kanzei_tools::docstore::DocStore::open_topic(
+                root,
+                &SOURCES,
+                &topic,
+            )
+            .map_err(|error| format!("读取 topic `{topic}` 来源失败: {error}"))?
+            .load()
+            .map_err(|error| format!("读取 topic `{topic}` 来源失败: {error}"))?;
+            let findings = kanzei_tools::docstore::DocStore::open_topic(
+                root,
+                &FINDINGS,
+                &topic,
+            )
+            .map_err(|error| format!("读取 topic `{topic}` 发现失败: {error}"))?
+            .load()
+            .map_err(|error| format!("读取 topic `{topic}` 发现失败: {error}"))?;
+            let report = root.join(".kanzei/research").join(&topic).join("report.md");
+            Ok(json!({
+                "topic": topic,
+                "legacy": false,
+                "sources": sources.iter().map(|entry| research_entry_json(entry, &topic)).collect::<Vec<_>>(),
+                "findings": findings.iter().map(|entry| research_entry_json(entry, &topic)).collect::<Vec<_>>(),
+                "report": report.is_file(),
+            }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    // 旧版平铺文件只保留兼容读取，不再作为新写入落点。用 nullable topic 明确
+    // 它没有可传给 open_topic 的目录，前端仍能选择并查看历史研究成果。
+    let legacy_sources = DocStore::open(root, &SOURCES)
+        .load()
+        .map_err(|error| format!("读取旧版平铺来源失败: {error}"))?;
+    let legacy_findings = DocStore::open(root, &FINDINGS)
+        .load()
+        .map_err(|error| format!("读取旧版平铺发现失败: {error}"))?;
+    let legacy_report = research_root.join("report.md");
+    if !legacy_sources.is_empty() || !legacy_findings.is_empty() || legacy_report.is_file() {
+        topics.push(json!({
+            "topic": null,
+            "legacy": true,
+            "label": "旧版平铺",
+            "sources": legacy_sources.iter().map(|entry| research_entry_json(entry, "")).collect::<Vec<_>>(),
+            "findings": legacy_findings.iter().map(|entry| research_entry_json(entry, "")).collect::<Vec<_>>(),
+            "report": legacy_report.is_file(),
+        }));
+    }
+    Ok(topics)
+}
+
 use crate::{normalized_project_root, state::hidden_command};
 use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 use kanzei_tools::worktree as wt;
@@ -335,6 +410,7 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
         "warnings": warnings,
         "requirements": load(&REQUIREMENTS)?, "defects": load(&DEFECTS)?, "ideas": load(&IDEAS)?,
         "sources": load(&SOURCES)?, "findings": load(&FINDINGS)?,
+        "research_topics": research_topics(&root)?,
         "archived": { "req": archived_entries(&REQUIREMENTS).len(), "defect": archived_entries(&DEFECTS).len(), "idea": archived_entries(&IDEAS).len(), "source": archived_entries(&SOURCES).len(), "finding": archived_entries(&FINDINGS).len() },
     }))
 }
@@ -383,6 +459,7 @@ pub async fn docs_update(
     priority: Option<String>,
     fields: Option<serde_json::Value>,
     order: Option<Vec<String>>,
+    topic: Option<String>,
 ) -> Result<String, String> {
     use kanzei_harness::Tool as _;
     use kanzei_tools::tracker::TrackerTool;
@@ -435,6 +512,9 @@ pub async fn docs_update(
     if let Some(fields) = fields.filter(|f| f.is_object()) {
         input["fields"] = fields;
     }
+    if let Some(topic) = topic.filter(|topic| !topic.trim().is_empty()) {
+        input["topic"] = json!(topic);
+    }
     // R-141:Tauri command 入口,发现式取根合法且只做这一次。
     let ctx = kanzei_harness::ToolCtx::discovering(PathBuf::from(&project_dir));
     let output = tool.execute(input, &ctx).await;
@@ -477,9 +557,18 @@ pub async fn webfetch_preview(url: String) -> Result<serde_json::Value, String> 
     }))
 }
 
-fn docs_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
+fn docs_path(project_dir: &str, kind: &str, topic: Option<&str>) -> Result<PathBuf, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(project_dir))
         .unwrap_or_else(|| PathBuf::from(project_dir));
+    let topic_path = |doc_kind: &'static kanzei_tools::docstore::DocKind| {
+        topic
+            .map(|topic| {
+                kanzei_tools::docstore::DocStore::open_topic(&root, doc_kind, topic)
+                    .map(|store| store.path)
+                    .map_err(|error| error.to_string())
+            })
+            .transpose()
+    };
     let path = match kind {
         "req" => root.join(REQUIREMENTS.rel_path),
         "defect" => root.join(DEFECTS.rel_path),
@@ -489,9 +578,16 @@ fn docs_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
         "req-archive" => DocStore::open(&root, &REQUIREMENTS).archive_file(),
         "defect-archive" => DocStore::open(&root, &DEFECTS).archive_file(),
         "idea-archive" => DocStore::open(&root, &IDEAS).archive_file(),
-        "source" => root.join(SOURCES.rel_path),
-        "finding" => root.join(FINDINGS.rel_path),
-        "report" => root.join(".kanzei/research/report.md"),
+        "source" => topic_path(&SOURCES)?.unwrap_or_else(|| root.join(SOURCES.rel_path)),
+        "finding" => topic_path(&FINDINGS)?.unwrap_or_else(|| root.join(FINDINGS.rel_path)),
+        "report" => topic
+            .map(|topic| {
+                kanzei_tools::docstore::DocStore::validate_topic(topic)
+                    .map_err(|error| error.to_string())?;
+                Ok::<PathBuf, String>(root.join(".kanzei/research").join(topic).join("report.md"))
+            })
+            .transpose()?
+            .unwrap_or_else(|| root.join(".kanzei/research/report.md")),
         "source-archive" => DocStore::open(&root, &SOURCES).archive_file(),
         "finding-archive" => DocStore::open(&root, &FINDINGS).archive_file(),
         other => return Err(format!("unknown kind `{other}`")),
@@ -503,8 +599,8 @@ fn docs_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-pub fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
-    let path = docs_path(&project_dir, &kind)?;
+pub fn docs_open(project_dir: String, kind: String, topic: Option<String>) -> Result<(), String> {
+    let path = docs_path(&project_dir, &kind, topic.as_deref())?;
     hidden_command("cmd")
         .args(["/c", "start", "", &path.display().to_string()])
         .spawn()
@@ -513,13 +609,18 @@ pub fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn docs_read(project_dir: String, kind: String) -> Result<serde_json::Value, String> {
-    let path = docs_path(&project_dir, &kind)?;
+pub fn docs_read(
+    project_dir: String,
+    kind: String,
+    topic: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let path = docs_path(&project_dir, &kind, topic.as_deref())?;
     let content = std::fs::read_to_string(&path).map_err(|e| format!("读取失败: {e}"))?;
     Ok(json!({
         "path": path.display().to_string(),
         "name": path.file_name().and_then(|n| n.to_str()).unwrap_or(&kind),
         "content": content,
+        "topic": topic,
     }))
 }
 

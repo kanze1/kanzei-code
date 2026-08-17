@@ -252,7 +252,7 @@ const I18N_EN = {
   "从左侧选择项目，在对话框输入任务；遇到权限请求时选择允许、拒绝或总是允许。运行结果、错误和工具详情会留在当前会话中。": "Select a project on the left and enter a task in the conversation. For permission requests, choose allow, deny, or always allow. Results, errors, and tool details stay in the current session.",
   "项目": "Projects", "当前状态": "Current status", "空闲": "Idle", "排队输入": "Queued input",
   "测试记录": "Test runs", "想法": "Ideas", "历史对话": "Chat history", "需求与工作": "Work items",
-  "缺陷": "Defects", "研究": "Research", "来源": "Sources", "发现": "Findings", "开发规范": "Conventions", "主题": "Theme",
+  "缺陷": "Defects", "研究": "Research", "来源": "Sources", "发现": "Findings", "研究课题": "Research topic", "选择研究课题": "Select research topic", "旧版平铺": "Legacy flat files", "暂无研究课题": "No research topics", "开发规范": "Conventions", "主题": "Theme",
   "自动审查缺陷": "Review defects", "使用只读子代理审查活动缺陷，不修改项目文件": "Review active defects with a read-only subagent without modifying project files",
   "正在审查缺陷…": "Reviewing defects…", "当前没有活动缺陷": "There are no active defects", "审查完成": "Review complete", "审查失败": "Review failed", "缺陷自动审查报告": "Automated defect review report",
   "对话": "Chat", "工作区": "Workspace", "设置": "Settings", "活动": "Activity", "继续": "Continue",
