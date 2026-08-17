@@ -336,12 +336,14 @@ async function probeModelsAndMergeOptions(token) {
     const models = await invoke("models_list", { projectDir: currentProject });
     // 角色不能再指向角色(primary → primary 会绕成死循环)。
     ids = models.map((m) => m.id).filter((id) => id !== "primary" && id !== "fast" && id !== "compact");
-  } catch {
-    return;
+  } catch (error) {
+    toastError(`${t("模型列表获取失败")}:${error}`);
+    return false;
   }
-  if (token !== settingsLoadToken) return;
+  if (token !== settingsLoadToken) return false;
   applyModelOptions(null, ids);
   syncSettingsDirty();
+  return true;
 }
 
 /// 下拉里没有这个值就补一个兜底 option。选项表写死在 index.html 里,而配置文件的合法
@@ -387,8 +389,8 @@ wireManualModelRole("set-primary");
 wireManualModelRole("set-fast");
 wireManualModelRole("set-compact");
 $("models-refresh")?.addEventListener("click", async () => {
-  await probeModelsAndMergeOptions(settingsLoadToken);
-  toast(`${t("已重新探测")}:${knownModelIds.length}`);
+  const ok = await probeModelsAndMergeOptions(settingsLoadToken);
+  if (ok) toast(`${t("已重新探测")}:${knownModelIds.length}`);
 });
 
 // R-136:fast 子代理模型的就绪状态与一键安装。此前要用户手工装 Ollama、
@@ -401,7 +403,10 @@ async function refreshFastStatus() {
   let s;
   try {
     s = await invoke("fast_model_status");
-  } catch {
+  } catch (error) {
+    status.textContent = `${t("快速模型状态获取失败")}:${error}`;
+    status.classList.add("warn-text");
+    btn.classList.add("hidden");
     return;
   }
   if (!s.managed) {

@@ -3935,6 +3935,32 @@ assert(
   "项目级覆盖了 primary,但设置页没有任何提示",
 );
 assert(listText("settings-effective").includes("实际生效"), "覆盖提示未说明实际生效值");
+// D-503:设置页后端失败不能再静默停留旧值或让用户误以为刷新成功。
+{
+  invokeFailures.set("models_list", "模拟模型列表失败");
+  expectedPersistentError = "模型列表获取失败";
+  const persistentBefore = expectedPersistentHits;
+  await sandbox.probeModelsAndMergeOptions(0);
+  assert(
+    expectedPersistentHits === persistentBefore + 1,
+    "models_list 失败未经过持久错误反馈出口",
+  );
+  assert(
+    !byId.get("log-panel").classList.contains("hidden"),
+    "models_list 失败后日志面板未显示",
+  );
+  expectedPersistentError = null;
+  invokeFailures.delete("models_list");
+
+  invokeFailures.set("fast_model_status", "模拟 fast 状态失败");
+  await sandbox.refreshFastStatus();
+  assert(
+    listText("fast-status").includes("快速模型状态获取失败") && byId.get("fast-setup").classList.contains("hidden"),
+    "fast_model_status 失败未显示状态行反馈或仍暴露未知状态下的安装按钮",
+  );
+  invokeFailures.delete("fast_model_status");
+  await sandbox.refreshFastStatus();
+}
 // 表单脏状态:改一下就该出现「未保存」。
 assert(byId.get("settings-dirty").classList.contains("hidden"), "刚载入时不该显示未保存");
 const fastSelect = byId.get("set-fast");

@@ -365,7 +365,7 @@ const I18N_EN = {
   "已建立独立空间": "Own space created", "建立独立空间失败": "Failed to create its own space",
   "已为本项目建立独立空间": "Gave this project its own space", "以下项目仍与上级目录共用数据,切过去可一键分离": "These projects still share a parent directory's data — switch to one to separate it",
   "fast 指向外部 provider,不由本机托管": "fast points at an external provider — not managed locally",  "fast 指向外部 provider,不由本机托管": "fast points at an external provider — not managed locally",
-  "fast 子代理模型状态": "fast subagent model status",
+  "fast 子代理模型状态": "fast subagent model status", "快速模型状态获取失败": "Failed to load fast model status",
   "子代理就绪": "Subagent ready", "Ollama 未安装": "Ollama is not installed", "Ollama 服务未运行": "Ollama service is not running",
   "模型未拉取": "Model not pulled", "子代理杂活(记忆整理/快速记录)暂不可用": "subagent chores (memory consolidation, quick capture) are unavailable",
   "子代理安装": "Subagent setup", "子代理安装失败": "Subagent setup failed",

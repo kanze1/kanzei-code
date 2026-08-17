@@ -6693,3 +6693,26 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 关联: D-502
 - 收尾: 1787007279
 - 源码指纹: 3838e28d6d502d2b
+
+## T-1786922726290 D-503 设置页失败反馈六项前端冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 8.7s
+- 摘要: D-503 设置页失败反馈回归：运行时冒烟覆盖 models_list 持久错误反馈与 fast_model_status 状态行反馈；六项前端冒烟全部通过。
+- 关联: D-503
+- 收尾: 1787007516
+
+## T-1786922726291 D-503 当前 staged 源码六项前端提交门禁 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 8.6s
+- 摘要: 按提交门禁针对当前 staged 前端源码重跑：运行时冒烟覆盖 models_list/fast_model_status 失败反馈，六项前端冒烟全部通过。
+- 关联: D-503
+- 收尾: 1787007610
+- 源码指纹: 29acba427ea30614
+
+## T-1786922726292 D-503 当前 staged kanzei-app 定向提交门禁 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.5s
+- 摘要: 按提交门禁针对当前 staged UI 所属 kanzei-app crate 回归：205 passed，0 failed；设置与移动端现有测试全部通过。
+- 关联: D-503
+- 收尾: 1787007653
+- 源码指纹: 29acba427ea30614
