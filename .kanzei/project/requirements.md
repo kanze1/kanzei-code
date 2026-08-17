@@ -86,11 +86,11 @@
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
 - refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 取活依据: engine:唯一可执行 WIP 是 R-221，必须先恢复它
-- 进展: B3 已完成（非终局）：①权威 V0-V3 双域表、E/V 分离、文献摘要级/正文级深度规则写入 `.kanzei/project/conventions.md:72-85` §10；②dev prompt 在 `crates/kanzei-tools/src/profiles.rs:405-566` 追加 V/E 分离、证据域、证据锚与文献摘要级 V1 上限；③research prompt 在 `profiles.rs:692-700` 同步同一口径；④`profiles.rs:1501-1537` 新增 dev/research 双提示词回归测试。证据：T-1786922726109、T-1786922726110 通过（325 passed，1 ignored），D-439、D-440 已 fixed。B3 下一步为 B4：backlog 只读索引/conventions 注入、req/defect get+add 子集与 finding→[todo] 草稿回流。
+- 进展: B3 已完成并已提交：e1c07595（R-221 B3 写入 V 表双域证据口径并同步研究提示词）。`.kanzei/project/conventions.md` §10、`crates/kanzei-tools/src/profiles.rs:563-569` dev prompt、`profiles.rs:694-702` research prompt 与 `profiles.rs:1498-1545` 双档回归测试均已落地；T-1786922726109、T-1786922726110、T-1786922726112 通过（325 passed，1 ignored），D-439、D-440 fixed。下一步为 B4：backlog 只读索引/conventions 注入、req/defect get+add 子集与 finding→[todo] 草稿回流。
 - 阻塞: 
-- observed_head: 8842e2462339557e42d47f0ec879e63b408db834
-- observed_worktree_hash: fnv1a64:df5908e622eb1e12
-- recorded_at: 1786954913890
+- observed_head: e1c07595d560703b3ddaea6f8bc58db6e3ff8ed4
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786955086655
 - 批次: 3/5
 - 状态: todo
 - 依赖: D-428
