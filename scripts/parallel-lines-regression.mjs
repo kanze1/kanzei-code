@@ -82,6 +82,13 @@ assert(
 );
 assert(compose.includes("function handleBackgroundAutoFail(payload)"), "后台线失败退避重试缺少专用处理器");
 // 线路页按线操控:鞭挞与模型不再只属于「当前打开的那条线」。
+// 模型必须按线回显、按线发送。回显只写在 switchProcess 里的话,冷启动/兜底选中活动线
+// 都不回显(用户现场只有一条线时永远不触发切换);发送读下拉、鞭挞续跑读 item.model 的话,
+// 同一条线会跑在两个模型上。
+assert(compose.includes("function syncModelSelectToActiveLine()"), "缺少模型下拉按线回显入口");
+assert(sessions.includes("syncModelSelectToActiveLine();"), "renderProcesses/switchProcess 未按线回显模型");
+assert(compose.includes("function lineModelFor(processId)"), "发送用模型未统一取自线路存档");
+assert(!/model: \$\("model-select"\)\.value \|\| null/.test(compose), "发送又回到读下拉显示值(与鞭挞续跑不同源)");
 assert(compose.includes("async function setLineAutoState(processId, patch)"), "缺少按线鞭挞写入口(线路页要能操控任意线)");
 assert(compose.includes("function lineAutoConfig(processId)"), "缺少按线鞭挞读入口");
 assert(lines.includes("buildLineAutoControls(line)"), "线路页每条线缺少鞭挞控件");

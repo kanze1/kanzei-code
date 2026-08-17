@@ -430,6 +430,8 @@ function renderProcesses(items) {
     // 完整设置；普通轮询不重复应用，避免覆盖用户刚修改的控件和鞭挞计数。
     applyAutoUiState(activeProcessId);
     applyProfileValue(active?.profile);
+    // 模型下拉同属「该线的完整设置」:冷启动与兜底选中都走这里,不能只靠 switchProcess。
+    syncModelSelectToActiveLine();
   }
   if (activeSessionId && activeSessionId !== previousSessionId) void syncAutoRunState();
   // R-086:活动会话换人(含首次拿到进程列表——界面重载后就是这条路)时向后端
@@ -571,7 +573,8 @@ async function switchProcess(processId, forceReload = false) {
   await loadModels();
   if (!isCurrentSwitch()) return;
   // 模型下拉按进程回显:未设置覆盖时回到 agent 默认(空值),不保留上一个进程的选择。
-  $("model-select").value = target.model || "";
+  // 走同一个同步函数,避免这里和 renderProcesses 各写一套回显规则。
+  syncModelSelectToActiveLine();
   void refreshGit(activeProcessId);
   refreshPendingInputs();
   void refreshProcesses();

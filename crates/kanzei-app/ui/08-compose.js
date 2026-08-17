@@ -434,6 +434,15 @@ promptBox.addEventListener("paste", (e) => {
   if (files.length) { e.preventDefault(); addFiles(files); }
 });
 
+// 发送用的模型 = **该线存的模型**,不是下拉的显示值。下拉是回显,而回显曾经会回落到旧全局
+// 键(见 loadModels 的注释);鞭挞续跑读的一直是 item.model。两条路不同源的后果是:同一条线
+// 手动发一句和自动轮跑在两个不同的模型上,而界面上只有一个下拉,看不出来。用户改下拉时
+// change 处理器已经先 updateLocalProcessItem,所以这里读到的就是刚选的那个值。
+function lineModelFor(processId) {
+  const item = processItems.find((candidate) => candidate.id === processId);
+  return item ? item.model || null : $("model-select").value || null;
+}
+
 async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
   if (!prompt) return;
@@ -457,7 +466,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
         projectDir: currentProject,
         profile: mode.profile,
         agent: mode.agent,
-        model: $("model-select").value || null,
+        model: lineModelFor(activeProcessId),
         delivery,
         attachments: promptAttachments,
         processId: activeProcessId,
@@ -519,7 +528,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
       projectDir: requestProject,
       profile: mode.profile,
       agent: mode.agent,
-      model: $("model-select").value || null,
+      model: lineModelFor(requestProcessId),
       workPriority: selectedWorkPriority(),
       delivery,
       attachments: promptAttachments.map((item) => ({ ...item })),
@@ -1315,9 +1324,14 @@ async function loadModels({ showAll = false } = {}) {
   const select = $("model-select");
   // R-178 批3:首次进入项目时把 localStorage 旧键上迁后端(幂等,成功后不再执行)。
   void migrateLegacyModelPrefs();
-  const activeModel = processItems.find((item) => item.id === activeProcessId)?.model || "";
-  const saved = activeModel || legacyModelPrefValue();
-  const selectedIds = new Set([saved, activeModel, ...manualModels()].filter(Boolean));
+  // 顶栏回显的**唯一**来源是活动线自己存的模型。原来是 `activeModel || 旧全局键`:
+  // 一条没设过模型的线(model=null,即 agent 默认)会回落到 localStorage 的项目级/全局
+  // 旧键,于是每条这样的线都显示同一个模型——用户看到的就是「切线路模型不变」。更糟的是
+  // 发送读的是这个下拉(见 sendText),而鞭挞续跑读的是 item.model:同一条线上手动发和自动
+  // 轮能用两个不同的模型。旧键只在**还不知道活动线是谁**(进程列表未到/迁移前)时才作数。
+  const activeItem = processItems.find((item) => item.id === activeProcessId);
+  const saved = activeItem ? activeItem.model || "" : legacyModelPrefValue();
+  const selectedIds = new Set([saved, ...manualModels()].filter(Boolean));
   select.innerHTML = "";
   const def = document.createElement("option");
   def.value = "";
@@ -1371,6 +1385,27 @@ async function loadModels({ showAll = false } = {}) {
   } catch (err) {
     reportPersistentError(`${t("模型列表获取失败")}:${err}`);
   }
+  // 显式落值,不靠上面那些 opt.selected:选项是整棵重建的(innerHTML=""),探测失败时
+  // try 块中途退出,回显就停在上一条线的值。这一行保证「列表画成什么样,值都是本线的」。
+  select.value = saved;
+}
+
+// 顶栏模型下拉 ← 活动线。原来只有 switchProcess 尾巴上那一句在做这件事,于是冷启动、
+// 切项目、以及 renderProcesses 兜底选中活动线(线路被回收后)这三条路径全都不回显——
+// 下拉停在上一条线的值,而用户以为那就是当前线的模型。
+function syncModelSelectToActiveLine() {
+  const select = $("model-select");
+  if (!select) return;
+  const item = processItems.find((candidate) => candidate.id === activeProcessId);
+  if (!item) return;
+  const value = item.model || "";
+  if (select.value === value) return;
+  // 该线的直指模型可能不在当前选项里(探测清单变了/刚换项目):补一个再选,
+  // 否则赋值会被浏览器静默丢弃、回落成空(D-167 同源)。
+  if (value && ![...select.options].some((option) => option.value === value)) {
+    select.appendChild(new Option(`${value}(${t("已记住")})`, value));
+  }
+  select.value = value;
 }
 
 // 手填模型:provider:model 直指。有些 OpenAI 兼容端点不提供 /models,

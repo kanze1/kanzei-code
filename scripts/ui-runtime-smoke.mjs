@@ -5075,6 +5075,73 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   sandbox.renderProcesses(savedLoopList);
 }
 
+// ---------- 顶栏模型下拉必须跟着线路走 ----------
+// 用户 2026-08-18 报告「切换线路模型不变,选的都是同一个」。两个病根:
+// ① loadModels 的回显是 `本线模型 || 旧全局 localStorage 键`——一条没设过模型的线(agent
+//    默认)会显示旧键里的模型,于是每条这样的线都显示同一个;
+// ② 只有 switchProcess 尾巴上那一句在回显,冷启动/兜底选中活动线都不回显,下拉停在上一条线。
+// 附带的隐患更深:发送读下拉、鞭挞续跑读 item.model,同一条线能跑在两个模型上。
+{
+  const modelLines = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, model: "primary", project_dir: "C:/smoke", origin_project: "C:/smoke" },
+    { id: "p|model-b", label: "线路乙", session_id: "sess-model-b", running: false, model: "OPEN-code:deepseek-v4-flash", project_dir: "C:/smoke", origin_project: "C:/smoke" },
+    { id: "p|model-c", label: "线路丙", session_id: "sess-model-c", running: false, model: null, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+  ];
+  const savedModelList = payloads.process_list;
+  payloads.process_list = modelLines;
+  // 旧全局键存在(迁移前的老用户就是这个状态):它绝不能顶替任何一条线自己的值。
+  storage.set("kz-model:C:/smoke", "OPEN-code:deepseek-v4-flash");
+  storage.set("kz-model", "OPEN-code:deepseek-v4-flash");
+  sandbox.renderProcesses(modelLines);
+  await sandbox.switchProcess("p|model-b");
+  await flush();
+  assert(
+    byId.get("model-select").value === "OPEN-code:deepseek-v4-flash",
+    `切到乙线未回显该线模型,实得 ${byId.get("model-select").value}`,
+  );
+  await sandbox.switchProcess("d|smoke");
+  await flush();
+  assert(
+    byId.get("model-select").value === "primary",
+    `切回主线时模型下拉没跟着变(用户报告的正是这一条),实得 ${byId.get("model-select").value}`,
+  );
+  // 没设过模型的线 = agent 默认。旧全局键在这里最容易顶上来。
+  await sandbox.switchProcess("p|model-c");
+  await flush();
+  assert(
+    byId.get("model-select").value === "",
+    `未设模型的线必须回显 agent 默认,不得回落旧全局键,实得 ${byId.get("model-select").value}`,
+  );
+  // 发送用的模型必须是该线存的那个,不能是下拉的显示值(鞭挞续跑读的就是前者)。
+  await sandbox.switchProcess("p|model-b");
+  await flush();
+  byId.get("model-select").value = "primary"; // 模拟回显被任何路径写歪
+  await sandbox.sendText("模型同源冒烟");
+  await flush();
+  const sentRun = invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === "p|model-b");
+  assert(
+    sentRun?.args?.model === "OPEN-code:deepseek-v4-flash",
+    `发送用的模型必须取自该线存档(与鞭挞续跑同源),实得 ${sentRun?.args?.model}`,
+  );
+  // 冷启动/兜底选中这条路径:用户报告的现场只有一条线,永远不触发 switchProcess,
+  // 于是下拉一直钉在 loadModels 早期算出来的值(进程列表未到时回落旧全局键)。
+  // renderProcesses 选中活动线时必须自己回显一次。这里让活动线(乙)从列表里消失、
+  // 兜底改选主线,复现那一刻。
+  await sandbox.switchProcess("p|model-b");
+  await flush();
+  byId.get("model-select").value = "OPEN-code:deepseek-v4-flash";
+  sandbox.renderProcesses([modelLines[0], modelLines[2]]); // 乙线没了 → 兜底选主线
+  assert(
+    byId.get("model-select").value === "primary",
+    `兜底选中活动线时模型下拉没跟着回显(冷启动同源),实得 ${byId.get("model-select").value}`,
+  );
+  storage.delete("kz-model:C:/smoke");
+  storage.delete("kz-model");
+  payloads.process_list = savedModelList;
+  sandbox.renderProcesses(savedModelList);
+  sandbox.__kzTest.cancelTimers();
+}
+
 // ---------- D-290 回显不得写盘 ----------
 // 「模式/鞭挞每次开 app 都要重设」的根:回显期间控件显示的是**算出来的值**,
 // 把它当用户意图写回存档,一次算错就永久固化,而且自我延续。

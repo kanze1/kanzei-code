@@ -149,7 +149,7 @@ function buildLineModelSelect(item) {
       // 改的若是当前线,顶栏那一份要跟着走——两处显示同一条线却不一致最难查。
       if (item.id === activeProcessId && typeof loadModels === "function") {
         await loadModels();
-        $("model-select").value = value;
+        syncModelSelectToActiveLine();
       }
     } catch (error) {
       toastError(`${t("模型切换失败")}:${error}`);
