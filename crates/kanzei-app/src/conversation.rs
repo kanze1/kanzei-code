@@ -348,8 +348,21 @@ pub(crate) fn conversation_delete(
                 .rfind(|boundary| **boundary < *sequence)
                 .copied()
                 .unwrap_or(0);
+            // 段的终点是**下一个 reset 边界**(末段为 +∞),不是列表回报的
+            // sequence——那只是段内最后一条 typed fact。轮末 legacy 快照
+            // conversation.updated 写在所有 typed fact 之后(persist_round_outcome),
+            // sequence 更大;按 fact 收口就把它留在库里,两处后果都是真缺陷:
+            // ①facts 清空后 conversation_list_projected 回退 legacy,那条幸存快照
+            //   又冒出来成为一条「历史对话」——删除要点两次;
+            // ②project_latest_segment 同样回退 legacy,把整段旧历史读回 runner
+            //   prior——用户以为删掉了,下一轮其实还带着。
+            let end = boundaries
+                .iter()
+                .find(|boundary| **boundary >= *sequence)
+                .copied()
+                .unwrap_or(i64::MAX);
             deleted += store
-                .delete_conversation_segment(&session_id, start, *sequence)
+                .delete_conversation_segment(&session_id, start, end)
                 .map_err(|e| e.to_string())?;
         }
     }

@@ -765,12 +765,19 @@ function clearChat(noticeText) {
 }
 
 $("new-chat").addEventListener("click", async () => {
-  if (running) {
+  // 鞭挞的轮间等待(runControlPending)后端已收尾、running 为假,但下一轮定时器还挂着:
+  // 这个窗口里清空会被随即开跑的那一轮立刻灌满,用户看到的是「点了没用」。它和运行中
+  // 一样属于"这条线还没停",一并挡住,并由 setRunning/setRunPending 把按钮真的禁掉——
+  // 按钮看着能点、点了只弹一句 toast,正是"要点好几次才生效"的来源。
+  if (running || runControlPending) {
     toast(t("任务运行中,先停止再开新对话"));
     return;
   }
   try {
     await invoke("conversation_clear", { projectDir: currentProject, processId: activeProcessId });
+    // 开新段是明确的人为介入:armed 的自动续跑必须一起撤掉,否则新段刚建立就被
+    // 上一轮排好的续跑写满,新对话名存实亡。
+    if (typeof cancelAutoContinueTimer === "function") cancelAutoContinueTimer();
     clearChat(t("已开启新对话(历史保留可审计)"));
     await refreshConversationList();
     log(t("新对话:历史保留,开启新段"));

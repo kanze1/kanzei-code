@@ -506,7 +506,21 @@ function setRunning(value, statusText) {
   stop.disabled = false;
   stop.classList.toggle("hidden", !value);
   stop.textContent = t("停止");
+  syncNewChatEnabled();
   setStatus(statusText ?? (value ? t("运行中") : t("空闲")), value);
+}
+
+/// 「新对话」的守卫(running || runControlPending)必须**看得见**。
+/// 按钮长得能点、点下去只弹一句一闪而过的 toast,用户的读数就是「点了没反应」,
+/// 于是连点几次直到某一下落进空隙——这正是"要点好几次才是真的新对话"的成因。
+function syncNewChatEnabled() {
+  const fresh = $("new-chat");
+  if (!fresh) return;
+  const blocked = running || runControlPending;
+  fresh.disabled = blocked;
+  fresh.title = blocked
+    ? t("任务运行中,先停止再开新对话")
+    : t("清空多轮对话历史,开一段新会话");
 }
 
 function setStopping(statusText) {
@@ -518,6 +532,7 @@ function setStopping(statusText) {
   stop.classList.remove("hidden");
   stop.disabled = true;
   stop.textContent = t("停止中…");
+  syncNewChatEnabled();
   setStatus(statusText ?? t("停止中…"), true);
 }
 
@@ -529,6 +544,7 @@ function setRunPending(statusText) {
   stop.disabled = false;
   stop.classList.remove("hidden");
   stop.textContent = t("停止鞭挞");
+  syncNewChatEnabled();
   setStatus(statusText ?? t("等待下一轮"), false);
 }
 
@@ -537,6 +553,7 @@ function clearRunPending() {
   const stop = $("stop");
   stop.classList.toggle("hidden", !running);
   stop.textContent = t("停止");
+  syncNewChatEnabled();
 }
 
 // ---------- R-189 主题切换:暗/亮持久化 ----------

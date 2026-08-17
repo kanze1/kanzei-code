@@ -597,11 +597,11 @@ const I18N_EN = {
   "传输重试次数": "Transport retries",
   "限流重试次数": "Rate-limit retries",
   "验证与提交节奏": "Verification & commit cadence",
-  // R-170 之后继续文案不再渲染节奏规则,而 KanzeiConfig::merge() 也从未合并 [cadence]:
-  // 全仓没有任何消费方。原文案承诺"下次注入的继续文案按新节奏渲染"是对用户的假承诺,
-  // 与本批要治的"界面显示 A、运行用 B"同族,先如实说明;接回引擎后再改回去。
-  "留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],但引擎当前还没有接回这组参数(R-170 把规则从继续文案剥离后暂无消费方),改了不会改变 agent 的验证节奏;发版门禁与 CI 全量不受参数影响。":
-    "Leave blank to use the built-in default (current §1.4 values). Changes are written to [cadence] in kanzei.toml, but the engine does not consume these parameters yet (nothing reads them back after R-170 moved the rules out of the continue prompt), so changing them will not change the agent's verification cadence; the release gate and CI full test suite are unaffected by these parameters.",
+  // D-245 已把 [cadence] 接回引擎(run/assembly.rs cadence_guidance 注入 system prompt),
+  // 旧文案还写着"暂无消费方、改了不生效"——那是 R-170 到 D-245 之间的事实,现在是反的:
+  // 改了**真的**会改变 agent 的节奏。界面说明与运行行为不一致本身就是本组要治的病。
+  "留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],dev 档位下作为节奏声明注入 system prompt,会真实改变 agent 的验证与提交行为;发版门禁与 CI 全量是硬门禁,不受本组参数影响。":
+    "Leave blank to use the built-in default (current §1.4 values). Changes are written to [cadence] in kanzei.toml and, on the dev profile, injected into the system prompt as a cadence declaration — they really do change how the agent verifies and commits. The release gate and the CI full test suite are hard gates and are unaffected by these parameters.",
   "全量测试": "Full test suite",
   "条目关闭前": "Before entry close",
   "每次提交前": "Before every commit",
@@ -610,8 +610,11 @@ const I18N_EN = {
   "每 N 批的间隔": "Interval in batches for every-N-batches",
   "定向测试": "Targeted tests",
   "提交粒度": "Commit granularity",
-  "每批一提交": "One commit per batch",
-  "每条目一提交": "One commit per entry",
+  // 口径按 CommitCadence 的真实语义写死在标签里:per_entry 是「整条目只提交一次」
+  // (比默认更少),不是「每做完一条就提交」。旧标签「每条目一提交」被读成后者,
+  // 选了它等于亲手关掉每批提交。
+  "每批一提交(默认,多批条目按批落提交)": "One commit per batch (default: multi-batch entries commit batch by batch)",
+  "整条目只提交一次(提交更少)": "A single commit for the whole entry (fewer commits)",
   "push 频率": "Push frequency",
   "条目完成后": "After entry completion",
   "每提交后": "After every commit",

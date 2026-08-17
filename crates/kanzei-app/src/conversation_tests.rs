@@ -657,6 +657,106 @@ fn conversation_delete_removes_projected_segment() {
 }
 
 #[test]
+fn conversation_delete_also_removes_trailing_round_snapshot() {
+    // 轮末 legacy 快照 conversation.updated 写在该段所有 typed fact **之后**
+    // (persist_round_outcome),sequence 比列表回报的段 sequence 大。按段 sequence
+    // 收口会把它留在库里,后果有两条,都是用户可见的:
+    //   ①facts 清空后 conversation_list 回退 legacy,幸存快照又冒出来成为一条
+    //     「历史对话」——删除要点两次才干净;
+    //   ②project_latest_segment 同样回退 legacy,把整段旧历史读回 runner prior
+    //     ——以为删了,下一轮其实还带着。
+    // 上面的 D-421 用例没写这条快照,所以缺陷从它下面漏了过去;这里按真实轮末
+    // 顺序补齐。
+    use kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant, SessionStore};
+    use kanzei_llm::{Message, Part};
+    let _gate_guard = GATE_ENV_LOCK.lock().unwrap();
+
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-app-delsnap-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let canonical = crate::normalized_project_root(&root);
+    let session_id = crate::process_session_id(&canonical, None);
+    let store = SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+    store
+        .create_session(&session_id, &canonical.display().to_string(), None)
+        .unwrap();
+
+    let assistant = Message::assistant(vec![Part::Text {
+        text: "唯一一段的回答".into(),
+    }]);
+    let mut invariant = SessionInvariant::default();
+    let facts = [
+        SessionFactEnvelope::new(
+            "run-only",
+            None,
+            SessionFact::UserMessageCommitted {
+                input_id: "i-only".into(),
+                message: Message::user_text("唯一一段的问题"),
+            },
+        ),
+        SessionFactEnvelope::new("run-only", Some(1), SessionFact::TurnStarted { max_steps: 1 }),
+        SessionFactEnvelope::new(
+            "run-only",
+            Some(1),
+            SessionFact::AssistantMessageCommitted {
+                message_id: "m-only".into(),
+                content_hash: kanzei_core::store::stable_message_hash(&assistant),
+                message: assistant.clone(),
+            },
+        ),
+        SessionFactEnvelope::new("run-only", None, SessionFact::TurnCompleted),
+    ];
+    store
+        .append_session_facts_checked(&session_id, &mut invariant, &facts)
+        .unwrap();
+    // 轮末快照:真实顺序就是所有 typed fact 落库之后再写这一条。
+    store
+        .append_event(
+            &session_id,
+            "conversation.updated",
+            &serde_json::json!({
+                "messages": [Message::user_text("唯一一段的问题"), assistant],
+            }),
+        )
+        .unwrap();
+    drop(store);
+
+    let before =
+        crate::conversation::conversation_list(canonical.display().to_string(), None).unwrap();
+    assert_eq!(before.len(), 1, "只有一段");
+    let seq = before[0]["sequence"].as_i64().expect("段应有 sequence");
+
+    crate::conversation::conversation_delete(canonical.display().to_string(), vec![seq], None)
+        .unwrap();
+
+    // ①一次删除就要干净:不能因为幸存快照回退 legacy 又列出一条。
+    let after =
+        crate::conversation::conversation_list(canonical.display().to_string(), None).unwrap();
+    assert!(
+        after.is_empty(),
+        "一次删除后不得再列出任何历史对话(幸存的轮末快照会让用户被迫删第二次),实得 {after:?}"
+    );
+
+    // ②prior 也必须真的空:否则界面上没了、下一轮却把整段旧历史又喂回模型。
+    let store = SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+    let prior = crate::conversation::project_latest_segment(&store, &session_id).unwrap();
+    assert!(
+        prior.is_empty(),
+        "删除后 runner prior 必须为空,实得 {} 条",
+        prior.len()
+    );
+    drop(store);
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn user_message_survives_kill_without_terminal() {
     // R-242 验收②(user 安全边界强杀):user_message_committed 落库后进程被杀
     // (无 terminal),重启后投影仍含该 user 消息(已发生事实不丢失)。

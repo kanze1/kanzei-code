@@ -750,7 +750,7 @@
           </details>
           <details class="settings-group">
             <summary data-i18n-key="验证与提交节奏">验证与提交节奏</summary>
-          <p class="dim" data-i18n-key="留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],但引擎当前还没有接回这组参数(R-170 把规则从继续文案剥离后暂无消费方),改了不会改变 agent 的验证节奏;发版门禁与 CI 全量不受参数影响。">留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],但引擎当前还没有接回这组参数(R-170 把规则从继续文案剥离后暂无消费方),改了不会改变 agent 的验证节奏;发版门禁与 CI 全量不受参数影响。</p>
+          <p class="dim" data-i18n-key="留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],dev 档位下作为节奏声明注入 system prompt,会真实改变 agent 的验证与提交行为;发版门禁与 CI 全量是硬门禁,不受本组参数影响。">留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],dev 档位下作为节奏声明注入 system prompt,会真实改变 agent 的验证与提交行为;发版门禁与 CI 全量是硬门禁,不受本组参数影响。</p>
           <div class="form-row">
             <label data-i18n-key="全量测试">全量测试</label>
             <select id="set-cadence-full-test">
@@ -772,8 +772,8 @@
             <label data-i18n-key="提交粒度">提交粒度</label>
             <select id="set-cadence-commit">
               <option value="" data-i18n-key="默认">默认</option>
-              <option value="per_batch" data-i18n-key="每批一提交">每批一提交</option>
-              <option value="per_entry" data-i18n-key="每条目一提交">每条目一提交</option>
+              <option value="per_batch" data-i18n-key="每批一提交(默认,多批条目按批落提交)">每批一提交(默认,多批条目按批落提交)</option>
+              <option value="per_entry" data-i18n-key="整条目只提交一次(提交更少)">整条目只提交一次(提交更少)</option>
             </select>
           </div>
           <div class="form-row">
