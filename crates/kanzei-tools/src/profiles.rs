@@ -631,6 +631,10 @@ impl Component for ResearchProfile {
             Arc::new(crate::research_write::ResearchWriteTool),
         );
         draft.tools.insert(
+            "research_verify",
+            Arc::new(crate::research_verify::ResearchVerifyTool),
+        );
+        draft.tools.insert(
             "finding",
             Arc::new(TrackerTool {
                 tool_name: "finding",
@@ -756,6 +760,16 @@ impl Component for ResearchProfile {
                 .permissions
                 .push(rule("research_write", resource, Effect::Allow));
         }
+        for resource in [
+            "write:capture_source",
+            "write:verify_claims",
+            "write:budget_get",
+            "write:budget_set",
+        ] {
+            draft
+                .permissions
+                .push(rule("research_verify", resource, Effect::Allow));
+        }
 
         draft.context.insert(
             "research/docs",
@@ -797,7 +811,7 @@ impl Component for ResearchProfile {
                 mode: AgentMode::Primary,
                 // 0 = 无轮数上限(用户定调)。
                 steps: 0,
-                system: "You are the research agent. Before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. After approval, use the `research_loop` tool with start/resume actions to drive the bounded search-read-reflect loop. For each isolated subtask call begin_search first and pass its task_id to add_evidence; the max_concurrency gate is mechanical. Use websearch/webfetch only as isolated subtasks; before returning any result to the main context, compress it via research_loop add_evidence with relevance, source_ids, and a sourced summary—never pass raw webpage or tool output into the loop. Use reflect to record knowledge gaps and decide whether another round is needed; write findings only through add_finding with source refs. After the loop reaches writing, call the `research_write` tool: write_outline first, then write_section once per outline section, assemble_paper for heavy topics, and compile_paper through the LaTeX channel; use repair_paper only after a failed compile and preserve its diagnostics. Record every consulted source \
+                system: "You are the research agent. Before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. After approval, use the `research_loop` tool with start/resume actions to drive the bounded search-read-reflect loop. For each isolated subtask call begin_search first and pass its task_id to add_evidence; the max_concurrency gate is mechanical. Use websearch/webfetch only as isolated subtasks; before returning any result to the main context, compress it via research_loop add_evidence with relevance, source_ids, and a sourced summary—never pass raw webpage or tool output into the loop. Use reflect to record knowledge gaps and decide whether another round is needed; write findings only through add_finding with source refs. After the loop reaches writing, call the `research_write` tool: write_outline first, then write_section once per outline section, assemble_paper for heavy topics, and compile_paper through the LaTeX channel; use repair_paper only after a failed compile and preserve its diagnostics. Before starting a loop, use the `research_verify` tool budget_set for explicit round/token/concurrency knobs; after writing, use verify_claims to mechanically check every FACT source and evidence anchor, and use capture_source for complete literature正文 rather than trusting abstract/要点 fields. Record every consulted source \
                          (`source add`) and register conclusions as findings citing those \
                          sources. Every conclusion must state its code or literature domain, \
                          V0-V3 level, evidence anchor, and literature evidence depth; use V \

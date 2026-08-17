@@ -5703,3 +5703,18 @@
 - 关联: R-277 D-467
 - 收尾: 1786965624
 - 源码指纹: b914c074d9d7b52a
+
+## T-1786922726154 R-277 B4 FACT 引用校验与预算旋钮 kanzei-tools 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 37.8s
+- 摘要: R-277 批4最终验证：rustfmt 通过；kanzei-tools 337 passed，1 ignored。覆盖 FACT 文献全文与摘要越界反例、代码/预算路径、source URL 绑定、ResearchProfile 装配。
+- 关联: R-277 D-468 D-469
+- 收尾: 1786966146
+
+## T-1786922726155 R-277 B4 当前 staged kanzei-tools fingerprint 回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 31.2s
+- 摘要: 当前 staged 源码单独重跑：kanzei-tools 337 passed，1 ignored；research_verify URL 绑定、FACT 正文/代码校验、预算覆盖和 ResearchProfile 装配通过，fingerprint 与 staged Rust 匹配。
+- 关联: R-277 D-468 D-469
+- 收尾: 1786966259
+- 源码指纹: 9a589a54c38a6a47

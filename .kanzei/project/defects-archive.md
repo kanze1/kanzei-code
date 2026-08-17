@@ -5726,3 +5726,27 @@
 - observed_head: 8552c485b4b04f573b3e8a8fac960499f3d4ad69
 - observed_worktree_hash: fnv1a64:dec349a1ef0fc5fb
 - recorded_at: 1786965550809
+
+## D-468 R-277 capture_source 未校验 source URL 绑定 [fixed] (high)
+- 复现: 审阅 `crates/kanzei-tools/src/research_verify.rs` 的 `capture_source`；它只检查 source_id 存在后直接抓取输入 URL，没有与 sources.md 的 `URL` 字段比对。
+- 影响: 同一 source ID 可被错误 URL 的正文覆盖，FACT 文献核验可能通过错误出处，破坏论断-URL 绑定。
+- 来源: self-found：R-277 批4 research_verify 单测后的引用绑定审阅。
+- 标签: 核心
+- refs: R-277
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/research_verify.rs` capture_source 在抓取前读取 source 条目 URL 并与请求 URL 精确比对，错绑直接拒绝；T-1786922726154 通过 URL mismatch 回归与完整 suite。
+- observed_head: 824690c16e849af6e7e8075459faa2c532d244f9
+- observed_worktree_hash: fnv1a64:04d0732b4b2553f6
+- recorded_at: 1786966152612
+
+## D-469 R-277 URL 绑定回归测试使用 tool 前置声明错误 [fixed] (low)
+- 复现: 运行 `cargo test -p kanzei-tools`；`research_verify.rs:537` 的 URL mismatch 测试在 `let tool = ResearchVerifyTool` 之前调用 `tool.execute`，编译报 cannot find value `tool`。
+- 影响: 批4完整定向测试无法编译。
+- 来源: self-found：R-277 批4 D-468 回归测试接线。
+- 标签: 核心
+- refs: R-277 D-468
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/research_verify.rs:537-545` 已将 `let tool = ResearchVerifyTool` 移到 URL mismatch 回归调用之前；T-1786922726154 的完整 kanzei-tools 337 passed/1 ignored 通过。
+- observed_head: 824690c16e849af6e7e8075459faa2c532d244f9
+- observed_worktree_hash: fnv1a64:04d0732b4b2553f6
+- recorded_at: 1786966198463

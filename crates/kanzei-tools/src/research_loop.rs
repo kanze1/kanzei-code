@@ -53,6 +53,24 @@ fn state_path(root: &Path, topic: &str) -> Result<PathBuf, String> {
     Ok(root.join(".kanzei/research").join(topic).join(LOOP_FILE))
 }
 
+fn load_budget_override(
+    root: &Path,
+    topic: &str,
+) -> Result<Option<crate::research_plan::PlanBudget>, String> {
+    let path = state_path(root, topic)?.with_file_name("budget.json");
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let text =
+        std::fs::read_to_string(path).map_err(|error| format!("读取预算覆盖失败: {error}"))?;
+    let budget: crate::research_plan::PlanBudget =
+        serde_json::from_str(&text).map_err(|error| format!("预算覆盖 JSON 无效: {error}"))?;
+    if budget.max_rounds == 0 || budget.max_tokens == 0 || budget.max_concurrency == 0 {
+        return Err("预算旋钮必须全部为正数".into());
+    }
+    Ok(Some(budget))
+}
+
 fn load_state(root: &Path, topic: &str) -> Result<Option<ResearchLoopState>, String> {
     let path = state_path(root, topic)?;
     if !path.is_file() {
@@ -169,15 +187,20 @@ impl Tool for ResearchLoopTool {
                     Ok(None) => {}
                     Err(error) => return ToolOutput::error(error),
                 }
+                let budget = match load_budget_override(&ctx.project_root, topic) {
+                    Ok(Some(budget)) => budget,
+                    Ok(None) => plan.budget.clone(),
+                    Err(error) => return ToolOutput::error(error),
+                };
                 let state = ResearchLoopState {
                     version: 1,
                     topic: topic.into(),
                     status: "running".into(),
                     phase: "search".into(),
                     round: 0,
-                    max_rounds: plan.budget.max_rounds,
-                    max_tokens: plan.budget.max_tokens,
-                    max_concurrency: plan.budget.max_concurrency,
+                    max_rounds: budget.max_rounds,
+                    max_tokens: budget.max_tokens,
+                    max_concurrency: budget.max_concurrency,
                     tokens_used: 0,
                     evidence: Vec::new(),
                     gaps: Vec::new(),
