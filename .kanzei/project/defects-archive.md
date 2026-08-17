@@ -6207,3 +6207,16 @@
 - observed_head: 566c0f407575d5ffe84db2ee9214de6251d5020e
 - observed_worktree_hash: fnv1a64:f8cdb4942672d21d
 - recorded_at: 1787005304457
+
+## D-499 background.rs 日志泵同步阻塞写+全量重写 O(n^2)+full_output 与注册表无界增长 [fixed] (high)
+- 复现: crates/kanzei-tools/src/background.rs:213 tokio::spawn 的日志泵内 :237/:249 调用同步 write_atomic(全同步 create_dir_all+临时文件+fsync+rename,kanzei-base/src/atomic_file.rs:40);:229-239 每 5s/64KiB 把累积全量 buffer 覆写整文件;:68 full_output 只 extend 从不裁剪(对照 output 走 append_bounded :141);:131 全局注册表只有插入(:288/:631)无 remove,:665 list 含已退出;adopt 路径 :597 整份日志一次读进内存
+- 影响: 卡 tokio worker;长跑 dev server 日志 100MB 时每次刷盘写 100MB(总写入 O(n^2));常驻进程内存无限增长,每个跑过的后台进程永久驻留
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 写盘异步化或专线;改增量追加;full_output 设上界;已退出进程可回收;回归测试覆盖
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-499
+- 进展: 已提交并完成逐项验收：①写盘异步化：`75aa9c78` 中 `crates/kanzei-tools/src/background.rs:151-176,247-282` 使用 `tokio::fs::OpenOptions`、`AsyncWriteExt` 和 `append_log_chunk`，日志泵不再调用同步 `write_atomic`；②增量追加：同文件 `:259-282` 按 pending chunk 的 64KiB/2s 条件异步追加，退出前追加剩余块，测试 `background::tests::persistent_日志落盘_超256k不丢头_退出后可回看` 验证磁盘完整顺序日志；③full_output 设上界：同文件 `:23-26,68-70,151-164,262` 通过 `MAX_BACKGROUND_FULL_OUTPUT=4MiB` 与 `append_bounded` 保留有界尾部，`crates/kanzei-tools/src/process.rs:112-139` 明示内存尾部与磁盘完整日志的区别；adopt 在 `background.rs:177-196,623-647` 异步读取日志尾部；④已退出进程可回收：同文件 `:299-319` 在注册表插入后启动 wait，终态移除内存条目并清理 persistent registry，adopt pid watcher `:637-645` 同样清理；⑤回归测试：`T-1786922726275` 覆盖 background 24 passed，`T-1786922726277` 覆盖当前提交源码 `cargo test -p kanzei-tools` 342 passed/1 ignored，包含日志追加、full_output 上限、自然退出、stop、discover/adopt/kill。提交锚：`75aa9c78`。
+- observed_head: 75aa9c78de6ccc290d65ab372400a15fab615954
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787006119297
