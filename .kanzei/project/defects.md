@@ -1,6 +1,6 @@
 # Defects
 
-## D-434 停车没有一等机制，只能写进「阻塞」字段，下一轮复核就被当失效自阻塞清掉 [fixing] (high)
+## D-434 停车没有一等机制，只能写进「阻塞」字段，下一轮复核就被当失效自阻塞清掉 [fixed] (high)
 - refs: D-354 D-242 R-247
 - 复杂度: 小
 - 复现: 单 WIP 槽满时想让出一条，引擎只认「阻塞」字段判非可执行(work.rs 无 parked 概念，docstore 状态枚举只有 todo/doing/done/dropped)，于是停车只能伪装成阻塞；下一轮复核阻塞时看到「解除人是 agent 自己」判为失效自阻塞清掉，多个条目同时转为可执行，work next 返回 wip_violation 拒绝取活。2026-08-17 实测：R-221/R-216/R-281/D-349 四个可执行 WIP，取活停摆。
@@ -12,6 +12,7 @@
 - 验收: ①新增「停车」字段，被引擎识别为不可执行且不占 WIP 槽；②停车条目落在 parked_items 而非 blocked_items；③全员不可执行时裁决理由把停车与阻塞分开陈述并点名停车条目；④kanzei-memory 的 workable_titles 同步不把停车条目当可干的活；⑤dev system prompt 教「停车写 停车: 不写 阻塞:」「复核阻塞时不要动停车」，并有守护测试；⑥R-221/R-216/R-281 由 阻塞 迁到 停车 后 work next 仍 resume 到 D-349。
 - 优先级: P0
 - 批次: 1/1
+- 进展: 已修复并逐条对账(提交 851ca72c)。①「停车」字段被引擎识别为不可执行且不占槽:crates/kanzei-tools/src/tracker/scheduling.rs:439 is_park_key、:363 停车理由入 block_reasons;回归 crates/kanzei-tools/src/work.rs:1339 parked_wip_does_not_consume_the_single_slot 断言同队列另一条 WIP 仍 Resume。②停车落 parked_items 而非 blocked_items:work.rs:59 WorkItem.parked、:128 ResolvedControlState.parked_items、:680 路由(停车判定先于阻塞);同回归断言 blocked_items 为空。③全员不可执行时理由分开陈述并点名:work.rs:770-790 两个分支;回归 work.rs:1372 parked_and_blocked_are_reported_separately 断言 reason 含「停车」与条目号。④workable_titles 同步:crates/kanzei-memory/src/scheduling.rs:253 is_park_key、:225 入 block_reasons。⑤提示词真源:crates/kanzei-tools/src/profiles.rs:432「write a `停车:` field」「must never be written into `阻塞:`」、:436「leave `停车:` alone」,并进 D-242 守护测试 dev_system_prompt_enforces_wip_and_batch_contract 的必含清单。⑥R-221/R-216/R-281 已由 阻塞 迁到 停车:.kanzei/project/requirements.md:97、:115、:295(提交 851ca72c);源码构建的 kz(cargo run -p kanzei --bin kz -- work next)实测只剩 D-434 与 D-349 两个可执行 WIP,三条停车条目已被排除。注意:已安装的 kz(build-1f15d861)不含本修复,仍把「停车」当未知字段而报 5 个 WIP——需装上含 851ca72c 的新包才生效。验证:cargo fmt --all -- --check、cargo clippy --workspace -- -D warnings、cargo test --workspace 全绿(kanzei-tools 320 → 322)。
 
 ## D-349 工具大输出在事实入库前不可逆截断，trace 仅留 preview 且无完整原文回读 [fixing] (high)
 - refs: D-209 R-180 R-245 docs/design/deepseek_harness_upgrade.md
