@@ -34,9 +34,14 @@ use serde_json::Value;
 // v15:D-375——存量 legacy_seeded 丢弃整包 messages 副本改回引用(源快照仍在才丢),
 //     随后 VACUUM 一次回收(实测占比约 22%,够不着 housekeeping 的 50% 阈值)。
 //
-// **改建表批 = 同时 +1 本常量并更新 SCHEMA_OBJECTS**(schema.rs 的机械判据会拦):
-// 早退分支让「代码里有、存量库里没有」不产生任何编译或测试信号,只能靠判据站岗。
-const SCHEMA_VERSION: i64 = 16;
+// v17:D-433——R-280 往 processes 建表批加 subagents_enabled 却没提版本号,早退让存量库
+//     永远拿不到这列,桌面端每次读进程注册都 `no such column` 崩在列表刷新上(实测
+//     2026-08-17 build-ac637546 装机即坏)。D-373 的判据只冻结**对象名集合**,加列
+//     不改对象名所以全绿——这一版补上列级判据。
+//
+// **改建表批 = 同时 +1 本常量并更新 SCHEMA_OBJECTS/SCHEMA_COLUMNS**(schema.rs 的机械
+// 判据会拦):早退分支让「代码里有、存量库里没有」不产生任何编译或测试信号,只能靠判据站岗。
+const SCHEMA_VERSION: i64 = 17;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;

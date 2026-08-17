@@ -229,7 +229,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS retired_processes_origin
                      ON retired_processes(origin_project);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '16')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '17')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -258,7 +258,8 @@ impl SessionStore {
             "ALTER TABLE processes ADD COLUMN manual_models TEXT NOT NULL DEFAULT '[]'",
             [],
         );
-        // v13(R-280):存量进程默认开启子代理,保持迁移前 task 工具始终可用的行为。
+        // v17(R-280/D-433):存量进程默认开启子代理,保持迁移前 task 工具始终可用的行为。
+        // 原提交把这列加进建表批却没提 SCHEMA_VERSION,存量库因早退拿不到它。
         let _ = tx.execute(
             "ALTER TABLE processes ADD COLUMN subagents_enabled INTEGER NOT NULL DEFAULT 1",
             [],
@@ -380,6 +381,182 @@ mod tests {
         "session_inputs_pending",
         "sessions",
     ];
+
+    /// D-433 机械判据:建表批产出的**列**按版本冻结。
+    ///
+    /// [`SCHEMA_OBJECTS`] 只冻结对象名,往既有表里加一列不改对象名——R-280 的
+    /// `processes.subagents_enabled` 就是这么绕过去的:新库有、存量库没有,桌面端装上
+    /// 就 `no such column` 崩在进程列表刷新上。加列同样必须 +1 `SCHEMA_VERSION`,
+    /// 这份清单让它变成红灯。
+    const SCHEMA_COLUMNS: &[&str] = &[
+        "agent_notifications.created_at",
+        "agent_notifications.event_id",
+        "agent_notifications.payload_json",
+        "agent_notifications.sequence",
+        "agent_notifications.thread_id",
+        "delivery_cursors.cursor",
+        "delivery_cursors.device_id",
+        "delivery_cursors.thread_id",
+        "delivery_cursors.updated_at",
+        "episodes.context_json",
+        "episodes.created_at",
+        "episodes.duration_ms",
+        "episodes.episode_id",
+        "episodes.input_id",
+        "episodes.input_tokens",
+        "episodes.metrics_json",
+        "episodes.model",
+        "episodes.outcome",
+        "episodes.output_tokens",
+        "episodes.overflow_json",
+        "episodes.prompt_head",
+        "episodes.provider",
+        "episodes.run_id",
+        "episodes.session_id",
+        "episodes.steps",
+        "episodes.tools_json",
+        "memory_eval.arm",
+        "memory_eval.created_at",
+        "memory_eval.first_divergence_step",
+        "memory_eval.memory_id",
+        "memory_eval.model",
+        "memory_eval.prompt_version",
+        "memory_eval.replay_case",
+        "memory_eval.retries",
+        "memory_eval.steps",
+        "memory_eval.success",
+        "memory_eval.tokens",
+        "memory_eval.tool_errors",
+        "memory_eval_agg.effect_ci",
+        "memory_eval_agg.effect_mean",
+        "memory_eval_agg.eval_n",
+        "memory_eval_agg.last_eval",
+        "memory_eval_agg.memory_id",
+        "memory_sources.episode_id",
+        "memory_sources.event_end",
+        "memory_sources.event_start",
+        "memory_sources.memory_id",
+        "memory_sources.source_hash",
+        "mobile_devices.device_id",
+        "mobile_devices.device_token",
+        "mobile_devices.name",
+        "mobile_devices.paired_at_ms",
+        "processes.manual_models",
+        "processes.model",
+        "processes.origin_project",
+        "processes.phase_pipeline",
+        "processes.process_id",
+        "processes.profile",
+        "processes.project_dir",
+        "processes.reasoning",
+        "processes.subagents_enabled",
+        "processes.tracker_writes_enabled",
+        "processes.updated_at",
+        "processes.worktree_path",
+        "recall_events.candidate_ids",
+        "recall_events.created_at",
+        "recall_events.embed_ms",
+        "recall_events.episode_id",
+        "recall_events.injected_ids",
+        "recall_events.lexical_ms",
+        "recall_events.policy_action",
+        "recall_events.query",
+        "recall_events.recall_id",
+        "recall_events.retrieved_ids",
+        "recall_events.step_id",
+        "recall_events.total_ms",
+        "recall_events.trigger_payload",
+        "recall_events.trigger_type",
+        "recall_events.vector_ms",
+        "retired_processes.origin_project",
+        "retired_processes.process_id",
+        "retired_processes.retired_at",
+        "schema_meta.key",
+        "schema_meta.value",
+        "session_events.created_at",
+        "session_events.event_id",
+        "session_events.event_type",
+        "session_events.payload_json",
+        "session_events.sequence",
+        "session_events.session_id",
+        "session_inputs.created_at",
+        "session_inputs.delivery",
+        "session_inputs.finished_at",
+        "session_inputs.input_id",
+        "session_inputs.promoted_at",
+        "session_inputs.prompt",
+        "session_inputs.session_id",
+        "session_inputs.status",
+        "sessions.created_at",
+        "sessions.project_root",
+        "sessions.session_id",
+        "sessions.status",
+        "sessions.title",
+        "sessions.updated_at",
+    ];
+
+    fn user_columns(connection: &Connection) -> Vec<String> {
+        let mut out = Vec::new();
+        for table in user_objects(connection) {
+            let mut statement = connection
+                .prepare(&format!("PRAGMA table_info({table})"))
+                .unwrap();
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .unwrap();
+            for column in rows.map(Result::unwrap) {
+                out.push(format!("{table}.{column}"));
+            }
+        }
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn 建表批新增列必须伴随schema版本提升() {
+        let store = SessionStore::open_in_memory().unwrap();
+        assert_eq!(
+            user_columns(&store.connection),
+            SCHEMA_COLUMNS,
+            "建表批的列集合变了。改动本身没问题,但**必须同时把 SCHEMA_VERSION +1** \
+             并更新 SCHEMA_COLUMNS——否则 migrate 的 `version == SCHEMA_VERSION` 早退会让 \
+             存量库永远拿不到新列(D-433:processes.subagents_enabled 就是这么让装机即崩的)。"
+        );
+    }
+
+    /// D-433 反向证据:停在上一版、且缺 R-280 那列的存量库,open 之后必须把列补回来。
+    /// 这是「加列走的是同一条早退路径」的正面回归——只冻结对象名的 D-373 判据抓不到它。
+    #[test]
+    fn 停在上一版的存量库open后补齐缺失的列() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-schema-column-catchup-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store
+                .connection
+                .execute_batch("ALTER TABLE processes DROP COLUMN subagents_enabled;")
+                .unwrap();
+            store
+                .connection
+                .execute(
+                    "UPDATE schema_meta SET value = ?1 WHERE key = 'schema_version'",
+                    params![(SCHEMA_VERSION - 1).to_string()],
+                )
+                .unwrap();
+        }
+        let store = SessionStore::open(&path).unwrap();
+        assert!(
+            user_columns(&store.connection).contains(&"processes.subagents_enabled".to_string()),
+            "存量库 open 后仍缺 processes.subagents_enabled——桌面端读进程注册会 no such column"
+        );
+        drop(store);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn user_objects(connection: &Connection) -> Vec<String> {
         let mut statement = connection

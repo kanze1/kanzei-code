@@ -1,5 +1,18 @@
 # Defects
 
+## D-433 R-280 加列未提 SCHEMA_VERSION，存量库装机即崩在 no such column: subagents_enabled [fixing] (high)
+- refs: R-280 D-373 D-297
+- 复杂度: 小
+- 复现: 用 build-ac637546 覆盖安装到已有 .kanzei/state.db(schema_version=16)的机器，启动后进程列表每次刷新报「读取进程注册失败: sqlite error: no such column: subagents_enabled」。新建库无此现象——新库走建表批，列是有的。
+- 影响: 桌面端进程列表完全不可用，自举循环拿不到进程注册；用户 2026-08-17 11:38 装机即撞。
+- 来源: 用户实测 build-ac637546 装机后报错。
+- 标签: 核心
+- 根因: R-280 把 subagents_enabled 加进 processes 建表批并补了幂等 ALTER，却没有 +1 SCHEMA_VERSION。migrate 在 version == SCHEMA_VERSION 时早退，存量库根本不执行 ALTER 批。D-373 立的判据只冻结**对象名集合**(SCHEMA_OBJECTS)，加列不改对象名，于是编译、clippy、全量测试、十步门禁全绿放行——与 D-297 同一条早退路径，只是粒度更细。
+- 证据等级: E3(用户真机装机复现 + 定向回归在缺列的存量库上复现并修复)
+- 验收: ①SCHEMA_VERSION 提到 17 且建表批里的硬编码字面量同步；②停在上一版、缺 subagents_enabled 的存量库 open 后把列补回来(回归 停在上一版的存量库open后补齐缺失的列)；③新增列级机械判据 SCHEMA_COLUMNS，加列不提版本号即红灯(回归 建表批新增列必须伴随schema版本提升)；④workspace 全量与十步门禁全绿后重新发版。
+- 优先级: P0
+- 批次: 1/1
+
 ## D-349 工具大输出在事实入库前不可逆截断，trace 仅留 preview 且无完整原文回读 [fixing] (high)
 - refs: D-209 R-180 R-245 docs/design/deepseek_harness_upgrade.md
 - 复杂度: 中
