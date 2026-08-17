@@ -29,14 +29,6 @@
 - recorded_at: 1787008359348
 - 阻塞: 真实重启验收需要关闭当前正在运行的已安装 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`；解除人：用户关闭当前 kzapp 窗口后，由 agent 重新启动同一安装位并回读持久化 auto state。
 
-## D-508 工具事件落库每事件新开 SessionStore 连接(D-374 未铺到 record_live_trace_at_path) [open] (low)
-- 复现: crates/kanzei-app/src/state.rs:372 record_live_trace_at_path 每次 SessionStore::open,7 处调用点
-- 影响: 每事件约 4.3ms 白烧,长会话工具密集时可感
-- 来源: 2026-08-18 全库勘察(主会话);audit_20260812_eight_dimensions.md:32 曾建议顺 D-297 做,D-297 已关闭未做
-- 标签: 后端
-- 验收: 复用连接;修后耗时对比留档
-- 优先级: P2
-
 ## D-509 启动步骤等 37 处中文字面量绕过 i18n,i18n 冒烟结构性盲区 [open] (medium)
 - 复现: crates/kanzei-app/ui/18-startup.js:40,47,59-63 七个 label 经 :35 toastError 直出中文;16-settings.js:755 回环、08-compose.js:196,293 线路已关闭等 JS 侧共 37 处中文字面量未包 t() 也不在词表;scripts/ui-i18n-smoke.mjs:10-12 只校验 t(key) 的 key 在词表、:16-26 只扫 index.html
 - 影响: 英文态启动失败时唯一可见信息是中文;冒烟绿不等于覆盖

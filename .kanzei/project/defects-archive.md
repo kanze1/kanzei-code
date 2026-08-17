@@ -6380,3 +6380,16 @@
 - recorded_at: 1787010411368
 - 批次: 4/4
 - status: fixing
+
+## D-508 工具事件落库每事件新开 SessionStore 连接(D-374 未铺到 record_live_trace_at_path) [fixed] (low)
+- 复现: crates/kanzei-app/src/state.rs:372 record_live_trace_at_path 每次 SessionStore::open,7 处调用点
+- 影响: 每事件约 4.3ms 白烧,长会话工具密集时可感
+- 来源: 2026-08-18 全库勘察(主会话);audit_20260812_eight_dimensions.md:32 曾建议顺 D-297 做,D-297 已关闭未做
+- 标签: 后端
+- 验收: 复用连接;修后耗时对比留档
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-508
+- 进展: 复核完成：本条是既有 D-374 能力，不是本轮新实现。①复用连接：`crates/kanzei-app/src/run/events/mod.rs:87-142` 的 `TraceSink` 持有 `Mutex<Option<SessionStore>>`，`coordinator.rs:128` 是真实构造方，20 条事件均经 `record` 使用同一连接；②失败回落：`run/events/mod.rs:113-122,134-142` 保留打开失败后的 `record_live_trace_at_path` 回落，且不打断模型运行；③不丢事件：`run/events/mod.rs:587-592` 断言 20 条事件全部落库；④机械计数：同文件 `550-585` 断言整轮仅新增 1 次 open。修前约 4.3ms/open 与 48,582 条轨迹约 210 秒的基线见 `.kanzei/project/defects-archive.md:D-374`；本次定向回归 T-1786922726314 通过（1 passed，测试耗时 0.02s，cargo 总耗时 0.57s）。
+- observed_head: f081c3a87fc080b7da2c68d4af55442b87c29914
+- observed_worktree_hash: fnv1a64:77df4b278f46f295
+- recorded_at: 1787010680002

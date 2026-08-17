@@ -6873,3 +6873,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-507
 - 收尾: 1787010495
 - 源码指纹: 521157c771ae539f
+
+## T-1786922726314 D-508 复用连接与修前耗时对比回归 [passed]
+- 命令: cargo test -p kanzei-app run::events::tests::轨迹落库整轮只开一条连接
+- 时长: 0.6s
+- 摘要: 复用连接机械回归通过：20 条 run.trace 事件只新增 1 次按库路径 SessionStore::open，且 20 条事件全部落库；修前 D-374 记录为逐事件约 4.3ms/open。
+- 关联: D-508 D-374
+- 收尾: 1787010671
