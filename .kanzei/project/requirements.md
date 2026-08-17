@@ -242,10 +242,10 @@
 - 边界: 不做协作/分享/导出站外;不做在线 LaTeX 编辑器(Monaco 已有);research 下连跑禁用沿用 interaction_modes 既有定调;长报告渲染沿用 R-267 窗口化模式,不另造。
 - 验收: ①批1 设计稿经用户过审(含四组件权重取舍的明确理由);②计划编辑→运行→中途转向全链路可操作有轨迹;③引用点击回源双形态各实测(URL 与 file:line);④长报告与长活动流滚动不卡(窗口化生效);⑤与桌面既有 UI 风格与 i18n 纪律一致。
 - 优先级: P2
-- 进展: 批5已落地并验证。实现文件：crates/kanzei-tools/src/read.rs、lib.rs、webfetch.rs；crates/kanzei-app/src/docs.rs、src/main.rs；ui/11-docs-list.js、19-research.js、02-i18n.js、style.css；scripts/ui-runtime-smoke.mjs。新增 PDF magic → pdftotext 文本通道（保留 offset/limit 与缺失工具诊断）；新增 arXiv HTML→ar5iv→PDF fallback，正文落入 `.kanzei/research/<topic>/fulltext/`，返回正文级 depth/source_url/path/fallback；研究来源卡展示证据深度，arXiv 研究入口携带 topic 调用专用 IPC，非研究侧栏继续使用 webfetch_preview。D-452/D-453/D-454 已 fixed。T-1786922726129 PDF 定向测试、T-1786922726130 arXiv URL 测试、T-1786922726131 arXiv/PDF runtime smoke、T-1786922726132/T-1786922726136 六条前端冒烟、T-1786922726133 kanzei-tools 329 passed、T-1786922726134 kanzei-app 202 passed、T-1786922726135 evidence depth runtime smoke。实际 ui_dom 探针命中旧版不可见 #view-research、无新 `.research-card`，ui_console 无错误，判定当前窗口未刷新本批静态资源；不将该探针冒充新构建渲染证据。下一步：提交批5，批6处理计划树面板（依赖 R-277）。
-- observed_head: 110c9943f4d272e26b955a8df1f684f1431a8602
-- observed_worktree_hash: fnv1a64:636532668458059b
-- recorded_at: 1786962117713
+- 进展: 批5已落地并提交：4fe14544 `R-276 B5 PDF 与 arXiv 正文证据通道`。实现文件：crates/kanzei-tools/src/read.rs、lib.rs、webfetch.rs；crates/kanzei-app/src/docs.rs、src/main.rs；ui/11-docs-list.js、19-research.js、02-i18n.js、style.css；scripts/ui-runtime-smoke.mjs。新增 PDF magic → pdftotext 文本通道（保留 offset/limit 与缺失工具诊断）；新增 arXiv HTML→ar5iv→PDF fallback，正文落入 `.kanzei/research/<topic>/fulltext/`，返回正文级 depth/source_url/path/fallback；研究来源卡展示证据深度，arXiv 研究入口携带 topic 调用专用 IPC，非研究侧栏继续使用 webfetch_preview。D-452/D-453/D-454 已 fixed。T-1786922726129 PDF 定向测试、T-1786922726130 arXiv URL 测试、T-1786922726131 arXiv/PDF runtime smoke、T-1786922726132/T-1786922726136 六条前端冒烟、T-1786922726133 kanzei-tools 329 passed、T-1786922726134 kanzei-app 202 passed、T-1786922726135 evidence depth runtime smoke、T-1786922726137 当前暂存 kanzei-tools 329 passed/1 ignored、T-1786922726138 当前暂存 kanzei-app 202 passed。实际 ui_dom 探针命中旧版不可见 #view-research、无新 `.research-card`，ui_console 无错误，判定当前窗口未刷新本批静态资源；不将该探针冒充新构建渲染证据。下一步：批6处理计划树面板（依赖 R-277）。
+- observed_head: 4fe14544f11249ac984ca468bde7de2417a932a3
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786962340634
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-276
 
