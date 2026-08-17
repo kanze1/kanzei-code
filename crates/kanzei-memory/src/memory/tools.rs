@@ -108,7 +108,7 @@ impl Tool for MemorySearchTool {
             &ctx.project_root,
             &input.query,
             &all_hits,
-            true,
+            !all_hits.is_empty(),
             "lexical",
             &crate::memory::index::RetrievalTiming::default(),
         );
@@ -529,6 +529,17 @@ mod tests {
             .await;
         assert!(!none.is_error);
         assert!(none.content.contains("memory_note"), "{}", none.content);
+        let telemetry =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&ctx.project_root))
+                .unwrap();
+        let metrics = telemetry.recall_metrics().unwrap();
+        let miss = metrics
+            .iter()
+            .find(|metric| metric.trigger_type == "memory_search")
+            .expect("空检索必须写入 telemetry");
+        assert_eq!(miss.events, 1);
+        assert_eq!(miss.retrieved_events, 0);
+        assert_eq!(miss.injected_events, 0);
         let bad = MemorySearchTool
             .execute(json!({"query": "x", "scope": "银河系"}), &ctx)
             .await;

@@ -6326,3 +6326,41 @@
 - observed_head: dcdb238e5c617b11fc15b5d08ff0492e939a971a
 - observed_worktree_hash: fnv1a64:71df4fa2651502c8
 - recorded_at: 1787007939617
+
+## D-524 D-505 门禁状态迁移误删步骤结果渲染 [fixed] (low)
+- 复现: D-505 修改 `crates/kanzei-app/ui/20-lines.js` 门禁状态块时，精确替换误删 `gateOutput.appendChild(row)`，导致 `worktree_gate` 返回的步骤虽然执行但不再渲染到收活面板。
+- 影响: 收活门禁结果缺少逐步骤可见证据，用户无法核对 fmt/clippy/test/ui-smoke 结果。
+- 来源: self-found：D-505 实现后的代码复核。
+- 标签: 前端
+- 验收: 门禁每个返回步骤继续渲染到 `gateOutput`，D-505 收活 runtime smoke 与六项前端冒烟通过。
+- 优先级: P2
+- 进展: 已修复并完成验收：① `crates/kanzei-app/ui/20-lines.js:553-564` 对 `worktree_gate` 每个返回步骤创建行并通过 `gateOutput.appendChild(row)` 渲染；② D-505 状态真源迁移后的收活流程仍覆盖该渲染路径；③ T-1786922726297：`node --check`、globals、runtime smoke、ui-lint、parallel-lines、a11y、i18n、markdown 全部通过。
+- observed_head: 8f490d92856e1e0208efee838b55b18254d6c883
+- observed_worktree_hash: fnv1a64:0317680c6bc6f987
+- recorded_at: 1787008545093
+
+## D-505 收活合并门禁用 CSS class 当闸门状态 [fixed] (medium)
+- 复现: crates/kanzei-app/ui/20-lines.js:788 postMergeStep.classList.contains(confirmed) 决定能否回写 tracker,是 R-222 前置(合并后全量通过)的唯一判据
+- 影响: 任何重渲染或样式重构都能抹掉或伪造闸门状态
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 前端
+- 验收: 闸门状态入 JS 状态对象,class 只做展示;回归覆盖重渲染场景
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-505
+- 进展: 已修复并完成逐项验收：①闸门状态入 JS 状态对象：`crates/kanzei-app/ui/20-lines.js:430-435` 的 `harvestState` 保存 mergeGateRan/mergeGatePassed/postMergeGatePassed，`20-lines.js:567-568,609-610,648,714,791-792` 由该对象驱动门禁、合并和回写；② class/dataset 仅作展示：生产代码不再用 `mergeButton.dataset.gateOk/gateRan` 或 `postMergeStep.classList.contains("confirmed")` 做业务判断，class 只在 `20-lines.js:714` 添加展示；③重渲染回归：`scripts/ui-runtime-smoke.mjs:6747-6753` 验证线路重渲染后收活面板复挂，`6818-6821` 删除 merge dataset 后仍可合并，`6872-6877` 删除 confirmed class 后回写仍解锁；④门禁步骤渲染由 `20-lines.js:553-564` 保持，D-524 已 fixed；⑤T-1786922726297：语法、globals、runtime、ui-lint、parallel-lines、a11y、i18n、markdown 全部通过。
+- observed_head: 8f490d92856e1e0208efee838b55b18254d6c883
+- observed_worktree_hash: fnv1a64:0317680c6bc6f987
+- recorded_at: 1787008571578
+
+## D-506 桌面端热路径 15 处 std Mutex lock().unwrap(),一处持锁 panic 即毒化级联应用僵死 [fixed] (medium)
+- 复现: crates/kanzei-app/src/state.rs:198/233/576/671/737、processes/registry.rs:65/262、run/coordinator.rs:53/61/101、run/persistence.rs:175/487、mobile.rs:341/369/424 均 .lock().unwrap();仓内已有正确写法未铺开(orchestration_trace.rs:41-44、kanzei-core/src/store/mod.rs:69 用 into_inner 恢复)
+- 影响: 任一处持锁 panic 把锁永久毒化,之后每个 Tauri 命令跟着 panic,整个应用僵死
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 统一改 into_inner 恢复(或等效策略);15 处全覆盖;防回归手段(clippy lint 或巡检)
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-506
+- 进展: 已修复并完成逐项验收：①统一 poison 恢复：`crates/kanzei-app/src/state.rs:14-22` 新增 `MutexPoisonExt::lock_or_recover`，使用 `unwrap_or_else(|poisoned| poisoned.into_inner())`；五个目标文件全部接入：`state.rs:209,244,587,682,748` 等运行/停止路径，`processes/registry.rs:67,264` 等注册路径，`run/coordinator.rs:53,61,101`，`run/persistence.rs:178,492`，`mobile.rs:340,369,424`，且同文件同类调用一并覆盖，共 81 处；②原验收列出的 15 处全部落到该恢复入口，未缩小桌面端范围；③防回归巡检：`crates/kanzei-app/src/state_tests.rs:440-456` 的 `d506_hot_path_mutex_locks_use_poison_recovery` 逐文件断言五个热路径不存在 `.lock().unwrap()`；④T-1786922726298：`cargo fmt --all -- --check` 与 `cargo test -p kanzei-app` 通过，206 passed。
+- observed_head: 8f490d92856e1e0208efee838b55b18254d6c883
+- observed_worktree_hash: fnv1a64:64fc537eea90a7e1
+- recorded_at: 1787008839153

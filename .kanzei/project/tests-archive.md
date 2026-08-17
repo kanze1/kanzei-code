@@ -6746,3 +6746,32 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 关联: D-504
 - 收尾: 1787008193
 - 源码指纹: d9661a78a35cb9b8
+
+## T-1786922726297 D-505 收活门禁 JS 状态真源六项前端冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/20-lines.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/gen-ui-lint-globals.mjs --check; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 9.1s
+- 摘要: D-505 门禁状态真源迁移回归：清除 merge button dataset 与 post-merge confirmed class 后，JS 状态仍保持合并/回写解锁；门禁步骤继续逐项渲染。六项前端冒烟、globals、语法检查全部通过。
+- 关联: D-505 D-524
+- 收尾: 1787008533
+
+## T-1786922726298 D-506 桌面热路径 Mutex poison 恢复定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 18.6s
+- 摘要: D-506 poison mutex 回归：kanzei-app 206 passed，新增源码巡检 d506_hot_path_mutex_locks_use_poison_recovery 通过；五个热路径文件不再存在 `.lock().unwrap()`。
+- 关联: D-506
+- 收尾: 1787008803
+
+## T-1786922726299 D-507 B1 memory_search injected 真实口径回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 6.3s
+- 摘要: D-507 批1 injected 口径回归：memory_search miss 改为 injected=false；新增空结果 recall_metrics 断言；kanzei-memory 147 passed，1 ignored。
+- 关联: D-507
+- 收尾: 1787009078
+
+## T-1786922726300 D-507 B1 暂存源码指纹匹配定向回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 4.0s
+- 摘要: 按当前暂存 tools.rs 指纹重跑：D-507 批1 memory_search injected 口径回归通过，147 passed，1 ignored；空结果遥测 retrieved/injected 均为 0。
+- 关联: D-507
+- 收尾: 1787009150
+- 源码指纹: 5dbb050aabe05a8b

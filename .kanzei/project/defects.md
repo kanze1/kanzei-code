@@ -23,28 +23,13 @@
 - 验收: 收敛单一真源(Map/state),DOM 只做投影;切线/后台线/重启回归用例;冒烟覆盖
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-504
-- 进展: 本批已提交：`8f490d92 D-504 收敛自动推进轮次与线路配置真源`。①单一真源：`08-compose.js:8-15,97-100,1084-1098` 以 `sessionState(sessionId).auto_rounds` 与 `processAutoState` 为真源，DOM 仅投影；②后台线：`07-events.js:375,381,389,439,441,449,454,465,470,477` 统一按 `currentAutoRounds(p.sessionId)` 写入，不再使用活动线镜像；③切线/后台回归：`scripts/ui-runtime-smoke.mjs:1404-1415,5098-5103,5136-5140,5161-5166` 覆盖 Map 优先、后台甲、后台连跑第二轮和切线回显；④重启初始化：`scripts/ui-runtime-smoke.mjs:1510-1513` 覆盖 `ui_prefs` 启动恢复；T-1786922726295 当前暂存源码六项前端冒烟通过，T-1786922726296 `cargo test -p kanzei-app` 为 205 passed。验收缺口：尚未有真实已安装桌面应用退出→重启→读取持久化状态的可重放证据；因此 D-504 保持 fixing，下一步建立真实重启链路或明确验收降级，不关闭。
+- 进展: 实现提交 `8f490d92` 与自动化证据已完成。已确认真实安装位 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe` 存在且当前进程正在运行；当前窗口显示用户正在使用该应用，按发布规则不得强杀或擅自关闭。因此最后一项“已安装桌面应用退出→重启→读取持久化状态”暂记外部阻塞，待用户关闭窗口后执行真实重启链路；其余验收保持已通过。
 - observed_head: 8f490d92856e1e0208efee838b55b18254d6c883
 - observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787008227966
+- recorded_at: 1787008359348
+- 阻塞: 真实重启验收需要关闭当前正在运行的已安装 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`；解除人：用户关闭当前 kzapp 窗口后，由 agent 重新启动同一安装位并回读持久化 auto state。
 
-## D-505 收活合并门禁用 CSS class 当闸门状态 [open] (medium)
-- 复现: crates/kanzei-app/ui/20-lines.js:788 postMergeStep.classList.contains(confirmed) 决定能否回写 tracker,是 R-222 前置(合并后全量通过)的唯一判据
-- 影响: 任何重渲染或样式重构都能抹掉或伪造闸门状态
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 前端
-- 验收: 闸门状态入 JS 状态对象,class 只做展示;回归覆盖重渲染场景
-- 优先级: P2
-
-## D-506 桌面端热路径 15 处 std Mutex lock().unwrap(),一处持锁 panic 即毒化级联应用僵死 [open] (medium)
-- 复现: crates/kanzei-app/src/state.rs:198/233/576/671/737、processes/registry.rs:65/262、run/coordinator.rs:53/61/101、run/persistence.rs:175/487、mobile.rs:341/369/424 均 .lock().unwrap();仓内已有正确写法未铺开(orchestration_trace.rs:41-44、kanzei-core/src/store/mod.rs:69 用 into_inner 恢复)
-- 影响: 任一处持锁 panic 把锁永久毒化,之后每个 Tauri 命令跟着 panic,整个应用僵死
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 后端
-- 验收: 统一改 into_inner 恢复(或等效策略);15 处全覆盖;防回归手段(clippy lint 或巡检)
-- 优先级: P2
-
-## D-507 记忆遥测口径批次:injected 恒真/promotion_gaps 漏查/Tier0 无 hits/23% recall 悬空 [open] (medium)
+## D-507 记忆遥测口径批次:injected 恒真/promotion_gaps 漏查/Tier0 无 hits/23% recall 悬空 [fixing] (medium)
 - refs: R-235
 - 复现: crates/kanzei-memory/src/memory/tools.rs:107-114 memory_search 无条件 injected=true(precision 恒 1.0);crates/kanzei-app/src/memory.rs:53-59 promotion_gaps 用 source/refs 空判冒充 provenance 检查不查 memory_sources(28 条 source=user 零证据 active 不计入);index.rs:300-310 Tier0 指纹命中直接 return 不记 record_hits 且 SearchHit 空;kanzei-core/src/store/telemetry.rs:136-147 episode 回填仅限 append_episode 成功,803/3537 行 recall_events 悬空
 - 影响: 漏斗对 memory_search 无信息量;控制面缺口数偏低;指纹通道画像恒 0;23% 召回无法 join episodes
@@ -52,6 +37,12 @@
 - 标签: 后端
 - 验收: 四处口径各自修正并有测试;生产数据可复算;控制面数字与库中一致
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-507
+- 进展: 批1/4 已完成：① `crates/kanzei-memory/src/memory/tools.rs:101-114` 将 `memory_search` 遥测 injected 从恒真改为 `!all_hits.is_empty()`；② `tools.rs:536-547` 的 `empty_result_nudges_note_and_invalid_enum_errors` 读取同项目 `state.db.recall_metrics`，断言 miss 的 events=1、retrieved_events=0、injected_events=0；③ T-1786922726299：fmt check 与 `cargo test -p kanzei-memory` 147 passed、1 ignored。下一步批2：修 `crates/kanzei-app/src/memory.rs:56-62`，promotion_gaps 改为读取 `memory_sources` provenance（保留存量豁免语义），并补控制面回归。
+- observed_head: 8f490d92856e1e0208efee838b55b18254d6c883
+- observed_worktree_hash: fnv1a64:460bd0d5d30a577c
+- recorded_at: 1787009086935
+- 批次: 1/4
 
 ## D-508 工具事件落库每事件新开 SessionStore 连接(D-374 未铺到 record_live_trace_at_path) [open] (low)
 - 复现: crates/kanzei-app/src/state.rs:372 record_live_trace_at_path 每次 SessionStore::open,7 处调用点
@@ -102,3 +93,12 @@
 - 标签: 后端
 - 验收: 失败路径留 tracing;stop 兜底可观测;unreachable 带理由;截断有诊断;死抽象删除
 - 优先级: P3
+
+## D-525 D-506 多行 Mutex lock unwrap 漏网调用 [open] (medium)
+- 复现: D-506 初轮巡检只匹配同一行 `.lock().unwrap()`；复核发现 `crates/kanzei-app/src/run/persistence.rs:215` 与 `state.rs:623/766` 采用换行 `.lock()` + `.unwrap()`，仍会在 poisoned mutex 上 panic。
+- 影响: D-506 的热路径恢复策略存在漏网调用，持锁 panic 后仍可能触发级联命令僵死。
+- 来源: self-found：D-506 提交前 staged diff 与多行锁调用复核。
+- 标签: 后端
+- 验收: 目标五个文件不再出现同一行或跨行 `.lock()` 后 `.unwrap()`；D-506 源码巡检与 kanzei-app 定向测试通过。
+- refs: D-506
+- 优先级: P1
