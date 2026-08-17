@@ -3,10 +3,10 @@ id: M-013
 scope: project
 category: fact
 title: git commit 报 exit code 1 + "Changes not staged"表示没有暂存内容 — 处理 bash/git commit 失败必读：先 check 缺失的 git add
-description: git commit 失败(exit code 1、"Changes not staged for commit")时必读:先检查同批前置 git add 是否已报 pathspec did not match;不能判定时只记症状,不要断言忘记 add。关联 D-159
+description: Git commit 失败(exit code 1、"Changes not staged for commit")时必读:先检查同批前置 git add — 不能断言用户忘记,只记症状如路径未匹配。
 status: active
 created: 2026-08-08
-updated: 2026-08-13
+updated: 2026-08-17
 source: inbox note 2026-08-08 [fp:bash|exit code:]
 ---
 

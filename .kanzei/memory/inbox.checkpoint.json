@@ -1,0 +1,10 @@
+{
+  "batch_id": "inbox-1786941920146",
+  "status": "failed",
+  "input_notes": 10,
+  "input_bytes": 11135,
+  "success_notes": 0,
+  "pending_after": 248,
+  "failure_reason": "manager run made no inbox progress",
+  "updated_at_ms": 1786942007794
+}

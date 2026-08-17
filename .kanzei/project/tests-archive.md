@@ -5193,3 +5193,69 @@
 - 摘要: test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s; test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.70s; test result: ok. 196 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.56s; test result: ok. 219 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 150 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 142 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s; test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 320 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 32.24s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 - 收尾: 1786934880
 - 源码指纹: 3eb82d51b113d94a
+
+## T-1786922726083 cargo test -p kanzei-core -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-app
+- 时长: 29.0s
+- 摘要: 核心 221 passed；桌面端 196 passed；D-349 artifact 外置、ToolEnd/TaskTrace 元数据与既有权限/事件回归全绿。
+- 关联: D-349
+- 收尾: 1786940945
+
+## T-1786922726084 cargo test -p kanzei-core -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-app
+- 时长: 11.0s
+- 摘要: 清理 display.full 后复跑通过：kanzei-core 221 passed，kanzei-app 196 passed；artifact 外置、写失败和事件路径回归全绿。测试期间 shell 生成的 .kanzei/memory/inbox.checkpoint.json 被 managed-files 机制按预期回滚。
+- 关联: D-349
+- 收尾: 1786941050
+
+## T-1786922726085 D-349 B2 cargo test -p kanzei-core -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-app
+- 时长: 11.0s
+- 摘要: 提交前重新验证当前 D-349 B2 暂存源码：kanzei-core 221 passed，kanzei-app 196 passed；artifact 外置、写失败无引用、ToolEnd/TaskTrace 事件元数据与 display.full 清理回归全绿。
+- 关联: D-349
+- 收尾: 1786941145
+- 源码指纹: fffac868d812deef
+
+## T-1786922726086 D-349 B3 cargo test -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.0s
+- 摘要: B3 orphan marker 回归通过：kanzei-app 197 passed，包含 trace 写失败后生成 `.orphan.json` 的可整理标记测试；既有事件、状态、权限路径全绿。
+- 关联: D-349
+- 收尾: 1786941447
+
+## T-1786922726087 D-349 B3 cargo test -p kanzei-tools [failed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 33.0s
+- 摘要: 新增 read offset/limit 回归首次失败，原因是测试断言用 `line-1` 子串误匹配合法输出 `line-19999`；实现未显示故障，已收窄为整行断言后修正。
+- 关联: D-349
+- 收尾: 1786941533
+
+## T-1786922726088 D-349 B3 cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 32.0s
+- 摘要: read offset/limit 回归修正后通过：kanzei-tools 323 passed，1 ignored；新增测试确认只返回请求区间且不复制整文件，既有 bash/webfetch/test_record/read 权限与边界回归全绿。
+- 关联: D-349
+- 收尾: 1786941582
+
+## T-1786922726089 D-349 B3 cargo test -p kanzei-core [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 1.0s
+- 摘要: 重启等价 artifact 回读断言加入后，kanzei-core 221 passed；原文 bytes/SHA-256 durable 回读、写失败无引用与工具执行回归全绿。
+- 关联: D-349
+- 收尾: 1786941629
+
+## T-1786922726090 D-349 B3 cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 32.0s
+- 摘要: rustfmt 后复跑通过：kanzei-tools 323 passed，1 ignored；read offset/limit、工具权限与边界回归全绿。
+- 关联: D-349
+- 收尾: 1786941756
+- 源码指纹: eb391219edb77d84
+
+## T-1786922726091 D-349 B3 cargo test -p kanzei-app -p kanzei-core -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei-app -p kanzei-core -p kanzei-tools
+- 时长: 45.0s
+- 摘要: 提交前联合定向测试通过：kanzei-app 197 passed、kanzei-core 221 passed、kanzei-tools 323 passed（1 ignored）；覆盖当前全部暂存源码指纹。
+- 关联: D-349
+- 收尾: 1786941882
+- 源码指纹: 7e110bbe520f5afc

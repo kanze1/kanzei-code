@@ -3,19 +3,13 @@ id: M-019
 scope: project
 category: sop
 title: bash 整文件重写(Set-Content)被环境拦截,须用 edit 做定点修改
-description: bash 里用 Set-Content / 重定向整文件重写被拦截(报 "whole-file rewrites via shell bypass the edit/write tools' syntax validation and diff display")时必读;也说明 edit 容忍换行符差异、连续两次 miss 后展示文件实际内容
+description: 处理 bash 整文件重写(Set-Content/Out-File/full-file-write guard)被环境拦截时必读:改用 edit 定点修改,勿试探 shell 整写;.kanzei 下 policy-managed 文件只能用专用工具。
 status: active
 created: 2026-08-08
-updated: 2026-08-13
+updated: 2026-08-16
 source: fp:bash 拦截, 2026-08-08
 ---
 
-环境/工具契约:shell 整文件重写被禁止。错误原文:"`Set-Content` is blocked: whole-file rewrites via shell bypass the edit/write tools' syntax validation and diff display. Use `edit` for targeted changes (it tolerates line-ending differences and, after two misses, shows you the file's actual content)"。
-正确做法:用 edit 工具做定点修改,不要用 bash 整文件重写绕过。edit 容忍行尾差异,且连续两次 old_string 未命中后会展示文件实际内容,便于精确匹配。关联 M-010(edit 报 old/new 相同时不要改用 bash 绕过)。
-
-复发指纹(2026-08-13 依事件日志现行错误原文补挂,原文案 edit/write tools' 已改为 tools'):
-[fp:bash|`set-content` is blocked: whole-file rewrites via shell bypass the tools' syntax validation and diff display]
-[fp:bash|`out-file` is blocked: whole-file rewrites via shell bypass the tools' syntax validation and diff display]
-[fp:bash|is blocked: whole-file rewrites via shell bypass the tools' syntax validation and diff display]
-
-恢复记录(2026-08-13):本条 08-12 被批量退役属误伤——事件日志显示该失败类近 3 日仍在复发,且历史采纳数据证明其决策价值;经用户指示的记忆清理恢复为 active。
+[fp:bash|`set-content` is blocked: whole-file rewrites via shell bypass the tools' syntax validation and diff display] [fp:bash|`out-file` is blocked: whole-file rewrites via shell bypass the tools' syntax validation and diff display] [fp:bash|is blocked: whole-file rewrites via shell bypass the tools' syntax validation and diff display]
+bash 整文件重写(Set-Content/Out-File/重定向/remove-item 重建)被环境拦截,报 "whole-file rewrites via shell bypass the edit/write tools' syntax validation and diff display"/"permission denied by guard `full-file-write`" 时必读:整文件写被环境拦,改用 edit 做定点修改(它容忍行尾差异、连失两次后显示文件实际内容);不要试探别的手段绕。.kanzei/project、.kanzei/memory 下 policy-managed 文件无论怎么 shell 写都被回滚,唯一合法通道是 req/defect/test_record 等专用工具(M-005)。
+复发判据(2026-08-13~16 多文件复发):任何想用 shell 重写文件内容的意图都应直接走 edit/专用工具,勿再试 shell 整写。

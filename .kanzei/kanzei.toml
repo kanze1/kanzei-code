@@ -172,3 +172,8 @@ effect = "allow"
 action = "work"
 resource = "write:claim"
 effect = "allow"
+
+[[permissions.rules]]
+action = "insert"
+resource = "crates/kanzei-app/src/phase_pipeline_tests.rs"
+effect = "allow"
