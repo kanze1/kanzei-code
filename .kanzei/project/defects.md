@@ -15,14 +15,6 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-491 轮次与当前工具 live-* 显示整体失效:目标 DOM 已删除,写入函数全部空转 [open] (medium)
-- 复现: crates/kanzei-app/ui/06-activity.js:880-911 liveSet/liveIdle/liveTurn 写 #live-turn/#live-action/#live-note/#live-focus,index.html 只剩 live-section/live-status 两个 id;调用点 07-events.js:28/186/427 全部静默 no-op;scripts/ui-i18n-smoke.mjs:31 白名单仍留 live-turn 后门
-- 影响: 第N/M轮与当前工具实时显示功能整体不存在,冒烟不报;07-events.js:21 注释承诺已失真
-- 来源: 2026-08-18 全库勘察(主会话);audit_20260812_eight_dimensions.md:135 曾点名
-- 标签: 前端
-- 验收: 恢复显示或删除死管线并同步清理 i18n 白名单;冒烟覆盖该路径,DOM id 不存在时报红
-- 优先级: P1
-
 ## D-492 记忆检索 status 过滤在 LIMIT 之后,active 可被 candidate 挤出 top-24 窗口 [open] (high)
 - 复现: crates/kanzei-memory/src/memory/retrieval/search.rs:44,63-72 先 SQL LIMIT 24 再在 Rust 侧过滤 status;FTS 内 45 条 candidate 与 28 条 active 同池抢窗口;status 是表中列却未进 WHERE
 - 影响: 查 active 时 active 条目可被候选整体挤出,检索质量随候选堆积持续劣化(与候选堆积缺陷叠加)

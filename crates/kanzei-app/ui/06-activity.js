@@ -897,6 +897,7 @@ function liveIdle(label) {
   liveTextSources.set("live-turn", source);
   if (turn) {
     turn.textContent = localizeDynamic(source);
+    turn.classList.remove("hidden");
     turn.classList.add("dim");
   }
   liveSet("live-action", "");
@@ -907,6 +908,7 @@ function liveTurn(text) {
   liveTextSources.set("live-turn", source);
   if (turn) {
     turn.textContent = localizeDynamic(source);
+    turn.classList.remove("hidden");
     turn.classList.remove("dim");
   }
 }

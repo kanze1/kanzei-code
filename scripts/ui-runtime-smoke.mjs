@@ -3297,6 +3297,13 @@ const taskProgress = handlers.get("kz:task-progress");
 assert(toolStart && toolEnd, "工具事件未订阅");
 assert(taskProgress, "子代理进度事件未订阅");
 toolStart({ payload: { id: "T1", name: "bash", summary: "cargo test --workspace", input: { command: "cargo test --workspace", workdir: "." }, sessionId: "sess-smoke" } });
+// D-491:轮次与当前工具状态必须由真实事件更新到实际 DOM，不允许 live-* 静默 no-op。
+for (const id of ["live-turn", "live-action", "live-note", "live-focus"]) {
+  assert(byId.get(id), `${id} 动态状态节点缺失，live-* 写入会静默 no-op`);
+}
+assert(byId.get("live-turn").textContent.includes("第") || byId.get("live-turn").textContent.includes("Round"), "kz:turn 未更新当前轮次显示");
+assert(!byId.get("live-action").classList.contains("hidden"), "kz:tool-start 未显示当前工具状态");
+assert(byId.get("live-action").textContent.includes("bash"), "当前工具状态未显示工具名");
 toolStart({ payload: { id: "T2", name: "edit", summary: "main.js", input: { path: "ui/main.js" }, sessionId: "sess-smoke" } });
 toolStart({ payload: { id: "T3", name: "task", summary: "审查子代理", input: { prompt: "review" }, sessionId: "sess-smoke" } });
 await flush();

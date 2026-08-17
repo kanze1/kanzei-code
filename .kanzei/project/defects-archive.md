@@ -6061,3 +6061,17 @@
 - observed_worktree_hash: fnv1a64:81248bfd8fb7cb4b
 - recorded_at: 1787001423231
 - refs: D-490
+
+## D-491 轮次与当前工具 live-* 显示整体失效:目标 DOM 已删除,写入函数全部空转 [fixed] (medium)
+- 复现: crates/kanzei-app/ui/06-activity.js:880-911 liveSet/liveIdle/liveTurn 写 #live-turn/#live-action/#live-note/#live-focus,index.html 只剩 live-section/live-status 两个 id;调用点 07-events.js:28/186/427 全部静默 no-op;scripts/ui-i18n-smoke.mjs:31 白名单仍留 live-turn 后门
+- 影响: 第N/M轮与当前工具实时显示功能整体不存在,冒烟不报;07-events.js:21 注释承诺已失真
+- 来源: 2026-08-18 全库勘察(主会话);audit_20260812_eight_dimensions.md:135 曾点名
+- 标签: 前端
+- 验收: 恢复显示或删除死管线并同步清理 i18n 白名单;冒烟覆盖该路径,DOM id 不存在时报红
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-491
+- 进展: 验收已完成并由 T-1786922726254 复核：①恢复显示：`crates/kanzei-app/ui/index.html:87-91` 补回 `live-turn/live-action/live-note/live-focus` 四个动态节点；`crates/kanzei-app/ui/06-activity.js:894-913` 的 `liveIdle/liveTurn` 在写入时解除 hidden，真实调用方仍为 `crates/kanzei-app/ui/07-events.js:28,186,233,313,354,426` 及 `crates/kanzei-app/ui/05-chat-render.js:204`。②同步 i18n 白名单：`scripts/ui-i18n-smoke.mjs:29-31` 将四个 live-* 与既有 status-mode/status-text 一并声明为 JS 动态渲染节点；静态 i18n 冒烟通过。③冒烟覆盖与缺 DOM 报红：`scripts/ui-runtime-smoke.mjs` D-491 断言逐一检查四个 id 缺失即 assert 失败，并通过真实 `kz:turn`/`kz:tool-start` 断言轮次与工具名进入 DOM；T-1786922726254 的 runtime、lint、parallel-lines、a11y、i18n、markdown 六项全部通过，runtime 0 错误。
+- observed_head: cbc354da805603e4c6065ff87ff896d8e22e4fea
+- observed_worktree_hash: fnv1a64:6198466b6d7d4e70
+- recorded_at: 1787001751866
+- refs: D-491

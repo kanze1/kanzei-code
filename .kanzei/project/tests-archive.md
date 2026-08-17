@@ -6421,3 +6421,34 @@
 - 关联: D-490
 - 收尾: 1787001502
 - 源码指纹: f621acf986da89aa
+
+## T-1786922726254 D-491 live-* 恢复完整六项前端冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 21.4s
+- 摘要: D-491 完整前端门禁通过：runtime、lint、parallel-lines、a11y、i18n、markdown 六项全部通过；runtime 真实断言覆盖四个 live-* DOM 节点、kz:turn 轮次显示、kz:tool-start 当前工具显示；0 运行时错误。
+- 关联: D-491
+- 收尾: 1787001734
+
+## T-1786922726255 D-491 提交前完整前端冒烟（当前 staged 源码） [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 20.6s
+- 摘要: 按提交门禁对当前 staged smoke 源码重跑：runtime、lint、parallel-lines、a11y、i18n、markdown 六项全部通过；runtime 断言四个 live-* 节点和真实 kz:turn/kz:tool-start 更新，0 运行时错误。
+- 关联: D-491
+- 收尾: 1787001811
+- 源码指纹: cbcf475af91e90d2
+
+## T-1786922726256 D-491 kanzei-app 提交前定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.9s
+- 摘要: 提交前 kanzei-app 定向回归通过：202 passed，0 failed；覆盖桌面端 conversation、事件、状态和 IPC 测试。
+- 关联: D-491
+- 收尾: 1787001887
+- 源码指纹: cbcf475af91e90d2
+
+## T-1786922726257 D-491 kanzei-app 提交前定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.9s
+- 摘要: 提交前 kanzei-app 定向回归通过：202 passed，0 failed；覆盖桌面端 conversation、事件、状态和 IPC 测试。
+- 关联: D-491
+- 收尾: 1787001896
+- 源码指纹: cbcf475af91e90d2

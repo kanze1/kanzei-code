@@ -26,9 +26,9 @@ const missingHtmlKeys = [...new Set(htmlCandidates)]
 assert.deepEqual(missingHtmlKeys, [], `HTML 静态文案未进入资源表: ${missingHtmlKeys.join(" | ")}`);
 // R-140 批10:静态 DOM 必须走 data-i18n-* 一次性应用(验收②/④ 的机械保证)——每个含中文
 // 文本/属性的元素都必须带 data-i18n-key/title/aria-label/placeholder 之一,否则英文态
-// 永远不翻译。动态状态元素(live-turn/status-mode/status-text)由 JS 渲染点负责,白名单放行;
+// 永远不翻译。动态状态元素(live-turn/live-action/live-note/live-focus/status-mode/status-text)由 JS 渲染点负责,白名单放行;
 // 其余都是漏网,必须在 HTML 里补 data-i18n-*。
-const staticDynamicId = new Set(["live-turn", "status-mode", "status-text"]);
+const staticDynamicId = new Set(["live-turn", "live-action", "live-note", "live-focus", "status-mode", "status-text"]);
 const uncoveredStatic = [];
 for (const match of htmlSource.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\w-]+)"((?:[^<>"]|"[^"]*")*?)>/g)) {
   const [, , before, id, after] = match;
