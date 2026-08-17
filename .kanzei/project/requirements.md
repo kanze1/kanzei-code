@@ -110,10 +110,10 @@
 - 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
-- 进展: D-497 已修复：历史 session 诊断不再污染当前 shadow turn。实现位于 `crates/kanzei-core/src/store/typed.rs:1131-1165`（write_shadow_report 按当前 turn 调用 compare_shadow_for_turn）、`typed.rs:1450-1518`（按 turn_id 过滤 diagnostics），回归 `typed.rs:2410-2442`；T-1786922726240 为 kanzei-core 224 passed。重建 `kz` 后主项目最新事件 seq=158718 为 `diagnostics=[]`、`class=compacted_snapshot`、`typed_write_errors=[]`，不再错误归类 failed_turn。T-1786922726241 的全新隔离真实 CLI shadow 为 1 turn、equal=1、expected=0、unknown=0、typed_write_errors=0；T-1786922726242 同隔离项目扩展至6 turn，unknown=0、typed_write_errors=0，后续差异均为 compaction 预期差异。验收⑤仍未关闭：主项目历史 unknown=83，且 compaction 后正常 turn 属 expected mismatch，尚未取得30个 equal=true 的同一可比较窗口；验收⑦仍依赖 R-243 compaction 事务。下一步保留历史 unknown 不重写，继续在 compaction 不介入的真实窗口验证 equal=true，或等待 R-243 完成后复核。
-- observed_head: 761d40094c2b3c9012a5c8e4619c30f5caed62cc
-- observed_worktree_hash: fnv1a64:bdf31ca0bc9fee7e
-- recorded_at: 1786999874592
+- 进展: D-497 已修复并已提交 `e2027439`：历史 session 诊断不再污染当前 shadow turn。实现位于 `crates/kanzei-core/src/store/typed.rs:1131-1165`（write_shadow_report 按当前 turn 调用 compare_shadow_for_turn）、`typed.rs:1450-1518`（按 turn_id 过滤 diagnostics），回归 `typed.rs:2410-2442`；T-1786922726243 为提交前按暂存源码执行的 `cargo test -p kanzei-core`，224 passed。重建 `kz` 后主项目最新事件 seq=158718 为 `diagnostics=[]`、`class=compacted_snapshot`、`typed_write_errors=[]`，不再错误归类 failed_turn。T-1786922726241 的全新隔离真实 CLI shadow 为1 turn、equal=1、expected=0、unknown=0、typed_write_errors=0；T-1786922726242 同隔离项目扩展至6 turn，unknown=0、typed_write_errors=0，后续差异均为 compaction 预期差异。提交 `e2027439` 实际包含 `typed.rs`、`defects-archive.md`、`tests-archive.md` 三个文件。验收⑤仍未关闭：主项目历史 unknown=83，且 compaction 后正常 turn 属 expected mismatch，尚未取得30个 equal=true 的同一可比较窗口；验收⑦仍依赖 R-243 compaction 事务。下一步保留历史 unknown 不重写，继续在 compaction 不介入的真实窗口验证 equal=true，或等待 R-243 完成后复核。
+- observed_head: e202743946a9dd3e6968e944eef24ce38b4debf8
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787000108712
 - 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
 - 对账: 2026-08-18 对账:与 R-243 互锁(本条验收⑦「停止新增 conversation.updated」依赖 R-243 compaction 事务,R-243 又依赖本条)。收口顺序:本条以验收①-⑥(含⑤真实 30 turn 窗口)为关闭门禁,⑦的收口动作移交 R-243 验收承接
 
