@@ -6012,3 +6012,17 @@
 - 摘要: 前端全绿：runtime 24 个 ui/*.js 按序执行、2198 次 invoke、0 运行时错误；lint 717 标识符与源码同步；i18n 1263 个 key;并行线路护栏通过。变异校验两次真红：删 handleBackgroundSessionDone 的 releaseAutoContinue → 「第二轮停摆(在飞标记未释放),实得 1 轮」;删 01-core 的 kz:auto-fail 后台分支 → 两条重试断言红。未跑 cargo fmt/clippy/test：本次改动只涉及 ui/*.js、style.css 与 scripts/*.mjs，且工作树存在他线 kanzei-memory WIP，跑 Rust 门禁会验到不属于本次的改动。
 - 关联: D-481 R-290
 - 收尾: 1786992270
+
+## T-1786922726198 R-216 D-480 explicit stale parser regression after import fix [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 35.2s
+- 摘要: 补齐 explicit_stale_ids 单测后：343 tests（含1 ignored）全部通过，fmt check 通过。
+- 关联: R-216 D-480
+- 收尾: 1786993714
+
+## T-1786922726199 R-216 D-480 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 55.9s
+- 摘要: R-216/D-480 关闭前 workspace 全量回归：所有 workspace test 组 0 failed；kanzei-tools 343 passed/1 ignored，kanzei-app 202 passed，kanzei-memory 143 passed，其余 crate/doc-tests 全部通过。
+- 关联: R-216 D-480
+- 收尾: 1786993790

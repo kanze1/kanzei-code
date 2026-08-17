@@ -3727,3 +3727,21 @@
 - observed_head: 4985c2c4b32f3992d5df1d4bfd1b31a87d56e5a6
 - recorded_at: 1786992270
 - 停车: 
+
+## R-216 记忆写入侧质量三闸:近似去重下沉 store.add 双 scope、[fp:] 指纹一致性校验、tracker 交付状态内容拒收 [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 记忆
+- 来源: 2026-08-12 八维度审计(§5)。M-055/M-056 于近似去重上线当天英文复述 M-044 并携带编造指纹——「假指纹立即污染注入」经反证驳回(FingerprintIndex 只收 active 且不扫标题),但穿透与伪造本身实证成立;另有 6 条交付状态类内容落进记忆与 tracker 重复。
+- 内容: ①classify_novelty 的 FTS 语义探测下沉进 store.add 作为硬闸(Uncertain 即拒并返回候选),查重范围扩到双 scope;②新条目携带的 [fp:] 必须与来源 note 中引擎生成的指纹逐字一致,拒绝自造;③标题/subject 命中「R-/D- 编号+已交付/勿重复/验收边界」形态时拒绝并指路 tracker(或强制挂 refs 并随条目关闭自动 deprecate)。
+- 验收: ①复刻「英文改写 M-044」场景被拦并指路 memory_update(单测);②伪造指纹的 add 被拒;③存量 6 条交付状态记忆逐条处置;④各拦截路径有单测。
+- refs: R-194 R-195 R-196 D-299 D-282
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-216
+- 进展: R-216 已完成关闭验收：①英文改写 M-044 被拦并指路 tracker：`crates/kanzei-memory/src/memory/store.rs:1221-1230,2522-2560` 的 Uncertain/add 硬闸与 `memory::store::tests::英文改写被add硬闸拦截返回候选`，workspace 回归 T-1786922726199；②伪造 [fp:] 被拒、来源 note 指纹放行：`crates/kanzei-memory/src/memory/store.rs:2448-2468` 与对应单测，workspace 回归 T-1786922726199；③六条存量交付状态逐条处置：M-032/M-033/M-035/M-036/M-040 原有 deprecated archive 墓碑保留，M-037 归档并保留通用防重复规则 stale 墓碑，错误重复候选 M-150/M-151 归档并写明错误来源，真实 consolidation `T-1786922726196` 报告 5 条请求 completed、pending_after=0；④各拦截路径及新退役链有自动化证据：`crates/kanzei-memory/src/memory/manager.rs:1091-1131` 的 STALE prompt/断言，`crates/kanzei-memory/src/memory/store.rs:634-660` 的 archive 源/目标 write-log、`crates/kanzei-memory/src/memory/inbox.rs:111-138,251-296` 的 inbox/checkpoint write-log，`crates/kanzei-tools/src/memory_consolidation.rs:137-220,289-340,514-520` 的显式 STALE runner/parser 单测；T-1786922726198 定向通过，T-1786922726199 workspace 全量 0 failed。
+- 阻塞: 
+- observed_head: 82b5cdfce1f709b26869f888e3a319a110cab2c0
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1786993824175
+- 状态: todo
+- 依赖: 
+- 停车: 

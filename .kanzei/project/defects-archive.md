@@ -5888,7 +5888,6 @@
 - observed_worktree_hash: fnv1a64:3968be902e4bde56
 - recorded_at: 1786983501410
 - 期望: 询问弹窗默认居中；提供明确的暂时收起/折叠操作，收起后可阅读上下文；再次打开时保留原问题、选项和已填写内容，不丢失交互状态。
-- 阻塞: 
 
 ## D-481 切走线路后鞭挞停摆:后台会话不释放续跑在飞标记 [fixed] (high)
 - 原始描述: 切换线路鞭挞好像会失效。
@@ -5903,4 +5902,15 @@
 - refs: R-290 T-1786922726197
 - observed_head: 4985c2c4b32f3992d5df1d4bfd1b31a87d56e5a6
 - recorded_at: 1786992270
-- 阻塞: 
+
+## D-480 memory-manager 退役链路未暴露 memory_stale，R-216 请求被错误新增为候选记忆 [fixed] (medium)
+- 复现: 根因已消除：manager 无进展时显式 STALE 请求由共享 consolidation runner 确定性处理；archive/inbox/checkpoint 的所有路径均可被 managed fence 通过。
+- 影响: 六条交付状态记忆无法完成逐条处置；退役意图被污染成新候选记忆，inbox 无法销账，可能继续增加重复记忆并使 R-216 无法关闭。
+- 来源: self-found：R-216 验收③真实 manager 运行复现。
+- 标签: 核心
+- 进展: 已修复并验证：①`crates/kanzei-memory/src/memory/manager.rs:1124-1131` 将 STALE 纳入 manager 决策并指引 memory_stale，`1091-1092` 单测断言；②`crates/kanzei-memory/src/memory/store.rs:111-134,634-660` 为 archive 源删除/目标墓碑记录 write-log，`has_archived_id` 支持幂等退役；③`crates/kanzei-memory/src/memory/inbox.rs:111-138,156-157,206-208,251-296` 为 inbox/checkpoint/discard 补 write-log；④`crates/kanzei-tools/src/memory_consolidation.rs:137-220,289-340` 为显式退役请求接入共享 `MemoryStaleTool`，普通草稿仍走 LLM；`514-520` parser 单测。T-1786922726196 真实 5→0，T-1786922726198 定向通过，T-1786922726199 workspace 全量 0 failed。
+- refs: R-216
+- 优先级: P1
+- observed_head: 82b5cdfce1f709b26869f888e3a319a110cab2c0
+- observed_worktree_hash: fnv1a64:2b9e0e2dc2479706
+- recorded_at: 1786993848416
