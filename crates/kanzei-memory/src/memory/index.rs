@@ -296,6 +296,9 @@ impl SqliteMemoryIndex {
             let hits = self.tier0(fp_key);
             if !hits.is_empty() {
                 // Tier0 命中:用条目快照物化(无 snippet/path——指纹命中是精确定位)。
+                // 命中计数必须与 Tier1 的 SearchCandidate.hits 同源；否则指纹通道
+                // 的 SearchHit 永远显示 0，控制面无法复算指纹召回画像。
+                let hit_counts = MemoryStore::project(&self.project_root).hits_map();
                 return hits
                     .into_iter()
                     .filter_map(|h| {
@@ -303,7 +306,7 @@ impl SqliteMemoryIndex {
                             entry: e.clone(),
                             path: PathBuf::new(),
                             snippet: String::new(),
-                            hits: 0,
+                            hits: hit_counts.get(&h.id).copied().unwrap_or(0),
                             score: h.score,
                         })
                     })
@@ -799,6 +802,9 @@ impl SqliteMemoryIndex {
         limit: usize,
     ) -> (Vec<SearchHit>, RetrievalTiming) {
         let (hits, timing) = self.search_hybrid_with_timing(query, limit);
+        // search_hybrid_with_timing 已完成最终结果的 record_hits；重新读取持久化
+        // 计数，避免 SearchHit 物化时把 Tier0/Tier1/hybrid 统一显示为 0。
+        let hit_counts = MemoryStore::project(&self.project_root).hits_map();
         let out = hits
             .into_iter()
             .filter_map(|h| {
@@ -806,7 +812,7 @@ impl SqliteMemoryIndex {
                     entry: e.clone(),
                     path: PathBuf::new(),
                     snippet: String::new(),
-                    hits: 0,
+                    hits: hit_counts.get(&h.id).copied().unwrap_or(0),
                     score: h.score,
                 })
             })
@@ -929,6 +935,37 @@ mod tests {
             index.search_hybrid(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
         assert_eq!(hybrid.len(), 1, "hybrid 退化后与 lexical 一致");
         assert_eq!(hybrid[0].id, fp_hits[0].id);
+    }
+
+    #[test]
+    fn tier0_search_hit沿用持久化命中并只记一次() {
+        let (root, store) = temp_root();
+        let entry = add(
+            &store,
+            "sop",
+            "指纹命中计数",
+            "edit 失败时先 read",
+            "[fp:edit|old_string not found]\n先 read 再重试。",
+        );
+        let index = SqliteMemoryIndex::new(&root);
+        let query = IndexQuery::fingerprint("edit", "old_string not found");
+
+        // 第一次公开 lexical 查询返回查询前计数 0，同时只落一次 hits。
+        let first = index.search_entries(&query, None, Some("active"), 5);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].entry.id, entry.id);
+        assert_eq!(first[0].hits, 0, "返回值应反映查询前的观测计数");
+        assert_eq!(store.hits_map().get(&entry.id).copied(), Some(1));
+
+        // 第二次 Tier0 查询必须读取上一次持久化计数，而不是重新显示 0。
+        let second = index.search_entries(&query, None, Some("active"), 5);
+        assert_eq!(second[0].hits, 1);
+        assert_eq!(store.hits_map().get(&entry.id).copied(), Some(2));
+
+        // hybrid 物化发生在 record_hits 之后，也必须暴露同一计数。
+        let (hybrid, _) = index.search_hybrid_entries(&query, 5);
+        assert_eq!(hybrid[0].hits, 3);
+        assert_eq!(store.hits_map().get(&entry.id).copied(), Some(3));
     }
 
     #[test]

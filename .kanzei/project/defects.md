@@ -38,10 +38,10 @@
 - 验收: 四处口径各自修正并有测试;生产数据可复算;控制面数字与库中一致
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-507
-- 进展: 批2/4 已完成并提交：① `crates/kanzei-core/src/store/telemetry.rs:95-102` 新增 `memory_ids_with_sources()`，控制面读取真实 `memory_sources` 主键集合；② `crates/kanzei-app/src/memory.rs:6-34,74-75` 的 `promotion_gap_count` 与 `memory_control_plane:76-80` 改为按数据库 provenance 计数，保留 R-235 约定的 `source=user`、active、无 refs 存量豁免；③ `memory::tests::promotion_gaps_uses_db_provenance_and_keeps_legacy_active_exempt` 覆盖存量豁免、无来源新条目和补齐来源后的缺口收敛；④ T-1786922726301、T-1786922726302、T-1786922726303 均通过；提交 `4e78e0fd`。下一步批3：修 Tier0 指纹命中不写 record_hits 且 SearchHit 空。
+- 进展: 批3/4 已完成，代码待提交：① `crates/kanzei-memory/src/memory/index.rs:295-317` Tier0 指纹命中从项目 `MemoryStore::hits_map()` 回填 `SearchHit.hits`，不再恒为 0；② `index.rs:796-820` hybrid 物化在最终 `record_hits` 后回读同一持久化计数，保证指纹/BM25/hybrid 口径一致；③ `memory::index::tests::tier0_search_hit沿用持久化命中并只记一次` 覆盖首次 0→1、再次 1→2、hybrid 2→3，验证无重复计数；④ T-1786922726304 通过，148 passed。下一步批4：修 recall_events 的 episode 关联悬空并补生产数据可复算验收。
 - observed_head: 4e78e0fd9563da57003b2e457443d355bc3f3f4f
-- observed_worktree_hash: fnv1a64:77df4b278f46f295
-- recorded_at: 1787009610828
+- observed_worktree_hash: fnv1a64:b239db3690920d8a
+- recorded_at: 1787009763833
 - 批次: 2/4
 
 ## D-508 工具事件落库每事件新开 SessionStore 连接(D-374 未铺到 record_live_trace_at_path) [open] (low)

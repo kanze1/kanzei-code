@@ -6797,3 +6797,26 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 关联: D-507
 - 收尾: 1787009537
 - 源码指纹: cf676c8cc2709dfb
+
+## T-1786922726304 D-507 B3 Tier0 SearchHit 命中观测回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 4.0s
+- 摘要: D-507 批3 Tier0 命中观测回归：148 passed，覆盖 Tier0 SearchHit 读取持久化 hits、公开 lexical 每次只递增一次、hybrid 物化保留计数。
+- 关联: D-507
+- 收尾: 1787009756
+
+## T-1786922726305 D-507 B3 Tier0 SearchHit 当前暂存源码定向回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 3.8s
+- 摘要: 按提交门禁对当前暂存源码重新背书：148 passed，Tier0 SearchHit 命中计数与 hybrid 物化回归通过。
+- 关联: D-507
+- 收尾: 1787009813
+- 源码指纹: d988c2058a09291d
+
+## T-1786922726306 D-507 B3 Tier0 SearchHit 暂存指纹门禁回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 3.8s
+- 摘要: 按当前暂存源码重新背书：148 passed，Tier0 SearchHit 命中计数、单次 record_hits 与 hybrid 物化计数均通过。
+- 关联: D-507
+- 收尾: 1787009829
+- 源码指纹: d988c2058a09291d
