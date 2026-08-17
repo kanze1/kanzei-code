@@ -15,19 +15,6 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-493 记忆排序与一键整理读停写的 memory_recalls 表,按过期统计降级 active [fixing] (high)
-- 复现: crates/kanzei-memory/src/memory/index.rs:249 decision_weight 采纳率读 index.db memory_recalls,而 record_recall(retrieval/recall.rs:14)生产已无调用方,表最后写入 at=1786640788930(约08-13);crates/kanzei-app/src/memory.rs:60-62,171-178,205-216 的一键整理/零采纳清单/控制面采纳率同源
-- 影响: 排序信号冻结在 5 天前;memory_cleanup_demote 会按过期统计把 active 降级,是会造成真实数据损失的路径
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 后端
-- 验收: 采纳信号改接现行遥测(recall_events/生命周期账本)或明确停用该降级依据;降级操作前有数据新鲜度校验;回归测试覆盖
-- 优先级: P1
-- 进展: 实现与回归已完成，逐项对账：①采纳信号已改接现行遥测：`crates/kanzei-core/src/store/telemetry.rs:230-259` 的 `memory_recall_profile` 从 `recall_events.retrieved_ids/injected_ids/created_at` 聚合；`crates/kanzei-memory/src/memory/retrieval/search.rs:196-231` 的 `recall_profile` 与 `fresh_recall_profile` 消费 state.db，生产排序不再读旧 `index.db.memory_recalls`；②降级前新鲜度校验：`crates/kanzei-app/src/memory.rs:7-9,207-219` 以 24 小时窗口调用 `fresh_recall_profile`，陈旧/缺失遥测不改变 active 生命周期；③回归覆盖：`crates/kanzei-core/src/store/telemetry.rs:304-336` 验证 retrieved/injected 聚合，`crates/kanzei-memory/src/memory/index.rs` 的 `recall_profile_读取现行遥测且陈旧数据不通过新鲜门禁` 验证排序画像与陈旧拒绝，`store.rs:920-955,2670-2677,2778-2784` 与 `tools.rs:471-512` 验证排序、preference 豁免、零采纳和漏斗夹具迁移；T-1786922726260 core 226 passed，T-1786922726261 memory 146 passed/1 ignored，T-1786922726262 app 202 passed。D-516/D-517/D-518 为本实现中发现的编译/夹具缺陷，均已 fixed 并有独立证据。
-- observed_head: 1904185ec680634e3c3a9a7b3e42586b88bd5bb4
-- observed_worktree_hash: fnv1a64:e1cf3b1c06d1dc3f
-- recorded_at: 1787002787548
-- 取活依据: engine:唯一可执行 WIP 是 D-493，必须先恢复它
-
 ## D-494 记忆写入三闸可被 force 一票绕过且候选同 subject 并存,单日堆出 96 条 candidate [open] (high)
 - refs: D-492
 - 复现: crates/kanzei-memory/src/memory/manager.rs:125,168,187 三闸均受 force=true 旁路且拒绝文案主动提示 force;admission.rs:78 subject 不变量只对 active 生效,candidate 间同 subject 无限并存;admission.rs:119 指纹闸只扫 body 不扫 description(M-177/M-178 description 躺着字面量 [fp:tool|kind]);admission.rs:26,230 近似判重共同词下限 8 对 CJK 短标题形同虚设。实证:2026-08-17 单日 96 条 candidate,M-159/160、M-168/169、M-177/178 三对字节级重复
