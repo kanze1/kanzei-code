@@ -6347,3 +6347,32 @@
 - 关联: R-242 D-497
 - 收尾: 1787000064
 - 源码指纹: 6efa5e5b24e603ce
+
+## T-1786922726244 D-514 reset segment core 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 4.2s
+- 摘要: 修复 typed.rs 插入残留后，core reset segment 隔离回归通过：225 passed；覆盖最新 conversation.reset 边界、旧事实可审计、重复 reset 空段。
+- 关联: R-242 D-514
+- 收尾: 1787000409
+
+## T-1786922726245 D-514 reset segment app 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 11.2s
+- 摘要: D-514/D-515 接线回归通过：kanzei-app 202 passed；覆盖 conversation shadow、reset segment、conversation_get/list、UI history harvest 相关测试。
+- 关联: R-242 D-514 D-515
+- 收尾: 1787000476
+
+## T-1786922726246 D-514 真实 CLI 连续 reset segment shadow 验收 [passed]
+- 命令: cargo build -p kanzei; $env:KANZEI_PROFILE='dev'; $env:KANZEI_AGENT='dev'; $env:KANZEI_MODEL='primary'; target\debug\kz.exe run --new --project-root <isolated-temp> '只回复：segment-one。不要调用工具。'; target\debug\kz.exe run --new --project-root <isolated-temp> '只回复：segment-two。不要调用工具。'; target\debug\kz.exe shadow --project-root <isolated-temp> --mismatches
+- 时长: 7.2s
+- 摘要: 真实目标 CLI 在全新隔离项目连续执行 2 次 `run --new`：segment-one、segment-two 均成功；目标 `kz shadow --mismatches` 输出共2 turn、equal=2、预期差异0、未知差异0、写错误轮0，判定达标。隔离项目为 C:\Users\kanzei\AppData\Local\Temp\d514-shadow-d1260b2e8a324c70b748c4cf24c8a789。
+- 关联: R-242 D-514
+- 收尾: 1787000516
+
+## T-1786922726247 R-242 B8 当前暂存源码 core app 定向回归 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-app
+- 时长: 12.0s
+- 摘要: 按当前暂存源码重跑：kanzei-core 225 passed、kanzei-app 202 passed；覆盖 reset segment 投影、typed shadow、桌面 shadow 与 UI history harvest 接线。
+- 关联: R-242 D-514 D-515
+- 收尾: 1787000716
+- 源码指纹: 483f9f426e27ceed

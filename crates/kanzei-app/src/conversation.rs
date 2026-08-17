@@ -128,10 +128,12 @@ pub(crate) fn conversation_shadow_get(
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
     let facts = store
-        .list_session_facts(&session_id)
+        .list_latest_segment_facts(&session_id)
         .map_err(|e| e.to_string())?;
+    let boundary = segment_boundaries(&store, &session_id)?.pop();
     let projection = kanzei_core::project_session_facts(&facts);
-    let legacy = recover_messages_raw(&store, &session_id, None).map_err(|e| e.to_string())?;
+    let legacy = recover_latest_legacy_segment_raw(&store, &session_id, boundary)
+        .map_err(|e| e.to_string())?;
     let comparison = kanzei_core::compare_shadow(&projection, &legacy);
     Ok(json!({
         "session_id": session_id,

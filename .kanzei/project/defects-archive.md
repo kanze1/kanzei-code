@@ -6006,3 +6006,31 @@
 - 进展: 已修复并完成逐项验收：①按当前 turn 关联事实范围判断失败诊断：`crates/kanzei-core/src/store/typed.rs:1131-1165` 改用 `compare_shadow_for_turn`，`typed.rs:1450-1518` 以 `turn_id` 过滤诊断；历史 `TurnFailed`/中断不再参与后续 turn 的 failed_turn 分类。②当前失败仍分类 failed_turn：`typed.rs:1516-1518` 与回归 `typed.rs:2410-2442` 覆盖历史失败+当前失败。③新增回归覆盖历史失败后当前 turn 不泄漏、诊断列表为空且不归类 failed_turn；T-1786922726240，cargo fmt 检查通过、kanzei-core 224 passed。④真实重建 CLI 证据：T-1786922726241 在隔离项目得到 equal=1、expected=0、unknown=0、typed_write_errors=0；主项目最新事件 `seq=158718` 的 diagnostics=[]、class=compacted_snapshot，未再错误归类 failed_turn。提交待与 R-242 本批代码及 tracker 一同提交。
 - observed_worktree_hash: fnv1a64:bdf31ca0bc9fee7e
 - recorded_at: 1786999862129
+
+## D-515 D-514 conversation shadow 接线遗漏 SessionStore 借用 [fixed] (low)
+- 复现: 运行 `cargo test -p kanzei-app`，`crates/kanzei-app/src/conversation.rs:133,135` 将 `store` 按值传给要求 `&SessionStore` 的 `segment_boundaries` 和 `recover_latest_legacy_segment_raw`。
+- 影响: D-514 的桌面 shadow 读路径无法编译，kanzei-app 定向测试被阻断。
+- 来源: self-found：D-514 修复后的 kanzei-app 定向编译。
+- 标签: 后端
+- 验收: 两处调用改为借用 `&store`；`cargo test -p kanzei-app` 通过。
+- refs: R-242 D-514
+- 优先级: P1
+- 进展: 已修复并关闭：`crates/kanzei-app/src/conversation.rs:133,135` 两处调用改为借用 `&store`；T-1786922726245 的 `cargo test -p kanzei-app` 通过，202 passed。
+- 验收证据: 验收唯一条款：①两处调用改为借用 `&store`：`conversation.rs:133,135`；②定向测试：T-1786922726245，`cargo test -p kanzei-app`，202 passed。
+- observed_head: e202743946a9dd3e6968e944eef24ce38b4debf8
+- observed_worktree_hash: fnv1a64:8a854b726bfbe8bc
+- recorded_at: 1787000541662
+
+## D-514 shadow typed projection 忽略 conversation.reset 导致新 segment 累积旧事实 [fixed] (high)
+- 复现: 同一真实项目连续运行 `kz run --new` 后执行 `kz shadow --mismatches`：CLI 入口 `crates/kanzei/src/cli/run.rs:157-164` 已为每次 `--new` 追加 `conversation.reset`，但 shadow 比较事件仍显示当前 turn 的 projected_messages 累积旧 segment，连续 turn 被归为 `compacted_snapshot` 而非正常可比较 equal；`crates/kanzei-core/src/store/typed.rs` 的 shadow projection 路径未按最新 conversation.reset 截断事实。
+- 影响: R-242 验收④的 segment reset 与验收⑤的正常 equal 窗口无法在真实连续会话中判定；旧 segment 应可审计，但不能污染新 segment 的模型 prior/shadow projection。
+- 来源: self-found：R-242 连续真实 `kz run --new` + `kz shadow --mismatches` 复核，结合 `run.rs:157-164` 与 typed projection 实现。
+- 标签: 核心
+- 验收: 按最新 conversation.reset 只用当前 segment 恢复/比较 shadow，旧 segment 仍可审计；连续 `run --new` 的新 segment prior 为空且不累积旧 projected_messages；重复 reset 幂等；新增回归覆盖跨 reset segment 隔离，kanzei-core 定向测试和真实 CLI shadow 通过。
+- refs: R-242
+- 优先级: P1
+- 进展: 已修复并关闭：①新增 `crates/kanzei-core/src/store/typed.rs:609-628` 的 `list_latest_segment_facts`，按最新 `conversation.reset` sequence 截断当前 segment，旧事实仍由 `list_session_facts` 保留可审计；②typed shadow writer 在 `typed.rs:1152-1169` 使用最新 segment；③桌面 shadow 在 `crates/kanzei-app/src/conversation.rs:130-137` 使用最新 segment 并按边界读取 legacy；④UI history harvest 在 `crates/kanzei-app/src/processes/workspace.rs:509-517` 使用最新 segment；⑤core 回归 T-1786922726244（225 passed）、app 回归 T-1786922726245（202 passed）、真实目标 CLI T-1786922726246（连续两次 `run --new`，shadow 2 turn equal=2、unknown=0、typed_write_errors=0）。
+- 验收证据: 逐项核对：①按最新 conversation.reset 只恢复/比较当前 segment：`typed.rs:609-628`、`typed.rs:1160-1167`、`conversation.rs:130-137`；②旧 segment 仍可审计：`list_latest_segment_facts` 只过滤投影输入，T-1786922726244 新增回归断言全量8条事实仍可读；③连续 `run --new` 新 segment 不累积旧 projected_messages：T-1786922726246，真实 CLI shadow 2 turn equal=2、unknown=0、写错误0；④重复 reset 幂等：`typed.rs` 回归在 T-1786922726244 断言第二次 reset 后最新事实为空；⑤测试通过：T-1786922726244、T-1786922726245、T-1786922726246。
+- observed_head: e202743946a9dd3e6968e944eef24ce38b4debf8
+- observed_worktree_hash: fnv1a64:8a854b726bfbe8bc
+- recorded_at: 1787000552383

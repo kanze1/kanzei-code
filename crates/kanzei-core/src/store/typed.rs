@@ -606,6 +606,27 @@ impl SessionStore {
         Ok(facts)
     }
 
+    /// R-242/D-514:读取最新 conversation.reset 之后的 typed facts。
+    /// reset 前事件继续保留在日志中，供旧 segment 审计与历史读取使用。
+    pub fn list_latest_segment_facts(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<(StoredEvent, SessionFactEnvelope)>, SessionFactError> {
+        let facts = self.list_session_facts(session_id)?;
+        let boundary = self
+            .list_events_by_type(session_id, 0, "conversation.reset")?
+            .into_iter()
+            .map(|event| event.sequence)
+            .next_back();
+        Ok(match boundary {
+            Some(sequence) => facts
+                .into_iter()
+                .filter(|(event, _)| event.sequence > sequence)
+                .collect(),
+            None => facts,
+        })
+    }
+
     /// D-375:把只存引用的 LegacySeeded 补回 messages。
     ///
     /// 非空(存量 seed 自带副本)直接返回,不回读。源事件已被删除时留空并**不报错**:
@@ -1136,7 +1157,7 @@ impl TypedSessionWriter {
                 return;
             }
         };
-        let facts = match store.list_session_facts(&self.session_id) {
+        let facts = match store.list_latest_segment_facts(&self.session_id) {
             Ok(facts) => facts,
             Err(error) => {
                 self.errors.push(error.to_string());
@@ -1992,6 +2013,114 @@ mod tests {
             .recover_subagent_transcript("ses", "sub-missing")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn latest_segment_facts_respect_reset_and_keep_old_facts_auditable() {
+        let store = store();
+        let old = assistant("旧 segment");
+        let mut first = SessionInvariant::default();
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut first,
+                &[
+                    envelope(
+                        "old-turn",
+                        None,
+                        SessionFact::UserMessageCommitted {
+                            input_id: "old-input".into(),
+                            message: Message::user_text("旧问题"),
+                        },
+                    ),
+                    envelope(
+                        "old-turn",
+                        Some(1),
+                        SessionFact::TurnStarted { max_steps: 1 },
+                    ),
+                    envelope(
+                        "old-turn",
+                        Some(1),
+                        SessionFact::AssistantMessageCommitted {
+                            message_id: "old-message".into(),
+                            content_hash: stable_message_hash(&old),
+                            message: old,
+                        },
+                    ),
+                    envelope("old-turn", None, SessionFact::TurnCompleted),
+                ],
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_test",
+                "conversation.reset",
+                &json!({ "cleared": true }),
+            )
+            .unwrap();
+        let current = assistant("新 segment");
+        let mut second = SessionInvariant::default();
+        store
+            .append_session_facts_checked(
+                "ses_test",
+                &mut second,
+                &[
+                    envelope(
+                        "new-turn",
+                        None,
+                        SessionFact::UserMessageCommitted {
+                            input_id: "new-input".into(),
+                            message: Message::user_text("新问题"),
+                        },
+                    ),
+                    envelope(
+                        "new-turn",
+                        Some(1),
+                        SessionFact::TurnStarted { max_steps: 1 },
+                    ),
+                    envelope(
+                        "new-turn",
+                        Some(1),
+                        SessionFact::AssistantMessageCommitted {
+                            message_id: "new-message".into(),
+                            content_hash: stable_message_hash(&current),
+                            message: current,
+                        },
+                    ),
+                    envelope("new-turn", None, SessionFact::TurnCompleted),
+                ],
+            )
+            .unwrap();
+
+        let all = store.list_session_facts("ses_test").unwrap();
+        let latest = store.list_latest_segment_facts("ses_test").unwrap();
+        assert_eq!(all.len(), 8, "旧 segment 事实必须继续可审计");
+        assert_eq!(latest.len(), 4, "新 segment 只应包含 reset 之后的事实");
+        let projection = project_session_facts(&latest);
+        assert_eq!(projection.surface_messages.len(), 2);
+        assert_eq!(
+            projection.surface_messages[0].parts,
+            Message::user_text("新问题").parts
+        );
+        assert_eq!(
+            projection.surface_messages[1].parts,
+            Message::assistant(vec![Part::Text {
+                text: "新 segment".into()
+            }])
+            .parts
+        );
+
+        store
+            .append_event(
+                "ses_test",
+                "conversation.reset",
+                &json!({ "cleared": true }),
+            )
+            .unwrap();
+        assert!(store
+            .list_latest_segment_facts("ses_test")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
