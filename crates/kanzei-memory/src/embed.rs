@@ -14,12 +14,22 @@
 //! `LlmClient::stream`(chat 协议),直接用 reqwest POST `/embeddings`。
 
 use kanzei_harness::config::KanzeiConfig;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use tokio::runtime::Handle;
 
 /// 文本 → 向量。实现方负责 provider 协议与错误分类。
 pub trait Embedder: Send + Sync {
     /// 批量向量化。返回顺序与输入一致;任一文本失败整体报错(调用方决定降级)。
     fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>>;
+}
+
+/// 进程级共享 runtime。同步调用方不再为每次 embedding 创建 worker/IO driver。
+fn shared_runtime() -> anyhow::Result<&'static tokio::runtime::Runtime> {
+    static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| tokio::runtime::Runtime::new().map_err(|e| e.to_string()))
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("embedding runtime 创建失败: {e}"))
 }
 
 /// openai 兼容 `/embeddings` 实现(R-164 内容②)。
@@ -92,10 +102,26 @@ impl OpenAiEmbedder {
 
 impl Embedder for OpenAiEmbedder {
     fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
-        // 同步 trait(设计 §5 签名)内部用 tokio 运行时驱动 reqwest。
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| anyhow::anyhow!("tokio runtime 创建失败: {e}"))?;
-        runtime.block_on(self.embed_async(texts))
+        // 同步 API 仍保留给现有 index 调用方,但不再在每次调用中创建 runtime。
+        // 多线程 Tokio 中用 block_in_place 暂停当前 worker; current-thread Tokio
+        // 无法 block_in_place,退到 scoped thread 驱动同一个共享 runtime,避免嵌套 panic。
+        if let Ok(handle) = Handle::try_current() {
+            if matches!(
+                handle.runtime_flavor(),
+                tokio::runtime::RuntimeFlavor::MultiThread
+            ) {
+                return tokio::task::block_in_place(|| handle.block_on(self.embed_async(texts)));
+            }
+            return std::thread::scope(|scope| {
+                let join = scope.spawn(|| -> anyhow::Result<Vec<Vec<f32>>> {
+                    let runtime = shared_runtime()?;
+                    runtime.block_on(self.embed_async(texts))
+                });
+                join.join()
+                    .map_err(|_| anyhow::anyhow!("embedding worker thread 被终止"))?
+            });
+        }
+        shared_runtime()?.block_on(self.embed_async(texts))
     }
 }
 
@@ -228,10 +254,10 @@ mod tests {
         assert!(got.is_some());
     }
 
-    #[test]
-    fn openai_embedder_请求与解析() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn openai_embedder_请求与解析() {
         // 本地起一个 mock /embeddings 服务,验证 URL/请求体/响应解析。
-        // 测试体本身同步:embed() 内部建 tokio runtime(与生产路径一致)。
+        // 测试体在 Tokio async 上下文中调用同步 embed(),验证不会嵌套创建 runtime。
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {

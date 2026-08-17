@@ -6609,3 +6609,33 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 关联: D-499
 - 收尾: 1787006050
 - 源码指纹: cd3f68c1ea7df1a9
+
+## T-1786922726278 D-500 memory 定向回归（修复前编译失败） [failed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 摘要: 编译失败：`embed.rs` current-thread scoped fallback 返回双层 Result，缺少一次 `?` 展开；尚未进入测试执行。
+- 收尾: 1787006430
+
+## T-1786922726279 D-500 memory 定向回归（fallback 类型推断失败） [failed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 摘要: 再次编译失败：scoped fallback 闭包的 `Ok(runtime.block_on(...))` 造成嵌套 Result 与 anyhow 错误类型无法推断；尚未进入测试执行。
+- 收尾: 1787006456
+
+## T-1786922726280 D-500 memory 定向回归（scoped join 多余展开） [failed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 摘要: 编译继续失败：scoped join 已展开为 Vec，但外层 return 仍有多余 `?`，导致 E0308；尚未进入测试执行。
+- 收尾: 1787006479
+
+## T-1786922726281 D-500 memory 共享 runtime 与批量 embedding 定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 4.0s
+- 摘要: 共享 runtime、async OpenAI embed、rebuild/ensure_vectors 批量 embedding 回归通过：kanzei-memory 147 passed，1 ignored。
+- 关联: D-500 D-520 D-521 D-522
+- 收尾: 1787006512
+
+## T-1786922726282 D-500 memory 暂存源码指纹定向回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 4.6s
+- 摘要: 按提交门禁针对当前暂存源码重跑：kanzei-memory 147 passed，1 ignored；共享 runtime、async embed 与 rebuild/ensure_vectors 批量请求回归通过。
+- 关联: D-500 D-520 D-521 D-522
+- 收尾: 1787006623
+- 源码指纹: e76c691d9ac0456b

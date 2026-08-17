@@ -15,15 +15,6 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-500 Embedder::embed 每次新建 tokio Runtime,async 上下文调用直接 panic,且逐条调用浪费批量签名 [open] (medium)
-- 复现: crates/kanzei-memory/src/embed.rs:95-98 同步 trait 内 Runtime::new+block_on,async 上下文调用报 Cannot start a runtime from within a runtime;调用方 index.rs:193/404/653 在检索/重建路径;vectorize(index.rs:190-193) 每条 entry 单独调 embed(&[&text]),浪费 &[&str] 批量签名
-- 影响: 每次调用起整套 worker 线程+IO driver;hybrid 检索一旦启用(R-294 路线拍板)即引爆;全量 rebuild N 次 HTTP 往返
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 后端
-- 验收: 共享 runtime 或改 async 接口;vectorize 批量化;async 上下文调用有定向测试
-- 优先级: P1
-- refs: R-294
-
 ## D-501 移动端交付游标持久化失败仍前进,重连后重复收事件 [open] (medium)
 - 复现: crates/kanzei-app/src/mobile.rs:588-590 let _ = store.set_delivery_cursor(...) 丢弃错误后无条件 cursor = event.sequence
 - 影响: 写库失败时内存游标与库中游标分叉,重连后按库中旧游标重放,手机端重复收事件——数据正确性问题

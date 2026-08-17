@@ -544,28 +544,48 @@ impl MemoryIndex for SqliteMemoryIndex {
     }
 
     fn rebuild(&mut self) -> anyhow::Result<()> {
-        // 重建内存索引与向量表:指纹+条目快照全量重扫,向量全量重算(验收④)。
+        // 重建内存索引与向量表:指纹+条目快照全量重扫,向量一次批量生成(验收④)。
         let new_self = Self::with_embedder(&self.project_root, self.embedder.clone());
         *self = new_self;
         let conn = self.open_vector_db()?;
         conn.execute("DELETE FROM memory_vectors", [])?;
+        let entries: Vec<MemoryEntry> = self.entries.values().cloned().collect();
         let mut failed = 0usize;
-        for entry in self.entries.values() {
-            if let Some(vec) = self.vectorize(entry) {
-                conn.execute(
-                    "INSERT INTO memory_vectors(id, dim, vector, updated) VALUES (?1, ?2, ?3, ?4)",
-                    rusqlite::params![
-                        entry.id,
-                        vec.len() as i64,
-                        Self::vector_to_blob(&vec),
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_millis() as i64)
-                            .unwrap_or(0)
-                    ],
-                )?;
-            } else {
-                failed += 1;
+        if let Some(embedder) = &self.embedder {
+            let texts: Vec<String> = entries
+                .iter()
+                .map(|entry| format!("{}\n{}\n{}", entry.title, entry.description, entry.body))
+                .collect();
+            let inputs: Vec<&str> = texts.iter().map(String::as_str).collect();
+            match embedder.embed(&inputs) {
+                Ok(vectors) if vectors.len() == entries.len() => {
+                    for (entry, vec) in entries.iter().zip(vectors) {
+                        conn.execute(
+                            "INSERT INTO memory_vectors(id, dim, vector, updated) VALUES (?1, ?2, ?3, ?4)",
+                            rusqlite::params![
+                                entry.id,
+                                vec.len() as i64,
+                                Self::vector_to_blob(&vec),
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_millis() as i64)
+                                    .unwrap_or(0)
+                            ],
+                        )?;
+                    }
+                }
+                Ok(vectors) => {
+                    failed = entries.len();
+                    tracing::warn!(
+                        expected = entries.len(),
+                        actual = vectors.len(),
+                        "embedding 批量响应数量不匹配"
+                    );
+                }
+                Err(e) => {
+                    failed = entries.len();
+                    tracing::warn!(error = %e, "embedding 批量生成失败,向量索引保持空");
+                }
             }
         }
         tracing::debug!(
@@ -722,18 +742,40 @@ impl SqliteMemoryIndex {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
-        // 补缺失:entries(active 快照)里有、向量表没有的条目。
-        for (id, entry) in &self.entries {
-            if vec_ids.contains(id) {
-                continue;
-            }
-            if let Some(vec) = self.vectorize(entry) {
-                conn.execute(
-                    "INSERT INTO memory_vectors(id, dim, vector, updated)
-                     VALUES (?1, ?2, ?3, ?4)",
-                    rusqlite::params![id, vec.len() as i64, Self::vector_to_blob(&vec), now_ms],
-                )?;
-                vec_ids.insert(id.clone());
+        // 补缺失:entries(active 快照)里有、向量表没有的条目。一次请求提交全部缺失文本。
+        let missing: Vec<MemoryEntry> = self
+            .entries
+            .iter()
+            .filter(|(id, _)| !vec_ids.contains(*id))
+            .map(|(_, entry)| (*entry).clone())
+            .collect();
+        if !missing.is_empty() {
+            let texts: Vec<String> = missing
+                .iter()
+                .map(|entry| format!("{}\n{}\n{}", entry.title, entry.description, entry.body))
+                .collect();
+            let inputs: Vec<&str> = texts.iter().map(String::as_str).collect();
+            if let Ok(vectors) = self.embedder.as_ref().unwrap().embed(&inputs) {
+                if vectors.len() == missing.len() {
+                    for (entry, vec) in missing.iter().zip(vectors) {
+                        conn.execute(
+                            "INSERT INTO memory_vectors(id, dim, vector, updated) VALUES (?1, ?2, ?3, ?4)",
+                            rusqlite::params![
+                                entry.id,
+                                vec.len() as i64,
+                                Self::vector_to_blob(&vec),
+                                now_ms
+                            ],
+                        )?;
+                        vec_ids.insert(entry.id.clone());
+                    }
+                } else {
+                    tracing::warn!(
+                        expected = missing.len(),
+                        actual = vectors.len(),
+                        "embedding 补缺响应数量不匹配"
+                    );
+                }
             }
         }
         // 清孤儿:向量表里有、entries 没有的(条目被删/归档/移出 active)。
@@ -814,6 +856,26 @@ mod tests {
             AddOutcome::Duplicate(e) => panic!("unexpected duplicate of {}", e.id),
             AddOutcome::SubjectConflict(e) => panic!("unexpected subject conflict with {}", e.id),
             AddOutcome::Uncertain(cands) => panic!("unexpected uncertain: {:?}", cands),
+        }
+    }
+
+    struct CountingEmbedder {
+        calls: Arc<std::sync::Mutex<Vec<usize>>>,
+    }
+
+    impl Embedder for CountingEmbedder {
+        fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
+            self.calls.lock().unwrap().push(texts.len());
+            Ok(texts
+                .iter()
+                .map(|text| {
+                    crate::embed::FakeEmbedder::new(8)
+                        .embed(&[*text])
+                        .unwrap()
+                        .pop()
+                        .unwrap()
+                })
+                .collect())
         }
     }
 
@@ -948,9 +1010,17 @@ mod tests {
 
         // 有 embedder:rebuild 全量生成(每条 active 都有向量,维度一致)。
         {
-            let embedder = Arc::new(crate::embed::FakeEmbedder::new(8));
+            let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let embedder = Arc::new(CountingEmbedder {
+                calls: calls.clone(),
+            });
             let mut index = SqliteMemoryIndex::with_embedder(&root, Some(embedder));
             index.rebuild().unwrap();
+            assert_eq!(
+                *calls.lock().unwrap(),
+                vec![2],
+                "rebuild 必须一次批量提交 active 条目"
+            );
             let conn = index.open_vector_db().unwrap();
             let rows: Vec<(String, i64)> = conn
                 .prepare("SELECT id, dim FROM memory_vectors ORDER BY id")

@@ -6220,3 +6220,56 @@
 - observed_head: 75aa9c78de6ccc290d65ab372400a15fab615954
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787006119297
+
+## D-520 D-500 批量回归辅助结构插入到测试函数体内部 [fixed] (low)
+- 复现: D-500 批量回归测试插入后，`crates/kanzei-memory/src/memory/index.rs` 中 CountingEmbedder 被插入到 `无embedder降级_fingerprint精确命中与_bm25完整可用` 的函数签名和函数体之间，并形成重复测试声明。
+- 影响: kanzei-memory 测试源码结构损坏，无法编译，批量化回归不能作为有效证据。
+- 来源: self-found：D-500 回归测试接线。
+- 标签: 后端
+- 验收: CountingEmbedder 位于 tests 模块辅助定义区；测试函数声明唯一；`cargo test -p kanzei-memory` 通过。
+- refs: D-500
+- 优先级: P1
+- 进展: 验收逐项完成：①辅助定义已位于 `crates/kanzei-memory/src/memory/index.rs:862-880` 的 tests 模块定义区，不再嵌入测试函数；②目标测试声明唯一，位于 `:882-883`；③`cargo test -p kanzei-memory` 编译并通过，证据 `T-1786922726281`（147 passed、1 ignored）。
+- observed_head: 75aa9c78de6ccc290d65ab372400a15fab615954
+- observed_worktree_hash: fnv1a64:5f73383934450315
+- recorded_at: 1787006532464
+
+## D-521 D-500 current-thread shared runtime fallback 返回双层 Result [fixed] (low)
+- 复现: `cargo test -p kanzei-memory` 编译 `crates/kanzei-memory/src/embed.rs:115-122` 失败：current-thread `std::thread::scope` 分支返回 `Result<Result<Vec<Vec<f32>>, anyhow::Error>, _>`，函数需要单层 Result。
+- 影响: D-500 的共享 runtime fallback 无法编译，async current-thread 场景无法验证。
+- 来源: self-found：D-500 定向编译回归。
+- 标签: 后端
+- 验收: current-thread fallback 正确展开 scoped thread 与 embedding 错误；`cargo test -p kanzei-memory` 编译通过。
+- refs: D-500
+- 优先级: P1
+- 进展: 验收逐项完成：①current-thread fallback 的 scoped join 展开位于 `crates/kanzei-memory/src/embed.rs:115-122`，返回单层 `anyhow::Result<Vec<Vec<f32>>>`；②定向测试 `T-1786922726281` 通过，`cargo test -p kanzei-memory` 为 147 passed、1 ignored。
+- observed_head: 75aa9c78de6ccc290d65ab372400a15fab615954
+- observed_worktree_hash: fnv1a64:5f73383934450315
+- recorded_at: 1787006533004
+
+## D-522 D-500 scoped fallback 闭包错误类型推断失败 [fixed] (low)
+- 复现: 修复 D-521 后运行 `cargo test -p kanzei-memory`，`embed.rs:116-118` 的 scoped fallback 因 `Ok(runtime.block_on(...))` 再包一层 Result，触发 E0282/E0283，错误类型无法推断。
+- 影响: current-thread fallback 仍无法编译，D-500 async 上下文回归无法执行。
+- 来源: self-found：D-500 第二次定向编译回归。
+- 标签: 后端
+- 验收: scoped closure 显式返回单层 `anyhow::Result<Vec<Vec<f32>>>`，`cargo test -p kanzei-memory` 编译通过。
+- refs: D-500 D-521
+- 优先级: P1
+- 进展: 验收逐项完成：①scoped closure 在 `crates/kanzei-memory/src/embed.rs:116-122` 显式声明 `anyhow::Result<Vec<Vec<f32>>>` 并直接返回 `runtime.block_on(...)`，无嵌套 Result；②定向测试 `T-1786922726281` 通过，`cargo test -p kanzei-memory` 为 147 passed、1 ignored。
+- observed_head: 75aa9c78de6ccc290d65ab372400a15fab615954
+- observed_worktree_hash: fnv1a64:5f73383934450315
+- recorded_at: 1787006533546
+
+## D-500 Embedder::embed 每次新建 tokio Runtime,async 上下文调用直接 panic,且逐条调用浪费批量签名 [fixed] (medium)
+- 复现: crates/kanzei-memory/src/embed.rs:95-98 同步 trait 内 Runtime::new+block_on,async 上下文调用报 Cannot start a runtime from within a runtime;调用方 index.rs:193/404/653 在检索/重建路径;vectorize(index.rs:190-193) 每条 entry 单独调 embed(&[&text]),浪费 &[&str] 批量签名
+- 影响: 每次调用起整套 worker 线程+IO driver;hybrid 检索一旦启用(R-294 路线拍板)即引爆;全量 rebuild N 次 HTTP 往返
+- 来源: self-found：D-500 实现与定向验证完成。
+- 标签: 后端
+- 验收: 共享 runtime 或改 async 接口;vectorize 批量化;async 上下文调用有定向测试
+- 优先级: P1
+- refs: R-294 D-520 D-521 D-522
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-500
+- 进展: 验收逐项完成：①共享 runtime：`crates/kanzei-memory/src/embed.rs:27-35` 使用进程级 `OnceLock` runtime，`OpenAiEmbedder::embed` 在 `:103-125` 对 Tokio 多线程使用 `block_in_place`、current-thread 使用 scoped thread，避免每次 `Runtime::new` 与嵌套 runtime panic；真实调用方仍为 `memory/index.rs:193,404,653`，async 定向测试为 `T-1786922726281`（`embed::tests::openai_embedder_请求与解析` 在 `embed.rs:258`）。②批量化：`memory/index.rs:546-597` 的 `rebuild` 对 active 快照一次调用 `embed(&inputs)`，`:732-780` 的 `ensure_vectors` 对缺失条目一次批量调用；真实消费者为 `crates/kanzei-memory/src/memory/mod.rs:1142` 与 `crates/kanzei-memory/src/replay_eval.rs:373`，`memory/index.rs:1013-1023` 的 CountingEmbedder 断言请求为 `[2]`。③定向回归：`T-1786922726281` 通过，`cargo test -p kanzei-memory` 为 147 passed、1 ignored；D-520/D-521/D-522 的编译接线缺陷均已 fixed 并归档。
+- observed_head: 75aa9c78de6ccc290d65ab372400a15fab615954
+- observed_worktree_hash: fnv1a64:5f73383934450315
+- recorded_at: 1787006566835
