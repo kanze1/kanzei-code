@@ -1878,7 +1878,7 @@ prunable gitdir file points to non-existent location
     ///
     /// 口径:verify.ps1 的 `Step-With-Timing "<key>"` 键集合必须等于固定清单
     /// {fmt, clippy, test, ui_syntax, ui_runtime, ui_lint, parallel_lines_regression,
-    /// ui_a11y, ui_i18n, ui_markdown, crate_sync, ps1_bom};每个键在 ci.yml 里有对应标记(命令文本或
+    /// ui_a11y, ui_i18n, ui_markdown, ui_connectivity, crate_sync, ps1_bom};每个键在 ci.yml 里有对应标记(命令文本或
     /// smoke 脚本名);smoke 脚本与 npm ci 在两侧同现同隐。
     #[test]
     fn gate_checklists_align_across_git_verify_and_ci() {
@@ -1919,6 +1919,7 @@ prunable gitdir file points to non-existent location
             "ui_a11y",
             "ui_i18n",
             "ui_markdown",
+            "ui_connectivity",
             "crate_sync",
             "ps1_bom",
         ]
@@ -1932,7 +1933,7 @@ prunable gitdir file points to non-existent location
         );
 
         // ② 每个键在 ci.yml 有对应标记(命令文本或 smoke 脚本名)。
-        let markers: [(&str, &str); 12] = [
+        let markers: [(&str, &str); 13] = [
             ("fmt", "cargo fmt --all -- --check"),
             ("clippy", "cargo clippy --workspace --all-targets"),
             ("test", "cargo test --workspace"),
@@ -1943,6 +1944,7 @@ prunable gitdir file points to non-existent location
             ("ui_a11y", "ui-a11y-smoke.mjs"),
             ("ui_i18n", "ui-i18n-smoke.mjs"),
             ("ui_markdown", "ui-markdown-smoke.mjs"),
+            ("ui_connectivity", "ui-connectivity.mjs"),
             ("crate_sync", "check-readme-crates.mjs"),
             ("ps1_bom", "check-ps1-bom.mjs"),
         ];
@@ -1958,6 +1960,7 @@ prunable gitdir file points to non-existent location
             "ui-a11y-smoke.mjs",
             "ui-i18n-smoke.mjs",
             "ui-markdown-smoke.mjs",
+            "ui-connectivity.mjs",
         ] {
             assert_eq!(
                 ci.contains(script),

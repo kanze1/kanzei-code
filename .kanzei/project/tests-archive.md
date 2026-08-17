@@ -6550,3 +6550,18 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 摘要: 当前项目真实存量只读对账：.kanzei/memory 主目录 173 个 M-*.md，memory_fts 173 个唯一 ID，missing=0、extra=0；主目录与派生索引完全对齐。
 - 关联: D-495
 - 收尾: 1787004553
+
+## T-1786922726270 D-496 UI 连通性静态与浏览器运行时验收 [passed]
+- 命令: node scripts/ui-connectivity.mjs --json; node --check scripts/ui-connectivity-browser.mjs; node scripts/ui-connectivity-browser.mjs --probe --json; node scripts/ui-connectivity-browser.mjs --json; cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 51.2s
+- 摘要: D-496/D-519 修复后验证：静态 UI 连通性 10 个入口/10 个容器，deadLinks=0、islands=0、keyPathFailures=0；动态 probe 正确检出 broken 切换；默认浏览器模式 PWA #app 存在且无初始化错误，桌面 Tauri IPC 环境限制如实降级；cargo fmt 通过，kanzei-tools 342 passed、1 ignored，gate_checklists_align_across_git_verify_and_ci 通过。
+- 关联: D-496 D-519
+- 收尾: 1787004999
+
+## T-1786922726271 D-496 当前暂存源码定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 33.0s
+- 摘要: 按当前暂存源码指纹重跑定向测试：kanzei-tools 342 passed、1 ignored、0 failed；gate_checklists_align_across_git_verify_and_ci 通过。
+- 关联: D-496
+- 收尾: 1787005149
+- 源码指纹: ac50be8176d2cc89

@@ -15,14 +15,6 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-496 ui-connectivity 修复件丢在未合并分支,归档缺陷已按已修复关闭 [open] (high)
-- 复现: scripts/ui-connectivity-browser.mjs 与 scripts/key-paths.json 只存在于分支 kanzei/thread-line-1786851588846-1(c3bde1e8),git merge-base --is-ancestor 对 HEAD 为否;defects-archive.md:4930 对应条目已标 fixed
-- 影响: 交付实际丢失:死链检查 KEY_PATHS 仍是 scripts/ui-connectivity.mjs:33 的脚本内 const,且该检查不在 verify 12 步与 ci 内;归档证据与真实状态矛盾
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 流程
-- 验收: 合并或重做该交付;核查该分支上有无其他未合并交付并逐一处置;归档条目补真实证据说明;ui-connectivity 是否入门禁给出结论
-- 优先级: P1
-
 ## D-498 前端冒烟执行顺序与浏览器实际加载顺序不一致,TDZ 复刻语义失效 [open] (high)
 - refs: R-264 docs/design/ui_esm_migration.md
 - 复现: scripts/ui-sources.mjs:22-24 按 readdir 文件名排序;crates/kanzei-app/ui/index.html:1125-1148 实际加载序为 19-arch→20-lines→19-research→21→22→18-startup,18-startup.js 浏览器里最后、冒烟里第 19;06-activity/06-agent-panel 与 19-arch/19-research 两组前缀重号

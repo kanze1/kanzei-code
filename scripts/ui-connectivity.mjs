@@ -29,26 +29,10 @@ const repoRoot = path.resolve(__dirname, "..");
 const UI_HTML = path.join(repoRoot, "crates/kanzei-app/ui/index.html");
 const PWA_ROOT = path.join(repoRoot, "crates/kanzei-app/mobile-pwa");
 
-// ---- 关键路径清单(配置文件维护,增删路径不改巡检代码)----
-const KEY_PATHS = {
-  desktop: [
-    { name: "chat", view: "chat", trigger: '[data-view="chat"]' },
-    { name: "workspace", view: "workspace", trigger: '[data-view="workspace"]' },
-    { name: "lines", view: "lines", trigger: '[data-view="lines"]' },
-    { name: "documents", view: "documents", trigger: '[data-view="documents"]' },
-    { name: "memory", view: "memory", trigger: '[data-view="memory"]' },
-    { name: "files", view: "files", trigger: '[data-view="files"]' },
-    { name: "settings", view: "settings", trigger: '[data-view="settings"]' },
-  ],
-  pwa: [
-    // PWA 关键路径(配对→通知流→发消息→approval):入口是配对页,跳转断言目标视图标识。
-    // 未配对态只验证配对表单存在(真实全链路需真机配对,R-271 验收①)。
-    { name: "pair", assert: '"id":"app"' },
-    { name: "notifications", assert: '"id":"conn-status"', needs_pair: true },
-    { name: "message", assert: '"id":"send-btn"', needs_pair: true },
-    { name: "approval", assert: '"id":"approval-list"', needs_pair: true },
-  ],
-};
+// ---- 关键路径清单：D-401 外置配置文件(scripts/key-paths.json)，增删路径不改巡检代码。
+const KEY_PATHS = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "key-paths.json"), "utf8")
+);
 
 // ---- 桌面端静态巡检:扫描 index.html 的 data-view ↔ #view-* 对应关系 ----
 function scanDesktop(html) {

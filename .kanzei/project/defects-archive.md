@@ -6167,3 +6167,29 @@
 - observed_head: b392e4135cd04b0c633a289ccf2e67dedb2abbe3
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787004562796
+
+## D-519 ui-connectivity-browser 默认桌面 file URL 多追加斜杠 [fixed] (medium)
+- 复现: 运行 `node scripts/ui-connectivity-browser.mjs --json`，PWA 检查后打开桌面页面时报 `page.goto: net::ERR_FILE_NOT_FOUND`，目标 URL 为 `file:///.../crates/kanzei-app/ui/index.html/`，文件路径末尾多了 `/`。
+- 影响: D-401 浏览器连通性脚本默认模式无法完成桌面端降级检查，动态验收不能作为真实可运行交付。
+- 来源: self-found：D-496 重做 D-401 后动态浏览器验证。
+- 标签: 流程
+- 验收: 桌面 file:// 路径不追加多余斜杠；`--probe` 与默认 `--json` 均正常退出，默认模式如实输出 PWA/桌面结果。
+- refs: D-496
+- 优先级: P1
+- 进展: 已修复并验收：`scripts/ui-connectivity-browser.mjs:125` 移除桌面 `file://` URL 末尾多余 `/`；T-1786922726270 中 `--probe` 与默认 `--json` 均通过，默认模式 PWA `#app` 存在、桌面 Tauri IPC 限制如实降级。
+- observed_head: b392e4135cd04b0c633a289ccf2e67dedb2abbe3
+- observed_worktree_hash: fnv1a64:f51aabf53384ad74
+- recorded_at: 1787005004449
+
+## D-496 ui-connectivity 修复件丢在未合并分支,归档缺陷已按已修复关闭 [fixed] (high)
+- 复现: scripts/ui-connectivity-browser.mjs 与 scripts/key-paths.json 只存在于分支 kanzei/thread-line-1786851588846-1(c3bde1e8),git merge-base --is-ancestor 对 HEAD 为否;defects-archive.md:4930 对应条目已标 fixed
+- 影响: 交付实际丢失:死链检查 KEY_PATHS 仍是 scripts/ui-connectivity.mjs:33 的脚本内 const,且该检查不在 verify 12 步与 ci 内;归档证据与真实状态矛盾
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 流程
+- 验收: 合并或重做该交付;核查该分支上有无其他未合并交付并逐一处置;归档条目补真实证据说明;ui-connectivity 是否入门禁给出结论
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-496
+- 进展: 验收逐项完成，证据如下：①“合并或重做该交付”：未整支合并（分支相对 HEAD 有 16 个独立提交且含无关改动），已在当前主线重做 D-401；配置清单为 `scripts/key-paths.json:1-17`，静态巡检读取配置为 `scripts/ui-connectivity.mjs:32-36`，浏览器运行时遍历与 `--probe/--html` 为 `scripts/ui-connectivity-browser.mjs:1-166`；D-519 的 file URL 缺斜杠问题已在 `ui-connectivity-browser.mjs:125` 修复，T-1786922726270 的 probe 与默认模式通过。②“核查该分支上有无其他未合并交付并逐一处置”：16 个提交逐项核对为：`5eaed2f5/f2f6f92a/f7eb7833/f8b240c1` 属 R-275 调色板独立交付，保留原 R-275 范围，不并入本缺陷；`66071805` 属 D-389/D-390 移动桥接与鉴权，`bb2adcf0` 属 D-391 PDF 转 PNG，`91428266` 属 D-393 路径边界，`35f95efb` 属 D-394 测试成色，`9a5758d5` 属 D-396 跨树快照，`94fad654` 属 D-397 跨树性能/截断，`3d6bc413` 属 D-398 写日志覆盖，`e20b7782` 属 D-399 写日志回滚，`b141265a` 属 D-400 浏览器 helper，均为独立交付，保留各自提交/条目，不整支带入；`c3bde1e8` 为本次 D-401，已重做；`5a15cdca` 与 `b4245f6c` 属 D-409 inbox 分批，当前 HEAD 已有 `crates/kanzei-memory/src/memory/inbox.rs:69` 与 `crates/kanzei-tools/src/memory_consolidation.rs:233` 的等价能力，明确标注为既有能力而非本次交付。③“归档条目补真实证据”：本条关闭时同步写入 `defects-archive.md`，绑定实现文件、分支提交清单、T-1786922726270 与 D-519/T-1786922726270 证据。④“ui-connectivity 是否入门禁结论”：结论为静态巡检正式进入门禁；`scripts/verify.ps1:68-70`、`.github/workflows/ci.yml:48` 和 `crates/kanzei-tools/src/git.rs:1876-1967` 三侧同步加入 `ui_connectivity`；动态浏览器遍历保留为独立运行时验收，不伪装为静态门禁。T-1786922726270：静态 deadLinks=0、islands=0、keyPathFailures=0；动态 probe 正确检出 broken 切换；默认 PWA #app 可达，桌面 Tauri IPC 限制如实降级；`cargo fmt` 与 `cargo test -p kanzei-tools` 342 passed/1 ignored，gate 同步测试通过。
+- observed_head: b392e4135cd04b0c633a289ccf2e67dedb2abbe3
+- observed_worktree_hash: fnv1a64:f51aabf53384ad74
+- recorded_at: 1787005070691
