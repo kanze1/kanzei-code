@@ -311,6 +311,9 @@ pub async fn run_arms(
         decisions
             .push(run_single_arm(case, arm, memory, decider, store, model, prompt_version).await?);
     }
+    // 六臂写入完成后立即配对 current/leave_one_out，确保真实回放不仅有明细，
+    // 也会产出可查询的单条记忆价值聚合(memory_eval_agg)。
+    store.recompute_memory_effect(&case.case_id, model, prompt_version)?;
     Ok(decisions)
 }
 
@@ -561,6 +564,11 @@ mod eval_tests {
             assert_eq!(replay_case, "case-arms");
             assert!(Arm::all().iter().any(|a| a.label() == arm), "未知臂: {arm}");
         }
+        let effect = store
+            .memory_effect("case-arms")
+            .unwrap()
+            .expect("current/leave_one_out 配对后必须写入单条价值聚合");
+        assert_eq!(effect.eval_n, 1);
     }
 
     #[test]

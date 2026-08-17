@@ -6079,3 +6079,18 @@
 - 关联: R-286
 - 收尾: 1786995326
 - 源码指纹: 3f999d4300765e1b
+
+## T-1786922726207 R-286 B3 遥测漏斗与价值聚合定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 4.5s
+- 摘要: R-286 批3定向回归：kanzei-core 222 passed，0 failed；覆盖六臂回放自动写入 memory_eval_agg、action_changed/outcome_improved 独立计数，以及无 outcome 证据保持不可用。
+- 关联: R-286
+- 收尾: 1786995596
+
+## T-1786922726208 R-286 B3 提交门禁源码指纹回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.5s
+- 摘要: 按提交门禁针对当前暂存源码重跑：kanzei-core 222 passed，0 failed；批3聚合与 action/outcome 独立性回归通过。
+- 关联: R-286
+- 收尾: 1786995656
+- 源码指纹: 70f7d4874a55b834

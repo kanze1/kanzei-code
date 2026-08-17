@@ -10,14 +10,14 @@
 - 内容: 按 phase2_system_upgrade.md §5.2 分四批恢复记忆控制面。批1 交付事实修复:从 D-409 分支隔离出分批读取/checkpoint/错误回传,桌面与 CLI 共用整理服务,禁止直接合并无关分支;修正 defects/tests 里「已修复」与 dev 实现不一致。批2 生命周期账本:note→candidate→shadow→active/deprecated 每次转换写来源、reason code 与关联 episode。批3 遥测漏斗:AVAILABLE→RETRIEVED→INJECTED→ACTION_CHANGED→OUTCOME_IMPROVED,补 memory_eval_agg 和单条价值画像。批4 UI:backlog/最老等待/批次状态/晋升缺口/召回与 outcome 全链展示,失败可重试。
 - 边界: 不伪造历史 provenance;R-235 的 28 条存量零证据 active 仍由用户拍板;不把 action_changed 直接写成 outcome_improved;不静默删除 inbox/candidate/active;数据库 schema 变化需 Alembic 不适用(Rust SQLite migration),必须提供前滚、已有数据兼容和恢复策略。
 - 验收: ①当前 224 条 inbox 在真实 manager 运行中按批下降,任一批失败可见且重启后从 checkpoint 继续;②桌面与 CLI 调用同一服务并有集成测试;③新 candidate/active 100% 可回溯真实 episode/source,空来源晋升被拒;④一次真实 recurrence→shadow→promote 有状态事件和 UI 轨迹;⑤counterfactual arms 形成非空聚合并区分 action_changed/outcome_improved;⑥修复提交确实位于 dev,tracker/tests/代码三方一致。
-- 批次: 2/4
+- 批次: 3/4
 - 状态: doing
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-286
-- 进展: 批2/4 已完成并待提交：①统一事件写入口位于 `crates/kanzei-memory/src/memory/mod.rs:38-77`，复用项目 `state.db/session_events`，payload 保留 memory_id、episode_ids、source_id、source_refs、reason_code、transition_from/transition_to，Markdown 仍是真源且事件失败不阻断文件写入；②真实写者已接线：`crates/kanzei-memory/src/memory/inbox.rs:206-218` 写 `memory_note_queued`，`memory/store.rs:369-383` 写 `memory_candidate_created`，`memory/lifecycle.rs:139-157` 写 `memory_candidate_shadowed`，`memory/store.rs:508-532` 写 `memory_candidate_promoted` 并携带 promote 的真实 episode_ids/source_hash，`memory/store.rs:461-477` 覆盖首次 deprecated 状态写入；③事件回放测试位于 `crates/kanzei-memory/src/memory/lifecycle.rs:219-260`，T-1786922726201（接线回归，143 passed）与 T-1786922726202（账本回放，144 passed）通过。下一步批3：盘点并补齐 AVAILABLE→RETRIEVED→INJECTED→ACTION_CHANGED→OUTCOME_IMPROVED 的聚合与单条价值画像，确保 action_changed 不直接等于 outcome_improved。
-- observed_head: ae1d3e03dc85e9fcc1c78d9a236d9b73203c21ff
-- observed_worktree_hash: fnv1a64:1788472ee300812a
-- recorded_at: 1786994504306
+- 进展: 批3/4 已完成并待提交：①真实六臂回放在 `crates/kanzei-core/src/replay.rs:300-318` 完成 current/leave_one_out 明细写入后立即调用 `recompute_memory_effect`，因此 `memory_eval_agg` 不再只靠离线手工收尾；单条价值读取与聚合算法沿用既有 `crates/kanzei-core/src/store/eval.rs:31-135`（既有能力，本批补真实调用）。②`crates/kanzei-core/src/store/telemetry.rs:167-204` 分开统计 action_changed 与 outcome_improved：前者只计成功行为变化，后者只计有独立 outcome_improved 证据且成功的记忆；无 outcome 行时 `outcome_improved_available=false`，不把 action_changed 推导为 outcome。③新增回归位于 `crates/kanzei-core/src/store/telemetry.rs:346-369` 与 `crates/kanzei-core/src/replay.rs:550-570`，T-1786922726207 通过（kanzei-core 222 passed）。下一步批4：把 backlog/批次/晋升缺口/召回与 outcome 聚合接入桌面 UI，并补真实 UI 轨迹与失败重试。
+- observed_head: 3647c5c0d392fab75a0b0ee14dd29960642bedd4
+- observed_worktree_hash: fnv1a64:15a1e691c5ed9146
+- recorded_at: 1786995608270
 
 ## R-283 自举二期系统升级编排:research/memory/运行体验/动画/voice 依赖和联合验收 [doing]
 - 优先级: P1

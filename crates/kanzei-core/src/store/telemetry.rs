@@ -164,21 +164,30 @@ impl SessionStore {
             [],
             |row| row.get::<_, i64>(0),
         )?;
-        // arm='action_changed' 由 RecallPolicy::record_outcomes 写入。
+        // arm='action_changed' 与 arm='outcome_improved' 是两条独立证据链：
+        // 前者表示行为发生变化，后者必须有单独的结果改善证据，不能由前者推导。
         let action_changed = self.connection.query_row(
             "SELECT COUNT(DISTINCT memory_id) FROM memory_eval WHERE arm = 'action_changed' AND success = 1",
             [],
             |row| row.get::<_, i64>(0),
         )?;
-        // OUTCOME_IMPROVED 目前没有在线写入方；展示层必须标记 N/A。
-        let outcome_improved = 0;
+        let outcome_evidence = self.connection.query_row(
+            "SELECT COUNT(*) FROM memory_eval WHERE arm = 'outcome_improved'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let outcome_improved = self.connection.query_row(
+            "SELECT COUNT(DISTINCT memory_id) FROM memory_eval WHERE arm = 'outcome_improved' AND success = 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
         Ok(FunnelCounts {
             available: available_active,
             retrieved: retrieved as u64,
             injected: injected as u64,
             action_changed: action_changed as u64,
-            outcome_improved,
-            outcome_improved_available: false,
+            outcome_improved: outcome_improved as u64,
+            outcome_improved_available: outcome_evidence > 0,
         })
     }
 
@@ -337,10 +346,34 @@ mod tests {
                 retrieved: 1,
                 injected: 1,
                 action_changed: 1,
-                outcome_improved: 0,
-                outcome_improved_available: false,
+                outcome_improved: 1,
+                outcome_improved_available: true,
             }
         );
+    }
+
+    #[test]
+    fn action_changed_without_outcome_evidence_remains_unavailable() {
+        let store = store();
+        store
+            .record_memory_eval(
+                "M-action",
+                "case-action",
+                "action_changed",
+                "test",
+                "v1",
+                true,
+                1,
+                0,
+                0,
+                1,
+                None,
+            )
+            .unwrap();
+        let counts = store.funnel_counts(1).unwrap();
+        assert_eq!(counts.action_changed, 1);
+        assert_eq!(counts.outcome_improved, 0);
+        assert!(!counts.outcome_improved_available);
     }
 
     #[test]
