@@ -6565,3 +6565,18 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 关联: D-496
 - 收尾: 1787005149
 - 源码指纹: ac50be8176d2cc89
+
+## T-1786922726272 D-498 index.html script 顺序与前端六项冒烟回归 [passed]
+- 命令: node --check scripts/ui-sources.mjs; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 8.7s
+- 摘要: D-498 六条前端冒烟全绿：runtime 24 个 UI 脚本按 index.html 顺序执行且 0 运行时错误；ui-lint 45 文件零 no-undef；parallel-lines、a11y、i18n、markdown 全部通过。新增顺序一致性断言未触发。
+- 关联: D-498
+- 收尾: 1787005294
+
+## T-1786922726273 D-498 当前暂存源码前端六项回归 [passed]
+- 命令: node --check scripts/ui-sources.mjs; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 8.4s
+- 摘要: 按当前 D-498 暂存源码重跑：runtime 24 个 UI 脚本严格按 index.html 顺序执行且 0 运行时错误；ui-lint、parallel-lines、a11y、i18n、markdown 全部通过。
+- 关联: D-498
+- 收尾: 1787005403
+- 源码指纹: 9cf4841fdda9c0b5

@@ -1176,6 +1176,14 @@ async function drainTimersOnce(label) {
 }
 
 function assert(condition, message) { if (!condition) fail(message); }
+// D-498：共享加载器必须与浏览器真正执行的 index.html script 顺序完全一致。
+const htmlScriptSrcs = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)]
+  .map((match) => match[1])
+  .filter((src) => src.endsWith(".js") && !src.includes("://"));
+assert(
+  JSON.stringify(scriptSrcs) === JSON.stringify(htmlScriptSrcs),
+  `冒烟脚本顺序与 index.html 不一致：\n实际=${htmlScriptSrcs.join(" → ")}\n冒烟=${scriptSrcs.join(" → ")}`,
+);
 const listText = (id) => byId.get(id)?.textContent ?? "";
 
 // ---------- 执行 ui/*.js ----------

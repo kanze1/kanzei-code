@@ -6193,3 +6193,17 @@
 - observed_head: b392e4135cd04b0c633a289ccf2e67dedb2abbe3
 - observed_worktree_hash: fnv1a64:f51aabf53384ad74
 - recorded_at: 1787005070691
+
+## D-498 前端冒烟执行顺序与浏览器实际加载顺序不一致,TDZ 复刻语义失效 [fixed] (high)
+- refs: R-264 docs/design/ui_esm_migration.md
+- 复现: scripts/ui-sources.mjs:22-24 按 readdir 文件名排序;crates/kanzei-app/ui/index.html:1125-1148 实际加载序为 19-arch→20-lines→19-research→21→22→18-startup,18-startup.js 浏览器里最后、冒烟里第 19;06-activity/06-agent-panel 与 19-arch/19-research 两组前缀重号
+- 影响: ui_esm_migration.md:42-45 声称的逐文件 TDZ 复刻语义名存实亡;18-startup.js 顶层跨文件读从未按真实顺序验证;数字前缀=加载顺序的约定(monolith_decomposition.md:94)已失效
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 流程
+- 验收: 冒烟按 index.html 实际 script 顺序执行(解析 HTML 或显式清单);前缀与加载序恢复一致或废除该约定并留档;冒烟含顺序一致性断言
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-498
+- 进展: 验收逐项完成并可关闭：①“冒烟按 index.html 实际 script 顺序执行”：`scripts/ui-sources.mjs:20-34` 从 `index.html` 解析 `<script src>` 并按声明顺序读取，浏览器清单真源为 `crates/kanzei-app/ui/index.html:1129-1152`；不再使用目录排序。②“前缀与加载序恢复一致或废除约定并留档”：保留现有文件名前缀作为命名，不再把前缀当执行真源，`ui-sources.mjs:4-7` 明确记录该决策，真实顺序由 HTML 控制。③“冒烟含顺序一致性断言”：`scripts/ui-runtime-smoke.mjs:1179-1188` 将解析到的 `scriptSrcs` 与 HTML 清单逐项比较，不一致即失败。T-1786922726272：node 语法检查及六条前端冒烟全通过；runtime 24 个 UI 脚本按 HTML 顺序执行、0 运行时错误，lint/parallel-lines/a11y/i18n/markdown 均通过。
+- observed_head: 566c0f407575d5ffe84db2ee9214de6251d5020e
+- observed_worktree_hash: fnv1a64:f8cdb4942672d21d
+- recorded_at: 1787005304457

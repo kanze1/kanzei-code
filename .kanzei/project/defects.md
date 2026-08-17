@@ -15,15 +15,6 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-498 前端冒烟执行顺序与浏览器实际加载顺序不一致,TDZ 复刻语义失效 [open] (high)
-- refs: R-264 docs/design/ui_esm_migration.md
-- 复现: scripts/ui-sources.mjs:22-24 按 readdir 文件名排序;crates/kanzei-app/ui/index.html:1125-1148 实际加载序为 19-arch→20-lines→19-research→21→22→18-startup,18-startup.js 浏览器里最后、冒烟里第 19;06-activity/06-agent-panel 与 19-arch/19-research 两组前缀重号
-- 影响: ui_esm_migration.md:42-45 声称的逐文件 TDZ 复刻语义名存实亡;18-startup.js 顶层跨文件读从未按真实顺序验证;数字前缀=加载顺序的约定(monolith_decomposition.md:94)已失效
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 流程
-- 验收: 冒烟按 index.html 实际 script 顺序执行(解析 HTML 或显式清单);前缀与加载序恢复一致或废除该约定并留档;冒烟含顺序一致性断言
-- 优先级: P1
-
 ## D-499 background.rs 日志泵同步阻塞写+全量重写 O(n^2)+full_output 与注册表无界增长 [open] (high)
 - 复现: crates/kanzei-tools/src/background.rs:213 tokio::spawn 的日志泵内 :237/:249 调用同步 write_atomic(全同步 create_dir_all+临时文件+fsync+rename,kanzei-base/src/atomic_file.rs:40);:229-239 每 5s/64KiB 把累积全量 buffer 覆写整文件;:68 full_output 只 extend 从不裁剪(对照 output 走 append_bounded :141);:131 全局注册表只有插入(:288/:631)无 remove,:665 list 含已退出;adopt 路径 :597 整份日志一次读进内存
 - 影响: 卡 tokio worker;长跑 dev server 日志 100MB 时每次刷盘写 100MB(总写入 O(n^2));常驻进程内存无限增长,每个跑过的后台进程永久驻留
