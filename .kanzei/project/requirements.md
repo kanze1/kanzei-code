@@ -262,10 +262,10 @@
 - 优先级: P1
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-277
-- 进展: 批1计划引擎及 R-276 消费契约已完成（待提交）：`research_plan.rs` 公开 load/save/approve_plan；`crates/kanzei-app/src/docs.rs` 新增 `research_plan_get`/`research_plan_approve`，`src/main.rs` 已注册；研究工作台 `ui/index.html`、`19-research.js`、`02-i18n.js`、`style.css` 展示计划树并调用审批，topic 切换隔离。runtime fixture `scripts/ui-runtime-smoke.mjs` 覆盖 alpha 计划 2 节点、awaiting_approval→approved、topic 参数和 beta 隔离。D-458/D-459 已 fixed。T-1786922726142 六条前端冒烟全绿；T-1786922726143 kanzei-tools 331 passed/1 ignored；T-1786922726144 kanzei-app 202 passed。下一步：暂存并提交计划审批消费契约，随后进入批2检索环。
-- observed_head: 49c9af334fe0dd13054293b2f8b990831431e214
-- observed_worktree_hash: fnv1a64:19e99b3439b6e8b2
-- recorded_at: 1786963589554
+- 进展: 批1计划引擎及 R-276 消费契约已落地并提交：49c9af33 `R-277 B1 研究计划树与澄清闸门`；db2e92d7 `R-277 B1 接入计划审批 IPC 与研究工作台`。`research_plan.rs` 提供 schema、校验、topic 隔离、原子持久化及 load/save/approve_plan；`docs.rs`/`main.rs` 注册 research_plan_get/research_plan_approve；研究工作台展示计划树并调用审批，topic 切换隔离。T-1786922726142 六条前端冒烟全绿；T-1786922726148 kanzei-tools 331 passed/1 ignored；T-1786922726149 kanzei-app 202 passed；T-1786922726147 rustfmt + app 202 passed。D-458/D-459/D-460 已 fixed。下一步：进入批2检索环。
+- observed_head: db2e92d72039994e18c0adbab9abada87d4e13f9
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786963978517
 
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1
