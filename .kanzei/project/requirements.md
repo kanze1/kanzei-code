@@ -12,7 +12,7 @@
 - 验收: ①当前 224 条 inbox 在真实 manager 运行中按批下降,任一批失败可见且重启后从 checkpoint 继续;②桌面与 CLI 调用同一服务并有集成测试;③新 candidate/active 100% 可回溯真实 episode/source,空来源晋升被拒;④一次真实 recurrence→shadow→promote 有状态事件和 UI 轨迹;⑤counterfactual arms 形成非空聚合并区分 action_changed/outcome_improved;⑥修复提交确实位于 dev,tracker/tests/代码三方一致。
 - 批次: 0/4
 - 状态: todo
-- 阻塞: 先完成 D-428，把 inbox 分批/checkpoint/错误可见的真实实现带回当前 dev；随后完成 R-216 的存量记忆处置，再进入生命周期账本与 outcome 漏斗。解除人:agent。
+- 阻塞: 
 
 ## R-283 自举二期系统升级编排:research/memory/运行体验/动画/voice 依赖和联合验收 [doing]
 - 优先级: P1
@@ -31,7 +31,7 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786925390809
 - 依赖: D-428 R-221 R-277 R-284 R-286 R-287
-- 阻塞: 二期总控不直接实现子能力。当前 Wave 0 硬门禁是 D-428；后续依次等待 R-221/R-277/R-286、R-284/R-285、R-287 的独立交付证据。解除动作:各子条目达到对应 Wave 门禁后由 agent 重评；R-283 只维护依赖、Go/No-Go 与联合验收。解除人:agent。
+- 阻塞: 
 
 ## R-284 运行体验事件契约:统一 session/tool/memory/research/voice 的事实投影和瞬时表现事件 [todo]
 - 优先级: P1
@@ -87,7 +87,7 @@
 - refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-221
 - 进展: 2026-08-16 取活。勘察结论:R-221 的设计真源 docs/design/research_mode.md 状态为「设计基线草案(2026-08-12 八维度审计维度8 产出;定调点待用户逐项确认后转正)」——§2 的八个定调点(主形态/工件落点/证据等级 V 表/回流通道/记忆一元化/档位矩阵/可写 docs 边界/三形态收敛)全部标注「待用户确认」,括号内为本设计的默认建议。按 §1「需求边界不清楚时必须先提问确认,不允许在关键问题上自行假设后直接实现」,八个定调点未获用户拍板前实施会踩边界(如「research 不可写 docs/design」「证据等级单列 V 表」都是用户层面决策)。现状盘点(供解除阻塞后立即开工):批1 档位收口的 files/git 只读已在 R-218 完成(SubagentBase 6 件套),ReadonlyProfile 与 bash 硬 deny+替代指引是既有模式(profiles.rs:652-658 先例);批2-批6 的 topic 工件/证据口径/回流/记忆/三形态均未动。 || 2026-08-16 复核:设计已转正(2026-08-16 定调点全部过审,research_mode.md 已重写为设计基线),原阻塞对象 R-246 已 done 并归档(复核时仍为 doing,现确认已归档),阻塞解除条件全部满足,当场清空阻塞字段,按 §7 批次恢复可执行。 || 2026-08-16 让位:本轮按队列顺序取 R-186(P0 队首),本条 doing→todo 让位,待 R-186 交付后按队列轮转,届时直接开工批1(档位收口:ReadonlyProfile + bash 硬 deny+替代指引,先例 profiles.rs:652-658)。
-- 阻塞: 二期顺序调整：先完成 P0 的 D-428，恢复记忆整理事实，再推进 research 模式批1及后续引擎条目 R-277；无需再次等待用户确认 research 定调。解除人:agent。
+- 阻塞: 
 - observed_head: 98d7a586f38a09f5b449b75b7a3c93c62d01852f
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786835811278
@@ -105,7 +105,7 @@
 - refs: R-194 R-195 R-196 D-299 D-282
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-216
 - 进展: 2026-08-16 收口此前引擎取活留下的半成品实现(工作树未提交,6 测试红)。已完成:①三闸实现确认完整(store.rs add 内:交付状态拒收 has_tracker_id、指纹一致性 fp_markers、语义探测下沉 classify_novelty 双 scope);②修复 6 个失败 fixture(5 个自造指纹被新指纹闸拦——merge_gate/find_by_marker/merge_conservative/merge_自动搬运 注入来源 note 或 force,1 个 novelty_gate 语义断言适配 R-216 口径);③新增 3 个验收单测:自造指纹的add被拒_来源note指纹放行、交付状态内容被拒并指路tracker、英文改写被add硬闸拦截返回候选。验证:memory 95 passed + kanzei-tools 346 passed + clippy/fmt 全过。验收对照:①英文改写被拦并指路 memory_update——英文改写被add硬闸拦截返回候选 测试(Uncertain 返回候选);②伪造指纹的 add 被拒——自造指纹的add被拒_来源note指纹放行;③存量 6 条交付状态记忆逐条处置——**未做**(验收③数据工作);④各拦截路径有单测——3 条新增。 || 2026-08-16 复核:原阻塞对象 R-195 已 done 并归档,阻塞解除条件全部满足,当场清空。剩余工作=验收③:逐条查 memory 库定位 6 条交付状态记忆并归档/改写(数据工作,不需要用户拍板),完成即可关闭本条。 || 2026-08-16 让位:本轮按队列顺序取 R-186(P0 队首),本条 doing→todo 让位,待 R-186 交付后按队列轮转,届时直接做验收③(存量 6 条交付状态记忆逐条处置)并关闭本条。
-- 阻塞: 剩余验收③是存量交付状态记忆处置；先让 D-428 恢复可靠的 inbox 分批整理与错误可见，避免清理期间控制面继续产生不一致。D-428 关闭后直接完成六条存量处置并关闭本条。解除人:agent。
+- 阻塞: 
 - observed_head: 98d7a586f38a09f5b449b75b7a3c93c62d01852f
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786835811578
@@ -175,7 +175,7 @@
 - 来源: DeepSeek Harness compaction 事件事务；复用已交付 R-236 的纪要模型、模板和质量闸。
 - 标签: 核心
 - 边界: 不重写 R-236 纪要算法、压缩模型配置和质量闸；不把 Memory 作为对话恢复源。Compaction 只在 R-242 正式 surface projection 上追加事务，失败保留原 surface，未完成事务在恢复时显式失效；不修改 format_version=1 的既有消息事实。
-- 阻塞: 只等待 R-242 冻结 SessionProjection/segment 契约这一窄里程碑；冻结后即可实现 compaction 事件化，不等待 R-242 的全部 shadow 窗口和最终关闭，消除循环依赖。解除人:agent。
+- 阻塞: 
 - 验收: ①压缩前后 raw event hash 不变；②边界上的 tool call/result 必须完整配对，否则拒绝压缩；③不完整 compaction transaction 重启后不生效且有可见诊断；④连续两次压缩 replay 一致，首段关键实体仍保留；⑤模型 surface 变短但 transcript/audit 仍能回看原文；⑥R-236 全部压缩回归保持通过。
 - 优先级: P1
 
@@ -189,7 +189,7 @@
 - 标签: 核心
 - 边界: 任何事件仍引用的 artifact 不得被静默清理；整理前显示预计释放空间和不可恢复范围，执行后给清单与实际释放量。32 KiB 先做 shadow telemetry。普通会话删除保证产品不可检索且重启不复生；安全整理才处理 SQLite freelist、WAL 和含旧正文备份。当前库为 WAL、secure_delete=OFF、auto_vacuum=NONE，不能把 DELETE 行等同磁盘字节已擦除。弹窗必须区分仅删除与删除并安全整理，取消零写入；显式整理不是定时任务。
 - 迁移与回滚: artifact 原子写入后再提交引用事件；任一步失败不得留下有效事件指向缺失文件。删除使用引用图和事务清单，失败可重试；schema 迁移前备份。关闭 Spill 可回到 Inline，但已有引用仍必须可读。
-- 阻塞: R-244 已完成；当前只等待 R-242 冻结 SessionProjection/segment 契约。旧的 7 条 mismatch 数字作废，以修复后窗口的 unknown mismatch=0 与 typed_write_errors=0 为准。解除人:agent。
+- 阻塞: 
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
 
@@ -202,7 +202,7 @@
 - 来源: 2026-08-14 用户观察——开新项目应先深度调研已有方案与设计,不适合从零开始;这是当前 coding agent 的通病(非得用户主动请求才去调研),直接影响自举质量。
 - 标签: 核心
 - 边界: 不是每条需求都调研,只在触发判据成立时启动;判据必须机械可判,不接受模型自行裁量「这算不算新方向」。websearch 轮次设上限,不做无限扩散爬取。本条只产出对照工件与开工门禁,不改 req/defect 状态机,也不自动把调研结论写成条目——那是 R-221 定调点4 的回流通道。
-- 阻塞: research 定位和研究设计已获用户确认，不再要求重复拍板。本条按既定不拆批口径自然等待 R-221 的 research 基础能力完成。解除人:agent。
+- 阻塞: 
 - 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
 - 优先级: P1
 
@@ -216,7 +216,7 @@
 - 标签: 核心
 - 边界: ToolOutput 是 harness 核心契约,R-244 明确要冻结「ToolOutput 公共契约」、R-245 要把它改成 Inline/Spilled 二态——本条**不得抢在 R-244 之前改这个结构**,否则必然返工。图片体积走 R-245 的 spill 口径,不在 ToolOutput 内联大 base64。不实现 UI 点击/输入/滚动(那是 R-101 的 E2 harness 范围),本条只做「看得见」不做「动得了」。deepseek_responses 协议当前丢弃 Image part,本条不负责补齐该 provider,但要在 provider 不支持时给出显式降级提示,不静默丢弃。
 - 进展: 2026-08-14 批1 交付(1831239)。勘察修正了原条目的一处前提:`Part::Image` 的三协议映射早在 R-014 就通了,缺的只是**工具侧出口**,协议层零改动即可打通——不必等 R-244。实现:①ToolOutput 增 images 载荷(空 vec 与既有行为逐字节一致,53 处 `ToolOutput {` 里只有 4 个真构造点,其余是解构模式);②read 按 magic bytes 而非扩展名识图(PNG/JPEG/WebP/GIF),扩展名撒谎会让 media_type 与真实字节不符、provider 400 且报错指向请求体;③图片 Part 只能追加在所有 ToolResult 之后——Anthropic 要求 tool_result 块在 user 消息最前,而 results[i]↔calls[i] 由 note_step 的 debug_assert 锁着,中间也不能插;④provider 不支持时**在进 messages 前**降级为显式文本说明,判据收敛为 Route::supports_images() 与 client.rs 硬拒绝共用一处。新增 10 条测试。 || 2026-08-14 批2 交付:新增 ui_screenshot 工具(kanzei-app/src/screenshot.rs)。实窗验证三轮才对,两次假绿都值得记——①未声明 DPI 感知时 GetWindowRect 返回虚拟化坐标(2582px 的窗口报成 1295px),抓到的是横跨多个窗口的错误区域;②改用正确矩形后,屏幕 DC 抓取拿到的是压在上面那个应用的界面(kzapp 被完全遮挡),内容丰富所以 looks_blank 一路放行。两次都是「测试通过但抓的不是那个窗口」。最终改用 PrintWindow+PW_RENDERFULLCONTENT 离屏渲染,免疫遮挡,在完全被盖住的状态下抓到 kzapp 完整界面并经人眼与用户实拍逐项比对一致;屏幕 DC 仅在 PrintWindow 失效且本窗口为前台时作回退,不是前台宁可报错——返回别人的界面比返回错误坏得多。测试记录 T-1786705800。 || 2026-08-16 复核:批1 已解除;批3 的依赖 R-244 已 done 并归档(Tool Pipeline 契约已冻结),只余 R-245 确定图片类 artifact 的 spill 落点,而 R-245 自身仍等 R-242。当前 park 的唯一原因是 WIP 槽由 R-195 持有(用户 2026-08-16 指定)。解除动作: R-195 关闭后清本字段直接续做批2。解除人: agent(批2)/ 依赖自然解除(批3 等 R-245)。 || 2026-08-16 让位:本轮按队列顺序取 R-186(P0 队首),本条 doing→todo 让位,待 R-186 交付后按队列轮转;批1/批2(ui_screenshot/read 识图)已交付,剩余批3 等 R-245(R-242 完成后才解)。
-- 阻塞: 批1/2 已交付，唯一剩余批3依赖 R-245 的物理删除与安全整理事务；不再等待已关闭的 R-186/R-244。R-245 完成后恢复。解除人:agent。
+- 阻塞: 
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 - observed_head: 98d7a586f38a09f5b449b75b7a3c93c62d01852f
@@ -259,7 +259,7 @@
 - observed_head: 571b3f25b35fafdfd0fd02398fc8f82cc21d0fee
 - observed_worktree_hash: fnv1a64:079b10c5eaac5321
 - recorded_at: 1786866469845
-- 阻塞: 批4/5在 R-221 基础收口后可继续；批6计划树再依赖 R-277 的计划数据结构。R-277 是批6局部依赖，不阻塞前两批剩余工作。解除人:agent。
+- 阻塞: 
 
 ## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [todo]
 - refs: R-221 R-273 R-274 R-276 R-283 R-284 docs/design/research_mode.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
@@ -272,19 +272,9 @@
 - 边界: 不做真·多 agent 并行编排(先行对照:15 倍 token 单用户不值,隔离+压缩回传同样解上下文冲突);不做 RL 专训模型(纪律放系统侧);不做常驻知识库服务(索引随课题建随课题用);不做模拟审稿与自动选题;计划审批前端由 R-276 承接,本条只出数据结构与状态机。
 - 验收: ①一个真实课题走完整链路(计划→审批→检索→带引用报告)有轨迹;②FACT 式抽查:随机抽论断,文献 URL 与代码 file:line 逐条支撑(实测,不接受自评);③预算旋钮实测:设小预算提前收敛出报告不崩;④机械核验原始工具输出不进主上下文(只有压缩摘要);⑤文献与代码经同一检索接口命中各有实测;⑥中途强杀重启可恢复续跑;⑦轻课题(只产 report.md)与重课题(paper.tex 编译通过)各走通一次。验收②补充(D-412 反例):「出处是否真含支撑文本」做成机械抽查——文献论断的支撑文本必须落在正文内(取回正文全文 grep 关键词,摘要命中不算),仅摘要级来源不得支撑正文级论断;D-412 反例样本=CoALA 四类记忆划分不在摘要而在正文 §2.3(working/episodic/semantic/procedural),机械抽查应能检出此类越界(摘要含 modular memory components 但无四词)。
 - 优先级: P1
-- 阻塞: 先等待 R-221 收口 research 档位与基础契约；计划结构、检索反思和写作链可先实现，R-284 仅作为最终统一事件接线依赖，不阻塞前四批。解除人:agent。
+- 阻塞: 
 
-## R-280 子代理总开关:进程级「子代理」勾选框,关掉即 task 工具不注册 [todo]
-- 优先级: P1
-- 复杂度: 小
-- 标签: 前端 后端
-- 来源: 2026-08-17 用户「非勘察模式也能默认能用子代理,我觉得这个应该弄个开关吧」;同轮用户拍板开关形状=进程级、放「更多」菜单。
-- 背景: 全局没有任何开关能关掉子代理。crates/kanzei-app/src/run/coordinator.rs:162 无条件构造 SubagentRuntime(注释标着 2026-08-11 定调「模型自己派 task 这条路永远开着,不受『勘察复核』开关控制」);phase_pipeline.rs:14-16 同样明说那个勾选框管的是「每轮强制勘察与复核」而非「有没有子代理」。用户看到的现象=非勘察模式下模型照样派子代理且无从关闭。本条部分推翻 2026-08-11 那条定调(2026-08-17 用户重新拍板)。
-- 内容: 新增进程级开关「子代理」,与 phase_pipeline_enabled 同形状(ProcessHandle 字段 + process_create/process_update + 落库回显),UI 放 index.html「更多」菜单 #process-phase-pipeline 那一行旁,默认开(保持现状行为)。关掉时 coordinator 不构造 SubagentRuntime,runner 因此不 push task_spec —— 模型工具面上根本没有 task,而不是注册了再拒(D-173 的反面教材:合法路径不可达会让模型去找旁路,这里是能力整体不提供,不存在旁路问题)。CLI 侧(crates/kanzei/src/cli/run.rs)同步同一口径。
-- 边界: 不改「勘察复核」的语义(它仍只管七阶段);关掉子代理时若「勘察复核」开着,走 phase_pipeline.rs:405 既有的空屏障路径(该路径已实现,注释写明「『这一轮没有勘察』与『这一轮压根没有勘察阶段』的区别」),不新造分支;不做全局设置项(用户 2026-08-17 拍板进程级);不做三档选择。
-- 验收: ①「更多」菜单出现「子代理」行,切换经 process_update 落库、重启回显一致(与 process_tests.rs:205 勘察复核开关同测法);②关掉后该进程新一轮的工具面上不含 task —— 断言 ToolSpec 列表里没有它,不接受「注册了再拒」;③关掉子代理 + 开着「勘察复核」的组合能跑完整一轮,勘察简报如实说明本轮无勘察(走空屏障路径);④默认值为开,新建进程与默认进程都必须默认可用(反向断言,防默认被悄悄改掉);⑤i18n 中英文案齐,且不得出现把「勘察复核」描述成子代理开关的旧说法(02-i18n.js:448-450 的注释已明令禁止)。
-
-## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [todo]
+## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1
 - 复杂度: 中
 - 标签: 前端 后端
@@ -294,6 +284,13 @@
 - 边界: 不做独立主视图(用户拍板留右侧面板读取器形态);不改 subagent.transcript 事件格式(R-279 是真源,本条只读它);不给子代理开思考(RunnerConfig reasoning 仍 Off,subagent.rs:490);不重做活动面板。
 - 验收: ①运行中能逐轮看到子代理**自己说的话**,不只是工具名(实测一轮真实 task,事件轨迹或截图为证);②结束后点开条目看到的是完整最终答案原文,不是被截成首行的 preview(反向断言:编排路径不得再用 lines().next() 当终态文本);③工具调用默认折叠、展开才显示入参与输出,进度事件不得强制展开 detail(反向断言 06-agent-panel.js:243 那行 remove("hidden") 已消失);④重启后打开历史子代理条目仍能读到完整对话——数据来自 subagent.transcript 事件,不依赖进程内 TranscriptStore(跨进程实测);⑤编排派发的角色(architecture_scout 等)与模型自派的 task 走同一个读取器,不出现第二套渲染;⑥六条前端冒烟全绿(node --check 不算证据)。
 - refs: R-279 R-174 R-175 D-419
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-281
+- 批次: 1/3
+- 进展: 批1代码已完成并通过：crates/kanzei-core/src/runner/event.rs 增加 TaskTrace.text；runner/subagent.rs 上抛 AssistantMessageCommitted 完整 Text parts 并有 assistant_message_text_keeps_full_text_parts 测试；crates/kanzei-app/src/run/events/mod.rs 转发 text/usage；phase_pipeline.rs 两处终态文本改为完整原文、不再使用 lines().next()；ui/06-agent-panel.js 使用 renderMarkdown 渲染正文且工具/正文默认折叠。T-1786922726071、T-1786922726072、T-1786922726077 均通过，六条前端冒烟与 workspace 全量覆盖已完成。当前 39 文件 staged，最近实际 hash 6eb4f03c4de88cb4；已按该 hash 执行 R-281 B1 提交，仍被结构化 git 的旧 source_test_gate 拒绝：门禁仍选 R-285 Playwright 记录，未读取当前源码指纹记录。源码侧 crates/kanzei-tools/src/git.rs:746 已有 last_passed_for_fingerprint 修复且对应测试通过，但当前 git 工具运行态尚未加载。下一步：结构化 git 运行态刷新后直接用当前 staged 集重试 B1 提交；提交成功后再做批2 transcript Tauri 读取通道。
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:6aa6fbd939a238f6
+- recorded_at: 1786933041284
+- 阻塞: 结构化 Git 运行态仍运行旧版 source_test_gate，未加载 crates/kanzei-tools/src/git.rs:746 的 last_passed_for_fingerprint 实现；解除人:kanzei 结构化 Git 运行态维护者。
 
 ## R-288 Android 真机 E3 验收:移动端 PWA 通知与双向消息真实链路 [todo]
 - refs: R-059 R-270 R-271 D-389

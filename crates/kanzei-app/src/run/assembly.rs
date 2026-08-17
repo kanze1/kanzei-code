@@ -54,8 +54,10 @@ pub(crate) struct RunMode {
     // 进程级「勘察复核」开关 = 阶段流水线总闸(2026-08-11 用户定调)。
     // 开 → 本轮强制走七阶段;关 → 一问一答。它**不**决定有没有子代理。
     pub(crate) phase_pipeline_enabled: bool,
-    // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
+    // 进程级「子代理」开关。关闭时本轮不构造 SubagentRuntime,工具面不含 task。
+    pub(crate) subagents_enabled: bool,
     pub(crate) block_tracker_writes: bool,
+    // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
     pub(crate) profile: Option<String>,
     pub(crate) agent_name: Option<String>,
     pub(crate) model_override: Option<String>,

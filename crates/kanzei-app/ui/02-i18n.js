@@ -454,6 +454,11 @@ const I18N_EN = {
   // ——关着的时候模型照样能自己派 task,所以文案与译名都不能再出现「启用子代理」的说法。
   "勘察复核": "Scout & review",
   "开启后本进程每个任务强制走:并行勘察 → 实现 → 并行复核 →(有发现时)修正;关闭时是一问一答,模型仍可自己派子代理。成本:每轮多 5 个勘察 + 3 个复核子代理,复核只要不是全部回 NO_ISSUES(失败/超时也算有发现)就再多跑一段修正,弱模型下几乎每轮都会跑;并行角色数上限由 [limits] max_tasks_per_turn 控制。": "When on, every task in this process is forced through: parallel scouting → implementation → parallel review → fixup (when there are findings). When off it is plain question-and-answer, and the model can still dispatch its own subagents. Cost: 5 scouting + 3 review subagents per round, plus an extra fixup pass whenever review does not come back all NO_ISSUES (failures and timeouts count as findings), so a weak model will run it almost every round. The parallel role cap is [limits] max_tasks_per_turn.",
+  "子代理": "Subagents",
+  "允许模型派发 task 子代理;关闭后工具面不含 task": "Allow the model to dispatch task subagents; when off, task is absent from the tool surface",
+  "允许本进程向模型提供 task 子代理工具；关闭后新一轮工具面不含 task。": "Provide task subagent tools to the model in this process; when off, task is absent from the next round's tool surface.",
+  "子代理已开启": "Subagents enabled",
+  "子代理已关闭:新一轮工具面不含 task": "Subagents disabled: task is absent from the next round's tool surface",
   "用 fast 模型总结当前对话并存档到 .kanzei/summaries/": "Summarize this chat with the fast model and archive it under .kanzei/summaries/",
   "把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI": "Copy this chat, including reasoning and tool traces, as Markdown",
   "搜索当前对话": "Search this chat",

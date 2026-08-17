@@ -6,6 +6,7 @@
 use futures::StreamExt;
 use kanzei_harness::{Tool, ToolConcurrency, ToolCtx};
 use kanzei_llm::Part;
+use sha2::Digest;
 use std::sync::Arc;
 
 use crate::runner::event::{preview, RunEvent};
@@ -103,6 +104,75 @@ pub(crate) fn tool_images_to_parts(
     (parts, None)
 }
 
+const TOOL_RESULT_SPILL_THRESHOLD: usize = 1024 * 1024;
+
+/// 把超限工具结果先写入 durable artifact，再把紧凑引用回喂给模型/UI。
+///
+/// 该函数位于所有工具的统一消费出口：工具权限、错误码和小结果路径不变；只有
+/// 大结果在事件提交前被替换为 artifact 引用。写失败时不生成 artifact 引用，并把
+/// 结果转成明确失败，避免事件看起来像一次成功的外置结果。
+fn materialize_tool_output(
+    output: &mut kanzei_harness::ToolOutput,
+    ctx: &ToolCtx,
+    tool_name: &str,
+) {
+    if output.content.len() <= TOOL_RESULT_SPILL_THRESHOLD {
+        return;
+    }
+
+    let original = std::mem::take(&mut output.content);
+    let mut digest = sha2::Sha256::new();
+    sha2::Digest::update(&mut digest, original.as_bytes());
+    let sha256 = digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let safe_tool_name: String = tool_name
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect();
+    let artifact_id = format!("tool-{safe_tool_name}-{sha256}");
+    let relative_path = format!(".kanzei/artifacts/tool-results/{artifact_id}.txt");
+    let path = ctx.project_root.join(&relative_path);
+
+    if let Err(error) = kanzei_base::atomic_file::write_atomic(&path, &original) {
+        output.content = format!(
+            "[tool_result_spill_failed bytes={} sha256={}]: {error}",
+            original.len(),
+            sha256
+        );
+        output.is_error = true;
+        output.outcome = kanzei_harness::ToolOutcome::Failed;
+        output.code = Some("TOOL_RESULT_SPILL_FAILED");
+        output.artifact = None;
+        return;
+    }
+
+    let artifact = kanzei_harness::ToolArtifact {
+        artifact_id: artifact_id.clone(),
+        relative_path: relative_path.clone(),
+        bytes: original.len() as u64,
+        sha256: sha256.clone(),
+        retrieval_hint: format!("read path={relative_path}"),
+    };
+    output.content = format!(
+        "[tool_result_externalized artifact_id={artifact_id} bytes={} sha256={sha256}]\nPreview: {}\n完整原文已外置；请按 retrieval_hint 回读。",
+        original.len(),
+        preview(&original),
+    );
+    if output.display.is_none() {
+        output.display = Some(serde_json::json!({
+            "kind": "artifact",
+            "artifact_id": artifact.artifact_id,
+            "bytes": artifact.bytes,
+            "sha256": artifact.sha256,
+            "retrieval_hint": artifact.retrieval_hint,
+        }));
+    }
+    output.artifact = Some(artifact);
+}
+
 /// 返回 (下标, ToolResult, 该结果附带的图片 Part)。
 ///
 /// 图片**不能**混进 results 向量:那里 `results[i] ↔ calls[i]` 是硬约定
@@ -161,7 +231,8 @@ pub(crate) async fn execute_prepared_tools(
                     on_event(RunEvent::ToolProgress { id, chunk });
                 }
                 job = jobs.next() => {
-                    let Some((index, id, name, output)) = job else { break };
+                    let Some((index, id, name, mut output)) = job else { break };
+                    materialize_tool_output(&mut output, ctx, &name);
                     while let Ok((pid, chunk)) = progress_rx.try_recv() {
                         on_event(RunEvent::ToolProgress { id: pid, chunk });
                     }
@@ -378,6 +449,65 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["write_1", "read_1", "write_2"]
         );
+    }
+
+    #[test]
+    fn oversized_tool_output_is_externalized_with_recoverable_bytes() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-d349-spill-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let original = "x".repeat(super::TOOL_RESULT_SPILL_THRESHOLD + 17);
+        let mut output = ToolOutput::ok(original.clone());
+
+        super::materialize_tool_output(&mut output, &ctx, "git");
+
+        let artifact = output
+            .artifact
+            .as_ref()
+            .expect("大结果必须有 artifact 引用");
+        assert_eq!(artifact.bytes, original.len() as u64);
+        assert_eq!(artifact.sha256.len(), 64);
+        assert!(output.content.contains("tool_result_externalized"));
+        assert_eq!(
+            std::fs::read(root.join(&artifact.relative_path)).unwrap(),
+            original.as_bytes()
+        );
+        assert!(artifact.retrieval_hint.contains(&artifact.relative_path));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn artifact_write_failure_is_visible_without_success_reference() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-d349-spill-failure-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".kanzei/artifacts")).unwrap();
+        std::fs::write(
+            root.join(".kanzei/artifacts/tool-results"),
+            "not a directory",
+        )
+        .unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let mut output = ToolOutput::ok("x".repeat(super::TOOL_RESULT_SPILL_THRESHOLD + 1));
+
+        super::materialize_tool_output(&mut output, &ctx, "bash");
+
+        assert!(output.is_error);
+        assert_eq!(output.code, Some("TOOL_RESULT_SPILL_FAILED"));
+        assert!(output.artifact.is_none());
+        assert!(output.content.contains("tool_result_spill_failed"));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

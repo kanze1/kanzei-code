@@ -18,6 +18,7 @@ mod store;
 mod telemetry;
 mod tools;
 
+pub use inbox::{InboxBatch, InboxCheckpoint};
 pub use index::{IndexHit, IndexQuery, MemoryIndex, RetrievalTiming, SqliteMemoryIndex};
 pub use manager::{consolidation_prompt, manager_agent, MemoryManagerComponent};
 pub use store::{

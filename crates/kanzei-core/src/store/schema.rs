@@ -216,6 +216,7 @@ impl SessionStore {
                      reasoning TEXT,
                      manual_models TEXT NOT NULL DEFAULT '[]',
                      phase_pipeline INTEGER NOT NULL DEFAULT 0,
+                     subagents_enabled INTEGER NOT NULL DEFAULT 1,
                      tracker_writes_enabled INTEGER NOT NULL DEFAULT 0,
                      updated_at INTEGER NOT NULL
                  );
@@ -255,6 +256,11 @@ impl SessionStore {
         // 库只负责承载,不需要数据回填。
         let _ = tx.execute(
             "ALTER TABLE processes ADD COLUMN manual_models TEXT NOT NULL DEFAULT '[]'",
+            [],
+        );
+        // v13(R-280):存量进程默认开启子代理,保持迁移前 task 工具始终可用的行为。
+        let _ = tx.execute(
+            "ALTER TABLE processes ADD COLUMN subagents_enabled INTEGER NOT NULL DEFAULT 1",
             [],
         );
         // session_inputs 的 status CHECK 写死在建表语句里,ALTER 改不了,只能重建。

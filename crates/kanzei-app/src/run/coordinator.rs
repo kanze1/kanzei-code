@@ -47,6 +47,7 @@ pub(crate) async fn run_task(
     let session_id = request.session_id.clone();
     let process_id = request.process_id.clone();
     let phase_pipeline_enabled = mode.phase_pipeline_enabled;
+    let subagents_enabled = mode.subagents_enabled;
     let autonomous = mode.autonomous;
     let stage = |name: &str, detail: String| {
         *handles.current_stage.lock().unwrap() = name.to_string();
@@ -191,21 +192,25 @@ pub(crate) async fn run_task(
                 .flatten()
         }),
     );
-    let subagent_rt = kanzei_tools::run::build_subagent_runtime(
-        &deps.rctx,
-        &deps.config,
-        &deps.proxy,
-        &deps.resolved,
-        &deps.route,
-        Some(Arc::clone(&handles.coordinator)
-            as Arc<
-                dyn kanzei_harness::orchestration::ProjectExecutionCoordinator,
-            >),
-        Some(handles.task_cancellations.clone()),
-        transcript_sink,
-        transcript_provider,
-    )
-    .await?;
+    let subagent_rt = if subagents_enabled {
+        kanzei_tools::run::build_subagent_runtime(
+            &deps.rctx,
+            &deps.config,
+            &deps.proxy,
+            &deps.resolved,
+            &deps.route,
+            Some(Arc::clone(&handles.coordinator)
+                as Arc<
+                    dyn kanzei_harness::orchestration::ProjectExecutionCoordinator,
+                >),
+            Some(handles.task_cancellations.clone()),
+            transcript_sink,
+            transcript_provider,
+        )
+        .await?
+    } else {
+        None
+    };
 
     // R-202 批2:事件循环段——附件提示 → 记忆预检索 → 勘察 → 主循环
     // (run_once_with_parts)→ 复核修正(run_review_and_fixup),收敛为独立函数。

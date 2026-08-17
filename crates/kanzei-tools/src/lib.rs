@@ -1,6 +1,7 @@
 //! kanzei-tools: 内置工具 + 双模式 profile 组件。
 
 pub mod architecture;
+pub mod memory_consolidation;
 /// 原子写原语下沉到 kanzei-llm(依赖图最底层,D-261):llm 的 auth/store 与
 /// tools 的 docstore/test_record/memory/files 共用同一套,仓里不再养第二份。
 pub use kanzei_base::atomic_file;
@@ -70,6 +71,8 @@ pub use work::{
 use kanzei_harness::Tool;
 
 /// 工具输入解析的公共入口:serde 失败时返回纠错反馈而不是崩溃。
+/// ToolOutput 是统一的纠错回馈契约，此处保留完整错误值而不改变调用方错误语义。
+#[allow(clippy::result_large_err)]
 pub(crate) fn parse_input<T: serde::de::DeserializeOwned>(
     tool: &dyn Tool,
     input: serde_json::Value,

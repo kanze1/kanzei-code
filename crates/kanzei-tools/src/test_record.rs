@@ -739,53 +739,74 @@ fn record_command_text(record: &serde_json::Value) -> String {
         .unwrap_or_default()
 }
 
-/// 最近一条「通过」测试记录:(收尾时刻, 覆盖面, 命令文本, 源码指纹)。
-/// active + archive 一起看。
+/// Return a test record's completion time in epoch seconds.
 ///
-/// 取收尾时刻而不是记录 id:id 是测试**开始**的时间,先起 running 再改代码就能骗过门禁。
-/// R-212:覆盖面随记录一起回——门禁既要「改完重跑过」,又要「跑的是覆盖这份源码的测试」。
-/// D-332:源码指纹随记录一起回——门禁优先比指纹而非纯 mtime,test_record 自己写
-/// tests.md 不会改变源码指纹,不再触发「自己让自己失效」的重测。
-pub fn last_passed(root: &Path) -> Option<(u64, TestCoverage, String, String)> {
-    let mut passed: Vec<(u64, TestCoverage, String, String)> = Vec::new();
+/// Current records carry an explicit second-based `收尾` field. Historical records
+/// may not have it, so their millisecond-based `T-...` allocation id is the fallback;
+/// normalize that legacy value before comparing it with current records.
+fn record_finished_at(record: &serde_json::Value) -> Option<u64> {
+    record["fields"]
+        .as_array()
+        .and_then(|fields| {
+            fields
+                .iter()
+                .find(|f| f["key"].as_str() == Some("收尾"))
+                .and_then(|f| f["value"].as_str())
+                .and_then(|v| v.trim().parse::<u64>().ok())
+        })
+        .or_else(|| {
+            record["id"]
+                .as_str()
+                .and_then(|id| id.strip_prefix("T-"))
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(|id| {
+                    if id >= 100_000_000_000 {
+                        id / 1_000
+                    } else {
+                        id
+                    }
+                })
+        })
+}
+
+type PassedRecord = (u64, TestCoverage, String, String);
+
+fn passed_records(root: &Path) -> Vec<PassedRecord> {
+    let mut passed = Vec::new();
     for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
         for (_, record) in read_test_records(&root.join(rel)) {
             if record["status"].as_str() != Some("passed") {
                 continue;
             }
-            let finished = record["fields"]
+            let Some(at) = record_finished_at(&record) else {
+                continue;
+            };
+            let command = record_command_text(&record);
+            let fingerprint = record["fields"]
                 .as_array()
                 .and_then(|fields| {
                     fields
                         .iter()
-                        .find(|f| f["key"].as_str() == Some("收尾"))
+                        .find(|f| f["key"].as_str() == Some("源码指纹"))
                         .and_then(|f| f["value"].as_str())
-                        .and_then(|v| v.trim().parse::<u64>().ok())
+                        .map(str::to_string)
                 })
-                .or_else(|| {
-                    record["id"]
-                        .as_str()
-                        .and_then(|id| id.strip_prefix("T-"))
-                        .and_then(|s| s.parse::<u64>().ok())
-                });
-            if let Some(at) = finished {
-                let command = record_command_text(&record);
-                let fingerprint = record["fields"]
-                    .as_array()
-                    .and_then(|fields| {
-                        fields
-                            .iter()
-                            .find(|f| f["key"].as_str() == Some("源码指纹"))
-                            .and_then(|f| f["value"].as_str())
-                            .map(|s| s.to_string())
-                    })
-                    .unwrap_or_default();
-                let candidate = (at, coverage_from_command(&command), command, fingerprint);
-                passed.push(candidate);
-            }
+                .unwrap_or_default();
+            passed.push((at, coverage_from_command(&command), command, fingerprint));
         }
     }
-    let newest = passed.iter().max_by_key(|record| record.0)?.clone();
+    passed
+}
+
+fn select_passed_group(
+    passed: Vec<PassedRecord>,
+    fingerprint_filter: Option<&str>,
+) -> Option<PassedRecord> {
+    let newest = passed
+        .iter()
+        .filter(|record| fingerprint_filter.is_none_or(|expected| record.3 == expected))
+        .max_by_key(|record| record.0)?
+        .clone();
     if newest.3.is_empty() {
         return Some(newest);
     }
@@ -806,6 +827,37 @@ pub fn last_passed(root: &Path) -> Option<(u64, TestCoverage, String, String)> {
         }
     }
     Some((at, coverage, commands.join(" && "), newest.3))
+}
+
+/// 最近一条「通过」测试记录:(收尾时刻, 覆盖面, 命令文本, 源码指纹)。
+/// active + archive 一起看。
+///
+/// 取收尾时刻而不是记录 id:id 是测试**开始**的时间,先起 running 再改代码就能骗过门禁。
+/// R-212:覆盖面随记录一起回——门禁既要「改完重跑过」,又要「跑的是覆盖这份源码的测试」。
+/// D-332:源码指纹随记录一起回——门禁优先比指纹而非纯 mtime,test_record 自己写
+/// tests.md 不会改变源码指纹,不再触发「自己让自己失效」的重测。
+pub fn last_passed(root: &Path) -> Option<(u64, TestCoverage, String, String)> {
+    let passed = passed_records(root);
+    let latest_fingerprint = passed
+        .iter()
+        .filter(|record| !record.3.is_empty())
+        .max_by_key(|record| record.0)
+        .map(|record| record.3.clone());
+    match latest_fingerprint.as_deref() {
+        Some(fingerprint) => select_passed_group(passed, Some(fingerprint)),
+        None => select_passed_group(passed, None),
+    }
+}
+
+/// Return the newest passed test group for a specific staged-source fingerprint.
+///
+/// A newer historical record without a fingerprint (for example a frontend smoke
+/// record) must not hide a newer Rust record that does carry the current fingerprint.
+pub fn last_passed_for_fingerprint(
+    root: &Path,
+    expected_fingerprint: &str,
+) -> Option<(u64, TestCoverage, String, String)> {
+    select_passed_group(passed_records(root), Some(expected_fingerprint))
 }
 
 /// 最近一次「通过」的测试是什么时候收尾的(epoch 秒)。R-212 门禁改走
@@ -1441,6 +1493,42 @@ mod tests {
             TestCoverage::Crates(vec!["kanzei-llm".to_string()])
         );
         assert!(command.contains("kanzei-llm"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn last_passed_normalizes_legacy_millisecond_id_before_comparing() {
+        let root = temp_project("legacy-id-time-unit");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_ARCHIVE_REL),
+            "# Test Runs Archive\n\n## T-1786922726036 legacy frontend [passed]\n- 命令: node scripts/ui-runtime-smoke.mjs\n\n## T-1786922726055 current rust [passed]\n- 命令: cargo test -p kanzei-tools\n- 收尾: 1786927698\n- 源码指纹: fp-current\n",
+        )
+        .unwrap();
+
+        let (at, coverage, command, fingerprint) = last_passed(&root).unwrap();
+        assert_eq!(at, 1_786_927_698);
+        assert_eq!(coverage, TestCoverage::Crates(vec!["kanzei-tools".into()]));
+        assert!(command.contains("kanzei-tools"));
+        assert_eq!(fingerprint, "fp-current");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn last_passed_prefers_fingerprinted_group_over_newer_legacy_record() {
+        let root = temp_project("fingerprinted-group-precedence");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_ARCHIVE_REL),
+            "# Test Runs Archive\n\n## T-1786929999999 legacy frontend [passed]\n- 命令: node scripts/ui-runtime-smoke.mjs\n\n## T-1786922726055 current rust [passed]\n- 命令: cargo test -p kanzei-tools\n- 收尾: 1786927000\n- 源码指纹: fp-current\n",
+        )
+        .unwrap();
+
+        let (at, coverage, command, fingerprint) = last_passed(&root).unwrap();
+        assert_eq!(at, 1_786_927_000);
+        assert_eq!(coverage, TestCoverage::Crates(vec!["kanzei-tools".into()]));
+        assert!(command.contains("kanzei-tools"));
+        assert_eq!(fingerprint, "fp-current");
         std::fs::remove_dir_all(root).ok();
     }
 

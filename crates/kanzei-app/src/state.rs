@@ -385,6 +385,8 @@ pub(crate) struct ProcessHandle {
     /// 且默认开,名不副实:关掉它连子代理运行时都没有,开着它也只是把 `task`
     /// 摆上桌、派不派全看模型,给不了「每个任务都勘察」的保证。
     pub(crate) phase_pipeline_enabled: Arc<AtomicBool>,
+    /// 进程级「子代理」开关。默认开启；关闭时 task 工具不注册到本轮工具面。
+    pub(crate) subagents_enabled: Arc<AtomicBool>,
     /// 分支线是否允许修改主根中的 tracker 文档。默认关闭,读取不受影响。
     pub(crate) tracker_writes_enabled: Arc<AtomicBool>,
 }
@@ -402,6 +404,8 @@ pub(crate) struct ProcessInfo {
     pub(crate) manual_models: Vec<String>,
     /// 见 [`ProcessHandle::phase_pipeline_enabled`]。前端 `process_list` 回显用。
     pub(crate) phase_pipeline: bool,
+    /// 见 [`ProcessHandle::subagents_enabled`]。前端 `process_list` 回显用。
+    pub(crate) subagents_enabled: bool,
     pub(crate) tracker_writes: bool,
     /// 主代理拥有写入、比对、合并与发版职责;并行线/子代理只在自己的边界内工作。
     pub(crate) authority: String,
@@ -540,6 +544,7 @@ pub(crate) fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHa
             // 默认关:用户要的是「显式打开才强制走七阶段」,默认开就不叫显式
             // (2026-08-11 用户定调)。
             phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
+            subagents_enabled: Arc::new(AtomicBool::new(true)),
             tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
         })
         .clone()
@@ -577,6 +582,7 @@ pub(crate) fn process_info(state: &AppState, process: &ProcessHandle) -> Process
         reasoning: process.reasoning.lock().unwrap().clone(),
         manual_models: process.manual_models.lock().unwrap().clone(),
         phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
+        subagents_enabled: process.subagents_enabled.load(Ordering::SeqCst),
         tracker_writes: process.tracker_writes_enabled.load(Ordering::SeqCst),
         authority: if process.id.starts_with("d|") {
             "primary".into()

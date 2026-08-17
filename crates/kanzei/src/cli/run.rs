@@ -32,6 +32,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         prompt,
         allow,
         prompt_file,
+        subagents_enabled,
     } = parse_run_args(args);
     // R-238 ②:prompt 真源解析(--prompt-file 与位置参数互斥,失败给出明确报错)。
     let prompt = match resolve_run_prompt(&prompt, prompt_file.as_deref()) {
@@ -423,10 +424,14 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
 
     // task 子代理运行时:R-256 与桌面共用 kanzei_tools::run::build_subagent_runtime(对照表
     // #16);CLI 单运行不参与共享仲裁(R-171 批6)、无前端停止按钮(R-174),传 None/None。
-    let subagent_rt = kanzei_tools::run::build_subagent_runtime(
-        &rctx, &config, &proxy, &resolved, &route, None, None, None, None,
-    )
-    .await?;
+    let subagent_rt = if subagents_enabled {
+        kanzei_tools::run::build_subagent_runtime(
+            &rctx, &config, &proxy, &resolved, &route, None, None, None, None,
+        )
+        .await?
+    } else {
+        None
+    };
 
     // 开跑预检索(R-106):prompt 命中既有记忆时前置提示块(只给索引行)。
     // D-185:提示块不再拼进 prompt,改由 run_once 作为本轮 system 一次性注入——
@@ -623,7 +628,13 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     }
     // 轮末记忆整理(R-105):inbox 有草稿才起 manager 迷你 run,尽力而为。
     // R-213:把当轮 episode_id 代填给 manager,晋升证据才能指向真实轮次。
-    consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx, current_episode_id).await;
+    let consolidation =
+        consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx, current_episode_id).await;
+    if consolidation.has_failures() {
+        eprintln!("\x1b[33m{}\x1b[0m", consolidation.summary());
+    } else if consolidation.pending_before > 0 {
+        eprintln!("\x1b[90m{}\x1b[0m", consolidation.summary());
+    }
     // D-341/R-195:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
     // 自动 promote,超期未处置的自动 deprecated 归档,其余保持 candidate。
     // 与 inbox 消化解耦:没有草稿也要跑,否则 candidate 永远躺着无人验收。

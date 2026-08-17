@@ -79,7 +79,6 @@ impl SessionStore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::store::testutil::store;
 
     /// D-386:设备表 CRUD——配对写入、列表读取、撤销删除,重启(重建 store)后仍在。

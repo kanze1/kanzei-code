@@ -4894,3 +4894,300 @@
 - 摘要: Wave 0～4 均已在 docs/design/phase2_system_upgrade.md 建立当前 Go/No-Go 记录；索引仍验证通过，未把既有 E2 或静态配置冒充联合闭环。
 - 关联: R-283
 - 收尾: 1786924580
+
+## T-1786922726039 D-428 B1 kanzei-memory 定向测试 [failed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: 首次 B1 编译失败：mod.rs 的 API 插入锚点误把 `pub use index::{` 与 `mod tools;` 拼接，已按实际文件修正，尚未进入测试断言阶段。
+- 关联: D-428
+- 收尾: 1786926275
+
+## T-1786922726040 D-428 B2 kanzei-tools 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 共享 memory_consolidation 模块及 kanzei-tools 依赖编译通过；317 tests passed, 1 ignored。
+- 关联: D-428
+- 收尾: 1786926679
+
+## T-1786922726041 D-428 B2 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 桌面端共享整理服务接线编译通过；196 tests passed。轮末异步任务消费并记录 ConsolidationReport，手动命令返回 report。
+- 关联: D-428
+- 收尾: 1786926754
+
+## T-1786922726042 D-428 B2 kanzei 定向测试 [passed]
+- 命令: cargo test -p kanzei
+- 摘要: CLI 37 单元测试与 32 集成测试通过；CLI 调用共享 consolidation service 并输出失败/进度摘要。
+- 关联: D-428
+- 收尾: 1786926783
+
+## T-1786922726043 D-428 B1 kanzei-memory 定向测试 [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: B1 分批读取、oversized 首条兜底、checkpoint roundtrip 与既有记忆行为全部通过；142 tests passed，doc-test 1 ignored。
+- 关联: D-428
+- 收尾: 1786926791
+
+## T-1786922726044 D-428 B2 Rust 格式检查 [failed]
+- 命令: cargo fmt --all -- --check
+- 摘要: 格式检查发现 5 个本批 Rust 文件需要 rustfmt；无编译/测试失败，已定位到 kanzei-memory、kanzei-tools、kanzei-app、kanzei CLI 的本批改动。
+- 关联: D-428
+- 收尾: 1786926806
+
+## T-1786922726045 D-428 B2 Rust 格式检查 [passed]
+- 命令: cargo fmt --all -- --check
+- 摘要: rustfmt 通过，所有 workspace Rust 文件格式一致。
+- 关联: D-428
+- 收尾: 1786926823
+
+## T-1786922726046 D-428 B2 kanzei-memory 最终定向测试 [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: 最终提交前复跑通过：142 tests passed，doc-test 1 ignored。
+- 关联: D-428
+- 收尾: 1786926983
+
+## T-1786922726047 D-428 B2 kanzei-tools 最终定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 最终提交前复跑通过：317 tests passed，1 ignored。
+- 关联: D-428
+- 收尾: 1786926984
+
+## T-1786922726048 D-428 B2 kanzei-app 最终定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 最终提交前复跑通过：196 tests passed。
+- 关联: D-428
+- 收尾: 1786926984
+
+## T-1786922726049 D-428 B2 kanzei 最终定向测试 [passed]
+- 命令: cargo test -p kanzei
+- 摘要: 最终提交前复跑通过：37 CLI 单元测试与 32 集成测试通过。
+- 关联: D-428
+- 收尾: 1786926984
+
+## T-1786922726050 D-428 提交前 workspace check 与 clippy 门禁 [failed]
+- 命令: cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
+- 摘要: cargo check 通过；clippy 被既有 kanzei-core/src/store/mobile_devices.rs:82 unused import、kanzei-harness/src/defs.rs:105 constant assertion，以及本批 memory_consolidation.rs:67 too_many_arguments 拦截。
+- 关联: D-428
+- 收尾: 1786927102
+- 源码指纹: dd00a590fbed39af
+
+## T-1786922726051 D-430 workspace clippy 基线与 checkpoint lint 门禁 [failed]
+- 命令: cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
+- 摘要: check 阶段通过；clippy 发现 3 项：2 项既有基线 lint（core unused import、harness constant assertion）及 1 项 D-428 新增 checkpoint helper too_many_arguments，已登记 D-430 并修复源码，待重跑门禁。
+- 关联: D-430
+- 收尾: 1786927140
+- 源码指纹: dd00a590fbed39af
+
+## T-1786922726052 D-430 workspace clippy 基线与 checkpoint lint 门禁 [passed]
+- 命令: cargo fmt --all -- --check; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
+- 摘要: fmt、cargo check --workspace --all-targets、cargo clippy --workspace --all-targets -- -D warnings 全部通过；修复 core unused import、harness 常量断言及 checkpoint 参数 lint 后门禁恢复。
+- 关联: D-428 D-430
+- 收尾: 1786927186
+- 源码指纹: ff83b717f81c98e0
+
+## T-1786922726053 D-428 B2 workspace 全量覆盖测试 [passed]
+- 命令: cargo test --workspace
+- 摘要: 提交门禁要求的全 workspace 覆盖通过：kanzei、kanzei-app、kanzei-base、kanzei-core、kanzei-harness、kanzei-llm、kanzei-memory、kanzei-tools 测试全部通过；无失败，既有 ignored 项保持 ignored。
+- 关联: D-428
+- 收尾: 1786927393
+- 源码指纹: ff83b717f81c98e0
+
+## T-1786922726054 D-428 B2 六 crate 提交覆盖测试 [passed]
+- 命令: cargo test -p kanzei; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-app; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-core; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-harness; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-memory; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-tools; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+- 摘要: 提交门禁要求的六 crate 覆盖全部通过：kanzei、kanzei-app、kanzei-core、kanzei-harness、kanzei-memory、kanzei-tools；无失败，kanzei-memory 与 kanzei-tools 的既有 ignored 项保持 ignored。
+- 关联: D-428
+- 收尾: 1786927555
+- 源码指纹: ff83b717f81c98e0
+
+## T-1786922726055 D-428 B2 原生 Cargo 六 crate 覆盖测试 [passed]
+- 命令: cargo test -p kanzei -p kanzei-app -p kanzei-core -p kanzei-harness -p kanzei-memory -p kanzei-tools
+- 摘要: 原生 Cargo 多 package 命令全部通过，覆盖 kanzei、kanzei-app、kanzei-core、kanzei-harness、kanzei-memory、kanzei-tools；无失败，既有 ignored 项保持 ignored。
+- 关联: D-428
+- 收尾: 1786927698
+- 源码指纹: ff83b717f81c98e0
+
+## T-1786922726056 D-428 B3 last_passed 时间归一定向测试 [failed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 摘要: fmt 先失败：crates/kanzei-tools/src/test_record.rs:759 的时间归一闭包需要 rustfmt；由于门禁串行条件，kanzei-tools 测试未执行。
+- 关联: D-428 D-431
+- 收尾: 1786928024
+- 源码指纹: ff83b717f81c98e0
+
+## T-1786922726057 D-428 B3 last_passed 时间归一定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 摘要: fmt 通过；kanzei-tools 通过 318 tests，1 ignored；新增 last_passed 历史毫秒 ID 与秒级收尾混合记录回归测试通过。
+- 关联: D-428 D-431
+- 收尾: 1786928081
+- 源码指纹: ff83b717f81c98e0
+
+## T-1786922726058 D-428 B3 原生 Cargo 六 crate 最终覆盖测试 [passed]
+- 命令: cargo test -p kanzei -p kanzei-app -p kanzei-core -p kanzei-harness -p kanzei-memory -p kanzei-tools
+- 摘要: 新暂存源码指纹下原生 Cargo 多 package 覆盖全部通过：kanzei 37、kanzei-app 196、kanzei-core 214、kanzei-harness 150、kanzei-memory 142（1 ignored）、kanzei-tools 318（1 ignored）。
+- 关联: D-428 D-431
+- 收尾: 1786928206
+- 源码指纹: 0352a57a2b3a7c08
+
+## T-1786922726059 git finalize (auto): cargo test -p kanzei && cargo test -p kanzei-app && cargo test -p kanzei-core && cargo test -p kanzei-harness && cargo test -p kanzei-memory && cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei && cargo test -p kanzei-app && cargo test -p kanzei-core && cargo test -p kanzei-harness && cargo test -p kanzei-memory && cargo test -p kanzei-tools
+- 时长: 66.3s
+- 摘要: test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s; test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.69s; test result: ok. 196 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.98s; test result: ok. 214 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 150 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 142 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.36s; test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 318 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 31.88s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+- 收尾: 1786928424
+- 源码指纹: 0352a57a2b3a7c08
+
+## T-1786922726060 D-428 B3 source_test_gate 指纹优先回归 [failed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 摘要: 新增 source_test_gate 指纹优先回归失败：source_test_gate_prefers_matching_fingerprint_over_newer_legacy_record 未通过，需读取具体门禁错误继续定位；其余 318 tests passed、1 ignored。
+- 关联: D-428 D-431
+- 收尾: 1786928790
+- 源码指纹: 0352a57a2b3a7c08
+
+## T-1786922726061 D-428 B3 source_test_gate 指纹优先回归 [passed]
+- 命令: cargo test -p kanzei-tools source_test_gate_prefers_matching_fingerprint_over_newer_legacy_record -- --nocapture
+- 摘要: source_test_gate 新增回归通过：当旧无指纹前端记录时间更晚时，仍选择匹配当前 staged 源码指纹的 kanzei-tools Rust 记录。
+- 关联: D-428 D-431
+- 收尾: 1786928840
+- 源码指纹: 0352a57a2b3a7c08
+
+## T-1786922726062 D-428 B3 source_test_gate 完整定向测试 [failed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 摘要: fmt 失败：crates/kanzei-tools/src/git.rs:2392 新增回归 panic 分支需 rustfmt；因串行条件 kanzei-tools 完整测试未执行。
+- 关联: D-428 D-431
+- 收尾: 1786928856
+- 源码指纹: 0352a57a2b3a7c08
+
+## T-1786922726063 D-428 B3 source_test_gate 完整定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 摘要: fmt 通过；kanzei-tools 完整定向测试 319 passed、1 ignored；新增源码指纹优先门禁回归通过。
+- 关联: D-428 D-431
+- 收尾: 1786928913
+- 源码指纹: 0352a57a2b3a7c08
+
+## T-1786922726064 D-428 B3 原生 Cargo 六 crate 最终覆盖测试 [passed]
+- 命令: cargo test -p kanzei -p kanzei-app -p kanzei-core -p kanzei-harness -p kanzei-memory -p kanzei-tools
+- 摘要: 新门禁源码指纹下原生 Cargo 六 crate 覆盖全部通过：kanzei 37、app 196、core 214、harness 150、memory 142（1 ignored）、tools 319（1 ignored）；此前新增指纹优先回归亦在 tools 全量中通过。
+- 关联: D-428 D-431
+- 收尾: 1786929020
+- 源码指纹: 73a7eafa6445c20c
+
+## T-1786922726065 git finalize (auto): cargo test -p kanzei && cargo test -p kanzei-app && cargo test -p kanzei-core && cargo test -p kanzei-harness && cargo test -p kanzei-memory && cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei && cargo test -p kanzei-app && cargo test -p kanzei-core && cargo test -p kanzei-harness && cargo test -p kanzei-memory && cargo test -p kanzei-tools
+- 时长: 64.3s
+- 摘要: test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s; test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.23s; test result: ok. 196 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.97s; test result: ok. 214 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 150 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 142 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.75s; test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 319 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 33.70s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+- 收尾: 1786929316
+- 源码指纹: 73a7eafa6445c20c
+
+## T-1786922726066 D-428 B3 last_passed 指纹组优先回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools last_passed_prefers_fingerprinted_group_over_newer_legacy_record -- --nocapture; cargo test -p kanzei-tools source_test_gate_prefers_matching_fingerprint_over_newer_legacy_record -- --nocapture
+- 摘要: 新增 last_passed 指纹组优先回归和 source_test_gate 指纹优先回归均通过；fmt 通过。
+- 关联: D-428 D-431
+- 收尾: 1786929499
+- 源码指纹: 73a7eafa6445c20c
+
+## T-1786922726067 D-428 B3 last_passed 指纹组优先最终覆盖测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools; cargo test -p kanzei -p kanzei-app -p kanzei-core -p kanzei-harness -p kanzei-memory -p kanzei-tools
+- 摘要: 新 staged 代码下 fmt、kanzei-tools 320 passed/1 ignored，以及原生 Cargo 六 crate 覆盖全部通过：kanzei 37、app 196、core 214、harness 150、memory 142/1 ignored、tools 321/1 ignored。
+- 关联: D-428 D-431
+- 收尾: 1786929643
+- 源码指纹: af090852d5b0dc69
+
+## T-1786922726068 R-280 前端冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 六条前端冒烟全部通过：runtime、lint、parallel-lines、a11y、i18n、markdown；另 ui-connectivity 通过。新增子代理菜单行、回显和 process_update 无运行时错误。
+- 关联: R-280
+- 收尾: 1786930650
+- 源码指纹: af090852d5b0dc69
+
+## T-1786922726069 R-280 Rust 定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core; cargo test -p kanzei-app; cargo test -p kanzei
+- 摘要: fmt 通过；kanzei-core 216 passed；kanzei-app 196 passed；kanzei CLI 38 单测 + 32 集成全部通过。新增 ToolSpec 关闭/开启 task、默认开启和重启回显断言均通过。
+- 关联: R-280
+- 收尾: 1786931191
+- 源码指纹: af090852d5b0dc69
+
+## T-1786922726070 D-428 B3 / R-280 当前 staged 六 crate 覆盖 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei -p kanzei-app -p kanzei-core -p kanzei-harness -p kanzei-memory -p kanzei-tools
+- 摘要: 当前 staged 源码指纹下 fmt 与六 crate 覆盖全部通过：kanzei 38 单测+32集成、app 196、core 216、harness 150、memory 142（1 doc ignored）、tools 320（1 ignored）。R-280 的 CLI/UI/ToolSpec/进程默认回显测试包含在覆盖中。
+- 关联: D-428 R-280
+- 收尾: 1786931483
+- 源码指纹: ca6168a45cf92955
+
+## T-1786922726071 R-281 B1 子代理正文事件与终态 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core; cargo test -p kanzei-app
+- 摘要: R-281 批1后端链路通过：fmt；kanzei-core 217 passed（新增 assistant_message_text 完整文本断言）；kanzei-app 196 passed；编排终态不再使用 lines().next()。
+- 关联: R-281
+- 收尾: 1786932075
+- 源码指纹: ca6168a45cf92955
+
+## T-1786922726072 R-281 B1 前端冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/06-agent-panel.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 六条前端冒烟和 node --check 全部通过：runtime、lint、parallel-lines、a11y、i18n、markdown；正文 Markdown 阅读器与默认折叠改动无运行时错误。
+- 关联: R-281
+- 收尾: 1786932133
+- 源码指纹: 417a8b7549bb2803
+
+## T-1786922726073 R-281 B1 提交前六 crate 覆盖 [passed]
+- 命令: cargo test -p kanzei -p kanzei-app -p kanzei-core -p kanzei-harness -p kanzei-memory -p kanzei-tools
+- 摘要: 当前 staged 源码下六 crate 全部通过：kanzei 38 单测+32集成、kanzei-app 196、kanzei-core 217、kanzei-harness 150、kanzei-memory 142（1 doc-test ignored）、kanzei-tools 321（1 ignored）。
+- 关联: R-281 R-280 D-428
+- 收尾: 1786932362
+- 源码指纹: e4d2b0fa3e52cbab
+
+## T-1786922726074 R-281 B1 提交前逐 crate 六项覆盖 [passed]
+- 命令: cargo test -p kanzei; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-app; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-core; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-harness; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-memory; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-tools
+- 摘要: 逐 crate 门禁覆盖全部通过：kanzei 38 单测+32集成、app 196、core 217、harness 150、memory 142（1 doc-test ignored）、tools 321（1 ignored）。
+- 关联: R-281 R-280 D-428
+- 收尾: 1786932507
+- 源码指纹: e4d2b0fa3e52cbab
+
+## T-1786922726075 R-281 B1 提交前 workspace 全量覆盖 [passed]
+- 命令: cargo test --workspace
+- 摘要: workspace 全量测试通过：kanzei 38+32 集成、kanzei-app 196、kanzei-base 20、kanzei-core 217、kanzei-harness 150、kanzei-llm 52、kanzei-memory 142（1 doc-test ignored）、kanzei-tools 321（1 ignored）。
+- 关联: R-281 R-280 D-428
+- 收尾: 1786932620
+- 源码指纹: e4d2b0fa3e52cbab
+
+## T-1786922726076 R-281 B1 提交前 workspace 覆盖（门禁认领） [passed]
+- 命令: cargo test --workspace
+- 摘要: workspace 全量测试通过，覆盖当前 staged 六 crate 及 kanzei-base、kanzei-llm：无失败，memory doc-test 与 tools ignored 项保持原状。
+- 关联: R-281 R-280 D-428
+- 收尾: 1786932647
+- 源码指纹: e4d2b0fa3e52cbab
+
+## T-1786922726077 R-281 B1 当前 staged workspace 最终覆盖 [passed]
+- 命令: cargo test --workspace
+- 摘要: 在当前 39 文件 staged 集上重跑 workspace 全量通过：kanzei 38+32 集成、app 196、base 20、core 217、harness 150、llm 52、memory 142（1 ignored）、tools 321（1 ignored）。
+- 关联: R-281 R-280 D-428
+- 收尾: 1786932867
+- 源码指纹: e4d2b0fa3e52cbab
+
+## T-1786922726078 D-349 B1 artifact spill 与 git 完整输出定向测试 [passed]
+- 命令: cargo fmt --all -- --check; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-core; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-harness; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-tools
+- 摘要: D-349 B1 定向验证通过：fmt；kanzei-core 219（含 oversized_tool_output_is_externalized_with_recoverable_bytes、artifact_write_failure_is_visible_without_success_reference）；kanzei-harness 150；kanzei-tools 320，1 ignored。
+- 关联: D-349
+- 收尾: 1786934102
+- 源码指纹: e4d2b0fa3e52cbab
+
+## T-1786922726079 D-349 B1 当前 staged workspace 最终覆盖 [passed]
+- 命令: cargo test --workspace
+- 摘要: 当前 44 文件 staged 集的 workspace 全量验证通过：kanzei 38+32 集成、app 196、base 20、core 219、harness 150、llm 52、memory 142（1 doc-test ignored）、tools 321（1 ignored）。
+- 关联: D-349 D-428 R-281 R-280
+- 收尾: 1786934281
+- 源码指纹: c1204453651bb51a
+
+## T-1786922726080 D-349 B1 D-432 修复后最终 workspace 覆盖 [passed]
+- 命令: cargo test --workspace
+- 摘要: D-349 B1/D-432 修复后的最终 staged workspace 覆盖通过：kanzei 38+32 集成、app 196、base 20、core 219、harness 150、llm 52、memory 142（1 ignored）、tools 321（1 ignored）；此前 fmt、memory 定向测试与 workspace clippy 亦通过。
+- 关联: D-349 D-432 D-428 R-281 R-280
+- 收尾: 1786934524
+- 源码指纹: 3eb82d51b113d94a
+
+## T-1786922726081 D-349 B1 当前 staged workspace 覆盖重登记 [passed]
+- 命令: cargo test --workspace
+- 摘要: 重新对当前 45 文件 staged 集执行 workspace：kanzei 38+32 集成、app 196、base 20、core 219、harness 150、llm 52、memory 142（1 ignored）、tools 321（1 ignored）全部通过；用于满足结构化提交门禁的 Rust 覆盖判据。
+- 关联: D-349 D-432 D-428 R-281 R-280
+- 收尾: 1786934735
+- 源码指纹: 3eb82d51b113d94a
+
+## T-1786922726082 git finalize (auto): cargo test -p kanzei && cargo test -p kanzei-app && cargo test -p kanzei-core && cargo test -p kanzei-harness && cargo test -p kanzei-memory && cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei && cargo test -p kanzei-app && cargo test -p kanzei-core && cargo test -p kanzei-harness && cargo test -p kanzei-memory && cargo test -p kanzei-tools
+- 时长: 87.0s
+- 摘要: test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s; test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.70s; test result: ok. 196 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.56s; test result: ok. 219 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 150 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 142 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s; test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s; test result: ok. 320 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 32.24s; test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+- 收尾: 1786934880
+- 源码指纹: 3eb82d51b113d94a

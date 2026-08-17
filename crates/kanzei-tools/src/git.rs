@@ -13,7 +13,6 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(60);
-const MAX_OUTPUT: usize = 1024 * 1024;
 
 #[derive(Deserialize, JsonSchema)]
 struct GitInput {
@@ -769,13 +768,19 @@ fn source_test_gate(project_root: &Path, cwd: &Path, paths: &[String]) -> Result
          cargo check 不算——它编译不了测试目标,R-158 那处被顶掉的 reasoning effort 就是这么漏过去的。",
         if sources.len() > 5 { format!("\n  - …还有 {} 个文件", sources.len() - 5) } else { String::new() }
     );
-    match crate::test_record::last_passed(project_root) {
+    let current_fingerprint = staged_source_fingerprint(cwd).unwrap_or_default();
+    let latest = if current_fingerprint.is_empty() {
+        crate::test_record::last_passed(project_root)
+    } else {
+        crate::test_record::last_passed_for_fingerprint(project_root, &current_fingerprint)
+            .or_else(|| crate::test_record::last_passed(project_root))
+    };
+    match latest {
         None => Err(format!("提交被拦下:没有任何 passed 的测试记录。\n{remedy}")),
         Some((passed_at, coverage, command_text, fingerprint)) => {
             // D-332 验收④:优先比源码指纹——测试记录背书的是「收尾那一刻的暂存源码」。
             // 指纹非空且与当前暂存源码一致 = 背书成立(即使 mtime 因 test_record 自己写
             // tests.md 而变新,源码没变就不要求重测)。指纹为空(旧记录/非 git)时退回 mtime。
-            let current_fingerprint = staged_source_fingerprint(cwd).unwrap_or_default();
             if !fingerprint.is_empty() && !current_fingerprint.is_empty() {
                 if fingerprint != current_fingerprint {
                     return Err(format!(
@@ -1272,10 +1277,7 @@ async fn run_git_owned(cwd: &Path, args: &[String]) -> Result<String, String> {
         }
         text.push_str(&String::from_utf8_lossy(&output.stderr));
     }
-    if text.len() > MAX_OUTPUT {
-        text.truncate(MAX_OUTPUT);
-        text.push_str("\n(output truncated at 1 MiB)");
-    }
+    // D-349:保留完整 stdout/stderr；统一消费出口会在事件提交前物化超限结果。
     if output.status.success() {
         Ok(text.trim_end().to_string())
     } else {
@@ -2353,6 +2355,42 @@ prunable gitdir file points to non-existent location
         match source_test_gate(&root, &root, &["scripts/hello.ps1".to_string()]) {
             Ok(()) => {}
             Err(err) => panic!("非 crate 源码不应被 crate 相关性拦截: {err}"),
+        }
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn source_test_gate_prefers_matching_fingerprint_over_newer_legacy_record() {
+        let root = temp_repo("gate-fingerprint-legacy");
+        let project = root.join(".kanzei").join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let src = root.join("crates/kanzei-tools/src/lib.rs");
+        std::fs::create_dir_all(src.parent().unwrap()).unwrap();
+        std::fs::write(&src, "pub fn x() { let a = 1; }\n").unwrap();
+        git_in(&root, &["add", "crates/kanzei-tools/src/lib.rs"]);
+        git_in(&root, &["commit", "-m", "init"]);
+        std::fs::write(&src, "pub fn x() { let b = 2; }\n").unwrap();
+        git_in(&root, &["add", "crates/kanzei-tools/src/lib.rs"]);
+        let fp = staged_source_fingerprint(&root).unwrap();
+        let now = now_secs();
+        std::fs::write(
+            project.join("tests.md"),
+            format!(
+                "# Test Runs\n\n## T-1786922726036000 legacy frontend [passed]\n- 命令: node scripts/ui-runtime-smoke.mjs\n\n## T-{now} current Rust [passed]\n- 命令: cargo test -p kanzei-tools\n- 收尾: {}\n- 源码指纹: {fp}\n",
+                now - 1
+            ),
+        )
+        .unwrap();
+
+        match source_test_gate(
+            &root,
+            &root,
+            &["crates/kanzei-tools/src/lib.rs".to_string()],
+        ) {
+            Ok(()) => {}
+            Err(error) => {
+                panic!("匹配当前 staged 指纹的 Rust 记录应覆盖旧的无指纹前端记录: {error}")
+            }
         }
         std::fs::remove_dir_all(root).ok();
     }

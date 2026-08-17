@@ -22,9 +22,14 @@ pub struct TaskTrace {
     /// R-174:子代理**累计 token**(StepEnd 逐次累加,面板「累计 token」字段数据源)。
     /// phase == "usage" 的 trace 携带本字段,前端据此刷新计数。
     pub usage: Option<Usage>,
+    /// R-281:子代理 assistant 自己说的话。phase == "text" 时为完整文本，
+    /// 供运行中阅读器实时追加，也让结束态不依赖被截断的 ToolEnd preview。
+    pub text: Option<String>,
 }
 
 /// 面向 UI 的运行事件(CLI/桌面端都消费这一层,不直接碰 LlmEvent)。
+/// R-281:TaskProgress 携带完整 assistant 文本，枚举变体尺寸差异是有意的数据契约。
+#[allow(clippy::large_enum_variant)]
 pub enum RunEvent {
     /// 一轮 provider 调用开始(UI 画轮次分隔)。
     TurnStart {

@@ -219,9 +219,14 @@ fn 勘察复核开关默认关闭() {
         "默认进程的「勘察复核」必须默认关闭(要显式打开才强制走七阶段)"
     );
     assert!(
+        process.subagents_enabled.load(Ordering::SeqCst),
+        "默认进程的「子代理」必须默认开启"
+    );
+    assert!(
         !process_info(&state, &process).phase_pipeline,
         "回显给前端的默认值也必须是关,否则界面勾选框与真实闸门对不上"
     );
+    assert!(process_info(&state, &process).subagents_enabled);
     std::fs::remove_dir_all(&root).ok();
 }
 
@@ -289,6 +294,7 @@ fn process_persist_then_restart_restores_line_state() {
         reasoning: Arc::new(std::sync::Mutex::new(Some("high".into()))),
         manual_models: Arc::new(std::sync::Mutex::new(Vec::new())),
         phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        subagents_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
     };
     persist_process(&canonical, &line).unwrap();
@@ -306,6 +312,7 @@ fn process_persist_then_restart_restores_line_state() {
     assert_eq!(restored.profile.lock().unwrap().as_deref(), Some("dev"));
     assert_eq!(restored.reasoning.lock().unwrap().as_deref(), Some("high"));
     assert!(restored.phase_pipeline_enabled.load(Ordering::SeqCst));
+    assert!(restored.subagents_enabled.load(Ordering::SeqCst));
     assert!(restored.tracker_writes_enabled.load(Ordering::SeqCst));
     drop(processes);
 
@@ -365,6 +372,7 @@ fn repeated_process_restore_does_not_overwrite_live_settings() {
         reasoning: Arc::new(std::sync::Mutex::new(Some("medium".into()))),
         manual_models: Arc::new(std::sync::Mutex::new(Vec::new())),
         phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        subagents_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
     persist_process(&canonical, &stored).unwrap();
@@ -425,6 +433,7 @@ fn process_restore_is_isolated_per_project() {
         reasoning: Arc::new(std::sync::Mutex::new(None)),
         manual_models: Arc::new(std::sync::Mutex::new(Vec::new())),
         phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        subagents_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
     persist_process(&canonical_a, &line).unwrap();

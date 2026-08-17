@@ -111,6 +111,8 @@ pub async fn process_create(
     reasoning: Option<String>,
     // 「勘察复核」开关(阶段流水线总闸)。缺省 = 关,见 `ProcessHandle` 的字段注释。
     phase_pipeline: Option<bool>,
+    // 进程级「子代理」开关。缺省 = 开,保持既有 task 能力。
+    subagents_enabled: Option<bool>,
     // 仅分支线有意义:允许该线更新主根中的唯一 tracker 文档。缺省 = 关。
     tracker_writes: Option<bool>,
     // 给定则同时建一棵工作树并绑到这条线上;缺省(Tauri 对未传的 Option 参数解析为
@@ -127,6 +129,7 @@ pub async fn process_create(
         profile,
         reasoning,
         phase_pipeline,
+        subagents_enabled,
         tracker_writes,
         worktree_name,
         work_item_id,
@@ -192,6 +195,7 @@ pub(crate) async fn create_process(
         profile,
         reasoning,
         phase_pipeline,
+        Some(true),
         None,
         worktree_name,
         None,
@@ -207,6 +211,7 @@ pub(crate) async fn create_process_with_tracker(
     profile: Option<String>,
     reasoning: Option<String>,
     phase_pipeline: Option<bool>,
+    subagents_enabled: Option<bool>,
     tracker_writes: Option<bool>,
     worktree_name: Option<String>,
     work_item_id: Option<String>,
@@ -278,6 +283,7 @@ pub(crate) async fn create_process_with_tracker(
             profile,
             reasoning,
             phase_pipeline,
+            subagents_enabled,
             tracker_writes,
         },
     );
@@ -349,6 +355,7 @@ pub(crate) async fn create_process_with_work_item(
         None,
         None,
         Some(false),
+        Some(true),
         Some(false),
         Some(worktree_name),
         Some(work_item_id),
@@ -369,6 +376,8 @@ pub fn process_update(
     manual_models: Option<Vec<String>>,
     // 「勘察复核」开关(阶段流水线总闸),见 `ProcessHandle` 的字段注释。
     phase_pipeline: Option<bool>,
+    // 进程级「子代理」开关；关闭后 task 不进入工具面。
+    subagents_enabled: Option<bool>,
     tracker_writes: Option<bool>,
 ) -> Result<ProcessInfo, String> {
     let process = state
@@ -396,6 +405,11 @@ pub fn process_update(
         process
             .phase_pipeline_enabled
             .store(phase_pipeline, Ordering::SeqCst);
+    }
+    if let Some(subagents_enabled) = subagents_enabled {
+        process
+            .subagents_enabled
+            .store(subagents_enabled, Ordering::SeqCst);
     }
     if let Some(tracker_writes) = tracker_writes {
         process
@@ -452,6 +466,7 @@ pub(crate) async fn close_process(
         process
             .phase_pipeline_enabled
             .store(false, Ordering::SeqCst);
+        process.subagents_enabled.store(true, Ordering::SeqCst);
         process
             .tracker_writes_enabled
             .store(false, Ordering::SeqCst);

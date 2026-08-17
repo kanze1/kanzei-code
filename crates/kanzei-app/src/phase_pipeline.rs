@@ -348,7 +348,7 @@ impl PhasePipeline {
                             false,
                         ),
                     };
-                    let preview = text.lines().next().unwrap_or("").to_string();
+                    let preview = text.clone();
                     reports.lock().unwrap().push(RoleReport { role, text, ok });
                     // 角色自己的 future 一返回就发 ToolEnd。TaskCancellationGuard 也在
                     // 此刻释放,因此终态事件必须先于屏障收尾,否则 UI 会把已不可取消的
@@ -410,7 +410,7 @@ impl PhasePipeline {
             let report = reports.iter().find(|r| r.role == *role);
             let ok = report.map(|r| r.ok).unwrap_or(false);
             let preview = report
-                .map(|r| r.text.lines().next().unwrap_or("").to_string())
+                .map(|r| r.text.clone())
                 .unwrap_or_else(|| "(超时,未产出结果)".into());
             on_event(RunEvent::ToolEnd {
                 id: role.to_string(),

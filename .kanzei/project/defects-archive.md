@@ -5234,3 +5234,46 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786925519947
 - 关闭结论: 工程修复与回归证据已齐，用户接受剩余人工体验验证为非阻塞，按 fixed 归档。
+
+## D-430 D-430 workspace clippy 基线与新增 checkpoint lint 阻断提交 [fixed] (medium)
+- 复现: D-428 提交前运行 `cargo clippy --workspace --all-targets -- -D warnings` 时，基线文件 crates/kanzei-core/src/store/mobile_devices.rs:82 报 unused import，crates/kanzei-harness/src/defs.rs:105 报 assertions-on-constants；本批 crates/kanzei-tools/src/memory_consolidation.rs:67 报 too_many_arguments。
+- 影响: workspace clippy 门禁失败，Rust 提交无法通过；其中两项来自既有基线，本批一项来自新增共享 checkpoint 边界。
+- 期望: 清理两项基线 lint，并将本批 checkpoint API 调整为符合 clippy 的边界；重新运行 check/fmt/clippy 全部通过。
+- 来源: self-found：D-428 提交前 workspace check 与 clippy 门禁
+- 标签: 流程
+- 根因: 既有测试代码保留了无用 glob import 和运行时常量断言；新 checkpoint helper 使用 8 个参数。
+- refs: D-428
+- 优先级: P1
+- 进展: 已修复并验证：crates/kanzei-core/src/store/mobile_devices.rs:82 移除无用 `super::*`；crates/kanzei-harness/src/defs.rs:105 改为 const assertion；crates/kanzei-tools/src/memory_consolidation.rs:67 增加有理由的 checkpoint 边界 lint 例外。T-1786922726052 证明 fmt、cargo check --workspace --all-targets、cargo clippy --workspace --all-targets -- -D warnings 全部通过。
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:57f7577abdb72b42
+- recorded_at: 1786927192793
+
+## D-431 D-431 test_record last_passed 混用毫秒 ID 与秒级收尾导致 Rust 提交门禁选错证据 [fixed] (high)
+- 复现: 提交 Rust 源码时，tests-archive.md 中旧记录 T-1786922726036 没有「收尾」字段，last_passed 回退使用 13 位测试 ID；新 test_record 的「收尾」使用 10 位 epoch 秒。因未统一单位，旧前端记录被判定比新 T-1786922726055 更新，git commit 门禁持续选择前端 smoke，拒绝覆盖 kanzei、kanzei-app、kanzei-core、kanzei-harness、kanzei-memory、kanzei-tools 的 Rust 测试记录。
+- 影响: 即使当前源码已通过六 crate 测试且 T-1786922726055 带正确源码指纹，提交门禁仍无法识别 Rust 覆盖证据，D-428 无法提交。
+- 期望: last_passed 对缺失「收尾」的历史记录使用与当前收尾一致的 epoch 秒单位后再比较；历史 ID 毫秒值不得压过新的收尾时间。补充回归测试覆盖混合旧 ID/新收尾记录。
+- 来源: self-found：D-428 提交门禁连续拒绝 T-1786922726053～T-1786922726055
+- 标签: 流程
+- 根因: test_record::last_passed 将旧记录 ID（毫秒级）与新记录收尾字段（秒级）直接比较。
+- refs: D-428
+- 优先级: P0
+- 进展: 已修复并验证：crates/kanzei-tools/src/test_record.rs:749-766 的 record_finished_at 优先读取秒级「收尾」，历史无收尾时将 13 位毫秒 ID 除以 1000；crates/kanzei-tools/src/test_record.rs:1471-1490 的 last_passed_normalizes_legacy_millisecond_id_before_comparing 覆盖旧前端记录与新 Rust 记录混排。T-1786922726057：fmt 与 kanzei-tools 318 passed、1 ignored。
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:d92893a3ad0b3ee4
+- recorded_at: 1786928101678
+- 关闭结论: 验收：①混合历史记录排序：crates/kanzei-tools/src/test_record.rs:749-766 统一毫秒 ID 与秒级收尾，旧 T-1786922726036 不再压过新记录；②回归测试：crates/kanzei-tools/src/test_record.rs:1471-1490 断言最新覆盖为 kanzei-tools 且保留源码指纹；③自动验证：T-1786922726057。
+
+## D-432 kanzei-memory 公共入口 Err 变体过大阻断 workspace clippy [fixed] (medium)
+- 复现: 对当前 D-349 B1 staged 集执行结构化提交门禁的 cargo clippy --workspace -- -D warnings，在 crates/kanzei-memory/src/lib.rs:32 报 the Err-variant returned from this function is very large。
+- 影响: workspace clippy 门禁失败，D-349 B1 无法提交；运行时功能尚未被证明错误，但提交质量闸无法通过。
+- 来源: self-found：D-349 B1 提交门禁。
+- 标签: 流程
+- 根因: kanzei-memory 公共入口 Result 的错误类型含大型结构，未在边界处做装箱或局部 clippy 处理。
+- 进展: 已修复并验证：crates/kanzei-memory/src/lib.rs:26-35 与 crates/kanzei-tools/src/lib.rs:73-80 的两个 parse_input 边界均保留 ToolOutput 完整错误契约并加入局部 clippy::result_large_err 例外；未改变调用方错误值或错误码。验收对账：①clippy warning 已消除，证据为 cargo clippy --workspace -- -D warnings 通过；②kanzei-memory 定向测试 142 passed、1 doc-test ignored；③workspace 最终覆盖 T-1786922726080 通过（kanzei 38+32、app 196、base 20、core 219、harness 150、llm 52、memory 142/1 ignored、tools 321/1 ignored）。
+- 验收: 消除该 clippy warning；kanzei-memory 定向测试与 workspace clippy 通过；不改变公开错误语义。
+- refs: D-349
+- 优先级: P1
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:907983d54aa63911
+- recorded_at: 1786934614027

@@ -449,6 +449,19 @@ fn event_input_path(event: &RunEvent) -> Option<String> {
     }
 }
 
+fn assistant_message_text(message: &Message) -> Option<String> {
+    let text = message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            kanzei_llm::Part::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    (!text.is_empty()).then_some(text)
+}
+
 /// 跑一个子代理:独立的只读快照 + 空历史,结果文本即 tool result。
 /// 子代理内 ask 一律 Deny(无人应答);run_once 递归经 dyn Box 断开无限类型。
 /// 内部轮次/工具事件折叠成 TaskProgress 经 progress 通道上抛(UI 实时可见)。
@@ -511,6 +524,7 @@ pub(crate) async fn run_subagent(
             } else {
                 format!("第 {step} 轮")
             }),
+            RunEvent::AssistantMessageCommitted { message, .. } => assistant_message_text(message),
             RunEvent::ToolStart { name, summary, .. } => {
                 let head: String = summary.chars().take(80).collect();
                 Some(format!("{name} {head}"))
@@ -546,6 +560,7 @@ pub(crate) async fn run_subagent(
                 // R-174:完整入参原文进 trace,面板/transcript 可展开复核「到底拿什么调的」。
                 input: Some(input),
                 usage: None,
+                text: None,
             }),
             RunEvent::ToolEnd {
                 id,
@@ -567,6 +582,7 @@ pub(crate) async fn run_subagent(
                 display,
                 input: None,
                 usage: None,
+                text: None,
             }),
             // R-174:子代理每轮 StepEnd 累计 token,以 phase="usage" 的 trace 上抛,
             // 前端据此刷新「累计 token」字段(transcript/面板共用同一数据源)。
@@ -588,11 +604,25 @@ pub(crate) async fn run_subagent(
                     display: None,
                     input: None,
                     usage: Some(total_usage),
+                    text: None,
                 })
             }
-            RunEvent::AssistantMessageCommitted { .. } | RunEvent::ToolResultsCommitted { .. } => {
-                None
-            }
+            RunEvent::AssistantMessageCommitted { message, .. } => assistant_message_text(&message)
+                .map(|text| TaskTrace {
+                    child_id: parent_call_id.to_string(),
+                    phase: "text".into(),
+                    name: "assistant".into(),
+                    summary: None,
+                    ok: None,
+                    outcome: None,
+                    code: None,
+                    preview: None,
+                    display: None,
+                    input: None,
+                    usage: None,
+                    text: Some(text),
+                }),
+            RunEvent::ToolResultsCommitted { .. } => None,
             _ => None,
         };
         if let Some(text) = text {
@@ -729,6 +759,7 @@ pub(crate) async fn run_subagent(
                             display: None,
                             input: None,
                             usage: None,
+                            text: None,
                         }),
                     });
                     Attempt::Fatal(kanzei_harness::ToolOutput::error(format!(
@@ -878,8 +909,30 @@ pub async fn run_read_agent(
 
 #[cfg(test)]
 mod tests {
-    use super::TaskCancellations;
+    use super::{assistant_message_text, TaskCancellations};
+    use kanzei_llm::{Message, Part};
     use std::sync::Arc;
+
+    #[test]
+    fn assistant_message_text_keeps_full_text_parts() {
+        let message = Message::assistant(vec![
+            Part::Text {
+                text: "第一段\n".into(),
+            },
+            Part::ToolCall {
+                id: "tool-1".into(),
+                name: "read".into(),
+                input: serde_json::json!({"path": "src/lib.rs"}),
+            },
+            Part::Text {
+                text: "第二段".into(),
+            },
+        ]);
+        assert_eq!(
+            assistant_message_text(&message).as_deref(),
+            Some("第一段\n第二段")
+        );
+    }
 
     #[test]
     fn cancellation_guard_drop_清理注册表且终态停止返回未运行() {

@@ -170,7 +170,7 @@ function agentStart(id, name, summary, input, sessionId = activeSessionId) {
   el.append(title, prog, meta, actions, detail);
   const entry = {
     el, title, target, prog, meta, actions, detail, phase, name,
-    calls: new Map(), tokens: 0, currentTool: "", startedAt: Date.now(), state: "running", sessionId,
+    calls: new Map(), messages: [], tokens: 0, currentTool: "", startedAt: Date.now(), state: "running", sessionId,
   };
   agentEntries.set(id, entry);
   $("agent-running").appendChild(el);
@@ -202,6 +202,15 @@ function agentProgress(id, text, trace) {
     agentTick(entry);
     return;
   }
+  if (trace.phase === "text") {
+    const text = String(trace.text ?? "");
+    if (text.trim()) {
+      entry.messages.push(text);
+      renderAgentTranscript(entry);
+    }
+    if (entry.state === "running") agentTick(entry);
+    return;
+  }
   agentSetCurrentTool(entry, trace.name, trace.phase === "start");
   let call = entry.calls.get(trace.child_id);
   if (trace.phase === "start") {
@@ -219,11 +228,17 @@ function agentProgress(id, text, trace) {
   if (entry.state === "running") agentTick(entry);
 }
 
-// transcript:该子代理内部每次工具调用的 名称 + 入参 + 输出,按发生顺序渲染。
+// transcript:子代理自己的文字消息 + 每次工具调用,按各自数据源可回看。
 function renderAgentTranscript(entry) {
   const detail = entry.detail;
-  // 重建:调用序列有新增/终结时整体重画(频率低,一次 task-progress 一批)。
-  detail.querySelectorAll(".agent-call").forEach((node) => node.remove());
+  // 重建:调用序列或正文有新增时整体重画(频率低,一次 task-progress 一批)。
+  detail.querySelectorAll(".agent-message, .agent-call").forEach((node) => node.remove());
+  for (const text of entry.messages) {
+    const message = document.createElement("div");
+    message.className = "agent-message md";
+    message.innerHTML = renderMarkdown(text);
+    detail.appendChild(message);
+  }
   for (const call of entry.calls.values()) {
     const row = document.createElement("div");
     row.className = "agent-call";
@@ -240,9 +255,9 @@ function renderAgentTranscript(entry) {
     }
     detail.appendChild(row);
   }
-  detail.classList.remove("hidden");
-  entry.el.classList.add("has-detail");
-  if (detail.children.length) entry.title.setAttribute("aria-expanded", "true");
+  // 工具和正文都默认折叠；用户点标题或「打开」才展开。
+  if (detail.children.length) entry.el.classList.add("has-detail");
+  if (detail.children.length) entry.title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
 }
 
 function agentEnd(id, ok, preview, display) {

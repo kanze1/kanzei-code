@@ -72,6 +72,7 @@ pub(crate) fn usage_text() -> &'static str {
     "usage: kz run \"<prompt>\"\n\
        kz run --new \"<prompt>\"  # 丢弃当前会话上下文并从新会话开始\n\
        kz run --readonly \"<prompt>\"  # 只读档位:读/检索放行,写与命令硬拒绝\n\
+       kz run --no-subagents \"<prompt>\"  # 关闭本次 CLI 运行的 task 子代理工具（默认开启）\n\
        kz replay-eval [--limit N]     # 六臂回放评估:历史 run.trace 提取 case,fake 档真调\n\
        kz work next [--requirement-first]  # 结构化取活裁决\n\
        kz work claim <id> [--reason <text>] # 原子占用 selected；覆盖时理由必填\n\
@@ -111,6 +112,8 @@ pub(crate) struct RunArgs {
     /// R-238 ②:从 UTF-8 文件读取 prompt(大文本交付正门,不进命令行参数)。
     /// 与位置参数 prompt 互斥;可与 --new/--readonly/--allow 组合。
     pub(crate) prompt_file: Option<std::path::PathBuf>,
+    /// 进程级子代理开关,默认开启；`--no-subagents` 时不注册 task。
+    pub(crate) subagents_enabled: bool,
 }
 
 pub(crate) const PROJECT_ROOT_FLAG: &str = "--project-root";
@@ -121,6 +124,7 @@ pub(crate) const PROMPT_FILE_FLAG: &str = "--prompt-file";
 pub(crate) fn parse_run_args(args: &[String]) -> RunArgs {
     let new_session = args.iter().any(|arg| arg == "--new");
     let readonly = args.iter().any(|arg| arg == "--readonly");
+    let subagents_enabled = !args.iter().any(|arg| arg == "--no-subagents");
     let mut project_root = None;
     let mut allow: Vec<String> = Vec::new();
     let mut prompt_file = None;
@@ -129,7 +133,7 @@ pub(crate) fn parse_run_args(args: &[String]) -> RunArgs {
     while index < args.len() {
         let arg = args[index].as_str();
         match arg {
-            "--new" | "--readonly" => {}
+            "--new" | "--readonly" | "--no-subagents" => {}
             PROJECT_ROOT_FLAG => {
                 // 取值并连同 flag 一起吃掉;缺值时只吃 flag(后面的 resolve 会
                 // 按发现式取根,不会把 "--project-root" 当提示词发出去)。
@@ -168,6 +172,7 @@ pub(crate) fn parse_run_args(args: &[String]) -> RunArgs {
         prompt: words.join(" "),
         allow,
         prompt_file,
+        subagents_enabled,
     }
 }
 
@@ -443,6 +448,7 @@ mod tests {
             prompt: prompt.to_string(),
             allow: Vec::new(),
             prompt_file: None,
+            subagents_enabled: true,
         }
     }
 
@@ -496,6 +502,7 @@ mod tests {
     fn usage_lists_readonly_mode() {
         let usage = usage_text();
         assert!(usage.contains("--readonly"));
+        assert!(usage.contains("--no-subagents"));
         assert!(usage.contains("KANZEI_PROFILE=dev|research|readonly"));
         assert!(usage.contains("KANZEI_AGENT=dev|dev-pair|research|readonly"));
     }
@@ -512,6 +519,14 @@ mod tests {
         let args = strings(&["--readonly", "分析", "代码"]);
         assert_eq!(parse_run_args(&args), run_args(false, true, "分析 代码"));
     }
+    #[test]
+    fn no_subagents_flag_is_parsed_and_stripped_from_prompt() {
+        let args = strings(&["--no-subagents", "只做", "实现"]);
+        let parsed = parse_run_args(&args);
+        assert!(!parsed.subagents_enabled);
+        assert_eq!(parsed.prompt, "只做 实现");
+    }
+
     #[test]
     fn halted_run_uses_nonzero_exit_code_but_completed_run_stays_zero() {
         assert_eq!(cli_exit_code(true), 3);

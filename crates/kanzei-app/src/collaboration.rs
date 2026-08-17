@@ -493,6 +493,7 @@ mod tests {
             reasoning: Arc::new(Mutex::new(None)),
             manual_models: Arc::new(Mutex::new(Vec::new())),
             phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
+            subagents_enabled: Arc::new(AtomicBool::new(true)),
             tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
         };
         state

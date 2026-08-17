@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// 工具终态的机器可读分类。
@@ -182,6 +183,16 @@ pub struct ToolImage {
     pub data: String,
 }
 
+/// Durable 原文外置后的引用。内容本身不再放进事件/模型消息，只保留可回读元数据。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolArtifact {
+    pub artifact_id: String,
+    pub relative_path: String,
+    pub bytes: u64,
+    pub sha256: String,
+    pub retrieval_hint: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ToolOutput {
     pub content: String,
@@ -197,6 +208,8 @@ pub struct ToolOutput {
     /// 投递形态是「同一条 tool_results 消息里,ToolResult 之后追加 Part::Image」——
     /// 协议层已有通用 Image 映射(anthropic/openai/openai_responses),无需改协议。
     pub images: Vec<ToolImage>,
+    /// D-349:大结果完整原文写入 durable artifact 后的可恢复引用。
+    pub artifact: Option<ToolArtifact>,
 }
 
 impl ToolOutput {
@@ -208,6 +221,7 @@ impl ToolOutput {
             code: None,
             display: None,
             images: Vec::new(),
+            artifact: None,
         }
     }
 
@@ -219,6 +233,7 @@ impl ToolOutput {
             code: None,
             display: None,
             images: Vec::new(),
+            artifact: None,
         }
     }
 
@@ -242,6 +257,7 @@ impl ToolOutput {
             code: Some(code),
             display: None,
             images: Vec::new(),
+            artifact: None,
         }
     }
 
@@ -255,6 +271,7 @@ impl ToolOutput {
             code: Some(code),
             display: None,
             images: Vec::new(),
+            artifact: None,
         }
     }
 

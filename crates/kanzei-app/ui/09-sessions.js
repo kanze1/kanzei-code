@@ -465,6 +465,7 @@ function renderProcesses(items) {
   }
   // 「勘察复核」= 阶段流水线总闸,默认关(后端 ProcessInfo.phase_pipeline 同默认)。
   $("process-phase-pipeline").checked = active?.phase_pipeline ?? false;
+  $("process-subagents").checked = active?.subagents_enabled ?? true;
   // 分支线写主根 tracker 必须由用户显式打开；默认线直接写主根，不展示无意义开关。
   const trackerWrap = $("process-tracker-writes-wrap");
   const trackerToggle = $("process-tracker-writes");
@@ -601,6 +602,19 @@ $("process-phase-pipeline").addEventListener("change", async (event) => {
     toastError(`${t("更新进程能力失败")}:${err}`);
   }
   renderAutoStatus();
+});
+
+$("process-subagents").addEventListener("change", async (event) => {
+  if (!activeProcessId) return;
+  try {
+    await queueProcessUpdate(activeProcessId, { subagentsEnabled: event.target.checked });
+    updateLocalProcessItem(activeProcessId, { subagents_enabled: event.target.checked });
+    await refreshProcesses();
+    log(event.target.checked ? t("子代理已开启") : t("子代理已关闭:新一轮工具面不含 task"));
+  } catch (err) {
+    event.target.checked = !event.target.checked;
+    toastError(`${t("更新进程能力失败")}:${err}`);
+  }
 });
 
 $("process-tracker-writes").addEventListener("change", async (event) => {

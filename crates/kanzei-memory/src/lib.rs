@@ -25,7 +25,9 @@ pub use kanzei_base::atomic_file;
 
 /// 工具输入解析的公共入口:serde 失败时返回纠错反馈而不是崩溃。
 /// 原 tools lib.rs 同名函数复制(R-203 破环:memory 的 manager/tools 用它解析
-/// 工具输入,不能反向依赖 kanzei-tools)。
+/// 工具输入,不能反向依赖 kanzei-tools)。ToolOutput 是统一的纠错回馈契约，
+/// 此处保留完整错误值而不改变调用方错误语义。
+#[allow(clippy::result_large_err)]
 pub(crate) fn parse_input<T: serde::de::DeserializeOwned>(
     tool: &dyn kanzei_harness::Tool,
     input: serde_json::Value,

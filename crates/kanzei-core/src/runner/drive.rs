@@ -1496,6 +1496,34 @@ struct RunOnceAssembly<'a> {
 /// - baseline 进 Context Epoch,refreshable_baseline 每步在调用方刷新;
 /// - messages 先经 filter_message_history 清洗孤儿工具 part,再装载用户消息;
 /// - halted 闭包与 config.halt 生命周期耦合,留在调用方构造。
+///
+/// R-173/R-280:task 只在子代理运行时存在时加入工具面。把判定抽成纯函数，
+/// 让「关闭即不注册」成为可直接断言的构造层契约，而不是注册后再拒绝。
+fn append_subagent_spec(specs: &mut Vec<ToolSpec>, subagents_enabled: bool) {
+    if subagents_enabled {
+        specs.push(task_spec());
+    }
+}
+
+#[cfg(test)]
+mod subagent_tool_surface_tests {
+    use super::*;
+
+    #[test]
+    fn disabled_subagents_do_not_add_task_to_tool_specs() {
+        let mut specs = Vec::new();
+        append_subagent_spec(&mut specs, false);
+        assert!(specs.iter().all(|spec| spec.name != "task"));
+    }
+
+    #[test]
+    fn enabled_subagents_add_task_to_tool_specs() {
+        let mut specs = Vec::new();
+        append_subagent_spec(&mut specs, true);
+        assert!(specs.iter().any(|spec| spec.name == "task"));
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // 内部段函数,不对外暴露签名(R-202)。
 fn assemble_run_once<'a>(
     snapshot: &HarnessSnapshot,
@@ -1517,26 +1545,7 @@ fn assemble_run_once<'a>(
             input_schema: t.input_schema(),
         })
         .collect();
-    if subagent.is_some() {
-        // R-173 批4.5:task 注册**不再受执行策略门控**。
-        //
-        // 为什么这样安全:只读子代理产不出写入,这是**构造层面**的事实,不靠运行时
-        // 判断——`kanzei_tools::SubagentBase` 只 insert read/glob/grep 三个工具
-        // (`crates/kanzei-tools/src/subagent.rs`),子代理快照里根本不存在写工具;
-        // 且子代理内 `ask` 恒 Deny(见 `runner/subagent.rs` 的 run_subagent),
-        // 无人应答的权限询问也不可能被放行。所以 writer 阶段跑 task 破坏不了单写语义。
-        //
-        // 串行强制**不动**:它只作用于普通工具,在下面那条独立分支上
-        // (`let serial_writer = config.execution_policy.is_serial_writer()`),
-        // task 从来不走那条路——同轮的 task 调用在更上面的块里先行结算。
-        //
-        // R-171 曾把注册挂在 `!is_serial_writer()` 上,而桌面端主对话无条件设
-        // ReadParallelWriteSerial,结果是主对话根本不注册 task、「并行查」被整个
-        // 关掉、读槽登记代码不可达。口径修订与完整论证见
-        // `docs/design/parallel_read_serial_write_orchestration.md` 的
-        // 「阶段契约」表下「2026-08-10 口径修订(implementation 阶段的 task)」一节。
-        specs.push(task_spec());
-    }
+    append_subagent_spec(&mut specs, subagent.is_some());
 
     // system 分块:agent 提示词 + harness baseline(M2 起 baseline 进 Context Epoch)。
     let (baseline, mut context_report) = snapshot.stable_system_baseline_with_report();

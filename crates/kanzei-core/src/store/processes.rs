@@ -20,6 +20,7 @@ pub struct StoredProcess {
     /// 前端下拉的「手填」候选从后端读,不再以 localStorage 为真源。
     pub manual_models: Vec<String>,
     pub phase_pipeline: bool,
+    pub subagents_enabled: bool,
     pub tracker_writes_enabled: bool,
     pub updated_at: i64,
 }
@@ -31,8 +32,8 @@ impl SessionStore {
         self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
-                  model, profile, reasoning, manual_models, phase_pipeline, tracker_writes_enabled, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                  model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(process_id) DO UPDATE SET
                  origin_project = excluded.origin_project,
                  project_dir = excluded.project_dir,
@@ -42,6 +43,7 @@ impl SessionStore {
                  reasoning = excluded.reasoning,
                  manual_models = excluded.manual_models,
                  phase_pipeline = excluded.phase_pipeline,
+                 subagents_enabled = excluded.subagents_enabled,
                  tracker_writes_enabled = excluded.tracker_writes_enabled,
                  updated_at = excluded.updated_at",
             params![
@@ -54,6 +56,7 @@ impl SessionStore {
                 process.reasoning,
                 manual_models,
                 process.phase_pipeline,
+                process.subagents_enabled,
                 process.tracker_writes_enabled,
                 process.updated_at,
             ],
@@ -76,8 +79,8 @@ impl SessionStore {
         let affected = self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
-                  model, profile, reasoning, manual_models, phase_pipeline, tracker_writes_enabled, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                  model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(process_id) DO NOTHING",
             params![
                 process.process_id,
@@ -89,6 +92,7 @@ impl SessionStore {
                 process.reasoning,
                 manual_models,
                 process.phase_pipeline,
+                process.subagents_enabled,
                 process.tracker_writes_enabled,
                 process.updated_at,
             ],
@@ -100,7 +104,7 @@ impl SessionStore {
     pub fn list_processes(&self, origin_project: &str) -> Result<Vec<StoredProcess>, StoreError> {
         let mut stmt = self.connection.prepare(
             "SELECT process_id, origin_project, project_dir, worktree_path,
-                    model, profile, reasoning, manual_models, phase_pipeline, tracker_writes_enabled, updated_at
+                    model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at
              FROM processes WHERE origin_project = ?1 ORDER BY process_id",
         )?;
         let rows = stmt.query_map(params![origin_project], |row| {
@@ -115,8 +119,9 @@ impl SessionStore {
                 manual_models: serde_json::from_str(row.get::<_, String>(7)?.as_str())
                     .unwrap_or_default(),
                 phase_pipeline: row.get::<_, i64>(8)? != 0,
-                tracker_writes_enabled: row.get::<_, i64>(9)? != 0,
-                updated_at: row.get(10)?,
+                subagents_enabled: row.get::<_, i64>(9)? != 0,
+                tracker_writes_enabled: row.get::<_, i64>(10)? != 0,
+                updated_at: row.get(11)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -157,7 +162,7 @@ impl SessionStore {
         self.connection
             .query_row(
                 "SELECT process_id, origin_project, project_dir, worktree_path,
-                        model, profile, reasoning, manual_models, phase_pipeline, tracker_writes_enabled, updated_at
+                        model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at
                  FROM processes WHERE process_id = ?1",
                 params![process_id],
                 |row| {
@@ -172,8 +177,9 @@ impl SessionStore {
                         manual_models: serde_json::from_str(row.get::<_, String>(7)?.as_str())
                             .unwrap_or_default(),
                         phase_pipeline: row.get::<_, i64>(8)? != 0,
-                        tracker_writes_enabled: row.get::<_, i64>(9)? != 0,
-                        updated_at: row.get(10)?,
+                        subagents_enabled: row.get::<_, i64>(9)? != 0,
+                        tracker_writes_enabled: row.get::<_, i64>(10)? != 0,
+                        updated_at: row.get(11)?,
                     })
                 },
             )
@@ -198,6 +204,7 @@ mod tests {
             reasoning: Some("high".into()),
             manual_models: vec!["deepseek:deepseek-chat".into()],
             phase_pipeline: true,
+            subagents_enabled: true,
             tracker_writes_enabled: true,
             updated_at: 42,
         }

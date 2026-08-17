@@ -357,6 +357,7 @@ mod assembly_tests {
             display: None,
             input: None,
             usage: None,
+            text: None,
         };
         assert_eq!(
             super::subagent_round_tool(&trace("end", "edit")),

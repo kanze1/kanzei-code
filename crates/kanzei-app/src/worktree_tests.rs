@@ -520,6 +520,7 @@ async fn 落库失败时worktree被回收_不留半绑定态() {
             reasoning: None,
             manual_models: Vec::new(),
             phase_pipeline: false,
+            subagents_enabled: true,
             tracker_writes_enabled: false,
             updated_at: 1,
         })
@@ -1780,6 +1781,7 @@ async fn 编号看库_不覆盖库里既有行的worktree_path() {
                 reasoning: None,
                 manual_models: Vec::new(),
                 phase_pipeline: true,
+                subagents_enabled: true,
                 tracker_writes_enabled: false,
                 updated_at: 1,
             })

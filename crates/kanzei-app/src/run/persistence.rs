@@ -188,10 +188,16 @@ pub(crate) fn persist_round_outcome(
                 // 轮末记忆整理(R-105):独立任务消化 inbox 草稿,不阻塞完成事件。
                 // 传**主根**:记忆是主根一份的资产,而 project_dir 线上线后是 worktree,
                 // 传它会让 memory 内部的发现式取根拐进分支副本(R-177 内容⑧同一条判据)。
-                tauri::async_runtime::spawn(memory::consolidate_memory_inbox(
-                    ctx.project_root.display().to_string(),
-                    current_episode_id,
-                ));
+                let project_dir = ctx.project_root.display().to_string();
+                tauri::async_runtime::spawn(async move {
+                    match memory::consolidate_memory_inbox(project_dir, current_episode_id).await {
+                        Ok(report) if report.has_failures() => {
+                            tracing::warn!("{}", report.summary());
+                        }
+                        Ok(report) => tracing::debug!("{}", report.summary()),
+                        Err(error) => tracing::warn!("memory inbox consolidation failed: {error}"),
+                    }
+                });
                 // D-341/R-195:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
                 // 自动 promote,超期未处置的自动 deprecated 归档,其余保持 candidate。
                 // 与 inbox 消化解耦(没有草稿也要跑)且机械判定不走 LLM;失败不阻塞收尾。

@@ -382,6 +382,8 @@ pub(crate) fn build_event_handler(
                         "preview": item.preview,
                         "display": item.display,
                         "input": item.input,
+                        "usage": item.usage,
+                        "text": item.text,
                     })),
                 });
                 let stored_payload = match &task_trace {
@@ -404,6 +406,8 @@ pub(crate) fn build_event_handler(
                                     text.chars().take(TRACE_INPUT_KEEP_CHARS).collect();
                                 json!(kept)
                             }),
+                            "usage": item.usage,
+                            "text": item.text,
                         }),
                     }),
                     None => ui_payload.clone(),

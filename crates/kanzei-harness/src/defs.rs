@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn 零轮数使用有限默认上限() {
         assert_eq!(effective_agent_steps(0), DEFAULT_AGENT_STEPS);
-        assert!(DEFAULT_AGENT_STEPS > 0);
+        const { assert!(DEFAULT_AGENT_STEPS > 0) };
     }
 
     #[test]

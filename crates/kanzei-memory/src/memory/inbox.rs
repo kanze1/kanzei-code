@@ -13,10 +13,113 @@ use std::path::PathBuf;
 
 use super::store::MemoryStore;
 use super::today;
+use serde::{Deserialize, Serialize};
+
+/// One bounded slice of the inbox sent to a single manager run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InboxBatch {
+    pub text: String,
+    pub note_count: usize,
+    pub bytes: usize,
+    pub estimated_tokens: usize,
+}
+
+/// Crash-recoverable progress for the last inbox batch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InboxCheckpoint {
+    pub batch_id: String,
+    pub status: String,
+    pub input_notes: usize,
+    pub input_bytes: usize,
+    pub success_notes: usize,
+    pub pending_after: usize,
+    pub failure_reason: Option<String>,
+    pub updated_at_ms: u64,
+}
+
+fn inbox_note_blocks(text: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut current = String::new();
+    for line in text.lines() {
+        if line.starts_with("## note ") && !current.is_empty() {
+            blocks.push(std::mem::take(&mut current));
+        }
+        if line.starts_with("## note ") || !current.is_empty() {
+            current.push_str(line);
+            current.push('\n');
+        }
+    }
+    if !current.is_empty() {
+        blocks.push(current);
+    }
+    blocks
+}
 
 impl MemoryStore {
     pub fn read_inbox(&self) -> String {
         std::fs::read_to_string(self.root.join("inbox.md")).unwrap_or_default()
+    }
+
+    /// Read the oldest notes under all three manager-run budgets.
+    ///
+    /// The first note is always admitted even when it exceeds a budget, so a
+    /// single oversized note cannot permanently starve the queue. Successful
+    /// manager runs discard individual notes; the next call therefore resumes
+    /// from the first remaining note without relying on a fragile byte cursor.
+    pub fn read_inbox_batch(
+        &self,
+        max_notes: usize,
+        max_bytes: usize,
+        max_tokens: usize,
+    ) -> Option<InboxBatch> {
+        let _lock = self.tree_lock().ok()?;
+        let text = std::fs::read_to_string(self.root.join("inbox.md")).ok()?;
+        let mut selected = Vec::new();
+        let mut bytes = 0;
+        let mut estimated_tokens = 0;
+        for block in inbox_note_blocks(&text) {
+            let separator_bytes = usize::from(!selected.is_empty());
+            let block_bytes = block.len();
+            let block_tokens = block.chars().count().div_ceil(4).max(1);
+            let separator_tokens = usize::from(!selected.is_empty());
+            let over_budget = !selected.is_empty()
+                && (selected.len() >= max_notes.max(1)
+                    || bytes + separator_bytes + block_bytes > max_bytes.max(1)
+                    || estimated_tokens + separator_tokens + block_tokens > max_tokens.max(1));
+            if over_budget {
+                break;
+            }
+            bytes += separator_bytes + block_bytes;
+            estimated_tokens += separator_tokens + block_tokens;
+            selected.push(block);
+        }
+        if selected.is_empty() {
+            return None;
+        }
+        Some(InboxBatch {
+            text: selected.join("\n"),
+            note_count: selected.len(),
+            bytes,
+            estimated_tokens,
+        })
+    }
+
+    fn inbox_checkpoint_path(&self) -> PathBuf {
+        self.root.join("inbox.checkpoint.json")
+    }
+
+    pub fn write_inbox_checkpoint(&self, checkpoint: &InboxCheckpoint) -> anyhow::Result<()> {
+        let _lock = self.tree_lock()?;
+        let text = serde_json::to_string_pretty(checkpoint)? + "\n";
+        Ok(crate::atomic_file::write_atomic(
+            &self.inbox_checkpoint_path(),
+            &text,
+        )?)
+    }
+
+    pub fn read_inbox_checkpoint(&self) -> Option<InboxCheckpoint> {
+        let text = std::fs::read_to_string(self.inbox_checkpoint_path()).ok()?;
+        serde_json::from_str(&text).ok()
     }
 
     /// manager 消化完毕后清空草稿箱(整箱内容已在触发 prompt 里,清空即"已消费")。

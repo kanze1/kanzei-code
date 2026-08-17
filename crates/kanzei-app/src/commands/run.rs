@@ -276,6 +276,7 @@ pub(crate) async fn run_prompt(
     let model = model.or_else(|| process.model.lock().unwrap().clone());
     let reasoning = process.reasoning.lock().unwrap().clone();
     let phase_pipeline_enabled = process.phase_pipeline_enabled.load(Ordering::SeqCst);
+    let subagents_enabled = process.subagents_enabled.load(Ordering::SeqCst);
     let block_tracker_writes =
         process.worktree_path.is_some() && !process.tracker_writes_enabled.load(Ordering::SeqCst);
     let runtime = runtime_for(&state, &session_id);
@@ -346,6 +347,7 @@ pub(crate) async fn run_prompt(
                 },
                 RunMode {
                     phase_pipeline_enabled,
+                    subagents_enabled,
                     block_tracker_writes,
                     profile: profile.clone(),
                     agent_name: agent.clone(),

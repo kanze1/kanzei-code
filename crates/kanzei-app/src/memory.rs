@@ -1,11 +1,7 @@
 //! Memory commands and inbox consolidation.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use kanzei_core::{run_once_with_parts, AskFuture, RunEvent, RunnerConfig};
-use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
-use kanzei_llm::{LlmClient, ProxyConfig};
 use serde_json::json;
 
 fn memory_stores_for(project_dir: &str) -> Vec<kanzei_tools::memory::MemoryStore> {
@@ -293,105 +289,19 @@ pub(crate) fn memory_context_bill(project_dir: String) -> serde_json::Value {
 #[tauri::command]
 pub(crate) async fn memory_consolidate(project_dir: String) -> Result<serde_json::Value, String> {
     // 手动触发(设置页按钮)不在轮末序列里,没有"当轮 episode"可代填。
-    consolidate_memory_inbox(project_dir.clone(), None).await;
-    let cwd = PathBuf::from(&project_dir);
-    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
-    let store = kanzei_tools::memory::MemoryStore::project(&root);
-    Ok(json!({"pending": store.pending_notes()}))
+    let report = consolidate_memory_inbox(project_dir, None)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(json!({"pending": report.pending_after, "report": report}))
 }
 
-pub(crate) async fn consolidate_memory_inbox(project_dir: String, current_episode_id: Option<i64>) {
-    let cwd = PathBuf::from(&project_dir);
-    let project_root =
-        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
-    let store = kanzei_tools::memory::MemoryStore::project(&project_root);
-    if store.pending_notes() == 0 {
-        return;
-    }
-    let inbox = store.read_inbox();
-    let Ok(config) = KanzeiConfig::load(&cwd) else {
-        return;
-    };
-    let config = Arc::new(config);
-    let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
-        cwd: cwd.clone(),
-        project_root: project_root.clone(),
-        config: config.clone(),
-    };
-    let mut harness = Harness::default();
-    harness.add(kanzei_tools::memory::MemoryManagerComponent);
-    let Ok(snapshot) = harness.resolve(&rctx) else {
-        return;
-    };
-    let agent = kanzei_tools::memory::manager_agent();
-    let proxy = match config.proxy.as_deref() {
-        Some("off") => ProxyConfig::Disabled,
-        Some("env") | None => ProxyConfig::Env,
-        Some(p) => ProxyConfig::Explicit(p.to_string()),
-    };
-    let Ok(client) = LlmClient::new(&proxy) else {
-        return;
-    };
-    let tool_ctx = ToolCtx {
-        cwd: cwd.clone(),
-        project_root: project_root.clone(),
-        ..Default::default()
-    };
-    // R-213:引擎轮末代填当轮 episode_id——manager 自报不出真实 id(episode 轮末才落库、
-    // list_episodes 不含 id),不注入则 memory_promote 的 provenance 校验拦下一切晋升。
-    let prompt = kanzei_tools::memory::consolidation_prompt(&inbox, current_episode_id);
-    for role in ["primary", "fast"] {
-        let Ok(resolved) = config.resolve_model(role) else {
-            continue;
-        };
-        let Ok(route) = kanzei_core::build_route(&resolved, &proxy).await else {
-            continue;
-        };
-        let runner_config = RunnerConfig {
-            model: resolved.model.clone(),
-            max_tokens: 4096,
-            reasoning: kanzei_llm::ReasoningEffort::Off,
-            service_tier: config.service_tier_for(&resolved),
-            context_limit: resolved.provider.context_limit,
-            limits: config.limits.clone(),
-            recall: None,
-            execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
-            ask_policy: kanzei_core::AskPolicy::NonInteractive,
-            halt: None,
-        };
-        let mut on_event = |_event: RunEvent| {};
-        let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
-            Box::pin(async move {
-                match request {
-                    kanzei_core::AskRequest::Permission { .. } => {
-                        kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce)
-                    }
-                    kanzei_core::AskRequest::Question { .. } => kanzei_core::AskResponse::Cancelled,
-                }
-            })
-        };
-        let _ = run_once_with_parts(
-            &client,
-            &route,
-            &snapshot,
-            &agent,
-            &runner_config,
-            &tool_ctx,
-            &prompt,
-            None,
-            None,
-            &[],
-            None,
-            None,
-            // R-246:记忆整理 run 不持有 LineRuntime。
-            None,
-            &mut on_event,
-            &mut ask,
-        )
-        .await;
-        if store.pending_notes() == 0 {
-            return;
-        }
-    }
+pub(crate) async fn consolidate_memory_inbox(
+    project_dir: String,
+    current_episode_id: Option<i64>,
+) -> anyhow::Result<kanzei_tools::memory_consolidation::ConsolidationReport> {
+    kanzei_tools::memory_consolidation::consolidate_memory_for_project(
+        &project_dir,
+        current_episode_id,
+    )
+    .await
 }

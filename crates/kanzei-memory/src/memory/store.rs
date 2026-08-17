@@ -1923,6 +1923,61 @@ mod tests {
     }
 
     #[test]
+    fn inbox_batch_respects_note_and_budget_limits() {
+        let (dir, store) = temp_store();
+        store.append_note("批次 A", "短内容", "fact", &[]).unwrap();
+        store.append_note("批次 B", "短内容", "fact", &[]).unwrap();
+        store.append_note("批次 C", "短内容", "fact", &[]).unwrap();
+
+        let batch = store.read_inbox_batch(2, usize::MAX, usize::MAX).unwrap();
+        assert_eq!(batch.note_count, 2);
+        assert!(batch.text.contains("批次 A"));
+        assert!(batch.text.contains("批次 B"));
+        assert!(!batch.text.contains("批次 C"));
+        assert_eq!(batch.bytes, batch.text.len());
+        assert!(batch.estimated_tokens > 0);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn inbox_batch_allows_one_oversized_note_and_checkpoint_roundtrips() {
+        let (dir, store) = temp_store();
+        store
+            .append_note("超大首条", &"x".repeat(256), "fact", &[])
+            .unwrap();
+        store.append_note("后续条目", "y", "fact", &[]).unwrap();
+
+        let batch = store.read_inbox_batch(10, 8, 2).unwrap();
+        assert_eq!(batch.note_count, 1, "首条超限也必须被处理，不能饿死队列");
+        assert!(batch.text.contains("超大首条"));
+
+        let checkpoint = crate::memory::InboxCheckpoint {
+            batch_id: "inbox-test-1".into(),
+            status: "completed".into(),
+            input_notes: 1,
+            input_bytes: batch.bytes,
+            success_notes: 1,
+            pending_after: 1,
+            failure_reason: None,
+            updated_at_ms: 42,
+        };
+        store.write_inbox_checkpoint(&checkpoint).unwrap();
+        assert_eq!(store.read_inbox_checkpoint(), Some(checkpoint));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn inbox_batch_byte_budget_stops_before_next_note() {
+        let (dir, store) = temp_store();
+        store.append_note("第一条", "a", "fact", &[]).unwrap();
+        store.append_note("第二条", "b", "fact", &[]).unwrap();
+        let first = store.read_inbox_batch(10, 1, usize::MAX).unwrap();
+        assert_eq!(first.note_count, 1);
+        assert!(first.text.contains("第一条"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn inbox_roundtrip_and_clear() {
         let (dir, store) = temp_store();
         store

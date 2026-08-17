@@ -81,6 +81,7 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
                 reasoning: Arc::new(Mutex::new(None)),
                 manual_models: Arc::new(Mutex::new(Vec::new())),
                 phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
+                subagents_enabled: Arc::new(AtomicBool::new(true)),
                 tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
             });
         handle.branch = restored_branch;
@@ -92,6 +93,9 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
         handle
             .phase_pipeline_enabled
             .store(record.phase_pipeline, Ordering::SeqCst);
+        handle
+            .subagents_enabled
+            .store(record.subagents_enabled, Ordering::SeqCst);
         handle
             .tracker_writes_enabled
             .store(record.tracker_writes_enabled, Ordering::SeqCst);
@@ -145,6 +149,7 @@ pub(crate) fn persist_process(root: &Path, process: &ProcessHandle) -> Result<()
             reasoning: process.reasoning.lock().unwrap().clone(),
             manual_models: process.manual_models.lock().unwrap().clone(),
             phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
+            subagents_enabled: process.subagents_enabled.load(Ordering::SeqCst),
             tracker_writes_enabled: process.tracker_writes_enabled.load(Ordering::SeqCst),
             updated_at: crate::run::now_ms(),
         })
@@ -223,6 +228,7 @@ pub(crate) struct ThreadSettings {
     pub(crate) profile: Option<String>,
     pub(crate) reasoning: Option<String>,
     pub(crate) phase_pipeline: Option<bool>,
+    pub(crate) subagents_enabled: Option<bool>,
     pub(crate) tracker_writes: Option<bool>,
 }
 
@@ -250,6 +256,7 @@ pub(crate) fn register_process(
         profile,
         reasoning,
         phase_pipeline,
+        subagents_enabled,
         tracker_writes,
     } = settings;
     let mut processes = state.processes.lock().unwrap();
@@ -298,6 +305,7 @@ pub(crate) fn register_process(
         )),
         manual_models: Arc::new(Mutex::new(Vec::new())),
         phase_pipeline_enabled: Arc::new(AtomicBool::new(phase_pipeline.unwrap_or(false))),
+        subagents_enabled: Arc::new(AtomicBool::new(subagents_enabled.unwrap_or(true))),
         tracker_writes_enabled: Arc::new(AtomicBool::new(tracker_writes.unwrap_or(false))),
     };
 
@@ -316,6 +324,7 @@ pub(crate) fn register_process(
             reasoning: process.reasoning.lock().unwrap().clone(),
             manual_models: process.manual_models.lock().unwrap().clone(),
             phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
+            subagents_enabled: process.subagents_enabled.load(Ordering::SeqCst),
             tracker_writes_enabled: process.tracker_writes_enabled.load(Ordering::SeqCst),
             updated_at: crate::run::now_ms(),
         })
