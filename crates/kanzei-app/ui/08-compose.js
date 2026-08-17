@@ -3,6 +3,17 @@
 const DEFAULT_AUTO_CONTINUE_MAX = 10;
 let autoRounds = 0;
 let autoPaused = false;
+
+// D-504:轮次真源是会话状态；autoRounds 只保留为当前活动线的渲染镜像。
+function currentAutoRounds(sessionId = activeSessionId) {
+  return Number(sessionId ? sessionState(sessionId)?.auto_rounds ?? 0 : 0) || 0;
+}
+function setAutoRounds(sessionId, value) {
+  const rounds = Number(value) || 0;
+  if (sessionId) sessionState(sessionId).auto_rounds = rounds;
+  if (!sessionId || sessionId === activeSessionId) autoRounds = rounds;
+  return rounds;
+}
 let autoStopAfterRound = false;
 const autoContinueTimers = new Map();
 // 自动续跑的 IPC 会在后端真正结束前立即返回；用在途集合挡住同一会话的
@@ -86,6 +97,7 @@ function renderAutoRun() {
   const bar = $("autorun-bar");
   if (!bar) return;
   const max = autoContinueMax();
+  autoRounds = currentAutoRounds();
   const phase = autoRunPhase();
   const armed = $("auto-continue")?.checked === true;
   bar.dataset.phase = phase;
@@ -481,7 +493,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
     return;
   }
   if (!auto) {
-    autoRounds = 0;
+    setAutoRounds(activeSessionId, 0);
     noActionRounds = 0;
     cancelAutoContinueTimer();
     // R-169:手动发送归零后端状态机计数。
@@ -659,7 +671,7 @@ function stopAutoForManualInput() {
   if (!$('auto-continue').checked) return false;
   $('auto-continue').checked = false;
   rememberAutoUiState();
-  autoRounds = 0;
+  setAutoRounds(activeSessionId, 0);
   noActionRounds = 0;
   cancelAutoContinueTimer();
   // R-169:手动输入接管 = 关闭后端自主推进并归零计数。
@@ -822,7 +834,7 @@ $("auto-resume").addEventListener("click", () => {
     toggle.dispatchEvent(new Event("change"));
     return;
   }
-  autoRounds = 0;
+  setAutoRounds(activeSessionId, 0);
   setAutoStopReason("");
   resetAutoRunState();
   setStatus(`${t("鞭挞恢复")},2 ${t("秒后继续")}…`, false);
@@ -896,7 +908,7 @@ $("auto-max").addEventListener("change", () => {
   void uiPrefsSave({ auto_max: max }); // D-404:后端持久化
   rememberAutoUiState();
   renderAutoStatus();
-  autoRounds = 0;
+  setAutoRounds(activeSessionId, 0);
   cancelAutoContinueTimer();
   // R-169:上限同步后端状态机。
   void syncAutoRunState();
@@ -907,7 +919,7 @@ $("auto-continue").addEventListener("change", () => {
   if ($("auto-continue").checked && $("profile-select").value === "research") {
     // R-224:research 档位仍拒绝——研究模式无自主推进语义,自动切会掩盖误操作。
     $("auto-continue").checked = false;
-    autoRounds = 0;
+    setAutoRounds(activeSessionId, 0);
     cancelAutoContinueTimer();
     rememberAutoUiState();
     void syncAutoRunState();
@@ -930,7 +942,7 @@ $("auto-continue").addEventListener("change", () => {
     }
     addMessage("notice", t("已切换到自主推进以启用鞭挞"));
   }
-  autoRounds = 0;
+  setAutoRounds(activeSessionId, 0);
   rememberAutoUiState();
   // 开鞭挞的这一刻就要看到「勘察复核未开」提示,而不是等下一轮结束才显示。
   renderAutoStatus();
@@ -1072,7 +1084,7 @@ function applyAutoUiState(processId) {
   // 0/10 会让人以为还能再跑十轮,实际下一轮就撞上限停机;进度条也一起回到 0%。
   // 真源是会话状态里的 auto_rounds(07-events.js 每轮都写),这里读回来即可。
   const target = processItems.find((item) => item.id === processId);
-  autoRounds = Number(sessionState(target?.session_id)?.auto_rounds ?? 0) || 0;
+  setAutoRounds(target?.session_id, currentAutoRounds(target?.session_id));
   // 停机原因与一次性提示是**上一条线/上一个项目**留下的文本,跨线路跨项目串台会让
   // 用户按别人的停机理由去判断当前线。切换即清,由新线自己的事件重新写。
   autoHint = "";
@@ -1081,19 +1093,9 @@ function applyAutoUiState(processId) {
   persistProcessAutoState();
 }
 
-// 线路页要能直接操控**任意一条线**的鞭挞,不必先切过去。真源不变:活动线以顶栏控件
-// 为准(先写控件,再由 rememberAutoUiState 落盘),后台线落该线存档并推它自己的后端
-// auto_state。谁都不许绕过 processAutoState——绕过去的话切回该线时回显与引擎判定就对
-// 不上(D-353 那半病根)。
+// 线路页要能直接操控任意一条线的鞭挞；配置始终从 processAutoState 读取，顶栏 DOM 仅是投影。
+
 function lineAutoConfig(processId) {
-  if (processId && processId === activeProcessId) {
-    return {
-      enabled: $("auto-continue").checked,
-      paused: autoPaused,
-      stopAfterRound: autoStopAfterRound,
-      maxRounds: autoContinueMax(),
-    };
-  }
   return normalizeAutoState(processAutoState.get(processId), processId);
 }
 async function setLineAutoState(processId, patch) {
@@ -1235,7 +1237,7 @@ $("stop").addEventListener("click", async () => {
   const targetProcessId = activeProcessId;
   const targetProject = currentProject;
   cancelAutoContinueTimer(targetSessionId);
-  autoRounds = 0;
+  setAutoRounds(activeSessionId, 0);
   if (runControlPending && !running) {
     if (targetSessionId) transitionSession(targetSessionId, "stopped");
     $("auto-continue").checked = false;

@@ -372,13 +372,13 @@ on("kz:auto-fail", (e) => {
   const action = p.autoAction || { type: "NoContinue" };
   releaseAutoContinue(p.sessionId);
   if (action.type === "RetryAfterFailure") {
-    autoRounds = action.rounds ?? autoRounds;
+    setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId));
     const secs = Math.round((action.delayMs ?? 15000) / 1000);
     const label = `${t("失败重试")} ${action.attempt}/${action.maxAttempts ?? 3} · ${secs}s`;
     addMessage("notice", `${t("本轮运行失败(瞬态错误),将自动退避重试")} · ${label}`);
     log(`${t("鞭挞")}:${label}`);
     renderAutoStatus(label);
-    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: autoRounds });
+    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
     if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(label);
     // 第 5 个参数是重试标记:随后必然到来的 terminal kz:error 靠它认出「这一枪是
     // 失败重试」而放行,不再把它当成残留定时器掐掉。
@@ -386,7 +386,7 @@ on("kz:auto-fail", (e) => {
   } else if (action.type === "Stop") {
     if (p.sessionId) transitionSession(p.sessionId, "idle");
     if (!p.sessionId || p.sessionId === activeSessionId) clearRunPending();
-    autoRounds = 0;
+    setAutoRounds(p.sessionId || activeSessionId, 0);
     cancelAutoContinueTimer(p.sessionId || activeSessionId);
     // 文案与后台线共用一份(08-compose.js autoFailStopReasonText),同一件事不能两种说法。
     const reasonText = autoFailStopReasonText(action.reason);
@@ -436,9 +436,9 @@ on("kz:done", async (e) => {
   // (空转画像/连数/全部阻塞/无动作 NUDGE 全部在后端,见 harness auto_run.rs)。
   const action = p.autoAction || { type: "NoContinue" };
   if (action.type === "Continue") {
-    autoRounds = action.rounds ?? autoRounds + 1;
+    setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
     const max = action.max ?? autoContinueMax();
-    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: autoRounds });
+    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
     if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("自主推进")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
     renderAutoStatus(`${t("自主推进")} ${autoRounds}/${max} · ${t("等待下一轮")}`);
     if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
@@ -446,12 +446,12 @@ on("kz:done", async (e) => {
     // 拿它清 pending 会把另一条线的横幅清掉,而这条线自己一直挂着(D-291)。
     armAutoContinue(continuePrompt(), p.sessionId);
   } else if (action.type === "Nudge") {
-    autoRounds = action.rounds ?? autoRounds + 1;
+    setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
     const max = action.max ?? autoContinueMax();
     addMessage("notice", t("上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)"));
     log(`${t("鞭挞")}:${t("无动作 · 追加推进指令")}`);
     renderAutoStatus(`${t("无动作 · 追加推进指令")} ${autoRounds}/${max}`);
-    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: autoRounds });
+    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
     if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("无动作 · 追加推进指令")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
     if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
     // D-291:与 Continue 分支共用同一个闸门实现(armAutoContinue)。此前这里是一份
@@ -462,19 +462,19 @@ on("kz:done", async (e) => {
     // 核查不进入主 conversation/queue:核查指令(action.prompt,引擎生成)作为
     // 下一轮输入发回,主代理用只读 task 子代理核对验收证据与真实调用方,
     // 发现问题生成候选缺陷或退回依据;前端只显示状态并继续。
-    autoRounds = action.rounds ?? autoRounds + 1;
+    setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
     const max = action.max ?? autoContinueMax();
     addMessage("notice", t("已关闭 N 条,插入一轮只读验收核查(核对验收证据与真实调用方)"));
     log(`${t("鞭挞")}:${t("验收核查轮")}`);
     renderAutoStatus(`${t("验收核查轮")} ${autoRounds}/${max}`);
-    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: autoRounds });
+    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
     if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("验收核查轮")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
     if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
     armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
   } else if (action.type === "Stop") {
     if (p.sessionId) transitionSession(p.sessionId, "idle");
     if (!p.sessionId || p.sessionId === activeSessionId) clearRunPending();
-    autoRounds = 0;
+    setAutoRounds(p.sessionId || activeSessionId, 0);
     noActionRounds = 0;
     cancelAutoContinueTimer(p.sessionId || activeSessionId);
     const reason = action.reason;

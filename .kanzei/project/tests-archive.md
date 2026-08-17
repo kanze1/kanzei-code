@@ -6716,3 +6716,33 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 关联: D-503
 - 收尾: 1787007653
 - 源码指纹: 29acba427ea30614
+
+## T-1786922726293 D-504 六项前端冒烟与 globals 回归 [passed]
+- 命令: node scripts/gen-ui-lint-globals.mjs --check; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 10.2s
+- 摘要: D-504 轮次真源回归：runtime smoke 通过；随后 lint、并行线路、a11y、i18n、markdown 五项全部通过。覆盖活动线 Map 配置优先于 DOM、跨文件函数 globals 接线。
+- 关联: D-504 D-523
+- 收尾: 1787007929
+
+## T-1786922726294 D-504 后台线切换与轮次真源六项回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/07-events.js; node --check crates/kanzei-app/ui/08-compose.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/gen-ui-lint-globals.mjs --check; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 10.6s
+- 摘要: D-504 后台轮次与切线回显回归：后台 session auto_rounds 不再读取活动线镜像；applyAutoUiState 回显后台 Map；六项前端冒烟及 globals 检查全部通过。
+- 关联: D-504 D-523
+- 收尾: 1787008052
+
+## T-1786922726295 D-504 当前暂存源码六项前端冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/07-events.js; node --check crates/kanzei-app/ui/08-compose.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/gen-ui-lint-globals.mjs --check; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 10.7s
+- 摘要: 按当前暂存 UI 源码重跑：语法、globals、runtime、并行线路、a11y、i18n、markdown 全部通过；覆盖后台 session auto_rounds、后台连跑第二轮和切线 Map 回显。
+- 关联: D-504 D-523
+- 收尾: 1787008143
+- 源码指纹: d9661a78a35cb9b8
+
+## T-1786922726296 D-504 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.5s
+- 摘要: D-504 提交前 kanzei-app 定向回归：205 passed，0 failed，0 ignored；相关桌面端测试全部通过。
+- 关联: D-504
+- 收尾: 1787008193
+- 源码指纹: d9661a78a35cb9b8

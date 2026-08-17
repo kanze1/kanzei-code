@@ -15,13 +15,18 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-504 鞭挞配置双真源与 autoRounds 双计数器,四副本靠手工互拷同步 [open] (medium)
+## D-504 鞭挞配置双真源与 autoRounds 双计数器,四副本靠手工互拷同步 [fixing] (medium)
 - 复现: crates/kanzei-app/ui/08-compose.js:1088-1097 lineAutoConfig 活动线读 DOM 复选框、其他线读 processAutoState Map;同状态另存 localStorage(kz-process-auto-state) 与后端 ui_prefs/auto_state_update(:1014-1021,:1057);autoRounds 全局(:4)与 state.auto_rounds(:337,:380) 靠 07-events.js:439/449/465 手工互拷,:1078 切线再读回
 - 影响: 四副本两条同步路径,漏一处即显示 0/10 实际下一轮撞上限;历史已翻车两次
 - 来源: 2026-08-18 全库勘察(主会话);D-290/D-353 历史翻车点
 - 标签: 前端
 - 验收: 收敛单一真源(Map/state),DOM 只做投影;切线/后台线/重启回归用例;冒烟覆盖
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-504
+- 进展: 已完成第二段实现与回归：①后台 `kz:done/kz:auto-fail` 的 `transitionSession` 统一使用 `currentAutoRounds(p.sessionId)`，不再把活动线 `autoRounds` 镜像写入后台会话（`07-events.js:375,381,389,439,441,449,454,465,470,477`）；②runtime smoke 新增后台甲轮次、后台连跑第二轮轮次及 `applyAutoUiState("p|bg-loop")` 切线回显断言（`scripts/ui-runtime-smoke.mjs:5096-5102,5133-5138,5155-5163`）；③启动恢复既有 `initialAutoState` 断言覆盖 ui_prefs 重启回显（`scripts/ui-runtime-smoke.mjs:1510-1513`）。T-1786922726294：node 语法、globals、runtime、并行线路、a11y、i18n、markdown 全部通过。下一步提交本条修复，提交后再复核是否还缺真实重启链路证据。
+- observed_head: dcdb238e5c617b11fc15b5d08ff0492e939a971a
+- observed_worktree_hash: fnv1a64:ca0bb16f7cf470fc
+- recorded_at: 1787008060780
 
 ## D-505 收活合并门禁用 CSS class 当闸门状态 [open] (medium)
 - 复现: crates/kanzei-app/ui/20-lines.js:788 postMergeStep.classList.contains(confirmed) 决定能否回写 tracker,是 R-222 前置(合并后全量通过)的唯一判据

@@ -6313,3 +6313,16 @@
 - observed_head: 248164d44fb5e373f5ad3f97fd049de8e10c3ddd
 - observed_worktree_hash: fnv1a64:33d86451c8c6484f
 - recorded_at: 1787007566061
+
+## D-523 D-504 轮次真源跨文件函数未同步 UI lint globals [fixed] (low)
+- 复现: 执行六项前端冒烟时，`node scripts/ui-lint-smoke.mjs` 报 `07-events.js` 中 `setAutoRounds`、`currentAutoRounds` 共 10 处 no-undef；函数实际定义在 `08-compose.js`，跨 classic script 文件调用未同步 globals 清单。
+- 影响: 前端 ESLint 门禁失败，D-504 的活动线/后台线轮次真源改动无法通过提交前前端验证。
+- 来源: self-found：D-504 六项前端冒烟。
+- 标签: 前端
+- 验收: `scripts/ui-lint-globals.json` 包含两个跨文件函数，`node scripts/ui-lint-smoke.mjs` 通过，六项前端冒烟全部通过。
+- refs: D-504
+- 优先级: P1
+- 进展: 已修复并验证：`scripts/gen-ui-lint-globals.mjs` 重新生成 `scripts/ui-lint-globals.json`，纳入 `setAutoRounds` 与 `currentAutoRounds` 两个跨 classic script 函数；T-1786922726293 中 `ui-lint-smoke` 通过，且六项前端冒烟全部通过。
+- observed_head: dcdb238e5c617b11fc15b5d08ff0492e939a971a
+- observed_worktree_hash: fnv1a64:71df4fa2651502c8
+- recorded_at: 1787007939617

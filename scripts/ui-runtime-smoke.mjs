@@ -1395,12 +1395,22 @@ vm.runInContext("confirmDialog = () => true", sandbox);
 // 不拼进任何脚本文件——拆分后它属于冒烟注入层,不属于生产代码。
 try {
   vm.runInContext(
-    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, timerSessions: () => [...autoContinueTimers.keys()], retryLabel: (id) => autoContinueTimers.get(id)?.retryLabel ?? null,setAutoState: (id, value) => processAutoState.set(id, value), getAutoState: (id) => processAutoState.get(id), setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, paused: () => autoPaused, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; }, cancelTimers: () => { for (const s of [...autoContinueTimers.keys()]) cancelAutoContinueTimer(s); } };",
+    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, timerSessions: () => [...autoContinueTimers.keys()], retryLabel: (id) => autoContinueTimers.get(id)?.retryLabel ?? null,setAutoState: (id, value) => processAutoState.set(id, value), getAutoState: (id) => processAutoState.get(id), setRounds: (v) => { setAutoRounds(activeSessionId, v); }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, paused: () => autoPaused, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; }, cancelTimers: () => { for (const s of [...autoContinueTimers.keys()]) cancelAutoContinueTimer(s); } };",
     sandbox,
     { filename: "__kzTest-hook.js" }
   );
 } catch (err) {
   fail(`__kzTest hook 执行抛异常: ${err.stack ?? err}`);
+}
+// D-504:活动线配置必须来自 processAutoState，顶栏控件只是投影。
+{
+  const activeProcess = vm.runInContext("activeProcessId", sandbox);
+  if (activeProcess) {
+    sandbox.__kzTest.setAutoState(activeProcess, { enabled: true, paused: false, stopAfterRound: false, maxRounds: 7 });
+    byId.get("auto-continue").checked = false;
+    const projected = vm.runInContext(`lineAutoConfig(${JSON.stringify(activeProcess)})`, sandbox);
+    assert(projected.enabled === true && projected.maxRounds === 7, `活动线配置错误地读取 DOM: ${JSON.stringify(projected)}`);
+  }
 }
 await flush();
 assert(invokeLog.includes("projects_get"), `初始化未调用 projects_get(启动序列断裂),已见调用: ${invokeLog.join(",")}`);
@@ -5088,6 +5098,7 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   const timerSessions = sandbox.__kzTest.timerSessions();
   assert(timerSessions.includes("sess-bg-a") && timerSessions.includes("sess-bg-b"), `后台双线路 timer 未并存:${timerSessions.join(",")}`);
   assert(sandbox.sessionState("sess-bg-a").phase === "auto_pending", "后台甲 done 未进入等待下一轮");
+  assert(sandbox.sessionState("sess-bg-a").auto_rounds === 1, "后台甲轮次未写入所属 session state");
   assert(sandbox.sessionState("sess-bg-b").phase === "auto_pending", "后台乙 done 未进入等待下一轮");
   assert(sandbox.activeSessionId === undefined || document.querySelector("#parallel-task-status .parallel-task-row.active")?.textContent.includes("主会话"), "后台 done 串改活动线路");
   await flush();
@@ -5125,6 +5136,7 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
     loopRuns() === before + 2,
     `切走的线路第二轮停摆(在飞标记未释放 → armAutoContinue 静默吞掉),实得 ${loopRuns() - before} 轮`,
   );
+  assert(sandbox.sessionState("sess-bg-loop").auto_rounds === 2, "后台连跑第二轮轮次被活动线镜像覆盖");
   // 后台线的失败退避重试:kz:auto-fail 既不是控制事件也不在 BACKGROUND_RENDER_EVENTS,
   // 原先整条被路由层丢掉 —— 后台线断一次网就永久停摆,而它恰恰是没人看着的那条。
   sandbox.__kzTest.cancelTimers();
@@ -5149,6 +5161,8 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   assert(lineSync?.args?.maxRounds === 7, `线路页改上限未同步后端,实得 ${lineSync?.args?.maxRounds}`);
   assert(sandbox.__kzTest.getAutoState("p|bg-loop")?.enabled === true, "线路页开后台线鞭挞未落该线存档");
   assert(byId.get("auto-continue").checked === false, "线路页操控后台线污染了当前线的鞭挞勾选");
+  sandbox.applyAutoUiState("p|bg-loop");
+  assert(byId.get("auto-continue").checked === true && byId.get("auto-max").value === "7", "切线回显未读取后台线路自己的 Map 配置");
   sandbox.__kzTest.cancelTimers();
   payloads.process_list = savedLoopList;
   sandbox.renderProcesses(savedLoopList);
