@@ -6452,3 +6452,18 @@
 - 关联: D-491
 - 收尾: 1787001896
 - 源码指纹: cbcf475af91e90d2
+
+## T-1786922726258 D-492 status SQL 过滤定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 5.2s
+- 摘要: D-492 定向回归通过：145 passed，0 failed，1 doc-test ignored；新增 status_filter_is_applied_before_fts_limit 覆盖 30 个 candidate 不能挤出 active 结果。
+- 关联: D-492
+- 收尾: 1787002032
+
+## T-1786922726259 D-492 提交前当前 staged 源码定向回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 2.9s
+- 摘要: 按提交门禁对当前 D-492 staged Rust 源码重跑：145 passed，0 failed，1 doc-test ignored；status SQL WHERE 与 candidate 窗口回归通过。
+- 关联: D-492
+- 收尾: 1787002095
+- 源码指纹: ed75804d5b4047a4

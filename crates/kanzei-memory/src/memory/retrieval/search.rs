@@ -41,15 +41,32 @@ impl MemoryStore {
         if category.is_some() {
             sql.push_str(" AND category = ?2");
         }
+        if status.is_some() {
+            sql.push_str(if category.is_some() {
+                " AND status = ?3"
+            } else {
+                " AND status = ?2"
+            });
+        }
         sql.push_str(" ORDER BY bm25(memory_fts) LIMIT 24");
         let mut statement = conn.prepare(&sql)?;
-        let rows: Vec<(String, String, f64)> = match category {
-            Some(cat) => statement
+        let rows: Vec<(String, String, f64)> = match (category, status) {
+            (Some(cat), Some(want)) => statement
+                .query_map(params![match_expr, cat, want], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?
+                .collect::<Result<_, _>>()?,
+            (Some(cat), None) => statement
                 .query_map(params![match_expr, cat], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?))
                 })?
                 .collect::<Result<_, _>>()?,
-            None => statement
+            (None, Some(want)) => statement
+                .query_map(params![match_expr, want], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?
+                .collect::<Result<_, _>>()?,
+            (None, None) => statement
                 .query_map(params![match_expr], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?))
                 })?

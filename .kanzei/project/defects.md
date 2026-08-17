@@ -15,14 +15,6 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-492 记忆检索 status 过滤在 LIMIT 之后,active 可被 candidate 挤出 top-24 窗口 [open] (high)
-- 复现: crates/kanzei-memory/src/memory/retrieval/search.rs:44,63-72 先 SQL LIMIT 24 再在 Rust 侧过滤 status;FTS 内 45 条 candidate 与 28 条 active 同池抢窗口;status 是表中列却未进 WHERE
-- 影响: 查 active 时 active 条目可被候选整体挤出,检索质量随候选堆积持续劣化(与候选堆积缺陷叠加)
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 后端
-- 验收: status 过滤进 SQL WHERE;回归覆盖 active 不被 candidate 挤出场景;cargo test -p kanzei-memory 通过
-- 优先级: P1
-
 ## D-493 记忆排序与一键整理读停写的 memory_recalls 表,按过期统计降级 active [open] (high)
 - 复现: crates/kanzei-memory/src/memory/index.rs:249 decision_weight 采纳率读 index.db memory_recalls,而 record_recall(retrieval/recall.rs:14)生产已无调用方,表最后写入 at=1786640788930(约08-13);crates/kanzei-app/src/memory.rs:60-62,171-178,205-216 的一键整理/零采纳清单/控制面采纳率同源
 - 影响: 排序信号冻结在 5 天前;memory_cleanup_demote 会按过期统计把 active 降级,是会造成真实数据损失的路径

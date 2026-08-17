@@ -918,6 +918,43 @@ mod tests {
     }
 
     #[test]
+    fn status_filter_is_applied_before_fts_limit() {
+        let (dir, store) = temp_store();
+        for i in 0..30 {
+            let outcome = store
+                .add(
+                    "fact",
+                    &format!("状态窗口候选 {i}"),
+                    "状态窗口检索",
+                    "状态窗口正文",
+                    "memory-manager",
+                    &[],
+                    None,
+                    false,
+                )
+                .unwrap();
+            assert!(matches!(outcome, AddOutcome::Added(ref entry) if entry.status == "candidate"));
+        }
+        let active = add(
+            &store,
+            "fact",
+            "状态窗口 active",
+            "状态窗口检索",
+            "状态窗口正文",
+        );
+        let rows = store
+            .search_candidates("状态窗口", None, Some("active"))
+            .unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "active 查询不能被 candidate 挤出 LIMIT 窗口: {rows:?}"
+        );
+        assert_eq!(rows[0].entry.id, active.id);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn 检索守护_外部写入的文件失步后自动重建索引() {
         // 2026-08-13 清理事故形态:手动移动/写入 .md 绕过写路径的增量维护,
         // FTS 失步——新条目对 BM25 完全不可见、已归档条目仍在索引。

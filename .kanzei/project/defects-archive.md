@@ -6075,3 +6075,16 @@
 - observed_worktree_hash: fnv1a64:6198466b6d7d4e70
 - recorded_at: 1787001751866
 - refs: D-491
+
+## D-492 记忆检索 status 过滤在 LIMIT 之后,active 可被 candidate 挤出 top-24 窗口 [fixed] (high)
+- 复现: crates/kanzei-memory/src/memory/retrieval/search.rs:44,63-72 先 SQL LIMIT 24 再在 Rust 侧过滤 status;FTS 内 45 条 candidate 与 28 条 active 同池抢窗口;status 是表中列却未进 WHERE
+- 影响: 查 active 时 active 条目可被候选整体挤出,检索质量随候选堆积持续劣化(与候选堆积缺陷叠加)
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: ① `crates/kanzei-memory/src/memory/retrieval/search.rs:41-51`：status 进入 SQL WHERE 且位于 LIMIT 前；② `crates/kanzei-memory/src/memory/store.rs:921-957`：30 candidate 挤压场景仍召回 active；③ T-1786922726258：cargo test -p kanzei-memory 通过。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-492
+- 进展: 验收逐项完成：① status 过滤已进入 SQL WHERE：`crates/kanzei-memory/src/memory/retrieval/search.rs:41-51` 按 category/status 组合追加 `status = ?2` 或 `status = ?3`，并在 `:51` 的 `ORDER BY bm25(memory_fts) LIMIT 24` 之前执行；`search.rs:52-78` 为四种参数组合绑定查询参数，Rust 侧不再承担 status 窗口过滤。②回归覆盖 active 不被 candidate 挤出：`crates/kanzei-memory/src/memory/store.rs:921-957` 创建 30 个 candidate 后创建 active，调用 `search_candidates("状态窗口", None, Some("active"))` 断言只返回 active。③定向验证：T-1786922726258，`cargo fmt --all -- --check; cargo test -p kanzei-memory` 通过，145 passed、0 failed、1 doc-test ignored。
+- observed_head: b0622f77be38b4a3dbb53b0eee5449464a99d315
+- observed_worktree_hash: fnv1a64:2d65b0dbbc3b5357
+- recorded_at: 1787002055148
