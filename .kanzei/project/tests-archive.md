@@ -5803,3 +5803,40 @@
 - 关联: R-277 D-475
 - 收尾: 1786969765
 - 源码指纹: 7c8f6f2483e4ecc7
+
+## T-1786922726168 R-277 写作验收 runner 定向回归 [passed]
+- 命令: cargo check -p kanzei-tools --example research_acceptance; cargo test -p kanzei-tools
+- 时长: 43.1s
+- 摘要: 新增 research_acceptance 写作 runner 后，example 编译通过；kanzei-tools 定向测试 340 passed、1 ignored。
+- 关联: R-277
+- 收尾: 1786970071
+
+## T-1786922726169 R-277 真实轻重课题写作与编译验收 [passed]
+- 命令: $env:KZ_SMOKE_ROOT = (Get-Location).Path; $env:KZ_SMOKE_TOPIC = 'r277-write-acceptance-2'; cargo run -p kanzei-tools --example research_acceptance -- prepare-write; cargo run -p kanzei-tools --example research_acceptance -- write-heavy; $env:KANZEI_PROFILE = 'research'; $env:KANZEI_AGENT = 'research'; $env:KANZEI_MODEL = 'primary'; cargo run -p kanzei -- run --new --prompt-file '.kanzei/research/r277-write-acceptance-2/light_prompt.txt'
+- 时长: 18.1s
+- 摘要: 真实 Windows topic 写作验收：ResearchPlan 保存并审批，ResearchLoop start→begin_search→add_evidence→reflect 收敛到 ready_to_write/synthesize；ResearchWriteTool 真实执行 outline→section→assemble→compile，生成 paper.tex 与 paper.pdf，compile.json status=passed；真实 research agent 通过受限 write 写入 report.md 并 read 回核验。
+- 关联: R-277
+- 收尾: 1786970157
+
+## T-1786922726170 R-277 写作验收 runner 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 52.7s
+- 摘要: R-277 关闭前 workspace 全量回归：所有 workspace test 组 0 failed；kanzei-tools 340 passed/1 ignored、kanzei-app 202 passed、kanzei-memory 143 passed，其余 crate/doc-tests 全部通过。
+- 关联: R-277
+- 收尾: 1786970232
+
+## T-1786922726171 D-476 修复后 research runner 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo check -p kanzei-tools --example research_acceptance; cargo test -p kanzei-tools
+- 时长: 34.0s
+- 摘要: 删除 write-light 手写旁路后，fmt、example 编译及 kanzei-tools 定向测试通过：340 passed、1 ignored；runner 仅保留真实 ResearchPlan/ResearchLoop/ResearchWriteTool/index 调用。
+- 关联: R-277 D-476
+- 收尾: 1786970371
+- 源码指纹: 329a9c7177de20d2
+
+## T-1786922726172 R-277 staged research acceptance runner 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 31.6s
+- 摘要: 针对当前 staged research_acceptance runner 重新执行：340 passed，0 failed，1 ignored；用于提交源码指纹背书。测试过程中的 memory 临时触碰由 managed-files 保护回滚。
+- 关联: R-277 D-476
+- 收尾: 1786970515
+- 源码指纹: 215fc25d7c28f1c0

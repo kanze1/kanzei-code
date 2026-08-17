@@ -249,25 +249,6 @@
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-276
 
-## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [doing]
-- refs: R-221 R-273 R-274 R-276 R-283 R-284 docs/design/research_mode.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
-- 依赖: R-221
-- 内容: 四段流水线:①澄清+计划——产出显式研究计划树数据结构,经用户审批/修改后才跑(UI 由 R-276 承接);②检索-阅读-反思环——串行迭代+有限并发检索,子任务隔离上下文、回传前 RCS 式压缩(相关分+带出处摘要),原始网页/工具输出不直接进主上下文;信息写入 findings.md 时即绑定来源(STORM 信息表先例);反思步找知识缺口决定补搜;③综合写作——先 outline.md 后分节单点一次性生成,重课题写 paper.tex 走 R-273 编译回环修错;④引用校验——FACT 式论断-出处逐条核验(文献=URL 内容支撑,代码=file:line@commit 存在且语义支撑),抽查不过重写该节。支撑件:预算显式旋钮(轮次/token 上限,超限收敛写作而非报错);tantivy 本地全文索引(文献+代码)与 symbols 反查挂同一检索接口(文献论断↔代码实现互证是现有系统空白,kanzei 独有优势);断点续跑(单机状态文件,强杀可恢复)。拆批:批1 计划数据结构+澄清段;批2 检索环+压缩回传+来源绑定;批3 大纲写作+LaTeX 回环;批4 引用校验+预算旋钮;批5 tantivy 索引+symbols 同接口+断点续跑。
-- 复杂度: 大
-- 批次: 5/5
-- 来源: 2026-08-16 research mode 定调点全部过审后按 docs/design/research_mode.md §5 立项;架构采纳先行对照(prior_art §1)全行业收敛结论:四段流水线、研究并行写作串行、引用收集时绑定、预算显式旋钮、计划给人审。
-- 标签: 核心
-- 边界: 不做真·多 agent 并行编排(先行对照:15 倍 token 单用户不值,隔离+压缩回传同样解上下文冲突);不做 RL 专训模型(纪律放系统侧);不做常驻知识库服务(索引随课题建随课题用);不做模拟审稿与自动选题;计划审批前端由 R-276 承接,本条只出数据结构与状态机。
-- 验收: ①一个真实课题走完整链路(计划→审批→检索→带引用报告)有轨迹;②FACT 式抽查:随机抽论断,文献 URL 与代码 file:line 逐条支撑(实测,不接受自评);③预算旋钮实测:设小预算提前收敛出报告不崩;④机械核验原始工具输出不进主上下文(只有压缩摘要);⑤文献与代码经同一检索接口命中各有实测;⑥中途强杀重启可恢复续跑;⑦轻课题(只产 report.md)与重课题(paper.tex 编译通过)各走通一次。验收②补充(D-412 反例):「出处是否真含支撑文本」做成机械抽查——文献论断的支撑文本必须落在正文内(取回正文全文 grep 关键词,摘要命中不算),仅摘要级来源不得支撑正文级论断;D-412 反例样本=CoALA 四类记忆划分不在摘要而在正文 §2.3(working/episodic/semantic/procedural),机械抽查应能检出此类越界(摘要含 modular memory components 但无四词)。
-- 优先级: P1
-- 阻塞: 
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-277
-- 进展: D-475 已修复并提交：`c6099025 D-475 修复 Windows Tantivy 断点续跑`。R-277 验收逐条状态更新：①真实课题 plan→source→finding→report 轨迹仍由 `.kanzei/research/r221-chain/plan.md`、`sources.md`、`findings.md`、`report.md` 保留；②FACT 正文/代码引用校验由 `research_verify.rs` 与 T-1786922726156/T-1786922726166 覆盖；③预算旋钮由 `research_verify.rs`/`research_loop.rs` 与 T-1786922726156 覆盖；④原始输出隔离由 `research_loop.rs` 输入 schema和ResearchProfile prompt覆盖；⑤统一 Tantivy 文献/代码/symbols 检索由 `research_index.rs` 与 T-1786922726164/T-1786922726166 覆盖；⑥真实 Windows 5211 文档中途强杀恢复已通过：`research_index.rs:319-365` 修复、T-1786922726165 强杀 pid=96200 后 `index_resume` 从 1024/5211 完成到 5211/5211，D-475 已 fixed。⑦仍未完成：真实轻课题 `report.md` 与真实重课题 `paper.tex` 组装成功编译，各缺真实 topic 运行证据，保持 R-277 doing。
-- observed_head: c6099025771f6793f55a501f21120ec114a55caf
-- observed_worktree_hash: fnv1a64:23b04dacffa540e7
-- recorded_at: 1786969832307
-- 停车: 
-
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1
 - 复杂度: 中

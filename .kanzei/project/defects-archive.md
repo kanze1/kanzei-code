@@ -5823,3 +5823,15 @@
 - observed_head: b02a6baa061442e096d4c7385b7c9a4c2d89e171
 - observed_worktree_hash: fnv1a64:373496cfd18d63e4
 - recorded_at: 1786969643703
+
+## D-476 R-277 验收 runner 暴露手写 report.md 旁路，可能伪造轻课题证据 [fixed] (medium)
+- 复现: 运行 `cargo run -p kanzei-tools --example research_acceptance -- write-light` 会直接用 std::fs::write 创建 report.md，不经过 research agent 的受限 write 消费链。
+- 影响: 验收 runner 暴露了与真实 research 写作不同的旁路，可能让后续验收把 fixture 自写文件误当成生产能力证据。
+- 来源: self-found：R-277 写作验收 runner 提交前复核。
+- 标签: 核心
+- refs: R-277
+- 优先级: P1
+- 进展: 已修复：`crates/kanzei-tools/examples/research_acceptance.rs` 删除 `write-light` 分支，不再直接调用 `std::fs::write` 创建 report.md；轻课题只能由真实 research agent 的受限 `write` 工具完成。保留的 runner action 只调用 `ResearchPlan`/`ResearchLoop`/`ResearchWriteTool`/`ResearchIndexTool` 生产接口。T-1786922726171：fmt、example 编译、kanzei-tools 340 passed/1 ignored。
+- observed_head: c6099025771f6793f55a501f21120ec114a55caf
+- observed_worktree_hash: fnv1a64:36071f97823b2349
+- recorded_at: 1786970380933

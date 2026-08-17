@@ -3654,11 +3654,29 @@
 - refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 取活依据: engine:唯一可执行 WIP 是 R-221，必须先恢复它
 - 进展: ①总验收“真实 R- 条目勘察→报告→登记→dev 实施完整链路”：已满足。真实 research 会话产物为 `.kanzei/research/r221-chain/plan.md`（计划）、`sources.md`/S-001~S-004（实际查阅来源）、`findings.md`/F-001/F-002（代码域 V1、source refs、file:line/提交锚）、`.kanzei/research/r221-chain/report.md` 与 `.kanzei/research/report.md`（报告）、R-289 `[todo]`（引用 F-001/F-002 的 dev 待审草稿）；既有 dev 实施证据为 B4 提交 `3e288363`、B5 提交 `ecfdca5b`，D-446 权限修复位于 `crates/kanzei-tools/src/profiles.rs:640-671`，最终 T-1786922726120、T-1786922726121 通过，`cargo test -p kanzei-tools` 为 328 passed、1 ignored。②每批验收：B1 research 硬 deny 与替代工具位于 `profiles.rs:658-683`；B2 topic 工件由 `tracker.rs:316-329` 与 `.kanzei/research/r221-chain/*` 复核；B3 V 表双域口径已写入 `.kanzei/project/conventions.md` 并由 B3 测试记录覆盖；B4 回流受限 tracker 位于 `profiles.rs:640-671`、研究报告 F-001；B5 统一 memory 工具与历史 memory.md 停止注入位于 `profiles.rs:631-642,715-763`、研究报告 F-002。验收总则现已具备可复核轨迹，R-221 可关闭。
-- 阻塞: 
 - observed_head: f706dd21ea2959e5d3ea8af8ae0f7b27b61ad6da
 - observed_worktree_hash: fnv1a64:d5c4e679d36fdbc4
 - recorded_at: 1786958400176
 - 批次: 5/5
 - 状态: todo
 - 依赖: D-428
+- 停车: 
+
+## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [done]
+- refs: R-221 R-273 R-274 R-276 R-283 R-284 docs/design/research_mode.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
+- 依赖: R-221
+- 内容: 四段流水线:①澄清+计划——产出显式研究计划树数据结构,经用户审批/修改后才跑(UI 由 R-276 承接);②检索-阅读-反思环——串行迭代+有限并发检索,子任务隔离上下文、回传前 RCS 式压缩(相关分+带出处摘要),原始网页/工具输出不直接进主上下文;信息写入 findings.md 时即绑定来源(STORM 信息表先例);反思步找知识缺口决定补搜;③综合写作——先 outline.md 后分节单点一次性生成,重课题写 paper.tex 走 R-273 编译回环修错;④引用校验——FACT 式论断-出处逐条核验(文献=URL 内容支撑,代码=file:line@commit 存在且语义支撑),抽查不过重写该节。支撑件:预算显式旋钮(轮次/token 上限,超限收敛写作而非报错);tantivy 本地全文索引(文献+代码)与 symbols 反查挂同一检索接口(文献论断↔代码实现互证是现有系统空白,kanzei 独有优势);断点续跑(单机状态文件,强杀可恢复)。拆批:批1 计划数据结构+澄清段;批2 检索环+压缩回传+来源绑定;批3 大纲写作+LaTeX 回环;批4 引用校验+预算旋钮;批5 tantivy 索引+symbols 同接口+断点续跑。
+- 复杂度: 大
+- 批次: 5/5
+- 来源: 2026-08-16 research mode 定调点全部过审后按 docs/design/research_mode.md §5 立项;架构采纳先行对照(prior_art §1)全行业收敛结论:四段流水线、研究并行写作串行、引用收集时绑定、预算显式旋钮、计划给人审。
+- 标签: 核心
+- 边界: 不做真·多 agent 并行编排(先行对照:15 倍 token 单用户不值,隔离+压缩回传同样解上下文冲突);不做 RL 专训模型(纪律放系统侧);不做常驻知识库服务(索引随课题建随课题用);不做模拟审稿与自动选题;计划审批前端由 R-276 承接,本条只出数据结构与状态机。
+- 验收: ①一个真实课题走完整链路(计划→审批→检索→带引用报告)有轨迹;②FACT 式抽查:随机抽论断,文献 URL 与代码 file:line 逐条支撑(实测,不接受自评);③预算旋钮实测:设小预算提前收敛出报告不崩;④机械核验原始工具输出不进主上下文(只有压缩摘要);⑤文献与代码经同一检索接口命中各有实测;⑥中途强杀重启可恢复续跑;⑦轻课题(只产 report.md)与重课题(paper.tex 编译通过)各走通一次。验收②补充(D-412 反例):「出处是否真含支撑文本」做成机械抽查——文献论断的支撑文本必须落在正文内(取回正文全文 grep 关键词,摘要命中不算),仅摘要级来源不得支撑正文级论断;D-412 反例样本=CoALA 四类记忆划分不在摘要而在正文 §2.3(working/episodic/semantic/procedural),机械抽查应能检出此类越界(摘要含 modular memory components 但无四词)。
+- 优先级: P1
+- 阻塞: 
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-277
+- 进展: R-277 关闭前逐条验收证据：①真实课题 plan→审批→检索→报告轨迹：既有真实 `.kanzei/research/r221-chain/plan.md`、`sources.md`、`findings.md`、`report.md` 保留完整链路；本次真实 topic `.kanzei/research/r277-write-acceptance-2/plan.json`、`loop.json`、`report.md` 由 T-1786922726169 重放验证，计划审批实现位于 `crates/kanzei-tools/src/research_plan.rs:180-206`，检索环入口位于 `research_loop.rs:162-216,255-369`。②FACT 抽查：`crates/kanzei-tools/src/research_verify.rs:116-227,264-464` 的正文文献、代码 file:line@commit、source refs、V 等级和 keywords 核验；D-412 摘要越界反例测试位于 `research_verify.rs:521-562`，T-1786922726156/T-1786922726170 通过。③预算旋钮：`research_verify.rs:235-245,411-464` 的 budget_set/get 与 `research_loop.rs:56-71,190-203` 实际消费；本次 `loop.json` 实测 max_rounds=1/max_tokens=1000/max_concurrency=1、tokens_used=18，T-1786922726169 通过。④原始输出隔离：`research_loop.rs:281-326` 只接受 summary/relevance/source_ids 且拒绝原始网页字段；本次 report.md 由真实 research agent 经受限 write 写入，T-1786922726169 read 回核验仅含压缩证据。⑤统一检索：`research_index.rs:258-407` 同一 topic index 入口覆盖文献 search、代码 search 和 symbols 反查；T-1786922726164/T-1786922726166 通过。⑥中途强杀恢复：`research_index.rs:319-365` 单 worker+NoMergePolicy+批量 checkpoint；T-1786922726165 真实 Windows 5211 文档强杀 pid=96200 后 index_resume 从 1024/5211 完成到 5211/5211，D-475 已由 c6099025 修复。⑦轻重课题真实走通：T-1786922726169 真实 agent 写入 `.kanzei/research/r277-write-acceptance-2/report.md` 并 read 回；`research_write.rs:263-340` 真实执行 write_outline→write_section→assemble_paper→compile_paper，产出 `.kanzei/research/r277-write-acceptance-2/paper.tex`、`compile.json(status=passed)`、`paper.pdf`；T-1786922726170 workspace 全量 0 failed。批次 5/5 已满，所有验收项均有实现位置、真实消费者和可重放测试证据。
+- observed_head: c6099025771f6793f55a501f21120ec114a55caf
+- observed_worktree_hash: fnv1a64:47fa0d10aca59693
+- recorded_at: 1786970281338
 - 停车: 
