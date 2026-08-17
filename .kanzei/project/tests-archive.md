@@ -6654,3 +6654,42 @@ print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} ext
 - 关联: D-501
 - 收尾: 1787006878
 - 源码指纹: e810db8d04d2a8d0
+
+## T-1786922726285 D-502 mobile 连接复用定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 10.6s
+- 摘要: D-502 移动端定向回归：205 passed；新增真实 TCP 普通通知与 SSE 入口测试均断言每个请求/长连接相对临时 state.db 只新增 1 次 SessionStore::open。
+- 关联: D-502
+- 收尾: 1787007154
+
+## T-1786922726286 D-502 mobile 最终源码连接复用定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.5s
+- 摘要: 按提交门禁针对当前最终 mobile.rs 重跑：kanzei-app 205 passed，0 failed；普通通知与 SSE 单连接复用真实 TCP/open-count 回归通过。
+- 关联: D-502
+- 收尾: 1787007249
+- 源码指纹: 3838e28d6d502d2b
+
+## T-1786922726287 D-502 mobile 提交前源码指纹定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.5s
+- 摘要: 提交前针对当前 staged mobile.rs 重跑：kanzei-app 205 passed，0 failed；普通通知与 SSE 单连接复用真实 TCP/open-count 回归通过。
+- 关联: D-502
+- 收尾: 1787007259
+- 源码指纹: 3838e28d6d502d2b
+
+## T-1786922726288 D-502 mobile 最终 staged 指纹回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.5s
+- 摘要: 按提交门禁针对当前 staged mobile.rs 最终指纹重跑：kanzei-app 205 passed，0 failed；普通通知与 SSE 单连接复用真实 TCP/open-count 回归通过。
+- 关联: D-502
+- 收尾: 1787007269
+- 源码指纹: 3838e28d6d502d2b
+
+## T-1786922726289 D-502 mobile 当前 staged 提交门禁回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.5s
+- 摘要: 当前 staged mobile.rs 提交门禁定向测试：205 passed，0 failed；通知与 SSE 单连接真实入口回归通过。
+- 关联: D-502
+- 收尾: 1787007279
+- 源码指纹: 3838e28d6d502d2b

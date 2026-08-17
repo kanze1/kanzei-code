@@ -6287,3 +6287,16 @@
 - observed_worktree_hash: fnv1a64:2bfa85e3cd1a1215
 - recorded_at: 1787006816559
 - status: fixing
+
+## D-502 移动端 SSE 每 300ms 轮询与每条事件各开一次 DB 连接 [fixed] (medium)
+- 复现: crates/kanzei-app/src/mobile.rs:578 每 300ms 轮询开一次 SessionStore::open,:588 每条事件再开一次;HTTP 请求路径 :265/:270 一次请求开两条;团队自测一次 open 约 4.3ms(run/events/mod.rs:92-98,D-374 已为 run trace 做连接复用)
+- 影响: 每台配对设备一条常驻线程按此频率烧连接,零收益;132MB 库含 migrate+housekeeping 查询
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 连接复用铺到 mobile 全路径;轮询循环单连接;修后耗时可量化对比
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-502
+- 进展: 实现与验证完成，逐项对账：①连接复用铺到 mobile 全路径：`crates/kanzei-app/src/mobile.rs:176-186` 配对、`:264-276` 普通 notifications、`:296-300` messages、`:348-355` conversation 消费、`:554-614` SSE、`:672-679` 启动设备快照、`:747-750` 撤销、`:776-787` 设备列表均保持各自请求/命令单次 open；既有 approval/health/PWA 路径不需要数据库连接。②轮询循环单连接：`:554-566` SSE 进入循环前打开一次 store，`:591` replay 与 `:600-607` cursor 更新都复用该实例，不在 300ms 循环或事件内再次 open；普通 notifications 在 `:264-276` 同一实例内完成 cursor/replay/set。T-1786922726285 的真实 TCP 普通通知与 SSE 测试均断言临时 state.db 的 open 增量为 1，且 kanzei-app 205 passed。③修后耗时量化：按修前代码结构，无 cursor 普通通知为 2 次 open→1 次，单事件 SSE 为 3→1，100 事件 SSE 为 102→1；沿用复现字段中既有实测约 4.3ms/open，估算分别减少约 4.3ms、8.6ms、434.3ms；实测硬证据为 T-1786922726285 的每路径 open 计数。
+- observed_head: 799b703d19e3b6bd8d98e06434ecfe22ed8f112c
+- observed_worktree_hash: fnv1a64:7502418c934b2dcc
+- recorded_at: 1787007195742

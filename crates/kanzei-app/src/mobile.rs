@@ -259,22 +259,20 @@ fn handle_mobile_connection(
             };
             let device_id =
                 mobile_query(path, "device_id").unwrap_or_else(|| "paired-device".into());
-            let cursor = mobile_query(path, "cursor")
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or_else(|| {
-                    kanzei_core::SessionStore::open(&state_path)
-                        .ok()
-                        .and_then(|store| store.delivery_cursor(&device_id, &thread_id).ok())
-                        .unwrap_or(0)
-                });
+            let cursor_param =
+                mobile_query(path, "cursor").and_then(|value| value.parse::<u64>().ok());
             match kanzei_core::SessionStore::open(&state_path).and_then(|store| {
+                let cursor = match cursor_param {
+                    Some(cursor) => cursor,
+                    None => store.delivery_cursor(&device_id, &thread_id)?,
+                };
                 let events = store.replay_notifications(&thread_id, cursor, 100)?;
                 if let Some(last) = events.last() {
                     store.set_delivery_cursor(&device_id, &thread_id, last.sequence)?;
                 }
-                Ok(events)
+                Ok((events, cursor))
             }) {
-                Ok(events) => mobile_json_response(
+                Ok((events, cursor)) => mobile_json_response(
                     "200 OK",
                     &json!({"events": events, "cursor": events.last().map(|event| event.sequence).unwrap_or(cursor)}),
                 ),
@@ -556,14 +554,16 @@ fn handle_sse(
         }
     };
     let device_id = mobile_query(path, "device_id").unwrap_or_else(|| "paired-device".into());
+    let store = match kanzei_core::SessionStore::open(state_path) {
+        Ok(store) => store,
+        Err(error) => {
+            eprintln!("移动端 SSE 打开 state store 失败: {error}");
+            return;
+        }
+    };
     let initial_cursor = mobile_query(path, "cursor")
         .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or_else(|| {
-            kanzei_core::SessionStore::open(state_path)
-                .ok()
-                .and_then(|store| store.delivery_cursor(&device_id, &thread_id).ok())
-                .unwrap_or(0)
-        });
+        .unwrap_or_else(|| store.delivery_cursor(&device_id, &thread_id).unwrap_or(0));
 
     // SSE 响应头:长连接、不缓存、keep-alive。
     let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n\
@@ -588,9 +588,7 @@ fn handle_sse(
             return;
         }
         // 有事件就推;无则心跳(SSE 注释行保活)。
-        match kanzei_core::SessionStore::open(state_path)
-            .and_then(|store| store.replay_notifications(&thread_id, cursor, 100))
-        {
+        match store.replay_notifications(&thread_id, cursor, 100) {
             Ok(events) if !events.is_empty() => {
                 for event in events {
                     let payload = serde_json::to_string(&event).unwrap_or_default();
@@ -600,8 +598,6 @@ fn handle_sse(
                     }
                     if let Err(error) =
                         persist_delivery_cursor_and_advance(&mut cursor, event.sequence, || {
-                            let store = kanzei_core::SessionStore::open(state_path)
-                                .map_err(|error| error.to_string())?;
                             store
                                 .set_delivery_cursor(&device_id, &thread_id, event.sequence)
                                 .map_err(|error| error.to_string())
@@ -1056,6 +1052,128 @@ mod tests {
             Ok(kanzei_core::AskResponse::Answer(text)) => assert_eq!(text, "是"),
             other => panic!("question 回答应送达 Answer,实得: {other:?}"),
         }
+    }
+
+    fn mobile_connection_test_project(label: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-mobile-open-count-{label}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei")).unwrap();
+        let state_path = kanzei_core::project_state_path(&dir);
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        store.create_session("thread-open", "C:/p", None).unwrap();
+        store
+            .append_notification_atomic("thread-open", "completed", "done", false)
+            .unwrap();
+        drop(store);
+        (dir, state_path)
+    }
+
+    fn mobile_connection_test_inputs() -> (
+        Arc<Mutex<HashMap<String, String>>>,
+        Arc<Mutex<Option<String>>>,
+        Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
+        Arc<AtomicBool>,
+    ) {
+        let mut devices = HashMap::new();
+        devices.insert("dev-open".into(), "tok-open".into());
+        (
+            Arc::new(Mutex::new(devices)),
+            Arc::new(Mutex::new(None)),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(AtomicBool::new(true)),
+        )
+    }
+
+    fn run_mobile_request(
+        project_root: PathBuf,
+        request: &str,
+        devices: Arc<Mutex<HashMap<String, String>>>,
+        pair_code: Arc<Mutex<Option<String>>>,
+        runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
+        active: Arc<AtomicBool>,
+    ) -> (String, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let mut client = TcpStream::connect(address).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let worker = std::thread::spawn(move || {
+            handle_mobile_connection(server, project_root, devices, pair_code, runtimes, active)
+        });
+        client.write_all(request.as_bytes()).unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        (response, worker)
+    }
+
+    /// D-502:普通通知请求在读取 delivery cursor 与回放/推进时只打开一次 store。
+    #[test]
+    fn notifications请求单次连接复用() {
+        let (dir, state_path) = mobile_connection_test_project("json");
+        let baseline = kanzei_core::store_open_count(&state_path);
+        let (devices, pair_code, runtimes, active) = mobile_connection_test_inputs();
+        let (response, worker) = run_mobile_request(
+            dir.clone(),
+            "GET /v1/notifications?thread_id=thread-open&device_id=dev-open HTTP/1.1\r\nAuthorization: Bearer tok-open\r\n\r\n",
+            devices,
+            pair_code,
+            runtimes,
+            active,
+        );
+        worker.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+        assert_eq!(
+            kanzei_core::store_open_count(&state_path) - baseline,
+            1,
+            "普通通知请求应只打开一次 state store"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-502:SSE 首批事件真实经移动端入口发送后,整个轮询连接只打开一次 store。
+    #[test]
+    fn sse轮询单连接复用() {
+        let (dir, state_path) = mobile_connection_test_project("sse");
+        let baseline = kanzei_core::store_open_count(&state_path);
+        let (devices, pair_code, runtimes, active) = mobile_connection_test_inputs();
+        let stop = active.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let mut client = TcpStream::connect(address).unwrap();
+        client
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let worker = std::thread::spawn({
+            let root = dir.clone();
+            move || handle_mobile_connection(server, root, devices, pair_code, runtimes, active)
+        });
+        client
+            .write_all(
+                b"GET /v1/events?thread_id=thread-open&device_id=dev-open HTTP/1.1\r\nAuthorization: Bearer tok-open\r\n\r\n",
+            )
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        stop.store(false, Ordering::SeqCst);
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        worker.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+        assert!(
+            response.contains("data: "),
+            "SSE 应发送首批事件: {response}"
+        );
+        assert_eq!(
+            kanzei_core::store_open_count(&state_path) - baseline,
+            1,
+            "SSE 轮询连接应只打开一次 state store"
+        );
+        std::fs::remove_dir_all(dir).ok();
     }
 
     /// D-501:游标只有持久化成功后才前进；故障注入时保留旧游标。
