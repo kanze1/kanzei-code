@@ -5590,3 +5590,18 @@
 - 关联: R-276 D-452 D-453 D-454
 - 收尾: 1786962282
 - 源码指纹: eb9c0884736427ff
+
+## T-1786922726139 R-277 B1 kanzei-tools 全量定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 31.0s
+- 摘要: R-277 批1当前源码全量定向 suite：331 passed，1 ignored；覆盖 research_plan schema/持久化、ResearchProfile 工具注册/权限/提示词和既有 kanzei-tools 回归。
+- 关联: R-277 D-455 D-456 D-457
+- 收尾: 1786962910
+
+## T-1786922726140 R-277 B1 kanzei-tools 暂存源码提交前重跑 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 31.0s
+- 摘要: 提交前当前暂存源码重跑：331 passed，1 ignored；源码 fingerprint 已与本批 staged Rust 文件匹配。
+- 关联: R-277 D-455 D-456 D-457
+- 收尾: 1786963033
+- 源码指纹: 1e928ab8a792b8de

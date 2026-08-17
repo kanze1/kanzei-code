@@ -619,6 +619,10 @@ impl Component for ResearchProfile {
             .tools
             .insert("websearch", Arc::new(crate::websearch::WebSearchTool));
         draft.tools.insert(
+            "research_plan",
+            Arc::new(crate::research_plan::ResearchPlanTool),
+        );
+        draft.tools.insert(
             "finding",
             Arc::new(TrackerTool {
                 tool_name: "finding",
@@ -711,6 +715,16 @@ impl Component for ResearchProfile {
         draft
             .permissions
             .push(rule("websearch", "*", Effect::Allow));
+        for resource in [
+            "read:get",
+            "write:create",
+            "write:clarify",
+            "write:request_approval",
+        ] {
+            draft
+                .permissions
+                .push(rule("research_plan", resource, Effect::Allow));
+        }
 
         draft.context.insert(
             "research/docs",
@@ -752,7 +766,7 @@ impl Component for ResearchProfile {
                 mode: AgentMode::Primary,
                 // 0 = 无轮数上限(用户定调)。
                 steps: 0,
-                system: "You are the research agent. Record every consulted source \
+                system: "You are the research agent. Before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. Record every consulted source \
                          (`source add`) and register conclusions as findings citing those \
                          sources. Every conclusion must state its code or literature domain, \
                          V0-V3 level, evidence anchor, and literature evidence depth; use V \
@@ -1650,6 +1664,37 @@ mod tests {
                 "research {tool_name} 不应允许修改既有条目"
             );
         }
+        for resource in [
+            "read:get",
+            "write:create",
+            "write:clarify",
+            "write:request_approval",
+        ] {
+            assert_eq!(
+                snapshot.evaluate("research_plan", resource),
+                Effect::Allow,
+                "research_plan 应允许 {resource}"
+            );
+        }
+        let plan_tool = snapshot
+            .materialize_tools()
+            .into_iter()
+            .find(|tool| tool.name() == "research_plan")
+            .expect("research 档缺少 research_plan tool");
+        let schema = plan_tool.input_schema();
+        let actions = schema
+            .pointer("/properties/action/enum")
+            .and_then(|value| value.as_array())
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(actions).unwrap(),
+            serde_json::json!(["get", "create", "clarify", "request_approval"])
+        );
+        assert!(snapshot
+            .select_agent(Some("research"))
+            .unwrap()
+            .system
+            .contains("research_plan"));
         for name in ["req", "defect"] {
             let tool = snapshot
                 .materialize_tools()

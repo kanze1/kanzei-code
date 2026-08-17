@@ -5570,3 +5570,39 @@
 - observed_head: 110c9943f4d272e26b955a8df1f684f1431a8602
 - observed_worktree_hash: fnv1a64:636532668458059b
 - recorded_at: 1786962103140
+
+## D-455 R-277 research_plan 节点状态缺少 Default 导致 kanzei-tools 编译失败 [fixed] (medium)
+- 复现: 运行 `cargo test -p kanzei-tools research_plan`；`crates/kanzei-tools/src/research_plan.rs:36-45` 的 `PlanNodeStatus` 被 `PlanNode` 的 `#[serde(default)]` 引用，但未实现 `Default`，rustc 报 E0277/E0599。
+- 影响: R-277 批1新增 research_plan 模块无法编译，ResearchProfile 不能装配。
+- 来源: self-found：R-277 批1新增代码后的定向编译测试。
+- 标签: 核心
+- refs: R-277
+- 优先级: P1
+- 进展: 已在 `crates/kanzei-tools/src/research_plan.rs:34-45` 为 `PlanNodeStatus` 增加 `Default`，默认 `Pending`；T-1786922726139 全量 kanzei-tools 331 passed/1 ignored，且 `research_plan::tests` 2 项通过。
+- observed_head: 4fe14544f11249ac984ca468bde7de2417a932a3
+- observed_worktree_hash: fnv1a64:06d3075b37408621
+- recorded_at: 1786962923592
+
+## D-456 R-277 research_plan profile 回归断言类型不匹配 [fixed] (low)
+- 复现: 运行 `cargo test -p kanzei-tools profiles::tests::research_context_injects_backlog_conventions_and_restricted_tracker_tools`；`profiles.rs:1689` 将 `Vec<serde_json::Value>` 与 `&serde_json::Value` 用 `assert_eq!` 比较，rustc 报无 PartialEq 实现。
+- 影响: R-277 ResearchProfile 的真实调用方/权限回归测试无法编译。
+- 来源: self-found：R-277 批1 profile 回归测试。
+- 标签: 核心
+- refs: R-277
+- 优先级: P2
+- 进展: 已将 `crates/kanzei-tools/src/profiles.rs:1689-1692` 的 schema enum 断言改为 `serde_json::to_value(actions)` 后比较；T-1786922726139 全量 kanzei-tools 331 passed/1 ignored，profile 回归测试通过。
+- observed_head: 4fe14544f11249ac984ca468bde7de2417a932a3
+- observed_worktree_hash: fnv1a64:06d3075b37408621
+- recorded_at: 1786962964070
+
+## D-457 R-277 profile schema 回归测试借用临时 JSON [fixed] (low)
+- 复现: D-456 修复后运行同一测试；`profiles.rs:1684-1688` 直接从临时 `plan_tool.input_schema()` 借用 `/properties/action/enum`，临时 JSON 在语句末销毁，rustc 报 E0716。
+- 影响: R-277 profile 权限/调用方回归仍无法编译。
+- 来源: self-found：修复 D-456 后的定向编译测试。
+- 标签: 核心
+- refs: R-277 D-456
+- 优先级: P2
+- 进展: 已在 `crates/kanzei-tools/src/profiles.rs:1684-1689` 绑定 `let schema = plan_tool.input_schema()` 后再借用 enum，避免临时 JSON 生命周期错误；T-1786922726139 全量 kanzei-tools 331 passed/1 ignored，profile 回归测试通过。
+- observed_head: 4fe14544f11249ac984ca468bde7de2417a932a3
+- observed_worktree_hash: fnv1a64:06d3075b37408621
+- recorded_at: 1786962969167

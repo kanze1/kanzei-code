@@ -32,6 +32,7 @@ mod plot_tool;
 mod process;
 mod question;
 mod read;
+pub mod research_plan;
 pub use read::pdf_to_text;
 pub mod run;
 mod shell;

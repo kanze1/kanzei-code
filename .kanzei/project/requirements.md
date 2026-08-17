@@ -249,18 +249,23 @@
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-276
 
-## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [todo]
+## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [doing]
 - refs: R-221 R-273 R-274 R-276 R-283 R-284 docs/design/research_mode.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 依赖: R-221
 - 内容: 四段流水线:①澄清+计划——产出显式研究计划树数据结构,经用户审批/修改后才跑(UI 由 R-276 承接);②检索-阅读-反思环——串行迭代+有限并发检索,子任务隔离上下文、回传前 RCS 式压缩(相关分+带出处摘要),原始网页/工具输出不直接进主上下文;信息写入 findings.md 时即绑定来源(STORM 信息表先例);反思步找知识缺口决定补搜;③综合写作——先 outline.md 后分节单点一次性生成,重课题写 paper.tex 走 R-273 编译回环修错;④引用校验——FACT 式论断-出处逐条核验(文献=URL 内容支撑,代码=file:line@commit 存在且语义支撑),抽查不过重写该节。支撑件:预算显式旋钮(轮次/token 上限,超限收敛写作而非报错);tantivy 本地全文索引(文献+代码)与 symbols 反查挂同一检索接口(文献论断↔代码实现互证是现有系统空白,kanzei 独有优势);断点续跑(单机状态文件,强杀可恢复)。拆批:批1 计划数据结构+澄清段;批2 检索环+压缩回传+来源绑定;批3 大纲写作+LaTeX 回环;批4 引用校验+预算旋钮;批5 tantivy 索引+symbols 同接口+断点续跑。
 - 复杂度: 大
-- 批次: 0/5
+- 批次: 1/5
 - 来源: 2026-08-16 research mode 定调点全部过审后按 docs/design/research_mode.md §5 立项;架构采纳先行对照(prior_art §1)全行业收敛结论:四段流水线、研究并行写作串行、引用收集时绑定、预算显式旋钮、计划给人审。
 - 标签: 核心
 - 边界: 不做真·多 agent 并行编排(先行对照:15 倍 token 单用户不值,隔离+压缩回传同样解上下文冲突);不做 RL 专训模型(纪律放系统侧);不做常驻知识库服务(索引随课题建随课题用);不做模拟审稿与自动选题;计划审批前端由 R-276 承接,本条只出数据结构与状态机。
 - 验收: ①一个真实课题走完整链路(计划→审批→检索→带引用报告)有轨迹;②FACT 式抽查:随机抽论断,文献 URL 与代码 file:line 逐条支撑(实测,不接受自评);③预算旋钮实测:设小预算提前收敛出报告不崩;④机械核验原始工具输出不进主上下文(只有压缩摘要);⑤文献与代码经同一检索接口命中各有实测;⑥中途强杀重启可恢复续跑;⑦轻课题(只产 report.md)与重课题(paper.tex 编译通过)各走通一次。验收②补充(D-412 反例):「出处是否真含支撑文本」做成机械抽查——文献论断的支撑文本必须落在正文内(取回正文全文 grep 关键词,摘要命中不算),仅摘要级来源不得支撑正文级论断;D-412 反例样本=CoALA 四类记忆划分不在摘要而在正文 §2.3(working/episodic/semantic/procedural),机械抽查应能检出此类越界(摘要含 modular memory components 但无四词)。
 - 优先级: P1
 - 阻塞: 
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-277
+- 进展: 批1已落地：`crates/kanzei-tools/src/research_plan.rs` 提供 ResearchPlan/PlanNode/PlanBudget schema、节点 ID/依赖/topic/预算校验、`.kanzei/research/<topic>/plan.json` 原子持久化；research_plan 工具支持 get/create/clarify/request_approval，存在待澄清问题时机械阻止审批请求，agent 不提供 approve 动作。`crates/kanzei-tools/src/lib.rs` 导出模块；`profiles.rs` ResearchProfile 注册真实工具、放行四类权限，并在 research agent prompt 强制先计划→澄清→请求用户审批。T-1786922726139：kanzei-tools 331 passed、1 ignored；覆盖 research_plan 两项单测、profile 工具注册/权限/提示词及全量回归。D-455/D-456/D-457 已 fixed。下一步：补 R-276 消费的审批 IPC/计划树读取契约，继续批2检索环。
+- observed_head: 4fe14544f11249ac984ca468bde7de2417a932a3
+- observed_worktree_hash: fnv1a64:06d3075b37408621
+- recorded_at: 1786962981005
 
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1
