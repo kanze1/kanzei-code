@@ -645,6 +645,8 @@ pub(crate) fn build_run_harness(
     kanzei_tools::run::build_harness(
         |harness| {
             harness.add(crate::harness_ext::FrontendToolsComponent);
+            // R-221 B1:桌面端也注册 readonly 档位；组件只在 ProfileKind::Readonly 生效。
+            harness.add(kanzei_tools::ReadonlyProfile);
         },
         |harness| {
             harness.add(TrackerWritePolicyComponent {
@@ -786,8 +788,31 @@ pub(crate) fn report_config_warnings(
 
 #[cfg(test)]
 mod tests {
-    use super::{append_dev_guidance, cadence_guidance};
+    use super::{append_dev_guidance, build_run_harness, cadence_guidance};
     use kanzei_harness::ProfileKind;
+
+    #[test]
+    fn 桌面装配线注册_readonly_档位并保留只读权限() {
+        let root = std::path::PathBuf::from("C:/kanzei-r221-desktop");
+        let ctx = kanzei_harness::ResolveCtx {
+            profile: ProfileKind::Readonly,
+            cwd: root.clone(),
+            project_root: root,
+            config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
+        };
+        let snapshot = build_run_harness(false, None).resolve(&ctx).unwrap();
+        let agent = snapshot.select_agent(Some("readonly")).unwrap();
+        assert_eq!(agent.name, "readonly");
+        assert_eq!(
+            snapshot.evaluate("read", "*"),
+            kanzei_harness::Effect::Allow
+        );
+        assert_eq!(snapshot.evaluate("bash", "*"), kanzei_harness::Effect::Deny);
+        assert_eq!(
+            snapshot.evaluate("git", "status"),
+            kanzei_harness::Effect::Allow
+        );
+    }
 
     #[test]
     fn 开发提示词强制逐文件暂存并在提交前刷新协作状态() {

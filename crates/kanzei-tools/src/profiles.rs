@@ -632,8 +632,21 @@ impl Component for ResearchProfile {
                 .permissions
                 .push(rule(action, "*.kanzei/research/*", Effect::Allow));
         }
-        // 研究模式下 bash 全程 ask(默认即 ask,这里显式声明意图);联网抓取放行(主力工具)。
-        draft.permissions.push(rule("bash", "*", Effect::Ask));
+        // 研究档位的命令面是硬拒绝:专用工具是唯一真实替代通道,避免模型从 bash 绕过
+        // LaTeX/绘图工具的权限边界。硬拒绝不可被用户规则重新放开。
+        draft.permissions.push_managed_hard_deny(
+            rule("bash", "*", Effect::Deny),
+            None,
+            Some("research 档禁止 bash；请使用已注册的 `latex` 或 `plot` 专用工具，或使用 read/glob/grep/files/git status|diff|log 读取事实"),
+        );
+        // research 允许观察 Git，但禁止任何会改写仓库或发布的结构化动作。
+        for subcommand in ["stage", "commit", "merge_ff", "finalize"] {
+            draft.permissions.push_managed_hard_deny(
+                rule("git", subcommand, Effect::Deny),
+                None,
+                Some("research 档只允许 git status|diff|log 观察；不可提交或修改仓库"),
+            );
+        }
         draft.permissions.push(rule("webfetch", "*", Effect::Allow));
         draft
             .permissions
@@ -1476,6 +1489,45 @@ mod tests {
             snapshot.evaluate("write", r".KANZEI\project\requirements.md"),
             Effect::Deny
         );
+    }
+
+    /// R-221 B1:research 只保留事实观察与专用科研工具,不允许 shell/git 写入。
+    #[test]
+    fn research_profile_hard_denies_bash_and_git_writes() {
+        let root = PathBuf::from("C:/kanzei-r221-research");
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Research,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness
+            .add(crate::BaseComponent)
+            .add(DevProfile)
+            .add(super::ResearchProfile)
+            .add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+
+        assert_eq!(snapshot.evaluate("bash", "*"), Effect::Deny);
+        let bash_hint = snapshot.denial_hint("bash", "anything");
+        assert!(
+            bash_hint.contains("latex") && bash_hint.contains("plot"),
+            "{bash_hint}"
+        );
+        for subcommand in ["status", "diff", "log"] {
+            assert_eq!(snapshot.evaluate("git", subcommand), Effect::Allow);
+        }
+        for subcommand in ["stage", "commit", "merge_ff", "finalize"] {
+            assert_eq!(
+                snapshot.evaluate("git", subcommand),
+                Effect::Deny,
+                "git {subcommand}"
+            );
+        }
+        for action in ["read", "glob", "grep", "files", "webfetch", "websearch"] {
+            assert_eq!(snapshot.evaluate(action, "*"), Effect::Allow, "{action}");
+        }
     }
 
     /// R-102 批1:readonly 档位能装配出只读 agent,且权限快照可见。

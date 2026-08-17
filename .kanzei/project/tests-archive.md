@@ -5259,3 +5259,18 @@
 - 关联: D-349
 - 收尾: 1786941882
 - 源码指纹: 7e110bbe520f5afc
+
+## T-1786922726092 R-221 B1 cargo test -p kanzei-tools -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-app
+- 时长: 42.0s
+- 摘要: R-221 B1 定向回归通过：kanzei-tools 324 passed（1 ignored），kanzei-app 198 passed；research bash/git 写操作硬拒绝并给 latex/plot 指引，桌面 readonly 档位可装配且读权限保留。
+- 关联: R-221
+- 收尾: 1786942809
+
+## T-1786922726093 R-221 B1 cargo test -p kanzei-tools -p kanzei-app（暂存指纹复验） [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-app
+- 时长: 31.0s
+- 摘要: 暂存源码指纹重新计算后定向回归通过：kanzei-tools 324 passed（1 ignored），kanzei-app 198 passed；覆盖 research bash/git 写操作硬拒绝、latex/plot 指引、桌面 readonly 装配与只读权限。
+- 关联: R-221
+- 收尾: 1786942966
+- 源码指纹: 86eda3fe64a9758b

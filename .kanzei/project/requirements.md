@@ -85,16 +85,16 @@
 - 边界: research 不可提交 git、不动既有条目状态(add 草稿除外);不做报告 schema 校验。「不可写 docs/design」一条待重推(新定位下产出是论文而非设计文档,问法需重新表述)。**dev 侧「先计划后自举」的勘察工件落点问题不由本条承接**——那是独立课题,需另立条目。
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
 - refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-221
-- 进展: 2026-08-16 取活。勘察结论:R-221 的设计真源 docs/design/research_mode.md 状态为「设计基线草案(2026-08-12 八维度审计维度8 产出;定调点待用户逐项确认后转正)」——§2 的八个定调点(主形态/工件落点/证据等级 V 表/回流通道/记忆一元化/档位矩阵/可写 docs 边界/三形态收敛)全部标注「待用户确认」,括号内为本设计的默认建议。按 §1「需求边界不清楚时必须先提问确认,不允许在关键问题上自行假设后直接实现」,八个定调点未获用户拍板前实施会踩边界(如「research 不可写 docs/design」「证据等级单列 V 表」都是用户层面决策)。现状盘点(供解除阻塞后立即开工):批1 档位收口的 files/git 只读已在 R-218 完成(SubagentBase 6 件套),ReadonlyProfile 与 bash 硬 deny+替代指引是既有模式(profiles.rs:652-658 先例);批2-批6 的 topic 工件/证据口径/回流/记忆/三形态均未动。 || 2026-08-16 复核:设计已转正(2026-08-16 定调点全部过审,research_mode.md 已重写为设计基线),原阻塞对象 R-246 已 done 并归档(复核时仍为 doing,现确认已归档),阻塞解除条件全部满足,当场清空阻塞字段,按 §7 批次恢复可执行。 || 2026-08-16 让位:本轮按队列顺序取 R-186(P0 队首),本条 doing→todo 让位,待 R-186 交付后按队列轮转,届时直接开工批1(档位收口:ReadonlyProfile + bash 硬 deny+替代指引,先例 profiles.rs:652-658)。
+- 取活依据: engine:唯一可执行 WIP 是 R-221，必须先恢复它
+- 进展: 恢复复核：旧进度 0/5 与当前 HEAD 不一致；既有能力是 crates/kanzei-tools/src/profiles.rs:689-729 的 CLI ReadonlyProfile 及 R-218 已交付的只读工具规则，本批不重复申报。R-221 B1 本次交付：①桌面装配 crates/kanzei-app/src/run/assembly.rs:638-660 注册 ReadonlyProfile，测试 assembly.rs:792-812 验证 ProfileKind::Readonly 能选 readonly、read 放行、bash 拒绝；②research 档在 crates/kanzei-tools/src/profiles.rs:628-665 对 bash 使用 managed hard deny，拒绝指引真实指向 latex/plot，并对 git stage/commit/merge_ff/finalize 硬拒绝，仅 status/diff/log 放行；③profiles.rs:1481-1535 的 research_profile_hard_denies_bash_and_git_writes 覆盖读族、联网工具与写操作边界。T-1786922726092：kanzei-tools 324 passed(1 ignored)、kanzei-app 198 passed。B2 待做：topic 工件落点与 source/finding/report 按 topic 分组；B3 V 表；B4 回流；B5 记忆一元化。
 - 阻塞: 
-- observed_head: 98d7a586f38a09f5b449b75b7a3c93c62d01852f
-- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
-- recorded_at: 1786835811278
-- 批次: 0/5
+- observed_head: 0c0b4636fd57ce4ffe5eefeb8450d9f12f46e215
+- observed_worktree_hash: fnv1a64:078eb767694ff318
+- recorded_at: 1786942837701
+- 批次: 1/5
 - 状态: todo
 - 依赖: D-428
-- 停车: 单 WIP 槽让给 D-349(defect-first)。D-428 关闭后本条随即变成可执行，与 R-216、R-281、D-349 同时挤在单槽上触发 wip_violation。恢复人:用户,或本线在 D-349 收口后自行恢复。
+- 停车: 
 
 ## R-216 记忆写入侧质量三闸:近似去重下沉 store.add 双 scope、[fp:] 指纹一致性校验、tracker 交付状态内容拒收 [doing]
 - 优先级: P2
@@ -112,7 +112,7 @@
 - recorded_at: 1786835811578
 - 状态: todo
 - 依赖: D-428
-- 停车: 单 WIP 槽让给 D-349(defect-first)。D-428 关闭后本条随即变成可执行，与 R-221、R-281、D-349 同时挤在单槽上触发 wip_violation。恢复人:用户,或本线在 D-349 收口后自行恢复。
+- 停车: 单 WIP 槽按队列优先让位给 R-221；用户已解除原停车，但本轮不并行执行，待 R-221 结束后恢复。恢复人:agent。
 
 ## R-235 存量 28 条零证据 active 记忆逐条复核:保留(存量豁免)或降级 candidate,用户拍板 [todo]
 - 优先级: P3
@@ -292,7 +292,7 @@
 - observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
 - observed_worktree_hash: fnv1a64:6aa6fbd939a238f6
 - recorded_at: 1786933041284
-- 停车: 单 WIP 槽让给 D-349(defect-first)。批1 已提交(ed305ae8),批2/批3 待做。恢复人:用户,或本线在 D-349 收口后自行恢复。
+- 停车: 单 WIP 槽按队列优先让位给 R-221；用户已解除原停车，但本轮不并行执行，待 R-221 结束后恢复。恢复人:agent。
 
 ## R-288 Android 真机 E3 验收:移动端 PWA 通知与双向消息真实链路 [todo]
 - refs: R-059 R-270 R-271 D-389
