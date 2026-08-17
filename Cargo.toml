@@ -46,6 +46,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 similar = "2"
 globset = "0.4"
 ignore = "0.4"
+tantivy = "0.22"
 grep-searcher = "0.1"
 grep-regex = "0.1"
 url = "2"

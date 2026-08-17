@@ -14,6 +14,7 @@ kanzei-llm.workspace = true
 kanzei-memory.workspace = true
 globset.workspace = true
 ignore.workspace = true
+tantivy.workspace = true
 grep-searcher.workspace = true
 grep-regex.workspace = true
 reqwest.workspace = true

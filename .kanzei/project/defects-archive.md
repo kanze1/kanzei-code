@@ -5750,3 +5750,51 @@
 - observed_head: 824690c16e849af6e7e8075459faa2c532d244f9
 - observed_worktree_hash: fnv1a64:04d0732b4b2553f6
 - recorded_at: 1786966198463
+
+## D-471 R-277 research_index 不匹配 tantivy 0.22 API [fixed] (medium)
+- 复现: 运行 `cargo test -p kanzei-tools research_index`；`research_index.rs` 报 `OwnedValue::as_str` 缺 `tantivy::schema::Value` trait、`IndexWriter::delete_documents` 不存在、schema() 的 fields 变量未使用。
+- 影响: R-277 批5统一索引模块无法编译，ResearchProfile 接线不能使用。
+- 来源: self-found：R-277 批5 Design freeze 后定向编译。
+- 标签: 核心
+- refs: R-277
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/research_index.rs:8-11,169-190,330-339` 已对齐 tantivy 0.22：导入 Value trait、使用 delete_term、显式处理 add_document；T-1786922726156 339 passed/1 ignored。
+- observed_head: 4959cc4f6ddda666603eb56eeaedcfb5573ee1f9
+- observed_worktree_hash: fnv1a64:d31b01e72e2edf70
+- recorded_at: 1786967070149
+
+## D-472 R-277 research_index 静默吞掉 Tantivy 文档写入错误 [fixed] (high)
+- 复现: 审阅 `crates/kanzei-tools/src/research_index.rs:331-338`；`writer.add_document(...).map_err(...).ok()` 丢弃 Tantivy 写入错误，代码随后递增 checkpoint.processed 并继续。
+- 影响: 索引写入失败时 checkpoint 可能错误标记进度，恢复时跳过未写入文档，统一检索静默缺结果。
+- 来源: self-found：R-277 批5 research_index 定向测试后的错误路径审阅。
+- 标签: 核心
+- refs: R-277 D-471
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/research_index.rs:331-339` 将 Tantivy add_document 错误显式返回，不再推进 checkpoint；T-1786922726156 的统一索引和完整 suite 通过。
+- observed_head: 4959cc4f6ddda666603eb56eeaedcfb5573ee1f9
+- observed_worktree_hash: fnv1a64:d31b01e72e2edf70
+- recorded_at: 1786967076423
+
+## D-473 R-277 checkpoint 回归测试误插入测试函数内部 [fixed] (medium)
+- 复现: 运行 `cargo test -p kanzei-tools research_index`；新增 `corrupt_checkpoint_is_reported_without_overwrite` 位于现有测试函数内部，编译警告 `cannot test inner items` 且该测试未执行。
+- 影响: checkpoint 损坏恢复验收没有真实测试覆盖，且批5产生 warning。
+- 来源: self-found：R-277 批5 checkpoint 回归测试接线。
+- 标签: 核心
+- refs: R-277 D-472
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/research_index.rs:495-510` 将 corrupt_checkpoint_is_reported_without_overwrite 放到 tests module 顶层，当前 research_index 两项测试均真实执行；T-1786922726156 通过。
+- observed_head: 4959cc4f6ddda666603eb56eeaedcfb5573ee1f9
+- observed_worktree_hash: fnv1a64:d31b01e72e2edf70
+- recorded_at: 1786967081616
+
+## D-474 R-277 research_index 吞掉 symbols 反查错误 [fixed] (medium)
+- 复现: 审阅 `crates/kanzei-tools/src/research_index.rs:373-386`；symbols 模式调用 `SymbolsTool.execute` 后直接包装 `ToolOutput::ok`，底层错误也被标为成功。
+- 影响: 统一检索接口的代码反查失败会被调用方误判为成功，无法暴露无效路径或参数错误。
+- 来源: self-found：R-277 批5统一接口测试后的错误传播审阅。
+- 标签: 核心
+- refs: R-277 D-473
+- 优先级: P1
+- 进展: `crates/kanzei-tools/src/research_index.rs:384-389` 对 SymbolsTool 返回值传播 is_error，不再包装底层失败为成功；missing.rs 回归测试和 T-1786922726156 通过。
+- observed_head: 4959cc4f6ddda666603eb56eeaedcfb5573ee1f9
+- observed_worktree_hash: fnv1a64:d31b01e72e2edf70
+- recorded_at: 1786967088790

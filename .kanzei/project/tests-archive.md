@@ -5718,3 +5718,18 @@
 - 关联: R-277 D-468 D-469
 - 收尾: 1786966259
 - 源码指纹: 9a589a54c38a6a47
+
+## T-1786922726156 R-277 B5 tantivy 统一索引与断点续跑 kanzei-tools 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 34.0s
+- 摘要: R-277 批5最终定向验证：rustfmt 通过；kanzei-tools 339 passed，1 ignored。覆盖 tantivy 统一文献/代码检索、symbols 成功/错误传播、checkpoint resume/损坏拒绝覆盖、ResearchProfile 注册和权限。
+- 关联: R-277 D-471 D-472 D-473 D-474
+- 收尾: 1786967061
+
+## T-1786922726157 R-277 B5 当前 staged kanzei-tools fingerprint 回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 30.8s
+- 摘要: 当前 staged 源码单独重跑：kanzei-tools 339 passed，1 ignored；research_index 统一检索、symbols 错误传播、checkpoint resume/损坏保护和 ResearchProfile 装配通过，fingerprint 与 staged Rust 匹配。
+- 关联: R-277 D-471 D-472 D-473 D-474
+- 收尾: 1786967159
+- 源码指纹: a392fb5fbc6d618f
