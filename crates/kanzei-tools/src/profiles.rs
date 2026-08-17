@@ -628,6 +628,19 @@ impl Component for ResearchProfile {
             }),
         );
 
+        draft
+            .tools
+            .insert("memory_search", Arc::new(crate::memory::MemorySearchTool));
+        draft
+            .tools
+            .insert("memory_note", Arc::new(crate::memory::MemoryNoteTool));
+        draft
+            .permissions
+            .push(rule("memory_search", "*", Effect::Allow));
+        draft
+            .permissions
+            .push(rule("memory_note", "*", Effect::Allow));
+
         draft.tools.insert(
             "req",
             Arc::new(ResearchTrackerTool::new(
@@ -681,20 +694,6 @@ impl Component for ResearchProfile {
                 )
                 .ok()
                 .map(|text| text.chars().take(8000).collect::<String>());
-                let memory = std::fs::read_to_string(ctx.project_root.join(".kanzei/research/memory.md"))
-                    .ok()
-                    .map(|text| {
-                        let capped: String = text.chars().take(5000).collect();
-                        let truncated = capped.chars().count() < text.chars().count();
-                        format!(
-                            "{capped}{}",
-                            if truncated {
-                                "\n…(来源过长已截断,完整内容 read .kanzei/research/memory.md)"
-                            } else {
-                                ""
-                            }
-                        )
-                    });
                 let backlog = [req, defect]
                     .into_iter()
                     .flatten()
@@ -703,15 +702,13 @@ impl Component for ResearchProfile {
                 let conventions = conventions
                     .map(|text| format!("<conventions>\n{text}\n</conventions>\n"))
                     .unwrap_or_default();
-                let memory = memory
-                    .map(|text| format!("<memory>\n{text}\n</memory>\n"))
-                    .unwrap_or_default();
+                let memory_guidance = "<memory>\nUse the unified `memory_search` tool to retrieve project memory and `memory_note` to submit a durable draft; the historical `.kanzei/research/memory.md` is not a research memory source.\n</memory>\n";
                 Some(format!(
                     "<research-docs>\n{}{}<backlog>\n{backlog}\n</backlog>\n{}{}Record sources with `source add` BEFORE citing them; every finding must cite refs. Use the backlog only as a read-only index; req/defect get reads existing entries and add creates a [todo] draft for dev review.\n</research-docs>",
                     src.map(|s| s + "\n").unwrap_or_default(),
                     fnd.map(|s| s + "\n").unwrap_or_default(),
                     conventions,
-                    memory,
+                    memory_guidance,
                 ))
             }),
         );
@@ -730,7 +727,9 @@ impl Component for ResearchProfile {
                          sources. Every conclusion must state its code or literature domain, \
                          V0-V3 level, evidence anchor, and literature evidence depth; use V \
                          evidence, never E0-E4 verification levels, and cap abstract-only \
-                         literature evidence at V1. The final report goes to \
+                         literature evidence at V1. Use `memory_search` for project memory and \
+                         `memory_note` for durable research conclusions; do not use the historical \
+                         `.kanzei/research/memory.md`. The final report goes to \
                          .kanzei/research/report.md."
                     .into(),
             },
@@ -847,8 +846,9 @@ fn index_of(
 mod tests {
     use super::DevProfile;
     use kanzei_harness::{
-        rule, ConfigComponent, Effect, Harness, KanzeiConfig, ProfileKind, ResolveCtx,
+        rule, ConfigComponent, Effect, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,
     };
+    use serde_json::json;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -1531,8 +1531,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn research_context_injects_backlog_conventions_and_restricted_tracker_tools() {
+    #[tokio::test]
+    async fn research_context_injects_backlog_conventions_and_restricted_tracker_tools() {
         let root = std::env::temp_dir().join(format!(
             "kanzei-r221-b4-{}-{}",
             std::process::id(),
@@ -1542,6 +1542,12 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::create_dir_all(root.join(".kanzei/research")).unwrap();
+        std::fs::write(
+            root.join(".kanzei/research/memory.md"),
+            "legacy research memory must not be injected\n",
+        )
+        .unwrap();
         std::fs::write(
             root.join(".kanzei/project/conventions.md"),
             "# project conventions\nB4 convention marker\n",
@@ -1585,12 +1591,18 @@ mod tests {
             "D-901",
             "B4 convention marker",
             "read-only index",
+            "unified `memory_search`",
+            "memory_note",
         ] {
             assert!(
                 baseline.contains(required),
-                "research context 缺少 B4 内容: {required}"
+                "research context 缺少 B5 内容: {required}"
             );
         }
+        assert!(
+            !baseline.contains("legacy research memory must not be injected"),
+            "research context 不得注入历史 research/memory.md"
+        );
         for name in ["req", "defect"] {
             let tool = snapshot
                 .materialize_tools()
@@ -1607,6 +1619,42 @@ mod tests {
                 &[serde_json::json!("get"), serde_json::json!("add")]
             );
         }
+        let tools = snapshot.materialize_tools();
+        let memory_search = tools
+            .iter()
+            .find(|tool| tool.name() == "memory_search")
+            .expect("research 档缺少 memory_search");
+        let memory_note = tools
+            .iter()
+            .find(|tool| tool.name() == "memory_note")
+            .expect("research 档缺少 memory_note");
+        assert_eq!(snapshot.evaluate("memory_search", "*"), Effect::Allow);
+        assert_eq!(snapshot.evaluate("memory_note", "*"), Effect::Allow);
+        let tool_ctx = ToolCtx::new(root.clone(), root.clone());
+        let searched = memory_search
+            .execute(
+                json!({"query": "B5 unified memory", "scope": "project"}),
+                &tool_ctx,
+            )
+            .await;
+        assert!(!searched.is_error, "research memory_search 应可真实调用");
+        let noted = memory_note
+            .execute(
+                json!({
+                    "summary": "B5 research memory note",
+                    "detail": "统一记忆通道回归",
+                    "category_hint": "fact"
+                }),
+                &tool_ctx,
+            )
+            .await;
+        assert!(
+            !noted.is_error,
+            "research memory_note 应可真实投递: {}",
+            noted.content
+        );
+        assert!(noted.content.contains("pending notes"));
+
         std::fs::remove_dir_all(root).unwrap();
     }
 

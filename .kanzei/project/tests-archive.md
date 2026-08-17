@@ -5438,3 +5438,18 @@
 - 关联: R-221 D-441 D-444
 - 收尾: 1786955985
 - 源码指纹: c332972955b88076
+
+## T-1786922726118 R-221 B5 research 记忆一元化最终测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 38.8s
+- 摘要: B5 最终定向套件：328 passed，0 failed，1 ignored；research memory_search/memory_note 接线、真实调用和 historical memory.md 不注入回归通过。
+- 关联: R-221 D-445
+- 收尾: 1786957116
+
+## T-1786922726119 R-221 B5 staged profiles 源码最终测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 33.3s
+- 摘要: 按当前 staged profiles.rs 重跑：328 passed，0 failed，1 ignored；B5 memory 工具接线、历史 memory.md 不注入与既有 profile/tracker 回归全绿。
+- 关联: R-221 D-445
+- 收尾: 1786957289
+- 源码指纹: 4fb133ad90a16409

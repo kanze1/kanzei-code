@@ -5450,3 +5450,15 @@
 - observed_head: e1c07595d560703b3ddaea6f8bc58db6e3ff8ed4
 - observed_worktree_hash: fnv1a64:cd9e53c5904e3e75
 - recorded_at: 1786955883172
+
+## D-445 R-221 B5 回归测试插入重复函数尾部 [fixed] (low)
+- 复现: 新增 B5 profile async 回归时，锚点内容包含原测试尾部，插入内容又携带同一 `remove_dir_all(root)` 与函数闭合，profiles.rs 产生重复测试尾部，破坏后续 B3 测试结构。
+- 影响: profiles.rs 测试模块暂时无法可靠编译，B5 验证不能运行。
+- 来源: self-found；B5 回归测试插入。
+- 标签: 流程
+- refs: R-221
+- 优先级: P3
+- 进展: 已修复并验证：crates/kanzei-tools/src/profiles.rs:1534-1651 的 B5 async context 回归测试结构已恢复，测试实际物化并调用 memory_search/memory_note；T-1786922726118 通过（328 passed，1 ignored）。
+- observed_head: 3e288363f05ecbc2c46f1b61c5480657c77be52a
+- observed_worktree_hash: fnv1a64:0c8c0ed3fd25bab8
+- recorded_at: 1786957163458
