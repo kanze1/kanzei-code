@@ -497,6 +497,95 @@ impl Tool for TrackerTool {
     }
 }
 
+/// Research 档回流桥接：只暴露既有条目的 get 与新草稿 add。
+/// 真实写入仍复用 TrackerTool，确保 R-191 登记字段、ID、状态和原子写日志门禁不分叉。
+pub struct ResearchTrackerTool {
+    inner: TrackerTool,
+}
+
+impl ResearchTrackerTool {
+    pub fn new(
+        tool_name: &'static str,
+        noun: &'static str,
+        kind: &'static DocKind,
+        requires_refs: Option<&'static DocKind>,
+    ) -> Self {
+        Self {
+            inner: TrackerTool {
+                tool_name,
+                noun,
+                kind,
+                requires_refs,
+            },
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for ResearchTrackerTool {
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+
+    fn description(&self) -> String {
+        let mut description = format!(
+            "Research 回流桥接，只允许 `get(id)` 读取既有 {}，或 `add(title, fields)` 登记一条待 dev 确认的草稿；禁止 list/update/close/archive。",
+            self.inner.noun
+        );
+        if self.inner.kind.priorities.is_some() {
+            description.push_str(" add 必须提供 priority；");
+        }
+        if self.inner.kind.severities.is_some() {
+            description.push_str(" add 必须提供 severity；");
+        }
+        if self.inner.kind.tags.is_some() {
+            description.push_str(" add 必须提供受控 tag；");
+        }
+        if self.inner.kind.priorities.is_some() && self.inner.kind.severities.is_none() {
+            description.push_str(" requirement add 必须提供 complexity；");
+        }
+        description.push_str("草稿首状态由 tracker 固定为 todo/open，不得代替 dev 修改既有条目。");
+        description
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        let mut schema = self.inner.input_schema();
+        if let Some(action) = schema
+            .pointer_mut("/properties/action")
+            .and_then(|value| value.as_object_mut())
+        {
+            action.insert("enum".into(), serde_json::json!(["get", "add"]));
+        }
+        schema
+    }
+
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        self.inner.resources(input)
+    }
+
+    async fn execute(&self, mut input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let action = input.get("action").and_then(|value| value.as_str());
+        if !matches!(action, Some("get") | Some("add")) {
+            return ToolOutput::error(
+                "research 档的 req/defect 回流只允许 get 或 add；既有条目不可 list/update/close/archive",
+            );
+        }
+        if action == Some("add") {
+            let Some(object) = input.as_object_mut() else {
+                return ToolOutput::error("research req/defect add input must be an object");
+            };
+            let fields = object
+                .entry("fields")
+                .or_insert_with(|| serde_json::json!({}));
+            let Some(fields) = fields.as_object_mut() else {
+                return ToolOutput::error("research req/defect add fields must be an object");
+            };
+            fields.insert("回流".into(), serde_json::json!("[todo]"));
+        }
+        self.inner.execute(input, ctx).await
+    }
+}
+
 impl TrackerTool {
     fn check_severity(&self, severity: &Option<String>) -> Option<String> {
         let (Some(sev), Some(valid)) = (severity.as_deref(), self.kind.severities) else {
@@ -792,6 +881,78 @@ mod tests {
             severity: None,
             fields: vec![],
         }
+    }
+
+    #[test]
+    fn research_tracker_schema_only_exposes_get_and_add() {
+        let tool = super::ResearchTrackerTool::new("req", "requirement", &REQUIREMENTS, None);
+        let schema = tool.input_schema();
+        let actions = schema
+            .pointer("/properties/action/enum")
+            .and_then(|value| value.as_array())
+            .unwrap();
+        assert_eq!(actions, &[json!("get"), json!("add")]);
+        assert!(tool.description().contains("只允许 `get(id)` 读取"));
+        assert!(tool
+            .description()
+            .contains("禁止 list/update/close/archive"));
+    }
+
+    #[tokio::test]
+    async fn research_tracker_add_marks_todo_and_rejects_update() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-research-bridge-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let tool = super::ResearchTrackerTool::new("req", "requirement", &REQUIREMENTS, None);
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let added = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "研究回流草稿",
+                    "priority": "P2",
+                    "fields": {"复杂度": "小", "标签": "流程"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!added.is_error, "{}", added.content);
+        let entry = store
+            .load()
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.title == "研究回流草稿")
+            .expect("research add 应落一条需求草稿");
+        assert_eq!(entry.status, "todo");
+        assert!(entry
+            .fields
+            .iter()
+            .any(|(key, value)| key == "回流" && value == "[todo]"));
+
+        let rejected = tool
+            .execute(
+                json!({"action": "update", "id": entry.id, "fields": {"进展": "越权"}}),
+                &ctx,
+            )
+            .await;
+        assert!(rejected.is_error, "research wrapper 不得允许 update");
+        let fetched = tool
+            .execute(json!({"action": "get", "id": entry.id}), &ctx)
+            .await;
+        assert!(
+            !fetched.is_error,
+            "research get 应读取已登记条目: {}",
+            fetched.content
+        );
+        assert!(fetched.content.contains("研究回流草稿"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -9,7 +9,7 @@ use kanzei_harness::{
 };
 
 use crate::docstore::{DocStore, DECISIONS, DEFECTS, FINDINGS, IDEAS, REQUIREMENTS, SOURCES};
-use crate::tracker::TrackerTool;
+use crate::tracker::{ResearchTrackerTool, TrackerTool};
 use crate::work::WorkTool;
 
 /// dev agent 的前端自查段。**不写进 dev 的基础提示词**:这段点名的 5 个工具
@@ -628,6 +628,20 @@ impl Component for ResearchProfile {
             }),
         );
 
+        draft.tools.insert(
+            "req",
+            Arc::new(ResearchTrackerTool::new(
+                "req",
+                "requirement",
+                &REQUIREMENTS,
+                None,
+            )),
+        );
+        draft.tools.insert(
+            "defect",
+            Arc::new(ResearchTrackerTool::new("defect", "defect", &DEFECTS, None)),
+        );
+
         // 写权限收窄:仅 .kanzei/research/** 可写(report.md 等自由写作);其余 deny。
         for action in ["write", "edit", "insert"] {
             draft.permissions.push(rule(action, "*", Effect::Deny));
@@ -660,6 +674,13 @@ impl Component for ResearchProfile {
             source("research/docs", |ctx: &ResolveCtx| {
                 let src = index_of(ctx, &SOURCES, "Sources");
                 let fnd = index_of(ctx, &FINDINGS, "Findings");
+                let req = index_of(ctx, &REQUIREMENTS, "Requirements");
+                let defect = index_of(ctx, &DEFECTS, "Defects");
+                let conventions = std::fs::read_to_string(
+                    ctx.project_root.join(".kanzei/project/conventions.md"),
+                )
+                .ok()
+                .map(|text| text.chars().take(8000).collect::<String>());
                 let memory = std::fs::read_to_string(ctx.project_root.join(".kanzei/research/memory.md"))
                     .ok()
                     .map(|text| {
@@ -674,11 +695,23 @@ impl Component for ResearchProfile {
                             }
                         )
                     });
+                let backlog = [req, defect]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let conventions = conventions
+                    .map(|text| format!("<conventions>\n{text}\n</conventions>\n"))
+                    .unwrap_or_default();
+                let memory = memory
+                    .map(|text| format!("<memory>\n{text}\n</memory>\n"))
+                    .unwrap_or_default();
                 Some(format!(
-                    "<research-docs>\n{}{}{}Record sources with `source add` BEFORE citing them; every finding must cite refs. Persist reusable conclusions in .kanzei/research/memory.md and include source IDs next to each claim.\n</research-docs>",
+                    "<research-docs>\n{}{}<backlog>\n{backlog}\n</backlog>\n{}{}Record sources with `source add` BEFORE citing them; every finding must cite refs. Use the backlog only as a read-only index; req/defect get reads existing entries and add creates a [todo] draft for dev review.\n</research-docs>",
                     src.map(|s| s + "\n").unwrap_or_default(),
                     fnd.map(|s| s + "\n").unwrap_or_default(),
-                    memory.map(|text| format!("<memory>\n{text}\n</memory>\n")).unwrap_or_default(),
+                    conventions,
+                    memory,
                 ))
             }),
         );
@@ -1496,6 +1529,85 @@ mod tests {
             snapshot.evaluate("write", r".KANZEI\project\requirements.md"),
             Effect::Deny
         );
+    }
+
+    #[test]
+    fn research_context_injects_backlog_conventions_and_restricted_tracker_tools() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-r221-b4-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(".kanzei/project/conventions.md"),
+            "# project conventions\nB4 convention marker\n",
+        )
+        .unwrap();
+        crate::docstore::DocStore::open(&root, &crate::docstore::REQUIREMENTS)
+            .save(&[crate::docstore::Entry {
+                id: "R-901".into(),
+                title: "研究回流需求".into(),
+                status: "todo".into(),
+                severity: None,
+                fields: vec![],
+            }])
+            .unwrap();
+        crate::docstore::DocStore::open(&root, &crate::docstore::DEFECTS)
+            .save(&[crate::docstore::Entry {
+                id: "D-901".into(),
+                title: "研究回流缺陷".into(),
+                status: "open".into(),
+                severity: Some("medium".into()),
+                fields: vec![],
+            }])
+            .unwrap();
+
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Research,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness
+            .add(crate::BaseComponent)
+            .add(super::ResearchProfile)
+            .add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let baseline = snapshot.system_baseline();
+        for required in [
+            "<backlog>",
+            "R-901",
+            "D-901",
+            "B4 convention marker",
+            "read-only index",
+        ] {
+            assert!(
+                baseline.contains(required),
+                "research context 缺少 B4 内容: {required}"
+            );
+        }
+        for name in ["req", "defect"] {
+            let tool = snapshot
+                .materialize_tools()
+                .into_iter()
+                .find(|tool| tool.name() == name)
+                .unwrap_or_else(|| panic!("research 档缺少 {name} tool"));
+            let schema = tool.input_schema();
+            let actions = schema
+                .pointer("/properties/action/enum")
+                .and_then(|value| value.as_array())
+                .unwrap();
+            assert_eq!(
+                actions,
+                &[serde_json::json!("get"), serde_json::json!("add")]
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// R-221 B3:dev/research 都能看到 V 表口径,且不把 E0-E4 当研究证据等级。

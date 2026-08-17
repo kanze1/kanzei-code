@@ -5402,3 +5402,51 @@
 - observed_head: 8842e2462339557e42d47f0ec879e63b408db834
 - observed_worktree_hash: fnv1a64:df5908e622eb1e12
 - recorded_at: 1786954904756
+
+## D-442 R-221 B4 wrapper 回归测试文案断言与实现不一致 [fixed] (low)
+- 复现: 运行 tracker::tests::research_tracker_schema_only_exposes_get_and_add 时，wrapper 实际 description 为“只允许”，测试却断言“只能允许”，导致唯一断言失败。
+- 影响: B4 wrapper 回归测试错误失败，未反映实际 schema/运行时限制。
+- 来源: self-found；B4 定向测试。
+- 标签: 流程
+- refs: R-221
+- 优先级: P3
+- 进展: 已修复并验证：crates/kanzei-tools/src/tracker.rs:888-899 的 schema 测试断言与 wrapper 描述统一；T-1786922726113、T-1786922726114 通过。
+- observed_head: e1c07595d560703b3ddaea6f8bc58db6e3ff8ed4
+- observed_worktree_hash: fnv1a64:cd9e53c5904e3e75
+- recorded_at: 1786955858361
+
+## D-443 R-221 B4 context 回归测试缺少 DocKind 导入 [fixed] (low)
+- 复现: 编译 profiles::tests::research_context_injects_backlog_conventions_and_restricted_tracker_tools 时，测试引用未限定的 REQUIREMENTS/DEFECTS，且导入 Tool 未使用，导致 E0425 与 unused import。
+- 影响: B4 research context 回归测试无法编译；产品代码未被该错误指向。
+- 来源: self-found；B4 context 定向测试初检。
+- 标签: 流程
+- refs: R-221
+- 优先级: P3
+- 进展: 已修复并验证：crates/kanzei-tools/src/profiles.rs:1549-1561 使用完整 DocKind 路径，移除无用导入；context 回归已通过 T-1786922726113、T-1786922726114。
+- observed_head: e1c07595d560703b3ddaea6f8bc58db6e3ff8ed4
+- observed_worktree_hash: fnv1a64:cd9e53c5904e3e75
+- recorded_at: 1786955866340
+
+## D-444 R-221 B4 ResearchTrackerTool 注入 todo 时 input 未声明可变 [fixed] (medium)
+- 复现: 编译 ResearchTrackerTool::execute 时，新增 add 分支调用 input.as_object_mut()，但 execute 参数未声明 mut，cargo test -p kanzei-tools 报 E0596。
+- 影响: B4 req/defect get+add wrapper 无法编译，真实 [todo] 草稿链路不能运行。
+- 来源: self-found；B4 三项定向测试编译初检。
+- 标签: 核心
+- refs: R-221
+- 优先级: P2
+- 进展: 已修复并验证：crates/kanzei-tools/src/tracker.rs:566 将 wrapper execute input 声明为 mut，完成 `回流:[todo]` 注入；T-1786922726113、T-1786922726114 通过（328 passed，1 ignored）。
+- observed_head: e1c07595d560703b3ddaea6f8bc58db6e3ff8ed4
+- observed_worktree_hash: fnv1a64:cd9e53c5904e3e75
+- recorded_at: 1786955874871
+
+## D-441 R-221 B4 research 档缺少 backlog/conventions 与 req-defect 回流子集 [fixed] (high)
+- 复现: 对照 docs/design/research_mode.md §6/§7 与 profiles.rs:604-683：research 档未注册 req/defect 工具，research/docs 未注入 backlog 只读索引或 conventions；现有 TrackerTool 若直接注册会暴露 list/update/close 等非 get+add 动作。
+- 影响: 研究会话无法引用既有 R-/D- 条目，也不能在权限边界内产出 [todo] 草稿；B4 回流链路断开。
+- 来源: self-found；恢复 R-221 B4 时对照设计验收。
+- 标签: 核心
+- refs: R-221
+- 优先级: P1
+- 进展: B4 已修复并验证：crates/kanzei-tools/src/profiles.rs:633-643 注册受限 req/defect wrapper；profiles.rs:679-716 注入 R-/D- backlog 只读摘要、项目 conventions 与 [todo] 回流指引；crates/kanzei-tools/src/tracker.rs:500-588 仅允许 get/add、add 强制写入回流:[todo]。T-1786922726113、T-1786922726114 通过（328 passed，1 ignored）。
+- observed_head: e1c07595d560703b3ddaea6f8bc58db6e3ff8ed4
+- observed_worktree_hash: fnv1a64:cd9e53c5904e3e75
+- recorded_at: 1786955883172

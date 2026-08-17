@@ -5405,3 +5405,36 @@
 - 关联: R-221 D-439 D-440
 - 收尾: 1786955039
 - 源码指纹: c2bac9d271307b7d
+
+## T-1786922726113 R-221 B4 回流通道三项定向测试 [passed]
+- 命令: cargo test -p kanzei-tools tracker::tests::research_tracker_schema_only_exposes_get_and_add; cargo test -p kanzei-tools tracker::tests::research_tracker_add_marks_todo_and_rejects_update; cargo test -p kanzei-tools profiles::tests::research_context_injects_backlog_conventions_and_restricted_tracker_tools
+- 摘要: B4 三项定向回归全部通过：wrapper schema 仅 get/add；add 写入回流:[todo]、get 可读、update 拒绝；research context 注入 backlog/conventions 并装配受限工具。
+- 关联: R-221 D-441
+- 收尾: 1786955841
+
+## T-1786922726114 R-221 B4 kanzei-tools 定向测试最终 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 31.6s
+- 摘要: 最终定向套件：328 passed，0 failed，1 ignored；既有 tracker/profile 行为与 B4 回流链路全绿。
+- 关联: R-221 D-441 D-444
+- 收尾: 1786955841
+
+## T-1786922726115 R-221 B4 回流 add 定向测试初检 [failed]
+- 命令: cargo test -p kanzei-tools tracker::tests::research_tracker_add_marks_todo_and_rejects_update
+- 摘要: 初检因 ResearchTrackerTool::execute 的 input 未声明 mut 报 E0596；已登记 D-444 并修复，后续同测通过。
+- 关联: R-221 D-444
+- 收尾: 1786955841
+
+## T-1786922726116 R-221 B4 research context 定向测试初检 [failed]
+- 命令: cargo test -p kanzei-tools profiles::tests::research_context_injects_backlog_conventions_and_restricted_tracker_tools
+- 摘要: 初检依次暴露测试导入缺失与 input_schema 临时值生命周期 E0716；已登记 D-443 并修复，后续同测通过。
+- 关联: R-221 D-443
+- 收尾: 1786955842
+
+## T-1786922726117 R-221 B4 kanzei-tools staged 源码最终测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 31.1s
+- 摘要: 按当前 staged 源码重跑：328 passed，0 failed，1 ignored；B4 回流链路与既有 tracker/profile 全绿。
+- 关联: R-221 D-441 D-444
+- 收尾: 1786955985
+- 源码指纹: c332972955b88076

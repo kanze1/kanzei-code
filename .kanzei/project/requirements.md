@@ -86,12 +86,12 @@
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
 - refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 取活依据: engine:唯一可执行 WIP 是 R-221，必须先恢复它
-- 进展: B3 已完成并已提交：e1c07595（R-221 B3 写入 V 表双域证据口径并同步研究提示词）。`.kanzei/project/conventions.md` §10、`crates/kanzei-tools/src/profiles.rs:563-569` dev prompt、`profiles.rs:694-702` research prompt 与 `profiles.rs:1498-1545` 双档回归测试均已落地；T-1786922726109、T-1786922726110、T-1786922726112 通过（325 passed，1 ignored），D-439、D-440 fixed。下一步为 B4：backlog 只读索引/conventions 注入、req/defect get+add 子集与 finding→[todo] 草稿回流。
+- 进展: B4 已完成（非终局）：①`crates/kanzei-tools/src/profiles.rs:633-643` 注册 research 专用 req/defect wrapper；②`profiles.rs:679-716` 的 research/docs context 注入 R-/D- backlog 只读索引、`.kanzei/project/conventions.md` 和 [todo] 回流指引；③`crates/kanzei-tools/src/tracker.rs:500-588` 新增 ResearchTrackerTool，schema/运行时只允许 get/add，add 复用通用 TrackerTool 门禁并强制写入 `回流:[todo]`，不可 update/close；④回归测试位于 `tracker.rs:888-954`、`profiles.rs:1535-1612`。证据：T-1786922726113、T-1786922726114 通过（328 passed，1 ignored），D-441、D-442、D-443、D-444 fixed。下一步为 B5：memory_search/memory_note 进入 research 档，停止注入 research/memory.md。
 - 阻塞: 
 - observed_head: e1c07595d560703b3ddaea6f8bc58db6e3ff8ed4
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786955086655
-- 批次: 3/5
+- observed_worktree_hash: fnv1a64:cd9e53c5904e3e75
+- recorded_at: 1786955894518
+- 批次: 4/5
 - 状态: todo
 - 依赖: D-428
 - 停车: 
