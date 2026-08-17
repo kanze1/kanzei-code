@@ -9,7 +9,7 @@
 //! discard_note/clear_inbox 共用同一把锁,避免并发 append 互吃;树锁同时与 bash
 //! 围栏窗口互斥,窗口内落盘不被围栏误回滚。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::store::MemoryStore;
 use super::today;
@@ -108,7 +108,7 @@ impl MemoryStore {
         self.root.join("inbox.checkpoint.json")
     }
 
-    fn record_inbox_write_log(&self, path: &PathBuf, content: &[u8]) {
+    fn record_inbox_write_log(&self, path: &Path, content: &[u8]) {
         let Some(project_root) = &self.project_root else {
             return;
         };
