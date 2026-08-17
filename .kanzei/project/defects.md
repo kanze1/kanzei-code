@@ -15,15 +15,6 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-494 记忆写入三闸可被 force 一票绕过且候选同 subject 并存,单日堆出 96 条 candidate [open] (high)
-- refs: D-492
-- 复现: crates/kanzei-memory/src/memory/manager.rs:125,168,187 三闸均受 force=true 旁路且拒绝文案主动提示 force;admission.rs:78 subject 不变量只对 active 生效,candidate 间同 subject 无限并存;admission.rs:119 指纹闸只扫 body 不扫 description(M-177/M-178 description 躺着字面量 [fp:tool|kind]);admission.rs:26,230 近似判重共同词下限 8 对 CJK 短标题形同虚设。实证:2026-08-17 单日 96 条 candidate,M-159/160、M-168/169、M-177/178 三对字节级重复
-- 影响: 候选堆积挤占检索 top-24 窗口(与 D-492 叠加),重复记忆污染库,三闸实际拦截率无法保障
-- 来源: 2026-08-18 全库勘察(主会话);R-216 三闸交付后实测
-- 标签: 后端
-- 验收: force 降权(仅语义闸可绕或需附证据)或等效收紧;candidate 间同 subject 判重生效;description 纳入指纹闸;CJK 短标题判重有效;既有三对重复清理;新增回归测试
-- 优先级: P1
-
 ## D-495 memory_fts 派生索引与主目录失步(73 行 vs 137 文件) [open] (medium)
 - 复现: crates/kanzei-memory/src/memory/store.rs:793-830 fts_desynced 守护只挂检索热路径;当前 memory_fts 73 行(active 28/candidate 45) vs 主目录 137 个 M-*.md,写路径有若干轮 refresh_derived 未生效
 - 影响: 部分条目完全不可检索;失步无自动修复

@@ -6140,3 +6140,17 @@
 - observed_worktree_hash: fnv1a64:e1cf3b1c06d1dc3f
 - recorded_at: 1787002787548
 - 取活依据: engine:唯一可执行 WIP 是 D-493，必须先恢复它
+
+## D-494 记忆写入三闸可被 force 一票绕过且候选同 subject 并存,单日堆出 96 条 candidate [fixed] (high)
+- refs: D-492
+- 复现: crates/kanzei-memory/src/memory/manager.rs:125,168,187 三闸均受 force=true 旁路且拒绝文案主动提示 force;admission.rs:78 subject 不变量只对 active 生效,candidate 间同 subject 无限并存;admission.rs:119 指纹闸只扫 body 不扫 description(M-177/M-178 description 躺着字面量 [fp:tool|kind]);admission.rs:26,230 近似判重共同词下限 8 对 CJK 短标题形同虚设。实证:2026-08-17 单日 96 条 candidate,M-159/160、M-168/169、M-177/178 三对字节级重复
+- 影响: 候选堆积挤占检索 top-24 窗口(与 D-492 叠加),重复记忆污染库,三闸实际拦截率无法保障
+- 来源: 2026-08-18 全库勘察(主会话);R-216 三闸交付后实测
+- 标签: 后端
+- 验收: force 降权(仅语义闸可绕或需附证据)或等效收紧;candidate 间同 subject 判重生效;description 纳入指纹闸;CJK 短标题判重有效;既有三对重复清理;新增回归测试
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-494
+- 进展: 验收逐项完成并已提交 `9ad146f9`：① force 降权/收紧：`crates/kanzei-memory/src/memory/manager.rs` 的候选写入路径不再以 force 旁路 admission 三闸，语义闸仍按显式证据处理；② candidate 同 subject 判重：`crates/kanzei-memory/src/memory/admission.rs` subject 唯一性查询覆盖 active 与 candidate；③ description 指纹：同文件 fingerprint 输入同时包含 subject、description、body；④ CJK 短标题：同文件近似判重改为短文本字符级/规范化路径，不依赖共同词下限 8；⑤既有重复清理：M-160/M-169/M-178 已归档，保留 M-159/M-168/M-177，归档操作由 D-494 研究夹具真实 memory_stale 执行；⑥回归证据：`crates/kanzei-memory/src/memory/admission.rs`、`index.rs`、`store.rs` 测试覆盖 force、candidate subject、description fingerprint、CJK；T-1786922726259 定向 `cargo test -p kanzei-memory` 通过（146 passed）。
+- observed_head: 9ad146f90ad574fa4ec42cf6878fc2aa6e7fdbe1
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787004179732
