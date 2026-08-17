@@ -35,6 +35,46 @@ use crate::docstore::{
 use crate::embed::Embedder;
 use kanzei_harness::ToolCtx;
 
+/// 将记忆生命周期转换写入 state.db 的不可变 session_events 账本。
+/// 文件 Markdown 仍是真源；事件是恢复/UI/审计的事实投影，写失败不阻断文件写入。
+#[allow(clippy::too_many_arguments)] // 事件字段逐一对应可回放的生命周期契约。
+pub(crate) fn record_memory_lifecycle_event(
+    project_root: Option<&std::path::Path>,
+    event_type: &str,
+    memory_id: Option<&str>,
+    episode_ids: &[i64],
+    source_id: Option<&str>,
+    source_refs: &[String],
+    reason_code: &str,
+    transition_from: Option<&str>,
+    transition_to: Option<&str>,
+) {
+    let Some(project_root) = project_root else {
+        return;
+    };
+    let state_path = kanzei_core::project_state_path(project_root);
+    let Ok(store) = kanzei_core::SessionStore::open(&state_path) else {
+        return;
+    };
+    let session_id = kanzei_core::project_session_id(project_root);
+    if store
+        .create_session(&session_id, &project_root.display().to_string(), None)
+        .is_err()
+    {
+        return;
+    }
+    let payload = serde_json::json!({
+        "memory_id": memory_id,
+        "episode_ids": episode_ids,
+        "source_id": source_id,
+        "source_refs": source_refs,
+        "reason_code": reason_code,
+        "transition_from": transition_from,
+        "transition_to": transition_to,
+    });
+    let _ = store.append_event(&session_id, event_type, &payload);
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryScope {
     Global,

@@ -6026,3 +6026,56 @@
 - 摘要: R-216/D-480 关闭前 workspace 全量回归：所有 workspace test 组 0 failed；kanzei-tools 343 passed/1 ignored，kanzei-app 202 passed，kanzei-memory 143 passed，其余 crate/doc-tests 全部通过。
 - 关联: R-216 D-480
 - 收尾: 1786993790
+
+## T-1786922726200 D-482 模型下拉按线回显与发送同源 [passed]
+- 命令: node scripts/gen-ui-lint-globals.mjs; node --check crates/kanzei-app/ui/*.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 约 20s
+- 摘要: 六条前端门禁全绿(runtime 2286 次 invoke、0 运行时错误;lint 719 标识符同步)。变异校验两次真红并复原后全绿：删 renderProcesses 的模型回显 →「兜底选中活动线时模型下拉没跟着回显,实得 OPEN-code:deepseek-v4-flash」;发送改回读下拉 →「发送用的模型必须取自该线存档,实得 primary」。未跑 Rust 门禁：本次只改 ui/*.js 与 scripts/*.mjs。
+- 关联: D-482 R-290
+- 收尾: 1786993900
+
+## T-1786922726201 R-286 B2 lifecycle 事件接线定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 7.1s
+- 摘要: R-286 批2 lifecycle 事件接线定向回归：格式检查通过，kanzei-memory 143 passed，1 ignored。
+- 关联: R-286
+- 收尾: 1786994425
+
+## T-1786922726202 R-286 B2 lifecycle 事件账本回放回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 3.2s
+- 摘要: 补充生命周期事件账本回放断言后回归：kanzei-memory 144 passed，1 ignored；新增测试验证 event_type、memory_id、episode_ids、source_id、reason_code 和状态转换字段。
+- 关联: R-286
+- 收尾: 1786994490
+
+## T-1786922726203 R-286 B2 clippy 修复后定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory
+- 时长: 3.0s
+- 摘要: clippy 例外修复后 R-286 B2 定向回归：格式检查通过，kanzei-memory 144 passed，1 ignored。
+- 关联: R-286
+- 收尾: 1786995254
+- 源码指纹: fc510492daad319a
+
+## T-1786922726204 R-286 B2 提交门禁源码指纹回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.5s
+- 摘要: 按提交门禁针对当前暂存源码重跑：kanzei-memory 144 passed，1 ignored；源码指纹与待提交版本同步。
+- 关联: R-286
+- 收尾: 1786995295
+- 源码指纹: 3f999d4300765e1b
+
+## T-1786922726205 R-286 B2 提交前最终定向回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.5s
+- 摘要: 提交前重新执行当前源码定向回归：kanzei-memory 144 passed，1 ignored。
+- 关联: R-286
+- 收尾: 1786995310
+- 源码指纹: 3f999d4300765e1b
+
+## T-1786922726206 R-286 B2 最终定向测试记录 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.5s
+- 摘要: 提交前最终定向回归：kanzei-memory 144 passed，1 ignored。
+- 关联: R-286
+- 收尾: 1786995326
+- 源码指纹: 3f999d4300765e1b

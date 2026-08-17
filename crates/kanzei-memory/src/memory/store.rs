@@ -368,6 +368,17 @@ impl MemoryStore {
         };
         self.write_entry(&entry, None)?;
         self.refresh_derived()?;
+        super::record_memory_lifecycle_event(
+            self.project_root.as_deref(),
+            "memory_candidate_created",
+            Some(&entry.id),
+            &[],
+            Some(source),
+            refs,
+            "candidate_created",
+            None,
+            Some(&entry.status),
+        );
         Ok(AddOutcome::Added(entry))
     }
 
@@ -404,6 +415,7 @@ impl MemoryStore {
         let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
             anyhow::bail!("unknown memory id `{id}`");
         };
+        let previous_status = entry.status.clone();
         // D-282 ②:CAS——写前校验调用方看到的版本没被别人改过。
         if let Some(expected) = expected_hash {
             let current = kanzei_base::content_hash(render_entry(&entry).as_bytes());
@@ -448,6 +460,20 @@ impl MemoryStore {
         // 文件名沿用旧路径(slug 终身不改)。
         self.write_entry(&entry, Some(&path))?;
         self.refresh_derived()?;
+        if previous_status != "deprecated" && entry.status == "deprecated" {
+            let source_refs = entry.refs();
+            super::record_memory_lifecycle_event(
+                self.project_root.as_deref(),
+                "memory_deprecated",
+                Some(&entry.id),
+                &[],
+                Some(&entry.source),
+                &source_refs,
+                "deprecated_status_update",
+                Some(&previous_status),
+                Some("deprecated"),
+            );
+        }
         Ok(entry)
     }
 
@@ -474,6 +500,7 @@ impl MemoryStore {
         let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
             anyhow::bail!("unknown memory id `{id}`");
         };
+        let previous_status = entry.status.clone();
         // R-255 第二刀:provenance 门禁(状态机/episode 真实/证据先落库)提纯到
         // MemoryLifecycle::promote_guard;store 只做查条目 + 置 active + 落盘。
         MemoryLifecycle.promote_guard(id, &entry, sources, source_hash, self.scope, &self.root)?;
@@ -481,6 +508,22 @@ impl MemoryStore {
         entry.updated = today();
         self.write_entry(&entry, Some(&path))?;
         self.refresh_derived()?;
+        let episode_ids: Vec<i64> = sources
+            .iter()
+            .map(|(episode_id, _, _)| *episode_id)
+            .collect();
+        let source_refs = entry.refs();
+        super::record_memory_lifecycle_event(
+            self.project_root.as_deref(),
+            "memory_candidate_promoted",
+            Some(&entry.id),
+            &episode_ids,
+            source_hash.or(Some(&entry.source)),
+            &source_refs,
+            "provenance_verified",
+            Some(&previous_status),
+            Some("active"),
+        );
         Ok(entry)
     }
 

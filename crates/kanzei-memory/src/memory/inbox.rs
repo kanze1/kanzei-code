@@ -206,6 +206,17 @@ impl MemoryStore {
         ));
         crate::atomic_file::write_atomic(&path, &text)?;
         self.record_inbox_write_log(&path, text.as_bytes());
+        super::record_memory_lifecycle_event(
+            self.project_root.as_deref(),
+            "memory_note_queued",
+            None,
+            &[],
+            refs.first().map(String::as_str),
+            refs,
+            "note_queued",
+            None,
+            Some("inbox"),
+        );
         Ok(path)
     }
 

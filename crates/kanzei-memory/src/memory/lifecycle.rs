@@ -140,6 +140,18 @@ impl MemoryStore {
         entry.updated = today();
         self.write_entry(&entry, Some(&path))?;
         self.refresh_derived()?;
+        let source_refs = entry.refs();
+        super::record_memory_lifecycle_event(
+            self.project_root.as_deref(),
+            "memory_candidate_shadowed",
+            Some(&entry.id),
+            &[],
+            Some(&entry.source),
+            &source_refs,
+            "shadow_evaluation_started",
+            Some("candidate"),
+            Some("shadow"),
+        );
         Ok(entry)
     }
 
@@ -202,6 +214,44 @@ mod tests {
         assert!(lifecycle.should_deprecate(None, 30, path).is_none());
         // max_age_days ≤ 0 时按 1 算(不无限期挂起)。
         assert!(lifecycle.should_deprecate(Some(1), 0, path).is_some());
+    }
+
+    #[test]
+    fn lifecycle事件账本保留转换与溯源字段() {
+        let project = std::env::temp_dir().join(format!(
+            "kz-memory-lifecycle-events-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+        let refs = vec!["R-286".to_string()];
+        super::super::record_memory_lifecycle_event(
+            Some(&project),
+            "memory_candidate_promoted",
+            Some("M-001"),
+            &[7],
+            Some("run:episode-7"),
+            &refs,
+            "provenance_verified",
+            Some("shadow"),
+            Some("active"),
+        );
+        let db =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project)).unwrap();
+        let session_id = kanzei_core::project_session_id(&project);
+        let events = db.list_events(&session_id, 0).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "memory_candidate_promoted");
+        assert_eq!(events[0].payload["memory_id"], "M-001");
+        assert_eq!(events[0].payload["episode_ids"], serde_json::json!([7]));
+        assert_eq!(events[0].payload["source_id"], "run:episode-7");
+        assert_eq!(events[0].payload["reason_code"], "provenance_verified");
+        assert_eq!(events[0].payload["transition_from"], "shadow");
+        assert_eq!(events[0].payload["transition_to"], "active");
+        std::fs::remove_dir_all(project).ok();
     }
 
     #[test]
