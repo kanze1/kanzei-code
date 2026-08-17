@@ -624,6 +624,7 @@
   "syncDocumentsProjectSelect",
   "syncDynamicUiLanguage",
   "syncLanguagePreferenceFromSettings",
+  "syncNewChatEnabled",
   "syncProjectSwitchExpanded",
   "syncResearchSectionVisibility",
   "syncResearchWorkspaceVisibility",
