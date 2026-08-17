@@ -1144,13 +1144,15 @@ impl TypedSessionWriter {
             }
         };
         let projection = project_session_facts(&facts);
-        let mut comparison = match serde_json::to_value(compare_shadow(&projection, legacy)) {
-            Ok(comparison) => comparison,
-            Err(error) => {
-                self.errors.push(error.to_string());
-                return;
-            }
-        };
+        let mut comparison =
+            match serde_json::to_value(compare_shadow_for_turn(&projection, legacy, &self.turn_id))
+            {
+                Ok(comparison) => comparison,
+                Err(error) => {
+                    self.errors.push(error.to_string());
+                    return;
+                }
+            };
         comparison["turn_id"] = serde_json::json!(self.turn_id);
         comparison["typed_write_errors"] = serde_json::json!(self.errors);
         if let Err(error) =
@@ -1448,12 +1450,40 @@ pub struct ShadowComparison {
 }
 
 pub fn compare_shadow(projection: &SessionProjection, legacy: &[Message]) -> ShadowComparison {
+    compare_shadow_with_diagnostics(projection, legacy, projection.diagnostics.clone())
+}
+
+/// 当前 turn 的 shadow 比较只携带当前 turn 的诊断，避免历史失败污染新 turn。
+pub fn compare_shadow_for_turn(
+    projection: &SessionProjection,
+    legacy: &[Message],
+    turn_id: &str,
+) -> ShadowComparison {
+    let diagnostics = projection
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic_belongs_to_turn(diagnostic, turn_id))
+        .cloned()
+        .collect();
+    compare_shadow_with_diagnostics(projection, legacy, diagnostics)
+}
+
+fn compare_shadow_with_diagnostics(
+    projection: &SessionProjection,
+    legacy: &[Message],
+    diagnostics: Vec<String>,
+) -> ShadowComparison {
     let max = legacy.len().max(projection.surface_messages.len());
     let first_mismatch =
         (0..max).find(|index| legacy.get(*index) != projection.surface_messages.get(*index));
     let equal = first_mismatch.is_none();
-    let (expected_mismatch, mismatch_class) =
-        classify_mismatch(equal, first_mismatch, projection, legacy);
+    let (expected_mismatch, mismatch_class) = classify_mismatch(
+        equal,
+        first_mismatch,
+        !diagnostics.is_empty(),
+        projection,
+        legacy,
+    );
     ShadowComparison {
         equal,
         legacy_hash: stable_json_hash(&legacy),
@@ -1462,10 +1492,15 @@ pub fn compare_shadow(projection: &SessionProjection, legacy: &[Message]) -> Sha
         projected_messages: projection.surface_messages.len(),
         first_mismatch,
         interrupted_assistants: projection.interrupted_assistants.len(),
-        diagnostics: projection.diagnostics.clone(),
+        diagnostics,
         expected_mismatch,
         mismatch_class,
     }
+}
+
+fn diagnostic_belongs_to_turn(diagnostic: &str, turn_id: &str) -> bool {
+    diagnostic.contains(&format!("turn {turn_id} "))
+        || diagnostic.contains(&format!(" in {turn_id}:"))
 }
 
 /// 差异归因（R-242 批4）：把可解释的差异标记为预期，剩余的 !equal 才是未知差异。
@@ -1484,13 +1519,14 @@ pub fn compare_shadow(projection: &SessionProjection, legacy: &[Message]) -> Sha
 fn classify_mismatch(
     equal: bool,
     first_mismatch: Option<usize>,
+    has_failure_diagnostic: bool,
     projection: &SessionProjection,
     legacy: &[Message],
 ) -> (bool, Option<String>) {
     if equal {
         return (false, None);
     }
-    if !projection.diagnostics.is_empty() {
+    if has_failure_diagnostic {
         (true, Some("failed_turn".into()))
     } else if legacy.is_empty() {
         (true, Some("empty_legacy".into()))
@@ -2352,6 +2388,38 @@ mod tests {
         assert!(!c.equal);
         assert!(!c.expected_mismatch);
         assert_eq!(c.mismatch_class, None);
+    }
+
+    #[test]
+    fn shadow_turn_diagnostics_do_not_leak_between_turns() {
+        let projection = SessionProjection {
+            format_version: SESSION_EVENT_FORMAT_VERSION,
+            seed_source_sequence: None,
+            surface_messages: vec![assistant("old"), Message::user_text("current")],
+            transcript_messages: Vec::new(),
+            interrupted_assistants: Vec::new(),
+            diagnostics: vec!["turn turn-old failed: transport".into()],
+        };
+        let current = compare_shadow_for_turn(&projection, &[assistant("old")], "turn-current");
+        assert!(!current.equal);
+        assert_eq!(current.mismatch_class.as_deref(), Some("stale_snapshot"));
+        assert!(current.diagnostics.is_empty());
+
+        let failed_projection = SessionProjection {
+            diagnostics: vec![
+                "turn turn-old failed: transport".into(),
+                "turn turn-current failed: timeout".into(),
+            ],
+            ..projection
+        };
+        let failed =
+            compare_shadow_for_turn(&failed_projection, &[assistant("old")], "turn-current");
+        assert!(failed.expected_mismatch);
+        assert_eq!(failed.mismatch_class.as_deref(), Some("failed_turn"));
+        assert_eq!(
+            failed.diagnostics,
+            vec!["turn turn-current failed: timeout"]
+        );
     }
 
     #[test]

@@ -6234,3 +6234,116 @@
 - 摘要: 尝试建立修复后30个真实正常 turn 窗口；批处理在600秒内被终止，无完整输出。随后 shadow 诊断显示总 turn 由280增至293，新增窗口包含外部模型传输失败/进程重启，typed_write_errors 由111增至112，不能作为验收⑤证据。
 - 关联: R-242
 - 收尾: 1786998790
+
+## T-1786922726228 R-242 修复后单个真实正常 turn 探针 [passed]
+- 命令: $env:KANZEI_PROFILE = 'dev'; $env:KANZEI_AGENT = 'dev'; $env:KANZEI_MODEL = 'primary'; & '.\target\debug\kz.exe' run --new --project-root (Get-Location).Path '请只回复：shadow probe recovered。不要调用工具，不要修改文件。'
+- 时长: 0.6s
+- 摘要: 当前 HEAD 真实 CLI 正常 turn 成功，模型返回 shadow probe recovered，无工具调用、无文件修改。
+- 关联: R-242 D-487
+- 收尾: 1786998894
+
+## T-1786922726229 R-242 单个正常 turn 后 shadow 复核 [passed]
+- 命令: & '.\target\debug\kz.exe' shadow --project-root (Get-Location).Path --mismatches
+- 时长: 0.8s
+- 摘要: 单个正常 turn 后 shadow 复核：总294 turn，equal129，expected82，unknown83，typed_write_errors112；新增 turn 未增加 unknown 或 typed_write_errors，但全局窗口仍未达标。
+- 关联: R-242 D-486 D-487
+- 收尾: 1786998895
+
+## T-1786922726230 R-242 修复后5个真实正常 turn 批次 [passed]
+- 命令: $root = (Get-Location).Path; $env:KANZEI_PROFILE = 'dev'; $env:KANZEI_AGENT = 'dev'; $env:KANZEI_MODEL = 'primary'; $failed = @(); 1..5 | ForEach-Object { $n = $_; Write-Output "TURN $n"; & '.\target\debug\kz.exe' run --new --project-root $root "请只回复：shadow batch turn $n ok。不要调用工具，不要修改文件。"; if ($LASTEXITCODE -ne 0) { $failed += $n; break } }; if ($failed.Count -gt 0) { exit 1 }; Write-Output '5 个真实正常 CLI turn 全部完成。'
+- 时长: 4.0s
+- 摘要: 5个真实正常 CLI turn全部完成，模型均返回预期短文本，无工具调用、无文件修改。
+- 关联: R-242 D-487
+- 收尾: 1786999055
+
+## T-1786922726231 R-242 5个正常 turn 后 shadow 复核 [passed]
+- 命令: & '.\target\debug\kz.exe' shadow --project-root (Get-Location).Path --mismatches
+- 时长: 0.8s
+- 摘要: 5个正常 turn 后 shadow：总299 turn，equal129，expected87，unknown83，typed_write_errors112；新增窗口未增加 unknown 或 typed_write_errors。
+- 关联: R-242 D-486 D-487
+- 收尾: 1786999055
+
+## T-1786922726232 R-242 修复后三批真实正常 turn [passed]
+- 命令: $root = (Get-Location).Path; $env:KANZEI_PROFILE = 'dev'; $env:KANZEI_AGENT = 'dev'; $env:KANZEI_MODEL = 'primary'; $failed = @(); 1..5 | ForEach-Object { $n = $_; Write-Output "TURN $n"; & '.\target\debug\kz.exe' run --new --project-root $root "请只回复：shadow batch three $n ok。不要调用工具，不要修改文件。"; if ($LASTEXITCODE -ne 0) { $failed += $n; break } }; if ($failed.Count -gt 0) { exit 1 }; Write-Output '5 个真实正常 CLI turn 全部完成。'
+- 时长: 5.0s
+- 摘要: 第三批5个真实正常 CLI turn全部完成，模型均返回预期短文本，无工具调用、无文件修改。
+- 关联: R-242 D-487
+- 收尾: 1786999133
+
+## T-1786922726233 R-242 第三批正常 turn 后 shadow 复核 [passed]
+- 命令: & '.\target\debug\kz.exe' shadow --project-root (Get-Location).Path --mismatches
+- 时长: 0.8s
+- 摘要: 第三批5个正常 turn 后 shadow：总304 turn，equal129，expected92，unknown83，typed_write_errors112；新增窗口未增加 unknown 或 typed_write_errors。
+- 关联: R-242 D-486 D-487
+- 收尾: 1786999133
+
+## T-1786922726234 R-242 修复后第四批真实正常 turn [passed]
+- 命令: $root = (Get-Location).Path; $env:KANZEI_PROFILE = 'dev'; $env:KANZEI_AGENT = 'dev'; $env:KANZEI_MODEL = 'primary'; $failed = @(); 1..5 | ForEach-Object { $n = $_; Write-Output "TURN $n"; & '.\target\debug\kz.exe' run --new --project-root $root "请只回复：shadow batch four $n ok。不要调用工具，不要修改文件。"; if ($LASTEXITCODE -ne 0) { $failed += $n; break } }; if ($failed.Count -gt 0) { exit 1 }; Write-Output '5 个真实正常 CLI turn 全部完成。'
+- 时长: 5.0s
+- 摘要: 第四批5个真实正常 CLI turn全部完成，模型均返回预期短文本，无工具调用、无文件修改。
+- 关联: R-242 D-487
+- 收尾: 1786999212
+
+## T-1786922726235 R-242 第四批正常 turn 后 shadow 复核 [passed]
+- 命令: & '.\target\debug\kz.exe' shadow --project-root (Get-Location).Path --mismatches
+- 时长: 0.8s
+- 摘要: 第四批5个正常 turn 后 shadow：总309 turn，equal129，expected97，unknown83，typed_write_errors112；新增窗口未增加 unknown 或 typed_write_errors。
+- 关联: R-242 D-486 D-487
+- 收尾: 1786999212
+
+## T-1786922726236 R-242 修复后第五批真实正常 turn [passed]
+- 命令: $root = (Get-Location).Path; $env:KANZEI_PROFILE = 'dev'; $env:KANZEI_AGENT = 'dev'; $env:KANZEI_MODEL = 'primary'; $failed = @(); 1..5 | ForEach-Object { $n = $_; Write-Output "TURN $n"; & '.\target\debug\kz.exe' run --new --project-root $root "请只回复：shadow batch five $n ok。不要调用工具，不要修改文件。"; if ($LASTEXITCODE -ne 0) { $failed += $n; break } }; if ($failed.Count -gt 0) { exit 1 }; Write-Output '5 个真实正常 CLI turn 全部完成。'
+- 时长: 5.0s
+- 摘要: 第五批5个真实正常 CLI turn全部完成，模型均返回预期短文本，无工具调用、无文件修改。
+- 关联: R-242 D-487
+- 收尾: 1786999290
+
+## T-1786922726237 R-242 第五批正常 turn 后 shadow 复核 [passed]
+- 命令: & '.\target\debug\kz.exe' shadow --project-root (Get-Location).Path --mismatches
+- 时长: 0.8s
+- 摘要: 第五批5个正常 turn 后 shadow：总314 turn，equal129，expected102，unknown83，typed_write_errors112；新增窗口未增加 unknown 或 typed_write_errors。
+- 关联: R-242 D-486 D-487
+- 收尾: 1786999291
+
+## T-1786922726238 R-242 修复后第六批真实正常 turn [passed]
+- 命令: $root = (Get-Location).Path; $env:KANZEI_PROFILE = 'dev'; $env:KANZEI_AGENT = 'dev'; $env:KANZEI_MODEL = 'primary'; $failed = @(); 1..5 | ForEach-Object { $n = $_; Write-Output "TURN $n"; & '.\target\debug\kz.exe' run --new --project-root $root "请只回复：shadow batch six $n ok。不要调用工具，不要修改文件。"; if ($LASTEXITCODE -ne 0) { $failed += $n; break } }; if ($failed.Count -gt 0) { exit 1 }; Write-Output '5 个真实正常 CLI turn 全部完成。'
+- 时长: 5.0s
+- 摘要: 第六批5个真实正常 CLI turn全部完成，模型均返回预期短文本，无工具调用、无文件修改。
+- 关联: R-242 D-487
+- 收尾: 1786999378
+
+## T-1786922726239 R-242 第六批正常 turn 后 shadow 复核 [passed]
+- 命令: & '.\target\debug\kz.exe' shadow --project-root (Get-Location).Path --mismatches
+- 时长: 0.8s
+- 摘要: 第六批5个正常 turn 后 shadow：总319 turn，equal129，expected107，unknown83，typed_write_errors112；新增窗口未增加 unknown 或 typed_write_errors。
+- 关联: R-242 D-486 D-487
+- 收尾: 1786999378
+
+## T-1786922726240 R-242 D-497 shadow turn诊断隔离定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 3.6s
+- 摘要: cargo fmt 检查通过；kanzei-core 224 passed，新增历史诊断不泄漏与当前失败仍分类 failed_turn 回归通过。
+- 关联: R-242 D-497
+- 收尾: 1786999657
+
+## T-1786922726241 R-242 D-497 重建 CLI 隔离 shadow 探针 [passed]
+- 命令: $temp = Join-Path $env:TEMP ('r242-shadow-clean-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force -Path (Join-Path $temp '.kanzei') | Out-Null; Copy-Item '.kanzei/kanzei.toml' (Join-Path $temp '.kanzei/kanzei.toml'); $env:KANZEI_PROFILE = 'dev'; $env:KANZEI_AGENT = 'dev'; $env:KANZEI_MODEL = 'primary'; & '.\target\debug\kz.exe' run --new --project-root $temp '请只回复：clean shadow equal probe。不要调用工具，不要修改文件。'; & '.\target\debug\kz.exe' shadow --project-root $temp --mismatches
+- 时长: 1.2s
+- 摘要: 重建后的真实 CLI 在全新隔离项目完成正常 turn；shadow 为 1 turn、equal=1、expected=0、unknown=0、typed_write_errors=0，证明当前 turn 诊断过滤和 equal 正常路径可用。
+- 关联: R-242 D-497
+- 收尾: 1786999853
+
+## T-1786922726242 R-242 隔离项目5-turn shadow复核 [passed]
+- 命令: $temp = 'C:\Users\kanzei\AppData\Local\Temp\r242-shadow-clean-1897cded89d14d02b3c0ae72676ae1a7'; $env:KANZEI_PROFILE = 'dev'; $env:KANZEI_AGENT = 'dev'; $env:KANZEI_MODEL = 'primary'; $failed = @(); 1..5 | ForEach-Object { $n = $_; & '.\target\debug\kz.exe' run --new --project-root $temp "请只回复：clean shadow batch one $n ok。不要调用工具，不要修改文件。"; if ($LASTEXITCODE -ne 0) { $failed += $n; break } }; if ($failed.Count -gt 0) { exit 1 }; & '.\target\debug\kz.exe' shadow --project-root $temp --mismatches
+- 时长: 8.0s
+- 摘要: 同一隔离项目完成5个真实 turn；shadow 总6 turn、unknown=0、typed_write_errors=0，新增5个均为 compaction 后预期差异而非 failed_turn；首个 turn 保持 equal=true。
+- 关联: R-242 D-497
+- 收尾: 1786999853
+
+## T-1786922726243 R-242 D-497 提交前 kanzei-core 定向回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.3s
+- 摘要: 提交前按暂存源码重跑 kanzei-core：224 passed，0 failed；新增 shadow turn 诊断隔离回归通过。
+- 关联: R-242 D-497
+- 收尾: 1787000064
+- 源码指纹: 6efa5e5b24e603ce

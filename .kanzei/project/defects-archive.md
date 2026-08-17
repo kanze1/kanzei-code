@@ -5993,3 +5993,16 @@
 - observed_head: 761d40094c2b3c9012a5c8e4619c30f5caed62cc
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1786997653867
+
+## D-497 R-242 session 级历史诊断污染后续正常 shadow turn [fixed] (medium)
+- 复现: R-242 修复后新增真实 CLI turn 均成功返回，但 `kz shadow --mismatches` 将最新 turn 标记为 `expected=true class=failed_turn`。最新 `session.shadow_compared` payload 的 diagnostics 仍包含更早的 TLS peer closed/process_restarted；代码中 `project_session_facts` 将历史诊断累积到 session 级 `projection.diagnostics`，`classify_mismatch` 只判断该数组非空。
+- 影响: 历史失败或中断会污染后续正常 turn 的 shadow 分类，使正常可比较 turn 无法按 equal=true 验收，R-242 验收⑤无法可靠判定；可能掩盖后续未知差异。
+- 来源: self-found：R-242 真实 shadow 323 turn 诊断与 `crates/kanzei-core/src/store/typed.rs:1225-1342,1450-1510` 对照。
+- 标签: 核心
+- 验收: 按当前比较 turn 关联的事实范围判断失败诊断；历史 turn 的失败/中断不再污染后续成功 turn；新增回归覆盖历史失败后正常 turn equal=true、当前失败 turn 仍分类 failed_turn；kanzei-core 定向测试通过。
+- refs: R-242
+- 优先级: P1
+- observed_head: 761d40094c2b3c9012a5c8e4619c30f5caed62cc
+- 进展: 已修复并完成逐项验收：①按当前 turn 关联事实范围判断失败诊断：`crates/kanzei-core/src/store/typed.rs:1131-1165` 改用 `compare_shadow_for_turn`，`typed.rs:1450-1518` 以 `turn_id` 过滤诊断；历史 `TurnFailed`/中断不再参与后续 turn 的 failed_turn 分类。②当前失败仍分类 failed_turn：`typed.rs:1516-1518` 与回归 `typed.rs:2410-2442` 覆盖历史失败+当前失败。③新增回归覆盖历史失败后当前 turn 不泄漏、诊断列表为空且不归类 failed_turn；T-1786922726240，cargo fmt 检查通过、kanzei-core 224 passed。④真实重建 CLI 证据：T-1786922726241 在隔离项目得到 equal=1、expected=0、unknown=0、typed_write_errors=0；主项目最新事件 `seq=158718` 的 diagnostics=[]、class=compacted_snapshot，未再错误归类 failed_turn。提交待与 R-242 本批代码及 tracker 一同提交。
+- observed_worktree_hash: fnv1a64:bdf31ca0bc9fee7e
+- recorded_at: 1786999862129
