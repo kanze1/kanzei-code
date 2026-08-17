@@ -640,6 +640,36 @@ impl Component for ResearchProfile {
         draft
             .permissions
             .push(rule("memory_note", "*", Effect::Allow));
+        // research 回流只允许读取既有单条目和新增草稿；禁止 list/update/close 等既有状态变更。
+        for tool_name in ["source", "finding", "req", "defect"] {
+            draft
+                .permissions
+                .push(rule(tool_name, "read:get", Effect::Allow));
+            draft
+                .permissions
+                .push(rule(tool_name, "write:add", Effect::Allow));
+            for action in [
+                "update",
+                "close",
+                "archive",
+                "reorder",
+                "reopen",
+                "fix_terminal",
+                "archive_fill",
+                "raw_delete",
+                "repair_reused_id",
+                "repair_missing_id",
+                "void_id",
+                "normalize",
+            ] {
+                let resource = format!("write:{action}");
+                draft.permissions.push_managed_hard_deny(
+                    rule(tool_name, &resource, Effect::Deny),
+                    Some(tool_name),
+                    Some("research 档只允许 tracker get/add；不可修改既有条目状态"),
+                );
+            }
+        }
 
         draft.tools.insert(
             "req",
@@ -1603,6 +1633,23 @@ mod tests {
             !baseline.contains("legacy research memory must not be injected"),
             "research context 不得注入历史 research/memory.md"
         );
+        for tool_name in ["source", "finding", "req", "defect"] {
+            assert_eq!(
+                snapshot.evaluate(tool_name, "read:get"),
+                Effect::Allow,
+                "research {tool_name} 应允许单条目读取"
+            );
+            assert_eq!(
+                snapshot.evaluate(tool_name, "write:add"),
+                Effect::Allow,
+                "research {tool_name} 应允许新增草稿"
+            );
+            assert_eq!(
+                snapshot.evaluate(tool_name, "write:update"),
+                Effect::Deny,
+                "research {tool_name} 不应允许修改既有条目"
+            );
+        }
         for name in ["req", "defect"] {
             let tool = snapshot
                 .materialize_tools()

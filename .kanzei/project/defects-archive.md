@@ -5462,3 +5462,15 @@
 - observed_head: 3e288363f05ecbc2c46f1b61c5480657c77be52a
 - observed_worktree_hash: fnv1a64:0c8c0ed3fd25bab8
 - recorded_at: 1786957163458
+
+## D-446 R-221 research 回流工具缺少 source/finding/req/defect 写权限 [fixed] (high)
+- 复现: 以 `KANZEI_PROFILE=research KANZEI_AGENT=research` 运行真实 `kz run`，计划、源码读取、memory_search 均成功；首个 `source add` 被 permission declined。复核 ResearchProfile 只注册 source/finding/req/defect 工具，没有对应 action/resource allow 规则。
+- 影响: research 真实会话无法登记来源、finding 或回流草稿，R-221 §7 端到端验收链路被权限墙阻断。
+- 来源: self-found；R-221 真实 research CLI 会话。
+- 标签: 核心
+- refs: R-221
+- 优先级: P1
+- 进展: 已修复并真实复现验证：crates/kanzei-tools/src/profiles.rs:640-671 为 source/finding/req/defect 放行 read:get、write:add，并对其余 tracker 写动作加入 managed hard deny；profiles.rs:1629-1650 回归断言 allow/deny。真实 research CLI 已完成 source/finding/report/req 草稿链路，S-001~S-004、F-001/F-002、R-289 均落地；T-1786922726120 与 T-1786922726121 通过，cargo test 328 passed、1 ignored。
+- observed_head: f706dd21ea2959e5d3ea8af8ae0f7b27b61ad6da
+- observed_worktree_hash: fnv1a64:d5c4e679d36fdbc4
+- recorded_at: 1786958372670

@@ -75,27 +75,6 @@
 - 批次: 0/5
 - 状态: todo
 
-## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施独立深度研究模式(文献+仓库调研,论文级产出) [doing]
-- 优先级: P2
-- 复杂度: 大
-- 标签: 后端 前端 harness
-- 来源: 2026-08-12 八维度审计维度8;设计文档 docs/design/research_mode.md(§2 八个定调点待用户逐项确认后动工)。
-- 背景: research 模式骨架完整但形态错位(面向网络调研)且零使用(state.db 266 条 episodes 零调用 websearch/source/finding,.kanzei/research 全 git 历史只有空模板);真实勘察全在 dev 完成且结论无固定落点(勘察报告被 D-294 单行不变式折成单行塞进度字段);证据等级 E0-E4 被双重语义挪用;research/memory.md 是绕开记忆控制平面的第二套无校验记忆。
-- 内容: 按 docs/design/research_mode.md(2026-08-16 设计基线,定调点全部过审)实施模式基座五批:批1 档位收口(桌面注册 ReadonlyProfile、bash 硬 deny+替代指引指向 latex/plot 专用工具、files/git 只读);批2 topic 工件(S-/F-/report 落 .kanzei/research/<topic>/,前端按 topic 分组);批3 证据口径(V 表双域写进 conventions);批4 回流通道(backlog 只读索引+conventions 注入、req/defect get+add 子集、finding→[todo] 草稿);批5 记忆一元化(memory_search/memory_note 进档,memory.md 停止注入)。研究引擎(四段流水线)由 R-277 承接,工具配套 R-273/R-274/R-275,前端 R-276。
-- 边界: research 不可提交 git、不动既有条目状态(add 草稿除外);不做报告 schema 校验。「不可写 docs/design」一条待重推(新定位下产出是论文而非设计文档,问法需重新表述)。**dev 侧「先计划后自举」的勘察工件落点问题不由本条承接**——那是独立课题,需另立条目。
-- 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
-- refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
-- 取活依据: engine:唯一可执行 WIP 是 R-221，必须先恢复它
-- 进展: B5 已完成并提交：`ecfdca5b`。①`crates/kanzei-tools/src/profiles.rs:631-642` research 档注册并放行统一 `memory_search`/`memory_note`；②`profiles.rs:684-711` 删除 `.kanzei/research/memory.md` 实际读取，改为统一记忆管线指引；③`profiles.rs:724-732` research agent 明示 memory_search/memory_note 与历史 memory.md 边界；④`profiles.rs:1534-1651` 回归真实物化并调用两工具，断言历史文件内容不进入 context。证据：T-1786922726118、T-1786922726119 通过（328 passed，1 ignored），D-445 fixed。批次 5/5 已完成。验收总则仍有缺口：尚未有一条真实研究会话完成“计划→检索阅读→报告→[todo]登记→dev实施”的端到端可复核轨迹，因此本需求暂不关闭。
-- 阻塞: 
-- observed_head: ecfdca5b40f5c9d6a2326a25e495151b80320118
-- observed_worktree_hash: fnv1a64:63f805d666ab876e
-- recorded_at: 1786957332212
-- 批次: 5/5
-- 状态: todo
-- 依赖: D-428
-- 停车: 
-
 ## R-216 记忆写入侧质量三闸:近似去重下沉 store.add 双 scope、[fp:] 指纹一致性校验、tracker 交付状态内容拒收 [doing]
 - 优先级: P2
 - 复杂度: 中
@@ -304,3 +283,14 @@
 - 阻塞: 需要 Android 真机与当前机器位于同一 LAN 后执行 E3；这是设备验收，不阻塞二期 P0/P1 主线。解除人:用户提供设备窗口或后续人工验收。
 - 验收: ①Android 真机可访问并完成鉴权；②收到真实运行成功/失败通知；③从手机发送消息后服务端产生可追溯事件；④保存截图、端口/设备与 session 证据；⑤失败时明确网络、权限或设备边界。
 - 优先级: P3
+
+## R-289 R-221 B4/B5 研究回流与记忆晋升运行时验收 [todo]
+- 回流: [todo]
+- 回流标记: [todo] 研究草稿，待 dev 审阅，不代表已实施或已验证。
+- 复杂度: 小
+- 来源: 本次 research：F-001（B4 回流通道，代码域 V1）与 F-002（B5 记忆一元化，代码域 V1）；来源 S-001/S-002/S-003，报告 .kanzei/research/r221-chain/report.md。
+- 标签: 流程
+- 进展: [todo] 已由研究登记待审草稿；本次不进入开发实施。
+- 验收: dev 审阅并确认 research profile 的 source/finding→req/defect 草稿回流链路；确认既有 R-/D- 条目仍不可由 research 修改；另行运行时验证 memory_note→manager 晋升→memory_search 回读后再提升证据等级。
+- refs: F-001 F-002
+- 优先级: P2

@@ -3641,3 +3641,24 @@
 - observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
 - observed_worktree_hash: fnv1a64:4aecd77effb3deeb
 - recorded_at: 1786931251006
+
+## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施独立深度研究模式(文献+仓库调研,论文级产出) [done]
+- 优先级: P2
+- 复杂度: 大
+- 标签: 后端 前端 harness
+- 来源: 2026-08-12 八维度审计维度8;设计文档 docs/design/research_mode.md(§2 八个定调点待用户逐项确认后动工)。
+- 背景: research 模式骨架完整但形态错位(面向网络调研)且零使用(state.db 266 条 episodes 零调用 websearch/source/finding,.kanzei/research 全 git 历史只有空模板);真实勘察全在 dev 完成且结论无固定落点(勘察报告被 D-294 单行不变式折成单行塞进度字段);证据等级 E0-E4 被双重语义挪用;research/memory.md 是绕开记忆控制平面的第二套无校验记忆。
+- 内容: 按 docs/design/research_mode.md(2026-08-16 设计基线,定调点全部过审)实施模式基座五批:批1 档位收口(桌面注册 ReadonlyProfile、bash 硬 deny+替代指引指向 latex/plot 专用工具、files/git 只读);批2 topic 工件(S-/F-/report 落 .kanzei/research/<topic>/,前端按 topic 分组);批3 证据口径(V 表双域写进 conventions);批4 回流通道(backlog 只读索引+conventions 注入、req/defect get+add 子集、finding→[todo] 草稿);批5 记忆一元化(memory_search/memory_note 进档,memory.md 停止注入)。研究引擎(四段流水线)由 R-277 承接,工具配套 R-273/R-274/R-275,前端 R-276。
+- 边界: research 不可提交 git、不动既有条目状态(add 草稿除外);不做报告 schema 校验。「不可写 docs/design」一条待重推(新定位下产出是论文而非设计文档,问法需重新表述)。**dev 侧「先计划后自举」的勘察工件落点问题不由本条承接**——那是独立课题,需另立条目。
+- 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
+- refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
+- 取活依据: engine:唯一可执行 WIP 是 R-221，必须先恢复它
+- 进展: ①总验收“真实 R- 条目勘察→报告→登记→dev 实施完整链路”：已满足。真实 research 会话产物为 `.kanzei/research/r221-chain/plan.md`（计划）、`sources.md`/S-001~S-004（实际查阅来源）、`findings.md`/F-001/F-002（代码域 V1、source refs、file:line/提交锚）、`.kanzei/research/r221-chain/report.md` 与 `.kanzei/research/report.md`（报告）、R-289 `[todo]`（引用 F-001/F-002 的 dev 待审草稿）；既有 dev 实施证据为 B4 提交 `3e288363`、B5 提交 `ecfdca5b`，D-446 权限修复位于 `crates/kanzei-tools/src/profiles.rs:640-671`，最终 T-1786922726120、T-1786922726121 通过，`cargo test -p kanzei-tools` 为 328 passed、1 ignored。②每批验收：B1 research 硬 deny 与替代工具位于 `profiles.rs:658-683`；B2 topic 工件由 `tracker.rs:316-329` 与 `.kanzei/research/r221-chain/*` 复核；B3 V 表双域口径已写入 `.kanzei/project/conventions.md` 并由 B3 测试记录覆盖；B4 回流受限 tracker 位于 `profiles.rs:640-671`、研究报告 F-001；B5 统一 memory 工具与历史 memory.md 停止注入位于 `profiles.rs:631-642,715-763`、研究报告 F-002。验收总则现已具备可复核轨迹，R-221 可关闭。
+- 阻塞: 
+- observed_head: f706dd21ea2959e5d3ea8af8ae0f7b27b61ad6da
+- observed_worktree_hash: fnv1a64:d5c4e679d36fdbc4
+- recorded_at: 1786958400176
+- 批次: 5/5
+- 状态: todo
+- 依赖: D-428
+- 停车: 

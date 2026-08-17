@@ -5453,3 +5453,25 @@
 - 关联: R-221 D-445
 - 收尾: 1786957289
 - 源码指纹: 4fb133ad90a16409
+
+## T-1786922726120 R-221 D-446 research 回流权限最终测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 34.8s
+- 摘要: 权限修复后最终定向套件：328 passed，0 failed，1 ignored；research tracker 受限权限、B4/B5 profile 回归全绿。
+- 关联: R-221 D-446
+- 收尾: 1786958362
+
+## T-1786922726121 R-221 真实 research 端到端回流链路 [passed]
+- 命令: KANZEI_PROFILE=research KANZEI_AGENT=research KANZEI_MODEL=primary cargo run -p kanzei -- run --new <R-221 approved research plan prompt>
+- 时长: 74.0s
+- 摘要: 真实 research CLI 会话退出码 0；完成 plan→S-001~S-004→F-001/F-002→.kanzei/research/r221-chain/report.md 与总 report→R-289 [todo]，未修改既有 R-/D- 条目、未提交 git、未读取 historical research/memory.md。
+- 关联: R-221 D-446
+- 收尾: 1786958362
+
+## T-1786922726122 R-221 D-446 staged profiles 最终测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 31.2s
+- 摘要: 按当前 staged profiles.rs 重跑：328 passed，0 failed，1 ignored；research source/finding/req/defect 受限 get/add 权限与 B4/B5 全部回归通过。
+- 关联: R-221 D-446
+- 收尾: 1786959804
+- 源码指纹: 0ff671549e99ce3a
