@@ -4,9 +4,9 @@ scope: project
 category: sop
 title: 并行线路合并 SOP(草稿待核订):线路独立提交,收敛逐条合回,文档唯一
 description: 合并并行线路(kz-par-* 工作树/多进程并行)时必读;步骤口径待用户核订后晋升
-status: candidate
+status: deprecated
 created: 2026-08-13
-updated: 2026-08-13
+updated: 2026-08-17
 source: 会话 2026-08-13 依据既往口径起草(任务级并行:独立进程/工作树/提交,无汇合点)
 ---
 
@@ -17,3 +17,5 @@ source: 会话 2026-08-13 依据既往口径起草(任务级并行:独立进程/
 5. 全部合完:dev 全绿 → push;需要发版接 M-058(发版 SOP)。
 
 (草稿:第 1/3 条的具体口径——线路命名、冲突检测用什么命令、是否允许非 ff 合并——待你核订后改 status: active)
+
+(stale: 并行线路合并条目一直是未核订 candidate 草稿，历史召回与采纳均为 0；当前 worktree 生命周期和合并门禁已有独立实现与台账，不再保留这份旧 SOP。)

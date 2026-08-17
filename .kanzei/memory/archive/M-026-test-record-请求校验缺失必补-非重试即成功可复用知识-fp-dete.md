@@ -4,9 +4,9 @@ scope: project
 category: sop
 title: test_record 请求校验缺失必补、非重试即成功可复用知识 — [fp] detection key
 description: 处理 test_record 输入验证失败（缺少字段/重复提交）必读：补全必填字段再发，避免环境误判为死路
-status: active
+status: deprecated
 created: 2026-08-09
-updated: 2026-08-13
+updated: 2026-08-17
 source: memory-manager
 subject: cargo test input contract
 ---
@@ -18,3 +18,5 @@ Error marker (fp detection key): [fp:test_record|invalid input for tool `test_re
 Action: Verify all fields present in test_record.json before invocation; do not proceed to retry until title is included.
 
 恢复记录(2026-08-13):本条 08-12 被批量退役属误伤——事件日志显示该失败类近 3 日仍在复发,且历史采纳数据证明其决策价值;经用户指示的记忆清理恢复为 active。指纹标记的引号已改为反引号,与运行时错误原文一致(直引号版本归一后不命中)。
+
+(stale: 一次性 test_record 缺少 title 的参数错误已由工具 schema 与即时校验自解释；历史仅召回 1 次、采纳 0 次，不再值得作为常驻 SOP。)

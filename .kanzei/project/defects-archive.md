@@ -5148,3 +5148,89 @@
 - observed_head: 6588076683514425814b4c6266de4680f42f5f23
 - observed_worktree_hash: fnv1a64:0443dde44a61b030
 - recorded_at: 1786924400046
+
+## D-204 SOP 用户易用性不佳:总结质量/查看展示/产生时机三处都不行 [fixed] (medium)
+- refs: D-205 R-105 R-107
+- 原始描述: SOP易用程度有问题，似乎总结的不太好
+- 澄清(2026-08-09 用户逐项指认): 所指为**用户**查看/使用 SOP 时的易用性,不是 SOP 对模型的可消费性。三个维度都有问题:①**总结质量差**——条目内容泛化、丢关键步骤,看了不知道怎么照做;②**查看入口/展示**——界面上找到、打开、阅读 SOP 的路径不方便,展示形式不适合阅读;③**产生时机/数量**——该沉淀的没沉淀、不该沉淀的乱沉淀,产出节律不对。检索/命中用户未勾选,暂不在范围内。
+- 复现: 桌面端 Memory 页(R-107)查看 sop 类条目;对照近期自举轮次的 SOP 产出(如 inbox 里的「候选 SOP:完成 D-155 的流程」类,只有工具顺序罗列,无判断依据与边界条件)。
+- 影响: SOP 是 R-105 记忆蒸馏的主要产出形态之一,人读不动就只剩模型消费一条腿;产生时机不对还会稀释记忆库信噪比。
+- 验收: ①总结质量:SOP 条目有可照做的结构(适用场景/步骤/每步判断依据/边界),不再是纯工具名罗列;②查看展示:Memory 页的 SOP 有适合阅读的排版,入口可发现;③产生时机:沉淀门槛可说明(什么样的流程值得成为 SOP),乱沉淀实例(纯机械序列)被拦;④用户复查确认三个维度都有改善。
+- 备注: 本条登记过程本身暴露了快记的信息保真缺陷(伪复现「查看 SOP 时」+丢"用户"限定词),已单独登记为 D-205 并修了第一层。
+- 优先级: P3
+- 标签: 核心
+
+- 批次: 2/2
+- 进展: 2026-08-17 用户确认可关闭，并完成旧 SOP 清理。验收①总结质量：crates/kanzei-memory/src/memory/manager.rs:1128-1131 与 crates/kanzei-memory/src/memory/mod.rs:827-833 强制适用场景/步骤/判断依据/边界结构，拒绝纯工具罗列。验收②查看展示：crates/kanzei-app/ui/13-memory.js:510、639-645 与 crates/kanzei-app/ui/style.css:1779-1786 提供 SOP 徽标、左边框和结构化步骤阅读。验收③产生时机：crates/kanzei-memory/src/memory/mod.rs:805-833 的候选门槛及 1556-1601 的短机械流程反向测试；本轮再用正式 MemoryStore 生命周期退役 M-026、M-060、M-064，均带原因墓碑进入 archive。验收④由用户执行：2026-08-17 用户明确「D204可以关了，但是把旧的SOP清了」，本轮已按该条件完成。既有工程验证 T-1786451023/T-1786451128/T-1786451243 保持有效。
+
+- 阻塞: 2026-08-16 复核:工程面①②③早已交付并全量绿,阻塞仍是验收④一条(用户复查)。原文点名的 build-9a06e05 已过时——当前最新发布为 **build-e579472**,其后又叠了多轮修复。解除动作: 装 build-e579472 后打开 Memory 页,看 SOP 的总结质量/查看展示/产生时机三处是否确有改善,确认即可关闭。解除人: 用户。
+
+- priority: 
+- 关闭结论: 三个工程维度已交付，用户复查认可关闭，旧低价值 SOP 已安全归档，按 fixed 收口。
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786925593918
+
+## D-319 WebView2 当前环境 DevTools 端口不监听:e2e-smoke connectOverCDP 20 秒超时(参数已传入但不绑定) [wontfix] (medium)
+- 复杂度: 中
+- 复现: 2026-08-16 D-289 实测验证中发现:无论 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 环境变量还是 KANZEI_E2E_CDP 注入路径,WebView2 进程命令行均带上 --remote-debugging-port=<port> --remote-allow-origins=*(进程命令行实证),但端口 20 秒不监听、user-data-dir 无 DevToolsActivePort 文件、进程树完整(renderer/gpu/network 均在)、会话与用户 kzapp 同为 Session 1、无策略禁用(注册表 HKCU/HKLM EdgeWebView/Edge 均空)。对照:同参数字符串起 Edge --headless,1 秒即监听。结论:WebView2 在当前机器/环境不启动 DevTools 端口,与参数注入路径无关。
+- 影响: R-101 e2e-smoke 基座在自举环境无法实测 connectOverCDP(端口不监听→20 秒超时→FAIL)。这独立于 D-289 的 origin 白名单修复——即使端口能监听,D-289 也是必需的(M111+ 拒非白名单客户端);但端口不监听会让 e2e-smoke 永远失败。
+- 来源: self-found(D-289 实测验证中发现)
+- 标签: 流程
+- 优先级: P2
+- 进展: 2026-08-17 用户确认 CDP 已不再使用。该缺陷只描述本机 WebView2 DevTools 端口不监听，对产品运行无影响；依赖它的 connectOverCDP 测试路线已从 R-101 退役。
+- 阻塞: WebView2 Runtime 151 在当前机器 DevTools 端口不绑定(9 轮实验证据链,见进展)。解除动作:①用户重装/更新 Microsoft Edge WebView2 Runtime 后重跑 e2e-smoke;或②用户提供 WebView2 DevTools 正常的环境验证;或③用户拍板改 WebDriver/tauri-driver 路线(不在本条范围内)。解除人:用户。
+- 关闭结论: 旧 CDP 测试路线退役，环境问题不再有可执行影响，按 wontfix 归档。
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786925528689
+
+## D-289 R-101 harness CDP 注入缺 --remote-allow-origins:可能致 e2e-smoke connectOverCDP 握手失败 [wontfix] (medium)
+- severity: medium
+- 优先级: P1
+- 复现: R-101 harness 基座静态审查:crates/kanzei-app/src/main.rs:110-116 的 KANZEI_E2E_CDP 注入只加 --remote-debugging-port=<port>,未加 --remote-allow-origins=*;同轮实验脚本 output/e2e-exp/env-var-exp.mjs:16 加了 --remote-allow-origins=*(且 .playwright-cli 08-11 快照证明 CLI 曾连上)。WebView2 基于 Chromium,自 M111 起 CDP 要求显式 origin 白名单,否则非 DevTools 客户端(playwright-core connectOverCDP)握手被拒。
+- 影响: scripts/e2e-smoke.mjs 可能 connectOverCDP 失败,harness 基座验证被卡;若 e2e-smoke 实际能连上则本条为误报,实测后关闭。
+- 来源: self-found(2026-08-13 R-101 静态审查)
+- 标签: 流程
+
+- 复杂度: 小
+- 进展: 2026-08-17 用户确认 CDP 已不再使用。--remote-allow-origins 修复虽已存在，但对应 connectOverCDP 路线整体退役，不再以 DevTools 握手成功作为交付条件；R-101 已切换 Windows 原生桌面 E2。
+
+- 阻塞: D-319(WebView2 当前环境 DevTools 端口不监听)未解决前,e2e-smoke connectOverCDP 20 秒超时无法实测。解除人:解决 D-319 或确认 WebView2 环境可起 DevTools 后重跑 e2e-smoke。
+- 关闭结论: 被退役测试路线取代，按 wontfix 归档。
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786925529107
+
+## D-275 托管路径 OS 层写隔离(残余):后台进程与专用工具同窗口同前缀时仍可蒙混 [wontfix] (medium)
+- 优先级: P2
+- 复杂度: 大
+- 来源: 2026-08-11 D-258 关闭时转出(验收①的 OS 层条款未做,成本收益倒挂且与验收②互斥)
+- 标签: 核心
+- 缺陷: D-275
+- 证据等级: E1
+- 进展: 2026-08-17 用户接受代价评估与残余边界。验收降级:①「后台进程 OS 层写托管路径失败」→不实现 Windows-only 低完整性/受限令牌；当前跨平台保护为 crates/kanzei-tools/src/managed.rs:31-55 的有界快照与吸收，用户确认成本收益不支持继续。验收降级:②「同窗口不能蒙混」→保留 managed_fence+快照回滚，不新增全 spawn 面令牌管线；现有边界见 crates/kanzei-tools/src/managed.rs:485-510，用户接受毫秒级残余风险。验收降级:③「跨平台 OS 强隔离」→无等效 POSIX 机制，不做静默虚构；代码仍在 crates/kanzei-tools/src/managed.rs:243-295 明确托管锁/窗口机制，用户接受显式边界。
+- 验收: ①存在一条后台进程在操作系统层面写托管路径失败的机制(受限令牌/低完整性/ACL),有实测证据,且不得破坏后台任务写 target/、node_modules/(与 D-258 验收②同口径);②该机制与托管写入窗口(managed_fence)组合后,窗口内后台进程与专用工具写同一批路径也不能蒙混——即吸收/回滚不再依赖镜像快照区分;③跨平台降级路径有明确说明(Windows 独占句柄 vs POSIX advisory lock),降级时不静默放行而是显式告警。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-275
+- 批次: 1/1
+- 阻塞: B1 代价评估已完成(见进展),结论=OS 层隔离技术可行但成本高/仅 Windows/残余风险毫秒级,是否投入由用户定夺。解除动作: 用户拍板——接受残余边界(文档化后关闭/维持 open)或另立范围化实现条目(低完整性路线)。解除人: 用户。
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786925498814
+- 关闭结论: 用户接受残余风险，不投入 Windows-only 低完整性改造，按 wontfix 归档。
+
+## D-342 停止运行 = handle.abort() 硬杀,被打断轮的对话历史整轮丢失 [fixed] (high)
+- refs: R-236 docs/design/context_compaction.md
+- 复现: 自动推进中点「停止」再发新任务:stop_runtime_and_finalize(kanzei-app/src/state.rs:534)直接 handle.abort() 杀掉 run_task 的 future;而对话写回只在轮末(run.rs:1032 内存表、run.rs:1089 conversation.updated 事件),abort 永远到不了那两行 → 被打断轮的全部消息(可能几十步工具调用/改动/结论)从对话投影消失,下一轮 prior 停在上一轮轮末。模型于是称"之前没做过 X"(用户 2026-08-14 实测报告)。
+- 影响: 打断+插临时任务是自动推进的高频交互,每次都让模型对被打断轮完全失忆;episode/run.trace 有留档但那是回放用的,模型看不到。runner 侧没有优雅停止:halted_by_user=true 唯一产生路径是权限弹窗被拒(kanzei-core/src/runner/drive.rs:1059),步循环里没有任何 halt 检查点。
+- 来源: 用户报告(2026-08-14 自动推进打断丢上下文)+ 读码定位
+- 标签: 核心
+- 进展: 2026-08-17 用户确认可关闭。验收①停止后消息完整交还并进入轮末写回：crates/kanzei/tests/integration/cooperative_halt.rs:98-167 与 crates/kanzei-app/src/run/persistence.rs:310-310。验收②新一轮 prior 含被打断内容：同一测试在 121-166 断言 prior/本轮消息，生产读取见 crates/kanzei-app/src/run/coordinator.rs:149-156；用户接受不再追加真实模型复述实验。验收③停止响应检查点：crates/kanzei-core/src/runner/drive.rs:184-192、515-516、881-887、1130-1132。验收④ abort 仅作旧代兜底：crates/kanzei-app/src/state.rs:610-671 与 crates/kanzei-app/src/process_tests.rs:129-133。验收⑤排队输入取消和写租约收尾：crates/kanzei-app/src/state.rs:653-664 与 crates/kanzei-app/src/process_tests.rs:94-116。实现提交 cbe768a。
+- 验收: ①自动推进中途停止后,conversation_get 能看到被打断轮已完成步骤的消息(实测轨迹,不是只断言函数返回);②停止后立刻发新任务,新一轮 prior 含被打断轮内容,模型可复述被打断轮做过的事;③停止响应有上界:当前工具执行结束即停,不等整轮跑完;④abort 兜底路径保留(防挂死)且有测试,正常停止不走它;⑤停止仍取消排队输入并释放写租约(现有 finalize_interrupt 语义无回归)。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-342
+- 阻塞: 2026-08-16 复核:工程面已交付,阻塞仍是验收②后半的一条实测动作。原文点名的 build-9a06e05 已过时——当前最新发布为 **build-e579472**。解除动作: 装新版后跑一轮任务,中途点「停止」,立刻发一条新任务,看模型能不能复述被打断那轮做过的事(能复述=被打断轮的对话历史没整轮丢)。用户实测并反馈后补关验收②。解除人: 用户。
+- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786925519947
+- 关闭结论: 工程修复与回归证据已齐，用户接受剩余人工体验验证为非阻塞，按 fixed 归档。
