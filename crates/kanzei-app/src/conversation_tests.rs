@@ -700,7 +700,11 @@ fn conversation_delete_also_removes_trailing_round_snapshot() {
                 message: Message::user_text("唯一一段的问题"),
             },
         ),
-        SessionFactEnvelope::new("run-only", Some(1), SessionFact::TurnStarted { max_steps: 1 }),
+        SessionFactEnvelope::new(
+            "run-only",
+            Some(1),
+            SessionFact::TurnStarted { max_steps: 1 },
+        ),
         SessionFactEnvelope::new(
             "run-only",
             Some(1),
