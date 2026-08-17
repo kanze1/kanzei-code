@@ -5733,3 +5733,10 @@
 - 关联: R-277 D-471 D-472 D-473 D-474
 - 收尾: 1786967159
 - 源码指纹: a392fb5fbc6d618f
+
+## T-1786922726158 R-277 B5 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 46.5s
+- 摘要: R-277 关闭前 workspace 全量验证通过：所有 workspace test 组 0 failed；kanzei-tools 339 passed/1 ignored，kanzei-app 202 passed，kanzei-memory 143 passed，其余 workspace crate 全部通过，Doc-tests 无失败。
+- 关联: R-277 R-273 R-274 R-276
+- 收尾: 1786967398
