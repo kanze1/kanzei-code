@@ -15,19 +15,6 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-495 memory_fts 派生索引与主目录失步(73 行 vs 137 文件) [fixing] (medium)
-- 复现: crates/kanzei-memory/src/memory/store.rs:793-830 fts_desynced 守护只挂检索热路径;当前 memory_fts 73 行(active 28/candidate 45) vs 主目录 137 个 M-*.md,写路径有若干轮 refresh_derived 未生效
-- 影响: 部分条目完全不可检索;失步无自动修复
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 后端
-- 验收: 写路径保证派生索引刷新或提供自动检测修复;当前失步数据重建对齐;回归测试
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-495
-- 进展: 最小修复已落地，尚未关闭：① `crates/kanzei-memory/src/memory/store.rs` 新增 `ensure_derived_consistent()`，统一用 `fts_desynced` 比对主目录/FTS ID 差集，失步时调用 `refresh_derived()` 全量重建；② `store.rs:add()` 在准入与 FTS 语义探测前调用该守护，已有失步库在下一次写入时自动修复；③ `crates/kanzei-memory/src/memory/retrieval/search.rs:search_candidates` 改为复用统一守护，保留检索热路径自动修复；④ `store.rs` 新增 `写入前发现失步会自动重建_fts并与主目录对齐` 回归，删除 FTS 行后下一次 add 验证所有主目录 ID 恢复；⑤ T-1786922726267：`cargo fmt --all -- --check; cargo test -p kanzei-memory` 147 passed/0 failed/1 ignored、无 warning。下一步：对当前 `.kanzei/memory` 存量执行一次真实 FTS/主目录 ID 对账与重建证据，再逐项关闭验收。
-- observed_head: 9ad146f90ad574fa4ec42cf6878fc2aa6e7fdbe1
-- observed_worktree_hash: fnv1a64:bd43d11458cf97e1
-- recorded_at: 1787004364333
-
 ## D-496 ui-connectivity 修复件丢在未合并分支,归档缺陷已按已修复关闭 [open] (high)
 - 复现: scripts/ui-connectivity-browser.mjs 与 scripts/key-paths.json 只存在于分支 kanzei/thread-line-1786851588846-1(c3bde1e8),git merge-base --is-ancestor 对 HEAD 为否;defects-archive.md:4930 对应条目已标 fixed
 - 影响: 交付实际丢失:死链检查 KEY_PATHS 仍是 scripts/ui-connectivity.mjs:33 的脚本内 const,且该检查不在 verify 12 步与 ci 内;归档证据与真实状态矛盾

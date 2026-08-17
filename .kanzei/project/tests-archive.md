@@ -6533,3 +6533,20 @@
 - 关联: D-495
 - 收尾: 1787004410
 - 源码指纹: d0beb74f149b5ee4
+
+## T-1786922726269 D-495 当前 memory_fts 与主目录真实对账 [passed]
+- 命令: @'
+import sqlite3, pathlib
+root=pathlib.Path('.kanzei/memory')
+file_ids=sorted(p.stem.split('-')[0]+'-'+p.stem.split('-')[1] for p in root.glob('M-*.md'))
+con=sqlite3.connect(root/'index.db')
+fts_ids=sorted({row[0] for row in con.execute('select id from memory_fts')})
+missing=set(file_ids)-set(fts_ids)
+extra=set(fts_ids)-set(file_ids)
+assert not missing and not extra
+print(f'files={len(set(file_ids))} fts={len(fts_ids)} missing={len(missing)} extra={len(extra)}')
+'@ | python -
+- 时长: 0.3s
+- 摘要: 当前项目真实存量只读对账：.kanzei/memory 主目录 173 个 M-*.md，memory_fts 173 个唯一 ID，missing=0、extra=0；主目录与派生索引完全对齐。
+- 关联: D-495
+- 收尾: 1787004553

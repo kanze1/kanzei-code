@@ -6154,3 +6154,16 @@
 - observed_head: 9ad146f90ad574fa4ec42cf6878fc2aa6e7fdbe1
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787004179732
+
+## D-495 memory_fts 派生索引与主目录失步(73 行 vs 137 文件) [fixed] (medium)
+- 复现: crates/kanzei-memory/src/memory/store.rs:793-830 fts_desynced 守护只挂检索热路径;当前 memory_fts 73 行(active 28/candidate 45) vs 主目录 137 个 M-*.md,写路径有若干轮 refresh_derived 未生效
+- 影响: 部分条目完全不可检索;失步无自动修复
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 后端
+- 验收: 写路径保证派生索引刷新或提供自动检测修复;当前失步数据重建对齐;回归测试
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-495
+- 进展: 验收逐项完成并可关闭：①写路径保证派生索引刷新/自动修复：`crates/kanzei-memory/src/memory/store.rs:267` 的 `add()` 在准入与 FTS 探测前调用 `ensure_derived_consistent()`；统一守护在 `store.rs:793-802`，发现 `fts_desynced` 即调用 `refresh_derived()`；已有写入口仍在 `store.rs:368,460,508` 写后刷新。②检索路径复用同一自动修复：`crates/kanzei-memory/src/memory/retrieval/search.rs:31-32`。③当前失步数据重建对齐：T-1786922726269 对当前 `.kanzei/memory` 真实存量核对为主目录 173 个 `M-*.md`、`memory_fts` 173 个唯一 ID、missing=0、extra=0。④回归测试：`store.rs:1028-1056` 删除 FTS 行后下一次 add 自动恢复全部主目录 ID；T-1786922726268 定向回归 147 passed/0 failed/1 ignored、无 warning。实现提交为 `b392e413`。
+- observed_head: b392e4135cd04b0c633a289ccf2e67dedb2abbe3
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787004562796
