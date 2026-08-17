@@ -485,6 +485,20 @@
               <span data-i18n-key="研究课题">研究课题</span>
               <select id="research-topic-select" aria-label="选择研究课题" data-i18n-aria-label="选择研究课题"></select>
             </label>
+            <div id="research-filters" class="research-filters" role="search" aria-label="筛选研究工件" data-i18n-aria-label="筛选研究工件">
+              <input id="research-filter-query" type="search" placeholder="检索标题、要点或作者" data-i18n-placeholder="检索标题、要点或作者" aria-label="检索标题、要点或作者" data-i18n-aria-label="检索标题、要点或作者" />
+              <div class="research-filter-row">
+                <select id="research-filter-type" aria-label="全部类型" data-i18n-aria-label="全部类型"></select>
+                <select id="research-filter-level" aria-label="全部等级" data-i18n-aria-label="全部等级"></select>
+                <select id="research-filter-year" aria-label="全部年份" data-i18n-aria-label="全部年份"></select>
+                <select id="research-filter-sort" aria-label="排序" data-i18n-aria-label="排序">
+                  <option value="" data-i18n-key="默认排序">默认排序</option>
+                  <option value="year" data-i18n-key="按年份">按年份</option>
+                  <option value="cited" data-i18n-key="按被引次数">按被引次数</option>
+                </select>
+              </div>
+              <div class="research-filter-meta"><span id="research-filter-count"></span><span id="research-citation-count"></span></div>
+            </div>
             <div id="research-cards" class="research-cards"></div>
           </div>
           <div class="research-main">

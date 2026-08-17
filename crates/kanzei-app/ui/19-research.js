@@ -12,6 +12,113 @@ let researchTab = "sources";
 let selectedResearchTopic = "";
 let researchSnapshot = { sources: [], findings: [], research_topics: [] };
 
+let researchFilters = { query: "", type: "", level: "", year: "", sort: "" };
+
+function researchEntryType(entry) {
+  return researchField(entry, "类型", "type", "域", "domain");
+}
+
+function researchEntryYear(entry) {
+  return researchField(entry, "年份", "year");
+}
+
+function researchCitationCount(entry, topic = selectedResearchTopicData()) {
+  const id = entry?.id;
+  if (!id) return 0;
+  return (topic.findings ?? []).filter((finding) =>
+    researchField(finding, "refs").split(/[\\s,]+/).includes(id),
+  ).length;
+}
+
+function filteredResearchEntries() {
+  const topic = selectedResearchTopicData();
+  const query = researchFilters.query.trim().toLowerCase();
+  const entries = selectedResearchEntries().filter((entry) => {
+    const type = researchEntryType(entry);
+    const level = researchField(entry, "等级", "level");
+    const year = researchEntryYear(entry);
+    const haystack = [entry.title, ...(entry.fields ?? []).flat()].join(" ").toLowerCase();
+    return (!query || haystack.includes(query))
+      && (!researchFilters.type || type === researchFilters.type)
+      && (!researchFilters.level || level === researchFilters.level)
+      && (!researchFilters.year || year === researchFilters.year);
+  });
+  const topicEntries = topic;
+  if (researchFilters.sort === "year") {
+    entries.sort((a, b) => researchEntryYear(b).localeCompare(researchEntryYear(a), undefined, { numeric: true }));
+  } else if (researchFilters.sort === "cited") {
+    entries.sort((a, b) => researchCitationCount(b, topicEntries) - researchCitationCount(a, topicEntries));
+  }
+  return entries;
+}
+
+function setResearchSelectOptions(select, values, emptyLabel) {
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = "";
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = emptyLabel;
+  select.appendChild(all);
+  for (const value of values) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+  }
+  select.value = values.includes(current) ? current : "";
+}
+
+function renderResearchFilters() {
+  const topic = selectedResearchTopicData();
+  const entries = selectedResearchEntries();
+  const types = [...new Set(entries.map(researchEntryType).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const levels = [...new Set(entries.map((entry) => researchField(entry, "等级", "level")).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const years = [...new Set(entries.map(researchEntryYear).filter(Boolean))]
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  setResearchSelectOptions($("research-filter-type"), types, t("全部类型"));
+  setResearchSelectOptions($("research-filter-level"), levels, t("全部等级"));
+  setResearchSelectOptions($("research-filter-year"), years, t("全部年份"));
+  const query = $("research-filter-query");
+  if (query && query.value !== researchFilters.query) query.value = researchFilters.query;
+  const type = $("research-filter-type");
+  const level = $("research-filter-level");
+  const year = $("research-filter-year");
+  const sort = $("research-filter-sort");
+  if (type) type.value = researchFilters.type;
+  if (level) level.value = researchFilters.level;
+  if (year) year.value = researchFilters.year;
+  if (sort) sort.value = researchFilters.sort;
+  const visible = filteredResearchEntries().length;
+  const count = $("research-filter-count");
+  if (count) count.textContent = `${visible}/${entries.length} ${t("条")}`;
+  const cited = topic.sources?.reduce((total, source) => total + researchCitationCount(source, topic), 0) ?? 0;
+  const citedCount = $("research-citation-count");
+  if (citedCount) citedCount.textContent = `${cited} ${t("处反查")}`;
+}
+
+function researchBibtex(entry) {
+  const author = researchField(entry, "作者", "author") || "Unknown";
+  const year = researchEntryYear(entry) || "n.d.";
+  const title = entry.title || researchField(entry, "标题", "title") || entry.id;
+  const url = researchField(entry, "URL", "url", "DOI", "doi");
+  const anchor = researchField(entry, "出处", "证据锚", "evidence", "anchor");
+  const keyAuthor = author.split(/[\\s,]+/).filter(Boolean)[0] || "source";
+  const key = `${keyAuthor.toLowerCase().replace(/[^a-z0-9_-]/g, "") || "source"}_${year}_${entry.id}`;
+  const location = url ? `  url = {${url}},` : anchor ? `  note = {${anchor}},` : "";
+  return `@misc{${key},\\n  author = {${author}},\\n  title = {${title}},\\n  year = {${year}},\\n${location}\\n}`;
+}
+
+async function copyResearchCitation(entry) {
+  try {
+    await navigator.clipboard.writeText(researchBibtex(entry));
+    toast(`${entry.id} ${t("BibTeX 已复制")}`);
+  } catch (error) {
+    toastError(`${t("复制 BibTeX 失败")}:${error}`);
+  }
+}
+
 function researchTopicKey(topic) {
   return topic?.topic ?? "";
 }
@@ -141,6 +248,14 @@ function researchCard(entry, kind) {
     open.textContent = `↗ ${t("打开")}`;
     actions.appendChild(open);
   }
+  if (kind === "source") {
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "ghost mini";
+    copy.textContent = t("复制 BibTeX");
+    copy.addEventListener("click", () => copyResearchCitation(entry));
+    actions.appendChild(copy);
+  }
   // refs 反向可跳:发现→来源。
   const refs = researchField(entry, "refs");
   for (const ref of refs.split(/[\s,]+/).filter(Boolean)) {
@@ -151,6 +266,31 @@ function researchCard(entry, kind) {
     link.title = t("跳到该来源");
     link.addEventListener("click", () => researchFocus(ref));
     actions.appendChild(link);
+  }
+  if (kind === "source") {
+    const topic = selectedResearchTopicData();
+    const citedBy = (topic.findings ?? []).filter((finding) =>
+      researchField(finding, "refs").split(/[\\s,]+/).includes(entry.id),
+    );
+    if (citedBy.length) {
+      const backrefs = document.createElement("div");
+      backrefs.className = "research-card-backrefs";
+      backrefs.append(`${t("被发现引用")}: `);
+      for (const finding of citedBy) {
+        const link = document.createElement("button");
+        link.type = "button";
+        link.className = "ref-link";
+        link.textContent = finding.id;
+        link.title = t("跳到该发现");
+        link.addEventListener("click", () => {
+          researchTab = "findings";
+          renderResearchCards();
+          researchFocus(finding.id);
+        });
+        backrefs.appendChild(link);
+      }
+      card.appendChild(backrefs);
+    }
   }
   const edit = document.createElement("button");
   edit.type = "button";
@@ -237,7 +377,8 @@ function renderResearchCards() {
   if (!host) return;
   const kind = researchTab === "findings" ? "finding" : "source";
   const topic = selectedResearchTopicData();
-  const entries = selectedResearchEntries();
+  renderResearchFilters();
+  const entries = filteredResearchEntries();
   $("research-tab-sources")?.classList.toggle("active", researchTab === "sources");
   $("research-tab-findings")?.classList.toggle("active", researchTab === "findings");
   $("research-tab-sources")?.setAttribute("aria-selected", String(researchTab === "sources"));
@@ -356,6 +497,14 @@ $("research-topic-select")?.addEventListener("change", async (event) => {
   renderResearchCards();
   await refreshResearchReport();
 });
+
+for (const [id, key] of [["research-filter-query", "query"], ["research-filter-type", "type"], ["research-filter-level", "level"], ["research-filter-year", "year"], ["research-filter-sort", "sort"]]) {
+  const control = $(id);
+  control?.addEventListener(control.tagName === "INPUT" ? "input" : "change", (event) => {
+    researchFilters[key] = event.currentTarget.value;
+    renderResearchCards();
+  });
+}
 $("research-report-refresh")?.addEventListener("click", () => refreshResearchReport());
 
 /// research 档才出现研究工作台;dev 档反过来藏起研究入口。

@@ -5475,3 +5475,46 @@
 - 关联: R-221 D-446
 - 收尾: 1786959804
 - 源码指纹: 0ff671549e99ce3a
+
+## T-1786922726123 R-276 B4 research 工作台 runtime smoke [passed]
+- 命令: node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 时长: 0.6s
+- 摘要: R-276 批4运行时交互断言通过：24 个 ui/*.js 按序执行、2125 次 invoke、10 个主视图切换、0 运行时错误；覆盖研究筛选、年份排序、来源反查 F-101 与 BibTeX clipboard 复制。
+- 关联: R-276 D-447 D-448
+- 收尾: 1786960516
+
+## T-1786922726124 R-276 B4 六条前端冒烟（首次） [failed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 3.1s
+- 摘要: runtime、parallel-lines、a11y、i18n、markdown 通过；ui-lint-smoke 失败，ui-lint-globals.json 缺 9 个 R-276 批4新增顶层标识，需运行 gen-ui-lint-globals.mjs 同步。
+- 关联: R-276
+- 收尾: 1786960555
+
+## T-1786922726125 R-276 B4 六条前端冒烟（修复后） [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-lint-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/parallel-lines-regression.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-a11y-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-i18n-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-markdown-smoke.mjs
+- 时长: 3.4s
+- 摘要: 六条前端冒烟全绿：runtime 24 个 ui/*.js/2125 invoke/0 运行时错误；lint 44 个文件 no-undef 零错误且 693 globals 同步；parallel-lines、a11y、i18n、markdown 全通过。
+- 关联: R-276 D-447 D-448 D-449
+- 收尾: 1786960590
+
+## T-1786922726126 R-276 B4 D-450/D-451 runtime smoke [passed]
+- 命令: node --check crates/kanzei-app/ui/19-research.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 时长: 0.6s
+- 摘要: D-450 监听器位置修复与 D-451 重复声明修复后，24 个 ui/*.js、2125 invoke、10 主视图、0 运行时错误；新增 topic 切换后每个筛选控件仅 1 个监听器断言通过。
+- 关联: R-276 D-450 D-451
+- 收尾: 1786960793
+
+## T-1786922726127 R-276 B4 六条前端冒烟（监听器修复后） [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-lint-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/parallel-lines-regression.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-a11y-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-i18n-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-markdown-smoke.mjs
+- 时长: 3.5s
+- 摘要: D-450/D-451 修复后的六条前端冒烟全绿：runtime 24 个 ui/*.js/2125 invoke/0 错误；lint 44 文件 no-undef 零错误且 693 globals 同步；parallel-lines、a11y、i18n、markdown 全通过。
+- 关联: R-276 D-450 D-451
+- 收尾: 1786960820
+
+## T-1786922726128 R-276 B4 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 25.5s
+- 摘要: 提交门禁要求的定向测试：kanzei-app 201 passed，0 failed，0 ignored。UI 本批另有 T-1786922726127 六条前端冒烟全绿。
+- 关联: R-276 D-450 D-451
+- 收尾: 1786960937
+- 源码指纹: 2cbde6079f180f27

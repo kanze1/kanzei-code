@@ -734,7 +734,7 @@ const payloads = {
       {
         topic: "alpha-study",
         legacy: false,
-        sources: [docEntry("S-101", "Alpha 一手论文", "active", { topic: "alpha-study", fields: [["URL", "https://example.com/alpha"], ["类型", "文献(一手)"]] })],
+        sources: [docEntry("S-101", "Alpha 一手论文", "active", { topic: "alpha-study", fields: [["URL", "https://example.com/alpha"], ["类型", "文献(一手)"], ["作者", "Alpha Researcher"], ["年份", "2024"], ["等级", "V2"]] }), docEntry("S-102", "Alpha 代码来源", "active", { topic: "alpha-study", fields: [["证据锚", "crates/kanzei-tools/src/websearch.rs:9"], ["类型", "代码域"], ["年份", "2023"]] })],
         findings: [docEntry("F-101", "Alpha 发现", "draft", { topic: "alpha-study", fields: [["等级", "V2"], ["refs", "S-101"]] })],
         report: true,
       },
@@ -1060,6 +1060,7 @@ let expectedPersistentHits = 0;
 let expectedConsoleError = null;
 let expectedConsoleHits = 0;
 
+let copiedResearchCitation = "";
 const sandbox = {
   __reportInitError: (label, err) => fail(`初始化步骤 ${label} 抛异常(已被 main.js 吞掉): ${err?.stack ?? err}`),
   __reportPersistentError: (text) => {
@@ -1084,7 +1085,7 @@ const sandbox = {
   window: windowShim,
   document,
   localStorage: localStorageShim,
-  navigator: { clipboard: { writeText: async () => {} } },
+  navigator: { clipboard: { writeText: async (text) => { copiedResearchCitation = String(text); } } },
   NodeFilter: { SHOW_TEXT: 4 },
   Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 },
   Option: OptionShim,
@@ -2789,8 +2790,55 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("Beta 代码来源"), "相同 S-101 未切换到 beta topic 数据");
   assert(!document.querySelector('#research-cards .research-card')?.textContent.includes("Alpha 一手论文"), "切换 topic 后仍混入 alpha 来源");
   assert(byId.get("research-report").textContent.includes("Beta report"), "beta topic 未读取对应 report");
-  const topicReads = invokeArgs.filter(({ cmd }) => cmd === "docs_read");
-  assert(topicReads.at(-1)?.args?.topic === "beta-study", `beta report 读取未携带 topic:${JSON.stringify(topicReads.at(-1)?.args)}`);
+  const betaTopicReads = invokeArgs.filter(({ cmd }) => cmd === "docs_read");
+  assert(betaTopicReads.at(-1)?.args?.topic === "beta-study", `beta report 读取未携带 topic:${JSON.stringify(betaTopicReads.at(-1)?.args)}`);
+  topicSelect.value = "alpha-study";
+  topicSelect.dispatchEvent({ type: "change", currentTarget: topicSelect });
+  await flush();
+  const filterType = byId.get("research-filter-type");
+  for (const id of ["research-filter-query", "research-filter-type", "research-filter-level", "research-filter-year", "research-filter-sort"]) {
+    const listeners = byId.get(id)?._listeners;
+    const event = id === "research-filter-query" ? "input" : "change";
+    assert((listeners?.[event] ?? []).length === 1, `${id} 在 topic 切换后重复注册了 ${event} 监听器`);
+  }
+  const filterLevel = byId.get("research-filter-level");
+  const filterSort = byId.get("research-filter-sort");
+  assert(filterType.options.length === 3, `类型筛选应有全部+文献+代码三项,实得 ${filterType.options.length}`);
+  assert(filterLevel.options.length === 2 && filterLevel.options[1].value === "V2", "V 等级筛选未从当前课题来源生成");
+  filterType.value = "代码域";
+  filterType.dispatchEvent({ type: "change", currentTarget: filterType });
+  await flush();
+  assert(document.querySelectorAll('#research-cards .research-card[data-doc-id="S-102"]').length === 1, "类型筛选未保留代码来源");
+  assert(!document.querySelector('#research-cards .research-card[data-doc-id="S-101"]'), "类型筛选未隐藏文献来源");
+  filterType.value = "";
+  filterType.dispatchEvent({ type: "change", currentTarget: filterType });
+  filterLevel.value = "V2";
+  filterLevel.dispatchEvent({ type: "change", currentTarget: filterLevel });
+  await flush();
+  assert(document.querySelectorAll('#research-cards .research-card[data-doc-id="S-101"]').length === 1 && !document.querySelector('#research-cards .research-card[data-doc-id="S-102"]'), "V 等级筛选未生效");
+  filterLevel.value = "";
+  filterLevel.dispatchEvent({ type: "change", currentTarget: filterLevel });
+  filterSort.value = "year";
+  filterSort.dispatchEvent({ type: "change", currentTarget: filterSort });
+  await flush();
+  assert(document.querySelector("#research-cards .research-card")?.dataset.docId === "S-101", "按年份排序未把较新来源置前");
+  const backref = document.querySelector('#research-cards .research-card[data-doc-id="S-101"] .research-card-backrefs .ref-link');
+  assert(backref?.textContent === "F-101", "来源卡缺少反查到 F-101 的链接");
+  backref.click();
+  await flush();
+  assert(byId.get("research-tab-findings").classList.contains("active"), "来源反查没有切换到发现 tab");
+  assert(document.querySelector('#research-cards .research-card[data-doc-id="F-101"]'), "来源反查没有定位到发现卡");
+  byId.get("research-tab-sources").click();
+  await flush();
+  const copyButton = [...document.querySelectorAll('#research-cards .research-card[data-doc-id="S-101"] .research-card-actions button')]
+    .find((button) => button.textContent === "复制 BibTeX");
+  assert(copyButton, "来源卡缺少 BibTeX 复制按钮");
+  copyButton.click();
+  await flush();
+  assert(copiedResearchCitation.includes("@misc{") && copiedResearchCitation.includes("Alpha Researcher"), "BibTeX 复制内容不完整");
+  filterSort.value = "";
+  filterSort.dispatchEvent({ type: "change", currentTarget: filterSort });
+  await flush();
   profile.value = savedProfile;
   profile.dispatchEvent({ type: "change" });
   await flush();

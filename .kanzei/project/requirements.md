@@ -174,7 +174,7 @@
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
 
-## R-248 先行调研内建:新方向开工前默认产出「已有方案对照」,不靠用户开口 [todo]
+## R-248 先行调研内建:新方向开工前默认产出「已有方案对照」,不靠用户开口 [doing]
 - refs: R-221 docs/design/research_mode.md
 - 依赖: R-221
 - 内容: 把「先查已有方案再动手」从用户每次口头要求变成 harness 的默认动作。①触发判据机械可判、不交模型自由裁量:项目根首次初始化 `.kanzei/`、req add 时 refs 为空且标签为核心、用户显式发起,三者之一成立即触发;②产物落 `.kanzei/research/<topic>/prior-art.md`,每条结论含「方案名 + 出处(URL 或 file:line) + 与本课题的差异 + 采用或不采用的理由」,**外部已有实现**(开源方案、协议、公开设计)与**仓内既有设计**(docs/design/**、requirements/defects 现存与 archive)两侧都必须覆盖;③新方向判定成立而无对照工件时,req add 要求 refs 指向该工件,或由用户显式豁免并留痕。
@@ -186,6 +186,12 @@
 - 阻塞: 
 - 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-248
+- 停车: R-248 暂停等待方案确认：验收要求 req refs 指向 `.kanzei/research/<topic>/prior-art.md`，现行通用 refs 契约只允许 R-/D-/T- 追踪编号；且首次 `.kanzei/` 初始化没有明确 topic/触发产物命名。恢复时需先确定兼容 API（扩展 refs 命名空间或新增独立 prior_art 字段/工具）及三触发的 topic 来源，不能凭猜测改数据模型。
+- 进展: 已读 docs/design/research_mode_prior_art.md、docs/design/research_mode.md、crates/kanzei-tools/src/tracker.rs:241-270/789-843、tracker/actions.rs:290-360、websearch.rs:14-110、kanzei-app/src/projects.rs:43-127。确认当前没有 prior-art 生成/校验/轮次预算实现；现有 req add 仅做通用 refs 校验，项目初始化只创建 `.kanzei/`，无法凭现有接口生成无 topic 的 prior-art.md。未修改代码。
+- observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786960050685
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
@@ -225,22 +231,23 @@
 - 状态: todo
 - 阻塞: 明确排期停车：本条为 P3 ESM 收尾，等待二期 P0/P1 主线 D-428、R-242、R-221/R-277 完成后再做批4；不是技术阻塞。解除人:agent 按队列优先级恢复。
 
-## R-276 research 模式前端:双面板/计划审批/来源呈现 [todo]
+## R-276 research 模式前端:双面板/计划审批/来源呈现 [doing]
 - refs: R-221 R-267 R-273 R-274 R-283 R-284 D-412 D-413 docs/design/research_workspace.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 依赖: R-221
 - 内容: 按 docs/design/research_workspace.md(2026-08-16 用户首轮实测反馈驱动的设计稿)实施研究工作台六批:批1 设计稿过审;批2 交互修复(去 kind gating,source/finding 与 req/defect 同权:可开/可编/可删/不截断,即 D-413);批3 双面板工作台+报告 tab(内联 [S-00x] 与 file:line 可跳、V 等级徽章与过滤);批4 来源/发现卡片化+筛选+反查+复制引用(BibTeX);批5 全文通道(read 支持 PDF、arXiv 正文通道、来源卡标注摘要级/正文级并与 V 表联动);批6 计划树面板(依赖 R-277)。设计原则取自 prior_art §1 前端横评:结果>过程、溯源三处冗余、计划先行可编辑、数据已结构化的 UI 不许降级成字符串。建议顺序:批2 与批5 先行(不依赖引擎,正是用户点名痛点)。
 - 复杂度: 大
-- 批次: 3/6
+- 批次: 4/6
 - 来源: 2026-08-16 用户「researchmode的前端设计这些比较复杂」;设计输入为 prior_art §1 前端横评(Gemini 报告至上双面板/ChatGPT 计划编辑与运行中转向/Perplexity 来源三处冗余/Manus 过程至上反例)与四组件通用 schema(document/steps/sources/annotations)。
 - 标签: 前端
 - 边界: 不做协作/分享/导出站外;不做在线 LaTeX 编辑器(Monaco 已有);research 下连跑禁用沿用 interaction_modes 既有定调;长报告渲染沿用 R-267 窗口化模式,不另造。
 - 验收: ①批1 设计稿经用户过审(含四组件权重取舍的明确理由);②计划编辑→运行→中途转向全链路可操作有轨迹;③引用点击回源双形态各实测(URL 与 file:line);④长报告与长活动流滚动不卡(窗口化生效);⑤与桌面既有 UI 风格与 i18n 纪律一致。
 - 优先级: P2
-- 进展: 2026-08-16 批1 设计稿过审(用户拍板:内置 viewer/dev 视图完全隐藏/卡片流),批2 交互修复(D-413/D-414),批3 独立工作台交付(提交 571b3f2)。批3 内容:新增 crates/kanzei-app/ui/19-research.js 与 #view-research 主视图——左卡片流(来源/发现 tab,完整标题、类型与 V 等级徽章、要点、作者年份、↗ 打开、行内编辑走 docs_update、状态流转按钮)+右报告面板(markdown 渲染,[S-00x]/[F-00x] 自动变可点角标 → 跳对应卡片并高亮,溯源双向);research 档才出现入口并完全隐藏 dev 视图,停在被隐藏视图上退回对话;空态给操作指引。六条前端冒烟全绿(a11y 护栏拦下我写的字面色,已换语义 token)。余批4(筛选/反查/BibTeX 复制)、批5(全文通道 read PDF+arXiv 正文+证据深度)、批6(计划树,依赖 R-277)。
-- observed_head: 571b3f25b35fafdfd0fd02398fc8f82cc21d0fee
-- observed_worktree_hash: fnv1a64:079b10c5eaac5321
-- recorded_at: 1786866469845
+- 进展: 批4已落地并验证。实现文件：crates/kanzei-app/ui/19-research.js、index.html、style.css、02-i18n.js、scripts/ui-runtime-smoke.mjs、scripts/ui-lint-globals.json。新增当前 topic/tab 边界内的标题/要点/作者检索、类型/V 等级/年份筛选、年份/被引排序、来源→finding 反查、BibTeX clipboard 复制；数据源仍是 docs_snapshot topic sources/findings 与 finding.refs，未改后端事实。D-450 修复筛选控件监听器从 topic change 回调移到初始化位置，D-451 修复 runtime smoke 重复 filterType 声明；D-447/D-448/D-449/D-450/D-451 已 fixed。T-1786922726123、T-1786922726126 runtime smoke 通过；T-1786922726125、T-1786922726127 六条前端冒烟全绿（runtime/lint/parallel-lines/a11y/i18n/markdown）。实际 ui_dom 探针仍命中旧版不可见 #view-research 且无新筛选节点，ui_console 无错误，判定当前窗口未刷新本轮静态资源；不将该探针冒充新构建渲染证据。下一步：提交批4，批5再处理 PDF/arXiv 正文与证据深度。
+- observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
+- observed_worktree_hash: fnv1a64:436aa829cdba0908
+- recorded_at: 1786960838723
 - 阻塞: 
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-276
 
 ## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [todo]
 - refs: R-221 R-273 R-274 R-276 R-283 R-284 docs/design/research_mode.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md

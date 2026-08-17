@@ -5474,3 +5474,63 @@
 - observed_head: f706dd21ea2959e5d3ea8af8ae0f7b27b61ad6da
 - observed_worktree_hash: fnv1a64:d5c4e679d36fdbc4
 - recorded_at: 1786958372670
+
+## D-447 R-276 批4运行时夹具新增 S-102 时括号不配对 [fixed] (low)
+- 复现: 运行 node scripts/ui-runtime-smoke.mjs；scripts/ui-runtime-smoke.mjs:737 新增 Alpha S-102 docEntry 后 SyntaxError: Unexpected token '}'。
+- 影响: 前端运行时冒烟在加载测试夹具阶段直接失败，无法验证 R-276 批4筛选/反查/BibTeX 交互。
+- 来源: self-found：R-276 批4实现后的定向 runtime smoke。
+- 标签: 前端
+- refs: R-276
+- 优先级: P2
+- 进展: 已修复 `scripts/ui-runtime-smoke.mjs:737` 的 S-101/S-102 fixture 括号：fields 数组闭合为 `]] })`；T-1786922726123 runtime smoke 通过，T-1786922726125 六条前端冒烟全绿。
+- observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
+- observed_worktree_hash: fnv1a64:d9c8cd4423fe6cbf
+- recorded_at: 1786960608872
+
+## D-448 R-276 批4运行时冒烟新增断言破坏既有 topic 读取校验顺序 [fixed] (low)
+- 复现: 运行 node scripts/ui-runtime-smoke.mjs；R-276 批4新增测试在 beta topic 校验前切回 alpha，导致原有 topicReads.at(-1) 断言得到 alpha-study 而非 beta-study。
+- 影响: 运行时冒烟测试顺序错误，误报 R-221 B2 topic 报告隔离失败，阻断 R-276 批4验证。
+- 来源: self-found：R-276 批4 runtime smoke 重跑。
+- 标签: 前端
+- refs: R-276
+- 优先级: P2
+- 进展: 已修复 `scripts/ui-runtime-smoke.mjs:2792-2794` 的测试顺序：beta topic 的 docs_read 断言在切回 alpha 前完成，批4断言随后运行；T-1786922726125 六条前端冒烟全绿，topic 隔离与筛选/反查链路均通过。
+- observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
+- observed_worktree_hash: fnv1a64:d9c8cd4423fe6cbf
+- recorded_at: 1786960614123
+
+## D-449 R-276 批4新增 research 顶层标识未同步 ui-lint-globals [fixed] (low)
+- 复现: 运行六条前端冒烟中的 node scripts/ui-lint-smoke.mjs；gen-ui-lint-globals.mjs --check 报 ui-lint-globals.json 缺 9 个 R-276 批4新增顶层标识。
+- 影响: 前端 lint 发布门禁无法通过；新增 research 工作台逻辑虽可运行，但 globals 护栏未同步。
+- 来源: self-found：R-276 批4六条前端冒烟首次运行。
+- 标签: 前端
+- refs: R-276
+- 优先级: P2
+- 进展: 已运行 `node scripts/gen-ui-lint-globals.mjs` 同步 `scripts/ui-lint-globals.json`，新增 9 个 research 顶层标识纳入 693 项清单；T-1786922726125 六条前端冒烟全绿，ui-lint-smoke 报告 44 个文件 no-undef 零错误且 globals 同步。
+- observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
+- observed_worktree_hash: fnv1a64:d9c8cd4423fe6cbf
+- recorded_at: 1786960622123
+
+## D-451 R-276 批4监听器回归断言重复声明 filterType [fixed] (low)
+- 复现: 运行 node --check scripts/ui-runtime-smoke.mjs；批4监听器断言插入后，scripts/ui-runtime-smoke.mjs:2804 重复声明 const filterType，报 Identifier 'filterType' has already been declared。
+- 影响: runtime smoke 无法解析，D-450 修复后的监听器数量断言无法执行。
+- 来源: self-found：修复 D-450 后重跑 R-276 批4验证。
+- 标签: 前端
+- refs: R-276
+- 优先级: P2
+- 进展: 已删除 `scripts/ui-runtime-smoke.mjs:2804` 重复的 `const filterType` 声明；`node --check` 与 T-1786922726126 runtime smoke 通过，新增 topic 切换后 5 个筛选控件各仅 1 个监听器断言通过。
+- observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
+- observed_worktree_hash: fnv1a64:436aa829cdba0908
+- recorded_at: 1786960799175
+
+## D-450 R-276 批4筛选监听器嵌入 topic change 回调导致重复注册 [fixed] (low)
+- 复现: 审查 crates/kanzei-app/ui/19-research.js:491-510；研究课题 change 回调在 await refreshResearchReport() 后包含筛选控件监听器注册，每次切换 topic 都会重复绑定 5 个监听器。
+- 影响: 多次切换研究课题后，同一次筛选输入会触发多次 renderResearchCards/刷新，造成重复渲染和性能退化。runtime smoke 当前未覆盖监听器注册次数。
+- 来源: self-found：R-276 批4提交前 diff 审查。
+- 标签: 前端
+- refs: R-276
+- 优先级: P2
+- 进展: 已将筛选控件监听器移出 `crates/kanzei-app/ui/19-research.js:491-509` 的 research-topic-select change 回调，改为初始化时各注册一次；`scripts/ui-runtime-smoke.mjs:2798-2803` 新增 5 个控件单监听器断言。T-1786922726126 runtime smoke 与 T-1786922726127 六条前端冒烟均通过。
+- observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
+- observed_worktree_hash: fnv1a64:436aa829cdba0908
+- recorded_at: 1786960826069

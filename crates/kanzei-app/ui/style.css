@@ -2223,6 +2223,11 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .research-tabs { display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
 .research-topic-picker { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px 4px; color: var(--muted); font-size: var(--fs-11); }
 .research-topic-picker select { width: 100%; background: var(--input); color: var(--fg-strong); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; font: inherit; }
+.research-filters { display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 8px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+.research-filters input, .research-filters select { min-width: 0; background: var(--input); color: var(--fg-strong); border: 1px solid var(--border); border-radius: 4px; padding: 5px 7px; font: inherit; font-size: var(--fs-11); }
+.research-filter-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.research-filter-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: var(--fs-10-5); }
+.research-card-backrefs { margin: 4px 0 7px; color: var(--muted); font-size: var(--fs-11); }
 .research-topic-group { display: flex; flex-direction: column; gap: 8px; }
 .research-topic-title { margin: 0; color: var(--fg-strong); font-size: var(--fs-13); font-weight: 600; }
 
