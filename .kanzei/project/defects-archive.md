@@ -6034,3 +6034,16 @@
 - observed_head: e202743946a9dd3e6968e944eef24ce38b4debf8
 - observed_worktree_hash: fnv1a64:8a854b726bfbe8bc
 - recorded_at: 1787000552383
+
+## D-489 手机发消息桌面会话列表不刷新:kz:mobile-message 刷新逻辑位于不可达分支 [fixed] (high)
+- 复现: crates/kanzei-app/ui/01-core.js:181-186 的 refreshConversationLists/refreshProcesses 嵌在 if(controlEvent) 内,而 controlEvent 集合(01-core.js:119-125)只含 ask/status/done/error/stopped/idle,不含 kz:mobile-message;实际生效的 01-core.js:223 handler 只做 log
+- 影响: 手机端发消息后桌面会话列表与进程列表不刷新,与 01-core.js:57/213-214 注释承诺相反,移动双向消息体验断裂
+- 来源: 2026-08-18 全库勘察(主会话五路并行审计)
+- 标签: 前端
+- 验收: 手机发消息后桌面列表自动刷新;前端冒烟断言 kz:mobile-message 路径可达;六条冒烟全绿
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-489
+- 进展: 已修复并完成逐项验收：①手机发消息后桌面列表自动刷新：`crates/kanzei-app/ui/01-core.js:119-125` 将 `kz:mobile-message` 纳入 controlEvent，原有 `01-core.js:180-185` 刷新 `refreshConversationLists()` 与 `refreshProcesses()` 的分支因此真实可达，并继续调用 `handleMobileMessage`；②前端冒烟断言事件路径可达：`scripts/ui-runtime-smoke.mjs:4427-4440` 通过已注册 handler 触发 `kz:mobile-message`，断言 `conversation_list` 与 `process_list` 调用数均增加；③六条冒烟全部通过，T-1786922726249：runtime、lint、parallel-lines、a11y、i18n、markdown 全绿；源码 `01-core.js` 与 smoke 脚本 node --check 通过。
+- observed_head: 7cbc06cbc9d1c58f3fb3be60e322f3c4a1eda740
+- observed_worktree_hash: fnv1a64:8ef646bfdb1d1194
+- recorded_at: 1787001153420

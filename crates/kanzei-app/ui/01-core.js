@@ -122,7 +122,8 @@ function on(event, handler) {
       event === "kz:done" ||
       event === "kz:error" ||
       event === "kz:stopped" ||
-      event === "kz:idle";
+      event === "kz:idle" ||
+      event === "kz:mobile-message";
     // R-267:后台会话的渲染事件不再丢弃,改为渲染进**它自己**的 pane。
     //
     // 丢弃是「全局唯一容器」时代的必然:渲染进去就串线。有了 per-session pane

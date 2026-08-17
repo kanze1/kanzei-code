@@ -116,10 +116,11 @@
 - recorded_at: 1787000896795
 - 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
 - 对账: 2026-08-18 对账:与 R-243 互锁(本条验收⑦「停止新增 conversation.updated」依赖 R-243 compaction 事务,R-243 又依赖本条)。收口顺序:本条以验收①-⑥(含⑤真实 30 turn 窗口)为关闭门禁,⑦的收口动作移交 R-243 验收承接
+- 停车: 让位 R-243 承接 compaction 追加事务：R-242 的 projection/reset 与验收①-⑥已完成，验收⑦明确需要 R-243 的 compaction 事务来停止新增 conversation.updated；R-243 收口后恢复本条复核最终 snapshot 只读回放并关闭。
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]
-- refs: R-236 D-209 docs/design/context_compaction.md docs/design/deepseek_harness_upgrade.md
-- 依赖: R-242
+- refs: R-242 R-236 D-209 docs/design/context_compaction.md docs/design/deepseek_harness_upgrade.md
+- 依赖: 
 - 内容: 将现有 compact_with_digest 的存储语义改为 compaction_started→compaction_summary→surface_replaced→compaction_ended 追加事务；模型上下文只消费 surface projection，原始 Session 事件不修改不删除；连续压缩走已交付滚动合并。
 - 复杂度: 中
 - 批次: 0/3
@@ -129,7 +130,7 @@
 - 阻塞: 
 - 验收: ①压缩前后 raw event hash 不变；②边界上的 tool call/result 必须完整配对，否则拒绝压缩；③不完整 compaction transaction 重启后不生效且有可见诊断；④连续两次压缩 replay 一致，首段关键实体仍保留；⑤模型 surface 变短但 transcript/audit 仍能回看原文；⑥R-236 全部压缩回归保持通过。
 - 优先级: P1
-- 对账: 2026-08-18 对账:解开与 R-242 的依赖环——本条承接 R-242 验收⑦(对照稳定后停止新增 conversation.updated),在 compaction 事务落地后一并验收;依赖字段的 R-242 指其已交付的 surface projection(批次8/8),不要求 R-242 先关闭
+- 对账: 2026-08-18 对账更新：R-242 批次8/8 的 surface projection 已交付，当前依赖字段不再要求 R-242 关闭；本条正式承接 R-242 验收⑦，负责 compaction_started→compaction_summary→surface_replaced→compaction_ended 事务、停止新增 conversation.updated 以及失败恢复后的可见诊断。下一步先完成批1设计冻结与事件事务入口，再接全部 compaction 写者和回归。
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md

@@ -4424,6 +4424,24 @@ probe({ payload: { id: 4, kind: "unknown-kind", arg: "" } });
 await flush();
 assert(probeResults[3].result.includes("未知探针类型"), "未知探针类型应回传说明而不是静默");
 
+// ---------- D-489:手机消息事件必须走控制路由并刷新会话/进程列表 ----------
+{
+  const mobileHandler = handlers.get("kz:mobile-message");
+  assert(mobileHandler, "未订阅 kz:mobile-message");
+  const conversationsBefore = invokeArgs.filter(({ cmd }) => cmd === "conversation_list").length;
+  const processesBefore = invokeArgs.filter(({ cmd }) => cmd === "process_list").length;
+  mobileHandler({ payload: { session_id: "sess-smoke", text: "来自手机的冒烟消息" } });
+  await flush();
+  assert(
+    invokeArgs.filter(({ cmd }) => cmd === "conversation_list").length > conversationsBefore,
+    "kz:mobile-message 未触发会话列表刷新",
+  );
+  assert(
+    invokeArgs.filter(({ cmd }) => cmd === "process_list").length > processesBefore,
+    "kz:mobile-message 未触发进程列表刷新",
+  );
+}
+
 // ---------- 语言切换：静态文本/属性与动态错误必须 zh→en→zh→en 可逆 ----------
 const languageControl = byId.get("language-select");
 const projectInit = byId.get("project-init");

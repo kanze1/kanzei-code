@@ -6383,3 +6383,18 @@
 - 摘要: 同一隔离项目在已验证2 turn基础上继续执行28次真实目标 CLI `run --new`；目标 `kz shadow --mismatches` 输出共30 turn、equal=30、预期差异0、未知差异0、写错误轮0，判定达标。
 - 关联: R-242
 - 收尾: 1787000878
+
+## T-1786922726249 D-489 手机消息刷新路径前端完整回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 12.4s
+- 摘要: D-489 修复回归：01-core.js 与 runtime smoke 语法检查通过；runtime smoke 新增 kz:mobile-message 断言实际触发 conversation_list/process_list；六条前端冒烟全部通过（runtime、lint、parallel-lines、a11y、i18n、markdown）。
+- 关联: D-489
+- 收尾: 1787001137
+
+## T-1786922726250 D-489 提交前 kanzei-app 指纹门禁回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 15.3s
+- 摘要: 提交指纹门禁要求的当前项目定向回归：kanzei-app 202 passed，0 failed。前端六条冒烟证据仍由 T-1786922726249 覆盖。
+- 关联: D-489
+- 收尾: 1787001234
+- 源码指纹: 5d69f67ad7bcc7d1

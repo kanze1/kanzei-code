@@ -15,14 +15,6 @@
 - recorded_at: 1786996867134
 - 停车: 代码修复与 `cargo test -p kanzei-core` 已完成；本轮先让位给 R-242 建立真实 shadow 验证窗口，待新 shadow 事件产生后恢复并复核 unknown 统计。
 
-## D-489 手机发消息桌面会话列表不刷新:kz:mobile-message 刷新逻辑位于不可达分支 [open] (high)
-- 复现: crates/kanzei-app/ui/01-core.js:181-186 的 refreshConversationLists/refreshProcesses 嵌在 if(controlEvent) 内,而 controlEvent 集合(01-core.js:119-125)只含 ask/status/done/error/stopped/idle,不含 kz:mobile-message;实际生效的 01-core.js:223 handler 只做 log
-- 影响: 手机端发消息后桌面会话列表与进程列表不刷新,与 01-core.js:57/213-214 注释承诺相反,移动双向消息体验断裂
-- 来源: 2026-08-18 全库勘察(主会话五路并行审计)
-- 标签: 前端
-- 验收: 手机发消息后桌面列表自动刷新;前端冒烟断言 kz:mobile-message 路径可达;六条冒烟全绿
-- 优先级: P1
-
 ## D-490 复制上下文只读活 DOM,长会话导出被 trim 静默截断 [open] (high)
 - 复现: crates/kanzei-app/ui/07-events.js:810-836 遍历 activePane.children;01-core.js:486-496 trimLivePane 超 600 条时从头部砍到 400 条;导出结果无任何截断标记(pane-trimmed-hint 不匹配任何分支被跳过)
 - 影响: 长会话导出静默丢前半段;该按钮用途正是贴给其他 AI,静默丢数据是最坏失败模式
