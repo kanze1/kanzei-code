@@ -7712,3 +7712,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300
 - 收尾: 1787073649
 - 源码指纹: v2 crates/kanzei/src/cli/run.rs@c86999914059,crates/kanzei/src/cli/run/events.rs@e2687a47fc05,crates/kanzei/src/cli/run/finalize.rs@bb6589588af9,crates/kanzei/src/cli/run/permissions.rs@6fd0010a5095
+
+## T-1786922726432 R-300 B14 前端模型拆分六条冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/*.js; node --check scripts/parallel-lines-regression.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 14.8s
+- 摘要: 08-models.js 接入并修正 parallel-lines 静态断言后，node --check 与六条前端冒烟全部通过：runtime、lint、parallel-lines、a11y、i18n、markdown。runtime 24 脚本/2318 次 invoke/0 运行时错误；lint 47 文件；i18n 1313 key、446 HTML 文案、57 动态契约。
+- 关联: R-300 D-539
+- 收尾: 1787074052
+- 源码指纹: v2 scripts/parallel-lines-regression.mjs@01b1209138fc
+
+## T-1786922726433 R-300 B14 自动续跑拆分六条冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/*.js; node --check scripts/parallel-lines-regression.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 15.2s
+- 摘要: 自动续跑核心迁入 08-auto.js、模型逻辑位于 08-models.js 后，node --check 与六条前端冒烟全部通过：runtime 25 个脚本/2318 次 invoke/0 运行时错误，lint 48 文件，parallel-lines、a11y、i18n、markdown 均通过。
+- 关联: R-300 D-540
+- 收尾: 1787074346
+- 源码指纹: v2 scripts/parallel-lines-regression.mjs@187f2baf5323
+
+## T-1786922726434 R-300 B14 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.3s
+- 摘要: 提交门禁要求的 kanzei-app 定向测试通过：216 passed、0 failed、0 ignored。
+- 关联: R-300
+- 收尾: 1787074487
+- 源码指纹: v2 scripts/parallel-lines-regression.mjs@187f2baf5323

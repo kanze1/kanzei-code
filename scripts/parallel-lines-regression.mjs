@@ -6,14 +6,17 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const readUi = (name) => readFile(resolve(root, "crates", "kanzei-app", "ui", name), "utf8");
-const [lines, sessions, compose, views, docsList, index] = await Promise.all([
+const [lines, sessions, auto, compose, models, views, docsList, index] = await Promise.all([
   readUi("20-lines.js"),
   readUi("09-sessions.js"),
+  readUi("08-auto.js"),
   readUi("08-compose.js"),
+  readUi("08-models.js"),
   readUi("15-views-misc.js"),
   readUi("11-docs-list.js"),
   readUi("index.html"),
 ]);
+const composeSources = `${auto}\n${compose}\n${models}`;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -64,7 +67,7 @@ assert(!sessions.includes("cancelAutoContinueTimer();\n  hideAsk(true)"), "切�
 assert(sessions.includes('state.phase === "stopping"'), "线路状态投影缺少 stopping 具名态");
 
 assert(compose.includes("const processUpdateQueues = new Map()"), "进程设置缺少按线路保存队列");
-assert(compose.includes("const autoContinueTimers = new Map()"), "自主推进 timer 未按 session 隔离");
+assert(composeSources.includes("const autoContinueTimers = new Map()"), "自主推进 timer 未按 session 隔离");
 assert(compose.includes("sendAutoToSession(prompt, sessionId)"), "后台自主推进仍按活动线路发送");
 assert(compose.includes("const requestSessionId = activeSessionId"), "发送 IPC 未捕获发起线路身份");
 assert(compose.includes("transitionSession(targetSessionId, \"stopping\")"), "停止按钮仍缺少 stopping 过渡态");
@@ -85,7 +88,7 @@ assert(compose.includes("function handleBackgroundAutoFail(payload)"), "后台�
 // 模型必须按线回显、按线发送。回显只写在 switchProcess 里的话,冷启动/兜底选中活动线
 // 都不回显(用户现场只有一条线时永远不触发切换);发送读下拉、鞭挞续跑读 item.model 的话,
 // 同一条线会跑在两个模型上。
-assert(compose.includes("function syncModelSelectToActiveLine()"), "缺少模型下拉按线回显入口");
+assert(composeSources.includes("function syncModelSelectToActiveLine()"), "缺少模型下拉按线回显入口");
 assert(sessions.includes("syncModelSelectToActiveLine();"), "renderProcesses/switchProcess 未按线回显模型");
 assert(compose.includes("function lineModelFor(processId)"), "发送用模型未统一取自线路存档");
 assert(!/model: \$\("model-select"\)\.value \|\| null/.test(compose), "发送又回到读下拉显示值(与鞭挞续跑不同源)");

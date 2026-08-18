@@ -283,11 +283,11 @@
 - 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
-- 批次: 4/5
-- 进展: B13 已实现并验证（待提交）：`crates/kanzei/src/cli/run.rs:20-21` 注册 `events`、`permissions`、`finalize` 子模块；`run/events.rs:1-108` 承接 RunEvent→终端/TypedSessionWriter 渲染；`run/permissions.rs:1-68` 承接 Question/Permission ASK、非交互 allowlist 与 always-allow 落盘；`run/finalize.rs:1-227` 承接 Ctrl+C 之外的运行结果收尾、conversation.updated、episode/recall 归因、记忆整理、candidate reconcile、backlog 提示和退出码；`run.rs:294-330` 的 run_once/Ctrl+C 链路未改，`run.rs:331-354` 仅构造 FinalizeState 并调用 finish_run。真实调用方仍为 `cli/mod.rs:54-55` 的 `run::run_cli`。证据 T-1786922726429、T-1786922726430、T-1786922726431：rustfmt/cargo fmt 检查与 `cargo test -p kanzei` 均通过（39 单测、32 集成测试全部通过）。下一步：提交 B13，再继续 R-300 前端 Top 目标与 verify 回涨闸门。
-- observed_head: 94eaf2ef06374fe4cfd972065f013493dd8d0be3
-- observed_worktree_hash: fnv1a64:5a43717d38799038
-- recorded_at: 1787073675461
+- 批次: 5/5
+- 进展: B14 已实现、验证并提交前准备：`crates/kanzei-app/ui/08-auto.js:1-216` 承接自动续跑状态、停止 watchdog、阶段渲染与续跑门禁核心；`08-compose.js:1-1102` 保留发送/停止、后台轮末/失败处理、profile 与线路设置；`08-models.js:1-217` 承接模型探测、按线回显、手填模型迁移及项目偏好监听；`index.html:1135-1138` 真实加载顺序为 07-events → 08-auto → 08-compose → 08-models。真实消费者保持为 `09-sessions.js:434/576/580/732/871`、`20-lines.js:151-152`、`07-events.js` 事件链和 `01-core.js` 路由。`scripts/parallel-lines-regression.mjs:9-19/70/91` 已扫描三份真实脚本。D-539、D-540 已修复。证据 T-1786922726432、T-1786922726433：node --check 与 runtime/lint/parallel-lines/a11y/i18n/markdown 六条前端冒烟通过。验收①仍需其余 Top 目标与最终 metrics 对照；验收③需复核 verify 回涨闸门；验收②的 06-agent-panel/06-activity 合流为既有 B8 能力。本批下一步：提交 B14 后重跑 kz metrics，并复核 verify 闸门与 `metrics-baseline` 落点。
+- observed_head: 2f118ee47cb9cfe0e8a53c2d773dd7efee9fcfaf
+- observed_worktree_hash: fnv1a64:5ae9d8a2586b2f0e
+- recorded_at: 1787074406031
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 

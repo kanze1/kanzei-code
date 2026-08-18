@@ -6635,3 +6635,28 @@
 - observed_head: 4c85353e54288e634d165ef1376c11d25ea220ae
 - observed_worktree_hash: fnv1a64:f66390af61c116a3
 - recorded_at: 1787072809479
+
+## D-539 前端 compose 拆分后 parallel-lines 静态断言仍锁定旧文件路径 [fixed] (medium)
+- refs: R-300
+- 复现: 将模型相关函数从 `crates/kanzei-app/ui/08-compose.js` 迁移到 `08-models.js` 后运行 `node scripts/parallel-lines-regression.mjs`，断言 `compose.includes("function syncModelSelectToActiveLine()")` 失败。
+- 影响: 真实运行时冒烟按 index.html 顺序加载通过，但并行线路回归护栏无法验证模型按线回显与发送链路，前端拆分提交被测试门禁阻断。
+- 来源: self-found：R-300 B14 前端拆分后的六条冒烟。
+- 标签: 前端
+- 优先级: P2
+- 进展: 已修复并验证：`scripts/parallel-lines-regression.mjs:9-18` 同时读取 `08-compose.js` 与新增 `08-models.js`，组成 `composeSources`；`scripts/parallel-lines-regression.mjs:90` 对合并后的真实脚本集合断言 `syncModelSelectToActiveLine`。模型代码真实消费者由 `09-sessions.js:434/576/580/732/871` 与 `20-lines.js:151-152` 保持不变。证据 T-1786922726432：node --check 与 runtime/lint/parallel-lines/a11y/i18n/markdown 六条前端冒烟全部通过。
+- observed_head: 2f118ee47cb9cfe0e8a53c2d773dd7efee9fcfaf
+- observed_worktree_hash: fnv1a64:6c7c8b8c219825de
+- recorded_at: 1787074070231
+
+## D-540 自动续跑拆分后 parallel-lines 未纳入 08-auto.js 静态源 [fixed] (medium)
+- refs: R-300
+- 复现: R-300 自动续跑拆分后运行 `node scripts/parallel-lines-regression.mjs`，脚本只把 `08-compose.js` 与 `08-models.js` 合并，无法找到已迁入 `08-auto.js` 的 `const autoContinueTimers = new Map()`。
+- 影响: 真实 UI runtime/lint 通过，但并行线路静态护栏错误失败，无法验证自动续跑按 session 隔离。
+- 来源: self-found：R-300 B14 自动续跑拆分后的六条前端冒烟。
+- 标签: 前端
+- refs: R-300
+- 优先级: P2
+- 进展: 已修复并验证：`scripts/parallel-lines-regression.mjs:9-19` 纳入 `08-auto.js` 并构造 `${auto}\n${compose}\n${models}` 的真实静态源集合；`scripts/parallel-lines-regression.mjs:70` 因此可验证 `08-auto.js:18` 的 session 隔离 timer。`index.html:1135-1138` 保持 07-events → 08-auto → 08-compose → 08-models 的 classic script 顺序。证据 T-1786922726433：node --check 与 runtime/lint/parallel-lines/a11y/i18n/markdown 六条前端冒烟全部通过。
+- observed_head: 2f118ee47cb9cfe0e8a53c2d773dd7efee9fcfaf
+- observed_worktree_hash: fnv1a64:5ae9d8a2586b2f0e
+- recorded_at: 1787074359027

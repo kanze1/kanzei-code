@@ -1,0 +1,216 @@
+// ---------- 自动续跑状态与渲染 ----------
+// 鞭挞状态:自动续跑计数(手动发送归零),上限防失控。
+const DEFAULT_AUTO_CONTINUE_MAX = 10;
+let autoRounds = 0;
+let autoPaused = false;
+
+// D-504:轮次真源是会话状态；autoRounds 只保留为当前活动线的渲染镜像。
+function currentAutoRounds(sessionId = activeSessionId) {
+  return Number(sessionId ? sessionState(sessionId)?.auto_rounds ?? 0 : 0) || 0;
+}
+function setAutoRounds(sessionId, value) {
+  const rounds = Number(value) || 0;
+  if (sessionId) sessionState(sessionId).auto_rounds = rounds;
+  if (!sessionId || sessionId === activeSessionId) autoRounds = rounds;
+  return rounds;
+}
+let autoStopAfterRound = false;
+const autoContinueTimers = new Map();
+// 自动续跑的 IPC 会在后端真正结束前立即返回；用在途集合挡住同一会话的
+// 重复 kz:done/定时器事件，终态事件再释放。否则重复事件会不断追加 queue 输入。
+const autoContinueInFlight = new Set();
+let autoStopReason = "";
+// 连续无实质动作的轮数:第一次只追加推进指令,第二次才刹车。
+// R-169:判定已下沉 harness auto_run 状态机,前端只保留镜像赋值。
+let noActionRounds = 0;
+// R-170:继续文案降级为用户意图载体(方案 A,评估结论 continue_prompt_dissection.md §5)。
+// 引擎规则(取活/批次/阻塞/验收/节奏)全部归 system prompt 与 harness 状态机,
+// 文案只保留极简意图句;textarea 承载用户附加意图,删空回落此默认。
+const DEFAULT_CONTINUE_PROMPT = "继续推进，规则按系统提示执行。";
+
+// R-169:NUDGE 文案生成已下沉 harness(nudge_prompt),前端不再持有模板。
+// 无动作判定与推进指令由引擎给出,前端只负责在收到 Nudge 动作时发送。
+
+function selectedAgent() {
+  const mode = $("profile-select").value;
+  if (mode === "dev-pair") return { profile: "dev", agent: "dev-pair" };
+  if (mode === "dev-auto") return { profile: "dev", agent: "dev" };
+  return { profile: "research", agent: "research" };
+}
+function workPriorityStorageKey() {
+  return `kz-work-priority:${currentProject || "default"}`;
+}
+function selectedWorkPriority() {
+  return $("work-priority-select").value === "requirement-first" ? "requirement-first" : "defect-first";
+}
+function syncWorkPriorityControl() {
+  const saved = localStorage.getItem(workPriorityStorageKey());
+  $("work-priority-select").value = saved === "requirement-first" ? saved : "defect-first";
+  // D-404:localStorage 数据文件缺失时重启即丢;后端 app.json 是权威,有值则覆盖。
+  void uiPrefsLoad().then((p) => {
+    const v = p.work_priority?.[currentProject || "default"];
+    if (v === "requirement-first" || v === "defect-first") $("work-priority-select").value = v;
+  });
+}
+
+// 取活序只有一个真源:这个开关 → localStorage → work_priority → 引擎的
+// resolve_work_decision → <resolved-control-state>。
+//
+// 这里原先还把开关镜像成一条 preference 记忆(开发重心),理由写着「提示词由记忆
+// 生成,所以开关与提示词不可能再互相矛盾」。那个理由在当时成立,后来不成立了:
+// 权威提示词现在由 run.rs work_priority_guidance 从**枚举**生成,而 preference
+// 记忆走的是另一条路——它以「STANDING DIRECTIVES(obey these; they are the
+// user's own words)」的抬头全文常驻注入,与 <resolved-control-state> 里那句
+// 「do not re-arbitrate queue priority from tracker prose」正面对撞。
+//
+// 于是模型每轮同时收到两条都自称最高优先级的指令。而那条记忆改不动队列顺序
+// (引擎只读枚举),它唯一能起的作用是怂恿模型借 WorkInput.reason 偏离引擎裁决,
+// 并把一条过期理由写进审计记录。实测后果:同一条规则被反复复活三代
+// (M-002 → M-063 → M-070),每次退役后开关一切就再生一条。
+//
+// 所以镜像写入去掉,开关只写自己那份枚举。回显由上面 syncWorkPriorityControl
+// 从 localStorage 做——它本来就在做,记忆那份是会覆盖它的第二个回显源。
+
+// 鞭挞状态**槽位化**:轮次(数)/阶段(状态机)/原因(为什么停)各占各的元素。
+// 旧实现把三样揉进一条自由文本塞进 #auto-status,而 renderAutoStatus 的默认参数是
+// autoStopReason——于是任何无参重绘(renderProcesses → renderAutoStatus())都等于
+// 「把 DOM 回写成上一次的停止原因」。实测链路:kz:done 先 setAutoStopReason("本轮完成"),
+// 再写「3/34 · 等待下一轮」,紧接着 kz:idle → renderProcesses → 无参重绘,轮次在下一帧
+// 就被抹回「本轮完成」。所以「跑到第几轮」这条最该一眼可见的信息,真跑起来时看不见。
+let autoHint = "";
+const AUTO_PHASE_LABEL = {
+  off: "鞭挞已关闭", running: "推进中", pending: "等待下一轮", paused: "已暂停", idle: "待命",
+};
+function autoRunPhase() {
+  if (!$("auto-continue")?.checked) return "off";
+  const state = activeSessionId ? sessionState(activeSessionId) : null;
+  if (state && ["starting", "running"].includes(state.phase)) return "running";
+  if (state && state.phase === "auto_pending") return "pending";
+  if (autoPaused) return "paused";
+  return "idle";
+}
+function renderAutoRun() {
+  const bar = $("autorun-bar");
+  if (!bar) return;
+  const max = autoContinueMax();
+  autoRounds = currentAutoRounds();
+  const phase = autoRunPhase();
+  const armed = $("auto-continue")?.checked === true;
+  bar.dataset.phase = phase;
+  bar.classList.toggle("armed", armed);
+  $("auto-round-now").textContent = String(autoRounds);
+  $("auto-round-max").textContent = String(max);
+  const progress = $("auto-progress");
+  progress.style.setProperty("--auto-progress", `${Math.min(100, (autoRounds / max) * 100)}%`);
+  progress.setAttribute("aria-label", `${t("鞭挞轮次")} ${autoRounds}/${max}`);
+  $("auto-phase").textContent = t(AUTO_PHASE_LABEL[phase]);
+  // 原因槽:一次性提示优先(无动作/验收核查/未续跑),否则显示停机原因;推进中不显示。
+  const reason = autoHint || (["off", "idle", "paused"].includes(phase) ? autoStopReason : "");
+  const el = $("auto-status");
+  el.textContent = reason ? localizeDynamic(reason) : "";
+  el.classList.toggle("hidden", !reason);
+  el.classList.toggle("ok", /已清空|全部被阻塞/.test(reason));
+  $("auto-resume").classList.toggle("hidden", !(autoStopReason && !autoHint && ["off", "idle"].includes(phase)));
+  const pause = $("auto-pause");
+  if (pause) pause.setAttribute("aria-pressed", String(autoPaused));
+}
+// 兼容既有 9 个调用点:带参 = 写一次性提示槽,无参 = 纯重绘(不再回写原因)。
+function renderAutoStatus(text) {
+  if (text !== undefined) autoHint = text;
+  renderAutoRun();
+}
+// R-170:继续文案 = 用户附加意图 + 极简默认兜底。开发重心/引擎规则已由
+// run.rs work_priority_guidance + memory preference 注入 system prompt,不再拼接。
+function continuePrompt() {
+  return $("continue-prompt").value.trim() || DEFAULT_CONTINUE_PROMPT;
+}
+
+// 「停止中…」是个只能靠后端终态事件走出去的状态:发送禁用、停止禁用、
+// 轮询也不复位(09-sessions.js 只在 phase 属于 starting/running 时才收敛)。
+// 事件桥断开、后端异常退出或事件丢失(D-005 那类)之后按一次停止,这条线就
+// 永久焊死——重启应用才能用,而用户多半只会以为「还在收尾」而一直等下去。
+// 给它一个看门狗:超时未收到确认就自行落到停止态,并把「没收到确认」说出来,
+// 而不是假装什么都没发生。
+const STOPPING_WATCHDOG_MS = 10000;
+const stoppingWatchdogs = new Map();
+function armStoppingWatchdog(sessionId) {
+  if (!sessionId || typeof setTimeout !== "function") return;
+  clearStoppingWatchdog(sessionId);
+  stoppingWatchdogs.set(sessionId, setTimeout(() => {
+    stoppingWatchdogs.delete(sessionId);
+    if (sessionState(sessionId).phase !== "stopping") return;
+    transitionSession(sessionId, "stopped");
+    if (sessionId === activeSessionId) setRunning(false, t("已停止"));
+    log(t("停止已发出但未收到后端确认,已按停止处理"), "warn");
+    toast(t("停止已发出但未收到后端确认,已按停止处理"));
+    if (typeof refreshProcesses === "function") refreshProcesses();
+  }, STOPPING_WATCHDOG_MS));
+}
+function clearStoppingWatchdog(sessionId) {
+  const timer = stoppingWatchdogs.get(sessionId);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  stoppingWatchdogs.delete(sessionId);
+}
+
+/// 清掉鞭挞控制台里两条**跨线路/跨项目会串台**的文本槽。切线在 applyAutoUiState
+/// 里顺手做了,切项目走 09-sessions.js enterProject 调这里。
+function clearAutoNotices() {
+  autoHint = "";
+  autoStopReason = "";
+  renderAutoRun();
+}
+
+function setAutoStopReason(reason) {
+  autoStopReason = reason;
+  autoHint = "";
+  renderAutoRun();
+}
+function autoContinueAllowed() {
+  return $("profile-select").value === "dev-auto";
+}
+function autoContinueMax() {
+  const value = Number.parseInt($("auto-max").value, 10);
+  return Number.isFinite(value) ? Math.min(100, Math.max(1, value)) : DEFAULT_AUTO_CONTINUE_MAX;
+}
+function syncAutoRunState() {
+  if (!activeSessionId) return;
+  return invoke("auto_state_update", {
+    sessionId: activeSessionId,
+    enabled: $("auto-continue").checked,
+    paused: autoPaused,
+    stopAfterRound: autoStopAfterRound,
+    maxRounds: autoContinueMax(),
+  });
+}
+function resetAutoRunState() {
+  if (activeSessionId) void invoke("auto_state_reset", { sessionId: activeSessionId });
+}
+function cancelAutoContinueTimer(sessionId = activeSessionId) {
+  if (!sessionId) return;
+  const entry = autoContinueTimers.get(sessionId);
+  if (entry?.timer) clearTimeout(entry.timer);
+  autoContinueTimers.delete(sessionId);
+}
+function releaseAutoContinue(sessionId) {
+  if (sessionId) autoContinueInFlight.delete(sessionId);
+}
+// D-291:续跑闸门的**唯一**判据。原来这几个条件散在两处 setTimeout 里,任一不满足
+// 就 `return` ——不发下一轮、不清 auto_pending、不清横幅、不留一个字。界面于是永久
+// 钉在「鞭挞 · 等待下一轮」,而那一轮永远不会来(引擎侧还记着 rounds+1,两边状态从此
+// 对不上)。闸门必须集中且**开口说话**:不续跑可以,不说为什么不行(D-004 口径)。
+function autoContinueBlockedReason(sessionId) {
+  const item = processItems.find((candidate) => candidate.session_id === sessionId);
+  if (!item) return "线路已关闭";
+  if (sessionId === activeSessionId) {
+    if (!$("auto-continue").checked) return "鞭挞已关闭";
+    if (autoPaused) return "已暂停";
+    if (autoStopAfterRound) return "本轮后停";
+    return null;
+  }
+  const config = normalizeAutoState(processAutoState.get(item.id), item.id);
+  if (!config.enabled) return "鞭挞已关闭";
+  if (config.paused) return "已暂停";
+  if (config.stopAfterRound) return "本轮后停";
+  return null;
+}
