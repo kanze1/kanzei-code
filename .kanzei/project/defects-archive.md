@@ -6732,3 +6732,15 @@
 - observed_head: 81e6800a12e6165fccf3bbca04e99d9269cba576
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787079217848
+
+## D-547 泳道状态渲染新增全局函数未同步 UI lint 白名单 [fixed] (low)
+- refs: R-301
+- 复现: 修改 `crates/kanzei-app/ui/20-lines.js` 新增 `lineStatusKey`、`lineStatusLabel` 后运行 `node scripts/ui-lint-smoke.mjs`，报告 `ui-lint-globals.json` 缺少 2 个全局符号。
+- 影响: 运行时冒烟通过，但前端 lint 门禁失败，R-301 不能提交。
+- 来源: self-found：R-301 前端六项门禁。
+- 标签: 前端
+- 优先级: P2
+- 进展: 已修复并验证：`ui/20-lines.js:258-278` 新增 `lineStatusKey`/`lineStatusLabel` 后，运行 `scripts/gen-ui-lint-globals.mjs` 将二者写入 `scripts/ui-lint-globals.json:343-344`；T-1786922726464 的 UI lint 通过，723 个标识符同步、0 个 no-undef。复现的门禁缺口已消失，影响的 R-301 前端提交门禁已恢复。
+- observed_head: 81e6800a12e6165fccf3bbca04e99d9269cba576
+- observed_worktree_hash: fnv1a64:a8ca96c02292909b
+- recorded_at: 1787080015503

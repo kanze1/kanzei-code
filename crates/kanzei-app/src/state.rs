@@ -163,6 +163,10 @@ pub(crate) struct LiveRun {
     pub(crate) provider: String,
     pub(crate) model: String,
     pub(crate) started_at: Option<std::time::Instant>,
+    /// 最近一次真实 RunEvent；泳道用它区分长任务与完全无进展。
+    pub(crate) last_event_at: Option<std::time::Instant>,
+    /// 最近一轮的明确收尾结果；None 且已启动/已退出表示异常退出。
+    pub(crate) last_outcome: Option<String>,
     pub(crate) steps: u32,
     pub(crate) input_tokens: u64,
     pub(crate) output_tokens: u64,
@@ -191,6 +195,10 @@ impl LiveRun {
             ..Self::default()
         };
     }
+    pub(crate) fn note_event(&mut self) {
+        self.last_event_at = Some(std::time::Instant::now());
+    }
+
     fn duration_ms(&self) -> u64 {
         self.started_at
             .map(|at| at.elapsed().as_millis() as u64)
@@ -212,6 +220,7 @@ pub(crate) fn flush_live_run(
     if live.flushed || live.started_at.is_none() {
         return false;
     }
+    live.last_outcome = Some(outcome.to_string());
     live.flushed = true;
     let _ = flush_live_trace_locked(store, session_id, &mut live, Some(outcome));
     // D-297 验收③:run.trace 保留策略——每会话只留最近 N 轮,防止轨迹成本随

@@ -7953,3 +7953,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 当前 HEAD 发布链契约检查通过：package.ps1 真实调用 install-setup.ps1；安装前进程检测、mtime/大小变化、ExpectedHash 装后校验存在；SHA256 notes、版本双源、dist 旧安装器清理、verify 证据门禁和 release workspace 最低门禁均存在；版本 0.1.0 一致。
 - 关联: R-298
 - 收尾: 1787079387
+
+## T-1786922726463 R-301 后端泳道状态机定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 32.0s
+- 摘要: R-301 后端三态判定、RunEvent 时间刷新、worktree 进展反证测试与 kanzei-app 全量定向回归通过：218 passed、0 failed、0 ignored。
+- 关联: R-301
+- 收尾: 1787079907
+- 源码指纹: v2 crates/kanzei-app/src/collaboration.rs@9ed06633eff4,crates/kanzei-app/src/run/events/mod.rs@99d093305334,crates/kanzei-app/src/state.rs@9af3b1d48883
+
+## T-1786922726464 R-301 泳道三态前端六项门禁 [passed]
+- 命令: $ui = Get-ChildItem crates/kanzei-app/ui -Filter '*.js' -File; foreach ($file in $ui) { node --check $file.FullName }; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 18.0s
+- 摘要: 前端六项门禁全部通过：node --check、UI runtime、UI lint、parallel-lines、a11y、i18n、Markdown；运行时 0 错误，lint 723 globals 同步。
+- 关联: R-301 D-547
+- 收尾: 1787079966
+- 源码指纹: v2 crates/kanzei-app/src/collaboration.rs@9ed06633eff4,crates/kanzei-app/src/run/events/mod.rs@99d093305334,crates/kanzei-app/src/state.rs@9af3b1d48883,scripts/ui-lint-globals.json@5f268f14768a
+
+## T-1786922726465 R-301 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 79.0s
+- 摘要: R-301 复杂度中关闭前 workspace 全量测试通过：各 crate 与集成测试全部通过；kanzei-app 218、kanzei-core 220、kanzei-tools 345 passed，既有 ignored doctest 不计失败。
+- 关联: R-301
+- 收尾: 1787080119
+- 源码指纹: v2 crates/kanzei-app/src/collaboration.rs@9ed06633eff4,crates/kanzei-app/src/run/events/mod.rs@99d093305334,crates/kanzei-app/src/state.rs@9af3b1d48883,scripts/ui-lint-globals.json@5f268f14768a

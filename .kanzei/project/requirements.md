@@ -262,15 +262,6 @@
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-299
 - 停车: 让位 R-300 收尾：协作线 p16 仍占用 crates/kanzei-app/src/ipc_contract.rs、scripts/ipc-contract.json、scripts/ipc-event-smoke.mjs、scripts/verify.ps1 等 IPC 契约扩面文件；本条不覆盖并发实现。p16 清出后按 work next 恢复。
 
-## R-301 泳道三级卡住判据 [todo]
-- refs: docs/design/parallel_lines_ui.md
-- 内容: 按 docs/design/parallel_lines_ui.md:217,250 交付泳道状态机三态:跑着/疑似卡住/失败,禁止只按多久没动判死;判据结合事件流真实进展而非纯时间阈值
-- 复杂度: 中
-- 来源: 2026-08-18 全库勘察;parallel_lines_ui.md P3 设计验收文案已写好,承接条目 R-184 已归档无人认领
-- 标签: 前端
-- 验收: 按设计文档既有验收文案交付;三态转换有测试;真实长任务不被误判死
-- 优先级: P2
-
 ## R-302 桌面 E2 路线立项:浏览器工具通道 vs Windows UI Automation 选型 [todo]
 - refs: R-101 D-511
 - 内容: R-269 结论:浏览器工具通道可行,落地依赖 kzapp 暴露 URL 入口(requirements-archive.md:3445);R-101 技术路线:Windows 原生 UI Automation(requirements.md)。二选一给出对比依据与最小可行验证(真实桌面跑通一条 E2),选定后 R-101 的延期 E2 清单挂到该路线并重写其过期验收

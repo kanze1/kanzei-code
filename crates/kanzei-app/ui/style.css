@@ -614,6 +614,9 @@ button.mini { padding: 2px 10px; font-size: var(--fs-11-5); }
 .line-running-state { position: relative; padding-left: 11px; color: var(--dim); font-size: var(--fs-10); white-space: nowrap; }
 .line-running-state::before { content: ""; position: absolute; left: 0; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .line-running-state.running { color: var(--ok); }
+.line-running-state.suspected-stuck { color: var(--warn); }
+.line-running-state.failed { color: var(--err); }
+.line-running-state.completed, .line-running-state.stopped { color: var(--dim); }
 .line-running-state.running::before { animation: line-running-pulse 1.7s ease-in-out infinite; }
 @keyframes line-running-pulse { 50% { opacity: .35; transform: scale(.75); } }
 .line-claim { margin: 15px 0 13px; min-height: 36px; color: var(--fg-strong); line-height: 1.45; word-break: break-word; }

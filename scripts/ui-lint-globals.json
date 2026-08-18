@@ -342,6 +342,8 @@
   "lineHistoryElement",
   "lineHistoryOpen",
   "lineModelFor",
+  "lineStatusKey",
+  "lineStatusLabel",
   "linesModelCatalog",
   "linesModelCatalogProject",
   "linesRefreshInFlight",

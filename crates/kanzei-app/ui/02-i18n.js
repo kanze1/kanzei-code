@@ -10,6 +10,7 @@ const I18N_EN = {
   "显示或隐藏右侧活动面板": "Show or hide the activity panel",
   "切换项目": "Switch project",
   "当前项目": "Current project",
+  "疑似卡住": "Possibly stuck",
   "停止中…": "Stopping…",
   "鞭挞续跑失败": "Auto-continue failed",
   "发送失败": "Send failed",

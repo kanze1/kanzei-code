@@ -3889,3 +3889,18 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787079402327
 - 批次: 1/1
+
+## R-301 泳道三级卡住判据 [done]
+- refs: docs/design/parallel_lines_ui.md
+- 内容: 按 docs/design/parallel_lines_ui.md:217,250 交付泳道状态机三态:跑着/疑似卡住/失败,禁止只按多久没动判死;判据结合事件流真实进展而非纯时间阈值
+- 复杂度: 中
+- 来源: 2026-08-18 全库勘察;parallel_lines_ui.md P3 设计验收文案已写好,承接条目 R-184 已归档无人认领
+- 标签: 前端
+- 验收: 按设计文档既有验收文案交付;三态转换有测试;真实长任务不被误判死
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-301
+- 进展: 验收逐条对账：①「按设计文档既有验收文案交付」——`crates/kanzei-app/src/collaboration.rs:56-109,170-260` 以 `SessionRuntime.running` → 最近 `RunEvent` → worktree 变更文件 mtime 的顺序生成 status，并由 `ui/20-lines.js:258-278,335-339` 真实消费，未新增自动停止/处置；`src/state.rs:159-203,205-238` 与 `src/run/events/mod.rs:130-133,236-240` 提供事件和 outcome 真源。②「三态转换有测试」——`collaboration.rs:501-535` 覆盖 running、suspected_stuck、failed、completed、idle 及事件时间刷新；T-1786922726463 通过，kanzei-app 218 passed。③「真实长任务不被误判死」——`collaboration.rs:514-519` 反证事件长期空闲但 worktree mtime 新鲜仍为 running，且实现只显示 suspected_stuck、不触发处置；T-1786922726464 前端六项门禁通过，T-1786922726465 workspace 全量通过。前端可复核位置：`ui/02-i18n.js:13`、`ui/style.css:614-621`、`scripts/ui-lint-globals.json:343-344`；ui_dom 找到真实泳道节点，ui_console 无错误。
+- observed_head: 81e6800a12e6165fccf3bbca04e99d9269cba576
+- observed_worktree_hash: fnv1a64:a8ca96c02292909b
+- recorded_at: 1787080157525
+- 状态: done

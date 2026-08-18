@@ -22,6 +22,11 @@ pub(crate) struct CollaborationLine {
     pub(crate) phase: String,
     pub(crate) current_tool: Option<String>,
     pub(crate) running: bool,
+    pub(crate) status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) event_idle_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) worktree_idle_ms: Option<u64>,
     pub(crate) steps: u32,
     pub(crate) input_tokens: u64,
     pub(crate) output_tokens: u64,
@@ -46,6 +51,60 @@ pub(crate) struct CollaborationProbe {
     current_process_id: String,
     /// R-176 B5(验收⑥):项目级协调器——writer/waiting 数据真源,面板只读快照。
     coordinator: Option<Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>>,
+}
+
+const LINE_STALE_AFTER_MS: u64 = 30_000;
+
+fn line_status(
+    running: bool,
+    run_age_ms: Option<u64>,
+    last_outcome: Option<&str>,
+    event_idle_ms: Option<u64>,
+    worktree_idle_ms: Option<u64>,
+) -> &'static str {
+    if running {
+        let recent_event = event_idle_ms.is_some_and(|age| age <= LINE_STALE_AFTER_MS);
+        let recent_worktree = worktree_idle_ms.is_some_and(|age| age <= LINE_STALE_AFTER_MS);
+        // 新 run 尚未收到第一条事件时给一个启动宽限；之后必须有事件流或源码现场进展。
+        if recent_event
+            || recent_worktree
+            || (event_idle_ms.is_none() && run_age_ms.is_some_and(|age| age <= LINE_STALE_AFTER_MS))
+        {
+            "running"
+        } else {
+            "suspected_stuck"
+        }
+    } else if run_age_ms.is_none() {
+        "idle"
+    } else {
+        match last_outcome {
+            Some("completed") => "completed",
+            Some("halted") => "stopped",
+            Some("failed") | None => "failed",
+            Some(_) => "failed",
+        }
+    }
+}
+
+fn elapsed_ms(at: Option<std::time::Instant>) -> Option<u64> {
+    at.map(|instant| instant.elapsed().as_millis() as u64)
+}
+
+fn latest_worktree_idle_ms(code_root: &Path, files: &[String]) -> Option<u64> {
+    files
+        .iter()
+        .filter_map(|file| {
+            std::fs::metadata(code_root.join(file))
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|modified| {
+                    std::time::SystemTime::now()
+                        .duration_since(modified)
+                        .ok()
+                        .map(|age| age.as_millis() as u64)
+                })
+        })
+        .min()
 }
 
 impl CollaborationProbe {
@@ -111,7 +170,15 @@ impl CollaborationProbe {
                 if running_only && !running {
                     return None;
                 }
-                let (current_tool, steps, input_tokens, output_tokens) = runtime
+                let (
+                    current_tool,
+                    steps,
+                    input_tokens,
+                    output_tokens,
+                    event_idle_ms,
+                    run_age_ms,
+                    last_outcome,
+                ) = runtime
                     .map(|runtime| {
                         let live = runtime.live.lock().unwrap();
                         (
@@ -119,9 +186,12 @@ impl CollaborationProbe {
                             live.steps,
                             live.input_tokens,
                             live.output_tokens,
+                            elapsed_ms(live.last_event_at),
+                            elapsed_ms(live.started_at),
+                            live.last_outcome.clone(),
                         )
                     })
-                    .unwrap_or((None, 0, 0, 0));
+                    .unwrap_or((None, 0, 0, 0, None, None, None));
                 let phase = runtime
                     .map(|runtime| runtime.stage.lock().unwrap().clone())
                     .unwrap_or_else(|| "空闲".into());
@@ -145,6 +215,14 @@ impl CollaborationProbe {
                     &self.origin_project,
                     &code_root,
                     process.worktree_path.is_some(),
+                );
+                let worktree_idle_ms = latest_worktree_idle_ms(&code_root, &changed_files);
+                let status = line_status(
+                    running,
+                    run_age_ms,
+                    last_outcome.as_deref(),
+                    event_idle_ms,
+                    worktree_idle_ms,
                 );
                 let branch = process.branch.clone().unwrap_or_else(|| {
                     git_text(&code_root, &["branch", "--show-current"])
@@ -176,6 +254,9 @@ impl CollaborationProbe {
                     phase,
                     current_tool,
                     running,
+                    status: status.into(),
+                    event_idle_ms,
+                    worktree_idle_ms,
                     steps,
                     input_tokens,
                     output_tokens,
@@ -421,6 +502,37 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
+    fn 泳道状态机按进程事件和工作树进展判定() {
+        assert_eq!(
+            line_status(true, Some(1_000), None, Some(100), None),
+            "running"
+        );
+        assert_eq!(
+            line_status(true, Some(90_000), None, Some(90_000), None),
+            "suspected_stuck"
+        );
+        // 真实长任务可能没有新的 RunEvent，但源码仍在变化，不能被判成失败。
+        assert_eq!(
+            line_status(true, Some(90_000), None, Some(90_000), Some(100)),
+            "running"
+        );
+        assert_eq!(line_status(false, Some(90_000), None, None, None), "failed");
+        assert_eq!(
+            line_status(false, Some(90_000), Some("completed"), None, None),
+            "completed"
+        );
+        assert_eq!(line_status(false, None, None, None, None), "idle");
+    }
+
+    #[test]
+    fn 事件时间戳由真实事件刷新() {
+        let mut live = crate::state::LiveRun::default();
+        assert!(live.last_event_at.is_none());
+        live.note_event();
+        assert!(live.last_event_at.is_some());
+    }
+
+    #[test]
     fn porcelain_paths_cover_untracked_modified_and_rename_pairs() {
         let parsed = parse_porcelain_paths(b" M src/a.rs\0?? new.txt\0R  dst.rs\0src.rs\0");
         assert_eq!(parsed, ["dst.rs", "new.txt", "src.rs", "src/a.rs"]);
@@ -548,6 +660,7 @@ mod tests {
             .find(|line| line.process_id == other.id)
             .expect("并列视图漏掉运行线");
         assert!(other_line.running);
+        assert_eq!(other_line.status, "running");
         assert_eq!(other_line.phase, "实现");
         assert_eq!(other_line.current_tool.as_deref(), Some("edit"));
         assert_eq!(

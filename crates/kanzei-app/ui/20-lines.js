@@ -255,6 +255,26 @@ function renderLineConflicts(lines) {
   }
 }
 
+function lineStatusKey(line, lineRunning) {
+  const status = line.status;
+  if (["running", "suspected_stuck", "failed", "completed", "stopped", "idle"].includes(status)) {
+    return status;
+  }
+  // 兼容旧快照/测试桩：后端升级前仍按既有 running 字段显示，不猜测卡住。
+  return lineRunning ? "running" : "idle";
+}
+
+function lineStatusLabel(status) {
+  return {
+    running: t("运行中"),
+    suspected_stuck: t("疑似卡住"),
+    failed: t("失败"),
+    completed: t("完成"),
+    stopped: t("已停止"),
+    idle: t("空闲"),
+  }[status] || t("空闲");
+}
+
 function renderLines(lines) {
   collaborationLines = lines ?? [];
   const target = $("lines-list");
@@ -315,8 +335,9 @@ function renderLines(lines) {
     titleWrap.append(title, processId);
     identity.append(badge, titleWrap);
     const state = document.createElement("span");
-    state.className = `line-running-state ${lineRunning ? "running" : "idle"}`;
-    state.textContent = lineRunning ? t("运行中") : t("空闲");
+    const statusKey = lineStatusKey(line, lineRunning);
+    state.className = `line-running-state ${statusKey.replace("_", "-")}`;
+    state.textContent = lineStatusLabel(statusKey);
     head.append(identity, state);
 
     const claim = document.createElement("p");

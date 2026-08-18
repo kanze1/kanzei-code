@@ -127,6 +127,9 @@ impl TraceSink {
             store: Mutex::new(store),
         }
     }
+    fn note_event(&self) {
+        self.live.lock().unwrap().note_event();
+    }
     fn record(&self, payload: serde_json::Value) {
         let store = self.store.lock().unwrap();
         let persisted = match store.as_ref() {
@@ -233,6 +236,8 @@ pub(crate) fn build_event_handler(
     metrics: MetricsSink,
 ) -> impl FnMut(RunEvent) {
     move |event: RunEvent| {
+        // 每个真实 RunEvent 都刷新协作快照的进展时钟；UI 不靠纯轮询时间猜死活。
+        trace.note_event();
         let _ = match event {
             RunEvent::TurnStart { step, max_steps } => {
                 trace.note_step(step);
