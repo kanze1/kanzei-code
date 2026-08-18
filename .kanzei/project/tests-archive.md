@@ -7625,3 +7625,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300
 - 收尾: 1787070531
 - 源码指纹: v2 scripts/ui-esm-graph.json@342948ac85cd
+
+## T-1786922726421 R-300 B9 并行工具段迁移格式与定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 9.2s
+- 摘要: B9 并行工具执行段迁移后的格式检查与 kanzei-core 定向回归通过：220 passed、0 failed、0 ignored；doc-tests 0 passed、0 failed。
+- 关联: R-300
+- 收尾: 1787070787
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@e81fcb141051,crates/kanzei-core/src/runner/drive/parallel_tools.rs@623e0bb0faf2

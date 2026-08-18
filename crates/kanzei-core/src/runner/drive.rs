@@ -14,6 +14,8 @@ use task_results::{tool_result_part, tool_result_part_with_images};
 mod permissions;
 mod serial_tools;
 use serial_tools::{execute_serial_tool_calls, SerialToolRequest};
+mod parallel_tools;
+use parallel_tools::{execute_parallel_tool_calls, ParallelToolRequest};
 
 /// R-183:命中规则的展示原文,用于 PermissionResolved.rule 轨迹(验收④)。
 fn describe_rule(rule: &kanzei_harness::permission::Rule) -> String {
@@ -1005,124 +1007,21 @@ async fn execute_tool_calls(
         ready && ordinary_count >= 2
     };
 
-    // 并行 wave:results[i] 与 calls[i] 按下标对齐(R-155 设计要点 3),
-    // 与串行路径共用同一对齐约定,note_step 里的 debug_assert 兜底锁住。
-    // R-249:图片附件与 results 分开收集,合流在 commit_tool_results。
-    let mut pending_images: Vec<Part> = Vec::new();
-    let results = if can_parallel_tools {
-        let mut slots: Vec<Option<Part>> =
-            std::iter::repeat_with(|| None).take(calls.len()).collect();
-        let mut prepared = Vec::new();
-        for (index, (id, name, input, raw_input)) in calls.iter().cloned().enumerate() {
-            if name == "task" && subagent.is_some() {
-                let output = task_results.remove(&id).unwrap_or_else(|| {
-                    kanzei_harness::ToolOutput::error("internal: task result missing")
-                });
-                slots[index] = Some(tool_result_part(id, output));
-                continue;
-            }
-            let tool = tools
-                .iter()
-                .find(|tool| tool.name() == name)
-                .expect("parallel batch was preflighted")
-                .clone();
-            on_event(RunEvent::ToolStart {
-                id: id.clone(),
-                name: name.clone(),
-                summary: summarize_input(&input, &raw_input),
-                input: input.clone(),
-            });
-            let action = tool.action();
-            let denied = tool
-                .resources_with_ctx(&input, ctx)
-                .into_iter()
-                // D-269:同上面的并行预检站点,bash 走原样,路径类仍走 normalize_resource。
-                .map(|resource| {
-                    kanzei_harness::permission::normalize_resource_for_action(action, &resource)
-                })
-                .find(|resource| snapshot.evaluate(action, resource) == Effect::Deny);
-            if let Some(resource) = denied {
-                // R-183:deny 判定带命中的规则原文(验收④轨迹;硬 deny 无普通规则 → None)。
-                let rule = snapshot
-                    .evaluate_with_rule(action, &resource)
-                    .1
-                    .map(describe_rule);
-                on_event(RunEvent::PermissionResolved {
-                    tool_call_id: id.clone(),
-                    action: action.to_string(),
-                    resource: resource.clone(),
-                    decision: "deny",
-                    source: "ruleset",
-                    rule,
-                });
-                let output = kanzei_harness::ToolOutput::error(format!(
-                    "permission denied by ruleset: {action} on `{resource}`.\n{}",
-                    snapshot.denial_hint(action, &resource),
-                ));
-                on_event(RunEvent::ToolEnd {
-                    id: id.clone(),
-                    name,
-                    ok: false,
-                    outcome: output.outcome.as_str().into(),
-                    code: output.code.map(str::to_owned),
-                    preview: preview(&output.content),
-                    display: None,
-                    artifact: None,
-                });
-                slots[index] = Some(tool_result_part(id, output));
-                continue;
-            }
-            let concurrency = tool.concurrency(&input, ctx);
-            prepared.push(PreparedToolCall {
-                index,
-                id,
-                name,
-                input,
-                tool,
-                concurrency,
-            });
-        }
-        // D-342:并行 wave 对停止敏感——select 退出即 drop 在飞工具 future,
-        // 缺席槽位用取消占位补齐,calls↔results 配对不破。块作用域保证 wave
-        // future(借着 on_event)在补占位前已释放。
-        let wave_results = {
-            let wave = execute_prepared_tools(
-                prepared,
-                ctx,
-                config.limits.max_parallel_tools(),
-                images_supported,
-                on_event,
-            );
-            tokio::pin!(wave);
-            tokio::select! {
-                results = &mut wave => Some(results),
-                _ = halt_signalled(halt) => None,
-            }
-        };
-        match wave_results {
-            Some(list) => {
-                for (index, result, images) in list {
-                    slots[index] = Some(result);
-                    // R-249:按 index 升序抵达,追加顺序即调用顺序。
-                    pending_images.extend(images);
-                }
-            }
-            None => {
-                for (index, (id, _, _, _)) in calls.iter().enumerate() {
-                    if slots[index].is_none() {
-                        slots[index] = Some(Part::ToolResult {
-                            call_id: id.clone(),
-                            content: "cancelled: run stopped by user during execution".into(),
-                            is_error: true,
-                        });
-                    }
-                }
-            }
-        }
-        slots
-            .into_iter()
-            .map(|result| result.expect("every preflighted tool call must produce a result"))
-            .collect()
+    // 并行 wave 与串行路径共用同一对齐约定；并行细节已迁移到 parallel_tools.rs。
+    let (results, pending_images) = if can_parallel_tools {
+        execute_parallel_tool_calls(ParallelToolRequest {
+            config,
+            ctx,
+            snapshot,
+            tools,
+            calls,
+            subagent,
+            task_results,
+            images_supported,
+            halt,
+            on_event,
+        })
+        .await
     } else {
         return execute_serial_tool_calls(SerialToolRequest {
             config,
@@ -1140,7 +1039,7 @@ async fn execute_tool_calls(
             session_rules,
             messages,
             step,
-            pending_images: &mut pending_images,
+            pending_images: &mut Vec::new(),
         })
         .await;
     };
