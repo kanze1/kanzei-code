@@ -8,6 +8,9 @@
 // 所有符号经 super::* 平铺(mod.rs 的 use 与 pub use 子模块)。
 use super::*;
 
+mod question;
+use question::execute_question;
+
 /// R-183:命中规则的展示原文,用于 PermissionResolved.rule 轨迹(验收④)。
 fn describe_rule(rule: &kanzei_harness::permission::Rule) -> String {
     format!("{} `{}` => {:?}", rule.action, rule.resource, rule.effect)
@@ -1183,57 +1186,7 @@ async fn execute_tool_calls(
 
             // question 是交互工具，不再叠加权限询问；答案作为工具结果回喂模型。
             if name == "question" {
-                let question = input
-                    .get("question")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim();
-                let options = input
-                    .get("options")
-                    .and_then(|v| v.as_array())
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(|v| v.as_str().map(str::to_owned))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let default = input
-                    .get("default")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_owned);
-                let multiple = input
-                    .get("multiple")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let output = if question.is_empty() {
-                    kanzei_harness::ToolOutput::error("question must not be empty")
-                } else if !config.ask_policy.allows_user_prompt() {
-                    // 自举/并行线没有稳定的用户或代理间 ASK 通道；把问题转成
-                    // 可回喂模型的工具错误，不能等待桌面答复。
-                    kanzei_harness::ToolOutput::error(
-                        "question unavailable in autonomous/parallel run: this line cannot ask the user; continue with available evidence",
-                    )
-                } else {
-                    match ask(AskRequest::Question {
-                        question: question.to_owned(),
-                        options,
-                        default,
-                        multiple,
-                    })
-                    .await
-                    {
-                        AskResponse::Answer(answer) => {
-                            kanzei_harness::ToolOutput::ok(format!("User answer: {answer}"))
-                        }
-                        AskResponse::Cancelled => {
-                            kanzei_harness::ToolOutput::error("question cancelled by user")
-                        }
-                        AskResponse::Permission(_) => {
-                            kanzei_harness::ToolOutput::error("invalid question response")
-                        }
-                    }
-                };
+                let output = execute_question(config, &input, ask).await;
                 on_event(RunEvent::ToolEnd {
                     id: id.clone(),
                     name: name.clone(),
