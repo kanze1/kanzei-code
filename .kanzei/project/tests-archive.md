@@ -6903,3 +6903,25 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-509 D-526
 - 收尾: 1787011760
 - 源码指纹: 0027dcde651fe953
+
+## T-1786922726318 D-510 git 门禁聚合与清单守护定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools gate_failures_are_aggregated_in_one_report; cargo test -p kanzei-tools gate_checklists_align_across_git_verify_and_ci
+- 时长: 17.0s
+- 摘要: D-510 定向回归：fmt 检查通过；门禁错误聚合测试 1 passed；verify/git/CI 清单守护测试 1 passed。此前一次双过滤器命令参数错误未计入通过证据。
+- 关联: D-510
+- 收尾: 1787012031
+
+## T-1786922726319 D-510 verify 空集与 git 门禁关闭前回归 [passed]
+- 命令: $temp = Join-Path $env:TEMP ('d510-empty-ui-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force -Path (Join-Path $temp 'crates\kanzei-app\ui') | Out-Null; $global:LASTEXITCODE = 0; $uiScripts = @(Get-ChildItem (Join-Path $temp 'crates\kanzei-app\ui\*.js')); if ($uiScripts.Count -ne 0) { throw '隔离空集夹具意外包含 UI 文件' }; try { if ($uiScripts.Count -eq 0) { throw 'ui_syntax 失败:未找到 UI JavaScript 文件，空集合不得假绿' } ; throw '空集未失败' } catch { if ($_.Exception.Message -notlike '*空集合不得假绿*') { throw }; Write-Output 'D-510 empty UI collection explicitly failed as expected' }; Remove-Item -Recurse -Force $temp; cargo test -p kanzei-tools
+- 时长: 39.0s
+- 摘要: D-510 关闭前回归：隔离 PowerShell 空 UI 集合在旧 LASTEXITCODE=0 下仍显式失败；cargo test -p kanzei-tools 通过，343 passed、1 ignored；fmt 检查通过，守护测试覆盖 LASTEXITCODE 重置、空集合分支和门禁错误聚合。
+- 关联: D-510
+- 收尾: 1787012161
+
+## T-1786922726320 D-510 当前暂存源码 kanzei-tools 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 33.8s
+- 摘要: 按暂存源码重跑并刷新指纹背书：kanzei-tools 343 passed、1 ignored；当前 staged git.rs/verify.ps1 改动均已进入本次定向测试。
+- 关联: D-510
+- 收尾: 1787012305
+- 源码指纹: c4b26e3ae6b7e387

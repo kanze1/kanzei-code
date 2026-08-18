@@ -29,15 +29,6 @@
 - recorded_at: 1787008359348
 - 阻塞: 真实重启验收需要关闭当前正在运行的已安装 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`；解除人：用户关闭当前 kzapp 窗口后，由 agent 重新启动同一安装位并回读持久化 auto state。
 
-## D-510 verify 步骤空集假绿与提交门禁只报首个失败 [open] (medium)
-- refs: docs/design/ci_release_evidence_chain.md
-- 复现: scripts/verify.ps1:25 Step-With-Timing 靠 LASTEXITCODE 判定,:44-49 ui 目录为空时 ForEach-Object 一次不执行沿用上一步 cargo test 的 0 直接 pass;crates/kanzei-tools/src/git.rs:893 fmt/clippy 已并行跑却在 :894-899 只返回第一个 Err
-- 影响: 假绿风险;提交阶段聚合报告缺位
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 流程
-- 验收: 空集显式失败;git.rs 侧聚合全部失败一次报出;守护测试(git.rs:1896)不回归
-- 优先级: P2
-
 ## D-511 CDP 退役残留清理:e2e-smoke.mjs 与 probe-webview-cdp.mjs [open] (low)
 - refs: R-101
 - 复现: scripts/e2e-smoke.mjs:1,44 仍是 chromium.connectOverCDP;scripts/probe-webview-cdp.mjs 整份仍在

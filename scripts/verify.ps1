@@ -21,8 +21,11 @@ function Step-With-Timing {
     param([string]$Key, [string]$Label, [scriptblock]$Body)
     Write-Host "==> $Label" -ForegroundColor Cyan
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    # 不继承上一步外部进程的 LASTEXITCODE；步骤必须用本次执行结果判定。
+    $global:LASTEXITCODE = 0
     & $Body
-    if ($LASTEXITCODE -ne 0) { throw "$Label 失败(exit=$LASTEXITCODE)" }
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) { throw "$Label 失败(exit=$exitCode)" }
     $sw.Stop()
     $script:checks[$Key] = "pass $([math]::Round($sw.Elapsed.TotalSeconds, 1))s"
 }
@@ -42,7 +45,11 @@ Step-With-Timing "test" "test" {
     cargo test --workspace --manifest-path "$root\Cargo.toml"
 }
 Step-With-Timing "ui_syntax" "ui_syntax" {
-    Get-ChildItem "$root\crates\kanzei-app\ui\*.js" | ForEach-Object {
+    $uiScripts = @(Get-ChildItem "$root\crates\kanzei-app\ui\*.js")
+    if ($uiScripts.Count -eq 0) {
+        throw "ui_syntax 失败:未找到 UI JavaScript 文件，空集合不得假绿"
+    }
+    $uiScripts | ForEach-Object {
         node --check $_.FullName
         if ($LASTEXITCODE -ne 0) { throw "node --check 失败: $($_.Name)" }
     }

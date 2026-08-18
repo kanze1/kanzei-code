@@ -6418,3 +6418,17 @@
 - observed_head: f081c3a87fc080b7da2c68d4af55442b87c29914
 - observed_worktree_hash: fnv1a64:b6645bb11bfb618a
 - recorded_at: 1787011493930
+
+## D-510 verify 步骤空集假绿与提交门禁只报首个失败 [fixed] (medium)
+- refs: docs/design/ci_release_evidence_chain.md
+- 复现: scripts/verify.ps1:25 Step-With-Timing 靠 LASTEXITCODE 判定,:44-49 ui 目录为空时 ForEach-Object 一次不执行沿用上一步 cargo test 的 0 直接 pass;crates/kanzei-tools/src/git.rs:893 fmt/clippy 已并行跑却在 :894-899 只返回第一个 Err
+- 影响: 假绿风险;提交阶段聚合报告缺位
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 流程
+- 验收: 空集显式失败;git.rs 侧聚合全部失败一次报出;守护测试(git.rs:1896)不回归
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-510
+- 进展: 已完成逐项修复与验证，待关闭：①空集显式失败：`scripts/verify.ps1:20-28` 在每步执行前重置 `$global:LASTEXITCODE` 并立即捕获本步 exit code；`scripts/verify.ps1:47-55` 将 UI 脚本收集为数组，`$uiScripts.Count -eq 0` 时抛出“空集合不得假绿”，T-1786922726319 隔离 PowerShell 场景复现通过。②git.rs 聚合全部失败：`crates/kanzei-tools/src/git.rs:740-759` 的 `aggregate_gate_errors` 同时收集 fmt/clippy 两个 Err；`git.rs:911-914` commit 与 `git.rs:973-976` finalize 均一次性返回聚合报告；`git.rs:2020-2034` 回归断言同一报告包含两类错误。③守护测试不回归：`git.rs:1884-2010` `gate_checklists_align_across_git_verify_and_ci` 通过，且新增断言机械检查 verify 的 exit code 重置与空集分支；T-1786922726319：fmt 检查通过，`cargo test -p kanzei-tools` 343 passed、1 ignored。
+- observed_head: 2429717e564380ee7783f7eb2f1a705d51b9e89e
+- observed_worktree_hash: fnv1a64:384d324070fc4bcb
+- recorded_at: 1787012177039

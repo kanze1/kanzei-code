@@ -737,6 +737,26 @@ async fn clippy_gate(cwd: &Path) -> Result<(), String> {
     }
 }
 
+/// 并行门禁失败聚合：fmt 与 clippy 都执行后一次性返回全部失败，避免第二个错误被首个错误遮蔽。
+fn aggregate_gate_errors(
+    fmt_result: Result<(), String>,
+    clippy_result: Result<(), String>,
+    context: &str,
+) -> Result<(), String> {
+    let mut errors = Vec::new();
+    if let Err(error) = fmt_result {
+        errors.push(format!("[{context}] fmt gate failed:\n{error}"));
+    }
+    if let Err(error) = clippy_result {
+        errors.push(format!("[{context}] clippy gate failed:\n{error}"));
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n\n"))
+    }
+}
+
 /// 源码提交的硬门禁:必须存在**改完之后**才收尾的 passed 测试记录。
 ///
 /// 这条纪律此前只写在提示词里,实测一天里被绕过三次(R-158 顶掉 reasoning effort、
@@ -891,10 +911,7 @@ async fn commit(
         // R-261:fmt 与 clippy 互不依赖,并行执行——fmt --check 只读不写 target,
         // 与 clippy 的增量编译无资源竞争,串行只会让门禁多等一份时间。
         let (fmt_result, clippy_result) = tokio::join!(fmt_gate(cwd), clippy_gate(cwd));
-        if let Err(error) = fmt_result {
-            return ToolOutput::error(error);
-        }
-        if let Err(error) = clippy_result {
+        if let Err(error) = aggregate_gate_errors(fmt_result, clippy_result, "commit") {
             return ToolOutput::error(error);
         }
     }
@@ -956,15 +973,8 @@ async fn finalize(ctx: &ToolCtx, files: Vec<String>, message: Option<String>) ->
     // R-261:fmt 与 clippy 互不依赖,并行执行,与 commit 门禁同一节奏。
     if !sources.is_empty() {
         let (fmt_result, clippy_result) = tokio::join!(fmt_gate(cwd), clippy_gate(cwd));
-        if let Err(error) = fmt_result {
-            return ToolOutput::error(format!(
-                "[finalize] fmt gate failed (before tests):\n{error}"
-            ));
-        }
-        if let Err(error) = clippy_result {
-            return ToolOutput::error(format!(
-                "[finalize] clippy gate failed (before tests):\n{error}"
-            ));
+        if let Err(error) = aggregate_gate_errors(fmt_result, clippy_result, "finalize") {
+            return ToolOutput::error(error);
         }
     }
 
@@ -1927,6 +1937,14 @@ prunable gitdir file points to non-existent location
         .map(|s| s.to_string())
         .collect();
         let actual = verify_check_keys(&verify);
+        assert!(
+            verify.contains("$global:LASTEXITCODE = 0"),
+            "Step-With-Timing 必须清理上一步外部进程的 LASTEXITCODE"
+        );
+        assert!(
+            verify.contains("$uiScripts.Count -eq 0") && verify.contains("空集合不得假绿"),
+            "ui_syntax 必须对空 UI 脚本集合显式失败"
+        );
         assert_eq!(
             actual, expected,
             "verify.ps1 检查键集合必须等于固定清单——新增/删除门禁时 ci.yml 与 git.rs 也要同步"
@@ -2008,6 +2026,20 @@ prunable gitdir file points to non-existent location
             "ci.yml 必须保留 --all-targets 全量 clippy:本地两处都已转轻量,\
              测试代码的 lint 覆盖只由 CI 承担"
         );
+    }
+
+    #[test]
+    fn gate_failures_are_aggregated_in_one_report() {
+        let error = aggregate_gate_errors(
+            Err("fmt failure".into()),
+            Err("clippy failure".into()),
+            "commit",
+        )
+        .unwrap_err();
+        assert!(error.contains("[commit] fmt gate failed"), "{error}");
+        assert!(error.contains("fmt failure"), "{error}");
+        assert!(error.contains("[commit] clippy gate failed"), "{error}");
+        assert!(error.contains("clippy failure"), "{error}");
     }
 
     /// D-264 验收①:构造「新增文件带 fmt 违规」场景,提交前被拦并明说违规位置。
