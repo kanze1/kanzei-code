@@ -1,13 +1,13 @@
 # 巨石度量基线快照(R-258 批2)
 
-来源:`cargo run -p kanzei -- metrics --top 30`（R-300 B14 后复跑；输出与用户安装位 `kz metrics --top 30` 一致）。
+来源:`cargo run -p kanzei -- metrics --top 30`（R-300 B4 后复跑；输出与用户安装位 `kz metrics --top 30` 一致）。
 口径:`crates/kanzei/src/cli/metrics.rs`——生产行数 = 总行数 − cfg(test) 块行数
 (cfg(test) 块按大括号配平识别,外挂声明 `#[cfg(test)] mod x;` 不算测试块;
 `_tests.rs` 后缀与 `tests/` 目录的外挂测试文件整文件算测试行);函数度量只统计生产码;
 参数 > 7 沿用 clippy too_many_arguments 默认阈值。
 阈值(conventions §9.2):生产行数 > 1200 巨石;参数 > 7 函数 ≥ 4 处失控;最大函数 > 400 行。
 
-## Top-30 榜单(按生产行数降序, R-300 B3 后复跑)
+## Top-30 榜单(按生产行数降序, R-300 B4 后复跑)
 
 | # | 文件 | 总行 | 生产 | 测试 | 函数 | 最大fn | >7参 |
 |---|---|---:|---:|---:|---:|---:|---:|
@@ -15,9 +15,9 @@
 | 2 | crates/kanzei-memory/src/docstore.rs | 2710 | 1526 | 1184 | 48 | 73 | 0 |
 | 3 | crates/kanzei-tools/src/git.rs | 2780 | 1435 | 1345 | 40 | 148 | 0 |
 | 4 | crates/kanzei-tools/src/background.rs | 1456 | 1431 | 25 | 49 | 68 | 0 |
-| 5 | crates/kanzei-core/src/runner/drive.rs | 1521 | 1290 | 231 | 13 | 255 | 6 |
-| 6 | crates/kanzei-memory/src/memory/mod.rs | 2616 | 1263 | 1353 | 46 | 91 | 0 |
-| 7 | crates/kanzei-harness/src/config.rs | 2937 | 1220 | 1717 | 45 | 104 | 1 |
+| 5 | crates/kanzei-memory/src/memory/mod.rs | 2616 | 1263 | 1353 | 46 | 91 | 0 |
+| 6 | crates/kanzei-harness/src/config.rs | 2937 | 1220 | 1717 | 45 | 104 | 1 |
+| 7 | crates/kanzei-core/src/runner/drive.rs | 1411 | 1180 | 231 | 12 | 255 | 5 |
 | 8 | crates/kanzei-tools/src/work.rs | 1787 | 1118 | 669 | 25 | 257 | 1 |
 | 9 | crates/kanzei-memory/src/memory/store.rs | 3256 | 954 | 2302 | 26 | 121 | 2 |
 | 10 | crates/kanzei-tools/src/test_record.rs | 2158 | 927 | 1231 | 26 | 107 | 3 |
@@ -44,9 +44,9 @@
 
 ## 读数
 
-- 当前 Top-30 覆盖全仓 228 个 `.rs` 文件;生产行数 > 1200 的巨石 7 个（typed.rs、docstore.rs、git.rs、background.rs、drive.rs、memory/mod.rs、config.rs）。
-- 相比 B14 快照，background.rs 生产行 1747→1431（-316），drive.rs 1489→1290（-199）；`drive.rs` 已从第 4 降至第 5，但仍属于巨石目标并保留 6 处 >7 参数函数。
-- 参数 > 7 函数 ≥ 4 处的文件仍为 1 个：`drive.rs`（6 处）。
+- 当前 Top-30 覆盖全仓 229 个 `.rs` 文件;生产行数 > 1200 的巨石 6 个（typed.rs、docstore.rs、git.rs、background.rs、memory/mod.rs、config.rs）。
+- 相比 B3 快照，`drive.rs` 生产行 1290→1180（-110），总行 1521→1411，函数数 13→12，>7 参数函数 6→5，已移出生产行巨石阈值；`background.rs` 仍为 1431 生产行的首要剩余目标。
+- 参数 > 7 函数 ≥ 4 处的文件仍为 1 个：`drive.rs`（5 处），但已低于巨石生产行阈值。
 - 最大函数 > 400 行仅剩 `runner/subagent.rs`（413）；此前 `drive.rs`（526）、`profiles.rs`（532）、`cli/run.rs`（652）已降出该阈值或完成拆分。
 - 本次快照覆盖 Rust 度量；前端 `06-agent-panel.js`/`06-activity.js` 合流沿用既有 B8 能力，前端拆分冒烟证据见 T-1786922726432、T-1786922726433。
 
@@ -55,4 +55,4 @@
 - `scripts/metrics-regression-gate.ps1` 由 `scripts/verify.ps1:56-60` 的 `crate_sync` 步骤真实调用。
 - 对基线中仍出现在 Top-30 的文件，生产行允许最多比基线增加 100 行（宽松起步，防止测试/生成口径微调误伤）；超过即失败。
 - Top-30 中生产行超过 1200 的巨石数量允许最多比基线增加 1 个；超过即失败。
-- 本次重跑结果：`cargo run -p kanzei -- metrics --top 30` 产出 30 行、巨石 7 个；T-1786922726441 记录 provider-qualified 路径修复前的失败复现，T-1786922726442 记录同一扩展路径 gate 修复后通过（30 rows、7/7、允许回涨 100 行）。
+- 本次重跑结果：`cargo run -p kanzei -- metrics --top 30` 产出 30 行、巨石 6 个；T-1786922726446 记录 B4 前后对照（`drive.rs` 1290→1180），下一步 gate 以本快照为基线重放。

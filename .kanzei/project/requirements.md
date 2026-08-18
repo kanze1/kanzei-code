@@ -283,11 +283,11 @@
 - 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
-- 批次: 3/4
-- 进展: B3 已完成：①真实 `cargo run -p kanzei -- metrics --top 30` 重跑得到 228 个 `.rs` 文件，Top-30 巨石 7 个，`background.rs` 1431 生产行、`drive.rs` 1290 生产行；T-1786922726443，结果已写入 `docs/design/metrics_baseline.md:10-58`。②发现并修复 D-543：`scripts/metrics-regression-gate.ps1:6-14` 归一化 PowerShell `Microsoft.PowerShell.Core\\FileSystem::` 前缀；修复后新基线 gate 通过，T-1786922726444；D-543 已 fixed/归档。③ verify 的真实调用链仍为 `scripts/verify.ps1:56-60`。R-300 整体仍未完成：验收①剩余 Top 目标需继续拆解；验收②为既有 B8 合流能力；验收③已具备 gate 接线与重放证据但完整 verify 尚未跑；验收④已具备 metrics 对照。下一步 B4：从当前 Top-30 选择剩余目标并完成行为不变的拆分。
-- observed_head: cdde95c95f929c2b8eb9cfca6e0da60abfcb02ae
-- observed_worktree_hash: fnv1a64:b1a66d834f3a9342
-- recorded_at: 1787076397443
+- 批次: 4/5
+- 进展: B4 已完成：将上下文预算域从 `crates/kanzei-core/src/runner/drive.rs:1176-1287` 原样迁移到 `crates/kanzei-core/src/runner/drive/context_budget.rs:1-114`；`drive.rs:19-21` 注册模块，`run_once_with_parts:226-238` 仍为唯一真实调用方，预算公式、prune→compact→trim 顺序和事件回调未改。T-1786922726445：`cargo fmt --all -- --check; cargo test -p kanzei-core`，220 passed、0 failed、0 ignored。T-1786922726446：metrics 重跑显示 `drive.rs` 1290→1180 生产行，最大函数 255，>7 参数函数 6→5，移出生产行巨石阈值；`background.rs` 仍为 1431 生产行。`docs/design/metrics_baseline.md:10-58` 已更新为 B4 的 229 文件/6 个巨石快照，T-1786922726447 重放 gate 通过（30 rows、6/6、允许回涨 100 行）。R-300 整体仍未完成：验收①尚有 background.rs 等 Top 目标；验收②为既有 B8 合流能力；验收③ gate 已接线并有 T-1786922726447，但完整 verify 尚未跑；验收④已有 T-1786922726443/T-1786922726446 对照。下一步 B5：选择并拆分剩余 Top 目标，优先复核 background.rs 当前真实边界。
+- observed_head: 701f59d330a709cc616ed415882a98e6140725f5
+- observed_worktree_hash: fnv1a64:e3be2c7b9435646d
+- recorded_at: 1787076735594
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 

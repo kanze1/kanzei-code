@@ -7813,3 +7813,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300 D-543
 - 收尾: 1787076361
 - 源码指纹: v2 scripts/metrics-regression-gate.ps1@a94d60f8b48f
+
+## T-1786922726445 R-300 B4 context budget 拆分定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 10.0s
+- 摘要: 将 `enforce_context_budget` 提取到 `runner/drive/context_budget.rs` 后，格式检查与 kanzei-core 定向回归通过：220 passed、0 failed、0 ignored。
+- 关联: R-300
+- 收尾: 1787076580
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@f3df130c602b,crates/kanzei-core/src/runner/drive/context_budget.rs@c2c89996231a
+
+## T-1786922726446 R-300 B4 metrics 拆分前后对照 [passed]
+- 命令: cargo run -p kanzei -- metrics --top 30
+- 时长: 9.0s
+- 摘要: B4 后真实 metrics 重跑：229 个 Rust 文件，`drive.rs` 生产行从 1290 降至 1180、最大函数仍 255、>7 参数函数从 6 降至 5，已移出生产行巨石阈值；background.rs 仍为 1431 生产行。
+- 关联: R-300
+- 收尾: 1787076608
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@f3df130c602b,crates/kanzei-core/src/runner/drive/context_budget.rs@c2c89996231a
+
+## T-1786922726447 R-300 B4 metrics 基线更新后回涨闸门 [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1 -Root (Get-Location).Path
+- 时长: 1.2s
+- 摘要: B4 metrics 快照写回 `docs/design/metrics_baseline.md` 后重放真实 gate：30 rows、巨石 6/6、单文件回涨允许 100 行。
+- 关联: R-300
+- 收尾: 1787076722
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@f3df130c602b,crates/kanzei-core/src/runner/drive/context_budget.rs@c2c89996231a
