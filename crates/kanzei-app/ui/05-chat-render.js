@@ -300,7 +300,6 @@ function toolGroupEntry(name) {
   for (const [prefix, entry] of TOOL_GROUP_PREFIXES) if (key.startsWith(prefix)) return entry;
   return ["other", "wrench"];
 }
-function toolIconId(name) { return toolGroupEntry(name)[1]; }
 /// 图标节点。innerHTML 拼的是常量路径字面量,没有任何外部输入进得来。
 /// 组与字形一并写进 data-*:只断言画了图标看不出「画对了但归错组」。
 function toolIconNode(name) {

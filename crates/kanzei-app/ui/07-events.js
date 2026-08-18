@@ -13,7 +13,7 @@ on("kz:meta", (e) => {
 });
 on("kz:turn", (e) => {
   const p = e.payload;
-  window.neuralFlowEmit?.("run_started", { session_id: p.sessionId, step: p.step });
+  neuralFlowEmit?.("run_started", { session_id: p.sessionId, step: p.step });
   // 新一轮 run 开跑:上一轮的「在做」运行证据作废,重新从本轮动作里取。
   if (p.step === 1) clearRuntimeFocus(p.sessionId);
   if (p.step > 1) {
@@ -30,7 +30,7 @@ on("kz:turn", (e) => {
 });
 on("kz:text", (e) => {
   markFirstSignal();
-  window.neuralFlowEmit?.("assistant_streaming", { session_id: e.payload.sessionId, text_length: e.payload.text?.length ?? 0 });
+  neuralFlowEmit?.("assistant_streaming", { session_id: e.payload.sessionId, text_length: e.payload.text?.length ?? 0 });
   // 文本开始后,后续思考属于新的思考段。
   currentReasoning = null;
   currentReasoningHead = null;
@@ -39,7 +39,7 @@ on("kz:text", (e) => {
 });
 on("kz:reasoning", (e) => {
   markFirstSignal();
-  window.neuralFlowEmit?.("reasoning_active", { session_id: e.payload.sessionId });
+  neuralFlowEmit?.("reasoning_active", { session_id: e.payload.sessionId });
   if (running) setStatus("思考中", true);
   appendReasoning(e.payload.text);
 });
@@ -163,7 +163,7 @@ document.addEventListener("click", (event) => {
 });
 on("kz:tool-start", (e) => {
   markFirstSignal();
-  window.neuralFlowEmit?.("tool_started", {
+  neuralFlowEmit?.("tool_started", {
     session_id: e.payload.sessionId,
     tool_call_id: e.payload.id,
     tool_name: e.payload.name,
@@ -216,7 +216,7 @@ on("kz:task-progress", (e) => {
 });
 on("kz:tool-end", (e) => {
   const p = e.payload;
-  window.neuralFlowEmit?.("tool_completed", {
+  neuralFlowEmit?.("tool_completed", {
     session_id: p.sessionId,
     tool_call_id: p.id,
     tool_name: p.name,
@@ -283,7 +283,7 @@ on("kz:error", (e) => {
   // 持久化告警等非终态错误不能把仍在运行的会话投影成空闲；真正运行失败由
   // 后端明确携带 terminal=true，并随后发 kz:idle 收口。
   if (terminal) {
-    window.neuralFlowEmit?.("run_failed", { session_id: payload.sessionId, message });
+    neuralFlowEmit?.("run_failed", { session_id: payload.sessionId, message });
     const failedSession = payload.sessionId || activeSessionId;
     releaseAutoContinue(failedSession);
     // D-291:取消续跑定时器只属于终态分支。原来它在函数开头无条件执行,一条
@@ -332,7 +332,7 @@ on("kz:stream-restart", (e) => {
   setStatus(`${t("连接中断")} · ${t("重放本轮")} ${p.attempt}/${p.max}`, true);
 });
 on("kz:compacted", (e) => {
-  window.neuralFlowEmit?.("context_compacted", { session_id: e.payload?.sessionId });
+  neuralFlowEmit?.("context_compacted", { session_id: e.payload?.sessionId });
   lastCompactionSummary = e.payload?.summary ?? "";
   addMessage("notice", `🗜 ${t("上下文占用过高,已自动压缩为纪要并延续对话")}`);
   if (lastCompactionSummary) addCompactionEntry(lastCompactionSummary);
@@ -341,7 +341,7 @@ on("kz:compacted", (e) => {
   renderTokens();
 });
 on("kz:stopped", (e) => {
-  window.neuralFlowEmit?.("run_stopped", { session_id: e.payload?.sessionId });
+  neuralFlowEmit?.("run_stopped", { session_id: e.payload?.sessionId });
   releaseAutoContinue(e.payload?.sessionId || activeSessionId);
   cancelAutoContinueTimer(e.payload?.sessionId || activeSessionId);
   hideAsk();
@@ -398,7 +398,7 @@ on("kz:auto-fail", (e) => {
 
 on("kz:done", async (e) => {
   const p = e.payload;
-  window.neuralFlowEmit?.(p.halted ? "run_stopped" : "run_completed", { session_id: p.sessionId, halted: Boolean(p.halted) });
+  neuralFlowEmit?.(p.halted ? "run_stopped" : "run_completed", { session_id: p.sessionId, halted: Boolean(p.halted) });
   releaseAutoContinue(p.sessionId);
   // R-267:轮末不再需要「原子回灌」。那套是为了修补「切走期间缺一段」——而缺口
   // 本身已经不存在了:后台会话的渲染事件全程进它自己的 pane,轮末 pane 里就是完整的。

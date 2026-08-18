@@ -21,7 +21,7 @@ async function refreshMemory() {
     renderMemoryCandidates(candidates);
     renderMemoryValueFlags(flags);
     const total = (overview?.scopes ?? []).reduce((sum, scope) => sum + Number(scope.total ?? 0), 0);
-    window.neuralFlowEmit?.("memory_snapshot", { memory_count: total, candidate_count: candidates?.length ?? 0 });
+    neuralFlowEmit?.("memory_snapshot", { memory_count: total, candidate_count: candidates?.length ?? 0 });
     if (memorySelection) await loadMemoryList(memorySelection.scope, memorySelection.category);
   } catch (err) {
     toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
@@ -334,14 +334,14 @@ function renderMemoryCandidates(list) {
     adopt.title = t("交给记忆管理子代理提炼成条目");
     adopt.addEventListener("click", async () => {
       adopt.disabled = true;
-      window.neuralFlowEmit?.("memory_consolidation_started", { fingerprint: item.fingerprint });
+      neuralFlowEmit?.("memory_consolidation_started", { fingerprint: item.fingerprint });
       try {
         const result = await invoke("memory_consolidate", { projectDir: currentProject });
-        window.neuralFlowEmit?.(result?.pending ? "memory_consolidation_partial" : "memory_consolidation_completed", { fingerprint: item.fingerprint });
+        neuralFlowEmit?.(result?.pending ? "memory_consolidation_partial" : "memory_consolidation_completed", { fingerprint: item.fingerprint });
         toast(t("已交给记忆管理子代理提炼"));
         refreshMemory();
       } catch (err) {
-        window.neuralFlowEmit?.("memory_consolidation_failed", { fingerprint: item.fingerprint });
+        neuralFlowEmit?.("memory_consolidation_failed", { fingerprint: item.fingerprint });
         adopt.disabled = false;
         toastError(`${t("提炼失败")}:${err}`);
       }
@@ -358,7 +358,7 @@ function renderMemoryCandidates(list) {
           scope: item.scope,
           fingerprint: item.fingerprint,
         });
-        window.neuralFlowEmit?.("memory_candidate_discarded", { fingerprint: item.fingerprint });
+        neuralFlowEmit?.("memory_candidate_discarded", { fingerprint: item.fingerprint });
         toast(t("已丢弃"));
         refreshMemory();
       } catch (err) {
@@ -808,10 +808,10 @@ $("memory-search-input").addEventListener("keydown", async (event) => {
   if (event.key !== "Enter") return;
   const query = event.target.value.trim();
   if (!query || !currentProject) return;
-  window.neuralFlowEmit?.("memory_search_started", { query_length: query.length });
+  neuralFlowEmit?.("memory_search_started", { query_length: query.length });
   try {
     const hits = await invoke("memory_search_page", { projectDir: currentProject, query });
-    window.neuralFlowEmit?.("memory_search_completed", { hit_count: hits.length });
+    neuralFlowEmit?.("memory_search_completed", { hit_count: hits.length });
     memorySelection = null;
     const container = $("memory-list");
     container.innerHTML = hits.length ? "" : `<p class="dim">${t("没有命中的记忆")}</p>`;
@@ -822,21 +822,21 @@ $("memory-search-input").addEventListener("keydown", async (event) => {
       container.appendChild(row);
     }
   } catch (err) {
-    window.neuralFlowEmit?.("memory_search_failed");
+    neuralFlowEmit?.("memory_search_failed");
     toastError(`${t("记忆检索失败")}:${err}`);
   }
 });
 
 $("memory-consolidate-btn").addEventListener("click", async () => {
   if (!currentProject) return;
-  window.neuralFlowEmit?.("memory_consolidation_started");
+  neuralFlowEmit?.("memory_consolidation_started");
   try {
     const result = await invoke("memory_consolidate", { projectDir: currentProject });
-    window.neuralFlowEmit?.(result?.pending ? "memory_consolidation_partial" : "memory_consolidation_completed", { pending: Boolean(result?.pending) });
+    neuralFlowEmit?.(result?.pending ? "memory_consolidation_partial" : "memory_consolidation_completed", { pending: Boolean(result?.pending) });
     toast(result.pending ? t("inbox 尚有草稿未消化") : t("inbox 已整理完毕"));
     refreshMemory();
   } catch (err) {
-    window.neuralFlowEmit?.("memory_consolidation_failed");
+    neuralFlowEmit?.("memory_consolidation_failed");
     toastError(`${t("整理失败")}:${err}`);
   }
 });
@@ -847,12 +847,12 @@ $("memory-cleanup-btn").addEventListener("click", async () => {
   if (!currentProject) return;
   const btn = $("memory-cleanup-btn");
   btn.disabled = true;
-  window.neuralFlowEmit?.("memory_cleanup_started");
+  neuralFlowEmit?.("memory_cleanup_started");
   try {
     const result = await invoke("memory_cleanup_demote", { projectDir: currentProject });
     const demoted = Array.isArray(result?.demoted) ? result.demoted : [];
     const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
-    window.neuralFlowEmit?.("memory_cleanup_completed", { demoted_count: demoted.length, skipped_count: skipped.length });
+    neuralFlowEmit?.("memory_cleanup_completed", { demoted_count: demoted.length, skipped_count: skipped.length });
     if (demoted.length) {
       const names = demoted.slice(0, 3).map((d) => d.title).join("、");
       toast(`${t("已降级")} ${demoted.length} ${t("条记忆为 stale")}${skipped.length ? `,${t("跳过")} ${skipped.length}` : ""}${demoted.length > 3 ? "…" : ""}${names ? `:${names}` : ""}`);
@@ -861,7 +861,7 @@ $("memory-cleanup-btn").addEventListener("click", async () => {
     }
     refreshMemory();
   } catch (err) {
-    window.neuralFlowEmit?.("memory_cleanup_failed");
+    neuralFlowEmit?.("memory_cleanup_failed");
     toastError(`${t("整理失败")}:${err}`);
   } finally {
     btn.disabled = false;

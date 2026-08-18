@@ -425,12 +425,6 @@ async function refreshFastStatus() {
   status.classList.add("warn-text");
   btn.classList.remove("hidden");
 }
-on("kz:fast-setup", (event) => {
-  const text = event.payload?.text;
-  if (!text) return;
-  $("fast-status").textContent = text;
-  log(`${t("子代理安装")}:${text}`);
-});
 $("fast-setup")?.addEventListener("click", async () => {
   const btn = $("fast-setup");
   btn.disabled = true;

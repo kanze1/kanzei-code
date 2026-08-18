@@ -6446,3 +6446,29 @@
 - observed_head: 2c2b3f9059c3d97d817522c9541368a69c596b94
 - observed_worktree_hash: fnv1a64:64d30468992cc04a
 - recorded_at: 1787012721419
+
+## D-527 D-512 清理死函数后前端冒烟仍引用旧入口 [fixed] (low)
+- 复现: D-512 清理 `crates/kanzei-app/ui/05-chat-render.js:toolIconId` 后，`scripts/ui-runtime-smoke.mjs:4037` 仍调用 `sandbox.toolIconId(name)`，运行时冒烟抛出 `TypeError: sandbox.toolIconId is not a function`；同批把 neuralFlowEmit 改为顶层词法绑定后，smoke 在 ESM 作用域直接读取 `neuralFlowEmit`，错误报告入口未注册。
+- 影响: 前端运行时冒烟无法执行完成，导致本次死代码清理的验证链断裂。
+- 来源: self-found：D-512 清理后的六条前端冒烟回归。
+- 标签: 前端
+- 验收: smoke 不再依赖已删除的 toolIconId；通过 vm 全局作用域验证顶层 neuralFlowEmit；六条前端冒烟全部通过。
+- refs: D-512
+- 优先级: P1
+- 进展: 验收已完成：①`toolIconId` 的唯一测试消费者已迁移至 `scripts/ui-runtime-smoke.mjs:4037,4043` 的 `sandbox.toolGroupEntry`，生产代码已删除 `crates/kanzei-app/ui/05-chat-render.js:303` 的死函数；②`neuralFlowEmit` smoke 断言改为 `scripts/ui-runtime-smoke.mjs:1346-1355` 通过 `vm.runInContext` 读取顶层词法入口，生产入口位于 `crates/kanzei-app/ui/22-neural-flow.js:3-5,393`；③T-1786922726323 证明 node --check、globals 同步及 ui-runtime/ui-lint/parallel-lines/ui-a11y/ui-i18n/ui-markdown 六条冒烟全部通过。
+- observed_head: be4966337dce8aa33e0ad4b24cdcd8ff594b9a81
+- observed_worktree_hash: fnv1a64:d8809f42e9dd02e3
+- recorded_at: 1787013228613
+
+## D-512 前端死代码与孤儿引用批次清理 [fixed] (low)
+- 复现: 零调用函数四个:crates/kanzei-app/ui/15-views-misc.js:698 renderConversationList、08-compose.js:64 phasePipelineOn、05-chat-render.js:303 toolIconId、06-agent-panel.js:42 agentToolType;03-shell.js:290-296,356,366 三处 #sidebar-toggle 残留(元素已删,真身是 #rail-sidebar-toggle);06-agent-panel.js:372 与 16-settings.js:423 kz:fast-setup 双订阅;22-neural-flow.js:391 全仓唯一 window 挂载符号配 24 处 ?. 噪声守卫
+- 影响: 死代码误导维护;双订阅每事件多跑一遍路由前置
+- 来源: 2026-08-18 全库勘察(主会话,487 个顶层函数跨文件引用计数)
+- 标签: 前端
+- 验收: 清理后重生成 ui-lint-globals;kz:fast-setup 单订阅;neuralFlowEmit 改顶层声明或统一口径;六冒烟全绿
+- 优先级: P3
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-512
+- 进展: 验收逐项完成：①四个零调用函数已删除，`crates/kanzei-app/ui` 全量 grep 对 `renderConversationList`、`phasePipelineOn`、`toolIconId`、`agentToolType` 均无定义/调用命中；其中真实 smoke 消费者由 `scripts/ui-runtime-smoke.mjs:4038,4044` 改用仍在用的 `sandbox.toolGroupEntry`。②孤儿侧栏引用已清理：`crates/kanzei-app/ui/03-shell.js:288-304,350-351` 仅维护/监听 `#rail-sidebar-toggle`，真实 DOM 位于 `crates/kanzei-app/ui/index.html:13`。③`kz:fast-setup` 已合并为单订阅，唯一监听位于 `crates/kanzei-app/ui/06-agent-panel.js:366-374`，同时刷新子代理面板和设置页 fast 状态；`16-settings.js` 不再重复订阅。④`neuralFlowEmit` 已统一为顶层声明/实现：`crates/kanzei-app/ui/22-neural-flow.js:3-5,393-411`，真实消费者 `07-events.js` 与 `13-memory.js` 统一走顶层 `neuralFlowEmit?.(...)`；smoke 在 `scripts/ui-runtime-smoke.mjs:1346-1362` 通过 vm 全局入口复核。⑤`node scripts/gen-ui-lint-globals.mjs --check` 通过，globals 为 719 个顶层标识符；T-1786922726323 证明 node --check、ui-runtime、ui-lint、parallel-lines、ui-a11y、ui-i18n、ui-markdown 六条前端冒烟全部通过。
+- observed_head: be4966337dce8aa33e0ad4b24cdcd8ff594b9a81
+- observed_worktree_hash: fnv1a64:d8809f42e9dd02e3
+- recorded_at: 1787013253495

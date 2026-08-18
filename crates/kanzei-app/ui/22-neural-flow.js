@@ -1,4 +1,6 @@
 // R-285 金色神经流。
+// 顶层声明作为所有 classic script 的统一事件入口；初始化前保持可安全调用。
+let neuralFlowEmit = null;
 // 视觉层只消费真实运行事件；Canvas 丢帧、隐藏或关闭不会反向改变任何业务状态。
 (() => {
   const chatCanvas = $("neural-flow-chat");
@@ -388,7 +390,7 @@
     voice_interrupted: ["error", "受阻", 0.62],
   };
 
-  window.neuralFlowEmit = (eventType, detail = {}) => {
+  neuralFlowEmit = (eventType, detail = {}) => {
     if (detail.session_id && activeSessionId && detail.session_id !== activeSessionId) return;
     if (eventType === "assistant_streaming") {
       const now = flowNow();

@@ -39,12 +39,6 @@ async function refreshAgentPanelStatus() {
   line.classList.toggle("warn-text", st.warn);
 }
 
-function agentToolType(phase, name) {
-  if (phase) return phase; // scouting / review / fixup
-  if (name && name !== "task") return name;
-  return "task";
-}
-
 function agentPhaseLabel(phase) {
   const labels = { scouting: t("勘察"), review: t("复核"), fixup: t("修复") };
   return labels[phase] || phase || t("子代理");
@@ -369,8 +363,13 @@ function agentPanelSetup() {
   $("agent-close").addEventListener("click", agentClosePanel);
   $("agent-clear").addEventListener("click", agentClearFinished);
   // D-278:一键就绪进度事件也同步刷新面板状态行(面板开着时在设置页操作,回到面板即最新)。
-  on("kz:fast-setup", () => {
+  on("kz:fast-setup", (event) => {
     if (agentPanelOpen) refreshAgentPanelStatus();
+    const text = event.payload?.text;
+    if (text) {
+      $("fast-status").textContent = text;
+      log(`${t("子代理安装")}:${text}`);
+    }
   });
 }
 // defer 脚本执行时 DOM 已解析完毕,agent-toggle 一定存在;与 activity-toggle 的

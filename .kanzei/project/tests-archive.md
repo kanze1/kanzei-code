@@ -6940,3 +6940,26 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-511 R-101
 - 收尾: 1787012797
 - 源码指纹: d8061ddfae3d8617
+
+## T-1786922726323 D-512 前端死代码清理六条冒烟回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/03-shell.js; node --check crates/kanzei-app/ui/05-chat-render.js; node --check crates/kanzei-app/ui/06-agent-panel.js; node --check crates/kanzei-app/ui/07-events.js; node --check crates/kanzei-app/ui/08-compose.js; node --check crates/kanzei-app/ui/13-memory.js; node --check crates/kanzei-app/ui/15-views-misc.js; node --check crates/kanzei-app/ui/16-settings.js; node --check crates/kanzei-app/ui/22-neural-flow.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/gen-ui-lint-globals.mjs --check; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 9.4s
+- 摘要: D-512 修复后完整前端验证通过：9 个 UI/冒烟脚本 node --check；globals 生成清单同步（719 个标识符）；ui-runtime、ui-lint、parallel-lines、ui-a11y、ui-i18n、ui-markdown 六条冒烟全部通过。
+- 关联: D-512 D-527
+- 收尾: 1787013220
+
+## T-1786922726324 D-512 最终暂存形态前端六条冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/03-shell.js; node --check crates/kanzei-app/ui/05-chat-render.js; node --check crates/kanzei-app/ui/06-agent-panel.js; node --check crates/kanzei-app/ui/07-events.js; node --check crates/kanzei-app/ui/08-compose.js; node --check crates/kanzei-app/ui/13-memory.js; node --check crates/kanzei-app/ui/15-views-misc.js; node --check crates/kanzei-app/ui/16-settings.js; node --check crates/kanzei-app/ui/22-neural-flow.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/gen-ui-lint-globals.mjs --check; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 8.8s
+- 摘要: 按最终暂存形态重跑：9 个 node --check；ui-lint globals 719 个标识符同步；ui-runtime、ui-lint、parallel-lines、ui-a11y、ui-i18n、ui-markdown 六条前端冒烟全部通过。
+- 关联: D-512 D-527
+- 收尾: 1787013355
+- 源码指纹: a5da3283499ae79c
+
+## T-1786922726325 D-512 提交前 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 14.3s
+- 摘要: 提交前 kanzei-app 定向回归：207 passed，0 failed；覆盖 UI 相关 app 编译与桌面端现有测试。
+- 关联: D-512 D-527
+- 收尾: 1787013489
+- 源码指纹: a5da3283499ae79c

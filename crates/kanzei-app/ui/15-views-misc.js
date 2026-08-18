@@ -694,14 +694,6 @@ function renderLineConversationHistory(processId) {
   el.appendChild(body);
 }
 
-// 兼容语言切换与完成事件的既有调用点,但实际刷新范围已经是全部线路。
-function renderConversationList(items) {
-  if (!activeProcessId) return;
-  conversationErrorsByProcess.delete(activeProcessId);
-  conversationItemsByProcess.set(activeProcessId, items ?? []);
-  renderLineConversationHistory(activeProcessId);
-}
-
 async function refreshConversationLists() {
   if (!currentProject) return;
   const forProject = currentProject;

@@ -71,10 +71,6 @@ function syncWorkPriorityControl() {
 // 所以镜像写入去掉,开关只写自己那份枚举。回显由上面 syncWorkPriorityControl
 // 从 localStorage 做——它本来就在做,记忆那份是会覆盖它的第二个回显源。
 
-// 「勘察复核」= 阶段流水线总闸(2026-08-11 用户定调),勾选框在顶栏「更多」里。
-function phasePipelineOn() {
-  return $("process-phase-pipeline")?.checked === true;
-}
 // 鞭挞状态**槽位化**:轮次(数)/阶段(状态机)/原因(为什么停)各占各的元素。
 // 旧实现把三样揉进一条自由文本塞进 #auto-status,而 renderAutoStatus 的默认参数是
 // autoStopReason——于是任何无参重绘(renderProcesses → renderAutoStatus())都等于

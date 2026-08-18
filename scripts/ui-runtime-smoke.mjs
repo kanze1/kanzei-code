@@ -1343,15 +1343,16 @@ await runUiSources();
     /id="neural-flow-chat"[^>]*aria-hidden="true"/.test(html),
     "主对话神经流必须对辅助技术隐藏",
   );
-  assert(typeof windowShim.neuralFlowEmit === "function", "R-285 neuralFlowEmit 运行时入口未注册");
+  const neuralFlowRegistered = vm.runInContext('typeof neuralFlowEmit === "function"', sandbox);
+  assert(neuralFlowRegistered, "R-285 neuralFlowEmit 顶层运行时入口未注册");
   assert(
     source.includes("const idleAlpha = isMemory ? 0.22 : 0.075") && source.includes("const ambientProgress ="),
     "R-285 记忆流静息轨迹必须保持清晰亮度与定向流光",
   );
   assert(source.includes("const trailSteps = 5"), "R-285 业务事件脉冲必须带可辨识的流动尾迹");
-  windowShim.neuralFlowEmit("memory_search_started", { query_length: 6 });
+  vm.runInContext('neuralFlowEmit("memory_search_started", { query_length: 6 })', sandbox);
   assert(memoryState.textContent === "检索中", `记忆检索动画状态错误:${memoryState.textContent}`);
-  windowShim.neuralFlowEmit("memory_search_completed", { hit_count: 2 });
+  vm.runInContext('neuralFlowEmit("memory_search_completed", { hit_count: 2 })', sandbox);
   assert(memoryState.textContent === "收敛", `记忆检索完成状态错误:${memoryState.textContent}`);
   assert(
     source.includes('neuralFlowEmit?.("run_started"'),
@@ -4034,13 +4035,13 @@ assert(primarySelect.value === "anthropic:claude-sonnet-5", "设置页非法模�
     "frontend_locate", "frontend_check", "memory_note", "memory_search",
     "ui_dom", "ui_console", "ui_style",
   ];
-  const fellBack = realTools.filter((name) => sandbox.toolIconId(name) === "wrench");
+  const fellBack = realTools.filter((name) => sandbox.toolGroupEntry(name)[1] === "wrench");
   assert(
     fellBack.length === 0,
     `这些真实工具没有归类,落到了兜底扳手:${fellBack.join(", ")}`,
   );
   // 反证:没见过的工具**应该**落兜底,不能因为前缀匹配太宽而误判。
-  assert(sandbox.toolIconId("something_new") === "wrench", "未知工具应落兜底图标");
+  assert(sandbox.toolGroupEntry("something_new")[1] === "wrench", "未知工具应落兜底图标");
 }
 
 assert(html.includes('id="set-codex-fast-mode"'), "设置页缺少 Codex Fast mode 开关标记");
