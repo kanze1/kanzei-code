@@ -63,6 +63,9 @@ Step-With-Timing "ui_runtime" "ui_runtime" {
 Step-With-Timing "ui_lint" "ui_lint (R-142 no-undef)" {
     node "$root\scripts\ui-lint-smoke.mjs"
 }
+Step-With-Timing "ipc_event_contract" "ipc_event_contract (R-299 emit/listen 求差)" {
+    node "$root\scripts\ipc-event-smoke.mjs"
+}
 Step-With-Timing "parallel_lines_regression" "parallel_lines_regression" {
     node "$root\scripts\parallel-lines-regression.mjs"
 }

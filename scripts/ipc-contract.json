@@ -102,5 +102,59 @@
     "root": "string",
     "sources": "array",
     "warnings": "array"
+  },
+  "files_snapshot": {
+    "annotatable": "number",
+    "annotated": "number",
+    "dirNotes": {},
+    "dirs": {
+      "": {
+        "files": "number",
+        "lines": "number",
+        "size": "number"
+      },
+      "src": {
+        "files": "number",
+        "lines": "number",
+        "size": "number"
+      }
+    },
+    "files": [
+      {
+        "chars": "nullable",
+        "lines": "number",
+        "note": "nullable",
+        "oversized": "bool",
+        "path": "string",
+        "size": "number"
+      }
+    ],
+    "reused": "number",
+    "unannotated": "number"
+  },
+  "project_root_info": {
+    "autoRepaired": "bool",
+    "resolved": "string",
+    "selected": "string",
+    "shared": "bool"
+  },
+  "test_runs_snapshot": {
+    "active": "array",
+    "archive_path": "string",
+    "archived": [
+      {
+        "fields": [
+          {
+            "key": "string",
+            "value": "string"
+          }
+        ],
+        "id": "string",
+        "refs": "array",
+        "status": "string",
+        "title": "string"
+      }
+    ],
+    "path": "string"
   }
 }
