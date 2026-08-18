@@ -7782,3 +7782,34 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300
 - 收尾: 1787075998
 - 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@65337489bd8b,crates/kanzei-core/src/runner/drive/assembly.rs@341ebe642c28
+
+## T-1786922726441 R-300 B3 metrics gate provider-qualified 路径复现 [failed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1 -Root (Get-Location).Path
+- 摘要: 重放当前扩展路径工作树时，metrics regression gate 在修复前因 `Microsoft.PowerShell.Core\FileSystem::\\?\` provider-qualified 前缀未剥离而误报 baseline not found；该失败触发 D-543 登记。
+- 关联: R-300 D-543
+- 收尾: 1787076195
+- 源码指纹: v2 scripts/metrics-regression-gate.ps1@a94d60f8b48f
+
+## T-1786922726442 R-300 B3 metrics gate provider-qualified 路径修复回归 [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1 -Root (Get-Location).Path
+- 时长: 1.2s
+- 摘要: 加入 provider-qualified FileSystem 前缀归一化后，同一扩展路径命令通过：30 rows、巨石 7/7、单文件回涨允许 100 行。
+- 关联: R-300 D-543
+- 收尾: 1787076216
+- 源码指纹: v2 scripts/metrics-regression-gate.ps1@a94d60f8b48f
+
+## T-1786922726443 R-300 B3 metrics Top-30 基线对照 [passed]
+- 命令: cargo run -p kanzei -- metrics --top 30
+- 时长: 11.0s
+- 摘要: 真实 metrics 入口重跑：228 个 Rust 文件，Top-30 中生产行数超过 1200 的巨石 7 个；background.rs 1431 生产行、drive.rs 1290 生产行。结果已更新 docs/design/metrics_baseline.md。
+- 关联: R-300
+- 收尾: 1787076292
+- 源码指纹: v2 scripts/metrics-regression-gate.ps1@a94d60f8b48f
+
+## T-1786922726444 R-300 B3 新基线 metrics regression gate 重放 [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1 -Root (Get-Location).Path
+- 时长: 1.2s
+- 摘要: 在更新后的 `docs/design/metrics_baseline.md` 下重放真实 gate：30 rows、巨石 7/7、单文件回涨允许 100 行；扩展路径与 provider-qualified 前缀均可处理。
+- 关联: R-300 D-543
+- 收尾: 1787076361
+- 源码指纹: v2 scripts/metrics-regression-gate.ps1@a94d60f8b48f

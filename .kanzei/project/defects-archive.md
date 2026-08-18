@@ -6683,3 +6683,16 @@
 - observed_head: 7a57b30081248614665d0e21c104ff86b8867dc2
 - observed_worktree_hash: fnv1a64:ecfe756ffbee2656
 - recorded_at: 1787075637520
+
+## D-543 metrics regression gate 未处理 PowerShell FileSystem provider 扩展路径前缀 [fixed] (medium)
+- refs: R-300
+- 复现: 在当前扩展路径工作树执行 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1 -Root (Get-Location).Path`；脚本在 `scripts/metrics-regression-gate.ps1:9-14` 报 `metrics baseline not found`，实际路径带 `Microsoft.PowerShell.Core\FileSystem::\\?\` 前缀。
+- 影响: R-300 验收③的真实回涨 gate 在 PowerShell provider-qualified 扩展路径下无法运行，verify 的 crate_sync 步骤会失败。
+- 来源: self-found：R-300 B3 重放 metrics regression gate。
+- 标签: 发布
+- refs: R-300
+- 优先级: P2
+- 进展: 关闭对账：①复现条件——扩展路径下 `Get-Location.Path` 产生 `Microsoft.PowerShell.Core\FileSystem::` 前缀，旧逻辑在 `scripts/metrics-regression-gate.ps1:9-14` 误报 baseline not found；②实现——`scripts/metrics-regression-gate.ps1:6-14` 先用大小写不敏感比较剥离 `Microsoft.PowerShell.Core\FileSystem::`，再沿用 `\\?\` 本地扩展路径归一化，未改变 baseline 解析、Top-30 比较或阈值；③回归——T-1786922726442 修复后通过，T-1786922726444 在更新后的 `docs/design/metrics_baseline.md` 下再次通过（30 rows、巨石 7/7、允许回涨 100 行）；④影响条款——R-300 验收③的真实 metrics gate 已恢复可重放，未发现剩余缺口。
+- observed_head: cdde95c95f929c2b8eb9cfca6e0da60abfcb02ae
+- observed_worktree_hash: fnv1a64:b1a66d834f3a9342
+- recorded_at: 1787076373538

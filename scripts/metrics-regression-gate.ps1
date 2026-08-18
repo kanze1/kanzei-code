@@ -3,8 +3,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# verify.ps1 可能把 FileSystem provider 名称附在本地路径前。
+$providerPrefix = "Microsoft.PowerShell.Core\FileSystem::"
+if ($Root.StartsWith($providerPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $Root = $Root.Substring($providerPrefix.Length)
+}
 # PowerShell 的文件系统 cmdlet 在 Windows 扩展路径(`\\?\`)下无法稳定执行
-# Test-Path/Get-Content；verify.ps1 从同一工作树启动时会把该前缀传入 Root。
+# Test-Path/Get-Content；verify.ps1 从同一工作树启动时会把扩展或 provider-qualified 前缀传入 Root。
 # 仅去掉 Windows 本地盘的扩展前缀，UNC/普通路径保持原样。
 if ($Root.StartsWith("\\?\")) {
     $Root = $Root.Substring(4)
