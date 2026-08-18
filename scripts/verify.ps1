@@ -66,11 +66,17 @@ Step-With-Timing "ps1_bom" "ps1_bom (D-408 含中文的 .ps1 须带 UTF-8 BOM)" 
 Step-With-Timing "ui_lint" "ui_lint (R-142 no-undef)" {
     node "$root\scripts\ui-lint-smoke.mjs"
 }
+Step-With-Timing "ipc_event_contract" "ipc_event_contract (R-299 emit/listen 求差)" {
+    node "$root\scripts\ipc-event-smoke.mjs"
+}
 Step-With-Timing "fmt" "fmt" {
     cargo fmt --all --manifest-path "$root\Cargo.toml" -- --check
 }
 Step-With-Timing "ui_syntax" "ui_syntax" {
-    $uiScripts = @(Get-ChildItem "$root\crates\kanzei-app\ui\*.js")
+    # R-292:覆盖范围扩到 mobile-pwa(app.js/sw.js)——PWA 与桌面 ui/*.js 同为
+    # 无门禁时代的漏网点,统一进 node --check。
+    $uiScripts = @(Get-ChildItem "$root\crates\kanzei-app\ui\*.js") +
+        @(Get-ChildItem "$root\crates\kanzei-app\mobile-pwa\*.js")
     if ($uiScripts.Count -eq 0) {
         throw "ui_syntax 失败:未找到 UI JavaScript 文件，空集合不得假绿"
     }

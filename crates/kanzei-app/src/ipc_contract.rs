@@ -79,6 +79,15 @@ mod tests {
             "# Conventions\n\n## 1. 一节\n正文\n",
         )
         .unwrap();
+        // R-299:扩展 fixture——tests.md(test_runs_snapshot 读)与源码文件
+        // (files_snapshot 读),让高频 command 契约取样有真实样本而非空 "array"。
+        std::fs::write(
+            root.join(".kanzei/project/tests.md"),
+            "# Tests\n\n## T-1 一条测试 [passed]\n- 标题: sample\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
         root
     }
 
@@ -150,5 +159,80 @@ mod tests {
                 "empty": "array",
             })
         );
+    }
+
+    /// R-299 共享门禁:某 command 的实际形状与 ipc-contract.json 的条目比对。
+    /// `KZ_UPDATE_IPC_CONTRACT=1` 时写回(显式更新入口,非自动);否则严格断言。
+    /// 红了的两种可能:有意改形状(更新契约 + ui fixture + ui/*.js 三处同步)
+    /// 或无意改形状(后端改名漏同步——本判据就是要拦的)。
+    fn check_contract(key: &str, actual: serde_json::Value, context: &str) {
+        let path = contract_path();
+        if std::env::var("KZ_UPDATE_IPC_CONTRACT").is_ok() {
+            let mut all: serde_json::Value = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            all[key] = actual.clone();
+            std::fs::write(&path, serde_json::to_string_pretty(&all).unwrap() + "\n").unwrap();
+            return;
+        }
+        let expected: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).expect("读不到 scripts/ipc-contract.json"),
+        )
+        .expect("ipc-contract.json 不是合法 JSON");
+        assert_eq!(
+            &actual,
+            expected
+                .get(key)
+                .unwrap_or_else(|| panic!("契约缺 {key} 条目")),
+            "{context}\n实际:{}\n要么这是有意的——同步 scripts/ipc-contract.json + \
+             ui-runtime-smoke.mjs 的 fixture + 真正读这些字段的 ui/*.js(三处一起动);\n\
+             要么这是无意的——后端改名在 IPC 那侧不会让任何既有测试变红,本判据就是补这一条。",
+            serde_json::to_string_pretty(&actual).unwrap_or_default()
+        );
+    }
+
+    /// R-299:高频 command `project_root_info` 形状契约。
+    #[test]
+    fn project_root_info_形状与ipc契约一致() {
+        let root = fixture_project();
+        let actual = shape(&crate::projects::project_root_info(
+            root.display().to_string(),
+        ));
+        check_contract(
+            "project_root_info",
+            actual,
+            "project_root_info 的 IPC 形状变了",
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// R-299:高频 command `test_runs_snapshot` 形状契约。
+    #[test]
+    fn test_runs_snapshot_形状与ipc契约一致() {
+        let root = fixture_project();
+        let actual = shape(
+            &crate::docs::test_runs_snapshot(root.display().to_string())
+                .expect("夹具项目应能取到测试快照"),
+        );
+        check_contract(
+            "test_runs_snapshot",
+            actual,
+            "test_runs_snapshot 的 IPC 形状变了",
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// R-299:高频 command `files_snapshot` 形状契约。
+    #[tokio::test]
+    async fn files_snapshot_形状与ipc契约一致() {
+        let root = fixture_project();
+        let actual = shape(
+            &crate::files_view::files_snapshot(root.display().to_string())
+                .await
+                .expect("夹具项目应能取到文件快照"),
+        );
+        check_contract("files_snapshot", actual, "files_snapshot 的 IPC 形状变了");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

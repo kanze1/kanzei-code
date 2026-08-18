@@ -970,6 +970,9 @@ pub fn harvest_end_of_run(
 /// 晋升条件(复发≥3 + 真实当轮 episode)的 candidate 自动 deprecated 归档。
 /// 取 14 天:给「复发计数随轮次增长」留足观察窗口,又不让存量无限堆积。
 pub const CANDIDATE_MAX_AGE_DAYS: i64 = 14;
+/// candidate 健康水位(R-295)：与生产检索 top-24 窗口同量级，
+/// 轮末超出时按低价值优先归档，避免生产速率高于清退速率。
+pub const CANDIDATE_MAX_COUNT: usize = 24;
 
 /// 轮末自动处置 candidate 的共享入口(R-195/D-341):CLI 与桌面端各在轮末
 /// episode 落库后调用一次,保证「判定动作真实被执行」,不依赖 manager 是否
@@ -978,6 +981,7 @@ pub const CANDIDATE_MAX_AGE_DAYS: i64 = 14;
 /// 判定规则与 `MemoryStore::reconcile_candidates` 一致:
 /// - 有真实当轮 episode、复发计数≥3 且带 fingerprint → promote(active);
 /// - 没有晋升条件且超过 `max_age_days` 个日历日未处置 → deprecated 并归档;
+/// - candidate 超过 `CANDIDATE_MAX_COUNT` → 按低价值优先 deprecated 并归档;
 /// - 其余保持 candidate(不改变「未验证不注入」边界)。
 ///
 /// 返回报告含存量前后计数(文件数与 FTS 索引数),供调用方打日志留证据。

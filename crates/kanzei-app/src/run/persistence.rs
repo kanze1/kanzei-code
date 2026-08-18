@@ -200,8 +200,9 @@ pub(crate) fn persist_round_outcome(
                         Err(error) => tracing::warn!("memory inbox consolidation failed: {error}"),
                     }
                 });
-                // D-341/R-195:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
-                // 自动 promote,超期未处置的自动 deprecated 归档,其余保持 candidate。
+                // D-341/R-195/R-295:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
+                // 自动 promote,超期未处置或超过健康水位的低价值 candidate 自动 deprecated 归档,
+                // 其余保持 candidate。
                 // 与 inbox 消化解耦(没有草稿也要跑)且机械判定不走 LLM;失败不阻塞收尾。
                 let _ = kanzei_tools::memory::reconcile_candidates(
                     &ctx.project_root,

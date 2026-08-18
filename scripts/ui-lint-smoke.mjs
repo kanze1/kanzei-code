@@ -13,7 +13,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 // ①no-undef 检查
 const eslint = new ESLint();
-const results = await eslint.lintFiles(["crates/kanzei-app/ui/*.js", "scripts/*.mjs"]);
+const results = await eslint.lintFiles([
+  "crates/kanzei-app/ui/*.js",
+  "crates/kanzei-app/mobile-pwa/*.js", // R-292:mobile-pwa 入 ESLint 门禁
+  "scripts/*.mjs",
+]);
 const errors = [];
 for (const result of results) {
   for (const message of result.messages) {

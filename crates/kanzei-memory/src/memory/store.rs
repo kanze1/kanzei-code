@@ -527,6 +527,23 @@ impl MemoryStore {
         Ok(entry)
     }
 
+    /// 按候选价值排序：无 fingerprint/recurrence 的条目最先清退，
+    /// 同价值时优先清退更早未更新者。仅用于容量收敛，不参与 provenance 晋升。
+    fn candidate_retention_key(&self, entry: &MemoryEntry) -> (u8, u8, u32, String, String) {
+        let fingerprint = entry.fingerprint();
+        let recurrence = fingerprint
+            .as_deref()
+            .map(|value| self.recurrence_count(value))
+            .unwrap_or(0);
+        (
+            u8::from(fingerprint.is_some()),
+            u8::from(recurrence > 0),
+            recurrence,
+            entry.updated.clone(),
+            entry.id.clone(),
+        )
+    }
+
     /// 自动处置 candidate(R-195):
     /// - 有真实当轮 episode、复发计数≥3 且带 fingerprint → promote(active);
     /// - 没有晋升条件且超过 max_age_days 个日历日未处置 → deprecated 并归档;
@@ -599,6 +616,52 @@ impl MemoryStore {
                 }
             }
             report.untouched.push(entry.id);
+        }
+        // R-295：健康水位是容量出口，避免新 candidate 持续挤占轮末整理窗口。
+        // 先完成晋升/超龄清退，再按 fingerprint、recurrence、更新时间保留高价值项；
+        // 每次清退仍走 update → refresh_derived → archive_dead，保留可追溯墓碑。
+        let mut over_capacity = self
+            .load_all()
+            .into_iter()
+            .filter(|(_, entry)| entry.status == "candidate")
+            .collect::<Vec<_>>();
+        if over_capacity.len() > crate::memory::CANDIDATE_MAX_COUNT {
+            over_capacity.sort_by_key(|(_, entry)| self.candidate_retention_key(entry));
+            let retire_count = over_capacity.len() - crate::memory::CANDIDATE_MAX_COUNT;
+            for (path, entry) in over_capacity.into_iter().take(retire_count) {
+                let fingerprint = entry.fingerprint().is_some();
+                let recurrence = entry
+                    .fingerprint()
+                    .as_deref()
+                    .map(|value| self.recurrence_count(value))
+                    .unwrap_or(0);
+                let body = format!(
+                    "{}\n\n(auto-deprecated: candidate 超出健康水位 {}，按低价值优先清退；fingerprint={}，recurrence={}；原路径 {})",
+                    entry.body.trim_end(),
+                    crate::memory::CANDIDATE_MAX_COUNT,
+                    fingerprint,
+                    recurrence,
+                    path.display()
+                );
+                if self
+                    .update(
+                        &entry.id,
+                        None,
+                        None,
+                        Some(&body),
+                        Some("deprecated"),
+                        None,
+                        false,
+                    )
+                    .is_ok()
+                {
+                    let id = entry.id.clone();
+                    report.deprecated.push(id.clone());
+                    // 该条第一阶段曾计入 untouched,实际已被容量出口清退,
+                    // 从 untouched 移除,untouched 只保留最终仍为 candidate 的条目。
+                    report.untouched.retain(|x| x != &id);
+                }
+            }
         }
         let after = self.load_all();
         report.candidate_files_after = after
@@ -3063,6 +3126,79 @@ mod tests {
             store.root.join(format!("{}.md", keep.file_stem())).exists(),
             "未达标条目文件必须留在主目录"
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-295：候选超过健康水位时低价值优先清退，且清退走归档而非裸删。
+    #[test]
+    fn reconcile_candidates_capacity_retires_low_value_first() {
+        let (dir, store) = temp_store();
+        for index in 0..crate::memory::CANDIDATE_MAX_COUNT {
+            let fingerprint = format!("[fp:capacity-{}-{}]", std::process::id(), index);
+            store
+                .append_note("capacity fixture source", &fingerprint, "fact", &[])
+                .unwrap();
+            store.bump_recurrence(&fingerprint);
+            let AddOutcome::Added(entry) = store
+                .add(
+                    "fact",
+                    &format!("capacity 高价值 {index}"),
+                    &format!("capacity 高价值钩子 {index}"),
+                    &format!("正文 {fingerprint}"),
+                    "memory-manager",
+                    &[],
+                    None,
+                    true,
+                )
+                .unwrap()
+            else {
+                panic!("expected high-value candidate")
+            };
+            assert_eq!(entry.status, "candidate");
+        }
+        let mut low_value_ids = Vec::new();
+        for index in 0..6 {
+            let AddOutcome::Added(entry) = store
+                .add(
+                    "fact",
+                    &format!("capacity 低价值 {index}"),
+                    &format!("capacity 低价值钩子 {index}"),
+                    "正文无 fingerprint 且无 recurrence",
+                    "memory-manager",
+                    &[],
+                    None,
+                    true,
+                )
+                .unwrap()
+            else {
+                panic!("expected low-value candidate")
+            };
+            low_value_ids.push(entry.id);
+        }
+        store.refresh_derived().unwrap();
+        let report = store.reconcile_candidates(None, 365).unwrap();
+        assert_eq!(report.candidate_files_before, 30);
+        assert_eq!(report.candidate_index_before, 30);
+        assert_eq!(
+            report.candidate_files_after,
+            crate::memory::CANDIDATE_MAX_COUNT
+        );
+        assert_eq!(
+            report.candidate_index_after,
+            crate::memory::CANDIDATE_MAX_COUNT
+        );
+        assert_eq!(report.deprecated, low_value_ids);
+        assert_eq!(
+            report.untouched.len(),
+            crate::memory::CANDIDATE_MAX_COUNT,
+            "untouched 只保留最终仍为 candidate 的条目(容量出口清退的不再算 untouched)"
+        );
+        for id in low_value_ids {
+            assert!(
+                store.has_archived_id(&id),
+                "低价值 candidate 必须保留归档墓碑: {id}"
+            );
+        }
         std::fs::remove_dir_all(dir).ok();
     }
 

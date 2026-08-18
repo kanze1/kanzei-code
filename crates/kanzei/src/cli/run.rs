@@ -643,8 +643,9 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     } else if consolidation.pending_before > 0 {
         eprintln!("\x1b[90m{}\x1b[0m", consolidation.summary());
     }
-    // D-341/R-195:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
-    // 自动 promote,超期未处置的自动 deprecated 归档,其余保持 candidate。
+    // D-341/R-195/R-295:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
+    // 自动 promote,超期未处置或超过健康水位的低价值 candidate 自动 deprecated 归档,
+    // 其余保持 candidate。
     // 与 inbox 消化解耦:没有草稿也要跑,否则 candidate 永远躺着无人验收。
     // 机械判定不依赖 LLM,失败不阻塞收尾(报告仅用于打日志留证据)。
     if let Ok(report) = kanzei_tools::memory::reconcile_candidates(

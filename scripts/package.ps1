@@ -88,6 +88,18 @@ if ($unclean.Count -gt 0) {
     throw "发布树源码未提交($($unclean.Count) 处),构建产物将与标签 $hash 不一致:`n$($unclean -join "`n")"
 }
 
+# ---- 版本双源一致性(R-298)----
+# workspace 根 Cargo.toml [workspace.package] version 与 tauri.conf.json version 必须一致,
+# 否则 kz --version 与桌面端版本徽章各自报不同版本,用户无法确认真装到的是哪版。
+Step "版本一致性检查"
+$cargo_ver = (Select-String -Path "$root\Cargo.toml" -Pattern '^version\s*=\s*"([^"]+)"' |
+    Select-Object -First 1).Matches[0].Groups[1].Value
+$tauri_ver = (Get-Content "$root\crates\kanzei-app\tauri.conf.json" -Raw | ConvertFrom-Json).version
+if (-not $cargo_ver -or -not $tauri_ver -or $cargo_ver -ne $tauri_ver) {
+    throw "版本双源不一致:Cargo.toml=$cargo_ver, tauri.conf.json=$tauri_ver。两处必须同步后再发版"
+}
+Write-Host "==> 版本一致性通过: $cargo_ver" -ForegroundColor Green
+
 # ---- 验证证据门禁(R-152/A-009):无绑定 HEAD 的全绿证据不打包 ----
 Step "验证证据门禁"
 $verification = if ($VerificationPath) { $VerificationPath } else { Join-Path $root "dist\verification.json" }
@@ -135,6 +147,29 @@ $out = "$root\dist\kanzei-setup-$hash.exe"
 Copy-Item $setup.FullName $out -Force
 Write-Host "==> installer: $out ($([math]::Round((Get-Item $out).Length/1MB)) MB)" -ForegroundColor Green
 
+# ---- dist 保留策略(R-298):只留最新安装器 ----
+# dist/ 是产物卫生区,历史安装器无人引用还占磁盘(实测曾堆 6 个 setup.exe 约 85MB)。
+# 旧包一律清掉,发布只认最新;历史版本由 GitHub Releases 保留(§9.1 只留最新稳定版)。
+$old_installers = @(Get-ChildItem "$root\dist\kanzei-setup-*.exe" -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -ne $out })
+foreach ($old in $old_installers) { Remove-Item $old.FullName -Force }
+if ($old_installers.Count -gt 0) {
+    Write-Host "==> dist 保留:清理 $($old_installers.Count) 个旧安装器,只留 $out" -ForegroundColor Yellow
+}
+
+# ---- 打包后自动静默装+装后自校验入链(R-298)----
+# 打包链不再止于拷进 dist:产物一出来就自动走 install-setup.ps1(静默装 + 安装位变更/
+# 构建标识双重校验),证明安装器真实可装。kzapp 运行中时静默安装必然无效(D-266),
+# 此时不中断发布(目标在远端),只明确提示人工补验——绝不把"没装上"说成"装好了"。
+Step "自动安装验证(装后自校验)"
+try {
+    & "$root\scripts\install-setup.ps1" -Setup $out -ExpectedHash $hash
+    Write-Host "==> 装后自校验通过:安装器可装且安装位含构建标识 $hash" -ForegroundColor Green
+} catch {
+    Write-Host "⚠ 自动安装未完成(通常因 kzapp 正在运行):$($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "  可关闭 kzapp 后手动补验: .\scripts\install-setup.ps1 -Setup $out -ExpectedHash $hash" -ForegroundColor Yellow
+}
+
 if ($Publish) {
     $tag = "build-$hash"
     Step "发布 GitHub release $tag"
@@ -145,7 +180,9 @@ if ($Publish) {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     $log = git -C $root log $range --format="- %s"
     [Console]::OutputEncoding = $prevEncoding
-    $notes = "## 变更`n$($log -join "`n")`n`n---`n构建 $hash($date),范围 $range 共 $($commits.Count) 个提交(已核对)。应用内「检查更新」以此为源。"
+    # R-298:安装器 SHA256 写入 notes,供下载侧离线核验产物完整性。
+    $setup_sha256 = (Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant()
+    $notes = "## 变更`n$($log -join "`n")`n`n---`n构建 $hash($date),范围 $range 共 $($commits.Count) 个提交(已核对)。应用内「检查更新」以此为源。`n安装器 SHA256: $setup_sha256"
     $notesFile = Join-Path $env:TEMP "kanzei-release-notes.md"
     Set-Content $notesFile $notes -Encoding UTF8
     # --target 是必需的,不是可选优化:tag 不存在时 gh 会在**远端默认分支(main)**的
