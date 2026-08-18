@@ -7563,3 +7563,25 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300
 - 收尾: 1787068476
 - 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@0074f571c0a5,crates/kanzei-tools/src/profiles/research.rs@d5bcdc528784
+
+## T-1786922726413 R-300 B6 权限门禁拆分格式与定向回归 [failed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 摘要: 格式检查未通过，指出 permissions.rs:74-77 的 resource_match_for_action 链式调用需 rustfmt；因命令按门禁短路，kanzei-core 定向测试未启动。
+- 收尾: 1787068774
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@2ab83b3ee57a,crates/kanzei-core/src/runner/drive/permissions.rs@44cb2f469036
+
+## T-1786922726414 R-300 B6 权限门禁拆分格式与定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 8.3s
+- 摘要: B6 权限门禁已接入真实 execute_tool_calls 调用链；Rust 格式检查通过，kanzei-core 定向回归 220 passed、0 failed、0 ignored。
+- 关联: R-300
+- 收尾: 1787068801
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@2ab83b3ee57a,crates/kanzei-core/src/runner/drive/permissions.rs@f1e89f1dc459
+
+## T-1786922726415 R-300 B6 权限门禁拆分格式与定向回归（参数收敛） [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 9.2s
+- 摘要: PermissionGateRequest 参数收敛后的格式检查与 kanzei-core 定向回归通过：220 passed、0 failed、0 ignored。
+- 关联: R-300 D-534
+- 收尾: 1787069154
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@6bd6be7cfa56,crates/kanzei-core/src/runner/drive/permissions.rs@3bc91081cb65

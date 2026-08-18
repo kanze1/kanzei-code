@@ -6574,3 +6574,15 @@
 - observed_head: 6a21d4f9f1accda695975a5a465f4e8bc5cb9ce5
 - observed_worktree_hash: fnv1a64:41519d3f86e0d3bd
 - recorded_at: 1787063356945
+
+## D-534 B6 权限门禁 helper 参数数量触发 clippy 阈值 [fixed] (medium)
+- 复现: 提交 R-300 B6 时结构化 git clippy gate 报 `crates/kanzei-core/src/runner/drive/permissions.rs:8:1` function has too many arguments (10/7)。
+- 影响: 功能测试可通过，但 workspace clippy -D warnings 门禁无法通过，B6 不能提交。
+- 来源: self-found：提交前 clippy gate。
+- 标签: 核心
+- refs: R-300
+- 优先级: P2
+- 进展: 已修复：`resolve_permission_gate` 改为接收 `PermissionGateRequest`（crates/kanzei-core/src/runner/drive/permissions.rs:8-21），将 10 个参数收敛为单一状态参数；`drive.rs:1195-1210` 在真实 `execute_tool_calls` 调用方构造并传入请求，Gate 后续拒绝/用户拒绝收尾保持原位。验证 T-1786922726415：`cargo fmt --all -- --check` 与 `cargo test -p kanzei-core` 通过，220 passed、0 failed、0 ignored。
+- observed_head: 214ae962c69f9a05597bb79e6e98a5f9c2a9313e
+- observed_worktree_hash: fnv1a64:5a511fd7e6343da2
+- recorded_at: 1787069200431
