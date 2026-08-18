@@ -6654,9 +6654,21 @@
 - 影响: 真实 UI runtime/lint 通过，但并行线路静态护栏错误失败，无法验证自动续跑按 session 隔离。
 - 来源: self-found：R-300 B14 自动续跑拆分后的六条前端冒烟。
 - 标签: 前端
-- refs: R-300
 - 优先级: P2
 - 进展: 已修复并验证：`scripts/parallel-lines-regression.mjs:9-19` 纳入 `08-auto.js` 并构造 `${auto}\n${compose}\n${models}` 的真实静态源集合；`scripts/parallel-lines-regression.mjs:70` 因此可验证 `08-auto.js:18` 的 session 隔离 timer。`index.html:1135-1138` 保持 07-events → 08-auto → 08-compose → 08-models 的 classic script 顺序。证据 T-1786922726433：node --check 与 runtime/lint/parallel-lines/a11y/i18n/markdown 六条前端冒烟全部通过。
 - observed_head: 2f118ee47cb9cfe0e8a53c2d773dd7efee9fcfaf
 - observed_worktree_hash: fnv1a64:5ae9d8a2586b2f0e
 - recorded_at: 1787074359027
+
+## D-541 metrics regression gate 调用用户安装 kz 被 AuthorizationManager 拒绝 [fixed] (medium)
+- refs: R-300
+- 复现: 运行 `scripts/metrics-regression-gate.ps1 -Root <repo>`，脚本在 `scripts/metrics-regression-gate.ps1:26-29` 调用 `%USERPROFILE%\.cargo\bin\kz.exe metrics --top 30`，返回 `AuthorizationManager check failed`；同轮 `cargo run -p kanzei -- metrics --top 30` 成功输出 Top-30。
+- 影响: metrics regression gate 无法读取真实当前榜单，R-300 验收③ verify 闸门无法完成可重放验证；不能用 cargo 输出冒充 gate 已通过。
+- 来源: self-found：R-300 B14 提交后 metrics/verify 复核。
+- 标签: 发布
+- refs: R-300
+- 优先级: P2
+- 进展: 已修复并关闭对账：①根因——`scripts/metrics-regression-gate.ps1:5-8` 直接把 Windows 扩展路径 `\\?\` 交给 PowerShell 文件系统 cmdlet，导致 baseline 检查失败；②实现——同文件 `:7-12` 仅对本地盘扩展前缀执行 `Substring(4)` 规范化，UNC/普通路径保持不变；③真实调用方——`scripts/verify.ps1:59-60` 继续调用该 gate，未绕过；④证据——T-1786922726437 在扩展路径通过，T-1786922726438 在普通 Windows 路径通过，均为 30 行可解析、巨石 7/7、允许回涨 100 行。
+- observed_head: 08f8a52f86811b1f5ae13d58748eae212b93cda7
+- observed_worktree_hash: fnv1a64:a176bf3c37badc4e
+- recorded_at: 1787074958864

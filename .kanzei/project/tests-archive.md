@@ -7750,3 +7750,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 普通 Windows 路径下真实回涨闸门通过：30 行可解析，当前/基线巨石数 7/7，单文件允许回涨 100 行。
 - 关联: R-300 D-541
 - 收尾: 1787074826
+
+## T-1786922726437 D-541 扩展路径 metrics gate 修复回归 [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1
+- 时长: 1.0s
+- 摘要: 扩展路径工作树下直接重放 gate 通过：30 行可解析，当前/基线巨石数 7/7，单文件允许回涨 100 行。
+- 关联: R-300 D-541
+- 收尾: 1787074951
+- 源码指纹: v2 scripts/metrics-regression-gate.ps1@a3cf9856cb2a
+
+## T-1786922726438 D-541 普通路径 metrics gate 修复回归 [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1
+- 时长: 1.0s
+- 摘要: 普通 Windows 路径下 gate 同样通过：30 行可解析，当前/基线巨石数 7/7。
+- 关联: R-300 D-541
+- 收尾: 1787074951
+- 源码指纹: v2 scripts/metrics-regression-gate.ps1@a3cf9856cb2a
