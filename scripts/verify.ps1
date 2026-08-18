@@ -4,11 +4,11 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 # Windows 扩展路径可供 node 使用，但 PowerShell Get-ChildItem 对 `\\?\` 通配不稳定；
 # 先剥离 provider-qualified 前缀，再剥离本地扩展前缀，避免 ui_syntax 把非空脚本集合误判为空。
-$providerPrefix = 'Microsoft.PowerShell.Core\\FileSystem::'
+$providerPrefix = "Microsoft.PowerShell.Core\FileSystem::"
 if ($root.StartsWith($providerPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
     $root = $root.Substring($providerPrefix.Length)
 }
-if ($root.StartsWith('\\?\\')) {
+if ($root.StartsWith("\\?\")) {
     $root = $root.Substring(4)
 }
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
