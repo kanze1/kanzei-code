@@ -3757,9 +3757,27 @@
 - 验收: ①当前 224 条 inbox 在真实 manager 运行中按批下降,任一批失败可见且重启后从 checkpoint 继续;②桌面与 CLI 调用同一服务并有集成测试;③新 candidate/active 100% 可回溯真实 episode/source,空来源晋升被拒;④一次真实 recurrence→shadow→promote 有状态事件和 UI 轨迹;⑤counterfactual arms 形成非空聚合并区分 action_changed/outcome_improved;⑥修复提交确实位于 dev,tracker/tests/代码三方一致。
 - 批次: 4/4
 - 状态: done
-- 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-286
 - 进展: R-286 已完成并提交：`dcf6e11c R-286 B4 接入记忆控制面与失败重试`，提交位于 dev。关闭验收逐项对账：①真实 manager 分批整理与失败/恢复能力沿用已交付的 `crates/kanzei-memory/src/memory/inbox.rs:18-122`、`crates/kanzei-tools/src/memory_consolidation.rs:1-301`，控制面读取 `InboxCheckpoint` 并在 `crates/kanzei-app/src/memory.rs:42-87` 展示 backlog、最老等待、批次状态与 failure_reason，重试入口在 `crates/kanzei-app/ui/13-memory.js:47-86`；真实运行证据 T-1786922726169，关闭前 workspace 回归 T-1786922726213。②桌面与 CLI 共用 `crates/kanzei-app/src/memory.rs:298-306` 的 `consolidate_memory_inbox`，Tauri 注册在 `crates/kanzei-app/src/main.rs:197-200`，桌面定向测试 T-1786922726210，真实共享服务链路 T-1786922726169。③新 candidate/active 的空来源硬门禁由既有 `crates/kanzei-memory/src/memory/lifecycle.rs:24-87` 执行；控制面在 `crates/kanzei-app/src/memory.rs:55-62` 将 candidate/shadow/active 缺 source/refs 计为 promotion_gaps；生命周期回放 T-1786922726202。④recurrence→shadow→promote 由既有 lifecycle 写者产生状态事件，本次统一事件 payload 在 `crates/kanzei-memory/src/memory/mod.rs:38-77`，写者接线位于 `memory/inbox.rs:206-218`、`memory/store.rs:369-383`、`memory/lifecycle.rs`；控制面 UI 消费并展示状态，证据 T-1786922726202、T-1786922726211、T-1786922726212。⑤六臂 counterfactual 回放在 `crates/kanzei-core/src/replay.rs:300-318` 调用 `recompute_memory_effect`，`memory_eval_agg` 查询位于 `crates/kanzei-core/src/store/eval.rs:54-74`，action_changed/outcome_improved 分开统计位于 `crates/kanzei-core/src/store/telemetry.rs:167-204`，证据 T-1786922726207、T-1786922726209；控制面价值画像消费位于 `crates/kanzei-app/src/memory.rs:64-79`。⑥修复提交 `dcf6e11c` 已位于 dev；requirements、defects、tests archive 与代码同批提交，且 tracker/tests/代码三方一致；六条前端冒烟 T-1786922726212、app/core staged 定向回归 T-1786922726216/T-1786922726217、workspace 全量 T-1786922726213 均通过。既有能力已明确标注为沿用，本次交付为批4控制面投影、失败重试、聚合查询消费及配套验证。
 - observed_head: dcf6e11c4a0557ad9283234084a431bf61f3e083
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1786996479550
+
+## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [done]
+- refs: R-242 R-236 D-209 docs/design/context_compaction.md docs/design/deepseek_harness_upgrade.md
+- 依赖: 
+- 内容: 将现有 compact_with_digest 的存储语义改为 compaction_started→compaction_summary→surface_replaced→compaction_ended 追加事务；模型上下文只消费 surface projection，原始 Session 事件不修改不删除；连续压缩走已交付滚动合并。
+- 复杂度: 中
+- 批次: 4/4
+- 来源: DeepSeek Harness compaction 事件事务；复用已交付 R-236 的纪要模型、模板和质量闸。
+- 标签: 核心
+- 边界: 不重写 R-236 纪要算法、压缩模型配置和质量闸；不把 Memory 作为对话恢复源。Compaction 只在 R-242 正式 surface projection 上追加事务，失败保留原 surface，未完成事务在恢复时显式失效；不修改 format_version=1 的既有消息事实。
+- 阻塞: 
+- 验收: ①压缩前后 raw event hash 不变；②边界上的 tool call/result 必须完整配对，否则拒绝压缩；③不完整 compaction transaction 重启后不生效且有可见诊断；④连续两次压缩 replay 一致，首段关键实体仍保留；⑤模型 surface 变短但 transcript/audit 仍能回看原文；⑥R-236 全部压缩回归保持通过。
+- 优先级: P1
+- 对账: 2026-08-18 对账更新：R-242 批次8/8 的 surface projection 已交付，当前依赖字段不再要求 R-242 关闭；本条正式承接 R-242 验收⑦，负责 compaction_started→compaction_summary→surface_replaced→compaction_ended 事务、停止新增 conversation.updated 以及失败恢复后的可见诊断。下一步先完成批1设计冻结与事件事务入口，再接全部 compaction 写者和回归。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-243
+- 进展: 批次对账：Git 机械计数 4（`49c5832a` R-243 批3实现、`1c32e32c` R-243 批2实现、`5170dc8` 与 `878557f` 两个 R-242 依赖/验收边界提交标题引用 R-243），故手写批次为 4/4；R-243 实际功能批次为批2、批3。验收①原始事件 hash/事实不变：`crates/kanzei-core/src/store/events.rs:29-79,635-684`，T-1786922726352，原 payload/sequence 保留。验收②边界 tool call/result 必须完整配对：`crates/kanzei-core/src/runner/compaction.rs:152-156,235-281,805-828`，跨边界拒绝且原文不改，T-1786922726352。验收③不完整 compaction transaction 重启不生效且有可见诊断：`crates/kanzei-core/src/store/events.rs:85-119`、`crates/kanzei-app/src/conversation.rs:145-156,496-523`，T-1786922726352/T-1786922726353。验收④连续两次 compaction replay 一致且首段关键实体保留：`crates/kanzei-core/src/runner/compaction.rs:758-802`，T-1786922726352。验收⑤模型 surface 变短但 transcript/audit 可回看原文：`crates/kanzei-core/src/store/typed.rs:1254-1410,2146-2181`、真实 consumer `crates/kanzei-app/src/conversation.rs:63-96,116`，T-1786922726352/T-1786922726353。验收⑥R-236 全部压缩回归保持通过：T-1786922726352 core 16 passed、T-1786922726353 app 1 passed、T-1786922726354 workspace 1214 passed/1 ignored/0 failed；提交 `49c5832a`。
+- observed_head: 49c5832a3ac31861a5e231bfe203b52612da50e3
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787020412718

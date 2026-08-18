@@ -7155,3 +7155,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 1 passed：app 最新 segment 重启恢复消费已完成 compaction surface。
 - 关联: R-243
 - 收尾: 1787019171
+
+## T-1786922726354 R-243 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 82.0s
+- 摘要: workspace 全量通过：1214 passed，1 ignored，0 failed；覆盖 kanzei、kanzei-app、kanzei-core、kanzei-tools、kanzei-llm、kanzei-memory 及文档测试。
+- 关联: R-243
+- 收尾: 1787020324
