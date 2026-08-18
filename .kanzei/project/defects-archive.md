@@ -6486,3 +6486,17 @@
 - observed_head: fddf86e4514f775c6ad8b2274b139e40705dce9d
 - observed_worktree_hash: fnv1a64:b21c16939dc1b955
 - recorded_at: 1787015019198
+
+## D-525 D-506 多行 Mutex lock unwrap 漏网调用 [fixed] (medium)
+- 复现: D-506 初轮巡检只匹配同一行 `.lock().unwrap()`；复核发现 `crates/kanzei-app/src/run/persistence.rs:215` 与 `state.rs:623/766` 采用换行 `.lock()` + `.unwrap()`，仍会在 poisoned mutex 上 panic。
+- 影响: D-506 的热路径恢复策略存在漏网调用，持锁 panic 后仍可能触发级联命令僵死。
+- 来源: self-found：D-506 提交前 staged diff 与多行锁调用复核。
+- 标签: 后端
+- 验收: 目标五个文件不再出现同一行或跨行 `.lock()` 后 `.unwrap()`；D-506 源码巡检与 kanzei-app 定向测试通过。
+- refs: D-506
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-525
+- 进展: 验收已逐项完成，待提交收口：①目标五个文件不再出现同一行或跨行 `.lock()` 后 `.unwrap()`：`crates/kanzei-app/src/state.rs:617,622,661,802`、`processes/registry.rs:129,183`、`run/coordinator.rs:53,61,101,265,337,341`、`run/persistence.rs:100,214,315,331,355,393,425`、`mobile.rs:171,722` 已统一使用 `lock_or_recover()`；`state.rs:13-21` 的 `MutexPoisonExt` 在 poisoned mutex 时回收 guard。②源码巡检守护增强于 `crates/kanzei-app/src/state_tests.rs:440-456`，对五文件去除空白后检查 `.lock().unwrap()`，同一行/跨行均无匹配。③T-1786922726335：`cargo fmt --all -- --check` 与 `cargo test -p kanzei-app` 通过，209 passed；验收全部满足，下一步仅暂存本次五文件及 tracker/tests archive 并提交。
+- observed_head: ec6f69701ee953b437673a0e210c43a3333fd51b
+- observed_worktree_hash: fnv1a64:4aff47bde29f5099
+- recorded_at: 1787015360731

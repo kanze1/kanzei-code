@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::json;
 use tauri::Emitter;
 
-use crate::{conversation, record_live_trace, with_session_id};
+use crate::{conversation, record_live_trace, with_session_id, MutexPoisonExt};
 
 use super::assembly::{assemble_run, RoundRequest, RunAssembly, RunMode, RuntimeHandles};
 use super::events::{
@@ -50,7 +50,7 @@ pub(crate) async fn run_task(
     let subagents_enabled = mode.subagents_enabled;
     let autonomous = mode.autonomous;
     let stage = |name: &str, detail: String| {
-        *handles.current_stage.lock().unwrap() = name.to_string();
+        *handles.current_stage.lock_or_recover() = name.to_string();
         emit_stage(window, &session_id, name, detail);
     };
 
@@ -58,7 +58,7 @@ pub(crate) async fn run_task(
     // 装了新令牌还留着旧代数会让上一次停止的兜底误杀本 run。
     handles.run_generation.fetch_add(1, Ordering::SeqCst);
     let halt_token = kanzei_core::CancellationToken::new();
-    *handles.halt_slot.lock().unwrap() = Some(halt_token.clone());
+    *handles.halt_slot.lock_or_recover() = Some(halt_token.clone());
 
     let RunAssembly {
         deps,
@@ -98,7 +98,7 @@ pub(crate) async fn run_task(
     };
     // 轨迹与统计写进 runtime 的 live 画像,停止路径才够得着(D-179)。
     let live = handles.live_run.clone();
-    live.lock().unwrap().begin(
+    live.lock_or_recover().begin(
         &run_id,
         &promoted_input_id,
         &prompt,
@@ -262,7 +262,7 @@ pub(crate) async fn run_task(
             let rate_limited = crate::auto_run::is_rate_limited_run_error(&error);
             let transient = !rate_limited && crate::auto_run::is_transient_run_error(&error);
             let auto_payload = {
-                let mut controllers = handles.auto_runs.lock().unwrap();
+                let mut controllers = handles.auto_runs.lock_or_recover();
                 let ctrl = controllers.entry(session_id.clone()).or_default();
                 if !crate::auto_run::should_retry_failed_round(ctrl) {
                     None
@@ -334,11 +334,11 @@ pub(crate) async fn run_task(
     let tools_vec: Vec<String> = {
         let mut names: std::collections::BTreeSet<String> =
             this_run_tools.keys().cloned().collect();
-        names.extend(subagent_tools.lock().unwrap().iter().cloned());
+        names.extend(subagent_tools.lock_or_recover().iter().cloned());
         names.into_iter().collect()
     };
     let auto_action_json = {
-        let mut controllers = handles.auto_runs.lock().unwrap();
+        let mut controllers = handles.auto_runs.lock_or_recover();
         let ctrl = controllers.entry(session_id.clone()).or_default();
         let ctx = kanzei_harness::auto_run::AutoRunCtx {
             backlog,

@@ -15,7 +15,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::{process_info, AppState, ProcessHandle, ProcessInfo, ProjectRoot, WorktreeRoot};
+use crate::{
+    process_info, AppState, MutexPoisonExt, ProcessHandle, ProcessInfo, ProjectRoot, WorktreeRoot,
+};
 use kanzei_tools::worktree as wt;
 
 /// R-178 D3:把 state.db 里该主项目的线/进程注册合入内存进程表。
@@ -62,7 +64,7 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
             (record, branch)
         })
         .collect::<Vec<_>>();
-    let mut processes = state.processes.lock().unwrap();
+    let mut processes = state.processes.lock_or_recover();
     for (record, restored_branch) in restored {
         let handle = processes
             .entry(record.process_id.clone())
@@ -86,10 +88,10 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
             });
         handle.branch = restored_branch;
         // 库值回填:process_update 每次落库,库是持久字段的权威。
-        *handle.model.lock().unwrap() = record.model;
-        *handle.profile.lock().unwrap() = record.profile;
-        *handle.reasoning.lock().unwrap() = record.reasoning;
-        *handle.manual_models.lock().unwrap() = record.manual_models;
+        *handle.model.lock_or_recover() = record.model;
+        *handle.profile.lock_or_recover() = record.profile;
+        *handle.reasoning.lock_or_recover() = record.reasoning;
+        *handle.manual_models.lock_or_recover() = record.manual_models;
         handle
             .phase_pipeline_enabled
             .store(record.phase_pipeline, Ordering::SeqCst);
@@ -112,7 +114,7 @@ pub(crate) fn restore_processes_from_store_once(
     root: &Path,
 ) -> Result<(), String> {
     let project = root.display().to_string();
-    let mut restored = state.restored_projects.lock().unwrap();
+    let mut restored = state.restored_projects.lock_or_recover();
     if restored.contains(&project) {
         return Ok(());
     }
@@ -124,8 +126,7 @@ pub(crate) fn restore_processes_from_store_once(
 pub(crate) fn mark_project_restored(state: &AppState, root: &Path) {
     state
         .restored_projects
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .insert(root.display().to_string());
 }
 
@@ -144,10 +145,10 @@ pub(crate) fn persist_process(root: &Path, process: &ProcessHandle) -> Result<()
                 .worktree_path
                 .as_ref()
                 .map(|worktree| worktree.0.display().to_string()),
-            model: process.model.lock().unwrap().clone(),
-            profile: process.profile.lock().unwrap().clone(),
-            reasoning: process.reasoning.lock().unwrap().clone(),
-            manual_models: process.manual_models.lock().unwrap().clone(),
+            model: process.model.lock_or_recover().clone(),
+            profile: process.profile.lock_or_recover().clone(),
+            reasoning: process.reasoning.lock_or_recover().clone(),
+            manual_models: process.manual_models.lock_or_recover().clone(),
             phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
             subagents_enabled: process.subagents_enabled.load(Ordering::SeqCst),
             tracker_writes_enabled: process.tracker_writes_enabled.load(Ordering::SeqCst),
@@ -179,8 +180,7 @@ pub(crate) fn bound_thread_for_worktree(
     let in_memory = {
         state
             .processes
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .values()
             .find(|process| {
                 process
@@ -259,7 +259,7 @@ pub(crate) fn register_process(
         subagents_enabled,
         tracker_writes,
     } = settings;
-    let mut processes = state.processes.lock().unwrap();
+    let mut processes = state.processes.lock_or_recover();
 
     // 二次查重:建树期间内存锁是放开的,`restore_processes_from_store` 可能把库里的
     // 绑定合了进来。
@@ -319,10 +319,10 @@ pub(crate) fn register_process(
                 .worktree_path
                 .as_ref()
                 .map(|worktree| worktree.0.display().to_string()),
-            model: process.model.lock().unwrap().clone(),
-            profile: process.profile.lock().unwrap().clone(),
-            reasoning: process.reasoning.lock().unwrap().clone(),
-            manual_models: process.manual_models.lock().unwrap().clone(),
+            model: process.model.lock_or_recover().clone(),
+            profile: process.profile.lock_or_recover().clone(),
+            reasoning: process.reasoning.lock_or_recover().clone(),
+            manual_models: process.manual_models.lock_or_recover().clone(),
             phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
             subagents_enabled: process.subagents_enabled.load(Ordering::SeqCst),
             tracker_writes_enabled: process.tracker_writes_enabled.load(Ordering::SeqCst),

@@ -7029,3 +7029,18 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-513
 - 收尾: 1787015126
 - 源码指纹: fbad10b00f0a87b8
+
+## T-1786922726335 D-525 多行 Mutex lock unwrap 定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-app; $files = @('crates/kanzei-app/src/state.rs','crates/kanzei-app/src/processes/registry.rs','crates/kanzei-app/src/run/coordinator.rs','crates/kanzei-app/src/run/persistence.rs','crates/kanzei-app/src/mobile.rs'); rg -U -n '\.lock\(\)\s*\n\s*\.unwrap\(\)' $files; if ($LASTEXITCODE -eq 0) { exit 1 }
+- 时长: 12.1s
+- 摘要: D-525 修复后回归：kanzei-app 209 passed；五个目标文件的同一行及跨行 `.lock()` 后 `.unwrap()` 源码巡检均无匹配；新增紧凑空白巡检守护通过。
+- 关联: D-525 D-506
+- 收尾: 1787015332
+
+## T-1786922726336 D-525 当前 staged 源码定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-app; $files = @('crates/kanzei-app/src/state.rs','crates/kanzei-app/src/processes/registry.rs','crates/kanzei-app/src/run/coordinator.rs','crates/kanzei-app/src/run/persistence.rs','crates/kanzei-app/src/mobile.rs'); rg -U -n '\.lock\(\)\s*\n\s*\.unwrap\(\)' $files; if ($LASTEXITCODE -eq 0) { Write-Error 'found cross-line lock().unwrap()'; exit 1 }; rg -n '\.lock\(\)\.unwrap\(\)' $files; if ($LASTEXITCODE -eq 0) { Write-Error 'found same-line lock().unwrap()'; exit 1 }; Write-Output 'no same-line or cross-line lock().unwrap() matches'
+- 时长: 11.4s
+- 摘要: 按当前 staged 源码重跑 D-525：kanzei-app 209 passed；格式检查通过；五个目标文件同一行与跨行 `.lock()` 后 `.unwrap()` 均无匹配；state_tests 紧凑空白守护通过。
+- 关联: D-525 D-506
+- 收尾: 1787015481
+- 源码指纹: 90306f2ee8a23bfa

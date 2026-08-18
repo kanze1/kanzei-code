@@ -19,9 +19,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::json;
 use tauri::State;
 
-use crate::normalized_project_root;
 use crate::state::{MobileDeviceInfo, MobileService, MobileServiceInfo, SessionRuntime};
-use crate::AppState;
+use crate::{normalized_project_root, AppState, MutexPoisonExt};
 
 /// D-386:随机源——配对码/设备 token 不再用「pid+纳秒」可预测形态,改用
 /// 纳秒 + 进程内递增计数器 + 随机种子混合(无 rand 依赖,std 实现)。
@@ -157,7 +156,7 @@ fn handle_mobile_connection(
             .get("pair_code")
             .and_then(|value| value.as_str())
             .unwrap_or_default();
-        let expected = pair_code.lock().unwrap().clone().unwrap_or_default();
+        let expected = pair_code.lock_or_recover().clone().unwrap_or_default();
         if submitted.is_empty() || submitted != expected {
             let _ = stream.write_all(&mobile_json_response(
                 "401 Unauthorized",
@@ -166,11 +165,10 @@ fn handle_mobile_connection(
             return;
         }
         // 配对成功:清空一次性配对码,生成设备 token(D-386:写 SQLite 持久化)。
-        *pair_code.lock().unwrap() = None;
+        *pair_code.lock_or_recover() = None;
         let (device_id, device_token) = generate_device_credentials();
         devices
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .insert(device_id.clone(), device_token.clone());
         // D-386:设备表落 SQLite——重启后已配对设备仍在,撤销跨重启有效。
         if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
@@ -192,7 +190,7 @@ fn handle_mobile_connection(
     }
 
     // 其它端点:设备 token 认证。
-    if !mobile_authorized(&request_head, &devices.lock().unwrap()) {
+    if !mobile_authorized(&request_head, &devices.lock_or_recover()) {
         let _ = stream.write_all(&mobile_json_response(
             "401 Unauthorized",
             &json!({"error": "device_revoked_or_unauthorized"}),
@@ -336,9 +334,9 @@ fn consume_mobile_message(
     let message = kanzei_llm::Message::user_text(text);
     // ①注入内存 conversation(会话在跑时),并收集该会话消息全量用于持久化。
     let mut persisted_messages: Option<Vec<kanzei_llm::Message>> = None;
-    let runtimes = runtimes.lock().unwrap();
+    let runtimes = runtimes.lock_or_recover();
     if let Some(runtime) = runtimes.get(thread_id) {
-        let mut conversation = runtime.conversation.lock().unwrap();
+        let mut conversation = runtime.conversation.lock_or_recover();
         let messages = conversation.entry(thread_id.to_string()).or_default();
         messages.push(message.clone());
         persisted_messages = Some(messages.clone());
@@ -364,10 +362,10 @@ fn consume_mobile_message(
 fn approval_pending_list(
     runtimes: &Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
 ) -> serde_json::Value {
-    let runtimes = runtimes.lock().unwrap();
+    let runtimes = runtimes.lock_or_recover();
     let mut items = Vec::new();
     for runtime in runtimes.values() {
-        let asks = runtime.asks.lock().unwrap();
+        let asks = runtime.asks.lock_or_recover();
         for (id, pending) in asks.iter() {
             let (kind, action, resource) = match &pending.request {
                 kanzei_core::AskRequest::Permission { action, resource } => {
@@ -419,10 +417,10 @@ fn approval_answer(
     if reply.is_empty() {
         return Err("answer 需要 reply(allow|deny 或回答文本)".to_string());
     }
-    let runtimes = runtimes.lock().unwrap();
+    let runtimes = runtimes.lock_or_recover();
     let mut found = None;
     for runtime in runtimes.values() {
-        if let Some(pending) = runtime.asks.lock().unwrap().remove(&id) {
+        if let Some(pending) = runtime.asks.lock_or_recover().remove(&id) {
             found = Some(pending);
             break;
         }
@@ -583,7 +581,7 @@ fn handle_sse(
             return;
         }
         // D-388:撤销检查——设备已从表移除(token 失效)时断开,不再收事件。
-        let device_exists = devices.lock().unwrap().contains_key(&device_id);
+        let device_exists = devices.lock_or_recover().contains_key(&device_id);
         if !device_exists {
             return;
         }
@@ -641,7 +639,7 @@ pub fn mobile_service_start(
     port: Option<u16>,
     lan: Option<bool>,
 ) -> Result<MobileServiceInfo, String> {
-    if state.mobile_service.lock().unwrap().is_some() {
+    if state.mobile_service.lock_or_recover().is_some() {
         return Err("移动端桥接服务已经启动".into());
     }
     let root = normalized_project_root(Path::new(&project_dir));
@@ -667,7 +665,7 @@ pub fn mobile_service_start(
         let state_path = kanzei_core::project_state_path(&root);
         if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
             if let Ok(devices_snapshot) = store.list_mobile_devices() {
-                let mut map = devices.lock().unwrap();
+                let mut map = devices.lock_or_recover();
                 for (device_id, device_token, _name, _paired_at) in devices_snapshot {
                     map.insert(device_id, device_token);
                 }
@@ -721,8 +719,7 @@ pub fn mobile_service_start(
         lan: service_ref.lan,
         devices: service_ref
             .devices
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .keys()
             .map(|device_id| MobileDeviceInfo {
                 device_id: device_id.clone(),
@@ -731,7 +728,7 @@ pub fn mobile_service_start(
             })
             .collect(),
     };
-    *state.mobile_service.lock().unwrap() = Some(service_ref);
+    *state.mobile_service.lock_or_recover() = Some(service_ref);
     Ok(info)
 }
 
@@ -739,9 +736,9 @@ pub fn mobile_service_start(
 /// D-386:同步删 SQLite 持久化行——撤销跨重启有效。
 #[tauri::command]
 pub fn mobile_device_revoke(state: State<'_, AppState>, device_id: String) -> Result<(), String> {
-    let guard = state.mobile_service.lock().unwrap();
+    let guard = state.mobile_service.lock_or_recover();
     let service = guard.as_ref().ok_or("移动端桥接服务未启动")?;
-    let removed = service.devices.lock().unwrap().remove(&device_id);
+    let removed = service.devices.lock_or_recover().remove(&device_id);
     if removed.is_some() {
         // 同步删 SQLite(持久真源);内存表已删,失败只记日志不阻塞。
         let state_path = kanzei_core::project_state_path(&service.project_root);
@@ -758,20 +755,20 @@ pub fn mobile_device_revoke(state: State<'_, AppState>, device_id: String) -> Re
 /// 原配对码一次性用完即 None,此命令让用户能再次配对新设备而不必重启服务。
 #[tauri::command]
 pub fn mobile_pair_code_regenerate(state: State<'_, AppState>) -> Result<String, String> {
-    let guard = state.mobile_service.lock().unwrap();
+    let guard = state.mobile_service.lock_or_recover();
     let service = guard.as_ref().ok_or("移动端桥接服务未启动")?;
     let new_code = random_token("kz-pair");
-    *service.pair_code.lock().unwrap() = Some(new_code.clone());
+    *service.pair_code.lock_or_recover() = Some(new_code.clone());
     Ok(new_code)
 }
 
 /// 当前设备列表(设置页展示与撤销入口)。D-386:paired_at_ms 从 SQLite 读。
 #[tauri::command]
 pub fn mobile_device_list(state: State<'_, AppState>) -> Result<Vec<MobileDeviceInfo>, String> {
-    let guard = state.mobile_service.lock().unwrap();
+    let guard = state.mobile_service.lock_or_recover();
     let service = guard.as_ref().ok_or("移动端桥接服务未启动")?;
     // 读取配对码状态(设置页据此提示「正在等待配对」或「已配对 N 台」)。
-    let _pending_pair = service.pair_code.lock().unwrap().is_some();
+    let _pending_pair = service.pair_code.lock_or_recover().is_some();
     // paired_at_ms 从 SQLite 读(内存表只存 id→token);SQLite 读失败回落内存表。
     let state_path = kanzei_core::project_state_path(&service.project_root);
     if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
@@ -786,7 +783,7 @@ pub fn mobile_device_list(state: State<'_, AppState>) -> Result<Vec<MobileDevice
                 .collect());
         }
     }
-    let devices = service.devices.lock().unwrap();
+    let devices = service.devices.lock_or_recover();
     Ok(devices
         .keys()
         .map(|device_id| MobileDeviceInfo {
@@ -799,7 +796,7 @@ pub fn mobile_device_list(state: State<'_, AppState>) -> Result<Vec<MobileDevice
 
 #[tauri::command]
 pub fn mobile_service_stop(state: State<'_, AppState>) -> Result<(), String> {
-    if let Some(service) = state.mobile_service.lock().unwrap().take() {
+    if let Some(service) = state.mobile_service.lock_or_recover().take() {
         service.active.store(false, Ordering::SeqCst);
         Ok(())
     } else {
@@ -932,7 +929,7 @@ mod tests {
     fn approval_pending_列出脱敏摘要() {
         let runtime = Arc::new(SessionRuntime::default());
         let (_sender, _rx) = tokio::sync::oneshot::channel();
-        runtime.asks.lock().unwrap().insert(
+        runtime.asks.lock_or_recover().insert(
             7,
             crate::PendingAsk {
                 sender: _sender,
@@ -969,7 +966,7 @@ mod tests {
     fn approval_answer_permission放行与拒绝送达() {
         let runtime = Arc::new(SessionRuntime::default());
         let (tx, mut rx) = tokio::sync::oneshot::channel();
-        runtime.asks.lock().unwrap().insert(
+        runtime.asks.lock_or_recover().insert(
             3,
             crate::PendingAsk {
                 sender: tx,
@@ -1005,7 +1002,7 @@ mod tests {
         let runtime = Arc::new(SessionRuntime::default());
         // deny 场景。
         let (tx, mut rx) = tokio::sync::oneshot::channel();
-        runtime.asks.lock().unwrap().insert(
+        runtime.asks.lock_or_recover().insert(
             4,
             crate::PendingAsk {
                 sender: tx,
@@ -1021,7 +1018,7 @@ mod tests {
         );
         // question 场景。
         let (tx2, mut rx2) = tokio::sync::oneshot::channel();
-        runtime.asks.lock().unwrap().insert(
+        runtime.asks.lock_or_recover().insert(
             5,
             crate::PendingAsk {
                 sender: tx2,

@@ -435,3 +435,24 @@ fn project_root_normalizes_equivalent_paths() {
         std::fs::canonicalize(current).unwrap()
     );
 }
+
+#[test]
+fn d506_hot_path_mutex_locks_use_poison_recovery() {
+    let files = [
+        "src/state.rs",
+        "src/processes/registry.rs",
+        "src/run/coordinator.rs",
+        "src/run/persistence.rs",
+        "src/mobile.rs",
+    ];
+    for file in files {
+        let source =
+            std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(file))
+                .unwrap_or_else(|error| panic!("读取 {file} 失败: {error}"));
+        let compact: String = source.chars().filter(|ch| !ch.is_whitespace()).collect();
+        assert!(
+            !compact.contains(".lock().unwrap()"),
+            "D-506 热路径仍存在 poisoned mutex panic 写法: {file}"
+        );
+    }
+}

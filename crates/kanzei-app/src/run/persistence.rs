@@ -18,7 +18,10 @@ use std::sync::{Arc, Mutex};
 use serde_json::json;
 use tauri::Emitter;
 
-use crate::{flush_live_run, flush_live_trace, memory, typed_events, with_session_id, LiveRun};
+use crate::{
+    flush_live_run, flush_live_trace, memory, typed_events, with_session_id, LiveRun,
+    MutexPoisonExt,
+};
 
 use super::assembly::{RuntimeDeps, RuntimeHandles, WriterLeaseTrace};
 use super::{append_run_notification, compaction_input_tokens, report_persistence_failure};
@@ -94,8 +97,7 @@ pub(crate) fn persist_round_outcome(
         match run_result {
             Ok(summary) => {
                 typed_writer
-                    .lock()
-                    .unwrap()
+                    .lock_or_recover()
                     .finish(if summary.halted_by_user {
                         typed_events::TerminalFact::Stopped
                     } else {
@@ -172,7 +174,7 @@ pub(crate) fn persist_round_outcome(
                 let _ = store.finish_input(promoted_input_id, true);
                 // 富 episode(带工具画像/上下文账单)已写,标记防重:停止路径的
                 // flush_live_run 不该再补一条信息量更少的(D-179)。
-                live.lock().unwrap().flushed = true;
+                live.lock_or_recover().flushed = true;
                 if let Err(error) =
                     append_run_notification(store, session_id, "succeeded", "任务完成", false)
                 {
@@ -209,10 +211,9 @@ pub(crate) fn persist_round_outcome(
             }
             Err(error) => {
                 typed_writer
-                    .lock()
-                    .unwrap()
+                    .lock_or_recover()
                     .finish(typed_events::TerminalFact::Failed(error.to_string()));
-                typed_writer.lock().unwrap().write_shadow_report(prior);
+                typed_writer.lock_or_recover().write_shadow_report(prior);
                 if let Err(persistence_error) = store.set_status(session_id, "failed") {
                     report_persistence_failure(
                         window,
@@ -311,8 +312,7 @@ pub(crate) async fn finalize_round(
     let client = &deps.client;
     let halt_slot = &handles.halt_slot;
     conversation
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .insert(session_id.to_string(), summary.messages.clone());
 
     // R-236 B1:轮末压缩走 core 同一份 compact_with_digest——保任务定义、保近期
@@ -328,8 +328,7 @@ pub(crate) async fn finalize_round(
             config.limits.compact_buffer_tokens(),
         );
         let mut conv = conversation
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .get(session_id)
             .cloned()
             .unwrap_or_default();
@@ -353,8 +352,7 @@ pub(crate) async fn finalize_round(
                 );
                 estimate = after_prune;
                 conversation
-                    .lock()
-                    .unwrap()
+                    .lock_or_recover()
                     .insert(session_id.to_string(), conv.clone());
             }
         }
@@ -392,12 +390,11 @@ pub(crate) async fn finalize_round(
                     })
                     .unwrap_or_default();
                 conversation
-                    .lock()
-                    .unwrap()
+                    .lock_or_recover()
                     .insert(session_id.to_string(), conv);
                 // 被压段的轨迹摘要随轮末落 live trace,复盘可查(与轮内 overflow 同源语义)。
                 for trace in compact_traces {
-                    let mut live = live.lock().unwrap();
+                    let mut live = live.lock_or_recover();
                     live.trace
                         .push(json!({ "kind": "compaction.dropped", "detail": trace }));
                 }
@@ -425,8 +422,7 @@ pub(crate) async fn finalize_round(
     }
 
     let messages = conversation
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .get(session_id)
         .cloned()
         .unwrap_or_default();
@@ -443,7 +439,9 @@ pub(crate) async fn finalize_round(
         ) {
             report_persistence_failure(window, session_id, "写入对话历史", error);
         }
-        typed_writer.lock().unwrap().write_shadow_report(&messages);
+        typed_writer
+            .lock_or_recover()
+            .write_shadow_report(&messages);
     }
     typed_flush_task.abort();
     let _ = window.emit(
@@ -484,6 +482,6 @@ pub(crate) async fn finalize_round(
         }
     }
     // D-342:本 run 收尾,收回停止令牌(stop 已 take 过则本来就是 None,幂等)。
-    halt_slot.lock().unwrap().take();
+    halt_slot.lock_or_recover().take();
     Ok(())
 }

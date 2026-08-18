@@ -10,6 +10,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
+/// D-506:std Mutex 中的 poison 只表示持锁线程曾 panic，不应让后续桌面命令级联 panic。
+pub(crate) trait MutexPoisonExt<T> {
+    fn lock_or_recover(&self) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> MutexPoisonExt<T> for Mutex<T> {
+    fn lock_or_recover(&self) -> std::sync::MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
 pub(crate) fn prompt_attachment_parts(
     attachments: Vec<PromptAttachment>,
 ) -> anyhow::Result<Vec<kanzei_llm::Part>> {
@@ -86,16 +97,16 @@ pub(crate) async fn ui_probe(kind: &str, arg: &str) -> Result<serde_json::Value,
     };
     let id = UI_PROBE_SEQ.fetch_add(1, Ordering::SeqCst);
     let (tx, rx) = oneshot::channel();
-    UI_PROBES.lock().unwrap().insert(id, tx);
+    UI_PROBES.lock_or_recover().insert(id, tx);
     emit(json!({"id": id, "kind": kind, "arg": arg}));
     match tokio::time::timeout(std::time::Duration::from_secs(8), rx).await {
         Ok(Ok(value)) => Ok(value),
         Ok(Err(_)) => {
-            UI_PROBES.lock().unwrap().remove(&id);
+            UI_PROBES.lock_or_recover().remove(&id);
             Err("UI 探针通道已关闭".into())
         }
         Err(_) => {
-            UI_PROBES.lock().unwrap().remove(&id);
+            UI_PROBES.lock_or_recover().remove(&id);
             Err("UI 探针超时(8s):窗口可能正忙或未加载完成".into())
         }
     }
@@ -103,7 +114,7 @@ pub(crate) async fn ui_probe(kind: &str, arg: &str) -> Result<serde_json::Value,
 
 #[tauri::command]
 pub fn ui_probe_result(id: u64, result: serde_json::Value) {
-    if let Some(sender) = UI_PROBES.lock().unwrap().remove(&id) {
+    if let Some(sender) = UI_PROBES.lock_or_recover().remove(&id) {
         let _ = sender.send(result);
     }
 }
@@ -197,7 +208,7 @@ pub(crate) fn flush_live_run(
     live: &Arc<Mutex<LiveRun>>,
     outcome: &str,
 ) -> bool {
-    let mut live = live.lock().unwrap();
+    let mut live = live.lock_or_recover();
     if live.flushed || live.started_at.is_none() {
         return false;
     }
@@ -232,7 +243,7 @@ pub(crate) fn flush_live_trace(
     session_id: &str,
     live: &Arc<Mutex<LiveRun>>,
 ) -> bool {
-    let mut live = live.lock().unwrap();
+    let mut live = live.lock_or_recover();
     flush_live_trace_locked(store, session_id, &mut live, None)
 }
 
@@ -298,7 +309,7 @@ pub(crate) fn record_live_trace(
     event: serde_json::Value,
 ) -> bool {
     let (run_id, index) = {
-        let mut live = live.lock().unwrap();
+        let mut live = live.lock_or_recover();
         if live.started_at.is_none() {
             return false;
         }
@@ -313,7 +324,7 @@ pub(crate) fn record_live_trace(
         )
         .is_ok()
     {
-        let mut live = live.lock().unwrap();
+        let mut live = live.lock_or_recover();
         if live.persisted_trace_events == index {
             live.persisted_trace_events += 1;
         }
@@ -576,7 +587,7 @@ pub(crate) fn process_session_id(root: &Path, process_id: Option<&str>) -> Strin
 }
 pub(crate) fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHandle {
     let id = default_process_id(root);
-    let mut processes = state.processes.lock().unwrap();
+    let mut processes = state.processes.lock_or_recover();
     processes
         .entry(id.clone())
         .or_insert_with(|| ProcessHandle {
@@ -603,16 +614,14 @@ pub(crate) fn process_info(state: &AppState, process: &ProcessHandle) -> Process
     let session_id = process_session_id(root, Some(&process.id));
     let running = state
         .runtimes
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .get(&session_id)
         .is_some_and(|runtime| runtime.running.load(Ordering::SeqCst));
     let stage = state
         .runtimes
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .get(&session_id)
-        .map(|runtime| runtime.stage.lock().unwrap().clone())
+        .map(|runtime| runtime.stage.lock_or_recover().clone())
         .unwrap_or_else(|| "空闲".into());
     ProcessInfo {
         id: process.id.clone(),
@@ -625,10 +634,10 @@ pub(crate) fn process_info(state: &AppState, process: &ProcessHandle) -> Process
             .map(|worktree| worktree.0.display().to_string()),
         branch: process.branch.clone(),
         session_id,
-        model: process.model.lock().unwrap().clone(),
-        profile: process.profile.lock().unwrap().clone(),
-        reasoning: process.reasoning.lock().unwrap().clone(),
-        manual_models: process.manual_models.lock().unwrap().clone(),
+        model: process.model.lock_or_recover().clone(),
+        profile: process.profile.lock_or_recover().clone(),
+        reasoning: process.reasoning.lock_or_recover().clone(),
+        manual_models: process.manual_models.lock_or_recover().clone(),
         phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
         subagents_enabled: process.subagents_enabled.load(Ordering::SeqCst),
         tracker_writes: process.tracker_writes_enabled.load(Ordering::SeqCst),
@@ -649,8 +658,7 @@ pub(crate) fn process_info(state: &AppState, process: &ProcessHandle) -> Process
 pub(crate) fn runtime_for(state: &AppState, session_id: &str) -> Arc<SessionRuntime> {
     state
         .runtimes
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .entry(session_id.to_string())
         .or_insert_with(|| Arc::new(SessionRuntime::default()))
         .clone()
@@ -667,7 +675,7 @@ pub(crate) const STOP_GRACE_SECS: u64 = 30;
 /// 拆出的旧路径)——那里随后就删工作树,不能让 run 多活 30 秒。
 /// D-513:回收已经结束的 stop watchdog，保留仍在宽限期内的线程句柄。
 pub(crate) fn reap_stop_watchdogs(runtime: &SessionRuntime) {
-    let mut watchdogs = runtime.stop_watchdogs.lock().unwrap();
+    let mut watchdogs = runtime.stop_watchdogs.lock_or_recover();
     let mut active = Vec::with_capacity(watchdogs.len());
     for watchdog in watchdogs.drain(..) {
         if watchdog.is_finished() {
@@ -687,15 +695,15 @@ pub(crate) fn stop_runtime_and_finalize(
     state_path: &Path,
     session_id: &str,
 ) -> Result<usize, kanzei_core::StoreError> {
-    let _lifecycle = runtime.lifecycle.lock().unwrap();
+    let _lifecycle = runtime.lifecycle.lock_or_recover();
     reap_stop_watchdogs(runtime);
-    let halt_token = runtime.halt.lock().unwrap().take();
+    let halt_token = runtime.halt.lock_or_recover().take();
     match halt_token {
         Some(token) if runtime.running.load(Ordering::SeqCst) => {
             token.cancel();
             // 挂在权限/问题弹窗上的 run:清 pending ask,sender drop → Cancelled →
             // 既有 UserDeclined 路径立刻 halted 收尾,不用等检查点。
-            runtime.asks.lock().unwrap().clear();
+            runtime.asks.lock_or_recover().clear();
             let generation = runtime.run_generation.load(Ordering::SeqCst);
             let runtime_bg = Arc::clone(runtime);
             let state_path = state_path.to_path_buf();
@@ -708,7 +716,7 @@ pub(crate) fn stop_runtime_and_finalize(
             );
             let watchdog = std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(STOP_GRACE_SECS));
-                let _lifecycle = runtime_bg.lifecycle.lock().unwrap();
+                let _lifecycle = runtime_bg.lifecycle.lock_or_recover();
                 if stale_run_needs_abort(
                     runtime_bg.run_generation.load(Ordering::SeqCst),
                     generation,
@@ -732,30 +740,30 @@ pub(crate) fn stop_runtime_and_finalize(
                             );
                         }
                     }
-                    if let Some(handle) = runtime_bg.current_run.lock().unwrap().take() {
+                    if let Some(handle) = runtime_bg.current_run.lock_or_recover().take() {
                         handle.abort();
                         tracing::info!(session_id = %session_bg, "stop watchdog aborted run handle");
                     } else {
                         tracing::warn!(session_id = %session_bg, "stop watchdog found no run handle to abort");
                     }
                     runtime_bg.running.store(false, Ordering::SeqCst);
-                    *runtime_bg.stage.lock().unwrap() = "空闲".into();
+                    *runtime_bg.stage.lock_or_recover() = "空闲".into();
                 } else {
                     tracing::debug!(session_id = %session_bg, generation, "stop watchdog observed run already settled or replaced");
                 }
             });
-            runtime.stop_watchdogs.lock().unwrap().push(watchdog);
+            runtime.stop_watchdogs.lock_or_recover().push(watchdog);
             store.finalize_interrupt(session_id)
         }
         // 无活跃 run(或令牌已被上一轮收走):立即终态化,与旧行为一致。
         _ => {
             flush_live_run(store, session_id, &runtime.live, "halted");
-            if let Some(handle) = runtime.current_run.lock().unwrap().take() {
+            if let Some(handle) = runtime.current_run.lock_or_recover().take() {
                 handle.abort();
             }
-            runtime.asks.lock().unwrap().clear();
+            runtime.asks.lock_or_recover().clear();
             runtime.running.store(false, Ordering::SeqCst);
-            *runtime.stage.lock().unwrap() = "空闲".into();
+            *runtime.stage.lock_or_recover() = "空闲".into();
             store.finalize_interrupt(session_id)
         }
     }
@@ -778,23 +786,22 @@ pub(crate) fn halt_runtime_immediately(
     store: &kanzei_core::SessionStore,
     session_id: &str,
 ) -> Result<usize, kanzei_core::StoreError> {
-    let _lifecycle = runtime.lifecycle.lock().unwrap();
+    let _lifecycle = runtime.lifecycle.lock_or_recover();
     flush_live_run(store, session_id, &runtime.live, "halted");
-    if let Some(handle) = runtime.current_run.lock().unwrap().take() {
+    if let Some(handle) = runtime.current_run.lock_or_recover().take() {
         handle.abort();
     }
-    runtime.asks.lock().unwrap().clear();
+    runtime.asks.lock_or_recover().clear();
     runtime.running.store(false, Ordering::SeqCst);
-    *runtime.stage.lock().unwrap() = "空闲".into();
+    *runtime.stage.lock_or_recover() = "空闲".into();
     store.finalize_interrupt(session_id)
 }
 pub(crate) fn take_pending_ask(state: &AppState, id: u64) -> Option<PendingAsk> {
     state
         .runtimes
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .values()
-        .find_map(|runtime| runtime.asks.lock().unwrap().remove(&id))
+        .find_map(|runtime| runtime.asks.lock_or_recover().remove(&id))
 }
 pub(crate) fn pending_ask_payload(id: u64, pending: &PendingAsk) -> serde_json::Value {
     let payload = match &pending.request {
@@ -844,7 +851,7 @@ mod tests {
         let (path, store) = temp_store("batches");
         let live = Arc::new(Mutex::new(LiveRun::default()));
         {
-            let mut live = live.lock().unwrap();
+            let mut live = live.lock_or_recover();
             live.begin("run_big", "input_1", "prompt", "provider", "model");
             // 30 条各 ~3KB 的事件:总量约 90KB,必然跨 2 批(64KB 上限)。
             for index in 0..30 {
@@ -932,7 +939,7 @@ mod tests {
         // 验证的是「prune 被调用且不误删」——真正删旧轮的语义由 core 层测试覆盖。
         let live = Arc::new(Mutex::new(LiveRun::default()));
         {
-            let mut live = live.lock().unwrap();
+            let mut live = live.lock_or_recover();
             live.begin("run_new", "input_2", "prompt", "provider", "model");
             live.trace.push(json!({"kind": "turn.started", "step": 1}));
         }
