@@ -11,7 +11,7 @@ use super::*;
 mod question;
 use question::execute_question;
 mod task_results;
-use task_results::task_result_part;
+use task_results::tool_result_part;
 
 /// R-183:命中规则的展示原文,用于 PermissionResolved.rule 轨迹(验收④)。
 fn describe_rule(rule: &kanzei_harness::permission::Rule) -> String {
@@ -1017,7 +1017,7 @@ async fn execute_tool_calls(
                 let output = task_results.remove(&id).unwrap_or_else(|| {
                     kanzei_harness::ToolOutput::error("internal: task result missing")
                 });
-                slots[index] = Some(task_result_part(id, output));
+                slots[index] = Some(tool_result_part(id, output));
                 continue;
             }
             let tool = tools
@@ -1068,12 +1068,7 @@ async fn execute_tool_calls(
                     display: None,
                     artifact: None,
                 });
-                let model_content = output.model_content();
-                slots[index] = Some(Part::ToolResult {
-                    call_id: id,
-                    content: model_content,
-                    is_error: true,
-                });
+                slots[index] = Some(tool_result_part(id, output));
                 continue;
             }
             let concurrency = tool.concurrency(&input, ctx);
@@ -1151,7 +1146,7 @@ async fn execute_tool_calls(
                 let output = task_results.remove(&id).unwrap_or_else(|| {
                     kanzei_harness::ToolOutput::error("internal: task result missing")
                 });
-                results.push(task_result_part(id, output));
+                results.push(tool_result_part(id, output));
                 continue;
             }
             let Some(tool) = tools.iter().find(|t| t.name() == name) else {
@@ -1189,12 +1184,7 @@ async fn execute_tool_calls(
                     display: output.display.clone(),
                     artifact: output.artifact.clone(),
                 });
-                let model_content = output.model_content();
-                results.push(Part::ToolResult {
-                    call_id: id,
-                    content: model_content,
-                    is_error: output.is_error,
-                });
+                results.push(tool_result_part(id, output));
                 continue;
             }
 

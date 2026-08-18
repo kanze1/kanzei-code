@@ -5,7 +5,7 @@
 
 use super::*;
 
-pub(super) fn task_result_part(call_id: String, output: kanzei_harness::ToolOutput) -> Part {
+pub(super) fn tool_result_part(call_id: String, output: kanzei_harness::ToolOutput) -> Part {
     Part::ToolResult {
         call_id,
         content: output.model_content(),
