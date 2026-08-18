@@ -284,10 +284,10 @@
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
 - 批次: 5/5
-- 进展: B5 已完成并待提交：① D-544 根因位于 `crates/kanzei/src/cli/metrics.rs:102-122`，生命周期 `'static` 被误当字符字面量，导致 cfg(test) 配平提前结束；修复同文件字符扫描分支，区分 `'static`/`'_` 与 `'a'`/转义字符；② 回归测试位于 `metrics.rs:581-594`，T-1786922726449：`cargo fmt --all -- --check; cargo test -p kanzei`，单元 40、集成 32 全通过；③ T-1786922726450 重跑 `cargo run -p kanzei -- metrics --top 30`，background.rs 移出 Top-30，生产巨石 6→5；④ `docs/design/metrics_baseline.md:3,10-43,45-58` 更新为 B5 的 229 文件/5 巨石快照；⑤ 更新当前源码安装位 kz 后，T-1786922726452 重放 `scripts/metrics-regression-gate.ps1`：30 rows、巨石 5/5、单文件允许回涨 100 行通过。T-1786922726451 的 gate 失败确认为旧安装位 kz 版本不一致。R-300 仍 active：Top 目标拆解范围、前端合流既有能力复核、完整 verify 与最终全量验收尚未完成；下一步先提交 B5，再继续剩余验收。
-- observed_head: 836b46db36d825db862e52da8446f6a0db37df0f
-- observed_worktree_hash: fnv1a64:ff5676108c9077a6
-- recorded_at: 1787077453704
+- 进展: B5 已完成并已提交 `f28c8dc2`：① D-544 根因位于 `crates/kanzei/src/cli/metrics.rs:102-122`，生命周期 `'static` 被误当字符字面量，导致 cfg(test) 配平提前结束；修复同文件字符扫描分支，区分 `'static`/`'_` 与 `'a'`/转义字符；② 回归测试位于 `metrics.rs:581-594`，T-1786922726449：`cargo fmt --all -- --check; cargo test -p kanzei`，单元 40、集成 32 全通过；③ T-1786922726450 重跑 `cargo run -p kanzei -- metrics --top 30`，background.rs 移出 Top-30，生产巨石 6→5；④ `docs/design/metrics_baseline.md:3,10-43,45-58` 更新为 B5 的 229 文件/5 巨石快照；⑤ 更新当前源码安装位 kz 后，T-1786922726452 重放 `scripts/metrics-regression-gate.ps1`：30 rows、巨石 5/5、单文件允许回涨 100 行通过。T-1786922726451 的 gate 失败确认为旧安装位 kz 版本不一致。R-300 仍 active：Top 目标拆解范围、前端合流既有能力复核、完整 verify 与最终全量验收尚未完成；下一步 B6 先复核当前真实 Top-30 目标和剩余验收边界。
+- observed_head: f28c8dc233de6322ec1122d18cbf74ac8ee8d7c3
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787077545072
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 
