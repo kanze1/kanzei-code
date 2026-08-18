@@ -56,6 +56,15 @@ function refreshDocsSoon() {
   }, 400);
 }
 
+// 兜底轮询:agent 经 write/bash 直改台账文件时不产生 tracker 工具事件,侧栏要等
+// 整轮结束(kz:done)才刷(D-098 只覆盖了 req/defect 工具路径)。任一线路运行中
+// 每 20 秒补一次快照(仍走 refreshDocsSoon 的合并窗口与让路逻辑);空闲不打扰。
+setInterval(() => {
+  const anyRunning = typeof processItems !== "undefined"
+    && processItems.some((item) => item.running);
+  if (anyRunning) refreshDocsSoon();
+}, 20000);
+
 $("documents-project-select").addEventListener("change", (event) => {
   if (event.target.value && event.target.value !== currentProject) selectWorkspaceProject(event.target.value);
 });

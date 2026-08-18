@@ -2042,7 +2042,7 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
 }
 // D-207 三修:运行事实优先——纯文件状态推断会把挂着 fixing 的旧缺陷标成「正在做」,
 // 而 agent 实际在推别的条目(用户实测:指着缺陷,实做 R-117)。req/defect 的 update
-// 结果与批次提交都带条目 ID,运行证据一到就覆盖推断;新一轮 run 开跑即作废。
+// 结果与批次提交都带条目 ID,运行证据一到就覆盖推断;新一轮开跑降级为上轮遗留。
 {
   const savedFocusDocs = structuredClone(payloads.docs_snapshot);
   payloads.docs_snapshot = {
@@ -2070,16 +2070,18 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
     !document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
     "运行证据生效后,挂着 fixing 的旧缺陷不该再标「正在做」",
   );
-  // 新一轮 run 开跑(kz:turn step 1):上一轮证据作废,回落推断。
+  // 新一轮 run 开跑(kz:turn step 1):上一轮证据**降级为上轮遗留**而不是清空——
+  // 一轮前半段(勘察/写码/测试)不产生 tracker/提交事件,清空就是每轮开头一段
+  // 「未取得条目」空窗;上轮条目仍是最好的猜测,新证据到达时自然覆盖。
   handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: "sess-smoke" } });
   await sandbox.refreshDocs();
   assert(
-    document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
-    "新 run 开跑后旧运行证据未作废",
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]')?.classList.contains("agent-active"),
+    "新 run 开跑后上轮证据应保留(降级),「在做」指针不该跳回推断",
   );
   assert(
-    listText("focus-body").includes("取活顺序推断"),
-    `运行证据作废后焦点卡片未回落成推断:${listText("focus-body").slice(0, 160)}`,
+    listText("focus-body").includes("上轮运行证据"),
+    `轮开始后焦点依据应标注为上轮遗留:${listText("focus-body").slice(0, 160)}`,
   );
   payloads.docs_snapshot = savedFocusDocs;
   await sandbox.refreshDocs();

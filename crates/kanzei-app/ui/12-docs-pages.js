@@ -441,10 +441,14 @@ function activeProcessItem() {
     : null;
 }
 function setRuntimeFocus(id, sessionId = activeSessionId) {
-  if (sessionId && id) runtimeFocusBySession.set(sessionId, id);
+  if (sessionId && id) runtimeFocusBySession.set(sessionId, { id, stale: false });
 }
-function clearRuntimeFocus(sessionId = activeSessionId) {
-  if (sessionId) runtimeFocusBySession.delete(sessionId);
+// 轮开始不再删除运行证据,只降级为「上轮遗留」:一轮的前半段(勘察/写码/测试)
+// 不会产生任何 tracker/提交事件,删掉就是每轮开头一段"未取得条目"的空窗,
+// 面板看起来像不刷新。上轮条目仍是最好的猜测,新证据到达时自然覆盖。
+function markRuntimeFocusStale(sessionId = activeSessionId) {
+  const focus = sessionId ? runtimeFocusBySession.get(sessionId) : null;
+  if (focus) focus.stale = true;
 }
 function processIsPrimary(process) {
   return !process
@@ -471,15 +475,16 @@ function computeAgentFocus(snapshot, sessionId = activeSessionId, process = null
   const scopedEntries = focusEntriesForProcess(snapshot, process);
   const reqs = scopedEntries.filter((entry) => (snapshot.requirements ?? []).includes(entry));
   const defs = scopedEntries.filter((entry) => (snapshot.defects ?? []).includes(entry));
-  const runtimeFocusId = sessionId ? runtimeFocusBySession.get(sessionId) : null;
-  // 运行事实优先:证据指向的条目仍开放且属于当前线路才算数。
-  if (runtimeFocusId) {
+  const runtimeFocus = sessionId ? runtimeFocusBySession.get(sessionId) : null;
+  // 运行事实优先:证据指向的条目仍开放且属于当前线路才算数。上轮遗留的证据
+  // 降级标注(runtime-stale),但仍优于取活序推断——它至少指过真实工作。
+  if (runtimeFocus?.id) {
     const evidence = scopedEntries.find(
-      (entry) => entry.id === runtimeFocusId && !entry.closed
+      (entry) => entry.id === runtimeFocus.id && !entry.closed
     );
     if (evidence) {
       focus.active = evidence.id;
-      focus.activeSource = "runtime";
+      focus.activeSource = runtimeFocus.stale ? "runtime-stale" : "runtime";
     }
   }
   const queues =
@@ -610,8 +615,9 @@ function buildFocusCard(entry, kind, focusSource = agentFocus.activeSource) {
   source.className = "focus-source";
   source.textContent = `${t("依据")}: ${
     focusSource === "runtime" ? t("本轮运行证据")
-      : focusSource === "claim" ? t("取得线")
-        : t("取活顺序推断")
+      : focusSource === "runtime-stale" ? t("上轮运行证据")
+        : focusSource === "claim" ? t("取得线")
+          : t("取活顺序推断")
   }`;
   card.appendChild(source);
 
@@ -741,6 +747,17 @@ function renderFocusPanel(snapshot) {
   agentFocus = computeAgentFocus(snapshot, activeSessionId, activeProcessItem());
   body.replaceChildren();
   const lineFocuses = computeLineAgentFocuses(snapshot);
+  // 空态文案必须与待办统计同源:此前固定写「队列已清空或全部被阻塞」,和两行外的
+  // 「可执行 14」直接自相矛盾——没有 doing 条目 ≠ 队列空 ≠ 全阻塞,三种情况分开说。
+  const reqTally = backlogTally(snapshot?.requirements ?? [], "req");
+  const defectTally = backlogTally(snapshot?.defects ?? [], "defect");
+  const workableTotal = reqTally.workable + defectTally.workable;
+  const blockedTotal = reqTally.blocked + defectTally.blocked;
+  const emptyReason = workableTotal > 0
+    ? `${t("暂无进行中条目")} · ${workableTotal} ${t("条可执行待取活")}`
+    : blockedTotal > 0
+      ? t("可执行队列全部被阻塞")
+      : t("队列已清空");
   let hasAnyActive = false;
   for (const { line, focus } of lineFocuses) {
     const section = document.createElement("section");
@@ -761,12 +778,26 @@ function renderFocusPanel(snapshot) {
     } else {
       const empty = document.createElement("div");
       empty.className = "focus-empty line-focus-empty";
-      const line = document.createElement("div");
-      line.textContent = t("未取得条目");
+      const head = document.createElement("div");
       const why = document.createElement("div");
       why.className = "dim";
-      why.textContent = t("当前没有在做的条目");
-      empty.append(line, why);
+      // 绑工作树的并行线:取活事实写在它自己树的台账里,主树快照到 merge 前都看
+      // 不见——不能因此显示"未取得条目"误导成没在干活。collaboration_snapshot
+      // 的 claim 就是该线自己声明的条目,优先用它。
+      const collab = line && !processIsPrimary(line)
+        ? (typeof collaborationLines !== "undefined" ? collaborationLines : []).find(
+            (item) => item.branch && item.branch === line.branch,
+          )
+        : null;
+      if (collab?.claim) {
+        head.setAttribute("data-i18n-raw", "");
+        head.textContent = collab.claim;
+        why.textContent = t("取活事实在线路工作树内,合并后进入主列表");
+      } else {
+        head.textContent = t("未取得条目");
+        why.textContent = emptyReason;
+      }
+      empty.append(head, why);
       section.appendChild(empty);
     }
     body.appendChild(section);
@@ -778,7 +809,7 @@ function renderFocusPanel(snapshot) {
     line.textContent = t("当前没有在做的条目");
     const why = document.createElement("div");
     why.className = "dim";
-    why.textContent = t("队列已清空或全部被阻塞");
+    why.textContent = emptyReason;
     const open = document.createElement("button");
     open.type = "button";
     open.className = "ghost mini";
@@ -794,8 +825,9 @@ function renderFocusPanel(snapshot) {
   // 恰好等于未关闭需求数,整行可以被读成「22 条需求,其中 22 条阻塞」。而用户真正
   // 要的量——「现在还有几条能立刻开工」——根本不在屏幕上,得心算 28−22,还算不出
   // 是需求那边有 6 条还是缺陷那边有 6 条(实际缺陷一条都推不动)。
-  const req = backlogTally(snapshot?.requirements ?? [], "req");
-  const defect = backlogTally(snapshot?.defects ?? [], "defect");
+  // 与顶部空态文案同一份统计:两处各算一遍迟早漂移成又一次「数字对不上」。
+  const req = reqTally;
+  const defect = defectTally;
   const total = document.createElement("div");
   total.className = "backlog-total";
   total.appendChild(backlogStat("待办总数", req.active + defect.active, "total"));

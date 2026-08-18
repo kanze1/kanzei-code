@@ -20,8 +20,9 @@ on("kz:meta", (e) => {
 on("kz:turn", (e) => {
   const p = e.payload;
   neuralFlowEmit?.("run_started", { session_id: p.sessionId, step: p.step });
-  // 新一轮 run 开跑:上一轮的「在做」运行证据作废,重新从本轮动作里取。
-  if (p.step === 1) clearRuntimeFocus(p.sessionId);
+  // 新一轮 run 开跑:上一轮的「在做」运行证据降级为遗留(不删除)——删了就是
+  // 每轮开头一段"未取得条目"空窗;新证据到达时自然覆盖。
+  if (p.step === 1) markRuntimeFocusStale(p.sessionId);
   if (p.step > 1) {
     clearEmptyState();
     // 轮次分隔不再进主对话区(用户定调:对话为主);轮次在侧边栏"当前进展"实时可见。
