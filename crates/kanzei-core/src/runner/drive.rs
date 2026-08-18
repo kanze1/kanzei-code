@@ -10,6 +10,8 @@ use super::*;
 
 mod question;
 use question::execute_question;
+mod task_results;
+use task_results::task_result_part;
 
 /// R-183:命中规则的展示原文,用于 PermissionResolved.rule 轨迹(验收④)。
 fn describe_rule(rule: &kanzei_harness::permission::Rule) -> String {
@@ -1015,12 +1017,7 @@ async fn execute_tool_calls(
                 let output = task_results.remove(&id).unwrap_or_else(|| {
                     kanzei_harness::ToolOutput::error("internal: task result missing")
                 });
-                let model_content = output.model_content();
-                slots[index] = Some(Part::ToolResult {
-                    call_id: id,
-                    content: model_content,
-                    is_error: output.is_error,
-                });
+                slots[index] = Some(task_result_part(id, output));
                 continue;
             }
             let tool = tools
@@ -1154,12 +1151,7 @@ async fn execute_tool_calls(
                 let output = task_results.remove(&id).unwrap_or_else(|| {
                     kanzei_harness::ToolOutput::error("internal: task result missing")
                 });
-                let model_content = output.model_content();
-                results.push(Part::ToolResult {
-                    call_id: id,
-                    content: model_content,
-                    is_error: output.is_error,
-                });
+                results.push(task_result_part(id, output));
                 continue;
             }
             let Some(tool) = tools.iter().find(|t| t.name() == name) else {
