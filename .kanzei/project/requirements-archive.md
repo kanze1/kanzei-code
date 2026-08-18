@@ -3855,3 +3855,20 @@
 - observed_head: c3f9a6ffdeff75a9a5461184388ed538d609915c
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787059512807
+
+## R-300 大文件拆解第三轮与回涨闸门 [done]
+- refs: docs/design/metrics_baseline.md docs/design/monolith_decomposition_round2.md
+- 内容: Rust 侧:background.rs 2019 生产行居全仓 Top-1 却不在 R-257/R-202/R-204 任何拆解条目范围;drive.rs:930 execute_tool_calls 582 行及同文件 307/256/249 行函数群;profiles.rs:68/:605 同一 trait 方法两份实现(537+242 行);tracker/actions.rs 已回涨至 1356 行;kanzei/src/cli/run.rs:27 单函数 651 行且文件零测试。前端侧:08-compose.js 1535 行(拆解预算 941,超 60%),09-sessions/16-settings/11-docs-list/20-lines/07-events/06-activity 五文件回涨至 900+;06-agent-panel.js 是 06-activity.js 的逐行分叉复制(八对函数一一对应共用 bg-* CSS);index.html 1150 行 8 视图未拆。拆解后行数上限回涨闸门进 verify;完成后重跑 kz metrics 前后对照
+- 复杂度: 大
+- 来源: 2026-08-18 全库勘察;metrics_baseline.md 仅 08-16 单份基线从未重跑对照
+- 标签: 核心
+- 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
+- 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
+- 优先级: P2
+- 批次: 2/2
+- 进展: 关闭对账（逐条覆盖验收）：① Top 目标拆解落地——Rust 拆分落点为 `crates/kanzei-tools/src/background.rs:20-34`（lifecycle/persistent/registration）、`crates/kanzei-core/src/runner/drive.rs:11-22`（question/task_results/permissions/serial_tools/parallel_tools/assembly/context_budget）、`crates/kanzei-tools/src/profiles.rs:15-20`（dev/readonly/research）、`crates/kanzei/src/cli/run.rs:20-22`（events/finalize/permissions）、`crates/kanzei-tools/src/tracker/actions.rs:11-18`（maintenance/action_helpers）；typed projection 见 `crates/kanzei-core/src/store/typed/projection.rs:10-80`，真实前后度量见 `docs/design/metrics_baseline.md:14-24,47-52`。② 06-agent-panel 与 06-activity 合流——`crates/kanzei-app/ui/index.html:1134` 真实加载 `06-activity.js`，未再加载 `06-agent-panel.js`；这是既有 B8 合流能力，本轮完成真实复核而非重复申报行为改造，`T-1786922726456` 证明 UI/PWA 语法与六项冒烟通过。08-compose 拆分后的续跑模型由 `crates/kanzei-app/ui/08-auto.js:1-35` 承接，`index.html:1136,1138` 加载 `08-auto.js`/`08-models.js`。③ 回涨闸门在 verify 生效——`scripts/verify.ps1:65-70` 的 `crate_sync` 真实调用 `scripts/metrics-regression-gate.ps1`；`docs/design/metrics_baseline.md:54-59` 记录阈值和对照；`T-1786922726461` 真实 verify 全部通过，含 metrics gate 30 rows、giants 5/5、允许回涨 100 行，并生成绑定 commit 的 `dist/verification.json`。④ metrics 对照落 `docs/design/metrics_baseline.md:10-59`，记录 230 个 Rust 文件、5 个巨石及 typed/drive 前后读数，来源命令见第 3 行，定向与全量证据为 `T-1786922726453`、`T-1786922726461`。边界“拆解不改行为”由全量 `cargo test --workspace`（`T-1786922726457`）及真实 verify（`T-1786922726461`）覆盖；批次已为 2/2。D-546 已 fixed，真实门禁证据绑定提交 `81e6800a12e6165fccf3bbca04e99d9269cba576`。
+- observed_head: 81e6800a12e6165fccf3bbca04e99d9269cba576
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787079262652
+- R-300: 2/4
+- 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它

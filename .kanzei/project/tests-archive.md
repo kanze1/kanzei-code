@@ -7931,3 +7931,18 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300 D-546
 - 收尾: 1787078835
 - 源码指纹: v2 scripts/metrics-regression-gate.ps1@8a262abba976,scripts/verify.ps1@8582f4e67845
+
+## T-1786922726460 R-300 B2 D-546 ui_syntax 路径归一化定向验证 [passed]
+- 命令: PowerShell path normalization equivalent to verify.ps1:7-13; node --check all UI/PWA files
+- 时长: 1.1s
+- 摘要: 修正后的根路径归一化成功枚举并通过 28 个桌面 UI/mobile-PWA JavaScript 文件的 node --check。
+- 关联: R-300 D-546
+- 收尾: 1787079057
+- 源码指纹: v2 scripts/verify.ps1@b8c1442b9cef
+
+## T-1786922726461 R-300 B2 D-546 真实 verify 全量门禁 [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify.ps1
+- 时长: 76.4s
+- 摘要: 提交 81e6800a 后真实 verify 全部通过：parallel_lines_regression、ui_a11y、ui_i18n、ui_markdown、crate_sync+metrics gate、ps1_bom、ui_lint、ipc_event_contract、fmt、ui_syntax（桌面 UI+mobile-PWA）、clippy、ui_connectivity、ui_runtime、workspace test；最终写入 dist/verification.json，绑定 commit 81e6800a12e6165fccf3bbca04e99d9269cba576。
+- 关联: R-300 D-546
+- 收尾: 1787079204

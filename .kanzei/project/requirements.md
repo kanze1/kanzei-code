@@ -274,23 +274,6 @@
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-299
 - 停车: 让位 R-300 收尾：协作线 p16 仍占用 crates/kanzei-app/src/ipc_contract.rs、scripts/ipc-contract.json、scripts/ipc-event-smoke.mjs、scripts/verify.ps1 等 IPC 契约扩面文件；本条不覆盖并发实现。p16 清出后按 work next 恢复。
 
-## R-300 大文件拆解第三轮与回涨闸门 [doing]
-- refs: docs/design/metrics_baseline.md docs/design/monolith_decomposition_round2.md
-- 内容: Rust 侧:background.rs 2019 生产行居全仓 Top-1 却不在 R-257/R-202/R-204 任何拆解条目范围;drive.rs:930 execute_tool_calls 582 行及同文件 307/256/249 行函数群;profiles.rs:68/:605 同一 trait 方法两份实现(537+242 行);tracker/actions.rs 已回涨至 1356 行;kanzei/src/cli/run.rs:27 单函数 651 行且文件零测试。前端侧:08-compose.js 1535 行(拆解预算 941,超 60%),09-sessions/16-settings/11-docs-list/20-lines/07-events/06-activity 五文件回涨至 900+;06-agent-panel.js 是 06-activity.js 的逐行分叉复制(八对函数一一对应共用 bg-* CSS);index.html 1150 行 8 视图未拆。拆解后行数上限回涨闸门进 verify;完成后重跑 kz metrics 前后对照
-- 复杂度: 大
-- 来源: 2026-08-18 全库勘察;metrics_baseline.md 仅 08-16 单份基线从未重跑对照
-- 标签: 核心
-- 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
-- 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
-- 优先级: P2
-- 批次: 2/2
-- 进展: B2 已完成实现与定向复核：① `scripts/metrics-regression-gate.ps1:1` 已补 UTF-8 BOM；② `scripts/verify.ps1:4-14` 统一剥离 `Microsoft.PowerShell.Core\\FileSystem::` 与 `\\?\\` 前缀，`ui_syntax:80-91` 保留桌面 UI + mobile-PWA 全量 `node --check`；③ `T-1786922726457`：`cargo test --workspace` 全量通过（各 crate：40/216/220/150/55/149/346，tools 1 ignored）；④ 定向复核 `T-1786922726459`：D-408 BOM 检查通过、UI/PWA 语法检查通过、UI runtime 冒烟通过；⑤ 首次真实 verify 暴露 D-546，记录为 `T-1786922726458`，因预期修复未提交而先被洁净前置拒绝。修复已完成，提交后重跑真实 verify；通过后逐条关闭 R-300 验收。
-- observed_head: 1e79adbd9cca5d5850a4bdeb5fcc0f90bafabb77
-- observed_worktree_hash: fnv1a64:234649b693057728
-- recorded_at: 1787078828926
-- R-300: 2/4
-- 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
-
 ## R-301 泳道三级卡住判据 [todo]
 - refs: docs/design/parallel_lines_ui.md
 - 内容: 按 docs/design/parallel_lines_ui.md:217,250 交付泳道状态机三态:跑着/疑似卡住/失败,禁止只按多久没动判死;判据结合事件流真实进展而非纯时间阈值

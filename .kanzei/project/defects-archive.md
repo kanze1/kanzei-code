@@ -6720,3 +6720,15 @@
 - observed_head: f28c8dc233de6322ec1122d18cbf74ac8ee8d7c3
 - observed_worktree_hash: fnv1a64:0f394804f92449d4
 - recorded_at: 1787078029419
+
+## D-546 verify 前端语法集合与 PowerShell BOM 门禁误报失败 [fixed] (medium)
+- 复现: 执行 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify.ps1`：`scripts/metrics-regression-gate.ps1` 含中文但缺 UTF-8 BOM，`ui_syntax` 又报告未找到 UI JavaScript 文件；同一批 UI 文件逐个 `node --check` 可通过。
+- 影响: 真实 verify 无法产出全绿证据，R-300 不能按验收关闭；Windows PowerShell 5.1 可能无法正确解析 metrics gate，UI syntax 步骤对非空脚本集合产生假失败。
+- 来源: self-found：R-300 B2 关闭前真实 verify。
+- 标签: 流程
+- 进展: 关闭对账：① 复现项“metrics gate 中文 PowerShell 缺 BOM”——`scripts/metrics-regression-gate.ps1:1` 已补 UTF-8 BOM，`scripts/check-ps1-bom.mjs` 在 `verify.ps1:71-74` 通过；② 复现项“ui_syntax 未找到非空 UI 集合”——`scripts/verify.ps1:4-13` 先剥离 `Microsoft.PowerShell.Core\FileSystem::` 与 `\\?\\` 前缀，`scripts/verify.ps1:84-95` 枚举桌面 UI 与 mobile-PWA 并逐文件 node --check；③ 定向验证 `T-1786922726460` 通过 28 个 UI/PWA 文件；④ 提交后真实 `T-1786922726461` 的 verify 全部步骤通过并写入 `dist/verification.json`，绑定 commit `81e6800a12e6165fccf3bbca04e99d9269cba576`。影响已解除：真实 verify 可产出全绿绑定证据。
+- refs: R-300
+- 优先级: P1
+- observed_head: 81e6800a12e6165fccf3bbca04e99d9269cba576
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787079217848
