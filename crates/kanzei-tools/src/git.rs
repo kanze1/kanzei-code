@@ -2049,6 +2049,7 @@ prunable gitdir file points to non-existent location
             "ui_syntax",
             "ui_runtime",
             "ui_lint",
+            "ipc_event_contract",
             "parallel_lines_regression",
             "ui_a11y",
             "ui_i18n",
@@ -2075,13 +2076,14 @@ prunable gitdir file points to non-existent location
         );
 
         // ② 每个键在 ci.yml 有对应标记(命令文本或 smoke 脚本名)。
-        let markers: [(&str, &str); 13] = [
+        let markers: [(&str, &str); 14] = [
             ("fmt", "cargo fmt --all -- --check"),
             ("clippy", "cargo clippy --workspace --all-targets"),
             ("test", "cargo test --workspace"),
             ("ui_syntax", "node --check"),
             ("ui_runtime", "ui-runtime-smoke.mjs"),
             ("ui_lint", "ui-lint-smoke.mjs"),
+            ("ipc_event_contract", "ipc-event-smoke.mjs"),
             ("parallel_lines_regression", "parallel-lines-regression.mjs"),
             ("ui_a11y", "ui-a11y-smoke.mjs"),
             ("ui_i18n", "ui-i18n-smoke.mjs"),
@@ -2098,6 +2100,7 @@ prunable gitdir file points to non-existent location
         for script in [
             "ui-runtime-smoke.mjs",
             "ui-lint-smoke.mjs",
+            "ipc-event-smoke.mjs",
             "parallel-lines-regression.mjs",
             "ui-a11y-smoke.mjs",
             "ui-i18n-smoke.mjs",
