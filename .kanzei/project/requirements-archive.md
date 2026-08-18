@@ -3772,7 +3772,6 @@
 - 来源: DeepSeek Harness compaction 事件事务；复用已交付 R-236 的纪要模型、模板和质量闸。
 - 标签: 核心
 - 边界: 不重写 R-236 纪要算法、压缩模型配置和质量闸；不把 Memory 作为对话恢复源。Compaction 只在 R-242 正式 surface projection 上追加事务，失败保留原 surface，未完成事务在恢复时显式失效；不修改 format_version=1 的既有消息事实。
-- 阻塞: 
 - 验收: ①压缩前后 raw event hash 不变；②边界上的 tool call/result 必须完整配对，否则拒绝压缩；③不完整 compaction transaction 重启后不生效且有可见诊断；④连续两次压缩 replay 一致，首段关键实体仍保留；⑤模型 surface 变短但 transcript/audit 仍能回看原文；⑥R-236 全部压缩回归保持通过。
 - 优先级: P1
 - 对账: 2026-08-18 对账更新：R-242 批次8/8 的 surface projection 已交付，当前依赖字段不再要求 R-242 关闭；本条正式承接 R-242 验收⑦，负责 compaction_started→compaction_summary→surface_replaced→compaction_ended 事务、停止新增 conversation.updated 以及失败恢复后的可见诊断。下一步先完成批1设计冻结与事件事务入口，再接全部 compaction 写者和回归。
@@ -3781,3 +3780,18 @@
 - observed_head: 49c5832a3ac31861a5e231bfe203b52612da50e3
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787020412718
+
+## R-291 verify 聚合报告与步骤按耗时重排 [done]
+- refs: D-510
+- 内容: scripts/verify.ps1:20-28 Step-With-Timing 包 try/catch,失败累计继续跑,末尾统一报告全部失败;仅全绿才落盘证据(verify.ps1:77-83);按 dist/verification.json 实测耗时重排步骤,亚秒级 node 冒烟先跑、73.6s 的 cargo test 后置,先暴露廉价失败;12 步互不依赖续跑安全,预计改动约 15 行
+- 复杂度: 小
+- 来源: 2026-08-18 全库勘察;用户长期痛点一次只报一个失败(见记忆 verify-before-release)
+- 标签: 流程
+- 边界: 不改 12 步清单本身;守护测试(crates/kanzei-tools/src/git.rs:1896-1910 解析键集合)不受函数体重写影响;git.rs 侧聚合归 D-510
+- 验收: 一次运行报出全部失败步骤;失败时不写 verification.json;步骤顺序按耗时优化;守护测试通过
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-291
+- 进展: 验收逐条对账：①一次运行报出全部失败步骤：Step-With-Timing 在 scripts/verify.ps1:21-40 捕获并累计每步失败，scripts/verify.ps1:98-101 统一输出全部失败；隔离 node.cmd 故障注入实跑观察到 10 个失败项后仍继续到 ==> test。②失败时不写 verification.json：scripts/verify.ps1:98-102 在失败时先 throw，写证据仅从 scripts/verify.ps1:104-110 开始；故障注入前后 dist/verification.json SHA256 保持不变。③步骤顺序按耗时优化：scripts/verify.ps1:43-96 固定为廉价 UI/结构检查在前、fmt/ui_syntax/clippy/connectivity/runtime 在中、cargo test 最后；dist/verification.json:5-17 记录当前 HEAD 86fd4189 的实测顺序与耗时，test 64.7s 末位。④守护测试通过：T-1786922726365（当前源码指纹 gate_checklists_align_across_git_verify_and_ci，1 passed）与 T-1786922726366（正式 verify 全量门禁通过，workspace 全绿，证据绑定 commit）。既有 13 步清单与各检查实现属于既有能力，本次交付为失败聚合、失败不落证据和按实测耗时重排；实现提交 5169f393。
+- observed_head: 86fd4189c3082f735b2ae602d28b1ac0739a1198
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787022996228

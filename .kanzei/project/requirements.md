@@ -219,16 +219,6 @@
 - 验收: ①Android 真机可访问并完成鉴权；②收到真实运行成功/失败通知；③从手机发送消息后服务端产生可追溯事件；④保存截图、端口/设备与 session 证据；⑤失败时明确网络、权限或设备边界。
 - 优先级: P3
 
-## R-291 verify 聚合报告与步骤按耗时重排 [todo]
-- refs: D-510
-- 内容: scripts/verify.ps1:20-28 Step-With-Timing 包 try/catch,失败累计继续跑,末尾统一报告全部失败;仅全绿才落盘证据(verify.ps1:77-83);按 dist/verification.json 实测耗时重排步骤,亚秒级 node 冒烟先跑、73.6s 的 cargo test 后置,先暴露廉价失败;12 步互不依赖续跑安全,预计改动约 15 行
-- 复杂度: 小
-- 来源: 2026-08-18 全库勘察;用户长期痛点一次只报一个失败(见记忆 verify-before-release)
-- 标签: 流程
-- 边界: 不改 12 步清单本身;守护测试(crates/kanzei-tools/src/git.rs:1896-1910 解析键集合)不受函数体重写影响;git.rs 侧聚合归 D-510
-- 验收: 一次运行报出全部失败步骤;失败时不写 verification.json;步骤顺序按耗时优化;守护测试通过
-- 优先级: P1
-
 ## R-292 mobile-pwa 入门禁并对齐桌面 UI 纪律 [todo]
 - 内容: crates/kanzei-app/mobile-pwa/app.js(325行)/sw.js(65行) 现无任何门禁:ui_syntax 只 glob ui/*.js(verify.ps1:45),ESLint 只盖 ui/*.js 与 scripts/*.mjs(eslint.config.js:14,74);app.js:260,268,269 用 alert()(桌面端已为此做 confirmDialog/inputDialog 且清零原生弹窗),全部文案硬编码中文零 i18n(app.js:16,55,84,146,161-162,182,216-256)
 - 复杂度: 小
