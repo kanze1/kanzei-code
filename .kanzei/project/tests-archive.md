@@ -7877,3 +7877,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300 D-544
 - 收尾: 1787077400
 - 源码指纹: v2 crates/kanzei/src/cli/metrics.rs@9ab348a8141b
+
+## T-1786922726453 R-300 B6 typed projection 拆分格式与定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 7.5s
+- 摘要: 移除 typed.rs 多余空行后，格式检查通过；kanzei-core 定向回归 220 passed、0 failed、0 ignored。projection/shadow 拆分相关 typed 测试全部通过。
+- 关联: R-300 D-545
+- 收尾: 1787078022
+- 源码指纹: v2 crates/kanzei-core/src/store/typed.rs@5f1f2da9bda4,crates/kanzei-core/src/store/typed/projection.rs@8a8158c86407
+
+## T-1786922726454 R-300 B6 typed projection 拆分 metrics gate [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1 -Root (Get-Location).Path
+- 时长: 32.5s
+- 摘要: 更新源码安装位 kz 后，真实 metrics 回涨闸门通过：30 rows、巨石 5/5、单文件允许回涨 100 行。typed.rs 当前生产行 1202。
+- 关联: R-300
+- 收尾: 1787078111
+- 源码指纹: v2 crates/kanzei-core/src/store/typed.rs@5f1f2da9bda4,crates/kanzei-core/src/store/typed/projection.rs@8a8158c86407
+
+## T-1786922726455 R-300 B6 更新基线后的 metrics gate [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1 -Root (Get-Location).Path
+- 时长: 1.1s
+- 摘要: 以更新后的 R-300 B6 metrics_baseline.md 重放 gate：30 rows、巨石 5/5、单文件回涨允许 100 行通过。
+- 关联: R-300
+- 收尾: 1787078210
+- 源码指纹: v2 crates/kanzei-core/src/store/typed.rs@5f1f2da9bda4,crates/kanzei-core/src/store/typed/projection.rs@8a8158c86407

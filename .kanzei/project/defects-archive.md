@@ -6707,3 +6707,16 @@
 - observed_head: 836b46db36d825db862e52da8446f6a0db37df0f
 - observed_worktree_hash: fnv1a64:ff5676108c9077a6
 - recorded_at: 1787077412502
+
+## D-545 R-300 B6 projection 拆分后 typed.rs 留有多余空行导致 fmt gate 失败 [fixed] (low)
+- 复现: 执行 `cargo fmt --all -- --check`，报告 `crates/kanzei-core/src/store/typed.rs:1199` 多余空行。
+- 影响: 代码行为未受影响，但格式门禁失败，B6 不能提交。
+- 来源: self-found：R-300 B6 定向验证。
+- 标签: 核心
+- 验收: 删除多余空行后 `cargo fmt --all -- --check` 通过，并继续运行 `cargo test -p kanzei-core`。
+- refs: R-300
+- 优先级: P2
+- 进展: 关闭对账：验收“删除多余空行后格式检查和 kanzei-core 回归通过”已满足。根因位置 `crates/kanzei-core/src/store/typed.rs:1200-1203`（原实现删除后残留空行）；修复位置同处，移除空行。证据 `T-1786922726453`：命令 `cargo fmt --all -- --check; cargo test -p kanzei-core`，格式检查通过，220 passed、0 failed、0 ignored；无行为缺口。
+- observed_head: f28c8dc233de6322ec1122d18cbf74ac8ee8d7c3
+- observed_worktree_hash: fnv1a64:0f394804f92449d4
+- recorded_at: 1787078029419

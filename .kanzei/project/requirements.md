@@ -283,11 +283,11 @@
 - 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
-- 批次: 5/5
-- 进展: B5 已完成并已提交 `f28c8dc2`：① D-544 根因位于 `crates/kanzei/src/cli/metrics.rs:102-122`，生命周期 `'static` 被误当字符字面量，导致 cfg(test) 配平提前结束；修复同文件字符扫描分支，区分 `'static`/`'_` 与 `'a'`/转义字符；② 回归测试位于 `metrics.rs:581-594`，T-1786922726449：`cargo fmt --all -- --check; cargo test -p kanzei`，单元 40、集成 32 全通过；③ T-1786922726450 重跑 `cargo run -p kanzei -- metrics --top 30`，background.rs 移出 Top-30，生产巨石 6→5；④ `docs/design/metrics_baseline.md:3,10-43,45-58` 更新为 B5 的 229 文件/5 巨石快照；⑤ 更新当前源码安装位 kz 后，T-1786922726452 重放 `scripts/metrics-regression-gate.ps1`：30 rows、巨石 5/5、单文件允许回涨 100 行通过。T-1786922726451 的 gate 失败确认为旧安装位 kz 版本不一致。R-300 仍 active：Top 目标拆解范围、前端合流既有能力复核、完整 verify 与最终全量验收尚未完成；下一步 B6 先复核当前真实 Top-30 目标和剩余验收边界。
+- 批次: 6/6
+- 进展: B6 已完成并待提交：① 在 `crates/kanzei-core/src/store/typed/projection.rs:10-438` 新增 projection/shadow 子模块，迁移 `SessionTurnTerminal`、`InterruptedAssistant`、`SessionProjection`、`project_session_facts*`、`compare_shadow*`、`ShadowVerdictStats` 与汇总函数；② `crates/kanzei-core/src/store/typed.rs:20-25` 注册模块并 re-export，`TypedSessionWriter::finish` 及 store/lib 对外调用面保持不变；③ `T-1786922726453`：`cargo fmt --all -- --check; cargo test -p kanzei-core`，220 passed、0 failed、0 ignored；④ `docs/design/metrics_baseline.md:3,10-59` 更新 B6 真实 Top-30：230 文件、5 个巨石，typed.rs 生产行 1630→1202、总行 2839→2411、函数 51→39；⑤ `T-1786922726454` 更新源码安装位后 gate 通过，`T-1786922726455` 以新基线重放 gate 仍通过：30 rows、巨石 5/5、单文件允许回涨 100 行。D-545 已在 `typed.rs:1200-1203` 对账 fixed。B6 提交后 R-300 仍 active：typed.rs 仍比 1200 阈值高 2 行，剩余 Top 目标、前端合流最终复核、完整 verify 与大复杂度关闭前 workspace 全量验收未完成。
 - observed_head: f28c8dc233de6322ec1122d18cbf74ac8ee8d7c3
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787077545072
+- observed_worktree_hash: fnv1a64:0a9f411c5aee7e3e
+- recorded_at: 1787078231492
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 
