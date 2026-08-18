@@ -250,7 +250,7 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787059362211
 
-## R-298 发布链装后验证与证据补全 [doing]
+## R-298 发布链装后验证与证据补全 [todo]
 - refs: docs/design/ci_release_evidence_chain.md
 - 内容: 打包链止于拷进 dist(scripts/package.ps1:130-136),setup.exe 从未被自动安装验证;install-setup.ps1 全仓零调用方(仅 release.ps1:67 报错文案提及);版本双源冻结 0.1.0 无比对(Cargo.toml:15 与 crates/kanzei-app/tauri.conf.json:4);release notes 无安装器 SHA256(package.ps1:148,设计列为后续可选 ci_release_evidence_chain.md:189);dist 堆 6 个无人引用 setup.exe 约 85MB 无保留策略;release.ps1 开发通道仅 cargo test(release.ps1:15-19),能把过不了 12 步中 10 步的二进制装进系统;install-setup.ps1:41-59 装前不备份装坏不还原
 - 复杂度: 中
@@ -260,7 +260,7 @@
 - 验收: 打包后自动静默装+装后自校验入链;SHA256 入 notes;版本一致性检查;dist 保留策略;开发通道最低门禁明确并留档
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-298
-- 取得线: kanzei/thread-line-1787020530803-1
+- 取活释放: line=kanzei/thread-line-1787020530803-1;reason=parallel-line-unregister;at_ms=1787067046456
 
 ## R-299 IPC 与事件契约机械比对扩面 [doing]
 - refs: R-284
@@ -283,12 +283,13 @@
 - 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
-- 批次: 4/4
-- 进展: B1 已落地：docs/design/metrics_baseline.md 更新为 2026-08-18 `kz metrics --top 30` 实测榜单，记录全仓 210 个 .rs、9 个生产行超过 1200 的巨石及相对旧基线回涨；证据：T-1786922726397，命令 `kz metrics --top 30`。B2 已落地：将 crates/kanzei-tools/src/tracker/actions.rs:1042-1356 的校验、展示与 ID 错误辅助函数迁移到 crates/kanzei-tools/src/tracker/actions/action_helpers.rs，actions.rs 仅保留路由与导入；证据：T-1786922726398，`cargo fmt --all -- --check` 与 `cargo test -p kanzei-tools`，345 passed、0 failed、1 ignored。B3 已落地：将 crates/kanzei-tools/src/test_record.rs:625-1022 的 TestCoverage、测试背书查询、条目反查和六条前端 smoke 判定迁移到 crates/kanzei-tools/src/test_record/coverage.rs，通过 re-export 保持真实调用方 API；D-531 已修复并关闭；证据：T-1786922726399，格式与 kanzei-tools 定向回归全绿。B4a 已落地：将 crates/kanzei-tools/src/background.rs:551-715 的 persistent 注册表、discover/adopt/kill 生命周期迁移到 crates/kanzei-tools/src/background/persistent.rs，通过 background.rs re-export 保持 bash/process 工具真实消费者 API；D-532 已修复并关闭。证据：提交 6a21d4f9；T-1786922726400，`cargo fmt --all -- --check` 与 `cargo test -p kanzei-tools`，345 passed、0 failed、1 ignored。B4b 已落地：新增 scripts/metrics-regression-gate.ps1，由 scripts/verify.ps1:56-61 的 crate_sync 步骤真实调用；对基线文件允许 100 行宽松增量、Top-30 巨石数量允许增加 1 个；docs/design/metrics_baseline.md 已写入 B4 实测 30 条榜单。D-533 已修复并关闭，提交 6b1a48b4；T-1786922726401 验证 gate 完整解析 30 行、巨石 7/7，PowerShell 解析通过。B4c 已落地：将 crates/kanzei/src/cli/run.rs:27-49 的 flag/prompt 解析与空 prompt 校验抽到同文件 `resolve_cli_input`，`run_cli` 保持真实调用链并仅接收解析结果；新增 `crates/kanzei/src/cli/run.rs` 单测 `resolve_cli_input_preserves_parsed_flags_and_prompt`。证据：提交 bca87cd8；T-1786922726405，`cargo fmt --all -- --check` 与 `cargo test -p kanzei`，39 passed；依赖工具测试 32 passed。B4d 已落地：将 `crates/kanzei-core/src/runner/drive.rs:1184-1253` 的 question 输入解析与 ASK 响应转换抽到 `crates/kanzei-core/src/runner/drive/question.rs:8-65`，真实调用方为 `drive.rs:1189` 的 `execute_tool_calls`；ToolEnd、ToolResult 配对和消息提交仍由原循环负责。证据：提交 d13599a9；T-1786922726406，`cargo fmt --all -- --check` 与 `cargo test -p kanzei-core`，220 passed、0 failed、0 ignored。B4e 已落地：将并行与串行 task 结果归位中的重复 `ToolOutput`→`Part::ToolResult` 转换抽到 `crates/kanzei-core/src/runner/drive/task_results.rs:8-14`；真实调用方为 `drive.rs:1015-1020` 并行 wave 和 `drive.rs:1154-1157` 串行路径，调用方仍控制 task_results.remove、索引归位和事件顺序。证据：提交 4425d6ac；T-1786922726407，`cargo fmt --all -- --check` 与 `cargo test -p kanzei-core`，220 passed、0 failed、0 ignored。验收对账：① Top 目标拆解已证实 actions.rs、test_record.rs、background.rs、run.rs、drive.rs 的对应 helper/子模块位置；验收降级：R-300 内容中 drive.rs 的 execute_tool_calls 主体、profiles.rs 及其他未迁移 Top 目标仍未全部拆解。② `06-agent-panel.js` 与 `06-activity.js` 合流尚未实现，不能宣称完成。③ 回涨闸门已在 scripts/verify.ps1:56-61 生效，T-1786922726401。④ metrics 对照已落 docs/design/metrics_baseline.md:1-61，实测命令 `kz metrics --top 30`。下一步：继续从剩余 drive.rs execute_tool_calls、profiles.rs 或前端合流目标中选一个真实函数群拆分；R-300 保持 doing。
-- observed_head: 4425d6ac51a5a88c1eabf60b2d523e1e72484601
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787064849776
+- 批次: 1/2
+- 进展: B1 已落地：docs/design/metrics_baseline.md 更新为 2026-08-18 `kz metrics --top 30` 实测榜单，记录全仓 210 个 .rs、9 个生产行超过 1200 的巨石及相对旧基线回涨；证据 T-1786922726397。B2 已落地：将 crates/kanzei-tools/src/tracker/actions.rs:1042-1356 的校验、展示与 ID 错误辅助函数迁移到 crates/kanzei-tools/src/tracker/actions/action_helpers.rs，actions.rs 保留路由与导入；证据 T-1786922726398，格式检查与 kanzei-tools 定向回归 345 passed、0 failed、1 ignored。B3 已落地：将 crates/kanzei-tools/src/test_record.rs:625-1022 的 TestCoverage、测试背书查询、条目反查和六条前端 smoke 判定迁移到 crates/kanzei-tools/src/test_record/coverage.rs，通过 re-export 保持真实调用方 API；证据 T-1786922726399。B4a 已落地：将 background.rs:551-715 的 persistent 注册表、discover/adopt/kill 生命周期迁移到 background/persistent.rs，通过 re-export 保持 bash/process 工具真实消费者 API；证据提交 6a21d4f9、T-1786922726400。B4b 已落地：新增 scripts/metrics-regression-gate.ps1，由 scripts/verify.ps1:56-61 的 crate_sync 步骤真实调用；证据提交 6b1a48b4、T-1786922726401，gate 解析 30 行、巨石 7/7。B4c 已落地：将 crates/kanzei/src/cli/run.rs:27-49 的 flag/prompt 解析与空 prompt 校验抽到 resolve_cli_input，run_cli 保持真实调用链；证据提交 bca87cd8、T-1786922726405，kanzei 39 passed、依赖工具 32 passed。B4d 已落地：将 drive.rs:1184-1253 的 question 输入解析与 ASK 响应转换抽到 runner/drive/question.rs:8-65，真实调用方为 drive.rs:1189 execute_tool_calls；证据提交 d13599a9、T-1786922726406，kanzei-core 220 passed。B4e 已落地：将并行与串行 task 结果归位中的 ToolOutput→Part::ToolResult 转换抽到 runner/drive/task_results.rs:8-14，真实调用方为 drive.rs:1015-1020 与 1154-1157；证据提交 4425d6ac、T-1786922726407。B4f 已落地：将通用 ToolOutput→Part::ToolResult 转换统一为 tool_result_part，复用于 task 并行/串行、parallel deny 和 serial question 四个真实调用点；证据提交 c2fb3a62、T-1786922726408。B4g 已落地：将串行普通工具结果的图片兼容转换、降级 note 与 ToolResult 构造抽到 runner/drive/task_results.rs:15-35，真实调用方为 drive.rs:1387-1391；证据提交 e34601b9、T-1786922726409。B4h 已落地：将 crates/kanzei-tools/src/profiles.rs:844-897 的 ReadonlyProfile 实现迁移到 profiles/readonly.rs，通过 profiles.rs:15-16 的 mod 与 pub use 保持 kanzei_tools::ReadonlyProfile 及真实 Harness 装配调用方 API；证据提交 e6b3b3e5、T-1786922726410。B5 已落地：将 profiles.rs:612-789 的 ResearchProfile 工具注册、权限配置抽到 profiles/research.rs:12-197 的 `register_tools` 与 `configure_permissions`，将 profiles.rs:848-894 的 `index_of` 移到 research.rs:198-248；真实调用方为 profiles.rs:603-665 的 `ResearchProfile::contribute`，公共 ResearchProfile 路径和研究装配行为保持不变。证据 T-1786922726411（fmt）与 T-1786922726412（kanzei-tools 345 passed、0 failed、1 ignored）。验收对账：① Top 目标拆解新增 ResearchProfile 函数组迁移，drive.rs execute_tool_calls 主体、其他 Rust/前端 Top 目标仍未全部拆解，保持活动。② `06-agent-panel.js` 与 `06-activity.js` 合流尚未实现，保持活动。③ 回涨闸门已在 scripts/verify.ps1:56-61 生效，证据 T-1786922726401。④ metrics 对照已落 docs/design/metrics_baseline.md:1-61，实测命令 `kz metrics --top 30`。下一步：继续从剩余 drive.rs execute_tool_calls 权限/串行执行段或前端合流目标中选一个真实函数群拆分；R-300 保持 doing。
+- observed_head: e6b3b3e544edbd4c814f97401cfd3220027697fc
+- observed_worktree_hash: fnv1a64:8c27013f8b64fbdf
+- recorded_at: 1787068501647
 - R-300: 2/4
+- 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 
 ## R-301 泳道三级卡住判据 [todo]
 - refs: docs/design/parallel_lines_ui.md

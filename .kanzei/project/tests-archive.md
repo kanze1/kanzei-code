@@ -7169,3 +7169,397 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: workspace 测试、CLI release 构建和 kzapp release 构建均成功；桌面安装因运行中的 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe 被 Windows 拒绝，脚本按预期生成 kzapp.exe.pending，未强杀进程。
 - 关联: R-243
 - 收尾: 1787020728
+
+## T-1786922726356 R-295 定向 candidate 清退测试（格式检查） [failed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory reconcile_candidates -- --nocapture
+- 摘要: 格式检查发现 store.rs 新测试断言需 rustfmt；因格式门禁失败，定向测试尚未启动。
+- 收尾: 1787020822
+
+## T-1786922726357 R-295 定向 candidate 清退测试（编译） [failed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory reconcile_candidates -- --nocapture
+- 摘要: rustfmt 已通过；定向测试在编译期失败：store.rs 测试模块中使用 `super::CANDIDATE_MAX_COUNT`，应改为 `crate::memory::CANDIDATE_MAX_COUNT`。
+- 收尾: 1787020873
+
+## T-1786922726358 R-295 定向 candidate 清退测试（格式检查 2） [failed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory reconcile_candidates -- --nocapture
+- 摘要: 编译引用已修正；格式检查再次发现两条长断言需 rustfmt，定向测试未启动。
+- 收尾: 1787020891
+
+## T-1786922726359 R-295 定向 candidate 清退测试（运行期） [failed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory reconcile_candidates -- --nocapture
+- 摘要: 格式检查通过；2 个定向测试中 1 个既有测试通过，新增容量测试编译通过但运行期失败：fingerprint admission 要求先有 inbox 来源 note。
+- 收尾: 1787020918
+
+## T-1786922726360 R-295 定向 candidate 清退测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory reconcile_candidates -- --nocapture
+- 摘要: 格式检查通过；2 个 candidate 清退测试通过：既有晋升/超龄归档回归 + 新增容量超限时低价值优先归档，文件/FTS 计数收敛到 24 并保留归档墓碑。
+- 收尾: 1787020946
+
+## T-1786922726361 R-295 kanzei-memory 定向回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: kanzei-memory 全 crate 定向回归通过：149 passed, 0 failed, 1 ignored；包含 R-295 新增容量清退测试。
+- 收尾: 1787020974
+
+## T-1786922726362 R-291 verify.ps1 PowerShell 语法检查 [passed]
+- 命令: PowerShell Parser::ParseFile scripts\verify.ps1
+- 时长: 0.1s
+- 摘要: PowerShell AST 解析通过，未发现语法错误。
+- 关联: R-291
+- 收尾: 1787021100
+
+## T-1786922726363 R-291 verify 清单守护测试 [passed]
+- 命令: cargo test -p kanzei-tools gate_checklists_align_across_git_verify_and_ci -- --nocapture
+- 时长: 24.1s
+- 摘要: 守护测试通过：1 passed，0 failed；工具额外报告另一条线 worktree 的 2 个 schema 文件变化，未触碰本线文件。
+- 关联: R-291
+- 收尾: 1787021100
+
+## T-1786922726364 R-295 提交前定向回归背书 [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: 提交前背书：kanzei-memory 全 crate 定向回归通过（149 passed, 0 failed, 1 ignored），含 R-295 新增容量清退测试。
+- 收尾: 1787021125
+- 源码指纹: 2d85cc56a86f7fac
+
+## T-1786922726365 R-291 verify 清单守护测试（当前源码指纹） [passed]
+- 命令: cargo test -p kanzei-tools gate_checklists_align_across_git_verify_and_ci -- --nocapture
+- 时长: 0.5s
+- 摘要: 在当前 scripts/verify.ps1 修改版本上重新运行，守护测试 1 passed，0 failed；清单 13 键、命令标记、LASTEXITCODE 与 UI 空集防假绿断言均通过。
+- 关联: R-291
+- 收尾: 1787021175
+- 源码指纹: 3a59d8cd582a2e58
+
+## T-1786922726366 R-291 scripts/verify.ps1 全量门禁 [passed]
+- 命令: .\scripts\verify.ps1
+- 摘要: 正式 verify 全量通过：步骤顺序为 parallel_lines_regression、ui_a11y、ui_i18n、ui_markdown、crate_sync、ps1_bom、ui_lint、fmt、ui_syntax、clippy、ui_connectivity、ui_runtime、test；UI/结构检查与 workspace 全量测试均通过，tools 343 passed/1 ignored；dist/verification.json 绑定 commit 5169f393093822321b9837f14339f23724d88a27。
+- 关联: R-291
+- 收尾: 1787021308
+
+## T-1786922726367 R-295 全量测试 workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量 workspace 全绿：kanzei 38、kanzei-app 32+210、kanzei-base 20、kanzei-core 220、kanzei-harness 150、kanzei-llm 52、kanzei-memory 149、kanzei-tools 343 passed、0 failed、2 ignored。R-295 中复杂度关闭前全量要求满足。
+- 收尾: 1787023242
+
+## T-1786922726368 R-295 B2 提交前定向回归背书 [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: B2 提交前背书：kanzei-memory 全 crate 回归 149 passed、0 failed、1 ignored；untouched 语义修正（容量出口清退条目不再计入 untouched）后两个 reconcile 测试全过。
+- 收尾: 1787023536
+
+## T-1786922726369 GitHub Release build-11086a5d [passed]
+- 命令: .\scripts\package.ps1 -Ack 1 -Publish -VerificationPath "C:\Users\kanzei\Documents\kanzei code\dist\verification.json"
+- 摘要: 云端发布完成：发布树 main/dev 同为 11086a5d，范围 build-86fd4189..HEAD 共 1 个提交；验证证据 all_pass 且绑定完整 SHA；Tauri/NSIS 安装器构建成功并上传 GitHub Release build-11086a5d。URL: https://github.com/kanze1/kanzei-code/releases/tag/build-11086a5d
+- 关联: R-291
+- 收尾: 1787023698
+
+## T-1786922726370 R-292 mobile-pwa 门禁与六条前端回归 [passed]
+- 命令: node --check crates/kanzei-app/mobile-pwa/app.js; node --check crates/kanzei-app/mobile-pwa/sw.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: R-292 门禁与回归验证全绿：mobile-pwa app.js/sw.js node --check 通过；六条前端冒烟全过(ui-runtime 24文件初始化+视图切换/ESLint 45文件零错误含mobile-pwa/parallel-lines/a11y/i18n 1307 key/markdown)；另临时 PWA 交互断言(未配对渲染/已配对渲染/alert桩抛错未触发=清零/三处内联提示/中英i18n)全过。
+- 收尾: 1787024230
+
+## T-1786922726371 R-292 提交前前端回归背书（重跑） [passed]
+- 命令: node --check crates/kanzei-app/mobile-pwa/app.js; node --check crates/kanzei-app/mobile-pwa/sw.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: R-292 提交背书（重跑确保记录指纹与暂存源码一致）：node --check app.js/sw.js 通过；六条前端冒烟全绿(ui-runtime 24文件/ESLint 45文件零错误含mobile-pwa/parallel-lines/a11y/i18n 1307 key/markdown)。
+- 收尾: 1787055991
+- 源码指纹: v2 crates/kanzei-app/mobile-pwa/app.js@b266c920ece9,crates/kanzei-app/mobile-pwa/sw.js@20354e257e80,scripts/ui-lint-smoke.mjs@1dbd1911a5a0,scripts/verify.ps1@3e1bd7b53cec
+
+## T-1786922726372 R-292 kanzei-app 定向测试（失败，待重跑确认） [failed]
+- 命令: cargo test -p kanzei-app
+- 摘要: kanzei-app 210 测试中 208 过、2 个 processes 失败：git worktree add 遇 index.lock/HEAD 解析错误（临时仓库锁冲突与残留锁），与本次前端改动无关（未动 kanzei-app rust 源码）。需重跑确认瞬态。
+- 收尾: 1787056093
+- 源码指纹: v2 crates/kanzei-app/mobile-pwa/app.js@b266c920ece9,crates/kanzei-app/mobile-pwa/sw.js@20354e257e80,scripts/ui-lint-smoke.mjs@1dbd1911a5a0,scripts/verify.ps1@3e1bd7b53cec
+
+## T-1786922726373 R-292 提交前 kanzei-app 背书 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-292 提交背书：kanzei-app 210 passed、0 failed（含此前瞬态失败的 processes 建树三测试重跑全过）。
+- 收尾: 1787056132
+- 源码指纹: v2 crates/kanzei-app/mobile-pwa/app.js@b266c920ece9,crates/kanzei-app/mobile-pwa/sw.js@20354e257e80,scripts/ui-lint-smoke.mjs@1dbd1911a5a0,scripts/verify.ps1@3e1bd7b53cec
+
+## T-1786922726374 R-294 embeddings/hybrid 路线定向回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 4.3s
+- 摘要: 记忆 crate 定向回归通过：148 passed、1 ignored；覆盖 embeddings 配置解析、FakeEmbedder 向量重建/dense/hybrid、无 embedder lexical 降级、replay Candidate fixture 与 RecallAction 相关现有行为。
+- 关联: R-294
+- 收尾: 1787056200
+
+## T-1786922726375 R-296 kanzei-app run 链路测试基座定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 15.2s
+- 摘要: kanzei-app 定向回归通过：213 passed、0 failed、0 ignored；新增 run_metrics、run_metrics_by_category 真实 SQLite command 测试，以及轮末通知序列真实存储边界测试均通过。
+- 关联: R-296
+- 收尾: 1787056517
+
+## T-1786922726376 R-296 Rust 格式门禁首次检查 [failed]
+- 命令: cargo fmt --all -- --check
+- 时长: 1.0s
+- 摘要: 格式门禁指出本批新增测试的排版差异：commands/run.rs 与 run/mod.rs 文件尾多余空行，run/mod.rs 的 create_session 链式调用需拆行；无语义或编译错误，已立即修正。
+- 关联: R-296
+- 收尾: 1787056546
+
+## T-1786922726377 R-296 Rust 格式门禁修正后检查 [passed]
+- 命令: cargo fmt --all -- --check
+- 时长: 1.0s
+- 摘要: rustfmt 全 workspace 检查通过；本批两个新增测试模块无格式残留。
+- 关联: R-296
+- 收尾: 1787056585
+
+## T-1786922726378 R-296 kanzei-app 最终定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 9.9s
+- 摘要: 最终工作树定向回归通过：213 passed、0 failed、0 ignored；格式修正后新增 command→SQLite episode/category 与 run→SQLite notification 边界断言仍全绿。
+- 关联: R-296
+- 收尾: 1787056610
+
+## T-1786922726379 R-296 暂存源码指纹背书后定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 15.2s
+- 摘要: 按提交门禁要求针对当前暂存源码重新回归：213 passed、0 failed、0 ignored；新增 command 与通知边界测试均通过。
+- 关联: R-296
+- 收尾: 1787056676
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@287950311382,crates/kanzei-app/src/run/mod.rs@8572769d4fa8
+
+## T-1786922726380 发布前 workspace 全量门禁 [failed]
+- 命令: .\scripts\release.ps1
+- 时长: 35.2s
+- 摘要: 发布脚本在 cargo test --workspace 阶段停止：kanzei-tools 343 passed、1 failed、1 ignored；失败测试为 background::tests::场景越界_后台写托管文档被隔离回滚并归因到owner_且进程树被终止，断言进程句柄应进入终态。未执行 release 构建或安装。
+- 关联: R-296
+- 收尾: 1787056852
+
+## T-1786922726381 R-297 提交前 kanzei-llm 背书（重跑） [passed]
+- 命令: cargo test -p kanzei-llm
+- 摘要: R-297 提交背书（重跑确保指纹与暂存源码一致）：kanzei-llm 55 passed、0 failed（含 codex auth 3 个新测试）。
+- 收尾: 1787059395
+- 源码指纹: v2 crates/kanzei-llm/src/auth/codex.rs@65033f030024
+
+## T-1786922726382 D-529 越界终止终态定向回归 [passed]
+- 命令: cargo test -p kanzei-tools --lib "background::tests::场景越界_后台写托管文档被隔离回滚并归因到owner_且进程树被终止" -- --nocapture
+- 时长: 1.5s
+- 摘要: D-529 修复后的失败用例定向通过：1 passed、0 failed、345 filtered out；确认越界回滚、归因、进程树终止后 BackgroundProcess 立即进入终态。
+- 关联: D-529
+- 收尾: 1787059517
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@8ac2810dd56e
+
+## T-1786922726383 D-529 修复后 Rust 格式初检 [failed]
+- 命令: cargo fmt --all -- --check
+- 时长: 1.0s
+- 摘要: rustfmt 检查仅发现 background.rs 两处 mark_terminated 分支缩进差异；无编译或测试失败，随后用 rustfmt 修正。
+- 关联: D-529
+- 收尾: 1787059534
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@8ac2810dd56e
+
+## T-1786922726384 D-529 kanzei-tools 定向全套 [failed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 41.1s
+- 摘要: 完整 kanzei-tools 定向套件：344 passed、1 failed、1 ignored。D-529 越界终止测试通过；新失败为 background::tests::按线路停止只回收目标owner的后台进程，在 kill_process 返回 1 的断言处收到 0，待定向复现。
+- 关联: D-529
+- 收尾: 1787059614
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@5f86e796ce7d
+
+## T-1786922726385 D-530 按线路停止夹具定向回归 [passed]
+- 命令: cargo test -p kanzei-tools --lib "background::tests::按线路停止只回收目标owner的后台进程" -- --nocapture
+- 时长: 0.2s
+- 摘要: D-530 根因修正后的按线路停止用例通过：1 passed；两个进程共享 run_id 避免触发既有跨 run 回收，同时保留不同 process_id 的 owner 过滤断言。测试产生的策略管理文件副作用已自动回滚。
+- 关联: D-530
+- 收尾: 1787059812
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@9972544f3a0c
+
+## T-1786922726386 D-530 Rust 格式复检 [passed]
+- 命令: cargo fmt --all -- --check
+- 时长: 1.0s
+- 摘要: D-530 修复后的 background.rs 通过全 workspace rustfmt 检查。
+- 关联: D-530
+- 收尾: 1787059892
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@c18f0d373712
+
+## T-1786922726387 D-529 D-530 kanzei-tools 完整定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 41.9s
+- 摘要: kanzei-tools 完整定向套件通过：345 passed、0 failed、1 ignored；D-529 越界终止与 D-530 按线路停止用例均通过。测试产生的 .kanzei 管理文件副作用已自动回滚。
+- 关联: D-529 D-530
+- 收尾: 1787059892
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@c18f0d373712
+
+## T-1786922726388 R-298 提交前发布链验证背书（重跑） [passed]
+- 命令: pwsh 语法解析 package.ps1/release.ps1 + 版本双源检查 + dist 保留 dry 模拟
+- 摘要: R-298 提交背书（重跑确保指纹与暂存一致）：package.ps1/release.ps1 解析零错误、版本双源匹配(cargo=tauri=0.1.0)、dist 保留 dry 只留最新(remain=1)、BOM 保留。
+- 收尾: 1787059898
+- 源码指纹: v2 scripts/package.ps1@5e1ad57c37b5,scripts/release.ps1@5be1bc382b90
+
+## T-1786922726389 D-529 D-530 edition 修正后完整回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 50.7s
+- 摘要: 兼容当前 Rust edition 的 kill_registered 重写后，kanzei-tools 完整定向套件通过：345 passed、0 failed、1 ignored；D-529 与 D-530 回归均通过。
+- 关联: D-529 D-530
+- 收尾: 1787060082
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@eb899839b897
+
+## T-1786922726390 D-529 D-530 最终 Rust 格式检查 [passed]
+- 命令: cargo fmt --all -- --check
+- 时长: 1.0s
+- 摘要: 当前 background.rs 通过 Rust 格式检查。
+- 关联: D-529 D-530
+- 收尾: 1787060107
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@eb899839b897
+
+## T-1786922726391 D-529 D-530 最终 kanzei-tools 回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 50.7s
+- 摘要: 最终 background.rs 工作树回归：kanzei-tools 345 passed、0 failed、1 ignored；越界终止、按线路停止、全部后台工具测试均通过。
+- 关联: D-529 D-530
+- 收尾: 1787060107
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@eb899839b897
+
+## T-1786922726392 R-298 全量测试 workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: R-298 关闭前全量：cargo test --workspace 全绿（kanzei-llm 55、kanzei-memory 149、kanzei-tools 343 等，0 failed）。
+- 收尾: 1787060127
+
+## T-1786922726393 D-529 D-530 clippy 修正后最终回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 42.2s
+- 摘要: 最终 clippy 兼容修正后完整回归：kanzei-tools 345 passed、0 failed、1 ignored；D-529 越界终态与 D-530 按线路停止均通过。策略管理文件副作用已自动回滚。
+- 关联: D-529 D-530
+- 收尾: 1787060222
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@d19a54cb96c8
+
+## T-1786922726394 D-529 R-296 发布前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 79.0s
+- 摘要: 发布前 workspace 全量回归通过：kanzei-tools 345 passed、0 failed、1 ignored；kanzei-app 213 passed；kanzei-core 220 passed；kanzei-memory 148 passed；其余 workspace crates/doc-tests 均无失败。
+- 关联: D-529 R-296
+- 收尾: 1787060532
+
+## T-1786922726395 D-529 发布脚本与安装验证 [failed]
+- 命令: .\scripts\release.ps1
+- 时长: 180.0s
+- 摘要: workspace 全量测试通过，kz 与 kzapp release 构建通过；因 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe 正在运行，安装被延迟到 kzapp.exe.pending，脚本按设计抛出“关闭 kzapp 后重跑”。未强杀进程。脚本同时报告 p16 worktree 的 ipc_contract.rs 与 ipc-contract.json cross-tree 变更，已隔离留证，未纳入本线提交。
+- 关联: D-529 R-296
+- 收尾: 1787060796
+
+## T-1786922726396 R-299 IPC 契约扩面测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-299：kanzei-app 213 passed（含新增 3 个高频 command 契约测试 project_root_info/test_runs_snapshot/files_snapshot 与 docs_snapshot 既有测试）；ipc-event-smoke.mjs 求差脚本实测后端 22 = 前端 22 事件差集为空。
+- 收尾: 1787060798
+- 源码指纹: v2 crates/kanzei-app/src/ipc_contract.rs@118b26f1d5b1,scripts/ipc-contract.json@6535e758df70,scripts/ipc-event-smoke.mjs@da0e99127c09,scripts/verify.ps1@baa2c6225f6e
+
+## T-1786922726397 R-300 B1 metrics 基线复跑 [passed]
+- 命令: kz metrics --top 30
+- 时长: 0.7s
+- 摘要: B1 实跑度量成功：全仓 210 个 .rs，Top-1 background.rs 2091 生产行；基线文档已按实际 Top-30 与 2026-08-16 快照更新。
+- 关联: R-300
+- 收尾: 1787061120
+
+## T-1786922726398 R-300 B2 当前暂存源码定向背书 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 42.0s
+- 摘要: 针对当前已暂存的 R-300 B2 源码重新背书：格式检查通过；kanzei-tools 345 passed、0 failed、1 ignored。
+- 关联: R-300
+- 收尾: 1787061744
+- 源码指纹: v2 crates/kanzei-tools/src/tracker/actions.rs@0cf728c41805,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@e11e3cd4d930
+
+## T-1786922726399 R-300 B3 coverage 子模块迁移定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 58.0s
+- 摘要: R-300 B3 coverage/query 子模块迁移与 D-531 修复后验证通过：格式检查通过；kanzei-tools 345 passed、0 failed、1 ignored。覆盖面解析、最近通过记录、条目反查与六条 smoke 门禁测试均通过。
+- 关联: R-300 D-531
+- 收尾: 1787062294
+- 源码指纹: v2 crates/kanzei-tools/src/test_record.rs@a3b79044baf5,crates/kanzei-tools/src/test_record/coverage.rs@046c205eba2a
+
+## T-1786922726400 R-300 B4 persistent 注册表拆分定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 39.5s
+- 摘要: persistent 注册表模块拆分及 D-532 可见性修复验证通过；格式检查通过，kanzei-tools 345 passed、0 failed、1 ignored；覆盖 discover/adopt/kill 全链路、日志落盘、守卫回滚与项目回收。
+- 关联: R-300 D-532
+- 收尾: 1787062959
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@c85c0c5f9ac0,crates/kanzei-tools/src/background/persistent.rs@7c315da1820b
+
+## T-1786922726401 D-533 metrics 回涨闸门完整榜单解析 [passed]
+- 命令: scripts/metrics-regression-gate.ps1 -Root <repo>; PowerShell Parser::ParseFile scripts/verify.ps1 scripts/metrics-regression-gate.ps1
+- 时长: 1.2s
+- 摘要: 修复表头与首条 metrics 记录粘连解析问题后，gate 完整解析 30 条 Top-30，当前巨石 7/7，单文件允许增量 100 行；verify.ps1 与 gate 脚本 PowerShell 语法解析通过。
+- 关联: D-533 R-300
+- 收尾: 1787063339
+- 源码指纹: v2 scripts/metrics-regression-gate.ps1@54647d7e3ee3,scripts/verify.ps1@c44865885f69
+
+## T-1786922726402 R-300 发布前 verify 十步全量门禁 [passed]
+- 命令: scripts/verify.ps1
+- 时长: 63.8s
+- 摘要: 发布前十步门禁全绿：parallel-lines、ui_a11y、ui_i18n、ui_markdown、crate_sync（含 metrics gate 30 rows/giants 7/7）、ps1_bom、ui_lint、fmt、ui_syntax、clippy、ui_connectivity、ui_runtime 与 cargo test --workspace 全部通过；产出绑定 commit 6b1a48b4 的 dist/verification.json。
+- 关联: R-300 D-533
+- 收尾: 1787063612
+
+## T-1786922726403 R-300 HEAD 绑定 verify 与 managed-files guard [failed]
+- 命令: scripts/verify.ps1
+- 时长: 92.2s
+- 摘要: verify 的各业务步骤均通过并写出 commit=9ab4b640、all_pass=true 的 verification.json；工具收尾时 managed-files guard 检出 cargo 测试期间无写日志触碰 .kanzei/memory/index.db，已自动回滚并报告命令异常，因此本次记录保留为 failed，不将环境 guard 当作业务门禁通过。
+- 关联: R-300
+- 收尾: 1787063775
+
+## T-1786922726404 R-300 release 完整流程（安装位被占用） [failed]
+- 命令: scripts/release.ps1
+- 时长: 141.5s
+- 摘要: cargo test --workspace 全绿；release kz CLI 与 kzapp 构建成功；安装阶段因 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe 正在运行而无法覆盖，脚本按安全策略写出 kzapp.exe.pending 后退出，未强杀用户进程。需关闭 kzapp 后重跑 scripts/release.ps1 完成安装校验。
+- 关联: R-300
+- 收尾: 1787064012
+
+## T-1786922726405 R-300 CLI run 输入解析拆分定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei
+- 时长: 28.4s
+- 摘要: 完成 run_cli 输入解析辅助函数拆分并覆盖真实调用方；格式检查通过，kanzei 定向套件 39 passed，kanzei-tools 依赖测试 32 passed，0 failed。
+- 关联: R-300
+- 收尾: 1787064205
+- 源码指纹: v2 crates/kanzei/src/cli/run.rs@167873c76eac
+
+## T-1786922726406 R-300 question 工具解析拆解回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 11.1s
+- 摘要: 将 drive.rs 的 question 工具结果解析抽至 drive/question.rs 后，格式检查与 kanzei-core 定向回归通过：220 passed、0 failed、0 ignored。
+- 关联: R-300
+- 收尾: 1787064503
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@57d0babe4754,crates/kanzei-core/src/runner/drive/question.rs@6ea10fd9e088
+
+## T-1786922726407 R-300 task 结果转换拆解定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 10.0s
+- 摘要: task 结果转换 helper 拆出后，格式检查通过；kanzei-core 定向回归 220 passed、0 failed、0 ignored。
+- 关联: R-300
+- 收尾: 1787064776
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@6e9db235f59c,crates/kanzei-core/src/runner/drive/task_results.rs@f39097082489
+
+## T-1786922726408 R-300 通用 ToolResult 转换定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 7.0s
+- 摘要: 通用 tool_result_part 接入并行 deny、串行 question 与 task 结果路径后，格式检查通过；kanzei-core 220 passed、0 failed、0 ignored。
+- 关联: R-300
+- 收尾: 1787067163
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@5b5651fc8c02,crates/kanzei-core/src/runner/drive/task_results.rs@db810772685a
+
+## T-1786922726409 R-300 普通工具图片结果收尾拆解回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 4.0s
+- 摘要: 将串行普通工具的图片转换与 ToolResult 构造抽到 task_results helper 后，格式检查通过；kanzei-core 220 passed、0 failed、0 ignored。
+- 关联: R-300
+- 收尾: 1787067448
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@f44ca3b43bbf,crates/kanzei-core/src/runner/drive/task_results.rs@824e634bb88f
+
+## T-1786922726410 R-300 profiles ReadonlyProfile 拆解回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 42.0s
+- 摘要: ReadonlyProfile 已迁移到 profiles/readonly.rs，profiles.rs 通过 re-export 保持真实装配 API；格式检查与 kanzei-tools 定向回归通过：345 passed、0 failed、1 ignored。
+- 关联: R-300
+- 收尾: 1787067910
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@c7d814f2ce97,crates/kanzei-tools/src/profiles/readonly.rs@39beb08f0203
+
+## T-1786922726411 R-300 B5 kanzei-tools 格式检查 [passed]
+- 命令: cargo fmt --all -- --check
+- 时长: 4.0s
+- 摘要: 格式门禁通过；profiles.rs 与新增 profiles/research.rs 格式一致。
+- 关联: R-300
+- 收尾: 1787068423
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@0074f571c0a5,crates/kanzei-tools/src/profiles/research.rs@d5bcdc528784
+
+## T-1786922726412 R-300 B5 kanzei-tools 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 33.0s
+- 摘要: kanzei-tools 定向回归通过：345 passed、0 failed、1 ignored；ResearchProfile 的工具/权限/上下文装配测试均通过。
+- 关联: R-300
+- 收尾: 1787068476
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@0074f571c0a5,crates/kanzei-tools/src/profiles/research.rs@d5bcdc528784
