@@ -29,13 +29,19 @@
 - recorded_at: 1787008359348
 - 阻塞: 真实重启验收需要关闭当前正在运行的已安装 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`；解除人：用户关闭当前 kzapp 窗口后，由 agent 重新启动同一安装位并回读持久化 auto state。
 
-## D-513 后端静默失败与死抽象批次清理 [open] (low)
+## D-513 后端静默失败与死抽象批次清理 [fixing] (low)
 - 复现: kanzei-core/src/store/session.rs:36,158,187 VACUUM/备份删除 let _ 无痕迹(常年失败库膨胀也无从发现);kanzei-app/src/state.rs:684-703 stop 兜底 detach 线程睡 30s 句柄丢弃且期间重开 SessionStore;kanzei/src/cli/tracker.rs:117 无说明 unreachable!;kanzei-app/src/phase_pipeline.rs:253,475 roster_cap 静默截断角色表无诊断;kanzei-core/src/notification.rs:7 InMemoryBroker 零生产消费方
 - 影响: 维护性失败无痕迹;停止不干净无迹可循;死抽象误导
 - 来源: 2026-08-18 全库勘察(主会话);InMemoryBroker/roster_cap 为 audit_20260812 遗留项
 - 标签: 后端
 - 验收: 失败路径留 tracing;stop 兜底可观测;unreachable 带理由;截断有诊断;死抽象删除
 - 优先级: P3
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-513
+- 批次: 1/4
+- 进展: 批1/4 已完成，待提交：`crates/kanzei-core/src/store/session.rs` 已将 `open` 的 housekeeping 失败、housekeeping_at 写入失败、VACUUM 失败、过期迁移备份删除失败、覆盖旧备份删除失败分别改为带 `error`/`path`/上下文的 `tracing::warn!`；首次备份的 `NotFound` 仍不告警，保持既有正常语义。原有备份保留与 VACUUM 回归继续通过，T-1786922726326：`cargo fmt --all -- --check; cargo test -p kanzei-core`，227 passed。下一步批2：读取并修改 `crates/kanzei-app/src/state.rs` stop 兜底 detach 线程与句柄生命周期，补可观测回归。
+- observed_head: 3edaa4305fcdb1ddd481fd51c6226471709cc1ba
+- observed_worktree_hash: fnv1a64:18c5be4776ae1189
+- recorded_at: 1787013682764
 
 ## D-525 D-506 多行 Mutex lock unwrap 漏网调用 [open] (medium)
 - 复现: D-506 初轮巡检只匹配同一行 `.lock().unwrap()`；复核发现 `crates/kanzei-app/src/run/persistence.rs:215` 与 `state.rs:623/766` 采用换行 `.lock()` + `.unwrap()`，仍会在 poisoned mutex 上 panic。

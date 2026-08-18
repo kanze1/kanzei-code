@@ -33,7 +33,13 @@ impl SessionStore {
         store.migrate()?;
         // D-298:空闲时机条件整理——freelist 死页超阈值才 VACUUM、迁移备份只留最近一版。
         // 放在 open 末尾:任何打开库的路径(桌面命令/CLI/移动端)都会走到,无需单独调度。
-        let _ = store.maintain_housekeeping();
+        if let Err(error) = store.maintain_housekeeping() {
+            tracing::warn!(
+                error = %error,
+                path = %path.display(),
+                "state.db housekeeping failed; open continues"
+            );
+        }
         Ok(store)
     }
 
@@ -134,11 +140,13 @@ impl SessionStore {
             return Ok(());
         }
         // 节流窗口内不再尝试;先记时间,失败也不反复重试(下次 open 若已过窗口仍会做)。
-        let _ = self.connection.execute(
+        if let Err(error) = self.connection.execute(
             "INSERT INTO schema_meta(key, value) VALUES ('housekeeping_at', ?1)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![now.to_string()],
-        );
+        ) {
+            tracing::warn!(error = %error, path = %path.display(), "记录 state.db housekeeping 时间失败");
+        }
 
         // ① freelist 死页回收。VACUUM 不能在事务内,此处无活跃事务(open 刚完成 migrate)。
         let freelist: i64 = self
@@ -155,7 +163,15 @@ impl SessionStore {
                 pages,
                 "state.db freelist 死页超阈值,执行 VACUUM 回收"
             );
-            let _ = self.connection.execute("VACUUM", []);
+            if let Err(error) = self.connection.execute("VACUUM", []) {
+                tracing::warn!(
+                    error = %error,
+                    path = %path.display(),
+                    freelist,
+                    pages,
+                    "state.db VACUUM failed"
+                );
+            }
         }
 
         // ② 迁移备份只保留最近一版。备份命名 state.db.v<N>.bak,按版本号取最大。
@@ -184,7 +200,14 @@ impl SessionStore {
                 let keep = backups.pop().map(|(_, p)| p).unwrap_or_default();
                 for (version, old) in backups {
                     tracing::info!(version, "删除过期迁移备份 {}", old.display());
-                    let _ = std::fs::remove_file(&old);
+                    if let Err(error) = std::fs::remove_file(&old) {
+                        tracing::warn!(
+                            error = %error,
+                            version,
+                            path = %old.display(),
+                            "删除过期迁移备份失败"
+                        );
+                    }
                 }
                 let _ = keep;
             }
@@ -204,7 +227,15 @@ impl SessionStore {
         let backup = path.with_extension(format!("db.v{from_version}.bak"));
         // 上一次升级尝试留下的同名备份直接覆盖:它描述的是同一个旧版本。
         // VACUUM INTO 要求目标不存在,所以必须先删。
-        let _ = std::fs::remove_file(&backup);
+        if let Err(error) = std::fs::remove_file(&backup) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    error = %error,
+                    path = %backup.display(),
+                    "覆盖迁移备份前删除旧备份失败"
+                );
+            }
+        }
         self.connection
             .execute("VACUUM INTO ?1", params![backup.to_string_lossy()])?;
         Ok(())

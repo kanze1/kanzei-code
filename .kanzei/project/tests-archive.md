@@ -6963,3 +6963,18 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-512 D-527
 - 收尾: 1787013489
 - 源码指纹: a5da3283499ae79c
+
+## T-1786922726326 D-513 B1 kanzei-core 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 5.5s
+- 摘要: D-513 批1 session housekeeping 回归：kanzei-core 227 passed，0 failed；覆盖备份保留、VACUUM 回收及现有 session/store 读写测试。
+- 关联: D-513
+- 收尾: 1787013671
+
+## T-1786922726327 D-513 B1 kanzei-core 暂存源码定向回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.3s
+- 摘要: 按当前暂存 session.rs 指纹重跑批1定向回归：kanzei-core 227 passed，0 failed；备份保留、VACUUM 回收及 session/store 回归全部通过。
+- 关联: D-513
+- 收尾: 1787013784
+- 源码指纹: 815eb98416888b46
