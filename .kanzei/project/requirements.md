@@ -219,16 +219,7 @@
 - 验收: ①Android 真机可访问并完成鉴权；②收到真实运行成功/失败通知；③从手机发送消息后服务端产生可追溯事件；④保存截图、端口/设备与 session 证据；⑤失败时明确网络、权限或设备边界。
 - 优先级: P3
 
-## R-292 mobile-pwa 入门禁并对齐桌面 UI 纪律 [todo]
-- 内容: crates/kanzei-app/mobile-pwa/app.js(325行)/sw.js(65行) 现无任何门禁:ui_syntax 只 glob ui/*.js(verify.ps1:45),ESLint 只盖 ui/*.js 与 scripts/*.mjs(eslint.config.js:14,74);app.js:260,268,269 用 alert()(桌面端已为此做 confirmDialog/inputDialog 且清零原生弹窗),全部文案硬编码中文零 i18n(app.js:16,55,84,146,161-162,182,216-256)
-- 复杂度: 小
-- 来源: 2026-08-18 全库勘察
-- 标签: 前端
-- 边界: 不重做 PWA 功能;代码级与桌面端重复度低(仅 escapeHtml 约 7 行),重点是设计纪律传导与门禁覆盖
-- 验收: mobile-pwa 进 node --check 与 ESLint;无原生弹窗;文案接 i18n 通道;verify 通过
-- 优先级: P2
-
-## R-293 记忆价值闭环点亮:反事实评估与 outcome 漏斗产出真实数据 [todo]
+## R-293 记忆价值闭环点亮:反事实评估与 outcome 漏斗产出真实数据 [doing]
 - refs: D-507 docs/design/memory_control_plane.md
 - 内容: 生产实况:memory_eval_agg 0 行(写入方 upsert_memory_effect 与消费链 kanzei-core/src/store/eval.rs:54-90、控制面 UI 全通但无人触发)、arm=outcome_improved 0 行无任何写入方(telemetry.rs:174-183 恒 N/A)、deprecate_candidates 依赖 effect_mean<=0 永远返回空集(eval.rs:76,338)、memory_eval 1670 行里 1640 行是在线 action_changed 对账挤占离线回放语义。接通 outcome 写入方与聚合调度,让 F(m) 漏斗四段真实产数
 - 复杂度: 大
@@ -237,28 +228,14 @@
 - 边界: 不改回放台六臂框架;先点亮既有链路再谈扩展
 - 验收: 生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED 四段有真实数据;控制面 F(m) 栏显示非空;deprecate 判定可被真实数据触发;回归测试
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-293
+- 停车: 让位协作线 p16：其当前变更集合包含 crates/kanzei-memory/src/memory/mod.rs 与 store.rs，而 R-293 的真实 outcome 写入方和聚合调度必须接入这些文件；待 p16 完成并清出后恢复，禁止覆盖并发实现。
+- 进展: 设计冻结与只读勘察完成。已确认：kanzei-core/src/store/telemetry.rs:113-147 只有通用 record_memory_eval，funnel_counts:175-214 只消费 action_changed/outcome_improved 两个 arm；生产 action_changed 写入在 kanzei-memory/src/memory/mod.rs:715-730；F(m) 聚合由 replay.rs:284-316 调用 recompute_memory_effect，deprecate_candidates 在 core/src/store/eval.rs:322-349 依赖 memory_eval_agg。当前没有生产 outcome_improved 写入方或聚合调度。下一步：p16 清出 memory/mod.rs/store.rs 后，接真实 outcome 证据、调度 recompute 与回归测试。
+- observed_head: f461647ca8bc60ce91bf64c924da98a5ddbc2a2b
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787056044048
 
-## R-294 记忆检索路线拍板:启用 embeddings 走三臂门禁或正式降级 hybrid 承诺 [todo]
-- refs: D-500 docs/design/memory_control_plane.md
-- 内容: .kanzei/kanzei.toml 无 [embeddings]、index.db 无 memory_vectors 表、search_hybrid 恒走无 embedder 退化 lexical 分支(crates/kanzei-memory/src/memory/index.rs:428-431);replay_eval 六臂各仅 5 case 且 Candidate 臂自身退化(replay_eval.rs:99-163);RecallAction 七态只落地四种(memory/mod.rs:606-610)。按设计 §5 启用门禁跑三臂对比给量化结论,或在 memory_control_plane.md 正式降级 hybrid/PlanInject/StateAudit 承诺并收缩词表
-- 复杂度: 中
-- 来源: 2026-08-18 全库勘察
-- 标签: 后端
-- 边界: 启用与否由数据说话;D-500(embed runtime 缺陷)是启用路线的前置
-- 验收: 量化对比结论落文档;启用则配置+向量索引真实生效,放弃则文档与词表同步收缩;RecallAction 词表与实现一致
-- 优先级: P2
-
-## R-295 candidate 清退提速:出口策略与生产速率匹配 [todo]
-- refs: D-492 D-494
-- 内容: reconcile_candidates 现仅两条出口:recurrence>=3+指纹+当轮 episode 晋升(crates/kanzei-memory/src/memory/mod.rs:972)或 age>=14 天清退(store.rs:552-601);96 条 08-17 候选要等 08-31 才清,期间持续挤占 FTS top-24 检索窗口(与 D-492 叠加)。新增清退策略:语义近似合并、低价值提前退、单日产出上限或等效手段
-- 复杂度: 中
-- 来源: 2026-08-18 全库勘察;2026-08-17 单日 96 条 candidate 实证
-- 标签: 后端
-- 边界: 不动晋升的 provenance 门禁;清退遵循归档不裸删 SOP
-- 验收: 候选存量收敛至健康水位并可持续;策略有测试;现存 96 条按新策略处置;检索窗口占用可量化改善
-- 优先级: P1
-
-## R-296 Tauri command 与 run 链路测试基座 [todo]
+## R-296 Tauri command 与 run 链路测试基座 [doing]
 - 内容: kanzei-app 无 tests/ 目录(全仓唯一集成层在 crates/kanzei/tests/integration),104 个 #[tauri::command] 零测试;装配→执行→落库主链 commands/run.rs(604行)、processes/lifecycle.rs(593)、processes/workspace.rs(548)、run/persistence.rs(489)、run/coordinator.rs(424)、run/execution.rs(313)、harness_ext.rs(284) 全部 0 个 #[test];数据面 memory.rs(13 command)/docs.rs(16 command) 同样近零。建立可测基座(状态抽离/伪 AppHandle/集成层)并优先覆盖 run 主链
 - 复杂度: 大
 - 来源: 2026-08-18 全库勘察
@@ -266,17 +243,14 @@
 - 边界: 不追求覆盖率数字,优先真实断言关键路径;不重构业务逻辑
 - 验收: run 主链关键路径有自动化断言;新增 command 有明确测试落点范式;cargo test 全绿并入 verify
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-296
+- 停车: 让位 D-529 修复发布前 workspace 全量门禁失败；R-296 新增 run command 与 SQLite 落库边界测试已提交 1e076db6，待 D-529 修复后继续完成 cargo test 全绿并入 verify 的验收。
+- 进展: 已落地并提交 1e076db6：commands/run.rs 新增真实 episode/复杂度来源的 command 测试，run/mod.rs 新增真实 SessionStore 通知回放测试；cargo test -p kanzei-app 213 passed（T-1786922726379）。发布脚本 cargo test --workspace 在 kanzei-tools background 越界终止测试处 343 passed、1 failed（T-1786922726380），已登记 D-529；下一步修复并重跑全量。
+- observed_head: 9304ec92c35670db6a002feeddef0d31c6dc1bea
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787059362211
 
-## R-297 kanzei-llm auth token 刷新路径测试 [todo]
-- 内容: crates/kanzei-llm/src/auth/codex.rs(124行,含 token 过期判定+RFC3339 解析+刷新写回)0 测试,auth/mod.rs、event.rs 同为 0;全 crate 52 test/4043 行且几乎全是 SSE/JSON 形状断言
-- 复杂度: 小
-- 影响: token 刷新写错表现为莫名其妙掉线,难定位
-- 来源: 2026-08-18 全库勘察
-- 标签: 模型
-- 验收: 过期判定/刷新/写回路径有单测;伪造时钟覆盖边界;cargo test -p kanzei-llm 通过
-- 优先级: P2
-
-## R-298 发布链装后验证与证据补全 [todo]
+## R-298 发布链装后验证与证据补全 [doing]
 - refs: docs/design/ci_release_evidence_chain.md
 - 内容: 打包链止于拷进 dist(scripts/package.ps1:130-136),setup.exe 从未被自动安装验证;install-setup.ps1 全仓零调用方(仅 release.ps1:67 报错文案提及);版本双源冻结 0.1.0 无比对(Cargo.toml:15 与 crates/kanzei-app/tauri.conf.json:4);release notes 无安装器 SHA256(package.ps1:148,设计列为后续可选 ci_release_evidence_chain.md:189);dist 堆 6 个无人引用 setup.exe 约 85MB 无保留策略;release.ps1 开发通道仅 cargo test(release.ps1:15-19),能把过不了 12 步中 10 步的二进制装进系统;install-setup.ps1:41-59 装前不备份装坏不还原
 - 复杂度: 中
@@ -285,8 +259,10 @@
 - 边界: NSIS 路线不重做;安装验证需考虑 LOCALAPPDATA 容器重定向问题(见记忆 localappdata-container-redirect)
 - 验收: 打包后自动静默装+装后自校验入链;SHA256 入 notes;版本一致性检查;dist 保留策略;开发通道最低门禁明确并留档
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-298
+- 取得线: kanzei/thread-line-1787020530803-1
 
-## R-299 IPC 与事件契约机械比对扩面 [todo]
+## R-299 IPC 与事件契约机械比对扩面 [doing]
 - refs: R-284
 - 内容: scripts/ipc-contract.json 仅锁 docs_snapshot 一个顶层键(1/104 command),而该机制自述正是 30+ 命令手搓 JSON 两侧各写一遍字符串(crates/kanzei-app/src/ipc_contract.rs:1-19);后端 emit 事件集合(kz:compacted/kz:meta/kz:reasoning/kz:step 等)与前端 on() 订阅集合无任何机械求差;ui-runtime 冒烟的多会话/记忆页 fixture 是前端作者手写,后端改字段名照样全绿。扩契约文件覆盖高频 command,emit/listen 求差入冒烟
 - 复杂度: 中
@@ -295,8 +271,10 @@
 - 边界: 作为 R-284 事件契约的前置批次,不与其四批重复;词表定义归 R-284
 - 验收: 契约覆盖高频 command;emit/listen 集合求差入冒烟;后端改事件名或字段名可被门禁捕获
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-299
+- 停车: 让位 R-300 收尾：协作线 p16 仍占用 crates/kanzei-app/src/ipc_contract.rs、scripts/ipc-contract.json、scripts/ipc-event-smoke.mjs、scripts/verify.ps1 等 IPC 契约扩面文件；本条不覆盖并发实现。p16 清出后按 work next 恢复。
 
-## R-300 大文件拆解第三轮与回涨闸门 [todo]
+## R-300 大文件拆解第三轮与回涨闸门 [doing]
 - refs: docs/design/metrics_baseline.md docs/design/monolith_decomposition_round2.md
 - 内容: Rust 侧:background.rs 2019 生产行居全仓 Top-1 却不在 R-257/R-202/R-204 任何拆解条目范围;drive.rs:930 execute_tool_calls 582 行及同文件 307/256/249 行函数群;profiles.rs:68/:605 同一 trait 方法两份实现(537+242 行);tracker/actions.rs 已回涨至 1356 行;kanzei/src/cli/run.rs:27 单函数 651 行且文件零测试。前端侧:08-compose.js 1535 行(拆解预算 941,超 60%),09-sessions/16-settings/11-docs-list/20-lines/07-events/06-activity 五文件回涨至 900+;06-agent-panel.js 是 06-activity.js 的逐行分叉复制(八对函数一一对应共用 bg-* CSS);index.html 1150 行 8 视图未拆。拆解后行数上限回涨闸门进 verify;完成后重跑 kz metrics 前后对照
 - 复杂度: 大
@@ -305,6 +283,12 @@
 - 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
+- 批次: 4/4
+- 进展: B1 已落地：docs/design/metrics_baseline.md 更新为 2026-08-18 `kz metrics --top 30` 实测榜单，记录全仓 210 个 .rs、9 个生产行超过 1200 的巨石及相对旧基线回涨；证据：T-1786922726397，命令 `kz metrics --top 30`。B2 已落地：将 crates/kanzei-tools/src/tracker/actions.rs:1042-1356 的校验、展示与 ID 错误辅助函数迁移到 crates/kanzei-tools/src/tracker/actions/action_helpers.rs，actions.rs 仅保留路由与导入；证据：T-1786922726398，`cargo fmt --all -- --check` 与 `cargo test -p kanzei-tools`，345 passed、0 failed、1 ignored。B3 已落地：将 crates/kanzei-tools/src/test_record.rs:625-1022 的 TestCoverage、测试背书查询、条目反查和六条前端 smoke 判定迁移到 crates/kanzei-tools/src/test_record/coverage.rs，通过 re-export 保持真实调用方 API；D-531 已修复并关闭；证据：T-1786922726399，格式与 kanzei-tools 定向回归全绿。B4 已落地：将 crates/kanzei-tools/src/background.rs:551-715 的 persistent 注册表、discover/adopt/kill 生命周期迁移到 crates/kanzei-tools/src/background/persistent.rs，通过 background.rs re-export 保持 bash/process 工具真实消费者 API；D-532 已登记、修复并关闭。证据：提交 6a21d4f9；T-1786922726400，`cargo fmt --all -- --check` 与 `cargo test -p kanzei-tools`，345 passed、0 failed、1 ignored。当前代码拆分批次已完成，仍需核对/补齐 verify 回涨闸门与最新 metrics 基线对照，完成 R-300 验收后再发布。
+- observed_head: 6a21d4f9f1accda695975a5a465f4e8bc5cb9ce5
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787063041198
+- R-300: 2/4
 
 ## R-301 泳道三级卡住判据 [todo]
 - refs: docs/design/parallel_lines_ui.md

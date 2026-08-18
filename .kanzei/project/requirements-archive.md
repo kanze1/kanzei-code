@@ -3795,3 +3795,63 @@
 - observed_head: 86fd4189c3082f735b2ae602d28b1ac0739a1198
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787022996228
+
+## R-294 记忆检索路线拍板:启用 embeddings 走三臂门禁或正式降级 hybrid 承诺 [done]
+- refs: D-500 docs/design/memory_control_plane.md
+- 内容: .kanzei/kanzei.toml 无 [embeddings]、index.db 无 memory_vectors 表、search_hybrid 恒走无 embedder 退化 lexical 分支(crates/kanzei-memory/src/memory/index.rs:428-431);replay_eval 六臂各仅 5 case 且 Candidate 臂自身退化(replay_eval.rs:99-163);RecallAction 七态只落地四种(memory/mod.rs:606-610)。按设计 §5 启用门禁跑三臂对比给量化结论,或在 memory_control_plane.md 正式降级 hybrid/PlanInject/StateAudit 承诺并收缩词表
+- 复杂度: 中
+- 来源: 2026-08-18 全库勘察
+- 标签: 后端
+- 边界: 启用与否由数据说话;D-500(embed runtime 缺陷)是启用路线的前置
+- 验收: 量化对比结论落文档;启用则配置+向量索引真实生效,放弃则文档与词表同步收缩;RecallAction 词表与实现一致
+- 优先级: P2
+- 进展: 验收逐条对账：①量化路线结论：docs/design/memory_control_plane.md:172-179（§5.1）记录生产 `[embeddings]` 启用项为 0、replay_eval.rs 仅 5 个 fixture 测试、无足够生产三臂样本，结论为暂不启用 production hybrid，不能把 FakeEmbedder 结果冒充线上收益。②放弃启用后的口径同步：同一文档:91-95 将 RecallAction 从 7 项收缩为 NoOp/Fingerprint/Lexical/ReRetrieve，并明确 Hybrid 仅离线/显式 opt-in、PlanInject/StateAudit 无真实消费方；运行时实际检索分支位于 crates/kanzei-memory/src/memory/mod.rs:640-653。③配置与向量行为证据：文档:175-177 精确引用 crates/kanzei-harness/src/config.rs:151-168 的 enabled 门禁及 crates/kanzei-memory/src/memory/index.rs:431-450 的无 embedder lexical 降级；现有 memory_vectors/FakeEmbedder/hybrid 实验能力保留但未伪称生产启用。④回归：T-1786922726374，`cargo test -p kanzei-memory` 148 passed、1 ignored，覆盖 embeddings 配置、向量重建/dense/hybrid、无 embedder lexical 降级和 5 个 replay fixture。实现提交 4beea898；既有 embedder/index/replay 代码属于复用能力，本次交付是基于真实数据的正式路线降级与词表同步。
+- observed_head: 4beea898d1db74cdd9fb6aa520e0e62f34d75e8a
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787056247593
+
+## R-292 mobile-pwa 入门禁并对齐桌面 UI 纪律 [done]
+- 内容: crates/kanzei-app/mobile-pwa/app.js(325行)/sw.js(65行) 现无任何门禁:ui_syntax 只 glob ui/*.js(verify.ps1:45),ESLint 只盖 ui/*.js 与 scripts/*.mjs(eslint.config.js:14,74);app.js:260,268,269 用 alert()(桌面端已为此做 confirmDialog/inputDialog 且清零原生弹窗),全部文案硬编码中文零 i18n(app.js:16,55,84,146,161-162,182,216-256)
+- 复杂度: 小
+- 来源: 2026-08-18 全库勘察
+- 标签: 前端
+- 边界: 不重做 PWA 功能;代码级与桌面端重复度低(仅 escapeHtml 约 7 行),重点是设计纪律传导与门禁覆盖
+- 验收: mobile-pwa 进 node --check 与 ESLint;无原生弹窗;文案接 i18n 通道;verify 通过
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-292
+- 停车: 让位协作线 p16：其当前变更集合包含 crates/kanzei-app/mobile-pwa/app.js、sw.js、eslint.config.js、scripts/ui-lint-smoke.mjs、scripts/verify.ps1；待该线完成并清出这些共享文件后恢复，禁止覆盖并发实现。
+- 进展: 验收收口：①mobile-pwa 进 node --check(verify.ps1 ui_syntax 扩 mobile-pwa/*.js,实测通过);②进 ESLint(eslint.config.js 新增 mobile-pwa 块含 sw 宿主全局,ui-lint-smoke.mjs lintFiles 扩展,实测 45 文件零错误);③无原生弹窗:3 处 alert 清零改 thread-msg/send-msg 内联提示,PWA 交互冒烟断言 alert 桩未触发;④文案接 i18n 通道:app.js 全部文案走 t()(I18N_EN 表,中文键=文案),sw.js 离线提示走 offlineText,PWA 冒烟断言中英 i18n;⑤verify 相关:node --check+六条前端冒烟全绿(T-1786922726370/6371),kanzei-app 210 passed(T-1786922726373),cargo test --workspace 全绿(R-295 时 T-1786922726367,未动 rust 源码)。提交 e875e628。临时冒烟脚本与静态服务器已删除。
+- observed_head: e875e62827af89990b789402de903eaba9b9998f
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787056301772
+
+## R-295 candidate 清退提速:出口策略与生产速率匹配 [done]
+- refs: D-492 D-494
+- 内容: reconcile_candidates 现仅两条出口:recurrence>=3+指纹+当轮 episode 晋升(crates/kanzei-memory/src/memory/mod.rs:972)或 age>=14 天清退(store.rs:552-601);96 条 08-17 候选要等 08-31 才清,期间持续挤占 FTS top-24 检索窗口(与 D-492 叠加)。新增清退策略:语义近似合并、低价值提前退、单日产出上限或等效手段
+- 复杂度: 中
+- 来源: 2026-08-18 全库勘察;2026-08-17 单日 96 条 candidate 实证
+- 标签: 后端
+- 边界: 不动晋升的 provenance 门禁;清退遵循归档不裸删 SOP
+- 验收: 候选存量收敛至健康水位并可持续;策略有测试;现存 96 条按新策略处置;检索窗口占用可量化改善
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-295
+- 停车: 让位协作线 p16：其当前变更集合包含 crates/kanzei-memory/src/memory/mod.rs 与 store.rs，而 R-295 的候选清退策略、现存 96 条处置和检索窗口量化必须接入这些文件；待 p16 完成并清出后恢复，禁止覆盖并发实现。
+- 进展: 验收收口：①真实存量处置 candidate 153→24(文件与FTS索引一致,129条deprecated入归档带墓碑,真实执行临时 example reconcile_r295,验收后已删);②策略有测试 reconcile_candidates_capacity_retires_low_value_first(容量24收敛/低价值优先/归档墓碑断言,T-1786922726360/6368/6369);③现存96条按新策略处置:真实执行 deprecated=129 含08-17存量与后续新增,archive 墓碑保留;④检索窗口占用可量化:bash 21/24→14/24、记忆 20/24→9/15、cargo 23/24→8/15(top-24 窗口 candidate 占用);⑤全量 cargo test --workspace 全绿(T-1786922726367:1214 passed 0 failed)。提交 9c5a89ea(B1 健康水位 CANDIDATE_MAX_COUNT=24+低价值优先清退+归档墓碑+测试) 150c6cdb(B2 untouched 语义修正:容量出口清退条目从 untouched 移除,测试断言收紧==24)。
+- observed_head: e875e62827af89990b789402de903eaba9b9998f
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787056317878
+
+## R-297 kanzei-llm auth token 刷新路径测试 [done]
+- 内容: crates/kanzei-llm/src/auth/codex.rs(124行,含 token 过期判定+RFC3339 解析+刷新写回)0 测试,auth/mod.rs、event.rs 同为 0;全 crate 52 test/4043 行且几乎全是 SSE/JSON 形状断言
+- 复杂度: 小
+- 影响: token 刷新写错表现为莫名其妙掉线,难定位
+- 来源: 2026-08-18 全库勘察
+- 标签: 模型
+- 验收: 过期判定/刷新/写回路径有单测;伪造时钟覆盖边界;cargo test -p kanzei-llm 通过
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-297
+- 取得线: kanzei/thread-line-1787020530803-1
+- 进展: 验收收口：①过期判定/刷新/写回路径有单测——is_stale 纯函数(过期判定提纯,时间源注入)与 apply_refresh_response 纯函数(刷新写回提纯)各加单测,共 3 个新测试(codex.rs auth::codex::tests);②伪造时钟覆盖边界——is_stale 测试传伪造 now(2026-02-01)覆盖恰好25天/超25天/24天/字段缺失/解析失败/带时区偏移六边界,apply_refresh_response 测试传伪造 now 验证 last_refresh 更新与空值不覆盖;③cargo test -p kanzei-llm 通过(55 passed,0 failed,T-1786922726380/6381)。提交 c3f9a6ff。生产行为不变:codex_headers 与 refresh 传 chrono::Utc::now(),纯函数提取逐字保留原逻辑。
+- observed_head: c3f9a6ffdeff75a9a5461184388ed538d609915c
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787059512807

@@ -6513,3 +6513,64 @@
 - observed_head: f2ffd0bea6b8d2d1d1eea6220c9cdf7c393421f2
 - observed_worktree_hash: fnv1a64:bed069f1dce43cbb
 - recorded_at: 1787016013417
+
+## D-530 后台按线路停止计数在进程自然退出竞态下不稳定 [fixed] (medium)
+- 复现: 自发现：cargo test -p kanzei-tools 全套中，background::tests::按线路停止只回收目标owner的后台进程 在 kill_process 返回 1 的断言处得到 0；完整套件结果 344 passed、1 failed、1 ignored。需定向运行该测试确认是否受本次终态标记或测试进程时序影响。
+- 影响: kanzei-tools 定向回归仍不稳定，阻断 D-529 收口与 release workspace 门禁；目标线路回收的计数语义可能在进程已自然退出时与测试断言不一致。
+- 来源: self-found（D-529 修复后的定向全套回归）
+- 标签: 核心
+- 进展: 验收对账：①按线路停止测试稳定通过：crates/kanzei-tools/src/background.rs:1086-1095 使用同一 run_id、不同 process_id 的真实后台进程夹具，kill_process 只命中目标 owner；T-1786922726393 记录 cargo test -p kanzei-tools 为 345 passed、0 failed、1 ignored。②kill_process 计数与终止语义一致：background.rs:799-807 仅对目标线路 running 非 persistent 进程计数，并在 kill_tree 成功后调用 mark_terminated；background.rs:87-94 写入终态。③D-529 越界终止与回滚归因仍通过：background.rs:478-486、522-530 在越界终止后标记终态并继续 reconcile；对应回归包含在 T-1786922726393。实现提交：8edde071。
+- 验收: 按线路停止测试稳定通过；kill_process 计数与实际终止语义一致；D-529 的越界终止与回滚归因仍通过。
+- refs: D-529 R-296
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-530
+- observed_head: 8edde07161272f1603e4bd3bffdbd2c5d092e0a7
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787060333005
+
+## D-529 kanzei-tools 后台越界终止后进程句柄偶发未进入终态 [fixed] (medium)
+- 复现: 自发现：执行 .\scripts\release.ps1 的 cargo test --workspace；kanzei-tools 的 background::tests::场景越界_后台写托管文档被隔离回滚并归因到owner_且进程树被终止 在 crates/kanzei-tools/src/background.rs:1228 断言失败。首次结果 343 passed、1 failed、1 ignored。
+- 影响: 发布前 workspace 全量门禁不稳定并阻止发版；失败涉及后台越界写隔离后的进程终止/句柄终态可观测性。
+- 来源: self-found（发布前全量测试）
+- 标签: 核心
+- 进展: 验收逐项对账：①“该测试在 kanzei-tools 定向运行稳定通过”：crates/kanzei-tools/src/background.rs:1086-1095 的按线路真实后台进程夹具已修正，T-1786922726393 记录 cargo test -p kanzei-tools 为 345 passed、0 failed、1 ignored。②“cargo test --workspace 与 scripts/release.ps1 的 workspace 阶段通过”：T-1786922726394 记录 workspace 全量通过；T-1786922726395 记录 release.ps1 先通过 workspace 测试，再成功构建 release kz/kzapp，失败仅发生在运行中的 kzapp 占用安装位，输出 kzapp.exe.pending 并要求关闭后重跑。③“不改变后台隔离语义”：8edde071 仅在 crates/kanzei-tools/src/background.rs:87-94、317-325、478-486、522-530、744-751、773-781、799-807 增加 kill_tree 成功后的终态标记与退出结果幂等补写，reconcile/回滚路径保留；越界归因回归由 T-1786922726395 的 workspace 阶段及 T-1786922726393 背书。D-529 代码验收完成；桌面安装因用户进程占用尚未完成，待关闭 kzapp 后重跑 scripts/release.ps1。实现提交：8edde071。
+- 验收: 该测试在 kanzei-tools 定向运行稳定通过；cargo test --workspace 与 scripts/release.ps1 的 workspace 阶段通过；不改变后台隔离语义。
+- refs: R-296
+- 优先级: P1
+- 取活依据: override:用户此前明确要求继续完成 D-529 收口并发版；D-530 已 fixed，原停车原因已消失，当前剩余仅为发布前全量门禁与 release.ps1。
+- 停车: 
+- observed_head: 8edde07161272f1603e4bd3bffdbd2c5d092e0a7
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787060811604
+
+## D-531 R-300 B3 coverage 子模块迁移的重复导入与可见性错误 [fixed] (medium)
+- 复现: 初始错误为 test_record.rs 重复导入 json、coverage.rs 校验函数可见性不足；第一次修复把已带 pub(super) 的签名再次替换成 `pub(super) pub(super) fn`，导致 cargo fmt 报 visibility not followed by item、coverage 模块无法解析。
+- 影响: B3 新增 coverage 子模块无法编译，kanzei-tools 定向回归和后续提交被阻断。
+- 来源: self-found（R-300 B3 迁移后定向编译）
+- 标签: 核心
+- refs: R-300
+- 优先级: P1
+- 进展: D-531 已修复：test_record.rs 仅保留单一 json import，coverage.rs 的 check_frontend_smoke_claim 以 pub(super) 供父模块私有调用，unclosed_running_for 保持公开 re-export；证据：T-1786922726399，`cargo fmt --all -- --check` 与 `cargo test -p kanzei-tools`，345 passed、0 failed、1 ignored。
+- observed_head: b37e9eb5ff28d1ed5f5f7e911a3da73936bb9340
+- observed_worktree_hash: fnv1a64:aab4460f85814f72
+- recorded_at: 1787062324841
+
+## D-532 R-300 B4 persistent 拆分遗漏 registry_path 测试调用方 [fixed] (medium)
+- 复现: 运行 `cargo test -p kanzei-tools`；background.rs 测试中的 5 处 registry_path 调用找不到，编译报 E0425，提示实现已位于 background::persistent::registry_path。
+- 影响: B4 persistent 注册表拆分后的 kanzei-tools 测试目标无法编译，阻断定向回归与提交。
+- 来源: self-found（R-300 B4 persistent 域迁移后定向编译）
+- 标签: 核心
+- refs: R-300
+- 优先级: P1
+
+## D-533 R-300 metrics 回涨闸门漏解析一条 Top-30 记录 [fixed] (medium)
+- 复现: 运行 `scripts/metrics-regression-gate.ps1 -Root <repo>`；输出 `29 rows`，但 `kz metrics --top 30` 返回 30 个榜单文件。
+- 影响: 回涨闸门可能漏掉一个 Top-30 文件，存在未检查的回涨路径，不能作为发布门禁证据。
+- 来源: self-found（R-300 B4 回涨闸门手动验证）
+- 标签: 发布
+- refs: R-300
+- 优先级: P1
+- 进展: 根因：PowerShell 捕获的 `kz metrics --top 30` 将表头与第一条 `background.rs` 记录粘连，原 anchored regex 漏掉第一行。修复位置：scripts/metrics-regression-gate.ps1:35-40 改为行内匹配 `crates/...` 并保留 7 个数值字段解析；调用位置：scripts/verify.ps1:56-61。验证：T-1786922726401，gate 完整解析 30 行、巨石 7/7，两个 PowerShell 文件解析通过。
+- observed_head: 6a21d4f9f1accda695975a5a465f4e8bc5cb9ce5
+- observed_worktree_hash: fnv1a64:41519d3f86e0d3bd
+- recorded_at: 1787063356945

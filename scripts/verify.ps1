@@ -56,6 +56,8 @@ Step-With-Timing "ui_markdown" "ui_markdown" {
 Step-With-Timing "crate_sync" "crate_sync (R-266 README 项目结构表与 workspace 一致)" {
     node "$root\scripts\check-readme-crates.mjs"
     if ($LASTEXITCODE -ne 0) { throw "README 项目结构表与 Cargo.toml members 不同步(R-266)" }
+    & "$root\scripts\metrics-regression-gate.ps1" -Root $root
+    if ($LASTEXITCODE -ne 0) { throw "metrics regression gate failed (R-300)" }
 }
 Step-With-Timing "ps1_bom" "ps1_bom (D-408 含中文的 .ps1 须带 UTF-8 BOM)" {
     node "$root\scripts\check-ps1-bom.mjs"
