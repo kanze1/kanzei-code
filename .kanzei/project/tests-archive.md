@@ -7766,3 +7766,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300 D-541
 - 收尾: 1787074951
 - 源码指纹: v2 scripts/metrics-regression-gate.ps1@a3cf9856cb2a
+
+## T-1786922726439 R-300 B1 background 生命周期拆分定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 32.3s
+- 摘要: background 生命周期拆分后的格式与定向回归通过：345 passed、0 failed、1 ignored；symbols 跨 crate 再导出测试已按 lifecycle.rs 真实定义位置通过。
+- 关联: R-300 D-542
+- 收尾: 1787075629
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@18dc432ac4d8,crates/kanzei-tools/src/background/lifecycle.rs@149ced7333d4,crates/kanzei-tools/src/symbols.rs@56f9df88784f

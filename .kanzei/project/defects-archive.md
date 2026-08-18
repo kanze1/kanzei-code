@@ -6666,9 +6666,20 @@
 - 影响: metrics regression gate 无法读取真实当前榜单，R-300 验收③ verify 闸门无法完成可重放验证；不能用 cargo 输出冒充 gate 已通过。
 - 来源: self-found：R-300 B14 提交后 metrics/verify 复核。
 - 标签: 发布
-- refs: R-300
 - 优先级: P2
 - 进展: 已修复并关闭对账：①根因——`scripts/metrics-regression-gate.ps1:5-8` 直接把 Windows 扩展路径 `\\?\` 交给 PowerShell 文件系统 cmdlet，导致 baseline 检查失败；②实现——同文件 `:7-12` 仅对本地盘扩展前缀执行 `Substring(4)` 规范化，UNC/普通路径保持不变；③真实调用方——`scripts/verify.ps1:59-60` 继续调用该 gate，未绕过；④证据——T-1786922726437 在扩展路径通过，T-1786922726438 在普通 Windows 路径通过，均为 30 行可解析、巨石 7/7、允许回涨 100 行。
 - observed_head: 08f8a52f86811b1f5ae13d58748eae212b93cda7
 - observed_worktree_hash: fnv1a64:a176bf3c37badc4e
 - recorded_at: 1787074958864
+
+## D-542 background 生命周期拆分后 symbols define 未跟随真实定义文件 [fixed] (medium)
+- refs: R-300
+- 复现: 执行 `cargo test -p kanzei-tools`；`symbols::tests::define_真实仓库穿透跨crate再导出` 失败，报告 `kill_background_processes_for_process` 的 alias 定义落在 `crates/kanzei-tools/src/background/lifecycle.rs`，测试仍按 `background.rs` 旧位置判断。
+- 影响: R-300 B1 的行为测试本身通过，但 symbols 的真实仓库跨 crate 再导出解析回归，无法证明拆分后的定义链可穿透。
+- 来源: self-found：R-300 B1 拆分后的 kanzei-tools 定向回归。
+- 标签: 核心
+- 进展: 关闭对账：①回归根因——background 生命周期函数已真实迁移到 `crates/kanzei-tools/src/background/lifecycle.rs:1-251`，`symbols::tests::define_真实仓库穿透跨crate再导出` 仍断言旧的 `background.rs` 路径；②修复——`crates/kanzei-tools/src/symbols.rs:1093-1101` 改为断言 `lifecycle.rs`，并在 `background.rs:153-159` 为测试显式导入 `Path`/`OnceLock`；③验证——T-1786922726439：`cargo fmt --all -- --check` 与 `cargo test -p kanzei-tools`，345 passed、0 failed、1 ignored。
+- 优先级: P2
+- observed_head: 7a57b30081248614665d0e21c104ff86b8867dc2
+- observed_worktree_hash: fnv1a64:ecfe756ffbee2656
+- recorded_at: 1787075637520

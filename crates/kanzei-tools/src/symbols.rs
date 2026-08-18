@@ -1091,10 +1091,10 @@ mod tests {
             report
         );
         // ②验收②:as 改名——define=kill_background_processes_for_process(新名,
-        // 定义名 kill_process 不叫这个)必须回落原名命中 background.rs 定义。
+        // 定义名 kill_process 不叫这个)必须回落原名命中 background/lifecycle.rs 定义。
         let report2 = resolve_define(&files, "kill_background_processes_for_process", repo);
         assert!(
-            report2.contains("background.rs")
+            report2.contains("lifecycle.rs")
                 && report2.contains("kill_background_processes_for_process"),
             "{}",
             report2

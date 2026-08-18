@@ -283,11 +283,11 @@
 - 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
-- 批次: 5/5
-- 进展: B14 已提交：`1e7a4617`。metrics 对照已落 `docs/design/metrics_baseline.md:3-58`，T-1786922726435 记录 `cargo run -p kanzei -- metrics --top 30`，当前 background.rs 1747 生产行、drive.rs 1489、Top-30 巨石 7 个；T-1786922726436 记录普通 Windows 路径 gate 通过。D-541 已修复：`scripts/metrics-regression-gate.ps1:7-12` 规范化本地盘 `\\?\` 扩展前缀，真实调用方仍为 `scripts/verify.ps1:59-60`；T-1786922726437（扩展路径）与 T-1786922726438（普通路径）均通过，gate 输出 30 行、巨石 7/7、允许回涨 100 行。D-539、D-540 已修复。验收②的 06-agent-panel/06-activity 合流为既有 B8 能力。验收①仍有 background.rs 与 drive.rs 等 Top 目标未降出巨石阈值；验收③已有 verify 接线、扩展/普通路径 gate 通过证据；验收④已完成 Rust metrics 对照落盘。下一步：核对 verify 全链路与剩余 Top 目标，未达到验收前保持 doing。
-- observed_head: 08f8a52f86811b1f5ae13d58748eae212b93cda7
-- observed_worktree_hash: fnv1a64:a176bf3c37badc4e
-- recorded_at: 1787074973135
+- 批次: 1/2
+- 进展: B1 已落地：`crates/kanzei-tools/src/background/lifecycle.rs:1-251` 承接 registry、窗口观察、守卫、reconcile、foreign-owner 收尾、get/list/stop/kill_project/kill_process/project_hash/now_ms；`background.rs:21-31` 保留公共 re-export，`registration.rs` 与 `persistent.rs` 继续通过父模块私有协作名调用，真实外部调用方为 `process.rs:52-155`、`bash.rs:278`、`lib.rs:59-61`。为适配真实定义位置修复 D-542：`symbols.rs:1093-1101` 断言 lifecycle.rs，T-1786922726439 定向验证 345 passed、0 failed、1 ignored。下一步 B2：复核 drive.rs 剩余轮次/装配域，提取一个行为不变的独立模块并重跑 kanzei-core。
+- observed_head: 7a57b30081248614665d0e21c104ff86b8867dc2
+- observed_worktree_hash: fnv1a64:ecfe756ffbee2656
+- recorded_at: 1787075646825
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 
