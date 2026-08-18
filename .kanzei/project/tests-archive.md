@@ -7083,3 +7083,53 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-505
 - 收尾: 1787015826
 - 源码指纹: 51b03e714781bf68
+
+## T-1786922726342 R-243 B1 compaction 事务入口 core 回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core store::events
+- 时长: 4.1s
+- 摘要: 修复 StoreError 属性插入错误后，core 事件定向回归通过：14 passed；覆盖 compaction 四事件原子顺序、raw event 保留、非法输入无部分写入。
+- 关联: R-243 D-528
+- 收尾: 1787016004
+
+## T-1786922726343 R-243 B2 compaction 写者 app 回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.0s
+- 摘要: R-243 批2真实 compaction 写者接线回归：kanzei-app 209 passed；压缩路径事务追加与失败恢复代码编译通过。
+- 关联: R-243
+- 收尾: 1787016249
+
+## T-1786922726344 R-243 B2 compaction 事务 core 回归 [passed]
+- 命令: cargo test -p kanzei-core store::events
+- 时长: 0.2s
+- 摘要: R-243 批2接线后的 core 事件事务回归：14 passed；四事件顺序、raw event 保留、非法输入无部分写入。
+- 关联: R-243
+- 收尾: 1787016249
+
+## T-1786922726345 R-243 B2 未完成 compaction 恢复诊断回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core store::events; cargo test -p kanzei-app conversation::tests::shadow_get_returns_projection_and_comparison_without_switching_source
+- 时长: 16.0s
+- 摘要: R-243 批2恢复诊断回归：core 15 passed，覆盖未完成事务诊断与 ended 收口；app shadow_get 1 passed，确认诊断字段接入可见 shadow 入口。
+- 关联: R-243
+- 收尾: 1787016339
+
+## T-1786922726346 R-243 发布前定向回归与提交门禁预检 [failed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-app; cargo check --workspace --all-targets; cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings
+- 摘要: core 217 passed、app 209 passed、workspace check 与 fmt 通过；clippy 因 kanzei-tools 4 处 needless_option_as_deref 与 kanzei-app 1 处 type_complexity 失败。
+- 收尾: 1787017806
+
+## T-1786922726347 R-243 发布前定向回归与提交门禁 [passed]
+- 命令: cargo test -p kanzei-tools; cargo test -p kanzei-app; cargo check --workspace --all-targets; cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings
+- 摘要: kanzei-tools 343 passed、1 ignored；kanzei-app 209 passed；workspace check、fmt、clippy 全部通过。包含 R-243 compaction 接线与发布提交门禁验证。
+- 收尾: 1787017968
+
+## T-1786922726348 R-243 当前暂存源码定向回归 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-app; cargo test -p kanzei-tools
+- 摘要: 当前暂存源码定向回归：kanzei-core 217 passed、kanzei-app 209 passed、kanzei-tools 343 passed/1 ignored；覆盖 R-243 compaction 事件事务、app 写者/诊断以及发布门禁清理。
+- 收尾: 1787018065
+- 源码指纹: 2a677b0c7ff8cf18
+
+## T-1786922726349 R-243 提交源码指纹定向回归 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-app; cargo test -p kanzei-tools
+- 摘要: 当前暂存源码三 crate 回归全部通过：kanzei-core 217 passed、kanzei-app 209 passed、kanzei-tools 343 passed/1 ignored。该记录用于提交源码指纹门禁。
+- 收尾: 1787018083
+- 源码指纹: 2a677b0c7ff8cf18

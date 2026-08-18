@@ -491,7 +491,7 @@ mod tests {
         let blocked = tool
             .execute(json!({ "action": "start", "topic": "loop-smoke" }), &ctx)
             .await;
-        assert_eq!(blocked.code.as_deref(), Some("PLAN_NOT_APPROVED"));
+        assert_eq!(blocked.code, Some("PLAN_NOT_APPROVED"));
         save_plan(&project, &plan("loop-smoke", PlanStatus::Approved)).unwrap();
         let started = tool
             .execute(json!({ "action": "start", "topic": "loop-smoke" }), &ctx)
@@ -506,7 +506,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(invalid.code.as_deref(), Some("MISSING_TASK_ID"));
+        assert_eq!(invalid.code, Some("MISSING_TASK_ID"));
         std::fs::remove_dir_all(project).ok();
     }
 
@@ -535,7 +535,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(second.code.as_deref(), Some("CONCURRENCY_LIMIT"));
+        assert_eq!(second.code, Some("CONCURRENCY_LIMIT"));
         let evidence = tool
             .execute(
                 json!({ "action": "add_evidence", "topic": "loop-smoke", "task_id": task_id, "summary": "正文支撑的压缩摘要", "relevance": 0.9, "source_ids": ["S-999"] }),

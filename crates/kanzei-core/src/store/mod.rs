@@ -91,6 +91,8 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
     /// 库比本二进制新。文案必须给出出路:光说"不兼容"会让人以为库坏了而去删库,
     /// 而删库丢的是全部会话历史——正确动作是把这个二进制升到同一版本。
+    #[error("invalid store input: {0}")]
+    InvalidInput(String),
     #[error(
         "数据库 schema 版本 {found} 高于本程序支持的 {supported}:这个 .kanzei/state.db \
          是更新版本的 kanzei 创建的。请把当前这个程序升到同一版本(桌面端用设置页「检查更新」;\

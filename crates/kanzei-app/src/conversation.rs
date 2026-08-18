@@ -130,6 +130,9 @@ pub(crate) fn conversation_shadow_get(
     let facts = store
         .list_latest_segment_facts(&session_id)
         .map_err(|e| e.to_string())?;
+    let compaction_diagnostics = store
+        .incomplete_compaction_diagnostics(&session_id)
+        .map_err(|e| e.to_string())?;
     let boundary = segment_boundaries(&store, &session_id)?.pop();
     let projection = kanzei_core::project_session_facts(&facts);
     let legacy = recover_latest_legacy_segment_raw(&store, &session_id, boundary)
@@ -138,6 +141,7 @@ pub(crate) fn conversation_shadow_get(
     Ok(json!({
         "session_id": session_id,
         "comparison": comparison,
+        "compaction_diagnostics": compaction_diagnostics,
         "projection": projection,
     }))
 }

@@ -2,6 +2,8 @@
 //! append_event_tx 提 pub(crate):inbox 跨域事务(steer 提升)需要它。
 //! 已在事务内不得再调自开 tx 的方法(见 mod.rs unchecked_transaction 注)。
 
+use std::collections::{BTreeMap, HashSet};
+
 use rusqlite::{params, OptionalExtension, Transaction};
 
 use serde_json::Value;
@@ -19,6 +21,100 @@ impl SessionStore {
         let event = append_event_tx(&tx, session_id, event_type, payload)?;
         tx.commit()?;
         Ok(event)
+    }
+
+    /// R-243 批1：以单个 SQLite 事务追加完整 compaction 事务。
+    /// 原始 typed/session 事实不在此处修改；surface 只是追加的投影结果。
+    pub fn append_compaction_transaction(
+        &self,
+        session_id: &str,
+        transaction_id: &str,
+        summary: &Value,
+        surface: &Value,
+    ) -> Result<Vec<StoredEvent>, StoreError> {
+        if transaction_id.trim().is_empty() {
+            return Err(StoreError::InvalidInput(
+                "compaction transaction_id 不能为空".into(),
+            ));
+        }
+        if !surface.is_array() {
+            return Err(StoreError::InvalidInput(
+                "compaction surface 必须是消息数组".into(),
+            ));
+        }
+        let tx = self.connection.unchecked_transaction()?;
+        let events = [
+            (
+                "compaction_started",
+                serde_json::json!({
+                    "transaction_id": transaction_id,
+                }),
+            ),
+            (
+                "compaction_summary",
+                serde_json::json!({
+                    "transaction_id": transaction_id,
+                    "summary": summary,
+                }),
+            ),
+            (
+                "surface_replaced",
+                serde_json::json!({
+                    "transaction_id": transaction_id,
+                    "surface": surface,
+                }),
+            ),
+            (
+                "compaction_ended",
+                serde_json::json!({
+                    "transaction_id": transaction_id,
+                }),
+            ),
+        ];
+        let mut appended = Vec::with_capacity(events.len());
+        for (event_type, payload) in events {
+            appended.push(append_event_tx(&tx, session_id, event_type, &payload)?);
+        }
+        tx.commit()?;
+        Ok(appended)
+    }
+
+    /// 返回未完成 compaction 的可见诊断；这些事务没有 `compaction_ended`，
+    /// recovery 必须忽略其 surface_replaced，保留旧 surface。
+    pub fn incomplete_compaction_diagnostics(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<String>, StoreError> {
+        let events = self.list_events(session_id, 0)?;
+        let mut started = BTreeMap::<String, i64>::new();
+        let mut ended = HashSet::new();
+        for event in events {
+            let transaction_id = event.payload["transaction_id"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            if transaction_id.is_empty() {
+                continue;
+            }
+            match event.event_type.as_str() {
+                "compaction_started" => {
+                    started.insert(transaction_id, event.sequence);
+                }
+                "compaction_ended" => {
+                    ended.insert(transaction_id);
+                }
+                _ => {}
+            }
+        }
+        Ok(started
+            .into_iter()
+            .filter(|(transaction_id, _)| !ended.contains(transaction_id))
+            .map(|(transaction_id, sequence)| {
+                format!(
+                    "compaction transaction {transaction_id} incomplete at sequence {sequence}; surface_replaced ignored"
+                )
+            })
+            .collect())
     }
 
     pub fn list_events(
@@ -492,6 +588,117 @@ mod tests {
             .unwrap();
         assert_eq!(latest.payload["v"], 2);
         assert!(store.latest_event("ses_test", "missing").unwrap().is_none());
+    }
+
+    #[test]
+    fn compaction_transaction_is_atomic_ordered_and_preserves_raw_events() {
+        let store = store();
+        let original = store
+            .append_event(
+                "ses_test",
+                "turn.started",
+                &serde_json::json!({"raw": true}),
+            )
+            .unwrap();
+        let surface = serde_json::json!([
+            {"role": "user", "parts": [{"type": "text", "text": "surface"}]}
+        ]);
+        let events = store
+            .append_compaction_transaction(
+                "ses_test",
+                "cmp-1",
+                &serde_json::json!({"digest": "summary"}),
+                &surface,
+            )
+            .unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.event_type.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "compaction_started",
+                "compaction_summary",
+                "surface_replaced",
+                "compaction_ended"
+            ]
+        );
+        assert_eq!(events[0].sequence + 1, events[1].sequence);
+        assert_eq!(events[1].sequence + 1, events[2].sequence);
+        assert_eq!(events[2].sequence + 1, events[3].sequence);
+        let raw = store
+            .event_by_sequence("ses_test", original.sequence)
+            .unwrap()
+            .unwrap();
+        assert_eq!(raw.event_type, "turn.started");
+        assert_eq!(raw.payload, serde_json::json!({"raw": true}));
+        assert_eq!(events[2].payload["surface"], surface);
+    }
+
+    #[test]
+    fn invalid_compaction_transaction_writes_no_partial_events() {
+        let store = store();
+        let before = store.list_events("ses_test", 0).unwrap().len();
+        assert!(store
+            .append_compaction_transaction(
+                "ses_test",
+                "",
+                &serde_json::json!({}),
+                &serde_json::json!([]),
+            )
+            .is_err());
+        assert_eq!(store.list_events("ses_test", 0).unwrap().len(), before);
+        assert!(store
+            .append_compaction_transaction(
+                "ses_test",
+                "cmp-invalid-surface",
+                &serde_json::json!({}),
+                &serde_json::json!({"not": "messages"}),
+            )
+            .is_err());
+        assert_eq!(store.list_events("ses_test", 0).unwrap().len(), before);
+    }
+
+    #[test]
+    fn incomplete_compaction_is_diagnosed_without_becoming_surface() {
+        let store = store();
+        store
+            .append_event(
+                "ses_test",
+                "compaction_started",
+                &serde_json::json!({"transaction_id": "cmp-crash"}),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_test",
+                "compaction_summary",
+                &serde_json::json!({"transaction_id": "cmp-crash", "summary": {}}),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_test",
+                "surface_replaced",
+                &serde_json::json!({"transaction_id": "cmp-crash", "surface": []}),
+            )
+            .unwrap();
+        let diagnostics = store.incomplete_compaction_diagnostics("ses_test").unwrap();
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].contains("cmp-crash"));
+        assert!(diagnostics[0].contains("surface_replaced ignored"));
+
+        store
+            .append_event(
+                "ses_test",
+                "compaction_ended",
+                &serde_json::json!({"transaction_id": "cmp-crash"}),
+            )
+            .unwrap();
+        assert!(store
+            .incomplete_compaction_diagnostics("ses_test")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

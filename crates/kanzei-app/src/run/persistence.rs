@@ -315,6 +315,10 @@ pub(crate) async fn finalize_round(
         .lock_or_recover()
         .insert(session_id.to_string(), summary.messages.clone());
 
+    let mut compaction_transaction_id: Option<String> = None;
+    let mut compaction_summary: Option<serde_json::Value> = None;
+    let mut compaction_previous_surface: Option<Vec<kanzei_llm::Message>> = None;
+
     // R-236 B1:轮末压缩走 core 同一份 compact_with_digest——保任务定义、保近期
     // 工作区逐字、只压中段、纪要过质量闸,失败回落原文节选。R-021 那套「整段历史
     // → 单条 300 字纪要」已删:那正是 D-181 在 core 侧修掉的失败模式(压完模型
@@ -377,6 +381,13 @@ pub(crate) async fn finalize_round(
             )
             .await;
             if dropped > 0 {
+                compaction_previous_surface = Some(
+                    conversation
+                        .lock_or_recover()
+                        .get(session_id)
+                        .cloned()
+                        .unwrap_or_default(),
+                );
                 let after = kanzei_core::estimate_conversation_tokens(&conv);
                 // 纪要预览:替换消息的正文(UI 压缩条目用)。
                 let digest_preview = conv
@@ -389,6 +400,13 @@ pub(crate) async fn finalize_round(
                         _ => None,
                     })
                     .unwrap_or_default();
+                compaction_transaction_id = Some(format!("{run_id}:compaction"));
+                compaction_summary = Some(json!({
+                    "digest": digest_preview,
+                    "dropped": dropped,
+                    "before": estimate,
+                    "after": after,
+                }));
                 conversation
                     .lock_or_recover()
                     .insert(session_id.to_string(), conv);
@@ -430,13 +448,34 @@ pub(crate) async fn finalize_round(
         // 轨迹已在运行中按事件增量写入；这里仅补写实时写入失败的尾部，避免
         // 轮末再把整轮复制一遍造成回放重复。
         flush_live_trace(store, session_id, live);
-        // 轮末快照继续写入(验收⑦顺延:上下文压缩摘要仍经 conversation.updated
-        // 持久化,停止前需 compaction 事件化,见 R-242 进展)。
-        if let Err(error) = store.append_event(
+        if let Some(transaction_id) = compaction_transaction_id.as_deref() {
+            let summary = compaction_summary.take().unwrap_or_else(|| json!({}));
+            let append_result = serde_json::to_value(&messages)
+                .map_err(kanzei_core::StoreError::from)
+                .and_then(|surface| {
+                    store
+                        .append_compaction_transaction(
+                            session_id,
+                            transaction_id,
+                            &summary,
+                            &surface,
+                        )
+                        .map(|_| ())
+                });
+            if let Err(error) = append_result {
+                if let Some(previous) = compaction_previous_surface.take() {
+                    conversation
+                        .lock_or_recover()
+                        .insert(session_id.to_string(), previous);
+                }
+                report_persistence_failure(window, session_id, "写入压缩事务", error);
+            }
+        } else if let Err(error) = store.append_event(
             session_id,
             "conversation.updated",
             &json!({ "messages": messages }),
         ) {
+            // 未发生压缩的旧路径暂保留 snapshot 兼容语义；压缩路径已完全转为事务。
             report_persistence_failure(window, session_id, "写入对话历史", error);
         }
         typed_writer

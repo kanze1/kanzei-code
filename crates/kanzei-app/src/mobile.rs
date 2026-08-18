@@ -1071,12 +1071,14 @@ mod tests {
         (dir, state_path)
     }
 
-    fn mobile_connection_test_inputs() -> (
+    type MobileConnectionTestInputs = (
         Arc<Mutex<HashMap<String, String>>>,
         Arc<Mutex<Option<String>>>,
         Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
         Arc<AtomicBool>,
-    ) {
+    );
+
+    fn mobile_connection_test_inputs() -> MobileConnectionTestInputs {
         let mut devices = HashMap::new();
         devices.insert("dev-open".into(), "tok-open".into());
         (

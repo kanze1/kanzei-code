@@ -6500,3 +6500,16 @@
 - observed_head: ec6f69701ee953b437673a0e210c43a3333fd51b
 - observed_worktree_hash: fnv1a64:4aff47bde29f5099
 - recorded_at: 1787015360731
+
+## D-528 R-243 StoreError 新输入错误变体插入位置破坏 thiserror 属性 [fixed] (low)
+- 复现: R-243 批1新增 `StoreError::InvalidInput` 时插入到既有 `UnsupportedSchema` 的 `#[error(...)]` 属性内部，导致 thiserror 报 `only one #[error(...)] attribute is allowed`，并连锁产生大量 From 实现编译错误。
+- 影响: kanzei-core 无法编译，R-243 事务入口无法验证。
+- 来源: self-found：R-243 批1原子事务入口实现后的 core 定向编译。
+- 标签: 核心
+- 进展: 已完成并关闭：`crates/kanzei-core/src/store/mod.rs:100-107` 现在为 `InvalidInput` 与 `UnsupportedSchema` 各自提供独立 `#[error]` 属性；`crates/kanzei-core/src/store/events.rs:24-77` 的 compaction 事务入口可正常编译。T-1786922726342 证明 `cargo fmt --all -- --check` 与 `cargo test -p kanzei-core store::events` 通过（14 passed），因此验收“错误属性恢复、定向测试通过”均有精确证据。
+- 验收: 错误属性恢复：`crates/kanzei-core/src/store/mod.rs:100-107` 每个 StoreError variant 独立 #[error]；定向测试：T-1786922726342，`cargo test -p kanzei-core store::events` 14 passed。
+- refs: R-243
+- 优先级: P1
+- observed_head: f2ffd0bea6b8d2d1d1eea6220c9cdf7c393421f2
+- observed_worktree_hash: fnv1a64:bed069f1dce43cbb
+- recorded_at: 1787016013417

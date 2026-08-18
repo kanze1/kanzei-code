@@ -438,7 +438,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert_eq!(blocked.code.as_deref(), Some("CLARIFICATION_REQUIRED"));
+        assert_eq!(blocked.code, Some("CLARIFICATION_REQUIRED"));
         assert!(blocked.is_error);
         let path = root.join(".kanzei/research/state-smoke/plan.json");
         assert!(path.is_file());
