@@ -8001,3 +8001,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-302
 - 收尾: 1787080898
 - 源码指纹: v2 scripts/ui-desktop-uia.ps1@62f2896acdec
+
+## T-1786922726469 R-101 B2 UIA 视图切换后手写 prompt 保留 [passed]
+- 命令: PowerShell Parser::ParseFile scripts/ui-desktop-uia.ps1; pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1
+- 时长: 3.1s
+- 摘要: 真实安装位 kzapp.exe（PID 25652）通过 UIA 写入 marker；切换生产“需求/缺陷”视图并切回“对话”后回读 marker 成功；原 prompt 值已恢复；真实截图落盘 450506 bytes；测试未发送请求、未修改项目数据、未接管用户进程。
+- 关联: R-101
+- 收尾: 1787081275
+- 源码指纹: v2 scripts/ui-desktop-uia.ps1@777d2aba1b15

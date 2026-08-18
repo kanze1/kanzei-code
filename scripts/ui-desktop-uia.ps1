@@ -75,6 +75,25 @@ while (-not $window) {
     }
 }
 
+function Find-KzButton {
+    param([string[]]$NameParts)
+    $buttonType = [System.Windows.Automation.ControlType]::Button
+    $condition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty, $buttonType)
+    $buttons = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+    foreach ($button in $buttons) {
+        $name = $button.Current.Name
+        if ($NameParts | Where-Object { $name -like "*$_*" }) { return $button }
+    }
+    return $null
+}
+
+function Find-KzPrompt {
+    $promptCondition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'prompt')
+    return $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $promptCondition)
+}
+
 try {
     $current = $window.Current
     if ($current.ControlType -ne [System.Windows.Automation.ControlType]::Window) {
@@ -97,24 +116,53 @@ try {
 
     # UIA 找到真实 WebView2 编辑控件并通过 ValuePattern 写入/读回，证明这是生产桌面
     # UI Automation 的真实消费者；不依赖静态 HTML、CDP 或剪贴板，也不发送请求。
-    $promptCondition = New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'prompt')
-    $prompt = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $promptCondition)
+    $prompt = Find-KzPrompt
     if (-not $prompt) { Fail 'UIA 未找到生产 prompt 编辑控件' }
     if ($prompt.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit) {
         Fail "prompt 控件类型不是 Edit: $($prompt.Current.ControlType.ProgrammaticName)"
     }
     $valuePattern = $prompt.GetCurrentPattern([System.Windows.Automation.ValuePatternIdentifiers]::Pattern)
     $oldValue = $valuePattern.Current.Value
-    $marker = "R302_UIA_$([DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))"
-    $prompt.SetFocus()
-    $valuePattern.SetValue($marker)
-    Start-Sleep -Milliseconds 150
-    $roundTrip = $valuePattern.Current.Value
-    if ($roundTrip -ne $marker) {
-        Fail "真实桌面 UIA ValuePattern 未能回读 marker；实际='$roundTrip'"
+    $marker = "R101_UIA_$([DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))"
+    $viewSwitchRetained = $false
+    try {
+        $prompt.SetFocus()
+        $valuePattern.SetValue($marker)
+        Start-Sleep -Milliseconds 150
+        $roundTrip = $valuePattern.Current.Value
+        if ($roundTrip -ne $marker) {
+            Fail "真实桌面 UIA ValuePattern 未能回读 marker；实际='$roundTrip'"
+        }
+
+        # B2:真实 UIA 用户路径——切到需求/缺陷视图触发生产 refresh，再切回对话，
+        # 验证尚未发送的手写 prompt 仍由真实桌面保留。找不到或无法 Invoke 都失败，
+        # 不把静态 DOM 存在当作交互通过。
+        $documentsButton = Find-KzButton @('需求', 'documents', 'Documents')
+        $chatButton = Find-KzButton @('对话', 'chat', 'Chat')
+        if (-not $documentsButton) { Fail 'UIA 未找到需求/缺陷视图按钮' }
+        if (-not $chatButton) { Fail 'UIA 未找到对话视图按钮' }
+        $documentsInvoke = $documentsButton.GetCurrentPattern([System.Windows.Automation.InvokePatternIdentifiers]::Pattern)
+        $chatInvoke = $chatButton.GetCurrentPattern([System.Windows.Automation.InvokePatternIdentifiers]::Pattern)
+        $documentsInvoke.Invoke()
+        Start-Sleep -Milliseconds 700
+        $chatInvoke.Invoke()
+        Start-Sleep -Milliseconds 700
+        $afterSwitchPrompt = Find-KzPrompt
+        if (-not $afterSwitchPrompt) { Fail '切回对话后 UIA 未找到生产 prompt 控件' }
+        $afterSwitchValue = $afterSwitchPrompt.GetCurrentPattern([System.Windows.Automation.ValuePatternIdentifiers]::Pattern).Current.Value
+        if ($afterSwitchValue -ne $marker) {
+            Fail "切换需求/缺陷视图后手写 prompt 丢失；实际='$afterSwitchValue'"
+        }
+        $viewSwitchRetained = $true
+    } finally {
+        $restorePrompt = Find-KzPrompt
+        if ($restorePrompt) {
+            $restorePattern = $restorePrompt.GetCurrentPattern([System.Windows.Automation.ValuePatternIdentifiers]::Pattern)
+            $restorePattern.SetValue($oldValue)
+        } else {
+            $valuePattern.SetValue($oldValue)
+        }
     }
-    $valuePattern.SetValue($oldValue)
 
     $repoRoot = Split-Path -Parent $PSScriptRoot
     $providerPrefix = "Microsoft.PowerShell.Core\FileSystem::"
@@ -163,6 +211,8 @@ try {
         input_control_automation_id = $prompt.Current.AutomationId
         input_pattern = 'ValuePattern'
         input_marker_round_trip = $true
+        prompt_view_switch = 'documents -> chat'
+        prompt_retained_after_view_switch = $viewSwitchRetained
         screenshot = $shotPath
         screenshot_bytes = (Get-Item -LiteralPath $shotPath).Length
         process_owned_by_test = $owned
