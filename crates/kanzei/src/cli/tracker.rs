@@ -114,7 +114,7 @@ pub(crate) async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
             kind: &FINDINGS,
             requires_refs: Some(&SOURCES),
         },
-        _ => unreachable!(),
+        _ => unreachable!("tracker_cli is only called after main_entry validates the tracker noun"),
     };
     let action = args.get(1).map(String::as_str).unwrap_or("list");
     let mut input = serde_json::json!({ "action": action });

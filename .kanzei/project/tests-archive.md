@@ -7000,3 +7000,32 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-513
 - 收尾: 1787014498
 - 源码指纹: 858c1eeea668fca3
+
+## T-1786922726331 D-506 working-tree 恢复后 kanzei-app 回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 11.3s
+- 摘要: 恢复 D-506 working-tree 接线后回归：kanzei-app 208 passed；覆盖 MutexPoisonExt 热路径巡检、D-513 watchdog 生命周期及既有桌面端测试。D-525 多行 lock unwrap 仍未处理。
+- 关联: D-506 D-525
+- 收尾: 1787014653
+
+## T-1786922726332 D-513 B3 tracker CLI 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei
+- 时长: 8.7s
+- 摘要: D-513 批3 CLI unreachable 说明回归：kanzei crate 单测 38 passed，集成测试 32 passed，0 failed；tracker CLI 分发及既有 CLI 行为通过。
+- 关联: D-513
+- 收尾: 1787014716
+
+## T-1786922726333 D-513 B4 roster 诊断与通知抽象清理定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-app; cargo test -p kanzei-core
+- 时长: 28.0s
+- 摘要: D-513 批4定向回归：kanzei-app 209 passed、kanzei-core 214 passed，0 failed；覆盖 roster helper 截断边界、通知 SQLite 生产路径及删除 InMemoryBroker 后全量 core/app 回归。
+- 关联: D-513
+- 收尾: 1787015005
+
+## T-1786922726334 D-513 B4 当前暂存源码定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-app; cargo test -p kanzei-core; cargo test -p kanzei
+- 时长: 21.2s
+- 摘要: 按 D-513 当前暂存源码重跑：kanzei-app 209 passed、kanzei-core 214 passed、kanzei 单测 38 passed/集成 32 passed；格式检查通过，0 failed。
+- 关联: D-513
+- 收尾: 1787015126
+- 源码指纹: fbad10b00f0a87b8

@@ -93,6 +93,25 @@ const REVIEW_ROLES: &[(&str, &str)] = &[
 /// 复核代理在"没发现问题"时被要求回的哨兵串。
 const NO_ISSUES: &str = "NO_ISSUES";
 
+fn bounded_roster(
+    phase: &'static str,
+    roster: &'static [(&'static str, &'static str)],
+    cap: usize,
+) -> Vec<(&'static str, &'static str)> {
+    let selected: Vec<_> = roster.iter().take(cap).copied().collect();
+    if selected.len() < roster.len() {
+        tracing::warn!(
+            phase,
+            roster_cap = cap,
+            available_roles = roster.len(),
+            dispatched_roles = selected.len(),
+            omitted_roles = roster.len() - selected.len(),
+            "phase pipeline roster truncated by max_tasks_per_turn"
+        );
+    }
+    selected
+}
+
 pub(crate) struct PhasePipeline {
     orchestrator: PhaseOrchestrator,
     /// 单阶段并行角色数上限。复用既有的 `max_tasks_per_turn`——它的语义本来就是
@@ -249,8 +268,7 @@ impl PhasePipeline {
         on_event: &mut (dyn FnMut(RunEvent) + Send),
     ) -> anyhow::Result<String> {
         self.orchestrator.enter_scouting()?;
-        let roles: Vec<(&'static str, &'static str)> =
-            SCOUT_ROLES.iter().take(self.roster_cap).copied().collect();
+        let roles = bounded_roster("scouting", SCOUT_ROLES, self.roster_cap);
         // 先 clone 出来:闭包对 self 的不可变借用会与随后的 `self.dispatch_roles`
         // (&mut self)打架。
         let task_context = self.task_context.clone();
@@ -471,8 +489,7 @@ impl PhasePipeline {
     ) -> anyhow::Result<Option<String>> {
         // 这一句就是复核屏障:租约在这里被交出,之后才可能进 review。
         self.orchestrator.enter_review()?;
-        let roles: Vec<(&'static str, &'static str)> =
-            REVIEW_ROLES.iter().take(self.roster_cap).copied().collect();
+        let roles = bounded_roster("review", REVIEW_ROLES, self.roster_cap);
         // 用**冻结**的那份,不在这里重算裁决:复核发生在实现段之后,条目此刻可能
         // 已被推进或关闭,重算会选到下一条,复核代理就拿着 B 条的验收去审 A 条。
         let task_context = self.task_context.clone();
@@ -786,6 +803,15 @@ mod tests {
             text: text.into(),
             ok,
         }
+    }
+
+    #[test]
+    fn 角色表截断仍返回配置上限并记录可诊断边界() {
+        let selected = bounded_roster("test", SCOUT_ROLES, 2);
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0].0, "architecture_scout");
+        assert_eq!(selected[1].0, "runtime_scout");
+        assert!(SCOUT_ROLES.len() > selected.len());
     }
 
     #[test]

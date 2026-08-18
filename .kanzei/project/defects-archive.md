@@ -6472,3 +6472,17 @@
 - observed_head: be4966337dce8aa33e0ad4b24cdcd8ff594b9a81
 - observed_worktree_hash: fnv1a64:d8809f42e9dd02e3
 - recorded_at: 1787013253495
+
+## D-513 后端静默失败与死抽象批次清理 [fixed] (low)
+- 复现: kanzei-core/src/store/session.rs:36,158,187 VACUUM/备份删除 let _ 无痕迹(常年失败库膨胀也无从发现);kanzei-app/src/state.rs:684-703 stop 兜底 detach 线程睡 30s 句柄丢弃且期间重开 SessionStore;kanzei/src/cli/tracker.rs:117 无说明 unreachable!;kanzei-app/src/phase_pipeline.rs:253,475 roster_cap 静默截断角色表无诊断;kanzei-core/src/notification.rs:7 InMemoryBroker 零生产消费方
+- 影响: 维护性失败无痕迹;停止不干净无迹可循;死抽象误导
+- 来源: 2026-08-18 全库勘察(主会话);InMemoryBroker/roster_cap 为 audit_20260812 遗留项
+- 标签: 后端
+- 验收: 失败路径留 tracing;stop 兜底可观测;unreachable 带理由;截断有诊断;死抽象删除
+- 优先级: P3
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-513
+- 批次: 4/4
+- 进展: 批4/4 已完成并满足全部验收，已提交前复核：①失败路径留 tracing：`crates/kanzei-core/src/store/session.rs:36,158,187` 的 housekeeping、VACUUM、迁移备份删除和覆盖旧备份删除失败均写 `tracing::warn!`，T-1786922726326 通过；②stop 兜底可观测：`crates/kanzei-app/src/state.rs:135-155,665-761` 持有/回收 watchdog JoinHandle，并记录调度、强制 abort、state.db 打开失败、flush 和 handle 缺失，T-1786922726328/T-1786922726329 通过；③unreachable 带理由：`crates/kanzei/src/cli/tracker.rs:117` 写明仅能在 `main_entry` 校验 tracker noun 后调用，调用守卫为 `crates/kanzei/src/cli/mod.rs:44-46`，T-1786922732 通过；④截断有诊断：`crates/kanzei-app/src/phase_pipeline.rs:97-115,267,489` 统一 `bounded_roster`，记录 phase、roster_cap、available/dispatched/omitted_roles，scout/review 均接线，新增边界测试通过；⑤死抽象删除：`crates/kanzei-core/src/notification.rs` 删除无生产消费者的 InMemoryBroker 及 AgentMessage/PublishMessage/NotificationSubscription，仅保留生产使用的 AgentNotification，`crates/kanzei-core/src/store/notifications.rs:10-104` SQLite 路径保持消费方，grep 无其他消费者；T-1786922736333：kanzei-app 209 passed、kanzei-core 214 passed。
+- observed_head: fddf86e4514f775c6ad8b2274b139e40705dce9d
+- observed_worktree_hash: fnv1a64:b21c16939dc1b955
+- recorded_at: 1787015019198

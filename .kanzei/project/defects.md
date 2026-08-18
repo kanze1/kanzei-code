@@ -29,20 +29,6 @@
 - recorded_at: 1787008359348
 - 阻塞: 真实重启验收需要关闭当前正在运行的已安装 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`；解除人：用户关闭当前 kzapp 窗口后，由 agent 重新启动同一安装位并回读持久化 auto state。
 
-## D-513 后端静默失败与死抽象批次清理 [fixing] (low)
-- 复现: kanzei-core/src/store/session.rs:36,158,187 VACUUM/备份删除 let _ 无痕迹(常年失败库膨胀也无从发现);kanzei-app/src/state.rs:684-703 stop 兜底 detach 线程睡 30s 句柄丢弃且期间重开 SessionStore;kanzei/src/cli/tracker.rs:117 无说明 unreachable!;kanzei-app/src/phase_pipeline.rs:253,475 roster_cap 静默截断角色表无诊断;kanzei-core/src/notification.rs:7 InMemoryBroker 零生产消费方
-- 影响: 维护性失败无痕迹;停止不干净无迹可循;死抽象误导
-- 来源: 2026-08-18 全库勘察(主会话);InMemoryBroker/roster_cap 为 audit_20260812 遗留项
-- 标签: 后端
-- 验收: 失败路径留 tracing;stop 兜底可观测;unreachable 带理由;截断有诊断;死抽象删除
-- 优先级: P3
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-513
-- 批次: 2/4
-- 进展: 批2/4 已完成并待提交：①`crates/kanzei-app/src/state.rs:135-155,503-517` 为每个 `SessionRuntime` 持有 stop watchdog `JoinHandle` 列表，避免兜底线程句柄静默丢弃；`reap_stop_watchdogs:666-681` 在下一次 stop 时 join 已完成线程并保留宽限期内线程。②`stop_runtime_and_finalize:686-761` 保持 30 秒宽限与 run_generation 代数保护，新增调度、已收敛/换代跳过、强制 abort、state.db 打开失败、轨迹补写、run handle 缺失的 tracing。③`crates/kanzei-app/src/process_tests.rs:72-129,138-152` 真实停止测试断言 watchdog 句柄被 runtime 持有，新增已结束句柄可回收测试。④T-1786922726328：`cargo fmt --all -- --check; cargo test -p kanzei-app` 207 passed；T-1786922726329 同命令按最终源码 208 passed，含新增生命周期断言。下一步批3：定位并给 CLI unreachable! 补充不可达原因与回归。
-- observed_head: dd654db5979f815571e956d6d7671c6325967017
-- observed_worktree_hash: fnv1a64:acaadcadd6a283da
-- recorded_at: 1787014195836
-
 ## D-525 D-506 多行 Mutex lock unwrap 漏网调用 [open] (medium)
 - 复现: D-506 初轮巡检只匹配同一行 `.lock().unwrap()`；复核发现 `crates/kanzei-app/src/run/persistence.rs:215` 与 `state.rs:623/766` 采用换行 `.lock()` + `.unwrap()`，仍会在 poisoned mutex 上 panic。
 - 影响: D-506 的热路径恢复策略存在漏网调用，持锁 panic 后仍可能触发级联命令僵死。
