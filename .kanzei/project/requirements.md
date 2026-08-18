@@ -284,10 +284,10 @@
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
 - 批次: 6/6
-- 进展: B6 已完成并待提交：① 在 `crates/kanzei-core/src/store/typed/projection.rs:10-438` 新增 projection/shadow 子模块，迁移 `SessionTurnTerminal`、`InterruptedAssistant`、`SessionProjection`、`project_session_facts*`、`compare_shadow*`、`ShadowVerdictStats` 与汇总函数；② `crates/kanzei-core/src/store/typed.rs:20-25` 注册模块并 re-export，`TypedSessionWriter::finish` 及 store/lib 对外调用面保持不变；③ `T-1786922726453`：`cargo fmt --all -- --check; cargo test -p kanzei-core`，220 passed、0 failed、0 ignored；④ `docs/design/metrics_baseline.md:3,10-59` 更新 B6 真实 Top-30：230 文件、5 个巨石，typed.rs 生产行 1630→1202、总行 2839→2411、函数 51→39；⑤ `T-1786922726454` 更新源码安装位后 gate 通过，`T-1786922726455` 以新基线重放 gate 仍通过：30 rows、巨石 5/5、单文件允许回涨 100 行。D-545 已在 `typed.rs:1200-1203` 对账 fixed。B6 提交后 R-300 仍 active：typed.rs 仍比 1200 阈值高 2 行，剩余 Top 目标、前端合流最终复核、完整 verify 与大复杂度关闭前 workspace 全量验收未完成。
-- observed_head: f28c8dc233de6322ec1122d18cbf74ac8ee8d7c3
-- observed_worktree_hash: fnv1a64:0a9f411c5aee7e3e
-- recorded_at: 1787078231492
+- 进展: B6 已完成并已提交 `1e79adbd`：① 在 `crates/kanzei-core/src/store/typed/projection.rs:10-438` 新增 projection/shadow 子模块，迁移 `SessionTurnTerminal`、`InterruptedAssistant`、`SessionProjection`、`project_session_facts*`、`compare_shadow*`、`ShadowVerdictStats` 与汇总函数；② `crates/kanzei-core/src/store/typed.rs:20-25` 注册模块并 re-export，`TypedSessionWriter::finish` 及 store/lib 对外调用面保持不变；③ `T-1786922726453`：`cargo fmt --all -- --check; cargo test -p kanzei-core`，220 passed、0 failed、0 ignored；④ `docs/design/metrics_baseline.md:3,10-59` 更新 B6 真实 Top-30：230 文件、5 个巨石，typed.rs 生产行 1630→1202、总行 2839→2411、函数 51→39；⑤ `T-1786922726454` 更新源码安装位后 gate 通过，`T-1786922726455` 以新基线重放 gate 仍通过：30 rows、巨石 5/5、单文件允许回涨 100 行。D-545 已在 `typed.rs:1200-1203` 对账 fixed。R-300 仍 active：typed.rs 仍比 1200 阈值高 2 行，剩余 Top 目标、前端合流最终复核、完整 verify 与大复杂度关闭前 workspace 全量验收未完成。
+- observed_head: 1e79adbd9cca5d5850a4bdeb5fcc0f90bafabb77
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787078303568
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 
