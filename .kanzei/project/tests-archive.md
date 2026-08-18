@@ -7648,3 +7648,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300 D-536
 - 收尾: 1787071279
 - 源码指纹: v2 crates/kanzei-tools/src/background.rs@dfadb0e9b4b4,crates/kanzei-tools/src/background/registration.rs@de11f63143fc
+
+## T-1786922726424 R-300 B11 DevProfile 装配迁移定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 41.9s
+- 摘要: B11 DevProfile 新模块接入后的格式检查与 kanzei-tools 定向回归通过：345 passed、0 failed、1 ignored。
+- 关联: R-300
+- 收尾: 1787071714
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@0cba36e89d52,crates/kanzei-tools/src/profiles/dev.rs@96ac29866c29
+
+## T-1786922726425 R-300 B11 DevProfile 拆分最终定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 44.1s
+- 摘要: B11 删除 profiles.rs 旧 DevProfile 实现后的格式检查与 kanzei-tools 定向回归通过：345 passed、0 failed、1 ignored。
+- 关联: R-300
+- 收尾: 1787072187
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@926122b1c8d5,crates/kanzei-tools/src/profiles/dev.rs@96ac29866c29
