@@ -2,14 +2,17 @@
 id: M-145
 scope: project
 category: fact
-title: 读内存文件失败: Cannot open <path>, 先用 grep 确认当前路径再 read
-description: read 失败时必读:系统找不到文件需用 grep 确认当前路径
-status: candidate
+title: 读内存文件失败: Cannot open <path>, 先用 grep 确认当前路径再 read —— 处理 read 系统找不到文件失败时必读
+description: 处理 M-145 read fail 复发/已晋升 candidate——补充第2次复发证据并申请 memory_promote
+status: active
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-18
 source: note 2026-08-17 [fact]
 ---
 
-环境契约事实：文件路径不存在会导致 read 工具报错 "cannot open <path>: 系统找不到指定的文件 (os error 2)"。可能原因：工作空间路径变更、相对路径未更新或项目结构变动导致文件移动/删除。解决方式：先用 grep/status 确认文件当前实际位置，再读取正确路径。
+处理 read/edit/insert 报 cannot open/拒绝访问(Windows 瞬态/os error)时必读：这是 Windows 瞬态访问拒绝，不是真实权限/路径问题──先 read 重读再重试 edit 即成功
 
-指纹用于复发检测: [fp:read|cannot open 系统找不到指定的文件。 (os error )]
+- [fp:read|cannot open 系统找不到指定的文件。 (os error )]:处理 M-145-读内存文件失败-cannot-open-path-先用-grep-确认当前路径再-read.md 时
+- [fp:read|不能打开系统找不到指定文件.os error ] 补充本轮第2次复发证据
+
+本轮轮次已落库：episode_id=790(state.db episodes真实存在)。memory_promote的证据来源必须用它——provenance硬校验要求 episode_id真实存在，编造或乱填的id会被整体拒绝。

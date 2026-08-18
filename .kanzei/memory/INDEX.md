@@ -30,5 +30,14 @@
 - M-112 [fact] Git test failure summary with failure count - 处理failures:标记显示重复失败测试时的跨轮排查 — 检查前置依赖和测试环境一致性 — 何时遇到 failures: git::tests 跨轮复发提示：检查测试前置条件与环境一致性
 - M-113 [sop] git commit staged 缺失 SOP — 处理 git commit 失败时必读:Changes not staged for commit 必须先执行 git add 同批文件;4+ 次复发并有修复经验,确认为环境契约问题
 - M-116 [sop] 处理 cargo test 失败时必读：区分编译期/运行时错误（RUST_BACKTRACE） — 处理测试框架失败时必读：区分编译期/运行时错误，保留 [fp] 标记
+- M-145 [fact] 读内存文件失败: Cannot open <path>, 先用 grep 确认当前路径再 read —— 处理 read 系统找不到文件失败时必读 — 处理 M-145 read fail 复发/已晋升 candidate——补充第2次复发证据并申请 memory_promote
+- M-165 [fact] D-495(fixed)/D-519流程根因确认：缺陷跟踪工具缺失与 bash 参数构造错误 — 跨轮复发验证与 SOP 修正机制 [fp:bash|error: expected one of ... found; fp:M-: ERROR unknown memory id] — D-495(fixed)的根因是什么？确认是否为可复用知识
+- M-200 [fact] bash 命令超时与 test_record 失败模式 — 处理 bash 工具超时失败或 test_record 替代方案:何时遇到 [fp:bash|timeout] 复发即应用此修复
+- M-202 [fact] bash timeout导致命令终止并改用test_record成功 — 处理 bash/timeout类任务时必读——识别可复用错误模式与一次性噪声的关键标准
+- M-204 [fact] Bash 60s timeout 失败原因与扩容策略 — bash timeout 失败时必读：环境工具契约类知识何时复用；第 3 次+带成功重试证据晋升
+- M-205 [fact] bash 命令超时被 kill 后的正确重试策略 — 何时遇到 bash 命令超时/被 kill — 先查历史 timeout 失败记录再重试
+- M-207 [fact] bash 命令超时被 kill 后的正确重试策略 — 何时遇到 bash 命令超时/被 kill — 先查历史 timeout 失败记录再重试
+- M-227 [fact] bash 测试证据失败不激活 — bash测试证据不激活时必读：第3次+修复成功才建candidate,否则是单轮噪声
+- M-235 [fact] write 文件写入权限拒绝模式 — 处理写入权限拒绝模式 — .kanzei/memory 路径属 memory-manager 子代理管理，主 agent 只投草稿；唯一合法写通道是 memory_note 工具；[fp:write|permission denied by ruleset: write on .]
 
-(86 candidate 条待验证晋升)
+(153 candidate 条待验证晋升)

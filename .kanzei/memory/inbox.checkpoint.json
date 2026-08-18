@@ -1,10 +1,10 @@
 {
-  "batch_id": "inbox-1786990030204",
-  "status": "completed",
-  "input_notes": 1,
-  "input_bytes": 1093,
-  "success_notes": 1,
-  "pending_after": 0,
-  "failure_reason": null,
-  "updated_at_ms": 1786990061083
+  "batch_id": "inbox-1787019251602",
+  "status": "failed",
+  "input_notes": 3,
+  "input_bytes": 3195,
+  "success_notes": 0,
+  "pending_after": 3,
+  "failure_reason": "manager run made no inbox progress",
+  "updated_at_ms": 1787019265372
 }
