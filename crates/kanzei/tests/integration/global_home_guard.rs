@@ -19,7 +19,7 @@ fn collect_rs(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// 扫描会 spawn 子进程的测试与脚本:设置 USERPROFILE 隔离全局根的同时必须设
+/// 扫描会 spawn 子进程的测试:设置 USERPROFILE 隔离全局根的同时必须设
 /// KANZEI_HOME(官方隔离通道,harness/src/home.rs 优先读它)。
 #[test]
 fn test_spawns_isolate_kanzei_home_alongside_userprofile() {
@@ -36,8 +36,6 @@ fn test_spawns_isolate_kanzei_home_alongside_userprofile() {
          扫不到文件时断言会全部跳过、测试照样绿,那时它已经不再保护任何东西。",
         files.len()
     );
-    files.push(repo_root.join("scripts/e2e-smoke.mjs"));
-    files.push(repo_root.join("scripts/probe-webview-cdp.mjs"));
     for file in files {
         let text = std::fs::read_to_string(&file).unwrap_or_default();
         let sets_userprofile =

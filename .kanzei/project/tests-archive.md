@@ -6925,3 +6925,18 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-510
 - 收尾: 1787012305
 - 源码指纹: c4b26e3ae6b7e387
+
+## T-1786922726321 D-511 CDP 退役残留清理定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei; cargo test -p kanzei-harness; if (Test-Path 'scripts/e2e-smoke.mjs') { exit 1 }; if (Test-Path 'scripts/probe-webview-cdp.mjs') { exit 1 }; $docs = Get-ChildItem -Path 'docs' -Recurse -File | Select-String -Pattern 'e2e-smoke\.mjs|probe-webview-cdp\.mjs|connectOverCDP|WebView2 DevTools/CDP|Playwright/CDP'; if ($docs) { exit 1 }; $verify = Select-String -Path 'scripts/verify.ps1' -Pattern 'e2e-smoke\.mjs|probe-webview-cdp\.mjs|connectOverCDP|WebView2 DevTools/CDP|Playwright/CDP'; if ($verify) { exit 1 }
+- 时长: 25.0s
+- 摘要: D-511 删除旧 CDP 脚本并同步消费者回归：cargo fmt 检查通过；kanzei 38 passed；kanzei-harness 32 passed；global_home_guard 与权限规则测试通过；两个脚本不存在；docs/ 与 scripts/verify.ps1 无目标 CDP 脚本/路线引用。
+- 关联: D-511 R-101
+- 收尾: 1787012695
+
+## T-1786922726322 D-511 当前暂存源码提交门禁定向回归 [passed]
+- 命令: cargo test -p kanzei; cargo test -p kanzei-harness
+- 时长: 9.1s
+- 摘要: 提交门禁要求按当前 staged 源码重跑：kanzei 38 passed；kanzei-harness 32 passed；其集成测试/库测试和 doc-tests 全部通过。
+- 关联: D-511 R-101
+- 收尾: 1787012797
+- 源码指纹: d8061ddfae3d8617

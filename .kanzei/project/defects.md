@@ -29,15 +29,6 @@
 - recorded_at: 1787008359348
 - 阻塞: 真实重启验收需要关闭当前正在运行的已安装 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`；解除人：用户关闭当前 kzapp 窗口后，由 agent 重新启动同一安装位并回读持久化 auto state。
 
-## D-511 CDP 退役残留清理:e2e-smoke.mjs 与 probe-webview-cdp.mjs [open] (low)
-- refs: R-101
-- 复现: scripts/e2e-smoke.mjs:1,44 仍是 chromium.connectOverCDP;scripts/probe-webview-cdp.mjs 整份仍在
-- 影响: 退役路线代码残留误导后续维护
-- 来源: 2026-08-18 全库勘察(主会话);R-101 技术路线 2026-08-17 已宣布 CDP 退役
-- 标签: 流程
-- 验收: 删除或按新路线改造;verify/文档无 CDP 引用残留
-- 优先级: P3
-
 ## D-512 前端死代码与孤儿引用批次清理 [open] (low)
 - 复现: 零调用函数四个:crates/kanzei-app/ui/15-views-misc.js:698 renderConversationList、08-compose.js:64 phasePipelineOn、05-chat-render.js:303 toolIconId、06-agent-panel.js:42 agentToolType;03-shell.js:290-296,356,366 三处 #sidebar-toggle 残留(元素已删,真身是 #rail-sidebar-toggle);06-agent-panel.js:372 与 16-settings.js:423 kz:fast-setup 双订阅;22-neural-flow.js:391 全仓唯一 window 挂载符号配 24 处 ?. 噪声守卫
 - 影响: 死代码误导维护;双订阅每事件多跑一遍路由前置

@@ -58,7 +58,7 @@
 | source_test_gate 相关性绑定(覆盖面声明求交) | git.rs:538-547 只消费 last_passed_at | R-212 |
 | D-293 定向排查方向(NotFound 短重试 / ReplaceFileW) | docstore.rs:328-338;atomic_file.rs:34-80 | 并入 D-293(本报告为证据) |
 | TempProject RAII 夹具扩到所有测试临时目录 | 6+ 处手写 temp_dir().join,panic 即泄漏 | 并入 R-200 实施(扩边界建议) |
-| VerificationRun 承诺诚实处置;test_record refs 软强制;ui-runtime-smoke 拆分与变异表扩容;e2e-smoke 入门禁(随 R-101) | reliability_usability_self_hosting_quality.md:300-352 | 候选池 |
+| VerificationRun 承诺诚实处置;test_record refs 软强制;ui-runtime-smoke 拆分与变异表扩容;旧桌面 E2 路线随 R-101 迁移 | reliability_usability_self_hosting_quality.md:300-352 | 候选池 |
 
 ## 5. 记忆系统
 
@@ -140,4 +140,4 @@
 
 ## 11. 候选池(本轮未登记,按需转正)
 
-抽象:InMemoryBroker 死抽象清理;前端编号约定收敛+08-compose 三域拆分。效率:工具事件长连接;协作块 git 采样 TTL 缓存;预算估算增量维护;启动链并行化;归档分卷滚动。前端:线路待答徽标;live-* 孤儿管线清理;键位语义对齐(Enter 提示、权限弹窗 Esc≠拒绝)。测试:VerificationRun 诚实处置;test_record refs 软强制;ui-runtime-smoke 拆分+变异表全量入 verify;e2e-smoke 入门禁(随 R-101)。记忆:R-164 三臂对照认领。harness:R-198+R-183 合并 P0 口径;AllowOnce 会话级;并行 wave 补发 PermissionResolved;command/skill 半成品收口;权限规则卫生通道;p| 魔法前缀移除(随 R-199)。并行:R-185/R-181 最小版加速;roster_cap 截断提示;ReadParallelWriteSerial 表述对齐。
+抽象:InMemoryBroker 死抽象清理;前端编号约定收敛+08-compose 三域拆分。效率:工具事件长连接;协作块 git 采样 TTL 缓存;预算估算增量维护;启动链并行化;归档分卷滚动。前端:线路待答徽标;live-* 孤儿管线清理;键位语义对齐(Enter 提示、权限弹窗 Esc≠拒绝)。测试:VerificationRun 诚实处置;test_record refs 软强制;ui-runtime-smoke 拆分+变异表全量入 verify;旧桌面 E2 路线退役清理。记忆:R-164 三臂对照认领。harness:R-198+R-183 合并 P0 口径;AllowOnce 会话级;并行 wave 补发 PermissionResolved;command/skill 半成品收口;权限规则卫生通道;p| 魔法前缀移除(随 R-199)。并行:R-185/R-181 最小版加速;roster_cap 截断提示;ReadParallelWriteSerial 表述对齐。

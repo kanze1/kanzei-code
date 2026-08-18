@@ -712,9 +712,9 @@ mod tests {
             effect: Effect::Allow,
         }]);
         assert_eq!(
-            rs.evaluate("bash", "node scripts/e2e-smoke.mjs"),
+            rs.evaluate("bash", "node scripts/ui-runtime-smoke.mjs"),
             Effect::Allow,
-            "验收①:node scripts/*.mjs 应放行 node scripts/e2e-smoke.mjs"
+            "验收①:node scripts/*.mjs 应放行 node scripts/ui-runtime-smoke.mjs"
         );
         // 参数前缀通配:cargo build* 放行 cargo build --release。
         let rs = Ruleset::new(vec![Rule {
@@ -766,13 +766,14 @@ mod tests {
         assert_eq!(
             rs.evaluate(
                 "bash",
-                r#"{"command":"node scripts/e2e-smoke.mjs","workdir":"C:/project"}"#
+                r#"{"command":"node scripts/ui-runtime-smoke.mjs","workdir":"C:/project"}"#
             ),
             Effect::Ask,
             "纯字符串前缀规则不得授权结构化 JSON 资源"
         );
         // 结构化 JSON 资源走既有整串精确匹配路径(不因新增前缀规则而退化)。
-        let structured = r#"{"command":"node scripts/e2e-smoke.mjs","workdir":"C:/project"}"#;
+        let structured =
+            r#"{"command":"node scripts/ui-runtime-smoke.mjs","workdir":"C:/project"}"#;
         let rs = Ruleset::new(vec![Rule {
             action: "bash".into(),
             resource: structured.into(),
@@ -791,9 +792,9 @@ mod tests {
             effect: Effect::Allow,
         }]);
         for command in [
-            "python scripts/e2e-smoke.mjs", // 程序名不匹配
-            "node other/x.mjs",             // 参数前缀不匹配
-            "cargo build",                  // 程序名不匹配
+            "python scripts/ui-runtime-smoke.mjs", // 程序名不匹配
+            "node other/x.mjs",                    // 参数前缀不匹配
+            "cargo build",                         // 程序名不匹配
         ] {
             assert_eq!(
                 rs.evaluate("bash", command),

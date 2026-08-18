@@ -6432,3 +6432,17 @@
 - observed_head: 2429717e564380ee7783f7eb2f1a705d51b9e89e
 - observed_worktree_hash: fnv1a64:384d324070fc4bcb
 - recorded_at: 1787012177039
+
+## D-511 CDP 退役残留清理:e2e-smoke.mjs 与 probe-webview-cdp.mjs [fixed] (low)
+- refs: R-101
+- 复现: scripts/e2e-smoke.mjs:1,44 仍是 chromium.connectOverCDP;scripts/probe-webview-cdp.mjs 整份仍在
+- 影响: 退役路线代码残留误导后续维护
+- 来源: 2026-08-18 全库勘察(主会话);R-101 技术路线 2026-08-17 已宣布 CDP 退役
+- 标签: 流程
+- 验收: 删除或按新路线改造;verify/文档无 CDP 引用残留
+- 优先级: P3
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-511
+- 进展: 验收逐项完成并有可复核证据：①“删除或按新路线改造”：已删除 `scripts/e2e-smoke.mjs` 与 `scripts/probe-webview-cdp.mjs`；真实消费者同步到现行路线，`crates/kanzei-harness/src/permission.rs:706-718,755-782,785-803` 的权限夹具改用 `node scripts/ui-runtime-smoke.mjs`，`crates/kanzei/tests/integration/global_home_guard.rs:22-39` 不再把已删除脚本纳入隔离扫描；②“verify/文档无 CDP 引用残留”：`docs/目录.md:117,681-697` 移除旧脚本和 Playwright/CDP 说明，`docs/design/audit_20260812_eight_dimensions.md:61,143` 将历史候选池改为旧桌面 E2 迁移/退役清理；`scripts/verify.ps1` 与 docs 全量 Select-String 目标模式均为空；③可重放回归 T-1786922726321：`cargo fmt --all -- --check`、`cargo test -p kanzei`（38 passed）、`cargo test -p kanzei-harness`（32 passed）、两个脚本不存在及 docs/verify 引用检查全部通过。历史 memory、requirements/defects/tests archive 中的 CDP 证据保留为审计记录，不属于现行 verify/docs 路线残留。
+- observed_head: 2c2b3f9059c3d97d817522c9541368a69c596b94
+- observed_worktree_hash: fnv1a64:64d30468992cc04a
+- recorded_at: 1787012721419
