@@ -88,8 +88,10 @@ recall.note_step(project_root, &calls, &mut results);  // RedundancyWatch 的兄
 ### 3.2 确定性策略(第一版无 RL)
 
 ```rust
-enum RecallAction { NoOp, Fingerprint, Lexical, Hybrid, ReRetrieve, PlanInject, StateAudit }
+enum RecallAction { NoOp, Fingerprint, Lexical, ReRetrieve }
 ```
+
+R-294 决策门禁（2026-08-18）：当前生产配置没有 `[embeddings]`，运行时没有启用 dense/hybrid；`RecallAction` 只承诺以上四种已落地动作。`Hybrid` 仍是离线回放与显式 embeddings 配置下的可选实验通道，`PlanInject` 与 `StateAudit` 尚无真实消费方，因此不再列入运行时词表。
 
 v1 只实现 NoOp/Fingerprint/Lexical/ReRetrieve,触发器:
 
@@ -166,6 +168,16 @@ trait Embedder { fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>>; }
 - Fusion:RRF(k=60),BM25 top10 + dense top10 → top5;禁止拍脑袋线性加权。
 - Reranker 默认关闭,只允许 stuck 恢复与离线评估用。
 - **启用门禁**:lexical-only vs dense-only vs hybrid 三臂先在 R-163 回放台对比,hybrid 显著优才设为默认——不要默认相信 dense。
+
+### 5.1 R-294 路线结论（2026-08-18）
+
+本轮按启用门禁核查了真实仓库数据，结论是**暂不启用 production hybrid**：
+
+- 当前项目配置中 `[embeddings]` 为 0 个启用项；`EmbeddingsSection::enabled` 只有 provider 与 model 同时存在才打开通道，未配置时 `search_hybrid` 明确退化为 lexical（`crates/kanzei-harness/src/config.rs:151-168`、`crates/kanzei-memory/src/memory/index.rs:431-450`）。
+- `crates/kanzei-memory/src/replay_eval.rs` 当前只有 5 个 fixture 测试，Candidate 无配置时与 Current 同源；这不是足以比较 lexical-only/dense-only/hybrid 的生产样本集，不能把 FakeEmbedder 测试结果冒充线上收益。
+- 因此默认运行时正式降级为 lexical；`[embeddings]`、`memory_vectors` 与 hybrid RRF 保留为显式配置/离线评估能力，只有补齐真实三臂样本并证明 hybrid 显著优于 lexical 后才能重新启用默认值。
+
+对应词表同步收缩见 §3.2：运行时只承诺 `NoOp/Fingerprint/Lexical/ReRetrieve`；`Hybrid` 仅属于离线/显式 opt-in 通道，`PlanInject` 与 `StateAudit` 不属于当前可调用能力。
 
 ## 6. Memory Compiler(R-165,Phase 4)
 
