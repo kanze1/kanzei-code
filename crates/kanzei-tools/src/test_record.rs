@@ -204,10 +204,11 @@ impl Tool for TestRecordTool {
                 Err(err) => ToolOutput::error(err),
             };
         }
-        // D-332 验收④:收尾(status != running)时记录暂存源码指纹,提交门禁优先比
-        // 指纹背书测试。拿不到 git 状态(非 git 目录/无暂存)时指纹为空,门禁退回 mtime。
+        // D-332 验收④:收尾(status != running)时记录**工作区**源码内容指纹——测试跑的
+        // 是工作区,不是 index;录暂存清单会让「测试→record→stage→commit」这个自然
+        // 顺序必被拦。拿不到 git 状态(非 git 目录/无变更)时指纹为空,门禁退回 mtime。
         let fingerprint = if input.status != "running" {
-            crate::git::staged_source_fingerprint(&ctx.cwd).unwrap_or_default()
+            crate::git::source_endorsement_fingerprint(&ctx.cwd).unwrap_or_default()
         } else {
             String::new()
         };

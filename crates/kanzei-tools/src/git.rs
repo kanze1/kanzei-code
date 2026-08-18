@@ -359,6 +359,98 @@ pub fn staged_source_fingerprint(cwd: &Path) -> Result<String, String> {
     Ok(format!("v2 {}", entries.join(",")))
 }
 
+/// 测试背书面指纹:**工作区**里全部已变更源码的内容清单(暂存与否无关)。
+///
+/// test_record 收尾时用它——测试跑的是工作区文件,不是 index;此前录的是暂存清单,
+/// 于是「跑测试 → test_record → git stage → commit」这个自然顺序必被拦(录制那一刻
+/// 目标文件还没暂存,背书清单里没有它),agent 只能白跑一轮重测。改成工作区内容后
+/// 录制/暂存先后无关:commit 门禁的 current 侧仍取暂存清单(那才是要提交的内容),
+/// 子集判定不变——暂存内容与测试时工作区一致即放行,测后又改过的文件照样点名拦截。
+pub fn source_endorsement_fingerprint(cwd: &Path) -> Result<String, String> {
+    let mut command = std::process::Command::new("git");
+    // D-369:GUI 进程跑 git 必须隐藏控制台窗口。
+    crate::hide_console(&mut command);
+    let output = command
+        .args([
+            "-c",
+            "core.quotepath=false", // D-347:非 ASCII 路径以真实 UTF-8 返回
+            "status",
+            "--porcelain",
+            "-z",
+            "--no-renames",
+            "--untracked-files=all",
+        ])
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| format!("cannot run git status: {e}"))?;
+    if !output.status.success() {
+        // 非 git 目录等形态:退化为空指纹,门禁走 mtime 路径。
+        return Ok(String::new());
+    }
+    let raw = String::from_utf8_lossy(&output.stdout).to_string();
+    // porcelain v1 -z:`XY <path>\0` 重复(--no-renames 下无第二路径段)。
+    let mut present: Vec<String> = Vec::new();
+    let mut entries: Vec<String> = Vec::new();
+    for item in raw.split('\0') {
+        if item.len() < 4 {
+            continue;
+        }
+        let path = item[3..].trim();
+        if path.is_empty() || !is_source_path(path) {
+            continue;
+        }
+        if cwd.join(path).is_file() {
+            present.push(path.to_string());
+        } else {
+            // 工作区已删除:与暂存删除的全零 sha 对齐。
+            entries.push(format!("{}@000000000000", path.replace('\\', "/")));
+        }
+    }
+    if !present.is_empty() {
+        // 一次子进程批量算 blob hash:--stdin-paths 按行读路径,与工作区文件内容
+        // 一一对应,输出行序与输入一致。
+        let mut hash_command = std::process::Command::new("git");
+        crate::hide_console(&mut hash_command);
+        let mut child = hash_command
+            .args(["hash-object", "--stdin-paths"])
+            .current_dir(cwd)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("cannot run git hash-object: {e}"))?;
+        {
+            use std::io::Write;
+            let stdin = child
+                .stdin
+                .as_mut()
+                .ok_or("hash-object stdin unavailable")?;
+            for path in &present {
+                writeln!(stdin, "{path}").map_err(|e| format!("hash-object write: {e}"))?;
+            }
+        }
+        let hashed = child
+            .wait_with_output()
+            .map_err(|e| format!("hash-object failed: {e}"))?;
+        if !hashed.status.success() {
+            return Ok(String::new());
+        }
+        let shas = String::from_utf8_lossy(&hashed.stdout).to_string();
+        for (path, sha) in present.iter().zip(shas.lines()) {
+            let short: String = sha.trim().chars().take(12).collect();
+            if short.is_empty() {
+                continue;
+            }
+            entries.push(format!("{}@{short}", path.replace('\\', "/")));
+        }
+    }
+    if entries.is_empty() {
+        return Ok(String::new());
+    }
+    entries.sort();
+    Ok(format!("v2 {}", entries.join(",")))
+}
+
 /// v2 指纹解析:`v2 path@sha12,…` → 路径到 blob 前缀的映射;非 v2 形态返回 None。
 fn parse_fingerprint_entries(
     fingerprint: &str,
@@ -1071,8 +1163,8 @@ async fn finalize(ctx: &ToolCtx, files: Vec<String>, message: Option<String>) ->
         .collect::<Vec<_>>()
         .join("; ");
 
-    // 4. test_record:记 passed,带 source_fingerprint(与暂存源码一致)与时长。
-    let fingerprint = staged_source_fingerprint(cwd).unwrap_or_default();
+    // 4. test_record:记 passed,带 source_fingerprint(测试那一刻的工作区源码)与时长。
+    let fingerprint = source_endorsement_fingerprint(cwd).unwrap_or_default();
     let summary = if passed_summary.is_empty() {
         "finalize 测试通过(无 test result 行,或纯非 Rust 改动)".to_string()
     } else {
@@ -2571,6 +2663,58 @@ prunable gitdir file points to non-existent location
         assert!(
             err.contains("源码指纹") && err.contains("不一致") && err.contains("scripts/hello.ps1"),
             "测后改动要点名路径: {err}"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// 背书面 = 测试那一刻的**工作区**内容:「跑测试 → test_record → git stage →
+    /// commit」这个自然顺序不再被拦(此前录的是暂存清单,录制时目标文件还没暂存,
+    /// 背书清单里没有它,必拦)。
+    #[test]
+    fn record_before_stage_still_endorses_commit() {
+        let root = temp_repo("gate-fp-worktree");
+        let project = root.join(".kanzei").join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let src = root.join("crates/kanzei-tools/src/lib.rs");
+        std::fs::create_dir_all(src.parent().unwrap()).unwrap();
+        std::fs::write(&src, "pub fn x() {}\n").unwrap();
+        git_in(&root, &["add", "."]);
+        git_in(&root, &["commit", "-m", "init"]);
+        // 改源码但**不暂存** → 录背书(工作区内容)。
+        std::fs::write(&src, "pub fn x() { let a = 1; }\n").unwrap();
+        let fp = source_endorsement_fingerprint(&root).unwrap();
+        assert!(fp.starts_with("v2 "), "工作区背书指纹应为 v2 清单: {fp}");
+        let now = now_secs();
+        std::fs::write(
+            project.join("tests.md"),
+            format!(
+                "# Test Runs\n\n## T-{now} 顺序 [passed]\n- 命令: cargo test -p kanzei-tools\n- 收尾: {}\n- 源码指纹: {fp}\n",
+                now - 1
+            ),
+        )
+        .unwrap();
+        // 之后才 stage → staged blob 与录制时工作区一致 → 放行。
+        git_in(&root, &["add", "crates/kanzei-tools/src/lib.rs"]);
+        match source_test_gate(
+            &root,
+            &root,
+            &["crates/kanzei-tools/src/lib.rs".to_string()],
+        ) {
+            Ok(()) => {}
+            Err(err) => panic!("先 record 后 stage 的顺序不该被拦: {err}"),
+        }
+        // 录完再改工作区并暂存新内容 → 暂存 blob 与背书不一致 → 仍要点名拦截。
+        std::fs::write(&src, "pub fn x() { let b = 2; }\n").unwrap();
+        git_in(&root, &["add", "crates/kanzei-tools/src/lib.rs"]);
+        let err = source_test_gate(
+            &root,
+            &root,
+            &["crates/kanzei-tools/src/lib.rs".to_string()],
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("源码指纹") && err.contains("不一致"),
+            "测后改动仍须拦截: {err}"
         );
         std::fs::remove_dir_all(root).ok();
     }
