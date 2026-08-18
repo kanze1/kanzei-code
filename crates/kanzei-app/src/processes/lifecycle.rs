@@ -424,6 +424,35 @@ pub fn process_update(
     Ok(process_info(&state, &process))
 }
 
+/// 关线/复位前清空该会话尚未消费的排队输入。admitted 而未 promote 的输入若不
+/// 处置,主线复位后会在下一次开跑时被静默续跑,并行线关闭后则无声丢失——两种
+/// 结局用户都看不见。逐条落 prompt.cancelled,取消数量计入关闭消息。
+fn cancel_pending_inputs_on_close(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+) -> Result<usize, String> {
+    let pending = store
+        .list_pending_inputs(session_id)
+        .map_err(|e| e.to_string())?;
+    let mut cancelled = 0usize;
+    for input in &pending {
+        if store
+            .cancel_input(session_id, &input.input_id)
+            .map_err(|e| e.to_string())?
+        {
+            store
+                .append_event(
+                    session_id,
+                    "prompt.cancelled",
+                    &json!({ "input_id": input.input_id, "reason": "line_closed" }),
+                )
+                .map_err(|e| e.to_string())?;
+            cancelled += 1;
+        }
+    }
+    Ok(cancelled)
+}
+
 #[tauri::command]
 pub async fn process_close(
     state: State<'_, AppState>,
@@ -472,13 +501,23 @@ pub(crate) async fn close_process(
             .store(false, Ordering::SeqCst);
         // R-178 D3:复位后的空状态也要落库,否则重启后库里的旧值又回填回来。
         persist_process(root, process)?;
-        Ok("主线路已停止并复位".into())
+        let cancelled = cancel_pending_inputs_on_close(&store, &session_id)?;
+        Ok(if cancelled > 0 {
+            format!("主线路已停止并复位；已取消 {cancelled} 条排队输入")
+        } else {
+            "主线路已停止并复位".into()
+        })
     } else {
         // 关闭顺序必须是「停止/注销 → 回收 owner 后台进程 → 处置工作树」。旧顺序先跑
         // git worktree remove，再进 unregister 停运行；运行中的进程仍把该树当 cwd 时，
         // 可能在它脚下删目录。process 已在上面克隆，注销后仍保有处置所需路径。
         let released = unregister_parallel_process(state, root, &process_id)?;
         let killed = kanzei_tools::kill_background_processes_for_process(root, &process_id).await;
+        // 注销之后运行时已停,不会再有 promote 与取消赛跑;此时清排队输入最稳。
+        let state_path = kanzei_core::project_state_path(root);
+        let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+        let _ = store.create_session(&session_id, &root.display().to_string(), None);
+        let cancelled = cancel_pending_inputs_on_close(&store, &session_id)?;
         let disposal = process
             .worktree_path
             .as_ref()
@@ -486,9 +525,6 @@ pub(crate) async fn close_process(
         if let Some(Err(kept)) = disposal.as_ref() {
             // 留下来的树此刻已经无主(绑定行删了)。它至少得在**审计流里可发现**,
             // 否则磁盘上有树、库里没线、界面上没入口,三缺一地彻底失联。
-            let state_path = kanzei_core::project_state_path(root);
-            let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
-            let _ = store.create_session(&session_id, &root.display().to_string(), None);
             let _ = store.append_event(
                 &session_id,
                 "worktree.orphaned",
@@ -496,22 +532,24 @@ pub(crate) async fn close_process(
             );
         }
         let background = (killed > 0).then(|| format!("；已回收 {killed} 个后台进程"));
+        let dropped = (cancelled > 0).then(|| format!("；已取消 {cancelled} 条排队输入"));
         let release = if released.is_empty() {
             String::new()
         } else {
             format!("；已释放取活绑定 {}", released.join(", "))
         };
+        let dropped = dropped.unwrap_or_default();
         match disposal {
             Some(Ok(())) => Ok(format!(
-                "已关闭线路 {process_id} 并回收已合并的干净工作树{}{release}",
+                "已关闭线路 {process_id} 并回收已合并的干净工作树{}{dropped}{release}",
                 background.unwrap_or_default(),
             )),
             Some(Err(kept)) => Ok(format!(
-                "已关闭线路 {process_id}；{kept}{}{release}",
+                "已关闭线路 {process_id}；{kept}{}{dropped}{release}",
                 background.unwrap_or_default(),
             )),
             None => Ok(format!(
-                "已关闭线路 {process_id}{}{release}",
+                "已关闭线路 {process_id}{}{dropped}{release}",
                 background.unwrap_or_default(),
             )),
         }

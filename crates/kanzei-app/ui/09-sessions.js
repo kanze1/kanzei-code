@@ -432,6 +432,7 @@ function renderProcesses(items) {
     applyProfileValue(active?.profile);
     // 模型下拉同属「该线的完整设置」:冷启动与兜底选中都走这里,不能只靠 switchProcess。
     syncModelSelectToActiveLine();
+    applySessionMeta(activeSessionId);
   }
   if (activeSessionId && activeSessionId !== previousSessionId) void syncAutoRunState();
   // R-086:活动会话换人(含首次拿到进程列表——界面重载后就是这条路)时向后端
@@ -549,6 +550,8 @@ async function switchProcess(processId, forceReload = false) {
   activeSessionId = target.session_id;
   applyAutoUiState(activeProcessId);
   applyProfileValue(target.profile);
+  // 状态栏模型/上下文上限回放该线最近一次 kz:meta,不再停留在上一条线的值。
+  applySessionMeta(activeSessionId);
   void syncAutoRunState();
   // 下面有一次显式 await refreshPendingAsks(),先认领这个会话,免得 renderProcesses
   // 里的补拉守卫又打一次 pending_asks_get(结果会被 id 去重,只是白跑一趟)。

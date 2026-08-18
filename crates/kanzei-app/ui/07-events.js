@@ -7,9 +7,15 @@ on("kz:status", (e) => {
   if (running) setStatus(`${p.stage} · ${p.detail}`, true);
 });
 on("kz:meta", (e) => {
-  $("status-model").textContent = `${e.payload.model} · ${e.payload.profile}`;
-  ctxLimit = e.payload.contextLimit ?? null;
-  log(`${t("模型")} ${e.payload.model} · agent ${e.payload.agent} · profile ${e.payload.profile}${ctxLimit ? ` · ${t("上下文上限")} ${Math.round(ctxLimit / 1000)}k` : ""}`);
+  const p = e.payload;
+  // 每条线的 run 启动都发 kz:meta。状态栏与 ctxLimit 只让活跃会话写——否则并行线
+  // 一开轮就把主线的模型/上下文上限顶掉,界面看起来像模型切换没生效。
+  if (p.sessionId) sessionMetaCache.set(p.sessionId, p);
+  if (!p.sessionId || p.sessionId === activeSessionId) {
+    $("status-model").textContent = `${p.model} · ${p.profile}`;
+    ctxLimit = p.contextLimit ?? null;
+  }
+  log(`${t("模型")} ${p.model} · agent ${p.agent} · profile ${p.profile}${p.contextLimit ? ` · ${t("上下文上限")} ${Math.round(p.contextLimit / 1000)}k` : ""}`);
 });
 on("kz:turn", (e) => {
   const p = e.payload;

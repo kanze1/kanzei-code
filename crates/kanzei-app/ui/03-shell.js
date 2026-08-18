@@ -460,6 +460,15 @@ function markFirstSignal() {
 }
 
 let ctxLimit = null;
+// 并行线各自的 kz:meta 按会话缓存:状态栏只反映当前活跃线。kz:meta 每条线只在
+// run 启动时发一次,不缓存的话切线后状态栏要等到那条线下一轮才会变对。
+const sessionMetaCache = new Map();
+function applySessionMeta(sessionId) {
+  const meta = sessionId ? sessionMetaCache.get(sessionId) : null;
+  if (!meta) return;
+  $("status-model").textContent = `${meta.model} · ${meta.profile}`;
+  ctxLimit = meta.contextLimit ?? null;
+}
 let ctxTokens = 0;
 function renderTokens() {
   const t = runTokens;
