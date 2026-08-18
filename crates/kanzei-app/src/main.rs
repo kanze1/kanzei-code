@@ -60,9 +60,9 @@ pub(crate) use state::{
     normalized_project_root, pending_ask_payload, process_info, process_session_id,
     prompt_attachment_parts, record_live_trace, record_live_trace_at_path,
     record_unpersisted_artifact, runtime_for, stop_runtime_and_finalize, take_pending_ask,
-    ui_probe, ui_probe_result, with_session_id, AppState, LiveRun, PendingAsk, ProcessHandle,
-    ProcessInfo, ProjectRoot, PromptAttachment, SessionRuntime, WorktreeInfo, WorktreeRoot,
-    UI_PROBE_EMIT,
+    ui_probe, ui_probe_result, with_session_id, AppState, LiveRun, MutexPoisonExt, PendingAsk,
+    ProcessHandle, ProcessInfo, ProjectRoot, PromptAttachment, SessionRuntime, WorktreeInfo,
+    WorktreeRoot, UI_PROBE_EMIT,
 };
 
 #[cfg(test)]

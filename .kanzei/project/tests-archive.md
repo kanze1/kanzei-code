@@ -7044,3 +7044,26 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-525 D-506
 - 收尾: 1787015481
 - 源码指纹: 90306f2ee8a23bfa
+
+## T-1786922726337 D-505 恢复断言 runtime smoke [passed]
+- 命令: node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 时长: 1.2s
+- 摘要: 恢复 D-505 两段门禁状态真源断言后，runtime smoke 通过：24 个 UI 脚本、2318 次 invoke、0 运行时错误；覆盖 dataset 清理与 confirmed class 清理后仍保持解锁。
+- 关联: D-505
+- 收尾: 1787015615
+
+## T-1786922726338 D-525 MutexPoisonExt re-export 定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 11.0s
+- 摘要: D-525 补充 main.rs re-export 后按当前 staged 源码回归：kanzei-app 209 passed，格式检查通过；MutexPoisonExt 的 crate 根导出与五个消费者编译接线有效。
+- 关联: D-525 D-506
+- 收尾: 1787015685
+- 源码指纹: e0a8f8fb00192c6f
+
+## T-1786922726339 D-525 staged 根导出接线回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 11.0s
+- 摘要: 当前 staged `main.rs` re-export 接线回归：kanzei-app 209 passed，格式检查通过；D-525 五个 lock_or_recover 消费方可经 crate 根导出编译。
+- 关联: D-525 D-506
+- 收尾: 1787015696
+- 源码指纹: e0a8f8fb00192c6f
