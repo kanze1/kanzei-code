@@ -283,11 +283,11 @@
 - 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
-- 批次: 1/1
-- 进展: B1-B8 已落地并有既有提交/测试证据：B1 metrics 基线 T-1786922726397；B2-B5 actions/test_record/background/verify/run/drive question/task_results/ReadonlyProfile/ResearchProfile 已拆分，Research 提交 214ae962；B6 权限门禁提交 a7def4cb、T-1786922726415；B7 串行工具执行提交 525d65d2、T-1786922726417；B8 子代理面板合流提交 b5b4e833、T-1786922726419/T-1786922726420。B9 已落地：将 drive.rs 原并行工具执行段的 PreparedToolCall 构建、Ruleset deny 事件与占位、停止敏感 wave、取消占位和图片收集迁移至 runner/drive/parallel_tools.rs:8-143；drive.rs:17-18 注册并导入模块，drive.rs:1011-1042 由 execute_tool_calls 真实调用，串行路径仍由 serial_tools 收口，ToolRunOutcome 和 calls/results 对齐契约不变。证据 T-1786922726421：cargo fmt --all -- --check 与 cargo test -p kanzei-core，220 passed、0 failed、0 ignored。验收对账：①新增 drive 并行主体拆解，证据 B9 提交及 parallel_tools.rs:21,45,97,106-143；其他 Rust/前端 Top 目标仍未全部拆解，保持活动。②已完成 06-agent-panel 与 06-activity 合流：b5b4e833、06-activity.js:919-1288、07-events.js:192,215,266、T-1786922726419/T-1786922726420。③回涨闸门 scripts/verify.ps1:56-61 生效，T-1786922726401。④ metrics 对照 docs/design/metrics_baseline.md:1-61，T-1786922726397。下一步：提交 B9 后继续处理 R-300 验收①的剩余 Top 目标；R-300 保持 doing。
-- observed_head: b5b4e83360db2d8f355a94ad3fe5b9fa99c8e7df
-- observed_worktree_hash: fnv1a64:8cf9132a12346bef
-- recorded_at: 1787070816594
+- 批次: 2/2
+- 进展: B1-B8 已落地并有既有提交/测试证据：B1 metrics 基线 T-1786922726397；B2-B5 actions/test_record/background/verify/run/drive question/task_results/ReadonlyProfile/ResearchProfile 已拆分，Research 提交 214ae962；B6 权限门禁提交 a7def4cb、T-1786922726415；B7 串行工具执行提交 525d65d2、T-1786922726417；B8 子代理面板合流提交 b5b4e833、T-1786922726419/T-1786922726420。B9 已提交 7d4f022d：将 drive.rs 原并行工具执行段迁移至 runner/drive/parallel_tools.rs:21-143，drive.rs:17-18、1008-1030 真实调用，calls/results 对齐契约不变，证据 T-1786922726421。B10 已落地：将 background.rs 原登记、stdout/stderr 收集、bounded output、persistent 日志追加与日志尾部读取迁移到 background/registration.rs:12-211；background.rs:21-30 保留模块注册、测试导入、read_log_tail 与 register 的兼容导出；bash.rs:329 为真实生产调用方，persistent.rs:106 使用日志读取导出。证据 T-1786922726423：cargo fmt --all -- --check 与 cargo test -p kanzei-tools，345 passed、0 failed、1 ignored，无 warning。D-536 已 fixed。验收对账：①已落地 drive 并行主体拆解（7d4f022d、parallel_tools.rs:21-143）及 background 登记主体拆解（B10、registration.rs:12-211）；profiles.rs、tracker/actions.rs、CLI run.rs 与剩余前端 Top 目标仍未全部拆解，需求保持活动。②06-agent-panel 与 06-activity 合流已完成（b5b4e833、06-activity.js:919-1288、07-events.js:192,215,266、T-1786922726419/T-1786922726420）。③回涨闸门 scripts/verify.ps1:56-61 已生效，证据 T-1786922726401。④metrics 对照 docs/design/metrics_baseline.md:1-61 已落地，实测证据 T-1786922726397。下一步：提交 B10 后继续处理 R-300 验收①剩余 Top 目标；R-300 保持 doing。
+- observed_head: 7d4f022db8a49e7842d4e186697cdfb7bf477322
+- observed_worktree_hash: fnv1a64:2240a85d3236ca12
+- recorded_at: 1787071325448
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 

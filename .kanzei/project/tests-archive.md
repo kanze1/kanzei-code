@@ -7633,3 +7633,18 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300
 - 收尾: 1787070787
 - 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@e81fcb141051,crates/kanzei-core/src/runner/drive/parallel_tools.rs@623e0bb0faf2
+
+## T-1786922726422 R-300 B10 后台登记拆分首次编译回归 [failed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 摘要: B10 初次迁移后的编译回归发现内部可见性错误：read_log_tail 无法 re-export，background.rs 测试找不到 append_bounded；随后已登记 D-536 并修复。
+- 关联: R-300 D-536
+- 收尾: 1787071274
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@dfadb0e9b4b4,crates/kanzei-tools/src/background/registration.rs@de11f63143fc
+
+## T-1786922726423 R-300 B10 后台登记拆分格式与定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 33.1s
+- 摘要: B10 后台登记/输出收集/persistent 日志拆分修复后格式检查与定向回归通过：345 passed、0 failed、1 ignored；无 warning。
+- 关联: R-300 D-536
+- 收尾: 1787071279
+- 源码指纹: v2 crates/kanzei-tools/src/background.rs@dfadb0e9b4b4,crates/kanzei-tools/src/background/registration.rs@de11f63143fc

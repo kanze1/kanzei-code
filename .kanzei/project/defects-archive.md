@@ -6599,3 +6599,15 @@
 - observed_head: a7def4cb2dce87ab3f538d44b5ad62502875397e
 - observed_worktree_hash: fnv1a64:dd06777faa302ec0
 - recorded_at: 1787069707440
+
+## D-536 B10 后台登记拆分后的内部函数可见性导致 kanzei-tools 编译失败 [fixed] (medium)
+- refs: R-300
+- 复现: 完成 R-300 B10 将 register、输出收集和日志读取迁移到 crates/kanzei-tools/src/background/registration.rs 后运行 cargo test -p kanzei-tools，报 E0364：read_log_tail private cannot be re-exported；background.rs 测试调用 append_bounded 时又报 E0425 未找到。
+- 影响: B10 代码无法编译，kanzei-tools 定向测试无法执行。
+- 来源: self-found：B10 迁移后的 cargo test 编译回归。
+- 标签: 核心
+- 进展: 已修复并验证：registration.rs:12 的 append_bounded 改为父模块测试可见，background.rs:27-30 仅在 cfg(test) 导入 append_bounded，并通过 background.rs:29 受控 re-export read_log_tail；真实生产调用方仍为 bash.rs:329 的 crate::background::register。证据 T-1786922726423：cargo fmt --all -- --check 与 cargo test -p kanzei-tools，345 passed、0 failed、1 ignored，且无 warning。
+- 优先级: P1
+- observed_head: 7d4f022db8a49e7842d4e186697cdfb7bf477322
+- observed_worktree_hash: fnv1a64:2240a85d3236ca12
+- recorded_at: 1787071303856
