@@ -602,3 +602,87 @@ pub(crate) fn run_metrics_by_category(
         .collect();
     Ok(aggregate_run_metrics(&mapped, &metas))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{run_metrics, run_metrics_by_category};
+    use kanzei_core::{EpisodeRecord, SessionStore};
+    use std::path::PathBuf;
+
+    fn fixture(tag: &str) -> (PathBuf, String) {
+        let root = std::env::temp_dir().join(format!(
+            "kz-command-run-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let session_id = kanzei_core::project_session_id(&root);
+        let store = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        store
+            .create_session(&session_id, &root.display().to_string(), None)
+            .unwrap();
+        (root, session_id)
+    }
+
+    fn append_episode(root: &PathBuf, session_id: &str, prompt: &str) {
+        let store = SessionStore::open(&kanzei_core::project_state_path(root)).unwrap();
+        store
+            .append_episode(&EpisodeRecord {
+                session_id,
+                prompt_head: prompt,
+                outcome: "completed",
+                steps: 3,
+                input_tokens: 17,
+                output_tokens: 5,
+                tools_json: "{\"read\":1}",
+                context_json: "{}",
+                metrics_json: "{\"duration_ms\":12}",
+                provider: "test-provider",
+                model: "test-model",
+                run_id: "run-test",
+                input_id: "input-test",
+                duration_ms: 12,
+                overflow_json: "[]",
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn run_metrics_command_reads_real_episode_projection() {
+        let (root, session_id) = fixture("episodes");
+        append_episode(&root, &session_id, "R-296 command metrics");
+
+        let output = run_metrics(root.display().to_string(), Some(1)).unwrap();
+        assert_eq!(output["rounds"][0]["prompt"], "R-296 command metrics");
+        assert_eq!(output["rounds"][0]["outcome"], "completed");
+        assert_eq!(output["rounds"][0]["inputTokens"], 17);
+        assert_eq!(output["rounds"][0]["measured"], true);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn run_metrics_by_category_command_uses_requirement_complexity_source() {
+        let (root, session_id) = fixture("category");
+        std::fs::write(
+            root.join(".kanzei/project/requirements.md"),
+            "## R-296 Tauri command 与 run 链路测试基座\n- 复杂度: 大\n",
+        )
+        .unwrap();
+        append_episode(&root, &session_id, "R-296 command metrics");
+
+        let output = run_metrics_by_category(root.display().to_string(), Some(1)).unwrap();
+        let group = output["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|group| group["kind"] == "R" && group["complexity"] == "大")
+            .expect("R-296 应从 requirements.md 分类");
+        assert_eq!(group["count"], 1);
+        assert_eq!(group["sumInput"], 17);
+        assert_eq!(output["uncategorized"]["count"], 0);
+        std::fs::remove_dir_all(root).ok();
+    }
+}

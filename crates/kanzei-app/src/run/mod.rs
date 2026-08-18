@@ -555,3 +555,29 @@ mod assembly_tests {
         assert_eq!(out["uncategorized"]["sumInput"], 500);
     }
 }
+
+#[cfg(test)]
+mod persistence_boundary_tests {
+    use super::append_run_notification;
+    use kanzei_core::SessionStore;
+
+    #[test]
+    fn 轮末通知经真实存储边界可回放() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let session_id = "session-run-boundary";
+        store
+            .create_session(session_id, "test-project", None)
+            .unwrap();
+
+        append_run_notification(&store, session_id, "running", "任务已开始", false).unwrap();
+        append_run_notification(&store, session_id, "succeeded", "任务完成", false).unwrap();
+
+        let notifications = store.replay_notifications(session_id, 0, 10).unwrap();
+        assert_eq!(notifications.len(), 2);
+        assert_eq!(notifications[0].sequence, 1);
+        assert_eq!(notifications[0].status, "running");
+        assert_eq!(notifications[1].sequence, 2);
+        assert_eq!(notifications[1].status, "succeeded");
+        assert_eq!(notifications[1].summary, "任务完成");
+    }
+}
