@@ -7162,3 +7162,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: workspace 全量通过：1214 passed，1 ignored，0 failed；覆盖 kanzei、kanzei-app、kanzei-core、kanzei-tools、kanzei-llm、kanzei-memory 及文档测试。
 - 关联: R-243
 - 收尾: 1787020324
+
+## T-1786922726355 R-243 标准 release.ps1 发版 [failed]
+- 命令: .\scripts\release.ps1
+- 时长: 110.0s
+- 摘要: workspace 测试、CLI release 构建和 kzapp release 构建均成功；桌面安装因运行中的 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe 被 Windows 拒绝，脚本按预期生成 kzapp.exe.pending，未强杀进程。
+- 关联: R-243
+- 收尾: 1787020728
