@@ -7977,3 +7977,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-301
 - 收尾: 1787080119
 - 源码指纹: v2 crates/kanzei-app/src/collaboration.rs@9ed06633eff4,crates/kanzei-app/src/run/events/mod.rs@99d093305334,crates/kanzei-app/src/state.rs@9af3b1d48883,scripts/ui-lint-globals.json@5f268f14768a
+
+## T-1786922726466 R-302 Windows UIA 真实桌面最小 E2 [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1
+- 时长: 2.4s
+- 摘要: 真实安装位 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe、PID 25652、窗口 kanzei/Tauri Window 通过 UIA 附着；生产 prompt 控件 AutomationId=prompt、Edit、ValuePattern 写入/读回 marker 成功并恢复原值；真实前台窗口截图落盘至 .kanzei/research/r302-desktop-e2/kzapp-uia.png，454737 bytes；进程唯一且 Responding=True。
+- 关联: R-302 D-548 D-549 D-550 D-551
+- 收尾: 1787080745
+- 源码指纹: v2 scripts/ui-desktop-uia.ps1@62f2896acdec
+
+## T-1786922726467 R-302 UIA E2 脚本语法与进程收尾检查 [passed]
+- 命令: PowerShell Parser::ParseFile scripts/ui-desktop-uia.ps1; Get-Process kzapp | select Id,Path,MainWindowTitle,Responding
+- 时长: 0.6s
+- 摘要: PowerShell 脚本语法无错误；运行后确认唯一 kzapp 进程仍为真实安装位、窗口标题 kanzei 且 Responding=True。
+- 关联: R-302
+- 收尾: 1787080752
+- 源码指纹: v2 scripts/ui-desktop-uia.ps1@62f2896acdec
+
+## T-1786922726468 R-302 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 61.1s
+- 摘要: R-302 中复杂度关闭前 workspace 全量测试通过：各 crate 与集成测试全部通过；kanzei-app 218、kanzei-core 220、kanzei-tools 345 passed，另有既有 ignored 测试，无失败。
+- 关联: R-302
+- 收尾: 1787080898
+- 源码指纹: v2 scripts/ui-desktop-uia.ps1@62f2896acdec

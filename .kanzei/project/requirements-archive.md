@@ -3904,3 +3904,20 @@
 - observed_worktree_hash: fnv1a64:a8ca96c02292909b
 - recorded_at: 1787080157525
 - 状态: done
+
+## R-302 桌面 E2 路线立项:浏览器工具通道 vs Windows UI Automation 选型 [done]
+- refs: R-101 D-511
+- 内容: R-269 结论:浏览器工具通道可行,落地依赖 kzapp 暴露 URL 入口(requirements-archive.md:3445);R-101 技术路线:Windows 原生 UI Automation(requirements.md)。二选一给出对比依据与最小可行验证(真实桌面跑通一条 E2),选定后 R-101 的延期 E2 清单挂到该路线并重写其过期验收。选型结论:选 Windows 原生 UI Automation 作为真实桌面 E2；浏览器工具保留为 headless Edge 开发自检，不等同 kzapp 桌面；UIA 可附着实际安装位并通过生产 prompt ValuePattern 写入/回读与真实窗口截图，不依赖 CDP；代价是 WebView2 标题栏节点 provider 不稳定，已明确以顶层 Window/Win32 句柄为稳定边界。
+- 复杂度: 中
+- 来源: 2026-08-18 全库勘察;R-269 关闭说明⑦与 R-101 技术路线两条候选互不引用均无实施条目
+- 标签: 流程
+- 边界: 本条只做选型+最小验证,不交付全部 E2 清单(那是 R-101);CDP 不再是候选
+- 验收: 选型结论有对比依据落档;最小 E2 真实桌面跑通;R-101 验收清单按新路线更新
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-302
+- 进展: 验收逐条对账：①「选型结论有对比依据落档」——本字段记录浏览器工具与 Windows UIA 的边界、真实消费者、CDP 约束和 provider 风险；R-269 既有实现位置 `crates/kanzei-tools/src/browser_tool.rs`、`scripts/browser-helper.mjs`，真实桌面路线位置 `scripts/ui-desktop-uia.ps1:78-158`。②「最小 E2 真实桌面跑通」——T-1786922726466 原样命令 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1` 通过：真实安装位 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`、PID 25652、窗口 `kanzei`/`Tauri Window`、生产 `prompt` Edit + `ValuePattern` marker 写入回读、真实截图 `.kanzei/research/r302-desktop-e2/kzapp-uia.png` 454737 bytes；T-1786922726467 语法与唯一 Responding 进程收尾通过。③「R-101 验收清单按新路线更新」——`requirements.md` R-101 已更新技术路线、完整权限弹窗/pending ask/切项目复位/手写内容保留/run_task 收尾/停止/长会话范围及后续批次边界，R-302 只核销选型+最小 E2。关闭前中复杂度全量门禁 T-1786922726468：`cargo test --workspace` 通过。既有能力明确：R-269 headless 浏览器工具不是本次桌面 E2 交付；本次新增 `scripts/ui-desktop-uia.ps1` 为真实桌面 UIA 最小验证。
+- observed_head: 676fddefe6d82f7442035b81b8d65efe0b71ccfa
+- observed_worktree_hash: fnv1a64:4dc73574e4527fea
+- recorded_at: 1787080933030
+- 状态: done
+- 阻塞: 

@@ -6744,3 +6744,51 @@
 - observed_head: 81e6800a12e6165fccf3bbca04e99d9269cba576
 - observed_worktree_hash: fnv1a64:a8ca96c02292909b
 - recorded_at: 1787080015503
+
+## D-548 桌面 UIA E2 剪贴板备份时机错误 [fixed] (low)
+- refs: R-302
+- 复现: 新建 `scripts/ui-desktop-uia.ps1` 的真实桌面输入路径在输入 marker 后才读取旧剪贴板。
+- 影响: E2 清理阶段会恢复测试 marker 而非用户原剪贴板，可能污染用户剪贴板。
+- 来源: self-found：R-302 脚本实跑前检查。
+- 标签: 流程
+- 进展: 关闭对账：①根因——旧实现先输入 marker 再备份剪贴板；②修复——`scripts/ui-desktop-uia.ps1:98-118` 改为真实 UIA `ValuePattern` 读写并保存/恢复控件原值，完全移除剪贴板副作用；③验证——T-1786922726466 真实桌面 E2 通过，marker 回读成功且恢复原值，未发送请求、未改项目。
+- 优先级: P2
+- observed_head: 676fddefe6d82f7442035b81b8d65efe0b71ccfa
+- observed_worktree_hash: fnv1a64:4dc73574e4527fea
+- recorded_at: 1787080761712
+
+## D-549 桌面 UIA 标题栏 Close 查询不稳定 [fixed] (low)
+- refs: R-302
+- 复现: 运行 `scripts/ui-desktop-uia.ps1`，真实 `kzapp` 窗口已找到，但 `FindFirst(Descendants, AutomationId=Close)` 返回空；此前 UIA 树输出显示标题栏 Close 按钮存在。
+- 影响: 桌面 E2 在窗口断言阶段失败，尚未执行真实输入与截图。
+- 来源: self-found：R-302 首次真实桌面 E2。
+- 标签: 流程
+- 进展: 关闭对账：①根因——Tauri/WebView2 UIA provider 在不同查询时不稳定暴露标题栏 Close 节点；②修复——`scripts/ui-desktop-uia.ps1:87-91,144-150` 将 Close automation id 降为可选诊断，改以真实顶层 Window、Win32 句柄、标题和窗口尺寸作硬断言；③验证——T-1786922726466 输出 `window_title=kanzei`、`window_class=Tauri Window`、真实 PID 25652，截图 454737 bytes，E2 通过。
+- 优先级: P2
+- observed_head: 676fddefe6d82f7442035b81b8d65efe0b71ccfa
+- observed_worktree_hash: fnv1a64:4dc73574e4527fea
+- recorded_at: 1787080772019
+
+## D-550 桌面 UIA SendKeys 未聚焦真实输入框 [fixed] (medium)
+- refs: R-302
+- 复现: 运行 `scripts/ui-desktop-uia.ps1`，真实 `kzapp` 窗口和句柄可找到，但发送 Ctrl+K 后输入 marker 未能通过 Ctrl+C 回读；剪贴板返回的是页面已有文本。
+- 影响: 仅靠 Win32 前台切换与 SendKeys 不能稳定证明真实 WebView 输入链路，桌面 E2 输入断言失败。
+- 来源: self-found：R-302 第二次真实桌面 E2。
+- 标签: 流程
+- 进展: 关闭对账：①根因——Win32 `SetForegroundWindow + SendKeys` 不能稳定聚焦 WebView2 输入控件；②修复——`scripts/ui-desktop-uia.ps1:101-118` 通过 AutomationId=prompt 找到生产 Edit 控件，使用 UIA `ValuePattern` 写入、回读并恢复原值；③验证——T-1786922726466 输出 `input_control_automation_id=prompt`、`input_pattern=ValuePattern`、`input_marker_round_trip=true`。
+- 优先级: P2
+- observed_head: 676fddefe6d82f7442035b81b8d65efe0b71ccfa
+- observed_worktree_hash: fnv1a64:4dc73574e4527fea
+- recorded_at: 1787080777797
+
+## D-551 桌面 UIA E2 扩展路径截图目录创建失败 [fixed] (low)
+- refs: R-302
+- 复现: 在仓库扩展路径工作目录运行 `scripts/ui-desktop-uia.ps1`，截图默认路径经 `GetFullPath` 组合为 `Microsoft.PowerShell.Core\FileSystem::\?\...`，`New-Item` 创建目录失败。
+- 影响: 真实 UIA 输入回读已通过，但截图证据无法落盘，R-302 最小 E2 尚未完整通过。
+- 来源: self-found：R-302 第三次真实桌面 E2。
+- 标签: 流程
+- 进展: 关闭对账：①根因——默认截图路径在参数绑定阶段把 provider-qualified 扩展工作目录拼入路径；②修复——`scripts/ui-desktop-uia.ps1:13-15,120-143` 默认值改为相对路径，并以 `$PSScriptRoot` 仓库根解析后剥离 provider/`\\?\\` 前缀；③验证——T-1786922726466 截图真实落盘 `.kanzei/research/r302-desktop-e2/kzapp-uia.png`，454737 bytes；T-1786922726467 语法与进程收尾检查通过。
+- 优先级: P2
+- observed_head: 676fddefe6d82f7442035b81b8d65efe0b71ccfa
+- observed_worktree_hash: fnv1a64:4dc73574e4527fea
+- recorded_at: 1787080784506

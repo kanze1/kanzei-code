@@ -77,7 +77,7 @@
 - 优先级: P2
 - 归属: kanzei
 - 背景: 多条缺陷按 conventions §1.2「可用即关闭」关闭,其验证增强项收拢至此,不再阻塞缺陷与需求推进;此前反复出现的阻塞原因是仓库无 package.json、无浏览器测试 harness,无法安全启动真实 Tauri UI。
-- 验收: 建立可启动真实 Tauri UI 的 Windows 原生 E2 基座，保留失败非零退出、截图与断言；逐项覆盖权限弹窗、pending ask、切项目复位、手写内容保留、run_task 收尾、停止与长会话响应。CDP 端口和 connectOverCDP 不再是验收条件。
+- 验收: 按新路线保留完整延期范围，不在本条缩小平台或场景：①建立可启动真实 Tauri UI 的 Windows UIA E2 基座，失败非零退出、截图与断言；②逐项覆盖权限弹窗、pending ask、切项目复位、手写内容保留、run_task 收尾、停止与长会话响应。R-302 只完成路线选定与最小 E2，以上行为清单仍由本条后续批次交付。
 - 拆批(2026-08-08 用户定调「拆出能先做的部分」): **本轮可做**——harness 基座本身(仓库补 package.json、选定并接入 WebView 驱动、安全启动真实 UI、截图与断言框架、失败非零退出),以及不涉及多会话的 E2:D-060 手写内容保留与并发写入、D-086 task→subagent read 拦截、D-064 注入故障的 run_task 收尾、D-066 真实 Window/provider 停止。**留待 R-086**——依赖会话事件路由的三条:D-051 桌面权限弹窗真实 UI、D-055 切回进程补发 pending ask、D-056 运行中切项目终态复位。基座 + 四条 E2 交付即可关闭本条,剩余三条并入 R-086 验收。
 - refs: R-086
 - 阶段: 3
@@ -86,16 +86,16 @@
 
 - 拆批: 2026-08-08 用户定调「拆出能先做的部分」: **本轮可做**——harness 基座本身(仓库补 package.json、选定并接入 WebView 驱动、安全启动真实 UI、截图与断言框架、失败非零退出),以及不涉及多会话的 E2:D-060 手写内容保留与并发写入、D-086 task→subagent read 拦截、D-064 注入故障的 run_task 收尾、D-066 真实 Window/provider 停止。基座 + 四条 E2 交付即可关闭本条;R-086 已于本轮按 §1.2 可用即关闭关闭,原「并入 R-086 验收」的三条桌面 E2(D-051 桌面权限弹窗真实 UI、D-055 切回进程补发 pending ask、D-056 运行中切项目终态复位)留在本条目验收清单执行。
 
-- 进展: 2026-08-17 用户确认 CDP 已不再使用。D-319/D-289 作为旧测试路线退役；R-101 保留延期桌面 E2 清单，但删除 WebView2 DevTools 端口/connectOverCDP 依赖，后续以 Windows 原生 UI Automation 和真实桌面路径交付。
+- 进展: R-302 已选定 Windows 原生 UI Automation：R-269 浏览器工具保留为 headless 开发自检，不等同桌面 E2；本机 WebView2 CDP 不可用。`scripts/ui-desktop-uia.ps1` 已在真实安装位通过顶层 Window/Win32 句柄、生产 `prompt` Edit + ValuePattern 写入回读、真实截图和进程收尾；T-1786922726466、T-1786922726467、T-1786922726468。原阻塞已解除，R-101 后续按完整权限弹窗、pending ask、切项目复位、手写内容保留、run_task 收尾、停止与长会话响应清单推进。
 - 状态纠正(2026-08-09): doing→todo。用户已挂起本条,实际不在推进中,却按旧 §1.1 口径占用 doing 名额,与 R-148 一起把 R-153 拒之门外(见 D-219)。恢复推进时再转 doing;挂起前提的小缺陷中 D-185/D-184 仍 open。
 
-- 阻塞: 路线选型由 R-302 承接:等 R-302 选定浏览器工具通道或 Windows UI Automation 并跑通最小 E2 后,按新路线重写本条验收清单再复工。2026-08-18 对账:原阻塞点名的 D-428 已修复;背景中「仓库无 package.json」已过时(根目录已有);拆批点名的 D-060/D-086/D-064/D-066/D-051/D-055/D-056 已全部 fixed,原验收清单需按新路线重定义。解除人:agent(R-302 交付后)。
+- 阻塞: 
 
 - 批次: 0/6
-- 技术路线: CDP/connectOverCDP 路线于 2026-08-17 退役；桌面 E2 改为 Windows 原生 UI Automation/真实 WebView2 用户路径，必要时再评估受支持的 WebDriver，而不是依赖 DevTools 端口。
-- observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786925391968
+- 技术路线: Windows 原生 UI Automation/真实 WebView2 用户路径已选定。基座通过 `scripts/ui-desktop-uia.ps1` 以 UIA 附着真实安装位 kzapp.exe、断言顶层 Window、通过生产 prompt 的 ValuePattern 写入/回读，并保存真实窗口截图；CDP/connectOverCDP 不再作为路线或验收条件。
+- observed_head: 676fddefe6d82f7442035b81b8d65efe0b71ccfa
+- observed_worktree_hash: fnv1a64:4dc73574e4527fea
+- recorded_at: 1787080915782
 
 ## R-242 会话投影真源切换与分段清空恢复 [doing]
 - refs: D-209 D-342 D-417 R-236 R-279 docs/design/deepseek_harness_upgrade.md
@@ -261,16 +261,6 @@
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-299
 - 停车: 让位 R-300 收尾：协作线 p16 仍占用 crates/kanzei-app/src/ipc_contract.rs、scripts/ipc-contract.json、scripts/ipc-event-smoke.mjs、scripts/verify.ps1 等 IPC 契约扩面文件；本条不覆盖并发实现。p16 清出后按 work next 恢复。
-
-## R-302 桌面 E2 路线立项:浏览器工具通道 vs Windows UI Automation 选型 [todo]
-- refs: R-101 D-511
-- 内容: R-269 结论:浏览器工具通道可行,落地依赖 kzapp 暴露 URL 入口(requirements-archive.md:3445);R-101 技术路线:Windows 原生 UI Automation(requirements.md)。二选一给出对比依据与最小可行验证(真实桌面跑通一条 E2),选定后 R-101 的延期 E2 清单挂到该路线并重写其过期验收
-- 复杂度: 中
-- 来源: 2026-08-18 全库勘察;R-269 关闭说明⑦与 R-101 技术路线两条候选互不引用均无实施条目
-- 标签: 流程
-- 边界: 本条只做选型+最小验证,不交付全部 E2 清单(那是 R-101);CDP 不再是候选
-- 验收: 选型结论有对比依据落档;最小 E2 真实桌面跑通;R-101 验收清单按新路线更新
-- 优先级: P2
 
 ## R-303 文档一致性批次订正 [todo]
 - refs: R-283 R-264
