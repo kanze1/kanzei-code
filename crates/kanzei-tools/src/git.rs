@@ -297,12 +297,17 @@ async fn staged_state(cwd: &Path) -> Result<(String, String, Vec<String>), Strin
     Ok((hash, diff, paths))
 }
 
-/// D-332 验收④:暂存**源码**的指纹 hash(fnv)——test_record 收尾时用它背书「测试跑的是
+/// D-332 验收④:暂存**源码**的指纹——test_record 收尾时用它背书「测试跑的是
 /// 这份源码」,提交门禁优先比指纹而不是纯 mtime。要点:
-/// - 只对源码路径(`is_source_path`)的 staged diff 求 hash:tests.md/tracker 等托管文档
-///   的写入不改变源码指纹,不会再让「test_record 自己改 tests.md」触发源码重测。
+/// - 只对源码路径(`is_source_path`)求指纹:tests.md/tracker 等托管文档的写入不改变
+///   源码指纹,不会再让「test_record 自己改 tests.md」触发源码重测。
+/// - v2 形态是**按路径的 staged blob 清单**(`v2 path@sha12,…`,按路径排序),不再 hash
+///   diff 文本。旧形态 hash 的 diff 里带 `index <old>..<new>` 行,old 侧随 HEAD 走——
+///   同一轮里分批提交时,第一批一落地 HEAD 就动了,剩余批次源码没变指纹也变,证据
+///   凭空作废逼出全量复跑。blob 清单只看暂存内容,对 HEAD 移动免疫;门禁还能按路径
+///   做子集背书(见 `fingerprint_endorses`),部分提交不再要求重测。
 /// - 与 staged_state 的全体 hash 不同:commit 门禁的 CAS 用全体 hash(防任何内容漂移),
-///   测试背书用源码 hash(fmt 后源码 diff 变 → 指纹变 → 要求重测,保守正确)。
+///   测试背书用源码清单(测后改动源码 → 对应路径 blob 变 → 要求重测,保守正确)。
 /// - 同步实现(内部 std::process::Command 跑 git):test_record 工具(async)与
 ///   source_test_gate(同步)都要用,拆两个 async 版本会让门禁被迫改签名。
 pub fn staged_source_fingerprint(cwd: &Path) -> Result<String, String> {
@@ -314,73 +319,90 @@ pub fn staged_source_fingerprint(cwd: &Path) -> Result<String, String> {
         .args([
             "diff",
             "--cached",
-            "--binary",
+            "--raw",
             "--no-ext-diff",
             "--no-color",
+            "--no-renames",
+            "--abbrev=40",
+            "-z",
         ])
         .current_dir(cwd)
         .output()
         .map_err(|e| format!("cannot run git diff: {e}"))?;
-    let diff = String::from_utf8_lossy(&output.stdout).to_string();
-    let paths = staged_paths_sync(cwd)?;
-    let source_paths: Vec<String> = paths
-        .iter()
-        .filter(|p| is_source_path(p))
-        .cloned()
-        .collect();
-    if source_paths.is_empty() {
+    if !output.status.success() {
+        // 无 HEAD 等罕见形态:退化为空指纹,门禁走 mtime 路径,不硬报错。
+        return Ok(String::new());
+    }
+    let raw = String::from_utf8_lossy(&output.stdout).to_string();
+    // -z 格式:`:<old_mode> <new_mode> <old_sha> <new_sha> <status>\0<path>\0` 重复。
+    // --no-renames 保证每条恰好一个路径。
+    let mut entries: Vec<String> = Vec::new();
+    let mut parts = raw.split('\0');
+    while let Some(meta) = parts.next() {
+        if meta.is_empty() {
+            continue;
+        }
+        let Some(path) = parts.next() else { break };
+        let fields: Vec<&str> = meta.trim_start_matches(':').split(' ').collect();
+        if fields.len() < 5 || !is_source_path(path) {
+            continue;
+        }
+        // 删除的新 sha 是全零,天然与修改/新增区分,不需要单独带 status。
+        let new_sha: String = fields[3].chars().take(12).collect();
+        entries.push(format!("{}@{new_sha}", path.replace('\\', "/")));
+    }
+    if entries.is_empty() {
         // 本次暂存全是非源码(测试记录/文档):指纹为空,门禁按旧逻辑(mtime)走。
         return Ok(String::new());
     }
-    let mut hasher = DefaultHasher::new();
-    // 只对源码路径的 diff 段求 hash:按 `diff --git a/<path> b/<path>` 头切块,
-    // 命中源码路径的块进 hash,其余(测试记录/文档)排除。
-    let mut in_source = false;
-    for line in diff.lines() {
-        if let Some(rest) = line.strip_prefix("diff --git a/") {
-            let path = rest
-                .split_once(" b/")
-                .map(|(p, _)| p.to_string())
-                .unwrap_or_default();
-            in_source = source_paths.contains(&path);
-        }
-        if in_source {
-            line.hash(&mut hasher);
-        }
-    }
-    Ok(format!("{:016x}", hasher.finish()))
+    entries.sort();
+    Ok(format!("v2 {}", entries.join(",")))
 }
 
-fn staged_paths_sync(cwd: &Path) -> Result<Vec<String>, String> {
-    let mut command = std::process::Command::new("git");
-    // D-369:同 staged_source_fingerprint——GUI 进程跑 git 必须隐藏控制台窗口,
-    // 否则提交门禁每次弹黑窗。
-    crate::hide_console(&mut command);
-    let output = command
-        .args([
-            "-c",
-            "core.quotepath=false", // D-347:非 ASCII 路径以真实 UTF-8 返回,与请求路径可比
-            "diff",
-            "--cached",
-            "--name-only",
-            "--no-renames",
-        ])
-        .current_dir(cwd)
-        .output()
-        .map_err(|e| format!("cannot run git diff --name-only: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "git diff --cached failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+/// v2 指纹解析:`v2 path@sha12,…` → 路径到 blob 前缀的映射;非 v2 形态返回 None。
+fn parse_fingerprint_entries(
+    fingerprint: &str,
+) -> Option<std::collections::BTreeMap<String, String>> {
+    let list = fingerprint.strip_prefix("v2 ")?;
+    let mut map = std::collections::BTreeMap::new();
+    for entry in list.split(',') {
+        let (path, sha) = entry.rsplit_once('@')?;
+        map.insert(path.to_string(), sha.to_string());
     }
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .collect())
+    Some(map)
 }
+
+/// 记录指纹是否背书当前暂存源码。相等直接成立;v2 形态额外允许**子集背书**:
+/// 当前暂存的每个源码路径,其 blob 都出现在记录清单里即可——同一轮测试背书的
+/// 一批改动分多笔提交时,后续批次源码未动就不再要求重测。
+pub(crate) fn fingerprint_endorses(record: &str, current: &str) -> bool {
+    if record == current {
+        return true;
+    }
+    let (Some(endorsed), Some(staged)) = (
+        parse_fingerprint_entries(record),
+        parse_fingerprint_entries(current),
+    ) else {
+        return false;
+    };
+    staged
+        .iter()
+        .all(|(path, sha)| endorsed.get(path) == Some(sha))
+}
+
+/// 当前暂存里未被记录背书的源码路径(用于把拦截消息说到文件粒度)。
+fn unendorsed_paths(record: &str, current: &str) -> Vec<String> {
+    let endorsed = parse_fingerprint_entries(record).unwrap_or_default();
+    parse_fingerprint_entries(current)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(path, sha)| endorsed.get(path) != Some(sha))
+        .map(|(path, _)| path)
+        .collect()
+}
+
+// 旧同步版 staged_paths_sync 已随 diff 文本指纹一起退役:v2 指纹从
+// `diff --cached --raw -z` 一次拿到路径与 blob,不再需要单独列路径。
 
 async fn stage(cwd: &Path, raw_files: &[String]) -> ToolOutput {
     let files = match normalize_files(cwd, raw_files, true) {
@@ -799,14 +821,24 @@ fn source_test_gate(project_root: &Path, cwd: &Path, paths: &[String]) -> Result
         None => Err(format!("提交被拦下:没有任何 passed 的测试记录。\n{remedy}")),
         Some((passed_at, coverage, command_text, fingerprint)) => {
             // D-332 验收④:优先比源码指纹——测试记录背书的是「收尾那一刻的暂存源码」。
-            // 指纹非空且与当前暂存源码一致 = 背书成立(即使 mtime 因 test_record 自己写
-            // tests.md 而变新,源码没变就不要求重测)。指纹为空(旧记录/非 git)时退回 mtime。
-            if !fingerprint.is_empty() && !current_fingerprint.is_empty() {
-                if fingerprint != current_fingerprint {
+            // v2 清单按路径做子集背书(分批提交不再作废证据);旧格式(16 位 hex)与
+            // v2 没有可比性,按「无指纹」降级走 mtime,避免升级后第一笔提交被假性拦下。
+            // 指纹为空(旧记录/非 git)时同样退回 mtime。
+            let comparable =
+                fingerprint.starts_with("v2 ") && current_fingerprint.starts_with("v2 ");
+            if comparable {
+                if !fingerprint_endorses(&fingerprint, &current_fingerprint) {
+                    let stale = unendorsed_paths(&fingerprint, &current_fingerprint);
                     return Err(format!(
                         "提交被拦下:最近一条 passed 测试记录背书的源码指纹与当前暂存源码不一致\
-                         (记录: {fingerprint}, 当前: {current_fingerprint})——fmt/改动后源码变了,\
-                         这条记录背书的不是要提交的这份代码。\n{remedy}"
+                         ——这些路径在测试之后又改过(或从未被背书):\n{}\n\
+                         这条记录背书的不是要提交的这份代码。\n{remedy}",
+                        stale
+                            .iter()
+                            .take(8)
+                            .map(|p| format!("  - {p}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     ));
                 }
             } else if passed_at < newest_change {
@@ -2482,6 +2514,63 @@ prunable gitdir file points to non-existent location
         assert!(
             err.contains("源码指纹") && err.contains("不一致"),
             "指纹不一致应拦截并点名: {err}"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// v2 指纹的核心收益:同一轮测试背书的一批改动分多笔提交,第一笔落地后 HEAD
+    /// 移动、剩余批次源码未变——记录按路径子集继续背书,不再逼全量复跑;测后再改
+    /// 的路径则被点名拦截。
+    #[test]
+    fn source_test_gate_endorses_partial_commit_subset() {
+        let root = temp_repo("gate-fp-subset");
+        let project = root.join(".kanzei").join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let a = root.join("crates/kanzei-tools/src/lib.rs");
+        let b = root.join("scripts/hello.ps1");
+        std::fs::create_dir_all(a.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(b.parent().unwrap()).unwrap();
+        std::fs::write(&a, "pub fn x() {}\n").unwrap();
+        std::fs::write(&b, "echo hi\n").unwrap();
+        git_in(&root, &["add", "."]);
+        git_in(&root, &["commit", "-m", "init"]);
+        // 一轮改动两个文件,全部 stage 后测试收尾记指纹。
+        std::fs::write(&a, "pub fn x() { let a = 1; }\n").unwrap();
+        std::fs::write(&b, "echo hi2\n").unwrap();
+        git_in(&root, &["add", "."]);
+        let fp = staged_source_fingerprint(&root).unwrap();
+        assert!(fp.starts_with("v2 "), "新指纹必须是 v2 清单形态: {fp}");
+        let now = now_secs();
+        std::fs::write(
+            project.join("tests.md"),
+            format!(
+                "# Test Runs\n\n## T-{now} 批测 [passed]\n- 命令: cargo test -p kanzei-tools\n- 收尾: {}\n- 源码指纹: {fp}\n",
+                now - 1
+            ),
+        )
+        .unwrap();
+        // 第一笔只提交 lib.rs → HEAD 移动;剩余暂存(hello.ps1)内容未变。
+        git_in(
+            &root,
+            &[
+                "commit",
+                "-m",
+                "batch1",
+                "--",
+                "crates/kanzei-tools/src/lib.rs",
+            ],
+        );
+        match source_test_gate(&root, &root, &["scripts/hello.ps1".to_string()]) {
+            Ok(()) => {}
+            Err(err) => panic!("分批提交的剩余批次源码未变,记录应继续背书: {err}"),
+        }
+        // 剩余文件测后再改 → 该路径 blob 变 → 点名拦截。
+        std::fs::write(&b, "echo hi3\n").unwrap();
+        git_in(&root, &["add", "scripts/hello.ps1"]);
+        let err = source_test_gate(&root, &root, &["scripts/hello.ps1".to_string()]).unwrap_err();
+        assert!(
+            err.contains("源码指纹") && err.contains("不一致") && err.contains("scripts/hello.ps1"),
+            "测后改动要点名路径: {err}"
         );
         std::fs::remove_dir_all(root).ok();
     }

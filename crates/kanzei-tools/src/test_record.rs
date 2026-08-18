@@ -802,9 +802,14 @@ fn select_passed_group(
     passed: Vec<PassedRecord>,
     fingerprint_filter: Option<&str>,
 ) -> Option<PassedRecord> {
+    // 匹配走背书语义而非串相等:v2 清单允许「记录是超集」(同一轮测试分多笔提交,
+    // 后续批次的暂存内容仍被首轮记录背书);相等仍然成立,旧格式只能相等。
     let newest = passed
         .iter()
-        .filter(|record| fingerprint_filter.is_none_or(|expected| record.3 == expected))
+        .filter(|record| {
+            fingerprint_filter
+                .is_none_or(|expected| crate::git::fingerprint_endorses(&record.3, expected))
+        })
         .max_by_key(|record| record.0)?
         .clone();
     if newest.3.is_empty() {
