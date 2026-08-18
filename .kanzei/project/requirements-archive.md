@@ -3872,3 +3872,20 @@
 - recorded_at: 1787079262652
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
+
+## R-298 发布链装后验证与证据补全 [done]
+- refs: docs/design/ci_release_evidence_chain.md
+- 内容: 打包链止于拷进 dist(scripts/package.ps1:130-136),setup.exe 从未被自动安装验证;install-setup.ps1 全仓零调用方(仅 release.ps1:67 报错文案提及);版本双源冻结 0.1.0 无比对(Cargo.toml:15 与 crates/kanzei-app/tauri.conf.json:4);release notes 无安装器 SHA256(package.ps1:148,设计列为后续可选 ci_release_evidence_chain.md:189);dist 堆 6 个无人引用 setup.exe 约 85MB 无保留策略;release.ps1 开发通道仅 cargo test(release.ps1:15-19),能把过不了 12 步中 10 步的二进制装进系统;install-setup.ps1:41-59 装前不备份装坏不还原
+- 复杂度: 中
+- 来源: 2026-08-18 全库勘察
+- 标签: 发布
+- 边界: NSIS 路线不重做;安装验证需考虑 LOCALAPPDATA 容器重定向问题(见记忆 localappdata-container-redirect)
+- 验收: 打包后自动静默装+装后自校验入链;SHA256 入 notes;版本一致性检查;dist 保留策略;开发通道最低门禁明确并留档
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-298
+- 取活释放: line=kanzei/thread-line-1787020530803-1;reason=parallel-line-unregister;at_ms=1787067046456
+- 进展: 关闭对账（既有能力复核，不重复申报代码改造）：① 打包后自动静默装+装后自校验入链——真实调用方为 `scripts/package.ps1:160-171`，调用 `scripts/install-setup.ps1:1-61`；安装器脚本在 `:20-24` 拒绝运行中的 kzapp，在 `:41-59` 校验安装位存在、mtime/大小变化和 ExpectedHash。② SHA256 入 notes——`scripts/package.ps1:173-187` 计算 `Get-FileHash -Algorithm SHA256` 并写入发布 notes。③ 版本一致性检查——`scripts/package.ps1:91-101` 比对 `Cargo.toml:14-17` 与 `crates/kanzei-app/tauri.conf.json:3-5`，当前均为 0.1.0。④ dist 保留策略——`scripts/package.ps1:150-158` 删除旧 `kanzei-setup-*.exe`，只保留当前输出。⑤ 开发通道最低门禁——`scripts/release.ps1:5-7,20-24` 默认执行 `cargo test --workspace`，仅显式 `-SkipTests` 可跳过；发布通道另受 `package.ps1:103-114` commit-bound verify evidence gate 约束。既有实现提交 `99e77685`，真实发布调用方和脚本链已确认；`T-1786922726462` 当前 HEAD 契约断言通过，`T-1786922726461` 真实 verify 全量通过并产出绑定 `81e6800a` 的证据。边界 NSIS 路线未重做，容器重定向防线见 `scripts/release.ps1:52-74`。
+- observed_head: 81e6800a12e6165fccf3bbca04e99d9269cba576
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787079402327
+- 批次: 1/1

@@ -7946,3 +7946,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 提交 81e6800a 后真实 verify 全部通过：parallel_lines_regression、ui_a11y、ui_i18n、ui_markdown、crate_sync+metrics gate、ps1_bom、ui_lint、ipc_event_contract、fmt、ui_syntax（桌面 UI+mobile-PWA）、clippy、ui_connectivity、ui_runtime、workspace test；最终写入 dist/verification.json，绑定 commit 81e6800a12e6165fccf3bbca04e99d9269cba576。
 - 关联: R-300 D-546
 - 收尾: 1787079204
+
+## T-1786922726462 R-298 发布链装后验证契约检查 [passed]
+- 命令: PowerShell structural contract assertions over scripts/package.ps1, scripts/install-setup.ps1, scripts/release.ps1, Cargo.toml, crates/kanzei-app/tauri.conf.json
+- 时长: 1.0s
+- 摘要: 当前 HEAD 发布链契约检查通过：package.ps1 真实调用 install-setup.ps1；安装前进程检测、mtime/大小变化、ExpectedHash 装后校验存在；SHA256 notes、版本双源、dist 旧安装器清理、verify 证据门禁和 release workspace 最低门禁均存在；版本 0.1.0 一致。
+- 关联: R-298
+- 收尾: 1787079387

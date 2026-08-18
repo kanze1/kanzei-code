@@ -250,18 +250,6 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787059362211
 
-## R-298 发布链装后验证与证据补全 [todo]
-- refs: docs/design/ci_release_evidence_chain.md
-- 内容: 打包链止于拷进 dist(scripts/package.ps1:130-136),setup.exe 从未被自动安装验证;install-setup.ps1 全仓零调用方(仅 release.ps1:67 报错文案提及);版本双源冻结 0.1.0 无比对(Cargo.toml:15 与 crates/kanzei-app/tauri.conf.json:4);release notes 无安装器 SHA256(package.ps1:148,设计列为后续可选 ci_release_evidence_chain.md:189);dist 堆 6 个无人引用 setup.exe 约 85MB 无保留策略;release.ps1 开发通道仅 cargo test(release.ps1:15-19),能把过不了 12 步中 10 步的二进制装进系统;install-setup.ps1:41-59 装前不备份装坏不还原
-- 复杂度: 中
-- 来源: 2026-08-18 全库勘察
-- 标签: 发布
-- 边界: NSIS 路线不重做;安装验证需考虑 LOCALAPPDATA 容器重定向问题(见记忆 localappdata-container-redirect)
-- 验收: 打包后自动静默装+装后自校验入链;SHA256 入 notes;版本一致性检查;dist 保留策略;开发通道最低门禁明确并留档
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-298
-- 取活释放: line=kanzei/thread-line-1787020530803-1;reason=parallel-line-unregister;at_ms=1787067046456
-
 ## R-299 IPC 与事件契约机械比对扩面 [doing]
 - refs: R-284
 - 内容: scripts/ipc-contract.json 仅锁 docs_snapshot 一个顶层键(1/104 command),而该机制自述正是 30+ 命令手搓 JSON 两侧各写一遍字符串(crates/kanzei-app/src/ipc_contract.rs:1-19);后端 emit 事件集合(kz:compacted/kz:meta/kz:reasoning/kz:step 等)与前端 on() 订阅集合无任何机械求差;ui-runtime 冒烟的多会话/记忆页 fixture 是前端作者手写,后端改字段名照样全绿。扩契约文件覆盖高频 command,emit/listen 求差入冒烟
