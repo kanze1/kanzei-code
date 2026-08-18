@@ -12,3 +12,24 @@ pub(super) fn tool_result_part(call_id: String, output: kanzei_harness::ToolOutp
         is_error: output.is_error,
     }
 }
+
+pub(super) fn tool_result_part_with_images(
+    call_id: String,
+    output: kanzei_harness::ToolOutput,
+    images_supported: bool,
+) -> (Part, Vec<Part>) {
+    let mut model_content = output.model_content();
+    let (images, dropped_note) =
+        crate::runner::tool_exec::tool_images_to_parts(&output, images_supported);
+    if let Some(note) = dropped_note {
+        model_content.push_str(&note);
+    }
+    (
+        Part::ToolResult {
+            call_id,
+            content: model_content,
+            is_error: output.is_error,
+        },
+        images,
+    )
+}

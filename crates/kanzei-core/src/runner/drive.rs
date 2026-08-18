@@ -11,7 +11,7 @@ use super::*;
 mod question;
 use question::execute_question;
 mod task_results;
-use task_results::tool_result_part;
+use task_results::{tool_result_part, tool_result_part_with_images};
 
 /// R-183:命中规则的展示原文,用于 PermissionResolved.rule 轨迹(验收④)。
 fn describe_rule(rule: &kanzei_harness::permission::Rule) -> String {
@@ -1384,18 +1384,9 @@ async fn execute_tool_calls(
                 display: output.display.clone(),
                 artifact: output.artifact.clone(),
             });
-            let mut model_content = output.model_content();
-            let (images, dropped_note) =
-                crate::runner::tool_exec::tool_images_to_parts(&output, images_supported);
-            if let Some(note) = dropped_note {
-                model_content.push_str(&note);
-            }
+            let (result, images) = tool_result_part_with_images(id, output, images_supported);
             pending_images.extend(images);
-            results.push(Part::ToolResult {
-                call_id: id,
-                content: model_content,
-                is_error: output.is_error,
-            });
+            results.push(result);
         }
         results
     };
