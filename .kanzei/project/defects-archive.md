@@ -6586,3 +6586,16 @@
 - observed_head: 214ae962c69f9a05597bb79e6e98a5f9c2a9313e
 - observed_worktree_hash: fnv1a64:5a511fd7e6343da2
 - recorded_at: 1787069200431
+
+## D-535 R-300 B7 串行工具模块迁移后缺少父模块导入 [fixed] (medium)
+- 复现: 将 drive.rs 串行工具执行段迁移至 crates/kanzei-core/src/runner/drive/serial_tools.rs 后运行 cargo test -p kanzei-core，编译报 execute_question、PermissionGateRequest、resolve_permission_gate 未找到，且 drive.rs:954 的 halted 变量未使用。
+- 影响: B7 暂不能通过 kanzei-core 编译与定向测试，功能代码尚未形成可提交状态。
+- 来源: self-found：R-300 B7 迁移后的定向测试。
+- 标签: 核心
+- 进展: 已修复：serial_tools.rs:6-8 显式导入 question::execute_question 与 permissions::{resolve_permission_gate, PermissionGateRequest}；drive.rs:954 删除迁移后无调用方的 halted。证据 T-1786922726417：cargo fmt --all -- --check 与 cargo test -p kanzei-core，220 passed、0 failed、0 ignored。
+- refs: R-300
+- 优先级: P2
+- 验收: ① serial_tools.rs:28-227 可编译并承接串行工具执行；② drive.rs:1129-1149 的 execute_tool_calls 真实调用 execute_serial_tool_calls；③ question 与权限门禁导入位置为 serial_tools.rs:6-8；④ 定向回归 T-1786922726417 通过。
+- observed_head: a7def4cb2dce87ab3f538d44b5ad62502875397e
+- observed_worktree_hash: fnv1a64:dd06777faa302ec0
+- recorded_at: 1787069707440

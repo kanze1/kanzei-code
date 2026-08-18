@@ -7585,3 +7585,43 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300 D-534
 - 收尾: 1787069154
 - 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@6bd6be7cfa56,crates/kanzei-core/src/runner/drive/permissions.rs@3bc91081cb65
+
+## T-1786922726416 R-300 B7 串行工具模块迁移定向回归（首次编译失败） [failed]
+- 命令: cargo test -p kanzei-core
+- 时长: 12.0s
+- 摘要: R-300 B7 串行工具执行段迁移后的编译失败：serial_tools.rs 缺少 execute_question、PermissionGateRequest、resolve_permission_gate 导入；drive.rs halted 变量未使用。
+- 关联: R-300
+- 收尾: 1787069647
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@30bf7b0dfd89,crates/kanzei-core/src/runner/drive/serial_tools.rs@6818945e03a5
+
+## T-1786922726417 R-300 B7 串行工具模块迁移定向回归（修复后） [passed]
+- 命令: rustfmt --edition 2021 crates/kanzei-core/src/runner/drive/serial_tools.rs; cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 9.0s
+- 摘要: 修复 serial_tools.rs 显式导入并移除 drive.rs 无用 halted 后，格式检查和 kanzei-core 定向回归通过：220 passed、0 failed、0 ignored。
+- 关联: R-300 D-535
+- 收尾: 1787069700
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@cf13420ea47d,crates/kanzei-core/src/runner/drive/serial_tools.rs@5870d7dbd461
+
+## T-1786922726418 R-300 B8 前端合流语法与六条 smoke [passed]
+- 命令: node --check crates/kanzei-app/ui/*.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 18.4s
+- 摘要: 06-agent-panel.js 能力合流到 06-activity.js 后，23 个 UI 脚本语法检查及六条前端 smoke 全部通过：运行时 0 错误、ESLint 0 no-undef、并行线路、无障碍、i18n、Markdown 均通过。
+- 关联: R-300
+- 收尾: 1787070311
+- 源码指纹: v2 scripts/ui-esm-graph.json@342948ac85cd
+
+## T-1786922726419 R-300 B8 前端合流完整验证（命令复跑） [passed]
+- 命令: $files = Get-ChildItem crates/kanzei-app/ui -Filter '*.js' -File | Where-Object { $_.FullName -notmatch '\\vendor\\' }; foreach ($file in $files) { node --check $file.FullName }; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; Get-Content scripts/ui-esm-graph.json -Raw | ConvertFrom-Json -OutVariable graph | Out-Null
+- 时长: 18.1s
+- 摘要: 对所有非 vendor UI JS 逐文件 node --check，随后运行 ui-runtime、ui-lint、parallel-lines、ui-a11y、ui-i18n、ui-markdown 六条 smoke，并解析 ui-esm-graph.json；全部通过，运行时 0 错误。
+- 关联: R-300
+- 收尾: 1787070355
+- 源码指纹: v2 scripts/ui-esm-graph.json@342948ac85cd
+
+## T-1786922726420 R-300 B8 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.1s
+- 摘要: 提交门禁要求的 kanzei-app 定向回归通过：216 passed、0 failed、0 ignored。
+- 关联: R-300
+- 收尾: 1787070531
+- 源码指纹: v2 scripts/ui-esm-graph.json@342948ac85cd

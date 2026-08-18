@@ -635,7 +635,7 @@ function startFastStatusBar() {
   void refreshFastStatusBar();
   fastStatusTimer = setInterval(() => void refreshFastStatusBar(), FAST_STATUS_POLL_MS);
 }
-// 依赖 06-agent-panel.js 的 fastStatusText;06 在 03 之后加载,轮询首跑在
+// 依赖 06-activity.js 的 fastStatusText;06 在 03 之后加载,轮询首跑在
 // DOM 就绪且脚本全部加载后,这里直接启动(函数调用发生在事件循环,届时已定义)。
 startFastStatusBar();
 
