@@ -152,6 +152,9 @@ conventions §9.1:发布从 `C:\Users\kanzei\Documents\kanzei-release`(main work
 ### release.ps1(开发通道)不动
 
 它自带 `cargo test --workspace` 且只装本机,不产生对外发布物,维持现状。
+**开发通道最低门禁(R-298 留档)**:`cargo test --workspace` 全绿(显式 `-SkipTests` 除外)。
+允许 `-SkipTests` 是刻意的逃逸阀(用户明确要求快速装),但默认路径必须全量测试后才落本机。
+发布通道(package.ps1)门槛更高:verify.ps1 十步全绿证据绑定 HEAD(A-009)。
 
 ## 技术选型与取舍
 
@@ -186,4 +189,5 @@ TODO(R-152 交付时逐项回填):
 
 - fmt/clippy 闸门启用条件与顺序:见 R-156/R-146(均排在 R-153~R-155 拆解之后)。
 - CI 首跑可能暴露"测试隐式依赖本机环境"类缺陷:按缺陷登记,不 skip。
-- 后续可选(不在本期):release 时 CI 复核 tag commit、安装器 SHA256 写入 release notes、stable/nightly 通道。
+- ~~后续可选(不在本期):release 时 CI 复核 tag commit、安装器 SHA256 写入 release notes、stable/nightly 通道。~~
+- 安装器 SHA256 写入 release notes 已由 R-298 落地(package.ps1 -Publish 时计算并写入 notes);R-298 另落地:打包后自动静默装+装后自校验入链、Cargo.toml/tauri.conf.json 版本双源一致性检查、dist 只留最新安装器的保留策略、开发通道最低门禁明确化。stable/nightly 通道仍为后续可选。

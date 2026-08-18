@@ -1,6 +1,11 @@
 ﻿# kanzei 发包流程:测试 → release 构建 → 安装到实际桌面端目录与 ~/.cargo/bin(kz) CLI。
 # 用法:  .\scripts\release.ps1            # 完整流程
 #        .\scripts\release.ps1 -SkipTests # 跳过测试快速装
+#
+# 开发通道最低门禁(R-298 留档):cargo test --workspace 全绿(除非显式 -SkipTests)。
+# 这是开发通道的下限——能装进本机系统的二进制必须过得了全量测试,不允许"只 build 不测"
+# 就把 kz/kzapp 装到机器上。发布通道(package.ps1)门槛更高:它要求 verify.ps1 十步
+# 全绿证据绑定 HEAD(A-009),见 docs/design/ci_release_evidence_chain.md。
 param([switch]$SkipTests)
 
 $ErrorActionPreference = "Stop"
