@@ -8,7 +8,6 @@
 //! 解析与 flag 剥除在 mod.rs(`resolve_run_prompt`/`parse_run_args`);RunnerConfig 与
 //! 子代理运行时构造共用 kanzei_tools::run(对照表 #12/#16),CLI 传 None/None。
 
-use std::io::Write as _;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,10 +17,13 @@ use kanzei_harness::{ResolveCtx, ToolCtx};
 use kanzei_llm::{LlmClient, ProxyConfig};
 use kanzei_tools::ReadonlyProfile;
 
-use super::memory::{consolidate_memory_inbox, persist_always_allow};
+mod events;
+mod finalize;
+mod permissions;
+
 use super::{
-    cli_exit_code, cli_identity_keys, explicit_main_root, interactive_stdin, main_project_root,
-    non_interactive_decision, parse_allowlist, parse_run_args, resolve_run_prompt, usage, RunArgs,
+    cli_identity_keys, explicit_main_root, main_project_root, parse_run_args, resolve_run_prompt,
+    usage, RunArgs,
 };
 
 fn resolve_cli_input(args: &[String]) -> (RunArgs, String) {
@@ -241,194 +243,13 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         profile, agent.name, resolved.provider_name, resolved.model
     );
 
-    let mut stdout = std::io::stdout();
-    let typed_writer_for_events = Arc::clone(&typed_writer);
-    let mut on_event = move |event: kanzei_core::RunEvent| match event {
-        kanzei_core::RunEvent::TurnStart { step, max_steps } => {
-            typed_writer_for_events
-                .lock()
-                .unwrap()
-                .turn_started(step, max_steps);
-            if step > 1 {
-                let label = if max_steps > 0 {
-                    format!("第 {step}/{max_steps} 轮")
-                } else {
-                    format!("第 {step} 轮")
-                };
-                let _ = writeln!(stdout, "\n\x1b[90m── {label} ──\x1b[0m");
-            }
-        }
-        kanzei_core::RunEvent::Text(text) => {
-            typed_writer_for_events.lock().unwrap().push_text(&text);
-            let _ = write!(stdout, "{text}");
-            let _ = stdout.flush();
-        }
-        kanzei_core::RunEvent::Reasoning(_) => {}
-        kanzei_core::RunEvent::AssistantMessageCommitted { step, message } => {
-            typed_writer_for_events
-                .lock()
-                .unwrap()
-                .assistant_committed(step, message)
-        }
-        kanzei_core::RunEvent::ToolResultsCommitted { step, message } => typed_writer_for_events
-            .lock()
-            .unwrap()
-            .tool_results_committed(step, message),
-        kanzei_core::RunEvent::ToolStart { name, summary, .. } => {
-            let _ = writeln!(stdout, "\n\x1b[36m● {name}\x1b[0m {summary}");
-        }
-        kanzei_core::RunEvent::TaskProgress { text, .. } => {
-            let _ = writeln!(stdout, "  \x1b[90m… {text}\x1b[0m");
-        }
-        // CLI 不逐段转印工具输出:ToolEnd 的预览已够,逐段会与正文流互相穿插。
-        kanzei_core::RunEvent::ToolProgress { .. } => {}
-        kanzei_core::RunEvent::Retry {
-            attempt,
-            max,
-            delay_ms,
-        } => {
-            let _ = writeln!(
-                stdout,
-                "\x1b[33m重试 {attempt}/{max},等待 {delay_ms}ms\x1b[0m"
-            );
-        }
-        kanzei_core::RunEvent::StreamRestart {
-            attempt,
-            max,
-            delay_ms,
-        } => {
-            typed_writer_for_events.lock().unwrap().stream_restarted();
-            let _ = writeln!(
-                stdout,
-                "\x1b[33m连接中断,重新请求本轮 {attempt}/{max},等待 {delay_ms}ms(本轮工具尚未执行,不会重复副作用)\x1b[0m"
-            );
-        }
-        kanzei_core::RunEvent::ToolEnd { ok, preview, .. } => {
-            let mark = if ok {
-                "\x1b[32m✓\x1b[0m"
-            } else {
-                "\x1b[31m✗\x1b[0m"
-            };
-            let _ = writeln!(stdout, "  {mark} {preview}");
-        }
-        kanzei_core::RunEvent::ContextCompacted {
-            before_tokens,
-            after_tokens,
-            limit_tokens,
-            dropped_messages,
-            ..
-        } => {
-            let _ = writeln!(
-                stdout,
-                "\x1b[90m上下文到线,已压缩:约 {before_tokens} → {after_tokens} token(上限 {limit_tokens},裁掉 {dropped_messages} 条)\x1b[0m"
-            );
-        }
-        kanzei_core::RunEvent::ContextPruned {
-            cleared_results,
-            before_tokens,
-            after_tokens,
-        } => {
-            let _ = writeln!(
-                stdout,
-                "\x1b[90m已机械清理 {cleared_results} 条旧工具结果:约 {before_tokens} → {after_tokens} token(零 LLM)\x1b[0m"
-            );
-        }
-        // 规则直接判定的不打扰终端;需要人介入或被硬门禁挡下的才出声(D-173)。
-        // R-183:deny/会话层决策打印命中的规则原文(验收④轨迹)。
-        kanzei_core::RunEvent::PermissionResolved {
-            action,
-            resource,
-            decision,
-            source,
-            rule,
-            ..
-        } => {
-            if source != "ruleset" || decision == "deny" {
-                let rule_text = rule
-                    .as_deref()
-                    .map(|r| format!(" [规则: {r}]"))
-                    .unwrap_or_default();
-                let _ = writeln!(
-                    stdout,
-                    "  \x1b[90m权限 {action} {resource} → {decision}({source}){rule_text}\x1b[0m"
-                );
-            }
-        }
-        kanzei_core::RunEvent::StepEnd { .. } => {}
-    };
-    let ask_root = ctx.project_root.clone();
-    // R-183:非交互分流参数在闭包外算好(开跑时定格),move 进闭包:
-    // - interactive:stdin 是否 TTY(管道/重定向/后台 = 非交互,不读 stdin);
-    // - non_interactive_policy:配置的三态策略(缺省 deny,fail-closed);
-    // - allowlist:--allow 解析结果(仅 allow_listed 档参与决策)。
-    let interactive = interactive_stdin();
-    let non_interactive_policy = config.non_interactive_policy();
-    let allowlist = parse_allowlist(&allow);
-    let mut ask = move |request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
-        let response = match request {
-            kanzei_core::AskRequest::Question {
-                question,
-                options,
-                default,
-                multiple,
-            } => {
-                eprint!("\x1b[33m? {question}");
-                if !options.is_empty() {
-                    if multiple {
-                        eprint!(" [可多选,逗号分隔]");
-                    }
-                    eprint!(" [{}]", options.join(" / "));
-                }
-                if let Some(default) = default {
-                    eprint!(" (默认: {default})");
-                }
-                eprint!("\x1b[0m ");
-                let mut line = String::new();
-                if std::io::stdin().read_line(&mut line).is_ok() && !line.trim().is_empty() {
-                    kanzei_core::AskResponse::Answer(line.trim().to_string())
-                } else {
-                    kanzei_core::AskResponse::Cancelled
-                }
-            }
-            kanzei_core::AskRequest::Permission { action, resource } => {
-                if !interactive {
-                    // R-183:非交互通道不读 stdin,按配置策略分流(缺省 deny)。
-                    // 拒绝/放行都走 drive 层的 PermissionResolved 事件落轨迹。
-                    let reply = non_interactive_decision(
-                        non_interactive_policy,
-                        &allowlist,
-                        &action,
-                        &resource,
-                    );
-                    kanzei_core::AskResponse::Permission(reply)
-                } else {
-                    eprint!("\x1b[33m? {action}: {resource} [y 一次 / a 总是 / N 拒绝]\x1b[0m ");
-                    let mut line = String::new();
-                    let reply = if std::io::stdin().read_line(&mut line).is_ok() {
-                        match line.trim() {
-                            "y" | "Y" | "yes" => kanzei_core::AskReply::AllowOnce,
-                            "a" | "A" | "always" => {
-                                match persist_always_allow(&ask_root, &action, &resource) {
-                                    Ok(reply) => reply,
-                                    Err(error) => {
-                                        eprintln!(
-                                            "\x1b[31m总是允许规则保存失败: {error};本次拒绝\x1b[0m"
-                                        );
-                                        kanzei_core::AskReply::Deny
-                                    }
-                                }
-                            }
-                            _ => kanzei_core::AskReply::Deny,
-                        }
-                    } else {
-                        kanzei_core::AskReply::Deny
-                    };
-                    kanzei_core::AskResponse::Permission(reply)
-                }
-            }
-        };
-        Box::pin(async move { response })
-    };
+    let mut on_event = events::make_event_handler(Arc::clone(&typed_writer));
+    let mut ask = permissions::make_ask(
+        ctx.project_root.clone(),
+        super::interactive_stdin(),
+        config.non_interactive_policy(),
+        super::parse_allowlist(&allow),
+    );
 
     // task 子代理运行时:R-256 与桌面共用 kanzei_tools::run::build_subagent_runtime(对照表
     // #16);CLI 单运行不参与共享仲裁(R-171 批6)、无前端停止按钮(R-174),传 None/None。
@@ -507,183 +328,29 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             return Ok(());
         }
     };
-    let store = kanzei_core::SessionStore::open(&state_path)?;
-    match &run_result {
-        Ok(summary) => {
-            typed_writer
-                .lock()
-                .unwrap()
-                .finish(if summary.halted_by_user {
-                    kanzei_core::SessionTurnTerminal::Stopped
-                } else {
-                    kanzei_core::SessionTurnTerminal::Completed
-                });
-            store.set_status(&session_id, "idle")?;
-            store.append_event(
-                &session_id,
-                "session.status_changed",
-                &serde_json::json!({ "status": "idle" }),
-            )?;
-            // 轮末快照继续写入(验收⑦顺延:压缩摘要仍经它持久化,见 R-242 进展)。
-            store.append_event(
-                &session_id,
-                "conversation.updated",
-                &serde_json::json!({ "messages": summary.messages }),
-            )?;
-            typed_writer
-                .lock()
-                .unwrap()
-                .write_shadow_report(&summary.messages);
-        }
-        Err(error) => {
-            typed_writer
-                .lock()
-                .unwrap()
-                .finish(kanzei_core::SessionTurnTerminal::Failed(error.to_string()));
-            typed_writer.lock().unwrap().write_shadow_report(&prior);
-            store.set_status(&session_id, "failed")?;
-            store.append_event(
-                &session_id,
-                "session.status_changed",
-                &serde_json::json!({ "status": "failed" }),
-            )?;
-            store.append_event(
-                &session_id,
-                "run.failed",
-                &serde_json::json!({ "error": error.to_string() }),
-            )?;
-        }
-    }
-    typed_flush_task.abort();
-    let summary = run_result?;
-
-    if summary.halted_by_user {
-        eprintln!("\n\x1b[33m(stopped: permission declined)\x1b[0m");
-    }
-    println!(
-        "\n\x1b[90m— steps {} · in {} (cache r{} w{}) · out {}\x1b[0m",
-        summary.steps,
-        summary.usage.input,
-        summary.usage.cache_read,
-        summary.usage.cache_write,
-        summary.usage.output
-    );
-    let context_total: usize = summary.context_report.iter().map(|(_, n)| n).sum();
-    println!(
-        "\x1b[90m— context {} 源 {} 字符\x1b[0m",
-        summary.context_report.len(),
-        context_total
-    );
-    // 本轮切片:summary.messages = prior + 本轮。统计与失败提炼都只看本轮,
-    // 否则历史失败会被反复上报、工具计数也会累计全历史(R-099 基线失真)。
-    let this_run = &summary.messages[prior.len().min(summary.messages.len())..];
-    // 轮末采集(D-229/D-214):CLI 与桌面端共用 harvest_end_of_run——失败提炼 →
-    // 条目收口判定 → SOP 候选(项目 inbox,落库目标 global)→ 根因 fact 候选(项目
-    // inbox)。SOP 通道 D-229 起双端一致,D-214 起候选投项目 inbox 进消化通道。
-    {
-        let (delivered, sop, fact) =
-            kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, &prompt, this_run);
-        if delivered > 0 {
-            eprintln!("\x1b[90m(memory: 投递 {delivered} 条失败观察待整理)\x1b[0m");
-        }
-        if sop {
-            eprintln!("\x1b[90m(memory: 已投递候选 SOP 待用户采纳)\x1b[0m");
-        }
-        if fact {
-            eprintln!("\x1b[90m(memory: 已投递根因候选待整理)\x1b[0m");
-        }
-    }
-    // episode 落库(R-106):机械轨迹画像,R-099 度量与记忆系统共用。失败不影响本轮。
-    // R-213:当轮 episode_id 留到轮末代填给 memory manager——episode 轮末才落库,
-    // manager 在轮内自报不出真实 id,不代填则 provenance 校验会拦下一切晋升。
-    let mut current_episode_id: Option<i64> = None;
-    {
-        let outcome = if summary.halted_by_user {
-            "halted"
-        } else {
-            "completed"
-        };
-        let tools = kanzei_core::summarize_tools(this_run);
-        let store = kanzei_core::SessionStore::open(&state_path)?;
-        if let Ok(episode_id) = store.append_episode(&kanzei_core::EpisodeRecord {
+    finalize::finish_run(
+        run_result,
+        typed_flush_task,
+        finalize::FinalizeState {
+            state_path: &state_path,
             session_id: &session_id,
-            prompt_head: &prompt,
-            outcome,
-            steps: summary.steps,
-            input_tokens: summary.usage.input,
-            output_tokens: summary.usage.output,
-            tools_json: &serde_json::to_string(&tools).unwrap_or_default(),
-            context_json: &serde_json::to_string(&summary.context_report).unwrap_or_default(),
-            // R-099 调用画像:CLI 与桌面端落同一份口径,基线才可比。
-            metrics_json: &serde_json::to_string(&kanzei_core::summarize_metrics(this_run))
-                .unwrap_or_default(),
-            // D-173:轮次归属。没有这几列时,"这一轮跑的哪个模型"只能靠当前配置反推。
+            typed_writer,
+            prior: &prior,
+            prompt: &prompt,
+            ctx: &ctx,
+            config: &config,
+            proxy: &proxy,
+            client: &client,
+            rctx: &rctx,
             provider: &resolved.provider_name,
             model: &resolved.model,
             run_id: &run_id,
             input_id: &promoted.input_id,
-            duration_ms: run_started.elapsed().as_millis() as u64,
-            // R-106:上下文溢出压缩丢弃的轨迹段沉淀为 episode 的一部分,
-            // 让溢出路径不再无声丢弃轨迹,复盘时可通过 episodes.overflow_json 查回。
-            overflow_json: &serde_json::to_string(&summary.overflow_traces).unwrap_or_default(),
-        }) {
-            // R-161:本轮开跑预检索的 recall_events 归因到该 episode,可 join 查询。
-            let _ = store.link_recall_events_to_episode(episode_id, run_epoch_ms);
-            current_episode_id = Some(episode_id);
-        }
-        // 给这次输入一个结局:此后任何停止都不再把它追认为 cancelled。
-        let _ = store.finish_input(&promoted.input_id, true);
-    }
-    // 轮末记忆整理(R-105):inbox 有草稿才起 manager 迷你 run,尽力而为。
-    // R-213:把当轮 episode_id 代填给 manager,晋升证据才能指向真实轮次。
-    let consolidation =
-        consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx, current_episode_id).await;
-    if consolidation.has_failures() {
-        eprintln!("\x1b[33m{}\x1b[0m", consolidation.summary());
-    } else if consolidation.pending_before > 0 {
-        eprintln!("\x1b[90m{}\x1b[0m", consolidation.summary());
-    }
-    // D-341/R-195/R-295:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
-    // 自动 promote,超期未处置或超过健康水位的低价值 candidate 自动 deprecated 归档,
-    // 其余保持 candidate。
-    // 与 inbox 消化解耦:没有草稿也要跑,否则 candidate 永远躺着无人验收。
-    // 机械判定不依赖 LLM,失败不阻塞收尾(报告仅用于打日志留证据)。
-    if let Ok(report) = kanzei_tools::memory::reconcile_candidates(
-        &ctx.project_root,
-        current_episode_id,
-        kanzei_tools::memory::CANDIDATE_MAX_AGE_DAYS,
-    ) {
-        if !report.promoted.is_empty() || !report.deprecated.is_empty() {
-            eprintln!(
-                "\x1b[90m(memory: candidate 自动处置: promote {} / deprecated {} / 未动 {} \
-                 (文件 {}→{}, 索引 {}→{})\x1b[0m",
-                report.promoted.len(),
-                report.deprecated.len(),
-                report.untouched.len(),
-                report.candidate_files_before,
-                report.candidate_files_after,
-                report.candidate_index_before,
-                report.candidate_index_after,
-            );
-        }
-    }
-    // R-169:CLI 轮末消费自主推进状态机的 backlog 单源(与桌面端同一实现,
-    // kanzei_tools::tracker::backlog_status;D-229 类桌面端独占能力架构债消除)。
-    // CLI 无交互循环不做自动续跑,只在无可推进条目时提示,与桌面端刹车一致。
-    match kanzei_tools::tracker::backlog_status(&ctx.project_root) {
-        kanzei_harness::auto_run::BacklogStatus::AllBlocked => {
-            eprintln!("\x1b[33m(auto: 需求与缺陷全部被阻塞,自主推进无可用目标)\x1b[0m");
-        }
-        kanzei_harness::auto_run::BacklogStatus::Empty => {
-            eprintln!("\x1b[33m(auto: 需求与缺陷已清空,自主推进无可用目标)\x1b[0m");
-        }
-        _ => {}
-    }
-    let exit_code = cli_exit_code(summary.halted_by_user);
-    if exit_code != 0 {
-        std::process::exit(exit_code);
-    }
-    Ok(())
+            run_started,
+            run_epoch_ms,
+        },
+    )
+    .await
 }
 
 #[cfg(test)]

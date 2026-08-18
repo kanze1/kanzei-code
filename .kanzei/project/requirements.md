@@ -284,10 +284,10 @@
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
 - 批次: 4/5
-- 进展: B12 已实现、验证并提交：新增 `crates/kanzei-tools/src/tracker/actions/maintenance.rs:1-约240`，迁移 `void_id`、`archive`、`raw_delete`、`reopen`、`fix_terminal`、`archive_fill`；`crates/kanzei-tools/src/tracker/actions.rs:11` 注册 `pub(crate) mod maintenance`；`crates/kanzei-tools/src/tracker.rs:417-445` 保持真实 TrackerTool::execute 路由并改接 maintenance 子模块，add/update/normalize 路径未改。D-537 的 E0603 私有模块已修复；D-538 的提交占位符门禁已修复：`maintenance.rs:210` 注释与 `226-227` 错误文案均不再使用占位符 ID 形态，archive_fill 行为未变。证据 T-1786922726426、T-1786922726427、T-1786922726428：cargo fmt --all -- --check 与 cargo test -p kanzei-tools 均通过（345 passed、0 failed、1 ignored）。提交：`94eaf2ef`。下一步：继续 R-300 验收①的 CLI run.rs 或剩余前端 Top 目标。
+- 进展: B13 已实现并验证（待提交）：`crates/kanzei/src/cli/run.rs:20-21` 注册 `events`、`permissions`、`finalize` 子模块；`run/events.rs:1-108` 承接 RunEvent→终端/TypedSessionWriter 渲染；`run/permissions.rs:1-68` 承接 Question/Permission ASK、非交互 allowlist 与 always-allow 落盘；`run/finalize.rs:1-227` 承接 Ctrl+C 之外的运行结果收尾、conversation.updated、episode/recall 归因、记忆整理、candidate reconcile、backlog 提示和退出码；`run.rs:294-330` 的 run_once/Ctrl+C 链路未改，`run.rs:331-354` 仅构造 FinalizeState 并调用 finish_run。真实调用方仍为 `cli/mod.rs:54-55` 的 `run::run_cli`。证据 T-1786922726429、T-1786922726430、T-1786922726431：rustfmt/cargo fmt 检查与 `cargo test -p kanzei` 均通过（39 单测、32 集成测试全部通过）。下一步：提交 B13，再继续 R-300 前端 Top 目标与 verify 回涨闸门。
 - observed_head: 94eaf2ef06374fe4cfd972065f013493dd8d0be3
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787072995205
+- observed_worktree_hash: fnv1a64:5a43717d38799038
+- recorded_at: 1787073675461
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 

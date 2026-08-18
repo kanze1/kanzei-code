@@ -7688,3 +7688,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300 D-538
 - 收尾: 1787072917
 - 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@d3947a824b9f,crates/kanzei-tools/src/tracker/actions.rs@cbab699740ed,crates/kanzei-tools/src/tracker/actions/maintenance.rs@b4d313fe6f1f
+
+## T-1786922726429 R-300 B13 CLI 事件渲染拆分定向回归 [passed]
+- 命令: rustfmt --edition 2021 crates/kanzei/src/cli/run/events.rs; cargo fmt --all -- --check; cargo test -p kanzei
+- 时长: 31.1s
+- 摘要: CLI 事件渲染闭包迁移到 run/events.rs 后，格式检查与 kanzei 定向回归通过：39 个单元测试、32 个集成测试全部通过。
+- 关联: R-300
+- 收尾: 1787073265
+- 源码指纹: v2 crates/kanzei/src/cli/run.rs@70a953e9be66,crates/kanzei/src/cli/run/events.rs@e2687a47fc05
+
+## T-1786922726430 R-300 B13 CLI 权限询问拆分定向回归 [passed]
+- 命令: rustfmt --edition 2021 crates/kanzei/src/cli/run/permissions.rs; cargo fmt --all -- --check; cargo test -p kanzei
+- 时长: 21.7s
+- 摘要: CLI 权限询问闭包迁移到 run/permissions.rs 后，格式检查与 kanzei 定向回归通过：39 个单元测试、32 个集成测试全部通过。
+- 关联: R-300
+- 收尾: 1787073380
+- 源码指纹: v2 crates/kanzei/src/cli/run.rs@e5f2b2a4362f,crates/kanzei/src/cli/run/events.rs@e2687a47fc05,crates/kanzei/src/cli/run/permissions.rs@6fd0010a5095
+
+## T-1786922726431 R-300 B13 CLI 轮末收尾拆分定向回归 [passed]
+- 命令: rustfmt --edition 2021 crates/kanzei/src/cli/run.rs crates/kanzei/src/cli/run/finalize.rs; cargo fmt --all -- --check; cargo test -p kanzei
+- 时长: 22.2s
+- 摘要: CLI 轮末状态落库、episode、记忆整理、candidate 收尾与退出码迁移到 run/finalize.rs 后，格式检查与 kanzei 定向回归通过：39 个单元测试、32 个集成测试全部通过。
+- 关联: R-300
+- 收尾: 1787073649
+- 源码指纹: v2 crates/kanzei/src/cli/run.rs@c86999914059,crates/kanzei/src/cli/run/events.rs@e2687a47fc05,crates/kanzei/src/cli/run/finalize.rs@bb6589588af9,crates/kanzei/src/cli/run/permissions.rs@6fd0010a5095
