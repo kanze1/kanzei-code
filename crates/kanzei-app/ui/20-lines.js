@@ -427,8 +427,13 @@ function harvestClaimId(value) {
 function buildHarvestPanel(line, projectDir, agentCode) {
   const panel = document.createElement("div");
   panel.className = "line-harvest";
+  const harvestState = {
+    mergeCompleted: false,
+    mergeGateRan: false,
+    mergeGatePassed: false,
+    postMergeGatePassed: false,
+  };
   let trackerClaim = "";
-  let mergeCompleted = false;
   const title = document.createElement("h4");
   title.className = "line-harvest-title";
   title.textContent = `${t("收活")} · ${line.label} (${line.branch || line.process_id})`;
@@ -559,21 +564,19 @@ function buildHarvestPanel(line, projectDir, agentCode) {
         gateOutput.appendChild(row);
       }
       const anyFail = steps.some((step) => !step.ok);
+      harvestState.mergeGateRan = true;
+      harvestState.mergeGatePassed = !anyFail;
       if (anyFail) {
         const warn = document.createElement("p");
         warn.className = "harvest-gate-warn";
         warn.textContent = t("门禁未通过:请先在线上修复,再重跑");
         gateOutput.appendChild(warn);
-        // R-222:门禁红灯时合并按钮保持禁用——只能走显式覆盖确认。
-        mergeButton.dataset.gateOk = "0";
       } else {
         const pass = document.createElement("p");
         pass.className = "harvest-gate-pass";
         pass.textContent = t("门禁通过");
         gateOutput.appendChild(pass);
         // R-222:门禁通过才解锁合并(防线①:门禁是合并前置)。
-        mergeButton.dataset.gateOk = "1";
-        mergeButton.dataset.gateRan = "1";
         mergeButton.disabled = false;
       }
       gateButton.disabled = false;
@@ -602,9 +605,9 @@ function buildHarvestPanel(line, projectDir, agentCode) {
   mergeButton.disabled = true;
   mergeButton.textContent = t("合并到主线");
   mergeButton.addEventListener("click", async () => {
-    // R-222 防线①:合并前置门禁——未跑或红灯时需显式覆盖确认并落轨迹。
-    const gateOk = mergeButton.dataset.gateOk === "1";
-    const gateRan = mergeButton.dataset.gateRan === "1";
+    // R-222 防线①:合并前置门禁——状态来自 JS 对象，dataset 只用于展示/调试。
+    const gateOk = harvestState.mergeGatePassed;
+    const gateRan = harvestState.mergeGateRan;
     if (!gateRan || !gateOk) {
       const reason = gateRan ? t("门禁未通过") : t("门禁未运行");
       const ok = await confirmDialog({
@@ -642,7 +645,7 @@ function buildHarvestPanel(line, projectDir, agentCode) {
       stateTag.textContent = t("已合并");
       mergeHead.appendChild(stateTag);
       // 合并结果与候选读取可任意先后到达；统一由同一函数投影第 5 格。
-      mergeCompleted = true;
+      harvestState.mergeCompleted = true;
       // R-222 防线②:合并成功后解锁「合并后全量」步骤(格5 前)。
       postMergeButton.disabled = false;
       syncWritebackAvailability();
@@ -708,6 +711,7 @@ function buildHarvestPanel(line, projectDir, agentCode) {
         pass.className = "harvest-gate-pass";
         pass.textContent = t("合并后全量通过");
         postMergeOutput.appendChild(pass);
+        harvestState.postMergeGatePassed = true;
         postMergeStep.classList.add("confirmed");
         const stateTag = document.createElement("span");
         stateTag.className = "harvest-step-state ok";
@@ -784,8 +788,8 @@ function buildHarvestPanel(line, projectDir, agentCode) {
 
   function syncWritebackAvailability() {
     // R-222:回写需 合并完成 + 合并后全量通过 双前置(防线②)。
-    if (!mergeCompleted) return;
-    const postMergeOk = postMergeStep.classList.contains("confirmed");
+    if (!harvestState.mergeCompleted) return;
+    const postMergeOk = harvestState.postMergeGatePassed;
     if (!postMergeOk) {
       writebackButton.disabled = true;
       writebackButton.textContent = t("需先跑合并后全量");

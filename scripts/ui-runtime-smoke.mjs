@@ -6816,6 +6816,11 @@ const docsB = {
     !mergeRun.disabled,
     "R-222 防线①:门禁通过后格4(合并)才解锁",
   );
+  // D-505:dataset 不是门禁真源。即使展示属性被重渲染/清理,JS 状态仍应保留通过结论。
+  delete mergeRun.dataset.gateOk;
+  delete mergeRun.dataset.gateRan;
+  assert(!mergeRun.disabled, "门禁通过状态不应依赖 merge button dataset");
+
   // 格4 合并:确认后调用 worktree_merge。
   const mergeCallsBefore = invokeArgs.length;
   mergeRun.click();
@@ -6865,6 +6870,13 @@ const docsB = {
     !writebackRun.disabled,
     "合并后全量通过后格6 回写才解锁",
   );
+  // D-505:confirmed class 只做展示。清掉 class 后重新同步,回写仍由 JS 状态解锁。
+  const postMergeStateStep = postMergeRun.closest(".harvest-step");
+  postMergeStateStep.classList.remove("confirmed");
+  panel.querySelector(".harvest-tracker-select")?.dispatchEvent({ type: "change" });
+  await flush();
+  assert(!writebackRun.disabled, "回写解锁不应依赖 post-merge confirmed class");
+
   // 格6 回写 tracker:合并+合并后全量通过后,点击调用 worktree_harvest_writeback 并渲染结果。
   const writebackOutput = panel.querySelector(".harvest-writeback-output");
   assert(writebackRun && writebackOutput, "收活面板缺少格6 回写控件");

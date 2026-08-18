@@ -7067,3 +7067,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-525 D-506
 - 收尾: 1787015696
 - 源码指纹: e0a8f8fb00192c6f
+
+## T-1786922726340 D-505 当前源码前端全量冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/20-lines.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/gen-ui-lint-globals.mjs --check; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 8.4s
+- 摘要: D-505 当前源码定向前端回归：语法检查、globals 同步、runtime、lint、并行线路、a11y、i18n、markdown 八项全部通过；runtime 2318 次 invoke、0 运行时错误。
+- 关联: D-505
+- 收尾: 1787015790
+- 源码指纹: 51b03e714781bf68
+
+## T-1786922726341 D-505 kanzei-app 提交门禁回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.2s
+- 摘要: 提交门禁要求的 kanzei-app 定向回归：209 passed，0 failed；D-505 前端收活门禁改动未破坏 app 测试目标。
+- 关联: D-505
+- 收尾: 1787015826
+- 源码指纹: 51b03e714781bf68
