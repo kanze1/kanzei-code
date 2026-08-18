@@ -655,7 +655,11 @@ impl MemoryStore {
                     )
                     .is_ok()
                 {
-                    report.deprecated.push(entry.id);
+                    let id = entry.id.clone();
+                    report.deprecated.push(id.clone());
+                    // 该条第一阶段曾计入 untouched,实际已被容量出口清退,
+                    // 从 untouched 移除,untouched 只保留最终仍为 candidate 的条目。
+                    report.untouched.retain(|x| x != &id);
                 }
             }
         }
@@ -3184,7 +3188,11 @@ mod tests {
             crate::memory::CANDIDATE_MAX_COUNT
         );
         assert_eq!(report.deprecated, low_value_ids);
-        assert!(report.untouched.len() >= crate::memory::CANDIDATE_MAX_COUNT);
+        assert_eq!(
+            report.untouched.len(),
+            crate::memory::CANDIDATE_MAX_COUNT,
+            "untouched 只保留最终仍为 candidate 的条目(容量出口清退的不再算 untouched)"
+        );
         for id in low_value_ids {
             assert!(
                 store.has_archived_id(&id),
