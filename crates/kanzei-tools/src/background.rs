@@ -84,6 +84,15 @@ impl BackgroundProcess {
         self.exit.lock().unwrap().is_none()
     }
 
+    /// 终止树已被确认收敛时立即写入终态。等待任务稍后回收 Child 句柄，不能让
+    /// 这段调度延迟把已杀进程继续暴露成 running。
+    pub(crate) fn mark_terminated(&self) {
+        let mut exit = self.exit.lock().unwrap();
+        if exit.is_none() {
+            *exit = Some(None);
+        }
+    }
+
     /// 当前对账基线的副本(守卫用)。
     pub(crate) fn baseline(&self) -> ManagedSnapshot {
         self.baseline.lock().unwrap().clone()
@@ -308,7 +317,11 @@ pub fn register(
         let reg_persistent = process.persistent;
         tokio::spawn(async move {
             let status = child.wait().await.ok().and_then(|s| s.code());
-            *exit.lock().unwrap() = Some(status);
+            let mut recorded_exit = exit.lock().unwrap();
+            if recorded_exit.is_none() {
+                *recorded_exit = Some(status);
+            }
+            drop(recorded_exit);
             registry().lock().unwrap().remove(&reg_id);
             if reg_persistent {
                 remove_registry_entry(&reg_root, &reg_id);
@@ -465,7 +478,9 @@ async fn reconcile(process: &Arc<BackgroundProcess>, kill_on_breach: bool) -> Op
     process.record_breach(record.clone());
     if kill_on_breach {
         if let Some(pid) = process.pid {
-            crate::shell::kill_tree(pid).await;
+            if crate::shell::kill_tree(pid).await {
+                process.mark_terminated();
+            }
         }
     }
     // 回滚 breach 后,只把 legitimate(窗口覆盖的合法写入)吸收进基线,不再整树
@@ -507,7 +522,9 @@ pub async fn finish_foreign_owners(project_root: &Path, current_run_id: Option<&
             continue;
         }
         if let Some(pid) = process.pid {
-            crate::shell::kill_tree(pid).await;
+            if crate::shell::kill_tree(pid).await {
+                process.mark_terminated();
+            }
         }
         reconcile(&process, false).await;
         finished += 1;
@@ -681,10 +698,16 @@ pub async fn kill_registered(project_root: &Path, id: &str) -> bool {
     let Some(entry) = entries.iter().find(|e| e.id == id).cloned() else {
         return false;
     };
-    if crate::shell::process_alive(entry.pid) {
-        crate::shell::kill_tree(entry.pid).await;
+    let process = get(id);
+    let killed = if crate::shell::process_alive(entry.pid) {
+        crate::shell::kill_tree(entry.pid).await
+    } else {
+        false
+    };
+    if let Some(process) = process.as_ref().filter(|_| killed) {
+        process.mark_terminated();
     }
-    if let Some(p) = get(id) {
+    if let Some(p) = process {
         reconcile(&p, false).await;
     }
     remove_registry_entry(project_root, id);
@@ -721,7 +744,9 @@ pub async fn stop(id: &str) -> bool {
         return false;
     }
     if let Some(pid) = process.pid {
-        crate::shell::kill_tree(pid).await;
+        if crate::shell::kill_tree(pid).await {
+            process.mark_terminated();
+        }
     }
     reconcile(&process, false).await;
     // R-180 B3:显式停止 persistent 服务 = 终态,同步清出跨 run 注册表,不留幽灵。
@@ -748,7 +773,9 @@ pub async fn kill_project(project_root: &Path) -> usize {
         }
         if process.is_running() {
             if let Some(pid) = process.pid {
-                crate::shell::kill_tree(pid).await;
+                if crate::shell::kill_tree(pid).await {
+                    process.mark_terminated();
+                }
                 killed += 1;
             }
             reconcile(&process, false).await;
@@ -772,7 +799,9 @@ pub async fn kill_process(project_root: &Path, process_id: &str) -> usize {
         }
         if process.is_running() {
             if let Some(pid) = process.pid {
-                crate::shell::kill_tree(pid).await;
+                if crate::shell::kill_tree(pid).await {
+                    process.mark_terminated();
+                }
                 killed += 1;
             }
             reconcile(&process, false).await;
@@ -863,11 +892,15 @@ mod tests {
     }
 
     fn ctx_for(root: &Path, run_id: &str) -> ToolCtx {
+        ctx_for_with_process(root, run_id, &format!("proc-{run_id}"))
+    }
+
+    fn ctx_for_with_process(root: &Path, run_id: &str, process_id: &str) -> ToolCtx {
         ToolCtx {
             cwd: root.to_path_buf(),
             project_root: root.to_path_buf(),
             run_id: Some(run_id.into()),
-            process_id: Some(format!("proc-{run_id}")),
+            process_id: Some(process_id.into()),
             ..Default::default()
         }
     }
@@ -875,10 +908,19 @@ mod tests {
     /// 起一个后台任务,返回它的 process id。走真实的 bash 工具路径,
     /// 因为围栏的装配(owner、基线、守卫)全在那条路径上。
     async fn start_background(root: &Path, command: &str, run_id: &str) -> String {
+        start_background_with_process(root, command, run_id, &format!("proc-{run_id}")).await
+    }
+
+    async fn start_background_with_process(
+        root: &Path,
+        command: &str,
+        run_id: &str,
+        process_id: &str,
+    ) -> String {
         let out = crate::bash::BashTool
             .execute(
                 serde_json::json!({ "command": command, "background": true }),
-                &ctx_for(root, run_id),
+                &ctx_for_with_process(root, run_id, process_id),
             )
             .await;
         assert!(!out.is_error, "后台启动不该失败: {}", out.content);
@@ -1044,7 +1086,7 @@ mod tests {
         let _fence = fence_guard();
         let root = temp_managed_project("stop-owner");
         let target = start_background(&root, linger(), "line-a").await;
-        let sibling = start_background(&root, linger(), "line-b").await;
+        let sibling = start_background_with_process(&root, linger(), "line-a", "proc-line-b").await;
         let target_process = get(&target).expect("目标进程应登记");
         let sibling_process = get(&sibling).expect("同线路进程应登记");
         assert_eq!(kill_process(&root, "proc-line-a").await, 1);
