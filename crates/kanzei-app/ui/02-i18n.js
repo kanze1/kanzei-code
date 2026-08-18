@@ -866,6 +866,19 @@ const I18N_DYNAMIC_EN = {
   "盒模型": "Box model",
   "思考": "Reasoning",
   "插入": "Steer",
+  "读取界面语言偏好失败": "Failed to read interface language preference",
+  "git 状态": "Git status", "模型列表": "Model list", "线路列表": "Line list", "项目列表": "Project list", "项目文档": "Project documents",
+  "线路已关闭": "Line closed", "回环": "Loopback", "推进中": "Advancing", "待命": "Idle", "本轮后停": "Stop after this round",
+  "作者": "Author", "出处": "Source", "域": "Domain", "年份": "Year", "影响": "Impact", "等级": "Level",
+  "结论": "Conclusion", "要点": "Key points", "证据深度": "Evidence depth", "证据锚": "Evidence anchor", "说明": "Description",
+  "进展": "Progress", "验收": "Acceptance", "阻塞字段:": "Blocking field:",
+  "界面将收不到运行事件,请反馈": "The UI will not receive run events; please report this issue",
+  "手机消息": "Mobile message", "完成提示音不可用": "Completion sound unavailable", "系统通知不可用": "System notification unavailable",
+  "复制运行日志失败": "Failed to copy run log", "仍在等待模型首个响应": "Still waiting for the model's first response",
+  "已": "elapsed", "订阅高峰或网络较慢时属正常": "normal during subscription peaks or slow networks",
+  "超时上限": "timeout limit", "连接": "connection", "读": "read",
+  "模型开始响应": "Model started responding", "已迁移旧模型偏好到后端": "Migrated legacy model preferences to the backend",
+  "丢弃无 session_id 的运行事件": "Dropped run event without session_id", "使用手册刷新失败": "Failed to refresh user guide",
   "输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送": "Enter a task to begin · permission requests will prompt · Ctrl+Enter to send"
 };
 const I18N_LOCALIZE_ENTRIES = [...Object.entries(I18N_EN), ...Object.entries(I18N_DYNAMIC_EN)]

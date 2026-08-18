@@ -21,7 +21,7 @@ async function refreshDocs() {
     // (D-250)。替旧项目发出的刷新若在用户切走之后才抛错,新项目刚排上的高亮不该被它连坐。
     if (currentProject === forProject) clearPendingJump();
     // 报错不设项目守卫:刷新确实失败了,与用户此刻停在哪个项目无关,该看见就得看见。
-    toastError(`项目文档刷新失败:${err}`, { retry: refreshDocs });
+    toastError(`${t("项目文档刷新失败")}:${err}`, { retry: refreshDocs });
   }
 }
 

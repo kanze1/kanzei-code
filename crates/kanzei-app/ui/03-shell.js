@@ -211,7 +211,7 @@ function playRunNotice(kind) {
       oscillator.stop(now + index * 0.11 + 0.11);
     });
   } catch (error) {
-    log(`完成提示音不可用:${error}`, "warn");
+    log(`${t("完成提示音不可用")}:${error}`, "warn");
   }
 }
 
@@ -254,7 +254,7 @@ function notifyRunState(kind, text) {
       try {
         new Notification(label, { body: text, tag: "kanzei-run-state" });
       } catch (error) {
-        log(`系统通知不可用:${error}`, "warn");
+        log(`${t("系统通知不可用")}:${error}`, "warn");
       }
     }
   }
@@ -417,7 +417,7 @@ $("log-copy").addEventListener("click", async () => {
     await navigator.clipboard.writeText(text);
     toast(t("运行日志已复制"));
   } catch (error) {
-    toastError(`复制运行日志失败:${error}`);
+    toastError(`${t("复制运行日志失败")}:${error}`);
   }
 });
 $("log-clear").addEventListener("click", () => ($("log-lines").innerHTML = ""));
@@ -448,7 +448,7 @@ function startElapsed() {
     const secs = Math.floor((Date.now() - runStart) / 1000);
     $("status-elapsed").textContent = `· ${secs}s`;
     if (!firstSignal && secs > 0 && secs % 15 === 0) {
-      log(`仍在等待模型首个响应(已 ${secs}s)——订阅高峰或网络较慢时属正常;超时上限 15s 连接 / 180s 读`, "warn");
+      log(`${t("仍在等待模型首个响应")}(${t("已")} ${secs}s)——${t("订阅高峰或网络较慢时属正常")};${t("超时上限")} 15s ${t("连接")} / 180s ${t("读")}`, "warn");
     }
   }, 1000);
 }
@@ -462,7 +462,7 @@ function markFirstSignal() {
   if (typeof renderingBackground !== "undefined" && renderingBackground) return;
   if (!firstSignal) {
     firstSignal = true;
-    log(`模型开始响应(${((Date.now() - runStart) / 1000).toFixed(1)}s)`);
+    log(`${t("模型开始响应")}(${((Date.now() - runStart) / 1000).toFixed(1)}s)`);
   }
 }
 

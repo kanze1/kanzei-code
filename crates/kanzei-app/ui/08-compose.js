@@ -1443,7 +1443,7 @@ async function migrateLegacyModelPrefs() {
     localStorage.removeItem(prefKey("model"));
     localStorage.removeItem("kz-model");
     localStorage.removeItem(prefKey("manual-models"));
-    log(`已迁移旧模型偏好到后端:${JSON.stringify(patch)}`);
+    log(`${t("已迁移旧模型偏好到后端")}:${JSON.stringify(patch)}`);
   } catch (error) {
     reportPersistentError(`${t("旧模型偏好迁移失败")}:${error}`);
   }

@@ -757,7 +757,7 @@ $("mobile-service-start").addEventListener("click", async () => {
   const lan = !!$("mobile-service-lan")?.checked;
   try {
     const info = await invoke("mobile_service_start", { projectDir: currentProject, port: null, lan });
-    const lanLabel = lan ? "LAN" : "回环";
+    const lanLabel = lan ? "LAN" : t("回环");
     $("mobile-service-status").textContent = `${lanLabel} · ${info.address} · token ${info.token}`;
     $("mobile-service-start").classList.add("hidden");
     $("mobile-service-stop").classList.remove("hidden");

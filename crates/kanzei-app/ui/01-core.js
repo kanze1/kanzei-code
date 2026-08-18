@@ -62,7 +62,7 @@ function on(event, handler) {
     // 除了权限询问(它有专门的缺省会话归属逻辑),所有运行事件都必须带 sessionId。
     // 没有身份就不能安全地投影到当前对话,宁可只留下后端持久事实也不能串线。
     if (!SESSIONLESS_EVENTS.has(event) && !sessionId) {
-      log(`丢弃无 session_id 的运行事件:${event}`, "warn");
+      log(`${t("丢弃无 session_id 的运行事件")}:${event}`, "warn");
       return;
     }
     // R-086:kz:turn 是每轮开头必发的信号,拿它把会话状态机拨回运行中并解除
@@ -200,13 +200,13 @@ function on(event, handler) {
         }
         if (typeof refreshConversationLists === "function") void refreshConversationLists();
         refreshProcesses();
-        log(`后台会话控制事件已路由:${event} ${sessionId}`);
+        log(`${t("后台会话控制事件已路由")}:${event} ${sessionId}`);
         return;
       }
     }
     handler(eventPayload);
   }).catch((err) => {
-    log(`事件订阅失败 ${event}: ${err} — 界面将收不到运行事件,请反馈`, "err");
+    log(`${t("事件订阅失败")} ${event}: ${err} — ${t("界面将收不到运行事件,请反馈")}`, "err");
     $("log-panel").classList.remove("hidden");
   });
 }
@@ -217,7 +217,7 @@ function handleMobileMessage(payload) {
   const sessionId = payload?.session_id;
   if (!sessionId) return;
   const text = payload?.text || "";
-  log(`手机消息 → ${sessionId}: ${text}`, "info");
+  log(`${t("手机消息")} → ${sessionId}: ${text}`, "info");
 }
 
 // D-387:订阅手机消息事件(与 SESSIONLESS_EVENTS 手动同源,冒烟校验要求 on() 调用)。

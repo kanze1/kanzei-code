@@ -9,7 +9,7 @@ on("kz:status", (e) => {
 on("kz:meta", (e) => {
   $("status-model").textContent = `${e.payload.model} · ${e.payload.profile}`;
   ctxLimit = e.payload.contextLimit ?? null;
-  log(`模型 ${e.payload.model} · agent ${e.payload.agent} · profile ${e.payload.profile}${ctxLimit ? ` · 上下文上限 ${Math.round(ctxLimit / 1000)}k` : ""}`);
+  log(`${t("模型")} ${e.payload.model} · agent ${e.payload.agent} · profile ${e.payload.profile}${ctxLimit ? ` · ${t("上下文上限")} ${Math.round(ctxLimit / 1000)}k` : ""}`);
 });
 on("kz:turn", (e) => {
   const p = e.payload;

@@ -1196,7 +1196,7 @@ const listText = (id) => byId.get(id)?.textContent ?? "";
 // (现状不变);含 import/export 的 ESM 文件走 vm.SourceTextModule(共享同一
 // context,探针与逐文件 TDZ 语义保住)。ESM 的 linker 解析相对 import 到同目录
 // 其他 ui 文件,按已在 context 执行过的模块返回(跨文件绑定经 context 全局)。
-const PROBE_INIT = /toastError\(`\$\{label\}加载失败:\$\{err\}`\);/;
+const PROBE_INIT = /toastError\(`\$\{localizedLabel\}\$\{t\("加载失败"\)\}:\$\{err\}`\);/;
 const PROBE_PERSIST = /function reportPersistentError\(text, \{ retry = null \} = \{\}\) \{/;
 let probeHits = 0;
 
@@ -1275,7 +1275,7 @@ async function runUiSources() {
     for (let i = 0; i < sources.length; i += 1) {
       let instrumented = sources[i].replace(
         PROBE_INIT,
-        "toastError(`${label}加载失败:${err}`); __reportInitError?.(label, err);"
+        'toastError(`${localizedLabel}${t("加载失败")}:${err}`); __reportInitError?.(label, err);'
       );
       if (instrumented !== sources[i]) probeHits += 1;
       const beforePersist = instrumented;
@@ -6328,7 +6328,7 @@ const docsB = {
     `前置失败:项目乙没有排上跳转高亮(实得 ${JSON.stringify(vm.runInContext("pendingJumpId", sandbox))})`,
   );
   // 注入的刷新失败会走 toastError:那正是被测的那条 catch,不判红。
-  expectedPersistentError = "项目文档刷新失败";
+  expectedPersistentError = "Failed to refresh project documents";
   const hitsBefore = expectedPersistentHits;
   invokeFailures.set("docs_snapshot", "冒烟注入:旧项目的在途刷新撞上目录被删/文件被锁/解析失败");
   releaseStaleFail();
@@ -6815,7 +6815,6 @@ const docsB = {
     !mergeRun.disabled,
     "R-222 防线①:门禁通过后格4(合并)才解锁",
   );
-
   // 格4 合并:确认后调用 worktree_merge。
   const mergeCallsBefore = invokeArgs.length;
   mergeRun.click();
@@ -6865,7 +6864,6 @@ const docsB = {
     !writebackRun.disabled,
     "合并后全量通过后格6 回写才解锁",
   );
-
   // 格6 回写 tracker:合并+合并后全量通过后,点击调用 worktree_harvest_writeback 并渲染结果。
   const writebackOutput = panel.querySelector(".harvest-writeback-output");
   assert(writebackRun && writebackOutput, "收活面板缺少格6 回写控件");

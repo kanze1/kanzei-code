@@ -29,14 +29,6 @@
 - recorded_at: 1787008359348
 - 阻塞: 真实重启验收需要关闭当前正在运行的已安装 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`；解除人：用户关闭当前 kzapp 窗口后，由 agent 重新启动同一安装位并回读持久化 auto state。
 
-## D-509 启动步骤等 37 处中文字面量绕过 i18n,i18n 冒烟结构性盲区 [open] (medium)
-- 复现: crates/kanzei-app/ui/18-startup.js:40,47,59-63 七个 label 经 :35 toastError 直出中文;16-settings.js:755 回环、08-compose.js:196,293 线路已关闭等 JS 侧共 37 处中文字面量未包 t() 也不在词表;scripts/ui-i18n-smoke.mjs:10-12 只校验 t(key) 的 key 在词表、:16-26 只扫 index.html
-- 影响: 英文态启动失败时唯一可见信息是中文;冒烟绿不等于覆盖
-- 来源: 2026-08-18 全库勘察(主会话)
-- 标签: 前端
-- 验收: 37 处入词表走 t();冒烟新增 JS 中文字面量未包 t() 的检查;i18n 冒烟通过
-- 优先级: P2
-
 ## D-510 verify 步骤空集假绿与提交门禁只报首个失败 [open] (medium)
 - refs: docs/design/ci_release_evidence_chain.md
 - 复现: scripts/verify.ps1:25 Step-With-Timing 靠 LASTEXITCODE 判定,:44-49 ui 目录为空时 ForEach-Object 一次不执行沿用上一步 cargo test 的 0 直接 pass;crates/kanzei-tools/src/git.rs:893 fmt/clippy 已并行跑却在 :894-899 只返回第一个 Err

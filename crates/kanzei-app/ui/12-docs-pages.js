@@ -10,7 +10,7 @@ async function selectWorkspaceProject(path) {
     await enterProject(await invoke("projects_select", { path }));
     refreshWorkspace();
   } catch (error) {
-    toastError(`切换项目失败:${error}`);
+    toastError(`${t("切换项目失败")}:${error}`);
   }
 }
 
@@ -104,7 +104,7 @@ async function refreshWorkspace() {
   try {
     renderWorkspace(await invoke("workspace_snapshot"));
   } catch (error) {
-    toastError(`工作区刷新失败:${error}`, { retry: refreshWorkspace });
+    toastError(`${t("工作区刷新失败")}:${error}`, { retry: refreshWorkspace });
   }
 }
 let documentsKind = "req";
@@ -672,7 +672,7 @@ function buildFocusCard(entry, kind, focusSource = agentFocus.activeSource) {
         refreshDocs();
       } catch (err) {
         toastError(String(err));
-        log(`状态流转失败:${err}`, "warn");
+        log(`${t("状态流转失败")}:${err}`, "warn");
       }
     });
     actions.appendChild(button);

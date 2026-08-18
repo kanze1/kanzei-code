@@ -163,7 +163,7 @@ function isRetryableError(message) {
 
 function reportError(message, { retryable = isRetryableError(message) } = {}) {
   addErrorMessage(message, { retryable });
-  log(`错误:${message}`, "err");
+  log(`${t("错误")}:${message}`, "err");
 }
 
 let outputChars = 0;

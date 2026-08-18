@@ -6880,3 +6880,26 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 复用连接机械回归通过：20 条 run.trace 事件只新增 1 次按库路径 SessionStore::open，且 20 条事件全部落库；修前 D-374 记录为逐事件约 4.3ms/open。
 - 关联: D-508 D-374
 - 收尾: 1787010671
+
+## T-1786922726315 D-509 i18n 中文字面量六项前端冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/03-shell.js; node --check crates/kanzei-app/ui/05-chat-render.js; node --check crates/kanzei-app/ui/07-events.js; node --check crates/kanzei-app/ui/08-compose.js; node --check crates/kanzei-app/ui/11-docs-list.js; node --check crates/kanzei-app/ui/12-docs-pages.js; node --check crates/kanzei-app/ui/14-docs-actions.js; node --check crates/kanzei-app/ui/15-views-misc.js; node --check crates/kanzei-app/ui/16-settings.js; node --check crates/kanzei-app/ui/18-startup.js; node --check scripts/ui-i18n-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 16.8s
+- 摘要: D-509 修复后前端门禁全绿：受影响 UI 脚本与 i18n smoke node --check 通过；runtime smoke 24 个 UI 脚本/2318 次 invoke/0 运行时错误；ui-lint 45 文件 no-undef 零错误且 globals 722 项同步；parallel-lines、a11y、i18n、markdown 四项全部通过。期间修正了动态 status source preservation 与 startup probe 断言。
+- 关联: D-509 D-526
+- 收尾: 1787011435
+
+## T-1786922726316 D-509 暂存版本 i18n 六项前端门禁 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/03-shell.js; node --check crates/kanzei-app/ui/05-chat-render.js; node --check crates/kanzei-app/ui/07-events.js; node --check crates/kanzei-app/ui/08-compose.js; node --check crates/kanzei-app/ui/11-docs-list.js; node --check crates/kanzei-app/ui/12-docs-pages.js; node --check crates/kanzei-app/ui/14-docs-actions.js; node --check crates/kanzei-app/ui/15-views-misc.js; node --check crates/kanzei-app/ui/16-settings.js; node --check crates/kanzei-app/ui/18-startup.js; node --check scripts/ui-i18n-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 15.1s
+- 摘要: 针对暂存版本（不含此前未提交的 D-505 两段断言）重跑：受影响 UI 脚本与 i18n smoke node --check 通过；runtime 24 个 UI 脚本/2306 次 invoke/0 错误；ui-lint 45 文件/722 globals；parallel-lines、a11y、i18n、markdown 全部通过。
+- 关联: D-509 D-526
+- 收尾: 1787011701
+- 源码指纹: 0027dcde651fe953
+
+## T-1786922726317 D-509 kanzei-app crate 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.7s
+- 摘要: 提交门禁要求的 kanzei-app 定向回归：207 passed，0 failed，0 ignored；覆盖桌面端 crate 编译与测试目标。
+- 关联: D-509 D-526
+- 收尾: 1787011760
+- 源码指纹: 0027dcde651fe953

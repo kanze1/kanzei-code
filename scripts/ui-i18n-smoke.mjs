@@ -10,6 +10,24 @@ const dictionaryKeys = new Set(
 const dynamicKeys = [...source.matchAll(/\bt\("([^"]+)"\)/g)].map(([, key]) => key);
 const missingKeys = [...new Set(dynamicKeys)].filter((key) => !dictionaryKeys.has(key));
 assert.deepEqual(missingKeys, [], `动态 i18n key 未进入资源表: ${missingKeys.join(", ")}`);
+// D-509：静态资源表之外，JS 运行时入口也必须经过翻译层。保留 liveIdle 的源文案
+// 是为了让它在语言切换时由 localizeDynamic 重新计算；其余直接把中文送入用户可见
+// toast/status/log 的调用点一律报错，避免新增调用绕过冒烟。
+const directJsI18nLiterals = [];
+for (const [lineNumber, rawLine] of source.split(/\r?\n/).entries()) {
+  const line = rawLine.replace(/\/\/.*$/, "");
+  const match = line.match(/\b(setStatus|setRunning|toast|toastError|log|liveTurn|liveIdle|notifyRunState)\(\s*(["'`])([^"'`]*[\u3400-\u9fff][^"'`]*)/);
+  if (!match || /\bt\(/.test(match[0]) || /localizeDynamic/.test(match[0]) || match[1] === "liveIdle") continue;
+  if ((match[1] === "setStatus" || match[1] === "setRunning") && dictionaryKeys.has(match[3].trim())) continue;
+  directJsI18nLiterals.push(`${lineNumber + 1}:${match[1]}(${match[3]}`);
+}
+assert.deepEqual(directJsI18nLiterals, [], `JS 用户可见中文未经过 t()/localizeDynamic(): ${directJsI18nLiterals.join(" | ")}`);
+
+// 状态机/启动步骤会先保存中文 source key，再在消费点调用 t；这些动态 key 也必须入表。
+const deferredSourceKeys = [...source.matchAll(/\b(?:abortAutoContinue|runStep)\([^\n]*?["'`]([^"'`]*[\u3400-\u9fff][^"'`]*)["'`]/g)]
+  .map(([, key]) => key)
+  .filter((key) => !dictionaryKeys.has(key));
+assert.deepEqual([...new Set(deferredSourceKeys)], [], `延迟翻译 source key 未进入资源表: ${[...new Set(deferredSourceKeys)].join(", ")}`);
 
 const han = /[\u3400-\u9fff]/;
 const htmlCandidates = [];

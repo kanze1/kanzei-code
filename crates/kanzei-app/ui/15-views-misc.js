@@ -119,7 +119,7 @@ $("idea-add").addEventListener("click", () => {
 $("conv-init").addEventListener("click", async () => {
   try {
     const path = await invoke("conventions_init", { projectDir: currentProject });
-    toast(`规范文件已就绪:${path}`);
+    toast(`${t("规范文件已就绪")}:${path}`);
     refreshDocs();
   } catch (err) {
     toastError(String(err), { retry: () => $("conv-init").click() });
@@ -808,9 +808,9 @@ $("summarize-btn").addEventListener("click", async () => {
     const r = await invoke("summarize_chat", { projectDir: currentProject, transcript });
     addSummaryEntry(r.summary, r.path);
     toast(t("小总结已收纳到活动面板"));
-    log(`总结完成,已收纳并存档:${r.path}`);
+    log(`${t("总结完成,已收纳并存档")}:${r.path}`);
   } catch (err) {
-    toastError(`总结失败:${err}`, { retry: () => $("summarize-btn").click() });
+    toastError(`${t("总结失败")}:${err}`, { retry: () => $("summarize-btn").click() });
   } finally {
     $("summarize-btn").disabled = false;
     setStatus(running ? t("运行中") : t("空闲"), running);
@@ -878,7 +878,7 @@ async function refreshManual() {
     panel.classList.remove("hidden");
   } catch (err) {
     // 没有手册文件(如其它项目)时保持隐藏,不算错误;只有面板已挂载过内容后失败才提示。
-    if (!panel.classList.contains("hidden")) log(`使用手册刷新失败:${err}`, "warn");
+    if (!panel.classList.contains("hidden")) log(`${t("使用手册刷新失败")}:${err}`, "warn");
     panel.classList.add("hidden");
     body.innerHTML = "";
   }

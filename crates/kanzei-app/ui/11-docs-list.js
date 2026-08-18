@@ -104,7 +104,7 @@ async function commitDocOrder(listEl, kind) {
     log(msg);
     refreshDocs();
   } catch (err) {
-    toastError(`排序保存失败:${err}`);
+    toastError(`${t("排序保存失败")}:${err}`);
     refreshDocs();
   }
 }
@@ -639,7 +639,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
           toast(`${entry.id} ${t("优先级已调整为")} ${next}`);
           refreshDocs();
         } catch (error) {
-          toastError(`优先级保存失败:${error}`);
+          toastError(`${t("优先级保存失败")}:${error}`);
         }
       });
       row.appendChild(badge);
@@ -726,7 +726,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
           toast(t("已保存"));
           refreshDocs();
         } catch (error) {
-          toastError(`记录保存失败:${error}`);
+          toastError(`${t("记录保存失败")}:${error}`);
         }
       });
       const editActions = document.createElement("div");
@@ -808,7 +808,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
           toast(t("复杂度已保存"));
           refreshDocs();
         } catch (error) {
-          toastError(`复杂度保存失败:${error}`);
+          toastError(`${t("复杂度保存失败")}:${error}`);
         }
       });
       complexityRow.append(`${t("复杂度")}: `, complexitySelect);
@@ -871,7 +871,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
             refreshDocs();
           } catch (err) {
             toastError(String(err));
-            log(`状态流转失败:${err}`, "warn");
+            log(`${t("状态流转失败")}:${err}`, "warn");
           }
         });
         actions.appendChild(btn);

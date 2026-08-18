@@ -6393,3 +6393,28 @@
 - observed_head: f081c3a87fc080b7da2c68d4af55442b87c29914
 - observed_worktree_hash: fnv1a64:77df4b278f46f295
 - recorded_at: 1787010680002
+
+## D-526 D-509 新增 i18n 资源块缺少属性分隔逗号 [fixed] (low)
+- 复现: D-509 修改后对 `crates/kanzei-app/ui/02-i18n.js` 执行 node --check 时，`阻塞字段:` 与 `界面将收不到运行事件,请反馈` 之间、`已迁移旧模型偏好到后端` 与 `丢弃无 session_id 的运行事件` 之间缺少逗号。
+- 影响: 资源表 JavaScript 语法无效，桌面端 UI 初始化会失败，i18n 冒烟无法代表真实运行状态。
+- 来源: self-found：D-509 提交前 staged diff 复核。
+- 标签: 前端
+- 验收: `02-i18n.js` 语法检查通过；六项前端冒烟通过；资源表新增项可被运行时使用。
+- 优先级: P1
+- 进展: 验收已逐项完成：①资源表语法修复位于 `crates/kanzei-app/ui/02-i18n.js:866-884`，新增资源属性之间均有逗号；②受影响 UI 脚本和 `scripts/ui-i18n-smoke.mjs` 的 `node --check` 通过；③真实前端六项门禁由 T-1786922726315 通过，包含 runtime、lint、parallel-lines、a11y、i18n、markdown，证明资源表可被真实 UI 加载消费。
+- observed_head: f081c3a87fc080b7da2c68d4af55442b87c29914
+- observed_worktree_hash: fnv1a64:b6645bb11bfb618a
+- recorded_at: 1787011462223
+
+## D-509 启动步骤等 37 处中文字面量绕过 i18n,i18n 冒烟结构性盲区 [fixed] (medium)
+- 复现: crates/kanzei-app/ui/18-startup.js:40,47,59-63 七个 label 经 :35 toastError 直出中文;16-settings.js:755 回环、08-compose.js:196,293 线路已关闭等 JS 侧共 37 处中文字面量未包 t() 也不在词表;scripts/ui-i18n-smoke.mjs:10-12 只校验 t(key) 的 key 在词表、:16-26 只扫 index.html
+- 影响: 英文态启动失败时唯一可见信息是中文;冒烟绿不等于覆盖
+- 来源: 2026-08-18 全库勘察(主会话)
+- 标签: 前端
+- 验收: 37 处入词表走 t();冒烟新增 JS 中文字面量未包 t() 的检查;i18n 冒烟通过
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-509
+- 进展: 验收逐项完成并关闭：①原审计 37 处中文运行时字面量已完成资源化/消费接线：启动链位于 `crates/kanzei-app/ui/18-startup.js:9,15,17,26,34-36`（七个启动 label 经 `t(label)`，失败文案经 `t()`）；设置回环位于 `16-settings.js:760`；自动推进 source key `线路已关闭/本轮后停` 已进入 `02-i18n.js:866-884` 并由 `08-compose.js:208,212,218,230,282,305` 的延迟消费调用 `t(reason)`；其余真实用户可见日志/错误入口已接线于 `01-core.js:65,203,209,220`、`03-shell.js:214,257,420,451,465`、`05-chat-render.js:166`、`07-events.js:12`、`08-compose.js:1446`、`11-docs-list.js:107,642,729,811,874`、`12-docs-pages.js:13,107,675`、`14-docs-actions.js:24`、`15-views-misc.js:122,811,813,881`；`setStatus/setRunning/liveIdle` 保留 source key，由既有 `03-shell.js:428-510` 的 `localizeDynamic` 路径在渲染时翻译，避免英文写回状态源。②JS 中文字面量结构检查已落在 `scripts/ui-i18n-smoke.mjs:13-30`：直接用户可见入口、延迟 source key 和 status source 资源表均有机械断言；该检查由真实六项前端门禁调用。③六项 i18n/前端冒烟由 T-1786922726315 通过：受影响脚本及 smoke `node --check`、runtime 24 UI 脚本/2318 次 invoke/0 错误、lint 45 文件/722 globals、parallel-lines、a11y、i18n、markdown 全部通过。D-526 的资源表逗号语法缺陷已修复并由同一测试记录覆盖。
+- observed_head: f081c3a87fc080b7da2c68d4af55442b87c29914
+- observed_worktree_hash: fnv1a64:b6645bb11bfb618a
+- recorded_at: 1787011493930

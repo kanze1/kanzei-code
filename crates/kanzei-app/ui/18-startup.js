@@ -6,15 +6,15 @@
     const settings = await invoke("settings_get", { projectDir: null });
     if (LANGUAGE_PREFERENCES.has(settings.language)) syncLanguagePreferenceFromSettings(settings.language);
   } catch (err) {
-    log(`读取界面语言偏好失败:${err}`, "warn");
+    log(`${t("读取界面语言偏好失败")}:${err}`, "warn");
   }
   try {
     const info = await invoke("app_info");
     $("status-version").textContent = `v${info.version} (${info.build})`;
     $("update-current").textContent = String(info.build).split(" ")[0];
-    log(`kanzei 桌面端启动 · v${info.version} (${info.build})`);
+    log(`kanzei ${t("桌面端启动")} · v${info.version} (${info.build})`);
   } catch (err) {
-    log(`获取版本失败:${err}`, "warn");
+    log(`${t("获取版本失败")}:${err}`, "warn");
   }
   // 启动静默检查更新(安装版通道):有新包只弹一条 toast,不打断;失败不打扰。
   // D-265 验收④:dev 构建/本地领先这些「装不了」的成因不弹窗打扰,但结论必须
@@ -23,7 +23,7 @@
     try {
       const r = await invoke("update_check");
       $("update-result").textContent = updateResultText(r);
-      if (r.newer && r.url) toast(`发现新版本 ${r.latest} — 设置页「检查更新」可一键安装`);
+      if (r.newer && r.url) toast(`${t("发现新版本")} ${r.latest} — ${t("设置页「检查更新」可一键安装")}`);
     } catch {}
   }, 3000);
   // 启动链任一步失败都不能静默中断后半段(否则界面停在初始态,用户看不到任何原因)。
@@ -31,8 +31,9 @@
     try {
       await step();
     } catch (err) {
-      log(`启动步骤「${label}」失败:${err}`, "err");
-      toastError(`${label}加载失败:${err}`);
+      const localizedLabel = t(label);
+      log(`${t("启动步骤")}「${localizedLabel}」${t("失败")}:${err}`, "err");
+      toastError(`${localizedLabel}${t("加载失败")}:${err}`);
     }
   };
   // 项目列表必须先落地:后面每一步都要 currentProject(历史对话还要等它选出主会话),
