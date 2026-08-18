@@ -284,10 +284,10 @@
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
 - 批次: 5/5
-- 进展: B14 已实现、验证并提交前准备：`crates/kanzei-app/ui/08-auto.js:1-216` 承接自动续跑状态、停止 watchdog、阶段渲染与续跑门禁核心；`08-compose.js:1-1102` 保留发送/停止、后台轮末/失败处理、profile 与线路设置；`08-models.js:1-217` 承接模型探测、按线回显、手填模型迁移及项目偏好监听；`index.html:1135-1138` 真实加载顺序为 07-events → 08-auto → 08-compose → 08-models。真实消费者保持为 `09-sessions.js:434/576/580/732/871`、`20-lines.js:151-152`、`07-events.js` 事件链和 `01-core.js` 路由。`scripts/parallel-lines-regression.mjs:9-19/70/91` 已扫描三份真实脚本。D-539、D-540 已修复。证据 T-1786922726432、T-1786922726433：node --check 与 runtime/lint/parallel-lines/a11y/i18n/markdown 六条前端冒烟通过。验收①仍需其余 Top 目标与最终 metrics 对照；验收③需复核 verify 回涨闸门；验收②的 06-agent-panel/06-activity 合流为既有 B8 能力。本批下一步：提交 B14 后重跑 kz metrics，并复核 verify 闸门与 `metrics-baseline` 落点。
-- observed_head: 2f118ee47cb9cfe0e8a53c2d773dd7efee9fcfaf
-- observed_worktree_hash: fnv1a64:5ae9d8a2586b2f0e
-- recorded_at: 1787074406031
+- 进展: B14 已提交：`1e7a4617`。`08-auto.js:1-216` 承接自动续跑与停止 watchdog，`08-models.js:1-216` 承接模型探测/按线回显/手填迁移，`08-compose.js` 降至 1102 行；`index.html:1135-1138` 保持 07-events → 08-auto → 08-compose → 08-models 的真实加载顺序；`scripts/parallel-lines-regression.mjs:9-19/70/91` 扫描三份真实脚本。metrics 对照已落 `docs/design/metrics_baseline.md:3-58`：T-1786922726435 记录 `cargo run -p kanzei -- metrics --top 30`，当前 background.rs 1747 生产行、drive.rs 1489、Top-30 巨石 7 个；T-1786922726436 记录普通 Windows 路径重放 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\metrics-regression-gate.ps1`，gate 通过 7/7、允许回涨 100 行。D-539/D-540 已修复；D-541 仅在扩展路径下触发，普通路径可重放，暂不关闭。验收②的 06-agent-panel/06-activity 合流为既有 B8 能力。验收①仍有 background.rs 与 drive.rs 等 Top 目标未降出巨石阈值；验收③已有脚本接线与 gate 通过证据，但 verify 全链路尚未重跑；验收④已完成本次 Rust metrics 对照落盘，仍需最终验收逐条复核。下一步：核对 verify 脚本接线与剩余 Top 目标，不能提前关闭。
+- observed_head: 1e7a46175d776ff93302edf6a4dab36ce84fa254
+- observed_worktree_hash: fnv1a64:6fb85728023a6a51
+- recorded_at: 1787074842625
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 

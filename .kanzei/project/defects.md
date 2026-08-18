@@ -28,3 +28,12 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787008359348
 - 阻塞: 真实重启验收需要关闭当前正在运行的已安装 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`；解除人：用户关闭当前 kzapp 窗口后，由 agent 重新启动同一安装位并回读持久化 auto state。
+
+## D-541 metrics regression gate 调用用户安装 kz 被 AuthorizationManager 拒绝 [open] (medium)
+- refs: R-300
+- 复现: 运行 `scripts/metrics-regression-gate.ps1 -Root <repo>`，脚本在 `scripts/metrics-regression-gate.ps1:26-29` 调用 `%USERPROFILE%\.cargo\bin\kz.exe metrics --top 30`，返回 `AuthorizationManager check failed`；同轮 `cargo run -p kanzei -- metrics --top 30` 成功输出 Top-30。
+- 影响: metrics regression gate 无法读取真实当前榜单，R-300 验收③ verify 闸门无法完成可重放验证；不能用 cargo 输出冒充 gate 已通过。
+- 来源: self-found：R-300 B14 提交后 metrics/verify 复核。
+- 标签: 发布
+- refs: R-300
+- 优先级: P2

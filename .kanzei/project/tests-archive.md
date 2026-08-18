@@ -7736,3 +7736,17 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300
 - 收尾: 1787074487
 - 源码指纹: v2 scripts/parallel-lines-regression.mjs@187f2baf5323
+
+## T-1786922726435 R-300 B14 后 kz metrics Top-30 重跑 [passed]
+- 命令: cargo run -p kanzei -- metrics --top 30
+- 时长: 14.0s
+- 摘要: 真实当前代码度量成功：226 个 Rust 文件，Top-30 中 7 个生产行数超过 1200 的巨石；background.rs 1747 行、drive.rs 1489 行。
+- 关联: R-300
+- 收尾: 1787074826
+
+## T-1786922726436 R-300 回涨闸门普通 Windows 路径重放 [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1
+- 时长: 1.0s
+- 摘要: 普通 Windows 路径下真实回涨闸门通过：30 行可解析，当前/基线巨石数 7/7，单文件允许回涨 100 行。
+- 关联: R-300 D-541
+- 收尾: 1787074826
