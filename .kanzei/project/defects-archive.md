@@ -6611,3 +6611,27 @@
 - observed_head: 7d4f022db8a49e7842d4e186697cdfb7bf477322
 - observed_worktree_hash: fnv1a64:2240a85d3236ca12
 - recorded_at: 1787071303856
+
+## D-537 tracker maintenance 子模块私有可见性阻断真实路由编译 [fixed] (medium)
+- 复现: R-300 B12 将 tracker/actions.rs 的维护 action 移入 actions/maintenance.rs，并在 tracker.rs 路由 actions::maintenance::*；cargo test -p kanzei-tools 编译时报 E0603 module maintenance is private。
+- 影响: 维护 action 已迁移但 TrackerTool::execute 无法访问子模块，kanzei-tools 无法编译，B12 不能提交。
+- 来源: self-found：B12 迁移后的 kanzei-tools 定向测试。
+- 标签: 核心
+- refs: R-300
+- 优先级: P2
+- 进展: 关闭对账：①模块可访问性——`crates/kanzei-tools/src/tracker/actions.rs:11` 使用 `pub(crate) mod maintenance`，消除 E0603；②真实路由——`crates/kanzei-tools/src/tracker.rs:417-445` 已调用 `actions::maintenance::{void_id,archive,raw_delete,reopen,fix_terminal,archive_fill}`；③可用验证——`T-1786922726426` 的 `cargo fmt --all -- --check; cargo test -p kanzei-tools` 通过（345 passed、0 failed、1 ignored）。
+- observed_head: 4c85353e54288e634d165ef1376c11d25ea220ae
+- observed_worktree_hash: fnv1a64:71e1549ce81692b2
+- recorded_at: 1787072643003
+
+## D-538 archive_fill 示例文案触发提交占位符门禁 [fixed] (low)
+- 复现: 提交 R-300 B12 时结构化 git commit gate 扫描新建 tracker/actions/maintenance.rs，发现 archive_fill 错误文案包含 `T-<数字>xxx` 占位符示例并拒绝提交。
+- 影响: 功能测试通过，但 B12 无法提交；占位符门禁会把示例文案误判为未绑定的测试证据。
+- 来源: self-found：B12 提交前结构化 git 门禁。
+- 标签: 流程
+- refs: R-300
+- 优先级: P2
+- 进展: 关闭对账：①门禁触发原因——`crates/kanzei-tools/src/tracker/actions/maintenance.rs:226-227` 原示例含 `T-<数字>xxx`；②修复——同位置改为“old = 归档中的旧文本，new = test_record 落盘的真实 ID(如 T-1786565346)”，未改变 archive_fill 的参数校验、DocStore 回填调用或错误处理；③真实验证——`T-1786922726427`：cargo fmt --all -- --check; cargo test -p kanzei-tools，345 passed、0 failed、1 ignored；④提交门禁目标——修复后可继续执行结构化 git stage/commit。
+- observed_head: 4c85353e54288e634d165ef1376c11d25ea220ae
+- observed_worktree_hash: fnv1a64:f66390af61c116a3
+- recorded_at: 1787072809479

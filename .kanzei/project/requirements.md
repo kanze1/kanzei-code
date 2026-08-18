@@ -283,11 +283,11 @@
 - 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
-- 批次: 3/4
-- 进展: B11 已落地：新增 crates/kanzei-tools/src/profiles/dev.rs:7-约530，迁移 DevProfile 的工具注册、权限硬门禁、ideas/conventions/memory/decisions/project-docs 上下文及 dev/dev-pair agent 装配；profiles.rs:15-19 通过 mod dev 与 pub use dev::DevProfile 导出，真实调用方仍为 lib.rs:67、run.rs:36、write.rs:215 等现有装配线；profiles.rs 原 DevProfile 实现已删除，仅保留 ResearchProfile。证据 T-1786922726425：cargo fmt --all -- --check 与 cargo test -p kanzei-tools，345 passed、0 failed、1 ignored。下一步：继续 R-300 验收①剩余 tracker/actions.rs、CLI run.rs 或前端 Top 目标。
-- observed_head: 3816068ec88585c87b45ba0b6e0f3b92f870407d
-- observed_worktree_hash: fnv1a64:2318563e2d14ad37
-- recorded_at: 1787072188231
+- 批次: 4/5
+- 进展: B12 已完成实现并验证：新增 `crates/kanzei-tools/src/tracker/actions/maintenance.rs:1-约240`，迁移 `void_id`、`archive`、`raw_delete`、`reopen`、`fix_terminal`、`archive_fill`；`crates/kanzei-tools/src/tracker/actions.rs:11` 注册 `pub(crate) mod maintenance`；`crates/kanzei-tools/src/tracker.rs:417-445` 保持真实 TrackerTool::execute 路由并改接 maintenance 子模块，add/update/normalize 路径未改。D-537 的 E0603 私有模块已修复；D-538 的提交占位符门禁已修复：`maintenance.rs:210` 注释与 `226-227` 错误文案均不再使用占位符 ID 形态，archive_fill 行为未变。证据 T-1786922726426、T-1786922726427、T-1786922726428：cargo fmt --all -- --check 与 cargo test -p kanzei-tools 均通过（345 passed、0 failed、1 ignored）。下一步：提交 B12 后继续 R-300 验收①的 CLI run.rs 或剩余前端 Top 目标。
+- observed_head: 4c85353e54288e634d165ef1376c11d25ea220ae
+- observed_worktree_hash: fnv1a64:0785db1b5ab28d18
+- recorded_at: 1787072935211
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 

@@ -7664,3 +7664,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300
 - 收尾: 1787072187
 - 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@926122b1c8d5,crates/kanzei-tools/src/profiles/dev.rs@96ac29866c29
+
+## T-1786922726426 R-300 B12 tracker maintenance 拆分定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 44.0s
+- 摘要: B12 tracker maintenance action 拆分并修正 maintenance 模块可见性后的格式检查与 kanzei-tools 定向回归通过：345 passed、0 failed、1 ignored。首次失败为 E0603 私有模块，已登记 D-537 并修复。
+- 关联: R-300 D-537
+- 收尾: 1787072623
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@d3947a824b9f,crates/kanzei-tools/src/tracker/actions.rs@cbab699740ed,crates/kanzei-tools/src/tracker/actions/maintenance.rs@82a235b67844
+
+## T-1786922726427 R-300 B12 D-538 文案门禁修复定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 33.1s
+- 摘要: 修正 archive_fill 错误文案中的占位符示例后，格式检查与 kanzei-tools 定向回归通过：345 passed、0 failed、1 ignored。
+- 关联: R-300 D-538
+- 收尾: 1787072802
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@d3947a824b9f,crates/kanzei-tools/src/tracker/actions.rs@cbab699740ed,crates/kanzei-tools/src/tracker/actions/maintenance.rs@6c1d327d1aec
+
+## T-1786922726428 R-300 B12 D-538 注释门禁修复定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 38.3s
+- 摘要: 补去 maintenance.rs 内 archive_fill 注释中的占位符形式后，格式检查与 kanzei-tools 定向回归通过：345 passed、0 failed、1 ignored。
+- 关联: R-300 D-538
+- 收尾: 1787072917
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@d3947a824b9f,crates/kanzei-tools/src/tracker/actions.rs@cbab699740ed,crates/kanzei-tools/src/tracker/actions/maintenance.rs@b4d313fe6f1f

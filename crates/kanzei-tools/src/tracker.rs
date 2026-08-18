@@ -414,8 +414,8 @@ impl Tool for TrackerTool {
                 actions::repair_missing_id(self, input, ctx, &store, &mut entries)
             }
             // 主动注销一个编号:唯一合法的"缺号交代"通道,理由必填、留档可审计。
-            "void_id" => actions::void_id(self, input, ctx, &store, &mut entries),
-            "archive" => actions::archive(self, input, ctx, &store, &mut entries),
+            "void_id" => actions::maintenance::void_id(self, input, ctx, &store, &mut entries),
+            "archive" => actions::maintenance::archive(self, input, ctx, &store, &mut entries),
             "add" => actions::add(self, input, ctx, &store, &mut entries),
             "update" | "close" => actions::update_close(self, input, ctx, &store, &mut entries),
             // R-054:整表重排(文件顺序 = 开发顺序)。要求 order 是现有条目的完整置换,
@@ -423,21 +423,27 @@ impl Tool for TrackerTool {
             "reorder" => actions::reorder(self, input, ctx, &store, &mut entries),
             // R-201:按序号删除一条游离行。删除走 docstore 的模板手术:只移除那一条
             // Raw,字段与其余行一字不动,二次保存幂等(行已不在模板里,不会再生)。
-            "raw_delete" => actions::raw_delete(self, input, ctx, &store, &mut entries),
+            "raw_delete" => {
+                actions::maintenance::raw_delete(self, input, ctx, &store, &mut entries)
+            }
             // D-241:fixing 推不动时的合法退路。要求 id + reason(强制写理由),
             // 状态必须命中该文档类型的 reopen_from 集合,退回初始态并落进展。
             // 与「手改 markdown」的区别:reopen 走引擎,理由进文档,调度器下次
             // 扫到的是 open 而不是冒充「正在做」的僵尸 fixing。
-            REOPEN_ACTION => actions::reopen(self, input, ctx, &store, &mut entries),
+            REOPEN_ACTION => actions::maintenance::reopen(self, input, ctx, &store, &mut entries),
             // D-331:归档终态纠错——只允许终态到终态(fixed↔wontfix),强制 reason,
             // 条目保持归档、原子写入、进展留审计。归档 ID 不再是死胡同(D-267 的
             // [dropped] [fixed] 双终态就是没有此通道时留下的)。
-            FIX_TERMINAL_ACTION => actions::fix_terminal(self, input, ctx, &store, &mut entries),
+            FIX_TERMINAL_ACTION => {
+                actions::maintenance::fix_terminal(self, input, ctx, &store, &mut entries)
+            }
             // R-227:归档条目字段里的占位符测试 ID 回填。占位符 `T-<数字>xxx` 是
             // 「全量跑过但没记 test_record、隔时凭记忆写证据」的产物(R-198/R-199/
             // D-219/D-266/D-279/D-281/D-282/D-316 关闭证据存量 8 处)。回填 =
             // 把占位符替换为 test_record 落盘的真实 ID;docstore 侧要求恰好命中一次。
-            "archive_fill" => actions::archive_fill(self, input, ctx, &store, &mut entries),
+            "archive_fill" => {
+                actions::maintenance::archive_fill(self, input, ctx, &store, &mut entries)
+            }
             // D-332 验收②:统一 repair surface——把散落在 fix_terminal / 手改 markdown /
             // raw_delete 之间的修复动作收敛成一个机械、幂等、dry-run-first 的入口。
             // 扫描活动 + 归档区,报告/修复:
