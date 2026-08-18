@@ -283,11 +283,11 @@
 - 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
-- 批次: 1/2
-- 进展: B1 已落地：`crates/kanzei-tools/src/background/lifecycle.rs:1-251` 承接 registry、窗口观察、守卫、reconcile、foreign-owner 收尾、get/list/stop/kill_project/kill_process/project_hash/now_ms；`background.rs:21-31` 保留公共 re-export，`registration.rs` 与 `persistent.rs` 继续通过父模块私有协作名调用，真实外部调用方为 `process.rs:52-155`、`bash.rs:278`、`lib.rs:59-61`。为适配真实定义位置修复 D-542：`symbols.rs:1093-1101` 断言 lifecycle.rs，T-1786922726439 定向验证 345 passed、0 failed、1 ignored。下一步 B2：复核 drive.rs 剩余轮次/装配域，提取一个行为不变的独立模块并重跑 kanzei-core。
-- observed_head: 7a57b30081248614665d0e21c104ff86b8867dc2
-- observed_worktree_hash: fnv1a64:ecfe756ffbee2656
-- recorded_at: 1787075646825
+- 批次: 2/2
+- 进展: B2 已落地：`crates/kanzei-core/src/runner/drive/assembly.rs:1-252` 承接 `RunOnceAssembly`、task 工具面纯函数/测试及 `assemble_run_once`；`drive.rs:11-20` 注册并导入装配模块，`run_once_with_parts:157-178` 的真实调用方保持不变。拆分未改变工具物化、system/context_report 分块、prior 历史清洗、用户消息装载、task 注册和轮级运行态初始化顺序。真实消费者仍为 `run_once_with_parts`，装配模块测试覆盖 task 开关。T-1786922726440：`cargo fmt --all -- --check; cargo test -p kanzei-core`，220 passed、0 failed、0 ignored。B1/B2 批次已满；R-300 验收①仍需核对剩余 Top 目标，验收③需复核 verify 全链路，验收④需在整体收尾前重跑 metrics 对照；验收②为既有 B8 合流能力。下一步：提交本批后复核 metrics/verify 证据与剩余 Top 目标，不将本批拆分误报为需求完成。
+- observed_head: 13c70c08f99d62a5109f4d765096e6ad1d9cc961
+- observed_worktree_hash: fnv1a64:adbcb66d6efa3eb7
+- recorded_at: 1787076008408
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 

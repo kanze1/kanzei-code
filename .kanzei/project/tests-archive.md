@@ -7774,3 +7774,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300 D-542
 - 收尾: 1787075629
 - 源码指纹: v2 crates/kanzei-tools/src/background.rs@18dc432ac4d8,crates/kanzei-tools/src/background/lifecycle.rs@149ced7333d4,crates/kanzei-tools/src/symbols.rs@56f9df88784f
+
+## T-1786922726440 R-300 B2 run_once 装配域拆分定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core
+- 时长: 9.0s
+- 摘要: run_once_with_parts 装配域迁移至 drive/assembly.rs 后，格式检查与 kanzei-core 定向回归通过：220 passed、0 failed、0 ignored；装配模块的 task 工具面测试也通过。
+- 关联: R-300
+- 收尾: 1787075998
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@65337489bd8b,crates/kanzei-core/src/runner/drive/assembly.rs@341ebe642c28
