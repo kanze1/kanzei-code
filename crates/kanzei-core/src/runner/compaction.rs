@@ -4,6 +4,8 @@
 //! 依赖 B2(metrics:summarize_tools/failures)+ B4(context:clip/digest_plausible/
 //! estimate_prompt_tokens/is_text_user_message/render_for_digest)。
 
+use std::collections::{HashMap, VecDeque};
+
 use super::SubagentRuntime;
 use super::MAX_CONTEXT_OVERFLOW_RECOVERIES;
 use crate::runner::context::{
@@ -147,6 +149,12 @@ pub(crate) async fn compact_with_digest(
         // 交给应急路径去做取舍,别在这里假装压过。
         return 0;
     }
+    if !compaction_range_has_complete_tool_pairs(messages, middle_start, middle_end) {
+        overflow_traces.push(
+            "compaction refused: tool call/result pair crosses the compaction boundary".into(),
+        );
+        return 0;
+    }
 
     let middle: Vec<Message> = messages[middle_start..middle_end].to_vec();
     overflow_traces.push(dropped_trace(&middle));
@@ -221,6 +229,55 @@ pub(crate) async fn compact_with_digest(
     // 中段被抽走后,尾段里可能出现指向已消失调用的孤儿工具结果。
     *messages = crate::history::filter_message_history(&rebuilt);
     middle.len()
+}
+
+/// 压缩范围不能切开工具调用与结果的配对；否则后续历史清洗会静默删除一侧。
+fn compaction_range_has_complete_tool_pairs(
+    messages: &[Message],
+    start: usize,
+    end: usize,
+) -> bool {
+    let in_range = |index: usize| (start..end).contains(&index);
+    let mut pending: HashMap<String, VecDeque<usize>> = HashMap::new();
+    for (message_index, message) in messages.iter().enumerate() {
+        match message.role {
+            kanzei_llm::Role::Assistant => {
+                for part in &message.parts {
+                    if let Part::ToolCall { id, .. } = part {
+                        pending
+                            .entry(id.clone())
+                            .or_default()
+                            .push_back(message_index);
+                    }
+                }
+            }
+            kanzei_llm::Role::User => {
+                for part in &message.parts {
+                    if let Part::ToolResult { call_id, .. } = part {
+                        let Some(queue) = pending.get_mut(call_id) else {
+                            if in_range(message_index) {
+                                return false;
+                            }
+                            continue;
+                        };
+                        let Some(call_index) = queue.pop_front() else {
+                            if in_range(message_index) {
+                                return false;
+                            }
+                            continue;
+                        };
+                        if in_range(call_index) != in_range(message_index) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    !pending
+        .values()
+        .flatten()
+        .any(|call_index| in_range(*call_index))
 }
 
 /// R-236 B2:把中段拆成「上一份纪要(哨兵识别)+ 新增原文」。纪要消息本身
@@ -695,6 +752,84 @@ mod tests {
             }]),
         ];
         assert_eq!(prune_old_tool_results(&mut bare, 100, 100), 0);
+    }
+
+    #[tokio::test]
+    async fn 连续两次压缩回放一致且首段实体保留() {
+        fn seed() -> Vec<Message> {
+            let mut messages = vec![Message::user_text("任务:保留 first-entity.rs")];
+            for index in 0..60 {
+                messages.push(Message::user_text(format!(
+                    "第一段实体 first-entity.rs 的工作记录 {index} {}",
+                    "x".repeat(180)
+                )));
+            }
+            messages.push(Message::user_text("当前工作区"));
+            messages
+        }
+        async fn compact_twice(mut messages: Vec<Message>) -> Vec<Message> {
+            let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+            let mut traces = Vec::new();
+            assert!(
+                super::compact_with_digest(&client, None, &mut messages, 2_000, &mut traces, 0.2)
+                    .await
+                    > 0
+            );
+            for index in 0..60 {
+                messages.push(Message::user_text(format!(
+                    "第二段新增记录 {index} {}",
+                    "y".repeat(180)
+                )));
+            }
+            messages.push(Message::user_text("第二次当前工作区"));
+            assert!(
+                super::compact_with_digest(&client, None, &mut messages, 2_000, &mut traces, 0.2)
+                    .await
+                    > 0
+            );
+            messages
+        }
+
+        let first = compact_twice(seed()).await;
+        let second = compact_twice(seed()).await;
+        assert_eq!(first, second, "相同事件回放的连续压缩必须确定性一致");
+        let text = serde_json::to_string(&first).unwrap();
+        assert!(
+            text.contains("first-entity.rs"),
+            "首段关键实体必须跨两次压缩保留"
+        );
+    }
+
+    /// R-243：边界切开工具调用/结果时拒绝压缩，不交给历史过滤器静默删一侧。
+    #[tokio::test]
+    async fn 压缩边界工具配对不完整时拒绝且保留原文() {
+        let mut messages = vec![Message::user_text("任务")];
+        messages.push(Message::assistant(vec![Part::ToolCall {
+            id: "cross-boundary".into(),
+            name: "read".into(),
+            input: serde_json::json!({"path":"first-entity.rs"}),
+        }]));
+        for index in 0..40 {
+            messages.push(Message::user_text(format!(
+                "中段 {index} {}",
+                "x".repeat(180)
+            )));
+        }
+        messages.push(Message::tool_results(vec![Part::ToolResult {
+            call_id: "cross-boundary".into(),
+            content: "result".into(),
+            is_error: false,
+        }]));
+        messages.push(Message::user_text("当前"));
+        let original = messages.clone();
+        let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+        let mut traces = Vec::new();
+        assert_eq!(
+            super::compact_with_digest(&client, None, &mut messages, 2_000, &mut traces, 0.2).await,
+            0
+        );
+        assert_eq!(messages, original);
+        assert!(traces.iter().any(|trace| trace.contains("pair crosses")));
     }
 
     /// R-236 B2:滚动合并的拆分——中段里的旧纪要(哨兵识别)被拆成 prior,

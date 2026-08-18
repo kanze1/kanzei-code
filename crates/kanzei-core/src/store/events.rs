@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use rusqlite::{params, OptionalExtension, Transaction};
 
+use kanzei_llm::Message;
 use serde_json::Value;
 
 use super::{now_ms, SessionStore, StoreError, StoredEvent};
@@ -115,6 +116,46 @@ impl SessionStore {
                 )
             })
             .collect())
+    }
+
+    /// 返回最新一笔已完整结束的 compaction surface 及其结束序号。
+    /// 未见 `compaction_ended` 的 surface 永远不会成为恢复后的模型上下文。
+    pub fn latest_completed_compaction_surface(
+        &self,
+        session_id: &str,
+        after_sequence: i64,
+    ) -> Result<Option<(i64, Vec<Message>)>, StoreError> {
+        let events = self.list_events(session_id, after_sequence)?;
+        let mut surfaces = BTreeMap::<String, Vec<Message>>::new();
+        let mut latest: Option<(i64, Vec<Message>)> = None;
+        for event in events {
+            let transaction_id = event.payload["transaction_id"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            if transaction_id.is_empty() {
+                continue;
+            }
+            match event.event_type.as_str() {
+                "surface_replaced" => {
+                    let surface = serde_json::from_value(
+                        event
+                            .payload
+                            .get("surface")
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!([])),
+                    )?;
+                    surfaces.insert(transaction_id, surface);
+                }
+                "compaction_ended" => {
+                    if let Some(surface) = surfaces.remove(&transaction_id) {
+                        latest = Some((event.sequence, surface));
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(latest)
     }
 
     pub fn list_events(
@@ -633,6 +674,15 @@ mod tests {
         assert_eq!(raw.event_type, "turn.started");
         assert_eq!(raw.payload, serde_json::json!({"raw": true}));
         assert_eq!(events[2].payload["surface"], surface);
+        let (ended_sequence, recovered_surface) = store
+            .latest_completed_compaction_surface("ses_test", 0)
+            .unwrap()
+            .expect("已结束事务必须成为可恢复 surface");
+        assert_eq!(ended_sequence, events[3].sequence);
+        assert_eq!(
+            recovered_surface,
+            vec![kanzei_llm::Message::user_text("surface")]
+        );
     }
 
     #[test]

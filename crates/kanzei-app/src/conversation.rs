@@ -68,20 +68,32 @@ pub(crate) fn project_latest_segment(
         .list_session_facts(session_id)
         .map_err(|e| e.to_string())?;
     let boundary = segment_boundaries(store, session_id)?.pop();
-    if facts.is_empty() {
+    let segment_start = boundary.unwrap_or(0);
+    let filtered: Vec<_> = facts
+        .into_iter()
+        .filter(|(event, _)| event.sequence > segment_start)
+        .collect();
+    let compacted_surface = store
+        .latest_completed_compaction_surface(session_id, segment_start)
+        .map_err(|e| e.to_string())?;
+    if filtered.is_empty() {
+        if let Some((_, surface)) = compacted_surface {
+            return Ok(surface);
+        }
         // legacy/mobile 会话没有 typed facts 时也必须尊重 reset;否则新对话会
         // 回退到 reset 之前最后一条 conversation.updated,把旧历史重新喂给 runner。
         return recover_latest_legacy_segment_raw(store, session_id, boundary)
             .map_err(|e| e.to_string());
     }
-    let filtered: Vec<_> = match boundary {
-        Some(seq) => facts
-            .into_iter()
-            .filter(|(event, _)| event.sequence > seq)
-            .collect(),
-        None => facts,
+    let projection = match compacted_surface {
+        Some((sequence, surface)) => kanzei_core::project_session_facts_with_surface(
+            &filtered,
+            Some(sequence),
+            Some(surface),
+        ),
+        None => kanzei_core::project_session_facts(&filtered),
     };
-    Ok(kanzei_core::project_session_facts(&filtered).surface_messages)
+    Ok(projection.surface_messages)
 }
 
 #[tauri::command]
@@ -478,6 +490,38 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    #[test]
+    fn latest_segment_recovers_completed_compaction_surface() {
+        let root = test_project_root("compaction-surface");
+        let canonical = normalized_project_root(&root);
+        let session_id = process_session_id(&canonical, None);
+        let store =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+        store
+            .create_session(&session_id, &canonical.display().to_string(), None)
+            .unwrap();
+        store
+            .append_event(
+                &session_id,
+                "conversation.updated",
+                &json!({"messages": [kanzei_llm::Message::user_text("原始 transcript")]}),
+            )
+            .unwrap();
+        let surface = vec![kanzei_llm::Message::user_text("恢复后的 surface")];
+        store
+            .append_compaction_transaction(
+                &session_id,
+                "cmp-restart",
+                &json!({"digest":"恢复"}),
+                &serde_json::to_value(&surface).unwrap(),
+            )
+            .unwrap();
+        let recovered = project_latest_segment(&store, &session_id).unwrap();
+        assert_eq!(recovered, surface);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -1246,6 +1246,16 @@ struct ProjectedDraft {
 /// 相同事件序列必得逐字节相同 JSON；interrupted draft 进入 transcript/diagnostic，
 /// 不进入模型 surface，也不会伪装成完整 assistant 回答。
 pub fn project_session_facts(events: &[(StoredEvent, SessionFactEnvelope)]) -> SessionProjection {
+    project_session_facts_with_surface(events, None, None)
+}
+
+/// 在完整 transcript 投影上追加已提交的 compaction surface。
+/// surface 只替代模型上下文；transcript、诊断和中断草稿仍来自全部原始 typed facts。
+pub fn project_session_facts_with_surface(
+    events: &[(StoredEvent, SessionFactEnvelope)],
+    surface_sequence: Option<i64>,
+    surface_messages: Option<Vec<Message>>,
+) -> SessionProjection {
     let seed_index = events
         .iter()
         .rposition(|(_, envelope)| matches!(envelope.fact, SessionFact::LegacySeeded { .. }));
@@ -1386,6 +1396,15 @@ pub fn project_session_facts(events: &[(StoredEvent, SessionFactEnvelope)]) -> S
             false,
             false,
         );
+    }
+    if let (Some(sequence), Some(surface)) = (surface_sequence, surface_messages) {
+        let suffix: Vec<_> = events
+            .iter()
+            .filter(|(event, _)| event.sequence > sequence)
+            .cloned()
+            .collect();
+        let suffix_surface = project_session_facts(&suffix).surface_messages;
+        projection.surface_messages = surface.into_iter().chain(suffix_surface).collect();
     }
     projection
 }
@@ -2121,6 +2140,48 @@ mod tests {
             .list_latest_segment_facts("ses_test")
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn completed_compaction_surface_only_replaces_model_context() {
+        let store = store();
+        let original = vec![Message::user_text("原始事实"), assistant("原始回答")];
+        let surface = vec![Message::user_text("压缩后的 surface")];
+        let original_event = store
+            .append_event(
+                "ses_test",
+                "conversation.updated",
+                &json!({"messages": original}),
+            )
+            .unwrap();
+        let compaction = store
+            .append_compaction_transaction(
+                "ses_test",
+                "cmp-surface",
+                &json!({"digest":"原始事实"}),
+                &serde_json::to_value(&surface).unwrap(),
+            )
+            .unwrap();
+        let facts = vec![(
+            original_event,
+            envelope(
+                "seed",
+                None,
+                SessionFact::LegacySeeded {
+                    source_event_id: "legacy".into(),
+                    source_sequence: 1,
+                    source_hash: "hash".into(),
+                    messages: original.clone(),
+                },
+            ),
+        )];
+        let projection = project_session_facts_with_surface(
+            &facts,
+            Some(compaction[3].sequence),
+            Some(surface.clone()),
+        );
+        assert_eq!(projection.surface_messages, surface);
+        assert_eq!(projection.transcript_messages, original);
     }
 
     #[test]

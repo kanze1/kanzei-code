@@ -7133,3 +7133,25 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 当前暂存源码三 crate 回归全部通过：kanzei-core 217 passed、kanzei-app 209 passed、kanzei-tools 343 passed/1 ignored。该记录用于提交源码指纹门禁。
 - 收尾: 1787018083
 - 源码指纹: 2a677b0c7ff8cf18
+
+## T-1786922726350 发布树 cargo test --workspace [failed]
+- 命令: cargo test --workspace
+- 摘要: 发布树全量回归：kz 38、integration 32、kanzei-app 209、kanzei-base 20、kanzei-core 217、kanzei-harness 150、kanzei-llm 52、kanzei-memory 148 均通过；kanzei-tools 342 passed、1 failed、1 ignored，失败为 background::tests::场景越界_后台写托管文档被隔离回滚并归因到owner_且进程树被终止（越界终止后句柄未及时进入终态）。
+- 收尾: 1787018288
+
+## T-1786922726351 发布树后台隔离失败测试精确复跑 [passed]
+- 命令: cargo test -p kanzei-tools background::tests::场景越界_后台写托管文档被隔离回滚并归因到owner_且进程树被终止 -- --exact --nocapture
+- 摘要: 发布树精确复跑通过：1 passed；前一轮全量中唯一失败的越界后台隔离测试未复现。
+- 收尾: 1787018352
+
+## T-1786922726352 R-243 批3 core compaction 定向回归 [passed]
+- 命令: cargo test -p kanzei-core compaction -- --nocapture
+- 摘要: 16 passed：surface 仅消费已完成事务、跨边界 tool call/result 拒绝、连续两次压缩回放一致且首段实体保留、raw event 保持不变。
+- 关联: R-243
+- 收尾: 1787019069
+
+## T-1786922726353 R-243 批3 app surface 恢复定向回归 [passed]
+- 命令: cargo test -p kanzei-app latest_segment_recovers_completed_compaction_surface -- --nocapture
+- 摘要: 1 passed：app 最新 segment 重启恢复消费已完成 compaction surface。
+- 关联: R-243
+- 收尾: 1787019171

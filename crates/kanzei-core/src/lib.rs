@@ -25,10 +25,11 @@ pub use runner::{
     TaskCancellationGuard, TaskCancellations, TaskTrace,
 };
 pub use store::{
-    compare_shadow, prepare_typed_session, project_session_facts, project_session_id,
-    project_state_path, store_open_count, summarize_shadow_reports, AdmittedInput, Delivery,
-    EpisodeRecord, FunnelCounts, RecallEvent, RecallLinkStats, RecallMetrics, Session, SessionFact,
-    SessionFactEnvelope, SessionFactError, SessionInvariant, SessionProjection, SessionStore,
-    SessionTurnTerminal, ShadowComparison, ShadowVerdictStats, StoreError, StoredEvent,
-    StoredProcess, TypedSessionWriter, SUBAGENT_TRANSCRIPT,
+    compare_shadow, prepare_typed_session, project_session_facts,
+    project_session_facts_with_surface, project_session_id, project_state_path, store_open_count,
+    summarize_shadow_reports, AdmittedInput, Delivery, EpisodeRecord, FunnelCounts, RecallEvent,
+    RecallLinkStats, RecallMetrics, Session, SessionFact, SessionFactEnvelope, SessionFactError,
+    SessionInvariant, SessionProjection, SessionStore, SessionTurnTerminal, ShadowComparison,
+    ShadowVerdictStats, StoreError, StoredEvent, StoredProcess, TypedSessionWriter,
+    SUBAGENT_TRANSCRIPT,
 };
