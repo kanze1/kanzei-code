@@ -70,6 +70,29 @@ export default [
     },
   },
   {
+    // R-292:mobile-pwa(PWA 页面脚本 + service worker)独立覆盖——不在 ui/*.js 的
+    // 经典 script 共享作用域内,也不与 scripts/*.mjs 的 node 环境混。app.js 走
+    // 浏览器全局;sw.js 额外需要 service worker 宿主(self/caches/clients 等)。
+    files: ["crates/kanzei-app/mobile-pwa/*.js"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "script",
+      globals: {
+        ...globals.browser,
+        // service worker 宿主全局(sw.js);页面脚本 app.js 不需要但声明无害。
+        self: "readonly",
+        caches: "readonly",
+        clients: "readonly",
+        skipWaiting: "readonly",
+        Response: "readonly",
+      },
+    },
+    rules: {
+      "no-undef": "error",
+      "no-unused-vars": "off",
+    },
+  },
+  {
     // scripts/*.mjs 冒烟脚本自身:node 环境 + ESM
     files: ["scripts/*.mjs"],
     languageOptions: {

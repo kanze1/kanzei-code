@@ -45,7 +45,10 @@ Step-With-Timing "test" "test" {
     cargo test --workspace --manifest-path "$root\Cargo.toml"
 }
 Step-With-Timing "ui_syntax" "ui_syntax" {
-    $uiScripts = @(Get-ChildItem "$root\crates\kanzei-app\ui\*.js")
+    # R-292:覆盖范围扩到 mobile-pwa(app.js/sw.js)——PWA 与桌面 ui/*.js 同为
+    # 无门禁时代的漏网点,统一进 node --check。
+    $uiScripts = @(Get-ChildItem "$root\crates\kanzei-app\ui\*.js") +
+        @(Get-ChildItem "$root\crates\kanzei-app\mobile-pwa\*.js")
     if ($uiScripts.Count -eq 0) {
         throw "ui_syntax 失败:未找到 UI JavaScript 文件，空集合不得假绿"
     }
