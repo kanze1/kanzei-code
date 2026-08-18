@@ -24,18 +24,10 @@ use super::{
     non_interactive_decision, parse_allowlist, parse_run_args, resolve_run_prompt, usage, RunArgs,
 };
 
-pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
-    let RunArgs {
-        new_session,
-        readonly,
-        project_root: root_flag,
-        prompt,
-        allow,
-        prompt_file,
-        subagents_enabled,
-    } = parse_run_args(args);
+fn resolve_cli_input(args: &[String]) -> (RunArgs, String) {
+    let parsed = parse_run_args(args);
     // R-238 ②:prompt 真源解析(--prompt-file 与位置参数互斥,失败给出明确报错)。
-    let prompt = match resolve_run_prompt(&prompt, prompt_file.as_deref()) {
+    let prompt = match resolve_run_prompt(&parsed.prompt, parsed.prompt_file.as_deref()) {
         Ok(text) => text,
         Err(message) => {
             eprintln!("\x1b[31m{message}\x1b[0m");
@@ -47,6 +39,22 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         usage();
         std::process::exit(2);
     }
+    (parsed, prompt)
+}
+
+pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
+    let (
+        RunArgs {
+            new_session,
+            readonly,
+            project_root: root_flag,
+            prompt: _,
+            allow,
+            prompt_file: _,
+            subagents_enabled,
+        },
+        prompt,
+    ) = resolve_cli_input(args);
 
     let cwd = std::env::current_dir()?;
     // R-182:取根必须在配置加载**之前**——配置本身就挂在主根下面,
@@ -675,4 +683,20 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         std::process::exit(exit_code);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_cli_input;
+
+    #[test]
+    fn resolve_cli_input_preserves_parsed_flags_and_prompt() {
+        let args = vec!["--readonly".to_string(), "检查代码".to_string()];
+        let (parsed, prompt) = resolve_cli_input(&args);
+
+        assert!(parsed.readonly);
+        assert!(parsed.subagents_enabled);
+        assert_eq!(parsed.prompt, "检查代码");
+        assert_eq!(prompt, "检查代码");
+    }
 }
