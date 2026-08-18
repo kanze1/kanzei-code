@@ -118,7 +118,20 @@ pub(crate) fn metric_source(text: &str) -> FileMetric {
                     continue;
                 }
                 '"' => lx.in_string = true,
-                '\'' => lx.in_char = true,
+                '\'' => {
+                    // Rust lifetimes (`'static`, `'_`) begin with an identifier and
+                    // are not character literals. A character such as `'a'` has a
+                    // closing quote immediately after the one-character payload.
+                    let next = bytes.get(i + 1).copied();
+                    let after_next = bytes.get(i + 2).copied();
+                    let starts_lifetime = next
+                        .map(|byte| (byte as char).is_ascii_alphabetic() || byte == b'_')
+                        .unwrap_or(false)
+                        && after_next != Some(b'\'');
+                    if !starts_lifetime {
+                        lx.in_char = true;
+                    }
+                }
                 '{' => {
                     lx.brace_delta += 1;
                     lx.has_open_brace = true;
@@ -563,6 +576,21 @@ mod tests {
         assert_eq!(m.test_lines, 6);
         assert_eq!(m.prod_lines, m.total_lines - 6);
         assert_eq!(m.fn_count, 1); // 只有 prod
+    }
+
+    #[test]
+    fn lifetime_is_not_a_character_literal_and_does_not_end_cfg_test_block() {
+        let src = "#[cfg(test)]\n\
+                   mod tests {\n\
+                       fn helper() {\n\
+                           let value: &'static str = \"ok\";\n\
+                       }\n\
+                   }\n\
+                   fn prod() {}\n";
+        let m = metric_source(src);
+        assert_eq!(m.test_lines, 5);
+        assert_eq!(m.prod_lines, 2);
+        assert_eq!(m.fn_count, 1);
     }
 
     #[test]

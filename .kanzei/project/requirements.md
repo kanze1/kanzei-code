@@ -283,11 +283,11 @@
 - 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
-- 批次: 4/5
-- 进展: B4 已完成：将上下文预算域从 `crates/kanzei-core/src/runner/drive.rs:1176-1287` 原样迁移到 `crates/kanzei-core/src/runner/drive/context_budget.rs:1-114`；`drive.rs:19-21` 注册模块，`run_once_with_parts:226-238` 仍为唯一真实调用方，预算公式、prune→compact→trim 顺序和事件回调未改。T-1786922726445：`cargo fmt --all -- --check; cargo test -p kanzei-core`，220 passed、0 failed、0 ignored。T-1786922726446：metrics 重跑显示 `drive.rs` 1290→1180 生产行，最大函数 255，>7 参数函数 6→5，移出生产行巨石阈值；`background.rs` 仍为 1431 生产行。`docs/design/metrics_baseline.md:10-58` 已更新为 B4 的 229 文件/6 个巨石快照，T-1786922726447 重放 gate 通过（30 rows、6/6、允许回涨 100 行）。R-300 整体仍未完成：验收①尚有 background.rs 等 Top 目标；验收②为既有 B8 合流能力；验收③ gate 已接线并有 T-1786922726447，但完整 verify 尚未跑；验收④已有 T-1786922726443/T-1786922726446 对照。下一步 B5：选择并拆分剩余 Top 目标，优先复核 background.rs 当前真实边界。
-- observed_head: 701f59d330a709cc616ed415882a98e6140725f5
-- observed_worktree_hash: fnv1a64:e3be2c7b9435646d
-- recorded_at: 1787076735594
+- 批次: 5/5
+- 进展: B5 已完成并待提交：① D-544 根因位于 `crates/kanzei/src/cli/metrics.rs:102-122`，生命周期 `'static` 被误当字符字面量，导致 cfg(test) 配平提前结束；修复同文件字符扫描分支，区分 `'static`/`'_` 与 `'a'`/转义字符；② 回归测试位于 `metrics.rs:581-594`，T-1786922726449：`cargo fmt --all -- --check; cargo test -p kanzei`，单元 40、集成 32 全通过；③ T-1786922726450 重跑 `cargo run -p kanzei -- metrics --top 30`，background.rs 移出 Top-30，生产巨石 6→5；④ `docs/design/metrics_baseline.md:3,10-43,45-58` 更新为 B5 的 229 文件/5 巨石快照；⑤ 更新当前源码安装位 kz 后，T-1786922726452 重放 `scripts/metrics-regression-gate.ps1`：30 rows、巨石 5/5、单文件允许回涨 100 行通过。T-1786922726451 的 gate 失败确认为旧安装位 kz 版本不一致。R-300 仍 active：Top 目标拆解范围、前端合流既有能力复核、完整 verify 与最终全量验收尚未完成；下一步先提交 B5，再继续剩余验收。
+- observed_head: 836b46db36d825db862e52da8446f6a0db37df0f
+- observed_worktree_hash: fnv1a64:ff5676108c9077a6
+- recorded_at: 1787077453704
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 

@@ -7837,3 +7837,43 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300
 - 收尾: 1787076722
 - 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@f3df130c602b,crates/kanzei-core/src/runner/drive/context_budget.rs@c2c89996231a
+
+## T-1786922726448 R-300 B5 D-544 metrics 生命周期回归（首次失败） [failed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei
+- 时长: 15.0s
+- 摘要: 新增生命周期回归测试首次失败：实现通过既有 39 项测试，但新测试将 cfg(test) 块行数期望写成 6，实际为 5；失败位置 metrics.rs:591，待修正测试期望。
+- 关联: R-300 D-544
+- 收尾: 1787077039
+- 源码指纹: v2 crates/kanzei/src/cli/metrics.rs@07da6a1fdcdf
+
+## T-1786922726449 R-300 B5 D-544 metrics 生命周期修复定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei
+- 时长: 15.0s
+- 摘要: 修正回归期望值后，kanzei 定向测试与集成测试全绿：单元 40 passed、集成 32 passed、0 failed；生命周期扫描回归通过。
+- 关联: R-300 D-544
+- 收尾: 1787077109
+- 源码指纹: v2 crates/kanzei/src/cli/metrics.rs@9ab348a8141b
+
+## T-1786922726450 R-300 B5 D-544 metrics 真实口径复跑 [passed]
+- 命令: cargo run -p kanzei -- metrics --top 30
+- 时长: 10.0s
+- 摘要: 修复生命周期词法后真实 metrics 重跑：background.rs 从 Top-30 消失，生产巨石从 6 个降至 5 个；229 个 Rust 文件，drive.rs 保持 1180 生产行。
+- 关联: R-300 D-544
+- 收尾: 1787077135
+- 源码指纹: v2 crates/kanzei/src/cli/metrics.rs@9ab348a8141b
+
+## T-1786922726451 R-300 B5 metrics gate 重放（口径冲突） [failed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1 -Root (Get-Location).Path
+- 时长: 2.0s
+- 摘要: B5 gate 重放失败：gate 报 `phase_pipeline.rs` 基线 796、当前 923、超过允许回涨 100；此前 cargo run metrics 曾报告当前 796，需核对 gate 使用的 metrics 来源/基线快照。
+- 关联: R-300
+- 收尾: 1787077300
+- 源码指纹: v2 crates/kanzei/src/cli/metrics.rs@9ab348a8141b
+
+## T-1786922726452 R-300 B5 metrics gate 重放（更新 kz 后） [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1 -Root (Get-Location).Path
+- 时长: 1.1s
+- 摘要: 重新安装当前源码构建的 kz 后，真实 gate 通过：30 rows、巨石 5/5、单文件回涨允许 100 行；证实此前失败来自旧安装位二进制口径。
+- 关联: R-300 D-544
+- 收尾: 1787077400
+- 源码指纹: v2 crates/kanzei/src/cli/metrics.rs@9ab348a8141b

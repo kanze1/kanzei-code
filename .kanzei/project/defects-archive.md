@@ -6690,9 +6690,20 @@
 - 影响: R-300 验收③的真实回涨 gate 在 PowerShell provider-qualified 扩展路径下无法运行，verify 的 crate_sync 步骤会失败。
 - 来源: self-found：R-300 B3 重放 metrics regression gate。
 - 标签: 发布
-- refs: R-300
 - 优先级: P2
 - 进展: 关闭对账：①复现条件——扩展路径下 `Get-Location.Path` 产生 `Microsoft.PowerShell.Core\FileSystem::` 前缀，旧逻辑在 `scripts/metrics-regression-gate.ps1:9-14` 误报 baseline not found；②实现——`scripts/metrics-regression-gate.ps1:6-14` 先用大小写不敏感比较剥离 `Microsoft.PowerShell.Core\FileSystem::`，再沿用 `\\?\` 本地扩展路径归一化，未改变 baseline 解析、Top-30 比较或阈值；③回归——T-1786922726442 修复后通过，T-1786922726444 在更新后的 `docs/design/metrics_baseline.md` 下再次通过（30 rows、巨石 7/7、允许回涨 100 行）；④影响条款——R-300 验收③的真实 metrics gate 已恢复可重放，未发现剩余缺口。
 - observed_head: cdde95c95f929c2b8eb9cfca6e0da60abfcb02ae
 - observed_worktree_hash: fnv1a64:b1a66d834f3a9342
 - recorded_at: 1787076373538
+
+## D-544 metrics 词法扫描将 Rust 生命周期当字符字面量导致 cfg(test) 块提前结束 [fixed] (medium)
+- refs: R-300
+- 复现: `crates/kanzei-tools/src/background.rs:175` 使用 `&'static`；运行 `cargo run -p kanzei -- metrics --top 30` 显示 background.rs 总 1456、测试仅 25、生产 1431，实际内联 cfg(test) 模块延伸至文件末尾。根因是 `crates/kanzei/src/cli/metrics.rs:102-122` 将 `'` 一律进入字符状态，未区分 Rust 生命周期。
+- 影响: 度量器错误地把 background.rs 的约 1300 行测试计为生产行，Top-30 巨石榜单和回涨 gate 失真，可能诱导无意义的生产代码拆解或错误验收。
+- 来源: self-found：R-300 B5 复核 background.rs 真实边界。
+- 标签: 核心
+- 优先级: P2
+- 进展: 关闭对账：①根因——`crates/kanzei/src/cli/metrics.rs:102-122` 原词法扫描把 Rust 生命周期 `'static` 当字符字面量，导致 `background.rs:175` 的函数体花括号未计入 cfg(test) 配平；②修复——同文件字符分支区分 `'static`/`'_` 生命周期与 `'a'`/转义字符字面量；③自动化证据——`crates/kanzei/src/cli/metrics.rs:581-594` 新增 lifetime 回归，T-1786922726449：cargo fmt 与 cargo test -p kanzei，40 单元 + 32 集成通过；④真实口径证据——T-1786922726450：background.rs 从 Top-30 消失、巨石数降为 5；⑤门禁证据——T-1786922726452：更新当前源码安装位 kz 后 metrics gate 30 rows、5/5、单文件允许回涨 100 行通过。此前 T-1786922726451 的失败确认为旧安装位 kz 与当前源码版本不一致，非修复回归。
+- observed_head: 836b46db36d825db862e52da8446f6a0db37df0f
+- observed_worktree_hash: fnv1a64:ff5676108c9077a6
+- recorded_at: 1787077412502
