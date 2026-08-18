@@ -115,6 +115,11 @@ fn 协作式停止_置位令牌不立即终态化_队列仍即刻取消() {
     assert!(token.is_cancelled(), "停止令牌必须被置位");
     assert!(runtime.halt.lock().unwrap().is_none(), "令牌被 stop 取走");
     assert!(runtime.asks.lock().unwrap().is_empty(), "pending ask 被清");
+    assert_eq!(
+        runtime.stop_watchdogs.lock().unwrap().len(),
+        1,
+        "协作式停止必须保留 watchdog 句柄，不能静默 detach"
+    );
     assert!(
         runtime.running.load(Ordering::SeqCst),
         "协作式停止不立即翻 running——run 要自行收尾走轮末写回"
@@ -131,6 +136,20 @@ fn 兜底硬杀只认停止时那一代() {
     assert!(stale_run_needs_abort(7, 7, true), "同代且在跑:该硬杀");
     assert!(!stale_run_needs_abort(8, 7, true), "换代:新 run 不能被误杀");
     assert!(!stale_run_needs_abort(7, 7, false), "已收尾:无需硬杀");
+}
+
+#[test]
+fn 结束的_stop_watchdog句柄可被回收() {
+    use crate::state::reap_stop_watchdogs;
+    let runtime = SessionRuntime::default();
+    runtime
+        .stop_watchdogs
+        .lock()
+        .unwrap()
+        .push(std::thread::spawn(|| {}));
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    reap_stop_watchdogs(&runtime);
+    assert!(runtime.stop_watchdogs.lock().unwrap().is_empty());
 }
 
 #[test]

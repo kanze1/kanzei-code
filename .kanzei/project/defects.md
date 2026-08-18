@@ -37,11 +37,11 @@
 - 验收: 失败路径留 tracing;stop 兜底可观测;unreachable 带理由;截断有诊断;死抽象删除
 - 优先级: P3
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-513
-- 批次: 1/4
-- 进展: 批1/4 已完成，待提交：`crates/kanzei-core/src/store/session.rs` 已将 `open` 的 housekeeping 失败、housekeeping_at 写入失败、VACUUM 失败、过期迁移备份删除失败、覆盖旧备份删除失败分别改为带 `error`/`path`/上下文的 `tracing::warn!`；首次备份的 `NotFound` 仍不告警，保持既有正常语义。原有备份保留与 VACUUM 回归继续通过，T-1786922726326：`cargo fmt --all -- --check; cargo test -p kanzei-core`，227 passed。下一步批2：读取并修改 `crates/kanzei-app/src/state.rs` stop 兜底 detach 线程与句柄生命周期，补可观测回归。
-- observed_head: 3edaa4305fcdb1ddd481fd51c6226471709cc1ba
-- observed_worktree_hash: fnv1a64:18c5be4776ae1189
-- recorded_at: 1787013682764
+- 批次: 2/4
+- 进展: 批2/4 已完成并待提交：①`crates/kanzei-app/src/state.rs:135-155,503-517` 为每个 `SessionRuntime` 持有 stop watchdog `JoinHandle` 列表，避免兜底线程句柄静默丢弃；`reap_stop_watchdogs:666-681` 在下一次 stop 时 join 已完成线程并保留宽限期内线程。②`stop_runtime_and_finalize:686-761` 保持 30 秒宽限与 run_generation 代数保护，新增调度、已收敛/换代跳过、强制 abort、state.db 打开失败、轨迹补写、run handle 缺失的 tracing。③`crates/kanzei-app/src/process_tests.rs:72-129,138-152` 真实停止测试断言 watchdog 句柄被 runtime 持有，新增已结束句柄可回收测试。④T-1786922726328：`cargo fmt --all -- --check; cargo test -p kanzei-app` 207 passed；T-1786922726329 同命令按最终源码 208 passed，含新增生命周期断言。下一步批3：定位并给 CLI unreachable! 补充不可达原因与回归。
+- observed_head: dd654db5979f815571e956d6d7671c6325967017
+- observed_worktree_hash: fnv1a64:acaadcadd6a283da
+- recorded_at: 1787014195836
 
 ## D-525 D-506 多行 Mutex lock unwrap 漏网调用 [open] (medium)
 - 复现: D-506 初轮巡检只匹配同一行 `.lock().unwrap()`；复核发现 `crates/kanzei-app/src/run/persistence.rs:215` 与 `state.rs:623/766` 采用换行 `.lock()` + `.unwrap()`，仍会在 poisoned mutex 上 panic。

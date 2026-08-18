@@ -140,6 +140,8 @@ pub(crate) struct SessionRuntime {
     /// D-342:run 代数。兜底硬杀只对「停止时那一代」生效——宽限期内用户又发了
     /// 新任务时,代数已换,不得误杀新 run。
     pub(crate) run_generation: Arc<AtomicU64>,
+    /// D-513:停止兜底线程的句柄必须由 runtime 持有，避免线程被静默 detach；已完成句柄在下一次 stop 时回收。
+    pub(crate) stop_watchdogs: Arc<Mutex<Vec<std::thread::JoinHandle<()>>>>,
 }
 
 #[derive(Default)]
@@ -501,6 +503,7 @@ impl Default for SessionRuntime {
             task_cancellations: Arc::new(kanzei_core::TaskCancellations::default()),
             halt: Arc::new(Mutex::new(None)),
             run_generation: Arc::new(AtomicU64::new(0)),
+            stop_watchdogs: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -662,6 +665,22 @@ pub(crate) const STOP_GRACE_SECS: u64 = 30;
 /// 后按代数比对触发,不误杀停止后新开的 run。
 /// 关线/注销等终点动作请用 [`halt_runtime_immediately`](自 stop_runtime_and_finalize
 /// 拆出的旧路径)——那里随后就删工作树,不能让 run 多活 30 秒。
+/// D-513:回收已经结束的 stop watchdog，保留仍在宽限期内的线程句柄。
+pub(crate) fn reap_stop_watchdogs(runtime: &SessionRuntime) {
+    let mut watchdogs = runtime.stop_watchdogs.lock().unwrap();
+    let mut active = Vec::with_capacity(watchdogs.len());
+    for watchdog in watchdogs.drain(..) {
+        if watchdog.is_finished() {
+            if let Err(error) = watchdog.join() {
+                tracing::warn!(?error, "stop watchdog 线程回收失败");
+            }
+        } else {
+            active.push(watchdog);
+        }
+    }
+    *watchdogs = active;
+}
+
 pub(crate) fn stop_runtime_and_finalize(
     runtime: &Arc<SessionRuntime>,
     store: &kanzei_core::SessionStore,
@@ -669,6 +688,7 @@ pub(crate) fn stop_runtime_and_finalize(
     session_id: &str,
 ) -> Result<usize, kanzei_core::StoreError> {
     let _lifecycle = runtime.lifecycle.lock().unwrap();
+    reap_stop_watchdogs(runtime);
     let halt_token = runtime.halt.lock().unwrap().take();
     match halt_token {
         Some(token) if runtime.running.load(Ordering::SeqCst) => {
@@ -680,8 +700,13 @@ pub(crate) fn stop_runtime_and_finalize(
             let runtime_bg = Arc::clone(runtime);
             let state_path = state_path.to_path_buf();
             let session_bg = session_id.to_string();
-            // 兜底走独立线程(纯同步动作):不依赖 tauri/tokio 运行时,单测里也能构造。
-            std::thread::spawn(move || {
+            tracing::info!(
+                session_id,
+                generation,
+                grace_secs = STOP_GRACE_SECS,
+                "stop watchdog scheduled"
+            );
+            let watchdog = std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(STOP_GRACE_SECS));
                 let _lifecycle = runtime_bg.lifecycle.lock().unwrap();
                 if stale_run_needs_abort(
@@ -691,16 +716,35 @@ pub(crate) fn stop_runtime_and_finalize(
                 ) {
                     // 兜底:run 没能在宽限期内自行收尾(工具挂死等),回到硬杀,
                     // 轨迹/episode 先落库再 abort(与旧路径同序)。
-                    if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
-                        flush_live_run(&store, &session_bg, &runtime_bg.live, "halted");
+                    tracing::warn!(session_id = %session_bg, generation, "stop watchdog forcing abort");
+                    match kanzei_core::SessionStore::open(&state_path) {
+                        Ok(store) => {
+                            let flushed =
+                                flush_live_run(&store, &session_bg, &runtime_bg.live, "halted");
+                            tracing::info!(session_id = %session_bg, flushed, "stop watchdog flushed live run");
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                error = %error,
+                                path = %state_path.display(),
+                                session_id = %session_bg,
+                                "stop watchdog could not open state.db"
+                            );
+                        }
                     }
                     if let Some(handle) = runtime_bg.current_run.lock().unwrap().take() {
                         handle.abort();
+                        tracing::info!(session_id = %session_bg, "stop watchdog aborted run handle");
+                    } else {
+                        tracing::warn!(session_id = %session_bg, "stop watchdog found no run handle to abort");
                     }
                     runtime_bg.running.store(false, Ordering::SeqCst);
                     *runtime_bg.stage.lock().unwrap() = "空闲".into();
+                } else {
+                    tracing::debug!(session_id = %session_bg, generation, "stop watchdog observed run already settled or replaced");
                 }
             });
+            runtime.stop_watchdogs.lock().unwrap().push(watchdog);
             store.finalize_interrupt(session_id)
         }
         // 无活跃 run(或令牌已被上一轮收走):立即终态化,与旧行为一致。

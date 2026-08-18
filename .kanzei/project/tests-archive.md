@@ -6978,3 +6978,25 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-513
 - 收尾: 1787013784
 - 源码指纹: 815eb98416888b46
+
+## T-1786922726328 D-513 B2 kanzei-app 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 12.0s
+- 摘要: D-513 批2 stop watchdog 接线定向回归：kanzei-app 207 passed，0 failed；覆盖停止、进程生命周期、移动端与现有状态回归。
+- 关联: D-513
+- 收尾: 1787013981
+
+## T-1786922726329 D-513 B2 stop watchdog 生命周期回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 10.6s
+- 摘要: D-513 批2 stop watchdog 生命周期回归：kanzei-app 208 passed，0 failed；新增断言覆盖 stop 保留 watchdog 句柄及已结束句柄回收。
+- 关联: D-513
+- 收尾: 1787014046
+
+## T-1786922726330 D-513 B2 staged 源码定向回归 [passed]
+- 命令: cargo fmt --all; cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 12.5s
+- 摘要: 按 D-513 批2 staged 形态重跑：kanzei-app 207 passed，0 failed；覆盖 stop watchdog 句柄持有、已结束句柄回收及既有状态/进程回归。
+- 关联: D-513
+- 收尾: 1787014498
+- 源码指纹: 858c1eeea668fca3
