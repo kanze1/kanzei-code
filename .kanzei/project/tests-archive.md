@@ -7901,3 +7901,33 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-300
 - 收尾: 1787078210
 - 源码指纹: v2 crates/kanzei-core/src/store/typed.rs@5f1f2da9bda4,crates/kanzei-core/src/store/typed/projection.rs@8a8158c86407
+
+## T-1786922726456 R-300 B1 前端活动面板合流六项冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/*.js + crates/kanzei-app/mobile-pwa/*.js; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 时长: 14.8s
+- 摘要: 前端合流复核通过：全部 UI/PWA JavaScript 语法检查通过；parallel-lines、a11y、i18n、markdown、lint、runtime 六项冒烟全部通过。runtime 覆盖 25 个 ui/*.js 按序执行、2318 次 invoke、10 个主视图切换且 0 运行时错误。
+- 关联: R-300
+- 收尾: 1787078435
+
+## T-1786922726457 R-300 B2 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 51.4s
+- 摘要: R-300 大复杂度关闭前 workspace 全量测试通过：各 crate 与 doctest 全部通过；关键汇总 kanzei 40、kanzei-app 216、kanzei-core 220、kanzei-harness 150、kanzei-llm 55、kanzei-memory 149、kanzei-tools 346（含 1 ignored）。
+- 关联: R-300
+- 收尾: 1787078570
+
+## T-1786922726458 R-300 B2 D-546 verify 修复后洁净前置 [failed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify.ps1
+- 时长: 1.1s
+- 摘要: 修复后首次重跑在 verify 的源码洁净前置失败：预期修改 scripts/metrics-regression-gate.ps1 与 scripts/verify.ps1 尚未提交，因此未进入后续门禁；此前失败根因已登记 D-546。
+- 关联: R-300 D-546
+- 收尾: 1787078740
+- 源码指纹: v2 scripts/metrics-regression-gate.ps1@8a262abba976,scripts/verify.ps1@fcad2580fa88
+
+## T-1786922726459 R-300 B2 D-546 修复定向门禁 [passed]
+- 命令: node scripts/check-ps1-bom.mjs; node --check crates/kanzei-app/ui/*.js; node --check crates/kanzei-app/mobile-pwa/*.js; node scripts/ui-runtime-smoke.mjs
+- 时长: 8.6s
+- 摘要: D-546 修复后的定向复核通过：5 个 PowerShell 脚本 BOM 检查通过；桌面 UI 与 mobile-PWA JavaScript 语法检查通过；UI runtime 冒烟通过（25 个 ui/*.js、2318 次 invoke、10 个视图、0 错误）。
+- 关联: R-300 D-546
+- 收尾: 1787078835
+- 源码指纹: v2 scripts/metrics-regression-gate.ps1@8a262abba976,scripts/verify.ps1@8582f4e67845

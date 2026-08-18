@@ -28,3 +28,15 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787008359348
 - 阻塞: 真实重启验收需要关闭当前正在运行的已安装 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`；解除人：用户关闭当前 kzapp 窗口后，由 agent 重新启动同一安装位并回读持久化 auto state。
+
+## D-546 verify 前端语法集合与 PowerShell BOM 门禁误报失败 [open] (medium)
+- 复现: 执行 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify.ps1`：`scripts/metrics-regression-gate.ps1` 含中文但缺 UTF-8 BOM，`ui_syntax` 又报告未找到 UI JavaScript 文件；同一批 UI 文件逐个 `node --check` 可通过。
+- 影响: 真实 verify 无法产出全绿证据，R-300 不能按验收关闭；Windows PowerShell 5.1 可能无法正确解析 metrics gate，UI syntax 步骤对非空脚本集合产生假失败。
+- 来源: self-found：R-300 B2 关闭前真实 verify。
+- 标签: 流程
+- 进展: 根因已修复，待提交后最终 verify：① `scripts/metrics-regression-gate.ps1:1` 补 UTF-8 BOM；② `scripts/verify.ps1:4-14` 剥离 provider-qualified/扩展路径，`ui_syntax:80-91` 可枚举桌面 UI 与 mobile-PWA；③ 定向证据 `T-1786922726459`：D-408 BOM 检查、UI/PWA node --check、UI runtime 冒烟均通过；④ `T-1786922726458` 仅记录修复后未提交时被 verify 洁净前置拒绝，不能作为最终通过证据。
+- refs: R-300
+- 优先级: P1
+- observed_head: 1e79adbd9cca5d5850a4bdeb5fcc0f90bafabb77
+- observed_worktree_hash: fnv1a64:234649b693057728
+- recorded_at: 1787078829466

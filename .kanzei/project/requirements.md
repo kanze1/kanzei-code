@@ -283,11 +283,11 @@
 - 边界: 拆解不改行为;每批全冒烟+cargo test;闸门阈值宽松起步防误伤
 - 验收: Top 目标拆解落地;06-agent-panel 与 06-activity 合流;回涨闸门在 verify 生效;metrics 对照落 metrics_baseline.md
 - 优先级: P2
-- 批次: 6/6
-- 进展: B6 已完成并已提交 `1e79adbd`：① 在 `crates/kanzei-core/src/store/typed/projection.rs:10-438` 新增 projection/shadow 子模块，迁移 `SessionTurnTerminal`、`InterruptedAssistant`、`SessionProjection`、`project_session_facts*`、`compare_shadow*`、`ShadowVerdictStats` 与汇总函数；② `crates/kanzei-core/src/store/typed.rs:20-25` 注册模块并 re-export，`TypedSessionWriter::finish` 及 store/lib 对外调用面保持不变；③ `T-1786922726453`：`cargo fmt --all -- --check; cargo test -p kanzei-core`，220 passed、0 failed、0 ignored；④ `docs/design/metrics_baseline.md:3,10-59` 更新 B6 真实 Top-30：230 文件、5 个巨石，typed.rs 生产行 1630→1202、总行 2839→2411、函数 51→39；⑤ `T-1786922726454` 更新源码安装位后 gate 通过，`T-1786922726455` 以新基线重放 gate 仍通过：30 rows、巨石 5/5、单文件允许回涨 100 行。D-545 已在 `typed.rs:1200-1203` 对账 fixed。R-300 仍 active：typed.rs 仍比 1200 阈值高 2 行，剩余 Top 目标、前端合流最终复核、完整 verify 与大复杂度关闭前 workspace 全量验收未完成。
+- 批次: 2/2
+- 进展: B2 已完成实现与定向复核：① `scripts/metrics-regression-gate.ps1:1` 已补 UTF-8 BOM；② `scripts/verify.ps1:4-14` 统一剥离 `Microsoft.PowerShell.Core\\FileSystem::` 与 `\\?\\` 前缀，`ui_syntax:80-91` 保留桌面 UI + mobile-PWA 全量 `node --check`；③ `T-1786922726457`：`cargo test --workspace` 全量通过（各 crate：40/216/220/150/55/149/346，tools 1 ignored）；④ 定向复核 `T-1786922726459`：D-408 BOM 检查通过、UI/PWA 语法检查通过、UI runtime 冒烟通过；⑤ 首次真实 verify 暴露 D-546，记录为 `T-1786922726458`，因预期修复未提交而先被洁净前置拒绝。修复已完成，提交后重跑真实 verify；通过后逐条关闭 R-300 验收。
 - observed_head: 1e79adbd9cca5d5850a4bdeb5fcc0f90bafabb77
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787078303568
+- observed_worktree_hash: fnv1a64:234649b693057728
+- recorded_at: 1787078828926
 - R-300: 2/4
 - 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 
