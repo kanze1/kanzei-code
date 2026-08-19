@@ -8283,3 +8283,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-306
 - 收尾: 1787179581
 - 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@2f57305627e1,crates/kanzei-tools/src/tracker/actions.rs@9cb84bfe9cca,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@d5081b912cca
+
+## T-1786922726509 R-306 防复发闸门后 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 33.0s
+- 摘要: 闸门提交 fca4f204 后 workspace 全量通过：各 crate/integration 全绿，kanzei-tools 390 passed/0 failed/1 ignored；测试过程中 shell 对受管内存索引的写入被机制回滚，不影响源码测试结果。
+- 关联: R-306
+- 收尾: 1787179733
