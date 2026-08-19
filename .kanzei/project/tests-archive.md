@@ -8275,3 +8275,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: PowerShell 在启动 verify.ps1 前直接返回 `AuthorizationManager check failed`，脚本第 1 行及后续十步均未执行，未产出 dist/verification.json。
 - 关联: R-306
 - 收尾: 1787179318
+
+## T-1786922726508 R-306 observed_head 关闭祖先链闸门定向测试 [passed]
+- 命令: cargo fmt --all -- --check; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-tools close拒绝未进入当前祖先链的observed_head
+- 时长: 16.0s
+- 摘要: 新增 R-306 验收⑤关闭闸门测试通过：活动条目的 observed_head 不在当前 HEAD 祖先链时拒绝关闭并提示先收编；fmt 通过。
+- 关联: R-306
+- 收尾: 1787179581
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@2f57305627e1,crates/kanzei-tools/src/tracker/actions.rs@9cb84bfe9cca,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@d5081b912cca

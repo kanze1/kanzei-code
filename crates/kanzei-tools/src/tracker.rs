@@ -1228,6 +1228,45 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// R-306 验收⑤:未合并观测 head 的活动条目不得关闭。
+    #[tokio::test]
+    async fn close拒绝未进入当前祖先链的observed_head() {
+        let dir = std::env::temp_dir().join(format!("kz-close-ancestor-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut e = entry("R-001");
+        e.fields = vec![
+            ("标签".into(), "核心".into()),
+            ("批次".into(), "1/1".into()),
+            (
+                "observed_head".into(),
+                "0000000000000000000000000000000000000000".into(),
+            ),
+        ];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("不在当前 HEAD 祖先链"),
+            "{}",
+            out.content
+        );
+        assert!(
+            out.content.contains("拒绝关闭") && out.content.contains("收编"),
+            "{}",
+            out.content
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// R-232 验收③:close 幂等重入安全——已 done 条目再次 close 返回 no-op,
     /// 不再跑关闭门禁(前端冒烟/批次/分类断言),且文件字节不变。
     #[tokio::test]

@@ -3,7 +3,35 @@
 //! 这些函数只服务于 `tracker::actions`，单独成文件让 action 分发文件保留在可读规模，
 //! 不改变任何校验顺序、错误文本或序列化行为。
 
+use std::path::Path;
+use std::process::Command;
+
 use crate::docstore::{DocStore, Entry};
+
+/// R-306 验收⑤:关闭带仓库观测锚点的活动条目时，observed_head 必须已进入当前
+/// HEAD 祖先链。否则拒绝关闭，迫使调用方先完成收编或在条目里登记真实的收编处置。
+/// 已终态条目由 update_close 的幂等重入路径跳过本检查。
+pub(super) fn check_close_source_ancestry(entry: &Entry, cwd: &Path) -> Option<String> {
+    let observed_head = entry
+        .fields
+        .iter()
+        .find(|(key, _)| key == "observed_head")
+        .map(|(_, value)| value.trim())
+        .filter(|value| !value.is_empty())?;
+    let merged = Command::new("git")
+        .args(["merge-base", "--is-ancestor", observed_head, "HEAD"])
+        .current_dir(cwd)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if merged {
+        None
+    } else {
+        Some(format!(
+            "observed_head `{observed_head}` 不在当前 HEAD 祖先链，拒绝关闭；请先完成并记录收编，或保留条目继续推进。"
+        ))
+    }
+}
 
 /// R-229:收集关闭文本里的「剩余/其余 N 处」式分类断言声明的 N。
 /// 只认「剩余/其余 + 数字 + 处」的形态(允许空白),如「剩余 3 处」「其余 2 处」;

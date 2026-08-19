@@ -13,8 +13,8 @@ pub(crate) mod maintenance;
 mod action_helpers;
 use action_helpers::{
     archived_or_unknown, check_close_acceptance_reconciliation,
-    check_close_classification_evidence, field_diff_summary, render_line, unknown_id,
-    user_visible_fields,
+    check_close_classification_evidence, check_close_source_ancestry, field_diff_summary,
+    render_line, unknown_id, user_visible_fields,
 };
 
 pub(crate) fn list(
@@ -343,6 +343,11 @@ pub(crate) fn update_close(
     // key、smoke 断言过时(D-320 根因)。非前端标签条目不受影响(验收③)。
     // R-232:终态重入跳过——已关闭条目的再次 close 不是新关闭,不再要求冒烟。
     let action = input.action.clone();
+    if action == "close" && !already_terminal {
+        if let Some(ancestry_err) = check_close_source_ancestry(&entries[pos], &ctx.cwd) {
+            return ToolOutput::error(format!("{id} {ancestry_err}"));
+        }
+    }
     if action == "close" && !already_terminal {
         let tag = entries[pos]
             .fields
