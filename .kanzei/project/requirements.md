@@ -101,6 +101,7 @@
 - observed_worktree_hash: fnv1a64:00ea97ae7b316f67
 - recorded_at: 1787168115069
 - 取活依据: engine:唯一可执行 WIP 是 R-101，必须先恢复它
+- 停车: 排队:B4 桌面 E2 体量大,排在收口类条目(D-504/R-242/R-296/R-299)之后恢复;恢复人:agent
 
 ## R-242 会话投影真源切换与分段清空恢复 [doing]
 - refs: D-209 D-342 D-417 R-236 R-279 docs/design/deepseek_harness_upgrade.md
@@ -121,7 +122,7 @@
 - recorded_at: 1787000896795
 - 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
 - 对账: 2026-08-20 对账:停车前提 R-243 已 done 归档(compaction 追加事务已交付),停车解除;剩余动作=复核验收⑦(停止新增 conversation.updated 与最终 snapshot 只读回放,收口动作已移交 R-243 承接,确认其证据)后按验收①-⑥关闭
-- 停车: 
+- 停车: 排队:缺陷队列(D-486/D-504)收口后第一顺位恢复,复核验收⑦并关闭;恢复人:agent
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
@@ -250,7 +251,7 @@
 - 验收: run 主链关键路径有自动化断言;新增 command 有明确测试落点范式;cargo test 全绿并入 verify
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-296
-- 停车: 
+- 停车: 排队:R-242 收口后恢复,重跑 cargo test --workspace 全绿并入 verify;恢复人:agent
 - 进展: 已落地并提交 1e076db6：commands/run.rs 新增真实 episode/复杂度来源的 command 测试，run/mod.rs 新增真实 SessionStore 通知回放测试；cargo test -p kanzei-app 213 passed（T-1786922726379）。发布脚本 cargo test --workspace 在 kanzei-tools background 越界终止测试处 343 passed、1 failed（T-1786922726380），已登记 D-529；下一步修复并重跑全量。
 - observed_head: 9304ec92c35670db6a002feeddef0d31c6dc1bea
 - observed_worktree_hash: fnv1a64:441f9460a9730954
@@ -267,7 +268,7 @@
 - 验收: 契约覆盖高频 command;emit/listen 集合求差入冒烟;后端改事件名或字段名可被门禁捕获
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-299
-- 停车: 
+- 停车: 排队:R-296 收口后恢复后续批次;恢复人:agent
 - 对账: 2026-08-20 对账:p16 线(thread-line-1787020530803-1)提交已全部合入 dev(R-299 B1=7188ba76),停车点名的 ipc_contract.rs/ipc-contract.json/ipc-event-smoke.mjs/verify.ps1 均无未合并改动,停车解除;该 worktree 仅余 git.rs(+5)/ci.yml(+1) 未提交 WIP,处置归 R-306 B3;恢复动作=对账 B1 已入 dev 的证据后继续后续批次
 
 ## R-306 并行线交付收编:R-257/p13 线已关条目提交未合入 dev,冲突随演进扩大 [todo]
