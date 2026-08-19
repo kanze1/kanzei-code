@@ -6805,3 +6805,30 @@
 - observed_head: 55caf82465d191acff0797d857458e2c27f22874
 - observed_worktree_hash: fnv1a64:21584db526887bd7
 - recorded_at: 1787160411241
+
+## D-557 D-553 后端 elapsedMs 写入引用错误作用域导致 kanzei-app 无法编译 [fixed] (medium)
+- 复现: 执行 `cargo test -p kanzei-app`，编译报 `crates/kanzei-app/src/run/persistence.rs:494:30`：cannot find value `run_started` in this scope；当前 `elapsedMs` 写在 `finalize_round`，但 `run_started` 只在 coordinator 的前半段可用。
+- 影响: D-553 的后端耗时载荷改动无法编译，阻塞 kanzei-app 定向测试与提交；不影响已存在的前端冒烟。
+- 来源: self-found：D-553 实现后的定向 cargo test 编译输出，引用 D-553。
+- 标签: 后端
+- 验收: 后端 `kz:done` 可靠携带本轮真实 elapsedMs；`cargo test -p kanzei-app` 编译并测试通过。
+- refs: D-553
+- 优先级: P2
+- 进展: 已修复并验证：`crates/kanzei-app/src/run/coordinator.rs:409-414` 在已有 `run_started` 作用域计算 elapsed_ms，经 `FinalizeOutcome` 传入；`crates/kanzei-app/src/run/persistence.rs:54-59,309-312,493-496` 写入 `kz:done.elapsedMs`。验收「后端 kz:done 可靠携带本轮真实 elapsedMs」→上述实现；验收「cargo test -p kanzei-app 编译并测试通过」→T-1786922726474（218 passed, 0 failed）。来源 self-found 编译缺陷已闭环。
+- observed_head: d1cc00060b8e2540bd1c0309faa5d62d0efcfa26
+- observed_worktree_hash: fnv1a64:58a80e1d8f45fa6b
+- recorded_at: 1787161143867
+
+## D-553 kz:done 耗时用未初始化的本页 runStart 计算,打出纪元级秒数 [open] (small) [fixed]
+- refs: R-101
+- 复现: 2026-08-20 00:11 R-101 停止链路实测(marker R101_UIA_STOP_20260819161104335):手动停止并取消 2 条排队输入后,运行日志打出「运行完成: 6 轮, 耗时 1787155867.5s」——该值恰等于当时的 Date.now()/1000,即 runStart=0。根因: `crates/kanzei-app/ui/07-events.js:423` 的 kz:done 处理器用模块级 `runStart`(`03-shell.js:433` 初值 0)算耗时,而它只在 `08-compose.js:314` sendPrompt 路径经 startElapsed() 赋值;本页实例未经 sendPrompt 启动该轮时(页面/webview 重载后接管在跑会话、后端排队派发或鞭挞续跑的轮次)必现。后端 `kz:done` 载荷(`crates/kanzei-app/src/run/persistence.rs:488-503`)不带时长字段,前端无可信来源可退。
+- 影响: 运行日志耗时失真为 17.9 亿秒;长会话/停止链路 E2 无法以日志耗时作观测证据。仅显示层,不影响运行本身。
+- 来源: 用户截图(2026-08-20,R-101 停止链路 E2 现场);代码对照 self-confirmed。
+- 标签: 前端
+- 验收: kz:done 的耗时来源可信——后端载荷携带 elapsedMs(推荐,后端知道真实起点)或前端在 runStart=0 时退化为只报轮数不打绝对时长;补「页面重载后接管在跑会话」场景回归;运行日志不再出现纪元级耗时。
+- 优先级: P3
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-553 [tracker integrity degraded] D-555: invalid defect lifecycle [done]
+- 进展: 已逐项闭环并验证：①「kz:done 的耗时来源可信」→后端 `crates/kanzei-app/src/run/coordinator.rs:409-414` 从真实 run_started 计算并经 `FinalizeOutcome` 传递，`crates/kanzei-app/src/run/persistence.rs:54-59,309-312,493-496` 写入 `elapsedMs`；前端 `crates/kanzei-app/ui/03-shell.js:433-440` 优先换算后端值，`crates/kanzei-app/ui/07-events.js:423-425` 消费并记录，缺失且 runStart=0 时省略绝对耗时。②「页面重载后接管在跑会话回归」→`scripts/ui-runtime-smoke.mjs:1419-1423` 将 runStart 置 0 并断言无字段返回 null，T-1786922726475 通过。③「运行日志不再出现纪元级耗时」→`scripts/ui-runtime-smoke.mjs:4610-4621` 断言 elapsedMs=1234 输出 1.2s，T-1786922726475 通过。Rust 定向回归 T-1786922726474：kanzei-app 218 passed, 0 failed。
+- observed_head: d1cc00060b8e2540bd1c0309faa5d62d0efcfa26
+- observed_worktree_hash: fnv1a64:58a80e1d8f45fa6b
+- recorded_at: 1787161152691

@@ -411,6 +411,7 @@ pub(crate) async fn run_task(
             history_len,
             this_run_tools: &this_run_tools,
             auto_action_json: &auto_action_json,
+            elapsed_ms: run_started.elapsed().as_millis() as u64,
         },
         RoundReport {
             window,

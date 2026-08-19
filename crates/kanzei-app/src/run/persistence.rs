@@ -56,6 +56,7 @@ pub(crate) struct FinalizeOutcome<'a> {
     pub(crate) history_len: usize,
     pub(crate) this_run_tools: &'a std::collections::BTreeMap<String, usize>,
     pub(crate) auto_action_json: &'a serde_json::Value,
+    pub(crate) elapsed_ms: u64,
 }
 
 /// R-253 批7b:`finalize_round` 参数分组——**UI 汇报层**:事件投影窗口/进度闭包/
@@ -308,6 +309,7 @@ pub(crate) async fn finalize_round(
     let history_len = outcome.history_len;
     let this_run_tools = outcome.this_run_tools;
     let auto_action_json = outcome.auto_action_json;
+    let elapsed_ms = outcome.elapsed_ms;
     let config = &deps.config;
     let resolved = &deps.resolved;
     let client = &deps.client;
@@ -491,6 +493,7 @@ pub(crate) async fn finalize_round(
                 "steps": summary.steps,
                 "halted": summary.halted_by_user,
                 "history": history_len,
+                "elapsedMs": elapsed_ms,
                 "input": summary.usage.input,
                 "output": summary.usage.output,
                 "cacheRead": summary.usage.cache_read,

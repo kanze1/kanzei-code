@@ -43,15 +43,6 @@
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-552 [tracker integrity degraded] D-555: invalid defect lifecycle [done]
 - 阻塞: 真实 `-RunStopTest` 会向当前安装位 kzapp 发送测试 prompt 并改变用户会话；PID 50360 仍为用户进程，agent 不得强行接管或停止。解除人：用户关闭当前 kzapp 窗口，或提供可控的独立 kzapp 窗口后，由 agent 执行 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1 -RunStopTest` 并核销真实 send→stop→stop_run→kz:stopped。
 
-## D-553 kz:done 耗时用未初始化的本页 runStart 计算,打出纪元级秒数 [open] (small)
-- refs: R-101
-- 复现: 2026-08-20 00:11 R-101 停止链路实测(marker R101_UIA_STOP_20260819161104335):手动停止并取消 2 条排队输入后,运行日志打出「运行完成: 6 轮, 耗时 1787155867.5s」——该值恰等于当时的 Date.now()/1000,即 runStart=0。根因: `crates/kanzei-app/ui/07-events.js:423` 的 kz:done 处理器用模块级 `runStart`(`03-shell.js:433` 初值 0)算耗时,而它只在 `08-compose.js:314` sendPrompt 路径经 startElapsed() 赋值;本页实例未经 sendPrompt 启动该轮时(页面/webview 重载后接管在跑会话、后端排队派发或鞭挞续跑的轮次)必现。后端 `kz:done` 载荷(`crates/kanzei-app/src/run/persistence.rs:488-503`)不带时长字段,前端无可信来源可退。
-- 影响: 运行日志耗时失真为 17.9 亿秒;长会话/停止链路 E2 无法以日志耗时作观测证据。仅显示层,不影响运行本身。
-- 来源: 用户截图(2026-08-20,R-101 停止链路 E2 现场);代码对照 self-confirmed。
-- 标签: 前端
-- 验收: kz:done 的耗时来源可信——后端载荷携带 elapsedMs(推荐,后端知道真实起点)或前端在 runStart=0 时退化为只报轮数不打绝对时长;补「页面重载后接管在跑会话」场景回归;运行日志不再出现纪元级耗时。
-- 优先级: P3
-
 ## D-554 ps1_bom 门禁红:ui-desktop-uia.ps1 无 BOM 入库,提交侧闸门漏拦 [done] (small)
 - refs: R-101 D-408
 - 复现: 发布树 ff 至 3c123bd5 后跑 scripts/verify.ps1,ps1_bom 步骤失败:scripts/ui-desktop-uia.ps1 含 374 个中文字符缺 UTF-8 BOM。该文件由 cd4b6013(R-101 B2)新增入库,提交侧结构化 git 闸门未拦——疑因门禁跑在安装版 kzapp(123d0952 之前构建)上,不含 R-300 B2 0abdef53 修复后的 BOM/扩展路径检查(verify 侧与提交侧清单未真正对齐)。

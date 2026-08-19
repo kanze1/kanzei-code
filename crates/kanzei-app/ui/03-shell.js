@@ -433,6 +433,12 @@ function setStatus(text, isRunning) {
 let runStart = 0;
 let firstSignal = false;
 let elapsedTimer = null;
+function roundElapsedSeconds(reportedMs) {
+  const elapsedMs = Number(reportedMs);
+  if (Number.isFinite(elapsedMs) && elapsedMs >= 0) return elapsedMs / 1000;
+  if (runStart <= 0) return null;
+  return (Date.now() - runStart) / 1000;
+}
 function startElapsed() {
   runStart = Date.now();
   firstSignal = false;

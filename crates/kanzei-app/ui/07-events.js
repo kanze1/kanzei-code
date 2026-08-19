@@ -420,7 +420,9 @@ on("kz:done", async (e) => {
     "notice",
     `${t("完成")} · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? ` · ${t("按停止/拒绝收尾")}` : ""}`
   );
-  log(`${t("运行完成")}: ${p.steps} ${t("轮")}, ${t("耗时")} ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
+  const elapsedSeconds = roundElapsedSeconds(p.elapsedMs);
+  const duration = elapsedSeconds === null ? "" : ` · ${t("耗时")} ${elapsedSeconds.toFixed(1)}s`;
+  log(`${t("运行完成")}: ${p.steps} ${t("轮")}${duration}`);
   stopElapsed();
   notifyRunState(p.halted ? "stopped" : "completed", p.halted ? t("按停止/拒绝收尾") : `${t("完成")} ${p.steps} ${t("轮")}`);
   // kz:done 只是本轮结束，不是会话级 idle；排队输入或鞭挞续跑仍可能马上开始。

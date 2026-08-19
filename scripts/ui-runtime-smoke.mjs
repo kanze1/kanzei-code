@@ -1416,6 +1416,13 @@ try {
 await flush();
 assert(invokeLog.includes("projects_get"), `初始化未调用 projects_get(启动序列断裂),已见调用: ${invokeLog.join(",")}`);
 assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
+// D-553:页面重载后接管已在运行会话时，本页没有本地 runStart；不得把纪元时间当耗时。
+{
+  const reported = vm.runInContext("roundElapsedSeconds(1234)", sandbox);
+  assert(Math.abs(reported - 1.234) < 0.0001, `kz:done elapsedMs 未换算为秒: ${reported}`);
+  const afterReload = vm.runInContext("runStart = 0; roundElapsedSeconds(undefined)", sandbox);
+  assert(afterReload === null, `无本地 runStart 时不应生成绝对耗时: ${afterReload}`);
+}
 // R-147 使用手册:启动后随项目自动读取 docs/目录.md 渲染到对话区顶部;读取失败
 // (项目没有手册文件)时区块保持隐藏,不显示空壳、不遮挡对话。
 {
@@ -4600,7 +4607,7 @@ assert(listText("ask-title") === "Permission request", "权限标题二次切英
   );
   // 断言①b:轮末汇总(kz:done 携带 steps)→ 「本轮 N 次被拦」。
   const doneHandler = handlers.get("kz:done");
-  doneHandler?.({ payload: { sessionId: "sess-smoke", steps: 2 } });
+  doneHandler?.({ payload: { sessionId: "sess-smoke", steps: 2, elapsedMs: 1234 } });
   await flush();
   assert(
     [...document.querySelectorAll(".msg.notice")].some((n) =>
@@ -4608,6 +4615,10 @@ assert(listText("ask-title") === "Permission request", "权限标题二次切英
       n.textContent.includes("edit"),
     ),
     "轮末应汇总「本轮 N 次被拦(动作/资源清单)」",
+  );
+  assert(
+    /1\.2s/.test(byId.get("log-lines").textContent),
+    "kz:done 的 elapsedMs 未驱动真实运行日志耗时",
   );
   // 断言②:开启自动放行 → 状态栏常驻警示徽标可见;localStorage 持久化(模拟重启后仍可见)。
   const autoAllow = byId.get("auto-allow");

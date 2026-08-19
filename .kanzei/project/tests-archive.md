@@ -8027,3 +8027,24 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: AST 无错误；真实安装位 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe PID 50360 附着成功，顶层 Window/生产 prompt ValuePattern 往返通过，需求/缺陷视图→对话后 marker 保留，截图 398225 bytes，process_owned_by_test=false。未发送请求。
 - 收尾: 1787160390
 - 源码指纹: v2 scripts/ui-desktop-uia.ps1@083554b6ce72
+
+## T-1786922726473 D-553 前端耗时来源与页面重载回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/03-shell.js; node --check crates/kanzei-app/ui/07-events.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 摘要: 三个 JavaScript 文件语法通过；ui-runtime-smoke 通过：25 个 UI 脚本按序执行、2318 次 invoke、列表渲染与 10 个主视图切换通过，0 个运行时错误。新增 D-553 断言覆盖 elapsedMs=1234→1.234s 与 runStart=0 且无 elapsedMs 时返回空耗时。
+- 关联: D-553
+- 收尾: 1787160910
+- 源码指纹: v2 crates/kanzei-app/src/run/persistence.rs@d51da0b667d1,scripts/ui-runtime-smoke.mjs@edd9d781ee77
+
+## T-1786922726474 D-553 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: kanzei-app 定向测试编译成功并通过 218 个测试，0 failed、0 ignored；验证 `FinalizeOutcome.elapsed_ms` 传递到 `kz:done.elapsedMs` 的作用域修复。
+- 关联: D-553 D-557
+- 收尾: 1787161088
+- 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@a32b7d48d67e,crates/kanzei-app/src/run/persistence.rs@38c8e9fa6a1c,scripts/ui-runtime-smoke.mjs@edd9d781ee77
+
+## T-1786922726475 D-553 最终前端耗时回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/03-shell.js; node --check crates/kanzei-app/ui/07-events.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 摘要: 前端语法与运行时冒烟最终通过：25 个 UI 脚本、2318 次 invoke、10 个主视图切换、0 个运行时错误；elapsedMs 与 runStart=0 页面重载回归均通过。
+- 关联: D-553
+- 收尾: 1787161113
+- 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@a32b7d48d67e,crates/kanzei-app/src/run/persistence.rs@38c8e9fa6a1c,scripts/ui-runtime-smoke.mjs@edd9d781ee77
