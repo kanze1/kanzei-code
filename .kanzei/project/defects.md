@@ -46,3 +46,24 @@
 - 标签: 前端
 - 验收: kz:done 的耗时来源可信——后端载荷携带 elapsedMs(推荐,后端知道真实起点)或前端在 runStart=0 时退化为只报轮数不打绝对时长;补「页面重载后接管在跑会话」场景回归;运行日志不再出现纪元级耗时。
 - 优先级: P3
+
+## D-554 ps1_bom 门禁红:ui-desktop-uia.ps1 无 BOM 入库,提交侧闸门漏拦 [open] (small)
+- refs: R-101 D-408
+- 复现: 发布树 ff 至 3c123bd5 后跑 scripts/verify.ps1,ps1_bom 步骤失败:scripts/ui-desktop-uia.ps1 含 374 个中文字符缺 UTF-8 BOM。该文件由 cd4b6013(R-101 B2)新增入库,提交侧结构化 git 闸门未拦——疑因门禁跑在安装版 kzapp(123d0952 之前构建)上,不含 R-300 B2 0abdef53 修复后的 BOM/扩展路径检查(verify 侧与提交侧清单未真正对齐)。
+- 影响: dev 过不了 verify,发版链被卡(verify 不产出 verification.json,package 无从执行);该脚本在 Windows PowerShell 5.1 下会解析报错。
+- 注意: 主树该文件当前有 R-101 B3 未提交 WIP(-RunStopTest/Find-KzAutomationId 定位,修 D-552);BOM 修复应并入该线下次提交,不要在发布现场单独动这个文件,避免同文件两线冲突。
+- 来源: 2026-08-20 发版预检,verify 实测(发布树,commit 3c123bd5)。
+- 标签: 流程
+- 验收: 脚本重存 UTF-8 with BOM 后 verify ps1_bom 步骤绿;核对提交侧闸门为何漏拦新增 .ps1(gate_checklists_align 守护是否覆盖),给出拦截或豁免结论。
+- 优先级: P1
+- 状态: open
+
+## D-555 metrics 回涨闸对零改动的 phase_pipeline.rs 误报涨 127 行,基线口径漂移 [open] (medium)
+- refs: R-300
+- 复现: 发布树 ff 至 3c123bd5 后跑 scripts/verify.ps1,报 metrics regression gate failed: crates/kanzei-app/src/phase_pipeline.rs production lines grew 127 (baseline 796, current 923, allowance 100)。该文件在 build-123d0952..3c123bd5 区间零改动(最后触碰 ec6f6970);docs/design/metrics_baseline.md:31 基线行记 总 933/生产 796/测试 137,新口径量出生产 923——差值 127 与测试行数量级吻合,疑 R-300 B5(f28c8dc2「修复 metrics 生命周期口径并更新基线」)改口径后基线全表未按新口径重生成,该文件测试行被计入生产。
+- 影响: dev 自锁:文件没动却过不了自家闸门,发版链被卡;回涨闸在口径漂移下的数字不可信,真回涨与假回涨无法区分。
+- 来源: 2026-08-20 发版预检,verify 实测(发布树,commit 3c123bd5)。
+- 标签: 流程
+- 验收: 修口径(测试行识别)或按新口径重生成基线全表并逐文件说明差异;phase_pipeline.rs 零改动时 verify 绿;补「基线与量测同口径」守护(基线生成器与闸门共用同一计数实现),防止再漂。
+- 优先级: P1
+- 状态: open
