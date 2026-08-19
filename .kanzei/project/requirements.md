@@ -86,16 +86,16 @@
 
 - 拆批: 2026-08-08 用户定调「拆出能先做的部分」: **本轮可做**——harness 基座本身(仓库补 package.json、选定并接入 WebView 驱动、安全启动真实 UI、截图与断言框架、失败非零退出),以及不涉及多会话的 E2:D-060 手写内容保留与并发写入、D-086 task→subagent read 拦截、D-064 注入故障的 run_task 收尾、D-066 真实 Window/provider 停止。基座 + 四条 E2 交付即可关闭本条;R-086 已于本轮按 §1.2 可用即关闭关闭,原「并入 R-086 验收」的三条桌面 E2(D-051 桌面权限弹窗真实 UI、D-055 切回进程补发 pending ask、D-056 运行中切项目终态复位)留在本条目验收清单执行。
 
-- 进展: R-101 B3 代码已落地但真实停止 E2 尚未核销：`scripts/ui-desktop-uia.ps1:106-131` 的 `Wait-KzButtonReady` 每轮按生产 AutomationId 重新查找，失败回退真实 Name；`:213`/`:216` 使用显式参数定位 `send`/`stop`，避免 UIA 刷新与位置绑定导致 D-552。只读 UIA 枚举确认真实安装位 PID 50360 的 `send`/`stop` 均为 Button、Enabled=true、Offscreen=false；D-552 保持 open。T-1786922726472 原样命令 `Parser::ParseFile scripts/ui-desktop-uia.ps1; pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1` 通过：真实 Window、ValuePattern 往返、需求/缺陷→对话后 marker 保留、截图 398225 bytes、process_owned_by_test=false；未发送请求。D-556 重复 repoRoot 已修复并关闭。下一步：在不干扰用户会话的可控窗口执行 `-RunStopTest`，取得真实 send→stop→收尾证据；若仍失败继续修复 D-552。
+- 进展: R-101 B3 已提交 `d1cc0006`：`scripts/ui-desktop-uia.ps1:106-131` 每轮按生产 AutomationId 查找 `send`/`stop`，失败回退真实名称并重新读取 UIA 节点；`:213`/`:216` 使用显式参数。T-1786922726472 默认真实 UIA 回归通过（AST、真实 Window、ValuePattern 往返、需求/缺陷→对话 marker 保留、截图 398225 bytes、process_owned_by_test=false）；T-1786922726470 的停止 E2 因用户取消且当前用户进程不可安全接管未形成通过证据。D-552 保持 open；D-556 已按 `scripts/ui-desktop-uia.ps1:242-243` 与 T-1786922726472 关闭。下一步：阻塞解除后执行 `-RunStopTest`，若通过再继续 B4；若失败按 D-552 重新定位。
 - 状态纠正(2026-08-09): doing→todo。用户已挂起本条,实际不在推进中,却按旧 §1.1 口径占用 doing 名额,与 R-148 一起把 R-153 拒之门外(见 D-219)。恢复推进时再转 doing;挂起前提的小缺陷中 D-185/D-184 仍 open。
 
-- 阻塞: 
+- 阻塞: 真实 `-RunStopTest` 会向当前安装位 kzapp 发送测试 prompt 并改变用户会话；当前 PID 50360 为用户正在使用的进程，agent 不得强行接管或停止。解除人：用户关闭当前 kzapp 窗口，或提供可控的独立 kzapp 窗口后，由 agent 执行 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1 -RunStopTest` 并核销真实 send→stop→收尾。
 
 - 批次: 3/6
 - 技术路线: Windows 原生 UI Automation/真实 WebView2 用户路径已选定。基座通过 `scripts/ui-desktop-uia.ps1` 以 UIA 附着真实安装位 kzapp.exe、断言顶层 Window、通过生产 prompt 的 ValuePattern 写入/回读，并保存真实窗口截图；CDP/connectOverCDP 不再作为路线或验收条件。
-- observed_head: 55caf82465d191acff0797d857458e2c27f22874
-- observed_worktree_hash: fnv1a64:21584db526887bd7
-- recorded_at: 1787160432290
+- observed_head: d1cc00060b8e2540bd1c0309faa5d62d0efcfa26
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787160568281
 - 取活依据: engine:唯一可执行 WIP 是 R-101，必须先恢复它
 
 ## R-242 会话投影真源切换与分段清空恢复 [doing]
