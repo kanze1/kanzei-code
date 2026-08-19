@@ -8245,3 +8245,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-306 D-580
 - 收尾: 1787178221
 - 源码指纹: v2 crates/kanzei-tools/src/git.rs@855aed8b1d68,crates/kanzei-tools/src/git/commands.rs@397b40e4ec87
+
+## T-1786922726504 R-306 tool 域迁移 kanzei-tools 定向测试 [passed]
+- 命令: cargo fmt --all -- --check; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-tools
+- 时长: 34.0s
+- 摘要: tool 域迁移及 normalize_files 导出修复后 fmt 通过；kanzei-tools 389 passed, 0 failed, 1 ignored。
+- 关联: R-306 D-581
+- 收尾: 1787178589
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@7bb1dc13276c,crates/kanzei-tools/src/git/tool.rs@7d06469de782

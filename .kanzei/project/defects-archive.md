@@ -7049,3 +7049,29 @@
 - observed_head: 0d7137d61c9c998bf00fedce363f5fd201934126
 - observed_worktree_hash: fnv1a64:05540bf54de940fc
 - recorded_at: 1787177966147
+
+## D-580 R-306 commands 迁移遗留父模块 GIT_TIMEOUT 导致 Duration 未导入而编译失败 [fixed] (medium)
+- refs: R-306
+- 复现: 迁移 run_git 执行器到 `git/commands.rs` 后执行 `cargo test -p kanzei-tools`，`git.rs:19` 报 `cannot find type Duration`，父模块仍保留未使用的 `GIT_TIMEOUT`。
+- 影响: kanzei-tools 编译失败，commands 域迁移无法提交。
+- 来源: 本会话自发现：R-306 commands 域迁移后的定向测试复现
+- 标签: 核心
+- 验收: ①父模块不再保留迁出后的 GIT_TIMEOUT；②cargo fmt --all -- --check 通过；③cargo test -p kanzei-tools 通过；④迁移后的 timeout 常量仅由 commands 域持有并被 run_git_owned 使用
+- 优先级: P1
+- 进展: 验收对账：①父模块 `crates/kanzei-tools/src/git.rs:4-16` 已无 `GIT_TIMEOUT`/`Duration` 执行器遗留；②格式检查 `cargo fmt --all -- --check` 通过，证据 `T-1786922726503`；③`cargo test -p kanzei-tools` 通过（389 passed/0 failed/1 ignored），证据 `T-1786922726503`；④唯一 timeout 常量位于 `crates/kanzei-tools/src/git/commands.rs:8`，并由同文件 `run_git_owned:16-48` 调用。修复提交：`6fb5f50d`。
+- observed_head: 6fb5f50dbc7771faf06c36b306710ec063674a52
+- observed_worktree_hash: fnv1a64:d43d11b868d8b85b
+- recorded_at: 1787178625865
+
+## D-581 R-306 tool 域迁移未导出 normalize_files 导致既有调用方编译失败 [fixed] (medium)
+- refs: R-306
+- 复现: 工具适配层迁移后执行 `cargo test -p kanzei-tools`，git.rs 的 stage 逻辑和既有 normalize_files 单测共 9 处报 `cannot find function normalize_files`；实现已位于 git/tool.rs 但未向父模块导出。
+- 影响: kanzei-tools 编译失败，工具域迁移无法验证。
+- 来源: 本会话自发现：R-306 tool 域迁移后的定向编译复现
+- 标签: 核心
+- 验收: ①tool.rs 的 normalize_files 对父模块现有调用方提供 crate 内可见导出；②cargo fmt --all -- --check 通过；③cargo test -p kanzei-tools 通过；④既有路径安全与大小写测试继续由真实 GitTool 调用链使用该实现
+- 优先级: P1
+- 进展: 验收对账：①`crates/kanzei-tools/src/git/tool.rs:185-220` 的 `normalize_files` 已声明 `pub(crate)`，`crates/kanzei-tools/src/git.rs:13` 重新导出供父模块调用；②`cargo fmt --all -- --check` 通过，证据 `T-1786922726504`；③`cargo test -p kanzei-tools` 通过（389 passed/0 failed/1 ignored），证据 `T-1786922726504`；④真实调用方仍为 `git.rs:261` 的 stage 逻辑及 `git.rs` 既有路径安全/大小写测试，迁移未替换调用链。修复工作树代码尚未提交，需随 R-306 tool 域迁移提交。
+- observed_head: 6fb5f50dbc7771faf06c36b306710ec063674a52
+- observed_worktree_hash: fnv1a64:d43d11b868d8b85b
+- recorded_at: 1787178643227
