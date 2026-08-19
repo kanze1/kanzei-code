@@ -6973,3 +6973,16 @@
 - recorded_at: 1787168566813
 - 停车: 
 - 对账: 2026-08-20 对账:停车条件(R-242 建立真实 shadow 验证窗口)已满足——T-1786922726248 共 30 真实 turn、unknown=0、typed_write_errors=0,停车解除;剩余动作=在含 compaction 的真实会话再跑一次 kz shadow --mismatches,确认压缩后 legacy surface 计入 expected(compacted_snapshot)而非 unknown 后关闭
+
+## D-563 package.ps1 发布进度总数与实际步骤不一致 [fixed] (low)
+- 复现: 在发布树执行 `.scripts\package.ps1 -Ack 14 -Publish -VerificationPath <verification.json>`，输出步骤会出现 `[9/8]` 和 `[10/8]`。
+- 影响: 发布功能本身仍可完成，但活动面板/终端进度对用户显示错误总数，无法准确表达发布阶段和完成比例。
+- 来源: self-found：本次 build-85d7123d 云端发布实测。
+- 标签: 发布
+- 进展: 验收逐项对账：①“stepTotal 与实际 Step 调用数一致”：`scripts/package.ps1:13-19` 已将非 Publish 设为 8、Publish 设为 10；非 Publish 的 8 个调用位于 `scripts/package.ps1:44,79,94,104,119,132,142,164`，Publish 额外调用位于 `scripts/package.ps1:73,175`，与总数一致。②“输出不再出现当前总数之外的步骤编号”：同一 `Step` 实现 `scripts/package.ps1:17-19` 统一递增并输出 `$script:stepIndex/$script:stepTotal`，T-1786922726499 真实启动两种路径分别观测 `[1/8]`、`[1/10]`，旧的 `[9/8]`/`[10/8]` 越界条件已消除。③“非 Publish 与 Publish 两条通道都覆盖”：T-1786922726499 使用独立 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\package.ps1 -Ack -1` 与 `-Publish -Ack -1`，两条均在 Ack 门禁前输出预期总数后终止，未进入构建/发布副作用步骤；同记录另含 PowerShell AST 无错误。首次内联采集失败已记录为 T-1786922726498，根因是 throw 后父 PowerShell 提前终止，已由独立子进程复测纠正。
+- 验收: `scripts/package.ps1` 的 stepTotal 与实际 Step 调用数一致；发布输出不再出现当前总数之外的步骤编号；非 Publish 与 Publish 两条通道都需覆盖。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-563
+- observed_head: d5e61015b8a0a321255e7ebbf23bf2fd337081a2
+- observed_worktree_hash: fnv1a64:67a9e384eb9cb9e0
+- recorded_at: 1787168714364

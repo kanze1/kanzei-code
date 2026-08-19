@@ -8199,3 +8199,17 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 真实项目命令退出码 0；输出中的压缩后 surface 明确为 expected=true、class=compacted_snapshot（如 seq 157713、157742、158718、163051、163761），未将该类差异归入 unknown。全历史窗口仍有早期 unrelated unknown/typed_write_errors，故 CLI 全局统计仍为未达标，不作为历史数据清理证据。
 - 关联: D-486 R-242
 - 收尾: 1787168551
+
+## T-1786922726498 package.ps1 步数与语法 smoke [failed]
+- 命令: PowerShell AST parse + both `.scripts\package.ps1 -Ack -1` and `-Publish -Ack -1` smoke invocations
+- 摘要: 脚本 AST 解析通过，非 Publish 路径输出 `[1/8]`；但当前 PowerShell 内联采集在脚本 throw 后提前终止，未完成 Publish 路径断言，不能作为双路径验收证据。下一步改用独立 pwsh 子进程分别采集并断言。
+- 关联: D-563
+- 收尾: 1787168681
+- 源码指纹: v2 scripts/package.ps1@c642f83e9e6e
+
+## T-1786922726499 package.ps1 步数与语法 smoke [passed]
+- 命令: PowerShell AST parse; pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\package.ps1 -Ack -1; pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\package.ps1 -Publish -Ack -1
+- 摘要: AST 解析无错误；通过独立 pwsh 子进程分别启动两条真实脚本路径，在 Ack 门禁前分别输出 `[1/8]`（非 Publish）与 `[1/10]`（Publish），随后按预期因 Ack=-1 终止，未进入构建/发布副作用步骤。由实际 Step 调用计数可证明两种总数均覆盖完整流程。
+- 关联: D-563
+- 收尾: 1787168702
+- 源码指纹: v2 scripts/package.ps1@c642f83e9e6e

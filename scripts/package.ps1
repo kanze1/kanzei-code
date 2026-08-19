@@ -10,9 +10,9 @@ $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
 if (-not $env:HTTPS_PROXY) { $env:HTTPS_PROXY = "http://127.0.0.1:12000" }
 
-# 步进标注:发版全程 6~8 步,每步一行 [N/M],配合活动面板的实时输出流,
+# 步进标注:发版全程非 Publish 8 步、Publish 10 步,每步一行 [N/M],配合活动面板的实时输出流,
 # 长静默段(tauri build 数分钟)之前先说清"现在在哪一步、一共几步"。
-$script:stepTotal = if ($Publish) { 8 } else { 6 }
+$script:stepTotal = if ($Publish) { 10 } else { 8 }
 $script:stepIndex = 0
 function Step([string]$label) {
     $script:stepIndex += 1
