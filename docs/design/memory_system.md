@@ -124,3 +124,11 @@ SQLite 只存**可重建的派生物**:FTS5 全文索引、hits 统计、episode
 6. **并发**:不做跨进程文件锁;tmp+rename 原子替换 + 索引可重建 + 完整性门禁检测,竞争产生的冲突留给 agent 事后解决。
 7. **工具面(M1/M2)**:主 agent 挂 `memory_search`/`memory_note`(inbox 草稿投递)/`memory_stats`;manager 负责 `memory_add`/`memory_promote`/`memory_update`/`memory_merge`/`memory_stale` 及 inbox 批量、逐条销账；去重、provenance 与生命周期门禁在引擎侧强制。
 8. **注入(M1)**:INDEX 行(id+category+title+description)预算内常驻,替换现有 dev/memory source;"SOP 触发"不做魔法匹配,description 质量即触发器;M3 再加开跑时按 prompt 预检索的提示行。
+
+## 存量零证据 active 记忆处置(R-235,2026-08-20 用户拍板)
+
+project 域 28 条 provenance 门禁上线前产生的零证据 active 记忆(M-001~M-063 存量):**全部保留,存量豁免**。
+
+- 结论: 每条=保留;依据=门禁上线前既有资产,source 无机器可链接 run_id,历史回填=变相伪造不可行(R-213 处置口径)。
+- 代价: 这批条目不参与「用数据判断记忆是否改善决策」的计量(F(m) 漏斗对其无输入),接受不可计量。
+- 边界: 该豁免仅覆盖此 28 条存量;门禁上线后新增 active 条目仍必须携带证据,不得引用本节扩大豁免。

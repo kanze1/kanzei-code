@@ -62,7 +62,7 @@
 - 批次: 0/5
 - 状态: todo
 
-## R-235 存量 28 条零证据 active 记忆逐条复核:保留(存量豁免)或降级 candidate,用户拍板 [todo]
+## R-235 存量 28 条零证据 active 记忆逐条复核:保留(存量豁免)或降级 candidate,用户拍板 [done]
 - 优先级: P3
 - 内容: 对 28 条零证据 active 记忆逐条复核:保留(存量豁免,接受不可计量)或降级 candidate(严格符合无来源不入 active,代价是不可检索注入)。复核结果与依据落到 memory 系统设计文档或本条目关闭证据。
 - 复杂度: 小
@@ -70,7 +70,11 @@
 - 标签: 后端
 - 背景: R-213 盘点:state.db 311 条 episode、memory_sources 0 行,project 域 28 条 active 记忆(M-001~M-063)全部零证据(global 域无条目)。这些是 provenance 门禁上线前由用户/交互会话/manager 产生的既有资产,source 字段均无机器可链接的 run_id,历史回填=变相伪造,不可行。R-213 的处置定为存量豁免+文档化,但控制平面「用数据判断记忆是否改善决策」对这些条目无法计量,保留还是逐条降级应由用户拍板。
 - 验收: ①28 条清单逐条给出保留/降级结论与依据;②结论落地(设计文档或关闭证据);③如选择降级,操作后搜索不再命中 candidate 条目。
-- 阻塞: 用户: 28 条零证据 active 记忆保留(存量豁免)或降级 candidate 需用户逐条拍板,解除权不在 agent。解除动作: 用户给出拍板结论(全部保留 / 逐条降级清单)后按结论落地并关闭。解除人: 用户。
+- 阻塞: 
+- 进展: 2026-08-20 用户拍板:28 条零证据 active 记忆全部保留(存量豁免),接受不可计量。验收逐条:① 由用户执行——2026-08-20 用户整批拍板,每条结论=保留,依据=provenance 门禁上线前既有资产,历史回填=变相伪造不可行(R-213 处置口径);② 结论已落地 docs/design/memory_system.md:128-134(存量零证据 active 记忆处置节,含结论/代价/豁免边界);③ 验收降级: 原文「如选择降级,操作后搜索不再命中 candidate 条目」→实际未选择降级,无降级操作可验,条款不适用
+- observed_head: a8e75106b629441cc19963dd5667aee07a74339a
+- observed_worktree_hash: fnv1a64:fe5544b037ebfb8f
+- recorded_at: 1787168165447
 
 ## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [doing]
 - 复杂度: 大
@@ -86,16 +90,16 @@
 
 - 拆批: 2026-08-08 用户定调「拆出能先做的部分」: **本轮可做**——harness 基座本身(仓库补 package.json、选定并接入 WebView 驱动、安全启动真实 UI、截图与断言框架、失败非零退出),以及不涉及多会话的 E2:D-060 手写内容保留与并发写入、D-086 task→subagent read 拦截、D-064 注入故障的 run_task 收尾、D-066 真实 Window/provider 停止。基座 + 四条 E2 交付即可关闭本条;R-086 已于本轮按 §1.2 可用即关闭关闭,原「并入 R-086 验收」的三条桌面 E2(D-051 桌面权限弹窗真实 UI、D-055 切回进程补发 pending ask、D-056 运行中切项目终态复位)留在本条目验收清单执行。
 
-- 进展: R-101 B3 已提交 `d1cc0006`：`scripts/ui-desktop-uia.ps1:106-131` 每轮按生产 AutomationId 查找 `send`/`stop`，失败回退真实名称并重新读取 UIA 节点；`:213`/`:216` 使用显式参数。T-1786922726472 默认真实 UIA 回归通过（AST、真实 Window、ValuePattern 往返、需求/缺陷→对话 marker 保留、截图 398225 bytes、process_owned_by_test=false）；T-1786922726470 的停止 E2 因用户取消且当前用户进程不可安全接管未形成通过证据。D-552 保持 open；D-556 已按 `scripts/ui-desktop-uia.ps1:242-243` 与 T-1786922726472 关闭。下一步：阻塞解除后执行 `-RunStopTest`，若通过再继续 B4；若失败按 D-552 重新定位。
+- 进展: R-101 B3 已提交 d1cc0006:scripts/ui-desktop-uia.ps1:106-131 每轮按生产 AutomationId 查找 send/stop,失败回退真实名称并重新读取 UIA 节点;:213/:216 使用显式参数。T-1786922726472 默认真实 UIA 回归通过。 || 2026-08-20 B3 收口:用户关闭 kzapp 窗口后真实执行 -RunStopTest 通过——send→stop→settle 全链路 stop_requested=true/stop_settled=true,process_owned_by_test=true(冷启动自拉起,顺带修 D-564 冷启动 prompt 轮询),截图 464972 bytes;D-552/D-556/D-564 均已关闭。下一步:B4 按验收清单继续(权限弹窗、pending ask、切项目复位、run_task 收尾等桌面 E2)
 - 状态纠正(2026-08-09): doing→todo。用户已挂起本条,实际不在推进中,却按旧 §1.1 口径占用 doing 名额,与 R-148 一起把 R-153 拒之门外(见 D-219)。恢复推进时再转 doing;挂起前提的小缺陷中 D-185/D-184 仍 open。
 
-- 阻塞: 真实 `-RunStopTest` 会向当前安装位 kzapp 发送测试 prompt 并改变用户会话；当前 PID 50360 为用户正在使用的进程，agent 不得强行接管或停止。解除人：用户关闭当前 kzapp 窗口，或提供可控的独立 kzapp 窗口后，由 agent 执行 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1 -RunStopTest` 并核销真实 send→stop→收尾。
+- 阻塞: 
 
 - 批次: 3/6
 - 技术路线: Windows 原生 UI Automation/真实 WebView2 用户路径已选定。基座通过 `scripts/ui-desktop-uia.ps1` 以 UIA 附着真实安装位 kzapp.exe、断言顶层 Window、通过生产 prompt 的 ValuePattern 写入/回读，并保存真实窗口截图；CDP/connectOverCDP 不再作为路线或验收条件。
-- observed_head: d1cc00060b8e2540bd1c0309faa5d62d0efcfa26
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787160568281
+- observed_head: a8e75106b629441cc19963dd5667aee07a74339a
+- observed_worktree_hash: fnv1a64:00ea97ae7b316f67
+- recorded_at: 1787168115069
 - 取活依据: engine:唯一可执行 WIP 是 R-101，必须先恢复它
 
 ## R-242 会话投影真源切换与分段清空恢复 [doing]
@@ -116,8 +120,8 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787000896795
 - 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
-- 对账: 2026-08-18 对账:与 R-243 互锁(本条验收⑦「停止新增 conversation.updated」依赖 R-243 compaction 事务,R-243 又依赖本条)。收口顺序:本条以验收①-⑥(含⑤真实 30 turn 窗口)为关闭门禁,⑦的收口动作移交 R-243 验收承接
-- 停车: 让位 R-243 承接 compaction 追加事务：R-242 的 projection/reset 与验收①-⑥已完成，验收⑦明确需要 R-243 的 compaction 事务来停止新增 conversation.updated；R-243 收口后恢复本条复核最终 snapshot 只读回放并关闭。
+- 对账: 2026-08-20 对账:停车前提 R-243 已 done 归档(compaction 追加事务已交付),停车解除;剩余动作=复核验收⑦(停止新增 conversation.updated 与最终 snapshot 只读回放,收口动作已移交 R-243 承接,确认其证据)后按验收①-⑥关闭
+- 停车: 
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
@@ -142,7 +146,7 @@
 - 来源: 2026-08-14 用户观察——开新项目应先深度调研已有方案与设计,不适合从零开始;这是当前 coding agent 的通病(非得用户主动请求才去调研),直接影响自举质量。
 - 标签: 核心
 - 边界: 不是每条需求都调研,只在触发判据成立时启动;判据必须机械可判,不接受模型自行裁量「这算不算新方向」。websearch 轮次设上限,不做无限扩散爬取。本条只产出对照工件与开工门禁,不改 req/defect 状态机,也不自动把调研结论写成条目——那是 R-221 定调点4 的回流通道。
-- 阻塞: API 形态待拍板:验收要求 req refs 指向 .kanzei/research/<topic>/prior-art.md,现行通用 refs 契约只收 R-/D-/T- 编号;且首次 .kanzei/ 初始化无明确 topic 来源。解除动作:用户拍板扩展 refs 命名空间或新增独立 prior_art 字段,并确定三触发的 topic 来源(可参考 R-304 勘察工件落点约定)。解除人:用户。
+- 阻塞: 
 - 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-248
@@ -151,6 +155,7 @@
 - observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786960050685
+- 对账: 2026-08-20 用户拍板:API 形态=新增独立 prior_art 字段(不动通用 refs 契约,refs 仍只收 R-/D-/T- 编号);三触发的 topic 来源沿用 R-304 固化的 dev 勘察工件落点约定。停车/阻塞解除,按队列恢复批1
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
@@ -230,7 +235,7 @@
 - 验收: 生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED 四段有真实数据;控制面 F(m) 栏显示非空;deprecate 判定可被真实数据触发;回归测试
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-293
-- 停车: 让位协作线 p16：其当前变更集合包含 crates/kanzei-memory/src/memory/mod.rs 与 store.rs，而 R-293 的真实 outcome 写入方和聚合调度必须接入这些文件；待 p16 完成并清出后恢复，禁止覆盖并发实现。
+- 停车: p13 线(thread-line-1786851588846-1)的 D-409/D-396~D-401 提交未合入 dev,其变更集合含 crates/kanzei-memory/src/memory/store.rs 且 dev 侧 memory 文件已独立演进(R-286 B2/D-480);待 R-306 B1 完成 p13 线收编后恢复,禁止在未收编文件上叠写。解除人:agent(R-306 B1 后)
 - 进展: 设计冻结与只读勘察完成。已确认：kanzei-core/src/store/telemetry.rs:113-147 只有通用 record_memory_eval，funnel_counts:175-214 只消费 action_changed/outcome_improved 两个 arm；生产 action_changed 写入在 kanzei-memory/src/memory/mod.rs:715-730；F(m) 聚合由 replay.rs:284-316 调用 recompute_memory_effect，deprecate_candidates 在 core/src/store/eval.rs:322-349 依赖 memory_eval_agg。当前没有生产 outcome_improved 写入方或聚合调度。下一步：p16 清出 memory/mod.rs/store.rs 后，接真实 outcome 证据、调度 recompute 与回归测试。
 - observed_head: f461647ca8bc60ce91bf64c924da98a5ddbc2a2b
 - observed_worktree_hash: fnv1a64:441f9460a9730954
@@ -245,11 +250,12 @@
 - 验收: run 主链关键路径有自动化断言;新增 command 有明确测试落点范式;cargo test 全绿并入 verify
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-296
-- 停车: 让位 D-529 修复发布前 workspace 全量门禁失败；R-296 新增 run command 与 SQLite 落库边界测试已提交 1e076db6，待 D-529 修复后继续完成 cargo test 全绿并入 verify 的验收。
+- 停车: 
 - 进展: 已落地并提交 1e076db6：commands/run.rs 新增真实 episode/复杂度来源的 command 测试，run/mod.rs 新增真实 SessionStore 通知回放测试；cargo test -p kanzei-app 213 passed（T-1786922726379）。发布脚本 cargo test --workspace 在 kanzei-tools background 越界终止测试处 343 passed、1 failed（T-1786922726380），已登记 D-529；下一步修复并重跑全量。
 - observed_head: 9304ec92c35670db6a002feeddef0d31c6dc1bea
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787059362211
+- 对账: 2026-08-20 对账:停车前提 D-529 已 fixed 归档,停车解除;恢复动作=重跑 cargo test --workspace 全绿并入 verify,补齐验收后关闭
 
 ## R-299 IPC 与事件契约机械比对扩面 [doing]
 - refs: R-284
@@ -261,4 +267,16 @@
 - 验收: 契约覆盖高频 command;emit/listen 集合求差入冒烟;后端改事件名或字段名可被门禁捕获
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-299
-- 停车: 让位 R-300 收尾：协作线 p16 仍占用 crates/kanzei-app/src/ipc_contract.rs、scripts/ipc-contract.json、scripts/ipc-event-smoke.mjs、scripts/verify.ps1 等 IPC 契约扩面文件；本条不覆盖并发实现。p16 清出后按 work next 恢复。
+- 停车: 
+- 对账: 2026-08-20 对账:p16 线(thread-line-1787020530803-1)提交已全部合入 dev(R-299 B1=7188ba76),停车点名的 ipc_contract.rs/ipc-contract.json/ipc-event-smoke.mjs/verify.ps1 均无未合并改动,停车解除;该 worktree 仅余 git.rs(+5)/ci.yml(+1) 未提交 WIP,处置归 R-306 B3;恢复动作=对账 B1 已入 dev 的证据后继续后续批次
+
+## R-306 并行线交付收编:R-257/p13 线已关条目提交未合入 dev,冲突随演进扩大 [todo]
+- refs: R-257 D-396 D-397 D-398 D-399 D-400 D-401 D-409 R-293 R-299 R-283
+- 内容: 两条并行线的已归档交付只存在于分支:①thread-line-1786805363432-1(R-257 B2~B5,6 提交,head aa27e11b)——drive.rs/docstore.rs/git.rs/config.rs 按域拆分,dev 上四文件仍为巨石形态;②thread-line-1786851588846-1(p13,8 提交,head b4245f6c)——D-396~D-401/D-409 修复(跨树围栏三态快照、mtime 粗筛、写日志接线与回滚、浏览器工具错误通道、验收降级记录),dev 侧仅 inbox 分批经 D-480/R-286 独立演进,其余修复缺失。kz worktree merge-preview 实测冲突:R-257 线 6 文件(drive.rs/runner mod.rs/tool_exec.rs/docstore.rs/git.rs/ui-lint-globals.json);p13 线 9 文件(Cargo.lock/app memory.rs/inbox.rs/cross_tree.rs/plot_tool.rs/profiles.rs/cli memory.rs/ui-connectivity 两脚本)。拆批:B1 p13 线合并(缺陷修复优先,dev 独立演进文件以 dev 语义为准逐块对账);B2 R-257 线合并(零 API 面变更为验收);B3 三线脏 WIP 处置(p13 typed.rs +85 行、p16 git.rs +5/ci.yml +1、R-257 线 gen/schemas)与 worktree 清理;B4 防复发闸门:条目关闭时 observed_head 不在 dev 祖先链即拒绝关闭或强制登记收编任务
+- 复杂度: 大
+- 影响: dev 持续在冲突文件上推进(git.rs 的 D-553、memory 的 R-286/D-480、typed.rs 的 D-486),冲突面逐日扩大;R-293/R-299 因文件被分支占用而停车;D-396~D-401 修的越界围栏、写日志洞、浏览器工具假成功在 dev 运行态实际未修
+- 来源: 2026-08-20 主会话状态对账:已归档条目(R-257 done 6/6、D-396~D-401/D-409 fixed)的交付代码不在 dev,tracker 与实现相互矛盾,违反 R-283 验收④
+- 标签: 流程
+- 边界: 以 dev 为主干语义:同名功能 dev 已独立演进的以 dev 实现为准,分支侧只补 dev 缺失的修复点;不借机重构;R-257 拆分若冲突过大允许按文件降批合并并如实记录未收编残余
+- 验收: ①两线全部提交在 dev 祖先链(git merge-base --is-ancestor);②冲突解决后 cargo test --workspace 全绿且 verify 通过;③D-396~D-401/D-409/R-257 交付点在 dev 主树逐条抽查可见(cross_tree 三态 FileImage、record_write_log、浏览器 rpc 嵌套 error 透传、四文件拆分);④三处脏 WIP 逐一处置留痕;⑤防复发闸门有实测:未合并分支条目关闭被拒或强制登记收编
+- 优先级: P1
