@@ -128,3 +128,16 @@
 - 标签: 核心
 - 验收: ①连续 N 轮(建议 2~3)无文件改动、无提交、无 tracker 实质字段变化即熔断停鞭,输出零产出诊断并点名阻塞清单;②现场案例成回归:模拟连续零产出轮次触发熔断;③熔断事件留痕可审计
 - 优先级: P1
+
+## D-584 kanzei-tools 测试清空进程级 PATH,与并行 git 测试竞态导致门禁随机红 [fixing] (medium)
+- refs: R-306 D-394
+- 复现: verify 门禁 test 步骤偶发:git::tests::stage_leaves_foreign_changes_unstaged_and_names_them 报 cannot run git: program not found(git.rs:1489);根因 browser_tool.rs 缺node诊断明确(无 #[serial])与 latex_tool.rs with_empty_path 用 std::env::set_var 清空进程级 PATH,cargo test 同进程多线程,窗口内任何按名拉起 git/node 的并行测试即 not found;#[serial] 只互斥 serial 组内测试,拦不住组外并行
+- 影响: workspace 全量与 verify 发版门禁带随机炸点,同一提交可红可绿,证据可信度受损
+- 来源: 2026-08-20 R-306 发版前 verify 实测首次命中(389 passed/1 failed),主会话定位
+- 标签: 后端
+- 验收: ①browser_tool/latex_tool 测试不再修改进程级 PATH(注入缝:参数化或 thread_local 覆写);②原有 Missing/缺失分支断言语义不变全绿;③workspace 全量绿;④全库无残留 set_var(PATH) 测试污染源
+- 优先级: P1
+- 进展: 修复落地:browser_tool find_node 参数化为 find_node_in(explicit,path)+which_in(path,name),缺node诊断测试改走注入缝不再动环境;latex_tool 增 PATH_OVERRIDE thread_local 注入缝(lookup_path),with_empty_path 改线程级覆写,进程级 set_var(PATH) 全库清零。定向测试:latex_tool 11 passed、browser_tool 5 passed、git stage 测试 1 passed,clippy -p kanzei-tools 干净。待 verify 全量绿后终态
+- observed_head: fca4f204e65b6306a0b1ad0faae5b4a63b69f368
+- observed_worktree_hash: fnv1a64:f0aaca39015313ba
+- recorded_at: 1787183423221

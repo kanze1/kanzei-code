@@ -267,22 +267,31 @@ fn registry() -> &'static HelperRegistry {
 
 /// 找 Node 可执行文件:环境变量或 PATH。
 fn find_node() -> Option<String> {
-    if let Ok(explicit) = std::env::var("KANZEI_NODE") {
+    find_node_in(
+        std::env::var("KANZEI_NODE").ok(),
+        &std::env::var("PATH").unwrap_or_default(),
+    )
+}
+
+/// 纯函数内核:显式路径(KANZEI_NODE)优先,否则按给定 PATH 探测。
+/// D-584:测试模拟"无 node"必须走这条注入缝,不得清进程级 PATH——
+/// cargo test 同进程多线程,清 PATH 会让并行测试按名拉起 git/node 时误报 not found。
+fn find_node_in(explicit: Option<String>, path: &str) -> Option<String> {
+    if let Some(explicit) = explicit {
         if !explicit.is_empty() {
             return Some(explicit);
         }
     }
     // PATH 探测 node.exe / node.cmd(pwsh 下 .cmd 也要试)。
     for name in ["node", "node.exe"] {
-        if let Ok(path) = which(name) {
-            return Some(path);
+        if let Ok(found) = which_in(path, name) {
+            return Some(found);
         }
     }
     None
 }
 
-fn which(name: &str) -> Result<String, String> {
-    let path = std::env::var("PATH").unwrap_or_default();
+fn which_in(path: &str, name: &str) -> Result<String, String> {
     for dir in path.split(';') {
         if dir.is_empty() {
             continue;
@@ -703,21 +712,17 @@ mod tests {
         assert!(url.contains("browser_tool.rs"), "{url}");
     }
 
-    /// 缺 Node 诊断:构造一个不可能存在的 Node 路径,工具必须给明确指引而非静默。
+    /// 缺 Node 诊断:无 KANZEI_NODE 且 PATH 为空时 find_node 必须返回 None
+    /// (→ with_helper 报缺 Node)。D-584:走注入缝,不改进程级 PATH。
     #[test]
     fn 缺node诊断明确() {
-        // 通过临时替换 PATH 模拟无 node——不易在测试里改全局 PATH,这里验证
-        // find_node 在空 PATH 下返回 None(→ with_helper 报缺 Node)。
-        let empty_path = std::env::var_os("PATH").unwrap_or_default();
-        // 保存后临时置空,测完恢复。
-        std::env::remove_var("KANZEI_NODE");
-        std::env::set_var("PATH", "");
-        let found = find_node();
-        std::env::set_var("PATH", empty_path);
+        let found = find_node_in(None, "");
         assert!(
             found.is_none(),
             "空 PATH 下 find_node 应返回 None,实得 {found:?}"
         );
+        // KANZEI_NODE 显式为空串时同样落回 PATH 探测。
+        assert!(find_node_in(Some(String::new()), "").is_none());
     }
 
     /// 移动 viewport 预设解析:命中返回宽高,未知名返回 None(默认桌面)。

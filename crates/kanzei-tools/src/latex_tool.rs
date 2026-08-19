@@ -116,8 +116,25 @@ pub(crate) enum TeXBackend {
 }
 
 /// 在 PATH 里找可执行文件(Windows 下补 .exe)。
+#[cfg(test)]
+thread_local! {
+    /// D-584 测试注入缝:当前线程的 PATH 替身。测试模拟"无后端"不得清进程级
+    /// PATH——cargo test 同进程多线程,清 PATH 会让并行测试按名拉起 git 等
+    /// 可执行时误报 not found;线程级覆写只影响本测试线程。
+    static PATH_OVERRIDE: std::cell::RefCell<Option<String>> =
+        std::cell::RefCell::new(None);
+}
+
+fn lookup_path() -> String {
+    #[cfg(test)]
+    if let Some(path) = PATH_OVERRIDE.with(|o| o.borrow().clone()) {
+        return path;
+    }
+    std::env::var("PATH").unwrap_or_default()
+}
+
 fn which_in_path(name: &str) -> Option<String> {
-    let path = std::env::var("PATH").unwrap_or_default();
+    let path = lookup_path();
     for dir in path.split(';') {
         if dir.is_empty() {
             continue;
@@ -540,17 +557,13 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// D-394:临时清空 PATH(指向空目录)——detect_backend/pdf_to_png 的 which_in_path
-    /// 查不到任何后端,走真生产 Missing/缺失分支。进程级副作用,须 #[serial] 隔离
-    /// 且立即恢复(窗口 ms 级)。
+    /// D-394/D-584:线程级 PATH 覆写为空——detect_backend/pdf_to_png 的 which_in_path
+    /// 查不到任何后端,走真生产 Missing/缺失分支。走 PATH_OVERRIDE 注入缝,
+    /// 不改进程级 PATH,并行测试拉起 git/node 不再被误伤。
     fn with_empty_path<T>(f: impl FnOnce() -> T) -> T {
-        let saved = std::env::var("PATH").unwrap_or_default();
-        let empty = std::env::temp_dir().join(format!("kz-empty-path-{}", std::process::id()));
-        std::fs::create_dir_all(&empty).unwrap();
-        std::env::set_var("PATH", &empty);
+        PATH_OVERRIDE.with(|o| *o.borrow_mut() = Some(String::new()));
         let result = f();
-        std::env::set_var("PATH", &saved);
-        std::fs::remove_dir_all(&empty).ok();
+        PATH_OVERRIDE.with(|o| *o.borrow_mut() = None);
         result
     }
 
