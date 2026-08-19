@@ -8139,3 +8139,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-305
 - 收尾: 1787164043
 - 源码指纹: v2 crates/kanzei-app/src/agent_directory.rs@5affaf978d58,crates/kanzei-app/src/main.rs@b8eeef076b7d,scripts/ui-runtime-smoke.mjs@06217753b526
+
+## T-1786922726489 R-305 B2 策略配置与 runner 强制定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-llm; cargo test -p kanzei-core; cargo test -p kanzei-app
+- 时长: 35.0s
+- 摘要: B2 定向验证通过：cargo fmt 检查通过；kanzei-llm 55/55（自定义 rate_limit_retries=1 的真实 HTTP 重试只发 2 次请求）；kanzei-core 220/220；kanzei-app 221/221（策略配置保存、子代理预算字段和既有 phase pipeline 回归）。
+- 关联: R-305
+- 收尾: 1787164380
+- 源码指纹: v2 crates/kanzei-app/src/settings.rs@4ccf5fbc13e4,crates/kanzei-app/src/subagents.rs@163550aaec1a,crates/kanzei-core/src/runner/drive.rs@6449f71641dc,crates/kanzei-llm/src/client.rs@240d692e2345

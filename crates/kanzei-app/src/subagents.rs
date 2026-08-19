@@ -106,7 +106,7 @@ pub(crate) async fn quick_req(
         };
         let runner_config = RunnerConfig {
             model: resolved.model.clone(),
-            max_tokens: 2048,
+            max_tokens: config.limits.subagent_max_tokens(),
             reasoning: kanzei_llm::ReasoningEffort::Off,
             service_tier: config.service_tier_for(&resolved),
             context_limit: resolved.provider.context_limit,
@@ -277,7 +277,7 @@ pub(crate) async fn idea_split_with_coordinator(
         };
         let runner_config = RunnerConfig {
             model: resolved.model.clone(),
-            max_tokens: 2048,
+            max_tokens: config.limits.subagent_max_tokens(),
             reasoning: kanzei_llm::ReasoningEffort::Off,
             service_tier: config.service_tier_for(&resolved),
             context_limit: resolved.provider.context_limit,
@@ -703,7 +703,7 @@ pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewRes
             }
         };
         let runner_config = RunnerConfig {
-            max_tokens: config.limits.max_tokens(),
+            max_tokens: config.limits.subagent_max_tokens(),
             reasoning: kanzei_llm::ReasoningEffort::Off,
             service_tier: config.service_tier_for(&resolved),
             context_limit: resolved.provider.context_limit,

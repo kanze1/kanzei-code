@@ -153,6 +153,29 @@ impl LlmClient {
         &self,
         route: &Route,
         request: &LlmRequest,
+        on_retry: F,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<LlmEvent, LlmError>> + Send>>, LlmError>
+    where
+        F: FnMut(u32, std::time::Duration),
+    {
+        self.stream_with_retry_notice_with_limits(
+            route,
+            request,
+            MAX_TRANSPORT_RETRIES,
+            MAX_RATE_LIMIT_RETRIES,
+            on_retry,
+        )
+        .await
+    }
+
+    /// 与 [`stream_with_retry_notice`] 相同,但由调用方提供流建立前的两类重试上限。
+    /// 传入 0 表示不重试；默认入口仍使用兼容旧行为的常量。
+    pub async fn stream_with_retry_notice_with_limits<F>(
+        &self,
+        route: &Route,
+        request: &LlmRequest,
+        transport_retries: u32,
+        rate_limit_retries: u32,
         mut on_retry: F,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<LlmEvent, LlmError>> + Send>>, LlmError>
     where
@@ -198,7 +221,7 @@ impl LlmClient {
             match rb.send().await {
                 Ok(response)
                     if pre_stream_retryable_status(response.status().as_u16())
-                        && rate_limit_attempt < MAX_RATE_LIMIT_RETRIES =>
+                        && rate_limit_attempt < rate_limit_retries =>
                 {
                     rate_limit_attempt += 1;
                     let retry_after = response
@@ -217,7 +240,7 @@ impl LlmClient {
                     tokio::time::sleep(delay).await;
                 }
                 Ok(r) => break r,
-                Err(e) if attempt < MAX_TRANSPORT_RETRIES && (e.is_connect() || e.is_timeout()) => {
+                Err(e) if attempt < transport_retries && (e.is_connect() || e.is_timeout()) => {
                     attempt += 1;
                     let delay = transport_retry_delay(attempt);
                     on_retry(attempt, delay);
@@ -311,12 +334,12 @@ mod tests {
         let requests = Arc::new(Mutex::new(0usize));
         let server_requests = requests.clone();
         let server = tokio::spawn(async move {
-            for attempt in 1..=3 {
+            for attempt in 1..=2 {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut request = vec![0u8; 4096];
                 let _ = socket.read(&mut request).await.unwrap();
                 *server_requests.lock().unwrap() += 1;
-                let response = if attempt < 3 {
+                let response = if attempt < 2 {
                     "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 0\r\nContent-Length: 9\r\nConnection: close\r\n\r\ntry later"
                         .to_string()
                 } else {
@@ -345,7 +368,7 @@ mod tests {
         let retries = Arc::new(Mutex::new(Vec::new()));
         let retry_log = retries.clone();
         let mut stream = client
-            .stream_with_retry_notice(&route, &request, move |attempt, delay| {
+            .stream_with_retry_notice_with_limits(&route, &request, 2, 1, move |attempt, delay| {
                 retry_log.lock().unwrap().push((attempt, delay));
             })
             .await
@@ -358,8 +381,8 @@ mod tests {
         }
         server.await.unwrap();
 
-        assert_eq!(*requests.lock().unwrap(), 3);
-        assert_eq!(retries.lock().unwrap().len(), 2);
+        assert_eq!(*requests.lock().unwrap(), 2);
+        assert_eq!(retries.lock().unwrap().len(), 1);
         assert_eq!(text, "ok");
     }
 }

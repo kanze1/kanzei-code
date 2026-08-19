@@ -915,6 +915,42 @@ mod tests {
     }
 
     #[test]
+    fn 策略面板保存的子代理预算与重试上限进入运行时配置() {
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-strategy-limits-{}.toml",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut payload = 空载荷(vec![]);
+        payload.limits = LimitsPayload {
+            max_tokens: Some(12_000),
+            subagent_max_tokens: Some(3_000),
+            subagent_timeout_secs: Some(17),
+            context_budget_ratio: Some(0.6),
+            recent_verbatim_ratio: Some(0.4),
+            max_tasks_per_turn: Some(3),
+            max_parallel_tools: Some(2),
+            transport_retries: Some(1),
+            rate_limit_retries: Some(0),
+            stream_restarts: Some(4),
+        };
+        settings_save_at_path(payload, &path).unwrap();
+        let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.limits.subagent_max_tokens(), 3_000);
+        assert_eq!(saved.limits.subagent_timeout_secs(), 17);
+        assert_eq!(saved.limits.context_budget_ratio(), 0.6);
+        assert_eq!(saved.limits.recent_verbatim_ratio(), 0.4);
+        assert_eq!(saved.limits.max_tasks_per_turn(), 3);
+        assert_eq!(saved.limits.max_parallel_tools(), 2);
+        assert_eq!(saved.limits.transport_retries(), 1);
+        assert_eq!(saved.limits.rate_limit_retries(), 0);
+        assert_eq!(saved.limits.stream_restarts(), 4);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn 界面语言显式保存_未设置时不落盘默认键() {
         let path = std::env::temp_dir().join(format!(
             "kanzei-language-{}.toml",

@@ -492,13 +492,22 @@ async fn stream_request_step(
             service_tier: config.service_tier.clone(),
         };
         let mut stream = match client
-            .stream_with_retry_notice(route, &request, |attempt, delay| {
-                on_event(RunEvent::Retry {
-                    attempt,
-                    max: kanzei_llm::client::MAX_TRANSPORT_RETRIES,
-                    delay_ms: delay.as_millis(),
-                });
-            })
+            .stream_with_retry_notice_with_limits(
+                route,
+                &request,
+                config.limits.transport_retries(),
+                config.limits.rate_limit_retries(),
+                |attempt, delay| {
+                    on_event(RunEvent::Retry {
+                        attempt,
+                        max: config
+                            .limits
+                            .transport_retries()
+                            .max(config.limits.rate_limit_retries()),
+                        delay_ms: delay.as_millis(),
+                    });
+                },
+            )
             .await
         {
             Err(error) if error.is_context_overflow() => {

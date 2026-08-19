@@ -274,9 +274,9 @@
 - 优先级: P2
 - 取活依据: engine:唯一可执行 WIP 是 R-305，必须先恢复它
 - 取活释放: line=kanzei/thread-line-1787120622542-1;reason=parallel-line-unregister;at_ms=1787159520466
-- 进展: B1 已落地并验证：Agent 目录读取与合并位于 `crates/kanzei-app/src/agent_directory.rs:43-223`，覆盖内建/全局/项目来源、profile/mode/model/steps、配置错误与 hidden 状态；`agent_directory_open` :109-138 只允许全局或当前项目 agents 原文；Tauri 注册于 `crates/kanzei-app/src/main.rs:262-267`；设置页消费者位于 `crates/kanzei-app/ui/index.html:710-718`、`ui/16-settings.js:301-386`，资源位于 `ui/02-i18n.js:272-287`；运行时夹具与断言位于 `scripts/ui-runtime-smoke.mjs:922-931,3931-3940`。T-1786922726484 cargo test 220/220；T-1786922726486 Agent 目录 IPC/卡片/打开原文运行时回归通过；T-1786922726487 i18n 通过。D-561 已 fixed；ui-lint 仍由独立 D-560 阻断。下一步 B2：将策略配置读取接入 runner/harness 强制并补真实生效测试。
-- observed_head: 9b9537b2e34c227238b9afc5e63253a4c97edc05
-- observed_worktree_hash: fnv1a64:fe38fb36b5d26a89
-- recorded_at: 1787163903393
-- 批次: 1/3
+- 进展: B2 已落地并验证：`crates/kanzei-llm/src/client.rs:152-263` 新增带 transport/rate_limit 重试上限的流入口，默认入口仍保持既有常量；`crates/kanzei-core/src/runner/drive.rs:494-511` 从 `config.limits` 传入真实上限并将生效上限写入 Retry 事件；`crates/kanzei-app/src/subagents.rs:107-118,278-289,705-716` 三个应用侧子代理入口统一使用 `config.limits.subagent_max_tokens()`；设置保存 round-trip 测试位于 `crates/kanzei-app/src/settings.rs:917-950`。T-1786922726489 通过：fmt、kanzei-llm 55/55（自定义 rate_limit_retries=1 的真实 HTTP 请求只重试一次）、kanzei-core 220/220、kanzei-app 221/221。B1 Agent 目录保持既有提交 `af0a5e11`。下一步 B3：运行审计摘要 UI、真实派发/结果汇总与收口验证。
+- observed_head: af0a5e1166e00475c0be22f7ece82a0a9fb6f4f6
+- observed_worktree_hash: fnv1a64:4f671bbe0dc06de4
+- recorded_at: 1787164398538
+- 批次: 2/3
 - 批次说明: B1 Agent 目录与配置模型/只读入口；B2 策略读取与 runner 强制；B3 运行审计摘要 UI、端到端验证与收口。
