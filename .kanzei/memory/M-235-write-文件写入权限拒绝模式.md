@@ -2,12 +2,12 @@
 id: M-235
 scope: project
 category: fact
-title: write 文件写入权限拒绝模式
-description: 处理写入权限拒绝模式 — .kanzei/memory 路径属 memory-manager 子代理管理，主 agent 只投草稿；唯一合法写通道是 memory_note 工具；[fp:write|permission denied by ruleset: write on .]
+title: work写入权限拒绝模式 — .kanzei/memory属memory-manager子代理管理，主agent只投草稿；唯一合法写通道是memory_note工具
+description: work写入权限拒绝模式 — .kanzei/memory属memory-manager子代理管理，主agent只投草稿；唯一合法写通道是memory_note工具【新判据】: permission denied by guard : is blocked: whole-file rewrites via shell bypass th 说明shell bypass触发guard拦截
 status: active
 created: 2026-08-17
 updated: 2026-08-18
 source: user
 ---
 
-处理 .kanzei/memory 下文件写入被 permission denied by ruleset 拒绝模式 — 路径属 memory-manager 子代理管理，主 agent 只投草稿。唯一合法写通道是 memory_note 工具。规则约束策略：禁止 policy-managed 资源用 edit/bash write 等工具直接修改。指纹: [fp:write|permission denied by ruleset: write on .] —— 复发检测键
+work/内存写入权限拒绝模式 — .kanzei/memory属memory-manager子代理管理，主agent只投草稿；唯一合法写通道是memory_note工具【复发判据】: permission denied by ruleset: work on .时须按规则转换。本轮发现记忆命中但未能阻止工作流程复发 → description需补充「确认当前请求是否通过memory_note而非直接文件操作」作为前置判据，保留核心指纹：[fp:work|permission denied by ruleset: work on .] 和 [fp:write|permission denied by ruleset: write on .]

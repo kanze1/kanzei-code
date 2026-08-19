@@ -19,25 +19,23 @@
 - M-029 [fact] 所有 git mutation 在 bash 都被拦截,必须走结构化 git 工具 — 处理任何 Git 分支/索引变更(merge/restore/rebase/add/commit/reset)在 bash 报 "is blocked in bash: git mutations must use the structured git tool" 时必读:不要换别的 git 子命令重试,改用结构化 git 工具——显式 stage 指定文件、核对 staged_hash/diff,再用该 hash commit;快进合并走 git merge_ff。
 - M-030 [fact] 鞭挞与 backlog 判定集中在引擎，前端只执行 autoAction — 处理自动运行鞭挞、backlog 或继续文案改动时必读：判定逻辑只改 harness/kanzei-tools 单源，桌面端转发，前端仅执行 autoAction；不要在前端重复判定或维护旧继续文案。
 - M-041 [sop] autonomous 会话报 permission requires user approval 是档位限制,不是死路 — 处理 autonomous(自动推进)会话里 edit/bash/git/cargo/conventions_patch 被拒并报 "permission requires user approval" 时必读:这是权限档位而非工具故障——把该动作留给交互轮或先在 .kanzei/kanzei.toml 加白名单;不要反复重试、不要换等价命令绕道、也不要判定为死路而放弃整条任务。
-- M-058 [sop] 执行发版动作时必读:标准步骤序列与三个已知坑位 (批次错配/前置未检查) — 处理 Git 批次数不一致错误必读：核对提交历史标记数再关闭批次
 - M-059 [sop] 记忆清理 SOP:归档不裸删,动全局先确认恢复源,清后三处一致 — 手动清理 .kanzei/memory 或 ~/.kanzei/memory 前必读:防数据永久丢失与索引悬空
-- M-061 [sop] 自举复盘 SOP:审提交流水、验收证据、测试面匹配、证据链、残留 — 每次自举运行结束后做质量复盘时必读;方法来自 2026-08-13 对 R-199 运行的复盘(逮出 D-320)
 - M-062 [fact] 环境约束:本机 WebView2 151 DevTools 端口从不绑定,e2e CDP 路线不可用 — 想走 e2e-smoke / connectOverCDP / WebView2 DevTools 端口路线前必读:当前机器已 9 轮实验证实不可用,不要重推
 - M-070 [preference] 开发重心:需求优先 — 取活/排优先级时必读:当前项目该先做什么
-- M-078 [sop] req 发布前版本核对:Git提交数≠batch导致失败 — 先核对再发版 — 处理 req v0.13 批次字段错误时必读：核对Git提交数再发版，否则发布失败
-- M-089 [fact] git 批次字段错误(手计数≠commit 数)必读:验证实数再修正 — 处理 req 批次数不匹配时必读：Git 标记 vs 手写 count 不一致 → 先核对再闭包
-- M-092 [sop] Git 批次字段核对 SOP — 处理发版/发布/装机时必读:核对 Git 提交历史与手写批次数是否一致;已确认第 3 次复发并有修复验证
+- M-089 [fact] Git批次字段核对 SOP — 处理发版动作批次数不一致错误 — 处理发版批次字段错配必读：手写批次(3/3)与Git提交历史标记数不一致必核查证;第N次复发时判据需补全"→修正再闭包"决策链
+- M-092 [sop] Git 批次字段核对 SOP — 处理发版动作 Git 批次数不一致错误：核对提交历史标记数后修正再闭包，避免记忆命中仍复发
 - M-112 [fact] Git test failure summary with failure count - 处理failures:标记显示重复失败测试时的跨轮排查 — 检查前置依赖和测试环境一致性 — 何时遇到 failures: git::tests 跨轮复发提示：检查测试前置条件与环境一致性
 - M-113 [sop] git commit staged 缺失 SOP — 处理 git commit 失败时必读:Changes not staged for commit 必须先执行 git add 同批文件;4+ 次复发并有修复经验,确认为环境契约问题
 - M-116 [sop] 处理 cargo test 失败时必读：区分编译期/运行时错误（RUST_BACKTRACE） — 处理测试框架失败时必读：区分编译期/运行时错误，保留 [fp] 标记
 - M-145 [fact] 读内存文件失败: Cannot open <path>, 先用 grep 确认当前路径再 read —— 处理 read 系统找不到文件失败时必读 — 处理 M-145 read fail 复发/已晋升 candidate——补充第2次复发证据并申请 memory_promote
-- M-165 [fact] D-495(fixed)/D-519流程根因确认：缺陷跟踪工具缺失与 bash 参数构造错误 — 跨轮复发验证与 SOP 修正机制 [fp:bash|error: expected one of ... found; fp:M-: ERROR unknown memory id] — D-495(fixed)的根因是什么？确认是否为可复用知识
 - M-200 [fact] bash 命令超时与 test_record 失败模式 — 处理 bash 工具超时失败或 test_record 替代方案:何时遇到 [fp:bash|timeout] 复发即应用此修复
 - M-202 [fact] bash timeout导致命令终止并改用test_record成功 — 处理 bash/timeout类任务时必读——识别可复用错误模式与一次性噪声的关键标准
 - M-204 [fact] Bash 60s timeout 失败原因与扩容策略 — bash timeout 失败时必读：环境工具契约类知识何时复用；第 3 次+带成功重试证据晋升
 - M-205 [fact] bash 命令超时被 kill 后的正确重试策略 — 何时遇到 bash 命令超时/被 kill — 先查历史 timeout 失败记录再重试
 - M-207 [fact] bash 命令超时被 kill 后的正确重试策略 — 何时遇到 bash 命令超时/被 kill — 先查历史 timeout 失败记录再重试
 - M-227 [fact] bash 测试证据失败不激活 — bash测试证据不激活时必读：第3次+修复成功才建candidate,否则是单轮噪声
-- M-235 [fact] write 文件写入权限拒绝模式 — 处理写入权限拒绝模式 — .kanzei/memory 路径属 memory-manager 子代理管理，主 agent 只投草稿；唯一合法写通道是 memory_note 工具；[fp:write|permission denied by ruleset: write on .]
+- M-235 [fact] work写入权限拒绝模式 — .kanzei/memory属memory-manager子代理管理，主agent只投草稿；唯一合法写通道是memory_note工具 — work写入权限拒绝模式 — .kanzei/memory属memory-manager子代理管理，主agent只投草稿；唯一合法写通道是memory_note工具【新判据】: permission denied by guard : is blocked: whole-file rewrites via shell bypass th 说明shell bypass触发guard拦截
+- M-247 [sop] bash guard全文件改写拦截SOP — 识别whole-file rewrites via shell bypass并使用edit/memory writer完成写入【新版】 — M-247 bash guard全文件改写拦截 — 遇[fp:bash|...]必read再update：whole-file rewrites→ident→用edit/memwriter
+- M-258 [fact] bash/cargo失败模式 SOP — 特定 test case/compile阻塞复用路径 — 处理 bash/cargo编译与测试失败：特定 test case/conversation::tests::latest_segment_recovers_completed_compaction_surface 复用;强化"判据补全→修正再重试"决策链
 
-(153 candidate 条待验证晋升)
+(24 candidate 条待验证晋升)
