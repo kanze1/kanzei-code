@@ -62,20 +62,6 @@
 - 批次: 0/5
 - 状态: todo
 
-## R-235 存量 28 条零证据 active 记忆逐条复核:保留(存量豁免)或降级 candidate,用户拍板 [done]
-- 优先级: P3
-- 内容: 对 28 条零证据 active 记忆逐条复核:保留(存量豁免,接受不可计量)或降级 candidate(严格符合无来源不入 active,代价是不可检索注入)。复核结果与依据落到 memory 系统设计文档或本条目关闭证据。
-- 复杂度: 小
-- 来源: R-213 关闭时盘点发现(R-213 验收③处置的承接)
-- 标签: 后端
-- 背景: R-213 盘点:state.db 311 条 episode、memory_sources 0 行,project 域 28 条 active 记忆(M-001~M-063)全部零证据(global 域无条目)。这些是 provenance 门禁上线前由用户/交互会话/manager 产生的既有资产,source 字段均无机器可链接的 run_id,历史回填=变相伪造,不可行。R-213 的处置定为存量豁免+文档化,但控制平面「用数据判断记忆是否改善决策」对这些条目无法计量,保留还是逐条降级应由用户拍板。
-- 验收: ①28 条清单逐条给出保留/降级结论与依据;②结论落地(设计文档或关闭证据);③如选择降级,操作后搜索不再命中 candidate 条目。
-- 阻塞: 
-- 进展: 2026-08-20 用户拍板:28 条零证据 active 记忆全部保留(存量豁免),接受不可计量。验收逐条:① 由用户执行——2026-08-20 用户整批拍板,每条结论=保留,依据=provenance 门禁上线前既有资产,历史回填=变相伪造不可行(R-213 处置口径);② 结论已落地 docs/design/memory_system.md:128-134(存量零证据 active 记忆处置节,含结论/代价/豁免边界);③ 验收降级: 原文「如选择降级,操作后搜索不再命中 candidate 条目」→实际未选择降级,无降级操作可验,条款不适用
-- observed_head: a8e75106b629441cc19963dd5667aee07a74339a
-- observed_worktree_hash: fnv1a64:fe5544b037ebfb8f
-- recorded_at: 1787168165447
-
 ## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [doing]
 - 复杂度: 大
 - 优先级: P2
@@ -122,7 +108,7 @@
 - recorded_at: 1787000896795
 - 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
 - 对账: 2026-08-20 对账:停车前提 R-243 已 done 归档(compaction 追加事务已交付),停车解除;剩余动作=复核验收⑦(停止新增 conversation.updated 与最终 snapshot 只读回放,收口动作已移交 R-243 承接,确认其证据)后按验收①-⑥关闭
-- 停车: 排队:缺陷队列(D-486/D-504)收口后第一顺位恢复,复核验收⑦并关闭;恢复人:agent
+- 停车: 
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
@@ -151,7 +137,7 @@
 - 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-248
-- 停车: R-248 暂停等待方案确认：验收要求 req refs 指向 `.kanzei/research/<topic>/prior-art.md`，现行通用 refs 契约只允许 R-/D-/T- 追踪编号；且首次 `.kanzei/` 初始化没有明确 topic/触发产物命名。恢复时需先确定兼容 API（扩展 refs 命名空间或新增独立 prior_art 字段/工具）及三触发的 topic 来源，不能凭猜测改数据模型。
+- 停车: 排队:方案已于 2026-08-20 拍板(独立 prior_art 字段+R-304 勘察工件落点约定,见对账字段),原等待条件消失;待队列轮到时恢复批1;恢复人:agent
 - 进展: 已读 docs/design/research_mode_prior_art.md、docs/design/research_mode.md、crates/kanzei-tools/src/tracker.rs:241-270/789-843、tracker/actions.rs:290-360、websearch.rs:14-110、kanzei-app/src/projects.rs:43-127。确认当前没有 prior-art 生成/校验/轮次预算实现；现有 req add 仅做通用 refs 校验，项目初始化只创建 `.kanzei/`，无法凭现有接口生成无 topic 的 prior-art.md。未修改代码。
 - observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
@@ -251,7 +237,7 @@
 - 验收: run 主链关键路径有自动化断言;新增 command 有明确测试落点范式;cargo test 全绿并入 verify
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-296
-- 停车: 排队:R-242 收口后恢复,重跑 cargo test --workspace 全绿并入 verify;恢复人:agent
+- 停车: 排队:R-306 收编后恢复——收编会改变全量测试面,先收编再跑 workspace 全量避免重复;恢复人:agent
 - 进展: 已落地并提交 1e076db6：commands/run.rs 新增真实 episode/复杂度来源的 command 测试，run/mod.rs 新增真实 SessionStore 通知回放测试；cargo test -p kanzei-app 213 passed（T-1786922726379）。发布脚本 cargo test --workspace 在 kanzei-tools background 越界终止测试处 343 passed、1 failed（T-1786922726380），已登记 D-529；下一步修复并重跑全量。
 - observed_head: 9304ec92c35670db6a002feeddef0d31c6dc1bea
 - observed_worktree_hash: fnv1a64:441f9460a9730954
@@ -271,7 +257,7 @@
 - 停车: 排队:R-296 收口后恢复后续批次;恢复人:agent
 - 对账: 2026-08-20 对账:p16 线(thread-line-1787020530803-1)提交已全部合入 dev(R-299 B1=7188ba76),停车点名的 ipc_contract.rs/ipc-contract.json/ipc-event-smoke.mjs/verify.ps1 均无未合并改动,停车解除;该 worktree 仅余 git.rs(+5)/ci.yml(+1) 未提交 WIP,处置归 R-306 B3;恢复动作=对账 B1 已入 dev 的证据后继续后续批次
 
-## R-306 并行线交付收编:R-257/p13 线已关条目提交未合入 dev,冲突随演进扩大 [todo]
+## R-306 并行线交付收编:R-257/p13 线已关条目提交未合入 dev,冲突随演进扩大 [doing]
 - refs: R-257 D-396 D-397 D-398 D-399 D-400 D-401 D-409 R-293 R-299 R-283
 - 内容: 两条并行线的已归档交付只存在于分支:①thread-line-1786805363432-1(R-257 B2~B5,6 提交,head aa27e11b)——drive.rs/docstore.rs/git.rs/config.rs 按域拆分,dev 上四文件仍为巨石形态;②thread-line-1786851588846-1(p13,8 提交,head b4245f6c)——D-396~D-401/D-409 修复(跨树围栏三态快照、mtime 粗筛、写日志接线与回滚、浏览器工具错误通道、验收降级记录),dev 侧仅 inbox 分批经 D-480/R-286 独立演进,其余修复缺失。kz worktree merge-preview 实测冲突:R-257 线 6 文件(drive.rs/runner mod.rs/tool_exec.rs/docstore.rs/git.rs/ui-lint-globals.json);p13 线 9 文件(Cargo.lock/app memory.rs/inbox.rs/cross_tree.rs/plot_tool.rs/profiles.rs/cli memory.rs/ui-connectivity 两脚本)。拆批:B1 p13 线合并(缺陷修复优先,dev 独立演进文件以 dev 语义为准逐块对账);B2 R-257 线合并(零 API 面变更为验收);B3 三线脏 WIP 处置(p13 typed.rs +85 行、p16 git.rs +5/ci.yml +1、R-257 线 gen/schemas)与 worktree 清理;B4 防复发闸门:条目关闭时 observed_head 不在 dev 祖先链即拒绝关闭或强制登记收编任务
 - 复杂度: 大
@@ -281,3 +267,32 @@
 - 边界: 以 dev 为主干语义:同名功能 dev 已独立演进的以 dev 实现为准,分支侧只补 dev 缺失的修复点;不借机重构;R-257 拆分若冲突过大允许按文件降批合并并如实记录未收编残余
 - 验收: ①两线全部提交在 dev 祖先链(git merge-base --is-ancestor);②冲突解决后 cargo test --workspace 全绿且 verify 通过;③D-396~D-401/D-409/R-257 交付点在 dev 主树逐条抽查可见(cross_tree 三态 FileImage、record_write_log、浏览器 rpc 嵌套 error 透传、四文件拆分);④三处脏 WIP 逐一处置留痕;⑤防复发闸门有实测:未合并分支条目关闭被拒或强制登记收编
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-306
+- 批次: 0/4
+- 设计冻结: 不变式：dev 以当前语义为准，分支只补缺失交付；不得用快进假装完成非快进收编。｜权威数据源：当前 dev、两条 worktree 分支的真实提交图与 merge-tree --write-tree 冲突结果。｜预期变更文件：先仅更新 R-306 进展/批次字段；代码文件待 B1 冲突逐块对账后按实际落地集合确定。｜最小测试：每批按实际改动运行对应 crate 定向测试；R-306 关闭前按复杂度“大”执行 workspace 全量测试及 scripts/verify.ps1。
+- 进展: B0/4 已完成收编前复核并实测预检：p13 worktree `C:\Users\kanzei\Documents\.kanzei-worktree-kanzei-code.line-1786851588846-1` 冲突文件为 Cargo.lock、kanzei-app/src/memory.rs、kanzei-memory/src/memory/inbox.rs、kanzei-tools/src/cross_tree.rs、plot_tool.rs、profiles.rs、kanzei/src/cli/memory.rs、scripts/ui-connectivity-browser.mjs、scripts/ui-connectivity.mjs；R-257 worktree `C:\Users\kanzei\Documents\.kanzei-worktree-kanzei-code.line-1786805365363432-1`（实际路径为 line-1786805363432-1）冲突文件为 kanzei-core/src/runner/drive.rs、runner/mod.rs、runner/tool_exec.rs、kanzei-memory/src/docstore.rs、kanzei-tools/src/git.rs、scripts/ui-lint-globals.json。两条分支均未在 dev 祖先链。发现 D-565：安全结构化入口只支持 merge_ff，CLI 没有调用既有 merge_worktree 内核的非快进合并命令；先转交 D-565 补齐入口，再恢复 B1 逐文件收编。
+- observed_head: 2d6251c008ce33c27d97d0b04d4597aa2a07a1d8
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787169005104
+- 停车: 排队:D-565 已修复归档(kz worktree merge 非快进收编入口可用),原等待条件消失;待 R-242 收口后第一顺位恢复 B1,收编越早冲突越小;恢复人:agent
+- 对账: 2026-08-20 勘察修正:①p13 线实际未合并 16 提交(含 R-275 调色板批1~3、D-390/D-391/D-393/D-394 一串),条目内容原写 8 提交低估一倍,B1 工作量按 16 估;②p16 线(1787020530803-1)已经 merge commit 27b3e8d1 合入 dev,但树/本地分支/2 脏文件(ci.yml、git.rs)未清,B3 可先零风险清理;③冲突面持续扩大:线冻结在 08-16 后 dev 又改 drive.rs 14 次、memory/store.rs 10 次、git.rs 8 次;④两条欠账线均未走 parallel-line-unregister 释放流程,B4 闸门应含收线释放;⑤陈旧远端分支 kanzei/release-68db58e 已被 dev 完全包含,可顺带清理
+
+## R-307 停车/依赖解锁机械化与依赖关系可视化:解除条件可判定、达成自动恢复、关键路径可见 [todo]
+- refs: R-306 D-565 R-242 R-281 D-504 R-283
+- 内容: 批1 停车/阻塞结构化解除条件:新增机器可判语法(例「解除条件: D-565 terminal」「解除条件: 用户」),tracker 每次调度扫描核验,条件达成自动清车并在对账字段留痕;存量自由文本停车不强迁,新写入走结构化。批2 取活裁决拓扑权重:反向依赖计数(unblocks N 条)进入 work next 排序,关键路径条目优先(实例:R-242 经 R-284/R-245 卡住 R-283/R-285/R-287/R-249 共 6 条);「依赖指向停车条目」给显式诊断而非静默等待。批3 前端依赖可视化:文档页依赖视图升级拓扑图,关键路径高亮、节点显示解锁数/被卡数、停车条目显示解除条件与达成状态,数据复用 scheduling.rs 反向依赖图(R-111)。批4 回归:三起现场案例成测试(条件达成自动恢复/终态依赖放行/全线 blocked 时点名可恢复项)
+- 复杂度: 大
+- 来源: 2026-08-20 用户反馈「依赖的关系不直观,依赖的解锁有问题经常导致阻塞」;同日实测三起解锁失灵现场:①D-486 收口后其排队停车链(D-504/R-242/R-296/R-299)无人恢复,work next 全线 blocked 空转;②R-306 停车等 D-565,D-565 修复归档后 R-306 仍停车未醒;③R-281 停车原因(让位 R-221)08-17 已消失,08-18 对账才发现。停车恢复完全依赖 agent 记得回头看,机制上是单向门
+- 标签: 核心
+- 边界: 不改单 WIP 纪律;自动恢复只清「排队/让位」类机器可判停车,「解除人:用户」永不自动清;不做自然语言解析,只认结构化语法,存量文本停车靠人工对账维持现状;不与 D-434(停车不被扫荡误清)冲突——自动清的前提是结构化条件显式达成
+- 验收: ①结构化解除条件有解析与调度测试,达成即自动清车且留痕;②work next 全线 blocked 时输出「哪些停车解除条件已达成」清单,不再只报死锁;③取活依据可见拓扑权重(点名 unblocks 计数);④依赖视图实测截图:关键路径与解锁数可见;⑤三起现场案例回归通过
+- 优先级: P1
+
+## R-308 记忆冗余治理与晋升门槛机械化:同指纹聚类合并、candidate 单轨化、复发阈值硬执行 [todo]
+- refs: D-567 D-568 R-293 R-235
+- 内容: 批1 同指纹聚类合并:按 [fp:...] 指纹与标题相似度机械聚类,重复簇合并为单条(保最完整正文,合并复发计数),归档被并条目;批2 晋升门槛机械化:复发阈值(如第 2 次才建 candidate、第 N 次+修复证据才 active)由写入方硬执行而非提示词约定,低于阈值的 note 只进 inbox 不落盘;批3 candidate 单轨化:candidate 要么进 INDEX 带标记要么不进检索,消除「索引看不见、检索跑得出」;批4 global 域处置:74 条 candidate 走一次批量复核(晋升/合并/清退),global 域接入 recall 遥测
+- 复杂度: 中
+- 来源: 2026-08-20 记忆系统全面勘察:61 条顶层条目实质仅约 31 个主题(重复簇 8 个共 39 条,49% 冗余);M-205 与 M-207 标题逐字相同;C6 簇三条(M-248/250/253)共用同一指纹一天内产生;M-245 正文自述「本轮第 1 次复发→暂不建」却仍落盘——晋升门槛写在文里没有被执行;24 条 project candidate 不进 INDEX 却被 FTS 检索(双轨);global 域 74 条全 candidate 零 active 零遥测,晋升管道在全局域没跑通
+- 标签: 后端
+- 边界: 不动 R-293 的 F(m) 漏斗与效应量框架;不动 R-235 已拍板的 28 条存量豁免;合并动作走 M-059 SOP 归档不裸删
+- 验收: ①顶层条目数≈实质主题数(勘察口径复查冗余率<15%);②同指纹重复写入被机械拒绝并有定向测试;③candidate 可见性单轨有断言;④global 域 74 条处置留痕且 recall 遥测非零;⑤INDEX 行与源文件 description 一致性核对通过(与 D-568 对齐)
+- 优先级: P2

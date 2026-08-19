@@ -3972,3 +3972,17 @@
 - 批次: 3/3
 - 批次说明: B1 Agent 目录与配置模型/只读入口；B2 策略读取与 runner 强制；B3 运行审计摘要 UI、端到端验证与收口。
 - 验收核验: ①按设计三块交付：Agent 目录 `crates/kanzei-app/src/agent_directory.rs:43-223` + `ui/16-settings.js:301-386`；策略 `crates/kanzei-app/src/settings.rs:560-590` + `crates/kanzei-core/src/runner/drive.rs:494-511` + `crates/kanzei-app/src/subagents.rs:107-118,278-289,705-716`；审计 `crates/kanzei-app/ui/06-activity.js:920-1120` + `ui/index.html:1040-1048`，真实调用方为 `ui/07-events.js:11,20,185,216,230,290,305,364,421,625` 与 trace 按钮 `ui/06-activity.js:1470-1476`。②策略真实生效：T-1786922726489、T-1786922726491。③审计摘要 UI 可见并有真实事件源：T-1786922726490、T-1786922726491。④roster_cap 策略面板可见化：`ui/16-settings.js:279-299`、T-1786922726482、T-1786922726486、T-1786922726487。
+
+## R-235 存量 28 条零证据 active 记忆逐条复核:保留(存量豁免)或降级 candidate,用户拍板 [done]
+- 优先级: P3
+- 内容: 对 28 条零证据 active 记忆逐条复核:保留(存量豁免,接受不可计量)或降级 candidate(严格符合无来源不入 active,代价是不可检索注入)。复核结果与依据落到 memory 系统设计文档或本条目关闭证据。
+- 复杂度: 小
+- 来源: R-213 关闭时盘点发现(R-213 验收③处置的承接)
+- 标签: 后端
+- 背景: R-213 盘点:state.db 311 条 episode、memory_sources 0 行,project 域 28 条 active 记忆(M-001~M-063)全部零证据(global 域无条目)。这些是 provenance 门禁上线前由用户/交互会话/manager 产生的既有资产,source 字段均无机器可链接的 run_id,历史回填=变相伪造,不可行。R-213 的处置定为存量豁免+文档化,但控制平面「用数据判断记忆是否改善决策」对这些条目无法计量,保留还是逐条降级应由用户拍板。
+- 验收: ①28 条清单逐条给出保留/降级结论与依据;②结论落地(设计文档或关闭证据);③如选择降级,操作后搜索不再命中 candidate 条目。
+- 阻塞: 
+- 进展: 2026-08-20 用户拍板:28 条零证据 active 记忆全部保留(存量豁免),接受不可计量。验收逐条:① 由用户执行——2026-08-20 用户整批拍板,每条结论=保留,依据=provenance 门禁上线前既有资产,历史回填=变相伪造不可行(R-213 处置口径);② 结论已落地 docs/design/memory_system.md:128-134(存量零证据 active 记忆处置节,含结论/代价/豁免边界);③ 验收降级: 原文「如选择降级,操作后搜索不再命中 candidate 条目」→实际未选择降级,无降级操作可验,条款不适用
+- observed_head: a8e75106b629441cc19963dd5667aee07a74339a
+- observed_worktree_hash: fnv1a64:fe5544b037ebfb8f
+- recorded_at: 1787168165447
