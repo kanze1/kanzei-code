@@ -263,16 +263,6 @@
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-299
 - 停车: 让位 R-300 收尾：协作线 p16 仍占用 crates/kanzei-app/src/ipc_contract.rs、scripts/ipc-contract.json、scripts/ipc-event-smoke.mjs、scripts/verify.ps1 等 IPC 契约扩面文件；本条不覆盖并发实现。p16 清出后按 work next 恢复。
 
-## R-304 dev 勘察工件固定落点 [todo]
-- refs: R-248 docs/design/research_mode.md
-- 内容: dev 侧勘察产物(调研笔记/证据/对照)目前无固定目录与生命周期约定;定义落点(如 .kanzei/research/ 或专用目录)、命名、与条目 refs 的关联方式及清理策略
-- 复杂度: 小
-- 来源: 2026-08-18 全库勘察;research_mode.md:27 与 R-221 关闭说明(requirements-archive.md:3652)两处明写需另立条目承接,全库无对应条目
-- 标签: 流程
-- 边界: 与 R-248 prior-art 门禁互补不重复:R-248 管开工前对照,本条管勘察产物落盘可回溯
-- 验收: 落点约定落档并有工具/文档支持;勘察产物可按条目回溯;R-248 恢复时可直接复用该约定
-- 优先级: P3
-
 ## R-305 subagent 策略层与 Agent 目录 [todo]
 - refs: R-281 D-513 docs/design/subagent_management.md
 - 内容: 按 docs/design/subagent_management.md:36-84 交付三块:①Agent 目录(可用 agent 类型的注册与描述);②策略面板(每轮 task 上限/并发/超时/重试/预算可配置并生效);③运行审计摘要(每轮 subagent 派发与结果的可读汇总)。与 R-281 子代理阅读器互补:R-281 管看单个子代理说话,本条管策略与全局审计

@@ -8081,3 +8081,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 修正 memory_system.md 标点后重新验证 7 份目标文档：必需能力、现行路径、生命周期、UI ESM 规模、Wave 0/1 Go 状态均通过，目标文档 diff --check 通过。
 - 关联: R-303
 - 收尾: 1787162217
+
+## T-1786922726481 R-304 dev 勘察工件契约校验 [passed]
+- 命令: $ErrorActionPreference='Stop'; $paths=@('README.md','docs/design/research_mode.md','.kanzei/research/r304-dev-recon/report.md'); git diff --check -- $paths; $mode=Get-Content -LiteralPath 'docs/design/research_mode.md' -Raw; $readme=Get-Content -LiteralPath 'README.md' -Raw; $report=Get-Content -LiteralPath '.kanzei/research/r304-dev-recon/report.md' -Raw; foreach($needle in @('### 3.1 dev 侧勘察工件约定(R-304)','.kanzei/research/<topic>/','<entry-id>-<slug>','report.md','entry_refs: R-/D-/T-','tracker 的 `refs` 仍只写 R-/D-/T- 编号','active→archived','R-248 复用')){if(-not $mode.Contains($needle)){throw "research contract missing: $needle"}}; if($mode.Contains('refs 可引用 topic 名')){throw 'conflicting tracker refs wording remains'}; foreach($needle in @('dev 侧勘察也使用该根目录','<entry-id>-<slug>/report.md','research_mode.md')){if(-not $readme.Contains($needle)){throw "README support missing: $needle"}}; foreach($needle in @('- kind: dev_recon','- topic: r304-dev-recon','- entry_refs: R-304','- status: archived','V1 / 代码域','R-248 复用说明')){if(-not $report.Contains($needle)){throw "artifact metadata/evidence missing: $needle"}}; if(-not (Test-Path -LiteralPath '.kanzei/research/r304-dev-recon/report.md' -PathType Leaf)){throw 'artifact report missing'}; Write-Output 'R-304 artifact contract validation passed'
+- 时长: 1.0s
+- 摘要: 验证 README、research_mode.md 与 `.kanzei/research/r304-dev-recon/report.md`：落点、entry-id-slug 命名、report.md、entry_refs、active→archived 生命周期、R-248 复用均存在；冲突的“refs 可引用 topic 名”已不存在；目标文件 diff --check 通过。
+- 关联: R-304 D-558
+- 收尾: 1787162470

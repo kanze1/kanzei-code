@@ -52,9 +52,21 @@
     notes/                 # 中间工作区(压缩摘要等),可选
 ```
 
+### 3.1 dev 侧勘察工件约定(R-304)
+
+research 模式与 dev 侧代码勘察保持能力边界独立，但两者复用同一个可追溯落点：
+
+- **落点**：`.kanzei/research/<topic>/`；dev 勘察的 `<topic>` 使用 `<entry-id>-<slug>`，例如 `r304-dev-recon`。目录内至少保留 `report.md`；`notes/`、`evidence/`、`comparison/` 和图表等为可选中间/证据目录。
+- **报告命名**：最终结论固定为 `report.md`，中间文件使用小写 kebab-case 文件名；临时索引、checkpoint、缓存和命令输出不得冒充最终报告。
+- **回溯绑定**：报告头部写 `kind: dev_recon`、`topic: <topic>`、`entry_refs: R-/D-/T-` 和 `status: active|archived`；tracker 的 `refs` 仍只写 R-/D-/T- 编号，`进展` 只写一行摘要加相对报告路径，例如 `.kanzei/research/r304-dev-recon/report.md`。这样从条目到报告、从报告头部回到条目都可机械检索，且不把文件路径混入 tracker refs 契约。
+- **证据口径**：代码结论沿用 V0–V3 与 `file:line`/提交锚；文献结论必须带 URL、V 等级和摘要级/正文级深度。没有锚点明确写 V0，不把 E0–E4 测试等级混入研究报告。
+- **工具边界（复用既有能力）**：dev 侧直接用现有 `write`/`edit`/`insert` 写入 `.kanzei/research/**`，用 `read`/`glob`/`grep`/`files` 复核，用 `git diff/status` 保留变更边界；本条不新增第二套 source/finding 存储，也不把 research profile 专用的 source/finding 工具虚报成 dev 工具。
+- **生命周期与清理**：工作中为 `active`；条目关闭时把报告标为 `archived`，最终报告和支撑结论的证据永久保留。只有已被报告吸收且可重建的中间笔记、临时输出和索引缓存可清理；不可重建的证据移入 `archive/` 或保留原位，禁止静默删除。清理动作在条目进展或提交说明中留下记录。
+- **R-248 复用**：R-248 恢复后可直接采用同一根目录、topic 命名和 active→archived 生命周期；其 prior-art 文件可使用同一 topic 目录内的 `prior-art.md`。R-248 现有 refs API 与首次 topic 来源的用户决策仍单独有效，不由本约定替代。
+
 - 轻重课题共用同一目录约定;轻课题只产 report.md 合法。
 - report/paper 契约(轻约定,不做 schema 校验):头部=课题/日期/关联条目/总体证据等级(取最低);每条结论=**一句话 + 证据锚(S-id、URL 或 file:line)+ V 等级**,无锚必须显式标 V0;结尾=「建议登记」段(定调点 4 的回流入口)。
-- tracker 衔接:条目进展字段只写 `一行摘要 + 报告路径`;refs 可引用 topic 名。
+- tracker 衔接:条目进展字段只写 `一行摘要 + 报告路径`;tracker 的 `refs` 只写 R-/D-/T- 追踪编号,topic 和文件路径写在报告头部及进展字段。
 
 ## 4. 证据等级 V 表(定调点 3,双域)
 

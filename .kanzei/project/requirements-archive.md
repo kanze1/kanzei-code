@@ -3935,3 +3935,21 @@
 - observed_worktree_hash: fnv1a64:8b70995bc9c7bd76
 - recorded_at: 1787162163267
 - 验收核验: ①五组文档与现实对齐：README.md:57-71,110,149；docs/使用手册.md:38-76；docs/design/memory_control_plane.md:3-14,208；memory_system.md:3-12,43,66-74,98,125；memory_decision_sufficiency.md:82-90；ui_esm_migration.md:3-4,8,27-29,62,89,106-108；phase2_system_upgrade.md:301-330。②R-283 验收②的 Wave 记录恢复可用：phase2_system_upgrade.md:301-330 明确 Wave 0/1 Go，并列出现行实现与测试证据。③订正一次批次收口：T-1786922726479 命令级校验通过，目标文档 diff --check 通过。
+
+## R-304 dev 勘察工件固定落点 [done]
+- refs: R-248
+- 内容: dev 侧勘察产物(调研笔记/证据/对照)目前无固定目录与生命周期约定;定义落点(如 .kanzei/research/ 或专用目录)、命名、与条目 refs 的关联方式及清理策略
+- 复杂度: 小
+- 来源: 2026-08-18 全库勘察;research_mode.md:27 与 R-221 关闭说明(requirements-archive.md:3652)两处明写需另立条目承接,全库无对应条目
+- 标签: 流程
+- 边界: 与 R-248 prior-art 门禁互补不重复:R-248 管开工前对照,本条管勘察产物落盘可回溯
+- 验收: 落点约定落档并有工具/文档支持;勘察产物可按条目回溯;R-248 恢复时可直接复用该约定
+- 优先级: P3
+- 进展: 已完成：`docs/design/research_mode.md:55-65` 固定 dev 勘察落点 `.kanzei/research/<entry-id>-<slug>/`、最终 `report.md`、entry_refs/进展回溯、V0-V3 证据、既有 write/edit/insert 与 read/glob/grep/files 工具复用、active→archived 清理策略，并明确 R-248 可复用而不替代其用户阻塞。`README.md:110` 增加用户可发现入口；示例工件 `.kanzei/research/r304-dev-recon/report.md:1-30` 已按约定落盘并回指 R-304。
+- observed_head: f74190424c0bbf129c107776e8b3d52b4b908b61
+- observed_worktree_hash: fnv1a64:22647b63185a2bb9
+- recorded_at: 1787162500319
+- 取活依据: engine:唯一可执行 WIP 是 R-304，必须先恢复它
+- 停车: 
+- 状态: done
+- 验收核验: ①落点约定落档并有工具/文档支持：`docs/design/research_mode.md:55-65`；`README.md:110`；既有工具消费者为 `crates/kanzei-tools/src/profiles/dev.rs:102-157` 的项目资产权限边界与 dev 侧 write/edit/insert、read/glob/grep/files 通道（既有能力，本次仅固化约定）。②勘察产物可按条目回溯：`docs/design/research_mode.md:61` 规定 tracker refs 只写 R-/D-/T-、进展写报告路径、报告头写 entry_refs；`.kanzei/research/r304-dev-recon/report.md:1-8` 实例化 `entry_refs: R-304`，T-1786922726481 通过。③R-248 恢复时可直接复用：`docs/design/research_mode.md:65` 与 `.kanzei/research/r304-dev-recon/report.md:28-30` 复用根目录、命名、report.md 和 active→archived 生命周期，同时保留 R-248 原有 refs API/topic 来源用户阻塞；T-1786922726481 通过。

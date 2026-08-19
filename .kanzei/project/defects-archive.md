@@ -6860,3 +6860,17 @@
 - 状态: done
 - 进展: 2026-08-20 根因实锤:闸门原用安装版 ~/.cargo/bin/kz.exe(旧口径,phase_pipeline.rs 量出生产 923/测试 10),基线由源码构建 kz 生成(新口径 796/137)——同文件两把尺。修复提交 0212db2b:metrics-regression-gate.ps1 改为 cargo build 当前工作树的 kz(target/debug/kz.exe)并在 $Root 下量测,闸门与基线生成器从此共用同一计数实现,「同口径守护」由此结构性成立。主树实测 30 行全过、巨石 5/5;发布树 verify 全绿,证据 dist/verification.json 绑定 55caf824。 [terminal-fix 2026-08-19] fixed → fixed: 修复归档字段残留的非法 lifecycle done；D-555 的实现、测试和三项验收证据均已完成，归档应使用合法 fixed。
 - 验收核验: ①口径修复位置：scripts/metrics-regression-gate.ps1 改为 cargo build 当前工作树的 target/debug/kz.exe，并在 $Root 下量测，避免使用旧安装版；②同口径守护：基线生成器与回涨闸共用同一 metrics 计数实现，phase_pipeline.rs 零改动时不再把测试行计入生产行；③验证证据：主树实测 30 行全过、巨石 5/5，发布树 verify 全绿，dist/verification.json 绑定 55caf824；已有测试记录与提交 0212db2。
+
+## D-558 research_mode 将 topic 名误写为 tracker refs 合法值 [fixed] (medium)
+- 关联: R-304；docs/design/research_mode.md
+- 复现: docs/design/research_mode.md 原第 57 行写“refs 可引用 topic 名”，而项目 refs 契约只接受 R-/D-/T- 追踪编号。
+- 影响: 研究条目可能把 `.kanzei/research/<topic>/` 或 topic 名混入 refs，破坏 tracker 引用图、完整性校验和 R-248 恢复路径。
+- 来源: self-found；R-304 勘察现有 research 工件约定时发现。
+- 标签: 流程
+- 验收: 研究文档明确 refs 只写 R-/D-/T-，报告路径放进进展字段，topic 绑定放报告头部；定向文档一致性校验通过。
+- 优先级: P2
+- 进展: 已修复：`docs/design/research_mode.md:67-69` 改为 tracker refs 只写 R-/D-/T-，topic 和文件路径写入报告头部与进展字段；dev 勘察约定在 `:55-65` 进一步固化。
+- 验收核验: 冲突原文已移除，校验脚本明确拒绝 `refs 可引用 topic 名`；`T-1786922726481` 通过并关联 R-304。
+- observed_head: f74190424c0bbf129c107776e8b3d52b4b908b61
+- observed_worktree_hash: fnv1a64:22647b63185a2bb9
+- recorded_at: 1787162500811
