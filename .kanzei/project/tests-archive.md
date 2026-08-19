@@ -8213,3 +8213,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-563
 - 收尾: 1787168702
 - 源码指纹: v2 scripts/package.ps1@c642f83e9e6e
+
+## T-1786922726500 D-565 CLI worktree merge safety and kanzei tests [passed]
+- 命令: cargo test -p kanzei; cargo run -p kanzei -- worktree merge C:\Users\kanzei\Documents\.kanzei-worktree-kanzei-code.line-1786851588846-1 --project-root C:\Users\kanzei\Documents\kanzei code
+- 时长: 27.6s
+- 摘要: cargo test -p kanzei 通过：40 单测、32 集成测试全绿。真实 CLI merge 调用已进入既有 merge_worktree 内核；p13 分支冲突时以非零退出拒绝合并，逐项列出 9 个冲突文件，双方工作树保留未改。
+- 关联: D-565 R-306
+- 收尾: 1787169123
+- 源码指纹: v2 crates/kanzei/src/cli/mod.rs@f7a9c1b0eae9,crates/kanzei/src/cli/worktree.rs@1453de273502

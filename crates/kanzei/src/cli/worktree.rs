@@ -1,8 +1,8 @@
-//! `kz worktree` 建线/合并预检(R-256 批3,纯搬迁自 main.rs)。
+//! `kz worktree` 建线/合并(R-256 批3,纯搬迁自 main.rs)。
 //!
-//! 独立理由:worktree CLI 是「桌面 processes.rs 同一份内核」的命令面——建线
-//! (create_worktree_with_receipt)、合并前冲突预检(merge-tree),不复制 git plumbing;
-//! 拆出后 worktree 生命周期变更(kanzei_tools::worktree 单源)不必读懂 run 的装配。
+//! 独立理由:worktree CLI 是「桌面 processes.rs 同一份内核」的命令面——建线、
+//! 合并前冲突预检与安全合并均复用 `kanzei_tools::worktree`,不复制 git plumbing;
+//! 拆出后 worktree 生命周期变更不必读懂 run 的装配。
 
 use super::{explicit_main_root, main_project_root, usage};
 
@@ -30,6 +30,15 @@ pub(crate) async fn worktree_cli(args: &[String]) -> anyhow::Result<()> {
             println!("已建工作树: {}", info.path);
             println!("分支: {}", info.branch);
             println!("clean: {}", info.clean);
+            Ok(())
+        }
+        Some("merge") => {
+            let path = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!("用法: kz worktree merge <worktree-path> [--project-root <path>]")
+            })?;
+            let result = kanzei_tools::worktree::merge_worktree(&project_root, path)
+                .map_err(anyhow::Error::msg)?;
+            println!("{result}");
             Ok(())
         }
         Some("merge-preview") => {
@@ -61,7 +70,7 @@ pub(crate) async fn worktree_cli(args: &[String]) -> anyhow::Result<()> {
         _ => {
             usage();
             anyhow::bail!(
-                "用法: kz worktree <create <name>|merge-preview <path>> [--project-root <path>]"
+                "用法: kz worktree <create <name>|merge-preview <path>|merge <path>> [--project-root <path>]"
             )
         }
     }

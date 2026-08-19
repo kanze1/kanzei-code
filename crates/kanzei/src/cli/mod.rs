@@ -78,6 +78,7 @@ pub(crate) fn usage_text() -> &'static str {
        kz work claim <id> [--reason <text>] # 原子占用 selected；覆盖时理由必填\n\
        kz worktree create <name>            # 建线:原子认领+凭据回滚,桌面/CLI 同一实现(R-207)\n\
        kz worktree merge-preview <path>     # 合并前冲突预检(merge-tree),不执行合并(R-207)\n\
+       kz worktree merge <path>              # 安全非快进合并:冲突则保持双方并返回诊断\n\
        kz lock status                       # 外部写入者可见性:主根/git 工作树改动/活跃线(R-181)\n\
        kz config schema                     # kanzei.toml 用户面配置参考:全部已知键+说明+默认值(R-220)\n\
        kz metrics [--top N]                 # 巨石度量:生产/测试行数+函数数+最大函数行数+>7参(R-258)\n\

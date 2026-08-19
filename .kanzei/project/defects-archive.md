@@ -6986,3 +6986,17 @@
 - observed_head: d5e61015b8a0a321255e7ebbf23bf2fd337081a2
 - observed_worktree_hash: fnv1a64:67a9e384eb9cb9e0
 - recorded_at: 1787168714364
+
+## D-565 非快进并行线收编缺少安全 CLI/结构化执行入口 [fixed] (medium)
+- 复现: R-306 需要将历史分叉的 p13/R-257 worktree 收编到 dev；真实 `kz worktree merge-preview` 已确认冲突，但结构化 git 工具只支持 `merge_ff`，CLI 只暴露 `worktree merge-preview`，没有可由 agent 安全调用的非快进合并/冲突收敛入口。
+- 影响: 只能预检、不能按项目既有 worktree merge 内核执行非快进合并；若绕过结构化入口直接在 bash 执行 git merge 会违反 Git mutation 安全契约，R-306 无法继续完成。
+- 来源: self-found：R-306 B0 收编前复核与两条真实 worktree merge-preview。
+- 标签: 流程
+- 进展: 验收逐项对账：①“提供真实可调用的安全收编入口，复用 merge_worktree”：`crates/kanzei/src/cli/worktree.rs:35-42` 是真实 CLI 调用方，直接调用 `kanzei_tools::worktree::merge_worktree`；内核位置 `crates/kanzei-tools/src/worktree.rs:562-584`。②“复用 merge-tree 预检与 --no-ff；冲突时保持双方并返回逐文件诊断”：内核 `worktree.rs:565-580` 先 `merge-tree --write-tree`，冲突返回“双方改动已保留”与冲突文件，不执行 `git merge --no-ff`；真实 p13 CLI 复现由 T-1786922726500 证明 9 文件冲突、非零退出、双方未改。③“补 CLI/工具回归覆盖”：`cargo test -p kanzei` 40 单测+32 集成测试通过，T-1786922726500；工具内核 no-ff/冲突回归位于 `crates/kanzei-app/src/worktree_tests.rs:631-695`。
+- 验收: 提供真实可调用的安全收编入口，复用 `kanzei_tools::worktree::merge_worktree` 的冲突预检与 --no-ff 合并语义；非快进冲突时保持双方工作树并返回逐文件诊断；补 CLI/工具回归覆盖。
+- refs: R-306
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-565
+- observed_head: 2d6251c008ce33c27d97d0b04d4597aa2a07a1d8
+- observed_worktree_hash: fnv1a64:fcbf5e292fd09baf
+- recorded_at: 1787169143774
