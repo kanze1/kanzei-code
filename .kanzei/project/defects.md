@@ -110,3 +110,16 @@
 - 标签: 后端
 - 验收: ①manager 产出 fact 必须带可核验出处,与 refs 条目明显无关的产出(如正文与条目零词汇关联)被机械拒绝或降级 candidate 不进 active;②NOOP/产出/驳回有遥测计数;③文章获取器 M-001 形态成回归用例;④与 R-308 晋升门槛机械化对齐不重复实现
 - 优先级: P2
+
+## D-580 R-306 commands 迁移遗留父模块 GIT_TIMEOUT 导致 Duration 未导入而编译失败 [fixing] (medium)
+- refs: R-306
+- 复现: 迁移 run_git 执行器到 `git/commands.rs` 后执行 `cargo test -p kanzei-tools`，`git.rs:19` 报 `cannot find type Duration`，父模块仍保留未使用的 `GIT_TIMEOUT`。
+- 影响: kanzei-tools 编译失败，commands 域迁移无法提交。
+- 来源: 本会话自发现：R-306 commands 域迁移后的定向测试复现
+- 标签: 核心
+- 验收: ①父模块不再保留迁出后的 GIT_TIMEOUT；②cargo fmt --all -- --check 通过；③cargo test -p kanzei-tools 通过；④迁移后的 timeout 常量仅由 commands 域持有并被 run_git_owned 使用
+- 优先级: P1
+- 进展: 已移除父模块 `crates/kanzei-tools/src/git.rs` 中遗留的 `GIT_TIMEOUT`，timeout 常量由 `crates/kanzei-tools/src/git/commands.rs` 持有并由 `run_git_owned` 使用；`cargo fmt --all -- --check` 与 `cargo test -p kanzei-tools` 已通过（389 passed/0 failed/1 ignored），待提交前按验收逐条收尾。
+- observed_head: ce4edf3f4ade94ce67a263492fb3ad8fbdd6db87
+- observed_worktree_hash: fnv1a64:6274c4df096a4eff
+- recorded_at: 1787178216793

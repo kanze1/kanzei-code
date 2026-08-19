@@ -8237,3 +8237,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-306 D-579
 - 收尾: 1787177948
 - 源码指纹: v2 crates/kanzei-tools/src/git.rs@5e7f5a0641e8,crates/kanzei-tools/src/git/worktree.rs@54f1ca45b029
+
+## T-1786922726503 R-306 commands 域迁移 kanzei-tools 定向测试 [passed]
+- 命令: cargo fmt --all -- --check; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-tools
+- 时长: 48.0s
+- 摘要: D-580 修复后 fmt 通过；kanzei-tools 389 passed, 0 failed, 1 ignored。
+- 关联: R-306 D-580
+- 收尾: 1787178221
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@855aed8b1d68,crates/kanzei-tools/src/git/commands.rs@397b40e4ec87
