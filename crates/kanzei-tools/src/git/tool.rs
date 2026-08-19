@@ -10,7 +10,8 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use super::commands::{run_git, run_git_owned};
-use super::{commit, finalize, merge_ff, stage};
+use super::finalize::finalize;
+use super::{commit, merge_ff, stage};
 
 #[derive(Deserialize, JsonSchema)]
 struct GitInput {
