@@ -6832,3 +6832,19 @@
 - observed_head: d1cc00060b8e2540bd1c0309faa5d62d0efcfa26
 - observed_worktree_hash: fnv1a64:58a80e1d8f45fa6b
 - recorded_at: 1787161152691
+
+## D-554 ps1_bom 门禁红:ui-desktop-uia.ps1 无 BOM 入库,提交侧闸门漏拦 [done] (small) [fixed]
+- refs: R-101 D-408
+- 复现: 发布树 ff 至 3c123bd5 后跑 scripts/verify.ps1,ps1_bom 步骤失败:scripts/ui-desktop-uia.ps1 含 374 个中文字符缺 UTF-8 BOM。该文件由 cd4b6013(R-101 B2)新增入库,提交侧结构化 git 闸门未拦——疑因门禁跑在安装版 kzapp(123d0952 之前构建)上,不含 R-300 B2 0abdef53 修复后的 BOM/扩展路径检查(verify 侧与提交侧清单未真正对齐)。
+- 影响: dev 过不了 verify,发版链被卡(verify 不产出 verification.json,package 无从执行);该脚本在 Windows PowerShell 5.1 下会解析报错。
+- 注意: 主树该文件当前有 R-101 B3 未提交 WIP(-RunStopTest/Find-KzAutomationId 定位,修 D-552);BOM 修复应并入该线下次提交,不要在发布现场单独动这个文件,避免同文件两线冲突。
+- 来源: 2026-08-20 发版预检,verify 实测(发布树,commit 3c123bd5)。
+- 标签: 流程
+- 验收: 脚本重存 UTF-8 with BOM 后 verify ps1_bom 步骤绿;核对提交侧闸门为何漏拦新增 .ps1(gate_checklists_align 守护是否覆盖),给出拦截或豁免结论。
+- 优先级: P1
+- 状态: done
+- 进展: 已完成验收对账并确认既有修复：①「脚本重存 UTF-8 with BOM 后 verify ps1_bom 步骤绿」→`scripts/check-ps1-bom.mjs:21-34` 检查含中文 .ps1 的 EF BB BF，`scripts/verify.ps1:71-74` 以同一命令接入 ps1_bom；当前 T-1786922726476 通过（6 个脚本，含中文者均带 BOM），ui-desktop-uia.ps1 实际首三字节 EF BB BF；此前修复提交为 55caf824。②「核对提交侧闸门为何漏拦并给出结论」→`crates/kanzei-tools/src/git.rs:879-972` 的 source_test_gate 只校验 passed 测试、指纹与 crate 覆盖，`git.rs:1030-1043` 提交路径只执行 fmt/clippy/compile 与 source_test_gate，不执行 verify 的每个步骤；`git.rs:2010-2096` 的 gate_checklists_align_across_git_verify_and_ci 只校验 verify/CI/git 清单标记同步。T-1786922726477 通过（1 passed），结论：提交侧对 verify 专项步骤属于明确豁免范围，非清单漂移；ps1_bom 由 verify 与 CI 拦截。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-554 [tracker integrity degraded] D-555: invalid defect lifecycle [done]
+- observed_head: 4de7f1016c097b6171ef930d84159668d28ff578
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787161323076

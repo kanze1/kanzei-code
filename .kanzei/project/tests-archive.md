@@ -8048,3 +8048,15 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-553
 - 收尾: 1787161113
 - 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@a32b7d48d67e,crates/kanzei-app/src/run/persistence.rs@38c8e9fa6a1c,scripts/ui-runtime-smoke.mjs@edd9d781ee77
+
+## T-1786922726476 D-554 PowerShell BOM 门禁 [passed]
+- 命令: node scripts/check-ps1-bom.mjs
+- 摘要: 检查 6 个 .ps1 脚本，含中文者均检测到 UTF-8 BOM；ui-desktop-uia.ps1 首三字节为 EF BB BF。
+- 关联: D-554
+- 收尾: 1787161308
+
+## T-1786922726477 D-554 提交门禁清单同步核对 [passed]
+- 命令: cargo test -p kanzei-tools gate_checklists_align_across_git_verify_and_ci
+- 摘要: 提交门禁/verify/CI 清单同步守护测试通过，1 passed、0 failed；确认 ps1_bom 在 verify 与 CI 清单均有标记，提交侧 source_test_gate 的豁免是现行范围而非清单漂移。
+- 关联: D-554
+- 收尾: 1787161308

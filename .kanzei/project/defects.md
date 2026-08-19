@@ -43,18 +43,6 @@
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-552 [tracker integrity degraded] D-555: invalid defect lifecycle [done]
 - 阻塞: 真实 `-RunStopTest` 会向当前安装位 kzapp 发送测试 prompt 并改变用户会话；PID 50360 仍为用户进程，agent 不得强行接管或停止。解除人：用户关闭当前 kzapp 窗口，或提供可控的独立 kzapp 窗口后，由 agent 执行 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1 -RunStopTest` 并核销真实 send→stop→stop_run→kz:stopped。
 
-## D-554 ps1_bom 门禁红:ui-desktop-uia.ps1 无 BOM 入库,提交侧闸门漏拦 [done] (small)
-- refs: R-101 D-408
-- 复现: 发布树 ff 至 3c123bd5 后跑 scripts/verify.ps1,ps1_bom 步骤失败:scripts/ui-desktop-uia.ps1 含 374 个中文字符缺 UTF-8 BOM。该文件由 cd4b6013(R-101 B2)新增入库,提交侧结构化 git 闸门未拦——疑因门禁跑在安装版 kzapp(123d0952 之前构建)上,不含 R-300 B2 0abdef53 修复后的 BOM/扩展路径检查(verify 侧与提交侧清单未真正对齐)。
-- 影响: dev 过不了 verify,发版链被卡(verify 不产出 verification.json,package 无从执行);该脚本在 Windows PowerShell 5.1 下会解析报错。
-- 注意: 主树该文件当前有 R-101 B3 未提交 WIP(-RunStopTest/Find-KzAutomationId 定位,修 D-552);BOM 修复应并入该线下次提交,不要在发布现场单独动这个文件,避免同文件两线冲突。
-- 来源: 2026-08-20 发版预检,verify 实测(发布树,commit 3c123bd5)。
-- 标签: 流程
-- 验收: 脚本重存 UTF-8 with BOM 后 verify ps1_bom 步骤绿;核对提交侧闸门为何漏拦新增 .ps1(gate_checklists_align 守护是否覆盖),给出拦截或豁免结论。
-- 优先级: P1
-- 状态: done
-- 进展: 2026-08-20 修复提交 55caf824:HEAD 内容+BOM 经底层对象提交(未卷入主树 R-101 B3 未提交 WIP,工作副本同步前置 BOM 保留 WIP);check-ps1-bom 本地绿(6 个脚本),发布树 verify 全绿,证据 dist/verification.json 绑定 55caf824。遗留:提交侧闸门为何漏拦 cd4b6013(疑安装版旧二进制门禁,与「门禁跑的是安装版二进制」同因)未单独核——本次发版后安装版更新,复现条件消失,如再漏拦另立缺陷。
-
 ## D-555 metrics 回涨闸对零改动的 phase_pipeline.rs 误报涨 127 行,基线口径漂移 [done] (medium)
 - refs: R-300
 - 复现: 发布树 ff 至 3c123bd5 后跑 scripts/verify.ps1,报 metrics regression gate failed: crates/kanzei-app/src/phase_pipeline.rs production lines grew 127 (baseline 796, current 923, allowance 100)。该文件在 build-123d0952..3c123bd5 区间零改动(最后触碰 ec6f6970);docs/design/metrics_baseline.md:31 基线行记 总 933/生产 796/测试 137,新口径量出生产 923——差值 127 与测试行数量级吻合,疑 R-300 B5(f28c8dc2「修复 metrics 生命周期口径并更新基线」)改口径后基线全表未按新口径重生成,该文件测试行被计入生产。
