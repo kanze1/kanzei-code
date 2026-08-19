@@ -89,27 +89,6 @@
 - 取活依据: engine:唯一可执行 WIP 是 R-101，必须先恢复它
 - 停车: 排队:B4 桌面 E2 体量大,排在收口类条目(D-504/R-242/R-296/R-299)之后恢复;恢复人:agent
 
-## R-242 会话投影真源切换与分段清空恢复 [doing]
-- refs: D-209 D-342 D-417 R-236 R-279 docs/design/deepseek_harness_upgrade.md
-- 依赖: 
-- 内容: 在 shadow gate 通过后，将 conversation_get/list、runner prior、子代理 transcript 和 UI 历史恢复逐项切到事件投影；进程内 Vec<Message> 仅作缓存。清空对话追加 conversation.reset 并开启新 segment，新 segment 的模型 prior 为空，旧 segment 仍可审计。验证期保留 legacy snapshot 只读对照，五条读路径全部稳定后停止新增 conversation.updated。
-- 复杂度: 大
-- 批次: 8/8
-- 来源: 2026-08-14 DeepSeek Harness 升级方案；用户确认清空保留、删除确定性物理清除并弹窗提示风险。
-- 标签: 核心
-- 边界: 本需求只负责事件投影真源切换与 segment reset，不实现会话物理删除、Spill artifact 联动删除、WAL/VACUUM 或迁移备份安全整理；这些统一由 R-245 的删除计划与显式整理入口承担。第一批不改事件 format_version 与 SessionFact 公共词表；任一读路径可通过 feature gate 独立回退 legacy snapshot。
-- 迁移与回滚: 不新增表、列或索引时不创建空 migration。切换按五条读路径分别启用 feature gate，legacy snapshot 在观察期只读保留；任一路径出现未知差异即回退该路径。全部 gate 稳定后才停止新增 conversation.updated，既有 snapshot 不删除。
-- 阻塞: 
-- 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
-- 优先级: P1
-- 进展: R-242 验收⑦已实现，待提交：①五条读路径统一事件投影：桌面 `crates/kanzei-app/src/conversation.rs:63-96,195-241`、CLI `crates/kanzei/src/cli/run.rs:47-117`、桌面 runner prior `crates/kanzei-app/src/run/coordinator.rs:149-157`、UI history `crates/kanzei-app/src/processes/workspace.rs:509-517`、子代理 transcript `crates/kanzei-app/src/run/coordinator.rs:168-193`；②user/assistant/tool 强杀恢复由 `crates/kanzei-core/src/store/typed.rs:756-791,1159-1189` 与 T-1786922726244/T-1786922726245 覆盖；③孤立 tool call→interrupted 且不重放由 `crates/kanzei-core/src/store/typed.rs:756-791`、T-1786922726244 覆盖；④`conversation.reset` segment prior 空、旧事实可审计、重复 reset 幂等由 `crates/kanzei-app/src/conversation.rs:23-96` 与 T-1786922726244/T-1786922726245 覆盖；⑤30 个真实 shadow turn equal=30、expected=0、unknown=0、typed_write_errors=0 由 T-1786922726248 覆盖，当前三 crate 回归 T-1786922726501；⑥五 gate 独立回滚由 `crates/kanzei-app/src/projection_gate.rs:19-46,68-82` 与 T-1786922726501 覆盖；⑦桌面不再新增 snapshot `crates/kanzei-app/src/run/persistence.rs:450-482`，CLI 不再新增且 compaction 改写走事务 `crates/kanzei/src/cli/run/finalize.rs:29-68,90-101`，CLI prior 在写当前 user fact 前恢复 `crates/kanzei/src/cli/run.rs:285-302`，mobile 改写 typed fact `crates/kanzei-app/src/mobile.rs:324-389`，legacy snapshot 仍只读 `crates/kanzei-app/src/conversation.rs:286-333,390-450`；T-1786922726501 220+222+40+32 全绿。
-- observed_head: 080db353cc33509398d0746987dccf2b703fe0b1
-- observed_worktree_hash: fnv1a64:93aecba29cd59060
-- recorded_at: 1787176205797
-- 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
-- 对账: 2026-08-20 合并窗口解除:R-306 B1/B2 收编完成且 workspace 全绿,共享文件不再冻结;恢复复核验收⑦并关闭。恢复人:agent(循环)
-- 停车: 
-
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
 - 依赖: R-242

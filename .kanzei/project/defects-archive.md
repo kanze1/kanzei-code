@@ -7000,3 +7000,39 @@
 - observed_head: 2d6251c008ce33c27d97d0b04d4597aa2a07a1d8
 - observed_worktree_hash: fnv1a64:fcbf5e292fd09baf
 - recorded_at: 1787169143774
+
+## D-572 投影真源切换后正常收尾仍新增 conversation.updated 快照 [fixed] (medium)
+- refs: R-242 R-243
+- 复现: 默认五条 projection gate 已启用时运行一轮无压缩或 CLI 收尾，检查 .kanzei/state.db 仍能看到新的 conversation.updated；桌面端 crates/kanzei-app/src/run/persistence.rs:476-483，CLI crates/kanzei/src/cli/run/finalize.rs:53-58。
+- 影响: legacy snapshot 未降为只读，事件投影与快照继续双写，无法核销 R-242 验收⑦；后续恢复可能误把新快照当作模型 prior。
+- 来源: self-found during R-242 acceptance-⑦ reconciliation
+- 标签: 核心
+- 优先级: P1
+- 进展: 已修复并提交 `3b8b0e7b`：桌面正常收尾删除 `conversation.updated` 写入，见 `crates/kanzei-app/src/run/persistence.rs:450-482`；CLI 正常收尾删除快照写入，见 `crates/kanzei/src/cli/run/finalize.rs:90-101`；mobile 改为 typed user fact，见 `crates/kanzei-app/src/mobile.rs:324-389`；T-1786922726501 全部定向测试通过，生产 grep 仅保留 legacy 读取/测试构造。
+- observed_head: 3b8b0e7bc6801248f91ca8d30196a4d966825e9d
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787176334576
+
+## D-573 CLI 压缩结果在停止 conversation.updated 双写后未进入 compaction surface 事务 [fixed] (high)
+- refs: R-242 R-243
+- 复现: CLI `kz run` 进入 context overflow/压缩后，运行收尾不再写 `conversation.updated`，但 CLI 没有调用 `append_compaction_transaction`；检查 state.db 的 typed facts 与 compaction_* 事件，压缩后的 surface 未持久化，重启 prior 丢失压缩纪要。
+- 影响: 停止 legacy snapshot 双写后，CLI 压缩结果可能只存在进程内 Vec<Message>，重启后恢复到未压缩 typed history或缺失本轮 surface，违反 R-242 验收⑦并造成已发生上下文事实丢失。
+- 来源: self-found while updating stale CLI context-overflow tests after R-242 snapshot write removal
+- 标签: 核心
+- 优先级: P1
+- 进展: 已修复并提交 `3b8b0e7b`：CLI `persist_cli_compaction_surface_if_changed` 比较当前 typed projection 与 summary，压缩差异追加完整 `compaction_started→compaction_summary→surface_replaced→compaction_ended` 事务，见 `crates/kanzei/src/cli/run/finalize.rs:29-68`；context overflow 两条真实集成测试从 typed facts + compaction surface 回放，见 `crates/kanzei/tests/integration/context_overflow_recovery.rs:144-166`；T-1786922726501 集成32 passed。
+- observed_head: 3b8b0e7bc6801248f91ca8d30196a4d966825e9d
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787176335190
+
+## D-574 CLI 在写入当前 user fact 后恢复 prior 导致本轮输入重复 [fixed] (medium)
+- refs: R-242 D-573
+- 复现: CLI `run` 在 `TypedSessionWriter::user_message` 已写入当前输入事实后才调用 `recover_cli_prior`，投影 prior 会包含本轮当前 user message；随后 runner 再追加同一输入，轮末 `session.shadow_compared.equal=false`。
+- 影响: CLI runner prior 混入当前轮输入，可能造成用户消息重复、shadow gate 误报，破坏 runner prior 从上一 segment 恢复的语义。
+- 来源: self-found from R-242 CLI integration regression after projection migration
+- 标签: 核心
+- 优先级: P1
+- 进展: 已修复并提交 `3b8b0e7b`：CLI 将 `recover_cli_prior` 移到 `TypedSessionWriter::user_message` 之前，见 `crates/kanzei/src/cli/run.rs:285-302`；拒绝权限回归 shadow equal=true 已通过，T-1786922726501 全部定向测试通过。
+- observed_head: 3b8b0e7bc6801248f91ca8d30196a4d966825e9d
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787176335778
