@@ -28,3 +28,21 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787008359348
 - 阻塞: 真实重启验收需要关闭当前正在运行的已安装 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`；解除人：用户关闭当前 kzapp 窗口后，由 agent 重新启动同一安装位并回读持久化 auto state。
+
+## D-552 桌面 UIA 停止 E2 未能定位生产发送按钮 [open] (medium)
+- refs: R-101
+- 复现: 运行 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1 -RunStopTest`，B2 视图切换与 prompt ValuePattern 通过，但 Wait-KzButtonReady @('发送','Send') 超时并以非零退出。
+- 影响: 真实停止 E2 无法触发生产 run_prompt，不能验证 `#stop → stop_run → kz:stopped` 链路；默认 B2 不受影响。
+- 来源: self-found：R-101 B3 首次真实停止 E2。
+- 标签: 流程
+- 进展: 待复核真实 UIA Button 的 Name、AutomationId、IsOffscreen、ControlType，改用实际生产属性定位；不得用静态 DOM 或仅按钮存在作为替代证据。
+- 优先级: P2
+
+## D-553 kz:done 耗时用未初始化的本页 runStart 计算,打出纪元级秒数 [open] (small)
+- refs: R-101
+- 复现: 2026-08-20 00:11 R-101 停止链路实测(marker R101_UIA_STOP_20260819161104335):手动停止并取消 2 条排队输入后,运行日志打出「运行完成: 6 轮, 耗时 1787155867.5s」——该值恰等于当时的 Date.now()/1000,即 runStart=0。根因: `crates/kanzei-app/ui/07-events.js:423` 的 kz:done 处理器用模块级 `runStart`(`03-shell.js:433` 初值 0)算耗时,而它只在 `08-compose.js:314` sendPrompt 路径经 startElapsed() 赋值;本页实例未经 sendPrompt 启动该轮时(页面/webview 重载后接管在跑会话、后端排队派发或鞭挞续跑的轮次)必现。后端 `kz:done` 载荷(`crates/kanzei-app/src/run/persistence.rs:488-503`)不带时长字段,前端无可信来源可退。
+- 影响: 运行日志耗时失真为 17.9 亿秒;长会话/停止链路 E2 无法以日志耗时作观测证据。仅显示层,不影响运行本身。
+- 来源: 用户截图(2026-08-20,R-101 停止链路 E2 现场);代码对照 self-confirmed。
+- 标签: 前端
+- 验收: kz:done 的耗时来源可信——后端载荷携带 elapsedMs(推荐,后端知道真实起点)或前端在 runStart=0 时退化为只报轮数不打绝对时长;补「页面重载后接管在跑会话」场景回归;运行日志不再出现纪元级耗时。
+- 优先级: P3
