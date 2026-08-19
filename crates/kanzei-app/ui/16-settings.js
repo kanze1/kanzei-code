@@ -298,6 +298,95 @@ function renderRosterCapNotice(s) {
 
 $("set-max-tasks")?.addEventListener("input", () => renderRosterCapNotice(settingsEffectiveSnapshot));
 
+function agentSourceLabel(source) {
+  return { builtin: t("内建"), global: t("全局"), project: t("项目") }[source] || source;
+}
+function agentStatusLabel(status) {
+  return {
+    available: t("可用"),
+    configurationError: t("配置错误"),
+    hidden: t("当前档位隐藏"),
+  }[status] || status;
+}
+function appendAgentField(card, label, value) {
+  const row = document.createElement("div");
+  row.className = "agent-directory-field";
+  const name = document.createElement("span");
+  name.className = "dim";
+  name.textContent = `${label}: `;
+  const content = document.createElement("span");
+  content.textContent = value ?? "";
+  row.append(name, content);
+  card.append(row);
+}
+function renderAgentDirectory(snapshot) {
+  const host = $("agent-directory");
+  if (!host) return;
+  host.replaceChildren();
+  const agents = Array.isArray(snapshot?.agents) ? snapshot.agents : [];
+  if (agents.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "dim";
+    empty.textContent = t("没有Agent定义");
+    host.append(empty);
+    return;
+  }
+  for (const agent of agents) {
+    const card = document.createElement("article");
+    card.className = "agent-directory-card";
+    const heading = document.createElement("h4");
+    heading.textContent = agent.name || "agent";
+    const status = document.createElement("span");
+    status.className = `agent-directory-status ${agent.status || ""}`;
+    status.textContent = agentStatusLabel(agent.status);
+    heading.append(" ", status);
+    card.append(heading);
+    appendAgentField(card, t("来源"), agentSourceLabel(agent.source));
+    appendAgentField(card, t("档位"), agent.profile);
+    appendAgentField(card, t("模式"), agent.mode);
+    appendAgentField(card, t("模型"), agent.model);
+    appendAgentField(card, t("轮数"), String(agent.steps ?? ""));
+    if (agent.path) {
+      appendAgentField(card, t("原文路径"), agent.path);
+      const open = document.createElement("button");
+      open.className = "ghost";
+      open.type = "button";
+      open.textContent = t("打开原文");
+      open.addEventListener("click", () => invoke("agent_directory_open", {
+        projectDir: currentProject || null,
+        path: agent.path,
+      }).catch((err) => toastError(String(err), { retry: () => open.click() })));
+      card.append(open);
+    }
+    if (agent.error) appendAgentField(card, t("配置错误"), agent.error);
+    if (agent.systemPreview) appendAgentField(card, t("系统提示词预览"), agent.systemPreview);
+    host.append(card);
+  }
+}
+async function loadAgentDirectory() {
+  const status = $("agent-directory-status");
+  try {
+    const snapshot = await invoke("agent_directory_get", {
+      projectDir: currentProject || null,
+      profile: $("set-profile")?.value || null,
+    });
+    renderAgentDirectory(snapshot);
+    if (status) status.textContent = `${snapshot.agents?.length || 0} Agent`;
+  } catch (err) {
+    if (status) status.textContent = t("Agent目录读取失败");
+    const host = $("agent-directory");
+    if (host) {
+      host.replaceChildren();
+      const error = document.createElement("p");
+      error.className = "form-hint-warn";
+      error.textContent = `${t("Agent目录读取失败")}: ${err}`;
+      host.append(error);
+    }
+  }
+}
+$("agent-directory-refresh")?.addEventListener("click", () => void loadAgentDirectory());
+$("set-profile")?.addEventListener("change", () => void loadAgentDirectory());
+
 
 // 模型角色改成真下拉:自由文本框要手打 `provider:model`,拼错一个字母要到运行时
 // 才炸,而那时人早已离开设置页。这里从各 provider 探测到的清单里选,手填只作兜底。
@@ -557,6 +646,7 @@ async function loadSettings({ force = false } = {}) {
   settingsHydrated = true;
   // 探测不再挡在回填前面(原来是 await,几秒后 resolve 再整表重建)。
   void probeModelsAndMergeOptions(token);
+  void loadAgentDirectory();
 }
 function hydrateSettingsForm(s) {
   const storedLanguage = LANGUAGE_PREFERENCES.has(s.language)

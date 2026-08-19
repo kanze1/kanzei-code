@@ -8104,3 +8104,38 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-305
 - 收尾: 1787162997
 - 源码指纹: v2 crates/kanzei-app/src/settings.rs@63883aaa108c
+
+## T-1786922726484 R-305 B1 Agent目录 Rust 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: kanzei-app 定向测试通过：220/220；包含 agent_directory::invalid_agent_frontmatter_is_visible_as_configuration_error 与 preview_is_bounded 两个新增目录单测。
+- 关联: R-305
+- 收尾: 1787163703
+- 源码指纹: v2 crates/kanzei-app/src/agent_directory.rs@0a9a76604836,crates/kanzei-app/src/main.rs@b8eeef076b7d
+
+## T-1786922726485 R-305 B1 Agent目录前端冒烟与 lint [failed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/16-settings.js; node --check crates/kanzei-app/ui/03-shell.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: node --check 三文件通过；ui-runtime、parallel-lines、ui-a11y、ui-i18n、ui-markdown 通过；ui-lint 仍被既有 D-560（07-events.js:423 roundElapsedSeconds 未定义）阻断。D-561 新增 Agent 目录资源与运行时回归已通过。
+- 关联: R-305 D-560 D-561
+- 收尾: 1787163704
+- 源码指纹: v2 crates/kanzei-app/src/agent_directory.rs@0a9a76604836,crates/kanzei-app/src/main.rs@b8eeef076b7d
+
+## T-1786922726486 R-305 B1 Agent目录运行时消费者回归 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs
+- 摘要: 更新后的运行时冒烟通过：25 个 ui/*.js、2328 次 invoke、设置页 Agent 目录容器与 IPC 读取、内建/项目 Agent 卡片渲染和打开原文 IPC 调用均通过，0 运行时错误。
+- 关联: R-305 D-561
+- 收尾: 1787163846
+- 源码指纹: v2 crates/kanzei-app/src/agent_directory.rs@0a9a76604836,crates/kanzei-app/src/main.rs@b8eeef076b7d,scripts/ui-runtime-smoke.mjs@06217753b526
+
+## T-1786922726487 R-305 B1 Agent目录 i18n 回归 [passed]
+- 命令: node scripts/ui-i18n-smoke.mjs
+- 摘要: Agent 目录新增资源键、HTML data-i18n 文案和动态 t() 调用均通过 i18n 静态契约：1330 个资源 key、449 项 HTML 文案、57 项动态契约。
+- 关联: R-305 D-561
+- 收尾: 1787163866
+- 源码指纹: v2 crates/kanzei-app/src/agent_directory.rs@0a9a76604836,crates/kanzei-app/src/main.rs@b8eeef076b7d,scripts/ui-runtime-smoke.mjs@06217753b526
+
+## T-1786922726488 R-305 B1 Agent目录格式化后定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 摘要: fmt check 通过；格式修正后的 kanzei-app 定向测试再次通过 220/220，新增 Agent 目录单测通过。
+- 关联: R-305
+- 收尾: 1787164043
+- 源码指纹: v2 crates/kanzei-app/src/agent_directory.rs@5affaf978d58,crates/kanzei-app/src/main.rs@b8eeef076b7d,scripts/ui-runtime-smoke.mjs@06217753b526

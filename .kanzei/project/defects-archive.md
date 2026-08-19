@@ -6888,3 +6888,17 @@
 - observed_head: 6fd3e8b6e422c05361796e62bc99fba6698209d4
 - observed_worktree_hash: fnv1a64:cf2c18129521b3bd
 - recorded_at: 1787162913500
+
+## D-561 R-305 Agent目录新增文案未完整接入 i18n 导致前端冒烟失败 [fixed] (low)
+- 复现: 运行 node scripts/ui-i18n-smoke.mjs；同时运行 node scripts/ui-runtime-smoke.mjs 检查设置页英文状态。
+- 影响: Agent 目录设置区存在资源表未识别的静态文案；英文运行时冒烟报告侧栏「项目」文案不一致，可能导致前端门禁失败。
+- 来源: self-found，R-305 B1 Agent 目录 UI 接线后的前端六条冒烟。
+- 标签: 前端
+- 进展: 已修复并验证：`crates/kanzei-app/ui/02-i18n.js:272-287,284` 增加 Agent 目录、状态、打开原文等英文资源；`crates/kanzei-app/ui/index.html:710-718` 的静态文案全部使用 data-i18n-key；删除重复项目资源键，恢复既有项目侧栏英文文案。T-1786922726486 通过：ui-runtime 含设置页 Agent 目录 IPC、内建/项目卡片和打开原文调用；T-1786922726487 通过：ui-i18n 1330 keys/449 HTML/57 动态契约。
+- 验收: Agent 目录新增文案全部进入资源表并通过 i18n 冒烟；英文运行时冒烟的项目侧栏断言恢复通过，或确认并记录为与本次改动无关的既有缺陷。
+- refs: R-305
+- 优先级: P2
+- 验收核验: ①Agent 目录新增文案全部进入资源表：`crates/kanzei-app/ui/02-i18n.js:272-287` 与 `ui/index.html:710-718`；T-1786922726487 通过。②英文运行时项目侧栏断言恢复：删除重复 `项目` 资源键于 `ui/02-i18n.js:279` 原新增项；T-1786922726486 通过且 0 runtime errors。既有 D-560 的 ui-lint 未混入本缺陷。
+- observed_head: 9b9537b2e34c227238b9afc5e63253a4c97edc05
+- observed_worktree_hash: fnv1a64:fe38fb36b5d26a89
+- recorded_at: 1787163875725

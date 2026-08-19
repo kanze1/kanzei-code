@@ -274,9 +274,9 @@
 - 优先级: P2
 - 取活依据: engine:唯一可执行 WIP 是 R-305，必须先恢复它
 - 取活释放: line=kanzei/thread-line-1787120622542-1;reason=parallel-line-unregister;at_ms=1787159520466
-- 进展: 本轮已落地一个与验收直接相关的最小切片：`crates/kanzei-app/src/settings.rs` 返回权威 `phaseRosterCapacity=5`；`crates/kanzei-app/ui/index.html:760` 增加策略状态节点；`ui/16-settings.js:279-299` 在加载和未保存输入变化时显示 max_tasks_per_turn 对阶段角色的截断/省略数量；`ui/02-i18n.js:604-606` 补英文资源。T-1786922726482：Rust kanzei-app 218/218、node --check、runtime/i18n/a11y 通过；ui-lint 被独立 D-560（07-events.js:423 未定义 roundElapsedSeconds）拦截。下一步：继续 B1 Agent 目录只读入口，不能把本切片冒充完整 B1。
-- observed_head: 6fd3e8b6e422c05361796e62bc99fba6698209d4
-- observed_worktree_hash: fnv1a64:cf2c18129521b3bd
-- recorded_at: 1787162932897
-- 批次: 0/3
+- 进展: B1 已落地并验证：Agent 目录读取与合并位于 `crates/kanzei-app/src/agent_directory.rs:43-223`，覆盖内建/全局/项目来源、profile/mode/model/steps、配置错误与 hidden 状态；`agent_directory_open` :109-138 只允许全局或当前项目 agents 原文；Tauri 注册于 `crates/kanzei-app/src/main.rs:262-267`；设置页消费者位于 `crates/kanzei-app/ui/index.html:710-718`、`ui/16-settings.js:301-386`，资源位于 `ui/02-i18n.js:272-287`；运行时夹具与断言位于 `scripts/ui-runtime-smoke.mjs:922-931,3931-3940`。T-1786922726484 cargo test 220/220；T-1786922726486 Agent 目录 IPC/卡片/打开原文运行时回归通过；T-1786922726487 i18n 通过。D-561 已 fixed；ui-lint 仍由独立 D-560 阻断。下一步 B2：将策略配置读取接入 runner/harness 强制并补真实生效测试。
+- observed_head: 9b9537b2e34c227238b9afc5e63253a4c97edc05
+- observed_worktree_hash: fnv1a64:fe38fb36b5d26a89
+- recorded_at: 1787163903393
+- 批次: 1/3
 - 批次说明: B1 Agent 目录与配置模型/只读入口；B2 策略读取与 runner 强制；B3 运行审计摘要 UI、端到端验证与收口。

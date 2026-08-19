@@ -11,6 +11,7 @@ pub(crate) use kanzei_core::{run_once_with_parts, AskFuture};
 pub(crate) use kanzei_harness::ConfigComponent;
 
 mod agent_container;
+mod agent_directory;
 mod auto_run;
 mod collaboration;
 mod commands;
@@ -260,7 +261,9 @@ fn main() {
             mobile::mobile_pair_code_regenerate,
             agent_container::agent_container_create,
             agent_container::agent_container_upgrade,
-            agent_container::agent_container_rollback
+            agent_container::agent_container_rollback,
+            agent_directory::agent_directory_get,
+            agent_directory::agent_directory_open
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");

@@ -917,6 +917,14 @@ const payloads = {
   worktree_harvest_candidates: ["R-184"],
   process_close: "已关闭线路 p|bg；工作树有独有内容，已保留",
   pending_asks_get: [],
+  agent_directory_get: {
+    profile: "dev",
+    agents: [
+      { name: "dev", source: "builtin", path: null, profile: "dev", mode: "primary", model: "primary", steps: 0, status: "available", systemPreview: "smoke Agent", error: null },
+      { name: "custom", source: "project", path: "C:/smoke/project/.kanzei/agents/custom.md", profile: "dev", mode: "subagent", model: "fast", steps: 4, status: "available", systemPreview: "custom smoke Agent", error: null },
+    ],
+  },
+  agent_directory_open: null,
   // primary 是探测不到的已存值(端点没实现 /models),必须原样保留;
   // effective 与全局不同 = 项目级覆盖,界面要明说。
   settings_get: {
@@ -3931,6 +3939,14 @@ assert(
 const settingsTab = document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "settings");
 settingsTab?.click();
 await flush();
+assert(byId.get("agent-directory"), "设置页缺少 Agent 目录容器");
+assert(invokeLog.includes("agent_directory_get"), "设置页加载未读取 Agent 目录 IPC");
+assert(document.querySelectorAll(".agent-directory-card").length === 2, "Agent 目录未渲染内建与项目 Agent 卡片");
+const agentOpenButton = document.querySelector(".agent-directory-card button");
+assert(agentOpenButton, "项目 Agent 卡片缺少打开原文按钮");
+agentOpenButton.click();
+await flush();
+assert(invokeLog.includes("agent_directory_open"), "打开原文按钮未调用 Agent 原文 IPC");
 const primarySelect = byId.get("set-primary");
 assert(primarySelect.tagName === "SELECT", "模型角色仍是自由文本框(手打 provider:model 太容易拼错)");
 const primaryValues = [...primarySelect.options].map((o) => o.value);
