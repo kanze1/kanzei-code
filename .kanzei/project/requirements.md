@@ -222,7 +222,7 @@
 - 验收: 生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED 四段有真实数据;控制面 F(m) 栏显示非空;deprecate 判定可被真实数据触发;回归测试
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-293
-- 停车: p13 线(thread-line-1786851588846-1)的 D-409/D-396~D-401 提交未合入 dev,其变更集合含 crates/kanzei-memory/src/memory/store.rs 且 dev 侧 memory 文件已独立演进(R-286 B2/D-480);待 R-306 B1 完成 p13 线收编后恢复,禁止在未收编文件上叠写。解除人:agent(R-306 B1 后)
+- 停车: 排队:p13 已收编(R-306 B1 完成),文件占用障碍消失;等 R-306 终态后恢复,接真实 outcome 写入方与聚合调度;解除条件:R-306
 - 进展: 设计冻结与只读勘察完成。已确认：kanzei-core/src/store/telemetry.rs:113-147 只有通用 record_memory_eval，funnel_counts:175-214 只消费 action_changed/outcome_improved 两个 arm；生产 action_changed 写入在 kanzei-memory/src/memory/mod.rs:715-730；F(m) 聚合由 replay.rs:284-316 调用 recompute_memory_effect，deprecate_candidates 在 core/src/store/eval.rs:322-349 依赖 memory_eval_agg。当前没有生产 outcome_improved 写入方或聚合调度。下一步：p16 清出 memory/mod.rs/store.rs 后，接真实 outcome 证据、调度 recompute 与回归测试。
 - observed_head: f461647ca8bc60ce91bf64c924da98a5ddbc2a2b
 - observed_worktree_hash: fnv1a64:441f9460a9730954
@@ -274,7 +274,7 @@
 - observed_head: 080db353cc33509398d0746987dccf2b703fe0b1
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787174555611
-- 停车: 主会话(SOL)直接执行中,循环勿并行取活;完成后由主会话清车并汇报。恢复人:主会话
+- 停车: 排队:R-242 收口后恢复 B4(observed_head 祖先链关闭闸门+收线释放流程),主会话工作已交接循环;解除条件:R-242
 - 对账: 2026-08-20 勘察修正:①p13 线实际未合并 16 提交(含 R-275 调色板批1~3、D-390/D-391/D-393/D-394 一串),条目内容原写 8 提交低估一倍,B1 工作量按 16 估;②p16 线(1787020530803-1)已经 merge commit 27b3e8d1 合入 dev,但树/本地分支/2 脏文件(ci.yml、git.rs)未清,B3 可先零风险清理;③冲突面持续扩大:线冻结在 08-16 后 dev 又改 drive.rs 14 次、memory/store.rs 10 次、git.rs 8 次;④两条欠账线均未走 parallel-line-unregister 释放流程,B4 闸门应含收线释放;⑤陈旧远端分支 kanzei/release-68db58e 已被 dev 完全包含,可顺带清理
 - 执行者: 主会话(SOL)。用户 2026-08-20 指令:结构性问题不再交自举,由主会话全面修复
 
@@ -294,6 +294,7 @@
 - observed_head: 1a5753cc517ea18028d9d2fc034d5030c631da99
 - observed_worktree_hash: fnv1a64:2401216920f5e68b
 - recorded_at: 1787173976915
+- 对账: 2026-08-20 发版 build-39cd402f 后 B1/B2 进入运行态;R-306/R-293 停车已改写「解除条件:」语法为首批真实消费者。批3 时顺带把「解除条件:」写入约定补进 conventions 停车纪律,让循环新写停车默认带机器可判条件
 
 ## R-308 记忆冗余治理与晋升门槛机械化:同指纹聚类合并、candidate 单轨化、复发阈值硬执行 [todo]
 - refs: D-567 D-568 R-293 R-235
