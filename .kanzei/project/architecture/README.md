@@ -33,7 +33,7 @@
 - [`research_workspace.md`](../../../docs/design/research_workspace.md)：research 工作台与来源/发现工件交互设计，作为 R-276 的设计输入。
 - [`session_state_and_line_runtime.md`](../../../docs/design/session_state_and_line_runtime.md)：会话状态与线路运行态设计(状态持久化、恢复与并发线路隔离)。
 - [`ui_esm_migration.md`](../../../docs/design/ui_esm_migration.md)：前端 ESM 迁移评估(结论:保持有序 classic script,A-008)。
-- [`weakness_register_20260820.md`](../../../docs/design/weakness_register_20260820.md)：弱点登记与 Agent 减负方向(2026-08-20 外部评估对照;R-310~R-312、D-575,减负方案待 R-312 勘察后评审)。
+- [`weakness_register_20260820.md`](../../../docs/design/weakness_register_20260820.md)：弱点登记与 Agent 减负方向(2026-08-20 两轮外部评估对照;R-310~R-313、D-575/D-577/D-578,§六 为需求发现实测复核,减负方案待 R-312 勘察后评审)。
 
 ### 历史基线 / 记录
 

@@ -91,3 +91,31 @@
 - 标签: 核心
 - refs: R-306
 - 优先级: P3
+
+## D-577 raw_lines 把空行判成游离段落且 raw_delete 报成功后游离行仍在,后置条件不成立 [open] (medium)
+- 复杂度: 中
+- 复现: 两处独立复现。①文章获取器测试项目(2026-08-20):R-002 raw_lines 报 1 条「(空行)」游离行,轨迹显示 raw_delete 返回「已删除第 1 条游离行」后再查仍在;D-001 据此登记并带着未复核的后置条件(进展自写「复核应确认 raw_lines 为空」)归档 fixed,本会话复查游离行依旧在。②kanzei 主库当场复现:R-310/R-311 均为本日 kz CLI req add 正常登记(多 --field 路径),raw_lines 各报 1 条「(空行)」;同日同路径登记的 R-313 却没有——正常登记/更新路径自身就会产生该「游离段落」,与「历史多行写法/手改残留」的工具自述不符,基本可定性检测把序列化产物空行误判为不可寻址内容
+- 影响: 工具返回语义误导 agent:报成功但后置条件不成立,弱模型陷入 raw_delete 循环并把未验证的 fixed 写进归档;纯空行本不该被判为不可寻址游离段落;产生元数据治理执行噪音,消耗轮次
+- 来源: 2026-08-20 需求发现实测(文章获取器项目)+外部评估点名;本会话已在该项目现场复现
+- 标签: 核心
+- 验收: ①定性空行游离判定是否误报,若误报则空行不再计为游离段落;②raw_delete 返回前复查后置条件,删不掉如实报错而非报成功;③文章获取器 R-002 现场复核游离行清零;④回归测试覆盖「删除报成功后仍存在」形态
+- 优先级: P2
+
+## D-578 memory manager 把该判 NOOP 的 inbox note 编造成无关根因 fact 落盘 active [open] (medium)
+- refs: D-567 R-308
+- 复杂度: 中
+- 复现: 文章获取器测试项目 .kanzei/memory/M-001(2026-08-19):标题「完成 D-001(fixed)的根因:知乎/大需求拆解流程失效」,正文根因为编造话术(「collaboration_status 环节缺失有效任务分解信号,导致后续 bash→defect→work→files→glob 流程无法正确分支…不可跳过 decompose 步骤」),与 D-001 实际内容(tracker 元数据游离行清理)毫无关系;subject=安装通道 同样无关;inbox note 模板明确写「若是本条目的具体 bug 且无外推价值,判 NOOP 不要产出」,正确动作是 NOOP
+- 影响: 记忆被无中生有的「事实」污染且 status=active 直接进常驻注入索引;NOOP 纪律只有提示词在守,弱模型跑 manager 时编造倾向更强;与 D-567(消化零产出)相反方向——消化端出毒比不出货更糟
+- 来源: 2026-08-20 需求发现实测(文章获取器项目)复核发现
+- 标签: 后端
+- 验收: ①manager 产出 fact 必须带可核验出处,与 refs 条目明显无关的产出(如正文与条目零词汇关联)被机械拒绝或降级 candidate 不进 active;②NOOP/产出/驳回有遥测计数;③文章获取器 M-001 形态成回归用例;④与 R-308 晋升门槛机械化对齐不重复实现
+- 优先级: P2
+
+## D-579 R-306 worktree 迁移插入点把 const 与 use 声明粘连导致 git.rs 无法解析 [open] (medium)
+- refs: R-306
+- 复现: 执行 `cargo fmt --all -- --check`，报 `git.rs:15 expected one of : ; < = where, found serde`，文件出现 `const GIT_TIMEOUTuse serde::Deserialize;`
+- 影响: kanzei-tools 无法格式化或编译，worktree 迁移暂不可验证
+- 来源: 本会话自发现：R-306 worktree 域迁移后的 cargo fmt 复现
+- 标签: 核心
+- 验收: ①恢复合法 import/const 边界；②cargo fmt --all -- --check 通过；③cargo test -p kanzei-tools 通过；④提交前记录修复位置与测试证据
+- 优先级: P1
