@@ -8009,3 +8009,21 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-101
 - 收尾: 1787081275
 - 源码指纹: v2 scripts/ui-desktop-uia.ps1@777d2aba1b15
+
+## T-1786922726470 R-101 B3 真实停止 UIA E2（首次复现） [failed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1 -RunStopTest
+- 摘要: 工具调用被用户在执行期间取消，未获得可审计的退出码；D-552 已登记为待复核，不能作为通过证据。
+- 收尾: 1787160215
+- 源码指纹: v2 scripts/ui-desktop-uia.ps1@f706025ee08d
+
+## T-1786922726471 R-101 B3 PowerShell AST 与默认 UIA 回归（路径构造失败） [failed]
+- 命令: Parser::ParseFile scripts/ui-desktop-uia.ps1; pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1
+- 摘要: 测试命令使用 Get-Location 生成了 provider-qualified/扩展路径，Parser::ParseFile 失败于路径拼接，尚未进入脚本 AST 或真实 UIA 流程；改用相对路径重跑。
+- 收尾: 1787160362
+- 源码指纹: v2 scripts/ui-desktop-uia.ps1@083554b6ce72
+
+## T-1786922726472 R-101 B3 PowerShell AST 与默认 UIA 回归 [passed]
+- 命令: Parser::ParseFile scripts/ui-desktop-uia.ps1; pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1
+- 摘要: AST 无错误；真实安装位 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe PID 50360 附着成功，顶层 Window/生产 prompt ValuePattern 往返通过，需求/缺陷视图→对话后 marker 保留，截图 398225 bytes，process_owned_by_test=false。未发送请求。
+- 收尾: 1787160390
+- 源码指纹: v2 scripts/ui-desktop-uia.ps1@083554b6ce72

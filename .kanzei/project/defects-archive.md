@@ -6792,3 +6792,16 @@
 - observed_head: 676fddefe6d82f7442035b81b8d65efe0b71ccfa
 - observed_worktree_hash: fnv1a64:4dc73574e4527fea
 - recorded_at: 1787080784506
+
+## D-556 桌面 UIA 脚本重复初始化 repoRoot [fixed] (low)
+- 复现: 审查 `scripts/ui-desktop-uia.ps1` 截图路径段可见 `$repoRoot = Split-Path -Parent $PSScriptRoot` 连续出现两次。
+- 影响: 重复赋值不改变当前结果，但增加脚本噪声并掩盖路径处理变更，降低 E2 harness 可审计性。
+- 来源: self-found：R-101 B3 修复 D-552 时的脚本审查。
+- 标签: 流程
+- 验收: 删除重复赋值；PowerShell AST 解析与真实 UIA 默认路径回归通过。
+- refs: R-101
+- 优先级: P3
+- 进展: 已对照验收：① `scripts/ui-desktop-uia.ps1:242-243` 仅保留一次 `$repoRoot = Split-Path -Parent $PSScriptRoot`，删除重复赋值；② T-1786922726472 的 `Parser::ParseFile scripts/ui-desktop-uia.ps1` 与默认真实 UIA 回归通过，截图落盘且未接管用户进程。
+- observed_head: 55caf82465d191acff0797d857458e2c27f22874
+- observed_worktree_hash: fnv1a64:21584db526887bd7
+- recorded_at: 1787160411241

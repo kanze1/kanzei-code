@@ -7,12 +7,14 @@
 # 用法:
 #   pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1
 #   ... -Exe C:\path\kzapp.exe -Screenshot .\artifacts\kzapp.png
+#   ... -RunStopTest
 
 [CmdletBinding()]
 param(
     [string]$Exe = (Join-Path $env:LOCALAPPDATA 'kanzei\kzapp.exe'),
     [string]$Screenshot = '.kanzei\research\r302-desktop-e2\kzapp-uia.png',
-    [int]$TimeoutSeconds = 20
+    [int]$TimeoutSeconds = 20,
+    [switch]$RunStopTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -94,6 +96,40 @@ function Find-KzPrompt {
     return $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $promptCondition)
 }
 
+function Find-KzAutomationId {
+    param([string]$AutomationId)
+    $condition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, $AutomationId)
+    return $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+}
+
+function Wait-KzButtonReady {
+    param(
+        [string[]]$NameParts,
+        [int]$WaitSeconds = 10,
+        [string]$AutomationId = ''
+    )
+    $deadline = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
+    do {
+        # UIA 节点会在 WebView 刷新后失效：先按生产 AutomationId 查找，失败时
+        # 在同一轮按真实按钮名称回退，且每轮都重新取得节点，禁止复用旧引用。
+        $button = if ($AutomationId) { Find-KzAutomationId $AutomationId } else { $null }
+        if (-not $button -and $NameParts) { $button = Find-KzButton $NameParts }
+        if ($button) {
+            try {
+                $state = $button.Current
+                if ($state.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $state.IsEnabled -and -not $state.IsOffscreen) {
+                    return $button
+                }
+            } catch {
+                # UIA 节点在 WebView 刷新时可能短暂失效，下一轮重新查找。
+            }
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return $null
+}
+
 try {
     $current = $window.Current
     if ($current.ControlType -ne [System.Windows.Automation.ControlType]::Window) {
@@ -164,6 +200,45 @@ try {
         }
     }
 
+    $stopRequested = $false
+    $stopSettled = $false
+    if ($RunStopTest) {
+        # B3:通过真实生产 prompt 发送一轮无文件写入请求，再按真实 Stop 按钮收尾。
+        # 这是显式 opt-in，默认脚本仍只执行无副作用的 B2 手写内容保留。
+        $stopPrompt = Find-KzPrompt
+        if (-not $stopPrompt) { Fail '停止 E2 开始前 UIA 未找到生产 prompt' }
+        $stopValuePattern = $stopPrompt.GetCurrentPattern([System.Windows.Automation.ValuePatternIdentifiers]::Pattern)
+        $stopMarker = "R101_UIA_STOP_$([DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))"
+        $stopValuePattern.SetValue("请开始一轮不会修改文件的长耗时响应，仅保持响应直到收到停止指令。$stopMarker")
+        $sendButton = Wait-KzButtonReady -NameParts @('发送', 'Send') -WaitSeconds $TimeoutSeconds -AutomationId 'send'
+        if (-not $sendButton) { Fail '停止 E2 未找到可用的真实发送按钮' }
+        $sendButton.GetCurrentPattern([System.Windows.Automation.InvokePatternIdentifiers]::Pattern).Invoke()
+        $stopButton = Wait-KzButtonReady -NameParts @('停止', 'Stop') -WaitSeconds $TimeoutSeconds -AutomationId 'stop'
+        if (-not $stopButton) { Fail '发送后未出现可用的真实停止按钮' }
+        $process.Refresh()
+        if ($process.HasExited) { Fail "发送后真实 kzapp 已退出，exit=$($process.ExitCode)" }
+        $stopButton.GetCurrentPattern([System.Windows.Automation.InvokePatternIdentifiers]::Pattern).Invoke()
+        $stopRequested = $true
+        $stopDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        do {
+            Start-Sleep -Milliseconds 250
+            $process.Refresh()
+            if ($process.HasExited) { Fail "停止后真实 kzapp 被退出，exit=$($process.ExitCode)" }
+            $sendAfter = Find-KzAutomationId 'send'
+            $sendReady = $false
+            if ($sendAfter) {
+                try { $sendReady = $sendAfter.Current.IsEnabled -and -not $sendAfter.Current.IsOffscreen } catch { $sendReady = $false }
+            }
+            $stopAfter = Find-KzAutomationId 'stop'
+            $stopVisible = $false
+            if ($stopAfter) {
+                try { $stopVisible = $stopAfter.Current.IsEnabled -and -not $stopAfter.Current.IsOffscreen } catch { $stopVisible = $false }
+            }
+            $stopSettled = $sendReady -and -not $stopVisible
+        } while (-not $stopSettled -and [DateTime]::UtcNow -lt $stopDeadline)
+        if (-not $stopSettled) { Fail '真实停止按钮已触发，但未观察到发送恢复且停止按钮收起' }
+    }
+
     $repoRoot = Split-Path -Parent $PSScriptRoot
     $providerPrefix = "Microsoft.PowerShell.Core\FileSystem::"
     if ($repoRoot.StartsWith($providerPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -213,6 +288,9 @@ try {
         input_marker_round_trip = $true
         prompt_view_switch = 'documents -> chat'
         prompt_retained_after_view_switch = $viewSwitchRetained
+        stop_test_requested = [bool]$RunStopTest
+        stop_requested = $stopRequested
+        stop_settled = $stopSettled
         screenshot = $shotPath
         screenshot_bytes = (Get-Item -LiteralPath $shotPath).Length
         process_owned_by_test = $owned

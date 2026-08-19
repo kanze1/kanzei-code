@@ -35,8 +35,11 @@
 - 影响: 真实停止 E2 无法触发生产 run_prompt，不能验证 `#stop → stop_run → kz:stopped` 链路；默认 B2 不受影响。
 - 来源: self-found：R-101 B3 首次真实停止 E2。
 - 标签: 流程
-- 进展: 待复核真实 UIA Button 的 Name、AutomationId、IsOffscreen、ControlType，改用实际生产属性定位；不得用静态 DOM 或仅按钮存在作为替代证据。
+- 进展: 已定位真实 UIA 属性：生产窗口 `AutomationId=send/stop`、`ControlType=Button`、`IsEnabled=true`、`IsOffscreen=false`（PID 50360 当前窗口只读枚举）。修复位于 `scripts/ui-desktop-uia.ps1:106-131`：每轮按 AutomationId 重新查找，失败回退真实名称并重新读取节点；调用位 `:213`、`:216` 改为显式命名参数，避免位置绑定歧义。T-1786922726472 默认真实 UIA 路径通过，但未执行 `-RunStopTest`，因此真实 `send → stop_run → kz:stopped` 仍未核销，保持 open。
 - 优先级: P2
+- observed_head: 55caf82465d191acff0797d857458e2c27f22874
+- observed_worktree_hash: fnv1a64:21584db526887bd7
+- recorded_at: 1787160401548
 
 ## D-553 kz:done 耗时用未初始化的本页 runStart 计算,打出纪元级秒数 [open] (small)
 - refs: R-101
