@@ -8261,3 +8261,17 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-306
 - 收尾: 1787178900
 - 源码指纹: v2 crates/kanzei-tools/src/git.rs@cb3182c66bfc,crates/kanzei-tools/src/git/finalize.rs@88cde765bd37,crates/kanzei-tools/src/git/tool.rs@828d56f41f61
+
+## T-1786922726506 R-306 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 57.0s
+- 摘要: R-306 关闭前 workspace 全量通过：各 crate 与 integration 合计测试全绿，含 kanzei-tools 389 passed/0 failed/1 ignored，无失败。
+- 关联: R-306
+- 收尾: 1787179286
+
+## T-1786922726507 R-306 scripts verify 发布门禁 [failed]
+- 命令: & .\scripts\verify.ps1
+- 时长: 0.0s
+- 摘要: PowerShell 在启动 verify.ps1 前直接返回 `AuthorizationManager check failed`，脚本第 1 行及后续十步均未执行，未产出 dist/verification.json。
+- 关联: R-306
+- 收尾: 1787179318
