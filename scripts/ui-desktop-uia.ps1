@@ -1,4 +1,4 @@
-# Windows 原生桌面 E2 最小验证。
+﻿# Windows 原生桌面 E2 最小验证。
 #
 # 这条路线不使用 WebView2 DevTools/CDP，也不把 headless browser 当作桌面 E2。
 # UIA 负责真实 kzapp 顶层窗口发现/聚焦和编辑控件断言；WebView2 内容通过真实
