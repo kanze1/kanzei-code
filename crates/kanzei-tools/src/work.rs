@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
-use crate::tracker::{dependency_states_from_documents, schedule_for_display_with_states};
+use crate::tracker::{
+    dependency_states_from_documents, schedule_for_display_with_states, DependencyStates,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -57,6 +59,11 @@ pub struct WorkItem {
     /// 阻塞等外部前提,停车是主动让出单槽的调度决定,复核阻塞时不该被清掉。
     #[serde(default)]
     pub parked: bool,
+    /// R-307 批1:停车/阻塞字段带「解除条件:」且所列编号已全部终态时的可观测
+    /// 记录(如「停车(解除条件已达成:R-306)」)。该字段已不再计入阻塞;取活方
+    /// 认领时顺手把原字段改写为已解除——调度只做动态判定,不自动写回。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub release_notes: Vec<String>,
     pub progress_provenance: ProgressProvenance,
     /// D-354:持有该条目的线(「取得线」字段,claim 时写入)。None = 默认线持有
     /// (含并行化之前的历史 WIP)。
@@ -475,6 +482,7 @@ fn item(
     kind: &'static DocKind,
     entry: &Entry,
     block_reasons: Vec<String>,
+    states: &DependencyStates,
     observation: &RepoObservation,
     reference_index: &BTreeMap<String, WorkReference>,
 ) -> WorkItem {
@@ -523,7 +531,10 @@ fn item(
             .collect(),
         blocked: !block_reasons.is_empty(),
         block_reasons,
-        parked: crate::tracker::park_reason(entry).is_some(),
+        // R-307 批1:解除条件已达成的停车视同恢复(parked=false),doing 条目
+        // 直接回到 Resume 通道;达成事实经 release_notes 透出供认领时改写字段。
+        parked: crate::tracker::park_reason(entry, states).is_some(),
+        release_notes: crate::tracker::scheduling::release_notes(entry, states),
         progress_provenance: provenance(entry, observation),
         claimed_by: field(entry, "取得线").map(str::to_string),
     }
@@ -667,6 +678,7 @@ pub fn resolve_work_decision(
                 kind,
                 &scheduled_item.entry,
                 scheduled_item.block_reasons.clone(),
+                &states,
                 &observation,
                 &reference_index,
             );
@@ -747,6 +759,7 @@ pub fn resolve_work_decision(
                             kind,
                             &scheduled_item.entry,
                             Vec::new(),
+                            &states,
                             &observation,
                             &reference_index,
                         ))
@@ -755,26 +768,64 @@ pub fn resolve_work_decision(
                     }
                 })
             });
+            // R-307 批2:全员不可执行时,对存量自由文本停车/阻塞做复核提醒——
+            // 字段里点名的 R-/D- 编号全部已终态的条目逐条点名。只是提醒通道,
+            // 不改变阻塞状态(R-281 的停车原因消失一天才被人工对账发现的教训)。
+            let stale_hints: Vec<String> = blocked_items
+                .iter()
+                .chain(parked_items.iter())
+                .filter_map(|item| {
+                    crate::tracker::scheduling::stale_blocker_evidence(
+                        item.fields
+                            .iter()
+                            .map(|field| (field.name.as_str(), field.value.as_str())),
+                        &states,
+                    )
+                    .map(|(label, ids)| {
+                        format!(
+                            "{} 的{label}前提({})可能已达成,请复核",
+                            item.id,
+                            ids.join("、")
+                        )
+                    })
+                })
+                .collect();
+            let stale_banner = if stale_hints.is_empty() {
+                String::new()
+            } else {
+                format!("\n[停车/阻塞复核提醒] {}", stale_hints.join(";"))
+            };
             match candidate {
-                Some(candidate) => (
-                    WorkDecision::Start,
-                    format!(
-                        "无可执行 WIP，按 {} 选择队首 {}",
+                Some(candidate) => {
+                    // R-307 批2:取活依据点名反向依赖权重;批1:解除条件已达成的
+                    // 字段随依据透出,让认领方顺手改写。
+                    let unblocks =
+                        crate::tracker::scheduling::unblocks_count(&states, &candidate.id);
+                    let mut reason = format!(
+                        "无可执行 WIP，按 {} 选择队首 {}(unblocks={unblocks})",
                         priority_name(priority),
                         candidate.id
-                    ),
-                    Some(candidate),
-                ),
+                    );
+                    if !candidate.release_notes.is_empty() {
+                        reason.push_str(&format!(
+                            ";{}——认领时顺手把该字段改写为已解除",
+                            candidate.release_notes.join("、")
+                        ));
+                    }
+                    (WorkDecision::Start, reason, Some(candidate))
+                }
                 None if !blocked_items.is_empty() => (
                     WorkDecision::Blocked,
                     if parked_items.is_empty() {
-                        "所有非终态条目都带有效阻塞；需要复核阻塞或请求外部解锁".into()
+                        format!(
+                            "所有非终态条目都带有效阻塞；需要复核阻塞或请求外部解锁{stale_banner}"
+                        )
                     } else {
                         // D-434:两类不可执行的处置方式相反——阻塞要复核前提,停车要
                         // 显式恢复。合并成一句会让 agent 拿复核阻塞的手法去动停车条目。
                         format!(
                             "所有非终态条目都不可执行:{} 条带有效阻塞(复核前提或请求外部解锁)，\
-                             {} 条显式停车(恢复它们才取活,不要当失效阻塞清掉):{}",
+                             {} 条显式停车(恢复它们才取活,不要当失效阻塞清掉):{}{stale_banner}",
                             blocked_items.len(),
                             parked_items.len(),
                             parked_items
@@ -790,7 +841,7 @@ pub fn resolve_work_decision(
                     WorkDecision::Blocked,
                     format!(
                         "所有非终态条目都被显式停车({});恢复其中一条再取活——\
-                         停车是主动让出 WIP 槽,不是待复核的阻塞",
+                         停车是主动让出 WIP 槽,不是待复核的阻塞{stale_banner}",
                         parked_items
                             .iter()
                             .map(|item| item.id.as_str())
@@ -1782,6 +1833,193 @@ mod tests {
         assert!(rejected.content.contains("必须 Resume"));
         let defects = DocStore::open(&dir, &DEFECTS).load().unwrap();
         assert_eq!(defects[0].status, "open");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// R-307 批1:「解除条件:」所列编号全部终态 → 停车条目变为可执行并被取活,
+    /// 达成事实经 release_notes/取活依据透出,供认领时顺手改写字段(引擎不写回)。
+    #[test]
+    fn r307_解除条件达成的停车条目可执行并透出改写提示() {
+        let dir = fixture("r307-release-start");
+        let mut parked = entry("R-001", "todo");
+        parked
+            .fields
+            .push(("停车".into(), "排队等收编;解除条件:D-001".into()));
+        DocStore::open(&dir, &REQUIREMENTS).save(&[parked]).unwrap();
+        DocStore::open(&dir, &DEFECTS)
+            .save(&[entry("D-001", "fixed")])
+            .unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Start, "{}", state.reason);
+        let selected = state.selected.expect("解除条件达成的停车条目应可取活");
+        assert_eq!(selected.id, "R-001");
+        assert!(!selected.parked, "解除条件达成后不再是停车条目");
+        assert_eq!(
+            selected.release_notes,
+            vec!["停车(解除条件已达成:D-001)"],
+            "达成事实必须可观测"
+        );
+        assert!(
+            state.reason.contains("解除条件已达成") && state.reason.contains("改写"),
+            "取活依据要提示认领方顺手改写字段: {}",
+            state.reason
+        );
+        assert!(
+            state.parked_items.is_empty(),
+            "已解除的停车不得再进 parked_items: {:?}",
+            state.parked_items
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// R-307 批1:停车的 WIP 解除条件达成后直接回 Resume——R-306 停车等 D-565,
+    /// D-565 修复归档后 R-306 仍停车无人恢复,正是本条要杀死的实证形态。
+    #[test]
+    fn r307_解除条件达成的停车wip直接resume() {
+        let dir = fixture("r307-release-resume");
+        let mut parked_wip = entry("R-306", "doing");
+        parked_wip
+            .fields
+            .push(("停车".into(), "等 D-565 修复;解除条件:D-565".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[parked_wip])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS)
+            .save(&[entry("D-565", "fixed")])
+            .unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(
+            state.decision,
+            WorkDecision::Resume,
+            "停车解除后的 WIP 必须回到 Resume: {}",
+            state.reason
+        );
+        assert_eq!(state.selected.unwrap().id, "R-306");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// R-307 批1:未达成(编号未终态/不在册)仍停车;「解除条件:用户」永不达成。
+    #[test]
+    fn r307_解除条件未达成仍停车_用户永不达成() {
+        let dir = fixture("r307-release-pending");
+        let mut pending = entry("R-001", "todo");
+        pending
+            .fields
+            .push(("停车".into(), "排队;解除条件:R-002".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[pending, entry("R-002", "todo")])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS).save(&[]).unwrap();
+
+        // R-002 未终态 → R-001 仍停车,候选只剩 R-002。
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Start, "{}", state.reason);
+        assert_eq!(state.selected.unwrap().id, "R-002");
+        assert_eq!(
+            state
+                .parked_items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["R-001"],
+            "解除条件未达成必须维持停车"
+        );
+
+        // 「解除条件:用户」:即使全队列只剩它,也维持停车等用户,不被机械放行。
+        let mut user_parked = entry("R-010", "todo");
+        user_parked
+            .fields
+            .push(("停车".into(), "等改派;解除条件:用户".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[user_parked])
+            .unwrap();
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Blocked, "{}", state.reason);
+        assert_eq!(state.parked_items.len(), 1, "{:?}", state.parked_items);
+        assert!(
+            !state.reason.contains("复核提醒"),
+            "解除条件:用户 是明确在等,不该被复核提醒误报: {}",
+            state.reason
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// R-307 批2:全员不可执行时,存量自由文本停车/阻塞里点名的编号全部终态的
+    /// 条目被点名复核;提取不到编号的不误报。阻塞状态本身不变。
+    #[test]
+    fn r307_blocked诊断点名前提可能已达成的存量停车() {
+        let dir = fixture("r307-stale-hint");
+        let mut legacy_parked = entry("R-001", "todo");
+        legacy_parked
+            .fields
+            .push(("停车".into(), "排队等 D-486 收口".into()));
+        let mut vague_blocked = entry("R-002", "todo");
+        vague_blocked
+            .fields
+            .push(("阻塞".into(), "等用户拍板".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[legacy_parked, vague_blocked])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS)
+            .save(&[entry("D-486", "fixed")])
+            .unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Blocked, "{}", state.reason);
+        assert!(
+            state.reason.contains("[停车/阻塞复核提醒]")
+                && state.reason.contains("R-001 的停车前提")
+                && state.reason.contains("D-486"),
+            "存量文本停车的前提已终态必须被点名复核: {}",
+            state.reason
+        );
+        assert!(
+            !state.reason.contains("R-002 的"),
+            "提取不到编号的条目不得误报: {}",
+            state.reason
+        );
+        assert_eq!(
+            state.parked_items.len(),
+            1,
+            "复核提醒不改变阻塞状态: {:?}",
+            state.parked_items
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// R-307 批2:同优先级内 unblocks(直接反向依赖数)大者优先取活,
+    /// 取活依据点名权重。
+    #[test]
+    fn r307_同优先级内unblocks大者优先取活() {
+        let dir = fixture("r307-unblocks");
+        let mut plain = entry("R-001", "todo");
+        plain.fields.push(("优先级".into(), "P1".into()));
+        let mut hub = entry("R-002", "todo");
+        hub.fields.push(("优先级".into(), "P1".into()));
+        let mut dep_a = entry("R-003", "todo");
+        dep_a.fields.push(("依赖".into(), "R-002".into()));
+        let mut dep_b = entry("R-004", "todo");
+        dep_b.fields.push(("依赖".into(), "R-002".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[plain, hub, dep_a, dep_b])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS).save(&[]).unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Start, "{}", state.reason);
+        assert_eq!(
+            state.selected.unwrap().id,
+            "R-002",
+            "unblocks=2 的 R-002 应排到同优先级的 R-001 前面: {}",
+            state.reason
+        );
+        assert!(
+            state.reason.contains("unblocks=2"),
+            "取活依据必须点名反向依赖权重: {}",
+            state.reason
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }
