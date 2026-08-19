@@ -129,7 +129,7 @@
 - 验收: ①连续 N 轮(建议 2~3)无文件改动、无提交、无 tracker 实质字段变化即熔断停鞭,输出零产出诊断并点名阻塞清单;②现场案例成回归:模拟连续零产出轮次触发熔断;③熔断事件留痕可审计
 - 优先级: P1
 
-## D-584 kanzei-tools 测试清空进程级 PATH,与并行 git 测试竞态导致门禁随机红 [fixing] (medium)
+## D-584 kanzei-tools 测试清空进程级 PATH,与并行 git 测试竞态导致门禁随机红 [fixed] (medium)
 - refs: R-306 D-394
 - 复现: verify 门禁 test 步骤偶发:git::tests::stage_leaves_foreign_changes_unstaged_and_names_them 报 cannot run git: program not found(git.rs:1489);根因 browser_tool.rs 缺node诊断明确(无 #[serial])与 latex_tool.rs with_empty_path 用 std::env::set_var 清空进程级 PATH,cargo test 同进程多线程,窗口内任何按名拉起 git/node 的并行测试即 not found;#[serial] 只互斥 serial 组内测试,拦不住组外并行
 - 影响: workspace 全量与 verify 发版门禁带随机炸点,同一提交可红可绿,证据可信度受损
