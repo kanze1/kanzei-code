@@ -340,8 +340,58 @@ pub(crate) fn schedule_entries<'a>(
             blocked.push((entry, reasons));
         }
     }
+    reorder_within_priority_by_unblocks(&mut executable, states);
     executable.extend(blocked);
     executable
+}
+
+/// R-307 批2:可执行分区内按 unblocks(直接反向依赖数)加权——完成谁能解锁
+/// 更多条目,谁排前。只在显式「优先级」字段值相同的槽位之间换位:本调度器从不
+/// 按优先级全局重排(文档顺序即队列顺序),跨优先级的相对顺序原样保留;未标
+/// 优先级的条目没有「同优先级」可言,维持纯文档顺序(也保住既有排序断言);
+/// 平手时稳定,unblocks 全为 0 的存量队列顺序不变。
+fn reorder_within_priority_by_unblocks(
+    items: &mut [(&Entry, Vec<String>)],
+    states: &DependencyStates,
+) {
+    let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (index, (entry, _)) in items.iter().enumerate() {
+        if let Some(priority) = entry_priority(entry) {
+            groups.entry(priority).or_default().push(index);
+        }
+    }
+    for slots in groups.values() {
+        if slots.len() < 2 {
+            continue;
+        }
+        let mut members: Vec<(&Entry, Vec<String>)> =
+            slots.iter().map(|&slot| items[slot].clone()).collect();
+        members.sort_by_key(|(entry, _)| std::cmp::Reverse(unblocks_count(states, &entry.id)));
+        for (&slot, member) in slots.iter().zip(members) {
+            items[slot] = member;
+        }
+    }
+}
+
+/// 「优先级」字段值(去空白);无字段返回 None,不参与 unblocks 换位。
+fn entry_priority(entry: &Entry) -> Option<String> {
+    entry
+        .fields
+        .iter()
+        .find(|(key, _)| key.trim() == "优先级" || key.trim().eq_ignore_ascii_case("priority"))
+        .map(|(_, value)| value.trim().to_string())
+}
+
+/// R-307 批2:直接反向依赖计数——完成 id 能直接解除多少个**未终态**条目的
+/// 「依赖」。只数直接依赖(不做传递闭包);已终态的依赖方不再需要解锁,不计入。
+pub(crate) fn unblocks_count(states: &DependencyStates, id: &str) -> usize {
+    states
+        .deps
+        .iter()
+        .filter(|(from, deps)| {
+            from.as_str() != id && !states.is_terminal(from) && deps.iter().any(|dep| dep == id)
+        })
+        .count()
 }
 
 /// 单条目的阻塞理由:「阻塞」字段 + 未完成「依赖」+ 阶段门槛 + 循环依赖。
@@ -559,6 +609,48 @@ pub(crate) fn release_notes(entry: &Entry, states: &DependencyStates) -> Vec<Str
         }
     }
     notes
+}
+
+/// R-307 批2:存量自由文本停车/阻塞的复核提醒判定。尽力从停车/阻塞字段文本提取
+/// R-/D- 编号;提取到且**全部已终态**时返回 (字段类别, 编号表),供 work next 在
+/// 全员不可执行的输出里点名「前提可能已达成,请复核」。提取不到编号返回 None,
+/// 不误报;带结构化「解除条件」的字段不参与——已达成的走批1机械放行,未达成的
+/// 是明确在等,都轮不到猜。这是提醒通道,不改变条目的阻塞状态。
+pub(crate) fn stale_blocker_evidence<'a>(
+    fields: impl IntoIterator<Item = (&'a str, &'a str)>,
+    states: &DependencyStates,
+) -> Option<(&'static str, Vec<String>)> {
+    let mut ids: Vec<String> = Vec::new();
+    let mut has_park = false;
+    let mut has_blocker = false;
+    for (key, value) in fields {
+        let park = is_park_key(key);
+        let blocker = is_blocker_key(key);
+        if !(park || blocker)
+            || !is_present_blocker(value)
+            || parse_release_condition(value).is_some()
+        {
+            continue;
+        }
+        let mut extracted = false;
+        for id in tracker_ids(value) {
+            extracted = true;
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        has_park |= park && extracted;
+        has_blocker |= blocker && extracted;
+    }
+    if ids.is_empty() || !ids.iter().all(|id| states.is_terminal(id)) {
+        return None;
+    }
+    let label = match (has_park, has_blocker) {
+        (true, true) => "停车/阻塞",
+        (true, false) => "停车",
+        _ => "阻塞",
+    };
+    Some((label, ids))
 }
 
 fn is_dependency_key(key: &str) -> bool {
@@ -878,5 +970,95 @@ mod tests {
             !block_reasons(&legacy, &states).is_empty(),
             "自由文本停车不得被自然语言解析清掉"
         );
+    }
+
+    /// R-307 批2:unblocks 只数未终态的直接依赖方,不做传递闭包。
+    #[test]
+    fn unblocks_count_只数未终态直接依赖方() {
+        let requirements = [
+            entry("R-001", "todo", vec![("依赖".into(), "R-002".into())]),
+            entry("R-002", "todo", vec![]),
+            entry("R-003", "todo", vec![("依赖".into(), "R-002".into())]),
+            entry("R-004", "done", vec![("依赖".into(), "R-002".into())]),
+            // 传递依赖:R-005 → R-001 → R-002,对 R-002 不计数
+            entry("R-005", "todo", vec![("依赖".into(), "R-001".into())]),
+        ];
+        let states = states_of(&requirements, &[]);
+        assert_eq!(unblocks_count(&states, "R-002"), 2, "R-004 已终态不计入");
+        assert_eq!(unblocks_count(&states, "R-001"), 1);
+        assert_eq!(unblocks_count(&states, "R-005"), 0);
+    }
+
+    /// R-307 批2:同优先级内 unblocks 大者排前;跨优先级槽位不换;
+    /// 无依赖的存量队列(unblocks 全 0)顺序不变。
+    #[test]
+    fn schedule_entries_同优先级内按unblocks加权() {
+        let requirements = [
+            entry("R-010", "todo", vec![("优先级".into(), "P1".into())]),
+            entry("R-020", "todo", vec![("优先级".into(), "P0".into())]),
+            entry("R-030", "todo", vec![("优先级".into(), "P1".into())]),
+            entry("R-040", "todo", vec![("依赖".into(), "R-030".into())]),
+            entry("R-041", "todo", vec![("依赖".into(), "R-030".into())]),
+        ];
+        let states = states_of(&requirements, &[]);
+        let scheduled = schedule_entries(&requirements, &states);
+        let order: Vec<&str> = scheduled.iter().map(|(e, _)| e.id.as_str()).collect();
+        // P1 组内 R-030(unblocks=2)升到 R-010 的槽位;P0 的 R-020 槽位不动;
+        // 被阻塞的 R-040/R-041 照旧后置。
+        assert_eq!(order, vec!["R-030", "R-020", "R-010", "R-040", "R-041"]);
+
+        // unblocks 全 0 时稳定:文档顺序原样保留。
+        let flat = [
+            entry("R-001", "todo", vec![]),
+            entry("R-002", "todo", vec![]),
+        ];
+        let states = states_of(&flat, &[]);
+        let order: Vec<&str> = schedule_entries(&flat, &states)
+            .iter()
+            .map(|(e, _)| e.id.as_str())
+            .collect();
+        assert_eq!(order, vec!["R-001", "R-002"]);
+    }
+
+    /// R-307 批2:存量自由文本的复核提醒——编号全部终态才点名,无编号不误报,
+    /// 带结构化解除条件的字段不参与。
+    #[test]
+    fn stale_blocker_evidence_终态编号点名_无编号不误报() {
+        let terminal = states_of(&[], &[entry("D-486", "fixed", vec![])]);
+        let fields = [("停车".to_string(), "排队等 D-486 收口".to_string())];
+        fn pairs(fields: &[(String, String)]) -> Vec<(&str, &str)> {
+            fields
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect()
+        }
+        let (label, ids) = stale_blocker_evidence(pairs(&fields), &terminal).unwrap();
+        assert_eq!(label, "停车");
+        assert_eq!(ids, vec!["D-486"]);
+
+        // 前提未终态 → 不提醒
+        let active = states_of(&[], &[entry("D-486", "open", vec![])]);
+        assert_eq!(stale_blocker_evidence(pairs(&fields), &active), None);
+
+        // 提取不到编号 → 不误报
+        let vague = [("停车".to_string(), "等用户回复".to_string())];
+        assert_eq!(stale_blocker_evidence(pairs(&vague), &terminal), None);
+
+        // 带结构化解除条件的字段不参与提醒通道(未达成是明确在等,不是猜)
+        let structured = [("停车".to_string(), "等 D-486;解除条件:用户".to_string())];
+        assert_eq!(stale_blocker_evidence(pairs(&structured), &terminal), None);
+
+        // 停车与阻塞各出一半编号且全部终态 → 合并点名
+        let both_states = states_of(
+            &[entry("R-101", "done", vec![])],
+            &[entry("D-486", "fixed", vec![])],
+        );
+        let both = [
+            ("阻塞".to_string(), "等 R-101 落地".to_string()),
+            ("停车".to_string(), "让槽,等 D-486".to_string()),
+        ];
+        let (label, ids) = stale_blocker_evidence(pairs(&both), &both_states).unwrap();
+        assert_eq!(label, "停车/阻塞");
+        assert_eq!(ids, vec!["R-101", "D-486"]);
     }
 }
