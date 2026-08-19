@@ -8253,3 +8253,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-306 D-581
 - 收尾: 1787178589
 - 源码指纹: v2 crates/kanzei-tools/src/git.rs@7bb1dc13276c,crates/kanzei-tools/src/git/tool.rs@7d06469de782
+
+## T-1786922726505 R-306 finalize 域迁移 kanzei-tools 定向测试 [passed]
+- 命令: cargo fmt --all -- --check; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-tools
+- 时长: 34.0s
+- 摘要: finalize 事务编排迁移至 git/finalize.rs 后 fmt 通过；kanzei-tools 389 passed, 0 failed, 1 ignored。
+- 关联: R-306
+- 收尾: 1787178900
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@cb3182c66bfc,crates/kanzei-tools/src/git/finalize.rs@88cde765bd37,crates/kanzei-tools/src/git/tool.rs@828d56f41f61
