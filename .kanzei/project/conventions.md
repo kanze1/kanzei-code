@@ -49,10 +49,11 @@
 ### 9.1 发布部署(两条通道)
 
 - **开发通道(自举机)**:`.\scripts\release.ps1` = 全量测试 → 装 `kz` → 构建并安装 kzapp;kzapp 运行中会落 `kzapp.exe.pending`,**下次启动自动接力替换**,无需手动处理。
-- **发行通道(安装包)**:`.\scripts\package.ps1 -Ack <自上个 build 标签以来的提交数> -Publish` = 先核对发布范围与验证证据，再由 `cargo tauri build` 产出 NSIS 安装器 `dist\kanzei-setup-<hash>.exe` → `gh release create build-<hash>` 发布到 GitHub Releases。
-  - 应用内更新以**最新 release** 为源:启动 3 秒后静默检查(有新版弹 toast),设置页「检查更新」可手动查 + 一键下载安装;
-  - 所以:想让安装版用户收到更新,**必须带 `-Publish`**;只跑 release.ps1 安装版是感知不到的。
-  - **静默安装陷阱(D-266)**:`setup.exe /S` 在 kzapp 运行时**静默无效**——退出码 0、文件没换、无任何提示(NSIS 无法处理运行中的目标程序,静默模式无人可问就放弃却返回成功)。发版/装机一律用 `.\scripts\install-setup.ps1 -Setup dist\kanzei-setup-<hash>.exe -ExpectedHash <hash>`(检测 kzapp 进程 → 拒绝 → 静默安装 → 装后校验安装位 mtime/大小与二进制含 hash);不要裸跑 `setup.exe /S`。
+- **发行通道(安装包)**:先确认当前 HEAD 已推送到对应远端分支，再按脚本实际统计的提交数运行 `.\scripts\package.ps1 -Ack <自上个 build 标签以来的实际提交数> -Publish`；脚本先核对发布范围与验证证据，再由 `cargo tauri build` 产出 NSIS 安装器 `dist\kanzei-setup-<hash>.exe`，最后用 `gh release create build-<hash>` 发布到 GitHub Releases。
+  - 云端发布不是可选步骤：只跑 `release.ps1` 或省略 `-Publish` 只能完成本机安装/构建，安装版用户不会收到更新；`-Ack` 必须使用脚本实际统计值，不能凭记忆填写。
+  - 应用内更新以**最新 release** 为源:启动 3 秒后静默检查(有新版弹 toast),设置页「检查更新」可手动查 + 一键下载安装;发布后需核对 Release target、安装器资产与构建 hash 一致。
+  - **静默安装陷阱(D-266)**:`setup.exe /S` 在 kzapp 运行时**静默无效**——目标程序运行中无法替换时必须保留 `.pending` 或明确提示，不能把退出码 0 当作安装成功。
+
 - **发布时机与检查单**:完成一批已验证需求/缺陷后发布;发布前必须 ①`cargo test --workspace` 全绿 ②工作区干净且已 push ③`kz --version` 的 hash 与 HEAD 一致。
 - **发布树(worktree)**:发布统一从 `C:\Users\kanzei\Documents\kanzei-release`(`git worktree`,跟踪 main)执行:`git -C <发布树> pull` 后跑其中的 `package.ps1 -Publish`——与 dev 工作树完全隔离,发布时不需要 stash/打断正在进行的开发。**提交了不等于发布了**:安装版用户只认 Releases,合并 main 后记得发布。
 - **Release 标签与保留规范**:tag = `build-<short-hash>`,标题 `kanzei <日期> (<hash>)`;公开 Releases 只保留最新稳定版及其安装器,旧 Release 对象与资产发布新版后清理,对应 Git tags 与提交历史保留用于审计和恢复。
