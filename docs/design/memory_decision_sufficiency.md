@@ -81,12 +81,13 @@
 
 ## 实施边界与调用方
 
-- `kanzei-tools/src/memory/store.rs`:`add()` 增 subject 参数与 SubjectConflict 门禁;`recall_profile()`(召回/采纳聚合);`decision_weight()`(纯函数);`search()` 折入决策权重;`find_active_by_marker()`(指纹查找)。
-- `kanzei-tools/src/memory/mod.rs`:`harvest_failures()` 增复发分支(先查 project+global 指纹,命中投修订笔记)。
-- `kanzei-tools/src/memory/manager.rs`:`memory_add` 增 subject 入参;manager 系统提示词重写(反事实判据/subject 规则/指纹保留/复发笔记处置)。
-- `kanzei-tools/src/memory/tools.rs`:`memory_stats` 增召回/采纳与零采纳候选。
-- `kanzei-tools/src/profiles.rs`:dev/memory 注入收尾文案。
-- 调用方不破坏:`harvest_failures`/`prompt_hints` 签名不变(kz main.rs 与 kanzei-app main.rs 免改);`memory_add` 的 subject 为可选字段,旧调用不受影响。
+- `crates/kanzei-memory/src/memory/admission.rs`：准入校验、subject 不变式、近似去重、指纹与 tracker 交付状态拒收；`MemoryAdmission` 可脱离 store 单测。
+- `crates/kanzei-memory/src/memory/lifecycle.rs`：`MemoryLifecycle::promote_guard`、`should_promote`、`should_deprecate`；真实 episode provenance、shadow 与 candidate 老化在此收口。
+- `crates/kanzei-memory/src/memory/retrieval/search.rs` 与 `crates/kanzei-memory/src/memory/index.rs`：搜索候选、BM25/dense/hybrid、决策权重与命中记录；R-255/D-366 后排序只在检索侧。
+- `crates/kanzei-memory/src/memory/mod.rs` / `inbox.rs`：轮末失败收集、复发分支、批量 inbox、checkpoint 与 memory control-plane 事件。
+- `crates/kanzei-memory/src/memory/manager.rs`：`memory_add`、`memory_promote`、`memory_update`、`memory_merge`、`memory_stale` 写工具与 manager 提示词。
+- `crates/kanzei-memory/src/memory/telemetry.rs` 与 `crates/kanzei-core/src/store/telemetry.rs`：召回/采纳画像及 action_changed/outcome_improved 分段遥测。
+- `crates/kanzei-app/src/memory.rs`、`crates/kanzei-app/ui/13-memory.js` 与 CLI run 收尾方是真实消费者；R-203 旧的记忆工具路径已迁入 `crates/kanzei-memory/src/memory`，本文不再引用旧落位。
 
 ## 边界拍板(2026-08-09 用户逐项确认)
 

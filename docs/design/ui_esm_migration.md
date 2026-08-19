@@ -1,39 +1,39 @@
 # 前端迁移原生 ESM:勘察结论与迁移前置条件
 
-> 状态:**勘察完成,未动工**。对应条目 R-264(P3)。
-> 本文是 2026-08-15 一次全量审计的产物(21 个文件逐文件通读 + `index.html` 专项 + 前端外部依赖专项),
-> 记录的是**动工前必须先解决什么**,以及**为什么现在不值得做**。
+- 状态: **B1/B2 前置条件已完成，正式 ESM 迁移未收口**。对应条目 R-264(P3)。
+- 本文是 2026-08-15 全量审计的更新版：当前前端规模为 24 个文件、15,528 行；B1/B2 已在现有经典脚本冒烟 harness 上完成，剩余迁移风险集中在 B3 生产测试钩子边界。
 
 ## 一、结论先行
 
-前端本身不是障碍。真正的阻塞全在**测试 harness**:`ui-runtime-smoke.mjs` 的 6799 行断言建立在
-「`vm.runInContext` 逐文件执行经典脚本」之上,而这个执行模型在 ESM 下直接作废。
+前端本身不是障碍。B1/B2 harness 前置条件已经完成，但正式 ESM 迁移仍受**测试钩子与跨文件求值语义**约束：`ui-runtime-smoke.mjs` 仍须同时守住经典脚本和 ESM 的验证能力。
 
 而且收益的一半已经被 `20467db` 拿走了:`gen-ui-lint-globals.mjs` 曾把函数体内缩进的局部声明
-误收进「跨文件全局」白名单(1364 个条目里 777 个是这么来的,且都是 `el`/`row`/`text`/`id`/`key`
-这类极常见名字),导致 `no-undef` 对它们全线失效。该缺陷已修复,清单收敛到 587 个真·顶层符号。
+误收进「跨文件全局」白名单(历史审计中 1364 个条目里 777 个是这么来的,且都是 `el`/`row`/`text`/`id`/`key`
+这类极常见名字),导致 `no-undef` 对它们全线失效。该缺陷已修复；现有符号清单与编号约定继续作为迁移基线。
 "补偿机制不可靠"这条动机因此不再成立。
 
 **对自举无收益**:ESM 不影响 cargo 任何耗时,前端六个冒烟合计约 4 秒。唯一收益是模型读代码时
-`import` 语句自带溯源,而准确的 587 项清单 + `01-core`/`02-i18n` 编号约定已大体覆盖这一点。
+`import` 语句自带溯源；现有符号清单 + `01-core`/`02-i18n` 编号约定已覆盖大部分阅读溯源需求。
 
-## 二、迁移前置条件(动工前必须先做完)
+## 二、迁移前置条件与当前完成度
 
-### B1. `scripts/ui-sources.mjs` 重写 —— 含一个静默失效陷阱
+B1/B2 已完成 harness 前置改造；B3 仍是正式 ESM 迁移前必须解决的生产测试钩子边界。
+
+### B1（已完成） `scripts/ui-sources.mjs` 重写 —— 含一个静默失效陷阱
 
 第 11 行的正则 `/<script\s+src="([^"]+)"[^>]*>/g` 要求 `src` **紧跟**在 `<script ` 之后。
 ESM 写法 `<script type="module" src="...">` 让 `type=` 抢在前面 → 零匹配 → 第 12 行 throw,
 四个冒烟(runtime/a11y/i18n/markdown)一起红。
 
 **这条好修,修完才是真陷阱**:单入口 ESM 下 `index.html` 只剩一个 `src`,于是
-`loadUiSources().joined`(现为 21 个文件全文拼接)只剩入口那点内容。a11y/i18n/markdown
+`loadUiSources().joined`(现为 24 个文件全文拼接)只剩入口那点内容。a11y/i18n/markdown
 三个冒烟全部对 `joined` 做正则/`includes` 断言——断言"存在"的会红一片,而断言
 **"不存在"的全部恒绿**(`assert.doesNotMatch`、`!includes`、`missingKeys` 为空)。
 
 正确改法:`loadUiSources` 不再从 HTML 取清单,改为遍历 `ui/*.js` 全目录并排序;
-**并加文件数下限断言**(如 `>= 20`),防止再次静默退化。
+**并加文件数下限断言**(如 `>= 24`),防止再次静默退化。
 
-### B2. `scripts/ui-runtime-smoke.mjs` 的执行模型重建
+### B2（已完成） `scripts/ui-runtime-smoke.mjs` 的执行模型重建
 
 `:1104` 的 `vm.runInContext(instrumented, sandbox, ...)` 只能跑 classic script,源码里出现
 `import`/`export` 立即 SyntaxError,被 `:1106` 的 catch 变成「ui/*.js 顶层执行抛异常」——
@@ -48,7 +48,7 @@ ESM 写法 `<script type="module" src="...">` 让 `type=` 抢在前面 → 零�
 与 `runInContext` 探针能力),或改成动态 `import` 真模块(需先把 DOM 桩装进 `globalThis`,
 且会让现有全部 `sandbox.X` / `runInContext("X")` 探针作废,须靠 export 重建)。
 
-### B3. `__kzTest` 钩子被迫进生产代码
+### B3（未完成） `__kzTest` 钩子被迫进生产代码
 
 `:1112-1120` 把一段字符串当第 22 个脚本注入同一 context,靠共享全局词法作用域闭包捕获
 `08-compose.js` 的模块级 `let`(`autoRounds`/`noActionRounds`/`autoStopReason`/`autoContinueTimers`/
@@ -61,11 +61,11 @@ ESM 下这些是模块私有,注入脚本看不见 → 求值即 ReferenceError�
 
 ## 三、前端侧的真实约束(审计实测)
 
-规模:21 个文件、12,389 行、**587 个真·顶层符号**、**零重名冲突**。
+规模:24 个文件、15,528 行、**44 处 `typeof X === "function"` 守卫**、**零重名冲突**。
 每文件 import 量温和(多数 1–30 个符号,最重的 `07-events.js` 是 84 个)。
 
 **零内联事件处理器** —— `index.html` 950-970 全是外链 `src=`,无内联代码块;
-全量 grep `on(click|change|input|submit|error|load|keydown)=` 在 21 个 js 上零命中。
+全量 grep `on(click|change|input|submit|error|load|keydown)=` 在 24 个 js 上零命中。
 迁移的常见头号杀手在本仓是空的。
 
 ### 顶层跨文件读(ESM 下的 TDZ 硬约束,顺序不能乱)
@@ -88,7 +88,7 @@ ESM 下这些是模块私有,注入脚本看不见 → 求值即 ReferenceError�
 
 `04-markdown.js` 无任何顶层可执行语句,位置自由。
 
-### `typeof X === "function"` 守卫(ESM 下语义反转,必须改成真 import)
+### 当前 `typeof X === "function"` 守卫（共 44 处，ESM 下语义反转,必须改成真 import）
 
 `01-core.js:83,110,118,121,124`(`refreshParallelTaskProjection`/`handleBackgroundSessionDone`/
 `cancelAutoContinueTimer`/`refreshConversationLists`)、`02-i18n.js:938`
@@ -105,8 +105,8 @@ ESM 靠函数声明提升能容忍这类环;**真正会炸的只有 §三 表格
 
 ## 四、若要动工,唯一正确的顺序
 
-1. **先重建 harness**(B1+B2+B3),让它同时能验经典脚本与 ESM,现有 6799 行断言全绿。
-2. harness 绿了之后再逐文件迁移,每迁一个跑一次全套冒烟。
+1. **B1/B2 已完成**：现行经典脚本 harness 与 24 文件下限继续作为迁移前回归基线。
+2. 先解决 B3 的 `__kzTest` 生产钩子边界，再逐文件迁移；每迁一个跑一次全套冒烟并保住跨文件求值断言。
 3. 最后删 `gen-ui-lint-globals.mjs` + `ui-lint-globals.json` + `ui-lint-smoke.mjs` 的同步校验,
    `eslint.config.js` 改 `sourceType: "module"`。
 

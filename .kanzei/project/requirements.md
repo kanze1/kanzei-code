@@ -263,15 +263,6 @@
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-299
 - 停车: 让位 R-300 收尾：协作线 p16 仍占用 crates/kanzei-app/src/ipc_contract.rs、scripts/ipc-contract.json、scripts/ipc-event-smoke.mjs、scripts/verify.ps1 等 IPC 契约扩面文件；本条不覆盖并发实现。p16 清出后按 work next 恢复。
 
-## R-303 文档一致性批次订正 [todo]
-- refs: R-283 R-264
-- 内容: ①README.md:65,107,149 仍把已退役的 goals 线列为事实源(R-252 B5 已删 goals.md 改指 IDEAS),:57-68 漏报 research 工作台/LaTeX 绘图/移动端 PWA+LAN 桥/浏览器工具/ui_screenshot/按线设置(R-269~R-277/R-290)等已交付能力;②docs/使用手册.md:38-45 漏「想法」收件箱整块能力,:67-74 快捷键表缺 Ctrl/Cmd+P 命令面板(ui/21-palette.js 已实现);③memory 三份设计文档落后实现约 8 个需求:memory_control_plane.md 需求清单停在 R-167(R-194/R-195/R-213/R-216/R-233/R-255/R-286 与 D-366/D-368 均未进文档),memory_system.md 状态枚举仍 active|stale(实际五态)且工具集缺 memory_promote 等,memory_decision_sufficiency.md 实施边界仍指旧路径(R-203 已迁);④docs/design/ui_esm_migration.md:3 状态过期(B1/B2 已完成,规模已从 21 文件/12389 行涨到 24 文件/15528 行,typeof 守卫 6 处涨到 44 处);⑤docs/design/phase2_system_upgrade.md:301-322 Wave 0/1 门禁记录引用的 R-221/R-277/R-286/D-428 状态全部过期,R-283 验收②依赖该记录
-- 复杂度: 小
-- 来源: 2026-08-18 全库勘察
-- 标签: 流程
-- 验收: 五组文档与现实对齐;R-283 验收②的 Wave 记录恢复可用;订正一次批次收口
-- 优先级: P3
-
 ## R-304 dev 勘察工件固定落点 [todo]
 - refs: R-248 docs/design/research_mode.md
 - 内容: dev 侧勘察产物(调研笔记/证据/对照)目前无固定目录与生命周期约定;定义落点(如 .kanzei/research/ 或专用目录)、命名、与条目 refs 的关联方式及清理策略

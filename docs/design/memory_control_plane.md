@@ -1,8 +1,8 @@
 # kanzei Memory 控制平面(Decision-Centric Memory Control Plane)
 
-- 状态: 设计基线(2026-08-10 深度调研后与用户逐项拍板)
-- 需求: R-161(遥测)→ R-162(事件触发召回)→ R-163(回放评估)→ R-164(混合检索)→ R-165(Memory Compiler)→ R-166(反事实评估)→ R-167(学习型控制器,占位)
-- 缺陷: D-229(harvest_sop 双端不对称)、D-230(常驻索引装箱顺序)、D-231(归档未落地)
+- 状态: 设计基线 + 已交付实现对账(2026-08-18)
+- 需求: R-161(遥测)→ R-162(事件触发召回)→ R-163(回放评估)→ R-164(混合检索)→ R-165(Memory Compiler)→ R-166(反事实评估)→ R-167(学习型控制器,占位)；已交付扩展：R-194(废弃 global scope)→ R-195(candidate 生命周期)→ R-213(provenance 真校验)→ R-216(写入三闸)→ R-233(hybrid 召回)→ R-255(MemoryStore 拆域)→ R-286(控制面与 outcome 漏斗)
+- 缺陷: D-229(harvest_sop 双端不对称)、D-230(常驻索引装箱顺序)、D-231(归档未落地)；已修复边界：D-366(检索排序边界)、D-368(memory 动态文件围栏并发写)
 - 决策: A-011(向量检索翻案)
 - 前置文档: [memory_system.md](memory_system.md)(存储形态基线,继续有效)、[memory_decision_sufficiency.md](memory_decision_sufficiency.md)(判据层,本文是其执行架构)
 
@@ -11,7 +11,7 @@
 1. **Memory 是控制系统,不是 RAG 模块**。优化对象是 Terminal Decision Quality(预算约束下),Recall@K 降级为中间诊断指标。一切设计问「这条记忆缺失/压缩/过期会造成多少决策损失」,不问「记得多像」。
 2. **向量检索翻案(A-011)**:废止 memory_system.md §0「不要向量库」。但向量是**第二通道**——fingerprint 与 BM25 优先,dense 只在语义模糊场景触发;无 embedder 时系统必须完整可用。
 3. **Embedder 走 provider 体系**:第一实现调 openai 兼容 `/embeddings`(含本地 ollama),复用现有 provider/代理配置。进程内模型(ort/candle/GGUF)只做后续 benchmark challenger,绝不 bundle。
-4. **Lifecycle 轻量四态起步**:candidate → active → deprecated | invalid(stale 兼容映射到 deprecated)。shadow 态等 R-166 评估器落地后引入——没有消费方的状态是空转。
+4. **Lifecycle 五态当前实现**:candidate → shadow → active；candidate/shadow 可转 deprecated 或 invalid。旧文档里的 `stale` 只作兼容别名并归一为 deprecated；shadow 不注入生产，active 必须带真实 provenance。
 5. **Evidence append-only**:state.db 的 events/episodes 是证据账本,自治的记忆流程(compiler/manager)**永远不得改写**;文献已证实持续 LLM consolidation 会让记忆效用先升后降,raw episode 是最后的兜底召回源。
 6. **不做清单**:知识图谱引擎(只借 Graphiti 的 temporal/provenance 数据模型)、每回合 consolidation、默认 cross-encoder rerank、RL(遥测未积累前)、hard DELETE evidence、以语义相似度为 merge 判据。
 
@@ -205,7 +205,7 @@ D(S→m') = E[J(e; M) − J(e; (M∖S)∪{m'})]  合并失真
 
 - **离线定向回放,绝不在线算**:每条 memory 维护 Q(m)=触发匹配的历史 episode + near-miss + negative control;周期性跑 with/without,落 memory_eval,维护 effect_mean/effect_ci/eval_n/last_eval。
 - 只有 low value + high confidence 才进 deprecate 候选;age ≠ forgettable(硬约束类条目三个月不触发也不许按时间衰减淘汰)。
-- shadow 态此时引入(五态齐):candidate → shadow(可被评估、不注入生产)→ active。
+- shadow 态已由 R-286 控制面与 R-166 评估路径接入(五态齐):candidate → shadow(可被评估、不注入生产)→ active；deprecated/invalid 保留可追溯墓碑。
 - merge 由 D<ε 把关——压缩从文本操作变成有测试的行为等价变换。
 
 ## 8. 学习型召回控制器(R-167,占位)

@@ -3920,4 +3920,18 @@
 - observed_worktree_hash: fnv1a64:4dc73574e4527fea
 - recorded_at: 1787080933030
 - 状态: done
-- 阻塞: 
+
+## R-303 文档一致性批次订正 [done]
+- refs: R-283 R-264
+- 内容: ①README.md:65,107,149 仍把已退役的 goals 线列为事实源(R-252 B5 已删 goals.md 改指 IDEAS),:57-68 漏报 research 工作台/LaTeX 绘图/移动端 PWA+LAN 桥/浏览器工具/ui_screenshot/按线设置(R-269~R-277/R-290)等已交付能力;②docs/使用手册.md:38-45 漏「想法」收件箱整块能力,:67-74 快捷键表缺 Ctrl/Cmd+P 命令面板(ui/21-palette.js 已实现);③memory 三份设计文档落后实现约 8 个需求:memory_control_plane.md 需求清单停在 R-167(R-194/R-195/R-213/R-216/R-233/R-255/R-286 与 D-366/D-368 均未进文档),memory_system.md 状态枚举仍 active|stale(实际五态)且工具集缺 memory_promote 等,memory_decision_sufficiency.md 实施边界仍指旧路径(R-203 已迁);④docs/design/ui_esm_migration.md:3 状态过期(B1/B2 已完成,规模已从 21 文件/12389 行涨到 24 文件/15528 行,typeof 守卫 6 处涨到 44 处);⑤docs/design/phase2_system_upgrade.md:301-322 Wave 0/1 门禁记录引用的 R-221/R-277/R-286/D-428 状态全部过期,R-283 验收②依赖该记录
+- 复杂度: 小
+- 来源: 2026-08-18 全库勘察
+- 标签: 流程
+- 验收: 五组文档与现实对齐;R-283 验收②的 Wave 记录恢复可用;订正一次批次收口
+- 优先级: P3
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-303 [tracker integrity degraded] D-555: invalid defect lifecycle [done]
+- 进展: 已完成并验证：①README.md:57-71 补齐 research 工作台、LaTeX/绘图、PWA+LAN、浏览器/UI 实查、按线模型设置、想法等现有能力；README.md:110、149 同步更新事实源描述。②docs/使用手册.md:38-46 补齐 ideas.md 收件箱和人工拆解，:68-76 补 Ctrl/Cmd+P；真实消费者为 crates/kanzei-app/ui/11-docs-list.js:817-848、15-views-misc.js:85-103、21-palette.js:218-232。③memory_control_plane.md:3-14、208，memory_system.md:3-12、43、66-74、98、125，memory_decision_sufficiency.md:82-90 对齐 R-194/R-195/R-213/R-216/R-233/R-255/R-286、D-366/D-368、五态、memory_promote 和 crates/kanzei-memory 当前落位。④ui_esm_migration.md:3-4、8、27-29、62、89、106-108 对齐 B1/B2、24 文件/15528 行/44 处守卫和 B3 边界。⑤phase2_system_upgrade.md:301-330 将 Wave 0/1 按 R-221/R-277/R-286/D-428 当前状态恢复为 Go，并保留后续 Wave 的真实 No-Go。R-303 验收三项均由 T-1786922726479 通过。
+- observed_head: 4de7f1016c097b6171ef930d84159668d28ff578
+- observed_worktree_hash: fnv1a64:8b70995bc9c7bd76
+- recorded_at: 1787162163267
+- 验收核验: ①五组文档与现实对齐：README.md:57-71,110,149；docs/使用手册.md:38-76；docs/design/memory_control_plane.md:3-14,208；memory_system.md:3-12,43,66-74,98,125；memory_decision_sufficiency.md:82-90；ui_esm_migration.md:3-4,8,27-29,62,89,106-108；phase2_system_upgrade.md:301-330。②R-283 验收②的 Wave 记录恢复可用：phase2_system_upgrade.md:301-330 明确 Wave 0/1 Go，并列出现行实现与测试证据。③订正一次批次收口：T-1786922726479 命令级校验通过，目标文档 diff --check 通过。

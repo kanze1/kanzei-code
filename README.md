@@ -19,7 +19,7 @@ kanzei 会把决策、证据和开发经验沉淀为可检查、可编辑、可�
 - **真正的任务级并行**：每条开发线拥有独立 worktree、分支和运行目录；多条线可以同时写各自的代码树，而不是在一个回合里临时扇出几个只读子代理。
 - **受控合并**：界面提前显示跨线文件交集，合并前再执行 Git 文本冲突预检；干净变更以 `--no-ff` 合入，冲突时保留双方现场。
 - **规则写在代码里**：权限、状态机、托管文档格式和写入边界由注册表与拦截器执行。模型格式写错时，引擎会拒绝并给出修复提示。
-- **工单就是文件**：需求、缺陷和目标都是普通 Markdown。你和 agent 编辑的是同一份事实源，排序就是执行优先级。
+- **工单就是文件**：需求、缺陷、想法、决策、来源与发现都是普通 Markdown。你和 agent 编辑的是同一份事实源，排序就是执行优先级。
 - **通道可以混用**：同一桌面端可使用 Codex 登录态、Claude Code 令牌、OpenAI 兼容 API 与本地 Ollama，并为不同角色选择不同模型。
 - **过程可见**：上下文占用、压缩与召回、工具活动、权限请求、开发线状态和冲突预警都留在界面与事件轨迹中。
 
@@ -56,16 +56,19 @@ kanzei 为**永久工作**而设计：一次投入的决策、证据与经验要
 
 ## 当前能力
 
-- Rust + Tauri 桌面端：项目、对话、活动、权限、需求/缺陷、附件、设置与更新
+- Rust + Tauri 桌面端：项目、对话、活动、权限、需求/缺陷、想法、附件、设置与更新
 - Anthropic Messages、OpenAI Chat、OpenAI Responses 三类协议及流式事件统一
 - Codex、Claude、Kimi/DeepSeek 等 OpenAI 兼容端点、本地 Ollama
 - SQLite 事件溯源、会话恢复、自动压缩、外部记忆与回放评估
+- 研究工作台：topic 工件、来源/发现、计划审批、检索反思、报告与引用校验
+- LaTeX 编译、科研绘图与浏览器自检工具，均通过专用工具通道接入
+- 移动端 PWA + LAN 配对/消息/审批/通知桥，服务于电脑端遥控
 - 结伴开发与自主推进两种 agent；`fast` / `primary` 子代理档位
-- 真实 worktree 建线、跨线并列状态、文件冲突预警、diff、合并与放弃
-- Markdown 原生的需求、缺陷、目标、来源与研究记录
-- 代码级权限门禁、工具并发策略、后台进程围栏与发布验证
+- 真实 worktree 建线、跨线并列状态、按线模型设置、文件冲突预警、diff、合并与放弃
+- Markdown 原生的需求、缺陷、想法、决策、来源/发现与研究记录
+- `ui_dom` / `ui_console` / `ui_style` / `ui_screenshot` 前端实查工具，以及代码级权限门禁、后台进程围栏与发布验证
 
-当前并行模式检查的是**文件集合与 Git 文本合并**，还不能判断跨文件行为变化等语义冲突。完整活动归属、收活流程和按线设置仍在继续完善。
+当前并行模式检查的是**文件集合与 Git 文本合并**，还不能判断跨文件行为变化等语义冲突；线路状态、收活流程和按线设置已接入实时工作流。
 
 ## 安装
 
@@ -104,7 +107,7 @@ kanzei 为**永久工作**而设计：一次投入的决策、证据与经验要
 | `kanzei-app` | Tauri 桌面端、项目与开发线管理、更新与安装包 |
 | `kanzei` | `kz` CLI 入口 |
 
-需求与缺陷记录在 `.kanzei/project/`，设计文档在 `docs/design/`，参考资料在 `docs/reference/`。
+需求、缺陷、想法与决策记录在 `.kanzei/project/`，topic 级来源/发现/报告与论文工件在 `.kanzei/research/<topic>/`，设计文档在 `docs/design/`，参考资料在 `docs/reference/`。
 
 ## 开发指南
 
@@ -146,7 +149,7 @@ kanzei is built for **permanent work**: decisions, evidence, and experience are 
 - **Controlled integration**: early cross-line file-overlap warnings, Git merge preflight, and `--no-ff` merges; the "text checked, semantics unchecked" boundary is always explicit.
 - **Rules in code**: permissions, state machines, managed-document formats, and write boundaries are enforced by registries and interceptors; anything enforceable in code is not left to prompts.
 - **Replicate first, innovate only in the moat**: behaviors Claude Code already solved are replicated (compressed and selectively trimmed) before improving; the memory control plane and context observability keep leading.
-- **Tickets are files**: requirements, defects, goals, and sources are plain Markdown shared by user and agent as one source of truth; file order is execution order.
+- **Tickets are files**: requirements, defects, ideas, decisions, sources, and findings are plain Markdown shared by user and agent as one source of truth; file order is execution order.
 - **Chinese and English both matter**: UI copy is translatable; conversation content and user data are never touched at the display layer; translation happens at render points and missing keys are caught mechanically.
 
 The direction baseline lives in [`docs/design/direction_taste.md`](docs/design/direction_taste.md).
@@ -158,7 +161,7 @@ kanzei is a self-hosting Rust workspace + Tauri desktop app + static frontend: i
 - **Branches and releases**: day-to-day work lands on `dev`; `main` only receives `--ff-only` merges from `dev` and stays releasable. Releases run from a dedicated release worktree via `scripts/package.ps1`; the desktop app's single install location is `%LOCALAPPDATA%\kanzei\kzapp.exe`.
 - **Testing**: run targeted tests for the crate you change (`cargo test -p <crate>`); pure-frontend changes run `node --check` plus `scripts/ui-*-smoke.mjs`; the full `cargo test --workspace` runs before releases and when closing medium/large requirements.
 - **Commit gates**: before committing Rust code, compile, `cargo fmt --all -- --check`, and `cargo clippy --workspace --all-targets -- -D warnings` are enforced by the structured git tool; any failure blocks the commit and names the offending files.
-- **Conventions**: dev rules come from the engine-embedded generic conventions plus this project's `.kanzei/project/conventions.md`; requirements/defects/goals live in `.kanzei/project/` and are committed with the code.
+- **Conventions**: dev rules come from the engine-embedded generic conventions plus this project's `.kanzei/project/conventions.md`; requirements/defects/ideas/decisions live in `.kanzei/project/`, and sources/findings live in topic-scoped research artifacts.
 - **External agent collaboration**: run `kz lock status` before touching the repo to see active lines and uncommitted changes; stage only the files you explicitly changed, never `git add .`.
 
 ### Install
