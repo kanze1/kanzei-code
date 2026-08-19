@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
-use crate::tracker::{dependency_states_from_documents, schedule_for_display_with_states};
+use crate::tracker::{
+    dependency_states_from_documents, schedule_for_display_with_states, DependencyStates,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -57,6 +59,11 @@ pub struct WorkItem {
     /// 阻塞等外部前提,停车是主动让出单槽的调度决定,复核阻塞时不该被清掉。
     #[serde(default)]
     pub parked: bool,
+    /// R-307 批1:停车/阻塞字段带「解除条件:」且所列编号已全部终态时的可观测
+    /// 记录(如「停车(解除条件已达成:R-306)」)。该字段已不再计入阻塞;取活方
+    /// 认领时顺手把原字段改写为已解除——调度只做动态判定,不自动写回。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub release_notes: Vec<String>,
     pub progress_provenance: ProgressProvenance,
     /// D-354:持有该条目的线(「取得线」字段,claim 时写入)。None = 默认线持有
     /// (含并行化之前的历史 WIP)。
@@ -475,6 +482,7 @@ fn item(
     kind: &'static DocKind,
     entry: &Entry,
     block_reasons: Vec<String>,
+    states: &DependencyStates,
     observation: &RepoObservation,
     reference_index: &BTreeMap<String, WorkReference>,
 ) -> WorkItem {
@@ -523,7 +531,10 @@ fn item(
             .collect(),
         blocked: !block_reasons.is_empty(),
         block_reasons,
-        parked: crate::tracker::park_reason(entry).is_some(),
+        // R-307 批1:解除条件已达成的停车视同恢复(parked=false),doing 条目
+        // 直接回到 Resume 通道;达成事实经 release_notes 透出供认领时改写字段。
+        parked: crate::tracker::park_reason(entry, states).is_some(),
+        release_notes: crate::tracker::scheduling::release_notes(entry, states),
         progress_provenance: provenance(entry, observation),
         claimed_by: field(entry, "取得线").map(str::to_string),
     }
@@ -667,6 +678,7 @@ pub fn resolve_work_decision(
                 kind,
                 &scheduled_item.entry,
                 scheduled_item.block_reasons.clone(),
+                &states,
                 &observation,
                 &reference_index,
             );
@@ -747,6 +759,7 @@ pub fn resolve_work_decision(
                             kind,
                             &scheduled_item.entry,
                             Vec::new(),
+                            &states,
                             &observation,
                             &reference_index,
                         ))
@@ -756,15 +769,21 @@ pub fn resolve_work_decision(
                 })
             });
             match candidate {
-                Some(candidate) => (
-                    WorkDecision::Start,
-                    format!(
+                Some(candidate) => {
+                    // R-307 批1:解除条件已达成的字段随取活依据透出,让认领方顺手改写。
+                    let mut reason = format!(
                         "无可执行 WIP，按 {} 选择队首 {}",
                         priority_name(priority),
                         candidate.id
-                    ),
-                    Some(candidate),
-                ),
+                    );
+                    if !candidate.release_notes.is_empty() {
+                        reason.push_str(&format!(
+                            ";{}——认领时顺手把该字段改写为已解除",
+                            candidate.release_notes.join("、")
+                        ));
+                    }
+                    (WorkDecision::Start, reason, Some(candidate))
+                }
                 None if !blocked_items.is_empty() => (
                     WorkDecision::Blocked,
                     if parked_items.is_empty() {
@@ -1782,6 +1801,116 @@ mod tests {
         assert!(rejected.content.contains("必须 Resume"));
         let defects = DocStore::open(&dir, &DEFECTS).load().unwrap();
         assert_eq!(defects[0].status, "open");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// R-307 批1:「解除条件:」所列编号全部终态 → 停车条目变为可执行并被取活,
+    /// 达成事实经 release_notes/取活依据透出,供认领时顺手改写字段(引擎不写回)。
+    #[test]
+    fn r307_解除条件达成的停车条目可执行并透出改写提示() {
+        let dir = fixture("r307-release-start");
+        let mut parked = entry("R-001", "todo");
+        parked
+            .fields
+            .push(("停车".into(), "排队等收编;解除条件:D-001".into()));
+        DocStore::open(&dir, &REQUIREMENTS).save(&[parked]).unwrap();
+        DocStore::open(&dir, &DEFECTS)
+            .save(&[entry("D-001", "fixed")])
+            .unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Start, "{}", state.reason);
+        let selected = state.selected.expect("解除条件达成的停车条目应可取活");
+        assert_eq!(selected.id, "R-001");
+        assert!(!selected.parked, "解除条件达成后不再是停车条目");
+        assert_eq!(
+            selected.release_notes,
+            vec!["停车(解除条件已达成:D-001)"],
+            "达成事实必须可观测"
+        );
+        assert!(
+            state.reason.contains("解除条件已达成") && state.reason.contains("改写"),
+            "取活依据要提示认领方顺手改写字段: {}",
+            state.reason
+        );
+        assert!(
+            state.parked_items.is_empty(),
+            "已解除的停车不得再进 parked_items: {:?}",
+            state.parked_items
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// R-307 批1:停车的 WIP 解除条件达成后直接回 Resume——R-306 停车等 D-565,
+    /// D-565 修复归档后 R-306 仍停车无人恢复,正是本条要杀死的实证形态。
+    #[test]
+    fn r307_解除条件达成的停车wip直接resume() {
+        let dir = fixture("r307-release-resume");
+        let mut parked_wip = entry("R-306", "doing");
+        parked_wip
+            .fields
+            .push(("停车".into(), "等 D-565 修复;解除条件:D-565".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[parked_wip])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS)
+            .save(&[entry("D-565", "fixed")])
+            .unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(
+            state.decision,
+            WorkDecision::Resume,
+            "停车解除后的 WIP 必须回到 Resume: {}",
+            state.reason
+        );
+        assert_eq!(state.selected.unwrap().id, "R-306");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// R-307 批1:未达成(编号未终态/不在册)仍停车;「解除条件:用户」永不达成。
+    #[test]
+    fn r307_解除条件未达成仍停车_用户永不达成() {
+        let dir = fixture("r307-release-pending");
+        let mut pending = entry("R-001", "todo");
+        pending
+            .fields
+            .push(("停车".into(), "排队;解除条件:R-002".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[pending, entry("R-002", "todo")])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS).save(&[]).unwrap();
+
+        // R-002 未终态 → R-001 仍停车,候选只剩 R-002。
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Start, "{}", state.reason);
+        assert_eq!(state.selected.unwrap().id, "R-002");
+        assert_eq!(
+            state
+                .parked_items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["R-001"],
+            "解除条件未达成必须维持停车"
+        );
+
+        // 「解除条件:用户」:即使全队列只剩它,也维持停车等用户,不被机械放行。
+        let mut user_parked = entry("R-010", "todo");
+        user_parked
+            .fields
+            .push(("停车".into(), "等改派;解除条件:用户".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[user_parked])
+            .unwrap();
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Blocked, "{}", state.reason);
+        assert_eq!(state.parked_items.len(), 1, "{:?}", state.parked_items);
+        assert!(
+            !state.reason.contains("复核提醒"),
+            "解除条件:用户 是明确在等,不该被复核提醒误报: {}",
+            state.reason
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }
