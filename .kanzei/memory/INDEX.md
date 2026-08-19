@@ -34,7 +34,6 @@
 - M-205 [fact] bash 命令超时被 kill 后的正确重试策略 — 何时遇到 bash 命令超时/被 kill — 先查历史 timeout 失败记录再重试
 - M-207 [fact] bash 命令超时被 kill 后的正确重试策略 — 何时遇到 bash 命令超时/被 kill — 先查历史 timeout 失败记录再重试
 - M-227 [fact] bash 测试证据失败不激活 — bash测试证据不激活时必读：第3次+修复成功才建candidate,否则是单轮噪声
-- M-235 [fact] work写入权限拒绝模式 — .kanzei/memory属memory-manager子代理管理，主agent只投草稿；唯一合法写通道是memory_note工具 — work写入权限拒绝模式 — .kanzei/memory属memory-manager子代理管理，主agent只投草稿；唯一合法写通道是memory_note工具【新判据】: permission denied by guard : is blocked: whole-file rewrites via shell bypass th 说明shell bypass触发guard拦截
 - M-247 [sop] bash guard全文件改写拦截SOP — 识别whole-file rewrites via shell bypass并使用edit/memory writer完成写入【新版】 — M-247 bash guard全文件改写拦截 — 遇[fp:bash|...]必read再update：whole-file rewrites→ident→用edit/memwriter
 - M-258 [fact] bash/cargo失败模式 SOP — 特定 test case/compile阻塞复用路径 — 处理 bash/cargo编译与测试失败：特定 test case/conversation::tests::latest_segment_recovers_completed_compaction_surface 复用;强化"判据补全→修正再重试"决策链
 

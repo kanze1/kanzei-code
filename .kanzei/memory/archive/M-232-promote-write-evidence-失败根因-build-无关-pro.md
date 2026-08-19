@@ -4,9 +4,9 @@ scope: project
 category: fact
 title: promote_write_evidence 失败根因：build 无关 promotion gate 不激活测试产物
 description: 处理 bash 轮次重复失败且带 episode_id 证据时必读:判断是环境约束还是单次噪声 - 第3次+修复成功证据才建 candidate → promote(episode 767)
-status: candidate
+status: deprecated
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-19
 source: memory-manager
 subject: D-495(fixed)_promotion_write
 ---
@@ -23,3 +23,5 @@ Action mapping:
 3rd+ with episode evidence → promote via memory_promote using episode_id 767
 
 Detection key: [fp:bash|test memory::store::tests::promote_write_evidence_failure_does_not_activate ... ] embedded verbatim for recurrence matching.
+
+(auto-deprecated: candidate 超出健康水位 24，按低价值优先清退；fingerprint=true，recurrence=0；原路径 \\?\C:\Users\kanzei\Documents\kanzei code\.kanzei\memory\M-232-promote-write-evidence-失败根因-build-无关-pro.md)
