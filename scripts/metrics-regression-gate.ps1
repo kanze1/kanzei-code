@@ -34,8 +34,21 @@ if ($baseline.Count -lt 10) {
     throw "metrics baseline has too few parsed rows ($($baseline.Count)); refusing to run a false-green gate"
 }
 
-$kz = Join-Path $env:USERPROFILE ".cargo\bin\kz.exe"
-$metricsOutput = @(& $kz metrics --top 30 2>&1)
+# D-555:量测必须与基线同口径。基线由源码构建的 kz 生成;安装版 ~/.cargo/bin/kz.exe
+# 在口径修复(R-300 B5)未随包发布时会量出假回涨(实测 phase_pipeline.rs 安装版
+# 923/源码版 796,基线 796)。构建当前工作树的 kz 再量,闸门与基线生成器永远共用
+# 同一计数实现。
+cargo build -q -p kanzei --manifest-path (Join-Path $Root "Cargo.toml")
+if ($LASTEXITCODE -ne 0) {
+    throw "cargo build -p kanzei failed (exit=$LASTEXITCODE)"
+}
+$kz = Join-Path $Root "target\debug\kz.exe"
+Push-Location $Root
+try {
+    $metricsOutput = @(& $kz metrics --top 30 2>&1)
+} finally {
+    Pop-Location
+}
 if ($LASTEXITCODE -ne 0) {
     throw "kz metrics failed (exit=$LASTEXITCODE)"
 }
