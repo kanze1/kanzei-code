@@ -152,8 +152,15 @@ try {
 
     # UIA 找到真实 WebView2 编辑控件并通过 ValuePattern 写入/读回，证明这是生产桌面
     # UI Automation 的真实消费者；不依赖静态 HTML、CDP 或剪贴板，也不发送请求。
+    # 冷启动(脚本自拉起 kzapp)时 WebView2 内容晚于顶层窗口句柄就绪，prompt 必须
+    # 带截止时间轮询而不是一次性查找(D-564)。
+    $promptDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $prompt = Find-KzPrompt
-    if (-not $prompt) { Fail 'UIA 未找到生产 prompt 编辑控件' }
+    while (-not $prompt -and [DateTime]::UtcNow -lt $promptDeadline) {
+        Start-Sleep -Milliseconds 250
+        $prompt = Find-KzPrompt
+    }
+    if (-not $prompt) { Fail "UIA 在 ${TimeoutSeconds}s 内未找到生产 prompt 编辑控件" }
     if ($prompt.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit) {
         Fail "prompt 控件类型不是 Edit: $($prompt.Current.ControlType.ProgrammaticName)"
     }
