@@ -38,7 +38,6 @@ jobs:
       - name: ui smoke
         shell: bash
         run: |
-          for f in crates/kanzei-app/ui/*.js crates/kanzei-app/mobile-pwa/*.js; do node --check "$f"; done
           node scripts/ui-runtime-smoke.mjs
           node scripts/ui-lint-smoke.mjs
           node scripts/ipc-event-smoke.mjs

@@ -586,7 +586,7 @@ async fn unstaged_changes(cwd: &Path) -> Result<Vec<String>, String> {
 /// 提交里算「源码」的路径。改这两棵树就要有测试背书;`.kanzei/` 下的文档不算。
 ///
 /// R-261:kanzei-app/ui/ 下的纯前端资源(js/css/html)不算 Rust source——它们由前端
-/// 冒烟集(node --check + ui-runtime/lint/i18n/a11y/markdown,R-228 强制前端标签条目
+/// 冒烟集(ui-runtime/lint/i18n/a11y/markdown,语法面由 ESLint 覆盖;R-228 强制前端标签条目
 /// 关闭前有 passed 冒烟)背书,要求 cargo test -p kanzei-app 跑全套 Rust 测试对它们
 /// 零信息量(实测 R-260 改 10 行 js 被迫重跑 163 个 Rust 测试)。staged 同时含 Rust
 /// 源码与前端资源时,Rust 部分仍按原规则要求测试背书,不受影响。
@@ -997,6 +997,19 @@ async fn commit(
     message: Option<String>,
     expected_hash: Option<String>,
 ) -> ToolOutput {
+    commit_with_gate_state(ctx, message, expected_hash, false).await
+}
+
+/// `gates_already_run`:finalize 在第 1 步已对同一工作树跑过 fmt_gate+clippy_gate,
+/// 且步骤 1→6 之间只有 test_record(tracker md)与 stage(索引)两类非源码变更——
+/// 同一门禁在一次调用里跑两遍是纯浪费(实测每次 12-15s,2026-08-20 门禁审计 P0-1)。
+/// 直接调 commit 的路径照旧全量门禁,底线不丢。
+async fn commit_with_gate_state(
+    ctx: &ToolCtx,
+    message: Option<String>,
+    expected_hash: Option<String>,
+    gates_already_run: bool,
+) -> ToolOutput {
     let cwd = &ctx.cwd;
     let message = message.unwrap_or_default();
     if message.trim().is_empty() {
@@ -1027,7 +1040,7 @@ async fn commit(
     if let Err(error) = placeholder_id_gate(&staged_diff, &paths) {
         return ToolOutput::error(error);
     }
-    if paths.iter().any(|p| is_source_path(p)) {
+    if !gates_already_run && paths.iter().any(|p| is_source_path(p)) {
         // 顺序有讲究:先验门禁(机械真值),再看测试记录(自报证据)。编译不过时
         // 报编译错误比报"没有测试背书"有用得多。D-264:fmt/clippy 为提交前硬门禁
         // ——规则层写过但自举漏了三次,必须代码强制。clippy_gate 内部先跑
@@ -1210,8 +1223,10 @@ async fn finalize(ctx: &ToolCtx, files: Vec<String>, message: Option<String>) ->
         return ToolOutput::error("[finalize] staged_hash empty after stage");
     }
 
-    // 6. CAS commit(消费 staged_hash)。
-    let committed = commit(ctx, Some(message), Some(staged_hash.clone())).await;
+    // 6. CAS commit(消费 staged_hash)。步骤 1 已跑过同一工作树的 fmt+clippy,
+    // 传 gates_already_run 免去重复档(P0-1);source_test_gate 等其余门禁照常。
+    let committed =
+        commit_with_gate_state(ctx, Some(message), Some(staged_hash.clone()), true).await;
     if committed.is_error {
         return ToolOutput::error(format!(
             "[finalize] commit failed after successful stage+test (staged_hash {staged_hash}):\n{}",
@@ -2011,9 +2026,11 @@ prunable gitdir file points to non-existent location
     /// 的**完整检查项集合**机械同步——任一侧增删一步即红(不再只比对 fmt/clippy 两项)。
     ///
     /// 口径:verify.ps1 的 `Step-With-Timing "<key>"` 键集合必须等于固定清单
-    /// {fmt, clippy, test, ui_syntax, ui_runtime, ui_lint, parallel_lines_regression,
-    /// ui_a11y, ui_i18n, ui_markdown, ui_connectivity, crate_sync, ps1_bom};每个键在 ci.yml 里有对应标记(命令文本或
+    /// {fmt, clippy, test, ui_runtime, ui_lint, ipc_event_contract,
+    /// parallel_lines_regression, ui_a11y, ui_i18n, ui_markdown, ui_connectivity,
+    /// crate_sync, ps1_bom};每个键在 ci.yml 里有对应标记(命令文本或
     /// smoke 脚本名);smoke 脚本与 npm ci 在两侧同现同隐。
+    /// ui_syntax 已删(P0-2):ESLint 解析错误覆盖 node --check 的全部检查面。
     #[test]
     fn gate_checklists_align_across_git_verify_and_ci() {
         // 仓库根:git.rs 在 crates/kanzei-tools/src/,CARGO_MANIFEST_DIR 是
@@ -2046,7 +2063,6 @@ prunable gitdir file points to non-existent location
             "fmt",
             "clippy",
             "test",
-            "ui_syntax",
             "ui_runtime",
             "ui_lint",
             "ipc_event_contract",
@@ -2066,21 +2082,16 @@ prunable gitdir file points to non-existent location
             verify.contains("$global:LASTEXITCODE = 0"),
             "Step-With-Timing 必须清理上一步外部进程的 LASTEXITCODE"
         );
-        assert!(
-            verify.contains("$uiScripts.Count -eq 0") && verify.contains("空集合不得假绿"),
-            "ui_syntax 必须对空 UI 脚本集合显式失败"
-        );
         assert_eq!(
             actual, expected,
             "verify.ps1 检查键集合必须等于固定清单——新增/删除门禁时 ci.yml 与 git.rs 也要同步"
         );
 
         // ② 每个键在 ci.yml 有对应标记(命令文本或 smoke 脚本名)。
-        let markers: [(&str, &str); 14] = [
+        let markers: [(&str, &str); 13] = [
             ("fmt", "cargo fmt --all -- --check"),
             ("clippy", "cargo clippy --workspace --all-targets"),
             ("test", "cargo test --workspace"),
-            ("ui_syntax", "node --check"),
             ("ui_runtime", "ui-runtime-smoke.mjs"),
             ("ui_lint", "ui-lint-smoke.mjs"),
             ("ipc_event_contract", "ipc-event-smoke.mjs"),

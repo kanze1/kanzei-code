@@ -3,7 +3,7 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 # Windows 扩展路径可供 node 使用，但 PowerShell Get-ChildItem 对 `\\?\` 通配不稳定；
-# 先剥离 provider-qualified 前缀，再剥离本地扩展前缀，避免 ui_syntax 把非空脚本集合误判为空。
+# 先剥离 provider-qualified 前缀，再剥离本地扩展前缀，避免通配步骤把非空脚本集合误判为空。
 $providerPrefix = "Microsoft.PowerShell.Core\FileSystem::"
 if ($root.StartsWith($providerPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
     $root = $root.Substring($providerPrefix.Length)
@@ -81,19 +81,9 @@ Step-With-Timing "ipc_event_contract" "ipc_event_contract (R-299 emit/listen 求
 Step-With-Timing "fmt" "fmt" {
     cargo fmt --all --manifest-path "$root\Cargo.toml" -- --check
 }
-Step-With-Timing "ui_syntax" "ui_syntax" {
-    # R-292:覆盖范围扩到 mobile-pwa(app.js/sw.js)——PWA 与桌面 ui/*.js 同为
-    # 无门禁时代的漏网点,统一进 node --check。
-    $uiScripts = @(Get-ChildItem "$root\crates\kanzei-app\ui\*.js") +
-        @(Get-ChildItem "$root\crates\kanzei-app\mobile-pwa\*.js")
-    if ($uiScripts.Count -eq 0) {
-        throw "ui_syntax 失败:未找到 UI JavaScript 文件，空集合不得假绿"
-    }
-    $uiScripts | ForEach-Object {
-        node --check $_.FullName
-        if ($LASTEXITCODE -ne 0) { throw "node --check 失败: $($_.Name)" }
-    }
-}
+# ui_syntax(node --check)已删(2026-08-20 门禁审计 P0-2):ESLint(ui_lint 步)
+# lint 同一批 ui/*.js + mobile-pwa/*.js + scripts/*.mjs,解析错误即 severity 2,
+# 语法面完全覆盖;独立 node --check 是纯重复(1.6s + 一处三方同步负担)。
 Step-With-Timing "clippy" "clippy(轻量:不含测试目标)" {
     # 刻意不带 --all-targets：实测碰底层 crate 后 37.9s → 4.9s，省 33 秒。
     # 编译覆盖不靠它——紧接着的 test 步骤会把全部测试代码编一遍；这里丢掉的只有
