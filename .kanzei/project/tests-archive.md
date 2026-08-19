@@ -8060,3 +8060,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 提交门禁/verify/CI 清单同步守护测试通过，1 passed、0 failed；确认 ps1_bom 在 verify 与 CI 清单均有标记，提交侧 source_test_gate 的豁免是现行范围而非清单漂移。
 - 关联: D-554
 - 收尾: 1787161308
+
+## T-1786922726478 D-555 metrics 同口径回涨闸回归 [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\metrics-regression-gate.ps1
+- 时长: 9.0s
+- 摘要: 当前工作树构建 target/debug/kz.exe 后执行 30 个 Top-30 metrics 行；巨石数 5/5、逐文件回涨 allowance 100，门禁通过。验证了 scripts/metrics-regression-gate.ps1 与基线使用同一口径。
+- 关联: D-555
+- 收尾: 1787161917

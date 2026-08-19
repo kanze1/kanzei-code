@@ -6848,3 +6848,15 @@
 - observed_head: 4de7f1016c097b6171ef930d84159668d28ff578
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787161323076
+
+## D-555 metrics 回涨闸对零改动的 phase_pipeline.rs 误报涨 127 行,基线口径漂移 [fixed] (medium)
+- refs: R-300
+- 复现: 发布树 ff 至 3c123bd5 后跑 scripts/verify.ps1,报 metrics regression gate failed: crates/kanzei-app/src/phase_pipeline.rs production lines grew 127 (baseline 796, current 923, allowance 100)。该文件在 build-123d0952..3c123bd5 区间零改动(最后触碰 ec6f6970);docs/design/metrics_baseline.md:31 基线行记 总 933/生产 796/测试 137,新口径量出生产 923——差值 127 与测试行数量级吻合,疑 R-300 B5(f28c8dc2「修复 metrics 生命周期口径并更新基线」)改口径后基线全表未按新口径重生成,该文件测试行被计入生产。
+- 影响: dev 自锁:文件没动却过不了自家闸门,发版链被卡;回涨闸在口径漂移下的数字不可信,真回涨与假回涨无法区分。
+- 来源: 2026-08-20 发版预检,verify 实测(发布树,commit 3c123bd5)。
+- 标签: 流程
+- 验收: 修口径(测试行识别)或按新口径重生成基线全表并逐文件说明差异;phase_pipeline.rs 零改动时 verify 绿;补「基线与量测同口径」守护(基线生成器与闸门共用同一计数实现),防止再漂。
+- 优先级: P1
+- 状态: done
+- 进展: 2026-08-20 根因实锤:闸门原用安装版 ~/.cargo/bin/kz.exe(旧口径,phase_pipeline.rs 量出生产 923/测试 10),基线由源码构建 kz 生成(新口径 796/137)——同文件两把尺。修复提交 0212db2b:metrics-regression-gate.ps1 改为 cargo build 当前工作树的 kz(target/debug/kz.exe)并在 $Root 下量测,闸门与基线生成器从此共用同一计数实现,「同口径守护」由此结构性成立。主树实测 30 行全过、巨石 5/5;发布树 verify 全绿,证据 dist/verification.json 绑定 55caf824。 [terminal-fix 2026-08-19] fixed → fixed: 修复归档字段残留的非法 lifecycle done；D-555 的实现、测试和三项验收证据均已完成，归档应使用合法 fixed。
+- 验收核验: ①口径修复位置：scripts/metrics-regression-gate.ps1 改为 cargo build 当前工作树的 target/debug/kz.exe，并在 $Root 下量测，避免使用旧安装版；②同口径守护：基线生成器与回涨闸共用同一 metrics 计数实现，phase_pipeline.rs 零改动时不再把测试行计入生产行；③验证证据：主树实测 30 行全过、巨石 5/5，发布树 verify 全绿，dist/verification.json 绑定 55caf824；已有测试记录与提交 0212db2。
