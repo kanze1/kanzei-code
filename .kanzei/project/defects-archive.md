@@ -6924,7 +6924,6 @@
 - 来源: self-found：R-305 B3 前端冒烟执行结果
 - 标签: 前端
 - 验收: 修正审计冒烟断言为语言无关或使用 t() 的真实路径；隔离运行轨迹入口测试状态；globals 清单与源码同步；ui-runtime、ui-lint 及相关前端冒烟全绿。
-- refs: R-305
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-562
 - 进展: 已修复并验证：`scripts/ui-runtime-smoke.mjs:6507-6523` 使用生产同源 `byId.get` 读取审计事实/模型节点，断言兼容中英文资源并在轨迹入口后恢复活动面板状态；临时 debug 已清除。`scripts/ui-lint-globals.json` 由生成器同步 748 个顶层标识符，包含 `roundElapsedSeconds` 与 R-305 新增审计函数。T-1786922726490 通过：node --check、ui-runtime、ui-lint、parallel-lines、ui-a11y、ui-i18n、ui-markdown 全部通过；T-1786922726491 通过 kanzei-app 221/221。
@@ -6932,3 +6931,45 @@
 - observed_head: 1adb22a1e695aee9d9b8897c2946238100ea2a4c
 - observed_worktree_hash: fnv1a64:a66ca3ff5d267841
 - recorded_at: 1787166382160
+
+## D-552 桌面 UIA 停止 E2 未能定位生产发送按钮 [fixed] (medium)
+- refs: R-101
+- 复现: 运行 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1 -RunStopTest`，B2 视图切换与 prompt ValuePattern 通过，但 Wait-KzButtonReady @('发送','Send') 超时并以非零退出。
+- 影响: 真实停止 E2 无法触发生产 run_prompt，不能验证 `#stop → stop_run → kz:stopped` 链路；默认 B2 不受影响。
+- 来源: self-found：R-101 B3 首次真实停止 E2。
+- 标签: 流程
+- 进展: 2026-08-20 真实停止 E2 通过:用户关闭 kzapp 窗口后,agent 修复 D-564 冷启动轮询并执行 pwsh -File .\scripts\ui-desktop-uia.ps1 -RunStopTest——stop_test_requested=true、stop_requested=true、stop_settled=true,发送/停止按钮均按生产 AutomationId 定位成功,process_owned_by_test=true,截图 464972 bytes。此前 Wait-KzButtonReady 超时的根因已由 d1cc0006(AutomationId 优先+名称回退+逐轮重取节点)修复,本轮为其真实链路核销
+- 优先级: P2
+- observed_head: a8e75106b629441cc19963dd5667aee07a74339a
+- observed_worktree_hash: fnv1a64:00ea97ae7b316f67
+- recorded_at: 1787168102269
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-552 [tracker integrity degraded] D-555: invalid defect lifecycle [done]
+
+## D-564 ui-desktop-uia 冷启动一次性查找 prompt 控件,脚本自拉起 kzapp 必失败 [fixed] (medium)
+- refs: R-101 D-552
+- 复杂度: 小
+- 复现: 关闭 kzapp 后执行 pwsh -File .\scripts\ui-desktop-uia.ps1 -RunStopTest:脚本 Start-Process 自拉起应用(process_owned_by_test=true 路径首次真实执行),窗口句柄出现后仅 Start-Sleep 500ms 即一次性 Find-KzPrompt(ui-desktop-uia.ps1:151-156),WebView2 内容冷启动渲染晚于顶层句柄就绪,报「UIA 未找到生产 prompt 编辑控件」退出 1。历史全部通过记录均为附着已运行进程(process_owned_by_test=false),冷启动路径从未被验证
+- 影响: R-101/D-552 的解除动作「用户关闭 kzapp 后由 agent 执行 -RunStopTest」在真实窗口期不可执行;停止 E2 与后续 B4 被脚本自身缺陷卡住
+- 标签: 流程
+- 验收: prompt 查找带截止时间轮询(复用 TimeoutSeconds),冷启动自拉起路径真实跑通 -RunStopTest 或至少通过默认 B2;附真实运行证据
+- 优先级: P2
+- 进展: 修复:scripts/ui-desktop-uia.ps1:153-163 prompt 查找改为复用 TimeoutSeconds 的截止时间轮询(250ms 间隔),冷启动注释点名 D-564。验证:关闭 kzapp 后真实执行 -RunStopTest 全链路通过——process_owned_by_test=true(冷启动自拉起路径首次真实跑通)、input_marker_round_trip=true、prompt_retained_after_view_switch=true、stop_requested=true、stop_settled=true,截图 .kanzei/research/r302-desktop-e2/kzapp-uia.png(464972 bytes);脚本结束自行收尾自有进程,无残留
+- observed_head: a8e75106b629441cc19963dd5667aee07a74339a
+- observed_worktree_hash: fnv1a64:00ea97ae7b316f67
+- recorded_at: 1787168091762
+
+## D-486 R-242 shadow 比较器将压缩后 legacy surface 误判为 unknown mismatch [fixed] (medium)
+- 复现: 真实项目执行 `cargo run -p kanzei -- shadow --project-root (Get-Location).Path --mismatches`：最新窗口出现 `typed_write_errors=[]` 但 `projected_messages=151`、`legacy_messages=13`、`first_mismatch=1`、`expected_mismatch=false`；该窗口在事件日志中包含多轮 typed facts 与一次 `conversation.updated`，legacy 是压缩后的短 surface。现有 `classify_mismatch` 只识别 legacy 为空、legacy 为 projection 前缀和失败 diagnostics，不识别压缩后的 legacy surface。
+- 影响: R-242 的 shadow gate 将可解释的 surface compaction/快照重建差异计为 unknown mismatch，真实窗口无法区分投影写入错误与 compaction 尚未事件化，阻碍建立有效的 30 turn typed_write_errors=0 统计窗口。
+- 来源: self-found：R-242 真实 shadow 诊断；项目 state.db 最新 shadow 事件与 `crates/kanzei-core/src/store/typed.rs:1453-1483` 代码对照。
+- 标签: 核心
+- 验收: 新增回归覆盖 legacy 是 projection 的有效尾部/压缩后 surface 时标为 expected_mismatch（compacted_snapshot），仍保留真正中间内容不一致为 unknown；`cargo test -p kanzei-core` 通过；真实 shadow 输出不再把该类差异计入 unknown。
+- refs: R-242
+- 优先级: P1
+- 状态: fixing
+- 进展: 验收逐项对账（修复提交=7f77b8ff，当前 HEAD 已包含）：①“legacy 是 projection 的有效尾部/压缩后 surface 时标为 expected_mismatch（compacted_snapshot）”：`crates/kanzei-core/src/store/typed/projection.rs:374-400` 的 `classify_mismatch` 仅在 legacy 短于 projection 且精确等于 projection 尾部时返回 `(true, Some("compacted_snapshot"))`；回归 `crates/kanzei-core/src/store/typed.rs:2124-2134` 覆盖并断言该分类。②“真正中间内容不一致仍为 unknown”：同一分类函数 `projection.rs:392-400` 的条件不满足即 `(false, None)`，回归 `typed.rs:2136-2152` 覆盖中间不一致与 legacy 反超；旧事件无 expected_mismatch 仍由 `projection.rs:418-433` 计为 unknown。③“cargo test -p kanzei-core 通过”：T-1786922726218，kanzei-core 222 passed。④“真实 shadow 输出不再把该类差异计入 unknown”：真实消费者链 `crates/kanzei-app/src/conversation.rs:152` 写入比较结果，`crates/kanzei/src/cli/shadow.rs:40-75` 读取并展示；T-1786922726497 以真实命令 `cargo run -p kanzei -- shadow --project-root (Get-Location).Path --mismatches` 复核，输出 seq 157713/157742/158718/163051/163761 等压缩案例均为 `expected=true class=compacted_snapshot`。全历史统计仍含早期 unrelated unknown/typed_write_errors（CLI 显示 455 turn、unknown 181、写错误 116），未将其误报为已清零；本缺陷只核销压缩后 surface 分类。
+- observed_head: d5e61015b8a0a321255e7ebbf23bf2fd337081a2
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787168566813
+- 停车: 
+- 对账: 2026-08-20 对账:停车条件(R-242 建立真实 shadow 验证窗口)已满足——T-1786922726248 共 30 真实 turn、unknown=0、typed_write_errors=0,停车解除;剩余动作=在含 compaction 的真实会话再跑一次 kz shadow --mismatches,确认压缩后 legacy surface 计入 expected(compacted_snapshot)而非 unknown 后关闭

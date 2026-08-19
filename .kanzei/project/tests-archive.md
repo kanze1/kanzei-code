@@ -8163,3 +8163,39 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-305 D-562
 - 收尾: 1787165877
 - 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@3551e2d5541d,scripts/ui-lint-globals.json@43eb7b44a1ee,scripts/ui-runtime-smoke.mjs@41493d31f97f
+
+## T-1786922726492 发布开发通道 release.ps1 全量门禁与构建 [failed]
+- 命令: $env:HTTPS_PROXY='http://127.0.0.1:12000'; .\scripts\release.ps1
+- 时长: 92.0s
+- 摘要: 完整 `cargo test --workspace` 通过：workspace 测试全部通过（kanzei-tools 345 passed、1 ignored；其余 crate 全部通过），随后 `cargo build --release -p kanzei` 与 `cargo build --release -p kanzei-app` 均成功。因当前安装位 kzapp PID 50360 正在运行，脚本无法覆盖 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`，已生成 `kzapp.exe.pending` 并按设计返回 deferred installation；未强杀用户进程。
+- 收尾: 1787167274
+
+## T-1786922726493 发布树 verify 十步全绿 [passed]
+- 命令: .\scripts\verify.ps1
+- 时长: 112.0s
+- 摘要: 发布树 main 已 fast-forward 到 85d7123d96635e3d76279ca143afe18f3736d7bc；verify 十步全部通过：parallel-lines、ui-a11y、ui-i18n、ui-markdown、crate_sync/metrics、ps1_bom、ui-lint、IPC event contract、fmt、ui_syntax、clippy、ui_connectivity、ui_runtime 与 cargo test --workspace；生成 `dist\verification.json`，证据绑定完整 SHA。
+- 收尾: 1787167450
+
+## T-1786922726494 package 云端发布前置检查（origin/main 未推送） [failed]
+- 命令: $env:HTTPS_PROXY='http://127.0.0.1:12000'; .\scripts\package.ps1 -Ack 14 -Publish -VerificationPath 'C:\Users\kanzei\Documents\kanzei-release\dist\verification.json'
+- 摘要: 发布范围核对通过：build-55caf824..HEAD 实际 14 个提交，验证证据已绑定 85d7123d；远端可达检查发现 HEAD 尚未推送到 `origin/main`，按 D-232 在构建前中止，未生成安装包也未创建 Release。下一步先 push origin main，再重跑同一 `-Ack 14 -Publish`。
+- 收尾: 1787167475
+
+## T-1786922726495 云端发布 build-85d7123d [passed]
+- 命令: .\scripts\package.ps1 -Ack 14 -Publish -VerificationPath 'C:\Users\kanzei\Documents\kanzei-release\dist\verification.json'
+- 时长: 118.0s
+- 摘要: 发布范围实际 14 个提交；origin/main 已包含 HEAD 85d7123d；版本双源 0.1.0 一致；验证证据绑定完整 SHA 且全绿；cargo tauri build 成功生成 NSIS；产物 `dist\kanzei-setup-85d7123d.exe` 已生成并清理旧安装器；自动安装因 PID 50360 的 kzapp 正在运行而明确跳过；GitHub Release 已成功创建：`https://github.com/kanze1/kanzei-code/releases/tag/build-85d7123d`。
+- 收尾: 1787167626
+
+## T-1786922726496 云端 Release 资产与版本 hash 核对 [passed]
+- 命令: gh release view build-85d7123d --repo kanze1/kanzei-code --json tagName,targetCommitish,isDraft,isPrerelease,url,assets; Get-FileHash C:\Users\kanzei\Documents\kanzei-release\dist\kanzei-setup-85d7123d.exe -Algorithm SHA256; kz --version
+- 时长: 3.0s
+- 摘要: GitHub API 返回正式非 draft/non-prerelease Release `build-85d7123d`，targetCommitish 为完整 SHA `85d7123d96635e3d76279ca143afe18f3736d7bc`；资产 `kanzei-setup-85d7123d.exe` 已 uploaded，大小 15991728 bytes，远端 digest 与本地 SHA256 均为 `eda2ef4d609f2efd4ba7f7ac758a2e50f95c664ddb974ccd7c9714fdb719a91c`；CLI 输出 `kanzei 0.1.0 (85d7123d 20260819191922)`。
+- 收尾: 1787167695
+
+## T-1786922726497 真实 shadow 压缩后 surface 分类 [passed]
+- 命令: cargo run -p kanzei -- shadow --project-root (Get-Location).Path --mismatches
+- 时长: 14.4s
+- 摘要: 真实项目命令退出码 0；输出中的压缩后 surface 明确为 expected=true、class=compacted_snapshot（如 seq 157713、157742、158718、163051、163761），未将该类差异归入 unknown。全历史窗口仍有早期 unrelated unknown/typed_write_errors，故 CLI 全局统计仍为未达标，不作为历史数据清理证据。
+- 关联: D-486 R-242
+- 收尾: 1787168551
