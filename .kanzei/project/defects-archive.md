@@ -7036,3 +7036,16 @@
 - observed_head: 3b8b0e7bc6801248f91ca8d30196a4d966825e9d
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787176335778
+
+## D-579 R-306 worktree 迁移插入点把 const 与 use 声明粘连导致 git.rs 无法解析 [fixed] (medium)
+- refs: R-306
+- 复现: 执行 `cargo fmt --all -- --check`，报 `git.rs:15 expected one of : ; < = where, found serde`，文件出现 `const GIT_TIMEOUTuse serde::Deserialize;`
+- 影响: kanzei-tools 无法格式化或编译，worktree 迁移暂不可验证
+- 来源: 本会话自发现：R-306 worktree 域迁移后的 cargo fmt 复现
+- 标签: 核心
+- 验收: ①恢复合法 import/const 边界；②cargo fmt --all -- --check 通过；③cargo test -p kanzei-tools 通过；④提交前记录修复位置与测试证据
+- 优先级: P1
+- 进展: 验收对账：① import/const 边界已在 `crates/kanzei-tools/src/git.rs:13-21` 修复，`serde::Deserialize` 与 `GIT_TIMEOUT` 分离；② `cargo fmt --all -- --check` 通过，证据 `T-1786922726502`；③ `cargo test -p kanzei-tools` 通过，389 passed/0 failed/1 ignored，证据 `T-1786922726502`；④错误形态由测试前复现的 `const GIT_TIMEOUTuse serde::Deserialize` 覆盖，修复后同一命令链通过，证据 `T-1786922726502`。worktree 域实现位于 `crates/kanzei-tools/src/git/worktree.rs:1-69`，导出接线位于 `git.rs:15-19`。
+- observed_head: 0d7137d61c9c998bf00fedce363f5fd201934126
+- observed_worktree_hash: fnv1a64:05540bf54de940fc
+- recorded_at: 1787177966147

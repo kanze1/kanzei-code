@@ -8229,3 +8229,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-242 D-572 D-573 D-574
 - 收尾: 1787176142
 - 源码指纹: v2 crates/kanzei-app/src/mobile.rs@5d36ebcc07d6,crates/kanzei-app/src/run/persistence.rs@09a15418a83a,crates/kanzei/src/cli/run.rs@314b3b521561,crates/kanzei/src/cli/run/finalize.rs@1a858a7d7c7e,crates/kanzei/tests/integration/always_allow_bash.rs@11510bfc3d98,crates/kanzei/tests/integration/context_overflow_recovery.rs@d91c3fe111a8
+
+## T-1786922726502 R-306 worktree 域迁移 kanzei-tools 定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 34.5s
+- 摘要: 首次 fmt 因 D-579 粘连缺陷失败；修复后 fmt 通过，kanzei-tools 389 passed, 0 failed, 1 ignored。
+- 关联: R-306 D-579
+- 收尾: 1787177948
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@5e7f5a0641e8,crates/kanzei-tools/src/git/worktree.rs@54f1ca45b029
