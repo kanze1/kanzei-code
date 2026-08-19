@@ -6874,3 +6874,17 @@
 - observed_head: f74190424c0bbf129c107776e8b3d52b4b908b61
 - observed_worktree_hash: fnv1a64:22647b63185a2bb9
 - recorded_at: 1787162500811
+
+## D-559 R-305 策略提示插入造成设置页 JS 多余闭合括号 [fixed] (medium)
+- 复现: 运行 `node --check crates/kanzei-app/ui/16-settings.js`。
+- 影响: 设置页脚本无法解析，策略面板及设置页初始化全部失效。
+- 来源: self-found，本轮 R-305 roster_cap 可视化改动后的定向语法检查。
+- 标签: 前端
+- 进展: 已修复：删除 `crates/kanzei-app/ui/16-settings.js:302` 插入造成的多余 `}`。实现位置：`16-settings.js:279-299` 的 roster_cap 策略提示；`index.html:760` 的状态节点；`02-i18n.js:604-606` 的英文资源；`settings.rs` 顶层 `phaseRosterCapacity` 返回字段。验收：T-1786922726482 中 node --check 三文件通过、runtime/i18n/a11y 通过，Rust kanzei-app 218/218 通过。
+- 验收: 16-settings.js、02-i18n.js、03-shell.js 解析通过，设置页运行时可初始化。
+- refs: R-305
+- 优先级: P1
+- 验收核验: ① 16-settings.js、02-i18n.js、03-shell.js 语法通过：T-1786922726482；② 设置页运行时初始化无错误：T-1786922726482；③ 策略提示真实挂载于 index.html:760 且由 16-settings.js:299 消费。
+- observed_head: 6fd3e8b6e422c05361796e62bc99fba6698209d4
+- observed_worktree_hash: fnv1a64:cf2c18129521b3bd
+- recorded_at: 1787162913500

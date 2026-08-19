@@ -8088,3 +8088,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 验证 README、research_mode.md 与 `.kanzei/research/r304-dev-recon/report.md`：落点、entry-id-slug 命名、report.md、entry_refs、active→archived 生命周期、R-248 复用均存在；冲突的“refs 可引用 topic 名”已不存在；目标文件 diff --check 通过。
 - 关联: R-304 D-558
 - 收尾: 1787162470
+
+## T-1786922726482 R-305 B1 策略面板 roster_cap 可见化定向验证 [failed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/16-settings.js; node --check crates/kanzei-app/ui/03-shell.js; cargo test -p kanzei-app; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 时长: 29.0s
+- 摘要: Rust kanzei-app 218/218 通过；三个受影响 UI 文件 node --check 通过；runtime 25 文件/2318 invoke、i18n 1317 key/446 文案/57 动态契约、a11y 通过。ui-lint-smoke 仍被既有 crates/kanzei-app/ui/07-events.js:423 roundElapsedSeconds 未定义拦截，非本次 R-305 改动。
+- 关联: R-305 D-559
+- 收尾: 1787162888
+- 源码指纹: v2 crates/kanzei-app/src/settings.rs@63883aaa108c
+
+## T-1786922726483 R-305 B1 kanzei-app 最新源码定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.0s
+- 摘要: 最新暂存源码背书：kanzei-app 218/218 测试通过，包含 settings 相关测试与 phase pipeline 策略边界测试。
+- 关联: R-305
+- 收尾: 1787162997
+- 源码指纹: v2 crates/kanzei-app/src/settings.rs@63883aaa108c

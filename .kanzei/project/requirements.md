@@ -263,8 +263,8 @@
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-299
 - 停车: 让位 R-300 收尾：协作线 p16 仍占用 crates/kanzei-app/src/ipc_contract.rs、scripts/ipc-contract.json、scripts/ipc-event-smoke.mjs、scripts/verify.ps1 等 IPC 契约扩面文件；本条不覆盖并发实现。p16 清出后按 work next 恢复。
 
-## R-305 subagent 策略层与 Agent 目录 [todo]
-- refs: R-281 D-513 docs/design/subagent_management.md
+## R-305 subagent 策略层与 Agent 目录 [doing]
+- refs: R-281 D-513
 - 内容: 按 docs/design/subagent_management.md:36-84 交付三块:①Agent 目录(可用 agent 类型的注册与描述);②策略面板(每轮 task 上限/并发/超时/重试/预算可配置并生效);③运行审计摘要(每轮 subagent 派发与结果的可读汇总)。与 R-281 子代理阅读器互补:R-281 管看单个子代理说话,本条管策略与全局审计
 - 复杂度: 大
 - 来源: 2026-08-18 全库勘察;2026-08-18 用户拍板需要;docs/design/subagent_management.md P2 三块未实施,唯一演进条目 R-117 已 dropped
@@ -272,5 +272,11 @@
 - 边界: 不重做 R-281 的对话读取器;策略默认值保持现行为,配置生效有真实验证
 - 验收: 按设计文档三块交付;策略修改真实生效有测试;审计摘要在 UI 可见;roster_cap 类静默截断(D-513)在策略面板可见化
 - 优先级: P2
-- 取活依据: override:parallel-line-create:用户从并行视图选择条目开线
+- 取活依据: engine:唯一可执行 WIP 是 R-305，必须先恢复它
 - 取活释放: line=kanzei/thread-line-1787120622542-1;reason=parallel-line-unregister;at_ms=1787159520466
+- 进展: 本轮已落地一个与验收直接相关的最小切片：`crates/kanzei-app/src/settings.rs` 返回权威 `phaseRosterCapacity=5`；`crates/kanzei-app/ui/index.html:760` 增加策略状态节点；`ui/16-settings.js:279-299` 在加载和未保存输入变化时显示 max_tasks_per_turn 对阶段角色的截断/省略数量；`ui/02-i18n.js:604-606` 补英文资源。T-1786922726482：Rust kanzei-app 218/218、node --check、runtime/i18n/a11y 通过；ui-lint 被独立 D-560（07-events.js:423 未定义 roundElapsedSeconds）拦截。下一步：继续 B1 Agent 目录只读入口，不能把本切片冒充完整 B1。
+- observed_head: 6fd3e8b6e422c05361796e62bc99fba6698209d4
+- observed_worktree_hash: fnv1a64:cf2c18129521b3bd
+- recorded_at: 1787162932897
+- 批次: 0/3
+- 批次说明: B1 Agent 目录与配置模型/只读入口；B2 策略读取与 runner 强制；B3 运行审计摘要 UI、端到端验证与收口。

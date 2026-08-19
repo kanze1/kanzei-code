@@ -276,6 +276,29 @@ function renderEffectiveNotice(s) {
   }
 }
 
+// R-305 B1:把 phase_pipeline 的 roster_cap 从日志事实投影到策略面板。
+// 未保存输入也要即时可见，避免用户调小上限后不知道阶段角色会被省略。
+let settingsEffectiveSnapshot = null;
+function renderRosterCapNotice(s) {
+  const box = $("set-max-tasks-hint");
+  if (!box) return;
+  const capacity = Number(s?.phaseRosterCapacity ?? 5);
+  const raw = $("set-max-tasks")?.value.trim() ?? "";
+  const fallback = s?.limitDefaults?.maxTasksPerTurn ?? 16;
+  const limit = raw === "" ? Number(fallback) : Number(raw);
+  if (!Number.isFinite(limit) || !Number.isFinite(capacity)) {
+    box.textContent = "";
+    return;
+  }
+  const omitted = Math.max(0, capacity - Math.max(0, Math.floor(limit)));
+  box.textContent = omitted > 0
+    ? `${t("阶段流水线角色上限")}: ${Math.floor(limit)}/${capacity} · ${t("阶段流水线会省略角色")}: ${omitted}`
+    : `${t("阶段流水线角色上限")}: ${Math.floor(limit)}/${capacity} · ${t("阶段流水线不会截断角色")}`;
+}
+
+$("set-max-tasks")?.addEventListener("input", () => renderRosterCapNotice(settingsEffectiveSnapshot));
+
+
 // 模型角色改成真下拉:自由文本框要手打 `provider:model`,拼错一个字母要到运行时
 // 才炸,而那时人早已离开设置页。这里从各 provider 探测到的清单里选,手填只作兜底。
 let knownModelIds = [];
@@ -520,6 +543,8 @@ async function loadSettings({ force = false } = {}) {
   if (token !== settingsLoadToken) return;
   // 只读区永远允许更新:它一行 input 都不碰,刷新它不会吃掉任何输入。
   $("settings-path").textContent = s.path;
+  settingsEffectiveSnapshot = s;
+  renderRosterCapNotice(s);
   renderEffectiveNotice(s);
   loadPermissionRules();
   refreshFastStatus();
@@ -578,6 +603,7 @@ function hydrateSettingsForm(s) {
     const fallback = s.limitDefaults?.[key];
     el.placeholder = fallback === undefined ? "" : `${t("默认")} ${fallback}`;
   }
+  renderRosterCapNotice(s);
   const proxy = s.proxy;
   if (proxy === "env" || proxy === "off") {
     $("set-proxy-mode").value = proxy;

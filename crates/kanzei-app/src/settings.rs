@@ -8,6 +8,10 @@ use tauri::State;
 
 use crate::AppState;
 
+// 与 phase_pipeline::SCOUT_ROLES 的最大阶段角色数保持一致；设置页用它解释
+// max_tasks_per_turn 造成的角色截断，而不是让 roster_cap 继续静默发生。
+const PHASE_ROSTER_CAPACITY: usize = 5;
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SettingsPayload {
@@ -564,6 +568,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         "profileDefault": config.profile.default.unwrap_or_else(|| "dev".into()),
         "reasoning": config.models.reasoning.unwrap_or_else(|| "off".into()),
         "codexFastMode": config.models.codex_fast_mode.unwrap_or(false), "providers": providers,
+        "phaseRosterCapacity": PHASE_ROSTER_CAPACITY,
         // limits:发原始值(None = 表单留空),同时发一份生效默认值给占位符用——
         // 用户要看得见"留空等于多少",否则只能去翻源码。
         "limits": {

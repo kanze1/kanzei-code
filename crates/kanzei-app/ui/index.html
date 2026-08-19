@@ -757,6 +757,7 @@
             <input id="set-subagent-timeout" type="number" min="10" step="10" />
             <label data-i18n-key="单轮子代理数上限">单轮子代理数上限</label>
             <input id="set-max-tasks" type="number" min="1" step="1" />
+            <span id="set-max-tasks-hint" class="form-hint" role="status" aria-live="polite"></span>
           </div>
           <p class="dim" data-i18n-key="同轮最多并行执行的子代理数。默认 16(留空即默认);超出部分不排队,直接以「too many parallel subagent tasks」错误返回给模型。桌面端主对话已生效(R-173 起 task 工具注册不再受执行策略门控)。">同轮最多并行执行的子代理数。默认 16(留空即默认);超出部分不排队,直接以「too many parallel subagent tasks」错误返回给模型。桌面端主对话已生效(R-173 起 task 工具注册不再受执行策略门控)。</p>
           <div class="form-row">

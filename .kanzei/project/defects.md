@@ -42,3 +42,12 @@
 - recorded_at: 1787160690005
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-552 [tracker integrity degraded] D-555: invalid defect lifecycle [done]
 - 阻塞: 真实 `-RunStopTest` 会向当前安装位 kzapp 发送测试 prompt 并改变用户会话；PID 50360 仍为用户进程，agent 不得强行接管或停止。解除人：用户关闭当前 kzapp 窗口，或提供可控的独立 kzapp 窗口后，由 agent 执行 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1 -RunStopTest` 并核销真实 send→stop→stop_run→kz:stopped。
+
+## D-560 07-events 引用未定义 roundElapsedSeconds 导致 UI lint 失败 [open] (low)
+- 复现: 运行 `node scripts/ui-lint-smoke.mjs`。
+- 影响: UI ESLint 门禁失败，`07-events.js` 的运行时引用未定义；当前不会被 node --check 捕获，但会阻断 UI lint 门禁。
+- 来源: self-found，R-305 B1 定向前端验证。
+- 标签: 前端
+- 进展: 本轮未修复，避免把与 R-305 roster_cap 可视化无关的现有 lint 缺陷混入当前提交。根因定位：`crates/kanzei-app/ui/07-events.js:423` 使用 `roundElapsedSeconds` 但未定义。
+- 验收: `node scripts/ui-lint-smoke.mjs` 通过且不再报告 `07-events.js:423 roundElapsedSeconds` no-undef。
+- 优先级: P2
