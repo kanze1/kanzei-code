@@ -135,6 +135,7 @@ fn read_request(stream: &mut TcpStream) -> Option<(String, Vec<u8>)> {
 fn handle_mobile_connection(
     mut stream: TcpStream,
     project_root: PathBuf,
+    pwa_root: PathBuf,
     devices: Arc<Mutex<HashMap<String, String>>>,
     pair_code: Arc<Mutex<Option<String>>>,
     runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
@@ -189,6 +190,18 @@ fn handle_mobile_connection(
         return;
     }
 
+    // D-390(鉴权闸死锁修复):PWA 静态资源**不鉴权**,在鉴权闸之前 serve——
+    // 手机浏览器打开桥接地址即可加载页面(配对表单),配对拿 token 后才能调
+    // /v1/* API。此前 serve 在鉴权闸之后,页面 GET / 先被 401 拦死,配对
+    // 表单都拿不到,永远无法配对(死锁)。
+    if method == "GET"
+        && !path.starts_with("/v1/")
+        && path != "/health"
+        && serve_pwa(&mut stream, path, &pwa_root)
+    {
+        return;
+    }
+
     // 其它端点:设备 token 认证。
     if !mobile_authorized(&request_head, &devices.lock_or_recover()) {
         let _ = stream.write_all(&mobile_json_response(
@@ -203,16 +216,6 @@ fn handle_mobile_connection(
     if method == "GET" && path.split('?').next() == Some("/v1/events") {
         // D-388:传 active(停服检查)与 devices(撤销检查)——长连接不无视停服/撤销。
         handle_sse(&mut stream, &state_path, path, &active, &devices);
-        return;
-    }
-
-    // R-270 批4:PWA 静态页 serve。手机浏览器打开桥接地址加载 PWA(随桌面端发版
-    // 分发,不另起服务)。serve 目录 = 应用资源 mobile-pwa/(R-271 填充完整界面)。
-    if method == "GET"
-        && !path.starts_with("/v1/")
-        && path != "/health"
-        && serve_pwa(&mut stream, path)
-    {
         return;
     }
 
@@ -449,14 +452,19 @@ fn approval_answer(
     Ok(json!({ "answered": id, "session_id": pending.session_id }))
 }
 
-/// R-270 批4:PWA 静态页 serve。serve 应用资源目录 `mobile-pwa/` 下的文件
-/// (随桌面端发版分发,不另起服务)。
+/// R-270 批4:PWA 静态页 serve。手机浏览器打开桥接地址加载 PWA(随桌面端发版
+/// 分发,不另起服务)。
 ///
-/// 路径安全:只允许请求 `/` 或 `/mobile-pwa/...` 下的相对路径,拒绝 `..` 穿越。
+/// D-390:serve 根由调用方传入——发布版 = tauri resource 解包目录
+/// (tauri.conf.json `bundle.resources` 配置 `mobile-pwa/**`),开发/测试 =
+/// 源码 `crates/kanzei-app/mobile-pwa`。不再依赖编译期常量(安装版
+/// CARGO_MANIFEST_DIR 目录不存在,serve 空目录必然 404)。
+///
+/// 路径安全:请求路径经 strip_prefix('/') 后直接 join 到 pwa_root(mobile-pwa 目录
+/// 本身)——PWA 页面内相对引用(如 `app.js`/`style.css`/`sw.js`)即 `/<文件名>`;
+/// 任何含 `..` 或反斜杠的请求直接 404(不拼文件系统路径)。
 /// 返回 true = 已 serve(200/404);false = 非静态资源路径(落回 JSON 分发)。
-fn serve_pwa(stream: &mut TcpStream, path: &str) -> bool {
-    // 定位 mobile-pwa 目录:应用资源在 crates/kanzei-app/mobile-pwa。
-    let pwa_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("mobile-pwa");
+fn serve_pwa(stream: &mut TcpStream, path: &str, pwa_root: &Path) -> bool {
     if !pwa_root.is_dir() {
         return false;
     }
@@ -628,12 +636,29 @@ fn handle_sse(
     }
 }
 
+/// D-390:解析 PWA 静态资源根。发布版 = tauri resource 解包目录(tauri.conf.json
+/// `bundle.resources` 配置 `mobile-pwa/**`);开发/测试回退源码目录
+/// (cargo run / cargo test 的 CARGO_MANIFEST_DIR 均有效)。
+fn resolve_pwa_root(app: &tauri::AppHandle) -> PathBuf {
+    use tauri::Manager;
+    if let Ok(resolved) = app
+        .path()
+        .resolve("mobile-pwa", tauri::path::BaseDirectory::Resource)
+    {
+        if resolved.is_dir() {
+            return resolved;
+        }
+    }
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("mobile-pwa")
+}
+
 /// 启动移动端桥接服务。
 ///
 /// `lan=true` 监听 0.0.0.0(允许 LAN 设备访问);`lan=false`(默认)保持回环
 /// 127.0.0.1 既有行为。返回地址、配对码与当前设备列表。
 #[tauri::command]
 pub fn mobile_service_start(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     project_dir: String,
     port: Option<u16>,
@@ -654,6 +679,8 @@ pub fn mobile_service_start(
         .local_addr()
         .map_err(|e| e.to_string())?
         .to_string();
+    // D-390:PWA 资源根——发布版 resource 优先,开发回退源码目录。
+    let pwa_root = resolve_pwa_root(&app);
     // D-386:配对码换随机源(不再 pid+纳秒可预测)。
     let pair_code = random_token("kz-pair");
     let active = Arc::new(AtomicBool::new(true));
@@ -675,6 +702,7 @@ pub fn mobile_service_start(
 
     let thread_active = active.clone();
     let thread_root = root.clone();
+    let thread_pwa = pwa_root.clone();
     let thread_devices = devices.clone();
     let thread_pair = pair_slot.clone();
     let thread_runtimes = state.runtimes.clone();
@@ -686,12 +714,14 @@ pub fn mobile_service_start(
                     let conn_devices = thread_devices.clone();
                     let conn_pair = thread_pair.clone();
                     let conn_root = thread_root.clone();
+                    let conn_pwa = thread_pwa.clone();
                     let conn_runtimes = thread_runtimes.clone();
                     let conn_active = thread_active.clone();
                     std::thread::spawn(move || {
                         handle_mobile_connection(
                             stream,
                             conn_root,
+                            conn_pwa,
                             conn_devices,
                             conn_pair,
                             conn_runtimes,
@@ -1102,7 +1132,16 @@ mod tests {
         let mut client = TcpStream::connect(address).unwrap();
         let (server, _) = listener.accept().unwrap();
         let worker = std::thread::spawn(move || {
-            handle_mobile_connection(server, project_root, devices, pair_code, runtimes, active)
+            let pwa_root = project_root.join("mobile-pwa");
+            handle_mobile_connection(
+                server,
+                project_root,
+                pwa_root,
+                devices,
+                pair_code,
+                runtimes,
+                active,
+            )
         });
         client.write_all(request.as_bytes()).unwrap();
         let mut response = String::new();
@@ -1150,7 +1189,12 @@ mod tests {
         let (server, _) = listener.accept().unwrap();
         let worker = std::thread::spawn({
             let root = dir.clone();
-            move || handle_mobile_connection(server, root, devices, pair_code, runtimes, active)
+            move || {
+                let pwa_root = root.join("mobile-pwa");
+                handle_mobile_connection(
+                    server, root, pwa_root, devices, pair_code, runtimes, active,
+                )
+            }
         });
         client
             .write_all(
@@ -1224,6 +1268,166 @@ mod tests {
         assert_eq!(messages.len(), 1, "注入一条消息");
         assert_eq!(messages[0]["role"], "user");
         assert_eq!(messages[0]["parts"][0]["text"], "你好, 桌面!");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ============================ D-389 真链路验收(机器侧) ============================
+
+    /// 测试桥接服务:真实 TcpListener + 真实 accept 线程 + 真实
+    /// handle_mobile_connection(生产代码路径,非替身),随机真实端口。
+    struct TestBridge {
+        addr: std::net::SocketAddr,
+        devices: Arc<Mutex<HashMap<String, String>>>,
+        active: Arc<AtomicBool>,
+    }
+
+    fn start_bridge(project_root: PathBuf) -> TestBridge {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let devices: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+        let pair_code: Arc<Mutex<Option<String>>> =
+            Arc::new(Mutex::new(Some("test-pair-001".into())));
+        let runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let active = Arc::new(AtomicBool::new(true));
+        let pwa_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("mobile-pwa");
+        let (d, p, r, a) = (
+            devices.clone(),
+            pair_code.clone(),
+            runtimes.clone(),
+            active.clone(),
+        );
+        std::thread::spawn(move || {
+            while a.load(Ordering::SeqCst) {
+                if let Ok((stream, _)) = listener.accept() {
+                    let (cd, cp, cr, ca) = (d.clone(), p.clone(), r.clone(), a.clone());
+                    let proot = project_root.clone();
+                    let pwa = pwa_root.clone();
+                    std::thread::spawn(move || {
+                        handle_mobile_connection(stream, proot, pwa, cd, cp, cr, ca)
+                    });
+                }
+            }
+        });
+        TestBridge {
+            addr,
+            devices,
+            active,
+        }
+    }
+
+    /// 真实 HTTP 请求(Connection: close → 读到 EOF),返回 (响应头, body)。
+    fn bridge_request(addr: std::net::SocketAddr, raw: &str) -> (String, String) {
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream.write_all(raw.as_bytes()).unwrap();
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 8192];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                Err(_) => break,
+            }
+        }
+        let text = String::from_utf8_lossy(&buf).to_string();
+        match text.find("\r\n\r\n") {
+            Some(i) => (text[..i].to_string(), text[i + 4..].to_string()),
+            None => (text, String::new()),
+        }
+    }
+
+    fn pair_request(code: &str) -> String {
+        let body = format!("{{\"pair_code\":\"{code}\"}}");
+        format!(
+            "POST /v1/pair HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        )
+    }
+
+    /// D-389 期望的真链路验收(机器侧,可重放):真实桥接端口 + 真实 HTTP——
+    /// ①PWA 页面经桥接端口加载(不鉴权,D-390 死锁修复);②静态 JS 资源;
+    /// ③路径穿越拒绝;④无 token /v1 API 401(鉴权闸);⑤错误配对码 401;
+    /// ⑥正确配对换 token;⑦带 token 数据流 200;⑧撤销即 401。
+    /// 测试命令可重跑,真实端口地址随运行输出(不写死,非替身)。
+    #[test]
+    fn 真实桥接端口端到端() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-mobile-e2e-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei")).unwrap();
+        // 预建 state.db(notifications 200 需要)。
+        let _ = kanzei_core::SessionStore::open(&dir.join(".kanzei").join("state.db")).unwrap();
+
+        let bridge = start_bridge(dir.clone());
+        let addr = bridge.addr;
+        eprintln!("[真链路验收] 桥接服务真实端口: http://{addr}/");
+
+        // ① PWA 首页经桥接端口加载——D-390 死锁修复:静态资源不鉴权。
+        let (head, body) = bridge_request(addr, "GET / HTTP/1.1\r\nHost: x\r\n\r\n");
+        assert!(
+            head.starts_with("HTTP/1.1 200"),
+            "首页必须 200(不经 token): {head}"
+        );
+        assert!(body.contains("<!DOCTYPE html>"), "serve PWA index.html");
+        assert!(body.contains("app.js"), "index.html 引用 app.js");
+
+        // ② 静态 JS 资源(application/javascript;PWA 相对路径经桥接 serve)。
+        let (head2, body2) = bridge_request(addr, "GET /app.js HTTP/1.1\r\nHost: x\r\n\r\n");
+        assert!(head2.starts_with("HTTP/1.1 200"), "app.js 200: {head2}");
+        assert!(head2.contains("application/javascript"), "JS 类型: {head2}");
+        assert!(body2.contains("pair"), "app.js 含配对逻辑");
+
+        // ③ 路径穿越拒绝。
+        let (head3, _) = bridge_request(
+            addr,
+            "GET /mobile-pwa/../app.js HTTP/1.1\r\nHost: x\r\n\r\n",
+        );
+        assert!(head3.starts_with("HTTP/1.1 404"), "穿越必须 404: {head3}");
+
+        // ④ 无 token 的 /v1 API → 401(鉴权闸在 /v1/* 上仍生效)。
+        let (head4, _) = bridge_request(
+            addr,
+            "GET /v1/notifications?thread_id=t HTTP/1.1\r\nHost: x\r\n\r\n",
+        );
+        assert!(head4.starts_with("HTTP/1.1 401"), "无 token 401: {head4}");
+
+        // ⑤ 错误配对码 → 401 invalid_pair_code。
+        let (head5, body5) = bridge_request(addr, &pair_request("wrong"));
+        assert!(head5.starts_with("HTTP/1.1 401"), "错误配对码 401: {head5}");
+        assert!(body5.contains("invalid_pair_code"), "{body5}");
+
+        // ⑥ 正确配对 → device_id + token。
+        let (head6, body6) = bridge_request(addr, &pair_request("test-pair-001"));
+        assert!(
+            head6.starts_with("HTTP/1.1 200"),
+            "配对 200: {head6} {body6}"
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&body6).expect("配对响应是 JSON");
+        let token = parsed["token"].as_str().expect("有 token").to_string();
+        let device_id = parsed["device_id"]
+            .as_str()
+            .expect("有 device_id")
+            .to_string();
+
+        // ⑦ 带 token 数据流正常(通知查询 200)。
+        let auth = format!(
+            "GET /v1/notifications?thread_id=t&device_id={device_id} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\n\r\n"
+        );
+        let (head7, _) = bridge_request(addr, &auth);
+        assert!(head7.starts_with("HTTP/1.1 200"), "带 token 200: {head7}");
+
+        // ⑧ 撤销设备 → 立即 401。
+        bridge.devices.lock_or_recover().remove(&device_id);
+        let (head8, _) = bridge_request(addr, &auth);
+        assert!(head8.starts_with("HTTP/1.1 401"), "撤销后 401: {head8}");
+
+        bridge.active.store(false, Ordering::SeqCst);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

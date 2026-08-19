@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "palettes": [
+    {
+      "name": "okabe_ito",
+      "type": "qual",
+      "colors": [
+        "#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"
+      ],
+      "max_classes": 8,
+      "source_url": "https://jfly.uni-koeln.de/color/",
+      "license": "public-domain(纯色值无版权;使用注明出处 Okabe & Ito 即可)",
+      "note": "Okabe-Ito 八色,色盲安全事实标准(R>=4.0 base grDevices 内置)"
+    },
+    {
+      "name": "petroff10",
+      "type": "qual",
+      "colors": [
+        "#3F90DA", "#FFA90E", "#BD1F01", "#94A4A2", "#832DB6", "#A96B59", "#E76300", "#B9AC70", "#717581", "#92DADD"
+      ],
+      "max_classes": 10,
+      "source_url": "https://github.com/mpetroff/accessible-color-cycles (doi:10.5281/zenodo.5806615, arXiv:2107.02270)",
+      "license": "MIT",
+      "note": "petroff10 十色环,可访问性+美学双目标生成(Machado CVD 约束)"
+    },
+    {
+      "name": "tol_bright",
+      "type": "qual",
+      "colors": [
+        "#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB"
+      ],
+      "max_classes": 7,
+      "source_url": "https://personal.sron.nl/~pault/",
+      "license": "BSD-3(按 prior_art 对 Paul Tol 色板的处置)",
+      "note": "Paul Tol bright 七色,红绿色盲校验(R ColorBrewer 之外的 SRON 推荐)"
+    },
+    {
+      "name": "colorbrewer_set2",
+      "type": "qual",
+      "colors": [
+        "#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3"
+      ],
+      "max_classes": 8,
+      "source_url": "https://colorbrewer2.org/export/colorbrewer.json",
+      "license": "Apache-2.0(需致谢 ColorBrewer: Cynthia Brewer, Mark Harrower)",
+      "note": "ColorBrewer Set2 八色(定性)"
+    },
+    {
+      "name": "colorbrewer_dark2",
+      "type": "qual",
+      "colors": [
+        "#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02", "#A6761D", "#666666"
+      ],
+      "max_classes": 8,
+      "source_url": "https://colorbrewer2.org/export/colorbrewer.json",
+      "license": "Apache-2.0(需致谢 ColorBrewer: Cynthia Brewer, Mark Harrower)",
+      "note": "ColorBrewer Dark2 八色(定性,投影友好)"
+    },
+    {
+      "name": "viridis",
+      "type": "seq",
+      "colors": [
+        "#440154", "#472D7B", "#3B528B", "#2C728E", "#21918C", "#27AD81", "#5CC863", "#AADC32", "#FDE725"
+      ],
+      "max_classes": 9,
+      "source_url": "https://github.com/matplotlib/matplotlib (lib/matplotlib/_cm_listed.py)",
+      "license": "CC0(matplotlib colormap 数据,CC0 声明见 _cm_listed.py 头注释)",
+      "note": "viridis:256 值官方数据按 round(i*(n-1)/8) 位置等距采样 9 档;无序数据勿用(色序隐含数值序)"
+    },
+    {
+      "name": "cividis",
+      "type": "seq",
+      "colors": [
+        "#00224E", "#1A386F", "#434E6C", "#61656F", "#7D7C78", "#9A9376", "#BBAD6D", "#DDC858", "#FEE838"
+      ],
+      "max_classes": 9,
+      "source_url": "https://github.com/matplotlib/matplotlib (lib/matplotlib/_cm_listed.py)",
+      "license": "CC0(matplotlib colormap 数据,CC0 声明见 _cm_listed.py 头注释)",
+      "note": "cividis:专为 CVD(色觉缺陷)优化的序列色,256 值官方数据等距采样 9 档"
+    },
+    {
+      "name": "colorbrewer_blues",
+      "type": "seq",
+      "colors": [
+        "#F7FBFF", "#DEEBF7", "#C6DBEF", "#9ECAE1", "#6BAED6", "#4292C6", "#2171B5", "#08519C", "#08306B"
+      ],
+      "max_classes": 9,
+      "source_url": "https://colorbrewer2.org/export/colorbrewer.json",
+      "license": "Apache-2.0(需致谢 ColorBrewer: Cynthia Brewer, Mark Harrower)",
+      "note": "ColorBrewer Blues 9 类(单色相序列)"
+    },
+    {
+      "name": "colorbrewer_rdbu",
+      "type": "div",
+      "colors": [
+        "#67001F", "#B2182B", "#D6604D", "#F4A582", "#FDDBC7", "#F7F7F7", "#D1E5F0", "#92C5DE", "#4393C3", "#2166AC", "#053061"
+      ],
+      "max_classes": 11,
+      "source_url": "https://colorbrewer2.org/export/colorbrewer.json",
+      "license": "Apache-2.0(需致谢 ColorBrewer: Cynthia Brewer, Mark Harrower)",
+      "note": "ColorBrewer RdBu 11 类(红蓝发散,中点浅色;发散板取奇数档保中点)"
+    },
+    {
+      "name": "twilight",
+      "type": "cyclic",
+      "colors": [
+        "#E2D9E2", "#93B4C6", "#6276BA", "#592A8F", "#301437", "#741E4F", "#B25652", "#CCA287", "#E2D9E2"
+      ],
+      "max_classes": 9,
+      "source_url": "https://github.com/matplotlib/matplotlib (lib/matplotlib/_cm_listed.py)",
+      "license": "CC0(matplotlib colormap 数据,CC0 声明见 _cm_listed.py 头注释)",
+      "note": "twilight:周期色(相位角循环),510 值官方数据按 round(i*(n-1)/8) 位置绕环采样 9 档,首尾同色即闭合"
+    }
+  ]
+}

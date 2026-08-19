@@ -691,7 +691,8 @@ impl MemoryStore {
         if let Some(project_root) = &self.project_root {
             if let Ok(relative) = path.strip_prefix(project_root) {
                 let rendered = render_entry(entry);
-                let _ = kanzei_base::write_log::record(
+                // D-399:record 失败至少告警(契约「宁可失败不静默」)。
+                if let Err(e) = kanzei_base::write_log::record(
                     project_root,
                     &kanzei_base::write_log::WriteLogEntry {
                         at_ms: std::time::SystemTime::now()
@@ -704,7 +705,9 @@ impl MemoryStore {
                         run_id: None,
                         process_id: None,
                     },
-                );
+                ) {
+                    eprintln!("[write-log] record failed for {}: {e}", relative.display());
+                }
             }
         }
         Ok(())
@@ -791,7 +794,8 @@ impl MemoryStore {
         // R-268:INDEX.md 是围栏可见的托管文件,写后记日志(同 write_entry 口径)。
         if let Some(project_root) = &self.project_root {
             if let Ok(relative) = self.index_md().strip_prefix(project_root) {
-                let _ = kanzei_base::write_log::record(
+                // D-399:record 失败至少告警。
+                if let Err(e) = kanzei_base::write_log::record(
                     project_root,
                     &kanzei_base::write_log::WriteLogEntry {
                         at_ms: std::time::SystemTime::now()
@@ -804,7 +808,9 @@ impl MemoryStore {
                         run_id: None,
                         process_id: None,
                     },
-                );
+                ) {
+                    eprintln!("[write-log] record failed for {}: {e}", relative.display());
+                }
             }
         }
 
@@ -830,7 +836,8 @@ impl MemoryStore {
         if let Some(project_root) = &self.project_root {
             if let Ok(relative) = self.db_path().strip_prefix(project_root) {
                 if let Ok(db_bytes) = std::fs::read(self.db_path()) {
-                    let _ = kanzei_base::write_log::record(
+                    // D-399:record 失败至少告警。
+                    if let Err(e) = kanzei_base::write_log::record(
                         project_root,
                         &kanzei_base::write_log::WriteLogEntry {
                             at_ms: std::time::SystemTime::now()
@@ -843,7 +850,9 @@ impl MemoryStore {
                             run_id: None,
                             process_id: None,
                         },
-                    );
+                    ) {
+                        eprintln!("[write-log] record failed for {}: {e}", relative.display());
+                    }
                 }
             }
         }

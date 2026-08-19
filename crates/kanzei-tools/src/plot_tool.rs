@@ -28,7 +28,10 @@ impl Tool for PlotTool {
          injected into the spec top level; vega engine only). Uses vl-convert (official Rust CLI, \
          zero-install); if not installed it reports download guidance instead of crashing. The SVG \
          is also saved to workdir for your use. JSON spec errors are reported with enough context \
-         to fix in one pass."
+         to fix in one pass. Color: pass palette (hex array) directly, or ask the built-in \
+         scientific palette subsystem (R-275) with palette_name (e.g. \
+         \"viridis\"/\"okabe_ito\") or palette_type (seq|div|qual|cyclic) + palette_n; palette \
+         array wins when both given."
             .into()
     }
 
@@ -52,7 +55,39 @@ impl Tool for PlotTool {
                 "palette": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "R-274 验收④:色板(hex 颜色数组,如 [\"#4C72B0\",\"#DD8452\"])——Vega-Lite 注入 spec scale.range,matplotlib 注入 rcParams prop_cycle"
+                    "description": "R-274 验收④:色板(hex 颜色数组,如 [\"#4C72B0\",\"#DD8452\"])——Vega-Lite 注入 spec scale.range,matplotlib 注入 rcParams prop_cycle;与 palette_name/palette_type 二选一,本数组优先"
+                },
+                "palette_name": {
+                    "type": "string",
+                    "description": "R-275 批1:内置科学配色板名(如 viridis/cividis/twilight/okabe_ito/petroff10/tol_bright/colorbrewer_set2/colorbrewer_dark2/colorbrewer_blues/colorbrewer_rdbu),零运行时联网"
+                },
+                "palette_type": {
+                    "type": "string",
+                    "enum": ["seq", "div", "qual", "cyclic"],
+                    "description": "R-275 批1:按类型查询内置板——seq 有序连续/div 有中点发散/qual 无序分类/cyclic 周期"
+                },
+                "palette_n": {
+                    "type": "integer",
+                    "description": "R-275 批1:色数(与 palette_type 搭配;默认该类型内置最大档数;qual 超长请求被拒并给分面建议)"
+                },
+                "palette_feature": {
+                    "type": "string",
+                    "enum": ["nominal", "sequential", "diverging", "cyclic"],
+                    "description": "R-275 批2:数据特征→推荐色板(nominal 无序分类→qual/sequential 有序连续→seq/diverging 有中点→div/cyclic 周期→cyclic);与 palette_name 同给时按特征做硬禁忌检查(jet/rainbow 用于连续量被机械拒绝)"
+                },
+                "palette_import_format": {
+                    "type": "string",
+                    "enum": ["hex", "gpl", "ase"],
+                    "description": "R-275 批3:用户色板导入格式——hex(粘贴 hex 列表)/gpl(GIMP Palette 文本)/ase(Adobe .ase 二进制 base64);导入即评分并注册为用户板(同类型优先)"
+                },
+                "palette_import_content": {
+                    "type": "string",
+                    "description": "R-275 批3:导入内容(hex/gpl 为文本;ase 为 base64 编码的 .ase 二进制)"
+                },
+                "palette_import_type": {
+                    "type": "string",
+                    "enum": ["qual", "seq", "div", "cyclic"],
+                    "description": "R-275 批3:导入板的类型(默认 qual;影响校验链的亮度单调检查与同类型优先)"
                 }
             },
             "required": ["workdir"],
@@ -87,13 +122,22 @@ impl Tool for PlotTool {
                     .collect()
             })
             .unwrap_or_default();
+        // R-275 批1:内置科学配色查询——未显式传 palette 数组时,按 palette_name 或
+        // palette_type+palette_n 从内置库解析(零运行时联网,数据转录自官方上游)。
+        let palette = match resolve_palette(&input, palette) {
+            Ok(p) => p,
+            Err(e) => {
+                return ToolOutput::error(format!("调色板解析失败: {e}"));
+            }
+        };
         if workdir.is_empty() {
             return ToolOutput::error("plot 需要 workdir 参数".to_string());
         }
-        let workdir_path = ctx.cwd.join(&workdir);
-        if !workdir_path.is_dir() {
-            return ToolOutput::error(format!("工作目录不存在: {}", workdir_path.display()));
-        }
+        // D-393:workdir 路径边界——相对路径、防 `..`、canonicalize 后限研究工件目录。
+        let workdir_path = match crate::resolve_research_workdir(&ctx.cwd, &workdir) {
+            Ok(p) => p,
+            Err(e) => return ToolOutput::error(format!("workdir 校验失败: {e}")),
+        };
         // R-274 批2:PGFPlots 轨——TikZ/PGFPlots 代码走 R-273 latex 通道(零新增依赖,
         // 图字体与论文正文一致,验收②)。
         if engine == "pgfplots" {
@@ -135,6 +179,105 @@ impl Tool for PlotTool {
         let height = input["height"].as_f64();
         render_vega(&workdir_path, &spec, &out, &palette, width, height)
     }
+}
+
+/// R-275 批1/批2:解析最终色板——显式 palette 数组优先;否则按 palette_name
+/// (点名板,批2 加特征硬禁忌检查)或 palette_type+palette_n / palette_feature+palette_n
+/// (推荐规则)查询内置科学配色库(零运行时联网)。均未指定 → 空(不注入)。
+fn resolve_palette(
+    input: &serde_json::Value,
+    explicit: Vec<String>,
+) -> Result<Vec<String>, String> {
+    if !explicit.is_empty() {
+        return Ok(explicit);
+    }
+    use crate::palette::{DataFeature, PaletteType};
+    let name = input["palette_name"].as_str().unwrap_or_default();
+    let kind = input["palette_type"].as_str().unwrap_or_default();
+    let feature = input["palette_feature"].as_str().unwrap_or_default();
+    let import_format = input["palette_import_format"].as_str().unwrap_or_default();
+    let import_content = input["palette_import_content"].as_str().unwrap_or_default();
+    let n = input["palette_n"].as_u64().map(|v| v as usize);
+    // R-275 批3:用户色板导入(hex/gpl/ase)→ 注册用户板并注入本次绘图。
+    if !import_format.is_empty() {
+        if import_content.is_empty() {
+            return Err("palette_import_content 不能为空".to_string());
+        }
+        let import_kind = match input["palette_import_type"].as_str().unwrap_or("qual") {
+            "qual" => PaletteType::Qual,
+            "seq" => PaletteType::Seq,
+            "div" => PaletteType::Div,
+            "cyclic" => PaletteType::Cyclic,
+            other => {
+                return Err(format!(
+                    "palette_import_type 非法: {other:?}(取值 qual|seq|div|cyclic)"
+                ))
+            }
+        };
+        let (iname, icolors) = match import_format {
+            "hex" => (
+                "user_hex".to_string(),
+                crate::palette::parse_hex_list(import_content)?,
+            ),
+            "gpl" => crate::palette::parse_gpl(import_content)?,
+            "ase" => {
+                use base64::Engine as _;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(import_content)
+                    .map_err(|e| format!("ase 内容不是合法 base64: {e}"))?;
+                crate::palette::parse_ase(&bytes)?
+            }
+            other => {
+                return Err(format!(
+                    "palette_import_format 非法: {other:?}(取值 hex|gpl|ase)"
+                ))
+            }
+        };
+        let p = crate::palette::import_palette(import_kind, iname, icolors)?;
+        return Ok(p.colors);
+    }
+    if !name.is_empty() {
+        // 点名板 + 数据特征:连续量下的硬禁忌板(jet/rainbow)机械拒绝(批2)。
+        if !feature.is_empty() {
+            let f = DataFeature::parse(feature)?;
+            crate::palette::check_hard_forbidden(name, f.to_kind())?;
+        }
+        return crate::palette::by_name(name)
+            .map(|p| p.colors)
+            .ok_or_else(|| {
+                let builtin = crate::palette::load_builtin();
+                let available: Vec<&str> = builtin.iter().map(|p| p.name.as_str()).collect();
+                format!("未知内置色板名 {name:?}。可用名: {}", available.join(", "))
+            });
+    }
+    if !kind.is_empty() {
+        let k = match kind {
+            "seq" => PaletteType::Seq,
+            "div" => PaletteType::Div,
+            "qual" => PaletteType::Qual,
+            "cyclic" => PaletteType::Cyclic,
+            other => {
+                return Err(format!(
+                    "palette_type 非法: {other:?}(取值 seq|div|qual|cyclic)"
+                ))
+            }
+        };
+        let n = match n {
+            Some(n) => n,
+            None => crate::palette::max_classes(k)?,
+        };
+        return crate::palette::query(k, n).map(|p| p.colors);
+    }
+    if !feature.is_empty() {
+        let f = DataFeature::parse(feature)?;
+        let k = f.to_kind();
+        let n = match n {
+            Some(n) => n,
+            None => crate::palette::max_classes(k)?,
+        };
+        return crate::palette::recommend(f, n).map(|p| p.colors);
+    }
+    Ok(Vec::new())
 }
 
 /// R-274 批2:PGFPlots 轨——把 TikZ/PGFPlots 代码片段包成最小 .tex(standalone 文档,
@@ -513,6 +656,7 @@ fn base64_engine_encode(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use base64::Engine as _;
+    use serial_test::serial;
     use std::path::PathBuf;
 
     fn temp_dir(tag: &str) -> PathBuf {
@@ -778,6 +922,157 @@ mod tests {
             out.content
         );
         assert_eq!(out.images.len(), 1, "应有 1 张图回模型");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-275 批1:内置板名解析——palette_name 返回该板全色(验收⑥联通前置:
+    /// 内置板经 plot 工具注入渲染,图中颜色与板逐色一致)。
+    #[test]
+    fn palette_name解析内置板() {
+        let input = serde_json::json!({ "palette_name": "viridis" });
+        let colors = resolve_palette(&input, vec![]).expect("viridis 应存在");
+        assert_eq!(colors.len(), 9);
+        assert_eq!(colors[0], "#440154");
+        assert_eq!(colors[8], "#FDE725");
+        // 显式 palette 数组优先于内置板名。
+        let input2 = serde_json::json!({ "palette_name": "viridis" });
+        let colors2 = resolve_palette(&input2, vec!["#4C72B0".to_string()]).unwrap();
+        assert_eq!(colors2, vec!["#4C72B0".to_string()]);
+    }
+
+    /// R-275 批1:palette_type+palette_n 查询(验收②四类各返回正确类型色板)。
+    #[serial]
+    #[test]
+    fn palette_type查询内置板() {
+        let q = serde_json::json!({ "palette_type": "qual", "palette_n": 8 });
+        let c = resolve_palette(&q, vec![]).unwrap();
+        assert_eq!(c.len(), 8);
+        let d = serde_json::json!({ "palette_type": "div", "palette_n": 11 });
+        let cd = resolve_palette(&d, vec![]).unwrap();
+        assert_eq!(cd.len(), 11);
+        assert_eq!(cd[0], "#67001F", "RdBu 深红端");
+        let cy = serde_json::json!({ "palette_type": "cyclic" });
+        let cc = resolve_palette(&cy, vec![]).unwrap();
+        assert_eq!(cc.len(), 9, "cyclic 默认取该类型最大档");
+    }
+
+    /// R-275 批1:非法参数诊断明确(未知板名点名可用名 / 非法类型点名取值 /
+    /// qual 超长给分面建议)。
+    #[serial]
+    #[test]
+    fn palette参数诊断() {
+        let bad = serde_json::json!({ "palette_name": "no_such" });
+        let err = resolve_palette(&bad, vec![]).unwrap_err();
+        assert!(err.contains("可用名"), "点名可用名: {err}");
+        let badt = serde_json::json!({ "palette_type": "rainbow" });
+        let err2 = resolve_palette(&badt, vec![]).unwrap_err();
+        assert!(err2.contains("seq|div|qual|cyclic"), "点名取值: {err2}");
+        let toolong = serde_json::json!({ "palette_type": "qual", "palette_n": 11 });
+        let err3 = resolve_palette(&toolong, vec![]).unwrap_err();
+        assert!(err3.contains("改分面"), "qual 超长给分面建议: {err3}");
+    }
+
+    /// R-275 批2:palette_feature 推荐(四类特征→正确类型色板);jet 用于连续量被拒。
+    #[serial]
+    #[test]
+    fn palette_feature推荐与禁忌() {
+        let q = serde_json::json!({ "palette_feature": "nominal", "palette_n": 8 });
+        let c = resolve_palette(&q, vec![]).unwrap();
+        assert_eq!(c.len(), 8);
+        let s = serde_json::json!({ "palette_feature": "sequential", "palette_n": 5 });
+        let cs = resolve_palette(&s, vec![]).unwrap();
+        assert_eq!(cs.len(), 5);
+        assert_eq!(cs[0], "#440154", "seq 默认 viridis 首色");
+        let d = serde_json::json!({ "palette_feature": "diverging", "palette_n": 11 });
+        let cd = resolve_palette(&d, vec![]).unwrap();
+        assert_eq!(cd.len(), 11);
+        assert_eq!(cd[5], "#F7F7F7", "div 中点浅色(RdBu)");
+        // jet 用于连续量被拒(硬禁忌,验收②)。
+        let jet = serde_json::json!({ "palette_feature": "sequential", "palette_name": "jet" });
+        let err = resolve_palette(&jet, vec![]).unwrap_err();
+        assert!(err.contains("硬禁忌"), "点名硬禁忌: {err}");
+        // 非法 feature 诊断。
+        let badf = serde_json::json!({ "palette_feature": "rainbow" });
+        let err2 = resolve_palette(&badf, vec![]).unwrap_err();
+        assert!(
+            err2.contains("nominal|sequential|diverging|cyclic"),
+            "点名取值: {err2}"
+        );
+    }
+
+    /// R-275 批3:palette_import 导入三格式(hex/gpl/ase)→ 注入颜色;非法诊断。
+    #[serial]
+    #[test]
+    fn palette_import对接() {
+        let hex = serde_json::json!({
+            "palette_import_format": "hex",
+            "palette_import_content": "#FF0000\n#00FF00\n#0000FF",
+            "palette_import_type": "qual"
+        });
+        let c = resolve_palette(&hex, vec![]).unwrap();
+        assert_eq!(c, vec!["#FF0000", "#00FF00", "#0000FF"]);
+        let gpl = serde_json::json!({
+            "palette_import_format": "gpl",
+            "palette_import_content": "GIMP Palette\nName: G\n255 0 0\n0 255 0",
+        });
+        let cg = resolve_palette(&gpl, vec![]).unwrap();
+        assert_eq!(cg, vec!["#FF0000", "#00FF00"]);
+        let fixture = include_bytes!("../assets/palettes/fixtures/sample.ase");
+        let b64 = base64::engine::general_purpose::STANDARD.encode(fixture);
+        let ase = serde_json::json!({
+            "palette_import_format": "ase",
+            "palette_import_content": b64,
+        });
+        let ca = resolve_palette(&ase, vec![]).unwrap();
+        assert_eq!(ca, vec!["#E6194B", "#3CB44B"]);
+        // 非法输入诊断明确。
+        let bad = serde_json::json!({
+            "palette_import_format": "hex",
+            "palette_import_content": "zzz"
+        });
+        let err = resolve_palette(&bad, vec![]).unwrap_err();
+        assert!(err.contains("zzz"), "点名非法项: {err}");
+        let badf = serde_json::json!({
+            "palette_import_format": "xyz",
+            "palette_import_content": "a"
+        });
+        let err2 = resolve_palette(&badf, vec![]).unwrap_err();
+        assert!(err2.contains("hex|gpl|ase"), "点名取值: {err2}");
+        // 导入的板经 import_palette 已注册为用户板(同类型优先由 palette 测试验证)。
+        crate::palette::reset_user_palettes();
+    }
+
+    /// R-275 验收⑥:R-274 注入联通实测——用户板(hex 导入)→ resolve → matplotlib
+    /// 注入渲染,图中系列颜色与用户板逐色一致(本机有 uv 时实测;无则跳过)。
+    #[serial]
+    #[test]
+    fn palette_import联通注入渲染() {
+        if which_in_path("uv").is_none() {
+            eprintln!("跳过:本机无 uv");
+            return;
+        }
+        let dir = temp_dir("import-connect");
+        let hex = serde_json::json!({
+            "palette_import_format": "hex",
+            "palette_import_content": "#E6194B\n#3CB44B",
+            "palette_import_type": "qual"
+        });
+        let colors = resolve_palette(&hex, vec![]).unwrap();
+        assert_eq!(colors, vec!["#E6194B", "#3CB44B"]);
+        // 渲染脚本打印 prop_cycle 前两色(供逐色断言)。
+        let script = "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\n\
+                      fig, ax = plt.subplots()\nax.bar([0,1],[10,20])\nax.bar([0,1],[15,25])\n\
+                      fig.savefig(\"c.png\", dpi=100)\n\
+                      import matplotlib as mpl\n\
+                      print(\"CYCLE:\", list(mpl.rcParams[\"axes.prop_cycle\"].by_key()[\"color\"])[:2])\n";
+        let out = render_matplotlib(&dir, script, "c", &colors);
+        assert!(!out.is_error, "用户板注入后应出图: {}", out.content);
+        assert!(
+            out.content.contains("#E6194B") && out.content.contains("#3CB44B"),
+            "图中系列颜色与用户板一致: {}",
+            out.content
+        );
+        crate::palette::reset_user_palettes();
         std::fs::remove_dir_all(&dir).ok();
     }
 }

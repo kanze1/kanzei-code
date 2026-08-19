@@ -68,10 +68,11 @@ impl Tool for LatexTool {
         if tex.is_empty() || workdir.is_empty() {
             return ToolOutput::error("latex 需要 tex 与 workdir 参数".to_string());
         }
-        let workdir_path = ctx.cwd.join(&workdir);
-        if !workdir_path.is_dir() {
-            return ToolOutput::error(format!("工作目录不存在: {}", workdir_path.display()));
-        }
+        // D-393:workdir 路径边界——相对路径、防 `..`、canonicalize 后限研究工件目录。
+        let workdir_path = match crate::resolve_research_workdir(&ctx.cwd, &workdir) {
+            Ok(p) => p,
+            Err(e) => return ToolOutput::error(format!("workdir 校验失败: {e}")),
+        };
         let (ok, diag) = compile_latex(&workdir_path, &tex);
         if !ok {
             return ToolOutput::error(diag);
@@ -80,7 +81,9 @@ impl Tool for LatexTool {
             return ToolOutput::ok(diag);
         }
         // 编译成功:PDF 首页转 PNG 回模型(验收②轨迹)。
-        let stem = tex.split('.').next().unwrap_or("main");
+        // D-391:stem 与编译侧口径一致(file_stem)——含点文件名(如 my.paper.tex)
+        // 编译产物是 my.paper.pdf;split('.') 取 my 会找错 PDF 静默丢 PNG。
+        let stem = stem_of(&tex);
         let pdf = workdir_path.join(format!("{stem}.pdf"));
         let png = pdf_to_png(&pdf, &workdir_path, stem);
         match png {
@@ -148,23 +151,33 @@ pub(crate) fn compile_latex(workdir: &Path, tex_name: &str) -> (bool, String) {
     if !tex_path.is_file() {
         return (false, format!("找不到 .tex 文件: {}", tex_path.display()));
     }
-    let stem = tex_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("main");
+    // D-391:stem 口径统一走 stem_of(file_stem),与 execute 的 PNG 转换一致。
+    let stem = stem_of(tex_name);
     match detect_backend() {
         TeXBackend::System { .. } => compile_system(workdir, stem, &tex_path),
         TeXBackend::Tectonic { tectonic } => compile_tectonic(workdir, stem, &tex_path, &tectonic),
-        TeXBackend::Missing => (
-            false,
-            "未检测到 LaTeX 编译后端。\n\
-             方案一(推荐):安装 MiKTeX 或 TeX Live(全量宏包 + biber),并确保 kpsewhich 在 PATH。\n\
-             方案二:Tectonic 侧车——从 https://github.com/tectonic-typesetting/tectonic/releases \
-             下载官方 Windows 预编译 exe,放到 PATH 或本工具侧车目录,首次运行会自动预热 bundle。\n\
-             侧车缺失不崩溃:本工具如实报告,等待安装后重试。"
-                .into(),
-        ),
+        TeXBackend::Missing => (false, missing_guidance()),
     }
+}
+
+/// D-394:后端缺失指引文案单源——生产 Missing 分支与测试共用,防测试内硬编码
+/// 副本漂移(此前测试断言的是副本,生产分支零执行)。
+pub(crate) fn missing_guidance() -> String {
+    "未检测到 LaTeX 编译后端。\n\
+     方案一(推荐):安装 MiKTeX 或 TeX Live(全量宏包 + biber),并确保 kpsewhich 在 PATH。\n\
+     方案二:Tectonic 侧车——从 https://github.com/tectonic-typesetting/tectonic/releases \
+     下载官方 Windows 预编译 exe,放到 PATH 或本工具侧车目录,首次运行会自动预热 bundle。\n\
+     侧车缺失不崩溃:本工具如实报告,等待安装后重试。"
+        .into()
+}
+
+/// D-391:统一「文件名 → stem」口径(与 `Path::file_stem` 一致)。execute 与
+/// compile_latex 共用,避免 `split('.')` 与 `file_stem` 分裂(含点文件名丢 PNG)。
+fn stem_of(tex_name: &str) -> &str {
+    Path::new(tex_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("main")
 }
 
 /// 系统发行版编译:pdflatex ×2 → bibtex → pdflatex ×2(完整解析循环)。
@@ -298,6 +311,10 @@ fn compile_tectonic(
 /// R-273 批2:PDF 首页转 PNG(pdftoppm,poppler——MiKTeX/TeX Live 自带)。
 /// 返回 PNG 字节。pdftoppm 缺失给明确诊断(不静默降级)。
 /// pub(crate):R-274 批2 PGFPlots 轨复用(图转 PNG 回模型)。
+///
+/// D-391:显式 `-f 1 -l 1` 只渲染首页——①产物页号恒为 `-1`(pdftoppm 多页时
+/// 按总页数零填充,≥10 页产 `-01.png`,只找 `-1.png` 必失败);②长文档不再
+/// 全页 150dpi 渲染纯浪费。失败路径也清理临时 PNG(不再提前 return 跳过清理)。
 pub(crate) fn pdf_to_png(pdf: &Path, workdir: &Path, stem: &str) -> Result<Vec<u8>, String> {
     if !pdf.is_file() {
         return Err(format!("PDF 不存在: {}", pdf.display()));
@@ -309,35 +326,56 @@ pub(crate) fn pdf_to_png(pdf: &Path, workdir: &Path, stem: &str) -> Result<Vec<u
     })?;
     // 输出到 workdir 下的临时前缀,避免污染工件目录。
     let out_prefix = workdir.join(format!("{stem}-pngtmp"));
+    // D-391:只渲染首页(-f 1 -l 1)——页号确定 + 长文档不浪费。
     let output = std::process::Command::new(&pdftoppm)
-        .args(["-png", "-r", "150"])
+        .args(["-png", "-r", "150", "-f", "1", "-l", "1"])
         .arg(pdf)
         .arg(&out_prefix)
         .current_dir(workdir)
         .output()
         .map_err(|e| format!("启动 pdftoppm 失败: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
+    let result = if !output.status.success() {
+        Err(format!(
             "pdftoppm 转换失败: {}",
             String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    // pdftoppm 产出 `<prefix>-1.png`(多页则 -2/-3…,取首页)。
-    let first = workdir.join(format!(
-        "{}-1.png",
-        out_prefix.file_name().unwrap_or_default().to_string_lossy()
-    ));
-    let bytes = std::fs::read(&first).map_err(|e| format!("读取转换产物失败: {e}"))?;
-    // 清理临时 PNG。
+        ))
+    } else {
+        // D-391:只渲染首页 → 产物唯一;但页号零填充位数取决于总页数
+        // (poppler 对 10 页 PDF 产 -01.png,1 页产 -1.png),不猜页号——
+        // 直接扫描 <prefix>-*.png 取唯一产物(零填充任意位数都成立)。
+        let pngs: Vec<std::path::PathBuf> = std::fs::read_dir(workdir)
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| {
+                        let n = e.file_name().to_string_lossy().to_string();
+                        n.starts_with(&format!("{stem}-pngtmp")) && n.ends_with(".png")
+                    })
+                    .map(|e| e.path())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let first = pngs
+            .into_iter()
+            .next()
+            .ok_or_else(|| "pdftoppm 未产出 PNG(只渲染首页,应有 1 个)".to_string())?;
+        std::fs::read(&first).map_err(|e| format!("读取转换产物失败: {e}"))
+    };
+    // D-391:失败路径也清理临时 PNG(成功/失败统一走这里,不提前 return 跳过)。
+    cleanup_pngtmp(workdir, stem);
+    result
+}
+
+/// D-391:清理 `<stem>-pngtmp*.png` 临时产物(成功/失败路径共用)。
+fn cleanup_pngtmp(workdir: &Path, stem: &str) {
     if let Ok(entries) = std::fs::read_dir(workdir) {
+        let prefix = format!("{stem}-pngtmp");
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with(&format!("{stem}-pngtmp")) && name.ends_with(".png") {
+            if name.starts_with(&prefix) && name.ends_with(".png") {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
     }
-    Ok(bytes)
 }
 
 /// base64 编码(标准 RFC 4648,无 padding 变体由调用方约定)。
@@ -408,6 +446,7 @@ fn summarize(text: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::path::PathBuf;
 
     fn temp_dir(tag: &str) -> PathBuf {
@@ -450,8 +489,14 @@ mod tests {
     }
 
     /// 错误诊断含行号(验收⑤):语法错误应点名 `!` 错误与 `l.<line>`。
+    /// D-394:加 skip guard——本机无 LaTeX 后端时 compile_latex 走 Missing 分支
+    /// (指引文案无行号),测试不得假失败。
     #[test]
     fn 错误诊断含行号() {
+        if which_in_path("pdflatex").is_none() && which_in_path("tectonic").is_none() {
+            eprintln!("跳过:本机无 LaTeX 后端,无法验证行号诊断");
+            return;
+        }
         let dir = temp_dir("errors");
         std::fs::write(
             dir.join("bad.tex"),
@@ -473,32 +518,40 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// 后端缺失:给下载指引不崩溃(验收⑥)。
+    /// 后端缺失:给下载指引不崩溃(验收⑥)。D-394:走真生产分支——临时把 PATH
+    /// 指向空目录让 detect_backend 真返回 Missing,compile_latex 产出必须等于
+    /// 单源 missing_guidance()(不再断言测试内硬编码副本)。
+    #[serial]
     #[test]
     fn 后端缺失给下载指引() {
-        let backend = TeXBackend::Missing;
-        assert_eq!(backend, TeXBackend::Missing);
         let dir = temp_dir("missing");
         std::fs::write(
             dir.join("x.tex"),
             "\\documentclass{article}\n\\begin{document}x\\end{document}\n",
         )
         .unwrap();
-        // 直接构造 Missing 路径验证指引文案(不依赖本机环境)。
-        let (ok, diag) = (false, compile_latex_missing(&dir));
-        assert!(!ok);
-        assert!(diag.contains("MiKTeX"), "指引要点名 MiKTeX: {diag}");
-        assert!(diag.contains("tectonic"), "指引要点名 Tectonic: {diag}");
+        let (ok, diag) = with_empty_path(|| compile_latex(&dir, "x.tex"));
+        assert!(!ok, "无后端必须失败");
+        assert!(
+            diag.contains("MiKTeX") && diag.contains("tectonic"),
+            "指引要点名 MiKTeX 与 Tectonic: {diag}"
+        );
+        assert_eq!(diag, missing_guidance(), "真 Missing 分支产出=单源文案");
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// 强制走 Missing 分支的编译(隔离环境依赖)。
-    fn compile_latex_missing(workdir: &Path) -> String {
-        let tex_path = workdir.join("x.tex");
-        let stem = "x";
-        let _ = stem;
-        let _ = tex_path;
-        "未检测到 LaTeX 编译后端。\n方案一(推荐):安装 MiKTeX 或 TeX Live(全量宏包 + biber),并确保 kpsewhich 在 PATH。\n方案二:Tectonic 侧车——从 https://github.com/tectonic-typesetting/tectonic/releases 下载官方 Windows 预编译 exe,放到 PATH 或本工具侧车目录,首次运行会自动预热 bundle。\n侧车缺失不崩溃:本工具如实报告,等待安装后重试。".into()
+    /// D-394:临时清空 PATH(指向空目录)——detect_backend/pdf_to_png 的 which_in_path
+    /// 查不到任何后端,走真生产 Missing/缺失分支。进程级副作用,须 #[serial] 隔离
+    /// 且立即恢复(窗口 ms 级)。
+    fn with_empty_path<T>(f: impl FnOnce() -> T) -> T {
+        let saved = std::env::var("PATH").unwrap_or_default();
+        let empty = std::env::temp_dir().join(format!("kz-empty-path-{}", std::process::id()));
+        std::fs::create_dir_all(&empty).unwrap();
+        std::env::set_var("PATH", &empty);
+        let result = f();
+        std::env::set_var("PATH", &saved);
+        std::fs::remove_dir_all(&empty).ok();
+        result
     }
 
     /// R-273 批2:PDF 首页转 PNG(验收②轨迹——编译产物页面转 PNG 被模型消费)。
@@ -537,14 +590,87 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// R-273 批2:pdftoppm 缺失时给明确诊断(不静默)。
+    /// D-391:多页 PDF(论文常态 10+ 页)——首页转 PNG 成功(页号零填充修复:
+    /// 只渲染首页 -f 1 -l 1,产物恒为 -1.png,不受 ≥10 页零填充影响),
+    /// 且临时 PNG 无残留。
+    #[test]
+    fn 多页pdf首页转png成功无残留() {
+        if !which_in_path("pdflatex").is_some() || !which_in_path("pdftoppm").is_some() {
+            eprintln!("跳过:本机无 pdflatex/pdftoppm");
+            return;
+        }
+        let dir = temp_dir("multipage");
+        // 10 页文档(论文常态规模;纯英文,避免 pdflatex 默认字体不支持中文)。
+        let mut tex = "\\documentclass{article}\n\\begin{document}\n".to_string();
+        for i in 1..=10 {
+            tex.push_str(&format!("Page number {i}\\newpage\n"));
+        }
+        tex.push_str("\\end{document}\n");
+        std::fs::write(dir.join("paper.tex"), tex).unwrap();
+        let (ok, diag) = compile_latex(&dir, "paper.tex");
+        assert!(ok, "10 页编译应成功:\n{diag}");
+        let png =
+            pdf_to_png(&dir.join("paper.pdf"), &dir, "paper").expect("多页 PDF 首页必须转换成功");
+        assert_eq!(
+            &png[..8],
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A],
+            "PNG 魔数"
+        );
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| e.file_name().to_string_lossy().contains("pngtmp"))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert!(
+            leftovers.is_empty(),
+            "10 页转换后临时 PNG 必须清理,残留: {:?}",
+            leftovers
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-391:失败路径也清理临时 PNG(此前失败提前 return 跳过清理循环)。
+    /// 用损坏 PDF 触发 pdftoppm 失败,预置假临时文件断言被清。
+    #[test]
+    fn 转换失败也清理临时png() {
+        let dir = temp_dir("failclean");
+        // 损坏 PDF(非合法内容,pdftoppm 必失败)。
+        std::fs::write(dir.join("bad.pdf"), b"not a real pdf at all").unwrap();
+        // 预置假临时文件(模拟上次失败遗留)。
+        std::fs::write(dir.join("doc-pngtmp-1.png"), b"junk").unwrap();
+        let err = pdf_to_png(&dir.join("bad.pdf"), &dir, "doc").unwrap_err();
+        assert!(!err.is_empty(), "必须报错");
+        assert!(
+            !dir.join("doc-pngtmp-1.png").exists(),
+            "失败路径也必须清理临时 PNG"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-391:stem 口径统一(file_stem)——含点文件名不再被 split('.') 截断。
+    #[test]
+    fn stem口径含点文件名不截断() {
+        assert_eq!(stem_of("my.paper.tex"), "my.paper", "含点文件名取完整 stem");
+        assert_eq!(stem_of("main.tex"), "main");
+        assert_eq!(stem_of("doc"), "doc", "无扩展名原样");
+    }
+
+    /// R-273 批2:pdftoppm 缺失时给明确诊断(不静默)。D-394:走真生产分支——
+    /// 临时清空 PATH + 真实存在的 PDF(否则落在「PDF 不存在」分支,名不副实)。
+    #[serial]
     #[test]
     fn pdftoppm缺失给诊断() {
-        // 构造一个不存在 pdftoppm 的环境:临时清空 PATH 中相关项不可行,
-        // 用不存在的 PDF 路径触发「PDF 不存在」分支(等价路径校验)。
         let dir = temp_dir("nopng");
-        let err = pdf_to_png(&dir.join("missing.pdf"), &dir, "missing").unwrap_err();
-        assert!(err.contains("PDF 不存在"), "{err}");
+        // 真实存在的 PDF(内容无关,is_file 检查通过后才会走到 pdftoppm 检测)。
+        std::fs::write(dir.join("real.pdf"), b"placeholder").unwrap();
+        let err = with_empty_path(|| pdf_to_png(&dir.join("real.pdf"), &dir, "real")).unwrap_err();
+        assert!(err.contains("pdftoppm"), "真缺失分支应点名 pdftoppm: {err}");
+        assert!(
+            !err.contains("PDF 不存在"),
+            "不得落在 PDF 不存在分支: {err}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -603,6 +729,27 @@ mod tests {
             diag.contains("bib 路线"),
             "诊断应声明 bib 路线(验收④): {diag}"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-273 验收③:D-394——tectonic 真 exe 至少一次真编译实测(真文档→真 PDF,
+    /// 不再用假 .cmd 脚本替代)。本机无 tectonic 时跳过(测试就位,具备 tectonic
+    /// 的环境自动真跑,留记录)。
+    #[test]
+    fn tectonic真exe真编译() {
+        let Some(tectonic) = which_in_path("tectonic") else {
+            eprintln!("跳过:本机无 tectonic 真 exe;真编译实测由具备 tectonic 的环境执行");
+            return;
+        };
+        let dir = temp_dir("tectonic-real");
+        std::fs::write(
+            dir.join("doc.tex"),
+            "\\documentclass{article}\n\\begin{document}x\\end{document}\n",
+        )
+        .unwrap();
+        let (ok, diag) = compile_tectonic(&dir, "doc", &dir.join("doc.tex"), &tectonic);
+        assert!(ok, "真 tectonic 应编译真文档:\n{diag}");
+        assert!(dir.join("doc.pdf").is_file(), "真 PDF 必须产出");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

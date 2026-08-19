@@ -10,15 +10,15 @@
 //! # 生命周期(不变式:不留僵尸 headless)
 //! - 辅进程单例:同一 project 的多次调用复用同一个 Node 进程与 browser;
 //! - 空闲超时回收:每次调用后刷新 last_used,后台线程在空闲超过预算时发
-//!   `shutdown` 并等进程退出;
-//! - 工具关闭即收尾:Drop 时发 shutdown + kill(兜底),保证不留进程。
+//!   `shutdown` 并等进程退出(reaper 常驻,shutdown 后继续监控);
+//! - 工具关闭即收尾:Drop 时 kill + wait(兜底),保证不留进程。
 //!
 //! # 缺依赖诊断
 //! 无 Node / 无 Edge/Chrome / playwright-core 未装:明确报错并给出修复指引,
 //! 不静默降级。
 
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -121,12 +121,23 @@ fn default_action() -> String {
     "open".into()
 }
 
-/// 辅进程句柄:子进程 + 写请求的 stdin + 读响应的 stdout。
+/// 辅进程句柄:子进程 + 写请求的 stdin + reader 线程推入的响应行。
+/// D-400:stdout 由独立 reader 线程持续读(挂死时 recv_timeout 兜底,
+/// 此前 read_line 阻塞使 60s 超时失效)。
 struct HelperProcess {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    rx: std::sync::mpsc::Receiver<String>,
     next_id: u64,
+}
+
+impl Drop for HelperProcess {
+    fn drop(&mut self) {
+        // D-400:模块头注释声称「Drop 收尾」但此前无实现——补上 kill + wait 兜底,
+        // 不留僵尸 headless(注释已与实现对齐)。
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
 }
 
 impl HelperProcess {
@@ -145,26 +156,35 @@ impl HelperProcess {
             .map_err(|e| format!("写入辅进程失败: {e}"))?;
         self.stdin.flush().map_err(|e| format!("flush 失败: {e}"))?;
 
-        // 逐行读响应,直到 id 配对。
+        // 逐行读响应,直到 id 配对。reader 线程持续读 stdout 推入 channel,
+        // recv_timeout 兜底挂死辅进程(D-400:此前 read_line 阻塞使超时失效)。
         let deadline = Instant::now() + RPC_TIMEOUT;
         loop {
-            if Instant::now() > deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
                 return Err("RPC 超时:辅进程未在预算内响应".into());
             }
-            let mut buf = String::new();
-            let read = self
-                .stdout
-                .read_line(&mut buf)
-                .map_err(|e| format!("读辅进程响应失败: {e}"))?;
-            if read == 0 {
-                return Err("辅进程已退出(可能浏览器启动失败或 Node 缺失)".into());
-            }
+            let line = match self.rx.recv_timeout(remaining) {
+                Ok(line) => line,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    return Err("RPC 超时:辅进程未在预算内响应".into());
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("辅进程已退出(可能浏览器启动失败或 Node 缺失)".into());
+                }
+            };
             let parsed: serde_json::Value =
-                serde_json::from_str(buf.trim()).map_err(|e| format!("响应不是 JSON: {e}"))?;
+                serde_json::from_str(line.trim()).map_err(|e| format!("响应不是 JSON: {e}"))?;
             if parsed["id"].as_u64() != Some(id) {
                 continue; // 其他请求的响应(不应发生,单请求串行)
             }
-            if let Some(err) = parsed["error"].as_str() {
+            // D-400:辅进程把所有错误(含 catch)写进 result.error(嵌套于 result),
+            // 顶层 error 与嵌套 result.error 统查——click/type/open 失败必须透传为工具错误,
+            // 不得报成功(此前只查顶层 parsed["error"],永远查不到,交互断言全面假绿)。
+            if let Some(err) = parsed["error"]
+                .as_str()
+                .or_else(|| parsed["result"]["error"].as_str())
+            {
                 return Err(err.to_string());
             }
             return Ok(parsed["result"].clone());
@@ -210,7 +230,9 @@ pub(crate) fn start_idle_reaper() {
             std::thread::sleep(IDLE_TIMEOUT / 2);
             let reg = registry();
             if reg.shutting_down.load(Ordering::SeqCst) {
-                break;
+                // D-400:shutdown 期间跳过即可,不 break——Once 只执行一次,
+                // break 后 reaper 永久死亡,后续空闲进程不再被回收。
+                continue;
             }
             let last = reg.last_used.load(Ordering::SeqCst) as u128;
             if last > 0 && now_ms().saturating_sub(last) > IDLE_TIMEOUT.as_millis() {
@@ -304,11 +326,26 @@ fn with_helper<T>(f: impl FnOnce(&mut HelperProcess) -> Result<T, String>) -> Re
             .spawn()
             .map_err(|e| format!("启动 Node 辅进程失败: {e}"))?;
         let stdin = child.stdin.take().ok_or("辅进程 stdin 不可用")?;
-        let stdout = BufReader::new(child.stdout.take().ok_or("辅进程 stdout 不可用")?);
+        // D-400:reader 线程持续读 stdout 推入 channel(挂死兜底;stdout 所有权移入线程)。
+        let stdout = child.stdout.take().ok_or("辅进程 stdout 不可用")?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                match line {
+                    Ok(l) => {
+                        if tx.send(l).is_err() {
+                            break; // rpc 侧已丢弃(进程被回收)。
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
         *guard = Some(HelperProcess {
             child,
             stdin,
-            stdout,
+            rx,
             next_id: 0,
         });
     }
@@ -692,5 +729,64 @@ mod tests {
         );
         assert_eq!(parse_viewport(Some("unknown")), None);
         assert_eq!(parse_viewport(None), None);
+    }
+
+    /// D-400:rpc 统查 result.error(嵌套)——辅进程把所有错误(含 catch)写进
+    /// result.error,click/type/open 失败必须透传为工具错误,不得报成功
+    /// (此前只查顶层 parsed["error"],永远查不到,交互断言全面假绿)。
+    #[test]
+    fn rpc_嵌套result_error透传为工具错误() {
+        let Some(node) = find_node() else {
+            eprintln!("跳过:本机无 node");
+            return;
+        };
+        // 假 helper:读一行请求,回带嵌套 error 的响应(模拟 helper.mjs 的 catch 路径)。
+        let script = r#"
+            process.stdin.setEncoding("utf8");
+            process.stdin.on("data", (chunk) => {
+              for (const line of chunk.split("\n")) {
+                const t = line.trim();
+                if (!t) continue;
+                const req = JSON.parse(t);
+                process.stdout.write(JSON.stringify({ id: req.id, result: { error: "click failed: element not found" } }) + "\n");
+              }
+            });
+        "#;
+        let dir = std::env::temp_dir().join(format!("kz-browser-helper-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script_path = dir.join("fake-helper.mjs");
+        std::fs::write(&script_path, script).unwrap();
+        let mut child = std::process::Command::new(&node)
+            .arg(&script_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("node 假 helper 启动");
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if tx.send(line.unwrap_or_default()).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut helper = HelperProcess {
+            child,
+            stdin,
+            rx,
+            next_id: 0,
+        };
+        let err = helper
+            .rpc("click", serde_json::json!({ "selector": "#x" }))
+            .unwrap_err();
+        assert!(
+            err.contains("click failed"),
+            "嵌套 result.error 必须透传为工具错误: {err}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

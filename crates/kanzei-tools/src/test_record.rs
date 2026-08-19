@@ -230,7 +230,17 @@ impl Tool for TestRecordTool {
             input.duration_secs,
             Some(&fingerprint),
         ) {
-            Ok(snapshot) => ToolOutput::ok(render_snapshot(&snapshot)),
+            Ok(snapshot) => {
+                // D-398:test_record 是 tests.md 与 tests-archive.md 的专用写者——
+                // 写日志(围栏收口归因凭据;此前零接入,窗口重叠即被误回滚)。
+                crate::record_write_log(ctx, TEST_RUNS_REL, &root.join(TEST_RUNS_REL));
+                crate::record_write_log(
+                    ctx,
+                    TEST_RUNS_ARCHIVE_REL,
+                    &root.join(TEST_RUNS_ARCHIVE_REL),
+                );
+                ToolOutput::ok(render_snapshot(&snapshot))
+            }
             Err(err) => ToolOutput::error(err),
         }
     }
@@ -2153,6 +2163,32 @@ mod tests {
         .unwrap();
         let got = frontend_smoke_passed(&root).expect("前端冒烟 passed 应被识别");
         assert_eq!(got.0, 400, "应取最近一条前端冒烟:{got:?}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-398:test_record 写盘后记写日志——tests.md 与 tests-archive.md 各一条
+    /// (围栏收口归因凭据;此前零接入,窗口重叠即被误回滚)。
+    #[tokio::test]
+    async fn 写盘后记写日志() {
+        let root = temp_project("writelog");
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let out = TestRecordTool
+            .execute(
+                json!({"title": "t", "status": "passed", "command": "c"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let logs = crate::write_log::entries_after(&root, 0);
+        let paths: Vec<String> = logs.iter().map(|l| l.path.clone()).collect();
+        assert!(
+            paths.iter().any(|p| p.ends_with(TEST_RUNS_REL)),
+            "tests.md 应有写日志: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.ends_with(TEST_RUNS_ARCHIVE_REL)),
+            "tests-archive.md 应有写日志: {paths:?}"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 }

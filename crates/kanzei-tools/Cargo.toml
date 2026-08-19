@@ -29,6 +29,7 @@ anyhow.workspace = true
 tracing.workspace = true
 similar.workspace = true
 sha2.workspace = true
+palette.workspace = true
 toml.workspace = true
 kanzei-core.workspace = true
 
@@ -37,4 +38,5 @@ kanzei-core.workspace = true
 # core←tools 单向,无循环);write.rs 的 runner 集成测试仍需要 core,保留 dev 引用。
 [dev-dependencies]
 kanzei-core.workspace = true
+serial_test.workspace = true
 

@@ -173,7 +173,7 @@ impl Tool for ConventionsTool {
                             map_lf_range(&current, lf_matches[0].0, lf_matches[0].1.len());
                         let mut new_content = current.clone();
                         new_content.replace_range(start..end, &new_string);
-                        return write_patch(&path, current, new_content, &expected);
+                        return write_patch_with_log(ctx, &path, current, new_content, &expected);
                     }
                 }
                 match matches.len() {
@@ -195,11 +195,26 @@ impl Tool for ConventionsTool {
                     }
                 }
                 let new_content = current.replacen(&old_string, &new_string, 1);
-                write_patch(&path, current, new_content, &expected)
+                write_patch_with_log(ctx, &path, current, new_content, &expected)
             }
             other => ToolOutput::error(format!("unknown action `{other}`; valid: get | patch")),
         }
     }
+}
+
+/// D-398:conventions 专用写者写盘成功后记写日志(围栏收口归因凭据,此前零接入)。
+fn write_patch_with_log(
+    ctx: &ToolCtx,
+    path: &Path,
+    current: String,
+    new_content: String,
+    expected: &str,
+) -> ToolOutput {
+    let out = write_patch(path, current, new_content, expected);
+    if !out.is_error {
+        crate::record_write_log(ctx, CONVENTIONS_REL, path);
+    }
+    out
 }
 
 /// 执行写盘 + 产出 diff 显示。new_content 里的裸换行统一为文件既有风格(CRLF 文件不
@@ -391,6 +406,33 @@ mod tests {
             "返回 hash 与落盘内容不一致: {}",
             out.content
         );
+    }
+
+    /// D-398:conventions patch 成功后记写日志(围栏收口归因凭据,此前零接入)。
+    #[tokio::test]
+    async fn patch_写盘后记写日志() {
+        let root = tmp_dir();
+        std::fs::write(root.join(CONVENTIONS_REL), SAMPLE).unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let out = ConventionsTool
+            .execute(
+                serde_json::json!({
+                    "action": "patch",
+                    "old_string": "全量测试只在关闭前跑",
+                    "new_string": "全量测试只在关闭前跑(改)",
+                    "expected_hash": content_hash(SAMPLE),
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let logs = crate::write_log::entries_after(&root, 0);
+        assert!(
+            logs.iter().any(|l| l.path.ends_with(CONVENTIONS_REL)),
+            "conventions.md 应有写日志: {:?}",
+            logs.iter().map(|l| &l.path).collect::<Vec<_>>()
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[tokio::test]
