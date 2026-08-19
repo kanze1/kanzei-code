@@ -24,6 +24,10 @@
 - 标签: 流程
 - 验收: ①构建产物路径(gen/schemas 等)进入越界检测豁免清单或按内容指纹放行,有定向测试;②quarantine 提供按日期/类型的清理入口(dry-run+实际释放量),真越界证据可显式保留;③清理后 121 个存量目录处置留痕;④真实并行双线构建实测不再产生 schema 误报
 - 优先级: P2
+- 进展: 2026-08-20 主会话:121 目录清单已存证 scratchpad/quarantine-manifest-20260820.txt;误报根因之一已随 R-306 B1 修复(collect_tree_metadata 补 D-407 排除清单,target/node_modules/gen 构建产物不再进指纹面);存量 143MB 删除属破坏性操作已备好命令待用户放行执行;豁免清单与清理入口的代码化仍待本条后续
+- observed_head: 1a5753cc517ea18028d9d2fc034d5030c631da99
+- observed_worktree_hash: fnv1a64:2401216920f5e68b
+- recorded_at: 1787173993481
 
 ## D-567 记忆 inbox 消化 10 进 0 出:manager run made no inbox progress,96 条积压 [open] (high)
 - refs: D-409

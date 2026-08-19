@@ -107,8 +107,8 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787000896795
 - 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
-- 对账: 2026-08-20 对账:停车前提 R-243 已 done 归档(compaction 追加事务已交付),停车解除;剩余动作=复核验收⑦(停止新增 conversation.updated 与最终 snapshot 只读回放,收口动作已移交 R-243 承接,确认其证据)后按验收①-⑥关闭
-- 停车: 主会话收编窗口冻结:R-306 合并期间暂停循环取活避免 dev 并发移动(用户 2026-08-20 指令全面修复);收编完成后恢复复核验收⑦。恢复人:主会话
+- 对账: 2026-08-20 合并窗口解除:R-306 B1/B2 收编完成且 workspace 全绿,共享文件不再冻结;恢复复核验收⑦并关闭。恢复人:agent(循环)
+- 停车: 
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
@@ -268,12 +268,12 @@
 - 验收: ①两线全部提交在 dev 祖先链(git merge-base --is-ancestor);②冲突解决后 cargo test --workspace 全绿且 verify 通过;③D-396~D-401/D-409/R-257 交付点在 dev 主树逐条抽查可见(cross_tree 三态 FileImage、record_write_log、浏览器 rpc 嵌套 error 透传、四文件拆分);④三处脏 WIP 逐一处置留痕;⑤防复发闸门有实测:未合并分支条目关闭被拒或强制登记收编
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-306
-- 批次: 0/4
+- 批次: 2/4
 - 设计冻结: 不变式：dev 以当前语义为准，分支只补缺失交付；不得用快进假装完成非快进收编。｜权威数据源：当前 dev、两条 worktree 分支的真实提交图与 merge-tree --write-tree 冲突结果。｜预期变更文件：先仅更新 R-306 进展/批次字段；代码文件待 B1 冲突逐块对账后按实际落地集合确定。｜最小测试：每批按实际改动运行对应 crate 定向测试；R-306 关闭前按复杂度“大”执行 workspace 全量测试及 scripts/verify.ps1。
-- 进展: B0/4 已完成收编前复核并实测预检：p13 worktree `C:\Users\kanzei\Documents\.kanzei-worktree-kanzei-code.line-1786851588846-1` 冲突文件为 Cargo.lock、kanzei-app/src/memory.rs、kanzei-memory/src/memory/inbox.rs、kanzei-tools/src/cross_tree.rs、plot_tool.rs、profiles.rs、kanzei/src/cli/memory.rs、scripts/ui-connectivity-browser.mjs、scripts/ui-connectivity.mjs；R-257 worktree `C:\Users\kanzei\Documents\.kanzei-worktree-kanzei-code.line-1786805365363432-1`（实际路径为 line-1786805363432-1）冲突文件为 kanzei-core/src/runner/drive.rs、runner/mod.rs、runner/tool_exec.rs、kanzei-memory/src/docstore.rs、kanzei-tools/src/git.rs、scripts/ui-lint-globals.json。两条分支均未在 dev 祖先链。发现 D-565：安全结构化入口只支持 merge_ff，CLI 没有调用既有 merge_worktree 内核的非快进合并命令；先转交 D-565 补齐入口，再恢复 B1 逐文件收编。
-- observed_head: 2d6251c008ce33c27d97d0b04d4597aa2a07a1d8
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787169005104
+- 进展: B1 完成(0262a85a):p13 线 16 提交经 --no-ff 合入 dev,9 文件冲突逐一手解——dev 语义为准(inbox 三预算批次、共享消化服务、report-only 不回滚),分支独有能力保留(cross_tree 三态 FileImage、mtime 粗筛、截断显式报告);collect_tree_metadata 对齐 D-406 树根递归与 D-407 排除清单(修掉分支版会把 target/node_modules 误报为新增的隐患);D-506 守卫逮住分支旧 mutex 写法已改 lock_or_recover;mobile.rs D-502 测试适配 pwa_root。B2 完成(50b0fe2e/b84d2a66):按文件降批——config.rs 五域拆分 cherry-pick 零冲突收编;docstore.rs 六域拆分收编并移植 dev 增量(R-221 open_topic/validate_topic、D-382 load 共享锁)入 repository.rs;**drive.rs 与 git.rs 拆分放弃收编**:dev 已由 R-300 B2/B4/B6/B7/B9 独立完成 drive/ 子目录拆分(叠加 R-305/D-349 语义变更),git.rs 有 8 个 dev 语义提交(指纹背书重构/门禁聚合等)移植风险大于纯结构收益,残余以分支留档。全程 cargo test --workspace 全绿×3 轮,fmt/clippy 干净。下一步 B3:三线 worktree/分支/脏 WIP 清理(删除动作待用户放行,脏 WIP 补丁已存 scratchpad);B4:关闭时 observed_head 祖先链闸门+收线释放流程
+- observed_head: 1a5753cc517ea18028d9d2fc034d5030c631da99
+- observed_worktree_hash: fnv1a64:2401216920f5e68b
+- recorded_at: 1787173976405
 - 停车: 主会话(SOL)直接执行中,循环勿并行取活;完成后由主会话清车并汇报。恢复人:主会话
 - 对账: 2026-08-20 勘察修正:①p13 线实际未合并 16 提交(含 R-275 调色板批1~3、D-390/D-391/D-393/D-394 一串),条目内容原写 8 提交低估一倍,B1 工作量按 16 估;②p16 线(1787020530803-1)已经 merge commit 27b3e8d1 合入 dev,但树/本地分支/2 脏文件(ci.yml、git.rs)未清,B3 可先零风险清理;③冲突面持续扩大:线冻结在 08-16 后 dev 又改 drive.rs 14 次、memory/store.rs 10 次、git.rs 8 次;④两条欠账线均未走 parallel-line-unregister 释放流程,B4 闸门应含收线释放;⑤陈旧远端分支 kanzei/release-68db58e 已被 dev 完全包含,可顺带清理
 - 执行者: 主会话(SOL)。用户 2026-08-20 指令:结构性问题不再交自举,由主会话全面修复
@@ -289,6 +289,11 @@
 - 优先级: P1
 - 停车: 主会话线执行中(批1/2 委派隔离工作树子代理实现,主会话验收合入);恢复人:主会话
 - 执行者: 主会话(SOL)+委派子代理实现,循环勿取
+- 批次: 2/4
+- 进展: B1/B2 已交付并合入 dev(baf0bdd1/213ec07c,合并提交含 355→389 测试):①「解除条件:」结构化标记解析(全/半角冒号、多编号、字面量「用户」永不达成),停车/阻塞字段带标记且所列编号全部终态→调度动态视为可执行,不写回,取活依据点名「解除条件已达成」;②全线 blocked 时对存量自由文本停车提取 R-/D- 编号,全部终态即输出「前提可能已达成请复核」提醒;③同显式优先级槽位内按反向依赖 unblocks 计数加权取活,取活依据点名 unblocks=N。注意:运行态生效需发版重装(kzapp/kz 是安装位二进制)。剩余批3 前端依赖拓扑图(关键路径/解锁数徽章),批4 已由 B1/B2 的 10 个新测试覆盖三起现场案例,可并入批3 验收
+- observed_head: 1a5753cc517ea18028d9d2fc034d5030c631da99
+- observed_worktree_hash: fnv1a64:2401216920f5e68b
+- recorded_at: 1787173976915
 
 ## R-308 记忆冗余治理与晋升门槛机械化:同指纹聚类合并、candidate 单轨化、复发阈值硬执行 [todo]
 - refs: D-567 D-568 R-293 R-235
@@ -299,3 +304,13 @@
 - 边界: 不动 R-293 的 F(m) 漏斗与效应量框架;不动 R-235 已拍板的 28 条存量豁免;合并动作走 M-059 SOP 归档不裸删
 - 验收: ①顶层条目数≈实质主题数(勘察口径复查冗余率<15%);②同指纹重复写入被机械拒绝并有定向测试;③candidate 可见性单轨有断言;④global 域 74 条处置留痕且 recall 遥测非零;⑤INDEX 行与源文件 description 一致性核对通过(与 D-568 对齐)
 - 优先级: P2
+
+## R-309 门禁矩阵整合:按改动路径裁剪 verify、globals 免手工同步、脆性门禁加固 [todo]
+- refs: D-510 D-555 D-539 D-540 D-458 R-300
+- 内容: 批1 globals 免手工同步:eslint.config.js 加载时直接调 gen-ui-lint-globals 计算 globals,ui-lint-globals.json 降级缓存或删除——结构性消灭 D-458/D-484/D-523/D-547/D-560/D-562 一族(占门禁缺陷 18%)。批2 verify 按改动路径三档裁剪:无 Rust 改动跳 fmt/clippy/test(省 100.2s),无前端改动跳六冒烟(省 5.9s),verification.json 记录裁剪判据与被跳步骤,package.ps1 发版证据要求全量 verify 不受裁剪污染。批3 关闭门禁复用 verify 证据:frontend_smoke_passed 接受绑定当前 HEAD 且 ui_runtime/ui_lint/ui_i18n 全 pass 的 verification.json,去掉每批第 3 轮冒烟;同时补冒烟记录新鲜度校验(现状:三天前的 passed 记录可放行今天的关闭,coverage.rs frontend_smoke_passed 无时间/指纹比对)。批4 脆性加固:metrics 闸基线口径版本断言(口径不同拒绝出数而非出错数),metrics-regression-gate.ps1 里的 cargo build 移出 crate_sync 单独计时;parallel-lines-regression.mjs 改用 loadUiSources() 不再写死 8 个文件名;ipc-event-smoke/check-ps1-bom 补空集与下限断言(D-510 模式推广)
+- 复杂度: 大
+- 来源: 2026-08-20 门禁矩阵审计(115 条近期缺陷归因):门禁真假阳性比 1:4.7;34 条门禁类缺陷中 29% 是「忘了重跑生成器」类机械同步;verify 14 步 108.1s 中 Rust 三步占 92.7%,改前端的批次全额买单;fmt/clippy 每批次跑 4 轮、前端冒烟 3 轮。P0 两项(finalize 去重、删 ui_syntax)已由主会话落地
+- 标签: 流程
+- 边界: cargo test --workspace 的 90.3s 是真实成本不动;CI 全量保持;裁剪只作用本地 verify,发版通道必须全量
+- 验收: ①改一行前端的批次 verify 墙钟 <15s(实测);②改 globals 清单的缺陷族在门禁上线后零新增;③关闭前端条目不再需要第三轮冒烟(用 verify 证据通过一次真实关闭);④metrics 口径漂移场景拒绝出数的定向测试;⑤裁剪过的 verification.json 被 package.ps1 拒绝的定向测试
+- 优先级: P1
