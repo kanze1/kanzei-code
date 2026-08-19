@@ -27,6 +27,46 @@ pub(crate) struct FinalizeState<'a> {
     pub(crate) run_epoch_ms: i64,
 }
 
+fn persist_cli_compaction_surface_if_changed(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    run_id: &str,
+    summary: &kanzei_core::RunSummary,
+) -> anyhow::Result<()> {
+    if summary.overflow_traces.is_empty() {
+        return Ok(());
+    }
+    let boundary = store
+        .list_events_by_type(session_id, 0, "conversation.reset")?
+        .into_iter()
+        .map(|event| event.sequence)
+        .next_back()
+        .unwrap_or(0);
+    let facts = store.list_latest_segment_facts(session_id)?;
+    let current_surface = match store.latest_completed_compaction_surface(session_id, boundary)? {
+        Some((sequence, surface)) => {
+            kanzei_core::project_session_facts_with_surface(&facts, Some(sequence), Some(surface))
+                .surface_messages
+        }
+        None => kanzei_core::project_session_facts(&facts).surface_messages,
+    };
+    if current_surface == summary.messages {
+        return Ok(());
+    }
+    let surface = serde_json::to_value(&summary.messages)?;
+    let compaction_summary = serde_json::json!({
+        "source": "cli_run",
+        "overflow_traces": summary.overflow_traces,
+    });
+    store.append_compaction_transaction(
+        session_id,
+        &format!("{run_id}:compaction"),
+        &compaction_summary,
+        &surface,
+    )?;
+    Ok(())
+}
+
 pub(crate) async fn finish_run(
     run_result: anyhow::Result<kanzei_core::RunSummary>,
     typed_flush_task: tokio::task::JoinHandle<()>,
@@ -50,11 +90,11 @@ pub(crate) async fn finish_run(
                 "session.status_changed",
                 &serde_json::json!({ "status": "idle" }),
             )?;
-            // 轮末快照继续写入(验收⑦顺延:压缩摘要仍经它持久化,见 R-242 进展)。
-            store.append_event(
+            persist_cli_compaction_surface_if_changed(
+                &store,
                 state.session_id,
-                "conversation.updated",
-                &serde_json::json!({ "messages": summary.messages }),
+                state.run_id,
+                summary,
             )?;
             state
                 .typed_writer

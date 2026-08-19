@@ -1,6 +1,6 @@
 # DeepSeek Harness 约束驱动的运行时升级
 
-- 状态：设计基线；R-241 已实现并进入 shadow 观察，R-242 尚未切换真源
+- 状态：R-241 已进入 shadow 观察；R-242/R-243 的事件投影真源切换、segment reset 与 surface compaction 追加事务已实现并通过定向回归
 - 日期：2026-08-14
 - 关联需求：R-241、R-242、R-243、R-244、R-245、R-246
 - 关联缺陷：D-209、D-349
@@ -301,9 +301,11 @@ R-180 已经交付的 persistent 服务不能重做。它必须通过 adoption �
 - 2026-08-14：完成 R-241 shadow 实现：冻结 format v1 与提交前 invariant，接入 CLI/桌面双写、750 ms/2,048 字符草稿批次、legacy seed、崩溃闭合、确定性 projector、只读 shadow 命令和逐轮差异事件；复用既有 `session_events`，无 schema migration。
 - 2026-08-14：根据自举就绪度评估重整后续边界：R-242 收敛为五条读路径真源切换与 segment reset，真实 shadow gate 固定为至少 30 turn；R-243 改为依赖 R-242；会话物理删除、artifact 联动与安全整理统一归入 R-245。
 
+- 2026-08-20：完成 R-242/R-243 收口：五条 projection gate 默认启用；CLI 与桌面 runner prior、conversation_get/list、UI history、subagent transcript 从 typed events/surface 恢复；reset 按 segment 隔离且旧事实可审计；正常收尾与 mobile consumer 停止新增 `conversation.updated`，CLI compaction 通过追加事务持久化；legacy snapshot 保留为只读回退。
+
 ## TODO 与后续风险
 
-- TODO(R-242)：在切换真源前收集 `session.shadow_compared` 的真实轮次样本，分类解释非相等路径，并为 format version 升级增加正式迁移器。
+- TODO(R-245)：在切换真源后继续收集 `session.shadow_compared` 的真实轮次样本，并为 format version 升级增加正式迁移器。
 - TODO(R-242/R-245)：实现前确认“安全整理”对正在运行的多连接如何进入静止窗口。
 - TODO(R-245)：确认 `.kanzei/artifacts/tool_results/` 与 R-180 系统临时日志的最终迁移/共用边界。
 - 风险：迁移备份包含删除前正文。任何“安全整理完成”判定都必须覆盖备份清单。

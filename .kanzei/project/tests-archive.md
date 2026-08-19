@@ -8221,3 +8221,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-565 R-306
 - 收尾: 1787169123
 - 源码指纹: v2 crates/kanzei/src/cli/mod.rs@f7a9c1b0eae9,crates/kanzei/src/cli/worktree.rs@1453de273502
+
+## T-1786922726501 R-242 projection source targeted suites [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core; cargo test -p kanzei-app; cargo test -p kanzei
+- 时长: 34.0s
+- 摘要: 格式检查通过；kanzei-core 220 passed；kanzei-app 222 passed；kanzei CLI 单元 40 passed；kanzei 集成 32 passed。覆盖 CLI compaction surface 持久化、prior 顺序、mobile typed fact 与停止 legacy snapshot 双写。
+- 关联: R-242 D-572 D-573 D-574
+- 收尾: 1787176142
+- 源码指纹: v2 crates/kanzei-app/src/mobile.rs@5d36ebcc07d6,crates/kanzei-app/src/run/persistence.rs@09a15418a83a,crates/kanzei/src/cli/run.rs@314b3b521561,crates/kanzei/src/cli/run/finalize.rs@1a858a7d7c7e,crates/kanzei/tests/integration/always_allow_bash.rs@11510bfc3d98,crates/kanzei/tests/integration/context_overflow_recovery.rs@d91c3fe111a8

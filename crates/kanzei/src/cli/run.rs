@@ -44,6 +44,79 @@ fn resolve_cli_input(args: &[String]) -> (RunArgs, String) {
     (parsed, prompt)
 }
 
+fn cli_projection_gate_enabled(path: &str) -> bool {
+    match std::env::var("KANZEI_PROJECTION_GATES").ok() {
+        Some(gates) => gates.split(',').map(str::trim).any(|gate| gate == path),
+        None => matches!(
+            path,
+            "conversation_get"
+                | "conversation_list"
+                | "runner_prior"
+                | "ui_history"
+                | "subagent_transcript"
+        ),
+    }
+}
+
+fn recover_cli_legacy_segment(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    boundary: Option<i64>,
+) -> anyhow::Result<Vec<kanzei_llm::Message>> {
+    let event = store
+        .list_events_by_type(session_id, 0, "conversation.updated")?
+        .into_iter()
+        .filter(|event| boundary.is_none_or(|start| event.sequence > start))
+        .rev()
+        .find(|event| {
+            event.payload["messages"]
+                .as_array()
+                .is_some_and(|messages| !messages.is_empty())
+        });
+    let Some(event) = event else {
+        return Ok(Vec::new());
+    };
+    let messages = event
+        .payload
+        .get("messages")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    Ok(serde_json::from_value(messages)?)
+}
+
+fn recover_cli_prior(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+) -> anyhow::Result<Vec<kanzei_llm::Message>> {
+    let boundary = store
+        .list_events_by_type(session_id, 0, "conversation.reset")?
+        .into_iter()
+        .map(|event| event.sequence)
+        .next_back();
+    if !cli_projection_gate_enabled("runner_prior") {
+        return Ok(kanzei_core::filter_message_history(
+            &recover_cli_legacy_segment(store, session_id, boundary)?,
+        ));
+    }
+
+    let facts = store.list_latest_segment_facts(session_id)?;
+    let compacted_surface =
+        store.latest_completed_compaction_surface(session_id, boundary.unwrap_or(0))?;
+    if facts.is_empty() {
+        if let Some((_, surface)) = compacted_surface {
+            return Ok(surface);
+        }
+        return recover_cli_legacy_segment(store, session_id, boundary);
+    }
+    let projection = match compacted_surface {
+        Some((sequence, surface)) => {
+            kanzei_core::project_session_facts_with_surface(&facts, Some(sequence), Some(surface))
+        }
+        None => kanzei_core::project_session_facts(&facts),
+    };
+    Ok(projection.surface_messages)
+}
+
 pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let (
         RunArgs {
@@ -212,6 +285,8 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     if let Err(error) = kanzei_core::prepare_typed_session(&store, &session_id) {
         typed_writer.lock().unwrap().record_error(error);
     }
+    // prior 必须在当前轮 user fact 写入前恢复；否则 projection 会把本轮输入再喂给 runner。
+    let prior = recover_cli_prior(&store, &session_id)?;
     typed_writer
         .lock()
         .unwrap()
@@ -226,16 +301,6 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         "session.status_changed",
         &serde_json::json!({ "status": "running" }),
     )?;
-    let prior = store
-        .latest_event(&session_id, "conversation.updated")?
-        .map(|event| {
-            let messages = serde_json::from_value::<Vec<kanzei_llm::Message>>(
-                event.payload.get("messages").cloned().unwrap_or_default(),
-            )?;
-            Ok::<_, anyhow::Error>(kanzei_core::filter_message_history(&messages))
-        })
-        .transpose()?
-        .unwrap_or_default();
     drop(store);
 
     eprintln!(
@@ -317,11 +382,10 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 .lock()
                 .unwrap()
                 .finish(kanzei_core::SessionTurnTerminal::Stopped);
-            let legacy: Vec<kanzei_llm::Message> = store
-                .latest_event(&session_id, "conversation.updated")?
-                .and_then(|event| serde_json::from_value(event.payload["messages"].clone()).ok())
-                .unwrap_or_default();
-            typed_writer.lock().unwrap().write_shadow_report(&legacy);
+            typed_writer
+                .lock()
+                .unwrap()
+                .write_shadow_report(&prior);
             typed_flush_task.abort();
             store.finalize_interrupt(&session_id)?;
             eprintln!("\n\x1b[33m(stopped by Ctrl+C)\x1b[0m");

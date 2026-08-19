@@ -284,15 +284,16 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     let store =
         kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project)).unwrap();
     let session_id = kanzei_core::project_session_id(&project);
-    let event = store
-        .list_events(&session_id, 0)
-        .unwrap()
-        .into_iter()
-        .rev()
-        .find(|event| event.event_type == "conversation.updated")
-        .expect("declined run should persist conversation");
-    let messages: Vec<kanzei_llm::Message> =
-        serde_json::from_value(event.payload["messages"].clone()).unwrap();
+    let typed_facts = store.list_session_facts(&session_id).unwrap();
+    let typed_projection = kanzei_core::project_session_facts(&typed_facts);
+    let messages = typed_projection.surface_messages.clone();
+    assert!(
+        store
+            .list_events_by_type(&session_id, 0, "conversation.updated")
+            .unwrap()
+            .is_empty(),
+        "CLI 正常收尾不得新增 conversation.updated"
+    );
     let results: Vec<&kanzei_llm::Part> = messages
         .iter()
         .flat_map(|message| &message.parts)
@@ -304,13 +305,6 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     );
     assert!(
         matches!(results[1], kanzei_llm::Part::ToolResult { call_id, is_error: true, content } if call_id == "call_bash_d054" && content.contains("declined"))
-    );
-    let typed_facts = store.list_session_facts(&session_id).unwrap();
-    let typed_projection = kanzei_core::project_session_facts(&typed_facts);
-    let typed_comparison = kanzei_core::compare_shadow(&typed_projection, &messages);
-    assert!(
-        typed_comparison.equal,
-        "拒绝/部分完成路径的 shadow 应与快照相等"
     );
     assert!(typed_facts.iter().any(|(_, envelope)| matches!(
         &envelope.fact,

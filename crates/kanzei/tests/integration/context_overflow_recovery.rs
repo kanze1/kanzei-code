@@ -144,14 +144,24 @@ async fn run_cli_with_prior(
 fn persisted_messages(project: &std::path::Path) -> Vec<kanzei_llm::Message> {
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(project)).unwrap();
     let session_id = kanzei_core::project_session_id(project);
-    let event = store
-        .list_events(&session_id, 0)
+    let boundary = store
+        .list_events_by_type(&session_id, 0, "conversation.reset")
         .unwrap()
         .into_iter()
-        .rev()
-        .find(|event| event.event_type == "conversation.updated")
-        .expect("successful recovery should persist the compacted conversation");
-    serde_json::from_value(event.payload["messages"].clone()).unwrap()
+        .map(|event| event.sequence)
+        .next_back()
+        .unwrap_or(0);
+    let facts = store.list_latest_segment_facts(&session_id).unwrap();
+    let compacted = store
+        .latest_completed_compaction_surface(&session_id, boundary)
+        .unwrap();
+    match compacted {
+        Some((sequence, surface)) => {
+            kanzei_core::project_session_facts_with_surface(&facts, Some(sequence), Some(surface))
+                .surface_messages
+        }
+        None => kanzei_core::project_session_facts(&facts).surface_messages,
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -275,9 +275,9 @@ pub(crate) fn persist_round_outcome(
     final_store
 }
 
-/// R-202 批2:run_task 轮末收尾段后半——对话落库 → 轮末压缩(R-236 B1/B4)→
-/// conversation.updated 与 typed shadow 报告 → kz:done → 写租约 Released →
-/// 停止令牌回收。行为零变更:压缩触发线/口径/事件顺序与内联时一致。
+/// R-202 批2:run_task 轮末收尾段后半——typed surface 事务/typed shadow 报告
+/// → kz:done → 写租约 Released → 停止令牌回收。legacy snapshot 在投影真源切换后
+/// 只读保留，不再由正常收尾新增 conversation.updated。
 /// R-253 批7b:按生命周期分组收参——`&RuntimeDeps`(不变依赖)/`&RuntimeHandles`
 /// (会话级句柄:conversation/live/halt_slot)/`FinalizeSession`(会话事务)/
 /// `FinalizeRound`(单轮收尾)/`FinalizeOutcome`(本轮结果)/`RoundReport`(UI 汇报)/
@@ -473,14 +473,10 @@ pub(crate) async fn finalize_round(
                 }
                 report_persistence_failure(window, session_id, "写入压缩事务", error);
             }
-        } else if let Err(error) = store.append_event(
-            session_id,
-            "conversation.updated",
-            &json!({ "messages": messages }),
-        ) {
-            // 未发生压缩的旧路径暂保留 snapshot 兼容语义；压缩路径已完全转为事务。
-            report_persistence_failure(window, session_id, "写入对话历史", error);
         }
+        // R-242 验收⑦：正常轮末不再追加 conversation.updated。已有 legacy snapshot
+        // 仍由 legacy 回退/历史读取路径只读消费；typed facts 与完整 compaction surface
+        // 承担当前会话的恢复真源。
         typed_writer
             .lock_or_recover()
             .write_shadow_report(&messages);
