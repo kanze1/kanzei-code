@@ -1037,6 +1037,16 @@
         <button type="button" id="agent-close" class="icon-btn" title="关闭子代理面板" data-i18n-title="关闭子代理面板" aria-label="关闭子代理面板" data-i18n-aria-label="关闭子代理面板">✕</button>
       </div>
       <div id="agent-panel-status" class="agent-panel-status hidden" role="status"></div>
+      <section id="agent-audit" class="agent-audit hidden" aria-live="polite">
+        <div class="agent-audit-head">
+          <span data-i18n-key="运行审计摘要">运行审计摘要</span>
+          <span id="agent-audit-state" class="dim"></span>
+          <button type="button" id="agent-audit-trace" class="ghost mini" data-i18n-key="打开运行轨迹" data-i18n-title="打开运行轨迹">打开运行轨迹</button>
+        </div>
+        <div id="agent-audit-facts" class="agent-audit-facts"></div>
+        <div id="agent-audit-models" class="agent-audit-models"></div>
+        <div id="agent-audit-failures" class="agent-audit-failures hidden"></div>
+      </section>
       <div class="bg-sections">
         <div class="bg-section">
           <div class="bg-section-title"><span data-i18n-key="运行中">运行中</span> <span id="agent-running-count2" class="dim"></span></div>

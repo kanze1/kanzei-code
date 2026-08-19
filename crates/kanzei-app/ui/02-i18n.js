@@ -308,6 +308,8 @@ const I18N_EN = {
   "关闭该条目但保留后端历史与审计记录": "Close this entry but keep backend history and audit records",
   "重新打开该条目": "Reopen this entry", "从当前面板删除该条目,不删除后端历史": "Remove this entry from the panel; backend history is kept",
   "清空已完成和已关闭的子代理条目": "Clear finished and closed subagent entries",
+  "运行审计摘要": "Run audit summary", "打开运行轨迹": "Open run trace",
+  "主代理调用": "Primary calls", "子代理派发": "Subagent dispatches", "调用次数": "calls", "权限询问": "Permission prompts", "权限拒绝": "Permission denials", "模型调用与 token": "Model calls and tokens", "失败与超时": "Failures and timeouts", "无失败或超时": "No failures or timeouts", "未知模型": "Unknown model", "暂无运行审计": "No run audit yet",
   "已复制": "Copied", "复制失败": "Copy failed", "暂无可复制的运行日志": "No runtime log to copy",
   "运行日志已复制": "Runtime log copied", "运行完成": "Run completed", "运行失败": "Run failed", "运行已停止": "Run stopped", "提示音": "Sounds", "启用提示音": "Enable sounds", "音量": "Volume", "试听": "Preview",
   "运行状态": "Run status", "工具执行中": "Tool running", "成功": "Succeeded", "失败": "Failed",
@@ -1020,6 +1022,7 @@ function setLanguagePreference(preference, { persist = true, rerender = true } =
     syncDynamicUiLanguage();
     syncActivityPanel();
     syncSidebar();
+    renderAgentAudit();
     if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();
     $("status-tokens").title = t("点击查看上下文成分");
     if (lastWorkspaceSnapshot) renderWorkspace(lastWorkspaceSnapshot);

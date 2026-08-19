@@ -6902,3 +6902,33 @@
 - observed_head: 9b9537b2e34c227238b9afc5e63253a4c97edc05
 - observed_worktree_hash: fnv1a64:fe38fb36b5d26a89
 - recorded_at: 1787163875725
+
+## D-560 07-events 引用未定义 roundElapsedSeconds 导致 UI lint 失败 [fixed] (low)
+- 复现: 运行 `node scripts/ui-lint-smoke.mjs`。
+- 影响: UI ESLint 门禁失败，`07-events.js` 的运行时引用未定义；当前不会被 node --check 捕获，但会阻断 UI lint 门禁。
+- 来源: self-found，R-305 B1 定向前端验证。
+- 标签: 前端
+- 进展: 已修复：重新生成 `scripts/ui-lint-globals.json` 后纳入 `roundElapsedSeconds` 及 R-305 新增跨经典脚本标识符，未修改运行行为；`scripts/ui-lint-globals.json:78-665` 与源码保持 748 个顶层标识符同步。T-1786922726490 通过：`node scripts/ui-lint-smoke.mjs` 48 个文件 no-undef 零错误。
+- 验收: `node scripts/ui-lint-smoke.mjs` 通过且不再报告 `07-events.js:423 roundElapsedSeconds` no-undef。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-560
+- 验收核验: ① `node scripts/ui-lint-smoke.mjs` 通过：T-1786922726490；② `07-events.js:423` 的 `roundElapsedSeconds` 不再报告 no-undef：生成清单 `scripts/ui-lint-globals.json:605` 已包含该标识符。
+- observed_head: 1adb22a1e695aee9d9b8897c2946238100ea2a4c
+- observed_worktree_hash: fnv1a64:a66ca3ff5d267841
+- recorded_at: 1787166361345
+
+## D-562 R-305 B3 审计摘要前端冒烟与 globals 门禁失败 [fixed] (medium)
+- refs: R-305
+- 复现: 运行 node scripts/ui-runtime-smoke.mjs 与 node scripts/ui-lint-smoke.mjs；运行审计摘要新增断言未匹配当前语言文案，D-350 活动面板状态断言受轨迹入口测试状态影响，ui-lint 报告新增 agentAudit* 和 roundElapsedSeconds 未在 globals 清单中。
+- 影响: R-305 B3 的 UI 审计摘要尚无可接受的自动化证据；前端门禁不能证明新增事件、动态 i18n 和跨脚本经典 script 全部可用。
+- 来源: self-found：R-305 B3 前端冒烟执行结果
+- 标签: 前端
+- 验收: 修正审计冒烟断言为语言无关或使用 t() 的真实路径；隔离运行轨迹入口测试状态；globals 清单与源码同步；ui-runtime、ui-lint 及相关前端冒烟全绿。
+- refs: R-305
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-562
+- 进展: 已修复并验证：`scripts/ui-runtime-smoke.mjs:6507-6523` 使用生产同源 `byId.get` 读取审计事实/模型节点，断言兼容中英文资源并在轨迹入口后恢复活动面板状态；临时 debug 已清除。`scripts/ui-lint-globals.json` 由生成器同步 748 个顶层标识符，包含 `roundElapsedSeconds` 与 R-305 新增审计函数。T-1786922726490 通过：node --check、ui-runtime、ui-lint、parallel-lines、ui-a11y、ui-i18n、ui-markdown 全部通过；T-1786922726491 通过 kanzei-app 221/221。
+- 验收核验: ①审计断言改为生产同源 DOM 访问并兼容中英文：`scripts/ui-runtime-smoke.mjs:6509-6515`，T-1786922726490；②运行轨迹入口测试后恢复 D-350 面板初始状态：`scripts/ui-runtime-smoke.mjs:6516-6523`，T-1786922726490；③globals 与源码同步且 `roundElapsedSeconds` 已收录：`scripts/ui-lint-globals.json:78-665`，T-1786922726490；④相关前端冒烟与 kanzei-app 定向测试全绿：T-1786922726490、T-1786922726491。
+- observed_head: 1adb22a1e695aee9d9b8897c2946238100ea2a4c
+- observed_worktree_hash: fnv1a64:a66ca3ff5d267841
+- recorded_at: 1787166382160

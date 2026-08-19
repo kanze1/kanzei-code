@@ -8,6 +8,7 @@ on("kz:status", (e) => {
 });
 on("kz:meta", (e) => {
   const p = e.payload;
+  agentAuditMeta(p.sessionId, p.model);
   // 每条线的 run 启动都发 kz:meta。状态栏与 ctxLimit 只让活跃会话写——否则并行线
   // 一开轮就把主线的模型/上下文上限顶掉,界面看起来像模型切换没生效。
   if (p.sessionId) sessionMetaCache.set(p.sessionId, p);
@@ -19,6 +20,7 @@ on("kz:meta", (e) => {
 });
 on("kz:turn", (e) => {
   const p = e.payload;
+  if (p.step === 1) agentAuditBegin(p.sessionId);
   neuralFlowEmit?.("run_started", { session_id: p.sessionId, step: p.step });
   // 新一轮 run 开跑:上一轮的「在做」运行证据降级为遗留(不删除)——删了就是
   // 每轮开头一段"未取得条目"空窗;新证据到达时自然覆盖。
@@ -180,6 +182,7 @@ on("kz:tool-start", (e) => {
   // 与活动栏标题、主对话工具块用同一个 toolCallSummary 挑字段,挑不出来再回落后端摘要。
   // 顺带修掉 summary 缺省时 `.slice()` 直接抛的隐患(事件里 summary 并非必填)。
   const shown = toolCallSummary(e.payload.name, e.payload.input) || String(e.payload.summary ?? "");
+  agentAuditTaskStart(e.payload.sessionId, e.payload);
   log(`${t("工具")} ${e.payload.name} ${shown}`);
   currentAssistant = null;
   currentReasoning = null;
@@ -210,6 +213,7 @@ on("kz:tool-progress", (e) => {
 });
 on("kz:task-progress", (e) => {
   const payload = e.payload;
+  agentAuditTaskProgress(payload.sessionId, payload);
   bgProgress(payload.id, payload.text, payload.trace);
   // R-174:子代理面板同一数据流。trace 里带 input/usage 时是 transcript 与 token 数据源。
   agentProgress(payload.id, payload.text, payload.trace);
@@ -223,6 +227,7 @@ on("kz:task-progress", (e) => {
 });
 on("kz:tool-end", (e) => {
   const p = e.payload;
+  agentAuditTaskEnd(p.sessionId, p);
   neuralFlowEmit?.("tool_completed", {
     session_id: p.sessionId,
     tool_call_id: p.id,
@@ -272,6 +277,7 @@ on("kz:tool-end", (e) => {
 });
 on("kz:step", (e) => {
   const p = e.payload;
+  agentAuditStep(p.sessionId, p);
   runTokens.input += p.input;
   runTokens.output += p.output;
   runTokens.cacheRead += p.cacheRead;
@@ -281,6 +287,11 @@ on("kz:step", (e) => {
   renderTokens();
   log(`${t("一轮完成")}:in ${p.input} (cache r${p.cacheRead}) · out ${p.output} · ctx ${(ctxTokens / 1000).toFixed(1)}k`);
 });
+on("kz:permission-resolved", (e) => {
+  const payload = e.payload || {};
+  agentAuditPermission(payload.sessionId, payload);
+});
+
 on("kz:error", (e) => {
   const payload = e.payload ?? {};
   const message = payload.message;
@@ -291,6 +302,7 @@ on("kz:error", (e) => {
   // 后端明确携带 terminal=true，并随后发 kz:idle 收口。
   if (terminal) {
     neuralFlowEmit?.("run_failed", { session_id: payload.sessionId, message });
+    agentAuditFinish(payload.sessionId || activeSessionId, "failed");
     const failedSession = payload.sessionId || activeSessionId;
     releaseAutoContinue(failedSession);
     // D-291:取消续跑定时器只属于终态分支。原来它在函数开头无条件执行,一条
@@ -349,6 +361,7 @@ on("kz:compacted", (e) => {
 });
 on("kz:stopped", (e) => {
   neuralFlowEmit?.("run_stopped", { session_id: e.payload?.sessionId });
+  agentAuditFinish(e.payload?.sessionId, "stopped");
   releaseAutoContinue(e.payload?.sessionId || activeSessionId);
   cancelAutoContinueTimer(e.payload?.sessionId || activeSessionId);
   hideAsk();
@@ -405,6 +418,7 @@ on("kz:auto-fail", (e) => {
 
 on("kz:done", async (e) => {
   const p = e.payload;
+  agentAuditFinish(p.sessionId, p.halted ? "stopped" : "completed");
   neuralFlowEmit?.(p.halted ? "run_stopped" : "run_completed", { session_id: p.sessionId, halted: Boolean(p.halted) });
   releaseAutoContinue(p.sessionId);
   // R-267:轮末不再需要「原子回灌」。那套是为了修补「切走期间缺一段」——而缺口
@@ -611,6 +625,7 @@ function summaryBlockedAsks() {
 on("kz:ask", (e) => {
   const sessionId = askSessionId(e.payload);
   e.payload.sessionId = sessionId;
+  agentAuditPrompt(sessionId, e.payload);
   // 后端的 NonInteractive 策略不会产生 kz:ask；这里仍做一层防御，避免旧运行
   // 或第三方事件把并行/自举线的询问冒泡到当前用户弹窗。
   if (e.payload.source === "parallel" || e.payload.source === "autonomous") {

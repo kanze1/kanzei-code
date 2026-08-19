@@ -917,6 +917,200 @@ function liveTurn(text) {
 // 子代理面板仍是独立 DOM 视图,但其状态、transcript、usage 与活动轨迹由同一脚本维护,
 // 避免 06-agent-panel.js 与 06-activity.js 之间复制调用器和渲染辅助函数。
 const agentEntries = new Map(); // id -> {el, head, meta, detail, calls, tokens, startedAt, state}
+const agentAudits = new Map(); // session_id -> latest run audit projection
+let agentAuditSession = null;
+
+function newAgentAudit(sessionId) {
+  return {
+    sessionId,
+    primaryModel: "",
+    primaryCalls: 0,
+    primaryTokens: 0,
+    tasks: new Map(),
+    permissionPrompts: 0,
+    permissionDenials: 0,
+    state: "running",
+    finished: false,
+  };
+}
+
+function agentAuditFor(sessionId = activeSessionId) {
+  if (!sessionId) return null;
+  let audit = agentAudits.get(sessionId);
+  if (!audit) {
+    audit = newAgentAudit(sessionId);
+    agentAudits.set(sessionId, audit);
+  }
+  agentAuditSession = sessionId;
+  return audit;
+}
+
+function agentAuditBegin(sessionId) {
+  if (!sessionId) return;
+  const previous = agentAudits.get(sessionId);
+  const audit = newAgentAudit(sessionId);
+  audit.primaryModel = previous?.primaryModel || "";
+  agentAudits.set(sessionId, audit);
+  agentAuditSession = sessionId;
+  const card = $("agent-audit");
+  if (card && sessionId === activeSessionId) card.classList.add("hidden");
+}
+
+function auditUsageTokens(usage) {
+  if (!usage) return 0;
+  return ["input", "output", "cache_read", "cacheRead", "cache_write", "cacheWrite"]
+    .reduce((sum, key) => sum + (Number(usage[key]) || 0), 0);
+}
+
+function formatAuditTokens(value) {
+  const tokens = Number(value) || 0;
+  return tokens < 1000 ? String(tokens) : `${(tokens / 1000).toFixed(tokens < 10000 ? 1 : 0)}k`;
+}
+
+function agentAuditMeta(sessionId, model) {
+  const audit = agentAuditFor(sessionId);
+  if (audit) audit.primaryModel = String(model || "");
+}
+
+function agentAuditStep(sessionId, payload) {
+  const audit = agentAuditFor(sessionId);
+  if (!audit) return;
+  audit.primaryCalls += 1;
+  audit.primaryTokens += auditUsageTokens(payload);
+}
+
+function agentAuditTaskStart(sessionId, payload) {
+  const audit = agentAuditFor(sessionId);
+  if (!audit || payload.name !== "task") return;
+  const input = payload.input || {};
+  const model = typeof input.model === "string" && input.model.trim() ? input.model : "fast";
+  const existing = audit.tasks.get(String(payload.id));
+  audit.tasks.set(String(payload.id), {
+    id: String(payload.id),
+    model,
+    usage: existing?.usage || null,
+    status: "running",
+    preview: "",
+  });
+}
+
+function agentAuditTaskProgress(sessionId, payload) {
+  const audit = agentAuditFor(sessionId);
+  const trace = payload.trace;
+  if (!audit || !trace) return;
+  const task = audit.tasks.get(String(payload.id));
+  if (!task) return;
+  if (trace.phase === "usage") task.usage = trace.usage || null;
+}
+
+function agentAuditTaskEnd(sessionId, payload) {
+  const audit = agentAuditFor(sessionId);
+  if (!audit || payload.name !== "task") return;
+  const id = String(payload.id);
+  const task = audit.tasks.get(id) || { id, model: "fast", usage: null };
+  const preview = String(payload.preview || "");
+  task.status = payload.ok ? "succeeded" : /超时|timeout|wall-clock|timed out/i.test(preview) ? "timeout" : "failed";
+  task.preview = preview;
+  audit.tasks.set(id, task);
+}
+
+function agentAuditPermission(sessionId, payload) {
+  const audit = agentAuditFor(sessionId);
+  if (!audit) return;
+  if (["deny", "declined"].includes(String(payload.decision || ""))) audit.permissionDenials += 1;
+}
+
+function agentAuditPrompt(sessionId, payload) {
+  if (payload.kind === "permission") {
+    const audit = agentAuditFor(sessionId);
+    if (audit) audit.permissionPrompts += 1;
+  }
+}
+
+function auditFact(label, value) {
+  const row = document.createElement("div");
+  row.className = "agent-audit-fact";
+  const key = document.createElement("span");
+  key.className = "agent-audit-label";
+  key.textContent = label;
+  const content = document.createElement("strong");
+  content.textContent = value;
+  row.append(key, content);
+  return row;
+}
+
+function renderAgentAudit(sessionId = agentAuditSession || activeSessionId) {
+  const card = $("agent-audit");
+  if (!card) return;
+  const audit = agentAudits.get(sessionId);
+  if (!audit || !audit.finished) {
+    card.classList.add("hidden");
+    return;
+  }
+  card.classList.remove("hidden");
+  const taskList = [...audit.tasks.values()];
+  const failures = taskList.filter((task) => task.status === "failed" || task.status === "timeout");
+  const stateLabel = audit.state === "failed" ? t("运行失败") : audit.state === "stopped" ? t("运行已停止") : t("运行完成");
+  $("agent-audit-state").textContent = stateLabel;
+  const facts = $("agent-audit-facts");
+  facts.replaceChildren(
+    auditFact(t("主代理调用"), `${audit.primaryCalls} · ${formatAuditTokens(audit.primaryTokens)} ${t("token")}`),
+    auditFact(t("子代理派发"), String(taskList.length)),
+    auditFact(t("权限询问"), String(audit.permissionPrompts)),
+    auditFact(t("权限拒绝"), String(audit.permissionDenials)),
+  );
+  const modelRows = $("agent-audit-models");
+  modelRows.replaceChildren();
+  const modelTitle = document.createElement("div");
+  modelTitle.className = "agent-audit-subtitle";
+  modelTitle.textContent = t("模型调用与 token");
+  modelRows.appendChild(modelTitle);
+  const models = new Map();
+  const primaryKey = audit.primaryModel || t("未知模型");
+  models.set(primaryKey, { calls: audit.primaryCalls, tokens: audit.primaryTokens });
+  for (const task of taskList) {
+    const row = models.get(task.model) || { calls: 0, tokens: 0 };
+    row.calls += 1;
+    row.tokens += auditUsageTokens(task.usage);
+    models.set(task.model, row);
+  }
+  for (const [model, stats] of models) {
+    const row = document.createElement("div");
+    row.className = "agent-audit-model";
+    row.textContent = `${model} · ${stats.calls} ${t("调用次数")} · ${formatAuditTokens(stats.tokens)} ${t("token")}`;
+    modelRows.appendChild(row);
+  }
+  const failureBox = $("agent-audit-failures");
+  failureBox.replaceChildren();
+  failureBox.classList.toggle("hidden", failures.length === 0);
+  if (failures.length) {
+    const title = document.createElement("div");
+    title.className = "agent-audit-subtitle";
+    title.textContent = t("失败与超时");
+    failureBox.appendChild(title);
+    for (const task of failures) {
+      const row = document.createElement("div");
+      row.className = `agent-audit-failure ${task.status}`;
+      row.textContent = `${task.id} · ${task.status === "timeout" ? t("超时") : t("失败")}${task.preview ? ` · ${task.preview}` : ""}`;
+      failureBox.appendChild(row);
+    }
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "agent-audit-empty";
+    empty.textContent = t("无失败或超时");
+    failureBox.appendChild(empty);
+    failureBox.classList.remove("hidden");
+  }
+}
+
+function agentAuditFinish(sessionId, state = "completed") {
+  const audit = agentAuditFor(sessionId);
+  if (!audit) return;
+  audit.state = state;
+  audit.finished = true;
+  renderAgentAudit(sessionId);
+}
+
 let agentPanelOpen = false;
 
 // D-278:子代理就绪文案——设置页 fast 行与侧边栏子代理面板共用同一计算,避免两处漂移。
@@ -1273,6 +1467,12 @@ function agentPanelSetup() {
   toggle.addEventListener("click", agentTogglePanel);
   $("agent-close").addEventListener("click", agentClosePanel);
   $("agent-clear").addEventListener("click", agentClearFinished);
+  $("agent-audit-trace").addEventListener("click", () => {
+    agentClosePanel();
+    activityPanelOpen = true;
+    localStorage.setItem("kz-activity-panel", "1");
+    syncActivityPanel();
+  });
   // D-278:一键就绪进度事件也同步刷新面板状态行(面板开着时在设置页操作,回到面板即最新)。
   on("kz:fast-setup", (event) => {
     if (agentPanelOpen) refreshAgentPanelStatus();

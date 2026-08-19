@@ -365,7 +365,16 @@ pub(crate) fn build_event_handler(
                     "kind": "permission.resolved", "id": tool_call_id, "action": action,
                     "resource": resource, "decision": decision, "source": source, "at": now_ms(),
                 }));
-                Ok(())
+                ui.emit(
+                    "kz:permission-resolved",
+                    json!({
+                        "tool_call_id": tool_call_id,
+                        "action": action,
+                        "resource": resource,
+                        "decision": decision,
+                        "source": source,
+                    }),
+                )
             }
             // 子代理实时状态:挂到对应 task 块的进度行,并附带可展开的子工具轨迹。
             RunEvent::TaskProgress {

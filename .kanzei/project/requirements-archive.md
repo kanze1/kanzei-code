@@ -3953,3 +3953,22 @@
 - 停车: 
 - 状态: done
 - 验收核验: ①落点约定落档并有工具/文档支持：`docs/design/research_mode.md:55-65`；`README.md:110`；既有工具消费者为 `crates/kanzei-tools/src/profiles/dev.rs:102-157` 的项目资产权限边界与 dev 侧 write/edit/insert、read/glob/grep/files 通道（既有能力，本次仅固化约定）。②勘察产物可按条目回溯：`docs/design/research_mode.md:61` 规定 tracker refs 只写 R-/D-/T-、进展写报告路径、报告头写 entry_refs；`.kanzei/research/r304-dev-recon/report.md:1-8` 实例化 `entry_refs: R-304`，T-1786922726481 通过。③R-248 恢复时可直接复用：`docs/design/research_mode.md:65` 与 `.kanzei/research/r304-dev-recon/report.md:28-30` 复用根目录、命名、report.md 和 active→archived 生命周期，同时保留 R-248 原有 refs API/topic 来源用户阻塞；T-1786922726481 通过。
+
+## R-305 subagent 策略层与 Agent 目录 [done]
+- refs: R-281 D-513
+- 内容: 按 docs/design/subagent_management.md:36-84 交付三块:①Agent 目录(可用 agent 类型的注册与描述);②策略面板(每轮 task 上限/并发/超时/重试/预算可配置并生效);③运行审计摘要(每轮 subagent 派发与结果的可读汇总)。与 R-281 子代理阅读器互补:R-281 管看单个子代理说话,本条管策略与全局审计
+- 复杂度: 大
+- 来源: 2026-08-18 全库勘察;2026-08-18 用户拍板需要;docs/design/subagent_management.md P2 三块未实施,唯一演进条目 R-117 已 dropped
+- 标签: 核心
+- 边界: 不重做 R-281 的对话读取器;策略默认值保持现行为,配置生效有真实验证
+- 验收: 按设计文档三块交付;策略修改真实生效有测试;审计摘要在 UI 可见;roster_cap 类静默截断(D-513)在策略面板可见化
+- 优先级: P2
+- 取活依据: engine:唯一可执行 WIP 是 R-305，必须先恢复它
+- 取活释放: line=kanzei/thread-line-1787120622542-1;reason=parallel-line-unregister;at_ms=1787159520466
+- 进展: B3 已落地并验证：后端 `crates/kanzei-app/src/run/events/mod.rs:365-377` 将 PermissionResolved 真实投影为 `kz:permission-resolved`；事件路由位于 `crates/kanzei-app/ui/01-core.js:31-49`，运行摘要聚合与渲染位于 `crates/kanzei-app/ui/06-activity.js:920-1120`，真实派发/结果/usage/权限/终态消费者位于 `crates/kanzei-app/ui/07-events.js:11,20,185,216,230,290,305,364,421,625`；UI 卡片和运行轨迹入口位于 `crates/kanzei-app/ui/index.html:1040-1048`、`crates/kanzei-app/ui/06-activity.js:1470-1476`，样式位于 `crates/kanzei-app/ui/style.css:1212-1231`。B1 Agent 目录与 B2 策略强制保持既有交付：目录 `agent_directory.rs:43-223`/settings consumer `ui/16-settings.js:301-386`，策略读取 `settings.rs:560-590`、runner 强制 `drive.rs:494-511`/子代理入口 `subagents.rs:107-118,278-289,705-716`；roster_cap 可见化由 `settings.rs:17-20,?`、`ui/16-settings.js:279-299` 实现。验收逐条核验：①设计三块均有真实消费者：Agent 目录设置页、limits runner/子代理入口、审计卡片与 trace 按钮；②策略修改真实生效：T-1786922726489 通过 fmt、kanzei-llm 55/55、kanzei-core 220/220、kanzei-app 221/221；③审计摘要 UI 可见并消费真实派发/结果/权限事件：T-1786922726490 通过 ui-runtime（25 scripts、2339 invoke、0 runtime errors）及其余五项前端门禁，T-1786922726491 通过 kanzei-app 221/221；④roster_cap 不再静默截断：`settings.rs` 返回 phaseRosterCapacity、`ui/16-settings.js:279-299` 显示截断提示，T-1786922726482 与 T-1786922726486/T-1786922726487 已验证。实际当前安装窗口为旧构建，未将其冒充新 UI E2 证据；生产脚本运行时门禁和 Rust 定向测试为本交付证据。 [terminal-fix 2026-08-19] done → done: 修正已归档 R-305 终态进展中的错误证据占位符 `settings.rs:17-20,?`，替换为已核实的 `settings.rs:13,571`；不改变终态或验收结论。
+- observed_head: 1adb22a1e695aee9d9b8897c2946238100ea2a4c
+- observed_worktree_hash: fnv1a64:a66ca3ff5d267841
+- recorded_at: 1787166156844
+- 批次: 3/3
+- 批次说明: B1 Agent 目录与配置模型/只读入口；B2 策略读取与 runner 强制；B3 运行审计摘要 UI、端到端验证与收口。
+- 验收核验: ①按设计三块交付：Agent 目录 `crates/kanzei-app/src/agent_directory.rs:43-223` + `ui/16-settings.js:301-386`；策略 `crates/kanzei-app/src/settings.rs:560-590` + `crates/kanzei-core/src/runner/drive.rs:494-511` + `crates/kanzei-app/src/subagents.rs:107-118,278-289,705-716`；审计 `crates/kanzei-app/ui/06-activity.js:920-1120` + `ui/index.html:1040-1048`，真实调用方为 `ui/07-events.js:11,20,185,216,230,290,305,364,421,625` 与 trace 按钮 `ui/06-activity.js:1470-1476`。②策略真实生效：T-1786922726489、T-1786922726491。③审计摘要 UI 可见并有真实事件源：T-1786922726490、T-1786922726491。④roster_cap 策略面板可见化：`ui/16-settings.js:279-299`、T-1786922726482、T-1786922726486、T-1786922726487。

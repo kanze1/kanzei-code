@@ -6457,6 +6457,11 @@ const docsB = {
   const sA = handlers.get("kz:tool-start");
   const pA = handlers.get("kz:task-progress");
   const eA = handlers.get("kz:tool-end");
+  handlers.get("kz:meta")({ payload: { model: "smoke-provider:main", profile: "dev", sessionId: "sess-smoke" } });
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 1, sessionId: "sess-smoke" } });
+  handlers.get("kz:step")({ payload: { input: 200, output: 100, cacheRead: 20, cacheWrite: 0, sessionId: "sess-smoke" } });
+  handlers.get("kz:ask")({ payload: { id: 991, kind: "permission", action: "read", resource: "src/main.rs", source: "parallel", sessionId: "sess-smoke" } });
+  handlers.get("kz:permission-resolved")({ payload: { tool_call_id: "ask-991", action: "read", resource: "src/main.rs", decision: "deny", source: "user", sessionId: "sess-smoke" } });
   sA({ payload: { id: "my_scout", name: "task", summary: "勘察文件结构", input: { prompt: "review the repo", phase: "scouting", role: "my_scout" }, sessionId: "sess-smoke" } });
   await flush();
   const a1 = document.querySelector('#agent-running .bg-entry[data-agent-id="my_scout"]');
@@ -6497,6 +6502,23 @@ const docsB = {
   assert(a1f.dataset.bgStatus === "stopped", "被停的子代理未标记 stopped 终态");
   assert(a1f.querySelector(".bg-meta")?.textContent.includes("Stopped"), "被停的子代理终态元信息未显示「已停止」");
   assert(!a1f.querySelectorAll(".bg-actions button").some((b) => b.textContent === "Stop"), "结束的子代理不应残留停止按钮");
+  handlers.get("kz:done")({ payload: { sessionId: "sess-smoke", steps: 1, history: 1, halted: false, autoAction: { type: "NoContinue" } } });
+  await flush();
+  const auditCard = byId.get("agent-audit");
+  assert(auditCard && !auditCard.classList.contains("hidden"), "运行结束后未显示运行审计摘要卡片");
+  const auditText = byId.get("agent-audit-facts")?.textContent || "";
+  const modelText = byId.get("agent-audit-models")?.textContent || "";
+  assert(auditText.includes("主代理调用") || auditText.includes("Primary calls"), "审计摘要缺少主代理调用统计");
+  assert(auditText.includes("子代理派发") || auditText.includes("Subagent dispatches"), "审计摘要缺少子代理派发统计");
+  assert(auditText.includes("权限拒绝") || auditText.includes("Permission denials"), "审计摘要缺少权限拒绝统计");
+  assert(modelText.includes("smoke-provider:main"), "审计摘要缺少主代理模型调用统计");
+  assert(modelText.includes("fast"), "审计摘要缺少子代理模型调用统计");
+  const traceButton = byId.get("agent-audit-trace");
+  traceButton.click();
+  assert(!bgPanel.classList.contains("hidden"), "运行审计摘要的运行轨迹入口未打开活动面板");
+  agentToggle.click();
+  assert(!agentPanel.classList.contains("hidden"), "打开运行轨迹后无法返回子代理面板");
+  byId.get("activity-toggle").click(); // 恢复后续 D-350 用例的活动面板初始状态
   // Finished 区的条目有「打开」(transcript 视图入口)。
   assert(a1f.querySelectorAll(".bg-actions button").some((b) => b.textContent === "Open"), "Finished 区子代理缺少打开 transcript 入口");
   // 关闭只收起条目,后端历史仍保留;重新打开可恢复到 Finished,再删除才移除本次 UI 条目。

@@ -31,7 +31,7 @@ window.addEventListener("unhandledrejection", (event) => {
 // 事件订阅统一入口:注册失败必须可见(D-005 教训——ACL 拒绝时曾静默失联)。
 const SESSION_PROGRESS_EVENTS = new Set([
   "kz:meta", "kz:status", "kz:text", "kz:reasoning",
-  "kz:tool-start", "kz:tool-progress", "kz:task-progress", "kz:step",
+  "kz:tool-start", "kz:tool-progress", "kz:task-progress", "kz:step", "kz:permission-resolved",
 ]);
 // 这些是全局辅助事件,不是某一条运行会话的进度投影:权限询问由自身
 // 的队列归属,快速模型安装与 UI 探针也没有运行 session。
@@ -47,6 +47,7 @@ const BACKGROUND_RENDER_EVENTS = new Set([
   "kz:reasoning",
   "kz:tool-start",
   "kz:tool-end",
+  "kz:permission-resolved",
   "kz:compacted",
 ]);
 const SESSIONLESS_EVENTS = new Set([

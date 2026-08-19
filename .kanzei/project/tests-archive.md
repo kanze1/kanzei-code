@@ -8147,3 +8147,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-305
 - 收尾: 1787164380
 - 源码指纹: v2 crates/kanzei-app/src/settings.rs@4ccf5fbc13e4,crates/kanzei-app/src/subagents.rs@163550aaec1a,crates/kanzei-core/src/runner/drive.rs@6449f71641dc,crates/kanzei-llm/src/client.rs@240d692e2345
+
+## T-1786922726490 R-305 B3 运行审计摘要前端六项门禁 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/06-activity.js; node --check crates/kanzei-app/ui/07-events.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 4.0s
+- 摘要: 变更 UI 脚本 node --check 全部通过；六条前端门禁全部通过：ui-runtime 25 个脚本/2339 次 invoke/0 runtime errors，ui-lint 48 文件/748 globals，parallel-lines、ui-a11y、ui-i18n 1342 keys/451 HTML/57 动态契约、ui-markdown 均通过。实际当前安装窗口为旧构建，#agent-panel 未含新审计卡片；因此该窗口检查不作为新 UI 的 E2 证据。
+- 关联: R-305 D-562
+- 收尾: 1787165829
+- 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@3551e2d5541d,scripts/ui-lint-globals.json@43eb7b44a1ee,scripts/ui-runtime-smoke.mjs@41493d31f97f
+
+## T-1786922726491 R-305 B3 kanzei-app 权限事件与审计链路定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 25.0s
+- 摘要: cargo fmt 检查通过；kanzei-app 221/221 测试通过，包含 settings 策略往返、phase pipeline roster 截断诊断、permission 事件和既有子代理/运行链路回归。
+- 关联: R-305 D-562
+- 收尾: 1787165877
+- 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@3551e2d5541d,scripts/ui-lint-globals.json@43eb7b44a1ee,scripts/ui-runtime-smoke.mjs@41493d31f97f
