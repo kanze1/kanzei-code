@@ -249,10 +249,10 @@
 - 取活依据: engine:唯一可执行 WIP 是 R-306，必须先恢复它
 - 批次: 3/4
 - 设计冻结: 不变式：dev 以当前语义为准，分支只补缺失交付；不得用快进假装完成非快进收编。｜权威数据源：当前 dev、两条 worktree 分支的真实提交图与 merge-tree --write-tree 冲突结果。｜预期变更文件：先仅更新 R-306 进展/批次字段；代码文件待 B1 冲突逐块对账后按实际落地集合确定。｜最小测试：每批按实际改动运行对应 crate 定向测试；R-306 关闭前按复杂度“大”执行 workspace 全量测试及 scripts/verify.ps1。
-- 进展: B3 完成(2026-08-20,用户放行删除后执行):三条线 worktree 全部移除(p16/p13/R-257)+R-307 子代理树回收,Documents 下 .kanzei-worktree-* 归零;已合入分支删除(本地 p16/p13/agent 分支,远端 p13 与陈旧 release-68db58e);R-257 线分支(kanzei/thread-line-1786805363432-1)本地+远端留档——drive/git 拆分未收编残余的唯一副本;三处脏 WIP 补丁存证 scratchpad 后随树废弃(p16 ipc 接线已在 dev、p13 typed.rs 为 D-486 前身被取代、gen/schemas 为构建产物);.kanzei/quarantine 121 目录 143MB 清空(清单存证 quarantine-manifest-20260820.txt),research 残渣(d494-cleanup-prompt.txt/r289-runtime)清除。剩 B4:关闭条目 observed_head 祖先链闸门+收线释放流程
-- observed_head: 080db353cc33509398d0746987dccf2b703fe0b1
+- 进展: B4 进行中（R-306 已 claim）：真实校验 `git merge-base --is-ancestor kanzei/thread-line-1786805363432-1 dev` 返回 1，当前 dev=`55d2667a`、R-257 线=`aa27e11b`，两者均非祖先；使用真实 `kz worktree merge-preview <R-257 worktree> --project-root <临时 dev worktree>` 预检，报告 6 个冲突文件：`crates/kanzei-core/src/runner/drive.rs`、`runner/mod.rs`、`runner/tool_exec.rs`、`crates/kanzei-memory/src/docstore/repository.rs`、`crates/kanzei-tools/src/git.rs`、`scripts/ui-lint-globals.json`。代码对账：dev 已有 drive 子模块 `crates/kanzei-core/src/runner/drive/{assembly,context_budget,parallel_tools,permissions,question,serial_tools,task_results}.rs` 与 docstore 六域拆分；但 dev 的 `crates/kanzei-tools/src/git.rs` 仍为 2792 行单体，R-257 线的 `git/{commands,finalize,tool,worktree}.rs` 尚未收编，故验收③「四文件拆分」与验收①祖先链仍缺证。临时预检树已移除，R-257 原分支留档；清理误报已登记 D-576。下一步：在 dev 语义上完成 git 四域拆分/冲突对账并形成包含 R-257 祖先的安全合并提交，再运行 R-306 验收②要求的 workspace 全量与 scripts/verify.ps1；在此之前不关闭 R-306。
+- observed_head: fea119d886e40cc247d35eb239094334e41eb4df
 - observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787174555611
+- recorded_at: 1787176745612
 - 停车: 排队:R-242 收口后恢复 B4(observed_head 祖先链关闭闸门+收线释放流程),主会话工作已交接循环;解除条件:R-242
 - 对账: 2026-08-20 勘察修正:①p13 线实际未合并 16 提交(含 R-275 调色板批1~3、D-390/D-391/D-393/D-394 一串),条目内容原写 8 提交低估一倍,B1 工作量按 16 估;②p16 线(1787020530803-1)已经 merge commit 27b3e8d1 合入 dev,但树/本地分支/2 脏文件(ci.yml、git.rs)未清,B3 可先零风险清理;③冲突面持续扩大:线冻结在 08-16 后 dev 又改 drive.rs 14 次、memory/store.rs 10 次、git.rs 8 次;④两条欠账线均未走 parallel-line-unregister 释放流程,B4 闸门应含收线释放;⑤陈旧远端分支 kanzei/release-68db58e 已被 dev 完全包含,可顺带清理
 - 执行者: 主会话(SOL)。用户 2026-08-20 指令:结构性问题不再交自举,由主会话全面修复

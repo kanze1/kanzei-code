@@ -82,3 +82,12 @@
 - 标签: 后端
 - 验收: ①read/symbols/edit/insert 目标路径不存在时返回同目录最近邻文件候选;②读取范围越界时返回文件实际行数与合法范围;③必填参数缺失时点名参数并给一行示例;④memory 路径错误时提示正确根路径;⑤各失手形态有定向测试
 - 优先级: P2
+
+## D-576 删除本线临时 worktree 被 cross-tree detector 误报 [open] (low)
+- 复现: 主线创建临时 worktree 后执行 git worktree remove --force，cross-tree detector 将被删除树报告为另一条线改动并生成整树 quarantine 清单。
+- 影响: 正常的临时 worktree 清理产生大规模隔离噪声，误导为跨线越界并污染研究/隔离目录；本次未回滚仓库内容。
+- 期望: 识别本 run 创建并删除的 worktree，清理动作不应被归因成另一条活跃线改动，也不应整树 quarantine。
+- 来源: self-found during R-306 B4 merge-preview cleanup
+- 标签: 核心
+- refs: R-306
+- 优先级: P3
