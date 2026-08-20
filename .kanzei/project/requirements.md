@@ -342,4 +342,4 @@
 - 取活依据: user-direct:用户本轮明确要求由外部 Codex 完成底座并发版，避免依赖旧需求系统自举
 - 取得线: kanzei/work-unit-foundation
 - 批次: 3/4
-- 进展: B1 ba13b53a、B2 c5217523 已提交。B3 已完成：docs_snapshot 一次读取 Work Projection 并按父 Requirement 分组，需求列表显示 W 终态数/总数，详情显示单元状态、目标、阻塞、checkpoint 下一步与 evidence 覆盖；快照测试 6 项通过，UI i18n 覆盖、25 文件运行时冒烟、48 文件 ESLint no-undef 全绿。B4 文档/全量 verify/发版待完成。
+- 进展: B1 ba13b53a、B2 c5217523+b0b96c97、B3 db1e808e、文档 c3222943 已提交。发布前并行线审计发现并修复「带 reason 的 Work Unit override/takeover 可绕过本线已有 Resume」漏洞；新增 `work_unit接管不能绕过本线已有resume` 回归，确认 owner 不被改写。定向测试与 UI 门禁全绿；B4 仍需外部 PowerShell 跑全量 verify，随后合并与发版。

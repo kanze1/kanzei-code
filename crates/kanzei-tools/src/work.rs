@@ -1401,6 +1401,39 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
             Ok(state) => state,
             Err(error) => return Some(ToolOutput::error(error)),
         };
+        match state.decision {
+            WorkDecision::WipViolation => {
+                return Some(ToolOutput::error(format!(
+                    "{}；先收口现有 WIP，不能 claim {id}",
+                    state.reason
+                )))
+            }
+            WorkDecision::Resume
+                if state
+                    .selected
+                    .as_ref()
+                    .is_some_and(|selected| selected.id != id) =>
+            {
+                return Some(ToolOutput::error(format!(
+                    "已有可执行 WIP {}，必须 Resume；不能 claim 第二个 Work Unit",
+                    state.selected.as_ref().unwrap().id
+                )))
+            }
+            WorkDecision::Resume | WorkDecision::Start => {}
+            WorkDecision::Blocked | WorkDecision::Empty => {
+                let foreign_takeover = state.foreign_wip.iter().any(|unit| unit.id == id)
+                    && input
+                        .reason
+                        .as_deref()
+                        .is_some_and(|reason| !reason.trim().is_empty());
+                if !foreign_takeover {
+                    return Some(ToolOutput::error(format!(
+                        "当前裁决是 {:?}: {}",
+                        state.decision, state.reason
+                    )));
+                }
+            }
+        }
         if state
             .blocked_items
             .iter()
@@ -2791,6 +2824,77 @@ mod tests {
             WorkDecision::Empty,
             "{}",
             final_state.reason
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn work_unit接管不能绕过本线已有resume() {
+        let dir = fixture("work-unit-takeover-resume");
+        let mut outcome = entry("R-001", "doing");
+        outcome
+            .fields
+            .push(("执行模型".into(), "work_units_v1".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[outcome])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS).save(&[]).unwrap();
+        let store = SessionStore::open(&kanzei_core::project_state_path(&dir)).unwrap();
+        for index in 1..=2 {
+            store
+                .create_work_unit(kanzei_core::WorkUnitSpec {
+                    unit_id: format!("R-001/W{index}"),
+                    requirement_id: "R-001".into(),
+                    objective: format!("单元 {index}"),
+                    scope: vec![],
+                    dependencies: vec![],
+                    acceptance: vec![format!("验收 {index}")],
+                    verification: vec![],
+                    base_revision: "base".into(),
+                })
+                .unwrap();
+        }
+        store
+            .append_work_fact(
+                "R-001/W1",
+                kanzei_core::WorkFact::Claimed { claimed_by: None },
+            )
+            .unwrap();
+        store
+            .append_work_fact(
+                "R-001/W2",
+                kanzei_core::WorkFact::Claimed {
+                    claimed_by: Some("other-line".into()),
+                },
+            )
+            .unwrap();
+
+        let ctx = ToolCtx::new(dir.clone(), dir.clone())
+            .with_work_priority(WorkPriority::RequirementFirst);
+        let rejected = WorkTool
+            .execute(
+                json!({
+                    "action": "claim",
+                    "id": "R-001/W2",
+                    "reason": "尝试接管他线"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(rejected.is_error);
+        assert!(
+            rejected.content.contains("必须 Resume"),
+            "{}",
+            rejected.content
+        );
+        assert_eq!(
+            store
+                .get_work_unit("R-001/W2")
+                .unwrap()
+                .unwrap()
+                .claimed_by
+                .as_deref(),
+            Some("other-line")
         );
         let _ = std::fs::remove_dir_all(dir);
     }
