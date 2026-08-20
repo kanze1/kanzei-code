@@ -36,19 +36,42 @@ type EmitFn = Arc<dyn Fn(&str, serde_json::Value) -> tauri::Result<()> + Send + 
 /// 持有 emit 闭包(捕获 window + session_id);纯 UI 事件只落这一个 sink。
 pub(crate) struct UiEventSink {
     emit: EmitFn,
+    session_id: String,
+    run_id: String,
 }
 
 impl UiEventSink {
     pub(crate) fn new(
         emit_event: impl Fn(&str, serde_json::Value) -> tauri::Result<()> + Send + Sync + 'static,
+        session_id: String,
+        run_id: String,
     ) -> Self {
         Self {
             emit: Arc::new(emit_event),
+            session_id,
+            run_id,
         }
     }
 
     fn emit(&self, name: &str, payload: serde_json::Value) -> tauri::Result<()> {
-        (self.emit)(name, payload)
+        let legacy_result = (self.emit)(name, payload.clone());
+        let structured_result = match crate::experience_events::from_legacy(
+            name,
+            &self.session_id,
+            Some(self.run_id.clone()),
+            payload,
+            now_ms().max(0) as u64,
+        ) {
+            Ok(event) => (self.emit)(
+                crate::experience_events::EXPERIENCE_EVENT_NAME,
+                event.into_value(),
+            ),
+            Err(error) => {
+                tracing::warn!(%error, event = name, "experience event adaptation failed");
+                Ok(())
+            }
+        };
+        legacy_result.and(structured_result)
     }
 }
 

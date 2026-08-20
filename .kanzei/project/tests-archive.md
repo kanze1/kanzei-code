@@ -8823,3 +8823,33 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 设计时效门禁本身通过；六条 UI/IPC 冒烟、fmt、clippy、workspace 测试均通过。唯一失败为既有 metrics regression gate：crates/kanzei-memory/src/memory/mod.rs production 1399，baseline 1263，增长 136 超出 allowance 100；该文件不在 R-318/W4 本批提交中。
 - 关联: R-318
 - 收尾: 1787242657
+
+## T-1786922726582 R-284 B1 体验事件契约定向测试 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-app experience_events
+- 时长: 20.3s
+- 摘要: R-284 B1 experience_events 4 passed、0 failed；覆盖 snake_case schema、三类事件边界、legacy payload 归一化往返、未知事件诊断与非法包络拒绝。
+- 关联: R-284
+- 收尾: 1787243431
+- 源码指纹: v2 crates/kanzei-app/src/experience_events.rs@4fe855125477,crates/kanzei-app/src/main.rs@e8cc0ca4693d,crates/kanzei-app/src/run/coordinator.rs@9792584b5156,crates/kanzei-app/src/run/events/mod.rs@43fc8a69c3e4
+
+## T-1786922726583 R-284 B1 后端与前端六项门禁（修复前） [failed]
+- 命令: cargo test -p kanzei-app; node --check crates/kanzei-app/ui/01-core.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 38.7s
+- 摘要: cargo test -p kanzei-app 235 passed；前端语法检查通过，但 ui-runtime-smoke 在 D-608 修复前失败：3 个体验事件英文 key 缺失，D-381 将测试字面量 kz:future-event 识别为未订阅后端事件。
+- 关联: R-284 D-608
+- 收尾: 1787243561
+- 源码指纹: v2 crates/kanzei-app/src/experience_events.rs@aea36bfd07bc,crates/kanzei-app/src/main.rs@e8cc0ca4693d,crates/kanzei-app/src/run/coordinator.rs@9792584b5156,crates/kanzei-app/src/run/events/mod.rs@43fc8a69c3e4
+
+## T-1786922726584 R-284 B1 前端事件归并六项门禁 [passed]
+- 命令: node scripts/gen-ui-lint-globals.mjs; node --check crates/kanzei-app/ui/01-core.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 生成 755 个 UI 全局标识；运行时 25 个脚本/2339 次 invoke/0 错误；ESLint 49 文件零 no-undef；parallel-lines、a11y、i18n（1345 keys）、Markdown 全通过。
+- 关联: R-284 D-608
+- 收尾: 1787243621
+- 源码指纹: v2 crates/kanzei-app/src/experience_events.rs@80d5e262e6af,crates/kanzei-app/src/main.rs@e8cc0ca4693d,crates/kanzei-app/src/run/coordinator.rs@9792584b5156,crates/kanzei-app/src/run/events/mod.rs@43fc8a69c3e4,scripts/ui-lint-globals.json@7a0df876509e
+
+## T-1786922726585 R-284 B1 Rust提交门禁 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
+- 摘要: fmt check、kanzei-app 235 passed、workspace check all-targets、workspace clippy -D warnings 全部通过。
+- 关联: R-284 D-609
+- 收尾: 1787243806
+- 源码指纹: v2 crates/kanzei-app/src/experience_events.rs@b10ba3b690ee,crates/kanzei-app/src/main.rs@e8cc0ca4693d,crates/kanzei-app/src/run/coordinator.rs@9792584b5156,crates/kanzei-app/src/run/events/mod.rs@43fc8a69c3e4,scripts/ui-lint-globals.json@7a0df876509e

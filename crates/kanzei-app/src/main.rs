@@ -17,6 +17,7 @@ mod collaboration;
 mod commands;
 mod conversation;
 mod docs;
+mod experience_events;
 mod fast_model;
 mod files_view;
 mod harness_ext;

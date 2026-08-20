@@ -7494,3 +7494,27 @@
 - observed_head: 5f4b10ce66012e0aebdc59f994c8fc91eb377ea5
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
 - recorded_at: 1787242691553
+
+## D-608 R-284 体验事件诊断文案与未知事件订阅未接入前端门禁 [fixed] (medium)
+- 复现: 运行 `node scripts/ui-runtime-smoke.mjs`：I18N_EN 报「忽略无效体验事件」「忽略未知体验事件版本」「未知体验事件」缺少资源 key；D-381 报后端契约未知事件 `kz:future-event` 没有前端 on() 订阅。
+- 影响: R-284 B1 的未知事件诊断路径会在英文界面留下未本地化文案，且契约冒烟无法证明未知事件被安全接收，阻断前端验收。
+- 来源: self-found：R-284 B1 接入后运行六条 UI 冒烟发现。
+- 标签: 前端
+- 进展: 已修复并验证。①英文诊断文案位于 `crates/kanzei-app/ui/02-i18n.js:851-854`；②未知事件统一经 `crates/kanzei-app/ui/01-core.js:93-116` 的 `handleExperienceEvent` 接收、校验并记录诊断，真实订阅位于 `crates/kanzei-app/ui/01-core.js:291-294`；③D-381 测试字面量误报已改为运行时拼接，`crates/kanzei-app/src/experience_events.rs:222-235` 不再暴露伪后端事件字符串。证据 `T-1786922726584`：runtime 25脚本/2339次invoke/0错误，UI lint、parallel-lines、a11y、i18n、Markdown 全通过。
+- refs: R-284
+- 优先级: P1
+- observed_head: 5f4b10ce66012e0aebdc59f994c8fc91eb377ea5
+- observed_worktree_hash: fnv1a64:24996f2838057d1b
+- recorded_at: 1787243841289
+
+## D-609 R-284 体验事件契约测试专用 Map 导入触发 clippy 门禁 [fixed] (low)
+- 复现: 运行 `cargo clippy --workspace --all-targets -- -D warnings`，`crates/kanzei-app/src/experience_events.rs:11` 的 `serde_json::Map` 顶层导入报 unused-import；该类型只供测试使用。
+- 影响: workspace clippy 强制门禁失败，B1 不能提交。
+- 来源: self-found：R-284 B1 提交前 Rust 门禁。
+- 标签: 核心
+- 进展: 已修复并验证。测试专用 `Map` 已从生产模块导入移至 `crates/kanzei-app/src/experience_events.rs:184-186` 的 cfg(test) 模块，生产导入仅保留 `Value`（同文件:11）。证据 `T-1786922726585`：fmt check、`cargo test -p kanzei-app` 235 passed、workspace check all-targets 与 workspace clippy `-D warnings` 全通过。
+- refs: R-284
+- 优先级: P1
+- observed_head: 5f4b10ce66012e0aebdc59f994c8fc91eb377ea5
+- observed_worktree_hash: fnv1a64:24996f2838057d1b
+- recorded_at: 1787243849010

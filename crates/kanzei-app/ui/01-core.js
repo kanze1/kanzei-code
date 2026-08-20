@@ -49,6 +49,7 @@ const BACKGROUND_RENDER_EVENTS = new Set([
   "kz:tool-end",
   "kz:permission-resolved",
   "kz:compacted",
+  "kz:experience",
 ]);
 const SESSIONLESS_EVENTS = new Set([
   "kz:ask",
@@ -57,6 +58,67 @@ const SESSIONLESS_EVENTS = new Set([
   "kz:annotate-progress",
   "kz:mobile-message", // D-387:手机消息注入桌面后刷新会话列表(全局,无运行会话)。
 ]);
+// R-284 B1:结构化体验事件的前端归并层。旧 kz:* 事件继续由各现有 handler
+// 消费；kz:experience 只负责按事实归属去重、保存最近投影，再选择性触发表现层。
+const experienceEventIds = new Set();
+const experienceProjectionBySession = new Map();
+const EXPERIENCE_NEURAL_EVENTS = new Map([
+  ["run_started", "run_started"],
+  ["text_delta", "assistant_streaming"],
+  ["reasoning_delta", "reasoning_active"],
+  ["tool_started", "tool_started"],
+  ["tool_completed", "tool_completed"],
+  ["run_status_changed", "run_status_changed"],
+  ["stream_restarted", "stream_restarted"],
+  ["usage_delta", "usage_delta"],
+]);
+function rememberExperienceEvent(event) {
+  if (experienceEventIds.has(event.event_id)) return false;
+  experienceEventIds.add(event.event_id);
+  if (experienceEventIds.size > 4096) {
+    const oldest = experienceEventIds.values().next().value;
+    if (oldest) experienceEventIds.delete(oldest);
+  }
+  const session = experienceProjectionBySession.get(event.session_id) || {
+    facts: new Map(),
+    deltas: 0,
+    last_event_id: "",
+  };
+  if (event.class === "fact") session.facts.set(event.event_type, event);
+  if (event.class === "delta") session.deltas += 1;
+  session.last_event_id = event.event_id;
+  experienceProjectionBySession.set(event.session_id, session);
+  return true;
+}
+function handleExperienceEvent(payload) {
+  const event = payload && typeof payload === "object" ? payload : null;
+  if (!event?.event_id || !event.session_id || !event.event_type) {
+    log(`${t("忽略无效体验事件")}:missing_identity`, "warn");
+    return;
+  }
+  if (event.schema_version !== 1) {
+    log(`${t("忽略未知体验事件版本")}:${event.schema_version}`, "warn");
+    return;
+  }
+  if (!rememberExperienceEvent(event)) return;
+  const neuralEvent = EXPERIENCE_NEURAL_EVENTS.get(event.event_type);
+  if (!neuralEvent) {
+    log(`${t("未知体验事件")}:${event.event_type}`, "warn");
+    return;
+  }
+  // withSessionRender 会让后台事件进入所属对话 pane，但不允许它驱动当前
+  // 会话的 Canvas/音频；动画是表现投影，不是业务状态来源。
+  if (event.session_id !== activeSessionId || renderingBackground) return;
+  if (typeof neuralFlowEmit === "function") {
+    neuralFlowEmit(neuralEvent, {
+      session_id: event.session_id,
+      event_id: event.event_id,
+      event_type: event.event_type,
+      ...(event.payload || {}),
+    });
+  }
+}
+
 function on(event, handler) {
   listen(event, (eventPayload) => {
     const sessionId = eventPayload.payload?.sessionId;
@@ -224,6 +286,10 @@ function handleMobileMessage(payload) {
 // D-387:订阅手机消息事件(与 SESSIONLESS_EVENTS 手动同源,冒烟校验要求 on() 调用)。
 on("kz:mobile-message", (eventPayload) => {
   if (typeof handleMobileMessage === "function") handleMobileMessage(eventPayload.payload);
+});
+// R-284 B1:结构化事件统一进入归并层；未知事件只记诊断，不得让 UI 崩溃。
+on("kz:experience", (eventPayload) => {
+  handleExperienceEvent(eventPayload.payload);
 });
 
 const $ = (id) => document.getElementById(id);
