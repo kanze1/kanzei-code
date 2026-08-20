@@ -871,6 +871,22 @@ mod tests {
     use super::*;
     use serial_test::serial;
 
+    /// 进程级用户板在测试 panic 时也必须复位，避免后续串行查询继承半成品状态。
+    struct UserPaletteIsolation;
+
+    impl UserPaletteIsolation {
+        fn new() -> Self {
+            reset_user_palettes();
+            Self
+        }
+    }
+
+    impl Drop for UserPaletteIsolation {
+        fn drop(&mut self) {
+            reset_user_palettes();
+        }
+    }
+
     /// 验收①:内置板数量与四类覆盖(每类至少 1 板)。
     #[test]
     fn 内置数据四类覆盖且字段齐全() {
@@ -1180,7 +1196,7 @@ mod tests {
     #[serial]
     #[test]
     fn 用户板注册与同类型优先() {
-        reset_user_palettes();
+        let _palette_isolation = UserPaletteIsolation::new();
         // 导入即评分:note 记评分摘要。
         let p = import_palette(
             PaletteType::Qual,
@@ -1246,6 +1262,5 @@ mod tests {
             1,
             "同名覆盖"
         );
-        reset_user_palettes();
     }
 }

@@ -7188,3 +7188,13 @@
 - 验收: 目标测试连续重放 20/20；`cargo test -p kanzei-app mobile::tests` 15/15，覆盖普通通知单连接、SSE 单连接、游标持久化、设备撤销、approval 与真实桥接端口。
 - 标签: 测试 后端
 - 优先级: P1
+
+## D-595 matplotlib uv 轨继承 Conda base 权限故障,panic 后用户色板泄漏连锁污染并行测试 [fixed] (high)
+- refs: R-317 R-274 R-275
+- 复现: 2026-08-20 R-317 第三次外部 `scripts/verify.ps1` 中，`kanzei-tools --lib` 的三个 matplotlib 用例均报 `uv 按需环境化` 无法打开 `C:\ProgramData\miniconda3\Scripts\archspec.exe`（os error 5）；随后 `palette_type查询内置板` 读到前一失败测试遗留的 2 色 qual 用户板，请求 8 色时报超长。结果 392 passed、4 failed、1 ignored。
+- 影响: 用户在 Conda base 中启动 kanzei 或发布验证时，声明为“uv 按需环境化”的 matplotlib 轨实际继承系统 Conda，既可能因权限失败，也会让中途 panic 跳过测试末尾的手工清理，污染同进程后续色板查询并放大为多项失败。
+- 根因: ①`render_matplotlib` 调用 `uv run --with ...` 未声明 isolated，当前活跃 Conda 的解释器发现与脚本目录进入 uv 决策面；同环境对照中旧命令稳定复现 `archspec.exe` 拒绝访问。②用户色板是进程级 `OnceLock<Mutex<Vec<Palette>>>`，串行测试只能防并发，原清理语句位于断言之后，panic unwind 时不会执行。
+- 修复: `crates/kanzei-tools/src/plot_tool.rs` 的 uv 路径改为 `uv run --isolated --with matplotlib --with scienceplots ...`，不再消费活跃 Conda/项目环境；同一 Conda base 下隔离命令使用 uv 临时环境并成功加载 matplotlib。plot/palette 两组会修改用户板的测试增加 RAII 守卫，进入时清空，正常退出与 panic unwind 均复位注册表。
+- 验收: 当前用户同款 Conda base 环境下，绘图测试 17/17、色板测试 14/14；`cargo test -p kanzei-tools --lib` 396 passed、0 failed、1 ignored；`cargo clippy -p kanzei-tools -- -D warnings` 通过。
+- 标签: 后端 测试
+- 优先级: P1

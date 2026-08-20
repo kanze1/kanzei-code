@@ -342,4 +342,4 @@
 - 取活依据: user-direct:用户本轮明确要求由外部 Codex 完成底座并发版，避免依赖旧需求系统自举
 - 取得线: kanzei/work-unit-foundation
 - 批次: 3/4
-- 进展: B1 ba13b53a、B2 c5217523+b0b96c97、B3 db1e808e、文档 c3222943、接管门禁 d382bbfc 已提交。首次外部全量 verify 暴露的 IPC 契约与 work.rs 规模门禁已由 0f782868 修复，最小回归全绿。第二次全量 verify 的 229 项 app 测试仅 `mobile::tests::sse轮询单连接复用` 偶发失败：固定等待 50ms 后先停服，慢调度下服务端只来得及发送响应头。已登记并修复 D-594，测试改为在 2 秒协议超时内等待首个 `data:` 帧后再停服，生产 SSE 路径零改动；目标测试连续 20/20、完整 mobile 15/15 通过。B4 仍需基于本批新 HEAD 最后重跑 workspace 全量 verify，随后保持源码不变直接合并与发版。
+- 进展: B1 ba13b53a、B2 c5217523+b0b96c97、B3 db1e808e、文档 c3222943、接管门禁 d382bbfc 已提交。首次外部 verify 的 IPC/规模门禁由 0f782868 修复；第二次的 SSE 首帧测试竞态由 f4533f37/D-594 修复。第三次 verify 的 tools 测试仅绘图四项失败，已登记并修复 D-595：`uv run` 增加 `--isolated`，在用户同款 Conda base 环境下旧命令稳定复现 `archspec.exe` 拒绝访问、隔离命令成功；用户色板测试改用 RAII 在 panic unwind 时清理进程级注册表，阻断连锁污染。绘图 17/17、色板 14/14、完整 tools lib 396 passed/1 ignored，tools Clippy 通过。B4 仍需基于本批新 HEAD 最后重跑 workspace 全量 verify，随后保持源码不变直接合并与发版。
