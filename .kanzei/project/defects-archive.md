@@ -7258,3 +7258,18 @@
 - observed_head: ac9242409eec26f0e7a05faee43c4fd24c5e1049
 - observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
 - recorded_at: 1787220352062
+
+## D-597 R-248 使 tracker.rs 超出结构增长预算 --ref R-248 [fixed] (medium)
+- 复现: scripts/verify.ps1 的 crate_sync/metrics gate 报 tracker.rs production 973，相对 baseline 868 增长 105，超过 allowance 100
+- 影响: Rust 测试与 Clippy 虽全绿，正式 verify 仍失败，远端 dev 不具备可发布证据
+- 期望: 将 prior-art 登记策略下沉既有 prior_art.rs，tracker 仅保留薄调用；定向测试、严格 Clippy 与 metrics gate 全绿
+- 来源: 2026-08-20 R-248 正式验证实测
+- 标签: 后端
+- 根因: prior-art 登记判定约 80 行直接堆入 tracker.rs，而仓库已有独立 prior_art.rs 领域模块
+- 优先级: P1
+- 取活依据: override:R-248 正式验证的结构门禁直接阻断本轮远端交付，必须在推送前收口
+- 进展: ①提交 4d747789 新增 prior_art::RegistrationCheck/check_registration，tracker.rs 的 check_prior_art 收敛为薄适配；metrics regression gate 显示 30 rows、giants 3/3、per-file allowance 100，exit 0。②提交 4d747789 后 tracker 核心空refs门禁 1 passed、prior_art 全组 4 passed，工件/豁免/普通条目语义均由原测试覆盖。③提交 4d747789 上 cargo clippy --workspace --all-targets -- -D warnings exit 0。
+- 验收: ①prior-art 登记策略归入 prior_art.rs，tracker.rs 只保留薄调用；②原有工件、豁免、普通需求语义不变；③结构预算、严格 all-targets Clippy 与定向测试全绿。
+- observed_head: 4d74778956e4c46d375079f0dd85d76442ed5572
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787220805975
