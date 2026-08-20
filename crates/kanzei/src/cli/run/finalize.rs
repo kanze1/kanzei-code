@@ -235,10 +235,14 @@ pub(crate) async fn finish_run(
         current_episode_id,
         kanzei_tools::memory::CANDIDATE_MAX_AGE_DAYS,
     ) {
-        if !report.promoted.is_empty() || !report.deprecated.is_empty() {
+        if !report.promoted.is_empty()
+            || !report.deprecated.is_empty()
+            || report.global_reviewed > 0
+            || report.global_deprecated > 0
+        {
             eprintln!(
                 "\x1b[90m(memory: candidate 自动处置: promote {} / deprecated {} / 未动 {} \
-                 (文件 {}→{}, 索引 {}→{})\x1b[0m",
+                 (文件 {}→{}, 索引 {}→{}; global review {} / deprecated {} / recall {})\x1b[0m",
                 report.promoted.len(),
                 report.deprecated.len(),
                 report.untouched.len(),
@@ -246,6 +250,9 @@ pub(crate) async fn finish_run(
                 report.candidate_files_after,
                 report.candidate_index_before,
                 report.candidate_index_after,
+                report.global_reviewed,
+                report.global_deprecated,
+                report.global_recall_rows,
             );
         }
     }

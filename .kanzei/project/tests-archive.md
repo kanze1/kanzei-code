@@ -9041,3 +9041,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-637 R-308
 - 收尾: 1787260428
 - 源码指纹: v2 crates/kanzei-memory/src/memory/retrieval/search.rs@531198e8bcc9,crates/kanzei-memory/src/memory/store.rs@856e26ab4afe
+
+## T-1786922726612 cargo fmt --all + cargo test -p kanzei-memory (R-308 B4 global review) [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 时长: 20.9s
+- 摘要: R-308 B4 global review 回归全绿：164 passed、0 failed、0 ignored；74 条 global candidate 一次性复核，清退 50 条至健康水位 24，写入 74 条 global memory_recalls，重复调用不重复复核。
+- 关联: R-308
+- 收尾: 1787260881
+- 源码指纹: v2 crates/kanzei-memory/src/memory/mod.rs@b36f016e4fdc,crates/kanzei-memory/src/memory/store.rs@6e5cd98b1a1d,crates/kanzei/src/cli/run/finalize.rs@61d9b9561256
+
+## T-1786922726613 cargo test -p kanzei (R-308 B4 CLI caller) [passed]
+- 命令: cargo test -p kanzei
+- 时长: 20.8s
+- 摘要: CLI 轮末真实调用方编译与回归通过：43 unit + 32 integration passed，0 failed，0 ignored；finalize.rs 可消费 global review report。
+- 关联: R-308
+- 收尾: 1787260924
+- 源码指纹: v2 crates/kanzei-memory/src/memory/mod.rs@b36f016e4fdc,crates/kanzei-memory/src/memory/store.rs@6e5cd98b1a1d,crates/kanzei/src/cli/run/finalize.rs@61d9b9561256

@@ -1110,6 +1110,57 @@ pub const CANDIDATE_MAX_AGE_DAYS: i64 = 14;
 /// 轮末超出时按低价值优先归档，避免生产速率高于清退速率。
 pub const CANDIDATE_MAX_COUNT: usize = 24;
 
+const GLOBAL_CANDIDATE_REVIEW_PROMPT: &str = "global-candidate-review-v1";
+
+/// B4:global 域一次性 candidate 复核。
+///
+/// global 不恢复生产检索(R-194);本入口只把待复核 candidate 作为审计批次写入
+/// global index.db 的 memory_recalls,再复用同一套生命周期清退/归档机制。marker
+/// 使轮末 CLI 与桌面端重复调用幂等,review 结果可从 global recalls 重放。
+fn reconcile_global_candidates(max_age_days: i64) -> anyhow::Result<CandidateReconcileReport> {
+    let Some(global) = MemoryStore::global() else {
+        return Ok(CandidateReconcileReport::default());
+    };
+    let candidates: Vec<(std::path::PathBuf, MemoryEntry)> = global
+        .load_all()
+        .into_iter()
+        .filter(|(_, entry)| entry.status == "candidate")
+        .collect();
+    let already_recorded = global
+        .recalls(100_000)
+        .iter()
+        .any(|round| round.prompt_head == GLOBAL_CANDIDATE_REVIEW_PROMPT);
+    if already_recorded || candidates.is_empty() {
+        return Ok(CandidateReconcileReport {
+            global_candidate_files_before: candidates.len(),
+            global_candidate_files_after: candidates.len(),
+            global_review_already_recorded: already_recorded,
+            ..Default::default()
+        });
+    }
+
+    let hits: Vec<SearchHit> = candidates
+        .iter()
+        .map(|(path, entry)| SearchHit {
+            entry: entry.clone(),
+            path: path.clone(),
+            snippet: entry.description.clone(),
+            hits: 0,
+            score: 0.0,
+        })
+        .collect();
+    global.record_recall(GLOBAL_CANDIDATE_REVIEW_PROMPT, &hits, 0);
+    let reconciled = global.reconcile_candidates(None, max_age_days)?;
+    Ok(CandidateReconcileReport {
+        global_candidate_files_before: candidates.len(),
+        global_candidate_files_after: reconciled.candidate_files_after,
+        global_reviewed: candidates.len(),
+        global_deprecated: reconciled.deprecated.len(),
+        global_recall_rows: hits.len(),
+        ..Default::default()
+    })
+}
+
 /// 轮末自动处置 candidate 的共享入口(R-195/D-341):CLI 与桌面端各在轮末
 /// episode 落库后调用一次,保证「判定动作真实被执行」,不依赖 manager 是否
 /// 自主调用 memory_promote/memory_stale。
@@ -1126,7 +1177,16 @@ pub fn reconcile_candidates(
     current_episode_id: Option<i64>,
     max_age_days: i64,
 ) -> anyhow::Result<CandidateReconcileReport> {
-    MemoryStore::project(project_root).reconcile_candidates(current_episode_id, max_age_days)
+    let global = reconcile_global_candidates(max_age_days)?;
+    let mut project = MemoryStore::project(project_root)
+        .reconcile_candidates(current_episode_id, max_age_days)?;
+    project.global_candidate_files_before = global.global_candidate_files_before;
+    project.global_candidate_files_after = global.global_candidate_files_after;
+    project.global_reviewed = global.global_reviewed;
+    project.global_deprecated = global.global_deprecated;
+    project.global_recall_rows = global.global_recall_rows;
+    project.global_review_already_recorded = global.global_review_already_recorded;
+    Ok(project)
 }
 
 /// 开跑预检索(R-106):拿本轮的检索键对两级记忆做混合检索(lexical BM25 +
@@ -1424,6 +1484,64 @@ mod tests {
     use super::*;
     use kanzei_core::RecallPolicy;
     use serde_json::json;
+
+    #[test]
+    fn global_candidate_review_is_one_shot_and_records_recall() {
+        let home = std::env::temp_dir().join(format!(
+            "kz-home-r308-b4-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project_root = home.join("project");
+        std::fs::create_dir_all(project_root.join(".kanzei")).unwrap();
+        let previous_home = std::env::var_os("KANZEI_HOME");
+        std::env::set_var("KANZEI_HOME", &home);
+        let global = MemoryStore::global().expect("临时 HOME 下应能打开 global store");
+        for index in 0..74 {
+            let outcome = global
+                .add(
+                    "preference",
+                    &format!("global review fixture {index}"),
+                    "global candidate review hook",
+                    &format!("global candidate review body {index}"),
+                    "memory-manager",
+                    &[],
+                    None,
+                    true,
+                )
+                .unwrap();
+            assert!(matches!(outcome, AddOutcome::Added(entry) if entry.status == "candidate"));
+        }
+
+        let first = reconcile_candidates(&project_root, None, 365).unwrap();
+        assert_eq!(first.global_candidate_files_before, 74);
+        assert_eq!(first.global_reviewed, 74);
+        assert_eq!(first.global_recall_rows, 74);
+        assert_eq!(first.global_deprecated, 50);
+        assert_eq!(first.global_candidate_files_after, CANDIDATE_MAX_COUNT);
+        let global_after = MemoryStore::global().unwrap();
+        assert!(
+            global_after
+                .recalls(100)
+                .iter()
+                .any(|round| round.prompt_head == GLOBAL_CANDIDATE_REVIEW_PROMPT),
+            "global review 必须产生 recall telemetry"
+        );
+
+        let second = reconcile_candidates(&project_root, None, 365).unwrap();
+        assert_eq!(second.global_reviewed, 0, "同一 marker 不得重复复核");
+        assert!(second.global_review_already_recorded);
+
+        if let Some(previous_home) = previous_home {
+            std::env::set_var("KANZEI_HOME", previous_home);
+        } else {
+            std::env::remove_var("KANZEI_HOME");
+        }
+        std::fs::remove_dir_all(&home).ok();
+    }
 
     #[test]
     fn frontmatter_roundtrip_preserves_unknown_keys() {

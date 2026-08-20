@@ -223,11 +223,11 @@
 - 验收: ①顶层条目数≈实质主题数(勘察口径复查冗余率<15%);②同指纹重复写入被机械拒绝并有定向测试;③candidate 可见性单轨有断言;④global 域 74 条处置留痕且 recall 遥测非零;⑤INDEX 行与源文件 description 一致性核对通过(与 D-568 对齐)
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-308(unblocks=0)
-- 批次: 3/4
-- 进展: B3 已完成并验证：`retrieval/search.rs:27-29` 将 search_candidates 未指定 status 的默认路径硬限定为 active，显式 status 仍保留给生命周期/评估；`store.rs:1376-1448` 新增真实 store/index 回归，断言 candidate 不写入 INDEX 行、不进入默认 FTS、不进入主检索；`store.rs:791-827,839-854` 的 INDEX active 集合与源文件 description 一致性断言继续执行。验证 T-1786922726611：163 passed, 0 failed, 0 ignored。D-637 已 fixed。下一步 B4：核对 global 域 candidate 存量、批量复核留痕与 recall 遥测接线，不改变 R-293 F(m) 框架与 R-235 存量豁免。
-- observed_head: 168c404f31cc25bf172e33faae4576643ae7964b
-- observed_worktree_hash: fnv1a64:e06423478ddd60f4
-- recorded_at: 1787260463776
+- 批次: 4/4
+- 进展: B4 已完成并验证：`memory/mod.rs:1117-1200` 新增 global candidate 一次性复核，使用 `global-candidate-review-v1` marker 幂等化；首轮把 global candidate 快照写入 global `index.db.memory_recalls`，再调用既有 `reconcile_candidates(None, max_age_days)` 走清退/归档，未恢复 R-194 global 生产检索；`store.rs:91-108` 扩展 CandidateReconcileReport 的 global 审计字段；`crates/kanzei/src/cli/run/finalize.rs:228-257` 现有 CLI 轮末真实调用方输出 global review/deprecated/recall 结果。`memory/mod.rs:1488-1544` 新增 74 条 global candidate fixture：一次复核、清退 50 条至 24 条、写入 74 条 recall telemetry，重复调用不复核。验证 T-1786922726612：164 passed, 0 failed, 0 ignored；T-1786922726613：kanzei 43 unit + 32 integration passed。B4 批次已满。剩余验收缺口：①实际 global 存量当前核查为 77 条而非勘察口径 74，尚未对真实存量执行一次性 review；②顶层实质主题冗余率<15%与既有重复簇的存量合并尚无现场复核/归档证据。B1-B3 已提交并保持有效；R-308 继续 doing，不能关闭。
+- observed_head: 1ec1d4c731b23501ec0d5b5bb0976fe96537ef62
+- observed_worktree_hash: fnv1a64:9975f8262c8c1720
+- recorded_at: 1787260949046
 - status: doing
 
 ## R-309 门禁矩阵整合:按改动路径裁剪 verify、globals 免手工同步、脆性门禁加固 [todo]

@@ -98,6 +98,13 @@ pub struct CandidateReconcileReport {
     pub promoted: Vec<String>,
     pub deprecated: Vec<String>,
     pub untouched: Vec<String>,
+    /// B4:一次性 global candidate 复核的审计投影。
+    pub global_candidate_files_before: usize,
+    pub global_candidate_files_after: usize,
+    pub global_reviewed: usize,
+    pub global_deprecated: usize,
+    pub global_recall_rows: usize,
+    pub global_review_already_recorded: bool,
 }
 
 impl Novelty {
