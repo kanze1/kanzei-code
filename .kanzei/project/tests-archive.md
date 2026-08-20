@@ -8792,3 +8792,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 39 份 docs/design 文档全部被索引且链接唯一；live_design/validated_design 均有 last_verified_commit，historical_snapshot 有 as_of_commit，superseded 有有效 superseded_by；四类身份均存在。
 - 关联: R-318
 - 收尾: 1787241765
+
+## T-1786922726578 R-318/W4 设计时效门禁（身份漂移发现） [failed]
+- 命令: node --check scripts/check-design-freshness.mjs; node scripts/check-design-freshness.mjs --self-test; node scripts/check-design-freshness.mjs
+- 时长: 0.6s
+- 摘要: 自测通过，但正常扫描捕获到真实漂移：harness_m1.md:3 声明 live_design 而索引原标 validated_design；已将索引修正为 live_design。
+- 关联: R-318 D-607
+- 收尾: 1787242385
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@30da2593ccda,crates/kanzei-tools/src/profiles/dev.rs@f7a77f2ade4e,scripts/check-design-freshness.mjs@2328eea436dc,scripts/verify.ps1@bac892ce60cc
+
+## T-1786922726579 R-318/W4 设计时效门禁（修正后） [passed]
+- 命令: node --check scripts/check-design-freshness.mjs; node scripts/check-design-freshness.mjs --self-test; node scripts/check-design-freshness.mjs
+- 时长: 0.7s
+- 摘要: 脚本入口在 Windows 下可执行；自测覆盖终态冲突、同文档身份矛盾、历史快照不误报；正常仓库扫描通过，39 份设计索引身份/提交/替代关系一致。
+- 关联: R-318 D-606 D-607
+- 收尾: 1787242391
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@30da2593ccda,crates/kanzei-tools/src/profiles/dev.rs@f7a77f2ade4e,scripts/check-design-freshness.mjs@2328eea436dc,scripts/verify.ps1@bac892ce60cc
+
+## T-1786922726580 R-318/W4 kanzei-tools 定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-tools
+- 时长: 35.9s
+- 摘要: kanzei-tools 定向测试 403 passed、0 failed、2 ignored；覆盖 DevProfile 默认设计索引排除 superseded 行/正文、既有 profile 与工具装配回归。
+- 关联: R-318 D-605 D-606 D-607
+- 收尾: 1787242397
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@30da2593ccda,crates/kanzei-tools/src/profiles/dev.rs@f7a77f2ade4e,scripts/check-design-freshness.mjs@2328eea436dc,scripts/verify.ps1@bac892ce60cc

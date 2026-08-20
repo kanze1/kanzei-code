@@ -684,6 +684,57 @@ mod tests {
         assert_eq!(mentions, vec!["req", "git", "node"]);
     }
 
+    #[test]
+    fn dev_design_index_excludes_superseded_rows_and_document_bodies() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-r318-design-context-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei/project/architecture")).unwrap();
+        std::fs::create_dir_all(root.join("docs/design")).unwrap();
+        std::fs::write(
+            root.join(".kanzei/project/architecture/README.md"),
+            "## live_design\n- [identity: live_design; last_verified_commit: abcdef1] [`live.md`](../../../docs/design/live.md)\n## superseded\n- [identity: superseded; as_of_commit: abcdef1; superseded_by: live.md] [`old.md`](../../../docs/design/old.md)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("docs/design/live.md"),
+            "LIVE_DESIGN_BODY_MUST_NOT_BE_READ\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("docs/design/old.md"),
+            "SUPERSEDED_BODY_MUST_NOT_BE_READ\n",
+        )
+        .unwrap();
+
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness.add(DevProfile).add(ConfigComponent);
+        let baseline = harness.resolve(&ctx).unwrap().system_baseline();
+
+        assert!(
+            baseline.contains("live.md"),
+            "非 superseded 设计入口应进入默认索引上下文"
+        );
+        assert!(
+            !baseline.contains("old.md"),
+            "superseded 设计入口不应进入默认索引上下文"
+        );
+        assert!(!baseline.contains("LIVE_DESIGN_BODY_MUST_NOT_BE_READ"));
+        assert!(!baseline.contains("SUPERSEDED_BODY_MUST_NOT_BE_READ"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// D-173:硬 deny 与专用工具必须闭合。
     /// 有工具的资源族要点名工具;没工具的要如实说"能力未实现"并堵死 shell 绕行。
     #[test]

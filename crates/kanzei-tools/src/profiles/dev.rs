@@ -321,6 +321,31 @@ impl Component for DevProfile {
         );
 
         draft.context.insert(
+            "dev/design-index",
+            source("dev/design-index", |ctx: &ResolveCtx| {
+                let path = ctx
+                    .project_root
+                    .join(".kanzei/project/architecture/README.md");
+                let text = std::fs::read_to_string(path).ok()?;
+                let lines: Vec<&str> = text
+                    .lines()
+                    .filter(|line| {
+                        line.contains("[identity:")
+                            && line.contains("](../../../docs/design/")
+                            && !line.contains("[identity: superseded;")
+                    })
+                    .collect();
+                if lines.is_empty() {
+                    return None;
+                }
+                Some(format!(
+                    "<design-index>\n当前设计只注入身份、核验提交和入口摘要；正文按需读取。\n{}\n</design-index>",
+                    lines.join("\n")
+                ))
+            }),
+        );
+
+        draft.context.insert(
             "dev/project-docs",
             source("dev/project-docs", |_ctx: &ResolveCtx| {
                 Some(
