@@ -83,6 +83,29 @@ fn load_state(root: &Path, topic: &str) -> Result<Option<ResearchLoopState>, Str
         .map_err(|error| format!("检索环状态 JSON 无效: {error}"))
 }
 
+/// D-571:research 档的 websearch/webfetch 必须属于 begin_search 已登记的活动任务。
+/// 联网工具只做这一个真源校验，不复制 loop 的轮次/并发状态机。
+pub(crate) fn validate_external_task(
+    root: &Path,
+    topic: &str,
+    task_id: &str,
+) -> Result<(), String> {
+    let state = load_state(root, topic)?
+        .ok_or_else(|| format!("topic `{topic}` 尚未启动检索环；先 research_loop start"))?;
+    if state.status != "running" || state.phase != "search" {
+        return Err(format!(
+            "topic `{topic}` 当前为 {} / {}，不允许直接联网检索",
+            state.status, state.phase
+        ));
+    }
+    if !state.active_tasks.iter().any(|active| active == task_id) {
+        return Err(format!(
+            "RESEARCH_LOOP_TASK_REQUIRED: task_id `{task_id}` 不是 topic `{topic}` 的活动检索任务；每次 websearch/webfetch 前必须先调用 research_loop begin_search，不能绕过轮次与并发预算。"
+        ));
+    }
+    Ok(())
+}
+
 fn save_state(root: &Path, state: &ResearchLoopState) -> Result<(), String> {
     let path = state_path(root, &state.topic)?;
     if let Some(parent) = path.parent() {
@@ -529,6 +552,10 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        assert!(validate_external_task(&project, "loop-smoke", &task_id).is_ok());
+        assert!(validate_external_task(&project, "loop-smoke", "r0-forged")
+            .unwrap_err()
+            .contains("RESEARCH_LOOP_TASK_REQUIRED"));
         let second = tool
             .execute(
                 json!({ "action": "begin_search", "topic": "loop-smoke" }),
@@ -543,6 +570,7 @@ mod tests {
             )
             .await;
         assert!(!evidence.is_error, "{}", evidence.content);
+        assert!(validate_external_task(&project, "loop-smoke", &task_id).is_err());
         let reflected = tool
             .execute(
                 json!({ "action": "reflect", "topic": "loop-smoke", "gaps": [] }),

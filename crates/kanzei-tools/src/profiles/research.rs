@@ -20,9 +20,13 @@ pub(crate) fn register_tools(draft: &mut HarnessDraft) {
             requires_refs: None,
         }),
     );
+    draft.tools.insert(
+        "websearch",
+        Arc::new(crate::websearch::ResearchWebSearchTool),
+    );
     draft
         .tools
-        .insert("websearch", Arc::new(crate::websearch::WebSearchTool));
+        .insert("webfetch", Arc::new(crate::webfetch::ResearchWebFetchTool));
     draft.tools.insert(
         "research_plan",
         Arc::new(crate::research_plan::ResearchPlanTool),

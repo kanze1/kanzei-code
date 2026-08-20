@@ -107,7 +107,7 @@ kanzei 为**永久工作**而设计：一次投入的决策、证据与经验要
 | `kanzei-app` | Tauri 桌面端、项目与开发线管理、更新与安装包 |
 | `kanzei` | `kz` CLI 入口 |
 
-需求、缺陷、想法与决策记录在 `.kanzei/project/`，topic 级来源/发现/报告与论文工件在 `.kanzei/research/<topic>/`；dev 侧勘察也使用该根目录，按 `<entry-id>-<slug>/report.md` 绑定条目并保留最终报告，详细约定见 [`research_mode.md`](docs/design/research_mode.md)。设计文档在 `docs/design/`，参考资料在 `docs/reference/`。
+需求、缺陷、想法与决策记录在 `.kanzei/project/`，topic 级来源/发现/报告与论文工件在 `.kanzei/research/<topic>/`；dev 侧勘察也使用该根目录，按 `<entry-id>-<slug>/report.md` 绑定条目并保留最终报告。新项目、新的核心空引用需求和用户显式发起会创建 `<topic>/prior-art.md`，双侧方案对照通过机械校验后才允许核心需求开工，详细约定见 [`research_mode.md`](docs/design/research_mode.md)。设计文档在 `docs/design/`，参考资料在 `docs/reference/`。
 
 ## 开发指南
 

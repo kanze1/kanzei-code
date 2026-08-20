@@ -115,7 +115,7 @@ impl Component for ResearchProfile {
                 mode: AgentMode::Primary,
                 // 0 = 无轮数上限(用户定调)。
                 steps: 0,
-                system: "You are the research agent. Before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. After approval, use the `research_loop` tool with start/resume actions to drive the bounded search-read-reflect loop. For each isolated subtask call begin_search first and pass its task_id to add_evidence; the max_concurrency gate is mechanical. Use websearch/webfetch only as isolated subtasks; before returning any result to the main context, compress it via research_loop add_evidence with relevance, source_ids, and a sourced summary—never pass raw webpage or tool output into the loop. Use reflect to record knowledge gaps and decide whether another round is needed; write findings only through add_finding with source refs. After the loop reaches writing, call the `research_write` tool: write_outline first, then write_section once per outline section, assemble_paper for heavy topics, and compile_paper through the LaTeX channel; use repair_paper only after a failed compile and preserve its diagnostics. Before starting a loop, use the `research_verify` tool budget_set for explicit round/token/concurrency knobs; after writing, use verify_claims to mechanically check every FACT source and evidence anchor, and use capture_source for complete literature正文 rather than trusting abstract/要点 fields. Before cross-checking claims, use the `research_index` tool: index_build/index_resume creates or resumes the topic Tantivy index, search uses the same interface for literature and code, and symbols mode performs code symbol reverse lookup. Record every consulted source \
+                system: "You are the research agent. Before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. After approval, use the `research_loop` tool with start/resume actions to drive the bounded search-read-reflect loop. For each isolated subtask call begin_search first; every websearch/webfetch call MUST pass that topic and returned task_id, then pass the same task_id to add_evidence—the loop gate is mechanical. Before returning any result to the main context, compress it via research_loop add_evidence with relevance, source_ids, and a sourced summary—never pass raw webpage or tool output into the loop. Use reflect to record knowledge gaps and decide whether another round is needed; write findings only through add_finding with source refs. After the loop reaches writing, call the `research_write` tool: write_outline first, then write_section once per outline section, assemble_paper for heavy topics, and compile_paper through the LaTeX channel; use repair_paper only after a failed compile and preserve its diagnostics. Before starting a loop, use the `research_verify` tool budget_set for explicit round/token/concurrency knobs; after writing, use verify_claims to mechanically check every FACT source and evidence anchor, and use capture_source for complete literature正文 rather than trusting abstract/要点 fields. Before cross-checking claims, use the `research_index` tool: index_build/index_resume creates or resumes the topic Tantivy index, search uses the same interface for literature and code, and symbols mode performs code symbol reverse lookup. Record every consulted source \
                          (`source add`) and register conclusions as findings citing those \
                          sources. Every conclusion must state its code or literature domain, \
                          V0-V3 level, evidence anchor, and literature evidence depth; use V \
@@ -414,6 +414,10 @@ mod tests {
         assert!(
             names.contains(&"websearch"),
             "dev 档必须有 websearch: {names:?}"
+        );
+        assert!(
+            names.contains(&"prior_art"),
+            "dev 档必须有 prior_art: {names:?}"
         );
         assert_eq!(
             snapshot.evaluate("websearch", "*"),
@@ -932,6 +936,11 @@ mod tests {
             !baseline.contains("legacy research memory must not be injected"),
             "research context 不得注入历史 research/memory.md"
         );
+        assert_eq!(
+            snapshot.evaluate("prior_art", "read:validate"),
+            Effect::Allow
+        );
+        assert_eq!(snapshot.evaluate("prior_art", "write:start"), Effect::Ask);
         crate::docstore::DocStore::open_topic(&root, &crate::docstore::SOURCES, "r221-chain")
             .unwrap()
             .save(&[
@@ -999,6 +1008,21 @@ mod tests {
             serde_json::to_value(actions).unwrap(),
             serde_json::json!(["get", "create", "clarify", "request_approval"])
         );
+        for name in ["websearch", "webfetch"] {
+            let tool = snapshot
+                .materialize_tools()
+                .into_iter()
+                .find(|tool| tool.name() == name)
+                .unwrap_or_else(|| panic!("research 档缺少 {name} tool"));
+            let required = tool
+                .input_schema()
+                .pointer("/required")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default();
+            assert!(required.contains(&serde_json::json!("topic")));
+            assert!(required.contains(&serde_json::json!("task_id")));
+        }
         assert!(snapshot
             .select_agent(Some("research"))
             .unwrap()

@@ -21,6 +21,9 @@ struct WebFetchInput {
 
 pub struct WebFetchTool;
 
+/// D-571:research profile 专用包装，要求联网读取归属于活动检索任务。
+pub struct ResearchWebFetchTool;
+
 /// R-217:URL 资源规范化——去掉 scheme,保留 域名+路径(+端口)。
 /// `https://docs.rs/crate/x` → `docs.rs/crate/x`,`http://example.com` → `example.com/`。
 /// 这样权限规则可用 `docs.rs/*` 形态做域名级白名单,与既有 wildcard_match 直接配合。
@@ -140,6 +143,59 @@ impl Tool for WebFetchTool {
     }
 }
 
+#[async_trait]
+impl Tool for ResearchWebFetchTool {
+    fn name(&self) -> &'static str {
+        "webfetch"
+    }
+
+    fn description(&self) -> String {
+        "Research webfetch：必须提供 topic 与 research_loop begin_search 返回的 task_id；调用随后仍使用标准 url/max_chars。".into()
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        let mut schema = WebFetchTool.input_schema();
+        schema["properties"]["topic"] = serde_json::json!({
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        });
+        schema["properties"]["task_id"] = serde_json::json!({ "type": "string" });
+        schema["required"] = serde_json::json!(["url", "topic", "task_id"]);
+        schema
+    }
+
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        WebFetchTool.resources(input)
+    }
+
+    async fn execute(&self, mut input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let topic = input
+            .get("topic")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let task_id = input
+            .get("task_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if topic.is_empty() || task_id.is_empty() {
+            return ToolOutput::needs_correction(
+                "RESEARCH_LOOP_TASK_REQUIRED",
+                "research webfetch 必须提供 topic 与 begin_search 返回的 task_id",
+            );
+        }
+        if let Err(error) =
+            crate::research_loop::validate_external_task(&ctx.project_root, topic, task_id)
+        {
+            return ToolOutput::needs_correction("RESEARCH_LOOP_TASK_REQUIRED", error);
+        }
+        if let Some(object) = input.as_object_mut() {
+            object.remove("topic");
+            object.remove("task_id");
+        }
+        WebFetchTool.execute(input, ctx).await
+    }
+}
+
 /// 轻量 HTML→文本:去 script/style,剥标签,压空白;不引第三方解析器。
 pub fn html_to_text(html: &str) -> String {
     let mut out = String::with_capacity(html.len() / 4);
@@ -214,7 +270,8 @@ pub fn html_to_text(html: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{html_to_text, normalize_url_resource};
+    use super::{html_to_text, normalize_url_resource, ResearchWebFetchTool};
+    use kanzei_harness::{Tool, ToolCtx};
 
     /// R-217:URL 资源规范化——去掉 scheme,域名+路径形态可直接配白名单规则。
     #[test]
@@ -285,5 +342,22 @@ mod tests {
         assert!(text.contains("尾文 ẞ"));
         assert!(!text.contains("hidden script"));
         assert!(!text.contains("hidden style"));
+    }
+
+    #[tokio::test]
+    async fn research_webfetch缺活动任务在联网前被拒绝() {
+        let root =
+            std::env::temp_dir().join(format!("kz-research-fetch-gate-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let output = ResearchWebFetchTool
+            .execute(
+                serde_json::json!({"url": "https://example.test", "topic": "topic", "task_id": "forged"}),
+                &ctx,
+            )
+            .await;
+        assert_eq!(output.code, Some("RESEARCH_LOOP_TASK_REQUIRED"));
+        assert!(output.content.contains("尚未启动检索环"));
+        std::fs::remove_dir_all(root).ok();
     }
 }
