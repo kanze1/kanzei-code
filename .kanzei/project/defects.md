@@ -30,6 +30,7 @@
 - recorded_at: 1787192820656
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-566(unblocks=0)
 - 批次: 2/2
+- 停车: 历史121目录逐目录manifest无法从当前文件系统重建；代码与真实并行构建已完成，暂让位下一条可执行缺陷；恢复人:agent，恢复条件:找到历史清单或重新产生可逐目录审计的存量窗口
 
 ## D-567 记忆 inbox 消化 10 进 0 出:manager run made no inbox progress,96 条积压 [open] (high)
 - refs: D-409
