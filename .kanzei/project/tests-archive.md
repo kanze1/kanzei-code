@@ -8853,3 +8853,31 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-284 D-609
 - 收尾: 1787243806
 - 源码指纹: v2 crates/kanzei-app/src/experience_events.rs@b10ba3b690ee,crates/kanzei-app/src/main.rs@e8cc0ca4693d,crates/kanzei-app/src/run/coordinator.rs@9792584b5156,crates/kanzei-app/src/run/events/mod.rs@43fc8a69c3e4,scripts/ui-lint-globals.json@7a0df876509e
+
+## T-1786922726586 R-284 B2 后端事实生产者定向测试 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core experience_events; cargo test -p kanzei-tools research_verify; cargo test -p kanzei-app memory
+- 摘要: core experience_events 3 passed；kanzei-tools research_verify 2 passed；kanzei-app memory 2 passed；覆盖事实 schema、幂等 append/replay、首次 project session、research verification 与 memory consolidation 生产路径。
+- 关联: R-284 D-610 D-611
+- 收尾: 1787244696
+- 源码指纹: v2 crates/kanzei-app/src/experience_events.rs@b1cff7497905,crates/kanzei-app/src/memory.rs@fa7f224061de,crates/kanzei-core/Cargo.toml@c5ea70728354,crates/kanzei-core/src/experience_events.rs@df86d43c19fe,crates/kanzei-core/src/lib.rs@3015be533d89,crates/kanzei-tools/src/research_verify.rs@195a0fe8ee68
+
+## T-1786922726587 R-284 B2 体验事实提交门禁 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core experience_events; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
+- 摘要: fmt check、core experience_events 3 passed、workspace check all-targets、workspace clippy -D warnings 全部通过；此前完整 crate 回归为 core 226/tools 403/app 231 passed。
+- 关联: R-284 D-612
+- 收尾: 1787244923
+- 源码指纹: v2 crates/kanzei-app/src/experience_events.rs@b1cff7497905,crates/kanzei-app/src/memory.rs@fa7f224061de,crates/kanzei-core/Cargo.toml@c5ea70728354,crates/kanzei-core/src/experience_events.rs@5e7d37b007bd,crates/kanzei-core/src/lib.rs@3015be533d89,crates/kanzei-tools/src/research_verify.rs@195a0fe8ee68
+
+## T-1786922726588 R-284 B2 受影响 crate 完整回归 [passed]
+- 命令: cargo test -p kanzei-app; cargo test -p kanzei-tools
+- 摘要: 受影响 crate 最新覆盖：kanzei-app 231 passed、kanzei-tools 403 passed、2 ignored；此前 core 226 passed。
+- 关联: R-284
+- 收尾: 1787245171
+- 源码指纹: v2 crates/kanzei-app/src/experience_events.rs@b1cff7497905,crates/kanzei-app/src/memory.rs@fa7f224061de,crates/kanzei-core/Cargo.toml@c5ea70728354,crates/kanzei-core/src/experience_events.rs@5e7d37b007bd,crates/kanzei-core/src/lib.rs@3015be533d89,crates/kanzei-tools/src/research_verify.rs@195a0fe8ee68
+
+## T-1786922726589 R-284 B2 提交前 app/tools 覆盖回归 [passed]
+- 命令: cargo test -p kanzei-app; cargo test -p kanzei-tools
+- 摘要: 最新受影响 crate 覆盖通过：kanzei-app 231 passed、kanzei-tools 403 passed、2 ignored；core 226 passed 已由 T-1786922726587 覆盖。
+- 关联: R-284
+- 收尾: 1787245207
+- 源码指纹: v2 crates/kanzei-app/src/experience_events.rs@b1cff7497905,crates/kanzei-app/src/memory.rs@fa7f224061de,crates/kanzei-core/Cargo.toml@c5ea70728354,crates/kanzei-core/src/experience_events.rs@5e7d37b007bd,crates/kanzei-core/src/lib.rs@3015be533d89,crates/kanzei-tools/src/research_verify.rs@195a0fe8ee68

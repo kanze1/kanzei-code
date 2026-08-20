@@ -7518,3 +7518,39 @@
 - observed_head: 5f4b10ce66012e0aebdc59f994c8fc91eb377ea5
 - observed_worktree_hash: fnv1a64:24996f2838057d1b
 - recorded_at: 1787243849010
+
+## D-610 R-284 体验事实幂等测试未建立 session 外键前置数据 [fixed] (low)
+- 复现: 运行 `cargo test -p kanzei-core experience_events`，`fact_append_is_idempotent_and_replayable` 使用 `SessionStore::open_in_memory()` 后直接 append `session-1`，因 session_events 外键约束返回 `FOREIGN KEY constraint failed`。
+- 影响: B2 共享事实记录器的 idempotency 回归无法通过，无法验证持久事实重放契约。
+- 来源: self-found：R-284 B2 core 定向测试。
+- 标签: 核心
+- 进展: 已修复并验证。`crates/kanzei-core/src/experience_events.rs:264-272` 的幂等回放测试先通过 `create_session("session-1", "project-1", None)` 建立真实 FK 前置数据，再测试 append/replay；证据 `T-1786922726586`：core experience_events 3 passed。
+- refs: R-284
+- 优先级: P1
+- observed_head: 1c872eac3e9782006b338c90b745c8f2c6c13c63
+- observed_worktree_hash: fnv1a64:890d794153af4e59
+- recorded_at: 1787244705218
+
+## D-611 R-284 research_verify 首次项目无 session 时事实落库触发外键失败 [fixed] (medium)
+- 复现: 运行 `cargo test -p kanzei-tools research_verify`，literature_full_text_rejects_abstract_only_counterexample 在 verification.json 已写入后追加 experience.fact 时因首次运行没有 project session，返回 `FOREIGN KEY constraint failed`。
+- 影响: research_verify 在没有既有桌面会话的 CLI/首次项目场景无法持久化事实；若吞掉错误会造成 verification.json 与 session 事实账本不一致。
+- 来源: self-found：R-284 B2 research_verify 真实生产接线定向测试。
+- 标签: 后端
+- 进展: 已修复并验证。`crates/kanzei-tools/src/research_verify.rs:42-50` 与 `crates/kanzei-app/src/memory.rs:29-34` 在 canonical `project_session_id` 下幂等调用 `create_session`，再写入 `experience.fact`；首次项目不会因 FK 丢失事实，写入失败仍显式报错。证据 `T-1786922726586`：research_verify 2 passed、app memory 2 passed，覆盖首次 session 场景。
+- refs: R-284
+- 优先级: P1
+- observed_head: 1c872eac3e9782006b338c90b745c8f2c6c13c63
+- observed_worktree_hash: fnv1a64:890d794153af4e59
+- recorded_at: 1787244713439
+
+## D-612 R-284 体验事实记录器同类型错误转换触发 clippy 门禁 [fixed] (low)
+- 复现: 运行 `cargo clippy --workspace --all-targets -- -D warnings`，`crates/kanzei-core/src/experience_events.rs:130` 报 `clippy::useless_conversion`：`String` 到 `String` 的 `.into()`。
+- 影响: workspace clippy 强制门禁失败，B2 无法提交。
+- 来源: self-found：R-284 B2 提交前完整 crate 测试与 workspace 门禁。
+- 标签: 核心
+- 进展: 已修复并验证。`crates/kanzei-core/src/experience_events.rs:130` 改为直接使用 `StoreError::InvalidInput`，移除 String→String 无效转换。证据 `T-1786922726587`：fmt check、core experience_events 3 passed、workspace check all-targets、workspace clippy -D warnings 全通过。
+- refs: R-284
+- 优先级: P1
+- observed_head: 1c872eac3e9782006b338c90b745c8f2c6c13c63
+- observed_worktree_hash: fnv1a64:954c4ae0efe5e38d
+- recorded_at: 1787244935783

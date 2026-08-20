@@ -2349,6 +2349,7 @@ dependencies = [
  "kanzei-harness",
  "kanzei-llm",
  "rusqlite",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "sha2",

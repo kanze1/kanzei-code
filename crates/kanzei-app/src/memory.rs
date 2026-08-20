@@ -16,6 +16,45 @@ fn memory_stores_for(project_dir: &str) -> Vec<kanzei_tools::memory::MemoryStore
     stores
 }
 
+fn append_memory_fact(
+    project_dir: &str,
+    event_type: &str,
+    entity_id: Option<String>,
+    payload: serde_json::Value,
+) -> Result<(), String> {
+    let cwd = PathBuf::from(project_dir);
+    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
+    let state_path = kanzei_core::project_state_path(&root);
+    let session_id = kanzei_core::project_session_id(&root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|error| error.to_string())?;
+    store
+        .create_session(&session_id, &root.display().to_string(), None)
+        .map_err(|error| error.to_string())?;
+    let event = kanzei_core::experience_events::ExperienceEvent::new_scoped(
+        event_type,
+        kanzei_core::experience_events::ExperienceEventClass::Fact,
+        session_id,
+        Some(root.display().to_string()),
+        None,
+        None,
+        entity_id,
+        payload,
+        now_ms(),
+    )
+    .map_err(|error| error.to_string())?;
+    event
+        .append_fact_if_new(&store)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default()
+}
+
 fn promotion_gap_count(
     entries: &[(PathBuf, kanzei_tools::memory::MemoryEntry)],
     source_backed: &HashSet<String>,
@@ -72,6 +111,7 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
         .find_map(|line| line.strip_prefix("## note ").map(str::to_string));
     let checkpoint = store.read_inbox_checkpoint();
     let state = kanzei_core::project_state_path(&root);
+    let session_id = kanzei_core::project_session_id(&root);
     let session = kanzei_core::SessionStore::open(&state).ok();
     let source_backed = session
         .as_ref()
@@ -100,6 +140,10 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
             })
         })
         .collect::<Vec<_>>();
+    let experience_facts = session
+        .as_ref()
+        .and_then(|store| kanzei_core::experience_events::replay_facts(store, &session_id, 0).ok())
+        .unwrap_or_default();
     json!({
         "backlog": pending,
         "oldest_waiting": oldest_waiting,
@@ -113,6 +157,7 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
             "events_orphaned": recall_links.orphaned,
         },
         "effects": effects,
+        "experience_facts": experience_facts,
     })
 }
 
@@ -369,9 +414,20 @@ pub(crate) fn memory_context_bill(project_dir: String) -> serde_json::Value {
 #[tauri::command]
 pub(crate) async fn memory_consolidate(project_dir: String) -> Result<serde_json::Value, String> {
     // 手动触发(设置页按钮)不在轮末序列里,没有"当轮 episode"可代填。
-    let report = consolidate_memory_inbox(project_dir, None)
+    let report = consolidate_memory_inbox(project_dir.clone(), None)
         .await
         .map_err(|error| error.to_string())?;
+    let event_type = if report.has_failures() {
+        "memory_consolidation_stopped"
+    } else {
+        "memory_consolidation_completed"
+    };
+    append_memory_fact(
+        &project_dir,
+        event_type,
+        Some("memory_consolidation".into()),
+        serde_json::to_value(&report).map_err(|error| error.to_string())?,
+    )?;
     Ok(json!({"pending": report.pending_after, "report": report}))
 }
 

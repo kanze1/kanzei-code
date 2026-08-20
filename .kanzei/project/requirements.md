@@ -30,12 +30,12 @@
 - 内容: 按 phase2_system_upgrade.md §5.4 分四批。批1 定义 snake_case 事件包络、持久事实/瞬时表现/高频 delta 三类边界与词表。批2 memory/research/voice 后端生产者接线,统一 project/session/run/topic/entity 归属。批3 前端按归属先归并 store 再分发 animation/audio/工作台,重放幂等。批4 高频 delta 合并、未知事件诊断、重连恢复和跨会话回归。
 - 边界: 不改变 R-242 的 session 真源;瞬时表现事件允许丢帧且不写长期数据库;动画和音频不得反向决定业务状态;未知事件不崩 UI;事件字段不混用 camelCase,第三方/旧事件在适配层转换。
 - 验收: ①词表和 JSON 契约有 schema/单测;②同一 memory promote/research verify/voice state 事实可重放且不重复副作用;③后台会话事件不驱动当前会话动画;④text delta 压缩后长回复无事件风暴;⑤重连从持久事实恢复状态,不依赖错过的表现事件。
-- 批次: 1/4
+- 批次: 2/4
 - 状态: todo
-- 进展: B1 已落地并通过验证。实现：`crates/kanzei-app/src/experience_events.rs:1-256` 定义 snake_case `ExperienceEvent` 包络、Fact/Presentation/Delta 三类、词表映射、legacy payload 归一化、unknown_event 诊断与 schema/往返/非法输入单测；`crates/kanzei-app/src/run/events/mod.rs:35-86` 让真实 UiEventSink 同时生产 `kz:experience`；`crates/kanzei-app/src/run/coordinator.rs:125-129` 注入 session/run 归属；`crates/kanzei-app/ui/01-core.js:52-143,291-294` 统一订阅、按 session_id 归并、event_id 幂等去重并禁止后台事件驱动当前神经流；`crates/kanzei-app/ui/02-i18n.js:851-854` 补齐诊断文案；`scripts/ui-lint-globals.json` 已由生成脚本同步。证据：`T-1786922726582` 契约4项单测通过；`T-1786922726584` runtime 25脚本/2339次invoke/0错误、lint49文件零错误、parallel-lines/a11y/i18n/Markdown全通过；`T-1786922726585` fmt、kanzei-app 235测试、workspace check/clippy全通过。D-608 已修复未知事件订阅与i18n门禁；D-609 已修复测试专用Map导入clippy门禁，待提交后按证据关闭。决策：旧kz:*保持兼容，结构化事件作为统一投影；下一步B2接 memory/research/voice真实生产者并映射持久事实归属。
-- observed_head: 5f4b10ce66012e0aebdc59f994c8fc91eb377ea5
-- observed_worktree_hash: fnv1a64:24996f2838057d1b
-- recorded_at: 1787243822585
+- 进展: B2 已实现，待提交：`crates/kanzei-core/src/experience_events.rs:1-296` 成为唯一共享契约，新增 `experience.fact` 持久类型、`append_fact_if_new` 幂等写入和 `replay_facts` 回放；`crates/kanzei-app/src/experience_events.rs:1-7` 改为 core re-export；`crates/kanzei-app/src/memory.rs:19-55,143-160,411-432` 让 memory consolidate 真实写入 completed/stopped 事实并由 memory_control_plane 回放，首次项目幂等创建 canonical session；`crates/kanzei-tools/src/research_verify.rs:42-80,430-447` 让 research verify 在 verification.json 后写入 topic/entity 归属事实，首次项目同样确保 session。voice 仍无真实 ASR/TTS/VAD 后端入口，按 R-287 边界不添加假命令。证据：`T-1786922726586` core experience_events 3 passed、research_verify 2 passed、app memory 2 passed；受影响 crate 完整回归 core 226/tools 403/app 231 全通过；`T-1786922726587` fmt、workspace check all-targets、workspace clippy -D warnings 全通过。D-610、D-611、D-612 已 fixed。下一步：暂存 B2 明确文件并提交，提交后进入 B3 前端按 session/topic/entity 归并与事实回放接线。
+- observed_head: 1c872eac3e9782006b338c90b745c8f2c6c13c63
+- observed_worktree_hash: fnv1a64:954c4ae0efe5e38d
+- recorded_at: 1787245014589
 - 批次表: B1 契约与事件包络：snake_case、持久事实/瞬时表现/high-frequency delta、归属字段和 schema；B2 后端生产者：memory/research/voice 事件接线与真实持久事实映射；B3 前端归并：按 session/topic/memory 归属入 store，再分发动画/音频/工作台；B4 压缩与恢复：delta 合并、未知事件诊断、重连回放和跨会话回归。
 
 ## R-285 金色神经流:主对话与记忆层的真实事件驱动动画 [doing]

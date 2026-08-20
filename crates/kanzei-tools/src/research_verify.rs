@@ -39,6 +39,45 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
         .map_err(|error| format!("写入核验工件失败: {error}"))
 }
 
+fn append_verification_fact(root: &Path, topic: &str, report: &Value) -> Result<(), String> {
+    let state_path = kanzei_core::project_state_path(root);
+    let session_id = kanzei_core::project_session_id(root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|error| error.to_string())?;
+    store
+        .create_session(&session_id, &root.display().to_string(), None)
+        .map_err(|error| error.to_string())?;
+    let payload = json!({
+        "topic": topic,
+        "passed": report.get("passed").cloned().unwrap_or(Value::Null),
+        "total": report.get("total").cloned().unwrap_or(Value::Null),
+        "all_passed": report.get("all_passed").cloned().unwrap_or(Value::Null),
+        "artifact": root.join(".kanzei/research").join(topic).join("verification.json").display().to_string(),
+    });
+    let event = kanzei_core::experience_events::ExperienceEvent::new_scoped(
+        "research_verify_completed",
+        kanzei_core::experience_events::ExperienceEventClass::Fact,
+        session_id,
+        Some(root.display().to_string()),
+        None,
+        Some(topic.into()),
+        Some("verification.json".into()),
+        payload,
+        now_ms(),
+    )
+    .map_err(|error| error.to_string())?;
+    event
+        .append_fact_if_new(&store)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default()
+}
+
 fn source_entries(
     root: &Path,
     topic: &str,
@@ -401,6 +440,9 @@ impl Tool for ResearchVerifyTool {
                     serde_json::to_string_pretty(&report).unwrap_or_else(|_| report.to_string());
                 if let Err(error) = atomic_write(&dir.join("verification.json"), &report_text) {
                     return ToolOutput::error(error);
+                }
+                if let Err(error) = append_verification_fact(&ctx.project_root, topic, &report) {
+                    return ToolOutput::error(format!("核验结果已写入但体验事实落库失败: {error}"));
                 }
                 if passed == claims.len() {
                     ToolOutput::ok(report.to_string())
