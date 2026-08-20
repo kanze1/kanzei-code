@@ -9,7 +9,7 @@ use std::sync::{Mutex, OnceLock};
 use kanzei_harness::{ToolCtx, ToolOutput};
 use serde::{Deserialize, Serialize};
 
-const SCHEMA_VERSION: u8 = 1;
+const SCHEMA_VERSION: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -38,6 +38,10 @@ struct RunTelemetry {
     run_id: String,
     #[serde(default)]
     calls: u64,
+    #[serde(default)]
+    failure_count: u64,
+    #[serde(default)]
+    failure_rate: f64,
     #[serde(default)]
     call_ids: Vec<String>,
     events: Vec<ToolFailureEvent>,
@@ -113,6 +117,14 @@ fn classify(tool_name: &str, output: &ToolOutput) -> Option<FailureClass> {
     output.is_error.then_some(FailureClass::Other)
 }
 
+fn failure_rate(failure_count: u64, calls: u64) -> f64 {
+    if calls == 0 {
+        0.0
+    } else {
+        failure_count as f64 / calls as f64
+    }
+}
+
 fn record_outcome(
     ctx: &ToolCtx,
     run_id: &str,
@@ -133,11 +145,16 @@ fn record_outcome(
             schema_version: SCHEMA_VERSION,
             run_id: run_id.to_string(),
             calls: 0,
+            failure_count: 0,
+            failure_rate: 0.0,
             call_ids: Vec::new(),
             events: Vec::new(),
         },
         Err(_) => return,
     };
+    telemetry.schema_version = SCHEMA_VERSION;
+    telemetry.calls = telemetry.calls.max(telemetry.call_ids.len() as u64);
+    telemetry.failure_count = telemetry.failure_count.max(telemetry.events.len() as u64);
     if telemetry.call_ids.iter().any(|id| id == tool_call_id) {
         return;
     }
@@ -152,7 +169,9 @@ fn record_outcome(
             outcome: outcome.to_string(),
             at_ms: now_ms(),
         });
+        telemetry.failure_count += 1;
     }
+    telemetry.failure_rate = failure_rate(telemetry.failure_count, telemetry.calls);
     let Ok(encoded) = serde_json::to_string_pretty(&telemetry) else {
         return;
     };
@@ -249,6 +268,12 @@ mod tests {
     }
 
     #[test]
+    fn zero_calls_have_finite_zero_rate() {
+        assert_eq!(failure_rate(0, 0), 0.0);
+        assert!(failure_rate(0, 0).is_finite());
+    }
+
+    #[test]
     fn run_telemetry_aggregates_and_deduplicates_by_call_id() {
         let root = std::env::temp_dir().join(format!("kz-r310-{}", now_ms()));
         std::fs::create_dir_all(&root).unwrap();
@@ -268,6 +293,8 @@ mod tests {
         assert_eq!(telemetry.schema_version, SCHEMA_VERSION);
         assert_eq!(telemetry.run_id, "run-navigation-test");
         assert_eq!(telemetry.calls, 3);
+        assert_eq!(telemetry.failure_count, 2);
+        assert!((telemetry.failure_rate - (2.0 / 3.0)).abs() < f64::EPSILON);
         assert_eq!(telemetry.events.len(), 2);
         assert_eq!(telemetry.events[0].class, FailureClass::MissingPath);
         assert_eq!(telemetry.events[1].class, FailureClass::EmptySearch);

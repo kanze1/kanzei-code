@@ -243,10 +243,10 @@
 - 优先级: P1
 - 批次: 1/4
 - 设计冻结: 不变式：每个失败结果最多记录一次且不改变原工具结果；权威数据源：ToolOutput.code/outcome/content、ToolCtx.run_id、.kanzei/artifacts/tool-failures/<run_id>.json；预期文件：crates/kanzei-core/src/runner/tool_failure_telemetry.rs、runner/mod.rs、runner/tool_exec.rs及core测试；最小测试：五类失败分类、按run聚合/重复调用、cargo test -p kanzei-core。
-- 进展: B1 已落地并通过 T-1786922726640：`tool_failure_telemetry.rs:14-22,75-110` 固定五类分类；`:35-44,112-183` 按 run 写 JSON、记录 calls 分母、按 tool_call_id 去重；`runner/tool_exec.rs:280-284` 并行出口与 `runner/drive/serial_tools.rs:142-143,210-214` 串行/权限出口接线；T-1786922726640=fmt 无警告、234 passed。关键决策：成功调用也进入 calls 分母，失败事件单独落 events，原 ToolOutput 不修改。下一步：B2 复核并增强 D-575 五条自愈错误验收，先确认既有实现与真实调用方。
-- observed_head: f2d10c44f9e47b2f199d346d13429e25d4a9f196
-- observed_worktree_hash: fnv1a64:e09f52091ff31929
-- recorded_at: 1787267171770
+- 进展: B1 已落地并通过 T-1786922726640、T-1786922726642：`tool_failure_telemetry.rs:14-22,83-126` 固定五类分类与零调用保护；`:35-48,139-183` 按 run 写 schema v2 JSON、记录 calls/failure_count/failure_rate、按 tool_call_id 去重；`runner/tool_exec.rs:280-284` 并行出口与 `runner/drive/serial_tools.rs:142-143,210-214` 串行/权限出口接线。T-1786922726642=fmt 无警告、235 passed。D-653 已 fixed，验收逐条对账见其进展。关键决策：成功调用进入 calls 分母，失败事件单独落 events，原 ToolOutput 不修改；旧 telemetry 文件读取时按 call_ids/events 归一化计数。下一步：B2 复用并核验 D-575 五条既有自愈能力，不能把既有实现重复申报为本次新功能；随后进入 B3 前的 repo map 形态/token 成本小设计。
+- observed_head: f0a6942853f1f78cfe011c28fadb8a44feb68808
+- observed_worktree_hash: fnv1a64:b265818201b65269
+- recorded_at: 1787267526549
 - 取活依据: engine:唯一可执行 WIP 是 R-310，必须先恢复它
 
 ## R-311 收尾闭环硬化:设计冻结不变式可执行化与收尾链完成度遥测 [todo]

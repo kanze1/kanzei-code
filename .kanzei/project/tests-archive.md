@@ -9266,3 +9266,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-310
 - 收尾: 1787267138
 - 源码指纹: v2 crates/kanzei-core/src/runner/drive/serial_tools.rs@c80972d32853,crates/kanzei-core/src/runner/mod.rs@02411abc3f4d,crates/kanzei-core/src/runner/tool_exec.rs@00aec22a5d49,crates/kanzei-core/src/runner/tool_failure_telemetry.rs@13b9bc7da362
+
+## T-1786922726641 R-310 telemetry failure_rate 聚合回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core
+- 时长: 3.5s
+- 摘要: R-310 B1 telemetry 显式基线字段验证通过：failure_count/failure_rate 写入并对重复 tool_call_id 去重；234 passed、0 failed、0 ignored，fmt 通过。
+- 关联: R-310 D-653
+- 收尾: 1787267447
+- 源码指纹: v2 crates/kanzei-core/src/runner/tool_failure_telemetry.rs@06c0f871b9af
+
+## T-1786922726642 R-310 telemetry 显式失败率与零调用保护回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core
+- 时长: 4.5s
+- 摘要: telemetry 增加 failure_count/failure_rate、旧 JSON 归一化和 calls=0 零速率保护后验证通过；235 passed、0 failed、0 ignored，fmt 通过。
+- 关联: R-310 D-653
+- 收尾: 1787267500
+- 源码指纹: v2 crates/kanzei-core/src/runner/tool_failure_telemetry.rs@0e54f6af9380

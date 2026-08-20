@@ -8068,3 +8068,16 @@
 - observed_head: f2d10c44f9e47b2f199d346d13429e25d4a9f196
 - observed_worktree_hash: fnv1a64:c7e2142bdfc12ee7
 - recorded_at: 1787267011014
+
+## D-653 R-310 telemetry 只落 calls/events 未直接落档失手率基线数字 [fixed] (medium)
+- 复现: 来源：self-found。`crates/kanzei-core/src/runner/tool_failure_telemetry.rs:35-44` 的 RunTelemetry 只有 calls、call_ids、events；按 run 文件虽可事后计算失败率，但没有直接保存 failure_count/failure_rate。
+- 影响: R-310 验收①要求“按 run 聚合，基线数字落档”，当前产物需要二次解析才能得到数字，无法作为稳定基线字段直接复核。
+- 来源: self-found（R-310 B1 验收对账）
+- 标签: 核心
+- 进展: 已修复并通过 T-1786922726642。验收逐条对账：①已完成，`crates/kanzei-core/src/runner/tool_failure_telemetry.rs:35-48` 的 RunTelemetry 直接落 `failure_count` 与 `failure_rate`，`:163-175` 每次写入更新并序列化；②已完成，`:155-159` 先按 call_id 去重，`:161-173` 仅新调用增加 calls/失败数；③已完成，`:120-126` calls=0 返回 0.0，测试 `:270-274` 断言有限零值；T-1786922726642=fmt 通过、235 passed。
+- 验收: 每个 run telemetry 直接保存 failure_count 与 failure_rate；重复 tool_call_id 不重复计数；calls=0 时不产生 NaN/Infinity；kanzei-core 定向测试通过。
+- refs: R-310
+- 优先级: P1
+- observed_head: f0a6942853f1f78cfe011c28fadb8a44feb68808
+- observed_worktree_hash: fnv1a64:b265818201b65269
+- recorded_at: 1787267517587
