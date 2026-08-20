@@ -60,6 +60,7 @@
 - observed_worktree_hash: fnv1a64:e3e760efa1f03e67
 - recorded_at: 1787235788581
 - 验收对账: ①已完成：`crates/kanzei-memory/src/docstore/validation.rs:273-287` 只返回非空 Raw；docstore 回归 `docstore.rs:321-342` 与 tracker 回归 `tracker.rs:1539-1549` 证明布局空行不再计数；T-1786922726559。②已完成：`validation.rs:313-365` 删除按同一 ordinal 契约定位，原子写回后 `load()` + `raw_lines()` 复查条目存在和数量，失败返回“raw_delete 后置条件失败”；T-1786922726559、T-1786922726560。③验收降级：原文“文章获取器 R-002 现场复核游离行清零”本轮未执行，当前仓库无该外部项目与可重放目标命令；实际已由同形态端到端回归 `tracker.rs:1518-1579` 覆盖，外部现场仍需用户/外部项目执行。④已完成：空行在 ordinal 1 时旧实现会误删空行而保留真实游离文本，新回归夹具 `docstore.rs:321-389`、`tracker.rs:1518-1598` 覆盖该“报成功后仍存在”形态；T-1786922726559。
+- 阻塞: 文章获取器 R-002 外部现场复核需要用户提供该项目路径或可重放目标命令；解除人:用户提供可访问项目与目标命令后由 agent 执行并回填现场证据。
 
 ## D-578 memory manager 把该判 NOOP 的 inbox note 编造成无关根因 fact 落盘 active [open] (medium)
 - refs: D-567 R-308
