@@ -32,13 +32,14 @@
 - 批次: 2/2
 - 停车: 历史121目录逐目录manifest无法从当前文件系统重建；代码与真实并行构建已完成，暂让位下一条可执行缺陷；恢复人:agent，恢复条件:找到历史清单或重新产生可逐目录审计的存量窗口
 
-## D-568 记忆 INDEX 描述串号污染:M-014/M-015 描述抄错条目,毒化 FTS 检索 [open] (medium)
+## D-568 记忆 INDEX 描述串号污染:M-014/M-015 描述抄错条目,毒化 FTS 检索 [fixing] (medium)
 - 复杂度: 小
 - 复现: .kanzei/memory/INDEX.md:M-014 标题「HTML 静态文案必须登记进资源表」但描述整段是 M-009 的「edit 报 old_string not found 时必读…」;M-015 标题「SSE 流内 context overflow」描述却是 M-029 的「处理 bash git 拦截…结构化工具显式 stage」。index.db 的 memory_fts 索引 description 字段,错配描述使这两条在错误查询下被召回
 - 影响: FTS 检索被毒化:错误主题命中错误记忆;INDEX 是每会话注入的真源,串号直接影响召回质量
 - 标签: 后端
 - 验收: ①M-014/M-015 描述修正与源文件 description 一致;②全量 INDEX 行与对应 M-*.md 的 description 做一次机械一致性核对,输出不一致清单并修复;③重建 index.db FTS 后检索抽查不再串号;④INDEX 生成/更新路径补一致性断言防复发
 - 优先级: P2
+- 取活依据: engine:唯一可执行 WIP 是 D-568，必须先恢复它
 
 ## D-569 tracker 完整性退化复发(D-331 同形态):归档标题双状态标记与非法 severity 再现 [open] (high)
 - refs: D-331 D-553 D-554 D-555
@@ -123,24 +124,6 @@
 - 验收: ①连续 N 轮(建议 2~3)无文件改动、无提交、无 tracker 实质字段变化即熔断停鞭,输出零产出诊断并点名阻塞清单;②现场案例成回归:模拟连续零产出轮次触发熔断;③熔断事件留痕可审计
 - 优先级: P1
 
-## D-585 在线记忆召回只记录 ACTION_CHANGED，OUTCOME_IMPROVED 永久无生产证据 [open] (medium)
-- 复现: FailureRecallPolicy::record_outcomes 仅写 memory_eval.arm=action_changed；funnel_counts 对 outcome_improved 只能查到 0 行并标 unavailable。
-- 影响: 控制面 F(m)/漏斗无法展示真实最终结果改善，生产数据不能触发 outcome_improved 相关判断。
-- 来源: self-found：复核 R-293 代码与 b085499c 后确认
-- 标签: 后端
-- 验收: 运行期完成结局且存在真实召回注入时写入独立 outcome_improved 证据；暂停/失败结局不误报；回归测试覆盖。
-- refs: R-293
-- 优先级: P1
-
-## D-586 RecallRunOutcome 未从 kanzei-core 根导出导致 memory crate 编译失败 [open] (medium)
-- 复现: kanzei-memory 的 FailureRecallPolicy 实现引用 kanzei_core::RecallRunOutcome；类型仅在 kanzei_core::runner 导出，crate 根 lib.rs 未 re-export，cargo test -p kanzei-memory 编译失败。
-- 影响: R-293 批次1 的生产 outcome 写入实现无法编译，memory crate 消费者不能使用运行结局契约。
-- 来源: self-found：R-293 批次1 定向测试 T-1786922726510 后发现
-- 标签: 核心
-- 验收: kanzei-memory 可通过 cargo test -p kanzei-memory 编译；RecallRunOutcome 从 kanzei_core 根可用。
-- refs: R-293 T-1786922726510
-- 优先级: P1
-
 ## D-587 子代理面板缺停止运行中任务能力,process-subagents 开关只挡下一轮不打断在跑请求 [open] (medium)
 - refs: R-281
 - 复现: 2026-08-20 用户想腾 GPU 显存,点顶栏子代理开关(process-subagents)预期能停掉正在跑的子代理,实际该开关只控制下一轮工具面是否含 task(lifecycle.rs:409-412 即时生效但只影响未来),对已建立的推理请求无效;06-agent-panel.js 全文搜索确认面板只有 agent-clear(清已完成条目)与 agent-close(关闭面板视图)两个按钮,没有 stop/cancel 单个运行中子代理的操作;后端 task_cancel_parallel.rs 证明取消能力存在但从未接到前端;实测 kzapp(PID)与 ollama 有 Established 连接、ollama stop 卡 Stopping 十余秒不释放,唯一手段是 taskkill 强杀 llama-server 整个进程,粒度过粗
@@ -149,3 +132,4 @@
 - 标签: 前端
 - 验收: ①子代理面板每个运行中条目有停止/取消按钮,调用已有的取消能力;②process-subagents 开关文案或行为二选一对齐:要么明确标注仅影响下一轮,要么增加连带打断在跑任务的选项;③真实取消一个运行中子代理有回归测试
 - 优先级: P2
+

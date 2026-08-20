@@ -7125,3 +7125,36 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787195242403
 - 阻塞: 
+
+## D-586 RecallRunOutcome 未从 kanzei-core 根导出导致 memory crate 编译失败 [fixed] (medium)
+- 复现: kanzei-memory 的 FailureRecallPolicy 实现引用 kanzei_core::RecallRunOutcome；类型仅在 kanzei_core::runner 导出，crate 根 lib.rs 未 re-export，cargo test -p kanzei-memory 编译失败。
+- 影响: R-293 批次1 的生产 outcome 写入实现无法编译，memory crate 消费者不能使用运行结局契约。
+- 来源: self-found：R-293 批次1 定向测试 T-1786922726510 后发现
+- 标签: 核心
+- refs: R-293 T-1786922726510
+- 进展: 复核确认已由早前提交 53649708(R-293 B1)一并修复：`crates/kanzei-core/src/lib.rs:23` 将 RecallRunOutcome 从 crate 根 re-export。本次以主会话交互态直接验证:`cargo check -p kanzei-memory --tests` 通过；`cargo test -p kanzei-memory` 154 passed、0 failed；`crates/kanzei-memory/src/memory/mod.rs` 引用 kanzei_core::RecallRunOutcome 处(如 :751)编译通过。验收两项均满足,补记关闭。
+- 优先级: P1
+- observed_head: 02443068475f7273fa40ad62913e2106f03344ad
+- recorded_at: 1787197841777
+
+## D-585 在线记忆召回只记录 ACTION_CHANGED，OUTCOME_IMPROVED 永久无生产证据 [fixed] (medium)
+- 复现: FailureRecallPolicy::record_outcomes 仅写 memory_eval.arm=action_changed；funnel_counts 对 outcome_improved 只能查到 0 行并标 unavailable。
+- 影响: 控制面 F(m)/漏斗无法展示真实最终结果改善，生产数据不能触发 outcome_improved 相关判断。
+- 来源: self-found：复核 R-293 代码与 b085499c 后确认
+- 标签: 后端
+- refs: R-293
+- 进展: 复核确认已由早前提交 53649708(R-293 B1)一并修复：`crates/kanzei-memory/src/memory/mod.rs:747-766` 在真实 completed 结局且存在召回注入时,独立写入 outcome_improved 证据(与 action_changed 分行落),暂停/失败结局不误报(:751 `run_outcome != RecallRunOutcome::Completed` 直接返回不写)。回归测试:`轮末对账写入action_changed与outcome_improved两条独立臂`(mod.rs:2495)断言 funnel.outcome_improved=1 且 available=true;`暂停结局不写outcome_improved证据`(mod.rs:2528)断言暂停结局下 outcome_improved=0 且不可用。本次以主会话交互态直接验证:`cargo test -p kanzei-memory` 154 passed 含上述两个用例。三项验收(独立证据写入/暂停不误报/回归覆盖)均满足,补记关闭。
+- 优先级: P1
+- observed_head: 02443068475f7273fa40ad62913e2106f03344ad
+- recorded_at: 1787197841778
+
+## D-590 INDEX description 守护用末个破折号切分导致含长破折号的合法描述误报 [fixed] (medium)
+- refs: D-568
+- 复现: D-568 工作树新增 crates/kanzei-memory/src/memory/store.rs:783 使用 rsplit_once(" — ");M-009/M-010 等合法 description 内含同一分隔符时，守护把描述后半段与源 description 比较，refresh_derived 失败
+- 影响: D-568 的一致性断言会阻断正常记忆写入/派生物重建，不能作为可靠防复发门禁
+- 来源: self-found，D-568 实现复核
+- 标签: 后端
+- 进展: 已提交 7c238573:store.rs:783 改为 split_once(" — ")(取首个分隔符,不再被 description 自身内含的破折号打偏);新增回归 index_description_guard_rejects_mismatched_source(store.rs:1076-1093),构造 title 与 description 均含 " — " 的条目验证匹配/不匹配两条路径。cargo test -p kanzei-memory 154 passed、0 failed,含该定向用例。三项验收(改分隔逻辑/回归覆盖/整体测试通过)均满足。
+- 优先级: P2
+- observed_head: 7c238573dbf9b5ea93283ffc7596ef78d8d4c303
+- recorded_at: 1787197841779
