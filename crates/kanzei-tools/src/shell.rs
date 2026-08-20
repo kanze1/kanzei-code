@@ -494,41 +494,14 @@ mod execution_policy_tests {
         );
     }
 
-    /// D-582 原始复现用的正是 `& .\scripts\verify.ps1`(T-1786922726507)。这里直接
-    /// 用真实文件复现同一调用,只断言不再命中 AuthorizationManager 门槛——工作树在
-    /// 开发中通常不干净,脚本自身会在拿到执行权之后抛"工作树不干净"提前退出,那是
-    /// 预期内的、脚本逻辑内部的失败,不是本缺陷要修的"脚本第一行都跑不到"。
-    #[tokio::test]
-    async fn real_verify_ps1_clears_authorization_gate() {
-        let shell = detected_shell();
-        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..");
-        let mut command = tokio::process::Command::new(&shell.program);
-        command
-            .args(&shell.args)
-            .arg("& .\\scripts\\verify.ps1")
-            .current_dir(&repo_root)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-        crate::hide_console_async(&mut command);
-        let child = command.spawn().expect("子进程应能启动");
-        // 只要脚本跑起来就已经证伪 AuthorizationManager 门槛;不必等 13 步门禁跑完,
-        // 给够拿到执行权+跑到"工作树不干净"检查的时间就够,超时直接判失败并杀进程。
-        let wait =
-            tokio::time::timeout(std::time::Duration::from_secs(20), child.wait_with_output());
-        let output = match wait.await {
-            Ok(result) => result.expect("等待子进程输出不应报错"),
-            Err(_) => panic!("20 秒内脚本既未成功也未报出预期错误,判超时失败"),
-        };
-        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        assert!(
-            !stderr.contains("AuthorizationManager") && !stdout.contains("AuthorizationManager"),
-            "D-582 复发:仍被 AuthorizationManager 挡在第一行之前。stdout={stdout}, stderr={stderr}"
-        );
-    }
+    // D-583 现场教训:这里原有一条直接 spawn 真实 `& .\scripts\verify.ps1` 的测试
+    // (real_verify_ps1_clears_authorization_gate)。它依赖"工作树不干净"让 verify.ps1
+    // 自己快速抛错收尾;一旦工作树变干净(release 前夕恰恰如此),子进程会去真跑
+    // 完整 13 步门禁——门禁本身又含 cargo test --workspace,等于从测试里递归拉起
+    // 一次完整的自己,20 秒超时必炸,且子进程未必被杀干净。已删除:上面的
+    // spawned_shell_runs_local_ps1_file_without_inherited_bypass 用合成探针脚本
+    // 已经证明裸 spawn 能执行本地 .ps1(D-582 的核心断言),不需要越权到真实调用
+    // 项目自己的发布门禁脚本来验证同一件事。
 }
 
 #[cfg(all(test, windows))]
