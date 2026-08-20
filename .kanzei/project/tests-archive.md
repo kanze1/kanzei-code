@@ -8651,3 +8651,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-576 D-601
 - 收尾: 1787235241
 - 源码指纹: v2 crates/kanzei-tools/src/bash.rs@700f522c2562,crates/kanzei-tools/src/cross_tree.rs@6a1ef7c3838a
+
+## T-1786922726559 D-577 空行游离与删除后置条件定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory; cargo test -p kanzei-tools raw_lines -- --nocapture
+- 时长: 27.7s
+- 摘要: kanzei-memory 156 passed/1 ignored；kanzei-tools raw_lines 1 passed；新增空行不计游离 ordinal 与 raw_delete 后置验证回归通过。
+- 关联: D-577
+- 收尾: 1787235637
+- 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@9f7f6a1fb9c7,crates/kanzei-memory/src/docstore/validation.rs@5d26852d16a3,crates/kanzei-tools/src/tracker.rs@81d7da3ba5de
+
+## T-1786922726560 D-577 全 crate 回归与提交门禁 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
+- 时长: 60.5s
+- 摘要: fmt check、kanzei-tools 402 passed/2 ignored、workspace check、workspace clippy -D warnings 全部通过。
+- 关联: D-577
+- 收尾: 1787235737
+- 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@9f7f6a1fb9c7,crates/kanzei-memory/src/docstore/validation.rs@5d26852d16a3,crates/kanzei-tools/src/tracker.rs@81d7da3ba5de

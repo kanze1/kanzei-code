@@ -274,8 +274,10 @@ impl DocStore {
             .lines
             .iter()
             .filter_map(|line| match line {
-                TemplateLine::Raw(text) => Some(text.clone()),
-                TemplateLine::Field(_) => None,
+                // 空白 Raw 是条目布局残影(条目间距/尾部换行),不是不可寻址用户内容。
+                // raw_delete 的 ordinal 契约只对非空游离文本计数。
+                TemplateLine::Raw(text) if !text.trim().is_empty() => Some(text.clone()),
+                TemplateLine::Raw(_) | TemplateLine::Field(_) => None,
             })
             .enumerate()
             .map(|(index, text)| RawLine {
@@ -312,7 +314,10 @@ impl DocStore {
         let mut seen = 0usize;
         let mut target = None;
         for (index, line) in entry_template.lines.iter().enumerate() {
-            if let TemplateLine::Raw(_) = line {
+            if let TemplateLine::Raw(text) = line {
+                if text.trim().is_empty() {
+                    continue;
+                }
                 seen += 1;
                 if seen == ordinal {
                     target = Some(index);
@@ -326,11 +331,38 @@ impl DocStore {
                 format!("{id} 只有 {seen} 条游离行,没有第 {ordinal} 条"),
             ));
         };
+        let expected_raw_count = entry_template
+            .lines
+            .iter()
+            .filter(|line| matches!(line, TemplateLine::Raw(text) if !text.trim().is_empty()))
+            .count()
+            .saturating_sub(1);
         entry_template.lines.remove(index);
         // 更新 preserved:同一实例后续 save() 必须基于删过的模板渲染。
         *self.preserved.lock().unwrap() = Some(template.clone());
         let text = render_with_template(self.kind, &entries, &template);
-        crate::atomic_file::write_atomic(&self.path, &text)
+        crate::atomic_file::write_atomic(&self.path, &text)?;
+
+        // D-577:删除成功不能只代表 atomic write 返回 Ok。重新解析最终文件并核对
+        // 条目仍存在且非空 Raw 数量恰好减少一条；否则如实返回后置条件失败，禁止
+        // 上层把“删了但仍在”写进审计轨迹。
+        let verified_entries = self.load()?;
+        if !verified_entries.iter().any(|entry| entry.id == id) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("raw_delete 后置条件失败: {id} 在写回后不可见"),
+            ));
+        }
+        let actual_raw_count = self.raw_lines(id).len();
+        if actual_raw_count != expected_raw_count {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "raw_delete 后置条件失败: {id} 预期 {expected_raw_count} 条游离行,实际 {actual_raw_count} 条"
+                ),
+            ));
+        }
+        Ok(())
     }
 }
 
