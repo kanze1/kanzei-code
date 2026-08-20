@@ -80,20 +80,6 @@
 - 取活依据: engine:唯一可执行 WIP 是 D-592，必须先恢复它
 - 阻塞: 等待用户提供或释放可安全接管的 llama-local 实测窗口；解除人：用户准备 llama-server 窗口并告知 agent 执行多步工具循环验收。
 
-## D-604 memory_note 把 SQLite 审计包在树锁内导致并发 append 锁车队超时 [fixing] (high)
-- 复杂度: 小
-- 复现: GitHub Actions run 32366822535 attempt 2，memory::store::tests::并发append零丢note 的 12 并发线程中一条等待 .kanzei/memory 写锁超过 3s；其余慢测继续结束后 kanzei-memory 以 155 passed/1 failed 退出。
-- 影响: 合法的并发 memory_note 会随机超时，自举可能丢失一条待消化笔记并让发布门禁不稳定；第一轮 runner 因相关测试异常持续 20 分钟后才被强制取消。
-- 标签: 核心
-- 根因: append_note 在拿到 memory 树排他锁后执行 inbox 读改写、write_log，并继续在锁内打开 state.db、create_session、append_event；冷 CI 并发 I/O 下每个写者的 SQLite 审计串行累积，末尾写者从同一起点等待超过 DEFAULT_LOCK_BUDGET。
-- 验收: ①树锁临界区只覆盖 inbox 读改写与写日志，生命周期审计移到释放之后；②12 并发 append 零丢失测试连续重复通过；③新增或加强测试证明慢审计不占用树锁；④workspace 正式 verify 与远端 Windows CI 全绿。
-- 优先级: P1
-- 取活依据: override:远端 Windows CI 已给出精确超时栈，收缩临界区并补回归
-- 进展: 根因已修复。crates/kanzei-memory/src/memory/inbox.rs:189 抽出 append_note_with_audit 锁边界，:236 在 inbox 原子写与 write_log 完成后显式 drop(tree_lock)，再执行生命周期审计；:420 新增慢审计阻塞时另一写者仍能在 500ms 内取得树锁的确定性测试。同步校正 inbox.rs 与 store.rs 中已被 R-268 替代的「整段 bash 窗口持锁」说明。证据:新测 1/1；原 memory::store::tests::并发append零丢note 连续 25 次 25/25；kanzei-memory --lib 157/157；cargo fmt --check 与 cargo clippy --workspace --all-targets -- -D warnings 通过。下一步:提交并跑正式 verify，再以远端 Windows CI 关闭。
-- observed_head: 16f3c48d8f08ec7665279fe115885ce078c1362d
-- observed_worktree_hash: fnv1a64:9d905fa481a39aae
-- recorded_at: 1787229806046
-
 ## D-617 提交前无覆盖计划导致同一 crate 证据缺口反复到 commit 才暴露 [open] (high)
 - refs: R-309 R-311 D-334
 - 复现: 可见日志尾段中，R-284 B3 与 B4 均在准备提交后才由 source_test_gate 发现最新 passed evidence 只有前端 smoke、未覆盖受影响的 kanzei-app crate；第一次拒绝后，后续批次仍重复同一拒绝→补 crate test→test_record→再提交链。

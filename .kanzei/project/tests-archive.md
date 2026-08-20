@@ -8951,3 +8951,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: $env:HTTPS_PROXY = "http://127.0.0.1:12000"; git push origin dev
 - 摘要: 远端 dev 拒绝 non-fast-forward：本地分支 ahead 29、behind 32；未执行强推、rebase 或覆盖式合并。
 - 收尾: 1787247956
+
+## T-1786922726600 D-604 formal verify [passed]
+- 命令: .\scripts\verify.ps1
+- 时长: 83.0s
+- 摘要: 正式 verify 全绿：parallel-lines、六条前端冒烟/连通性、fmt、clippy、cargo test --workspace 全部通过；workspace 测试各 crate 合计无失败。
+- 关联: D-604
+- 收尾: 1787257387

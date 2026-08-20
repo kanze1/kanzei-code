@@ -7764,3 +7764,17 @@
 - 优先级: P3
 - observed_head: 29369e3eeac46646ce9b84b67b441e5389c10d0a
 - recorded_at: 1787254034659
+
+## D-604 memory_note 把 SQLite 审计包在树锁内导致并发 append 锁车队超时 [fixed] (high)
+- 复杂度: 小
+- 复现: GitHub Actions run 32366822535 attempt 2，memory::store::tests::并发append零丢note 的 12 并发线程中一条等待 .kanzei/memory 写锁超过 3s；其余慢测继续结束后 kanzei-memory 以 155 passed/1 failed 退出。
+- 影响: 合法的并发 memory_note 会随机超时，自举可能丢失一条待消化笔记并让发布门禁不稳定；第一轮 runner 因相关测试异常持续 20 分钟后才被强制取消。
+- 标签: 核心
+- 根因: append_note 在拿到 memory 树排他锁后执行 inbox 读改写、write_log，并继续在锁内打开 state.db、create_session、append_event；冷 CI 并发 I/O 下每个写者的 SQLite 审计串行累积，末尾写者从同一起点等待超过 DEFAULT_LOCK_BUDGET。
+- 验收: ①树锁临界区只覆盖 inbox 读改写与写日志，生命周期审计移到释放之后；②12 并发 append 零丢失测试连续重复通过；③新增或加强测试证明慢审计不占用树锁；④workspace 正式 verify 与远端 Windows CI 全绿。
+- 优先级: P1
+- 取活依据: engine:唯一可执行 WIP 是 D-604，必须先恢复它
+- 进展: 复核并收口（代码既有交付来自提交 7e0ad6fe，当前 HEAD=0f566a2d）：① `crates/kanzei-memory/src/memory/inbox.rs:199-237` 让树锁只覆盖 inbox 读-拼-原子写与 write_log，:236 显式 drop 后才执行 SQLite 生命周期 audit；② `crates/kanzei-memory/src/memory/store.rs:2387-2428` 的 12 线程并发 append 保留 12 条与逐条内容断言，并对锁预算错误做最多 10 次、200ms 有界重试；③ `inbox.rs:416-450` 的慢生命周期审计测试在 audit 阻塞时以 500ms 取得树锁，证明慢 audit 不占锁；④ `T-1786922726600`（命令 `.\scripts\verify.ps1`）正式 verify 全绿，包含 workspace test、fmt、clippy、六条前端冒烟/连通性；GitHub Actions `ci` 对 HEAD 0f566a2d 的 run 32408775685 与 32408771698 均 completed/success（命令：`gh run list --commit 0f566a2d3d87382fbe0e27cf6e8a3993093c8c78 --limit 10 --json databaseId,status,conclusion,headSha,workflowName,createdAt,updatedAt`）。
+- observed_head: 0f566a2d3d87382fbe0e27cf6e8a3993093c8c78
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787257428279

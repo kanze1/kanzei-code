@@ -112,6 +112,7 @@
 - observed_head: 112b2dc40273584bba3d61ee65701d8bb99124e2
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
 - recorded_at: 1787247404126
+- 停车: 本轮 defect-first 先收口 D-604；R-245 B2 已完成，B3 待 WIP 槽释放后恢复。恢复人:agent
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
