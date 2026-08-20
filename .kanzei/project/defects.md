@@ -100,3 +100,11 @@
 - 验收: ①本轮口径不再依赖 prior.len() 盲切:由 runner 维护跨压缩稳定的本轮边界(RunSummary 携带)或统计改事件真源;②三处调用点(coordinator/persistence/CLI finalize)统一新口径;③回归:模拟轮中压缩删短 prior 后,episode tools/metrics 与 harvest 仍只含本轮内容
 - refs: D-654
 - 优先级: P2
+
+## D-656 package.ps1 -Publish 后 build 标签只存在于远端,本地缺失使下次 -Ack 范围核对失真 [open] (low)
+- 复现: 2026-08-21 发版 build-6cc9333c:gh release create 在远端建标签,本地 git tag --list build-6cc9333c 为空;package.ps1 的 D-183 发布范围核对用本地 git tag --list build-* 取上一标签,本地缺最新标签时下次发版会从更旧的标签起算,-Ack 条数被迫虚高
+- 影响: 发布范围核对(D-183)口径失真;本次已手工 git fetch origin tag build-6cc9333c 补齐
+- 来源: 2026-08-21 D-654 发版现场 self-found
+- 标签: 发布
+- 验收: ①publish 成功后在本地创建或 fetch 同名 build 标签(脚本内完成,失败仅警告不阻断);②发布范围核对前校验最新本地 build 标签与远端一致,不一致给出明确提示
+- 优先级: P3
