@@ -77,7 +77,11 @@ pub(crate) fn usage_text() -> &'static str {
        kz run --no-subagents \"<prompt>\"  # 关闭本次 CLI 运行的 task 子代理工具（默认开启）\n\
        kz replay-eval [--limit N]     # 六臂回放评估:历史 run.trace 提取 case,fake 档真调\n\
        kz work next [--requirement-first]  # 结构化取活裁决\n\
-       kz work claim <id> [--reason <text>] # 原子占用 selected；覆盖时理由必填\n\
+       kz work claim <id> [--reason <text>] # 原子占用 Requirement/Defect/Work Unit\n\
+       kz work create-unit --requirement R-xxx --objective <text> --acceptance <text> [--scope <path>] [--depends-on R-xxx/Wn] [--verify-with <cmd>]\n\
+       kz work checkpoint R-xxx/Wn --summary <text> --next-action <text> [--decision <text>] [--retrieval-ref <ref>]\n\
+       kz work verify R-xxx/Wn; kz work evidence R-xxx/Wn --criterion <exact> --evidence <ref>; kz work complete R-xxx/Wn\n\
+       kz work block|unblock|supersede R-xxx/Wn --reason <text>; kz work get-unit R-xxx/Wn; kz work list-units [--requirement R-xxx]\n\
        kz worktree create <name>            # 建线:原子认领+凭据回滚,桌面/CLI 同一实现(R-207)\n\
        kz worktree merge-preview <path>     # 合并前冲突预检(merge-tree),不执行合并(R-207)\n\
        kz worktree merge <path>              # 安全非快进合并:冲突则保持双方并返回诊断\n\

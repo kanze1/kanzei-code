@@ -8,9 +8,24 @@ use kanzei_harness::{Tool, ToolCtx};
 use super::{explicit_main_root, main_project_root};
 
 pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
-    let action = args.first().map(String::as_str).unwrap_or("next");
-    if !matches!(action, "next" | "claim") {
-        anyhow::bail!("work action 必须是 next 或 claim");
+    let cli_action = args.first().map(String::as_str).unwrap_or("next");
+    let action = cli_action.replace('-', "_");
+    if !matches!(
+        action.as_str(),
+        "next"
+            | "claim"
+            | "create_unit"
+            | "get_unit"
+            | "list_units"
+            | "checkpoint"
+            | "block"
+            | "unblock"
+            | "verify"
+            | "evidence"
+            | "complete"
+            | "supersede"
+    ) {
+        anyhow::bail!("未知 work action `{cli_action}`；运行 `kz help` 查看可用动作");
     }
     let priority = if args.iter().any(|arg| arg == "--requirement-first") {
         kanzei_harness::auto_run::WorkPriority::RequirementFirst
@@ -18,16 +33,63 @@ pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
         kanzei_harness::auto_run::WorkPriority::DefectFirst
     };
     let mut input = serde_json::json!({"action": action});
-    if action == "claim" {
+    let id_actions = [
+        "claim",
+        "get_unit",
+        "checkpoint",
+        "block",
+        "unblock",
+        "verify",
+        "evidence",
+        "complete",
+        "supersede",
+    ];
+    if id_actions.contains(&action.as_str()) {
         let id = args
             .get(1)
             .filter(|id| !id.starts_with('-'))
-            .ok_or_else(|| anyhow::anyhow!("work claim 需要 R-xxx 或 D-xxx"))?;
+            .ok_or_else(|| anyhow::anyhow!("work {cli_action} 需要条目 ID"))?;
         input["id"] = serde_json::json!(id);
-        if let Some(position) = args.iter().position(|arg| arg == "--reason") {
-            if let Some(reason) = args.get(position + 1) {
-                input["reason"] = serde_json::json!(reason);
-            }
+    }
+    for (flag, key) in [
+        ("--requirement", "requirement_id"),
+        ("--objective", "objective"),
+        ("--base-revision", "base_revision"),
+        ("--summary", "summary"),
+        ("--next-action", "next_action"),
+        ("--criterion", "criterion"),
+        ("--reason", "reason"),
+    ] {
+        if let Some(position) = args.iter().position(|arg| arg == flag) {
+            let value = args
+                .get(position + 1)
+                .filter(|value| !value.starts_with("--"))
+                .ok_or_else(|| anyhow::anyhow!("{flag} 需要值"))?;
+            input[key] = serde_json::json!(value);
+        }
+    }
+    for (flag, key) in [
+        ("--scope", "scope"),
+        ("--depends-on", "dependencies"),
+        ("--acceptance", "acceptance"),
+        ("--verify-with", "verification"),
+        ("--decision", "decisions"),
+        ("--retrieval-ref", "retrieval_refs"),
+        ("--evidence", "evidence_refs"),
+    ] {
+        let values = args
+            .iter()
+            .enumerate()
+            .filter(|(_, arg)| arg.as_str() == flag)
+            .map(|(position, _)| {
+                args.get(position + 1)
+                    .filter(|value| !value.starts_with("--"))
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("{flag} 需要值"))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        if !values.is_empty() {
+            input[key] = serde_json::json!(values);
         }
     }
     let cwd = std::env::current_dir()?;

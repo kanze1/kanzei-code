@@ -341,5 +341,5 @@
 - 验收: ①v17→v18 迁移前整库备份且表/列机械判据通过；②事件回放与 surface 相同，删除/重建投影不丢审计；③单元上下文有硬预算，父需求超长进展不进入 selected；④依赖、单 WIP、并行线接管与 checkpoint 状态机有测试；⑤未逐条登记 evidence 时 complete 被拒；⑥有非终态单元或全部 superseded 时 req close 被拒，全部验证完成后可关；⑦CLI 编译，桌面快照、i18n/runtime/lint 冒烟通过；⑧全量 verify 通过并发布安装包，GitHub release/tag/资产 SHA256 与安装后二进制版本均核验。
 - 取活依据: user-direct:用户本轮明确要求由外部 Codex 完成底座并发版，避免依赖旧需求系统自举
 - 取得线: kanzei/work-unit-foundation
-- 批次: 1/4
-- 进展: B1 已完成：schema v18 新增 append-only work_events 与可重建 work_surfaces，状态机、上下文硬预算、并行线 reassigned、逐条 evidence 完成门禁与迁移对象/列判据落地；core Work Unit 4 项、schema 11 项定向测试通过。B2 调度/CLI/关闭门禁，B3 桌面可观测，B4 文档/全量验证/发版待提交。
+- 批次: 2/4
+- 进展: B1 已提交 ba13b53a。B2 已完成：work next 对 opt-in Outcome 改按 Work Unit 调度，selected 只含当前投影与父 Outcome 白名单字段；create/claim/checkpoint/block/unblock/verify/evidence/complete/supersede 工具与 CLI 落地；父 Requirement 关闭增加单元终态与至少一个 done 门禁。24 项 work 调度测试通过，其中端到端覆盖超长父进展不入上下文、无 evidence 拒绝完成和父关闭门禁。B3 桌面可观测、B4 文档/全量验证/发版待提交。

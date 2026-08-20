@@ -385,6 +385,48 @@ pub(crate) fn update_close(
                 }
                 probe
             };
+            if tool.kind.prefix == "R" && crate::work::uses_work_units(&merged) {
+                let state_path = kanzei_core::project_state_path(&ctx.project_root);
+                if !state_path.is_file() {
+                    return ToolOutput::error(format!(
+                        "{id} 已启用 work_units_v1，但项目没有 state.db；先用 `work create-unit` 拆分执行单元"
+                    ));
+                }
+                let units = match kanzei_core::SessionStore::open(&state_path)
+                    .and_then(|store| store.list_work_units(Some(id)))
+                {
+                    Ok(units) => units,
+                    Err(error) => {
+                        return ToolOutput::error(format!(
+                            "{id} 无法读取 Work Unit 关闭门禁: {error}"
+                        ))
+                    }
+                };
+                if units.is_empty() {
+                    return ToolOutput::error(format!(
+                        "{id} 已启用 work_units_v1，但尚未创建 Work Unit，不能关闭"
+                    ));
+                }
+                let nonterminal = units
+                    .iter()
+                    .filter(|unit| !unit.status.is_terminal())
+                    .map(|unit| format!("{}[{}]", unit.unit_id, unit.status.as_str()))
+                    .collect::<Vec<_>>();
+                if !nonterminal.is_empty() {
+                    return ToolOutput::error(format!(
+                        "{id} 仍有非终态 Work Unit，不能关闭: {}",
+                        nonterminal.join("、")
+                    ));
+                }
+                if !units
+                    .iter()
+                    .any(|unit| unit.status == kanzei_core::WorkUnitStatus::Done)
+                {
+                    return ToolOutput::error(format!(
+                        "{id} 的 Work Unit 全部 superseded，没有已验证完成的交付，不能关闭"
+                    ));
+                }
+            }
             // R-229 关闭门禁:出现「剩余/其余 N 处」式分类断言时,关闭文本必须
             // 逐处带 file:line 引证,引证数不足断言声称的总处数即拒关闭。
             // (根因:R-199 关闭证据把完整否决误归为「非续跑否决」且无人核对,
