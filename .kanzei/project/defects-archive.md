@@ -7340,3 +7340,17 @@
 - observed_head: ee8d31523be15b4adf46c93774b3d9df95af396b
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787225731861
+
+## D-603 Bash 收口锁预算短于合法记忆写事务导致并发时误报失败 --project-root C:\Users\kanzei\Documents\kanzei-selfboot-quality [fixed] (high)
+- 复杂度: 小
+- 复现: GitHub Actions run 32364748733，d368_concurrent_memory_write::真bash围栏窗口内并发memory_add等待后落盘不被误回滚失败；合法 memory_add 持有 .kanzei/memory 树锁超过 500ms，enforce_managed_files_with_writer_log 在 500ms 预算内取不到共享锁并返回 managed-files WARNING。
+- 影响: 无越界写的 bash 被标记失败并中断自举与发布流水线；合法并发写虽最终落盘，但围栏声称未执行归因，产生假故障。
+- 标签: 核心
+- 根因: 围栏收口 LOCK_ACQUIRE_BUDGET 固定为 500ms，但项目统一写锁预算 DEFAULT_LOCK_BUDGET 为 3s；冷 CI 首次建立记忆派生索引时合法事务可超过 500ms，代码把性能抖动误判为写者卡死。
+- 验收: ①围栏收口等待预算与统一写锁预算 3s 对齐且仍有界；②确定性测试持有记忆树锁超过 500ms 后释放，收口必须等待并成功；③D-368 真实并发测试通过；④workspace 全量测试、严格 clippy、正式 verify 与远端 CI 全绿。
+- 优先级: P1
+- 取活依据: override:远端最终发布门禁稳定复现，直接修复并补回归
+- 进展: 已完成并逐条对账。验收①:crates/kanzei-tools/src/managed.rs:240 直接复用 DEFAULT_LOCK_BUDGET，提交 16f3c48d，3s 有界预算与写入口一致。验收②:crates/kanzei-tools/src/managed.rs:530 新增确定性 800ms 持锁测试，managed 模块 11/11。验收③:crates/kanzei/tests/integration/d368_concurrent_memory_write.rs:68 原失败真实并发测试单独连续 10 次 10/10，完整 integration 32/32。验收④:提交 16f3c48d 经 scripts/verify.ps1 正式 13 步验证全绿，kanzei-tools 408 passed/1 ignored；GitHub Actions run 32365958768 的 fmt/clippy/test/ui smoke 全部 success，证据 https://github.com/kanze1/kanzei-code/actions/runs/32365958768。
+- observed_head: 16f3c48d8f08ec7665279fe115885ce078c1362d
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787227333559
