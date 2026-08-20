@@ -191,23 +191,6 @@
 - 验收: ①Android 真机可访问并完成鉴权；②收到真实运行成功/失败通知；③从手机发送消息后服务端产生可追溯事件；④保存截图、端口/设备与 session 证据；⑤失败时明确网络、权限或设备边界。
 - 优先级: P3
 
-## R-293 记忆价值闭环点亮:反事实评估与 outcome 漏斗产出真实数据 [doing]
-- refs: D-507 docs/design/memory_control_plane.md
-- 内容: 生产实况:memory_eval_agg 0 行(写入方 upsert_memory_effect 与消费链 kanzei-core/src/store/eval.rs:54-90、控制面 UI 全通但无人触发)、arm=outcome_improved 0 行无任何写入方(telemetry.rs:174-183 恒 N/A)、deprecate_candidates 依赖 effect_mean<=0 永远返回空集(eval.rs:76,338)、memory_eval 1670 行里 1640 行是在线 action_changed 对账挤占离线回放语义。接通 outcome 写入方与聚合调度,让 F(m) 漏斗四段真实产数
-- 复杂度: 大
-- 来源: 2026-08-18 全库勘察;memory_control_plane.md 立身之本「用数据判断记忆是否改善决策」当前无数据
-- 标签: 后端
-- 边界: 不改回放台六臂框架;先点亮既有链路再谈扩展
-- 验收: 生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED 四段有真实数据;控制面 F(m) 栏显示非空;deprecate 判定可被真实数据触发;回归测试
-- 优先级: P1
-- 取活依据: engine:唯一可执行 WIP 是 R-293，必须先恢复它
-- 停车: 
-- 进展: 批次1完成：kanzei-core runner RecallWatch 在 crates/kanzei-core/src/runner/drive.rs:200-424 的所有正常/暂停/提前停止路径显式提交 RecallRunOutcome；runner/recall.rs:61-166 新增 finish 与 OUTCOME_IMPROVED 独立证据接口；kanzei-memory/src/memory/mod.rs:714-775 生产策略在 Completed 结局写 outcome_improved，Halted/Unknown 不写。批次1测试：T-1786922726510=220 passed；T-1786922726512=152 passed。批次2完成：修复回放以 case_id 冒充 memory_id 的聚合缺陷；kanzei-core/src/replay.rs:192-208 增加 evaluation_memory_ids，:274-362 仅按真实命中 ID 写 memory_eval 并逐 ID 调 recompute；kanzei-memory/src/replay_eval.rs:192-210 从 Current 策略返回真实首个命中 ID；无真实命中不伪造聚合。真实 F(m) 回归断言在 replay.rs:616-625，provider ID 回归在 replay_eval.rs:386-392。T-1786922726514=2 passed；T-1786922726515=1 passed；T-1786922726516=kanzei-core 220 passed；T-1786922726517=kanzei-memory 152 passed。下一步：运行大需求关闭前 cargo test --workspace，随后逐条对照生产四段漏斗、控制面 F(m)、deprecate 与回归测试验收。
-- observed_head: 53649708b734af71bae6f400a9d5d43a2fedefcf
-- observed_worktree_hash: fnv1a64:8326ad1d07302fef
-- recorded_at: 1787190695821
-- 批次: 2/2
-
 ## R-296 Tauri command 与 run 链路测试基座 [doing]
 - 内容: kanzei-app 无 tests/ 目录(全仓唯一集成层在 crates/kanzei/tests/integration),104 个 #[tauri::command] 零测试;装配→执行→落库主链 commands/run.rs(604行)、processes/lifecycle.rs(593)、processes/workspace.rs(548)、run/persistence.rs(489)、run/coordinator.rs(424)、run/execution.rs(313)、harness_ext.rs(284) 全部 0 个 #[test];数据面 memory.rs(13 command)/docs.rs(16 command) 同样近零。建立可测基座(状态抽离/伪 AppHandle/集成层)并优先覆盖 run 主链
 - 复杂度: 大

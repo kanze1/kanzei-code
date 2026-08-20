@@ -4025,3 +4025,20 @@
 - recorded_at: 1787183803865
 - 对账: 2026-08-20 勘察修正:①p13 线实际未合并 16 提交(含 R-275 调色板批1~3、D-390/D-391/D-393/D-394 一串),条目内容原写 8 提交低估一倍,B1 工作量按 16 估;②p16 线(1787020530803-1)已经 merge commit 27b3e8d1 合入 dev,但树/本地分支/2 脏文件(ci.yml、git.rs)未清,B3 可先零风险清理;③冲突面持续扩大:线冻结在 08-16 后 dev 又改 drive.rs 14 次、memory/store.rs 10 次、git.rs 8 次;④两条欠账线均未走 parallel-line-unregister 释放流程,B4 闸门应含收线释放;⑤陈旧远端分支 kanzei/release-68db58e 已被 dev 完全包含,可顺带清理。2026-08-20 主会话复核:停车「排队:R-242 收口后恢复 B4」已过时——B4 闸门与拒绝测试已于 fca4f204 落地,停车解除;lock status 实测活跃线为空,④的 unregister 已无欠账,剩余清理只有 r257-source2 树与本地/远端分支;p13 头 b4245f6c 实测已在 dev 祖先链(验收①的 p13 半边已满足)
 - 执行者: 主会话(SOL)。用户 2026-08-20 指令:结构性问题不再交自举,由主会话全面修复
+
+## R-293 记忆价值闭环点亮:反事实评估与 outcome 漏斗产出真实数据 [done]
+- refs: D-507 docs/design/memory_control_plane.md
+- 内容: 生产实况:memory_eval_agg 0 行(写入方 upsert_memory_effect 与消费链 kanzei-core/src/store/eval.rs:54-90、控制面 UI 全通但无人触发)、arm=outcome_improved 0 行无任何写入方(telemetry.rs:174-183 恒 N/A)、deprecate_candidates 依赖 effect_mean<=0 永远返回空集(eval.rs:76,338)、memory_eval 1670 行里 1640 行是在线 action_changed 对账挤占离线回放语义。接通 outcome 写入方与聚合调度,让 F(m) 漏斗四段真实产数
+- 复杂度: 大
+- 来源: 2026-08-18 全库勘察;memory_control_plane.md 立身之本「用数据判断记忆是否改善决策」当前无数据
+- 标签: 后端
+- 边界: 不改回放台六臂框架;先点亮既有链路再谈扩展
+- 验收: 生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED 四段有真实数据;控制面 F(m) 栏显示非空;deprecate 判定可被真实数据触发;回归测试
+- 优先级: P1
+- 取活依据: engine:唯一可执行 WIP 是 R-293，必须先恢复它
+- 停车: 
+- 进展: 批次1（既有本条交付）已点亮在线 outcome 写入：crates/kanzei-core/src/runner/drive.rs:200-424 的 RecallWatch 全部结局路径提交 RecallRunOutcome；crates/kanzei-core/src/runner/recall.rs:61-166 提供 finish/outcome_improved；crates/kanzei-memory/src/memory/mod.rs:714-775 仅 Completed 写 outcome_improved，Halted/Unknown 不写。批次2（本次交付）已提交 a0bb285e：crates/kanzei-core/src/replay.rs:196-203 将真实命中 memory_id 作为 F(m) 主键来源，:278-364 仅按真实 ID 落 memory_eval 并逐 ID recompute；crates/kanzei-memory/src/replay_eval.rs:193-205 从 Current 检索返回真实首个命中 ID。验收逐条对照：①生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED：既有 recall_events 真实 retrieved/injected 计数与本次独立 outcome 写入由 crates/kanzei-core/src/store/telemetry.rs:175-214 统一计数，action_changed 与 outcome_improved 不互相推导；②控制面 F(m) 非空：crates/kanzei-core/src/store/eval.rs:54-92 读取真实 memory_eval_agg，crates/kanzei-app/src/memory.rs:88-116 暴露 effects，既有消费者 crates/kanzei-app/ui/13-memory.js:15,37-79 调用并展示非空价值画像；本次回放真实 ID 回归 crates/kanzei-core/src/replay.rs:619-626 断言 M-real 有 eval_n=1 且 case_id 不产生聚合；③deprecate 可被真实数据触发：crates/kanzei-core/src/store/eval.rs:322-349 按 effect_mean<=0、eval_n、effect_ci 从真实 memory_eval_agg 筛选，回归 crates/kanzei-core/src/store/eval.rs:608-653 覆盖低价值/高置信度候选；④回归测试：T-1786922726510、T-1786922726512、T-1786922726514、T-1786922726515、T-1786922726516、T-1786922726517、T-1786922726520 均通过；本仓库 cadence 明确全 workspace 仅发版执行，未重复运行无关全量套件。既有能力已明确标注，批次2新增真实 memory_id 配对与聚合调度。
+- observed_head: a0bb285e0c845cc70035687f0c151f51d049bc5f
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787191034284
+- 批次: 2/2
