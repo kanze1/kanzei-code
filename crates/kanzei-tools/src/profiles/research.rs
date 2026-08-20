@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use kanzei_harness::{rule, Effect, HarnessDraft, ResolveCtx};
@@ -195,12 +196,100 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
     }
 }
 
+fn research_topics(project_root: &Path) -> Vec<String> {
+    let research_root = project_root.join(".kanzei/research");
+    let mut topics = std::fs::read_dir(research_root)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .filter_map(|entry| {
+            let file_type = entry.file_type().ok()?;
+            if !file_type.is_dir() {
+                return None;
+            }
+            let topic = entry.file_name().into_string().ok()?;
+            DocStore::validate_topic(&topic).ok()?;
+            Some(topic)
+        })
+        .collect::<Vec<_>>();
+    topics.sort();
+    topics
+}
+
+/// Source/Finding 已按 topic 分目录写入，研究上下文必须把 topic 真源与迁移前的
+/// flat 遗留一起投影。scope 写进每一行，避免不同 topic 的 S-/F- 局部编号碰撞后
+/// 失去归属；500 条预算在全部 scope 间共享，不会随 topic 数量无界膨胀。
+fn research_index_of(
+    ctx: &ResolveCtx,
+    kind: &'static crate::docstore::DocKind,
+    label: &str,
+) -> Option<String> {
+    const INDEX_LIMIT: usize = 500;
+    let mut stores = vec![(
+        "legacy-flat".to_string(),
+        DocStore::open(&ctx.project_root, kind),
+    )];
+    for topic in research_topics(&ctx.project_root) {
+        if let Ok(store) = DocStore::open_topic(&ctx.project_root, kind, &topic) {
+            stores.push((topic, store));
+        }
+    }
+
+    let mut open = Vec::new();
+    let mut closed = 0usize;
+    for (scope, store) in stores {
+        let Ok(entries) = store.load() else {
+            continue;
+        };
+        closed += entries
+            .iter()
+            .filter(|entry| kind.terminal.contains(&entry.status.as_str()))
+            .count();
+        closed += store.load_archive().map_or(0, |archive| archive.len());
+        open.extend(
+            entries
+                .into_iter()
+                .filter(|entry| !kind.terminal.contains(&entry.status.as_str()))
+                .map(|entry| (scope.clone(), entry)),
+        );
+    }
+    if open.is_empty() && closed == 0 {
+        return None;
+    }
+
+    let mut lines = open
+        .iter()
+        .take(INDEX_LIMIT)
+        .map(|(scope, entry)| format!("[{scope}] {} [{}] {}", entry.id, entry.status, entry.title))
+        .collect::<Vec<_>>();
+    if open.len() > INDEX_LIMIT {
+        let folded = open
+            .iter()
+            .skip(INDEX_LIMIT)
+            .map(|(scope, entry)| format!("{scope}/{}", entry.id))
+            .collect::<Vec<_>>();
+        lines.push(format!(
+            "… +{} more open ({}); use the source/finding tracker with the shown topic scope",
+            open.len() - INDEX_LIMIT,
+            folded.join(", ")
+        ));
+    }
+    Some(format!(
+        "{label} ({} open, {closed} closed; topic + legacy-flat):\n{}",
+        open.len(),
+        lines.join("\n")
+    ))
+}
+
 /// 文档索引:非终态条目一行一个,预算封顶。
 pub(crate) fn index_of(
     ctx: &ResolveCtx,
     kind: &'static crate::docstore::DocKind,
     label: &str,
 ) -> Option<String> {
+    if matches!(kind.prefix, "S" | "F") {
+        return research_index_of(ctx, kind, label);
+    }
     const INDEX_LIMIT: usize = 500;
     let store = DocStore::open(&ctx.project_root, kind);
     let entries = store.load().ok()?;

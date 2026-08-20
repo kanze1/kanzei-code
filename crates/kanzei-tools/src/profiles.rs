@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use kanzei_harness::{
-    rule, source, AgentDef, AgentMode, Component, Effect, HarnessDraft, ProfileKind, ProfileScope,
-    ResolveCtx,
+    refreshing_source, rule, source, AgentDef, AgentMode, Component, Effect, HarnessDraft,
+    ProfileKind, ProfileScope, ResolveCtx,
 };
 
 use crate::docstore::{DocStore, DECISIONS, DEFECTS, IDEAS, REQUIREMENTS};
@@ -77,7 +77,7 @@ impl Component for ResearchProfile {
 
         draft.context.insert(
             "research/docs",
-            source("research/docs", |ctx: &ResolveCtx| {
+            refreshing_source("research/docs", |ctx: &ResolveCtx| {
                 let src = research::index_of(ctx, &crate::docstore::SOURCES, "Sources");
                 let fnd = research::index_of(ctx, &crate::docstore::FINDINGS, "Findings");
                 let req = research::index_of(ctx, &REQUIREMENTS, "Requirements");
@@ -847,6 +847,35 @@ mod tests {
             "# project conventions\nB4 convention marker\n",
         )
         .unwrap();
+        crate::docstore::DocStore::open(&root, &crate::docstore::SOURCES)
+            .save(&[crate::docstore::Entry {
+                id: "S-901".into(),
+                title: "legacy flat source".into(),
+                status: "active".into(),
+                severity: None,
+                fields: vec![],
+            }])
+            .unwrap();
+        crate::docstore::DocStore::open_topic(&root, &crate::docstore::SOURCES, "r221-chain")
+            .unwrap()
+            .save(&[crate::docstore::Entry {
+                id: "S-001".into(),
+                title: "topic source visible".into(),
+                status: "active".into(),
+                severity: None,
+                fields: vec![],
+            }])
+            .unwrap();
+        crate::docstore::DocStore::open_topic(&root, &crate::docstore::FINDINGS, "r221-chain")
+            .unwrap()
+            .save(&[crate::docstore::Entry {
+                id: "F-001".into(),
+                title: "topic finding visible".into(),
+                status: "draft".into(),
+                severity: None,
+                fields: vec![],
+            }])
+            .unwrap();
         crate::docstore::DocStore::open(&root, &crate::docstore::REQUIREMENTS)
             .save(&[crate::docstore::Entry {
                 id: "R-901".into(),
@@ -887,6 +916,12 @@ mod tests {
             "read-only index",
             "unified `memory_search`",
             "memory_note",
+            "[legacy-flat] S-901",
+            "legacy flat source",
+            "[r221-chain] S-001",
+            "topic source visible",
+            "[r221-chain] F-001",
+            "topic finding visible",
         ] {
             assert!(
                 baseline.contains(required),
@@ -896,6 +931,30 @@ mod tests {
         assert!(
             !baseline.contains("legacy research memory must not be injected"),
             "research context 不得注入历史 research/memory.md"
+        );
+        crate::docstore::DocStore::open_topic(&root, &crate::docstore::SOURCES, "r221-chain")
+            .unwrap()
+            .save(&[
+                crate::docstore::Entry {
+                    id: "S-001".into(),
+                    title: "topic source visible".into(),
+                    status: "active".into(),
+                    severity: None,
+                    fields: vec![],
+                },
+                crate::docstore::Entry {
+                    id: "S-002".into(),
+                    title: "same session next step source".into(),
+                    status: "active".into(),
+                    severity: None,
+                    fields: vec![],
+                },
+            ])
+            .unwrap();
+        let refreshed = snapshot.refreshable_system_baseline_with_report().0;
+        assert!(
+            refreshed.contains("same session next step source"),
+            "research/docs 必须逐模型步骤刷新，刚写入的 topic 来源要在下一步可见"
         );
         for tool_name in ["source", "finding", "req", "defect"] {
             assert_eq!(
