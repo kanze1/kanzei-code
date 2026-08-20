@@ -24,12 +24,12 @@
 - 标签: 流程
 - 验收: ①构建产物路径(gen/schemas 等)进入越界检测豁免清单或按内容指纹放行,有定向测试;②quarantine 提供按日期/类型的清理入口(dry-run+实际释放量),真越界证据可显式保留;③清理后 121 个存量目录处置留痕;④真实并行双线构建实测不再产生 schema 误报
 - 优先级: P2
-- 进展: B1 完成：crates/kanzei-tools/src/cross_tree.rs:48-82 新增 gen/schemas 完整路径级豁免，:214-218 与 :298-300 的内容/mtime 两条扫描路径共用 is_excluded_path；:806-828 新增 gen/schemas 豁免且 src/schemas 保留的回归。新增 crates/kanzei-tools/src/quarantine.rs:1-177，按已知类型+毫秒时间戳扫描，dry-run 统计 eligible_bytes，实际 apply 统计 freed_bytes；未知命名目录进入 preserved_paths，实际清理无筛选条件直接拒绝。B1 定向测试 T-1786922726523：393 passed、0 failed、1 ignored。下一步：B2 接入 `kz quarantine` CLI（默认 dry-run，--apply 必须配类型或日期筛选），补 CLI 调用测试，并核对存量121目录处置留痕与真实双线构建。
-- observed_head: a0bb285e0c845cc70035687f0c151f51d049bc5f
-- observed_worktree_hash: fnv1a64:5790846753d6b1d2
-- recorded_at: 1787191426305
+- 进展: B1 完成并已提交 38497890：crates/kanzei-tools/src/cross_tree.rs:48-82 新增 gen/schemas 完整路径级豁免，:214-218 与 :298-300 两条扫描路径共用 is_excluded_path；新增 crates/kanzei-tools/src/quarantine.rs:1-202，已知类型/毫秒时间戳扫描、dry-run eligible_bytes、apply freed_bytes、未知命名目录 preserved_paths。B2 完成未提交：crates/kanzei/src/cli/quarantine.rs:1-128 提供真实 `kz quarantine` 调用方，默认 dry-run，apply 必须带 type/date 筛选；crates/kanzei/src/cli/mod.rs:20-56 接入命令分发，:86-90 接入帮助文案。T-1786922726526：42 unit+32 integration passed；T-1786922726527：真实 CLI dry-run 与临时项目 apply 均通过，实际输出 eligible_dirs=1、freed_bytes=8、目标目录已删除。验收对账：①已完成，路径级豁免实现与回归在 cross_tree.rs:48-82、:806-828，T-1786922726524；②已完成，CLI真实消费者为 cli/mod.rs:52 与 cli/quarantine.rs:58-91，dry-run/apply及释放字节证据见 T-1786922726527，未知证据保留由 tools/quarantine.rs:82-93、:128-156 保证；③处置留痕已写入本进展：历史基线来自本缺陷复现字段=121目录/143MB，当前真实盘点命令输出=1目录、1204224 bytes（shell-with-log-1787179727388），但历史120目录逐目录清单不在当前树，故验收降级：③原文“清理后121个存量目录处置留痕”→保留历史基线+当前盘点数字，无独立逐目录 manifest；④验收降级：④原文“真实并行双线构建实测不再产生schema误报”→当前代码与定向回归已覆盖两条扫描路径，但本轮没有可用的第二真实 worktree/双线构建窗口，不能冒充并行实测。B2 下一步仅剩提交本批并保留③④缺口，不得关闭 D-566。
+- observed_head: 3849789009d33242b9e927fe88c079b8c10668b2
+- observed_worktree_hash: fnv1a64:5f5781185a9855ac
+- recorded_at: 1787191877844
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-566(unblocks=0)
-- 批次: 1/2
+- 批次: 2/2
 
 ## D-567 记忆 inbox 消化 10 进 0 出:manager run made no inbox progress,96 条积压 [open] (high)
 - refs: D-409

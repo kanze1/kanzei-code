@@ -8397,3 +8397,24 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-566
 - 收尾: 1787191522
 - 源码指纹: v2 crates/kanzei-tools/src/cross_tree.rs@54c083cf396c,crates/kanzei-tools/src/lib.rs@ecb5d53c649a,crates/kanzei-tools/src/quarantine.rs@7b2f970c7fb2
+
+## T-1786922726525 D-566 B2 kanzei CLI 定向测试（初次） [passed]
+- 命令: cargo test -p kanzei
+- 摘要: 42 unit tests与32 integration tests均通过；新增 quarantine 参数解析测试通过。测试发现并随后修正 CLI 未使用 import，提交前需重跑。
+- 关联: D-566
+- 收尾: 1787191686
+- 源码指纹: v2 crates/kanzei/src/cli/mod.rs@d8adf343d74f,crates/kanzei/src/cli/quarantine.rs@877340a2e177
+
+## T-1786922726526 D-566 B2 kanzei CLI 提交前定向测试 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei
+- 摘要: 修正未使用 import 后：42 unit + 32 integration 全部通过。
+- 关联: D-566
+- 收尾: 1787191774
+- 源码指纹: v2 crates/kanzei/src/cli/mod.rs@d8adf343d74f,crates/kanzei/src/cli/quarantine.rs@13dd4628af0f
+
+## T-1786922726527 D-566 B2 quarantine CLI dry-run 与实际释放 [passed]
+- 命令: cargo run -p kanzei -- quarantine --dry-run --type bg --project-root (Get-Location).Path; target\debug\kz.exe quarantine --apply --type bg --project-root <temp-project>
+- 摘要: 真实 CLI dry-run 输出 mode=dry-run、按类型筛选并保留不匹配证据；临时项目实际 apply 输出 mode=apply、eligible_dirs=1、freed_bytes=8 且目标目录已删除。
+- 关联: D-566
+- 收尾: 1787191781
+- 源码指纹: v2 crates/kanzei/src/cli/mod.rs@d8adf343d74f,crates/kanzei/src/cli/quarantine.rs@13dd4628af0f
