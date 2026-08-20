@@ -78,6 +78,7 @@
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
 - recorded_at: 1787239449856
 - 取活依据: engine:唯一可执行 WIP 是 D-592，必须先恢复它
+- 阻塞: 等待用户提供或释放可安全接管的 llama-local 实测窗口；解除人：用户准备 llama-server 窗口并告知 agent 执行多步工具循环验收。
 
 ## D-593 上下文占用显示轮末才刷新且与预算引擎两套口径,长 prefill 期间滞后一整步 [open] (medium)
 - refs: D-592
