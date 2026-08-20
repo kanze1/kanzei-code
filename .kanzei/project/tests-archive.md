@@ -8780,3 +8780,15 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 五份 W2 文档均明确 R-317/Work Unit 权威；R-177/R-185/R-222/R-298 等已完成状态与当前正文一致；旧状态和 R-152 TODO 残留检查通过，diff whitespace 检查通过。
 - 关联: R-318
 - 收尾: 1787241377
+
+## T-1786922726576 R-318/W3 设计索引结构化审计（初次） [failed]
+- 命令: PowerShell architecture index structural audit (initial strict 8-character hash check)
+- 摘要: 审计命令本身将 Git 合法的 7 位短提交哈希误判为缺失；索引内容未发现缺陷，已修正检查正则。
+- 关联: R-318
+- 收尾: 1787241760
+
+## T-1786922726577 R-318/W3 设计索引结构化审计（修正后） [passed]
+- 命令: PowerShell architecture index structural audit (39 docs/links, four identities, commit/replacement metadata)
+- 摘要: 39 份 docs/design 文档全部被索引且链接唯一；live_design/validated_design 均有 last_verified_commit，historical_snapshot 有 as_of_commit，superseded 有有效 superseded_by；四类身份均存在。
+- 关联: R-318
+- 收尾: 1787241765
