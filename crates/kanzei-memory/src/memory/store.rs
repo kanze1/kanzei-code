@@ -2385,6 +2385,12 @@ mod tests {
     }
 
     /// R-215 验收②:并发 append 压测零丢 note——多线程同时 append_note,全部落盘。
+    ///
+    /// D-631:本测试的不变量是**零丢失**,不是尾部写者的等待延迟。共享 CI runner
+    /// 高 I/O 时 12 写者串行化可能让尾部等待超过统一 3s 锁预算(D-603/D-604 修后
+    /// 仍复现一次,kanzei-memory 套件整体 259s 的冷环境),那是环境延迟而非丢失;
+    /// 锁边界不变量(审计不占树锁)由「慢生命周期审计不占用memory树锁」确定性钉住。
+    /// 因此仅对锁预算超时做有界重试,其它任何错误照旧立即失败。
     #[test]
     fn 并发append零丢note() {
         let (dir, store) = temp_store();
@@ -2393,9 +2399,19 @@ mod tests {
         for i in 0..12 {
             let store = store.clone();
             handles.push(std::thread::spawn(move || {
-                store
-                    .append_note(&format!("并发 note {i}"), "", "fact", &[])
-                    .unwrap();
+                let mut budget_retries = 0;
+                loop {
+                    match store.append_note(&format!("并发 note {i}"), "", "fact", &[]) {
+                        Ok(_) => break,
+                        Err(error)
+                            if budget_retries < 10 && error.to_string().contains("仍拿不到") =>
+                        {
+                            budget_retries += 1;
+                            std::thread::sleep(std::time::Duration::from_millis(200));
+                        }
+                        Err(error) => panic!("并发 append 失败: {error}"),
+                    }
+                }
             }));
         }
         for h in handles {

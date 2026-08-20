@@ -7741,3 +7741,15 @@
 - 优先级: P1
 - observed_head: 7f42d074146ca54667a0e8e238e414cb6682b2dd
 - recorded_at: 1787250834690
+
+## D-631 并发append零丢note 把环境延迟当不变量,合并加重套件后 CI 三度复发 [fixed] (medium)
+- refs: D-603 D-604 R-215
+- 复现: GitHub Actions run 32406278224(554e7861):D-603/D-604 修复后,合并线使 kanzei-memory 套件冷 CI 耗时升至 259s,12 并发写者尾部再次等待超过统一 3s 锁预算,测试第三次以同形态失败;本地同套件全绿。
+- 影响: dev/main CI 反复红,发布节奏被环境噪声打断;继续收紧实现无收益——锁内路径自 7e0ad6fe 起零变化。
+- 根因: 测试断言错位——它守的不变量是并发零丢失,却把「尾部写者 3s 内拿到锁」也当成了断言;后者随 runner 负载波动,属延迟契约而非丢失契约。锁边界不变量已由确定性测试「慢生命周期审计不占用memory树锁」单独钉住。
+- 修复: crates/kanzei-memory/src/memory/store.rs 并发append零丢note 仅对锁预算超时错误做有界重试(≤10 次,200ms 退避),其它错误照旧立即失败;零丢失与逐条落盘断言不变。
+- 验收: ①本地重复 10 次全绿;②clippy --all-targets -D warnings 通过;③锁边界确定性测试保持独立存在。
+- 标签: 测试 核心
+- 优先级: P2
+- observed_head: 554e78612c1898f4d888e0a2b1747dd689224e63
+- recorded_at: 1787253371928
