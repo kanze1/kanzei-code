@@ -8773,3 +8773,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 五份指定设计文档均存在 validated_design 身份、实施前/历史输入标记、当前 tracker 状态/剩余边界映射；关键关联条目和 diff whitespace 检查通过。
 - 关联: R-318
 - 收尾: 1787240758
+
+## T-1786922726575 R-318/W2 并行发布执行模型架构漂移审查 [passed]
+- 命令: PowerShell five-document architecture drift audit + git diff --check
+- 时长: 2.0s
+- 摘要: 五份 W2 文档均明确 R-317/Work Unit 权威；R-177/R-185/R-222/R-298 等已完成状态与当前正文一致；旧状态和 R-152 TODO 残留检查通过，diff whitespace 检查通过。
+- 关联: R-318
+- 收尾: 1787241377

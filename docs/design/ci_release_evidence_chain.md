@@ -1,10 +1,20 @@
 # CI 与发布证据链(独立验证者 + commit 绑定门禁)
 
-- 状态:设计基线(2026-08-09 用户定调仓库工程评审 P0 三项:License 元数据、真 CI、release gate 机械化)
-- 日期:2026-08-09
-- 关联需求:R-152(本文交付主体)、R-146(clippy 闸门)、R-156(fmt 闸门)
-- 关联缺陷:无(D-183/D-198 为同族先例,见下)
-- 关联决策:A-009
+- 身份: validated_design
+- 状态: 已验证基线；R-152、R-146、R-156、R-298 已完成
+- 日期: 2026-08-09
+- 最近核验提交: c0ea88d / 81e6800
+- 关联需求: R-152 (done)、R-146 (done)、R-156 (done)、R-298 (done)
+- 关联缺陷: 无(D-183/D-198 为同族先例,见下)
+- 关联决策: A-009
+- 执行模型权威: R-317 的 Outcome/Work Unit/事件投影；发布证据以 VerificationRun/verification.json 和 release gate 为消费面
+
+## 当前交付证据入口
+
+- R-152 已完成 License、CI、`scripts/verify.ps1` 与 `package.ps1` commit 绑定门禁；当前验证入口是 `dist/verification.json`，发布包必须匹配 HEAD 且 `all_pass=true`。
+- R-146/R-156 已启用 clippy/fmt 闸门；CI 与 verify.ps1 的门禁清单必须同步。
+- R-298 已补齐安装后自校验、安装器 SHA256、版本一致性和 `dist/` 保留策略；这些是既有交付，不在本文再次申报为新实现。
+- 实施前输入: 2026-08-09 用户工程评审提出 License 元数据、真 CI、release gate 机械化三项 P0；本文件保留该原始问题与方案演进记录。
 
 ## 背景与问题
 
@@ -178,16 +188,13 @@ conventions §9.1:发布从 `C:\Users\kanzei\Documents\kanzei-release`(main work
 
 ## 验证证据
 
-TODO(R-152 交付时逐项回填):
-1. `cargo metadata --no-deps` 中全部 crate license 为 PolyForm-Noncommercial-1.0.0;
-2. push dev 后 Actions 首跑全绿(链接);
-3. verify.ps1:脏树拒跑实测、全绿产出 JSON 实测;
-4. package.ps1 三拦实测:无证据拦、commit 不符拦(verify 后再提交一个空白 commit 重跑必须中止)、证据齐全放行;
-5. 每条拦截的报错原文记入 R-152 进展。
+- R-152：`Cargo.toml` workspace license 已统一为 PolyForm-Noncommercial-1.0.0；CI 首跑及后续连续 runs 全绿；`scripts/verify.ps1` 已实测脏树拒跑与全绿产出 `dist/verification.json`；`package.ps1` 已实测无证据、commit 漂移和未全绿三类拦截，并在 `-VerificationPath` 证据齐全时放行至构建。
+- R-146/R-156：clippy/fmt 闸门已从设计注释进入当前提交门禁，证据入口为 CI/verify.ps1 的同步清单。
+- R-298：安装后自校验、SHA256 release notes、Cargo/Tauri 版本一致性和 dist 保留策略已有真实调用方与验证记录（`T-1786922726461`、`T-1786922726462`）。
+- 以上结论以 R-152/R-298 tracker 关闭证据和当前发布脚本为准，不再把历史 TODO 清单当作现行验证状态。
 
-## TODO 与后续风险
+## 后续边界与历史输入
 
-- fmt/clippy 闸门启用条件与顺序:见 R-156/R-146(均排在 R-153~R-155 拆解之后)。
-- CI 首跑可能暴露"测试隐式依赖本机环境"类缺陷:按缺陷登记,不 skip。
-- ~~后续可选(不在本期):release 时 CI 复核 tag commit、安装器 SHA256 写入 release notes、stable/nightly 通道。~~
-- 安装器 SHA256 写入 release notes 已由 R-298 落地(package.ps1 -Publish 时计算并写入 notes);R-298 另落地:打包后自动静默装+装后自校验入链、Cargo.toml/tauri.conf.json 版本双源一致性检查、dist 只留最新安装器的保留策略、开发通道最低门禁明确化。stable/nightly 通道仍为后续可选。
+- 实施前输入：fmt/clippy 闸门曾因 R-156/R-146 排期而暂缓启用；当前两条闸门已完成并由 CI/verify.ps1 同步维护。
+- 实施前输入：CI 首跑可能暴露测试隐式依赖本机环境；当前若再出现同类问题按缺陷登记，不得 skip。
+- stable/nightly 通道仍是后续可选范围；R-298 已交付安装器 SHA256、安装后校验、版本一致性和 dist 保留策略。

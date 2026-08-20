@@ -1,5 +1,11 @@
 # Harness M1 设计稿
 
+- 身份: live_design
+- 状态: 现行总纲；R-317 执行层已接管 Requirement/Work Unit 的工作权威
+- 最近核验依据: R-317 Outcome/Work Unit/事件投影关闭证据
+- 关联需求: R-023、R-028、R-317 (done)
+- 执行模型权威: R-317 的 Outcome/Work Unit/事件投影；本文注册表、Profile 和硬门禁仍是实现约束
+
 > 状态:已评审通过(2026-08-06)。Q1=纯 markdown;Q2=硬 deny;Q3=强制引用。本文档随实现演进。
 
 > **文档状态(2026-08-08 整理):现行架构基线。** 六注册表 + 拦截器链 + dev/research 双 profile 已实现;文中 R-023/R-028 注记对应条目均已 done,实现现状以 `.kanzei/project/architecture/` 索引与代码为准。
@@ -110,6 +116,13 @@ Profile = 一组组件的成套启用:agents + tools + context sources + 权限�
 4. Context Source 注入**索引**(ID+标题+状态,预算上限 ~300 token);正文按需 `req get R-012`。
 
 **当前实现状态（R-028，2026-08-06）**：dev profile 已提供 `todowrite`，每次调用整体替换当前运行计划，状态限定为 `todo/doing/done/dropped`，并通过 `ToolOutput.display.kind=todo` 发送有界计划数据；桌面端右侧“当前计划”面板显示状态和完成比例。计划只属于当前运行，不写入项目 backlog。
+
+### 4.1 现行执行层（R-317）
+
+- `Requirement`/`Defect` 工具仍用于维护项目结果、来源和兼容性元数据；它们不是当前 Work Unit 的执行历史真源。
+- R-317 的 Outcome 描述用户可验收结果，Work Unit 描述一次可执行 scope，并由 claim、checkpoint、block/unblock、verify、evidence、complete 事件投影形成可恢复历史。
+- Harness 在每轮消费的是有界 Work Unit context 与事件投影；Requirement 正文中的旧 todo/doing/done、轮内 `todowrite` 和历史计划只作为 legacy 展示，不得覆盖 Work Unit 终态。
+- 该执行层与六注册表、Profile、权限拦截器链正交：R-317 提供执行事实，Harness 继续负责组件解析、上下文装配和硬门禁。
 
 
 ## 5. 研究模式(research)
