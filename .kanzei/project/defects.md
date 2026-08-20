@@ -79,3 +79,23 @@
 - recorded_at: 1787239449856
 - 取活依据: engine:唯一可执行 WIP 是 D-592，必须先恢复它
 - 阻塞: 等待用户提供或释放可安全接管的 llama-local 实测窗口；解除人：用户准备 llama-server 窗口并告知 agent 执行多步工具循环验收。
+
+## D-617 提交前无覆盖计划导致同一 crate 证据缺口反复到 commit 才暴露 [open] (high)
+- refs: R-309 R-311 D-334
+- 复现: 可见日志尾段中，R-284 B3 与 B4 均在准备提交后才由 source_test_gate 发现最新 passed evidence 只有前端 smoke、未覆盖受影响的 kanzei-app crate；第一次拒绝后，后续批次仍重复同一拒绝→补 crate test→test_record→再提交链。
+- 影响: 同一种可预测门禁缺口反复产生测试、状态检查和提交往返，增加长程上下文负担；硬门禁最终能挡错，但吞吐与一次命中率下降。
+- 来源: 2026-08-21 用户提供运行复盘；证据仅覆盖日志可见的 1916 行尾段，更早 2781 条已移出视图，因此不把工具调用粗统计外推为全会话结论。
+- 标签: 流程
+- 现状: 仓库已有 D-334 交付的 git finalize(fmt/clippy→相关测试→test_record→stage→CAS commit)，但 Agent 仍默认手工驾驶 test/test_record/stage/commit；普通 commit 只在末端拒绝，未先给 affected crates、缺失 evidence 与安全暂存集合的结构化计划。
+- 验收: ①新增结构化 commit_plan/preflight：从拟提交文件产出 affected crates、required/satisfied/missing evidence、会变动的治理元数据与 safe stage set；②默认交付路径在 stage/commit 前消费计划，缺证据时直接给出或执行精确测试，不等 commit 末端首次暴露；③以 R-284 B3/B4 等价夹具证明同一 crate 覆盖缺口不再连续两次触发相同拒绝；④保留普通 commit 的硬门禁与审计，计划错误不得放宽覆盖要求。
+- 优先级: P0
+
+## D-618 test_record 改 archive 后增量 stage 被已有 request 暂存集拒绝 [open] (high)
+- refs: D-334 R-309 D-398
+- 复现: 高频链 test→test_record→stage→commit 中，test_record 会改 tests-archive.md 并使原 staged hash/集合变化；Agent 只想增量 stage 更新后的 archive 时，git stage 返回 REFUSING to stage: the index already contains paths outside this request，只能重新暂存整批文件；R-284 B3/B4 各出现一次。
+- 影响: 测试证据写入反过来制造暂存抖动、CAS 失效与机械返工；Agent 需要重复 status/diff/restage，长程任务的治理往返显著增加。
+- 来源: 2026-08-21 用户提供运行复盘；证据范围为当前可见日志尾段。
+- 标签: 流程
+- 现状: D-334 finalize 已定义 record 先于 stage 的一次性事务，但手工/恢复路径仍允许在已有 request 暂存集上追加受管 archive 时被“request 外文件”规则误判；test_record 的可预期元数据写入没有成为 stage 协议的一等组成。
+- 验收: ①test_record 将可能修改 tests.md/tests-archive.md 的集合结构化暴露给提交事务，或迁移到不扰动 request staged set 的独立 ledger；②已有同一 request 暂存文件时，增量纳入本次受管测试元数据可成功，任何无关预暂存文件仍严格拒绝；③staged hash/CAS 对源码与治理元数据的口径稳定且有恢复中断测试；④用 B3/B4 等价流程证明无需整批 restage，finalize 与手工路径行为一致。
+- 优先级: P0

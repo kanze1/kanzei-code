@@ -8934,3 +8934,20 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-245 D-616
 - 收尾: 1787247309
 - 源码指纹: v2 crates/kanzei-core/src/lib.rs@0504c2e4a559,crates/kanzei-core/src/store/mod.rs@4ff64b7b3c6d,crates/kanzei-core/src/store/session.rs@bfc1f8782e76,crates/kanzei/src/cli/artifacts.rs@cdffaa9a0d6d,crates/kanzei/src/cli/mod.rs@1882487f9e84
+
+## T-1786922726597 进展版发布尝试：release.ps1 路径前缀阻断 [failed]
+- 命令: pwsh -NoProfile -File scripts/release.ps1
+- 摘要: 发布脚本未进入测试/构建：PowerShell 以 `\\?\` 扩展路径启动时，脚本第 13 行 Set-Location 无法识别项目根路径。
+- 收尾: 1787247662
+
+## T-1786922726598 进展版本机 release 构建与安装 [failed]
+- 命令: pwsh -NoProfile -File scripts/release.ps1
+- 时长: 174.0s
+- 摘要: 全 workspace 测试通过；kz 与 kzapp release 构建成功；kzapp 安装因目标进程运行中延迟，脚本已生成 `%LOCALAPPDATA%\kanzei\kzapp.exe.pending` 并按规则退出，未强杀用户进程。
+- 关联: R-245 R-284
+- 收尾: 1787247924
+
+## T-1786922726599 进展版远端推送检查 [failed]
+- 命令: $env:HTTPS_PROXY = "http://127.0.0.1:12000"; git push origin dev
+- 摘要: 远端 dev 拒绝 non-fast-forward：本地分支 ahead 29、behind 32；未执行强推、rebase 或覆盖式合并。
+- 收尾: 1787247956

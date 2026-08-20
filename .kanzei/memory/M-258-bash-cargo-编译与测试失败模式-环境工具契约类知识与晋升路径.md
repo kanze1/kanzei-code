@@ -3,10 +3,10 @@ id: M-258
 scope: project
 category: fact
 title: bash/cargo失败模式 SOP — 特定 test case/compile阻塞复用路径
-description: 处理 bash/cargo编译与测试失败：特定 test case/conversation::tests::latest_segment_recovers_completed_compaction_surface 复用;强化"判据补全→修正再重试"决策链
+description: 处理 bash 被 guard 拒绝整文件改写/Set-Content 时必读：改用 edit 做定向修改并先确认目标文本；不要用 shell 绕过 edit/write 的语法校验与 diff 展示，避免重复触发 full-file-write 拒绝。
 status: active
 created: 2026-08-19
-updated: 2026-08-19
+updated: 2026-08-20
 source: user
 ---
 

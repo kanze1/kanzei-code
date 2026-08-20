@@ -3,10 +3,10 @@ id: M-092
 scope: project
 category: sop
 title: Git 批次字段核对 SOP
-description: 处理发版动作 Git 批次数不一致错误：核对提交历史标记数后修正再闭包，避免记忆命中仍复发
+description: 处理发版动作 Git 批次数不一致/验收条款对账失败时必读:先核对 git 提交历史标记数再更新批次字段后关闭,不可用手写批次直接 close;验收条款逐条在进展中覆盖并带证据锚(T- 测试记录/file:line/提交号),做不到须显式写『验收降级』,沉默跳过即拒。复发锚点:R-243 手写批次 3/3 vs Git 提交历史标记数 4(第 2+ 次同类复发);R-243 验收六条款在进展中全部未提及 → 对账失败。
 status: active
 created: 2026-08-17
-updated: 2026-08-19
+updated: 2026-08-20
 source: user:note-2026-08-13
 ---
 

@@ -108,10 +108,10 @@
 - 阻塞: 
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
-- 进展: B2 已实现并验证，提交待本批提交：① 既有 D-349 spill 与 B1 telemetry 保持不变，证据 `T-1786922726595`；② 新增只读 `SessionStore::open_read_only` 与 `storage_report`（`crates/kanzei-core/src/store/session.rs:338-427`），统计 state.db/WAL/SHM/page_count/freelist、tool-result artifact/shadow telemetry、state.db.v*.bak；`crates/kanzei-core/src/store/mod.rs:56-69` 定义 `StorageReport`，`crates/kanzei-core/src/lib.rs:34` 对外导出；③ 新增真实 CLI `crates/kanzei/src/cli/artifacts.rs:1-112`，经 `crates/kanzei/src/cli/mod.rs:14,54,89` 接入 `kz artifacts stats [--json]`，只读输出并明确不做 expiry/delete/checkpoint/VACUUM；④ `T-1786922726596` 覆盖 storage_report 单测、CLI 单测和真实命令，实测 state.db 171495424 bytes、WAL 3052952、SHM 32768、freelist 8771、迁移备份 1/93528064 bytes。验收⑤阶段性完成：数据库/WAL/freelist/artifact/迁移备份已列出；无引用 artifact 与 dry-run 尚未实现。D-616 已 fixed。下一步 B3：建立 artifact 引用图并提供无引用扫描与 dry-run 清理计划，禁止删除仍被引用 artifact。
-- observed_head: af84b5f50677f58053608146ed0ffca6aa6d48b1
-- observed_worktree_hash: fnv1a64:827245a8ddb1eb69
-- recorded_at: 1787247333562
+- 进展: B2 已实现、验证并提交 `112b2dc4`：① 既有 D-349 spill 与 B1 telemetry 保持不变，证据 `T-1786922726595`；② 新增只读 `SessionStore::open_read_only` 与 `storage_report`（`crates/kanzei-core/src/store/session.rs:338-427`），统计 state.db/WAL/SHM/page_count/freelist、tool-result artifact/shadow telemetry、state.db.v*.bak；`crates/kanzei-core/src/store/mod.rs:56-69` 定义 `StorageReport`，`crates/kanzei-core/src/lib.rs:34` 对外导出；③ 新增真实 CLI `crates/kanzei/src/cli/artifacts.rs:1-112`，经 `crates/kanzei/src/cli/mod.rs:14,54,89` 接入 `kz artifacts stats [--json]`，只读输出并明确不做 expiry/delete/checkpoint/VACUUM；④ `T-1786922726596` 覆盖 storage_report 单测、CLI 单测和真实命令，实测 state.db 171495424 bytes、WAL 3052952、SHM 32768、freelist 8771、迁移备份 1/93528064 bytes。验收⑤阶段性完成：数据库/WAL/freelist/artifact/迁移备份已列出；无引用 artifact 与 dry-run 尚未实现。D-616 已 fixed。下一步 B3：建立 artifact 引用图并提供无引用扫描与 dry-run 清理计划，禁止删除仍被引用 artifact。
+- observed_head: 112b2dc40273584bba3d61ee65701d8bb99124e2
+- observed_worktree_hash: fnv1a64:abf42289ad631ab3
+- recorded_at: 1787247404126
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
@@ -302,3 +302,33 @@
 - 边界: 不放松"新增/删除记忆条目"仍走既有策略托管路径;仅缩小到"修正现有条目文本内容"这一类操作
 - 验收: ①存在一条可在当前会话同步完成的记忆描述/正文修正路径,有真实调用证据;②修正操作留有审计痕迹(修改依据、旧值/新值);③D-568 场景可用新通道在单会话内收尾,不再依赖跨会话异步等待
 - 优先级: P1
+
+## R-319 事务边界感知的步数预算:收尾软延长避免 stage 后切轮 [todo]
+- refs: R-307 R-311 D-335
+- 内容: 让运行预算识别显式交付事务阶段；当剩余步数不足、且当前仅余 commit 与 tracker anchor 等确定性收尾动作时，授予小额 soft transaction extension 完成原子边界，再结束本轮；事件记录触发条件、扩展步数、实际动作与结果。
+- 复杂度: 中
+- 来源: 2026-08-21 用户提供运行复盘：多次在 steps 32 用尽时恰好切在 tests passed/files staged/commit pending，续轮必须重新 work next、status、log、diff 才恢复。可见日志只是尾段，结论限定为已观察到的事务中断形态。
+- 标签: 流程
+- 边界: 不增加通用自动轮数；只允许白名单收尾状态与有界额外步数；不得跳过 fmt/clippy/test/source_test_gate/权限/CAS；出现新代码编辑、测试失败、用户输入或未知状态立即取消扩展并正常切轮。
+- 验收: ①tests passed+files staged+commit pending 且只剩 2 步时可完成 commit+tracker anchor 后结束；②测试失败、未暂存、存在审批或发生源码编辑时不延长；③扩展上限和原因进入 session event，可审计且重启恢复不重复提交；④对比至少 10 个真实长程条目，事务中点切轮和纯恢复工具调用显著下降且事故率不升。
+- 优先级: P1
+
+## R-320 编辑后局部结构校验:在完整回归前捕获语法作用域与类型断裂 [todo]
+- refs: R-310 D-615
+- 内容: 为 edit/insert/write 的结构化代码改动增加低成本局部校验计划：按文件类型选择 parser/formatter check、目标模块 lint/type check 或已有最小 smoke；工具返回 changed region、校验命令、首个精确错误位置和可修复上下文，使 Agent 在扩大到 crate/workspace 回归前先收敛局部结构。
+- 复杂度: 中
+- 来源: 2026-08-21 用户提供运行复盘：B3 测试桩先后出现多余右花括号、VM sandbox 变量作用域错误；R-245 telemetry 插入先破坏 Rust 语法、修复后再暴露序列化类型问题。宏观架构判断正确，但微观 edit/insert 一次命中率偏低。
+- 标签: 流程
+- 边界: 不在每次编辑后自动跑 workspace 全量测试；不绕过 shell 权限与现有测试证据门禁；未知语言或无可靠校验器时明确 unsupported，只给建议命令；局部通过不等于功能验收或可提交。
+- 验收: ①JS 多余括号在下一次业务 smoke 前由语法校验捕获；②VM 夹具未定义绑定由目标 lint/runtime probe 捕获；③Rust 插入破坏 AST 与局部类型/serde 不匹配由 fmt/check 或目标测试精确定位；④同文件连续修改可去抖合并校验，真实样本的一次业务测试前结构错误数相对基线下降；⑤所有局部结果可进入 test_record/telemetry，但不能冒充 crate 回归。
+- 优先级: P1
+
+## R-321 执行事故与产品缺陷分层:临时自致错误不污染正式 defect taxonomy [todo]
+- refs: R-112 R-310 R-311 D-615
+- 内容: 在既有领域/类型词表之上增加问题来源与生命周期分层：execution_incident、development_defect、product_defect、regression；预提交且未逃逸、可当轮修复的自致错误进入 append-only incident ledger/telemetry，不占 D-ID；达到复发阈值、跨轮阻塞、逃逸提交/发版或暴露真实产品契约时机械晋升 defect，并保留 incident→defect 链接。
+- 复杂度: 小
+- 来源: 2026-08-21 用户提供运行复盘：D-613 是真实 contract mismatch；D-614 是同步遗漏；D-615 是 Agent 在未提交工作树中自行插错位置并立即修复的 Rust 语法错误。三者同层登记使产品缺陷、回归与执行过程失手无法分别统计。
+- 标签: 流程
+- 边界: 分层不得用来少报真实缺陷；门禁发现的产品行为错误仍直接登记 defect；既有 D-ID 不批量重写，只给新条目默认分类与少量样本迁移；incident 也必须可审计、可聚合，不能只留在自然语言日志。
+- 验收: ①D-615 等价的当轮预提交语法失手记 execution_incident 且不分配 D-ID；②D-613 等价 contract mismatch 直接为 product_defect，逃逸既有通过测试后标 regression；③相同 incident 指纹复发、跨轮阻塞或进入提交时自动建议/强制晋升并互链；④缺陷页与指标可分别查看各类数量、修复时长和逃逸率；⑤用历史样本回放证明分类一致且正式 defect 总量不再被瞬时失手污染。
+- 优先级: P2

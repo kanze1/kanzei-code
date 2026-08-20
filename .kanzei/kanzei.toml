@@ -1,6 +1,15 @@
 [models]
+primary = 'llama-fast:.\models\Qwen3.8-4B-Q4_K_M.gguf'
+fast = 'llama-fast:.\models\Qwen3.8-4B-Q4_K_M.gguf'
+compact = 'llama-fast:.\models\Qwen3.8-4B-Q4_K_M.gguf'
+reasoning = "high"
+codex_fast_mode = true
 
-[providers]
+# 2026-08-20:provider 定义已迁到全局 ~/.kanzei/kanzei.toml(桌面端设置页
+# Provider 表格只读全局配置,写这里的自定义 provider 保存时会报 unknown
+# provider——D-591)。llama-local 已挪过去;opencode-zen 是当时不知道全局
+# 已有走 opencode.ai/zen/go/v1、配好真实 key 的 OPEN-code provider 时误建
+# 的重复品(用的还是未验证过兼容性的 /zen/v1 端点),故直接删除不迁移。
 
 [profile]
 
