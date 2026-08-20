@@ -119,3 +119,16 @@
 - 标签: 前端
 - 验收: ①运行中占用显示与预算引擎同口径(D-592 改锚定真实值后两边天然收敛);②轮内长 prefill 期间显示不冻结——至少标注滞后/计算中,或用引擎估算实时刷新并标注口径;③对 context_limit 的占比展示与撞线告警准确
 - 优先级: P2
+
+## D-602 D-599 漏改跨行原始路径查表导致同一跨树测试仍在 CI 失败 --ref D-599 [fixing] (high)
+- 复现: gen_schemas 测试首个 files_for_tree 查询通过后，第二个跨行 before.trees.get(&b).unwrap 仍因 Windows 路径形态差异失败
+- 影响: 远端 test 406 passed 后仍以单条失败阻断 UI smoke，D-599 验收实际未完整覆盖
+- 来源: GitHub Actions run 32361985430
+- 标签: 流程
+- 验收: 本地同类访问扫描与跨树模块已通过；待 kanzei-tools 全包及远端 CI 终态后关闭
+- 优先级: P1
+- 取活依据: override:补齐 D-599 漏改并扫描全部同类原始路径访问
+- 进展: ee8d3152 补齐遗漏的跨行原始 trees.get 查询；全文件多行扫描确认测试侧不再直接按 PathBuf 查询 trees；cross_tree 15 passed
+- observed_head: ee8d31523be15b4adf46c93774b3d9df95af396b
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787224725297
