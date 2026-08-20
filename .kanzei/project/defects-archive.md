@@ -7178,3 +7178,13 @@
 - 优先级: P1
 - observed_head: f06896ee55b759ab7da292bbeadf1a087364a01c
 - recorded_at: 1787199353567
+
+## D-594 SSE 单连接测试固定 50ms 后先停服,慢调度只收响应头导致全量 verify 偶发失败 [fixed] (medium)
+- refs: R-317 D-502
+- 复现: 2026-08-20 R-317 第二次外部全量 `scripts/verify.ps1` 中，`mobile::tests::sse轮询单连接复用` 收到 `HTTP/1.1 200 OK` 与完整 `text/event-stream` 响应头，但没有 `data:` 首帧；其余 229 项 app 测试通过。
+- 影响: 生产 SSE 已完成认证、建连和响应头写入，发布门禁却因机器调度速度偶发红，无法生成 `dist/verification.json`；重复跑整套门禁不能消除竞态。
+- 根因: 测试发送请求后固定 `sleep(50ms)`，随后先把共享 `active` 置为 false，再读取响应。慢调度下服务端在 `handle_sse` 写完并 flush 响应头后尚未进入首轮 `replay_notifications`，循环顶部便观察到停服信号并返回；正确性被一个任意时间窗口代替。
+- 修复: `crates/kanzei-app/src/mobile.rs` 的测试客户端改为在 2 秒明确读超时内持续读取，直到观察到首个 `data:` 帧才发停服信号；超时仍由原有“必须发送首批事件”断言判红。服务端 `handle_sse`、游标推进、设备撤销和心跳语义均未修改。
+- 验收: 目标测试连续重放 20/20；`cargo test -p kanzei-app mobile::tests` 15/15，覆盖普通通知单连接、SSE 单连接、游标持久化、设备撤销、approval 与真实桥接端口。
+- 标签: 测试 后端
+- 优先级: P1

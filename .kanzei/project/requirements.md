@@ -342,4 +342,4 @@
 - 取活依据: user-direct:用户本轮明确要求由外部 Codex 完成底座并发版，避免依赖旧需求系统自举
 - 取得线: kanzei/work-unit-foundation
 - 批次: 3/4
-- 进展: B1 ba13b53a、B2 c5217523+b0b96c97、B3 db1e808e、文档 c3222943、接管门禁 d382bbfc 已提交。首次外部全量 verify 跑完后只剩两项发布门禁：docs_snapshot IPC 契约未同步，以及 work.rs 生产代码从 1169 增至 1840 行。现已把工具写操作拆到 `work/tool.rs`（work.rs 降至 1194 行生产代码）、同步后端契约/前端夹具并新增真实 Work Unit UI 断言；IPC 1 项、work 25 项、UI runtime、tools Clippy 与 metrics gate 均已通过。B4 仍需基于修复后的新 HEAD 重跑 workspace 全量 verify，随后合并与发版。
+- 进展: B1 ba13b53a、B2 c5217523+b0b96c97、B3 db1e808e、文档 c3222943、接管门禁 d382bbfc 已提交。首次外部全量 verify 暴露的 IPC 契约与 work.rs 规模门禁已由 0f782868 修复，最小回归全绿。第二次全量 verify 的 229 项 app 测试仅 `mobile::tests::sse轮询单连接复用` 偶发失败：固定等待 50ms 后先停服，慢调度下服务端只来得及发送响应头。已登记并修复 D-594，测试改为在 2 秒协议超时内等待首个 `data:` 帧后再停服，生产 SSE 路径零改动；目标测试连续 20/20、完整 mobile 15/15 通过。B4 仍需基于本批新 HEAD 最后重跑 workspace 全量 verify，随后保持源码不变直接合并与发版。

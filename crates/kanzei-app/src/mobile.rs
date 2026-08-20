@@ -1214,7 +1214,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let mut client = TcpStream::connect(address).unwrap();
         client
-            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
             .unwrap();
         let (server, _) = listener.accept().unwrap();
         let worker = std::thread::spawn({
@@ -1231,11 +1231,39 @@ mod tests {
                 b"GET /v1/events?thread_id=thread-open&device_id=dev-open HTTP/1.1\r\nAuthorization: Bearer tok-open\r\n\r\n",
             )
             .unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        // 固定 sleep 后先停服务会制造竞态：慢调度下服务端可能只写完响应头，尚未
+        // 进入首轮 replay，active 就被测试置为 false。客户端应按 SSE 协议等待
+        // 首个 data 帧；超时仍会让断言失败，但不再把机器速度当作正确性条件。
+        let mut response_bytes = Vec::new();
+        let mut read_error = None;
+        let mut chunk = [0_u8; 1024];
+        while !response_bytes
+            .windows(b"data: ".len())
+            .any(|part| part == b"data: ")
+        {
+            match client.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(read) => response_bytes.extend_from_slice(&chunk[..read]),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    break;
+                }
+                Err(error) => {
+                    read_error = Some(error);
+                    break;
+                }
+            }
+        }
         stop.store(false, Ordering::SeqCst);
-        let mut response = String::new();
-        client.read_to_string(&mut response).unwrap();
         worker.join().unwrap();
+        if let Some(error) = read_error {
+            panic!("读取 SSE 首批事件失败: {error}");
+        }
+        let response = String::from_utf8_lossy(&response_bytes);
         assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
         assert!(
             response.contains("data: "),
