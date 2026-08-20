@@ -328,3 +328,18 @@
 - 边界: 不放松"新增/删除记忆条目"仍走既有策略托管路径;仅缩小到"修正现有条目文本内容"这一类操作
 - 验收: ①存在一条可在当前会话同步完成的记忆描述/正文修正路径,有真实调用证据;②修正操作留有审计痕迹(修改依据、旧值/新值);③D-568 场景可用新通道在单会话内收尾,不再依赖跨会话异步等待
 - 优先级: P1
+
+## R-317 长程需求执行底座:Outcome/Work Unit/事件投影/有界上下文与证据关闭 [doing]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心 后端 前端 流程
+- refs: R-312 R-313 R-307 docs/design/work_unit_foundation.md
+- 来源: 2026-08-20 用户指出「需求这个东西的定义有问题」，要求重新思考任务拆分、上下文管理、减轻模型负担和长程任务信息熵线性增长；随后明确「先落一个底座，这个工作不可能靠自举完成，帮我完成这个工作然后发版」。
+- 诊断: 旧 Requirement 同时承担 Outcome、WIP、批次、自由文本进展、上下文快照、验收与审计，历史每增长一段，模型恢复任务就要重新消费一段；模型还是状态维护者和验收者，形成负担随历史线性增长的结构性耦合。R-312 原计划先测量再设计，但用户本轮已给出方向并要求直接落底座，因此本条由外部 Codex 在隔离工作树实现，不要求旧系统自举拆分自己。
+- 内容: ①schema v18 增加 append-only work_events 与可重建 work_surfaces；②Requirement 作为长期 Outcome，显式 `执行模型: work_units_v1` 后拆为 R-xxx/Wn Work Unit；③状态机覆盖 ready/active/blocked/verifying/done/superseded、并行线接管与 checkpoint；④work next 调度 Work Unit 并只注入当前投影+父 Outcome 白名单字段；⑤逐验收 evidence 后才允许 complete，父需求关闭要求所有单元终态且至少一个 done；⑥CLI、桌面快照与需求详情可观测；⑦存量需求保持 legacy 行为。
+- 边界: 不自动让旧系统规划和拆分本条自身；不批量迁移存量 Requirement；不把 Markdown Outcome 搬进 SQLite；v1 不加入含混的 defect affinity，先保证需求主链闭环。
+- 验收: ①v17→v18 迁移前整库备份且表/列机械判据通过；②事件回放与 surface 相同，删除/重建投影不丢审计；③单元上下文有硬预算，父需求超长进展不进入 selected；④依赖、单 WIP、并行线接管与 checkpoint 状态机有测试；⑤未逐条登记 evidence 时 complete 被拒；⑥有非终态单元或全部 superseded 时 req close 被拒，全部验证完成后可关；⑦CLI 编译，桌面快照、i18n/runtime/lint 冒烟通过；⑧全量 verify 通过并发布安装包，GitHub release/tag/资产 SHA256 与安装后二进制版本均核验。
+- 取活依据: user-direct:用户本轮明确要求由外部 Codex 完成底座并发版，避免依赖旧需求系统自举
+- 取得线: kanzei/work-unit-foundation
+- 批次: 1/4
+- 进展: B1 已完成：schema v18 新增 append-only work_events 与可重建 work_surfaces，状态机、上下文硬预算、并行线 reassigned、逐条 evidence 完成门禁与迁移对象/列判据落地；core Work Unit 4 项、schema 11 项定向测试通过。B2 调度/CLI/关闭门禁，B3 桌面可观测，B4 文档/全量验证/发版待提交。
