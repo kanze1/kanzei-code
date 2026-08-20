@@ -8635,3 +8635,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-575
 - 收尾: 1787234647
 - 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-harness/src/tool.rs@ae9021151b10,crates/kanzei-tools/src/edit.rs@74eb2b41c26c,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/lib.rs@2e29ca2afb17,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/read.rs@1d5f82c90df6,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/symbols.rs@676a96ae18c5,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
+
+## T-1786922726557 D-576 cross-tree 生命周期定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-tools cross_tree -- --nocapture
+- 时长: 18.3s
+- 摘要: cross_tree 定向回归 16 passed、0 failed；新增 D-576 本 run 创建/删除临时树不误报与外部删除仍报告测试通过，性能/既有跨树保护测试全部通过。
+- 关联: D-576
+- 收尾: 1787235054
+- 源码指纹: v2 crates/kanzei-tools/src/bash.rs@700f522c2562,crates/kanzei-tools/src/cross_tree.rs@9b18dbb752cc
+
+## T-1786922726558 D-576 提交门禁与 cross-tree 回归（修正后） [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools cross_tree -- --nocapture; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
+- 时长: 44.2s
+- 摘要: fmt check、cross_tree 16 passed/0 failed、workspace check、workspace clippy -D warnings 全部通过；D-601 dead_code 门禁阻断已消除。
+- 关联: D-576 D-601
+- 收尾: 1787235241
+- 源码指纹: v2 crates/kanzei-tools/src/bash.rs@700f522c2562,crates/kanzei-tools/src/cross_tree.rs@6a1ef7c3838a

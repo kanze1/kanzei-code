@@ -7335,3 +7335,32 @@
 - recorded_at: 1787234439121
 - 取活依据: engine:唯一可执行 WIP 是 D-575，必须先恢复它
 - 验收对账: ①已完成：read/symbols/edit/insert 不存在目标路径分别由 `crates/kanzei-tools/src/read.rs:158-174`、`symbols.rs:86-98`、`edit.rs:144-153`、`edit.rs:432-441` 调用 `lib.rs:95-147` 的同目录最近邻候选；定向测试 `read.rs:534-568`、`symbols.rs:750-770`、`edit.rs:553-590`；T-1786922726553。②已完成：`read.rs:210-213`、`:310-313`、`:377-384` 返回实际行数与 `1..=N` 合法 offset；测试 `read.rs:548-558`；T-1786922726553。③已完成：`crates/kanzei-harness/src/tool.rs:333-369` 从 serde missing field 提取参数名并输出 `Example (one line)`，测试 `crates/kanzei-tools/src/edit.rs:577-590`；T-1786922726553。④已完成：`lib.rs:101-113` 识别 memory 路径并提示 `<project_root>/.kanzei/memory`，read 测试 `read.rs:560-568`；T-1786922726553。⑤已完成：read/edit/insert/symbols 四类失手及 memory/范围/缺参定向测试分别位于 `read.rs:534-568`、`edit.rs:553-590`、`symbols.rs:750-770`，harness 缺参生成位于 `crates/kanzei-harness/src/tool.rs:352-369`；T-1786922726553（kanzei-tools 401 passed、workspace check/clippy 通过）。
+
+## D-601 D-576 cross-tree 兼容包装函数仅测试调用触发 dead_code 门禁 [fixed] (low)
+- 复现: cargo clippy --workspace --all-targets -- -D warnings 报 crates/kanzei-tools/src/cross_tree.rs:448 的 enforce_other_trees 未使用；实现已切换 bash 生产调用到 enforce_other_trees_with_command，旧包装仅被 cfg(test) 测试调用。
+- 影响: workspace clippy 提交门禁失败，D-576 无法形成可审计提交。
+- 来源: self-found during D-576 submission gate
+- 标签: 核心
+- 验收: ①旧包装不再触发 dead_code；②workspace clippy -D warnings 通过；③cross-tree 定向回归保持通过。
+- refs: D-576
+- 优先级: P3
+- 进展: 已完成：`crates/kanzei-tools/src/cross_tree.rs:448` 的兼容包装仅供单元测试调用，已加 `#[cfg(test)]`；生产调用统一为 `enforce_other_trees_with_command`。T-1786922726558 的 fmt/check/clippy 与 cross-tree 16 项回归全部通过。
+- 验收对账: ①已完成：cross_tree.rs:448 `#[cfg(test)]` 消除 dead_code。②已完成：T-1786922726558 的 cargo clippy --workspace --all-targets -- -D warnings 通过。③已完成：T-1786922726558 cross_tree 16 passed。
+- observed_head: e14db745e91f87bc0eceed6692198678d6553e2b
+- observed_worktree_hash: fnv1a64:a11c219f72b8a8e8
+- recorded_at: 1787235255048
+
+## D-576 删除本线临时 worktree 被 cross-tree detector 误报 [fixed] (low)
+- 复现: 主线创建临时 worktree 后执行 git worktree remove --force，cross-tree detector 将被删除树报告为另一条线改动并生成整树 quarantine 清单。
+- 影响: 正常的临时 worktree 清理产生大规模隔离噪声，误导为跨线越界并污染研究/隔离目录；本次未回滚仓库内容。
+- 期望: 识别本 run 创建并删除的 worktree，清理动作不应被归因成另一条活跃线改动，也不应整树 quarantine。
+- 来源: self-found during R-306 B4 merge-preview cleanup
+- 标签: 核心
+- refs: R-306
+- 优先级: P3
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-576(unblocks=0)
+- 进展: 批次: 1/1；已完成：`crates/kanzei-tools/src/cross_tree.rs:153-263` 增加 owner-scoped 临时 worktree registry、创建/消失回收与 owner-aware 快照；`crates/kanzei-tools/src/bash.rs:304-310` 接入 owner 快照，`:425-433` 与 `:489-497` 将命令上下文传入收口；新增 D-576 生命周期/外部删除对照测试。关键决策：无 run/process 身份时不启用豁免，未知删除继续报告；report-only 与 quarantine 语义保持不变。T-1786922726557、T-1786922726558 已通过。下一步：关闭 D-576，并同步归档缺陷记录。
+- observed_head: e14db745e91f87bc0eceed6692198678d6553e2b
+- observed_worktree_hash: fnv1a64:a11c219f72b8a8e8
+- recorded_at: 1787235295260
+- 验收对账: ①已完成：识别本 run 创建的 worktree：`cross_tree.rs:205-263` 解析 `git worktree add`、按 `ToolCtx.run_id/process_id` 登记并用 `git worktree list --porcelain` 观察新增/消失；bash 真实调用位于 `bash.rs:304-310`、`:425-433`、`:489-497`；T-1786922726557。②已完成：本 run 删除的临时树从 owner-aware 快照排除且 registry 收口回收，未知/外部删除不进入 registry：`cross_tree.rs:190-203`、`:221-263`；对照测试 `cross_tree.rs:1047-1120`；T-1786922726557。③已完成：D-576 测试断言本 run 删除无报告且外部删除仍含“整树消失”，未改变 quarantine/report-only 路径；`cross_tree.rs:1085-1120`、原收口 `:502-548`；T-1786922726557、T-1786922726558。

@@ -33,8 +33,9 @@
 //!   `dist`、`.git`——见 [`EXCLUDED_TREE_DIRS`];
 //! - 本线的树由调用方给出(`self_tree`,主树进程传主根),git 清单里排除它。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 /// D-407:**运行态与派生产物不入保护面**——这些目录里的东西不是「另一条线未提交的
 /// 心血」,而是随时在变的活状态与可重建产物,把它们纳入保护面只会两头坏事:
@@ -146,6 +147,118 @@ impl OtherTreesSnapshot {
     #[cfg(test)]
     pub(crate) fn file_count(&self) -> usize {
         self.trees.values().map(|files| files.len()).sum()
+    }
+}
+
+/// 当前 owner run 自己创建的临时工作树。它们不是其它线的保护对象；
+/// registry 只保存规范化路径，跨 bash 调用共享，观察到 git 清单移除后立即回收。
+static RUN_CREATED_WORKTREES: OnceLock<Mutex<BTreeMap<String, BTreeSet<String>>>> = OnceLock::new();
+
+fn run_worktree_registry() -> &'static Mutex<BTreeMap<String, BTreeSet<String>>> {
+    RUN_CREATED_WORKTREES.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+fn owner_scope(
+    project_root: &Path,
+    owner_run: Option<&str>,
+    owner_process: Option<&str>,
+) -> Option<String> {
+    let identity = owner_run
+        .map(|run| format!("run:{run}"))
+        .or_else(|| owner_process.map(|process| format!("process:{process}")))?;
+    Some(format!(
+        "{}::{identity}",
+        crate::worktree::worktree_key(project_root)
+    ))
+}
+
+fn owned_worktree_keys(
+    project_root: &Path,
+    owner_run: Option<&str>,
+    owner_process: Option<&str>,
+) -> BTreeSet<String> {
+    let Some(scope) = owner_scope(project_root, owner_run, owner_process) else {
+        return BTreeSet::new();
+    };
+    run_worktree_registry()
+        .lock()
+        .ok()
+        .and_then(|registry| registry.get(&scope).cloned())
+        .unwrap_or_default()
+}
+
+/// owner-aware 版本：同一 run 创建并登记的临时树不再被当作其它线保护面。
+pub(crate) fn capture_other_trees_for_owner(
+    project_root: &Path,
+    self_tree: &Path,
+    owner_run: Option<&str>,
+    owner_process: Option<&str>,
+) -> Result<OtherTreesSnapshot, String> {
+    let owned = owned_worktree_keys(project_root, owner_run, owner_process);
+    let mut snapshot = capture_other_trees(project_root, self_tree)?;
+    snapshot
+        .trees
+        .retain(|tree, _| !owned.contains(&crate::worktree::worktree_key(tree)));
+    Ok(snapshot)
+}
+
+fn command_has_worktree_action(command: Option<&str>, action: &str) -> bool {
+    let Some(command) = command else {
+        return false;
+    };
+    let tokens = command
+        .split_whitespace()
+        .map(|token| token.trim_matches(['"', '\'']).to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    tokens.windows(2).enumerate().any(|(index, pair)| {
+        pair == ["worktree", action]
+            && tokens[index.saturating_sub(3)..index]
+                .iter()
+                .any(|token| token == "git" || token == "git.exe")
+    })
+}
+
+/// 在命令窗口收口时登记本 run 新建的树，并回收已经从 git 清单消失的树。
+fn reconcile_run_worktrees(
+    project_root: &Path,
+    self_tree: &Path,
+    before: &OtherTreesSnapshot,
+    owner_run: Option<&str>,
+    owner_process: Option<&str>,
+    command: Option<&str>,
+) {
+    let Some(scope) = owner_scope(project_root, owner_run, owner_process) else {
+        return;
+    };
+    let Ok(entries) = crate::worktree::git_worktrees(project_root) else {
+        return;
+    };
+    let current = entries
+        .iter()
+        .filter(|entry| !entry.bare)
+        .map(|entry| crate::worktree::worktree_key(&entry.path))
+        .collect::<BTreeSet<_>>();
+    let self_key = crate::worktree::worktree_key(self_tree);
+    let before_keys = before
+        .trees
+        .keys()
+        .map(|tree| crate::worktree::worktree_key(tree))
+        .collect::<BTreeSet<_>>();
+    let mut registry = match run_worktree_registry().lock() {
+        Ok(registry) => registry,
+        Err(_) => return,
+    };
+    let owned = registry.entry(scope.clone()).or_default();
+    owned.retain(|tree| current.contains(tree));
+    if command_has_worktree_action(command, "add") {
+        for tree in current {
+            if tree != self_key && !before_keys.contains(&tree) {
+                owned.insert(tree);
+            }
+        }
+    }
+    if owned.is_empty() {
+        registry.remove(&scope);
     }
 }
 
@@ -332,6 +445,7 @@ fn collect_tree_metadata_in(
 /// `window_start_ms` 是命令窗口起点(拍 `before` 快照的时刻):写日志对账只认
 /// 这个时刻之后的条目——窗口之前的历史写入不参与本次对账,与托管围栏同口径
 /// (R-268)。
+#[cfg(test)]
 pub(crate) fn enforce_other_trees(
     project_root: &Path,
     self_tree: &Path,
@@ -340,6 +454,36 @@ pub(crate) fn enforce_other_trees(
     owner_process: Option<&str>,
     window_start_ms: u128,
 ) -> Option<String> {
+    enforce_other_trees_with_command(
+        project_root,
+        self_tree,
+        before,
+        owner_run,
+        owner_process,
+        window_start_ms,
+        None,
+    )
+}
+
+pub(crate) fn enforce_other_trees_with_command(
+    project_root: &Path,
+    self_tree: &Path,
+    before: &OtherTreesSnapshot,
+    owner_run: Option<&str>,
+    owner_process: Option<&str>,
+    window_start_ms: u128,
+    command: Option<&str>,
+) -> Option<String> {
+    // owner-scoped worktree registry 必须在 before 为空时也收口：创建命令的 before
+    // 可能没有临时树，删除命令的 owner-aware before 则已主动排除了该树。
+    reconcile_run_worktrees(
+        project_root,
+        self_tree,
+        before,
+        owner_run,
+        owner_process,
+        command,
+    );
     // D-397:执行后对账按 before 的树目录直接扫描(不再重新枚举 git worktrees,
     // 也不需排除本线),self_tree 参数保留仅为兼容调用方签名。
     let _ = self_tree;
@@ -897,6 +1041,86 @@ mod tests {
         );
         assert!(before.contains_tree(&b), "其它 worktree 必须在保护面内");
         assert!(!before.contains_tree(&a), "本线 worktree 不能进保护面");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D-576:本 run 通过 bash 创建并随后删除临时树时,删除动作不应把整棵树
+    /// 当成另一条活跃线的越界改动；未由本 run 创建的树仍必须照常报告。
+    #[test]
+    fn 本run创建并删除临时树不误报_外部删除仍报告() {
+        let root = git_repo("kz-ct-d576");
+        let owner_run = Some("run-d576");
+        let owner_process = Some("proc-d576");
+
+        let before_create =
+            capture_other_trees_for_owner(&root, &root, owner_run, owner_process).unwrap();
+        let temporary = add_worktree(&root, "temporary");
+        assert!(
+            enforce_other_trees_with_command(
+                &root,
+                &root,
+                &before_create,
+                owner_run,
+                owner_process,
+                0,
+                Some("git worktree add temporary"),
+            )
+            .is_none(),
+            "创建临时树不应制造跨树报告"
+        );
+
+        let before_remove =
+            capture_other_trees_for_owner(&root, &root, owner_run, owner_process).unwrap();
+        assert!(
+            !before_remove.contains_tree(&temporary),
+            "本 run 创建的临时树不应进入其它线保护面"
+        );
+        git(
+            &root,
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                &crate::worktree::git_arg_path(&temporary),
+            ],
+        );
+        assert!(
+            enforce_other_trees_with_command(
+                &root,
+                &root,
+                &before_remove,
+                owner_run,
+                owner_process,
+                0,
+                Some("git worktree remove --force temporary"),
+            )
+            .is_none(),
+            "删除本 run 自己创建的临时树不得误报或 quarantine 整树"
+        );
+
+        let external = add_worktree(&root, "external");
+        let before_external =
+            capture_other_trees_for_owner(&root, &root, owner_run, owner_process).unwrap();
+        git(
+            &root,
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                &crate::worktree::git_arg_path(&external),
+            ],
+        );
+        let report = enforce_other_trees_with_command(
+            &root,
+            &root,
+            &before_external,
+            owner_run,
+            owner_process,
+            0,
+            Some("git worktree remove --force external"),
+        )
+        .expect("外部删除的树仍必须报告");
+        assert!(report.contains("整树消失"), "{report}");
         let _ = std::fs::remove_dir_all(&root);
     }
 
