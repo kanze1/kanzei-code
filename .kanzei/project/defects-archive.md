@@ -7860,3 +7860,16 @@
 - observed_head: 9980992007c88aa705fa03caa127e1774a677f4d
 - observed_worktree_hash: fnv1a64:e4ba74d5e25d03a0
 - recorded_at: 1787260194960
+
+## D-637 candidate 未指定状态时仍可从 FTS 检索，造成 INDEX 与检索双轨 [fixed] (medium)
+- 复现: 来源：self-found。`MemoryStore::search_candidates` 在 `status=None` 时直接查询 `memory_fts` 全部状态；`refresh_derived` 的 INDEX 只写 active、candidate 仅写计数，因此 candidate 不在 INDEX 却可从底层 FTS 返回。
+- 影响: candidate 对主 INDEX 不可见但仍可能进入底层检索候选，违反 R-308 B3 的 candidate 单轨可见性约束并可能污染召回/命中遥测。
+- 来源: self-found（R-308 B3 代码复核）
+- 标签: 后端
+- 进展: D-637 已修复并收口：① `crates/kanzei-memory/src/memory/retrieval/search.rs:27-29` 将未指定 status 的 search_candidates 默认限定为 active，显式 status 仍可供生命周期/评估路径读取；② `crates/kanzei-memory/src/memory/store.rs:1376-1448` 新增 candidate 单轨回归，断言 candidate 不进入 INDEX、默认 FTS 或主检索；③ `store.rs:791-827,839-854` 保留并执行 INDEX active 集合与 source description 一致性断言；④验证 T-1786922726611：cargo fmt --all; cargo test -p kanzei-memory，163 passed、0 failed、0 ignored。
+- 验收: 默认 `search_candidates(status=None)` 只返回 active；candidate 仍可由显式复发检测 `find_by_marker` 使用；新增定向测试断言 candidate 不进入默认 FTS/主检索；INDEX active 行与源文件 description 一致性断言继续通过。
+- refs: R-308
+- 优先级: P2
+- observed_head: 168c404f31cc25bf172e33faae4576643ae7964b
+- observed_worktree_hash: fnv1a64:e06423478ddd60f4
+- recorded_at: 1787260445602

@@ -24,6 +24,9 @@ impl MemoryStore {
         category: Option<&str>,
         status: Option<&str>,
     ) -> anyhow::Result<Vec<SearchCandidate>> {
+        // R-308 B3/D-637:默认检索面与 INDEX 单轨一致。candidate 不进入生产
+        // FTS 检索；只有显式指定 status 才允许生命周期/评估代码读取其他状态。
+        let status = status.or(Some("active"));
         let match_expr = fts_query(query);
         if match_expr.is_empty() {
             return Ok(Vec::new());

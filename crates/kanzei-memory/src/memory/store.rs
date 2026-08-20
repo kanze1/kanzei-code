@@ -1373,6 +1373,77 @@ mod tests {
     }
 
     #[test]
+    fn candidate_not_in_default_fts_or_index_and_index_descriptions_match() {
+        let (dir, store) = temp_store();
+        let active = match store
+            .add(
+                "fact",
+                "active description source",
+                "active source description",
+                "active body",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap()
+        {
+            AddOutcome::Added(entry) => entry,
+            other => panic!("active fixture 应写入: {other:?}"),
+        };
+        let candidate = match store
+            .add(
+                "fact",
+                "candidate hidden from production search",
+                "candidate source description",
+                "候选不可检索单轨标记",
+                "memory-manager",
+                &[],
+                None,
+                true,
+            )
+            .unwrap()
+        {
+            AddOutcome::Added(entry) => entry,
+            other => panic!("candidate fixture 应写入: {other:?}"),
+        };
+        assert_eq!(candidate.status, "candidate");
+
+        let index_text = std::fs::read_to_string(store.index_md()).unwrap();
+        assert!(index_text.contains(&format!(
+            "- {} [fact] {} — {}",
+            active.id, active.title, active.description
+        )));
+        assert!(!index_text
+            .lines()
+            .any(|line| line.starts_with(&format!("- {} [", candidate.id))));
+        assert!(index_text.contains("(1 candidate 条待验证晋升)"));
+
+        let fts_hits = store
+            .search_candidates("候选 不可 检索 单轨 标记", None, None)
+            .unwrap();
+        assert!(
+            fts_hits.iter().all(|hit| hit.entry.id != candidate.id),
+            "candidate 不得进入默认 FTS 检索: {:?}",
+            fts_hits.iter().map(|hit| &hit.entry.id).collect::<Vec<_>>()
+        );
+        let index = SqliteMemoryIndex::new(&dir);
+        let production_hits =
+            index.search_entries(&IndexQuery::text("候选 不可 检索 单轨 标记"), None, None, 5);
+        assert!(
+            production_hits
+                .iter()
+                .all(|hit| hit.entry.id != candidate.id),
+            "candidate 不得进入主检索: {:?}",
+            production_hits
+                .iter()
+                .map(|hit| &hit.entry.id)
+                .collect::<Vec<_>>()
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn 召回明细可回看且采纳与否可机械判定() {
         let (dir, store) = temp_store();
         add(

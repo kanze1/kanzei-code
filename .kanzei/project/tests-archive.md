@@ -9033,3 +9033,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-636 R-308
 - 收尾: 1787260171
 - 源码指纹: v2 crates/kanzei-memory/src/memory/lifecycle.rs@f2d59f2840d9,crates/kanzei-memory/src/memory/manager.rs@0579c0505771,crates/kanzei-memory/src/memory/mod.rs@4013ac422cb6,crates/kanzei-memory/src/memory/store.rs@6238807cb467,crates/kanzei-memory/src/replay_eval.rs@f7540bcf9c6b
+
+## T-1786922726611 cargo fmt --all + cargo test -p kanzei-memory (R-308 B3) [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 时长: 5.6s
+- 摘要: R-308 B3 单轨回归全绿：163 passed、0 failed、0 ignored；candidate 不进入默认 FTS/主检索，INDEX active 行与源 description 一致断言通过。
+- 关联: D-637 R-308
+- 收尾: 1787260428
+- 源码指纹: v2 crates/kanzei-memory/src/memory/retrieval/search.rs@531198e8bcc9,crates/kanzei-memory/src/memory/store.rs@856e26ab4afe
