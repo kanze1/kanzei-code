@@ -25,14 +25,30 @@ fn detect() -> DetectedShell {
         return DetectedShell {
             name: "pwsh",
             program: p,
-            args: vec!["-NoProfile", "-NonInteractive", "-Command"],
+            // D-582:子进程不继承交互会话的 Process=Bypass,裸 spawn 落回
+            // LocalMachine/用户策略,遇到不满足签名要求的 .ps1 文件调用(如
+            // `& .\scripts\verify.ps1`)会被 AuthorizationManager 直接拒绝、
+            // 0 秒失败、脚本第一行都不执行。显式 Bypass 只影响本子进程。
+            args: vec![
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+            ],
         };
     }
     if let Some(p) = which("powershell.exe") {
         return DetectedShell {
             name: "powershell",
             program: p,
-            args: vec!["-NoProfile", "-NonInteractive", "-Command"],
+            args: vec![
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+            ],
         };
     }
     let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
@@ -436,6 +452,85 @@ pub async fn kill_tree(pid: u32) -> bool {
 /// 旧实现能让任何"断言函数返回"的测试满分通过——它恒定 2.008 秒后返回,目标毫发无伤。
 /// 所以这一组测试一律用 [`process_alive`] 对 pid 直接提问,而且必须把**孙进程**一起问:
 /// `taskkill /t` 存在的全部理由就是后代,只查根 pid 的测试查不出 `/t` 有没有生效。
+/// D-582:循环宿主(非交互式,不继承任何 Process=Bypass)裸 spawn 出的 pwsh/powershell
+/// 子进程执行本地 .ps1 文件曾被 AuthorizationManager 在第 0 秒拒绝——本测试进程本身
+/// 不是 PowerShell 宿主,子进程的执行策略只由 [`detected_shell`] 传的参数决定,贴近
+/// 真实复现场景;回归目标是 `-ExecutionPolicy Bypass` 落地后该调用真实跑通。
+#[cfg(all(test, windows))]
+mod execution_policy_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn spawned_shell_runs_local_ps1_file_without_inherited_bypass() {
+        let shell = detected_shell();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let script_path =
+            std::env::temp_dir().join(format!("kz-d582-probe-{}-{nanos}.ps1", std::process::id()));
+        std::fs::write(&script_path, "Write-Output 'kz-d582-probe-ok'\r\n").unwrap();
+        let command_text = format!("& '{}'", script_path.display());
+        let mut command = tokio::process::Command::new(&shell.program);
+        command
+            .args(&shell.args)
+            .arg(&command_text)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        crate::hide_console_async(&mut command);
+        let output = command.output().await.expect("子进程应能启动");
+        let _ = std::fs::remove_file(&script_path);
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(
+            output.status.success(),
+            "裸 spawn 执行本地 .ps1 文件失败(D-582 复发形态):status={:?}, stdout={stdout}, stderr={stderr}",
+            output.status
+        );
+        assert!(
+            stdout.contains("kz-d582-probe-ok"),
+            "脚本首行未执行,stdout={stdout}, stderr={stderr}"
+        );
+    }
+
+    /// D-582 原始复现用的正是 `& .\scripts\verify.ps1`(T-1786922726507)。这里直接
+    /// 用真实文件复现同一调用,只断言不再命中 AuthorizationManager 门槛——工作树在
+    /// 开发中通常不干净,脚本自身会在拿到执行权之后抛"工作树不干净"提前退出,那是
+    /// 预期内的、脚本逻辑内部的失败,不是本缺陷要修的"脚本第一行都跑不到"。
+    #[tokio::test]
+    async fn real_verify_ps1_clears_authorization_gate() {
+        let shell = detected_shell();
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..");
+        let mut command = tokio::process::Command::new(&shell.program);
+        command
+            .args(&shell.args)
+            .arg("& .\\scripts\\verify.ps1")
+            .current_dir(&repo_root)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        crate::hide_console_async(&mut command);
+        let child = command.spawn().expect("子进程应能启动");
+        // 只要脚本跑起来就已经证伪 AuthorizationManager 门槛;不必等 13 步门禁跑完,
+        // 给够拿到执行权+跑到"工作树不干净"检查的时间就够,超时直接判失败并杀进程。
+        let wait =
+            tokio::time::timeout(std::time::Duration::from_secs(20), child.wait_with_output());
+        let output = match wait.await {
+            Ok(result) => result.expect("等待子进程输出不应报错"),
+            Err(_) => panic!("20 秒内脚本既未成功也未报出预期错误,判超时失败"),
+        };
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(
+            !stderr.contains("AuthorizationManager") && !stdout.contains("AuthorizationManager"),
+            "D-582 复发:仍被 AuthorizationManager 挡在第一行之前。stdout={stdout}, stderr={stderr}"
+        );
+    }
+}
+
 #[cfg(all(test, windows))]
 mod windows_kill_tree_tests {
     use super::*;
