@@ -8918,3 +8918,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-284 D-614
 - 收尾: 1787246318
 - 源码指纹: v2 scripts/ui-lint-globals.json@8b9f79548374,scripts/ui-runtime-smoke.mjs@1dcdbc02cc4e
+
+## T-1786922726595 R-245 B1 tool result spill 定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core shadow_telemetry_records_32k_without_changing_model_input; cargo test -p kanzei-core oversized_tool_output_is_externalized_with_recoverable_bytes; cargo test -p kanzei-core artifact_write_failure_is_visible_without_success_reference
+- 时长: 22.0s
+- 摘要: R-245 B1 定向测试通过：32 KiB shadow telemetry 不改变模型输入，既有大结果重启取回与写入失败无悬空引用均通过。每项 1 passed，0 failed。
+- 关联: R-245 D-615
+- 收尾: 1787246727
+- 源码指纹: v2 crates/kanzei-core/src/runner/tool_exec.rs@eb6bef015cdb

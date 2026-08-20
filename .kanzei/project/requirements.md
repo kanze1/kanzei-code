@@ -30,13 +30,14 @@
 - 内容: 按 phase2_system_upgrade.md §5.4 分四批。批1 定义 snake_case 事件包络、持久事实/瞬时表现/高频 delta 三类边界与词表。批2 memory/research/voice 后端生产者接线,统一 project/session/run/topic/entity 归属。批3 前端按归属先归并 store 再分发 animation/audio/工作台,重放幂等。批4 高频 delta 合并、未知事件诊断、重连恢复和跨会话回归。
 - 边界: 不改变 R-242 的 session 真源;瞬时表现事件允许丢帧且不写长期数据库;动画和音频不得反向决定业务状态;未知事件不崩 UI;事件字段不混用 camelCase,第三方/旧事件在适配层转换。
 - 验收: ①词表和 JSON 契约有 schema/单测;②同一 memory promote/research verify/voice state 事实可重放且不重复副作用;③后台会话事件不驱动当前会话动画;④text delta 压缩后长回复无事件风暴;⑤重连从持久事实恢复状态,不依赖错过的表现事件。
-- 批次: 3/4
+- 批次: 4/4
 - 状态: todo
-- 进展: B3 已实现并提交 `1cf1bffc`：`crates/kanzei-app/ui/01-core.js:61-147` 先按 session_id/topic_id/entity_id 归并事实 store，event_id 幂等去重；`01-core.js:100-117` 对同项目 memory/research fact 刷新对应工作台；`01-core.js:136-146` 仅活动 session 分发神经流表现，后台 session 隔离；`01-core.js:149-155` 完成 snake_case 体验事件适配。`scripts/ui-runtime-smoke.mjs:1375-1448` 新增 store、幂等、工作台刷新、后台隔离和当前 session 分发断言；`scripts/ui-lint-globals.json` 已同步。证据：`T-1786922726590` 六条前端冒烟全部通过；`T-1786922726591` cargo test -p kanzei-app，231 passed。D-613 已 fixed。下一步进入 B4：高频 delta 合并、未知事件诊断与重连恢复。
-- observed_head: 1cf1bffc30a252a6f8a010a74898f5e961f60d45
+- 进展: B4 已实现并提交 `605c6413`，按验收逐条对账：① 既有 B1 `crates/kanzei-core/src/experience_events.rs:20-41,97-119` 提供 snake_case JSON schema/validate，`T-1786922726586` 覆盖 schema 与 legacy 归一化；② memory/research 事实由 B2 `crates/kanzei-core/src/experience_events.rs:126-164` 幂等落库/回放，`crates/kanzei-app/ui/13-memory.js:18` 消费 `experience_facts` 恢复前端投影，`T-1786922726586` 覆盖 memory/research；验收降级：voice state 原文→当前仓库无真实 ASR/TTS/VAD 生产者，不能伪造 voice 证据，保留 R-287 缺口；③ B3 `crates/kanzei-app/ui/01-core.js:78-100,180-213` 按 session/topic/entity 归并并隔离后台 session，`T-1786922726593` 回归通过；④ B4 `01-core.js:102-150,197-200` 在一帧内合并 text delta、携带 delta_count，未知事件只诊断，`scripts/ui-runtime-smoke.mjs:1447-1481` 断言三段文本合为一次表现事件，`T-1786922726593` 通过；⑤ B4 `01-core.js:152-160` + `13-memory.js:18` 从持久 facts 恢复且 event_id 幂等，`scripts/ui-runtime-smoke.mjs:1483-1495` 断言首次恢复/重复恢复，`T-1786922726593` 通过。最终验证：`T-1786922726593` 六条前端冒烟全通过，`T-1786922726594` cargo test -p kanzei-app 231 passed。当前仍保持 doing：voice state 生产者缺口未满足，不能关闭 R-284。
+- observed_head: 605c64135451bae1bd3128ef2a20666b98d57504
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
-- recorded_at: 1787245785490
+- recorded_at: 1787246367339
 - 批次表: B1 契约与事件包络：snake_case、持久事实/瞬时表现/high-frequency delta、归属字段和 schema；B2 后端生产者：memory/research/voice 事件接线与真实持久事实映射；B3 前端归并：按 session/topic/memory 归属入 store，再分发动画/音频/工作台；B4 压缩与恢复：delta 合并、未知事件诊断、重连回放和跨会话回归。
+- 停车: B1-B4 已完成并通过验证；剩余 voice state 生产者属于 R-287 的真实 ASR/TTS/VAD 范围，本条主动让位 R-287，待 voice 生产者落地后恢复验收②；恢复人:agent
 
 ## R-285 金色神经流:主对话与记忆层的真实事件驱动动画 [doing]
 - 优先级: P2
@@ -94,12 +95,12 @@
 - 取活依据: engine:唯一可执行 WIP 是 R-101，必须先恢复它
 - 停车: 排队:B4 桌面 E2 体量大,排在收口类条目(D-504/R-242/R-296/R-299)之后恢复;恢复人:agent
 
-## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
+## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [doing]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
 - 依赖: R-242
 - 内容: 统一工具结果为 Inline 或 Spilled{preview,artifact_id,bytes,sha256,retrieval_hint}；read 优先指向原文件 offset/limit，bash、git、test_record、web 等完整原文进入与 state.db 同生命周期的 Git 忽略运行目录。提供存储与整理入口，按类别、会话、日期、大小预览占用，支持清理无引用 artifact；经风险确认后，用可恢复失败的删除计划物理删除已选会话的事件、投影和引用 artifact；并支持 SQLite checkpoint、VACUUM 与迁移备份管理。默认不自动过期。
 - 复杂度: 大
-- 批次: 0/5
+- 批次: 1/5
 - 来源: DeepSeek Harness spill policy、本地 state.db 输出分布统计，以及用户确认“不自动过期但需要显式整理入口”。
 - 标签: 核心
 - 边界: 任何事件仍引用的 artifact 不得被静默清理；整理前显示预计释放空间和不可恢复范围，执行后给清单与实际释放量。32 KiB 先做 shadow telemetry。普通会话删除保证产品不可检索且重启不复生；安全整理才处理 SQLite freelist、WAL 和含旧正文备份。当前库为 WAL、secure_delete=OFF、auto_vacuum=NONE，不能把 DELETE 行等同磁盘字节已擦除。弹窗必须区分仅删除与删除并安全整理，取消零写入；显式整理不是定时任务。
@@ -107,6 +108,10 @@
 - 阻塞: 
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
+- 进展: B1 已落地（代码待本批提交）：现有 D-349 spill 能力明确标注为既有实现，`crates/kanzei-core/src/runner/tool_exec.rs:153-220` 统一出口把 >1 MiB 工具结果原子写入 `.kanzei/artifacts/tool-results/`，记录 sha256/bytes/retrieval_hint，写失败返回 `TOOL_RESULT_SPILL_FAILED` 且不生成引用；`crates/kanzei-harness/src/tool.rs:186-213` 提供可序列化 ToolArtifact，`T-1786922726595` 覆盖既有大结果重启取回与故障无悬空引用。此次交付新增 `tool_exec.rs:107-151` 的 32 KiB shadow telemetry：每次工具结果按工具名、bytes、would_spill、actual_spilled 写独立 JSON 记录，不改变实际 1 MiB spill 阈值或模型输入；`tool_exec.rs:501-539` 测试验证 32 KiB 结果原文不变且 telemetry 可按工具读取，`T-1786922726595` 通过。D-615 已 fixed。下一步 B2：补充 telemetry 分布读取/整理入口，并核对 artifact 与 state.db 生命周期及引用关系。
+- observed_head: 605c64135451bae1bd3128ef2a20666b98d57504
+- observed_worktree_hash: fnv1a64:ec79ee639a90786d
+- recorded_at: 1787246767104
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245

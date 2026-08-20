@@ -105,6 +105,50 @@ pub(crate) fn tool_images_to_parts(
 }
 
 const TOOL_RESULT_SPILL_THRESHOLD: usize = 1024 * 1024;
+const TOOL_RESULT_SHADOW_THRESHOLD: usize = 32 * 1024;
+
+fn record_tool_result_shadow_telemetry(
+    ctx: &ToolCtx,
+    tool_name: &str,
+    bytes: usize,
+    sha256: Option<&str>,
+    actual_spilled: bool,
+) {
+    let safe_tool_name: String = tool_name
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect();
+    let run_id = ctx
+        .run_id
+        .as_deref()
+        .unwrap_or("unknown-run")
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect::<String>();
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let dir = ctx
+        .project_root
+        .join(".kanzei/artifacts/tool-results/shadow");
+    let path = dir.join(format!(
+        "{safe_tool_name}-{run_id}-{}-{stamp}.json",
+        std::process::id()
+    ));
+    let payload = serde_json::json!({
+        "kind": "tool_result_shadow",
+        "tool_name": tool_name,
+        "bytes": bytes,
+        "shadow_threshold": TOOL_RESULT_SHADOW_THRESHOLD,
+        "would_spill": bytes > TOOL_RESULT_SHADOW_THRESHOLD,
+        "actual_spilled": actual_spilled,
+        "sha256": sha256,
+    });
+    if let Ok(encoded) = serde_json::to_string(&payload) {
+        let _ = kanzei_base::atomic_file::write_atomic(&path, &encoded);
+    }
+}
 
 /// 把超限工具结果先写入 durable artifact，再把紧凑引用回喂给模型/UI。
 ///
@@ -117,6 +161,7 @@ pub(crate) fn materialize_tool_output(
     tool_name: &str,
 ) {
     if output.content.len() <= TOOL_RESULT_SPILL_THRESHOLD {
+        record_tool_result_shadow_telemetry(ctx, tool_name, output.content.len(), None, false);
         return;
     }
 
@@ -146,8 +191,11 @@ pub(crate) fn materialize_tool_output(
         output.outcome = kanzei_harness::ToolOutcome::Failed;
         output.code = Some("TOOL_RESULT_SPILL_FAILED");
         output.artifact = None;
+        record_tool_result_shadow_telemetry(ctx, tool_name, original.len(), Some(&sha256), false);
         return;
     }
+
+    record_tool_result_shadow_telemetry(ctx, tool_name, original.len(), Some(&sha256), true);
 
     let artifact = kanzei_harness::ToolArtifact {
         artifact_id: artifact_id.clone(),
@@ -448,6 +496,46 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["write_1", "read_1", "write_2"]
         );
+    }
+
+    #[test]
+    fn shadow_telemetry_records_32k_without_changing_model_input() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-d245-shadow-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let ctx = ToolCtx::new(root.clone(), root.clone()).with_identity(
+            "worktree-shadow".into(),
+            "project-shadow".into(),
+            "run-shadow".into(),
+            "process-shadow".into(),
+        );
+        let original = "x".repeat(super::TOOL_RESULT_SHADOW_THRESHOLD + 1);
+        let mut output = ToolOutput::ok(original.clone());
+
+        super::materialize_tool_output(&mut output, &ctx, "bash");
+
+        assert_eq!(output.content, original);
+        assert!(output.artifact.is_none());
+        let records = std::fs::read_dir(root.join(".kanzei/artifacts/tool-results/shadow"))
+            .unwrap()
+            .map(|entry| {
+                serde_json::from_slice::<serde_json::Value>(
+                    &std::fs::read(entry.unwrap().path()).unwrap(),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["tool_name"], "bash");
+        assert_eq!(records[0]["bytes"], original.len());
+        assert_eq!(records[0]["would_spill"], true);
+        assert_eq!(records[0]["actual_spilled"], false);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

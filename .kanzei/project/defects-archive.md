@@ -7578,3 +7578,15 @@
 - observed_head: 1cf1bffc30a252a6f8a010a74898f5e961f60d45
 - observed_worktree_hash: fnv1a64:56807420bc57d55d
 - recorded_at: 1787246218163
+
+## D-615 R-245 B1 telemetry 插入破坏 tool_exec.rs ToolArtifact 语法 [fixed] (high)
+- 复现: 运行 `cargo fmt --all` 后，`crates/kanzei-core/src/runner/tool_exec.rs` 在 `ToolArtifact` 构造处报 Rust 语法错误：插入的 telemetry 代码被拼入 struct 起始行。
+- 影响: kanzei-core 无法格式化或编译，R-245 B1 无法验证。
+- 来源: self-found：R-245 B1 shadow telemetry 实现后的定向测试。
+- 标签: 核心
+- refs: R-245
+- 优先级: P1
+- 进展: 已修复并关闭。① 插入位置造成的 `ToolArtifact` 语法损坏已在 `crates/kanzei-core/src/runner/tool_exec.rs:191-229` 修正，恢复 artifact failure 分支与成功分支；② telemetry 序列化类型错误已改为 `serde_json::to_string`，写入 `write_atomic` 接受的 UTF-8 文本；③ `T-1786922726595`：cargo fmt 与三个 kanzei-core 定向测试全部通过（各 1 passed、0 failed），覆盖 32 KiB telemetry、既有 spill 重启取回和写失败无引用。
+- observed_head: 605c64135451bae1bd3128ef2a20666b98d57504
+- observed_worktree_hash: fnv1a64:ec79ee639a90786d
+- recorded_at: 1787246735862
