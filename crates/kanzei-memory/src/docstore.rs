@@ -491,10 +491,7 @@ mod tests {
 
     #[test]
     fn legacy_defect_metadata_is_detected_without_breaking_parentheses_titles() {
-        let parsed = parse(
-            &DEFECTS,
-            "## D-553 旧缺陷 [open] (small) [fixed]\n",
-        );
+        let parsed = parse(&DEFECTS, "## D-553 旧缺陷 [open] (small) [fixed]\n");
         assert_eq!(parsed[0].status, "fixed");
         assert_eq!(parsed[0].title, "旧缺陷 [open] (small)");
         assert_eq!(

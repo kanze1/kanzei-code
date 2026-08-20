@@ -277,9 +277,9 @@ impl DocStore {
         entry.title = cleaned_title;
         // 生命周期的权威值是 header status。历史直写可能留下「状态: done」等
         // 与 header 冲突的副本(D-569);修正归档时移除这些保留字段,避免继续污染取活依据。
-        entry.fields.retain(|(key, _)| {
-            !key.eq_ignore_ascii_case("status") && key != "状态"
-        });
+        entry
+            .fields
+            .retain(|(key, _)| !key.eq_ignore_ascii_case("status") && key != "状态");
         // D-333:审计进展**合并**进既有「进展」字段,而不是 push 第二条——归档区
         // 条目大多已带原始进展,fix_terminal 再 push 一条会形成重复「进展」字段
         // (normalize 扫描实测检出 R-201/R-198/R-199/R-213/R-225/R-226 六条)。
