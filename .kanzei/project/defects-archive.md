@@ -7590,3 +7590,15 @@
 - observed_head: 605c64135451bae1bd3128ef2a20666b98d57504
 - observed_worktree_hash: fnv1a64:ec79ee639a90786d
 - recorded_at: 1787246735862
+
+## D-616 R-245 B2 storage_report 接入缺失 SessionStore impl 闭合 [fixed] (high)
+- 复现: 运行 `cargo fmt --all` 后，`crates/kanzei-core/src/store/session.rs` 报 unclosed delimiter；B2 新增 `open_read_only` impl 与 `storage_report` impl 之间缺少闭合大括号。
+- 影响: R-245 B2 的 core/CLI 统计入口无法格式化或编译，无法验证只读占用报告。
+- 来源: self-found：R-245 B2 接入 artifacts CLI 后运行定向测试。
+- 标签: 核心
+- refs: R-245
+- 优先级: P1
+- 进展: 已修复并关闭。① `crates/kanzei-core/src/store/session.rs:338-427` 恢复两个 `impl SessionStore` 的正确闭合，补齐 `StorageReport` 类型导入与只读路径生命周期；② `crates/kanzei-core/src/store/mod.rs:56-69` 和 `crates/kanzei-core/src/lib.rs:34` 正确导出 StorageReport；③ `T-1786922726596`：`cargo fmt --all`、core storage_report 单测、kz artifacts 单测和真实 `cargo run -p kanzei -- artifacts stats --json --project-root .` 全部通过。
+- observed_head: af84b5f50677f58053608146ed0ffca6aa6d48b1
+- observed_worktree_hash: fnv1a64:827245a8ddb1eb69
+- recorded_at: 1787247321045

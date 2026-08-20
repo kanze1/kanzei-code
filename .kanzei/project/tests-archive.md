@@ -8926,3 +8926,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-245 D-615
 - 收尾: 1787246727
 - 源码指纹: v2 crates/kanzei-core/src/runner/tool_exec.rs@eb6bef015cdb
+
+## T-1786922726596 R-245 B2 artifact storage stats 定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core storage_report_is_read_only_and_counts_artifacts_and_backups; cargo test -p kanzei --bin kz artifacts; cargo run -p kanzei -- artifacts stats --json --project-root .
+- 时长: 39.0s
+- 摘要: R-245 B2 storage_report 单测 1 passed；kz artifacts CLI 单测 1 passed；真实命令输出 state.db 171495424 bytes、WAL 3052952、SHM 32768、page_count 41869、freelist 8771、迁移备份 1/93528064 bytes，命令只读成功。
+- 关联: R-245 D-616
+- 收尾: 1787247309
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@0504c2e4a559,crates/kanzei-core/src/store/mod.rs@4ff64b7b3c6d,crates/kanzei-core/src/store/session.rs@bfc1f8782e76,crates/kanzei/src/cli/artifacts.rs@cdffaa9a0d6d,crates/kanzei/src/cli/mod.rs@1882487f9e84

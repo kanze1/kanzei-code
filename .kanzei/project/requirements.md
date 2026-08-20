@@ -100,7 +100,7 @@
 - 依赖: R-242
 - 内容: 统一工具结果为 Inline 或 Spilled{preview,artifact_id,bytes,sha256,retrieval_hint}；read 优先指向原文件 offset/limit，bash、git、test_record、web 等完整原文进入与 state.db 同生命周期的 Git 忽略运行目录。提供存储与整理入口，按类别、会话、日期、大小预览占用，支持清理无引用 artifact；经风险确认后，用可恢复失败的删除计划物理删除已选会话的事件、投影和引用 artifact；并支持 SQLite checkpoint、VACUUM 与迁移备份管理。默认不自动过期。
 - 复杂度: 大
-- 批次: 1/5
+- 批次: 2/5
 - 来源: DeepSeek Harness spill policy、本地 state.db 输出分布统计，以及用户确认“不自动过期但需要显式整理入口”。
 - 标签: 核心
 - 边界: 任何事件仍引用的 artifact 不得被静默清理；整理前显示预计释放空间和不可恢复范围，执行后给清单与实际释放量。32 KiB 先做 shadow telemetry。普通会话删除保证产品不可检索且重启不复生；安全整理才处理 SQLite freelist、WAL 和含旧正文备份。当前库为 WAL、secure_delete=OFF、auto_vacuum=NONE，不能把 DELETE 行等同磁盘字节已擦除。弹窗必须区分仅删除与删除并安全整理，取消零写入；显式整理不是定时任务。
@@ -108,10 +108,10 @@
 - 阻塞: 
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
-- 进展: B1 已落地（代码待本批提交）：现有 D-349 spill 能力明确标注为既有实现，`crates/kanzei-core/src/runner/tool_exec.rs:153-220` 统一出口把 >1 MiB 工具结果原子写入 `.kanzei/artifacts/tool-results/`，记录 sha256/bytes/retrieval_hint，写失败返回 `TOOL_RESULT_SPILL_FAILED` 且不生成引用；`crates/kanzei-harness/src/tool.rs:186-213` 提供可序列化 ToolArtifact，`T-1786922726595` 覆盖既有大结果重启取回与故障无悬空引用。此次交付新增 `tool_exec.rs:107-151` 的 32 KiB shadow telemetry：每次工具结果按工具名、bytes、would_spill、actual_spilled 写独立 JSON 记录，不改变实际 1 MiB spill 阈值或模型输入；`tool_exec.rs:501-539` 测试验证 32 KiB 结果原文不变且 telemetry 可按工具读取，`T-1786922726595` 通过。D-615 已 fixed。下一步 B2：补充 telemetry 分布读取/整理入口，并核对 artifact 与 state.db 生命周期及引用关系。
-- observed_head: 605c64135451bae1bd3128ef2a20666b98d57504
-- observed_worktree_hash: fnv1a64:ec79ee639a90786d
-- recorded_at: 1787246767104
+- 进展: B2 已实现并验证，提交待本批提交：① 既有 D-349 spill 与 B1 telemetry 保持不变，证据 `T-1786922726595`；② 新增只读 `SessionStore::open_read_only` 与 `storage_report`（`crates/kanzei-core/src/store/session.rs:338-427`），统计 state.db/WAL/SHM/page_count/freelist、tool-result artifact/shadow telemetry、state.db.v*.bak；`crates/kanzei-core/src/store/mod.rs:56-69` 定义 `StorageReport`，`crates/kanzei-core/src/lib.rs:34` 对外导出；③ 新增真实 CLI `crates/kanzei/src/cli/artifacts.rs:1-112`，经 `crates/kanzei/src/cli/mod.rs:14,54,89` 接入 `kz artifacts stats [--json]`，只读输出并明确不做 expiry/delete/checkpoint/VACUUM；④ `T-1786922726596` 覆盖 storage_report 单测、CLI 单测和真实命令，实测 state.db 171495424 bytes、WAL 3052952、SHM 32768、freelist 8771、迁移备份 1/93528064 bytes。验收⑤阶段性完成：数据库/WAL/freelist/artifact/迁移备份已列出；无引用 artifact 与 dry-run 尚未实现。D-616 已 fixed。下一步 B3：建立 artifact 引用图并提供无引用扫描与 dry-run 清理计划，禁止删除仍被引用 artifact。
+- observed_head: af84b5f50677f58053608146ed0ffca6aa6d48b1
+- observed_worktree_hash: fnv1a64:827245a8ddb1eb69
+- recorded_at: 1787247333562
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245

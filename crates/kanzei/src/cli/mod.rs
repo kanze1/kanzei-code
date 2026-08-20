@@ -11,6 +11,7 @@
 
 use std::path::Path;
 
+pub mod artifacts;
 pub mod config;
 pub mod eval;
 pub mod lock;
@@ -48,6 +49,7 @@ pub async fn main_entry(args: &[String]) -> anyhow::Result<()> {
         Some("work") => work::work_cli(&args[1..]).await,
         Some("worktree") => worktree::worktree_cli(&args[1..]).await,
         Some("lock") => lock::lock_cli(&args[1..]).await,
+        Some("artifacts") => artifacts::artifacts_cli(&args[1..]).await,
         Some("config") => config::config_cli(&args[1..]),
         Some("metrics") => metrics::metrics_cli(&args[1..]).await,
         Some("quarantine") => quarantine::quarantine_cli(&args[1..]).await,
@@ -83,6 +85,7 @@ pub(crate) fn usage_text() -> &'static str {
        kz worktree merge <path>              # 安全非快进合并:冲突则保持双方并返回诊断\n\
        kz lock status                       # 外部写入者可见性:主根/git 工作树改动/活跃线(R-181)\n\
        kz config schema                     # kanzei.toml 用户面配置参考:全部已知键+说明+默认值(R-220)\n\
+       kz artifacts stats [--json]         # 只读查看 state.db/WAL/freelist/artifact/telemetry 占用(R-245)\n\
        kz metrics [--top N]                 # 巨石度量:生产/测试行数+函数数+最大函数行数+>7参(R-258)\n\
        kz quarantine [--dry-run|--apply]    # 隔离取证按日期/类型盘点或清理(D-566)\n\
        kz shadow [--mismatches]             # 会话投影 shadow gate 统计:未知差异=0 达标判定(R-242)\n\

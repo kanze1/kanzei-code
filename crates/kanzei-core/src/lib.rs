@@ -31,6 +31,6 @@ pub use store::{
     summarize_shadow_reports, AdmittedInput, Delivery, EpisodeRecord, FunnelCounts, RecallEvent,
     RecallLinkStats, RecallMetrics, Session, SessionFact, SessionFactEnvelope, SessionFactError,
     SessionInvariant, SessionProjection, SessionStore, SessionTurnTerminal, ShadowComparison,
-    ShadowVerdictStats, StoreError, StoredEvent, StoredProcess, TypedSessionWriter,
+    ShadowVerdictStats, StorageReport, StoreError, StoredEvent, StoredProcess, TypedSessionWriter,
     SUBAGENT_TRANSCRIPT,
 };

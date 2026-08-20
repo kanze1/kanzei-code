@@ -51,6 +51,21 @@ const HOUSEKEEPING_INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
 /// D-298:freelist 死页占比超过该阈值才 VACUUM。实测主会话库 82MB 中约 68MB
 /// (83%)是 freelist,50% 是合理的触发线——低于它说明库还健康,不必付整理成本。
 const HOUSEKEEPING_FREELIST_THRESHOLD: f64 = 0.5;
+/// R-245 B2:显式整理入口读取的存储占用快照；只读，不触发清理或过期策略。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageReport {
+    pub state_db_bytes: u64,
+    pub wal_bytes: u64,
+    pub shm_bytes: u64,
+    pub page_count: i64,
+    pub freelist_pages: i64,
+    pub artifact_files: u64,
+    pub artifact_bytes: u64,
+    pub shadow_files: u64,
+    pub shadow_bytes: u64,
+    pub migration_backup_files: u64,
+    pub migration_backup_bytes: u64,
+}
 
 /// D-374:`SessionStore::open` 的累计次数,**按库路径分桶**。
 ///

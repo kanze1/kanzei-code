@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use super::{
-    now_ms, Session, SessionStore, StoreError, HOUSEKEEPING_FREELIST_THRESHOLD,
+    now_ms, Session, SessionStore, StorageReport, StoreError, HOUSEKEEPING_FREELIST_THRESHOLD,
     HOUSEKEEPING_INTERVAL_MS,
 };
 
@@ -335,6 +335,100 @@ impl SessionStore {
     }
 }
 
+impl SessionStore {
+    /// 只读打开状态库；不迁移、不 housekeeping，供显式统计入口使用。
+    pub fn open_read_only(path: &Path) -> Result<Self, StoreError> {
+        let connection =
+            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        Ok(Self {
+            connection,
+            path: Some(path.to_path_buf()),
+        })
+    }
+}
+
+impl SessionStore {
+    /// R-245 B2:只读读取 state.db/WAL/freelist、artifact 与迁移备份占用。
+    /// 不执行 DELETE、VACUUM、checkpoint 或备份处置；显式整理批次另行实现。
+    pub fn storage_report(&self, project_root: &Path) -> Result<StorageReport, StoreError> {
+        let owned_state_path;
+        let state_path = if let Some(path) = self.path.as_deref() {
+            path
+        } else {
+            owned_state_path = project_state_path(project_root);
+            owned_state_path.as_path()
+        };
+        let page_count: i64 = self
+            .connection
+            .pragma_query_value(None, "page_count", |row| row.get(0))?;
+        let freelist_pages: i64 =
+            self.connection
+                .pragma_query_value(None, "freelist_count", |row| row.get(0))?;
+        let state_db_bytes = file_size(state_path);
+        let wal_bytes = file_size(&PathBuf::from(format!("{}-wal", state_path.display())));
+        let shm_bytes = file_size(&PathBuf::from(format!("{}-shm", state_path.display())));
+        let artifacts_root = project_root.join(".kanzei/artifacts/tool-results");
+        let mut report = StorageReport {
+            state_db_bytes,
+            wal_bytes,
+            shm_bytes,
+            page_count,
+            freelist_pages,
+            artifact_files: 0,
+            artifact_bytes: 0,
+            shadow_files: 0,
+            shadow_bytes: 0,
+            migration_backup_files: 0,
+            migration_backup_bytes: 0,
+        };
+        collect_artifact_files(&artifacts_root, false, &mut report);
+        if let Some(parent) = state_path.parent() {
+            if let Ok(entries) = std::fs::read_dir(parent) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    if name.starts_with("state.db.v") && name.ends_with(".bak") {
+                        report.migration_backup_files += 1;
+                        report.migration_backup_bytes = report
+                            .migration_backup_bytes
+                            .saturating_add(file_size(&entry.path()));
+                    }
+                }
+            }
+        }
+        Ok(report)
+    }
+}
+
+fn file_size(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+}
+
+fn collect_artifact_files(path: &Path, in_shadow: bool, report: &mut StorageReport) {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let child_shadow = in_shadow || entry.file_name() == "shadow";
+            collect_artifact_files(&path, child_shadow, report);
+        } else if path.is_file() {
+            let bytes = file_size(&path);
+            if in_shadow {
+                report.shadow_files += 1;
+                report.shadow_bytes = report.shadow_bytes.saturating_add(bytes);
+            } else {
+                report.artifact_files += 1;
+                report.artifact_bytes = report.artifact_bytes.saturating_add(bytes);
+            }
+        }
+    }
+}
+
 pub fn project_state_path(project_root: &Path) -> PathBuf {
     project_root.join(".kanzei").join("state.db")
 }
@@ -375,6 +469,35 @@ mod tests {
     use crate::store::testutil::store;
     use crate::store::*;
     use std::path::Path;
+
+    #[test]
+    fn storage_report_is_read_only_and_counts_artifacts_and_backups() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-storage-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let store = SessionStore::open(&state_path).unwrap();
+        let artifact_root = root.join(".kanzei/artifacts/tool-results");
+        std::fs::create_dir_all(artifact_root.join("shadow")).unwrap();
+        std::fs::write(artifact_root.join("result.txt"), b"abc").unwrap();
+        std::fs::write(artifact_root.join("shadow/telemetry.json"), b"12345").unwrap();
+        std::fs::write(root.join(".kanzei/state.db.v16.bak"), b"backup").unwrap();
+
+        let before = store.storage_report(&root).unwrap();
+        assert!(before.state_db_bytes > 0);
+        assert_eq!(before.artifact_files, 1);
+        assert_eq!(before.artifact_bytes, 3);
+        assert_eq!(before.shadow_files, 1);
+        assert_eq!(before.shadow_bytes, 5);
+        assert_eq!(before.migration_backup_files, 1);
+        assert_eq!(before.migration_backup_bytes, 6);
+        assert!(state_path.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn 会话状态更新并刷新时间() {
