@@ -48,6 +48,11 @@ impl Component for BaseComponent {
         draft
             .tools
             .insert("websearch", Arc::new(crate::websearch::WebSearchTool));
+        // R-248:先行调研是 dev 的默认能力。start 写受控骨架、validate 只读核验；
+        // 真实研究仍复用 research plan/loop/source/finding，不在这里分叉。
+        draft
+            .tools
+            .insert("prior_art", Arc::new(crate::prior_art::PriorArtTool));
         // R-269:浏览器工具(playwright-core 辅进程 headless 自检)。默认 Ask——
         // 启动 headless 浏览器与截图都有副作用面,交互轮放行、自主轮按权限判定。
         draft
@@ -79,6 +84,8 @@ impl Component for BaseComponent {
             rule("bash", "*", Effect::Ask),
             rule("webfetch", "*", Effect::Ask),
             rule("websearch", "*", Effect::Ask),
+            rule("prior_art", "read:*", Effect::Allow),
+            rule("prior_art", "write:*", Effect::Ask),
             rule("browser", "*", Effect::Ask),
             rule("latex", "*", Effect::Ask),
             rule("plot", "*", Effect::Ask),
