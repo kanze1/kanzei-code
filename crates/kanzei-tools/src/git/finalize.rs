@@ -4,7 +4,7 @@
 use kanzei_harness::{ToolCtx, ToolOutput};
 
 use super::{
-    aggregate_gate_errors, clippy_gate, commit_with_gate_state, fmt_gate, source_crates,
+    aggregate_gate_errors, build_commit_plan, clippy_gate, commit_with_gate_state, fmt_gate,
     source_endorsement_fingerprint, stage,
 };
 
@@ -25,29 +25,27 @@ pub(crate) async fn finalize(
             "`files` is required for finalize: explicitly list the files to commit",
         );
     }
-    let sources: Vec<String> = files
-        .iter()
-        .filter(|p| p.ends_with(".rs") || p.ends_with("Cargo.toml"))
-        .cloned()
-        .collect();
+    let plan = match build_commit_plan(&ctx.project_root, cwd, &files).await {
+        Ok(plan) => plan,
+        Err(error) => return ToolOutput::error(format!("[finalize] commit_plan failed: {error}")),
+    };
+    if !plan.unsafe_files.is_empty() {
+        return plan.blocker("finalize");
+    }
 
-    if !sources.is_empty() {
+    let has_rust_gate_inputs = files
+        .iter()
+        .any(|path| path.ends_with(".rs") || path.ends_with("Cargo.toml"));
+    if has_rust_gate_inputs {
         let (fmt_result, clippy_result) = tokio::join!(fmt_gate(cwd), clippy_gate(cwd));
         if let Err(error) = aggregate_gate_errors(fmt_result, clippy_result, "finalize") {
             return ToolOutput::error(error);
         }
     }
 
-    let staged_crates = source_crates(&sources);
-    let test_command = if staged_crates.is_empty() {
-        "cargo test --workspace".to_string()
-    } else {
-        staged_crates
-            .iter()
-            .map(|c| format!("cargo test -p {c}"))
-            .collect::<Vec<_>>()
-            .join(" && ")
-    };
+    let test_command = plan
+        .test_command
+        .unwrap_or_else(|| "cargo test --workspace".to_string());
 
     let started = std::time::Instant::now();
     let mut command = if cfg!(windows) {
@@ -115,7 +113,7 @@ pub(crate) async fn finalize(
         return ToolOutput::error(format!("[finalize] test_record failed: {error}"));
     }
 
-    let staged = stage(cwd, &files).await;
+    let staged = stage(&ctx.project_root, cwd, &files).await;
     let ToolOutput {
         content,
         is_error,

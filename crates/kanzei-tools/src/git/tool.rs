@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use super::commands::{run_git, run_git_owned};
 use super::finalize::finalize;
-use super::{commit, merge_ff, stage};
+use super::{build_commit_plan, commit, merge_ff, stage};
 
 #[derive(Deserialize, JsonSchema)]
 struct GitInput {
@@ -50,7 +50,7 @@ impl Tool for GitTool {
     }
 
     fn description(&self) -> String {
-        "Safe Git status/diff/log/stage/commit/merge_ff. log shows recent commits (count, optional path filter). stage requires explicit files and returns staged_hash; commit requires that exact hash, so reviewed staged content cannot silently change. merge_ff fast-forwards branch `into` from ref `from` (finds the worktree where `into` is checked out; refuses non-fast-forward). Do not use bash for git add/commit/merge.".into()
+        "Safe Git status/diff/log/stage/commit/commit_plan/finalize/merge_ff. commit_plan (also called preflight) reports affected crates, test evidence, governance metadata, and the safe explicit stage set before mutations. log shows recent commits (count, optional path filter). stage requires explicit files and returns staged_hash; commit requires that exact hash, so reviewed staged content cannot silently change. merge_ff fast-forwards branch `into` from ref `from` (finds the worktree where `into` is checked out; refuses non-fast-forward). Do not use bash for git add/commit/merge.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -62,7 +62,15 @@ impl Tool for GitTool {
             action.insert(
                 "enum".into(),
                 serde_json::json!([
-                    "status", "diff", "log", "stage", "commit", "merge_ff", "finalize"
+                    "status",
+                    "diff",
+                    "log",
+                    "stage",
+                    "commit",
+                    "commit_plan",
+                    "preflight",
+                    "merge_ff",
+                    "finalize"
                 ]),
             );
         }
@@ -167,12 +175,16 @@ async fn git_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> 
                 Err(error) => ToolOutput::error(error),
             }
         }
-        "stage" => stage(&ctx.cwd, &input.files).await,
+        "stage" => stage(&ctx.project_root, &ctx.cwd, &input.files).await,
         "commit" => commit(ctx, input.message, input.expected_hash).await,
+        "commit_plan" | "preflight" => match build_commit_plan(&ctx.project_root, &ctx.cwd, &input.files).await {
+            Ok(plan) => plan.render(),
+            Err(error) => ToolOutput::error(error),
+        },
         "merge_ff" => merge_ff(&ctx.cwd, input.from, input.into).await,
         "finalize" => finalize(ctx, input.files, input.message).await,
         other => ToolOutput::error(format!(
-            "unknown action `{other}`; valid: status | diff | log | stage | commit | merge_ff"
+            "unknown action `{other}`; valid: status | diff | log | commit_plan | preflight | stage | commit | merge_ff | finalize"
         )),
     }
 }

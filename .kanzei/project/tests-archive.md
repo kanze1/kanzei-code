@@ -8958,3 +8958,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 正式 verify 全绿：parallel-lines、六条前端冒烟/连通性、fmt、clippy、cargo test --workspace 全部通过；workspace 测试各 crate 合计无失败。
 - 关联: D-604
 - 收尾: 1787257387
+
+## T-1786922726601 cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 34.6s
+- 摘要: 419 passed, 0 failed, 1 ignored；commit-plan 两个夹具、finalize fmt gate 回归及既有 Git 门禁测试均通过。
+- 关联: D-617 D-633
+- 收尾: 1787258176
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@a1ddeaf541c6,crates/kanzei-tools/src/git/finalize.rs@ada9547081d7,crates/kanzei-tools/src/git/plan.rs@5f43b78c3868,crates/kanzei-tools/src/git/tool.rs@fa56adaf3c9e
+
+## T-1786922726602 cargo fmt --all + cargo test -p kanzei-tools [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-tools
+- 时长: 33.9s
+- 摘要: 格式化后 419 passed, 0 failed, 1 ignored；重复 commit-plan 缺口断言、finalize fmt gate 回归及既有 Git 门禁均通过。
+- 关联: D-617 D-633
+- 收尾: 1787258328
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@a1ddeaf541c6,crates/kanzei-tools/src/git/finalize.rs@ada9547081d7,crates/kanzei-tools/src/git/plan.rs@5e19b6de69f6,crates/kanzei-tools/src/git/tool.rs@fa56adaf3c9e

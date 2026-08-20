@@ -7778,3 +7778,31 @@
 - observed_head: 0f566a2d3d87382fbe0e27cf6e8a3993093c8c78
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787257428279
+
+## D-633 commit_plan 让非 crate 路径绕过 finalize fmt/clippy gate [fixed] (high)
+- 复现: 运行 kanzei-tools 测试 `git::tests::finalize_rejects_fmt_before_tests`；测试夹具包含普通 src/lib.rs 改动，但 commit_plan 的 affected_crates 为空，finalize 未运行 fmt/clippy，反而完成提交。
+- 影响: 普通 finalize 的既有格式与 clippy 硬门禁可能因计划分类过窄被绕过，计划错误违反 D-617 验收④。
+- 来源: self-found：D-617 定向测试回归
+- 标签: 核心
+- 验收: ①普通非 crate 源码改动仍触发 finalize fmt/clippy：`crates/kanzei-tools/src/git/finalize.rs:36-44`，`T-1786922726601` 的 `finalize_rejects_fmt_before_tests` 通过。②原回归测试恢复通过：`T-1786922726601`，419 passed。③计划错误不得放宽硬门禁：`crates/kanzei-tools/src/git.rs:870-898` 先消费计划，再保留 placeholder、fmt/clippy 与 source_test_gate；`T-1786922726601` Git 门禁测试全绿。
+- refs: D-617
+- 优先级: P0
+- 进展: 已修复：`crates/kanzei-tools/src/git/finalize.rs:36-44` 保留旧语义，对所有拟提交 `.rs`/`Cargo.toml` 运行 fmt/clippy；计划仍在 `git/plan.rs:84-120` 负责 crate 证据。`T-1786922726601`：kanzei-tools 419 passed，包含 `git::tests::finalize_rejects_fmt_before_tests` 回归。
+- observed_head: 0f566a2d3d87382fbe0e27cf6e8a3993093c8c78
+- observed_worktree_hash: fnv1a64:47ced881b66a6b29
+- recorded_at: 1787258210006
+
+## D-617 提交前无覆盖计划导致同一 crate 证据缺口反复到 commit 才暴露 [fixed] (high)
+- refs: R-309 R-311 D-334
+- 复现: 可见日志尾段中，R-284 B3 与 B4 均在准备提交后才由 source_test_gate 发现最新 passed evidence 只有前端 smoke、未覆盖受影响的 kanzei-app crate；第一次拒绝后，后续批次仍重复同一拒绝→补 crate test→test_record→再提交链。
+- 影响: 同一种可预测门禁缺口反复产生测试、状态检查和提交往返，增加长程上下文负担；硬门禁最终能挡错，但吞吐与一次命中率下降。
+- 来源: 2026-08-21 用户提供运行复盘；证据仅覆盖日志可见的 1916 行尾段，更早 2781 条已移出视图，因此不把工具调用粗统计外推为全会话结论。
+- 标签: 流程
+- 现状: 仓库已有 D-334 交付的 git finalize(fmt/clippy→相关测试→test_record→stage→CAS commit)，但 Agent 仍默认手工驾驶 test/test_record/stage/commit；普通 commit 只在末端拒绝，未先给 affected crates、缺失 evidence 与安全暂存集合的结构化计划。
+- 验收: ①新增结构化 commit_plan/preflight：`crates/kanzei-tools/src/git/plan.rs:27-148` 产出 affected_crates、required_evidence、satisfied_evidence、missing_evidence、governance_metadata、safe_stage_set；`crates/kanzei-tools/src/git/tool.rs:180-183` 提供真实 commit_plan/preflight caller；`T-1786922726602` 的两个 plan 夹具通过。②默认交付路径在 stage/commit 前消费计划：`crates/kanzei-tools/src/git.rs:322-333` 的 stage 与 `git.rs:870-876` 的 commit 在突变前阻断 unsafe/missing evidence；`crates/kanzei-tools/src/git/finalize.rs:28-48` 消费计划并执行其精确 test_command；`T-1786922726602` 通过 finalize 与 Git 门禁回归。③R-284 B3/B4 等价覆盖缺口夹具：`crates/kanzei-tools/src/git/plan.rs:201-233` 用 frontend smoke 记录模拟 `kanzei-app` crate 缺口，连续两次计划均稳定给出 `cargo test -p kanzei-app`，`T-1786922726602` 通过，不再等到 commit 末端重复暴露。④保留普通 commit 硬门禁与审计：`crates/kanzei-tools/src/git.rs:870-898` 计划后仍执行 placeholder gate、fmt/clippy 与 source_test_gate；`crates/kanzei-tools/src/git/finalize.rs:36-44` 修复 D-633 以保留非 crate `.rs` 的旧 gate 范围；`T-1786922726602` 419 passed。
+- 优先级: P0
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-617(unblocks=0)
+- 进展: D-617 已完成：新增 `crates/kanzei-tools/src/git/plan.rs` 结构化计划，接入 `git commit_plan`/`preflight`，并在 `stage`、普通 `commit`、`finalize` 的突变前消费。计划按拟提交文件计算 affected crates、required/satisfied/missing evidence、治理元数据、safe stage set 与源码指纹；缺证据返回精确 cargo test 命令，finalize 直接执行该命令。发现并修复 D-633：finalize 仍对所有 `.rs`/`Cargo.toml` 保留 fmt/clippy 判定。`T-1786922726602`：cargo fmt + kanzei-tools 419 passed，0 failed，1 ignored。
+- observed_head: 0f566a2d3d87382fbe0e27cf6e8a3993093c8c78
+- observed_worktree_hash: fnv1a64:aee47da2a2e1119c
+- recorded_at: 1787258346638

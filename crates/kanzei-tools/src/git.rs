@@ -10,6 +10,8 @@ use kanzei_harness::{ToolCtx, ToolOutput};
 mod commands;
 pub(crate) use commands::{run_git, run_git_owned};
 mod finalize;
+mod plan;
+pub(crate) use plan::build_commit_plan;
 mod tool;
 pub(crate) use tool::normalize_files;
 pub use tool::GitTool;
@@ -214,6 +216,64 @@ pub fn source_endorsement_fingerprint(cwd: &Path) -> Result<String, String> {
     Ok(format!("v2 {}", entries.join(",")))
 }
 
+/// 按拟提交文件计算工作区源码指纹。提交前计划不能直接使用全工作区指纹：
+/// 工作区可能同时存在本轮不提交的源码改动，计划必须只评估 safe stage set 的候选文件。
+pub(crate) fn source_endorsement_fingerprint_for_paths(
+    cwd: &Path,
+    paths: &[String],
+) -> Result<String, String> {
+    let mut present = Vec::new();
+    let mut entries = Vec::new();
+    for path in paths.iter().filter(|path| is_source_path(path)) {
+        if cwd.join(path).is_file() {
+            present.push(path.clone());
+        } else {
+            entries.push(format!("{}@000000000000", path.replace('\\', "/")));
+        }
+    }
+    if !present.is_empty() {
+        let mut hash_command = std::process::Command::new("git");
+        crate::hide_console(&mut hash_command);
+        let mut child = hash_command
+            .args(["hash-object", "--stdin-paths"])
+            .current_dir(cwd)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("cannot run git hash-object: {e}"))?;
+        {
+            use std::io::Write;
+            let stdin = child
+                .stdin
+                .as_mut()
+                .ok_or("hash-object stdin unavailable")?;
+            for path in &present {
+                writeln!(stdin, "{path}").map_err(|e| format!("hash-object write: {e}"))?;
+            }
+        }
+        let hashed = child
+            .wait_with_output()
+            .map_err(|e| format!("hash-object failed: {e}"))?;
+        if !hashed.status.success() {
+            return Ok(String::new());
+        }
+        let shas = String::from_utf8_lossy(&hashed.stdout).to_string();
+        for (path, sha) in present.iter().zip(shas.lines()) {
+            let short: String = sha.trim().chars().take(12).collect();
+            if short.is_empty() {
+                continue;
+            }
+            entries.push(format!("{}@{short}", path.replace('\\', "/")));
+        }
+    }
+    if entries.is_empty() {
+        return Ok(String::new());
+    }
+    entries.sort();
+    Ok(format!("v2 {}", entries.join(",")))
+}
+
 /// v2 指纹解析:`v2 path@sha12,…` → 路径到 blob 前缀的映射;非 v2 形态返回 None。
 fn parse_fingerprint_entries(
     fingerprint: &str,
@@ -259,11 +319,18 @@ fn unendorsed_paths(record: &str, current: &str) -> Vec<String> {
 // 旧同步版 staged_paths_sync 已随 diff 文本指纹一起退役:v2 指纹从
 // `diff --cached --raw -z` 一次拿到路径与 blob,不再需要单独列路径。
 
-async fn stage(cwd: &Path, raw_files: &[String]) -> ToolOutput {
+async fn stage(project_root: &Path, cwd: &Path, raw_files: &[String]) -> ToolOutput {
     let files = match normalize_files(cwd, raw_files, true) {
         Ok(files) => files,
         Err(error) => return ToolOutput::error(error),
     };
+    let plan = match build_commit_plan(project_root, cwd, &files).await {
+        Ok(plan) => plan,
+        Err(error) => return ToolOutput::error(format!("[stage] commit_plan failed: {error}")),
+    };
+    if !plan.unsafe_files.is_empty() || !plan.missing_evidence.is_empty() {
+        return plan.blocker("stage");
+    }
     let requested: BTreeSet<&str> = files.iter().map(String::as_str).collect();
     let existing = match staged_paths(cwd).await {
         Ok(paths) => paths,
@@ -353,7 +420,7 @@ async fn unstaged_changes(cwd: &Path) -> Result<Vec<String>, String> {
 /// 关闭前有 passed 冒烟)背书,要求 cargo test -p kanzei-app 跑全套 Rust 测试对它们
 /// 零信息量(实测 R-260 改 10 行 js 被迫重跑 163 个 Rust 测试)。staged 同时含 Rust
 /// 源码与前端资源时,Rust 部分仍按原规则要求测试背书,不受影响。
-fn is_source_path(path: &str) -> bool {
+pub(crate) fn is_source_path(path: &str) -> bool {
     let path = path.replace('\\', "/");
     let frontend_resource = path.starts_with("crates/kanzei-app/ui/");
     (path.starts_with("crates/") || path.starts_with("scripts/"))
@@ -363,7 +430,7 @@ fn is_source_path(path: &str) -> bool {
 
 /// 提交里算「tracker 文档」的路径:需求/缺陷/测试记录及其归档。
 /// R-227 门禁只扫这些文件——占位符测试 ID 只可能出现在关闭证据/进展叙述里。
-fn is_tracker_path(path: &str) -> bool {
+pub(crate) fn is_tracker_path(path: &str) -> bool {
     let path = path.replace('\\', "/");
     let file = path.rsplit('/').next().unwrap_or(&path);
     matches!(
@@ -740,7 +807,7 @@ fn source_test_gate(project_root: &Path, cwd: &Path, paths: &[String]) -> Result
 }
 
 /// 暂存源码所属 crate 集合(路径 `crates/<name>/...` → <name>;scripts/ 等不在 crate 内)。
-fn source_crates(paths: &[String]) -> std::collections::BTreeSet<String> {
+pub(crate) fn source_crates(paths: &[String]) -> std::collections::BTreeSet<String> {
     paths
         .iter()
         .map(|p| p.replace('\\', "/"))
@@ -799,6 +866,13 @@ async fn commit_with_gate_state(
         return ToolOutput::error(format!(
             "staged content changed: expected `{expected_hash}`, current `{current_hash}`. Re-run stage/diff and review the new index before committing."
         ));
+    }
+    let plan = match build_commit_plan(&ctx.project_root, cwd, &paths).await {
+        Ok(plan) => plan,
+        Err(error) => return ToolOutput::error(format!("[commit] commit_plan failed: {error}")),
+    };
+    if !plan.unsafe_files.is_empty() || !plan.missing_evidence.is_empty() {
+        return plan.blocker("commit");
     }
     // R-227:占位符测试 ID 门禁——tracker 文件 diff 里出现 `T-\d+xxx` 形态的占位符
     // (真实测试 ID 是 `T-<10位时间戳>`,占位符是数字后接 xxx)即拒绝提交。存量 8 处
