@@ -8425,3 +8425,9 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-566
 - 收尾: 1787192463
 - 源码指纹: v2 crates/kanzei-tools/src/quarantine.rs@19e4b71ac09e
+
+## T-1786922726529 D-566 真实 CLI 生成 quarantine 审计记录 [passed]
+- 命令: cargo run -p kanzei -- quarantine --dry-run --type bg --project-root (Get-Location).Path
+- 摘要: 真实 CLI dry-run 通过，输出 scanned_dirs=1、eligible_dirs=0、preserved_dirs=1；同时触发新的 cleanup-log.jsonl 审计记录。
+- 关联: D-566
+- 收尾: 1787192544
