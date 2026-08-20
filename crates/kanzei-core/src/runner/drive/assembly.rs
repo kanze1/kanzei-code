@@ -192,10 +192,9 @@ pub(super) fn assemble_run_once<'a>(
     // 成功的压缩清零——压缩是常规运营动作,不设总量配额。
     let futile_compactions = 0u32;
     let overflow_traces: Vec<String> = Vec::new();
-    // 估算校准:len/4 粗估对中文 \\uXXXX 转义、工具输出密集的会话有系统性偏差,
-    // 预算线 0.7 的语义要靠真实 usage 反推的滑动因子校准才有意义。初始 1.0,
-    // 每步拿到 provider 真实 input tokens 后 EMA 更新。
-    let calibration = 1.0f64;
+    // D-592:B2 冷启动先用保守上限,避免首个真实 usage 到达前中文/代码/工具 schema
+    // 的 bytes/4 系统性低估放飞;收到 usage 后再由 EMA 持续下调。
+    let calibration = conservative_calibration();
     // R-100 冗余机械门禁:按单次运行持有(跨轮清零),提醒追加进工具结果不阻断。
     let redundancy = RedundancyWatch::default();
     // R-162 事件触发召回:工具失败瞬间把相关记忆 Packet 注入下一请求前。

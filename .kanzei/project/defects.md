@@ -71,12 +71,12 @@
 - 边界: 历史侧 Part::Reasoning 剪枝(openai 协议 build_body openai.rs:83-91 从不回传,drive.rs:582 却存进历史虚增估算)只能与本条①同批落地——单独剪会让估算更小、压缩触发更晚,加重症状;Qwen 官方口径『多轮剥离 thinking 但多步工具调用期间保留』的质量权衡(llama-server --reasoning-preserve)不在本条,另行评估
 - 验收: ①预算检查锚定上一步真实 prompt_tokens(last_input_tokens 已在手)+本步新增内容估算增量,bytes/4 全量估算只做冷启动兜底;②校准按 provider 持久化或冷启动用保守初值,消除每 run 重置 1.0 的首步裸奔;③compaction_budget 对小窗口自适应,max_tokens 不得吃掉固定一半窗口;④回归:模拟估算偏低 2 倍场景压缩在撞墙前触发;⑤llama-local 真实长任务(多步工具循环读大文件)实测不再 400
 - 优先级: P1
-- 批次: 1/3
+- 批次: 2/3
 - 批次表: B1/3：核对预算决策与 usage 调用链，落地真实 prompt_tokens 锚定及回归；B2/3：落地 provider 校准持久化/保守冷启动与小窗口 compaction_budget；B3/3：修正 Reasoning 历史估算一致性、跑全链路验证并收口。
-- 进展: B1 已落地并通过测试。落地文件与决策：`crates/kanzei-core/src/runner/context.rs:193-210` 新增 `budgeted_tokens_from_last_usage`，有上一步真实 usage 时按 `last_input_tokens + max(当前估算-上次估算,0)`，无真实 usage 才走完整估算×calibration；`crates/kanzei-core/src/runner/drive/context_budget.rs:18-30,53-62` 预算检查、prune、compact、trim 全部改用该锚定口径；`crates/kanzei-core/src/runner/drive/assembly.rs:21-22,176-178,213-214` 增加并初始化上次请求估算；`crates/kanzei-core/src/runner/drive.rs:170-172,229-242,456-471,608-614` 传递运行态并在成功 StepFinish 保存真实 usage 对应的原始估算。测试 `T-1786922726566`：`cargo fmt --all; cargo test -p kanzei-core`，221 passed、0 failed。关键发现：当前 provider usage 回读链已通，原缺口确实是预算决策没有消费 `last_input_tokens`；下一步 B2：实现 provider 级校准持久化/保守冷启动，并重做小窗口 compaction_budget。
-- observed_head: f7faeaf75bc00db1d094b32ae980b18f1124f7a2
-- observed_worktree_hash: fnv1a64:0b52ee5cf19e47f0
-- recorded_at: 1787238507692
+- 进展: B2 已落地并通过测试。`crates/kanzei-core/src/runner/context.rs:16-21,99-113` 将冷启动校准固定为保守 2.0（首个 provider usage 前先保护小窗口，收到真实 usage 后由 EMA 下调），并将 `compaction_budget` 的输出与 buffer reserve 分别限制在 context_limit 的三分之一，避免 `max_tokens` 固定吞掉 65536 窗口一半；`crates/kanzei-core/src/runner/drive/assembly.rs:195-198` 已消费该保守初值。测试 `T-1786922726568`：`cargo fmt --all; cargo test -p kanzei-core`，222 passed、0 failed；覆盖冷启动校准、32k/65k/16k 小窗口预算与既有压缩链路。决策：本条验收②采用“冷启动用保守初值”分支，不新增 provider 持久化真源；下一步 B3：同批修正 Reasoning 历史估算与 OpenAI 请求裁剪一致性，并补 2 倍低估触发回归。
+- observed_head: a7016df7d867a55ff1e31036b101b1a05c3610ef
+- observed_worktree_hash: fnv1a64:54e0b0b6db1e09ad
+- recorded_at: 1787238808104
 - 取活依据: engine:唯一可执行 WIP 是 D-592，必须先恢复它
 
 ## D-593 上下文占用显示轮末才刷新且与预算引擎两套口径,长 prefill 期间滞后一整步 [open] (medium)

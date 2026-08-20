@@ -12,6 +12,14 @@ use std::collections::HashSet;
 /// 字面量传参(0.7),本常量被测试断言引用(lib 构建显 unused,故 allow)。
 #[allow(dead_code)]
 pub const CONTEXT_BUDGET_RATIO: f64 = 0.7;
+
+/// D-592:冷启动校准必须保守。首个 provider usage 到达前,中文/代码/工具 schema
+/// 的全量 bytes/4 估算可能系统性低估;取上限 2.0 先保护小窗口,后续由真实 usage EMA 下调。
+pub(crate) const COLD_START_CALIBRATION: f64 = 2.0;
+
+pub(crate) fn conservative_calibration() -> f64 {
+    COLD_START_CALIBRATION
+}
 /// 盘点检查点:第 20/40 步,之后每 40 步一次(80/120/160…)。
 ///
 /// 旧实现 `matches!(step, 20 | 40 | 80)` 是有限清单——第 80 步之后的长 run 永不再
@@ -85,13 +93,17 @@ pub(crate) fn clip(text: &str, max_chars: usize) -> String {
 pub(crate) const ATTACHMENT_TOKEN_COST: u64 = 1_500;
 
 /// R-236 B1:压缩触发线/预算线的统一公式,轮内与轮末同一把尺:
-/// `budget = limit − max(单步输出上限, headroom buffer)`,封底 `limit/4`。
-/// 旧比例线(×0.7)在大窗口上白白放弃三成窗口;headroom 预留是 10 家主流实现的
-/// 共识形态(opencode `limit − max(output, 20k)` 同款)。`context_budget_ratio`
-/// 配置键保留但不再被触发路径消费。
+/// `budget = limit − max(min(单步输出上限, limit/3), min(headroom buffer, limit/3))`,封底 `limit/4`。
+/// 输出和 buffer 都按窗口比例封顶,避免小窗口被单个 `max_tokens` 固定吞掉一半。
+/// `context_budget_ratio` 配置键保留但不再被触发路径消费。
 pub fn compaction_budget(context_limit: u64, max_output_tokens: u32, buffer_tokens: u64) -> u64 {
+    // D-592:输出上限和 buffer 都不能单独吞掉小窗口的一半。保留最多三分之一
+    // 窗口给单步输出/headroom,窗口越小预算越自适应；大窗口仍保留配置的真实值。
+    let adaptive_reserve = context_limit / 3;
+    let output_reserve = (max_output_tokens as u64).min(adaptive_reserve);
+    let buffer_reserve = buffer_tokens.min(adaptive_reserve);
     context_limit
-        .saturating_sub((max_output_tokens as u64).max(buffer_tokens))
+        .saturating_sub(output_reserve.max(buffer_reserve))
         .max(context_limit / 4)
 }
 
@@ -405,14 +417,15 @@ mod tests {
     /// 封底 limit/4;轮内与轮末同一把尺,谁把比例线加回来先删这条。
     #[test]
     fn 压缩预算_headroom公式_封底四分之一() {
-        // 常规:128k 窗口、8k 输出、20k buffer → 108k(比旧 0.7 线多用近 20k 窗口)。
+        // 常规:128k 窗口、8k 输出、20k buffer → 108k。
         assert_eq!(compaction_budget(128_000, 8_192, 20_000), 108_000);
-        // 输出上限大于 buffer 时取输出上限。
+        // 输出上限大于 buffer 时取输出上限,但最多预留窗口三分之一。
         assert_eq!(compaction_budget(128_000, 32_000, 20_000), 96_000);
-        // 保守默认 32k(R-219 未知 provider):32k − 20k = 12k,高于封底 8k。
-        assert_eq!(compaction_budget(32_000, 8_192, 20_000), 12_000);
-        // 小窗口:headroom 会归零,封底 limit/4 兜住,预算永不为 0。
-        assert_eq!(compaction_budget(16_000, 8_192, 20_000), 4_000);
+        // 小窗口:输出与 buffer 都按窗口三分之一封顶,不再让 32k 输出上限吃掉一半。
+        assert_eq!(compaction_budget(32_000, 8_192, 20_000), 21_334);
+        assert_eq!(compaction_budget(65_536, 32_768, 20_000), 43_691);
+        // 更小窗口仍保留至少四分之一封底,且预算随窗口自适应。
+        assert_eq!(compaction_budget(16_000, 8_192, 20_000), 10_667);
     }
 
     /// R-236 B1:附件按固定成本估算,不按 base64 字节——带一张截图的会话不再
@@ -448,6 +461,12 @@ mod tests {
         let clipped = clip(&chinese, 50);
         assert_eq!(clipped.chars().count(), 50 + "…[截断]".chars().count());
         assert_eq!(clip("短", 50), "短", "未超长不加省略标记");
+    }
+    /// D-592 B2:首步没有 usage 时必须采用保守校准,避免新会话首步裸奔。
+    #[test]
+    fn 冷启动校准使用保守上限() {
+        assert_eq!(conservative_calibration(), COLD_START_CALIBRATION);
+        assert_eq!(COLD_START_CALIBRATION, 2.0);
     }
     /// 校准因子:中文 \uXXXX 转义/工具输出密集场景下 len/4 估算偏高,真实 usage
     /// 应把它拉回;单步异常比值被限幅,不会一次带飞;拿不到 usage 时不更新。

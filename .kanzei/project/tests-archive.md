@@ -8713,3 +8713,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-592
 - 收尾: 1787238489
 - 源码指纹: v2 crates/kanzei-core/src/runner/context.rs@cb1a86ea6c8b,crates/kanzei-core/src/runner/drive.rs@967faa005216,crates/kanzei-core/src/runner/drive/assembly.rs@8963f0a583ff,crates/kanzei-core/src/runner/drive/context_budget.rs@cc2b2cec0a57
+
+## T-1786922726567 D-592 B2 保守冷启动与小窗口预算回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core
+- 时长: 7.1s
+- 摘要: B2 定向回归通过：kanzei-core 222 passed、0 failed；覆盖保守冷启动校准、三分之一窗口自适应 compaction_budget、小窗口与既有压缩链路。
+- 关联: D-592
+- 收尾: 1787238736
+- 源码指纹: v2 crates/kanzei-core/src/runner/context.rs@fc61184d5c57,crates/kanzei-core/src/runner/drive/assembly.rs@db20c8f5216a
+
+## T-1786922726568 D-592 B2 最终定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core
+- 时长: 10.1s
+- 摘要: B2 最终定向回归通过：kanzei-core 222 passed、0 failed；确认保守冷启动校准与小窗口三分之一 reserve 公式在格式修正后仍通过。
+- 关联: D-592
+- 收尾: 1787238795
+- 源码指纹: v2 crates/kanzei-core/src/runner/context.rs@813b209434ea,crates/kanzei-core/src/runner/drive/assembly.rs@db20c8f5216a
