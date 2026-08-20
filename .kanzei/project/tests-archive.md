@@ -8745,3 +8745,17 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-603
 - 收尾: 1787239326
 - 源码指纹: v2 crates/kanzei-core/src/runner/context.rs@0150ac1f58cc,crates/kanzei-core/src/runner/drive.rs@e2eb3adf245c,crates/kanzei-core/src/runner/drive/context_budget.rs@e3afabcf857a
+
+## T-1786922726571 D-593 上下文 pending 显示前端门禁 [passed]
+- 命令: node --check crates/kanzei-app/ui/03-shell.js; node --check crates/kanzei-app/ui/07-events.js; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 摘要: 两处 UI JS 语法检查通过；parallel-lines、a11y、i18n、markdown、lint、runtime 六条前端冒烟全部通过。runtime 覆盖 kz:turn pending 文案、kz:step 后真实 usage、context_limit 百分比与 0 运行时错误。
+- 关联: D-593 D-604
+- 收尾: 1787239844
+- 源码指纹: v2 scripts/ui-lint-globals.json@8fe75b4fc3e7,scripts/ui-runtime-smoke.mjs@c9987604885f
+
+## T-1786922726572 D-593 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: kanzei-app 定向回归通过：231 passed、0 failed、0 ignored。覆盖 run/events、状态、IPC、设置与并行进程等桌面端测试。
+- 关联: D-593 D-604
+- 收尾: 1787239981
+- 源码指纹: v2 scripts/ui-lint-globals.json@8fe75b4fc3e7,scripts/ui-runtime-smoke.mjs@c9987604885f

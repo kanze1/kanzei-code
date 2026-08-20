@@ -476,17 +476,19 @@ function applySessionMeta(sessionId) {
   ctxLimit = meta.contextLimit ?? null;
 }
 let ctxTokens = 0;
+let ctxPending = false;
 function renderTokens() {
-  const t = runTokens;
-  let text = t.input + t.output === 0
+  const tokens = runTokens;
+  let text = tokens.input + tokens.output === 0
     ? ""
-    : `in ${t.input} (cache r${t.cacheRead} w${t.cacheWrite}) · out ${t.output}`;
+    : `in ${tokens.input} (cache r${tokens.cacheRead} w${tokens.cacheWrite}) · out ${tokens.output}`;
   const bar = $("ctx-bar");
   if (ctxTokens > 0) {
     const k = (ctxTokens / 1000).toFixed(1);
+    const pending = ctxPending ? ` (${t("等待模型")})` : "";
     if (ctxLimit) {
       const pct = Math.round((ctxTokens / ctxLimit) * 100);
-      text += `${text ? " · " : ""}ctx ${k}k/${Math.round(ctxLimit / 1000)}k (${pct}%)`;
+      text += `${text ? " · " : ""}ctx ${k}k/${Math.round(ctxLimit / 1000)}k (${pct}%)${pending}`;
       $("status-tokens").classList.toggle("ctx-warn", pct >= 70);
       // 进度条:容量占用一眼可见,≥70% 变警示色(自动压缩阈值同源)。
       bar.classList.remove("hidden");
@@ -494,11 +496,12 @@ function renderTokens() {
       $("ctx-bar-fill").style.width = `${Math.min(pct, 100)}%`;
       bar.title = `${t("上下文")} ${k}k / ${Math.round(ctxLimit / 1000)}k(${pct}%,≥70% ${t("自动压缩")})`;
     } else {
-      text += `${text ? " · " : ""}ctx ${k}k`;
+      text += `${text ? " · " : ""}ctx ${k}k${pending}`;
       bar.classList.add("hidden");
     }
   } else {
     bar.classList.add("hidden");
+    if (ctxPending) text += `${text ? " · " : ""}ctx ${t("等待模型")}`;
   }
   $("status-tokens").textContent = text;
 }

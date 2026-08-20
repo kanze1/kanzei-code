@@ -6457,9 +6457,12 @@ const docsB = {
   const sA = handlers.get("kz:tool-start");
   const pA = handlers.get("kz:task-progress");
   const eA = handlers.get("kz:tool-end");
-  handlers.get("kz:meta")({ payload: { model: "smoke-provider:main", profile: "dev", sessionId: "sess-smoke" } });
+  handlers.get("kz:meta")({ payload: { model: "smoke-provider:main", profile: "dev", contextLimit: 65536, sessionId: "sess-smoke" } });
   handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 1, sessionId: "sess-smoke" } });
+  assert(/等待模型|Waiting for model/.test(byId.get("status-tokens").textContent), "长 prefill 期间上下文旧值未标注等待模型");
   handlers.get("kz:step")({ payload: { input: 200, output: 100, cacheRead: 20, cacheWrite: 0, sessionId: "sess-smoke" } });
+  assert(!/等待模型|Waiting for model/.test(byId.get("status-tokens").textContent), "真实 step usage 到达后上下文仍标注等待模型");
+  assert(byId.get("status-tokens").textContent.includes("ctx 0.2k/66k (0%)"), "真实 usage 后 context_limit 百分比展示不准确");
   handlers.get("kz:ask")({ payload: { id: 991, kind: "permission", action: "read", resource: "src/main.rs", source: "parallel", sessionId: "sess-smoke" } });
   handlers.get("kz:permission-resolved")({ payload: { tool_call_id: "ask-991", action: "read", resource: "src/main.rs", decision: "deny", source: "user", sessionId: "sess-smoke" } });
   sA({ payload: { id: "my_scout", name: "task", summary: "勘察文件结构", input: { prompt: "review the repo", phase: "scouting", role: "my_scout" }, sessionId: "sess-smoke" } });

@@ -80,7 +80,7 @@
 - 取活依据: engine:唯一可执行 WIP 是 D-592，必须先恢复它
 - 阻塞: 等待用户提供或释放可安全接管的 llama-local 实测窗口；解除人：用户准备 llama-server 窗口并告知 agent 执行多步工具循环验收。
 
-## D-593 上下文占用显示轮末才刷新且与预算引擎两套口径,长 prefill 期间滞后一整步 [open] (medium)
+## D-593 上下文占用显示轮末才刷新且与预算引擎两套口径,长 prefill 期间滞后一整步 [fixing] (medium)
 - refs: D-592
 - 复现: UI 占用 ctxTokens=input+cacheRead 只在轮末 kz:step 事件更新(07-events.js:286),本地模型一步 prefill 数分钟,期间显示冻结在上一轮旧值;显示走 provider 真实 usage,压缩决策走 bytes/4 估算(D-592),两套口径——用户看到的数字与引擎行为对不上。2026-08-20 用户实测反馈『渲染显示的上下文不准确』
 - 影响: 长轮运行中用户无法判断真实占用,临限无感知;引擎该压不压时显示也给不出预警
@@ -88,6 +88,11 @@
 - 标签: 前端
 - 验收: ①运行中占用显示与预算引擎同口径(D-592 改锚定真实值后两边天然收敛);②轮内长 prefill 期间显示不冻结——至少标注滞后/计算中,或用引擎估算实时刷新并标注口径;③对 context_limit 的占比展示与撞线告警准确
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-593(unblocks=0)
+- 进展: 实现已完成，提交前验证通过。验收逐条对账：① `crates/kanzei-app/ui/07-events.js:281-289` 仍以 provider `kz:step` 的真实 `input + cacheRead` 更新 `ctxTokens`，与 D-592 的真实 usage 锚定预算口径收敛；`T-1786922726571` runtime 通过。② `crates/kanzei-app/ui/07-events.js:21-27` 在轮开始设置 `ctxPending`，`crates/kanzei-app/ui/03-shell.js:479-503` 保留上一轮真实值并显示 `等待模型/Waiting for model`，不再冻结成无标记当前值；`scripts/ui-runtime-smoke.mjs:6460-6465` 已断言 pending 到 step 的切换，`T-1786922726571` 通过。③ `crates/kanzei-app/ui/03-shell.js:485-501` 继续按 `ctxLimit` 计算百分比、70% warning 与进度条；`scripts/ui-runtime-smoke.mjs:6462-6465` 断言 `ctx 0.2k/66k (0%)`，`T-1786922726571` 通过。
+- observed_head: 2871fee76493998dda6871a50059918849ac3826
+- observed_worktree_hash: fnv1a64:a6f5f99f770ba123
+- recorded_at: 1787239900364
 
 ## D-603 kanzei-memory manager 测试辅助函数 PathBuf 参数阻断 workspace clippy [open] (low)
 - 复现: cargo clippy --workspace --all-targets -- -D warnings 在 crates/kanzei-memory/src/memory/manager.rs:644、653 报 clippy::ptr_arg：write_fact_source 与 write_m001_source 使用 &PathBuf 而非 &Path。

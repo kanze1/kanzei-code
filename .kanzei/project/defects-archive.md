@@ -7419,3 +7419,16 @@
 - observed_head: 868dfda2387a27eec62aa44514afc94756a10f61
 - observed_worktree_hash: fnv1a64:b54b5f46afd1d6f0
 - recorded_at: 1787238172206
+
+## D-604 D-593 上下文 pending 文案调用被 runTokens 局部变量遮蔽 [fixed] (medium)
+- 复现: D-593 前端改动在 renderTokens 内使用 `const t = runTokens`，同时以 `t("等待模型")` 调用翻译函数；运行时会把对象当函数调用。修正变量后，经典脚本间共享的新顶层 `ctxPending` 尚未进入 UI lint 全局清单，`ui-lint-smoke` 对 07-events.js 报 6 处 no-undef。
+- 影响: 上下文状态 UI 在首轮/轮内 pending 渲染时可能抛 TypeError；若不更新全局清单，前端提交门禁会拒绝。
+- 来源: 自发现：D-593 实现复核
+- 标签: 前端
+- 验收: ①pending 状态可渲染且不抛 ReferenceError/TypeError；②真实 step 到达后恢复真实 usage 与 context_limit 百分比。
+- refs: D-593
+- 优先级: P2
+- 进展: 已修复并提交前验证。验收逐条对账：① `crates/kanzei-app/ui/03-shell.js:479-503` 将 `runTokens` 局部变量改为 `tokens`，翻译调用回到全局 `t()`；`crates/kanzei-app/ui/07-events.js:21-27,299-305,371-377,430-434` 的 pending/终态渲染不再抛 TypeError，`scripts/ui-lint-globals.json:247` 注册 `ctxPending`，`T-1786922726571` 的 ui-lint 与 runtime 通过。② `crates/kanzei-app/ui/07-events.js:281-289` 在真实 `kz:step` 前清除 pending；`scripts/ui-runtime-smoke.mjs:6460-6465` 验证等待模型文案消失、真实 usage 与 `context_limit` 百分比恢复，证据 `T-1786922726571`。
+- observed_head: 2871fee76493998dda6871a50059918849ac3826
+- observed_worktree_hash: fnv1a64:a6f5f99f770ba123
+- recorded_at: 1787239890799

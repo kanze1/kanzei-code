@@ -244,6 +244,7 @@
   "copyResearchCitation",
   "createWorktreeLine",
   "ctxLimit",
+  "ctxPending",
   "ctxTokens",
   "currentAssistant",
   "currentAutoRounds",

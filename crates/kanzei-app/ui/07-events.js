@@ -20,6 +20,10 @@ on("kz:meta", (e) => {
 });
 on("kz:turn", (e) => {
   const p = e.payload;
+  // D-593:本轮 provider usage 尚未返回时,保留上一轮真实值但明确标为等待模型,
+  // 不把冻结的旧数字伪装成当前轮最终占用。
+  ctxPending = true;
+  renderTokens();
   if (p.step === 1) agentAuditBegin(p.sessionId);
   neuralFlowEmit?.("run_started", { session_id: p.sessionId, step: p.step });
   // 新一轮 run 开跑:上一轮的「在做」运行证据降级为遗留(不删除)——删了就是
@@ -277,6 +281,7 @@ on("kz:tool-end", (e) => {
 });
 on("kz:step", (e) => {
   const p = e.payload;
+  ctxPending = false;
   agentAuditStep(p.sessionId, p);
   runTokens.input += p.input;
   runTokens.output += p.output;
@@ -294,6 +299,10 @@ on("kz:permission-resolved", (e) => {
 
 on("kz:error", (e) => {
   const payload = e.payload ?? {};
+  if (payload.terminal !== false) {
+    ctxPending = false;
+    renderTokens();
+  }
   const message = payload.message;
   const terminal = payload.terminal !== false;
   if (terminal) reportError(message);
@@ -352,6 +361,7 @@ on("kz:stream-restart", (e) => {
 });
 on("kz:compacted", (e) => {
   neuralFlowEmit?.("context_compacted", { session_id: e.payload?.sessionId });
+  ctxPending = false;
   lastCompactionSummary = e.payload?.summary ?? "";
   addMessage("notice", `🗜 ${t("上下文占用过高,已自动压缩为纪要并延续对话")}`);
   if (lastCompactionSummary) addCompactionEntry(lastCompactionSummary);
@@ -361,6 +371,8 @@ on("kz:compacted", (e) => {
 });
 on("kz:stopped", (e) => {
   neuralFlowEmit?.("run_stopped", { session_id: e.payload?.sessionId });
+  ctxPending = false;
+  renderTokens();
   agentAuditFinish(e.payload?.sessionId, "stopped");
   releaseAutoContinue(e.payload?.sessionId || activeSessionId);
   cancelAutoContinueTimer(e.payload?.sessionId || activeSessionId);
@@ -418,6 +430,8 @@ on("kz:auto-fail", (e) => {
 
 on("kz:done", async (e) => {
   const p = e.payload;
+  ctxPending = false;
+  renderTokens();
   agentAuditFinish(p.sessionId, p.halted ? "stopped" : "completed");
   neuralFlowEmit?.(p.halted ? "run_stopped" : "run_completed", { session_id: p.sessionId, halted: Boolean(p.halted) });
   releaseAutoContinue(p.sessionId);
