@@ -87,6 +87,9 @@ pub enum AutoStopReason {
     /// provider 明确返回限流/过载(通常是 HTTP 429):本轮自动推进立即停，
     /// 等待用户确认配额恢复后手动恢复，避免继续消耗订阅额度。
     RateLimited,
+    /// D-583:连续 ZERO_OUTPUT_ROUND_LIMIT 轮真实进展签名未变(带触发轮数供展示)——
+    /// 与 NoAction 互补:那个防「整轮不调用任何工具」,这个防「调用了工具但什么也没变」。
+    ZeroOutput(u32),
 }
 
 /// 轮末判定结果。
@@ -182,11 +185,22 @@ pub struct AutoRunState {
     pub closed_since_verify: u32,
     /// D-403:连续瞬态失败的轮数。成功轮归零;达 MAX_FAILED_ROUNDS 即停。
     failed_rounds: u32,
+    /// D-583:连续几轮「真实进展签名」未变。签名由调用方按 (HEAD、代码 worktree
+    /// hash、tracker 文档内容) 拼出,只在这里做纯比较——has_progress_tools 只看
+    /// 工具名,一轮调用 bash 反复 cat 同一份证据清单也算「有进展工具」,穿不透那道
+    /// 检测;这里比对的是真实状态有没有变,堵的是这类"看起来在干活"的空转。
+    zero_output_rounds: u32,
+    /// D-583:上一轮记录的真实进展签名,None = 尚未记录(刚 reset 或全新状态)。
+    last_progress_signature: Option<String>,
 }
 
 /// D-403:连续瞬态失败多少轮后停止(过夜场景:单发 503 退避重试可自愈,
 /// provider 长时间不可用则不再空转烧钱,停止并通知)。
 pub const MAX_FAILED_ROUNDS: u32 = 3;
+
+/// D-583:连续几轮真实进展签名不变即熔断停鞭(现场实测 R-306 空转 10 轮无人发现;
+/// 验收建议 2~3,取上限留够「连续两轮都在做同一件事的合法收尾」的余量)。
+pub const ZERO_OUTPUT_ROUND_LIMIT: u32 = 3;
 
 impl AutoRunState {
     pub fn new(max_rounds: u32) -> Self {
@@ -198,6 +212,8 @@ impl AutoRunState {
             no_action_rounds: 0,
             closed_since_verify: 0,
             failed_rounds: 0,
+            zero_output_rounds: 0,
+            last_progress_signature: None,
         }
     }
 
@@ -207,6 +223,8 @@ impl AutoRunState {
         self.no_action_rounds = 0;
         self.closed_since_verify = 0;
         self.failed_rounds = 0;
+        self.zero_output_rounds = 0;
+        self.last_progress_signature = None;
     }
 
     /// 轮末判定。判定顺序与前端 07-events.js:288-352 完全一致:
@@ -270,6 +288,24 @@ impl AutoRunState {
             return self.stop_with(AutoStopReason::NoAction);
         }
         self.no_action_rounds = 0;
+        // D-583:工具画像有「进展工具」但真实状态连续 N 轮未变——纯复诵证据清单、
+        // 反复读同一批文件也会调用 bash/read,穿得过上面基于工具名的检测,只有比对
+        // 真实签名才拦得住。签名相同才计数;换了就清零重新起算,不跨越已中断的沉默期。
+        // 空字符串是调用方未接线时的哨兵值(测试桩/尚未接入的调用方),视为不追踪——
+        // 生产侧签名由真实哈希拼出,不会自然产出空串,不影响真实场景。
+        if !ctx.progress_signature.is_empty() {
+            if self.rounds > 0
+                && self.last_progress_signature.as_deref() == Some(ctx.progress_signature)
+            {
+                self.zero_output_rounds += 1;
+                if self.zero_output_rounds >= ZERO_OUTPUT_ROUND_LIMIT {
+                    return self.stop_with(AutoStopReason::ZeroOutput(self.zero_output_rounds));
+                }
+            } else {
+                self.zero_output_rounds = 0;
+                self.last_progress_signature = Some(ctx.progress_signature.to_string());
+            }
+        }
         // R-144:先累加本轮关闭数,达阈值(>0 且 >=N)则插入一轮只读验收核查
         // (计数 +1 占一轮;核查由调用方执行,归零后再续跑)。
         self.closed_since_verify += ctx.closed_this_round;
@@ -286,6 +322,8 @@ impl AutoRunState {
         self.rounds = 0;
         self.no_action_rounds = 0;
         self.failed_rounds = 0;
+        self.zero_output_rounds = 0;
+        self.last_progress_signature = None;
         AutoRunAction::Stop(reason)
     }
 }
@@ -316,6 +354,9 @@ pub struct AutoRunCtx<'a> {
     /// D-403:本轮运行失败及其性质;None = 本轮正常完成。失败轮由调用方分类后
     /// 送进判定(瞬态=退避重试,致命=立即停),不再在轮末判定之前提前返回。
     pub round_failure: Option<RoundFailure>,
+    /// D-583:本轮「真实进展」签名——调用方按 (HEAD、代码 worktree hash、tracker
+    /// 文档内容) 拼出,与上一轮的值逐字节比较;引擎不关心怎么算出来的,只做纯比较。
+    pub progress_signature: &'a str,
 }
 
 /// D-403:失败轮的性质分类(由调用方按 LlmError 变体判定)。
@@ -347,6 +388,9 @@ mod tests {
             closed_this_round: 0,
             verify_every_n: 0,
             round_failure: None,
+            // 空串 = 不追踪(见 decide() 里的哨兵说明),现有测试默认不关心 D-583;
+            // 需要模拟「签名不变/改变」的测试自行覆盖为具体值。
+            progress_signature: "",
         }
     }
 
@@ -721,6 +765,7 @@ mod tests {
             closed_this_round: 0,
             verify_every_n: 0,
             round_failure: None,
+            progress_signature: "",
         };
         assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
     }
@@ -751,6 +796,79 @@ mod tests {
         assert_eq!(state.rounds, 0);
         assert_eq!(state.decide(&ok), AutoRunAction::Continue);
         assert_eq!(state.rounds, 1);
+    }
+
+    /// D-583:连续 ZERO_OUTPUT_ROUND_LIMIT 轮真实进展签名不变即熔断——即使每轮都
+    /// 调用了 bash(会通过 has_progress_tools),真实状态没变仍要拦下。
+    #[test]
+    fn 连续三轮真实签名不变_即使工具画像正常也熔断停鞭() {
+        let tools = mk_tools(&["bash"]);
+        let mut state = AutoRunState::new(10);
+        let mut stuck = ctx_with_tools(&tools);
+        stuck.steps = 2; // 排除 steps<=1 的既有空转判据,单独测 D-583 的签名比对
+        stuck.progress_signature = "same-sig";
+        // 第1轮只起算签名(基线,不计入「未变」次数);此后每轮签名与上一轮相同才 +1,
+        // 连续 ZERO_OUTPUT_ROUND_LIMIT 次「未变」(即第 1+LIMIT 轮)达阈值熔断。
+        assert_eq!(
+            state.decide(&stuck),
+            AutoRunAction::Continue,
+            "第1轮起算签名"
+        );
+        assert_eq!(
+            state.decide(&stuck),
+            AutoRunAction::Continue,
+            "签名未变,计1次"
+        );
+        assert_eq!(
+            state.decide(&stuck),
+            AutoRunAction::Continue,
+            "签名未变,计2次"
+        );
+        assert_eq!(
+            state.decide(&stuck),
+            AutoRunAction::Stop(AutoStopReason::ZeroOutput(ZERO_OUTPUT_ROUND_LIMIT)),
+            "签名未变,计3次,达阈值熔断"
+        );
+        assert_eq!(state.rounds, 0, "熔断后计数重置");
+    }
+
+    /// D-583:签名一旦变化(真实文件/提交/tracker 有变动)就清零重新起算,不会
+    /// 因为「历史上出现过相同签名」被跨轮误伤。
+    #[test]
+    fn 真实签名变化后清零_不会跨轮误触熔断() {
+        let tools = mk_tools(&["bash"]);
+        let mut state = AutoRunState::new(10);
+        let mut ctx = ctx_with_tools(&tools);
+        ctx.steps = 2;
+        ctx.progress_signature = "sig-a";
+        assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
+        assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
+        ctx.progress_signature = "sig-b";
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Continue,
+            "签名变化,不计入连续未变"
+        );
+        ctx.progress_signature = "sig-a";
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Continue,
+            "回到旧签名值不算复发——只看与上一轮的比较,不是历史集合"
+        );
+    }
+
+    /// D-583:空字符串是「调用方未接线」的哨兵,不追踪——防止既有测试桩(默认
+    /// progress_signature 为空)被这项新检测误伤,生产侧签名恒为真实哈希不会触发。
+    #[test]
+    fn 空签名视为不追踪_不会熔断() {
+        let tools = mk_tools(&["bash"]);
+        let mut state = AutoRunState::new(10);
+        let mut ctx = ctx_with_tools(&tools);
+        ctx.steps = 2;
+        assert_eq!(ctx.progress_signature, "");
+        for _ in 0..5 {
+            assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
+        }
     }
 
     #[test]

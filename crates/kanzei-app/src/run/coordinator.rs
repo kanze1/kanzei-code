@@ -267,6 +267,7 @@ pub(crate) async fn run_task(
                 if !crate::auto_run::should_retry_failed_round(ctrl) {
                     None
                 } else {
+                    let signature = crate::auto_run::progress_signature(&deps.project_root);
                     let ctx = kanzei_harness::auto_run::AutoRunCtx {
                         backlog: crate::auto_run::backlog_status(&deps.project_root),
                         halted: false,
@@ -276,6 +277,7 @@ pub(crate) async fn run_task(
                             && deps.agent.name == "dev",
                         closed_this_round: 0,
                         verify_every_n: 0,
+                        progress_signature: &signature,
                         round_failure: Some(if rate_limited {
                             kanzei_harness::auto_run::RoundFailure::RateLimited
                         } else if transient {
@@ -337,6 +339,8 @@ pub(crate) async fn run_task(
         names.extend(subagent_tools.lock_or_recover().iter().cloned());
         names.into_iter().collect()
     };
+    // D-583:真实进展签名——放在锁外算,避免在持锁期间做文件 IO/git 子进程调用。
+    let progress_signature = crate::auto_run::progress_signature(&deps.project_root);
     let auto_action_json = {
         let mut controllers = handles.auto_runs.lock_or_recover();
         let ctrl = controllers.entry(session_id.clone()).or_default();
@@ -345,6 +349,7 @@ pub(crate) async fn run_task(
             halted: summary.halted_by_user,
             steps: summary.steps,
             tools: &tools_vec,
+            progress_signature: &progress_signature,
             // R-199:档位条件下沉引擎——只有 dev-auto(profile=dev + agent=dev)
             // 允许自动推进;research/结对模式引擎判 Stop(ProfileMismatch),前端
             // 不再持有私有否决(armAutoContinue 的 autoContinueAllowed 已移除)。
@@ -367,8 +372,35 @@ pub(crate) async fn run_task(
         // 判定和镜像值必须在同一把锁内取，避免后台会话完成时覆盖本会话的计数。
         payload["rounds"] = json!(ctrl.state.rounds);
         payload["max"] = json!(ctrl.state.max_rounds);
-        payload
+        (
+            payload,
+            matches!(
+                action,
+                kanzei_harness::auto_run::AutoRunAction::Stop(
+                    kanzei_harness::auto_run::AutoStopReason::ZeroOutput(_)
+                )
+            ),
+        )
     };
+    // D-583:熔断留痕——不能只在 UI 一次性事件里过一眼(会话一多就沉底找不到)。
+    // 与过夜停摆(RepeatedFailure)同一手法:追加审计行 + 尽力而为推手机通知。
+    let (auto_action_json, zero_output_tripped) = auto_action_json;
+    if zero_output_tripped {
+        crate::auto_run::record_zero_output_alert(
+            &deps.project_root,
+            &session_id,
+            &progress_signature,
+        );
+        if let Ok(message) = crate::mobile_notify::notify_mobile(
+            "kanzei 自动运行熔断",
+            &format!(
+                "连续 {} 轮真实状态未变化(文件/提交/tracker 均无实质改动),自动推进已停止。",
+                kanzei_harness::auto_run::ZERO_OUTPUT_ROUND_LIMIT
+            ),
+        ) {
+            tracing::debug!("{message}");
+        }
+    }
     // R-143:自举循环批次提交后自动 push。仅当本轮确有 git commit 成功(检测位在
     // on_event 的 ToolStart/ToolEnd 置位);push 失败经 stage 可见但不阻断本轮收尾。
     let trace_state_path = state_path.clone();

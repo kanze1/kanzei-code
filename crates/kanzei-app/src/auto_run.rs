@@ -137,6 +137,66 @@ pub fn backlog_status(project_root: &Path) -> BacklogStatus {
     kanzei_tools::tracker::backlog_status(project_root)
 }
 
+/// D-583:熔断事件留痕——单纯的一次性 kz:done UI 事件会随会话滚动沉底,人工事后
+/// 想查「这个会话到底哪一轮触发过熔断」找不到独立证据。追加写一条 JSONL 到项目级
+/// 审计文件,与 D-566 的 cleanup-log.jsonl、D-567 的连续失败持久化同一手法:
+/// 只增不改,坏一行不影响其余行,不需要额外的读—改—写并发保护。
+pub fn record_zero_output_alert(project_root: &Path, session_id: &str, progress_signature: &str) {
+    let path = project_root.join(".kanzei/project/auto-run-alerts.jsonl");
+    let recorded_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    let line = json!({
+        "type": "zero_output_circuit_breaker",
+        "session_id": session_id,
+        "rounds": kanzei_harness::auto_run::ZERO_OUTPUT_ROUND_LIMIT,
+        "progress_signature": progress_signature,
+        "recorded_at_ms": recorded_at_ms,
+    });
+    let Some(parent) = path.parent() else { return };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    use std::io::Write;
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+/// D-583:本轮「真实进展」签名——(HEAD、代码 worktree hash、tracker 文档内容)三者
+/// 拼在一起哈希。与 has_progress_tools(工具名画像)互补:那个防「整轮不调用任何
+/// 工具」,这个防「调用了 bash/read 等工具但状态什么也没真的变」(复诵证据清单、
+/// 反复读同一批文件这类看起来在干活、实际空转的场景——R-306 现场空转 10 轮
+/// 才被人工发现)。
+///
+/// `repo_observation` 的 (head, worktree_hash) 刻意排除 `.kanzei/**`(它是给证据锚
+/// 新鲜度用的,tracker 独立提交不该让代码证据变 stale),所以这里再显式并入
+/// defects.md/requirements.md 的原始字节,三段一起才覆盖「文件改动/提交/tracker
+/// 实质字段变化」三个验收点。哈希只用于本进程内逐轮比较,不落盘不跨进程,
+/// 用标准库 DefaultHasher 足够,不必对齐 work.rs 的 fnv1a64 格式。
+pub fn progress_signature(project_root: &Path) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let observation = kanzei_tools::work::repo_observation(project_root);
+    let mut hasher = DefaultHasher::new();
+    observation.observed_head.hash(&mut hasher);
+    observation.observed_worktree_hash.hash(&mut hasher);
+    for rel in [
+        ".kanzei/project/defects.md",
+        ".kanzei/project/requirements.md",
+    ] {
+        std::fs::read(project_root.join(rel))
+            .unwrap_or_default()
+            .hash(&mut hasher);
+    }
+    format!("{:016x}", hasher.finish())
+}
+
 /// 判定结果序列化给前端:`{"type":"Continue"|"Nudge"|"NoContinue"|"Stop","prompt":...}`。
 /// Nudge 文案由引擎生成(nudge_prompt),前端不持模板。
 pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> serde_json::Value {
@@ -173,6 +233,9 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
                 AutoStopReason::RepeatedFailure(n) => ("RepeatedFailure", Some(n)),
                 AutoStopReason::FatalError => ("FatalError", None),
                 AutoStopReason::RateLimited => ("RateLimited", None),
+                // D-583:连续 N 轮真实进展签名未变(max 槽复用为触发轮数,与
+                // RepeatedFailure 同口径)。
+                AutoStopReason::ZeroOutput(n) => ("ZeroOutput", Some(n)),
             };
             let mut v = json!({ "type": "Stop", "reason": reason_str });
             if let Some(max) = max {
@@ -234,6 +297,112 @@ pub fn work_priority_enum(v: &str) -> WorkPriority {
 mod tests {
     use super::{apply_state_update, AutoRunController};
 
+    fn temp_git_repo(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-d583-sig-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .current_dir(&dir)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        };
+        git(&["init", "--quiet"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "Kanzei Test"]);
+        std::fs::write(dir.join("source.txt"), "source").unwrap();
+        std::fs::write(dir.join(".kanzei/project/defects.md"), "# Defects\n").unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/requirements.md"),
+            "# Requirements\n",
+        )
+        .unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "--quiet", "-m", "init"]);
+        dir
+    }
+
+    /// D-583:真实进展签名对三类真实动作都要敏感——①代码文件改动;②commit;
+    /// ③tracker 文档内容改动(哪怕还没 commit)。`repo_observation` 本身显式排除
+    /// `.kanzei/**`(避免 tracker 独立提交让证据锚变 stale),所以③必须靠
+    /// progress_signature 自己并入 defects.md/requirements.md 字节才覆盖得到——
+    /// 这条测试专门守住这一点,防止未来重构把这段拼接删掉。
+    #[test]
+    fn 真实进展签名对代码改动提交与tracker文档改动均敏感() {
+        let dir = temp_git_repo("basic");
+        let baseline = super::progress_signature(&dir);
+        assert_eq!(
+            baseline,
+            super::progress_signature(&dir),
+            "什么都没变,签名必须稳定复现"
+        );
+
+        // ①未提交的代码改动应改变签名(repo_observation 的 worktree_hash 会变)。
+        std::fs::write(dir.join("source.txt"), "changed").unwrap();
+        let after_code_edit = super::progress_signature(&dir);
+        assert_ne!(baseline, after_code_edit, "代码文件改动后签名必须变化");
+
+        // ②commit 应再次改变签名(HEAD 变化)。
+        std::process::Command::new("git")
+            .current_dir(&dir)
+            .args(["commit", "-aqm", "code change"])
+            .status()
+            .unwrap();
+        let after_commit = super::progress_signature(&dir);
+        assert_ne!(after_code_edit, after_commit, "提交后签名必须再次变化");
+
+        // ③只改 tracker 文档(不提交)也必须改变签名——repo_observation 本身对
+        // `.kanzei/**` 视而不见,这一步专门验证 progress_signature 自己补上了这块。
+        std::fs::write(
+            dir.join(".kanzei/project/defects.md"),
+            "# Defects\n\n## D-1 test\n",
+        )
+        .unwrap();
+        let after_tracker_edit = super::progress_signature(&dir);
+        assert_ne!(
+            after_commit, after_tracker_edit,
+            "tracker 文档改动未被 repo_observation 捕捉,必须靠本函数自己的拼接补上"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-583 验收③:熔断事件必须留痕可审计——追加进 auto-run-alerts.jsonl,
+    /// 每行独立(只增不改),多次触发各自成行不覆盖。
+    #[test]
+    fn 熔断事件写入审计文件_多次触发各自成行() {
+        let dir = temp_git_repo("alert");
+        let alert_path = dir.join(".kanzei/project/auto-run-alerts.jsonl");
+        assert!(!alert_path.exists(), "前置:审计文件尚不存在");
+
+        super::record_zero_output_alert(&dir, "session-1", "sig-a");
+        let content = std::fs::read_to_string(&alert_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 1);
+        let parsed: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(parsed["type"], "zero_output_circuit_breaker");
+        assert_eq!(parsed["session_id"], "session-1");
+        assert_eq!(parsed["progress_signature"], "sig-a");
+        assert_eq!(
+            parsed["rounds"],
+            kanzei_harness::auto_run::ZERO_OUTPUT_ROUND_LIMIT
+        );
+
+        super::record_zero_output_alert(&dir, "session-2", "sig-b");
+        let content = std::fs::read_to_string(&alert_path).unwrap();
+        assert_eq!(content.lines().count(), 2, "第二次触发追加而非覆盖");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// D-403 后续:失败轮进不进重试判定只看鞭挞是否武装。第一轮(rounds==0)断网、
     /// 以及「停摆后手动发继续」恢复的那一轮(同样 rounds==0)都必须能退避重试。
     #[test]
@@ -274,6 +443,7 @@ mod tests {
             closed_this_round: 0,
             verify_every_n: 0,
             round_failure: Some(kanzei_harness::auto_run::RoundFailure::Transient),
+            progress_signature: "",
         };
         assert_eq!(
             super::decide_auto_run(&mut ctrl, ctx),
