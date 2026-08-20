@@ -8995,3 +8995,41 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: R-308 B1：161 passed, 0 failed, 0 ignored；同指纹判重单测、新增 write-path 回归及现有 merge/manager/index/lifecycle suite 全通过。
 - 收尾: 1787259531
 - 源码指纹: v2 crates/kanzei-memory/src/memory/admission.rs@1db6489acf73,crates/kanzei-memory/src/memory/manager.rs@2f1e2480c603,crates/kanzei-memory/src/memory/store.rs@9dc837b6f5a0
+
+## T-1786922726606 cargo fmt --all + cargo test -p kanzei-memory (D-635) [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 时长: 14.4s
+- 摘要: D-635 结构修复验证：161 passed, 0 failed, 0 ignored；lifecycle.rs 已恢复单一声明/impl。编译仍报告两个尚未接线的阈值常量 dead_code 警告，属于 R-308 B2 后续实现范围。
+- 关联: D-635 R-308
+- 收尾: 1787259804
+- 源码指纹: v2 crates/kanzei-memory/src/memory/lifecycle.rs@151b3ed81e5a
+
+## T-1786922726607 cargo fmt --all + cargo test -p kanzei-memory (R-308 B2 初次验证) [failed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 摘要: B2 初次验证未进入测试：manager.rs recurrence gate 插入残留重复 `match store.add`，Rust 报 unclosed delimiter；已登记 D-636，待精确修复。
+- 收尾: 1787259956
+- 源码指纹: v2 crates/kanzei-memory/src/memory/lifecycle.rs@75cd72e4ccce,crates/kanzei-memory/src/memory/manager.rs@e8a8c0bd1b31,crates/kanzei-memory/src/memory/store.rs@4e531d3b977f
+
+## T-1786922726608 cargo fmt --all + cargo test -p kanzei-memory (R-308 B2 门禁接线) [failed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 时长: 5.3s
+- 摘要: B2 门禁接线后 153 passed、9 failed：新回归测试缺少 manager fact tracker ref；8 个既有 fingerprint fixture 直接 promote 前未写 recurrence，触发 active threshold 3。生产门禁本身按预期拒绝。
+- 关联: R-308
+- 收尾: 1787260024
+- 源码指纹: v2 crates/kanzei-memory/src/memory/lifecycle.rs@f2d59f2840d9,crates/kanzei-memory/src/memory/manager.rs@18c1f0f4bb00,crates/kanzei-memory/src/memory/store.rs@6238807cb467
+
+## T-1786922726609 cargo fmt --all + cargo test -p kanzei-memory (R-308 B2 fixture 修复) [failed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 时长: 5.4s
+- 摘要: B2 fixture 修复后 161 passed、1 failed；唯一失败为新增临时项目测试引用不存在的 R-308，需改用 fixture 已存在的 D-001。
+- 关联: R-308
+- 收尾: 1787260148
+- 源码指纹: v2 crates/kanzei-memory/src/memory/lifecycle.rs@f2d59f2840d9,crates/kanzei-memory/src/memory/manager.rs@f8e4d791c663,crates/kanzei-memory/src/memory/mod.rs@4013ac422cb6,crates/kanzei-memory/src/memory/store.rs@6238807cb467,crates/kanzei-memory/src/replay_eval.rs@f7540bcf9c6b
+
+## T-1786922726610 cargo fmt --all + cargo test -p kanzei-memory (R-308 B2) [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 时长: 5.2s
+- 摘要: R-308 B2 门槛与 fixture 回归全绿：162 passed, 0 failed, 0 ignored；第 1 次 recurrence 不落 candidate、第 2 次允许 candidate、active 需 recurrence 3 与 provenance 的路径均通过。
+- 关联: D-636 R-308
+- 收尾: 1787260171
+- 源码指纹: v2 crates/kanzei-memory/src/memory/lifecycle.rs@f2d59f2840d9,crates/kanzei-memory/src/memory/manager.rs@0579c0505771,crates/kanzei-memory/src/memory/mod.rs@4013ac422cb6,crates/kanzei-memory/src/memory/store.rs@6238807cb467,crates/kanzei-memory/src/replay_eval.rs@f7540bcf9c6b

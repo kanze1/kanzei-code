@@ -179,6 +179,23 @@ impl Tool for MemoryAddTool {
         } else if let Err(e) = super::validate_source_refs(ctx, &input.refs) {
             return rejected(&store, &input.title, e);
         }
+        // R-308 B2:带失败指纹的 manager 产物必须先达到第 2 次跨轮复发；
+        // 第 1 次只保留在 inbox，不能因 manager 自觉失误落成 candidate。
+        let fingerprints =
+            super::fp_markers(&format!("{} {} {}", input.title, input.description, body));
+        if let Some((fingerprint, recurrence)) = fingerprints.iter().find_map(|fingerprint| {
+            let count = store.recurrence_count(fingerprint);
+            (count < super::lifecycle::CANDIDATE_RECURRENCE_MIN).then_some((fingerprint, count))
+        }) {
+            return rejected(
+                &store,
+                &input.title,
+                format!(
+                    "fingerprint `{fingerprint}` recurrence {recurrence} is below candidate threshold {}; keep the note in inbox",
+                    super::lifecycle::CANDIDATE_RECURRENCE_MIN
+                ),
+            );
+        }
         match store.add(
             &input.category,
             &input.title,
@@ -773,6 +790,66 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// R-308 B2:第 1 次失败只留 inbox；第 2 次复发才允许 manager 生成 candidate。
+    #[tokio::test]
+    async fn memory_add_fingerprint_requires_second_recurrence() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-manager-recurrence-gate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        write_fact_source(&dir);
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+            ..Default::default()
+        };
+        let store = MemoryStore::project(&dir);
+        let fp = format!("[fp:edit|recurrence gate #{}]", std::process::id());
+        store.bump_recurrence(&fp);
+        store.append_note("第 1 次失败", &fp, "fact", &[]).unwrap();
+        let first = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "fact", "title": "第 1 次候选",
+                       "description": "复发门槛测试", "body": format!("正文 {fp}"),
+                       "source": "memory-manager", "refs": ["D-001"], "force": true}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            first.is_error,
+            "第 1 次复发不得创建 candidate: {}",
+            first.content
+        );
+        assert!(store.load_all().is_empty(), "第 1 次复发不应落盘");
+
+        store.clear_inbox().unwrap();
+        store.bump_recurrence(&fp);
+        store.append_note("第 2 次失败", &fp, "fact", &[]).unwrap();
+        let second = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "fact", "title": "第 2 次候选",
+                       "description": "复发门槛测试", "body": format!("正文 {fp}"),
+                       "source": "memory-manager", "refs": ["D-001"], "force": true}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !second.is_error,
+            "第 2 次复发应允许 candidate: {}",
+            second.content
+        );
+        assert!(store
+            .load_all()
+            .iter()
+            .any(|(_, entry)| entry.status == "candidate"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// R-215:memory_inbox_discard 逐条销账——处理完一条删该条,其余 note 存活;
     /// 指纹不匹配报错;工具在 manager 装配线注册。
     #[tokio::test]
@@ -942,7 +1019,11 @@ mod tests {
         // 再 memory_add 携带同指纹(测 merge 守恒闸,而非指纹闸本身)。
         store
             .append_note("合并守恒测试来源", "[fp:abc] [fp:def]", "fact", &[])
-            .unwrap();
+            .unwrap(); // 既有 fixture 明确模拟两次复发，满足 R-308 B2 candidate 门槛。
+        store.bump_recurrence("[fp:abc]");
+        store.bump_recurrence("[fp:abc]");
+        store.bump_recurrence("[fp:def]");
+        store.bump_recurrence("[fp:def]");
         // 建两条可合并的记忆;confirmed=true 绕过保守闸,本测试只验证守恒闸。
         for (title, desc, body) in [
             ("合并守恒测试主", "钩子主", "内容 [fp:abc]"),
@@ -1019,7 +1100,9 @@ mod tests {
                 "fact",
                 &[],
             )
-            .unwrap();
+            .unwrap(); // 既有 fixture 明确模拟两次复发，满足 R-308 B2 candidate 门槛。
+        store.bump_recurrence("[fp:edit|not found]");
+        store.bump_recurrence("[fp:edit|not found]");
         let added = MemoryAddTool
             .execute(
                 json!({"scope": "project", "category": "fact", "title": "edit 未命中先 read",

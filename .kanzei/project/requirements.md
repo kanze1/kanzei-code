@@ -223,11 +223,12 @@
 - 验收: ①顶层条目数≈实质主题数(勘察口径复查冗余率<15%);②同指纹重复写入被机械拒绝并有定向测试;③candidate 可见性单轨有断言;④global 域 74 条处置留痕且 recall 遥测非零;⑤INDEX 行与源文件 description 一致性核对通过(与 D-568 对齐)
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-308(unblocks=0)
-- 批次: 1/4
-- 进展: B1 已完成并验证：`admission.rs:132` 新增 find_fingerprint_conflict，仅命中 active/candidate；`store.rs:297-307` 在 add 写入侧同时检查 project/global，同指纹即返回 Duplicate，force 也不能绕过；`admission.rs:384` 与 `store.rs:1240` 定向测试覆盖策略和真实写路径；既有 merge fixture 在 `manager.rs:944-978`、`store.rs:2282-2298` 明确区分守恒闸与 legacy 存量。验证 T-1786922726605：161 passed, 0 failed。下一步 B2：复核 recurrence_counts、MemoryLifecycle.should_promote 与 manager consolidation，机械化低于复发阈值不落 candidate。
-- observed_head: 8057a4dbca21a2768cadf43ab787a5f0c6c67d09
-- observed_worktree_hash: fnv1a64:8c4fa1603366e7cd
-- recorded_at: 1787259558818
+- 批次: 2/4
+- 进展: B2 已完成并验证：`lifecycle.rs:22-23,98-106` 固化 candidate=2、active=3 复发阈值；`manager.rs:182-200` 的 memory_add 对带 fingerprint 且 recurrence<2 的 manager 产物硬拒绝，note 保留在 inbox；`store.rs:515-523` 的 promote 对 fingerprint recurrence<3 硬拒绝，仍要求真实 episode provenance；`manager.rs:795-850` 新增第1次不落 candidate、第2次允许 candidate 的回归测试，并补齐既有 active/replay fixture 的 recurrence 前置。验证 T-1786922726610：162 passed, 0 failed, 0 ignored。D-636 已 fixed。下一步 B3：核对 candidate 在 INDEX/FTS 的可见性是否单轨，补 source description 与 INDEX 行一致性断言。
+- observed_head: 9980992007c88aa705fa03caa127e1774a677f4d
+- observed_worktree_hash: fnv1a64:e4ba74d5e25d03a0
+- recorded_at: 1787260203483
+- status: doing
 
 ## R-309 门禁矩阵整合:按改动路径裁剪 verify、globals 免手工同步、脆性门禁加固 [todo]
 - refs: D-510 D-555 D-539 D-540 D-458 R-300

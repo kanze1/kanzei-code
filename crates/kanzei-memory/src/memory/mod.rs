@@ -2186,7 +2186,9 @@ mod tests {
         store.clear_inbox().unwrap();
         store
             .append_note("持久来源证据", &fingerprint, "fact", &[])
-            .unwrap();
+            .unwrap(); // fixture 先走三次复发，验证 promote 的 active 门槛而非绕过门禁。
+        store.bump_recurrence(&fingerprint);
+        store.bump_recurrence(&fingerprint);
         match store
             .add(
                 "fact",
@@ -2419,6 +2421,10 @@ source: user
         store
             .append_note("fixture source", &format!("[fp:edit|{kind}]"), "sop", &[])
             .unwrap();
+        // fixture 先走三次复发，验证 promote 的 active 门槛而非绕过门禁。
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
         store
             .add(
                 "sop",
@@ -2518,6 +2524,10 @@ source: user
         store
             .append_note("fixture source", &format!("[fp:edit|{kind}]"), "sop", &[])
             .unwrap();
+        // fixture 先走三次复发，验证 promote 的 active 门槛而非绕过门禁。
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
         store
             .add(
                 "sop",
@@ -2662,6 +2672,10 @@ source: user
         store
             .append_note("fixture source", &format!("[fp:edit|{kind}]"), "sop", &[])
             .unwrap();
+        // fixture 先走三次复发，验证 promote 的 active 门槛而非绕过门禁。
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
         store
             .add(
                 "sop",
@@ -2718,6 +2732,10 @@ source: user
         store
             .append_note("fixture source", &format!("[fp:edit|{kind}]"), "sop", &[])
             .unwrap();
+        // fixture 先走三次复发，验证 promote 的 active 门槛而非绕过门禁。
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
+        store.bump_recurrence(&format!("[fp:edit|{kind}]"));
         store
             .add(
                 "sop",

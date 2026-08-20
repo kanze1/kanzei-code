@@ -7834,3 +7834,29 @@
 - observed_head: 8057a4dbca21a2768cadf43ab787a5f0c6c67d09
 - observed_worktree_hash: fnv1a64:8c4fa1603366e7cd
 - recorded_at: 1787259559199
+
+## D-635 lifecycle.rs 插入阈值常量时残留重复结构声明导致编译损坏 [fixed] (high)
+- 复现: 来源：self-found。向 `crates/kanzei-memory/src/memory/lifecycle.rs` 插入复发阈值常量时，锚点包含原声明并重复插入，形成 `impl MemoryLifecycle {pub(crate) struct MemoryLifecycle;` 及重复 impl 开头。
+- 影响: kanzei-memory 无法可靠编译，R-308 B2 后续实现与定向测试被阻断。
+- 来源: self-found（本轮恢复 R-308 B2 时发现）
+- 标签: 后端
+- 验收: 删除重复声明和重复 impl 开头；文件保留一个 MemoryLifecycle 声明、一个 impl 和两个复发阈值常量；cargo fmt --all 与 cargo test -p kanzei-memory 通过。
+- refs: R-308
+- 优先级: P0
+- 进展: D-635 已修复并收口：`crates/kanzei-memory/src/memory/lifecycle.rs:18` 仅保留一个 MemoryLifecycle 声明，`:22-23` 保留 candidate/active 两个复发阈值常量，`:25` 仅保留一个 impl 开头；重复结构已删除。验证 T-1786922726606：cargo fmt --all + cargo test -p kanzei-memory，161 passed、0 failed、0 ignored。两个常量尚未接线的 dead_code warning 属于 R-308 B2 后续范围，不影响本缺陷结构修复。
+- observed_head: 9980992007c88aa705fa03caa127e1774a677f4d
+- observed_worktree_hash: fnv1a64:cda6e5f41fa4cf5b
+- recorded_at: 1787259824493
+
+## D-636 R-308 B2 插入 recurrence gate 残留重复 match 导致 manager.rs 无法解析 [fixed] (high)
+- 复现: 来源：self-found。R-308 B2 在 `crates/kanzei-memory/src/memory/manager.rs` 的 `match store.add` 前插入 recurrence gate 时，插入内容误保留了锚点，形成 `) {        match store.add(` 重复开头。
+- 影响: kanzei-memory 无法解析编译，R-308 B2 定向测试无法运行。
+- 来源: self-found（运行 cargo fmt/test 时发现）
+- 标签: 后端
+- 进展: D-636 已修复并收口：① `crates/kanzei-memory/src/memory/manager.rs:198-216` 恢复唯一 `match store.add` 参数块，`store.rs:524-527` 恢复 `previous_status` 声明；②新增 manager recurrence 回归位于 `manager.rs:795-850`，覆盖第 1 次只留 inbox、第 2 次生成 candidate；③验证 T-1786922726610：`cargo fmt --all; cargo test -p kanzei-memory`，162 passed、0 failed、0 ignored。
+- 验收: 删除重复的 match 开头并恢复 manager.rs 分隔符平衡；cargo fmt --all 与 cargo test -p kanzei-memory 通过。
+- refs: R-308
+- 优先级: P0
+- observed_head: 9980992007c88aa705fa03caa127e1774a677f4d
+- observed_worktree_hash: fnv1a64:e4ba74d5e25d03a0
+- recorded_at: 1787260194960

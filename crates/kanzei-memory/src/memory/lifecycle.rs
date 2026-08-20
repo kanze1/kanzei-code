@@ -17,6 +17,11 @@ use super::{today, MemoryEntry, MemoryScope, MemoryStore};
 /// (promote_guard)。无自有状态。
 pub(crate) struct MemoryLifecycle;
 
+/// 失败指纹的持久化晋升门槛：第 2 次复发才允许 manager 生成 candidate，
+/// 第 3 次复发且有真实 episode provenance 才允许进入 active。
+pub(crate) const CANDIDATE_RECURRENCE_MIN: u32 = 2;
+pub(crate) const ACTIVE_RECURRENCE_MIN: u32 = 3;
+
 impl MemoryLifecycle {
     /// promote 的 provenance 硬门禁:非空证据、状态机(candidate|shadow 可进)、
     /// episode 真实存在(project scope 查 state.db)、证据先落库全部成功。
@@ -96,8 +101,9 @@ impl MemoryLifecycle {
         recurrence: u32,
         current_episode_id: Option<i64>,
     ) -> bool {
-        current_episode_id
-            .is_some_and(|_episode_id| recurrence >= 3 && entry.fingerprint().is_some())
+        current_episode_id.is_some_and(|_episode_id| {
+            recurrence >= ACTIVE_RECURRENCE_MIN && entry.fingerprint().is_some()
+        })
     }
 
     /// candidate 清退判定(R-195):超过 max_age_days 个日历日未处置 → deprecated

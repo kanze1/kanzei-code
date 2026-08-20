@@ -352,7 +352,10 @@ mod tests {
                 "fact",
                 &[],
             )
-            .unwrap();
+            .unwrap(); // fixture 先走三次复发，验证 promote 的 active 门槛而非绕过门禁。
+        store.bump_recurrence("[fp:edit|old string not found]");
+        store.bump_recurrence("[fp:edit|old string not found]");
+        store.bump_recurrence("[fp:edit|old string not found]");
         store
             .add(
                 "fact",

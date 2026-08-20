@@ -512,6 +512,15 @@ impl MemoryStore {
         let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
             anyhow::bail!("unknown memory id `{id}`");
         };
+        if let Some(fingerprint) = entry.fingerprint() {
+            let recurrence = self.recurrence_count(&fingerprint);
+            if recurrence < super::lifecycle::ACTIVE_RECURRENCE_MIN {
+                anyhow::bail!(
+                    "cannot promote `{id}`: fingerprint `{fingerprint}` recurrence {recurrence} is below active threshold {}",
+                    super::lifecycle::ACTIVE_RECURRENCE_MIN
+                );
+            }
+        }
         let previous_status = entry.status.clone();
         // R-255 第二刀:provenance 门禁(状态机/episode 真实/证据先落库)提纯到
         // MemoryLifecycle::promote_guard;store 只做查条目 + 置 active + 落盘。
