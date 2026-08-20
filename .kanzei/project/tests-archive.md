@@ -8431,3 +8431,9 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 真实 CLI dry-run 通过，输出 scanned_dirs=1、eligible_dirs=0、preserved_dirs=1；同时触发新的 cleanup-log.jsonl 审计记录。
 - 关联: D-566
 - 收尾: 1787192544
+
+## T-1786922726530 D-566 真实并行双线 Tauri 构建 [passed]
+- 命令: git worktree add --detach <temp> HEAD; Start-Job per worktree { cargo tauri build --config '{"bundle":{"active":false}}' }; Wait-Job; verify exit=0, gen/schemas=4 in both, quarantine dirs unchanged; git worktree remove --force <temp>
+- 摘要: 真实并行双 worktree 构建通过：主树与同 HEAD 临时 worktree 两个 cargo tauri build 均 exit=0；两边各生成4个 gen/schemas 文件；主树 quarantine 目录数仍1、临时树0，没有 schema 误报隔离目录。
+- 关联: D-566
+- 收尾: 1787192802
