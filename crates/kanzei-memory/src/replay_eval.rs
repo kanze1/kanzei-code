@@ -189,6 +189,20 @@ impl MemoryContextProvider for ReplayMemoryProvider {
             Arm::CompressionCF => self.current_text(case),
         }
     }
+
+    fn evaluation_memory_ids(&self, case: &ReplayCase) -> Vec<String> {
+        // Leave-One-Out 当前只消融第一条 Current 命中,因此只把这条真实
+        // memory_id 作为本 case 的 F(m) 目标;不把 case_id 当作记忆主键。
+        let Some(trigger) = Self::trigger_for(case) else {
+            return Vec::new();
+        };
+        self.policy
+            .retrieve(&trigger)
+            .into_iter()
+            .next()
+            .map(|hit| vec![hit.id])
+            .unwrap_or_default()
+    }
 }
 
 /// 归一化错误 kind:小写、去引号、截断数字与路径噪音,取首 40 字符。
@@ -372,6 +386,11 @@ mod tests {
         use crate::memory::MemoryIndex as _;
         provider.hybrid.rebuild().unwrap();
         let case = parse_trace_payload(SAMPLE, "t5").unwrap();
+        assert_eq!(
+            provider.evaluation_memory_ids(&case),
+            vec![cand_id.clone()],
+            "回放评估目标必须是检索命中的真实 memory_id"
+        );
         let candidate = provider.context_for(&Arm::Candidate, &case);
         assert!(
             candidate.contains("[recalled]"),

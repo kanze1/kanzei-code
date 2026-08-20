@@ -7088,3 +7088,25 @@
 - observed_head: fca4f204e65b6306a0b1ad0faae5b4a63b69f368
 - observed_worktree_hash: fnv1a64:f0aaca39015313ba
 - recorded_at: 1787183423221
+
+## D-588 回放评估曾以 case_id 冒充真实 memory_id 导致 F(m) 聚合失真 [fixed] (high)
+- 复现: self-found：`crates/kanzei-core/src/replay.rs` 原 `run_single_arm` 将 `case.case_id` 同时写入 memory_eval.memory_id 与 replay_case；`run_arms` 也仅对 case_id 调 recompute。
+- 影响: 离线回放的 current/leave_one_out 无法按真实记忆配对，控制面 memory_eval_agg 与 deprecate_candidates 可能展示伪造的记忆价值。
+- 来源: self-found，R-293 批次2代码复核
+- 标签: 核心
+- 进展: 修复已落地并验证：`crates/kanzei-core/src/replay.rs:192-208` 新增 evaluation_memory_ids，`:274-362` 仅按真实 memory_id 写入 memory_eval 并逐 ID 调 recompute；`crates/kanzei-memory/src/replay_eval.rs:192-210` 从真实 Current 命中返回目标 ID。T-1786922726514（core 专项 2 passed）、T-1786922726516（kanzei-core 220 passed）、T-1786922726517（kanzei-memory 152 passed）。原伪造的 case_id 聚合在回归中断言为空。
+- 优先级: P1
+- observed_head: 53649708b734af71bae6f400a9d5d43a2fedefcf
+- observed_worktree_hash: fnv1a64:8326ad1d07302fef
+- recorded_at: 1787190671632
+
+## D-589 R-293 B2 回放 helper 参数数触发 clippy 提交门禁 [fixed] (medium)
+- 复现: self-found：提交前结构化 clippy gate 在 `crates/kanzei-core/src/replay.rs:292` 报 `this function has too many arguments (8/7)`，由 R-293 B2 新增的内部回放 helper 触发。
+- 影响: 阻断 R-293 B2 提交，代码测试已通过但无法通过项目提交门禁。
+- 来源: self-found，R-293 B2 提交 gate
+- 标签: 核心
+- 进展: 已修复：`crates/kanzei-core/src/replay.rs:292` 的内部 helper 增加带理由的局部 `#[allow(clippy::too_many_arguments)]`，保持真实 memory_id 参数与公共回放调用面不变。T-1786922726518：`cargo test -p kanzei-core` 220 passed；结构化提交 gate 将在本次提交重新执行。
+- 优先级: P2
+- observed_head: 53649708b734af71bae6f400a9d5d43a2fedefcf
+- observed_worktree_hash: fnv1a64:b2f7876088bd753c
+- recorded_at: 1787190785615

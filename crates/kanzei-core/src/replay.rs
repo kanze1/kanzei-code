@@ -192,6 +192,14 @@ pub trait MemoryContextProvider: Send + Sync {
     /// 接收整个 case:Oracle 等臂需要从 case 里提取失败后成功步骤,
     /// 而非只依赖 trigger 文本。
     fn context_for(&self, arm: &Arm, case: &ReplayCase) -> String;
+
+    /// 返回本次回放要评估的真实记忆 ID。
+    ///
+    /// 这是 F(m) 的主键来源,不能用 `ReplayCase::case_id` 替代。没有
+    /// 可识别的真实命中时返回空,回放仍可产出决策但不会伪造价值聚合。
+    fn evaluation_memory_ids(&self, _case: &ReplayCase) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// 一次回放决策的产物:某臂在某 case 上的 LLM 决策文本与 token 消耗。
@@ -267,12 +275,34 @@ pub async fn run_single_arm(
     model: &str,
     prompt_version: &str,
 ) -> anyhow::Result<ReplayDecision> {
+    let memory_ids = memory.evaluation_memory_ids(case);
+    run_single_arm_with_memory_ids(
+        case,
+        arm,
+        memory,
+        decider,
+        store,
+        model,
+        prompt_version,
+        &memory_ids,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)] // 回放臂共享固定上下文与真实记忆目标，保持公共调用面不变。
+async fn run_single_arm_with_memory_ids(
+    case: &ReplayCase,
+    arm: Arm,
+    memory: &dyn MemoryContextProvider,
+    decider: &dyn ReplayDecider,
+    store: &crate::store::SessionStore,
+    model: &str,
+    prompt_version: &str,
+    memory_ids: &[String],
+) -> anyhow::Result<ReplayDecision> {
     let question = question_for_case(case);
     let context = memory.context_for(&arm, case);
     let (text, tokens) = decider.decide(&question, &context).await?;
-    // 验收⑤结果落 memory_eval:每条记忆一个 arm 一行,同 case 可对照。
-    // memory_id 为 case_id(六臂在同一 case 上对照,不是按条目消融时留空语义
-    // 由 Leave-One-Out 臂的 provider 自行决定去掉哪条)。
     let decision = ReplayDecision {
         arm,
         case_id: case.case_id.clone(),
@@ -280,20 +310,24 @@ pub async fn run_single_arm(
         tokens,
     };
     // J 判据(批3)驱动落库:success = 是否产出可行动作(terminal 成功代理)。
+    // 只为 provider 明确返回的真实命中 memory_id 落明细;没有真实命中时
+    // 保留决策结果但不伪造 case_id 作为记忆主键。
     let score = score_decision(case, &decision);
-    store.record_memory_eval(
-        &case.case_id,
-        &case.case_id,
-        arm.label(),
-        model,
-        prompt_version,
-        score.has_action,
-        case.steps.len() as u64,
-        case.tool_failures() as u64,
-        score.retry_signal as u64,
-        tokens,
-        None,
-    )?;
+    for memory_id in memory_ids {
+        store.record_memory_eval(
+            memory_id,
+            &case.case_id,
+            arm.label(),
+            model,
+            prompt_version,
+            score.has_action,
+            case.steps.len() as u64,
+            case.tool_failures() as u64,
+            score.retry_signal as u64,
+            tokens,
+            None,
+        )?;
+    }
     Ok(decision)
 }
 
@@ -306,14 +340,28 @@ pub async fn run_arms(
     model: &str,
     prompt_version: &str,
 ) -> anyhow::Result<Vec<ReplayDecision>> {
+    let memory_ids = memory.evaluation_memory_ids(case);
     let mut decisions = Vec::with_capacity(6);
     for arm in Arm::all() {
-        decisions
-            .push(run_single_arm(case, arm, memory, decider, store, model, prompt_version).await?);
+        decisions.push(
+            run_single_arm_with_memory_ids(
+                case,
+                arm,
+                memory,
+                decider,
+                store,
+                model,
+                prompt_version,
+                &memory_ids,
+            )
+            .await?,
+        );
     }
-    // 六臂写入完成后立即配对 current/leave_one_out，确保真实回放不仅有明细，
-    // 也会产出可查询的单条记忆价值聚合(memory_eval_agg)。
-    store.recompute_memory_effect(&case.case_id, model, prompt_version)?;
+    // 六臂写入完成后,只对真实命中的 memory_id 配对 current/leave_one_out。
+    // 没有命中时不写空聚合,避免控制面把 case_id 冒充成记忆价值。
+    for memory_id in &memory_ids {
+        store.recompute_memory_effect(memory_id, model, prompt_version)?;
+    }
     Ok(decisions)
 }
 
@@ -508,6 +556,10 @@ mod eval_tests {
                 _ => format!("[memory-{}] 该做的行动", arm.label()),
             }
         }
+
+        fn evaluation_memory_ids(&self, _case: &ReplayCase) -> Vec<String> {
+            vec!["M-real".into()]
+        }
     }
 
     const SAMPLE: &str = r#"{
@@ -565,10 +617,14 @@ mod eval_tests {
             assert!(Arm::all().iter().any(|a| a.label() == arm), "未知臂: {arm}");
         }
         let effect = store
-            .memory_effect("case-arms")
+            .memory_effect("M-real")
             .unwrap()
-            .expect("current/leave_one_out 配对后必须写入单条价值聚合");
+            .expect("current/leave_one_out 配对后必须按真实 memory_id 写入价值聚合");
         assert_eq!(effect.eval_n, 1);
+        assert!(
+            store.memory_effect("case-arms").unwrap().is_none(),
+            "case_id 不得伪装成 memory_id"
+        );
     }
 
     #[test]

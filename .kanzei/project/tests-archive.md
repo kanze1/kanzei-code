@@ -8314,3 +8314,58 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-293 D-585 D-586
 - 收尾: 1787184461
 - 源码指纹: v2 crates/kanzei-core/src/lib.rs@bba56da3a9d0,crates/kanzei-core/src/runner/drive.rs@2970cca25145,crates/kanzei-core/src/runner/mod.rs@3c4bd733a74d,crates/kanzei-core/src/runner/recall.rs@e0e413eb0828,crates/kanzei-memory/src/memory/mod.rs@52a1c216b23b
+
+## T-1786922726513 R-293 批次2 core replay 真实 memory_id [skipped]
+- 命令: cargo test -p kanzei-core replay::tests::六臂各自可跑并落memory_eval -- --exact
+- 摘要: 命令编译通过但 exact 过滤未匹配，实际运行 0 tests；改用名称子串重新执行。
+- 收尾: 1787190493
+- 源码指纹: v2 crates/kanzei-core/src/replay.rs@e3476e71e368,crates/kanzei-memory/src/replay_eval.rs@a3126f10f6ee
+
+## T-1786922726514 R-293 批次2 core replay 真实 memory_id [passed]
+- 命令: cargo test -p kanzei-core 六臂 -- --nocapture
+- 摘要: 2 passed：六臂契约与回放落库回归通过；F(m) 按真实 M-real 聚合，case_id 不再伪装 memory_id。
+- 关联: R-293
+- 收尾: 1787190516
+- 源码指纹: v2 crates/kanzei-core/src/replay.rs@e3476e71e368,crates/kanzei-memory/src/replay_eval.rs@a3126f10f6ee
+
+## T-1786922726515 R-293 批次2 memory provider 真实 memory_id [passed]
+- 命令: cargo test -p kanzei-memory replay_eval::tests::candidate臂_有记忆条目时用hybrid检索并落recall_events -- --exact
+- 摘要: 1 passed：真实 active 命中返回实际 cand_id，provider 回放候选臂仍正确落 recall_events。
+- 关联: R-293
+- 收尾: 1787190545
+- 源码指纹: v2 crates/kanzei-core/src/replay.rs@e3476e71e368,crates/kanzei-memory/src/replay_eval.rs@a3126f10f6ee
+
+## T-1786922726516 R-293 批次2 kanzei-core 定向回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: 220 passed；包含真实 memory_id 回放聚合与 deprecate_candidates 既有回归。
+- 关联: R-293
+- 收尾: 1787190588
+- 源码指纹: v2 crates/kanzei-core/src/replay.rs@e3476e71e368,crates/kanzei-memory/src/replay_eval.rs@a3126f10f6ee
+
+## T-1786922726517 R-293 批次2 kanzei-memory 定向回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: 152 passed，1 doc-test ignored；包含真实 provider memory_id、outcome_improved 与控制面 stats/deprecate 回归。
+- 关联: R-293
+- 收尾: 1787190589
+- 源码指纹: v2 crates/kanzei-core/src/replay.rs@e3476e71e368,crates/kanzei-memory/src/replay_eval.rs@a3126f10f6ee
+
+## T-1786922726518 R-293 B2 clippy 修复后 core 回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: 220 passed；局部 clippy allow 修复后 core 回归通过。
+- 关联: R-293 D-589
+- 收尾: 1787190778
+- 源码指纹: v2 crates/kanzei-core/src/replay.rs@5e47a2e9494c,crates/kanzei-memory/src/replay_eval.rs@a3126f10f6ee
+
+## T-1786922726519 R-293 B2 提交前 memory 回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: 152 passed，1 doc-test ignored；提交前 memory crate 覆盖通过。
+- 关联: R-293
+- 收尾: 1787190869
+- 源码指纹: v2 crates/kanzei-core/src/replay.rs@5e47a2e9494c,crates/kanzei-memory/src/replay_eval.rs@a3126f10f6ee
+
+## T-1786922726520 R-293 B2 提交前 memory 回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: 152 passed，1 doc-test ignored；提交前 memory crate 覆盖通过。
+- 关联: R-293
+- 收尾: 1787190914
+- 源码指纹: v2 crates/kanzei-core/src/replay.rs@5e47a2e9494c,crates/kanzei-memory/src/replay_eval.rs@a3126f10f6ee

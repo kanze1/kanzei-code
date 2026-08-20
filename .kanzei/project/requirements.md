@@ -201,12 +201,12 @@
 - 验收: 生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED 四段有真实数据;控制面 F(m) 栏显示非空;deprecate 判定可被真实数据触发;回归测试
 - 优先级: P1
 - 取活依据: engine:唯一可执行 WIP 是 R-293，必须先恢复它
-- 停车: 排队:p13 已收编(R-306 B1 完成),文件占用障碍消失;等 R-306 终态后恢复,接真实 outcome 写入方与聚合调度;解除条件:R-306
-- 进展: 批次1完成：kanzei-core runner RecallWatch 在 crates/kanzei-core/src/runner/drive.rs:200-424 的所有正常/暂停/提前停止路径显式提交 RecallRunOutcome；runner/recall.rs:61-166 新增 finish 与 OUTCOME_IMPROVED 独立证据接口；kanzei-memory/src/memory/mod.rs:714-775 生产策略在 Completed 结局写 outcome_improved，Halted/Unknown 不写。kanzei-core 定向测试 T-1786922726510=220 passed；kanzei-memory T-1786922726511 首次暴露根导出缺口，D-586 修复后 T-1786922726512=152 passed。该线批次2在恢复途中撞上本地 provider(ollama:qwen3.8:27b)返回 HTTP 500 'no user query found in messages'——主会话诊断出两个真实缺陷并已修复提交:①conversation_clear(新对话)不清鞭挞控制器失败重试计数(state.auto_runs 按 session_id 存,与对话投影分属两条状态),导致新对话后立刻带旧计数复现同一失败;②is_transient_run_error 把所有 HTTP 500 无差别当瞬态重试,对确定性请求体错误(body 含 no user query/message)也白烧一轮退避——两处均在 crates/kanzei-app/src/auto_run.rs、crates/kanzei-app/src/conversation.rs 修复并有回归测试(conversation_tests 15 passed、auto_run::tests 9 passed),提交 2b0f514b。批次1本身经主会话验证接力提交(fmt/clippy/test 全绿)53649708。已发版 build-53649708。下一步批次2:先重新核对当前会话状态是否已从两处修复中恢复正常,再继续回放 provider、recompute 调用方、控制面 F(m)/deprecate 数据契约,接真实 memory_id 与聚合调度
+- 停车: 
+- 进展: 批次1完成：kanzei-core runner RecallWatch 在 crates/kanzei-core/src/runner/drive.rs:200-424 的所有正常/暂停/提前停止路径显式提交 RecallRunOutcome；runner/recall.rs:61-166 新增 finish 与 OUTCOME_IMPROVED 独立证据接口；kanzei-memory/src/memory/mod.rs:714-775 生产策略在 Completed 结局写 outcome_improved，Halted/Unknown 不写。批次1测试：T-1786922726510=220 passed；T-1786922726512=152 passed。批次2完成：修复回放以 case_id 冒充 memory_id 的聚合缺陷；kanzei-core/src/replay.rs:192-208 增加 evaluation_memory_ids，:274-362 仅按真实命中 ID 写 memory_eval 并逐 ID 调 recompute；kanzei-memory/src/replay_eval.rs:192-210 从 Current 策略返回真实首个命中 ID；无真实命中不伪造聚合。真实 F(m) 回归断言在 replay.rs:616-625，provider ID 回归在 replay_eval.rs:386-392。T-1786922726514=2 passed；T-1786922726515=1 passed；T-1786922726516=kanzei-core 220 passed；T-1786922726517=kanzei-memory 152 passed。下一步：运行大需求关闭前 cargo test --workspace，随后逐条对照生产四段漏斗、控制面 F(m)、deprecate 与回归测试验收。
 - observed_head: 53649708b734af71bae6f400a9d5d43a2fedefcf
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787187952120
-- 批次: 1/2
+- observed_worktree_hash: fnv1a64:8326ad1d07302fef
+- recorded_at: 1787190695821
+- 批次: 2/2
 
 ## R-296 Tauri command 与 run 链路测试基座 [doing]
 - 内容: kanzei-app 无 tests/ 目录(全仓唯一集成层在 crates/kanzei/tests/integration),104 个 #[tauri::command] 零测试;装配→执行→落库主链 commands/run.rs(604行)、processes/lifecycle.rs(593)、processes/workspace.rs(548)、run/persistence.rs(489)、run/coordinator.rs(424)、run/execution.rs(313)、harness_ext.rs(284) 全部 0 个 #[test];数据面 memory.rs(13 command)/docs.rs(16 command) 同样近零。建立可测基座(状态抽离/伪 AppHandle/集成层)并优先覆盖 run 主链
