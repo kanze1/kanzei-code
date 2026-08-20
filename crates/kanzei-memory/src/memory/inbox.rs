@@ -6,8 +6,8 @@
 //! (promote)、检索(search)正交:改草稿格式不必读懂准入策略(照 files_view.rs 模式)。
 //!
 //! 危险点(搬迁纪律):inbox 读-拼-写回必须持记忆树锁(R-215/D-368)——与 append_note/
-//! discard_note/clear_inbox 共用同一把锁,避免并发 append 互吃;树锁同时与 bash
-//! 围栏窗口互斥,窗口内落盘不被围栏误回滚。
+//! discard_note/clear_inbox 共用同一把锁,避免并发 append 互吃;树锁还与 bash 围栏
+//! 的收口共享锁互斥,确保 after 快照不读到写事务中间态。
 
 use std::path::{Path, PathBuf};
 
@@ -151,8 +151,7 @@ impl MemoryStore {
         let path = self.root.join("inbox.md");
         // R-215 语义不变 + D-368:改用记忆树锁——与 append_note/discard_note 共用
         // 同一把锁,整箱清空锁内执行避免与并发 append 交错(append 持锁读-拼-写回,
-        // clear 持锁覆盖,不会互吃);同时树锁与 bash 围栏窗口互斥,窗口内清空不被
-        // 围栏误回滚。
+        // clear 持锁覆盖,不会互吃);同时树锁与 bash 围栏收口共享锁互斥。
         let _lock = self.tree_lock()?;
         if path.is_file() {
             crate::atomic_file::write_atomic(&path, "# Memory Inbox\n")?;
@@ -171,12 +170,38 @@ impl MemoryStore {
         category_hint: &str,
         refs: &[String],
     ) -> anyhow::Result<PathBuf> {
+        self.append_note_with_audit(summary, detail, category_hint, refs, || {
+            super::record_memory_lifecycle_event(
+                self.project_root.as_deref(),
+                "memory_note_queued",
+                None,
+                &[],
+                refs.first().map(String::as_str),
+                refs,
+                "note_queued",
+                None,
+                Some("inbox"),
+            );
+        })
+    }
+
+    /// 把 inbox 内容事务与后置生命周期审计的锁边界固定在同一个可测入口。
+    fn append_note_with_audit(
+        &self,
+        summary: &str,
+        detail: &str,
+        category_hint: &str,
+        refs: &[String],
+        audit: impl FnOnce(),
+    ) -> anyhow::Result<PathBuf> {
         std::fs::create_dir_all(&self.root)?;
         let path = self.root.join("inbox.md");
         // R-215 语义不变 + D-368:改用记忆树锁——读-拼接-写回整体持锁,并发 append
-        // 各读各的再各自写回时后写者不会覆盖先写者(note 无痕丢失);同时树锁与
-        // bash 围栏窗口互斥,窗口内 memory_note 落盘不被围栏误回滚。
-        let _lock = self.tree_lock()?;
+        // 各读各的再各自写回时后写者不会覆盖先写者(note 无痕丢失)。临界区只罩住
+        // 内容事务及其围栏归因日志;SQLite 生命周期审计与 inbox 内容互不构成原子
+        // 不变量,必须在释放树锁后执行。否则 12 个并发写者会把冷 CI 的数据库打开
+        // 成本串进同一把锁,末尾写者等待超过 3s(D-604)。
+        let tree_lock = self.tree_lock()?;
         let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| "# Memory Inbox\n".into());
         let refs_line = {
             let refs: Vec<&str> = refs
@@ -208,17 +233,8 @@ impl MemoryStore {
         ));
         crate::atomic_file::write_atomic(&path, &text)?;
         self.record_inbox_write_log(&path, text.as_bytes());
-        super::record_memory_lifecycle_event(
-            self.project_root.as_deref(),
-            "memory_note_queued",
-            None,
-            &[],
-            refs.first().map(String::as_str),
-            refs,
-            "note_queued",
-            None,
-            Some("inbox"),
-        );
+        drop(tree_lock);
+        audit();
         Ok(path)
     }
 
@@ -264,7 +280,7 @@ impl MemoryStore {
     pub fn discard_note(&self, fingerprint: &str) -> anyhow::Result<bool> {
         // R-215 语义不变 + D-368:改用记忆树锁——与 append_note/clear_inbox 共用
         // 同一把锁,锁内读-改-写回,不会把并发 append 的内容当旧快照覆盖掉;同时
-        // 树锁与 bash 围栏窗口互斥。
+        // 树锁与 bash 围栏收口共享锁互斥。
         let _lock = self.tree_lock()?;
         let text = self.read_inbox();
         if !text.contains(fingerprint) {
@@ -395,5 +411,41 @@ mod tests {
             .is_none());
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(&dir2).ok();
+    }
+
+    /// D-604 回归:生命周期审计可能因 state.db 写锁等待数秒,但 inbox 内容已经原子
+    /// 落盘并记入围栏写日志后,这段等待不得继续占用 memory 树锁。否则其它
+    /// memory_note 会在统一 3s 预算内形成锁车队并随机失败。
+    #[test]
+    fn 慢生命周期审计不占用memory树锁() {
+        let dir = temp_memory("slow-lifecycle-audit");
+        let store = std::sync::Arc::new(MemoryStore::project(&dir));
+        let (audit_started_tx, audit_started_rx) = std::sync::mpsc::channel();
+        let (audit_release_tx, audit_release_rx) = std::sync::mpsc::channel();
+        let writer_store = store.clone();
+        let writer = std::thread::spawn(move || {
+            writer_store.append_note_with_audit("慢审计测试", "", "fact", &[], || {
+                audit_started_tx.send(()).unwrap();
+                audit_release_rx.recv().unwrap();
+            })
+        });
+
+        audit_started_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("内容事务后应进入生命周期审计");
+        let tree_lock = crate::atomic_file::try_lock_exclusive(
+            &crate::memory::project_memory_root(&dir),
+            std::time::Duration::from_millis(500),
+        )
+        .unwrap();
+        audit_release_tx.send(()).unwrap();
+        writer.join().unwrap().unwrap();
+        assert!(
+            tree_lock.is_some(),
+            "内容已落盘后,慢 SQLite 审计不得继续占用 memory 树锁"
+        );
+        drop(tree_lock);
+        assert_eq!(store.pending_notes(), 1);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

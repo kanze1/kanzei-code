@@ -164,10 +164,9 @@ impl MemoryStore {
     /// D-368:记忆树互斥锁(跨进程 + 跨线程)。锁目标 = 记忆根目录本身,锁文件 =
     /// 同目录 `<root>.lock`(project scope = `.kanzei/memory.lock`)。
     ///
-    /// bash 围栏(kanzei-tools managed.rs `acquire_managed_locks`)在命令窗口内持同一
-    /// 把锁——窗口内并发 memory 写入(条目/INDEX.md/inbox.md/voided-ids.md/归档搬移/
-    /// index.db 重建)被挡到窗口外落盘,不被围栏误回滚;超过预算(默认 3s)则写者明确
-    /// 报错,绝不假成功(验收②)。
+    /// bash 围栏收口(kanzei-tools managed.rs `acquire_managed_locks`)短暂取同一目标的
+    /// 共享锁——确保 after 快照不会读到 memory 写入(条目/INDEX.md/inbox.md/
+    /// voided-ids.md/归档搬移/index.db 重建)的中间态;超过预算(默认 3s)明确报错。
     ///
     /// 为什么锁目录而不是逐文件:动态条目文件(M-xxx.md、inbox.md)创建前无法预锁,
     /// 锁整树一劳永逸;写操作毫秒级,持有窗口极短。锁文件落在 `.kanzei/`(非托管根,
@@ -677,8 +676,7 @@ impl MemoryStore {
         entry: &MemoryEntry,
         existing_path: Option<&Path>,
     ) -> anyhow::Result<()> {
-        // D-368:所有条目落盘统一持记忆树锁——围栏窗口内并发写入等锁、窗口结束落盘,
-        // 不被误回滚;超过预算则明确报错。
+        // D-368:所有条目落盘统一持记忆树锁,并与围栏收口共享锁互斥;超预算明确报错。
         let _tree_lock = self.tree_lock()?;
         std::fs::create_dir_all(&self.root)?;
         let path = match existing_path {
@@ -810,8 +808,8 @@ impl MemoryStore {
     /// 重建全部派生物:INDEX.md 与 FTS 索引。任何写操作后调用;损坏时可手动全量重建。
     /// R-165 批3:先归档失效条目,再以归档后的集合重建(主目录只含 active/candidate)。
     pub fn refresh_derived(&self) -> anyhow::Result<()> {
-        // D-368:派生物重建(归档搬移 + INDEX.md + FTS index.db)整体持记忆树锁——
-        // 一次重建对围栏窗口原子可见,窗口内并发写者等锁、窗口结束才落盘。
+        // D-368:派生物重建(归档搬移 + INDEX.md + FTS index.db)整体持记忆树锁,
+        // 并与围栏收口共享锁互斥,让 after 快照只看到完整终态。
         let _tree_lock = self.tree_lock()?;
         let _archived = self.archive_dead();
         let entries = self.load_all();
