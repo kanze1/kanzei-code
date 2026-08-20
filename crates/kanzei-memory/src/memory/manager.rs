@@ -941,12 +941,12 @@ mod tests {
         // R-216:指纹必须来自来源 note(inbox)才放行——fixture 先注入来源 note,
         // 再 memory_add 携带同指纹(测 merge 守恒闸,而非指纹闸本身)。
         store
-            .append_note("合并守恒测试来源", "[fp:abc]", "fact", &[])
+            .append_note("合并守恒测试来源", "[fp:abc] [fp:def]", "fact", &[])
             .unwrap();
-        // 建两条可合并的记忆(同 fingerprint 才能过保守闸;守恒闸在保守闸之前)。
+        // 建两条可合并的记忆;confirmed=true 绕过保守闸,本测试只验证守恒闸。
         for (title, desc, body) in [
             ("合并守恒测试主", "钩子主", "内容 [fp:abc]"),
-            ("合并守恒测试副", "钩子副", "重复内容 [fp:abc]"),
+            ("合并守恒测试副", "钩子副", "重复内容 [fp:def]"),
         ] {
             let out = MemoryAddTool
                 .execute(
@@ -975,7 +975,7 @@ mod tests {
         let out = MemoryMergeTool
             .execute(
                 json!({"scope": "project", "primary": "M-001", "duplicates": ["M-002"],
-                       "confirmed": false}),
+                       "confirmed": true}),
                 &ctx,
             )
             .await;

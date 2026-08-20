@@ -7821,3 +7821,16 @@
 - observed_head: 1a46d6f9475295f2d66f65c423872db47bae68d2
 - observed_worktree_hash: fnv1a64:36f8e004e211eabe
 - recorded_at: 1787259181740
+
+## D-634 R-308 B1 插入锚点残留导致 admission/store 代码块重复 [fixed] (medium)
+- 复现: 来源：self-found。查看 R-308 B1 未提交 diff 时，admission.rs 的 find_duplicate 锚点残留重复注释，store.rs 的语义探测锚点残留旧调用与多余闭合块。
+- 影响: kanzei-memory 当前源码无法保证编译，B1 定向测试不能运行；若直接提交会把语法/结构损坏带入主分支。
+- 标签: 后端
+- 现状: 由上一轮 B1 插入操作引入，待以精确替换恢复唯一函数声明和 add 代码块后验证。
+- 验收: 清除重复注释/多余闭合块；cargo fmt --all 与 cargo test -p kanzei-memory 通过；R-308 B1 同指纹测试可运行。
+- refs: R-308
+- 优先级: P1
+- 进展: D-634 已修复并收口：①重复注释/残留函数声明已清除，唯一实现为 `crates/kanzei-memory/src/memory/admission.rs:147-179`；②store add 的多余调用/闭合块已清除，结构化指纹门禁位于 `crates/kanzei-memory/src/memory/store.rs:281-310`；③`cargo fmt --all` 与 `cargo test -p kanzei-memory` 通过，T-1786922726605 为 161 passed、0 failed；④B1 真实写路径回归 `crates/kanzei-memory/src/memory/store.rs:1240-1288` 与策略测试 `admission.rs:384-399` 均通过。
+- observed_head: 8057a4dbca21a2768cadf43ab787a5f0c6c67d09
+- observed_worktree_hash: fnv1a64:8c4fa1603366e7cd
+- recorded_at: 1787259559199

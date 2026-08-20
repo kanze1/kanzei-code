@@ -8982,3 +8982,16 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-618
 - 收尾: 1787259149
 - 源码指纹: v2 crates/kanzei-tools/src/git.rs@ae9516de7736,crates/kanzei-tools/src/git/finalize.rs@eb10e621ecc3,crates/kanzei-tools/src/git/plan.rs@f6a412f74a4d,crates/kanzei-tools/src/git/tool.rs@e1a67035f4b5,crates/kanzei-tools/src/test_record.rs@d1a7e66cfe45
+
+## T-1786922726604 cargo fmt --all + cargo test -p kanzei-memory (R-308 B1 初次基线) [failed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 摘要: B1 初次基线 157 passed, 2 failed：既有 merge fixture 依赖相同 fingerprint，触发新同指纹拒绝；已调整 fixture 语义。
+- 收尾: 1787259527
+- 源码指纹: v2 crates/kanzei-memory/src/memory/admission.rs@1db6489acf73,crates/kanzei-memory/src/memory/manager.rs@2f1e2480c603,crates/kanzei-memory/src/memory/store.rs@9dc837b6f5a0
+
+## T-1786922726605 cargo fmt --all + cargo test -p kanzei-memory (R-308 B1) [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 时长: 8.4s
+- 摘要: R-308 B1：161 passed, 0 failed, 0 ignored；同指纹判重单测、新增 write-path 回归及现有 merge/manager/index/lifecycle suite 全通过。
+- 收尾: 1787259531
+- 源码指纹: v2 crates/kanzei-memory/src/memory/admission.rs@1db6489acf73,crates/kanzei-memory/src/memory/manager.rs@2f1e2480c603,crates/kanzei-memory/src/memory/store.rs@9dc837b6f5a0

@@ -126,6 +126,24 @@ impl MemoryAdmission {
         Ok(())
     }
 
+    /// 同指纹判重:同 scope 内 active/candidate 共享同一失败指纹时,无论标题/category
+    /// 是否变化都返回既有条目。指纹是失败信号的主键,允许重复落盘会把一次复发扩成
+    /// 多条候选并破坏后续 recurrence 计数；deprecated/invalid 已不在 load_all 范围。
+    pub(crate) fn find_fingerprint_conflict<'a>(
+        entries: &'a [(PathBuf, MemoryEntry)],
+        fingerprints: &[String],
+    ) -> Option<&'a MemoryEntry> {
+        entries
+            .iter()
+            .filter(|(_, entry)| entry.status == "active" || entry.status == "candidate")
+            .find(|(_, entry)| {
+                entry
+                    .fingerprint()
+                    .is_some_and(|existing| fingerprints.iter().any(|fp| fp == &existing))
+            })
+            .map(|(_, entry)| entry)
+    }
+
     /// 精确 + 近似标题判重(不可被 force 绕过):
     /// - 一字不差(normalize 后)即 Duplicate;
     /// - 切词包含度 ≥ TITLE_DUP_THRESHOLD 且绝对量 ≥ TITLE_DUP_MIN_COMMON 也算重复;
@@ -360,6 +378,24 @@ mod tests {
         .is_err());
         // 无指纹体不查。
         assert!(MemoryAdmission::check_fingerprint("无指纹", "", std::iter::empty()).is_ok());
+    }
+
+    #[test]
+    fn 同指纹判重只命中_active_candidate() {
+        let mut active = entry("active", "fact", "主条目", None);
+        active.body = "正文 [fp:edit|not found]".into();
+        let mut candidate = entry("candidate", "fact", "候选条目", None);
+        candidate.body = "候选 [fp:other]".into();
+        let mut deprecated = entry("deprecated", "fact", "旧条目", None);
+        deprecated.body = "旧正文 [fp:edit|not found]".into();
+        let entries = pack(vec![active, candidate, deprecated]);
+        let hit =
+            MemoryAdmission::find_fingerprint_conflict(&entries, &["[fp:edit|not found]".into()]);
+        assert_eq!(hit.map(|entry| entry.title.as_str()), Some("主条目"));
+        assert!(
+            MemoryAdmission::find_fingerprint_conflict(&entries, &["[fp:missing]".into()])
+                .is_none()
+        );
     }
 
     #[test]

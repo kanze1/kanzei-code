@@ -213,7 +213,7 @@
 - recorded_at: 1787173976915
 - 对账: 2026-08-20 发版 build-39cd402f 后 B1/B2 进入运行态;R-306/R-293 停车已改写「解除条件:」语法为首批真实消费者。批3 时顺带把「解除条件:」写入约定补进 conventions 停车纪律,让循环新写停车默认带机器可判条件
 
-## R-308 记忆冗余治理与晋升门槛机械化:同指纹聚类合并、candidate 单轨化、复发阈值硬执行 [todo]
+## R-308 记忆冗余治理与晋升门槛机械化:同指纹聚类合并、candidate 单轨化、复发阈值硬执行 [doing]
 - refs: D-567 D-568 R-293 R-235
 - 内容: 批1 同指纹聚类合并:按 [fp:...] 指纹与标题相似度机械聚类,重复簇合并为单条(保最完整正文,合并复发计数),归档被并条目;批2 晋升门槛机械化:复发阈值(如第 2 次才建 candidate、第 N 次+修复证据才 active)由写入方硬执行而非提示词约定,低于阈值的 note 只进 inbox 不落盘;批3 candidate 单轨化:candidate 要么进 INDEX 带标记要么不进检索,消除「索引看不见、检索跑得出」;批4 global 域处置:74 条 candidate 走一次批量复核(晋升/合并/清退),global 域接入 recall 遥测
 - 复杂度: 中
@@ -222,6 +222,12 @@
 - 边界: 不动 R-293 的 F(m) 漏斗与效应量框架;不动 R-235 已拍板的 28 条存量豁免;合并动作走 M-059 SOP 归档不裸删
 - 验收: ①顶层条目数≈实质主题数(勘察口径复查冗余率<15%);②同指纹重复写入被机械拒绝并有定向测试;③candidate 可见性单轨有断言;④global 域 74 条处置留痕且 recall 遥测非零;⑤INDEX 行与源文件 description 一致性核对通过(与 D-568 对齐)
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-308(unblocks=0)
+- 批次: 1/4
+- 进展: B1 已完成并验证：`admission.rs:132` 新增 find_fingerprint_conflict，仅命中 active/candidate；`store.rs:297-307` 在 add 写入侧同时检查 project/global，同指纹即返回 Duplicate，force 也不能绕过；`admission.rs:384` 与 `store.rs:1240` 定向测试覆盖策略和真实写路径；既有 merge fixture 在 `manager.rs:944-978`、`store.rs:2282-2298` 明确区分守恒闸与 legacy 存量。验证 T-1786922726605：161 passed, 0 failed。下一步 B2：复核 recurrence_counts、MemoryLifecycle.should_promote 与 manager consolidation，机械化低于复发阈值不落 candidate。
+- observed_head: 8057a4dbca21a2768cadf43ab787a5f0c6c67d09
+- observed_worktree_hash: fnv1a64:8c4fa1603366e7cd
+- recorded_at: 1787259558818
 
 ## R-309 门禁矩阵整合:按改动路径裁剪 verify、globals 免手工同步、脆性门禁加固 [todo]
 - refs: D-510 D-555 D-539 D-540 D-458 R-300

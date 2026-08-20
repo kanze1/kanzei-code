@@ -294,6 +294,19 @@ impl MemoryStore {
                 fps
             };
             MemoryAdmission::check_fingerprint(&text, &inbox, existing_fps.into_iter())?;
+            let incoming_fps = super::fp_markers(&text);
+            if let Some(existing) =
+                MemoryAdmission::find_fingerprint_conflict(&entries, &incoming_fps)
+            {
+                return Ok(AddOutcome::Duplicate(existing.clone()));
+            }
+            if let Some(global) = MemoryStore::global() {
+                if let Some(existing) =
+                    MemoryAdmission::find_fingerprint_conflict(&global.load_all(), &incoming_fps)
+                {
+                    return Ok(AddOutcome::Duplicate(existing.clone()));
+                }
+            }
         }
         // 语义探测下沉:Uncertain(有 FTS 命中但非精确)即拒并返回候选(force 跳过)。
         if !force {
@@ -1219,6 +1232,50 @@ mod tests {
         let index = std::fs::read_to_string(store.root.join("INDEX.md")).unwrap();
         assert!(index.contains("M-001 [fact] CRLF 是 edit 未命中主因 — 换行符问题必读"));
         assert!(index.contains("M-002 [sop]"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-308 B1:同一失败指纹即使改标题、改 category 并 force 也不能重复落盘。
+    #[test]
+    fn add_rejects_existing_fingerprint_even_with_force() {
+        let (dir, store) = temp_store();
+        store
+            .append_note(
+                "edit 未命中来源",
+                "失败指纹 [fp:edit|not found]",
+                "fact",
+                &[],
+            )
+            .unwrap();
+        let first = store
+            .add(
+                "fact",
+                "首次记忆",
+                "编辑失败时必读",
+                "正文 [fp:edit|not found]",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        let AddOutcome::Added(first) = first else {
+            panic!("首条指纹记忆应成功写入");
+        };
+        let duplicate = store
+            .add(
+                "sop",
+                "改标题的重复记忆",
+                "编辑失败的新钩子",
+                "修复建议 [fp:edit|not found]",
+                "user",
+                &[],
+                None,
+                true,
+            )
+            .unwrap();
+        assert!(matches!(duplicate, AddOutcome::Duplicate(entry) if entry.id == first.id));
+        assert_eq!(store.load_all().len(), 1);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -2212,7 +2269,7 @@ mod tests {
                 "fact",
                 "同坑第三个角度",
                 "钩子丁",
-                "补充 [fp:edit|not found]",
+                "补充内容",
                 "user",
                 &[],
                 None,
@@ -2222,6 +2279,19 @@ mod tests {
         let AddOutcome::Added(d) = d else {
             panic!("expected Added")
         };
+        // 既有 legacy 条目可能在去重门禁上线前已带同一指纹；用 update 构造该存量
+        // 场景，再验证 merge 的共享指纹保守闸，而不是绕过新的 add 门禁。
+        store
+            .update(
+                &d.id,
+                None,
+                None,
+                Some("补充 [fp:edit|not found]"),
+                None,
+                None,
+                false,
+            )
+            .unwrap();
         let merged = store
             .merge(&c.id, std::slice::from_ref(&d.id), None, None, None, false)
             .unwrap();
