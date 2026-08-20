@@ -32,21 +32,6 @@
 - 批次: 2/2
 - 停车: 历史121目录逐目录manifest无法从当前文件系统重建；代码与真实并行构建已完成，暂让位下一条可执行缺陷；恢复人:agent，恢复条件:找到历史清单或重新产生可逐目录审计的存量窗口
 
-## D-567 记忆 inbox 消化 10 进 0 出:manager run made no inbox progress,96 条积压 [fixing] (high)
-- refs: D-409
-- 复杂度: 中
-- 复现: .kanzei/memory/inbox.checkpoint.json(updated_at_ms=1787169243689,2026-08-20 03:54):batch_id=inbox-1787169204456,status=failed,input_notes=10,success_notes=0,failure_reason=manager run made no inbox progress,pending_after=96。inbox.md 现存 96 个 note 块(106KB,08-18~08-19 产生,79% 为 bash 指纹)
-- 影响: inbox 完全不消化,积压只增不减;D-409 修的是整箱塞爆(分批已生效,本次确实只喂 10 条),这次是 manager 消化端零产出,属新故障模式;记忆写入管道断裂,新知识无法晋升
-- 标签: 后端
-- 验收: ①定位 manager run 零进展根因(模型调用失败/discard 销账失败/门禁拒绝)并修复,失败原因可观测不再只有一句 no progress;②真实重跑一批消化,success_notes>0 且 pending 下降;③96 条积压清空或按同指纹聚类批量处置留痕;④连败告警:连续 N 批 status=failed 主动上报而非静默重试
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-567(unblocks=0)
-- 进展: 提交 2eb90830 已落地。显式重建 `target\debug\kz.exe` 后再次真实运行：T-1786922726535，构建成功，真实 manager 入口 600000ms 未收口；本次输出未再出现 schema 400，checkpoint 留在 `status=processing,input_notes=10,pending_after=43,success_notes=0`，因此 schema 根因已被实际入口绕过，但最终批次仍未收口。下一步：用不启动交互 agent 的直接 consolidation 调用或缩短真实 prompt，取得最终 success_notes/pending_after；不能以 processing 状态核销验收②。
-- observed_head: 2eb90830a789544b746871a9d77966c8a3b4fd8f
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787194918914
-- 阻塞: 
-
 ## D-568 记忆 INDEX 描述串号污染:M-014/M-015 描述抄错条目,毒化 FTS 检索 [open] (medium)
 - 复杂度: 小
 - 复现: .kanzei/memory/INDEX.md:M-014 标题「HTML 静态文案必须登记进资源表」但描述整段是 M-009 的「edit 报 old_string not found 时必读…」;M-015 标题「SSE 流内 context overflow」描述却是 M-029 的「处理 bash git 拦截…结构化工具显式 stage」。index.db 的 memory_fts 索引 description 字段,错配描述使这两条在错误查询下被召回

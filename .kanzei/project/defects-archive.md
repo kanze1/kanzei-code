@@ -7110,3 +7110,18 @@
 - observed_head: 53649708b734af71bae6f400a9d5d43a2fedefcf
 - observed_worktree_hash: fnv1a64:b2f7876088bd753c
 - recorded_at: 1787190785615
+
+## D-567 记忆 inbox 消化 10 进 0 出:manager run made no inbox progress,96 条积压 [fixed] (high)
+- refs: D-409
+- 复杂度: 中
+- 复现: .kanzei/memory/inbox.checkpoint.json(updated_at_ms=1787169243689,2026-08-20 03:54):batch_id=inbox-1787169204456,status=failed,input_notes=10,success_notes=0,failure_reason=manager run made no inbox progress,pending_after=96。inbox.md 现存 96 个 note 块(106KB,08-18~08-19 产生,79% 为 bash 指纹)
+- 影响: inbox 完全不消化,积压只增不减;D-409 修的是整箱塞爆(分批已生效,本次确实只喂 10 条),这次是 manager 消化端零产出,属新故障模式;记忆写入管道断裂,新知识无法晋升
+- 标签: 后端
+- 验收: ①定位 manager run 零进展根因(模型调用失败/discard 销账失败/门禁拒绝)并修复,失败原因可观测不再只有一句 no progress;②真实重跑一批消化,success_notes>0 且 pending 下降;③96 条积压清空或按同指纹聚类批量处置留痕;④连败告警:连续 N 批 status=failed 主动上报而非静默重试
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-567(unblocks=0)
+- 进展: 验收逐项对账：①已定位并修复 manager schema 根因：crates/kanzei-memory/src/memory/manager.rs:445-475 将 memory_inbox_clear 输入改为真实 object，并在 :623-628 断言 schema type/object；crates/kanzei-tools/src/memory_consolidation.rs:352-414 保留 provider/manager 原始失败原因，失败不再只显示 no progress。T-1786922736533：manager 10 passed + consolidation 2 passed。②真实重跑已成功：T-1786922736536，命令 `target\debug\kz.exe run --no-subagents --project-root <project> "整理一批 inbox 记忆并完成逐条销账。"`；真实输出 `memory inbox: 43 -> 0 pending`，最终 checkpoint `.kanzei/memory/inbox.checkpoint.json:3-10` 为 status=completed、success_notes=7、pending_after=0、failure_reason=null。③积压已清空并留批次审计：T-1786922736536 的真实输出列出 4 个批次 `completed/partial/completed/completed`；`.kanzei/memory/inbox.checkpoint.json:3-10` 记录最终 input_notes=7、input_bytes=6640、pending_after=0；`.kanzei/memory/inbox.md` 当前无待处理 note 块。④连续失败告警已落地：crates/kanzei-memory/src/memory/inbox.rs:29-37 持久化 consecutive_failures；crates/kanzei-tools/src/memory_consolidation.rs:17、308-346、448-486 达到 3 批报告 ALERT，成功批次归零；T-1786922736533 定向回归通过。
+- observed_head: 2eb90830a789544b746871a9d77966c8a3b4fd8f
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787195242403
+- 阻塞: 

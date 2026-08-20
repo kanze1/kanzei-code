@@ -8470,3 +8470,9 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 显式重建 target/debug/kz.exe 成功，但真实入口在 600000ms 内未收口；schema 400 未在本次输出出现，checkpoint 留在 processing，未取得最终 success_notes。
 - 关联: D-567
 - 收尾: 1787194905
+
+## T-1786922726536 D-567 真实 manager inbox 成功重跑 [passed]
+- 命令: target\debug\kz.exe run --no-subagents --project-root (Get-Location).Path "整理一批 inbox 记忆并完成逐条销账。"
+- 摘要: 真实 manager 成功：输出 memory inbox 43 -> 0 pending，4 个批次 completed/partial/completed/completed；最终 checkpoint completed，success_notes=7，pending_after=0，failure_reason=null；inbox.md 无待处理 note 块。
+- 关联: D-567
+- 收尾: 1787195207
