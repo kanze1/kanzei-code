@@ -32,10 +32,10 @@
 - 验收: ①词表和 JSON 契约有 schema/单测;②同一 memory promote/research verify/voice state 事实可重放且不重复副作用;③后台会话事件不驱动当前会话动画;④text delta 压缩后长回复无事件风暴;⑤重连从持久事实恢复状态,不依赖错过的表现事件。
 - 批次: 3/4
 - 状态: todo
-- 进展: B3 已实现，待提交：`crates/kanzei-app/ui/01-core.js:61-147` 先按 session_id/topic_id/entity_id 归并事实 store，event_id 幂等去重；`01-core.js:100-117` 对同项目 memory/research fact 刷新对应工作台；`01-core.js:136-146` 仅活动 session 分发神经流表现，后台 session 隔离；`01-core.js:149-155` 完成 snake_case 体验事件适配。`scripts/ui-runtime-smoke.mjs:1375-1448` 新增 store、幂等、工作台刷新、后台隔离和当前 session 分发断言；`scripts/ui-lint-globals.json` 已同步。证据：`T-1786922726590` 六条前端冒烟全部通过。D-613 已 fixed。下一步：暂存明确文件并以 `R-284 B3` 提交，随后进入 B4 高频 delta 合并、未知事件诊断与重连恢复。
-- observed_head: 0808bfc87fb64d5caa9090aaf79bbfe110453e05
-- observed_worktree_hash: fnv1a64:2737cbb74081f7a9
-- recorded_at: 1787245658535
+- 进展: B3 已实现并提交 `1cf1bffc`：`crates/kanzei-app/ui/01-core.js:61-147` 先按 session_id/topic_id/entity_id 归并事实 store，event_id 幂等去重；`01-core.js:100-117` 对同项目 memory/research fact 刷新对应工作台；`01-core.js:136-146` 仅活动 session 分发神经流表现，后台 session 隔离；`01-core.js:149-155` 完成 snake_case 体验事件适配。`scripts/ui-runtime-smoke.mjs:1375-1448` 新增 store、幂等、工作台刷新、后台隔离和当前 session 分发断言；`scripts/ui-lint-globals.json` 已同步。证据：`T-1786922726590` 六条前端冒烟全部通过；`T-1786922726591` cargo test -p kanzei-app，231 passed。D-613 已 fixed。下一步进入 B4：高频 delta 合并、未知事件诊断与重连恢复。
+- observed_head: 1cf1bffc30a252a6f8a010a74898f5e961f60d45
+- observed_worktree_hash: fnv1a64:abf42289ad631ab3
+- recorded_at: 1787245785490
 - 批次表: B1 契约与事件包络：snake_case、持久事实/瞬时表现/high-frequency delta、归属字段和 schema；B2 后端生产者：memory/research/voice 事件接线与真实持久事实映射；B3 前端归并：按 session/topic/memory 归属入 store，再分发动画/音频/工作台；B4 压缩与恢复：delta 合并、未知事件诊断、重连回放和跨会话回归。
 
 ## R-285 金色神经流:主对话与记忆层的真实事件驱动动画 [doing]
