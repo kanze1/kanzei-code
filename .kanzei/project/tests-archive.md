@@ -8974,3 +8974,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-617 D-633
 - 收尾: 1787258328
 - 源码指纹: v2 crates/kanzei-tools/src/git.rs@a1ddeaf541c6,crates/kanzei-tools/src/git/finalize.rs@ada9547081d7,crates/kanzei-tools/src/git/plan.rs@5e19b6de69f6,crates/kanzei-tools/src/git/tool.rs@fa56adaf3c9e
+
+## T-1786922726603 cargo fmt --all + cargo test -p kanzei-tools [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-tools
+- 时长: 35.8s
+- 摘要: 422 passed, 0 failed, 1 ignored；D-618 三个 request manifest/stage 回归覆盖 test_record 增量治理元数据、foreign 拒绝、pending 恢复与 commit 清理，既有 finalize/manual Git 门禁均通过。
+- 关联: D-618
+- 收尾: 1787259149
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@ae9516de7736,crates/kanzei-tools/src/git/finalize.rs@eb10e621ecc3,crates/kanzei-tools/src/git/plan.rs@f6a412f74a4d,crates/kanzei-tools/src/git/tool.rs@e1a67035f4b5,crates/kanzei-tools/src/test_record.rs@d1a7e66cfe45

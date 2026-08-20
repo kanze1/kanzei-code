@@ -6,6 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 use kanzei_harness::{ToolCtx, ToolOutput};
+use serde::{Deserialize, Serialize};
 
 mod commands;
 pub(crate) use commands::{run_git, run_git_owned};
@@ -41,6 +42,83 @@ async fn staged_paths(cwd: &Path) -> Result<Vec<String>, String> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StageRequest {
+    token: String,
+    paths: Vec<String>,
+}
+
+fn stage_manifest_path(cwd: &Path) -> Result<std::path::PathBuf, String> {
+    let marker = cwd.join(".git");
+    let git_dir = if marker.is_dir() {
+        marker
+    } else {
+        let text = std::fs::read_to_string(&marker)
+            .map_err(|e| format!("cannot read .git worktree pointer: {e}"))?;
+        let raw = text
+            .strip_prefix("gitdir:")
+            .map(str::trim)
+            .ok_or("invalid .git worktree pointer")?;
+        let path = std::path::PathBuf::from(raw);
+        if path.is_absolute() {
+            path
+        } else {
+            cwd.join(path)
+        }
+    };
+    let key_path = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+    let mut hasher = DefaultHasher::new();
+    key_path.to_string_lossy().hash(&mut hasher);
+    Ok(git_dir.join(format!(
+        "kanzei-stage-request-{:016x}.json",
+        hasher.finish()
+    )))
+}
+
+fn load_stage_request(cwd: &Path) -> Result<Option<(std::path::PathBuf, StageRequest)>, String> {
+    let path = stage_manifest_path(cwd)?;
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read stage request manifest: {e}"))?;
+    let request = serde_json::from_str(&text)
+        .map_err(|e| format!("invalid stage request manifest {}: {e}", path.display()))?;
+    Ok(Some((path, request)))
+}
+
+fn write_stage_request(path: &Path, request: &StageRequest) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(request)
+        .map_err(|e| format!("serialize stage request: {e}"))?;
+    crate::atomic_file::write_atomic(path, &text).map_err(|e| e.to_string())
+}
+
+fn remove_stage_request(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("cannot remove stage request manifest: {error}")),
+    }
+}
+
+fn new_stage_token(cwd: &Path) -> String {
+    let mut hasher = DefaultHasher::new();
+    cwd.to_string_lossy().hash(&mut hasher);
+    std::process::id().hash(&mut hasher);
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default()
+        .hash(&mut hasher);
+    format!("stage-{:016x}", hasher.finish())
+}
+
+fn union_paths(existing: &[String], requested: &[String]) -> Vec<String> {
+    let mut paths: BTreeSet<String> = existing.iter().cloned().collect();
+    paths.extend(requested.iter().cloned());
+    paths.into_iter().collect()
 }
 
 async fn staged_state(cwd: &Path) -> Result<(String, String, Vec<String>), String> {
@@ -319,7 +397,12 @@ fn unendorsed_paths(record: &str, current: &str) -> Vec<String> {
 // 旧同步版 staged_paths_sync 已随 diff 文本指纹一起退役:v2 指纹从
 // `diff --cached --raw -z` 一次拿到路径与 blob,不再需要单独列路径。
 
-async fn stage(project_root: &Path, cwd: &Path, raw_files: &[String]) -> ToolOutput {
+async fn stage(
+    project_root: &Path,
+    cwd: &Path,
+    raw_files: &[String],
+    requested_token: Option<&str>,
+) -> ToolOutput {
     let files = match normalize_files(cwd, raw_files, true) {
         Ok(files) => files,
         Err(error) => return ToolOutput::error(error),
@@ -331,23 +414,69 @@ async fn stage(project_root: &Path, cwd: &Path, raw_files: &[String]) -> ToolOut
     if !plan.unsafe_files.is_empty() || !plan.missing_evidence.is_empty() {
         return plan.blocker("stage");
     }
-    let requested: BTreeSet<&str> = files.iter().map(String::as_str).collect();
+
     let existing = match staged_paths(cwd).await {
         Ok(paths) => paths,
         Err(error) => return ToolOutput::error(error),
     };
-    let foreign: Vec<String> = existing
-        .into_iter()
-        .filter(|path| !requested.contains(path.as_str()))
-        .collect();
-    if !foreign.is_empty() {
-        return ToolOutput::error(format!(
-            "REFUSING to stage: the index already contains paths outside this request: {}. Commit or unstage them deliberately first.",
-            foreign.join(", ")
-        ));
+    let loaded = match load_stage_request(cwd) {
+        Ok(request) => request,
+        Err(error) => return ToolOutput::error(error),
+    };
+    let (manifest_path, token, prior_scope) = match loaded {
+        Some((path, request)) => {
+            if let Some(requested) = requested_token.filter(|value| !value.trim().is_empty()) {
+                if requested != request.token {
+                    return ToolOutput::error(format!(
+                        "REFUSING to stage: request token `{requested}` does not match active request `{}`.",
+                        request.token
+                    ));
+                }
+            }
+            let foreign: Vec<String> = existing
+                .iter()
+                .filter(|path| !request.paths.contains(path))
+                .cloned()
+                .collect();
+            if !foreign.is_empty() {
+                return ToolOutput::error(format!(
+                    "REFUSING to stage: the index contains paths outside active request `{}`: {}. Commit or unstage them deliberately first.",
+                    request.token,
+                    foreign.join(", ")
+                ));
+            }
+            (path, request.token, request.paths)
+        }
+        None => {
+            if !existing.is_empty() {
+                return ToolOutput::error(format!(
+                    "REFUSING to stage: the index already contains paths outside this request: {}. Commit or unstage them deliberately first.",
+                    existing.join(", ")
+                ));
+            }
+            let path = match stage_manifest_path(cwd) {
+                Ok(path) => path,
+                Err(error) => return ToolOutput::error(error),
+            };
+            let token = requested_token
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| new_stage_token(cwd));
+            (path, token, Vec::new())
+        }
+    };
+
+    let scope = union_paths(&prior_scope, &files);
+    let pending = StageRequest {
+        token: token.clone(),
+        paths: scope.clone(),
+    };
+    if let Err(error) = write_stage_request(&manifest_path, &pending) {
+        return ToolOutput::error(format!("[stage] cannot persist request manifest: {error}"));
     }
+
     let mut args = vec!["add".to_string(), "--".into()];
-    args.extend(files);
+    args.extend(files.clone());
     if let Err(error) = run_git_owned(cwd, &args).await {
         return ToolOutput::error(error);
     }
@@ -358,14 +487,32 @@ async fn stage(project_root: &Path, cwd: &Path, raw_files: &[String]) -> ToolOut
     if paths.is_empty() {
         return ToolOutput::error("nothing is staged after this request".to_string());
     }
+    let unexpected: Vec<String> = paths
+        .iter()
+        .filter(|path| !scope.contains(path))
+        .cloned()
+        .collect();
+    if !unexpected.is_empty() {
+        return ToolOutput::error(format!(
+            "REFUSING to stage: the index changed during this request and contains out-of-scope paths: {}.",
+            unexpected.join(", ")
+        ));
+    }
+    if let Err(error) = write_stage_request(
+        &manifest_path,
+        &StageRequest {
+            token: token.clone(),
+            paths: paths.clone(),
+        },
+    ) {
+        return ToolOutput::error(format!("[stage] cannot finalize request manifest: {error}"));
+    }
     // D-263:暂存成功后对照工作区,把「本次请求之外的未暂存改动」点名写进返回。
-    // 自举提交只该包含本轮显式列出的文件;工作区里若还有别的改动(他人/并发线/
-    // 未纳入本次提交的存量),不静默吞掉也不静默跳过,而是明确可见,由调用方决定
-    // 是否后续处理。这是对「git add -A 式整区暂存」的机械防线的一部分。
     let unstaged = unstaged_changes(cwd).await.unwrap_or_default();
     let mut base = format!(
-        "staged {} file(s): {}\nstaged_hash: {hash}\nReview with `git diff` using staged=true, then commit with this exact expected_hash.",
-        paths.len(), paths.join(", ")
+        "stage_request: {token}\nstaged {} file(s): {}\nstaged_hash: {hash}\nReview with `git diff` using staged=true, then commit with this exact expected_hash.",
+        paths.len(),
+        paths.join(", ")
     );
     if !unstaged.is_empty() {
         base.push_str(&format!(
@@ -900,6 +1047,18 @@ async fn commit_with_gate_state(
     if let Err(error) = run_git_owned(cwd, &["commit".into(), "-m".into(), message]).await {
         return ToolOutput::error(error);
     }
+    let cleanup_note = match load_stage_request(cwd) {
+        Ok(Some((path, _))) => match remove_stage_request(&path) {
+            Ok(()) => String::new(),
+            Err(error) => {
+                format!("\nWarning: committed but request manifest cleanup failed: {error}")
+            }
+        },
+        Ok(None) => String::new(),
+        Err(error) => {
+            format!("\nWarning: committed but request manifest could not be read: {error}")
+        }
+    };
     match run_git(
         cwd,
         &["show", "--stat", "--no-color", "--format=%h %s", "HEAD"],
@@ -907,7 +1066,7 @@ async fn commit_with_gate_state(
     .await
     {
         Ok(stat) => ToolOutput::ok(format!(
-            "committed verified staged set ({current_hash})\n{stat}"
+            "committed verified staged set ({current_hash}){cleanup_note}\n{stat}"
         )),
         Err(error) => {
             ToolOutput::error(format!("commit succeeded but verification failed: {error}"))
@@ -1021,6 +1180,7 @@ async fn merge_ff(cwd: &Path, from: Option<String>, into: Option<String>) -> Too
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_record::TEST_RUNS_REL;
     use kanzei_harness::Tool;
 
     /// R-227 验收①:tracker diff 出现 `T-<数字>xxx` 占位符即拒;真实 10 位 ID 放行;
@@ -1590,6 +1750,176 @@ prunable gitdir file points to non-existent location
             "点名的文件清单应覆盖他人改动: {}",
             staged.content
         );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// D-618 ①②④:同一 request 的 test_record 治理元数据可以增量纳入,不必整批 restage。
+    #[tokio::test]
+    async fn stage_request_adds_test_record_metadata_without_restage() {
+        let root = temp_repo("d618-incremental");
+        commit_file(&root, "base.txt", "base\n", "初始提交");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(root.join("src.txt"), "source\n").unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        let first = GitTool
+            .execute(
+                serde_json::json!({"action":"stage","files":["src.txt"]}),
+                &ctx,
+            )
+            .await;
+        assert!(!first.is_error, "{}", first.content);
+        let first_hash = first
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("staged_hash: "))
+            .unwrap()
+            .to_string();
+        let token = first
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("stage_request: "))
+            .unwrap()
+            .to_string();
+
+        crate::test_record::record_test_run(
+            &root,
+            None,
+            "D-618 metadata",
+            "passed",
+            Some("cargo test -p kanzei-tools"),
+            Some("request metadata"),
+            None,
+        )
+        .unwrap();
+        let second = GitTool
+            .execute(
+                serde_json::json!({
+                    "action":"stage",
+                    "files":[".kanzei/project/tests.md",".kanzei/project/tests-archive.md"],
+                    "stage_request": token
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!second.is_error, "{}", second.content);
+        let second_hash = second
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("staged_hash: "))
+            .unwrap()
+            .to_string();
+        assert_ne!(first_hash, second_hash, "治理元数据必须进入 CAS hash");
+        let staged = staged_paths(&root).await.unwrap();
+        assert!(staged.contains(&"src.txt".to_string()));
+        assert!(staged.contains(&TEST_RUNS_REL.to_string()));
+        assert!(staged.contains(&crate::test_record::TEST_RUNS_ARCHIVE_REL.to_string()));
+
+        let committed = GitTool
+            .execute(
+                serde_json::json!({
+                    "action":"commit",
+                    "message":"D-618 metadata",
+                    "expected_hash": second_hash
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!committed.is_error, "{}", committed.content);
+        assert!(!stage_manifest_path(&root).unwrap().exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// D-618 ②:request 外的预暂存文件即使已有 request manifest 也必须拒绝。
+    #[tokio::test]
+    async fn stage_request_rejects_foreign_pre_staged_path() {
+        let root = temp_repo("d618-foreign");
+        commit_file(&root, "base.txt", "base\n", "初始提交");
+        std::fs::write(root.join("mine.txt"), "mine\n").unwrap();
+        std::fs::write(root.join("foreign.txt"), "foreign\n").unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        let first = GitTool
+            .execute(
+                serde_json::json!({"action":"stage","files":["mine.txt"]}),
+                &ctx,
+            )
+            .await;
+        assert!(!first.is_error, "{}", first.content);
+        run_git_owned(&root, &["add".into(), "--".into(), "foreign.txt".into()])
+            .await
+            .unwrap();
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(root.join(TEST_RUNS_REL), "# Test Runs\n").unwrap();
+        std::fs::write(
+            root.join(crate::test_record::TEST_RUNS_ARCHIVE_REL),
+            "# Archive\n",
+        )
+        .unwrap();
+        let rejected = GitTool
+            .execute(
+                serde_json::json!({
+                    "action":"stage",
+                    "files":[TEST_RUNS_REL, crate::test_record::TEST_RUNS_ARCHIVE_REL]
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(rejected.is_error, "foreign 暂存必须拒绝");
+        assert!(
+            rejected.content.contains("foreign.txt"),
+            "{}",
+            rejected.content
+        );
+        assert!(staged_paths(&root)
+            .await
+            .unwrap()
+            .contains(&"foreign.txt".to_string()));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// D-618 ③:写入 pending manifest 后中断,下一次 stage 可恢复同一 token,并在 commit
+    /// 成功后删除 manifest,避免恢复状态污染下一次 request。
+    #[tokio::test]
+    async fn stage_request_recovers_pending_manifest_and_cleans_after_commit() {
+        let root = temp_repo("d618-recovery");
+        commit_file(&root, "base.txt", "base\n", "初始提交");
+        std::fs::write(root.join("recover.txt"), "recover\n").unwrap();
+        let manifest_path = stage_manifest_path(&root).unwrap();
+        write_stage_request(
+            &manifest_path,
+            &StageRequest {
+                token: "stage-recovery-token".into(),
+                paths: vec!["recover.txt".into()],
+            },
+        )
+        .unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        let recovered = GitTool
+            .execute(
+                serde_json::json!({
+                    "action":"stage",
+                    "files":["recover.txt"],
+                    "stage_request":"stage-recovery-token"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!recovered.is_error, "{}", recovered.content);
+        assert!(recovered
+            .content
+            .contains("stage_request: stage-recovery-token"));
+        assert!(manifest_path.exists());
         std::fs::remove_dir_all(root).ok();
     }
 

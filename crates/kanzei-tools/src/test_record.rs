@@ -31,6 +31,9 @@ pub use coverage::{
 pub const TEST_RUNS_REL: &str = ".kanzei/project/tests.md";
 /// 测试记录归档(相对项目根)。
 pub const TEST_RUNS_ARCHIVE_REL: &str = ".kanzei/project/tests-archive.md";
+/// 终态 test_record 可能改写的完整治理元数据集合。提交事务用它把两份记录
+/// 当作同一 request 的受管路径，而不是把 archive 误当成 foreign staged file。
+pub const TEST_RUNS_GOVERNANCE_PATHS: &[&str] = &[TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL];
 
 const VALID_STATUS: &[&str] = &["running", "passed", "failed", "skipped"];
 

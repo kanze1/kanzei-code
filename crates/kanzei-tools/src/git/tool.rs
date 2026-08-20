@@ -15,11 +15,14 @@ use super::{build_commit_plan, commit, merge_ff, stage};
 
 #[derive(Deserialize, JsonSchema)]
 struct GitInput {
-    /// status | diff | log | stage | commit | merge_ff
+    /// status | diff | log | stage | commit | commit_plan | preflight | merge_ff | finalize
     action: String,
     /// diff/log 按路径过滤;stage 的逐文件相对路径(禁止目录和通配符)。
     #[serde(default)]
     files: Vec<String>,
+    /// stage request token;省略时首次 stage 自动创建,恢复同一 request 时可复用返回的 token。
+    #[serde(default)]
+    stage_request: Option<String>,
     /// diff=true 查看暂存区，否则查看工作树。
     #[serde(default)]
     staged: bool,
@@ -175,7 +178,15 @@ async fn git_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> 
                 Err(error) => ToolOutput::error(error),
             }
         }
-        "stage" => stage(&ctx.project_root, &ctx.cwd, &input.files).await,
+        "stage" => {
+            stage(
+                &ctx.project_root,
+                &ctx.cwd,
+                &input.files,
+                input.stage_request.as_deref(),
+            )
+            .await
+        },
         "commit" => commit(ctx, input.message, input.expected_hash).await,
         "commit_plan" | "preflight" => match build_commit_plan(&ctx.project_root, &ctx.cwd, &input.files).await {
             Ok(plan) => plan.render(),

@@ -7806,3 +7806,18 @@
 - observed_head: 0f566a2d3d87382fbe0e27cf6e8a3993093c8c78
 - observed_worktree_hash: fnv1a64:aee47da2a2e1119c
 - recorded_at: 1787258346638
+
+## D-618 test_record 改 archive 后增量 stage 被已有 request 暂存集拒绝 [fixed] (high)
+- refs: D-334 R-309 D-398
+- 复现: 高频链 test→test_record→stage→commit 中，test_record 会改 tests-archive.md 并使原 staged hash/集合变化；Agent 只想增量 stage 更新后的 archive 时，git stage 返回 REFUSING to stage: the index already contains paths outside this request，只能重新暂存整批文件；R-284 B3/B4 各出现一次。
+- 影响: 测试证据写入反过来制造暂存抖动、CAS 失效与机械返工；Agent 需要重复 status/diff/restage，长程任务的治理往返显著增加。
+- 来源: 2026-08-21 用户提供运行复盘；证据范围为当前可见日志尾段。
+- 标签: 流程
+- 现状: D-334 finalize 已定义 record 先于 stage 的一次性事务，但手工/恢复路径仍允许在已有 request 暂存集上追加受管 archive 时被“request 外文件”规则误判；test_record 的可预期元数据写入没有成为 stage 协议的一等组成。
+- 验收: ①test_record 将可能修改 tests.md/tests-archive.md 的集合结构化暴露给提交事务：`crates/kanzei-tools/src/test_record.rs:36` 的 TEST_RUNS_GOVERNANCE_PATHS，`git/plan.rs` 消费该集合，`git.rs:470-475` 将 request scope 持久化；`T-1786922726603` 的 test_record 增量流程通过。②已有同一 request 暂存文件时可增量纳入受管治理元数据、无关预暂存仍拒绝：`git.rs:426-467` 校验 token/manifest scope，`git.rs:469-529` 增量 stage，`git.rs:1838-1888` foreign 回归；`T-1786922726603` 通过。③源码与治理元数据共同进入 staged hash/CAS，且中断可恢复：`git.rs:483-515` 重新计算完整 staged_state，`git.rs:98-103`/`1890-1935` 覆盖 manifest 清理与 pending recovery，`git.rs:1815-1832` 断言治理元数据改变 hash 并 commit 清理；`T-1786922726603` 通过。④B3/B4 等价流程无需整批 restage且 finalize/手工一致：`git.rs:1758-1833` 真实执行 test_record→stage 源码→stage 治理元数据→commit，`finalize.rs:116-152` 复用同一 stage/commit 协议，既有 finalize 回归与本次测试均通过（`T-1786922726603`）。
+- 优先级: P0
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-618(unblocks=0)
+- 进展: D-618 已完成：`test_record.rs:36` 结构化暴露 tests.md/tests-archive.md 受管路径；`git.rs:47-121` 新增按 worktree 隔离的 request manifest/token、pending 恢复和原子写入；`git.rs:400-529` 让同一 request 增量 stage 治理元数据并拒绝 manifest 外暂存；`git.rs:1047-1064` commit 成功清理 manifest；`finalize.rs:116-152` 与手工 stage/commit 共享同一协议。`T-1786922726603`：422 passed，0 failed，1 ignored。
+- observed_head: 1a46d6f9475295f2d66f65c423872db47bae68d2
+- observed_worktree_hash: fnv1a64:36f8e004e211eabe
+- recorded_at: 1787259181740

@@ -12,9 +12,7 @@ use super::{
     is_source_path, is_tracker_path, normalize_files, run_git, source_crates,
     source_endorsement_fingerprint_for_paths,
 };
-use crate::test_record::{
-    last_passed, last_passed_for_fingerprint, TEST_RUNS_ARCHIVE_REL, TEST_RUNS_REL,
-};
+use crate::test_record::{last_passed, last_passed_for_fingerprint, TEST_RUNS_GOVERNANCE_PATHS};
 use kanzei_harness::ToolOutput;
 
 #[derive(Debug, Clone, Serialize)]
@@ -127,7 +125,11 @@ fn plan_for_files(
         .cloned()
         .collect();
     if !required_evidence.is_empty() {
-        governance_metadata.extend([TEST_RUNS_REL.to_string(), TEST_RUNS_ARCHIVE_REL.to_string()]);
+        governance_metadata.extend(
+            TEST_RUNS_GOVERNANCE_PATHS
+                .iter()
+                .map(|path| (*path).to_string()),
+        );
     }
     governance_metadata.sort();
     governance_metadata.dedup();
@@ -171,6 +173,7 @@ async fn changed_paths(cwd: &Path) -> Result<BTreeSet<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_record::TEST_RUNS_REL;
     use std::process::Command;
 
     fn temp_repo(tag: &str) -> std::path::PathBuf {

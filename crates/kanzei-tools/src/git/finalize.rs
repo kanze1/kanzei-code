@@ -113,7 +113,7 @@ pub(crate) async fn finalize(
         return ToolOutput::error(format!("[finalize] test_record failed: {error}"));
     }
 
-    let staged = stage(&ctx.project_root, cwd, &files).await;
+    let staged = stage(&ctx.project_root, cwd, &files, None).await;
     let ToolOutput {
         content,
         is_error,
