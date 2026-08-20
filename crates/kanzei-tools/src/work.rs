@@ -1246,11 +1246,11 @@ const UNIT_ACTIONS: &[&str] = &[
     "supersede",
 ];
 
-fn required<'a>(value: &'a Option<String>, name: &str) -> Result<&'a str, ToolOutput> {
+fn required<'a>(value: &'a Option<String>, name: &str) -> Result<&'a str, String> {
     value
         .as_deref()
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| ToolOutput::error(format!("`{name}` is required")))
+        .ok_or_else(|| format!("`{name}` is required"))
 }
 
 fn pretty(value: impl Serialize) -> ToolOutput {
@@ -1260,9 +1260,9 @@ fn pretty(value: impl Serialize) -> ToolOutput {
     }
 }
 
-fn open_work_store(project_root: &std::path::Path) -> Result<SessionStore, ToolOutput> {
+fn open_work_store(project_root: &std::path::Path) -> Result<SessionStore, String> {
     SessionStore::open(&kanzei_core::project_state_path(project_root))
-        .map_err(|error| ToolOutput::error(format!("cannot open work unit store: {error}")))
+        .map_err(|error| format!("cannot open work unit store: {error}"))
 }
 
 fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutput> {
@@ -1275,7 +1275,7 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
     if input.action == "list_units" {
         let store = match open_work_store(&ctx.project_root) {
             Ok(store) => store,
-            Err(output) => return Some(output),
+            Err(error) => return Some(ToolOutput::error(error)),
         };
         return Some(
             match store.list_work_units(input.requirement_id.as_deref()) {
@@ -1287,11 +1287,11 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
     if input.action == "get_unit" {
         let id = match required(&input.id, "id") {
             Ok(id) => id,
-            Err(output) => return Some(output),
+            Err(error) => return Some(ToolOutput::error(error)),
         };
         let store = match open_work_store(&ctx.project_root) {
             Ok(store) => store,
-            Err(output) => return Some(output),
+            Err(error) => return Some(ToolOutput::error(error)),
         };
         return Some(
             match (store.get_work_unit(id), store.list_work_events(id)) {
@@ -1315,17 +1315,17 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
     };
     let store = match open_work_store(&ctx.project_root) {
         Ok(store) => store,
-        Err(output) => return Some(output),
+        Err(error) => return Some(ToolOutput::error(error)),
     };
 
     if input.action == "create_unit" {
         let requirement_id = match required(&input.requirement_id, "requirement_id") {
             Ok(id) => id,
-            Err(output) => return Some(output),
+            Err(error) => return Some(ToolOutput::error(error)),
         };
         let objective = match required(&input.objective, "objective") {
             Ok(value) => value,
-            Err(output) => return Some(output),
+            Err(error) => return Some(ToolOutput::error(error)),
         };
         let req_store = DocStore::open(&ctx.project_root, &REQUIREMENTS);
         let requirements = match req_store.load() {
@@ -1387,7 +1387,7 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
 
     let id = match required(&input.id, "id") {
         Ok(id) => id,
-        Err(output) => return Some(output),
+        Err(error) => return Some(ToolOutput::error(error)),
     };
     let current = match store.get_work_unit(id) {
         Ok(Some(unit)) => unit,
@@ -1544,11 +1544,11 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
         "checkpoint" => {
             let summary = match required(&input.summary, "summary") {
                 Ok(value) => value,
-                Err(output) => return Some(output),
+                Err(error) => return Some(ToolOutput::error(error)),
             };
             let next_action = match required(&input.next_action, "next_action") {
                 Ok(value) => value,
-                Err(output) => return Some(output),
+                Err(error) => return Some(ToolOutput::error(error)),
             };
             let observation = repo_observation(&ctx.cwd);
             kanzei_core::WorkFact::Checkpointed {
@@ -1571,13 +1571,13 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
         "block" => kanzei_core::WorkFact::Blocked {
             reason: match required(&input.reason, "reason") {
                 Ok(value) => value.into(),
-                Err(output) => return Some(output),
+                Err(error) => return Some(ToolOutput::error(error)),
             },
         },
         "unblock" => kanzei_core::WorkFact::Unblocked {
             reason: match required(&input.reason, "reason") {
                 Ok(value) => value.into(),
-                Err(output) => return Some(output),
+                Err(error) => return Some(ToolOutput::error(error)),
             },
         },
         "verify" => kanzei_core::WorkFact::VerificationStarted,
@@ -1585,7 +1585,7 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
             evidence: kanzei_core::WorkEvidence {
                 criterion: match required(&input.criterion, "criterion") {
                     Ok(value) => value.into(),
-                    Err(output) => return Some(output),
+                    Err(error) => return Some(ToolOutput::error(error)),
                 },
                 evidence_refs: input.evidence_refs.clone(),
             },
@@ -1594,7 +1594,7 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
         "supersede" => kanzei_core::WorkFact::Superseded {
             reason: match required(&input.reason, "reason") {
                 Ok(value) => value.into(),
-                Err(output) => return Some(output),
+                Err(error) => return Some(ToolOutput::error(error)),
             },
         },
         _ => return Some(ToolOutput::error("unknown work unit action")),

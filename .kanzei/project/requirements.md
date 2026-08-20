@@ -342,4 +342,4 @@
 - 取活依据: user-direct:用户本轮明确要求由外部 Codex 完成底座并发版，避免依赖旧需求系统自举
 - 取得线: kanzei/work-unit-foundation
 - 批次: 3/4
-- 进展: B1 ba13b53a、B2 c5217523+b0b96c97、B3 db1e808e、文档 c3222943 已提交。发布前并行线审计发现并修复「带 reason 的 Work Unit override/takeover 可绕过本线已有 Resume」漏洞；新增 `work_unit接管不能绕过本线已有resume` 回归，确认 owner 不被改写。定向测试与 UI 门禁全绿；B4 仍需外部 PowerShell 跑全量 verify，随后合并与发版。
+- 进展: B1 ba13b53a、B2 c5217523+b0b96c97、B3 db1e808e、文档 c3222943、接管门禁 d382bbfc 已提交。发布前短时 Clippy `-D warnings` 抓到并修复事件 ID 连续 replace、Work Tool 大 Err 类型以及 dev 既有 needless borrow；core+tools Clippy 全绿，25 项 work 回归全绿。B4 仍需外部 PowerShell 跑 workspace 全量 verify，随后合并与发版。

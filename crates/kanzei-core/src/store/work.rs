@@ -512,7 +512,7 @@ fn append_event_tx(
         |row| row.get(0),
     )?;
     let created_at = now_ms();
-    let safe_unit_id = unit_id.replace('/', "_").replace('\\', "_");
+    let safe_unit_id = unit_id.replace(['/', '\\'], "_");
     let event_id = format!("work_evt_{safe_unit_id}_{sequence}");
     tx.execute(
         "INSERT INTO work_events
