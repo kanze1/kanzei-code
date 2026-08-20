@@ -56,11 +56,9 @@ pub struct KanzeiConfig {
     pub embeddings: EmbeddingsSection,
 }
 
-/// 运行时上限与阈值已迁至 `config/limits.rs`;向量检索通道配置已迁至 `config/embeddings.rs`。
-
-/// 验证与提交节奏(Cadence + 四档位枚举)已迁至 `config/cadence.rs`。
-
-/// 模型角色与 provider 配置已迁至 `config/models.rs`。
+// 运行时上限与阈值已迁至 `config/limits.rs`;向量检索通道配置已迁至 `config/embeddings.rs`。
+// 验证与提交节奏(Cadence + 四档位枚举)已迁至 `config/cadence.rs`。
+// 模型角色与 provider 配置已迁至 `config/models.rs`。
 
 #[cfg(test)]
 mod context_limit_tests {

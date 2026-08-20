@@ -115,14 +115,13 @@ pub(crate) enum TeXBackend {
     Missing,
 }
 
-/// 在 PATH 里找可执行文件(Windows 下补 .exe)。
 #[cfg(test)]
 thread_local! {
     /// D-584 测试注入缝:当前线程的 PATH 替身。测试模拟"无后端"不得清进程级
     /// PATH——cargo test 同进程多线程,清 PATH 会让并行测试按名拉起 git 等
     /// 可执行时误报 not found;线程级覆写只影响本测试线程。
     static PATH_OVERRIDE: std::cell::RefCell<Option<String>> =
-        std::cell::RefCell::new(None);
+        const { std::cell::RefCell::new(None) };
 }
 
 fn lookup_path() -> String {
@@ -133,6 +132,7 @@ fn lookup_path() -> String {
     std::env::var("PATH").unwrap_or_default()
 }
 
+/// 在 PATH 里找可执行文件(Windows 下补 .exe)。
 fn which_in_path(name: &str) -> Option<String> {
     let path = lookup_path();
     for dir in path.split(';') {

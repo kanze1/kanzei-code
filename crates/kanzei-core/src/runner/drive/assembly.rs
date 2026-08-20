@@ -40,25 +40,6 @@ fn append_subagent_spec(specs: &mut Vec<ToolSpec>, subagents_enabled: bool) {
     }
 }
 
-#[cfg(test)]
-mod subagent_tool_surface_tests {
-    use super::*;
-
-    #[test]
-    fn disabled_subagents_do_not_add_task_to_tool_specs() {
-        let mut specs = Vec::new();
-        append_subagent_spec(&mut specs, false);
-        assert!(specs.iter().all(|spec| spec.name != "task"));
-    }
-
-    #[test]
-    fn enabled_subagents_add_task_to_tool_specs() {
-        let mut specs = Vec::new();
-        append_subagent_spec(&mut specs, true);
-        assert!(specs.iter().any(|spec| spec.name == "task"));
-    }
-}
-
 /// R-202 批6:run_once_with_parts 装配段——工具物化、task 注册、system 分块
 /// (agent/baseline/记忆提示)、context_report 账单、prior 清洗与用户消息装载、
 /// 以及全部轮级运行态(usage/停止文本/会话批准/压缩计数/校准/冗余门禁/召回)
@@ -220,5 +201,24 @@ pub(super) fn assemble_run_once<'a>(
         redundancy,
         recall,
         step,
+    }
+}
+
+#[cfg(test)]
+mod subagent_tool_surface_tests {
+    use super::*;
+
+    #[test]
+    fn disabled_subagents_do_not_add_task_to_tool_specs() {
+        let mut specs = Vec::new();
+        append_subagent_spec(&mut specs, false);
+        assert!(specs.iter().all(|spec| spec.name != "task"));
+    }
+
+    #[test]
+    fn enabled_subagents_add_task_to_tool_specs() {
+        let mut specs = Vec::new();
+        append_subagent_spec(&mut specs, true);
+        assert!(specs.iter().any(|spec| spec.name == "task"));
     }
 }
