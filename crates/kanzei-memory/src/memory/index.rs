@@ -368,10 +368,12 @@ impl SqliteMemoryIndex {
         }
         let mut scored: Vec<(f64, String)> = Vec::new();
         for (id, blob) in rows {
-            // BLOB → f32 数组;长度不符(损坏/跨版本)跳过。
-            let vec = blob
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            // BLOB → f32 数组;长度不符(损坏/跨版本)跳过。余数与 chunks_exact
+            // 同语义丢弃(clippy 1.98 起要求常量块长走 as_chunks)。
+            let (chunks, _remainder) = blob.as_chunks::<4>();
+            let vec = chunks
+                .iter()
+                .map(|c| f32::from_le_bytes(*c))
                 .collect::<Vec<_>>();
             if vec.len() != query_vec.len() {
                 continue;

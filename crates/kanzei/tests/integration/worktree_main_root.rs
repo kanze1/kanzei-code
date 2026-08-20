@@ -39,7 +39,8 @@ fn sha256_hex(data: &[u8]) -> String {
     }
     message.extend_from_slice(&bit_len.to_be_bytes());
 
-    for block in message.chunks_exact(64) {
+    let (blocks, _remainder) = message.as_chunks::<64>();
+    for block in blocks {
         let mut w = [0_u32; 64];
         for (index, slot) in w.iter_mut().enumerate().take(16) {
             let base = index * 4;

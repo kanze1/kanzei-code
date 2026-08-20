@@ -38,7 +38,8 @@ pub(crate) type CaptureError = String;
 /// 合成残留同样是没抓到。真实界面即使极简也远不止 8 种颜色。
 pub(crate) fn looks_blank(rgba: &[u8]) -> bool {
     let mut seen: Vec<[u8; 3]> = Vec::with_capacity(9);
-    for pixel in rgba.chunks_exact(4) {
+    let (pixels, _remainder) = rgba.as_chunks::<4>();
+    for pixel in pixels {
         let key = [pixel[0], pixel[1], pixel[2]];
         if !seen.contains(&key) {
             seen.push(key);
@@ -185,7 +186,7 @@ pub(crate) fn capture_window(hwnd: isize) -> Result<(Vec<u8>, u32, u32), Capture
 
         // GDI 给的是 BGRA,PNG 要 RGBA;顺手把 alpha 拉满——BitBlt 出来的 alpha
         // 通道是未定义的,原样写进 PNG 会得到一张全透明的图。
-        for pixel in buffer.chunks_exact_mut(4) {
+        for pixel in buffer.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
             pixel[3] = 255;
         }
@@ -227,7 +228,7 @@ mod tests {
     fn blank_detection_tolerates_up_to_eight_colors() {
         // 合成残留可能有两三种色块,同样算没抓到;真实界面远不止 8 色。
         let mut buffer = solid(8, 8, [0, 0, 0, 255]);
-        for (index, pixel) in buffer.chunks_exact_mut(4).enumerate().take(5) {
+        for (index, pixel) in buffer.as_chunks_mut::<4>().0.iter_mut().enumerate().take(5) {
             pixel[0] = index as u8 * 10;
         }
         assert!(looks_blank(&buffer), "6 种颜色仍应判为空白");
@@ -236,7 +237,7 @@ mod tests {
     #[test]
     fn real_looking_image_is_not_blank() {
         let mut buffer = solid(32, 32, [0, 0, 0, 255]);
-        for (index, pixel) in buffer.chunks_exact_mut(4).enumerate() {
+        for (index, pixel) in buffer.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             pixel[0] = (index % 251) as u8;
             pixel[1] = (index % 253) as u8;
         }

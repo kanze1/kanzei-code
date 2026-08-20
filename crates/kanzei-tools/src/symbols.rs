@@ -578,7 +578,7 @@ fn scan_symbols(file: &Path) -> Vec<Symbol> {
             }
             if let Some(start) = rest.find("/*") {
                 // 行注释优先:/* 出现在 // 之后则整行是注释。
-                let line_comment = rest.find("//").map_or(usize::MAX, |i| i);
+                let line_comment = rest.find("//").unwrap_or(usize::MAX);
                 if start < line_comment {
                     in_block_comment = true;
                     rest = &rest[start + 2..];
