@@ -7364,3 +7364,18 @@
 - observed_worktree_hash: fnv1a64:a11c219f72b8a8e8
 - recorded_at: 1787235295260
 - 验收对账: ①已完成：识别本 run 创建的 worktree：`cross_tree.rs:205-263` 解析 `git worktree add`、按 `ToolCtx.run_id/process_id` 登记并用 `git worktree list --porcelain` 观察新增/消失；bash 真实调用位于 `bash.rs:304-310`、`:425-433`、`:489-497`；T-1786922726557。②已完成：本 run 删除的临时树从 owner-aware 快照排除且 registry 收口回收，未知/外部删除不进入 registry：`cross_tree.rs:190-203`、`:221-263`；对照测试 `cross_tree.rs:1047-1120`；T-1786922726557。③已完成：D-576 测试断言本 run 删除无报告且外部删除仍含“整树消失”，未改变 quarantine/report-only 路径；`cross_tree.rs:1085-1120`、原收口 `:502-548`；T-1786922726557、T-1786922726558。
+
+## D-578 memory manager 把该判 NOOP 的 inbox note 编造成无关根因 fact 落盘 active [fixed] (medium)
+- refs: D-567 R-308
+- 复杂度: 中
+- 复现: 文章获取器测试项目 .kanzei/memory/M-001(2026-08-19):标题「完成 D-001(fixed)的根因:知乎/大需求拆解流程失效」,正文根因为编造话术(「collaboration_status 环节缺失有效任务分解信号,导致后续 bash→defect→work→files→glob 流程无法正确分支…不可跳过 decompose 步骤」),与 D-001 实际内容(tracker 元数据游离行清理)毫无关系;subject=安装通道 同样无关;inbox note 模板明确写「若是本条目的具体 bug 且无外推价值,判 NOOP 不要产出」,正确动作是 NOOP
+- 影响: 记忆被无中生有的「事实」污染且 status=active 直接进常驻注入索引;NOOP 纪律只有提示词在守,弱模型跑 manager 时编造倾向更强;与 D-567(消化零产出)相反方向——消化端出毒比不出货更糟
+- 来源: 2026-08-20 需求发现实测(文章获取器项目)复核发现
+- 标签: 后端
+- 验收: ①manager 产出 fact 必须带可核验出处,与 refs 条目明显无关的产出(如正文与条目零词汇关联)被机械拒绝或降级 candidate 不进 active;②NOOP/产出/驳回有遥测计数;③文章获取器 M-001 形态成回归用例;④与 R-308 晋升门槛机械化对齐不重复实现
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-578(unblocks=0)
+- 进展: 已完成并提交 `868dfda2`（D-578 修复 memory manager 无关 fact 晋升门禁）。验收逐条对账：① 已完成：`crates/kanzei-memory/src/memory/mod.rs:363-425` 的 `validate_manager_fact_refs` 校验真实 R-/D- refs，`mod.rs:412-414` 复用 `admission::topic_overlap`，`mod.rs:427-458` 要求完整 ASCII 主题词或至少两个 CJK 双字组；`crates/kanzei-memory/src/memory/manager.rs:150-230` 的 `MemoryAddTool::execute` 拒绝无 refs、无关 refs、source 冒充，相关产物只经 `MemoryStore::add` 落 candidate，未绕过 active 晋升；证据 `T-1786922726561`、`868dfda2`。② 已完成：`crates/kanzei-memory/src/memory/store.rs:992-1000` 建 `manager_decisions` schema，`crates/kanzei-memory/src/memory/telemetry.rs:89-119` 的 `record_manager_decision/manager_decision_counts` 记录计数，`crates/kanzei-memory/src/memory/manager.rs:523-585` 的 `MemoryInboxDiscardTool` 记录 noop/produced，`crates/kanzei-memory/src/memory/tools.rs:304-313` 的 `MemoryStatsTool` 消费展示；测试 `manager.rs:1134-1267` 断言 noop、produced、rejected 三类计数；证据 `T-1786922726561`、`868dfda2`。③ 已完成：`crates/kanzei-memory/src/memory/manager.rs:1134-1267` 的 `manager_fact_gate_rejects_m001_shape_and_counts_decisions` 固化文章获取器 M-001 形态，D-001 无关知乎/decompose 根因被拒且断言无 active 污染；证据 `T-1786922726561`、`868dfda2`。④ 已完成：未复制 R-308 晋升逻辑，继续使用 `crates/kanzei-memory/src/memory/mod.rs:412-414` 的既有主题判据与 `crates/kanzei-memory/src/memory/store.rs:promote` 的 candidate/provenance 生命周期；`cargo test -p kanzei-memory` 为 158 passed、0 failed、1 doctest ignored，测试记录 `T-1786922726561`，提交 `868dfda2`。
+- observed_head: 868dfda2387a27eec62aa44514afc94756a10f61
+- observed_worktree_hash: fnv1a64:abf42289ad631ab3
+- recorded_at: 1787237142760
