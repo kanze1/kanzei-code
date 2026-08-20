@@ -766,6 +766,47 @@ impl MemoryStore {
         archived
     }
 
+    /// 检查 INDEX 的每条派生行仍与 Markdown 真源的 description 一致。
+    /// 该断言必须位于写入前，避免生成器未来改动时静默重新引入串号。
+    fn assert_index_matches_entries(
+        index: &str,
+        entries: &[(PathBuf, MemoryEntry)],
+    ) -> anyhow::Result<()> {
+        let active: Vec<&MemoryEntry> = entries
+            .iter()
+            .map(|(_, entry)| entry)
+            .filter(|entry| entry.status == "active")
+            .collect();
+        let mut seen = Vec::new();
+        for line in index.lines().filter(|line| line.starts_with("- ")) {
+            let payload = line.trim_start_matches("- ");
+            let Some((id_part, description)) = payload.split_once(" — ") else {
+                anyhow::bail!("INDEX 行缺少 description 分隔符: {line}");
+            };
+            let Some((id, _rest)) = id_part.split_once(" [") else {
+                anyhow::bail!("INDEX 行缺少 id/category: {line}");
+            };
+            let Some(entry) = active.iter().find(|entry| entry.id == id) else {
+                anyhow::bail!("INDEX 行引用不存在或非 active 条目: {id}");
+            };
+            if entry.description != description {
+                anyhow::bail!(
+                    "INDEX description 与 {id} 源文件不一致: index={description:?}, source={:?}",
+                    entry.description
+                );
+            }
+            seen.push(id);
+        }
+        if seen.len() != active.len()
+            || active
+                .iter()
+                .any(|entry| !seen.contains(&entry.id.as_str()))
+        {
+            anyhow::bail!("INDEX active 条目集合与 Markdown 真源不一致");
+        }
+        Ok(())
+    }
+
     /// 重建全部派生物:INDEX.md 与 FTS 索引。任何写操作后调用;损坏时可手动全量重建。
     /// R-165 批3:先归档失效条目,再以归档后的集合重建(主目录只含 active/candidate)。
     pub fn refresh_derived(&self) -> anyhow::Result<()> {
@@ -790,6 +831,7 @@ impl MemoryStore {
         if candidates > 0 {
             index.push_str(&format!("\n({candidates} candidate 条待验证晋升)\n"));
         }
+        Self::assert_index_matches_entries(&index, &entries)?;
         crate::atomic_file::write_atomic(&self.index_md(), &index)?;
         // R-268:INDEX.md 是围栏可见的托管文件,写后记日志(同 write_entry 口径)。
         if let Some(project_root) = &self.project_root {
@@ -1029,6 +1071,27 @@ mod tests {
             total_ms: 1,
         })
         .unwrap();
+    }
+
+    #[test]
+    fn index_description_guard_rejects_mismatched_source() {
+        let (dir, store) = temp_store();
+        let entry = add(
+            &store,
+            "fact",
+            "INDEX guard title",
+            "INDEX guard — description",
+            "INDEX guard body",
+        );
+        let entries = store.load_all();
+        let valid = format!(
+            "- {} [{}] {} — {}\n",
+            entry.id, entry.category, entry.title, entry.description
+        );
+        assert!(MemoryStore::assert_index_matches_entries(&valid, &entries).is_ok());
+        let invalid = valid.replace("INDEX guard — description", "wrong description");
+        assert!(MemoryStore::assert_index_matches_entries(&invalid, &entries).is_err());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
