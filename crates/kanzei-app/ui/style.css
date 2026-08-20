@@ -1562,6 +1562,25 @@ button.ghost.danger:hover { background: rgba(208, 104, 78, .14); }
 .doc-field { color: var(--dim); white-space: normal; word-break: break-word; margin-top: 2px; }
 .doc-actions { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
 button.mini { font-size: var(--fs-11); padding: 2px 8px; }
+.work-unit-badge {
+  color: var(--dim); border: 1px solid var(--border); border-radius: 10px;
+  padding: 0 6px; font-size: var(--fs-10); white-space: nowrap;
+}
+.work-unit-badge.active, .work-unit-badge.verifying { color: var(--accent); border-color: var(--accent); }
+.work-unit-badge.blocked { color: var(--alert); border-color: var(--alert); }
+.work-unit-list { display: grid; gap: 6px; margin: 6px 0; }
+.work-unit-card {
+  border: 1px solid var(--border-soft); border-left: 3px solid var(--border);
+  border-radius: 5px; padding: 6px 8px; background: var(--panel2);
+}
+.work-unit-card.active, .work-unit-card.verifying { border-left-color: var(--accent); }
+.work-unit-card.blocked { border-left-color: var(--alert); }
+.work-unit-card.done { border-left-color: var(--ok); opacity: .82; }
+.work-unit-head { display: flex; justify-content: space-between; gap: 8px; color: var(--dim); }
+.work-unit-status { font-size: var(--fs-10); text-transform: uppercase; letter-spacing: .04em; }
+.work-unit-objective { margin-top: 3px; color: var(--fg); }
+.work-unit-meta { margin-top: 3px; color: var(--dim); word-break: break-word; }
+.work-unit-meta.blocked { color: var(--alert); }
 
 /* 条目编辑表单:每个字段都要有可见字段名。早期版本只给 aria-label,渲染出来是
    一片无标题输入框(默认 inline-block 还会两两成行像张表),改哪格全靠猜;

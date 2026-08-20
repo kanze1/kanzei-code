@@ -539,6 +539,16 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
       claimBadge.title = `${entry.id} · ${t("取得线")}: ${claimed.owner}${claimed.line?.phase ? ` · ${claimed.line.phase}` : ""}`;
       placeFlag(claimBadge);
     }
+    const workUnits = kind === "req" && Array.isArray(entry.work_units) ? entry.work_units : [];
+    if (workUnits.length) {
+      const terminal = workUnits.filter((unit) => unit.status === "done" || unit.status === "superseded").length;
+      const current = workUnits.find((unit) => ["active", "blocked", "verifying"].includes(unit.status));
+      const unitBadge = document.createElement("span");
+      unitBadge.className = `work-unit-badge${current ? ` ${current.status}` : ""}`;
+      unitBadge.textContent = `W ${terminal}/${workUnits.length}${current ? ` · ${current.status}` : ""}`;
+      unitBadge.title = `${t("执行单元")}: ${workUnits.map((unit) => `${unit.unit_id}[${unit.status}]`).join(" · ")}`;
+      placeFlag(unitBadge);
+    }
     // 复杂度(R-051):侧栏用三格电量图标表达体量，与左侧优先级色带同色并放在最前面。
     const cx = (entry.complexity || "").trim();
     if (["小", "中", "大"].includes(cx)) {
@@ -672,6 +682,49 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
     // 行内不显示需求 ID(R-054),身份收进展开详情——这里必须给全。
     full.textContent = kind === "req" ? `${entry.id} · ${entry.title}` : entry.title;
     detail.appendChild(full);
+    if (workUnits.length) {
+      const section = document.createElement("section");
+      section.className = "work-unit-list";
+      const heading = document.createElement("strong");
+      heading.textContent = t("执行单元");
+      section.appendChild(heading);
+      for (const unit of workUnits) {
+        const card = document.createElement("div");
+        card.className = `work-unit-card ${unit.status}`;
+        const head = document.createElement("div");
+        head.className = "work-unit-head";
+        const identity = document.createElement("code");
+        identity.textContent = unit.unit_id;
+        const status = document.createElement("span");
+        status.className = "work-unit-status";
+        status.textContent = unit.status;
+        head.append(identity, status);
+        const objective = document.createElement("div");
+        objective.className = "work-unit-objective";
+        objective.textContent = unit.objective;
+        card.append(head, objective);
+        if (unit.blocked_reason) {
+          const blockedLine = document.createElement("div");
+          blockedLine.className = "work-unit-meta blocked";
+          blockedLine.textContent = `${t("阻塞原因")}: ${unit.blocked_reason}`;
+          card.appendChild(blockedLine);
+        }
+        if (unit.last_checkpoint?.next_action) {
+          const next = document.createElement("div");
+          next.className = "work-unit-meta";
+          next.textContent = `${t("下一步")}: ${unit.last_checkpoint.next_action}`;
+          card.appendChild(next);
+        }
+        const evidenceCount = Array.isArray(unit.evidence) ? unit.evidence.length : 0;
+        const acceptanceCount = Array.isArray(unit.acceptance) ? unit.acceptance.length : 0;
+        const evidence = document.createElement("div");
+        evidence.className = "work-unit-meta";
+        evidence.textContent = `${t("验收证据")}: ${evidenceCount}/${acceptanceCount}`;
+        card.appendChild(evidence);
+        section.appendChild(card);
+      }
+      detail.appendChild(section);
+    }
     // R-123:字段编辑只在独立文档页。侧栏展开详情因此退回只读呈现,高度显著下降,
     // 回到"浏览与取活"的本职;编辑能力没有丢,在文档页有完整入口。
     // R-123 的「字段编辑只在独立文档页」是针对 req/defect 说的——它们**有**文档页。

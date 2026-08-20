@@ -186,6 +186,53 @@ fn docs_snapshot_exposes_block_reasons_and_scheduler_order() {
 }
 
 #[test]
+fn docs_snapshot_exposes_work_unit_projection() {
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-docs-work-unit-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+    std::fs::write(
+        root.join(".kanzei/project/requirements.md"),
+        "# Requirements\n\n## R-001 长程需求 [todo]\n- 执行模型: work_units_v1\n- 目标: 保持上下文有界\n",
+    )
+    .unwrap();
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+    store
+        .create_work_unit(kanzei_core::WorkUnitSpec {
+            unit_id: "R-001/W1".into(),
+            requirement_id: "R-001".into(),
+            objective: "实现投影".into(),
+            scope: vec!["crates/kanzei-core".into()],
+            dependencies: vec![],
+            acceptance: vec!["快照可见".into()],
+            verification: vec!["cargo test".into()],
+            base_revision: "base".into(),
+        })
+        .unwrap();
+
+    let snapshot = docs_snapshot(root.display().to_string()).unwrap();
+    assert_eq!(snapshot["work_units"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        snapshot["requirements"][0]["execution_model"],
+        "work_units_v1"
+    );
+    assert_eq!(
+        snapshot["requirements"][0]["work_units"][0]["unit_id"],
+        "R-001/W1"
+    );
+    assert_eq!(
+        snapshot["requirements"][0]["work_units"][0]["status"],
+        "ready"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn docs_snapshot缓存依赖并按需加载归档正文() {
     let root = std::env::temp_dir().join(format!(
         "kanzei-docs-cache-{}-{}",
