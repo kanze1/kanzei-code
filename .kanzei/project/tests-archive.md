@@ -8444,3 +8444,23 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-567
 - 收尾: 1787192990
 - 源码指纹: v2 crates/kanzei-memory/src/memory/manager.rs@eb86db7e27bd
+
+## T-1786922726532 D-567 真实 manager inbox 重跑 [failed]
+- 命令: cargo run -p kanzei -- run --project-root (Get-Location).Path "请处理当前项目记忆 inbox 中的一批待整理 note：逐条判断是否应晋升为记忆；若已处理，请按规则逐条销账，不要整箱清空。"
+- 摘要: 真实 manager 入口触发失败：provider 返回 HTTP 429 FreeUsageLimitError；未能获得 success_notes/pending_after 验收证据。连续重试 5 次均为 429。
+- 关联: D-567
+- 收尾: 1787193144
+
+## T-1786922726533 D-567 schema 与连续失败告警定向测试 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory memory::manager::tests; cargo test -p kanzei-tools memory_consolidation
+- 摘要: manager schema 与 consolidation 定向测试通过：10 + 2 passed，0 failed；真实 object schema 断言和失败告警逻辑编译通过。
+- 关联: D-567
+- 收尾: 1787193499
+- 源码指纹: v2 crates/kanzei-memory/src/memory/inbox.rs@b0bb2b5166bd,crates/kanzei-memory/src/memory/manager.rs@682d23b9d332,crates/kanzei-memory/src/memory/store.rs@a304726ffd74,crates/kanzei-tools/src/memory_consolidation.rs@c28aabc74912
+
+## T-1786922726534 D-567 真实 manager inbox 重跑（schema 修复后） [failed]
+- 命令: cargo run -p kanzei -- run --project-root (Get-Location).Path "请处理当前项目记忆 inbox 中的一批待整理 note：逐条判断是否应晋升为记忆；若已处理，请按规则逐条销账，不要整箱清空。"
+- 摘要: 真实入口在 600000ms 内未完成并被终止；过程未形成可接受的 success_notes/pending_after 证据，managed-files 回滚了 index.db。
+- 关联: D-567
+- 收尾: 1787194124
+- 源码指纹: v2 crates/kanzei-memory/src/memory/inbox.rs@b0bb2b5166bd,crates/kanzei-memory/src/memory/manager.rs@682d23b9d332,crates/kanzei-memory/src/memory/store.rs@a304726ffd74,crates/kanzei-tools/src/memory_consolidation.rs@c28aabc74912

@@ -14,6 +14,7 @@ use crate::memory::{consolidation_prompt, InboxCheckpoint, MemoryManagerComponen
 const MAX_BATCH_NOTES: usize = 10;
 const MAX_BATCH_BYTES: usize = 32 * 1024;
 const MAX_BATCH_TOKENS: usize = 8 * 1024;
+const FAILURE_ALERT_THRESHOLD: usize = 3;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ConsolidationBatchReport {
@@ -74,6 +75,7 @@ fn checkpoint(
     success_notes: usize,
     pending_after: usize,
     failure_reason: Option<String>,
+    consecutive_failures: usize,
 ) -> anyhow::Result<()> {
     store.write_inbox_checkpoint(&InboxCheckpoint {
         batch_id: batch_id.to_string(),
@@ -83,6 +85,7 @@ fn checkpoint(
         success_notes,
         pending_after,
         failure_reason,
+        consecutive_failures,
         updated_at_ms: now_ms(),
     })
 }
@@ -270,6 +273,11 @@ pub async fn consolidate_memory_inbox(
         };
         let batch_id = format!("inbox-{}", now_ms());
         let pending_at_start = store.pending_notes();
+        let previous_failures = store
+            .read_inbox_checkpoint()
+            .filter(|checkpoint| checkpoint.status == "failed")
+            .map(|checkpoint| checkpoint.consecutive_failures)
+            .unwrap_or(0);
         let before_entries = store.load_all();
         if let Err(error) = checkpoint(
             &store,
@@ -280,6 +288,7 @@ pub async fn consolidate_memory_inbox(
             0,
             pending_at_start,
             None,
+            previous_failures,
         ) {
             report.stopped_reason = Some(format!("checkpoint write failed: {error}"));
             break;
@@ -299,6 +308,11 @@ pub async fn consolidate_memory_inbox(
             } else {
                 "completed"
             };
+            let failure_streak = if status == "failed" {
+                previous_failures.saturating_add(1)
+            } else {
+                0
+            };
             let checkpoint_error = checkpoint(
                 &store,
                 &batch_id,
@@ -308,6 +322,7 @@ pub async fn consolidate_memory_inbox(
                 success_notes,
                 pending_after,
                 explicit_error.clone(),
+                failure_streak,
             )
             .err()
             .map(|error| format!("checkpoint finalization failed: {error}"));
@@ -323,6 +338,11 @@ pub async fn consolidate_memory_inbox(
                 error: batch_error.clone(),
             });
             report.pending_after = pending_after;
+            if batch_error.is_some() && failure_streak >= FAILURE_ALERT_THRESHOLD {
+                report.stopped_reason = Some(format!(
+                    "ALERT: memory inbox manager failed for {failure_streak} consecutive batches"
+                ));
+            }
             if batch_error.is_some() || pending_after == 0 {
                 if batch_error.is_some() {
                     report.stopped_reason =
@@ -428,6 +448,11 @@ pub async fn consolidate_memory_inbox(
         } else {
             last_error
         };
+        let failure_streak = if status == "failed" {
+            previous_failures.saturating_add(1)
+        } else {
+            0
+        };
         let checkpoint_error = checkpoint(
             &store,
             &batch_id,
@@ -437,6 +462,7 @@ pub async fn consolidate_memory_inbox(
             success_notes,
             pending_after,
             error.clone(),
+            failure_streak,
         )
         .err()
         .map(|write_error| format!("checkpoint finalization failed: {write_error}"));
@@ -452,6 +478,11 @@ pub async fn consolidate_memory_inbox(
             error: batch_error.clone(),
         });
         report.pending_after = pending_after;
+        if batch_error.is_some() && failure_streak >= FAILURE_ALERT_THRESHOLD {
+            report.stopped_reason = Some(format!(
+                "ALERT: memory inbox manager failed for {failure_streak} consecutive batches"
+            ));
+        }
         if batch_error.is_some() || pending_after == 0 {
             if batch_error.is_some() && report.stopped_reason.is_none() {
                 report.stopped_reason = Some("manager batch failed or made no progress".into());

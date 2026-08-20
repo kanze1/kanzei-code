@@ -41,10 +41,11 @@
 - 验收: ①定位 manager run 零进展根因(模型调用失败/discard 销账失败/门禁拒绝)并修复,失败原因可观测不再只有一句 no progress;②真实重跑一批消化,success_notes>0 且 pending 下降;③96 条积压清空或按同指纹聚类批量处置留痕;④连败告警:连续 N 批 status=failed 主动上报而非静默重试
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-567(unblocks=0)
-- 进展: 已定位并修复零进展根因：crates/kanzei-memory/src/memory/manager.rs:445-450 原 `InboxClearInput` unit struct 被 schemars 生成为 `type:null`，provider 因 `memory_inbox_clear` function schema 非 object 返回 HTTP 400；现改为空 object 参数结构并显式保留 `type:object` 语义。T-1786922726531：`cargo test -p kanzei-memory memory::manager::tests`，9 passed、0 failed。下一步：提交 schema 修复，然后真实重跑一批 inbox 消化验证 success_notes>0/pending下降。
-- observed_head: 3adcfd663ccd5736581d107aa09ffa36a3926fd6
-- observed_worktree_hash: fnv1a64:eceff50e18bbf04d
-- recorded_at: 1787193002638
+- 进展: schema 修复与告警逻辑已完成：manager.rs:446-452 将 InboxClearInput 改为带 serde default confirm bool 的 object schema，manager.rs:620-628 增加 schema type/object 回归；memory_consolidation.rs:17、275-289、308-326、448-467 持久化 consecutive_failures，达到 3 批时报告 ALERT。T-1786922726533：kanzei-memory manager 10 passed + kanzei-tools consolidation 2 passed。T-1786922726534：真实 `cargo run -p kanzei -- run --project-root <project> ...` 600000ms 超时，未取得最终 success_notes 证据；但 checkpoint 已从旧 schema 400 进入 `status=processing,input_notes=10,pending_after=42`，证明 schema 400 已消失且真实 manager 开始处理，当前批次仍需最终收口。
+- observed_head: 32db5b4a8f93bf3ba3fdc3979c9ef0f10061efc4
+- observed_worktree_hash: fnv1a64:c66eeb6ed4d1ea68
+- recorded_at: 1787194174603
+- 阻塞: 
 
 ## D-568 记忆 INDEX 描述串号污染:M-014/M-015 描述抄错条目,毒化 FTS 检索 [open] (medium)
 - 复杂度: 小

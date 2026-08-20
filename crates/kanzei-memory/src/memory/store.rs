@@ -2243,6 +2243,7 @@ mod tests {
             success_notes: 1,
             pending_after: 1,
             failure_reason: None,
+            consecutive_failures: 0,
             updated_at_ms: 42,
         };
         store.write_inbox_checkpoint(&checkpoint).unwrap();

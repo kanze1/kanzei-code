@@ -444,9 +444,9 @@ impl Tool for MemoryStaleTool {
 
 #[derive(Deserialize, JsonSchema)]
 struct InboxClearInput {
-    /// 空对象参数：显式保证 provider function schema 为 `type: object`。
-    #[serde(skip)]
-    _unit: Option<()>,
+    /// Explicit object field: provider function schemas must never be `type: null`.
+    #[serde(default)]
+    confirm: bool,
 }
 
 pub struct MemoryInboxClearTool;
@@ -468,7 +468,11 @@ impl Tool for MemoryInboxClearTool {
         serde_json::to_value(schemars::schema_for!(InboxClearInput)).unwrap()
     }
 
-    async fn execute(&self, _input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let _confirm = match serde_json::from_value::<InboxClearInput>(input) {
+            Ok(input) => input.confirm,
+            Err(error) => return ToolOutput::error(format!("invalid clear input: {error}")),
+        };
         let store = MemoryStore::project(&ctx.project_root);
         match store.clear_inbox() {
             Ok(()) => ToolOutput::ok("inbox cleared"),
@@ -613,6 +617,14 @@ mod tests {
         }
         assert!(!names.contains(&"bash"), "manager 不得有 shell");
         assert!(!names.contains(&"write"), "manager 不得有 write");
+    }
+
+    #[test]
+    fn memory_inbox_clear_schema_is_object() {
+        let schema = schemars::schema_for!(InboxClearInput);
+        let value = serde_json::to_value(schema).unwrap();
+        assert_eq!(value["type"], "object");
+        assert_eq!(value["properties"]["confirm"]["type"], "boolean");
     }
 
     #[tokio::test]

@@ -34,6 +34,8 @@ pub struct InboxCheckpoint {
     pub success_notes: usize,
     pub pending_after: usize,
     pub failure_reason: Option<String>,
+    #[serde(default)]
+    pub consecutive_failures: usize,
     pub updated_at_ms: u64,
 }
 
