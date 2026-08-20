@@ -46,12 +46,38 @@ use std::path::{Path, PathBuf};
 /// 主根托管文档的保护由 ManagedSnapshot 独立承担(D-173/D-174),不依赖本模块;
 /// 其它树里的 `.kanzei/` 是分支副本,不是权威真源,漏保护不造成事实丢失。
 const EXCLUDED_TREE_DIRS: &[&str] = &[".kanzei", "target", "node_modules", "dist", ".git"];
+/// 可重建的生成产物路径：仅按完整相对路径排除，不能把所有同名 `schemas` 目录误伤。
+const EXCLUDED_TREE_PATHS: &[&[&str]] = &[&["gen", "schemas"]];
 
 /// D-407:是否为不入保护面的目录名(见 `EXCLUDED_TREE_DIRS`)。
 /// `.git` 一并收在这里:主树的 `.git` 是目录、worktree 的是文件(gitdir: 指针),
 /// 两种形态都靠名字判定,与原先的单独判断等价。
 fn is_excluded_entry(name: &str) -> bool {
     EXCLUDED_TREE_DIRS.contains(&name)
+}
+
+/// 目录名排除之外的路径级豁免。构建生成的 `gen/schemas` 必须按路径匹配，
+/// 否则把任意名为 `schemas` 的源码目录加入全局目录黑名单会扩大保护盲区。
+fn is_excluded_path(tree_root: &Path, path: &Path) -> bool {
+    if path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(is_excluded_entry)
+    {
+        return true;
+    }
+    let Ok(relative) = path.strip_prefix(tree_root) else {
+        return false;
+    };
+    let components = relative
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .collect::<Vec<_>>();
+    EXCLUDED_TREE_PATHS.iter().any(|excluded| {
+        components
+            .windows(excluded.len())
+            .any(|window| window == *excluded)
+    })
 }
 
 /// 单文件镜像上限:超过就只记指纹,能检测但无法回滚(会如实说明)。
@@ -183,13 +209,8 @@ fn collect_tree_files_in(
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
-        // D-407:运行态(.kanzei 活库)与派生产物(target/node_modules/dist)、
-        // git 内部状态一律不入镜像——理由见 EXCLUDED_TREE_DIRS。
-        if path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(is_excluded_entry)
-        {
+        // D-407:运行态与可重建产物不入镜像；gen/schemas 由完整路径级规则排除。
+        if is_excluded_path(tree_root, &path) {
             continue;
         }
         if file_type.is_dir() {
@@ -267,11 +288,7 @@ fn collect_tree_metadata_in(
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
-        if path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(is_excluded_entry)
-        {
+        if is_excluded_path(tree_root, &path) {
             continue;
         }
         if file_type.is_dir() {
@@ -796,6 +813,26 @@ mod tests {
             !root.join("deep.txt").exists(),
             "任何内容都不得被拍到本线树根(平铺垃圾判别)"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn gen_schemas构建产物按路径排除而同名源码目录保留() {
+        let root = git_repo("kz-ct-schema");
+        let b = add_worktree(&root, "line-schema");
+        std::fs::create_dir_all(b.join("gen/schemas")).unwrap();
+        std::fs::create_dir_all(b.join("src/schemas")).unwrap();
+        std::fs::write(b.join("gen/schemas/desktop-schema.json"), "generated\n").unwrap();
+        std::fs::write(b.join("src/schemas/domain.json"), "source\n").unwrap();
+
+        let before = capture_other_trees(&root, &root).expect("快照失败");
+        let mut keys = before.trees.get(&b).expect("B 线应在保护面").keys();
+        assert!(!keys.any(|key| key == "gen/schemas/desktop-schema.json"));
+        assert!(before
+            .trees
+            .get(&b)
+            .unwrap()
+            .contains_key("src/schemas/domain.json"));
         let _ = std::fs::remove_dir_all(&root);
     }
 

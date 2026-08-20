@@ -8369,3 +8369,31 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-293
 - 收尾: 1787190914
 - 源码指纹: v2 crates/kanzei-core/src/replay.rs@5e47a2e9494c,crates/kanzei-memory/src/replay_eval.rs@a3126f10f6ee
+
+## T-1786922726521 D-566 B1 tools 定向测试（首次） [failed]
+- 命令: cargo test -p kanzei-tools cross_tree::tests::gen_schemas构建产物按路径排除而同名源码目录保留 quarantine::tests -- --nocapture
+- 摘要: cargo 参数错误：`cargo test` 仅接受一个 TESTNAME，误传两个过滤器；未进入编译/测试阶段。
+- 关联: D-566
+- 收尾: 1787191268
+- 源码指纹: v2 crates/kanzei-tools/src/cross_tree.rs@c4f5264b84c3,crates/kanzei-tools/src/lib.rs@c23aacd97651,crates/kanzei-tools/src/quarantine.rs@dcbe13b92269
+
+## T-1786922726522 D-566 B1 kanzei-tools 定向测试 [failed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 编译失败：新增回归测试把 BTreeMap::keys() 迭代器绑定为不可变变量，E0596；另有既有 latex_tool unused_doc_comments 警告。
+- 关联: D-566
+- 收尾: 1787191292
+- 源码指纹: v2 crates/kanzei-tools/src/cross_tree.rs@c4f5264b84c3,crates/kanzei-tools/src/lib.rs@c23aacd97651,crates/kanzei-tools/src/quarantine.rs@dcbe13b92269
+
+## T-1786922726523 D-566 B1 kanzei-tools 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 393 passed，0 failed，1 ignored；包含 gen/schemas 路径豁免回归与 quarantine dry-run/实际释放测试。既有 latex_tool unused_doc_comments 警告。
+- 关联: D-566
+- 收尾: 1787191414
+- 源码指纹: v2 crates/kanzei-tools/src/cross_tree.rs@645f27d1b903,crates/kanzei-tools/src/lib.rs@c23aacd97651,crates/kanzei-tools/src/quarantine.rs@dcbe13b92269
+
+## T-1786922726524 D-566 B1 kanzei-tools 格式化后定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 格式化后重跑：393 passed，0 failed，1 ignored；gen/schemas 与 quarantine 核心测试通过。既有 latex_tool unused_doc_comments 警告。
+- 关联: D-566
+- 收尾: 1787191522
+- 源码指纹: v2 crates/kanzei-tools/src/cross_tree.rs@54c083cf396c,crates/kanzei-tools/src/lib.rs@ecb5d53c649a,crates/kanzei-tools/src/quarantine.rs@7b2f970c7fb2

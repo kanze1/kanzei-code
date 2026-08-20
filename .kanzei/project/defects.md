@@ -16,7 +16,7 @@
 - 对账: 2026-08-20 对账:用户已关闭 kzapp 窗口,阻塞解除;剩余动作=重新启动安装位 kzapp 回读持久化 auto state 完成真实重启验收(桌面窗口空闲期执行,CLI 循环亦可承接);其余验收已通过(8f490d92)
 - 停车: 等待用户 kzapp 窗口空闲:剩余验收=重启安装位回读持久化 auto state,当前 PID 51368 为用户使用中进程不可接管;上一窗口期(2026-08-20 03:5x)已用于 R-101 停止 E2。解除人:用户空闲窗口+agent 执行
 
-## D-566 cross-tree 隔离快照无回收且构建产物误报,121 目录 143MB 纯堆积 [open] (medium)
+## D-566 cross-tree 隔离快照无回收且构建产物误报,121 目录 143MB 纯堆积 [fixing] (medium)
 - refs: D-395 D-397 R-306
 - 复杂度: 中
 - 复现: .kanzei/quarantine/ 现存 121 个目录共 143MB(shell-with-log 82、cross-tree 32、bg 7),最早 2026-08-16,无任何回收路径。抽查 cross-tree-1787021081327:内容是 crates/kanzei-app/gen/schemas/desktop-schema.json 与 windows-schema.json——Tauri 构建产物,任一线跑构建即重生成,被越界检测当跨树写入取证;cross-tree-1787060772922 存的是 p16 线自己 R-299 B1 提交(7188ba76)的前置内容,合法自身工作被判越界。08-16 单日 30 次 cross-tree 隔离(两线并行互撞日)
@@ -24,10 +24,12 @@
 - 标签: 流程
 - 验收: ①构建产物路径(gen/schemas 等)进入越界检测豁免清单或按内容指纹放行,有定向测试;②quarantine 提供按日期/类型的清理入口(dry-run+实际释放量),真越界证据可显式保留;③清理后 121 个存量目录处置留痕;④真实并行双线构建实测不再产生 schema 误报
 - 优先级: P2
-- 进展: 2026-08-20 存量处置完成:121 目录 143MB 经用户放行后清空,清单存证 scratchpad/quarantine-manifest-20260820.txt;误报最大来源已随 R-306 B1 修复(collect_tree_metadata 补 D-407 排除清单)。剩余验收:豁免/清理入口代码化(①②④)与真实并行双线实测
-- observed_head: 080db353cc33509398d0746987dccf2b703fe0b1
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787174556151
+- 进展: B1 完成：crates/kanzei-tools/src/cross_tree.rs:48-82 新增 gen/schemas 完整路径级豁免，:214-218 与 :298-300 的内容/mtime 两条扫描路径共用 is_excluded_path；:806-828 新增 gen/schemas 豁免且 src/schemas 保留的回归。新增 crates/kanzei-tools/src/quarantine.rs:1-177，按已知类型+毫秒时间戳扫描，dry-run 统计 eligible_bytes，实际 apply 统计 freed_bytes；未知命名目录进入 preserved_paths，实际清理无筛选条件直接拒绝。B1 定向测试 T-1786922726523：393 passed、0 failed、1 ignored。下一步：B2 接入 `kz quarantine` CLI（默认 dry-run，--apply 必须配类型或日期筛选），补 CLI 调用测试，并核对存量121目录处置留痕与真实双线构建。
+- observed_head: a0bb285e0c845cc70035687f0c151f51d049bc5f
+- observed_worktree_hash: fnv1a64:5790846753d6b1d2
+- recorded_at: 1787191426305
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-566(unblocks=0)
+- 批次: 1/2
 
 ## D-567 记忆 inbox 消化 10 进 0 出:manager run made no inbox progress,96 条积压 [open] (high)
 - refs: D-409

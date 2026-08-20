@@ -31,6 +31,7 @@ mod managed;
 pub mod palette;
 mod plot_tool;
 mod process;
+pub mod quarantine;
 mod question;
 mod read;
 pub mod research_index;
