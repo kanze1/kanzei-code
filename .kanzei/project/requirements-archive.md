@@ -3659,7 +3659,7 @@
 - recorded_at: 1786958400176
 - 批次: 5/5
 - 依赖: D-428
-- 停车: 
+- 停车:
 
 ## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [done]
 - refs: R-221 R-273 R-274 R-276 R-283 R-284 docs/design/research_mode.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
@@ -4041,6 +4041,7 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787191034284
 - 批次: 2/2
+
 ## R-317 长程需求执行底座:Outcome/Work Unit/事件投影/有界上下文与证据关闭 [done]
 - 优先级: P0
 - 复杂度: 大
@@ -4055,3 +4056,39 @@
 - 取得线: kanzei/work-unit-foundation
 - 批次: 4/4
 - 进展: B1 ba13b53a、B2 c5217523+b0b96c97、B3 db1e808e、接管门禁 d382bbfc、发布门禁修复 0f782868/f4533f37/d3873bf1 已完成。最终 `scripts/verify.ps1` 在 d3873bf18c47cd90316b464dc835af3acdc7d085 生成全绿证据（13 项，verification SHA256 f9aad2d678d778ce0d2303057bf0f329b5343c05079a19a1306a69b34b135df3）；dev/main 快进到同一提交。`package.ps1 -Ack 12 -Publish` 构建、静默安装并发布 GitHub Latest Release `build-d3873bf1`；标签精确指向 d3873bf18c47cd90316b464dc835af3acdc7d085。安装器 `kanzei-setup-d3873bf1.exe` 大小 16,339,218 字节，本地产物、GitHub API digest 与重新下载资产三方 SHA256 均为 c250adc7051f326e6c53aa40e27afc138f71a6775e2ad63b1758519aac9950be；本机安装位 `kzapp.exe` 包含 d3873bf1 构建标识，ProductVersion/FileVersion 均为 0.1.0。D-594/D-595 作为全量门禁中发现的真实竞态与环境隔离缺陷已修复归档。
+
+## R-296 Tauri command 与 run 链路测试基座 [done]
+- 内容: kanzei-app 无 tests/ 目录(全仓唯一集成层在 crates/kanzei/tests/integration),104 个 #[tauri::command] 零测试;装配→执行→落库主链 commands/run.rs(604行)、processes/lifecycle.rs(593)、processes/workspace.rs(548)、run/persistence.rs(489)、run/coordinator.rs(424)、run/execution.rs(313)、harness_ext.rs(284) 全部 0 个 #[test];数据面 memory.rs(13 command)/docs.rs(16 command) 同样近零。建立可测基座(状态抽离/伪 AppHandle/集成层)并优先覆盖 run 主链
+- 复杂度: 大
+- 来源: 2026-08-18 全库勘察
+- 标签: 后端
+- 边界: 不追求覆盖率数字,优先真实断言关键路径;不重构业务逻辑
+- 验收: run 主链关键路径有自动化断言;新增 command 有明确测试落点范式;cargo test 全绿并入 verify
+- 优先级: P1
+- 取活依据: engine:唯一可执行 WIP 是 R-296，必须先恢复它
+- 停车:
+- 进展: 验收对账完成：run 主链关键路径已有真实断言——crates/kanzei-app/src/commands/run.rs:654、667 分别验证真实 episode 投影与 requirement 复杂度来源，crates/kanzei-app/src/run/mod.rs:565 验证真实 SessionStore 的轮末通知持久化/回放（实现提交 1e076db6）；这三处同时给新增 command 建立就地 #[cfg(test)]/真实存储边界的测试落点范式。现行提交 c85f3c99 上 cargo test --workspace exit=0：kz 42、integration 32、kzapp 230、kanzei-memory 156、kanzei-tools 396 passed（另 2 ignored），覆盖 D-570 新增上下文投影；全仓门禁满足。
+- observed_head: c85f3c998e8a0fe59571ca8baec5ee855b2c9814
+- observed_worktree_hash: fnv1a64:70daf09539db7acb
+- recorded_at: 1787218247444
+- 对账: 2026-08-20 恢复:R-306 已 done、D-529 已 fixed，历史停车条件消失；本轮在 c85f3c99 现行树重跑 cargo test --workspace，补齐全仓门禁后关闭。
+
+## R-248 先行调研内建:新方向开工前默认产出「已有方案对照」,不靠用户开口 [done]
+- refs: R-221 docs/design/research_mode.md
+- 依赖: R-221
+- 内容: 把「先查已有方案再动手」从用户每次口头要求变成 harness 的默认动作。①触发判据机械可判、不交模型自由裁量:项目根首次初始化 `.kanzei/`、req add 时 refs 为空且标签为核心、用户显式发起,三者之一成立即触发;②产物落 `.kanzei/research/<topic>/prior-art.md`,每条结论含「方案名 + 出处(URL 或 file:line) + 与本课题的差异 + 采用或不采用的理由」,**外部已有实现**(开源方案、协议、公开设计)与**仓内既有设计**(docs/design/**、requirements/defects 现存与 archive)两侧都必须覆盖;③新方向判定成立而无对照工件时,req add 要求 refs 指向该工件,或由用户显式豁免并留痕。
+- 复杂度: 中
+- 批次: 3/3
+- 来源: 2026-08-14 用户观察——开新项目应先深度调研已有方案与设计,不适合从零开始;这是当前 coding agent 的通病(非得用户主动请求才去调研),直接影响自举质量。
+- 标签: 核心
+- 边界: 不是每条需求都调研,只在触发判据成立时启动;判据必须机械可判,不接受模型自行裁量「这算不算新方向」。websearch 轮次设上限,不做无限扩散爬取。本条只产出对照工件与开工门禁,不改 req/defect 状态机,也不自动把调研结论写成条目——那是 R-221 定调点4 的回流通道。
+- 阻塞:
+- 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
+- 优先级: P1
+- 取活依据: engine:唯一可执行 WIP 是 R-248，必须先恢复它
+- 停车:
+- 进展: 验收逐项完成：① crates/kanzei-tools/src/prior_art.rs:551 三种触发均创建同形骨架，crates/kanzei-tools/src/tracker.rs:4052 断言普通后端条目不受影响；② crates/kanzei-tools/src/prior_art.rs:257 与 :577 逐结论校验出处、V级、差异、决策，无出处拒绝；③ crates/kanzei-tools/src/prior_art.rs:577-598 独立断言外部 URL 与仓内 file:line 双侧至少各一条，删去仓内章节后以双侧覆盖不足拒绝；④ crates/kanzei-tools/src/tracker.rs:725 与 :4052 核心空refs缺工件拒绝、有效 prior_art 放行、prior_art_waiver 审计落字段；⑤ crates/kanzei-tools/src/prior_art.rs:602 与 crates/kanzei-tools/src/websearch.rs:318 验证轮次上限在联网前返回 PRIOR_ART_SEARCH_LIMIT；⑥ crates/kanzei-tools/src/tracker.rs:3600 与 :3756 既有完整登记及8路并发新增回归通过。实现提交 34c78f40、35aa11ee、571001f1，夹具对齐 37023013；cargo test --workspace exit=0（kz 42/integration 32/kzapp 231/memory 156/tools 406，0 failed）；cargo clippy --workspace -- -D warnings exit=0。真实网络探测：DuckDuckGo HTML HTTP 200/33616B/1158ms，arXiv API HTTP 200/2957B/493ms；当前无需触发降级，失败诊断由 crates/kanzei-tools/src/websearch.rs:281 单测覆盖。
+- observed_head: 3702301328886e835c552b5174252853e795f372
+- observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
+- recorded_at: 1787219867914
+- 对账: 2026-08-20 已按用户拍板落地：独立 prior_art/prior_art_waiver 顶层字段，不污染 refs；topic 复用 R-304 的 .kanzei/research/<topic>/ 约定。三批提交 34c78f40、35aa11ee、571001f1。

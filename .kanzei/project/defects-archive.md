@@ -7122,7 +7122,6 @@
 - observed_head: 2eb90830a789544b746871a9d77966c8a3b4fd8f
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787195242403
-- 阻塞: 
 
 ## D-586 RecallRunOutcome 未从 kanzei-core 根导出导致 memory crate 编译失败 [fixed] (medium)
 - 复现: kanzei-memory 的 FailureRecallPolicy 实现引用 kanzei_core::RecallRunOutcome；类型仅在 kanzei_core::runner 导出，crate 根 lib.rs 未 re-export，cargo test -p kanzei-memory 编译失败。
@@ -7198,3 +7197,64 @@
 - 验收: 当前用户同款 Conda base 环境下，绘图测试 17/17、色板测试 14/14；`cargo test -p kanzei-tools --lib` 396 passed、0 failed、1 ignored；`cargo clippy -p kanzei-tools -- -D warnings` 通过。
 - 标签: 后端 测试
 - 优先级: P1
+
+## D-569 tracker 完整性退化复发(D-331 同形态):归档标题双状态标记与非法 severity 再现 [fixed] (high)
+- refs: D-331 D-553 D-554 D-555
+- 复杂度: 中
+- 复现: defects-archive.md:6822 的 D-553 标题行为「... [open] (small) [fixed]」——同行两个状态标记且 (small) 非法(合法 severity 为 high/medium/low);D-554 同样「[done] (small) [fixed]」;defects-archive.md:6829 引擎在取活依据字段写入「[tracker integrity degraded] D-555: invalid defect lifecycle [done]」,该告警全库出现 4 次。D-331(已 fixed,high)当时修的正是「归档终态无法安全修正且非法状态污染缺陷标题」,b140322 加了跨 DocKind 状态标记校验+fix_terminal,08-20 同形态再现说明校验有漏洞或写入方绕过
+- 影响: 归档数据被污染且按 D-331 教训会扩散:完整性门禁降级告警混入取活依据字段,畸形条目无法被 list/get 正确解析;M-012 类机制恶化可能拒绝所有 tracker 写操作
+- 标签: 核心
+- 验收: ①定位本次畸形写入的具体路径(哪个写入方绕过了 b140322 校验)并封堵;②用 fix_terminal/repair 修正 D-553/D-554/D-555 存量畸形行,integrity 告警清零;③D-331 的回归测试补上本次形态(双状态标记+非法 severity+污染取活依据);④复发计数落档:同形态第 2 次,若再现第 3 次升级为门禁硬拒
+- 优先级: P1
+- 对账: 2026-08-20 勘察补充:同类完整性脏数据另见 requirements-archive.md 的 R-221 条目——标题 [done] 但残留字段「- 状态: todo」,修复时一并纳入存量清理与回归形态
+- 取活依据: engine:唯一可执行 WIP 是 D-569，必须先恢复它
+- 复发计数: 2（D-331 历史形态→本次 D-553/D-554/D-555 再现）
+- 进展: 验收核验：①已完成：历史直写提交 3c123bd5 与 36ccb253 绕过写入路径已定位；当前普通写在 crates/kanzei-tools/src/tracker.rs:644-660 校验标题/severity，归档修复在 tracker.rs:483-496 留痕。②已完成：D-553/D-554/D-555 及对账 R-221/D-172/D-283 已经 fix_terminal 清理，落点见 .kanzei/project/defects-archive.md:6822 与 .kanzei/project/requirements-archive.md:3645，且已进入提交 d3873bf18c47cd90316b464dc835af3acdc7d085；kz defect list 与 kz req list 均无 integrity_errors。③已完成：crates/kanzei-memory/src/docstore.rs:489-544、validation.rs:158-183、crates/kanzei-tools/src/tracker.rs:380-404 覆盖双状态、非法 severity、污染字段和普通写硬拒；T-1786922726538 与 T-1786922726539 均通过。④已完成：复发计数=2 已落档；第三次及以后由 tracker.rs:380-404 硬拒普通写，仅 fix_terminal/normalize 可修复。补充发布证据：d3873bf18c47cd90316b464dc835af3acdc7d085 的 verify 13/13 通过（test=pass 91.2s），verification SHA256=f9aad2d678d778ce0d2303057bf0f329b5343c05079a19a1306a69b34b135df3。
+- 门禁: 同形态第 3 次及以后沿用 tracker.rs:380-404 完整性硬拒；仅 fix_terminal/normalize 修复通道可用，普通 add/update/close/archive 等写操作拒绝
+- 验收核验: ①已完成：3c123bd5/36ccb253历史直写绕过点已定位，tracker.rs:644-660与483-496封堵。②已完成：D-553/D-554/D-555及对账R-221/D-172/D-283经fix_terminal修正，双库list无integrity告警。③已完成：docstore.rs:489-544、validation.rs:158-183、tracker.rs:380-404与T-1786922726538。④已完成：复发计数=2已落档；第三次及以后普通写沿tracker.rs:380-404硬拒。
+- observed_head: d3873bf18c47cd90316b464dc835af3acdc7d085
+- observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
+- recorded_at: 1787217423466
+
+## D-570 research 上下文注入读 flat 路径而写入走 topic 路径,B2 后新增 S-/F- 对 agent 不可见 [fixed] (high)
+- refs: R-221 R-248 R-277
+- 复杂度: 小
+- 复现: crates/kanzei-tools/src/profiles/research.rs:199-246 的 index_of 用 DocStore::open(&ctx.project_root, kind) 读死 .kanzei/research/sources.md 平铺路径;而 tracker.rs:316-329(R-221 B2)强制 source/finding 写入 .kanzei/research/<topic>/。结果 research agent 每轮 <research-docs> 索引只看到 2026-08-16 那批 flat 遗留 19 S/11 F,B2 之后 topic 目录里新写的条目永不出现
+- 影响: 「引用在收集时绑定」被釜底抽薪:研究员看不见自己刚收集的来源;因 08-17 后 research 零使用一直未被撞见,R-248 prior-art 上线后必触发
+- 标签: 后端
+- 验收: ①index_of 按当前 topic 聚合注入(topic+flat 遗留两段均可见);②新写 S-/F- 在同会话下一轮注入中可见的定向测试;③r221-chain 等存量 topic 目录条目回读验证
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-570(unblocks=0)
+- 进展: ① crates/kanzei-tools/src/profiles/research.rs:222 以全局500条预算聚合 legacy-flat 与全部合法 topic，并用 scope 标记消除局部编号歧义（commit c85f3c99）；② crates/kanzei-tools/src/profiles.rs:80 将 research/docs 改为逐模型步骤替换刷新的 refreshing_source，profiles.rs:935-958 验证同会话新写 S-002 下一轮可见；③ profiles.rs:859-927 同时回读 r221-chain 存量 topic 的 S-001/F-001 与 flat S-901。验证：cargo test -p kanzei-tools research_context_injects_backlog_conventions_and_restricted_tracker_tools -- --nocapture（1 passed）；cargo test -p kanzei-tools（396 passed,0 failed,1 ignored）。
+- observed_head: c85f3c998e8a0fe59571ca8baec5ee855b2c9814
+- observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
+- recorded_at: 1787218023136
+
+## D-571 websearch 端点本机不可达且无降级提示,轮次预算对直调不设防 [fixed] (medium)
+- refs: R-277 R-248
+- 复杂度: 中
+- 复现: ①findings.md F-011(V3 本地实测):DuckDuckGo HTML 端点直连与本地代理均不可达,arXiv API 可用;websearch.rs 无可达性探测、无 arXiv/webfetch 降级提示,首次调用撞 30s 超时。②websearch.rs/webfetch.rs 对 research_loop 零引用:R-277 验收④「原始输出不进主上下文/轮次上限」只约束走 begin_search 的路径,模型绕开 loop 直调 websearch 无机械拦截
+- 影响: research 检索主力工具在本机是坏的且失败模式是静默超时;预算旋钮是登记式约束非机械闸
+- 标签: 后端
+- 验收: ①端点不可达时给明确诊断并指引 webfetch+arXiv 通道(F-011 结论进代码);②websearch/webfetch 纳入 loop 预算或对绕行直调设轮次闸;③真实网络环境下降级路径实测
+- 优先级: P3
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-571(unblocks=0)
+- 进展: ① crates/kanzei-tools/src/websearch.rs:127-131 把端点错误转换为明确诊断，点名停止静默重试并改走 webfetch、arXiv abs/pdf/API；websearch.rs:281 单测固定文案。② crates/kanzei-tools/src/research_loop.rs:69-93 以 loop.json 活动 task 为真源，websearch.rs:133 与 webfetch.rs:25 的 research 专用包装在网络前强制 topic+task_id；伪造/缺失任务定向测试均通过，提交 571001f1。③ 2026-08-20 当前真实网络复测：DuckDuckGo HTML HTTP 200/33616B/1158ms，arXiv API HTTP 200/2957B/493ms；当前环境未进入降级分支，故边界如实记为「主端点与降级通道均可达」，故障分支由 crates/kanzei-tools/src/websearch.rs:281-289 定向测试覆盖。cargo test --workspace exit=0，cargo clippy --workspace -- -D warnings exit=0。
+- observed_head: 3702301328886e835c552b5174252853e795f372
+- observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
+- recorded_at: 1787219901111
+
+## D-596 Rust all-targets Clippy 被历史测试模块布局阻断 --ref R-257 [fixed] (medium)
+- 复现: cargo clippy --workspace --all-targets -- -D warnings 在 kanzei-harness/config.rs 与 kanzei-core/runner/drive/assembly.rs 失败
+- 影响: 官方基础 clippy 通过但 GitHub all-targets 门禁会失败，远端 dev 无法获得一致质量信号
+- 期望: 修正注释类型与测试模块布局，不改生产行为；严格 all-targets Clippy 与相关测试全绿
+- 来源: 2026-08-20 自举质量收口实测
+- 标签: 流程
+- 根因: config.rs 的迁移说明使用悬空文档注释且其后为空行；assembly.rs 的测试模块位于生产函数之前，触发 items_after_test_module
+- 优先级: P1
+- 取活依据: override:本轮远端推送前严格 all-targets 门禁实测阻断，需先修复以避免 dev CI 已知失败
+- 进展: ①生产行为未变：ac924240 仅调整 config.rs 注释、assembly.rs cfg(test) 模块位置、latex_tool.rs 测试 thread_local 初始化/rustdoc 归属、commands/run.rs 测试 helper 参数。②定向验证（ac924240）：context_limit_tests 3 passed、subagent_tool_surface_tests 2 passed、latex_tool::tests 11 passed、commands::run::tests 2 passed，共 18 passed/0 failed。③严格门禁（ac924240）：cargo clippy --workspace --all-targets -- -D warnings exit 0。
+- 验收: ①生产行为未变，仅注释、测试模块布局与测试 helper 类型收口；②四组定向测试共 18 项全绿；③严格 all-targets Clippy 零 warning。
+- observed_head: ac9242409eec26f0e7a05faee43c4fd24c5e1049
+- observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
+- recorded_at: 1787220352062

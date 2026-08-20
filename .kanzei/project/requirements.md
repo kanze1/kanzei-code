@@ -103,26 +103,6 @@
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
 
-## R-248 先行调研内建:新方向开工前默认产出「已有方案对照」,不靠用户开口 [doing]
-- refs: R-221 docs/design/research_mode.md
-- 依赖: R-221
-- 内容: 把「先查已有方案再动手」从用户每次口头要求变成 harness 的默认动作。①触发判据机械可判、不交模型自由裁量:项目根首次初始化 `.kanzei/`、req add 时 refs 为空且标签为核心、用户显式发起,三者之一成立即触发;②产物落 `.kanzei/research/<topic>/prior-art.md`,每条结论含「方案名 + 出处(URL 或 file:line) + 与本课题的差异 + 采用或不采用的理由」,**外部已有实现**(开源方案、协议、公开设计)与**仓内既有设计**(docs/design/**、requirements/defects 现存与 archive)两侧都必须覆盖;③新方向判定成立而无对照工件时,req add 要求 refs 指向该工件,或由用户显式豁免并留痕。
-- 复杂度: 中
-- 批次: 0/3
-- 来源: 2026-08-14 用户观察——开新项目应先深度调研已有方案与设计,不适合从零开始;这是当前 coding agent 的通病(非得用户主动请求才去调研),直接影响自举质量。
-- 标签: 核心
-- 边界: 不是每条需求都调研,只在触发判据成立时启动;判据必须机械可判,不接受模型自行裁量「这算不算新方向」。websearch 轮次设上限,不做无限扩散爬取。本条只产出对照工件与开工门禁,不改 req/defect 状态机,也不自动把调研结论写成条目——那是 R-221 定调点4 的回流通道。
-- 阻塞: 
-- 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-248
-- 停车: 排队:方案已于 2026-08-20 拍板(独立 prior_art 字段+R-304 勘察工件落点约定,见对账字段),原等待条件消失;待队列轮到时恢复批1;恢复人:agent
-- 进展: 已读 docs/design/research_mode_prior_art.md、docs/design/research_mode.md、crates/kanzei-tools/src/tracker.rs:241-270/789-843、tracker/actions.rs:290-360、websearch.rs:14-110、kanzei-app/src/projects.rs:43-127。确认当前没有 prior-art 生成/校验/轮次预算实现；现有 req add 仅做通用 refs 校验，项目初始化只创建 `.kanzei/`，无法凭现有接口生成无 topic 的 prior-art.md。未修改代码。
-- observed_head: 3950c0348331956fda32a18d0789ce52d3d30eee
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786960050685
-- 对账: 2026-08-20 用户拍板:API 形态=新增独立 prior_art 字段(不动通用 refs 契约,refs 仍只收 R-/D-/T- 编号);三触发的 topic 来源沿用 R-304 固化的 dev 勘察工件落点约定。停车/阻塞解除,按队列恢复批1
-
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
 - 依赖: R-245
@@ -190,22 +170,6 @@
 - 阻塞: 需要 Android 真机与当前机器位于同一 LAN 后执行 E3；这是设备验收，不阻塞二期 P0/P1 主线。解除人:用户提供设备窗口或后续人工验收。
 - 验收: ①Android 真机可访问并完成鉴权；②收到真实运行成功/失败通知；③从手机发送消息后服务端产生可追溯事件；④保存截图、端口/设备与 session 证据；⑤失败时明确网络、权限或设备边界。
 - 优先级: P3
-
-## R-296 Tauri command 与 run 链路测试基座 [doing]
-- 内容: kanzei-app 无 tests/ 目录(全仓唯一集成层在 crates/kanzei/tests/integration),104 个 #[tauri::command] 零测试;装配→执行→落库主链 commands/run.rs(604行)、processes/lifecycle.rs(593)、processes/workspace.rs(548)、run/persistence.rs(489)、run/coordinator.rs(424)、run/execution.rs(313)、harness_ext.rs(284) 全部 0 个 #[test];数据面 memory.rs(13 command)/docs.rs(16 command) 同样近零。建立可测基座(状态抽离/伪 AppHandle/集成层)并优先覆盖 run 主链
-- 复杂度: 大
-- 来源: 2026-08-18 全库勘察
-- 标签: 后端
-- 边界: 不追求覆盖率数字,优先真实断言关键路径;不重构业务逻辑
-- 验收: run 主链关键路径有自动化断言;新增 command 有明确测试落点范式;cargo test 全绿并入 verify
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-296
-- 停车: 排队:R-306 收编后恢复——收编会改变全量测试面,先收编再跑 workspace 全量避免重复;恢复人:agent
-- 进展: 已落地并提交 1e076db6：commands/run.rs 新增真实 episode/复杂度来源的 command 测试，run/mod.rs 新增真实 SessionStore 通知回放测试；cargo test -p kanzei-app 213 passed（T-1786922726379）。发布脚本 cargo test --workspace 在 kanzei-tools background 越界终止测试处 343 passed、1 failed（T-1786922726380），已登记 D-529；下一步修复并重跑全量。
-- observed_head: 9304ec92c35670db6a002feeddef0d31c6dc1bea
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787059362211
-- 对账: 2026-08-20 对账:停车前提 D-529 已 fixed 归档,停车解除;恢复动作=重跑 cargo test --workspace 全绿并入 verify,补齐验收后关闭
 
 ## R-299 IPC 与事件契约机械比对扩面 [doing]
 - refs: R-284
@@ -327,4 +291,16 @@
 - 内容: 给"记忆条目 description/正文的机械性纠错"(不涉及新增/删除条目,只是修正现有条目文本且有明确校验依据,如与 git 历史真源比对)开一条同步工具通道或专用权限规则,让当前会话可直接落盘,不必强制路由到 memory-manager 异步处理;需保留审计留痕(谁改的、依据什么校验、旧值/新值)
 - 边界: 不放松"新增/删除记忆条目"仍走既有策略托管路径;仅缩小到"修正现有条目文本内容"这一类操作
 - 验收: ①存在一条可在当前会话同步完成的记忆描述/正文修正路径,有真实调用证据;②修正操作留有审计痕迹(修改依据、旧值/新值);③D-568 场景可用新通道在单会话内收尾,不再依赖跨会话异步等待
+- 优先级: P1
+
+## R-318 设计文档时效治理:区分现行设计/历史快照/被替代方案并机械阻止状态漂移 [todo]
+- refs: R-317 docs/design/design_freshness_audit_20260820.md
+- 内容: 按审计基线分四批：①修正 tracker 终态与产品边界直接冲突的文档；②修正并行线/执行模型等架构正文内自相矛盾；③设计索引增加 live_design/validated_design/historical_snapshot/superseded 身份、截至提交和替代关系；④机械校验结构化状态并让默认上下文排除 superseded 正文。
+- 复杂度: 大
+- 执行模型: work_units_v1
+- 批次: 0/4
+- 来源: 2026-08-20 用户要求寻找过时设计并登记需求给自举；外部审计在当前主线确认 10 份高置信度漂移文档。
+- 标签: 流程 核心
+- 边界: 不删除或改写历史审计结论；不让模型自由判断过时作为硬门禁；不批量重写未被审计命中的文档；不把治理职责塞回 R-317 状态机。
+- 验收: ①审计列出的 10 份漂移文档逐份对账；②索引可区分四类身份并显示截至点/替代关系；③条目终态冲突、同文档头尾矛盾、历史快照不误报三类测试；④superseded 正文不进入默认自举上下文；⑤每批以 Work Unit 证据完成。
 - 优先级: P1
