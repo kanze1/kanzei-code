@@ -85,19 +85,25 @@ where
     }
 }
 
+/// [`with_timeout`] 的超时标记错误。不携带业务数据——超时善后所需的局部状态
+/// (pid/缓冲)在调用方手里;clippy 1.98 起 `result_unit_err` 覆盖 async fn,
+/// `Result<T, ()>` 不再可用,故以零尺寸类型承担同一语义。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimedOut;
+
 /// 限时执行辅助(R-259):对任意 future 施加 `tokio::time::timeout` 骨架。
 ///
 /// 这是 timeout 机制的**唯一**实现点——工具 body 需要超时语义时调它,不再
 /// 各自写 `tokio::time::timeout`。超时后的**业务善后**(杀进程树/回传部分
 /// 输出/围栏检查,如 bash)由调用方在 `Err` 分支处理:那是工具的执行语义,
 /// 依赖 body 内局部状态(pid/缓冲),不属于通用 wrapper 机制。
-pub async fn with_timeout<F, T>(fut: F, timeout: std::time::Duration) -> Result<T, ()>
+pub async fn with_timeout<F, T>(fut: F, timeout: std::time::Duration) -> Result<T, TimedOut>
 where
     F: std::future::Future<Output = T>,
 {
     match tokio::time::timeout(timeout, fut).await {
         Ok(v) => Ok(v),
-        Err(_) => Err(()),
+        Err(_) => Err(TimedOut),
     }
 }
 
