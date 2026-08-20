@@ -1,13 +1,11 @@
-//! D-368 端到端回归:bash 围栏持锁窗口内,并发 memory 写入(memory_add 形态)必须稳定落住。
+//! D-368 端到端回归:bash 命令窗口与 memory 写入并发时,合法写必须稳定落住并可归因。
 //!
-//! 根因(D-368):D-364 修复只预锁了八个固定路径的活动文档,`.kanzei/memory/` 下的动态
-//! 条目文件(M-xxx.md、inbox.md 等)创建前无法预锁——bash 围栏命令窗口内另一进程/另一
-//! run 的 memory 工具合法新建/写入这些文件时,围栏 after 快照把它们当 bash 越界回滚删除,
-//! 报成功却查无此条。修复:围栏窗口内加持 **memory 树锁**(锁目标 = `.kanzei/memory`
-//! 目录,锁文件 = `.kanzei/memory.lock`),memory 写入口(write_entry/refresh_derived/
-//! inbox/voided 账本)持同一把锁;窗口内并发写者等锁、窗口结束落盘;超过预算则明确报错。
+//! 根因(D-368):D-364 修复只覆盖固定路径,`.kanzei/memory/` 下的动态条目文件创建前
+//! 无法逐个加锁,并发合法写曾被围栏误回滚。R-268 后命令窗口允许专用写者落盘并记
+//! 写日志,围栏只在收口拍 after 快照时短暂取 **memory 树共享锁**,与 memory 写入口
+//! 的排他树锁互斥;随后按日志吸收合法变化、回滚越界变化。
 //!
-//! 本文件用**真实 BashTool 管线**(含 acquire_managed_locks → capture → enforce)与
+//! 本文件用**真实 BashTool 管线**(capture → execute → close-out lock → enforce)与
 //! **真实 MemoryStore::add** 并发,验证三条可判定形态:
 //! ① 窗口内 add 等待后落住:条目文件 + INDEX.md 真在磁盘(验收①③);
 //! ② 窗口超过写者锁预算(默认 3s)时,add 明确报错、绝不回 added(验收②);
@@ -63,9 +61,9 @@ fn add_memory(root: &Path, title: &str, description: &str) -> kanzei_tools::memo
         .expect("memory_add 必须成功")
 }
 
-/// 验收①③:真围栏形态——真实 BashTool 管线命令窗口(1.5s)内,并发真实
-/// MemoryStore::add(另一线程模拟另一进程的 memory_add)必须等待后落住:条目文件与
-/// INDEX.md 真在磁盘,bash 输出不得出现 [managed-files]。
+/// 验收①③:真围栏形态——真实 BashTool 命令窗口(1.5s)内,并发真实
+/// MemoryStore::add(另一线程模拟另一进程的 memory_add)必须落住并留下可归因日志:
+/// 条目文件与 INDEX.md 真在磁盘,bash 输出不得出现 [managed-files]。
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn 真bash围栏窗口内并发memory_add等待后落盘不被误回滚() {
     let root = unique_dir("d368-fence");
@@ -74,7 +72,7 @@ async fn 真bash围栏窗口内并发memory_add等待后落盘不被误回滚() 
         project_root: root.clone(),
         ..Default::default()
     };
-    // 桌面自举轮形态:bash 命令(1.5s)在跑,围栏持有全部托管文档写锁 + memory 树锁。
+    // 桌面自举轮形态:bash 命令(1.5s)与专用 memory 写者并发,收口再取共享锁对账。
     let bash = tokio::spawn(async move {
         kanzei_tools::bash::BashTool
             .execute(
@@ -83,7 +81,7 @@ async fn 真bash围栏窗口内并发memory_add等待后落盘不被误回滚() 
             )
             .await
     });
-    // 等 bash 进入命令窗口(树锁已持有)再并发 memory 写者。
+    // 等 bash 进入命令窗口再并发 memory 写者。
     tokio::time::sleep(Duration::from_millis(400)).await;
     let writer_root = root.clone();
     let writer = std::thread::spawn(move || {
