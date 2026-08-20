@@ -7554,3 +7554,15 @@
 - observed_head: 1c872eac3e9782006b338c90b745c8f2c6c13c63
 - observed_worktree_hash: fnv1a64:954c4ae0efe5e38d
 - recorded_at: 1787244935783
+
+## D-613 kz:experience 使用 snake_case session_id 却被统一事件入口提前丢弃 [fixed] (high)
+- 复现: `crates/kanzei-app/ui/01-core.js:93-120` 的体验事件 payload 使用 `session_id`，但 `on()` 在 `:123-129` 只读取 `eventPayload.payload?.sessionId`；因此 `kz:experience` 到达时 sessionId 为空，被统一入口当作缺失 session_id 丢弃，事实归并和动画分发均不会执行。
+- 影响: B3 前端事实 store 无法消费后端真实 snake_case 事件，持久事实与表现层断链；后台隔离和重放验收无法成立。
+- 来源: self-found：R-284 B3 代码审查。
+- 标签: 前端
+- 进展: 已修复并验证。`crates/kanzei-app/ui/01-core.js:149-155` 对 `kz:experience` 读取 snake_case `session_id`，旧 `kz:*` 仍读取 `sessionId`；`01-core.js:76-117` 按 session/topic/entity 归并并对 event_id 去重，`01-core.js:100-117` 仅按同项目 fact 刷新 memory/research 工作台，`01-core.js:136-146` 禁止后台 session 驱动当前动画。`T-1786922726590`：runtime smoke、lint、parallel-lines、a11y、i18n、Markdown 全通过。
+- refs: R-284
+- 优先级: P1
+- observed_head: 0808bfc87fb64d5caa9090aaf79bbfe110453e05
+- observed_worktree_hash: fnv1a64:2737cbb74081f7a9
+- recorded_at: 1787245657953

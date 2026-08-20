@@ -1372,6 +1372,81 @@ await runUiSources();
   );
 }
 
+// R-284 B3:结构化体验事件必须先归并到事实 store,再按归属分发。
+{
+  vm.runInContext(
+    '__kzOriginalNeuralFlowEmit = neuralFlowEmit; __kzOriginalRefreshMemory = refreshMemory; __experienceProbe = { animation: [], memory_refreshes: 0 }; neuralFlowEmit = (type) => __experienceProbe.animation.push(type); refreshMemory = () => { __experienceProbe.memory_refreshes += 1; };',
+    sandbox,
+  );
+  const projectFact = {
+    schema_version: 1,
+    event_id: "experience-smoke-memory-1",
+    event_type: "memory_consolidation_completed",
+    class: "fact",
+    occurred_at: 1,
+    session_id: "project-session-smoke",
+    project_id: PROJECT,
+    run_id: null,
+    topic_id: "memory-topic",
+    entity_id: "memory-001",
+    payload: { pending_after: 0 },
+  };
+  handlers.get("kz:experience")({ payload: projectFact });
+  await flush();
+  assert(
+    vm.runInContext('experienceProjectionBySession.get("project-session-smoke").topics.has("memory-topic")', sandbox),
+    "R-284 B3 体验事件未按 topic_id 进入 session store",
+  );
+  assert(
+    vm.runInContext('experienceProjectionBySession.get("project-session-smoke").entities.has("memory-001")', sandbox),
+    "R-284 B3 体验事件未按 entity_id 进入 session store",
+  );
+  assert(
+    vm.runInContext("__experienceProbe.memory_refreshes", sandbox) === 1,
+    "R-284 B3 memory fact 未刷新同项目工作台",
+  );
+  handlers.get("kz:experience")({ payload: projectFact });
+  await flush();
+  assert(
+    vm.runInContext("__experienceProbe.memory_refreshes", sandbox) === 1,
+    "R-284 B3 重放同一 event_id 产生了重复工作台副作用",
+  );
+  handlers.get("kz:experience")({
+    payload: {
+      ...projectFact,
+      event_id: "experience-smoke-background-run",
+      event_type: "run_started",
+      session_id: "background-session-smoke",
+      project_id: PROJECT,
+      topic_id: null,
+      entity_id: null,
+      class: "fact",
+    },
+  });
+  assert(
+    vm.runInContext("__experienceProbe.animation.length", sandbox) === 0,
+    "R-284 B3 后台 session 事实错误驱动当前会话动画",
+  );
+  handlers.get("kz:experience")({
+    payload: {
+      ...projectFact,
+      event_id: "experience-smoke-active-run",
+      event_type: "run_started",
+      session_id: vm.runInContext("activeSessionId", sandbox),
+      topic_id: null,
+      entity_id: null,
+      class: "fact",
+    },
+  });
+  assert(
+    vm.runInContext("__experienceProbe.animation.length", sandbox) === 1
+      && vm.runInContext("__experienceProbe.animation[0]", sandbox) === "run_started",
+    "R-284 B3 当前 session 事件未分发到表现层",
+  );
+  vm.runInContext("neuralFlowEmit = __kzOriginalNeuralFlowEmit", sandbox);
+  vm.runInContext("refreshMemory = __kzOriginalRefreshMemory", sandbox);
+}
+
 // D-420:先验证生产输入弹窗本身可打开、回填并确认,再替换为立即返回桩供后续业务用例复用。
 const inputDialogProbe = vm.runInContext(
   'inputDialog({ title: "D-420 输入测试", value: "默认值" })',
@@ -7883,6 +7958,9 @@ const docsB = {
   for (const file of rustFiles) {
     const text = await readFile(file, "utf8");
     for (const match of text.matchAll(/"(kz:[a-z-]+)"/g)) emitted.add(match[1]);
+    // R-284:run event sink emits the shared structured name through the re-exported
+    // core constant; resolve that indirection instead of reporting a false D-381 gap.
+    if (text.includes("EXPERIENCE_EVENT_NAME")) emitted.add("kz:experience");
   }
   const subscribed = new Set([...source.matchAll(/\bon\("(kz:[a-z-]+)"/g)].map((m) => m[1]));
   const rawListen = [...source.matchAll(/(?<!function )\blisten\("(kz:[a-z-]+)"/g)].map((m) => m[1]);

@@ -58,10 +58,11 @@ const SESSIONLESS_EVENTS = new Set([
   "kz:annotate-progress",
   "kz:mobile-message", // D-387:手机消息注入桌面后刷新会话列表(全局,无运行会话)。
 ]);
-// R-284 B1:结构化体验事件的前端归并层。旧 kz:* 事件继续由各现有 handler
-// 消费；kz:experience 只负责按事实归属去重、保存最近投影，再选择性触发表现层。
+// R-284 B3:结构化体验事件的前端归并层。旧 kz:* 事件继续由各现有 handler
+// 消费；kz:experience 先按 session/topic/entity 归并到 store,再分发到表现层和工作台。
 const experienceEventIds = new Set();
 const experienceProjectionBySession = new Map();
+const pendingExperienceRefreshes = new Set();
 const EXPERIENCE_NEURAL_EVENTS = new Map([
   ["run_started", "run_started"],
   ["text_delta", "assistant_streaming"],
@@ -80,15 +81,40 @@ function rememberExperienceEvent(event) {
     if (oldest) experienceEventIds.delete(oldest);
   }
   const session = experienceProjectionBySession.get(event.session_id) || {
+    project_id: event.project_id || "",
+    topics: new Map(),
+    entities: new Map(),
     facts: new Map(),
     deltas: 0,
     last_event_id: "",
   };
+  if (event.project_id) session.project_id = event.project_id;
+  if (event.topic_id) session.topics.set(event.topic_id, event);
+  if (event.entity_id) session.entities.set(event.entity_id, event);
   if (event.class === "fact") session.facts.set(event.event_type, event);
   if (event.class === "delta") session.deltas += 1;
   session.last_event_id = event.event_id;
   experienceProjectionBySession.set(event.session_id, session);
   return true;
+}
+function refreshExperienceWorkbench(event) {
+  // B2 的 memory/research 事实使用 canonical project session,不是当前 run
+  // session；它们只能刷新同项目工作台，不能触发当前会话神经流。
+  if (event.class !== "fact" || typeof currentProject === "undefined" || !currentProject) return;
+  if (event.project_id && event.project_id !== currentProject) return;
+  const refreshKey = `${event.project_id || currentProject}:${event.event_type}`;
+  if (pendingExperienceRefreshes.has(refreshKey)) return;
+  pendingExperienceRefreshes.add(refreshKey);
+  const refresh = event.event_type.startsWith("memory_")
+    ? (typeof refreshMemory === "function" ? refreshMemory : null)
+    : event.event_type.startsWith("research_")
+      ? (typeof refreshResearch === "function" ? refreshResearch : null)
+      : null;
+  if (!refresh) {
+    pendingExperienceRefreshes.delete(refreshKey);
+    return;
+  }
+  Promise.resolve(refresh()).finally(() => pendingExperienceRefreshes.delete(refreshKey));
 }
 function handleExperienceEvent(payload) {
   const event = payload && typeof payload === "object" ? payload : null;
@@ -101,6 +127,7 @@ function handleExperienceEvent(payload) {
     return;
   }
   if (!rememberExperienceEvent(event)) return;
+  refreshExperienceWorkbench(event);
   const neuralEvent = EXPERIENCE_NEURAL_EVENTS.get(event.event_type);
   if (!neuralEvent) {
     log(`${t("未知体验事件")}:${event.event_type}`, "warn");
@@ -121,7 +148,11 @@ function handleExperienceEvent(payload) {
 
 function on(event, handler) {
   listen(event, (eventPayload) => {
-    const sessionId = eventPayload.payload?.sessionId;
+    // 旧 kz:* 事件来自 Tauri payload,保留 sessionId；R-284 结构化包络已
+    // 在适配层统一为 snake_case,因此直接读取 session_id。
+    const sessionId = event === "kz:experience"
+      ? eventPayload.payload?.session_id
+      : eventPayload.payload?.sessionId;
     // 除了权限询问(它有专门的缺省会话归属逻辑),所有运行事件都必须带 sessionId。
     // 没有身份就不能安全地投影到当前对话,宁可只留下后端持久事实也不能串线。
     if (!SESSIONLESS_EVENTS.has(event) && !sessionId) {

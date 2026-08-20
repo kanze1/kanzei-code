@@ -8881,3 +8881,18 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-284
 - 收尾: 1787245207
 - 源码指纹: v2 crates/kanzei-app/src/experience_events.rs@b1cff7497905,crates/kanzei-app/src/memory.rs@fa7f224061de,crates/kanzei-core/Cargo.toml@c5ea70728354,crates/kanzei-core/src/experience_events.rs@5e7d37b007bd,crates/kanzei-core/src/lib.rs@3015be533d89,crates/kanzei-tools/src/research_verify.rs@195a0fe8ee68
+
+## T-1786922726590 R-284 B3 六条 UI 冒烟与体验事件回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: R-284 B3 前端验证通过：运行时冒烟 0 运行时错误并包含体验事件归并、幂等、后台 session 隔离断言；UI lint 49 文件零 no-undef；parallel-lines、a11y、i18n、Markdown 全通过。先按 M-269 重生成 ui-lint-globals.json。
+- 关联: R-284 D-613
+- 收尾: 1787245592
+- 源码指纹: v2 scripts/ui-lint-globals.json@c7927874d345,scripts/ui-runtime-smoke.mjs@d8f54b77a29a
+
+## T-1786922726591 R-284 B3 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.7s
+- 摘要: kanzei-app 定向回归 231 passed、0 failed、0 ignored。
+- 关联: R-284 D-613
+- 收尾: 1787245728
+- 源码指纹: v2 scripts/ui-lint-globals.json@c7927874d345,scripts/ui-runtime-smoke.mjs@d8f54b77a29a
