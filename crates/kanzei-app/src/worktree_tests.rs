@@ -932,7 +932,7 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
                 "action": "add",
                 "title": "F13 main-root tracker",
                 "priority": "P2",
-                "fields": {"复杂度": "中", "标签": "核心", "验收": "tracker follows project_root"}
+                "fields": {"复杂度": "中", "标签": "后端", "验收": "tracker follows project_root"}
             }),
             &ctx,
         )
