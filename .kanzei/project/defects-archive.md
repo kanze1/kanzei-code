@@ -7379,3 +7379,17 @@
 - observed_head: 868dfda2387a27eec62aa44514afc94756a10f61
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
 - recorded_at: 1787237142760
+
+## D-587 子代理面板缺停止运行中任务能力,process-subagents 开关只挡下一轮不打断在跑请求 [fixed] (medium)
+- refs: R-281
+- 复现: 2026-08-20 用户想腾 GPU 显存,点顶栏子代理开关(process-subagents)预期能停掉正在跑的子代理,实际该开关只控制下一轮工具面是否含 task(lifecycle.rs:409-412 即时生效但只影响未来),对已建立的推理请求无效;06-agent-panel.js 全文搜索确认面板只有 agent-clear(清已完成条目)与 agent-close(关闭面板视图)两个按钮,没有 stop/cancel 单个运行中子代理的操作;后端 task_cancel_parallel.rs 证明取消能力存在但从未接到前端;实测 kzapp(PID)与 ollama 有 Established 连接、ollama stop 卡 Stopping 十余秒不释放,唯一手段是 taskkill 强杀 llama-server 整个进程,粒度过粗
+- 影响: 用户想因资源紧张(显存/token)临时打断某个子代理,除了杀整个本地推理进程外无其他手段;子代理开关名不副实,容易造成误解
+- 来源: 2026-08-20 用户腾 GPU 显存给本地模型让路,主会话诊断
+- 标签: 前端
+- 验收: ①子代理面板每个运行中条目有停止/取消按钮,调用已有的取消能力;②process-subagents 开关文案或行为二选一对齐:要么明确标注仅影响下一轮,要么增加连带打断在跑任务的选项;③真实取消一个运行中子代理有回归测试
+- 优先级: P2
+- 进展: 复核结论：D-587 描述的能力已在现有实现中完整存在，本轮未新增实现，按“existing capability”收口。验收逐条对账：① 已完成（既有）：`crates/kanzei-app/ui/06-activity.js:1421-1432` 运行中每个子代理条目渲染“停止”按钮并调用 `invoke("stop_task", { projectDir, processId, taskId })`；Tauri command 已在 `crates/kanzei-app/src/main.rs:159-178` 注册，实际实现位于 `crates/kanzei-app/src/commands/run.rs:196-230`。② 已完成（既有）：`crates/kanzei-app/ui/02-i18n.js:491-492` 明确 process-subagents 只影响下一轮工具面，`crates/kanzei-app/ui/09-sessions.js:613-617` 将开关变更写入下一轮 process 配置，文案与行为一致。③ 已完成（既有）：`crates/kanzei/tests/integration/task_cancel_parallel.rs:93-约260` 真实挂起子代理请求后调用取消，断言 cancelled trace、被停终态、读槽释放和主轮继续；实际命令为 `cargo test -p kanzei --test integration 运行中的task被单条停止 -- --nocapture`，1 passed、0 failed，测试记录 `T-1786922726562`。本轮没有把既有能力重新申报为交付，也没有修改代码。
+- observed_head: 868dfda2387a27eec62aa44514afc94756a10f61
+- observed_worktree_hash: fnv1a64:abf42289ad631ab3
+- recorded_at: 1787237327508
+- 取活依据: engine:唯一可执行 WIP 是 D-587，必须先恢复它

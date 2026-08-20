@@ -62,15 +62,6 @@
 - 验收对账: ①已完成：`crates/kanzei-memory/src/docstore/validation.rs:273-287` 只返回非空 Raw；docstore 回归 `docstore.rs:321-342` 与 tracker 回归 `tracker.rs:1539-1549` 证明布局空行不再计数；T-1786922726559。②已完成：`validation.rs:313-365` 删除按同一 ordinal 契约定位，原子写回后 `load()` + `raw_lines()` 复查条目存在和数量，失败返回“raw_delete 后置条件失败”；T-1786922726559、T-1786922726560。③验收降级：原文“文章获取器 R-002 现场复核游离行清零”本轮未执行，当前仓库无该外部项目与可重放目标命令；实际已由同形态端到端回归 `tracker.rs:1518-1579` 覆盖，外部现场仍需用户/外部项目执行。④已完成：空行在 ordinal 1 时旧实现会误删空行而保留真实游离文本，新回归夹具 `docstore.rs:321-389`、`tracker.rs:1518-1598` 覆盖该“报成功后仍存在”形态；T-1786922726559。
 - 阻塞: 文章获取器 R-002 外部现场复核需要用户提供该项目路径或可重放目标命令；解除人:用户提供可访问项目与目标命令后由 agent 执行并回填现场证据。
 
-## D-587 子代理面板缺停止运行中任务能力,process-subagents 开关只挡下一轮不打断在跑请求 [open] (medium)
-- refs: R-281
-- 复现: 2026-08-20 用户想腾 GPU 显存,点顶栏子代理开关(process-subagents)预期能停掉正在跑的子代理,实际该开关只控制下一轮工具面是否含 task(lifecycle.rs:409-412 即时生效但只影响未来),对已建立的推理请求无效;06-agent-panel.js 全文搜索确认面板只有 agent-clear(清已完成条目)与 agent-close(关闭面板视图)两个按钮,没有 stop/cancel 单个运行中子代理的操作;后端 task_cancel_parallel.rs 证明取消能力存在但从未接到前端;实测 kzapp(PID)与 ollama 有 Established 连接、ollama stop 卡 Stopping 十余秒不释放,唯一手段是 taskkill 强杀 llama-server 整个进程,粒度过粗
-- 影响: 用户想因资源紧张(显存/token)临时打断某个子代理,除了杀整个本地推理进程外无其他手段;子代理开关名不副实,容易造成误解
-- 来源: 2026-08-20 用户腾 GPU 显存给本地模型让路,主会话诊断
-- 标签: 前端
-- 验收: ①子代理面板每个运行中条目有停止/取消按钮,调用已有的取消能力;②process-subagents 开关文案或行为二选一对齐:要么明确标注仅影响下一轮,要么增加连带打断在跑任务的选项;③真实取消一个运行中子代理有回归测试
-- 优先级: P2
-
 ## D-591 设置页 Provider 表格只读全局配置,项目级 kanzei.toml 新增的 provider 保存时报 unknown provider [open] (medium)
 - refs: D-288
 - 复现: settings.rs:501 settings_get 读 crate::global_config_path()(即 kanzei_home()/kanzei.toml,~/.kanzei/kanzei.toml),不合并项目级 .kanzei/kanzei.toml 的 [providers.*] 段;validate_model_roles(settings.rs:167-198)校验只用前端 payload.providers(即这份只含全局 provider 的表格数据)。用户在项目级配置里加了 [providers.llama-local],CLI(kz run)能正常解析使用(resolve_model 走的是合并后的项目+全局配置),但桌面端设置页 primary 填 llama-local:xxx 保存时报 unknown provider,重启 kzapp 无效——因为读的压根不是同一份文件

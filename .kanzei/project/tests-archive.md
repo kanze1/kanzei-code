@@ -8675,3 +8675,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-578
 - 收尾: 1787237012
 - 源码指纹: v2 crates/kanzei-memory/src/memory/manager.rs@460b7160f182,crates/kanzei-memory/src/memory/mod.rs@83f202b0217c,crates/kanzei-memory/src/memory/store.rs@39d9f9530568,crates/kanzei-memory/src/memory/telemetry.rs@a4c06277d93e,crates/kanzei-memory/src/memory/tools.rs@dbc105d2cf13
+
+## T-1786922726562 D-587 既有单条子代理取消链路回归 [passed]
+- 命令: cargo test -p kanzei --test integration 运行中的task被单条停止 -- --nocapture
+- 时长: 20.3s
+- 摘要: 真实集成回归通过：运行中的 task 被 stop_task 单条取消，收到 cancelled trace/被停终态，读槽释放，主轮继续；1 passed、0 failed、31 filtered out。
+- 关联: D-587
+- 收尾: 1787237309
