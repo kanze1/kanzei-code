@@ -8766,3 +8766,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-603
 - 收尾: 1787240145
 - 源码指纹: v2 crates/kanzei-memory/src/memory/manager.rs@3c963597f228
+
+## T-1786922726574 R-318/W1 五份设计文档状态边界一致性审查 [passed]
+- 命令: PowerShell consistency audit + git diff --check
+- 时长: 2.0s
+- 摘要: 五份指定设计文档均存在 validated_design 身份、实施前/历史输入标记、当前 tracker 状态/剩余边界映射；关键关联条目和 diff whitespace 检查通过。
+- 关联: R-318
+- 收尾: 1787240758

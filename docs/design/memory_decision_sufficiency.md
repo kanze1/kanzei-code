@@ -1,12 +1,13 @@
 # Memory 决策充分性改造(Control-Sufficient Memory)
 
-- 状态:设计基线(2026-08-09 用户逐项拍板边界)
-- 日期:2026-08-09
-- 关联需求:R-103(总纲)、R-145(闭环实证);P1/P2 落地需求见 §边界拍板后的登记
-- 关联缺陷:无
-- 关联决策:无(不推翻 [memory_system.md](memory_system.md) §0 任何品味决策,本文是其判据层的升级)
+- 身份: validated_design
+- 状态: 已验证基线；R-145、R-150 已完成
+- 日期: 2026-08-09
+- 关联需求: R-103 (总纲)、R-145 (done)、R-150 (done)
+- 关联缺陷: 无
+- 关联决策: 无(不推翻 [memory_system.md](memory_system.md) §0 任何品味决策,本文是其判据层的升级)
 
-## 背景与问题
+## 背景与问题（实施前输入）
 
 用户提供 Control-Sufficient Memory 研究文档(2026-08-09 对话,理论脉络含 MemFly/Memory-R1/AMA-Bench/LongHorizon-Harness 等),核心命题:
 
@@ -21,7 +22,7 @@
 
 关键推论:`memory importance ≠ semantic salience`。8 个 token 的用户约束(「production DB 只读」)决策价值极高,25 步排障叙事若不改变未来动作则可全忘;同一主题的新状态必须**使旧状态失效**,不能并存。
 
-### 现状对照(gap 分析)
+### 实施前现状对照（gap 分析）
 
 | 环节 | 现状 | 与理论的差距 |
 | --- | --- | --- |
@@ -107,16 +108,14 @@
 
 ## 验证证据
 
-- 无(草案阶段)。计划中的验证:
-  - store:subject 冲突门禁(force 不可绕)、recall_profile 聚合、decision_weight 边界、零采纳条目排序沉底;
-  - mod:复发指纹命中投修订笔记(点名条目 id)、无指纹时走原路径;
-  - manager:memory_add 带 subject 的冲突报错指路 memory_update;
-  - tools:memory_stats 输出召回/采纳与零采纳候选;
-  - 既有 workspace 测试不回归。
+- R-145 闭环实证已完成：真实自举轨迹记录 199 episodes、413 次召回、156 次采纳（37.8%）；M-006/M-009/M-022 的后续命中与正文拉取记录支持“写入→命中→避免重复探索”。同批 context_report 记录 173 轮注入账单，字节 p25=3519、p50=3667、p75=3732、max=3941，确认 token 有界且无信息缺失返工。
+- R-150 消费已完成：`memory_value_flags` 产出零采纳与复发候选，Memory UI 展示召回/采纳数据并沿用墓碑处置；800/1024/1280 三档宽度和四条前端冒烟通过。
+- 以上证据与 R-145/R-150 tracker 关闭记录一致；本节不再把已完成实证写成“无验证”的草案计划。
 
-## TODO 与后续风险
+## 后续边界与风险（实施后）
 
-- TODO:边界拍板后登记落地需求(P1/P2 两条),P2 移交自举;空闲整理消费零采纳/复发清单;UI 展示;R-145 轨迹实证。
-- ~~风险:采纳率信号在 preference 上无意义——已排除:preference 不走索引行召回路径~~ **2026-08-09 数据分析证伪**:prompt_hints 不过滤 category,preference 会被召回(实证 M-002 召回 22 次)且其正文全文常驻、采纳率结构性无意义 → 已在 search() 对 category=preference 豁免 decision_weight(有单测);
-- 遥测口径缺口(挂 R-150 复核):只有 memory_search 会标记「已采纳」,直接 read 记忆文件不计入——采纳率被低估的第二个通道(第一个是「看索引行即用」),复核降权参数时须一并考虑;
-- 风险:旧条目无指纹,复发检测对存量坑不生效——接受:随 manager 增量补齐,检测退化为现状而非变坏。
+- R-150 的空闲整理清单、Memory UI 消费与参数复核已完成；R-145 的真实轨迹证据已回填变更记录和 tracker。
+- 历史实证输入（保留）：2026-08-09 数据分析确认 preference 会被 prompt_hints 召回但正文常驻，因此 `search()` 对 `category=preference` 豁免 `decision_weight`；hits 因子已退役，0.6/0.7/阈值 3 保留待真实数据复核。
+- 历史边界说明（保留）：当时已知直接 `read` 不计采纳、索引行即用也可能低估采纳率；本次把该结论改写为实施后的非阻塞缺口，而非删除原风险。
+- 已知非阻塞缺口：直接 `read` 记忆文件不回填 `mark_recall_fetched`，采纳率可能被低估；该缺口在 R-145/R-150 关闭范围外，未来若要修复需另立条目。
+- 旧条目无指纹时复发检测退化为现状而非变坏；随 manager 增量补齐，保持可追溯。
