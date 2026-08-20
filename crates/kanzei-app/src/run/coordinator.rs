@@ -120,6 +120,13 @@ pub(crate) async fn run_task(
     // 画像——委派出去的活也是活,不能因为主轮只留下一个 task 调用就判成空转。
     let subagent_tools: Arc<Mutex<std::collections::BTreeSet<String>>> =
         Arc::new(Mutex::new(std::collections::BTreeSet::new()));
+    // D-654:主轮工具画像与成功关闭数的真源改为事件流(ToolStart/ToolEnd 边跑
+    // 边收)。原口径按 `summary.messages[prior.len()..]` 切片,轮中上下文压缩把
+    // 消息列表结构性删短后切片错位甚至切空——本轮真实的 edit/bash 全部不进画像,
+    // 鞭挞误判「连续两轮无实质动作」自停;close 计数扫全历史则每轮重复计入。
+    let round_tools: Arc<Mutex<std::collections::BTreeSet<String>>> =
+        Arc::new(Mutex::new(std::collections::BTreeSet::new()));
+    let round_closed = Arc::new(std::sync::atomic::AtomicU32::new(0));
     // R-253 批8:事件处理器按投影拆四 sink——UI/typed/trace/metrics 各自持有
     // 自己的状态,新增 RunEvent 只碰对应 sink(验收⑤)。
     let mut on_event = build_event_handler(
@@ -131,6 +138,8 @@ pub(crate) async fn run_task(
             committed_this_round.clone(),
             pending_commit_call,
             subagent_tools.clone(),
+            round_tools.clone(),
+            round_closed.clone(),
         ),
     );
 
@@ -329,13 +338,15 @@ pub(crate) async fn run_task(
     // R-169:自主推进判定后端化——轮末用 harness 状态机判定下一步,结果随
     // kz:done 带给前端执行(发下一条/NUDGE/停止);前端不再承载任何机械判定。
     let backlog = crate::auto_run::backlog_status(&deps.project_root);
-    // D-361:主轮画像 + 本轮子代理内部用过的工具。前者只切主 conversation,派出去的
-    // 活在它里面只剩一个 task 调用;两者合并后,「委派」按子代理实际干了什么判定,
-    // 而不是按主轮留下的那一行痕迹判定。子代理确实什么也没干时,合并后仍只有 task,
-    // 空转判定照旧生效(has_progress_tools 的语义没被削弱)。
+    // D-361:主轮画像 + 本轮子代理内部用过的工具。两者合并后,「委派」按子代理
+    // 实际干了什么判定;子代理确实什么也没干时,合并后仍只有 task,空转判定照旧
+    // 生效(has_progress_tools 的语义没被削弱)。
+    // D-654:主轮画像的真源是事件流(round_tools,ToolStart 边跑边收),不再用
+    // `summary.messages[prior.len()..]` 切片——轮中上下文压缩会把消息列表结构性
+    // 删短,切片错位后本轮真实调用不进画像,鞭挞误判 NoAction 自停(2026-08-21
+    // 现场;D-592 让压缩真正触发后暴露)。this_run_tools 仍供轮末统计落库用。
     let tools_vec: Vec<String> = {
-        let mut names: std::collections::BTreeSet<String> =
-            this_run_tools.keys().cloned().collect();
+        let mut names: std::collections::BTreeSet<String> = round_tools.lock_or_recover().clone();
         names.extend(subagent_tools.lock_or_recover().iter().cloned());
         names.into_iter().collect()
     };
@@ -355,8 +366,10 @@ pub(crate) async fn run_task(
             // 不再持有私有否决(armAutoContinue 的 autoContinueAllowed 已移除)。
             auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev)
                 && deps.agent.name == "dev",
-            // R-144:本轮关闭条目数(工具画像里 req/defect close 成功计数)。
-            closed_this_round: crate::auto_run::closed_count_this_round(&summary),
+            // R-144:本轮关闭条目数(req/defect close 成功计数)。D-654:改事件收口
+            // (ToolStart 登记意图 + ToolEnd ok 计数)——原实现扫全历史 messages,
+            // 历史 close 每轮重复计入,verify_every_n 节律被刷穿。
+            closed_this_round: round_closed.load(std::sync::atomic::Ordering::Relaxed),
             // R-144:核查阈值取自 cadence 配置;0 = 关闭该机制。
             verify_every_n: kanzei_harness::KanzeiConfig::load_at_root(&deps.project_root)
                 .map(|c| c.cadence.verify_every_n)

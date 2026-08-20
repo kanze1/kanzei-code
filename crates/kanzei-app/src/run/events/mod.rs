@@ -197,6 +197,16 @@ pub(crate) struct MetricsSink {
     round_committed: Arc<std::sync::atomic::AtomicBool>,
     round_pending: Arc<std::sync::atomic::AtomicBool>,
     subagent_tools: Arc<Mutex<std::collections::BTreeSet<String>>>,
+    /// D-654:主轮真实执行过的工具名——鞭挞画像的真源。轮中上下文压缩会把
+    /// `summary.messages` 结构性删短,按 `prior.len()` 切片会把本轮真实调用切掉
+    /// (画像切空 → 误判无动作 → Nudge/Stop(NoAction)),事件流不受消息改写影响。
+    round_tools: Arc<Mutex<std::collections::BTreeSet<String>>>,
+    /// D-654 同因:req/defect close 的成功计数也改事件收口——原
+    /// `closed_count_this_round` 扫的是全历史 `summary.messages`,历史 close 每轮
+    /// 重复计入,verify_every_n 节律被刷穿。ToolStart 登记 close 意图,ToolEnd
+    /// ok=true 才计数,语义与原「调用 close 且 ToolResult 非 error」一致。
+    pending_closes: Mutex<std::collections::HashSet<String>>,
+    round_closed: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl MetricsSink {
@@ -205,12 +215,17 @@ impl MetricsSink {
         committed_this_round: Arc<std::sync::atomic::AtomicBool>,
         pending_commit_call: Arc<std::sync::atomic::AtomicBool>,
         subagent_tools: Arc<Mutex<std::collections::BTreeSet<String>>>,
+        round_tools: Arc<Mutex<std::collections::BTreeSet<String>>>,
+        round_closed: Arc<std::sync::atomic::AtomicU32>,
     ) -> Self {
         Self {
             tool_started,
             round_committed: committed_this_round,
             round_pending: pending_commit_call,
             subagent_tools,
+            round_tools,
+            pending_closes: Mutex::new(std::collections::HashSet::new()),
+            round_closed,
         }
     }
     /// R-143:git commit 调用意图登记(成功与否由 ToolEnd ok 收口)。
@@ -227,8 +242,24 @@ impl MetricsSink {
             .unwrap()
             .insert(id.to_string(), std::time::Instant::now());
     }
+    /// D-654:主轮工具画像按事件收集(名字进画像;调了就算,成败不论——与原
+    /// 消息画像里 ToolCall 出现即计入的语义一致)。close 意图同步登记,等 ToolEnd 收口。
+    fn note_round_tool(&self, id: &str, name: &str, input: &serde_json::Value) {
+        self.round_tools.lock().unwrap().insert(name.to_string());
+        let is_close = matches!(name, "req" | "defect")
+            && input.get("action").and_then(serde_json::Value::as_str) == Some("close");
+        if is_close {
+            self.pending_closes.lock().unwrap().insert(id.to_string());
+        }
+    }
     /// R-143:git commit 结束后解析提交结果;返回该工具耗时(取并清开始时刻)。
     fn resolve_tool_end(&self, id: &str, name: &str, ok: bool) -> Option<u128> {
+        // D-654:close 调用成功才计入本轮关闭数(被门禁拦下的 close 不算,
+        // 否则核查节律被失败调用刷阈值——与原 closed_count_this_round 判据一致)。
+        if self.pending_closes.lock().unwrap().remove(id) && ok {
+            self.round_closed
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         if name == "git" {
             if ok
                 && self
@@ -292,6 +323,7 @@ pub(crate) fn build_event_handler(
             } => {
                 metrics.note_commit_intent(&name, &input);
                 metrics.note_tool_started(&id);
+                metrics.note_round_tool(&id, &name, &input);
                 trace.record(json!({
                     "kind": "tool.started", "id": id, "name": name,
                     "summary": summary, "at": now_ms(),
@@ -637,5 +669,61 @@ mod tests {
         drop(store);
         drop(sink);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn mk_metrics_sink() -> (
+        MetricsSink,
+        Arc<Mutex<std::collections::BTreeSet<String>>>,
+        Arc<std::sync::atomic::AtomicU32>,
+    ) {
+        let round_tools = Arc::new(Mutex::new(std::collections::BTreeSet::new()));
+        let round_closed = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let sink = MetricsSink::new(
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::BTreeSet::new())),
+            round_tools.clone(),
+            round_closed.clone(),
+        );
+        (sink, round_tools, round_closed)
+    }
+
+    /// D-654 核心回归:鞭挞的工具画像走事件真源,不经过 `summary.messages` 切片。
+    /// 轮中上下文压缩把消息列表结构性删短后,`&messages[prior.len()..]` 会把本轮
+    /// 真实的 edit/bash 全部切掉(画像空 → 误判「连续两轮无实质动作」自停);
+    /// 事件流逐次收集,画像与消息列表的任何改写(压缩/prune/trim)彻底解耦。
+    #[test]
+    fn 主轮工具画像走事件真源_与消息切片解耦() {
+        let (sink, round_tools, _) = mk_metrics_sink();
+        for (id, name) in [("c1", "read"), ("c2", "edit"), ("c3", "bash")] {
+            sink.note_round_tool(id, name, &json!({}));
+        }
+        let names: Vec<String> = round_tools.lock().unwrap().iter().cloned().collect();
+        assert_eq!(names, ["bash", "edit", "read"]);
+        assert!(
+            kanzei_harness::auto_run::has_progress_tools(&names),
+            "事件画像里有 edit/bash,本轮必须判为有实质动作"
+        );
+    }
+
+    /// D-654:close 计数事件收口——ToolStart 登记意图,ToolEnd ok=true 才 +1。
+    /// 被门禁拦下的 close(ok=false)与非 close 动作(update)都不计,判据与原
+    /// closed_count_this_round(「调用 close 且 ToolResult 非 error」)一致;
+    /// 差别是只收本轮事件,历史轮的 close 不会再被每轮重复计入刷穿 verify 节律。
+    #[test]
+    fn close计数事件收口_成功才计_失败与update不计() {
+        let (sink, _, round_closed) = mk_metrics_sink();
+        sink.note_round_tool("c1", "req", &json!({"action": "close", "id": "R-001"}));
+        sink.note_round_tool("c2", "defect", &json!({"action": "close", "id": "D-001"}));
+        sink.note_round_tool("c3", "req", &json!({"action": "update", "id": "R-002"}));
+        let _ = sink.resolve_tool_end("c1", "req", true);
+        let _ = sink.resolve_tool_end("c2", "defect", false);
+        let _ = sink.resolve_tool_end("c3", "req", true);
+        assert_eq!(
+            round_closed.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "c1 成功 close 计 1;c2 被拦不计;c3 是 update 不计"
+        );
     }
 }

@@ -98,38 +98,10 @@ pub fn decide_auto_run(ctrl: &mut AutoRunController, ctx: AutoRunCtx) -> AutoRun
     ctrl.state.decide(&ctx)
 }
 
-/// R-144:统计本轮实际**成功关闭**的条目数。只数 req/defect 工具调用中
-/// action=close 且对应 ToolResult 非 error 的——「调用了 close」不等于「关闭成功」,
-/// 被门禁拦下的 close(R-228/R-229 等)不算数,否则核查节律会被失败调用刷阈值。
-/// 配对方式:先收集 close 调用的 call_id,遇到对应 ToolResult 且 !is_error 时 +1。
-pub fn closed_count_this_round(summary: &kanzei_core::RunSummary) -> u32 {
-    use kanzei_llm::Part;
-    use std::collections::BTreeSet;
-    let mut close_ids: BTreeSet<String> = BTreeSet::new();
-    let mut done: BTreeSet<String> = BTreeSet::new();
-    let mut count = 0u32;
-    for message in &summary.messages {
-        for part in &message.parts {
-            match part {
-                Part::ToolCall { id, name, input } => {
-                    let is_close = matches!(name.as_str(), "req" | "defect")
-                        && input.get("action").and_then(serde_json::Value::as_str) == Some("close");
-                    if is_close {
-                        close_ids.insert(id.clone());
-                    }
-                }
-                Part::ToolResult {
-                    call_id, is_error, ..
-                } if close_ids.contains(call_id) && !done.contains(call_id) => {
-                    done.insert(call_id.clone());
-                    count += u32::from(!is_error);
-                }
-                _ => {}
-            }
-        }
-    }
-    count
-}
+// R-144 的 closed_count_this_round(扫 summary.messages 数成功 close)已在 D-654
+// 移除:它扫的是全历史消息,历史轮的 close 每轮重复计入,verify_every_n 节律被
+// 刷穿;且轮中上下文压缩会改写消息列表,消息口径本身不可靠。现口径为事件收口,
+// 见 run/events/mod.rs MetricsSink(ToolStart 登记 close 意图,ToolEnd ok 计数)。
 
 /// backlog 判定(R-169):实现已下沉 kanzei-tools::tracker::backlog_status,
 /// 桌面端与 CLI 共用同一实现(D-229 架构债消除)。此处只做转发,不留第二份逻辑。
@@ -589,60 +561,6 @@ mod tests {
         assert_eq!(first.state.rounds, 4);
         assert_eq!(second.state.rounds, 0);
         assert_eq!(second.state.max_rounds, 2);
-    }
-
-    /// R-144:closed_count_this_round 只数「action=close 且结果非 error」的 req/defect
-    /// 调用——被门禁拦下的 close 不算(否则核查节律被失败调用刷阈值)。
-    #[test]
-    fn closed计数_只数成功的close调用_失败与其它工具不计() {
-        use kanzei_llm::{Message, Part};
-        let msg = |parts: Vec<Part>| Message {
-            role: kanzei_llm::Role::User,
-            parts,
-        };
-        let summary = kanzei_core::RunSummary {
-            text: String::new(),
-            usage: kanzei_llm::Usage::default(),
-            last_input_tokens: None,
-            steps: 4,
-            halted_by_user: false,
-            messages: vec![
-                msg(vec![Part::ToolCall {
-                    id: "c1".into(),
-                    name: "req".into(),
-                    input: serde_json::json!({"action": "close", "id": "R-001"}),
-                }]),
-                msg(vec![Part::ToolResult {
-                    call_id: "c1".into(),
-                    content: "closed".into(),
-                    is_error: false,
-                }]),
-                msg(vec![Part::ToolCall {
-                    id: "c2".into(),
-                    name: "defect".into(),
-                    input: serde_json::json!({"action": "close", "id": "D-001"}),
-                }]),
-                msg(vec![Part::ToolResult {
-                    call_id: "c2".into(),
-                    content: "门禁拒绝".into(),
-                    is_error: true,
-                }]),
-                msg(vec![Part::ToolCall {
-                    id: "c3".into(),
-                    name: "req".into(),
-                    input: serde_json::json!({"action": "update", "id": "R-002"}),
-                }]),
-                msg(vec![Part::ToolResult {
-                    call_id: "c3".into(),
-                    content: "updated".into(),
-                    is_error: false,
-                }]),
-            ],
-            context_report: vec![],
-            overflow_traces: vec![],
-        };
-        // c1 成功 close → 计 1;c2 close 失败 → 不计;c3 是 update → 不计。
-        assert_eq!(super::closed_count_this_round(&summary), 1);
     }
 
     /// R-144:VerifyRound 序列化必须携带引擎生成的核查指令 prompt(前端据此发回
