@@ -8896,3 +8896,25 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-284 D-613
 - 收尾: 1787245728
 - 源码指纹: v2 scripts/ui-lint-globals.json@c7927874d345,scripts/ui-runtime-smoke.mjs@d8f54b77a29a
+
+## T-1786922726592 R-284 B4 体验事件压缩与恢复前端冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/13-memory.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 前端语法检查通过；六条冒烟全部通过：runtime 25 个脚本/2339 次 invoke/0 错误，lint 49 文件/764 globals，parallel-lines、a11y、i18n 1345 keys/451 HTML/57 动态契约、Markdown 全部通过。
+- 关联: R-284 D-614
+- 收尾: 1787246102
+- 源码指纹: v2 scripts/ui-lint-globals.json@8b9f79548374,scripts/ui-runtime-smoke.mjs@1dcdbc02cc4e
+
+## T-1786922726593 R-284 B4 delta 合并口径最终前端冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/13-memory.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 删除未经契约定义的数值 delta 累加，仅保留 text delta 拼接后复跑；语法检查与六条前端冒烟全部通过。
+- 关联: R-284 D-614
+- 收尾: 1787246153
+- 源码指纹: v2 scripts/ui-lint-globals.json@8b9f79548374,scripts/ui-runtime-smoke.mjs@1dcdbc02cc4e
+
+## T-1786922726594 R-284 B4 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.6s
+- 摘要: kanzei-app 定向回归 231 passed、0 failed、0 ignored。
+- 关联: R-284 D-614
+- 收尾: 1787246318
+- 源码指纹: v2 scripts/ui-lint-globals.json@8b9f79548374,scripts/ui-runtime-smoke.mjs@1dcdbc02cc4e

@@ -7566,3 +7566,15 @@
 - observed_head: 0808bfc87fb64d5caa9090aaf79bbfe110453e05
 - observed_worktree_hash: fnv1a64:2737cbb74081f7a9
 - recorded_at: 1787245657953
+
+## D-614 R-284 B4 新增体验事实重放调用未同步 UI lint 全局探针 [fixed] (low)
+- 复现: 运行六条前端冒烟时，ui-lint-smoke 报 `crates/kanzei-app/ui/13-memory.js:18:5 replayExperienceFacts is not defined`。
+- 影响: 功能运行时冒烟通过，但 UI lint 门禁拒绝提交，新增的重连事实恢复调用无法进入完整前端验证链。
+- 来源: self-found：R-284 B4 实现后运行前端六条冒烟。
+- 标签: 前端
+- refs: R-284
+- 优先级: P2
+- 进展: 已修复并关闭。验收逐项对账：① UI lint 门禁错误“`replayExperienceFacts` 未定义”→真实调用已接入 `crates/kanzei-app/ui/13-memory.js:18`；② 全局探针与源码同步→`scripts/ui-lint-globals.json` 由 `node scripts/gen-ui-lint-globals.mjs` 重新生成；③ 前端回归可复核→`T-1786922726593`（`node --check` 两个变更脚本及 runtime、lint、parallel-lines、a11y、i18n、Markdown 六条冒烟）全部通过，UI lint 49 文件零 no-undef。实现提交待随 R-284 B4 代码一并提交。
+- observed_head: 1cf1bffc30a252a6f8a010a74898f5e961f60d45
+- observed_worktree_hash: fnv1a64:56807420bc57d55d
+- recorded_at: 1787246218163

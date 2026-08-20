@@ -63,6 +63,8 @@ const SESSIONLESS_EVENTS = new Set([
 const experienceEventIds = new Set();
 const experienceProjectionBySession = new Map();
 const pendingExperienceRefreshes = new Set();
+const pendingExperienceDeltas = new Map();
+let experienceDeltaFlushScheduled = false;
 const EXPERIENCE_NEURAL_EVENTS = new Map([
   ["run_started", "run_started"],
   ["text_delta", "assistant_streaming"],
@@ -96,6 +98,65 @@ function rememberExperienceEvent(event) {
   session.last_event_id = event.event_id;
   experienceProjectionBySession.set(event.session_id, session);
   return true;
+}
+function mergeExperienceDeltaPayload(previous, next) {
+  const merged = { ...previous, ...next };
+  if (typeof previous.text === "string" && typeof next.text === "string") {
+    merged.text = previous.text + next.text;
+  }
+  return merged;
+}
+function flushExperienceDeltas() {
+  experienceDeltaFlushScheduled = false;
+  const queued = [...pendingExperienceDeltas.values()];
+  pendingExperienceDeltas.clear();
+  for (const event of queued) {
+    if (event.session_id !== activeSessionId || renderingBackground) continue;
+    if (typeof neuralFlowEmit === "function") {
+      neuralFlowEmit(event.neural_event, {
+        session_id: event.session_id,
+        event_id: event.event_id,
+        event_type: event.event_type,
+        delta_count: event.delta_count,
+        ...(event.payload || {}),
+      });
+    }
+  }
+}
+function scheduleExperienceDeltaFlush() {
+  if (experienceDeltaFlushScheduled) return;
+  experienceDeltaFlushScheduled = true;
+  const flush = () => flushExperienceDeltas();
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(flush);
+  else setTimeout(flush, 0);
+}
+function queueExperienceDelta(event, neuralEvent) {
+  const key = `${event.session_id}:${event.event_type}`;
+  const queued = pendingExperienceDeltas.get(key);
+  if (queued) {
+    queued.payload = mergeExperienceDeltaPayload(queued.payload, event.payload || {});
+    queued.event_id = event.event_id;
+    queued.delta_count += 1;
+  } else {
+    pendingExperienceDeltas.set(key, {
+      session_id: event.session_id,
+      event_id: event.event_id,
+      event_type: event.event_type,
+      neural_event: neuralEvent,
+      payload: { ...(event.payload || {}) },
+      delta_count: 1,
+    });
+  }
+  scheduleExperienceDeltaFlush();
+}
+function replayExperienceFacts(facts) {
+  if (!Array.isArray(facts)) return 0;
+  let restored = 0;
+  for (const event of facts) {
+    if (!event || event.class !== "fact" || !event.event_id) continue;
+    if (rememberExperienceEvent(event)) restored += 1;
+  }
+  return restored;
 }
 function refreshExperienceWorkbench(event) {
   // B2 的 memory/research 事实使用 canonical project session,不是当前 run
@@ -131,6 +192,11 @@ function handleExperienceEvent(payload) {
   const neuralEvent = EXPERIENCE_NEURAL_EVENTS.get(event.event_type);
   if (!neuralEvent) {
     log(`${t("未知体验事件")}:${event.event_type}`, "warn");
+    return;
+  }
+  // 高频 delta 只在一帧内合并一次；事实 store 仍逐事件记录，表现层不反向决定业务状态。
+  if (event.class === "delta") {
+    queueExperienceDelta(event, neuralEvent);
     return;
   }
   // withSessionRender 会让后台事件进入所属对话 pane，但不允许它驱动当前

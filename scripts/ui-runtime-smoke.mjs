@@ -979,6 +979,7 @@ const payloads = {
     promotion_gaps: 1,
     recall: { recalled: 8, fetched: 3 },
     effects: [{ memory_id: "M-SOP-001", effect_mean: 0.5, effect_ci: 0.2, eval_n: 4, last_eval: 1_760_000_000_000 }],
+    experience_facts: [],
   },
   // 两条:一条有命中,一条陈旧且零命中(验证「长期零命中」标记与清理入口)。
   memory_entries: [
@@ -1375,7 +1376,7 @@ await runUiSources();
 // R-284 B3:结构化体验事件必须先归并到事实 store,再按归属分发。
 {
   vm.runInContext(
-    '__kzOriginalNeuralFlowEmit = neuralFlowEmit; __kzOriginalRefreshMemory = refreshMemory; __experienceProbe = { animation: [], memory_refreshes: 0 }; neuralFlowEmit = (type) => __experienceProbe.animation.push(type); refreshMemory = () => { __experienceProbe.memory_refreshes += 1; };',
+    '__kzOriginalNeuralFlowEmit = neuralFlowEmit; __kzOriginalRefreshMemory = refreshMemory; __experienceProbe = { animation: [], payloads: [], memory_refreshes: 0 }; neuralFlowEmit = (type, payload) => { __experienceProbe.animation.push(type); __experienceProbe.payloads.push(payload); }; refreshMemory = () => { __experienceProbe.memory_refreshes += 1; };',
     sandbox,
   );
   const projectFact = {
@@ -1442,6 +1443,56 @@ await runUiSources();
     vm.runInContext("__experienceProbe.animation.length", sandbox) === 1
       && vm.runInContext("__experienceProbe.animation[0]", sandbox) === "run_started",
     "R-284 B3 当前 session 事件未分发到表现层",
+  );
+  for (const [event_id, text] of [["experience-smoke-delta-1", "a"], ["experience-smoke-delta-2", "b"], ["experience-smoke-delta-3", "c"]]) {
+    handlers.get("kz:experience")({
+      payload: {
+        ...projectFact,
+        event_id,
+        event_type: "text_delta",
+        session_id: vm.runInContext("activeSessionId", sandbox),
+        topic_id: null,
+        entity_id: null,
+        class: "delta",
+        payload: { text },
+      },
+    });
+  }
+  await flush();
+  assert(
+    vm.runInContext("__experienceProbe.animation.length", sandbox) === 2
+      && vm.runInContext("__experienceProbe.payloads[1].delta_count", sandbox) === 3
+      && vm.runInContext("__experienceProbe.payloads[1].text", sandbox) === "abc",
+    "R-284 B4 text delta 未合并为单次表现事件",
+  );
+  handlers.get("kz:experience")({
+    payload: {
+      ...projectFact,
+      event_id: "experience-smoke-unknown-1",
+      event_type: "future_experience_event",
+      class: "presentation",
+      session_id: vm.runInContext("activeSessionId", sandbox),
+      topic_id: null,
+      entity_id: null,
+    },
+  });
+  assert(
+    vm.runInContext("__experienceProbe.animation.length", sandbox) === 2,
+    "R-284 B4 未知体验事件错误驱动表现层",
+  );
+  const replayFact = {
+    ...projectFact,
+    event_id: "experience-smoke-replay-1",
+    event_type: "research_verify_completed",
+    session_id: "reconnected-session-smoke",
+    topic_id: "research-topic",
+    entity_id: "claim-1",
+  };
+  assert(vm.runInContext("replayExperienceFacts([" + JSON.stringify(replayFact) + "])" , sandbox) === 1, "R-284 B4 首次重连事实未恢复");
+  assert(vm.runInContext("replayExperienceFacts([" + JSON.stringify(replayFact) + "])" , sandbox) === 0, "R-284 B4 重连事实重复恢复");
+  assert(
+    vm.runInContext('experienceProjectionBySession.get("reconnected-session-smoke").facts.has("research_verify_completed")', sandbox),
+    "R-284 B4 重连未从持久事实恢复 session 投影",
   );
   vm.runInContext("neuralFlowEmit = __kzOriginalNeuralFlowEmit", sandbox);
   vm.runInContext("refreshMemory = __kzOriginalRefreshMemory", sandbox);

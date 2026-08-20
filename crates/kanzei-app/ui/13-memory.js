@@ -15,6 +15,7 @@ async function refreshMemory() {
       invoke("memory_control_plane", { projectDir: currentProject }),
     ]);
     renderMemoryArch(overview);
+    replayExperienceFacts(controlPlane?.experience_facts);
     renderMemoryControlPlane(controlPlane);
     renderMemoryBill(billData);
     renderMemoryRecalls(recallData);
