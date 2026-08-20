@@ -841,9 +841,8 @@ mod tests {
         let mut keys = before.files_for_tree(&b).expect("B 线应在保护面").keys();
         assert!(!keys.any(|key| key == "gen/schemas/desktop-schema.json"));
         assert!(before
-            .trees
-            .get(&b)
-            .unwrap()
+            .files_for_tree(&b)
+            .expect("B 线应在保护面")
             .contains_key("src/schemas/domain.json"));
         let _ = std::fs::remove_dir_all(&root);
     }
