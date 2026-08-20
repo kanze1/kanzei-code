@@ -7327,3 +7327,16 @@
 - observed_head: f97788899b9ab4647a062e83d80598db8aa95380
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787223517197
+
+## D-602 D-599 漏改跨行原始路径查表导致同一跨树测试仍在 CI 失败 --ref D-599 [fixed] (high)
+- 复现: gen_schemas 测试首个 files_for_tree 查询通过后，第二个跨行 before.trees.get(&b).unwrap 仍因 Windows 路径形态差异失败
+- 影响: 远端 test 406 passed 后仍以单条失败阻断 UI smoke，D-599 验收实际未完整覆盖
+- 来源: GitHub Actions run 32361985430
+- 标签: 流程
+- 验收: 已满足：测试侧无原始 PathBuf 查表，kanzei-tools 全包通过，远端 Windows CI run 32363478219 成功
+- 优先级: P1
+- 取活依据: override:补齐 D-599 漏改并扫描全部同类原始路径访问
+- 进展: ee8d3152 补齐遗漏查询；kanzei-tools 407 passed、严格 all-targets clippy、官方 13 步门禁通过；GitHub Actions 32363478219 的 fmt/clippy/test/UI smoke 全绿
+- observed_head: ee8d31523be15b4adf46c93774b3d9df95af396b
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787225731861
