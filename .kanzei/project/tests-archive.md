@@ -9229,3 +9229,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 再次运行 workspace 全量套件，全部 crate 单元/集成/文档测试通过，无 failed；本次没有代码变更，仅补齐当前运行的测试记录。
 - 关联: R-309
 - 收尾: 1787266047
+
+## T-1786922726636 R-309 当前 HEAD full verify [passed]
+- 命令: $sw = [Diagnostics.Stopwatch]::StartNew(); .\scripts\verify.ps1 -Full; $sw.Stop(); VERIFY_FULL_ELAPSED_SECONDS=$([math]::Round($sw.Elapsed.TotalSeconds,2))
+- 时长: 105.7s
+- 摘要: 真实当前 HEAD full verify 通过，mode=full、rust=True、frontend=True、changed=2，14/14 checks 全通过、skipped_steps 为空，生成绑定 `b564f2134ae6c8d8828a33b42745df0f48a42b5a` 的 dist/verification.json；总耗时 105.67s。该证据证明 full evidence，不冒充“只改一行前端”①或真实前端关闭③。
+- 关联: R-309
+- 收尾: 1787266354
