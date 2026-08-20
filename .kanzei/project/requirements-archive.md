@@ -4041,3 +4041,17 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787191034284
 - 批次: 2/2
+## R-317 长程需求执行底座:Outcome/Work Unit/事件投影/有界上下文与证据关闭 [done]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心 后端 前端 流程
+- refs: R-312 R-313 R-307 docs/design/work_unit_foundation.md
+- 来源: 2026-08-20 用户指出「需求这个东西的定义有问题」，要求重新思考任务拆分、上下文管理、减轻模型负担和长程任务信息熵线性增长；随后明确「先落一个底座，这个工作不可能靠自举完成，帮我完成这个工作然后发版」。
+- 诊断: 旧 Requirement 同时承担 Outcome、WIP、批次、自由文本进展、上下文快照、验收与审计，历史每增长一段，模型恢复任务就要重新消费一段；模型还是状态维护者和验收者，形成负担随历史线性增长的结构性耦合。R-312 原计划先测量再设计，但用户本轮已给出方向并要求直接落底座，因此本条由外部 Codex 在隔离工作树实现，不要求旧系统自举拆分自己。
+- 内容: ①schema v18 增加 append-only work_events 与可重建 work_surfaces；②Requirement 作为长期 Outcome，显式 `执行模型: work_units_v1` 后拆为 R-xxx/Wn Work Unit；③状态机覆盖 ready/active/blocked/verifying/done/superseded、并行线接管与 checkpoint；④work next 调度 Work Unit 并只注入当前投影+父 Outcome 白名单字段；⑤逐验收 evidence 后才允许 complete，父需求关闭要求所有单元终态且至少一个 done；⑥CLI、桌面快照与需求详情可观测；⑦存量需求保持 legacy 行为。
+- 边界: 不自动让旧系统规划和拆分本条自身；不批量迁移存量 Requirement；不把 Markdown Outcome 搬进 SQLite；v1 不加入含混的 defect affinity，先保证需求主链闭环。
+- 验收: ①v17→v18 迁移前整库备份且表/列机械判据通过；②事件回放与 surface 相同，删除/重建投影不丢审计；③单元上下文有硬预算，父需求超长进展不进入 selected；④依赖、单 WIP、并行线接管与 checkpoint 状态机有测试；⑤未逐条登记 evidence 时 complete 被拒；⑥有非终态单元或全部 superseded 时 req close 被拒，全部验证完成后可关；⑦CLI 编译，桌面快照、i18n/runtime/lint 冒烟通过；⑧全量 verify 通过并发布安装包，GitHub release/tag/资产 SHA256 与安装后二进制版本均核验。
+- 取活依据: user-direct:用户本轮明确要求由外部 Codex 完成底座并发版，避免依赖旧需求系统自举
+- 取得线: kanzei/work-unit-foundation
+- 批次: 4/4
+- 进展: B1 ba13b53a、B2 c5217523+b0b96c97、B3 db1e808e、接管门禁 d382bbfc、发布门禁修复 0f782868/f4533f37/d3873bf1 已完成。最终 `scripts/verify.ps1` 在 d3873bf18c47cd90316b464dc835af3acdc7d085 生成全绿证据（13 项，verification SHA256 f9aad2d678d778ce0d2303057bf0f329b5343c05079a19a1306a69b34b135df3）；dev/main 快进到同一提交。`package.ps1 -Ack 12 -Publish` 构建、静默安装并发布 GitHub Latest Release `build-d3873bf1`；标签精确指向 d3873bf18c47cd90316b464dc835af3acdc7d085。安装器 `kanzei-setup-d3873bf1.exe` 大小 16,339,218 字节，本地产物、GitHub API digest 与重新下载资产三方 SHA256 均为 c250adc7051f326e6c53aa40e27afc138f71a6775e2ad63b1758519aac9950be；本机安装位 `kzapp.exe` 包含 d3873bf1 构建标识，ProductVersion/FileVersion 均为 0.1.0。D-594/D-595 作为全量门禁中发现的真实竞态与环境隔离缺陷已修复归档。
