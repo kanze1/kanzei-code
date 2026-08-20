@@ -8437,3 +8437,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 真实并行双 worktree 构建通过：主树与同 HEAD 临时 worktree 两个 cargo tauri build 均 exit=0；两边各生成4个 gen/schemas 文件；主树 quarantine 目录数仍1、临时树0，没有 schema 误报隔离目录。
 - 关联: D-566
 - 收尾: 1787192802
+
+## T-1786922726531 D-567 manager schema 定向测试 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory memory::manager::tests
+- 摘要: 9 manager tests passed，0 failed；InboxClearInput schema修复后 manager 工具集回归通过。
+- 关联: D-567
+- 收尾: 1787192990
+- 源码指纹: v2 crates/kanzei-memory/src/memory/manager.rs@eb86db7e27bd

@@ -32,7 +32,7 @@
 - 批次: 2/2
 - 停车: 历史121目录逐目录manifest无法从当前文件系统重建；代码与真实并行构建已完成，暂让位下一条可执行缺陷；恢复人:agent，恢复条件:找到历史清单或重新产生可逐目录审计的存量窗口
 
-## D-567 记忆 inbox 消化 10 进 0 出:manager run made no inbox progress,96 条积压 [open] (high)
+## D-567 记忆 inbox 消化 10 进 0 出:manager run made no inbox progress,96 条积压 [fixing] (high)
 - refs: D-409
 - 复杂度: 中
 - 复现: .kanzei/memory/inbox.checkpoint.json(updated_at_ms=1787169243689,2026-08-20 03:54):batch_id=inbox-1787169204456,status=failed,input_notes=10,success_notes=0,failure_reason=manager run made no inbox progress,pending_after=96。inbox.md 现存 96 个 note 块(106KB,08-18~08-19 产生,79% 为 bash 指纹)
@@ -40,6 +40,11 @@
 - 标签: 后端
 - 验收: ①定位 manager run 零进展根因(模型调用失败/discard 销账失败/门禁拒绝)并修复,失败原因可观测不再只有一句 no progress;②真实重跑一批消化,success_notes>0 且 pending 下降;③96 条积压清空或按同指纹聚类批量处置留痕;④连败告警:连续 N 批 status=failed 主动上报而非静默重试
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-567(unblocks=0)
+- 进展: 已定位并修复零进展根因：crates/kanzei-memory/src/memory/manager.rs:445-450 原 `InboxClearInput` unit struct 被 schemars 生成为 `type:null`，provider 因 `memory_inbox_clear` function schema 非 object 返回 HTTP 400；现改为空 object 参数结构并显式保留 `type:object` 语义。T-1786922726531：`cargo test -p kanzei-memory memory::manager::tests`，9 passed、0 failed。下一步：提交 schema 修复，然后真实重跑一批 inbox 消化验证 success_notes>0/pending下降。
+- observed_head: 3adcfd663ccd5736581d107aa09ffa36a3926fd6
+- observed_worktree_hash: fnv1a64:eceff50e18bbf04d
+- recorded_at: 1787193002638
 
 ## D-568 记忆 INDEX 描述串号污染:M-014/M-015 描述抄错条目,毒化 FTS 检索 [open] (medium)
 - 复杂度: 小

@@ -443,7 +443,11 @@ impl Tool for MemoryStaleTool {
 }
 
 #[derive(Deserialize, JsonSchema)]
-struct InboxClearInput;
+struct InboxClearInput {
+    /// 空对象参数：显式保证 provider function schema 为 `type: object`。
+    #[serde(skip)]
+    _unit: Option<()>,
+}
 
 pub struct MemoryInboxClearTool;
 
