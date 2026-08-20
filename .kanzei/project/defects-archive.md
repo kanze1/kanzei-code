@@ -7165,9 +7165,9 @@
 - 影响: verify 十三步门禁在循环内不可执行,复杂度大条目的关闭验收与发版前置证据只能移交外部会话,循环自闭环断链
 - 来源: 2026-08-20 R-306 B4 现场,tests-archive T-1786922726507
 - 标签: 核心
-- 进展: 已提交 ca215413:crates/kanzei-tools/src/shell.rs 的 detected_shell() 为 pwsh/powershell 显式追加 -ExecutionPolicy Bypass(原 args 只有 -NoProfile -NonInteractive -Command,裸 spawn 出的子进程不继承交互会话的 Process=Bypass,落回未知的 LocalMachine/用户策略)。新增两条回归(shell.rs execution_policy_tests):①spawned_shell_runs_local_ps1_file_without_inherited_bypass 用合成 .ps1 探针验证裸 spawn 可执行本地脚本;②real_verify_ps1_clears_authorization_gate 直接对真实 scripts/verify.ps1 发起同一调用,断言 stdout/stderr 不再出现 AuthorizationManager(工作树不干净时脚本内部提前抛错属预期,不算本缺陷范围)。cargo test -p kanzei-tools shell:: 4 passed。诚实说明:①根因定位到「执行策略继承」这一支(验收给出的三个候选之一),但本机当前 LocalMachine=RemoteSigned 且 verify.ps1 无 Zone.Identifier 标记,回退旧参数在本机也无法复现原始 AuthorizationManager 失败,未做成严格反例对照,显式 Bypass 是消除该类环境差异的标准做法而非确诊单一根因;②③已用真实脚本与回归验证满足。
+- 进展: 已提交 ca215413:crates/kanzei-tools/src/shell.rs 的 detected_shell() 为 pwsh/powershell 显式追加 -ExecutionPolicy Bypass(原 args 只有 -NoProfile -NonInteractive -Command,裸 spawn 出的子进程不继承交互会话的 Process=Bypass,落回未知的 LocalMachine/用户策略)。诚实说明:①根因定位到「执行策略继承」这一支(验收给出的三个候选之一),但本机当前 LocalMachine=RemoteSigned 且 verify.ps1 无 Zone.Identifier 标记,回退旧参数在本机也无法复现原始 AuthorizationManager 失败,未做成严格反例对照,显式 Bypass 是消除该类环境差异的标准做法而非确诊单一根因。②③最初用两条回归验证(合成探针 + 直接调用真实 scripts/verify.ps1),但后者(real_verify_ps1_clears_authorization_gate)依赖工作树不干净让 verify.ps1 自己快速抛错——发版前跑 cargo test --workspace 时工作树是干净的,子进程转而真的去跑完整 13 步门禁(含其自身的 cargo test --workspace),从测试里递归拉起一次完整的自己,20 秒超时炸穿,在准备本次发版时现场撞见(tests-archive 无独立 T- 记录,证据见本次 verify 失败日志与随后 11b60ae3 的移除提交)。已提交 11b60ae3 删除该条不安全测试,只保留合成探针那条(同样证明裸 spawn 不被 AuthorizationManager 挡,不依赖工作树状态,不递归)。cargo test -p kanzei-tools shell:: 3 passed(此前误记 4 passed,含已删除的那条)。
 - 优先级: P1
-- observed_head: ca215413e8f074fe4d8b662d2e2e997c6d9ad620
+- observed_head: 11b60ae32647a5ff999329120316e8ffebad7fd8
 - recorded_at: 1787197841780
 
 ## D-583 鞭挞机制缺连续零产出熔断,R-306 空转 10 轮无停机上报 [fixed] (medium)
