@@ -213,24 +213,7 @@
 - recorded_at: 1787173976915
 - 对账: 2026-08-20 发版 build-39cd402f 后 B1/B2 进入运行态;R-306/R-293 停车已改写「解除条件:」语法为首批真实消费者。批3 时顺带把「解除条件:」写入约定补进 conventions 停车纪律,让循环新写停车默认带机器可判条件
 
-## R-308 记忆冗余治理与晋升门槛机械化:同指纹聚类合并、candidate 单轨化、复发阈值硬执行 [doing]
-- refs: D-567 D-568 R-293 R-235 D-637 D-638
-- 内容: 批1 同指纹聚类合并:按 [fp:...] 指纹与标题相似度机械聚类,重复簇合并为单条(保最完整正文,合并复发计数),归档被并条目;批2 晋升门槛机械化:复发阈值(如第 2 次才建 candidate、第 N 次+修复证据才 active)由写入方硬执行而非提示词约定,低于阈值的 note 只进 inbox 不落盘;批3 candidate 单轨化:candidate 要么进 INDEX 带标记要么不进检索,消除「索引看不见、检索跑得出」;批4 global 域处置:74 条 candidate 走一次批量复核(晋升/合并/清退),global 域接入 recall 遥测
-- 复杂度: 中
-- 来源: 2026-08-20 记忆系统全面勘察:61 条顶层条目实质仅约 31 个主题(重复簇 8 个共 39 条,49% 冗余);M-205 与 M-207 标题逐字相同;C6 簇三条(M-248/250/253)共用同一指纹一天内产生;M-245 正文自述「本轮第 1 次复发→暂不建」却仍落盘——晋升门槛写在文里没有被执行;24 条 project candidate 不进 INDEX 却被 FTS 检索(双轨);global 域 74 条全 candidate 零 active 零遥测,晋升管道在全局域没跑通
-- 标签: 后端
-- 边界: 不动 R-293 的 F(m) 漏斗与效应量框架;不动 R-235 已拍板的 28 条存量豁免;合并动作走 M-059 SOP 归档不裸删
-- 验收: ①顶层条目数≈实质主题数(勘察口径复查冗余率<15%);②同指纹重复写入被机械拒绝并有定向测试;③candidate 可见性单轨有断言;④global 域 74 条处置留痕且 recall 遥测非零;⑤INDEX 行与源文件 description 一致性核对通过(与 D-568 对齐)
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-308(unblocks=0)
-- 批次: 7/7
-- 进展: R-308 验收逐项对账：①“顶层条目数≈实质主题数/冗余率<15%”：`crates/kanzei/src/cli/memory.rs:56-69` 计算 active/candidate 条目与规范化主题数；T-1786922726625 真实输出 project 36/36、global 24/24，B5 真实 merged=28，当前机械口径冗余率0%。②“同指纹重复写入机械拒绝”：`crates/kanzei-memory/src/memory/admission.rs` fingerprint conflict gate，`crates/kanzei-memory/src/memory/store.rs:2324-2424` 存量簇合并回归；T-1786922726616=165 passed。③“candidate 可见性单轨”：`crates/kanzei-memory/src/memory/retrieval/search.rs:27-29` 默认 status active，`store.rs:1386-1450` candidate 不进入 INDEX/默认 FTS/主检索断言；T-1786922726611=163 passed。④“global candidate 处置与 recall 非零”：`crates/kanzei-memory/src/memory/mod.rs:1117-1200` 一次性 review marker 与 recall 写入，`crates/kanzei/src/cli/memory.rs:72-130` 真实 CLI 消费；T-1786922726625 实际77条（原勘察74条已被现场真值取代）→24条、recall rows=1。⑤“INDEX/source description 一致”：`crates/kanzei-memory/src/memory/store.rs:801-839` canonical 全行 guard，`store.rs:841-900` 显式 repair 由 Markdown 真源重建；T-1786922726622=166 passed，T-1786922726625 真实 repair-index→review-global 成功。验收降级说明：④原文74→现场77，实际完整处理77→24，未缩小范围；D-568 的 M-014/M-015 语义源文串号是独立 fixing 项，不冒充本条修复。B6/B7 CLI 接线 `crates/kanzei/src/cli/mod.rs:54-55,95-97`，T-1786922726624=44 unit+32 integration passed。
-- observed_head: 9c64dd6ecdc2c8456b494cf46213ff686e14ef2e
-- observed_worktree_hash: fnv1a64:17c1716a3cd9b524
-- recorded_at: 1787262700632
-- status: done
-
-## R-309 门禁矩阵整合:按改动路径裁剪 verify、globals 免手工同步、脆性门禁加固 [todo]
+## R-309 门禁矩阵整合:按改动路径裁剪 verify、globals 免手工同步、脆性门禁加固 [doing]
 - refs: D-510 D-555 D-539 D-540 D-458 R-300
 - 内容: 批1 globals 免手工同步:eslint.config.js 加载时直接调 gen-ui-lint-globals 计算 globals,ui-lint-globals.json 降级缓存或删除——结构性消灭 D-458/D-484/D-523/D-547/D-560/D-562 一族(占门禁缺陷 18%)。批2 verify 按改动路径三档裁剪:无 Rust 改动跳 fmt/clippy/test(省 100.2s),无前端改动跳六冒烟(省 5.9s),verification.json 记录裁剪判据与被跳步骤,package.ps1 发版证据要求全量 verify 不受裁剪污染。批3 关闭门禁复用 verify 证据:frontend_smoke_passed 接受绑定当前 HEAD 且 ui_runtime/ui_lint/ui_i18n 全 pass 的 verification.json,去掉每批第 3 轮冒烟;同时补冒烟记录新鲜度校验(现状:三天前的 passed 记录可放行今天的关闭,coverage.rs frontend_smoke_passed 无时间/指纹比对)。批4 脆性加固:metrics 闸基线口径版本断言(口径不同拒绝出数而非出错数),metrics-regression-gate.ps1 里的 cargo build 移出 crate_sync 单独计时;parallel-lines-regression.mjs 改用 loadUiSources() 不再写死 8 个文件名;ipc-event-smoke/check-ps1-bom 补空集与下限断言(D-510 模式推广)
 - 复杂度: 大
@@ -239,6 +222,13 @@
 - 边界: cargo test --workspace 的 90.3s 是真实成本不动;CI 全量保持;裁剪只作用本地 verify,发版通道必须全量
 - 验收: ①改一行前端的批次 verify 墙钟 <15s(实测);②改 globals 清单的缺陷族在门禁上线后零新增;③关闭前端条目不再需要第三轮冒烟(用 verify 证据通过一次真实关闭);④metrics 口径漂移场景拒绝出数的定向测试;⑤裁剪过的 verification.json 被 package.ps1 拒绝的定向测试
 - 优先级: P1
+- status: doing
+- 进展: B1 已落地并验证：`scripts/gen-ui-lint-globals.mjs` 导出 `collectUiGlobals`/`readCachedUiGlobals`，CLI `--check` 与生成写缓存行为保留；`eslint.config.js:1-27` 加载时实时收集 globals，只有实时收集失败才读取缓存，双失败拒绝启动；新增 `scripts/ui-lint-globals-config-smoke.mjs` 覆盖实时优先、缓存降级、双失败拒绝和真实 `activePane` 消费。T-1786922726627：node --check 三文件、配置定向测试、ui-lint-smoke 50 文件 no-undef 全绿，实时清单764项且缓存同步。下一步：复核 verify/package/verification.json 当前路由，设计 B2 按改动路径裁剪且保持发版全量。
+- observed_head: 7635faeed1a51ed625e1c9b9ddd09834d36c67b2
+- observed_worktree_hash: fnv1a64:f49031a8aff5003f
+- recorded_at: 1787263525396
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-309(unblocks=0)
+- 批次: 1/4
 
 ## R-310 仓库导航效率:失手遥测、工具自愈报错与代码地图,把认知预算还给问题本身 [todo]
 - refs: D-575 D-568 R-308 docs/design/weakness_register_20260820.md

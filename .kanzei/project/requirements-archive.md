@@ -3659,7 +3659,7 @@
 - recorded_at: 1786958400176
 - 批次: 5/5
 - 依赖: D-428
-- 停车:
+- 停车: 
 
 ## R-277 research 引擎:计划审批/检索反思环/大纲写作/引用校验 [done]
 - refs: R-221 R-273 R-274 R-276 R-283 R-284 docs/design/research_mode.md docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
@@ -4066,7 +4066,7 @@
 - 验收: run 主链关键路径有自动化断言;新增 command 有明确测试落点范式;cargo test 全绿并入 verify
 - 优先级: P1
 - 取活依据: engine:唯一可执行 WIP 是 R-296，必须先恢复它
-- 停车:
+- 停车: 
 - 进展: 验收对账完成：run 主链关键路径已有真实断言——crates/kanzei-app/src/commands/run.rs:654、667 分别验证真实 episode 投影与 requirement 复杂度来源，crates/kanzei-app/src/run/mod.rs:565 验证真实 SessionStore 的轮末通知持久化/回放（实现提交 1e076db6）；这三处同时给新增 command 建立就地 #[cfg(test)]/真实存储边界的测试落点范式。现行提交 c85f3c99 上 cargo test --workspace exit=0：kz 42、integration 32、kzapp 230、kanzei-memory 156、kanzei-tools 396 passed（另 2 ignored），覆盖 D-570 新增上下文投影；全仓门禁满足。
 - observed_head: c85f3c998e8a0fe59571ca8baec5ee855b2c9814
 - observed_worktree_hash: fnv1a64:70daf09539db7acb
@@ -4082,11 +4082,10 @@
 - 来源: 2026-08-14 用户观察——开新项目应先深度调研已有方案与设计,不适合从零开始;这是当前 coding agent 的通病(非得用户主动请求才去调研),直接影响自举质量。
 - 标签: 核心
 - 边界: 不是每条需求都调研,只在触发判据成立时启动;判据必须机械可判,不接受模型自行裁量「这算不算新方向」。websearch 轮次设上限,不做无限扩散爬取。本条只产出对照工件与开工门禁,不改 req/defect 状态机,也不自动把调研结论写成条目——那是 R-221 定调点4 的回流通道。
-- 阻塞:
 - 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
 - 优先级: P1
 - 取活依据: engine:唯一可执行 WIP 是 R-248，必须先恢复它
-- 停车:
+- 停车: 
 - 进展: 验收逐项完成：① crates/kanzei-tools/src/prior_art.rs:551 三种触发均创建同形骨架，crates/kanzei-tools/src/tracker.rs:4052 断言普通后端条目不受影响；② crates/kanzei-tools/src/prior_art.rs:257 与 :577 逐结论校验出处、V级、差异、决策，无出处拒绝；③ crates/kanzei-tools/src/prior_art.rs:577-598 独立断言外部 URL 与仓内 file:line 双侧至少各一条，删去仓内章节后以双侧覆盖不足拒绝；④ crates/kanzei-tools/src/tracker.rs:725 与 :4052 核心空refs缺工件拒绝、有效 prior_art 放行、prior_art_waiver 审计落字段；⑤ crates/kanzei-tools/src/prior_art.rs:602 与 crates/kanzei-tools/src/websearch.rs:318 验证轮次上限在联网前返回 PRIOR_ART_SEARCH_LIMIT；⑥ crates/kanzei-tools/src/tracker.rs:3600 与 :3756 既有完整登记及8路并发新增回归通过。实现提交 34c78f40、35aa11ee、571001f1，夹具对齐 37023013；cargo test --workspace exit=0（kz 42/integration 32/kzapp 231/memory 156/tools 406，0 failed）；cargo clippy --workspace -- -D warnings exit=0。真实网络探测：DuckDuckGo HTML HTTP 200/33616B/1158ms，arXiv API HTTP 200/2957B/493ms；当前无需触发降级，失败诊断由 crates/kanzei-tools/src/websearch.rs:281 单测覆盖。
 - observed_head: 3702301328886e835c552b5174252853e795f372
 - observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
@@ -4109,3 +4108,20 @@
 - observed_head: 5f4b10ce66012e0aebdc59f994c8fc91eb377ea5
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
 - recorded_at: 1787242856195
+
+## R-308 记忆冗余治理与晋升门槛机械化:同指纹聚类合并、candidate 单轨化、复发阈值硬执行 [done]
+- refs: D-567 D-568 R-293 R-235 D-637 D-638
+- 内容: 批1 同指纹聚类合并:按 [fp:...] 指纹与标题相似度机械聚类,重复簇合并为单条(保最完整正文,合并复发计数),归档被并条目;批2 晋升门槛机械化:复发阈值(如第 2 次才建 candidate、第 N 次+修复证据才 active)由写入方硬执行而非提示词约定,低于阈值的 note 只进 inbox 不落盘;批3 candidate 单轨化:candidate 要么进 INDEX 带标记要么不进检索,消除「索引看不见、检索跑得出」;批4 global 域处置:74 条 candidate 走一次批量复核(晋升/合并/清退),global 域接入 recall 遥测
+- 复杂度: 中
+- 来源: 2026-08-20 记忆系统全面勘察:61 条顶层条目实质仅约 31 个主题(重复簇 8 个共 39 条,49% 冗余);M-205 与 M-207 标题逐字相同;C6 簇三条(M-248/250/253)共用同一指纹一天内产生;M-245 正文自述「本轮第 1 次复发→暂不建」却仍落盘——晋升门槛写在文里没有被执行;24 条 project candidate 不进 INDEX 却被 FTS 检索(双轨);global 域 74 条全 candidate 零 active 零遥测,晋升管道在全局域没跑通
+- 标签: 后端
+- 边界: 不动 R-293 的 F(m) 漏斗与效应量框架;不动 R-235 已拍板的 28 条存量豁免;合并动作走 M-059 SOP 归档不裸删
+- 验收: ①顶层条目数≈实质主题数(勘察口径复查冗余率<15%);②同指纹重复写入被机械拒绝并有定向测试;③candidate 可见性单轨有断言;④global 域 74 条处置留痕且 recall 遥测非零;⑤INDEX 行与源文件 description 一致性核对通过(与 D-568 对齐)
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-308(unblocks=0)
+- 批次: 7/7
+- 进展: R-308 ①-⑤ 已逐条完成对账并已提交 B1-B7：① CLI真实统计与T-1786922726625=project36/36、global24/24、merged28；② admission gate + store regression T-1786922726616=165 passed；③ retrieval active单轨与candidate排除 T-1786922726611=163 passed；④现场77→24、global marker recall rows=1，T-1786922726625；⑤ canonical INDEX guard与显式repair `store.rs:801-900`，T-1786922726622=166 passed。提交：B1 `99809920`、B2 `168c404f`、B3 `1ec1d4c7`、B4 `3509d54b`、B5 `9c64dd6e`、B6 `90c75498`、B7 `7635faee`+`edcaf7bb`。④原文74为勘察时点数，现场77已完整处理，属于范围扩展降级说明；D-568 M-014/M-015语义源文缺口继续由独立 fixing 项负责。
+- observed_head: 7635faeed1a51ed625e1c9b9ddd09834d36c67b2
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787263273053
+- status: done

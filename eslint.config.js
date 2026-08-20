@@ -2,12 +2,23 @@
 // 只开 no-undef 类规则(防手误),不引入构建步骤。ui/*.js 是经典 script 按序加载,
 // 顶层声明的全局标识符清单由 scripts/gen-ui-lint-globals.mjs 生成(冒烟会校验同步)。
 import globals from "globals";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { collectUiGlobals, readCachedUiGlobals } from "./scripts/gen-ui-lint-globals.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const uiGlobals = JSON.parse(fs.readFileSync(path.join(here, "scripts/ui-lint-globals.json"), "utf8"));
+export function loadUiGlobals({ collect = collectUiGlobals, readCache = readCachedUiGlobals } = {}) {
+  try {
+    return collect();
+  } catch (error) {
+    try {
+      const cached = readCache();
+      console.warn(`实时 UI globals 生成失败，降级使用缓存清单: ${error.message}`);
+      return cached;
+    } catch (cacheError) {
+      throw new Error(`实时 UI globals 生成失败且缓存不可用: ${cacheError.message}`, { cause: error });
+    }
+  }
+}
+
+const uiGlobals = loadUiGlobals();
 
 export default [
   {
