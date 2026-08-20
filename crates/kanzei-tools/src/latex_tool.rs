@@ -115,7 +115,6 @@ pub(crate) enum TeXBackend {
     Missing,
 }
 
-// 在 PATH 里找可执行文件(Windows 下补 .exe)。
 #[cfg(test)]
 thread_local! {
     /// D-584 测试注入缝:当前线程的 PATH 替身。测试模拟"无后端"不得清进程级
@@ -133,6 +132,7 @@ fn lookup_path() -> String {
     std::env::var("PATH").unwrap_or_default()
 }
 
+/// 在 PATH 里找可执行文件(Windows 下补 .exe)。
 fn which_in_path(name: &str) -> Option<String> {
     let path = lookup_path();
     for dir in path.split(';') {
@@ -333,30 +333,34 @@ fn compile_tectonic(
 /// 按总页数零填充,≥10 页产 `-01.png`,只找 `-1.png` 必失败);②长文档不再
 /// 全页 150dpi 渲染纯浪费。失败路径也清理临时 PNG(不再提前 return 跳过清理)。
 pub(crate) fn pdf_to_png(pdf: &Path, workdir: &Path, stem: &str) -> Result<Vec<u8>, String> {
-    if !pdf.is_file() {
-        return Err(format!("PDF 不存在: {}", pdf.display()));
-    }
-    let pdftoppm = which_in_path("pdftoppm").ok_or_else(|| {
-        "未找到 pdftoppm(poppler PDF 转 PNG 工具)。MiKTeX/TeX Live 自带;若用 Tectonic 侧车 \
-         需单独装 poppler 或将 pdftoppm 放入 PATH。"
-            .to_string()
-    })?;
-    // 输出到 workdir 下的临时前缀,避免污染工件目录。
-    let out_prefix = workdir.join(format!("{stem}-pngtmp"));
-    // D-391:只渲染首页(-f 1 -l 1)——页号确定 + 长文档不浪费。
-    let output = std::process::Command::new(&pdftoppm)
-        .args(["-png", "-r", "150", "-f", "1", "-l", "1"])
-        .arg(pdf)
-        .arg(&out_prefix)
-        .current_dir(workdir)
-        .output()
-        .map_err(|e| format!("启动 pdftoppm 失败: {e}"))?;
-    let result = if !output.status.success() {
-        Err(format!(
-            "pdftoppm 转换失败: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    } else {
+    // D-601:先清上次遗留,防止旧 PNG 被误认为本轮产物;再把全部可失败
+    // 操作收进闭包。闭包内的 `?` 只退出闭包,不会跳过末尾清理。
+    cleanup_pngtmp(workdir, stem);
+    let result = (|| {
+        if !pdf.is_file() {
+            return Err(format!("PDF 不存在: {}", pdf.display()));
+        }
+        let pdftoppm = which_in_path("pdftoppm").ok_or_else(|| {
+            "未找到 pdftoppm(poppler PDF 转 PNG 工具)。MiKTeX/TeX Live 自带;若用 Tectonic 侧车 \
+             需单独装 poppler 或将 pdftoppm 放入 PATH。"
+                .to_string()
+        })?;
+        // 输出到 workdir 下的临时前缀,避免污染工件目录。
+        let out_prefix = workdir.join(format!("{stem}-pngtmp"));
+        // D-391:只渲染首页(-f 1 -l 1)——页号确定 + 长文档不浪费。
+        let output = std::process::Command::new(&pdftoppm)
+            .args(["-png", "-r", "150", "-f", "1", "-l", "1"])
+            .arg(pdf)
+            .arg(&out_prefix)
+            .current_dir(workdir)
+            .output()
+            .map_err(|e| format!("启动 pdftoppm 失败: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "pdftoppm 转换失败: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
         // D-391:只渲染首页 → 产物唯一;但页号零填充位数取决于总页数
         // (poppler 对 10 页 PDF 产 -01.png,1 页产 -1.png),不猜页号——
         // 直接扫描 <prefix>-*.png 取唯一产物(零填充任意位数都成立)。
@@ -376,8 +380,9 @@ pub(crate) fn pdf_to_png(pdf: &Path, workdir: &Path, stem: &str) -> Result<Vec<u
             .next()
             .ok_or_else(|| "pdftoppm 未产出 PNG(只渲染首页,应有 1 个)".to_string())?;
         std::fs::read(&first).map_err(|e| format!("读取转换产物失败: {e}"))
-    };
-    // D-391:失败路径也清理临时 PNG(成功/失败统一走这里,不提前 return 跳过)。
+    })();
+    // D-391/D-601:无论成功、子进程失败、启动失败、无产物还是读取失败,
+    // 都经过这个唯一收口。
     cleanup_pngtmp(workdir, stem);
     result
 }
@@ -658,6 +663,23 @@ mod tests {
         assert!(
             !dir.join("doc-pngtmp-1.png").exists(),
             "失败路径也必须清理临时 PNG"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-601:后端在进程启动前就缺失也必须走同一清理收口。
+    #[serial]
+    #[test]
+    fn 转换后端缺失也清理历史临时png() {
+        let dir = temp_dir("missing-png-backend");
+        std::fs::write(dir.join("doc.pdf"), b"placeholder").unwrap();
+        std::fs::write(dir.join("doc-pngtmp-1.png"), b"stale").unwrap();
+
+        let err = with_empty_path(|| pdf_to_png(&dir.join("doc.pdf"), &dir, "doc")).unwrap_err();
+        assert!(err.contains("pdftoppm"), "应点名缺失后端: {err}");
+        assert!(
+            !dir.join("doc-pngtmp-1.png").exists(),
+            "后端缺失也必须清理历史临时 PNG"
         );
         std::fs::remove_dir_all(&dir).ok();
     }

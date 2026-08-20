@@ -18,12 +18,9 @@ struct WebSearchInput {
     /// 返回结果数量，默认 5，最大 10。
     #[serde(default)]
     max_results: Option<usize>,
-    /// 研究课题；有运行中的 research_loop 时必须提供，并与 task_id 配对。
+    /// R-248:正在填写 prior-art.md 时必传，对应 topic；每次调用消耗一轮预算。
     #[serde(default)]
-    topic: Option<String>,
-    /// `research_loop.begin_search` 返回的活动任务 ID。
-    #[serde(default)]
-    task_id: Option<String>,
+    prior_art_topic: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -42,7 +39,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> String {
-        "Search the web and return structured title, URL, and snippet results. Params: query; optional max_results, topic, and task_id (topic/task_id are required while a research_loop is running).".into()
+        "Search the web and return structured title, URL, and snippet results. Params: query; optional max_results. When researching prior-art, pass prior_art_topic so the mechanical websearch round limit is enforced.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -58,20 +55,20 @@ impl Tool for WebSearchTool {
             Ok(v) => v,
             Err(out) => return out,
         };
-        if let Err(output) = crate::research_loop::authorize_network_call(
-            &ctx.project_root,
-            "websearch",
-            input.topic.as_deref(),
-            input.task_id.as_deref(),
-        ) {
-            return *output;
-        }
         let query = input.query.trim();
         if query.is_empty() {
             return ToolOutput::error("query must not be empty");
         }
         let query: String = query.chars().take(MAX_QUERY_CHARS).collect();
         let limit = input.max_results.unwrap_or(5).clamp(1, MAX_RESULTS);
+        let prior_art_budget = if let Some(topic) = input.prior_art_topic.as_deref() {
+            match crate::prior_art::consume_search_round(&ctx.project_root, topic) {
+                Ok((used, limit)) => Some((used, limit)),
+                Err(error) => return ToolOutput::needs_correction("PRIOR_ART_SEARCH_LIMIT", error),
+            }
+        } else {
+            None
+        };
         let proxy = crate::tool_proxy(ctx);
         let client = match build_http_client(&proxy) {
             Ok(c) => c,
@@ -87,24 +84,11 @@ impl Tool for WebSearchTool {
             .await
         {
             Ok(r) => r,
-            Err(e) => {
-                return ToolOutput::failed(
-                    "SEARCH_ENDPOINT_UNAVAILABLE",
-                    format!(
-                        "DuckDuckGo search endpoint `{SEARCH_URL}` is unavailable: {e}. For research, use `webfetch` with an official URL or the arXiv API at `https://export.arxiv.org/api/query`."
-                    ),
-                )
-            }
+            Err(e) => return ToolOutput::error(search_failure_message(&e.to_string())),
         };
         let status = response.status();
         if !status.is_success() {
-            return ToolOutput::failed(
-                "SEARCH_ENDPOINT_HTTP_ERROR",
-                format!(
-                    "DuckDuckGo search endpoint `{SEARCH_URL}` returned HTTP {}. For research, use `webfetch` with an official URL or the arXiv API at `https://export.arxiv.org/api/query`.",
-                    status.as_u16()
-                ),
-            );
+            return ToolOutput::error(format!("search returned HTTP {}", status.as_u16()));
         }
         let mut body = Vec::new();
         let mut stream = response;
@@ -118,14 +102,7 @@ impl Tool for WebSearchTool {
                     }
                 }
                 Ok(None) => break,
-                Err(e) => {
-                    return ToolOutput::failed(
-                        "SEARCH_ENDPOINT_READ_FAILED",
-                        format!(
-                            "DuckDuckGo search response from `{SEARCH_URL}` could not be read: {e}. For research, use `webfetch` with an official URL or the arXiv API at `https://export.arxiv.org/api/query`."
-                        ),
-                    )
-                }
+                Err(e) => return ToolOutput::error(format!("search response read failed: {e}")),
             }
         }
         let html = String::from_utf8_lossy(&body);
@@ -138,9 +115,73 @@ impl Tool for WebSearchTool {
                 "query": query,
                 "results": results,
                 "truncated": body.len() >= MAX_RESPONSE_BYTES,
+                "prior_art_budget": prior_art_budget.map(|(used, limit)| serde_json::json!({"used": used, "limit": limit})),
             })
             .to_string(),
         )
+    }
+}
+
+fn search_failure_message(error: &str) -> String {
+    format!(
+        "search failed: {error}. DuckDuckGo HTML 端点当前不可达；不要静默重试。若已有论文/项目地址，改用 webfetch；学术检索可直接访问 arXiv abs/pdf 或 `https://export.arxiv.org/api/query?...`，并继续携带 research topic/task_id。"
+    )
+}
+
+/// D-571:research profile 专用包装。base/dev 的普通搜索保持原 API；research
+/// 直调必须绑定活动 loop task，不能绕过 begin_search。
+pub struct ResearchWebSearchTool;
+
+#[async_trait]
+impl Tool for ResearchWebSearchTool {
+    fn name(&self) -> &'static str {
+        "websearch"
+    }
+
+    fn description(&self) -> String {
+        "Research websearch：必须提供 topic 与 research_loop begin_search 返回的 task_id；调用随后仍使用标准 query/max_results。prior-art 搜索还要传 prior_art_topic 以消耗其独立轮次预算。".into()
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        let mut schema = WebSearchTool.input_schema();
+        schema["properties"]["topic"] = serde_json::json!({
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        });
+        schema["properties"]["task_id"] = serde_json::json!({ "type": "string" });
+        schema["required"] = serde_json::json!(["query", "topic", "task_id"]);
+        schema
+    }
+
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        WebSearchTool.resources(input)
+    }
+
+    async fn execute(&self, mut input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let topic = input
+            .get("topic")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let task_id = input
+            .get("task_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if topic.is_empty() || task_id.is_empty() {
+            return ToolOutput::needs_correction(
+                "RESEARCH_LOOP_TASK_REQUIRED",
+                "research websearch 必须提供 topic 与 begin_search 返回的 task_id",
+            );
+        }
+        if let Err(error) =
+            crate::research_loop::validate_external_task(&ctx.project_root, topic, task_id)
+        {
+            return ToolOutput::needs_correction("RESEARCH_LOOP_TASK_REQUIRED", error);
+        }
+        if let Some(object) = input.as_object_mut() {
+            object.remove("topic");
+            object.remove("task_id");
+        }
+        WebSearchTool.execute(input, ctx).await
     }
 }
 
@@ -214,7 +255,7 @@ fn decode_result_url(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_results;
+    use super::*;
 
     #[test]
     fn parses_duckduckgo_results() {
@@ -245,5 +286,63 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "İ 可见标题");
         assert!(!results[0].title.contains("hidden"));
+    }
+
+    #[test]
+    fn 端点失败诊断给出arxiv与webfetch降级通道() {
+        let message = search_failure_message("connection refused");
+        assert!(message.contains("DuckDuckGo HTML"));
+        assert!(message.contains("webfetch"));
+        assert!(message.contains("export.arxiv.org/api/query"));
+        assert!(message.contains("不要静默重试"));
+    }
+
+    #[tokio::test]
+    async fn research_websearch缺活动任务在联网前被拒绝() {
+        let root =
+            std::env::temp_dir().join(format!("kz-research-search-gate-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let output = ResearchWebSearchTool
+            .execute(
+                serde_json::json!({"query": "test", "topic": "topic", "task_id": "forged"}),
+                &ctx,
+            )
+            .await;
+        assert_eq!(output.code, Some("RESEARCH_LOOP_TASK_REQUIRED"));
+        assert!(output.content.contains("尚未启动检索环"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[tokio::test]
+    async fn prior_art预算耗尽时websearch本体在联网前拒绝() {
+        let root =
+            std::env::temp_dir().join(format!("kz-prior-art-search-tool-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let start = crate::prior_art::start_scaffold(
+            &root,
+            "prior-art-gate",
+            crate::prior_art::PriorArtTrigger::ExplicitUser,
+            None,
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&start.absolute_path)
+            .unwrap()
+            .replace("websearch_round_limit: 4", "websearch_round_limit: 1");
+        std::fs::write(&start.absolute_path, text).unwrap();
+        assert_eq!(
+            crate::prior_art::consume_search_round(&root, "prior-art-gate").unwrap(),
+            (1, 1)
+        );
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let output = WebSearchTool
+            .execute(
+                serde_json::json!({"query": "must not reach network", "prior_art_topic": "prior-art-gate"}),
+                &ctx,
+            )
+            .await;
+        assert_eq!(output.code, Some("PRIOR_ART_SEARCH_LIMIT"));
+        assert!(output.content.contains("1/1"));
+        std::fs::remove_dir_all(root).ok();
     }
 }

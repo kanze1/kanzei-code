@@ -480,7 +480,10 @@ async fn compile_gate(cwd: &Path) -> Result<(), String> {
     let mut command = tokio::process::Command::new("cargo");
     command
         .args(["check", "--workspace", "--all-targets", "--quiet"])
-        .current_dir(cwd);
+        .current_dir(cwd)
+        // GitHub Actions 默认 CARGO_TERM_COLOR=always。捕获后的 ANSI 前缀会让
+        // 下方按 `error` / `-->` 行筛选的诊断变空，子进程必须固定成机器可解析文本。
+        .env("CARGO_TERM_COLOR", "never");
     crate::hide_console_async(&mut command);
     let output = command.output().await;
     match output {
@@ -518,7 +521,8 @@ async fn fmt_gate(cwd: &Path) -> Result<(), String> {
     let mut command = tokio::process::Command::new("cargo");
     command
         .args(["fmt", "--all", "--", "--check"])
-        .current_dir(cwd);
+        .current_dir(cwd)
+        .env("CARGO_TERM_COLOR", "never");
     crate::hide_console_async(&mut command);
     let output = command.output().await;
     match output {
@@ -591,7 +595,8 @@ async fn clippy_gate(cwd: &Path) -> Result<(), String> {
     let mut command = tokio::process::Command::new("cargo");
     command
         .args(["clippy", "--workspace", "--", "-D", "warnings"])
-        .current_dir(cwd);
+        .current_dir(cwd)
+        .env("CARGO_TERM_COLOR", "never");
     crate::hide_console_async(&mut command);
     let output = command.output().await;
     match output {

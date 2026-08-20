@@ -79,7 +79,11 @@ pub(crate) fn usage_text() -> &'static str {
        kz run --no-subagents \"<prompt>\"  # 关闭本次 CLI 运行的 task 子代理工具（默认开启）\n\
        kz replay-eval [--limit N]     # 六臂回放评估:历史 run.trace 提取 case,fake 档真调\n\
        kz work next [--requirement-first]  # 结构化取活裁决\n\
-       kz work claim <id> [--reason <text>] # 原子占用 selected；覆盖时理由必填\n\
+       kz work claim <id> [--reason <text>] # 原子占用 Requirement/Defect/Work Unit\n\
+       kz work create-unit --requirement R-xxx --objective <text> --acceptance <text> [--scope <path>] [--depends-on R-xxx/Wn] [--verify-with <cmd>]\n\
+       kz work checkpoint R-xxx/Wn --summary <text> --next-action <text> [--decision <text>] [--retrieval-ref <ref>]\n\
+       kz work verify R-xxx/Wn; kz work evidence R-xxx/Wn --criterion <exact> --evidence <ref>; kz work complete R-xxx/Wn\n\
+       kz work block|unblock|supersede R-xxx/Wn --reason <text>; kz work get-unit R-xxx/Wn; kz work list-units [--requirement R-xxx]\n\
        kz worktree create <name>            # 建线:原子认领+凭据回滚,桌面/CLI 同一实现(R-207)\n\
        kz worktree merge-preview <path>     # 合并前冲突预检(merge-tree),不执行合并(R-207)\n\
        kz worktree merge <path>              # 安全非快进合并:冲突则保持双方并返回诊断\n\
@@ -410,6 +414,12 @@ mod tests {
             "核心",
             "--complexity",
             "中",
+            "--ref",
+            "R-221",
+            "--ref",
+            "D-570",
+            "--prior-art",
+            ".kanzei/research/r248-prior-art/prior-art.md",
             "--field",
             "复现=第一步=点开设置页",
             "-f",
@@ -425,6 +435,11 @@ mod tests {
         assert_eq!(input["priority"], "P2");
         assert_eq!(input["fields"]["标签"], "核心");
         assert_eq!(input["fields"]["复杂度"], "中");
+        assert_eq!(input["refs"], serde_json::json!(["R-221", "D-570"]));
+        assert_eq!(
+            input["prior_art"],
+            ".kanzei/research/r248-prior-art/prior-art.md"
+        );
         assert_eq!(input["验收"], serde_json::Value::Null);
         assert_eq!(input["fields"]["验收"], "有测试");
         // 值里带等号只按第一个切,后面的等号原样留在值里。

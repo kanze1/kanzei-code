@@ -17,15 +17,12 @@ struct WebFetchInput {
     /// 输出字符上限(默认 40000)
     #[serde(default)]
     max_chars: Option<usize>,
-    /// 研究课题；有运行中的 research_loop 时必须提供，并与 task_id 配对。
-    #[serde(default)]
-    topic: Option<String>,
-    /// `research_loop.begin_search` 返回的活动任务 ID。
-    #[serde(default)]
-    task_id: Option<String>,
 }
 
 pub struct WebFetchTool;
+
+/// D-571:research profile 专用包装，要求联网读取归属于活动检索任务。
+pub struct ResearchWebFetchTool;
 
 /// R-217:URL 资源规范化——去掉 scheme,保留 域名+路径(+端口)。
 /// `https://docs.rs/crate/x` → `docs.rs/crate/x`,`http://example.com` → `example.com/`。
@@ -100,7 +97,7 @@ impl Tool for WebFetchTool {
     }
 
     fn description(&self) -> String {
-        "Fetch a URL and return readable text (HTML stripped). Params: url; optional max_chars, topic, and task_id (topic/task_id are required while a research_loop is running)."
+        "Fetch a URL and return readable text (HTML stripped). Params: url; optional max_chars."
             .into()
     }
 
@@ -121,25 +118,9 @@ impl Tool for WebFetchTool {
             Ok(v) => v,
             Err(out) => return out,
         };
-        if let Err(output) = crate::research_loop::authorize_network_call(
-            &ctx.project_root,
-            "webfetch",
-            input.topic.as_deref(),
-            input.task_id.as_deref(),
-        ) {
-            return *output;
-        }
         let fetched = match fetch_bytes(&input.url, ctx, MAX_RESPONSE_BYTES).await {
             Ok(value) => value,
-            Err(error) => {
-                return ToolOutput::failed(
-                    "WEBFETCH_UNAVAILABLE",
-                    format!(
-                        "webfetch could not reach `{}`: {error}. For research, try an official source URL or the arXiv API endpoint `https://export.arxiv.org/api/query`; websearch is unavailable when its DuckDuckGo endpoint cannot be reached.",
-                        input.url
-                    ),
-                )
-            }
+            Err(error) => return ToolOutput::error(error),
         };
         let text = String::from_utf8_lossy(&fetched.body);
         let rendered =
@@ -159,6 +140,59 @@ impl Tool for WebFetchTool {
             input.url,
             out.trim()
         ))
+    }
+}
+
+#[async_trait]
+impl Tool for ResearchWebFetchTool {
+    fn name(&self) -> &'static str {
+        "webfetch"
+    }
+
+    fn description(&self) -> String {
+        "Research webfetch：必须提供 topic 与 research_loop begin_search 返回的 task_id；调用随后仍使用标准 url/max_chars。".into()
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        let mut schema = WebFetchTool.input_schema();
+        schema["properties"]["topic"] = serde_json::json!({
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        });
+        schema["properties"]["task_id"] = serde_json::json!({ "type": "string" });
+        schema["required"] = serde_json::json!(["url", "topic", "task_id"]);
+        schema
+    }
+
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        WebFetchTool.resources(input)
+    }
+
+    async fn execute(&self, mut input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let topic = input
+            .get("topic")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let task_id = input
+            .get("task_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if topic.is_empty() || task_id.is_empty() {
+            return ToolOutput::needs_correction(
+                "RESEARCH_LOOP_TASK_REQUIRED",
+                "research webfetch 必须提供 topic 与 begin_search 返回的 task_id",
+            );
+        }
+        if let Err(error) =
+            crate::research_loop::validate_external_task(&ctx.project_root, topic, task_id)
+        {
+            return ToolOutput::needs_correction("RESEARCH_LOOP_TASK_REQUIRED", error);
+        }
+        if let Some(object) = input.as_object_mut() {
+            object.remove("topic");
+            object.remove("task_id");
+        }
+        WebFetchTool.execute(input, ctx).await
     }
 }
 
@@ -236,7 +270,8 @@ pub fn html_to_text(html: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{html_to_text, normalize_url_resource, WebFetchTool};
+    use super::{html_to_text, normalize_url_resource, ResearchWebFetchTool};
+    use kanzei_harness::{Tool, ToolCtx};
 
     /// R-217:URL 资源规范化——去掉 scheme,域名+路径形态可直接配白名单规则。
     #[test]
@@ -309,45 +344,20 @@ mod tests {
         assert!(!text.contains("hidden style"));
     }
 
-    /// 真实网络验收：DDG 不可达时必须给 arXiv/webfetch 降级提示，arXiv API 仍应可读。
     #[tokio::test]
-    #[ignore = "需要真实网络与本机代理"]
-    async fn real_network_ddg_failure_guides_to_arxiv_and_webfetch_reads_it() {
-        use kanzei_harness::{Tool, ToolCtx};
-        let root = std::env::temp_dir();
-        let ctx = ToolCtx::new(root.clone(), root);
-        let search = crate::websearch::WebSearchTool
-            .execute(serde_json::json!({ "query": "rust async" }), &ctx)
-            .await;
-        if search.is_error {
-            assert!(
-                matches!(
-                    search.code,
-                    Some("SEARCH_ENDPOINT_UNAVAILABLE")
-                        | Some("SEARCH_ENDPOINT_HTTP_ERROR")
-                        | Some("SEARCH_ENDPOINT_READ_FAILED")
-                ),
-                "unexpected search error code: {:?}",
-                search.code
-            );
-            assert!(search.content.contains("export.arxiv.org/api/query"));
-            assert!(search.content.contains("webfetch"));
-        }
-
-        let fetch = WebFetchTool
+    async fn research_webfetch缺活动任务在联网前被拒绝() {
+        let root =
+            std::env::temp_dir().join(format!("kz-research-fetch-gate-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let output = ResearchWebFetchTool
             .execute(
-                serde_json::json!({
-                    "url": "https://export.arxiv.org/api/query?search_query=all:electron&max_results=1",
-                    "max_chars": 5000
-                }),
+                serde_json::json!({"url": "https://example.test", "topic": "topic", "task_id": "forged"}),
                 &ctx,
             )
             .await;
-        assert!(
-            !fetch.is_error,
-            "arXiv fallback must be reachable: {}",
-            fetch.content
-        );
-        assert!(fetch.content.contains("HTTP 200"), "{}", fetch.content);
+        assert_eq!(output.code, Some("RESEARCH_LOOP_TASK_REQUIRED"));
+        assert!(output.content.contains("尚未启动检索环"));
+        std::fs::remove_dir_all(root).ok();
     }
 }

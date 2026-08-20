@@ -7178,6 +7178,26 @@
 - observed_head: f06896ee55b759ab7da292bbeadf1a087364a01c
 - recorded_at: 1787199353567
 
+## D-594 SSE 单连接测试固定 50ms 后先停服,慢调度只收响应头导致全量 verify 偶发失败 [fixed] (medium)
+- refs: R-317 D-502
+- 复现: 2026-08-20 R-317 第二次外部全量 `scripts/verify.ps1` 中，`mobile::tests::sse轮询单连接复用` 收到 `HTTP/1.1 200 OK` 与完整 `text/event-stream` 响应头，但没有 `data:` 首帧；其余 229 项 app 测试通过。
+- 影响: 生产 SSE 已完成认证、建连和响应头写入，发布门禁却因机器调度速度偶发红，无法生成 `dist/verification.json`；重复跑整套门禁不能消除竞态。
+- 根因: 测试发送请求后固定 `sleep(50ms)`，随后先把共享 `active` 置为 false，再读取响应。慢调度下服务端在 `handle_sse` 写完并 flush 响应头后尚未进入首轮 `replay_notifications`，循环顶部便观察到停服信号并返回；正确性被一个任意时间窗口代替。
+- 修复: `crates/kanzei-app/src/mobile.rs` 的测试客户端改为在 2 秒明确读超时内持续读取，直到观察到首个 `data:` 帧才发停服信号；超时仍由原有“必须发送首批事件”断言判红。服务端 `handle_sse`、游标推进、设备撤销和心跳语义均未修改。
+- 验收: 目标测试连续重放 20/20；`cargo test -p kanzei-app mobile::tests` 15/15，覆盖普通通知单连接、SSE 单连接、游标持久化、设备撤销、approval 与真实桥接端口。
+- 标签: 测试 后端
+- 优先级: P1
+
+## D-595 matplotlib uv 轨继承 Conda base 权限故障,panic 后用户色板泄漏连锁污染并行测试 [fixed] (high)
+- refs: R-317 R-274 R-275
+- 复现: 2026-08-20 R-317 第三次外部 `scripts/verify.ps1` 中，`kanzei-tools --lib` 的三个 matplotlib 用例均报 `uv 按需环境化` 无法打开 `C:\ProgramData\miniconda3\Scripts\archspec.exe`（os error 5）；随后 `palette_type查询内置板` 读到前一失败测试遗留的 2 色 qual 用户板，请求 8 色时报超长。结果 392 passed、4 failed、1 ignored。
+- 影响: 用户在 Conda base 中启动 kanzei 或发布验证时，声明为“uv 按需环境化”的 matplotlib 轨实际继承系统 Conda，既可能因权限失败，也会让中途 panic 跳过测试末尾的手工清理，污染同进程后续色板查询并放大为多项失败。
+- 根因: ①`render_matplotlib` 调用 `uv run --with ...` 未声明 isolated，当前活跃 Conda 的解释器发现与脚本目录进入 uv 决策面；同环境对照中旧命令稳定复现 `archspec.exe` 拒绝访问。②用户色板是进程级 `OnceLock<Mutex<Vec<Palette>>>`，串行测试只能防并发，原清理语句位于断言之后，panic unwind 时不会执行。
+- 修复: `crates/kanzei-tools/src/plot_tool.rs` 的 uv 路径改为 `uv run --isolated --with matplotlib --with scienceplots ...`，不再消费活跃 Conda/项目环境；同一 Conda base 下隔离命令使用 uv 临时环境并成功加载 matplotlib。plot/palette 两组会修改用户板的测试增加 RAII 守卫，进入时清空，正常退出与 panic unwind 均复位注册表。
+- 验收: 当前用户同款 Conda base 环境下，绘图测试 17/17、色板测试 14/14；`cargo test -p kanzei-tools --lib` 396 passed、0 failed、1 ignored；`cargo clippy -p kanzei-tools -- -D warnings` 通过。
+- 标签: 后端 测试
+- 优先级: P1
+
 ## D-569 tracker 完整性退化复发(D-331 同形态):归档标题双状态标记与非法 severity 再现 [fixed] (high)
 - refs: D-331 D-553 D-554 D-555
 - 复杂度: 中
@@ -7187,14 +7207,14 @@
 - 验收: ①定位本次畸形写入的具体路径(哪个写入方绕过了 b140322 校验)并封堵;②用 fix_terminal/repair 修正 D-553/D-554/D-555 存量畸形行,integrity 告警清零;③D-331 的回归测试补上本次形态(双状态标记+非法 severity+污染取活依据);④复发计数落档:同形态第 2 次,若再现第 3 次升级为门禁硬拒
 - 优先级: P1
 - 对账: 2026-08-20 勘察补充:同类完整性脏数据另见 requirements-archive.md 的 R-221 条目——标题 [done] 但残留字段「- 状态: todo」,修复时一并纳入存量清理与回归形态
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-569(unblocks=0)
+- 取活依据: engine:唯一可执行 WIP 是 D-569，必须先恢复它
 - 复发计数: 2（D-331 历史形态→本次 D-553/D-554/D-555 再现）
-- 进展: D-569 收口对账：①具体绕过路径=历史直写提交 3c123bd5(D-553)与36ccb253(D-554/D-555)未经过当前 add/update 的 check_title/check_severity；当前写入封堵位于 crates/kanzei-tools/src/tracker.rs:644-660，归档修复写日志补线位于 tracker.rs:483-496，fix_terminal 入口位于 crates/kanzei/src/cli/tracker.rs:146-156。②存量修正=通过真实 kz defect fix_terminal 持久化清理 D-553/D-554/D-555(defects-archive.md:6822/6836/6851)，并按对账清理 R-221(requirements-archive.md:3645)、D-172、D-283；kz defect list 与 kz req list 均无 tracker integrity 告警。③回归=crates/kanzei-memory/src/docstore.rs:489-544 覆盖双状态+非法 severity+状态字段污染与修复后清零，validation.rs:158-183 统一检测，tracker.rs:380-404 普通写硬拒；T-1786922726538 通过(kanzei-memory 156、kanzei-tools 394)。④复发计数已落档为2；第三次及以后由 tracker.rs:380-404 直接硬拒普通写，修复动作仍经 FIX_TERMINAL_ACTION/normalize 显式收口。
+- 进展: 验收核验：①已完成：历史直写提交 3c123bd5 与 36ccb253 绕过写入路径已定位；当前普通写在 crates/kanzei-tools/src/tracker.rs:644-660 校验标题/severity，归档修复在 tracker.rs:483-496 留痕。②已完成：D-553/D-554/D-555 及对账 R-221/D-172/D-283 已经 fix_terminal 清理，落点见 .kanzei/project/defects-archive.md:6822 与 .kanzei/project/requirements-archive.md:3645，且已进入提交 d3873bf18c47cd90316b464dc835af3acdc7d085；kz defect list 与 kz req list 均无 integrity_errors。③已完成：crates/kanzei-memory/src/docstore.rs:489-544、validation.rs:158-183、crates/kanzei-tools/src/tracker.rs:380-404 覆盖双状态、非法 severity、污染字段和普通写硬拒；T-1786922726538 与 T-1786922726539 均通过。④已完成：复发计数=2 已落档；第三次及以后由 tracker.rs:380-404 硬拒普通写，仅 fix_terminal/normalize 可修复。补充发布证据：d3873bf18c47cd90316b464dc835af3acdc7d085 的 verify 13/13 通过（test=pass 91.2s），verification SHA256=f9aad2d678d778ce0d2303057bf0f329b5343c05079a19a1306a69b34b135df3。
 - 门禁: 同形态第 3 次及以后沿用 tracker.rs:380-404 完整性硬拒；仅 fix_terminal/normalize 修复通道可用，普通 add/update/close/archive 等写操作拒绝
 - 验收核验: ①已完成：3c123bd5/36ccb253历史直写绕过点已定位，tracker.rs:644-660与483-496封堵。②已完成：D-553/D-554/D-555及对账R-221/D-172/D-283经fix_terminal修正，双库list无integrity告警。③已完成：docstore.rs:489-544、validation.rs:158-183、tracker.rs:380-404与T-1786922726538。④已完成：复发计数=2已落档；第三次及以后普通写沿tracker.rs:380-404硬拒。
-- observed_head: 11b60ae32647a5ff999329120316e8ffebad7fd8
-- observed_worktree_hash: fnv1a64:72ca3632fdae6c18
-- recorded_at: 1787207020185
+- observed_head: d3873bf18c47cd90316b464dc835af3acdc7d085
+- observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
+- recorded_at: 1787217423466
 
 ## D-570 research 上下文注入读 flat 路径而写入走 topic 路径,B2 后新增 S-/F- 对 agent 不可见 [fixed] (high)
 - refs: R-221 R-248 R-277
@@ -7204,15 +7224,13 @@
 - 标签: 后端
 - 验收: ①index_of 按当前 topic 聚合注入(topic+flat 遗留两段均可见);②新写 S-/F- 在同会话下一轮注入中可见的定向测试;③r221-chain 等存量 topic 目录条目回读验证
 - 优先级: P2
-- 来源: self-found（用户要求继续推进；由 D-570 既有复现定位）
-- 进展: 本次交付已落地：`crates/kanzei-tools/src/profiles/research.rs:200-258` 新增 `load_index_entries`，保留 flat `DocStore::open` 并扫描 `.kanzei/research/` 下合法 kebab-case topic 目录，读取各 topic 的 sources/findings 及归档；`research.rs:262-310` 的 `index_of` 汇总非终态并为 topic 条目附 `(topic: ...)`。真实消费者位于 `crates/kanzei-tools/src/profiles.rs:79-105` 的 `ResearchProfile` `research/docs` context；本次新增 `profiles.rs:1213-1270` 测试直接从该 context 连续渲染，写入新 S-002 后下一次渲染可见。① flat 遗留与 topic 聚合：`research.rs:200-310` + T-1786922726542；②同会话新写 S-/F- 回读：`profiles.rs:1213-1270`、`research.rs:350-374`、T-1786922726542；③r221-chain 存量 topic 回读：`research.rs:356-363`、`profiles.rs:1222-1226`、T-1786922726542。当前 ResolveCtx 没有显式 topic 字段，因此按研究根目录下全部合法 topic 目录聚合，确保当前 topic 可见且不漏 flat 遗留。
-- observed_head: 5411e2c1a23205b5a222e298610564f5f0b28a3d
-- observed_worktree_hash: fnv1a64:15faf0da9ce189c7
-- recorded_at: 1787231761063
-- 取活依据: engine:唯一可执行 WIP 是 D-570，必须先恢复它
-- 验收对账: ①已完成：research.rs:200-310 按 flat+topic 聚合并注入，T-1786922726542；②已完成：profiles.rs:1213-1270 真实 research/docs consumer 同一 snapshot 下一次读取新增 S-002，research.rs:350-374 同时覆盖 F-；T-1786922726542；③已完成：r221-chain topic sources/findings 回读由 research.rs:356-384 与 profiles.rs:1222-1268 覆盖，T-1786922726542。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-570(unblocks=0)
+- 进展: ① crates/kanzei-tools/src/profiles/research.rs:222 以全局500条预算聚合 legacy-flat 与全部合法 topic，并用 scope 标记消除局部编号歧义（commit c85f3c99）；② crates/kanzei-tools/src/profiles.rs:80 将 research/docs 改为逐模型步骤替换刷新的 refreshing_source，profiles.rs:935-958 验证同会话新写 S-002 下一轮可见；③ profiles.rs:859-927 同时回读 r221-chain 存量 topic 的 S-001/F-001 与 flat S-901。验证：cargo test -p kanzei-tools research_context_injects_backlog_conventions_and_restricted_tracker_tools -- --nocapture（1 passed）；cargo test -p kanzei-tools（396 passed,0 failed,1 ignored）。
+- observed_head: c85f3c998e8a0fe59571ca8baec5ee855b2c9814
+- observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
+- recorded_at: 1787218023136
 
-## D-594 profiles.rs 研究上下文测试插入留下重复尾部代码导致编译失败 [fixed] (medium)
+## D-619 profiles.rs 研究上下文测试插入留下重复尾部代码导致编译失败 [fixed] (medium)
 - refs: D-570
 - 复现: crates/kanzei-tools/src/profiles.rs:末尾研究上下文测试附近出现 `}        let task = by_action("task");` 重复片段，原有测试闭合后又残留一段语句
 - 影响: cargo test -p kanzei-tools 无法编译，D-570 新增真实消费者测试不能验证
@@ -7225,7 +7243,7 @@
 - observed_worktree_hash: fnv1a64:15faf0da9ce189c7
 - recorded_at: 1787231782880
 
-## D-595 profiles.rs 研究上下文测试错误引用自身 crate 名称 [fixed] (medium)
+## D-620 profiles.rs 研究上下文测试错误引用自身 crate 名称 [fixed] (medium)
 - refs: D-570
 - 复现: crates/kanzei-tools/src/profiles.rs:1222-1258 的研究上下文测试使用 `kanzei_tools::docstore::...`，在 kanzei-tools crate 自身测试编译时找不到该外部 crate
 - 影响: cargo test -p kanzei-tools research_ 编译失败，真实 research/docs 消费者测试无法运行
@@ -7238,7 +7256,7 @@
 - observed_worktree_hash: fnv1a64:15faf0da9ce189c7
 - recorded_at: 1787231789682
 
-## D-596 tracker.rs 立即解引用 clippy 错误阻断提交门禁 [fixed] (medium)
+## D-621 tracker.rs 立即解引用 clippy 错误阻断提交门禁 [fixed] (medium)
 - 复现: 提交前结构化 clippy gate 执行 `cargo clippy --workspace -- -D warnings`，在 crates/kanzei-tools/src/tracker.rs:658 报 `this expression creates a reference which is immediately dereferenced by the compiler`
 - 影响: 即使 D-570 定向测试通过，项目提交门禁仍拒绝提交，无法形成可审计交付
 - 来源: self-found（D-570 提交门禁发现；位置不属于本次 research 索引改动）
@@ -7250,7 +7268,7 @@
 - recorded_at: 1787232012162
 - 验收对账: 已完成：tracker.rs:658 的 needless borrow 已消除；fmt/clippy 门禁通过；T-1786922726543 通过。
 
-## D-597 workspace clippy 门禁被既存 doc comment 与测试模块顺序问题阻断 [fixed] (medium)
+## D-622 workspace clippy 门禁被既存 doc comment 与测试模块顺序问题阻断 [fixed] (medium)
 - 复现: cargo clippy --workspace --all-targets -- -D warnings 在 crates/kanzei-harness/src/config.rs:59-65 报 clippy::empty-line-after-doc-comments；在 crates/kanzei-core/src/runner/drive/assembly.rs:44-73 报 clippy::items-after-test-module。两处均不属于 D-571 修改文件。
 - 影响: workspace 提交门禁失败，无法取得全 workspace clippy 绿证；D-571 的改动 crate 本身仍需单独验证。
 - 来源: self-found（D-571 提交前 workspace 门禁）
@@ -7263,7 +7281,7 @@
 - observed_worktree_hash: fnv1a64:4caed8f1aaa22f82
 - recorded_at: 1787233411621
 
-## D-598 D-571 网络任务闸返回大型 ToolOutput 导致 clippy result-large-err [fixed] (medium)
+## D-623 D-571 网络任务闸返回大型 ToolOutput 导致 clippy result-large-err [fixed] (medium)
 - 复现: cargo clippy -p kanzei-tools --all-targets -- -D warnings 报 crates/kanzei-tools/src/research_loop.rs:105 `clippy::result-large-err`：authorize_network_call 返回的 Result Err 为大尺寸 ToolOutput。
 - 影响: D-571 改动 crate 的 clippy 定向门禁失败，无法提交。
 - 来源: self-found（D-571 定向 clippy）
@@ -7277,7 +7295,7 @@
 - observed_worktree_hash: fnv1a64:4caed8f1aaa22f82
 - recorded_at: 1787233419370
 
-## D-599 latex_tool 既存 clippy lint 阻断 kanzei-tools 提交门禁 [fixed] (low)
+## D-624 latex_tool 既存 clippy lint 阻断 kanzei-tools 提交门禁 [fixed] (low)
 - 复现: cargo clippy -p kanzei-tools --all-targets -- -D warnings 报 crates/kanzei-tools/src/latex_tool.rs:118 unused doc comment、:125 missing_const_for_thread_local。
 - 影响: kanzei-tools 定向及 workspace clippy 提交门禁失败，阻断 D-571 形成可审计提交。
 - 来源: self-found（D-571 定向 clippy）
@@ -7291,7 +7309,7 @@
 - observed_worktree_hash: fnv1a64:4caed8f1aaa22f82
 - recorded_at: 1787233428415
 
-## D-600 kzapp run 测试辅助函数 PathBuf 参数触发 workspace clippy 门禁 [fixed] (low)
+## D-625 kzapp run 测试辅助函数 PathBuf 参数触发 workspace clippy 门禁 [fixed] (low)
 - 复现: cargo clippy --workspace --all-targets -- -D warnings 报 crates/kanzei-app/src/commands/run.rs:630 clippy::ptr-arg：测试辅助函数 append_episode 使用 &PathBuf 而不是 &Path。
 - 影响: workspace clippy 提交门禁失败，继续阻断 D-571 形成可审计提交。
 - 来源: self-found（D-571 提交前 workspace 门禁复跑）
@@ -7313,13 +7331,11 @@
 - 标签: 后端
 - 验收: ①端点不可达时给明确诊断并指引 webfetch+arXiv 通道(F-011 结论进代码);②websearch/webfetch 纳入 loop 预算或对绕行直调设轮次闸;③真实网络环境下降级路径实测
 - 优先级: P3
-- 来源: self-found（由已登记 F-011 复现与 D-571 队首调度确认）
-- 进展: D-571 收口对账：①端点不可达诊断已完成：`crates/kanzei-tools/src/websearch.rs:90-107` 对发送失败与 HTTP 非成功返回稳定错误码及明确文案，`:112-124` 对响应读取失败同样诊断，均指引 `webfetch` 官方 URL 与 `https://export.arxiv.org/api/query`；`crates/kanzei-tools/src/webfetch.rs:134-149` 对降级抓取失败给出 arXiv 指引。真实网络证据为 T-1786922726546，实际 DDG 失败文案含 webfetch/arXiv。②预算/绕行闸已完成：`crates/kanzei-tools/src/research_loop.rs:100-162` 扫描运行中的 loop，仅允许 search 阶段且必须匹配 begin_search 活动 task_id；`websearch.rs:61-68`、`webfetch.rs:124-131` 全部调用接入；`profiles.rs:118-126` 明确要求传 topic/task_id；`research_loop.rs:635-667` 回归缺 task/非法 task/合法 task，T-1786922726548 通过。loop 进入非 search 阶段后闸自动拒绝，直调不能绕过 max_rounds/phase。③真实网络下降级路径已完成：`webfetch.rs:315-350` 真实网络测试实际调用 WebSearchTool 与 WebFetchTool，DDG 失败时核验降级文案，arXiv API 实际 HTTP 200；T-1786922726546。提交门禁证据：T-1786922726547；相关 crate 回归：T-1786922726548。 [terminal-fix 2026-08-20] fixed → fixed: 修正刚刚关闭时写入的测试记录编号笔误，终态仍为 fixed；实现和测试事实不变。
-- observed_head: 9e5d2f83dc612cfb8592d3e25bc3599d6bed2e78
-- observed_worktree_hash: fnv1a64:4caed8f1aaa22f82
-- recorded_at: 1787233486484
-- 取活依据: engine:唯一可执行 WIP 是 D-571，必须先恢复它
-- 验收对账: ①已完成：websearch.rs:90-124、webfetch.rs:134-149 的明确不可达/HTTP/读取诊断与 webfetch+arXiv 指引；T-1786922726546。②已完成：research_loop.rs:100-162、websearch.rs:61-68、webfetch.rs:124-131、profiles.rs:118-126 的活动 loop/task 闸；T-1786922726548。③已完成：webfetch.rs:315-350 的真实网络 DDG→arXiv/webfetch 路径；T-178692272272? 证据实际为 T-1786922726546。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-571(unblocks=0)
+- 进展: ① crates/kanzei-tools/src/websearch.rs:127-131 把端点错误转换为明确诊断，点名停止静默重试并改走 webfetch、arXiv abs/pdf/API；websearch.rs:281 单测固定文案。② crates/kanzei-tools/src/research_loop.rs:69-93 以 loop.json 活动 task 为真源，websearch.rs:133 与 webfetch.rs:25 的 research 专用包装在网络前强制 topic+task_id；伪造/缺失任务定向测试均通过，提交 571001f1。③ 2026-08-20 当前真实网络复测：DuckDuckGo HTML HTTP 200/33616B/1158ms，arXiv API HTTP 200/2957B/493ms；当前环境未进入降级分支，故边界如实记为「主端点与降级通道均可达」，故障分支由 crates/kanzei-tools/src/websearch.rs:281-289 定向测试覆盖。cargo test --workspace exit=0，cargo clippy --workspace -- -D warnings exit=0。
+- observed_head: 3702301328886e835c552b5174252853e795f372
+- observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
+- recorded_at: 1787219901111
 
 ## D-575 导航类工具失手只回裸错误:不存在路径/越界范围/漏参数无自愈信息 [fixed] (medium)
 - 复杂度: 中
@@ -7336,7 +7352,7 @@
 - 取活依据: engine:唯一可执行 WIP 是 D-575，必须先恢复它
 - 验收对账: ①已完成：read/symbols/edit/insert 不存在目标路径分别由 `crates/kanzei-tools/src/read.rs:158-174`、`symbols.rs:86-98`、`edit.rs:144-153`、`edit.rs:432-441` 调用 `lib.rs:95-147` 的同目录最近邻候选；定向测试 `read.rs:534-568`、`symbols.rs:750-770`、`edit.rs:553-590`；T-1786922726553。②已完成：`read.rs:210-213`、`:310-313`、`:377-384` 返回实际行数与 `1..=N` 合法 offset；测试 `read.rs:548-558`；T-1786922726553。③已完成：`crates/kanzei-harness/src/tool.rs:333-369` 从 serde missing field 提取参数名并输出 `Example (one line)`，测试 `crates/kanzei-tools/src/edit.rs:577-590`；T-1786922726553。④已完成：`lib.rs:101-113` 识别 memory 路径并提示 `<project_root>/.kanzei/memory`，read 测试 `read.rs:560-568`；T-1786922726553。⑤已完成：read/edit/insert/symbols 四类失手及 memory/范围/缺参定向测试分别位于 `read.rs:534-568`、`edit.rs:553-590`、`symbols.rs:750-770`，harness 缺参生成位于 `crates/kanzei-harness/src/tool.rs:352-369`；T-1786922726553（kanzei-tools 401 passed、workspace check/clippy 通过）。
 
-## D-601 D-576 cross-tree 兼容包装函数仅测试调用触发 dead_code 门禁 [fixed] (low)
+## D-626 D-576 cross-tree 兼容包装函数仅测试调用触发 dead_code 门禁 [fixed] (low)
 - 复现: cargo clippy --workspace --all-targets -- -D warnings 报 crates/kanzei-tools/src/cross_tree.rs:448 的 enforce_other_trees 未使用；实现已切换 bash 生产调用到 enforce_other_trees_with_command，旧包装仅被 cfg(test) 测试调用。
 - 影响: workspace clippy 提交门禁失败，D-576 无法形成可审计提交。
 - 来源: self-found during D-576 submission gate
@@ -7408,7 +7424,7 @@
 - recorded_at: 1787238008726
 - 取活依据: engine:唯一可执行 WIP 是 D-591，必须先恢复它
 
-## D-602 D-591 配置保存 helper 重构后留下生产 dead code 触发 clippy 门禁 [fixed] (low)
+## D-627 D-591 配置保存 helper 重构后留下生产 dead code 触发 clippy 门禁 [fixed] (low)
 - 复现: settings.rs 将 settings_save_at_path 拆成 settings_save_at_path_for_project 后，原 settings_save_at_path 只被 cfg(test) 测试调用；运行 cargo clippy --workspace -- -D warnings 报 settings.rs:667 function settings_save_at_path is never used，提交门禁拒绝。
 - 影响: D-591 功能代码和测试均可通过，但无法通过仓库提交 clippy 门禁，不能提交已验证改动。
 - 来源: 本轮自发现：D-591 提交门禁 clippy 输出
@@ -7420,7 +7436,7 @@
 - observed_worktree_hash: fnv1a64:b54b5f46afd1d6f0
 - recorded_at: 1787238172206
 
-## D-604 D-593 上下文 pending 文案调用被 runTokens 局部变量遮蔽 [fixed] (medium)
+## D-629 D-593 上下文 pending 文案调用被 runTokens 局部变量遮蔽 [fixed] (medium)
 - 复现: D-593 前端改动在 renderTokens 内使用 `const t = runTokens`，同时以 `t("等待模型")` 调用翻译函数；运行时会把对象当函数调用。修正变量后，经典脚本间共享的新顶层 `ctxPending` 尚未进入 UI lint 全局清单，`ui-lint-smoke` 对 07-events.js 报 6 处 no-undef。
 - 影响: 上下文状态 UI 在首轮/轮内 pending 渲染时可能抛 TypeError；若不更新全局清单，前端提交门禁会拒绝。
 - 来源: 自发现：D-593 实现复核
@@ -7447,7 +7463,7 @@
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
 - recorded_at: 1787240021333
 
-## D-603 kanzei-memory manager 测试辅助函数 PathBuf 参数阻断 workspace clippy [fixed] (low)
+## D-628 kanzei-memory manager 测试辅助函数 PathBuf 参数阻断 workspace clippy [fixed] (low)
 - 复现: cargo clippy --workspace --all-targets -- -D warnings 在 crates/kanzei-memory/src/memory/manager.rs:644、653 报 clippy::ptr_arg：write_fact_source 与 write_m001_source 使用 &PathBuf 而非 &Path。
 - 影响: workspace Rust 提交门禁失败，阻断当前 D-592 B3 形成可审计提交；与 D-592 的业务代码无关。
 - 来源: self-found（D-592 B3 提交门禁复跑）
@@ -7457,7 +7473,7 @@
 - observed_head: f30a2d04ad93a49410c74282ec4253a4969b7580
 - observed_worktree_hash: fnv1a64:ee2d311b4bf851cc
 - recorded_at: 1787240166681
-- 取活依据: engine:唯一可执行 WIP 是 D-603，必须先恢复它
+- 取活依据: engine:唯一可执行 WIP 是 D-628，必须先恢复它
 
 ## D-605 R-318/W4 DevProfile 插入设计索引时残留孤立 draft.agents.insert 导致编译失败 [fixed] (high)
 - 复现: 检查 crates/kanzei-tools/src/profiles/dev.rs:348，dev/design-index ContextSource 后多出一行孤立 `draft.agents.insert(`，随后紧接 `draft.context.insert("dev/project-docs", ...)`。
@@ -7602,3 +7618,114 @@
 - observed_head: af84b5f50677f58053608146ed0ffca6aa6d48b1
 - observed_worktree_hash: fnv1a64:827245a8ddb1eb69
 - recorded_at: 1787247321045
+
+## D-596 Rust all-targets Clippy 被历史测试模块布局阻断 --ref R-257 [fixed] (medium)
+- 复现: cargo clippy --workspace --all-targets -- -D warnings 在 kanzei-harness/config.rs 与 kanzei-core/runner/drive/assembly.rs 失败
+- 影响: 官方基础 clippy 通过但 GitHub all-targets 门禁会失败，远端 dev 无法获得一致质量信号
+- 期望: 修正注释类型与测试模块布局，不改生产行为；严格 all-targets Clippy 与相关测试全绿
+- 来源: 2026-08-20 自举质量收口实测
+- 标签: 流程
+- 根因: config.rs 的迁移说明使用悬空文档注释且其后为空行；assembly.rs 的测试模块位于生产函数之前，触发 items_after_test_module
+- 优先级: P1
+- 取活依据: override:本轮远端推送前严格 all-targets 门禁实测阻断，需先修复以避免 dev CI 已知失败
+- 进展: ①生产行为未变：ac924240 仅调整 config.rs 注释、assembly.rs cfg(test) 模块位置、latex_tool.rs 测试 thread_local 初始化/rustdoc 归属、commands/run.rs 测试 helper 参数。②定向验证（ac924240）：context_limit_tests 3 passed、subagent_tool_surface_tests 2 passed、latex_tool::tests 11 passed、commands::run::tests 2 passed，共 18 passed/0 failed。③严格门禁（ac924240）：cargo clippy --workspace --all-targets -- -D warnings exit 0。
+- 验收: ①生产行为未变，仅注释、测试模块布局与测试 helper 类型收口；②四组定向测试共 18 项全绿；③严格 all-targets Clippy 零 warning。
+- observed_head: ac9242409eec26f0e7a05faee43c4fd24c5e1049
+- observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
+- recorded_at: 1787220352062
+
+## D-597 R-248 使 tracker.rs 超出结构增长预算 --ref R-248 [fixed] (medium)
+- 复现: scripts/verify.ps1 的 crate_sync/metrics gate 报 tracker.rs production 973，相对 baseline 868 增长 105，超过 allowance 100
+- 影响: Rust 测试与 Clippy 虽全绿，正式 verify 仍失败，远端 dev 不具备可发布证据
+- 期望: 将 prior-art 登记策略下沉既有 prior_art.rs，tracker 仅保留薄调用；定向测试、严格 Clippy 与 metrics gate 全绿
+- 来源: 2026-08-20 R-248 正式验证实测
+- 标签: 后端
+- 根因: prior-art 登记判定约 80 行直接堆入 tracker.rs，而仓库已有独立 prior_art.rs 领域模块
+- 优先级: P1
+- 取活依据: override:R-248 正式验证的结构门禁直接阻断本轮远端交付，必须在推送前收口
+- 进展: ①提交 4d747789 新增 prior_art::RegistrationCheck/check_registration，tracker.rs 的 check_prior_art 收敛为薄适配；metrics regression gate 显示 30 rows、giants 3/3、per-file allowance 100，exit 0。②提交 4d747789 后 tracker 核心空refs门禁 1 passed、prior_art 全组 4 passed，工件/豁免/普通条目语义均由原测试覆盖。③提交 4d747789 上 cargo clippy --workspace --all-targets -- -D warnings exit 0。
+- 验收: ①prior-art 登记策略归入 prior_art.rs，tracker.rs 只保留薄调用；②原有工件、豁免、普通需求语义不变；③结构预算、严格 all-targets Clippy 与定向测试全绿。
+- observed_head: 4d74778956e4c46d375079f0dd85d76442ed5572
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787220805975
+
+## D-598 关线测试用未归一根构造运行时导致 CI 假失败 --ref R-177 [fixed] (medium)
+- 复现: GitHub Actions run 32358116313：kanzei-app 230 passed/1 failed，worktree_tests.rs:165 断言 close_process 后 runtime.running 仍为 true
+- 影响: 本地正式 verify 全绿但远端 cargo test --workspace 假红，UI smoke 被跳过，dev 无法获得 CI 证据
+- 期望: 测试从 ProcessHandle.project_dir 构造 session/store/runtime，与生产身份同源；加路径身份断言并验证关线确实终态化同一 runtime
+- 来源: GitHub Actions run 32358116313 失败日志
+- 标签: 流程
+- 根因: 测试以 git_repo 返回的原始临时路径计算 session_id；生产 close_process 以 create_process 保存的 normalized project_dir 计算 session_id。Windows runner 上两种路径身份可不同，测试把运行态放进了生产关闭链找不到的另一个 key
+- 优先级: P1
+- 取活依据: override:远端 dev CI 唯一失败，阻断本轮交付终态，需立即修复测试身份夹具
+- 进展: ①提交 1cd387b3：worktree_tests.rs 从 process.project_dir.0 构造 session_id/state.db/session，与 close_process→unregister_parallel_process 的生产根同源。②提交 1cd387b3 增加 assert_eq!(session_id, info.session_id)，夹具若再次身份分叉会在置 running 前直接点明。③提交 1cd387b3 后 GitHub 失败的 exact test 连续 20/20 passed；cargo clippy --workspace --all-targets -- -D warnings exit 0。
+- 验收: ①测试 runtime/session/store 与生产 close_process 使用同一 normalized ProcessHandle.project_dir；②会话身份有显式相等断言；③失败用例连续 20 次与严格 all-targets Clippy 全绿。
+- observed_head: 1cd387b384baa934d74a9e6a8d9f8ec5432cc811
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787222004837
+
+## D-599 Windows CI 下跨树测试用原始路径键断言导致路径形态误红 [fixed] (high)
+- 复现: Windows runner 中 git worktree list 返回路径形态与测试构造 PathBuf 不同，6 条直接按原始键查询的测试失败
+- 影响: 远端 test 门禁误红并遮断后续 UI smoke，真实跨树保护回归无法可靠判读
+- 来源: GitHub Actions run 32359678295
+- 标签: 流程
+- 验收: 已满足：相关 15 条跨树测试全部通过，保护逻辑未改动，仅统一测试身份查询语义
+- 优先级: P1
+- 取活依据: override:修复远端 Windows CI 的路径形态相关误红并恢复可靠门禁
+- 进展: 已在 b0142795 让测试查询复用 worktree_key，消除 Windows 路径大小写、分隔符与短路径形态差异；cargo test -p kanzei-tools cross_tree::tests：15 passed
+- observed_head: b0142795c6aa976fc9d1334092364401b0fde5b8
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787223319876
+
+## D-600 Cargo 门禁诊断未关闭 ANSI 彩色导致 CI 错误位置被过滤 [fixed] (high)
+- 复现: CI 的 CARGO_TERM_COLOR=always 为 error 与位置行加 ANSI 前缀，compile_gate/clippy_gate starts_with 过滤得到空诊断
+- 影响: 三条门禁测试失败，真实提交拦截也只报泛化错误而丢失文件与位置
+- 来源: GitHub Actions run 32359678295
+- 标签: 流程
+- 验收: 已满足：编译错误、测试目标错误和 clippy 违规均恢复文件与位置诊断，fmt 文件诊断同步受保护
+- 优先级: P1
+- 取活依据: override:恢复 Cargo 门禁在 GitHub Actions 强制彩色环境下的文件级诊断
+- 进展: 2f8aa5b8 为 compile/fmt/clippy 三个 Cargo 子进程固定 CARGO_TERM_COLOR=never；在父环境 CARGO_TERM_COLOR=always 下定向回归 4 passed
+- observed_head: 2f8aa5b8d95e320f0f854c30f0301468bf8cb5d6
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787223378681
+
+## D-601 PDF 转 PNG 失败分支仍可提前返回并遗留临时文件 [fixed] (medium)
+- 复现: pdf_to_png 在进程启动、无产物等问号运算符路径可提前返回，cleanup_pngtmp 未执行
+- 影响: 研究工件目录残留临时 PNG，旧产物还可能被下一次转换误当成本轮结果
+- 来源: GitHub Actions run 32359678295
+- 标签: 核心
+- 验收: 已满足：启动前缺失、转换失败、无产物和读取失败均经过同一清理收口，历史 PNG 不会串入本轮
+- 优先级: P2
+- 取活依据: override:收口 PDF 转 PNG 的全失败路径清理并避免旧临时产物串入结果
+- 进展: f9778889 在转换前清旧产物，并把所有可失败操作收进统一清理闭包；新增后端缺失回归；latex_tool 12 passed
+- observed_head: f97788899b9ab4647a062e83d80598db8aa95380
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787223517197
+
+## D-602 D-599 漏改跨行原始路径查表导致同一跨树测试仍在 CI 失败 --ref D-599 [fixed] (high)
+- 复现: gen_schemas 测试首个 files_for_tree 查询通过后，第二个跨行 before.trees.get(&b).unwrap 仍因 Windows 路径形态差异失败
+- 影响: 远端 test 406 passed 后仍以单条失败阻断 UI smoke，D-599 验收实际未完整覆盖
+- 来源: GitHub Actions run 32361985430
+- 标签: 流程
+- 验收: 已满足：测试侧无原始 PathBuf 查表，kanzei-tools 全包通过，远端 Windows CI run 32363478219 成功
+- 优先级: P1
+- 取活依据: override:补齐 D-599 漏改并扫描全部同类原始路径访问
+- 进展: ee8d3152 补齐遗漏查询；kanzei-tools 407 passed、严格 all-targets clippy、官方 13 步门禁通过；GitHub Actions 32363478219 的 fmt/clippy/test/UI smoke 全绿
+- observed_head: ee8d31523be15b4adf46c93774b3d9df95af396b
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787225731861
+
+## D-603 Bash 收口锁预算短于合法记忆写事务导致并发时误报失败 --project-root C:\Users\kanzei\Documents\kanzei-selfboot-quality [fixed] (high)
+- 复杂度: 小
+- 复现: GitHub Actions run 32364748733，d368_concurrent_memory_write::真bash围栏窗口内并发memory_add等待后落盘不被误回滚失败；合法 memory_add 持有 .kanzei/memory 树锁超过 500ms，enforce_managed_files_with_writer_log 在 500ms 预算内取不到共享锁并返回 managed-files WARNING。
+- 影响: 无越界写的 bash 被标记失败并中断自举与发布流水线；合法并发写虽最终落盘，但围栏声称未执行归因，产生假故障。
+- 标签: 核心
+- 根因: 围栏收口 LOCK_ACQUIRE_BUDGET 固定为 500ms，但项目统一写锁预算 DEFAULT_LOCK_BUDGET 为 3s；冷 CI 首次建立记忆派生索引时合法事务可超过 500ms，代码把性能抖动误判为写者卡死。
+- 验收: ①围栏收口等待预算与统一写锁预算 3s 对齐且仍有界；②确定性测试持有记忆树锁超过 500ms 后释放，收口必须等待并成功；③D-368 真实并发测试通过；④workspace 全量测试、严格 clippy、正式 verify 与远端 CI 全绿。
+- 优先级: P1
+- 取活依据: override:远端最终发布门禁稳定复现，直接修复并补回归
+- 进展: 已完成并逐条对账。验收①:crates/kanzei-tools/src/managed.rs:240 直接复用 DEFAULT_LOCK_BUDGET，提交 16f3c48d，3s 有界预算与写入口一致。验收②:crates/kanzei-tools/src/managed.rs:530 新增确定性 800ms 持锁测试，managed 模块 11/11。验收③:crates/kanzei/tests/integration/d368_concurrent_memory_write.rs:68 原失败真实并发测试单独连续 10 次 10/10，完整 integration 32/32。验收④:提交 16f3c48d 经 scripts/verify.ps1 正式 13 步验证全绿，kanzei-tools 408 passed/1 ignored；GitHub Actions run 32365958768 的 fmt/clippy/test/ui smoke 全部 success，证据 https://github.com/kanze1/kanzei-code/actions/runs/32365958768。
+- observed_head: 16f3c48d8f08ec7665279fe115885ce078c1362d
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787227333559

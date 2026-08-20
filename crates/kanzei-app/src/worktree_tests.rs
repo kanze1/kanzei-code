@@ -146,15 +146,21 @@ async fn close_process_先停止运行会话再回收已合并干净工作树并
         .cloned()
         .unwrap();
     let worktree = PathBuf::from(info.worktree_path.as_ref().unwrap());
-    let session_id = process_session_id(&root, Some(&info.id));
+    // create_process 会把输入根归一化后存进 ProcessHandle；运行与关线都以这个
+    // project_dir 计算 session_id。测试夹具也必须消费同一真源，不能再用调用前的
+    // 原始临时路径：Windows runner 上 canonical 路径身份可能不同，原写法会把
+    // running 塞进另一条 runtime，随后制造“关线没停住”的假失败(D-598)。
+    let project_root = process.project_dir.0.clone();
+    let session_id = process_session_id(&project_root, Some(&info.id));
+    assert_eq!(session_id, info.session_id, "测试运行时必须与线路会话同源");
     let runtime = crate::state::runtime_for(&state, &session_id);
     // 真实运行路径里 session 一定先于 running 落库(finalize_interrupt 对不存在的
     // 会话返回 QueryReturnedNoRows 是 store 的既有语义)。测试要模拟「运行中的线路
     // 被关闭」,必须先建会话,否则收口在 UPDATE sessions 上 0 行而失败。
-    let state_path = kanzei_core::project_state_path(&root);
+    let state_path = kanzei_core::project_state_path(&project_root);
     let store = kanzei_core::SessionStore::open(&state_path).unwrap();
     store
-        .create_session(&session_id, &root.display().to_string(), None)
+        .create_session(&session_id, &project_root.display().to_string(), None)
         .unwrap();
     runtime
         .running
@@ -932,7 +938,7 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
                 "action": "add",
                 "title": "F13 main-root tracker",
                 "priority": "P2",
-                "fields": {"复杂度": "中", "标签": "核心", "验收": "tracker follows project_root"}
+                "fields": {"复杂度": "中", "标签": "后端", "验收": "tracker follows project_root"}
             }),
             &ctx,
         )

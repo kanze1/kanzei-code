@@ -352,6 +352,23 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
         (active_entries(&DEFECTS), archived_entries(&DEFECTS)),
     );
     let (dependents_deps, dependents) = kanzei_tools::tracker::dependents_map_with_states(&states);
+    let state_path = kanzei_core::project_state_path(&root);
+    let work_units = if state_path.is_file() {
+        kanzei_core::SessionStore::open(&state_path)
+            .map_err(|error| format!("读取 Work Unit 状态库失败: {error}"))?
+            .list_work_units(None)
+            .map_err(|error| format!("读取 Work Unit 投影失败: {error}"))?
+    } else {
+        Vec::new()
+    };
+    let mut work_units_by_requirement: BTreeMap<String, Vec<kanzei_core::WorkProjection>> =
+        BTreeMap::new();
+    for unit in &work_units {
+        work_units_by_requirement
+            .entry(unit.requirement_id.clone())
+            .or_default()
+            .push(unit.clone());
+    }
     let load =
         |kind: &'static kanzei_tools::docstore::DocKind| -> Result<Vec<serde_json::Value>, String> {
             let entries = active_entries(kind);
@@ -383,6 +400,11 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
                     .iter()
                     .find(|(key, _)| key == "取得线")
                     .map(|(_, value)| value.clone());
+                let execution_model = e
+                    .fields
+                    .iter()
+                    .find(|(key, _)| key == "执行模型" || key.eq_ignore_ascii_case("execution_model"))
+                    .map(|(_, value)| value.clone());
                 json!({
                     "id": e.id, "title": e.title, "status": e.status, "severity": e.severity,
                     "priority": e.fields.iter().find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority")).map(|(_, value)| value),
@@ -390,6 +412,8 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
                     "batches": { "done": batch_done, "total": batch_total },
                     "closed": kind.terminal.contains(&e.status.as_str()), "blocked": !block_reasons.is_empty(),
                     "block_reasons": block_reasons, "claimed_by": claimed_by, "fields": e.fields,
+                    "execution_model": execution_model,
+                    "work_units": work_units_by_requirement.get(&e.id).cloned().unwrap_or_default(),
                     "dependencies": dependents_deps.get(&e.id).cloned().unwrap_or_default(),
                     "dependents": dependents.get(&e.id).cloned().unwrap_or_default(),
                     "nextStatuses": kind.statuses.iter().filter(|s| **s != e.status && DocStore::open(&root, kind).transition_allowed(&e.status, s).is_ok()).collect::<Vec<_>>(),
@@ -408,6 +432,7 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
         // warnings 是新增字段:前端忽略未知键,所以不需要改 .js。它承载"读成功了,
         // 但顺手做的那次写没做成"这种半程状态——以前这类信息被 `let _ =` 吃掉。
         "warnings": warnings,
+        "work_units": work_units,
         "requirements": load(&REQUIREMENTS)?, "defects": load(&DEFECTS)?, "ideas": load(&IDEAS)?,
         "sources": load(&SOURCES)?, "findings": load(&FINDINGS)?,
         "research_topics": research_topics(&root)?,

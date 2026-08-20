@@ -62,7 +62,14 @@ research 模式与 dev 侧代码勘察保持能力边界独立，但两者复用
 - **证据口径**：代码结论沿用 V0–V3 与 `file:line`/提交锚；文献结论必须带 URL、V 等级和摘要级/正文级深度。没有锚点明确写 V0，不把 E0–E4 测试等级混入研究报告。
 - **工具边界（复用既有能力）**：dev 侧直接用现有 `write`/`edit`/`insert` 写入 `.kanzei/research/**`，用 `read`/`glob`/`grep`/`files` 复核，用 `git diff/status` 保留变更边界；本条不新增第二套 source/finding 存储，也不把 research profile 专用的 source/finding 工具虚报成 dev 工具。
 - **生命周期与清理**：工作中为 `active`；条目关闭时把报告标为 `archived`，最终报告和支撑结论的证据永久保留。只有已被报告吸收且可重建的中间笔记、临时输出和索引缓存可清理；不可重建的证据移入 `archive/` 或保留原位，禁止静默删除。清理动作在条目进展或提交说明中留下记录。
-- **R-248 复用**：R-248 恢复后可直接采用同一根目录、topic 命名和 active→archived 生命周期；其 prior-art 文件可使用同一 topic 目录内的 `prior-art.md`。R-248 现有 refs API 与首次 topic 来源的用户决策仍单独有效，不由本约定替代。
+- **先行调研（R-248，已实现）**：工件固定为 `.kanzei/research/<topic>/prior-art.md`。项目首次创建 `.kanzei/`、`req add` 的「核心 + refs 为空」、用户显式调用 `prior_art start` 三者之一会机械触发。核心需求缺工件时，tracker 先按待分配编号创建 `<entry-id>-<slug>` 骨架再拒绝登记；补齐后通过顶层 `prior_art` 传路径，或通过 `prior_art_waiver` 记录用户明确豁免。两者都独立于 `refs`，后者继续只收 R-/D-/T-。
+
+### 3.2 prior-art 工件与联网预算（R-248 / D-571）
+
+- 工件头必须包含 `kind: prior_art`、与目录一致的 `topic`、`status: complete`、`entry_refs` 和 `websearch_round_limit`（1–4）。骨架固定为 `pending`，不能冒充完成。
+- `外部已有实现` 与 `仓内既有设计` 两节都至少一条。每条使用三级标题作为方案名，并完整填写 `出处`、`证据等级`、`差异`、`决策`；外部出处必须是 http(s) URL，仓内出处必须是可回读的 `file:相对路径:行号`。任一项缺失都由 `prior_art validate` 或 `req add` 拒绝。
+- prior-art 搜索调用在 `websearch` 传 `prior_art_topic`，每次尝试都会消耗该 topic 的搜索预算，达到上限时返回 `PRIOR_ART_SEARCH_LIMIT`，不静默截断或继续扩散。
+- research 档的 `websearch`/`webfetch` 额外强制携带 `research_loop begin_search` 返回的 `topic + task_id`。伪造、过期或缺失任务在发出网络请求前被拒；DuckDuckGo HTML 不可达时明确指向已知 URL 的 `webfetch` 与 arXiv abs/pdf/API 通道。
 
 - 轻重课题共用同一目录约定;轻课题只产 report.md 合法。
 - report/paper 契约(轻约定,不做 schema 校验):头部=课题/日期/关联条目/总体证据等级(取最低);每条结论=**一句话 + 证据锚(S-id、URL 或 file:line)+ V 等级**,无锚必须显式标 V0;结尾=「建议登记」段(定调点 4 的回流入口)。

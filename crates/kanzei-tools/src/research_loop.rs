@@ -83,6 +83,29 @@ fn load_state(root: &Path, topic: &str) -> Result<Option<ResearchLoopState>, Str
         .map_err(|error| format!("检索环状态 JSON 无效: {error}"))
 }
 
+/// D-571:research 档的 websearch/webfetch 必须属于 begin_search 已登记的活动任务。
+/// 联网工具只做这一个真源校验，不复制 loop 的轮次/并发状态机。
+pub(crate) fn validate_external_task(
+    root: &Path,
+    topic: &str,
+    task_id: &str,
+) -> Result<(), String> {
+    let state = load_state(root, topic)?
+        .ok_or_else(|| format!("topic `{topic}` 尚未启动检索环；先 research_loop start"))?;
+    if state.status != "running" || state.phase != "search" {
+        return Err(format!(
+            "topic `{topic}` 当前为 {} / {}，不允许直接联网检索",
+            state.status, state.phase
+        ));
+    }
+    if !state.active_tasks.iter().any(|active| active == task_id) {
+        return Err(format!(
+            "RESEARCH_LOOP_TASK_REQUIRED: task_id `{task_id}` 不是 topic `{topic}` 的活动检索任务；每次 websearch/webfetch 前必须先调用 research_loop begin_search，不能绕过轮次与并发预算。"
+        ));
+    }
+    Ok(())
+}
+
 fn save_state(root: &Path, state: &ResearchLoopState) -> Result<(), String> {
     let path = state_path(root, &state.topic)?;
     if let Some(parent) = path.parent() {
@@ -94,70 +117,6 @@ fn save_state(root: &Path, state: &ResearchLoopState) -> Result<(), String> {
         .map_err(|error| format!("序列化检索环状态失败: {error}"))?;
     kanzei_base::atomic_file::write_atomic(&path, &text)
         .map_err(|error| format!("保存检索环状态失败: {error}"))?;
-    Ok(())
-}
-
-pub(crate) fn authorize_network_call(
-    root: &Path,
-    tool_name: &str,
-    topic: Option<&str>,
-    task_id: Option<&str>,
-) -> Result<(), Box<ToolOutput>> {
-    let research_root = root.join(".kanzei/research");
-    let mut active = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&research_root) {
-        for entry in entries.flatten() {
-            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-                continue;
-            }
-            let Ok(topic_name) = entry.file_name().into_string() else {
-                continue;
-            };
-            if DocStore::validate_topic(&topic_name).is_err() {
-                continue;
-            }
-            if let Ok(Some(state)) = load_state(root, &topic_name) {
-                if state.status == "running" && state.phase == "search" {
-                    active.push((topic_name, state));
-                }
-            }
-        }
-    }
-    if active.is_empty() {
-        return Ok(());
-    }
-
-    let Some(topic) = topic else {
-        let topics = active
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(Box::new(ToolOutput::needs_correction(
-            "RESEARCH_LOOP_REQUIRED",
-            format!(
-                "{tool_name} 当前有运行中的 research_loop ({topics})；请先 `research_loop begin_search`，再携带返回的 `topic` 与 `task_id` 调用 {tool_name}。"
-            ),
-        )));
-    };
-    let Some((_, state)) = active.iter().find(|(name, _)| name == topic) else {
-        return Err(Box::new(ToolOutput::needs_correction(
-            "RESEARCH_TOPIC_NOT_RUNNING",
-            format!("topic `{topic}` 没有处于 search 阶段的 research_loop"),
-        )));
-    };
-    let Some(task_id) = task_id else {
-        return Err(Box::new(ToolOutput::needs_correction(
-            "RESEARCH_TASK_REQUIRED",
-            format!("{tool_name} 必须携带当前 research_loop `begin_search` 返回的 task_id"),
-        )));
-    };
-    if !state.active_tasks.iter().any(|active| active == task_id) {
-        return Err(Box::new(ToolOutput::needs_correction(
-            "RESEARCH_TASK_NOT_ACTIVE",
-            format!("task_id `{task_id}` 不属于 topic `{topic}` 的活动检索任务；请重新调用 begin_search"),
-        )));
-    }
     Ok(())
 }
 
@@ -593,6 +552,10 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        assert!(validate_external_task(&project, "loop-smoke", &task_id).is_ok());
+        assert!(validate_external_task(&project, "loop-smoke", "r0-forged")
+            .unwrap_err()
+            .contains("RESEARCH_LOOP_TASK_REQUIRED"));
         let second = tool
             .execute(
                 json!({ "action": "begin_search", "topic": "loop-smoke" }),
@@ -607,6 +570,7 @@ mod tests {
             )
             .await;
         assert!(!evidence.is_error, "{}", evidence.content);
+        assert!(validate_external_task(&project, "loop-smoke", &task_id).is_err());
         let reflected = tool
             .execute(
                 json!({ "action": "reflect", "topic": "loop-smoke", "gaps": [] }),
@@ -653,16 +617,16 @@ mod tests {
         };
         save_state(&project, &state).unwrap();
 
-        let missing_task =
-            authorize_network_call(&project, "websearch", Some("loop-smoke"), None).unwrap_err();
-        assert_eq!(missing_task.code, Some("RESEARCH_TASK_REQUIRED"));
+        let not_started = validate_external_task(&project, "other-topic", "r0-t0").unwrap_err();
+        assert!(not_started.contains("尚未启动检索环"), "{not_started}");
 
-        let unknown_task =
-            authorize_network_call(&project, "webfetch", Some("loop-smoke"), Some("r0-t9"))
-                .unwrap_err();
-        assert_eq!(unknown_task.code, Some("RESEARCH_TASK_NOT_ACTIVE"));
+        let unknown_task = validate_external_task(&project, "loop-smoke", "r0-t9").unwrap_err();
+        assert!(
+            unknown_task.contains("RESEARCH_LOOP_TASK_REQUIRED"),
+            "{unknown_task}"
+        );
 
-        authorize_network_call(&project, "webfetch", Some("loop-smoke"), Some("r0-t0")).unwrap();
+        validate_external_task(&project, "loop-smoke", "r0-t0").unwrap();
         std::fs::remove_dir_all(project).ok();
     }
 }

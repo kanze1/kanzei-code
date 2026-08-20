@@ -20,6 +20,18 @@ fn strip_verbatim(p: PathBuf) -> String {
     s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s)
 }
 
+/// 项目空间首次落 `.kanzei/` 时同步创建先行调研骨架。返回 true 只表示本次是
+/// 首次初始化；重复选择/添加项目绝不覆盖已经填写的 prior-art 工件。
+fn initialize_kanzei_space(dir: &Path) -> Result<bool, String> {
+    let first_init = !dir.join(".kanzei").exists();
+    std::fs::create_dir_all(dir.join(".kanzei"))
+        .map_err(|e| format!("创建项目配置目录失败: {e}"))?;
+    if first_init {
+        kanzei_tools::prior_art::start_project_init(dir)?;
+    }
+    Ok(first_init)
+}
+
 #[tauri::command]
 pub fn projects_get() -> AppPrefs {
     let prefs = normalize_prefs(load_prefs(), |path| Path::new(path).is_dir());
@@ -44,8 +56,7 @@ fn normalize_prefs(mut prefs: AppPrefs, mut project_exists: impl FnMut(&str) -> 
 pub fn projects_init(path: String, name: Option<String>) -> Result<AppPrefs, String> {
     let dir = PathBuf::from(&path);
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建项目目录失败: {e}"))?;
-    std::fs::create_dir_all(dir.join(".kanzei"))
-        .map_err(|e| format!("创建项目配置目录失败: {e}"))?;
+    initialize_kanzei_space(&dir)?;
     let canonical = dir
         .canonicalize()
         .map(strip_verbatim)
@@ -87,8 +98,7 @@ pub fn projects_add(path: String) -> Result<AppPrefs, String> {
     if !dir.is_dir() {
         return Err(format!("目录不存在: {path}"));
     }
-    std::fs::create_dir_all(dir.join(".kanzei"))
-        .map_err(|e| format!("创建项目配置目录失败: {e}"))?;
+    initialize_kanzei_space(&dir)?;
     let canonical = dir
         .canonicalize()
         .map(strip_verbatim)
@@ -123,7 +133,7 @@ pub(crate) fn ensure_project_isolated(dir: &Path) -> bool {
     {
         return false;
     }
-    std::fs::create_dir_all(dir.join(".kanzei")).is_ok()
+    initialize_kanzei_space(dir).is_ok()
 }
 
 #[tauri::command]
@@ -165,6 +175,7 @@ pub fn project_detach(project_dir: String) -> Result<(), String> {
     if !dir.is_dir() {
         return Err(format!("目录不存在: {project_dir}"));
     }
+    initialize_kanzei_space(&dir)?;
     std::fs::create_dir_all(dir.join(".kanzei").join("project"))
         .map_err(|e| format!("创建项目空间失败: {e}"))?;
     let resolved =
@@ -394,6 +405,31 @@ pub fn projects_select(path: String) -> AppPrefs {
 
 pub(crate) fn base_name_for_snapshot(path: &str) -> String {
     base_name(path)
+}
+
+#[cfg(test)]
+mod prior_art_init_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn 首次初始化创建prior_art骨架且重复进入不覆盖() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-project-prior-art-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(initialize_kanzei_space(&root).unwrap());
+        let path = root.join(".kanzei/research/project-init/prior-art.md");
+        assert!(path.is_file());
+        std::fs::write(&path, "用户已填写").unwrap();
+        assert!(!initialize_kanzei_space(&root).unwrap());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "用户已填写");
+    }
 }
 
 /// 工作区 = **跨项目的运行现场**:一眼看出哪个项目在跑、跑的是哪条线、卡在哪。

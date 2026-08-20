@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use kanzei_harness::{
-    rule, source, AgentDef, AgentMode, Component, Effect, HarnessDraft, ProfileKind, ProfileScope,
-    ResolveCtx,
+    refreshing_source, rule, source, AgentDef, AgentMode, Component, Effect, HarnessDraft,
+    ProfileKind, ProfileScope, ResolveCtx,
 };
 
 use crate::docstore::{DocStore, DECISIONS, DEFECTS, IDEAS, REQUIREMENTS};
@@ -77,7 +77,7 @@ impl Component for ResearchProfile {
 
         draft.context.insert(
             "research/docs",
-            source("research/docs", |ctx: &ResolveCtx| {
+            refreshing_source("research/docs", |ctx: &ResolveCtx| {
                 let src = research::index_of(ctx, &crate::docstore::SOURCES, "Sources");
                 let fnd = research::index_of(ctx, &crate::docstore::FINDINGS, "Findings");
                 let req = research::index_of(ctx, &REQUIREMENTS, "Requirements");
@@ -115,7 +115,7 @@ impl Component for ResearchProfile {
                 mode: AgentMode::Primary,
                 // 0 = 无轮数上限(用户定调)。
                 steps: 0,
-                system: "You are the research agent. Before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. After approval, use the `research_loop` tool with start/resume actions to drive the bounded search-read-reflect loop. For each isolated subtask call begin_search first and pass its task_id to add_evidence; the max_concurrency gate is mechanical. For every websearch/webfetch call, also pass the same topic and active task_id; calls without them are rejected while a loop is running. Use websearch/webfetch only as isolated subtasks; before returning any result to the main context, compress it via research_loop add_evidence with relevance, source_ids, and a sourced summary—never pass raw webpage or tool output into the loop. Use reflect to record knowledge gaps and decide whether another round is needed; write findings only through add_finding with source refs. After the loop reaches writing, call the `research_write` tool: write_outline first, then write_section once per outline section, assemble_paper for heavy topics, and compile_paper through the LaTeX channel; use repair_paper only after a failed compile and preserve its diagnostics. Before starting a loop, use the `research_verify` tool budget_set for explicit round/token/concurrency knobs; after writing, use verify_claims to mechanically check every FACT source and evidence anchor, and use capture_source for complete literature正文 rather than trusting abstract/要点 fields. Before cross-checking claims, use the `research_index` tool: index_build/index_resume creates or resumes the topic Tantivy index, search uses the same interface for literature and code, and symbols mode performs code symbol reverse lookup. Record every consulted source \
+                system: "You are the research agent. Before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. After approval, use the `research_loop` tool with start/resume actions to drive the bounded search-read-reflect loop. For each isolated subtask call begin_search first; every websearch/webfetch call MUST pass that topic and returned task_id, then pass the same task_id to add_evidence—the loop gate is mechanical. Before returning any result to the main context, compress it via research_loop add_evidence with relevance, source_ids, and a sourced summary—never pass raw webpage or tool output into the loop. Use reflect to record knowledge gaps and decide whether another round is needed; write findings only through add_finding with source refs. After the loop reaches writing, call the `research_write` tool: write_outline first, then write_section once per outline section, assemble_paper for heavy topics, and compile_paper through the LaTeX channel; use repair_paper only after a failed compile and preserve its diagnostics. Before starting a loop, use the `research_verify` tool budget_set for explicit round/token/concurrency knobs; after writing, use verify_claims to mechanically check every FACT source and evidence anchor, and use capture_source for complete literature正文 rather than trusting abstract/要点 fields. Before cross-checking claims, use the `research_index` tool: index_build/index_resume creates or resumes the topic Tantivy index, search uses the same interface for literature and code, and symbols mode performs code symbol reverse lookup. Record every consulted source \
                          (`source add`) and register conclusions as findings citing those \
                          sources. Every conclusion must state its code or literature domain, \
                          V0-V3 level, evidence anchor, and literature evidence depth; use V \
@@ -415,6 +415,10 @@ mod tests {
             names.contains(&"websearch"),
             "dev 档必须有 websearch: {names:?}"
         );
+        assert!(
+            names.contains(&"prior_art"),
+            "dev 档必须有 prior_art: {names:?}"
+        );
         assert_eq!(
             snapshot.evaluate("websearch", "*"),
             kanzei_harness::Effect::Ask,
@@ -665,7 +669,12 @@ mod tests {
             "release.ps1",
             "新条目开工",
             "work next",
-            "per-验收 evidence",
+            "work_unit",
+            "checkpoint",
+            "verify",
+            "evidence",
+            "complete",
+            "父 Outcome",
         ] {
             assert!(
                 system.contains(required),
@@ -893,6 +902,35 @@ mod tests {
             "# project conventions\nB4 convention marker\n",
         )
         .unwrap();
+        crate::docstore::DocStore::open(&root, &crate::docstore::SOURCES)
+            .save(&[crate::docstore::Entry {
+                id: "S-901".into(),
+                title: "legacy flat source".into(),
+                status: "active".into(),
+                severity: None,
+                fields: vec![],
+            }])
+            .unwrap();
+        crate::docstore::DocStore::open_topic(&root, &crate::docstore::SOURCES, "r221-chain")
+            .unwrap()
+            .save(&[crate::docstore::Entry {
+                id: "S-001".into(),
+                title: "topic source visible".into(),
+                status: "active".into(),
+                severity: None,
+                fields: vec![],
+            }])
+            .unwrap();
+        crate::docstore::DocStore::open_topic(&root, &crate::docstore::FINDINGS, "r221-chain")
+            .unwrap()
+            .save(&[crate::docstore::Entry {
+                id: "F-001".into(),
+                title: "topic finding visible".into(),
+                status: "draft".into(),
+                severity: None,
+                fields: vec![],
+            }])
+            .unwrap();
         crate::docstore::DocStore::open(&root, &crate::docstore::REQUIREMENTS)
             .save(&[crate::docstore::Entry {
                 id: "R-901".into(),
@@ -933,6 +971,12 @@ mod tests {
             "read-only index",
             "unified `memory_search`",
             "memory_note",
+            "[legacy-flat] S-901",
+            "legacy flat source",
+            "[r221-chain] S-001",
+            "topic source visible",
+            "[r221-chain] F-001",
+            "topic finding visible",
         ] {
             assert!(
                 baseline.contains(required),
@@ -942,6 +986,35 @@ mod tests {
         assert!(
             !baseline.contains("legacy research memory must not be injected"),
             "research context 不得注入历史 research/memory.md"
+        );
+        assert_eq!(
+            snapshot.evaluate("prior_art", "read:validate"),
+            Effect::Allow
+        );
+        assert_eq!(snapshot.evaluate("prior_art", "write:start"), Effect::Ask);
+        crate::docstore::DocStore::open_topic(&root, &crate::docstore::SOURCES, "r221-chain")
+            .unwrap()
+            .save(&[
+                crate::docstore::Entry {
+                    id: "S-001".into(),
+                    title: "topic source visible".into(),
+                    status: "active".into(),
+                    severity: None,
+                    fields: vec![],
+                },
+                crate::docstore::Entry {
+                    id: "S-002".into(),
+                    title: "same session next step source".into(),
+                    status: "active".into(),
+                    severity: None,
+                    fields: vec![],
+                },
+            ])
+            .unwrap();
+        let refreshed = snapshot.refreshable_system_baseline_with_report().0;
+        assert!(
+            refreshed.contains("same session next step source"),
+            "research/docs 必须逐模型步骤刷新，刚写入的 topic 来源要在下一步可见"
         );
         for tool_name in ["source", "finding", "req", "defect"] {
             assert_eq!(
@@ -986,6 +1059,21 @@ mod tests {
             serde_json::to_value(actions).unwrap(),
             serde_json::json!(["get", "create", "clarify", "request_approval"])
         );
+        for name in ["websearch", "webfetch"] {
+            let tool = snapshot
+                .materialize_tools()
+                .into_iter()
+                .find(|tool| tool.name() == name)
+                .unwrap_or_else(|| panic!("research 档缺少 {name} tool"));
+            let required = tool
+                .input_schema()
+                .pointer("/required")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default();
+            assert!(required.contains(&serde_json::json!("topic")));
+            assert!(required.contains(&serde_json::json!("task_id")));
+        }
         assert!(snapshot
             .select_agent(Some("research"))
             .unwrap()
@@ -1291,8 +1379,11 @@ mod tests {
         let mut harness = Harness::default();
         harness.add(ResearchProfile);
         let snapshot = harness.resolve(&ctx).unwrap();
-        let before = snapshot.stable_system_baseline_with_report().0;
-        assert!(before.contains("first topic source (topic: r221-chain)"));
+        let before = snapshot.refreshable_system_baseline_with_report().0;
+        assert!(
+            before.contains("[r221-chain] S-001 [active] first topic source"),
+            "baseline was: {before}"
+        );
 
         topic
             .save(&[
@@ -1312,8 +1403,8 @@ mod tests {
                 },
             ])
             .unwrap();
-        let after = snapshot.stable_system_baseline_with_report().0;
-        assert!(after.contains("new topic source (topic: r221-chain)"));
+        let after = snapshot.refreshable_system_baseline_with_report().0;
+        assert!(after.contains("[r221-chain] S-002 [active] new topic source"));
         std::fs::remove_dir_all(root).ok();
     }
 }

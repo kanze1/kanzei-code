@@ -232,29 +232,25 @@ fn memory_tree_lock_path(project_root: &Path) -> PathBuf {
     project_root.join(".kanzei").join("memory")
 }
 
-/// 单个文档的取锁预算。正常情况对面是毫秒级事务,几百毫秒足够;异常(对方卡死)
-/// 快速失败,不让一次 bash 被锁获取拖垮。
-const LOCK_ACQUIRE_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
+/// 收口读取托管文档前的取锁预算。
+///
+/// 这里必须与专用写入口的默认等待预算一致:冷 CI 首次建立 memory 派生索引时,
+/// 一次合法写事务可能超过旧的 500ms。收口若更早放弃,会把仍在进行的合法写误报为
+/// “无法归因”,让无越界写的 bash 假失败。3s 仍是有界等待,写者卡死时不会无限阻塞。
+const LOCK_ACQUIRE_BUDGET: std::time::Duration = crate::atomic_file::DEFAULT_LOCK_BUDGET;
 
-/// D-364:bash 围栏在命令执行期间持有的托管文档写锁。
+/// bash 围栏收口读取期间持有的托管文档共享锁。
 ///
-/// 围栏的归因判据是「命令前后托管树快照一致」——命令窗口内**任何**变化都被判成
-/// bash 越界并整体回滚。但窗口内的变化可能来自**另一个进程的合法写入**(自举轮跑
-/// bash 时外部 `kz req add`):旧实现没有区分手段,把别人的合法写入一起回滚掉了,
-/// 于是出现「added 成功但条目整体消失」(D-364)。修复 = 把并发写者挡在窗口之外:
-/// 命令执行期间持有全部已知托管文档的 FileLock,写者在窗口内等锁、命令结束才落盘、
-/// 因此不被围栏误回滚;超过预算则写者明确报错,绝不假成功。
+/// R-268 后命令窗口内允许专用写者自由落盘并记写日志;命令结束时才短暂取这组锁,
+/// 确保 after 快照不会读到写事务中间态。随后按写日志吸收合法变化、回滚越界变化。
 ///
-/// D-368 同族残余:`.kanzei/memory/` 下的动态条目文件(M-xxx.md、inbox.md 等)创建前
-/// 无法逐个预锁,围栏额外持一把 **memory 树锁**(锁目标 = memory 根目录,锁文件 =
-/// `.kanzei/memory.lock`),memory 写入口(write_entry/refresh_derived/inbox/账本)持
-/// 同一把锁——窗口内并发 memory_add 同样被挡到窗口外落盘,不被误回滚。
+/// `.kanzei/memory/` 下的动态条目文件(M-xxx.md、inbox.md 等)创建前无法逐个锁,
+/// 围栏额外取一把 **memory 树共享锁**(锁目标 = memory 根目录,锁文件 =
+/// `.kanzei/memory.lock`),与 memory 写入口的排他树锁互斥。
 ///
-/// 为什么用独立线程持有:`FileLock` 被刻意做成 `!Send`,禁止跨 await 存活(毫秒级
-/// 持有纪律);而 bash 命令执行是秒级的 async 窗口,锁必须跨过整个窗口。折中 = 锁
-/// 在**获取它的线程**上持有到 release 信号到达,主线程只持有一个 Send 的句柄——
-/// 「锁不离线程」的 !Send 纪律与「跨命令窗口持锁」两件事同时成立。释放时先发信号
-/// 再 join,保证锁在线程退出前释放干净。
+/// 为什么用独立线程持有:`FileLock` 被刻意做成 `!Send`,而收口函数需要把整组锁作为
+/// 句柄返回给调用线程完成快照和对账。锁留在**获取它的线程**上直到 release 信号,
+/// 主线程只持有 Send 句柄;释放时先发信号再 join,保证锁在线程退出前释放干净。
 pub(crate) struct ManagedLocks {
     release: std::sync::mpsc::Sender<()>,
     join: Option<std::thread::JoinHandle<()>>,
@@ -280,8 +276,8 @@ impl Drop for ManagedLocks {
     }
 }
 
-/// 获取全部已知托管文档的活动文件锁。任一文件在预算内取不到(另一个进程正持锁)
-/// 即整体失败:围栏拿不全锁就不能保证归因正确,宁可拒绝 bash 也不能带病回滚。
+/// 获取全部已知托管文档的共享锁。任一文件在预算内取不到(另一个进程正写入)
+/// 即整体失败:围栏拿不全锁就不能保证收口快照一致,宁可拒绝 bash 也不能带病回滚。
 ///
 /// **非托管目录零副作用(D-364 B3)**:根下没有 `.kanzei` 就没有托管文档可保护,
 /// 直接返回空锁组——`try_lock_exclusive` 会 `create_dir_all` 父目录,在一个不是
@@ -448,10 +444,10 @@ pub(crate) fn enforce_managed_files_with_writer_log(
     before: ManagedSnapshot,
     window_start_ms: u128,
 ) -> Option<String> {
-    // R-268:收口时取**毫秒级**文件锁(预算 500ms)再拍 after 快照——确保此刻没有
+    // R-268:收口时取**有界**文件锁(统一默认预算 3s)再拍 after 快照——确保此刻没有
     // 写者在写(快照读到中间态会把合法写入误判成越界)。写者平时自由写(不再被
-    // 贯穿窗口的共享档挡),只有收口这一瞬与写者互斥;写者持锁是毫秒级 load→save,
-    // 500ms 预算内必然拿到;超预算说明异常(写者卡死),明确报错。
+    // 贯穿窗口的共享档挡),只有收口这一瞬与写者互斥。D-603 证明冷 CI 的 memory
+    // 派生索引初始化可超过 500ms,因此与写入口统一使用 3s;超预算仍明确报错。
     let _fence_locks = match acquire_managed_locks(project_root) {
         Ok(locks) => locks,
         Err(error) => {
@@ -527,13 +523,43 @@ pub(crate) fn enforce_managed_files_with_writer_log(
 mod tests {
     use super::*;
 
-    /// D-382 回归:两条并行线的 bash 围栏必须能同时持有。
+    /// D-603 回归:旧收口预算只有 500ms,冷 CI 的合法 memory 写事务稍慢就被误报成
+    /// “cross-fence attribution was NOT enforced”。这里确定性持有树锁 800ms:
+    /// 收口必须等待写者完成后取得一致快照,不能因超过旧阈值而假失败。
+    #[test]
+    fn 收口等待超过旧五百毫秒的合法memory写者() {
+        let root = temp_project("close-out-waits-memory-writer");
+        let memory_root = root.join(".kanzei/memory");
+        std::fs::create_dir_all(&memory_root).unwrap();
+        let before = ManagedSnapshot::capture(&root);
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            let _lock = crate::atomic_file::lock_exclusive(&memory_root).unwrap();
+            ready_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(800));
+        });
+        ready_rx.recv().unwrap();
+
+        let started = std::time::Instant::now();
+        let report = enforce_managed_files_with_writer_log(&root, before, 0);
+        let elapsed = started.elapsed();
+
+        writer.join().unwrap();
+        assert!(report.is_none(), "合法写者结束后收口不应误报: {report:?}");
+        assert!(
+            elapsed >= std::time::Duration::from_millis(500),
+            "测试必须真实跨过旧 500ms 失败阈值,实得 {elapsed:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D-382 回归:两条并行线的 bash 收口共享锁必须能同时持有。
     ///
     /// 改造前这条会红——围栏取排他锁,第二条线按 500ms 预算必然拿不到,报
     /// "bash refused before execution: cannot lock managed path"。实测现场是一条线
     /// 跑 cargo check(持锁分钟级),另一条线连着十次被拒。
     #[test]
-    fn 两条线的围栏可以同时持有() {
+    fn 两条线的收口共享锁可以同时持有() {
         let root = temp_project("parallel-fence");
         std::fs::write(
             root.join(".kanzei/project/requirements.md"),
@@ -554,9 +580,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// D-364 的不变式不能因为改共享档而松动:围栏在场时,**写者**必须仍被挡住。
+    /// 收口一致性不能因为改共享档而松动:共享锁在场时,**写者**必须仍被挡住。
     #[test]
-    fn 围栏在场时写者仍被挡住() {
+    fn 收口共享锁在场时写者仍被挡住() {
         let root = temp_project("fence-blocks-writer");
         let doc = root.join(".kanzei/project/requirements.md");
         std::fs::write(&doc, "# Requirements\n").unwrap();
@@ -586,9 +612,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// 读路径(DocStore::load 走共享档)不得被围栏挡住——这正是"文档面板不再刷新"。
+    /// 读路径(DocStore::load 走共享档)不得被收口共享锁挡住——否则文档面板停止刷新。
     #[test]
-    fn 围栏在场时文档仍读得出来() {
+    fn 收口共享锁在场时文档仍读得出来() {
         let root = temp_project("fence-allows-read");
         std::fs::write(
             root.join(".kanzei/project/requirements.md"),
@@ -627,18 +653,17 @@ mod tests {
         dir
     }
 
-    /// D-364 的核心回归:围栏持锁期间——
+    /// D-364 锁与回滚原语回归:收口共享锁持有期间——
     /// ① 另一进程(用另一线程模拟)的合法并发写者被锁挡在窗口外;
     /// ② 命令自身不走锁的越界写照旧被围栏检出并整体回滚(围栏本职不丢);
     /// ③ 释放锁后并发写者拿到锁,命令结束后落盘、不被误回滚。
     #[test]
-    fn 持锁挡并发写者_越界写仍回滚_释放后写者成功() {
+    fn 收口锁挡并发写者_越界写仍回滚_释放后写者成功() {
         let root = temp_project("locks");
         let req = root.join(".kanzei/project/requirements.md");
         std::fs::write(&req, "# Requirements\n\n## R-001 既存条目 [todo]\n").unwrap();
 
-        // 真实顺序与 bash_body 一致:先持锁、再拍 before 快照(锁文件同现两张镜像,
-        // 否则围栏会把锁文件当成命令新建的文件误删)。
+        // 单测把“锁住一致读阶段”和“按基线回滚越界”两个原语串起来验证。
         let locks = acquire_managed_locks(&root).unwrap();
         let before = ManagedSnapshot::capture(&root);
 
@@ -708,16 +733,15 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// D-368 核心回归:围栏持锁窗口内,并发 memory 写者(另一线程模拟另一进程的
-    /// `memory_add`)被 memory 树锁挡在窗外;命令自身不走锁的越界写照旧被围栏检出
-    /// 并整体回滚(围栏本职不丢);释放后写者拿到树锁、落盘不被误回滚。
+    /// D-368 树锁原语回归:收口共享锁持有期间,并发 memory 写者被 memory 树锁挡住;
+    /// 不走锁的越界写照旧能被镜像差异检出并回滚;释放后写者可拿到树锁。
     #[test]
-    fn 围栏持memory树锁挡并发写者_越界写仍回滚_释放后写者成功() {
+    fn 收口持memory树锁挡并发写者_越界写仍回滚_释放后写者成功() {
         let root = temp_project("mem-lock");
         std::fs::create_dir_all(root.join(".kanzei/memory")).unwrap();
         let mem_root = root.join(".kanzei/memory");
 
-        // 真实顺序与 bash_body 一致:先持锁(含 D-368 memory 树锁)、再拍 before 快照。
+        // 单测把 memory 树锁与镜像回滚两个原语串起来验证。
         let locks = acquire_managed_locks(&root).unwrap();
         let before = ManagedSnapshot::capture(&root);
 

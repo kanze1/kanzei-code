@@ -141,7 +141,19 @@ impl OtherTreesSnapshot {
 
     #[cfg(test)]
     pub(crate) fn contains_tree(&self, root: &Path) -> bool {
-        self.trees.contains_key(root)
+        self.files_for_tree(root).is_some()
+    }
+
+    /// `git worktree list` 在 Windows runner 上可能把同一路径输出成不同大小写、
+    /// 斜杠或短路径形态。测试查询必须复用生产的一树一线键语义，不能拿原始
+    /// `PathBuf` 做字面量比较，否则保护面真实存在也会被 CI 误判为缺失。
+    #[cfg(test)]
+    fn files_for_tree(&self, root: &Path) -> Option<&BTreeMap<String, FileImage>> {
+        let expected = crate::worktree::worktree_key(root);
+        self.trees
+            .iter()
+            .find(|(candidate, _)| crate::worktree::worktree_key(candidate) == expected)
+            .map(|(_, files)| files)
     }
 
     #[cfg(test)]
@@ -970,12 +982,11 @@ mod tests {
         std::fs::write(b.join("src/schemas/domain.json"), "source\n").unwrap();
 
         let before = capture_other_trees(&root, &root).expect("快照失败");
-        let mut keys = before.trees.get(&b).expect("B 线应在保护面").keys();
+        let mut keys = before.files_for_tree(&b).expect("B 线应在保护面").keys();
         assert!(!keys.any(|key| key == "gen/schemas/desktop-schema.json"));
         assert!(before
-            .trees
-            .get(&b)
-            .unwrap()
+            .files_for_tree(&b)
+            .expect("B 线应在保护面")
             .contains_key("src/schemas/domain.json"));
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1344,7 +1355,7 @@ mod tests {
         std::fs::write(b.join("small.txt"), "small\n").unwrap();
 
         let before = capture_other_trees(&root, &root).unwrap();
-        let bfiles = &before.trees[&b];
+        let bfiles = before.files_for_tree(&b).expect("B 线应在保护面");
         assert!(
             matches!(bfiles["big.bin"], FileImage::Fingerprint { .. }),
             "超限文件应以指纹入镜像(不占内存)"

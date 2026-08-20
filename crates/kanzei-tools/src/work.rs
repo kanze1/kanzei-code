@@ -3,20 +3,19 @@
 //! 队列模式、WIP、依赖和阻塞由代码合成一个 Resolved Control State；模型只执行
 //! Resume/Start，不能再从两份索引和相互冲突的提示词里自行仲裁。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use async_trait::async_trait;
+use kanzei_core::{SessionStore, WorkProjection, WorkUnitStatus};
 use kanzei_harness::auto_run::WorkPriority;
-use kanzei_harness::{Tool, ToolCtx, ToolOutput};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 
 use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 use crate::tracker::{
     dependency_states_from_documents, schedule_for_display_with_states, DependencyStates,
+    ScheduledEntry,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -69,6 +68,23 @@ pub struct WorkItem {
     /// (含并行化之前的历史 WIP)。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_by: Option<String>,
+    /// work_units_v1 只向模型注入当前执行单元与白名单 Outcome 字段。父需求的批次、
+    /// 历史进展、审计锚点不再随每一轮线性累积进入上下文。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_unit_context: Option<WorkUnitContext>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct WorkOutcomeContext {
+    pub id: String,
+    pub title: String,
+    pub fields: Vec<WorkField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct WorkUnitContext {
+    pub outcome: WorkOutcomeContext,
+    pub unit: WorkProjection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -182,6 +198,30 @@ fn field<'a>(entry: &'a Entry, key: &str) -> Option<&'a str> {
         .iter()
         .find(|(candidate, _)| candidate == key)
         .map(|(_, value)| value.as_str())
+}
+
+pub(crate) fn uses_work_units(entry: &Entry) -> bool {
+    entry.fields.iter().any(|(key, value)| {
+        (key == "执行模型" || key.eq_ignore_ascii_case("execution_model"))
+            && value.trim().eq_ignore_ascii_case("work_units_v1")
+    })
+}
+
+fn outcome_context(entry: &Entry) -> WorkOutcomeContext {
+    const CONTEXT_FIELDS: &[&str] = &["目标", "内容", "边界", "验收", "参考", "refs"];
+    WorkOutcomeContext {
+        id: entry.id.clone(),
+        title: entry.title.clone(),
+        fields: entry
+            .fields
+            .iter()
+            .filter(|(key, _)| CONTEXT_FIELDS.iter().any(|allowed| key == allowed))
+            .map(|(name, value)| WorkField {
+                name: name.clone(),
+                value: value.clone(),
+            })
+            .collect(),
+    }
 }
 
 fn current_unix_ms() -> u128 {
@@ -537,6 +577,86 @@ fn item(
         release_notes: crate::tracker::scheduling::release_notes(entry, states),
         progress_provenance: provenance(entry, observation),
         claimed_by: field(entry, "取得线").map(str::to_string),
+        work_unit_context: None,
+    }
+}
+
+fn work_unit_provenance(
+    projection: &WorkProjection,
+    observation: &RepoObservation,
+) -> ProgressProvenance {
+    let Some(checkpoint) = projection.last_checkpoint.as_ref() else {
+        return ProgressProvenance {
+            status: "unanchored".into(),
+            reasons: vec!["work unit 尚无 checkpoint".into()],
+            recorded_at: None,
+            observed_head: None,
+            observed_worktree_hash: None,
+        };
+    };
+    let mut reasons = Vec::new();
+    if checkpoint.observed_head != observation.observed_head {
+        reasons.push("observed_head differs from current HEAD".into());
+    }
+    if checkpoint.observed_worktree_hash != observation.observed_worktree_hash {
+        reasons.push("observed_worktree_hash differs from current worktree".into());
+    }
+    ProgressProvenance {
+        status: if reasons.is_empty() {
+            "current"
+        } else {
+            "stale"
+        }
+        .into(),
+        reasons,
+        recorded_at: Some(projection.updated_at.to_string()),
+        observed_head: Some(checkpoint.observed_head.clone()),
+        observed_worktree_hash: Some(checkpoint.observed_worktree_hash.clone()),
+    }
+}
+
+fn work_unit_item(
+    projection: &WorkProjection,
+    outcome: &Entry,
+    block_reasons: Vec<String>,
+    observation: &RepoObservation,
+    reference_index: &BTreeMap<String, WorkReference>,
+) -> WorkItem {
+    WorkItem {
+        id: projection.unit_id.clone(),
+        kind: "work_unit".into(),
+        title: projection.objective.clone(),
+        lifecycle_status: projection.status.as_str().into(),
+        severity: None,
+        priority: field(outcome, "优先级")
+            .or_else(|| field(outcome, "priority"))
+            .map(str::to_string),
+        fields: Vec::new(),
+        prerequisites: projection.dependencies.clone(),
+        references: outcome
+            .refs()
+            .into_iter()
+            .map(|id| {
+                reference_index.get(&id).cloned().unwrap_or(WorkReference {
+                    id,
+                    kind: None,
+                    title: None,
+                    lifecycle_status: None,
+                    archived: false,
+                    exists: false,
+                })
+            })
+            .collect(),
+        blocked: !block_reasons.is_empty(),
+        block_reasons,
+        parked: false,
+        release_notes: Vec::new(),
+        progress_provenance: work_unit_provenance(projection, observation),
+        claimed_by: projection.claimed_by.clone(),
+        work_unit_context: Some(WorkUnitContext {
+            outcome: outcome_context(outcome),
+            unit: projection.clone(),
+        }),
     }
 }
 
@@ -633,16 +753,139 @@ pub fn resolve_work_decision(
     // 也不进本线候选——每条线在自己的 WIP 集合里遵守单 WIP。
     let me = line_identity(cwd, project_root);
 
+    let work_unit_requirement_ids = requirements
+        .iter()
+        .filter(|entry| uses_work_units(entry))
+        .map(|entry| entry.id.clone())
+        .collect::<BTreeSet<_>>();
+    let known_work_unit_requirement_ids = work_unit_requirement_ids
+        .iter()
+        .cloned()
+        .chain(
+            req_archive
+                .iter()
+                .filter(|entry| uses_work_units(entry))
+                .map(|entry| entry.id.clone()),
+        )
+        .collect::<BTreeSet<_>>();
+    let state_path = kanzei_core::project_state_path(project_root);
+    let work_units = if state_path.is_file() {
+        SessionStore::open(&state_path)
+            .map_err(|error| format!("cannot open work unit store: {error}"))?
+            .list_work_units(None)
+            .map_err(|error| format!("cannot list work units: {error}"))?
+    } else {
+        Vec::new()
+    };
+
     let mut executable_wip = Vec::new();
     let mut blocked_items = Vec::new();
     let mut parked_items: Vec<WorkItem> = Vec::new();
     let mut foreign_wip: Vec<WorkItemSummary> = Vec::new();
     let mut integrity_errors = Vec::new();
+    let mut work_unit_candidates = Vec::new();
+
+    for projection in &work_units {
+        if !known_work_unit_requirement_ids.contains(&projection.requirement_id) {
+            integrity_errors.push(IntegrityError {
+                id: projection.unit_id.clone(),
+                kind: "work_unit".into(),
+                field: "requirement_id".into(),
+                value: projection.requirement_id.clone(),
+                message: "work unit 的父需求不存在、已归档或未启用 work_units_v1".into(),
+            });
+        }
+    }
+
+    // work_units_v1 的父 Requirement 只提供 Outcome 顺序与边界；执行/WIP/验证
+    // 全由 unit 投影驱动。旧 Requirement 保留原调度语义。
+    for scheduled_outcome in &scheduled_requirements {
+        let outcome = &scheduled_outcome.entry;
+        if !uses_work_units(outcome) || REQUIREMENTS.terminal.contains(&outcome.status.as_str()) {
+            continue;
+        }
+        let outcome_units = work_units
+            .iter()
+            .filter(|unit| unit.requirement_id == outcome.id)
+            .collect::<Vec<_>>();
+        if outcome_units.is_empty() {
+            let mut view = item(
+                &REQUIREMENTS,
+                outcome,
+                vec!["已启用 work_units_v1，但尚未拆分 Work Unit".into()],
+                &states,
+                &observation,
+                &reference_index,
+            );
+            view.blocked = true;
+            view.block_reasons = vec!["使用 `work create_unit` 建立首个执行单元".into()];
+            blocked_items.push(view);
+            continue;
+        }
+        if outcome_units.iter().all(|unit| unit.status.is_terminal()) {
+            let mut view = item(
+                &REQUIREMENTS,
+                outcome,
+                vec!["所有 Work Unit 已终态，等待 Outcome 验收关闭".into()],
+                &states,
+                &observation,
+                &reference_index,
+            );
+            view.blocked = true;
+            view.block_reasons = vec!["运行 `req close` 完成 Outcome 级验收".into()];
+            blocked_items.push(view);
+            continue;
+        }
+        let outcome_parked = crate::tracker::park_reason(outcome, &states).is_some();
+        for projection in outcome_units {
+            if projection.status.is_terminal() {
+                continue;
+            }
+            let mut reasons = scheduled_outcome.block_reasons.clone();
+            if outcome_parked {
+                reasons.push("父 Outcome 已停车".into());
+            }
+            if !projection.dependencies_satisfied(&work_units) {
+                reasons.push(format!(
+                    "Work Unit 依赖未完成: {}",
+                    projection.dependencies.join("、")
+                ));
+            }
+            if projection.status == WorkUnitStatus::Blocked {
+                reasons.push(
+                    projection
+                        .blocked_reason
+                        .clone()
+                        .unwrap_or_else(|| "Work Unit 已阻塞".into()),
+                );
+            }
+            let view = work_unit_item(projection, outcome, reasons, &observation, &reference_index);
+            match projection.status {
+                WorkUnitStatus::Active | WorkUnitStatus::Verifying if view.blocked => {
+                    blocked_items.push(view)
+                }
+                WorkUnitStatus::Active | WorkUnitStatus::Verifying
+                    if projection.claimed_by.as_deref() != me.as_deref() =>
+                {
+                    foreign_wip.push(WorkItemSummary::from(&view))
+                }
+                WorkUnitStatus::Active | WorkUnitStatus::Verifying => executable_wip.push(view),
+                WorkUnitStatus::Ready if view.blocked => blocked_items.push(view),
+                WorkUnitStatus::Ready => work_unit_candidates.push(view),
+                WorkUnitStatus::Blocked => blocked_items.push(view),
+                WorkUnitStatus::Done | WorkUnitStatus::Superseded => unreachable!(),
+            }
+        }
+    }
+
     for (kind, scheduled, wip_status) in [
         (&REQUIREMENTS, &scheduled_requirements, "doing"),
         (&DEFECTS, &scheduled_defects, "fixing"),
     ] {
         for scheduled_item in scheduled {
+            if kind.prefix == "R" && work_unit_requirement_ids.contains(&scheduled_item.entry.id) {
+                continue;
+            }
             let status = scheduled_item.entry.status.as_str();
             // D-332 fail-closed:状态非空但不在合法枚举 = 控制面脏数据。
             // 隔离到 integrity_errors,永不进 WIP/候选/blocked——不再把解析失败
@@ -728,17 +971,7 @@ pub fn resolve_work_decision(
             None,
         ),
         [] => {
-            let queues = match priority {
-                WorkPriority::RequirementFirst => [
-                    (&REQUIREMENTS, &scheduled_requirements),
-                    (&DEFECTS, &scheduled_defects),
-                ],
-                WorkPriority::DefectFirst => [
-                    (&DEFECTS, &scheduled_defects),
-                    (&REQUIREMENTS, &scheduled_requirements),
-                ],
-            };
-            let candidate = queues.into_iter().find_map(|(kind, scheduled)| {
+            let legacy_candidate = |kind: &'static DocKind, scheduled: &[ScheduledEntry]| {
                 let wip_status = if kind.prefix == "R" {
                     "doing"
                 } else {
@@ -750,7 +983,11 @@ pub fn resolve_work_decision(
                     // D-354:WIP 态条目也不是候选——本线的 WIP 走 Resume,他线的
                     // WIP 归持有线,都轮不到 Start。
                     let invalid = !status.is_empty() && !kind.statuses.contains(&status);
-                    if invalid || status == wip_status {
+                    if invalid
+                        || status == wip_status
+                        || (kind.prefix == "R"
+                            && work_unit_requirement_ids.contains(&scheduled_item.entry.id))
+                    {
                         None
                     } else if !kind.terminal.contains(&status)
                         && scheduled_item.block_reasons.is_empty()
@@ -767,7 +1004,18 @@ pub fn resolve_work_decision(
                         None
                     }
                 })
-            });
+            };
+            let requirement_candidate = legacy_candidate(&REQUIREMENTS, &scheduled_requirements);
+            let defect_candidate = legacy_candidate(&DEFECTS, &scheduled_defects);
+            let unit_candidate = work_unit_candidates.first().cloned();
+            let candidate = match priority {
+                WorkPriority::RequirementFirst => unit_candidate
+                    .or(requirement_candidate)
+                    .or(defect_candidate),
+                WorkPriority::DefectFirst => defect_candidate
+                    .or(unit_candidate)
+                    .or(requirement_candidate),
+            };
             // R-307 批2:全员不可执行时,对存量自由文本停车/阻塞做复核提醒——
             // 字段里点名的 R-/D- 编号全部已终态的条目逐条点名。只是提醒通道,
             // 不改变阻塞状态(R-281 的停车原因消失一天才被人工对账发现的教训)。
@@ -894,7 +1142,7 @@ pub fn resolve_work_decision(
         _ => None,
     };
     Ok(ResolvedControlState {
-        schema_version: 1,
+        schema_version: 2,
         work_priority: priority_name(priority).into(),
         decision,
         reason: format!("{reason}{integrity_banner}"),
@@ -940,237 +1188,15 @@ pub fn resolved_control_prompt_of(state: Result<ResolvedControlState, String>) -
     )
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
-struct WorkInput {
-    /// next: 只读刷新裁决；claim: 原子占用选中条目。
-    action: String,
-    /// claim 必填。
-    #[serde(default)]
-    id: Option<String>,
-    /// 只有偏离默认 Start 选择时必填，写入条目供审计。
-    #[serde(default)]
-    reason: Option<String>,
-}
-
-pub struct WorkTool;
-
-#[async_trait]
-impl Tool for WorkTool {
-    fn name(&self) -> &'static str {
-        "work"
-    }
-
-    fn description(&self) -> String {
-        "Resolve the authoritative requirement/defect work decision. `next` returns structured \
-         Resume/Start/Blocked/WipViolation; `claim(id)` atomically starts the selected item. \
-         WIP discipline is per line: items held by other lines appear as foreign_wip (read-only \
-         background) and are never selected for this line; claiming one requires an explicit \
-         takeover reason. Queue priority comes from the run and cannot be overridden by tool input."
-            .into()
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        let mut schema = serde_json::to_value(schemars::schema_for!(WorkInput)).unwrap();
-        schema["properties"]["action"]["enum"] = json!(["next", "claim"]);
-        schema
-    }
-
-    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        let action = input
-            .get("action")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("unknown");
-        vec![format!(
-            "{}:{action}",
-            if action == "claim" { "write" } else { "read" }
-        )]
-    }
-
-    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        let input: WorkInput = match crate::parse_input(self, input) {
-            Ok(input) => input,
-            Err(output) => return output,
-        };
-        if input.action == "next" {
-            return match resolve_work_decision(&ctx.cwd, &ctx.project_root, ctx.work_priority) {
-                Ok(state) => ToolOutput::ok(
-                    serde_json::to_string_pretty(&compact_for_context(state)).unwrap(),
-                ),
-                Err(error) => ToolOutput::error(error),
-            };
-        }
-        if input.action != "claim" {
-            return ToolOutput::error("unknown action; valid: next | claim");
-        }
-        let Some(id) = input.id.as_deref() else {
-            return ToolOutput::error("`id` is required for claim");
-        };
-
-        let work_lock_path = ctx.project_root.join(".kanzei/project/work-selection");
-        let _work_lock = match crate::atomic_file::lock_exclusive(&work_lock_path) {
-            Ok(lock) => lock,
-            Err(error) => return ToolOutput::error(format!("cannot lock work selection: {error}")),
-        };
-        let state = match resolve_work_decision(&ctx.cwd, &ctx.project_root, ctx.work_priority) {
-            Ok(state) => state,
-            Err(error) => return ToolOutput::error(error),
-        };
-        match state.decision {
-            WorkDecision::WipViolation => {
-                return ToolOutput::error(format!(
-                    "{}；当前 WIP: {}",
-                    state.reason,
-                    state
-                        .executable_wip
-                        .iter()
-                        .map(|item| item.id.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-            }
-            WorkDecision::Resume if state.selected.as_ref().is_some_and(|item| item.id != id) => {
-                return ToolOutput::error(format!(
-                    "已有可执行 WIP {}，必须 Resume；claim override 不能再开第二个 WIP",
-                    state.selected.as_ref().unwrap().id
-                ));
-            }
-            WorkDecision::Blocked | WorkDecision::Empty => {
-                // D-354:Empty/Blocked 里仍可能有他线持有的条目——带非空 reason 的
-                // 接管(线停机/用户改派)要能走通,不能被"无可取条目"一票否决。
-                let foreign_takeover = state.foreign_wip.iter().any(|item| item.id == id)
-                    && input
-                        .reason
-                        .as_deref()
-                        .is_some_and(|reason| !reason.trim().is_empty());
-                if !foreign_takeover {
-                    return ToolOutput::error(format!(
-                        "当前裁决是 {:?}: {}",
-                        state.decision, state.reason
-                    ));
-                }
-            }
-            WorkDecision::Resume | WorkDecision::Start => {}
-        }
-        // D-354:他线持有的条目不能顺手 claim——报错要指明「被谁持有」,而不是
-        // 笼统的"偏离默认选择"。接管(线死了/用户改派)走 override 通道:带非空
-        // reason,接管成功会改写「取得线」并把依据留在审计字段。
-        if state.foreign_wip.iter().any(|item| item.id == id)
-            && input
-                .reason
-                .as_deref()
-                .is_none_or(|reason| reason.trim().is_empty())
-        {
-            return ToolOutput::error(format!(
-                "{id} 正被其他线持有(见 foreign_wip),不能重复 claim;\
-                 确要接管须提供非空 reason(留取活覆盖审计,接管会改写取得线)"
-            ));
-        }
-        let is_default = state.selected.as_ref().is_some_and(|item| item.id == id);
-        if !is_default
-            && input
-                .reason
-                .as_deref()
-                .is_none_or(|reason| reason.trim().is_empty())
-        {
-            return ToolOutput::error(
-                "claim 偏离引擎默认选择时必须提供非空 reason，供取活覆盖审计",
-            );
-        }
-
-        let (kind, wip_status) = if id.starts_with("R-") {
-            (&REQUIREMENTS, "doing")
-        } else if id.starts_with("D-") {
-            (&DEFECTS, "fixing")
-        } else {
-            return ToolOutput::error("claim id 必须是 R-xxx 或 D-xxx");
-        };
-        let store = DocStore::open(&ctx.project_root, kind);
-        let _doc_lock = match store.lock() {
-            Ok(lock) => lock,
-            Err(error) => return ToolOutput::error(format!("cannot lock tracker: {error}")),
-        };
-        let mut entries = match store.load() {
-            Ok(entries) => entries,
-            Err(error) => return ToolOutput::error(format!("cannot read tracker: {error}")),
-        };
-        let Some(position) = entries.iter().position(|entry| entry.id == id) else {
-            return ToolOutput::error(format!("unknown id `{id}`"));
-        };
-        if kind.terminal.contains(&entries[position].status.as_str()) {
-            return ToolOutput::error(format!("{id} 已是终态，不能 claim"));
-        }
-        let me = line_identity(&ctx.cwd, &ctx.project_root);
-        if !is_default {
-            let refreshed = resolve_work_decision(&ctx.cwd, &ctx.project_root, ctx.work_priority)
-                .ok()
-                .and_then(|control| control.blocked_items.into_iter().find(|item| item.id == id));
-            if let Some(blocked) = refreshed {
-                return ToolOutput::error(format!(
-                    "{id} 当前被阻塞，不能覆盖 claim: {}",
-                    blocked.block_reasons.join("；")
-                ));
-            }
-        }
-        if entries[position].status != wip_status {
-            if let Err(error) = store.transition_allowed(&entries[position].status, wip_status) {
-                return ToolOutput::error(error);
-            }
-            entries[position].status = wip_status.into();
-        }
-        let audit = if is_default {
-            format!("engine:{}", state.reason)
-        } else {
-            format!(
-                "override:{}",
-                input.reason.as_deref().unwrap_or_default().trim()
-            )
-        };
-        match entries[position]
-            .fields
-            .iter_mut()
-            .find(|(key, _)| key == "取活依据")
-        {
-            Some((_, value)) => *value = audit,
-            None => entries[position].fields.push(("取活依据".into(), audit)),
-        }
-        // D-354:落「取得线」事实(设计 parallel_lines_ui §1.2:被取得是事实不是推断)。
-        // 默认线不写字段(无字段 = 默认线),接管时清掉他线残留。
-        match &me {
-            Some(line) => {
-                match entries[position]
-                    .fields
-                    .iter_mut()
-                    .find(|(key, _)| key == "取得线")
-                {
-                    Some((_, value)) => *value = line.clone(),
-                    None => entries[position]
-                        .fields
-                        .push(("取得线".into(), line.clone())),
-                }
-            }
-            None => entries[position].fields.retain(|(key, _)| key != "取得线"),
-        }
-        if let Err(error) = store.save(&entries) {
-            return ToolOutput::error(format!("cannot save claim: {error}"));
-        }
-        ToolOutput::ok(
-            json!({
-                "claimed": id,
-                "lifecycle_status": wip_status,
-                "override": !is_default,
-                "line": me,
-                "work_priority": priority_name(ctx.work_priority),
-            })
-            .to_string(),
-        )
-    }
-}
+mod tool;
+pub use tool::WorkTool;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::docstore::Entry;
     use crate::tracker::DependencyStates;
+    use kanzei_harness::{Tool, ToolCtx};
 
     fn entry(id: &str, status: &str) -> Entry {
         Entry {
@@ -2019,6 +2045,211 @@ mod tests {
             state.reason.contains("unblocks=2"),
             "取活依据必须点名反向依赖权重: {}",
             state.reason
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn work_units_v1_按单元取活并以证据完成() {
+        let dir = fixture("work-units-v1");
+        let mut outcome = entry("R-001", "todo");
+        outcome
+            .fields
+            .push(("执行模型".into(), "work_units_v1".into()));
+        outcome
+            .fields
+            .push(("目标".into(), "交付可恢复的长程执行底座".into()));
+        outcome
+            .fields
+            .push(("进展".into(), "这段历史不应进入单元上下文".repeat(100)));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[outcome])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS).save(&[]).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone())
+            .with_work_priority(WorkPriority::RequirementFirst);
+        let tool = WorkTool;
+
+        let before_split =
+            resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(before_split.decision, WorkDecision::Blocked);
+        assert!(before_split.reason.contains("有效阻塞"));
+
+        let created = tool
+            .execute(
+                json!({
+                    "action": "create_unit",
+                    "requirement_id": "R-001",
+                    "objective": "实现事件存储",
+                    "scope": ["crates/kanzei-core"],
+                    "acceptance": ["事件可回放"],
+                    "verification": ["cargo test -p kanzei-core"],
+                    "base_revision": "base-head"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!created.is_error, "{}", created.content);
+
+        let ready = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(ready.decision, WorkDecision::Start, "{}", ready.reason);
+        let selected = ready.selected.expect("应该选择首个 Work Unit");
+        assert_eq!(selected.id, "R-001/W1");
+        assert_eq!(selected.kind, "work_unit");
+        assert!(selected.fields.is_empty(), "不得注入父需求自由字段历史");
+        let context = selected.work_unit_context.expect("必须有有界上下文胶囊");
+        assert_eq!(context.outcome.fields.len(), 1);
+        assert_eq!(context.outcome.fields[0].name, "目标");
+        assert!(
+            serde_json::to_vec(&context).unwrap().len() < 8_000,
+            "父需求的长进展不得让当前单元上下文随历史线性增长"
+        );
+
+        let claimed = tool
+            .execute(json!({"action": "claim", "id": "R-001/W1"}), &ctx)
+            .await;
+        assert!(!claimed.is_error, "{}", claimed.content);
+        let req_tool = crate::tracker::TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let early_close = req_tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(early_close.is_error);
+        assert!(
+            early_close.content.contains("非终态 Work Unit"),
+            "{}",
+            early_close.content
+        );
+
+        for input in [
+            json!({
+                "action": "checkpoint",
+                "id": "R-001/W1",
+                "summary": "事件表与投影表已实现",
+                "next_action": "运行回放测试"
+            }),
+            json!({"action": "verify", "id": "R-001/W1"}),
+        ] {
+            let output = tool.execute(input, &ctx).await;
+            assert!(!output.is_error, "{}", output.content);
+        }
+        let rejected = tool
+            .execute(json!({"action": "complete", "id": "R-001/W1"}), &ctx)
+            .await;
+        assert!(rejected.is_error);
+        assert!(rejected.content.contains("未覆盖 acceptance"));
+
+        let evidence = tool
+            .execute(
+                json!({
+                    "action": "evidence",
+                    "id": "R-001/W1",
+                    "criterion": "事件可回放",
+                    "evidence_refs": ["cargo-test:work-events-replay"]
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!evidence.is_error, "{}", evidence.content);
+        let completed = tool
+            .execute(json!({"action": "complete", "id": "R-001/W1"}), &ctx)
+            .await;
+        assert!(!completed.is_error, "{}", completed.content);
+
+        let requirements = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert_eq!(requirements[0].status, "doing");
+        let after = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(after.decision, WorkDecision::Blocked);
+        assert!(after
+            .blocked_items
+            .iter()
+            .any(|item| item.id == "R-001" && item.block_reasons[0].contains("req close")));
+        let closed = req_tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(!closed.is_error, "{}", closed.content);
+        let final_state =
+            resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(
+            final_state.decision,
+            WorkDecision::Empty,
+            "{}",
+            final_state.reason
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn work_unit接管不能绕过本线已有resume() {
+        let dir = fixture("work-unit-takeover-resume");
+        let mut outcome = entry("R-001", "doing");
+        outcome
+            .fields
+            .push(("执行模型".into(), "work_units_v1".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[outcome])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS).save(&[]).unwrap();
+        let store = SessionStore::open(&kanzei_core::project_state_path(&dir)).unwrap();
+        for index in 1..=2 {
+            store
+                .create_work_unit(kanzei_core::WorkUnitSpec {
+                    unit_id: format!("R-001/W{index}"),
+                    requirement_id: "R-001".into(),
+                    objective: format!("单元 {index}"),
+                    scope: vec![],
+                    dependencies: vec![],
+                    acceptance: vec![format!("验收 {index}")],
+                    verification: vec![],
+                    base_revision: "base".into(),
+                })
+                .unwrap();
+        }
+        store
+            .append_work_fact(
+                "R-001/W1",
+                kanzei_core::WorkFact::Claimed { claimed_by: None },
+            )
+            .unwrap();
+        store
+            .append_work_fact(
+                "R-001/W2",
+                kanzei_core::WorkFact::Claimed {
+                    claimed_by: Some("other-line".into()),
+                },
+            )
+            .unwrap();
+
+        let ctx = ToolCtx::new(dir.clone(), dir.clone())
+            .with_work_priority(WorkPriority::RequirementFirst);
+        let rejected = WorkTool
+            .execute(
+                json!({
+                    "action": "claim",
+                    "id": "R-001/W2",
+                    "reason": "尝试接管他线"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(rejected.is_error);
+        assert!(
+            rejected.content.contains("必须 Resume"),
+            "{}",
+            rejected.content
+        );
+        assert_eq!(
+            store
+                .get_work_unit("R-001/W2")
+                .unwrap()
+                .unwrap()
+                .claimed_by
+                .as_deref(),
+            Some("other-line")
         );
         let _ = std::fs::remove_dir_all(dir);
     }

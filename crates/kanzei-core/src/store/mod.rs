@@ -38,10 +38,12 @@ use serde_json::Value;
 //     永远拿不到这列,桌面端每次读进程注册都 `no such column` 崩在列表刷新上(实测
 //     2026-08-17 build-ac637546 装机即坏)。D-373 的判据只冻结**对象名集合**,加列
 //     不改对象名所以全绿——这一版补上列级判据。
+// v18:Work Unit 底座——work_events 保存 append-only 执行事实，work_surfaces 保存可从
+//     事件重建的当前投影；Requirement 回归长期 Outcome，不再兼任执行历史容器。
 //
 // **改建表批 = 同时 +1 本常量并更新 SCHEMA_OBJECTS/SCHEMA_COLUMNS**(schema.rs 的机械
 // 判据会拦):早退分支让「代码里有、存量库里没有」不产生任何编译或测试信号,只能靠判据站岗。
-const SCHEMA_VERSION: i64 = 17;
+const SCHEMA_VERSION: i64 = 18;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;
@@ -197,6 +199,7 @@ mod schema;
 mod session;
 mod telemetry;
 mod typed;
+mod work;
 
 pub use eval::{EffectEstimate, EvalCaseSet};
 pub use processes::StoredProcess;
@@ -213,6 +216,11 @@ pub use typed::{
 };
 
 pub use session::{project_session_id, project_state_path};
+pub use work::{
+    project_work_events, StoredWorkEvent, WorkCheckpoint, WorkEvidence, WorkFact, WorkProjection,
+    WorkUnitSpec, WorkUnitStatus, MAX_CHECKPOINT_SUMMARY_CHARS, MAX_WORK_ITEM_CHARS,
+    MAX_WORK_LIST_ITEMS, MAX_WORK_OBJECTIVE_CHARS, WORK_PROJECTION_FORMAT_VERSION,
+};
 
 pub struct SessionStore {
     /// 仅限 store::* 子模块使用(S1 拆壳后本字段 pub(crate))。

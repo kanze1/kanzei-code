@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use kanzei_harness::{rule, Effect, HarnessDraft, ResolveCtx};
@@ -19,9 +20,13 @@ pub(crate) fn register_tools(draft: &mut HarnessDraft) {
             requires_refs: None,
         }),
     );
+    draft.tools.insert(
+        "websearch",
+        Arc::new(crate::websearch::ResearchWebSearchTool),
+    );
     draft
         .tools
-        .insert("websearch", Arc::new(crate::websearch::WebSearchTool));
+        .insert("webfetch", Arc::new(crate::webfetch::ResearchWebFetchTool));
     draft.tools.insert(
         "research_plan",
         Arc::new(crate::research_plan::ResearchPlanTool),
@@ -195,69 +200,89 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
     }
 }
 
-/// 读取索引来源。S-/F- 在 B2 前可能留在 flat 文件,之后写入 topic 目录；
-/// 每次渲染都重新扫描两种落点,因此同一会话下一轮不会继续使用旧 flat 快照。
-type IndexedEntry = (Option<String>, crate::docstore::Entry);
-
-fn load_index_entries(
-    ctx: &ResolveCtx,
-    kind: &'static crate::docstore::DocKind,
-) -> Option<(Vec<IndexedEntry>, usize)> {
-    let store = DocStore::open(&ctx.project_root, kind);
-    let entries = store.load().ok()?;
-    let mut indexed = entries
-        .into_iter()
-        .map(|entry| (None, entry))
-        .collect::<Vec<_>>();
-    let mut closed = indexed
-        .iter()
-        .filter(|(_, entry)| kind.terminal.contains(&entry.status.as_str()))
-        .count();
-    closed += store.load_archive().map_or(0, |archive| archive.len());
-
-    if !matches!(kind.prefix, "S" | "F") {
-        return Some((indexed, closed));
-    }
-
-    let research_root = ctx.project_root.join(".kanzei/research");
+fn research_topics(project_root: &Path) -> Vec<String> {
+    let research_root = project_root.join(".kanzei/research");
     let mut topics = std::fs::read_dir(research_root)
         .ok()
         .into_iter()
-        .flatten()
-        .filter_map(|item| {
-            let item = item.ok()?;
-            if !item.file_type().ok()?.is_dir() {
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .filter_map(|entry| {
+            let file_type = entry.file_type().ok()?;
+            if !file_type.is_dir() {
                 return None;
             }
-            let topic = item.file_name().into_string().ok()?;
-            crate::docstore::DocStore::validate_topic(&topic).ok()?;
+            let topic = entry.file_name().into_string().ok()?;
+            DocStore::validate_topic(&topic).ok()?;
             Some(topic)
         })
         .collect::<Vec<_>>();
     topics.sort();
+    topics
+}
 
-    for topic in topics {
-        let Ok(topic_store) = DocStore::open_topic(&ctx.project_root, kind, &topic) else {
+/// Source/Finding 已按 topic 分目录写入，研究上下文必须把 topic 真源与迁移前的
+/// flat 遗留一起投影。scope 写进每一行，避免不同 topic 的 S-/F- 局部编号碰撞后
+/// 失去归属；500 条预算在全部 scope 间共享，不会随 topic 数量无界膨胀。
+fn research_index_of(
+    ctx: &ResolveCtx,
+    kind: &'static crate::docstore::DocKind,
+    label: &str,
+) -> Option<String> {
+    const INDEX_LIMIT: usize = 500;
+    let mut stores = vec![(
+        "legacy-flat".to_string(),
+        DocStore::open(&ctx.project_root, kind),
+    )];
+    for topic in research_topics(&ctx.project_root) {
+        if let Ok(store) = DocStore::open_topic(&ctx.project_root, kind, &topic) {
+            stores.push((topic, store));
+        }
+    }
+
+    let mut open = Vec::new();
+    let mut closed = 0usize;
+    for (scope, store) in stores {
+        let Ok(entries) = store.load() else {
             continue;
         };
-        let Ok(topic_entries) = topic_store.load() else {
-            continue;
-        };
-        closed += topic_entries
+        closed += entries
             .iter()
             .filter(|entry| kind.terminal.contains(&entry.status.as_str()))
             .count();
-        closed += topic_store
-            .load_archive()
-            .map_or(0, |archive| archive.len());
-        indexed.extend(
-            topic_entries
+        closed += store.load_archive().map_or(0, |archive| archive.len());
+        open.extend(
+            entries
                 .into_iter()
-                .map(|entry| (Some(topic.clone()), entry)),
+                .filter(|entry| !kind.terminal.contains(&entry.status.as_str()))
+                .map(|entry| (scope.clone(), entry)),
         );
     }
+    if open.is_empty() && closed == 0 {
+        return None;
+    }
 
-    Some((indexed, closed))
+    let mut lines = open
+        .iter()
+        .take(INDEX_LIMIT)
+        .map(|(scope, entry)| format!("[{scope}] {} [{}] {}", entry.id, entry.status, entry.title))
+        .collect::<Vec<_>>();
+    if open.len() > INDEX_LIMIT {
+        let folded = open
+            .iter()
+            .skip(INDEX_LIMIT)
+            .map(|(scope, entry)| format!("{scope}/{}", entry.id))
+            .collect::<Vec<_>>();
+        lines.push(format!(
+            "… +{} more open ({}); use the source/finding tracker with the shown topic scope",
+            open.len() - INDEX_LIMIT,
+            folded.join(", ")
+        ));
+    }
+    Some(format!(
+        "{label} ({} open, {closed} closed; topic + legacy-flat):\n{}",
+        open.len(),
+        lines.join("\n")
+    ))
 }
 
 /// 文档索引:非终态条目一行一个,预算封顶。
@@ -266,39 +291,38 @@ pub(crate) fn index_of(
     kind: &'static crate::docstore::DocKind,
     label: &str,
 ) -> Option<String> {
+    if matches!(kind.prefix, "S" | "F") {
+        return research_index_of(ctx, kind, label);
+    }
     const INDEX_LIMIT: usize = 500;
-    let (entries, closed) = load_index_entries(ctx, kind)?;
+    let store = DocStore::open(&ctx.project_root, kind);
+    let entries = store.load().ok()?;
     if entries.is_empty() {
         return None;
     }
-    let open: Vec<&IndexedEntry> = entries
+    let open: Vec<&crate::docstore::Entry> = entries
         .iter()
-        .filter(|(_, entry)| !kind.terminal.contains(&entry.status.as_str()))
+        .filter(|e| !kind.terminal.contains(&e.status.as_str()))
         .collect();
+    // 已完成的会被移入归档文件,closed 计数要把两处都算上。
+    let closed = entries.len() - open.len() + store.load_archive().map_or(0, |a| a.len());
     let mut lines: Vec<String> = open
         .iter()
         .take(INDEX_LIMIT)
-        .map(|(topic, entry)| {
-            let sev = entry
+        .map(|e| {
+            let sev = e
                 .severity
                 .as_ref()
                 .map(|s| format!("/{s}"))
                 .unwrap_or_default();
-            let topic = topic
-                .as_deref()
-                .map(|topic| format!(" (topic: {topic})"))
-                .unwrap_or_default();
-            format!(
-                "{} [{}{sev}] {}{topic}",
-                entry.id, entry.status, entry.title
-            )
+            format!("{} [{}{sev}] {}", e.id, e.status, e.title)
         })
         .collect();
     if open.len() > INDEX_LIMIT {
         let folded: Vec<&str> = open
             .iter()
             .skip(INDEX_LIMIT)
-            .map(|(_, entry)| entry.id.as_str())
+            .map(|e| e.id.as_str())
             .collect();
         lines.push(format!(
             "… +{} more open ({}), read `{}` or use the tracker list tool for the full queue",
@@ -352,6 +376,8 @@ mod tests {
         }
     }
 
+    /// D-570 回归:topic 目录与迁移前 flat 遗留必须同时投影,且同一会话内
+    /// 新写入的 topic 条目在下一次渲染立即可见(不缓存旧快照)。
     #[test]
     fn research_index_聚合flat遗留和topic并能回读同会话新条目() {
         let root = test_root("sources");
@@ -365,7 +391,7 @@ mod tests {
 
         let first = index_of(&ctx(root.clone()), &SOURCES, "Sources").unwrap();
         assert!(first.contains("flat legacy source"));
-        assert!(first.contains("topic source (topic: r221-chain)"));
+        assert!(first.contains("[r221-chain] S-001 [active] topic source"));
 
         topic
             .save(&[
@@ -374,7 +400,7 @@ mod tests {
             ])
             .unwrap();
         let second = index_of(&ctx(root.clone()), &SOURCES, "Sources").unwrap();
-        assert!(second.contains("new same-session source (topic: r221-chain)"));
+        assert!(second.contains("[r221-chain] S-002 [active] new same-session source"));
         std::fs::remove_dir_all(root).ok();
     }
 
@@ -386,7 +412,7 @@ mod tests {
             .save(&[entry("F-001", "topic finding", "draft")])
             .unwrap();
         let index = index_of(&ctx(root.clone()), &FINDINGS, "Findings").unwrap();
-        assert!(index.contains("topic finding (topic: r221-chain)"));
+        assert!(index.contains("[r221-chain] F-001 [draft] topic finding"));
         std::fs::remove_dir_all(root).ok();
     }
 }

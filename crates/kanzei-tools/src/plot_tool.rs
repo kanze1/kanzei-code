@@ -335,7 +335,7 @@ fn pgfplots_tex_template(tikz: &str) -> String {
 }
 
 /// R-274 批3:matplotlib 增强轨——Python 绘图脚本走 uv 按需环境化
-/// (`uv run --with matplotlib,scienceplots python <script>`)。检测到 uv/Python
+/// (`uv run --isolated --with matplotlib,scienceplots python <script>`)。检测到 uv/Python
 /// 才启用;检测不到给明确降级诊断(验收③两路径)。脚本用 matplotlib 保存
 /// `<out>.png`,产物转 PNG 回模型。
 ///
@@ -350,13 +350,14 @@ fn render_matplotlib(workdir: &Path, python: &str, out: &str, palette: &[String]
             uv,
             vec![
                 "run".to_string(),
+                "--isolated".to_string(),
                 "--with".to_string(),
                 "matplotlib".to_string(),
                 "--with".to_string(),
                 "scienceplots".to_string(),
                 "python".to_string(),
             ],
-            "uv 按需环境化(matplotlib+scienceplots)",
+            "uv 隔离按需环境化(matplotlib+scienceplots)",
         ),
         (None, Some(py)) => (
             py,
@@ -392,7 +393,7 @@ fn render_matplotlib(workdir: &Path, python: &str, out: &str, palette: &[String]
     if std::fs::write(&script_path, &script).is_err() {
         return ToolOutput::error(format!("写入 Python 脚本失败: {}", script_path.display()));
     }
-    // 执行:uv run --with ... python <script> 或 python <script>。
+    // 执行:uv run --isolated --with ... python <script> 或 python <script>。
     let mut full_args = args;
     full_args.push(script_path.to_str().unwrap_or(out).to_string());
     let arg_refs: Vec<&str> = full_args.iter().map(String::as_str).collect();
@@ -658,6 +659,23 @@ mod tests {
     use base64::Engine as _;
     use serial_test::serial;
     use std::path::PathBuf;
+
+    /// 用户色板注册表是进程级状态；串行只解决并发访问，测试中途 panic 仍会把状态
+    /// 泄漏给下一项。守卫在进入时清空、退出或 unwind 时再清空。
+    struct UserPaletteIsolation;
+
+    impl UserPaletteIsolation {
+        fn new() -> Self {
+            crate::palette::reset_user_palettes();
+            Self
+        }
+    }
+
+    impl Drop for UserPaletteIsolation {
+        fn drop(&mut self) {
+            crate::palette::reset_user_palettes();
+        }
+    }
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -1004,6 +1022,7 @@ mod tests {
     #[serial]
     #[test]
     fn palette_import对接() {
+        let _palette_isolation = UserPaletteIsolation::new();
         let hex = serde_json::json!({
             "palette_import_format": "hex",
             "palette_import_content": "#FF0000\n#00FF00\n#0000FF",
@@ -1039,7 +1058,6 @@ mod tests {
         let err2 = resolve_palette(&badf, vec![]).unwrap_err();
         assert!(err2.contains("hex|gpl|ase"), "点名取值: {err2}");
         // 导入的板经 import_palette 已注册为用户板(同类型优先由 palette 测试验证)。
-        crate::palette::reset_user_palettes();
     }
 
     /// R-275 验收⑥:R-274 注入联通实测——用户板(hex 导入)→ resolve → matplotlib
@@ -1047,6 +1065,7 @@ mod tests {
     #[serial]
     #[test]
     fn palette_import联通注入渲染() {
+        let _palette_isolation = UserPaletteIsolation::new();
         if which_in_path("uv").is_none() {
             eprintln!("跳过:本机无 uv");
             return;
@@ -1072,7 +1091,6 @@ mod tests {
             "图中系列颜色与用户板一致: {}",
             out.content
         );
-        crate::palette::reset_user_palettes();
         std::fs::remove_dir_all(&dir).ok();
     }
 }

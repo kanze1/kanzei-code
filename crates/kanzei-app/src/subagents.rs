@@ -531,7 +531,7 @@ mod tests {
             let resp2 = tool_call(
                 "req",
                 serde_json::json!({ "action": "add", "title": "冒烟需求", "priority": "P2",
-                    "complexity": "中", "fields": { "标签": "核心", "验收": "一条验收", "原始描述": "想法原文" } }),
+                    "complexity": "中", "fields": { "标签": "后端", "验收": "一条验收", "原始描述": "想法原文" } }),
             );
             let resp3 = tool_call(
                 "defect",

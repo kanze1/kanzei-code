@@ -8511,8 +8511,8 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 ## T-1786922726541 D-570 research topic 索引与真实上下文消费者定向测试 [failed]
 - 命令: cargo test -p kanzei-tools research_
 - 时长: 0.0s
-- 摘要: 编译失败：profiles.rs 研究上下文测试错误使用不存在的 `kanzei_tools::docstore::` 路径；已登记 D-595，改为 `crate::docstore::` 后重跑。此前重复尾部问题已登记 D-594 并修复。
-- 关联: D-570 D-595
+- 摘要: 编译失败：profiles.rs 研究上下文测试错误使用不存在的 `kanzei_tools::docstore::` 路径；已登记 D-620，改为 `crate::docstore::` 后重跑。此前重复尾部问题已登记 D-619 并修复。
+- 关联: D-570 D-620
 - 收尾: 1787231691
 - 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@624e1aa86db1,crates/kanzei-tools/src/profiles/research.rs@b2edd4f9cbd3
 
@@ -8520,15 +8520,15 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: cargo test -p kanzei-tools research_
 - 时长: 2.5s
 - 摘要: 19 个 research 相关测试全部通过；包含 flat/topic 聚合、同一 ResearchProfile context 下一轮读取新 topic 来源、topic finding 回读及既有 research plan/loop/index/verify/write 回归。仅有既存 latex_tool unused doc comment 警告。
-- 关联: D-570 D-594 D-595
+- 关联: D-570 D-619 D-620
 - 收尾: 1787231718
 - 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@624e1aa86db1,crates/kanzei-tools/src/profiles/research.rs@b2edd4f9cbd3
 
-## T-1786922726543 D-570/D-596 格式与 clippy 修正后 research 定向测试 [passed]
+## T-1786922726543 D-570/D-621 格式与 clippy 修正后 research 定向测试 [passed]
 - 命令: cargo test -p kanzei-tools research_
 - 时长: 2.4s
 - 摘要: 19 个 research 相关测试通过；涵盖 flat/topic 聚合、ResearchProfile 同一 snapshot 下一轮读取新增来源、topic finding 回读及 tracker research 回归。仅有既存 latex_tool unused doc comment 警告。
-- 关联: D-570 D-596
+- 关联: D-570 D-621
 - 收尾: 1787231978
 - 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@dbe507df9034,crates/kanzei-tools/src/profiles/research.rs@a5b0df2872d2,crates/kanzei-tools/src/tracker.rs@edcf6abd34de
 
@@ -8559,8 +8559,8 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 ## T-1786922726547 D-571 Rust 提交门禁 [passed]
 - 命令: cargo fmt --all -- --check; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
 - 时长: 20.4s
-- 摘要: fmt check、cargo check --workspace --all-targets、cargo clippy --workspace --all-targets -D warnings 全部通过；D-597/D-598/D-599/D-600 的门禁阻断均已清除。
-- 关联: D-571 D-597 D-598 D-599 D-600
+- 摘要: fmt check、cargo check --workspace --all-targets、cargo clippy --workspace --all-targets -D warnings 全部通过；D-622/D-623/D-624/D-625 的门禁阻断均已清除。
+- 关联: D-571 D-622 D-623 D-624 D-625
 - 收尾: 1787233283
 - 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
 
@@ -8568,7 +8568,7 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: cargo test -p kanzei-tools; cargo test -p kanzei-app
 - 时长: 47.8s
 - 摘要: kanzei-tools 400 tests：398 passed、0 failed、2 ignored；kanzei-app 229 passed、0 failed。覆盖 research_loop 网络任务闸、websearch/webfetch 降级、latex 工具与 app run 测试辅助签名回归。
-- 关联: D-571 D-597 D-598 D-599 D-600
+- 关联: D-571 D-622 D-623 D-624 D-625
 - 收尾: 1787233402
 - 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
 
@@ -8576,7 +8576,7 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: cargo test -p kanzei-core; cargo test -p kanzei-harness
 - 时长: 0.5s
 - 摘要: kanzei-core 220 passed、kanzei-harness 153 passed；补齐 staged source-test-gate 要求的两个 crate 覆盖。
-- 关联: D-571 D-597 D-598 D-599 D-600
+- 关联: D-571 D-622 D-623 D-624 D-625
 - 收尾: 1787233606
 - 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
 
@@ -8584,7 +8584,7 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: cargo test -p kanzei-tools; cargo test -p kanzei-app; cargo test -p kanzei-core; cargo test -p kanzei-harness
 - 时长: 46.5s
 - 摘要: staged 四个 Rust crate 覆盖全部通过：kanzei-tools 398 passed/2 ignored，kanzei-app 229 passed，kanzei-core 220 passed，kanzei-harness 153 passed。
-- 关联: D-571 D-597 D-598 D-599 D-600
+- 关联: D-571 D-622 D-623 D-624 D-625
 - 收尾: 1787233727
 - 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
 
@@ -8647,8 +8647,8 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 ## T-1786922726558 D-576 提交门禁与 cross-tree 回归（修正后） [passed]
 - 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools cross_tree -- --nocapture; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
 - 时长: 44.2s
-- 摘要: fmt check、cross_tree 16 passed/0 failed、workspace check、workspace clippy -D warnings 全部通过；D-601 dead_code 门禁阻断已消除。
-- 关联: D-576 D-601
+- 摘要: fmt check、cross_tree 16 passed/0 failed、workspace check、workspace clippy -D warnings 全部通过；D-626 dead_code 门禁阻断已消除。
+- 关联: D-576 D-626
 - 收尾: 1787235241
 - 源码指纹: v2 crates/kanzei-tools/src/bash.rs@700f522c2562,crates/kanzei-tools/src/cross_tree.rs@6a1ef7c3838a
 
@@ -8698,11 +8698,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 收尾: 1787237961
 - 源码指纹: v2 crates/kanzei-app/src/settings.rs@246df8f70fe8,crates/kanzei-app/src/state_tests.rs@c79ff70bcb21,scripts/ui-lint-globals.json@f143332092eb
 
-## T-1786922726565 D-602 clippy dead code 修复回归 [passed]
+## T-1786922726565 D-627 clippy dead code 修复回归 [passed]
 - 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
 - 时长: 34.2s
 - 摘要: 格式检查与 kanzei-app 定向回归通过：231 passed、0 failed；验证 #[cfg(test)] wrapper 修复未影响 settings_get/save 与项目 provider 回归。
-- 关联: D-602 D-591
+- 关联: D-627 D-591
 - 收尾: 1787238157
 - 源码指纹: v2 crates/kanzei-app/src/settings.rs@1c4ea3e1cb7a,crates/kanzei-app/src/state_tests.rs@c79ff70bcb21,scripts/ui-lint-globals.json@f143332092eb
 
@@ -8742,28 +8742,28 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: cargo fmt --all -- --check; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
 - 时长: 19.1s
 - 摘要: fmt 与 workspace check 通过；clippy 被既有问题阻断：crates/kanzei-memory/src/memory/manager.rs:644、653 的 &PathBuf 触发 clippy::ptr_arg。
-- 关联: D-603
+- 关联: D-628
 - 收尾: 1787239326
 - 源码指纹: v2 crates/kanzei-core/src/runner/context.rs@0150ac1f58cc,crates/kanzei-core/src/runner/drive.rs@e2eb3adf245c,crates/kanzei-core/src/runner/drive/context_budget.rs@e3afabcf857a
 
 ## T-1786922726571 D-593 上下文 pending 显示前端门禁 [passed]
 - 命令: node --check crates/kanzei-app/ui/03-shell.js; node --check crates/kanzei-app/ui/07-events.js; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/ui-runtime-smoke.mjs
 - 摘要: 两处 UI JS 语法检查通过；parallel-lines、a11y、i18n、markdown、lint、runtime 六条前端冒烟全部通过。runtime 覆盖 kz:turn pending 文案、kz:step 后真实 usage、context_limit 百分比与 0 运行时错误。
-- 关联: D-593 D-604
+- 关联: D-593 D-629
 - 收尾: 1787239844
 - 源码指纹: v2 scripts/ui-lint-globals.json@8fe75b4fc3e7,scripts/ui-runtime-smoke.mjs@c9987604885f
 
 ## T-1786922726572 D-593 kanzei-app 定向回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: kanzei-app 定向回归通过：231 passed、0 failed、0 ignored。覆盖 run/events、状态、IPC、设置与并行进程等桌面端测试。
-- 关联: D-593 D-604
+- 关联: D-593 D-629
 - 收尾: 1787239981
 - 源码指纹: v2 scripts/ui-lint-globals.json@8fe75b4fc3e7,scripts/ui-runtime-smoke.mjs@c9987604885f
 
-## T-1786922726573 D-603 memory manager Path 参数与 workspace clippy 门禁 [passed]
+## T-1786922726573 D-628 memory manager Path 参数与 workspace clippy 门禁 [passed]
 - 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory; cargo clippy --workspace --all-targets -- -D warnings
 - 摘要: PathBuf 参数修复验证通过：kanzei-memory 158 passed、0 failed、1 ignored；workspace clippy --all-targets -D warnings 通过；fmt check 通过。
-- 关联: D-603
+- 关联: D-628
 - 收尾: 1787240145
 - 源码指纹: v2 crates/kanzei-memory/src/memory/manager.rs@3c963597f228
 

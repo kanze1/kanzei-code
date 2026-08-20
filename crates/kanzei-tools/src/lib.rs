@@ -30,6 +30,7 @@ mod latex_tool;
 mod managed;
 pub mod palette;
 mod plot_tool;
+pub mod prior_art;
 mod process;
 pub mod quarantine;
 mod question;

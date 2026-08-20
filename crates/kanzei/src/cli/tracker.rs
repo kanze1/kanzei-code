@@ -19,11 +19,13 @@ use super::{explicit_main_root, main_project_root};
 /// R-191 B3 起 req/defect 登记是硬约束(缺 severity/priority/复杂度/标签即拒),
 /// 而这条 CLI 入口原先只会拼标题——`kz defect add` 一律被自己的门禁拒掉。
 /// 支持:`--severity/-s`、`--priority/-p`、`--complexity`、`--tag`、
+/// `--ref R-xxx`、`--prior-art <path>`、`--prior-art-waiver <reason>`、
 /// `--field 键=值`(可重复,写 复现/根因/影响/期望/验收/进展 等任意字段)。
 /// 位置参数语义不变:add 拼成标题,update 取第一个作 id、第二个作 status。
 pub(crate) fn parse_tracker_flags(args: &[String], input: &mut serde_json::Value) -> Vec<String> {
     let mut positional: Vec<String> = Vec::new();
     let mut fields = serde_json::Map::new();
+    let mut refs = Vec::new();
     let mut rest = args.iter();
     while let Some(word) = rest.next() {
         match word.as_str() {
@@ -57,6 +59,21 @@ pub(crate) fn parse_tracker_flags(args: &[String], input: &mut serde_json::Value
                     fields.insert("标签".into(), serde_json::json!(v));
                 }
             }
+            "--ref" => {
+                if let Some(v) = rest.next() {
+                    refs.push(v.clone());
+                }
+            }
+            "--prior-art" => {
+                if let Some(v) = rest.next() {
+                    input["prior_art"] = serde_json::json!(v);
+                }
+            }
+            "--prior-art-waiver" => {
+                if let Some(v) = rest.next() {
+                    input["prior_art_waiver"] = serde_json::json!(v);
+                }
+            }
             "--field" | "-f" => {
                 if let Some(v) = rest.next() {
                     if let Some((key, value)) = v.split_once('=') {
@@ -69,6 +86,9 @@ pub(crate) fn parse_tracker_flags(args: &[String], input: &mut serde_json::Value
     }
     if !fields.is_empty() {
         input["fields"] = serde_json::Value::Object(fields);
+    }
+    if !refs.is_empty() {
+        input["refs"] = serde_json::json!(refs);
     }
     positional
 }
