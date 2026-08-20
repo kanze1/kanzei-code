@@ -144,10 +144,12 @@ impl Tool for EditTool {
                 )
             }
             Err(e) => {
-                return ToolOutput::failed(
-                    "EDIT_FILE_UNAVAILABLE",
-                    format!("cannot access {}: {e}", path.display()),
-                )
+                let detail = if e.kind() == std::io::ErrorKind::NotFound {
+                    crate::missing_path_hint(&path, &input.path, &ctx.project_root)
+                } else {
+                    format!("cannot access {}: {e}", path.display())
+                };
+                return ToolOutput::failed("EDIT_FILE_UNAVAILABLE", detail);
             }
             _ => {}
         }
@@ -430,10 +432,12 @@ impl Tool for InsertTool {
                 )
             }
             Err(error) => {
-                return ToolOutput::failed(
-                    "INSERT_FILE_UNAVAILABLE",
-                    format!("cannot access {}: {error}", path.display()),
-                )
+                let detail = if error.kind() == std::io::ErrorKind::NotFound {
+                    crate::missing_path_hint(&path, &input.path, &ctx.project_root)
+                } else {
+                    format!("cannot access {}: {error}", path.display())
+                };
+                return ToolOutput::failed("INSERT_FILE_UNAVAILABLE", detail);
             }
             _ => {}
         }
@@ -544,6 +548,50 @@ mod tests {
         std::fs::write(dir.join("target.txt"), content).unwrap();
         let ctx = ToolCtx::new(dir.clone(), dir.clone());
         (dir, ctx)
+    }
+
+    #[tokio::test]
+    async fn missing_path_and_required_parameter_give_recovery_hints() {
+        let (dir, ctx) = setup("path-hints", "target\n");
+        std::fs::write(dir.join("target-near.txt"), "near\n").unwrap();
+        let edit = EditTool::default()
+            .execute(
+                json!({"path": "targte.txt", "old_string": "x", "new_string": "y"}),
+                &ctx,
+            )
+            .await;
+        assert!(edit.is_error, "{}", edit.content);
+        assert_eq!(edit.code, Some("EDIT_FILE_UNAVAILABLE"));
+        assert!(edit.content.contains("target-near.txt"), "{}", edit.content);
+
+        let insert = InsertTool
+            .execute(
+                json!({"path": "missing.txt", "anchor": "ANCHOR", "content": "x", "position": "after"}),
+                &ctx,
+            )
+            .await;
+        assert!(insert.is_error, "{}", insert.content);
+        assert_eq!(insert.code, Some("INSERT_FILE_UNAVAILABLE"));
+        assert!(insert.content.contains("target.txt"), "{}", insert.content);
+
+        let missing_path = InsertTool
+            .execute(
+                json!({"anchor": "ANCHOR", "content": "x", "position": "after"}),
+                &ctx,
+            )
+            .await;
+        assert!(missing_path.is_error, "{}", missing_path.content);
+        assert!(
+            missing_path.content.contains("缺少必填参数 `path`"),
+            "{}",
+            missing_path.content
+        );
+        assert!(
+            missing_path.content.contains("Example (one line)"),
+            "{}",
+            missing_path.content
+        );
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]

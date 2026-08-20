@@ -90,6 +90,84 @@ pub(crate) fn parse_input<T: serde::de::DeserializeOwned>(
         .map_err(|e| kanzei_harness::tool::repair_hint(tool, &raw, &e.to_string()))
 }
 
+/// 为路径类工具生成可执行的缺失路径诊断：只扫描目标同目录的文件，避免把
+/// 整个项目树噪声塞进错误结果；memory 路径额外给出项目真源根目录。
+pub(crate) fn missing_path_hint(
+    path: &std::path::Path,
+    raw_path: &str,
+    project_root: &std::path::Path,
+) -> String {
+    let mut message = format!("path not found: {}", path.display());
+    let looks_like_memory = path.components().any(|component| {
+        component
+            .as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("memory")
+    }) || raw_path
+        .split(['/', char::from(92)])
+        .any(|part| part.eq_ignore_ascii_case("memory"));
+    if looks_like_memory {
+        message.push_str(&format!(
+            "\n正确的项目 memory 根路径: {}",
+            project_root.join(".kanzei").join("memory").display()
+        ));
+    }
+
+    let Some(parent) = path.parent() else {
+        return message;
+    };
+    let Some(target_name) = path.file_name().map(|name| name.to_string_lossy()) else {
+        return message;
+    };
+    let mut candidates: Vec<(usize, String)> = std::fs::read_dir(parent)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            if !entry.file_type().ok()?.is_file() {
+                return None;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            Some((path_name_distance(&target_name, &name), name))
+        })
+        .collect();
+    candidates.sort();
+    candidates.truncate(5);
+    if candidates.is_empty() {
+        message.push_str(&format!(
+            "\n同目录最近邻文件候选: {} 中没有可列出的文件",
+            parent.display()
+        ));
+    } else {
+        message.push_str(&format!("\n同目录最近邻文件候选 ({}):", parent.display()));
+        for (_, name) in candidates {
+            message.push_str(&format!("\n  - {name}"));
+        }
+    }
+    message
+}
+
+fn path_name_distance(left: &str, right: &str) -> usize {
+    let left: Vec<char> = left.to_lowercase().chars().collect();
+    let right: Vec<char> = right.to_lowercase().chars().collect();
+    let mut previous: Vec<usize> = (0..=right.len()).collect();
+    for (row, left_char) in left.iter().enumerate() {
+        let mut current = vec![row + 1; right.len() + 1];
+        for (column, right_char) in right.iter().enumerate() {
+            current[column + 1] = if left_char == right_char {
+                previous[column]
+            } else {
+                1 + previous[column]
+                    .min(previous[column + 1])
+                    .min(current[column])
+            };
+        }
+        previous = current;
+    }
+    previous[right.len()]
+}
+
 /// 联网工具的代理策略:与 LLM 请求同一套(配置驱动,loopback 豁免)。
 ///
 /// **配置取 `ctx.project_root`,不取 `ctx.cwd`**(R-182 内容④)。代理是主根资产;

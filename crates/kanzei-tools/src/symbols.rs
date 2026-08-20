@@ -86,7 +86,14 @@ impl Tool for SymbolsTool {
             .map(|p| ctx.cwd.join(p))
             .unwrap_or_else(|| ctx.cwd.clone());
         if !target.exists() {
-            return ToolOutput::error(format!("path not found: {}", target.display()));
+            return ToolOutput::failed(
+                "SYMBOLS_PATH_NOT_FOUND",
+                crate::missing_path_hint(
+                    &target,
+                    input.path.as_deref().unwrap_or(""),
+                    &ctx.project_root,
+                ),
+            );
         }
         let files = collect_rs_files(&target);
         if files.is_empty() {
@@ -738,6 +745,28 @@ mod tests {
         let file = dir.join("sample.rs");
         std::fs::write(&file, content).unwrap();
         file
+    }
+
+    #[tokio::test]
+    async fn 不存在路径返回同目录最近邻候选() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-symbols-path-hint-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("coordinator.rs"), "fn coordinator() {}\n").unwrap();
+        let ctx = kanzei_harness::ToolCtx::new(dir.clone(), dir.clone());
+        let out = SymbolsTool
+            .execute(serde_json::json!({"path": "coordinatr.rs"}), &ctx)
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert_eq!(out.code, Some("SYMBOLS_PATH_NOT_FOUND"));
+        assert!(out.content.contains("coordinator.rs"), "{}", out.content);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

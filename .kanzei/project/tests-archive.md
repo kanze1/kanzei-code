@@ -8531,3 +8531,107 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-570 D-596
 - 收尾: 1787231978
 - 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@dbe507df9034,crates/kanzei-tools/src/profiles/research.rs@a5b0df2872d2,crates/kanzei-tools/src/tracker.rs@edcf6abd34de
+
+## T-1786922726544 D-571 web 工具研究环闸定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 35.3s
+- 摘要: kanzei-tools 全部 398 项通过、0 失败、1 ignored；覆盖 research_loop 网络任务闸、websearch/webfetch 相关回归及既有工具测试。仅有既存 latex_tool unused doc comment 警告。
+- 关联: D-571
+- 收尾: 1787232586
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/research_loop.rs@12c4dd429fc8,crates/kanzei-tools/src/webfetch.rs@059e5e47c8e5,crates/kanzei-tools/src/websearch.rs@de2cb9d1fa77
+
+## T-1786922726545 D-571 web 工具研究环闸定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 34.3s
+- 摘要: 源码修复后 kanzei-tools 400 tests 中 398 passed、0 failed、2 ignored（含真实网络验收测试）；research_loop 网络任务闸及 websearch/webfetch 回归通过。仅有既存 latex_tool unused doc comment 警告。
+- 关联: D-571
+- 收尾: 1787232794
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/research_loop.rs@12c4dd429fc8,crates/kanzei-tools/src/webfetch.rs@6df4697888c6,crates/kanzei-tools/src/websearch.rs@de2cb9d1fa77
+
+## T-1786922726546 D-571 真实网络 DDG 降级到 arXiv/webfetch [passed]
+- 命令: cargo test -p kanzei-tools real_network_ddg_failure_guides_to_arxiv_and_webfetch_reads_it -- --ignored --nocapture
+- 时长: 1.6s
+- 摘要: 真实网络验收通过：实际调用 WebSearchTool 与 WebFetchTool；DDG 失败时验证 SEARCH_ENDPOINT_* 降级文案含 webfetch 与 export.arxiv.org/api/query，随后真实 arXiv API webfetch 返回 HTTP 200。
+- 关联: D-571
+- 收尾: 1787233060
+- 源码指纹: v2 crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
+
+## T-1786922726547 D-571 Rust 提交门禁 [passed]
+- 命令: cargo fmt --all -- --check; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
+- 时长: 20.4s
+- 摘要: fmt check、cargo check --workspace --all-targets、cargo clippy --workspace --all-targets -D warnings 全部通过；D-597/D-598/D-599/D-600 的门禁阻断均已清除。
+- 关联: D-571 D-597 D-598 D-599 D-600
+- 收尾: 1787233283
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
+
+## T-1786922726548 D-571 相关 crate 回归测试 [passed]
+- 命令: cargo test -p kanzei-tools; cargo test -p kanzei-app
+- 时长: 47.8s
+- 摘要: kanzei-tools 400 tests：398 passed、0 failed、2 ignored；kanzei-app 229 passed、0 failed。覆盖 research_loop 网络任务闸、websearch/webfetch 降级、latex 工具与 app run 测试辅助签名回归。
+- 关联: D-571 D-597 D-598 D-599 D-600
+- 收尾: 1787233402
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
+
+## T-1786922726549 D-571 staged crate coverage [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-harness
+- 时长: 0.5s
+- 摘要: kanzei-core 220 passed、kanzei-harness 153 passed；补齐 staged source-test-gate 要求的两个 crate 覆盖。
+- 关联: D-571 D-597 D-598 D-599 D-600
+- 收尾: 1787233606
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
+
+## T-1786922726550 D-571 全部 staged crate 回归覆盖 [passed]
+- 命令: cargo test -p kanzei-tools; cargo test -p kanzei-app; cargo test -p kanzei-core; cargo test -p kanzei-harness
+- 时长: 46.5s
+- 摘要: staged 四个 Rust crate 覆盖全部通过：kanzei-tools 398 passed/2 ignored，kanzei-app 229 passed，kanzei-core 220 passed，kanzei-harness 153 passed。
+- 关联: D-571 D-597 D-598 D-599 D-600
+- 收尾: 1787233727
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
+
+## T-1786922726551 D-575 导航工具诊断定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-tools
+- 时长: 34.5s
+- 摘要: kanzei-tools 401 passed、0 failed、2 ignored；覆盖缺失路径最近邻、read 越界范围、memory 根路径提示、edit/insert 漏 path 示例与 symbols 路径诊断。
+- 关联: D-575
+- 收尾: 1787234256
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-harness/src/tool.rs@ae9021151b10,crates/kanzei-tools/src/edit.rs@74eb2b41c26c,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/lib.rs@2ce14c2ac5c5,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/read.rs@1d5f82c90df6,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/symbols.rs@676a96ae18c5,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
+
+## T-1786922726552 D-575 提交前 Rust 门禁 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
+- 时长: 43.6s
+- 摘要: fmt check、kanzei-tools 401 passed/2 ignored、workspace check、workspace clippy -D warnings 全部通过。
+- 关联: D-575
+- 收尾: 1787234395
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-harness/src/tool.rs@ae9021151b10,crates/kanzei-tools/src/edit.rs@74eb2b41c26c,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/lib.rs@2e29ca2afb17,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/read.rs@1d5f82c90df6,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/symbols.rs@676a96ae18c5,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
+
+## T-1786922726553 D-575 提交前 Rust 门禁（修正后） [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
+- 时长: 43.6s
+- 摘要: 修正 unnecessary_sort_by 后重跑：fmt check、kanzei-tools 401 passed/2 ignored、workspace check、workspace clippy -D warnings 全部通过。
+- 关联: D-575
+- 收尾: 1787234420
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-harness/src/tool.rs@ae9021151b10,crates/kanzei-tools/src/edit.rs@74eb2b41c26c,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/lib.rs@2e29ca2afb17,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/read.rs@1d5f82c90df6,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/symbols.rs@676a96ae18c5,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
+
+## T-1786922726554 D-575 全部 staged crate 回归覆盖 [passed]
+- 命令: cargo test -p kanzei-tools; cargo test -p kanzei-app; cargo test -p kanzei-core; cargo test -p kanzei-harness
+- 时长: 47.9s
+- 摘要: 覆盖全部 staged crate：kanzei-tools 401 passed/2 ignored，kanzei-app 229 passed，kanzei-core 220 passed，kanzei-harness 153 passed。
+- 关联: D-575
+- 收尾: 1787234610
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-harness/src/tool.rs@ae9021151b10,crates/kanzei-tools/src/edit.rs@74eb2b41c26c,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/lib.rs@2e29ca2afb17,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/read.rs@1d5f82c90df6,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/symbols.rs@676a96ae18c5,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
+
+## T-1786922726555 D-575 全部 staged crate 回归覆盖 [passed]
+- 命令: cargo test -p kanzei-tools; cargo test -p kanzei-app; cargo test -p kanzei-core; cargo test -p kanzei-harness
+- 时长: 47.9s
+- 摘要: 覆盖全部 staged crate：kanzei-tools 401 passed/2 ignored，kanzei-app 229 passed，kanzei-core 220 passed，kanzei-harness 153 passed。
+- 关联: D-575
+- 收尾: 1787234627
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-harness/src/tool.rs@ae9021151b10,crates/kanzei-tools/src/edit.rs@74eb2b41c26c,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/lib.rs@2e29ca2afb17,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/read.rs@1d5f82c90df6,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/symbols.rs@676a96ae18c5,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f
+
+## T-1786922726556 D-575 全部 staged crate 回归覆盖 [passed]
+- 命令: cargo test -p kanzei-tools; cargo test -p kanzei-app; cargo test -p kanzei-core; cargo test -p kanzei-harness
+- 时长: 47.9s
+- 摘要: 覆盖全部 staged crate：kanzei-tools 401 passed/2 ignored，kanzei-app 229 passed，kanzei-core 220 passed，kanzei-harness 153 passed。
+- 关联: D-575
+- 收尾: 1787234647
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@52a0e2587dcb,crates/kanzei-core/src/runner/drive/assembly.rs@be418fd2eb27,crates/kanzei-harness/src/config.rs@c08e3ed526fd,crates/kanzei-harness/src/tool.rs@ae9021151b10,crates/kanzei-tools/src/edit.rs@74eb2b41c26c,crates/kanzei-tools/src/latex_tool.rs@c507e910b553,crates/kanzei-tools/src/lib.rs@2e29ca2afb17,crates/kanzei-tools/src/profiles.rs@5e7a73ef530a,crates/kanzei-tools/src/read.rs@1d5f82c90df6,crates/kanzei-tools/src/research_loop.rs@baf3685052fb,crates/kanzei-tools/src/symbols.rs@676a96ae18c5,crates/kanzei-tools/src/webfetch.rs@f4af51f7b25e,crates/kanzei-tools/src/websearch.rs@dafbf5f7231f

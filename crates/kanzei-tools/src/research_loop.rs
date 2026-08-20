@@ -97,6 +97,70 @@ fn save_state(root: &Path, state: &ResearchLoopState) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn authorize_network_call(
+    root: &Path,
+    tool_name: &str,
+    topic: Option<&str>,
+    task_id: Option<&str>,
+) -> Result<(), Box<ToolOutput>> {
+    let research_root = root.join(".kanzei/research");
+    let mut active = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&research_root) {
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let Ok(topic_name) = entry.file_name().into_string() else {
+                continue;
+            };
+            if DocStore::validate_topic(&topic_name).is_err() {
+                continue;
+            }
+            if let Ok(Some(state)) = load_state(root, &topic_name) {
+                if state.status == "running" && state.phase == "search" {
+                    active.push((topic_name, state));
+                }
+            }
+        }
+    }
+    if active.is_empty() {
+        return Ok(());
+    }
+
+    let Some(topic) = topic else {
+        let topics = active
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(Box::new(ToolOutput::needs_correction(
+            "RESEARCH_LOOP_REQUIRED",
+            format!(
+                "{tool_name} 当前有运行中的 research_loop ({topics})；请先 `research_loop begin_search`，再携带返回的 `topic` 与 `task_id` 调用 {tool_name}。"
+            ),
+        )));
+    };
+    let Some((_, state)) = active.iter().find(|(name, _)| name == topic) else {
+        return Err(Box::new(ToolOutput::needs_correction(
+            "RESEARCH_TOPIC_NOT_RUNNING",
+            format!("topic `{topic}` 没有处于 search 阶段的 research_loop"),
+        )));
+    };
+    let Some(task_id) = task_id else {
+        return Err(Box::new(ToolOutput::needs_correction(
+            "RESEARCH_TASK_REQUIRED",
+            format!("{tool_name} 必须携带当前 research_loop `begin_search` 返回的 task_id"),
+        )));
+    };
+    if !state.active_tasks.iter().any(|active| active == task_id) {
+        return Err(Box::new(ToolOutput::needs_correction(
+            "RESEARCH_TASK_NOT_ACTIVE",
+            format!("task_id `{task_id}` 不属于 topic `{topic}` 的活动检索任务；请重新调用 begin_search"),
+        )));
+    }
+    Ok(())
+}
+
 fn state_summary(state: &ResearchLoopState) -> Value {
     json!({
         "topic": state.topic,
@@ -565,6 +629,40 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+        std::fs::remove_dir_all(project).ok();
+    }
+
+    #[test]
+    fn network_tools_require_running_loop_task() {
+        let project = root("network-gate");
+        let state = ResearchLoopState {
+            version: 1,
+            topic: "loop-smoke".into(),
+            status: "running".into(),
+            phase: "search".into(),
+            round: 0,
+            max_rounds: 2,
+            max_tokens: 100,
+            max_concurrency: 1,
+            tokens_used: 0,
+            evidence: Vec::new(),
+            gaps: Vec::new(),
+            findings: Vec::new(),
+            active_tasks: vec!["r0-t0".into()],
+            next_task_id: 1,
+        };
+        save_state(&project, &state).unwrap();
+
+        let missing_task =
+            authorize_network_call(&project, "websearch", Some("loop-smoke"), None).unwrap_err();
+        assert_eq!(missing_task.code, Some("RESEARCH_TASK_REQUIRED"));
+
+        let unknown_task =
+            authorize_network_call(&project, "webfetch", Some("loop-smoke"), Some("r0-t9"))
+                .unwrap_err();
+        assert_eq!(unknown_task.code, Some("RESEARCH_TASK_NOT_ACTIVE"));
+
+        authorize_network_call(&project, "webfetch", Some("loop-smoke"), Some("r0-t0")).unwrap();
         std::fs::remove_dir_all(project).ok();
     }
 }

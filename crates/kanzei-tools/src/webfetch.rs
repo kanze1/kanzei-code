@@ -17,6 +17,12 @@ struct WebFetchInput {
     /// 输出字符上限(默认 40000)
     #[serde(default)]
     max_chars: Option<usize>,
+    /// 研究课题；有运行中的 research_loop 时必须提供，并与 task_id 配对。
+    #[serde(default)]
+    topic: Option<String>,
+    /// `research_loop.begin_search` 返回的活动任务 ID。
+    #[serde(default)]
+    task_id: Option<String>,
 }
 
 pub struct WebFetchTool;
@@ -94,7 +100,7 @@ impl Tool for WebFetchTool {
     }
 
     fn description(&self) -> String {
-        "Fetch a URL and return readable text (HTML stripped). Params: url; optional max_chars."
+        "Fetch a URL and return readable text (HTML stripped). Params: url; optional max_chars, topic, and task_id (topic/task_id are required while a research_loop is running)."
             .into()
     }
 
@@ -115,9 +121,25 @@ impl Tool for WebFetchTool {
             Ok(v) => v,
             Err(out) => return out,
         };
+        if let Err(output) = crate::research_loop::authorize_network_call(
+            &ctx.project_root,
+            "webfetch",
+            input.topic.as_deref(),
+            input.task_id.as_deref(),
+        ) {
+            return *output;
+        }
         let fetched = match fetch_bytes(&input.url, ctx, MAX_RESPONSE_BYTES).await {
             Ok(value) => value,
-            Err(error) => return ToolOutput::error(error),
+            Err(error) => {
+                return ToolOutput::failed(
+                    "WEBFETCH_UNAVAILABLE",
+                    format!(
+                        "webfetch could not reach `{}`: {error}. For research, try an official source URL or the arXiv API endpoint `https://export.arxiv.org/api/query`; websearch is unavailable when its DuckDuckGo endpoint cannot be reached.",
+                        input.url
+                    ),
+                )
+            }
         };
         let text = String::from_utf8_lossy(&fetched.body);
         let rendered =
@@ -214,7 +236,7 @@ pub fn html_to_text(html: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{html_to_text, normalize_url_resource};
+    use super::{html_to_text, normalize_url_resource, WebFetchTool};
 
     /// R-217:URL 资源规范化——去掉 scheme,域名+路径形态可直接配白名单规则。
     #[test]
@@ -285,5 +307,47 @@ mod tests {
         assert!(text.contains("尾文 ẞ"));
         assert!(!text.contains("hidden script"));
         assert!(!text.contains("hidden style"));
+    }
+
+    /// 真实网络验收：DDG 不可达时必须给 arXiv/webfetch 降级提示，arXiv API 仍应可读。
+    #[tokio::test]
+    #[ignore = "需要真实网络与本机代理"]
+    async fn real_network_ddg_failure_guides_to_arxiv_and_webfetch_reads_it() {
+        use kanzei_harness::{Tool, ToolCtx};
+        let root = std::env::temp_dir();
+        let ctx = ToolCtx::new(root.clone(), root);
+        let search = crate::websearch::WebSearchTool
+            .execute(serde_json::json!({ "query": "rust async" }), &ctx)
+            .await;
+        if search.is_error {
+            assert!(
+                matches!(
+                    search.code,
+                    Some("SEARCH_ENDPOINT_UNAVAILABLE")
+                        | Some("SEARCH_ENDPOINT_HTTP_ERROR")
+                        | Some("SEARCH_ENDPOINT_READ_FAILED")
+                ),
+                "unexpected search error code: {:?}",
+                search.code
+            );
+            assert!(search.content.contains("export.arxiv.org/api/query"));
+            assert!(search.content.contains("webfetch"));
+        }
+
+        let fetch = WebFetchTool
+            .execute(
+                serde_json::json!({
+                    "url": "https://export.arxiv.org/api/query?search_query=all:electron&max_results=1",
+                    "max_chars": 5000
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !fetch.is_error,
+            "arXiv fallback must be reachable: {}",
+            fetch.content
+        );
+        assert!(fetch.content.contains("HTTP 200"), "{}", fetch.content);
     }
 }

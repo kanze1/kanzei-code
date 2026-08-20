@@ -41,6 +41,7 @@ fn append_subagent_spec(specs: &mut Vec<ToolSpec>, subagents_enabled: bool) {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod subagent_tool_surface_tests {
     use super::*;
 

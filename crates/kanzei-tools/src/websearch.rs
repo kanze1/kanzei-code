@@ -18,6 +18,12 @@ struct WebSearchInput {
     /// 返回结果数量，默认 5，最大 10。
     #[serde(default)]
     max_results: Option<usize>,
+    /// 研究课题；有运行中的 research_loop 时必须提供，并与 task_id 配对。
+    #[serde(default)]
+    topic: Option<String>,
+    /// `research_loop.begin_search` 返回的活动任务 ID。
+    #[serde(default)]
+    task_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -36,7 +42,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> String {
-        "Search the web and return structured title, URL, and snippet results. Params: query; optional max_results.".into()
+        "Search the web and return structured title, URL, and snippet results. Params: query; optional max_results, topic, and task_id (topic/task_id are required while a research_loop is running).".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -52,6 +58,14 @@ impl Tool for WebSearchTool {
             Ok(v) => v,
             Err(out) => return out,
         };
+        if let Err(output) = crate::research_loop::authorize_network_call(
+            &ctx.project_root,
+            "websearch",
+            input.topic.as_deref(),
+            input.task_id.as_deref(),
+        ) {
+            return *output;
+        }
         let query = input.query.trim();
         if query.is_empty() {
             return ToolOutput::error("query must not be empty");
@@ -73,11 +87,24 @@ impl Tool for WebSearchTool {
             .await
         {
             Ok(r) => r,
-            Err(e) => return ToolOutput::error(format!("search failed: {e}")),
+            Err(e) => {
+                return ToolOutput::failed(
+                    "SEARCH_ENDPOINT_UNAVAILABLE",
+                    format!(
+                        "DuckDuckGo search endpoint `{SEARCH_URL}` is unavailable: {e}. For research, use `webfetch` with an official URL or the arXiv API at `https://export.arxiv.org/api/query`."
+                    ),
+                )
+            }
         };
         let status = response.status();
         if !status.is_success() {
-            return ToolOutput::error(format!("search returned HTTP {}", status.as_u16()));
+            return ToolOutput::failed(
+                "SEARCH_ENDPOINT_HTTP_ERROR",
+                format!(
+                    "DuckDuckGo search endpoint `{SEARCH_URL}` returned HTTP {}. For research, use `webfetch` with an official URL or the arXiv API at `https://export.arxiv.org/api/query`.",
+                    status.as_u16()
+                ),
+            );
         }
         let mut body = Vec::new();
         let mut stream = response;
@@ -91,7 +118,14 @@ impl Tool for WebSearchTool {
                     }
                 }
                 Ok(None) => break,
-                Err(e) => return ToolOutput::error(format!("search response read failed: {e}")),
+                Err(e) => {
+                    return ToolOutput::failed(
+                        "SEARCH_ENDPOINT_READ_FAILED",
+                        format!(
+                            "DuckDuckGo search response from `{SEARCH_URL}` could not be read: {e}. For research, use `webfetch` with an official URL or the arXiv API at `https://export.arxiv.org/api/query`."
+                        ),
+                    )
+                }
             }
         }
         let html = String::from_utf8_lossy(&body);

@@ -607,7 +607,7 @@ pub(crate) fn run_metrics_by_category(
 mod tests {
     use super::{run_metrics, run_metrics_by_category};
     use kanzei_core::{EpisodeRecord, SessionStore};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     fn fixture(tag: &str) -> (PathBuf, String) {
         let root = std::env::temp_dir().join(format!(
@@ -627,7 +627,7 @@ mod tests {
         (root, session_id)
     }
 
-    fn append_episode(root: &PathBuf, session_id: &str, prompt: &str) {
+    fn append_episode(root: &Path, session_id: &str, prompt: &str) {
         let store = SessionStore::open(&kanzei_core::project_state_path(root)).unwrap();
         store
             .append_episode(&EpisodeRecord {

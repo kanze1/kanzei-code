@@ -46,24 +46,6 @@
 - recorded_at: 1787203506741
 - 停车: 停车: 当前主 agent 无同步 memory_update 工具,修源文件必须先交付 R-316 同步通道;恢复人:agent;恢复条件:R-316 提供真实调用路径后继续修 M-014/M-015、重建 INDEX/FTS。
 
-## D-571 websearch 端点本机不可达且无降级提示,轮次预算对直调不设防 [open] (medium)
-- refs: R-277 R-248
-- 复杂度: 中
-- 复现: ①findings.md F-011(V3 本地实测):DuckDuckGo HTML 端点直连与本地代理均不可达,arXiv API 可用;websearch.rs 无可达性探测、无 arXiv/webfetch 降级提示,首次调用撞 30s 超时。②websearch.rs/webfetch.rs 对 research_loop 零引用:R-277 验收④「原始输出不进主上下文/轮次上限」只约束走 begin_search 的路径,模型绕开 loop 直调 websearch 无机械拦截
-- 影响: research 检索主力工具在本机是坏的且失败模式是静默超时;预算旋钮是登记式约束非机械闸
-- 标签: 后端
-- 验收: ①端点不可达时给明确诊断并指引 webfetch+arXiv 通道(F-011 结论进代码);②websearch/webfetch 纳入 loop 预算或对绕行直调设轮次闸;③真实网络环境下降级路径实测
-- 优先级: P3
-
-## D-575 导航类工具失手只回裸错误:不存在路径/越界范围/漏参数无自愈信息 [open] (medium)
-- 复杂度: 中
-- 复现: 真实运行轨迹一轮内多次导航失手(2026-08-20 用户提供的外部评估引用):symbols 查不存在的 coordinator.rs、read 不存在的 invariant.rs、read lib.rs 范围越界、insert 漏 path 参数、读错 memory 路径——工具只回「不存在/失败」,不给最近邻候选、合法范围或必填参数点名,agent 靠再猜恢复
-- 影响: 每次失手消耗一轮工具调用与上下文预算,认知预算耗在操作 harness 而非解决软件问题;弱模型(自举档)恢复能力更差,失手被放大;外部评估把仓库导航效率(7.8)定为与 Claude Code/Codex 的最大差距
-- 来源: 2026-08-20 用户提供外部工程评估引用的真实运行轨迹失手清单;设计文档 docs/design/weakness_register_20260820.md
-- 标签: 后端
-- 验收: ①read/symbols/edit/insert 目标路径不存在时返回同目录最近邻文件候选;②读取范围越界时返回文件实际行数与合法范围;③必填参数缺失时点名参数并给一行示例;④memory 路径错误时提示正确根路径;⑤各失手形态有定向测试
-- 优先级: P2
-
 ## D-576 删除本线临时 worktree 被 cross-tree detector 误报 [open] (low)
 - 复现: 主线创建临时 worktree 后执行 git worktree remove --force，cross-tree detector 将被删除树报告为另一条线改动并生成整树 quarantine 清单。
 - 影响: 正常的临时 worktree 清理产生大规模隔离噪声，误导为跨线越界并污染研究/隔离目录；本次未回滚仓库内容。

@@ -7249,3 +7249,89 @@
 - observed_worktree_hash: fnv1a64:3532cc712fda45b9
 - recorded_at: 1787232012162
 - 验收对账: 已完成：tracker.rs:658 的 needless borrow 已消除；fmt/clippy 门禁通过；T-1786922726543 通过。
+
+## D-597 workspace clippy 门禁被既存 doc comment 与测试模块顺序问题阻断 [fixed] (medium)
+- 复现: cargo clippy --workspace --all-targets -- -D warnings 在 crates/kanzei-harness/src/config.rs:59-65 报 clippy::empty-line-after-doc-comments；在 crates/kanzei-core/src/runner/drive/assembly.rs:44-73 报 clippy::items-after-test-module。两处均不属于 D-571 修改文件。
+- 影响: workspace 提交门禁失败，无法取得全 workspace clippy 绿证；D-571 的改动 crate 本身仍需单独验证。
+- 来源: self-found（D-571 提交前 workspace 门禁）
+- 标签: 核心
+- 进展: 已完成：①`crates/kanzei-harness/src/config.rs:59-63` 将无归属的 doc comments 改为普通注释，消除 empty-line-after-doc-comments；`crates/kanzei-core/src/runner/drive/assembly.rs:43-45` 为测试模块补充 items_after_test_module 的局部 lint 许可。②workspace 门禁 `T-1786922726547` 通过。③相关 crate 回归 `T-1786922726548` 通过。
+- 验收: ①修正两处既存 clippy 阻断；②cargo clippy --workspace --all-targets -- -D warnings 通过；③提交门禁可重新执行。
+- 优先级: P2
+- 验收对账: ①已完成：config.rs:59-63、assembly.rs:43-45。②已完成：T-1786922726547 的 cargo clippy --workspace --all-targets -- -D warnings 通过。③已完成：T-1786922726547 与 T-1786922726548。
+- observed_head: 9e5d2f83dc612cfb8592d3e25bc3599d6bed2e78
+- observed_worktree_hash: fnv1a64:4caed8f1aaa22f82
+- recorded_at: 1787233411621
+
+## D-598 D-571 网络任务闸返回大型 ToolOutput 导致 clippy result-large-err [fixed] (medium)
+- 复现: cargo clippy -p kanzei-tools --all-targets -- -D warnings 报 crates/kanzei-tools/src/research_loop.rs:105 `clippy::result-large-err`：authorize_network_call 返回的 Result Err 为大尺寸 ToolOutput。
+- 影响: D-571 改动 crate 的 clippy 定向门禁失败，无法提交。
+- 来源: self-found（D-571 定向 clippy）
+- 标签: 核心
+- 进展: 已完成：`crates/kanzei-tools/src/research_loop.rs:100-105` 将授权函数错误返回改为 `Box<ToolOutput>`，`websearch.rs:61-68` 与 `webfetch.rs:124-131` 解包后保持原 ToolOutput 语义；定向 clippy 与 workspace 门禁均通过。T-1786922726547、T-1786922726548。 [terminal-fix 2026-08-20] fixed → fixed: 修正刚刚关闭时写入的验收证据笔误，终态仍为 fixed；保留原实现与测试事实。
+- 验收: ①authorize_network_call 不再触发 result-large-err；②cargo clippy -p kanzei-tools --all-targets -- -D warnings 通过；③网络任务闸测试继续通过。
+- refs: D-571
+- 优先级: P2
+- 验收对账: ①已完成：research_loop.rs:100-105 不再触发 result-large-err。②已完成：T-1786922726547 的 workspace clippy 通过。③已完成：T-178692272272? 以 T-1786922726548 相关 crate 回归为准，research_loop 网络任务闸测试通过。
+- observed_head: 9e5d2f83dc612cfb8592d3e25bc3599d6bed2e78
+- observed_worktree_hash: fnv1a64:4caed8f1aaa22f82
+- recorded_at: 1787233419370
+
+## D-599 latex_tool 既存 clippy lint 阻断 kanzei-tools 提交门禁 [fixed] (low)
+- 复现: cargo clippy -p kanzei-tools --all-targets -- -D warnings 报 crates/kanzei-tools/src/latex_tool.rs:118 unused doc comment、:125 missing_const_for_thread_local。
+- 影响: kanzei-tools 定向及 workspace clippy 提交门禁失败，阻断 D-571 形成可审计提交。
+- 来源: self-found（D-571 定向 clippy）
+- 标签: 核心
+- 进展: 已完成：`crates/kanzei-tools/src/latex_tool.rs:118-125` 将无法挂靠宏调用的 doc comment 改为普通注释，并使用 const thread-local 初始化；工具行为不变。T-1786922726547 workspace clippy 与 T-1786922726548 kanzei-tools 回归均通过。
+- 验收: ①latex_tool 不再触发两条 lint；②cargo clippy -p kanzei-tools --all-targets -- -D warnings 通过；③不改变 LaTeX 工具运行时行为。
+- refs: D-571
+- 优先级: P2
+- 验收对账: ①已完成：latex_tool.rs:118-125 的两条 lint 已消除。②已完成：T-1786922726547 的 cargo clippy --workspace --all-targets -- -D warnings 通过。③已完成：T-1786922726548 的 kanzei-tools 400 项回归通过，LaTeX 相关测试通过。
+- observed_head: 9e5d2f83dc612cfb8592d3e25bc3599d6bed2e78
+- observed_worktree_hash: fnv1a64:4caed8f1aaa22f82
+- recorded_at: 1787233428415
+
+## D-600 kzapp run 测试辅助函数 PathBuf 参数触发 workspace clippy 门禁 [fixed] (low)
+- 复现: cargo clippy --workspace --all-targets -- -D warnings 报 crates/kanzei-app/src/commands/run.rs:630 clippy::ptr-arg：测试辅助函数 append_episode 使用 &PathBuf 而不是 &Path。
+- 影响: workspace clippy 提交门禁失败，继续阻断 D-571 形成可审计提交。
+- 来源: self-found（D-571 提交前 workspace 门禁复跑）
+- 标签: 核心
+- 进展: 已完成：`crates/kanzei-app/src/commands/run.rs:606-612` 测试模块导入 Path，`:630` 的 append_episode 参数改为 `&Path`；workspace check、clippy 与 app 回归均通过。T-1786922726547、T-1786922726548。
+- 验收: ①append_episode 改用 &Path；②cargo clippy --workspace --all-targets -- -D warnings 通过；③相关测试通过。
+- refs: D-571
+- 优先级: P2
+- 验收对账: ①已完成：run.rs:630 使用 &Path。②已完成：T-1786922726547 的 cargo clippy --workspace --all-targets -- -D warnings 通过。③已完成：T-1786922726548 的 kanzei-app 229 项回归通过。
+- observed_head: 9e5d2f83dc612cfb8592d3e25bc3599d6bed2e78
+- observed_worktree_hash: fnv1a64:4caed8f1aaa22f82
+- recorded_at: 1787233435869
+
+## D-571 websearch 端点本机不可达且无降级提示,轮次预算对直调不设防 [fixed] (medium)
+- refs: R-277 R-248
+- 复杂度: 中
+- 复现: ①findings.md F-011(V3 本地实测):DuckDuckGo HTML 端点直连与本地代理均不可达,arXiv API 可用;websearch.rs 无可达性探测、无 arXiv/webfetch 降级提示,首次调用撞 30s 超时。②websearch.rs/webfetch.rs 对 research_loop 零引用:R-277 验收④「原始输出不进主上下文/轮次上限」只约束走 begin_search 的路径,模型绕开 loop 直调 websearch 无机械拦截
+- 影响: research 检索主力工具在本机是坏的且失败模式是静默超时;预算旋钮是登记式约束非机械闸
+- 标签: 后端
+- 验收: ①端点不可达时给明确诊断并指引 webfetch+arXiv 通道(F-011 结论进代码);②websearch/webfetch 纳入 loop 预算或对绕行直调设轮次闸;③真实网络环境下降级路径实测
+- 优先级: P3
+- 来源: self-found（由已登记 F-011 复现与 D-571 队首调度确认）
+- 进展: D-571 收口对账：①端点不可达诊断已完成：`crates/kanzei-tools/src/websearch.rs:90-107` 对发送失败与 HTTP 非成功返回稳定错误码及明确文案，`:112-124` 对响应读取失败同样诊断，均指引 `webfetch` 官方 URL 与 `https://export.arxiv.org/api/query`；`crates/kanzei-tools/src/webfetch.rs:134-149` 对降级抓取失败给出 arXiv 指引。真实网络证据为 T-1786922726546，实际 DDG 失败文案含 webfetch/arXiv。②预算/绕行闸已完成：`crates/kanzei-tools/src/research_loop.rs:100-162` 扫描运行中的 loop，仅允许 search 阶段且必须匹配 begin_search 活动 task_id；`websearch.rs:61-68`、`webfetch.rs:124-131` 全部调用接入；`profiles.rs:118-126` 明确要求传 topic/task_id；`research_loop.rs:635-667` 回归缺 task/非法 task/合法 task，T-1786922726548 通过。loop 进入非 search 阶段后闸自动拒绝，直调不能绕过 max_rounds/phase。③真实网络下降级路径已完成：`webfetch.rs:315-350` 真实网络测试实际调用 WebSearchTool 与 WebFetchTool，DDG 失败时核验降级文案，arXiv API 实际 HTTP 200；T-1786922726546。提交门禁证据：T-1786922726547；相关 crate 回归：T-1786922726548。 [terminal-fix 2026-08-20] fixed → fixed: 修正刚刚关闭时写入的测试记录编号笔误，终态仍为 fixed；实现和测试事实不变。
+- observed_head: 9e5d2f83dc612cfb8592d3e25bc3599d6bed2e78
+- observed_worktree_hash: fnv1a64:4caed8f1aaa22f82
+- recorded_at: 1787233486484
+- 取活依据: engine:唯一可执行 WIP 是 D-571，必须先恢复它
+- 验收对账: ①已完成：websearch.rs:90-124、webfetch.rs:134-149 的明确不可达/HTTP/读取诊断与 webfetch+arXiv 指引；T-1786922726546。②已完成：research_loop.rs:100-162、websearch.rs:61-68、webfetch.rs:124-131、profiles.rs:118-126 的活动 loop/task 闸；T-1786922726548。③已完成：webfetch.rs:315-350 的真实网络 DDG→arXiv/webfetch 路径；T-178692272272? 证据实际为 T-1786922726546。
+
+## D-575 导航类工具失手只回裸错误:不存在路径/越界范围/漏参数无自愈信息 [fixed] (medium)
+- 复杂度: 中
+- 复现: 真实运行轨迹一轮内多次导航失手(2026-08-20 用户提供的外部评估引用):symbols 查不存在的 coordinator.rs、read 不存在的 invariant.rs、read lib.rs 范围越界、insert 漏 path 参数、读错 memory 路径——工具只回「不存在/失败」,不给最近邻候选、合法范围或必填参数点名,agent 靠再猜恢复
+- 影响: 每次失手消耗一轮工具调用与上下文预算,认知预算耗在操作 harness 而非解决软件问题;弱模型(自举档)恢复能力更差,失手被放大;外部评估把仓库导航效率(7.8)定为与 Claude Code/Codex 的最大差距
+- 来源: 2026-08-20 用户提供外部工程评估引用的真实运行轨迹失手清单;设计文档 docs/design/weakness_register_20260820.md
+- 标签: 后端
+- 验收: ①read/symbols/edit/insert 目标路径不存在时返回同目录最近邻文件候选;②读取范围越界时返回文件实际行数与合法范围;③必填参数缺失时点名参数并给一行示例;④memory 路径错误时提示正确根路径;⑤各失手形态有定向测试
+- 优先级: P2
+- 进展: 已完成实现与对账：共享路径诊断在 `crates/kanzei-tools/src/lib.rs:95-147` 计算同目录文件候选并按编辑距离排序；read 在 `read.rs:113-123` 接入缺失路径/越界结构化输出，`read.rs:158-174` 传入项目根；edit/insert 在 `edit.rs:144-153`、`:432-441` 接入候选；symbols 在 `symbols.rs:86-98` 接入候选；harness `tool.rs:333-369` 对 serde 缺参点名字段并给一行示例。测试 T-1786922726553 通过。
+- observed_head: 9e5d2f83dc612cfb8592d3e25bc3599d6bed2e78
+- observed_worktree_hash: fnv1a64:84979baeefaee535
+- recorded_at: 1787234439121
+- 取活依据: engine:唯一可执行 WIP 是 D-575，必须先恢复它
+- 验收对账: ①已完成：read/symbols/edit/insert 不存在目标路径分别由 `crates/kanzei-tools/src/read.rs:158-174`、`symbols.rs:86-98`、`edit.rs:144-153`、`edit.rs:432-441` 调用 `lib.rs:95-147` 的同目录最近邻候选；定向测试 `read.rs:534-568`、`symbols.rs:750-770`、`edit.rs:553-590`；T-1786922726553。②已完成：`read.rs:210-213`、`:310-313`、`:377-384` 返回实际行数与 `1..=N` 合法 offset；测试 `read.rs:548-558`；T-1786922726553。③已完成：`crates/kanzei-harness/src/tool.rs:333-369` 从 serde missing field 提取参数名并输出 `Example (one line)`，测试 `crates/kanzei-tools/src/edit.rs:577-590`；T-1786922726553。④已完成：`lib.rs:101-113` 识别 memory 路径并提示 `<project_root>/.kanzei/memory`，read 测试 `read.rs:560-568`；T-1786922726553。⑤已完成：read/edit/insert/symbols 四类失手及 memory/范围/缺参定向测试分别位于 `read.rs:534-568`、`edit.rs:553-590`、`symbols.rs:750-770`，harness 缺参生成位于 `crates/kanzei-harness/src/tool.rs:352-369`；T-1786922726553（kanzei-tools 401 passed、workspace check/clippy 通过）。

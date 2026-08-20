@@ -91,7 +91,9 @@ async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         .cwd
         .join(kanzei_harness::permission::normalize_resource(&input.path));
     let path_for_read = path.clone();
-    let result = tokio::task::spawn_blocking(move || read_any(&path_for_read, &input)).await;
+    let project_root = ctx.project_root.clone();
+    let result =
+        tokio::task::spawn_blocking(move || read_any(&path_for_read, &input, &project_root)).await;
     match result {
         Ok(Ok(ReadPayload::Text(text))) => {
             // R-161 采纳盲区:read 读记忆文件正文 = 这次召回起了作用,
@@ -111,7 +113,15 @@ async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
             );
             ToolOutput::ok(summary).with_images(vec![ToolImage { media_type, data }])
         }
-        Ok(Err(e)) => ToolOutput::error(e),
+        Ok(Err(e)) => {
+            if let Some(detail) = e.strip_prefix("READ_RANGE_OUT_OF_BOUNDS: ") {
+                ToolOutput::needs_correction("READ_RANGE_OUT_OF_BOUNDS", detail)
+            } else if e.starts_with("path not found: ") {
+                ToolOutput::failed("READ_PATH_NOT_FOUND", e)
+            } else {
+                ToolOutput::error(e)
+            }
+        }
         Err(e) => ToolOutput::error(format!("read task panicked: {e}")),
     }
 }
@@ -148,9 +158,18 @@ fn sniff_image(head: &[u8]) -> Option<&'static str> {
     None
 }
 
-fn read_any(path: &std::path::Path, input: &ReadInput) -> Result<ReadPayload, String> {
-    let mut file =
-        std::fs::File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+fn read_any(
+    path: &std::path::Path,
+    input: &ReadInput,
+    project_root: &std::path::Path,
+) -> Result<ReadPayload, String> {
+    let mut file = std::fs::File::open(path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            crate::missing_path_hint(path, "", project_root)
+        } else {
+            format!("cannot open {}: {error}", path.display())
+        }
+    })?;
     let meta = file.metadata().map_err(|e| e.to_string())?;
     if meta.is_dir() {
         return Err(format!("{} is a directory", path.display()));
@@ -191,6 +210,9 @@ fn read_pdf(path: &std::path::Path, input: &ReadInput) -> Result<String, String>
     let lines: Vec<&str> = text.lines().collect();
     let offset = input.offset.unwrap_or(1).max(1);
     let limit = input.limit.unwrap_or(DEFAULT_LIMIT);
+    if offset > lines.len().max(1) {
+        return Err(range_error(lines.len(), offset));
+    }
     let mut out = String::new();
     let mut shown = 0usize;
     for (index, line) in lines.iter().enumerate().skip(offset.saturating_sub(1)) {
@@ -288,6 +310,9 @@ fn read_sync_from(
         out.push_str(&rendered);
         shown += 1;
     }
+    if offset > line_no.max(1) {
+        return Err(range_error(line_no, offset));
+    }
     if shown == 0 {
         return Ok(format!(
             "(empty range: file has {line_no} lines, offset was {offset})"
@@ -349,6 +374,13 @@ fn render_line(no: usize, line: &str) -> String {
         } else {
             ""
         }
+    )
+}
+
+fn range_error(line_count: usize, offset: usize) -> String {
+    format!(
+        "READ_RANGE_OUT_OF_BOUNDS: requested offset {offset}, but the file has {line_count} lines; legal offset range is 1..={}; use a smaller offset or `tail`.",
+        line_count.max(1)
     )
 }
 
@@ -496,6 +528,48 @@ mod tests {
             "offset 不应回填前段内容"
         );
         assert!(out.content.len() < 1_000, "offset/limit 结果不应复制整文件");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn missing_path_and_range_errors_are_recoverable() {
+        let (dir, ctx) = temp_project();
+        std::fs::write(dir.join("coordinator.rs"), "fn coordinator() {}\n").unwrap();
+        let missing = ReadTool
+            .execute(json!({"path": "coordinatr.rs"}), &ctx)
+            .await;
+        assert!(missing.is_error, "{}", missing.content);
+        assert_eq!(missing.code, Some("READ_PATH_NOT_FOUND"));
+        assert!(
+            missing.content.contains("coordinator.rs"),
+            "{}",
+            missing.content
+        );
+
+        let file = dir.join("range.txt");
+        std::fs::write(&file, "one\ntwo\n").unwrap();
+        let range = ReadTool
+            .execute(json!({"path": "range.txt", "offset": 4}), &ctx)
+            .await;
+        assert!(range.is_error, "{}", range.content);
+        assert_eq!(range.code, Some("READ_RANGE_OUT_OF_BOUNDS"));
+        assert!(range.content.contains("2 lines"), "{}", range.content);
+        assert!(range.content.contains("1..=2"), "{}", range.content);
+
+        let memory = dir.join(".kanzei").join("memory");
+        std::fs::create_dir_all(&memory).unwrap();
+        std::fs::write(memory.join("M-001-sop.md"), "memory").unwrap();
+        let memory_missing = ReadTool
+            .execute(json!({"path": ".kanzei/memory/M-002-sop.md"}), &ctx)
+            .await;
+        assert!(memory_missing.is_error, "{}", memory_missing.content);
+        assert!(
+            memory_missing
+                .content
+                .contains(&memory.display().to_string()),
+            "{}",
+            memory_missing.content
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

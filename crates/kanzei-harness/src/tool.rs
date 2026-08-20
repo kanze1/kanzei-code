@@ -331,12 +331,39 @@ pub trait Tool: Send + Sync {
 
 /// 输入解析失败时给模型的纠错反馈(设计红线 1:不崩溃、告知正确格式)。
 pub fn repair_hint(tool: &dyn Tool, raw_input: &str, problem: &str) -> ToolOutput {
-    ToolOutput::needs_correction("INVALID_TOOL_INPUT", format!(
-        "Invalid input for tool `{}`: {problem}\nYour raw input was: {}\nExpected JSON schema:\n{}\nRetry the tool call with corrected JSON.",
-        tool.name(),
+    let mut message = format!("Invalid input for tool `{}`: {problem}", tool.name());
+    if let Some(field) = missing_field_name(problem) {
+        message.push_str(&format!(
+            "\n缺少必填参数 `{field}`。\nExample (one line): {}",
+            missing_field_example(tool.name(), field)
+        ));
+    }
+    message.push_str(&format!(
+        "\nYour raw input was: {}\nExpected JSON schema:\n{}\nRetry the tool call with corrected JSON.",
         truncate(raw_input, 500),
-        tool.input_schema(),
-    ))
+        tool.input_schema()
+    ));
+    ToolOutput::needs_correction("INVALID_TOOL_INPUT", message)
+}
+
+fn missing_field_name(problem: &str) -> Option<&str> {
+    let marker = "missing field `";
+    let start = problem.find(marker)? + marker.len();
+    let rest = &problem[start..];
+    let end = rest.find('`')?;
+    Some(&rest[..end])
+}
+
+fn missing_field_example(tool_name: &str, field: &str) -> String {
+    match tool_name {
+        "read" | "symbols" => r#"{"path":"src/lib.rs"}"#.into(),
+        "edit" => r#"{"path":"src/lib.rs","old_string":"old","new_string":"new"}"#.into(),
+        "insert" => {
+            r#"{"path":"src/lib.rs","anchor":"ANCHOR","content":"new\n","position":"after"}"#.into()
+        }
+        "memory_search" => r#"{"query":"search terms"}"#.into(),
+        _ => format!(r#"{{"{field}":"..."}}"#),
+    }
 }
 
 fn truncate(s: &str, max: usize) -> &str {
