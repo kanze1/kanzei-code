@@ -9184,3 +9184,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 真实 package.ps1 以当前 HEAD 绑定的 targeted/full_verify=false verification.json 运行，在验证证据门禁阶段明确拒绝；未进入 cargo build/tauri build。
 - 关联: R-309 D-642
 - 收尾: 1787264038
+
+## T-1786922726630 R-309 B3 cargo test -p kanzei-tools [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-tools
+- 时长: 34.3s
+- 摘要: 424 passed、0 failed、1 ignored。新增 verification.json 当前 commit 与 ui_runtime/ui_lint/ui_i18n 三项通过校验；三天前前端 smoke 记录拒绝；既有 test_record 前端识别回归通过。
+- 关联: R-309
+- 收尾: 1787264415
+- 源码指纹: v2 crates/kanzei-tools/src/test_record.rs@45e59a555ae9,crates/kanzei-tools/src/test_record/coverage.rs@33bc88e099b0

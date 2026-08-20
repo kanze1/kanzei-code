@@ -2158,14 +2158,17 @@ mod tests {
             "node --check 只查语法,不算前端冒烟"
         );
         // 前端运行型冒烟:识别通过,取最近收尾。
+        let first_finished = now_secs();
+        let second_finished = first_finished + 1;
         std::fs::write(
             root.join(TEST_RUNS_REL),
-            "# Test Runs\n\n## T-3 runtime [passed]\n- 命令: node scripts/ui-runtime-smoke.mjs\n- 收尾: 300\n\
-             \n## T-4 i18n [passed]\n- 命令: node scripts/ui-i18n-smoke.mjs\n- 收尾: 400\n",
+            format!(
+                "# Test Runs\n\n## T-3 runtime [passed]\n- 命令: node scripts/ui-runtime-smoke.mjs\n- 收尾: {first_finished}\n\n## T-4 i18n [passed]\n- 命令: node scripts/ui-i18n-smoke.mjs\n- 收尾: {second_finished}\n"
+            ),
         )
         .unwrap();
         let got = frontend_smoke_passed(&root).expect("前端冒烟 passed 应被识别");
-        assert_eq!(got.0, 400, "应取最近一条前端冒烟:{got:?}");
+        assert_eq!(got.0, second_finished, "应取最近一条前端冒烟:{got:?}");
         std::fs::remove_dir_all(&root).ok();
     }
 

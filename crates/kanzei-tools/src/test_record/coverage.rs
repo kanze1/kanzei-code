@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::{read_test_records, TEST_RUNS_ARCHIVE_REL, TEST_RUNS_REL};
+use super::{now_secs, read_test_records, TEST_RUNS_ARCHIVE_REL, TEST_RUNS_REL};
 
 /// R-212:一条 passed 测试记录背书的代码范围(覆盖面)。
 #[derive(Debug, Clone, PartialEq)]
@@ -306,15 +306,93 @@ pub fn records_for_entry(root: &Path, entry_id: &str) -> Vec<serde_json::Value> 
     out
 }
 
-/// R-228:最近一条「通过」的**前端冒烟**测试记录(收尾时刻, 标题)。
+/// R-309 B3:verify 产出的当前 HEAD 证据可替代重复的前端冒烟记录。
 ///
-/// 前端冒烟识别:命令或标题命中 `node scripts/ui-*.mjs` 的运行型冒烟
-/// (ui-runtime / ui-i18n / ui-lint / ui-a11y / ui-markdown)。`node --check`
-/// 只做语法检查不跑行为,不算冒烟(验收②:smoke 断言过时带病过关不可复现)。
+/// targeted verify 也可能运行全部前端步骤,所以这里只要求关闭门禁真正需要的三项
+/// (`ui_runtime` / `ui_lint` / `ui_i18n`)通过;是否 full verify 由 package 门禁另行判断。
+fn verification_frontend_smoke_passed(root: &Path, expected_commit: &str) -> Option<(u64, String)> {
+    let path = root.join("dist/verification.json");
+    let text = std::fs::read_to_string(&path).ok()?;
+    let evidence: serde_json::Value = serde_json::from_str(&text).ok()?;
+    if evidence["commit"].as_str() != Some(expected_commit)
+        || evidence["all_pass"].as_bool() != Some(true)
+    {
+        return None;
+    }
+    let checks = evidence["checks"].as_object()?;
+    for key in ["ui_runtime", "ui_lint", "ui_i18n"] {
+        let passed = checks
+            .get(key)
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| value.starts_with("pass "));
+        if !passed {
+            return None;
+        }
+    }
+    let at = std::fs::metadata(&path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())?;
+    Some((
+        at,
+        "dist/verification.json (ui_runtime/ui_lint/ui_i18n)".to_string(),
+    ))
+}
+
+fn current_head(root: &Path) -> Option<String> {
+    let mut command = std::process::Command::new("git");
+    crate::hide_console(&mut command);
+    let output = command
+        .args(["rev-parse", "HEAD"])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let head = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    (!head.is_empty()).then_some(head)
+}
+
+const FRONTEND_SMOKE_MAX_AGE_SECS: u64 = 24 * 60 * 60;
+
+/// 旧 test_record 仍可作为兼容路径,但不能再靠三天前的 passed 记录放行。
+/// 有当前工作区源码指纹时必须由记录背书;干净树无法生成工作区差集时仍由时间窗兜底。
+fn record_is_fresh(root: &Path, record: &serde_json::Value, finished: u64) -> bool {
+    if now_secs().saturating_sub(finished) > FRONTEND_SMOKE_MAX_AGE_SECS {
+        return false;
+    }
+    let Some(current) = crate::git::source_endorsement_fingerprint(root)
+        .ok()
+        .filter(|value| !value.is_empty())
+    else {
+        return true;
+    };
+    let recorded = record["fields"]
+        .as_array()
+        .and_then(|fields| {
+            fields
+                .iter()
+                .find(|field| field["key"].as_str() == Some("源码指纹"))
+                .and_then(|field| field["value"].as_str())
+        })
+        .unwrap_or_default();
+    !recorded.is_empty() && crate::git::fingerprint_endorses(recorded, &current)
+}
+
+/// R-228/R-309 B3:最近一次可用于关闭前端条目的验证证据(收尾时刻, 标题)。
 ///
-/// 关闭门禁用:带「前端」标签的条目关闭前,必须已有前端冒烟 passed 记录
-/// (R-228 验收①:未跑 ui smoke 会被拒)。active + archive 一起看,取最新收尾。
+/// 优先消费 `dist/verification.json`:它必须绑定当前 HEAD,且三项关闭所需 UI 检查均为
+/// pass。没有证据时兼容旧 test_record,但要求记录不超过 24 小时且通过当前源码指纹
+/// 背书(若工作区存在源码差集)。
 pub fn frontend_smoke_passed(root: &Path) -> Option<(u64, String)> {
+    if let Some(head) = current_head(root) {
+        if let Some(evidence) = verification_frontend_smoke_passed(root, &head) {
+            return Some(evidence);
+        }
+    }
+
     let mut newest: Option<(u64, String)> = None;
     for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
         for (_, record) in read_test_records(&root.join(rel)) {
@@ -340,7 +418,7 @@ pub fn frontend_smoke_passed(root: &Path) -> Option<(u64, String)> {
                         .and_then(|id| id.strip_prefix("T-"))
                         .and_then(|s| s.parse::<u64>().ok())
                 });
-            if let Some(at) = finished {
+            if let Some(at) = finished.filter(|at| record_is_fresh(root, &record, *at)) {
                 let title = record["title"].as_str().unwrap_or_default().to_string();
                 newest = Some(match newest {
                     Some(cur) if cur.0 >= at => cur,
@@ -406,4 +484,71 @@ pub(super) fn check_frontend_smoke_claim(
         missing.join("、"),
         FRONTEND_SMOKE_LIST.join(" ")
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_root(tag: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kz-coverage-{tag}-{}-{}",
+            std::process::id(),
+            now_secs()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        root
+    }
+
+    #[test]
+    fn verification_evidence_requires_current_commit_and_three_ui_checks() {
+        let root = temp_root("evidence");
+        std::fs::create_dir_all(root.join("dist")).unwrap();
+        std::fs::write(
+            root.join("dist/verification.json"),
+            r#"{
+                "commit": "head-1",
+                "all_pass": true,
+                "checks": {
+                    "ui_runtime": "pass 1.0s",
+                    "ui_lint": "pass 1.0s",
+                    "ui_i18n": "pass 1.0s"
+                }
+            }"#,
+        )
+        .unwrap();
+        assert!(verification_frontend_smoke_passed(&root, "head-1").is_some());
+        assert!(verification_frontend_smoke_passed(&root, "head-2").is_none());
+
+        std::fs::write(
+            root.join("dist/verification.json"),
+            r#"{
+                "commit": "head-1",
+                "all_pass": true,
+                "checks": {
+                    "ui_runtime": "pass 1.0s",
+                    "ui_lint": "fail 1.0s",
+                    "ui_i18n": "pass 1.0s"
+                }
+            }"#,
+        )
+        .unwrap();
+        assert!(verification_frontend_smoke_passed(&root, "head-1").is_none());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn stale_frontend_record_is_rejected() {
+        let root = temp_root("stale");
+        let stale = now_secs().saturating_sub(FRONTEND_SMOKE_MAX_AGE_SECS + 1);
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            format!(
+                "# Test Runs\n\n## T-1 old smoke [passed]\n- 命令: node scripts/ui-runtime-smoke.mjs\n- 收尾: {stale}\n"
+            ),
+        )
+        .unwrap();
+        assert!(frontend_smoke_passed(&root).is_none());
+        std::fs::remove_dir_all(root).ok();
+    }
 }
