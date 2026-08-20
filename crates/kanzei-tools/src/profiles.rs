@@ -133,7 +133,7 @@ impl Component for ResearchProfile {
 
 #[cfg(test)]
 mod tests {
-    use super::DevProfile;
+    use super::{DevProfile, ResearchProfile};
     use kanzei_harness::{
         rule, ConfigComponent, Effect, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,
     };
@@ -1207,5 +1207,62 @@ mod tests {
         // task 补进快照(runner 内建只读子代理),档位下默认 ask 即放行无副作用。
         let task = by_action("task");
         assert!(!task.fully_denied, "task 在只读档位不应被摘除");
+    }
+
+    #[test]
+    fn research_docs_context_下一轮读取新topic来源() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-research-context-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let topic =
+            crate::docstore::DocStore::open_topic(&root, &crate::docstore::SOURCES, "r221-chain")
+                .unwrap();
+        topic
+            .save(&[crate::docstore::Entry {
+                id: "S-001".into(),
+                title: "first topic source".into(),
+                status: "active".into(),
+                severity: None,
+                fields: vec![],
+            }])
+            .unwrap();
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Research,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness.add(ResearchProfile);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let before = snapshot.stable_system_baseline_with_report().0;
+        assert!(before.contains("first topic source (topic: r221-chain)"));
+
+        topic
+            .save(&[
+                crate::docstore::Entry {
+                    id: "S-001".into(),
+                    title: "first topic source".into(),
+                    status: "active".into(),
+                    severity: None,
+                    fields: vec![],
+                },
+                crate::docstore::Entry {
+                    id: "S-002".into(),
+                    title: "new topic source".into(),
+                    status: "active".into(),
+                    severity: None,
+                    fields: vec![],
+                },
+            ])
+            .unwrap();
+        let after = snapshot.stable_system_baseline_with_report().0;
+        assert!(after.contains("new topic source (topic: r221-chain)"));
+        std::fs::remove_dir_all(root).ok();
     }
 }

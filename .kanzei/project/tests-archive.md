@@ -8492,3 +8492,42 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-569 D-331
 - 收尾: 1787206992
 - 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@5c39417fc26a,crates/kanzei-memory/src/docstore/archive.rs@dc39eb762a25,crates/kanzei-memory/src/docstore/parse.rs@5d80f7a80e45,crates/kanzei-memory/src/docstore/validation.rs@6bd7d39a1e2c,crates/kanzei-tools/src/tracker.rs@c4a4e97abdbb
+
+## T-1786922726539 D-569 收窄完整性判定回归 [passed]
+- 命令: cargo test -p kanzei-memory; cargo test -p kanzei-tools
+- 时长: 40.0s
+- 摘要: 收窄状态字段完整性判定后回归通过：kanzei-memory 156 passed/0 failed；kanzei-tools 394 passed/0 failed/1 ignored。
+- 关联: D-569 D-331
+- 收尾: 1787207659
+
+## T-1786922726540 D-570 research topic 索引定向测试 [passed]
+- 命令: cargo test -p kanzei-tools research_index_
+- 时长: 13.8s
+- 摘要: 2 个研究索引定向测试通过：flat 遗留与 r221-chain topic 同时可见；同一 ResolveCtx 下新增 S-002 下一次 index_of 可见；topic finding 可见。仅有既存 latex_tool unused doc comment 警告。
+- 关联: D-570
+- 收尾: 1787231515
+- 源码指纹: v2 crates/kanzei-tools/src/profiles/research.rs@b2edd4f9cbd3
+
+## T-1786922726541 D-570 research topic 索引与真实上下文消费者定向测试 [failed]
+- 命令: cargo test -p kanzei-tools research_
+- 时长: 0.0s
+- 摘要: 编译失败：profiles.rs 研究上下文测试错误使用不存在的 `kanzei_tools::docstore::` 路径；已登记 D-595，改为 `crate::docstore::` 后重跑。此前重复尾部问题已登记 D-594 并修复。
+- 关联: D-570 D-595
+- 收尾: 1787231691
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@624e1aa86db1,crates/kanzei-tools/src/profiles/research.rs@b2edd4f9cbd3
+
+## T-1786922726542 D-570 research topic 索引修复后定向测试 [passed]
+- 命令: cargo test -p kanzei-tools research_
+- 时长: 2.5s
+- 摘要: 19 个 research 相关测试全部通过；包含 flat/topic 聚合、同一 ResearchProfile context 下一轮读取新 topic 来源、topic finding 回读及既有 research plan/loop/index/verify/write 回归。仅有既存 latex_tool unused doc comment 警告。
+- 关联: D-570 D-594 D-595
+- 收尾: 1787231718
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@624e1aa86db1,crates/kanzei-tools/src/profiles/research.rs@b2edd4f9cbd3
+
+## T-1786922726543 D-570/D-596 格式与 clippy 修正后 research 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools research_
+- 时长: 2.4s
+- 摘要: 19 个 research 相关测试通过；涵盖 flat/topic 聚合、ResearchProfile 同一 snapshot 下一轮读取新增来源、topic finding 回读及 tracker research 回归。仅有既存 latex_tool unused doc comment 警告。
+- 关联: D-570 D-596
+- 收尾: 1787231978
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@dbe507df9034,crates/kanzei-tools/src/profiles/research.rs@a5b0df2872d2,crates/kanzei-tools/src/tracker.rs@edcf6abd34de

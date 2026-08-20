@@ -195,6 +195,71 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
     }
 }
 
+/// 读取索引来源。S-/F- 在 B2 前可能留在 flat 文件,之后写入 topic 目录；
+/// 每次渲染都重新扫描两种落点,因此同一会话下一轮不会继续使用旧 flat 快照。
+type IndexedEntry = (Option<String>, crate::docstore::Entry);
+
+fn load_index_entries(
+    ctx: &ResolveCtx,
+    kind: &'static crate::docstore::DocKind,
+) -> Option<(Vec<IndexedEntry>, usize)> {
+    let store = DocStore::open(&ctx.project_root, kind);
+    let entries = store.load().ok()?;
+    let mut indexed = entries
+        .into_iter()
+        .map(|entry| (None, entry))
+        .collect::<Vec<_>>();
+    let mut closed = indexed
+        .iter()
+        .filter(|(_, entry)| kind.terminal.contains(&entry.status.as_str()))
+        .count();
+    closed += store.load_archive().map_or(0, |archive| archive.len());
+
+    if !matches!(kind.prefix, "S" | "F") {
+        return Some((indexed, closed));
+    }
+
+    let research_root = ctx.project_root.join(".kanzei/research");
+    let mut topics = std::fs::read_dir(research_root)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let item = item.ok()?;
+            if !item.file_type().ok()?.is_dir() {
+                return None;
+            }
+            let topic = item.file_name().into_string().ok()?;
+            crate::docstore::DocStore::validate_topic(&topic).ok()?;
+            Some(topic)
+        })
+        .collect::<Vec<_>>();
+    topics.sort();
+
+    for topic in topics {
+        let Ok(topic_store) = DocStore::open_topic(&ctx.project_root, kind, &topic) else {
+            continue;
+        };
+        let Ok(topic_entries) = topic_store.load() else {
+            continue;
+        };
+        closed += topic_entries
+            .iter()
+            .filter(|entry| kind.terminal.contains(&entry.status.as_str()))
+            .count();
+        closed += topic_store
+            .load_archive()
+            .map_or(0, |archive| archive.len());
+        indexed.extend(
+            topic_entries
+                .into_iter()
+                .map(|entry| (Some(topic.clone()), entry)),
+        );
+    }
+
+    Some((indexed, closed))
+}
+
 /// 文档索引:非终态条目一行一个,预算封顶。
 pub(crate) fn index_of(
     ctx: &ResolveCtx,
@@ -202,34 +267,38 @@ pub(crate) fn index_of(
     label: &str,
 ) -> Option<String> {
     const INDEX_LIMIT: usize = 500;
-    let store = DocStore::open(&ctx.project_root, kind);
-    let entries = store.load().ok()?;
+    let (entries, closed) = load_index_entries(ctx, kind)?;
     if entries.is_empty() {
         return None;
     }
-    let open: Vec<&crate::docstore::Entry> = entries
+    let open: Vec<&IndexedEntry> = entries
         .iter()
-        .filter(|e| !kind.terminal.contains(&e.status.as_str()))
+        .filter(|(_, entry)| !kind.terminal.contains(&entry.status.as_str()))
         .collect();
-    // 已完成的会被移入归档文件,closed 计数要把两处都算上。
-    let closed = entries.len() - open.len() + store.load_archive().map_or(0, |a| a.len());
     let mut lines: Vec<String> = open
         .iter()
         .take(INDEX_LIMIT)
-        .map(|e| {
-            let sev = e
+        .map(|(topic, entry)| {
+            let sev = entry
                 .severity
                 .as_ref()
                 .map(|s| format!("/{s}"))
                 .unwrap_or_default();
-            format!("{} [{}{sev}] {}", e.id, e.status, e.title)
+            let topic = topic
+                .as_deref()
+                .map(|topic| format!(" (topic: {topic})"))
+                .unwrap_or_default();
+            format!(
+                "{} [{}{sev}] {}{topic}",
+                entry.id, entry.status, entry.title
+            )
         })
         .collect();
     if open.len() > INDEX_LIMIT {
         let folded: Vec<&str> = open
             .iter()
             .skip(INDEX_LIMIT)
-            .map(|e| e.id.as_str())
+            .map(|(_, entry)| entry.id.as_str())
             .collect();
         lines.push(format!(
             "… +{} more open ({}), read `{}` or use the tracker list tool for the full queue",
@@ -243,4 +312,81 @@ pub(crate) fn index_of(
         open.len(),
         lines.join("\n")
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::index_of;
+    use crate::docstore::{DocStore, Entry, FINDINGS, SOURCES};
+    use kanzei_harness::{KanzeiConfig, ProfileKind, ResolveCtx};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    fn test_root(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "kz-research-index-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    fn entry(id: &str, title: &str, status: &str) -> Entry {
+        Entry {
+            id: id.into(),
+            title: title.into(),
+            status: status.into(),
+            severity: None,
+            fields: vec![],
+        }
+    }
+
+    fn ctx(root: PathBuf) -> ResolveCtx {
+        ResolveCtx {
+            profile: ProfileKind::Research,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        }
+    }
+
+    #[test]
+    fn research_index_聚合flat遗留和topic并能回读同会话新条目() {
+        let root = test_root("sources");
+        let flat = DocStore::open(&root, &SOURCES);
+        flat.save(&[entry("S-001", "flat legacy source", "active")])
+            .unwrap();
+        let topic = DocStore::open_topic(&root, &SOURCES, "r221-chain").unwrap();
+        topic
+            .save(&[entry("S-001", "topic source", "active")])
+            .unwrap();
+
+        let first = index_of(&ctx(root.clone()), &SOURCES, "Sources").unwrap();
+        assert!(first.contains("flat legacy source"));
+        assert!(first.contains("topic source (topic: r221-chain)"));
+
+        topic
+            .save(&[
+                entry("S-001", "topic source", "active"),
+                entry("S-002", "new same-session source", "active"),
+            ])
+            .unwrap();
+        let second = index_of(&ctx(root.clone()), &SOURCES, "Sources").unwrap();
+        assert!(second.contains("new same-session source (topic: r221-chain)"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn research_index_同时覆盖topic_findings() {
+        let root = test_root("findings");
+        let topic = DocStore::open_topic(&root, &FINDINGS, "r221-chain").unwrap();
+        topic
+            .save(&[entry("F-001", "topic finding", "draft")])
+            .unwrap();
+        let index = index_of(&ctx(root.clone()), &FINDINGS, "Findings").unwrap();
+        assert!(index.contains("topic finding (topic: r221-chain)"));
+        std::fs::remove_dir_all(root).ok();
+    }
 }

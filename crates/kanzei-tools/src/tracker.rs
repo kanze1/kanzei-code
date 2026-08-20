@@ -655,7 +655,7 @@ impl TrackerTool {
                  from the title."
             ));
         }
-        crate::docstore::invalid_severity_marker(&self.kind, title).map(|severity| {
+        crate::docstore::invalid_severity_marker(self.kind, title).map(|severity| {
             format!(
                 "title must not carry an invalid severity suffix `({severity})` — defect severity \
                  is a separate engine-managed field and only accepts high | medium | low (D-569)."

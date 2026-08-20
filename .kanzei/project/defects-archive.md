@@ -7122,7 +7122,6 @@
 - observed_head: 2eb90830a789544b746871a9d77966c8a3b4fd8f
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787195242403
-- 阻塞: 
 
 ## D-586 RecallRunOutcome 未从 kanzei-core 根导出导致 memory crate 编译失败 [fixed] (medium)
 - 复现: kanzei-memory 的 FailureRecallPolicy 实现引用 kanzei_core::RecallRunOutcome；类型仅在 kanzei_core::runner 导出，crate 根 lib.rs 未 re-export，cargo test -p kanzei-memory 编译失败。
@@ -7178,3 +7177,75 @@
 - 优先级: P1
 - observed_head: f06896ee55b759ab7da292bbeadf1a087364a01c
 - recorded_at: 1787199353567
+
+## D-569 tracker 完整性退化复发(D-331 同形态):归档标题双状态标记与非法 severity 再现 [fixed] (high)
+- refs: D-331 D-553 D-554 D-555
+- 复杂度: 中
+- 复现: defects-archive.md:6822 的 D-553 标题行为「... [open] (small) [fixed]」——同行两个状态标记且 (small) 非法(合法 severity 为 high/medium/low);D-554 同样「[done] (small) [fixed]」;defects-archive.md:6829 引擎在取活依据字段写入「[tracker integrity degraded] D-555: invalid defect lifecycle [done]」,该告警全库出现 4 次。D-331(已 fixed,high)当时修的正是「归档终态无法安全修正且非法状态污染缺陷标题」,b140322 加了跨 DocKind 状态标记校验+fix_terminal,08-20 同形态再现说明校验有漏洞或写入方绕过
+- 影响: 归档数据被污染且按 D-331 教训会扩散:完整性门禁降级告警混入取活依据字段,畸形条目无法被 list/get 正确解析;M-012 类机制恶化可能拒绝所有 tracker 写操作
+- 标签: 核心
+- 验收: ①定位本次畸形写入的具体路径(哪个写入方绕过了 b140322 校验)并封堵;②用 fix_terminal/repair 修正 D-553/D-554/D-555 存量畸形行,integrity 告警清零;③D-331 的回归测试补上本次形态(双状态标记+非法 severity+污染取活依据);④复发计数落档:同形态第 2 次,若再现第 3 次升级为门禁硬拒
+- 优先级: P1
+- 对账: 2026-08-20 勘察补充:同类完整性脏数据另见 requirements-archive.md 的 R-221 条目——标题 [done] 但残留字段「- 状态: todo」,修复时一并纳入存量清理与回归形态
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-569(unblocks=0)
+- 复发计数: 2（D-331 历史形态→本次 D-553/D-554/D-555 再现）
+- 进展: D-569 收口对账：①具体绕过路径=历史直写提交 3c123bd5(D-553)与36ccb253(D-554/D-555)未经过当前 add/update 的 check_title/check_severity；当前写入封堵位于 crates/kanzei-tools/src/tracker.rs:644-660，归档修复写日志补线位于 tracker.rs:483-496，fix_terminal 入口位于 crates/kanzei/src/cli/tracker.rs:146-156。②存量修正=通过真实 kz defect fix_terminal 持久化清理 D-553/D-554/D-555(defects-archive.md:6822/6836/6851)，并按对账清理 R-221(requirements-archive.md:3645)、D-172、D-283；kz defect list 与 kz req list 均无 tracker integrity 告警。③回归=crates/kanzei-memory/src/docstore.rs:489-544 覆盖双状态+非法 severity+状态字段污染与修复后清零，validation.rs:158-183 统一检测，tracker.rs:380-404 普通写硬拒；T-1786922726538 通过(kanzei-memory 156、kanzei-tools 394)。④复发计数已落档为2；第三次及以后由 tracker.rs:380-404 直接硬拒普通写，修复动作仍经 FIX_TERMINAL_ACTION/normalize 显式收口。
+- 门禁: 同形态第 3 次及以后沿用 tracker.rs:380-404 完整性硬拒；仅 fix_terminal/normalize 修复通道可用，普通 add/update/close/archive 等写操作拒绝
+- 验收核验: ①已完成：3c123bd5/36ccb253历史直写绕过点已定位，tracker.rs:644-660与483-496封堵。②已完成：D-553/D-554/D-555及对账R-221/D-172/D-283经fix_terminal修正，双库list无integrity告警。③已完成：docstore.rs:489-544、validation.rs:158-183、tracker.rs:380-404与T-1786922726538。④已完成：复发计数=2已落档；第三次及以后普通写沿tracker.rs:380-404硬拒。
+- observed_head: 11b60ae32647a5ff999329120316e8ffebad7fd8
+- observed_worktree_hash: fnv1a64:72ca3632fdae6c18
+- recorded_at: 1787207020185
+
+## D-570 research 上下文注入读 flat 路径而写入走 topic 路径,B2 后新增 S-/F- 对 agent 不可见 [fixed] (high)
+- refs: R-221 R-248 R-277
+- 复杂度: 小
+- 复现: crates/kanzei-tools/src/profiles/research.rs:199-246 的 index_of 用 DocStore::open(&ctx.project_root, kind) 读死 .kanzei/research/sources.md 平铺路径;而 tracker.rs:316-329(R-221 B2)强制 source/finding 写入 .kanzei/research/<topic>/。结果 research agent 每轮 <research-docs> 索引只看到 2026-08-16 那批 flat 遗留 19 S/11 F,B2 之后 topic 目录里新写的条目永不出现
+- 影响: 「引用在收集时绑定」被釜底抽薪:研究员看不见自己刚收集的来源;因 08-17 后 research 零使用一直未被撞见,R-248 prior-art 上线后必触发
+- 标签: 后端
+- 验收: ①index_of 按当前 topic 聚合注入(topic+flat 遗留两段均可见);②新写 S-/F- 在同会话下一轮注入中可见的定向测试;③r221-chain 等存量 topic 目录条目回读验证
+- 优先级: P2
+- 来源: self-found（用户要求继续推进；由 D-570 既有复现定位）
+- 进展: 本次交付已落地：`crates/kanzei-tools/src/profiles/research.rs:200-258` 新增 `load_index_entries`，保留 flat `DocStore::open` 并扫描 `.kanzei/research/` 下合法 kebab-case topic 目录，读取各 topic 的 sources/findings 及归档；`research.rs:262-310` 的 `index_of` 汇总非终态并为 topic 条目附 `(topic: ...)`。真实消费者位于 `crates/kanzei-tools/src/profiles.rs:79-105` 的 `ResearchProfile` `research/docs` context；本次新增 `profiles.rs:1213-1270` 测试直接从该 context 连续渲染，写入新 S-002 后下一次渲染可见。① flat 遗留与 topic 聚合：`research.rs:200-310` + T-1786922726542；②同会话新写 S-/F- 回读：`profiles.rs:1213-1270`、`research.rs:350-374`、T-1786922726542；③r221-chain 存量 topic 回读：`research.rs:356-363`、`profiles.rs:1222-1226`、T-1786922726542。当前 ResolveCtx 没有显式 topic 字段，因此按研究根目录下全部合法 topic 目录聚合，确保当前 topic 可见且不漏 flat 遗留。
+- observed_head: 5411e2c1a23205b5a222e298610564f5f0b28a3d
+- observed_worktree_hash: fnv1a64:15faf0da9ce189c7
+- recorded_at: 1787231761063
+- 取活依据: engine:唯一可执行 WIP 是 D-570，必须先恢复它
+- 验收对账: ①已完成：research.rs:200-310 按 flat+topic 聚合并注入，T-1786922726542；②已完成：profiles.rs:1213-1270 真实 research/docs consumer 同一 snapshot 下一次读取新增 S-002，research.rs:350-374 同时覆盖 F-；T-1786922726542；③已完成：r221-chain topic sources/findings 回读由 research.rs:356-384 与 profiles.rs:1222-1268 覆盖，T-1786922726542。
+
+## D-594 profiles.rs 研究上下文测试插入留下重复尾部代码导致编译失败 [fixed] (medium)
+- refs: D-570
+- 复现: crates/kanzei-tools/src/profiles.rs:末尾研究上下文测试附近出现 `}        let task = by_action("task");` 重复片段，原有测试闭合后又残留一段语句
+- 影响: cargo test -p kanzei-tools 无法编译，D-570 新增真实消费者测试不能验证
+- 来源: self-found（复核 D-570 未提交改动时发现）
+- 标签: 后端
+- 优先级: P2
+- 进展: 已修复：删除 `crates/kanzei-tools/src/profiles.rs:1271-1274` 插入操作留下的重复测试尾部，文件最终测试模块在 `profiles.rs:1270-1271` 正常闭合。T-1786922726542 运行 `cargo test -p kanzei-tools research_`，19 项通过，确认编译恢复。
+- 验收对账: 已完成：重复尾部已从 profiles.rs:1271-1274 删除，T-1786922726542 通过。
+- observed_head: 5411e2c1a23205b5a222e298610564f5f0b28a3d
+- observed_worktree_hash: fnv1a64:15faf0da9ce189c7
+- recorded_at: 1787231782880
+
+## D-595 profiles.rs 研究上下文测试错误引用自身 crate 名称 [fixed] (medium)
+- refs: D-570
+- 复现: crates/kanzei-tools/src/profiles.rs:1222-1258 的研究上下文测试使用 `kanzei_tools::docstore::...`，在 kanzei-tools crate 自身测试编译时找不到该外部 crate
+- 影响: cargo test -p kanzei-tools research_ 编译失败，真实 research/docs 消费者测试无法运行
+- 来源: self-found（D-570 定向测试失败后定位）
+- 标签: 后端
+- 优先级: P2
+- 进展: 已修复：将 `crates/kanzei-tools/src/profiles.rs:1222-1258` 研究上下文测试中的不存在的 `kanzei_tools::docstore::` 自引用全部改为当前 crate 的 `crate::docstore::` 路径。T-1786922726542 运行 `cargo test -p kanzei-tools research_`，19 项通过，确认编译与真实消费者测试恢复。
+- 验收对账: 已完成：profiles.rs:1222-1258 使用 crate::docstore:: 正确路径，T-1786922726542 通过。
+- observed_head: 5411e2c1a23205b5a222e298610564f5f0b28a3d
+- observed_worktree_hash: fnv1a64:15faf0da9ce189c7
+- recorded_at: 1787231789682
+
+## D-596 tracker.rs 立即解引用 clippy 错误阻断提交门禁 [fixed] (medium)
+- 复现: 提交前结构化 clippy gate 执行 `cargo clippy --workspace -- -D warnings`，在 crates/kanzei-tools/src/tracker.rs:658 报 `this expression creates a reference which is immediately dereferenced by the compiler`
+- 影响: 即使 D-570 定向测试通过，项目提交门禁仍拒绝提交，无法形成可审计交付
+- 来源: self-found（D-570 提交门禁发现；位置不属于本次 research 索引改动）
+- 标签: 核心
+- 优先级: P2
+- 进展: 已完成：`crates/kanzei-tools/src/tracker.rs:658` 去除对 `self.kind` 的多余引用；`cargo fmt --all -- --check` 与 `cargo clippy --workspace -- -D warnings` 均通过。T-1786922726543 的 `cargo test -p kanzei-tools research_` 19 项通过。
+- observed_head: 5411e2c1a23205b5a222e298610564f5f0b28a3d
+- observed_worktree_hash: fnv1a64:3532cc712fda45b9
+- recorded_at: 1787232012162
+- 验收对账: 已完成：tracker.rs:658 的 needless borrow 已消除；fmt/clippy 门禁通过；T-1786922726543 通过。
