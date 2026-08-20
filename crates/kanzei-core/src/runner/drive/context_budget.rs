@@ -4,6 +4,7 @@
 //! 运行态，保持预算检查在每步请求前执行以及事件顺序不变。
 
 use super::*;
+use kanzei_llm::protocol::ProtocolKind;
 
 /// R-202 批6:轮内上下文预算——每步开跑前的主动 prune / 压缩 / trim。
 ///
@@ -21,6 +22,7 @@ pub(super) async fn enforce_context_budget(
     config: &RunnerConfig,
     system: &[String],
     specs: &[ToolSpec],
+    protocol: ProtocolKind,
     messages: &mut Vec<Message>,
     last_input_tokens: Option<u64>,
     last_estimated_tokens: Option<u64>,
@@ -51,7 +53,8 @@ pub(super) async fn enforce_context_budget(
             config.limits.compact_buffer_tokens(),
         );
         let anchored_tokens = |messages: &[Message]| {
-            let current_estimated_tokens = estimate_prompt_tokens(system, messages, specs);
+            let current_estimated_tokens =
+                estimate_prompt_tokens_for_protocol(system, messages, specs, Some(protocol));
             budgeted_tokens_from_last_usage(
                 last_input_tokens,
                 last_estimated_tokens,
@@ -95,13 +98,14 @@ pub(super) async fn enforce_context_budget(
                 // trim_tail 拿同一个 calibration:两边必须用同一把尺子量同一条
                 // 预算线,否则它按原始口径够线就收手,这里看还超线(D-203)。
                 if anchored_tokens(messages) > budget {
-                    trim_tail(
+                    trim_tail_for_protocol(
                         messages,
                         system,
                         specs,
                         budget,
                         calibration,
                         overflow_traces,
+                        Some(protocol),
                     );
                 }
                 let after = anchored_tokens(messages);

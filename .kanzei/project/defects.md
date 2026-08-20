@@ -71,12 +71,12 @@
 - 边界: 历史侧 Part::Reasoning 剪枝(openai 协议 build_body openai.rs:83-91 从不回传,drive.rs:582 却存进历史虚增估算)只能与本条①同批落地——单独剪会让估算更小、压缩触发更晚,加重症状;Qwen 官方口径『多轮剥离 thinking 但多步工具调用期间保留』的质量权衡(llama-server --reasoning-preserve)不在本条,另行评估
 - 验收: ①预算检查锚定上一步真实 prompt_tokens(last_input_tokens 已在手)+本步新增内容估算增量,bytes/4 全量估算只做冷启动兜底;②校准按 provider 持久化或冷启动用保守初值,消除每 run 重置 1.0 的首步裸奔;③compaction_budget 对小窗口自适应,max_tokens 不得吃掉固定一半窗口;④回归:模拟估算偏低 2 倍场景压缩在撞墙前触发;⑤llama-local 真实长任务(多步工具循环读大文件)实测不再 400
 - 优先级: P1
-- 批次: 2/3
+- 批次: 3/3
 - 批次表: B1/3：核对预算决策与 usage 调用链，落地真实 prompt_tokens 锚定及回归；B2/3：落地 provider 校准持久化/保守冷启动与小窗口 compaction_budget；B3/3：修正 Reasoning 历史估算一致性、跑全链路验证并收口。
-- 进展: B2 已落地并通过测试。`crates/kanzei-core/src/runner/context.rs:16-21,99-113` 将冷启动校准固定为保守 2.0（首个 provider usage 前先保护小窗口，收到真实 usage 后由 EMA 下调），并将 `compaction_budget` 的输出与 buffer reserve 分别限制在 context_limit 的三分之一，避免 `max_tokens` 固定吞掉 65536 窗口一半；`crates/kanzei-core/src/runner/drive/assembly.rs:195-198` 已消费该保守初值。测试 `T-1786922726568`：`cargo fmt --all; cargo test -p kanzei-core`，222 passed、0 failed；覆盖冷启动校准、32k/65k/16k 小窗口预算与既有压缩链路。决策：本条验收②采用“冷启动用保守初值”分支，不新增 provider 持久化真源；下一步 B3：同批修正 Reasoning 历史估算与 OpenAI 请求裁剪一致性，并补 2 倍低估触发回归。
-- observed_head: a7016df7d867a55ff1e31036b101b1a05c3610ef
-- observed_worktree_hash: fnv1a64:54e0b0b6db1e09ad
-- recorded_at: 1787238808104
+- 进展: B3 已落地并通过定向测试，提交暂受 D-603 的 workspace clippy 阻断。实现与证据逐条对账：① `crates/kanzei-core/src/runner/drive/context_budget.rs:54-61` 用 `last_input_tokens + max(current_estimated - last_estimated, 0)` 锚定上一步真实 usage，冷启动才走完整估算×校准；`drive.rs:500-507` 用实际 `route.kind` 记录与 wire 请求一致的原始估算；B1 回归 `T-1786922726566`。② `context.rs:16-21` 提供保守冷启动校准 2.0，`drive/assembly.rs:195-198` 消费该值，`T-1786922726568` 通过；本条已明确采用冷启动保守初值，不新增 provider 持久化真源。③ `context.rs:99-107` 将 max_tokens 与 buffer reserve 各限制在 context_limit/3，保留 context_limit/4 封底，`T-1786922726568` 覆盖 16k/32k/65k。④ `context.rs:125-155` 与 `drive/context_budget.rs:54-61,98-107` 按 ProtocolKind 对齐估算、预算检查和 trim_tail；OpenAI Chat 不计实际 builder 丢弃的 Reasoning，Responses 保留；回归 `context.rs:530-551`、`T-1786922726569`（223 passed），并由 B1 的 `T-1786922726566` 覆盖低估增量触发链。⑤ 验收降级：原文要求 llama-local 真实长任务多步工具循环不再 400→本批未执行真实 provider 长任务，原因是当前环境没有可安全接管的用户 llama-local 实测窗口；代码级预算链已验证，但该现场证据仍由用户/后续真实窗口执行。workspace 门禁 `T-1786922726570`：fmt/check 通过，clippy 被 D-603 `manager.rs:644,653` 的既有 &PathBuf 问题阻断；D-592 代码未混入该无关修复。下一步：先解决或让位 D-603 后，对本批 D-592 变更执行结构化提交，再补真实 llama-local 验收。
+- observed_head: b8dc9dc379d03a9325e588e483f46846bff82a55
+- observed_worktree_hash: fnv1a64:4a485d69b1488d48
+- recorded_at: 1787239345365
 - 取活依据: engine:唯一可执行 WIP 是 D-592，必须先恢复它
 
 ## D-593 上下文占用显示轮末才刷新且与预算引擎两套口径,长 prefill 期间滞后一整步 [open] (medium)
@@ -86,4 +86,11 @@
 - 来源: 2026-08-20 用户实测反馈,主会话诊断
 - 标签: 前端
 - 验收: ①运行中占用显示与预算引擎同口径(D-592 改锚定真实值后两边天然收敛);②轮内长 prefill 期间显示不冻结——至少标注滞后/计算中,或用引擎估算实时刷新并标注口径;③对 context_limit 的占比展示与撞线告警准确
+- 优先级: P2
+
+## D-603 kanzei-memory manager 测试辅助函数 PathBuf 参数阻断 workspace clippy [open] (low)
+- 复现: cargo clippy --workspace --all-targets -- -D warnings 在 crates/kanzei-memory/src/memory/manager.rs:644、653 报 clippy::ptr_arg：write_fact_source 与 write_m001_source 使用 &PathBuf 而非 &Path。
+- 影响: workspace Rust 提交门禁失败，阻断当前 D-592 B3 形成可审计提交；与 D-592 的业务代码无关。
+- 来源: self-found（D-592 B3 提交门禁复跑）
+- 标签: 核心
 - 优先级: P2

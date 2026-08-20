@@ -8729,3 +8729,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-592
 - 收尾: 1787238795
 - 源码指纹: v2 crates/kanzei-core/src/runner/context.rs@813b209434ea,crates/kanzei-core/src/runner/drive/assembly.rs@db20c8f5216a
+
+## T-1786922726569 D-592 B3 协议感知预算定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core
+- 时长: 9.5s
+- 摘要: D-592 B3 协议感知预算回归通过：223 passed、0 failed；覆盖 OpenAI Chat 跳过不回放的 reasoning、Responses 保留 reasoning、预算/trim_tail/usage 锚定链路。
+- 关联: D-592
+- 收尾: 1787239211
+- 源码指纹: v2 crates/kanzei-core/src/runner/context.rs@0150ac1f58cc,crates/kanzei-core/src/runner/drive.rs@e2eb3adf245c,crates/kanzei-core/src/runner/drive/context_budget.rs@e3afabcf857a
+
+## T-1786922726570 D-592 B3 workspace 提交门禁 [failed]
+- 命令: cargo fmt --all -- --check; cargo check --workspace --all-targets; cargo clippy --workspace --all-targets -- -D warnings
+- 时长: 19.1s
+- 摘要: fmt 与 workspace check 通过；clippy 被既有问题阻断：crates/kanzei-memory/src/memory/manager.rs:644、653 的 &PathBuf 触发 clippy::ptr_arg。
+- 关联: D-603
+- 收尾: 1787239326
+- 源码指纹: v2 crates/kanzei-core/src/runner/context.rs@0150ac1f58cc,crates/kanzei-core/src/runner/drive.rs@e2eb3adf245c,crates/kanzei-core/src/runner/drive/context_budget.rs@e3afabcf857a

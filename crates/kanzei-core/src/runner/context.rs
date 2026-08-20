@@ -5,6 +5,7 @@
 //! MAX_FUTILE_COMPACTIONS 留 mod.rs(pub(super))。
 
 use crate::runner::compaction::dropped_trace;
+use kanzei_llm::protocol::ProtocolKind;
 use kanzei_llm::{Message, Part, Role, ToolSpec};
 use std::collections::HashSet;
 
@@ -117,14 +118,34 @@ pub(crate) fn estimate_prompt_tokens(
     messages: &[Message],
     specs: &[ToolSpec],
 ) -> u64 {
+    estimate_prompt_tokens_for_protocol(system, messages, specs, None)
+}
+
+/// 按 wire 协议估算本步请求。OpenAI Chat 的 builder 会丢弃 Reasoning part,
+/// 因此不能把它计入实际 prompt；Responses/Anthropic/DeepSeek 则保留该历史块。
+pub(crate) fn estimate_prompt_tokens_for_protocol(
+    system: &[String],
+    messages: &[Message],
+    specs: &[ToolSpec],
+    protocol: Option<ProtocolKind>,
+) -> u64 {
     let system_bytes: usize = system.iter().map(String::len).sum();
     let message_bytes: usize = messages
         .iter()
         .map(|message| {
+            if protocol == Some(ProtocolKind::OpenAiChat)
+                && message
+                    .parts
+                    .iter()
+                    .all(|part| matches!(part, Part::Reasoning { .. }))
+            {
+                return 0;
+            }
             message
                 .parts
                 .iter()
                 .map(|part| match part {
+                    Part::Reasoning { .. } if protocol == Some(ProtocolKind::OpenAiChat) => 0,
                     Part::Image { .. } | Part::Document { .. } => {
                         (ATTACHMENT_TOKEN_COST * 4) as usize
                     }
@@ -190,6 +211,7 @@ pub(crate) fn update_calibration(current: f64, estimated: u64, actual: u64) -> f
 /// 注意 update_calibration 的输入必须是 estimate_prompt_tokens 的**原始**值
 /// (last_estimated),不能走这里——乘了校准就是拿自己的输出当输入,EMA 会发散。
 /// 两个函数分开命名就是为了让这两种用途一眼分得开。
+#[allow(dead_code)] // 保留通用测试/非协议调用口径。
 pub(crate) fn budgeted_tokens(
     system: &[String],
     messages: &[Message],
@@ -197,6 +219,18 @@ pub(crate) fn budgeted_tokens(
     calibration: f64,
 ) -> u64 {
     (estimate_prompt_tokens(system, messages, specs) as f64 * calibration).round() as u64
+}
+
+/// 与实际 wire 协议一致的校准预算口径。
+pub(crate) fn budgeted_tokens_for_protocol(
+    system: &[String],
+    messages: &[Message],
+    specs: &[ToolSpec],
+    calibration: f64,
+    protocol: Option<ProtocolKind>,
+) -> u64 {
+    (estimate_prompt_tokens_for_protocol(system, messages, specs, protocol) as f64 * calibration)
+        .round() as u64
 }
 
 /// 预算检查的增量口径(D-592):上一请求已有真实 `prompt_tokens` 时,只把当前
@@ -220,6 +254,7 @@ pub(crate) fn budgeted_tokens_from_last_usage(
 /// 不超线为止;任务定义、纪要与当前用户消息一律不动。否则下一步预算检查
 /// 立刻再压——连续两次压缩 = 缓存前缀两次全量重算(cache_write 双倍),
 /// 省下的 token 不够补缓存成本。
+#[allow(dead_code)] // 保留通用测试/非协议调用口径。
 pub(crate) fn trim_tail(
     messages: &mut Vec<Message>,
     system: &[String],
@@ -228,10 +263,30 @@ pub(crate) fn trim_tail(
     calibration: f64,
     overflow_traces: &mut Vec<String>,
 ) {
+    trim_tail_for_protocol(
+        messages,
+        system,
+        specs,
+        budget,
+        calibration,
+        overflow_traces,
+        None,
+    );
+}
+
+pub(crate) fn trim_tail_for_protocol(
+    messages: &mut Vec<Message>,
+    system: &[String],
+    specs: &[ToolSpec],
+    budget: u64,
+    calibration: f64,
+    overflow_traces: &mut Vec<String>,
+    protocol: Option<ProtocolKind>,
+) {
     loop {
         // 校准口径,与调用方判"是否仍超线"同源(D-203):这里用原始估算的话,
         // calibration>1 时会提前收手,调用方视角仍超线,下一步立刻再压。
-        if budgeted_tokens(system, messages, specs, calibration) <= budget {
+        if budgeted_tokens_for_protocol(system, messages, specs, calibration, protocol) <= budget {
             break;
         }
         let Some(head_index) = messages.iter().position(is_text_user_message) else {
@@ -467,6 +522,31 @@ mod tests {
     fn 冷启动校准使用保守上限() {
         assert_eq!(conservative_calibration(), COLD_START_CALIBRATION);
         assert_eq!(COLD_START_CALIBRATION, 2.0);
+    }
+
+    /// D-592 B3:OpenAI Chat 不回放 reasoning,预算不能把它当成实际 prompt；
+    /// 其他协议仍保留 reasoning 历史，避免把协议范围错误收窄。
+    #[test]
+    fn 协议估算与_reasoning_回放口径一致() {
+        let reasoning = Message::assistant(vec![Part::Reasoning {
+            text: "内部推理 ".repeat(40),
+            signature: None,
+        }]);
+        let without_reasoning = estimate_prompt_tokens(&[], &[], &[]);
+        let chat = estimate_prompt_tokens_for_protocol(
+            &[],
+            std::slice::from_ref(&reasoning),
+            &[],
+            Some(ProtocolKind::OpenAiChat),
+        );
+        let responses = estimate_prompt_tokens_for_protocol(
+            &[],
+            std::slice::from_ref(&reasoning),
+            &[],
+            Some(ProtocolKind::OpenAiResponses),
+        );
+        assert_eq!(chat, without_reasoning);
+        assert!(responses > chat);
     }
     /// 校准因子:中文 \uXXXX 转义/工具输出密集场景下 len/4 估算偏高,真实 usage
     /// 应把它拉回;单步异常比值被限幅,不会一次带飞;拿不到 usage 时不更新。

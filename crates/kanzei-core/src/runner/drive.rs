@@ -233,6 +233,7 @@ pub fn run_once_with_parts<'a>(
                 config,
                 &system,
                 &specs,
+                route.kind,
                 &mut messages,
                 last_input_tokens,
                 last_estimated_tokens,
@@ -499,7 +500,12 @@ async fn stream_request_step(
         // 下一次预算判断就按校准后的口径来。tools 随 last_step 变化,估算必须
         // 与实际发出的请求同口径,否则校准因子被系统性偏差污染。
         let req_tools: &[ToolSpec] = if last_step { &[] } else { specs };
-        let last_estimated = estimate_prompt_tokens(system, &request_messages, req_tools);
+        let last_estimated = estimate_prompt_tokens_for_protocol(
+            system,
+            &request_messages,
+            req_tools,
+            Some(route.kind),
+        );
         let request = LlmRequest {
             model: config.model.clone(),
             system: system.to_vec(),
