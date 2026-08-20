@@ -7169,3 +7169,14 @@
 - 优先级: P1
 - observed_head: ca215413e8f074fe4d8b662d2e2e997c6d9ad620
 - recorded_at: 1787197841780
+
+## D-583 鞭挞机制缺连续零产出熔断,R-306 空转 10 轮无停机上报 [fixed] (medium)
+- refs: R-306 R-307 D-504
+- 复现: 2026-08-20 R-306 现场:鞭挞计数 7→10,轮次产出 steps 32→10→7→2,最后两轮零文件改动零提交,仅重复背诵同一份证据清单;会话累计 313 条,无熔断无上报,直到用户人工发现
+- 影响: 当剩余缺口全是循环无法自解的外部阻塞(权限环境、需用户决策、真实合并冲突)时,鞭挞持续烧 token 空转,活锁无上限
+- 来源: 2026-08-20 用户现场发现 R-306 空转,主会话诊断确认活锁三根因(祖先链验收不可自满足/verify 环境挡死/进展提交被混入卡住)
+- 标签: 核心
+- 进展: 已提交 f06896ee + d6244661。根因:既有 has_progress_tools 只看工具名画像,一轮调用 bash(如反复 cat 同一份证据清单)就判定「有进展工具」,穿透了 NoAction 检测——这正是 R-306 现场的形态。新增正交信号 progress_signature(crates/kanzei-app/src/auto_run.rs):按 (HEAD、代码 worktree hash 经 kanzei_tools::work::repo_observation、.kanzei/project/defects.md+requirements.md 原始字节) 三段拼哈希;harness 状态机(crates/kanzei-harness/src/auto_run.rs)纯比较字符串,不做 IO。①连续 ZERO_OUTPUT_ROUND_LIMIT(3)轮签名不变即 Stop(ZeroOutput(n)),空字符串为「调用方未接线」哨兵不追踪,现有测试桩零改动兼容;新增 3 条 harness 单测覆盖「连续未变熔断/签名变化清零/空签名不追踪」。①后半「点名阻塞清单」由 d6244661 补齐:blocked_wip_summary 扫 WIP(doing/fixing)且「阻塞」字段非空的条目,拼进审计记录与手机通知文案,回归 阻塞清单只收wip且阻塞字段非空的条目 验证过滤规则(todo/open 与空阻塞字段均不计入)。②现场案例回归:crates/kanzei-app/src/auto_run.rs 的 真实进展签名对代码改动提交与tracker文档改动均敏感 用真实临时 git 仓库验证代码改动/commit/tracker 文档改动(哪怕未提交)三类真实动作均改变签名,专门守住 repo_observation 排除 .kanzei/** 这个已知口径不被误用。③熔断留痕:record_zero_output_alert 追加写 .kanzei/project/auto-run-alerts.jsonl(同 D-566/D-567 的 jsonl 审计手法,含 blocked 字段),回归 熔断事件写入审计文件_多次触发各自成行 验证多次触发各自成行不覆盖且带 blocked 字段;并复用 RepeatedFailure 同款尽力而为手机通知。cargo test -p kanzei-harness 153 passed、-p kanzei-app 229 passed,workspace check 全绿。三项验收均满足。
+- 优先级: P1
+- observed_head: f06896ee55b759ab7da292bbeadf1a087364a01c
+- recorded_at: 1787199353567
