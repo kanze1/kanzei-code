@@ -7925,3 +7925,42 @@
 - observed_head: 9c64dd6ecdc2c8456b494cf46213ff686e14ef2e
 - observed_worktree_hash: fnv1a64:17c1716a3cd9b524
 - recorded_at: 1787262615242
+
+## D-643 verify.ps1 full 分支使用错误转义导致 PowerShell 语法失败 [fixed] (high)
+- 复现: 来源：self-found。R-309 B2 `scripts/verify.ps1:44` 写入 JSON 时使用 `"[\"full verify\"]"`，PowerShell 不使用反斜杠转义双引号，执行 `verify.ps1 -Full` 时会在 full 分支解析/执行失败。
+- 影响: 全量 verify 无法启动，package 无法获得合法 full verification evidence，直接阻断发布通道。
+- 来源: self-found（B2 代码复核）
+- 标签: 发布
+- 进展: 已修复：`scripts/verify.ps1:44` 使用 PowerShell 单引号写入 full policy JSON；T-1786922726628 的 PowerShell Parser 对 `verify.ps1` 无语法错误，D-408 BOM 检查通过。
+- 验收: 已完成：`verify.ps1 -Full` 所需 full policy 分支在 `scripts/verify.ps1:41-51` 可解析；`scripts/verify.ps1:44` 使用正确 PowerShell 引号；PowerShell Parser 与 `node scripts/check-ps1-bom.mjs` 均由 T-1786922726628 通过。
+- refs: R-309 D-642
+- 优先级: P1
+- observed_head: 481f4463259ee689bdf5a07a4ebe618f6edd11a5
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787264059277
+
+## D-644 verify 路径分类把前端 crates 路径误判为 Rust 改动 [fixed] (medium)
+- 复现: 来源：self-found。`scripts/verify-policy.mjs:isRustPath` 当前以 `path.startsWith("crates/")` 判定 Rust，因而 `crates/kanzei-app/ui/01-core.js` 同时被判为 Rust 路径和前端路径。
+- 影响: 前端-only 改动不会跳过 fmt/clippy/test，无法达到 R-309 B2 的 verify 裁剪目标与 <15s 验收。
+- 来源: self-found（B2 路径分类复核）
+- 标签: 流程
+- 进展: 已修复：`scripts/verify-policy.mjs:35-44` 的 Rust 判据收窄为 Rust/Cargo 文件，不再把 `crates/kanzei-app/ui/*` 视为 Rust；`verify-policy-smoke.mjs:6-21` 覆盖前端-only 与 Rust-only。
+- 验收: 已完成：前端-only `crates/kanzei-app/ui/01-core.js` 只运行前端 smoke 并跳过 fmt/clippy/test，Rust-only `crates/kanzei-core/src/lib.rs` 只运行 Rust 三步并跳过六条前端 smoke；两组断言见 `scripts/verify-policy-smoke.mjs:6-21`，T-1786922726628 通过。
+- refs: R-309
+- 优先级: P1
+- observed_head: 481f4463259ee689bdf5a07a4ebe618f6edd11a5
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787264059603
+
+## D-642 package.ps1 接受裁剪 verify 证据导致局部门禁可冒充全量发布证据 [fixed] (medium)
+- 复现: 来源：self-found。当前 `scripts/package.ps1:103-114` 只校验 verification.json 的 commit 与 all_pass，不检查是否跳过 Rust 三步或六条前端 smoke；裁剪 verify 产出的 all_pass=true 证据理论上可进入发版门禁。
+- 影响: 本地 targeted verify 的证据可能被误当成 release 全量 verify，破坏 A-009 发布证据链与 CI/发版边界。
+- 来源: self-found（R-309 B2 路由复核）
+- 标签: 发布
+- 进展: 已逐条完成验收对账：①`full_verify=false` 与 `mode=targeted` 由 `scripts/verify-policy.mjs:75-76` 拒绝，T-1786922726628；②`skipped_steps` 非空由 `scripts/verify-policy.mjs:78-80` 拒绝，T-1786922726628；③真实 `scripts/package.ps1:109-114` 调用 validator 拒绝 cropped evidence 且未进入构建，T-1786922726629；④完整 evidence 在 `scripts/verify-policy-smoke.mjs:28-37` 校验返回 null，T-1786922726628。
+- 验收: ①已完成：`full_verify=false`/`mode=targeted` 在 `scripts/verify-policy.mjs:75-76` 拒绝，T-1786922726628。②已完成：`skipped_steps` 非空在 `scripts/verify-policy.mjs:78-80` 拒绝，T-1786922726628。③已完成：真实 `package.ps1:109-114` 拒绝 cropped evidence，T-1786922726629。④已完成：完整 evidence 校验通过，`verify-policy-smoke.mjs:28-37` 与 T-1786922726628。
+- refs: R-309
+- 优先级: P1
+- observed_head: 481f4463259ee689bdf5a07a4ebe618f6edd11a5
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787264073480

@@ -9177,3 +9177,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-309 D-642 D-643 D-644
 - 收尾: 1787263933
 - 源码指纹: v2 scripts/package.ps1@b588f474a001,scripts/verify-policy-smoke.mjs@902d618f018b,scripts/verify-policy.mjs@80f97e4514f3,scripts/verify.ps1@89a5097d04ac
+
+## T-1786922726629 D-642 package.ps1 拒绝裁剪 verification evidence [passed]
+- 命令: package.ps1 -Ack 18 -VerificationPath .kanzei\artifacts\r309-cropped-verification.json (expected rejection); helper validation and build were not reached
+- 时长: 2.0s
+- 摘要: 真实 package.ps1 以当前 HEAD 绑定的 targeted/full_verify=false verification.json 运行，在验证证据门禁阶段明确拒绝；未进入 cargo build/tauri build。
+- 关联: R-309 D-642
+- 收尾: 1787264038
