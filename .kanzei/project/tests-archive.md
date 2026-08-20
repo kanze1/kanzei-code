@@ -9208,3 +9208,24 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-309
 - 收尾: 1787265561
 - 源码指纹: v2 crates/kanzei-tools/src/git.rs@2bc7f8622117,crates/kanzei/src/cli/metrics.rs@fe667790bc86,scripts/check-ps1-bom.mjs@1452677c7b47,scripts/ipc-event-smoke.mjs@c6a6a8555e90,scripts/metrics-regression-gate-smoke.mjs@c9f9e216a5d7,scripts/metrics-regression-gate.ps1@5c0524b8edc3,scripts/parallel-lines-regression.mjs@867652f498d8,scripts/verify-policy.mjs@4253eac11b8d,scripts/verify.ps1@c159d28acd90
+
+## T-1786922726633 R-309 当前 HEAD targeted verify [passed]
+- 命令: $sw = [Diagnostics.Stopwatch]::StartNew(); .\scripts\verify.ps1; $sw.Stop(); VERIFY_ELAPSED_SECONDS=$([math]::Round($sw.Elapsed.TotalSeconds,2))
+- 时长: 3.3s
+- 摘要: 真实 HEAD verify 通过并生成绑定当前 commit 的 dist/verification.json：targeted，changed=1，rust=False，frontend=False，metrics gate 30 rows/giants 3/3；实际 3.34s。该记录证明当前 HEAD targeted verify，不冒充“只改一行前端”①。
+- 关联: R-309
+- 收尾: 1787265837
+
+## T-1786922726634 R-309 关闭前 cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 时长: 154.0s
+- 摘要: workspace 全量通过：各 crate 单元/集成/文档测试均无失败；主要结果 kanzei 44、kanzei-app 233、kanzei-base 22、kanzei-core 232、kanzei-harness 154、kanzei-llm 55、kanzei-memory 166、kanzei-tools 425 passed，少量 ignored，无 failed。
+- 关联: R-309
+- 收尾: 1787266011
+
+## T-1786922726635 R-309 关闭前 cargo test --workspace（复核） [passed]
+- 命令: cargo test --workspace
+- 时长: 153.2s
+- 摘要: 再次运行 workspace 全量套件，全部 crate 单元/集成/文档测试通过，无 failed；本次没有代码变更，仅补齐当前运行的测试记录。
+- 关联: R-309
+- 收尾: 1787266047
