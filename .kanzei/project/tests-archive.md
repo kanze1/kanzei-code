@@ -9153,3 +9153,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-308 D-568
 - 收尾: 1787262601
 - 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@ae10c43fac65,crates/kanzei/src/cli/memory.rs@0cefdd51e2da,crates/kanzei/src/cli/mod.rs@81dc684f1161
+
+## T-1786922726626 cargo test -p kanzei-memory (R-308 B7 commit gate) [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 23.3s
+- 摘要: B7 staged guard/repair源码覆盖通过：166 passed、0 failed、0 ignored；canonical INDEX guard、em dash 标题与 repair_derived 回归全绿。
+- 关联: R-308 D-568
+- 收尾: 1787263090
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@ae10c43fac65
