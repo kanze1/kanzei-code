@@ -41,10 +41,10 @@
 - 验收: ①定位 manager run 零进展根因(模型调用失败/discard 销账失败/门禁拒绝)并修复,失败原因可观测不再只有一句 no progress;②真实重跑一批消化,success_notes>0 且 pending 下降;③96 条积压清空或按同指纹聚类批量处置留痕;④连败告警:连续 N 批 status=failed 主动上报而非静默重试
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-567(unblocks=0)
-- 进展: schema 修复与告警逻辑已完成：manager.rs:446-452 将 InboxClearInput 改为带 serde default confirm bool 的 object schema，manager.rs:620-628 增加 schema type/object 回归；memory_consolidation.rs:17、275-289、308-326、448-467 持久化 consecutive_failures，达到 3 批时报告 ALERT。T-1786922726533：kanzei-memory manager 10 passed + kanzei-tools consolidation 2 passed。T-1786922726534：真实 `cargo run -p kanzei -- run --project-root <project> ...` 600000ms 超时，未取得最终 success_notes 证据；但 checkpoint 已从旧 schema 400 进入 `status=processing,input_notes=10,pending_after=42`，证明 schema 400 已消失且真实 manager 开始处理，当前批次仍需最终收口。
-- observed_head: 32db5b4a8f93bf3ba3fdc3979c9ef0f10061efc4
-- observed_worktree_hash: fnv1a64:c66eeb6ed4d1ea68
-- recorded_at: 1787194174603
+- 进展: 提交 2eb90830 已落地。显式重建 `target\debug\kz.exe` 后再次真实运行：T-1786922726535，构建成功，真实 manager 入口 600000ms 未收口；本次输出未再出现 schema 400，checkpoint 留在 `status=processing,input_notes=10,pending_after=43,success_notes=0`，因此 schema 根因已被实际入口绕过，但最终批次仍未收口。下一步：用不启动交互 agent 的直接 consolidation 调用或缩短真实 prompt，取得最终 success_notes/pending_after；不能以 processing 状态核销验收②。
+- observed_head: 2eb90830a789544b746871a9d77966c8a3b4fd8f
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787194918914
 - 阻塞: 
 
 ## D-568 记忆 INDEX 描述串号污染:M-014/M-015 描述抄错条目,毒化 FTS 检索 [open] (medium)

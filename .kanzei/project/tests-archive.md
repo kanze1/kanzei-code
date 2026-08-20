@@ -8464,3 +8464,9 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-567
 - 收尾: 1787194124
 - 源码指纹: v2 crates/kanzei-memory/src/memory/inbox.rs@b0bb2b5166bd,crates/kanzei-memory/src/memory/manager.rs@682d23b9d332,crates/kanzei-memory/src/memory/store.rs@a304726ffd74,crates/kanzei-tools/src/memory_consolidation.rs@c28aabc74912
+
+## T-1786922726535 D-567 重建 kz 后真实 manager 重跑 [failed]
+- 命令: cargo build -p kanzei; target\debug\kz.exe run --project-root (Get-Location).Path "请处理当前项目记忆 inbox 中的一批待整理 note：逐条判断是否应晋升为记忆；若已处理，请按规则逐条销账，不要整箱清空。"
+- 摘要: 显式重建 target/debug/kz.exe 成功，但真实入口在 600000ms 内未收口；schema 400 未在本次输出出现，checkpoint 留在 processing，未取得最终 success_notes。
+- 关联: D-567
+- 收尾: 1787194905
