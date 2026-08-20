@@ -40,8 +40,13 @@
 - 验收: ①M-014/M-015 描述修正与源文件 description 一致;②全量 INDEX 行与对应 M-*.md 的 description 做一次机械一致性核对,输出不一致清单并修复;③重建 index.db FTS 后检索抽查不再串号;④INDEX 生成/更新路径补一致性断言防复发
 - 优先级: P2
 - 取活依据: engine:唯一可执行 WIP 是 D-568，必须先恢复它
+- 进展: 对账 2026-08-20(resume reconcile):④已落地——7c238573(D-590)在 store.rs assert_index_matches_entries 接入 refresh_derived 写入路径+守护测试 index_description_guard_rejects_mismatched_source,验收④视为既有能力核销。①②③未落地,且发现比登记更深:不止 INDEX 串号,M-014/M-015 源文件本身 description+正文整段串号(当前 M-014 正文是 M-009 的 edit SOP、M-015 正文是 M-029 的 git 拦截 SOP),真源=git 1476098e 建条原始版(已从历史取出全文)。修正路径被 managed fence 挡死:.kanzei/memory/*.md 仅 memory 写工具白名单可写,edit 被拒(R-316 来源实录);同步修正通道 R-316 仍 todo。下一步:探查既有 memory 工具族是否已有改现有条目文本的能力,无则按 R-316 最小实现(memory 文本修正工具+fence 白名单+审计留痕),落地后修 M-014/M-015 源文件→refresh_derived 重建 INDEX+FTS→②全量机械核对→③FTS 抽查。
+- observed_head: 11b60ae32647a5ff999329120316e8ffebad7fd8
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787203506741
+- 停车: 停车: 当前主 agent 无同步 memory_update 工具,修源文件必须先交付 R-316 同步通道;恢复人:agent;恢复条件:R-316 提供真实调用路径后继续修 M-014/M-015、重建 INDEX/FTS。
 
-## D-569 tracker 完整性退化复发(D-331 同形态):归档标题双状态标记与非法 severity 再现 [open] (high)
+## D-569 tracker 完整性退化复发(D-331 同形态):归档标题双状态标记与非法 severity 再现 [fixing] (high)
 - refs: D-331 D-553 D-554 D-555
 - 复杂度: 中
 - 复现: defects-archive.md:6822 的 D-553 标题行为「... [open] (small) [fixed]」——同行两个状态标记且 (small) 非法(合法 severity 为 high/medium/low);D-554 同样「[done] (small) [fixed]」;defects-archive.md:6829 引擎在取活依据字段写入「[tracker integrity degraded] D-555: invalid defect lifecycle [done]」,该告警全库出现 4 次。D-331(已 fixed,high)当时修的正是「归档终态无法安全修正且非法状态污染缺陷标题」,b140322 加了跨 DocKind 状态标记校验+fix_terminal,08-20 同形态再现说明校验有漏洞或写入方绕过
@@ -50,6 +55,14 @@
 - 验收: ①定位本次畸形写入的具体路径(哪个写入方绕过了 b140322 校验)并封堵;②用 fix_terminal/repair 修正 D-553/D-554/D-555 存量畸形行,integrity 告警清零;③D-331 的回归测试补上本次形态(双状态标记+非法 severity+污染取活依据);④复发计数落档:同形态第 2 次,若再现第 3 次升级为门禁硬拒
 - 优先级: P1
 - 对账: 2026-08-20 勘察补充:同类完整性脏数据另见 requirements-archive.md 的 R-221 条目——标题 [done] 但残留字段「- 状态: todo」,修复时一并纳入存量清理与回归形态
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-569(unblocks=0)
+- 复发计数: 2（D-331 历史形态→本次 D-553/D-554/D-555 再现）
+- 进展: D-569 收口对账：①具体绕过路径=历史直写提交 3c123bd5(D-553)与36ccb253(D-554/D-555)未经过当前 add/update 的 check_title/check_severity；当前写入封堵位于 crates/kanzei-tools/src/tracker.rs:644-660，归档修复写日志补线位于 tracker.rs:483-496，fix_terminal 入口位于 crates/kanzei/src/cli/tracker.rs:146-156。②存量修正=通过真实 kz defect fix_terminal 持久化清理 D-553/D-554/D-555(defects-archive.md:6822/6836/6851)，并按对账清理 R-221(requirements-archive.md:3645)、D-172、D-283；kz defect list 与 kz req list 均无 tracker integrity 告警。③回归=crates/kanzei-memory/src/docstore.rs:489-544 覆盖双状态+非法 severity+状态字段污染与修复后清零，validation.rs:158-183 统一检测，tracker.rs:380-404 普通写硬拒；T-1786922726538 通过(kanzei-memory 156、kanzei-tools 394)。④复发计数已落档为2；第三次及以后由 tracker.rs:380-404 直接硬拒普通写，修复动作仍经 FIX_TERMINAL_ACTION/normalize 显式收口。
+- 门禁: 同形态第 3 次及以后沿用 tracker.rs:380-404 完整性硬拒；仅 fix_terminal/normalize 修复通道可用，普通 add/update/close/archive 等写操作拒绝
+- 验收核验: ①已完成：3c123bd5/36ccb253历史直写绕过点已定位，tracker.rs:644-660与483-496封堵。②已完成：D-553/D-554/D-555及对账R-221/D-172/D-283经fix_terminal修正，双库list无integrity告警。③已完成：docstore.rs:489-544、validation.rs:158-183、tracker.rs:380-404与T-1786922726538。④已完成：复发计数=2已落档；第三次及以后普通写沿tracker.rs:380-404硬拒。
+- observed_head: 11b60ae32647a5ff999329120316e8ffebad7fd8
+- observed_worktree_hash: fnv1a64:72ca3632fdae6c18
+- recorded_at: 1787207020185
 
 ## D-570 research 上下文注入读 flat 路径而写入走 topic 路径,B2 后新增 S-/F- 对 agent 不可见 [open] (high)
 - refs: R-221 R-248 R-277
@@ -115,3 +128,30 @@
 - 验收: ①子代理面板每个运行中条目有停止/取消按钮,调用已有的取消能力;②process-subagents 开关文案或行为二选一对齐:要么明确标注仅影响下一轮,要么增加连带打断在跑任务的选项;③真实取消一个运行中子代理有回归测试
 - 优先级: P2
 
+## D-591 设置页 Provider 表格只读全局配置,项目级 kanzei.toml 新增的 provider 保存时报 unknown provider [open] (medium)
+- refs: D-288
+- 复现: settings.rs:501 settings_get 读 crate::global_config_path()(即 kanzei_home()/kanzei.toml,~/.kanzei/kanzei.toml),不合并项目级 .kanzei/kanzei.toml 的 [providers.*] 段;validate_model_roles(settings.rs:167-198)校验只用前端 payload.providers(即这份只含全局 provider 的表格数据)。用户在项目级配置里加了 [providers.llama-local],CLI(kz run)能正常解析使用(resolve_model 走的是合并后的项目+全局配置),但桌面端设置页 primary 填 llama-local:xxx 保存时报 unknown provider,重启 kzapp 无效——因为读的压根不是同一份文件
+- 影响: 项目级自定义 provider 无法通过桌面端 UI 选用,用户表现为反复重启无效、误以为是配置写错或缓存问题,实际是两处数据源天生不同步;唯一解法是把 provider 定义也复制一份到全局配置,体验上完全不透明
+- 来源: 2026-08-20 用户接入本地 llama-server(llama-local provider)现场,重启后仍报错,主会话定位
+- 标签: 前端
+- 验收: ①settings_get 合并展示项目级+全局的 provider(标注来源,与 R-184 全局/项目分层显示一致);②validate_model_roles 校验时同样按合并后的完整 provider 集合走,不能只认前端表格里显示的那部分;③项目级新增 provider 后设置页无需手动同步一份到全局即可选用,有回归测试
+- 优先级: P2
+
+## D-592 上下文预算检查信 bytes/4 估算不锚定真实 usage,本地小窗口模型压缩零触发直至撞 400 [open] (high)
+- refs: D-203 D-206 R-219 R-236
+- 复现: 2026-08-20 现场:llama-local(qwen3.8-27b,llama-server n_ctx=65536)鞭挞 D-568 任务,真实请求 69889 tokens 撞 provider 400(exceed_context_size_error),全程主动压缩零触发。判定链 context_budget.rs:51 用 bytes/4 估算(context.rs:130)×校准因子与触发线比大小,三重系统性偏低叠加:①bytes/4 对中文(UTF-8 3字节/字实际≈1~1.5 token/字)、代码、llama.cpp jinja 模板渲染的工具 schema 膨胀,合计偏低>2.1×(69889 真实 vs 触发线 32768 未达);②校准单步比值 clamp [0.5,2.0](context.rs:165),系统性偏差≥2× 时数学上限封死追不上,EMA 0.7/0.3 收敛慢且每 run 重置 1.0(assembly.rs:195),恢复大历史的新对话首步最脆;③compaction_budget=limit−max(max_tokens,buffer)(context.rs:92),全局 max_tokens=32768 吃掉 65536 窗口一半。usage 回读链路本身是通的(openai.rs:110 include_usage,drive.rs:609 拿真实 prompt_tokens),但只喂校准 EMA,预算比大小不直接用——真实值在手边,决策看估算
+- 影响: 本地小窗口 provider 跑长任务必然在压缩触发前撞墙 400,自主推进直接致命中断;窗口越小、内容越偏中文/代码,撞墙越早;98304 窗口同样防不住(偏差>1.5× 即穿)
+- 来源: 2026-08-20 用户实测反馈『快摸到上限了还是没压缩』,主会话诊断
+- 标签: 核心
+- 边界: 历史侧 Part::Reasoning 剪枝(openai 协议 build_body openai.rs:83-91 从不回传,drive.rs:582 却存进历史虚增估算)只能与本条①同批落地——单独剪会让估算更小、压缩触发更晚,加重症状;Qwen 官方口径『多轮剥离 thinking 但多步工具调用期间保留』的质量权衡(llama-server --reasoning-preserve)不在本条,另行评估
+- 验收: ①预算检查锚定上一步真实 prompt_tokens(last_input_tokens 已在手)+本步新增内容估算增量,bytes/4 全量估算只做冷启动兜底;②校准按 provider 持久化或冷启动用保守初值,消除每 run 重置 1.0 的首步裸奔;③compaction_budget 对小窗口自适应,max_tokens 不得吃掉固定一半窗口;④回归:模拟估算偏低 2 倍场景压缩在撞墙前触发;⑤llama-local 真实长任务(多步工具循环读大文件)实测不再 400
+- 优先级: P1
+
+## D-593 上下文占用显示轮末才刷新且与预算引擎两套口径,长 prefill 期间滞后一整步 [open] (medium)
+- refs: D-592
+- 复现: UI 占用 ctxTokens=input+cacheRead 只在轮末 kz:step 事件更新(07-events.js:286),本地模型一步 prefill 数分钟,期间显示冻结在上一轮旧值;显示走 provider 真实 usage,压缩决策走 bytes/4 估算(D-592),两套口径——用户看到的数字与引擎行为对不上。2026-08-20 用户实测反馈『渲染显示的上下文不准确』
+- 影响: 长轮运行中用户无法判断真实占用,临限无感知;引擎该压不压时显示也给不出预警
+- 来源: 2026-08-20 用户实测反馈,主会话诊断
+- 标签: 前端
+- 验收: ①运行中占用显示与预算引擎同口径(D-592 改锚定真实值后两边天然收敛);②轮内长 prefill 期间显示不冻结——至少标注滞后/计算中,或用引擎估算实时刷新并标注口径;③对 context_limit 的占比展示与撞线告警准确
+- 优先级: P2

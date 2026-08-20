@@ -1761,7 +1761,7 @@
 - refs: R-115
 - 标签: 模型
 
-## D-172 启动黑屏:i18n MutationObserver 微任务死循环饿死渲染主线程 [fixed] (critical)
+## D-172 启动黑屏:i18n MutationObserver 微任务死循环饿死渲染主线程 [fixed]
 - refs: D-136 458af450 e4b45f21
 - 优先级: P0
 - 复现: build-2c999d4(含 e4b45f21)启动即整窗黑屏。CDP 观测:浏览器进程命令(Browser.getVersion)秒回,所有需渲染进程处理的命令(Runtime.evaluate/Runtime.enable/Page.enable/冷附加 Debugger.enable)永不响应;渲染进程 10 分钟烧掉 380s CPU。重启后在 about:blank 阶段先挂 Debugger 再 pause,栈定格在 applyLanguage(main.js:569)← MutationObserver 回调(main.js:639)。
@@ -1771,7 +1771,7 @@
 - 证据等级: E1(冒烟护栏红绿双验)+ 真机 CDP 断点栈与修复前后渲染进程 CPU/响应实证
 - 验收: ①main.js 属性写入前比对,同值不写;②冒烟 harness setAttribute 同值也通知 observer(对齐 DOM 规范),并加「observer 连续自触发>25 轮判失败」护栏,把挂死变成可读失败;③bug 复位冒烟必红、修复后必绿,已双验;④修复构建真机验证:Runtime.evaluate 即时响应、页面完整渲染、渲染进程存活 53s 仅耗 1s CPU。
 
-- 进展: 已修复并双侧验证(2026-08-08)。遗留:发布版(用户机器)仍是坏 build,需走发版 SOP 推送修复。
+- 进展: 已修复并双侧验证(2026-08-08)。遗留:发布版(用户机器)仍是坏 build,需走发版 SOP 推送修复。 [terminal-fix 2026-08-20]  → fixed: D-569 存量完整性收敛：清除历史双状态与非法 severity 标记
 
 ## D-197 frontend_locate 的 @media 上下文两头都算错,还是个 deny 级 lint [fixed] (high)
 - refs: D-164 R-126
@@ -3613,7 +3613,7 @@
 - 优先级: P2
 - 进展: 2026-08-13 修复:①render_entry_with_template 渲染前裁掉模板尾部空 Raw(条目间距由 ensure_blank_separator 单源负责),追加字段紧跟末字段,新增测试 追加字段不产生游离空段且多轮写入稳定(两轮写入幂等);②main.rs tracker_cli 给 raw_lines/reopen/archive/void_id/repair_missing_id 接位置参数 id、raw_delete 接 id+序号。验证:cargo test -p kanzei-tools docstore:: 20 passed;新二进制端到端 raw_lines/raw_delete D-325 实测可用(证实游离段即空行,已清)
 
-## D-283 会话状态按轮次投影导致运行中显示空闲、停止按钮消失、鞭挞与活动记录串线 [done] [fixed] (high)
+## D-283 会话状态按轮次投影导致运行中显示空闲、停止按钮消失、鞭挞与活动记录串线 [fixed] (high)
 - 优先级: P0
 - 复杂度: 大
 - 标签: 核心 后端 前端 并行 自举
@@ -3624,7 +3624,7 @@
 - 统一修复: 归并到 R-197，按其 10 批次执行；设计基线见 `docs/design/session_state_and_line_runtime.md`。
 - 验收: 以 R-197 八条验收为准，额外保留两条反证：①`kz:done` 后模拟第二轮/排队输入仍显示运行；②主线鞭挞开启后切未配置并行线不会产生 `auto=true` 的目标 session 请求。
 - 证据等级: E1(用户复现 + 代码调用链核实，修复后需提升为 E2/E3)
-- 进展: 正式关闭(2026-08-16,修复本体是 R-197 既有交付,本条只补关闭):主验收=R-197 八条,该需求已 done/归档(10 批+关闭前全量)。反证①有显式自动化证据:ui-runtime-smoke.mjs 断言 bgState.converged===false(kz:done 是轮末事件不得收敛会话终态,排队输入第二轮还要跑)+bgState.running===true(kz:done 后会话仍在跑);对应实现=run.rs:1068 kz:done/run.rs:2191 kz:idle 分离,01-core.js 事件流为线路状态实时投影入口、只有会话级终态才收敛。反证②=auto 状态按 sessionId 隔离(08-compose.js autoContinueTimers 以 sessionId 为键、auto_state_reset 随 activeSessionId 重置)+R-197「profile/auto/timer 按线路隔离」+parallel-lines-regression.mjs 线路隔离护栏(profile 隔离/刷新节流/切换代次/local_start_pending 防旧快照覆盖)。2026-08-12 已发布,持续使用无回归。残余缺口:WebView2 E2/E3 提升受本机 CDP 端口不绑定限制(M-062),转入 R-101 延期 E2 清单,不影响本条功能验收(关闭边界:可用即关闭,验证增强不滞留 fixing)。
+- 进展: 正式关闭(2026-08-16,修复本体是 R-197 既有交付,本条只补关闭):主验收=R-197 八条,该需求已 done/归档(10 批+关闭前全量)。反证①有显式自动化证据:ui-runtime-smoke.mjs 断言 bgState.converged===false(kz:done 是轮末事件不得收敛会话终态,排队输入第二轮还要跑)+bgState.running===true(kz:done 后会话仍在跑);对应实现=run.rs:1068 kz:done/run.rs:2191 kz:idle 分离,01-core.js 事件流为线路状态实时投影入口、只有会话级终态才收敛。反证②=auto 状态按 sessionId 隔离(08-compose.js autoContinueTimers 以 sessionId 为键、auto_state_reset 随 activeSessionId 重置)+R-197「profile/auto/timer 按线路隔离」+parallel-lines-regression.mjs 线路隔离护栏(profile 隔离/刷新节流/切换代次/local_start_pending 防旧快照覆盖)。2026-08-12 已发布,持续使用无回归。残余缺口:WebView2 E2/E3 提升受本机 CDP 端口不绑定限制(M-062),转入 R-101 延期 E2 清单,不影响本条功能验收(关闭边界:可用即关闭,验证增强不滞留 fixing)。 [terminal-fix 2026-08-20] fixed → fixed: D-569 存量完整性收敛：清除历史标题状态标记
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-283
 - observed_head: 45fd276e9ac4ac6a23c0027b801f95d6c6c3fe4f
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -6819,7 +6819,7 @@
 - observed_worktree_hash: fnv1a64:58a80e1d8f45fa6b
 - recorded_at: 1787161143867
 
-## D-553 kz:done 耗时用未初始化的本页 runStart 计算,打出纪元级秒数 [open] (small) [fixed]
+## D-553 kz:done 耗时用未初始化的本页 runStart 计算,打出纪元级秒数 [fixed]
 - refs: R-101
 - 复现: 2026-08-20 00:11 R-101 停止链路实测(marker R101_UIA_STOP_20260819161104335):手动停止并取消 2 条排队输入后,运行日志打出「运行完成: 6 轮, 耗时 1787155867.5s」——该值恰等于当时的 Date.now()/1000,即 runStart=0。根因: `crates/kanzei-app/ui/07-events.js:423` 的 kz:done 处理器用模块级 `runStart`(`03-shell.js:433` 初值 0)算耗时,而它只在 `08-compose.js:314` sendPrompt 路径经 startElapsed() 赋值;本页实例未经 sendPrompt 启动该轮时(页面/webview 重载后接管在跑会话、后端排队派发或鞭挞续跑的轮次)必现。后端 `kz:done` 载荷(`crates/kanzei-app/src/run/persistence.rs:488-503`)不带时长字段,前端无可信来源可退。
 - 影响: 运行日志耗时失真为 17.9 亿秒;长会话/停止链路 E2 无法以日志耗时作观测证据。仅显示层,不影响运行本身。
@@ -6828,12 +6828,12 @@
 - 验收: kz:done 的耗时来源可信——后端载荷携带 elapsedMs(推荐,后端知道真实起点)或前端在 runStart=0 时退化为只报轮数不打绝对时长;补「页面重载后接管在跑会话」场景回归;运行日志不再出现纪元级耗时。
 - 优先级: P3
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-553 [tracker integrity degraded] D-555: invalid defect lifecycle [done]
-- 进展: 已逐项闭环并验证：①「kz:done 的耗时来源可信」→后端 `crates/kanzei-app/src/run/coordinator.rs:409-414` 从真实 run_started 计算并经 `FinalizeOutcome` 传递，`crates/kanzei-app/src/run/persistence.rs:54-59,309-312,493-496` 写入 `elapsedMs`；前端 `crates/kanzei-app/ui/03-shell.js:433-440` 优先换算后端值，`crates/kanzei-app/ui/07-events.js:423-425` 消费并记录，缺失且 runStart=0 时省略绝对耗时。②「页面重载后接管在跑会话回归」→`scripts/ui-runtime-smoke.mjs:1419-1423` 将 runStart 置 0 并断言无字段返回 null，T-1786922726475 通过。③「运行日志不再出现纪元级耗时」→`scripts/ui-runtime-smoke.mjs:4610-4621` 断言 elapsedMs=1234 输出 1.2s，T-1786922726475 通过。Rust 定向回归 T-1786922726474：kanzei-app 218 passed, 0 failed。
+- 进展: 已逐项闭环并验证：①「kz:done 的耗时来源可信」→后端 `crates/kanzei-app/src/run/coordinator.rs:409-414` 从真实 run_started 计算并经 `FinalizeOutcome` 传递，`crates/kanzei-app/src/run/persistence.rs:54-59,309-312,493-496` 写入 `elapsedMs`；前端 `crates/kanzei-app/ui/03-shell.js:433-440` 优先换算后端值，`crates/kanzei-app/ui/07-events.js:423-425` 消费并记录，缺失且 runStart=0 时省略绝对耗时。②「页面重载后接管在跑会话回归」→`scripts/ui-runtime-smoke.mjs:1419-1423` 将 runStart 置 0 并断言无字段返回 null，T-1786922726475 通过。③「运行日志不再出现纪元级耗时」→`scripts/ui-runtime-smoke.mjs:4610-4621` 断言 elapsedMs=1234 输出 1.2s，T-1786922726475 通过。Rust 定向回归 T-1786922726474：kanzei-app 218 passed, 0 failed。 [terminal-fix 2026-08-20] fixed → fixed: D-569 存量修复：清除双状态标题与非法 severity 后缀
 - observed_head: d1cc00060b8e2540bd1c0309faa5d62d0efcfa26
 - observed_worktree_hash: fnv1a64:58a80e1d8f45fa6b
 - recorded_at: 1787161152691
 
-## D-554 ps1_bom 门禁红:ui-desktop-uia.ps1 无 BOM 入库,提交侧闸门漏拦 [done] (small) [fixed]
+## D-554 ps1_bom 门禁红:ui-desktop-uia.ps1 无 BOM 入库,提交侧闸门漏拦 [fixed]
 - refs: R-101 D-408
 - 复现: 发布树 ff 至 3c123bd5 后跑 scripts/verify.ps1,ps1_bom 步骤失败:scripts/ui-desktop-uia.ps1 含 374 个中文字符缺 UTF-8 BOM。该文件由 cd4b6013(R-101 B2)新增入库,提交侧结构化 git 闸门未拦——疑因门禁跑在安装版 kzapp(123d0952 之前构建)上,不含 R-300 B2 0abdef53 修复后的 BOM/扩展路径检查(verify 侧与提交侧清单未真正对齐)。
 - 影响: dev 过不了 verify,发版链被卡(verify 不产出 verification.json,package 无从执行);该脚本在 Windows PowerShell 5.1 下会解析报错。
@@ -6842,8 +6842,7 @@
 - 标签: 流程
 - 验收: 脚本重存 UTF-8 with BOM 后 verify ps1_bom 步骤绿;核对提交侧闸门为何漏拦新增 .ps1(gate_checklists_align 守护是否覆盖),给出拦截或豁免结论。
 - 优先级: P1
-- 状态: done
-- 进展: 已完成验收对账并确认既有修复：①「脚本重存 UTF-8 with BOM 后 verify ps1_bom 步骤绿」→`scripts/check-ps1-bom.mjs:21-34` 检查含中文 .ps1 的 EF BB BF，`scripts/verify.ps1:71-74` 以同一命令接入 ps1_bom；当前 T-1786922726476 通过（6 个脚本，含中文者均带 BOM），ui-desktop-uia.ps1 实际首三字节 EF BB BF；此前修复提交为 55caf824。②「核对提交侧闸门为何漏拦并给出结论」→`crates/kanzei-tools/src/git.rs:879-972` 的 source_test_gate 只校验 passed 测试、指纹与 crate 覆盖，`git.rs:1030-1043` 提交路径只执行 fmt/clippy/compile 与 source_test_gate，不执行 verify 的每个步骤；`git.rs:2010-2096` 的 gate_checklists_align_across_git_verify_and_ci 只校验 verify/CI/git 清单标记同步。T-1786922726477 通过（1 passed），结论：提交侧对 verify 专项步骤属于明确豁免范围，非清单漂移；ps1_bom 由 verify 与 CI 拦截。
+- 进展: 已完成验收对账并确认既有修复：①「脚本重存 UTF-8 with BOM 后 verify ps1_bom 步骤绿」→`scripts/check-ps1-bom.mjs:21-34` 检查含中文 .ps1 的 EF BB BF，`scripts/verify.ps1:71-74` 以同一命令接入 ps1_bom；当前 T-1786922726476 通过（6 个脚本，含中文者均带 BOM），ui-desktop-uia.ps1 实际首三字节 EF BB BF；此前修复提交为 55caf824。②「核对提交侧闸门为何漏拦并给出结论」→`crates/kanzei-tools/src/git.rs:879-972` 的 source_test_gate 只校验 passed 测试、指纹与 crate 覆盖，`git.rs:1030-1043` 提交路径只执行 fmt/clippy/compile 与 source_test_gate，不执行 verify 的每个步骤；`git.rs:2010-2096` 的 gate_checklists_align_across_git_verify_and_ci 只校验 verify/CI/git 清单标记同步。T-1786922726477 通过（1 passed），结论：提交侧对 verify 专项步骤属于明确豁免范围，非清单漂移；ps1_bom 由 verify 与 CI 拦截。 [terminal-fix 2026-08-20] fixed → fixed: D-569 存量修复：清除双状态标题与非法 severity 后缀
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-554 [tracker integrity degraded] D-555: invalid defect lifecycle [done]
 - observed_head: 4de7f1016c097b6171ef930d84159668d28ff578
 - observed_worktree_hash: fnv1a64:441f9460a9730954
@@ -6857,8 +6856,7 @@
 - 标签: 流程
 - 验收: 修口径(测试行识别)或按新口径重生成基线全表并逐文件说明差异;phase_pipeline.rs 零改动时 verify 绿;补「基线与量测同口径」守护(基线生成器与闸门共用同一计数实现),防止再漂。
 - 优先级: P1
-- 状态: done
-- 进展: 2026-08-20 根因实锤:闸门原用安装版 ~/.cargo/bin/kz.exe(旧口径,phase_pipeline.rs 量出生产 923/测试 10),基线由源码构建 kz 生成(新口径 796/137)——同文件两把尺。修复提交 0212db2b:metrics-regression-gate.ps1 改为 cargo build 当前工作树的 kz(target/debug/kz.exe)并在 $Root 下量测,闸门与基线生成器从此共用同一计数实现,「同口径守护」由此结构性成立。主树实测 30 行全过、巨石 5/5;发布树 verify 全绿,证据 dist/verification.json 绑定 55caf824。 [terminal-fix 2026-08-19] fixed → fixed: 修复归档字段残留的非法 lifecycle done；D-555 的实现、测试和三项验收证据均已完成，归档应使用合法 fixed。
+- 进展: 2026-08-20 根因实锤:闸门原用安装版 ~/.cargo/bin/kz.exe(旧口径,phase_pipeline.rs 量出生产 923/测试 10),基线由源码构建 kz 生成(新口径 796/137)——同文件两把尺。修复提交 0212db2b:metrics-regression-gate.ps1 改为 cargo build 当前工作树的 kz(target/debug/kz.exe)并在 $Root 下量测,闸门与基线生成器从此共用同一计数实现,「同口径守护」由此结构性成立。主树实测 30 行全过、巨石 5/5;发布树 verify 全绿,证据 dist/verification.json 绑定 55caf824。 [terminal-fix 2026-08-19] fixed → fixed: 修复归档字段残留的非法 lifecycle done；D-555 的实现、测试和三项验收证据均已完成，归档应使用合法 fixed。 [terminal-fix 2026-08-20] fixed → fixed: D-569 存量修复：清除与 header 冲突的状态字段
 - 验收核验: ①口径修复位置：scripts/metrics-regression-gate.ps1 改为 cargo build 当前工作树的 target/debug/kz.exe，并在 $Root 下量测，避免使用旧安装版；②同口径守护：基线生成器与回涨闸共用同一 metrics 计数实现，phase_pipeline.rs 零改动时不再把测试行计入生产行；③验证证据：主树实测 30 行全过、巨石 5/5，发布树 verify 全绿，dist/verification.json 绑定 55caf824；已有测试记录与提交 0212db2。
 
 ## D-558 research_mode 将 topic 名误写为 tracker refs 合法值 [fixed] (medium)

@@ -379,6 +379,7 @@ impl Tool for TrackerTool {
         // 迫使当轮先把数据找回来。错误文本直接给出可执行的恢复路径,避免变成死锁。
         if WRITE_ACTIONS.contains(&input.action.as_str())
             && !REPAIR_ACTIONS.contains(&input.action.as_str())
+            && input.action != FIX_TERMINAL_ACTION
             && input.action != "normalize"
         {
             let issues = store.integrity_issues(&entries);
@@ -484,9 +485,11 @@ impl Tool for TrackerTool {
             if let Ok(relative) = store.path.strip_prefix(&ctx.project_root) {
                 crate::record_write_log(ctx, &relative.display().to_string(), &store.path);
             }
-            // D-398:archive 动作同时写归档文件——不记日志则归档侧新增被围栏
-            // 回滚,条目从活动+归档两份同时消失(D-112 级数据丢失)。
-            if action_str == "archive" {
+            // D-569:fix_terminal/archive_fill/normalize 也可能改写归档文件,必须和
+            // archive 一样记录归档侧凭据,否则 bash 围栏会把合法修复回滚。
+            if ["archive", FIX_TERMINAL_ACTION, "archive_fill", "normalize"]
+                .contains(&action_str.as_str())
+            {
                 let archive_file = store.archive_file();
                 if let Ok(relative) = archive_file.strip_prefix(&ctx.project_root) {
                     crate::record_write_log(ctx, &relative.display().to_string(), &archive_file);
@@ -644,12 +647,18 @@ impl TrackerTool {
     /// D-331:标题不得携带跨 DocKind 状态标记(`[done]`/`[dropped]` 等)——状态的家是
     /// header 方括号(引擎维护),写进标题会渲染成 `[dropped] [fixed]` 双终态污染。
     fn check_title(&self, title: &str) -> Option<String> {
-        crate::docstore::title_status_marker(title).map(|marker| {
-            format!(
+        if let Some(marker) = crate::docstore::title_status_marker(title) {
+            return Some(format!(
                 "title must not carry a status marker `[{marker}]` — the status lives in the \
                  header bracket (engine-managed); writing it into the title produces \
                  double-terminal headers like `[dropped] [fixed]` (D-331). Remove the marker \
                  from the title."
+            ));
+        }
+        crate::docstore::invalid_severity_marker(&self.kind, title).map(|severity| {
+            format!(
+                "title must not carry an invalid severity suffix `({severity})` — defect severity \
+                 is a separate engine-managed field and only accepts high | medium | low (D-569)."
             )
         })
     }

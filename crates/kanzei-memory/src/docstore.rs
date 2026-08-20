@@ -490,6 +490,56 @@ mod tests {
     }
 
     #[test]
+    fn legacy_defect_metadata_is_detected_without_breaking_parentheses_titles() {
+        let parsed = parse(
+            &DEFECTS,
+            "## D-553 旧缺陷 [open] (small) [fixed]\n",
+        );
+        assert_eq!(parsed[0].status, "fixed");
+        assert_eq!(parsed[0].title, "旧缺陷 [open] (small)");
+        assert_eq!(
+            invalid_severity_marker(&DEFECTS, &parsed[0].title),
+            Some("small".into())
+        );
+        assert_eq!(clean_tracker_title(&DEFECTS, &parsed[0].title), "旧缺陷");
+
+        let ordinary = "普通缺陷 (small)";
+        assert_eq!(invalid_severity_marker(&DEFECTS, ordinary), None);
+        assert_eq!(clean_tracker_title(&DEFECTS, ordinary), ordinary);
+    }
+
+    #[test]
+    fn archived_terminal_fix_cleans_legacy_tracker_metadata() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-d569-archive-fix-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &DEFECTS);
+        std::fs::write(
+            store.archive_file(),
+            "# Defects Archive\n\n## D-001 旧缺陷 [open] (small) [fixed]\n- 状态: done\n",
+        )
+        .unwrap();
+
+        let issues = store.integrity_issues(&[]);
+        assert_eq!(issues.len(), 3, "修复前应同时暴露三种污染: {issues:?}");
+        store
+            .correct_archived_terminal("D-001", "fixed", "D-569 存量完整性修复")
+            .unwrap();
+        let repaired = store.load_archive().unwrap();
+        assert_eq!(repaired[0].title, "旧缺陷");
+        assert_eq!(repaired[0].status, "fixed");
+        assert!(!repaired[0].fields.iter().any(|(key, _)| key == "状态"));
+        assert!(store.integrity_issues(&[]).is_empty());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn tolerant_parse_of_hand_edits() {
         let text = "# Whatever\n\n## R-002 没写状态\n- 备注: 手改的\n\n## 连ID都没有 [todo]\n";
         let entries = parse(&REQUIREMENTS, text);

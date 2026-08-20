@@ -8476,3 +8476,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 真实 manager 成功：输出 memory inbox 43 -> 0 pending，4 个批次 completed/partial/completed/completed；最终 checkpoint completed，success_notes=7，pending_after=0，failure_reason=null；inbox.md 无待处理 note 块。
 - 关联: D-567
 - 收尾: 1787195207
+
+## T-1786922726537 D-569 tracker 完整性修复定向测试 [passed]
+- 命令: cargo test -p kanzei-memory; cargo test -p kanzei-tools
+- 时长: 41.0s
+- 摘要: kanzei-memory 156 passed/0 failed；kanzei-tools 394 passed/0 failed/1 ignored。覆盖非法 severity+双状态标题识别、fix_terminal 清理归档元数据、完整性告警和写入拒绝回归。
+- 关联: D-569 D-331
+- 收尾: 1787206462
+- 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@5c39417fc26a,crates/kanzei-memory/src/docstore/archive.rs@dc39eb762a25,crates/kanzei-memory/src/docstore/parse.rs@5d80f7a80e45,crates/kanzei-memory/src/docstore/validation.rs@9d407ccc90e2,crates/kanzei-tools/src/tracker.rs@7297b2eef217
+
+## T-1786922726538 D-569 最终定向回归测试 [passed]
+- 命令: cargo test -p kanzei-memory; cargo test -p kanzei-tools
+- 时长: 39.0s
+- 摘要: 最终代码状态下 kanzei-memory 156 passed/0 failed；kanzei-tools 394 passed/0 failed/1 ignored。覆盖 D-569 非法 severity/双状态元数据识别、fix_terminal 清理、归档写日志接线与 tracker 完整性门禁。
+- 关联: D-569 D-331
+- 收尾: 1787206992
+- 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@5c39417fc26a,crates/kanzei-memory/src/docstore/archive.rs@dc39eb762a25,crates/kanzei-memory/src/docstore/parse.rs@5d80f7a80e45,crates/kanzei-memory/src/docstore/validation.rs@6bd7d39a1e2c,crates/kanzei-tools/src/tracker.rs@c4a4e97abdbb

@@ -3653,12 +3653,11 @@
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
 - refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
 - 取活依据: engine:唯一可执行 WIP 是 R-221，必须先恢复它
-- 进展: ①总验收“真实 R- 条目勘察→报告→登记→dev 实施完整链路”：已满足。真实 research 会话产物为 `.kanzei/research/r221-chain/plan.md`（计划）、`sources.md`/S-001~S-004（实际查阅来源）、`findings.md`/F-001/F-002（代码域 V1、source refs、file:line/提交锚）、`.kanzei/research/r221-chain/report.md` 与 `.kanzei/research/report.md`（报告）、R-289 `[todo]`（引用 F-001/F-002 的 dev 待审草稿）；既有 dev 实施证据为 B4 提交 `3e288363`、B5 提交 `ecfdca5b`，D-446 权限修复位于 `crates/kanzei-tools/src/profiles.rs:640-671`，最终 T-1786922726120、T-1786922726121 通过，`cargo test -p kanzei-tools` 为 328 passed、1 ignored。②每批验收：B1 research 硬 deny 与替代工具位于 `profiles.rs:658-683`；B2 topic 工件由 `tracker.rs:316-329` 与 `.kanzei/research/r221-chain/*` 复核；B3 V 表双域口径已写入 `.kanzei/project/conventions.md` 并由 B3 测试记录覆盖；B4 回流受限 tracker 位于 `profiles.rs:640-671`、研究报告 F-001；B5 统一 memory 工具与历史 memory.md 停止注入位于 `profiles.rs:631-642,715-763`、研究报告 F-002。验收总则现已具备可复核轨迹，R-221 可关闭。
+- 进展: ①总验收“真实 R- 条目勘察→报告→登记→dev 实施完整链路”：已满足。真实 research 会话产物为 `.kanzei/research/r221-chain/plan.md`（计划）、`sources.md`/S-001~S-004（实际查阅来源）、`findings.md`/F-001/F-002（代码域 V1、source refs、file:line/提交锚）、`.kanzei/research/r221-chain/report.md` 与 `.kanzei/research/report.md`（报告）、R-289 `[todo]`（引用 F-001/F-002 的 dev 待审草稿）；既有 dev 实施证据为 B4 提交 `3e288363`、B5 提交 `ecfdca5b`，D-446 权限修复位于 `crates/kanzei-tools/src/profiles.rs:640-671`，最终 T-1786922726120、T-1786922726121 通过，`cargo test -p kanzei-tools` 为 328 passed、1 ignored。②每批验收：B1 research 硬 deny 与替代工具位于 `profiles.rs:658-683`；B2 topic 工件由 `tracker.rs:316-329` 与 `.kanzei/research/r221-chain/*` 复核；B3 V 表双域口径已写入 `.kanzei/project/conventions.md` 并由 B3 测试记录覆盖；B4 回流受限 tracker 位于 `profiles.rs:640-671`、研究报告 F-001；B5 统一 memory 工具与历史 memory.md 停止注入位于 `profiles.rs:631-642,715-763`、研究报告 F-002。验收总则现已具备可复核轨迹，R-221 可关闭。 [terminal-fix 2026-08-20] done → done: D-569 存量对账：清除归档残留状态字段并保持合法 done
 - observed_head: f706dd21ea2959e5d3ea8af8ae0f7b27b61ad6da
 - observed_worktree_hash: fnv1a64:d5c4e679d36fdbc4
 - recorded_at: 1786958400176
 - 批次: 5/5
-- 状态: todo
 - 依赖: D-428
 - 停车: 
 

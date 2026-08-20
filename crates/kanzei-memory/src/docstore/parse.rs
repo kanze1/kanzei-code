@@ -34,6 +34,39 @@ pub fn strip_status_markers(title: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// 找出历史写入绕过时混入标题的非法 severity 后缀。
+///
+/// 正常标题允许任意括号文本(D-002),所以只有在同一标题还带有状态标记时才把
+/// 尾部括号视为 tracker 元数据。这样可识别 `标题 [open] (small) [fixed]` 这类
+/// 已知污染,又不误伤普通用户标题 `标题 (small)`。
+pub fn invalid_severity_marker(kind: &DocKind, title: &str) -> Option<String> {
+    if kind.severities.is_none() || title_status_marker(title).is_none() {
+        return None;
+    }
+    let without_status = strip_status_markers(title);
+    let trimmed = without_status.trim_end();
+    let open = trimmed.rfind('(')?;
+    if !trimmed.ends_with(')') || open == 0 {
+        return None;
+    }
+    let candidate = trimmed[open + 1..trimmed.len() - 1].trim();
+    if candidate.is_empty() || kind.severities?.contains(&candidate) {
+        return None;
+    }
+    Some(candidate.to_string())
+}
+
+/// 清除标题中的跨类型状态标记及其伴随的非法 severity 后缀。
+pub fn clean_tracker_title(kind: &DocKind, title: &str) -> String {
+    let mut cleaned = strip_status_markers(title);
+    if invalid_severity_marker(kind, title).is_some() {
+        if let Some(open) = cleaned.rfind('(') {
+            cleaned = cleaned[..open].trim_end().to_string();
+        }
+    }
+    cleaned
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum TemplateLine {
     Raw(String),

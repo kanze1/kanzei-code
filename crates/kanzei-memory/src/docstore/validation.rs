@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use super::model::{Entry, RawLine};
-use super::parse::TemplateLine;
+use super::parse::{invalid_severity_marker, title_status_marker, TemplateLine};
 use super::render::render_with_template;
 use super::repository::DocStore;
 
@@ -155,6 +155,34 @@ impl DocStore {
             archived.iter().filter_map(|e| parse_num(&e.id)).collect();
         let voided = self.voided_ids();
         let mut issues = Vec::new();
+        // 完整性不仅是 ID 集合:标题状态标记、非法 severity 后缀和与 header
+        // 冲突的旧「状态」字段都会改变调度/统计语义,必须在同一门禁中显式暴露。
+        for (region, entries) in [("active", active), ("archive", archived.as_slice())] {
+            for entry in entries {
+                if let Some(marker) = title_status_marker(&entry.title) {
+                    issues.push(format!(
+                        "{region} {}: title carries status marker [{marker}] — use fix_terminal/normalize",
+                        entry.id
+                    ));
+                }
+                if let Some(severity) = invalid_severity_marker(self.kind, &entry.title) {
+                    issues.push(format!(
+                        "{region} {}: invalid severity `{severity}` in title — use fix_terminal",
+                        entry.id
+                    ));
+                }
+                for (key, value) in &entry.fields {
+                    if (key.eq_ignore_ascii_case("status") || key == "状态")
+                        && !self.kind.statuses.contains(&value.trim())
+                    {
+                        issues.push(format!(
+                            "{region} {}: reserved status field `{value}` is invalid for header `{}`",
+                            entry.id, entry.status
+                        ));
+                    }
+                }
+            }
+        }
         let both: Vec<u32> = active_ids.intersection(&archive_ids).copied().collect();
         if !both.is_empty() {
             issues.push(format!(
