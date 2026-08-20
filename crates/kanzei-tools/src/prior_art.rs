@@ -377,6 +377,84 @@ pub fn start_project_init(root: &Path) -> Result<PriorArtStart, String> {
     start_scaffold(root, "project-init", PriorArtTrigger::ProjectInit, None)
 }
 
+/// tracker requirement 登记时传入的先行调研判定材料。
+///
+/// R-248 的策略属于 prior-art 领域；tracker 只负责提供登记字段与接收审计字段，
+/// 避免把触发、工件和豁免规则重新堆回通用 CRUD。
+pub(crate) struct RegistrationCheck<'a> {
+    pub requirement: bool,
+    pub fields: &'a BTreeMap<String, String>,
+    pub refs_empty: bool,
+    pub artifact: Option<&'a str>,
+    pub waiver: Option<&'a str>,
+    pub id: &'a str,
+    pub title: &'a str,
+}
+
+pub(crate) fn check_registration(
+    ctx: &ToolCtx,
+    input: RegistrationCheck<'_>,
+) -> Result<Option<(String, String)>, String> {
+    if !input.requirement {
+        return Ok(None);
+    }
+    if input.artifact.is_some() && input.waiver.is_some() {
+        return Err(
+            "prior_art 与 prior_art_waiver 互斥：要么提交工件，要么记录用户豁免理由".into(),
+        );
+    }
+    let core = input.fields.iter().any(|(key, value)| {
+        (key.as_str() == "标签"
+            || key.eq_ignore_ascii_case("tags")
+            || key.eq_ignore_ascii_case("tag"))
+            && value
+                .split(|character: char| character == ',' || character.is_whitespace())
+                .any(|tag| tag == "核心")
+    });
+    let triggered = core && input.refs_empty;
+    if let Some(relative) = input
+        .artifact
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        validate_artifact(&ctx.project_root, relative, Some(input.id))?;
+        return Ok(Some(("先行调研".into(), relative.into())));
+    }
+    if let Some(reason) = input
+        .waiver
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if !triggered {
+            return Err("prior_art_waiver 只用于「核心 + refs 为空」的新方向登记".into());
+        }
+        if reason.chars().count() < 8 {
+            return Err(
+                "prior_art_waiver 必须记录至少 8 个字符的明确用户理由，不能写空泛占位".into(),
+            );
+        }
+        return Ok(Some(("先行调研豁免".into(), reason.into())));
+    }
+    if !triggered {
+        return Ok(None);
+    }
+
+    let topic = requirement_topic(input.id, input.title);
+    let start = start_scaffold(
+        &ctx.project_root,
+        &topic,
+        PriorArtTrigger::CoreRequirement,
+        Some(input.id),
+    )?;
+    if start.created {
+        crate::record_write_log(ctx, &start.relative_path, &start.absolute_path);
+    }
+    Err(format!(
+        "CORE_REQUIREMENT_PRIOR_ART_REQUIRED: 核心 requirement 且 refs 为空，已机械判定为新方向并创建 `{}`。先补齐外部已有实现与仓内既有设计，将 status 改为 complete，再以 top-level prior_art 重试；若用户明确决定跳过，改传 prior_art_waiver 并写明理由。refs 仍只写 R-/D-/T-，不要把文件路径塞进 refs。",
+        start.relative_path
+    ))
+}
+
 pub fn consume_search_round(root: &Path, topic: &str) -> Result<(u32, u32), String> {
     DocStore::validate_topic(topic).map_err(|error| error.to_string())?;
     let dir = root.join(".kanzei/research").join(topic);

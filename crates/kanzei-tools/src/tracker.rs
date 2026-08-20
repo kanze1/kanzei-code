@@ -729,71 +729,18 @@ impl TrackerTool {
         id: &str,
         title: &str,
     ) -> Result<Option<(String, String)>, String> {
-        if self.kind.prefix != "R" {
-            return Ok(None);
-        }
-        if input.prior_art.is_some() && input.prior_art_waiver.is_some() {
-            return Err(
-                "prior_art 与 prior_art_waiver 互斥：要么提交工件，要么记录用户豁免理由".into(),
-            );
-        }
-        let core = input
-            .fields
-            .iter()
-            .find(|(key, _)| {
-                **key == "标签"
-                    || key.eq_ignore_ascii_case("tags")
-                    || key.eq_ignore_ascii_case("tag")
-            })
-            .is_some_and(|(_, value)| {
-                value
-                    .split(|character: char| character == ',' || character.is_whitespace())
-                    .any(|tag| tag == "核心")
-            });
-        let triggered = core && input.refs.is_empty();
-        if let Some(relative) = input
-            .prior_art
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            crate::prior_art::validate_artifact(&ctx.project_root, relative, Some(id))?;
-            return Ok(Some(("先行调研".into(), relative.into())));
-        }
-        if let Some(reason) = input
-            .prior_art_waiver
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            if !triggered {
-                return Err("prior_art_waiver 只用于「核心 + refs 为空」的新方向登记".into());
-            }
-            if reason.chars().count() < 8 {
-                return Err(
-                    "prior_art_waiver 必须记录至少 8 个字符的明确用户理由，不能写空泛占位".into(),
-                );
-            }
-            return Ok(Some(("先行调研豁免".into(), reason.into())));
-        }
-        if !triggered {
-            return Ok(None);
-        }
-
-        let topic = crate::prior_art::requirement_topic(id, title);
-        let start = crate::prior_art::start_scaffold(
-            &ctx.project_root,
-            &topic,
-            crate::prior_art::PriorArtTrigger::CoreRequirement,
-            Some(id),
-        )?;
-        if start.created {
-            crate::record_write_log(ctx, &start.relative_path, &start.absolute_path);
-        }
-        Err(format!(
-            "CORE_REQUIREMENT_PRIOR_ART_REQUIRED: 核心 requirement 且 refs 为空，已机械判定为新方向并创建 `{}`。先补齐外部已有实现与仓内既有设计，将 status 改为 complete，再以 top-level prior_art 重试；若用户明确决定跳过，改传 prior_art_waiver 并写明理由。refs 仍只写 R-/D-/T-，不要把文件路径塞进 refs。",
-            start.relative_path
-        ))
+        crate::prior_art::check_registration(
+            ctx,
+            crate::prior_art::RegistrationCheck {
+                requirement: self.kind.prefix == "R",
+                fields: &input.fields,
+                refs_empty: input.refs.is_empty(),
+                artifact: input.prior_art.as_deref(),
+                waiver: input.prior_art_waiver.as_deref(),
+                id,
+                title,
+            },
+        )
     }
 
     /// R-191 登记硬约束:新建条目缺关键登记字段直接拒绝,并提示补什么,不静默放行。
