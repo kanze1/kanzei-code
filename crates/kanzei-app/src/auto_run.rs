@@ -137,6 +137,35 @@ pub fn backlog_status(project_root: &Path) -> BacklogStatus {
     kanzei_tools::tracker::backlog_status(project_root)
 }
 
+/// D-583 验收①后半:「点名阻塞清单」——熔断多半发生在活动条目卡在外部阻塞
+/// (权限环境/待用户决策/真实冲突)时,诊断必须直接列出卡住的条目与阻塞原文,
+/// 不能让人再去翻 defects.md/requirements.md 逐条找。只扫 WIP(doing/fixing)
+/// 且「阻塞」字段非空的条目——已经 todo/open 的排队条目不算「正在卡住」。
+pub fn blocked_wip_summary(project_root: &Path) -> Vec<String> {
+    use kanzei_tools::docstore::{DocStore, DEFECTS, REQUIREMENTS};
+    let mut out = Vec::new();
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let Ok(entries) = DocStore::open(project_root, kind).load() else {
+            continue;
+        };
+        for entry in entries {
+            if !matches!(entry.status.as_str(), "doing" | "fixing") {
+                continue;
+            }
+            let blocked = entry
+                .fields
+                .iter()
+                .find(|(key, _)| key == "阻塞")
+                .map(|(_, value)| value.trim())
+                .unwrap_or_default();
+            if !blocked.is_empty() {
+                out.push(format!("{}: {blocked}", entry.id));
+            }
+        }
+    }
+    out
+}
+
 /// D-583:熔断事件留痕——单纯的一次性 kz:done UI 事件会随会话滚动沉底,人工事后
 /// 想查「这个会话到底哪一轮触发过熔断」找不到独立证据。追加写一条 JSONL 到项目级
 /// 审计文件,与 D-566 的 cleanup-log.jsonl、D-567 的连续失败持久化同一手法:
@@ -152,6 +181,7 @@ pub fn record_zero_output_alert(project_root: &Path, session_id: &str, progress_
         "session_id": session_id,
         "rounds": kanzei_harness::auto_run::ZERO_OUTPUT_ROUND_LIMIT,
         "progress_signature": progress_signature,
+        "blocked": blocked_wip_summary(project_root),
         "recorded_at_ms": recorded_at_ms,
     });
     let Some(parent) = path.parent() else { return };
@@ -375,8 +405,44 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// D-583 验收①后半:「点名阻塞清单」只收 WIP(doing/fixing)且「阻塞」字段
+    /// 非空的条目——排队中的 todo/open 与阻塞字段空着的活动条目都不算「正在卡住」。
+    #[test]
+    fn 阻塞清单只收wip且阻塞字段非空的条目() {
+        let dir = temp_git_repo("blocked");
+        std::fs::write(
+            dir.join(".kanzei/project/defects.md"),
+            "# Defects\n\n\
+             ## D-001 卡住的缺陷 [fixing] (medium)\n\
+             - 阻塞: 等用户确认线上环境\n\n\
+             ## D-002 正常推进的缺陷 [fixing] (medium)\n\
+             - 阻塞: \n\n\
+             ## D-003 排队中的缺陷 [open] (low)\n\
+             - 阻塞: 这条不该出现,状态不是 wip\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/requirements.md"),
+            "# Requirements\n\n\
+             ## R-001 卡住的需求 [doing]\n\
+             - 阻塞: 等 review\n",
+        )
+        .unwrap();
+
+        let summary = super::blocked_wip_summary(&dir);
+        assert_eq!(summary.len(), 2, "{summary:?}");
+        assert!(summary
+            .iter()
+            .any(|s| s.starts_with("D-001: 等用户确认线上环境")));
+        assert!(summary.iter().any(|s| s.starts_with("R-001: 等 review")));
+        assert!(!summary.iter().any(|s| s.starts_with("D-002")));
+        assert!(!summary.iter().any(|s| s.starts_with("D-003")));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// D-583 验收③:熔断事件必须留痕可审计——追加进 auto-run-alerts.jsonl,
-    /// 每行独立(只增不改),多次触发各自成行不覆盖。
+    /// 每行独立(只增不改),多次触发各自成行不覆盖,且带上阻塞清单(验收①)。
     #[test]
     fn 熔断事件写入审计文件_多次触发各自成行() {
         let dir = temp_git_repo("alert");
@@ -395,6 +461,7 @@ mod tests {
             parsed["rounds"],
             kanzei_harness::auto_run::ZERO_OUTPUT_ROUND_LIMIT
         );
+        assert!(parsed["blocked"].is_array(), "{parsed}");
 
         super::record_zero_output_alert(&dir, "session-2", "sig-b");
         let content = std::fs::read_to_string(&alert_path).unwrap();

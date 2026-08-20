@@ -391,10 +391,17 @@ pub(crate) async fn run_task(
             &session_id,
             &progress_signature,
         );
+        // 验收①「点名阻塞清单」:诊断里直接带上卡住的条目,别让人再去翻文档找。
+        let blocked = crate::auto_run::blocked_wip_summary(&deps.project_root);
+        let blocked_line = if blocked.is_empty() {
+            "没有条目标记阻塞——卡点不在外部阻塞,需要人工复核最近几轮进展。".to_string()
+        } else {
+            format!("卡住的条目:{}", blocked.join(" | "))
+        };
         if let Ok(message) = crate::mobile_notify::notify_mobile(
             "kanzei 自动运行熔断",
             &format!(
-                "连续 {} 轮真实状态未变化(文件/提交/tracker 均无实质改动),自动推进已停止。",
+                "连续 {} 轮真实状态未变化(文件/提交/tracker 均无实质改动),自动推进已停止。{blocked_line}",
                 kanzei_harness::auto_run::ZERO_OUTPUT_ROUND_LIMIT
             ),
         ) {
