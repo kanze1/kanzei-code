@@ -8759,3 +8759,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-593 D-604
 - 收尾: 1787239981
 - 源码指纹: v2 scripts/ui-lint-globals.json@8fe75b4fc3e7,scripts/ui-runtime-smoke.mjs@c9987604885f
+
+## T-1786922726573 D-603 memory manager Path 参数与 workspace clippy 门禁 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory; cargo clippy --workspace --all-targets -- -D warnings
+- 摘要: PathBuf 参数修复验证通过：kanzei-memory 158 passed、0 failed、1 ignored；workspace clippy --all-targets -D warnings 通过；fmt check 通过。
+- 关联: D-603
+- 收尾: 1787240145
+- 源码指纹: v2 crates/kanzei-memory/src/memory/manager.rs@3c963597f228

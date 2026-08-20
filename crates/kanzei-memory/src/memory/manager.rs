@@ -638,10 +638,10 @@ mod tests {
     use super::*;
     use kanzei_harness::{Harness, KanzeiConfig, ProfileKind};
     use serde_json::json;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
-    fn write_fact_source(dir: &PathBuf) {
+    fn write_fact_source(dir: &Path) {
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         std::fs::write(
             dir.join(".kanzei/project/defects.md"),
@@ -650,7 +650,7 @@ mod tests {
         .unwrap();
     }
 
-    fn write_m001_source(dir: &PathBuf) {
+    fn write_m001_source(dir: &Path) {
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         std::fs::write(
             dir.join(".kanzei/project/defects.md"),

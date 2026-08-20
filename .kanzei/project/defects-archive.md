@@ -7432,3 +7432,29 @@
 - observed_head: 2871fee76493998dda6871a50059918849ac3826
 - observed_worktree_hash: fnv1a64:a6f5f99f770ba123
 - recorded_at: 1787239890799
+
+## D-593 上下文占用显示轮末才刷新且与预算引擎两套口径,长 prefill 期间滞后一整步 [fixed] (medium)
+- refs: D-592
+- 复现: UI 占用 ctxTokens=input+cacheRead 只在轮末 kz:step 事件更新(07-events.js:286),本地模型一步 prefill 数分钟,期间显示冻结在上一轮旧值;显示走 provider 真实 usage,压缩决策走 bytes/4 估算(D-592),两套口径——用户看到的数字与引擎行为对不上。2026-08-20 用户实测反馈『渲染显示的上下文不准确』
+- 影响: 长轮运行中用户无法判断真实占用,临限无感知;引擎该压不压时显示也给不出预警
+- 来源: 2026-08-20 用户实测反馈,主会话诊断
+- 标签: 前端
+- 验收: ①运行中占用显示与预算引擎同口径(D-592 改锚定真实值后两边天然收敛);②轮内长 prefill 期间显示不冻结——至少标注滞后/计算中,或用引擎估算实时刷新并标注口径;③对 context_limit 的占比展示与撞线告警准确
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-593(unblocks=0)
+- 进展: 已完成并提交 `f30a2d04`。验收逐条对账：① `crates/kanzei-app/ui/07-events.js:281-289` 继续以 provider `kz:step` 的真实 `input + cacheRead` 更新 `ctxTokens`，与 D-592 的真实 usage 锚定预算口径收敛；`T-1786922726571` 与 `T-1786922726572` 通过。② `crates/kanzei-app/ui/07-events.js:21-27` 在轮开始设置 `ctxPending`，`crates/kanzei-app/ui/03-shell.js:479-503` 保留上一轮真实值并显示 `等待模型/Waiting for model`，长 prefill 不再无标记冻结；`scripts/ui-runtime-smoke.mjs:6460-6465` 断言 pending 到真实 step 的切换，`T-1786922726571` 通过。③ `crates/kanzei-app/ui/03-shell.js:485-501` 按 `ctxLimit` 计算占比、70% warning 与进度条，`scripts/ui-runtime-smoke.mjs:6462-6465` 断言 `ctx 0.2k/66k (0%)`；`T-1786922726571` 与 `T-1786922726572` 通过。
+- observed_head: f30a2d04ad93a49410c74282ec4253a4969b7580
+- observed_worktree_hash: fnv1a64:abf42289ad631ab3
+- recorded_at: 1787240021333
+
+## D-603 kanzei-memory manager 测试辅助函数 PathBuf 参数阻断 workspace clippy [fixed] (low)
+- 复现: cargo clippy --workspace --all-targets -- -D warnings 在 crates/kanzei-memory/src/memory/manager.rs:644、653 报 clippy::ptr_arg：write_fact_source 与 write_m001_source 使用 &PathBuf 而非 &Path。
+- 影响: workspace Rust 提交门禁失败，阻断当前 D-592 B3 形成可审计提交；与 D-592 的业务代码无关。
+- 来源: self-found（D-592 B3 提交门禁复跑）
+- 标签: 核心
+- 优先级: P2
+- 进展: 已完成并提交前验证。根因是测试辅助函数仅接受 `&PathBuf`，触发 clippy::ptr_arg；`crates/kanzei-memory/src/memory/manager.rs:641-644` 现导入 `Path` 并将 `write_fact_source` 改为 `dir: &Path`，`manager.rs:653` 将 `write_m001_source` 改为 `dir: &Path`；调用方仍传入 `&PathBuf`，可自动解引用为 `&Path`，行为不变。验收对账：①消除 `manager.rs:644,653` 的 `&PathBuf` clippy 报错，证据 `T-1786922726573` 与 `cargo clippy --workspace --all-targets -- -D warnings` 通过；②不改变 memory manager 测试行为，`cargo test -p kanzei-memory` 为 158 passed、0 failed、1 ignored，证据 `T-1786922726573`；③格式检查通过，命令与结果同见 `T-1786922726573`。来源：self-found（D-592 B3 提交门禁复跑）。
+- observed_head: f30a2d04ad93a49410c74282ec4253a4969b7580
+- observed_worktree_hash: fnv1a64:ee2d311b4bf851cc
+- recorded_at: 1787240166681
+- 取活依据: engine:唯一可执行 WIP 是 D-603，必须先恢复它
