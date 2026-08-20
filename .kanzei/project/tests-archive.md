@@ -8418,3 +8418,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-566
 - 收尾: 1787191781
 - 源码指纹: v2 crates/kanzei/src/cli/mod.rs@d8adf343d74f,crates/kanzei/src/cli/quarantine.rs@13dd4628af0f
+
+## T-1786922726528 D-566 quarantine 逐目录审计留痕定向测试 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-tools
+- 摘要: 新增 cleanup-log.jsonl 审计留痕后：393 passed，0 failed，1 ignored；dry-run 测试断言候选路径与保留路径均写入 JSONL。既有 latex_tool unused_doc_comments 警告。
+- 关联: D-566
+- 收尾: 1787192463
+- 源码指纹: v2 crates/kanzei-tools/src/quarantine.rs@19e4b71ac09e

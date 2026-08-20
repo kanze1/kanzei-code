@@ -24,10 +24,10 @@
 - 标签: 流程
 - 验收: ①构建产物路径(gen/schemas 等)进入越界检测豁免清单或按内容指纹放行,有定向测试;②quarantine 提供按日期/类型的清理入口(dry-run+实际释放量),真越界证据可显式保留;③清理后 121 个存量目录处置留痕;④真实并行双线构建实测不再产生 schema 误报
 - 优先级: P2
-- 进展: B1 已提交 38497890：crates/kanzei-tools/src/cross_tree.rs:48-82 新增 gen/schemas 完整路径级豁免，:214-218 与 :298-300 两条扫描路径共用 is_excluded_path；新增 crates/kanzei-tools/src/quarantine.rs:1-202，已知类型/毫秒时间戳扫描、dry-run eligible_bytes、apply freed_bytes、未知命名目录 preserved_paths。B2 已提交 e4ecfcf1：crates/kanzei/src/cli/quarantine.rs:1-121 提供真实 `kz quarantine` 调用方，默认 dry-run，apply 必须带 type/date 筛选；crates/kanzei/src/cli/mod.rs:20-56 接入命令分发，:86-90 接入帮助文案。T-1786922726526：42 unit+32 integration passed；T-1786922726527：真实 CLI dry-run 与临时项目 apply 均通过，实际输出 eligible_dirs=1、freed_bytes=8、目标目录已删除。验收对账：①已完成，路径级豁免实现与回归在 cross_tree.rs:48-82、:806-828，T-1786922726524；②已完成，CLI真实消费者为 cli/mod.rs:52 与 cli/quarantine.rs:58-91，dry-run/apply及释放字节证据见 T-1786922726527，未知证据保留由 tools/quarantine.rs:82-93、:128-156 保证；③处置留痕已写入本进展：历史基线来自本缺陷复现字段=121目录/143MB，当前真实盘点命令输出=1目录、1204224 bytes（shell-with-log-1787179727388），但历史120目录逐目录清单不在当前树，故验收降级：③原文“清理后121个存量目录处置留痕”→保留历史基线+当前盘点数字，无独立逐目录 manifest；④验收降级：④原文“真实并行双线构建实测不再产生schema误报”→当前代码与定向回归已覆盖两条扫描路径，但当前只有主树与发布树两个既有 worktree，暂无第二个同 HEAD 的真实构建窗口，不能冒充并行实测。批次已完成 2/2；D-566 仍 fixing，不得关闭，后续仅补齐③/④证据。
+- 进展: B1 已提交 38497890：cross_tree.rs:48-82 新增 gen/schemas 完整路径级豁免，:214-218/:298-300 两条扫描路径共用 is_excluded_path；新增 tools/quarantine.rs:1-202，已知类型/毫秒时间戳扫描、dry-run eligible_bytes、apply freed_bytes、未知命名目录 preserved_paths。B2 已提交 e4ecfcf1：cli/quarantine.rs:1-121 提供真实 `kz quarantine` 调用方，默认 dry-run，apply 必须带 type/date 筛选；cli/mod.rs:20-56 接入分发，:86-90 接入帮助。B2 后续最小补强已完成未提交：tools/quarantine.rs:21-51 新增 CleanupAudit，:96-126 append_audit 每次成功 dry-run/apply 追加 `.kanzei/quarantine/cleanup-log.jsonl`，记录 eligible_paths 与 preserved_paths、筛选条件、字节和模式；:213-217 单测断言候选与保留目录均进 JSONL。T-1786922726528：393 passed、0 failed、1 ignored。验收对账：①已完成，路径级豁免与回归在 cross_tree.rs:48-82、:806-828，T-1786922726524；②已完成，真实 CLI 为 cli/mod.rs:52、cli/quarantine.rs:58-91，dry-run/apply证据 T-1786922726527，未知证据保留 tools/quarantine.rs:82-93、:128-156；③新增未来每次清理的逐目录审计留痕：tools/quarantine.rs:96-126 的 cleanup-log.jsonl，T-1786922726528 已断言候选/保留路径均落盘；历史基线仍为121目录/143MB，当前盘点为1目录/1204224 bytes，历史120目录无独立逐目录 manifest，故历史存量部分仍显式降级；④仍降级：代码与定向回归覆盖两条扫描路径，但当前无第二同 HEAD worktree的真实并行构建窗口。下一步：提交审计补强；D-566 仍 fixing，不得关闭。
 - observed_head: e4ecfcf1addc66fe890fc7de7636e08608438acd
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787192184831
+- observed_worktree_hash: fnv1a64:155a255ab3d084e6
+- recorded_at: 1787192479245
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-566(unblocks=0)
 - 批次: 2/2
 

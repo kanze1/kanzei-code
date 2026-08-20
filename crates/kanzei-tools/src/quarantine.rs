@@ -5,8 +5,11 @@
 //! 由调用方显式传入 `apply = true`。
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::Serialize;
 
 const KNOWN_KINDS: &[&str] = &["shell", "shell-with-log", "cross-tree", "bg"];
 
@@ -27,7 +30,23 @@ pub struct CleanupReport {
     pub removed_dirs: usize,
     pub eligible_bytes: u64,
     pub freed_bytes: u64,
+    pub eligible_paths: Vec<PathBuf>,
     pub preserved_paths: Vec<PathBuf>,
+}
+
+#[derive(Serialize)]
+struct CleanupAudit<'a> {
+    recorded_at_ms: u128,
+    mode: &'static str,
+    kind: Option<&'a str>,
+    before_ms: Option<u128>,
+    scanned_dirs: usize,
+    eligible_dirs: usize,
+    eligible_bytes: u64,
+    removed_dirs: usize,
+    freed_bytes: u64,
+    eligible_paths: Vec<String>,
+    preserved_paths: Vec<String>,
 }
 
 fn quarantine_root(project_root: &Path) -> PathBuf {
@@ -91,6 +110,44 @@ pub fn inspect(project_root: &Path) -> std::io::Result<Vec<QuarantineEntry>> {
     Ok(entries)
 }
 
+fn append_audit(
+    project_root: &Path,
+    kind: Option<&str>,
+    before_ms: Option<u128>,
+    report: &CleanupReport,
+) -> std::io::Result<()> {
+    let root = quarantine_root(project_root);
+    fs::create_dir_all(&root)?;
+    let audit = CleanupAudit {
+        recorded_at_ms: now_ms(),
+        mode: if report.dry_run { "dry-run" } else { "apply" },
+        kind,
+        before_ms,
+        scanned_dirs: report.scanned_dirs,
+        eligible_dirs: report.eligible_dirs,
+        eligible_bytes: report.eligible_bytes,
+        removed_dirs: report.removed_dirs,
+        freed_bytes: report.freed_bytes,
+        eligible_paths: report
+            .eligible_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+        preserved_paths: report
+            .preserved_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+    };
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(root.join("cleanup-log.jsonl"))?;
+    serde_json::to_writer(&mut file, &audit)
+        .map_err(|error| std::io::Error::other(format!("写入 quarantine 审计失败: {error}")))?;
+    file.write_all(b"\n")
+}
+
 /// 清理已知类型的旧取证目录。`kind` 与 `before_ms` 至少提供一个才能实际删除；
 /// dry-run 可以不带筛选器，用于先盘点全部存量。未知命名目录永远只报告、不删除。
 pub fn cleanup(
@@ -122,6 +179,7 @@ pub fn cleanup(
         removed_dirs: 0,
         eligible_bytes: 0,
         freed_bytes: 0,
+        eligible_paths: Vec::new(),
         preserved_paths: Vec::new(),
     };
     for entry in entries {
@@ -140,12 +198,14 @@ pub fn cleanup(
         }
         report.eligible_dirs += 1;
         report.eligible_bytes = report.eligible_bytes.saturating_add(entry.bytes);
+        report.eligible_paths.push(entry.path.clone());
         if apply {
             fs::remove_dir_all(&entry.path)?;
             report.removed_dirs += 1;
             report.freed_bytes = report.freed_bytes.saturating_add(entry.bytes);
         }
     }
+    append_audit(project_root, kind, before_ms, &report)?;
     Ok(report)
 }
 
@@ -184,6 +244,9 @@ mod tests {
         assert_eq!(report.removed_dirs, 0);
         assert_eq!(report.preserved_dirs, 1);
         assert!(root.join(".kanzei/quarantine/user-kept").is_dir());
+        let audit = fs::read_to_string(root.join(".kanzei/quarantine/cleanup-log.jsonl")).unwrap();
+        assert!(audit.contains("cross-tree-100"));
+        assert!(audit.contains("user-kept"));
         let _ = fs::remove_dir_all(root);
     }
 
