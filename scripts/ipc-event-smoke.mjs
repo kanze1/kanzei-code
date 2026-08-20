@@ -43,6 +43,14 @@ for (const file of fs.readdirSync(path.join(root, "crates/kanzei-app/ui")).filte
 
 const backendOnly = [...backendEvents].filter((e) => !frontendEvents.has(e)).sort();
 const frontendOnly = [...frontendEvents].filter((e) => !backendEvents.has(e)).sort();
+const MIN_IPC_EVENTS = 10;
+
+if (backendEvents.size < MIN_IPC_EVENTS || frontendEvents.size < MIN_IPC_EVENTS) {
+  console.error(
+    `IPC 事件契约求差拒绝空集/异常低计数:后端 ${backendEvents.size},前端 ${frontendEvents.size},下限 ${MIN_IPC_EVENTS}`,
+  );
+  process.exit(1);
+}
 
 if (backendOnly.length || frontendOnly.length) {
   console.error(`IPC 事件契约求差失败:后端 emit ${backendEvents.size} 个,前端订阅 ${frontendEvents.size} 个`);

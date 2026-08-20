@@ -29,6 +29,8 @@ jobs:
         run: npm ci
       # 本清单必须与 scripts/verify.ps1 逐项同步(R-209 守护测试
       # gate_checklists_align_across_git_verify_and_ci 机械比对,任一侧增删一步即红)。
+      - name: metrics build
+        run: cargo build -q -p kanzei
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy

@@ -398,6 +398,9 @@ fn fn_body_lines(lines: &[&str], start_line: usize, _start_col: usize) -> usize 
     }
 }
 
+/// 输出协议版本。回涨闸必须拒绝用不同口径的读数比较基线，而不是把差异当作行数变化。
+pub(crate) const METRICS_FORMAT_VERSION: &str = "v1";
+
 pub(crate) async fn metrics_cli(args: &[String]) -> anyhow::Result<()> {
     let mut top = 20usize;
     let mut root_override = None;
@@ -431,6 +434,7 @@ pub(crate) async fn metrics_cli(args: &[String]) -> anyhow::Result<()> {
     )?;
 
     let files = sorted_metrics(&project_root)?;
+    println!("metrics format: {METRICS_FORMAT_VERSION}");
     println!("项目根: {}", project_root.display());
     println!(
         "{:<54} {:>7} {:>7} {:>7} {:>5} {:>7} {:>6}",

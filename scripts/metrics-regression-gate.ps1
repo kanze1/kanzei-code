@@ -1,5 +1,6 @@
 ﻿param(
-    [string]$Root = (Split-Path -Parent $PSScriptRoot)
+    [string]$Root = (Split-Path -Parent $PSScriptRoot),
+    [string]$MetricsOutputPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,33 +25,48 @@ function Normalize-PathKey([string]$Value) {
 }
 
 $baseline = @{}
+$baselineVersion = $null
 foreach ($line in Get-Content -LiteralPath $baselinePath) {
+    if ($line -match 'metrics_format_version:\s*(?<version>v\d+)') {
+        $baselineVersion = $Matches.version
+    }
     if ($line -match '^\|\s*\d+\s*\|\s*(?<path>[^|]+?)\s*\|\s*\d+\s*\|\s*(?<production>\d+)\s*\|') {
         $key = Normalize-PathKey $Matches.path
         $baseline[$key] = [int]$Matches.production
     }
 }
+if ([string]::IsNullOrWhiteSpace($baselineVersion)) {
+    throw "metrics baseline missing 口径版本; refusing to compare incompatible readings"
+}
 if ($baseline.Count -lt 10) {
     throw "metrics baseline has too few parsed rows ($($baseline.Count)); refusing to run a false-green gate"
 }
 
-# D-555:量测必须与基线同口径。基线由源码构建的 kz 生成;安装版 ~/.cargo/bin/kz.exe
-# 在口径修复(R-300 B5)未随包发布时会量出假回涨(实测 phase_pipeline.rs 安装版
-# 923/源码版 796,基线 796)。构建当前工作树的 kz 再量,闸门与基线生成器永远共用
-# 同一计数实现。
-cargo build -q -p kanzei --manifest-path (Join-Path $Root "Cargo.toml")
-if ($LASTEXITCODE -ne 0) {
-    throw "cargo build -p kanzei failed (exit=$LASTEXITCODE)"
-}
 $kz = Join-Path $Root "target\debug\kz.exe"
-Push-Location $Root
-try {
-    $metricsOutput = @(& $kz metrics --top 30 2>&1)
-} finally {
-    Pop-Location
+if ([string]::IsNullOrWhiteSpace($MetricsOutputPath)) {
+    Push-Location $Root
+    try {
+        $metricsOutput = @(& $kz metrics --top 30 2>&1)
+    } finally {
+        Pop-Location
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "kz metrics failed (exit=$LASTEXITCODE)"
+    }
+} else {
+    # 定向测试注入只含版本行的 fixture，验证口径漂移在解析 Top-30 前拒绝出数。
+    $metricsOutput = @(Get-Content -LiteralPath $MetricsOutputPath)
 }
-if ($LASTEXITCODE -ne 0) {
-    throw "kz metrics failed (exit=$LASTEXITCODE)"
+
+$metricsVersion = $null
+foreach ($line in $metricsOutput) {
+    if ($line -match '^metrics format:\s*(?<version>\S+)') {
+        $metricsVersion = $Matches.version
+        break
+    }
+}
+if ([string]::IsNullOrWhiteSpace($metricsVersion) -or $metricsVersion -ne $baselineVersion) {
+    throw "metrics format version mismatch; refusing to emit metrics: baseline=$baselineVersion current=$metricsVersion"
 }
 
 $current = @()

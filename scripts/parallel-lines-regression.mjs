@@ -3,20 +3,24 @@
 // 高频轮询、无序切换或全局 profile 回写重新引入。
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { loadUiSources } from "./ui-sources.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const readUi = (name) => readFile(resolve(root, "crates", "kanzei-app", "ui", name), "utf8");
-const [lines, sessions, auto, compose, models, views, docsList, index] = await Promise.all([
-  readUi("20-lines.js"),
-  readUi("09-sessions.js"),
-  readUi("08-auto.js"),
-  readUi("08-compose.js"),
-  readUi("08-models.js"),
-  readUi("15-views-misc.js"),
-  readUi("11-docs-list.js"),
-  readUi("index.html"),
-]);
-const composeSources = `${auto}\n${compose}\n${models}`;
+const { html, sources, joined: allUiSources } = loadUiSources();
+// R-309 B4:脚本声明顺序由 index.html 的共享 loader 作为唯一真源；不再写死
+// 8 个文件名。按稳定的源码标记取模块，拆分/重排 UI 后仍覆盖真实加载面。
+const sourceFor = (...markers) => {
+  const source = sources.find((content) => markers.every((marker) => content.includes(marker)));
+  if (!source) throw new Error(`UI source markers not found: ${markers.join(", ")}`);
+  return source;
+};
+const lines = sourceFor("LINES_REFRESH_IDLE_MS = 8000");
+const sessions = sourceFor("processRefreshInFlight", "processSwitchGeneration");
+const compose = sourceFor("const processUpdateQueues = new Map()");
+const composeSources = allUiSources;
+const views = sourceFor("switchGeneration = null");
+const docsList = sourceFor("entry.claimed_by");
+const index = html;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -26,7 +30,7 @@ assert(!lines.includes("setInterval(() =>"), "多线页面不应恢复固定 set
 assert(lines.includes("LINES_REFRESH_IDLE_MS = 8000"), "多线空闲刷新间隔护栏缺失");
 assert(lines.includes("scheduleLinesRefresh(running ? LINES_REFRESH_RUNNING_MS : LINES_REFRESH_IDLE_MS)"), "多线自适应刷新护栏缺失");
 assert(!lines.includes("line-lane-initial"), "线路刷新不应重新挂载进入动画 class");
-const style = await readUi("style.css");
+const style = await readFile(resolve(root, "crates", "kanzei-app", "ui", "style.css"), "utf8");
 assert(!/\.line-lane\s*\{[^}]*animation\s*:/.test(style), "线路基础卡片不应在每次刷新时重复播放进入动画");
 assert(!style.includes("line-lane-enter"), "线路刷新不应保留会造成闪烁的进入动画");
 assert(style.includes(".lines-header > div:first-child"), "线路页标题区域缺少窄区宽度约束");
@@ -58,7 +62,7 @@ assert(sessions.includes("function processRunning(item)"), "线路运行态未�
 assert(sessions.includes("state.live_running === true"), "实时运行事件不能被旧 process_list 快照覆盖");
 assert(sessions.includes("state.local_start_pending && !item.running"), "发送启动窗口不能被旧空闲快照覆盖");
 assert(compose.includes("local_start_pending: true"), "发送启动意图未进入状态投影(R-206:经 transitionSession detail 传入)");
-assert((await readUi("01-core.js")).includes("payload?.terminal !== false"), "错误事件缺少终态区分");
+assert(allUiSources.includes("payload?.terminal !== false"), "错误事件缺少终态区分");
 assert(sessions.includes("applyAutoUiState(activeProcessId)"), "重载/切项目后未恢复活动线路鞭挞设置");
 assert(sessions.includes("applyProfileValue(active?.profile)"), "重载/切项目后未恢复活动线路 profile");
 assert(!sessions.includes("process-tabs"), "顶部进程切换条已移除,不应重新引入");
@@ -80,7 +84,7 @@ assert(
   "后台线轮末未释放自主推进在飞标记(切走线路后鞭挞一轮即停)",
 );
 assert(
-  (await readUi("01-core.js")).includes('event === "kz:auto-fail" && typeof handleBackgroundAutoFail'),
+  allUiSources.includes('event === "kz:auto-fail" && typeof handleBackgroundAutoFail'),
   "后台线的失败退避重试仍被路由层整条丢弃(断一次网即永久停摆)",
 );
 assert(compose.includes("function handleBackgroundAutoFail(payload)"), "后台线失败退避重试缺少专用处理器");
@@ -119,7 +123,7 @@ assert(profileFunction && !profileFunction.includes("localStorage.setItem(PROFIL
 assert(views.includes("switchGeneration = null"), "对话恢复缺少可选切换代次参数");
 assert(views.includes("if (!isCurrent()) return;"), "旧线路对话响应缺少丢弃护栏");
 
-const core = await readUi("01-core.js");
+const core = sourceFor("handleBackgroundSessionDone(eventPayload.payload)");
 assert(core.includes("handleBackgroundSessionDone(eventPayload.payload)"), "后台 done 事件副作用仍被路由层截断");
 assert(lines.includes("harvest.disabled = lineRunning"), "运行中线路仍可进入收活");
 assert(lines.includes('close.textContent = t("关闭线路")'), "线路页缺少关闭线路入口");

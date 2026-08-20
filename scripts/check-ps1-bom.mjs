@@ -33,6 +33,12 @@ for (const name of fs.readdirSync(scriptsDir)) {
   }
 }
 
+const MIN_PS1_SCRIPTS = 1;
+if (checked < MIN_PS1_SCRIPTS) {
+  console.error(`D-408 拒绝空脚本集合:检测到 ${checked} 个 .ps1,下限 ${MIN_PS1_SCRIPTS}`);
+  process.exit(1);
+}
+
 if (offenders.length > 0) {
   console.error("PowerShell 脚本 BOM 校验失败——下列脚本在 Windows PowerShell 5.1 下会因编码解析报错:");
   for (const o of offenders) console.error(`  - ${o}`);

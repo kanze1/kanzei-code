@@ -1929,7 +1929,7 @@ prunable gitdir file points to non-existent location
     /// 口径:verify.ps1 的 `Step-With-Timing "<key>"` 键集合必须等于固定清单
     /// {fmt, clippy, test, ui_runtime, ui_lint, ipc_event_contract,
     /// parallel_lines_regression, ui_a11y, ui_i18n, ui_markdown, ui_connectivity,
-    /// crate_sync, ps1_bom};每个键在 ci.yml 里有对应标记(命令文本或
+    /// metrics_build, crate_sync, ps1_bom};每个键在 ci.yml 里有对应标记(命令文本或
     /// smoke 脚本名);smoke 脚本与 npm ci 在两侧同现同隐。
     /// ui_syntax 已删(P0-2):ESLint 解析错误覆盖 node --check 的全部检查面。
     #[test]
@@ -1972,6 +1972,7 @@ prunable gitdir file points to non-existent location
             "ui_i18n",
             "ui_markdown",
             "ui_connectivity",
+            "metrics_build",
             "crate_sync",
             "ps1_bom",
         ]
@@ -1989,7 +1990,8 @@ prunable gitdir file points to non-existent location
         );
 
         // ② 每个键在 ci.yml 有对应标记(命令文本或 smoke 脚本名)。
-        let markers: [(&str, &str); 13] = [
+        let markers: [(&str, &str); 14] = [
+            ("metrics_build", "cargo build -q -p kanzei"),
             ("fmt", "cargo fmt --all -- --check"),
             ("clippy", "cargo clippy --workspace --all-targets"),
             ("test", "cargo test --workspace"),

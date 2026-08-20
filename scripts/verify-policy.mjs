@@ -8,6 +8,7 @@ export const VERIFY_STEP_KEYS = [
   "ui_i18n",
   "ui_markdown",
   "crate_sync",
+  "metrics_build",
   "ps1_bom",
   "ui_lint",
   "ipc_event_contract",

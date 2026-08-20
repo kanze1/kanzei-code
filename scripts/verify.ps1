@@ -96,6 +96,9 @@ if ($policy.run_frontend) {
 } else {
     Write-Host "==> skip frontend smoke: no frontend paths in verify range" -ForegroundColor DarkGray
 }
+Step-With-Timing "metrics_build" "metrics_build (metrics 口径与回涨闸使用同一 kz)" {
+    cargo build -q -p kanzei --manifest-path "$root\Cargo.toml"
+}
 Step-With-Timing "crate_sync" "crate_sync (R-266 README 项目结构表与 workspace 一致)" {
     node "$root\scripts\check-design-freshness.mjs"
     if ($LASTEXITCODE -ne 0) { throw "design freshness gate failed (R-318)" }

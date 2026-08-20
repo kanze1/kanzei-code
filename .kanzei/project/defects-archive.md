@@ -7964,3 +7964,81 @@
 - observed_head: 481f4463259ee689bdf5a07a4ebe618f6edd11a5
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787264073480
+
+## D-645 R-309 B4 metrics gate 版本校验插入缺少换行导致 PowerShell 语法错误 [fixed] (high)
+- 复现: 来源：self-found。运行 B4 定向 PowerShell Parser 检查时，`scripts/metrics-regression-gate.ps1` 报 Unexpected token `$metricsVersion`；插入版本校验后形成 `$current = @()$metricsVersion = $null`。
+- 影响: metrics-regression-gate.ps1 无法解析，verify 的 metrics 闸不能运行。
+- 来源: self-found（R-309 B4 定向验证）
+- 标签: 流程
+- 进展: 已修复并验证。`crates/kanzei-tools/src/git.rs:1993-2008` 门禁 marker 已恢复可格式化；`scripts/verify-policy.mjs`、`scripts/verify.ps1`、`.github/workflows/ci.yml` 的 metrics_build 清单同步；T-1786922726632：cargo fmt、cargo test -p kanzei-tools（424 passed）和 checklist smoke 通过。 [terminal-fix 2026-08-20] fixed → fixed: 纠正终态说明证据：D-645 的实际修复与验收是 `scripts/metrics-regression-gate.ps1:27-70` 的 metrics baseline/current 版本解析与 mismatch 拒绝，`scripts/metrics-regression-gate-smoke.mjs:9-30` 的 v999 fixture，以及 T-1786922726632 的 PowerShell Parser、metrics smoke 和真实 gate；此前错误引用了 D-650 的 git marker 位置。
+- 验收: `scripts/metrics-regression-gate.ps1` PowerShell Parser 通过；metrics 版本漂移定向测试可执行。
+- refs: R-309
+- 优先级: P1
+- observed_head: b5d23c281e5906e32e35fc245b4817095f47fdb2
+- observed_worktree_hash: fnv1a64:94ae0e272f9f0017
+- recorded_at: 1787265613087
+
+## D-646 R-309 B4 parallel-lines 动态加载合并全 UI 源导致模块范围断言误报 [fixed] (medium)
+- 复现: 来源：self-found。`parallel-lines-regression.mjs` 改用 `loadUiSources()` 后把所有脚本拼接到 `lines/sessions/compose`，导致 `lines` 的 `setInterval` 断言扫描到其他模块/注释并失败。
+- 影响: parallel-lines-regression.mjs 在当前真实 UI 上假红，无法作为 verify 门禁。
+- 来源: self-found（R-309 B4 定向验证）
+- 标签: 前端
+- 进展: 已修复并验证：`scripts/parallel-lines-regression.mjs:4-23` 使用 `loadUiSources()` 与源码标记定位真实 UI 源，不再写死文件名；T-1786922726632 的 node --check 与 parallel-lines smoke 通过。
+- 验收: 继续使用 `loadUiSources()` 且不写死文件名；各模块断言只针对能由内容标记唯一定位的真实源；parallel-lines-regression.mjs 通过。
+- refs: R-309
+- 优先级: P1
+- observed_head: b5d23c281e5906e32e35fc245b4817095f47fdb2
+- observed_worktree_hash: fnv1a64:94ae0e272f9f0017
+- recorded_at: 1787265634873
+
+## D-647 R-309 B4 parallel-lines 修复 assert 引号括号未配平导致脚本语法错误 [fixed] (medium)
+- 复现: 来源：self-found。修复 D-646 时将 `assert((await readUi(...)).includes(...), message)` 改成单行，结果 `scripts/parallel-lines-regression.mjs:87` 的字符串/括号未配平，`node --check` 报 missing ) after argument list。
+- 影响: parallel-lines-regression.mjs 无法解析，B4 前端门禁不能运行。
+- 来源: self-found（D-646 修复后的再次定向验证）
+- 标签: 前端
+- 进展: 已修复并验证：`scripts/parallel-lines-regression.mjs:84-90` 恢复合法多行 assert；T-1786922726632 的 `node --check scripts/parallel-lines-regression.mjs` 与真实 parallel-lines smoke 通过。
+- 验收: `scripts/parallel-lines-regression.mjs` 语法通过且真实 parallel-lines 回归脚本通过。
+- refs: R-309 D-646
+- 优先级: P1
+- observed_head: b5d23c281e5906e32e35fc245b4817095f47fdb2
+- observed_worktree_hash: fnv1a64:94ae0e272f9f0017
+- recorded_at: 1787265639898
+
+## D-648 R-309 B4 parallel-lines 单一源码标记无法覆盖同模块断言集合 [fixed] (medium)
+- 复现: 来源：self-found。运行 `parallel-lines-regression.mjs` 时，按单一 marker `processRefreshInFlight` 选择 source 后，后续 `processSwitchGeneration` 断言失败；单一 marker 不能保证选中原模块完整源码。
+- 影响: parallel-lines 回归护栏在真实 UI 上误报，无法替代原有模块级断言。
+- 来源: self-found（D-646 修复后的定向验证）
+- 标签: 前端
+- 进展: 已修复并验证：`scripts/parallel-lines-regression.mjs:12-22` 的 `sourceFor(...markers)` 要求同一真实源包含标记集合，sessions 使用 `processRefreshInFlight` 与 `processSwitchGeneration` 联合定位；T-1786922726632 的 parallel-lines smoke 通过。
+- 验收: 动态 loader 按标记集合定位真实模块；所有原有 parallel-lines 断言通过。
+- refs: R-309 D-646
+- 优先级: P1
+- observed_head: b5d23c281e5906e32e35fc245b4817095f47fdb2
+- observed_worktree_hash: fnv1a64:94ae0e272f9f0017
+- recorded_at: 1787265644768
+
+## D-649 R-309 B4 metrics baseline 版本字段受中文编码与行尾说明影响误判 [fixed] (high)
+- 复现: 来源：self-found。运行 `scripts/metrics-regression-gate-smoke.mjs` 与真实 `metrics-regression-gate.ps1` 时，baseline 版本行含中文及行尾说明，PowerShell 以 `\S+` 捕获为 `v1（与...`；Windows PowerShell 5.1 读取中文字段还会乱码，出现 baseline missing 或 baseline/current 同为 v1 仍不相等。
+- 影响: metrics gate 在合法同口径或漂移场景都可能误报，不能稳定拒绝/放行。
+- 来源: self-found（R-309 B4 metrics 定向验证）
+- 标签: 流程
+- 进展: 已修复并验证：`docs/design/metrics_baseline.md:4` 使用 ASCII `metrics_format_version: v1`；`scripts/metrics-regression-gate.ps1:30-39,61-70` 解析版本并拒绝 mismatch；`scripts/metrics-regression-gate-smoke.mjs:13-30` 覆盖 v999；T-1786922726632 的漂移 smoke 与真实 gate 通过。
+- 验收: 同口径真实 metrics gate 通过；v999 fixture 明确以 `metrics format version mismatch` 失败；不依赖 PowerShell 中文编码。
+- refs: R-309
+- 优先级: P1
+- observed_head: b5d23c281e5906e32e35fc245b4817095f47fdb2
+- observed_worktree_hash: fnv1a64:94ae0e272f9f0017
+- recorded_at: 1787265649870
+
+## D-650 R-309 B4 git.rs 门禁 marker 插入格式未保持 cargo fmt [fixed] (low)
+- 复现: 来源：self-found。执行 `cargo fmt --all -- --check` 时，`crates/kanzei-tools/src/git.rs` 的 markers 数组中 `("metrics_build", ...)` 与 `("fmt", ...)` 被插在同一行，fmt 输出 diff 并失败。
+- 影响: 受影响 crate 的提交前格式门禁失败，R-309 B4 不能提交。
+- 来源: self-found（R-309 B4 定向测试）
+- 标签: 流程
+- 进展: 已修复并验证：`crates/kanzei-tools/src/git.rs:1993-2008` marker 数组保持 cargo fmt 格式，`metrics_build` 与 fmt/clippy/test 清单共 14 项；`git::tests::gate_checklists_align_across_git_verify_and_ci` 与 `cargo fmt --all -- --check` 在 T-1786922726632 通过。
+- 验收: `cargo fmt --all -- --check` 通过；`git::tests::gate_checklists_align_across_git_verify_and_ci` 继续通过。
+- refs: R-309
+- 优先级: P1
+- observed_head: b5d23c281e5906e32e35fc245b4817095f47fdb2
+- observed_worktree_hash: fnv1a64:94ae0e272f9f0017
+- recorded_at: 1787265655089

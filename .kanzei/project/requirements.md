@@ -214,7 +214,7 @@
 - 对账: 2026-08-20 发版 build-39cd402f 后 B1/B2 进入运行态;R-306/R-293 停车已改写「解除条件:」语法为首批真实消费者。批3 时顺带把「解除条件:」写入约定补进 conventions 停车纪律,让循环新写停车默认带机器可判条件
 
 ## R-309 门禁矩阵整合:按改动路径裁剪 verify、globals 免手工同步、脆性门禁加固 [doing]
-- refs: D-510 D-555 D-539 D-540 D-458 R-300 D-642 D-643 D-644
+- refs: D-510 D-555 D-539 D-540 D-458 R-300 D-642 D-643 D-644 D-645 D-646 D-647 D-648 D-649 D-650
 - 内容: 批1 globals 免手工同步:eslint.config.js 加载时直接调 gen-ui-lint-globals 计算 globals,ui-lint-globals.json 降级缓存或删除——结构性消灭 D-458/D-484/D-523/D-547/D-560/D-562 一族(占门禁缺陷 18%)。批2 verify 按改动路径三档裁剪:无 Rust 改动跳 fmt/clippy/test(省 100.2s),无前端改动跳六冒烟(省 5.9s),verification.json 记录裁剪判据与被跳步骤,package.ps1 发版证据要求全量 verify 不受裁剪污染。批3 关闭门禁复用 verify 证据:frontend_smoke_passed 接受绑定当前 HEAD 且 ui_runtime/ui_lint/ui_i18n 全 pass 的 verification.json,去掉每批第 3 轮冒烟;同时补冒烟记录新鲜度校验(现状:三天前的 passed 记录可放行今天的关闭,coverage.rs frontend_smoke_passed 无时间/指纹比对)。批4 脆性加固:metrics 闸基线口径版本断言(口径不同拒绝出数而非出错数),metrics-regression-gate.ps1 里的 cargo build 移出 crate_sync 单独计时;parallel-lines-regression.mjs 改用 loadUiSources() 不再写死 8 个文件名;ipc-event-smoke/check-ps1-bom 补空集与下限断言(D-510 模式推广)
 - 复杂度: 大
 - 来源: 2026-08-20 门禁矩阵审计(115 条近期缺陷归因):门禁真假阳性比 1:4.7;34 条门禁类缺陷中 29% 是「忘了重跑生成器」类机械同步;verify 14 步 108.1s 中 Rust 三步占 92.7%,改前端的批次全额买单;fmt/clippy 每批次跑 4 轮、前端冒烟 3 轮。P0 两项(finalize 去重、删 ui_syntax)已由主会话落地
@@ -223,12 +223,12 @@
 - 验收: ①改一行前端的批次 verify 墙钟 <15s(实测);②改 globals 清单的缺陷族在门禁上线后零新增;③关闭前端条目不再需要第三轮冒烟(用 verify 证据通过一次真实关闭);④metrics 口径漂移场景拒绝出数的定向测试;⑤裁剪过的 verification.json 被 package.ps1 拒绝的定向测试
 - 优先级: P1
 - status: doing
-- 进展: B1 已提交：`a173eb6a`，globals 实时收集与缓存降级已验证。B2 已提交：`481f4463`，`scripts/verify-policy.mjs:5-91`、`scripts/verify.ps1:41-178`、`scripts/package.ps1:109-114` 完成路径裁剪和 full evidence 门禁；D-642/D-643/D-644 已关闭，归档收口提交 `1e28fe28`，真实 package 拒绝 cropped evidence 证据 T-1786922726629。B3 已落地：`crates/kanzei-tools/src/test_record/coverage.rs` 优先消费 `dist/verification.json`，要求当前 HEAD、`all_pass=true`、`ui_runtime/ui_lint/ui_i18n` 三项 pass；旧 test_record 增加 24 小时新鲜度与工作区源码指纹校验；新增当前 commit/UI 三项和过期记录拒绝测试。T-1786922726630：cargo fmt + cargo test -p kanzei-tools，424 passed、0 failed、1 ignored。下一步：B4 加固 metrics 基线口径、metrics gate 计时、parallel-lines 动态 UI 源、IPC/BOM 空集与下限断言。
-- observed_head: 481f4463259ee689bdf5a07a4ebe618f6edd11a5
-- observed_worktree_hash: fnv1a64:ae4da7711a88f248
-- recorded_at: 1787264425940
+- 进展: B1 已提交：`a173eb6a`，globals 实时收集与缓存降级已验证。B2 已提交：`481f4463`，`scripts/verify-policy.mjs:5-91`、`scripts/verify.ps1:41-178`、`scripts/package.ps1:109-114` 完成路径裁剪和 full evidence 门禁；D-642/D-643/D-644 已关闭，归档收口提交 `1e28fe28`，真实 package 拒绝 cropped evidence 证据 T-1786922726629。B3 已提交：`b5d23c28`，`crates/kanzei-tools/src/test_record/coverage.rs` 优先消费当前 HEAD 的 `dist/verification.json`，要求 `all_pass=true`、`ui_runtime/ui_lint/ui_i18n` 三项 pass，并校验 24 小时新鲜度与工作区源码指纹；T-1786922726630：424 passed、0 failed、1 ignored。B4 已实现但待提交：`crates/kanzei/src/cli/metrics.rs:401-437` 输出 v1；`scripts/metrics-regression-gate.ps1:27-70` 拒绝口径漂移且 cargo build 已移至 `scripts/verify.ps1:99-101` 独立 metrics_build；`scripts/parallel-lines-regression.mjs:4-23` 使用 loadUiSources 与源码标记；`scripts/ipc-event-smoke.mjs:46-53`、`scripts/check-ps1-bom.mjs:36-40` 增加下限/空集断言；`crates/kanzei-tools/src/git.rs:1929-2008`、`.github/workflows/ci.yml:32-33` 清单同步；`docs/design/metrics_baseline.md:4,11-60` 更新 v1 基线。D-645～D-650 已逐项 fixed，T-1786922726632：fmt、kanzei-tools 424 passed、kanzei 44+32 passed、JS/PS smoke 和真实 metrics gate 全通过。验收对账：①待真实“只改一行前端”verify 墙钟证据；②待门禁上线后的 globals 缺陷族零新增证据；③待一次真实前端条目关闭复用 verify 证据；④已满足，T-1786922726632 的 v999 metrics fixture 拒绝与真实 gate 通过；⑤已满足，既有 T-1786922726629 证明 package 拒绝 cropped verification。R-309 保持 doing，不能因 B4 代码完成而提前 done；关闭前仍需补①-③并运行大复杂度要求的 workspace 全量 suite。
+- observed_head: b5d23c281e5906e32e35fc245b4817095f47fdb2
+- observed_worktree_hash: fnv1a64:94ae0e272f9f0017
+- recorded_at: 1787265671809
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-309(unblocks=0)
-- 批次: 3/4
+- 批次: 4/4
 
 ## R-310 仓库导航效率:失手遥测、工具自愈报错与代码地图,把认知预算还给问题本身 [todo]
 - refs: D-575 D-568 R-308 docs/design/weakness_register_20260820.md

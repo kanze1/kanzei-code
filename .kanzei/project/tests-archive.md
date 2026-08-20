@@ -9192,3 +9192,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-309
 - 收尾: 1787264415
 - 源码指纹: v2 crates/kanzei-tools/src/test_record.rs@45e59a555ae9,crates/kanzei-tools/src/test_record/coverage.rs@33bc88e099b0
+
+## T-1786922726631 R-309 B4 门禁与 Rust 定向测试（fmt 首次失败） [failed]
+- 命令: node --check scripts/verify-policy.mjs; node --check scripts/parallel-lines-regression.mjs; node --check scripts/ipc-event-smoke.mjs; node --check scripts/check-ps1-bom.mjs; node --check scripts/metrics-regression-gate-smoke.mjs; node scripts/verify-policy-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ipc-event-smoke.mjs; node scripts/check-ps1-bom.mjs; node scripts/metrics-regression-gate-smoke.mjs; PowerShell Parser verify.ps1/metrics-regression-gate.ps1; cargo fmt --all -- --check; cargo test -p kanzei-tools; cargo test -p kanzei
+- 时长: 55.2s
+- 摘要: JS smoke、metrics 漂移拒绝、PowerShell Parser、cargo test -p kanzei-tools（424 passed）和 cargo test -p kanzei（44+32 tests）均通过；但 cargo fmt --all -- --check 因 git.rs markers 两项同一行失败，已登记 D-650，待修复后重跑。
+- 关联: R-309 D-650
+- 收尾: 1787265447
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@14a3bc983b09,crates/kanzei/src/cli/metrics.rs@fe667790bc86,scripts/check-ps1-bom.mjs@1452677c7b47,scripts/ipc-event-smoke.mjs@c6a6a8555e90,scripts/metrics-regression-gate-smoke.mjs@c9f9e216a5d7,scripts/metrics-regression-gate.ps1@5c0524b8edc3,scripts/parallel-lines-regression.mjs@867652f498d8,scripts/verify-policy.mjs@4253eac11b8d,scripts/verify.ps1@c159d28acd90
+
+## T-1786922726632 R-309 B4 门禁与 Rust 定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools; cargo test -p kanzei; node --check scripts/verify-policy.mjs; node --check scripts/parallel-lines-regression.mjs; node --check scripts/ipc-event-smoke.mjs; node --check scripts/check-ps1-bom.mjs; node --check scripts/metrics-regression-gate-smoke.mjs; node scripts/verify-policy-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ipc-event-smoke.mjs; node scripts/check-ps1-bom.mjs; node scripts/metrics-regression-gate-smoke.mjs
+- 时长: 58.4s
+- 摘要: cargo fmt 通过；cargo test -p kanzei-tools：424 passed、0 failed、1 ignored；cargo test -p kanzei：44 + 32 passed、0 failed；verify policy、parallel-lines、IPC 24/24、BOM 6 个脚本、metrics 口径漂移拒绝 smoke 全通过。真实 metrics gate：30 rows，giants 3/3，allowance 100。
+- 关联: R-309
+- 收尾: 1787265561
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@2bc7f8622117,crates/kanzei/src/cli/metrics.rs@fe667790bc86,scripts/check-ps1-bom.mjs@1452677c7b47,scripts/ipc-event-smoke.mjs@c6a6a8555e90,scripts/metrics-regression-gate-smoke.mjs@c9f9e216a5d7,scripts/metrics-regression-gate.ps1@5c0524b8edc3,scripts/parallel-lines-regression.mjs@867652f498d8,scripts/verify-policy.mjs@4253eac11b8d,scripts/verify.ps1@c159d28acd90
