@@ -1514,6 +1514,11 @@ typo_fielt = true
         let root = project_root_fixture("meta-conservative");
         let a = root.join("home");
         let b = root.join("home").join("projects");
+        // D-632:快速 runner 上父子目录可在同一 100ns 刻度内建成,(created, modified)
+        // 全等会命中保守判同,把"异目录 false"断言打翻。往 b 写一个子项把其 mtime
+        // 确定性推离 a,不再依赖计时器粒度。
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(b.join(".d632-mtime-bump"), "x").unwrap();
         assert!(same_dir_by_volume_metadata(&a, &a));
         assert!(!same_dir_by_volume_metadata(&a, &b));
         std::fs::remove_dir_all(root).unwrap();

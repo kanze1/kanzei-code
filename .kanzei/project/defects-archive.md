@@ -7753,3 +7753,14 @@
 - 优先级: P2
 - observed_head: 554e7861545c1b4f81aeee5c74a69d95083d9e37
 - recorded_at: 1787253371928
+
+## D-632 卷元数据异目录断言依赖计时器粒度,快 runner 上父子目录同刻建成被保守判同 [fixed] (low)
+- refs: D-270 D-631
+- 复现: GitHub Actions run 32407857488(main, 29369e3e):config::tests::卷元数据读失败时保守判同而不是放行 在 config.rs:1518 断言 !same_dir_by_volume_metadata(a,b) 失败;同提交 dev runner 与本地全绿。
+- 根因: project_root_fixture 一次 create_dir_all 建出父子目录,快盘上两者 (created, modified) 可落在同一 100ns 刻度,全等即命中 D-270 的保守判同(设计如此),测试夹具却默认父子时间戳必然不同。
+- 修复: 测试内 sleep 20ms 后向 b 写入子项,把 b 的 mtime 确定性推离 a;生产逻辑零变更。
+- 验收: 定向测试通过;保守判同语义(读失败判同)断言保持原样。
+- 标签: 测试
+- 优先级: P3
+- observed_head: 29369e3eeac46646ce9b84b67b441e5389c10d0a
+- recorded_at: 1787254034659
