@@ -6,7 +6,7 @@ title: 记忆库工具调用失败模式与可用工具集 — 当内存管理�
 description: 内存工具调用失败与可用集更新 — 处理 memory_get/memory_archive不存在时的替代方案 [fp:memory_get|unknown tool ; available:..., fp:memory_archive|unknown tool ; available:...]
 status: candidate
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-20
 source: memory-manager
 ---
 

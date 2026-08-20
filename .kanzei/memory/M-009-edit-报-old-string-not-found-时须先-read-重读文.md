@@ -6,7 +6,7 @@ title: edit 报 old_string not found + must match exactly:先重读再精确构�
 description: 处理 edit old_string not found 时必读:先 read 重读文件排版再精确构造—match exactly including whitespace;多处匹配勿用 replace_all 盲改，并识别换行缩进陷阱
 status: active
 created: 2026-08-07
-updated: 2026-08-17
+updated: 2026-08-20
 source: inbox 2026-08-07;2026-08-13 自 quarantine 原版恢复
 <span class="highlight">[fp: edit|old_string not found in — it must match exactly, including whitespace.]</span>
 ---

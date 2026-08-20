@@ -6,7 +6,7 @@ title: bash 工具调用失败模式总结
 description: 何时遇到工具调用失败：读取可用工具列表确认参数格式;用 memory_search 取代 unknown 工具;保留指纹作为复发检测
 status: candidate
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-20
 source: run:753
 ---
 

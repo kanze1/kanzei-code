@@ -6,7 +6,7 @@ title: bash 命令超时被 kill 后的正确重试策略
 description: 何时遇到 bash 命令超时/被 kill — 先查历史 timeout 失败记录再重试
 status: active
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-20
 source: memory-manager
 ---
 

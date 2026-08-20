@@ -16,3 +16,5 @@ req 请求返回 unknown id: 对比已知有效 ID 列表找出差异 ID。错�
 [fp:bash|行动:git commit 失败(exit code、"Changes not staged for commit")时必读：先检查同批前置 git add]
 [fp:read|cannot open 系统找不到指定的文件。 (os error )]
 [fp:req|unknown id ; existing: R-, R-, R-, R-, R-, R-, R-, R-, R-, R-, R-, R-, R-, R-, R]
+
+(并入指纹: [fp:read|cannot open 系统找不到指定的路径。 (os error )] [fp:read|不能打开系统找不到指定文件.os error ])

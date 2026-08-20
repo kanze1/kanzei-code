@@ -9089,3 +9089,67 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-308
 - 收尾: 1787261754
 - 源码指纹: v2 crates/kanzei-memory/src/memory/ledger.rs@016d38f3d622,crates/kanzei-memory/src/memory/mod.rs@c5d8544a9063,crates/kanzei-memory/src/memory/store.rs@7e39dabf4857,crates/kanzei/src/cli/run/finalize.rs@49dc4a97b5e0
+
+## T-1786922726618 cargo fmt --all + cargo test -p kanzei (R-308 B6 review-global CLI) [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei
+- 时长: 20.8s
+- 摘要: B6 review-global CLI 编译与回归通过：44 unit + 32 integration passed、0 failed、0 ignored；包含 normalized_theme 新测试，入口可消费现有 reconcile。
+- 关联: R-308 D-641
+- 收尾: 1787262006
+- 源码指纹: v2 crates/kanzei/src/cli/memory.rs@18896e789995,crates/kanzei/src/cli/mod.rs@586cf2d493ca
+
+## T-1786922726619 cargo run -p kanzei -- memory review-global (R-308 B6 真实现场) [failed]
+- 命令: cargo run -p kanzei -- memory review-global
+- 时长: 0.4s
+- 摘要: 真实 review-global 被 D-568 INDEX/source description 一致性硬门禁拒绝：M-021 INDEX description 多出“非唯一匹配…”前缀；命令未修改任何 memory 数据。
+- 关联: R-308 D-568
+- 收尾: 1787262040
+- 源码指纹: v2 crates/kanzei/src/cli/memory.rs@18896e789995,crates/kanzei/src/cli/mod.rs@586cf2d493ca
+
+## T-1786922726620 cargo fmt --all + cargo test -p kanzei-memory (R-308 B7 repair-index) [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 时长: 23.6s
+- 摘要: B7 repair_derived 与既有 INDEX guard 回归全绿：166 passed、0 failed、0 ignored；默认 guard 仍拒绝错位，显式 repair test 可按 Markdown 重建。
+- 关联: R-308 D-568
+- 收尾: 1787262350
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@f0004a03a381,crates/kanzei/src/cli/memory.rs@b2a0d7ec3cf3,crates/kanzei/src/cli/mod.rs@81dc684f1161
+
+## T-1786922726621 cargo test -p kanzei (R-308 B7 repair-index CLI) [passed]
+- 命令: cargo test -p kanzei
+- 时长: 20.9s
+- 摘要: B7 CLI repair-index/review-global 接线回归全绿：44 unit + 32 integration passed、0 failed、0 ignored。
+- 关联: R-308 D-641
+- 收尾: 1787262355
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@f0004a03a381,crates/kanzei/src/cli/memory.rs@b2a0d7ec3cf3,crates/kanzei/src/cli/mod.rs@81dc684f1161
+
+## T-1786922726622 cargo fmt --all + cargo test -p kanzei-memory (R-308 D-568 guard fix) [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 时长: 22.8s
+- 摘要: D-568 em dash 标题 guard 修复后 memory 定向全绿：166 passed、0 failed、0 ignored；默认 refresh mismatch guard 与显式 repair 均通过。
+- 关联: R-308 D-568
+- 收尾: 1787262492
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@ae10c43fac65,crates/kanzei/src/cli/memory.rs@b2a0d7ec3cf3,crates/kanzei/src/cli/mod.rs@81dc684f1161
+
+## T-1786922726623 cargo test -p kanzei (R-308 D-568 guard fix CLI) [passed]
+- 命令: cargo test -p kanzei
+- 时长: 20.8s
+- 摘要: D-568/B7 CLI 接线回归全绿：44 unit + 32 integration passed、0 failed、0 ignored。
+- 关联: R-308 D-568 D-641
+- 收尾: 1787262497
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@ae10c43fac65,crates/kanzei/src/cli/memory.rs@b2a0d7ec3cf3,crates/kanzei/src/cli/mod.rs@81dc684f1161
+
+## T-1786922726624 cargo fmt --all + cargo test -p kanzei (R-308 global telemetry report) [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei
+- 时长: 20.8s
+- 摘要: review-global 现场报告补充持久化 marker recall 计数后 CLI 回归通过：44 unit + 32 integration passed、0 failed、0 ignored。
+- 关联: R-308 D-568
+- 收尾: 1787262584
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@ae10c43fac65,crates/kanzei/src/cli/memory.rs@0cefdd51e2da,crates/kanzei/src/cli/mod.rs@81dc684f1161
+
+## T-1786922726625 cargo run -p kanzei -- memory review-global (R-308 B7 real data) [passed]
+- 命令: cargo run -p kanzei -- memory review-global
+- 时长: 0.4s
+- 摘要: 真实 global review 成功：project 36 active/candidate、36 规范化主题、candidate 5→5；global 24 active/candidate、24 规范化主题；global-candidate-review-v1 持久化 recall rows=1；此前 77 条 global candidate 已清退至 24。
+- 关联: R-308 D-568
+- 收尾: 1787262601
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@ae10c43fac65,crates/kanzei/src/cli/memory.rs@0cefdd51e2da,crates/kanzei/src/cli/mod.rs@81dc684f1161

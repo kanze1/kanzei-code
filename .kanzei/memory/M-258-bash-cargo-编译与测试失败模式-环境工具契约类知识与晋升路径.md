@@ -8,6 +8,7 @@ status: active
 created: 2026-08-19
 updated: 2026-08-20
 source: user
+refs: R-070 R-085 D-204 R-092 D-210 R-295
 ---
 
 【复发检测键】[fp:bash|test conversation::tests::latest_segment_recovers_completed_compaction_surface .] & [fp:bash|error: unexpected closing delimiter:] & [fp:req|R- 的手写批次是 Git 提交历史标记数为 ;请先核对并更新批次字段后再关闭。] & [fp:work|permission denied by ruleset: work on .] & [fp:write|permission denied by ruleset: write to .kanzei/memory] & [fp:bash|assert_eq!(report.deprecated, low_value_ids);] & [fp:bash|Compiling thiserror v..] & [fp:bash|test result: ok. passed; failed; ignored; measured; filtered out; finished in .s] & [fp:bash|permission denied by guard : is blocked: whole-file rewrites via shell bypass th]

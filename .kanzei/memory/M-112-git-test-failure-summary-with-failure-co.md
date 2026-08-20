@@ -6,7 +6,7 @@ title: Git test failure summary with failure count - 处理failures:标记显示
 description: 何时遇到 failures: git::tests 跨轮复发提示：检查测试前置条件与环境一致性
 status: active
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-20
 source: memory-manager
 ---
 

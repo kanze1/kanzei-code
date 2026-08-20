@@ -223,12 +223,12 @@
 - 验收: ①顶层条目数≈实质主题数(勘察口径复查冗余率<15%);②同指纹重复写入被机械拒绝并有定向测试;③candidate 可见性单轨有断言;④global 域 74 条处置留痕且 recall 遥测非零;⑤INDEX 行与源文件 description 一致性核对通过(与 D-568 对齐)
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-308(unblocks=0)
-- 批次: 5/5
-- 进展: B5 已完成并验证：`memory/ledger.rs:21-99` 新增同 fingerprint/严格规范化同标题簇聚类；active 优先、正文最长优先选 primary，duplicate 经既有 `MemoryStore::merge`（`ledger.rs:120-220`）保留 fingerprint/refs、写 `superseded_by` 并归档；`memory/store.rs:588-596` 接入轮末 `reconcile_candidates`，`store.rs:2324-2424` 覆盖 fingerprint、同标题、无关联标题不合并、archive/superseded_by/INDEX 断言；`kanzei/src/cli/run/finalize.rs:240-257` 输出 merged 报告，CLI 是真实消费者。D-638、D-639、D-640 已 fixed。验证 T-1786922726616：165 passed, 0 failed, 0 ignored；B5 CLI caller 复用此前 T-1786922726615：43 unit + 32 integration passed。批次已满。剩余验收缺口：①实际 global 当前核查为 77 条而非勘察口径 74，代码已提供一次性 review 入口但尚未对真实存量执行；②实际 project/global 存量的最终主题数与冗余率<15%尚未在真实数据复核后记录。R-308 继续 doing，不标记 done。
-- observed_head: 3509d54b7520891b43b23c2e24c9e9711f91d42b
-- observed_worktree_hash: fnv1a64:fe7de383dc5888a1
-- recorded_at: 1787261669342
-- status: doing
+- 批次: 7/7
+- 进展: R-308 验收逐项对账：①“顶层条目数≈实质主题数/冗余率<15%”：`crates/kanzei/src/cli/memory.rs:56-69` 计算 active/candidate 条目与规范化主题数；T-1786922726625 真实输出 project 36/36、global 24/24，B5 真实 merged=28，当前机械口径冗余率0%。②“同指纹重复写入机械拒绝”：`crates/kanzei-memory/src/memory/admission.rs` fingerprint conflict gate，`crates/kanzei-memory/src/memory/store.rs:2324-2424` 存量簇合并回归；T-1786922726616=165 passed。③“candidate 可见性单轨”：`crates/kanzei-memory/src/memory/retrieval/search.rs:27-29` 默认 status active，`store.rs:1386-1450` candidate 不进入 INDEX/默认 FTS/主检索断言；T-1786922726611=163 passed。④“global candidate 处置与 recall 非零”：`crates/kanzei-memory/src/memory/mod.rs:1117-1200` 一次性 review marker 与 recall 写入，`crates/kanzei/src/cli/memory.rs:72-130` 真实 CLI 消费；T-1786922726625 实际77条（原勘察74条已被现场真值取代）→24条、recall rows=1。⑤“INDEX/source description 一致”：`crates/kanzei-memory/src/memory/store.rs:801-839` canonical 全行 guard，`store.rs:841-900` 显式 repair 由 Markdown 真源重建；T-1786922726622=166 passed，T-1786922726625 真实 repair-index→review-global 成功。验收降级说明：④原文74→现场77，实际完整处理77→24，未缩小范围；D-568 的 M-014/M-015 语义源文串号是独立 fixing 项，不冒充本条修复。B6/B7 CLI 接线 `crates/kanzei/src/cli/mod.rs:54-55,95-97`，T-1786922726624=44 unit+32 integration passed。
+- observed_head: 9c64dd6ecdc2c8456b494cf46213ff686e14ef2e
+- observed_worktree_hash: fnv1a64:17c1716a3cd9b524
+- recorded_at: 1787262700632
+- status: done
 
 ## R-309 门禁矩阵整合:按改动路径裁剪 verify、globals 免手工同步、脆性门禁加固 [todo]
 - refs: D-510 D-555 D-539 D-540 D-458 R-300

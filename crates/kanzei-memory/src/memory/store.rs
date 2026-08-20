@@ -810,22 +810,23 @@ impl MemoryStore {
         let mut seen = Vec::new();
         for line in index.lines().filter(|line| line.starts_with("- ")) {
             let payload = line.trim_start_matches("- ");
-            let Some((id_part, description)) = payload.split_once(" — ") else {
-                anyhow::bail!("INDEX 行缺少 description 分隔符: {line}");
-            };
-            let Some((id, _rest)) = id_part.split_once(" [") else {
+            let Some((id_part, _rest)) = payload.split_once(" [") else {
                 anyhow::bail!("INDEX 行缺少 id/category: {line}");
             };
-            let Some(entry) = active.iter().find(|entry| entry.id == id) else {
-                anyhow::bail!("INDEX 行引用不存在或非 active 条目: {id}");
+            let Some(entry) = active.iter().find(|entry| entry.id == id_part) else {
+                anyhow::bail!("INDEX 行引用不存在或非 active 条目: {id_part}");
             };
-            if entry.description != description {
+            let expected = format!(
+                "- {} [{}] {} — {}",
+                entry.id, entry.category, entry.title, entry.description
+            );
+            if line != expected {
                 anyhow::bail!(
-                    "INDEX description 与 {id} 源文件不一致: index={description:?}, source={:?}",
-                    entry.description
+                    "INDEX 行与 {} 源文件不一致: index={line:?}, expected={expected:?}",
+                    entry.id
                 );
             }
-            seen.push(id);
+            seen.push(id_part);
         }
         if seen.len() != active.len()
             || active
@@ -840,6 +841,16 @@ impl MemoryStore {
     /// 重建全部派生物:INDEX.md 与 FTS 索引。任何写操作后调用;损坏时可手动全量重建。
     /// R-165 批3:先归档失效条目,再以归档后的集合重建(主目录只含 active/candidate)。
     pub fn refresh_derived(&self) -> anyhow::Result<()> {
+        self.refresh_derived_inner(true)
+    }
+
+    /// 显式修复 INDEX/FTS 派生物：只接受调用者明确承担的修复动作，按 Markdown
+    /// 真源重建，不放宽默认 refresh 的一致性硬门禁。
+    pub fn repair_derived(&self) -> anyhow::Result<()> {
+        self.refresh_derived_inner(false)
+    }
+
+    fn refresh_derived_inner(&self, verify_existing_index: bool) -> anyhow::Result<()> {
         // D-368:派生物重建(归档搬移 + INDEX.md + FTS index.db)整体持记忆树锁,
         // 并与围栏收口共享锁互斥,让 after 快照只看到完整终态。
         let _tree_lock = self.tree_lock()?;
@@ -861,7 +872,9 @@ impl MemoryStore {
         if candidates > 0 {
             index.push_str(&format!("\n({candidates} candidate 条待验证晋升)\n"));
         }
-        Self::assert_index_matches_entries(&index, &entries)?;
+        if verify_existing_index {
+            Self::assert_index_matches_entries(&index, &entries)?;
+        }
         crate::atomic_file::write_atomic(&self.index_md(), &index)?;
         // R-268:INDEX.md 是围栏可见的托管文件,写后记日志(同 write_entry 口径)。
         if let Some(project_root) = &self.project_root {
@@ -1117,7 +1130,7 @@ mod tests {
         let entry = add(
             &store,
             "fact",
-            "INDEX guard title",
+            "INDEX guard — title",
             "INDEX guard — description",
             "INDEX guard body",
         );
@@ -1129,6 +1142,30 @@ mod tests {
         assert!(MemoryStore::assert_index_matches_entries(&valid, &entries).is_ok());
         let invalid = valid.replace("INDEX guard — description", "wrong description");
         assert!(MemoryStore::assert_index_matches_entries(&invalid, &entries).is_err());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn repair_derived_rebuilds_mismatched_index_from_markdown_source() {
+        let (dir, store) = temp_store();
+        let entry = add(
+            &store,
+            "fact",
+            "repair index title",
+            "repair index description",
+            "repair index body",
+        );
+        std::fs::write(
+            store.index_md(),
+            "# Memory Index (project)\n\n- M-001 [fact] wrong — wrong\n",
+        )
+        .unwrap();
+        store.repair_derived().unwrap();
+        let repaired = std::fs::read_to_string(store.index_md()).unwrap();
+        assert!(repaired.contains(&format!(
+            "- {} [fact] {} — {}",
+            entry.id, entry.title, entry.description
+        )));
         std::fs::remove_dir_all(dir).ok();
     }
 

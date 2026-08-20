@@ -7912,3 +7912,16 @@
 - observed_head: 3509d54b7520891b43b23c2e24c9e9711f91d42b
 - observed_worktree_hash: fnv1a64:fe7de383dc5888a1
 - recorded_at: 1787261657900
+
+## D-641 B6 review-global CLI 误用未声明 kanzei-memory 依赖 [fixed] (medium)
+- 复现: 来源：self-found。B6 在 `crates/kanzei/src/cli/memory.rs` 直接 `use kanzei_memory::memory::{MemoryEntry, MemoryStore}`，但 kanzei bin crate 未声明 kanzei-memory 直接依赖；`cargo fmt --all; cargo test -p kanzei` 编译报 unresolved crate。
+- 影响: 新 `kz memory review-global` 入口无法编译，真实 global review 不能执行。
+- 来源: self-found（B6 CLI 定向测试）
+- 标签: 后端
+- 进展: D-641 已修复并收口：`crates/kanzei/src/cli/memory.rs:16-18` 改用 `kanzei_tools::memory` 已有 re-export，未新增依赖；`memory.rs:72-122` 为真实 review-global/repair-index 入口，`cli/mod.rs:54-55,95-96` 完成分发和 usage 接线。T-1786922726623：`cargo test -p kanzei`，44 unit + 32 integration passed、0 failed、0 ignored；T-1786922726625：真实 review-global 成功。
+- 验收: kanzei CLI 编译通过；cargo test -p kanzei 全绿；review-global 由现有 reconcile 真实调用方消费。
+- refs: R-308
+- 优先级: P2
+- observed_head: 9c64dd6ecdc2c8456b494cf46213ff686e14ef2e
+- observed_worktree_hash: fnv1a64:17c1716a3cd9b524
+- recorded_at: 1787262615242
