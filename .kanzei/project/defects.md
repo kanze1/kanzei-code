@@ -62,7 +62,7 @@
 - 验收对账: ①已完成：`crates/kanzei-memory/src/docstore/validation.rs:273-287` 只返回非空 Raw；docstore 回归 `docstore.rs:321-342` 与 tracker 回归 `tracker.rs:1539-1549` 证明布局空行不再计数；T-1786922726559。②已完成：`validation.rs:313-365` 删除按同一 ordinal 契约定位，原子写回后 `load()` + `raw_lines()` 复查条目存在和数量，失败返回“raw_delete 后置条件失败”；T-1786922726559、T-1786922726560。③验收降级：原文“文章获取器 R-002 现场复核游离行清零”本轮未执行，当前仓库无该外部项目与可重放目标命令；实际已由同形态端到端回归 `tracker.rs:1518-1579` 覆盖，外部现场仍需用户/外部项目执行。④已完成：空行在 ordinal 1 时旧实现会误删空行而保留真实游离文本，新回归夹具 `docstore.rs:321-389`、`tracker.rs:1518-1598` 覆盖该“报成功后仍存在”形态；T-1786922726559。
 - 阻塞: 文章获取器 R-002 外部现场复核需要用户提供该项目路径或可重放目标命令；解除人:用户提供可访问项目与目标命令后由 agent 执行并回填现场证据。
 
-## D-592 上下文预算检查信 bytes/4 估算不锚定真实 usage,本地小窗口模型压缩零触发直至撞 400 [open] (high)
+## D-592 上下文预算检查信 bytes/4 估算不锚定真实 usage,本地小窗口模型压缩零触发直至撞 400 [fixing] (high)
 - refs: D-203 D-206 R-219 R-236
 - 复现: 2026-08-20 现场:llama-local(qwen3.8-27b,llama-server n_ctx=65536)鞭挞 D-568 任务,真实请求 69889 tokens 撞 provider 400(exceed_context_size_error),全程主动压缩零触发。判定链 context_budget.rs:51 用 bytes/4 估算(context.rs:130)×校准因子与触发线比大小,三重系统性偏低叠加:①bytes/4 对中文(UTF-8 3字节/字实际≈1~1.5 token/字)、代码、llama.cpp jinja 模板渲染的工具 schema 膨胀,合计偏低>2.1×(69889 真实 vs 触发线 32768 未达);②校准单步比值 clamp [0.5,2.0](context.rs:165),系统性偏差≥2× 时数学上限封死追不上,EMA 0.7/0.3 收敛慢且每 run 重置 1.0(assembly.rs:195),恢复大历史的新对话首步最脆;③compaction_budget=limit−max(max_tokens,buffer)(context.rs:92),全局 max_tokens=32768 吃掉 65536 窗口一半。usage 回读链路本身是通的(openai.rs:110 include_usage,drive.rs:609 拿真实 prompt_tokens),但只喂校准 EMA,预算比大小不直接用——真实值在手边,决策看估算
 - 影响: 本地小窗口 provider 跑长任务必然在压缩触发前撞墙 400,自主推进直接致命中断;窗口越小、内容越偏中文/代码,撞墙越早;98304 窗口同样防不住(偏差>1.5× 即穿)
@@ -71,6 +71,13 @@
 - 边界: 历史侧 Part::Reasoning 剪枝(openai 协议 build_body openai.rs:83-91 从不回传,drive.rs:582 却存进历史虚增估算)只能与本条①同批落地——单独剪会让估算更小、压缩触发更晚,加重症状;Qwen 官方口径『多轮剥离 thinking 但多步工具调用期间保留』的质量权衡(llama-server --reasoning-preserve)不在本条,另行评估
 - 验收: ①预算检查锚定上一步真实 prompt_tokens(last_input_tokens 已在手)+本步新增内容估算增量,bytes/4 全量估算只做冷启动兜底;②校准按 provider 持久化或冷启动用保守初值,消除每 run 重置 1.0 的首步裸奔;③compaction_budget 对小窗口自适应,max_tokens 不得吃掉固定一半窗口;④回归:模拟估算偏低 2 倍场景压缩在撞墙前触发;⑤llama-local 真实长任务(多步工具循环读大文件)实测不再 400
 - 优先级: P1
+- 批次: 1/3
+- 批次表: B1/3：核对预算决策与 usage 调用链，落地真实 prompt_tokens 锚定及回归；B2/3：落地 provider 校准持久化/保守冷启动与小窗口 compaction_budget；B3/3：修正 Reasoning 历史估算一致性、跑全链路验证并收口。
+- 进展: B1 已落地并通过测试。落地文件与决策：`crates/kanzei-core/src/runner/context.rs:193-210` 新增 `budgeted_tokens_from_last_usage`，有上一步真实 usage 时按 `last_input_tokens + max(当前估算-上次估算,0)`，无真实 usage 才走完整估算×calibration；`crates/kanzei-core/src/runner/drive/context_budget.rs:18-30,53-62` 预算检查、prune、compact、trim 全部改用该锚定口径；`crates/kanzei-core/src/runner/drive/assembly.rs:21-22,176-178,213-214` 增加并初始化上次请求估算；`crates/kanzei-core/src/runner/drive.rs:170-172,229-242,456-471,608-614` 传递运行态并在成功 StepFinish 保存真实 usage 对应的原始估算。测试 `T-1786922726566`：`cargo fmt --all; cargo test -p kanzei-core`，221 passed、0 failed。关键发现：当前 provider usage 回读链已通，原缺口确实是预算决策没有消费 `last_input_tokens`；下一步 B2：实现 provider 级校准持久化/保守冷启动，并重做小窗口 compaction_budget。
+- observed_head: f7faeaf75bc00db1d094b32ae980b18f1124f7a2
+- observed_worktree_hash: fnv1a64:0b52ee5cf19e47f0
+- recorded_at: 1787238507692
+- 取活依据: engine:唯一可执行 WIP 是 D-592，必须先恢复它
 
 ## D-593 上下文占用显示轮末才刷新且与预算引擎两套口径,长 prefill 期间滞后一整步 [open] (medium)
 - refs: D-592

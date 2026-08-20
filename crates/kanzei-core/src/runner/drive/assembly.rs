@@ -19,6 +19,7 @@ pub(super) struct RunOnceAssembly<'a> {
     pub(super) messages: Vec<Message>,
     pub(super) total_usage: Usage,
     pub(super) last_input_tokens: Option<u64>,
+    pub(super) last_estimated_tokens: Option<u64>,
     pub(super) final_text: String,
     pub(super) max_steps: u32,
     pub(super) session_approved: std::collections::HashSet<(String, String)>,
@@ -174,6 +175,7 @@ pub(super) fn assemble_run_once<'a>(
     let total_usage = Usage::default();
     // R-236 B1:轮末优先使用最近一次 provider usage.input；None 仅表示本轮没有有效 usage。
     let last_input_tokens: Option<u64> = None;
+    let last_estimated_tokens: Option<u64> = None;
     // D-342:停止检查点用。提前初始化——halted 提前返回时它是「最近一步的文本」。
     let final_text = String::new();
     // 存量 agent 可能仍带 steps=0；运行边界统一转换，不能让旧配置绕过有限上限。
@@ -210,6 +212,7 @@ pub(super) fn assemble_run_once<'a>(
         messages,
         total_usage,
         last_input_tokens,
+        last_estimated_tokens,
         final_text,
         max_steps,
         session_approved,

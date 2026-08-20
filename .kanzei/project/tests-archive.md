@@ -8705,3 +8705,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-602 D-591
 - 收尾: 1787238157
 - 源码指纹: v2 crates/kanzei-app/src/settings.rs@1c4ea3e1cb7a,crates/kanzei-app/src/state_tests.rs@c79ff70bcb21,scripts/ui-lint-globals.json@f143332092eb
+
+## T-1786922726566 D-592 B1 真实 usage 锚定定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core
+- 时长: 8.5s
+- 摘要: B1 定向回归通过：kanzei-core 221 passed、0 failed；覆盖真实 usage 增量锚定、冷启动完整估算回退、压缩预算与 runner 调用链。
+- 关联: D-592
+- 收尾: 1787238489
+- 源码指纹: v2 crates/kanzei-core/src/runner/context.rs@cb1a86ea6c8b,crates/kanzei-core/src/runner/drive.rs@967faa005216,crates/kanzei-core/src/runner/drive/assembly.rs@8963f0a583ff,crates/kanzei-core/src/runner/drive/context_budget.rs@cc2b2cec0a57

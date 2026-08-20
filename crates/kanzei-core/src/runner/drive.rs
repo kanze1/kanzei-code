@@ -168,6 +168,7 @@ pub fn run_once_with_parts<'a>(
             mut messages,
             mut total_usage,
             mut last_input_tokens,
+            mut last_estimated_tokens,
             mut final_text,
             max_steps,
             mut session_approved,
@@ -233,6 +234,8 @@ pub fn run_once_with_parts<'a>(
                 &system,
                 &specs,
                 &mut messages,
+                last_input_tokens,
+                last_estimated_tokens,
                 calibration,
                 &mut futile_compactions,
                 &mut overflow_traces,
@@ -260,6 +263,7 @@ pub fn run_once_with_parts<'a>(
                 on_event,
                 &mut calibration,
                 &mut last_input_tokens,
+                &mut last_estimated_tokens,
                 &mut total_usage,
                 &mut overflow_recoveries,
                 &mut overflow_traces,
@@ -463,6 +467,7 @@ async fn stream_request_step(
     on_event: &mut (dyn FnMut(RunEvent) + Send),
     calibration: &mut f64,
     last_input_tokens: &mut Option<u64>,
+    last_estimated_tokens: &mut Option<u64>,
     total_usage: &mut Usage,
     overflow_recoveries: &mut u32,
     overflow_traces: &mut Vec<String>,
@@ -609,6 +614,7 @@ async fn stream_request_step(
                     *calibration = update_calibration(*calibration, last_estimated, usage.input);
                     if usage.input > 0 {
                         *last_input_tokens = Some(usage.input);
+                        *last_estimated_tokens = Some(last_estimated);
                     }
                     *total_usage = add_usage(*total_usage, usage);
                     finish = reason.clone();

@@ -187,6 +187,23 @@ pub(crate) fn budgeted_tokens(
     (estimate_prompt_tokens(system, messages, specs) as f64 * calibration).round() as u64
 }
 
+/// 预算检查的增量口径(D-592):上一请求已有真实 `prompt_tokens` 时,只把当前
+/// 估算相对上一请求估算的新增部分加回;完整 `bytes/4 × calibration` 仅用于冷启动。
+/// 这样中文、代码和工具 schema 的系统性偏差不会在每一步重新把整段历史压低。
+pub(crate) fn budgeted_tokens_from_last_usage(
+    last_input_tokens: Option<u64>,
+    last_estimated_tokens: Option<u64>,
+    current_estimated_tokens: u64,
+    calibration: f64,
+) -> u64 {
+    match (last_input_tokens, last_estimated_tokens) {
+        (Some(actual), Some(previous_estimate)) => {
+            actual.saturating_add(current_estimated_tokens.saturating_sub(previous_estimate))
+        }
+        _ => (current_estimated_tokens as f64 * calibration).round() as u64,
+    }
+}
+
 /// 主动压缩后仍超预算线:tail 太大或 head 太大。从 tail 最旧端往回收,删到
 /// 不超线为止;任务定义、纪要与当前用户消息一律不动。否则下一步预算检查
 /// 立刻再压——连续两次压缩 = 缓存前缀两次全量重算(cache_write 双倍),
@@ -458,6 +475,26 @@ mod tests {
         assert_eq!(update_calibration(0.9, 100, 0), 0.9);
         // 估算恰好命中时不漂移。
         assert!((update_calibration(1.0, 8_000, 8_000) - 1.0).abs() < 1e-9);
+    }
+    /// D-592:有真实 usage 时,预算只用上一步实际值加本步新增估算;
+    /// 没有 usage 才回退到完整估算×校准。
+    #[test]
+    fn 预算估算优先锚定上一步真实usage() {
+        assert_eq!(
+            budgeted_tokens_from_last_usage(Some(10_000), Some(12_000), 16_000, 2.0),
+            14_000,
+            "真实上一请求 + 新增 4k,不应重新按整段 16k×校准"
+        );
+        assert_eq!(
+            budgeted_tokens_from_last_usage(Some(10_000), Some(12_000), 8_000, 2.0),
+            10_000,
+            "当前估算因压缩变小不能把真实历史倒扣"
+        );
+        assert_eq!(
+            budgeted_tokens_from_last_usage(None, None, 8_000, 1.5),
+            12_000,
+            "冷启动仍使用完整估算×校准"
+        );
     }
     /// trim_tail:压缩后仍超线时只收 tail 最旧端,任务定义、纪要、当前用户
     /// 消息一律不动——否则下一步预算检查立刻再压,缓存前缀两次全量重算。

@@ -22,6 +22,8 @@ pub(super) async fn enforce_context_budget(
     system: &[String],
     specs: &[ToolSpec],
     messages: &mut Vec<Message>,
+    last_input_tokens: Option<u64>,
+    last_estimated_tokens: Option<u64>,
     calibration: f64,
     futile_compactions: &mut u32,
     overflow_traces: &mut Vec<String>,
@@ -48,7 +50,16 @@ pub(super) async fn enforce_context_budget(
             config.max_tokens,
             config.limits.compact_buffer_tokens(),
         );
-        let mut before = budgeted_tokens(system, messages, specs, calibration);
+        let anchored_tokens = |messages: &[Message]| {
+            let current_estimated_tokens = estimate_prompt_tokens(system, messages, specs);
+            budgeted_tokens_from_last_usage(
+                last_input_tokens,
+                last_estimated_tokens,
+                current_estimated_tokens,
+                calibration,
+            )
+        };
+        let mut before = anchored_tokens(messages);
         // R-236 B4:L0 prune 先行——超线时先机械清旧工具结果(零幻觉零
         // LLM),清完够线就不必动纪要;凑不满最小收益 prune 自己会放弃。
         if before > budget && messages.len() > 1 {
@@ -58,7 +69,7 @@ pub(super) async fn enforce_context_budget(
                 config.limits.prune_min_gain_tokens(),
             );
             if cleared > 0 {
-                let after_prune = budgeted_tokens(system, messages, specs, calibration);
+                let after_prune = anchored_tokens(messages);
                 on_event(RunEvent::ContextPruned {
                     cleared_results: cleared,
                     before_tokens: before,
@@ -83,7 +94,7 @@ pub(super) async fn enforce_context_budget(
                 // 重算(cache_write 双倍),省下的 token 不够补缓存成本。
                 // trim_tail 拿同一个 calibration:两边必须用同一把尺子量同一条
                 // 预算线,否则它按原始口径够线就收手,这里看还超线(D-203)。
-                if budgeted_tokens(system, messages, specs, calibration) > budget {
+                if anchored_tokens(messages) > budget {
                     trim_tail(
                         messages,
                         system,
@@ -93,7 +104,7 @@ pub(super) async fn enforce_context_budget(
                         overflow_traces,
                     );
                 }
-                let after = budgeted_tokens(system, messages, specs, calibration);
+                let after = anchored_tokens(messages);
                 // D-206:只按"有没有用"记账。压回线内 = 压缩在正常工作,清零、
                 // 下次照压;压完(连 trim_tail 都上了)仍超线 = head+当前消息
                 // 本身超线,连续两次就停,交给撞墙后的被动恢复,别空转。
