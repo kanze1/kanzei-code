@@ -260,7 +260,14 @@ pub(crate) fn add(
         return ToolOutput::error(e);
     }
     let id = store.next_id(entries);
+    let prior_art_field = match tool.check_prior_art(&input, ctx, &id, title) {
+        Ok(field) => field,
+        Err(error) => return ToolOutput::needs_correction("PRIOR_ART_REQUIRED", error),
+    };
     let mut fields: Vec<(String, String)> = input.fields.into_iter().collect();
+    if let Some(field) = prior_art_field {
+        fields.push(field);
+    }
     if !input.refs.is_empty() {
         fields.push(("refs".into(), input.refs.join(" ")));
     }

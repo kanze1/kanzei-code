@@ -411,6 +411,12 @@ mod tests {
             "核心",
             "--complexity",
             "中",
+            "--ref",
+            "R-221",
+            "--ref",
+            "D-570",
+            "--prior-art",
+            ".kanzei/research/r248-prior-art/prior-art.md",
             "--field",
             "复现=第一步=点开设置页",
             "-f",
@@ -426,6 +432,11 @@ mod tests {
         assert_eq!(input["priority"], "P2");
         assert_eq!(input["fields"]["标签"], "核心");
         assert_eq!(input["fields"]["复杂度"], "中");
+        assert_eq!(input["refs"], serde_json::json!(["R-221", "D-570"]));
+        assert_eq!(
+            input["prior_art"],
+            ".kanzei/research/r248-prior-art/prior-art.md"
+        );
         assert_eq!(input["验收"], serde_json::Value::Null);
         assert_eq!(input["fields"]["验收"], "有测试");
         // 值里带等号只按第一个切,后面的等号原样留在值里。

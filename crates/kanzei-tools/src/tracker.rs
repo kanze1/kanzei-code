@@ -99,6 +99,13 @@ struct TrackerInput {
     /// 引用的条目 ID(finding 必须引用 source)
     #[serde(default)]
     refs: Vec<String>,
+    /// R-248:先行调研工件的项目内相对路径。独立于 refs，避免把文件路径混入
+    /// R-/D-/T- 引用契约。
+    #[serde(default)]
+    prior_art: Option<String>,
+    /// R-248:用户明确豁免先行调研时的审计理由；与 prior_art 互斥。
+    #[serde(default)]
+    prior_art_waiver: Option<String>,
     /// B2:source/finding 所属课题目录(kebab-case)。
     #[serde(default)]
     topic: Option<String>,
@@ -162,6 +169,9 @@ impl Tool for TrackerTool {
         }
         if self.kind.priorities.is_some() && self.kind.severities.is_none() {
             d.push_str(" Requirement add also requires top-level `complexity` (小|中|大).");
+        }
+        if self.kind.prefix == "R" {
+            d.push_str(" A core requirement with empty refs triggers R-248: pass top-level `prior_art` pointing to a validated `.kanzei/research/<topic>/prior-art.md`, or `prior_art_waiver` with the user's explicit reason. These fields are independent from refs.");
         }
         d
     }
@@ -236,6 +246,15 @@ impl Tool for TrackerTool {
                 slot.remove("anyOf");
                 slot.remove("type");
                 slot.insert("enum".into(), serde_json::json!(values));
+            }
+        }
+        if self.kind.prefix != "R" {
+            if let Some(properties) = schema
+                .pointer_mut("/properties")
+                .and_then(|value| value.as_object_mut())
+            {
+                properties.remove("prior_art");
+                properties.remove("prior_art_waiver");
             }
         }
         let mut required = vec!["title"];
@@ -698,6 +717,83 @@ impl TrackerTool {
         } else {
             Some(format!("invalid complexity `{value}`; valid: 小 | 中 | 大"))
         }
+    }
+
+    /// R-248:只有「核心 + refs 为空」的 requirement add 是机械新方向触发；
+    /// 普通条目和已有引用的核心条目保持原路径。工件和豁免都是独立顶层字段，
+    /// refs 继续只承载追踪编号。
+    fn check_prior_art(
+        &self,
+        input: &TrackerInput,
+        ctx: &ToolCtx,
+        id: &str,
+        title: &str,
+    ) -> Result<Option<(String, String)>, String> {
+        if self.kind.prefix != "R" {
+            return Ok(None);
+        }
+        if input.prior_art.is_some() && input.prior_art_waiver.is_some() {
+            return Err(
+                "prior_art 与 prior_art_waiver 互斥：要么提交工件，要么记录用户豁免理由".into(),
+            );
+        }
+        let core = input
+            .fields
+            .iter()
+            .find(|(key, _)| {
+                **key == "标签"
+                    || key.eq_ignore_ascii_case("tags")
+                    || key.eq_ignore_ascii_case("tag")
+            })
+            .is_some_and(|(_, value)| {
+                value
+                    .split(|character: char| character == ',' || character.is_whitespace())
+                    .any(|tag| tag == "核心")
+            });
+        let triggered = core && input.refs.is_empty();
+        if let Some(relative) = input
+            .prior_art
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            crate::prior_art::validate_artifact(&ctx.project_root, relative, Some(id))?;
+            return Ok(Some(("先行调研".into(), relative.into())));
+        }
+        if let Some(reason) = input
+            .prior_art_waiver
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if !triggered {
+                return Err("prior_art_waiver 只用于「核心 + refs 为空」的新方向登记".into());
+            }
+            if reason.chars().count() < 8 {
+                return Err(
+                    "prior_art_waiver 必须记录至少 8 个字符的明确用户理由，不能写空泛占位".into(),
+                );
+            }
+            return Ok(Some(("先行调研豁免".into(), reason.into())));
+        }
+        if !triggered {
+            return Ok(None);
+        }
+
+        let topic = crate::prior_art::requirement_topic(id, title);
+        let start = crate::prior_art::start_scaffold(
+            &ctx.project_root,
+            &topic,
+            crate::prior_art::PriorArtTrigger::CoreRequirement,
+            Some(id),
+        )?;
+        if start.created {
+            crate::record_write_log(ctx, &start.relative_path, &start.absolute_path);
+        }
+        Err(format!(
+            "CORE_REQUIREMENT_PRIOR_ART_REQUIRED: 核心 requirement 且 refs 为空，已机械判定为新方向并创建 `{}`。先补齐外部已有实现与仓内既有设计，将 status 改为 complete，再以 top-level prior_art 重试；若用户明确决定跳过，改传 prior_art_waiver 并写明理由。refs 仍只写 R-/D-/T-，不要把文件路径塞进 refs。",
+            start.relative_path
+        ))
     }
 
     /// R-191 登记硬约束:新建条目缺关键登记字段直接拒绝,并提示补什么,不静默放行。
@@ -2512,7 +2608,7 @@ mod tests {
         // 既有值没超上限时,抬到 12 照旧撞门(基准不是免死金牌)。
         let out = tool
             .execute(
-                json!({"action": "add", "title": "另一条", "priority": "P2", "fields": {"复杂度": "中", "标签": "核心", "批次": "0/5"}}),
+                json!({"action": "add", "title": "另一条", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端", "批次": "0/5"}}),
                 &ctx,
             )
             .await;
@@ -2537,7 +2633,7 @@ mod tests {
         // ④ 新建 0/10 是合法上界,照常放行。
         let out = tool
             .execute(
-                json!({"action": "add", "title": "十批条目", "priority": "P2", "fields": {"复杂度": "中", "标签": "核心", "批次": "0/10"}}),
+                json!({"action": "add", "title": "十批条目", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端", "批次": "0/10"}}),
                 &ctx,
             )
             .await;
@@ -2673,7 +2769,7 @@ mod tests {
         };
         let output = tool
             .execute(
-                json!({"action": "add", "title": "新条目", "priority": "P2", "fields": {"复杂度": "中", "标签": "核心"}}),
+                json!({"action": "add", "title": "新条目", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端"}}),
                 &ToolCtx::new(dir.clone(), dir.clone()),
             )
             .await;
@@ -2789,7 +2885,7 @@ mod tests {
             .save(&[entry("R-001"), entry("R-002"), entry("R-003")])
             .unwrap();
         let out = tool
-            .execute(json!({"action": "add", "title": "恢复后可写", "priority": "P2", "fields": {"复杂度": "中", "标签": "核心"}}), &ctx)
+            .execute(json!({"action": "add", "title": "恢复后可写", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端"}}), &ctx)
             .await;
         assert!(!out.is_error, "完整性恢复后应放行: {}", out.content);
         std::fs::remove_dir_all(&dir).ok();
@@ -2922,7 +3018,7 @@ mod tests {
         // 两个空洞都交代完 → 完整性恢复,普通写放行,且注销过的号不再被复用。
         assert!(store.integrity_issues(&store.load().unwrap()).is_empty());
         let out = tool
-            .execute(json!({"action": "add", "title": "恢复后可写", "priority": "P2", "fields": {"复杂度": "中", "标签": "核心"}}), &ctx)
+            .execute(json!({"action": "add", "title": "恢复后可写", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端"}}), &ctx)
             .await;
         assert!(!out.is_error, "{}", out.content);
         assert!(out.content.contains("R-005"), "{}", out.content);
@@ -3546,7 +3642,7 @@ mod tests {
         let out = req_tool
             .execute(
                 json!({"action": "add", "title": "完整", "priority": "P2",
-                       "fields": {"复杂度": "中", "标签": "核心"}}),
+                       "fields": {"复杂度": "中", "标签": "后端"}}),
                 &ctx,
             )
             .await;
@@ -3688,7 +3784,7 @@ mod tests {
                         };
                         let ctx = ToolCtx::new(dir.clone(), dir.clone());
                         tool.execute(
-                            json!({"action": "add", "title": format!("并发条目 {n}"), "priority": "P2", "fields": {"复杂度": "中", "标签": "核心"}}),
+                            json!({"action": "add", "title": format!("并发条目 {n}"), "priority": "P2", "fields": {"复杂度": "中", "标签": "后端"}}),
                             &ctx,
                         )
                         .await
@@ -3948,5 +4044,108 @@ mod tests {
         assert_eq!(log.run_id.as_deref(), Some("run-1"));
         assert_eq!(log.process_id.as_deref(), Some("proc-1"));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-248 验收①④⑥:核心+空 refs 机械触发，完整工件/用户豁免可审计放行；
+    /// 普通条目保持既有登记路径。
+    #[tokio::test]
+    async fn 核心空refs触发prior_art门禁_普通条目与豁免不受阻() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-prior-art-tracker-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::create_dir_all(dir.join("docs/design")).unwrap();
+        std::fs::write(dir.join("docs/design/base.md"), "# 基线\n已有设计\n").unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let core_input = json!({
+            "action": "add",
+            "title": "新的核心方向",
+            "priority": "P1",
+            "complexity": "中",
+            "tag": "核心"
+        });
+        let blocked = tool.execute(core_input.clone(), &ctx).await;
+        assert!(blocked.is_error, "缺 prior-art 必须拒绝");
+        assert!(blocked
+            .content
+            .contains("CORE_REQUIREMENT_PRIOR_ART_REQUIRED"));
+        let topic = crate::prior_art::requirement_topic("R-001", "新的核心方向");
+        let relative = format!(".kanzei/research/{topic}/prior-art.md");
+        let artifact = dir.join(&relative);
+        assert!(artifact.is_file(), "拒绝时必须同时创建可继续填写的骨架");
+        std::fs::write(
+            &artifact,
+            format!(
+                "---\nkind: prior_art\ntopic: {topic}\nstatus: complete\ntrigger: core_requirement\nentry_refs: R-001\nwebsearch_round_limit: 3\n---\n\n# 对照\n\n## 外部已有实现\n\n### upstream\n- 出处: https://example.test/upstream\n- 证据等级: V1\n- 差异: 上游只覆盖单机\n- 决策: 采用数据结构\n\n## 仓内既有设计\n\n### baseline\n- 出处: file:docs/design/base.md:2\n- 证据等级: V2\n- 差异: 仓内缺少自动触发\n- 决策: 保留现有 tracker 并补门禁\n"
+            ),
+        )
+        .unwrap();
+        let mut with_artifact = core_input;
+        with_artifact["prior_art"] = json!(relative);
+        let added = tool.execute(with_artifact, &ctx).await;
+        assert!(!added.is_error, "有效工件应放行: {}", added.content);
+        let entries = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert_eq!(entries[0].id, "R-001");
+        assert!(entries[0]
+            .fields
+            .iter()
+            .any(|(key, value)| key == "先行调研" && value.ends_with("prior-art.md")));
+
+        let ordinary = tool
+            .execute(
+                json!({"action": "add", "title": "普通后端需求", "priority": "P2", "complexity": "小", "tag": "后端"}),
+                &ctx,
+            )
+            .await;
+        assert!(!ordinary.is_error, "普通条目不应触发: {}", ordinary.content);
+
+        let waived = tool
+            .execute(
+                json!({"action": "add", "title": "用户要求直接推进", "priority": "P1", "complexity": "小", "tag": "核心", "prior_art_waiver": "用户明确要求复用已知内部方案并直接实施"}),
+                &ctx,
+            )
+            .await;
+        assert!(!waived.is_error, "明确豁免应放行: {}", waived.content);
+        let entries = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert!(entries[2]
+            .fields
+            .iter()
+            .any(|(key, value)| key == "先行调研豁免" && value.contains("用户明确")));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn prior_art字段只出现在requirement_schema() {
+        let requirement = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        }
+        .input_schema();
+        let defect = TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        }
+        .input_schema();
+        assert!(requirement.pointer("/properties/prior_art").is_some());
+        assert!(requirement
+            .pointer("/properties/prior_art_waiver")
+            .is_some());
+        assert!(defect.pointer("/properties/prior_art").is_none());
+        assert!(defect.pointer("/properties/prior_art_waiver").is_none());
     }
 }
