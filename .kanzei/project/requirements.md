@@ -202,10 +202,10 @@
 - 优先级: P1
 - 取活依据: engine:唯一可执行 WIP 是 R-293，必须先恢复它
 - 停车: 排队:p13 已收编(R-306 B1 完成),文件占用障碍消失;等 R-306 终态后恢复,接真实 outcome 写入方与聚合调度;解除条件:R-306
-- 进展: 批次1完成：kanzei-core runner RecallWatch 在 crates/kanzei-core/src/runner/drive.rs:200-424 的所有正常/暂停/提前停止路径显式提交 RecallRunOutcome；runner/recall.rs:61-166 新增 finish 与 OUTCOME_IMPROVED 独立证据接口；kanzei-memory/src/memory/mod.rs:714-775 生产策略在 Completed 结局写 outcome_improved，Halted/Unknown 不写。kanzei-core 定向测试 T-1786922726510=220 passed；kanzei-memory T-1786922726511 首次暴露根导出缺口，D-586 修复后 T-1786922726512=152 passed。批次2恢复：先复核回放 provider、recompute 调用方及控制面 F(m)/deprecate 数据契约，再接真实 memory_id 与聚合调度；此前批次1代码已格式化并暂存，提交待门禁通过。
-- observed_head: 809b7821ff906bacdb55e1aaafd7ca9dfafaba31
-- observed_worktree_hash: fnv1a64:38a6d34e22911c59
-- recorded_at: 1787184640697
+- 进展: 批次1完成：kanzei-core runner RecallWatch 在 crates/kanzei-core/src/runner/drive.rs:200-424 的所有正常/暂停/提前停止路径显式提交 RecallRunOutcome；runner/recall.rs:61-166 新增 finish 与 OUTCOME_IMPROVED 独立证据接口；kanzei-memory/src/memory/mod.rs:714-775 生产策略在 Completed 结局写 outcome_improved，Halted/Unknown 不写。kanzei-core 定向测试 T-1786922726510=220 passed；kanzei-memory T-1786922726511 首次暴露根导出缺口，D-586 修复后 T-1786922726512=152 passed。该线批次2在恢复途中撞上本地 provider(ollama:qwen3.8:27b)返回 HTTP 500 'no user query found in messages'——主会话诊断出两个真实缺陷并已修复提交:①conversation_clear(新对话)不清鞭挞控制器失败重试计数(state.auto_runs 按 session_id 存,与对话投影分属两条状态),导致新对话后立刻带旧计数复现同一失败;②is_transient_run_error 把所有 HTTP 500 无差别当瞬态重试,对确定性请求体错误(body 含 no user query/message)也白烧一轮退避——两处均在 crates/kanzei-app/src/auto_run.rs、crates/kanzei-app/src/conversation.rs 修复并有回归测试(conversation_tests 15 passed、auto_run::tests 9 passed),提交 2b0f514b。批次1本身经主会话验证接力提交(fmt/clippy/test 全绿)53649708。已发版 build-53649708。下一步批次2:先重新核对当前会话状态是否已从两处修复中恢复正常,再继续回放 provider、recompute 调用方、控制面 F(m)/deprecate 数据契约,接真实 memory_id 与聚合调度
+- observed_head: 53649708b734af71bae6f400a9d5d43a2fedefcf
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787187952120
 - 批次: 1/2
 
 ## R-296 Tauri command 与 run 链路测试基座 [doing]
