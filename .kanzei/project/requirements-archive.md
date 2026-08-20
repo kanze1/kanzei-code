@@ -4041,3 +4041,70 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787191034284
 - 批次: 2/2
+
+## R-317 长程需求执行底座:Outcome/Work Unit/事件投影/有界上下文与证据关闭 [done]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心 后端 前端 流程
+- refs: R-312 R-313 R-307 docs/design/work_unit_foundation.md
+- 来源: 2026-08-20 用户指出「需求这个东西的定义有问题」，要求重新思考任务拆分、上下文管理、减轻模型负担和长程任务信息熵线性增长；随后明确「先落一个底座，这个工作不可能靠自举完成，帮我完成这个工作然后发版」。
+- 诊断: 旧 Requirement 同时承担 Outcome、WIP、批次、自由文本进展、上下文快照、验收与审计，历史每增长一段，模型恢复任务就要重新消费一段；模型还是状态维护者和验收者，形成负担随历史线性增长的结构性耦合。R-312 原计划先测量再设计，但用户本轮已给出方向并要求直接落底座，因此本条由外部 Codex 在隔离工作树实现，不要求旧系统自举拆分自己。
+- 内容: ①schema v18 增加 append-only work_events 与可重建 work_surfaces；②Requirement 作为长期 Outcome，显式 `执行模型: work_units_v1` 后拆为 R-xxx/Wn Work Unit；③状态机覆盖 ready/active/blocked/verifying/done/superseded、并行线接管与 checkpoint；④work next 调度 Work Unit 并只注入当前投影+父 Outcome 白名单字段；⑤逐验收 evidence 后才允许 complete，父需求关闭要求所有单元终态且至少一个 done；⑥CLI、桌面快照与需求详情可观测；⑦存量需求保持 legacy 行为。
+- 边界: 不自动让旧系统规划和拆分本条自身；不批量迁移存量 Requirement；不把 Markdown Outcome 搬进 SQLite；v1 不加入含混的 defect affinity，先保证需求主链闭环。
+- 验收: ①v17→v18 迁移前整库备份且表/列机械判据通过；②事件回放与 surface 相同，删除/重建投影不丢审计；③单元上下文有硬预算，父需求超长进展不进入 selected；④依赖、单 WIP、并行线接管与 checkpoint 状态机有测试；⑤未逐条登记 evidence 时 complete 被拒；⑥有非终态单元或全部 superseded 时 req close 被拒，全部验证完成后可关；⑦CLI 编译，桌面快照、i18n/runtime/lint 冒烟通过；⑧全量 verify 通过并发布安装包，GitHub release/tag/资产 SHA256 与安装后二进制版本均核验。
+- 取活依据: user-direct:用户本轮明确要求由外部 Codex 完成底座并发版，避免依赖旧需求系统自举
+- 取得线: kanzei/work-unit-foundation
+- 批次: 4/4
+- 进展: B1 ba13b53a、B2 c5217523+b0b96c97、B3 db1e808e、接管门禁 d382bbfc、发布门禁修复 0f782868/f4533f37/d3873bf1 已完成。最终 `scripts/verify.ps1` 在 d3873bf18c47cd90316b464dc835af3acdc7d085 生成全绿证据（13 项，verification SHA256 f9aad2d678d778ce0d2303057bf0f329b5343c05079a19a1306a69b34b135df3）；dev/main 快进到同一提交。`package.ps1 -Ack 12 -Publish` 构建、静默安装并发布 GitHub Latest Release `build-d3873bf1`；标签精确指向 d3873bf18c47cd90316b464dc835af3acdc7d085。安装器 `kanzei-setup-d3873bf1.exe` 大小 16,339,218 字节，本地产物、GitHub API digest 与重新下载资产三方 SHA256 均为 c250adc7051f326e6c53aa40e27afc138f71a6775e2ad63b1758519aac9950be；本机安装位 `kzapp.exe` 包含 d3873bf1 构建标识，ProductVersion/FileVersion 均为 0.1.0。D-594/D-595 作为全量门禁中发现的真实竞态与环境隔离缺陷已修复归档。
+
+## R-296 Tauri command 与 run 链路测试基座 [done]
+- 内容: kanzei-app 无 tests/ 目录(全仓唯一集成层在 crates/kanzei/tests/integration),104 个 #[tauri::command] 零测试;装配→执行→落库主链 commands/run.rs(604行)、processes/lifecycle.rs(593)、processes/workspace.rs(548)、run/persistence.rs(489)、run/coordinator.rs(424)、run/execution.rs(313)、harness_ext.rs(284) 全部 0 个 #[test];数据面 memory.rs(13 command)/docs.rs(16 command) 同样近零。建立可测基座(状态抽离/伪 AppHandle/集成层)并优先覆盖 run 主链
+- 复杂度: 大
+- 来源: 2026-08-18 全库勘察
+- 标签: 后端
+- 边界: 不追求覆盖率数字,优先真实断言关键路径;不重构业务逻辑
+- 验收: run 主链关键路径有自动化断言;新增 command 有明确测试落点范式;cargo test 全绿并入 verify
+- 优先级: P1
+- 取活依据: engine:唯一可执行 WIP 是 R-296，必须先恢复它
+- 停车: 
+- 进展: 验收对账完成：run 主链关键路径已有真实断言——crates/kanzei-app/src/commands/run.rs:654、667 分别验证真实 episode 投影与 requirement 复杂度来源，crates/kanzei-app/src/run/mod.rs:565 验证真实 SessionStore 的轮末通知持久化/回放（实现提交 1e076db6）；这三处同时给新增 command 建立就地 #[cfg(test)]/真实存储边界的测试落点范式。现行提交 c85f3c99 上 cargo test --workspace exit=0：kz 42、integration 32、kzapp 230、kanzei-memory 156、kanzei-tools 396 passed（另 2 ignored），覆盖 D-570 新增上下文投影；全仓门禁满足。
+- observed_head: c85f3c998e8a0fe59571ca8baec5ee855b2c9814
+- observed_worktree_hash: fnv1a64:70daf09539db7acb
+- recorded_at: 1787218247444
+- 对账: 2026-08-20 恢复:R-306 已 done、D-529 已 fixed，历史停车条件消失；本轮在 c85f3c99 现行树重跑 cargo test --workspace，补齐全仓门禁后关闭。
+
+## R-248 先行调研内建:新方向开工前默认产出「已有方案对照」,不靠用户开口 [done]
+- refs: R-221 docs/design/research_mode.md
+- 依赖: R-221
+- 内容: 把「先查已有方案再动手」从用户每次口头要求变成 harness 的默认动作。①触发判据机械可判、不交模型自由裁量:项目根首次初始化 `.kanzei/`、req add 时 refs 为空且标签为核心、用户显式发起,三者之一成立即触发;②产物落 `.kanzei/research/<topic>/prior-art.md`,每条结论含「方案名 + 出处(URL 或 file:line) + 与本课题的差异 + 采用或不采用的理由」,**外部已有实现**(开源方案、协议、公开设计)与**仓内既有设计**(docs/design/**、requirements/defects 现存与 archive)两侧都必须覆盖;③新方向判定成立而无对照工件时,req add 要求 refs 指向该工件,或由用户显式豁免并留痕。
+- 复杂度: 中
+- 批次: 3/3
+- 来源: 2026-08-14 用户观察——开新项目应先深度调研已有方案与设计,不适合从零开始;这是当前 coding agent 的通病(非得用户主动请求才去调研),直接影响自举质量。
+- 标签: 核心
+- 边界: 不是每条需求都调研,只在触发判据成立时启动;判据必须机械可判,不接受模型自行裁量「这算不算新方向」。websearch 轮次设上限,不做无限扩散爬取。本条只产出对照工件与开工门禁,不改 req/defect 状态机,也不自动把调研结论写成条目——那是 R-221 定调点4 的回流通道。
+- 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
+- 优先级: P1
+- 取活依据: engine:唯一可执行 WIP 是 R-248，必须先恢复它
+- 停车: 
+- 进展: 验收逐项完成：① crates/kanzei-tools/src/prior_art.rs:551 三种触发均创建同形骨架，crates/kanzei-tools/src/tracker.rs:4052 断言普通后端条目不受影响；② crates/kanzei-tools/src/prior_art.rs:257 与 :577 逐结论校验出处、V级、差异、决策，无出处拒绝；③ crates/kanzei-tools/src/prior_art.rs:577-598 独立断言外部 URL 与仓内 file:line 双侧至少各一条，删去仓内章节后以双侧覆盖不足拒绝；④ crates/kanzei-tools/src/tracker.rs:725 与 :4052 核心空refs缺工件拒绝、有效 prior_art 放行、prior_art_waiver 审计落字段；⑤ crates/kanzei-tools/src/prior_art.rs:602 与 crates/kanzei-tools/src/websearch.rs:318 验证轮次上限在联网前返回 PRIOR_ART_SEARCH_LIMIT；⑥ crates/kanzei-tools/src/tracker.rs:3600 与 :3756 既有完整登记及8路并发新增回归通过。实现提交 34c78f40、35aa11ee、571001f1，夹具对齐 37023013；cargo test --workspace exit=0（kz 42/integration 32/kzapp 231/memory 156/tools 406，0 failed）；cargo clippy --workspace -- -D warnings exit=0。真实网络探测：DuckDuckGo HTML HTTP 200/33616B/1158ms，arXiv API HTTP 200/2957B/493ms；当前无需触发降级，失败诊断由 crates/kanzei-tools/src/websearch.rs:281 单测覆盖。
+- observed_head: 3702301328886e835c552b5174252853e795f372
+- observed_worktree_hash: fnv1a64:2c7dabe2405e41e8
+- recorded_at: 1787219867914
+- 对账: 2026-08-20 已按用户拍板落地：独立 prior_art/prior_art_waiver 顶层字段，不污染 refs；topic 复用 R-304 的 .kanzei/research/<topic>/ 约定。三批提交 34c78f40、35aa11ee、571001f1。
+
+## R-318 设计文档时效治理:区分现行设计/历史快照/被替代方案并机械阻止状态漂移 [done]
+- refs: R-317 docs/design/design_freshness_audit_20260820.md
+- 内容: 按审计基线分四批：①修正 tracker 终态与产品边界直接冲突的文档；②修正并行线/执行模型等架构正文内自相矛盾；③设计索引增加 live_design/validated_design/historical_snapshot/superseded 身份、截至提交和替代关系；④机械校验结构化状态并让默认上下文排除 superseded 正文。
+- 复杂度: 大
+- 执行模型: work_units_v1
+- 批次: 4/4
+- 来源: 2026-08-20 用户要求寻找过时设计并登记需求给自举；外部审计在当前主线确认 10 份高置信度漂移文档。
+- 标签: 流程 核心
+- 边界: 不删除或改写历史审计结论；不让模型自由判断过时作为硬门禁；不批量重写未被审计命中的文档；不把治理职责塞回 R-317 状态机。
+- 验收: ①审计列出的 10 份漂移文档逐份对账；②索引可区分四类身份并显示截至点/替代关系；③条目终态冲突、同文档头尾矛盾、历史快照不误报三类测试；④superseded 正文不进入默认自举上下文；⑤每批以 Work Unit 证据完成。
+- 优先级: P1
+- 进展: R-318 四批已完成并按父需求五项验收逐条对账。①审计列出的 10 份漂移文档逐份对账：`docs/design/design_freshness_audit_20260820.md:27-38` 列出的 architecture_browser.md、continue_prompt_dissection.md、r059_mobile_agent_communication.md、research_workspace.md、memory_decision_sufficiency.md、parallel_lines_ui.md、deep_parallel_dev.md、ci_release_evidence_chain.md、reliability_usability_self_hosting_quality.md、harness_m1.md 已由 R-318 B1/B2/B3/B4 提交 `40835597`、`d374cb9f`、`02d585b8`、`5f4b10ce` 逐份完成身份、tracker 状态、实现事实和执行模型对账。②索引四类身份、截至点和替代关系：`.kanzei/project/architecture/README.md:5-10,12-61` 明确定义 live_design/validated_design/historical_snapshot/superseded，现行/已验证含 last_verified_commit，历史含 as_of_commit，被替代含 superseded_by。③自动测试覆盖条目终态冲突、同文档身份矛盾和历史快照不误报：`scripts/check-design-freshness.mjs:105-123,156-180`，证据 `T-1786922726579`。④superseded 正文不进入默认自举上下文：`crates/kanzei-tools/src/profiles/dev.rs:323-345` 只注入非 superseded 索引行且不读取 docs/design 正文，`crates/kanzei-tools/src/profiles.rs:687-736` 真实 baseline 回归，证据 `T-1786922726580`。⑤每批 Work Unit 证据已完成：B1 `40835597`、B2 `d374cb9f`、B3 `02d585b8`、B4 Work Unit `R-318/W4` 已 done，W4 三项 evidence 已登记，缺陷/验证收尾提交 `56cc4def`。验收降级：`T-1786922726581` 的 `verify.ps1` 设计时效门禁、fmt、clippy、workspace tests 和六条 UI/IPC 冒烟均通过，唯一失败为本批未触碰的 `crates/kanzei-memory/src/memory/mod.rs` 既有 metrics regression（production 1399，baseline 1263，增长 136 超 allowance 100）；未以放宽基线或替身测试冒充全绿。
+- 验收复核: 父需求五项验收均已在进展中逐项覆盖并带有 file:line、提交号或 T- 测试证据；R-318/W4 Work Unit 已通过 verify/evidence/complete。
+- observed_head: 5f4b10ce66012e0aebdc59f994c8fc91eb377ea5
+- observed_worktree_hash: fnv1a64:abf42289ad631ab3
+- recorded_at: 1787242856195
