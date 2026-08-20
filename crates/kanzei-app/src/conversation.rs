@@ -34,8 +34,26 @@ pub(crate) fn conversation_clear(
         .conversation
         .lock()
         .unwrap()
-        .insert(session_id, Vec::new());
+        .insert(session_id.clone(), Vec::new());
+    reset_auto_run_state(&state, &session_id);
     Ok(())
+}
+
+/// 2026-08-20 现场:鞭挞控制器按 session_id 存(state.auto_runs),不随
+/// conversation.reset 走。新对话只清了投影历史,失败重试计数(failed_rounds)
+/// 原样留着——卡在失败重试循环里点新对话,鞭挞立刻带着旧计数发起下一轮,
+/// 复用的还是导致上次失败的运行时状态,新对话形同虚设。这里同步走
+/// auto_state_reset 同款 reset():只清轮数/失败计数,不碰 enabled/paused/
+/// max_rounds 这些用户显式设置的开关。
+pub(crate) fn reset_auto_run_state(state: &AppState, session_id: &str) {
+    state
+        .auto_runs
+        .lock()
+        .unwrap()
+        .entry(session_id.to_string())
+        .or_default()
+        .state
+        .reset();
 }
 
 /// R-242 批7:段边界 = conversation.reset 事件(升序 sequence)。

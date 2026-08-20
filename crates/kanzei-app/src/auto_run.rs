@@ -199,13 +199,25 @@ pub fn is_rate_limited_run_error(error: &anyhow::Error) -> bool {
     llm_error_in(error).is_some_and(kanzei_llm::LlmError::is_rate_limited)
 }
 
+/// 2026-08-20 现场:本地 ollama 兼容端点把"请求体没有 user 消息"这种确定性
+/// 客户端错误也包成了 HTTP 500(标准做法应是 4xx)。这类错误的请求体内容不会
+/// 因为等待重试而改变,原样重试只会原样再失败一次——判成瞬态纯粹是白烧一轮
+/// 退避等待外加一次注定失败的调用。只精确识别这一个已验证的死循环特征,不做
+/// 通用的"猜错误语义"规则(会引入误判真实瞬态 500 的风险)。
+fn is_malformed_request_body(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    lower.contains("no user query") || lower.contains("no user message")
+}
+
 pub fn is_transient_run_error(error: &anyhow::Error) -> bool {
     let Some(llm) = llm_error_in(error) else {
         return false;
     };
     match llm {
         kanzei_llm::LlmError::RateLimited { .. } | kanzei_llm::LlmError::Transport(_) => true,
-        kanzei_llm::LlmError::Http { status, .. } => matches!(status, 500 | 502 | 503 | 504 | 529),
+        kanzei_llm::LlmError::Http { status, body } => {
+            matches!(status, 500 | 502 | 503 | 504 | 529) && !is_malformed_request_body(body)
+        }
         _ => false,
     }
 }
@@ -281,6 +293,33 @@ mod tests {
 
         assert!(super::is_rate_limited_run_error(&error));
         assert!(super::is_transient_run_error(&error));
+    }
+
+    /// 真实服务端过载(无请求体格式线索)仍按原规则判瞬态,不能被新判据误伤。
+    #[test]
+    fn 无请求体线索的http_500仍判瞬态() {
+        let error = anyhow::Error::new(kanzei_llm::LlmError::Http {
+            status: 500,
+            body: "internal server error".into(),
+        })
+        .context("run failed");
+        assert!(super::is_transient_run_error(&error));
+    }
+
+    /// 2026-08-20 现场:本地 ollama 兼容端点把"请求体没有 user 消息"这种确定性
+    /// 客户端错误包成 HTTP 500。这类错误重试注定原样失败,不该判瞬态——否则
+    /// 鞭挞会白烧一轮退避等待外加一次注定失败的调用才升级为致命。
+    #[test]
+    fn 请求体缺user消息的http_500判为致命不重试() {
+        let error = anyhow::Error::new(kanzei_llm::LlmError::Http {
+            status: 500,
+            body: r#"{"error":{"message":"no user query found in messages","type":"api_error","param":null,"code":null}}"#.into(),
+        })
+        .context("run failed");
+        assert!(
+            !super::is_transient_run_error(&error),
+            "确定性请求体错误不该被当瞬态重试"
+        );
     }
 
     #[test]

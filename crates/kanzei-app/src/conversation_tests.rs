@@ -2,7 +2,10 @@
 
 use super::{prompt_attachment_parts, with_session_id, PromptAttachment};
 // R-153 批10:会话恢复相关已迁到 conversation 模块。
-use crate::conversation::{conversation_prior, recover_messages_at, recover_messages_raw};
+use crate::conversation::{
+    conversation_prior, recover_messages_at, recover_messages_raw, reset_auto_run_state,
+};
+use crate::AppState;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -69,6 +72,48 @@ fn conversation_prior_prefers_existing_memory_over_persisted_snapshot() {
         )[0]
         .parts,
         existing[0].parts
+    );
+}
+
+/// 2026-08-20 现场:新对话卡在鞭挞失败重试循环里点了"新对话",鞭挞立刻带着
+/// 旧的失败计数发起下一轮——因为 conversation.reset 只清对话投影,从不碰
+/// auto_runs(鞭挞控制器按 session_id 存)。这里断言:清空后失败轮数归零,
+/// 但用户显式设置的开关(enabled/max_rounds)必须保留,不能被连带清掉。
+#[test]
+fn 新对话清空鞭挞失败轮数但保留用户开关设置() {
+    let state = AppState::default();
+    {
+        let mut controllers = state.auto_runs.lock().unwrap();
+        let ctrl = controllers.entry("ses_reset".to_string()).or_default();
+        ctrl.enabled = true;
+        ctrl.state.rounds = 3;
+        ctrl.state.max_rounds = 7;
+        ctrl.state.paused = true;
+    }
+
+    reset_auto_run_state(&state, "ses_reset");
+
+    let controllers = state.auto_runs.lock().unwrap();
+    let ctrl = controllers.get("ses_reset").expect("controller 应仍存在");
+    assert_eq!(
+        ctrl.state.rounds, 0,
+        "失败重试轮数必须清零,否则新对话形同虚设"
+    );
+    assert!(ctrl.enabled, "用户开启的鞭挞开关不该被新对话连带关掉");
+    assert_eq!(ctrl.state.max_rounds, 7, "用户设的连数上限不该被新对话重置");
+    assert!(ctrl.state.paused, "用户的暂停状态不该被新对话清掉");
+}
+
+/// 会话此前从未跑过鞭挞(auto_runs 里没有该 session_id 的条目)时,清空历史
+/// 不该 panic——entry().or_default() 必须能安全处理"控制器不存在"的情况。
+#[test]
+fn 新对话在从未鞭挞过的会话上安全跳过() {
+    let state = AppState::default();
+    reset_auto_run_state(&state, "ses_never_ran");
+    let controllers = state.auto_runs.lock().unwrap();
+    assert_eq!(
+        controllers.get("ses_never_ran").map(|c| c.state.rounds),
+        Some(0)
     );
 }
 
