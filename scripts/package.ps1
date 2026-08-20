@@ -106,12 +106,12 @@ $verification = if ($VerificationPath) { $VerificationPath } else { Join-Path $r
 if (-not (Test-Path $verification)) {
     throw "缺验证证据 ${verification}:先跑 scripts\verify.ps1。发布树打包时可用 -VerificationPath 指向 dev 树产出的证据(ff 合并后两树 HEAD 相同)"
 }
-$evidence = Get-Content $verification -Raw | ConvertFrom-Json
-if ($evidence.commit -ne $full_hash) {
-    throw "验证证据绑定 $($evidence.commit),HEAD 是 ${full_hash}:commit 变了就要重新 verify——这正是本门禁存在的原因"
+$evidenceCheck = node "$root\scripts\verify-policy.mjs" validate $verification $full_hash 2>&1
+if ($LASTEXITCODE -ne 0) {
+    throw "验证证据不满足全量发版门禁:`n$($evidenceCheck -join "`n")"
 }
-if (-not $evidence.all_pass) { throw "验证证据未全绿,不得打包" }
-Write-Host "==> 验证证据核对通过($($evidence.verified_at_utc))" -ForegroundColor Green
+$evidence = Get-Content $verification -Raw | ConvertFrom-Json
+Write-Host "==> 验证证据核对通过($($evidence.verified_at_utc), full verify)" -ForegroundColor Green
 
 # kz CLI 随安装包一起发(D-175)。桌面端与 CLI 共用同一个 .kanzei/state.db,
 # 而 schema 迁移是单向的:只发 kzapp 的话,一次 schema 变更就会让机器上的旧 kz

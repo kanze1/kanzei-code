@@ -214,7 +214,7 @@
 - 对账: 2026-08-20 发版 build-39cd402f 后 B1/B2 进入运行态;R-306/R-293 停车已改写「解除条件:」语法为首批真实消费者。批3 时顺带把「解除条件:」写入约定补进 conventions 停车纪律,让循环新写停车默认带机器可判条件
 
 ## R-309 门禁矩阵整合:按改动路径裁剪 verify、globals 免手工同步、脆性门禁加固 [doing]
-- refs: D-510 D-555 D-539 D-540 D-458 R-300
+- refs: D-510 D-555 D-539 D-540 D-458 R-300 D-642 D-643 D-644
 - 内容: 批1 globals 免手工同步:eslint.config.js 加载时直接调 gen-ui-lint-globals 计算 globals,ui-lint-globals.json 降级缓存或删除——结构性消灭 D-458/D-484/D-523/D-547/D-560/D-562 一族(占门禁缺陷 18%)。批2 verify 按改动路径三档裁剪:无 Rust 改动跳 fmt/clippy/test(省 100.2s),无前端改动跳六冒烟(省 5.9s),verification.json 记录裁剪判据与被跳步骤,package.ps1 发版证据要求全量 verify 不受裁剪污染。批3 关闭门禁复用 verify 证据:frontend_smoke_passed 接受绑定当前 HEAD 且 ui_runtime/ui_lint/ui_i18n 全 pass 的 verification.json,去掉每批第 3 轮冒烟;同时补冒烟记录新鲜度校验(现状:三天前的 passed 记录可放行今天的关闭,coverage.rs frontend_smoke_passed 无时间/指纹比对)。批4 脆性加固:metrics 闸基线口径版本断言(口径不同拒绝出数而非出错数),metrics-regression-gate.ps1 里的 cargo build 移出 crate_sync 单独计时;parallel-lines-regression.mjs 改用 loadUiSources() 不再写死 8 个文件名;ipc-event-smoke/check-ps1-bom 补空集与下限断言(D-510 模式推广)
 - 复杂度: 大
 - 来源: 2026-08-20 门禁矩阵审计(115 条近期缺陷归因):门禁真假阳性比 1:4.7;34 条门禁类缺陷中 29% 是「忘了重跑生成器」类机械同步;verify 14 步 108.1s 中 Rust 三步占 92.7%,改前端的批次全额买单;fmt/clippy 每批次跑 4 轮、前端冒烟 3 轮。P0 两项(finalize 去重、删 ui_syntax)已由主会话落地
@@ -223,12 +223,12 @@
 - 验收: ①改一行前端的批次 verify 墙钟 <15s(实测);②改 globals 清单的缺陷族在门禁上线后零新增;③关闭前端条目不再需要第三轮冒烟(用 verify 证据通过一次真实关闭);④metrics 口径漂移场景拒绝出数的定向测试;⑤裁剪过的 verification.json 被 package.ps1 拒绝的定向测试
 - 优先级: P1
 - status: doing
-- 进展: B1 已落地并验证：`scripts/gen-ui-lint-globals.mjs` 导出 `collectUiGlobals`/`readCachedUiGlobals`，CLI `--check` 与生成写缓存行为保留；`eslint.config.js:1-27` 加载时实时收集 globals，只有实时收集失败才读取缓存，双失败拒绝启动；新增 `scripts/ui-lint-globals-config-smoke.mjs` 覆盖实时优先、缓存降级、双失败拒绝和真实 `activePane` 消费。T-1786922726627：node --check 三文件、配置定向测试、ui-lint-smoke 50 文件 no-undef 全绿，实时清单764项且缓存同步。下一步：复核 verify/package/verification.json 当前路由，设计 B2 按改动路径裁剪且保持发版全量。
-- observed_head: 7635faeed1a51ed625e1c9b9ddd09834d36c67b2
-- observed_worktree_hash: fnv1a64:f49031a8aff5003f
-- recorded_at: 1787263525396
+- 进展: B1 已提交：`a173eb6a`，globals 实时收集与缓存降级已验证。B2 已落地：`scripts/verify-policy.mjs:5-85` 统一 Rust/前端路径分类、targeted/full 模式、skipped_steps 与 full evidence 校验；`scripts/verify.ps1:3,26-53,83-159,168-178` 按 `KANZEI_VERIFY_BASE..HEAD` 裁剪 Rust 三步/六条前端 smoke，`-Full` 生成 full evidence，并在 verification.json 记录 mode/full_verify/verify_base/changed_paths/skipped_steps；`scripts/package.ps1:109-114` 调用同一策略拒绝非 full evidence；CI 保持全量。修复 D-643（PowerShell 引号）与 D-644（UI 路径误判 Rust）。T-1786922726628：两份 JS node --check、policy 定向测试、CLI classify、PowerShell Parser、D-408 BOM 全通过。下一步：提交 B2 后用真实 package.ps1 + cropped fixture 验证 D-642，再进入 B3 关闭门禁复用 verify evidence 与新鲜度校验。
+- observed_head: a173eb6a861706d2fcdab29171f257d452b86929
+- observed_worktree_hash: fnv1a64:f05f8ff8f4a12612
+- recorded_at: 1787263964553
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-309(unblocks=0)
-- 批次: 1/4
+- 批次: 2/4
 
 ## R-310 仓库导航效率:失手遥测、工具自愈报错与代码地图,把认知预算还给问题本身 [todo]
 - refs: D-575 D-568 R-308 docs/design/weakness_register_20260820.md

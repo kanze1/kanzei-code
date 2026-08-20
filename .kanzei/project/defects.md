@@ -79,3 +79,33 @@
 - recorded_at: 1787239449856
 - 取活依据: engine:唯一可执行 WIP 是 D-592，必须先恢复它
 - 阻塞: 等待用户提供或释放可安全接管的 llama-local 实测窗口；解除人：用户准备 llama-server 窗口并告知 agent 执行多步工具循环验收。
+
+## D-642 package.ps1 接受裁剪 verify 证据导致局部门禁可冒充全量发布证据 [open] (medium)
+- 复现: 来源：self-found。当前 `scripts/package.ps1:103-114` 只校验 verification.json 的 commit 与 all_pass，不检查是否跳过 Rust 三步或六条前端 smoke；裁剪 verify 产出的 all_pass=true 证据理论上可进入发版门禁。
+- 影响: 本地 targeted verify 的证据可能被误当成 release 全量 verify，破坏 A-009 发布证据链与 CI/发版边界。
+- 来源: self-found（R-309 B2 路由复核）
+- 标签: 发布
+- 进展: 待由 R-309 B2 实现 verification.json 裁剪元数据与 package 全量证据门禁，并补定向测试。
+- 验收: package.ps1 对 full_verify=false、mode=targeted 或 skipped_steps 非空的 verification.json 明确拒绝；全量 verify 证据继续通过。
+- refs: R-309
+- 优先级: P1
+
+## D-643 verify.ps1 full 分支使用错误转义导致 PowerShell 语法失败 [open] (high)
+- 复现: 来源：self-found。R-309 B2 `scripts/verify.ps1:44` 写入 JSON 时使用 `"[\"full verify\"]"`，PowerShell 不使用反斜杠转义双引号，执行 `verify.ps1 -Full` 时会在 full 分支解析/执行失败。
+- 影响: 全量 verify 无法启动，package 无法获得合法 full verification evidence，直接阻断发布通道。
+- 来源: self-found（B2 代码复核）
+- 标签: 发布
+- 进展: 待改为 PowerShell 正确的引号写法并运行 PowerShell 语法/BOM验证。
+- 验收: `verify.ps1 -Full` 的 full policy 分支可被 PowerShell 解析；B2 定向脚本和 BOM 检查通过。
+- refs: R-309 D-642
+- 优先级: P1
+
+## D-644 verify 路径分类把前端 crates 路径误判为 Rust 改动 [open] (medium)
+- 复现: 来源：self-found。`scripts/verify-policy.mjs:isRustPath` 当前以 `path.startsWith("crates/")` 判定 Rust，因而 `crates/kanzei-app/ui/01-core.js` 同时被判为 Rust 路径和前端路径。
+- 影响: 前端-only 改动不会跳过 fmt/clippy/test，无法达到 R-309 B2 的 verify 裁剪目标与 <15s 验收。
+- 来源: self-found（B2 路径分类复核）
+- 标签: 流程
+- 进展: 待收窄 Rust 判据为 `.rs`、Cargo.toml/Cargo.lock 及非 UI crate 相关构建文件，并补前端-only 回归断言。
+- 验收: `crates/kanzei-app/ui/*` 仅触发前端 smoke；Rust 源码仍触发 Rust 三步；定向 policy 测试通过。
+- refs: R-309
+- 优先级: P1

@@ -9161,3 +9161,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-308 D-568
 - 收尾: 1787263090
 - 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@ae10c43fac65
+
+## T-1786922726627 R-309 B1 globals 动态加载配置定向测试 [passed]
+- 命令: node --check eslint.config.js; node --check scripts/gen-ui-lint-globals.mjs; node --check scripts/ui-lint-globals-config-smoke.mjs; node scripts/ui-lint-globals-config-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 2.3s
+- 摘要: B1 定向测试通过：实时 globals 764 个；合成实时失败时成功降级缓存；实时与缓存同时失败时拒绝启动；ui-lint-smoke 的 50 个文件 no-undef 全绿且缓存同步。未将本记录宣称为六条前端全套冒烟。
+- 关联: R-309
+- 收尾: 1787263516
+- 源码指纹: v2 scripts/gen-ui-lint-globals.mjs@7a7b28f211b5,scripts/ui-lint-globals-config-smoke.mjs@a243e9b8c88a
+
+## T-1786922726628 R-309 B2 verify policy 与 PowerShell 门禁定向验证 [passed]
+- 命令: node --check scripts/verify-policy.mjs; node --check scripts/verify-policy-smoke.mjs; node scripts/verify-policy-smoke.mjs; node scripts/check-ps1-bom.mjs; PowerShell Parser::ParseFile scripts/verify.ps1; node scripts/verify-policy.mjs classify scripts/ui-lint-globals.json
+- 时长: 3.0s
+- 摘要: 策略模块前端-only/Rust-only/full 分类与 full evidence 拒绝断言通过；verify-policy CLI classify 实际调用通过；verify.ps1 PowerShell Parser 无错误；check-ps1-bom 通过 6 个脚本；两份 JS node --check 通过。
+- 关联: R-309 D-642 D-643 D-644
+- 收尾: 1787263933
+- 源码指纹: v2 scripts/package.ps1@b588f474a001,scripts/verify-policy-smoke.mjs@902d618f018b,scripts/verify-policy.mjs@80f97e4514f3,scripts/verify.ps1@89a5097d04ac
