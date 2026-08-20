@@ -7458,3 +7458,39 @@
 - observed_worktree_hash: fnv1a64:ee2d311b4bf851cc
 - recorded_at: 1787240166681
 - 取活依据: engine:唯一可执行 WIP 是 D-603，必须先恢复它
+
+## D-605 R-318/W4 DevProfile 插入设计索引时残留孤立 draft.agents.insert 导致编译失败 [fixed] (high)
+- 复现: 检查 crates/kanzei-tools/src/profiles/dev.rs:348，dev/design-index ContextSource 后多出一行孤立 `draft.agents.insert(`，随后紧接 `draft.context.insert("dev/project-docs", ...)`。
+- 影响: kanzei-tools 无法通过 Rust 编译，设计时效门禁与默认上下文功能均不可验证。
+- 来源: self-found：恢复 W4 时对未提交插入差异进行代码审查。
+- 标签: 核心
+- refs: R-318
+- 优先级: P1
+- 进展: 已修复并提交 `5f4b10ce`：删除 `crates/kanzei-tools/src/profiles/dev.rs:348` 的孤立 `draft.agents.insert(`，DevProfile 现可正常编译。定向回归 `T-1786922726580`：cargo test -p kanzei-tools，403 passed、0 failed、2 ignored。
+- observed_head: 5f4b10ce66012e0aebdc59f994c8fc91eb377ea5
+- observed_worktree_hash: fnv1a64:abf42289ad631ab3
+- recorded_at: 1787242666816
+
+## D-606 R-318/W4 设计时效脚本 Windows 入口判断静默跳过门禁 [fixed] (high)
+- 复现: 运行 `node scripts/check-design-freshness.mjs --self-test`，命令退出码为 0 但没有输出；`process.argv[1]` 与 fileURLToPath(import.meta.url) 的 Windows 路径形式不一致，entry 判断为 false。
+- 影响: verify.ps1 调用脚本时可能静默跳过设计时效门禁，自测也不会执行，无法证明门禁真实生效。
+- 来源: self-found：执行 R-318/W4 新增门禁脚本自测。
+- 标签: 核心
+- refs: R-318
+- 优先级: P1
+- 进展: 已修复并提交 `5f4b10ce`：`scripts/check-design-freshness.mjs:183-186` 改用 Windows 稳定的脚本文件名入口判断，`--self-test` 与正常扫描均真实执行。`T-1786922726579` 通过：自测覆盖终态冲突、同文档身份矛盾、历史快照不误报，正常仓库扫描通过。
+- observed_head: 5f4b10ce66012e0aebdc59f994c8fc91eb377ea5
+- observed_worktree_hash: fnv1a64:abf42289ad631ab3
+- recorded_at: 1787242679420
+
+## D-607 R-318/W4 harness_m1 文档头与架构索引身份冲突 [fixed] (medium)
+- 复现: 运行 `node scripts/check-design-freshness.mjs`，门禁报告 `harness_m1.md: document identity live_design disagrees with index validated_design`；文档头 `docs/design/harness_m1.md:3` 为 `身份: live_design`，索引对应行原为 validated_design。
+- 影响: 设计时效门禁无法通过，且默认上下文身份会与设计正文自声明冲突。
+- 来源: self-found：修复 D-606 入口后首次运行正常门禁。
+- 标签: 核心
+- refs: R-318
+- 优先级: P1
+- 进展: 已修复并提交 `5f4b10ce`：将 `.kanzei/project/architecture/README.md:25,34` 的 `harness_m1.md` 索引身份与 `docs/design/harness_m1.md:3` 的 `身份: live_design` 对齐。`T-1786922726579` 修正后正常扫描通过，身份矛盾不再出现。
+- observed_head: 5f4b10ce66012e0aebdc59f994c8fc91eb377ea5
+- observed_worktree_hash: fnv1a64:abf42289ad631ab3
+- recorded_at: 1787242691553

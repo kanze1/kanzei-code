@@ -8816,3 +8816,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-318 D-605 D-606 D-607
 - 收尾: 1787242397
 - 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@30da2593ccda,crates/kanzei-tools/src/profiles/dev.rs@f7a77f2ade4e,scripts/check-design-freshness.mjs@2328eea436dc,scripts/verify.ps1@bac892ce60cc
+
+## T-1786922726581 R-318/W4 verify.ps1 全量门禁（既有 metrics 基线失败） [failed]
+- 命令: pwsh -NoProfile -File scripts/verify.ps1
+- 时长: 92.0s
+- 摘要: 设计时效门禁本身通过；六条 UI/IPC 冒烟、fmt、clippy、workspace 测试均通过。唯一失败为既有 metrics regression gate：crates/kanzei-memory/src/memory/mod.rs production 1399，baseline 1263，增长 136 超出 allowance 100；该文件不在 R-318/W4 本批提交中。
+- 关联: R-318
+- 收尾: 1787242657
