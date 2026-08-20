@@ -3996,7 +3996,6 @@
 - 标签: 核心
 - 边界: 本需求只负责事件投影真源切换与 segment reset，不实现会话物理删除、Spill artifact 联动删除、WAL/VACUUM 或迁移备份安全整理；这些统一由 R-245 的删除计划与显式整理入口承担。第一批不改事件 format_version 与 SessionFact 公共词表；任一读路径可通过 feature gate 独立回退 legacy snapshot。
 - 迁移与回滚: 不新增表、列或索引时不创建空 migration。切换按五条读路径分别启用 feature gate，legacy snapshot 在观察期只读保留；任一路径出现未知差异即回退该路径。全部 gate 稳定后才停止新增 conversation.updated，既有 snapshot 不删除。
-- 阻塞: 
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
 - 进展: R-242 已完成并提交 `3b8b0e7b`（R-242 B9）。逐条验收证据：①五条读路径统一事件投影：桌面 `crates/kanzei-app/src/conversation.rs:63-96,195-241`、CLI `crates/kanzei/src/cli/run.rs:47-117`、桌面 runner prior `crates/kanzei-app/src/run/coordinator.rs:149-157`、UI history `crates/kanzei-app/src/processes/workspace.rs:509-517`、子代理 transcript `crates/kanzei-app/src/run/coordinator.rs:168-193`；②user/assistant/tool 强杀恢复由 `crates/kanzei-core/src/store/typed.rs:756-791,1159-1189` 与 T-1786922726244/T-1786922726245 覆盖；③孤立 tool call 投影为 interrupted 且不重放由 `crates/kanzei-core/src/store/typed.rs:756-791`、T-1786922726244 覆盖；④`conversation.reset` 后新 segment prior 为空、旧事实可审计、重复 reset 幂等由 `crates/kanzei-app/src/conversation.rs:23-96` 与 T-1786922726244/T-1786922726245 覆盖；⑤30 个真实 shadow turn equal=30、expected=0、unknown=0、typed_write_errors=0 由 T-1786922726248 覆盖，当前回归 T-1786922726501；⑥五 gate 独立回滚由 `crates/kanzei-app/src/projection_gate.rs:19-46,68-82` 与 T-1786922726501 覆盖；⑦对照稳定后停止新增 `conversation.updated`：桌面 `crates/kanzei-app/src/run/persistence.rs:450-482`、CLI 不再新增且 compaction 改写走事务 `crates/kanzei/src/cli/run/finalize.rs:29-68,90-101`、CLI prior 在当前 user fact 前恢复 `crates/kanzei/src/cli/run.rs:285-302`、mobile 写 typed fact `crates/kanzei-app/src/mobile.rs:324-389`，legacy snapshot 仍只读 `crates/kanzei-app/src/conversation.rs:286-333,390-450`；T-1786922726501：220+222+40+32 全绿。
@@ -4006,3 +4005,23 @@
 - 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
 - 对账: 2026-08-20 合并窗口解除:R-306 B1/B2 收编完成且 workspace 全绿,共享文件不再冻结;恢复复核验收⑦并关闭。恢复人:agent(循环)
 - 停车: 
+
+## R-306 并行线交付收编:R-257/p13 线已关条目提交未合入 dev,冲突随演进扩大 [done]
+- refs: R-257 D-396 D-397 D-398 D-399 D-400 D-401 D-409 R-293 R-299 R-283
+- 内容: 两条并行线的已归档交付只存在于分支:①thread-line-1786805363432-1(R-257 B2~B5,6 提交,head aa27e11b)——drive.rs/docstore.rs/git.rs/config.rs 按域拆分,dev 上四文件仍为巨石形态;②thread-line-1786851588846-1(p13,8 提交,head b4245f6c)——D-396~D-401/D-409 修复(跨树围栏三态快照、mtime 粗筛、写日志接线与回滚、浏览器工具错误通道、验收降级记录),dev 侧仅 inbox 分批经 D-480/R-286 独立演进,其余修复缺失。kz worktree merge-preview 实测冲突:R-257 线 6 文件(drive.rs/runner mod.rs/tool_exec.rs/docstore.rs/git.rs/ui-lint-globals.json);p13 线 9 文件(Cargo.lock/app memory.rs/inbox.rs/cross_tree.rs/plot_tool.rs/profiles.rs/cli memory.rs/ui-connectivity 两脚本)。拆批:B1 p13 线合并(缺陷修复优先,dev 独立演进文件以 dev 语义为准逐块对账);B2 R-257 线合并(零 API 面变更为验收);B3 三线脏 WIP 处置(p13 typed.rs +85 行、p16 git.rs +5/ci.yml +1、R-257 线 gen/schemas)与 worktree 清理;B4 防复发闸门:条目关闭时 observed_head 不在 dev 祖先链即拒绝关闭或强制登记收编任务
+- 复杂度: 大
+- 影响: dev 持续在冲突文件上推进(git.rs 的 D-553、memory 的 R-286/D-480、typed.rs 的 D-486),冲突面逐日扩大;R-293/R-299 因文件被分支占用而停车;D-396~D-401 修的越界围栏、写日志洞、浏览器工具假成功在 dev 运行态实际未修
+- 来源: 2026-08-20 主会话状态对账:已归档条目(R-257 done 6/6、D-396~D-401/D-409 fixed)的交付代码不在 dev,tracker 与实现相互矛盾,违反 R-283 验收④
+- 标签: 流程
+- 边界: 以 dev 为主干语义:同名功能 dev 已独立演进的以 dev 实现为准,分支侧只补 dev 缺失的修复点;不借机重构;R-257 拆分若冲突过大允许按文件降批合并并如实记录未收编残余
+- 验收: ①两线全部提交在 dev 祖先链(git merge-base --is-ancestor);②冲突解决后 cargo test --workspace 全绿且 verify 通过;③D-396~D-401/D-409/R-257 交付点在 dev 主树逐条抽查可见(cross_tree 三态 FileImage、record_write_log、浏览器 rpc 嵌套 error 透传、四文件拆分);④三处脏 WIP 逐一处置留痕;⑤防复发闸门有实测:未合并分支条目关闭被拒或强制登记收编
+- 优先级: P1
+- 取活依据: engine:唯一可执行 WIP 是 R-306，必须先恢复它
+- 批次: 4/4
+- 设计冻结: 不变式：dev 以当前语义为准，分支只补缺失交付；不得用快进假装完成非快进收编。｜权威数据源：当前 dev、两条 worktree 分支的真实提交图与 merge-tree --write-tree 冲突结果。｜预期变更文件：先仅更新 R-306 进展/批次字段；代码文件待 B1 冲突逐块对账后按实际落地集合确定。｜最小测试：每批按实际改动运行对应 crate 定向测试；R-306 关闭前按复杂度“大”执行 workspace 全量测试及 scripts/verify.ps1。
+- 进展: B2/B4 收尾(主会话):①R-257 线以非快进 ours 合并 7abaea4a 收编,aa27e11b 实测进入 dev 祖先链(git merge-base --is-ancestor 实测;逐文件对账判定六冲突文件保留 dev、唯一缺口 git 四域已由 ce4edf3f~63f24c83 迁移取代,合并只记录祖先链,符合边界的降批如实记录);p13 头 b4245f6c 实测已在祖先链——验收①两线满足。②verify 十三步全绿,dist/verification.json 绑定提交 809b7821(test 步 89.2s 含 workspace 全量)——验收②满足;首轮 verify 揪出并修复 D-584 测试 PATH 竞态(提交 809b7821)。③dev 主树逐条抽查锚点:跨树三态 FileImage 在 crates/kanzei-tools/src/cross_tree.rs:64-95,208-230,468-492(回归测试 cross_tree.rs:1088-1092);record_write_log 在 crates/kanzei-tools/src/lib.rs:168 与 crates/kanzei-memory/src/memory/store.rs:716-763、crates/kanzei-tools/src/test_record.rs:236-242、crates/kanzei-tools/src/conventions.rs:215、crates/kanzei-tools/src/tracker.rs:485-492;浏览器嵌套 result.error 透传在 crates/kanzei-tools/src/browser_tool.rs:144-186,359-367(测试 rpc_嵌套result_error透传为工具错误);四域拆分 crates/kanzei-core/src/runner/drive/*.rs、crates/kanzei-memory/src/docstore/*.rs、crates/kanzei-tools/src/git/*.rs、crates/kanzei-harness/src/config/*.rs(提交链 ce4edf3f/6fb5f50d/7da154a1/bb829270/63f24c83)——验收③满足。④实测清理留痕:r257-source2 树干净并移除,本地/远端 thread-line-1786805363432-1 分支已删,p13/p16 树与分支已不存在,kz lock status 活跃线为空,脏 WIP 无残留——验收④满足。⑤防复发闸门实现 crates/kanzei-tools/src/tracker/actions/action_helpers.rs(check_close_source_ancestry)+拒绝实测 T-1786922726508,提交 fca4f204——验收⑤满足。workspace 全量另有 T-1786922726509;发版:main ff 至 809b7821 已推送,package -Ack 27 -Publish 进行中
+- observed_head: 809b7821ff906bacdb55e1aaafd7ca9dfafaba31
+- observed_worktree_hash: fnv1a64:441f9460a9730954
+- recorded_at: 1787183803865
+- 对账: 2026-08-20 勘察修正:①p13 线实际未合并 16 提交(含 R-275 调色板批1~3、D-390/D-391/D-393/D-394 一串),条目内容原写 8 提交低估一倍,B1 工作量按 16 估;②p16 线(1787020530803-1)已经 merge commit 27b3e8d1 合入 dev,但树/本地分支/2 脏文件(ci.yml、git.rs)未清,B3 可先零风险清理;③冲突面持续扩大:线冻结在 08-16 后 dev 又改 drive.rs 14 次、memory/store.rs 10 次、git.rs 8 次;④两条欠账线均未走 parallel-line-unregister 释放流程,B4 闸门应含收线释放;⑤陈旧远端分支 kanzei/release-68db58e 已被 dev 完全包含,可顺带清理。2026-08-20 主会话复核:停车「排队:R-242 收口后恢复 B4」已过时——B4 闸门与拒绝测试已于 fca4f204 落地,停车解除;lock status 实测活跃线为空,④的 unregister 已无欠账,剩余清理只有 r257-source2 树与本地/远端分支;p13 头 b4245f6c 实测已在 dev 祖先链(验收①的 p13 半边已满足)
+- 执行者: 主会话(SOL)。用户 2026-08-20 指令:结构性问题不再交自举,由主会话全面修复

@@ -197,6 +197,7 @@ pub fn run_once_with_parts<'a>(
             // D-342 步首检查点:停止已置位就不再发起新的 provider 请求,以 halted
             // 正常收尾——messages 完整交还,调用方照常走轮末写回。
             if halted() {
+                recall.finish(RecallRunOutcome::Halted);
                 return Ok(RunSummary {
                     text: final_text,
                     usage: total_usage,
@@ -271,6 +272,7 @@ pub fn run_once_with_parts<'a>(
                     finish,
                 } => (parts, calls, finish),
                 StepOutcome::Stopped => {
+                    recall.finish(RecallRunOutcome::Halted);
                     return Ok(RunSummary {
                         text: final_text,
                         usage: total_usage,
@@ -297,6 +299,11 @@ pub fn run_once_with_parts<'a>(
             ) {
                 StepMessageOutcome::Proceed => {}
                 StepMessageOutcome::Return { halted_by_user } => {
+                    recall.finish(if halted_by_user {
+                        RecallRunOutcome::Halted
+                    } else {
+                        RecallRunOutcome::Completed
+                    });
                     return Ok(RunSummary {
                         text: final_text,
                         usage: total_usage,
@@ -353,6 +360,7 @@ pub fn run_once_with_parts<'a>(
                     pending_images,
                 } => (results, pending_images),
                 ToolRunOutcome::Stopped => {
+                    recall.finish(RecallRunOutcome::Halted);
                     return Ok(RunSummary {
                         text: final_text,
                         usage: total_usage,
@@ -384,6 +392,11 @@ pub fn run_once_with_parts<'a>(
                 StepFinalOutcome::Continue => {}
                 StepFinalOutcome::Break => break,
                 StepFinalOutcome::Return { halted_by_user } => {
+                    recall.finish(if halted_by_user {
+                        RecallRunOutcome::Halted
+                    } else {
+                        RecallRunOutcome::Completed
+                    });
                     return Ok(RunSummary {
                         text: final_text,
                         usage: total_usage,
@@ -398,6 +411,7 @@ pub fn run_once_with_parts<'a>(
             }
         }
 
+        recall.finish(RecallRunOutcome::Completed);
         Ok(RunSummary {
             text: final_text,
             usage: total_usage,

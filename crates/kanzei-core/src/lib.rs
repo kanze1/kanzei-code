@@ -20,9 +20,9 @@ pub use runner::{
     pending_background_subagents, prune_conversation, run_once, run_once_with_parts,
     run_read_agent, summarize_failures, summarize_metrics, summarize_tools, AskFuture, AskPolicy,
     AskReply, AskRequest, AskResponse, BackgroundEventSink, CancellationToken, CompletedEntry,
-    FailureSignal, RecallHit, RecallOutcome, RecallPolicy, RecallTrigger, RecallWatch, RunEvent,
-    RunMetrics, RunSummary, RunnerConfig, SubagentRuntime, SubagentTranscriptProvider,
-    TaskCancellationGuard, TaskCancellations, TaskTrace,
+    FailureSignal, RecallHit, RecallOutcome, RecallPolicy, RecallRunOutcome, RecallTrigger,
+    RecallWatch, RunEvent, RunMetrics, RunSummary, RunnerConfig, SubagentRuntime,
+    SubagentTranscriptProvider, TaskCancellationGuard, TaskCancellations, TaskTrace,
 };
 pub use store::{
     compare_shadow, prepare_typed_session, project_session_facts,

@@ -129,15 +129,29 @@
 - 验收: ①连续 N 轮(建议 2~3)无文件改动、无提交、无 tracker 实质字段变化即熔断停鞭,输出零产出诊断并点名阻塞清单;②现场案例成回归:模拟连续零产出轮次触发熔断;③熔断事件留痕可审计
 - 优先级: P1
 
-## D-584 kanzei-tools 测试清空进程级 PATH,与并行 git 测试竞态导致门禁随机红 [fixed] (medium)
-- refs: R-306 D-394
-- 复现: verify 门禁 test 步骤偶发:git::tests::stage_leaves_foreign_changes_unstaged_and_names_them 报 cannot run git: program not found(git.rs:1489);根因 browser_tool.rs 缺node诊断明确(无 #[serial])与 latex_tool.rs with_empty_path 用 std::env::set_var 清空进程级 PATH,cargo test 同进程多线程,窗口内任何按名拉起 git/node 的并行测试即 not found;#[serial] 只互斥 serial 组内测试,拦不住组外并行
-- 影响: workspace 全量与 verify 发版门禁带随机炸点,同一提交可红可绿,证据可信度受损
-- 来源: 2026-08-20 R-306 发版前 verify 实测首次命中(389 passed/1 failed),主会话定位
+## D-585 在线记忆召回只记录 ACTION_CHANGED，OUTCOME_IMPROVED 永久无生产证据 [open] (medium)
+- 复现: FailureRecallPolicy::record_outcomes 仅写 memory_eval.arm=action_changed；funnel_counts 对 outcome_improved 只能查到 0 行并标 unavailable。
+- 影响: 控制面 F(m)/漏斗无法展示真实最终结果改善，生产数据不能触发 outcome_improved 相关判断。
+- 来源: self-found：复核 R-293 代码与 b085499c 后确认
 - 标签: 后端
-- 验收: ①browser_tool/latex_tool 测试不再修改进程级 PATH(注入缝:参数化或 thread_local 覆写);②原有 Missing/缺失分支断言语义不变全绿;③workspace 全量绿;④全库无残留 set_var(PATH) 测试污染源
+- 验收: 运行期完成结局且存在真实召回注入时写入独立 outcome_improved 证据；暂停/失败结局不误报；回归测试覆盖。
+- refs: R-293
 - 优先级: P1
-- 进展: 修复落地:browser_tool find_node 参数化为 find_node_in(explicit,path)+which_in(path,name),缺node诊断测试改走注入缝不再动环境;latex_tool 增 PATH_OVERRIDE thread_local 注入缝(lookup_path),with_empty_path 改线程级覆写,进程级 set_var(PATH) 全库清零。定向测试:latex_tool 11 passed、browser_tool 5 passed、git stage 测试 1 passed,clippy -p kanzei-tools 干净。待 verify 全量绿后终态
-- observed_head: fca4f204e65b6306a0b1ad0faae5b4a63b69f368
-- observed_worktree_hash: fnv1a64:f0aaca39015313ba
-- recorded_at: 1787183423221
+
+## D-586 RecallRunOutcome 未从 kanzei-core 根导出导致 memory crate 编译失败 [open] (medium)
+- 复现: kanzei-memory 的 FailureRecallPolicy 实现引用 kanzei_core::RecallRunOutcome；类型仅在 kanzei_core::runner 导出，crate 根 lib.rs 未 re-export，cargo test -p kanzei-memory 编译失败。
+- 影响: R-293 批次1 的生产 outcome 写入实现无法编译，memory crate 消费者不能使用运行结局契约。
+- 来源: self-found：R-293 批次1 定向测试 T-1786922726510 后发现
+- 标签: 核心
+- 验收: kanzei-memory 可通过 cargo test -p kanzei-memory 编译；RecallRunOutcome 从 kanzei_core 根可用。
+- refs: R-293 T-1786922726510
+- 优先级: P1
+
+## D-587 子代理面板缺停止运行中任务能力,process-subagents 开关只挡下一轮不打断在跑请求 [open] (medium)
+- refs: R-281
+- 复现: 2026-08-20 用户想腾 GPU 显存,点顶栏子代理开关(process-subagents)预期能停掉正在跑的子代理,实际该开关只控制下一轮工具面是否含 task(lifecycle.rs:409-412 即时生效但只影响未来),对已建立的推理请求无效;06-agent-panel.js 全文搜索确认面板只有 agent-clear(清已完成条目)与 agent-close(关闭面板视图)两个按钮,没有 stop/cancel 单个运行中子代理的操作;后端 task_cancel_parallel.rs 证明取消能力存在但从未接到前端;实测 kzapp(PID)与 ollama 有 Established 连接、ollama stop 卡 Stopping 十余秒不释放,唯一手段是 taskkill 强杀 llama-server 整个进程,粒度过粗
+- 影响: 用户想因资源紧张(显存/token)临时打断某个子代理,除了杀整个本地推理进程外无其他手段;子代理开关名不副实,容易造成误解
+- 来源: 2026-08-20 用户腾 GPU 显存给本地模型让路,主会话诊断
+- 标签: 前端
+- 验收: ①子代理面板每个运行中条目有停止/取消按钮,调用已有的取消能力;②process-subagents 开关文案或行为二选一对齐:要么明确标注仅影响下一轮,要么增加连带打断在跑任务的选项;③真实取消一个运行中子代理有回归测试
+- 优先级: P2

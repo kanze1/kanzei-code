@@ -8290,3 +8290,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 闸门提交 fca4f204 后 workspace 全量通过：各 crate/integration 全绿，kanzei-tools 390 passed/0 failed/1 ignored；测试过程中 shell 对受管内存索引的写入被机制回滚，不影响源码测试结果。
 - 关联: R-306
 - 收尾: 1787179733
+
+## T-1786922726510 R-293 批次1 kanzei-core 定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 9.0s
+- 摘要: core 定向回归通过：220 passed；覆盖 RecallWatch 收尾分支、RecallPolicy 兼容、memory_eval 漏斗与 F(m) 既有测试。
+- 关联: R-293 D-585
+- 收尾: 1787184403
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive.rs@2970cca25145,crates/kanzei-core/src/runner/mod.rs@3c4bd733a74d,crates/kanzei-core/src/runner/recall.rs@e0e413eb0828,crates/kanzei-memory/src/memory/mod.rs@52a1c216b23b
+
+## T-1786922726511 R-293 批次1 kanzei-memory 定向测试 [failed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.0s
+- 摘要: 编译失败：RecallRunOutcome 已在 runner 模块导出但未从 kanzei_core crate 根导出，FailureRecallPolicy 与新增测试无法解析该类型；已登记 D-586 并补根级 re-export。
+- 关联: R-293 D-585 D-586
+- 收尾: 1787184440
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@bba56da3a9d0,crates/kanzei-core/src/runner/drive.rs@2970cca25145,crates/kanzei-core/src/runner/mod.rs@3c4bd733a74d,crates/kanzei-core/src/runner/recall.rs@e0e413eb0828,crates/kanzei-memory/src/memory/mod.rs@52a1c216b23b
+
+## T-1786922726512 R-293 批次1 kanzei-memory 定向测试 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 5.0s
+- 摘要: kanzei-memory 定向回归通过：152 passed；覆盖生产 ACTION_CHANGED/OUTCOME_IMPROVED 独立写入、暂停不误报、真实记忆召回与回放装配。
+- 关联: R-293 D-585 D-586
+- 收尾: 1787184461
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@bba56da3a9d0,crates/kanzei-core/src/runner/drive.rs@2970cca25145,crates/kanzei-core/src/runner/mod.rs@3c4bd733a74d,crates/kanzei-core/src/runner/recall.rs@e0e413eb0828,crates/kanzei-memory/src/memory/mod.rs@52a1c216b23b

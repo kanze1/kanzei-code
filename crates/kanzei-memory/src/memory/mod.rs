@@ -739,6 +739,39 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
             );
         }
     }
+
+    fn record_outcome_evidence(
+        &self,
+        outcomes: &[kanzei_core::RecallOutcome],
+        run_outcome: kanzei_core::RecallRunOutcome,
+    ) {
+        // ACTION_CHANGED 与 OUTCOME_IMPROVED 分开落行：前者来自同类失败是否复发，
+        // 后者还要求本轮有真实 completed 结局，不能把行为改变直接冒充最终结果改善。
+        self.record_outcomes(outcomes);
+        if outcomes.is_empty() || run_outcome != kanzei_core::RecallRunOutcome::Completed {
+            return;
+        }
+        let path = self.project_root.join(".kanzei").join("state.db");
+        let Ok(store) = kanzei_core::SessionStore::open(&path) else {
+            return;
+        };
+        for outcome in outcomes {
+            let case = format!("online-outcome:{}|{}", outcome.tool, outcome.kind);
+            let _ = store.record_memory_eval(
+                &outcome.memory_id,
+                &case,
+                "outcome_improved",
+                "online",
+                "v1",
+                outcome.changed,
+                0,
+                0,
+                0,
+                0,
+                None,
+            );
+        }
+    }
 }
 
 /// 轮末机械投递(R-105 核心):把引擎提炼的失败信号写进 inbox 草稿箱。
@@ -2459,31 +2492,57 @@ source: user
     }
 
     #[test]
-    fn 轮末对账写入memory_eval_action_changed臂() {
-        // R-161 修复:funnel 的 ACTION_CHANGED 段此前没有任何生产写入方,恒 0。
-        // record_outcomes 把注入后"同类失败是否停止"写进 memory_eval。
+    fn 轮末对账写入action_changed与outcome_improved两条独立臂() {
+        // ACTION_CHANGED 记录同类失败是否停止；OUTCOME_IMPROVED 还要求真实
+        // completed 结局，不能把前者直接冒充最终结果改善。
         let root = temp_memory_root("outcome");
         let policy = FailureRecallPolicy::new(&root);
-        policy.record_outcomes(&[
-            kanzei_core::RecallOutcome {
-                memory_id: "M-1".into(),
-                tool: "edit".into(),
-                kind: "old_string not found".into(),
-                changed: true,
-            },
-            kanzei_core::RecallOutcome {
-                memory_id: "M-2".into(),
-                tool: "bash".into(),
-                kind: "exit code:".into(),
-                changed: false,
-            },
-        ]);
+        policy.record_outcome_evidence(
+            &[
+                kanzei_core::RecallOutcome {
+                    memory_id: "M-1".into(),
+                    tool: "edit".into(),
+                    kind: "old_string not found".into(),
+                    changed: true,
+                },
+                kanzei_core::RecallOutcome {
+                    memory_id: "M-2".into(),
+                    tool: "bash".into(),
+                    kind: "exit code:".into(),
+                    changed: false,
+                },
+            ],
+            kanzei_core::RecallRunOutcome::Completed,
+        );
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
         let funnel = sstore.funnel_counts(2).unwrap();
         assert_eq!(funnel.action_changed, 1);
-        assert!(!funnel.outcome_improved_available);
+        assert_eq!(funnel.outcome_improved, 1);
+        assert!(funnel.outcome_improved_available);
 
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 暂停结局不写outcome_improved证据() {
+        let root = temp_memory_root("halted-outcome");
+        let policy = FailureRecallPolicy::new(&root);
+        policy.record_outcome_evidence(
+            &[kanzei_core::RecallOutcome {
+                memory_id: "M-halted".into(),
+                tool: "edit".into(),
+                kind: "old_string not found".into(),
+                changed: true,
+            }],
+            kanzei_core::RecallRunOutcome::Halted,
+        );
+        let path = root.join(".kanzei").join("state.db");
+        let sstore = kanzei_core::SessionStore::open(&path).unwrap();
+        let funnel = sstore.funnel_counts(1).unwrap();
+        assert_eq!(funnel.action_changed, 1);
+        assert_eq!(funnel.outcome_improved, 0);
+        assert!(!funnel.outcome_improved_available);
         std::fs::remove_dir_all(root).ok();
     }
 

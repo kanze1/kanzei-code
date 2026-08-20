@@ -58,6 +58,15 @@ pub struct RecallOutcome {
     pub changed: bool,
 }
 
+/// 运行级最终结局。只有真实完成的运行才可写入 OUTCOME_IMPROVED；
+/// Unknown 是 Drop 兜底，防止未来新增提前返回路径时误报最终改善。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecallRunOutcome {
+    Completed,
+    Halted,
+    Unknown,
+}
+
 /// 召回策略接口(core 侧定义,CLI/桌面端注入 kanzei-tools 实现)。
 /// core 不依赖 tools:检索/遥测/超时降级全部在实现侧,本域只做触发判定、
 /// 去重与注入格式。
@@ -81,6 +90,13 @@ pub trait RecallPolicy: Send + Sync {
 
     /// 轮末回收:每条注入的行为改变判定(ACTION_CHANGED)。空实现 = 不落库。
     fn record_outcomes(&self, _outcomes: &[RecallOutcome]) {}
+
+    /// 运行完成后的独立结果证据(OUTCOME_IMPROVED)。默认复用旧的行为改变
+    /// 回调，保证 core 内测试策略与第三方策略向后兼容；生产策略显式覆写，
+    /// 只有拿到真实运行结局才写 outcome_improved 臂。
+    fn record_outcome_evidence(&self, outcomes: &[RecallOutcome], _run_outcome: RecallRunOutcome) {
+        self.record_outcomes(outcomes);
+    }
 }
 
 /// R-162 事件触发召回 watcher:状态按单次运行持有(与 RedundancyWatch 同规,
@@ -97,6 +113,8 @@ pub struct RecallWatch<'a> {
     pending: Vec<(String, String, String, usize)>,
     /// 注入的策略(检索 + 遥测)。
     policy: Option<&'a dyn RecallPolicy>,
+    /// 显式 finish 后禁止 Drop 重复落库；Drop 仍作为未来提前返回路径的安全兜底。
+    finished: bool,
 }
 
 impl<'a> RecallWatch<'a> {
@@ -106,7 +124,41 @@ impl<'a> RecallWatch<'a> {
             injected: HashSet::new(),
             pending: Vec::new(),
             policy,
+            finished: false,
         }
+    }
+
+    /// 在 RunSummary 构造前提交真实运行结局。完成运行才有资格产生
+    /// OUTCOME_IMPROVED；未显式调用时 Drop 以 Unknown 兜底，只保留 ACTION_CHANGED。
+    pub fn finish(&mut self, run_outcome: RecallRunOutcome) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+        let Some(policy) = &self.policy else {
+            return;
+        };
+        if self.pending.is_empty() {
+            return;
+        }
+        let pending = std::mem::take(&mut self.pending);
+        let outcomes: Vec<RecallOutcome> = pending
+            .into_iter()
+            .map(|(memory_id, tool, kind, at_count)| {
+                let now = self
+                    .failures
+                    .get(&(tool.clone(), kind.clone()))
+                    .copied()
+                    .unwrap_or(0);
+                RecallOutcome {
+                    memory_id,
+                    tool,
+                    kind,
+                    changed: now <= at_count,
+                }
+            })
+            .collect();
+        policy.record_outcome_evidence(&outcomes, run_outcome);
     }
 
     /// 在整步工具结果回喂前调用:`results` 与 `calls` 按下标一一对应
@@ -194,34 +246,9 @@ impl<'a> RecallWatch<'a> {
 }
 
 impl Drop for RecallWatch<'_> {
-    /// 轮末对账(所有退出路径统一覆盖,含错误提前返回):每条注入按
-    /// "注入后同 (tool,kind) 失败计数是否再涨"机械判定 ACTION_CHANGED,
-    /// 交给 policy 落库。无注入或无策略时零成本。
+    /// 未来新增提前返回路径的安全兜底：未显式 finish 时不伪造最终完成结局。
     fn drop(&mut self) {
-        let Some(policy) = &self.policy else {
-            return;
-        };
-        if self.pending.is_empty() {
-            return;
-        }
-        let pending = std::mem::take(&mut self.pending);
-        let outcomes: Vec<RecallOutcome> = pending
-            .into_iter()
-            .map(|(memory_id, tool, kind, at_count)| {
-                let now = self
-                    .failures
-                    .get(&(tool.clone(), kind.clone()))
-                    .copied()
-                    .unwrap_or(0);
-                RecallOutcome {
-                    memory_id,
-                    tool,
-                    kind,
-                    changed: now <= at_count,
-                }
-            })
-            .collect();
-        policy.record_outcomes(&outcomes);
+        self.finish(RecallRunOutcome::Unknown);
     }
 }
 

@@ -200,12 +200,13 @@
 - 边界: 不改回放台六臂框架;先点亮既有链路再谈扩展
 - 验收: 生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED 四段有真实数据;控制面 F(m) 栏显示非空;deprecate 判定可被真实数据触发;回归测试
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-293
+- 取活依据: engine:唯一可执行 WIP 是 R-293，必须先恢复它
 - 停车: 排队:p13 已收编(R-306 B1 完成),文件占用障碍消失;等 R-306 终态后恢复,接真实 outcome 写入方与聚合调度;解除条件:R-306
-- 进展: 设计冻结与只读勘察完成。已确认：kanzei-core/src/store/telemetry.rs:113-147 只有通用 record_memory_eval，funnel_counts:175-214 只消费 action_changed/outcome_improved 两个 arm；生产 action_changed 写入在 kanzei-memory/src/memory/mod.rs:715-730；F(m) 聚合由 replay.rs:284-316 调用 recompute_memory_effect，deprecate_candidates 在 core/src/store/eval.rs:322-349 依赖 memory_eval_agg。当前没有生产 outcome_improved 写入方或聚合调度。下一步：p16 清出 memory/mod.rs/store.rs 后，接真实 outcome 证据、调度 recompute 与回归测试。
-- observed_head: f461647ca8bc60ce91bf64c924da98a5ddbc2a2b
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787056044048
+- 进展: 批次1完成：kanzei-core runner RecallWatch 在 crates/kanzei-core/src/runner/drive.rs:200-424 的所有正常/暂停/提前停止路径显式提交 RecallRunOutcome；runner/recall.rs:61-166 新增 finish 与 OUTCOME_IMPROVED 独立证据接口；kanzei-memory/src/memory/mod.rs:714-775 生产策略在 Completed 结局写 outcome_improved，Halted/Unknown 不写。kanzei-core 定向测试 T-1786922726510=220 passed；kanzei-memory T-1786922726511 首次暴露根导出缺口，D-586 修复后 T-1786922726512=152 passed。批次2恢复：先复核回放 provider、recompute 调用方及控制面 F(m)/deprecate 数据契约，再接真实 memory_id 与聚合调度；此前批次1代码已格式化并暂存，提交待门禁通过。
+- observed_head: 809b7821ff906bacdb55e1aaafd7ca9dfafaba31
+- observed_worktree_hash: fnv1a64:38a6d34e22911c59
+- recorded_at: 1787184640697
+- 批次: 1/2
 
 ## R-296 Tauri command 与 run 链路测试基座 [doing]
 - 内容: kanzei-app 无 tests/ 目录(全仓唯一集成层在 crates/kanzei/tests/integration),104 个 #[tauri::command] 零测试;装配→执行→落库主链 commands/run.rs(604行)、processes/lifecycle.rs(593)、processes/workspace.rs(548)、run/persistence.rs(489)、run/coordinator.rs(424)、run/execution.rs(313)、harness_ext.rs(284) 全部 0 个 #[test];数据面 memory.rs(13 command)/docs.rs(16 command) 同样近零。建立可测基座(状态抽离/伪 AppHandle/集成层)并优先覆盖 run 主链
@@ -235,26 +236,6 @@
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-299
 - 停车: 排队:R-296 收口后恢复后续批次;恢复人:agent
 - 对账: 2026-08-20 对账:p16 线(thread-line-1787020530803-1)提交已全部合入 dev(R-299 B1=7188ba76),停车点名的 ipc_contract.rs/ipc-contract.json/ipc-event-smoke.mjs/verify.ps1 均无未合并改动,停车解除;该 worktree 仅余 git.rs(+5)/ci.yml(+1) 未提交 WIP,处置归 R-306 B3;恢复动作=对账 B1 已入 dev 的证据后继续后续批次
-
-## R-306 并行线交付收编:R-257/p13 线已关条目提交未合入 dev,冲突随演进扩大 [done]
-- refs: R-257 D-396 D-397 D-398 D-399 D-400 D-401 D-409 R-293 R-299 R-283
-- 内容: 两条并行线的已归档交付只存在于分支:①thread-line-1786805363432-1(R-257 B2~B5,6 提交,head aa27e11b)——drive.rs/docstore.rs/git.rs/config.rs 按域拆分,dev 上四文件仍为巨石形态;②thread-line-1786851588846-1(p13,8 提交,head b4245f6c)——D-396~D-401/D-409 修复(跨树围栏三态快照、mtime 粗筛、写日志接线与回滚、浏览器工具错误通道、验收降级记录),dev 侧仅 inbox 分批经 D-480/R-286 独立演进,其余修复缺失。kz worktree merge-preview 实测冲突:R-257 线 6 文件(drive.rs/runner mod.rs/tool_exec.rs/docstore.rs/git.rs/ui-lint-globals.json);p13 线 9 文件(Cargo.lock/app memory.rs/inbox.rs/cross_tree.rs/plot_tool.rs/profiles.rs/cli memory.rs/ui-connectivity 两脚本)。拆批:B1 p13 线合并(缺陷修复优先,dev 独立演进文件以 dev 语义为准逐块对账);B2 R-257 线合并(零 API 面变更为验收);B3 三线脏 WIP 处置(p13 typed.rs +85 行、p16 git.rs +5/ci.yml +1、R-257 线 gen/schemas)与 worktree 清理;B4 防复发闸门:条目关闭时 observed_head 不在 dev 祖先链即拒绝关闭或强制登记收编任务
-- 复杂度: 大
-- 影响: dev 持续在冲突文件上推进(git.rs 的 D-553、memory 的 R-286/D-480、typed.rs 的 D-486),冲突面逐日扩大;R-293/R-299 因文件被分支占用而停车;D-396~D-401 修的越界围栏、写日志洞、浏览器工具假成功在 dev 运行态实际未修
-- 来源: 2026-08-20 主会话状态对账:已归档条目(R-257 done 6/6、D-396~D-401/D-409 fixed)的交付代码不在 dev,tracker 与实现相互矛盾,违反 R-283 验收④
-- 标签: 流程
-- 边界: 以 dev 为主干语义:同名功能 dev 已独立演进的以 dev 实现为准,分支侧只补 dev 缺失的修复点;不借机重构;R-257 拆分若冲突过大允许按文件降批合并并如实记录未收编残余
-- 验收: ①两线全部提交在 dev 祖先链(git merge-base --is-ancestor);②冲突解决后 cargo test --workspace 全绿且 verify 通过;③D-396~D-401/D-409/R-257 交付点在 dev 主树逐条抽查可见(cross_tree 三态 FileImage、record_write_log、浏览器 rpc 嵌套 error 透传、四文件拆分);④三处脏 WIP 逐一处置留痕;⑤防复发闸门有实测:未合并分支条目关闭被拒或强制登记收编
-- 优先级: P1
-- 取活依据: engine:唯一可执行 WIP 是 R-306，必须先恢复它
-- 批次: 4/4
-- 设计冻结: 不变式：dev 以当前语义为准，分支只补缺失交付；不得用快进假装完成非快进收编。｜权威数据源：当前 dev、两条 worktree 分支的真实提交图与 merge-tree --write-tree 冲突结果。｜预期变更文件：先仅更新 R-306 进展/批次字段；代码文件待 B1 冲突逐块对账后按实际落地集合确定。｜最小测试：每批按实际改动运行对应 crate 定向测试；R-306 关闭前按复杂度“大”执行 workspace 全量测试及 scripts/verify.ps1。
-- 进展: B2/B4 收尾(主会话):①R-257 线以非快进 ours 合并 7abaea4a 收编,aa27e11b 实测进入 dev 祖先链(git merge-base --is-ancestor 实测;逐文件对账判定六冲突文件保留 dev、唯一缺口 git 四域已由 ce4edf3f~63f24c83 迁移取代,合并只记录祖先链,符合边界的降批如实记录);p13 头 b4245f6c 实测已在祖先链——验收①两线满足。②verify 十三步全绿,dist/verification.json 绑定提交 809b7821(test 步 89.2s 含 workspace 全量)——验收②满足;首轮 verify 揪出并修复 D-584 测试 PATH 竞态(提交 809b7821)。③dev 主树逐条抽查锚点:跨树三态 FileImage 在 crates/kanzei-tools/src/cross_tree.rs:64-95,208-230,468-492(回归测试 cross_tree.rs:1088-1092);record_write_log 在 crates/kanzei-tools/src/lib.rs:168 与 crates/kanzei-memory/src/memory/store.rs:716-763、crates/kanzei-tools/src/test_record.rs:236-242、crates/kanzei-tools/src/conventions.rs:215、crates/kanzei-tools/src/tracker.rs:485-492;浏览器嵌套 result.error 透传在 crates/kanzei-tools/src/browser_tool.rs:144-186,359-367(测试 rpc_嵌套result_error透传为工具错误);四域拆分 crates/kanzei-core/src/runner/drive/*.rs、crates/kanzei-memory/src/docstore/*.rs、crates/kanzei-tools/src/git/*.rs、crates/kanzei-harness/src/config/*.rs(提交链 ce4edf3f/6fb5f50d/7da154a1/bb829270/63f24c83)——验收③满足。④实测清理留痕:r257-source2 树干净并移除,本地/远端 thread-line-1786805363432-1 分支已删,p13/p16 树与分支已不存在,kz lock status 活跃线为空,脏 WIP 无残留——验收④满足。⑤防复发闸门实现 crates/kanzei-tools/src/tracker/actions/action_helpers.rs(check_close_source_ancestry)+拒绝实测 T-1786922726508,提交 fca4f204——验收⑤满足。workspace 全量另有 T-1786922726509;发版:main ff 至 809b7821 已推送,package -Ack 27 -Publish 进行中
-- observed_head: 809b7821ff906bacdb55e1aaafd7ca9dfafaba31
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787183803865
-- 对账: 2026-08-20 勘察修正:①p13 线实际未合并 16 提交(含 R-275 调色板批1~3、D-390/D-391/D-393/D-394 一串),条目内容原写 8 提交低估一倍,B1 工作量按 16 估;②p16 线(1787020530803-1)已经 merge commit 27b3e8d1 合入 dev,但树/本地分支/2 脏文件(ci.yml、git.rs)未清,B3 可先零风险清理;③冲突面持续扩大:线冻结在 08-16 后 dev 又改 drive.rs 14 次、memory/store.rs 10 次、git.rs 8 次;④两条欠账线均未走 parallel-line-unregister 释放流程,B4 闸门应含收线释放;⑤陈旧远端分支 kanzei/release-68db58e 已被 dev 完全包含,可顺带清理。2026-08-20 主会话复核:停车「排队:R-242 收口后恢复 B4」已过时——B4 闸门与拒绝测试已于 fca4f204 落地,停车解除;lock status 实测活跃线为空,④的 unregister 已无欠账,剩余清理只有 r257-source2 树与本地/远端分支;p13 头 b4245f6c 实测已在 dev 祖先链(验收①的 p13 半边已满足)
-- 执行者: 主会话(SOL)。用户 2026-08-20 指令:结构性问题不再交自举,由主会话全面修复
 
 ## R-307 停车/依赖解锁机械化与依赖关系可视化:解除条件可判定、达成自动恢复、关键路径可见 [todo]
 - refs: R-306 D-565 R-242 R-281 D-504 R-283
