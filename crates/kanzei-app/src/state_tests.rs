@@ -113,8 +113,8 @@ fn 保存前拦住指向不存在_provider_的模型角色() {
             context_limit: None,
         }],
     };
-    assert!(validate_model_roles(&payload("deepsek:chat")).is_err());
-    assert!(validate_model_roles(&payload("deepseek:chat")).is_ok());
+    assert!(validate_model_roles(&payload("deepsek:chat"), None).is_err());
+    assert!(validate_model_roles(&payload("deepseek:chat"), None).is_ok());
 }
 
 #[test]

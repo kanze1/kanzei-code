@@ -463,6 +463,7 @@
   "promptHistory",
   "promptHistoryDraft",
   "promptHistoryIndex",
+  "providerSourceLabel",
   "pumpAsk",
   "queueProcessUpdate",
   "quickCaptureForm",

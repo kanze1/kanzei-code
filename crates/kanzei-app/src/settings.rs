@@ -164,9 +164,55 @@ pub(crate) fn settings_table<'a>(
         .ok_or_else(|| format!("配置节 `{name}` 不是表,无法保存设置"))
 }
 
+fn project_root_for_settings(project_dir: Option<&str>) -> Option<PathBuf> {
+    project_dir
+        .map(Path::new)
+        .and_then(kanzei_harness::config::discover_project_root)
+}
+
+fn config_from_file(path: &Path) -> kanzei_harness::KanzeiConfig {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| toml::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// 设置页与校验共用的生效配置:全局 → 当前项目,项目层覆盖全局层。
+fn effective_settings_config(project_dir: Option<&str>) -> kanzei_harness::KanzeiConfig {
+    let global_path = global_config_path();
+    let mut config = project_root_for_settings(project_dir)
+        .and_then(|root| kanzei_harness::KanzeiConfig::load_at_root(&root).ok())
+        .unwrap_or_else(|| config_from_file(&global_path));
+    config.fill_defaults();
+    config
+}
+
+/// provider 来源单独从两层原文判断;未出现在任一用户文件中的内置项标为 builtin。
+fn provider_sources(
+    project_root: Option<&Path>,
+    global_path: &Path,
+) -> std::collections::BTreeMap<String, &'static str> {
+    let mut sources = config_from_file(global_path)
+        .providers
+        .into_keys()
+        .map(|name| (name, "global"))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    if let Some(root) = project_root {
+        let project_path = root.join(".kanzei").join("kanzei.toml");
+        for name in config_from_file(&project_path).providers.into_keys() {
+            sources.insert(name, "project");
+        }
+    }
+    sources
+}
+
 /// 保存前校验模型角色:`provider:model` 里的 provider 必须确实配了。
-pub(crate) fn validate_model_roles(payload: &SettingsPayload) -> Result<(), String> {
-    let mut probe = kanzei_harness::KanzeiConfig::default();
+/// 校验基线是全局+项目合并配置,再叠加当前表单 provider,不能只信前端清单。
+pub(crate) fn validate_model_roles(
+    payload: &SettingsPayload,
+    project_dir: Option<&str>,
+) -> Result<(), String> {
+    let mut probe = effective_settings_config(project_dir);
     for p in &payload.providers {
         probe.providers.insert(
             p.name.trim().to_string(),
@@ -499,12 +545,12 @@ pub(crate) fn settings_apply_providers(
 #[tauri::command]
 pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     let path = crate::global_config_path();
-    let mut config: kanzei_harness::KanzeiConfig = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| toml::from_str(&text).ok())
-        .unwrap_or_default();
+    let mut config: kanzei_harness::KanzeiConfig = config_from_file(&path);
     config.fill_defaults();
-    let providers: Vec<serde_json::Value> = config
+    let project_root = project_root_for_settings(project_dir.as_deref());
+    let effective_config = effective_settings_config(project_dir.as_deref());
+    let sources = provider_sources(project_root.as_deref(), &path);
+    let providers: Vec<serde_json::Value> = effective_config
         .providers
         .iter()
         .map(|(name, p)| {
@@ -524,6 +570,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
                 // R-184 P6(D-246):内置 provider 由 fill_defaults 无条件回填,
                 // 删了重开会回来——前端据此把删除入口换成「内置」标记,不误导。
                 "builtin": kanzei_harness::config::builtin_provider_names().contains(&name.as_str()),
+                "source": sources.get(name).copied().unwrap_or("builtin"),
             })
         })
         .collect();
@@ -532,33 +579,29 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     // (D-168 当年只报了模型角色,[limits]/proxy/[profile] 这几项一直是哑的)。
     // 标量按与下面顶层字段**同一套**兜底归一化(proxy→env、profileDefault→dev、
     // codexFastMode→false),否则前端拿 None 和顶层的默认值一比就会天天误报覆盖。
-    let effective = project_dir
-        .as_deref()
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .and_then(|root| kanzei_harness::KanzeiConfig::load(&root).ok())
-        .map(|merged| {
-            json!({
-                "primary": merged.models.primary, "fast": merged.models.fast,
-                "compact": merged.models.compact,
-                "reasoning": merged.models.reasoning,
-                "codexFastMode": merged.models.codex_fast_mode.unwrap_or(false),
-                "proxy": merged.proxy.clone().unwrap_or_else(|| "env".into()),
-                "profileDefault": merged.profile.default.clone().unwrap_or_else(|| "dev".into()),
-                "limits": {
-                    "maxTokens": merged.limits.max_tokens,
-                    "subagentMaxTokens": merged.limits.subagent_max_tokens,
-                    "subagentTimeoutSecs": merged.limits.subagent_timeout_secs,
-                    "contextBudgetRatio": merged.limits.context_budget_ratio,
-                    "recentVerbatimRatio": merged.limits.recent_verbatim_ratio,
-                    "maxTasksPerTurn": merged.limits.max_tasks_per_turn,
-                    "maxParallelTools": merged.limits.max_parallel_tools,
-                    "transportRetries": merged.limits.transport_retries,
-                    "rateLimitRetries": merged.limits.rate_limit_retries,
-                    "streamRestarts": merged.limits.stream_restarts,
-                },
-            })
-        });
+    let effective = project_root.as_ref().map(|_| {
+        let merged = &effective_config;
+        json!({
+            "primary": merged.models.primary, "fast": merged.models.fast,
+            "compact": merged.models.compact,
+            "reasoning": merged.models.reasoning,
+            "codexFastMode": merged.models.codex_fast_mode.unwrap_or(false),
+            "proxy": merged.proxy.clone().unwrap_or_else(|| "env".into()),
+            "profileDefault": merged.profile.default.clone().unwrap_or_else(|| "dev".into()),
+            "limits": {
+                "maxTokens": merged.limits.max_tokens,
+                "subagentMaxTokens": merged.limits.subagent_max_tokens,
+                "subagentTimeoutSecs": merged.limits.subagent_timeout_secs,
+                "contextBudgetRatio": merged.limits.context_budget_ratio,
+                "recentVerbatimRatio": merged.limits.recent_verbatim_ratio,
+                "maxTasksPerTurn": merged.limits.max_tasks_per_turn,
+                "maxParallelTools": merged.limits.max_parallel_tools,
+                "transportRetries": merged.limits.transport_retries,
+                "rateLimitRetries": merged.limits.rate_limit_retries,
+                "streamRestarts": merged.limits.stream_restarts,
+            },
+        })
+    });
     json!({
         "path": path.display().to_string(), "primary": config.models.primary, "fast": config.models.fast,
         "compact": config.models.compact,
@@ -601,7 +644,8 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         "cadenceDefaults": serde_json::to_value(kanzei_harness::config::Cadence::default())
             .unwrap_or_else(|_| serde_json::json!({})),
         "effective": effective,
-        "projectConfig": project_dir.as_deref().and_then(|d| kanzei_harness::config::discover_project_root(Path::new(d)))
+        "projectConfig": project_root
+            .as_ref()
             .map(|root| root.join(".kanzei").join("kanzei.toml").display().to_string()),
     })
 }
@@ -620,8 +664,17 @@ pub(crate) fn settings_save_at_path_impl(
     settings_write_document(doc, path)
 }
 
+#[cfg(test)]
 pub(crate) fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), String> {
-    validate_model_roles(&payload)?;
+    settings_save_at_path_for_project(payload, path, None)
+}
+
+fn settings_save_at_path_for_project(
+    payload: SettingsPayload,
+    path: &Path,
+    project_dir: Option<&str>,
+) -> Result<(), String> {
+    validate_model_roles(&payload, project_dir)?;
     settings_save_at_path_impl(payload, path)
 }
 
@@ -631,7 +684,7 @@ pub fn settings_save(
     scope: Option<String>,
     project_dir: Option<String>,
 ) -> Result<(), String> {
-    validate_model_roles(&payload)?;
+    validate_model_roles(&payload, project_dir.as_deref())?;
     // R-178 批4 D7:作用域选择器第一版只覆盖 [models]。选「本项目」时只把
     // 模型角色写进主根 .kanzei/kanzei.toml,proxy/profile/limits/cadence/providers
     // 一律不动——provider 密钥写进被 git 跟踪的项目 toml 有泄密风险(D7 边界)。
@@ -649,7 +702,11 @@ pub fn settings_save(
             settings_apply_model_fields(&mut doc, &payload)?;
             settings_write_document(doc, &path)
         }
-        _ => settings_save_at_path(payload, &global_config_path()),
+        _ => settings_save_at_path_for_project(
+            payload,
+            &global_config_path(),
+            project_dir.as_deref(),
+        ),
     }
 }
 /// 「打开配置原文」在文件不存在时铺的底:**只有注释,一个键都不写**。
@@ -1191,6 +1248,94 @@ mod tests {
             "空清单不该被当成「删光所有 provider」"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn settings_get合并项目provider并标注来源() {
+        let home = std::env::temp_dir().join(format!(
+            "kanzei-settings-home-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project = home.join("project");
+        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+        std::fs::write(
+            home.join("kanzei.toml"),
+            "[providers.global-only]\nprotocol = \"openai\"\nbase_url = \"http://global\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project.join(".kanzei/kanzei.toml"),
+            "[providers.llama-local]\nprotocol = \"openai\"\nbase_url = \"http://llama\"\n",
+        )
+        .unwrap();
+
+        let old_home = std::env::var_os("KANZEI_HOME");
+        std::env::set_var("KANZEI_HOME", &home);
+        let result = std::panic::catch_unwind(|| settings_get(Some(project.display().to_string())));
+        match old_home {
+            Some(value) => std::env::set_var("KANZEI_HOME", value),
+            None => std::env::remove_var("KANZEI_HOME"),
+        }
+        let value = result.unwrap();
+        let providers = value["providers"].as_array().unwrap();
+        let source = |name: &str| {
+            providers
+                .iter()
+                .find(|provider| provider["name"] == name)
+                .and_then(|provider| provider["source"].as_str())
+        };
+        assert_eq!(source("global-only"), Some("global"));
+        assert_eq!(source("llama-local"), Some("project"));
+        assert_eq!(source("anthropic"), Some("builtin"));
+        std::fs::remove_dir_all(home).ok();
+    }
+
+    #[test]
+    fn 项目provider不在前端清单时仍可校验并保存模型角色() {
+        let home = std::env::temp_dir().join(format!(
+            "kanzei-settings-project-provider-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project = home.join("project");
+        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+        let global_path = home.join("kanzei.toml");
+        std::fs::write(&global_path, "").unwrap();
+        std::fs::write(
+            project.join(".kanzei/kanzei.toml"),
+            "[providers.llama-local]\nprotocol = \"openai\"\nbase_url = \"http://llama\"\n",
+        )
+        .unwrap();
+
+        let old_home = std::env::var_os("KANZEI_HOME");
+        std::env::set_var("KANZEI_HOME", &home);
+        let mut payload = 空载荷(vec![]);
+        payload.primary = "llama-local:7b".into();
+        let result = std::panic::catch_unwind(|| {
+            settings_save_at_path_for_project(
+                payload,
+                &global_path,
+                Some(project.to_string_lossy().as_ref()),
+            )
+        });
+        match old_home {
+            Some(value) => std::env::set_var("KANZEI_HOME", value),
+            None => std::env::remove_var("KANZEI_HOME"),
+        }
+        result.unwrap().unwrap();
+        let saved: KanzeiConfig =
+            toml::from_str(&std::fs::read_to_string(&global_path).unwrap()).unwrap();
+        assert_eq!(saved.models.primary.as_deref(), Some("llama-local:7b"));
+        assert!(
+            !saved.providers.contains_key("llama-local"),
+            "项目 provider 不应被强制复制到全局"
+        );
+        std::fs::remove_dir_all(home).ok();
     }
 
     #[test]

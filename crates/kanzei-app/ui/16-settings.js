@@ -36,6 +36,12 @@ function renderProviders() {
     nameInput.value = p.name;
     nameInput.addEventListener("input", () => (p.name = nameInput.value));
     tdName.appendChild(nameInput);
+    if (p.source) {
+      const source = document.createElement("span");
+      source.className = "provider-source dim";
+      source.textContent = `(${providerSourceLabel(p.source)})`;
+      tdName.appendChild(source);
+    }
 
     const tdProtocol = document.createElement("td");
     const protocolSelect = document.createElement("select");
@@ -298,6 +304,13 @@ function renderRosterCapNotice(s) {
 
 $("set-max-tasks")?.addEventListener("input", () => renderRosterCapNotice(settingsEffectiveSnapshot));
 
+function providerSourceLabel(source) {
+  return {
+    project: t("本项目配置"),
+    global: t("全局配置"),
+    builtin: t("内建"),
+  }[source] || source;
+}
 function agentSourceLabel(source) {
   return { builtin: t("内建"), global: t("全局"), project: t("项目") }[source] || source;
 }

@@ -8682,3 +8682,26 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 真实集成回归通过：运行中的 task 被 stop_task 单条取消，收到 cancelled trace/被停终态，读槽释放，主轮继续；1 passed、0 failed、31 filtered out。
 - 关联: D-587
 - 收尾: 1787237309
+
+## T-1786922726563 D-591 设置页 provider 合并后端回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 34.4s
+- 摘要: kanzei-app 定向回归通过：231 passed、0 failed；覆盖 settings_get 项目/全局 provider 合并与 source 标注，以及项目 provider 不在前端 payload 时仍可校验并保存模型角色。
+- 关联: D-591
+- 收尾: 1787237947
+- 源码指纹: v2 crates/kanzei-app/src/settings.rs@246df8f70fe8,crates/kanzei-app/src/state_tests.rs@c79ff70bcb21,scripts/ui-lint-globals.json@f143332092eb
+
+## T-1786922726564 D-591 设置页 provider 来源前端冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/16-settings.js; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 摘要: 前端六条冒烟与语法检查全部通过：parallel-lines、ui-a11y、ui-i18n、ui-markdown、ui-lint、ui-runtime；ui-lint 生成 marker 后 48 个文件 no-undef 零错误，ui-runtime 25 个 ui/*.js 顺序执行、2339 次 invoke、0 运行时错误。
+- 关联: D-591
+- 收尾: 1787237961
+- 源码指纹: v2 crates/kanzei-app/src/settings.rs@246df8f70fe8,crates/kanzei-app/src/state_tests.rs@c79ff70bcb21,scripts/ui-lint-globals.json@f143332092eb
+
+## T-1786922726565 D-602 clippy dead code 修复回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 34.2s
+- 摘要: 格式检查与 kanzei-app 定向回归通过：231 passed、0 failed；验证 #[cfg(test)] wrapper 修复未影响 settings_get/save 与项目 provider 回归。
+- 关联: D-602 D-591
+- 收尾: 1787238157
+- 源码指纹: v2 crates/kanzei-app/src/settings.rs@1c4ea3e1cb7a,crates/kanzei-app/src/state_tests.rs@c79ff70bcb21,scripts/ui-lint-globals.json@f143332092eb

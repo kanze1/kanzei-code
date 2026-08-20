@@ -62,15 +62,6 @@
 - 验收对账: ①已完成：`crates/kanzei-memory/src/docstore/validation.rs:273-287` 只返回非空 Raw；docstore 回归 `docstore.rs:321-342` 与 tracker 回归 `tracker.rs:1539-1549` 证明布局空行不再计数；T-1786922726559。②已完成：`validation.rs:313-365` 删除按同一 ordinal 契约定位，原子写回后 `load()` + `raw_lines()` 复查条目存在和数量，失败返回“raw_delete 后置条件失败”；T-1786922726559、T-1786922726560。③验收降级：原文“文章获取器 R-002 现场复核游离行清零”本轮未执行，当前仓库无该外部项目与可重放目标命令；实际已由同形态端到端回归 `tracker.rs:1518-1579` 覆盖，外部现场仍需用户/外部项目执行。④已完成：空行在 ordinal 1 时旧实现会误删空行而保留真实游离文本，新回归夹具 `docstore.rs:321-389`、`tracker.rs:1518-1598` 覆盖该“报成功后仍存在”形态；T-1786922726559。
 - 阻塞: 文章获取器 R-002 外部现场复核需要用户提供该项目路径或可重放目标命令；解除人:用户提供可访问项目与目标命令后由 agent 执行并回填现场证据。
 
-## D-591 设置页 Provider 表格只读全局配置,项目级 kanzei.toml 新增的 provider 保存时报 unknown provider [open] (medium)
-- refs: D-288
-- 复现: settings.rs:501 settings_get 读 crate::global_config_path()(即 kanzei_home()/kanzei.toml,~/.kanzei/kanzei.toml),不合并项目级 .kanzei/kanzei.toml 的 [providers.*] 段;validate_model_roles(settings.rs:167-198)校验只用前端 payload.providers(即这份只含全局 provider 的表格数据)。用户在项目级配置里加了 [providers.llama-local],CLI(kz run)能正常解析使用(resolve_model 走的是合并后的项目+全局配置),但桌面端设置页 primary 填 llama-local:xxx 保存时报 unknown provider,重启 kzapp 无效——因为读的压根不是同一份文件
-- 影响: 项目级自定义 provider 无法通过桌面端 UI 选用,用户表现为反复重启无效、误以为是配置写错或缓存问题,实际是两处数据源天生不同步;唯一解法是把 provider 定义也复制一份到全局配置,体验上完全不透明
-- 来源: 2026-08-20 用户接入本地 llama-server(llama-local provider)现场,重启后仍报错,主会话定位
-- 标签: 前端
-- 验收: ①settings_get 合并展示项目级+全局的 provider(标注来源,与 R-184 全局/项目分层显示一致);②validate_model_roles 校验时同样按合并后的完整 provider 集合走,不能只认前端表格里显示的那部分;③项目级新增 provider 后设置页无需手动同步一份到全局即可选用,有回归测试
-- 优先级: P2
-
 ## D-592 上下文预算检查信 bytes/4 估算不锚定真实 usage,本地小窗口模型压缩零触发直至撞 400 [open] (high)
 - refs: D-203 D-206 R-219 R-236
 - 复现: 2026-08-20 现场:llama-local(qwen3.8-27b,llama-server n_ctx=65536)鞭挞 D-568 任务,真实请求 69889 tokens 撞 provider 400(exceed_context_size_error),全程主动压缩零触发。判定链 context_budget.rs:51 用 bytes/4 估算(context.rs:130)×校准因子与触发线比大小,三重系统性偏低叠加:①bytes/4 对中文(UTF-8 3字节/字实际≈1~1.5 token/字)、代码、llama.cpp jinja 模板渲染的工具 schema 膨胀,合计偏低>2.1×(69889 真实 vs 触发线 32768 未达);②校准单步比值 clamp [0.5,2.0](context.rs:165),系统性偏差≥2× 时数学上限封死追不上,EMA 0.7/0.3 收敛慢且每 run 重置 1.0(assembly.rs:195),恢复大历史的新对话首步最脆;③compaction_budget=limit−max(max_tokens,buffer)(context.rs:92),全局 max_tokens=32768 吃掉 65536 窗口一半。usage 回读链路本身是通的(openai.rs:110 include_usage,drive.rs:609 拿真实 prompt_tokens),但只喂校准 EMA,预算比大小不直接用——真实值在手边,决策看估算

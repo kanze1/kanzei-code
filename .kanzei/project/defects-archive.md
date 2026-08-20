@@ -7393,3 +7393,29 @@
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
 - recorded_at: 1787237327508
 - 取活依据: engine:唯一可执行 WIP 是 D-587，必须先恢复它
+
+## D-591 设置页 Provider 表格只读全局配置,项目级 kanzei.toml 新增的 provider 保存时报 unknown provider [fixed] (medium)
+- refs: D-288
+- 复现: settings.rs:501 settings_get 读 crate::global_config_path()(即 kanzei_home()/kanzei.toml,~/.kanzei/kanzei.toml),不合并项目级 .kanzei/kanzei.toml 的 [providers.*] 段;validate_model_roles(settings.rs:167-198)校验只用前端 payload.providers(即这份只含全局 provider 的表格数据)。用户在项目级配置里加了 [providers.llama-local],CLI(kz run)能正常解析使用(resolve_model 走的是合并后的项目+全局配置),但桌面端设置页 primary 填 llama-local:xxx 保存时报 unknown provider,重启 kzapp 无效——因为读的压根不是同一份文件
+- 影响: 项目级自定义 provider 无法通过桌面端 UI 选用,用户表现为反复重启无效、误以为是配置写错或缓存问题,实际是两处数据源天生不同步;唯一解法是把 provider 定义也复制一份到全局配置,体验上完全不透明
+- 来源: 2026-08-20 用户接入本地 llama-server(llama-local provider)现场,重启后仍报错,主会话定位
+- 标签: 前端
+- 验收: ①settings_get 合并展示项目级+全局的 provider(标注来源,与 R-184 全局/项目分层显示一致);②validate_model_roles 校验时同样按合并后的完整 provider 集合走,不能只认前端表格里显示的那部分;③项目级新增 provider 后设置页无需手动同步一份到全局即可选用,有回归测试
+- 优先级: P2
+- 进展: 已完成并准备提交 D-591。验收逐条对账：①已完成：`crates/kanzei-app/src/settings.rs:546-579` 的 `settings_get` 使用 `effective_settings_config` 合并全局与项目配置，`provider_sources` 在 `settings.rs:190-209` 标注 `global/project/builtin`；真实前端消费者为 `crates/kanzei-app/ui/16-settings.js:28-47`，在 provider 名称旁渲染来源，设置页仍通过 `16-settings.js:625` 调用 `settings_get`；回归测试 `settings.rs:1253-1294`，测试记录 `T-1786922726563`。②已完成：`crates/kanzei-app/src/settings.rs:211-243` 的 `validate_model_roles` 以全局+项目合并配置为基线并叠加当前 payload，`settings.rs:683-705` 从真实 `settings_save` 调用传入 `project_dir`；回归测试 `settings.rs:1296-1350` 用项目级 provider 且空前端 provider 清单验证通过，测试记录 `T-1786922726563`。③已完成：同一真实保存回归 `settings.rs:1296-1350` 证明项目 provider 无需复制到全局即可保存 `llama-local:7b` 角色且项目配置保持来源，`T-1786922726563`；前端来源显示与语法/运行时证据为 `T-1786922726564`（node --check + parallel-lines、ui-a11y、ui-i18n、ui-markdown、ui-lint、ui-runtime 全部通过）。实现提交前 UI 检查：provider 表当前窗口为空不可见，未产生 `.provider-source` 节点；console 无错误或警告，不能以此替代静态与运行时冒烟证据。
+- observed_head: 868dfda2387a27eec62aa44514afc94756a10f61
+- observed_worktree_hash: fnv1a64:b59232eaed579732
+- recorded_at: 1787238008726
+- 取活依据: engine:唯一可执行 WIP 是 D-591，必须先恢复它
+
+## D-602 D-591 配置保存 helper 重构后留下生产 dead code 触发 clippy 门禁 [fixed] (low)
+- 复现: settings.rs 将 settings_save_at_path 拆成 settings_save_at_path_for_project 后，原 settings_save_at_path 只被 cfg(test) 测试调用；运行 cargo clippy --workspace -- -D warnings 报 settings.rs:667 function settings_save_at_path is never used，提交门禁拒绝。
+- 影响: D-591 功能代码和测试均可通过，但无法通过仓库提交 clippy 门禁，不能提交已验证改动。
+- 来源: 本轮自发现：D-591 提交门禁 clippy 输出
+- 标签: 核心
+- refs: D-591
+- 优先级: P2
+- 进展: 已完成并验证：`crates/kanzei-app/src/settings.rs:667-668` 给仅测试兼容的 `settings_save_at_path` wrapper 增加 `#[cfg(test)]`，生产构建不再把它视为 dead code；真实项目级保存入口仍为 `settings_save_at_path_for_project` 与 `settings_save:683-705`，未改变 D-591 行为。验证命令 `cargo fmt --all -- --check; cargo test -p kanzei-app` 通过，231 passed、0 failed，测试记录 `T-1786922726565`；此前提交门禁报错已由该改动针对性消除，下一次 commit gate 将复核 workspace clippy。
+- observed_head: 868dfda2387a27eec62aa44514afc94756a10f61
+- observed_worktree_hash: fnv1a64:b54b5f46afd1d6f0
+- recorded_at: 1787238172206
