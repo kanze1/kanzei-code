@@ -9,6 +9,7 @@
 //! 至少一个 fingerprint,否则拒绝(合并销毁证据链,不能靠 manager 自觉);voided-ids.md
 //! 写入口持树锁(D-368);void 登记后若编号又出现条目,integrity 必须可见(账实不符)。
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::memory::fp_markers;
@@ -16,7 +17,87 @@ use crate::memory::fp_markers;
 use super::store::MemoryStore;
 use super::MemoryEntry;
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct DeduplicationReport {
+    pub groups: usize,
+    pub duplicates: Vec<String>,
+    pub primaries: Vec<String>,
+}
+
+fn normalized_title(title: &str) -> String {
+    title
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && ch.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 impl MemoryStore {
+    /// 机械合并存量重复簇：同 fingerprint 或严格规范化同标题。
+    /// active 优先、正文最长优先为 primary；所有写入都复用 merge 的墓碑/归档路径。
+    pub fn deduplicate_redundant_entries(&self) -> anyhow::Result<DeduplicationReport> {
+        let entries = self.load_all();
+        let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (_, entry) in &entries {
+            if !matches!(entry.status.as_str(), "active" | "candidate") {
+                continue;
+            }
+            for fingerprint in fp_markers(&entry.body) {
+                groups
+                    .entry(format!("fingerprint:{fingerprint}"))
+                    .or_default()
+                    .push(entry.id.clone());
+            }
+            let title = normalized_title(&entry.title);
+            if !title.is_empty() {
+                groups
+                    .entry(format!("title:{title}"))
+                    .or_default()
+                    .push(entry.id.clone());
+            }
+        }
+
+        let mut report = DeduplicationReport::default();
+        let mut merged_ids = BTreeSet::new();
+        for (key, ids) in groups {
+            let mut current: Vec<MemoryEntry> = self
+                .load_all()
+                .into_iter()
+                .filter_map(|(_, entry)| ids.contains(&entry.id).then_some(entry))
+                .filter(|entry| matches!(entry.status.as_str(), "active" | "candidate"))
+                .collect();
+            if current.len() < 2 {
+                continue;
+            }
+            current.sort_by(|left, right| {
+                right
+                    .status
+                    .eq("active")
+                    .cmp(&left.status.eq("active"))
+                    .then_with(|| right.body.chars().count().cmp(&left.body.chars().count()))
+                    .then_with(|| left.id.cmp(&right.id))
+            });
+            let primary = current.remove(0);
+            let duplicates: Vec<String> = current.into_iter().map(|entry| entry.id).collect();
+            if duplicates.iter().any(|id| merged_ids.contains(id)) {
+                continue;
+            }
+            self.merge(
+                &primary.id,
+                &duplicates,
+                None,
+                None,
+                Some(&primary.body),
+                key.starts_with("title:"),
+            )?;
+            report.groups += 1;
+            report.primaries.push(primary.id);
+            report.duplicates.extend(duplicates.iter().cloned());
+            merged_ids.extend(duplicates);
+        }
+        Ok(report)
+    }
+
     /// ID 分配扫活跃+归档,编号绝不复用(同 tracker 哲学)。
     pub fn next_id(&self, entries: &[(PathBuf, MemoryEntry)]) -> String {
         let prefix = self.scope.prefix();

@@ -9057,3 +9057,35 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-308
 - 收尾: 1787260924
 - 源码指纹: v2 crates/kanzei-memory/src/memory/mod.rs@b36f016e4fdc,crates/kanzei-memory/src/memory/store.rs@6e5cd98b1a1d,crates/kanzei/src/cli/run/finalize.rs@61d9b9561256
+
+## T-1786922726614 cargo fmt --all + cargo test -p kanzei-memory (R-308 B5 dedup) [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 时长: 23.0s
+- 摘要: B5 存量合并回归全绿：165 passed、0 failed、0 ignored；覆盖同 fingerprint、规范化同标题、无关联标题不合并、primary 选择、superseded_by/archive、INDEX 排除 duplicate。
+- 关联: R-308 D-638 D-639 D-640
+- 收尾: 1787261523
+- 源码指纹: v2 crates/kanzei-memory/src/memory/ledger.rs@016d38f3d622,crates/kanzei-memory/src/memory/mod.rs@c5d8544a9063,crates/kanzei-memory/src/memory/store.rs@e0768c1b221e,crates/kanzei/src/cli/run/finalize.rs@49dc4a97b5e0
+
+## T-1786922726615 cargo test -p kanzei (R-308 B5 dedup caller) [passed]
+- 命令: cargo test -p kanzei
+- 时长: 20.8s
+- 摘要: B5 CLI caller回归全绿：43 unit + 32 integration passed、0 failed、0 ignored；现有 finalize 轮末路径可消费 dedup merged 报告。
+- 关联: R-308
+- 收尾: 1787261566
+- 源码指纹: v2 crates/kanzei-memory/src/memory/ledger.rs@016d38f3d622,crates/kanzei-memory/src/memory/mod.rs@c5d8544a9063,crates/kanzei-memory/src/memory/store.rs@e0768c1b221e,crates/kanzei/src/cli/run/finalize.rs@49dc4a97b5e0
+
+## T-1786922726616 cargo fmt --all + cargo test -p kanzei-memory (R-308 B5 superseded_by evidence) [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory
+- 时长: 22.9s
+- 摘要: 补充 superseded_by 归档断言后定向套件仍全绿：165 passed、0 failed、0 ignored。
+- 关联: R-308 D-638
+- 收尾: 1787261648
+- 源码指纹: v2 crates/kanzei-memory/src/memory/ledger.rs@016d38f3d622,crates/kanzei-memory/src/memory/mod.rs@c5d8544a9063,crates/kanzei-memory/src/memory/store.rs@7e39dabf4857,crates/kanzei/src/cli/run/finalize.rs@49dc4a97b5e0
+
+## T-1786922726617 cargo test -p kanzei (R-308 B5 commit gate) [passed]
+- 命令: cargo test -p kanzei
+- 时长: 20.8s
+- 摘要: 提交门禁要求的 crates/kanzei 覆盖通过：43 unit + 32 integration passed、0 failed、0 ignored；finalize.rs 所在 crate 绿色。
+- 关联: R-308
+- 收尾: 1787261754
+- 源码指纹: v2 crates/kanzei-memory/src/memory/ledger.rs@016d38f3d622,crates/kanzei-memory/src/memory/mod.rs@c5d8544a9063,crates/kanzei-memory/src/memory/store.rs@7e39dabf4857,crates/kanzei/src/cli/run/finalize.rs@49dc4a97b5e0

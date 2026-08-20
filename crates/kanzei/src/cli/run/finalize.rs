@@ -237,6 +237,7 @@ pub(crate) async fn finish_run(
     ) {
         if !report.promoted.is_empty()
             || !report.deprecated.is_empty()
+            || !report.merged.is_empty()
             || report.global_reviewed > 0
             || report.global_deprecated > 0
         {

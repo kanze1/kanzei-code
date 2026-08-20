@@ -214,7 +214,7 @@
 - 对账: 2026-08-20 发版 build-39cd402f 后 B1/B2 进入运行态;R-306/R-293 停车已改写「解除条件:」语法为首批真实消费者。批3 时顺带把「解除条件:」写入约定补进 conventions 停车纪律,让循环新写停车默认带机器可判条件
 
 ## R-308 记忆冗余治理与晋升门槛机械化:同指纹聚类合并、candidate 单轨化、复发阈值硬执行 [doing]
-- refs: D-567 D-568 R-293 R-235 D-637
+- refs: D-567 D-568 R-293 R-235 D-637 D-638
 - 内容: 批1 同指纹聚类合并:按 [fp:...] 指纹与标题相似度机械聚类,重复簇合并为单条(保最完整正文,合并复发计数),归档被并条目;批2 晋升门槛机械化:复发阈值(如第 2 次才建 candidate、第 N 次+修复证据才 active)由写入方硬执行而非提示词约定,低于阈值的 note 只进 inbox 不落盘;批3 candidate 单轨化:candidate 要么进 INDEX 带标记要么不进检索,消除「索引看不见、检索跑得出」;批4 global 域处置:74 条 candidate 走一次批量复核(晋升/合并/清退),global 域接入 recall 遥测
 - 复杂度: 中
 - 来源: 2026-08-20 记忆系统全面勘察:61 条顶层条目实质仅约 31 个主题(重复簇 8 个共 39 条,49% 冗余);M-205 与 M-207 标题逐字相同;C6 簇三条(M-248/250/253)共用同一指纹一天内产生;M-245 正文自述「本轮第 1 次复发→暂不建」却仍落盘——晋升门槛写在文里没有被执行;24 条 project candidate 不进 INDEX 却被 FTS 检索(双轨);global 域 74 条全 candidate 零 active 零遥测,晋升管道在全局域没跑通
@@ -223,11 +223,11 @@
 - 验收: ①顶层条目数≈实质主题数(勘察口径复查冗余率<15%);②同指纹重复写入被机械拒绝并有定向测试;③candidate 可见性单轨有断言;④global 域 74 条处置留痕且 recall 遥测非零;⑤INDEX 行与源文件 description 一致性核对通过(与 D-568 对齐)
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-308(unblocks=0)
-- 批次: 4/4
-- 进展: B4 已完成并验证：`memory/mod.rs:1117-1200` 新增 global candidate 一次性复核，使用 `global-candidate-review-v1` marker 幂等化；首轮把 global candidate 快照写入 global `index.db.memory_recalls`，再调用既有 `reconcile_candidates(None, max_age_days)` 走清退/归档，未恢复 R-194 global 生产检索；`store.rs:91-108` 扩展 CandidateReconcileReport 的 global 审计字段；`crates/kanzei/src/cli/run/finalize.rs:228-257` 现有 CLI 轮末真实调用方输出 global review/deprecated/recall 结果。`memory/mod.rs:1488-1544` 新增 74 条 global candidate fixture：一次复核、清退 50 条至 24 条、写入 74 条 recall telemetry，重复调用不复核。验证 T-1786922726612：164 passed, 0 failed, 0 ignored；T-1786922726613：kanzei 43 unit + 32 integration passed。B4 批次已满。剩余验收缺口：①实际 global 存量当前核查为 77 条而非勘察口径 74，尚未对真实存量执行一次性 review；②顶层实质主题冗余率<15%与既有重复簇的存量合并尚无现场复核/归档证据。B1-B3 已提交并保持有效；R-308 继续 doing，不能关闭。
-- observed_head: 1ec1d4c731b23501ec0d5b5bb0976fe96537ef62
-- observed_worktree_hash: fnv1a64:9975f8262c8c1720
-- recorded_at: 1787260949046
+- 批次: 5/5
+- 进展: B5 已完成并验证：`memory/ledger.rs:21-99` 新增同 fingerprint/严格规范化同标题簇聚类；active 优先、正文最长优先选 primary，duplicate 经既有 `MemoryStore::merge`（`ledger.rs:120-220`）保留 fingerprint/refs、写 `superseded_by` 并归档；`memory/store.rs:588-596` 接入轮末 `reconcile_candidates`，`store.rs:2324-2424` 覆盖 fingerprint、同标题、无关联标题不合并、archive/superseded_by/INDEX 断言；`kanzei/src/cli/run/finalize.rs:240-257` 输出 merged 报告，CLI 是真实消费者。D-638、D-639、D-640 已 fixed。验证 T-1786922726616：165 passed, 0 failed, 0 ignored；B5 CLI caller 复用此前 T-1786922726615：43 unit + 32 integration passed。批次已满。剩余验收缺口：①实际 global 当前核查为 77 条而非勘察口径 74，代码已提供一次性 review 入口但尚未对真实存量执行；②实际 project/global 存量的最终主题数与冗余率<15%尚未在真实数据复核后记录。R-308 继续 doing，不标记 done。
+- observed_head: 3509d54b7520891b43b23c2e24c9e9711f91d42b
+- observed_worktree_hash: fnv1a64:fe7de383dc5888a1
+- recorded_at: 1787261669342
 - status: doing
 
 ## R-309 门禁矩阵整合:按改动路径裁剪 verify、globals 免手工同步、脆性门禁加固 [todo]

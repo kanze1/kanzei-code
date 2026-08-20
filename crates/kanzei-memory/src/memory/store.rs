@@ -98,6 +98,7 @@ pub struct CandidateReconcileReport {
     pub promoted: Vec<String>,
     pub deprecated: Vec<String>,
     pub untouched: Vec<String>,
+    pub merged: Vec<String>,
     /// B4:一次性 global candidate 复核的审计投影。
     pub global_candidate_files_before: usize,
     pub global_candidate_files_after: usize,
@@ -584,8 +585,10 @@ impl MemoryStore {
         current_episode_id: Option<i64>,
         max_age_days: i64,
     ) -> anyhow::Result<CandidateReconcileReport> {
+        let deduplication = self.deduplicate_redundant_entries()?;
         let before = self.load_all();
         let mut report = CandidateReconcileReport {
+            merged: deduplication.duplicates,
             candidate_files_before: before
                 .iter()
                 .filter(|(_, entry)| entry.status == "candidate")
@@ -2317,6 +2320,110 @@ mod tests {
     }
 
     /// R-165 批4 merge 保守闸(⑧):评估器落地前只合并同 fingerprint 或用户确认的。
+    #[test]
+    fn reconcile_deduplicates_fingerprint_and_normalized_title_clusters() {
+        let (dir, store) = temp_store();
+        let fingerprint_primary = add(
+            &store,
+            "fact",
+            "fingerprint primary",
+            "primary description",
+            "最完整正文 primary",
+        );
+        let fingerprint_duplicate = match store
+            .add(
+                "fact",
+                "fingerprint duplicate",
+                "duplicate description",
+                "较短正文 duplicate",
+                "memory-manager",
+                &[],
+                None,
+                true,
+            )
+            .unwrap()
+        {
+            AddOutcome::Added(entry) => entry,
+            other => panic!("candidate fixture 应写入: {other:?}"),
+        };
+        for entry in [&fingerprint_primary, &fingerprint_duplicate] {
+            let path = store.root.join(format!("{}.md", entry.file_stem()));
+            let mut text = std::fs::read_to_string(&path).unwrap();
+            text.push_str("\n\n[fp:dedup|same failure]");
+            std::fs::write(path, text).unwrap();
+        }
+
+        let title_primary = add(
+            &store,
+            "habit",
+            "Same Merge Title!",
+            "title primary",
+            "title primary body",
+        );
+        let title_duplicate = add(
+            &store,
+            "habit",
+            "temporary unique title",
+            "title duplicate",
+            "title duplicate body",
+        );
+        let title_duplicate_path = store
+            .root
+            .join(format!("{}.md", title_duplicate.file_stem()));
+        let title_duplicate_text = std::fs::read_to_string(&title_duplicate_path)
+            .unwrap()
+            .replace("title: temporary unique title", "title: same merge title")
+            .replace("status: active", "status: candidate");
+        std::fs::write(title_duplicate_path, title_duplicate_text).unwrap();
+        let unrelated = add(
+            &store,
+            "habit",
+            "unrelated title",
+            "unrelated description",
+            "unrelated body",
+        );
+        let unrelated_two = add(
+            &store,
+            "habit",
+            "another unrelated title",
+            "another description",
+            "another body",
+        );
+
+        let report = store.reconcile_candidates(None, 365).unwrap();
+        assert!(report.merged.contains(&fingerprint_duplicate.id));
+        assert!(report.merged.contains(&title_duplicate.id));
+        assert!(!report.merged.contains(&unrelated.id));
+        assert!(!report.merged.contains(&unrelated_two.id));
+        assert!(store.load_all().iter().all(|(_, entry)| {
+            entry.id != fingerprint_duplicate.id && entry.id != title_duplicate.id
+        }));
+        assert!(store.load_all().iter().any(|(_, entry)| {
+            entry.id == fingerprint_primary.id && entry.body.contains("[fp:dedup|same failure]")
+        }));
+        assert!(store
+            .load_all()
+            .iter()
+            .any(|(_, entry)| entry.id == title_primary.id));
+        let archived_duplicate = std::fs::read_dir(store.archive_dir())
+            .unwrap()
+            .flatten()
+            .find(|path| {
+                path.path()
+                    .file_stem()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with(&fingerprint_duplicate.id)
+            })
+            .expect("fingerprint duplicate 应进入 archive");
+        let archived_text = std::fs::read_to_string(archived_duplicate.path()).unwrap();
+        assert!(archived_text.contains(&format!("superseded_by: {}", fingerprint_primary.id)));
+        let index = std::fs::read_to_string(store.index_md()).unwrap();
+        assert!(index.contains(&fingerprint_primary.id));
+        assert!(!index.contains(&fingerprint_duplicate.id));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     #[test]
     fn merge_conservative_gate_requires_shared_fingerprint_or_confirmed() {
         let (dir, store) = temp_store();

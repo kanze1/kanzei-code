@@ -7873,3 +7873,42 @@
 - observed_head: 168c404f31cc25bf172e33faae4576643ae7964b
 - observed_worktree_hash: fnv1a64:e06423478ddd60f4
 - recorded_at: 1787260445602
+
+## D-639 R-308 B5 dedup 插入嵌套 impl 导致 ledger.rs 无法解析 [fixed] (medium)
+- 复现: 来源：self-found。R-308 B5 在 `crates/kanzei-memory/src/memory/ledger.rs` 插入 `DeduplicationReport` 时，锚点位于既有 `impl MemoryStore {` 内部，插入内容又带了新的 `impl MemoryStore {`，造成嵌套 impl 与未闭合 delimiter；`cargo fmt --all` 和 `cargo test -p kanzei-memory` 均在解析阶段失败。
+- 影响: kanzei-memory 无法编译，B5 定向测试不能运行。
+- 来源: self-found（运行 cargo fmt/test 时发现）
+- 标签: 后端
+- 进展: D-639 已修复并收口：`crates/kanzei-memory/src/memory/ledger.rs:21-36` 恢复单层 `impl MemoryStore` 结构；dedup 实现位于 `ledger.rs:38-99`。T-1786922726614：`cargo fmt --all; cargo test -p kanzei-memory`，165 passed、0 failed、0 ignored。
+- 验收: ledger.rs 恢复单层 impl 结构；cargo fmt --all 与 cargo test -p kanzei-memory 通过。
+- refs: R-308 D-638
+- 优先级: P2
+- observed_head: 3509d54b7520891b43b23c2e24c9e9711f91d42b
+- observed_worktree_hash: fnv1a64:6348e8de918f7eff
+- recorded_at: 1787261583321
+
+## D-640 R-308 B5 合并回归误用 DirEntry.file_stem 导致测试无法编译 [fixed] (low)
+- 复现: 来源：self-found。D-638 B5 新增 `store.rs` 合并回归在 `read_dir(store.archive_dir()).flatten()` 得到 `DirEntry` 后直接调用 `file_stem()`；该方法属于 `Path`，导致 `cargo test -p kanzei-memory` 编译失败。
+- 影响: 合并回归测试无法编译，不能验证 B5。
+- 来源: self-found（修复 D-639 后重跑定向编译发现）
+- 标签: 后端
+- 进展: D-640 已修复并收口：`crates/kanzei-memory/src/memory/store.rs:2410-2418` 使用 `DirEntry.path().file_stem().starts_with(duplicate_id)` 核对归档文件名，兼容既有归档后缀；fixture 构造在 `store.rs:2363-2378` 先合法写入唯一标题再改成 candidate，同规范化标题测试不绕生产门禁。T-1786922726614：165 passed、0 failed、0 ignored。
+- 验收: B5 合并回归测试编译通过；cargo fmt --all 与 cargo test -p kanzei-memory 全绿。
+- refs: R-308 D-638 D-639
+- 优先级: P2
+- observed_head: 3509d54b7520891b43b23c2e24c9e9711f91d42b
+- observed_worktree_hash: fnv1a64:6348e8de918f7eff
+- recorded_at: 1787261590104
+
+## D-638 记忆存量重复簇未由轮末 reconcile 自动合并，顶层主题数持续膨胀 [fixed] (medium)
+- 复现: 来源：self-found（R-308 B5 存量盘点）。读取 `.kanzei/memory/*.md` 发现同 fingerprint 簇仍并存，例如 `[fp:bash|error: unexpected closing delimiter:]` 同时出现在 M-248/M-250/M-253/M-258/M-265，另有 M-205/M-207 标题逐字相同；现有 `MemoryStore::merge` 只由 manager tool 显式调用，轮末 reconcile 未自动消费这些簇。
+- 影响: 同一失败主题继续占用多条顶层记忆，顶层条目数与实质主题数偏离，复发/refs 分散；无法满足 R-308 验收①及 B1 的存量合并要求。
+- 来源: self-found（真实 project memory 存量盘点）
+- 标签: 后端
+- 进展: D-638 已修复并收口：① `crates/kanzei-memory/src/memory/ledger.rs:21-99` 机械识别同 fingerprint/严格规范化同标题簇，active 优先、正文最长优先选 primary，复用 `ledger.rs:120-220` 的 MemoryStore::merge；② `store.rs:588-596` 将 dedup 接入轮末 reconcile；③ `store.rs:2324-2424` 回归覆盖 fingerprint 簇、同标题簇、无关联标题不合并、duplicate archive 与 superseded_by；④ `finalize.rs:240-257` 输出 merge 结果，存在真实 CLI 轮末消费者；⑤ T-1786922726616：165 passed、0 failed、0 ignored。
+- 验收: 新增定向测试覆盖同 fingerprint 与同标题簇：选择最完整正文且 active 优先为 primary，duplicate 经既有 merge 变 deprecated 并带 superseded_by；refresh 后主目录/INDEX/FTS 只保留 primary；不同标题且无共享 fingerprint 不自动合并。
+- refs: R-308
+- 优先级: P2
+- observed_head: 3509d54b7520891b43b23c2e24c9e9711f91d42b
+- observed_worktree_hash: fnv1a64:fe7de383dc5888a1
+- recorded_at: 1787261657900
