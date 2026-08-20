@@ -7158,3 +7158,14 @@
 - 优先级: P2
 - observed_head: 7c238573dbf9b5ea93283ffc7596ef78d8d4c303
 - recorded_at: 1787197841779
+
+## D-582 循环宿主执行 verify.ps1 报 AuthorizationManager check failed,脚本零秒失败 [fixed] (medium)
+- refs: R-306
+- 复现: 循环内 bash 工具执行 & .\scripts\verify.ps1 于 0.0s 失败,PowerShell 返回 AuthorizationManager check failed,脚本第 1 行未执行,证据 T-1786922726507;主会话 Claude Code 同机同脚本解析正常(Process=Bypass,LocalMachine=RemoteSigned)
+- 影响: verify 十三步门禁在循环内不可执行,复杂度大条目的关闭验收与发版前置证据只能移交外部会话,循环自闭环断链
+- 来源: 2026-08-20 R-306 B4 现场,tests-archive T-1786922726507
+- 标签: 核心
+- 进展: 已提交 ca215413:crates/kanzei-tools/src/shell.rs 的 detected_shell() 为 pwsh/powershell 显式追加 -ExecutionPolicy Bypass(原 args 只有 -NoProfile -NonInteractive -Command,裸 spawn 出的子进程不继承交互会话的 Process=Bypass,落回未知的 LocalMachine/用户策略)。新增两条回归(shell.rs execution_policy_tests):①spawned_shell_runs_local_ps1_file_without_inherited_bypass 用合成 .ps1 探针验证裸 spawn 可执行本地脚本;②real_verify_ps1_clears_authorization_gate 直接对真实 scripts/verify.ps1 发起同一调用,断言 stdout/stderr 不再出现 AuthorizationManager(工作树不干净时脚本内部提前抛错属预期,不算本缺陷范围)。cargo test -p kanzei-tools shell:: 4 passed。诚实说明:①根因定位到「执行策略继承」这一支(验收给出的三个候选之一),但本机当前 LocalMachine=RemoteSigned 且 verify.ps1 无 Zone.Identifier 标记,回退旧参数在本机也无法复现原始 AuthorizationManager 失败,未做成严格反例对照,显式 Bypass 是消除该类环境差异的标准做法而非确诊单一根因;②③已用真实脚本与回归验证满足。
+- 优先级: P1
+- observed_head: ca215413e8f074fe4d8b662d2e2e997c6d9ad620
+- recorded_at: 1787197841780

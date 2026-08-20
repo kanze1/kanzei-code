@@ -106,15 +106,6 @@
 - 验收: ①manager 产出 fact 必须带可核验出处,与 refs 条目明显无关的产出(如正文与条目零词汇关联)被机械拒绝或降级 candidate 不进 active;②NOOP/产出/驳回有遥测计数;③文章获取器 M-001 形态成回归用例;④与 R-308 晋升门槛机械化对齐不重复实现
 - 优先级: P2
 
-## D-582 循环宿主执行 verify.ps1 报 AuthorizationManager check failed,脚本零秒失败 [open] (medium)
-- refs: R-306
-- 复现: 循环内 bash 工具执行 & .\scripts\verify.ps1 于 0.0s 失败,PowerShell 返回 AuthorizationManager check failed,脚本第 1 行未执行,证据 T-1786922726507;主会话 Claude Code 同机同脚本解析正常(Process=Bypass,LocalMachine=RemoteSigned)
-- 影响: verify 十三步门禁在循环内不可执行,复杂度大条目的关闭验收与发版前置证据只能移交外部会话,循环自闭环断链
-- 来源: 2026-08-20 R-306 B4 现场,tests-archive T-1786922726507
-- 标签: 核心
-- 验收: ①定位根因(宿主 AuthorizationManager/执行策略继承/扩展路径前缀之一);②循环内可跑通 verify.ps1 或提供明确替代通道并写入约定;③循环环境 .ps1 可执行性有冒烟回归
-- 优先级: P1
-
 ## D-583 鞭挞机制缺连续零产出熔断,R-306 空转 10 轮无停机上报 [open] (medium)
 - refs: R-306 R-307 D-504
 - 复现: 2026-08-20 R-306 现场:鞭挞计数 7→10,轮次产出 steps 32→10→7→2,最后两轮零文件改动零提交,仅重复背诵同一份证据清单;会话累计 313 条,无熔断无上报,直到用户人工发现
