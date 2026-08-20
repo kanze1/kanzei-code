@@ -11,6 +11,9 @@
 use kanzei_harness::config::KanzeiConfig;
 use kanzei_harness::{ResolveCtx, ToolCtx};
 use kanzei_llm::{LlmClient, ProxyConfig};
+use std::collections::BTreeSet;
+
+use kanzei_tools::memory::{MemoryEntry, MemoryStore};
 
 /// CLI 与桌面端共用同一份有界、可 checkpoint 的整理服务。
 pub(crate) async fn consolidate_memory_inbox(
@@ -40,4 +43,94 @@ pub(crate) fn persist_always_allow(
     let pattern = kanzei_harness::config::generalize_resource(action, resource);
     kanzei_harness::config::append_allow_rule(project_root, action, &pattern)?;
     Ok(kanzei_core::AskReply::AlwaysAllow)
+}
+
+fn normalized_theme(title: &str) -> String {
+    title
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && ch.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn active_theme_count(entries: &[(std::path::PathBuf, MemoryEntry)]) -> (usize, usize) {
+    let entries = entries
+        .iter()
+        .filter(|(_, entry)| matches!(entry.status.as_str(), "active" | "candidate"));
+    let mut themes = BTreeSet::new();
+    let mut count = 0;
+    for (_, entry) in entries {
+        count += 1;
+        let key = normalized_theme(&entry.title);
+        if !key.is_empty() {
+            themes.insert(key);
+        }
+    }
+    (count, themes.len())
+}
+
+/// 显式执行一次真实项目/global memory review，不调用模型、不进入生产 global 检索。
+pub async fn memory_cli(args: &[String]) -> anyhow::Result<()> {
+    if args.len() != 1 {
+        anyhow::bail!("usage: kz memory repair-index | review-global");
+    }
+    let cwd = std::env::current_dir()?;
+    let project_root = super::main_project_root(None, &cwd)?;
+    match args[0].as_str() {
+        "repair-index" => {
+            let store = MemoryStore::project(&project_root);
+            let entries = store.load_all().len();
+            store.repair_derived()?;
+            println!(
+                "memory repair-index: project entries={entries} INDEX/FTS rebuilt from Markdown"
+            );
+        }
+        "review-global" => {
+            let report = kanzei_tools::memory::reconcile_candidates(&project_root, None, 365)?;
+            let project = MemoryStore::project(&project_root).load_all();
+            let global_store = MemoryStore::global();
+            let global = global_store.as_ref().map(|store| store.load_all());
+            let persisted_global_recall_rows = global_store
+                .as_ref()
+                .map(|store| {
+                    store
+                        .recalls(100_000)
+                        .iter()
+                        .filter(|round| round.prompt_head == "global-candidate-review-v1")
+                        .count()
+                })
+                .unwrap_or(0);
+            let (project_entries, project_themes) = active_theme_count(&project);
+            let (global_entries, global_themes) =
+                global.as_deref().map(active_theme_count).unwrap_or((0, 0));
+            println!(
+                "memory review-global: project entries={} themes={} merged={} candidate={}→{}; global entries={} themes={} reviewed={} deprecated={} recall_rows={}",
+                project_entries,
+                project_themes,
+                report.merged.len(),
+                report.candidate_files_before,
+                report.candidate_files_after,
+                global_entries,
+                global_themes,
+                report.global_reviewed,
+                report.global_deprecated,
+                report.global_recall_rows.max(persisted_global_recall_rows),
+            );
+        }
+        other => anyhow::bail!(
+            "unknown memory command `{other}`; usage: kz memory repair-index | review-global"
+        ),
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_theme;
+
+    #[test]
+    fn normalized_theme_collapses_spacing_and_punctuation() {
+        assert_eq!(normalized_theme("Same Merge Title!"), "samemergetitle");
+        assert_eq!(normalized_theme("same merge title"), "samemergetitle");
+    }
 }

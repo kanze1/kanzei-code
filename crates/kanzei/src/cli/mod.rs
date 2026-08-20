@@ -52,6 +52,7 @@ pub async fn main_entry(args: &[String]) -> anyhow::Result<()> {
         Some("artifacts") => artifacts::artifacts_cli(&args[1..]).await,
         Some("config") => config::config_cli(&args[1..]),
         Some("metrics") => metrics::metrics_cli(&args[1..]).await,
+        Some("memory") => memory::memory_cli(&args[1..]).await,
         Some("quarantine") => quarantine::quarantine_cli(&args[1..]).await,
         Some("shadow") => shadow::shadow_cli(&args[1..]).await,
         Some("replay-eval") => eval::replay_eval_cli(&args[1..]).await,
@@ -91,6 +92,8 @@ pub(crate) fn usage_text() -> &'static str {
        kz config schema                     # kanzei.toml 用户面配置参考:全部已知键+说明+默认值(R-220)\n\
        kz artifacts stats [--json]         # 只读查看 state.db/WAL/freelist/artifact/telemetry 占用(R-245)\n\
        kz metrics [--top N]                 # 巨石度量:生产/测试行数+函数数+最大函数行数+>7参(R-258)\n\
+       kz memory repair-index               # 按 Markdown 真源显式修复项目 INDEX/FTS(D-568/R-308)\n\
+       kz memory review-global              # 无模型执行一次真实 project/global memory review(R-308)\n\
        kz quarantine [--dry-run|--apply]    # 隔离取证按日期/类型盘点或清理(D-566)\n\
        kz shadow [--mismatches]             # 会话投影 shadow gate 统计:未知差异=0 达标判定(R-242)\n\
        kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]\n\
