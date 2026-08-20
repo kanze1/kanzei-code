@@ -7288,3 +7288,42 @@
 - observed_head: 1cd387b384baa934d74a9e6a8d9f8ec5432cc811
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787222004837
+
+## D-599 Windows CI 下跨树测试用原始路径键断言导致路径形态误红 [fixed] (high)
+- 复现: Windows runner 中 git worktree list 返回路径形态与测试构造 PathBuf 不同，6 条直接按原始键查询的测试失败
+- 影响: 远端 test 门禁误红并遮断后续 UI smoke，真实跨树保护回归无法可靠判读
+- 来源: GitHub Actions run 32359678295
+- 标签: 流程
+- 验收: 已满足：相关 15 条跨树测试全部通过，保护逻辑未改动，仅统一测试身份查询语义
+- 优先级: P1
+- 取活依据: override:修复远端 Windows CI 的路径形态相关误红并恢复可靠门禁
+- 进展: 已在 b0142795 让测试查询复用 worktree_key，消除 Windows 路径大小写、分隔符与短路径形态差异；cargo test -p kanzei-tools cross_tree::tests：15 passed
+- observed_head: b0142795c6aa976fc9d1334092364401b0fde5b8
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787223319876
+
+## D-600 Cargo 门禁诊断未关闭 ANSI 彩色导致 CI 错误位置被过滤 [fixed] (high)
+- 复现: CI 的 CARGO_TERM_COLOR=always 为 error 与位置行加 ANSI 前缀，compile_gate/clippy_gate starts_with 过滤得到空诊断
+- 影响: 三条门禁测试失败，真实提交拦截也只报泛化错误而丢失文件与位置
+- 来源: GitHub Actions run 32359678295
+- 标签: 流程
+- 验收: 已满足：编译错误、测试目标错误和 clippy 违规均恢复文件与位置诊断，fmt 文件诊断同步受保护
+- 优先级: P1
+- 取活依据: override:恢复 Cargo 门禁在 GitHub Actions 强制彩色环境下的文件级诊断
+- 进展: 2f8aa5b8 为 compile/fmt/clippy 三个 Cargo 子进程固定 CARGO_TERM_COLOR=never；在父环境 CARGO_TERM_COLOR=always 下定向回归 4 passed
+- observed_head: 2f8aa5b8d95e320f0f854c30f0301468bf8cb5d6
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787223378681
+
+## D-601 PDF 转 PNG 失败分支仍可提前返回并遗留临时文件 [fixed] (medium)
+- 复现: pdf_to_png 在进程启动、无产物等问号运算符路径可提前返回，cleanup_pngtmp 未执行
+- 影响: 研究工件目录残留临时 PNG，旧产物还可能被下一次转换误当成本轮结果
+- 来源: GitHub Actions run 32359678295
+- 标签: 核心
+- 验收: 已满足：启动前缺失、转换失败、无产物和读取失败均经过同一清理收口，历史 PNG 不会串入本轮
+- 优先级: P2
+- 取活依据: override:收口 PDF 转 PNG 的全失败路径清理并避免旧临时产物串入结果
+- 进展: f9778889 在转换前清旧产物，并把所有可失败操作收进统一清理闭包；新增后端缺失回归；latex_tool 12 passed
+- observed_head: f97788899b9ab4647a062e83d80598db8aa95380
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787223517197
