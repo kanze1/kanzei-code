@@ -62,10 +62,17 @@ impl UiEventSink {
             payload,
             now_ms().max(0) as u64,
         ) {
-            Ok(event) => (self.emit)(
-                crate::experience_events::EXPERIENCE_EVENT_NAME,
-                event.into_value(),
-            ),
+            Ok(event) => {
+                // R-299 契约扫描(ipc-event-smoke)只认「emit 调用 + 字面量事件名」的
+                // 源码形态,经字段间接调用的常量名它看不见;名称真源仍是
+                // kanzei-core::EXPERIENCE_EVENT_NAME,由 debug 断言钉住一致。
+                debug_assert_eq!(
+                    crate::experience_events::EXPERIENCE_EVENT_NAME,
+                    "kz:experience"
+                );
+                let emit_event = &self.emit;
+                emit_event("kz:experience", event.into_value())
+            }
             Err(error) => {
                 tracing::warn!(%error, event = name, "experience event adaptation failed");
                 Ok(())

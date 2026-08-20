@@ -229,20 +229,43 @@ pub(crate) fn is_home_root_with(root: &Path, home: Option<&Path>, kh: Option<&Pa
 }
 
 pub(crate) fn discover_project_root_with_home(cwd: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    discover_project_root_with_roots(cwd, home, Some(&std::env::temp_dir()))
+}
+
+/// D-630:系统临时根自己的 `.kanzei` 与 HOME 同理不算项目标记——%TEMP% 是所有
+/// 进程共用的倾倒场,任何进程/测试在临时根落一个 `.kanzei`,它就成为全部无标记
+/// 临时子目录的磁铁(实测:conversation/process 测试的 state.db 全被并进
+/// `%TEMP%\.kanzei\state.db`,跨测试互相污染、跨运行持久)。临时根的 `.git`
+/// 沿用 HOME 规则仍算标记。`temp` 参数只为测试可注入,产品路径恒为
+/// `std::env::temp_dir()`。
+pub(crate) fn discover_project_root_with_roots(
+    cwd: &Path,
+    home: Option<&Path>,
+    temp: Option<&Path>,
+) -> Option<PathBuf> {
     let home_key = home.map(dir_key);
+    let temp_key = temp.map(dir_key);
     let mut dir = Some(cwd);
     while let Some(d) = dir {
         let kanzei_marker = d.join(".kanzei").is_dir();
         let git_marker = d.join(".git").is_dir();
         let lexically_home = home_key.as_ref().is_some_and(|h| *h == dir_key(d));
+        let lexically_temp = temp_key.as_ref().is_some_and(|t| *t == dir_key(d));
         // D-270 缺口①:发现式取根对别名形态的 HOME 也要拦得住——`.kanzei` 标记层
         // 若是 HOME 的别名(词法不同但文件系统身份相同,如尾随点 / UNC),同样跳过
         // 继续向上,不再把别名 HOME 当项目根返回。身份比较(`is_same_dir`)只发生在
         // 词法不等**且有 `.kanzei` 标记**的层:普通层仍是纯词法 `dir_key`,不会给
-        // 每次配置加载引入 O(深度) 次 canonicalize 系统调用。
+        // 每次配置加载引入 O(深度) 次 canonicalize 系统调用。临时根按同一模式拦别名。
         let alias_home =
             !lexically_home && kanzei_marker && home.is_some_and(|h| is_same_dir(h, d));
-        if (kanzei_marker && !lexically_home && !alias_home) || git_marker {
+        let alias_temp = !lexically_temp
+            && !lexically_home
+            && !alias_home
+            && kanzei_marker
+            && temp.is_some_and(|t| is_same_dir(t, d));
+        if (kanzei_marker && !lexically_home && !alias_home && !lexically_temp && !alias_temp)
+            || git_marker
+        {
             return Some(d.to_path_buf());
         }
         dir = d.parent();
@@ -464,5 +487,41 @@ mod tests {
         }
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// D-630:临时根自己的 `.kanzei` 不算项目标记——否则它像 HOME 磁铁一样吸走
+    /// 全部无标记临时子目录,多个测试/进程的 state.db 并进同一份互相污染。
+    #[test]
+    fn 临时根的kanzei不算项目标记() {
+        let fake_temp = std::env::temp_dir().join(format!(
+            "kanzei-d630-temp-root-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // 结构:base/.git(终止层)> base/faketemp/.kanzei(被排除的假临时根)>
+        // base/faketemp/session-a(无标记)。向上走越过假临时根的 `.kanzei` 停在
+        // `.git` 层,证明排除生效;不依赖真实 %TEMP%/HOME 的现场状态。
+        let base = fake_temp;
+        std::fs::create_dir_all(base.join(".git")).unwrap();
+        let inner_temp = base.join("faketemp");
+        std::fs::create_dir_all(inner_temp.join(".kanzei")).unwrap();
+        let plain_sub = inner_temp.join("session-a");
+        std::fs::create_dir_all(&plain_sub).unwrap();
+        assert_eq!(
+            discover_project_root_with_roots(&plain_sub, None, Some(&inner_temp)),
+            Some(base.clone()),
+            "无标记子目录不得被临时根的 .kanzei 吸走"
+        );
+        // 自带 `.kanzei` 的子目录仍是正常项目根。
+        let marked_sub = inner_temp.join("session-b");
+        std::fs::create_dir_all(marked_sub.join(".kanzei")).unwrap();
+        assert_eq!(
+            discover_project_root_with_roots(&marked_sub, None, Some(&inner_temp)),
+            Some(marked_sub.clone())
+        );
+        std::fs::remove_dir_all(base).unwrap();
     }
 }

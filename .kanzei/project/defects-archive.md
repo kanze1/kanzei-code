@@ -7729,3 +7729,15 @@
 - observed_head: 16f3c48d8f08ec7665279fe115885ce078c1362d
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787227333559
+
+## D-630 临时根 .kanzei 成为发现式取根磁铁,跨测试 state.db 并库互相污染 [fixed] (high)
+- refs: D-270 D-194
+- 复现: 任一测试/进程以裸 temp_dir() 为项目根写入 `.kanzei` 后,`%TEMP%\.kanzei` 长期存在;kanzei-app conversation/process 测试的无标记唯一临时子目录被 discover_project_root 向上吸附到 %TEMP%,全部并入同一份 `%TEMP%\.kanzei\state.db`(实测含跨运行残留 fixture「恢复后的 surface」),9 个测试确定性失败。
+- 影响: 合并后本地与全新 CI runner 的 workspace 测试均会先污染后劫持;真实用户从临时目录运行 kz 也会把项目产物写进共享临时根。
+- 根因: discover_project_root 只排除 HOME 的 `.kanzei` 磁铁(D-270),未排除系统临时根——%TEMP% 与 HOME 同为"必然共享、非项目"的目录。
+- 修复: crates/kanzei-harness/src/project_root.rs 的发现循环按 HOME 同款规则排除 `std::env::temp_dir()` 的词法与别名形态(`.git` 仍算标记);temp 参数可注入供测试。
+- 验收: ①新增回归测试「临时根的kanzei不算项目标记」以 .git 终止层封闭结构验证排除与正常子项目;②移除 `%TEMP%\.kanzei` 现场后 kanzei-app conversation_tests 15/15 通过,修复后不再依赖现场清理。
+- 标签: 核心 测试
+- 优先级: P1
+- observed_head: 7f42d074146ca54667a0e8e238e414cb6682b2dd
+- recorded_at: 1787250834690
