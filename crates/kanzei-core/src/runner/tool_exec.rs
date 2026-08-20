@@ -9,6 +9,7 @@ use kanzei_llm::Part;
 use sha2::Digest;
 use std::sync::Arc;
 
+use super::tool_failure_telemetry::record_tool_failure;
 use crate::runner::event::{preview, RunEvent};
 
 /// 同一无冲突 wave 的普通工具并发上限；超过时按原调用顺序切 wave。
@@ -279,6 +280,7 @@ pub(crate) async fn execute_prepared_tools(
                 job = jobs.next() => {
                     let Some((index, id, name, mut output)) = job else { break };
                     materialize_tool_output(&mut output, ctx, &name);
+                    record_tool_failure(ctx, &id, &name, &output);
                     while let Ok((pid, chunk)) = progress_rx.try_recv() {
                         on_event(RunEvent::ToolProgress { id: pid, chunk });
                     }

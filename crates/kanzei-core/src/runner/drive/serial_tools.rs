@@ -3,6 +3,7 @@
 //! 权限门禁、停止检查点、ToolEnd 事件和 calls/results 对齐都保留在这里；
 //! `drive::execute_tool_calls` 只负责预检、并行 wave 与结果分派。
 
+use super::super::tool_failure_telemetry::{record_permission_denied, record_tool_failure};
 use super::permissions::{resolve_permission_gate, PermissionGateRequest};
 use super::question::execute_question;
 use super::*;
@@ -139,6 +140,7 @@ pub(super) async fn execute_serial_tool_calls(
             )),
             Gate::NonInteractive(message) => kanzei_harness::ToolOutput::error(message),
             Gate::UserDeclined => {
+                record_permission_denied(ctx, &id, &name);
                 on_event(RunEvent::ToolEnd {
                     id: id.clone(),
                     name: name.clone(),
@@ -208,6 +210,7 @@ pub(super) async fn execute_serial_tool_calls(
                 }
             }
         };
+        record_tool_failure(ctx, &id, &name, &output);
         on_event(RunEvent::ToolEnd {
             id: id.clone(),
             name: name.clone(),

@@ -9236,3 +9236,33 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 真实当前 HEAD full verify 通过，mode=full、rust=True、frontend=True、changed=2，14/14 checks 全通过、skipped_steps 为空，生成绑定 `b564f2134ae6c8d8828a33b42745df0f48a42b5a` 的 dist/verification.json；总耗时 105.67s。该证据证明 full evidence，不冒充“只改一行前端”①或真实前端关闭③。
 - 关联: R-309
 - 收尾: 1787266354
+
+## T-1786922726637 R-310 B1 cargo fmt + cargo test -p kanzei-core（初次失败） [failed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core
+- 摘要: B1 初次验证未进入测试：`serial_tools.rs:214` telemetry 插入破坏 Gate match/ToolEnd 分隔符，cargo fmt 报 mismatched closing delimiter；已登记 D-651，待精确修复。
+- 关联: R-310 D-651
+- 收尾: 1787266839
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/serial_tools.rs@bde4c8240cab,crates/kanzei-core/src/runner/mod.rs@bb1a3aaf03a1,crates/kanzei-core/src/runner/tool_exec.rs@d1197be11e48,crates/kanzei-core/src/runner/tool_failure_telemetry.rs@0727b76061b9
+
+## T-1786922726638 R-310 B1 cargo fmt + cargo test -p kanzei-core（二次语法失败） [failed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core
+- 摘要: D-651 修复后再次验证未进入测试：`tool_exec.rs:283` 并行出口的 `while` 与 `materialize_tool_output` 被插入拼接，cargo fmt 报 unclosed delimiter；已登记 D-652。
+- 关联: R-310 D-651 D-652
+- 收尾: 1787266934
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/serial_tools.rs@82720f26fc8b,crates/kanzei-core/src/runner/mod.rs@bb1a3aaf03a1,crates/kanzei-core/src/runner/tool_exec.rs@d1197be11e48,crates/kanzei-core/src/runner/tool_failure_telemetry.rs@0727b76061b9
+
+## T-1786922726639 R-310 B1 cargo fmt + cargo test -p kanzei-core（语法修复后） [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core
+- 时长: 9.0s
+- 摘要: R-310 B1 telemetry 代码修复后定向验证通过：cargo fmt 通过，kanzei-core 234 passed、0 failed、0 ignored；覆盖五类分类及按 run 聚合/重复 call 去重。
+- 关联: R-310 D-651 D-652
+- 收尾: 1787266993
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/serial_tools.rs@c80972d32853,crates/kanzei-core/src/runner/mod.rs@02411abc3f4d,crates/kanzei-core/src/runner/tool_exec.rs@00aec22a5d49,crates/kanzei-core/src/runner/tool_failure_telemetry.rs@cdecc60a316f
+
+## T-1786922726640 R-310 B1 telemetry 分母与去重回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core
+- 时长: 5.5s
+- 摘要: 补齐 B1 失手率分母后验证通过：RunTelemetry 记录 calls、call_ids 去重和 failures；kanzei-core 234 passed、0 failed、0 ignored，fmt 无警告。
+- 关联: R-310
+- 收尾: 1787267138
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/serial_tools.rs@c80972d32853,crates/kanzei-core/src/runner/mod.rs@02411abc3f4d,crates/kanzei-core/src/runner/tool_exec.rs@00aec22a5d49,crates/kanzei-core/src/runner/tool_failure_telemetry.rs@13b9bc7da362

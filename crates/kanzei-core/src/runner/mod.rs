@@ -36,6 +36,7 @@ pub use recall::{
 mod line_runtime;
 mod subagent;
 mod tool_exec;
+mod tool_failure_telemetry;
 pub use drive::{run_once, run_once_with_parts};
 pub use line_runtime::*;
 

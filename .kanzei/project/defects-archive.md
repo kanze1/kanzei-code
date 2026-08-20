@@ -8042,3 +8042,29 @@
 - observed_head: b5d23c281e5906e32e35fc245b4817095f47fdb2
 - observed_worktree_hash: fnv1a64:94ae0e272f9f0017
 - recorded_at: 1787265655089
+
+## D-651 R-310 B1 telemetry 插入破坏 serial_tools.rs Gate 分支语法 [fixed] (high)
+- 复现: 来源：self-found。R-310 B1 在 `crates/kanzei-core/src/runner/drive/serial_tools.rs` 连续插入 telemetry 调用时，短锚点 `on_event(RunEvent::ToolEnd {` 与后续分支边界不唯一安全，结果形成 `on_event(RunEvent::ToolEnd {            Gate::UserDeclined => {`，cargo fmt 报 mismatched closing delimiter。
+- 影响: kanzei-core 无法解析编译，R-310 B1 定向测试无法运行。
+- 来源: self-found（cargo fmt --all 验证）
+- 标签: 核心
+- 进展: 已修复并验证：① `crates/kanzei-core/src/runner/drive/serial_tools.rs:142-163` 恢复唯一 Gate::UserDeclined 分支及闭合；② `:213-214` 保留统一 telemetry 后再发 ToolEnd；③ T-1786922726639 的 cargo fmt 与 cargo test -p kanzei-core 通过，234 passed、0 failed。
+- 验收: `serial_tools.rs` 分隔符恢复；cargo fmt 与 cargo test -p kanzei-core 通过；UserDeclined telemetry 调用位置可复核。
+- refs: R-310
+- 优先级: P1
+- observed_head: f2d10c44f9e47b2f199d346d13429e25d4a9f196
+- observed_worktree_hash: fnv1a64:c7e2142bdfc12ee7
+- recorded_at: 1787267005878
+
+## D-652 R-310 B1 telemetry 插入破坏 tool_exec.rs 并行出口循环语法 [fixed] (high)
+- 复现: 来源：self-found。R-310 B1 在 `crates/kanzei-core/src/runner/tool_exec.rs` 插入并行出口 telemetry 时，短锚点命中后把 `while let Ok((pid, chunk)) = progress_rx.try_recv() {` 与 `materialize_tool_output` 拼成同一行，破坏循环分隔符。
+- 影响: kanzei-core 无法解析编译，R-310 B1 定向测试仍无法运行。
+- 来源: self-found（修复 D-651 后重新 cargo fmt 发现）
+- 标签: 核心
+- 进展: 已修复并验证：① `crates/kanzei-core/src/runner/tool_exec.rs:280-284` 恢复并行出口的 materialize → record_tool_failure → progress drain 顺序；② `:287-296` ToolEnd 结构完整；③ T-1786922726639 的 cargo fmt 与 cargo test -p kanzei-core 通过，234 passed、0 failed。
+- 验收: `tool_exec.rs` 并行出口分隔符恢复；cargo fmt 与 cargo test -p kanzei-core 通过；telemetry 调用仍位于 materialize 后、ToolEnd 前。
+- refs: R-310 D-651
+- 优先级: P1
+- observed_head: f2d10c44f9e47b2f199d346d13429e25d4a9f196
+- observed_worktree_hash: fnv1a64:c7e2142bdfc12ee7
+- recorded_at: 1787267011014

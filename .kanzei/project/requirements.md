@@ -229,8 +229,9 @@
 - recorded_at: 1787266377330
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-309(unblocks=0)
 - 批次: 4/4
+- 停车: 用户本轮明确要求优先从 defects.md 最上面可执行项开始；R-309 B1-B4 代码与门禁验证已完成，剩余①～③需真实前端事件证据，暂让出唯一 WIP 槽；恢复人:agent。
 
-## R-310 仓库导航效率:失手遥测、工具自愈报错与代码地图,把认知预算还给问题本身 [todo]
+## R-310 仓库导航效率:失手遥测、工具自愈报错与代码地图,把认知预算还给问题本身 [doing]
 - refs: D-575 D-568 R-308 docs/design/weakness_register_20260820.md
 - 内容: 批1 失手遥测:工具调用失败机械分类(不存在路径/越界范围/漏参数/空搜索/权限拒绝),按 run 落 telemetry,产出失手率基线;批2 报错自愈:落地 D-575 验收(最近邻候选/合法范围/必填参数点名);批3 代码地图:crate→模块→公共符号的机器生成索引,symbols 扩仓级查询或注入轻量 repo map——批3 动工前先出小设计对比 token 成本再定形态;批4 复测:同类任务失手率对比基线,弱模型(自举档)实测
 - 复杂度: 大
@@ -240,6 +241,13 @@
 - 边界: 不做 embedding/语义代码检索;repo map 若走注入必须过 token 成本核算,超预算宁可工具化按需查;不改 grep/glob 既有语义;记忆召回不相关问题归 D-568/R-308 不在本条
 - 验收: ①失手遥测有分类与按 run 聚合,基线数字落档;②D-575 五条验收全部通过;③代码地图机器生成、随提交可增量更新,查询路径有定向测试;④失手率相对基线下降有真实运行数据支撑;⑤repo map 的 token 成本核算落档
 - 优先级: P1
+- 批次: 1/4
+- 设计冻结: 不变式：每个失败结果最多记录一次且不改变原工具结果；权威数据源：ToolOutput.code/outcome/content、ToolCtx.run_id、.kanzei/artifacts/tool-failures/<run_id>.json；预期文件：crates/kanzei-core/src/runner/tool_failure_telemetry.rs、runner/mod.rs、runner/tool_exec.rs及core测试；最小测试：五类失败分类、按run聚合/重复调用、cargo test -p kanzei-core。
+- 进展: B1 已落地并通过 T-1786922726640：`tool_failure_telemetry.rs:14-22,75-110` 固定五类分类；`:35-44,112-183` 按 run 写 JSON、记录 calls 分母、按 tool_call_id 去重；`runner/tool_exec.rs:280-284` 并行出口与 `runner/drive/serial_tools.rs:142-143,210-214` 串行/权限出口接线；T-1786922726640=fmt 无警告、234 passed。关键决策：成功调用也进入 calls 分母，失败事件单独落 events，原 ToolOutput 不修改。下一步：B2 复核并增强 D-575 五条自愈错误验收，先确认既有实现与真实调用方。
+- observed_head: f2d10c44f9e47b2f199d346d13429e25d4a9f196
+- observed_worktree_hash: fnv1a64:e09f52091ff31929
+- recorded_at: 1787267171770
+- 取活依据: engine:唯一可执行 WIP 是 R-310，必须先恢复它
 
 ## R-311 收尾闭环硬化:设计冻结不变式可执行化与收尾链完成度遥测 [todo]
 - refs: R-309 R-310 docs/design/weakness_register_20260820.md
