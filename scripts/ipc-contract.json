@@ -26,6 +26,7 @@
         "complexity": "string",
         "dependencies": "array",
         "dependents": "array",
+        "execution_model": "nullable",
         "fields": [
           [
             "string"
@@ -38,7 +39,8 @@
         "priority": "string",
         "severity": "string",
         "status": "string",
-        "title": "string"
+        "title": "string",
+        "work_units": "array"
       }
     ],
     "findings": "array",
@@ -55,6 +57,7 @@
         "complexity": "nullable",
         "dependencies": "array",
         "dependents": "array",
+        "execution_model": "nullable",
         "fields": [
           [
             "string"
@@ -67,7 +70,8 @@
         "priority": "string",
         "severity": "nullable",
         "status": "string",
-        "title": "string"
+        "title": "string",
+        "work_units": "array"
       }
     ],
     "requirements": [
@@ -83,6 +87,7 @@
         "complexity": "string",
         "dependencies": "array",
         "dependents": "array",
+        "execution_model": "nullable",
         "fields": [
           [
             "string"
@@ -95,13 +100,15 @@
         "priority": "string",
         "severity": "nullable",
         "status": "string",
-        "title": "string"
+        "title": "string",
+        "work_units": "array"
       }
     ],
     "research_topics": "array",
     "root": "string",
     "sources": "array",
-    "warnings": "array"
+    "warnings": "array",
+    "work_units": "array"
   },
   "files_snapshot": {
     "annotatable": "number",

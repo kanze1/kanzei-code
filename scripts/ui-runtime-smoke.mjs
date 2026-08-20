@@ -677,8 +677,17 @@ const docEntry = (id, title, status, extra = {}) => ({
   id, title, status, priority: "P1", closed: false, fields: [], nextStatuses: ["done"],
   severity: null, complexity: null, batches: { done: 0, total: 1 },
   blocked: false, block_reasons: [], claimed_by: null, dependencies: [], dependents: [],
+  execution_model: null, work_units: [],
   ...extra,
 });
+const smokeWorkUnit = {
+  unit_id: "R-001/W1", requirement_id: "R-001", objective: "实现有界执行上下文",
+  status: "active", claimed_by: "smoke-line", scope: ["crates/kanzei-tools"],
+  dependencies: [], acceptance: ["上下文只含当前单元"], verification: ["cargo test"],
+  base_revision: "smoke-base", blocked_reason: null,
+  last_checkpoint: { summary: "事件底座已落地", next_action: "同步 IPC 契约" },
+  evidence: [], created_at: 1_760_000_000_000, updated_at: 1_760_000_000_001,
+};
 // ---------- 工具块夹具:历史回放里的四种结果形态 ----------
 // 双写缺陷(⎿ 摘要行与展开详情各渲染一遍同一段文案)只在"首行超过 ⎿ 预算"或"多行"时
 // 显形,单行短结果永远看不出来——夹具必须真的超预算,否则断言恒真。
@@ -731,7 +740,7 @@ const payloads = {
   // R-252:拆解子代理命令桩——返回新产出的 R/D 编号,前端 toast/log/刷新用。
   idea_split: (args) => `I-${args?.id?.replace(/^I-/, "") ?? "001"} → R-101 D-101`,
   docs_snapshot: {
-    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]], dependencies: [], dependents: ["R-002"] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 }, dependencies: ["R-001"], dependents: [] })],
+    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]], dependencies: [], dependents: ["R-002"], execution_model: "work_units_v1", work_units: [smokeWorkUnit] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 }, dependencies: ["R-001"], dependents: [] })],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待澄清: 用户视角的易用性还是模型可消费性?"]] })],
     ideas: [docEntry("I-001", "冒烟想法", "inbox")],
     // D-414:研究工件必须带真实字段形态(URL / 证据锚 / refs)——此前这里是两个空
@@ -762,6 +771,7 @@ const payloads = {
     ],
     root: "C:/smoke/parent",
     warnings: [],
+    work_units: [smokeWorkUnit],
     archived: { req: 1, defect: 2, idea: 0, source: 0, finding: 0 },
     conventions: { exists: true, headings: ["开发规则", "测试要求"] },
   },
@@ -1530,6 +1540,14 @@ assert(initialAutoState, "启动恢复的自动推进状态未将当前会话和
 // 完整需求/缺陷列表整体搬进单页视图(侧栏只留「当前在做」的焦点卡片),落点换了、断言跟着搬。
 assert(listText("documents-req-list").includes("冒烟需求"), `需求列表未渲染出桩数据: "${listText("documents-req-list").slice(0, 60)}"`);
 assert(listText("documents-defect-list").includes("冒烟缺陷"), "缺陷列表未渲染出桩数据");
+assert(
+  document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-badge')?.textContent.includes("W 0/1 · active"),
+  "work_units_v1 需求未渲染执行单元进度徽标",
+);
+assert(
+  document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("同步 IPC 契约"),
+  "Work Unit 详情未渲染 checkpoint 的下一步",
+);
 // R-170:LEGACY 升级机制已删除——预置的旧默认文案必须原样读回,不再被覆盖
 // (验收③);删空 textarea 回落极简默认,且极简默认不含任何引擎规则文本(验收①)。
 {
