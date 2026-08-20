@@ -7273,3 +7273,18 @@
 - observed_head: 4d74778956e4c46d375079f0dd85d76442ed5572
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787220805975
+
+## D-598 关线测试用未归一根构造运行时导致 CI 假失败 --ref R-177 [fixed] (medium)
+- 复现: GitHub Actions run 32358116313：kanzei-app 230 passed/1 failed，worktree_tests.rs:165 断言 close_process 后 runtime.running 仍为 true
+- 影响: 本地正式 verify 全绿但远端 cargo test --workspace 假红，UI smoke 被跳过，dev 无法获得 CI 证据
+- 期望: 测试从 ProcessHandle.project_dir 构造 session/store/runtime，与生产身份同源；加路径身份断言并验证关线确实终态化同一 runtime
+- 来源: GitHub Actions run 32358116313 失败日志
+- 标签: 流程
+- 根因: 测试以 git_repo 返回的原始临时路径计算 session_id；生产 close_process 以 create_process 保存的 normalized project_dir 计算 session_id。Windows runner 上两种路径身份可不同，测试把运行态放进了生产关闭链找不到的另一个 key
+- 优先级: P1
+- 取活依据: override:远端 dev CI 唯一失败，阻断本轮交付终态，需立即修复测试身份夹具
+- 进展: ①提交 1cd387b3：worktree_tests.rs 从 process.project_dir.0 构造 session_id/state.db/session，与 close_process→unregister_parallel_process 的生产根同源。②提交 1cd387b3 增加 assert_eq!(session_id, info.session_id)，夹具若再次身份分叉会在置 running 前直接点明。③提交 1cd387b3 后 GitHub 失败的 exact test 连续 20/20 passed；cargo clippy --workspace --all-targets -- -D warnings exit 0。
+- 验收: ①测试 runtime/session/store 与生产 close_process 使用同一 normalized ProcessHandle.project_dir；②会话身份有显式相等断言；③失败用例连续 20 次与严格 all-targets Clippy 全绿。
+- observed_head: 1cd387b384baa934d74a9e6a8d9f8ec5432cc811
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787222004837
