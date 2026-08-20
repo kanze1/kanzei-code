@@ -7751,5 +7751,5 @@
 - 验收: ①本地重复 10 次全绿;②clippy --all-targets -D warnings 通过;③锁边界确定性测试保持独立存在。
 - 标签: 测试 核心
 - 优先级: P2
-- observed_head: 554e78612c1898f4d888e0a2b1747dd689224e63
+- observed_head: 554e7861545c1b4f81aeee5c74a69d95083d9e37
 - recorded_at: 1787253371928
