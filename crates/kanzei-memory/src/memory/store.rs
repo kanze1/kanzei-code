@@ -992,6 +992,14 @@ impl MemoryStore {
                  verdict TEXT NOT NULL,           -- new | duplicate | uncertain
                  fingerprint TEXT NOT NULL DEFAULT '',
                  note_head TEXT NOT NULL DEFAULT '');
+             -- D-578:manager 最终决策遥测,与 novelty_events 分开避免把投递判定混为一谈。
+             CREATE TABLE IF NOT EXISTS manager_decisions(
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 at INTEGER NOT NULL,
+                 decision TEXT NOT NULL,          -- noop | produced | rejected
+                 reason TEXT NOT NULL DEFAULT '',
+                 note_head TEXT NOT NULL DEFAULT '');
+             CREATE INDEX IF NOT EXISTS manager_decisions_at ON manager_decisions(at DESC);
              -- R-165 批2:recurrence 三段晋升的跨轮持久计数(验收②)。
              CREATE TABLE IF NOT EXISTS recurrence_counts(
                  fingerprint TEXT PRIMARY KEY,

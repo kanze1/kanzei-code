@@ -358,6 +358,106 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
     }
 }
 
+/// D-578:manager 产出的 fact 必须能回指到真实 tracker 条目,且正文与来源有
+/// 至少两个非通用主题 token 的交集。仅验证 ref 存在不足以防止把无关根因写成 active。
+pub fn validate_manager_fact_refs(
+    ctx: &ToolCtx,
+    refs: &[String],
+    text: &str,
+) -> Result<(), String> {
+    if refs.is_empty() {
+        return Err("manager fact requires at least one tracker ref (R-/D-)".into());
+    }
+    validate_source_refs(ctx, refs)?;
+    let tracker_refs: Vec<&str> = refs
+        .iter()
+        .map(String::as_str)
+        .filter(|id| {
+            let bytes = id.as_bytes();
+            bytes.len() > 2
+                && matches!(bytes[0], b'R' | b'D')
+                && bytes[1] == b'-'
+                && id[2..].chars().all(|ch| ch.is_ascii_digit())
+        })
+        .collect();
+    if tracker_refs.is_empty() {
+        return Err("manager fact refs must include an R-/D- tracker entry".into());
+    }
+
+    let mut best = 0usize;
+    let mut related = false;
+    for id in tracker_refs {
+        let kind = match id.as_bytes()[0] {
+            b'R' => &REQUIREMENTS,
+            b'D' => &DEFECTS,
+            _ => continue,
+        };
+        let store = DocStore::open(&ctx.project_root, kind);
+        let source = store
+            .load()
+            .unwrap_or_default()
+            .into_iter()
+            .chain(store.load_archive().unwrap_or_default())
+            .find(|entry| entry.id == id);
+        let Some(source) = source else { continue };
+        let source_text = format!(
+            "{} {}",
+            source.title,
+            source
+                .fields
+                .iter()
+                .map(|(key, value)| format!("{key} {value}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        let overlap = admission::topic_overlap(text, &source_text);
+        best = best.max(overlap);
+        related |= overlap >= 2 && manager_exact_topic_overlap(text, &source_text);
+    }
+    if !related {
+        return Err(format!(
+            "manager fact refs are unrelated to its content (best topic overlap={best}, need >=2 with an exact topic token)"
+        ));
+    }
+    Ok(())
+}
+
+/// D-578:沿用 D-282 的主题交集阈值,再要求一个完整 ASCII 词或 CJK 双字组重合。
+/// 这样「处理/清理」这类单字偶合不会把 M-001 的编造根因误判为相关。
+fn manager_exact_topic_overlap(a: &str, b: &str) -> bool {
+    fn ascii_words(text: &str) -> std::collections::HashSet<String> {
+        let mut words = std::collections::HashSet::new();
+        let mut word = String::new();
+        for ch in text.chars() {
+            if ch.is_ascii_alphanumeric() {
+                word.push(ch.to_ascii_lowercase());
+            } else {
+                if word.len() >= 2 && word.chars().any(|c| c.is_ascii_alphabetic()) {
+                    words.insert(std::mem::take(&mut word));
+                } else {
+                    word.clear();
+                }
+            }
+        }
+        if word.len() >= 2 && word.chars().any(|c| c.is_ascii_alphabetic()) {
+            words.insert(word);
+        }
+        words
+    }
+
+    fn cjk_bigrams(text: &str) -> std::collections::HashSet<String> {
+        let chars: Vec<char> = text.chars().collect();
+        chars
+            .windows(2)
+            .filter(|pair| admission::is_cjk(pair[0]) && admission::is_cjk(pair[1]))
+            .map(|pair| pair.iter().collect())
+            .collect()
+    }
+
+    !ascii_words(a).is_disjoint(&ascii_words(b))
+        || cjk_bigrams(a).intersection(&cjk_bigrams(b)).count() >= 2
+}
+
 /// 每轮最多投递的失败草稿条数:防止一轮异常把 inbox 灌爆、manager 被撑死。
 const MAX_FAILURE_NOTES_PER_RUN: usize = 3;
 
@@ -965,7 +1065,10 @@ pub fn harvest_entry_fact(
         if flow.is_empty() { "(无)".to_string() } else { flow },
         failures_text,
     );
-    store.append_note(&summary, &detail, "fact", &[]).is_ok()
+    // D-578:根因候选必须携带完成条目的真实 tracker ref,否则 manager 无法机械核验
+    // 产出是否与来源相关;R-/D- id 由 completed_entry 保证来自真实收口调用。
+    let refs = vec![entry.id.clone()];
+    store.append_note(&summary, &detail, "fact", &refs).is_ok()
 }
 
 /// 轮末采集的唯一入口(D-229):CLI 与桌面端共享同一实现,杜绝 harvest 集合两端漂移。

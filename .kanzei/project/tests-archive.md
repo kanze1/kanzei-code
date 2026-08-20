@@ -8667,3 +8667,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-577
 - 收尾: 1787235737
 - 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@9f7f6a1fb9c7,crates/kanzei-memory/src/docstore/validation.rs@5d26852d16a3,crates/kanzei-tools/src/tracker.rs@81d7da3ba5de
+
+## T-1786922726561 D-578 memory manager fact 来源与 NOOP 回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 5.3s
+- 摘要: kanzei-memory 158 passed、0 failed、1 doctest ignored；覆盖 manager fact refs/主题关联门禁、M-001 形态、source 冒充拒绝、NOOP/产出/驳回遥测、candidate/promote 生命周期与既有记忆测试。
+- 关联: D-578
+- 收尾: 1787237012
+- 源码指纹: v2 crates/kanzei-memory/src/memory/manager.rs@460b7160f182,crates/kanzei-memory/src/memory/mod.rs@83f202b0217c,crates/kanzei-memory/src/memory/store.rs@39d9f9530568,crates/kanzei-memory/src/memory/telemetry.rs@a4c06277d93e,crates/kanzei-memory/src/memory/tools.rs@dbc105d2cf13

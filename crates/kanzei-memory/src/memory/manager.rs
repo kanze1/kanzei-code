@@ -24,6 +24,12 @@ fn store_for(ctx: &ToolCtx, scope: &str) -> anyhow::Result<MemoryStore> {
     }
 }
 
+fn rejected(store: &MemoryStore, note_head: &str, reason: impl Into<String>) -> ToolOutput {
+    let reason = reason.into();
+    store.record_manager_decision("rejected", &reason, note_head);
+    ToolOutput::error(reason)
+}
+
 #[derive(Deserialize, JsonSchema)]
 struct PromoteInput {
     /// candidate 记忆的 id(manager 先 memory_add 得到)
@@ -150,31 +156,59 @@ impl Tool for MemoryAddTool {
             Ok(s) => s,
             Err(e) => return ToolOutput::error(e.to_string()),
         };
-        if let Err(e) = super::validate_source_refs(ctx, &input.refs) {
-            return ToolOutput::error(e);
+        let body = input.body.as_deref().unwrap_or("");
+        if input
+            .source
+            .as_deref()
+            .is_some_and(|source| source != "memory-manager")
+        {
+            return rejected(
+                &store,
+                &input.title,
+                "manager memory_add source must be `memory-manager`; user/source impersonation is rejected",
+            );
+        }
+        if input.category == "fact" {
+            if let Err(e) = super::validate_manager_fact_refs(
+                ctx,
+                &input.refs,
+                &format!("{} {} {}", input.title, input.description, body),
+            ) {
+                return rejected(&store, &input.title, e);
+            }
+        } else if let Err(e) = super::validate_source_refs(ctx, &input.refs) {
+            return rejected(&store, &input.title, e);
         }
         match store.add(
             &input.category,
             &input.title,
             &input.description,
-            input.body.as_deref().unwrap_or(""),
-            input.source.as_deref().unwrap_or("memory-manager"),
+            body,
+            "memory-manager",
             &input.refs,
             input.subject.as_deref(),
             input.force,
         ) {
             Ok(AddOutcome::Added(e)) => ToolOutput::ok(format!("added {} [{}] {}", e.id, e.category, e.title)),
-            Ok(AddOutcome::Duplicate(e)) => ToolOutput::error(format!(
-                "duplicate of existing {} `{}` — use memory_update/memory_merge instead; force only bypasses the semantic uncertainty gate and cannot bypass title-duplicate or provenance gates",
-                e.id, e.title
-            )),
-            Ok(AddOutcome::SubjectConflict(e)) => ToolOutput::error(format!(
-                "subject `{}` is already held by active {} `{}` — state supersedes in place: memory_update {} with the new state (force cannot bypass this)",
-                input.subject.as_deref().unwrap_or(""),
-                e.id,
-                e.title,
-                e.id
-            )),
+            Ok(AddOutcome::Duplicate(e)) => rejected(
+                &store,
+                &input.title,
+                format!(
+                    "duplicate of existing {} `{}` — use memory_update/memory_merge instead; force only bypasses the semantic uncertainty gate and cannot bypass title-duplicate or provenance gates",
+                    e.id, e.title
+                ),
+            ),
+            Ok(AddOutcome::SubjectConflict(e)) => rejected(
+                &store,
+                &input.title,
+                format!(
+                    "subject `{}` is already held by active {} `{}` — state supersedes in place: memory_update {} with the new state (force cannot bypass this)",
+                    input.subject.as_deref().unwrap_or(""),
+                    e.id,
+                    e.title,
+                    e.id
+                ),
+            ),
             // R-216:语义探测不确定 → 拒并返回候选,要求先 update 既有条目。
             Ok(AddOutcome::Uncertain(candidates)) => {
                 let cand = candidates
@@ -182,13 +216,17 @@ impl Tool for MemoryAddTool {
                     .map(|e| format!("{} `{}`", e.id, e.title))
                     .collect::<Vec<_>>()
                     .join("; ");
-                ToolOutput::error(format!(
-                    "语义探测命中既有记忆(候选: {cand})——新条目疑似改写/复述既有条目。\
-                     先用 memory_update 演化对应条目,而不是新增重复;force 仅可跳过语义不确定闸,\
-                     不能绕过 subject、指纹、交付状态或标题判重。"
-                ))
+                rejected(
+                    &store,
+                    &input.title,
+                    format!(
+                        "语义探测命中既有记忆(候选: {cand})——新条目疑似改写/复述既有条目。\
+                         先用 memory_update 演化对应条目,而不是新增重复;force 仅可跳过语义不确定闸,\
+                         不能绕过 subject、指纹、交付状态或标题判重。"
+                    ),
+                )
             }
-            Err(e) => ToolOutput::error(e.to_string()),
+            Err(e) => rejected(&store, &input.title, e.to_string()),
         }
     }
 }
@@ -485,6 +523,8 @@ impl Tool for MemoryInboxClearTool {
 struct InboxDiscardInput {
     /// 已处理 note 的指纹(摘要行或 `- summary:` 后的可辨识串)。删除按整个 note 块。
     fingerprint: String,
+    /// manager 对该 note 的最终判定:noop | produced。
+    decision: String,
 }
 
 /// R-215:逐条销账工具——处理完一条 note 后按指纹删除该条,不清整箱。
@@ -498,10 +538,10 @@ impl Tool for MemoryInboxDiscardTool {
     }
 
     fn description(&self) -> String {
-        "Remove ONE processed inbox note by fingerprint (summary substring). Use this \
-         after each note is added/merged/judged NOOP — never clear the whole inbox after \
-         processing only some notes (R-215: whole-inbox clear eats concurrently-appended \
-         notes). Params: fingerprint."
+        "Remove ONE processed inbox note by fingerprint and record the manager decision. Use this \
+         after each note: decision=noop when no durable memory is produced, decision=produced after \
+         a successful add/update/merge/stale. Params: fingerprint, decision (noop|produced). \
+         Never clear the whole inbox after processing only some notes (R-215)."
             .into()
     }
 
@@ -514,12 +554,27 @@ impl Tool for MemoryInboxDiscardTool {
             Ok(v) => v,
             Err(out) => return out,
         };
+        if !matches!(input.decision.as_str(), "noop" | "produced") {
+            let store = MemoryStore::project(&ctx.project_root);
+            return rejected(
+                &store,
+                &input.fingerprint,
+                "memory_inbox_discard decision must be `noop` or `produced`",
+            );
+        }
         let store = MemoryStore::project(&ctx.project_root);
         match store.discard_note(&input.fingerprint) {
-            Ok(true) => ToolOutput::ok(format!(
-                "discarded inbox note matching `{}`",
-                input.fingerprint
-            )),
+            Ok(true) => {
+                store.record_manager_decision(
+                    &input.decision,
+                    "manager_final_discard",
+                    &input.fingerprint,
+                );
+                ToolOutput::ok(format!(
+                    "discarded inbox note matching `{}` (decision={})",
+                    input.fingerprint, input.decision
+                ))
+            }
             Ok(false) => ToolOutput::error(format!(
                 "no inbox note matches fingerprint `{}`; nothing discarded",
                 input.fingerprint
@@ -586,6 +641,24 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
+    fn write_fact_source(dir: &PathBuf) {
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/defects.md"),
+            "# Defects\n\n## D-001 memory manager 测试来源 [open]\n- 复现: 测试 墓碑 合并 指纹 edit read 失败 安装 通道 update\n- 影响: manager fact 根因 来源 关联性\n",
+        )
+        .unwrap();
+    }
+
+    fn write_m001_source(dir: &PathBuf) {
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/defects.md"),
+            "# Defects\n\n## D-001 tracker 元数据游离行清理 [fixed]\n- 复现: tracker 字段游离行无法寻址\n- 影响: metadata parser cleanup\n",
+        )
+        .unwrap();
+    }
+
     #[test]
     fn manager_snapshot_has_full_write_toolset_and_no_shell() {
         let root = PathBuf::from("C:/kz-memory-manager-test");
@@ -627,6 +700,18 @@ mod tests {
         assert_eq!(value["properties"]["confirm"]["type"], "boolean");
     }
 
+    #[test]
+    fn memory_inbox_discard_schema_requires_decision() {
+        let schema = schemars::schema_for!(InboxDiscardInput);
+        let value = serde_json::to_value(schema).unwrap();
+        assert_eq!(value["properties"]["decision"]["type"], "string");
+        assert!(value["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "decision"));
+    }
+
     #[tokio::test]
     async fn manager_tools_consolidate_a_note_end_to_end() {
         let dir = std::env::temp_dir().join(format!(
@@ -638,6 +723,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        write_fact_source(&dir);
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
@@ -700,6 +786,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        write_fact_source(&dir);
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
@@ -711,7 +798,10 @@ mod tests {
 
         // 销账已处理的:该条消失,未处理条存活。
         let discarded = MemoryInboxDiscardTool
-            .execute(json!({"fingerprint": "已处理 note"}), &ctx)
+            .execute(
+                json!({"fingerprint": "已处理 note", "decision": "produced"}),
+                &ctx,
+            )
             .await;
         assert!(!discarded.is_error, "{}", discarded.content);
         assert!(
@@ -767,6 +857,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        write_fact_source(&dir);
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
@@ -776,7 +867,7 @@ mod tests {
         let added = MemoryAddTool
             .execute(
                 json!({"scope": "project", "category": "fact", "title": "墓碑测试条目",
-                       "description": "测试 reason 落档", "body": "原始正文"}),
+                       "description": "测试 reason 落档", "body": "原始正文", "refs": ["D-001"]}),
                 &ctx,
             )
             .await;
@@ -840,6 +931,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        write_fact_source(&dir);
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
@@ -859,7 +951,7 @@ mod tests {
             let out = MemoryAddTool
                 .execute(
                     json!({"scope": "project", "category": "fact", "title": title,
-                           "description": desc, "body": body}),
+                           "description": desc, "body": body, "refs": ["D-001"]}),
                     &ctx,
                 )
                 .await;
@@ -911,6 +1003,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        write_fact_source(&dir);
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
@@ -930,7 +1023,7 @@ mod tests {
         let added = MemoryAddTool
             .execute(
                 json!({"scope": "project", "category": "fact", "title": "edit 未命中先 read",
-                       "description": "edit 失败必读", "body": "判据 [fp:edit|not found]"}),
+                       "description": "edit 失败必读", "body": "判据 [fp:edit|not found]", "refs": ["D-001"]}),
                 &ctx,
             )
             .await;
@@ -980,6 +1073,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        write_fact_source(&dir);
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
@@ -990,7 +1084,7 @@ mod tests {
             .execute(
                 json!({"scope": "project", "category": "fact", "title": "安装通道:NSIS 安装版",
                        "description": "查安装/更新通道时必读", "body": "AppData 下",
-                       "subject": "安装通道"}),
+                       "subject": "安装通道", "refs": ["D-001"]}),
                 &ctx,
             )
             .await;
@@ -1016,7 +1110,7 @@ mod tests {
             .execute(
                 json!({"scope": "project", "category": "fact", "title": "安装通道改为便携版",
                        "description": "查安装通道必读", "body": "新状态",
-                       "subject": "安装通道", "force": true}),
+                       "subject": "安装通道", "refs": ["D-001"], "force": true}),
                 &ctx,
             )
             .await;
@@ -1034,6 +1128,139 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// D-578/R-308:文章获取器的 M-001 形态必须被判为无关根因,不能因模型
+    /// 编造 collaboration_status/decompose 叙事而进入 active；同时记录三类决策。
+    #[tokio::test]
+    async fn manager_fact_gate_rejects_m001_shape_and_counts_decisions() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-manager-d578-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        write_m001_source(&dir);
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+            ..Default::default()
+        };
+        let store = MemoryStore::project(&dir);
+
+        let no_refs = MemoryAddTool
+            .execute(
+                json!({
+                    "scope": "project",
+                    "category": "fact",
+                    "title": "无出处 fact",
+                    "description": "必须被拒绝",
+                    "body": "没有 tracker ref"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            no_refs.is_error,
+            "无 refs 的 fact 不得写入: {}",
+            no_refs.content
+        );
+        assert!(no_refs
+            .content
+            .contains("requires at least one tracker ref"));
+
+        let m001 = MemoryAddTool
+            .execute(
+                json!({
+                    "scope": "project",
+                    "category": "fact",
+                    "title": "完成 D-001(fixed)的根因:知乎/大需求拆解流程失效",
+                    "description": "处理 collaboration_status 环节缺失有效任务分解信号时必读",
+                    "body": "根因为编造话术:后续 bash→defect→work→files→glob 流程无法正确分支,不可跳过 decompose 步骤",
+                    "refs": ["D-001"]
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(m001.is_error, "M-001 形态必须拒绝: {}", m001.content);
+        assert!(m001.content.contains("unrelated"), "{}", m001.content);
+        assert!(
+            store
+                .load_all()
+                .iter()
+                .all(|(_, entry)| entry.status != "active"),
+            "无关 fact 不得进入 active"
+        );
+
+        let spoofed_source = MemoryAddTool
+            .execute(
+                json!({
+                    "scope": "project",
+                    "category": "fact",
+                    "title": "tracker 元数据游离行清理",
+                    "description": "tracker metadata cleanup 必须核对",
+                    "body": "tracker 字段游离行无法寻址",
+                    "refs": ["D-001"],
+                    "source": "user"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(spoofed_source.is_error);
+        assert!(spoofed_source.content.contains("source"));
+
+        let valid = MemoryAddTool
+            .execute(
+                json!({
+                    "scope": "project",
+                    "category": "fact",
+                    "title": "tracker 元数据游离行清理",
+                    "description": "tracker metadata cleanup 必须核对",
+                    "body": "tracker 字段游离行无法寻址",
+                    "refs": ["D-001"]
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !valid.is_error,
+            "相关 fact 应先落 candidate: {}",
+            valid.content
+        );
+        assert!(store
+            .load_all()
+            .iter()
+            .any(|(_, entry)| entry.status == "candidate"
+                && entry.refs().contains(&"D-001".to_string())));
+
+        store
+            .append_note("明确 NOOP", "具体 bug 无外推价值", "fact", &[])
+            .unwrap();
+        let noop = MemoryInboxDiscardTool
+            .execute(
+                json!({"fingerprint": "明确 NOOP", "decision": "noop"}),
+                &ctx,
+            )
+            .await;
+        assert!(!noop.is_error, "{}", noop.content);
+        store
+            .append_note("已产出", "candidate 已生成", "fact", &[])
+            .unwrap();
+        let produced = MemoryInboxDiscardTool
+            .execute(
+                json!({"fingerprint": "已产出", "decision": "produced"}),
+                &ctx,
+            )
+            .await;
+        assert!(!produced.is_error, "{}", produced.content);
+
+        let counts = store.manager_decision_counts();
+        assert_eq!(counts.get("noop"), Some(&1));
+        assert_eq!(counts.get("produced"), Some(&1));
+        assert_eq!(counts.get("rejected"), Some(&3));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     #[tokio::test]
     async fn memory_add_validates_source_refs_hard() {
         // R-070:refs 必须真实存在——未知 ID 整体拒绝;合法 ID 写入条目 frontmatter。
@@ -1048,7 +1275,7 @@ mod tests {
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         std::fs::write(
             dir.join(".kanzei/project/requirements.md"),
-            "# Requirements\n\n## R-070 示例 [todo]\n- 验收: 略\n",
+            "# Requirements\n\n## R-070 示例 [todo]\n- 验收: 示例 测试\n",
         )
         .unwrap();
         let ctx = ToolCtx {
@@ -1069,8 +1296,8 @@ mod tests {
 
         let good = MemoryAddTool
             .execute(
-                json!({"scope": "project", "category": "fact", "title": "真引用",
-                       "description": "测试", "body": "x", "refs": ["R-070"]}),
+                json!({"scope": "project", "category": "fact", "title": "示例 来源 证据",
+                       "description": "示例 测试", "body": "示例正文", "refs": ["R-070"]}),
                 &ctx,
             )
             .await;
@@ -1174,11 +1401,15 @@ pub fn manager_agent() -> AgentDef {
                  in the body); only ADD if it is truly a different pitfall. \
                  Notes may carry a `- refs: R-012 D-044` line: pass those IDs verbatim to \
                  memory_add's `refs` parameter (R-070 source contract; invalid IDs are \
-                 rejected by the engine). \
+                 rejected by the engine). A `fact` ADD without at least one R-/D- ref, or \
+                 whose title/description/body has no meaningful topic overlap with the referenced \
+                 tracker entry, is mechanically rejected — do not invent a different source. \
                  When the prompt provides a real episode_id, every successful ADD that returns \
                  a candidate MUST be followed immediately by memory_promote using that exact \
                  episode_id. Do not finish after memory_add: if promote succeeds, then discard \
-                 the note; if promote fails, report the error and keep the note for retry. \
+                 the note with decision=produced; if promote fails, report the error and keep the \
+                 note for retry. A deliberate NOOP must discard with decision=noop; the final \
+                 discard decision is required for telemetry. \
                  BEFORE merging, ask the three conversion questions (R-165): \
                  COVERAGE (does the merged entry cover all key facts?), PRESERVATION \
                  (does it keep accurate details from the old entries?), FAITHFULNESS \

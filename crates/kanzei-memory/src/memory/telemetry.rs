@@ -85,6 +85,39 @@ impl MemoryStore {
         );
     }
 
+    /// D-578:manager 最终决策遥测(noop/produced/rejected),用于区分不产出与门禁拒绝。
+    pub fn record_manager_decision(&self, decision: &str, reason: &str, note_head: &str) {
+        let Ok(conn) = self.open_db() else { return };
+        let _ = conn.execute(
+            "INSERT INTO manager_decisions(at, decision, reason, note_head) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                now_ms(),
+                decision,
+                reason,
+                note_head.chars().take(80).collect::<String>()
+            ],
+        );
+    }
+
+    /// D-578:按决策类型返回累计计数,供 memory_stats 消费。
+    pub fn manager_decision_counts(&self) -> std::collections::BTreeMap<String, u64> {
+        let mut out = std::collections::BTreeMap::new();
+        let Ok(conn) = self.open_db() else { return out };
+        let Ok(mut statement) = conn.prepare(
+            "SELECT decision, COUNT(*) FROM manager_decisions GROUP BY decision ORDER BY decision",
+        ) else {
+            return out;
+        };
+        if let Ok(rows) = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        }) {
+            for row in rows.flatten() {
+                out.insert(row.0, row.1.max(0) as u64);
+            }
+        }
+        out
+    }
+
     /// R-165 批2 recurrence 三段晋升的跨轮计数(验收②):
     /// 同指纹跨轮复发计数,第 2 次才 candidate、第 3 次且带修复成功才 promote。
     /// 返回第几次出现(1-based)。持久化在 index.db,manager 消化失败笔记时查。

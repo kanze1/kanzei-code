@@ -304,6 +304,15 @@ impl Tool for MemoryStatsTool {
             if pending > 0 {
                 out.push_str(&format!(" · inbox {pending} pending"));
             }
+            let decisions = store.manager_decision_counts();
+            if !decisions.is_empty() {
+                out.push_str(&format!(
+                    " · manager decisions noop={} produced={} rejected={}",
+                    decisions.get("noop").copied().unwrap_or(0),
+                    decisions.get("produced").copied().unwrap_or(0),
+                    decisions.get("rejected").copied().unwrap_or(0)
+                ));
+            }
             // R-165 批4 memory pressure(内容④):active 记忆过多会稀释检索注入,
             // 提示整理(归档/合并),引擎不自动删。
             let active_count = entries.iter().filter(|(_, e)| e.status == "active").count();

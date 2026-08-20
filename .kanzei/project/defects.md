@@ -62,7 +62,7 @@
 - 验收对账: ①已完成：`crates/kanzei-memory/src/docstore/validation.rs:273-287` 只返回非空 Raw；docstore 回归 `docstore.rs:321-342` 与 tracker 回归 `tracker.rs:1539-1549` 证明布局空行不再计数；T-1786922726559。②已完成：`validation.rs:313-365` 删除按同一 ordinal 契约定位，原子写回后 `load()` + `raw_lines()` 复查条目存在和数量，失败返回“raw_delete 后置条件失败”；T-1786922726559、T-1786922726560。③验收降级：原文“文章获取器 R-002 现场复核游离行清零”本轮未执行，当前仓库无该外部项目与可重放目标命令；实际已由同形态端到端回归 `tracker.rs:1518-1579` 覆盖，外部现场仍需用户/外部项目执行。④已完成：空行在 ordinal 1 时旧实现会误删空行而保留真实游离文本，新回归夹具 `docstore.rs:321-389`、`tracker.rs:1518-1598` 覆盖该“报成功后仍存在”形态；T-1786922726559。
 - 阻塞: 文章获取器 R-002 外部现场复核需要用户提供该项目路径或可重放目标命令；解除人:用户提供可访问项目与目标命令后由 agent 执行并回填现场证据。
 
-## D-578 memory manager 把该判 NOOP 的 inbox note 编造成无关根因 fact 落盘 active [open] (medium)
+## D-578 memory manager 把该判 NOOP 的 inbox note 编造成无关根因 fact 落盘 active [fixing] (medium)
 - refs: D-567 R-308
 - 复杂度: 中
 - 复现: 文章获取器测试项目 .kanzei/memory/M-001(2026-08-19):标题「完成 D-001(fixed)的根因:知乎/大需求拆解流程失效」,正文根因为编造话术(「collaboration_status 环节缺失有效任务分解信号,导致后续 bash→defect→work→files→glob 流程无法正确分支…不可跳过 decompose 步骤」),与 D-001 实际内容(tracker 元数据游离行清理)毫无关系;subject=安装通道 同样无关;inbox note 模板明确写「若是本条目的具体 bug 且无外推价值,判 NOOP 不要产出」,正确动作是 NOOP
@@ -71,6 +71,11 @@
 - 标签: 后端
 - 验收: ①manager 产出 fact 必须带可核验出处,与 refs 条目明显无关的产出(如正文与条目零词汇关联)被机械拒绝或降级 candidate 不进 active;②NOOP/产出/驳回有遥测计数;③文章获取器 M-001 形态成回归用例;④与 R-308 晋升门槛机械化对齐不重复实现
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-578(unblocks=0)
+- 进展: 实现与定向验证已完成。① fact refs/关联性：`crates/kanzei-memory/src/memory/mod.rs:validate_manager_fact_refs` 复用 `admission::topic_overlap` 并要求完整 ASCII 主题词或至少两个 CJK 双字组；`manager.rs:MemoryAddTool::execute` 拒绝无 refs、无关 refs、source 冒充，相关产物只经 `MemoryStore::add` 进入 candidate；证据=T-1786922726561。② 遥测：`store.rs` 建 `manager_decisions` 表，`telemetry.rs:record_manager_decision/manager_decision_counts` 记录 noop/produced/rejected，`tools.rs:MemoryStatsTool` 消费，`manager.rs:MemoryInboxDiscardTool` 记录最终决策；证据=T-1786922726561。③ M-001 形态回归：`manager.rs:manager_fact_gate_rejects_m001_shape_and_counts_decisions` 覆盖 D-001 无关知乎/decompose 根因、无 active 污染；证据=T-1786922726561。④ R-308 对齐：沿用既有 admission 主题判据与 `MemoryStore::promote` provenance/candidate 生命周期，未复制晋升逻辑；kanzei-memory 全部 158 tests 通过，证据=T-1786922726561。下一步：提交后核对实际文件清单，再关闭 D-578。
+- observed_head: 5be33c6ae61bde56f2f3d51e6cb45da6e000b51e
+- observed_worktree_hash: fnv1a64:f9fa0514e303e4ea
+- recorded_at: 1787237032045
 
 ## D-587 子代理面板缺停止运行中任务能力,process-subagents 开关只挡下一轮不打断在跑请求 [open] (medium)
 - refs: R-281
