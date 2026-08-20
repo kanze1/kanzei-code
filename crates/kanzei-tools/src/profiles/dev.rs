@@ -328,7 +328,9 @@ impl Component for DevProfile {
                      full requirement/defect queues are deliberately not resident context. \
                      Execute its Resume/Start decision. Call `work next` after tracker changes; \
                      use `req get` / `defect get` only for a specific id. `work claim` is the \
-                     normal way to open a WIP slot; direct tracker document writes are denied.\n\
+                     normal way to open a WIP slot; direct tracker document writes are denied. \
+                     For selected.kind=work_unit, checkpoint before yielding, then use verify → \
+                     evidence per acceptance → complete; do not append execution history to the parent Requirement.\n\
                      </project-docs>"
                         .into(),
                 )
@@ -405,9 +407,12 @@ impl Component for DevProfile {
                          batching, write `批次: 0/N` in the same call. Pick work only through the \
                          engine: call `work next` and execute its authoritative \
                          Resume/Start/Blocked/WipViolation result — never re-derive queue order or \
-                         WIP precedence from tracker prose. Use `work claim` to open the selected item; \
-                         an override requires an explicit reason and cannot bypass an existing Resume \
-                         decision. While an item is in progress do NOT re-scan the full queues \
+                          WIP precedence from tracker prose. Use `work claim` to open the selected item; \
+                          an override requires an explicit reason and cannot bypass an existing Resume \
+                          decision. A selected work_unit is the whole execution context: use `work checkpoint` \
+                          before pausing, enter `work verify`, add evidence for each exact acceptance criterion, \
+                          then `work complete`; keep the parent Requirement as Outcome instead of copying progress \
+                          history back into it. While an item is in progress do NOT re-scan the full queues \
                          (`req list` / `defect list`); register mid-work discoveries (`defect add` \
                          with a ref) and return to the active item. Non-semantic metadata artifacts \
                          (stray lines, formatting residue) must not interrupt active implementation \
@@ -464,8 +469,8 @@ impl Component for DevProfile {
                          severity (high|medium|low), priority (P0|P1|P2|P3), 标签 from the vocabulary (核心|后端|前端|模型|发布|流程) — the tool enforces \
                          this; when fixing, update 进展 with commit + evidence, then `defect close`. — 发版: run the project's release script \
                          (e.g. scripts/release.ps1) which runs the full suite, installs the CLI and builds the desktop app; confirm the running app \
-                         was replaced (kz --version hash matches HEAD) before telling the user the release is live. — 新条目开工: `work next` → `work claim` \
-                         → set 批次: 0/N if it needs batching → finish → full suite if 复杂度 中/大 → `req update <id> done` with per-验收 evidence. \
+                          was replaced (kz --version hash matches HEAD) before telling the user the release is live. — 新条目开工: `work next` → `work claim`; \
+                          legacy Requirement 按批次完成并关闭,work_unit 则 checkpoint → verify → evidence → complete,全部单元终态后再关闭父 Outcome。 \
                          These three flows are the fixed registration/close path; details beyond them live in the project conventions, not here. \
                          Research evidence uses V0-V3, never E0-E4: every conclusion must carry a code or literature domain, V level, evidence anchor, \
                          and literature evidence depth; abstract-only evidence is capped at V1."

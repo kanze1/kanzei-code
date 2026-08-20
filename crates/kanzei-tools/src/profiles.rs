@@ -665,7 +665,12 @@ mod tests {
             "release.ps1",
             "新条目开工",
             "work next",
-            "per-验收 evidence",
+            "work_unit",
+            "checkpoint",
+            "verify",
+            "evidence",
+            "complete",
+            "父 Outcome",
         ] {
             assert!(
                 system.contains(required),
