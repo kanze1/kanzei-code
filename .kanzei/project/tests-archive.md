@@ -10086,3 +10086,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 当前 HEAD IncidentEventType 使用 derive(Default)，fmt check 与 workspace clippy -D warnings 均通过，D-687 的 this impl can be derived 不再复现。
 - 关联: D-687 R-321
 - 收尾: 1787322676
+
+## T-1786922726746 发布前全量 verify 当前 HEAD d0826efb [passed]
+- 命令: $env:KANZEI_VERIFY_FULL='1'; .\scripts\verify.ps1
+- 时长: 126.0s
+- 摘要: 发布前全量 verify 在当前 HEAD d0826efb 全绿：14 个步骤全部执行、Rust workspace 测试与六条前端 smoke 通过；关键结果 kanzei-app 245、kanzei-core 253、kanzei-harness 32、kanzei-llm 55、kanzei-memory 169、kanzei-tools 491（490 passed、1 ignored）。dist/verification.json 已绑定完整 SHA，full_verify=true，skipped_steps=[]。
+- 关联: R-321
+- 收尾: 1787322974
