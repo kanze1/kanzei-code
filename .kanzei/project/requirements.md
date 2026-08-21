@@ -329,10 +329,10 @@
 - 先行调研: .kanzei/research/r322-prior-art/prior-art.md
 - 优先级: P1
 - 批次: 3/4
-- 进展: B1(4f0f46a0)+B2(7523e6a4)+B3 已落地。B3 按用户定调把结伴档 loop 的停止规则改成目标条件驱动(参照 Claude Code /goal):条件由用户写、达成与否由模型判(work handoff 声明)、引擎只负责达成前不散场且不发明工作。挂目标后 backlog 与 NoAction 都不再停机,只有 GoalMet/用户喊停/资源兜底才停;两道兜底=GOAL_IDLE_ROUND_LIMIT(连续3轮无动作判不可达)+D-583 零产出熔断(抽成 note_progress_signature 两路共用)。目标为一次性意图,达成/不可达后自动清除且不落 localStorage。测试:harness 171、workspace 15 个二进制全绿、UI 冒烟通过、clippy 干净。剩余 B4=真机端到端验收
-- observed_head: 7523e6a497b32d9e6be257c4822b632d34ccde76
-- observed_worktree_hash: fnv1a64:067bf5aea0a11591
-- recorded_at: 1787275857928
+- 进展: B1(4f0f46a0)+B2(7523e6a4)+B3(a032aa49) 已落地并发版:build-32513251(2026-08-21),full verify 全绿,证据 dist/verification.json 绑定 32513251,main 已 ff 到 32513251 并推送。B3 按用户定调把结伴档 loop 的停止规则改成目标条件驱动(参照 Claude Code /goal):条件由用户写、达成与否由模型判(work handoff)、引擎只负责达成前不散场且不发明工作;挂目标后 backlog 与 NoAction 都不再停机,兜底=GOAL_IDLE_ROUND_LIMIT+D-583 零产出熔断。剩余 B4=真机端到端验收(目标条件 loop 需跑一次真实会话看回显与自动清除)
+- observed_head: 32513251d54e6dd311f08c44fac6df2adfa8454b
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787283272605
 
 ## R-323 工具编排抽象层：模型声明执行计划 [doing]
 - 原始描述: 外部评估 #2：Harness 的保守规则可能成为模型能力的上限。用户定调：提供底层工具+一层抽象层，让模型去编排
