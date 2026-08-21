@@ -153,6 +153,7 @@
 - 阻塞: 
 - 对账: 2026-08-18 用户拍板 ESM 收尾「做完」,原 P3 留档提级 P2;剩余工作=批4(withSessionRender 等 5 处跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序与冒烟断言适配、删除 gen-ui-lint-globals 补偿机制);动工前先修 D-498(冒烟执行顺序与浏览器不一致),否则逐文件迁移的冒烟证据不可信;设计文档状态过期由 R-303 订正
 - 发现记录: {"Intent":"完成原生 ESM 迁移剩余批4并移除全局补偿机制","Explicit":"先完成 withSessionRender 跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序适配，再逐文件迁移并删除 globals 补偿","Assumptions":"批1-B3 的既有提交仍是当前 dev 基线且六条前端冒烟可作为迁移回归入口","Ambiguities":"现有条目进展标注批3/4但代码与 HEAD 已偏离，需要先按提交和工作树复核真实落点；设计文档索引显示路径存在性需以实际仓库为准","领域对象":"ui/*.js、index.html、scripts/ui-* smoke、ESLint globals 生成与配置","最小成功闭环":"测试 harness 能执行 ESM 且六条冒烟全绿，迁移后的浏览器入口能加载并保留逐文件 TDZ 语义","延后决策":"不引入打包器/TypeScript，不改 vendor 与业务逻辑；未能在本批收口的深层跨模块写另开后续条目"}
+- 停车: B6 已提交 d7a74729，当前唯一剩余动作是先修复并收口 D-692 的 tracker 完整性；本轮主动让位 defect-first，待 D-692 关闭后恢复 B7。恢复人:agent
 
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1
