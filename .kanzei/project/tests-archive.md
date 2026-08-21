@@ -10139,3 +10139,35 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-264
 - 收尾: 1787343508
 - 源码指纹: v2 scripts/ui-lint-globals.json@a3064a9bfc8a,scripts/ui-runtime-smoke.mjs@2945e1d83129,scripts/verify.ps1@48b690617dea
+
+## T-1786922726753 R-264 B6 04-markdown ESM 接入六条前端冒烟（首次） [failed]
+- 命令: node --check crates/kanzei-app/ui/04-markdown.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 1.0s
+- 摘要: 04-markdown ESM 接入后，runtime/lint/parallel-lines/a11y/i18n 通过，但 ui-markdown-smoke 仍以 new Function 执行源码，在 export 处 SyntaxError。
+- 关联: R-264 D-692
+- 收尾: 1787343802
+- 源码指纹: v2 scripts/ui-markdown-smoke.mjs@ac48b271f4a8
+
+## T-1786922726754 R-264 B6 04-markdown ESM 接入六条前端冒烟（修复后） [passed]
+- 命令: node --check crates/kanzei-app/ui/04-markdown.js; node --check scripts/ui-markdown-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 8.0s
+- 摘要: 04-markdown 作为 ESM 模块加载；runtime 27 个 UI 源码/2339 次 invoke/0 错误，lint 55 文件/776 globals 同步，parallel-lines、a11y、i18n、markdown 全绿。
+- 关联: R-264 D-692
+- 收尾: 1787343803
+- 源码指纹: v2 scripts/ui-markdown-smoke.mjs@ac48b271f4a8
+
+## T-1786922726755 D-692 tracker normalize 修复定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 37.0s
+- 摘要: kanzei-tools 定向测试全绿：490 passed、0 failed、1 ignored；包含 normalize 相关测试。
+- 关联: D-692 R-264
+- 收尾: 1787344165
+- 源码指纹: v2 crates/kanzei-tools/src/tracker/actions.rs@29941b35491e,scripts/ui-markdown-smoke.mjs@ac48b271f4a8
+
+## T-1786922726756 R-264 B6 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 13.0s
+- 摘要: kanzei-app 定向测试全绿：245 passed、0 failed、0 ignored。
+- 关联: R-264 D-692
+- 收尾: 1787344255
+- 源码指纹: v2 crates/kanzei-tools/src/tracker/actions.rs@29941b35491e,scripts/ui-markdown-smoke.mjs@ac48b271f4a8

@@ -2022,7 +2022,6 @@
 - refs: D-173
 - 备注: 回填口径(推断为 completed 而非保持现状)由用户 2026-08-08 定调。
 - 续修(2026-08-08): v6 回填在真实机器上扑空——22:03 与 22:37 两次停止已把存量 promoted 全抹成 cancelled(384 条),v6 上线时一条 promoted 都不剩。唯一还留着原始状态的是 `state.db.v4.bak`(promoted 196 / cancelled 185)。经用户确认"捞",新增 v7:迁移前 ATTACH 同目录的 `state.db.v*.bak`,把**备份里是 promoted、现库是 cancelled**的输入恢复为 completed。判定以备份为权威而非猜测:备份里已是 cancelled 的是当年真取消,不动;备份里根本没有的(如 21:40 那条真被停掉的)更不动。恢复条数写入 schema_meta.legacy_inputs_recovered 供事后核对。
-- 验证(2026-08-08): kanzei-core 新增「v7从备份恢复被抹掉的输入状态位且不误伤真取消」「v7在没有备份时安静通过」,含幂等性断言;workspace 269 项通过。
 - 迁移与回滚: v5→v6 只有一条 UPDATE,无表结构变更;回滚把 SCHEMA_VERSION 改回 5 即可,已回填的 completed 对 v5 代码是合法值(v5 的 CHECK 已含 completed),不会打不开库。
 
 ## D-181 主动上下文压缩复用应急截断:一次砍掉 97% 且保留的是最旧内容 [fixed] (high)

@@ -875,6 +875,28 @@ pub(crate) fn normalize(
                 "{region} {entry_id}: deduplicated {dropped} field(s)"
             ));
         }
+        // 完整性门禁会拒绝空的保留字段「状态」；这是旧式 tracker 写入
+        // 把 header 状态误落进字段时留下的元数据残留。空值没有可恢复语义，normalize
+        // 可以安全删除；非空非法值仍只报告，避免猜测用户意图。
+        let mut empty_reserved_status = 0usize;
+        entry.fields.retain(|(key, value)| {
+            let reserved = key.eq_ignore_ascii_case("status") || key == "状态";
+            if reserved && value.trim().is_empty() {
+                empty_reserved_status += 1;
+                false
+            } else {
+                true
+            }
+        });
+        if empty_reserved_status > 0 {
+            findings.push(format!(
+                "{region} {entry_id}: removed {empty_reserved_status} empty reserved status field(s)"
+            ));
+            touched = true;
+            fixed.push(format!(
+                "{region} {entry_id}: removed {empty_reserved_status} empty reserved status field(s)"
+            ));
+        }
         // ③ 标题状态标记污染(D-331 口径:状态的家是 header,不是标题)
         if let Some(marker) = crate::docstore::title_status_marker(&entry.title) {
             let stripped = crate::docstore::strip_status_markers(&entry.title);

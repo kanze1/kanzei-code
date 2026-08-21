@@ -134,3 +134,25 @@ function isTableSeparator(line) {
   const cells = splitTableRow(line);
   return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
 }
+
+// R-264 B6：该文件无顶层 DOM 副作用，先作为第一块正式 ESM 模块加载。
+// 尚未迁移的 classic 消费者仍通过 globalThis 兼容桥调用；桥只保留到这些消费者
+// 完成显式 import 为止，不是新的业务全局状态源。
+export {
+  escapeHtml,
+  isTableSeparator,
+  renderInlineMarkdown,
+  renderMarkdown,
+  safeMarkdownUrl,
+  splitTableRow,
+  tableAlignment,
+};
+Object.assign(globalThis, {
+  escapeHtml,
+  isTableSeparator,
+  renderInlineMarkdown,
+  renderMarkdown,
+  safeMarkdownUrl,
+  splitTableRow,
+  tableAlignment,
+});
