@@ -285,6 +285,12 @@ function renderDocuments(snapshot) {
   // 渲染、拖拽判定、锁提示三处拿的都是同一个副本,所以"列表完不完整"与"能不能拖"仍同源。
   renderDocList(reqList, snapshot.requirements ?? [], "req", snapshot.archived?.req ?? 0, neutralizedDocFilters(documentFilters.req), snapshot.archived_entries?.req ?? []);
   renderDocList(defectList, snapshot.defects ?? [], "defect", snapshot.archived?.defect ?? 0, neutralizedDocFilters(documentFilters.defect), snapshot.archived_entries?.defect ?? []);
+  const defectMetrics = $("defect-incident-metrics");
+  if (defectMetrics) {
+    const defectTab = documentsKind === "defect";
+    defectMetrics.classList.toggle("hidden", !defectTab);
+    if (defectTab) renderIncidentMetrics(snapshot.incident_metrics, "defect-incident-metrics");
+  }
   // 「对照」把两个队列并排摆出来:需求与缺陷互相引用,分成两个标签页时对不起来。
   const isTests = documentsKind === "tests";
   const both = documentsKind === "both";

@@ -96,8 +96,11 @@ async function refreshMetrics() {
       invoke("run_metrics", { projectDir: currentProject, limit: 20 }),
       invoke("run_metrics_by_category", { projectDir: currentProject, limit: 200 }),
     ]);
+    const incidentData = latestDocsSnapshot?.incident_metrics
+      ?? (await invoke("docs_snapshot", { projectDir: currentProject })).incident_metrics;
     renderMetrics(data?.rounds ?? []);
     renderMetricsCategories(cats ?? {});
+    renderIncidentMetrics(incidentData, "metrics-incident");
   } catch (err) {
     toastError(`${t("运行画像加载失败")}:${err}`, { retry: refreshMetrics });
   }
@@ -218,6 +221,66 @@ function redundantLine(m) {
   if (m.redundant_test) parts.push(`test×${m.redundant_test}`);
   if (m.redundant_task) parts.push(`task×${m.redundant_task}`);
   return ` · ${t("冗余提醒")} ${parts.join(" ")}`;
+}
+
+const INCIDENT_CLASS_LABELS = Object.freeze({
+  execution_incident: "execution_incident",
+  development_defect: "development_defect",
+  product_defect: "product_defect",
+  regression: "regression",
+});
+
+function formatIncidentDuration(metrics) {
+  const samples = Number(metrics?.repair_duration_samples ?? 0);
+  if (!samples) return t("暂无");
+  const average = Number(metrics?.repair_duration_ms_average ?? 0);
+  if (average < 1000) return `${Math.round(average)}ms`;
+  return `${(average / 1000).toFixed(1)}s`;
+}
+
+function renderIncidentMetrics(data, targetId) {
+  const box = $(targetId);
+  if (!box) return;
+  box.replaceChildren();
+  const byClass = data?.by_class ?? {};
+  const heading = document.createElement("div");
+  heading.className = "metrics-trend-head dim";
+  heading.textContent = t("事件分类指标");
+  const table = document.createElement("table");
+  table.className = "metrics-cat-table";
+  const head = document.createElement("tr");
+  for (const label of [t("类型"), t("数量"), t("平均修复时长"), t("逃逸率"), t("晋升")]) {
+    const cell = document.createElement("th");
+    cell.textContent = label;
+    head.appendChild(cell);
+  }
+  table.appendChild(head);
+  for (const className of Object.keys(INCIDENT_CLASS_LABELS)) {
+    const metrics = byClass[className] ?? {};
+    const row = document.createElement("tr");
+    const values = [
+      INCIDENT_CLASS_LABELS[className],
+      Number(metrics.occurrences ?? 0),
+      formatIncidentDuration(metrics),
+      `${(Number(metrics.escaped_rate ?? 0) * 100).toFixed(0)}%`,
+      Number(metrics.promotions ?? 0),
+    ];
+    for (const value of values) {
+      const cell = document.createElement("td");
+      cell.textContent = String(value);
+      row.appendChild(cell);
+    }
+    table.appendChild(row);
+  }
+  const overall = data?.overall ?? {};
+  const summary = document.createElement("div");
+  summary.className = "dim";
+  summary.textContent = `${t("总事件")} ${Number(data?.total_occurrences ?? 0)} · ${t("总体逃逸率")} ${(Number(overall.escaped_rate ?? 0) * 100).toFixed(0)}% · ${t("晋升事件")} ${Number(data?.promotion_events ?? 0)}`;
+  const replay = data?.historical_replay ?? {};
+  const replayNote = document.createElement("div");
+  replayNote.className = "dim";
+  replayNote.textContent = `${t("历史样本回放")} ${Number(replay.consistent_count ?? 0)}/${Number(replay.sample_count ?? 0)} ${replay.consistent ? t("一致") : t("不一致")} · ${t("瞬时失手排除")} ${Number(replay.execution_incidents_excluded ?? 0)}`;
+  box.append(heading, table, summary, replayNote);
 }
 
 // ---------- R-126 UI 自查探针:在真实运行中的窗口里取样 ----------

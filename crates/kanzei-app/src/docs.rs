@@ -432,6 +432,7 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
         // warnings 是新增字段:前端忽略未知键,所以不需要改 .js。它承载"读成功了,
         // 但顺手做的那次写没做成"这种半程状态——以前这类信息被 `let _ =` 吃掉。
         "warnings": warnings,
+        "incident_metrics": kanzei_tools::incident::metrics(&root),
         "work_units": work_units,
         "requirements": load(&REQUIREMENTS)?, "defects": load(&DEFECTS)?, "ideas": load(&IDEAS)?,
         "sources": load(&SOURCES)?, "findings": load(&FINDINGS)?,

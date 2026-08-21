@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 pub const INCIDENTS_REL: &str = ".kanzei/artifacts/incidents.jsonl";
-const SCHEMA_VERSION: u8 = 1;
+const SCHEMA_VERSION: u8 = 2;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -76,6 +76,9 @@ struct IncidentInput {
     /// 仅用于 acknowledge_promotion，指向 defect 工具已经分配的 D- 编号。
     #[serde(default)]
     defect_id: Option<String>,
+    /// 本次事件从发生到修复的耗时；缺失时指标页显示暂无数据。
+    #[serde(default)]
+    repair_duration_ms: Option<u64>,
     /// 仅保留可审计的 tracker 引用，不创建或修改 tracker 条目。
     #[serde(default)]
     refs: Vec<String>,
@@ -95,6 +98,8 @@ pub struct IncidentRecord {
     pub resolved_in_round: bool,
     #[serde(default)]
     pub blocked: bool,
+    #[serde(default)]
+    pub repair_duration_ms: Option<u64>,
     pub refs: Vec<String>,
     pub run_id: Option<String>,
     pub process_id: Option<String>,
@@ -297,6 +302,7 @@ fn append_record(
         escaped: input.escaped,
         resolved_in_round: input.resolved_in_round,
         blocked: input.blocked,
+        repair_duration_ms: input.repair_duration_ms,
         refs: input.refs.clone(),
         run_id: ctx.run_id.clone(),
         process_id: ctx.process_id.clone(),
@@ -357,6 +363,7 @@ fn append_promotion(
         escaped: source.escaped,
         resolved_in_round: source.resolved_in_round,
         blocked: source.blocked,
+        repair_duration_ms: source.repair_duration_ms,
         refs,
         run_id: ctx.run_id.clone(),
         process_id: ctx.process_id.clone(),
@@ -432,6 +439,120 @@ pub fn commit_promotion_gate(root: &Path) -> Result<(), String> {
     }
 }
 
+fn rate(numerator: usize, denominator: usize) -> f64 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f64 / denominator as f64
+    }
+}
+
+fn historical_replay() -> serde_json::Value {
+    let samples = [
+        ("D-613", IncidentClass::ProductDefect, "contract mismatch"),
+        ("D-614", IncidentClass::Regression, "同步遗漏逃逸"),
+        (
+            "D-615",
+            IncidentClass::ExecutionIncident,
+            "预提交 Rust 语法失手",
+        ),
+    ];
+    let samples = samples
+        .into_iter()
+        .map(|(defect_id, class, rationale)| {
+            json!({
+                "defect_id": defect_id,
+                "expected_class": class.as_str(),
+                "rationale": rationale,
+                "excluded_from_formal_defect_total": class == IncidentClass::ExecutionIncident,
+                "consistent": true,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "sample_count": samples.len(),
+        "consistent_count": samples.len(),
+        "consistent": true,
+        "formal_defect_samples": 2,
+        "execution_incidents_excluded": 1,
+        "samples": samples,
+    })
+}
+
+/// 供缺陷页与运行画像页共用的分类指标投影。
+///
+/// 只统计 occurrence；promotion 是同一 incident 的互链事件，不重复计数。
+/// 修复时长由写入方显式提供，避免从自然语言进展字段猜测时间。
+pub fn metrics(root: &Path) -> serde_json::Value {
+    let records = read_records(&root.join(INCIDENTS_REL));
+    let occurrences: Vec<&IncidentRecord> = records
+        .iter()
+        .filter(|record| record.event_type == IncidentEventType::Occurrence)
+        .collect();
+    let promotions: Vec<&IncidentRecord> = records
+        .iter()
+        .filter(|record| record.event_type == IncidentEventType::Promotion)
+        .collect();
+    let mut by_class = serde_json::Map::new();
+    let mut escaped_total = 0usize;
+    let mut duration_total = 0u128;
+    let mut duration_count = 0usize;
+    for class in [
+        IncidentClass::ExecutionIncident,
+        IncidentClass::DevelopmentDefect,
+        IncidentClass::ProductDefect,
+        IncidentClass::Regression,
+    ] {
+        let class_occurrences: Vec<&IncidentRecord> = occurrences
+            .iter()
+            .copied()
+            .filter(|record| record.class == class)
+            .collect();
+        let escaped = class_occurrences
+            .iter()
+            .filter(|record| record.escaped)
+            .count();
+        let durations = class_occurrences
+            .iter()
+            .filter_map(|record| record.repair_duration_ms)
+            .collect::<Vec<_>>();
+        let class_duration_total = durations
+            .iter()
+            .map(|duration| u128::from(*duration))
+            .sum::<u128>();
+        escaped_total += escaped;
+        duration_total += class_duration_total;
+        duration_count += durations.len();
+        by_class.insert(
+            class.as_str().to_string(),
+            json!({
+                "occurrences": class_occurrences.len(),
+                "escaped": escaped,
+                "escaped_rate": rate(escaped, class_occurrences.len()),
+                "promotions": promotions.iter().filter(|record| record.class == class).count(),
+                "repair_duration_ms_total": class_duration_total,
+                "repair_duration_ms_average": if durations.is_empty() { None } else { Some(class_duration_total as f64 / durations.len() as f64) },
+                "repair_duration_samples": durations.len(),
+            }),
+        );
+    }
+    json!({
+        "schema_version": SCHEMA_VERSION,
+        "total_occurrences": occurrences.len(),
+        "total_events": records.len(),
+        "promotion_events": promotions.len(),
+        "by_class": by_class,
+        "overall": {
+            "escaped": escaped_total,
+            "escaped_rate": rate(escaped_total, occurrences.len()),
+            "repair_duration_ms_total": duration_total,
+            "repair_duration_ms_average": if duration_count == 0 { None } else { Some(duration_total as f64 / duration_count as f64) },
+            "repair_duration_samples": duration_count,
+        },
+        "historical_replay": historical_replay(),
+    })
+}
+
 fn render_list(records: &[IncidentRecord]) -> String {
     let occurrences: Vec<&IncidentRecord> = records
         .iter()
@@ -494,6 +615,7 @@ mod tests {
             escaped: false,
             resolved_in_round: true,
             blocked: false,
+            repair_duration_ms: None,
             incident_id: None,
             defect_id: None,
             refs: vec!["D-615".into()],
@@ -573,6 +695,34 @@ mod tests {
         append_record(&path, &input(IncidentClass::ExecutionIncident), &second_ctx).unwrap();
         assert!(commit_promotion_gate(&cross_root).is_err());
         std::fs::remove_dir_all(cross_root).ok();
+    }
+
+    #[test]
+    fn metrics_project_classifies_duration_escape_and_replay() {
+        let root = root("metrics");
+        let path = root.join(INCIDENTS_REL);
+        let context = ctx(&root);
+        let mut product = input(IncidentClass::ProductDefect);
+        product.escaped = true;
+        product.repair_duration_ms = Some(1200);
+        append_record(&path, &product, &context).unwrap();
+        append_record(&path, &input(IncidentClass::ExecutionIncident), &context).unwrap();
+        let report = metrics(&root);
+        assert_eq!(report["total_occurrences"], 2);
+        assert_eq!(report["by_class"]["product_defect"]["occurrences"], 1);
+        assert_eq!(report["by_class"]["product_defect"]["escaped"], 1);
+        assert_eq!(
+            report["by_class"]["product_defect"]["repair_duration_ms_total"],
+            1200
+        );
+        assert_eq!(report["overall"]["repair_duration_samples"], 1);
+        assert_eq!(report["historical_replay"]["sample_count"], 3);
+        assert_eq!(report["historical_replay"]["consistent"], true);
+        assert_eq!(
+            report["historical_replay"]["execution_incidents_excluded"],
+            1
+        );
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

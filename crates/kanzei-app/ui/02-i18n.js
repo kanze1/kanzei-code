@@ -426,7 +426,7 @@ const I18N_EN = {
   "运行画像加载失败": "Failed to load run metrics", "还没有轮次记录:跑一轮后这里会出现画像": "No rounds recorded yet — run once and metrics will appear here",
   "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate",
   "平均步数": "Avg steps", "平均输出 token": "Avg output tokens", "近": "Last", "轮均值": "round average",
-  "按分类聚合(类型 × 复杂度)": "By category (type × complexity)", "类型": "Type", "轮数": "Rounds", "输入合计": "Input total", "输出合计": "Output total", "平均输入": "Avg input", "平均输出": "Avg output", "未归类": "Uncategorized",
+  "按分类聚合(类型 × 复杂度)": "By category (type × complexity)", "类型": "Type", "轮数": "Rounds", "输入合计": "Input total", "输出合计": "Output total", "平均输入": "Avg input", "平均输出": "Avg output", "未归类": "Uncategorized", "事件分类指标": "Incident classification metrics", "缺陷分类指标": "Defect classification metrics", "数量": "Count", "平均修复时长": "Avg repair duration", "逃逸率": "Escape rate", "晋升": "Promotions", "总事件": "Total incidents", "总体逃逸率": "Overall escape rate", "晋升事件": "Promotion events", "历史样本回放": "Historical sample replay", "一致": "consistent", "不一致": "inconsistent", "瞬时失手排除": "Instant self-errors excluded",
   "步": "steps", "终端": "terminal", "组": "groups", "未命中": "missed", "子代理": "subagents",
   "已完成": "Finished", "工具调用": "tool calls", "修复": "Fix-up", "token": "tokens",
   "子代理启动中": "Subagent starting", "收起子代理面板": "Collapse subagent panel", "打开子代理面板": "Open subagent panel",

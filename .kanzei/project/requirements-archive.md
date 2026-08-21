@@ -4324,3 +4324,19 @@
 - observed_head: e6364cb981d67df86801a4b6ceb3a139063cda64
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787319242939
+
+## R-321 执行事故与产品缺陷分层:临时自致错误不污染正式 defect taxonomy [done]
+- refs: R-112 R-310 R-311 D-615
+- 内容: 在既有领域/类型词表之上增加问题来源与生命周期分层：execution_incident、development_defect、product_defect、regression；预提交且未逃逸、可当轮修复的自致错误进入 append-only incident ledger/telemetry，不占 D-ID；达到复发阈值、跨轮阻塞、逃逸提交/发版或暴露真实产品契约时机械晋升 defect，并保留 incident→defect 链接。
+- 复杂度: 小
+- 来源: 2026-08-21 用户提供运行复盘：D-613 是真实 contract mismatch；D-614 是同步遗漏；D-615 是 Agent 在未提交工作树中自行插错位置并立即修复的 Rust 语法错误。三者同层登记使产品缺陷、回归与执行过程失手无法分别统计。
+- 标签: 流程
+- 边界: 分层不得用来少报真实缺陷；门禁发现的产品行为错误仍直接登记 defect；既有 D-ID 不批量重写，只给新条目默认分类与少量样本迁移；incident 也必须可审计、可聚合，不能只留在自然语言日志。
+- 验收: ①D-615 等价的当轮预提交语法失手记 execution_incident 且不分配 D-ID；②D-613 等价 contract mismatch 直接为 product_defect，逃逸既有通过测试后标 regression；③相同 incident 指纹复发、跨轮阻塞或进入提交时自动建议/强制晋升并互链；④缺陷页与指标可分别查看各类数量、修复时长和逃逸率；⑤用历史样本回放证明分类一致且正式 defect 总量不再被瞬时失手污染。
+- 优先级: P2
+- 取活依据: engine:唯一可执行 WIP 是 R-321，必须先恢复它
+- 批次: 3/3
+- 进展: B3 已完成并验证，验收逐项对账：① `crates/kanzei-tools/src/incident.rs:76-105,302-305` 为 occurrence 写入 `repair_duration_ms`，execution_incident 仍 append-only 且不分配 D-ID；`T-1786922726736` 与 `T-1786922726741` 的 kanzei-tools 测试均 490 passed。② `crates/kanzei-tools/src/incident.rs:450-479` 回放 D-613=product_defect、D-614=regression、D-615=execution_incident；`crates/kanzei-tools/src/incident.rs:500-555` 按 occurrence 统计逃逸率/修复时长，promotion 不重复计数；`T-1786922726738` app 测试 245 passed。③ B2 既有实现：`crates/kanzei-tools/src/incident.rs:392-439` 覆盖相同 fingerprint 复发、跨轮、blocked/escaped 晋升和 incident→defect promotion event 互链；`crates/kanzei-tools/src/git.rs:1029-1036` 在提交前执行 `commit_promotion_gate`。④ `crates/kanzei-app/src/docs.rs:435` 接入真实 `docs_snapshot.incident_metrics`；`crates/kanzei-app/ui/12-docs-pages.js:288-292` 缺陷页消费指标，`crates/kanzei-app/ui/13-memory.js:96-108,226-283` 运行画像页消费指标，`crates/kanzei-app/ui/index.html:495,598` 提供真实面板入口；`T-1786922726740` node check 与六条前端 smoke 全通过。⑤ `historical_replay` 在 `crates/kanzei-tools/src/incident.rs:450-479` 输出三条历史样本并排除 D-615，`crates/kanzei-tools/src/incident.rs:697-727` 有自动化断言，`crates/kanzei-app/src/state_tests.rs:183-190` 验证 docs_snapshot 回放一致；T-1786922726736/T-1786922726740 通过。B3 代码、IPC 契约、UI 资源和 smoke fixture 待提交；D-688/D-689 已登记并待当前 HEAD verify 后收口。
+- observed_head: 8b7e484ac267139f81d0258cce935635f93ffa95
+- observed_worktree_hash: fnv1a64:b8b1eeb579448a3e
+- recorded_at: 1787322242786

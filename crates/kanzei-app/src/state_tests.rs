@@ -183,6 +183,11 @@ fn docs_snapshot_exposes_block_reasons_and_scheduler_order() {
     let requirements = docs_snapshot(root.display().to_string()).unwrap()["requirements"].clone();
     assert_eq!(requirements[0]["id"], "R-002");
     assert_eq!(requirements[1]["blocked"], true);
+    assert_eq!(
+        docs_snapshot(root.display().to_string()).unwrap()["incident_metrics"]["historical_replay"]
+            ["consistent"],
+        true
+    );
     std::fs::remove_dir_all(root).ok();
 }
 

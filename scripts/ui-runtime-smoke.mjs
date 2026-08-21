@@ -742,6 +742,31 @@ const payloads = {
   docs_snapshot: {
     requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]], dependencies: [], dependents: ["R-002"], execution_model: "work_units_v1", work_units: [smokeWorkUnit] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 }, dependencies: ["R-001"], dependents: [] })],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待澄清: 用户视角的易用性还是模型可消费性?"]] })],
+    incident_metrics: {
+      schema_version: 2,
+      total_occurrences: 4,
+      total_events: 5,
+      promotion_events: 1,
+      by_class: {
+        execution_incident: { occurrences: 1, escaped: 0, escaped_rate: 0, repair_duration_ms_total: 120, repair_duration_ms_average: 120, repair_duration_samples: 1, promotions: 0 },
+        development_defect: { occurrences: 1, escaped: 0, escaped_rate: 0, repair_duration_ms_total: 2400, repair_duration_ms_average: 2400, repair_duration_samples: 1, promotions: 0 },
+        product_defect: { occurrences: 1, escaped: 1, escaped_rate: 1, repair_duration_ms_total: 3600, repair_duration_ms_average: 3600, repair_duration_samples: 1, promotions: 1 },
+        regression: { occurrences: 1, escaped: 1, escaped_rate: 1, repair_duration_ms_total: 4800, repair_duration_ms_average: 4800, repair_duration_samples: 1, promotions: 0 },
+      },
+      overall: { escaped: 2, escaped_rate: 0.5, repair_duration_ms_total: 10920, repair_duration_ms_average: 2730, repair_duration_samples: 4 },
+      historical_replay: {
+        sample_count: 3,
+        consistent_count: 3,
+        consistent: true,
+        formal_defect_samples: 2,
+        execution_incidents_excluded: 1,
+        samples: [
+          { defect_id: "D-613", expected_class: "product_defect", rationale: "contract mismatch", excluded_from_formal_defect_total: false, consistent: true },
+          { defect_id: "D-614", expected_class: "regression", rationale: "同步遗漏逃逸", excluded_from_formal_defect_total: false, consistent: true },
+          { defect_id: "D-615", expected_class: "execution_incident", rationale: "预提交 Rust 语法失手", excluded_from_formal_defect_total: true, consistent: true },
+        ],
+      },
+    },
     ideas: [docEntry("I-001", "冒烟想法", "inbox")],
     // D-414:研究工件必须带真实字段形态(URL / 证据锚 / refs)——此前这里是两个空
     // 数组,于是「来源列表」整条渲染路径从未被冒烟走过,六条全绿而真机点不开(用户实测)。

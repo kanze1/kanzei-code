@@ -268,22 +268,6 @@
 - recorded_at: 1787306265598
 - 停车: 用户明确要求优先修复新缺陷 D-680；R-319 已完成 B3，B4 等待真实 post-rollout 长程样本，D-680 收口后恢复。恢复人:agent
 
-## R-321 执行事故与产品缺陷分层:临时自致错误不污染正式 defect taxonomy [doing]
-- refs: R-112 R-310 R-311 D-615
-- 内容: 在既有领域/类型词表之上增加问题来源与生命周期分层：execution_incident、development_defect、product_defect、regression；预提交且未逃逸、可当轮修复的自致错误进入 append-only incident ledger/telemetry，不占 D-ID；达到复发阈值、跨轮阻塞、逃逸提交/发版或暴露真实产品契约时机械晋升 defect，并保留 incident→defect 链接。
-- 复杂度: 小
-- 来源: 2026-08-21 用户提供运行复盘：D-613 是真实 contract mismatch；D-614 是同步遗漏；D-615 是 Agent 在未提交工作树中自行插错位置并立即修复的 Rust 语法错误。三者同层登记使产品缺陷、回归与执行过程失手无法分别统计。
-- 标签: 流程
-- 边界: 分层不得用来少报真实缺陷；门禁发现的产品行为错误仍直接登记 defect；既有 D-ID 不批量重写，只给新条目默认分类与少量样本迁移；incident 也必须可审计、可聚合，不能只留在自然语言日志。
-- 验收: ①D-615 等价的当轮预提交语法失手记 execution_incident 且不分配 D-ID；②D-613 等价 contract mismatch 直接为 product_defect，逃逸既有通过测试后标 regression；③相同 incident 指纹复发、跨轮阻塞或进入提交时自动建议/强制晋升并互链；④缺陷页与指标可分别查看各类数量、修复时长和逃逸率；⑤用历史样本回放证明分类一致且正式 defect 总量不再被瞬时失手污染。
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-321(unblocks=0)
-- 批次: 2/3
-- 进展: B2 已落地并验证：`crates/kanzei-tools/src/incident.rs:20-472` 增加 occurrence/promotion event、blocked 字段、`acknowledge_promotion` 互链动作与 `commit_promotion_gate`；相同 fingerprint 复发(≥2)、跨 run、blocked/历史 escaped 且未互链时形成晋升门禁；`crates/kanzei-tools/src/git.rs:1029-1036` 在提交前硬拦并提示先创建 D-ID 再 acknowledge_promotion。B2 测试：T-1786922726731 incident=5 passed，T-1786922726732 git=31 passed，T-1786922726734 cargo test -p kanzei-tools=489 passed/0 failed/1 ignored，cargo fmt --all -- --check 通过。D-686 已修复但尚待干净 HEAD verify 后关闭。验收进度：①②由 B1 覆盖；③已覆盖复发/跨轮/阻塞晋升与 incident→defect promotion event 互链；④缺陷页与指标投影尚未实现；⑤历史样本回放尚未实现。下一步：B3 输出分类指标/修复时长/逃逸率投影并回放 D-613/D-614/D-615 历史样本。
-- observed_head: f8f51887fd54d79bea3de2d04c78c91c9b3e06c8
-- observed_worktree_hash: fnv1a64:17deaa661da1eed1
-- recorded_at: 1787320889798
-
 ## R-322 门禁强度分档与模型停机权 [doing]
 - 原始描述: 外部评估七点反馈中的 #1 Harness Tax、#4 模式区分不够明显、#7 双控制器问题。用户定调：控制权交给模型；结伴接近 Claude Code 的高自治，自主推进保留重门禁；决策点要呈现给用户
 - 复杂度: 大

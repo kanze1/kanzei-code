@@ -74,6 +74,73 @@
         "work_units": "array"
       }
     ],
+    "incident_metrics": {
+      "by_class": {
+        "development_defect": {
+          "escaped": "number",
+          "escaped_rate": "number",
+          "occurrences": "number",
+          "promotions": "number",
+          "repair_duration_ms_average": "nullable",
+          "repair_duration_ms_total": "number",
+          "repair_duration_samples": "number"
+        },
+        "execution_incident": {
+          "escaped": "number",
+          "escaped_rate": "number",
+          "occurrences": "number",
+          "promotions": "number",
+          "repair_duration_ms_average": "nullable",
+          "repair_duration_ms_total": "number",
+          "repair_duration_samples": "number"
+        },
+        "product_defect": {
+          "escaped": "number",
+          "escaped_rate": "number",
+          "occurrences": "number",
+          "promotions": "number",
+          "repair_duration_ms_average": "nullable",
+          "repair_duration_ms_total": "number",
+          "repair_duration_samples": "number"
+        },
+        "regression": {
+          "escaped": "number",
+          "escaped_rate": "number",
+          "occurrences": "number",
+          "promotions": "number",
+          "repair_duration_ms_average": "nullable",
+          "repair_duration_ms_total": "number",
+          "repair_duration_samples": "number"
+        }
+      },
+      "historical_replay": {
+        "consistent": "bool",
+        "consistent_count": "number",
+        "execution_incidents_excluded": "number",
+        "formal_defect_samples": "number",
+        "sample_count": "number",
+        "samples": [
+          {
+            "consistent": "bool",
+            "defect_id": "string",
+            "excluded_from_formal_defect_total": "bool",
+            "expected_class": "string",
+            "rationale": "string"
+          }
+        ]
+      },
+      "overall": {
+        "escaped": "number",
+        "escaped_rate": "number",
+        "repair_duration_ms_average": "nullable",
+        "repair_duration_ms_total": "number",
+        "repair_duration_samples": "number"
+      },
+      "promotion_events": "number",
+      "schema_version": "number",
+      "total_events": "number",
+      "total_occurrences": "number"
+    },
     "requirements": [
       {
         "batches": {

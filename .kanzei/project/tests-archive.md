@@ -10012,3 +10012,57 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-321 D-686 D-687
 - 收尾: 1787321046
 - 源码指纹: v2 crates/kanzei-tools/src/git.rs@300e561802ef,crates/kanzei-tools/src/incident.rs@d32d96016123
+
+## T-1786922726736 R-321 B3 kanzei-tools 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 37.9s
+- 摘要: cargo fmt --all 后 kanzei-tools 全量定向测试通过：490 passed、0 failed、1 ignored；覆盖 incident metrics 分类、修复时长、逃逸率和历史回放测试。
+- 关联: R-321
+- 收尾: 1787321791
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@d37c01b2d310,crates/kanzei-app/src/state_tests.rs@bcfda5e0fdf5,crates/kanzei-tools/src/incident.rs@5ec9e9e67daf,scripts/ui-runtime-smoke.mjs@73b578957a41
+
+## T-1786922726737 R-321 B3 kanzei-app 定向测试（契约同步前） [failed]
+- 命令: cargo test -p kanzei-app
+- 时长: 16.5s
+- 摘要: 编译成功；244 passed、1 failed。唯一失败为 ipc_contract::tests::docs_snapshot_形状与ipc契约一致，原因是新 incident_metrics 字段尚未同步 scripts/ipc-contract.json。
+- 关联: R-321 D-688
+- 收尾: 1787321847
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@d37c01b2d310,crates/kanzei-app/src/state_tests.rs@bcfda5e0fdf5,crates/kanzei-tools/src/incident.rs@5ec9e9e67daf,scripts/ui-runtime-smoke.mjs@73b578957a41
+
+## T-1786922726738 R-321 B3 kanzei-app 定向测试（契约同步后） [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.8s
+- 摘要: 同步 scripts/ipc-contract.json 后 app 定向测试全绿：245 passed、0 failed；docs_snapshot IPC 形状守护通过，覆盖 incident_metrics 投影接线。
+- 关联: R-321 D-688
+- 收尾: 1787321904
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@d37c01b2d310,crates/kanzei-app/src/state_tests.rs@bcfda5e0fdf5,crates/kanzei-tools/src/incident.rs@5ec9e9e67daf,scripts/ipc-contract.json@28f16685dfd0,scripts/ui-runtime-smoke.mjs@73b578957a41
+
+## T-1786922726739 R-321 B3 前端语法与六条 smoke（接线缺口） [failed]
+- 命令: node --check crates/kanzei-app/ui/12-docs-pages.js; node --check crates/kanzei-app/ui/13-memory.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: node --check 两个脚本通过；parallel-lines、ui-a11y、ui-markdown 通过。ui-runtime 失败 21 处：动态 i18n key、IPC fixture 缺后端字段、ui-lint-globals 缺 3 个新增符号；ui-i18n 同样因资源表缺 key 失败。
+- 关联: R-321
+- 收尾: 1787321935
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@d37c01b2d310,crates/kanzei-app/src/state_tests.rs@bcfda5e0fdf5,crates/kanzei-tools/src/incident.rs@5ec9e9e67daf,scripts/ipc-contract.json@28f16685dfd0,scripts/ui-runtime-smoke.mjs@73b578957a41
+
+## T-1786922726740 R-321 B3 前端 node check 与六条 smoke [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/12-docs-pages.js; node --check crates/kanzei-app/ui/13-memory.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 前端验证全绿：3 个变更脚本 node --check 通过；ui-runtime 25 个脚本/2342 次 invoke/0 错误；ui-lint 54 文件零 no-undef；parallel-lines、a11y、i18n(1383 key/57 动态契约)、Markdown 全通过。
+- 关联: R-321 D-689
+- 收尾: 1787322039
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@d37c01b2d310,crates/kanzei-app/src/state_tests.rs@bcfda5e0fdf5,crates/kanzei-tools/src/incident.rs@5ec9e9e67daf,scripts/ipc-contract.json@28f16685dfd0,scripts/ui-lint-globals.json@9ec384771309,scripts/ui-runtime-smoke.mjs@0f8f1bb9170e
+
+## T-1786922726741 R-321 B3 tools 回归（范围口径修正后） [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 37.1s
+- 摘要: 移除未授权的 7 天修复时长上限后，fmt check 与 kanzei-tools 定向测试通过：490 passed、0 failed、1 ignored。
+- 关联: R-321 D-689
+- 收尾: 1787322155
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@d37c01b2d310,crates/kanzei-app/src/state_tests.rs@bcfda5e0fdf5,crates/kanzei-tools/src/incident.rs@fd749a57a12f,scripts/ipc-contract.json@28f16685dfd0,scripts/ui-lint-globals.json@9ec384771309,scripts/ui-runtime-smoke.mjs@0f8f1bb9170e
+
+## T-1786922726742 R-321 B3 app 当前提交前定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.5s
+- 摘要: 当前最终源码指纹上的 app 定向测试通过：245 passed、0 failed；docs_snapshot IPC contract 与 incident_metrics 投影均通过。
+- 关联: R-321 D-688
+- 收尾: 1787322297
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@d37c01b2d310,crates/kanzei-app/src/state_tests.rs@bcfda5e0fdf5,crates/kanzei-tools/src/incident.rs@fd749a57a12f,scripts/ipc-contract.json@28f16685dfd0,scripts/ui-lint-globals.json@9ec384771309,scripts/ui-runtime-smoke.mjs@0f8f1bb9170e

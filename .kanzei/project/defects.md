@@ -123,3 +123,21 @@
 - 进展: 待将 IncidentEventType 的手写 Default 改为 derive(Default)，重跑 fmt/clippy 与提交门禁。
 - refs: R-321
 - 优先级: P2
+
+## D-688 docs_snapshot 新增 incident_metrics 未同步 IPC 形状契约 [open] (medium)
+- 复现: 修改 docs_snapshot 返回 incident_metrics 后运行 cargo test -p kanzei-app，ipc_contract::tests::docs_snapshot_形状与ipc契约一致 失败，实际形状多出 incident_metrics。
+- 影响: IPC 契约守护阻止 app crate 全绿，前端新增指标字段未被契约文件登记。
+- 来源: self-found：R-321 B3 接入 docs_snapshot 后的 app 定向测试。
+- 标签: 核心
+- 验收: 同步 scripts/ipc-contract.json 与 docs_snapshot 实际形状；cargo test -p kanzei-app 全部通过。
+- refs: R-321
+- 优先级: P1
+
+## D-689 事件分类指标 UI 未同步 i18n 全局探针与 IPC 冒烟 fixture [open] (medium)
+- 复现: 新增事件分类指标 UI 后运行完整前端验证链：ui-runtime-smoke 报 12 个动态 i18n key 缺失、8 个 docs_snapshot fixture 字段缺失；ui-lint-smoke 报 INCIDENT_CLASS_LABELS/formatIncidentDuration/renderIncidentMetrics 未进入 ui-lint-globals.json；ui-i18n-smoke 报同一批 key 未进入资源表。
+- 影响: 指标 UI 的真实运行时冒烟、i18n 和 no-undef 门禁不能通过，新增 UI 尚未形成可提交的验证闭环。
+- 来源: self-found：R-321 B3 前端六条 smoke。
+- 标签: 前端
+- 验收: 补齐动态 i18n 资源、重新生成 ui-lint-globals.json、同步 docs_snapshot fixture 的完整 incident_metrics 形状；node --check 与六条前端 smoke 全部通过。
+- refs: R-321
+- 优先级: P1
