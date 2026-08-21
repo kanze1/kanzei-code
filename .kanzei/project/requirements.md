@@ -329,10 +329,10 @@
 - 先行调研: .kanzei/research/r322-prior-art/prior-art.md
 - 优先级: P1
 - 批次: 1/3
-- 进展: B1 已落地(commit 4f0f46a0):HarnessIntensity{Paired,Autonomous}+IntensityPolicy(auto_run.rs)、AutoStopReason::ModelDeclaredDone、work handoff 动作、MetricsSink 事件收口、coordinator/assembly 接线、RunnerConfig.intensity 门控 RedundancyWatch、UI 只读强度徽标与 i18n。测试:harness 162 通过(含 7 条新增)、core 242、app 236、workspace 15 个测试二进制全绿,clippy -D warnings 干净。剩余 B2=用户可覆盖强度(需 processes 表列,与 phase_pipeline_enabled 合并评估)、B3=真机验收证据
+- 进展: B1 已落地(commit 4f0f46a0):HarnessIntensity{Paired,Autonomous}+IntensityPolicy、AutoStopReason::ModelDeclaredDone、work handoff、MetricsSink 事件收口、coordinator/assembly 接线、RunnerConfig.intensity 门控 RedundancyWatch、UI 只读强度徽标。测试 workspace 15 个二进制全绿,clippy -D warnings 干净。【已知缺口,B2 必须处理】decide() 里 auto_allowed 检查排在强度策略之前,而 auto_allowed 要求 agent==dev,因此 Paired 档永远先 Stop(ProfileMismatch),policy.engine_nudge 与 policy.verify_rounds 在生产路径上目前不可达——只有 redundancy_hints 经 RunnerConfig 真正生效。要让轻档 loop 真正可观察,需允许结伴档在用户显式开启鞭挞时以轻控制续跑(涉及 R-199 判据与 08-compose.js 强制切档逻辑),属产品决策,待用户拍板
 - observed_head: 4f0f46a0c252556f3d77f7cedfe4a137eee6dea5
 - observed_worktree_hash: fnv1a64:c7cc7013afe35e6f
-- recorded_at: 1787274288932
+- recorded_at: 1787274339989
 
 ## R-323 工具编排抽象层：模型声明执行计划 [todo]
 - 原始描述: 外部评估 #2：Harness 的保守规则可能成为模型能力的上限。用户定调：提供底层工具+一层抽象层，让模型去编排

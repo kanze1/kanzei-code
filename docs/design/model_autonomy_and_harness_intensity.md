@@ -195,6 +195,14 @@ TODO:随 R-322 批次落地补齐(单测锚点:强度分档行为差异、模型
 
 ## TODO 与后续风险
 
+- **【B1 已知缺口】轻档 loop 目前不可达**:`decide()` 的 `auto_allowed` 检查排在
+  强度策略之前,而 `auto_allowed` 要求 `agent == "dev"`,于是 `Paired` 档永远先
+  `Stop(ProfileMismatch)`——`policy.engine_nudge` 与 `policy.verify_rounds` 在生产
+  路径上还观察不到,只有 `redundancy_hints`(经 `RunnerConfig`,不走 `decide()`)真正
+  生效。用户「系统级 loop 之外要有简单 loop」的诉求要落地,必须允许结伴档在用户
+  显式开启鞭挞时以轻控制续跑,这会改动 R-199 的判据与 `08-compose.js` 里
+  「勾选鞭挞即强制切到 dev-auto」的逻辑。属产品决策,B2 待用户拍板后执行。
+
 - **#6 Memory 复杂度(挂起)**:评估指出记忆控制平面可能让可调试性下降——
   「为什么今天它突然做了这个错误决定」的答案可能是「召回了一条六天前的错误 memory」,
   于是确定性 harness 之上重新引入了大的随机成分。用户定调「暂时无法确定」。
