@@ -208,10 +208,7 @@ pub fn run_once_with_parts<'a>(
         let round_messages_for_events = std::sync::Arc::clone(&round_messages);
         let outer_on_event = on_event;
         let mut on_event = move |event: RunEvent| {
-            record_round_message(
-                &mut round_messages_for_events.lock().unwrap(),
-                &event,
-            );
+            record_round_message(&mut round_messages_for_events.lock().unwrap(), &event);
             outer_on_event(event);
         };
         let halt = config.halt.as_ref();
