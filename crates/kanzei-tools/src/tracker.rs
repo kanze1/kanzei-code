@@ -192,6 +192,7 @@ impl Tool for TrackerTool {
         let mut schema = serde_json::to_value(schemars::schema_for!(TrackerInput)).unwrap();
         let mut actions = vec![
             "list",
+            "audit_acceptance_scope",
             "get",
             "raw_lines",
             "add",
@@ -433,6 +434,9 @@ impl Tool for TrackerTool {
 
         let mut output = match input.action.as_str() {
             "list" => actions::list(self, input, ctx, &store, &mut entries),
+            "audit_acceptance_scope" => {
+                actions::audit_acceptance_scope(self, input, ctx, &store, &mut entries)
+            }
             "get" => actions::get(self, input, ctx, &store, &mut entries),
             // R-201:列出条目的游离行——模板里不可寻址的 Raw 行,update 永远删不到。
             // 每条给 [n] 序号 + 原文,序号即 raw_delete 的键;空行显式标出避免看不见。
@@ -725,6 +729,87 @@ impl TrackerTool {
             None
         } else {
             Some(format!("invalid complexity `{value}`; valid: 小 | 中 | 大"))
+        }
+    }
+
+    /// R-315 B1/B2:验收条款开放度与复杂度必须一致。这里故意采用保守的
+    /// 文本模式而不是自然语言推断:命中「全量/所有/全库/逐一核对并修复」等
+    /// 开放式审计词即视为开放条款,小/中条目在 add 与 update/close 修订路径拒绝。
+    pub(super) fn acceptance_scope_markers(value: &str) -> Vec<&'static str> {
+        const MARKERS: &[&str] = &[
+            "逐一核对并修复",
+            "逐项核对并修复",
+            "审计全库",
+            "全库审计",
+            "全量",
+            "所有",
+            "全部",
+            "全库",
+        ];
+        let compact: String = value.chars().filter(|ch| !ch.is_whitespace()).collect();
+        MARKERS
+            .iter()
+            .copied()
+            .filter(|marker| compact.contains(marker))
+            .collect()
+    }
+
+    fn check_acceptance_scope<'a, I>(&self, fields: I) -> Result<(), String>
+    where
+        I: Iterator<Item = (&'a String, &'a String)> + Clone,
+    {
+        if self.kind.prefix != "R" {
+            return Ok(());
+        }
+        let Some(acceptance) = Self::field_value(fields.clone(), &["验收", "acceptance"]) else {
+            return Ok(());
+        };
+        let markers = Self::acceptance_scope_markers(acceptance);
+        if markers.is_empty() {
+            return Ok(());
+        }
+        let complexity = Self::field_value(fields, &["复杂度", "complexity"]);
+        match complexity {
+            Some("大") => Ok(()),
+            Some(value @ ("小" | "中")) => Err(format!(
+                "条款过开放:复杂度 `{value}` 的验收含开放式全量审计词 `{}`；请拆分为独立条目或提升复杂度",
+                markers.join("、")
+            )),
+            Some(other) => Err(format!(
+                "验收开放度无法判定:复杂度 `{other}` 非法；请先填写 小 | 中 | 大"
+            )),
+            None => Err(format!(
+                "验收条款含开放式全量审计词 `{}` 但缺少复杂度；请先填写复杂度，或拆分为独立条目",
+                markers.join("、")
+            )),
+        }
+    }
+
+    /// R-315 B4:供 audit_acceptance_scope 读取活动与归档需求,只报告需要处置的
+    /// 小/中开放条款或缺复杂度条款;大条目是允许范围,不进入不匹配清单。
+    pub(super) fn acceptance_scope_finding(entry: &Entry) -> Option<String> {
+        let acceptance = Self::field_value(
+            entry.fields.iter().map(|(key, value)| (key, value)),
+            &["验收", "acceptance"],
+        )?;
+        let markers = Self::acceptance_scope_markers(acceptance);
+        if markers.is_empty() {
+            return None;
+        }
+        let complexity = Self::field_value(
+            entry.fields.iter().map(|(key, value)| (key, value)),
+            &["复杂度", "complexity"],
+        );
+        match complexity {
+            Some("大") => None,
+            Some(value) => Some(format!(
+                "复杂度 `{value}` 命中开放式全量审计词: {}",
+                markers.join("、")
+            )),
+            None => Some(format!(
+                "缺少复杂度但命中开放式全量审计词: {}",
+                markers.join("、")
+            )),
         }
     }
 
@@ -2511,6 +2596,191 @@ mod tests {
             )
             .await;
         assert!(out.is_error, "归档无此 ID 应拒绝: {}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn r315_acceptance_scope_blocks_small_medium_patch_and_reports_history() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-r315-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        // D-568 历史形态重放:小复杂度承载「全量 INDEX」必须在登记时拒绝。
+        let out = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "历史全库核对",
+                    "priority": "P2",
+                    "tag": "流程",
+                    "complexity": "小",
+                    "fields": {"验收": "③全量 INDEX 行与对应 M-*.md 做一次机械一致性核对并修复"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "D-568 形态应被登记门禁拦截: {}", out.content);
+        assert!(out.content.contains("条款过开放"), "{}", out.content);
+
+        // 中复杂度也不能用开放式全库审计逃避拆分。
+        let out = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "中复杂度全库核对",
+                    "priority": "P2",
+                    "tag": "流程",
+                    "complexity": "中",
+                    "fields": {
+                        "验收": "①所有记录逐一核对并修复",
+                        "来源": "用户原话「所有记录逐一核对并修复」",
+                        "发现记录": discovery_record()
+                    }
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "中复杂度开放条款应被拒: {}", out.content);
+        assert!(out.content.contains("条款过开放"), "{}", out.content);
+
+        // 大复杂度是允许承载开放条款的边界,登记仍必须成功。
+        let out = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "大复杂度全库核对",
+                    "priority": "P2",
+                    "tag": "流程",
+                    "complexity": "大",
+                    "fields": {
+                        "验收": "①全量记录核对并修复",
+                        "来源": "用户原话「全量记录核对并修复」",
+                        "发现记录": discovery_record()
+                    }
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "大复杂度开放条款应放行: {}", out.content);
+
+        // 修订路径同样受门禁约束,不是只有 add 才拦。
+        let out = tool
+            .execute(
+                json!({
+                    "action": "close",
+                    "id": "R-001",
+                    "fields": {"进展": "①已完成，T-123 crates/kanzei-tools/src/tracker.rs:1"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            out.is_error && out.content.contains("覆盖清单"),
+            "大复杂度开放条款不能只用单点锚关闭: {}",
+            out.content
+        );
+        let out = tool
+            .execute(
+                json!({
+                    "action": "close",
+                    "id": "R-001",
+                    "fields": {"进展": "①覆盖清单: INDEX 1 项；合计 1 项，T-123 crates/kanzei-tools/src/tracker.rs:1"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !out.is_error,
+            "带覆盖清单与计数后应允许关闭: {}",
+            out.content
+        );
+
+        // 修订路径同样受门禁约束,不是只有 add 才拦。
+        let out = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "可修订条目",
+                    "priority": "P2",
+                    "tag": "流程",
+                    "complexity": "小",
+                    "fields": {"验收": "①完成指定文件修改"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "封闭条款条目应先登记: {}", out.content);
+        let out = tool
+            .execute(
+                json!({
+                    "action": "update",
+                    "id": "R-002",
+                    "fields": {"验收": "①所有文件逐一核对并修复"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            out.is_error,
+            "验收 patch 不得绕过复杂度门禁: {}",
+            out.content
+        );
+        assert!(out.content.contains("条款过开放"), "{}", out.content);
+
+        // B4 扫描器读取活动存量并只列不匹配项,大复杂度开放条款不误报。
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        store
+            .save(&[
+                Entry {
+                    id: "R-001".into(),
+                    title: "存量小条目".into(),
+                    status: "todo".into(),
+                    severity: None,
+                    fields: vec![
+                        ("复杂度".into(), "小".into()),
+                        ("验收".into(), "①全量 INDEX 核对".into()),
+                    ],
+                },
+                Entry {
+                    id: "R-002".into(),
+                    title: "存量大条目".into(),
+                    status: "todo".into(),
+                    severity: None,
+                    fields: vec![
+                        ("复杂度".into(), "大".into()),
+                        ("验收".into(), "①全量 INDEX 核对".into()),
+                    ],
+                },
+            ])
+            .unwrap();
+        let report = tool
+            .execute(json!({"action": "audit_acceptance_scope"}), &ctx)
+            .await;
+        assert!(!report.is_error, "扫描器应成功: {}", report.content);
+        assert!(
+            report.content.contains("\"mismatch_count\": 1"),
+            "{}",
+            report.content
+        );
+        assert!(report.content.contains("R-001"), "{}", report.content);
+        assert!(
+            !report.content.contains("存量大条目"),
+            "大复杂度不应列入不匹配: {}",
+            report.content
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

@@ -13,8 +13,9 @@ pub(crate) mod maintenance;
 mod action_helpers;
 use action_helpers::{
     archived_or_unknown, check_close_acceptance_reconciliation,
-    check_close_classification_evidence, check_close_source_ancestry, close_requires_verify,
-    field_diff_summary, render_line, unknown_id, user_visible_fields,
+    check_close_classification_evidence, check_close_complexity_evidence,
+    check_close_source_ancestry, close_requires_verify, field_diff_summary, render_line,
+    unknown_id, user_visible_fields,
 };
 
 pub(crate) fn list(
@@ -55,6 +56,49 @@ pub(crate) fn list(
             "deadlocked": deadlocked,
             "deadlock_guidance": deadlocked.then(|| deadlock_banner(scheduled.len(), tool.noun)),
             "entries": items,
+        }))
+        .unwrap(),
+    )
+}
+
+pub(crate) fn audit_acceptance_scope(
+    tool: &TrackerTool,
+    _input: TrackerInput,
+    _ctx: &ToolCtx,
+    store: &DocStore,
+    entries: &mut [Entry],
+) -> ToolOutput {
+    if tool.kind.prefix != "R" {
+        return ToolOutput::error("audit_acceptance_scope 只适用于 requirement");
+    }
+    let archived = match store.load_archive() {
+        Ok(entries) => entries,
+        Err(error) => return ToolOutput::error(format!("cannot read archive: {error}")),
+    };
+    let mut mismatches = Vec::new();
+    let mut collect = |region: &str, source: &[Entry]| {
+        for entry in source {
+            if let Some(reason) = TrackerTool::acceptance_scope_finding(entry) {
+                mismatches.push(serde_json::json!({
+                    "id": entry.id,
+                    "title": entry.title,
+                    "region": region,
+                    "complexity": entry.fields.iter().find(|(key, _)|
+                        key == "复杂度" || key.eq_ignore_ascii_case("complexity")
+                    ).map(|(_, value)| value),
+                    "reason": reason,
+                }));
+            }
+        }
+    };
+    collect("active", entries);
+    collect("archive", &archived);
+    ToolOutput::ok(
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": 1,
+            "kind": "requirement",
+            "mismatch_count": mismatches.len(),
+            "mismatches": mismatches,
         }))
         .unwrap(),
     )
@@ -252,6 +296,9 @@ pub(crate) fn add(
     if let Some(complexity_err) = tool.check_complexity(&input.fields) {
         return ToolOutput::error(complexity_err);
     }
+    if let Err(error) = tool.check_acceptance_scope(input.fields.iter()) {
+        return ToolOutput::error(error);
+    }
     // 新建没有既有批次值:严格按上限约束。
     if let Some(batch_err) = tool.check_batches(&input.fields, None) {
         return ToolOutput::error(batch_err);
@@ -346,6 +393,27 @@ pub(crate) fn update_close(
     // observed_worktree_hash)是引擎维护的仓库指纹,不属于用户可见变更,
     // 同值 update 连锚点都不刷新(文件零写入,验收①)。
     let before = entries[pos].clone();
+    if input
+        .fields
+        .keys()
+        .any(|key| key == "验收" || key.eq_ignore_ascii_case("acceptance"))
+    {
+        let mut merged_fields = before.fields.clone();
+        for (key, value) in &input.fields {
+            match merged_fields
+                .iter_mut()
+                .find(|(candidate, _)| candidate == key || candidate.eq_ignore_ascii_case(key))
+            {
+                Some((_, slot)) => *slot = value.clone(),
+                None => merged_fields.push((key.clone(), value.clone())),
+            }
+        }
+        if let Err(error) =
+            tool.check_acceptance_scope(merged_fields.iter().map(|(key, value)| (key, value)))
+        {
+            return ToolOutput::error(format!("{id} {error}"));
+        }
+    }
     // R-232 验收③:close 幂等重入——已终态(done/fixed)条目再次 close
     // 不是新关闭,不重跑关闭门禁(前端冒烟/分类断言/批次/测试记录校验),
     // 目标仍是当前终态;字段合并照常,让"补字段的重入"可写。
@@ -459,6 +527,9 @@ pub(crate) fn update_close(
             // 产出 D-320/D-323;无分类断言的关闭不受影响。)
             if let Some(evidence_err) = check_close_classification_evidence(&merged) {
                 return ToolOutput::error(format!("{id} {evidence_err}"));
+            }
+            if let Some(complexity_err) = check_close_complexity_evidence(&merged) {
+                return ToolOutput::error(format!("{id} {complexity_err}"));
             }
             // 2026-08-16 审计门禁:验收条款对账——带圈条款号必须在进展中逐条覆盖
             // 并带证据锚,沉默降级即拒(详见函数注释;真伪由波次审计另查)。

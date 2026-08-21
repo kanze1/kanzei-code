@@ -9577,3 +9577,35 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-314
 - 收尾: 1787301953
 - 源码指纹: v2 scripts/ui-lint-globals.json@2343652a9326,scripts/ui-runtime-smoke.mjs@d55d292ed079
+
+## T-1786922726681 R-315 验收条款分级定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools r315_acceptance_scope_blocks_small_medium_patch_and_reports_history --lib
+- 时长: 8.0s
+- 摘要: R-315 定向回归通过：开放条款识别、小/中复杂度 add 拒绝、大复杂度 add 放行、update 验收 patch 拒绝、close 覆盖清单/计数证据门禁先拒后放、存量扫描均通过；格式检查通过。
+- 关联: R-315 D-673 D-674
+- 收尾: 1787302775
+- 源码指纹: v2 crates/kanzei-harness/assets/default_conventions.md@e0d34435715c,crates/kanzei-tools/src/tracker.rs@ca7e5f3cdd99,crates/kanzei-tools/src/tracker/actions.rs@7142223829c7,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@91811a5a4d09
+
+## T-1786922726682 R-315 kanzei-tools 完整定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 42.5s
+- 摘要: kanzei-tools 完整定向套件通过：473 passed，0 failed，1 ignored；包含 tracker、close gate、profiles、test_record 等回归。测试夹具产生的 git LF warning/fatal 非项目根测试失败，不影响最终测试结果。
+- 关联: R-315 D-673 D-674
+- 收尾: 1787302829
+- 源码指纹: v2 crates/kanzei-harness/assets/default_conventions.md@e0d34435715c,crates/kanzei-tools/src/tracker.rs@ca7e5f3cdd99,crates/kanzei-tools/src/tracker/actions.rs@7142223829c7,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@91811a5a4d09
+
+## T-1786922726683 R-315 真实存量验收开放度扫描 [passed]
+- 命令: cargo run -p kanzei -- req audit_acceptance_scope
+- 时长: 11.4s
+- 摘要: 真实项目根扫描活动与归档 requirements，输出 schema_version=1、mismatch_count=34；清单列出 R-315/R-320 及归档 R-037/R-040 等 32 条复杂度与开放度不匹配项，未自动修改存量。该输出证明扫描器有真实 CLI 消费者。
+- 关联: R-315
+- 收尾: 1787302889
+- 源码指纹: v2 crates/kanzei-harness/assets/default_conventions.md@e0d34435715c,crates/kanzei-tools/src/tracker.rs@ca7e5f3cdd99,crates/kanzei-tools/src/tracker/actions.rs@7142223829c7,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@91811a5a4d09
+
+## T-1786922726684 R-315 kanzei-harness 规则资产回归 [passed]
+- 命令: cargo test -p kanzei-harness
+- 时长: 2.1s
+- 摘要: 通用规则资产所在 crate 定向回归通过：171 passed，0 failed，0 ignored；DEFAULT_CONVENTIONS 编译注入与 profiles/conventions 规则测试均通过。
+- 关联: R-315
+- 收尾: 1787303006
+- 源码指纹: v2 crates/kanzei-harness/assets/default_conventions.md@e0d34435715c,crates/kanzei-tools/src/tracker.rs@ca7e5f3cdd99,crates/kanzei-tools/src/tracker/actions.rs@7142223829c7,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@91811a5a4d09

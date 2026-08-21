@@ -8281,3 +8281,27 @@
 - observed_head: 9080b5e5b54926262bb2ade674fbe162bd29b774
 - observed_worktree_hash: fnv1a64:1cbb497de46e013b
 - recorded_at: 1787301324921
+
+## D-673 R-315 验收 patch 合并字段迭代器类型不匹配导致 kanzei-tools 编译失败 [fixed] (medium)
+- 复现: 执行 cargo test -p kanzei-tools r315_acceptance_scope_blocks_small_medium_patch_and_reports_history --lib；tracker/actions.rs:410 将 Vec<(String,String)>::iter() 直接传给要求 Item=(&String,&String) 的 check_acceptance_scope，触发 E0271。
+- 影响: R-315 的 update 验收字段修订门禁无法编译，定向测试不能运行。
+- 来源: self-found；本轮定向 cargo test 编译输出。
+- 标签: 核心
+- refs: R-315
+- 优先级: P2
+- 进展: 根因已修复：crates/kanzei-tools/src/tracker/actions.rs:410-412 将 merged_fields.iter() 映射为借用 tuple 迭代器后通过 check_acceptance_scope；证据 T-1786922726681 定向回归通过，T-1786922726682 完整 kanzei-tools 回归 473 passed。复现与影响均已消失。
+- observed_head: 46831d94d7149a49199ebc52df5e88e3e86158ce
+- observed_worktree_hash: fnv1a64:4896c9829eea1c37
+- recorded_at: 1787302937644
+
+## D-674 R-315 close 回归测试插入点缺少换行导致 tracker.rs 语法错误 [fixed] (low)
+- 复现: 执行 cargo fmt --all -- --check；tracker.rs:2679 的测试插入点将注释与 `let out` 拼接为同一行，触发 expected expression。
+- 影响: R-315 close 证据回归测试无法解析，定向测试不能运行。
+- 来源: self-found；本轮 cargo fmt 语法检查输出。
+- 标签: 核心
+- refs: R-315
+- 优先级: P2
+- 进展: 根因已修复：crates/kanzei-tools/src/tracker.rs:2679-2680 恢复测试注释与 let out 的换行；证据 T-1786922726681 定向回归通过，T-1786922726682 完整 kanzei-tools 回归 473 passed。tracker.rs 已能解析，复现与影响均已消失。
+- observed_head: 46831d94d7149a49199ebc52df5e88e3e86158ce
+- observed_worktree_hash: fnv1a64:4896c9829eea1c37
+- recorded_at: 1787302958276

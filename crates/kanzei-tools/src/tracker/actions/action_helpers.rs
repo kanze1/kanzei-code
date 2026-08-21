@@ -194,6 +194,50 @@ pub(super) fn check_close_classification_evidence(entry: &Entry) -> Option<Strin
     }
 }
 
+/// R-315 B3:大复杂度条款可以开放,但不能用单个 file:line 或测试号冒充
+/// 全库覆盖。关闭证据必须出现覆盖清单/覆盖范围,或带数字的计数表达。
+pub(super) fn check_close_complexity_evidence(entry: &Entry) -> Option<String> {
+    let complexity = entry
+        .fields
+        .iter()
+        .find(|(key, _)| key == "复杂度" || key.eq_ignore_ascii_case("complexity"))
+        .map(|(_, value)| value.trim());
+    if complexity != Some("大") {
+        return None;
+    }
+    let acceptance = entry
+        .fields
+        .iter()
+        .find(|(key, _)| key == "验收" || key.eq_ignore_ascii_case("acceptance"))
+        .map(|(_, value)| value.as_str())
+        .unwrap_or("");
+    let markers = super::super::TrackerTool::acceptance_scope_markers(acceptance);
+    if markers.is_empty() {
+        return None;
+    }
+    let progress = entry
+        .fields
+        .iter()
+        .find(|(key, _)| key == "进展")
+        .map(|(_, value)| value.as_str())
+        .unwrap_or("");
+    let has_coverage_list = ["清单", "覆盖范围", "覆盖列表"]
+        .iter()
+        .any(|word| progress.contains(word));
+    let has_count = progress.chars().any(|ch| ch.is_ascii_digit())
+        && ["计数", "合计", "共"]
+            .iter()
+            .any(|word| progress.contains(word));
+    if has_coverage_list || has_count {
+        None
+    } else {
+        Some(format!(
+            "大复杂度开放式验收命中 `{}`，关闭进展必须给出真实覆盖清单/覆盖范围或带数字的计数，不能只给 file:line/T- 测试锚",
+            markers.join("、")
+        ))
+    }
+}
+
 /// 2026-08-16 审计门禁(D-389/D-401 一类的机制化):验收条款对账。
 /// 验收字段用带圈数字(①…⑳)列条款时,关闭时的进展字段必须逐条覆盖:每个条款号
 /// 至少出现一次,且其后到下一个条款号(至多 400 字符)内带证据锚——T- 测试记录、

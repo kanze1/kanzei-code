@@ -4275,3 +4275,21 @@
 - observed_head: 5908665fa20e9f63803ddbdff8c6f3cc93e9297a
 - observed_worktree_hash: fnv1a64:d405c3ef94c2a719
 - recorded_at: 1787301777903
+
+## R-315 验收条款分级策略:复杂度与条款开放度联动,登记/修订时机械把关 [done]
+- 复杂度: 中
+- 标签: 核心 流程
+- 来源: 2026-08-20 用户复盘 D-568 处理过程:验收②在"复杂度:小"条目下挂了开放式全库审计条款("全量 INDEX 行与对应 M-*.md 做一次机械一致性核对并修复"),触发 tracker.rs 验收条款对账门禁后,单个小缺陷被迫展开为跨历史提交的全量审计并派生出新缺陷 D-590,用户反馈"每轮会话结束,每个条目的每个验收都要求测试背书太严厉,推进效率非常慢"。诊断:门禁本身有效(同轮确实抓到真实数据污染和新 regex bug),真正缺口是验收条款在登记/修订时没有"复杂度 vs 条款开放度"的一致性校验,导致小条目能背上大条目量级的验收。用户确认方向:"不同复杂度的验收策略也应该分级"。
+- refs: D-568 D-590 R-313 crates/kanzei-tools/src/tracker.rs default_conventions.md
+- 内容: 批1 定义开放度分级:识别验收条款文本中的"全量/所有/逐一核对并修复/审计全库"等开放式量词模式,与复杂度字段(小/中/大)建立映射规则——小复杂度不得含开放式全量审计类条款;批2 登记(add)与修订(patch 改验收字段)时机械校验,命中即拒绝并提示"条款过开放,请拆分为独立条目或提升复杂度";批3 验收证据强度本身也按复杂度分级——小复杂度允许 file:line 级证据,大复杂度的开放式核对类条款要求真实覆盖清单或计数,写入 default_conventions.md;批4 存量条目扫描,标出复杂度与条款开放度不匹配的既有 defects/requirements,不强制刷新但登记为待观察清单
+- 边界: 不放松现有"沉默跳过即拒"的证据锚门禁本身;不禁止条目中途发现更大范围问题——中途发现走"另开条目"(D-590 那样)是正确路径,本条只是把这个纠正提前到登记/修订时机械挡住,而不是让 agent 先掉进坑里才发现
+- 验收: ①小/中复杂度条目登记或修订验收字段时含开放式全量审计类条款被拒,有定向测试;②验收证据强度按复杂度分级的规则写入 default_conventions.md;③D-568 这类真实历史案例重放校验会被正确拦下,有回归用例;④存量条目扫描产出不匹配清单
+- 优先级: P1
+- 批次: 4/4
+- 批次表: B1 开放式全量审计条款识别与复杂度映射；B2 add 与验收字段 patch 修订路径的机械拒绝及定向回归；B3 按复杂度分级的验收证据规则写入 default_conventions.md 并接入门禁；B4 存量条目扫描生成不匹配清单、补齐历史案例回归并收口。
+- 取活依据: engine:唯一可执行 WIP 是 R-315，必须先恢复它
+- 停车: 
+- 进展: R-315 B1-B4 已全部落地，验收逐条对照：①小/中复杂度开放式验收在 add 与验收字段 update patch 拒绝，代码 crates/kanzei-tools/src/tracker.rs:738-785、crates/kanzei-tools/src/tracker/actions.rs:299-300 与 410-414，定向证据 T-1786922726681；②复杂度分级规则已写入 crates/kanzei-harness/assets/default_conventions.md:48，大复杂度 close 证据门禁在 crates/kanzei-tools/src/tracker/actions/action_helpers.rs:197-238 并由 actions.rs:531-533 接线，完整 kanzei-tools 回归 T-1786922726682；③D-568 原文「全量 INDEX 行与对应 M-*.md 做一次机械一致性核对并修复」重放被拒，回归测试 tracker.rs:2603-2670，证据 T-1786922726681；④真实 CLI `cargo run -p kanzei -- req audit_acceptance_scope` 扫描活动与归档 requirements，输出 schema_version=1、mismatch_count=34，列出 R-315/R-320 与归档 R-037/R-040/R-048 等存量不匹配清单且不自动修改，证据 T-1786922726683。既有能力：tracker 的状态迁移、验收对账与 test_record；本次交付：开放度识别、登记/修订拒绝、分级 close 门禁和真实 CLI 扫描。
+- observed_head: 46831d94d7149a49199ebc52df5e88e3e86158ce
+- observed_worktree_hash: fnv1a64:4896c9829eea1c37
+- recorded_at: 1787302921547
