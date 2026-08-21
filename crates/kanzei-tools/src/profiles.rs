@@ -1262,9 +1262,9 @@ mod tests {
         assert_eq!(glob.effect, Effect::Allow);
     }
 
-    /// R-102 批2:readonly 档位权限强制——写与命令硬 deny 且带替代指引。
+    /// D-663/R-102 批2:readonly 档位权限强制——写入、命令与专用副作用工具硬 deny 且带替代指引。
     #[test]
-    fn readonly_profile_hard_denies_write_and_bash() {
+    fn readonly_profile_hard_denies_writes_commands_and_side_effect_tools() {
         let root = PathBuf::from("C:/kanzei-r102-deny");
         let ctx = ResolveCtx {
             profile: ProfileKind::Readonly,
@@ -1281,8 +1281,10 @@ mod tests {
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
 
-        // 写与命令:整体 deny(工具会被摘除,模型看不见)。
-        for action in ["write", "edit", "insert", "bash"] {
+        // 写入、命令与专用副作用工具:整体 deny(工具会被摘除,模型看不见)。
+        for action in [
+            "write", "edit", "insert", "bash", "process", "browser", "latex", "plot",
+        ] {
             assert_eq!(
                 snapshot.evaluate(action, "*"),
                 Effect::Deny,
@@ -1310,13 +1312,15 @@ mod tests {
                 "git {subcommand} 应放行"
             );
         }
-        // 工具物化:write/edit/bash 从工具表摘除,模型根本拿不到。
+        // 工具物化:所有写入、命令与专用副作用工具从工具表摘除,模型根本拿不到。
         let names: Vec<&str> = snapshot
             .materialize_tools()
             .iter()
             .map(|t| t.name())
             .collect();
-        for gone in ["write", "edit", "insert", "bash"] {
+        for gone in [
+            "write", "edit", "insert", "bash", "process", "browser", "latex", "plot",
+        ] {
             assert!(
                 !names.contains(&gone),
                 "{gone} 应被整体摘除,实际工具表: {names:?}"
@@ -1331,8 +1335,10 @@ mod tests {
                 .find(|s| s.action == action)
                 .unwrap_or_else(|| panic!("快照里缺少 {action}"))
         };
-        // 写/命令:Deny 且 fully_denied(工具整体摘除)。
-        for action in ["write", "edit", "insert", "bash"] {
+        // 写入、命令与专用副作用工具:Deny 且 fully_denied(工具整体摘除)。
+        for action in [
+            "write", "edit", "insert", "bash", "process", "browser", "latex", "plot",
+        ] {
             let item = by_action(action);
             assert_eq!(item.effect, Effect::Deny, "{action} 快照应为 Deny");
             assert!(item.fully_denied, "{action} 快照应标记 fully_denied");

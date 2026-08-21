@@ -8174,3 +8174,14 @@
 - observed_head: bee53bd53a5565d34809eab6ab6ce7e0eada4da4
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787294287001
+
+## D-663 readonly 档写与命令通道漏网:plot/latex/process/browser 仅 Ask [fixed] (medium)
+- 原始描述: D-662 工具面预算测试(R-323 勘察)顺带发现。readonly 档位契约写的是「read/glob/grep/task 放行，写与命令硬拒绝」，但硬拒名单按工具名逐个列举，新增写/命令类工具不会自动纳入。非交互轮会被 declined 所以暴露面限于交互轮
+- 复现: 以 ProfileKind::Readonly 解析 harness 后 materialize_tools() 得 15 个工具，其中 plot(crates/kanzei-tools/src/plot_tool.rs:294,393 生产路径 std::fs::write)、latex(latex_tool.rs:351 std::process::Command::new)、process、browser 均未被 readonly.rs 的 push_managed_hard_deny 覆盖(该列表只有 write/edit/insert/bash)，落到 Ruleset 无匹配的默认 Ask。交互轮用户点允许即可在只读档写文件/起进程
+- 标签: 核心
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-663(unblocks=0)
+- 进展: 结项对账：本次交付在 crates/kanzei-tools/src/profiles/readonly.rs:29-40 将 process、browser、latex、plot 与 write/edit/insert/bash 一并注册为 managed hard deny，避免这些既有工具的写文件/起进程路径落到默认 Ask；:51-56 同步 readonly agent 文案。回归测试在 crates/kanzei-tools/src/profiles.rs:1265-1345 扩展，逐项断言 8 个副作用工具为 Deny、fully_denied、从 materialize_tools 摘除，同时断言 read/glob/grep/files/webfetch 与 git status/diff/log 仍放行。原复现的 plot 写文件路径 crates/kanzei-tools/src/plot_tool.rs:294,393、latex 起进程路径 crates/kanzei-tools/src/latex_tool.rs:351 及 process/browser 均由规则覆盖；工具实现是既有能力，本次交付仅修正 Readonly 权限边界。证据：T-1786922726656 定向测试通过；T-1786922726657 cargo test -p kanzei-tools 通过（460 passed, 1 ignored）。
+- observed_head: bee53bd53a5565d34809eab6ab6ce7e0eada4da4
+- observed_worktree_hash: fnv1a64:4a88884bb1e7e59d
+- recorded_at: 1787294789759

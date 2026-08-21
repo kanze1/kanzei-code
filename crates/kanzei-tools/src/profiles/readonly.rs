@@ -26,14 +26,17 @@ impl Component for ReadonlyProfile {
         }
         // 只读档位下联网抓取放行(分析"外部事实"时的主要只读通道)。
         draft.permissions.push(rule("webfetch", "*", Effect::Allow));
-        // 写与命令:硬 deny 且带合法替代指引——硬 deny 只说"不准走这条路",
+        // 写入、命令与专用副作用工具:硬 deny 且带合法替代指引——硬 deny 只说"不准走这条路",
         // 不说"那该怎么走"就是能力死区,模型会去找旁路(D-173)。
         // 用 ManagedResource 而非裸 push_hard_deny,拒绝理由能点名替代工具。
-        for action in ["write", "edit", "insert", "bash"] {
+        // D-663:process/browser/latex/plot 也会启动进程或落盘,不能落到默认 Ask。
+        for action in [
+            "write", "edit", "insert", "bash", "process", "browser", "latex", "plot",
+        ] {
             draft.permissions.push_managed_hard_deny(
                 rule(action, "*", Effect::Deny),
                 None,
-                Some("只读档位:write/edit/insert/bash 一律禁止;需要结果请用 read/glob/grep/files/git status|diff|log/webfetch 观察,确需修改则告诉用户手动执行"),
+                Some("只读档位:write/edit/insert/bash/process/browser/latex/plot 一律禁止;需要结果请用 read/glob/grep/files/git status|diff|log/webfetch 观察,确需修改或执行副作用命令则告诉用户手动执行"),
             );
         }
         // task 子代理天然只读(SubagentBase 快照),无需规则——runner 直接放行。
@@ -47,10 +50,10 @@ impl Component for ReadonlyProfile {
                 steps: 0,
                 system: "You are the read-only analysis agent. You may READ, SEARCH and \
                          EXPLORE the repository (read/glob/grep/files/git status/diff/log, \
-                         webfetch), but you MUST NOT modify anything: no write, no edit, no \
-                         bash. Answer the user's question from what you can observe; if an \
-                         answer requires writing or running commands, say exactly what would \
-                         need to change and let the user do it."
+                         webfetch), but you MUST NOT modify anything or start side-effecting tools: no \
+                         write, edit, insert, bash, process, browser, latex or plot. Answer the user's \
+                         question from what you can observe; if an answer requires writing, running commands \
+                         or producing an artifact, say exactly what would need to change and let the user do it."
                     .into(),
             },
         );

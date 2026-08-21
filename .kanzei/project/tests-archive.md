@@ -9367,3 +9367,33 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-656
 - 收尾: 1787284484
 - 源码指纹: v2 crates/kanzei-app/src/phase_pipeline_tests.rs@5c9861f5e4ae,crates/kanzei-app/src/run/coordinator.rs@c711ee78df18,crates/kanzei-app/src/run/execution.rs@ebb23a125f72,crates/kanzei-app/src/run/mod.rs@84b31ca7af34,crates/kanzei-app/src/run/persistence.rs@a81d7721b866,crates/kanzei-app/src/state_tests.rs@f573660f0c14,crates/kanzei-core/src/runner/drive.rs@3ba3141c0015,crates/kanzei-core/src/runner/event.rs@18e4f6af1252,crates/kanzei/src/cli/run/finalize.rs@2d9673701219,scripts/package.ps1@224e140b0bea
+
+## T-1786922726654 D-656 package.ps1 build 标签同步 smoke [passed]
+- 命令: node --check scripts/package-tag-smoke.mjs; node scripts/package-tag-smoke.mjs; node scripts/check-ps1-bom.mjs
+- 摘要: 真实启动 scripts/package.ps1 两次：远端多出 build 标签时前置核对中止并报告双方标签；本地/远端同名标签指向不一致时中止并报告不一致。另断言发布成功后的 fetch 同名标签与失败告警分支存在；PowerShell 脚本 BOM 校验通过。
+- 关联: D-656
+- 收尾: 1787293965
+- 源码指纹: v2 scripts/package-tag-smoke.mjs@c3af560d3939
+
+## T-1786922726655 D-656 package.ps1 build 标签同步 smoke（当前源码） [passed]
+- 命令: node --check scripts/package-tag-smoke.mjs; node scripts/package-tag-smoke.mjs; node scripts/check-ps1-bom.mjs
+- 摘要: 基于当前暂存源码重新验证：真实启动 scripts/package.ps1 的两个标签不一致场景均按预期中止并输出标签信息；发布后 fetch 同名标签及 fetch 失败告警分支断言通过；6 个 PowerShell 脚本 BOM 校验通过。
+- 关联: D-656
+- 收尾: 1787294122
+- 源码指纹: v2 scripts/package-tag-smoke.mjs@0dd6776541bd
+
+## T-1786922726656 D-663 readonly 副作用工具硬拒绝定向测试 [passed]
+- 命令: cargo test -p kanzei-tools --lib readonly_profile_hard_denies_writes_commands_and_side_effect_tools
+- 时长: 29.7s
+- 摘要: Readonly profile 对 write/edit/insert/bash/process/browser/latex/plot 均 Deny 且 fully_denied，测试通过
+- 关联: D-663
+- 收尾: 1787294691
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@754395367a8b,crates/kanzei-tools/src/profiles/readonly.rs@a8829c7dd8c3
+
+## T-1786922726657 D-663 kanzei-tools crate 全量回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 57.6s
+- 摘要: kanzei-tools 全 crate 测试通过：460 passed，1 ignored，0 failed；包含只读 profile 回归测试。中途测试夹具产生的 git warning 不影响测试结果。
+- 关联: D-663
+- 收尾: 1787294767
+- 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@754395367a8b,crates/kanzei-tools/src/profiles/readonly.rs@a8829c7dd8c3
