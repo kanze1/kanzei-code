@@ -231,7 +231,7 @@
 - 批次: 4/4
 - 停车: 用户本轮明确要求优先从 defects.md 最上面可执行项开始；R-309 B1-B4 代码与门禁验证已完成，剩余①～③需真实前端事件证据，暂让出唯一 WIP 槽；恢复人:agent。
 
-## R-312 Agent 减负:上下文供给账单、状态机字段瘦身与压缩协同(勘察+设计) [todo]
+## R-312 Agent 减负:上下文供给账单、状态机字段瘦身与压缩协同(勘察+设计) [doing]
 - refs: D-573 R-310 docs/design/context_compaction.md docs/design/weakness_register_20260820.md
 - 内容: 本条只做测量+设计,实施条目由设计文档评审后另立(先计划后自举)。批1 测量:上下文账单按注入块出数(conventions 全量/memory-index/resolved-control-state/条目全文/工具输出),并统计真实会话里模型侧维护状态机自由文本字段(进展/对账/停车)的 token 占比与写入频次;批2 设计四个方向的方案与取舍:①机器可代填字段(测试记录号/提交号/批次等机械部分由引擎代写,模型只写判断性内容);②注入分层(当前 WIP 条目全文+依赖闭包,其余给索引行);③进展/对账历史段落按批次折叠沉档,req get 默认返回当前批次视图;④压缩与注入协同——可机械重取的注入块不进纪要预算(context_compaction.md L0 prune 思路从工具输出延伸到 harness 注入面),条目内 file:line 锚点腐烂的对策一并评估;批3 用户评审拍板后拆实施条目
 - 复杂度: 中
@@ -241,6 +241,14 @@
 - 边界: 本条不改任何代码;不推翻 conventions 全量注入决策(D-201)——除非账单证明占比失衡且经用户拍板;不动记忆注入口径(R-104);压缩引擎本体缺陷(如 D-573)走各自条目不并入
 - 验收: ①注入块账单数据落档且覆盖不少于 5 个真实会话;②设计文档含字段瘦身/注入分层/沉档/压缩协同四方案及取舍与 token 收益估算;③有用户评审拍板记录;④实施条目登记完成并与本条互链
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-312(unblocks=0)
+- 批次: 2/3
+- 批次表: B1 测量：从不少于 5 个真实会话提取 conventions、memory-index、resolved-control-state、当前条目、工具输出及进展/对账/停车字段账单；B2 设计：形成机器字段、注入分层、历史沉档、压缩协同四方案，记录取舍与 token 收益估算；B3 评审收口：记录用户拍板，登记实施条目并与 R-312 互链。
+- 进展: B0 已复核：R-312 无既有实现，边界保留 D-201/R-104/D-573。B1 已完成：读取真实 `.kanzei/state.db` 的 `episodes.context_json`，覆盖 11 个 distinct session 中 7 个最新账单非空 session；账单落档 `docs/design/context_supply_bill_20260821.md`，并确认 6 个现代 dev session 平均 66868.7 字符，tools/schema 48.6%、agent/system 20.7%、dev/conventions 17.4%、dev/memory 5.7%；当前 context_report 尚未拆出进展/对账/停车字段级 token 与写入频次，已明确记录缺口。B2 已完成：同一设计文档第 6-7 节形成四方向候选——机器事实信封、WIP/依赖注入分层、当前批次视图与完整历史分离、可重取注入与压缩协同；每项均写现有能力、取舍、收益假设和不应相加的估算，初步建议先方向一/三，再协同方向二/四，暂不改变 D-201/R-104。架构索引已登记并校验通过。下一步 B3：取得用户对四个拍板问题的明确选择，登记实施条目并与 R-312 互链；未获拍板前不写 accepted decision、不关闭本条。
+- observed_head: f446bd018e2e03242a0d4756cdb77ccf4b76b56b
+- observed_worktree_hash: fnv1a64:7580d1080253583e
+- recorded_at: 1787299505789
+- 阻塞: 等待用户评审并拍板四方向及实施顺序；解除人:用户
 
 ## R-313 需求发现分层:Discovery Record、待确认字段生命周期与歧义落点,让发现阶段先于交付冲动 [todo]
 - refs: R-248 R-311 D-577 docs/design/weakness_register_20260820.md
