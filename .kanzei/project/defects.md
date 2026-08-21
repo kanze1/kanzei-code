@@ -136,3 +136,9 @@
 - 复现: 以 ProfileKind::Readonly 解析 harness 后 materialize_tools() 得 15 个工具，其中 plot(crates/kanzei-tools/src/plot_tool.rs:294,393 生产路径 std::fs::write)、latex(latex_tool.rs:351 std::process::Command::new)、process、browser 均未被 readonly.rs 的 push_managed_hard_deny 覆盖(该列表只有 write/edit/insert/bash)，落到 Ruleset 无匹配的默认 Ask。交互轮用户点允许即可在只读档写文件/起进程
 - 标签: 核心
 - 优先级: P2
+
+## D-664 R-310 B4 关闭时未跑 verify,设计索引与回涨闸欠账留到发版才暴露 [open] (medium)
+- 原始描述: 2026-08-21 本轮方向调整发版时发现。条目关闭走的是自身验收,没有跑发版门禁,于是两笔门禁欠账攒到下一次发版才由别人付。R-310 已归档无法回退,本条记录过程缺口:关闭涉及新增设计文档或显著改动单文件行数的条目时,应在关闭前跑一次 verify
+- 复现: 在 8ed3256f(R-310 B4 收口)之后跑 scripts/verify.ps1,连续两步报红:①设计时效门禁——磁盘 42 份设计文档、索引 41 条,r310_repo_map_design.md 未登记;②回涨闸——crates/kanzei-tools/src/symbols.rs 生产行 731→881 超出每文件 100 行允许量,基线未同步
+- 标签: 流程
+- 优先级: P2

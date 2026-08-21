@@ -35,7 +35,7 @@ metrics_format_version: v1
 | 21 | crates/kanzei-app/src/run/assembly.rs | 879 | 789 | 90 | 15 | 377 | 0 |
 | 22 | crates/kanzei-base/src/atomic_file.rs | 1198 | 757 | 441 | 22 | 102 | 0 |
 | 23 | crates/kanzei-memory/src/memory/manager.rs | 1516 | 746 | 770 | 33 | 99 | 0 |
-| 24 | crates/kanzei-tools/src/symbols.rs | 1140 | 731 | 409 | 12 | 126 | 0 |
+| 24 | crates/kanzei-tools/src/symbols.rs | 1364 | 881 | 483 | 14 | 154 | 0 |
 | 25 | crates/kanzei-llm/src/protocol/openai.rs | 775 | 704 | 71 | 17 | 131 | 0 |
 | 26 | crates/kanzei-tools/src/bash.rs | 1378 | 698 | 680 | 24 | 268 | 0 |
 | 27 | crates/kanzei-harness/src/orchestration.rs | 985 | 695 | 290 | 26 | 113 | 1 |
@@ -57,3 +57,16 @@ metrics_format_version: v1
 - 对基线中仍出现在 Top-30 的文件，生产行允许最多比基线增加 100 行（宽松起步，防止测试/生成口径微调误伤）；超过即失败。
 - Top-30 中生产行超过 1200 的巨石数量允许最多比基线增加 1 个；超过即失败。
 - 本次重跑结果：`cargo run -p kanzei -- metrics --top 30` 产出 30 行、巨石 3 个（2026-08-21 合并后复跑，触发原因是 memory/mod.rs +136 超过 100 行回涨额度——增长来自已交付的 R-284,按有意识重基线路径处理）。
+
+## 基线变更记录
+
+抬基线是**有意识的动作**,不是让门禁闭嘴的手段。每次改行都要写清增长来自哪条
+交付、为什么不该拆。没有理由的抬升等于把回涨闸变成摆设。
+
+- 2026-08-21 `crates/kanzei-tools/src/symbols.rs` 生产行 731 → 881(+150,
+  超出每文件 100 行允许量)。增长来自 R-310 B3 的代码地图能力
+  (`crate → module → public symbol` 按需查询,设计见
+  `r310_repo_map_design.md`),是该条目的交付主体,不是无关堆积。
+  最大函数长度同步 126 → 154,仍在单文件巨石阈值(生产行 1200)以下。
+  **发现方式**:本次发版跑 verify 时回涨闸报红——R-310 B4 关闭时没跑门禁,
+  基线欠账留到了发版才暴露(D-664)。
