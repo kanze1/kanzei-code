@@ -106,22 +106,13 @@
 - recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
 
-## D-681 R-313 发现记录门禁未同步 idea_split,拆解静默只产缺陷 [fixed] (high)
-- 原始描述: 2026-08-21 发版前跑 full verify 时发现。R-313 给 req add 加了硬门禁,但没有同步仓内唯一以程序方式创建需求的路径。这类回归的形状与 D-173 同源:门禁点名了一个要求,而调用方的提示词里没有它
-- 复现: 运行 cargo test -p kanzei-app subagents::tests::idea_split_runs_subagent_and_marks_idea_split_with_real_refs:返回 I-001 → D-001,缺 R-001。根因是 IDEA_SPLIT_SYSTEM(crates/kanzei-app/src/subagents.rs:160)要求子代理填 复杂度 小|中|大,却从未提及 R-313 新增的 发现记录 与 来源 引用要求;子代理选中/大时 req add 被 tracker.rs:898 的门禁拒绝,idea_split 只剩缺陷产出
-- 标签: 核心
-- 优先级: P1
-- 进展: 两处一起修:①IDEA_SPLIT_SYSTEM 补上 R-313 门禁点名的两个字段要求(来源须含 CJK 引号内的用户原话、发现记录须为含七个非空字段的单行 JSON),并给出诚实退路——想法太单薄填不出来就登记成小档位而不是硬凑;②该用例的 fake server 桩响应补齐同两个字段,并刻意保持中档位:它就是用来钉住 idea_split 走得通 R-313 门禁的,改成小档位这条回归就失效了。另修同批 worktree_tests 的夹具(主题是 tracker 跟 project_root 走,复杂度是无关变量,取小档位避开无关门禁)。kanzei-app 245 测试全过
-- observed_head: 954f0bb7b0d2549d2b29e37478464d70306dd227
-- observed_worktree_hash: fnv1a64:a6bc29780f1c0247
-- recorded_at: 1787311888781
-
-## D-682 tracker.rs 越过巨石阈值:一批次涨 282 行到 1202 [open] (medium)
+## D-682 tracker.rs 越过巨石阈值:一批次涨 282 行到 1202 [fixing] (medium)
 - 原始描述: 2026-08-21 发版前跑 full verify 时回涨闸报红。增长来自 R-313/R-315 的需求发现门禁与验收开放度分级。抬基线是为了不阻断发版,但 tracker.rs 已越阈值,应按 R-253~R-258 的拆解口径分文件而不是继续在同一文件堆判定
 - 复现: kz metrics 显示 crates/kanzei-tools/src/tracker.rs 生产行 920 → 1202(+282),越过 metrics_baseline.md 记录的单文件巨石阈值 1200;同批 tracker/actions.rs +136 到 1003、memory/store.rs +111 到 1167,三者都超出每文件 100 行允许量
 - 标签: 核心
 - 优先级: P2
-- 进展: 已抬基线以不阻断发版,理由与判断线写进 metrics_baseline.md 变更记录。具体读数:tracker.rs 生产行 920→1202(越过单文件巨石阈值 1200,Top-30 巨石数 3→4 刚好卡在闸门 +1 容差内)、函数数 23→36、>7 参数 0→1;tracker/actions.rs 867→1003 且最大函数 290→373 行——单个函数 373 行不是「文件大」而是「一个函数在做太多事」,属 R-253~R-258 口径下必须处理的对象;memory/store.rs 1056→1167、>7 参数 2→3。下一次动这三个文件之前先拆:tracker 一族已有 tracker/actions.rs 这个分文件先例,继续按动作族切
-- observed_head: 954f0bb7b0d2549d2b29e37478464d70306dd227
-- observed_worktree_hash: fnv1a64:a6bc29780f1c0247
-- recorded_at: 1787311888415
+- 进展: 实现已完成，待提交后按 D-664 门禁跑当前 HEAD 绑定的 verify 再收尾。已新增 crates/kanzei-tools/src/tracker/validation.rs:1-280，承载 R-313 Discovery Record、语义确认、限定词一致性与 R-315 验收开放度校验；tracker.rs:23-26 保留模块装配，既有 TrackerTool 方法面、action 路由与调用顺序不变。同步将 tracker/actions/action_helpers.rs:443-465 的测试模块移到文件末尾，消除提交门禁的 items_after_test_module。当前证据：T-1786922726715、T-1786922726716 均 cargo test -p kanzei-tools，474 passed/0 failed/1 ignored；kz metrics --top 30 显示 tracker.rs 生产行 934，低于 1200 阈值；cargo check --workspace --all-targets、cargo fmt --all -- --check、cargo clippy --workspace --all-targets -- -D warnings 均通过。
+- observed_head: 322aa98dc71c0379aa3f81cd712d902bf22a932a
+- observed_worktree_hash: fnv1a64:e98f2f8caa4a4f72
+- recorded_at: 1787316582066
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-682(unblocks=0)

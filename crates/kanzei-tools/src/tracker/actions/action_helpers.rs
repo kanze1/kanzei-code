@@ -70,27 +70,6 @@ pub(super) fn close_requires_verify(cwd: &Path) -> bool {
     numstat_requires_verify(&String::from_utf8_lossy(&output.stdout))
 }
 
-#[cfg(test)]
-mod verify_change_tests {
-    use super::numstat_requires_verify;
-
-    #[test]
-    fn design_document_always_requires_verify() {
-        assert!(numstat_requires_verify("1\t0\tdocs/design/new_doc.md"));
-        assert!(numstat_requires_verify("-\t-\tdocs/design/binary.md"));
-    }
-
-    #[test]
-    fn significant_single_file_change_requires_verify() {
-        assert!(numstat_requires_verify(
-            "100\t0\tcrates/kanzei-tools/src/symbols.rs"
-        ));
-        assert!(!numstat_requires_verify(
-            "99\t0\tcrates/kanzei-tools/src/symbols.rs"
-        ));
-    }
-}
-
 /// R-229:收集关闭文本里的「剩余/其余 N 处」式分类断言声明的 N。
 /// 只认「剩余/其余 + 数字 + 处」的形态(允许空白),如「剩余 3 处」「其余 2 处」;
 /// 「剩余价值」这类无数字的用法不算断言。返回每个断言声明的处数。
@@ -458,5 +437,26 @@ pub(super) fn archived_or_unknown(
         )
     } else {
         unknown_id(id, entries)
+    }
+}
+
+#[cfg(test)]
+mod verify_change_tests {
+    use super::numstat_requires_verify;
+
+    #[test]
+    fn design_document_always_requires_verify() {
+        assert!(numstat_requires_verify("1\t0\tdocs/design/new_doc.md"));
+        assert!(numstat_requires_verify("-\t-\tdocs/design/binary.md"));
+    }
+
+    #[test]
+    fn significant_single_file_change_requires_verify() {
+        assert!(numstat_requires_verify(
+            "100\t0\tcrates/kanzei-tools/src/symbols.rs"
+        ));
+        assert!(!numstat_requires_verify(
+            "99\t0\tcrates/kanzei-tools/src/symbols.rs"
+        ));
     }
 }

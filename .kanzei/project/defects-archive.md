@@ -8379,3 +8379,13 @@
 - observed_head: f62097cfde97e559534c16f898a6c0f1fb5a3e23
 - observed_worktree_hash: fnv1a64:8d49dd70df9b9c4b
 - recorded_at: 1787308204562
+
+## D-681 R-313 发现记录门禁未同步 idea_split,拆解静默只产缺陷 [fixed] (high)
+- 原始描述: 2026-08-21 发版前跑 full verify 时发现。R-313 给 req add 加了硬门禁,但没有同步仓内唯一以程序方式创建需求的路径。这类回归的形状与 D-173 同源:门禁点名了一个要求,而调用方的提示词里没有它
+- 复现: 运行 cargo test -p kanzei-app subagents::tests::idea_split_runs_subagent_and_marks_idea_split_with_real_refs:返回 I-001 → D-001,缺 R-001。根因是 IDEA_SPLIT_SYSTEM(crates/kanzei-app/src/subagents.rs:160)要求子代理填 复杂度 小|中|大,却从未提及 R-313 新增的 发现记录 与 来源 引用要求;子代理选中/大时 req add 被 tracker.rs:898 的门禁拒绝,idea_split 只剩缺陷产出
+- 标签: 核心
+- 优先级: P1
+- 进展: 两处一起修:①IDEA_SPLIT_SYSTEM 补上 R-313 门禁点名的两个字段要求(来源须含 CJK 引号内的用户原话、发现记录须为含七个非空字段的单行 JSON),并给出诚实退路——想法太单薄填不出来就登记成小档位而不是硬凑;②该用例的 fake server 桩响应补齐同两个字段,并刻意保持中档位:它就是用来钉住 idea_split 走得通 R-313 门禁的,改成小档位这条回归就失效了。另修同批 worktree_tests 的夹具(主题是 tracker 跟 project_root 走,复杂度是无关变量,取小档位避开无关门禁)。kanzei-app 245 测试全过
+- observed_head: 954f0bb7b0d2549d2b29e37478464d70306dd227
+- observed_worktree_hash: fnv1a64:a6bc29780f1c0247
+- recorded_at: 1787311888781

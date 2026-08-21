@@ -9849,3 +9849,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-680
 - 收尾: 1787308173
 - 源码指纹: v2 crates/kanzei-harness/src/auto_run.rs@98324156cd92,crates/kanzei-tools/src/work.rs@85f78e27bf95,crates/kanzei-tools/src/work/tool.rs@531734791178
+
+## T-1786922726715 D-682 tracker 校验模块拆分后 kanzei-tools 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 38.1s
+- 摘要: 474 passed; 0 failed; 1 ignored。覆盖 tracker 校验、action 路由及 kanzei-tools 全部单元测试。
+- 关联: D-682
+- 收尾: 1787316386
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@643623a2478a,crates/kanzei-tools/src/tracker/validation.rs@856865232096
+
+## T-1786922726716 D-682 clippy 门禁修复后 kanzei-tools 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 38.9s
+- 摘要: 拆移 action helper 测试模块后 474 passed; 0 failed; 1 ignored，tracker 相关测试与全 crate 测试均通过。
+- 关联: D-682
+- 收尾: 1787316547
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@643623a2478a,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@2dac44ba4681,crates/kanzei-tools/src/tracker/validation.rs@856865232096
