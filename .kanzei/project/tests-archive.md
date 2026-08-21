@@ -10066,3 +10066,9 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-321 D-688
 - 收尾: 1787322297
 - 源码指纹: v2 crates/kanzei-app/src/docs.rs@d37c01b2d310,crates/kanzei-app/src/state_tests.rs@bcfda5e0fdf5,crates/kanzei-tools/src/incident.rs@fd749a57a12f,scripts/ipc-contract.json@28f16685dfd0,scripts/ui-lint-globals.json@9ec384771309,scripts/ui-runtime-smoke.mjs@0f8f1bb9170e
+
+## T-1786922726743 R-321 B3 当前 HEAD verify.ps1 [passed]
+- 命令: .\scripts\verify.ps1
+- 摘要: 当前 HEAD 8296c894 的 targeted verify 全绿：Rust/前端门禁、IPC event contract、ui connectivity、UI runtime、workspace test 等全部通过；关键测试结果包含 kanzei-app 245 passed、kanzei-tools 490 passed/0 failed/1 ignored。
+- 关联: R-321 D-688 D-689
+- 收尾: 1787322462

@@ -8436,3 +8436,29 @@
 - observed_head: 96a19403f996524968457774a224f84d4a7d3be8
 - observed_worktree_hash: fnv1a64:4caa5c23f0cda4d6
 - recorded_at: 1787320189147
+
+## D-688 docs_snapshot 新增 incident_metrics 未同步 IPC 形状契约 [fixed] (medium)
+- 复现: 修改 docs_snapshot 返回 incident_metrics 后运行 cargo test -p kanzei-app，ipc_contract::tests::docs_snapshot_形状与ipc契约一致 失败，实际形状多出 incident_metrics。
+- 影响: IPC 契约守护阻止 app crate 全绿，前端新增指标字段未被契约文件登记。
+- 来源: self-found：R-321 B3 接入 docs_snapshot 后的 app 定向测试。
+- 标签: 核心
+- 验收: 同步 scripts/ipc-contract.json 与 docs_snapshot 实际形状；cargo test -p kanzei-app 全部通过。
+- refs: R-321
+- 优先级: P1
+- 进展: 验收对账：①已在 `scripts/ipc-contract.json:77-139` 补齐 `docs_snapshot.incident_metrics` 的四类指标、总体指标、历史回放和 schema_version 形状；②`crates/kanzei-app/src/docs.rs:435` 将同一投影接入真实 docs_snapshot；③`T-1786922726742` 在当前最终源码上执行 `cargo test -p kanzei-app`，245 passed、0 failed，IPC 形状守护通过；④`T-1786922726743` 关联当前 HEAD `8296c894` 的 `verify.ps1` 全绿。D-688 已修复并收口。
+- observed_head: 8296c89415ecbdad059c14034864ec694e6fa2a8
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787322471190
+
+## D-689 事件分类指标 UI 未同步 i18n 全局探针与 IPC 冒烟 fixture [fixed] (medium)
+- 复现: 新增事件分类指标 UI 后运行完整前端验证链：ui-runtime-smoke 报 12 个动态 i18n key 缺失、8 个 docs_snapshot fixture 字段缺失；ui-lint-smoke 报 INCIDENT_CLASS_LABELS/formatIncidentDuration/renderIncidentMetrics 未进入 ui-lint-globals.json；ui-i18n-smoke 报同一批 key 未进入资源表。
+- 影响: 指标 UI 的真实运行时冒烟、i18n 和 no-undef 门禁不能通过，新增 UI 尚未形成可提交的验证闭环。
+- 来源: self-found：R-321 B3 前端六条 smoke。
+- 标签: 前端
+- 验收: 补齐动态 i18n 资源、重新生成 ui-lint-globals.json、同步 docs_snapshot fixture 的完整 incident_metrics 形状；node --check 与六条前端 smoke 全部通过。
+- refs: R-321
+- 优先级: P1
+- 进展: 验收对账：①`crates/kanzei-app/ui/02-i18n.js:429` 补齐事件指标动态 key；②`node scripts/gen-ui-lint-globals.mjs` 生成 `scripts/ui-lint-globals.json`，包含 `INCIDENT_CLASS_LABELS`、`formatIncidentDuration`、`renderIncidentMetrics`；③`scripts/ui-runtime-smoke.mjs:745-778` fixture 已同步完整 `incident_metrics`；④`T-1786922726740` node check 与六条前端 smoke 全通过：runtime 25 scripts/2342 invokes/0 errors、lint 54 files/0 no-undef、i18n 1383 keys/57 dynamic contracts、parallel-lines/a11y/Markdown 全通过；⑤`T-1786922726743` 关联当前 HEAD `8296c894` 的 `verify.ps1` 全绿。D-689 已修复并收口。
+- observed_head: 8296c89415ecbdad059c14034864ec694e6fa2a8
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787322479530
