@@ -398,3 +398,15 @@
 - observed_head: f6ecb8b8d3720b531ae0cb5034e1f67dab70675d
 - observed_worktree_hash: fnv1a64:629dbcb7dc894e21
 - recorded_at: 1787289443698
+
+## R-328 question 选项补每项说明 [done]
+- 原始描述: 对比 AskUserQuestion 发现:question 已有 options/default/multiple,但选项只有标签。只给标签时用户得自己猜每个选项的后果,而后果恰恰是提问的原因——用 A 方案还是 B 方案这种问题,选项名本身从不足以决策
+- 复杂度: 小
+- 标签: 核心
+- 验收: options 既吃裸字符串也吃 {label,note}(description 为 note 别名);schema 显式写出两种形态而非只在描述里说;空白注解视为无注解;缺 label 的对象丢弃;无注解时不序列化 note 字段;桌面 UI 有注解时竖排两行并占满整行;CLI 逐行列出注解
+- refs: R-327
+- 优先级: P2
+- 进展: 新增 AskOption{label,note} 替代 Vec<String>,配 From<&str>/From<String> 让既有 vec!["是".into()] 零改动。AskOption::from_json 两种形态都收(裸字符串是既有调用形态,只认对象会让历史提示词与旧会话重放一起失效),description 作 note 别名(模型更常写这个词),空白注解与缺 label 都按无效处理。question 工具 schema 显式写出 anyOf 两种形态——描述里说了而 schema 里没有等于没说。桌面 UI 有注解时竖排两行占满整行(注解是一句话,横排会被 flex-wrap 撕碎),并兼容历史事件重放里的裸字符串;CLI 逐行灰字列出。移动 PWA 不渲染选项,不受线上形状变化影响。6 条单测,workspace 15 个二进制全绿,UI 冒烟+eslint 通过,clippy/fmt 干净
+- observed_head: 86b0f750d2ea4bac069ddc78cfeb1105009e3ed2
+- observed_worktree_hash: fnv1a64:fd0280975799681f
+- recorded_at: 1787290437559

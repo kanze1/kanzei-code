@@ -21,7 +21,24 @@ pub(crate) fn make_ask(
                     if multiple {
                         eprint!(" [可多选,逗号分隔]");
                     }
-                    eprint!(" [{}]", options.join(" / "));
+                    eprint!(
+                        " [{}]",
+                        options
+                            .iter()
+                            .map(|o| o.label.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" / ")
+                    );
+                }
+                // R-328:带注解的选项在 CLI 里逐行列出——一行挤不下「选它意味着
+                // 什么」,而那正是提问的原因。无注解的选项不多打一行。
+                for option in options.iter().filter(|o| o.note.is_some()) {
+                    eprint!(
+                        "
+[90m    {} — {}[33m",
+                        option.label,
+                        option.note.as_deref().unwrap_or_default()
+                    );
                 }
                 if let Some(default) = default {
                     eprint!(" (默认: {default})");

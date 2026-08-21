@@ -50,7 +50,13 @@ fn pending_ask_payload_carries_question_multiple() {
     let payload = pending_ask_payload(9, &pending);
     assert_eq!(payload["kind"], "question");
     assert_eq!(payload["multiple"], true);
-    assert_eq!(payload["options"][0], "甲");
+    // R-328:选项上线为 {label, note?} 对象。桌面 UI 两种形态都吃(历史事件重放
+    // 里仍是裸字符串);移动 PWA 不渲染选项,不受影响。
+    assert_eq!(payload["options"][0]["label"], "甲");
+    assert!(
+        payload["options"][0].get("note").is_none(),
+        "无注解时不该发出空 note 字段"
+    );
     assert_eq!(payload["sessionId"], "session#q1");
 
     // 默认档位(未声明)透传 false,不把历史问题误判成多选。

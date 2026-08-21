@@ -1107,6 +1107,11 @@ button:disabled { opacity: .45; cursor: default; }
 #ask-options { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 #ask-answer { width: 100%; background: var(--input); color: var(--fg-strong); border: 1px solid var(--border); border-radius: 4px; padding: 7px; font: inherit; }
 .ask-option { margin: 0; }
+/* R-328:带注解的选项。有注解就换成竖排两行(标签 + 灰色说明)并占满整行——
+   注解是一句话,挤在按钮里横排会被 flex-wrap 撕成难读的碎块。 */
+.ask-option.has-note { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex: 1 1 100%; text-align: left; }
+.ask-option-note { color: var(--dim); font-size: var(--fs-10-5); line-height: 1.35; white-space: normal; }
+#ask-options.multi .ask-option.has-note::before { align-self: flex-start; }
 /* D-337:多选档位——选项前加勾选框标记,选中态高亮;非多选档位不受影响 */
 #ask-options.multi .ask-option { display: inline-flex; align-items: center; gap: 6px; text-align: left; }
 #ask-options.multi .ask-option::before { content: "☐"; color: var(--dim); }

@@ -15,15 +15,11 @@ pub(super) async fn execute_question(
         .and_then(|value| value.as_str())
         .unwrap_or("")
         .trim();
-    let options = input
+    // R-328:选项既吃裸字符串也吃 {label, note}——见 AskOption::from_json。
+    let options: Vec<AskOption> = input
         .get("options")
         .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|value| value.as_str().map(str::to_owned))
-                .collect()
-        })
+        .map(|items| items.iter().filter_map(AskOption::from_json).collect())
         .unwrap_or_default();
     let default = input
         .get("default")

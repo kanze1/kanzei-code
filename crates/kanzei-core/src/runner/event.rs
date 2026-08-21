@@ -182,6 +182,65 @@ pub enum AskReply {
     AlwaysAllow,
 }
 
+/// R-328:一个可选答案。
+///
+/// `note` 是「**选它意味着什么**」。只给标签时用户得自己猜每个选项的后果,
+/// 而后果恰恰是提问的原因——「用 A 方案还是 B 方案」这种问题,选项名本身
+/// 从不足以决策。它是可选的:一句话能说清的问题不必强行配注解。
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AskOption {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+impl AskOption {
+    /// 无注解选项。旧调用方与「一眼能懂」的选项走这条。
+    pub fn plain(label: impl Into<String>) -> Self {
+        AskOption {
+            label: label.into(),
+            note: None,
+        }
+    }
+
+    /// 从工具入参解析:既吃裸字符串,也吃 `{label, note|description}`。
+    ///
+    /// 两种形态都收是为了**向后兼容**:`options: ["A","B"]` 是既有调用形态,
+    /// 换成只认对象会让所有历史提示词与旧会话重放一起失效。`description`
+    /// 作为 `note` 的别名收下,因为模型更常写这个词。
+    pub fn from_json(value: &serde_json::Value) -> Option<Self> {
+        if let Some(label) = value.as_str() {
+            return Some(AskOption::plain(label));
+        }
+        let label = value.get("label").and_then(|v| v.as_str())?;
+        let note = value
+            .get("note")
+            .or_else(|| value.get("description"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        Some(AskOption {
+            label: label.to_owned(),
+            note,
+        })
+    }
+}
+
+/// 裸标签直转。让 `vec!["是".into(), "否".into()]` 这类既有写法零改动继续成立——
+/// 无注解本就是合法形态,不该为了引入注解逼所有调用方改写。
+impl From<&str> for AskOption {
+    fn from(label: &str) -> Self {
+        AskOption::plain(label)
+    }
+}
+
+impl From<String> for AskOption {
+    fn from(label: String) -> Self {
+        AskOption::plain(label)
+    }
+}
+
 /// 权限询问回调的返回值:异步等待用户决定(CLI 同步问、桌面端走事件+oneshot)。
 #[derive(Clone, Debug)]
 pub enum AskRequest {
@@ -191,7 +250,7 @@ pub enum AskRequest {
     },
     Question {
         question: String,
-        options: Vec<String>,
+        options: Vec<AskOption>,
         default: Option<String>,
         multiple: bool,
     },
@@ -218,4 +277,63 @@ pub(super) fn preview(content: &str) -> String {
         p.push_str(&format!(" (+{} lines)", lines - 1));
     }
     p
+}
+
+#[cfg(test)]
+mod ask_option_tests {
+    use super::AskOption;
+    use serde_json::json;
+
+    /// 两种入参形态都收:裸字符串是既有调用形态,换成只认对象会让所有历史
+    /// 提示词与旧会话重放一起失效。
+    #[test]
+    fn 裸字符串与对象两种形态都解析() {
+        assert_eq!(
+            AskOption::from_json(&json!("方案 A")),
+            Some(AskOption::plain("方案 A"))
+        );
+        assert_eq!(
+            AskOption::from_json(&json!({"label": "方案 A", "note": "改动小,但留下技术债"})),
+            Some(AskOption {
+                label: "方案 A".into(),
+                note: Some("改动小,但留下技术债".into()),
+            })
+        );
+    }
+
+    /// `description` 是 `note` 的别名——模型更常写这个词,不认它等于让注解静默丢失。
+    #[test]
+    fn description_是note的别名() {
+        let parsed = AskOption::from_json(&json!({"label": "B", "description": "彻底但要两天"}));
+        assert_eq!(parsed.and_then(|o| o.note), Some("彻底但要两天".into()));
+    }
+
+    /// 空白注解等于没写,不该占一行 UI。
+    #[test]
+    fn 空白注解视为无注解() {
+        let parsed = AskOption::from_json(&json!({"label": "C", "note": "   "})).unwrap();
+        assert_eq!(parsed.note, None);
+    }
+
+    /// 缺 label 的对象无法成为一个可点的选项,丢弃而不是造一个空按钮。
+    #[test]
+    fn 缺label的对象被丢弃() {
+        assert_eq!(AskOption::from_json(&json!({"note": "孤儿注解"})), None);
+        assert_eq!(AskOption::from_json(&json!(42)), None);
+    }
+
+    /// 无注解时不发 note 字段:UI 靠字段存在与否决定要不要多渲染一行。
+    #[test]
+    fn 无注解不序列化note字段() {
+        let value = serde_json::to_value(AskOption::plain("是")).unwrap();
+        assert_eq!(value, json!({"label": "是"}));
+    }
+
+    #[test]
+    fn from字符串保持零改动兼容() {
+        let from_str: AskOption = "是".into();
+        let from_string: AskOption = String::from("否").into();
+        assert_eq!(from_str, AskOption::plain("是"));
+        assert_eq!(from_string, AskOption::plain("否"));
+    }
 }

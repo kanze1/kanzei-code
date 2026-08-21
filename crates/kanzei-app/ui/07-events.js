@@ -709,22 +709,38 @@ function pumpAsk() {
     const options = $("ask-options");
     options.innerHTML = "";
     options.classList.toggle("multi", multi);
-    for (const option of askActive.options || []) {
+    for (const raw of askActive.options || []) {
+      // R-328:后端统一发 {label, note};note 缺省即无注解。历史事件重放里
+      // 可能仍是裸字符串,两种都吃——重放不该因为契约演进而炸。
+      const option = typeof raw === "string" ? { label: raw } : raw || {};
+      const label = option.label ?? "";
       const button = document.createElement("button");
       button.className = "ghost ask-option";
       button.type = "button";
-      button.textContent = option;
+      const labelNode = document.createElement("span");
+      labelNode.className = "ask-option-label";
+      labelNode.textContent = label;
+      button.appendChild(labelNode);
+      if (option.note) {
+        // 注解是「选它意味着什么」——按钮只有标签时用户得自己猜后果,
+        // 而后果恰恰是提问的原因。
+        const note = document.createElement("span");
+        note.className = "ask-option-note";
+        note.textContent = option.note;
+        button.appendChild(note);
+        button.classList.add("has-note");
+      }
       button.setAttribute("aria-pressed", "false");
       button.addEventListener("click", () => {
         if (!multi) {
-          answerAsk(option);
+          answerAsk(label);
           return;
         }
-        const index = askSelectedOptions.indexOf(option);
+        const index = askSelectedOptions.indexOf(label);
         if (index >= 0) {
           askSelectedOptions.splice(index, 1);
         } else {
-          askSelectedOptions.push(option);
+          askSelectedOptions.push(label);
         }
         const selected = index < 0;
         button.classList.toggle("selected", selected);
