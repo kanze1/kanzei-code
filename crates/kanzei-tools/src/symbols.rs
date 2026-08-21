@@ -61,8 +61,8 @@ impl Tool for SymbolsTool {
     }
 
     fn description(&self) -> String {
-        "Code symbol map (R-234): list functions/structs/enums/impls with line numbers \
-         and visibility for a Rust file or directory, WITHOUT reading the whole file. \
+        "Code symbol map (R-234/R-324): list functions/structs/enums/impls with line numbers \
+         and visibility for a Rust, JavaScript or ESM (.rs/.js/.mjs) file or directory, WITHOUT reading the whole file. For JS the `pub` marker means top-level (column 0 = global in classic scripts) or exported; kinds are fn/class/const. \
          Fills the granularity gap between `files` (line counts) and `read` (full text): \
          use it to locate quality hotspots (huge functions, orphan impls, non-pub \
          surface) before deciding what to read. Params: path (file or dir, relative to \
@@ -241,9 +241,22 @@ impl Tool for SymbolsTool {
 }
 
 /// 递归收集目录下 .rs 文件;单文件直接返回。跳过 .kanzei 与 target。
+/// R-324:symbols 覆盖的源码扩展名。
+///
+/// 加 js/mjs 的理由是实测:本仓受跟踪文件里 257 个 `.rs` 对 139 个 `.js`/`.mjs`,
+/// 而 `crates/kanzei-app/ui/` 一处就是 26 个文件 16k 行——改得最频繁的那一半代码
+/// 此前完全没有符号索引,定位只能 grep 函数名。
+const SOURCE_EXTENSIONS: &[&str] = &["rs", "js", "mjs"];
+
+fn is_source_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| SOURCE_EXTENSIONS.contains(&e))
+}
+
 fn collect_rs_files(path: &Path) -> Vec<std::path::PathBuf> {
     if path.is_file() {
-        return if path.extension().is_some_and(|e| e == "rs") {
+        return if is_source_file(path) {
             vec![path.to_path_buf()]
         } else {
             Vec::new()
@@ -259,11 +272,16 @@ fn collect_rs_files(path: &Path) -> Vec<std::path::PathBuf> {
             let p = entry.path();
             if p.is_dir() {
                 let name = p.file_name().unwrap_or_default().to_string_lossy();
-                if name == ".kanzei" || name == "target" || name == "vendor" {
+                // R-324:收 js/mjs 之后 node_modules/dist 必须跳——前者动辄上万个文件,
+                // 一次目录查询就会把工具拖死;后者是构建产物,不是源码。
+                if matches!(
+                    name.as_ref(),
+                    ".kanzei" | "target" | "vendor" | "node_modules" | "dist" | ".git"
+                ) {
                     continue;
                 }
                 stack.push(p);
-            } else if p.extension().is_some_and(|e| e == "rs") {
+            } else if is_source_file(&p) {
                 out.push(p);
             }
         }
@@ -704,10 +722,18 @@ fn collect_reexports(files: &[std::path::PathBuf]) -> Vec<ReExport> {
 }
 
 /// 行级扫描符号。状态机跳过字符串/注释内的伪命中。
+///
+/// R-324:按扩展名分流解析规则。注释/块注释/行尾裁剪这套状态机对两种语言通用
+/// (`//` 与 `/* */` 语法一致),分歧只在「一行代码算不算一个定义」,所以只换
+/// [`parse_symbol_line`] / [`parse_js_symbol_line`],不复制扫描循环。
 fn scan_symbols(file: &Path) -> Vec<Symbol> {
     let Ok(text) = std::fs::read_to_string(file) else {
         return Vec::new();
     };
+    let is_js = matches!(
+        file.extension().and_then(|e| e.to_str()),
+        Some("js") | Some("mjs")
+    );
     let mut symbols = Vec::new();
     let mut in_block_comment = false;
     for (idx, raw) in text.lines().enumerate() {
@@ -747,7 +773,16 @@ fn scan_symbols(file: &Path) -> Vec<Symbol> {
         if code.is_empty() {
             continue;
         }
-        if let Some(sym) = parse_symbol_line(code, idx + 1) {
+        let parsed = if is_js {
+            // 「列 0」= 顶层。判据与 scripts/gen-ui-lint-globals.mjs 一致:ui/*.js 是
+            // 经典 script 按序加载,共享全局作用域的只有列 0 的声明。两处必须同源——
+            // 漂开就会出现「lint 认作全局、symbols 不认作公共面」这种自相矛盾。
+            let top_level = !raw.starts_with(char::is_whitespace);
+            parse_js_symbol_line(code, idx + 1, top_level)
+        } else {
+            parse_symbol_line(code, idx + 1)
+        };
+        if let Some(sym) = parsed {
             symbols.push(sym);
         }
     }
@@ -759,6 +794,108 @@ fn strip_line_tail(line: &str) -> &str {
     match line.find("//") {
         Some(i) => &line[..i],
         None => line,
+    }
+}
+
+/// R-324:从单行 JS/TS 代码解析一个符号定义。
+///
+/// 与 Rust 侧同哲学——**行级、无 AST**。JS 没有 `pub`,可见性改用两条判据:
+/// 显式 `export` 前缀,或**位于列 0**(经典 script 里顶层声明即全局,判据与
+/// `scripts/gen-ui-lint-globals.mjs` 一致)。`top_level` 由调用方按原始行的
+/// 缩进给出——`code` 已被 trim,这里自己看不出缩进。
+///
+/// 识别范围有意收窄到「一眼能确定是定义」的形态,宁可漏不可错:
+/// 对象字面量里的方法简写(`foo() {`)与 `if (x) {` 无法在行级区分,一律不认。
+fn parse_js_symbol_line(code: &str, line: usize, top_level: bool) -> Option<Symbol> {
+    let code = code.trim();
+    let exported = code.starts_with("export ");
+    let body = code
+        .trim_start_matches("export default ")
+        .trim_start_matches("export ")
+        .trim_start();
+    let public = exported || top_level;
+
+    // class Foo / class Foo extends Bar
+    if let Some(rest) = body.strip_prefix("class ") {
+        let name = js_identifier(rest)?;
+        return Some(Symbol {
+            kind: "class",
+            name,
+            line,
+            public,
+        });
+    }
+    // function foo(...) / async function foo(...) / function* foo(...)
+    let after_async = body.strip_prefix("async ").unwrap_or(body);
+    if let Some(rest) = after_async
+        .strip_prefix("function*")
+        .or_else(|| after_async.strip_prefix("function "))
+    {
+        let name = js_identifier(rest)?;
+        return Some(Symbol {
+            kind: "fn",
+            name,
+            line,
+            public,
+        });
+    }
+    // const/let/var foo = ... —— 右侧是函数则算 fn,否则算 const。
+    for keyword in ["const ", "let ", "var "] {
+        let Some(rest) = body.strip_prefix(keyword) else {
+            continue;
+        };
+        let name = js_identifier(rest)?;
+        let Some((_, value)) = rest.split_once('=') else {
+            // `let x;` 这类无初值声明:仍是一个顶层标识符,按 const 记。
+            return Some(Symbol {
+                kind: "const",
+                name,
+                line,
+                public,
+            });
+        };
+        let value = value.trim();
+        let is_fn = value.starts_with("function")
+            || value.starts_with("async function")
+            || js_looks_like_arrow(value);
+        return Some(Symbol {
+            kind: if is_fn { "fn" } else { "const" },
+            name,
+            line,
+            public,
+        });
+    }
+    None
+}
+
+/// 取 JS 标识符(首字符 letter/_/$,后续追加数字)。取不到返回 None。
+fn js_identifier(rest: &str) -> Option<String> {
+    let rest = rest.trim_start();
+    let mut chars = rest.chars();
+    let first = chars.next()?;
+    if !(first.is_ascii_alphabetic() || first == '_' || first == '$') {
+        return None;
+    }
+    let mut name = String::from(first);
+    for ch in chars {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+            name.push(ch);
+        } else {
+            break;
+        }
+    }
+    Some(name)
+}
+
+/// 粗判右值是不是箭头函数:`() =>`、`x =>`、`async (a, b) =>`。
+///
+/// 只看**第一个** `=>` 之前有没有出现 `{`——有就说明先进了对象/块字面量,
+/// 那个箭头属于内层(如 `const m = { f: () => 1 }`),不算本标识符是函数。
+fn js_looks_like_arrow(value: &str) -> bool {
+    match (value.find("=>"), value.find('{')) {
+        (Some(arrow), Some(brace)) => arrow < brace,
+        (Some(_), None) => true,
+        _ => false,
     }
 }
 
@@ -1360,5 +1497,124 @@ mod tests {
             "{}",
             report3
         );
+    }
+}
+
+#[cfg(test)]
+mod js_symbol_tests {
+    use super::{js_looks_like_arrow, parse_js_symbol_line, scan_symbols};
+
+    fn parse(code: &str, top_level: bool) -> Option<(&'static str, String, bool)> {
+        parse_js_symbol_line(code, 1, top_level).map(|s| (s.kind, s.name, s.public))
+    }
+
+    #[test]
+    fn 函数三种形态都识别为_fn() {
+        for code in [
+            "function selectedAgent() {",
+            "async function loadPrefs(a, b) {",
+            "function* gen() {",
+            "const renderAutoRun = () => {",
+            "const handle = async (event) => {",
+            "let legacy = function (x) {",
+            "export function exported() {",
+        ] {
+            let (kind, _, _) = parse(code, true).unwrap_or_else(|| panic!("未识别: {code}"));
+            assert_eq!(kind, "fn", "{code} 应判为 fn");
+        }
+    }
+
+    #[test]
+    fn 值绑定与类分别识别() {
+        assert_eq!(parse("const MAX = 30;", true).unwrap().0, "const");
+        assert_eq!(parse("let autoRounds = 0;", true).unwrap().0, "const");
+        assert_eq!(parse("let pending;", true).unwrap().0, "const");
+        assert_eq!(
+            parse("class NeuralFlow extends Base {", true).unwrap().0,
+            "class"
+        );
+        assert_eq!(parse("export class Widget {", true).unwrap().0, "class");
+    }
+
+    /// 可见性判据 = 列 0 或 export。列 0 那条与 gen-ui-lint-globals.mjs 同源:
+    /// 经典 script 里只有顶层声明共享全局作用域。
+    #[test]
+    fn 可见性按列0或export判定() {
+        assert!(
+            parse("function topLevel() {", true).unwrap().2,
+            "列 0 = 公共面"
+        );
+        assert!(
+            !parse("function inner() {", false).unwrap().2,
+            "缩进的函数是内层,不算公共面"
+        );
+        assert!(
+            parse("export function fromModule() {", false).unwrap().2,
+            "显式 export 即使缩进也算公共面"
+        );
+    }
+
+    /// 宁可漏不可错:行级扫描分不出对象方法简写与控制流,一律不认。
+    #[test]
+    fn 无法确定是定义的形态一律不认() {
+        for code in [
+            "if (x) {",
+            "for (const item of list) {",
+            "return function () {",
+            "foo() {",
+            "} else if (reason === \"GoalMet\") {",
+            "});",
+        ] {
+            assert!(parse(code, true).is_none(), "不该把 {code} 认成定义");
+        }
+    }
+
+    /// 内层箭头不能把外层标识符误判成函数。
+    #[test]
+    fn 对象字面量里的箭头不算外层是函数() {
+        assert!(!js_looks_like_arrow("{ f: () => 1 }"));
+        assert!(js_looks_like_arrow("() => { return 1; }"));
+        assert!(js_looks_like_arrow("x => x + 1"));
+        assert!(!js_looks_like_arrow("{ a: 1 }"));
+        assert_eq!(
+            parse("const handlers = { onClick: () => run() };", true)
+                .unwrap()
+                .0,
+            "const",
+            "右值是对象字面量,不是函数"
+        );
+    }
+
+    /// 端到端:真实前端文件扫得出顶层函数,且注释里的伪命中不进结果。
+    #[test]
+    fn 扫描真实js文件跳过注释伪命中() {
+        let dir = std::env::temp_dir().join(format!("kz-sym-js-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("probe.js");
+        std::fs::write(
+            &file,
+            "// function commentedOut() {}\n\
+             /* function blockComment() {} */\n\
+             function realOne() {\n\
+             \x20 function nested() {}\n\
+             }\n\
+             const EXPORTED = 1;\n",
+        )
+        .unwrap();
+        let syms = scan_symbols(&file);
+        let names: Vec<&str> = syms.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"realOne"), "顶层函数必须扫到: {names:?}");
+        assert!(names.contains(&"EXPORTED"));
+        assert!(
+            !names.contains(&"commentedOut"),
+            "行注释里的伪命中不得进结果"
+        );
+        assert!(
+            !names.contains(&"blockComment"),
+            "块注释里的伪命中不得进结果"
+        );
+        let nested = syms.iter().find(|s| s.name == "nested");
+        assert!(nested.is_some_and(|s| !s.public), "缩进函数不算公共面");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

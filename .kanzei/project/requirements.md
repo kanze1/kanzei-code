@@ -349,3 +349,16 @@
 - observed_worktree_hash: fnv1a64:dee5f1692c68b6ad
 - recorded_at: 1787276362163
 - 停车: 本轮 WIP 超限，B1 工具并发契约审计已完成；B2 尚未开始，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent
+
+## R-324 symbols 扩到 JS/ESM:前端 16k 行补上符号索引 [done]
+- 原始描述: 对比 Claude Code 工具面时发现:symbols 只认 .rs,而本仓受跟踪文件 257 个 .rs 对 139 个 .js/.mjs,仅 crates/kanzei-app/ui 一处就 26 文件 16343 行——改得最频繁的那一半代码没有符号索引,定位只能 grep 函数名
+- 复杂度: 中
+- 标签: 核心
+- 验收: .js/.mjs 文件与目录可查符号(fn/class/const)、行号与可见性;可见性判据与 gen-ui-lint-globals.mjs 的列 0 规则同源;注释内伪命中不进结果;node_modules/dist 不被扫描
+- 先行调研: .kanzei/research/r324-prior-art/prior-art.md
+- refs: R-310
+- 优先级: P1
+- 进展: symbols 扫描按扩展名分流:扫描循环(注释/块注释/行尾裁剪)两语言通用,只加 parse_js_symbol_line。识别 function/async function/function*/箭头/函数表达式=fn,class=class,const|let|var=const;可见性=列 0 或 export(与 gen-ui-lint-globals.mjs 同源,测试双向点名);内层箭头不误判外层(js_looks_like_arrow 比较首个 => 与 { 的位置);SOURCE_EXTENSIONS 加 js/mjs 同时把 node_modules/dist/.git 加进目录跳过(否则一扫进 node_modules 拖死)。6 条 JS 单测 + 原有 13 条共 19 条通过,workspace 15 个二进制全绿,clippy 干净。实测 08-auto.js public_only 返回 29 个顶层符号带行号
+- observed_head: 0284be573ba60895be7e0ecc91bab3339ab4e99d
+- observed_worktree_hash: fnv1a64:2e5adf0836cb330b
+- recorded_at: 1787285720200
