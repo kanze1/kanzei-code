@@ -9785,3 +9785,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-319
 - 收尾: 1787305598
 - 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@08b173ffb3a6,crates/kanzei-app/src/run/events/mod.rs@a1962d337972,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726707 R-319 D-679 事务失败永久 taint 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app --bin kzapp run::events::tests
+- 时长: 6.1s
+- 摘要: R-319/D-679 事务状态回归：9 passed，0 failed；覆盖白名单单次延长、失败测试/失败 stage 永久 taint、源码编辑/审批拒绝及 run_id 去重。
+- 关联: R-319 D-679
+- 收尾: 1787305849
+- 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@dd68db77c57a

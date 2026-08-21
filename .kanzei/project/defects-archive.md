@@ -8353,3 +8353,15 @@
 - observed_head: cddb628d4c890f6d9e0f2145adc3a2e6dd696145
 - observed_worktree_hash: fnv1a64:0909e81aaecdcec0
 - recorded_at: 1787304603491
+
+## D-679 R-319 事务状态失败后可被后续成功结果错误清除 [fixed] (medium)
+- 复现: 自发现：crates/kanzei-app/src/run/events/mod.rs:346-350 对每次 test_record 结果直接 store(ok && status==passed)，失败后再次成功会把 tests_passed 恢复为 true；同样 git stage 失败后成功会在 352-356 把 files_staged/commit_pending 恢复为 true。
+- 影响: R-319 验收②要求测试失败或未暂存时不延长；当前状态机把失败当作可恢复事实，后续成功 stage/test 可能在最后一步错误授予 soft extension，违反失败即取消的边界。
+- 来源: self-found；R-319 B4 代码复核。
+- 标签: 核心
+- 进展: 已修复：crates/kanzei-app/src/run/events/mod.rs:261-266 新增 tests_failed/stage_failed 永久 taint；:346-374 失败 test_record 或 git stage 只置 taint，成功补跑不清除；:417-428 maybe_extend_transaction 同时拒绝两类 taint。回归测试：:916-946 的「事务延长失败后补跑成功仍永久拒绝」及同组拒绝测试；T-1786922726707 9 passed。逐项对照：复现=失败后成功曾可清除状态，现已由永久 taint 阻断；影响=验收②测试失败/未暂存不延长，已有回归覆盖；来源=self-found。
+- refs: R-319
+- 优先级: P1
+- observed_head: 08992b4761d7c4ca82d5aecd6f94d7f9637d8df5
+- observed_worktree_hash: fnv1a64:92b6c4b0ce508a0e
+- recorded_at: 1787305865116

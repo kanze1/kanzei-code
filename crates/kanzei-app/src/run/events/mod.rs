@@ -259,7 +259,9 @@ pub(crate) struct MetricsSink {
     /// R-319:显式收尾事务状态。只由真实工具结果推进，不接受模型自报。
     transaction_calls: Mutex<HashMap<String, (String, serde_json::Value)>>,
     tests_passed: std::sync::atomic::AtomicBool,
+    tests_failed: std::sync::atomic::AtomicBool,
     files_staged: std::sync::atomic::AtomicBool,
+    stage_failed: std::sync::atomic::AtomicBool,
     commit_pending: std::sync::atomic::AtomicBool,
     source_edited: std::sync::atomic::AtomicBool,
     unexpected_tool: std::sync::atomic::AtomicBool,
@@ -289,7 +291,9 @@ impl MetricsSink {
             round_handoff,
             transaction_calls: Mutex::new(HashMap::new()),
             tests_passed: std::sync::atomic::AtomicBool::new(false),
+            tests_failed: std::sync::atomic::AtomicBool::new(false),
             files_staged: std::sync::atomic::AtomicBool::new(false),
+            stage_failed: std::sync::atomic::AtomicBool::new(false),
             commit_pending: std::sync::atomic::AtomicBool::new(false),
             source_edited: std::sync::atomic::AtomicBool::new(false),
             unexpected_tool: std::sync::atomic::AtomicBool::new(false),
@@ -344,16 +348,27 @@ impl MetricsSink {
         let transaction_call = self.transaction_calls.lock().unwrap().remove(id);
         if let Some((call_name, input)) = transaction_call {
             if call_name == "test_record" {
-                self.tests_passed.store(
-                    ok && input["status"].as_str() == Some("passed"),
-                    std::sync::atomic::Ordering::Relaxed,
-                );
+                let passed = ok && input["status"].as_str() == Some("passed");
+                if passed {
+                    self.tests_passed
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                } else {
+                    // R-319/D-679:失败是本轮事务的永久 taint；后续补跑成功也不能
+                    // 把「发生过失败」伪装成从未失败。
+                    self.tests_failed
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                }
             }
             if call_name == "git" && input["action"].as_str() == Some("stage") {
-                self.files_staged
-                    .store(ok, std::sync::atomic::Ordering::Relaxed);
-                self.commit_pending
-                    .store(ok, std::sync::atomic::Ordering::Relaxed);
+                if ok {
+                    self.files_staged
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.commit_pending
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                } else {
+                    self.stage_failed
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                }
             }
             if call_name == "git" && input["action"].as_str() == Some("commit") && ok {
                 self.files_staged
@@ -409,6 +424,8 @@ impl MetricsSink {
             && self
                 .commit_pending
                 .load(std::sync::atomic::Ordering::Relaxed)
+            && !self.tests_failed.load(std::sync::atomic::Ordering::Relaxed)
+            && !self.stage_failed.load(std::sync::atomic::Ordering::Relaxed)
             && !self
                 .unexpected_tool
                 .load(std::sync::atomic::Ordering::Relaxed)
@@ -910,6 +927,27 @@ mod tests {
         sink.resolve_tool_end("stage", "git", true);
         assert!(sink.maybe_extend_transaction(32, 32));
         assert!(!sink.maybe_extend_transaction(32, 32));
+    }
+
+    #[test]
+    fn 事务延长失败后补跑成功仍永久拒绝() {
+        let (failed_test, _, _) = mk_metrics_sink();
+        failed_test.note_round_tool("t1", "test_record", &json!({"status": "failed"}));
+        failed_test.resolve_tool_end("t1", "test_record", false);
+        failed_test.note_round_tool("t2", "test_record", &json!({"status": "passed"}));
+        failed_test.resolve_tool_end("t2", "test_record", true);
+        failed_test.note_round_tool("s1", "git", &json!({"action": "stage"}));
+        failed_test.resolve_tool_end("s1", "git", true);
+        assert!(!failed_test.maybe_extend_transaction(32, 32));
+
+        let (failed_stage, _, _) = mk_metrics_sink();
+        failed_stage.note_round_tool("t", "test_record", &json!({"status": "passed"}));
+        failed_stage.resolve_tool_end("t", "test_record", true);
+        failed_stage.note_round_tool("s1", "git", &json!({"action": "stage"}));
+        failed_stage.resolve_tool_end("s1", "git", false);
+        failed_stage.note_round_tool("s2", "git", &json!({"action": "stage"}));
+        failed_stage.resolve_tool_end("s2", "git", true);
+        assert!(!failed_stage.maybe_extend_transaction(32, 32));
     }
 
     #[test]

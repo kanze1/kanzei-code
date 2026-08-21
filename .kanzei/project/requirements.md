@@ -259,13 +259,13 @@
 - 边界: 不增加通用自动轮数；只允许白名单收尾状态与有界额外步数；不得跳过 fmt/clippy/test/source_test_gate/权限/CAS；出现新代码编辑、测试失败、用户输入或未知状态立即取消扩展并正常切轮。
 - 验收: ①tests passed+files staged+commit pending 且只剩 2 步时可完成 commit+tracker anchor 后结束；②测试失败、未暂存、存在审批或发生源码编辑时不延长；③扩展上限和原因进入 session event，可审计且重启恢复不重复提交；④对比至少 10 个真实长程条目，事务中点切轮和纯恢复工具调用显著下降且事故率不升。
 - 优先级: P1
-- 批次: 1/4
+- 批次: 3/4
 - 批次表: B1 复核现有 step budget/轮次结束与收尾事件链，锁定真实扩展入口；B2 实现白名单收尾状态、有界扩展与取消条件；B3 接入可审计 session event 与重启去重恢复；B4 真实长程条目对比、回归测试与验收收口。
 - 取活依据: engine:唯一可执行 WIP 是 R-319，必须先恢复它
-- 进展: B1 已完成：复核确认真实步数边界在 crates/kanzei-core/src/runner/drive.rs:217-247（step/max_steps/last_step），上限来源为 crates/kanzei-core/src/runner/drive/assembly.rs:170-171；现有提交意图与成功收口状态在 crates/kanzei-app/src/run/events/mod.rs:239-300，轮末判定在 crates/kanzei-app/src/run/coordinator.rs:364-434，session event 持久入口在 crates/kanzei-app/src/run/persistence.rs:110-129。关键决策：不改通用 auto-round 计数、不在 core 静态增加上限；B2 通过显式事务状态提供有界 extension policy，状态只允许测试通过+暂存集完整+收尾白名单，未知/审批/源码编辑立即取消。下一步：新增事务状态与 RunnerConfig 边界回调，先补核心状态机边界测试。
-- observed_head: db821ab88726956e581107efe895c749a6643f09
+- 进展: B1 已完成：复核真实步数边界与轮末收口链。B2 已落地并提交 08992b47：crates/kanzei-app/src/run/events/mod.rs:256-435 以真实 test_record passed、git stage 成功、无源码编辑/审批/未知工具为白名单，最多只授予一次 2 步 extension；crates/kanzei-core/src/runner/drive.rs:243-256 在事件回调后读取有界信号，普通 max_steps 不变。B3 同一提交已落地：crates/kanzei-app/src/run/events/mod.rs:167-207 写入 run.transaction_budget_extended，包含 run_id、step、base_max_steps、extension_steps、reason，并按 run_id 去重；mod.rs:919-978 有重启/重复回调去重测试。定向证据：T-1786922726701、T-1786922726702、T-1786922726703、T-1786922726704、T-1786922726706；app 包全量记录 T-1786922726705 因既有 processes/subagents 夹具失败但 R-319 测试通过。下一步 B4：从真实 session state/close telemetry 取至少 10 个长程条目，形成可复核对比，确认事务中点切轮/纯恢复工具调用变化与事故率，再跑关闭前必要门禁并逐条收口验收。
+- observed_head: 08992b4761d7c4ca82d5aecd6f94d7f9637d8df5
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1787304913112
+- recorded_at: 1787305686014
 
 ## R-320 编辑后局部结构校验:在完整回归前捕获语法作用域与类型断裂 [todo]
 - refs: R-310 D-615
