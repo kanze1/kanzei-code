@@ -44,7 +44,7 @@
 - observed_head: 11b60ae32647a5ff999329120316e8ffebad7fd8
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787203506741
-- 停车: 停车: 当前主 agent 无同步 memory_update 工具,修源文件必须先交付 R-316 同步通道;恢复人:agent;恢复条件:R-316 提供真实调用路径后继续修 M-014/M-015、重建 INDEX/FTS。
+- 停车: 停车: 本轮用户请求仅为复核并清理过期阻塞，未进入 D-568 实现；R-316 前置已完成，待后续按 defect-first 恢复 D-568 修复。恢复人:agent。
 
 ## D-577 raw_lines 把空行判成游离段落且 raw_delete 报成功后游离行仍在,后置条件不成立 [fixing] (medium)
 - 复杂度: 中
