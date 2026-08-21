@@ -938,7 +938,10 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
                 "action": "add",
                 "title": "F13 main-root tracker",
                 "priority": "P2",
-                "fields": {"复杂度": "中", "标签": "后端", "验收": "tracker follows project_root"}
+                // R-313 的发现记录门禁只作用于中/大需求。本用例的主题是「tracker 跟
+                // project_root 走」,复杂度是无关变量——取小档位既不触发那道门禁,
+                // 也不必往夹具里塞一份与本用例无关的发现记录。
+                "fields": {"复杂度": "小", "标签": "后端", "验收": "tracker follows project_root"}
             }),
             &ctx,
         )

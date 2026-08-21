@@ -164,7 +164,7 @@ like 用户/桌面端/CLI from the original), fields = {\"标签\": ONE tag from
 \"原始描述\": the idea's original text verbatim, \"验收\" for req (one draft line) / \"复现\" for \
 defect (concrete steps ONLY if the original actually contains them — never invent or pad one; \
 otherwise write 待澄清), \"priority\": suggested P0-P3, \"复杂度\": 小|中|大 for req}. \
-Do NOT update the idea's own status — the main process does that after verifying the new ids. \
+D-681: a req whose 复杂度 is 中 or 大 additionally REQUIRES two fields, or `req add` is \nrejected outright by the R-313 gate and the split silently produces defects only: \n\"来源\" must quote the user's own words from the idea text using CJK corner brackets \n(e.g. 用户原话「...」), and \"发现记录\" must be a ONE-LINE JSON object carrying every one of \nIntent, Explicit, Assumptions, Ambiguities, 领域对象, 最小成功闭环, 延后决策 with non-empty \nvalues. You already read the idea's full original text via `idea get`, so derive them from it; \nwrite 待澄清 for what the text genuinely does not say rather than inventing content. \nIf the idea is too thin to fill these honestly, register it as 复杂度 小 instead of padding. \nDo NOT update the idea's own status — the main process does that after verifying the new ids. \
 Then reply with only the new ids.";
 
 /// R-252 验收⑤:人点「拆解」按钮后派出的子代理命令。照 quick_req 模式:
@@ -532,8 +532,15 @@ mod tests {
             );
             let resp2 = tool_call(
                 "req",
+                // D-681:中/大需求必须同时带 `来源`(含用户原话引用)与 `发现记录`
+                // (单行 JSON,七个非空字段)。这条桩响应刻意保持「中」档位——它就是
+                // 用来钉住 idea_split 走得通 R-313 门禁的;改成小档位会让这条回归失效。
                 serde_json::json!({ "action": "add", "title": "冒烟需求", "priority": "P2",
-                    "complexity": "中", "fields": { "标签": "后端", "验收": "一条验收", "原始描述": "想法原文" } }),
+                    "complexity": "中", "fields": {
+                        "标签": "后端", "验收": "一条验收", "原始描述": "想法原文",
+                        "来源": "用户原话「想法原文」",
+                        "发现记录": "{\"Intent\":\"验证拆解产出需求\",\"Explicit\":\"想法原文\",\"Assumptions\":\"无\",\"Ambiguities\":\"待澄清\",\"领域对象\":\"想法\",\"最小成功闭环\":\"拆出一条需求\",\"延后决策\":\"无\"}"
+                    } }),
             );
             let resp3 = tool_call(
                 "defect",

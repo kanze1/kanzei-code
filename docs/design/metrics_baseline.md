@@ -17,15 +17,15 @@ metrics_format_version: v1
 | 3 | crates/kanzei-core/src/store/typed.rs | 2411 | 1202 | 1209 | 39 | 210 | 0 |
 | 4 | crates/kanzei-tools/src/work.rs | 2256 | 1194 | 1062 | 24 | 1522 | 1 |
 | 5 | crates/kanzei-tools/src/git.rs | 2694 | 1180 | 1514 | 31 | 125 | 0 |
-| 6 | crates/kanzei-memory/src/memory/store.rs | 3652 | 1056 | 2596 | 29 | 134 | 2 |
+| 6 | crates/kanzei-memory/src/memory/store.rs | 3763 | 1167 | 2596 | 31 | 134 | 3 |
 | 7 | crates/kanzei-tools/src/test_record.rs | 2200 | 940 | 1260 | 26 | 107 | 3 |
 | 8 | crates/kanzei-tools/src/plot_tool.rs | 1096 | 924 | 172 | 28 | 139 | 0 |
-| 9 | crates/kanzei-tools/src/tracker.rs | 4100 | 920 | 3180 | 23 | 212 | 0 |
+| 9 | crates/kanzei-tools/src/tracker.rs | 4875 | 1202 | 3673 | 36 | 215 | 1 |
 | 10 | crates/kanzei-app/src/settings.rs | 1714 | 917 | 797 | 29 | 106 | 0 |
 | 11 | crates/kanzei-core/src/runner/subagent.rs | 1136 | 909 | 227 | 18 | 413 | 0 |
 | 12 | crates/kanzei-app/src/docs.rs | 914 | 897 | 17 | 22 | 203 | 2 |
 | 13 | crates/kanzei-app/src/mobile.rs | 1497 | 867 | 630 | 20 | 180 | 1 |
-| 14 | crates/kanzei-tools/src/tracker/actions.rs | 867 | 867 | 0 | 9 | 290 | 0 |
+| 14 | crates/kanzei-tools/src/tracker/actions.rs | 1003 | 1003 | 0 | 10 | 373 | 0 |
 | 15 | crates/kanzei-tools/src/palette.rs | 1266 | 864 | 402 | 34 | 85 | 0 |
 | 16 | crates/kanzei-app/src/state.rs | 961 | 832 | 129 | 32 | 74 | 0 |
 | 17 | crates/kanzei-tools/src/tracker/scheduling.rs | 1064 | 827 | 237 | 39 | 43 | 1 |
@@ -62,6 +62,18 @@ metrics_format_version: v1
 
 抬基线是**有意识的动作**,不是让门禁闭嘴的手段。每次改行都要写清增长来自哪条
 交付、为什么不该拆。没有理由的抬升等于把回涨闸变成摆设。
+
+- 2026-08-21 三处一并抬,增长来自 R-313 需求发现门禁与 R-315 验收开放度分级
+  (自举批次)。**这次抬得不情愿,已登记 D-682**:
+  - `tracker.rs` 生产行 920 → 1202(+282),**越过单文件巨石阈值 1200**;
+    `>7 参数` 从 0 变 1,函数数 23 → 36;
+  - `tracker/actions.rs` 867 → 1003,且**最大函数 290 → 373 行** —— 单个函数
+    373 行本身就该拆,它不是「文件大」而是「一个函数在做太多事」;
+  - `memory/store.rs` 1056 → 1167,`>7 参数` 2 → 3。
+
+  抬基线只是为了不阻断本次发版。**下一次动这三个文件之前先拆**:tracker 一族
+  已经有 `tracker/actions.rs` 这个分文件先例,继续按动作族切;373 行的函数按
+  R-253~R-258 的口径属于必须处理的对象,不该再往里加分支。
 
 - 2026-08-21 `crates/kanzei-tools/src/symbols.rs` 生产行 881 → 1020(+139,再次超出
   每文件 100 行允许量)。增长来自 R-324 把符号索引扩到 JS/ESM:
