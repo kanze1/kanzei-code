@@ -2,6 +2,8 @@
 //! 拆分自 runner.rs(设计 §C B1);RunEvent/RunSummary/Ask* 经 mod.rs pub use 平铺,
 //! drain_task_events/preview 仅 runner 内部使用,见 mod.rs 的 use event 导入。
 
+use std::sync::{atomic::AtomicU32, Arc};
+
 use kanzei_harness::ToolArtifact;
 use kanzei_llm::{FinishReason, Message, Usage};
 
@@ -38,6 +40,9 @@ pub enum RunEvent {
     TurnStart {
         step: u32,
         max_steps: u32,
+        /// R-319:事件消费者可在最后一步授予一次受控收尾延长；core
+        /// 在回调返回后读取该信号，不改变普通步数上限。
+        budget_extension: Arc<AtomicU32>,
     },
     Text(String),
     Reasoning(String),

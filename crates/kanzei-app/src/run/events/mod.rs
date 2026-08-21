@@ -119,6 +119,7 @@ pub(crate) struct TraceSink {
     live: Arc<Mutex<LiveRun>>,
     state_path: PathBuf,
     session_id: String,
+    run_id: String,
     /// D-374:本 run 期间复用同一条连接。
     ///
     /// 原实现每条 RunEvent 都走 `SessionStore::open`,而一次 open 不是"打开个文件"那么
@@ -139,7 +140,12 @@ pub(crate) struct TraceSink {
 }
 
 impl TraceSink {
-    pub(crate) fn new(live: Arc<Mutex<LiveRun>>, state_path: PathBuf, session_id: String) -> Self {
+    pub(crate) fn new(
+        live: Arc<Mutex<LiveRun>>,
+        state_path: PathBuf,
+        session_id: String,
+        run_id: String,
+    ) -> Self {
         let store = kanzei_core::SessionStore::open(&state_path)
             .map_err(|error| {
                 tracing::warn!(
@@ -154,12 +160,50 @@ impl TraceSink {
             live,
             state_path,
             session_id,
+            run_id,
             store: Mutex::new(store),
         }
     }
+    fn record_transaction_budget_extension(
+        &self,
+        step: u32,
+        base_max_steps: u32,
+        extension_steps: u32,
+    ) -> bool {
+        let store = self.store.lock().unwrap();
+        let Some(store) = store.as_ref() else {
+            return false;
+        };
+        let already_recorded = store
+            .list_events_by_type(&self.session_id, 0, "run.transaction_budget_extended")
+            .map(|events| {
+                events
+                    .iter()
+                    .any(|event| event.payload["run_id"].as_str() == Some(self.run_id.as_str()))
+            })
+            .unwrap_or(true);
+        if already_recorded {
+            return false;
+        }
+        store
+            .append_event(
+                &self.session_id,
+                "run.transaction_budget_extended",
+                &json!({
+                    "run_id": self.run_id,
+                    "step": step,
+                    "base_max_steps": base_max_steps,
+                    "extension_steps": extension_steps,
+                    "reason": "tests_passed_files_staged_commit_tracker_anchor_only",
+                }),
+            )
+            .is_ok()
+    }
+
     fn note_event(&self) {
         self.live.lock().unwrap().note_event();
     }
+
     fn record(&self, payload: serde_json::Value) {
         let store = self.store.lock().unwrap();
         let persisted = match store.as_ref() {
@@ -212,6 +256,15 @@ pub(crate) struct MetricsSink {
     /// 被权限拦下或执行失败的 handoff 不算数据。
     pending_handoffs: Mutex<std::collections::HashSet<String>>,
     round_handoff: Arc<std::sync::atomic::AtomicBool>,
+    /// R-319:显式收尾事务状态。只由真实工具结果推进，不接受模型自报。
+    transaction_calls: Mutex<HashMap<String, (String, serde_json::Value)>>,
+    tests_passed: std::sync::atomic::AtomicBool,
+    files_staged: std::sync::atomic::AtomicBool,
+    commit_pending: std::sync::atomic::AtomicBool,
+    source_edited: std::sync::atomic::AtomicBool,
+    unexpected_tool: std::sync::atomic::AtomicBool,
+    approval_seen: std::sync::atomic::AtomicBool,
+    extension_used: std::sync::atomic::AtomicBool,
 }
 
 impl MetricsSink {
@@ -234,6 +287,14 @@ impl MetricsSink {
             round_closed,
             pending_handoffs: Mutex::new(std::collections::HashSet::new()),
             round_handoff,
+            transaction_calls: Mutex::new(HashMap::new()),
+            tests_passed: std::sync::atomic::AtomicBool::new(false),
+            files_staged: std::sync::atomic::AtomicBool::new(false),
+            commit_pending: std::sync::atomic::AtomicBool::new(false),
+            source_edited: std::sync::atomic::AtomicBool::new(false),
+            unexpected_tool: std::sync::atomic::AtomicBool::new(false),
+            approval_seen: std::sync::atomic::AtomicBool::new(false),
+            extension_used: std::sync::atomic::AtomicBool::new(false),
         }
     }
     /// R-143:git commit 调用意图登记(成功与否由 ToolEnd ok 收口)。
@@ -254,6 +315,18 @@ impl MetricsSink {
     /// 消息画像里 ToolCall 出现即计入的语义一致)。close 意图同步登记,等 ToolEnd 收口。
     fn note_round_tool(&self, id: &str, name: &str, input: &serde_json::Value) {
         self.round_tools.lock().unwrap().insert(name.to_string());
+        self.transaction_calls
+            .lock()
+            .unwrap()
+            .insert(id.to_string(), (name.to_string(), input.clone()));
+        if matches!(name, "edit" | "insert" | "write") {
+            self.source_edited
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        if !matches!(name, "git" | "req" | "defect" | "work" | "test_record") {
+            self.unexpected_tool
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         let is_close = matches!(name, "req" | "defect")
             && input.get("action").and_then(serde_json::Value::as_str) == Some("close");
         if is_close {
@@ -268,6 +341,27 @@ impl MetricsSink {
     }
     /// R-143:git commit 结束后解析提交结果;返回该工具耗时(取并清开始时刻)。
     fn resolve_tool_end(&self, id: &str, name: &str, ok: bool) -> Option<u128> {
+        let transaction_call = self.transaction_calls.lock().unwrap().remove(id);
+        if let Some((call_name, input)) = transaction_call {
+            if call_name == "test_record" {
+                self.tests_passed.store(
+                    ok && input["status"].as_str() == Some("passed"),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+            }
+            if call_name == "git" && input["action"].as_str() == Some("stage") {
+                self.files_staged
+                    .store(ok, std::sync::atomic::Ordering::Relaxed);
+                self.commit_pending
+                    .store(ok, std::sync::atomic::Ordering::Relaxed);
+            }
+            if call_name == "git" && input["action"].as_str() == Some("commit") && ok {
+                self.files_staged
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+                self.commit_pending
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
         // D-654:close 调用成功才计入本轮关闭数(被门禁拦下的 close 不算,
         // 否则核查节律被失败调用刷阈值——与原 closed_count_this_round 判据一致)。
         if self.pending_closes.lock().unwrap().remove(id) && ok {
@@ -304,6 +398,37 @@ impl MetricsSink {
     }
 }
 
+impl MetricsSink {
+    /// R-319:仅在最后一步且三个确定性事实齐备时授予一次 2 步收尾延长。
+    /// 事务状态一旦被源码编辑、审批或失败测试污染，永不自动恢复。
+    fn maybe_extend_transaction(&self, step: u32, max_steps: u32) -> bool {
+        if max_steps == 0 || step < max_steps {
+            return false;
+        }
+        self.tests_passed.load(std::sync::atomic::Ordering::Relaxed)
+            && self
+                .commit_pending
+                .load(std::sync::atomic::Ordering::Relaxed)
+            && !self
+                .unexpected_tool
+                .load(std::sync::atomic::Ordering::Relaxed)
+            && !self
+                .source_edited
+                .load(std::sync::atomic::Ordering::Relaxed)
+            && !self
+                .approval_seen
+                .load(std::sync::atomic::Ordering::Relaxed)
+            && !self
+                .extension_used
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn note_approval(&self) {
+        self.approval_seen
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// R-253 批8:构造 run_task 的 RunEvent 处理器闭包——按投影拆成四个 sink 后 fanout。
 /// D-173 可观测性:主代理工具调用实时转发 UI 并按 id 记开始时刻;R-143:git commit
 /// 检测位在 ToolStart(action=commit)/ToolEnd(ok=true) 置位/提升;轨迹与 typed writer
@@ -319,7 +444,24 @@ pub(crate) fn build_event_handler(
         // 每个真实 RunEvent 都刷新协作快照的进展时钟；UI 不靠纯轮询时间猜死活。
         trace.note_event();
         let _ = match event {
-            RunEvent::TurnStart { step, max_steps } => {
+            RunEvent::TurnStart {
+                step,
+                max_steps,
+                budget_extension,
+            } => {
+                if metrics.maybe_extend_transaction(step, max_steps)
+                    && trace.record_transaction_budget_extension(step, max_steps, 2)
+                {
+                    budget_extension.store(2, std::sync::atomic::Ordering::Relaxed);
+                    trace.record(json!({
+                        "kind": "transaction_budget.extended",
+                        "step": step,
+                        "baseMaxSteps": max_steps,
+                        "extensionSteps": 2,
+                        "reason": "tests_passed_files_staged_commit_tracker_anchor_only",
+                        "at": now_ms(),
+                    }));
+                }
                 trace.note_step(step);
                 trace.record(json!({ "kind": "turn.started", "step": step, "at": now_ms() }));
                 typed.turn_started(step, max_steps);
@@ -442,6 +584,7 @@ pub(crate) fn build_event_handler(
                 source,
                 ..
             } => {
+                metrics.note_approval();
                 trace.record(json!({
                     "kind": "permission.resolved", "id": tool_call_id, "action": action,
                     "resource": resource, "decision": decision, "source": source, "at": now_ms(),
@@ -668,7 +811,12 @@ mod tests {
         live.lock().unwrap().begin("run-1", "in-1", "头", "p", "m");
 
         let before = kanzei_core::store_open_count(&state_path);
-        let sink = TraceSink::new(live, state_path.clone(), "ses_trace".into());
+        let sink = TraceSink::new(
+            live,
+            state_path.clone(),
+            "ses_trace".into(),
+            "run-trace-test".into(),
+        );
         const EVENTS: usize = 20;
         for index in 0..EVENTS {
             sink.record(json!({ "kind": "test.event", "i": index }));
@@ -751,6 +899,82 @@ mod tests {
             sink.resolve_tool_end("x", "work", true);
         }
         assert!(!handoff.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[test]
+    fn 事务延长只在收尾事实齐备时触发且只触发一次() {
+        let (sink, _, _) = mk_metrics_sink();
+        sink.note_round_tool("test", "test_record", &json!({"status": "passed"}));
+        sink.resolve_tool_end("test", "test_record", true);
+        sink.note_round_tool("stage", "git", &json!({"action": "stage"}));
+        sink.resolve_tool_end("stage", "git", true);
+        assert!(sink.maybe_extend_transaction(32, 32));
+        assert!(!sink.maybe_extend_transaction(32, 32));
+    }
+
+    #[test]
+    fn 事务延长遇到失败源码编辑或审批时拒绝() {
+        let (failed_test, _, _) = mk_metrics_sink();
+        failed_test.note_round_tool("test", "test_record", &json!({"status": "failed"}));
+        failed_test.resolve_tool_end("test", "test_record", false);
+        failed_test.note_round_tool("stage", "git", &json!({"action": "stage"}));
+        failed_test.resolve_tool_end("stage", "git", true);
+        assert!(!failed_test.maybe_extend_transaction(32, 32));
+
+        let (edited, _, _) = mk_metrics_sink();
+        edited.note_round_tool("test", "test_record", &json!({"status": "passed"}));
+        edited.resolve_tool_end("test", "test_record", true);
+        edited.note_round_tool("stage", "git", &json!({"action": "stage"}));
+        edited.resolve_tool_end("stage", "git", true);
+        edited.note_round_tool("edit", "edit", &json!({"path": "src/lib.rs"}));
+        assert!(!edited.maybe_extend_transaction(32, 32));
+
+        let (approved, _, _) = mk_metrics_sink();
+        approved.note_round_tool("test", "test_record", &json!({"status": "passed"}));
+        approved.resolve_tool_end("test", "test_record", true);
+        approved.note_round_tool("stage", "git", &json!({"action": "stage"}));
+        approved.resolve_tool_end("stage", "git", true);
+        approved.note_approval();
+        assert!(!approved.maybe_extend_transaction(32, 32));
+    }
+
+    /// R-319 B3:扩展事件必须按 run_id 去重，重启恢复或重复回调不得重复记账。
+    #[test]
+    fn 事务延长事件按run_id去重() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-transaction-budget-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.db");
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        store.create_session("ses_budget", "C:/proj", None).unwrap();
+        drop(store);
+        let live = Arc::new(Mutex::new(LiveRun::default()));
+        live.lock()
+            .unwrap()
+            .begin("run-budget", "in-1", "头", "p", "m");
+        let sink = TraceSink::new(
+            live,
+            state_path.clone(),
+            "ses_budget".into(),
+            "run-budget".into(),
+        );
+        assert!(sink.record_transaction_budget_extension(32, 32, 2));
+        assert!(!sink.record_transaction_budget_extension(32, 32, 2));
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        assert_eq!(
+            store
+                .list_events_by_type("ses_budget", 0, "run.transaction_budget_extended")
+                .unwrap()
+                .len(),
+            1
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// D-654 核心回归:鞭挞的工具画像走事件真源,不经过 `summary.messages` 切片。

@@ -9689,3 +9689,99 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-316 D-678
 - 收尾: 1787304680
 - 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@15c88ce48652,crates/kanzei-memory/src/memory/tools.rs@7145dfc0f45d,crates/kanzei-tools/src/profiles/dev.rs@7530350fc66c
+
+## T-1786922726695 R-319 B2 core step budget hook 定向回归 [passed]
+- 命令: cargo test -p kanzei-core --lib
+- 时长: 1.3s
+- 摘要: core 定向回归通过：253 passed，0 failed。覆盖 RunEvent、runner loop、session store 等现有测试。
+- 关联: R-319
+- 收尾: 1787305129
+- 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@a461f0ce4ce6,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726696 R-319 B2 app 定向回归命令探测 [failed]
+- 命令: cargo test -p kanzei-app --lib
+- 时长: 0.0s
+- 摘要: 命令未进入测试：kanzei-app 没有 library target（error: no library targets found）；应改用该包实际 binary target。
+- 关联: R-319
+- 收尾: 1787305130
+- 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@a461f0ce4ce6,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726697 R-319 B2 app kzapp 定向回归 [failed]
+- 命令: cargo test -p kanzei-app --bin kzapp
+- 时长: 36.6s
+- 摘要: 源码编译与 240 个 app 单测启动成功；238 passed，2 failed。失败为既有测试环境/门禁夹具：processes::tests::线上闭环…因中大需求缺发现记录，subagents::tests::idea_split…断言 I-001→D-001；均未涉及 R-319 预算逻辑。
+- 关联: R-319
+- 收尾: 1787305191
+- 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@a461f0ce4ce6,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726698 R-319 B2 app event sink 定向回归 [passed]
+- 命令: cargo test -p kanzei-app --bin kzapp run::events::tests
+- 时长: 0.0s
+- 摘要: R-319 事件 sink 定向回归通过：5 passed，0 failed，覆盖真实 app event handler 的工具画像、close/handoff 收口与 trace sink。
+- 关联: R-319
+- 收尾: 1787305203
+- 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@a461f0ce4ce6,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726699 R-319 B3 core persistence hook 定向回归 [passed]
+- 命令: cargo test -p kanzei-core --lib
+- 时长: 0.4s
+- 摘要: core 定向回归：253 passed，0 failed。
+- 关联: R-319
+- 收尾: 1787305393
+- 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@08b173ffb3a6,crates/kanzei-app/src/run/events/mod.rs@afae531baec7,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726700 R-319 B3 app event persistence 编译回归 [failed]
+- 命令: cargo test -p kanzei-app --bin kzapp run::events::tests
+- 时长: 0.0s
+- 摘要: 编译阶段失败：TraceSink::note_event 在新增持久化方法时被误删，尚未进入测试；已定位并补回。
+- 关联: R-319
+- 收尾: 1787305393
+- 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@08b173ffb3a6,crates/kanzei-app/src/run/events/mod.rs@afae531baec7,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726701 R-319 B3 app transaction budget persistence 回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app --bin kzapp run::events::tests
+- 时长: 6.4s
+- 摘要: app 事件与事务预算定向回归：8 passed，0 failed；覆盖单次有界延长、失败测试/源码编辑/审批拒绝、session event run_id 去重和既有 trace/handoff/close 逻辑。
+- 关联: R-319
+- 收尾: 1787305421
+- 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@08b173ffb3a6,crates/kanzei-app/src/run/events/mod.rs@afae531baec7,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726702 R-319 B2 commit pending 白名单回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-app --bin kzapp run::events::tests
+- 时长: 5.8s
+- 摘要: 补充 commit_pending 与 unexpected_tool 白名单后，app 事件定向回归 8 passed，0 failed。
+- 关联: R-319
+- 收尾: 1787305504
+- 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@08b173ffb3a6,crates/kanzei-app/src/run/events/mod.rs@a1962d337972,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726703 R-319 B2 bounded extension core 回归 [passed]
+- 命令: cargo test -p kanzei-core --lib
+- 时长: 0.4s
+- 摘要: core 定向回归 253 passed，0 failed。
+- 关联: R-319
+- 收尾: 1787305505
+- 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@08b173ffb3a6,crates/kanzei-app/src/run/events/mod.rs@a1962d337972,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726704 R-319 commit gate kanzei package regression [passed]
+- 命令: cargo test -p kanzei
+- 时长: 14.4s
+- 摘要: kanzei CLI 包级回归：44 单元测试 passed，0 failed；集成测试 0 tests。
+- 关联: R-319
+- 收尾: 1787305598
+- 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@08b173ffb3a6,crates/kanzei-app/src/run/events/mod.rs@a1962d337972,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726705 R-319 commit gate kanzei-app package regression [failed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.5s
+- 摘要: app 包级回归：241 passed，2 failed；失败仍是既有 processes::线上闭环发现记录门禁与 subagents::idea_split I-001→D-001 夹具问题，预算事件测试全部通过。
+- 关联: R-319
+- 收尾: 1787305598
+- 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@08b173ffb3a6,crates/kanzei-app/src/run/events/mod.rs@a1962d337972,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf
+
+## T-1786922726706 R-319 commit gate kanzei-core package regression [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.4s
+- 摘要: kanzei-core 包级回归：253 passed，0 failed；doc-tests 0 passed。
+- 关联: R-319
+- 收尾: 1787305598
+- 源码指纹: v2 crates/kanzei-app/src/run/coordinator.rs@08b173ffb3a6,crates/kanzei-app/src/run/events/mod.rs@a1962d337972,crates/kanzei-core/src/runner/drive.rs@51767907ec8b,crates/kanzei-core/src/runner/event.rs@cd3cb4fbcf64,crates/kanzei-core/src/runner/subagent.rs@e06fb473bb46,crates/kanzei/src/cli/run/events.rs@2774a0242acf

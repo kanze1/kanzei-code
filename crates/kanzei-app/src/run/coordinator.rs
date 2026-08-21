@@ -135,7 +135,12 @@ pub(crate) async fn run_task(
     let mut on_event = build_event_handler(
         UiEventSink::new(emit_event, session_id.clone(), run_id.clone()),
         TypedEventSink::new(typed_writer.clone()),
-        TraceSink::new(trace_log, state_path.clone(), session_id.clone()),
+        TraceSink::new(
+            trace_log,
+            state_path.clone(),
+            session_id.clone(),
+            run_id.clone(),
+        ),
         MetricsSink::new(
             tool_started,
             committed_this_round.clone(),

@@ -240,8 +240,17 @@ pub fn run_once_with_parts<'a>(
             if !refreshable_baseline.trim().is_empty() {
                 system.push(refreshable_baseline.clone());
             }
-            on_event(RunEvent::TurnStart { step, max_steps });
-            let last_step = max_steps > 0 && step == max_steps;
+            let budget_extension = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+            on_event(RunEvent::TurnStart {
+                step,
+                max_steps,
+                budget_extension: budget_extension.clone(),
+            });
+            let extension = budget_extension
+                .load(std::sync::atomic::Ordering::Relaxed)
+                .min(2);
+            let effective_max_steps = max_steps.saturating_add(extension);
+            let last_step = effective_max_steps > 0 && step == effective_max_steps;
             // 步数预算(D-173):旧配置中的 0 已在装配段转换为有限默认上限。
             // 到达最后一步时收走工具并要求模型用文本收敛，防止工具/模型循环无限延长。
             let budget_checkpoint = is_budget_checkpoint(step);

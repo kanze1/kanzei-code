@@ -6,7 +6,9 @@ pub(crate) fn make_event_handler(
 ) -> impl FnMut(kanzei_core::RunEvent) + Send {
     let mut stdout = stdout();
     move |event| match event {
-        kanzei_core::RunEvent::TurnStart { step, max_steps } => {
+        kanzei_core::RunEvent::TurnStart {
+            step, max_steps, ..
+        } => {
             typed_writer.lock().unwrap().turn_started(step, max_steps);
             if step > 1 {
                 let label = if max_steps > 0 {

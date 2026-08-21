@@ -584,7 +584,9 @@ pub(crate) async fn run_subagent(
     let change_owner = parent_call_id.to_string();
     let mut on_event = |event: RunEvent| {
         let text = match &event {
-            RunEvent::TurnStart { step, max_steps } => Some(if *max_steps > 0 {
+            RunEvent::TurnStart {
+                step, max_steps, ..
+            } => Some(if *max_steps > 0 {
                 format!("第 {step}/{max_steps} 轮")
             } else {
                 format!("第 {step} 轮")
