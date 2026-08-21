@@ -613,6 +613,35 @@ fn conversation_list_projected_segments_by_reset_boundary() {
         .collect();
     assert_eq!(titles, vec!["第一段问题", "第二段问题"]);
 
+    // 投影列表返回的是 typed fact 段末序号,打开时必须能回放该段而不是按
+    // conversation.updated 精确序号读出空数组。
+    for (index, expected) in [
+        vec!["第一段问题".to_string(), "第一段回答".to_string()],
+        vec!["第二段问题".to_string(), "第二段回答".to_string()],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let sequence = segments[index]["sequence"]
+            .as_i64()
+            .expect("投影历史必须返回段末 sequence");
+        let messages = crate::conversation::conversation_get(
+            canonical.display().to_string(),
+            Some(sequence),
+            None,
+        )
+        .unwrap();
+        let texts: Vec<String> = messages
+            .iter()
+            .flat_map(|message| message.parts.iter())
+            .filter_map(|part| match part {
+                Part::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, expected, "打开第 {index} 段投影历史不得为空或串段");
+    }
+
     std::fs::remove_dir_all(root).unwrap();
 }
 #[test]
