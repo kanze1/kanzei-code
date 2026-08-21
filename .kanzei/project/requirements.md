@@ -250,7 +250,7 @@
 - recorded_at: 1787299505789
 - 阻塞: 等待用户评审并拍板四方向及实施顺序；解除人:用户
 
-## R-319 事务边界感知的步数预算:收尾软延长避免 stage 后切轮 [todo]
+## R-319 事务边界感知的步数预算:收尾软延长避免 stage 后切轮 [doing]
 - refs: R-307 R-311 D-335
 - 内容: 让运行预算识别显式交付事务阶段；当剩余步数不足、且当前仅余 commit 与 tracker anchor 等确定性收尾动作时，授予小额 soft transaction extension 完成原子边界，再结束本轮；事件记录触发条件、扩展步数、实际动作与结果。
 - 复杂度: 中
@@ -259,6 +259,13 @@
 - 边界: 不增加通用自动轮数；只允许白名单收尾状态与有界额外步数；不得跳过 fmt/clippy/test/source_test_gate/权限/CAS；出现新代码编辑、测试失败、用户输入或未知状态立即取消扩展并正常切轮。
 - 验收: ①tests passed+files staged+commit pending 且只剩 2 步时可完成 commit+tracker anchor 后结束；②测试失败、未暂存、存在审批或发生源码编辑时不延长；③扩展上限和原因进入 session event，可审计且重启恢复不重复提交；④对比至少 10 个真实长程条目，事务中点切轮和纯恢复工具调用显著下降且事故率不升。
 - 优先级: P1
+- 批次: 1/4
+- 批次表: B1 复核现有 step budget/轮次结束与收尾事件链，锁定真实扩展入口；B2 实现白名单收尾状态、有界扩展与取消条件；B3 接入可审计 session event 与重启去重恢复；B4 真实长程条目对比、回归测试与验收收口。
+- 取活依据: engine:唯一可执行 WIP 是 R-319，必须先恢复它
+- 进展: B1 已完成：复核确认真实步数边界在 crates/kanzei-core/src/runner/drive.rs:217-247（step/max_steps/last_step），上限来源为 crates/kanzei-core/src/runner/drive/assembly.rs:170-171；现有提交意图与成功收口状态在 crates/kanzei-app/src/run/events/mod.rs:239-300，轮末判定在 crates/kanzei-app/src/run/coordinator.rs:364-434，session event 持久入口在 crates/kanzei-app/src/run/persistence.rs:110-129。关键决策：不改通用 auto-round 计数、不在 core 静态增加上限；B2 通过显式事务状态提供有界 extension policy，状态只允许测试通过+暂存集完整+收尾白名单，未知/审批/源码编辑立即取消。下一步：新增事务状态与 RunnerConfig 边界回调，先补核心状态机边界测试。
+- observed_head: db821ab88726956e581107efe895c749a6643f09
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787304913112
 
 ## R-320 编辑后局部结构校验:在完整回归前捕获语法作用域与类型断裂 [todo]
 - refs: R-310 D-615
