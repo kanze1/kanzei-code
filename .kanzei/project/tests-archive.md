@@ -10072,3 +10072,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 当前 HEAD 8296c894 的 targeted verify 全绿：Rust/前端门禁、IPC event contract、ui connectivity、UI runtime、workspace test 等全部通过；关键测试结果包含 kanzei-app 245 passed、kanzei-tools 490 passed/0 failed/1 ignored。
 - 关联: R-321 D-688 D-689
 - 收尾: 1787322462
+
+## T-1786922726744 D-686 incident 与 git 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools incident; cargo test -p kanzei-tools git::tests
+- 时长: 4.1s
+- 摘要: 当前代码中 blocked_root/cross_root 已分离；incident 定向测试 6 passed，git 定向测试 31 passed，变量遮蔽不再复现。
+- 关联: D-686 R-321
+- 收尾: 1787322564

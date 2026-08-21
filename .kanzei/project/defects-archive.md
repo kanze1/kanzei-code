@@ -8462,3 +8462,16 @@
 - observed_head: 8296c89415ecbdad059c14034864ec694e6fa2a8
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787322479530
+
+## D-686 R-321 B2 incident 测试局部变量遮蔽 root 辅助函数 [fixed] (low)
+- 复现: 运行 cargo test -p kanzei-tools incident 时，incident.rs 测试函数中先声明 `let root = root("blocked-cross-round")`，随后再次调用 `root("cross-round")`，编译报 expected function, found PathBuf。
+- 影响: 阻止 kanzei-tools 测试编译，B2 不能进入提交门禁。
+- 来源: self-found
+- 标签: 核心
+- 进展: 验收对账：①根因位置 `crates/kanzei-tools/src/incident.rs:680-697` 现在使用 `blocked_root` 与 `cross_root` 两个不同变量，不再遮蔽测试辅助函数 `root`；该修复已随 `8296c894` 的 R-321 B3 代码基线保留。②`T-1786922726744` 执行 `cargo test -p kanzei-tools incident`（6 passed）与 `cargo test -p kanzei-tools git::tests`（31 passed），变量遮蔽不再复现。D-686 已修复并收口。
+- refs: R-321
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-686(unblocks=0)
+- observed_head: 8296c89415ecbdad059c14034864ec694e6fa2a8
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787322575615

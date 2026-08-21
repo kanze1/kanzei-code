@@ -106,15 +106,6 @@
 - recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
 
-## D-686 R-321 B2 incident 测试局部变量遮蔽 root 辅助函数 [open] (low)
-- 复现: 运行 cargo test -p kanzei-tools incident 时，incident.rs 测试函数中先声明 `let root = root("blocked-cross-round")`，随后再次调用 `root("cross-round")`，编译报 expected function, found PathBuf。
-- 影响: 阻止 kanzei-tools 测试编译，B2 不能进入提交门禁。
-- 来源: self-found
-- 标签: 核心
-- 进展: 待重命名第二个测试作用域变量，随后重跑 incident 与 git 定向测试。
-- refs: R-321
-- 优先级: P2
-
 ## D-687 R-321 B2 IncidentEventType 手写 Default 未通过 clippy [open] (low)
 - 复现: 结构化 git commit 运行 cargo clippy --workspace -- -D warnings 时，在 crates/kanzei-tools/src/incident.rs:54 报 this impl can be derived。
 - 影响: 阻止 R-321 B2 提交，不影响运行时分类行为。
