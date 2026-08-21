@@ -374,3 +374,15 @@
 - observed_head: 31c1bd9f725230f651cae4cc334cf3305fa35d81
 - observed_worktree_hash: fnv1a64:276ef34e9de83742
 - recorded_at: 1787286478941
+
+## R-326 read 补 notebook 与 PDF 分页 [done]
+- 原始描述: 对比 Claude Code 工具面:read 已有图片(R-249)与 PDF 按行读,缺 notebook 与 PDF 按页访问;且 PDF 硬依赖外部 pdftotext,没装即失败
+- 复杂度: 中
+- 标签: 核心
+- 验收: .ipynb 渲染为带序号单元格+捕获输出,error 输出保留 ename/evalue/traceback,非文本输出只报类型不倒 base64,cells 区间生效且越界报错;PDF 支持 pages 页区间(换页符分页)、单次封顶 20 页、全空页报错并指向 OCR;pdftotext 缺失时回落 pdf-extract
+- refs: R-325
+- 优先级: P1
+- 进展: notebook:按扩展名分派(.ipynb 与普通 .json 字节上无法区分,只有路径能表达 notebook 语义),渲染带序号单元格+source(逐行数组与字符串两形态都吃)+四种输出形态,error 保留 ename/evalue/traceback(读 notebook 十有八九就是看它为什么失败),非文本输出只报 mime 不倒 base64,cells 区间 1-based 闭区间越界即报错,默认封顶 50 格。PDF:既有实现是内容嗅探 %PDF- + 外部 pdftotext 按行读,本批加 pages 页坐标(换页符分页——两条抽取路径唯一的共同页边界,无换页符则整篇算一页不硬切假页)、单次封顶 20 页、全空页报错并指向 OCR 而非静默返回空;pdftotext 缺失回落进程内 pdf-extract(保留 pdftotext 首选因 -layout 排版还原更好)。12 条新单测,workspace 15 个二进制全绿,clippy/fmt 干净
+- observed_head: b8df33ca1a867da596e7eddfd9f02396b4005565
+- observed_worktree_hash: fnv1a64:bba52abe45b1b580
+- recorded_at: 1787288250234

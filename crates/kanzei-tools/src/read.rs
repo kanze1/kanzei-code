@@ -32,6 +32,13 @@ struct ReadInput {
     /// 只读最后 N 行(与 offset 互斥,反向 seek 实现)
     #[serde(default)]
     tail: Option<usize>,
+    /// R-326:notebook(.ipynb)只读这些单元格,形如 "1-5" / "3" / "10-20"。
+    /// 对普通文本用 offset/limit——那是行号,这里是**单元格序号**,两套坐标别混。
+    #[serde(default)]
+    cells: Option<String>,
+    /// R-326:PDF 只读这些页,形如 "1-5" / "3"。同样是**页码**不是行号。
+    #[serde(default)]
+    pages: Option<String>,
 }
 
 pub struct ReadTool;
@@ -45,7 +52,7 @@ impl Tool for ReadTool {
     fn description(&self) -> String {
         "Read a file. Text files: params path; optional offset (1-based line), limit (max lines), \
          tail (last N lines). Image files (PNG/JPEG/WebP/GIF) are detected by content and returned \
-         as a viewable image — offset/limit/tail do not apply to them. \
+         as a viewable image; offset/limit/tail do not apply to them. Jupyter notebooks (.ipynb) render as numbered cells with source and captured outputs; use `cells` (for example `1-5` or `3`) for a range, which is a CELL index and not a line number. \
          Multiple read calls in the SAME step run in parallel: when you know several files to \
          open, emit them together instead of one per step."
             .into()
@@ -175,6 +182,13 @@ fn read_any(
         return Err(format!("{} is a directory", path.display()));
     }
 
+    // R-326:notebook 按**扩展名**分派而不是嗅探内容——.ipynb 就是 JSON,
+    // 与普通 .json 在字节上无法区分,只有路径能表达「按 notebook 语义读」。
+    if path.extension().is_some_and(|e| e == "ipynb") {
+        let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        return read_notebook(&raw, input.cells.as_deref()).map(ReadPayload::Text);
+    }
+
     let mut head = [0u8; 12];
     let n = file.read(&mut head).map_err(|e| e.to_string())?;
     if let Some(media_type) = sniff_image(&head[..n]) {
@@ -207,6 +221,12 @@ fn read_any(
 
 fn read_pdf(path: &std::path::Path, input: &ReadInput) -> Result<String, String> {
     let text = pdf_to_text(path)?;
+    // R-326:`pages` 走**页**坐标,与 offset/limit 的行坐标是两套,不互相回退。
+    // 给了 pages 就整页整页地给,不再按行截断——按行读一份跨页文本,读者根本
+    // 不知道自己停在第几页,这正是加页码的原因。
+    if let Some(spec) = input.pages.as_deref() {
+        return render_pdf_pages(&text, spec);
+    }
     let lines: Vec<&str> = text.lines().collect();
     let offset = input.offset.unwrap_or(1).max(1);
     let limit = input.limit.unwrap_or(DEFAULT_LIMIT);
@@ -243,7 +263,22 @@ pub fn pdf_to_text(path: &std::path::Path) -> Result<String, String> {
         .arg(path)
         .arg("-")
         .output()
-        .map_err(|error| format!("启动 pdftotext 失败: {error}; 请将 pdftotext 安装并加入 PATH"))?;
+        // R-326:pdftotext 没装不再直接失败——回落到进程内的 pdf-extract。
+        // 保留 pdftotext 为首选是因为 `-layout` 对表格/多栏排版明显更好;
+        // 回落只保证「没装 poppler 也能读」,不追求同等排版质量。
+        .map_err(|error| {
+            pdf_extract::extract_text(path).map_err(|fallback| {
+                format!(
+                    "读取 {} 失败:pdftotext 未就绪({error}),进程内回落也失败({fallback})。                     装上 poppler 的 pdftotext 可获得更好的排版还原。",
+                    path.display()
+                )
+            })
+        });
+    let output = match output {
+        Ok(output) => output,
+        // 回落成功:直接返回其文本,不再走下面的 stdout 解析。
+        Err(fallback) => return fallback,
+    };
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(format!(
@@ -716,5 +751,382 @@ line2
         assert!(!out.is_error, "{}", out.content);
         assert!(out.images.is_empty());
         std::fs::remove_dir_all(dir).ok();
+    }
+}
+
+/// R-326:notebook 单元格上限。一个 notebook 动辄几百格,全量倒进上下文没有意义;
+/// 超出就截断并如实说明,让模型用 `cells` 缩范围。
+const MAX_NOTEBOOK_CELLS: usize = 50;
+/// 单个输出块保留的字符数。训练日志/长 traceback 常有几万字符,留头部足够判断。
+const MAX_OUTPUT_CHARS: usize = 2000;
+
+/// R-326:把 .ipynb 渲染成「带序号的单元格 + 各自捕获的输出」。
+///
+/// 为什么不直接把 JSON 交给模型:notebook 的 JSON 里 `source` 是**逐行字符串数组**,
+/// 输出还分 stream/execute_result/display_data/error 四种形态,每种把正文藏在不同键下。
+/// 让模型自己在原始 JSON 里挑,等于每次读 notebook 都先付一遍解析税,而且极易看漏
+/// error 输出——那恰恰是读 notebook 最想看的东西。
+///
+/// `cells` 是**单元格序号**(1-based,闭区间),与文本的 offset/limit 是两套坐标,
+/// 混用会静默读错位置,所以两者在入参上互不回退。
+fn read_notebook(raw: &str, cells: Option<&str>) -> Result<String, String> {
+    let doc: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| format!("notebook is not valid JSON: {e}"))?;
+    let all = doc
+        .get("cells")
+        .and_then(|c| c.as_array())
+        .ok_or_else(|| "notebook has no `cells` array".to_string())?;
+    let total = all.len();
+    let (from, to) = match cells {
+        Some(spec) => parse_cell_range(spec, total)?,
+        None => (1, total.min(MAX_NOTEBOOK_CELLS)),
+    };
+
+    let mut out = String::new();
+    let language = doc
+        .pointer("/metadata/kernelspec/language")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    out.push_str(&format!(
+        "notebook: {total} cells, kernel language {language}; showing {from}-{to}\n"
+    ));
+    for (offset, cell) in all[from - 1..to].iter().enumerate() {
+        let index = from + offset;
+        let kind = cell
+            .get("cell_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        out.push_str(&format!("\n[{index}] {kind}\n"));
+        out.push_str(&join_source(cell.get("source")));
+        for text in cell
+            .get("outputs")
+            .and_then(|o| o.as_array())
+            .map(|outputs| outputs.iter().filter_map(render_output).collect::<Vec<_>>())
+            .unwrap_or_default()
+        {
+            out.push_str(&format!("  |out| {text}\n"));
+        }
+    }
+    if cells.is_none() && total > MAX_NOTEBOOK_CELLS {
+        out.push_str(&format!(
+            "\n... ({total} cells total, showed first {MAX_NOTEBOOK_CELLS}; \
+             pass `cells` such as \"{}-{total}\" to read further)\n",
+            MAX_NOTEBOOK_CELLS + 1
+        ));
+    }
+    Ok(out)
+}
+
+/// `source` 在 notebook 里可能是逐行数组,也可能是单个字符串;两种都要吃。
+fn join_source(value: Option<&serde_json::Value>) -> String {
+    let text = match value {
+        Some(serde_json::Value::Array(lines)) => lines
+            .iter()
+            .filter_map(|l| l.as_str())
+            .collect::<Vec<_>>()
+            .concat(),
+        Some(serde_json::Value::String(s)) => s.clone(),
+        _ => String::new(),
+    };
+    if text.is_empty() {
+        return String::new();
+    }
+    text.lines()
+        .map(|line| format!("  {line}\n"))
+        .collect::<String>()
+}
+
+/// 四种输出形态各把正文藏在不同键下。**error 必须留下**——读 notebook 十有八九
+/// 就是为了看它为什么失败,把 traceback 吞掉等于白读。
+fn render_output(output: &serde_json::Value) -> Option<String> {
+    let kind = output.get("output_type").and_then(|v| v.as_str())?;
+    let body = match kind {
+        "stream" => join_source(output.get("text")),
+        "execute_result" | "display_data" => {
+            let data = output.get("data")?;
+            match data.get("text/plain") {
+                Some(v) => join_source(Some(v)),
+                // 非文本输出(图片/HTML)只报类型,不把 base64 倒进上下文。
+                None => {
+                    let kinds: Vec<&str> = data
+                        .as_object()
+                        .map(|m| m.keys().map(String::as_str).collect())
+                        .unwrap_or_default();
+                    format!("<non-text output: {}>", kinds.join(", "))
+                }
+            }
+        }
+        "error" => {
+            let name = output
+                .get("ename")
+                .and_then(|v| v.as_str())
+                .unwrap_or("error");
+            let value = output.get("evalue").and_then(|v| v.as_str()).unwrap_or("");
+            let trace = join_source(output.get("traceback"));
+            format!("{name}: {value}\n{trace}")
+        }
+        _ => return None,
+    };
+    let body = body.trim();
+    if body.is_empty() {
+        return None;
+    }
+    let clipped: String = body.chars().take(MAX_OUTPUT_CHARS).collect();
+    Some(if clipped.len() < body.len() {
+        format!("{clipped} …(output clipped)")
+    } else {
+        clipped
+    })
+}
+
+/// 解析 "1-5" / "3" 形态的单元格区间,返回 1-based 闭区间。
+/// 越界即报错而不是静默夹取——静默夹取会让模型以为自己读到了它要的那一段。
+fn parse_cell_range(spec: &str, total: usize) -> Result<(usize, usize), String> {
+    let spec = spec.trim();
+    let (from, to) = match spec.split_once('-') {
+        Some((a, b)) => (a.trim(), b.trim()),
+        None => (spec, spec),
+    };
+    let parse = |s: &str| -> Result<usize, String> {
+        s.parse::<usize>()
+            .map_err(|_| format!("invalid cell range `{spec}`; use forms like \"1-5\" or \"3\""))
+    };
+    let (from, to) = (parse(from)?, parse(to)?);
+    if from == 0 || to == 0 {
+        return Err("cell indexes are 1-based; 0 is not a cell".into());
+    }
+    if from > to {
+        return Err(format!("cell range `{spec}` is inverted"));
+    }
+    if from > total {
+        return Err(format!(
+            "cell range `{spec}` starts past the end; the notebook has {total} cells"
+        ));
+    }
+    Ok((from, to.min(total)))
+}
+
+#[cfg(test)]
+mod notebook_tests {
+    use super::{parse_cell_range, read_notebook};
+
+    const NB: &str = r#"{
+      "metadata": {"kernelspec": {"language": "python"}},
+      "cells": [
+        {"cell_type": "markdown", "source": ["Title\n", "intro\n"]},
+        {"cell_type": "code", "source": "print(1)\n",
+         "outputs": [{"output_type": "stream", "text": ["1\n"]}]},
+        {"cell_type": "code", "source": ["boom()\n"],
+         "outputs": [{"output_type": "error", "ename": "ValueError",
+                      "evalue": "bad input", "traceback": ["Traceback...\n", "  line\n"]}]},
+        {"cell_type": "code", "source": ["img()\n"],
+         "outputs": [{"output_type": "display_data", "data": {"image/png": "BASE64BLOB"}}]}
+      ]}"#;
+
+    #[test]
+    fn 渲染单元格序号与类型并合并逐行source() {
+        let out = read_notebook(NB, None).unwrap();
+        assert!(out.contains("notebook: 4 cells"), "{out}");
+        assert!(out.contains("[1] markdown"), "{out}");
+        assert!(out.contains("Title"), "逐行 source 数组要拼回来: {out}");
+        assert!(out.contains("[2] code"), "{out}");
+        assert!(
+            out.contains("print(1)"),
+            "字符串形态的 source 也要吃: {out}"
+        );
+    }
+
+    /// 读 notebook 十有八九是为了看它为什么失败——error 输出绝不能吞。
+    #[test]
+    fn error输出保留名称原因与traceback() {
+        let out = read_notebook(NB, None).unwrap();
+        assert!(out.contains("ValueError: bad input"), "{out}");
+        assert!(out.contains("Traceback"), "traceback 必须留: {out}");
+    }
+
+    /// 非文本输出只报类型,不把 base64 倒进上下文。
+    #[test]
+    fn 非文本输出只报类型不倒base64() {
+        let out = read_notebook(NB, None).unwrap();
+        assert!(out.contains("<non-text output: image/png>"), "{out}");
+        assert!(!out.contains("BASE64BLOB"), "base64 不得进上下文: {out}");
+    }
+
+    #[test]
+    fn cells区间只渲染指定单元格() {
+        let out = read_notebook(NB, Some("2-3")).unwrap();
+        assert!(
+            out.contains("[2] code") && out.contains("[3] code"),
+            "{out}"
+        );
+        assert!(!out.contains("[1] markdown"), "区间外不该出现: {out}");
+        assert!(!out.contains("[4]"), "区间外不该出现: {out}");
+        let single = read_notebook(NB, Some("1")).unwrap();
+        assert!(
+            single.contains("[1] markdown") && !single.contains("[2]"),
+            "{single}"
+        );
+    }
+
+    /// 越界报错而不是静默夹取——静默夹取会让模型以为读到了它要的那一段。
+    #[test]
+    fn 区间非法或越界都报错() {
+        assert!(parse_cell_range("0", 4).is_err(), "0 不是单元格");
+        assert!(parse_cell_range("5-2", 4).is_err(), "倒置区间");
+        assert!(parse_cell_range("9-12", 4).is_err(), "起点越界");
+        assert!(parse_cell_range("abc", 4).is_err(), "非数字");
+        // 终点越界向下夹到总数,这是安全的(起点仍在范围内)。
+        assert_eq!(parse_cell_range("3-99", 4).unwrap(), (3, 4));
+    }
+
+    #[test]
+    fn 坏json与缺cells都给出可行动错误() {
+        let e = read_notebook("{not json", None).unwrap_err();
+        assert!(e.contains("not valid JSON"), "{e}");
+        let e = read_notebook(r#"{"metadata":{}}"#, None).unwrap_err();
+        assert!(e.contains("no `cells`"), "{e}");
+    }
+}
+
+/// R-326:PDF 单次最多给多少页。整本手册倒进上下文没有意义;超出就截断说明,
+/// 让模型用 `pages` 缩范围(与 notebook 的 `cells` 同一套取舍)。
+const MAX_PDF_PAGES: usize = 20;
+
+/// R-326:按页渲染 PDF 文本。
+///
+/// 分页依据是**换页符**(U+000C):`pdftotext` 与 `pdf-extract` 都以它分隔页,
+/// 这是两条抽取路径唯一的共同页边界。文件里没有换页符时整篇算一页——
+/// 那说明抽取器没给出页信息,不能凭行数硬切,切出来的"页"是假的。
+///
+/// 全空页(扫描件没有文本层)必须**如实说明**并指路,不能回一段空文本:
+/// 静默的空结果最坏,模型会据此断定"这几页是空白"。
+fn render_pdf_pages(text: &str, spec: &str) -> Result<String, String> {
+    let all: Vec<&str> = text.split('\u{c}').collect();
+    let total = all.len();
+    let (from, to) = parse_page_range(spec, total)?;
+    let selected = &all[from - 1..to];
+    if selected.iter().all(|page| page.trim().is_empty()) {
+        return Err(format!(
+            "pages {from}-{to} carry no extractable text ({total} pages total). \
+             This reads the PDF text layer; a scanned/image-only PDF has none. \
+             Render it to images or run an OCR step first."
+        ));
+    }
+    let mut out = format!("pdf: {total} pages; showing {from}-{to}\n");
+    for (offset, page) in selected.iter().enumerate() {
+        let index = from + offset;
+        out.push_str(&format!("\n[page {index}]\n"));
+        let body = page.trim();
+        if body.is_empty() {
+            out.push_str("  (no text on this page)\n");
+        } else {
+            for line in body.lines() {
+                out.push_str(&format!("  {line}\n"));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// 解析 "1-5" / "3" 形态的页区间,返回 1-based 闭区间。
+///
+/// 与 [`parse_cell_range`] 同形但**分开写**:两者的越界文案要各自点名"页"与
+/// "单元格",共用一份就只能给出一种说法,而错的坐标系正是这里最容易犯的错。
+fn parse_page_range(spec: &str, total: usize) -> Result<(usize, usize), String> {
+    let spec = spec.trim();
+    let (from, to) = match spec.split_once('-') {
+        Some((a, b)) => (a.trim(), b.trim()),
+        None => (spec, spec),
+    };
+    let parse = |s: &str| -> Result<usize, String> {
+        s.parse::<usize>()
+            .map_err(|_| format!("invalid page range `{spec}`; use forms like \"1-5\" or \"3\""))
+    };
+    let (from, to) = (parse(from)?, parse(to)?);
+    if from == 0 || to == 0 {
+        return Err("page numbers are 1-based; there is no page 0".into());
+    }
+    if from > to {
+        return Err(format!("page range `{spec}` is inverted"));
+    }
+    if from > total {
+        return Err(format!(
+            "page range `{spec}` starts past the end; this PDF has {total} pages"
+        ));
+    }
+    let capped = to.min(total).min(from + MAX_PDF_PAGES - 1);
+    Ok((from, capped))
+}
+
+#[cfg(test)]
+mod pdf_page_tests {
+    use super::{parse_page_range, render_pdf_pages, MAX_PDF_PAGES};
+
+    /// 分页依据是换页符——两条抽取路径(pdftotext / pdf-extract)唯一的共同页边界。
+    const THREE_PAGES: &str = "first page\u{c}second page\u{c}third page";
+
+    #[test]
+    fn 按页渲染并标注页号() {
+        let out = render_pdf_pages(THREE_PAGES, "2").unwrap();
+        assert!(out.contains("pdf: 3 pages; showing 2-2"), "{out}");
+        assert!(
+            out.contains("[page 2]") && out.contains("second page"),
+            "{out}"
+        );
+        assert!(!out.contains("first page"), "区间外不该出现: {out}");
+    }
+
+    #[test]
+    fn 页区间闭合且不越界() {
+        let out = render_pdf_pages(THREE_PAGES, "2-99").unwrap();
+        assert!(out.contains("showing 2-3"), "终点越界应夹到总页数: {out}");
+        assert!(out.contains("third page"), "{out}");
+    }
+
+    /// 没有换页符 = 抽取器没给页信息,整篇算一页;不能凭行数硬切假页。
+    #[test]
+    fn 无换页符时整篇算一页() {
+        let out = render_pdf_pages("no form feeds here", "1").unwrap();
+        assert!(out.contains("pdf: 1 pages"), "{out}");
+        assert!(
+            render_pdf_pages("no form feeds here", "2").is_err(),
+            "第 2 页不存在"
+        );
+    }
+
+    /// 扫描件没有文本层:必须如实说明并指路,不能回空文本让模型以为是空白页。
+    #[test]
+    fn 全空页报错并指向ocr而不是静默返回空() {
+        let err = render_pdf_pages("\u{c}   \u{c}\t", "1-3").unwrap_err();
+        assert!(err.contains("no extractable text"), "{err}");
+        assert!(
+            err.contains("OCR") || err.contains("images"),
+            "必须给出下一步而不是只说失败: {err}"
+        );
+    }
+
+    /// 越界/非法一律报错,不静默夹取——夹取会让模型以为读到了它要的那段。
+    #[test]
+    fn 页区间非法即报错且文案点名页而不是单元格() {
+        assert!(parse_page_range("0", 3).is_err());
+        assert!(parse_page_range("3-1", 3).is_err());
+        assert!(parse_page_range("abc", 3).is_err());
+        let err = parse_page_range("9-12", 3).unwrap_err();
+        assert!(err.contains("page"), "文案必须点名 page: {err}");
+        assert!(!err.contains("cell"), "不得串用单元格文案: {err}");
+    }
+
+    /// 单次页数封顶,防止一次 read 把整本手册倒进上下文。
+    #[test]
+    fn 单次页数封顶() {
+        let many: String = (0..100)
+            .map(|n| format!("page {n} body"))
+            .collect::<Vec<_>>()
+            .join("\u{c}");
+        let (from, to) = parse_page_range("1-100", 100).unwrap();
+        assert_eq!(from, 1);
+        assert_eq!(to, MAX_PDF_PAGES, "一次最多给 {MAX_PDF_PAGES} 页");
+        let out = render_pdf_pages(&many, "1-100").unwrap();
+        assert!(out.contains(&format!("showing 1-{MAX_PDF_PAGES}")), "{out}");
     }
 }
