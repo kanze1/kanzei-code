@@ -111,15 +111,15 @@
 - 进展: 已登记，暂不回滚或重写历史；待按父提交与原始工作树证据确认归属，再决定补充归属说明或开独立修正提交。
 - 优先级: P1
 
-## D-661 wave 调度器保守封波损失可达并行度 [fixing] (medium)
+## D-661 wave 调度器保守封波损失可达并行度 [fixed] (medium)
 - 原始描述: 外部评估 #3：确定性换掉了最大并行度。顺序扫描封波不是最优调度，损失 wall-clock latency 与 IO 利用率，一轮几十个调用时明显。用户判定这算缺陷不算决策
 - 复现: 调用序 [A,B,C,D]，冲突关系 A↔B、C↔D，跨对互不冲突。旧实现顺序扫描遇冲突即封波，得 [[A],[B,C],[D]] 三波；可达最优 [[A,C],[B,D]] 两波，且不颠倒任何冲突对的先后
 - 标签: 核心
 - 优先级: P2
-- 进展: 原始报告举的例(A↔B、B↔C 冲突，A 与 C 不冲突，期望 [[A,C],[B]])不成立——它要求 C 跑在 B 之前，而 C 与 B 冲突。conflicts_with 蕴含顺序有意义（同树两次写、读与写），任意重排是换语义不是提速。已换成不需重排的见证用例
-- observed_head: 6505dfb899d2463192337b058f4cba9a5b74319f
-- observed_worktree_hash: fnv1a64:e75ae903cead5b01
-- recorded_at: 1787273122350
+- 进展: 切波改按冲突前驱层级(tool_exec.rs build_tool_execution_waves_with),保持不变式 i<j 且冲突 => wave(i)<wave(j)。六条单测锚定:不相交冲突链两波、冲突对顺序不颠倒、容量装满、Exclusive 独占、容量满向后顺延、空输入。commit 4f0f46a0
+- observed_head: 4f0f46a0c252556f3d77f7cedfe4a137eee6dea5
+- observed_worktree_hash: fnv1a64:c7cc7013afe35e6f
+- recorded_at: 1787274281826
 
 ## D-662 托管文档专用工具膨胀致工具选择面过载 [open] (medium)
 - 原始描述: 外部评估 #5：Managed Documents 造成 Tool Explosion，从 Unix-like tools 走向 Domain-specific OS。用户判定这是工具设计问题，算缺陷不算决策
