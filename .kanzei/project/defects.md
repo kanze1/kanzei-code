@@ -121,8 +121,18 @@
 - observed_worktree_hash: fnv1a64:c7cc7013afe35e6f
 - recorded_at: 1787274281826
 
-## D-662 托管文档专用工具膨胀致工具选择面过载 [open] (medium)
+## D-662 托管文档专用工具膨胀致工具选择面过载 [fixing] (medium)
 - 原始描述: 外部评估 #5：Managed Documents 造成 Tool Explosion，从 Unix-like tools 走向 Domain-specific OS。用户判定这是工具设计问题，算缺陷不算决策
 - 复现: 当前注册工具已 30+，其中 req/defect/idea/decision/architecture/test_record/work/memory_* 等托管域工具与通用 edit/write 语义重叠；模型需在 edit 与 req(update) 之间做领域判断，工具越多误选概率越高，且每个工具签名等同公开 API
 - 标签: 流程
+- 优先级: P2
+- 进展: 第一步做「量」不做「并」。原设想合并 tracker 四件套为 tracker(kind,action) 已否掉:那不减少模型要做的判断(需求还是缺陷本来就得判),只是把选择从工具名挪进参数,还削弱了每个 schema 精确描述自身合法动作的能力。真正问题是工具面没人盯着只会涨。已落地工具面预算门禁 profiles.rs::tool_surface_budget:dev 实测 30(桌面另加 6)、readonly 15,预算取实测值不留余量;加工具必须显式抬预算。附护栏断言记忆写路径不得进入主 agent 面(写读分离失效会一次涨 7 个)。关键发现:记忆一族仓库 10 个工具主面只见 3 个,写读分离是压面最有效手段,后续减面应沿此路(把流程专用工具挪进该流程的子代理快照),而非合并同族工具。顺带发现 D-663
+- observed_head: 5fe846054117b3f861c38111d55f0b85cb022ee2
+- observed_worktree_hash: fnv1a64:583f30e55ad1ef2b
+- recorded_at: 1787276942772
+
+## D-663 readonly 档写与命令通道漏网:plot/latex/process/browser 仅 Ask [open] (medium)
+- 原始描述: D-662 工具面预算测试(R-323 勘察)顺带发现。readonly 档位契约写的是「read/glob/grep/task 放行，写与命令硬拒绝」，但硬拒名单按工具名逐个列举，新增写/命令类工具不会自动纳入。非交互轮会被 declined 所以暴露面限于交互轮
+- 复现: 以 ProfileKind::Readonly 解析 harness 后 materialize_tools() 得 15 个工具，其中 plot(crates/kanzei-tools/src/plot_tool.rs:294,393 生产路径 std::fs::write)、latex(latex_tool.rs:351 std::process::Command::new)、process、browser 均未被 readonly.rs 的 push_managed_hard_deny 覆盖(该列表只有 write/edit/insert/bash)，落到 Ruleset 无匹配的默认 Ask。交互轮用户点允许即可在只读档写文件/起进程
+- 标签: 核心
 - 优先级: P2

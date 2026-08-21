@@ -1408,3 +1408,128 @@ mod tests {
         std::fs::remove_dir_all(root).ok();
     }
 }
+
+/// D-662:模型可见工具面的预算门禁。
+///
+/// # 为什么是「计数」而不是「合并工具」
+///
+/// 外部评估提的是「工具越多,错误选择概率越高」。但把 req/defect/idea/decision
+/// 合成一个 `tracker(kind, ...)` 并**不减少模型要做的判断**——「这是需求还是缺陷」
+/// 本来就得判,合并只是把它从工具名挪到参数里,同时还削弱了每个工具 schema
+/// 精确描述自己合法动作的能力。真正的问题是这个面**没人盯着,只会涨**。
+///
+/// 所以第一道防线是把它变成一个有人负责的数字:加工具必须显式抬预算,
+/// 顺带在 review 时被看见一次。这是 D-662 的机制修复,不是它的最终解法。
+#[cfg(test)]
+mod tool_surface_budget {
+    use kanzei_harness::{ConfigComponent, KanzeiConfig, ProfileKind, ResolveCtx};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    /// dev 档模型可见工具数上限(CLI/桌面共用装配;桌面另有 frontend_locate/
+    /// frontend_check/ui_dom/ui_console/ui_style/collaboration_status 六个)。
+    ///
+    /// **取值 = 当前实测值,不留余量**。留了余量就等于允许它悄悄涨到余量用尽,
+    /// 而这个面「没人盯着只会涨」正是 D-662 的机制。
+    ///
+    /// 当前 30 个按族拆:文件读写 5(read/write/edit/insert/files)、检索 3
+    /// (glob/grep/symbols)、托管文档 7(req/defect/idea/decision/architecture/
+    /// conventions/test_record)、记忆 3、执行 3(bash/git/process)、
+    /// 外部 4(webfetch/websearch/browser/prior_art)、产出 2(plot/latex)、
+    /// 其余 3(question/todowrite/work)。
+    ///
+    /// **抬这个数之前先回答:新工具能不能做成已有工具的一个 action?**
+    /// 记忆写路径是正面例子——memory_add/promote/update/merge/stale/inbox_clear 等
+    /// 写工具只挂在 memory-manager 子代理的迷你 run 上,主 agent 只看得见
+    /// memory_note/search/stats 三个;写读分离顺带把主面压掉了 7 个。
+    const DEV_TOOL_BUDGET: usize = 30;
+
+    /// readonly 档:只读分析,面应当明显更小。
+    ///
+    /// **当前 15 不是「合理值」,是「现状值」**——本预算测试立起来时发现 plot/latex/
+    /// process/browser 都还在这个面里,且只被判 Ask 而不是硬拒(D-663)。
+    /// D-663 修完后这个数应当降到 11 左右,届时把预算一起收紧。
+    const READONLY_TOOL_BUDGET: usize = 15;
+
+    fn visible_tools(profile: ProfileKind) -> Vec<&'static str> {
+        let root = PathBuf::from("C:/kanzei-d662-budget");
+        let ctx = ResolveCtx {
+            profile,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = crate::run::build_harness(
+            |h| {
+                h.add(crate::ReadonlyProfile);
+            },
+            |_| {},
+        );
+        harness.add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let mut names: Vec<&'static str> = snapshot
+            .materialize_tools()
+            .iter()
+            .map(|tool| tool.name())
+            .collect();
+        names.sort_unstable();
+        names
+    }
+
+    #[test]
+    fn dev档工具面不超预算() {
+        let names = visible_tools(ProfileKind::Dev);
+        assert!(
+            names.len() <= DEV_TOOL_BUDGET,
+            "dev 档可见工具 {} 个,超出预算 {DEV_TOOL_BUDGET}。\n\
+             加工具前先问:能不能做成已有工具的一个 action?\n\
+             确实要加就显式抬预算,让它在 review 时被看见一次(D-662)。\n\
+             当前清单: {names:?}",
+            names.len()
+        );
+    }
+
+    #[test]
+    fn readonly档工具面明显更小() {
+        let names = visible_tools(ProfileKind::Readonly);
+        assert!(
+            names.len() <= READONLY_TOOL_BUDGET,
+            "readonly 档可见工具 {} 个,超出预算 {READONLY_TOOL_BUDGET};当前清单: {names:?}",
+            names.len()
+        );
+        // 档位契约的正面断言:写与命令族必须整体摘除(fully_denied),不是判 Ask。
+        // 这几条现在是**通过**的;D-663 记的是 plot/latex/process/browser 没进这个名单。
+        for denied in ["write", "edit", "insert", "bash"] {
+            assert!(
+                !names.contains(&denied),
+                "readonly 档不得看见 {denied}(应被 action_fully_denied 整体摘除)"
+            );
+        }
+    }
+
+    /// 记忆写路径必须**不在**主 agent 的工具面里(写读分离,R-105)。
+    ///
+    /// 这条是 D-662 的护栏:memory 一族在仓库里有 10 个工具,主面只该看见 3 个。
+    /// 哪天有人图省事把 MemoryManagerComponent 挂进主装配,主面会一次涨 7 个,
+    /// 而且**记忆的唯一写路径**这条设计约束会同时失效——两件事一条测试拦住。
+    #[test]
+    fn 记忆写工具不得进入主agent工具面() {
+        let names = visible_tools(ProfileKind::Dev);
+        for leaked in [
+            "memory_add",
+            "memory_promote",
+            "memory_update",
+            "memory_merge",
+            "memory_stale",
+            "memory_inbox_clear",
+        ] {
+            assert!(
+                !names.contains(&leaked),
+                "{leaked} 泄漏进主 agent 工具面:记忆的唯一写路径是 memory-manager 子代理"
+            );
+        }
+        for expected in ["memory_note", "memory_search", "memory_stats"] {
+            assert!(names.contains(&expected), "主 agent 应保留 {expected}");
+        }
+    }
+}
