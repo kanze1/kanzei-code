@@ -401,6 +401,37 @@ fn fn_body_lines(lines: &[&str], start_line: usize, _start_col: usize) -> usize 
 /// 输出协议版本。回涨闸必须拒绝用不同口径的读数比较基线，而不是把差异当作行数变化。
 pub(crate) const METRICS_FORMAT_VERSION: &str = "v1";
 
+fn render_close_metrics(report: &kanzei_tools::close_telemetry::RollingCloseMetrics) -> String {
+    let mut lines = vec![
+        format!("收尾链遥测 format: {}", report.format_version),
+        format!(
+            "关闭条目: {} | 已接入 telemetry: {} | telemetry 记录: {} | 完整链: {} ({:.1}%)",
+            report.closed_entries,
+            report.instrumented_entries,
+            report.telemetry_records,
+            report.complete_chain_records,
+            report.chain_completeness_rate * 100.0
+        ),
+        format!(
+            "缺环总数: {} | 门禁拒绝: {} | 返工次数: {}",
+            report.missing_evidence_total, report.gate_rejections, report.rework_count
+        ),
+        format!(
+            "导航失手: {}/{} ({:.1}%)",
+            report.navigation_failures,
+            report.navigation_calls,
+            report.navigation_failure_rate * 100.0
+        ),
+    ];
+    for entry in &report.by_entry {
+        lines.push(format!(
+            "  {} 批次记录: {} | 完整: {} | 缺环: {}",
+            entry.entry_id, entry.batches, entry.complete_batches, entry.missing_evidence
+        ));
+    }
+    lines.join("\n")
+}
+
 pub(crate) async fn metrics_cli(args: &[String]) -> anyhow::Result<()> {
     let mut top = 20usize;
     let mut root_override = None;
@@ -453,6 +484,8 @@ pub(crate) async fn metrics_cli(args: &[String]) -> anyhow::Result<()> {
         );
     }
     println!("(共 {} 个 .rs 文件,Top-{})", files.len(), top);
+    let close_report = kanzei_tools::close_telemetry::rolling_metrics(&project_root);
+    println!("{}", render_close_metrics(&close_report));
     Ok(())
 }
 

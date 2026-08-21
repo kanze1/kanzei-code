@@ -17,6 +17,8 @@ mod background;
 mod base;
 pub mod bash;
 mod browser_tool;
+/// R-311:条目关闭收尾链遥测与滚动汇总，供 tracker 写入与 `kz metrics` 消费。
+pub mod close_telemetry;
 pub mod conventions;
 mod cross_tree;
 mod edit;

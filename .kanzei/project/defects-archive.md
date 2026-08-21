@@ -8208,3 +8208,64 @@
 - observed_head: 939a4f2336366b9cd80ab9f01b7dd930a6e3d148
 - observed_worktree_hash: fnv1a64:e78b832643fb73f5
 - recorded_at: 1787296127447
+
+## D-668 R-311 B2 close telemetry 读取 JSONL 编译失败 [fixed] (medium)
+- 复现: 自发现：编译 R-311 B2 `close_telemetry.rs` 时，`read_records` 用 `flat_map` 返回借用临时 String 的 lines iterator，触发 E0515。
+- 影响: kanzei-tools 与 kz metrics 无法编译，B2 telemetry 不能运行。
+- 来源: self-found；cargo test -p kanzei-tools close_telemetry --lib。
+- 标签: 核心
+- refs: R-311
+- 优先级: P2
+- 进展: 已修复：crates/kanzei-tools/src/close_telemetry.rs:226-235 将 JSONL lines 先 collect 成拥有所有权的 Vec，消除 E0515 临时借用。验证：T-1786922726670（cargo test -p kanzei-tools --lib，470 passed）。关闭对照：复现=已消失；影响=tools/metrics 可编译；实现与测试位置已给出。
+- observed_head: 9c7f2606117f064e85cdc88dac6535a1058df727
+- observed_worktree_hash: fnv1a64:85c930dadeb3fd5a
+- recorded_at: 1787298012788
+
+## D-669 R-311 B3 归档统计 DocKind 引用类型编译失败 [fixed] (low)
+- 复现: 自发现：实现 R-311 B3 归档条目统计时，`for kind in [REQUIREMENTS, DEFECTS]` 推导出值类型，传给 `DocStore::open` 时缺少 `&DocKind`，`cargo test -p kanzei-tools close_telemetry --lib` 报 E0308。
+- 影响: close telemetry 与 metrics CLI 暂时无法编译。
+- 来源: self-found；cargo test -p kanzei-tools close_telemetry --lib。
+- 标签: 核心
+- refs: R-311
+- 优先级: P2
+- 进展: 已修复：crates/kanzei-tools/src/close_telemetry.rs:274-290 以 `&REQUIREMENTS`/`&DEFECTS` 传递静态 DocKind 引用，并统计归档/当前终态条目。验证：T-1786922726670（kanzei-tools 470 passed）与 T-1786922726669（真实 metrics smoke）。关闭对照：复现=已消失；影响=metrics 可编译；实现与测试位置已给出。
+- observed_head: 9c7f2606117f064e85cdc88dac6535a1058df727
+- observed_worktree_hash: fnv1a64:85c930dadeb3fd5a
+- recorded_at: 1787298013239
+
+## D-670 R-311 close telemetry 集成测试清理语句导致借用移动 [fixed] (low)
+- 复现: 自发现：补 tracker close→telemetry 集成断言时，插入锚点包含原清理语句，导致 `remove_dir_all(dir)` 被提前拼接并移动 `dir`，`cargo test -p kanzei-tools --lib` 报 E0382。
+- 影响: kanzei-tools 测试目标无法编译；生产逻辑不受影响。
+- 来源: self-found；cargo test -p kanzei-tools --lib。
+- 标签: 核心
+- refs: R-311
+- 优先级: P2
+- 进展: 已修复：crates/kanzei-tools/src/tracker.rs:1335-1341 调整 close telemetry 集成测试的断言与临时目录清理顺序，避免移动后借用 dir。验证：T-1786922726670（kanzei-tools 470 passed）。关闭对照：复现=已消失；影响=测试目标恢复编译；实现与测试位置已给出。
+- observed_head: 9c7f2606117f064e85cdc88dac6535a1058df727
+- observed_worktree_hash: fnv1a64:85c930dadeb3fd5a
+- recorded_at: 1787298013723
+
+## D-671 R-311 close telemetry 在状态写盘前记录导致虚假收尾证据 [fixed] (medium)
+- 复现: 代码复核自发现：`update_close` 当前在 `store.save(entries)` 之前调用 `record_close`；若 tracker 文档写盘失败，telemetry 仍会记录一次并造成“未实际关闭却有收尾记录”。
+- 影响: 滚动报表可能统计虚假的 close 记录，破坏收尾链证据真实性。
+- 来源: self-found；提交前 staged diff review。
+- 标签: 核心
+- 验收: 写盘失败时不得新增 close telemetry；实际状态迁移成功后才落一条记录，并保留现有 close 行为。
+- refs: R-311
+- 优先级: P1
+- 进展: 已修复并验证：crates/kanzei-tools/src/tracker/actions.rs:update_close 先完成 `store.save(entries)`，成功后才调用 `close_telemetry::record_close`；写盘失败路径在 actions.rs:602-604 直接返回，不新增 telemetry。定向证据 T-1786922726672：fmt check、`cargo test -p kanzei-tools --lib` 470 passed、`cargo test -p kanzei --bin kz` 44 passed。验收对照：①写盘失败不得新增 close telemetry——由 save 成功后的调用顺序与失败立即返回实现；②实际迁移成功后才记录且保留既有 close 行为——actions.rs:602-616，close 集成测试 tracker.rs:close执行不变式失败拒绝迁移并在修复后放行通过。
+- observed_head: 9c7f2606117f064e85cdc88dac6535a1058df727
+- observed_worktree_hash: fnv1a64:9f2083e78dad5c45
+- recorded_at: 1787298344857
+
+## D-667 R-311 批1 grep 不变式通过用例未按预期匹配行尾 [fixed] (low)
+- 复现: 自发现：cargo test -p kanzei-tools invariants --lib 时，tracker::invariants::tests::grep_invariant_passes_and_failure_names_assertion 在预期匹配 `ready\n` 与 `^ready$` 处失败。
+- 影响: 批1 定向测试无法通过，暂不能据此证明 grep 断言执行器行为正确。
+- 来源: self-found；R-311 批1 实现后的定向测试。
+- 标签: 核心
+- refs: R-311
+- 优先级: P3
+- 进展: 已修复并验证：crates/kanzei-tools/src/tracker/invariants.rs 的 grep RegexBuilder 启用 `multi_line(true)`，使 `^`/`$` 按行边界执行；`grep_invariant_passes_and_failure_names_assertion` 已通过。证据 T-1786922726663（invariants 定向测试）与 T-1786922726672（kanzei-tools 470 passed、kz 44 passed）。验收对照：grep 断言可匹配行尾并正确点名失败断言，复现失败已消失。
+- observed_head: 9c7f2606117f064e85cdc88dac6535a1058df727
+- observed_worktree_hash: fnv1a64:9f2083e78dad5c45
+- recorded_at: 1787298391940

@@ -32,6 +32,10 @@ struct GitInput {
     /// commit 必填。
     #[serde(default)]
     message: Option<String>,
+    /// R-311:finalize 要执行的设计冻结不变式所属条目 ID(R-/D-)。
+    /// 有不变式声明时必须提供,避免提交事务静默跳过条目门禁。
+    #[serde(default)]
+    requirement_id: Option<String>,
     /// commit 必填：最近一次 stage 返回的 staged_hash。
     #[serde(default)]
     expected_hash: Option<String>,
@@ -193,7 +197,7 @@ async fn git_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> 
             Err(error) => ToolOutput::error(error),
         },
         "merge_ff" => merge_ff(&ctx.cwd, input.from, input.into).await,
-        "finalize" => finalize(ctx, input.files, input.message).await,
+        "finalize" => finalize(ctx, input.files, input.message, input.requirement_id).await,
         other => ToolOutput::error(format!(
             "unknown action `{other}`; valid: status | diff | log | commit_plan | preflight | stage | commit | merge_ff | finalize"
         )),

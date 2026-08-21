@@ -231,7 +231,7 @@
 - 批次: 4/4
 - 停车: 用户本轮明确要求优先从 defects.md 最上面可执行项开始；R-309 B1-B4 代码与门禁验证已完成，剩余①～③需真实前端事件证据，暂让出唯一 WIP 槽；恢复人:agent。
 
-## R-311 收尾闭环硬化:设计冻结不变式可执行化与收尾链完成度遥测 [todo]
+## R-311 收尾闭环硬化:设计冻结不变式可执行化与收尾链完成度遥测 [doing]
 - refs: R-309 R-310 docs/design/weakness_register_20260820.md
 - 内容: 批1 不变式可执行化:设计冻结字段支持登记机器可跑断言(grep 模式/测试名/脚本),finalize 与条目关闭时自动执行,失败拒关并点名失败断言;批2 收尾链遥测:条目关闭时机械核对收尾链各环节(编译/定向测试/回归/验收对照/提交)证据是否在档,缺环计数落 telemetry;批3 长程统计:按条目/批次聚合导航失手率(数据来自 R-310)、门禁拒绝、返工次数、收尾链完整度,滚动报表进 metrics——这是外部评估点名缺失的「连续几十个 requirement 的统计证据」载体
 - 复杂度: 中
@@ -242,6 +242,12 @@
 - 验收: ①冻结不变式断言在 finalize/close 自动执行且失败拒关,有定向测试;②收尾链缺环可观测并落 telemetry;③滚动报表真实出数且覆盖不少于 10 个已关闭条目
 - 优先级: P2
 - 对账: 2026-08-20 需求发现实测补充真实案例:文章获取器项目 D-001 在后置条件未复核下归档 fixed(进展字段自写「复核应确认 raw_lines 为空」即验证后置),本会话复查游离行仍在(D-577)——「终态迁移无后置条件核验」正是批1 不变式可执行化要防的形态,复测场景纳入批4 回归
+- 批次: 3/4
+- 进展: B1 已落地并验证：新增 crates/kanzei-tools/src/tracker/invariants.rs，以单行 JSON `不变式` 字段执行 grep/test/script 三类项目相对路径断言；grep 启用多行边界语义。close 接线位于 crates/kanzei-tools/src/tracker/actions.rs:update_close，使用 merged 快照，失败点名 `#N` 并拒绝状态迁移；finalize 接线位于 crates/kanzei-tools/src/git/finalize.rs:finalize，Git 输入位于 crates/kanzei-tools/src/git/tool.rs:GitInput，存在声明而无 requirement_id 时拒绝，绑定后执行。定向证据：T-1786922726663、T-1786922726664、T-1786922726665；完整 kanzei-tools lib 为 465 passed。D-667 已登记并修复 grep 行边界。B2/B3 已落地并验证：新增 crates/kanzei-tools/src/close_telemetry.rs，close 成功迁移后写入 `.kanzei/artifacts/close-telemetry.jsonl`，机械核对编译/定向测试/回归/验收对照/提交并记录缺环与返工序号；`kz metrics` 在 crates/kanzei/src/cli/metrics.rs 接入滚动报表，聚合 telemetry、R-310 导航失手、门禁拒绝和条目/批次完整度。真实 smoke T-1786922726669：关闭条目 965、导航失手 159/886、门禁拒绝 4；10 条目聚合单测通过。D-671 在收尾复核中发现并修复：crates/kanzei-tools/src/tracker/actions.rs:update_close 先成功 `store.save` 再调用 `record_close`，避免写盘失败产生虚假记录；定向回归 T-1786922726672（kanzei-tools 470 passed、kz 44 passed）。下一步 B4：纳入 D-577 游离行后置条件回归，补齐真实收尾链证据并逐项对账验收。
+- observed_head: 9c7f2606117f064e85cdc88dac6535a1058df727
+- observed_worktree_hash: fnv1a64:9f2083e78dad5c45
+- recorded_at: 1787298359312
+- 取活依据: engine:唯一可执行 WIP 是 R-311，必须先恢复它
 
 ## R-312 Agent 减负:上下文供给账单、状态机字段瘦身与压缩协同(勘察+设计) [todo]
 - refs: D-573 R-310 docs/design/context_compaction.md docs/design/weakness_register_20260820.md
@@ -349,88 +355,3 @@
 - observed_worktree_hash: fnv1a64:dee5f1692c68b6ad
 - recorded_at: 1787276362163
 - 停车: 本轮 WIP 超限，B1 工具并发契约审计已完成；B2 尚未开始，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent
-
-## R-324 symbols 扩到 JS/ESM:前端 16k 行补上符号索引 [done]
-- 原始描述: 对比 Claude Code 工具面时发现:symbols 只认 .rs,而本仓受跟踪文件 257 个 .rs 对 139 个 .js/.mjs,仅 crates/kanzei-app/ui 一处就 26 文件 16343 行——改得最频繁的那一半代码没有符号索引,定位只能 grep 函数名
-- 复杂度: 中
-- 标签: 核心
-- 验收: .js/.mjs 文件与目录可查符号(fn/class/const)、行号与可见性;可见性判据与 gen-ui-lint-globals.mjs 的列 0 规则同源;注释内伪命中不进结果;node_modules/dist 不被扫描
-- 先行调研: .kanzei/research/r324-prior-art/prior-art.md
-- refs: R-310
-- 优先级: P1
-- 进展: symbols 扫描按扩展名分流:扫描循环(注释/块注释/行尾裁剪)两语言通用,只加 parse_js_symbol_line。识别 function/async function/function*/箭头/函数表达式=fn,class=class,const|let|var=const;可见性=列 0 或 export(与 gen-ui-lint-globals.mjs 同源,测试双向点名);内层箭头不误判外层(js_looks_like_arrow 比较首个 => 与 { 的位置);SOURCE_EXTENSIONS 加 js/mjs 同时把 node_modules/dist/.git 加进目录跳过(否则一扫进 node_modules 拖死)。6 条 JS 单测 + 原有 13 条共 19 条通过,workspace 15 个二进制全绿,clippy 干净。实测 08-auto.js public_only 返回 29 个顶层符号带行号
-- observed_head: 0284be573ba60895be7e0ecc91bab3339ab4e99d
-- observed_worktree_hash: fnv1a64:2e5adf0836cb330b
-- recorded_at: 1787285720200
-
-## R-325 grep 补齐上下文/大小写/多行 [done]
-- 原始描述: 对比 Claude Code 工具面发现 grep 缺 -A/-B/-C 上下文、-i、多行。grep 是用量最高的工具(1019 轮里 2650 次),拿不到上下文就得追加一次 read
-- 复杂度: 小
-- 标签: 核心
-- 验收: context/before_context/after_context 生效且封顶 20;上下文行以 - 标记、匹配行以 : 标记(ripgrep 惯例);case_insensitive 与 multiline 生效;files_only 不受上下文影响;上下文模式仍遵守 limit 早停
-- refs: R-324
-- 优先级: P1
-- 进展: GrepInput 增 case_insensitive/context/before_context/after_context/multiline。大小写与多行在 RegexMatcherBuilder 构造期决定(建好改不了);上下文经 SearcherBuilder before/after_context 打开,并新增 ContextSink 实现 grep_searcher::Sink——UTF8 sink 只回调 matched 拿不到 context 行。输出沿用 ripgrep 惯例:匹配行 : 、上下文行 -。封顶 MAX_CONTEXT_LINES=20;files_only 与上下文互斥;上下文模式仍受 limit 早停约束并给到限提示。7 条新单测(含 200 行文件验证封顶真实生效)+ 原有共 11 条通过,workspace 15 个二进制全绿,clippy 干净
-- observed_head: 31c1bd9f725230f651cae4cc334cf3305fa35d81
-- observed_worktree_hash: fnv1a64:276ef34e9de83742
-- recorded_at: 1787286478941
-
-## R-326 read 补 notebook 与 PDF 分页 [done]
-- 原始描述: 对比 Claude Code 工具面:read 已有图片(R-249)与 PDF 按行读,缺 notebook 与 PDF 按页访问;且 PDF 硬依赖外部 pdftotext,没装即失败
-- 复杂度: 中
-- 标签: 核心
-- 验收: .ipynb 渲染为带序号单元格+捕获输出,error 输出保留 ename/evalue/traceback,非文本输出只报类型不倒 base64,cells 区间生效且越界报错;PDF 支持 pages 页区间(换页符分页)、单次封顶 20 页、全空页报错并指向 OCR;pdftotext 缺失时回落 pdf-extract
-- refs: R-325
-- 优先级: P1
-- 进展: notebook:按扩展名分派(.ipynb 与普通 .json 字节上无法区分,只有路径能表达 notebook 语义),渲染带序号单元格+source(逐行数组与字符串两形态都吃)+四种输出形态,error 保留 ename/evalue/traceback(读 notebook 十有八九就是看它为什么失败),非文本输出只报 mime 不倒 base64,cells 区间 1-based 闭区间越界即报错,默认封顶 50 格。PDF:既有实现是内容嗅探 %PDF- + 外部 pdftotext 按行读,本批加 pages 页坐标(换页符分页——两条抽取路径唯一的共同页边界,无换页符则整篇算一页不硬切假页)、单次封顶 20 页、全空页报错并指向 OCR 而非静默返回空;pdftotext 缺失回落进程内 pdf-extract(保留 pdftotext 首选因 -layout 排版还原更好)。12 条新单测,workspace 15 个二进制全绿,clippy/fmt 干净
-- observed_head: b8df33ca1a867da596e7eddfd9f02396b4005565
-- observed_worktree_hash: fnv1a64:bba52abe45b1b580
-- recorded_at: 1787288250234
-
-## R-327 task 子代理人格可选:补 plan 只读档 [done]
-- 原始描述: 对比 Claude Code 的 Agent 类型(Explore/Plan/通用)发现:kanzei 已有 explore/writer 两个人格,但 task 工具不暴露选择,永远派 explore;且缺一个做架构判断的只读人格——机械检索与架构判断需要的模型能力和步数预算差一个量级
-- 复杂度: 中
-- 标签: 核心
-- 验收: task 可传 agent 选人格;schema 的 enum 由运行时名册生成而非硬编码,名册只有默认人格时该参数不出现且 schema 与引入前逐字节一致;未命中静默回落默认;plan 人格为只读、主模型、更大步数;writer 不进模型可选名册
-- refs: R-326
-- 优先级: P2
-- 进展: SubagentRuntime 加 roster(只读人格名册,空=引入前行为)+ resolve_agent(未命中静默回落默认,不为拼错的名字打回整次委派)+ agent_names(去重)。task_spec_for 按运行时名册生成 agent enum——硬编码会让 schema 说有而运行时没有,而回落是静默的,模型永远不知道自己没选中;单人格时该参数不出现且 schema 与 task_spec 逐字节一致。新增 plan_agent:同一只读快照、工具集一个不多,只换主模型+24 步+要求先立约束再下结论并给 file:line 证据。writer 明确不进名册(主 agent 提示词写着 task 子代理绝不写,R-176 的只读白名单是审计资产)。phase_pipeline 派生运行时继承模板名册。4 条单测,workspace 15 个二进制全绿,clippy/fmt 干净
-- observed_head: f6ecb8b8d3720b531ae0cb5034e1f67dab70675d
-- observed_worktree_hash: fnv1a64:629dbcb7dc894e21
-- recorded_at: 1787289443698
-
-## R-328 question 选项补每项说明 [done]
-- 原始描述: 对比 AskUserQuestion 发现:question 已有 options/default/multiple,但选项只有标签。只给标签时用户得自己猜每个选项的后果,而后果恰恰是提问的原因——用 A 方案还是 B 方案这种问题,选项名本身从不足以决策
-- 复杂度: 小
-- 标签: 核心
-- 验收: options 既吃裸字符串也吃 {label,note}(description 为 note 别名);schema 显式写出两种形态而非只在描述里说;空白注解视为无注解;缺 label 的对象丢弃;无注解时不序列化 note 字段;桌面 UI 有注解时竖排两行并占满整行;CLI 逐行列出注解
-- refs: R-327
-- 优先级: P2
-- 进展: 新增 AskOption{label,note} 替代 Vec<String>,配 From<&str>/From<String> 让既有 vec!["是".into()] 零改动。AskOption::from_json 两种形态都收(裸字符串是既有调用形态,只认对象会让历史提示词与旧会话重放一起失效),description 作 note 别名(模型更常写这个词),空白注解与缺 label 都按无效处理。question 工具 schema 显式写出 anyOf 两种形态——描述里说了而 schema 里没有等于没说。桌面 UI 有注解时竖排两行占满整行(注解是一句话,横排会被 flex-wrap 撕碎),并兼容历史事件重放里的裸字符串;CLI 逐行灰字列出。移动 PWA 不渲染选项,不受线上形状变化影响。6 条单测,workspace 15 个二进制全绿,UI 冒烟+eslint 通过,clippy/fmt 干净
-- observed_head: 86b0f750d2ea4bac069ddc78cfeb1105009e3ed2
-- observed_worktree_hash: fnv1a64:fd0280975799681f
-- recorded_at: 1787290437559
-
-## R-329 deliver:把产物交到用户面前 [done]
-- 原始描述: 对比 SendUserFile:kanzei 只能在正文里写一句路径,用户自己去翻。read 是把内容读进模型上下文,缺的是把产物交到用户面前——报告、图、导出的 CSV 模型不需要再读一遍,用户却得知道它在哪
-- 复杂度: 中
-- 标签: 前端
-- 验收: deliver 工具在对话里给出文件卡片(名称/大小/说明/打开/在资源管理器中显示);路径限工作树内,目录与不存在路径给可行动错误;IPC 侧重做同一校验;桌面独有不进 CLI 工具面
-- refs: R-328
-- 优先级: P2
-- 进展: deliver 工具落在应用层 harness_ext(要往运行中窗口发事件,与 ui_* 同理;CLI 没有对话卡片,那边不注册,故不占 CLI 工具面预算)。display kind=file,06-activity 渲染卡片:文件名/大小/一句话说明 + 打开 / 在资源管理器中显示两个动作。deliver_target 校验:相对与绝对都解析、canonicalize 后必须落在工作树内(交付卡带打开按钮,指向树外等于把本地文件系统读取入口交给模型输入决定)、目录与不存在路径各给可行动错误码。IPC open_delivered_path 重做同一判定——载荷经前端往返,本仓威胁模型无敌对前端,这道校验挡的是意外(历史重放/路径拼错/将来某处绕过工具校验直接调)。reveal 用 explorer /select 并只在启动失败时报错(它退出码不遵循常规约定)。5 条单测,workspace 15 个二进制全绿,eslint+UI 冒烟通过,clippy/fmt 干净
-- observed_head: e0be69c2fc26f89a4fe8389a2a8d047c021b52da
-- observed_worktree_hash: fnv1a64:b840b69371cca1bc
-- recorded_at: 1787291327415
-
-## R-330 process wait:等后台进程满足条件,轮询挪进工具内 [done]
-- 原始描述: 用户澄清要的不是定时任务而是终端监控回调。此前模型只能反复调 process output 自己比对,每次一个完整模型往返——等一个 dev server 起来花掉五六轮,而这五六轮除了「还没好」什么信息都没产生
-- 复杂度: 小
-- 标签: 核心
-- 验收: process wait(id, until?, timeout_secs?) 三终态各自可辨(matched 带命中行/exited 带退出码/timeout 如实说没等到);匹配范围是全部已捕获输出而非调用后新增;超时封顶 600 秒;非法正则给可行动错误;wait 与 list/output/discover 标 Shared,stop/kill/adopt 保持独占
-- refs: R-329
-- 优先级: P1
-- 进展: process 新增 wait 动作,轮询挪进工具内(WAIT_POLL_MS=200),一次调用等到条件满足。三终态:matched 给命中行原文(模型要据此判断是不是它想等的那一行)、exited 带退出码、timeout 如实说没等到并给尾部。判定顺序上匹配先于退出——一次性命令可能打出目标行后立刻退出,那种情况该报 matched。匹配范围是全部已捕获输出而非调用后新增:等待语义是「条件成立了吗」不是「再发生一次」,否则会永远等一个不会重复的一次性事件。超时 clamp(1,600),非法正则给 PROCESS_WAIT_BAD_REGEX,进程不存在指路 action=list。用 regex crate 而非 grep 的 RegexMatcher(后者 is_match 需要 grep-matcher trait,面向字节流搜索,这里只对单行判定)。顺带按动作分流并发契约(R-323 B2 的一部分):list/output/discover/wait 标 Shared,stop/kill/adopt 与未知动作保持独占——wait 最长占槽 600 秒,走 Exclusive 会把整批调用堵死。5 条单测,workspace 15 个二进制全绿,clippy/fmt 干净
-- observed_head: 575beb7213732441860b47ccee7cb04c34e3c809
-- observed_worktree_hash: fnv1a64:16ae57ff9bad9baf
-- recorded_at: 1787292023514

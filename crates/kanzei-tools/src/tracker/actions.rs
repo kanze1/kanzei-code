@@ -6,7 +6,7 @@ use crate::docstore::{DocStore, Entry};
 use kanzei_harness::{ToolCtx, ToolOutput};
 
 use super::scheduling::{deadlock_banner, dependency_states, schedule_entries, structured_entry};
-use super::{TrackerInput, TrackerTool};
+use super::{check_entry_invariants, TrackerInput, TrackerTool};
 
 pub(crate) mod maintenance;
 
@@ -459,6 +459,12 @@ pub(crate) fn update_close(
             if let Some(reconcile_err) = check_close_acceptance_reconciliation(&merged) {
                 return ToolOutput::error(format!("{id} {reconcile_err}"));
             }
+            // R-311 批1:设计冻结不变式在 close 的状态迁移前执行。使用 merged
+            // 快照，允许本次 update 同时登记/修改不变式；失败必须点名断言并拒绝关闭。
+            if let Err(invariant_err) = check_entry_invariants(&ctx.project_root, &ctx.cwd, &merged)
+            {
+                return ToolOutput::error(format!("{id} {invariant_err}"));
+            }
             let derived_done = crate::git_batches::completed_batches(&ctx.project_root, id)
                 .ok()
                 .filter(|done| *done > 0);
@@ -593,19 +599,36 @@ pub(crate) fn update_close(
     // 有变更:返回 旧→新 摘要,再落盘。
     let diff_summary = field_diff_summary(&before_visible, &after_visible);
     let line = render_line(&entries[pos]);
+    // 先保留成功迁移后的快照；telemetry 必须在 store.save 成功后才写入，避免
+    // 写盘失败时产生“未实际关闭却已有收尾记录”的虚假证据。
+    let telemetry_entry = if action == "close" && !already_terminal {
+        Some(entries[pos].clone())
+    } else {
+        None
+    };
     if let Err(e) = store.save(entries) {
         return ToolOutput::error(format!("cannot write {}: {e}", store.path.display()));
     }
+    let telemetry_warning = telemetry_entry.as_ref().and_then(|entry| {
+        crate::close_telemetry::record_close(&ctx.project_root, entry, entry.status.as_str())
+            .err()
+            .map(|error| format!("⚠ 收尾链 telemetry 写入失败: {error}"))
+    });
     // D-276 修复方向③:update 后自检游离段落并告警。push_field(D-294)
     // 保证本次写入不新增游离段落,但历史多行/手改残留仍在字段体系外、
     // update 触及不到——返回里点名并指路 raw_lines/raw_delete,否则
     // 残留段落会一直藏到有人用 git 手工翻。
     let raws = store.raw_lines(id);
+    let telemetry_note = telemetry_warning
+        .map(|warning| format!("\n{warning}"))
+        .unwrap_or_default();
     if raws.is_empty() {
-        ToolOutput::ok(format!("updated: {line}\n变更: {diff_summary}"))
+        ToolOutput::ok(format!(
+            "updated: {line}\n变更: {diff_summary}{telemetry_note}"
+        ))
     } else {
         ToolOutput::ok(format!(
-            "updated: {line}\n变更: {diff_summary}\n⚠ {id} 仍携带 {} 条不可寻址的游离段落(历史多行写法/手改残留,本次 update 不新增也不清除)。\
+            "updated: {line}\n变更: {diff_summary}{telemetry_note}\n⚠ {id} 仍携带 {} 条不可寻址的游离段落(历史多行写法/手改残留,本次 update 不新增也不清除)。\\
              用 `{tool} raw_lines id={id}` 查看、`{tool} raw_delete id={id} ordinal=<n>` 按序号清理。",
             raws.len(),
             tool = tool.tool_name

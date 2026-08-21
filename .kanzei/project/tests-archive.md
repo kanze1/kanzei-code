@@ -9427,3 +9427,91 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-665
 - 收尾: 1787296088
 - 源码指纹: v2 crates/kanzei-tools/src/files.rs@230136ac0bca
+
+## T-1786922726662 R-311 批1不变式模块定向测试 [failed]
+- 命令: cargo test -p kanzei-tools invariants --lib
+- 时长: 11.2s
+- 摘要: 批1新增不变式模块可编译，但 grep 通过用例失败；失败点为测试夹具/正则断言，另有两个 warning 待清理。失败测试 tracker::invariants::tests::grep_invariant_passes_and_failure_names_assertion。
+- 关联: R-311
+- 收尾: 1787296779
+- 源码指纹: v2 crates/kanzei-tools/src/git/finalize.rs@a282bcb8086c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/tracker.rs@14d93b0c36cc,crates/kanzei-tools/src/tracker/actions.rs@c6f4738d38b5,crates/kanzei-tools/src/tracker/invariants.rs@bf3fede24666
+
+## T-1786922726663 R-311 批1不变式模块定向测试 [passed]
+- 命令: cargo test -p kanzei-tools invariants --lib
+- 时长: 7.4s
+- 摘要: 不变式模块编译并通过 2 个定向测试：grep 多行边界匹配、非法相对路径拒绝；0 failed，0 ignored。
+- 关联: R-311 D-667
+- 收尾: 1787296868
+- 源码指纹: v2 crates/kanzei-tools/src/git/finalize.rs@4ff1f294300c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/tracker.rs@0624445c744a,crates/kanzei-tools/src/tracker/actions.rs@802a09cc9602,crates/kanzei-tools/src/tracker/invariants.rs@0a0529e1baa2
+
+## T-1786922726664 R-311 批1 kanzei-tools 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 时长: 42.3s
+- 摘要: kanzei-tools lib 定向回归通过：465 passed，0 failed，1 ignored。覆盖 tracker close、git finalize、test_record、profiles 等既有调用链及 R-311 不变式测试。
+- 关联: R-311 D-667
+- 收尾: 1787296934
+- 源码指纹: v2 crates/kanzei-tools/src/git/finalize.rs@4ff1f294300c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/tracker.rs@0624445c744a,crates/kanzei-tools/src/tracker/actions.rs@802a09cc9602,crates/kanzei-tools/src/tracker/invariants.rs@0a0529e1baa2
+
+## T-1786922726665 R-311 批1 close/finalize 不变式接线测试 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-tools close执行不变式失败拒绝迁移并在修复后放行 --lib; cargo test -p kanzei-tools finalize_requires_entry_binding_when_invariants_exist --lib
+- 时长: 8.4s
+- 摘要: 新增 close 接线测试与 finalize 绑定门禁测试均通过：2 passed，0 failed。close 失败时状态保持 doing，修复文件后可迁移 done；finalize 无绑定拒绝、有绑定执行通过。
+- 关联: R-311
+- 收尾: 1787297038
+- 源码指纹: v2 crates/kanzei-tools/src/git/finalize.rs@4ff1f294300c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/tracker.rs@f6a88ef42598,crates/kanzei-tools/src/tracker/actions.rs@802a09cc9602,crates/kanzei-tools/src/tracker/invariants.rs@201e1f91a9f4
+
+## T-1786922726666 R-311 批1最终 kanzei-tools 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 时长: 41.4s
+- 摘要: 新增 close/finalize 接线测试后的完整 kanzei-tools lib 回归通过：467 passed，0 failed，1 ignored。
+- 关联: R-311
+- 收尾: 1787297115
+- 源码指纹: v2 crates/kanzei-tools/src/git/finalize.rs@4ff1f294300c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/tracker.rs@f6a88ef42598,crates/kanzei-tools/src/tracker/actions.rs@802a09cc9602,crates/kanzei-tools/src/tracker/invariants.rs@201e1f91a9f4
+
+## T-1786922726667 R-311 B2 close telemetry 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools close_telemetry --lib
+- 时长: 0.1s
+- 摘要: close_telemetry 两个单元测试通过：缺环记录落盘并能聚合；完整链记录可统计，未改变关闭行为。
+- 关联: R-311 D-668
+- 收尾: 1787297592
+- 源码指纹: v2 crates/kanzei-tools/src/close_telemetry.rs@24b4dc3bf44d,crates/kanzei-tools/src/git/finalize.rs@4ff1f294300c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/lib.rs@6a0d00f00a81,crates/kanzei-tools/src/tracker.rs@6a9ccbfb55ec,crates/kanzei-tools/src/tracker/actions.rs@f9954a08f381,crates/kanzei-tools/src/tracker/invariants.rs@201e1f91a9f4,crates/kanzei/src/cli/metrics.rs@e4b64009080a,crates/kanzei/src/cli/mod.rs@c88683253696
+
+## T-1786922726668 R-311 B3 kz metrics CLI 定向编译测试 [passed]
+- 命令: cargo test -p kanzei --bin kz
+- 时长: 0.1s
+- 摘要: kz CLI 44 个单元测试通过，metrics 路由与既有 CLI 行为回归通过。
+- 关联: R-311
+- 收尾: 1787297593
+- 源码指纹: v2 crates/kanzei-tools/src/close_telemetry.rs@24b4dc3bf44d,crates/kanzei-tools/src/git/finalize.rs@4ff1f294300c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/lib.rs@6a0d00f00a81,crates/kanzei-tools/src/tracker.rs@6a9ccbfb55ec,crates/kanzei-tools/src/tracker/actions.rs@f9954a08f381,crates/kanzei-tools/src/tracker/invariants.rs@201e1f91a9f4,crates/kanzei/src/cli/metrics.rs@e4b64009080a,crates/kanzei/src/cli/mod.rs@c88683253696
+
+## T-1786922726669 R-311 B3 kz metrics 真实滚动报表 smoke [passed]
+- 命令: cargo run -p kanzei -- metrics --top 1
+- 时长: 5.3s
+- 摘要: 真实项目根运行 `kz metrics` 成功：输出 metrics v1、关闭条目 965（超过验收要求的 10）、导航失手 159/886、门禁拒绝 4；当前 telemetry 接入 0，符合不回填存量条目边界。
+- 关联: R-311
+- 收尾: 1787297833
+- 源码指纹: v2 crates/kanzei-tools/src/close_telemetry.rs@c0fdb08f26a1,crates/kanzei-tools/src/git/finalize.rs@4ff1f294300c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/lib.rs@6a0d00f00a81,crates/kanzei-tools/src/tracker.rs@6a9ccbfb55ec,crates/kanzei-tools/src/tracker/actions.rs@f9954a08f381,crates/kanzei-tools/src/tracker/invariants.rs@201e1f91a9f4,crates/kanzei/src/cli/metrics.rs@6fb53685eb5e,crates/kanzei/src/cli/mod.rs@c88683253696
+
+## T-1786922726670 R-311 B2/B3 kanzei-tools 完整定向回归 [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 时长: 41.7s
+- 摘要: kanzei-tools lib 定向回归通过：470 passed，0 failed，1 ignored；包含 close→telemetry 集成断言、10 条滚动报表覆盖、B1 不变式和既有 tracker 回归。
+- 关联: R-311 D-668 D-669 D-670
+- 收尾: 1787297968
+- 源码指纹: v2 crates/kanzei-tools/src/close_telemetry.rs@c0fdb08f26a1,crates/kanzei-tools/src/git/finalize.rs@4ff1f294300c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/lib.rs@6a0d00f00a81,crates/kanzei-tools/src/tracker.rs@f4f9c0459b75,crates/kanzei-tools/src/tracker/actions.rs@f9954a08f381,crates/kanzei-tools/src/tracker/invariants.rs@201e1f91a9f4,crates/kanzei/src/cli/metrics.rs@6fb53685eb5e,crates/kanzei/src/cli/mod.rs@c88683253696
+
+## T-1786922726671 R-311 B3 kz CLI 定向回归 [passed]
+- 命令: cargo test -p kanzei --bin kz
+- 时长: 0.1s
+- 摘要: kz CLI 44 个单元测试通过，metrics 报表接入未破坏既有 CLI 解析和行为。
+- 关联: R-311
+- 收尾: 1787297975
+- 源码指纹: v2 crates/kanzei-tools/src/close_telemetry.rs@c0fdb08f26a1,crates/kanzei-tools/src/git/finalize.rs@4ff1f294300c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/lib.rs@6a0d00f00a81,crates/kanzei-tools/src/tracker.rs@f4f9c0459b75,crates/kanzei-tools/src/tracker/actions.rs@f9954a08f381,crates/kanzei-tools/src/tracker/invariants.rs@201e1f91a9f4,crates/kanzei/src/cli/metrics.rs@6fb53685eb5e,crates/kanzei/src/cli/mod.rs@c88683253696
+
+## T-1786922726672 R-311 D-671 close telemetry 时序修复定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools --lib; cargo test -p kanzei --bin kz
+- 时长: 77.9s
+- 摘要: D-671 时序修复后验证通过：fmt check；kanzei-tools 470 passed、0 failed、1 ignored；kz bin 44 passed。测试输出中的临时 git warning 不影响结果。
+- 关联: R-311 D-671
+- 收尾: 1787298331
+- 源码指纹: v2 crates/kanzei-tools/src/close_telemetry.rs@c0fdb08f26a1,crates/kanzei-tools/src/git/finalize.rs@4ff1f294300c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/lib.rs@6a0d00f00a81,crates/kanzei-tools/src/tracker.rs@f4f9c0459b75,crates/kanzei-tools/src/tracker/actions.rs@8e8d1e9e28c6,crates/kanzei-tools/src/tracker/invariants.rs@201e1f91a9f4,crates/kanzei/src/cli/metrics.rs@6fb53685eb5e,crates/kanzei/src/cli/mod.rs@c88683253696
