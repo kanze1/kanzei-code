@@ -85,10 +85,15 @@ impl Tool for WriteTool {
         // D-395:写日志凭据——write 是专用写者,写后留痕供跨树围栏吸收。
         record_worktree_write_log(ctx, &input.path, input.content.as_bytes());
         let mut message = format!("wrote {} bytes to {}", input.content.len(), path.display());
-        if let Some(warning) = validate_syntax(&path, &input.content) {
-            message.push_str(&format!("\nWARNING: {warning}"));
-        }
-        let display = match previous {
+        let validation = crate::local_validation::validate_after_write(
+            &path,
+            &ctx.project_root,
+            previous.as_deref(),
+            &input.content,
+        )
+        .await;
+        message.push_str(&format!("\n{}", validation.summary));
+        let mut display = match previous {
             Some(old) => diff_display(&input.path, &old, &input.content),
             None => serde_json::json!({
                 "kind": "create",
@@ -97,6 +102,9 @@ impl Tool for WriteTool {
                 "preview": input.content.lines().take(30).collect::<Vec<_>>().join("\n"),
             }),
         };
+        if let Some(object) = display.as_object_mut() {
+            object.insert("local_validation".into(), validation.display);
+        }
         ToolOutput::ok(message).with_display(display)
     }
 }
@@ -191,21 +199,6 @@ fn diff_language(path: &str) -> &'static str {
         "py" => "python",
         "ps1" | "sh" | "bash" => "shell",
         _ => "text",
-    }
-}
-
-/// 写后语法校验(不阻断,只告知)。edit 工具复用。
-pub(crate) fn validate_syntax(path: &std::path::Path, content: &str) -> Option<String> {
-    let ext = path.extension()?.to_str()?.to_lowercase();
-    match ext.as_str() {
-        "json" => serde_json::from_str::<serde_json::Value>(content)
-            .err()
-            .map(|e| format!("file was written but is not valid JSON: {e}")),
-        "toml" => content
-            .parse::<toml::Table>()
-            .err()
-            .map(|e| format!("file was written but is not valid TOML: {e}")),
-        _ => None,
     }
 }
 

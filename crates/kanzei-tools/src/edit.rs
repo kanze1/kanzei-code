@@ -287,10 +287,18 @@ impl Tool for EditTool {
                 preview_lines(&dropped)
             ));
         }
-        if let Some(warning) = crate::write::validate_syntax(&path, &updated) {
-            message.push_str(&format!("\nWARNING: {warning}"));
+        let validation = crate::local_validation::validate_after_write(
+            &path,
+            &ctx.project_root,
+            Some(&content),
+            &updated,
+        )
+        .await;
+        message.push_str(&format!("\n{}", validation.summary));
+        let mut display = crate::write::diff_display(&input.path, &content, &updated);
+        if let Some(object) = display.as_object_mut() {
+            object.insert("local_validation".into(), validation.display);
         }
-        let display = crate::write::diff_display(&input.path, &content, &updated);
         ToolOutput::ok(message).with_display(display)
     }
 }
@@ -518,14 +526,19 @@ impl Tool for InsertTool {
         if normalized_endings {
             message.push_str(" (line endings differed and were normalized automatically)");
         }
-        if let Some(warning) = crate::write::validate_syntax(&path, &updated) {
-            message.push_str(&format!("\nWARNING: {warning}"));
-        }
-        ToolOutput::ok(message).with_display(crate::write::diff_display(
-            &input.path,
-            &original,
+        let validation = crate::local_validation::validate_after_write(
+            &path,
+            &ctx.project_root,
+            Some(&original),
             &updated,
-        ))
+        )
+        .await;
+        message.push_str(&format!("\n{}", validation.summary));
+        let mut display = crate::write::diff_display(&input.path, &original, &updated);
+        if let Some(object) = display.as_object_mut() {
+            object.insert("local_validation".into(), validation.display);
+        }
+        ToolOutput::ok(message).with_display(display)
     }
 }
 

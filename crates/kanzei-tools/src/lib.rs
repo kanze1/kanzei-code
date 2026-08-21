@@ -29,6 +29,7 @@ pub mod git_batches;
 mod glob;
 mod grep;
 mod latex_tool;
+mod local_validation;
 mod managed;
 pub mod palette;
 mod plot_tool;

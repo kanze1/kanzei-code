@@ -9872,3 +9872,67 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: verify policy targeted，当前提交范围无 Rust/UI 源码变化；metrics regression gate、设计时效、crate sync、PS1 BOM、IPC event contract、ui-connectivity 全部通过，按策略跳过 frontend smoke、fmt、clippy、workspace test。verification.json 绑定 commit 9b60164ff11075efdf2ac4b16a7efd01d60fe2e6。
 - 关联: D-682
 - 收尾: 1787316714
+
+## T-1786922726718 R-320 changed_region 首次定向测试 [failed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 38.3s
+- 摘要: 479 passed; 1 failed; 1 ignored。失败：local_validation::tests::changed_region_reports_replaced_lines，实际 end_line=3、期望 2；根因是 diff 删除后再插入时 end_line 使用了推进后的 old_line。
+- 关联: D-683 R-320
+- 收尾: 1787318322
+- 源码指纹: v2 crates/kanzei-tools/src/edit.rs@401a2360cb06,crates/kanzei-tools/src/lib.rs@5525d37bafd5,crates/kanzei-tools/src/local_validation.rs@ee775c112bba,crates/kanzei-tools/src/write.rs@931168709092
+
+## T-1786922726719 R-320 changed_region 修复后局部校验单元测试 [passed]
+- 命令: cargo test -p kanzei-tools local_validation::tests
+- 时长: 6.2s
+- 摘要: 6 passed; 0 failed; 0 ignored。覆盖 changed_region 修复、JS/Rust/VM 计划、未知扩展 unsupported 与路径归一化。
+- 关联: D-683 R-320
+- 收尾: 1787318473
+- 源码指纹: v2 crates/kanzei-tools/src/edit.rs@77461704b932,crates/kanzei-tools/src/lib.rs@5525d37bafd5,crates/kanzei-tools/src/local_validation.rs@3f6dd7908045,crates/kanzei-tools/src/write.rs@931168709092
+
+## T-1786922726720 R-320 局部校验真实探针测试 [passed]
+- 命令: cargo test -p kanzei-tools local_validation::tests
+- 时长: 0.2s
+- 摘要: 10 passed; 0 failed; 0 ignored。新增真实 Node syntax、JSON parser、Rustfmt AST error 和同文件并发去抖测试。
+- 关联: D-683 R-320
+- 收尾: 1787318534
+- 源码指纹: v2 crates/kanzei-tools/src/edit.rs@77461704b932,crates/kanzei-tools/src/lib.rs@5525d37bafd5,crates/kanzei-tools/src/local_validation.rs@e639156439c7,crates/kanzei-tools/src/write.rs@931168709092
+
+## T-1786922726721 R-320 局部校验接入后的 kanzei-tools 完整定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 38.0s
+- 摘要: 484 passed; 0 failed; 1 ignored。完整 kanzei-tools 回归通过，覆盖 write/edit/insert、local_validation、tracker、git 与所有既有工具测试。
+- 关联: D-683 R-320
+- 收尾: 1787318592
+- 源码指纹: v2 crates/kanzei-tools/src/edit.rs@77461704b932,crates/kanzei-tools/src/lib.rs@5525d37bafd5,crates/kanzei-tools/src/local_validation.rs@e639156439c7,crates/kanzei-tools/src/write.rs@931168709092
+
+## T-1786922726722 R-320 UI lint probe [passed]
+- 命令: node scripts/ui-lint-smoke.mjs
+- 时长: 0.8s
+- 摘要: 真实 UI lint probe 通过：54 个文件 no-undef 零错误，globals 清单同步 769 个标识符。
+- 关联: R-320
+- 收尾: 1787318635
+- 源码指纹: v2 crates/kanzei-tools/src/edit.rs@77461704b932,crates/kanzei-tools/src/lib.rs@5525d37bafd5,crates/kanzei-tools/src/local_validation.rs@e639156439c7,crates/kanzei-tools/src/write.rs@931168709092
+
+## T-1786922726723 R-320 VM runtime probe [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs
+- 时长: 1.1s
+- 摘要: 真实 VM runtime probe 通过：25 个 UI 脚本按序执行，2342 次 invoke，10 个主视图切换，0 运行时错误。
+- 关联: R-320
+- 收尾: 1787318636
+- 源码指纹: v2 crates/kanzei-tools/src/edit.rs@77461704b932,crates/kanzei-tools/src/lib.rs@5525d37bafd5,crates/kanzei-tools/src/local_validation.rs@e639156439c7,crates/kanzei-tools/src/write.rs@931168709092
+
+## T-1786922726724 R-320 最终 kanzei-tools 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 37.0s
+- 摘要: 484 passed; 0 failed; 1 ignored。最终 ToolOutput 详细校验上下文回馈改动后的完整 kanzei-tools 回归通过。
+- 关联: D-683 R-320
+- 收尾: 1787318845
+- 源码指纹: v2 crates/kanzei-tools/src/edit.rs@77461704b932,crates/kanzei-tools/src/lib.rs@5525d37bafd5,crates/kanzei-tools/src/local_validation.rs@6ebd1d5d1feb,crates/kanzei-tools/src/write.rs@931168709092
+
+## T-1786922726725 R-320 verify 提交前置检查 [failed]
+- 命令: .\scripts\verify.ps1
+- 时长: 0.2s
+- 摘要: verify 在第 1 步提交前置检查拒绝运行：Rust 源码尚未提交，列出 edit.rs、lib.rs、write.rs、local_validation.rs；未进入测试阶段。
+- 关联: R-320
+- 收尾: 1787318975
+- 源码指纹: v2 crates/kanzei-tools/src/edit.rs@77461704b932,crates/kanzei-tools/src/lib.rs@5525d37bafd5,crates/kanzei-tools/src/local_validation.rs@6ebd1d5d1feb,crates/kanzei-tools/src/write.rs@931168709092

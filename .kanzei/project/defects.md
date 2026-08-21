@@ -105,3 +105,9 @@
 - observed_worktree_hash: fnv1a64:a1d1426a5522a197
 - recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
+
+## D-684 未知体验事件 tool_progressed 持续报错 [open] (medium)
+- 原始描述: 描述(原文): 日志里一直报 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed
+- 复现: 待澄清: 请说明出现日志的具体操作步骤、运行环境（版本/端）、完整相关日志，以及该问题是否影响功能使用？
+- 标签: 核心
+- 优先级: P2

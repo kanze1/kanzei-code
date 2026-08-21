@@ -8400,3 +8400,15 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787316729195
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-682(unblocks=0)
+
+## D-683 R-320 changed_region 替换单行时错误包含尾随行 [fixed] (low)
+- 复现: local_validation::tests::changed_region_reports_replaced_lines 断言 Some("a\nb\nc\n") → "a\nchanged\nc\n"；实际 changed_region 为 start_line=2,end_line=3，期望 end_line=2。
+- 影响: 局部校验结果的 changed region 过宽，错误上下文可能把未改动的下一行一并报告，降低 Agent 首个精确位置的可信度。
+- 来源: self-found：R-320 定向 cargo test -p kanzei-tools
+- 标签: 流程
+- 进展: 已修复并验证：crates/kanzei-tools/src/local_validation.rs:407-429 对 Delete/Insert 分别使用推进前的 old_line/new_line 计算 changed region，单行替换不再吞入尾随下一行。T-1786922726719：局部校验 6 passed；T-1786922726720：真实 Node/JSON/Rustfmt/去抖测试 10 passed；T-1786922726721：cargo test -p kanzei-tools 484 passed/0 failed/1 ignored；cargo fmt --all -- --check、cargo check --workspace --all-targets、cargo clippy --workspace --all-targets -- -D warnings 均通过。
+- refs: R-320
+- 优先级: P2
+- observed_head: e9950f24c703a59efe8a073eb80f2b7f7e7b3ab1
+- observed_worktree_hash: fnv1a64:492c860738a1f2e8
+- recorded_at: 1787318685072
