@@ -757,6 +757,22 @@ mod tests {
         );
     }
 
+    /// D-680/R-322:只有成功收口的显式完成声明才停止；临时无动作不应伪造该信号。
+    #[test]
+    fn d680_显式完成声明才停止鞭挞() {
+        let mut state = AutoRunState::new(10);
+        let ctx = AutoRunCtx {
+            model_declared_done: true,
+            tools: &mk_tools(&["work"]),
+            ..ctx_with_tools(&[])
+        };
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Stop(AutoStopReason::ModelDeclaredDone)
+        );
+        assert_eq!(state.rounds, 0, "显式完成停止后轮次应归零");
+    }
+
     #[test]
     fn 有实质动作的轮次_正常续跑并计数() {
         let mut state = AutoRunState::new(10);

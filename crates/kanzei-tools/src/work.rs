@@ -1218,6 +1218,55 @@ mod tests {
         dir
     }
 
+    /// D-680:handoff 缺少完整完成证据时必须拒绝，避免把临时批次收尾送进鞭挞停机路径。
+    #[tokio::test]
+    async fn d680_handoff_requires_completion_criterion_and_evidence() {
+        let ctx = ToolCtx::default();
+        let missing_criterion = WorkTool
+            .execute(
+                serde_json::json!({
+                    "action": "handoff",
+                    "summary": "当前批次暂时没有更多动作，等待真实样本"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(missing_criterion.is_error);
+        assert_eq!(
+            missing_criterion.code,
+            Some("HANDOFF_COMPLETION_CRITERION_REQUIRED")
+        );
+
+        let missing_evidence = WorkTool
+            .execute(
+                serde_json::json!({
+                    "action": "handoff",
+                    "summary": "任务完成",
+                    "criterion": "D-680 验收条款全部满足"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(missing_evidence.is_error);
+        assert_eq!(missing_evidence.code, Some("HANDOFF_EVIDENCE_REQUIRED"));
+
+        let accepted = WorkTool
+            .execute(
+                serde_json::json!({
+                    "action": "handoff",
+                    "summary": "D-680 验收完成",
+                    "criterion": "鞭挞模式不因阶段性收尾交换控制权",
+                    "evidence_refs": ["crates/kanzei-tools/src/work/tool.rs:493"]
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!accepted.is_error, "{}", accepted.content);
+        assert!(accepted.content.contains("model completion declared"));
+        assert!(accepted.content.contains("auto-run controller"));
+        assert!(!accepted.content.contains("control returned to the user"));
+    }
+
     /// D-368:Resume 且进展锚点已陈旧时,裁决必须把「先复核已落地范围」作为前置动作给出。
     ///
     /// 事故形态:条目 fixing、批次 0/1、改动面写着三处待做,而 observed_head 已落后于

@@ -9817,3 +9817,35 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-319
 - 收尾: 1787306188
 - 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@02cf7181028c,crates/kanzei-app/src/run/persistence.rs@da2c6a06a3b8
+
+## T-1786922726711 D-680 handoff auto-run harness 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-harness auto_run --lib
+- 时长: 3.1s
+- 摘要: D-680 回归：格式检查通过；harness auto_run 40 passed、0 failed，覆盖显式完成声明才停止鞭挞。
+- 关联: D-680
+- 收尾: 1787308107
+- 源码指纹: v2 crates/kanzei-harness/src/auto_run.rs@98324156cd92,crates/kanzei-tools/src/work.rs@85f78e27bf95,crates/kanzei-tools/src/work/tool.rs@531734791178
+
+## T-1786922726712 D-680 handoff 完成证据门禁定向回归 [passed]
+- 命令: cargo test -p kanzei-tools d680_handoff_requires_completion_criterion_and_evidence --lib
+- 时长: 20.3s
+- 摘要: D-680 work 工具回归：handoff 缺 criterion、缺 evidence_refs 均拒绝；完整完成声明成功且不再输出 control returned to the user；1 passed、0 failed。
+- 关联: D-680
+- 收尾: 1787308112
+- 源码指纹: v2 crates/kanzei-harness/src/auto_run.rs@98324156cd92,crates/kanzei-tools/src/work.rs@85f78e27bf95,crates/kanzei-tools/src/work/tool.rs@531734791178
+
+## T-1786922726713 D-680 harness 提交前定向全量 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-harness --lib
+- 时长: 0.2s
+- 摘要: D-680 提交前 harness 定向全量回归：172 passed，0 failed。
+- 关联: D-680
+- 收尾: 1787308168
+- 源码指纹: v2 crates/kanzei-harness/src/auto_run.rs@98324156cd92,crates/kanzei-tools/src/work.rs@85f78e27bf95,crates/kanzei-tools/src/work/tool.rs@531734791178
+
+## T-1786922726714 D-680 kanzei-tools 提交前定向全量 [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 时长: 38.2s
+- 摘要: D-680 提交前 kanzei-tools 定向全量回归：474 passed，0 failed，1 ignored。
+- 关联: D-680
+- 收尾: 1787308173
+- 源码指纹: v2 crates/kanzei-harness/src/auto_run.rs@98324156cd92,crates/kanzei-tools/src/work.rs@85f78e27bf95,crates/kanzei-tools/src/work/tool.rs@531734791178

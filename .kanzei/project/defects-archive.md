@@ -8365,3 +8365,17 @@
 - observed_head: 08992b4761d7c4ca82d5aecd6f94d7f9637d8df5
 - observed_worktree_hash: fnv1a64:92b6c4b0ce508a0e
 - recorded_at: 1787305865116
+
+## D-680 鞭挞模式误把工作轮次 handoff 当成交还用户控制权而提前停机 [fixed] (medium)
+- 复现: 鞭挞/自动续跑过程中，agent 因当前轮暂时没有可继续动作调用 `work(action=handoff)`；工具立即返回“control returned to the user; the engine will not push this run further”，本轮不再进入自动续跑。
+- 影响: 鞭挞模式的连续推进被当前 agent 的阶段性收尾判断截断；“暂时无事可做/等待下一轮证据”被错误升级为用户接管或任务完成，破坏无人值守语义。
+- 来源: 用户反馈：鞭挞模式不应该交换控制权；主会话复盘确认本轮曾调用 work handoff 导致引擎停止继续。
+- 标签: 核心
+- 边界: 模型明确声明任务完成时仍可触发 ModelDeclaredDone；但普通批次收尾、暂时无可用动作、等待后续样本不得交换控制权。
+- refs: R-319
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-680(unblocks=0)
+- 进展: 验收对照：①临时批次收尾、等待样本、当前轮无动作不得 handoff——已由 crates/kanzei-tools/src/work/tool.rs:506-516 机械拒绝，分别返回 HANDOFF_COMPLETION_CRITERION_REQUIRED / HANDOFF_EVIDENCE_REQUIRED；工具文案 crates/kanzei-tools/src/work/tool.rs:444-445 明确鞭挞成功 handoff 仅是模型完成信号，自动运行控制器决定停止原因。②完整任务完成仍可 handoff——同文件:518-522 要求 criterion 与 evidence_refs 后返回 model completion declared，不再输出 control returned to the user；鞭挞状态机保留显式完成停止语义，crates/kanzei-harness/src/auto_run.rs:760-774。③真实调用方/回归证据——crates/kanzei-app/src/run/events/mod.rs:348-398 已有 work handoff ToolStart/ToolEnd 收口，成功才置位 model_declared_done；本次测试 crates/kanzei-tools/src/work.rs:1221-1268 覆盖缺 criterion、缺 evidence、合法 handoff 三态，crates/kanzei-harness/src/auto_run.rs:760-774 覆盖显式完成停止。T-1786922726711、T-1786922726712、T-1786922726713、T-1786922726714 全部通过。
+- observed_head: f62097cfde97e559534c16f898a6c0f1fb5a3e23
+- observed_worktree_hash: fnv1a64:8d49dd70df9b9c4b
+- recorded_at: 1787308204562

@@ -441,7 +441,7 @@ impl Tool for WorkTool {
          unblock, verify, evidence, complete and supersede over append-only events. \
          WIP discipline is per line: items held by other lines appear as foreign_wip (read-only \
          background) and are never selected for this line; claiming one requires an explicit \
-         takeover reason. Queue priority comes from the run and cannot be overridden by tool input. \n         Use action `handoff` to declare the task finished and hand control back: the engine \n         stops the run and will NOT push you to keep going. Call it when the work is genuinely \n         done, when you need the user to decide, or when there is nothing useful left to do — \n         do not invent work to fill a round."
+         takeover reason. Queue priority comes from the run and cannot be overridden by tool input. \n         Use action `handoff` only to declare the whole task finished. It requires `criterion` (the exact \n         completion criterion) and at least one `evidence_refs` entry (file:line, test record, or commit). \n         In autonomous/whip mode a successful handoff is a model completion signal; temporary batch \n         boundaries, waiting for evidence, or having no useful action in the current round must NOT use it. \n         The auto-run controller, not this tool, decides the final stop reason."
             .into()
     }
 
@@ -498,9 +498,27 @@ impl Tool for WorkTool {
                 .map(str::trim)
                 .filter(|text| !text.is_empty())
                 .unwrap_or("no summary given");
+            let criterion = input
+                .criterion
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty());
+            if criterion.is_none() {
+                return ToolOutput::needs_correction(
+                    "HANDOFF_COMPLETION_CRITERION_REQUIRED",
+                    "handoff 只能声明整个任务完成；请提供 criterion，写明本次满足的精确完成条件。临时批次收尾、等待样本或当前轮无动作不要 handoff。",
+                );
+            }
+            if input.evidence_refs.is_empty() {
+                return ToolOutput::needs_correction(
+                    "HANDOFF_EVIDENCE_REQUIRED",
+                    "handoff 只能在有可复核证据时成功；请提供至少一个 evidence_refs（file:line、测试记录或提交号）。",
+                );
+            }
             return ToolOutput::ok(format!(
-                "handoff acknowledged: {summary}
-control returned to the user;                  the engine will not push this run further."
+                "model completion declared: {summary}\ncriterion: {}\nevidence_refs: {}\nauto-run controller will decide the stop reason from this successful completion declaration.",
+                criterion.unwrap(),
+                input.evidence_refs.join(", ")
             ));
         }
         if let Some(output) = execute_work_unit_action(&input, ctx) {

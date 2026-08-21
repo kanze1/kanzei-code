@@ -266,6 +266,7 @@
 - observed_head: f62097cfde97e559534c16f898a6c0f1fb5a3e23
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787306265598
+- 停车: 用户明确要求优先修复新缺陷 D-680；R-319 已完成 B3，B4 等待真实 post-rollout 长程样本，D-680 收口后恢复。恢复人:agent
 
 ## R-320 编辑后局部结构校验:在完整回归前捕获语法作用域与类型断裂 [todo]
 - refs: R-310 D-615
