@@ -325,7 +325,11 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
         if !uses_work_units(outcome) {
             return Some(ToolOutput::error("父需求未启用 work_units_v1"));
         }
+        // R-313:work_units_v1 的父 Outcome 也不能绕过进入 doing 前的发现/确认门禁。
         if outcome.status != "doing" {
+            if let Err(error) = crate::tracker::TrackerTool::check_requirement_start(outcome) {
+                return Some(ToolOutput::error(format!("{} {error}", outcome.id)));
+            }
             if let Err(error) = req_store.transition_allowed(&outcome.status, "doing") {
                 return Some(ToolOutput::error(error));
             }
@@ -620,6 +624,18 @@ control returned to the user;                  the engine will not push this run
                     "{id} 当前被阻塞，不能覆盖 claim: {}",
                     blocked.block_reasons.join("；")
                 ));
+            }
+        }
+        // R-313:旧 work claim 是进入 doing/fixing 的真实消费者；需求 claim 不能绕过
+        // Discovery Record、核心语义确认和限定词一致性门禁。
+        if kind.prefix == "R"
+            && entries[position].status != wip_status
+            && entries[position].status != "doing"
+        {
+            if let Err(error) =
+                crate::tracker::TrackerTool::check_requirement_start(&entries[position])
+            {
+                return ToolOutput::error(format!("{id} {error}"));
             }
         }
         if entries[position].status != wip_status {

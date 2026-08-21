@@ -9529,3 +9529,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 提交 f446bd01 后当前 HEAD 受影响 crate 回归通过：kanzei-tools 470 passed、0 failed、1 ignored；kz bin 44 passed。用于关闭前当前提交证据绑定。
 - 关联: R-311
 - 收尾: 1787298815
+
+## T-1786922726675 R-313 Discovery Record lifecycle kanzei-tools 完整定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 37.1s
+- 摘要: R-313 实现后的 kanzei-tools 完整定向回归通过：472 passed，0 failed，1 ignored；包含 Discovery Record、question/豁免、限定词专项测试及既有 tracker/work 回归。
+- 关联: R-313
+- 收尾: 1787300954
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@91d6db936a33,crates/kanzei-tools/src/tracker/actions.rs@1844ae65a08a,crates/kanzei-tools/src/work/tool.rs@6c4b870f82cb
+
+## T-1786922726676 R-313 claim lifecycle 完整定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 37.5s
+- 摘要: 在补充 legacy work claim 门禁回归后重新执行 kanzei-tools 完整定向测试：472 passed，0 failed，1 ignored；fmt check 同时通过。
+- 关联: R-313
+- 收尾: 1787301143
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@13e5edf0673f,crates/kanzei-tools/src/tracker/actions.rs@1844ae65a08a,crates/kanzei-tools/src/work/tool.rs@6c4b870f82cb
+
+## T-1786922726677 R-313 D-672 clippy 修复后完整回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 37.7s
+- 摘要: 修复 tracker.rs:900 的 clippy 手写字符比较后，fmt check 与 kanzei-tools 完整定向回归通过：472 passed，0 failed，1 ignored。
+- 关联: R-313 D-672
+- 收尾: 1787301318
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@407614174f6e,crates/kanzei-tools/src/tracker/actions.rs@1844ae65a08a,crates/kanzei-tools/src/work/tool.rs@6c4b870f82cb

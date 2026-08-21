@@ -264,7 +264,13 @@ pub(crate) fn add(
         Ok(field) => field,
         Err(error) => return ToolOutput::needs_correction("PRIOR_ART_REQUIRED", error),
     };
-    let mut fields: Vec<(String, String)> = input.fields.into_iter().collect();
+    if let Some(discovery_err) = tool.check_requirement_discovery_on_add(&input.fields) {
+        return ToolOutput::error(discovery_err);
+    }
+    if let Err(error) = super::TrackerTool::check_qualifier_consistency(input.fields.iter()) {
+        return ToolOutput::error(error);
+    }
+    let mut fields: Vec<(String, String)> = input.fields.clone().into_iter().collect();
     if let Some(field) = prior_art_field {
         fields.push(field);
     }
@@ -518,6 +524,29 @@ pub(crate) fn update_close(
     } else {
         input.status.clone()
     };
+    // R-313:Tracker update 直达 doing 时也必须经过 Discovery/语义/限定词门禁；
+    // 不能只依赖 work claim，否则手动 update 会绕过生命周期。
+    if action == "update"
+        && target_status.as_deref() == Some("doing")
+        && before.status != "doing"
+        && tool.kind.prefix == "R"
+    {
+        let mut lifecycle_probe = before.clone();
+        lifecycle_probe.status = "doing".into();
+        for (key, value) in &input.fields {
+            match lifecycle_probe
+                .fields
+                .iter_mut()
+                .find(|(candidate, _)| candidate == key)
+            {
+                Some((_, slot)) => *slot = value.clone(),
+                None => lifecycle_probe.fields.push((key.clone(), value.clone())),
+            }
+        }
+        if let Err(error) = super::TrackerTool::check_requirement_start(&lifecycle_probe) {
+            return ToolOutput::error(format!("{id} {error}"));
+        }
+    }
     let entry = &mut entries[pos];
     if let Some(status) = target_status {
         // R-252 验收④:想法转 split 的 refs 硬门禁——refs 必须非空且每个 ID 在

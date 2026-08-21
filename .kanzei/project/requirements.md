@@ -250,7 +250,7 @@
 - recorded_at: 1787299505789
 - 阻塞: 等待用户评审并拍板四方向及实施顺序；解除人:用户
 
-## R-313 需求发现分层:Discovery Record、待确认字段生命周期与歧义落点,让发现阶段先于交付冲动 [todo]
+## R-313 需求发现分层:Discovery Record、待确认字段生命周期与歧义落点,让发现阶段先于交付冲动 [doing]
 - refs: R-248 R-311 D-577 docs/design/weakness_register_20260820.md
 - 内容: 批1 Discovery Record:中/大需求 req add 前产出轻量发现记录(Intent 用户真正要什么/Explicit 用户原话/Assumptions 推断/Ambiguities 歧义/领域对象/最小成功闭环/延后决策),来源字段必须含用户原话引用而非只写「用户消息」;批2 待确认生命周期:核心语义类待确认未决时,设计冻结与进入 doing 前要求先走 question 工具或用户显式豁免留痕——把「检测到的歧义」从散文变成有 teeth 的状态;批3 新增限定词一致性检查:需求文本出现用户原话中没有的关键限定词(如用户说「收藏」需求写「浏览器书签」)时机械提示「未确认解释:确认/标 assumption/移除限定」;批4 复测:文章获取器场景回归,同样输入下歧义在冻结前被逼出
 - 复杂度: 大
@@ -260,6 +260,13 @@
 - 边界: 不加重 hard gate,Discovery Record 是轻结构不是审批流;「图 ontology 是否 user-centric」这类高级语义判断不做规则化(评估共识:靠模型或产品 persona,规则 gate 判不了);小需求不强制;不改 R-248 prior-art 门,两者在 req add 处组合(prior-art 管「查已有方案」,本条管「问题究竟是什么」)
 - 验收: ①中/大需求缺 Discovery Record 或来源无用户原话引用被拒,有定向测试;②含未决核心语义待确认的条目在冻结/doing 前被拦并指向 question,豁免路径留痕可审计;③限定词一致性检查有真实触发与放行案例各一;④文章获取器场景复测:「收藏」歧义在登记前被逼出而非用户事后纠正;⑤既有小需求登记路径无回归
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，R-313 B4 已完成，等待提交收口
+- 批次: 4/4
+- 批次表: B1 Discovery Record 登记门禁与来源原话校验；B2 待确认生命周期/question 或用户豁免门禁并接入 doing/claim；B3 限定词一致性检查与 assumption 放行；B4 文章获取器“收藏”场景及小需求回归、验收收口。
+- 进展: B1 已交付：crates/kanzei-tools/src/tracker.rs:731-846 实现中/大需求 Discovery Record 单行 JSON、八字段与来源用户原话校验，tracker/actions.rs:267-272 接入 req add；B2 已交付：tracker.rs:740-746、848-886 实现未决核心语义门禁，tracker/actions.rs:546-549 接入 update→doing，work/tool.rs:328-333 与 629-637 接入 work_units_v1/legacy claim，必须 question 或用户明确豁免；B3 已交付：tracker.rs:888-917 实现限定词一致性与 assumption 放行；B4 已交付：tracker.rs:4348-4472、4477-4583 覆盖“收藏”→“浏览器书签”触发/assumption 放行、文章获取器 claim 前拦截、question/豁免和小需求回归。验收①证据：T-1786922726675、tracker.rs:731-846、actions.rs:267-272；②证据：T-1786922726676、tracker.rs:740-746/848-886、actions.rs:546-549、work/tool.rs:328-333/629-637；③证据：T-1786922726675、tracker.rs:888-917；④证据：T-1786922726675、tracker.rs:4411-4457；⑤证据：T-1786922726675、tracker.rs:4459-4470。下一步：提交前复核 staged diff，提交 R-313，随后执行 work verify/complete 与 req done。
+- observed_head: 9080b5e5b54926262bb2ade674fbe162bd29b774
+- observed_worktree_hash: fnv1a64:7e8e5e49d9c69d86
+- recorded_at: 1787301187091
 
 ## R-314 单线程运行时协作者工具自动隐去 [todo]
 - 复杂度: 小

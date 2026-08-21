@@ -179,6 +179,9 @@ impl Tool for TrackerTool {
         if self.kind.prefix == "R" {
             d.push_str(" A core requirement with empty refs triggers R-248: pass top-level `prior_art` pointing to a validated `.kanzei/research/<topic>/prior-art.md`, or `prior_art_waiver` with the user's explicit reason. These fields are independent from refs.");
         }
+        if self.kind.prefix == "R" {
+            d.push_str(" R-313: medium/large requirement add requires `fields.发现记录` as a one-line JSON object with Intent/Explicit/Assumptions/Ambiguities/领域对象/最小成功闭环/延后决策, and `来源` must contain a quoted user utterance. Before doing/design freeze, unresolved core semantics require `question` evidence in `确认记录` or an auditable user waiver; qualifier terms absent from the quote must be confirmed, marked assumption, or removed.");
+        }
         d
     }
 
@@ -725,6 +728,194 @@ impl TrackerTool {
         }
     }
 
+    /// R-313:中/大需求的轻量 Discovery Record。它是登记前的结构化发现记录，
+    /// 不是审批流；小需求保持既有路径。JSON 放在单行字段里，避免 Markdown 解析产生游离行。
+    fn check_discovery_record(&self, fields: &BTreeMap<String, String>) -> Option<String> {
+        if self.kind.prefix != "R" {
+            return None;
+        }
+        Self::check_discovery_record_fields(fields.iter()).err()
+    }
+
+    /// R-313:进入 doing/claim 前的生命周期门禁。待确认核心语义必须留下 question
+    /// 调用证据或用户明确豁免；普通已确认歧义不要求额外字段。
+    pub(crate) fn check_requirement_start(entry: &Entry) -> Result<(), String> {
+        Self::check_discovery_record_fields(entry.fields.iter().map(|(key, value)| (key, value)))?;
+        Self::check_semantic_confirmation(entry.fields.iter().map(|(key, value)| (key, value)))?;
+        Self::check_qualifier_consistency(entry.fields.iter().map(|(key, value)| (key, value)))
+    }
+
+    fn check_requirement_discovery_on_add(
+        &self,
+        fields: &BTreeMap<String, String>,
+    ) -> Option<String> {
+        self.check_discovery_record(fields)
+    }
+
+    /// R-313 的 Discovery Record 结构。字段名采用产品语义而不是 Rust 类型名，
+    /// 便于 req get、审计和后续迁移保持可读。
+    fn discovery_value<'a>(
+        object: &'a serde_json::Map<String, serde_json::Value>,
+        name: &str,
+    ) -> Option<&'a str> {
+        object
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .and_then(|(_, value)| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    fn field_value<'a, I>(fields: I, names: &[&str]) -> Option<&'a str>
+    where
+        I: Iterator<Item = (&'a String, &'a String)>,
+    {
+        fields
+            .filter(|(key, _)| names.iter().any(|name| key.eq_ignore_ascii_case(name)))
+            .map(|(_, value)| value.trim())
+            .find(|value| !value.is_empty())
+    }
+
+    fn has_user_quote(source: &str) -> bool {
+        (source.contains('「') && source.contains('」'))
+            || (source.contains('“') && source.contains('”'))
+            || (source.matches('"').count() >= 2)
+            || (source.contains('‘') && source.contains('’'))
+    }
+
+    fn quoted_user_text(source: &str) -> String {
+        let mut quoted = String::new();
+        for (open, close) in [('「', '」'), ('“', '”'), ('‘', '’')] {
+            let mut rest = source;
+            while let Some(start) = rest.find(open) {
+                let after = &rest[start + open.len_utf8()..];
+                let Some(end) = after.find(close) else { break };
+                quoted.push_str(&after[..end]);
+                rest = &after[end + close.len_utf8()..];
+            }
+        }
+        let mut ascii = source.split('"');
+        while let (Some(_), Some(value)) = (ascii.next(), ascii.next()) {
+            quoted.push_str(value);
+            let _ = ascii.next();
+        }
+        quoted
+    }
+
+    fn check_discovery_record_fields<'a, I>(fields: I) -> Result<(), String>
+    where
+        I: Iterator<Item = (&'a String, &'a String)> + Clone,
+    {
+        let complexity = Self::field_value(fields.clone(), &["复杂度", "complexity"]);
+        if !matches!(complexity, Some("中") | Some("大")) {
+            return Ok(());
+        }
+        let raw = Self::field_value(fields.clone(), &["发现记录", "discovery_record"])
+            .ok_or_else(|| {
+                "中/大需求登记必须提供 `发现记录`：单行 JSON，包含 Intent、Explicit、Assumptions、Ambiguities、领域对象、最小成功闭环、延后决策；小需求不受此门禁影响。"
+                    .to_string()
+            })?;
+        let value: serde_json::Value = serde_json::from_str(raw)
+            .map_err(|error| format!("`发现记录` 必须是单行 JSON 对象，解析失败: {error}"))?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| "`发现记录` 必须是 JSON 对象，不能用散文替代结构化字段".to_string())?;
+        for name in [
+            "Intent",
+            "Explicit",
+            "Assumptions",
+            "Ambiguities",
+            "领域对象",
+            "最小成功闭环",
+            "延后决策",
+        ] {
+            if Self::discovery_value(object, name).is_none() {
+                return Err(format!("`发现记录` 缺少非空字段 `{name}`"));
+            }
+        }
+        let source = Self::field_value(fields.clone(), &["来源", "source"]).ok_or_else(|| {
+            "中/大需求的 `来源` 必须包含用户原话引用，不能只写“用户消息”".to_string()
+        })?;
+        if !Self::has_user_quote(source) {
+            return Err(
+                "中/大需求的 `来源` 必须包含用户原话引用（如 `用户原话「收藏」`），不能只写“用户消息”"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+
+    fn check_semantic_confirmation<'a, I>(fields: I) -> Result<(), String>
+    where
+        I: Iterator<Item = (&'a String, &'a String)> + Clone,
+    {
+        let pending = ["待确认", "ambiguities", "歧义"]
+            .iter()
+            .filter_map(|name| Self::field_value(fields.clone(), &[*name]))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let core_pending = (pending.contains("核心语义")
+            || pending.to_ascii_lowercase().contains("core semantic"))
+            && ["待确认", "未确认", "未决", "pending", "unresolved"]
+                .iter()
+                .any(|marker| {
+                    pending
+                        .to_ascii_lowercase()
+                        .contains(&marker.to_ascii_lowercase())
+                });
+        if !core_pending {
+            return Ok(());
+        }
+        let evidence = ["确认记录", "用户豁免", "豁免", "question", "confirmation"]
+            .iter()
+            .filter_map(|name| Self::field_value(fields.clone(), &[*name]))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let lower = evidence.to_ascii_lowercase();
+        if lower.contains("question")
+            || evidence.contains("用户明确豁免")
+            || evidence.contains("用户豁免")
+        {
+            Ok(())
+        } else {
+            Err(
+                "检测到未决核心语义，不能进入 doing/设计冻结；请先调用 `question` 并把结果写入 `确认记录`，或写入用户明确豁免及原话。"
+                    .into(),
+            )
+        }
+    }
+
+    fn check_qualifier_consistency<'a, I>(fields: I) -> Result<(), String>
+    where
+        I: Iterator<Item = (&'a String, &'a String)> + Clone,
+    {
+        let Some(raw) = Self::field_value(fields.clone(), &["限定词", "qualifiers"]) else {
+            return Ok(());
+        };
+        let source = Self::field_value(fields.clone(), &["来源", "source"]).unwrap_or_default();
+        let quoted = Self::quoted_user_text(source);
+        let assumptions =
+            Self::field_value(fields.clone(), &["假设", "assumptions"]).unwrap_or_default();
+        for qualifier in raw
+            .split(|ch: char| [',', '，', '、', ';', '；'].contains(&ch))
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != "无")
+        {
+            if quoted.contains(qualifier) {
+                continue;
+            }
+            let assumption = assumptions.contains(qualifier)
+                && (assumptions.to_ascii_lowercase().contains("assumption")
+                    || assumptions.contains("假设"));
+            if !assumption {
+                return Err(format!(
+                    "未确认解释:限定词 `{qualifier}` 不在来源的用户原话中；请确认、标 `assumption`、或移除限定词。"
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// R-248:只有「核心 + refs 为空」的 requirement add 是机械新方向触发；
     /// 普通条目和已有引用的核心条目保持原路径。工件和豁免都是独立顶层字段，
     /// refs 继续只承载追踪编号。
@@ -939,6 +1130,19 @@ mod tests {
             severity: None,
             fields: vec![],
         }
+    }
+
+    fn discovery_record() -> String {
+        json!({
+            "Intent": "明确用户真正要什么",
+            "Explicit": "用户原话",
+            "Assumptions": "无",
+            "Ambiguities": "记录待确认语义",
+            "领域对象": "文章与收藏",
+            "最小成功闭环": "登记后可进入确认流程",
+            "延后决策": "扩展站点范围"
+        })
+        .to_string()
     }
 
     #[test]
@@ -2617,7 +2821,7 @@ mod tests {
         // 既有值没超上限时,抬到 12 照旧撞门(基准不是免死金牌)。
         let out = tool
             .execute(
-                json!({"action": "add", "title": "另一条", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端", "批次": "0/5"}}),
+                json!({"action": "add", "title": "另一条", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端", "来源": "用户原话「测试」", "发现记录": "{\"Intent\":\"测试意图\",\"Explicit\":\"用户原话\",\"Assumptions\":\"无\",\"Ambiguities\":\"无\",\"领域对象\":\"条目\",\"最小成功闭环\":\"登记\",\"延后决策\":\"无\"}", "批次": "0/5"}}),
                 &ctx,
             )
             .await;
@@ -2642,7 +2846,7 @@ mod tests {
         // ④ 新建 0/10 是合法上界,照常放行。
         let out = tool
             .execute(
-                json!({"action": "add", "title": "十批条目", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端", "批次": "0/10"}}),
+                json!({"action": "add", "title": "十批条目", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端", "来源": "用户原话「测试」", "发现记录": "{\"Intent\":\"测试意图\",\"Explicit\":\"用户原话\",\"Assumptions\":\"无\",\"Ambiguities\":\"无\",\"领域对象\":\"条目\",\"最小成功闭环\":\"登记\",\"延后决策\":\"无\"}", "批次": "0/10"}}),
                 &ctx,
             )
             .await;
@@ -2778,7 +2982,7 @@ mod tests {
         };
         let output = tool
             .execute(
-                json!({"action": "add", "title": "新条目", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端"}}),
+                json!({"action": "add", "title": "新条目", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端", "来源": "用户原话「测试」", "发现记录": "{\"Intent\":\"测试意图\",\"Explicit\":\"用户原话\",\"Assumptions\":\"无\",\"Ambiguities\":\"无\",\"领域对象\":\"条目\",\"最小成功闭环\":\"登记\",\"延后决策\":\"无\"}"}}),
                 &ToolCtx::new(dir.clone(), dir.clone()),
             )
             .await;
@@ -2894,7 +3098,7 @@ mod tests {
             .save(&[entry("R-001"), entry("R-002"), entry("R-003")])
             .unwrap();
         let out = tool
-            .execute(json!({"action": "add", "title": "恢复后可写", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端"}}), &ctx)
+            .execute(json!({"action": "add", "title": "恢复后可写", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端", "来源": "用户原话「测试」", "发现记录": "{\"Intent\":\"测试意图\",\"Explicit\":\"用户原话\",\"Assumptions\":\"无\",\"Ambiguities\":\"无\",\"领域对象\":\"条目\",\"最小成功闭环\":\"登记\",\"延后决策\":\"无\"}"}}), &ctx)
             .await;
         assert!(!out.is_error, "完整性恢复后应放行: {}", out.content);
         std::fs::remove_dir_all(&dir).ok();
@@ -3027,7 +3231,7 @@ mod tests {
         // 两个空洞都交代完 → 完整性恢复,普通写放行,且注销过的号不再被复用。
         assert!(store.integrity_issues(&store.load().unwrap()).is_empty());
         let out = tool
-            .execute(json!({"action": "add", "title": "恢复后可写", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端"}}), &ctx)
+            .execute(json!({"action": "add", "title": "恢复后可写", "priority": "P2", "fields": {"复杂度": "中", "标签": "后端", "来源": "用户原话「测试」", "发现记录": "{\"Intent\":\"测试意图\",\"Explicit\":\"用户原话\",\"Assumptions\":\"无\",\"Ambiguities\":\"无\",\"领域对象\":\"条目\",\"最小成功闭环\":\"登记\",\"延后决策\":\"无\"}"}}), &ctx)
             .await;
         assert!(!out.is_error, "{}", out.content);
         assert!(out.content.contains("R-005"), "{}", out.content);
@@ -3548,7 +3752,7 @@ mod tests {
         // add:词表内标签放行。
         let out = tool
             .execute(
-                json!({"action": "add", "title": "t", "priority": "P2", "fields": {"复杂度": "中", "标签": "前端"}}),
+                json!({"action": "add", "title": "t", "priority": "P2", "fields": {"复杂度": "中", "标签": "前端", "来源": "用户原话「测试」", "发现记录": "{\"Intent\":\"测试意图\",\"Explicit\":\"用户原话\",\"Assumptions\":\"无\",\"Ambiguities\":\"无\",\"领域对象\":\"条目\",\"最小成功闭环\":\"登记\",\"延后决策\":\"无\"}"}}),
                 &ctx,
             )
             .await;
@@ -3651,7 +3855,7 @@ mod tests {
         let out = req_tool
             .execute(
                 json!({"action": "add", "title": "完整", "priority": "P2",
-                       "fields": {"复杂度": "中", "标签": "后端"}}),
+                       "fields": {"复杂度": "中", "标签": "后端", "来源": "用户原话「测试」", "发现记录": "{\"Intent\":\"测试意图\",\"Explicit\":\"用户原话\",\"Assumptions\":\"无\",\"Ambiguities\":\"无\",\"领域对象\":\"条目\",\"最小成功闭环\":\"登记\",\"延后决策\":\"无\"}"}}),
                 &ctx,
             )
             .await;
@@ -3793,7 +3997,7 @@ mod tests {
                         };
                         let ctx = ToolCtx::new(dir.clone(), dir.clone());
                         tool.execute(
-                            json!({"action": "add", "title": format!("并发条目 {n}"), "priority": "P2", "fields": {"复杂度": "中", "标签": "后端"}}),
+                            json!({"action": "add", "title": format!("并发条目 {n}"), "priority": "P2", "fields": {"复杂度": "中", "标签": "后端", "来源": "用户原话「测试」", "发现记录": "{\"Intent\":\"测试意图\",\"Explicit\":\"用户原话\",\"Assumptions\":\"无\",\"Ambiguities\":\"无\",\"领域对象\":\"条目\",\"最小成功闭环\":\"登记\",\"延后决策\":\"无\"}"}}),
                             &ctx,
                         )
                         .await
@@ -4082,7 +4286,11 @@ mod tests {
             "title": "新的核心方向",
             "priority": "P1",
             "complexity": "中",
-            "tag": "核心"
+            "tag": "核心",
+            "fields": {
+                "来源": "用户原话「新的核心方向」",
+                "发现记录": "{\"Intent\":\"新的核心方向\",\"Explicit\":\"用户原话\",\"Assumptions\":\"无\",\"Ambiguities\":\"无\",\"领域对象\":\"核心能力\",\"最小成功闭环\":\"登记\",\"延后决策\":\"无\"}"
+            }
         });
         let blocked = tool.execute(core_input.clone(), &ctx).await;
         assert!(blocked.is_error, "缺 prior-art 必须拒绝");
@@ -4131,6 +4339,243 @@ mod tests {
             .fields
             .iter()
             .any(|(key, value)| key == "先行调研豁免" && value.contains("用户明确")));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-313 B1/B3/B4:中/大登记需要结构化发现记录、用户原话与限定词处置；
+    /// 小需求保持既有登记路径。限定词可在明确标注 assumption 后放行。
+    #[tokio::test]
+    async fn r313_discovery_record_source_and_qualifier_gates() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-r313-discovery-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        let missing = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "缺 Discovery Record",
+                    "priority": "P2",
+                    "fields": {"复杂度": "中", "标签": "后端"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(missing.is_error, "缺发现记录必须拒绝: {}", missing.content);
+        assert!(missing.content.contains("发现记录"), "{}", missing.content);
+
+        let no_quote = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "缺用户原话",
+                    "priority": "P2",
+                    "fields": {
+                        "复杂度": "中",
+                        "标签": "后端",
+                        "发现记录": discovery_record(),
+                        "来源": "用户消息"
+                    }
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            no_quote.is_error,
+            "来源无用户原话必须拒绝: {}",
+            no_quote.content
+        );
+        assert!(
+            no_quote.content.contains("用户原话"),
+            "{}",
+            no_quote.content
+        );
+
+        let mismatch = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "文章获取器收藏",
+                    "priority": "P1",
+                    "fields": {
+                        "复杂度": "中",
+                        "标签": "后端",
+                        "发现记录": discovery_record(),
+                        "来源": "用户原话「收藏」",
+                        "限定词": "浏览器书签"
+                    }
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            mismatch.is_error,
+            "未确认限定词必须拒绝: {}",
+            mismatch.content
+        );
+        assert!(
+            mismatch.content.contains("未确认解释"),
+            "{}",
+            mismatch.content
+        );
+
+        let released = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "文章获取器收藏 assumption 放行",
+                    "priority": "P1",
+                    "fields": {
+                        "复杂度": "中",
+                        "标签": "后端",
+                        "发现记录": discovery_record(),
+                        "来源": "用户原话「收藏」",
+                        "限定词": "浏览器书签",
+                        "假设": "assumption: 浏览器书签是待确认的实现解释"
+                    }
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !released.is_error,
+            "标 assumption 后应放行: {}",
+            released.content
+        );
+
+        let small = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "既有小需求路径",
+                    "priority": "P3",
+                    "fields": {"复杂度": "小", "标签": "后端"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!small.is_error, "小需求不得回归: {}", small.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-313 B2/B4:文章获取器的“收藏”歧义可登记为 todo，但进入 doing 前必须
+    /// 留下 question 或用户豁免证据；两条放行路径都走真实 Tracker update。
+    #[tokio::test]
+    async fn r313_pending_core_semantics_block_doing_and_allow_question_or_waiver() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-r313-lifecycle-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let pending_fields = json!({
+            "复杂度": "中",
+            "标签": "后端",
+            "来源": "用户原话「收藏」",
+            "发现记录": discovery_record(),
+            "待确认": "核心语义未决：收藏是浏览器书签还是站内收藏"
+        });
+        let added = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "文章获取器：收藏",
+                    "priority": "P1",
+                    "fields": pending_fields
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!added.is_error, "发现阶段应先记录歧义: {}", added.content);
+
+        let blocked = crate::work::WorkTool
+            .execute(json!({"action": "claim", "id": "R-001"}), &ctx)
+            .await;
+        assert!(
+            blocked.is_error,
+            "未决核心语义进入 doing 必须被拦: {}",
+            blocked.content
+        );
+        assert!(blocked.content.contains("question"), "{}", blocked.content);
+
+        let questioned = tool
+            .execute(
+                json!({
+                    "action": "update",
+                    "id": "R-001",
+                    "status": "doing",
+                    "fields": {"确认记录": "question: 用户确认先支持知乎站内收藏"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !questioned.is_error,
+            "question 证据应放行: {}",
+            questioned.content
+        );
+
+        let waived = tool
+            .execute(
+                json!({
+                    "action": "add",
+                    "title": "文章获取器：收藏用户豁免",
+                    "priority": "P1",
+                    "fields": {
+                        "复杂度": "中",
+                        "标签": "后端",
+                        "来源": "用户原话「收藏」",
+                        "发现记录": discovery_record(),
+                        "待确认": "核心语义未决：收藏是否适配特定网站"
+                    }
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !waived.is_error,
+            "用户豁免场景应先记录歧义: {}",
+            waived.content
+        );
+        let waived_start = tool
+            .execute(
+                json!({
+                    "action": "update",
+                    "id": "R-002",
+                    "status": "doing",
+                    "fields": {"用户豁免": "用户明确豁免：先只支持知乎站内收藏，原话为「先知乎就行」"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !waived_start.is_error,
+            "用户明确豁免应放行: {}",
+            waived_start.content
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

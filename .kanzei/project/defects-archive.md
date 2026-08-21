@@ -8269,3 +8269,15 @@
 - observed_head: 9c7f2606117f064e85cdc88dac6535a1058df727
 - observed_worktree_hash: fnv1a64:9f2083e78dad5c45
 - recorded_at: 1787298391940
+
+## D-672 R-313 限定词分隔判断触发 clippy 手写字符比较告警 [fixed] (low)
+- 复现: 提交 R-313 时结构化 git 的 clippy gate 在 crates/kanzei-tools/src/tracker.rs:900 拒绝 `matches!(ch, ',' | '，' | '、' | ';' | '；')`，提示可用更简洁的字符比较表达。
+- 影响: 功能测试通过但提交门禁无法完成，R-313 不能提交。
+- 来源: self-found；git commit clippy gate 输出。
+- 标签: 核心
+- refs: R-313
+- 优先级: P2
+- 进展: 已修复：crates/kanzei-tools/src/tracker.rs:900 将手写 matches! 字符比较改为字符数组 contains；T-1786922726677（cargo test -p kanzei-tools，472 passed，0 failed，1 ignored，含 fmt check）确认 clippy gate 前置问题消失。复现=已消失；影响=结构化提交门禁可继续执行。
+- observed_head: 9080b5e5b54926262bb2ade674fbe162bd29b774
+- observed_worktree_hash: fnv1a64:1cbb497de46e013b
+- recorded_at: 1787301324921
