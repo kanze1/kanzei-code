@@ -23,6 +23,30 @@ let autoStopReason = "";
 // 连续无实质动作的轮数:第一次只追加推进指令,第二次才刹车。
 // R-169:判定已下沉 harness auto_run 状态机,前端只保留镜像赋值。
 let noActionRounds = 0;
+// R-264 B3：classic runtime 只提供状态访问器；测试钩子本身由 08-compose.js
+// 以 ESM export 暴露。provider 不暴露可写变量，避免 smoke 重新依赖共享词法作用域。
+globalThis.__kzAutoTestState = {
+  rounds: () => autoRounds,
+  noAction: () => noActionRounds,
+  stopReason: () => autoStopReason,
+  timerSessions: () => [...autoContinueTimers.keys()],
+  retryLabel: (id) => autoContinueTimers.get(id)?.retryLabel ?? null,
+  setAutoState: (id, value) => globalThis.__kzProcessAutoState?.set(id, value),
+  getAutoState: (id) => globalThis.__kzProcessAutoState?.get(id),
+  setRounds: (value) => { setAutoRounds(activeSessionId, value); },
+  setStopAfterRound: (value) => { autoStopAfterRound = value; },
+  setPaused: (value) => { autoPaused = value; },
+  paused: () => autoPaused,
+  reset: () => {
+    autoRounds = 0;
+    noActionRounds = 0;
+    autoStopAfterRound = false;
+    autoPaused = false;
+  },
+  cancelTimers: () => {
+    for (const sessionId of [...autoContinueTimers.keys()]) cancelAutoContinueTimer(sessionId);
+  },
+};
 // R-170:继续文案降级为用户意图载体(方案 A,评估结论 continue_prompt_dissection.md §5)。
 // 引擎规则(取活/批次/阻塞/验收/节奏)全部归 system prompt 与 harness 状态机,
 // 文案只保留极简意图句;textarea 承载用户附加意图,删空回落此默认。

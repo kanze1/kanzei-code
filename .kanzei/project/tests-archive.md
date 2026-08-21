@@ -10116,3 +10116,26 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-264 D-691
 - 收尾: 1787342861
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@71ef6092d86c,scripts/ui-sources.mjs@7f3fc44fc934
+
+## T-1786922726750 R-264 B3 facade 接入后六条前端冒烟 [failed]
+- 命令: node --check crates/kanzei-app/ui/08-auto.js; node --check crates/kanzei-app/ui/08-compose.js; node --check crates/kanzei-app/ui/08-compose-runtime.js; node --check scripts/ui-runtime-smoke.mjs; node --check eslint.config.js; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: B3 facade 接入后的回归：语法检查通过，runtime、parallel-lines、a11y、i18n、markdown 通过；ui-lint-smoke 失败，生成清单缺少 __kzAutoTestState、__kzProcessAutoState、__kzTest、state 4 个名字。runtime 使用 --experimental-vm-modules 后覆盖 27 个 UI 源码且 0 运行时错误。
+- 关联: R-264
+- 收尾: 1787343320
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@2945e1d83129,scripts/verify.ps1@48b690617dea
+
+## T-1786922726751 R-264 B3 facade 后六条前端冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/08-auto.js; node --check crates/kanzei-app/ui/08-compose.js; node --check crates/kanzei-app/ui/08-compose-runtime.js; node --check scripts/ui-runtime-smoke.mjs; node --check eslint.config.js; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 8.0s
+- 摘要: B3 facade 配套完成：语法检查通过；runtime 按 HTML 顺序执行 27 个 UI 源码，初始化 2342 次 invoke、10 个视图、0 运行时错误；ui-lint 55 个文件零 no-undef，globals 776 个标识符同步；parallel-lines、a11y、i18n、markdown 全部通过。runtime 使用 Node --experimental-vm-modules。
+- 关联: R-264
+- 收尾: 1787343368
+- 源码指纹: v2 scripts/ui-lint-globals.json@a3064a9bfc8a,scripts/ui-runtime-smoke.mjs@2945e1d83129,scripts/verify.ps1@48b690617dea
+
+## T-1786922726752 R-264 B5 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 45.0s
+- 摘要: kanzei-app 定向测试全绿：245 passed、0 failed、0 ignored。
+- 关联: R-264
+- 收尾: 1787343508
+- 源码指纹: v2 scripts/ui-lint-globals.json@a3064a9bfc8a,scripts/ui-runtime-smoke.mjs@2945e1d83129,scripts/verify.ps1@48b690617dea

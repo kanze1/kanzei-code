@@ -144,11 +144,11 @@
 - 来源: 2026-08-15 用户提出「前端改成打包呢」。勘察(21 文件逐文件审计 + index.html 专项 + 外部依赖专项)结论:前端本身不是障碍(587 个真顶层符号、零重名冲突、零内联事件处理器),阻塞全在测试 harness——ui-runtime-smoke.mjs 的 6799 行断言建立在 vm.runInContext 逐文件跑经典脚本之上,ESM 下整体作废;且 ui-sources.mjs 修好正则后会出现「三个冒烟静默变绿」的失效模式。同轮用户问「做了对自举有收益吗」,结论是没有:ESM 不影响 cargo 任何耗时,前端六个冒烟合计约 4 秒;唯一收益(模型读代码时 import 自带溯源)已被 20467db 修好白名单后大体覆盖。故降为 P3 留档。
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:唯一可执行 WIP 是 R-264，必须先恢复它
-- 批次: 4/10
-- 进展: 批4 已落地 B1 并验证：scripts/ui-sources.mjs 直接遍历 ui/ 根目录 .js，MIN_UI_FILES=24，当前覆盖 26 个源码；scripts/ui-runtime-smoke.mjs 将目录覆盖清单与 index.html 执行顺序分离，按 HTML 顺序逐文件执行并保留 ESM 两阶段模型。六条冒烟 T-1786922726749 全绿，runtime 26 文件/2342 次 invoke/10 视图/0 运行时错误；上一条失败 T-1786922726748 已记录 D-691 根因。下一步 B3：将 __kzTest 从冒烟 vm 注入改为真实 ESM export/import，先按当前 08-auto/08-compose 拆分重新核定导出边界。
-- observed_head: 8296c89415ecbdad059c14034864ec694e6fa2a8
-- observed_worktree_hash: fnv1a64:88ef538c702760c9
-- recorded_at: 1787342881814
+- 批次: 5/10
+- 进展: 批5 B3 已落地并验证：crates/kanzei-app/ui/08-compose.js:4-19 改为显式 ESM `__kzTest` facade；原业务实现保留在 08-compose-runtime.js，08-auto.js:28-48 提供只读状态 provider，runtime:789 接入 processAutoState；index.html:1177-1178 使用 classic runtime + module facade 双入口；scripts/ui-runtime-smoke.mjs:1599-1603 从 ESM namespace 取用钩子并移除 vm 字符串注入；eslint.config.js:25-28 改 sourceType module；scripts/verify.ps1:151 使用 --experimental-vm-modules。T-1786922726751 六条前端冒烟全绿：runtime 27 文件/2342 invoke/0 错误，lint 55 文件/776 globals 同步，parallel-lines/a11y/i18n/markdown 全绿。D-690 已 fixed。下一步：提交批5后开始逐文件正式 ESM 迁移。
+- observed_head: d9ccedb42eae22c38880197c920fe0fa6489ad28
+- observed_worktree_hash: fnv1a64:5ad68bab9cd1af64
+- recorded_at: 1787343409486
 - 状态: todo
 - 阻塞: 
 - 对账: 2026-08-18 用户拍板 ESM 收尾「做完」,原 P3 留档提级 P2;剩余工作=批4(withSessionRender 等 5 处跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序与冒烟断言适配、删除 gen-ui-lint-globals 补偿机制);动工前先修 D-498(冒烟执行顺序与浏览器不一致),否则逐文件迁移的冒烟证据不可信;设计文档状态过期由 R-303 订正

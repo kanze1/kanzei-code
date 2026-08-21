@@ -8500,3 +8500,15 @@
 - observed_head: 8296c89415ecbdad059c14034864ec694e6fa2a8
 - observed_worktree_hash: fnv1a64:88ef538c702760c9
 - recorded_at: 1787342914900
+
+## D-690 R-264 B3 设计文档指定 08-compose 持有测试钩子但状态实际在 08-auto [fixed] (low)
+- 复现: 读取 docs/design/ui_esm_migration.md §二 B3 与当前 crates/kanzei-app/ui/08-auto.js、08-compose.js：文档将 autoRounds/noActionRounds/autoContinueTimers 等归于 08-compose，而实际声明位于 08-auto.js。
+- 影响: 若按文档直接让 08-compose.js export __kzTest，无法闭包捕获 08-auto.js 的模块私有状态；B3 会形成错误导出或迫使无关业务状态搬家。
+- 来源: self-found；R-264 批4实现前代码复核。
+- 标签: 流程
+- refs: R-264
+- 优先级: P2
+- 进展: 已修复：实际代码已按当前拆分保留 08-auto.js 与 08-compose-runtime.js 的 classic 业务实现，并由 crates/kanzei-app/ui/08-compose.js:4-19 提供显式 ESM __kzTest facade；crates/kanzei-app/ui/index.html:1177-1178 接入 runtime + module 双入口，scripts/ui-runtime-smoke.mjs:1599-1603 从 ESM namespace 取用。T-1786922726751 六条前端冒烟全绿，证明未按旧文档错误搬迁 08-auto 私有状态。
+- observed_head: d9ccedb42eae22c38880197c920fe0fa6489ad28
+- observed_worktree_hash: fnv1a64:5ad68bab9cd1af64
+- recorded_at: 1787343398236

@@ -1596,22 +1596,16 @@ vm.runInContext(
 // 的 Promise 卡住(放弃工作树/新建线路等)。
 vm.runInContext("confirmDialog = () => true", sandbox);
 
-// R-076:追加鞭挞状态测试钩子(访问模块级 let 状态,冒烟外部拿不到)。hook 单独最后执行,
-// 不拼进任何脚本文件——拆分后它属于冒烟注入层,不属于生产代码。
-try {
-  vm.runInContext(
-    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, timerSessions: () => [...autoContinueTimers.keys()], retryLabel: (id) => autoContinueTimers.get(id)?.retryLabel ?? null,setAutoState: (id, value) => processAutoState.set(id, value), getAutoState: (id) => processAutoState.get(id), setRounds: (v) => { setAutoRounds(activeSessionId, v); }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, paused: () => autoPaused, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; }, cancelTimers: () => { for (const s of [...autoContinueTimers.keys()]) cancelAutoContinueTimer(s); } };",
-    sandbox,
-    { filename: "__kzTest-hook.js" }
-  );
-} catch (err) {
-  fail(`__kzTest hook 执行抛异常: ${err.stack ?? err}`);
-}
+// R-264 B3：从已经 link/evaluate 的 08-compose.js ESM namespace 取得测试钩子。
+// 不再向 vm context 注入字符串，也不依赖 classic 文件的共享词法作用域。
+const kzTestModule = esmModuleCache.get("08-compose.js");
+const kzTest = kzTestModule?.namespace?.__kzTest;
+assert(kzTest, "未从 08-compose.js ESM namespace 获取鞭挞状态测试钩子");
 // D-504:活动线配置必须来自 processAutoState，顶栏控件只是投影。
 {
   const activeProcess = vm.runInContext("activeProcessId", sandbox);
   if (activeProcess) {
-    sandbox.__kzTest.setAutoState(activeProcess, { enabled: true, paused: false, stopAfterRound: false, maxRounds: 7 });
+    kzTest.setAutoState(activeProcess, { enabled: true, paused: false, stopAfterRound: false, maxRounds: 7 });
     byId.get("auto-continue").checked = false;
     const projected = vm.runInContext(`lineAutoConfig(${JSON.stringify(activeProcess)})`, sandbox);
     assert(projected.enabled === true && projected.maxRounds === 7, `活动线配置错误地读取 DOM: ${JSON.stringify(projected)}`);
@@ -5032,7 +5026,7 @@ assert(document.querySelector("#parallel-task-status .parallel-task-row.active")
 // 状态机单测覆盖(kanzei-harness auto_run.rs,12 组);这里验证前端对 kz:done
 // 携带 autoAction 的执行:Continue→续跑、Nudge→追加指令提示、Stop→停止+原因+
 // 开关联动、NoContinue→不动。
-assert(sandbox.__kzTest, "未注入鞭挞状态测试钩子");
+assert(kzTest, "未注入鞭挞状态测试钩子");
 const savedProfileForWhip = byId.get("profile-select").value;
 const savedAutoCheck = byId.get("auto-continue").checked;
 const savedLangForWhip = languageControl.value;
@@ -5041,35 +5035,35 @@ languageControl.dispatchEvent({ type: "change" });
 await flush();
 byId.get("profile-select").value = "dev-auto";
 byId.get("auto-continue").checked = true;
-sandbox.__kzTest.reset();
+kzTest.reset();
 // ① Continue:镜像计数并续跑,不刹车。
 handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { read: 2, edit: 1 }, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-smoke" } });
 await flush();
-assert(sandbox.__kzTest.rounds() === 1, `Continue 应镜像推进计数,实得 ${sandbox.__kzTest.rounds()}`);
+assert(kzTest.rounds() === 1, `Continue 应镜像推进计数,实得 ${kzTest.rounds()}`);
 assert(byId.get("auto-continue").checked, "Continue 不应关掉自动推进");
 // ② Nudge:引擎给出的推进指令占一轮,前端给提示不刹车。
 handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { memory_note: 1 }, autoAction: { type: "Nudge", prompt: "上一轮没有产生任何实质动作。", rounds: 2, max: 10 }, sessionId: "sess-smoke" } });
 await flush();
-assert(sandbox.__kzTest.rounds() === 2, `Nudge 应镜像推进计数,实得 ${sandbox.__kzTest.rounds()}`);
+assert(kzTest.rounds() === 2, `Nudge 应镜像推进计数,实得 ${kzTest.rounds()}`);
 assert(byId.get("auto-status").textContent.includes("无动作 · 追加推进指令"), `#auto-status 未提示追加推进指令: ${byId.get("auto-status")?.textContent}`);
 assert(byId.get("auto-continue").checked, "Nudge 第一次不应立即刹车");
 // ③ Stop(NoAction):连续两轮无动作,停止并显示原因。
 handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { memory_note: 1 }, autoAction: { type: "Stop", reason: "NoAction" }, sessionId: "sess-smoke" } });
 await flush();
-assert(sandbox.__kzTest.rounds() === 0, "连续两轮无实质动作后推进计数应清零");
-assert(sandbox.__kzTest.stopReason().includes("连续两轮无动作"), `刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
+assert(kzTest.rounds() === 0, "连续两轮无实质动作后推进计数应清零");
+assert(kzTest.stopReason().includes("连续两轮无动作"), `刹车原因不对: ${kzTest.stopReason()}`);
 assert(byId.get("auto-status").textContent.includes("连续两轮无动作"), `#auto-status 未显示刹车原因: ${byId.get("auto-status")?.textContent}`);
 // ④ Stop(AllBlocked):全部阻塞,停并取消开关。
 byId.get("auto-continue").checked = true;
-sandbox.__kzTest.setRounds(3);
+kzTest.setRounds(3);
 handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "AllBlocked" }, sessionId: "sess-smoke" } });
 await flush();
 assert(!byId.get("auto-continue").checked, "需求/缺陷全部被阻塞时自动推进应停止");
-assert(sandbox.__kzTest.rounds() === 0, "阻塞刹车后推进计数应清零");
-assert(sandbox.__kzTest.stopReason().includes("全部被阻塞"), `阻塞刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
+assert(kzTest.rounds() === 0, "阻塞刹车后推进计数应清零");
+assert(kzTest.stopReason().includes("全部被阻塞"), `阻塞刹车原因不对: ${kzTest.stopReason()}`);
 // ⑤ Continue:存在可推进条目时正常续跑(不误刹车)。
 byId.get("auto-continue").checked = true;
-sandbox.__kzTest.setRounds(1);
+kzTest.setRounds(1);
 handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 2, max: 10 }, sessionId: "sess-smoke" } });
 await flush();
 assert(byId.get("auto-continue").checked, "Continue 不得误刹车");
@@ -5089,12 +5083,12 @@ assert(byId.get("auto-status").textContent.includes("1/3"), `失败重试应显�
 handlers.get("kz:auto-fail")?.({ payload: { error: "transport error: connection reset", autoAction: { type: "RetryAfterFailure", attempt: 1, maxAttempts: 3, delayMs: 15000, rounds: 3, max: 10 }, sessionId: "sess-smoke" } });
 handlers.get("kz:error")?.({ payload: { message: "transport error: connection reset", terminal: true, sessionId: "sess-smoke" } });
 assert(
-  sandbox.__kzTest.timerSessions().includes("sess-smoke"),
+  kzTest.timerSessions().includes("sess-smoke"),
   "终态错误掐掉了刚排上的失败退避重试:鞭挞停在「失败重试 1/3」再也不动(断网一次就此停摆,只能手动发继续)",
 );
 assert(
-  sandbox.__kzTest.retryLabel("sess-smoke")?.includes("失败重试"),
-  `退避重试的定时器必须带重试标记(终态错误靠它认出这一枪不能掐),实得 ${JSON.stringify(sandbox.__kzTest.retryLabel("sess-smoke"))}`,
+  kzTest.retryLabel("sess-smoke")?.includes("失败重试"),
+  `退避重试的定时器必须带重试标记(终态错误靠它认出这一枪不能掐),实得 ${JSON.stringify(kzTest.retryLabel("sess-smoke"))}`,
 );
 assert(
   sandbox.sessionState("sess-smoke").phase === "auto_pending",
@@ -5107,44 +5101,44 @@ assert(
 await flush();
 handlers.get("kz:auto-fail")?.({ payload: { error: "provider returned HTTP 503", autoAction: { type: "Stop", reason: "RepeatedFailure", max: 3 }, sessionId: "sess-smoke" } });
 await flush();
-assert(sandbox.__kzTest.rounds() === 0, "连续失败停摆后推进计数应清零");
-assert(sandbox.__kzTest.stopReason().includes("连续多轮运行失败"), `停摆原因不对: ${sandbox.__kzTest.stopReason()}`);
+assert(kzTest.rounds() === 0, "连续失败停摆后推进计数应清零");
+assert(kzTest.stopReason().includes("连续多轮运行失败"), `停摆原因不对: ${kzTest.stopReason()}`);
 // ⑥ Stop(BacklogEmpty):清空,停并取消开关。
 byId.get("auto-continue").checked = true;
-sandbox.__kzTest.setRounds(2);
+kzTest.setRounds(2);
 handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "BacklogEmpty" }, sessionId: "sess-smoke" } });
 await flush();
 assert(!byId.get("auto-continue").checked, "需求/缺陷清空时自动推进应停止");
-assert(sandbox.__kzTest.stopReason().includes("已清空"), `清空刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
+assert(kzTest.stopReason().includes("已清空"), `清空刹车原因不对: ${kzTest.stopReason()}`);
 // ⑦ Stop(StopAfterRound):本轮后停,开关自动取消勾选。
 byId.get("auto-continue").checked = true;
-sandbox.__kzTest.setRounds(1);
+kzTest.setRounds(1);
 handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "StopAfterRound" }, sessionId: "sess-smoke" } });
 await flush();
 assert(!byId.get("auto-stop-round").checked, "本轮后停后开关应自动取消勾选");
-assert(sandbox.__kzTest.stopReason().includes("本轮后停"), `本轮后停原因不对: ${sandbox.__kzTest.stopReason()}`);
+assert(kzTest.stopReason().includes("本轮后停"), `本轮后停原因不对: ${kzTest.stopReason()}`);
 // ⑧ Stop(MaxRounds):达上限,计数清零原因明确。
 byId.get("auto-continue").checked = true;
 const autoMaxWhip = Number.parseInt(byId.get("auto-max").value, 10) || 10;
-sandbox.__kzTest.setRounds(autoMaxWhip);
+kzTest.setRounds(autoMaxWhip);
 handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "MaxRounds", max: autoMaxWhip }, sessionId: "sess-smoke" } });
 await flush();
-assert(sandbox.__kzTest.rounds() === 0, "达到上限后推进计数应清零");
-assert(sandbox.__kzTest.stopReason().includes("已达连上限"), `上限刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
+assert(kzTest.rounds() === 0, "达到上限后推进计数应清零");
+assert(kzTest.stopReason().includes("已达连上限"), `上限刹车原因不对: ${kzTest.stopReason()}`);
 // ⑨ Stop(Paused):暂停中完成本轮 → 停;恢复后 Continue 再推进。
 byId.get("auto-continue").checked = true;
-sandbox.__kzTest.setRounds(1);
+kzTest.setRounds(1);
 handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "Paused" }, sessionId: "sess-smoke" } });
 await flush();
-assert(sandbox.__kzTest.stopReason().includes("已暂停"), `暂停刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
+assert(kzTest.stopReason().includes("已暂停"), `暂停刹车原因不对: ${kzTest.stopReason()}`);
 handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 2, max: 10 }, sessionId: "sess-smoke" } });
 await flush();
-assert(sandbox.__kzTest.rounds() === 2, `恢复后推进轮次应继续增长,实得 ${sandbox.__kzTest.rounds()}`);
+assert(kzTest.rounds() === 2, `恢复后推进轮次应继续增长,实得 ${kzTest.rounds()}`);
 // ⑩ NoContinue(halted):整段鞭挞分支不进入,推进计数原地不动。
-sandbox.__kzTest.setRounds(4);
+kzTest.setRounds(4);
 handlers.get("kz:done")?.({ payload: { steps: 2, halted: true, tools: { edit: 1 }, autoAction: { type: "NoContinue" }, sessionId: "sess-smoke" } });
 await flush();
-assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再续跑)");
+assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再续跑)");
 
 // ---------- D-291 续跑闸门必须出声 ----------
 // 引擎判 Continue、前端却不发下一轮,是允许的(模式/暂停/开关都能否决);**静默**不行。
@@ -5153,7 +5147,7 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
 {
   const whipSession = "sess-smoke";
   byId.get("auto-continue").checked = true;
-  sandbox.__kzTest.reset();
+  kzTest.reset();
   byId.get("profile-select").value = "dev-pair"; // R-199:档位否决已下沉引擎,前端不再持有
   handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: whipSession } });
   await flush();
@@ -5236,10 +5230,10 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   const savedProfileD323 = byId.get("profile-select").value;
   byId.get("profile-select").value = "dev-pair"; // 非 dev-auto → autoContinueAllowed()=false
   byId.get("auto-continue").checked = true;
-  sandbox.__kzTest.setPaused(false);
-  sandbox.__kzTest.reset();
+  kzTest.setPaused(false);
+  kzTest.reset();
   // 确保轮间空闲:清掉上游遗留的续跑定时器,并把 running 全局拉回 false。
-  sandbox.__kzTest.cancelTimers();
+  kzTest.cancelTimers();
   // 进程刷新会按 item.running 重设 running(08-compose.js:881),必须把主会话
   // 进程项置 idle 再渲染,否则任何刷新都会把 running 翻回 true。
   const savedD323ProcessList = payloads.process_list;
@@ -5250,10 +5244,10 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   sandbox.setRunning(false); // 03-shell 顶层函数声明在共享作用域,冒烟可直接调用
   byId.get("auto-pause").click(); // 暂停(autoPaused → true)
   const pausedText = byId.get("auto-pause").textContent;
-  const pausedVal = sandbox.__kzTest.paused();
+  const pausedVal = kzTest.paused();
   byId.get("auto-pause").click(); // 恢复(autoPaused → false)→ 必须进入「2 秒后继续」分支
   const resumedText = byId.get("auto-pause").textContent;
-  const resumedVal = sandbox.__kzTest.paused();
+  const resumedVal = kzTest.paused();
   const statusMode = byId.get("status-mode")?.textContent;
   const autoChecked = byId.get("auto-continue").checked;
   payloads.process_list = savedD323ProcessList;
@@ -5270,11 +5264,11 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
     `D-323:恢复路径不得静默不调度(档位判定在引擎),status=${byId.get("status-text")?.textContent},mode=${statusMode},autoChecked=${autoChecked},btn=${resumedText}`,
   );
   assert(
-    sandbox.__kzTest.timerSessions().includes("sess-smoke"),
-    `D-323:恢复必须重新调度续跑定时器,timers=${sandbox.__kzTest.timerSessions().join(",")}`,
+    kzTest.timerSessions().includes("sess-smoke"),
+    `D-323:恢复必须重新调度续跑定时器,timers=${kzTest.timerSessions().join(",")}`,
   );
   byId.get("profile-select").value = savedProfileD323;
-  sandbox.__kzTest.reset();
+  kzTest.reset();
 }
 
 // ---------- R-226 后台控制事件与双线路 timer 必须按 session 隔离 ----------
@@ -5290,7 +5284,7 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   // ① 结伴勾鞭挞:档位保持 dev-pair,notice 说明轻控制语义,鞭挞保持勾选。
   byId.get("profile-select").value = "dev-pair";
   byId.get("auto-continue").checked = true;
-  sandbox.__kzTest.cancelTimers();
+  kzTest.cancelTimers();
   byId.get("auto-continue").dispatchEvent({ type: "change" });
   await flush();
   assert(
@@ -5323,7 +5317,7 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   // 收尾恢复。
   byId.get("auto-continue").checked = false;
   byId.get("profile-select").value = savedProfileR224;
-  sandbox.__kzTest.cancelTimers();
+  kzTest.cancelTimers();
 }
 
 // ---------- R-226 后台控制事件与双线路 timer 必须按 session 隔离 ----------
@@ -5336,11 +5330,11 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   const savedProcessList = payloads.process_list;
   payloads.process_list = lines;
   sandbox.renderProcesses(lines);
-  sandbox.__kzTest.setAutoState("p|bg-a", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
-  sandbox.__kzTest.setAutoState("p|bg-b", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+  kzTest.setAutoState("p|bg-a", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+  kzTest.setAutoState("p|bg-b", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
   handlers.get("kz:done")?.({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-bg-a" } });
   handlers.get("kz:done")?.({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-bg-b" } });
-  const timerSessions = sandbox.__kzTest.timerSessions();
+  const timerSessions = kzTest.timerSessions();
   assert(timerSessions.includes("sess-bg-a") && timerSessions.includes("sess-bg-b"), `后台双线路 timer 未并存:${timerSessions.join(",")}`);
   assert(sandbox.sessionState("sess-bg-a").phase === "auto_pending", "后台甲 done 未进入等待下一轮");
   assert(sandbox.sessionState("sess-bg-a").auto_rounds === 1, "后台甲轮次未写入所属 session state");
@@ -5368,7 +5362,7 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   const savedLoopList = payloads.process_list;
   payloads.process_list = loopLines;
   sandbox.renderProcesses(loopLines);
-  sandbox.__kzTest.setAutoState("p|bg-loop", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+  kzTest.setAutoState("p|bg-loop", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
   const loopRuns = () => invokeArgs.filter(({ cmd, args }) => cmd === "run_prompt" && args?.processId === "p|bg-loop").length;
   const before = loopRuns();
   handlers.get("kz:done")?.({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-bg-loop" } });
@@ -5384,31 +5378,31 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   assert(sandbox.sessionState("sess-bg-loop").auto_rounds === 2, "后台连跑第二轮轮次被活动线镜像覆盖");
   // 后台线的失败退避重试:kz:auto-fail 既不是控制事件也不在 BACKGROUND_RENDER_EVENTS,
   // 原先整条被路由层丢掉 —— 后台线断一次网就永久停摆,而它恰恰是没人看着的那条。
-  sandbox.__kzTest.cancelTimers();
+  kzTest.cancelTimers();
   handlers.get("kz:auto-fail")?.({
     payload: { sessionId: "sess-bg-loop", autoAction: { type: "RetryAfterFailure", attempt: 1, maxAttempts: 3, delayMs: 15000, rounds: 2 } },
   });
   assert(
-    sandbox.__kzTest.timerSessions().includes("sess-bg-loop"),
-    `后台线的失败退避重试没有排上(kz:auto-fail 被路由层丢弃),实得 ${sandbox.__kzTest.timerSessions().join(",")}`,
+    kzTest.timerSessions().includes("sess-bg-loop"),
+    `后台线的失败退避重试没有排上(kz:auto-fail 被路由层丢弃),实得 ${kzTest.timerSessions().join(",")}`,
   );
   assert(
-    sandbox.__kzTest.retryLabel("sess-bg-loop")?.includes("失败重试"),
+    kzTest.retryLabel("sess-bg-loop")?.includes("失败重试"),
     "后台线重试定时器缺重试标记(随后到达的终态 kz:error 会把它当残留掐掉)",
   );
   // 线路页按线操控:后台线开鞭挞只动**它自己**的存档与后端状态机,不碰当前线勾选框。
-  sandbox.__kzTest.cancelTimers();
+  kzTest.cancelTimers();
   byId.get("auto-continue").checked = false;
   await sandbox.setLineAutoState("p|bg-loop", { enabled: true, maxRounds: 7 });
   await flush();
   const lineSync = invokeArgs.findLast(({ cmd, args }) => cmd === "auto_state_update" && args?.sessionId === "sess-bg-loop");
   assert(lineSync?.args?.enabled === true, "线路页开后台线鞭挞未推该线后端状态机");
   assert(lineSync?.args?.maxRounds === 7, `线路页改上限未同步后端,实得 ${lineSync?.args?.maxRounds}`);
-  assert(sandbox.__kzTest.getAutoState("p|bg-loop")?.enabled === true, "线路页开后台线鞭挞未落该线存档");
+  assert(kzTest.getAutoState("p|bg-loop")?.enabled === true, "线路页开后台线鞭挞未落该线存档");
   assert(byId.get("auto-continue").checked === false, "线路页操控后台线污染了当前线的鞭挞勾选");
   sandbox.applyAutoUiState("p|bg-loop");
   assert(byId.get("auto-continue").checked === true && byId.get("auto-max").value === "7", "切线回显未读取后台线路自己的 Map 配置");
-  sandbox.__kzTest.cancelTimers();
+  kzTest.cancelTimers();
   payloads.process_list = savedLoopList;
   sandbox.renderProcesses(savedLoopList);
 }
@@ -5477,7 +5471,7 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   storage.delete("kz-model");
   payloads.process_list = savedModelList;
   sandbox.renderProcesses(savedModelList);
-  sandbox.__kzTest.cancelTimers();
+  kzTest.cancelTimers();
 }
 
 // ---------- D-290 回显不得写盘 ----------
@@ -5522,17 +5516,17 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
   const savedIsolationList = payloads.process_list;
   payloads.process_list = isolationLines;
   sandbox.renderProcesses(isolationLines);
-  sandbox.__kzTest.setAutoState("p|bg-iso", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+  kzTest.setAutoState("p|bg-iso", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
   byId.get("auto-continue").checked = true;
   handlers.get("kz:done")?.({ payload: { steps: 1, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "BacklogEmpty" }, sessionId: "sess-bg-iso" } });
   await flush();
   assert(byId.get("auto-continue").checked === true, "D-353:后台线停机不得清掉当前线的鞭挞勾选(跨线污染)");
-  assert(sandbox.__kzTest.getAutoState("p|bg-iso")?.enabled === false, "D-353:后台线停机必须把该线自己的鞭挞存档置关");
+  assert(kzTest.getAutoState("p|bg-iso")?.enabled === false, "D-353:后台线停机必须把该线自己的鞭挞存档置关");
   const bgStopSync = invokeArgs.findLast(({ cmd, args }) => cmd === "auto_state_update" && args?.sessionId === "sess-bg-iso");
   assert(bgStopSync?.args?.enabled === false, "D-353:后台线停机必须同步该线后端状态机(auto_state_update enabled=false)");
   payloads.process_list = savedIsolationList;
   sandbox.renderProcesses(savedIsolationList);
-  sandbox.__kzTest.cancelTimers();
+  kzTest.cancelTimers();
   byId.get("auto-continue").checked = false;
 }
 // ---------- 「勘察复核」= 阶段流水线总闸(2026-08-11 换闸门) ----------
@@ -5613,7 +5607,7 @@ byId.get("auto-continue").checked = savedAutoCheck;
 languageControl.value = savedLangForWhip;
 languageControl.dispatchEvent({ type: "change" });
 await flush();
-sandbox.__kzTest.reset();
+kzTest.reset();
 
 // ---------- 视图切换:真实驱动 activity-item 的监听,抓初始化后才触发的运行时错误 ----------
 // rail 上的侧栏开合不是视图,统计与点击都只认带 data-view 的按钮。

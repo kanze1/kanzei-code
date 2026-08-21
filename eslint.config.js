@@ -25,7 +25,7 @@ export default [
     files: ["crates/kanzei-app/ui/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
-      sourceType: "script",
+      sourceType: "module",
       globals: {
         // ui/*.js 跨文件全局(经典 script 顶层作用域共享)。放前面:同名宿主全局
         // 由后面的 Tauri/browser 只读块覆盖,保持 readonly 语义。

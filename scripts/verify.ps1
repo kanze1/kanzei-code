@@ -148,7 +148,7 @@ Step-With-Timing "ui_connectivity" "ui_connectivity" {
 }
 if ($policy.run_frontend) {
     Step-With-Timing "ui_runtime" "ui_runtime" {
-        node "$root\scripts\ui-runtime-smoke.mjs"
+        node --experimental-vm-modules "$root\scripts\ui-runtime-smoke.mjs"
     }
 } else {
     Write-Host "==> skip ui_runtime: no frontend paths in verify range" -ForegroundColor DarkGray
