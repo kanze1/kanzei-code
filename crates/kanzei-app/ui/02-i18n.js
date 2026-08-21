@@ -1,5 +1,6 @@
 const I18N_EN = {
   // R-322:门禁强度与模型停机权。
+  "结伴档鞭挞:轻控制续跑,引擎不追加推进指令,模型说完成即停": "Pair-mode auto-continue: light-control loop — the engine will not nudge; the model stops when it says it is done",
   "门禁强度": "Harness intensity",
   "轻": "light",
   "重": "full",

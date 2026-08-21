@@ -286,8 +286,9 @@ pub(crate) async fn run_task(
                         halted: false,
                         steps: 0,
                         tools: &[],
-                        auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev)
-                            && deps.agent.name == "dev",
+                        // R-322 B2:同上,判据放宽到 profile(失败轮的退避重试对
+                        // 结伴档的轻 loop 一样要生效)。
+                        auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev),
                         intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
                         // 失败轮模型没跑完,不可能声明完成;失败分类由 round_failure 承担。
                         model_declared_done: false,
@@ -368,11 +369,15 @@ pub(crate) async fn run_task(
             steps: summary.steps,
             tools: &tools_vec,
             progress_signature: &progress_signature,
-            // R-199:档位条件下沉引擎——只有 dev-auto(profile=dev + agent=dev)
-            // 允许自动推进;research/结对模式引擎判 Stop(ProfileMismatch),前端
-            // 不再持有私有否决(armAutoContinue 的 autoContinueAllowed 已移除)。
-            auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev)
-                && deps.agent.name == "dev",
+            // R-199 起档位条件下沉引擎;R-322 B2 把判据从 agent 放宽到 profile。
+            //
+            // 原判据 `profile==Dev && agent=="dev"` 让结伴档永远 Stop(ProfileMismatch),
+            // 于是「系统级 loop 之外的简单 loop」根本不存在——用户勾鞭挞会被 R-224
+            // 静默切成 dev-auto(连人格一起换掉),而不是拿到一条轻控制的 loop。
+            // 现在 dev 两档都允许续跑,**区别落在 HarnessIntensity 而不是能不能跑**:
+            // 结伴档不 Nudge、不插核查轮、不标冗余,模型说完成即停。
+            // research/readonly 仍然拒绝(无自主推进语义)。
+            auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev),
             // R-322:门禁强度按 agent 取默认值。与 auto_allowed 是**两件事**——
             // 后者答「能不能自动发下一条」,前者答「引擎对任务判断介入多深」。
             // 结伴档即使手动一问一答也按 Paired 跑:Nudge/核查轮/冗余提醒都不该

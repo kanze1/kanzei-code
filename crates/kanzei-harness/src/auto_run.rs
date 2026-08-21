@@ -240,9 +240,9 @@ impl AutoRunState {
     /// R-322 起完整顺序(**分界线是「谁有信息做这个判断」,不是重要程度**):
     ///
     /// ```text
-    /// 资源/用户段(任何强度都执行,模型无权否决):
-    ///   backlog → auto_allowed → halted → paused → stop_after_round
-    ///   → max_rounds → round_failure
+    /// 资源/用户段(模型无权否决):
+    ///   backlog(仅自主档:那一档的活来自队列) → auto_allowed → halted → paused
+    ///   → stop_after_round → max_rounds → round_failure
     /// 模型段(模型的停机权,引擎无权否决):
     ///   → model_declared_done
     /// 任务判断段(仅 Autonomous 档借给引擎):
@@ -253,7 +253,8 @@ impl AutoRunState {
     /// tracker 内容) 的真实签名,不解释语义,只回答「磁盘上还在不在变」。
     /// 无人值守时这是唯一的失控兜底,**两档都保留**,别按强度关掉它。
     pub fn decide(&mut self, ctx: &AutoRunCtx) -> AutoRunAction {
-        if ctx.backlog.should_stop() {
+        let policy = ctx.intensity.policy();
+        if policy.backlog_stops_loop && ctx.backlog.should_stop() {
             let reason = match ctx.backlog {
                 BacklogStatus::AllBlocked => AutoStopReason::AllBlocked,
                 BacklogStatus::Empty => AutoStopReason::BacklogEmpty,
@@ -307,7 +308,6 @@ impl AutoRunState {
         if ctx.model_declared_done {
             return self.stop_with(AutoStopReason::ModelDeclaredDone);
         }
-        let policy = ctx.intensity.policy();
         let no_action = ctx.steps <= 1 || !has_progress_tools(ctx.tools);
         if no_action && self.rounds > 0 {
             // R-322:Nudge 是任务判断,只在无人监督档借给引擎。结伴档下模型
@@ -433,11 +433,13 @@ impl HarnessIntensity {
                 engine_nudge: false,
                 redundancy_hints: false,
                 verify_rounds: false,
+                backlog_stops_loop: false,
             },
             HarnessIntensity::Autonomous => IntensityPolicy {
                 engine_nudge: true,
                 redundancy_hints: true,
                 verify_rounds: true,
+                backlog_stops_loop: true,
             },
         }
     }
@@ -455,6 +457,13 @@ pub struct IntensityPolicy {
     /// 每关闭 N 条插入的只读验收核查轮(R-144)。
     /// 结伴档关闭:验收由用户当场做。
     pub verify_rounds: bool,
+    /// backlog 空/全阻塞时是否停止本 loop。
+    ///
+    /// **只对自主档成立**:那一档的活**来自 tracker 队列**,队列空就是真的没活了。
+    /// 结伴档的活来自**用户的上一条消息**——用户让你解释一段代码、跑一次实验、
+    /// 改一个 CSS,跟 requirements.md 里有没有条目毫无关系。在结伴档拿队列状态
+    /// 当停机判据,等于一开轻 loop 就立刻 Stop(BacklogEmpty),轻 loop 名存实亡。
+    pub backlog_stops_loop: bool,
 }
 
 /// 轮末判定输入。
@@ -1117,14 +1126,6 @@ mod tests {
         });
         assert_eq!(action, AutoRunAction::Stop(AutoStopReason::FatalError));
 
-        // backlog 清空
-        let (action, _) = paired(AutoRunCtx {
-            intensity: HarnessIntensity::Paired,
-            backlog: BacklogStatus::Empty,
-            ..ctx_with_tools(&tools)
-        });
-        assert_eq!(action, AutoRunAction::Stop(AutoStopReason::BacklogEmpty));
-
         // 连数上限
         let mut state = AutoRunState::new(2);
         state.rounds = 2;
@@ -1227,5 +1228,66 @@ mod tests {
         assert!(auto.engine_nudge && auto.redundancy_hints && auto.verify_rounds);
         let paired = HarnessIntensity::Paired.policy();
         assert!(!paired.engine_nudge && !paired.redundancy_hints && !paired.verify_rounds);
+    }
+
+    /// R-322 B2:backlog 是**自主档**的取活真源,不是结伴档的。
+    /// 结伴档的活来自用户上一条消息——队列空不代表没事可做,拿它当停机判据
+    /// 会让轻 loop 一开就死。
+    #[test]
+    fn backlog空_只停自主档_不停结伴档() {
+        let tools = mk_tools(&["edit", "bash"]);
+        for backlog in [BacklogStatus::Empty, BacklogStatus::AllBlocked] {
+            let mut auto = AutoRunState::new(10);
+            let expected = match backlog {
+                BacklogStatus::Empty => AutoStopReason::BacklogEmpty,
+                _ => AutoStopReason::AllBlocked,
+            };
+            assert_eq!(
+                auto.decide(&AutoRunCtx {
+                    intensity: HarnessIntensity::Autonomous,
+                    backlog,
+                    steps: 5,
+                    ..ctx_with_tools(&tools)
+                }),
+                AutoRunAction::Stop(expected),
+                "自主档取活来自队列,队列 {backlog:?} 必须停"
+            );
+
+            let mut paired = AutoRunState::new(10);
+            assert_eq!(
+                paired.decide(&AutoRunCtx {
+                    intensity: HarnessIntensity::Paired,
+                    backlog,
+                    steps: 5,
+                    ..ctx_with_tools(&tools)
+                }),
+                AutoRunAction::Continue,
+                "结伴档的活来自用户,队列 {backlog:?} 不构成停机理由"
+            );
+        }
+    }
+
+    /// 结伴档轻 loop 的完整形状:有实质动作就续跑,一轮没动作就停(不 Nudge),
+    /// 模型声明完成也停。这三条合起来才是「简单 loop」。
+    #[test]
+    fn 结伴档轻loop_有动作续跑_无动作即停() {
+        let mut state = AutoRunState::new(10);
+        let working = mk_tools(&["edit", "bash"]);
+        let idle = mk_tools(&["read"]);
+        fn paired_ctx(tools: &[String]) -> AutoRunCtx<'_> {
+            AutoRunCtx {
+                intensity: HarnessIntensity::Paired,
+                backlog: BacklogStatus::Empty,
+                steps: 4,
+                ..ctx_with_tools(tools)
+            }
+        }
+        assert_eq!(state.decide(&paired_ctx(&working)), AutoRunAction::Continue);
+        assert_eq!(state.decide(&paired_ctx(&working)), AutoRunAction::Continue);
+        assert_eq!(
+            state.decide(&paired_ctx(&idle)),
+            AutoRunAction::Stop(AutoStopReason::NoAction),
+            "结伴档一轮没动作就交还,不追加推进指令"
+        );
     }
 }

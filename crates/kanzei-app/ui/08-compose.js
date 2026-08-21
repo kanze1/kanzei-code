@@ -708,19 +708,14 @@ $("auto-continue").addEventListener("change", () => {
     return;
   }
   if ($("auto-continue").checked && $("profile-select").value === "dev-pair") {
-    // R-224:结伴模式勾鞭挞 → 自动切到自主推进(interaction_modes 承诺「直接勾连跑,自动切」)。
-    // 用户意图明确(勾鞭挞),自动切档位省去「先切模式再勾」两步;落 notice 说明已切换,
-    // 用户取消勾选即回到结伴(模式选择器保持 dev-auto,不悄悄回切)。
-    $("profile-select").value = "dev-auto";
-    localStorage.setItem(PROFILE_STORAGE_KEY, "dev-auto");
-    if (activeProcessId) {
-      processProfileUi.set(activeProcessId, "dev-auto");
-      persistProcessProfiles();
-      updateLocalProcessItem(activeProcessId, { profile: "dev" });
-      queueProcessUpdate(activeProcessId, { profile: "dev" })
-        .catch((error) => reportPersistentError(`${t("进程模式保存失败")}:${error}`));
-    }
-    addMessage("notice", t("已切换到自主推进以启用鞭挞"));
+    // R-322 B2 取代 R-224 的强制切档。
+    //
+    // R-224 让结伴勾鞭挞自动切成 dev-auto,理由是「省去先切模式再勾两步」。但它的
+    // 真实前提是**结伴档当时根本不能续跑**(auto_allowed 要求 agent=="dev"),
+    // 所以那不是省两步,是「你要 loop 就得换掉人格」。现在结伴档能以轻控制续跑,
+    // 前提消失:勾鞭挞就在结伴档里跑,人格不动,引擎不 Nudge、不插核查轮、不标冗余,
+    // 模型说完成即停。想要重门禁的用户自己切 dev-auto——那是**显式**选择,不再被替选。
+    addMessage("notice", t("结伴档鞭挞:轻控制续跑,引擎不追加推进指令,模型说完成即停"));
   }
   setAutoRounds(activeSessionId, 0);
   rememberAutoUiState();
@@ -891,13 +886,8 @@ async function setLineAutoState(processId, patch) {
     toast(t("鞭挞不适用于研究模式"));
     return null;
   }
-  // 结伴线勾鞭挞 = 切自主推进(与顶栏勾选同语义,R-224),否则切回该线时档位回显会把
-  // 刚开的鞭挞显示成「结伴 + 勾着」这种自相矛盾的状态。
-  if (next.enabled && processProfileUi.get(processId) !== "dev-auto" && item.profile !== "research") {
-    processProfileUi.set(processId, "dev-auto");
-    persistProcessProfiles();
-    if (processId === activeProcessId) $("profile-select").value = "dev-auto";
-  }
+  // R-322 B2:「结伴 + 勾着鞭挞」不再自相矛盾——它就是轻控制 loop 的正常形态,
+  // 所以线路页开鞭挞也不再改写该线档位(原 R-224 同价逻辑一并去掉)。
   if (processId === activeProcessId) {
     $("auto-continue").checked = next.enabled;
     autoPaused = next.paused;

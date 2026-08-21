@@ -328,11 +328,11 @@
 - 验收: 结伴/自主两档门禁强度可判定且引擎行为不同；模型声明完成后引擎不再 Nudge；决策点在界面可见
 - 先行调研: .kanzei/research/r322-prior-art/prior-art.md
 - 优先级: P1
-- 批次: 1/3
-- 进展: B1 已落地(commit 4f0f46a0):HarnessIntensity{Paired,Autonomous}+IntensityPolicy、AutoStopReason::ModelDeclaredDone、work handoff、MetricsSink 事件收口、coordinator/assembly 接线、RunnerConfig.intensity 门控 RedundancyWatch、UI 只读强度徽标。测试 workspace 15 个二进制全绿,clippy -D warnings 干净。【已知缺口,B2 必须处理】decide() 里 auto_allowed 检查排在强度策略之前,而 auto_allowed 要求 agent==dev,因此 Paired 档永远先 Stop(ProfileMismatch),policy.engine_nudge 与 policy.verify_rounds 在生产路径上目前不可达——只有 redundancy_hints 经 RunnerConfig 真正生效。要让轻档 loop 真正可观察,需允许结伴档在用户显式开启鞭挞时以轻控制续跑(涉及 R-199 判据与 08-compose.js 强制切档逻辑),属产品决策,待用户拍板
-- observed_head: 4f0f46a0c252556f3d77f7cedfe4a137eee6dea5
-- observed_worktree_hash: fnv1a64:c7cc7013afe35e6f
-- recorded_at: 1787274339989
+- 批次: 2/3
+- 进展: B1(4f0f46a0)+B2 已落地。B2 关闭 B1 的可达性缺口:auto_allowed 判据由 agent 放宽到 profile(dev 两档都能续跑,区别落在强度);新增 backlog_stops_loop 策略位——backlog 是自主档取活真源,结伴档的活来自用户消息,拿队列空当停机判据会让轻 loop 一开就死;撤回 R-224 强制切档(前提是结伴档不能 loop,已消失),interaction_modes.md 记修订与回滚边界。轻 loop 形状=有动作续跑/一轮没动作即停不 Nudge/模型声明完成即停,资源兜底一条不少。测试:harness 164、workspace 15 个二进制全绿,UI 冒烟通过,clippy 干净。剩余 B3=真机验收证据
+- observed_head: 1795711425bf1c46be8400098a5729955de9c4ce
+- observed_worktree_hash: fnv1a64:1d3a8577532d7e00
+- recorded_at: 1787275041543
 
 ## R-323 工具编排抽象层：模型声明执行计划 [todo]
 - 原始描述: 外部评估 #2：Harness 的保守规则可能成为模型能力的上限。用户定调：提供底层工具+一层抽象层，让模型去编排

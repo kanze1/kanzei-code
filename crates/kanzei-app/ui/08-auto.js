@@ -190,8 +190,10 @@ function setAutoStopReason(reason) {
   autoHint = "";
   renderAutoRun();
 }
+// R-322 B2:dev 两档都能续跑,区别在门禁强度不在能不能跑;research 仍拒绝。
+// 判据必须与后端 coordinator.rs 的 auto_allowed 一致(profile 级,不看 agent)。
 function autoContinueAllowed() {
-  return $("profile-select").value === "dev-auto";
+  return $("profile-select").value !== "research";
 }
 function autoContinueMax() {
   const value = Number.parseInt($("auto-max").value, 10);

@@ -122,7 +122,8 @@ pub struct IntensityPolicy {
 | 冗余提醒 | 否 | 是 | 用户在场时自己就看得见重复 |
 | 验收核查轮 | 否 | 是 | 用户在场时由用户验收 |
 | 失败召回注入 | 是 | 是 | 纯增益,不占决策权 |
-| 资源类停止(限流/致命/连数/ZeroOutput/backlog) | 是 | 是 | 资源判断,两档都保留 |
+| backlog 空/全阻塞 → 停 | 否 | 是 | 自主档取活来自队列;结伴档的活来自用户消息 |
+| 资源类停止(限流/致命/连数/ZeroOutput) | 是 | 是 | 资源判断,两档都保留 |
 | 权限硬门禁 / 托管围栏 / 事件真源 | 是 | 是 | 副作用边界,与自治正交 |
 
 ### 二、模型停机权(R-322 / #7)
@@ -166,6 +167,22 @@ D-662 已经把「工具膨胀」判成缺陷——`work` 本就是取活/工作
    冲突检测作为**单调收紧**的安全网(与 tool_pipeline 的 Guard 同一原则:
    声明是 policy 层提议,冲突是 guard 层否决,只收紧不放宽)。
 
+### 三点五、轻档 loop 的可达性(R-322 B2)
+
+B1 落地后发现强度策略在生产路径上不可达:`auto_allowed` 要求 `agent == "dev"`,
+结伴档永远先 `Stop(ProfileMismatch)`。B2 把判据从 **agent 放宽到 profile**——
+dev 两档都能续跑,**区别落在强度而不是能不能跑**;research/readonly 仍拒绝。
+
+同时发现 `backlog` 检查排在最前,而它是**自主档**的取活真源:结伴档的活来自
+用户上一条消息,拿队列空当停机判据会让轻 loop 一开就死。故 `backlog_stops_loop`
+也进策略表,只对自主档为真。
+
+轻档 loop 的完整形状因此是:**有实质动作就续跑,一轮没动作就交还(不 Nudge),
+模型声明完成即停**;资源类兜底(限流/致命/连数/ZeroOutput)一条不少。
+
+连带撤回 R-224 的「结伴勾鞭挞自动切 dev-auto」——那条的前提是结伴档不能 loop,
+前提已消失,详见 `interaction_modes.md` 的 2026-08-21 修订说明。
+
 ### 四、决策点呈现(R-322 / #4)
 
 强度必须在界面上是一个**独立可见控件**,不是藏在 agent 下拉框里的副作用。
@@ -198,6 +215,9 @@ D-662 已经把「工具膨胀」判成缺陷——`work` 本就是取活/工作
 - 2026-08-21:建档。依据 2026-08-21 外部七点评估与用户逐点定调。
   登记 R-322/R-323/D-661/D-662,先行方案对照见
   `.kanzei/research/r322-prior-art/prior-art.md` 与 `r323-prior-art/prior-art.md`。
+- 2026-08-21:B2 落地。`auto_allowed` 判据由 agent 放宽到 profile,轻档 loop 可达;
+  `backlog_stops_loop` 进策略表(结伴档不拿队列状态当停机判据);撤回 R-224 的
+  强制切档并反转其冒烟断言。
 - 2026-08-21:B1 落地(commit `4f0f46a0`)。实现期更正两处方案文字——
   ①D-661 的解法由「first-fit 装箱」改为「冲突前驱层级调度」,原方案会重排冲突
   操作;②评估者的原始见证用例不成立,已换成 `[A,B,C,D]`+`A↔B`/`C↔D`。
@@ -222,17 +242,18 @@ B1(commit `4f0f46a0`,workspace 15 个测试二进制全绿,`clippy -D warnings` 
 | D-661 不相交冲突链两波 | `tool_exec.rs::切波_不相交冲突对不再各自占一波` |
 | D-661 冲突对顺序不颠倒 | `tool_exec.rs::切波_冲突对的先后顺序绝不颠倒` |
 
-未覆盖:轻档 loop 的端到端可观察性(见下方已知缺口)、真机验收(B3)。
+B2(workspace 15 个测试二进制全绿,UI 冒烟通过,`clippy -D warnings` 干净):
+
+| 验收点 | 锚点 |
+| --- | --- |
+| backlog 空只停自主档,不停结伴档 | `auto_run.rs::backlog空_只停自主档_不停结伴档` |
+| 轻 loop 形状:有动作续跑、无动作即停 | `auto_run.rs::结伴档轻loop_有动作续跑_无动作即停` |
+| 结伴勾鞭挞不再改档位,落轻控制 notice | `scripts/ui-runtime-smoke.mjs` R-322 B2 块 |
+| research 勾鞭挞仍拒绝复位 | 同上 |
+
+未覆盖:真机验收(B3)。
 
 ## TODO 与后续风险
-
-- **【B1 已知缺口】轻档 loop 目前不可达**:`decide()` 的 `auto_allowed` 检查排在
-  强度策略之前,而 `auto_allowed` 要求 `agent == "dev"`,于是 `Paired` 档永远先
-  `Stop(ProfileMismatch)`——`policy.engine_nudge` 与 `policy.verify_rounds` 在生产
-  路径上还观察不到,只有 `redundancy_hints`(经 `RunnerConfig`,不走 `decide()`)真正
-  生效。用户「系统级 loop 之外要有简单 loop」的诉求要落地,必须允许结伴档在用户
-  显式开启鞭挞时以轻控制续跑,这会改动 R-199 的判据与 `08-compose.js` 里
-  「勾选鞭挞即强制切到 dev-auto」的逻辑。属产品决策,B2 待用户拍板后执行。
 
 - **#6 Memory 复杂度(挂起)**:评估指出记忆控制平面可能让可调试性下降——
   「为什么今天它突然做了这个错误决定」的答案可能是「召回了一条六天前的错误 memory」,

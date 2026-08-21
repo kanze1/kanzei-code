@@ -5212,29 +5212,33 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
 
 // ---------- R-226 后台控制事件与双线路 timer 必须按 session 隔离 ----------
 
-// ---------- R-224 鞭挞勾选自动切自主推进 ----------
-// 结伴(dev-pair)勾鞭挞 → 自动切 dev-auto + notice;research 勾鞭挞 → 拒绝并复位。
+// ---------- R-322 B2 结伴档轻控制 loop(取代 R-224 的强制切档) ----------
+// 结伴(dev-pair)勾鞭挞 → **留在结伴档**跑轻 loop + notice;research 勾鞭挞 → 拒绝并复位。
+//
+// 原 R-224 断言的是「自动切到 dev-auto」。那条行为的前提是结伴档不能续跑
+// (auto_allowed 要求 agent=="dev"),所以勾鞭挞等于被迫换掉人格。R-322 B2 让
+// 结伴档能以轻控制续跑后,强制切档既无必要也违背用户意图,断言随之反转。
 {
   const savedProfileR224 = byId.get("profile-select").value;
-  // ① 结伴勾鞭挞:自动切 dev-auto,notice 可见,鞭挞保持勾选。
+  // ① 结伴勾鞭挞:档位保持 dev-pair,notice 说明轻控制语义,鞭挞保持勾选。
   byId.get("profile-select").value = "dev-pair";
   byId.get("auto-continue").checked = true;
   sandbox.__kzTest.cancelTimers();
   byId.get("auto-continue").dispatchEvent({ type: "change" });
   await flush();
   assert(
-    byId.get("profile-select").value === "dev-auto",
-    `R-224:结伴勾鞭挞未自动切到 dev-auto,实际=${byId.get("profile-select").value}`,
+    byId.get("profile-select").value === "dev-pair",
+    `R-322 B2:结伴勾鞭挞不应改档位,实际=${byId.get("profile-select").value}`,
   );
   assert(
     byId.get("auto-continue").checked === true,
-    "R-224:自动切模式后鞭挞勾选被复位(应保持勾选)",
+    "R-322 B2:结伴勾鞭挞后勾选被复位(应保持勾选)",
   );
   assert(
     [...document.querySelectorAll("#messages [data-active] .msg, #messages [data-active] div")].some((el) =>
-      el.textContent.includes("已切换到自主推进") || el.textContent.includes("Switched to self-directed")
+      el.textContent.includes("轻控制续跑") || el.textContent.includes("light-control")
     ),
-    "R-224:自动切模式未落 notice 说明",
+    "R-322 B2:结伴档鞭挞未落轻控制语义 notice",
   );
   // ② research 勾鞭挞:拒绝并复位勾选,模式不变。
   byId.get("profile-select").value = "research";
@@ -5243,11 +5247,11 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   await flush();
   assert(
     byId.get("auto-continue").checked === false,
-    "R-224:research 勾鞭挞未被拒绝复位",
+    "R-322 B2:research 勾鞭挞未被拒绝复位",
   );
   assert(
     byId.get("profile-select").value === "research",
-    "R-224:research 拒绝路径不应改模式",
+    "R-322 B2:research 拒绝路径不应改模式",
   );
   // 收尾恢复。
   byId.get("auto-continue").checked = false;
