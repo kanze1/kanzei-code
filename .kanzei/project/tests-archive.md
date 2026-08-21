@@ -9865,3 +9865,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-682
 - 收尾: 1787316547
 - 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@643623a2478a,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@2dac44ba4681,crates/kanzei-tools/src/tracker/validation.rs@856865232096
+
+## T-1786922726717 D-682 提交后 verify.ps1 证据 [passed]
+- 命令: .\scripts\verify.ps1
+- 时长: 6.0s
+- 摘要: verify policy targeted，当前提交范围无 Rust/UI 源码变化；metrics regression gate、设计时效、crate sync、PS1 BOM、IPC event contract、ui-connectivity 全部通过，按策略跳过 frontend smoke、fmt、clippy、workspace test。verification.json 绑定 commit 9b60164ff11075efdf2ac4b16a7efd01d60fe2e6。
+- 关联: D-682
+- 收尾: 1787316714

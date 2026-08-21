@@ -8389,3 +8389,14 @@
 - observed_head: 954f0bb7b0d2549d2b29e37478464d70306dd227
 - observed_worktree_hash: fnv1a64:a6bc29780f1c0247
 - recorded_at: 1787311888781
+
+## D-682 tracker.rs 越过巨石阈值:一批次涨 282 行到 1202 [fixed] (medium)
+- 原始描述: 2026-08-21 发版前跑 full verify 时回涨闸报红。增长来自 R-313/R-315 的需求发现门禁与验收开放度分级。抬基线是为了不阻断发版,但 tracker.rs 已越阈值,应按 R-253~R-258 的拆解口径分文件而不是继续在同一文件堆判定
+- 复现: kz metrics 显示 crates/kanzei-tools/src/tracker.rs 生产行 920 → 1202(+282),越过 metrics_baseline.md 记录的单文件巨石阈值 1200;同批 tracker/actions.rs +136 到 1003、memory/store.rs +111 到 1167,三者都超出每文件 100 行允许量
+- 标签: 核心
+- 优先级: P2
+- 进展: 已完成并关闭。验收①拆分落点：crates/kanzei-tools/src/tracker/validation.rs:1-280 承载 R-313 Discovery Record、语义确认、限定词一致性与 R-315 验收开放度校验；tracker.rs:23-26 保留模块装配，TrackerTool 方法面、action 路由和调用顺序不变。验收②行为回归：T-1786922726715、T-1786922726716，均执行 cargo test -p kanzei-tools，474 passed/0 failed/1 ignored。验收③度量：kz metrics --top 30 显示 tracker.rs 生产行 934，低于 1200 阈值。验收④提交门禁：cargo check --workspace --all-targets、cargo fmt --all -- --check、cargo clippy --workspace --all-targets -- -D warnings 均通过；提交后 T-1786922726717 执行 .\scripts\verify.ps1 通过，绑定当前 HEAD 9b60164ff11075efdf2ac4b16a7efd01d60fe2e6，metrics regression、设计时效、crate sync、PS1 BOM、IPC event contract、ui-connectivity 全部通过。额外修复：crates/kanzei-tools/src/tracker/actions/action_helpers.rs:443-465 测试模块移至文件末尾，消除 items_after_test_module。
+- observed_head: e9950f24c703a59efe8a073eb80f2b7f7e7b3ab1
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787316729195
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-682(unblocks=0)
