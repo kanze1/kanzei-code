@@ -29,7 +29,25 @@ struct GrepInput {
     /// 完整扫描(不早停)——"数数/聚合"本就要求全量,与默认的 head-limit 早停是两种语义。
     #[serde(default)]
     count: bool,
+    /// R-325:忽略大小写(等价 rg -i)。
+    #[serde(default, alias = "ignore_case")]
+    case_insensitive: bool,
+    /// R-325:匹配行前后各带 N 行上下文(等价 rg -C)。被 before/after 单独设置时覆盖。
+    #[serde(default)]
+    context: Option<usize>,
+    /// R-325:匹配行**前** N 行上下文(等价 rg -B)。
+    #[serde(default)]
+    before_context: Option<usize>,
+    /// R-325:匹配行**后** N 行上下文(等价 rg -A)。
+    #[serde(default)]
+    after_context: Option<usize>,
+    /// R-325:多行模式——模式可横跨若干行且 `.` 匹配换行(等价 rg -U --multiline-dotall)。
+    #[serde(default)]
+    multiline: bool,
 }
+
+/// 上下文行数上限。放开无界会让一次 grep 把整个文件倒进上下文——那是 read 的活。
+const MAX_CONTEXT_LINES: usize = 20;
 
 pub struct GrepTool;
 
@@ -40,7 +58,7 @@ impl Tool for GrepTool {
     }
 
     fn description(&self) -> String {
-        "Search file contents by regex (ripgrep engine), early-stops at limit. Params: pattern; optional path, glob, limit, files_only, count (per-file match counts + total, full scan). \
+        "Search file contents by regex (ripgrep engine), early-stops at limit. Params: pattern; optional path, glob, limit, files_only, count (per-file match counts + total, full scan), case_insensitive, context / before_context / after_context (context lines around each match, capped at 20; context lines print with `-` instead of `:` like ripgrep), multiline (pattern may span lines, `.` matches newline). \
          Independent grep calls in the SAME step run in parallel: batch several patterns together rather than one per step.".into()
     }
 
@@ -116,7 +134,12 @@ fn run_grep(
     use grep_searcher::sinks::UTF8;
     use grep_searcher::{BinaryDetection, SearcherBuilder};
 
-    let matcher = grep_regex::RegexMatcher::new(&input.pattern)
+    // R-325:大小写与多行必须在 matcher 构造期决定——RegexMatcher 建好之后改不了。
+    let matcher = grep_regex::RegexMatcherBuilder::new()
+        .case_insensitive(input.case_insensitive)
+        .multi_line(input.multiline)
+        .dot_matches_new_line(input.multiline)
+        .build(&input.pattern)
         .map_err(|e| format!("invalid regex `{}`: {e}", input.pattern))?;
     let glob_matcher = match &input.glob {
         Some(g) => Some(
@@ -134,9 +157,25 @@ fn run_grep(
         return run_count(base, rel_root, &input, &matcher, &glob_matcher);
     }
 
+    // R-325:上下文行数——before/after 单独给就用它,否则回落 context;两侧都封顶。
+    let ctx_default = input.context.unwrap_or(0);
+    let before = input
+        .before_context
+        .unwrap_or(ctx_default)
+        .min(MAX_CONTEXT_LINES);
+    let after = input
+        .after_context
+        .unwrap_or(ctx_default)
+        .min(MAX_CONTEXT_LINES);
+    // files_only 只要文件名,带上下文没有意义,还会让早停判据错乱。
+    let want_context = (before > 0 || after > 0) && !input.files_only;
+
     let mut searcher = SearcherBuilder::new()
         .binary_detection(BinaryDetection::quit(0))
         .line_number(true)
+        .before_context(if want_context { before } else { 0 })
+        .after_context(if want_context { after } else { 0 })
+        .multi_line(input.multiline)
         .build();
 
     let mut lines: Vec<String> = Vec::new();
@@ -171,6 +210,17 @@ fn run_grep(
             }
         }
         let shown = display_path(entry.path(), rel_root);
+        if want_context {
+            // 上下文模式:UTF8 sink 只回调 matched,拿不到 context 行,必须自己实现 Sink。
+            let mut sink = ContextSink {
+                shown: &shown,
+                lines: &mut lines,
+                limit,
+                done: &mut done,
+            };
+            let _ = searcher.search_path(&matcher, entry.path(), &mut sink);
+            continue;
+        }
         let mut file_hit = false;
         let _ = searcher.search_path(
             &matcher,
@@ -278,6 +328,60 @@ fn run_count(
     Ok(out)
 }
 
+/// R-325:带上下文的搜索 sink。
+///
+/// `grep_searcher::sinks::UTF8` 只回调 `matched`,拿不到 `context` 行,所以带上下文时
+/// 必须自己实现 [`grep_searcher::Sink`]。输出沿用 ripgrep 的惯例:**匹配行用 `:`
+/// 分隔,上下文行用 `-`**——模型见惯这个形态,不必再学一套标记。
+///
+/// 早停语义与无上下文路径一致:总行数(含上下文)到 limit 就掐断,并置 `done`
+/// 让外层停止遍历后续文件。
+struct ContextSink<'a> {
+    shown: &'a str,
+    lines: &'a mut Vec<String>,
+    limit: usize,
+    done: &'a mut bool,
+}
+
+impl ContextSink<'_> {
+    /// 追加一行;返回 false 表示已到上限,调用方应停止。
+    fn push(&mut self, line_no: Option<u64>, sep: char, bytes: &[u8]) -> bool {
+        if self.lines.len() >= self.limit {
+            *self.done = true;
+            return false;
+        }
+        let text = String::from_utf8_lossy(bytes);
+        let trimmed: String = text.trim_end().chars().take(MAX_LINE_CHARS).collect();
+        let shown = self.shown;
+        match line_no {
+            Some(n) => self.lines.push(format!("{shown}{sep}{n}{sep} {trimmed}")),
+            // 多行模式下 grep_searcher 可能不给行号;不编造,留空位。
+            None => self.lines.push(format!("{shown}{sep} {trimmed}")),
+        }
+        true
+    }
+}
+
+impl grep_searcher::Sink for ContextSink<'_> {
+    type Error = std::io::Error;
+
+    fn matched(
+        &mut self,
+        _searcher: &grep_searcher::Searcher,
+        mat: &grep_searcher::SinkMatch<'_>,
+    ) -> Result<bool, Self::Error> {
+        Ok(self.push(mat.line_number(), ':', mat.bytes()))
+    }
+
+    fn context(
+        &mut self,
+        _searcher: &grep_searcher::Searcher,
+        ctx: &grep_searcher::SinkContext<'_>,
+    ) -> Result<bool, Self::Error> {
+        Ok(self.push(ctx.line_number(), '-', ctx.bytes()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,6 +415,11 @@ mod tests {
             limit: None,
             files_only: false,
             count: true,
+            case_insensitive: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            multiline: false,
         };
         let matcher = grep_regex::RegexMatcher::new("fn").unwrap();
         let out = run_count(&root, &root, &input, &matcher, &None).unwrap();
@@ -332,6 +441,11 @@ mod tests {
             limit: None,
             files_only: false,
             count: true,
+            case_insensitive: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            multiline: false,
         };
         let matcher = grep_regex::RegexMatcher::new("zzz_none_zzz").unwrap();
         let out = run_count(&root, &root, &input, &matcher, &None).unwrap();
@@ -355,6 +469,11 @@ mod tests {
             limit: None,
             files_only: true,
             count: false,
+            case_insensitive: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            multiline: false,
         };
         // base = 子目录(决定扫描范围),rel_root = cwd(决定显示基准)
         let out = run_grep(&root.join("src"), &root, input).unwrap();
@@ -383,12 +502,233 @@ mod tests {
             limit: None,
             files_only: true,
             count: false,
+            case_insensitive: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            multiline: false,
         };
         let out = run_grep(&root.join("src"), &root, input).unwrap();
         assert!(
             out.contains("src/a.rs"),
             "glob 应相对 src/ 子树匹配到 a.rs,实际: {out}"
         );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // ---- R-325:上下文 / 大小写 / 多行 ----
+
+    fn ctx_fixture(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kz-grep-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("x.rs"),
+            "line1
+line2
+TARGET here
+line4
+line5
+",
+        )
+        .unwrap();
+        root
+    }
+
+    fn base_input(pattern: &str) -> GrepInput {
+        GrepInput {
+            pattern: pattern.into(),
+            path: None,
+            glob: None,
+            limit: Some(100),
+            files_only: false,
+            count: false,
+            case_insensitive: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            multiline: false,
+        }
+    }
+
+    /// context 两侧都带,匹配行用 `:`、上下文行用 `-`(ripgrep 惯例)。
+    #[test]
+    fn 上下文两侧各带一行且标记区分匹配与上下文() {
+        let root = ctx_fixture("ctx");
+        let out = run_grep(
+            &root,
+            &root,
+            GrepInput {
+                context: Some(1),
+                ..base_input("TARGET")
+            },
+        )
+        .unwrap();
+        assert!(out.contains("x.rs:3: TARGET here"), "匹配行用 `:`: {out}");
+        assert!(
+            out.contains("x.rs-2- line2"),
+            "前一行是上下文,用 `-`: {out}"
+        );
+        assert!(
+            out.contains("x.rs-4- line4"),
+            "后一行是上下文,用 `-`: {out}"
+        );
+        assert!(
+            !out.contains("line1"),
+            "只要 1 行上下文,line1 不该出现: {out}"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// before/after 可以不对称,且各自覆盖 context。
+    #[test]
+    fn 前后上下文可不对称且覆盖context() {
+        let root = ctx_fixture("asym");
+        let out = run_grep(
+            &root,
+            &root,
+            GrepInput {
+                context: Some(1),
+                before_context: Some(2),
+                after_context: Some(0),
+                ..base_input("TARGET")
+            },
+        )
+        .unwrap();
+        assert!(
+            out.contains("x.rs-1- line1"),
+            "before=2 应拿到 line1: {out}"
+        );
+        assert!(out.contains("x.rs-2- line2"));
+        assert!(!out.contains("line4"), "after=0 不该有后置上下文: {out}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 上下文行数封顶:一次 grep 不该把整个文件倒进上下文(那是 read 的活)。
+    #[test]
+    fn 上下文行数封顶() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-grep-cap-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        // 200 行,TARGET 在正中——两侧都远超封顶,才测得出封顶是否真的生效。
+        let mut body = String::new();
+        for n in 1..=200 {
+            body.push_str(if n == 100 {
+                "TARGET
+"
+            } else {
+                "filler
+"
+            });
+        }
+        std::fs::write(root.join("big.rs"), body).unwrap();
+        let out = run_grep(
+            &root,
+            &root,
+            GrepInput {
+                context: Some(9999),
+                limit: Some(10_000),
+                ..base_input("TARGET")
+            },
+        )
+        .unwrap();
+        let emitted = out.lines().filter(|l| !l.starts_with("...")).count();
+        assert!(
+            emitted <= 1 + MAX_CONTEXT_LINES * 2,
+            "封顶未生效:发出 {emitted} 行,上限应为 {}",
+            1 + MAX_CONTEXT_LINES * 2
+        );
+        assert!(out.contains("big.rs:100: TARGET"), "匹配行必须在: {out}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// files_only 与上下文互斥:只要文件名时带上下文没有意义。
+    #[test]
+    fn files_only_不受上下文影响() {
+        let root = ctx_fixture("fo");
+        let out = run_grep(
+            &root,
+            &root,
+            GrepInput {
+                files_only: true,
+                context: Some(3),
+                ..base_input("TARGET")
+            },
+        )
+        .unwrap();
+        assert_eq!(out.trim(), "x.rs", "files_only 应只回文件名: {out}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 忽略大小写() {
+        let root = ctx_fixture("ci");
+        let hit = run_grep(
+            &root,
+            &root,
+            GrepInput {
+                case_insensitive: true,
+                ..base_input("target")
+            },
+        )
+        .unwrap();
+        assert!(hit.contains("TARGET here"), "-i 应命中: {hit}");
+        let miss = run_grep(&root, &root, base_input("target")).unwrap();
+        assert!(miss.contains("(no matches"), "默认区分大小写: {miss}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 多行模式:模式可横跨若干行,`.` 匹配换行。
+    #[test]
+    fn 多行模式可跨行匹配() {
+        let root = ctx_fixture("ml");
+        let out = run_grep(
+            &root,
+            &root,
+            GrepInput {
+                multiline: true,
+                ..base_input("line2.*TARGET")
+            },
+        )
+        .unwrap();
+        assert!(out.contains("TARGET"), "多行模式应跨行命中: {out}");
+        let single = run_grep(&root, &root, base_input("line2.*TARGET")).unwrap();
+        assert!(
+            single.contains("(no matches"),
+            "单行模式不该跨行命中: {single}"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 上下文模式仍受 limit 早停约束,不会因为上下文放大而无界输出。
+    #[test]
+    fn 上下文模式仍然遵守limit早停() {
+        let root = ctx_fixture("limit");
+        let out = run_grep(
+            &root,
+            &root,
+            GrepInput {
+                context: Some(2),
+                limit: Some(2),
+                ..base_input("TARGET")
+            },
+        )
+        .unwrap();
+        let body = out.lines().filter(|l| !l.starts_with("...")).count();
+        assert!(body <= 2, "含上下文的总行数必须受 limit 约束: {out}");
+        assert!(out.contains("stopped at limit"), "到限要给出提示: {out}");
         std::fs::remove_dir_all(&root).ok();
     }
 }

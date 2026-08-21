@@ -362,3 +362,15 @@
 - observed_head: 0284be573ba60895be7e0ecc91bab3339ab4e99d
 - observed_worktree_hash: fnv1a64:2e5adf0836cb330b
 - recorded_at: 1787285720200
+
+## R-325 grep 补齐上下文/大小写/多行 [done]
+- 原始描述: 对比 Claude Code 工具面发现 grep 缺 -A/-B/-C 上下文、-i、多行。grep 是用量最高的工具(1019 轮里 2650 次),拿不到上下文就得追加一次 read
+- 复杂度: 小
+- 标签: 核心
+- 验收: context/before_context/after_context 生效且封顶 20;上下文行以 - 标记、匹配行以 : 标记(ripgrep 惯例);case_insensitive 与 multiline 生效;files_only 不受上下文影响;上下文模式仍遵守 limit 早停
+- refs: R-324
+- 优先级: P1
+- 进展: GrepInput 增 case_insensitive/context/before_context/after_context/multiline。大小写与多行在 RegexMatcherBuilder 构造期决定(建好改不了);上下文经 SearcherBuilder before/after_context 打开,并新增 ContextSink 实现 grep_searcher::Sink——UTF8 sink 只回调 matched 拿不到 context 行。输出沿用 ripgrep 惯例:匹配行 : 、上下文行 -。封顶 MAX_CONTEXT_LINES=20;files_only 与上下文互斥;上下文模式仍受 limit 早停约束并给到限提示。7 条新单测(含 200 行文件验证封顶真实生效)+ 原有共 11 条通过,workspace 15 个二进制全绿,clippy 干净
+- observed_head: 31c1bd9f725230f651cae4cc334cf3305fa35d81
+- observed_worktree_hash: fnv1a64:276ef34e9de83742
+- recorded_at: 1787286478941
