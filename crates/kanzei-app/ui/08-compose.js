@@ -681,6 +681,15 @@ $("auto-stop-round").addEventListener("change", () => {
   void syncAutoRunState();
   log(autoStopAfterRound ? t("本轮结束后将停止鞭挞") : t("已取消本轮后停"));
 });
+// R-322 B3:目标条件。change(失焦/回车)才同步,不逐字符打后端。
+// 不落 localStorage:目标是**一次性意图**,跟「本轮后停」同类(D-111)——
+// 持久化会让它在下次开应用时静默复活,驱动一段跟它无关的对话。
+$("auto-goal")?.addEventListener("change", () => {
+  renderGoalState();
+  void syncAutoRunState();
+  const goal = currentGoalText().trim();
+  log(goal ? `${t("目标条件已设置")}:${goal}` : t("目标条件已清除"));
+});
 $("auto-max").addEventListener("change", () => {
   const max = autoContinueMax();
   $("auto-max").value = max;
@@ -741,6 +750,7 @@ function syncResearchSectionVisibility() {
   // 一次覆盖全,不必再挂第四个监听——挂多了才是漏调的来源。
   // 放在早退之前:research-section 不存在时强度徽标仍要刷新。
   if (typeof renderHarnessIntensity === "function") renderHarnessIntensity();
+  if (typeof renderGoalState === "function") renderGoalState();
   const section = $("research-section");
   if (!section) return;
   section.classList.toggle("hidden", $("profile-select")?.value !== "research");

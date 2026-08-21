@@ -328,11 +328,11 @@
 - 验收: 结伴/自主两档门禁强度可判定且引擎行为不同；模型声明完成后引擎不再 Nudge；决策点在界面可见
 - 先行调研: .kanzei/research/r322-prior-art/prior-art.md
 - 优先级: P1
-- 批次: 2/3
-- 进展: B1(4f0f46a0)+B2 已落地。B2 关闭 B1 的可达性缺口:auto_allowed 判据由 agent 放宽到 profile(dev 两档都能续跑,区别落在强度);新增 backlog_stops_loop 策略位——backlog 是自主档取活真源,结伴档的活来自用户消息,拿队列空当停机判据会让轻 loop 一开就死;撤回 R-224 强制切档(前提是结伴档不能 loop,已消失),interaction_modes.md 记修订与回滚边界。轻 loop 形状=有动作续跑/一轮没动作即停不 Nudge/模型声明完成即停,资源兜底一条不少。测试:harness 164、workspace 15 个二进制全绿,UI 冒烟通过,clippy 干净。剩余 B3=真机验收证据
-- observed_head: 1795711425bf1c46be8400098a5729955de9c4ce
-- observed_worktree_hash: fnv1a64:1d3a8577532d7e00
-- recorded_at: 1787275041543
+- 批次: 3/4
+- 进展: B1(4f0f46a0)+B2(7523e6a4)+B3 已落地。B3 按用户定调把结伴档 loop 的停止规则改成目标条件驱动(参照 Claude Code /goal):条件由用户写、达成与否由模型判(work handoff 声明)、引擎只负责达成前不散场且不发明工作。挂目标后 backlog 与 NoAction 都不再停机,只有 GoalMet/用户喊停/资源兜底才停;两道兜底=GOAL_IDLE_ROUND_LIMIT(连续3轮无动作判不可达)+D-583 零产出熔断(抽成 note_progress_signature 两路共用)。目标为一次性意图,达成/不可达后自动清除且不落 localStorage。测试:harness 171、workspace 15 个二进制全绿、UI 冒烟通过、clippy 干净。剩余 B4=真机端到端验收
+- observed_head: 7523e6a497b32d9e6be257c4822b632d34ccde76
+- observed_worktree_hash: fnv1a64:067bf5aea0a11591
+- recorded_at: 1787275857928
 
 ## R-323 工具编排抽象层：模型声明执行计划 [todo]
 - 原始描述: 外部评估 #2：Harness 的保守规则可能成为模型能力的上限。用户定调：提供底层工具+一层抽象层，让模型去编排

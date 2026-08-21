@@ -494,6 +494,19 @@ on("kz:done", async (e) => {
     // D-291:与 Continue 分支共用同一个闸门实现(armAutoContinue)。此前这里是一份
     // 复制的 setTimeout,四个条件各自静默 return——两处副本还漏掉了 pending 收口。
     armAutoContinue(action.prompt, p.sessionId);
+  } else if (action.type === "GoalPending") {
+    // R-322 B3:目标未达成,把**用户自己写的**条件作为下一轮输入发回。
+    // 与 Nudge 走同一条闸门(armAutoContinue),区别只在文案来源:那条是引擎
+    // 发明的「去 backlog 找活」,这条是用户的原话——引擎不发明工作。
+    setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
+    const max = action.max ?? autoContinueMax();
+    log(`${t("目标推进")}:${t("条件未达成,继续")}`);
+    renderAutoStatus(`${t("目标推进")} ${autoRounds}/${max}`);
+    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
+    if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("目标推进")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
+    if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
+    // prompt 由后端从 controller.goal 填入;万一为空则回落默认续跑文案,不空发。
+    armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
   } else if (action.type === "VerifyRound") {
     // R-144:已关闭 N 条,插入一轮只读验收核查(SubagentBase read/glob/grep)。
     // 核查不进入主 conversation/queue:核查指令(action.prompt,引擎生成)作为
@@ -526,6 +539,18 @@ on("kz:done", async (e) => {
     } else if (reason === "MaxRounds") {
       addMessage("notice", `${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")} (${action.max ?? autoContinueMax()})`);
       setAutoStopReason(`${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")}`);
+    } else if (reason === "GoalMet") {
+      // R-322 B3:目标达成由**模型**判定,后端已清除目标,前端同步清输入框。
+      clearGoalInput();
+      addMessage("notice", `✅ ${t("目标已达成")}:${t("模型判定条件满足,目标已清除")}`);
+      log(t("目标已达成,自动清除"));
+      setAutoStopReason(t("目标已达成"));
+    } else if (reason === "GoalUnreachable") {
+      // 条件多半含糊或不可达——停下来让用户改条件,别继续烧钱。
+      clearGoalInput();
+      addMessage("notice", `${t("目标推不动")}:${t("连续多轮无实质进展,目标已清除,请改写条件后重试")} (${action.max ?? ""})`);
+      log(t("目标连续推不动,已停止并清除"));
+      setAutoStopReason(t("目标推不动,已清除"));
     } else if (reason === "ModelDeclaredDone") {
       // R-322(#7):模型自己交还了控制权。措辞必须与其余原因区分——这不是引擎
       // 判定它该停,是它说做完了。写成「引擎停止了它」会让人误以为被打断。

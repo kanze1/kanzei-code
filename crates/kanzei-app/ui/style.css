@@ -2011,6 +2011,13 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .menu-row .pill[data-intensity="autonomous"] { color: var(--fg); border-color: var(--fg); }
 #harness-intensity-row { cursor: default; }
 #harness-intensity-row:hover { background: transparent; }
+/* R-322 B3:目标条件输入。整行占宽,条件常常写成一句话,单行框读不全。 */
+.menu-row-stacked { cursor: default; }
+.menu-row-stacked:hover { background: transparent; }
+.auto-goal {
+  width: 100%; margin: 0 0 4px; padding: 4px 6px; resize: vertical;
+  font-family: inherit; font-size: var(--fs-11); line-height: 1.4;
+}
 .menu-row input[type="number"] { flex: 0 0 auto; width: 62px; }
 .menu-row > button { flex: 0 0 auto; }
 .menu-row > input[type="checkbox"] { flex: 0 0 auto; }

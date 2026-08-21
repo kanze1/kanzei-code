@@ -314,6 +314,18 @@
                       </span>
                       <input id="auto-max" class="auto-max" type="number" min="1" max="100" step="1" value="10" title="鞭挞上限(1-100)" data-i18n-title="鞭挞上限(1-100)" />
                     </label>
+                    <!-- R-322 B3:目标条件(Claude Code /goal 的形状)。留空 = 沿用
+                         「有没有实质动作」的旧判据;填了 = 停止规则整体换成
+                         「模型判定条件达成前不停」,引擎不再替模型决定还有没有活干。 -->
+                    <label class="menu-row menu-row-stacked" for="auto-goal">
+                      <span class="menu-row-main">
+                        <span class="menu-row-title" data-i18n-key="目标条件">目标条件</span>
+                        <span class="menu-row-desc" id="auto-goal-state"></span>
+                      </span>
+                    </label>
+                    <textarea id="auto-goal" class="auto-goal" rows="2" maxlength="500"
+                      placeholder="达成什么就停,例如:全部测试通过且已提交"
+                      data-i18n-placeholder="达成什么就停,例如:全部测试通过且已提交"></textarea>
                   </div>
                   <div class="menu-section">
                     <span class="menu-section-label" data-i18n-key="闸门">闸门</span>

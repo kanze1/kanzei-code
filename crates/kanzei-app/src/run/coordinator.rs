@@ -292,6 +292,8 @@ pub(crate) async fn run_task(
                         intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
                         // 失败轮模型没跑完,不可能声明完成;失败分类由 round_failure 承担。
                         model_declared_done: false,
+                        // R-322 B3:目标挂着时失败轮照样走退避重试(目标不该被一次 503 冲掉)。
+                        goal_active: ctrl.goal.is_some(),
                         closed_this_round: 0,
                         verify_every_n: 0,
                         progress_signature: &signature,
@@ -385,6 +387,9 @@ pub(crate) async fn run_task(
             intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
             // R-322(#7):模型的停机权。置位后引擎不再对「是不是真做完了」发表意见。
             model_declared_done: round_handoff.load(std::sync::atomic::Ordering::Relaxed),
+            // R-322 B3:挂了目标就换一套停止规则——不由引擎猜还有没有活干,
+            // 而是推到模型声明达成为止(详见 AutoRunCtx::goal_active)。
+            goal_active: ctrl.goal.is_some(),
             // R-144:本轮关闭条目数(req/defect close 成功计数)。D-654:改事件收口
             // (ToolStart 登记意图 + ToolEnd ok 计数)——原实现扫全历史 messages,
             // 历史 close 每轮重复计入,verify_every_n 节律被刷穿。
@@ -401,6 +406,20 @@ pub(crate) async fn run_task(
             action,
             crate::auto_run::work_priority_enum(deps.work_priority),
         );
+        // R-322 B3:目标原文由 controller 填入(引擎不持有用户数据),
+        // 前端按 Nudge 同款机制把它作为下一轮输入发回。
+        if payload["type"] == json!("GoalPending") {
+            payload["prompt"] = json!(ctrl.goal.clone().unwrap_or_default());
+        }
+        // 达成或判定不可达 → 目标是一次性意图,就地清除(D-111 同型:一次性
+        // 意图留着会在下一段无关对话里继续生效)。前端收到 reason 后同步清输入框。
+        if matches!(
+            payload["reason"].as_str(),
+            Some("GoalMet" | "GoalUnreachable")
+        ) {
+            ctrl.goal = None;
+        }
+        payload["goalActive"] = json!(ctrl.goal.is_some());
         // 判定和镜像值必须在同一把锁内取，避免后台会话完成时覆盖本会话的计数。
         payload["rounds"] = json!(ctrl.state.rounds);
         payload["max"] = json!(ctrl.state.max_rounds);

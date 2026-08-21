@@ -199,6 +199,28 @@ function autoContinueMax() {
   const value = Number.parseInt($("auto-max").value, 10);
   return Number.isFinite(value) ? Math.min(100, Math.max(1, value)) : DEFAULT_AUTO_CONTINUE_MAX;
 }
+// R-322 B3:目标条件(Claude Code /goal 的形状)。真源是后端 AutoRunController.goal;
+// 输入框只是它的编辑入口,每次同步整串发过去,空串即撤销。
+function currentGoalText() {
+  return $("auto-goal")?.value ?? "";
+}
+// 目标是**一次性意图**:达成或判定不可达后后端已清除,前端同步清空输入框,
+// 否则下一段无关对话会被上一个目标继续驱动(D-111 同型教训)。
+function clearGoalInput() {
+  const box = $("auto-goal");
+  if (!box) return;
+  box.value = "";
+  renderGoalState();
+  void syncAutoRunState();
+}
+function renderGoalState() {
+  const hint = $("auto-goal-state");
+  if (!hint) return;
+  const goal = currentGoalText().trim();
+  hint.textContent = goal
+    ? t("目标挂着:模型判定达成前不停;连续推不动会自动停")
+    : t("留空 = 按有无实质动作决定是否继续");
+}
 function syncAutoRunState() {
   if (!activeSessionId) return;
   return invoke("auto_state_update", {
@@ -207,6 +229,7 @@ function syncAutoRunState() {
     paused: autoPaused,
     stopAfterRound: autoStopAfterRound,
     maxRounds: autoContinueMax(),
+    goal: currentGoalText(),
   });
 }
 function resetAutoRunState() {

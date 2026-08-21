@@ -38,7 +38,19 @@ pub(crate) fn intensity_for_agent(agent: &str) -> kanzei_harness::HarnessIntensi
 pub(crate) struct AutoRunController {
     pub(crate) state: AutoRunState,
     pub(crate) enabled: bool,
+    /// R-322 B3:用户给定的停止条件(Claude Code `/goal` 的形状)。
+    ///
+    /// 挂上之后 loop 的停止规则整体换掉——不再由引擎猜「还有没有活干」,
+    /// 而是**条件由用户给、达成与否由模型判**(经 `work handoff` 声明),
+    /// 引擎只负责在达成前不让它散场,并在连续推不动时兜底。
+    ///
+    /// 达成(GoalMet)或判定不可达(GoalUnreachable)后**自动清除**:目标是
+    /// 一次性意图,留着会在下一段无关对话里继续生效(D-111 同型教训)。
+    pub(crate) goal: Option<String>,
 }
+
+/// 目标文本上限。超长条件既没法让模型稳定判定,也会每轮重发挤占上下文。
+pub(crate) const MAX_GOAL_CHARS: usize = 500;
 
 /// 前端控件变化同步(开关/暂停/本轮后停/连数上限)。
 #[tauri::command]
@@ -49,11 +61,25 @@ pub fn auto_state_update(
     paused: Option<bool>,
     stop_after_round: Option<bool>,
     max_rounds: Option<u32>,
+    goal: Option<String>,
 ) -> serde_json::Value {
     let mut controllers = state.auto_runs.lock().unwrap();
     let ctrl = controllers.entry(session_id).or_default();
     apply_state_update(ctrl, enabled, paused, stop_after_round, max_rounds);
-    json!({ "ok": true })
+    // 空串 = 清除目标(前端清空输入框即撤销),非空则截断后挂上。
+    if let Some(text) = goal {
+        ctrl.goal = normalize_goal(&text);
+    }
+    json!({ "ok": true, "goal": ctrl.goal })
+}
+
+/// 目标文本归一:去空白、空串视为「无目标」、超长截断。
+pub(crate) fn normalize_goal(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.chars().take(MAX_GOAL_CHARS).collect())
 }
 
 fn apply_state_update(
@@ -229,6 +255,10 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
             "prompt": kanzei_harness::auto_run::verify_prompt(),
         }),
         AutoRunAction::NoContinue => json!({ "type": "NoContinue" }),
+        // R-322 B3:目标未达成,复述**用户自己写的**条件再推一轮。
+        // 与 Nudge 同款投递机制,但 prompt 由调用方从 controller.goal 填入——
+        // 引擎不持有目标文本(它是用户数据,不是引擎规则)。
+        AutoRunAction::GoalPending => json!({ "type": "GoalPending" }),
         // D-403:瞬态失败退避重试——退避时长在此换算(attempt1=15s,attempt2=30s,
         // 封顶 60s),引擎不持时钟;前端只按 delayMs 定时,不再造第二套退避表。
         AutoRunAction::RetryAfterFailure { attempt } => json!({
@@ -256,6 +286,9 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
                 // R-322(#7):模型自己交还控制权。前端文案必须与其余原因区分——
                 // 这不是「引擎把它停了」,是「它说做完了」。
                 AutoStopReason::ModelDeclaredDone => ("ModelDeclaredDone", None),
+                // R-322 B3:目标达成/推不动。两者都要让前端清除目标输入。
+                AutoStopReason::GoalMet => ("GoalMet", None),
+                AutoStopReason::GoalUnreachable(n) => ("GoalUnreachable", Some(n)),
             };
             let mut v = json!({ "type": "Stop", "reason": reason_str });
             if let Some(max) = max {
@@ -496,6 +529,7 @@ mod tests {
             halted: false,
             intensity: kanzei_harness::HarnessIntensity::Autonomous,
             model_declared_done: false,
+            goal_active: false,
             steps: 0,
             tools: &[],
             auto_allowed: true,
@@ -595,5 +629,34 @@ mod tests {
         let prompt = v["prompt"].as_str().unwrap_or("");
         assert!(prompt.contains("验收核查"), "{prompt}");
         assert!(prompt.contains("只读"), "{prompt}");
+    }
+
+    /// R-322 B3:目标是**一次性意图**——空串即撤销,超长截断,前后空白不算内容。
+    /// 归一化必须在后端做:前端有多个入口(输入框 change、切线回显、冷启动),
+    /// 各写一份判空迟早漂开。
+    #[test]
+    fn 目标文本归一_空串撤销_超长截断() {
+        use super::{normalize_goal, MAX_GOAL_CHARS};
+        assert_eq!(normalize_goal(""), None);
+        assert_eq!(
+            normalize_goal(
+                "   
+	 "
+            ),
+            None,
+            "纯空白视为撤销"
+        );
+        assert_eq!(
+            normalize_goal("  全部测试通过  "),
+            Some("全部测试通过".to_string()),
+            "前后空白不算内容"
+        );
+        let long = "目".repeat(MAX_GOAL_CHARS + 50);
+        let normalized = normalize_goal(&long).unwrap();
+        assert_eq!(
+            normalized.chars().count(),
+            MAX_GOAL_CHARS,
+            "超长按字符截断(不能按字节,会切断多字节码点)"
+        );
     }
 }

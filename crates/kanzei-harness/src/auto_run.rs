@@ -93,6 +93,13 @@ pub enum AutoStopReason {
     /// R-322(#7):模型显式声明任务完成并交还控制权。**不是引擎的判断**,
     /// 引擎只是照做——与其余停止原因的性质不同,UI 文案不应写成「引擎停止了它」。
     ModelDeclaredDone,
+    /// R-322 B3:用户给定的目标条件已达成(模型判定并声明),目标随之自动清除。
+    /// 与 ModelDeclaredDone 同源(都是模型的声明),分开只为让 UI 说得准确:
+    /// 这一条要回显「哪个目标达成了」。
+    GoalMet,
+    /// R-322 B3:目标条件挂着,但连续 GOAL_IDLE_ROUND_LIMIT 轮没有实质动作。
+    /// 目标可能表述不清、或者根本达不到——继续推只会烧钱,停下来让用户改条件。
+    GoalUnreachable(u32),
 }
 
 /// 轮末判定结果。
@@ -113,6 +120,16 @@ pub enum AutoRunAction {
     /// D-403:本轮瞬态失败,退避后重试(attempt = 当前连续失败次数,计数已 +1;
     /// 退避时长由调用方按 attempt 换算,引擎不持时钟)。
     RetryAfterFailure { attempt: u32 },
+    /// R-322 B3:目标条件尚未达成,再推一轮(计数已 +1)。
+    ///
+    /// **与 [`AutoRunAction::Nudge`] 的区别是文案来源,不是行为**:Nudge 的内容是
+    /// 引擎发明的(`nudge_prompt`:去 backlog 最上面一条找活干),而这条的内容是
+    /// **用户自己写下的停止条件**,引擎只负责复述。前者是引擎替模型决定该干什么,
+    /// 正是 #7 双控制器问题的来源;后者是用户给了目标、模型自己判断达没达成——
+    /// 控制权仍在模型手里,引擎只是不让它半途散场。
+    ///
+    /// 调用方负责把目标原文作为下一轮输入发回(与 Nudge 同款机制)。
+    GoalPending,
 }
 
 /// 取活顺序(与 `work_priority_guidance` 同源)。
@@ -195,6 +212,8 @@ pub struct AutoRunState {
     zero_output_rounds: u32,
     /// D-583:上一轮记录的真实进展签名,None = 尚未记录(刚 reset 或全新状态)。
     last_progress_signature: Option<String>,
+    /// R-322 B3:目标挂着期间连续无实质动作的轮数。达 GOAL_IDLE_ROUND_LIMIT 即停。
+    goal_idle_rounds: u32,
 }
 
 /// D-403:连续瞬态失败多少轮后停止(过夜场景:单发 503 退避重试可自愈,
@@ -204,6 +223,13 @@ pub const MAX_FAILED_ROUNDS: u32 = 3;
 /// D-583:连续几轮真实进展签名不变即熔断停鞭(现场实测 R-306 空转 10 轮无人发现;
 /// 验收建议 2~3,取上限留够「连续两轮都在做同一件事的合法收尾」的余量)。
 pub const ZERO_OUTPUT_ROUND_LIMIT: u32 = 3;
+
+/// R-322 B3:目标挂着时连续几轮无实质动作即判「目标推不动」。
+///
+/// 取值与 ZERO_OUTPUT_ROUND_LIMIT 一致但**语义不同**:那个比对磁盘真实签名,
+/// 这个看工具画像。目标 loop 关掉了 NoAction 刹车,必须另有一道兜底——
+/// 条件写得含糊(「优化一下」)或根本达不到时,不能让它一直推下去。
+pub const GOAL_IDLE_ROUND_LIMIT: u32 = 3;
 
 impl AutoRunState {
     pub fn new(max_rounds: u32) -> Self {
@@ -217,6 +243,7 @@ impl AutoRunState {
             failed_rounds: 0,
             zero_output_rounds: 0,
             last_progress_signature: None,
+            goal_idle_rounds: 0,
         }
     }
 
@@ -228,6 +255,7 @@ impl AutoRunState {
         self.failed_rounds = 0;
         self.zero_output_rounds = 0;
         self.last_progress_signature = None;
+        self.goal_idle_rounds = 0;
     }
 
     /// 轮末判定。判定顺序与前端 07-events.js:288-352 完全一致:
@@ -254,7 +282,9 @@ impl AutoRunState {
     /// 无人值守时这是唯一的失控兜底,**两档都保留**,别按强度关掉它。
     pub fn decide(&mut self, ctx: &AutoRunCtx) -> AutoRunAction {
         let policy = ctx.intensity.policy();
-        if policy.backlog_stops_loop && ctx.backlog.should_stop() {
+        // R-322 B3:目标挂着时工作来源是**目标**,不是队列——用户说「把 X 做完」,
+        // 跟 requirements.md 里还剩几条毫无关系。所以目标压过 backlog 判据。
+        if policy.backlog_stops_loop && !ctx.goal_active && ctx.backlog.should_stop() {
             let reason = match ctx.backlog {
                 BacklogStatus::AllBlocked => AutoStopReason::AllBlocked,
                 BacklogStatus::Empty => AutoStopReason::BacklogEmpty,
@@ -306,9 +336,38 @@ impl AutoRunState {
         // 之前:一旦模型说完成,引擎就不再对「是不是真的完成了」发表意见——
         // 这正是原来 Nudge 干的事,也正是双控制器干扰回路的入口。
         if ctx.model_declared_done {
-            return self.stop_with(AutoStopReason::ModelDeclaredDone);
+            // 目标挂着时,模型的「做完了」就是「目标达成」——同一个声明,
+            // 分成两个原因只为让 UI 能回显是哪个目标达成了并自动清除它。
+            return self.stop_with(if ctx.goal_active {
+                AutoStopReason::GoalMet
+            } else {
+                AutoStopReason::ModelDeclaredDone
+            });
         }
         let no_action = ctx.steps <= 1 || !has_progress_tools(ctx.tools);
+        // R-322 B3:目标挂着 → 一轮没动作**不停**,复述用户给的条件再推一轮。
+        // 引擎在这里不发明任何工作,只是不让它在条件达成前散场;真正判断
+        // 「达成了没有」的仍然是模型(经 work handoff 声明)。
+        // 兜底:连续 GOAL_IDLE_ROUND_LIMIT 轮推不动就停,条件多半含糊或不可达。
+        if ctx.goal_active {
+            // 目标 loop 关掉了 NoAction 刹车,D-583 的零产出熔断就成了唯一挡得住
+            // 「每轮都调工具、磁盘一个字节没变」的防线,必须先过它再谈继续。
+            if let Some(stop) = self.note_progress_signature(ctx) {
+                return stop;
+            }
+            if no_action {
+                self.goal_idle_rounds += 1;
+                if self.goal_idle_rounds >= GOAL_IDLE_ROUND_LIMIT {
+                    let rounds = self.goal_idle_rounds;
+                    return self.stop_with(AutoStopReason::GoalUnreachable(rounds));
+                }
+            } else {
+                self.goal_idle_rounds = 0;
+            }
+            self.no_action_rounds = 0;
+            self.rounds += 1;
+            return AutoRunAction::GoalPending;
+        }
         if no_action && self.rounds > 0 {
             // R-322:Nudge 是任务判断,只在无人监督档借给引擎。结伴档下模型
             // 一轮没动作就是没动作(多半是在回答用户的问题),不该被推着找活干。
@@ -323,23 +382,8 @@ impl AutoRunState {
             return self.stop_with(AutoStopReason::NoAction);
         }
         self.no_action_rounds = 0;
-        // D-583:工具画像有「进展工具」但真实状态连续 N 轮未变——纯复诵证据清单、
-        // 反复读同一批文件也会调用 bash/read,穿得过上面基于工具名的检测,只有比对
-        // 真实签名才拦得住。签名相同才计数;换了就清零重新起算,不跨越已中断的沉默期。
-        // 空字符串是调用方未接线时的哨兵值(测试桩/尚未接入的调用方),视为不追踪——
-        // 生产侧签名由真实哈希拼出,不会自然产出空串,不影响真实场景。
-        if !ctx.progress_signature.is_empty() {
-            if self.rounds > 0
-                && self.last_progress_signature.as_deref() == Some(ctx.progress_signature)
-            {
-                self.zero_output_rounds += 1;
-                if self.zero_output_rounds >= ZERO_OUTPUT_ROUND_LIMIT {
-                    return self.stop_with(AutoStopReason::ZeroOutput(self.zero_output_rounds));
-                }
-            } else {
-                self.zero_output_rounds = 0;
-                self.last_progress_signature = Some(ctx.progress_signature.to_string());
-            }
+        if let Some(stop) = self.note_progress_signature(ctx) {
+            return stop;
         }
         // R-144:先累加本轮关闭数,达阈值(>0 且 >=N)则插入一轮只读验收核查
         // (计数 +1 占一轮;核查由调用方执行,归零后再续跑)。
@@ -358,12 +402,41 @@ impl AutoRunState {
         AutoRunAction::Continue
     }
 
+    /// D-583:工具画像有「进展工具」但真实状态连续 N 轮未变——纯复诵证据清单、
+    /// 反复读同一批文件也会调用 bash/read,穿得过基于工具名的检测,只有比对真实
+    /// 签名才拦得住。签名相同才计数;换了就清零重新起算,不跨越已中断的沉默期。
+    /// 空字符串是调用方未接线时的哨兵值(测试桩/尚未接入的调用方),视为不追踪——
+    /// 生产侧签名由真实哈希拼出,不会自然产出空串,不影响真实场景。
+    ///
+    /// R-322 B3 抽成方法:常规路径与目标 loop 共用同一实现。目标 loop 必须**先**
+    /// 过这道熔断——它关掉了 NoAction 刹车,这里是唯一挡得住无限空转的防线。
+    /// 返回 `Some(Stop)` = 熔断触发,调用方立即返回。
+    fn note_progress_signature(&mut self, ctx: &AutoRunCtx) -> Option<AutoRunAction> {
+        if ctx.progress_signature.is_empty() {
+            return None;
+        }
+        if self.rounds > 0
+            && self.last_progress_signature.as_deref() == Some(ctx.progress_signature)
+        {
+            self.zero_output_rounds += 1;
+            if self.zero_output_rounds >= ZERO_OUTPUT_ROUND_LIMIT {
+                let rounds = self.zero_output_rounds;
+                return Some(self.stop_with(AutoStopReason::ZeroOutput(rounds)));
+            }
+        } else {
+            self.zero_output_rounds = 0;
+            self.last_progress_signature = Some(ctx.progress_signature.to_string());
+        }
+        None
+    }
+
     fn stop_with(&mut self, reason: AutoStopReason) -> AutoRunAction {
         self.rounds = 0;
         self.no_action_rounds = 0;
         self.failed_rounds = 0;
         self.zero_output_rounds = 0;
         self.last_progress_signature = None;
+        self.goal_idle_rounds = 0;
         AutoRunAction::Stop(reason)
     }
 }
@@ -484,6 +557,14 @@ pub struct AutoRunCtx<'a> {
     /// 控制权交给模型。资源类停止(限流/致命/连数/ZeroOutput)仍在引擎手里——
     /// 那些不是对「任务完成了没有」的判断。
     pub model_declared_done: bool,
+    /// R-322 B3:是否挂着用户给定的目标条件。
+    ///
+    /// 挂上之后停止规则整体换掉:**不再由引擎猜「还有没有活干」**——
+    /// backlog 空不停(目标才是工作来源,不是队列)、一轮没动作也不停
+    /// (改为复述目标再推一轮),只有模型声明达成、用户喊停、或资源兜底才停。
+    /// 这是 Claude Code `/goal` 的形状:条件由用户给,达成与否由模型判,
+    /// 引擎只负责在达成前不让它散场、并在无限空转时兜底。
+    pub goal_active: bool,
     /// 本轮工具调用轮数。
     pub steps: u32,
     /// 本轮实际调用的工具名列表(供空转画像判定)。
@@ -528,6 +609,7 @@ mod tests {
             // 既有测试全部锚定自主档(引入强度维度前的行为),逐条断言不变。
             intensity: HarnessIntensity::Autonomous,
             model_declared_done: false,
+            goal_active: false,
             steps: 1,
             tools,
             auto_allowed: true,
@@ -907,6 +989,7 @@ mod tests {
             halted: false,
             intensity: HarnessIntensity::Autonomous,
             model_declared_done: false,
+            goal_active: false,
             steps: 2,
             tools: &t,
             auto_allowed: true,
@@ -1288,6 +1371,177 @@ mod tests {
             state.decide(&paired_ctx(&idle)),
             AutoRunAction::Stop(AutoStopReason::NoAction),
             "结伴档一轮没动作就交还,不追加推进指令"
+        );
+    }
+
+    // ---- R-322 B3:目标条件 loop(结伴档的「简单 loop」) ----
+
+    /// 目标挂着时一轮没动作**不停**——复述用户给的条件再推一轮。
+    /// 这是与 Nudge 的分水岭:Nudge 的内容是引擎发明的,这条是用户写的。
+    #[test]
+    fn 目标挂着_无动作不停而是复述目标再推一轮() {
+        let mut state = AutoRunState::new(10);
+        let idle = mk_tools(&["read"]);
+        let ctx = AutoRunCtx {
+            intensity: HarnessIntensity::Paired,
+            goal_active: true,
+            backlog: BacklogStatus::Empty,
+            steps: 1,
+            ..ctx_with_tools(&idle)
+        };
+        assert_eq!(state.decide(&ctx), AutoRunAction::GoalPending);
+        assert_eq!(state.rounds, 1, "GoalPending 占一轮");
+    }
+
+    /// 目标达成 = 模型自己声明的。引擎不判断达没达成,只负责在那之前不散场。
+    #[test]
+    fn 目标达成由模型声明_停止原因区分于普通交还() {
+        let tools = mk_tools(&["edit"]);
+        let mut with_goal = AutoRunState::new(10);
+        assert_eq!(
+            with_goal.decide(&AutoRunCtx {
+                goal_active: true,
+                model_declared_done: true,
+                ..ctx_with_tools(&tools)
+            }),
+            AutoRunAction::Stop(AutoStopReason::GoalMet)
+        );
+        let mut no_goal = AutoRunState::new(10);
+        assert_eq!(
+            no_goal.decide(&AutoRunCtx {
+                model_declared_done: true,
+                ..ctx_with_tools(&tools)
+            }),
+            AutoRunAction::Stop(AutoStopReason::ModelDeclaredDone),
+            "没挂目标时仍是普通交还,UI 文案不同"
+        );
+    }
+
+    /// 兜底:条件含糊或不可达时,连续 N 轮推不动就停,让用户改条件。
+    #[test]
+    fn 目标连续推不动_达上限即停并带轮数() {
+        let mut state = AutoRunState::new(50);
+        let idle = mk_tools(&["read"]);
+        let ctx = AutoRunCtx {
+            intensity: HarnessIntensity::Paired,
+            goal_active: true,
+            steps: 1,
+            ..ctx_with_tools(&idle)
+        };
+        for _ in 0..GOAL_IDLE_ROUND_LIMIT - 1 {
+            assert_eq!(state.decide(&ctx), AutoRunAction::GoalPending);
+        }
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Stop(AutoStopReason::GoalUnreachable(GOAL_IDLE_ROUND_LIMIT))
+        );
+    }
+
+    /// 有实质动作的轮次清零空转计数——目标推进断断续续也不该被误判不可达。
+    #[test]
+    fn 目标空转计数被有动作的轮次清零() {
+        let mut state = AutoRunState::new(50);
+        let idle = mk_tools(&["read"]);
+        let working = mk_tools(&["edit", "bash"]);
+        fn goal_ctx(tools: &[String]) -> AutoRunCtx<'_> {
+            AutoRunCtx {
+                intensity: HarnessIntensity::Paired,
+                goal_active: true,
+                steps: 3,
+                ..ctx_with_tools(tools)
+            }
+        }
+        assert_eq!(state.decide(&goal_ctx(&idle)), AutoRunAction::GoalPending);
+        assert_eq!(state.decide(&goal_ctx(&idle)), AutoRunAction::GoalPending);
+        assert_eq!(
+            state.decide(&goal_ctx(&working)),
+            AutoRunAction::GoalPending
+        );
+        // 计数已清零,再来两轮空转仍不该停。
+        assert_eq!(state.decide(&goal_ctx(&idle)), AutoRunAction::GoalPending);
+        assert_eq!(state.decide(&goal_ctx(&idle)), AutoRunAction::GoalPending);
+    }
+
+    /// 目标是工作来源,不是队列——backlog 空/全阻塞都不构成停机理由,
+    /// 自主档也一样(用户说「把 X 做完」跟队列剩几条无关)。
+    #[test]
+    fn 目标挂着时_backlog不再是停机判据() {
+        let tools = mk_tools(&["edit"]);
+        for backlog in [BacklogStatus::Empty, BacklogStatus::AllBlocked] {
+            let mut state = AutoRunState::new(10);
+            assert_eq!(
+                state.decide(&AutoRunCtx {
+                    intensity: HarnessIntensity::Autonomous,
+                    goal_active: true,
+                    backlog,
+                    steps: 5,
+                    ..ctx_with_tools(&tools)
+                }),
+                AutoRunAction::GoalPending,
+                "{backlog:?}:目标压过队列判据"
+            );
+        }
+    }
+
+    /// 目标 loop 关掉了 NoAction 刹车,零产出熔断必须仍然挡得住
+    /// 「每轮都调工具、磁盘一个字节没变」——否则无限空转。
+    #[test]
+    fn 目标挂着_零产出熔断仍是兜底() {
+        let mut state = AutoRunState::new(50);
+        let working = mk_tools(&["edit", "bash"]);
+        let ctx = AutoRunCtx {
+            intensity: HarnessIntensity::Paired,
+            goal_active: true,
+            steps: 5,
+            progress_signature: "unchanged",
+            ..ctx_with_tools(&working)
+        };
+        let mut last = state.decide(&ctx);
+        for _ in 0..ZERO_OUTPUT_ROUND_LIMIT + 2 {
+            last = state.decide(&ctx);
+            if matches!(last, AutoRunAction::Stop(AutoStopReason::ZeroOutput(_))) {
+                break;
+            }
+        }
+        assert!(
+            matches!(last, AutoRunAction::Stop(AutoStopReason::ZeroOutput(_))),
+            "目标挂着也必须熔断,实际: {last:?}"
+        );
+    }
+
+    /// 用户意图与资源兜底压过目标:按了停、限流、达连数上限都立即停。
+    #[test]
+    fn 目标不能压过用户意图与资源兜底() {
+        let tools = mk_tools(&["edit"]);
+        let mut paused = AutoRunState::new(10);
+        paused.paused = true;
+        assert_eq!(
+            paused.decide(&AutoRunCtx {
+                goal_active: true,
+                ..ctx_with_tools(&tools)
+            }),
+            AutoRunAction::Stop(AutoStopReason::Paused)
+        );
+
+        let mut limited = AutoRunState::new(10);
+        assert_eq!(
+            limited.decide(&AutoRunCtx {
+                goal_active: true,
+                round_failure: Some(RoundFailure::RateLimited),
+                ..ctx_with_tools(&tools)
+            }),
+            AutoRunAction::Stop(AutoStopReason::RateLimited)
+        );
+
+        let mut capped = AutoRunState::new(2);
+        capped.rounds = 2;
+        assert_eq!(
+            capped.decide(&AutoRunCtx {
+                goal_active: true,
+                steps: 5,
+                ..ctx_with_tools(&tools)
+            }),
+            AutoRunAction::Stop(AutoStopReason::MaxRounds(2))
         );
     }
 }
