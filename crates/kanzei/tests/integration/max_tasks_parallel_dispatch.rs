@@ -180,6 +180,7 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         system: "test".into(),
     };
     let subagent_rt = kanzei_core::SubagentRuntime {
+        roster: Vec::new(),
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
         fast: (route.clone(), "mock".to_string()),

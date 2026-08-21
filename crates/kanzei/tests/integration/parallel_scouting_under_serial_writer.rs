@@ -189,6 +189,7 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
         system: "test".into(),
     };
     let subagent_rt = kanzei_core::SubagentRuntime {
+        roster: Vec::new(),
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
         fast: (route.clone(), "mock".to_string()),

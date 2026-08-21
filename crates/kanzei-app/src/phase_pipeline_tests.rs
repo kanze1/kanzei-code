@@ -137,6 +137,7 @@ fn fixture(tag: &str, address: std::net::SocketAddr) -> Fixture {
 impl Fixture {
     fn subagent_rt(&self) -> kanzei_core::SubagentRuntime {
         kanzei_core::SubagentRuntime {
+            roster: Vec::new(),
             snapshot: self.sub_snapshot.clone(),
             agent: kanzei_tools::explore_agent(),
             fast: (self.route.clone(), "mock".into()),

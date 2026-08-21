@@ -165,6 +165,7 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
     let notifications_for_sink_closed = notifications_for_sink.clone();
     let events_for_sink = background_events.clone();
     let subagent_rt = kanzei_core::SubagentRuntime {
+        roster: Vec::new(),
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
         fast: (route.clone(), "mock".to_string()),
@@ -385,6 +386,7 @@ async fn 同一id续跑_prior恢复此前transcript_不重开空历史() {
     let transcripts: Arc<Mutex<std::collections::HashMap<String, Vec<kanzei_llm::Message>>>> =
         Arc::new(Mutex::new(std::collections::HashMap::new()));
     let subagent_rt = kanzei_core::SubagentRuntime {
+        roster: Vec::new(),
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
         fast: (route.clone(), "mock".to_string()),
@@ -532,6 +534,7 @@ async fn 失败与被停终态_读槽均释放_快照无残留读者() {
     });
     let route = kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), Some("test-key"));
     let subagent_rt = kanzei_core::SubagentRuntime {
+        roster: Vec::new(),
         snapshot: sub_snapshot.clone(),
         agent: kanzei_tools::explore_agent(),
         fast: (route.clone(), "mock".to_string()),
@@ -592,6 +595,7 @@ async fn 失败与被停终态_读槽均释放_快照无残留读者() {
     let route2 = kanzei_llm::Route::openai_at(&format!("http://{address2}/v1"), Some("test-key"));
     let cancellations = Arc::new(kanzei_core::TaskCancellations::default());
     let subagent_rt2 = kanzei_core::SubagentRuntime {
+        roster: Vec::new(),
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
         fast: (route2.clone(), "mock".to_string()),
@@ -693,6 +697,7 @@ async fn 超时终态_读槽释放_快照无残留读者() {
     let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
     let ctx = ToolCtx::new(project.clone(), project.clone());
     let subagent_rt = kanzei_core::SubagentRuntime {
+        roster: Vec::new(),
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
         fast: (route.clone(), "mock".to_string()),
@@ -815,6 +820,7 @@ async fn subagent_transcript_persists_to_events_and_recovers_via_provider() {
     let transcripts: Arc<Mutex<std::collections::HashMap<String, Vec<kanzei_llm::Message>>>> =
         Arc::new(Mutex::new(std::collections::HashMap::new()));
     let subagent_rt = kanzei_core::SubagentRuntime {
+        roster: Vec::new(),
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
         fast: (route.clone(), "mock".to_string()),

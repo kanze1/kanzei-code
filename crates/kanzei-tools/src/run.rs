@@ -133,6 +133,9 @@ pub async fn build_subagent_runtime(
         None => None,
     };
     Ok(Some(SubagentRuntime {
+        // R-327:模型可选的只读人格名册。CLI 与桌面共用这条装配,所以两端同源。
+        // 只放只读人格——writer 由编排器按阶段派发,不进模型可选集合。
+        roster: vec![crate::plan_agent()],
         snapshot: sub_snapshot,
         agent: crate::explore_agent(),
         fast: fast

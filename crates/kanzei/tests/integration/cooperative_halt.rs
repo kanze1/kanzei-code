@@ -219,6 +219,7 @@ async fn 执行中停止_取消占位配对_历史无孤儿() {
     let route = kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), Some("test-key"));
     let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
     let subagent_rt = kanzei_core::SubagentRuntime {
+        roster: Vec::new(),
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
         fast: (route.clone(), "mock".to_string()),

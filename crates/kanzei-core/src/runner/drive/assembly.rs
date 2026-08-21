@@ -35,9 +35,18 @@ pub(super) struct RunOnceAssembly<'a> {
 
 /// R-173/R-280:task 只在子代理运行时存在时加入工具面。把判定抽成纯函数，
 /// 让「关闭即不注册」成为可直接断言的构造层契约，而不是注册后再拒绝。
-fn append_subagent_spec(specs: &mut Vec<ToolSpec>, subagents_enabled: bool) {
-    if subagents_enabled {
-        specs.push(task_spec());
+fn append_subagent_spec(
+    specs: &mut Vec<ToolSpec>,
+    subagents_enabled: bool,
+    subagent: Option<&SubagentRuntime>,
+) {
+    if !subagents_enabled {
+        return;
+    }
+    // R-327:schema 的人格枚举取自**运行时实际持有的名册**,不硬编码。
+    match subagent {
+        Some(rt) => specs.push(task_spec_for(&rt.agent_names())),
+        None => specs.push(task_spec()),
     }
 }
 
@@ -72,7 +81,7 @@ pub(super) fn assemble_run_once<'a>(
             input_schema: t.input_schema(),
         })
         .collect();
-    append_subagent_spec(&mut specs, subagent.is_some());
+    append_subagent_spec(&mut specs, subagent.is_some(), subagent);
 
     // system 分块:agent 提示词 + harness baseline(M2 起 baseline 进 Context Epoch)。
     let (baseline, mut context_report) = snapshot.stable_system_baseline_with_report();
@@ -213,14 +222,14 @@ mod subagent_tool_surface_tests {
     #[test]
     fn disabled_subagents_do_not_add_task_to_tool_specs() {
         let mut specs = Vec::new();
-        append_subagent_spec(&mut specs, false);
+        append_subagent_spec(&mut specs, false, None);
         assert!(specs.iter().all(|spec| spec.name != "task"));
     }
 
     #[test]
     fn enabled_subagents_add_task_to_tool_specs() {
         let mut specs = Vec::new();
-        append_subagent_spec(&mut specs, true);
+        append_subagent_spec(&mut specs, true, None);
         assert!(specs.iter().any(|spec| spec.name == "task"));
     }
 }

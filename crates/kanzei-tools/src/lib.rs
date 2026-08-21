@@ -70,7 +70,7 @@ pub use profiles::{
     ResearchProfile,
 };
 pub use shell::detected_shell;
-pub use subagent::{explore_agent, writer_agent, SubagentBase, WritableSubagentBase};
+pub use subagent::{explore_agent, plan_agent, writer_agent, SubagentBase, WritableSubagentBase};
 pub use work::{
     active_claims_by_line, release_line_claims, resolve_work_decision, resolved_control_prompt,
     resolved_control_prompt_of, ResolvedControlState, WorkDecision, WorkTool,

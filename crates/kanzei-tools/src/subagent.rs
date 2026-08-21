@@ -103,6 +103,27 @@ pub fn explore_agent() -> AgentDef {
     }
 }
 
+/// R-327:plan 子代理定义——**只读的架构分析人格**。
+///
+/// 与 [`explore_agent`] 跑在**同一个只读快照**上,工具集一个不多一个不少;
+/// 差别只有三样:主模型(不是 fast)、更大步数、以及要求「先摸清约束再下结论」
+/// 的提示词。这正是分人格的意义——机械检索与架构判断需要的模型能力和
+/// 步数预算差一个量级,共用一套设定必然一头浪费一头不够。
+///
+/// **不给它写权限**:任何 `task` 子代理都是只读侦察,那条边界见
+/// `SubagentRuntime::roster` 的说明。
+pub fn plan_agent() -> AgentDef {
+    AgentDef {
+        name: "plan".into(),
+        profile: ProfileScope::All,
+        model: "primary".into(),
+        mode: AgentMode::Subagent,
+        steps: 24,
+        system: "You are a read-only architecture analysis subagent with tools                  read/glob/grep/files/symbols and git read-only subcommands. You do NOT write                  files, run bash, or change git state. Before concluding, establish the actual                  constraints: read the relevant code and its callers, check for an existing                  design doc or tracker entry covering it, and name the invariants a change                  would have to preserve. Then answer with a concrete plan: the files to touch,                  the order, what could break, and what evidence would prove it works. Cite                  file:line for every claim about current behaviour. If the request is                  underspecified, say exactly which decision is missing rather than guessing."
+            .into(),
+    }
+}
+
 /// R-176 B1:可写子代理定义。写工具受权限门禁约束,不得绕过协调器。
 pub fn writer_agent() -> AgentDef {
     AgentDef {

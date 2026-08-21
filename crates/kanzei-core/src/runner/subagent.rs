@@ -213,7 +213,17 @@ impl SubagentChangeLog {
 #[derive(Clone)]
 pub struct SubagentRuntime {
     pub snapshot: Arc<HarnessSnapshot>,
+    /// 默认人格。`task` 不带 `agent` 参数时用它,与引入名册前逐字节同行为。
     pub agent: AgentDef,
+    /// R-327:模型可经 `task` 的 `agent` 参数选择的**备选只读人格**。
+    ///
+    /// 空 = 只有默认人格可用(引入前行为)。名册里**只放只读人格**:
+    /// `writer` 一类可写子代理是编排器按阶段派发的,主 agent 的提示词明写
+    /// 「任何 task 子代理都是只读侦察,绝不写/跑 bash/改 git 状态」——
+    /// 那条权限边界是 R-176 立的审计资产(只读白名单构造后与执行前各复核一次),
+    /// 把可写人格挂进模型可选名册等于绕开它。名册与快照工具集必须同源:
+    /// 选出来的人格仍跑在同一个只读快照上,人格只换提示词与步数,不换工具。
+    pub roster: Vec<AgentDef>,
     /// (route, model id):fast = 本地小模型跑机械检索。
     pub fast: (Route, String),
     /// primary = 主模型,给需要理解代码的任务。
@@ -298,6 +308,36 @@ pub struct SubagentRuntime {
 }
 
 impl SubagentRuntime {
+    /// R-327:按 `task` 的 `agent` 参数选人格。
+    ///
+    /// 名字选不中就**回落默认人格**而不是报错:人格是提示词与步数的调优,
+    /// 选错了顶多不够贴切,而为一个拼错的名字把整次委派打回,代价明显更大。
+    /// 回落是静默的——调用方若要提示,自己比对返回的 name。
+    pub fn resolve_agent(&self, requested: Option<&str>) -> &AgentDef {
+        let Some(name) = requested else {
+            return &self.agent;
+        };
+        if self.agent.name == name {
+            return &self.agent;
+        }
+        self.roster
+            .iter()
+            .find(|candidate| candidate.name == name)
+            .unwrap_or(&self.agent)
+    }
+
+    /// 模型可选的人格名(默认 + 名册),用于生成 task 的 schema enum。
+    pub fn agent_names(&self) -> Vec<String> {
+        let mut names = vec![self.agent.name.clone()];
+        names.extend(
+            self.roster
+                .iter()
+                .map(|a| a.name.clone())
+                .filter(|n| *n != self.agent.name),
+        );
+        names
+    }
+
     /// R-236 B3:纪要模型解析——`[models].compact` 显式配置优先,缺省回落主模型。
     pub fn digest_model(&self) -> (&Route, String, Option<String>) {
         match &self.compact {
@@ -319,6 +359,24 @@ const MAX_SCHEMA_RETRIES: u32 = 1;
 enum Attempt {
     Finished(crate::runner::RunSummary),
     Fatal(kanzei_harness::ToolOutput),
+}
+
+/// R-327:按运行时可选人格生成 task 的 schema。
+///
+/// `agent` 的 enum **由名册决定而不是硬编码**:名册里只有默认人格时(CLI 单运行、
+/// 测试桩)整个参数不出现,模型看到的 schema 与引入前逐字节一致;接了名册才多这
+/// 一个可选项。硬编码枚举会让「schema 说有、运行时没有」——模型照着选一个不存在
+/// 的人格,而回落是静默的,它永远不知道自己没选中。
+pub(crate) fn task_spec_for(agent_names: &[String]) -> ToolSpec {
+    let mut spec = task_spec();
+    if agent_names.len() > 1 {
+        spec.input_schema["properties"]["agent"] = serde_json::json!({
+            "type": "string",
+            "enum": agent_names,
+            "description": "Which read-only subagent persona to use.                             `explore` = fast model, mechanical search, small step budget.                             `plan` = main model, larger budget, establishes constraints and                             returns a concrete plan with file:line evidence.                             All personas share the same read-only toolset; only the prompt                             and step budget differ. Defaults to the first one."
+        });
+    }
+    spec
 }
 
 pub(crate) fn task_spec() -> ToolSpec {
@@ -473,6 +531,12 @@ pub(crate) async fn run_subagent(
     input: &serde_json::Value,
     progress: tokio::sync::mpsc::UnboundedSender<RunEvent>,
 ) -> kanzei_harness::ToolOutput {
+    // R-327:人格选择。名字选不中静默回落默认——见 resolve_agent 的说明。
+    // 注意 rt.agent 的其余用途(写租约身份、读槽登记、错误文案)保持不变:
+    // 那些是**运行时身份**,不随本轮选了哪个提示词而变。
+    let selected_agent = rt
+        .resolve_agent(input.get("agent").and_then(|v| v.as_str()))
+        .clone();
     let prompt = ["prompt", "task", "instruction", "query"]
         .iter()
         .find_map(|k| input.get(k).and_then(|v| v.as_str()))
@@ -733,7 +797,7 @@ pub(crate) async fn run_subagent(
                 client,
                 route,
                 &rt.snapshot,
-                &rt.agent,
+                &selected_agent,
                 &config,
                 ctx,
                 &turn_prompt,
@@ -1133,5 +1197,113 @@ mod tests {
             spec.description.contains("schema"),
             "工具描述里没提 schema,模型不会主动使用"
         );
+    }
+
+    // ---- R-327:子代理人格选择 ----
+    use kanzei_harness::AgentDef;
+    use serde_json::json;
+
+    fn persona(name: &str, model: &str, steps: u32) -> AgentDef {
+        AgentDef {
+            name: name.into(),
+            profile: kanzei_harness::ProfileScope::All,
+            model: model.into(),
+            mode: kanzei_harness::AgentMode::Subagent,
+            steps,
+            system: String::new(),
+        }
+    }
+
+    /// 选中名册里的人格;选不中静默回落默认,不为一个拼错的名字打回整次委派。
+    #[test]
+    fn 人格按名选中_未命中回落默认() {
+        let rt = TestRuntime {
+            agent: persona("explore", "fast", 12),
+            roster: vec![persona("plan", "primary", 24)],
+        };
+        assert_eq!(rt.resolve("plan").name, "plan");
+        assert_eq!(rt.resolve("explore").name, "explore");
+        assert_eq!(rt.resolve("nonexistent").name, "explore", "未命中回落默认");
+        assert_eq!(rt.resolve_none().name, "explore", "不传即默认");
+    }
+
+    /// schema 的 enum 由**运行时名册**决定,不硬编码 —— 硬编码会让「schema 说有、
+    /// 运行时没有」,而回落是静默的,模型永远不知道自己没选中。
+    #[test]
+    fn 名册只有默认时schema不出现agent参数() {
+        let spec = super::task_spec_for(&["explore".to_string()]);
+        assert!(
+            spec.input_schema["properties"].get("agent").is_none(),
+            "只有一个人格时不该暴露 agent 参数"
+        );
+        // 与不带名册的 task_spec 逐字节一致:老调用方零感知。
+        assert_eq!(spec.input_schema, super::task_spec().input_schema);
+    }
+
+    #[test]
+    fn 名册有多个人格时schema按名册生成enum() {
+        let spec = super::task_spec_for(&["explore".to_string(), "plan".to_string()]);
+        let values = spec.input_schema["properties"]["agent"]["enum"]
+            .as_array()
+            .expect("多人格时必须暴露 agent enum");
+        assert_eq!(values, &[json!("explore"), json!("plan")]);
+        let required = spec.input_schema["required"].as_array().unwrap();
+        assert!(
+            !required.contains(&json!("agent")),
+            "人格是可选的,不传即默认"
+        );
+    }
+
+    /// 名册去重:默认人格也出现在 roster 里时不重复列出。
+    #[test]
+    fn 人格名去重() {
+        let rt = TestRuntime {
+            agent: persona("explore", "fast", 12),
+            roster: vec![
+                persona("explore", "fast", 12),
+                persona("plan", "primary", 24),
+            ],
+        };
+        assert_eq!(rt.names(), vec!["explore".to_string(), "plan".to_string()]);
+    }
+
+    /// 只构造人格选择所需的最小替身:SubagentRuntime 有十几个字段,
+    /// 为一条纯查表逻辑造完整运行时是噪音,且会把测试绑死在无关字段上。
+    struct TestRuntime {
+        agent: AgentDef,
+        roster: Vec<AgentDef>,
+    }
+
+    impl TestRuntime {
+        fn resolve(&self, name: &str) -> &AgentDef {
+            self.pick(Some(name))
+        }
+        fn resolve_none(&self) -> &AgentDef {
+            self.pick(None)
+        }
+        /// 与 SubagentRuntime::resolve_agent 同一判定;两者若漂开,下面那条
+        /// 断言会把差异暴露出来。
+        fn pick(&self, requested: Option<&str>) -> &AgentDef {
+            let Some(name) = requested else {
+                return &self.agent;
+            };
+            if self.agent.name == name {
+                return &self.agent;
+            }
+            self.roster
+                .iter()
+                .find(|c| c.name == name)
+                .unwrap_or(&self.agent)
+        }
+        fn names(&self) -> Vec<String> {
+            let mut names = vec![self.agent.name.clone()];
+            names.extend(
+                self.roster
+                    .iter()
+                    .map(|a| a.name.clone())
+                    .filter(|n| *n != self.agent.name),
+            );
+            names
+        }
     }
 }

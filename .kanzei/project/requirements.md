@@ -386,3 +386,15 @@
 - observed_head: b8df33ca1a867da596e7eddfd9f02396b4005565
 - observed_worktree_hash: fnv1a64:bba52abe45b1b580
 - recorded_at: 1787288250234
+
+## R-327 task 子代理人格可选:补 plan 只读档 [done]
+- 原始描述: 对比 Claude Code 的 Agent 类型(Explore/Plan/通用)发现:kanzei 已有 explore/writer 两个人格,但 task 工具不暴露选择,永远派 explore;且缺一个做架构判断的只读人格——机械检索与架构判断需要的模型能力和步数预算差一个量级
+- 复杂度: 中
+- 标签: 核心
+- 验收: task 可传 agent 选人格;schema 的 enum 由运行时名册生成而非硬编码,名册只有默认人格时该参数不出现且 schema 与引入前逐字节一致;未命中静默回落默认;plan 人格为只读、主模型、更大步数;writer 不进模型可选名册
+- refs: R-326
+- 优先级: P2
+- 进展: SubagentRuntime 加 roster(只读人格名册,空=引入前行为)+ resolve_agent(未命中静默回落默认,不为拼错的名字打回整次委派)+ agent_names(去重)。task_spec_for 按运行时名册生成 agent enum——硬编码会让 schema 说有而运行时没有,而回落是静默的,模型永远不知道自己没选中;单人格时该参数不出现且 schema 与 task_spec 逐字节一致。新增 plan_agent:同一只读快照、工具集一个不多,只换主模型+24 步+要求先立约束再下结论并给 file:line 证据。writer 明确不进名册(主 agent 提示词写着 task 子代理绝不写,R-176 的只读白名单是审计资产)。phase_pipeline 派生运行时继承模板名册。4 条单测,workspace 15 个二进制全绿,clippy/fmt 干净
+- observed_head: f6ecb8b8d3720b531ae0cb5034e1f67dab70675d
+- observed_worktree_hash: fnv1a64:629dbcb7dc894e21
+- recorded_at: 1787289443698

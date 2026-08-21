@@ -173,6 +173,7 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
     };
     let cancellations = Arc::new(kanzei_core::TaskCancellations::default());
     let subagent_rt = kanzei_core::SubagentRuntime {
+        roster: Vec::new(),
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
         fast: (route.clone(), "mock".to_string()),

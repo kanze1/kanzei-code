@@ -574,6 +574,8 @@ impl PhasePipeline {
             ),
         };
         SubagentRuntime {
+            // 阶段派生的运行时继承模板名册:换的是角色名与路由,不是可选人格集合。
+            roster: template.roster.clone(),
             snapshot: template.snapshot.clone(),
             agent,
             fast,
