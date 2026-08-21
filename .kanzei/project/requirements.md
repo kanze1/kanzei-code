@@ -422,3 +422,15 @@
 - observed_head: e0be69c2fc26f89a4fe8389a2a8d047c021b52da
 - observed_worktree_hash: fnv1a64:b840b69371cca1bc
 - recorded_at: 1787291327415
+
+## R-330 process wait:等后台进程满足条件,轮询挪进工具内 [done]
+- 原始描述: 用户澄清要的不是定时任务而是终端监控回调。此前模型只能反复调 process output 自己比对,每次一个完整模型往返——等一个 dev server 起来花掉五六轮,而这五六轮除了「还没好」什么信息都没产生
+- 复杂度: 小
+- 标签: 核心
+- 验收: process wait(id, until?, timeout_secs?) 三终态各自可辨(matched 带命中行/exited 带退出码/timeout 如实说没等到);匹配范围是全部已捕获输出而非调用后新增;超时封顶 600 秒;非法正则给可行动错误;wait 与 list/output/discover 标 Shared,stop/kill/adopt 保持独占
+- refs: R-329
+- 优先级: P1
+- 进展: process 新增 wait 动作,轮询挪进工具内(WAIT_POLL_MS=200),一次调用等到条件满足。三终态:matched 给命中行原文(模型要据此判断是不是它想等的那一行)、exited 带退出码、timeout 如实说没等到并给尾部。判定顺序上匹配先于退出——一次性命令可能打出目标行后立刻退出,那种情况该报 matched。匹配范围是全部已捕获输出而非调用后新增:等待语义是「条件成立了吗」不是「再发生一次」,否则会永远等一个不会重复的一次性事件。超时 clamp(1,600),非法正则给 PROCESS_WAIT_BAD_REGEX,进程不存在指路 action=list。用 regex crate 而非 grep 的 RegexMatcher(后者 is_match 需要 grep-matcher trait,面向字节流搜索,这里只对单行判定)。顺带按动作分流并发契约(R-323 B2 的一部分):list/output/discover/wait 标 Shared,stop/kill/adopt 与未知动作保持独占——wait 最长占槽 600 秒,走 Exclusive 会把整批调用堵死。5 条单测,workspace 15 个二进制全绿,clippy/fmt 干净
+- observed_head: 575beb7213732441860b47ccee7cb04c34e3c809
+- observed_worktree_hash: fnv1a64:16ae57ff9bad9baf
+- recorded_at: 1787292023514

@@ -2520,6 +2520,7 @@ dependencies = [
  "kanzei-memory",
  "palette",
  "pdf-extract",
+ "regex",
  "reqwest 0.12.28",
  "rusqlite",
  "schemars 0.8.22",
