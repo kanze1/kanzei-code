@@ -179,6 +179,7 @@ fn main() {
             commands::run::stop_task,
             commands::run::answer_ask,
             commands::run::pending_asks_get,
+            commands::run::open_delivered_path,
             auto_run::auto_state_update,
             auto_run::auto_state_reset,
             settings::settings_get,

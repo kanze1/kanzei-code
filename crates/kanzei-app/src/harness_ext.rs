@@ -165,6 +165,158 @@ impl kanzei_harness::Tool for UiScreenshotTool {
     }
 }
 
+/// R-329:`deliver` 的入参。
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+pub(crate) struct DeliverInput {
+    /// 要交付的文件路径(相对代码树或绝对)。
+    pub(crate) path: String,
+    /// 一句话说明这是什么、为什么现在给他。
+    #[serde(default)]
+    pub(crate) caption: Option<String>,
+}
+
+/// R-329:把一个**已经存在的产物**交到用户面前。
+///
+/// 与 `read` 的分工是「给谁看」:`read` 把内容读进**模型**的上下文,`deliver`
+/// 在对话里给**用户**一张卡片(文件名、大小、打开 / 在资源管理器中定位)。
+/// 报告、图、导出的 CSV 这类东西模型不需要再读一遍,用户却得知道它在哪——
+/// 此前只能在正文里写一句路径,用户自己去翻。
+///
+/// 属于应用层而不是 kanzei-tools:它要往运行中的窗口发事件,与 ui_* 同理。
+/// CLI 侧没有对话卡片可言,那边不注册它。
+struct DeliverTool;
+
+#[async_trait::async_trait]
+impl kanzei_harness::Tool for DeliverTool {
+    fn name(&self) -> &'static str {
+        "deliver"
+    }
+
+    fn description(&self) -> String {
+        "Hand an existing file to the USER as a card in the conversation (name, size, open /          reveal-in-explorer, inline preview for images). Params: path; optional caption saying          what it is and why now. Use it for artifacts the user should look at or keep —          a generated report, chart, export. This is NOT for reading a file into your own          context: that is `read`. Deliver a finished deliverable when it is ready rather than          only mentioning its path in prose."
+            .into()
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::to_value(schemars::schema_for!(DeliverInput)).unwrap()
+    }
+
+    /// 只读一个 stat,不改任何东西。
+    fn concurrency(
+        &self,
+        _input: &serde_json::Value,
+        ctx: &ToolCtx,
+    ) -> kanzei_harness::ToolConcurrency {
+        kanzei_harness::ToolConcurrency::shared_worktree(ctx)
+    }
+
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        vec![input
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("*")
+            .to_string()]
+    }
+
+    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> kanzei_harness::ToolOutput {
+        let input: DeliverInput = match serde_json::from_value(input) {
+            Ok(value) => value,
+            Err(error) => {
+                return kanzei_harness::ToolOutput::needs_correction(
+                    "INVALID_TOOL_INPUT",
+                    format!("invalid input for `deliver`: {error}; expected {{\"path\": \"...\"}}"),
+                )
+            }
+        };
+        let resolved = deliver_target(&input.path, ctx);
+        let (path, meta) = match resolved {
+            Ok(value) => value,
+            Err(output) => return *output,
+        };
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| input.path.clone());
+        let bytes = meta.len();
+        let shown = path
+            .display()
+            .to_string()
+            .replace(std::path::MAIN_SEPARATOR, "/");
+        let caption = input
+            .caption
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty());
+        // 文本位只写事实:模型不需要「已交付」之外的信息,卡片是给人看的。
+        let summary = match caption {
+            Some(caption) => format!("[delivered] {name} ({bytes} bytes) — {caption}"),
+            None => format!("[delivered] {name} ({bytes} bytes)"),
+        };
+        kanzei_harness::ToolOutput::ok(summary).with_display(serde_json::json!({
+            "kind": "file",
+            "name": name,
+            "path": shown,
+            "bytes": bytes,
+            "caption": caption,
+        }))
+    }
+}
+
+/// 解析并校验交付目标。
+///
+/// 错误装箱是 clippy `result_large_err` 的要求:`ToolOutput` 有 200+ 字节,
+/// 让每次成功返回都背着这份体积不划算。
+///
+/// 目录、不存在的路径、以及**代码树之外**的路径一律拒绝:交付卡片会给用户一个
+/// 「打开」按钮,把它指向工作树外的任意路径等于把本地文件系统的读取入口交给
+/// 模型输入决定。越界是可机械判定的,就在这里判掉,不留给下游。
+fn deliver_target(
+    raw: &str,
+    ctx: &ToolCtx,
+) -> Result<(std::path::PathBuf, std::fs::Metadata), Box<kanzei_harness::ToolOutput>> {
+    let candidate = std::path::Path::new(raw);
+    let joined = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        ctx.cwd.join(candidate)
+    };
+    let path = match joined.canonicalize() {
+        Ok(path) => path,
+        Err(error) => {
+            return Err(Box::new(kanzei_harness::ToolOutput::failed(
+                "DELIVER_PATH_NOT_FOUND",
+                format!("cannot deliver {raw}: {error}"),
+            )))
+        }
+    };
+    let root = ctx.cwd.canonicalize().unwrap_or_else(|_| ctx.cwd.clone());
+    if !path.starts_with(&root) {
+        return Err(Box::new(kanzei_harness::ToolOutput::needs_correction(
+            "DELIVER_OUTSIDE_TREE",
+            format!(
+                "{raw} resolves outside the work tree ({}); deliver only files produced inside it",
+                root.display()
+            ),
+        )));
+    }
+    let meta = match std::fs::metadata(&path) {
+        Ok(meta) => meta,
+        Err(error) => {
+            return Err(Box::new(kanzei_harness::ToolOutput::failed(
+                "DELIVER_PATH_NOT_FOUND",
+                format!("cannot stat {raw}: {error}"),
+            )))
+        }
+    };
+    if meta.is_dir() {
+        return Err(Box::new(kanzei_harness::ToolOutput::needs_correction(
+            "DELIVER_IS_DIRECTORY",
+            format!("{raw} is a directory; deliver a single file"),
+        )));
+    }
+    Ok((path, meta))
+}
+
 pub(crate) struct FrontendToolsComponent;
 impl kanzei_harness::Component for FrontendToolsComponent {
     fn contribute(
@@ -172,6 +324,7 @@ impl kanzei_harness::Component for FrontendToolsComponent {
         draft: &mut kanzei_harness::HarnessDraft,
         _ctx: &ResolveCtx,
     ) -> anyhow::Result<()> {
+        draft.tools.insert("deliver", Arc::new(DeliverTool));
         draft.tools.insert("ui_dom", Arc::new(UiDomTool));
         draft.tools.insert("ui_console", Arc::new(UiConsoleTool));
         draft.tools.insert("ui_style", Arc::new(UiStyleTool));
@@ -187,6 +340,8 @@ impl kanzei_harness::Component for FrontendToolsComponent {
             Arc::new(kanzei_tools::frontend::FrontendCheckTool),
         );
         for name in [
+            // deliver 只做一次 stat 并发一张卡片,不改任何文件,与 UI 自查同档放行。
+            "deliver",
             "ui_dom",
             "ui_console",
             "ui_style",
@@ -280,5 +435,72 @@ impl kanzei_harness::Component for IdeaSplitComponent {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod deliver_tests {
+    use super::deliver_target;
+    use kanzei_harness::ToolCtx;
+
+    fn fixture(tag: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kz-deliver-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("report.html"), "<p>ok</p>").unwrap();
+        root
+    }
+
+    fn ctx(root: &std::path::Path) -> ToolCtx {
+        ToolCtx::new(root.to_path_buf(), root.to_path_buf())
+    }
+
+    #[test]
+    fn 相对与绝对路径都能解析到同一文件() {
+        let root = fixture("resolve");
+        let ctx = ctx(&root);
+        let (rel, meta) = deliver_target("report.html", &ctx).unwrap();
+        let (abs, _) =
+            deliver_target(&root.join("report.html").display().to_string(), &ctx).unwrap();
+        assert_eq!(rel, abs);
+        assert_eq!(meta.len(), 9);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 交付卡片会给用户一个「打开」按钮;把它指向工作树之外等于把本地文件系统的
+    /// 读取入口交给模型输入决定。越界是可机械判定的,就在这里判掉。
+    #[test]
+    fn 工作树之外的路径被拒绝() {
+        let root = fixture("escape");
+        let outside = root.parent().unwrap().join("kz-deliver-outsider.txt");
+        std::fs::write(&outside, "secret").unwrap();
+        let err = deliver_target(&outside.display().to_string(), &ctx(&root)).unwrap_err();
+        assert!(err.is_error);
+        assert!(
+            err.content.contains("outside the work tree"),
+            "拒绝理由要点名越界: {}",
+            err.content
+        );
+        // `..` 逃逸走同一条判定(canonicalize 之后再比)。
+        let escaped = deliver_target("../kz-deliver-outsider.txt", &ctx(&root));
+        assert!(escaped.is_err(), "`..` 逃逸必须同样被拒");
+        std::fs::remove_file(&outside).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 目录与不存在的路径给出可行动错误() {
+        let root = fixture("bad");
+        let dir_err = deliver_target("sub", &ctx(&root)).unwrap_err();
+        assert_eq!(dir_err.code, Some("DELIVER_IS_DIRECTORY"));
+        let missing = deliver_target("nope.txt", &ctx(&root)).unwrap_err();
+        assert_eq!(missing.code, Some("DELIVER_PATH_NOT_FOUND"));
+        std::fs::remove_dir_all(&root).ok();
     }
 }

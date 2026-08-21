@@ -410,3 +410,15 @@
 - observed_head: 86b0f750d2ea4bac069ddc78cfeb1105009e3ed2
 - observed_worktree_hash: fnv1a64:fd0280975799681f
 - recorded_at: 1787290437559
+
+## R-329 deliver:把产物交到用户面前 [done]
+- 原始描述: 对比 SendUserFile:kanzei 只能在正文里写一句路径,用户自己去翻。read 是把内容读进模型上下文,缺的是把产物交到用户面前——报告、图、导出的 CSV 模型不需要再读一遍,用户却得知道它在哪
+- 复杂度: 中
+- 标签: 前端
+- 验收: deliver 工具在对话里给出文件卡片(名称/大小/说明/打开/在资源管理器中显示);路径限工作树内,目录与不存在路径给可行动错误;IPC 侧重做同一校验;桌面独有不进 CLI 工具面
+- refs: R-328
+- 优先级: P2
+- 进展: deliver 工具落在应用层 harness_ext(要往运行中窗口发事件,与 ui_* 同理;CLI 没有对话卡片,那边不注册,故不占 CLI 工具面预算)。display kind=file,06-activity 渲染卡片:文件名/大小/一句话说明 + 打开 / 在资源管理器中显示两个动作。deliver_target 校验:相对与绝对都解析、canonicalize 后必须落在工作树内(交付卡带打开按钮,指向树外等于把本地文件系统读取入口交给模型输入决定)、目录与不存在路径各给可行动错误码。IPC open_delivered_path 重做同一判定——载荷经前端往返,本仓威胁模型无敌对前端,这道校验挡的是意外(历史重放/路径拼错/将来某处绕过工具校验直接调)。reveal 用 explorer /select 并只在启动失败时报错(它退出码不遵循常规约定)。5 条单测,workspace 15 个二进制全绿,eslint+UI 冒烟通过,clippy/fmt 干净
+- observed_head: e0be69c2fc26f89a4fe8389a2a8d047c021b52da
+- observed_worktree_hash: fnv1a64:b840b69371cca1bc
+- recorded_at: 1787291327415

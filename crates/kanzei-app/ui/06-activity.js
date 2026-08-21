@@ -648,7 +648,57 @@ function appendDisplayBlock(parent, display) {
     block.className = "tool-display term";
     block.textContent = `${t("新建")} ${display.path}(${display.bytes} bytes)\n${display.preview}`;
     parent.appendChild(block);
+  } else if (display.kind === "file") {
+    parent.appendChild(renderFileCard(display));
   }
+}
+
+// R-329:deliver 的交付卡片。与 create 块的区别是「给谁看」——create 是模型刚写了
+// 什么的事实回执,这张卡是给**用户**的:文件名、大小、一句话说明,外加两个真能点的
+// 动作(打开 / 在资源管理器中定位)。路径已由后端校验在工作树内。
+function renderFileCard(display) {
+  const card = document.createElement("div");
+  card.className = "tool-display file-card";
+  const head = document.createElement("div");
+  head.className = "file-card-head";
+  const name = document.createElement("span");
+  name.className = "file-card-name";
+  name.textContent = display.name || display.path || "";
+  const size = document.createElement("span");
+  size.className = "file-card-size";
+  size.textContent = formatBytes(display.bytes);
+  head.append(name, size);
+  card.appendChild(head);
+  if (display.caption) {
+    const caption = document.createElement("div");
+    caption.className = "file-card-caption";
+    caption.textContent = display.caption;
+    card.appendChild(caption);
+  }
+  const actions = document.createElement("div");
+  actions.className = "file-card-actions";
+  for (const [label, mode] of [[t("打开"), "open"], [t("在资源管理器中显示"), "reveal"]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost mini";
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      // 失败要说话:静默失效会让用户以为文件不见了,而多半只是没有默认打开方式。
+      void invoke("open_delivered_path", { projectDir: currentProject, path: display.path, mode }).catch((error) =>
+        toast(`${t("打开失败")}:${error}`),
+      );
+    });
+    actions.appendChild(button);
+  }
+  card.appendChild(actions);
+  return card;
+}
+
+function formatBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 // 工具执行中的增量输出(kz:tool-progress,bash 等长任务):展开区里逐段追加,
 // 收起状态下进度行显示最后一行——装依赖/发版这类长命令"跑到哪了"一眼可见。

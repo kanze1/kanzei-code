@@ -1,4 +1,7 @@
 const I18N_EN = {
+  // R-329:deliver 交付卡片。
+  "在资源管理器中显示": "Show in File Explorer",
+  "打开失败": "Could not open",
   // R-322:门禁强度与模型停机权。
   "目标条件": "Goal condition",
   "目标条件已设置": "Goal condition set",

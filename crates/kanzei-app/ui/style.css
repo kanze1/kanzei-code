@@ -1107,6 +1107,14 @@ button:disabled { opacity: .45; cursor: default; }
 #ask-options { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 #ask-answer { width: 100%; background: var(--input); color: var(--fg-strong); border: 1px solid var(--border); border-radius: 4px; padding: 7px; font: inherit; }
 .ask-option { margin: 0; }
+/* R-329:deliver 的交付卡片。与 .tool-display.term 的等宽块区分开——这是给人看的
+   产物卡,不是终端回显。 */
+.file-card { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; background: var(--panel2); border: 1px solid var(--border-soft); border-radius: 4px; font-family: inherit; white-space: normal; }
+.file-card-head { display: flex; align-items: baseline; gap: 8px; }
+.file-card-name { color: var(--fg); font-size: var(--fs-12); word-break: break-all; }
+.file-card-size { color: var(--dim); font-size: var(--fs-10-5); flex-shrink: 0; margin-left: auto; }
+.file-card-caption { color: var(--dim); font-size: var(--fs-11); line-height: 1.4; }
+.file-card-actions { display: flex; gap: 6px; }
 /* R-328:带注解的选项。有注解就换成竖排两行(标签 + 灰色说明)并占满整行——
    注解是一句话,挤在按钮里横排会被 flex-wrap 撕成难读的碎块。 */
 .ask-option.has-note { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex: 1 1 100%; text-align: left; }

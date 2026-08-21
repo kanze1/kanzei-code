@@ -686,3 +686,45 @@ mod tests {
         std::fs::remove_dir_all(root).ok();
     }
 }
+
+/// R-329:打开或在资源管理器中定位一份已交付的文件。
+///
+/// 路径经前端往返回来,这里**重做一次**工具侧的同一判定(canonicalize 后必须
+/// 落在项目根内)。本仓的威胁模型里没有敌对前端,这道校验挡的是**意外**——
+/// 载荷被历史重放、路径拼错、或将来某处忘了先过 deliver 的校验就直接调它。
+/// `project_dir` 由前端给,与本 crate 其余命令同一惯例。
+#[tauri::command]
+pub(crate) fn open_delivered_path(
+    project_dir: String,
+    path: String,
+    mode: String,
+) -> Result<(), String> {
+    let root = std::path::Path::new(&project_dir)
+        .canonicalize()
+        .map_err(|error| format!("项目根不可解析: {error}"))?;
+    let target = std::path::Path::new(&path)
+        .canonicalize()
+        .map_err(|error| format!("路径不可解析: {error}"))?;
+    if !target.starts_with(&root) {
+        return Err(format!("拒绝打开工作树之外的路径: {}", target.display()));
+    }
+    if !target.is_file() {
+        return Err(format!("不是文件: {}", target.display()));
+    }
+    let status = if mode == "reveal" {
+        // explorer /select 会打开父目录并选中该文件。它的退出码不遵循常规约定
+        // (成功也可能非 0),所以只在**启动失败**时报错,不看退出码。
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(&target)
+            .spawn()
+            .map(|_| ())
+    } else {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", ""])
+            .arg(&target)
+            .spawn()
+            .map(|_| ())
+    };
+    status.map_err(|error| format!("启动失败: {error}"))
+}
