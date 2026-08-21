@@ -1267,7 +1267,7 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--accent); outli
     width: var(--right-drawer-width) !important; max-height: none;
     box-shadow: -5px 0 18px var(--shadow);
   }
-  /* 上下分区规则(#todo-panel 与另一面板同开时各占一半)随 todowrite 一并摘除:
+  /* 上下分区规则(当年计划面板与另一面板同开时各占一半)随 todowrite 一并摘除:
      子代理面板与活动面板本就互斥切换(agent-toggle/bg-toggle),不会同屏,
      没有第二个面板能与之并存了。 */
 }

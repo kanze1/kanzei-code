@@ -35,7 +35,7 @@ metrics_format_version: v1
 | 21 | crates/kanzei-app/src/run/assembly.rs | 879 | 789 | 90 | 15 | 377 | 0 |
 | 22 | crates/kanzei-base/src/atomic_file.rs | 1198 | 757 | 441 | 22 | 102 | 0 |
 | 23 | crates/kanzei-memory/src/memory/manager.rs | 1516 | 746 | 770 | 33 | 99 | 0 |
-| 24 | crates/kanzei-tools/src/symbols.rs | 1364 | 881 | 483 | 14 | 154 | 0 |
+| 24 | crates/kanzei-tools/src/symbols.rs | 1620 | 1020 | 600 | 19 | 154 | 0 |
 | 25 | crates/kanzei-llm/src/protocol/openai.rs | 775 | 704 | 71 | 17 | 131 | 0 |
 | 26 | crates/kanzei-tools/src/bash.rs | 1378 | 698 | 680 | 24 | 268 | 0 |
 | 27 | crates/kanzei-harness/src/orchestration.rs | 985 | 695 | 290 | 26 | 113 | 1 |
@@ -63,6 +63,14 @@ metrics_format_version: v1
 抬基线是**有意识的动作**,不是让门禁闭嘴的手段。每次改行都要写清增长来自哪条
 交付、为什么不该拆。没有理由的抬升等于把回涨闸变成摆设。
 
+- 2026-08-21 `crates/kanzei-tools/src/symbols.rs` 生产行 881 → 1020(+139,再次超出
+  每文件 100 行允许量)。增长来自 R-324 把符号索引扩到 JS/ESM:
+  `parse_js_symbol_line` 与 `js_identifier`/`js_looks_like_arrow` 两个判定辅助,
+  外加扩展名收集与目录跳过。这是该条目的交付主体——本仓受跟踪文件里 257 个 `.rs`
+  对 139 个 `.js`/`.mjs`,`crates/kanzei-app/ui/` 一处就 26 文件 16k 行,此前完全
+  没有符号索引。最大函数长度未变(154),仍在单文件巨石阈值(生产行 1200)以下。
+  **下次再涨要先想拆**:1020 距 1200 只剩 180 行,再加一门语言就该按语言分文件,
+  而不是继续在同一个文件里堆判定分支。
 - 2026-08-21 `crates/kanzei-tools/src/symbols.rs` 生产行 731 → 881(+150,
   超出每文件 100 行允许量)。增长来自 R-310 B3 的代码地图能力
   (`crate → module → public symbol` 按需查询,设计见

@@ -44,8 +44,10 @@ assert.match(css, /:focus-visible/);
 assert.equal((js.match(/function reportError\(/g) || []).length, 1, "reportError 只能有一个定义");
 assert.match(js, /function toastError\(text, options = \{\}\) \{\s*reportPersistentError\(text, options\);/);
 assert.match(js, /function reportPersistentError\([\s\S]*?\$\("log-panel"\)\.classList\.remove\("hidden"\)/);
-assert.match(css, /@media \(max-width: 1400px\)[\s\S]*#todo-panel, #bg-panel[\s\S]*position: absolute/);
-assert.match(css, /#todo-panel:not\(\.hidden\) ~ #bg-panel:not\(\.hidden\)/);
+assert.match(css, /@media \(max-width: 1400px\)[\s\S]*#bg-panel, #agent-panel[\s\S]*position: absolute/);
+// D-662:todowrite 摘除后 #todo-panel 的规则(含抽屉上下分区)应当一条不剩。
+// 子代理面板与活动面板本就互斥切换,不会同屏,没有第二个面板能与之并存。
+assert.doesNotMatch(css, /#todo-panel/, "#todo-panel 规则应随 todowrite 一并摘除");
 assert.match(css, /#app \{[^}]*position: relative/);
 assert.match(css, /\.resize-handle \{ position: fixed/);
 assert.match(js, /handle\.setAttribute\("role", "separator"\)/);
@@ -133,9 +135,7 @@ assert.doesNotMatch(html, /id="process-tabs"/, "顶部进程切换条不应与�
 assert.match(css, /@media \(max-width: 900px\)[\s\S]*#sidebar:not\(\.collapsed\)[\s\S]*position: absolute/);
 assert.match(css, /#sidebar:not\(\.collapsed\)[^}]*max-width: min\(320px, calc\(100vw - 360px\)\)/);
 assert.match(css, /#sidebar\.collapsed[\s\S]*width: 0/);
-assert.match(css, /@media \(max-width: 1400px\)[\s\S]*#todo-panel, #bg-panel[\s\S]*position: absolute/);
-assert.match(css, /#todo-panel:not\(\.hidden\):has\(~ #bg-panel:not\(\.hidden\)\)[^}]*bottom: 50%/);
-assert.match(css, /#todo-panel:not\(\.hidden\) ~ #bg-panel:not\(\.hidden\)[^}]*top: 50%; right: 0/);
+assert.match(css, /@media \(max-width: 1400px\)[\s\S]*#bg-panel, #agent-panel[\s\S]*position: absolute/);
 assert.match(js, /localStorage\.setItem\("kz-sidebar-collapsed"/);
 assert.ok(html.includes('id="send"'), "缺少发送按钮");
 assert.ok(html.includes('id="stop"'), "缺少停止按钮");
@@ -144,7 +144,10 @@ assert.match(html, /id="composer-more"[\s\S]*id="worktree-add"[\s\S]*id="process
 assert.match(js, /function syncSidebar\(\)/);
 assert.match(js, /function syncActivityPanel\(\)/);
 assert.match(js, /localStorage\.setItem\("kz-activity-panel"/);
-assert.match(js, /function renderTodoPanel\([\s\S]*todoItems\.length === 0/);
+// D-662:renderTodoPanel 随 todowrite 一并摘除。此前这里断言它「计划清空即隐藏」;
+// 现在断言它不复存在——留着一条针对已删函数的正向断言,下次有人重新引入
+// 同名函数时会误以为受了保护。
+assert.doesNotMatch(js, /renderTodoPanel/, "renderTodoPanel 应随 todowrite 一并摘除");
 assert.match(js, /function bgAdd\(/);
 assert.match(js, /function syncActivityPanel\(\)/);
 assert.match(js, /const setWidth = \(width\)[\s\S]*localStorage\.setItem/);
