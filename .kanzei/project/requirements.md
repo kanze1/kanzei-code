@@ -268,22 +268,6 @@
 - recorded_at: 1787306265598
 - 停车: 用户明确要求优先修复新缺陷 D-680；R-319 已完成 B3，B4 等待真实 post-rollout 长程样本，D-680 收口后恢复。恢复人:agent
 
-## R-320 编辑后局部结构校验:在完整回归前捕获语法作用域与类型断裂 [doing]
-- refs: R-310 D-615
-- 内容: 为 edit/insert/write 的结构化代码改动增加低成本局部校验计划：按文件类型选择 parser/formatter check、目标模块 lint/type check 或已有最小 smoke；工具返回 changed region、校验命令、首个精确错误位置和可修复上下文，使 Agent 在扩大到 crate/workspace 回归前先收敛局部结构。
-- 复杂度: 中
-- 来源: 用户原话「B3 测试桩先后出现多余右花括号、VM sandbox 变量作用域错误；R-245 telemetry 插入先破坏 Rust 语法、修复后再暴露序列化类型问题。宏观架构判断正确，但微观 edit/insert 一次命中率偏低。」
-- 标签: 流程
-- 边界: 不在每次编辑后自动跑 workspace 全量测试；不绕过 shell 权限与现有测试证据门禁；未知语言或无可靠校验器时明确 unsupported，只给建议命令；局部通过不等于功能验收或可提交。
-- 验收: ①JS 多余括号在下一次业务 smoke 前由语法校验捕获；②VM 夹具未定义绑定由目标 lint/runtime probe 捕获；③Rust 插入破坏 AST 与局部类型/serde 不匹配由 fmt/check 或目标测试精确定位；④同文件连续修改可去抖合并校验，真实样本的一次业务测试前结构错误数相对基线下降；⑤所有局部结果可进入 test_record/telemetry，但不能冒充 crate 回归。
-- 优先级: P1
-- 发现记录: {"Intent":"在 edit/insert/write 后先做低成本局部结构校验，减少扩大回归前的语法、作用域与类型错误","Explicit":"按文件类型选择 parser/formatter check、目标 lint/type check 或已有最小 smoke；返回 changed region、校验命令、首个精确错误位置和可修复上下文","Assumptions":"复用已有 parser、formatter、lint 与 smoke；未知语言或无可靠校验器明确 unsupported，只给建议命令","Ambiguities":"验证器选择矩阵、连续修改去抖窗口、test_record/telemetry 接线位置待代码勘察","领域对象":"changed region、validation plan/result、debounce key、error location","最小成功闭环":"对 JS、Rust、VM 三类真实 edit 路径给出局部命令和错误位置，并能进入现有 test_record/telemetry","延后决策":"完整语言矩阵、性能预算与所有编辑器入口统一接线"}
-- 取活依据: engine:唯一可执行 WIP 是 R-320，必须先恢复它
-- 进展: R-320 实现已落地，待提交后跑当前 HEAD verify 再关闭。① JS：local_validation.rs:171-200 为 .js/.mjs/.cjs 选择 node --check，并对 UI 路径接入 ui-lint/runtime probe；真实证据 T-1786922726722、T-1786922726723。② VM：local_validation.rs:192-198 运行真实 scripts/ui-runtime-smoke.mjs，捕获未定义绑定；T-1786922726723 为 25 个 UI 脚本、2342 次 invoke、0 错误。③ Rust：local_validation.rs:201-227 选择 rustfmt --check 与最近 Cargo.toml 的 cargo check，错误命令/首错/上下文由 local_validation.rs:97-168 返回；T-1786922726720 覆盖 Rustfmt AST 错误，T-1786922726724 完整 crate 回归 484 passed/0 failed/1 ignored。④ changed region 与去抖：local_validation.rs:57-95、413-450；并发同文件合并测试在 T-1786922726720，D-683 已固定并关闭。⑤ test_record/telemetry：write.rs:88-106、edit.rs:290-300/529-539 将 local_validation 同时放入 ToolOutput.content 与 display；serial_tools.rs:110/221 和 runner event 保留 display。边界：unsupported 明确建议命令，display 标记 is_crate_regression=false，未执行 workspace 全量作为每次写入动作。
-- observed_head: e9950f24c703a59efe8a073eb80f2b7f7e7b3ab1
-- observed_worktree_hash: fnv1a64:00c238b96cb25c4a
-- recorded_at: 1787318876185
-
 ## R-321 执行事故与产品缺陷分层:临时自致错误不污染正式 defect taxonomy [todo]
 - refs: R-112 R-310 R-311 D-615
 - 内容: 在既有领域/类型词表之上增加问题来源与生命周期分层：execution_incident、development_defect、product_defect、regression；预提交且未逃逸、可当轮修复的自致错误进入 append-only incident ledger/telemetry，不占 D-ID；达到复发阈值、跨轮阻塞、逃逸提交/发版或暴露真实产品契约时机械晋升 defect，并保留 incident→defect 链接。

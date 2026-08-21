@@ -4308,3 +4308,19 @@
 - observed_worktree_hash: fnv1a64:e9cac91b56958fa8
 - recorded_at: 1787304375014
 - 取活依据: engine:唯一可执行 WIP 是 R-316，必须先恢复它
+
+## R-320 编辑后局部结构校验:在完整回归前捕获语法作用域与类型断裂 [done]
+- refs: R-310 D-615
+- 内容: 为 edit/insert/write 的结构化代码改动增加低成本局部校验计划：按文件类型选择 parser/formatter check、目标模块 lint/type check 或已有最小 smoke；工具返回 changed region、校验命令、首个精确错误位置和可修复上下文，使 Agent 在扩大到 crate/workspace 回归前先收敛局部结构。
+- 复杂度: 中
+- 来源: 用户原话「B3 测试桩先后出现多余右花括号、VM sandbox 变量作用域错误；R-245 telemetry 插入先破坏 Rust 语法、修复后再暴露序列化类型问题。宏观架构判断正确，但微观 edit/insert 一次命中率偏低。」
+- 标签: 流程
+- 边界: 不在每次编辑后自动跑 workspace 全量测试；不绕过 shell 权限与现有测试证据门禁；未知语言或无可靠校验器时明确 unsupported，只给建议命令；局部通过不等于功能验收或可提交。
+- 验收: ①JS 多余括号在下一次业务 smoke 前由语法校验捕获；②VM 夹具未定义绑定由目标 lint/runtime probe 捕获；③Rust 插入破坏 AST 与局部类型/serde 不匹配由 fmt/check 或目标测试精确定位；④同文件连续修改可去抖合并校验，真实样本的一次业务测试前结构错误数相对基线下降；⑤所有局部结果可进入 test_record/telemetry，但不能冒充 crate 回归。
+- 优先级: P1
+- 发现记录: {"Intent":"在 edit/insert/write 后先做低成本局部结构校验，减少扩大回归前的语法、作用域与类型错误","Explicit":"按文件类型选择 parser/formatter check、目标 lint/type check 或已有最小 smoke；返回 changed region、校验命令、首个精确错误位置和可修复上下文","Assumptions":"复用已有 parser、formatter、lint 与 smoke；未知语言或无可靠校验器明确 unsupported，只给建议命令","Ambiguities":"验证器选择矩阵、连续修改去抖窗口、test_record/telemetry 接线位置待代码勘察","领域对象":"changed region、validation plan/result、debounce key、error location","最小成功闭环":"对 JS、Rust、VM 三类真实 edit 路径给出局部命令和错误位置，并能进入现有 test_record/telemetry","延后决策":"完整语言矩阵、性能预算与所有编辑器入口统一接线"}
+- 取活依据: engine:唯一可执行 WIP 是 R-320，必须先恢复它
+- 进展: 已完成并提交 e6364cb981d67df86801a4b6ceb3a139063cda64；验收逐条对账：① JS 多余括号：local_validation.rs:171-200 为 JS 选择 node --check，edit.rs:290-300、529-539 和 write.rs:88-106 均在真实写入后调用；T-1786922726720 的 javascript_probe_returns_first_error_location 捕获首错，T-1786922726722/T-1786922726726 的真实门禁通过。② VM 未定义绑定：local_validation.rs:192-198 选择真实 scripts/ui-runtime-smoke.mjs；T-1786922726723 实测 25 个 UI 脚本、2342 次 invoke、0 错误。③ Rust AST/类型：local_validation.rs:201-227 选择 rustfmt --check 与最近 Cargo.toml 的 cargo check，local_validation.rs:97-168 返回命令、首错和修复上下文；T-1786922726720 覆盖 Rustfmt AST 错误，T-1786922726724 与 T-1786922726726 通过完整定向/verify。④ changed region/去抖：local_validation.rs:57-95、413-450；T-1786922726720 验证同文件并发合并。真实基线 T-1786922726718 曾有 1 个 changed_region 结构错误，最终 T-1786922726724 与 T-1786922726726 为 0 失败，真实 UI probe 也为 0 运行时错误。⑤ 结果接线：write.rs:88-106、edit.rs:290-300/529-539 将明细同时放入 ToolOutput.content/display，serial_tools.rs:110/221 与 runner event 保留 display；T-1786922726722/T-1786922726723/T-1786922726726 可追溯，display 明确 is_crate_regression=false，未冒充 crate 回归。边界均保持：每次写入不跑 workspace 全量，未知类型只返回 unsupported 建议命令，局部通过不代替功能验收。
+- observed_head: e6364cb981d67df86801a4b6ceb3a139063cda64
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787319242939

@@ -9936,3 +9936,9 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-320
 - 收尾: 1787318975
 - 源码指纹: v2 crates/kanzei-tools/src/edit.rs@77461704b932,crates/kanzei-tools/src/lib.rs@5525d37bafd5,crates/kanzei-tools/src/local_validation.rs@6ebd1d5d1feb,crates/kanzei-tools/src/write.rs@931168709092
+
+## T-1786922726726 R-320 提交后 verify policy [passed]
+- 命令: .\scripts\verify.ps1
+- 摘要: verify policy 在提交 e6364cb9 上通过：metrics/crate_sync/design freshness/PS1 BOM/IPC/UI connectivity/fmt/clippy 全部通过；workspace 相关测试全绿（kanzei-tools 484 passed/1 ignored，kanzei-core 253 passed，kanzei-memory 169 passed，kanzei-app 245 passed，kanzei 32 passed，kanzei-llm 55 passed，kanzei-base 44 passed），verification.json 绑定当前 commit。按改动范围跳过 frontend smoke 与 ui_runtime。
+- 关联: R-320
+- 收尾: 1787319220
