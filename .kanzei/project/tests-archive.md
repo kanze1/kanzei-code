@@ -9956,3 +9956,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-684
 - 收尾: 1787319600
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@f8f8d8cfc9fe
+
+## T-1786922726729 R-321 B1 kanzei-tools 定向测试（预算修正前） [failed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 37.5s
+- 摘要: 首次全 crate 测试发现 profiles::tool_surface_budget::dev档工具面不超预算：incident 注册后可见工具 30 个而预算仍为 29；incident 3 个单测及其余 486 个测试通过。该门禁随后按 D-662 显式抬到 30。
+- 关联: R-321 D-662 D-685
+- 收尾: 1787320165
+- 源码指纹: v2 crates/kanzei-tools/src/incident.rs@24fbfed0dbec,crates/kanzei-tools/src/lib.rs@010e7ba45a6a,crates/kanzei-tools/src/profiles.rs@c5258f0ae6c4,crates/kanzei-tools/src/profiles/dev.rs@3b4401d8a722
+
+## T-1786922726730 R-321 B1 kanzei-tools 定向测试（预算修正后） [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 36.7s
+- 摘要: 预算修正后全 crate 定向测试通过：487 passed、0 failed、1 ignored；incident 3 个单测、dev 工具面预算、tracker 与既有工具回归均通过。cargo fmt --all -- --check 同步通过。
+- 关联: R-321 D-685
+- 收尾: 1787320171
+- 源码指纹: v2 crates/kanzei-tools/src/incident.rs@24fbfed0dbec,crates/kanzei-tools/src/lib.rs@010e7ba45a6a,crates/kanzei-tools/src/profiles.rs@c5258f0ae6c4,crates/kanzei-tools/src/profiles/dev.rs@3b4401d8a722

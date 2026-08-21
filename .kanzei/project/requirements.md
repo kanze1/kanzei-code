@@ -268,7 +268,7 @@
 - recorded_at: 1787306265598
 - 停车: 用户明确要求优先修复新缺陷 D-680；R-319 已完成 B3，B4 等待真实 post-rollout 长程样本，D-680 收口后恢复。恢复人:agent
 
-## R-321 执行事故与产品缺陷分层:临时自致错误不污染正式 defect taxonomy [todo]
+## R-321 执行事故与产品缺陷分层:临时自致错误不污染正式 defect taxonomy [doing]
 - refs: R-112 R-310 R-311 D-615
 - 内容: 在既有领域/类型词表之上增加问题来源与生命周期分层：execution_incident、development_defect、product_defect、regression；预提交且未逃逸、可当轮修复的自致错误进入 append-only incident ledger/telemetry，不占 D-ID；达到复发阈值、跨轮阻塞、逃逸提交/发版或暴露真实产品契约时机械晋升 defect，并保留 incident→defect 链接。
 - 复杂度: 小
@@ -277,6 +277,12 @@
 - 边界: 分层不得用来少报真实缺陷；门禁发现的产品行为错误仍直接登记 defect；既有 D-ID 不批量重写，只给新条目默认分类与少量样本迁移；incident 也必须可审计、可聚合，不能只留在自然语言日志。
 - 验收: ①D-615 等价的当轮预提交语法失手记 execution_incident 且不分配 D-ID；②D-613 等价 contract mismatch 直接为 product_defect，逃逸既有通过测试后标 regression；③相同 incident 指纹复发、跨轮阻塞或进入提交时自动建议/强制晋升并互链；④缺陷页与指标可分别查看各类数量、修复时长和逃逸率；⑤用历史样本回放证明分类一致且正式 defect 总量不再被瞬时失手污染。
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-321(unblocks=0)
+- 批次: 1/3
+- 进展: B1 已落地并验证：`crates/kanzei-tools/src/incident.rs:15-282` 新增 append-only `.kanzei/artifacts/incidents.jsonl`、`execution_incident/development_defect/product_defect/regression` 分类、稳定 fingerprint、I- 前缀事件号、run/process 身份、refs 与 list 聚合；`incident.rs:103-117` 强制 execution_incident 只能是预提交、未逃逸、当轮修复；`crates/kanzei-tools/src/profiles/dev.rs:78-87` 注册真实 incident 消费者，record Ask/list Allow；`crates/kanzei-tools/src/profiles.rs:1441-1454` 按 D-662 显式将 dev 工具面预算从 29 调为 30。证据：T-1786922726730 cargo test -p kanzei-tools=487 passed/0 failed/1 ignored，cargo fmt --all -- --check 通过；D-685 已 fixed。验收进度：①已覆盖 execution_incident 不分配 D-ID；②已覆盖 product_defect 分类记录；③复发/晋升尚未实现；④缺陷页与指标投影尚未实现；⑤历史样本回放尚未实现。下一步：B2 接入 fingerprint 复发、跨轮阻塞和提交晋升判定。
+- observed_head: 96a19403f996524968457774a224f84d4a7d3be8
+- observed_worktree_hash: fnv1a64:4caa5c23f0cda4d6
+- recorded_at: 1787320204623
 
 ## R-322 门禁强度分档与模型停机权 [doing]
 - 原始描述: 外部评估七点反馈中的 #1 Harness Tax、#4 模式区分不够明显、#7 双控制器问题。用户定调：控制权交给模型；结伴接近 Claude Code 的高自治，自主推进保留重门禁；决策点要呈现给用户

@@ -74,6 +74,17 @@ impl Component for DevProfile {
         draft
             .tools
             .insert("test_record", Arc::new(crate::test_record::TestRecordTool));
+        // R-321 B1:执行事故与正式缺陷分层。incident 只追加项目工件，不分配 D-ID；
+        // record 仍按写操作逐次询问，list 可直接读取聚合结果。
+        draft
+            .tools
+            .insert("incident", Arc::new(crate::incident::IncidentTool));
+        draft
+            .permissions
+            .push(rule("incident", "list", Effect::Allow));
+        draft
+            .permissions
+            .push(rule("incident", "record", Effect::Ask));
 
         // 架构索引的专用写通道(D-173):原先这个资源族只有硬 deny 没有工具,
         // 合法路径不可达,模型就去找 shell 旁路。读/校验放行,写仍逐次询问。

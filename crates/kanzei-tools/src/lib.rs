@@ -28,6 +28,7 @@ mod git;
 pub mod git_batches;
 mod glob;
 mod grep;
+pub mod incident;
 mod latex_tool;
 mod local_validation;
 mod managed;

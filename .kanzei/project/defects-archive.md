@@ -8424,3 +8424,15 @@
 - observed_head: e6364cb981d67df86801a4b6ceb3a139063cda64
 - observed_worktree_hash: fnv1a64:645ebd1ec7217d87
 - recorded_at: 1787319524355
+
+## D-685 R-321 B1 incident 模块残留未使用 incidents_path 辅助函数 [fixed] (low)
+- 复现: 运行 cargo test -p kanzei-tools incident 时出现 dead_code warning: incidents_path 未使用。
+- 影响: 不影响运行时，但会使 kanzei-tools 在提交前 -D warnings 门禁下失败。
+- 来源: self-found
+- 标签: 核心
+- 进展: 已修复并逐项核验：①未使用辅助函数已从 crates/kanzei-tools/src/incident.rs 删除；②其连带未使用导入已在 crates/kanzei-tools/src/incident.rs:7 移除，并将测试所需 PathBuf 限定在测试模块；③T-1786922726730 执行 cargo test -p kanzei-tools，487 passed/0 failed/1 ignored，cargo fmt --all -- --check 通过；提交前 -D warnings 不再有该警告。
+- refs: R-321
+- 优先级: P2
+- observed_head: 96a19403f996524968457774a224f84d4a7d3be8
+- observed_worktree_hash: fnv1a64:4caa5c23f0cda4d6
+- recorded_at: 1787320189147
