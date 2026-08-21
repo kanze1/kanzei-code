@@ -8185,3 +8185,15 @@
 - observed_head: bee53bd53a5565d34809eab6ab6ce7e0eada4da4
 - observed_worktree_hash: fnv1a64:4a88884bb1e7e59d
 - recorded_at: 1787294789759
+
+## D-664 R-310 B4 关闭时未跑 verify,设计索引与回涨闸欠账留到发版才暴露 [fixed] (medium)
+- 原始描述: 2026-08-21 本轮方向调整发版时发现。条目关闭走的是自身验收,没有跑发版门禁,于是两笔门禁欠账攒到下一次发版才由别人付。R-310 已归档无法回退,本条记录过程缺口:关闭涉及新增设计文档或显著改动单文件行数的条目时,应在关闭前跑一次 verify
+- 复现: 在 8ed3256f(R-310 B4 收口)之后跑 scripts/verify.ps1,连续两步报红:①设计时效门禁——磁盘 42 份设计文档、索引 41 条,r310_repo_map_design.md 未登记;②回涨闸——crates/kanzei-tools/src/symbols.rs 生产行 731→881 超出每文件 100 行允许量,基线未同步
+- 标签: 流程
+- 优先级: P2
+- 取活依据: engine:唯一可执行 WIP 是 D-664，必须先恢复它
+- 批次: 2/2
+- 进展: B0 复核根因：关闭路径原仅有祖先链与前端 smoke 门禁，未检查设计文档/显著单文件变更对应的 verify。B1 已交付并提交 939a4f23：crates/kanzei-tools/src/tracker/actions/action_helpers.rs:36-92 的 numstat_requires_verify/close_requires_verify 识别 docs/design/ 任意变更及单文件增删合计>=100行；crates/kanzei-tools/src/tracker/actions.rs:358-369 在非终态 close 前接入门禁；crates/kanzei-tools/src/test_record/coverage.rs:309-331 的 verification_passed_for 要求 dist/verification.json 当前 HEAD、all_pass=true，并要求关联条目存在 status=passed 且命令包含 verify.ps1 的 test_record。验收：关闭涉及新增/修改设计文档或显著单文件变更的条目时先跑 verify——由 actions.rs:358-369 的 close 调用方强制执行；真实 .\\scripts\\verify.ps1 于当前 HEAD 939a4f2336366b9cd80ab9f01b7dd930a6e3d148 通过并由 scripts/verify.ps1:170-181 写入绑定证据；T-1786922726660 记录命令、通过结果并关联 D-664；cargo test -p kanzei-tools 462 passed、0 failed、1 ignored。
+- observed_head: 939a4f2336366b9cd80ab9f01b7dd930a6e3d148
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787295862467
