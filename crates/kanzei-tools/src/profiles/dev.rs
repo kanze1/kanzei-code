@@ -67,9 +67,6 @@ impl Component for DevProfile {
         for tool in ["memory_search", "memory_note", "memory_stats"] {
             draft.permissions.push(rule(tool, "*", Effect::Allow));
         }
-        draft
-            .tools
-            .insert("todowrite", Arc::new(crate::todowrite::TodoWriteTool));
 
         // 测试记录专用写通道(R-080):tests.md 是托管文件,bash 会回滚、write/edit
         // 硬 deny,agent 没有别的合法路径;写仍是写操作,按默认 ask 逐次询问。

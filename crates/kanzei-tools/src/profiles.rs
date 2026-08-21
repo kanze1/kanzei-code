@@ -1432,17 +1432,19 @@ mod tool_surface_budget {
     /// **取值 = 当前实测值,不留余量**。留了余量就等于允许它悄悄涨到余量用尽,
     /// 而这个面「没人盯着只会涨」正是 D-662 的机制。
     ///
-    /// 当前 30 个按族拆:文件读写 5(read/write/edit/insert/files)、检索 3
+    /// 当前 29 个按族拆:文件读写 5(read/write/edit/insert/files)、检索 3
     /// (glob/grep/symbols)、托管文档 7(req/defect/idea/decision/architecture/
     /// conventions/test_record)、记忆 3、执行 3(bash/git/process)、
     /// 外部 4(webfetch/websearch/browser/prior_art)、产出 2(plot/latex)、
-    /// 其余 3(question/todowrite/work)。
+    /// 其余 2(question/work)。`todowrite` 已于 2026-08-21 摘除:它与 tracker 的
+    /// `批次`/`进展` 是同一件事的两个真源,而后者是持久的(过夜断了也接得上),
+    /// 且 dev 提示词本就写着「批次单元格是进度从外部唯一可见的地方」。
     ///
     /// **抬这个数之前先回答:新工具能不能做成已有工具的一个 action?**
     /// 记忆写路径是正面例子——memory_add/promote/update/merge/stale/inbox_clear 等
     /// 写工具只挂在 memory-manager 子代理的迷你 run 上,主 agent 只看得见
     /// memory_note/search/stats 三个;写读分离顺带把主面压掉了 7 个。
-    const DEV_TOOL_BUDGET: usize = 30;
+    const DEV_TOOL_BUDGET: usize = 29;
 
     /// readonly 档:只读分析,面应当明显更小。
     ///

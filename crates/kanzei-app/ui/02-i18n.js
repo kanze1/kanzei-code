@@ -323,7 +323,7 @@ const I18N_EN = {
   "自动完成:安装 Ollama(winget)→ 启动服务 → 拉取 fast 模型": "One-click setup: install Ollama (winget) → start service → pull the fast model", "一键就绪子代理": "One-click subagent setup",
   "未保存 — 改动要点「保存」才会写入配置并生效": "Unsaved — changes only take effect after clicking Save",
   "直连": "Direct", "指定地址": "Custom", "dev 开发": "dev development", "research 研究": "research",
-  "日志": "Logs", "亮色": "Light", "暗色": "Dark", "切换到亮色主题": "Switch to light theme", "切换到暗色主题": "Switch to dark theme", "切换主题": "Toggle theme", "当前计划": "Current plan", "回到最新": "Jump to latest", "继续文案": "Continue prompt", "关闭当前计划面板": "Close current plan panel", "关闭子代理面板": "Close subagent panel",
+  "日志": "Logs", "亮色": "Light", "暗色": "Dark", "切换到亮色主题": "Switch to light theme", "切换到暗色主题": "Switch to dark theme", "切换主题": "Toggle theme", "回到最新": "Jump to latest", "继续文案": "Continue prompt", "关闭子代理面板": "Close subagent panel",
   "输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送 · Ctrl/Cmd+P 命令面板 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止":
     "Enter a task to begin · permission requests appear as dialogs · Ctrl+Enter send · Ctrl/Cmd+K focus input · Ctrl/Cmd+Shift+N new chat · Ctrl/Cmd+Shift+C stop",
   "暂无测试记录": "No test runs", "暂无排队输入": "No queued input", "暂无时间": "No time",

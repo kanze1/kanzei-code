@@ -118,10 +118,10 @@
 - 复现: 当前注册工具已 30+，其中 req/defect/idea/decision/architecture/test_record/work/memory_* 等托管域工具与通用 edit/write 语义重叠；模型需在 edit 与 req(update) 之间做领域判断，工具越多误选概率越高，且每个工具签名等同公开 API
 - 标签: 流程
 - 优先级: P2
-- 进展: 第一步做「量」不做「并」。原设想合并 tracker 四件套为 tracker(kind,action) 已否掉:那不减少模型要做的判断(需求还是缺陷本来就得判),只是把选择从工具名挪进参数,还削弱了每个 schema 精确描述自身合法动作的能力。真正问题是工具面没人盯着只会涨。已落地工具面预算门禁 profiles.rs::tool_surface_budget:dev 实测 30(桌面另加 6)、readonly 15,预算取实测值不留余量;加工具必须显式抬预算。附护栏断言记忆写路径不得进入主 agent 面(写读分离失效会一次涨 7 个)。关键发现:记忆一族仓库 10 个工具主面只见 3 个,写读分离是压面最有效手段,后续减面应沿此路(把流程专用工具挪进该流程的子代理快照),而非合并同族工具。顺带发现 D-663
-- observed_head: 5fe846054117b3f861c38111d55f0b85cb022ee2
-- observed_worktree_hash: fnv1a64:583f30e55ad1ef2b
-- recorded_at: 1787276942772
+- 进展: 第一步做「量」不做「并」:工具面预算门禁 profiles.rs::tool_surface_budget(dev/readonly 各一条 + 记忆写路径护栏),预算取实测值不留余量。第二步按写读分离减面:2026-08-21 摘除 todowrite——它与 tracker 的 批次/进展 是同一件事的两个真源,而后者持久(过夜断了也接得上),且 dev 提示词本就写着「批次单元格是进度从外部唯一可见的地方」;实测 1019 轮里 todowrite 只用 57 次而 req+defect 用了 2378 次。dev 工具面 30 → 29,连带摘除 #todo-panel 面板/CSS/i18n/D-350 冒烟段(工具一摘没人能填它,留着就是死代码)。剩余:tracker 四件套与 research 五件套的减面按同一原则(挪进流程专用子代理快照)另行评估
+- observed_head: 81a80c64d552d4da9aba0f5692c23d2b5bafb012
+- observed_worktree_hash: fnv1a64:a1d1426a5522a197
+- recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
 
 ## D-663 readonly 档写与命令通道漏网:plot/latex/process/browser 仅 Ask [open] (medium)

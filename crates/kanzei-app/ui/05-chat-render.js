@@ -281,7 +281,7 @@ const TOOL_GROUPS = {
   webfetch: ["net", "link"], websearch: ["net", "globe"],
   req: ["tracker", "clipboard"], defect: ["tracker", "bug"], idea: ["tracker", "target"],
   decision: ["tracker", "fork"], source: ["tracker", "book"], finding: ["tracker", "bulb"],
-  todowrite: ["plan", "checklist"], work: ["plan", "inbox"],
+  work: ["plan", "inbox"],
   task: ["agent", "fanout"],
   architecture: ["asset", "boxlines"], conventions: ["asset", "ruler"], test_record: ["asset", "flask"],
   question: ["ask", "question"],

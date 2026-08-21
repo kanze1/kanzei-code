@@ -39,9 +39,6 @@ impl Component for BaseComponent {
             .insert("question", Arc::new(crate::question::QuestionTool));
         draft
             .tools
-            .insert("todowrite", Arc::new(crate::todowrite::TodoWriteTool));
-        draft
-            .tools
             .insert("webfetch", Arc::new(crate::webfetch::WebFetchTool));
         // R-217:websearch 注册进基础档位(dev 可用),默认 Ask——交互轮放行,
         // 自主轮 NonInteractive 下 Ask 即拒;域名白名单规则可精确放行。

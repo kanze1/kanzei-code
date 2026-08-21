@@ -56,38 +56,6 @@ on("kz:reasoning", (e) => {
   if (running) setStatus("思考中", true);
   appendReasoning(e.payload.text);
 });
-let todoItems = [];
-let todoPanelUserClosed = false;
-function renderTodoPanel(items, done, total) {
-  todoItems = items || [];
-  const panel = $("todo-panel");
-  const list = $("todo-list");
-  list.innerHTML = "";
-  // 计划清空(新会话/历史重放)后复位手动关闭标志,下一轮新计划仍可自动弹出;
-  // 用户主动关闭后,后续同轮的工具事件重渲染不得再把面板弹回来。
-  if (todoItems.length === 0) todoPanelUserClosed = false;
-  panel.classList.toggle("hidden", todoItems.length === 0 || todoPanelUserClosed);
-  $("todo-count").textContent = total ? `${done}/${total}` : "";
-  for (const item of todoItems) {
-    const row = document.createElement("div");
-    row.className = `todo-entry ${item.status}`;
-    const status = document.createElement("span");
-    status.className = "todo-status";
-    status.textContent = item.status === "done" ? "✓" : item.status === "doing" ? "●" : item.status === "dropped" ? "×" : "○";
-    const content = document.createElement("span");
-    content.className = "todo-content";
-    content.textContent = item.content;
-    row.append(status, content);
-    list.appendChild(row);
-  }
-}
-// D-350:当前计划面板手动关闭入口。todo-close 点击后隐藏面板并置手动关闭标志,
-// 后续 renderTodoPanel(工具事件重渲染)不再自动弹回;计划清空后标志复位。
-$("todo-close").addEventListener("click", () => {
-  todoPanelUserClosed = true;
-  $("todo-panel").classList.add("hidden");
-});
-
 // R-037 对话为主:工具活动一律不进主对话区,收束到右侧活动面板。
 let lastCompactionSummary = "";
 let lastCompactionEntry = null;
@@ -265,9 +233,6 @@ on("kz:tool-end", (e) => {
   if (p.ok && ["source", "finding"].includes(p.name)) refreshDocsSoon();
   // 改了文件或跑了命令,工作区状态徽章跟着变(提交后 +N 应当立刻归零)。
   if (p.ok && ["write", "edit", "multiedit", "bash"].includes(p.name)) refreshGitSoon();
-  if (p.display?.kind === "todo") {
-    renderTodoPanel(p.display.items || [], p.display.done || 0, p.display.total || 0);
-  }
   chatToolEnd(p.id, p.ok, p.preview, p.display, outcome);
   recordDiffSummary(p.display);
   // R-174:子代理终态进子代理面板 finished 区(task 类顶层 tool-end 只来自父任务收尾,

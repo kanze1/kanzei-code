@@ -566,7 +566,6 @@ async function switchProcess(processId, forceReload = false) {
   // 不在请求发出前清空消息:切线期间保留旧内容,等目标线程的历史完整恢复后
   // renderRecoveredMessages 一次性替换,避免慢请求/竞态把主对话显示成空白。
   bgClear();
-  renderTodoPanel([], 0, 0);
   await loadConversation(null, switchGeneration);
   if (!isCurrentSwitch()) return;
   await refreshPendingAsks();

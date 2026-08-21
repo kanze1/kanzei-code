@@ -502,7 +502,6 @@ async function loadConversation(sequence = null, switchGeneration = null) {
     activeProcessId === forProcessId;
   try {
     bgClear();
-    renderTodoPanel([], 0, 0);
     const history = await invoke("conversation_get", {
       projectDir: forProject,
       processId: forProcessId,

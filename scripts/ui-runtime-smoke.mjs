@@ -4198,7 +4198,7 @@ assert(primarySelect.value === "anthropic:claude-sonnet-5", "设置页非法模�
 {
   const realTools = [
     "read", "files", "symbols", "write", "edit", "insert", "bash", "process",
-    "grep", "glob", "git", "webfetch", "websearch", "todowrite", "work",
+    "grep", "glob", "git", "webfetch", "websearch", "work",
     "test_record", "architecture", "conventions", "question", "task",
     "req", "defect", "idea", "decision", "source", "finding",
     "frontend_locate", "frontend_check", "memory_note", "memory_search",
@@ -6007,7 +6007,7 @@ assert(
   localStorageShim.setItem("kz-language", "zh");
   sandbox.applyLanguage();
   assert(b9Key("权限请求") === "权限请求", "中文态权限请求标题应保持原文(前置失效)");
-  assert(b9Key("当前计划") === "当前计划", "中文态当前计划应保持原文(前置失效)");
+  assert(b9Key("回到最新") === "回到最新", "中文态回到最新应保持原文(前置失效)");
   assert(!sandbox.document.getElementById("process-tabs"), "中文态不应出现顶部进程切换条");
   assert(attrOf("prompt", "placeholder") === "想做什么?可粘贴/拖拽图片或 PDF", "中文态输入框 placeholder 应保持原文(前置失效)");
   assert(b9Key("排队 queue") === "排队 queue", "中文态排队 queue option 应保持原文(前置失效)");
@@ -6021,7 +6021,7 @@ assert(
   assert(attrOf("status-git", "title") === "Git branch · uncommitted changes", `英文态 status-git title 未翻译,实际 "${attrOf("status-git", "title")}"`);
   assert(attrOf("status-tokens", "aria-label") === "View context components", `英文态 status-tokens aria-label 未翻译,实际 "${attrOf("status-tokens", "aria-label")}"`);
   assert(b9Key("日志") === "Logs", `英文态「日志」未翻译,实际 "${b9Key("日志")}"`);
-  assert(b9Key("当前计划") === "Current plan", `英文态「当前计划」未翻译,实际 "${b9Key("当前计划")}"`);
+  assert(b9Key("回到最新") === "Jump to latest", `英文态「回到最新」未翻译,实际 "${b9Key("回到最新")}"`);
   assert(b9Key("全部类型") === "All types", `英文态「全部类型」未翻译(option 渲染点),实际 "${b9Key("全部类型")}"`);
   assert(b9Key("终端") === "terminal", `英文态「终端」未翻译(option 渲染点),实际 "${b9Key("终端")}"`);
   assert(b9Key("已关闭") === "Closed", `英文态「已关闭」未翻译,实际 "${b9Key("已关闭")}"`);
@@ -6043,7 +6043,7 @@ assert(
   localStorageShim.setItem("kz-language", "zh");
   sandbox.applyLanguage();
   assert(b9Key("权限请求") === "权限请求", `切回中文后「权限请求」未回原文,实际 "${b9Key("权限请求")}"`);
-  assert(b9Key("当前计划") === "当前计划", `切回中文后「当前计划」未回原文,实际 "${b9Key("当前计划")}"`);
+  assert(b9Key("回到最新") === "回到最新", `切回中文后「回到最新」未回原文,实际 "${b9Key("回到最新")}"`);
   assert(attrOf("prompt", "placeholder") === "想做什么?可粘贴/拖拽图片或 PDF", `切回中文后输入框 placeholder 未回原文,实际 "${attrOf("prompt", "placeholder")}"`);
   assert(b9Key("排队 queue") === "排队 queue", `切回中文后「排队 queue」未回原文,实际 "${b9Key("排队 queue")}"`);
 
@@ -6691,7 +6691,7 @@ const docsB = {
   agentToggle.click();
   assert(agentPanel.classList.contains("hidden"), "断言结束后 #agent-panel 未收起");
 }
-// ---------- D-350 面板 ✕ 关闭按钮:当前计划面板与子代理面板头部的显式关闭入口 ----------
+// ---------- D-350 面板 ✕ 关闭按钮:子代理面板头部的显式关闭入口 ----------
 {
   // 子代理面板:展开后头部应有 ✕(#agent-close),点击后面板收起,且不误弹活动面板
   // (agentClosePanel 恢复 activityPanelOpen 决定的状态)。
@@ -6716,49 +6716,6 @@ const docsB = {
   byId.get("agent-toggle").click(); // 复位互斥状态
   await flush();
 
-  // 当前计划面板:todo display 弹出面板后,头部应有 ✕(#todo-close),点击后收起,
-  // 且同轮后续工具事件的重新渲染不得把面板弹回;计划清空后复位,下轮可再自动弹出。
-  const todoPanel = byId.get("todo-panel");
-  const todoClose = byId.get("todo-close");
-  assert(todoClose, "D-350:当前计划面板头部缺少 ✕ 关闭按钮(#todo-close)");
-  const eA2 = handlers.get("kz:tool-end");
-  eA2({
-    payload: {
-      id: "todo-d350", name: "todowrite", ok: true, preview: "计划", sessionId: "sess-smoke",
-      display: { kind: "todo", items: [{ status: "doing", content: "第一步" }], done: 0, total: 1 },
-    },
-  });
-  await flush();
-  assert(!todoPanel.classList.contains("hidden"), "D-350:前置失败——todo display 未弹出 #todo-panel");
-  todoClose.click();
-  await flush();
-  assert(todoPanel.classList.contains("hidden"), "D-350:点击 #todo-close 后 #todo-panel 未收起");
-  // 同轮后续工具事件(同一份/新 todo 内容)不应把用户主动关闭的面板弹回。
-  eA2({
-    payload: {
-      id: "todo-d350b", name: "todowrite", ok: true, preview: "计划", sessionId: "sess-smoke",
-      display: { kind: "todo", items: [{ status: "doing", content: "第一步" }, { status: "todo", content: "第二步" }], done: 0, total: 2 },
-    },
-  });
-  await flush();
-  assert(todoPanel.classList.contains("hidden"), "D-350:用户关闭后工具事件重渲染又把 #todo-panel 弹回");
-  // 计划清空(新会话/历史重放)后复位标志:下轮新计划应能再次自动弹出。
-  eA2({
-    payload: {
-      id: "todo-d350c", name: "todowrite", ok: true, preview: "计划", sessionId: "sess-smoke",
-      display: { kind: "todo", items: [], done: 0, total: 0 },
-    },
-  });
-  await flush();
-  assert(todoPanel.classList.contains("hidden"), "D-350:计划清空后 #todo-panel 应保持隐藏");
-  eA2({
-    payload: {
-      id: "todo-d350d", name: "todowrite", ok: true, preview: "计划", sessionId: "sess-smoke",
-      display: { kind: "todo", items: [{ status: "doing", content: "新一轮第一步" }], done: 0, total: 1 },
-    },
-  });
-  await flush();
-  assert(!todoPanel.classList.contains("hidden"), "D-350:新计划未在清空后重新自动弹出(复位失败)");
 }
 
 // ---------- R-184 B 面:真实并列视图与合并前冲突预警 ----------

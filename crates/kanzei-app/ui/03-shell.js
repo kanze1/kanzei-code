@@ -63,7 +63,6 @@ function setupResize(elementId, key, side, min, max) {
   handle.addEventListener("lostpointercapture", stop);
 }
 setupResize("sidebar", "kz-sidebar-width", "right", 220, 460);
-setupResize("todo-panel", "kz-todo-width", "left", 240, 520);
 setupResize("bg-panel", "kz-activity-width", "left", 240, 520);
 let activeProcessId = null;
 let activeSessionId = null;
