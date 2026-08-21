@@ -372,6 +372,7 @@ pub async fn consolidate_memory_inbox(
                 }
             };
             let runner_config = RunnerConfig {
+                intensity: kanzei_harness::HarnessIntensity::Autonomous,
                 model: resolved.model.clone(),
                 max_tokens: 4096,
                 reasoning: kanzei_llm::ReasoningEffort::Off,

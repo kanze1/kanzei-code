@@ -127,6 +127,9 @@ pub(crate) async fn run_task(
     let round_tools: Arc<Mutex<std::collections::BTreeSet<String>>> =
         Arc::new(Mutex::new(std::collections::BTreeSet::new()));
     let round_closed = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    // R-322(#7):本轮模型是否用 `work handoff` 交还了控制权。与上面两项同一收口
+    // 方式(事件流,不扫 messages)——理由同 D-654:轮中压缩会让消息切片错位。
+    let round_handoff = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // R-253 批8:事件处理器按投影拆四 sink——UI/typed/trace/metrics 各自持有
     // 自己的状态,新增 RunEvent 只碰对应 sink(验收⑤)。
     let mut on_event = build_event_handler(
@@ -140,6 +143,7 @@ pub(crate) async fn run_task(
             subagent_tools.clone(),
             round_tools.clone(),
             round_closed.clone(),
+            round_handoff.clone(),
         ),
     );
 
@@ -284,6 +288,9 @@ pub(crate) async fn run_task(
                         tools: &[],
                         auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev)
                             && deps.agent.name == "dev",
+                        intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
+                        // 失败轮模型没跑完,不可能声明完成;失败分类由 round_failure 承担。
+                        model_declared_done: false,
                         closed_this_round: 0,
                         verify_every_n: 0,
                         progress_signature: &signature,
@@ -366,6 +373,13 @@ pub(crate) async fn run_task(
             // 不再持有私有否决(armAutoContinue 的 autoContinueAllowed 已移除)。
             auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev)
                 && deps.agent.name == "dev",
+            // R-322:门禁强度按 agent 取默认值。与 auto_allowed 是**两件事**——
+            // 后者答「能不能自动发下一条」,前者答「引擎对任务判断介入多深」。
+            // 结伴档即使手动一问一答也按 Paired 跑:Nudge/核查轮/冗余提醒都不该
+            // 在用户盯着屏幕的时候插进来。
+            intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
+            // R-322(#7):模型的停机权。置位后引擎不再对「是不是真做完了」发表意见。
+            model_declared_done: round_handoff.load(std::sync::atomic::Ordering::Relaxed),
             // R-144:本轮关闭条目数(req/defect close 成功计数)。D-654:改事件收口
             // (ToolStart 登记意图 + ToolEnd ok 计数)——原实现扫全历史 messages,
             // 历史 close 每轮重复计入,verify_every_n 节律被刷穿。

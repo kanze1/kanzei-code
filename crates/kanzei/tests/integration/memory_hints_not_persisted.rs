@@ -112,6 +112,7 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
         system: "test".into(),
     };
     let runner_config = kanzei_core::RunnerConfig {
+        intensity: kanzei_harness::HarnessIntensity::Autonomous,
         model: "mock".into(),
         max_tokens: 256,
         reasoning: kanzei_llm::ReasoningEffort::Off,
@@ -255,6 +256,7 @@ async fn 勘察简报只进本轮system_不进messages_不落历史() {
         system: "test".into(),
     };
     let runner_config = kanzei_core::RunnerConfig {
+        intensity: kanzei_harness::HarnessIntensity::Autonomous,
         model: "mock".into(),
         max_tokens: 256,
         reasoning: kanzei_llm::ReasoningEffort::Off,

@@ -176,7 +176,7 @@ pub(super) fn assemble_run_once<'a>(
     // 的 bytes/4 系统性低估放飞;收到 usage 后再由 EMA 持续下调。
     let calibration = conservative_calibration();
     // R-100 冗余机械门禁:按单次运行持有(跨轮清零),提醒追加进工具结果不阻断。
-    let redundancy = RedundancyWatch::default();
+    let redundancy = RedundancyWatch::new(config.intensity.policy().redundancy_hints);
     // R-162 事件触发召回:工具失败瞬间把相关记忆 Packet 注入下一请求前。
     // 策略从 config 借用(不拥有);None = 关闭召回,零行为变化。
     let recall = RecallWatch::new(config.recall.as_deref());

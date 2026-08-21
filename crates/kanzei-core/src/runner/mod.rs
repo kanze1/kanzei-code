@@ -73,6 +73,9 @@ impl AskPolicy {
 }
 
 pub struct RunnerConfig {
+    /// R-322:本轮门禁强度。决定引擎对**任务判断**介入多深(冗余提醒等);
+    /// 权限、托管围栏与事件真源不受它影响。默认 `Autonomous` = 引入前行为。
+    pub intensity: kanzei_harness::HarnessIntensity,
     pub model: String,
     pub max_tokens: u32,
     /// 思考强度;由调用方(CLI/桌面端)按配置或运行时选择传入。

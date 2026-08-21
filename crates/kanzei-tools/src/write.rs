@@ -402,6 +402,7 @@ mod tests {
         let client = LlmClient::new(&ProxyConfig::Disabled).unwrap();
         let route = Route::openai_at(&format!("http://{address}/v1"), None);
         let runner_config = RunnerConfig {
+            intensity: kanzei_harness::HarnessIntensity::Autonomous,
             model: "mock".into(),
             max_tokens: 128,
             reasoning: ReasoningEffort::Off,

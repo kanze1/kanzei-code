@@ -23,6 +23,8 @@ pub mod repair;
 pub mod tool;
 pub mod tool_pipeline;
 
+/// R-322:门禁强度是一等维度,调用方(桌面端/CLI)按模式取默认值后显式传入。
+pub use auto_run::{HarnessIntensity, IntensityPolicy};
 pub use config::{KanzeiConfig, ResolvedModel};
 pub use context::{refreshing_source, source, ContextSource};
 pub use conventions::DEFAULT_CONVENTIONS;

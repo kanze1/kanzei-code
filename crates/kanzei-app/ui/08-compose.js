@@ -742,6 +742,10 @@ $("auto-continue").addEventListener("change", () => {
 // 占着位置,还让人以为功能坏了。语义处置留给 R-221 research 模式重定位,这里先按档位收起。
 // 不挂进 syncAutoContinueWithProfile:那个函数中间有早退分支,挂进去会漏调。
 function syncResearchSectionVisibility() {
+  // R-322:门禁强度回显搭同一趟车。三处调用点(冷启动 / 进程回显 / 用户切换)
+  // 一次覆盖全,不必再挂第四个监听——挂多了才是漏调的来源。
+  // 放在早退之前:research-section 不存在时强度徽标仍要刷新。
+  if (typeof renderHarnessIntensity === "function") renderHarnessIntensity();
   const section = $("research-section");
   if (!section) return;
   section.classList.toggle("hidden", $("profile-select")?.value !== "research");

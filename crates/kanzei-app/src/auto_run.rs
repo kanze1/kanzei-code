@@ -17,6 +17,21 @@ use tauri::State;
 
 use crate::AppState;
 
+/// R-322:agent 名 → 门禁强度默认值。
+///
+/// 只有 `dev`(自主开发档)按 `Autonomous` 跑全套门禁;其余一律 `Paired`。
+/// 判据是**有没有人在场**,不是能力大小:结伴开发、研究、只读分析都在用户
+/// 盯着屏幕的情况下进行,Nudge / 验收核查轮 / 冗余提醒插进来只是噪音。
+///
+/// 这是**默认值**,不是终值。用户覆盖(界面控件)接进来后,调用方应当先取用户
+/// 显式选择,再回落本函数——所以这里不做任何缓存,也不读配置。
+pub(crate) fn intensity_for_agent(agent: &str) -> kanzei_harness::HarnessIntensity {
+    match agent {
+        "dev" => kanzei_harness::HarnessIntensity::Autonomous,
+        _ => kanzei_harness::HarnessIntensity::Paired,
+    }
+}
+
 /// 桌面端自主推进状态:控件输入(开关/暂停/本轮后停/上限)由前端经
 /// `auto_state_update` 同步,轮末判定由 run.rs 调用 `decide_auto_run`。
 #[derive(Default)]
@@ -238,6 +253,9 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
                 // D-583:连续 N 轮真实进展签名未变(max 槽复用为触发轮数,与
                 // RepeatedFailure 同口径)。
                 AutoStopReason::ZeroOutput(n) => ("ZeroOutput", Some(n)),
+                // R-322(#7):模型自己交还控制权。前端文案必须与其余原因区分——
+                // 这不是「引擎把它停了」,是「它说做完了」。
+                AutoStopReason::ModelDeclaredDone => ("ModelDeclaredDone", None),
             };
             let mut v = json!({ "type": "Stop", "reason": reason_str });
             if let Some(max) = max {
@@ -476,6 +494,8 @@ mod tests {
         let ctx = kanzei_harness::auto_run::AutoRunCtx {
             backlog: kanzei_harness::auto_run::BacklogStatus::Workable,
             halted: false,
+            intensity: kanzei_harness::HarnessIntensity::Autonomous,
+            model_declared_done: false,
             steps: 0,
             tools: &[],
             auto_allowed: true,

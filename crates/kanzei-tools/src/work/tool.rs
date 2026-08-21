@@ -437,7 +437,7 @@ impl Tool for WorkTool {
          unblock, verify, evidence, complete and supersede over append-only events. \
          WIP discipline is per line: items held by other lines appear as foreign_wip (read-only \
          background) and are never selected for this line; claiming one requires an explicit \
-         takeover reason. Queue priority comes from the run and cannot be overridden by tool input."
+         takeover reason. Queue priority comes from the run and cannot be overridden by tool input. \n         Use action `handoff` to declare the task finished and hand control back: the engine \n         stops the run and will NOT push you to keep going. Call it when the work is genuinely \n         done, when you need the user to decide, or when there is nothing useful left to do — \n         do not invent work to fill a round."
             .into()
     }
 
@@ -455,7 +455,8 @@ impl Tool for WorkTool {
             "verify",
             "evidence",
             "complete",
-            "supersede"
+            "supersede",
+            "handoff"
         ]);
         schema
     }
@@ -465,7 +466,8 @@ impl Tool for WorkTool {
             .get("action")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("unknown");
-        let read_only = matches!(action, "next" | "get_unit" | "list_units");
+        // R-322:handoff 是控制面声明,不碰磁盘,按只读归类(权限上无副作用可管)。
+        let read_only = matches!(action, "next" | "get_unit" | "list_units" | "handoff");
         vec![format!(
             "{}:{action}",
             if read_only { "read" } else { "write" }
@@ -477,6 +479,26 @@ impl Tool for WorkTool {
             Ok(input) => input,
             Err(output) => return output,
         };
+        // R-322(#7):模型的停机权。本动作**不写任何东西**——它只把「我认为做完了」
+        // 变成一条引擎能机械观察到的事实(轮末 MetricsSink 按 ToolStart/ToolEnd 收口,
+        // 与 D-654 的 close 计数同一套路;不扫消息历史,因为轮中压缩会让切片错位)。
+        //
+        // 为什么挂在 work 而不是新开一个工具:D-662 已把「托管专用工具膨胀」判成缺陷,
+        // 而 work 本就是取活与工作编排的抽象面,循环控制归它语义自洽,也不扩大模型的
+        // 工具选择面。
+        if input.action == "handoff" {
+            let summary = input
+                .summary
+                .as_deref()
+                .or(input.reason.as_deref())
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .unwrap_or("no summary given");
+            return ToolOutput::ok(format!(
+                "handoff acknowledged: {summary}
+control returned to the user;                  the engine will not push this run further."
+            ));
+        }
         if let Some(output) = execute_work_unit_action(&input, ctx) {
             return output;
         }

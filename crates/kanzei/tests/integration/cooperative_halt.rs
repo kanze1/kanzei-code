@@ -82,6 +82,7 @@ fn runner_config(
     halt: kanzei_core::CancellationToken,
 ) -> kanzei_core::RunnerConfig {
     kanzei_core::RunnerConfig {
+        intensity: kanzei_harness::HarnessIntensity::Autonomous,
         model: "mock".into(),
         max_tokens: 256,
         reasoning: kanzei_llm::ReasoningEffort::Off,

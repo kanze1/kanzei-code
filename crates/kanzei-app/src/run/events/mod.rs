@@ -207,6 +207,11 @@ pub(crate) struct MetricsSink {
     /// ok=true 才计数,语义与原「调用 close 且 ToolResult 非 error」一致。
     pending_closes: Mutex<std::collections::HashSet<String>>,
     round_closed: Arc<std::sync::atomic::AtomicU32>,
+    /// R-322(#7):本轮模型是否用 `work handoff` 显式声明任务完成、交还控制权。
+    /// 与 close 计数同一收口方式(ToolStart 登记意图 → ToolEnd ok 才置位):
+    /// 被权限拦下或执行失败的 handoff 不算数据。
+    pending_handoffs: Mutex<std::collections::HashSet<String>>,
+    round_handoff: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl MetricsSink {
@@ -217,6 +222,7 @@ impl MetricsSink {
         subagent_tools: Arc<Mutex<std::collections::BTreeSet<String>>>,
         round_tools: Arc<Mutex<std::collections::BTreeSet<String>>>,
         round_closed: Arc<std::sync::atomic::AtomicU32>,
+        round_handoff: Arc<std::sync::atomic::AtomicBool>,
     ) -> Self {
         Self {
             tool_started,
@@ -226,6 +232,8 @@ impl MetricsSink {
             round_tools,
             pending_closes: Mutex::new(std::collections::HashSet::new()),
             round_closed,
+            pending_handoffs: Mutex::new(std::collections::HashSet::new()),
+            round_handoff,
         }
     }
     /// R-143:git commit 调用意图登记(成功与否由 ToolEnd ok 收口)。
@@ -251,6 +259,12 @@ impl MetricsSink {
         if is_close {
             self.pending_closes.lock().unwrap().insert(id.to_string());
         }
+        // R-322:handoff 意图登记,等 ToolEnd ok 收口。
+        if name == "work"
+            && input.get("action").and_then(serde_json::Value::as_str) == Some("handoff")
+        {
+            self.pending_handoffs.lock().unwrap().insert(id.to_string());
+        }
     }
     /// R-143:git commit 结束后解析提交结果;返回该工具耗时(取并清开始时刻)。
     fn resolve_tool_end(&self, id: &str, name: &str, ok: bool) -> Option<u128> {
@@ -259,6 +273,11 @@ impl MetricsSink {
         if self.pending_closes.lock().unwrap().remove(id) && ok {
             self.round_closed
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        // R-322:handoff 成功执行才算模型真的声明了完成。
+        if self.pending_handoffs.lock().unwrap().remove(id) && ok {
+            self.round_handoff
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
         if name == "git" {
             if ok
@@ -676,8 +695,21 @@ mod tests {
         Arc<Mutex<std::collections::BTreeSet<String>>>,
         Arc<std::sync::atomic::AtomicU32>,
     ) {
+        mk_metrics_sink_full().0
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn mk_metrics_sink_full() -> (
+        (
+            MetricsSink,
+            Arc<Mutex<std::collections::BTreeSet<String>>>,
+            Arc<std::sync::atomic::AtomicU32>,
+        ),
+        Arc<std::sync::atomic::AtomicBool>,
+    ) {
         let round_tools = Arc::new(Mutex::new(std::collections::BTreeSet::new()));
         let round_closed = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let round_handoff = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let sink = MetricsSink::new(
             Arc::new(Mutex::new(HashMap::new())),
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -685,8 +717,40 @@ mod tests {
             Arc::new(Mutex::new(std::collections::BTreeSet::new())),
             round_tools.clone(),
             round_closed.clone(),
+            round_handoff.clone(),
         );
-        (sink, round_tools, round_closed)
+        ((sink, round_tools, round_closed), round_handoff)
+    }
+
+    /// R-322(#7):handoff 必须成功执行才算模型声明了完成——被拦下/失败的调用
+    /// 不得让引擎误以为模型交还了控制权(与 D-654 的 close 计数同一收口口径)。
+    #[test]
+    fn handoff成功才置位_失败不算声明() {
+        let ((sink, _, _), handoff) = mk_metrics_sink_full();
+        sink.note_round_tool("h1", "work", &json!({"action": "handoff"}));
+        sink.resolve_tool_end("h1", "work", false);
+        assert!(
+            !handoff.load(std::sync::atomic::Ordering::Relaxed),
+            "失败的 handoff 不得置位"
+        );
+
+        sink.note_round_tool("h2", "work", &json!({"action": "handoff"}));
+        sink.resolve_tool_end("h2", "work", true);
+        assert!(
+            handoff.load(std::sync::atomic::Ordering::Relaxed),
+            "成功的 handoff 必须置位"
+        );
+    }
+
+    /// work 的其它动作不得被误判成 handoff。
+    #[test]
+    fn work其它动作不置位handoff() {
+        let ((sink, _, _), handoff) = mk_metrics_sink_full();
+        for action in ["next", "claim", "complete", "checkpoint"] {
+            sink.note_round_tool("x", "work", &json!({"action": action}));
+            sink.resolve_tool_end("x", "work", true);
+        }
+        assert!(!handoff.load(std::sync::atomic::Ordering::Relaxed));
     }
 
     /// D-654 核心回归:鞭挞的工具画像走事件真源,不经过 `summary.messages` 切片。

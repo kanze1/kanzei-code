@@ -80,7 +80,7 @@
 - 取活依据: engine:唯一可执行 WIP 是 D-592，必须先恢复它
 - 阻塞: 等待用户提供或释放可安全接管的 llama-local 实测窗口；解除人：用户准备 llama-server 窗口并告知 agent 执行多步工具循环验收。
 
-## D-655 轮末统计切片 prior.len() 在轮中压缩后错位,episodes/harvest/失败提炼画像失真 [open] (medium)
+## D-655 轮末统计切片 prior.len() 在轮中压缩后错位,episodes/harvest/失败提炼画像失真 [fixing] (medium)
 - 复现: 与 D-654 同根因的统计侧残留:coordinator.rs 轮末 summarize_tools 切片、persistence.rs:133 与 crates/kanzei/src/cli/run/finalize.rs:151 的 this_run 切片都按 prior.len().min(len) 取本轮;compact_with_digest/trim_tail_for_protocol 在轮中结构性删短 messages 后切片错位:压缩量大于本轮新增时切空,否则混入错误区段。鞭挞判定已在 D-654 改事件真源,这三处统计口径(episode metrics/harvest_end_of_run 失败提炼/工具计数)仍用切片
 - 影响: 遥测与记忆收割质量:压缩触发的轮次 episode 画像不全或为空、失败观察漏投;不影响鞭挞判定(已解耦)
 - 来源: D-654 修复现场 self-found
@@ -88,6 +88,11 @@
 - 验收: ①本轮口径不再依赖 prior.len() 盲切:由 runner 维护跨压缩稳定的本轮边界(RunSummary 携带)或统计改事件真源;②三处调用点(coordinator/persistence/CLI finalize)统一新口径;③回归:模拟轮中压缩删短 prior 后,episode tools/metrics 与 harvest 仍只含本轮内容
 - refs: D-654
 - 优先级: P2
+- 进展: 已按设计冻结开工：不变式为本轮统计不依赖 prior.len()，权威来源改为稳定本轮边界或事件真源；预期覆盖 coordinator/persistence/CLI finalize 三处及压缩回归。下一步：并行读取三处调用链和 runner 的消息压缩/事件记录实现，确定最小统一边界接口。
+- observed_head: 6505dfb899d2463192337b058f4cba9a5b74319f
+- observed_worktree_hash: fnv1a64:b300c4c79e4511a4
+- recorded_at: 1787271607086
+- 取活依据: engine:唯一可执行 WIP 是 D-655，必须先恢复它
 
 ## D-656 package.ps1 -Publish 后 build 标签只存在于远端,本地缺失使下次 -Ack 范围核对失真 [open] (low)
 - 复现: 2026-08-21 发版 build-6cc9333c:gh release create 在远端建标签,本地 git tag --list build-6cc9333c 为空;package.ps1 的 D-183 发布范围核对用本地 git tag --list build-* 取上一标签,本地缺最新标签时下次发版会从更旧的标签起算,-Ack 条数被迫虚高
@@ -96,3 +101,28 @@
 - 标签: 发布
 - 验收: ①publish 成功后在本地创建或 fetch 同名 build 标签(脚本内完成,失败仅警告不阻断);②发布范围核对前校验最新本地 build 标签与远端一致,不一致给出明确提示
 - 优先级: P3
+
+## D-660 D-659 提交混入 conversation.rs 原有会话投影改动 [open] (medium)
+- refs: D-659
+- 复现: D-659 提交 6505dfb8 预期只包含 crates/kanzei-app/src/conversation.rs 两处 clippy 等价修复，但提交 diff 同时包含 conversation_get 的 typed fact 历史投影回放逻辑与 project_segment_at_sequence 辅助函数；这些改动在 D-659 修复前已存在于工作树，来源属于其他未收口工作。
+- 影响: 提交边界与条目归属不一致，审计无法把 6505dfb8 的行为改动准确归因到对应需求；可能造成后续重复实现或错误回滚。
+- 来源: self-found：D-659 提交后文件核对
+- 标签: 流程
+- 进展: 已登记，暂不回滚或重写历史；待按父提交与原始工作树证据确认归属，再决定补充归属说明或开独立修正提交。
+- 优先级: P1
+
+## D-661 wave 调度器保守封波损失可达并行度 [fixing] (medium)
+- 原始描述: 外部评估 #3：确定性换掉了最大并行度。顺序扫描封波不是最优调度，损失 wall-clock latency 与 IO 利用率，一轮几十个调用时明显。用户判定这算缺陷不算决策
+- 复现: 调用序 [A,B,C,D]，冲突关系 A↔B、C↔D，跨对互不冲突。旧实现顺序扫描遇冲突即封波，得 [[A],[B,C],[D]] 三波；可达最优 [[A,C],[B,D]] 两波，且不颠倒任何冲突对的先后
+- 标签: 核心
+- 优先级: P2
+- 进展: 原始报告举的例(A↔B、B↔C 冲突，A 与 C 不冲突，期望 [[A,C],[B]])不成立——它要求 C 跑在 B 之前，而 C 与 B 冲突。conflicts_with 蕴含顺序有意义（同树两次写、读与写），任意重排是换语义不是提速。已换成不需重排的见证用例
+- observed_head: 6505dfb899d2463192337b058f4cba9a5b74319f
+- observed_worktree_hash: fnv1a64:e75ae903cead5b01
+- recorded_at: 1787273122350
+
+## D-662 托管文档专用工具膨胀致工具选择面过载 [open] (medium)
+- 原始描述: 外部评估 #5：Managed Documents 造成 Tool Explosion，从 Unix-like tools 走向 Domain-specific OS。用户判定这是工具设计问题，算缺陷不算决策
+- 复现: 当前注册工具已 30+，其中 req/defect/idea/decision/architecture/test_record/work/memory_* 等托管域工具与通用 edit/write 语义重叠；模型需在 edit 与 req(update) 之间做领域判断，工具越多误选概率越高，且每个工具签名等同公开 API
+- 标签: 流程
+- 优先级: P2

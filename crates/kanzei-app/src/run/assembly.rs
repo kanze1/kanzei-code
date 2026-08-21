@@ -254,6 +254,14 @@ pub(crate) async fn assemble_run(
         // D-342:主对话 run 全部接停止令牌(协作式停止的接收端)。
         Some(halt_token),
     );
+    // R-322:门禁强度按 agent 取默认值。build_runner_config 是 CLI/桌面共用的
+    // 构造器,它给的是保守默认(Autonomous = 引入前行为);桌面端知道当前 agent,
+    // 在这里落到真实档位。轮末判定用的强度取自同一个函数(coordinator.rs),
+    // 两处必须同源——否则会出现「运行时按结伴跑、轮末按自主判」的错位。
+    let runner_config = kanzei_core::RunnerConfig {
+        intensity: crate::auto_run::intensity_for_agent(&agent.name),
+        ..runner_config
+    };
     let ask_source = if mode.autonomous {
         "autonomous"
     } else if request.process_id.starts_with("p|") {

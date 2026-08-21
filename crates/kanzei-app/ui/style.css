@@ -979,7 +979,14 @@ button:disabled { opacity: .45; cursor: default; }
   font-size: var(--fs-12); font-weight: 500; transition: background .25s, color .25s;
 }
 #statusbar.running { background: var(--statusbar-run); color: var(--statusbar-run-fg); }
-.status-left, .status-right { display: flex; align-items: center; gap: 10px; }
+.status-left, .status-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.status-left { flex: 1 1 auto; overflow: hidden; }
+.status-right { flex: 0 1 auto; max-width: 58%; }
+.status-left > span, .status-right > span, #status-tokens {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#status-tokens { max-width: min(58vw, 680px); }
+#status-version { flex: 0 0 auto; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot.idle { background: var(--dot-idle); }
 .dot.run { background: var(--dot-run); }
@@ -1996,6 +2003,14 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
   font-family: var(--mono); font-size: var(--fs-10); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px;
 }
 .menu-row select { flex: 0 0 auto; max-width: 140px; }
+/* R-322:门禁强度徽标。只读回显——强度是模式的后果,不是第二个可配开关。 */
+.menu-row .pill {
+  flex: 0 0 auto; font-family: var(--mono); font-size: var(--fs-10);
+  border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; color: var(--dim);
+}
+.menu-row .pill[data-intensity="autonomous"] { color: var(--fg); border-color: var(--fg); }
+#harness-intensity-row { cursor: default; }
+#harness-intensity-row:hover { background: transparent; }
 .menu-row input[type="number"] { flex: 0 0 auto; width: 62px; }
 .menu-row > button { flex: 0 0 auto; }
 .menu-row > input[type="checkbox"] { flex: 0 0 auto; }

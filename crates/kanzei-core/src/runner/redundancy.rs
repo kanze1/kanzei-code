@@ -18,6 +18,10 @@ use kanzei_llm::Part;
 ///    字段已含的路径也出现在 prompt 里,说明是在让子代理重新探索已知位置。
 #[derive(Default)]
 pub(crate) struct RedundancyWatch {
+    /// R-322:结伴档关闭机械提醒——用户在场,重复的 git status 他自己看得见,
+    /// 引擎再往工具结果里塞一行只是噪音。`false` = 整个 watcher 静默(不改任何
+    /// 工具结果),与引入冗余门禁之前逐字节一致。
+    enabled: bool,
     /// 上一次 git status/diff 的结果内容(工作树指纹,None = 尚未见过)。
     last_git_content: Option<String>,
     /// 最近一次全量测试时的指纹。
@@ -27,6 +31,13 @@ pub(crate) struct RedundancyWatch {
 }
 
 impl RedundancyWatch {
+    pub(crate) fn new(enabled: bool) -> Self {
+        RedundancyWatch {
+            enabled,
+            ..Default::default()
+        }
+    }
+
     /// 在整步工具结果回喂前调用:`results` 与 `calls` 按下标一一对应
     /// (并行 wave 与串行路径都保持该对齐)。只追加、不改 is_error。
     pub(crate) fn note_step(
@@ -35,6 +46,9 @@ impl RedundancyWatch {
         calls: &[(String, String, serde_json::Value, String)],
         results: &mut [Part],
     ) {
+        if !self.enabled {
+            return;
+        }
         // calls[i]↔results[i] 下标对齐不变式(R-155 设计要点 3):
         // 不变式跨 tool_exec/redundancy/drive 三文件,这里锁住调用方必须保持对齐,
         // 否则 results.get_mut(index) 会静默配错工具结果。
@@ -183,7 +197,7 @@ mod tests {
 
     #[test]
     fn 重复_git_status_无变化时_就地提醒() {
-        let mut watch = RedundancyWatch::default();
+        let mut watch = RedundancyWatch::new(true);
         let dir = std::env::temp_dir().join(format!("kz-red-git-{}", std::process::id()));
         std::fs::create_dir_all(&dir).ok();
 
@@ -221,7 +235,7 @@ mod tests {
             result_content(&results[1])
         );
         // 内容变了(工作树有改动)就不再提醒。
-        let mut watch2 = RedundancyWatch::default();
+        let mut watch2 = RedundancyWatch::new(true);
         let mut results2 = vec![
             Part::ToolResult {
                 call_id: "g1".into(),
@@ -241,7 +255,7 @@ mod tests {
 
     #[test]
     fn 全量测试_工作树未变时_就地提醒() {
-        let mut watch = RedundancyWatch::default();
+        let mut watch = RedundancyWatch::new(true);
         let dir = std::env::temp_dir().join(format!("kz-red-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).ok();
 
@@ -312,7 +326,7 @@ mod tests {
             result_content(&results2[1])
         );
         // 定向测试不算全量,不触发。
-        let mut watch3 = RedundancyWatch::default();
+        let mut watch3 = RedundancyWatch::new(true);
         let calls3 = vec![(
             "b3".into(),
             "bash".into(),
@@ -338,7 +352,7 @@ mod tests {
             "# Defects\n\n## D-001 启动黑屏 [open]\n- 复现: crates/kanzei-app/ui/main.js 初始化\n",
         )
         .unwrap();
-        let mut watch = RedundancyWatch::default();
+        let mut watch = RedundancyWatch::new(true);
         let calls = vec![(
             "t1".into(),
             "task".into(),
@@ -371,5 +385,35 @@ mod tests {
         watch.note_step(&dir, &calls2, &mut results2);
         assert!(!result_content(&results2[0]).contains("[冗余提醒]"));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-322:结伴档整个 watcher 静默——工具结果逐字节不变,不追加任何提醒。
+    /// 用户在场时重复的 git status 他自己看得见,引擎再塞一行只是噪音。
+    #[test]
+    fn 结伴档_冗余提醒完全静默() {
+        let mut watch = RedundancyWatch::new(false);
+        let calls: Vec<(String, String, serde_json::Value, String)> = vec![
+            (
+                "g1".into(),
+                "bash".into(),
+                serde_json::json!({"command": "git status --porcelain"}),
+                "".into(),
+            ),
+            (
+                "g2".into(),
+                "bash".into(),
+                serde_json::json!({"command": "git status --porcelain"}),
+                "".into(),
+            ),
+        ];
+        let mk = |id: &str| Part::ToolResult {
+            call_id: id.into(),
+            content: "same tree".into(),
+            is_error: false,
+        };
+        let mut results = vec![mk("g1"), mk("g2")];
+        let before = results.clone();
+        watch.note_step(std::path::Path::new("."), &calls, &mut results);
+        assert_eq!(results, before, "结伴档下工具结果必须逐字节不变");
     }
 }

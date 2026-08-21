@@ -197,6 +197,7 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         transcript_provider: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
+        intensity: kanzei_harness::HarnessIntensity::Autonomous,
         model: "mock".into(),
         max_tokens: 256,
         reasoning: kanzei_llm::ReasoningEffort::Off,

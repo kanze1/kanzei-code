@@ -105,6 +105,7 @@ pub(crate) async fn quick_req(
             continue;
         };
         let runner_config = RunnerConfig {
+            intensity: kanzei_harness::HarnessIntensity::Autonomous,
             model: resolved.model.clone(),
             max_tokens: config.limits.subagent_max_tokens(),
             reasoning: kanzei_llm::ReasoningEffort::Off,
@@ -276,6 +277,7 @@ pub(crate) async fn idea_split_with_coordinator(
             }
         };
         let runner_config = RunnerConfig {
+            intensity: kanzei_harness::HarnessIntensity::Autonomous,
             model: resolved.model.clone(),
             max_tokens: config.limits.subagent_max_tokens(),
             reasoning: kanzei_llm::ReasoningEffort::Off,
@@ -703,6 +705,7 @@ pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewRes
             }
         };
         let runner_config = RunnerConfig {
+            intensity: kanzei_harness::HarnessIntensity::Autonomous,
             max_tokens: config.limits.subagent_max_tokens(),
             reasoning: kanzei_llm::ReasoningEffort::Off,
             service_tier: config.service_tier_for(&resolved),

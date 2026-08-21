@@ -494,6 +494,7 @@ pub(crate) async fn run_subagent(
         _ => (&rt.fast.0, &rt.fast.1, &rt.fast_service_tier),
     };
     let config = RunnerConfig {
+        intensity: kanzei_harness::HarnessIntensity::Autonomous,
         model: model.clone(),
         max_tokens: rt.max_tokens,
         // 子代理是机械检索,不开思考:省钱且避免本地小模型不认该参数。

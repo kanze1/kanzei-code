@@ -200,6 +200,7 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
         transcript_provider: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
+        intensity: kanzei_harness::HarnessIntensity::Autonomous,
         model: "mock".into(),
         max_tokens: 256,
         reasoning: kanzei_llm::ReasoningEffort::Off,

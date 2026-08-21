@@ -37,6 +37,30 @@ function selectedAgent() {
   if (mode === "dev-auto") return { profile: "dev", agent: "dev" };
   return { profile: "research", agent: "research" };
 }
+
+// R-322:门禁强度的**唯一真源是后端** `intensity_for_agent`(crates/kanzei-app/src/
+// auto_run.rs)。这里只是回显,判据必须与那边逐条一致——两处漂开就会出现「界面说
+// 结伴、引擎按自主跑」,而这正是本条目要消除的那类不可见错位。改一边必须改另一边。
+function harnessIntensityOf(agentName) {
+  return agentName === "dev" ? "autonomous" : "paired";
+}
+
+// 逐条列出这一档下引擎会不会插手。用户抱怨的是「区别不够明显」,所以不能只写
+// 「轻/重」两个字——要把具体让渡了什么写出来。
+function renderHarnessIntensity() {
+  const badge = $("harness-intensity-badge");
+  const desc = $("harness-intensity-desc");
+  if (!badge || !desc) return;
+  const intensity = harnessIntensityOf(selectedAgent().agent);
+  badge.dataset.intensity = intensity;
+  if (intensity === "autonomous") {
+    badge.textContent = t("重");
+    desc.textContent = t("无人监督:引擎会追加推进指令、插入验收核查轮、标注冗余调用");
+  } else {
+    badge.textContent = t("轻");
+    desc.textContent = t("有人监督:引擎不推进、不插核查轮、不标冗余;模型说完成即停");
+  }
+}
 function workPriorityStorageKey() {
   return `kz-work-priority:${currentProject || "default"}`;
 }

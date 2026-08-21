@@ -44,23 +44,63 @@ pub(crate) struct PreparedToolCall {
     pub(super) concurrency: ToolConcurrency,
 }
 
+/// D-661:按**冲突前驱层级**切波,而不是顺序扫描遇冲突即封波。
+///
+/// 旧实现只维护一个「当前波」,一旦封波就再也回不去:后面出现的、与任何在跑的调用
+/// 都不冲突的工具,只能排到新波里等着。见证用例(D-661 复现):调用序 `[A, B, C, D]`,
+/// 冲突关系 `A↔B`、`C↔D`,其余互不冲突——旧实现得到 `[[A], [B, C], [D]]` 三波,
+/// 而两波 `[[A, C], [B, D]]` 就够,且不改变任何冲突对的先后。
+///
+/// # 不变式:冲突对的相对顺序必须保持
+///
+/// `ToolConcurrency::conflicts_with` 表达的是「不能同时跑」,而它蕴含「顺序有意义」——
+/// 同一棵树上的两次 `WorktreeWrite` 是两次写,`Shared` 与 `WorktreeWrite` 是读与写,
+/// 先后颠倒都会换掉结果。所以本函数**不做**任意重排:
+///
+/// > 对任意 `i < j`,若 `calls[i]` 与 `calls[j]` 冲突,则 `wave(i) < wave(j)`。
+///
+/// 这条不变式把「可达最优」限制成**层级调度**而非**装箱**:朴素 first-fit 会把 j
+/// 塞进比其冲突前驱更早的波(等于把两次写颠倒过来),那不是提速,是换语义。
+///
+/// # 算法
+///
+/// 每个调用的最早可入波 = 所有**更早的冲突前驱**所在波 + 1(无前驱则 0);
+/// 从该波起找第一个未满的波放入。因为任何与 j 冲突的更早调用 i 必然满足
+/// `wave(i) + 1 <= earliest`,所以 `earliest` 及其之后的波里不可能存在与 j 冲突的
+/// 更早调用——放进去无需再查一次冲突。容量不足时只会往**后**顺延,不会破坏不变式。
+///
+/// 复杂度 O(n²) 冲突比较,与旧实现同阶;n 是单步工具调用数(上限 8~几十),不是热点。
+/// 确定性保持:同样的输入序列永远切出同样的波(顺序遍历 + 最早可用波)。
 pub(crate) fn build_tool_execution_waves_with(
     max_parallel: usize,
     calls: Vec<PreparedToolCall>,
 ) -> Vec<Vec<PreparedToolCall>> {
-    let mut waves = Vec::new();
-    let mut current: Vec<PreparedToolCall> = Vec::new();
-    for call in calls {
-        let conflicts = current
-            .iter()
-            .any(|other| call.concurrency.conflicts_with(&other.concurrency));
-        if !current.is_empty() && (conflicts || current.len() >= max_parallel) {
-            waves.push(std::mem::take(&mut current));
+    // 0 会让下面的容量循环永远找不到空位;调用方传的是常量 8,这里只做防御。
+    let capacity = max_parallel.max(1);
+    let concurrency: Vec<ToolConcurrency> =
+        calls.iter().map(|call| call.concurrency.clone()).collect();
+    let mut waves: Vec<Vec<PreparedToolCall>> = Vec::new();
+    let mut placed: Vec<usize> = Vec::with_capacity(calls.len());
+    for (index, call) in calls.into_iter().enumerate() {
+        // 最早可入波:越过每一个更早的冲突前驱。
+        let mut earliest = 0usize;
+        for prior in 0..index {
+            if concurrency[index].conflicts_with(&concurrency[prior]) {
+                earliest = earliest.max(placed[prior] + 1);
+            }
         }
-        current.push(call);
-    }
-    if !current.is_empty() {
-        waves.push(current);
+        let mut slot = earliest;
+        loop {
+            if slot >= waves.len() {
+                waves.push(Vec::new());
+            }
+            if waves[slot].len() < capacity {
+                break;
+            }
+            slot += 1;
+        }
+        waves[slot].push(call);
+        placed.push(slot);
     }
     waves
 }
@@ -755,5 +795,126 @@ mod tests {
             assert!(parts.is_empty());
             assert!(note.is_none());
         }
+    }
+
+    // ---- D-661:切波的并行度与顺序不变式 ----
+
+    /// 只关心并发契约的轻量调用构造(不执行,只喂给切波函数)。
+    fn wave_call(index: usize, concurrency: ToolConcurrency) -> PreparedToolCall {
+        let tool = Arc::new(ProbeTool {
+            name: "probe_wave",
+            concurrency: concurrency.clone(),
+            in_flight: Arc::new(AtomicUsize::new(0)),
+            max_in_flight: Arc::new(AtomicUsize::new(0)),
+        });
+        PreparedToolCall {
+            index,
+            id: format!("call_{index}"),
+            name: "probe_wave".into(),
+            input: serde_json::json!({}),
+            tool,
+            concurrency,
+        }
+    }
+
+    fn wave_shape(waves: &[Vec<PreparedToolCall>]) -> Vec<Vec<usize>> {
+        waves
+            .iter()
+            .map(|wave| wave.iter().map(|call| call.index).collect())
+            .collect()
+    }
+
+    #[test]
+    fn 切波_不相交冲突对不再各自占一波() {
+        // D-661 见证:A↔B 冲突、C↔D 冲突、跨对互不冲突。
+        // 旧实现顺序扫描封波得 [[A],[B,C],[D]] 三波;两波足够,且不动任何冲突对的先后。
+        let a = ToolConcurrency::WorktreeWrite("tree:a".into());
+        let c = ToolConcurrency::WorktreeWrite("tree:c".into());
+        let waves = build_tool_execution_waves_with(
+            8,
+            vec![
+                wave_call(0, a.clone()),
+                wave_call(1, a),
+                wave_call(2, c.clone()),
+                wave_call(3, c),
+            ],
+        );
+        assert_eq!(
+            wave_shape(&waves),
+            vec![vec![0, 2], vec![1, 3]],
+            "两条独立冲突链应当并肩推进,而不是串成三波"
+        );
+    }
+
+    #[test]
+    fn 切波_冲突对的先后顺序绝不颠倒() {
+        // 不变式护栏:i<j 且冲突 => wave(i) < wave(j)。
+        // 朴素 first-fit 装箱会把 2 塞进 wave0(与 0 不冲突),于是 2 跑在 1 前面——
+        // 同一棵树上的两次写被颠倒,那是换语义不是提速。别改成 first-fit。
+        let shared = ToolConcurrency::Shared("tree:x".into());
+        let write = ToolConcurrency::WorktreeWrite("tree:x".into());
+        let waves = build_tool_execution_waves_with(
+            8,
+            vec![
+                wave_call(0, shared.clone()),
+                wave_call(1, write.clone()),
+                wave_call(2, shared),
+            ],
+        );
+        let shape = wave_shape(&waves);
+        let wave_of = |index: usize| {
+            shape
+                .iter()
+                .position(|wave| wave.contains(&index))
+                .expect("每个调用都必须落在某个波里")
+        };
+        assert!(wave_of(0) < wave_of(1), "读(0)与写(1)冲突,0 必须先跑");
+        assert!(wave_of(1) < wave_of(2), "写(1)与读(2)冲突,1 必须先跑");
+        assert_eq!(shape, vec![vec![0], vec![1], vec![2]]);
+    }
+
+    #[test]
+    fn 切波_全不冲突时按容量装满() {
+        let waves = build_tool_execution_waves_with(
+            2,
+            (0..5)
+                .map(|i| wave_call(i, ToolConcurrency::Shared("tree:x".into())))
+                .collect(),
+        );
+        assert_eq!(wave_shape(&waves), vec![vec![0, 1], vec![2, 3], vec![4]]);
+    }
+
+    #[test]
+    fn 切波_exclusive_仍然独占且串行() {
+        // Exclusive 与任何东西冲突(含彼此),必须一个一波、顺序不变。
+        let waves = build_tool_execution_waves_with(
+            8,
+            vec![
+                wave_call(0, ToolConcurrency::Exclusive),
+                wave_call(1, ToolConcurrency::Shared("tree:x".into())),
+                wave_call(2, ToolConcurrency::Exclusive),
+            ],
+        );
+        assert_eq!(wave_shape(&waves), vec![vec![0], vec![1], vec![2]]);
+    }
+
+    #[test]
+    fn 切波_容量满时只向后顺延不破坏不变式() {
+        // 容量 1:即使互不冲突也得排队,且顺序保持。
+        let waves = build_tool_execution_waves_with(
+            1,
+            (0..3)
+                .map(|i| wave_call(i, ToolConcurrency::Shared("tree:x".into())))
+                .collect(),
+        );
+        assert_eq!(wave_shape(&waves), vec![vec![0], vec![1], vec![2]]);
+    }
+
+    #[test]
+    fn 切波_空输入与单调用() {
+        assert!(build_tool_execution_waves_with(8, Vec::new()).is_empty());
+        let waves =
+            build_tool_execution_waves_with(8, vec![wave_call(0, ToolConcurrency::Exclusive)]);
+        assert_eq!(wave_shape(&waves), vec![vec![0]]);
     }
 }

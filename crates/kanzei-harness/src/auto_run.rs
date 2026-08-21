@@ -90,6 +90,9 @@ pub enum AutoStopReason {
     /// D-583:连续 ZERO_OUTPUT_ROUND_LIMIT 轮真实进展签名未变(带触发轮数供展示)——
     /// 与 NoAction 互补:那个防「整轮不调用任何工具」,这个防「调用了工具但什么也没变」。
     ZeroOutput(u32),
+    /// R-322(#7):模型显式声明任务完成并交还控制权。**不是引擎的判断**,
+    /// 引擎只是照做——与其余停止原因的性质不同,UI 文案不应写成「引擎停止了它」。
+    ModelDeclaredDone,
 }
 
 /// 轮末判定结果。
@@ -233,6 +236,22 @@ impl AutoRunState {
     /// ⑥无动作(第一次 NUDGE/第二次停);⑦正常续跑。
     /// R-199:档位检查在 backlog 之后——模式不匹配时引擎 Stop(ProfileMismatch)
     /// 且计数不 +1(重置为 0),前端不再有第二次否决(计数与实际轮次不再漂移)。
+    ///
+    /// R-322 起完整顺序(**分界线是「谁有信息做这个判断」,不是重要程度**):
+    ///
+    /// ```text
+    /// 资源/用户段(任何强度都执行,模型无权否决):
+    ///   backlog → auto_allowed → halted → paused → stop_after_round
+    ///   → max_rounds → round_failure
+    /// 模型段(模型的停机权,引擎无权否决):
+    ///   → model_declared_done
+    /// 任务判断段(仅 Autonomous 档借给引擎):
+    ///   → no_action/Nudge → zero_output → verify_round → Continue
+    /// ```
+    ///
+    /// `zero_output`(D-583)看着像任务判断,其实不是:它比对 (HEAD、worktree hash、
+    /// tracker 内容) 的真实签名,不解释语义,只回答「磁盘上还在不在变」。
+    /// 无人值守时这是唯一的失控兜底,**两档都保留**,别按强度关掉它。
     pub fn decide(&mut self, ctx: &AutoRunCtx) -> AutoRunAction {
         if ctx.backlog.should_stop() {
             let reason = match ctx.backlog {
@@ -278,8 +297,24 @@ impl AutoRunState {
             };
         }
         self.failed_rounds = 0;
+        // R-322(#7):模型的停机权。位置很讲究——在用户意图(halted/paused/
+        // stop_after_round)与资源兜底(max_rounds/round_failure)**之后**,在所有
+        // 任务判断(Nudge/NoAction/ZeroOutput/VerifyRound)**之前**。
+        //
+        // 之后:用户按了停、或者 provider 已经限流,那些不需要征询模型意见。
+        // 之前:一旦模型说完成,引擎就不再对「是不是真的完成了」发表意见——
+        // 这正是原来 Nudge 干的事,也正是双控制器干扰回路的入口。
+        if ctx.model_declared_done {
+            return self.stop_with(AutoStopReason::ModelDeclaredDone);
+        }
+        let policy = ctx.intensity.policy();
         let no_action = ctx.steps <= 1 || !has_progress_tools(ctx.tools);
         if no_action && self.rounds > 0 {
+            // R-322:Nudge 是任务判断,只在无人监督档借给引擎。结伴档下模型
+            // 一轮没动作就是没动作(多半是在回答用户的问题),不该被推着找活干。
+            if !policy.engine_nudge {
+                return self.stop_with(AutoStopReason::NoAction);
+            }
             if self.no_action_rounds == 0 {
                 self.no_action_rounds = 1;
                 self.rounds += 1;
@@ -308,8 +343,13 @@ impl AutoRunState {
         }
         // R-144:先累加本轮关闭数,达阈值(>0 且 >=N)则插入一轮只读验收核查
         // (计数 +1 占一轮;核查由调用方执行,归零后再续跑)。
+        // R-322:核查轮同属任务判断,结伴档由用户当场验收,引擎不插队。
+        // 计数照常累加——中途切回自主档时节律不从零重来。
         self.closed_since_verify += ctx.closed_this_round;
-        if ctx.verify_every_n > 0 && self.closed_since_verify >= ctx.verify_every_n {
+        if policy.verify_rounds
+            && ctx.verify_every_n > 0
+            && self.closed_since_verify >= ctx.verify_every_n
+        {
             self.closed_since_verify = 0;
             self.rounds += 1;
             return AutoRunAction::VerifyRound;
@@ -335,12 +375,106 @@ impl Default for AutoRunState {
     }
 }
 
+/// R-322:门禁强度——引擎对**任务判断**介入多深。
+///
+/// # 为什么需要这个维度
+///
+/// 2026-08-21 的外部评估指出:结伴开发与过夜自主推进共用同一套门禁机械,
+/// 差异只落在系统提示词,于是用户「看不见自己选了什么」,而重门禁的成本
+/// (Harness Tax)在有人监督的小任务上纯属浪费。用户定调:
+/// **结伴接近高自治,自主推进保留重门禁,且决策点要呈现给用户。**
+///
+/// # 分档依据不是「重要程度」,是「谁有信息做这个判断」
+///
+/// 轮末判定拆成两类,只有前一类随强度变化:
+///
+/// - **任务判断**(任务完成了吗、下一步做什么):需要语义理解。引擎只有工具名和
+///   锁键,信息量本就不足;有人监督时该由人和模型决定,无人监督时才借给引擎兜底。
+/// - **资源判断**(限流了吗、连跑多少轮了、真实状态还在不在变):与语义无关,
+///   纯机械可判定,**两档都保留**——无人值守时没有第二个判断者。
+///
+/// 权限硬门禁、托管围栏与事件真源**不在本维度内**:它们约束的是副作用边界,
+/// 与「模型有多自治」正交,任何强度下都不放松。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum HarnessIntensity {
+    /// 结伴开发:用户在场监督。模型自治优先,引擎只保留资源类兜底。
+    Paired,
+    /// 自主推进:无人监督。全套门禁——目标是抑制长时间无人值守的信息熵增。
+    #[default]
+    Autonomous,
+}
+
+impl std::str::FromStr for HarnessIntensity {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "paired" => Ok(HarnessIntensity::Paired),
+            "autonomous" => Ok(HarnessIntensity::Autonomous),
+            other => Err(format!(
+                "unknown harness intensity `{other}` (paired|autonomous)"
+            )),
+        }
+    }
+}
+
+impl HarnessIntensity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HarnessIntensity::Paired => "paired",
+            HarnessIntensity::Autonomous => "autonomous",
+        }
+    }
+
+    /// 该强度下引擎的介入策略。**新增机制时在这里加字段,不要再长一个布尔开关**
+    /// ——phase_pipeline_enabled 已经是第二个独立开关,再加就是配置面爆炸。
+    pub fn policy(self) -> IntensityPolicy {
+        match self {
+            HarnessIntensity::Paired => IntensityPolicy {
+                engine_nudge: false,
+                redundancy_hints: false,
+                verify_rounds: false,
+            },
+            HarnessIntensity::Autonomous => IntensityPolicy {
+                engine_nudge: true,
+                redundancy_hints: true,
+                verify_rounds: true,
+            },
+        }
+    }
+}
+
+/// 强度展开后的逐机制开关。只覆盖**任务判断**类机制;资源类兜底不在此列。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IntensityPolicy {
+    /// 引擎能否在模型本轮无实质动作时追加推进指令(Nudge)。
+    /// false = 模型说没什么可做就是没什么可做,引擎不制造工作。
+    pub engine_nudge: bool,
+    /// 冗余机械提醒(工具结果里就地追加 `[冗余提醒]`)。
+    /// 结伴档关闭:用户在场,重复的 git status 他自己看得见。
+    pub redundancy_hints: bool,
+    /// 每关闭 N 条插入的只读验收核查轮(R-144)。
+    /// 结伴档关闭:验收由用户当场做。
+    pub verify_rounds: bool,
+}
+
 /// 轮末判定输入。
 #[derive(Clone, Debug)]
 pub struct AutoRunCtx<'a> {
     pub backlog: BacklogStatus,
     /// 用户拒绝/手动停止(前端 kz:done 的 halted 字段)。
     pub halted: bool,
+    /// R-322:本轮门禁强度。决定引擎是否行使 Nudge / 验收核查等**任务判断**权。
+    pub intensity: HarnessIntensity,
+    /// R-322(#7 双控制器):模型本轮显式声明任务已完成、交还控制权
+    /// (`work` 工具的 `handoff` 动作成功执行)。
+    ///
+    /// **这是模型的停机权,引擎不得否决。** 原实现里 `Nudge` 是唯一一条引擎否决
+    /// 模型判断的动作:模型认为没什么可做了,引擎追加一条推进指令逼它继续,
+    /// 于是出现「模型想停 → 引擎 nudge → 模型被迫继续 → 没什么可做 → 引擎又发现
+    /// idle → 再 nudge → 模型开始制造工作」的干扰回路。用户 2026-08-21 定调:
+    /// 控制权交给模型。资源类停止(限流/致命/连数/ZeroOutput)仍在引擎手里——
+    /// 那些不是对「任务完成了没有」的判断。
+    pub model_declared_done: bool,
     /// 本轮工具调用轮数。
     pub steps: u32,
     /// 本轮实际调用的工具名列表(供空转画像判定)。
@@ -382,6 +516,9 @@ mod tests {
         AutoRunCtx {
             backlog: BacklogStatus::Workable,
             halted: false,
+            // 既有测试全部锚定自主档(引入强度维度前的行为),逐条断言不变。
+            intensity: HarnessIntensity::Autonomous,
+            model_declared_done: false,
             steps: 1,
             tools,
             auto_allowed: true,
@@ -759,6 +896,8 @@ mod tests {
         let ctx = AutoRunCtx {
             backlog: BacklogStatus::Unknown,
             halted: false,
+            intensity: HarnessIntensity::Autonomous,
+            model_declared_done: false,
             steps: 2,
             tools: &t,
             auto_allowed: true,
@@ -886,5 +1025,207 @@ mod tests {
         let p2 = nudge_prompt(WorkPriority::DefectFirst);
         assert!(p2.contains("defects.md 最上面一条"));
         assert!(p2.contains("requirements.md 同理"));
+    }
+
+    // ---- R-322:门禁强度与模型停机权 ----
+
+    /// #7 双控制器:模型声明完成后,引擎一律不再 Nudge,两档都一样。
+    /// 这是本轮最核心的行为变化——原来「模型想停 → 引擎 nudge → 模型被迫继续
+    /// → 没什么可做 → 引擎再 nudge → 模型开始制造工作」的干扰回路从此不成立。
+    #[test]
+    fn 模型声明完成_引擎不再推进_两档一致() {
+        for intensity in [HarnessIntensity::Paired, HarnessIntensity::Autonomous] {
+            let mut state = AutoRunState::new(10);
+            state.rounds = 3;
+            // 画像里全是非进展工具 + steps=1:这正是原来会吃 Nudge 的形状。
+            let tools = mk_tools(&["read", "grep"]);
+            let ctx = AutoRunCtx {
+                intensity,
+                model_declared_done: true,
+                ..ctx_with_tools(&tools)
+            };
+            assert_eq!(
+                state.decide(&ctx),
+                AutoRunAction::Stop(AutoStopReason::ModelDeclaredDone),
+                "{intensity:?}:模型说完成就是完成,引擎不得改判"
+            );
+            assert_eq!(state.rounds, 0, "停止后计数归零");
+        }
+    }
+
+    /// 反证:同样的输入,只把 model_declared_done 关掉,自主档仍走原来的 Nudge。
+    /// 两条一起看才说明「变的只是模型声明这一条通路」,不是把刹车拆了。
+    #[test]
+    fn 未声明完成时_自主档仍走原有推进刹车() {
+        let mut state = AutoRunState::new(10);
+        state.rounds = 3;
+        let tools = mk_tools(&["read", "grep"]);
+        let ctx = AutoRunCtx {
+            intensity: HarnessIntensity::Autonomous,
+            model_declared_done: false,
+            ..ctx_with_tools(&tools)
+        };
+        assert_eq!(state.decide(&ctx), AutoRunAction::Nudge);
+        // 第二次才停(原有两段式刹车不变)。
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Stop(AutoStopReason::NoAction)
+        );
+    }
+
+    /// 结伴档:引擎不制造工作。一轮没动作直接停,不追加推进指令——
+    /// 用户在场,多半是在问问题而不是在等模型找活干。
+    #[test]
+    fn 结伴档_无动作直接停_不追加推进指令() {
+        let mut state = AutoRunState::new(10);
+        state.rounds = 3;
+        let tools = mk_tools(&["read"]);
+        let ctx = AutoRunCtx {
+            intensity: HarnessIntensity::Paired,
+            ..ctx_with_tools(&tools)
+        };
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Stop(AutoStopReason::NoAction),
+            "结伴档不得出现 Nudge"
+        );
+    }
+
+    /// 资源类兜底与副作用边界不随强度松动:结伴档同样吃限流、致命、连数上限、
+    /// backlog 停。这条是 R-322 的护栏——强度只调「任务判断」,不调资源判断。
+    #[test]
+    fn 结伴档_资源类兜底一条不少() {
+        let tools = mk_tools(&["edit", "bash"]);
+        let paired = |over: AutoRunCtx<'_>| {
+            let mut state = AutoRunState::new(10);
+            (state.decide(&over), state)
+        };
+
+        // 限流
+        let (action, _) = paired(AutoRunCtx {
+            intensity: HarnessIntensity::Paired,
+            round_failure: Some(RoundFailure::RateLimited),
+            ..ctx_with_tools(&tools)
+        });
+        assert_eq!(action, AutoRunAction::Stop(AutoStopReason::RateLimited));
+
+        // 致命
+        let (action, _) = paired(AutoRunCtx {
+            intensity: HarnessIntensity::Paired,
+            round_failure: Some(RoundFailure::Fatal),
+            ..ctx_with_tools(&tools)
+        });
+        assert_eq!(action, AutoRunAction::Stop(AutoStopReason::FatalError));
+
+        // backlog 清空
+        let (action, _) = paired(AutoRunCtx {
+            intensity: HarnessIntensity::Paired,
+            backlog: BacklogStatus::Empty,
+            ..ctx_with_tools(&tools)
+        });
+        assert_eq!(action, AutoRunAction::Stop(AutoStopReason::BacklogEmpty));
+
+        // 连数上限
+        let mut state = AutoRunState::new(2);
+        state.rounds = 2;
+        let ctx = AutoRunCtx {
+            intensity: HarnessIntensity::Paired,
+            steps: 5,
+            ..ctx_with_tools(&tools)
+        };
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Stop(AutoStopReason::MaxRounds(2))
+        );
+    }
+
+    /// D-583 的 ZeroOutput 熔断是**资源判断**(比对真实签名),不随强度关闭。
+    /// 别看它长得像任务判断就按强度门控——那是无人值守唯一的失控兜底。
+    #[test]
+    fn 结伴档_零产出熔断仍然生效() {
+        let mut state = AutoRunState::new(10);
+        let tools = mk_tools(&["edit", "bash"]);
+        let ctx = AutoRunCtx {
+            intensity: HarnessIntensity::Paired,
+            steps: 5,
+            progress_signature: "sig-unchanged",
+            ..ctx_with_tools(&tools)
+        };
+        // 第一轮记录签名,之后连续同签名累计到上限熔断。
+        let mut last = state.decide(&ctx);
+        for _ in 0..ZERO_OUTPUT_ROUND_LIMIT + 1 {
+            last = state.decide(&ctx);
+            if matches!(last, AutoRunAction::Stop(AutoStopReason::ZeroOutput(_))) {
+                break;
+            }
+        }
+        assert!(
+            matches!(last, AutoRunAction::Stop(AutoStopReason::ZeroOutput(_))),
+            "结伴档也必须熔断,实际: {last:?}"
+        );
+    }
+
+    /// 验收核查轮属任务判断:自主档插队,结伴档由用户当场验收所以不插。
+    /// 计数照常累加——中途切回自主档时节律不从零重来。
+    #[test]
+    fn 验收核查轮_仅自主档插入_计数两档都累加() {
+        let tools = mk_tools(&["edit", "bash"]);
+        let mk = |intensity| AutoRunCtx {
+            intensity,
+            steps: 5,
+            closed_this_round: 3,
+            verify_every_n: 3,
+            ..ctx_with_tools(&tools)
+        };
+
+        let mut auto = AutoRunState::new(10);
+        assert_eq!(
+            auto.decide(&mk(HarnessIntensity::Autonomous)),
+            AutoRunAction::VerifyRound
+        );
+
+        let mut paired = AutoRunState::new(10);
+        assert_eq!(
+            paired.decide(&mk(HarnessIntensity::Paired)),
+            AutoRunAction::Continue
+        );
+        assert_eq!(
+            paired.closed_since_verify, 3,
+            "结伴档不插核查轮,但关闭计数照常累加,切回自主档时节律接得上"
+        );
+    }
+
+    /// 用户意图优先于模型声明:用户按了停/暂停,不需要征询模型意见。
+    #[test]
+    fn 用户意图仍然压过模型声明() {
+        let tools = mk_tools(&["edit"]);
+        let mut state = AutoRunState::new(10);
+        state.paused = true;
+        let ctx = AutoRunCtx {
+            model_declared_done: true,
+            ..ctx_with_tools(&tools)
+        };
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Stop(AutoStopReason::Paused),
+            "暂停是用户意图,排在模型声明之前"
+        );
+    }
+
+    #[test]
+    fn 强度往返解析与策略表() {
+        for intensity in [HarnessIntensity::Paired, HarnessIntensity::Autonomous] {
+            assert_eq!(
+                intensity.as_str().parse::<HarnessIntensity>(),
+                Ok(intensity)
+            );
+        }
+        assert!("nonsense".parse::<HarnessIntensity>().is_err());
+        assert_eq!(HarnessIntensity::default(), HarnessIntensity::Autonomous);
+        // 默认必须是自主档:强度未接线的调用方(CLI/测试桩)保持引入前行为。
+        let auto = HarnessIntensity::Autonomous.policy();
+        assert!(auto.engine_nudge && auto.redundancy_hints && auto.verify_rounds);
+        let paired = HarnessIntensity::Paired.policy();
+        assert!(!paired.engine_nudge && !paired.redundancy_hints && !paired.verify_rounds);
     }
 }

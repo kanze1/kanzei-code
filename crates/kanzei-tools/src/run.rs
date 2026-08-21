@@ -52,6 +52,7 @@ pub fn build_runner_config(
     halt: Option<kanzei_core::CancellationToken>,
 ) -> RunnerConfig {
     RunnerConfig {
+        intensity: kanzei_harness::HarnessIntensity::Autonomous,
         model: resolved.model.clone(),
         max_tokens: config.limits.max_tokens(),
         reasoning: resolve_reasoning_override(

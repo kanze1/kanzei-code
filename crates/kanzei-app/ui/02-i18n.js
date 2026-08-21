@@ -1,4 +1,13 @@
 const I18N_EN = {
+  // R-322:门禁强度与模型停机权。
+  "门禁强度": "Harness intensity",
+  "轻": "light",
+  "重": "full",
+  "有人监督:引擎不推进、不插核查轮、不标冗余;模型说完成即停": "Supervised: the engine will not nudge, insert verification rounds, or flag redundancy; the model decides when it is done",
+  "无人监督:引擎会追加推进指令、插入验收核查轮、标注冗余调用": "Unsupervised: the engine appends nudges, inserts verification rounds, and flags redundant calls",
+  "模型交还控制权": "Model handed back control",
+  "模型声明任务完成，引擎未再推进": "The model declared the task finished; the engine did not push further",
+  "模型声明任务完成,交还控制权": "Model declared the task finished and handed control back",
   "使用手册": "Manual",
   "点击展开": "click to expand",
   "手册文件不是文本": "Manual file is not text",

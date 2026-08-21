@@ -268,6 +268,16 @@
                         <option value="research"><span data-i18n-key="research 研究">research 研究</span></option>
                       </select>
                     </label>
+                    <!-- R-322:门禁强度是模式的**后果**,不是第二个开关。做成只读回显
+                         是有意的——用户抱怨的是「区别不够明显」,不是「少一个旋钮」。
+                         逐条列出这一档下引擎会不会插手,选模式时就看得见代价。 -->
+                    <div class="menu-row" id="harness-intensity-row">
+                      <span class="menu-row-main">
+                        <span class="menu-row-title" data-i18n-key="门禁强度">门禁强度</span>
+                        <span class="menu-row-desc" id="harness-intensity-desc"></span>
+                      </span>
+                      <span class="pill" id="harness-intensity-badge"></span>
+                    </div>
                     <label class="menu-row" for="work-priority-select">
                       <span class="menu-row-main">
                         <span class="menu-row-title" data-i18n-key="取活顺序">取活顺序</span>

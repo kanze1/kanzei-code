@@ -526,6 +526,12 @@ on("kz:done", async (e) => {
     } else if (reason === "MaxRounds") {
       addMessage("notice", `${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")} (${action.max ?? autoContinueMax()})`);
       setAutoStopReason(`${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")}`);
+    } else if (reason === "ModelDeclaredDone") {
+      // R-322(#7):模型自己交还了控制权。措辞必须与其余原因区分——这不是引擎
+      // 判定它该停,是它说做完了。写成「引擎停止了它」会让人误以为被打断。
+      addMessage("notice", `${t("模型交还控制权")}:${t("模型声明任务完成，引擎未再推进")}`);
+      log(t("模型声明任务完成,交还控制权"));
+      setAutoStopReason(t("模型交还控制权"));
     } else if (reason === "NoAction") {
       addMessage("notice", `${t("鞭挞停止")}:${t("连续两轮没有实质动作(可能条目已完成或确实无可推进项)")}`);
       log(`${t("鞭挞停止")}:${t("连续两轮无动作,鞭挞停止")}`);
