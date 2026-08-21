@@ -4293,3 +4293,18 @@
 - observed_head: 46831d94d7149a49199ebc52df5e88e3e86158ce
 - observed_worktree_hash: fnv1a64:4896c9829eea1c37
 - recorded_at: 1787302921547
+
+## R-316 记忆描述/正文修正同步通道,避免纯文本纠错被迫走 memory_note 异步 inbox [done]
+- 复杂度: 小
+- 标签: 核心 后端
+- 来源: 2026-08-20 D-568 处理中,M-014/M-015 描述内容需要修正,但 .kanzei/memory/*.md 是 M-005 策略托管文件,edit 被规则拒绝,只能靠 memory_note 丢进 inbox 异步等 memory-manager 处理,导致本应是纯文本级别的修正无法在当前会话内完成收尾。对照已有先例 D-295:test_record 曾因同样的"门禁与权限双杀死锁"问题被显式加白名单放行。
+- refs: D-568 D-295 M-005 kanzei.toml
+- 内容: 给"记忆条目 description/正文的机械性纠错"(不涉及新增/删除条目,只是修正现有条目文本且有明确校验依据,如与 git 历史真源比对)开一条同步工具通道或专用权限规则,让当前会话可直接落盘,不必强制路由到 memory-manager 异步处理;需保留审计留痕(谁改的、依据什么校验、旧值/新值)
+- 边界: 不放松"新增/删除记忆条目"仍走既有策略托管路径;仅缩小到"修正现有条目文本内容"这一类操作
+- 验收: ①存在一条可在当前会话同步完成的记忆描述/正文修正路径,有真实调用证据;②修正操作留有审计痕迹(修改依据、旧值/新值);③D-568 场景可用新通道在单会话内收尾,不再依赖跨会话异步等待
+- 优先级: P1
+- 进展: 验收逐项对照：①存在一条可在当前会话同步完成的记忆描述/正文修正路径——`crates/kanzei-memory/src/memory/tools.rs:201-253` 的 MemoryNoteTool action=correct 是真实调用方，调用 `MemoryStore::correct_text`（`crates/kanzei-memory/src/memory/store.rs:503-608`），支持既有条目的单字段 title/description/body、old_value+expected_hash CAS；证据 T-1786922726685、T-1786922726686。②修正操作留有审计痕迹——`store.rs:574-608` 生成并写入 corrections.jsonl，包含 actor、process_id、basis、expected_hash、old_value、new_value；`tools.rs:696-760` 断言审计字段，`tools.rs:762-811` 断言审计失败回滚；证据 T-1786922726689、T-1786922726690。③D-568 场景可用新通道在单会话内收尾——`tools.rs:813-902` 在同一 ToolCtx 连续修正 M-014/M-015，断言 INDEX 与两条审计记录同步更新，未进入 inbox；证据 T-1786922726686。边界对照：action=correct 不开放新增/删除/状态/extra，Dev profile 文案与权限说明位于 `crates/kanzei-tools/src/profiles/dev.rs:53-57,141-144`；既有 memory_note action=note 行为保持。定向测试：T-1786922726690（kanzei-memory 169 passed）与 T-1786922726688（kanzei-tools 473 passed）。
+- observed_head: cddb628d4c890f6d9e0f2145adc3a2e6dd696145
+- observed_worktree_hash: fnv1a64:e9cac91b56958fa8
+- recorded_at: 1787304375014
+- 取活依据: engine:唯一可执行 WIP 是 R-316，必须先恢复它

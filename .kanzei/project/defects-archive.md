@@ -8305,3 +8305,51 @@
 - observed_head: 46831d94d7149a49199ebc52df5e88e3e86158ce
 - observed_worktree_hash: fnv1a64:4896c9829eea1c37
 - recorded_at: 1787302958276
+
+## D-675 R-316 同步记忆修正审计失败时回滚快照取值过晚 [fixed] (medium)
+- 复现: crates/kanzei-memory/src/memory/store.rs 的 correct_text 在修改 entry 后才构造 previous，随后审计写入失败会用新值回写，不能恢复旧正文
+- 影响: 审计落盘失败时可能留下无审计的新文本，破坏 R-316 的安全边界
+- 来源: self-found；实现 R-316 correct_text 时发现
+- 标签: 核心
+- refs: R-316
+- 优先级: P1
+- 进展: 已修复：crates/kanzei-memory/src/memory/store.rs:550 在字段替换前保存 previous，:590-598 审计写入失败后用 previous 回写并刷新派生物；测试 crates/kanzei-memory/src/memory/tools.rs:762-806 memory_note_correct_rolls_back_when_audit_write_fails 注入 corrections.jsonl 不可写目录并断言旧 description 恢复。证据：T-1786922726689（定向回滚测试）、T-1786922726690（kanzei-memory 169 passed）。复现=已消失；影响=审计失败不会留下无审计文本修改。
+- observed_head: cddb628d4c890f6d9e0f2145adc3a2e6dd696145
+- observed_worktree_hash: fnv1a64:e9cac91b56958fa8
+- recorded_at: 1787304301745
+
+## D-676 R-316 同步修正通道首版实现存在编译错误 [fixed] (medium)
+- 复现: cargo test -p kanzei-memory memory_note_correct_synchronously_updates_and_audits_existing_text --lib 编译失败：store.rs 的 now_ms 路径、write_atomic 参数类型、tools.rs required 闭包生命周期均不满足 Rust 类型检查
+- 影响: R-316 同步记忆修正通道无法编译，真实调用和回归测试不能运行
+- 来源: self-found；R-316 定向测试编译阶段
+- 标签: 核心
+- refs: R-316
+- 优先级: P1
+- 进展: 已修复首版实现的三个编译问题：crates/kanzei-memory/src/memory/store.rs:580 改用同模块 now_ms，:607 传入 &text 给 write_atomic；crates/kanzei-memory/src/memory/tools.rs:176-181 提取 required_correction 生命周期安全 helper。证据：T-1786922726690（kanzei-memory 169 passed）与 T-1786922726688（kanzei-tools 473 passed）。复现=已消失；影响=同步修正工具可编译并可由 MemoryNoteTool 调用。
+- observed_head: cddb628d4c890f6d9e0f2145adc3a2e6dd696145
+- observed_worktree_hash: fnv1a64:e9cac91b56958fa8
+- recorded_at: 1787304312715
+
+## D-677 R-316 D-568 回归测试占位条目标题重复触发既有去重 [fixed] (low)
+- 复现: R-316 的 D-568 双条目回归测试中，M-001..M-013 占位条目共用同一 title，MemoryStore::add 按既有去重规则从 M-002 起返回 Duplicate，测试夹具无法构造 M-014/M-015
+- 影响: D-568 单会话回归测试无法完成夹具初始化，未影响生产去重行为
+- 来源: self-found；运行 d568_two_corrupted_descriptions_are_corrected_in_one_session 定向测试
+- 标签: 核心
+- refs: R-316
+- 优先级: P2
+- 进展: 已修复测试夹具：crates/kanzei-memory/src/memory/tools.rs:821-841 将 M-001..M-013 占位标题改为按编号唯一的 `D568 占位 {index}`，避免触发 MemoryStore 既有近似标题去重；M-014/M-015 仍使用真实场景标题。证据：T-1786922726686（D-568 双条目单会话测试通过）、T-1786922726690（kanzei-memory 169 passed）。复现=已消失；影响=仅测试夹具，不涉及生产去重逻辑。
+- observed_head: cddb628d4c890f6d9e0f2145adc3a2e6dd696145
+- observed_worktree_hash: fnv1a64:e9cac91b56958fa8
+- recorded_at: 1787304361992
+
+## D-678 R-316 required_correction 返回过大的 ToolOutput Err 触发 clippy 门禁 [fixed] (medium)
+- 复现: 结构化 git commit 对 R-316 staged set 执行 cargo clippy --workspace -- -D warnings 时，crates/kanzei-memory/src/memory/tools.rs:176 的 required_correction 返回 Result<&str, ToolOutput>，触发 clippy error: large Err-variant
+- 影响: R-316 已通过功能测试但无法通过强制 clippy 提交门禁，不能提交
+- 来源: self-found；git commit R-316 B1 的 clippy gate
+- 标签: 核心
+- 进展: 已修复：crates/kanzei-memory/src/memory/tools.rs:176-181 的 required_correction 改为返回轻量 String 错误；action=correct 的 6 个参数校验分支（:219-243）统一转换为 ToolOutput::error，保留原错误文案和真实调用行为。证据：T-1786922726692（cargo fmt --all -- --check 与 kanzei-memory 169 passed）；随后提交门禁将重新执行 workspace clippy。复现=已消失；影响=不再触发 large Err-variant clippy 阻断。
+- refs: R-316
+- 优先级: P1
+- observed_head: cddb628d4c890f6d9e0f2145adc3a2e6dd696145
+- observed_worktree_hash: fnv1a64:0909e81aaecdcec0
+- recorded_at: 1787304603491

@@ -9609,3 +9609,83 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-315
 - 收尾: 1787303006
 - 源码指纹: v2 crates/kanzei-harness/assets/default_conventions.md@e0d34435715c,crates/kanzei-tools/src/tracker.rs@ca7e5f3cdd99,crates/kanzei-tools/src/tracker/actions.rs@7142223829c7,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@91811a5a4d09
+
+## T-1786922726685 R-316 memory_note 同步修正与审计定向测试 [passed]
+- 命令: cargo test -p kanzei-memory memory_note_correct_synchronously_updates_and_audits_existing_text --lib
+- 时长: 7.3s
+- 摘要: R-316 同步 memory_note action=correct 真实工具调用测试通过：既有 description 同步落盘、审计 JSONL 写入 actor/basis/old/new、过期 expected_hash 拒绝覆盖。
+- 关联: R-316 D-675 D-676
+- 收尾: 1787303840
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@15c88ce48652,crates/kanzei-memory/src/memory/tools.rs@db66f6727b86
+
+## T-1786922726686 R-316 D-568 双描述单会话同步修正回归 [passed]
+- 命令: cargo test -p kanzei-memory d568_two_corrupted_descriptions_are_corrected_in_one_session --lib
+- 时长: 2.6s
+- 摘要: 同一 ToolCtx 连续调用 memory_note action=correct 修正 M-014/M-015 形态的两条既有记忆；两条同步落盘，INDEX 描述更新，corrections.jsonl 产生两条带依据/旧值/新值审计记录。
+- 关联: R-316 D-568 D-677
+- 收尾: 1787304124
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@15c88ce48652,crates/kanzei-memory/src/memory/tools.rs@94d2bb4627f0,crates/kanzei-tools/src/profiles/dev.rs@7530350fc66c
+
+## T-1786922726687 R-316 kanzei-memory 完整定向回归 [passed]
+- 命令: cargo test -p kanzei-memory --lib
+- 时长: 27.9s
+- 摘要: kanzei-memory 完整 lib 定向回归通过：168 passed，0 failed。包含 R-316 单条同步修正、D-568 双条目单会话、审计、CAS 与既有 memory/store 全套测试。
+- 关联: R-316 D-675 D-676 D-677
+- 收尾: 1787304222
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@15c88ce48652,crates/kanzei-memory/src/memory/tools.rs@94d2bb4627f0,crates/kanzei-tools/src/profiles/dev.rs@7530350fc66c
+
+## T-1786922726688 R-316 kanzei-tools 权限装配完整定向回归 [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 时长: 36.0s
+- 摘要: kanzei-tools 完整 lib 定向回归通过：473 passed，0 failed，1 ignored。Dev profile、权限面、托管写入和工具装配回归通过；测试夹具产生的 git warning 不影响结果。
+- 关联: R-316
+- 收尾: 1787304223
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@15c88ce48652,crates/kanzei-memory/src/memory/tools.rs@94d2bb4627f0,crates/kanzei-tools/src/profiles/dev.rs@7530350fc66c
+
+## T-1786922726689 D-675 审计失败回滚回归 [passed]
+- 命令: cargo test -p kanzei-memory memory_note_correct_rolls_back_when_audit_write_fails --lib
+- 时长: 0.6s
+- 摘要: 故障注入将 corrections.jsonl 设为不可写目录；memory_note action=correct 返回错误且 description 恢复旧值，证明审计失败不会留下无审计修改。
+- 关联: R-316 D-675
+- 收尾: 1787304292
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@15c88ce48652,crates/kanzei-memory/src/memory/tools.rs@c4ce9d4aadfa,crates/kanzei-tools/src/profiles/dev.rs@7530350fc66c
+
+## T-1786922726690 R-316 kanzei-memory 补充回滚后完整回归 [passed]
+- 命令: cargo test -p kanzei-memory --lib
+- 时长: 22.9s
+- 摘要: 补充回滚测试后 kanzei-memory 完整 lib 回归通过：169 passed，0 failed。覆盖 R-316 单修正、D-568 双条目、审计失败回滚、CAS 和既有 memory 全套测试。
+- 关联: R-316 D-675 D-676 D-677
+- 收尾: 1787304293
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@15c88ce48652,crates/kanzei-memory/src/memory/tools.rs@c4ce9d4aadfa,crates/kanzei-tools/src/profiles/dev.rs@7530350fc66c
+
+## T-1786922726691 R-316 kanzei-tools 提交门禁精确命令回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 38.8s
+- 摘要: 结构化提交门禁要求的精确命令通过：473 passed，0 failed，1 ignored；doc-tests 0 passed。
+- 关联: R-316 D-676
+- 收尾: 1787304460
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@15c88ce48652,crates/kanzei-memory/src/memory/tools.rs@c4ce9d4aadfa,crates/kanzei-tools/src/profiles/dev.rs@7530350fc66c
+
+## T-1786922726692 D-678 clippy 修复后 kanzei-memory 回归 [passed]
+- 命令: cargo test -p kanzei-memory --lib
+- 时长: 24.9s
+- 摘要: 修复 clippy large Err variant 后 kanzei-memory 完整 lib 回归通过：169 passed，0 failed；cargo fmt --all -- --check 同步通过。
+- 关联: R-316 D-678
+- 收尾: 1787304593
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@15c88ce48652,crates/kanzei-memory/src/memory/tools.rs@7145dfc0f45d,crates/kanzei-tools/src/profiles/dev.rs@7530350fc66c
+
+## T-1786922726693 D-678 修复后 kanzei-tools 精确命令回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 37.9s
+- 摘要: D-678 修复后的精确 tools 门禁命令通过：473 passed，0 failed，1 ignored；doc-tests 0 passed。
+- 关联: R-316 D-678
+- 收尾: 1787304667
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@15c88ce48652,crates/kanzei-memory/src/memory/tools.rs@7145dfc0f45d,crates/kanzei-tools/src/profiles/dev.rs@7530350fc66c
+
+## T-1786922726694 D-678 当前源码 kanzei-tools 精确门禁回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 37.9s
+- 摘要: 当前修订后的精确 tools 命令通过：473 passed，0 failed，1 ignored；doc-tests 0 passed。
+- 关联: R-316 D-678
+- 收尾: 1787304680
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@15c88ce48652,crates/kanzei-memory/src/memory/tools.rs@7145dfc0f45d,crates/kanzei-tools/src/profiles/dev.rs@7530350fc66c

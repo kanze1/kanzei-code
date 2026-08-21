@@ -497,6 +497,117 @@ impl MemoryStore {
         Ok(entry)
     }
 
+    /// R-316:主 agent 可用的同步文本修正。与 manager 的 update 刻意分离：
+    /// 只接受既有条目、单个文本字段、调用方看到的 old_value + expected_hash，
+    /// 并把依据与 old/new 原值写入 corrections.jsonl；不触碰 status/extras/编号。
+    pub fn correct_text(
+        &self,
+        id: &str,
+        field: &str,
+        old_value: &str,
+        new_value: &str,
+        expected_hash: &str,
+        basis: &str,
+    ) -> anyhow::Result<MemoryEntry> {
+        if !matches!(field, "title" | "description" | "body") {
+            anyhow::bail!("memory text correction field must be title | description | body");
+        }
+        if old_value.is_empty() {
+            anyhow::bail!("old_value must not be empty");
+        }
+        if new_value.trim().is_empty() {
+            anyhow::bail!("new_value must not be empty");
+        }
+        if expected_hash.trim().is_empty() {
+            anyhow::bail!("expected_hash is required for synchronous memory correction");
+        }
+        if basis.trim().is_empty() {
+            anyhow::bail!("basis is required for synchronous memory correction");
+        }
+
+        let _tree_lock = self.tree_lock()?;
+        let Some((path, mut entry)) = self.load_all().into_iter().find(|(_, e)| e.id == id) else {
+            anyhow::bail!("unknown memory id `{id}`");
+        };
+        let current_hash = kanzei_base::content_hash(super::render_entry(&entry).as_bytes());
+        if current_hash != expected_hash {
+            anyhow::bail!(
+                "memory {id} 已被并发修改(expected_hash 不匹配):请重读当前条目后重试。当前 hash: {current_hash}"
+            );
+        }
+        let current_value = match field {
+            "title" => &entry.title,
+            "description" => &entry.description,
+            "body" => &entry.body,
+            _ => unreachable!(),
+        };
+        if current_value != old_value {
+            anyhow::bail!(
+                "memory {id} 的 {field} old_value 不匹配:当前值为 {:?}，拒绝覆盖错误版本",
+                current_value
+            );
+        }
+        let previous = entry.clone();
+        let effective_new = new_value.trim().to_string();
+        match field {
+            "title" => entry.title = effective_new.clone(),
+            "description" => entry.description = effective_new.clone(),
+            "body" => entry.body = effective_new.clone(),
+            _ => unreachable!(),
+        }
+        entry.updated = today();
+        match self
+            .write_entry(&entry, Some(&path))
+            .and_then(|_| self.refresh_derived())
+        {
+            Ok(()) => {}
+            Err(error) => {
+                let rollback = self
+                    .write_entry(&previous, Some(&path))
+                    .and_then(|_| self.refresh_derived());
+                anyhow::bail!(
+                    "memory {id} correction failed: {error}; rollback={:?}",
+                    rollback.err().map(|e| e.to_string())
+                );
+            }
+        }
+
+        let audit = serde_json::json!({
+            "schema_version": 1,
+            "event": "memory_text_corrected",
+            "actor": "main-agent",
+            "process_id": std::process::id(),
+            "at_ms": now_ms(),
+            "scope": self.scope.label(),
+            "id": id,
+            "field": field,
+            "basis": basis.trim(),
+            "expected_hash": expected_hash,
+            "old_value": old_value,
+            "new_value": effective_new,
+        })
+        .to_string();
+        if let Err(error) = self.append_correction_audit(&(audit + "\n")) {
+            let rollback = self
+                .write_entry(&previous, Some(&path))
+                .and_then(|_| self.refresh_derived());
+            anyhow::bail!(
+                "memory {id} correction audit failed: {error}; rollback={:?}",
+                rollback.err().map(|e| e.to_string())
+            );
+        }
+        Ok(entry)
+    }
+
+    fn append_correction_audit(&self, record: &str) -> anyhow::Result<()> {
+        std::fs::create_dir_all(&self.root)?;
+        let path = self.root.join("corrections.jsonl");
+        let mut text = std::fs::read_to_string(&path).unwrap_or_default();
+        text.push_str(record);
+        crate::atomic_file::write_atomic(&path, &text)?;
+        Ok(())
+    }
+
     /// 升级 candidate|shadow → active(R-165 生命周期 PROMOTE)。
     /// provenance 硬约束:必须提供至少一条 memory_sources 证据(episode 区间),
     /// 无来源不入 active——证据编译语义的引擎强制,不靠 manager 自觉。

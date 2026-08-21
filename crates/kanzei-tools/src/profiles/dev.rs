@@ -53,8 +53,9 @@ impl Component for DevProfile {
             }),
         );
 
-        // Memory 系统(R-104,文件优先分级记忆):主 agent 只有 检索/草稿投递/概览,
-        // 写路径(add/update/merge/stale)属 M2 的 memory-manager 子代理。
+        // Memory 系统(R-104,文件优先分级记忆):主 agent 有 检索/草稿投递/概览，
+        // 以及 R-316 限定的既有条目单字段文本纠错(action=correct)。新增、删除、
+        // 状态与 extra 字段仍属 M2 的 memory-manager 子代理。
         draft
             .tools
             .insert("memory_search", Arc::new(crate::memory::MemorySearchTool));
@@ -140,7 +141,7 @@ impl Component for DevProfile {
                 (
                     "*.kanzei/memory/*",
                     Some("memory_note"),
-                    "记忆库:写路径属 memory-manager 子代理,主 agent 只投草稿",
+                    "记忆库:新增/删除/状态/extra 字段属 memory-manager；既有 title/description/body 机械纠错用 memory_note action=correct",
                 ),
                 // 兜底族:.kanzei/project 下其余文件(conventions.md 等)是用户手写资产,
                 // 模型没有任何合法写通道——如实说成"能力未实现",不要编一个工具名。

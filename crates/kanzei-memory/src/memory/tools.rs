@@ -139,8 +139,12 @@ impl Tool for MemorySearchTool {
 
 #[derive(Deserialize, JsonSchema)]
 struct NoteInput {
-    /// 一句话:学到了什么/踩了什么坑/用户定了什么调
-    summary: String,
+    /// note(默认):一句话:学到了什么/踩了什么坑/用户定了什么调。
+    /// correct:只修正既有条目的一个文本字段,不进入 inbox。
+    #[serde(default)]
+    action: Option<String>,
+    #[serde(default)]
+    summary: Option<String>,
     /// 可选详情(证据、命令、路径)
     #[serde(default)]
     detail: Option<String>,
@@ -151,6 +155,29 @@ struct NoteInput {
     /// 随草稿写入,manager 消化时带进正式条目。
     #[serde(default)]
     refs: Vec<String>,
+    /// correct action 专用:project|global,既有条目 id,以及单一 title/description/body 字段。
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    field: Option<String>,
+    #[serde(default)]
+    old_value: Option<String>,
+    #[serde(default)]
+    new_value: Option<String>,
+    /// correct action 必须提供当前渲染 hash 与人工可复核的修正依据。
+    #[serde(default)]
+    expected_hash: Option<String>,
+    #[serde(default)]
+    basis: Option<String>,
+}
+
+fn required_correction<'a>(value: Option<&'a String>, name: &str) -> Result<&'a str, String> {
+    value
+        .map(String::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("correct action requires {name}"))
 }
 
 pub struct MemoryNoteTool;
@@ -162,7 +189,7 @@ impl Tool for MemoryNoteTool {
     }
 
     fn description(&self) -> String {
-        "Drop a draft note into the memory inbox (confirmed facts, pitfalls, user decisions worth remembering). The memory manager will consolidate it. Params: summary; optional detail, category_hint, refs (source IDs that must exist).".into()
+        "Record a draft note in the memory inbox, or synchronously correct one existing title/description/body field with action=correct. note params: summary; optional detail, category_hint, refs. correct params: scope, id, field, old_value, new_value, expected_hash, basis. correct never adds/deletes entries or changes status/extra fields and writes an audit record with actor, basis, old/new values.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -174,9 +201,68 @@ impl Tool for MemoryNoteTool {
             Ok(v) => v,
             Err(out) => return out,
         };
-        if input.summary.trim().is_empty() {
-            return ToolOutput::error("summary must not be empty");
+        let action = input.action.as_deref().unwrap_or("note");
+        if action == "correct" {
+            let scope = input.scope.as_deref().unwrap_or("project");
+            let store = match scope {
+                "project" => MemoryStore::project(&ctx.project_root),
+                "global" => match MemoryStore::global() {
+                    Some(store) => store,
+                    None => return ToolOutput::error("no home dir for global scope"),
+                },
+                other => {
+                    return ToolOutput::error(format!(
+                        "invalid correction scope `{other}`; valid: project | global"
+                    ))
+                }
+            };
+            let id = match required_correction(input.id.as_ref(), "id") {
+                Ok(value) => value,
+                Err(error) => return ToolOutput::error(error),
+            };
+            let field = match required_correction(input.field.as_ref(), "field") {
+                Ok(value) => value,
+                Err(error) => return ToolOutput::error(error),
+            };
+            let old_value = match required_correction(input.old_value.as_ref(), "old_value") {
+                Ok(value) => value,
+                Err(error) => return ToolOutput::error(error),
+            };
+            let new_value = match required_correction(input.new_value.as_ref(), "new_value") {
+                Ok(value) => value,
+                Err(error) => return ToolOutput::error(error),
+            };
+            let expected_hash =
+                match required_correction(input.expected_hash.as_ref(), "expected_hash") {
+                    Ok(value) => value,
+                    Err(error) => return ToolOutput::error(error),
+                };
+            let basis = match required_correction(input.basis.as_ref(), "basis") {
+                Ok(value) => value,
+                Err(error) => return ToolOutput::error(error),
+            };
+            return match store.correct_text(id, field, old_value, new_value, expected_hash, basis) {
+                Ok(entry) => ToolOutput::ok(format!(
+                    "corrected {} {} [{}]; audit: {}",
+                    entry.id,
+                    field,
+                    entry.title,
+                    store.root.join("corrections.jsonl").display()
+                )),
+                Err(error) => ToolOutput::error(error.to_string()),
+            };
         }
+        if action != "note" {
+            return ToolOutput::error("action must be note or correct");
+        }
+        let Some(summary) = input
+            .summary
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            return ToolOutput::error("summary must not be empty");
+        };
+
         if let Err(e) = super::validate_source_refs(ctx, &input.refs) {
             return ToolOutput::error(e);
         }
@@ -185,18 +271,18 @@ impl Tool for MemoryNoteTool {
         // 明显重复直接 NOOP(不占 LLM run 与 inbox),记遥测;新/不确定才进 inbox。
         // R-216:返回 (判定, 候选),Uncertain 也直接进 inbox 交 manager(候选仅 add 硬闸用)。
         let (novelty, _candidates) =
-            store.classify_novelty(&input.summary, input.detail.as_deref().unwrap_or(""), "");
+            store.classify_novelty(summary, input.detail.as_deref().unwrap_or(""), "");
         if novelty == super::Novelty::Duplicate {
-            store.record_novelty(&novelty, "", &input.summary);
+            store.record_novelty(&novelty, "", summary);
             return ToolOutput::ok(format!(
                 "noted as duplicate (NOOP, {:.60}…) — already an active memory covers it; \
                  use memory_update to evolve that entry instead of re-adding",
-                input.summary
+                summary
             ));
         }
-        store.record_novelty(&novelty, "", &input.summary);
+        store.record_novelty(&novelty, "", summary);
         match store.append_note(
-            &input.summary,
+            summary,
             input.detail.as_deref().unwrap_or(""),
             input.category_hint.as_deref().unwrap_or(""),
             &input.refs,
@@ -584,6 +670,225 @@ mod tests {
         let (hint, summary, detail) = store.pending_note_list().pop().unwrap();
         assert_eq!((hint.as_str(), summary.as_str()), ("fact", "真引用"));
         assert!(detail.contains("refs: R-070"), "{detail}");
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn memory_note_correct_synchronously_updates_and_audits_existing_text() {
+        // R-316:真实 memory_note 调用验证同步落盘、CAS 与旧/新值审计。
+        let (dir, ctx) = ctx();
+        let store = MemoryStore::project(&ctx.project_root);
+        match store
+            .add(
+                "fact",
+                "原始标题",
+                "原始描述",
+                "原始正文",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap()
+        {
+            super::super::AddOutcome::Added(_) => {}
+            other => panic!("expected add, got {other:?}"),
+        }
+        let before = store
+            .load_all()
+            .into_iter()
+            .find(|(_, entry)| entry.title == "原始标题")
+            .expect("seeded memory entry");
+        let id = before.1.id.clone();
+        let expected_hash =
+            kanzei_base::content_hash(crate::memory::render_entry(&before.1).as_bytes());
+        let corrected = MemoryNoteTool
+            .execute(
+                json!({
+                    "action": "correct",
+                    "scope": "project",
+                    "id": id,
+                    "field": "description",
+                    "old_value": "原始描述",
+                    "new_value": "修正后的描述",
+                    "expected_hash": expected_hash,
+                    "basis": "与 git 历史真源逐行比对"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!corrected.is_error, "{}", corrected.content);
+        assert!(corrected.content.contains("corrections.jsonl"));
+        let after = store
+            .load_all()
+            .into_iter()
+            .find(|(_, entry)| entry.id == id)
+            .expect("corrected memory entry");
+        assert_eq!(after.1.description, "修正后的描述");
+        assert_eq!(after.1.status, before.1.status);
+        let audit = std::fs::read_to_string(store.root.join("corrections.jsonl")).unwrap();
+        let record: serde_json::Value =
+            serde_json::from_str(audit.lines().next().unwrap()).unwrap();
+        assert_eq!(record["event"], "memory_text_corrected");
+        assert_eq!(record["actor"], "main-agent");
+        assert_eq!(record["basis"], "与 git 历史真源逐行比对");
+        assert_eq!(record["old_value"], "原始描述");
+        assert_eq!(record["new_value"], "修正后的描述");
+
+        let stale = MemoryNoteTool
+            .execute(
+                json!({
+                    "action": "correct",
+                    "id": id,
+                    "field": "description",
+                    "old_value": "修正后的描述",
+                    "new_value": "错误并发覆盖",
+                    "expected_hash": expected_hash,
+                    "basis": "stale CAS must reject"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            stale.is_error,
+            "过期 expected_hash 不得覆盖: {}",
+            stale.content
+        );
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn memory_note_correct_rolls_back_when_audit_write_fails() {
+        // D-675:审计目标不可写时，正文修改必须回滚而不是留下无审计新值。
+        let (dir, ctx) = ctx();
+        let store = MemoryStore::project(&ctx.project_root);
+        match store
+            .add(
+                "fact",
+                "审计失败回滚",
+                "旧描述",
+                "旧正文",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap()
+        {
+            super::super::AddOutcome::Added(_) => {}
+            other => panic!("expected add, got {other:?}"),
+        }
+        let (_, entry) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, entry)| entry.title == "审计失败回滚")
+            .unwrap();
+        let expected_hash =
+            kanzei_base::content_hash(crate::memory::render_entry(&entry).as_bytes());
+        std::fs::create_dir(store.root.join("corrections.jsonl")).unwrap();
+        let output = MemoryNoteTool
+            .execute(
+                json!({
+                    "action": "correct",
+                    "id": entry.id,
+                    "field": "description",
+                    "old_value": "旧描述",
+                    "new_value": "不应留下",
+                    "expected_hash": expected_hash,
+                    "basis": "故障注入：审计目标不可写"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(output.is_error, "审计失败必须返回错误: {}", output.content);
+        let (_, restored) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, candidate)| candidate.title == "审计失败回滚")
+            .unwrap();
+        assert_eq!(restored.description, "旧描述");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn d568_two_corrupted_descriptions_are_corrected_in_one_session() {
+        // R-316/D-568:同一 ToolCtx 连续修正两条既有记忆，验证不进 inbox 且 INDEX 同步。
+        let (dir, ctx) = ctx();
+        let store = MemoryStore::project(&ctx.project_root);
+        for index in 1..=15 {
+            let id = format!("M-{index:03}");
+            let title = match index {
+                14 => "HTML 静态文案必须登记进资源表,否则断言测试失败".to_string(),
+                15 => "SSE 流内 context overflow 恢复须重建请求,OpenAI 错误分类须同查 type/code"
+                    .to_string(),
+                _ => format!("D568 占位 {index}"),
+            };
+            match store
+                .add(
+                    "fact",
+                    &title,
+                    &format!("错误描述 {id}"),
+                    &format!("正文真源 {id}"),
+                    "user",
+                    &[],
+                    None,
+                    false,
+                )
+                .unwrap()
+            {
+                super::super::AddOutcome::Added(entry) => assert_eq!(entry.id, id),
+                other => panic!("expected {id} add, got {other:?}"),
+            }
+        }
+
+        let correct = [
+            (
+                "M-014",
+                "编辑旧字符串不存在时必读：先 read 重读文件排版再精确构造 old_string — match exactly including whitespace;多处匹配勿用 replace_all 盲改。",
+                "与 M-014 正文真源逐行比对",
+            ),
+            (
+                "M-015",
+                "所有 git mutation 在 bash 都被拦截，必须走结构化 git 工具 — 处理任何 Git 分支/索引变更时不要换别的 git 子命令重试。",
+                "与 M-015 正文真源逐行比对",
+            ),
+        ];
+        for (id, new_value, basis) in correct {
+            let (_, entry) = store
+                .load_all()
+                .into_iter()
+                .find(|(_, entry)| entry.id == id)
+                .expect("D-568 entry");
+            let expected_hash =
+                kanzei_base::content_hash(crate::memory::render_entry(&entry).as_bytes());
+            let output = MemoryNoteTool
+                .execute(
+                    json!({
+                        "action": "correct",
+                        "scope": "project",
+                        "id": id,
+                        "field": "description",
+                        "old_value": entry.description,
+                        "new_value": new_value,
+                        "expected_hash": expected_hash,
+                        "basis": basis
+                    }),
+                    &ctx,
+                )
+                .await;
+            assert!(!output.is_error, "{id}: {}", output.content);
+        }
+
+        let index = std::fs::read_to_string(store.root.join("INDEX.md")).unwrap();
+        assert!(index.contains("M-014") && index.contains("编辑旧字符串不存在时必读"));
+        assert!(index.contains("M-015") && index.contains("所有 git mutation 在 bash 都被拦截"));
+        let audit = std::fs::read_to_string(store.root.join("corrections.jsonl")).unwrap();
+        assert_eq!(audit.lines().count(), 2);
+        assert!(audit.contains("M-014") && audit.contains("M-015"));
+        assert!(audit.contains("与 M-014 正文真源逐行比对"));
+        assert!(audit.contains("与 M-015 正文真源逐行比对"));
         std::fs::remove_dir_all(dir).ok();
     }
 }
