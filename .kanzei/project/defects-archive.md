@@ -8475,3 +8475,16 @@
 - observed_head: 8296c89415ecbdad059c14034864ec694e6fa2a8
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787322575615
+
+## D-687 R-321 B2 IncidentEventType 手写 Default 未通过 clippy [fixed] (low)
+- 复现: 结构化 git commit 运行 cargo clippy --workspace -- -D warnings 时，在 crates/kanzei-tools/src/incident.rs:54 报 this impl can be derived。
+- 影响: 阻止 R-321 B2 提交，不影响运行时分类行为。
+- 来源: self-found
+- 标签: 核心
+- 进展: 验收对账：①`crates/kanzei-tools/src/incident.rs:47-53` 已使用 `#[derive(Default)]`，并以 `#[default]` 标记 `Occurrence`，不存在手写 `impl Default`；②`T-1786922726745` 在当前 HEAD 执行 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings`，均通过；③D-687 原 clippy 报错 `this impl can be derived` 已不再复现，缺陷已修复并收口。
+- refs: R-321
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-687(unblocks=0)
+- observed_head: 8296c89415ecbdad059c14034864ec694e6fa2a8
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787322683499
