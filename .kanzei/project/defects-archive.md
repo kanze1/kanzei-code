@@ -8117,3 +8117,15 @@
 - observed_head: a6c74ac3ab899cb642639ce41dfc792201fd425d
 - observed_worktree_hash: fnv1a64:2bc8f47327427864
 - recorded_at: 1787270798799
+
+## D-659 kanzei-app 未提交改动触发 workspace clippy 门禁失败 [fixed] (low)
+- 复现: R-310 提交门禁执行 cargo clippy --workspace -- -D warnings 时，未提交的 crates/kanzei-app/src/conversation.rs:145 报 unnecessary_unwrap，:179 报 double_ended_iterator_last；这些改动不属于 R-310。
+- 影响: workspace clippy 失败，结构化 git commit 门禁拒绝所有提交；若绕过会破坏项目提交契约。
+- 来源: self-found：R-310 提交门禁
+- 标签: 核心
+- 进展: 已修复并验证：crates/kanzei-app/src/conversation.rs:145-147 用 let Some(sequence) else 替代 lint 触发的 expect，保持 sequence 已由分支确认的行为；:179-183 用 rev().find 替代 filter().next_back，保持按最近边界查找的行为。T-1786922726647：cargo fmt --all -- --check、cargo test -p kanzei-app、cargo clippy -p kanzei-app -- -D warnings 全部通过，234 passed、0 failed；D-659 验收=两条 workspace clippy 错误消失且会话回放行为无变化，证据为上述 file:line 与 T-1786922726647。
+- 优先级: P1
+- 取活依据: override:R-310 已完成但结构化提交门禁被 D-659 的两条 workspace clippy 错误阻塞；仅修复这两处无行为变化 lint，释放提交门禁后立即回到 R-310 提交。
+- observed_head: 8ed3256f9303ce2d3805ef4c804366da3e3708e7
+- observed_worktree_hash: fnv1a64:2705d4737f75046c
+- recorded_at: 1787271469539

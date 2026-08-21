@@ -128,8 +128,9 @@ pub(crate) fn conversation_get(
         .create_session(&session_id, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;
     // R-242 批6/7:事件投影真源。sequence=None(最新历史)且 gate 开启时,从
-    // 事件日志投影最新 segment surface;sequence=Some 是 legacy 快照的历史版本读
-    // (投影无版本语义),gate 无论开关都保持 legacy。
+    // 事件日志投影最新 segment surface。sequence=Some 既可能是 legacy
+    // conversation.updated 快照序号,也可能是 conversation_list 投影模式返回的
+    // typed fact 段末序号;两种序号必须走各自的恢复路径。
     if sequence.is_none() && crate::projection_gate::read_path_uses_projection("conversation_get") {
         return project_latest_segment(&store, &session_id);
     }
@@ -141,8 +142,55 @@ pub(crate) fn conversation_get(
         )
         .map_err(|e| e.to_string())
     } else {
-        recover_messages_raw(&store, &session_id, sequence).map_err(|e| e.to_string())
+        let Some(sequence) = sequence else {
+            unreachable!("sequence 已在分支条件中确认")
+        };
+        if store
+            .event_by_sequence_and_type(&session_id, sequence, "conversation.updated")
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            if let Some(event) = store
+                .event_by_sequence(&session_id, sequence)
+                .map_err(|e| e.to_string())?
+            {
+                // 投影历史列表的 sequence 指向 typed fact 段末,不能再按
+                // conversation.updated 的精确序号读取,否则合法历史会被当成空数组。
+                if kanzei_core::store::decode_session_fact(&event)
+                    .map_err(|e| e.to_string())?
+                    .is_some()
+                {
+                    return project_segment_at_sequence(&store, &session_id, sequence);
+                }
+            }
+        }
+        recover_messages_raw(&store, &session_id, Some(sequence)).map_err(|e| e.to_string())
     }
+}
+
+/// 从历史列表返回的 typed fact 段末序号恢复该段的可见消息。
+///
+/// 投影历史的 sequence 是段内最后一条 typed fact,而不是
+/// `conversation.updated` 快照序号。恢复时必须同时尊重最近的 reset 边界,
+/// 否则打开旧历史会把后续对话或前一段内容混进来。
+fn project_segment_at_sequence(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    end_sequence: i64,
+) -> Result<Vec<kanzei_llm::Message>, String> {
+    let segment_start = segment_boundaries(store, session_id)?
+        .into_iter()
+        .rev()
+        .find(|sequence| *sequence < end_sequence)
+        .unwrap_or(0);
+    let facts = store
+        .list_session_facts(session_id)
+        .map_err(|e| e.to_string())?;
+    let segment: Vec<_> = facts
+        .into_iter()
+        .filter(|(event, _)| event.sequence > segment_start && event.sequence <= end_sequence)
+        .collect();
+    Ok(kanzei_core::project_session_facts(&segment).surface_messages)
 }
 
 /// R-241 只读 shadow 入口：返回 typed-events 投影、现有快照比较和中断草稿诊断。
