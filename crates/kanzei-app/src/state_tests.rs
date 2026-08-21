@@ -154,6 +154,7 @@ fn defect_review_rejects_empty_model_report() {
         messages: vec![],
         context_report: vec![],
         overflow_traces: vec![],
+        round_messages: vec![],
     };
     assert!(defect_review_report(&empty).is_err());
 }

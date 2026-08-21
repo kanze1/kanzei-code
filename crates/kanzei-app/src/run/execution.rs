@@ -212,8 +212,8 @@ pub(crate) async fn run_execution_loop(
 /// 只在阶段流水线开启(自主推进轮)时被调用。返回**合并后**的 RunSummary:
 /// - 无复核发现:原样返回实现段的 summary,本轮 run_once 次数 = 1(与引入前一致);
 /// - 有复核发现:跑一段修正 run_once,`prior` 接实现段的完整 `messages`,
-///   所以返回的 `messages` 是「实现段 + 修正段」的连续历史,
-///   `prior.len()` 之后的切片仍然正好是本轮全部内容(轮末统计口径不变)。
+///   所以返回的 `messages` 是「实现段 + 修正段」的连续历史;同时合并两段
+///   `round_messages`,供轮末统计在压缩后仍保持本轮完整口径。
 ///
 /// R-253 批7b:按层收参(`ReviewExec`/pipeline/summary/on_event/ask),消 too_many。
 /// `ReviewExec` 见上:模型调用参数链(run_once 复核段真正消费的子集),生命周期 =
@@ -298,6 +298,9 @@ pub(crate) async fn run_review_and_fixup(
             merged.usage.cache_write += summary.usage.cache_write;
             merged.steps += summary.steps;
             merged.halted_by_user |= summary.halted_by_user;
+            let mut round_messages = summary.round_messages;
+            round_messages.extend(merged.round_messages);
+            merged.round_messages = round_messages;
             let mut traces = summary.overflow_traces;
             traces.extend(merged.overflow_traces);
             merged.overflow_traces = traces;

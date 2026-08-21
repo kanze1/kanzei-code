@@ -27,12 +27,47 @@ $date = Get-Date -Format "yyyy-MM-dd"
 $build_at = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
 $env:KANZEI_BUILD_INFO = "$hash $build_at"
 
+function Get-BuildTags([string]$source) {
+    if ($source -eq "remote") {
+        $lines = @(git -C $root ls-remote --tags --refs origin "refs/tags/build-*")
+        if ($LASTEXITCODE -ne 0) {
+            throw "无法读取远端 build 标签:请确认 origin 可达后重试"
+        }
+        return @($lines | ForEach-Object {
+                $parts = $_ -split "\t", 2
+                if ($parts.Count -eq 2) { $parts[1] -replace '^refs/tags/', '' }
+            } | Where-Object { $_ })
+    }
+    return @(git -C $root tag --list "build-*" | Where-Object { $_ })
+}
+
+$localBuildTags = @(Get-BuildTags "local")
+$remoteBuildTags = @(Get-BuildTags "remote")
+$missingLocally = @($remoteBuildTags | Where-Object { $_ -notin $localBuildTags })
+$missingRemotely = @($localBuildTags | Where-Object { $_ -notin $remoteBuildTags })
+if ($missingLocally.Count -gt 0 -or $missingRemotely.Count -gt 0) {
+    $remoteOnly = if ($missingLocally.Count -gt 0) { $missingLocally -join ", " } else { "无" }
+    $localOnly = if ($missingRemotely.Count -gt 0) { $missingRemotely -join ", " } else { "无" }
+    throw "build 标签不同步:仅远端有[$remoteOnly],仅本地有[$localOnly]。先执行 git fetch origin tag <标签> 补齐或清理错误本地标签,再重跑发布范围核对"
+}
 # ---- 发布范围核对(D-183)----
 # 本仓库会有并发自举运行提交到同一分支,作者与人手动提交完全一样,git 元数据
 # 分辨不出来。实测 build-ea6d058/96acfdf 就夹带了两个我没审过的提交而无人察觉。
 # 这里不做猜测,只做一件事:把区间摊开,并要求发布者用 -Ack 明确说出条数——
 # 数目对不上就中止。多出来一个提交就是一次强制停顿。
 $lastTag = (git -C $root tag --list "build-*" --sort=-creatordate | Select-Object -First 1)
+if ($lastTag) {
+    $localLatestTarget = (git -C $root rev-parse "refs/tags/$lastTag" 2>$null | Select-Object -First 1)
+    $remoteLatestLine = (git -C $root ls-remote --tags --refs origin "refs/tags/$lastTag" | Select-Object -First 1)
+    $remoteLatestTarget = if ($remoteLatestLine) {
+        ($remoteLatestLine -split "\t", 2)[0]
+    } else {
+        $null
+    }
+    if (-not $localLatestTarget -or -not $remoteLatestTarget -or $localLatestTarget.Trim() -ne $remoteLatestTarget.Trim()) {
+        throw "最新本地 build 标签 $lastTag 与远端指向不一致:本地=$localLatestTarget,远端=$remoteLatestTarget。先 fetch/核对标签后再重跑"
+    }
+}
 $range = if ($lastTag) { "$lastTag..HEAD" } else { "HEAD~10..HEAD" }
 # git log 输出 UTF-8 提交信息;PowerShell 默认按系统代码页捕获,会把含多字节
 # 的行尾吞掉、相邻行合并(实测 6 个提交被判成 5,发布被误拦)。先切到 UTF-8
@@ -195,4 +230,16 @@ if ($Publish) {
     Get-Content $gh_log | ForEach-Object { Write-Host $_ }
     if ($gh_exit_code -ne 0) { throw "gh release create failed" }
     Write-Host "==> published: https://github.com/kanze1/kanzei-code/releases/tag/$tag" -ForegroundColor Green
+    # D-656:gh 在远端创建 tag 不会自动更新本地 refs/tags;发布成功后主动补齐,
+    # 但补齐失败只告警,不把已成功的远端 release 伪报成发布失败。
+    $fetchOutput = @(git -C $root fetch origin "tag" $tag 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "远端 release 已发布,但本地标签 $tag 未能 fetch: $($fetchOutput -join ' ')"
+    }
+    $localTarget = (git -C $root rev-parse "refs/tags/$tag" 2>$null | Select-Object -First 1)
+    if ($localTarget -and $localTarget.Trim() -eq $full_hash) {
+        Write-Host "==> 本地标签已同步: $tag -> $full_hash" -ForegroundColor Green
+    } else {
+        Write-Warning "远端 release 已发布,但本地标签 $tag 仍未指向构建提交 $full_hash (当前=$localTarget)"
+    }
 }

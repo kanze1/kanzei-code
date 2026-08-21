@@ -8129,3 +8129,13 @@
 - observed_head: 8ed3256f9303ce2d3805ef4c804366da3e3708e7
 - observed_worktree_hash: fnv1a64:2705d4737f75046c
 - recorded_at: 1787271469539
+
+## D-661 wave 调度器保守封波损失可达并行度 [fixed] (medium)
+- 原始描述: 外部评估 #3：确定性换掉了最大并行度。顺序扫描封波不是最优调度，损失 wall-clock latency 与 IO 利用率，一轮几十个调用时明显。用户判定这算缺陷不算决策
+- 复现: 调用序 [A,B,C,D]，冲突关系 A↔B、C↔D，跨对互不冲突。旧实现顺序扫描遇冲突即封波，得 [[A],[B,C],[D]] 三波；可达最优 [[A,C],[B,D]] 两波，且不颠倒任何冲突对的先后
+- 标签: 核心
+- 优先级: P2
+- 进展: 切波改按冲突前驱层级(tool_exec.rs build_tool_execution_waves_with),保持不变式 i<j 且冲突 => wave(i)<wave(j)。六条单测锚定:不相交冲突链两波、冲突对顺序不颠倒、容量装满、Exclusive 独占、容量满向后顺延、空输入。commit 4f0f46a0
+- observed_head: 4f0f46a0c252556f3d77f7cedfe4a137eee6dea5
+- observed_worktree_hash: fnv1a64:c7cc7013afe35e6f
+- recorded_at: 1787274281826

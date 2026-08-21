@@ -399,6 +399,7 @@ mod assembly_tests {
             messages: messages.clone(),
             context_report: vec![],
             overflow_traces: vec![],
+            round_messages: messages.clone(),
         };
         assert_eq!(
             super::compaction_input_tokens(summary.last_input_tokens, &messages),

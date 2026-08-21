@@ -333,6 +333,7 @@
 - observed_head: 32513251d54e6dd311f08c44fac6df2adfa8454b
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787283272605
+- 停车: 本轮 WIP 超限，B1-B3 已完成；B4 需要真实端到端会话验收，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent
 
 ## R-323 工具编排抽象层：模型声明执行计划 [doing]
 - 原始描述: 外部评估 #2：Harness 的保守规则可能成为模型能力的上限。用户定调：提供底层工具+一层抽象层，让模型去编排
@@ -347,3 +348,4 @@
 - observed_head: a032aa492ae157c2791c2cfa9cf768740f093517
 - observed_worktree_hash: fnv1a64:dee5f1692c68b6ad
 - recorded_at: 1787276362163
+- 停车: 本轮 WIP 超限，B1 工具并发契约审计已完成；B2 尚未开始，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent

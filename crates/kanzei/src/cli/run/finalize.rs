@@ -146,9 +146,8 @@ pub(crate) async fn finish_run(
         summary.context_report.len(),
         context_total
     );
-    // 本轮切片:summary.messages = prior + 本轮。统计与失败提炼都只看本轮,
-    // 否则历史失败会被反复上报、工具计数也会累计全历史(R-099 基线失真)。
-    let this_run = &summary.messages[state.prior.len().min(summary.messages.len())..];
+    // D-655:runner 已维护不受轮中压缩影响的本轮消息真源。
+    let this_run = &summary.round_messages;
     // 轮末采集(D-229/D-214):CLI 与桌面端共用 harvest_end_of_run——失败提炼 →
     // 条目收口判定 → SOP 候选(项目 inbox,落库目标 global)→ 根因 fact 候选(项目
     // inbox)。SOP 通道 D-229 起双端一致,D-214 起候选投项目 inbox 进消化通道。

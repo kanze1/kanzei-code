@@ -341,20 +341,19 @@ pub(crate) async fn run_task(
     };
 
     let history_len = summary.messages.len();
-    // R-076:本轮工具画像随 kz:done 带给前端,鞭挞据此判定「实质进展」——
-    // 只算本轮切片,不含 prior,否则历史工具调用让每一轮都看着像有动作。
-    let this_run_tools =
-        kanzei_core::summarize_tools(&summary.messages[prior.len().min(summary.messages.len())..]);
+    // R-076:本轮工具画像随 kz:done 带给前端。D-655:使用 runner
+    // 提供的稳定本轮消息真源,不再以 prior.len() 盲切压缩后的 messages。
+    let this_run_tools = kanzei_core::summarize_tools(&summary.round_messages);
     // R-169:自主推进判定后端化——轮末用 harness 状态机判定下一步,结果随
     // kz:done 带给前端执行(发下一条/NUDGE/停止);前端不再承载任何机械判定。
     let backlog = crate::auto_run::backlog_status(&deps.project_root);
     // D-361:主轮画像 + 本轮子代理内部用过的工具。两者合并后,「委派」按子代理
     // 实际干了什么判定;子代理确实什么也没干时,合并后仍只有 task,空转判定照旧
     // 生效(has_progress_tools 的语义没被削弱)。
-    // D-654:主轮画像的真源是事件流(round_tools,ToolStart 边跑边收),不再用
-    // `summary.messages[prior.len()..]` 切片——轮中上下文压缩会把消息列表结构性
-    // 删短,切片错位后本轮真实调用不进画像,鞭挞误判 NoAction 自停(2026-08-21
-    // 现场;D-592 让压缩真正触发后暴露)。this_run_tools 仍供轮末统计落库用。
+    // D-654:主轮画像的真源是事件流(round_tools,ToolStart 边跑边收),不再依赖
+    // summary.messages 的 prior.len() 切片——轮中上下文压缩会把消息列表结构性
+    // 删短;本轮真实调用不会因此从事件画像中消失。轮末 episode/metrics/harvest
+    // 则统一读取 summary.round_messages。
     let tools_vec: Vec<String> = {
         let mut names: std::collections::BTreeSet<String> = round_tools.lock_or_recover().clone();
         names.extend(subagent_tools.lock_or_recover().iter().cloned());

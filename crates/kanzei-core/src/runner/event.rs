@@ -165,6 +165,9 @@ pub struct RunSummary {
     /// 由调用方随 episode 沉淀(episodes.overflow_json),避免激进压缩
     /// 无声丢弃轨迹——D-088 的溢出路径可复盘。
     pub overflow_traces: Vec<String>,
+    /// D-655:本轮稳定消息真源。与 `messages` 不同,它不受轮中上下文
+    /// 压缩/prune/trim 的结构性删短影响,供轮末 episode/metrics/harvest 使用。
+    pub round_messages: Vec<Message>,
 }
 
 // 轨迹的工具调用画像:工具名 → 调用次数(episode 与 R-099 度量共用)。

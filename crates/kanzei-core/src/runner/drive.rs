@@ -87,6 +87,15 @@ fn commit_tool_results(
     messages.push(message);
 }
 
+/// D-655:只记录主 runner 提交的本轮消息;事件发生在消息进入可压缩 history 前。
+fn record_round_message(round_messages: &mut Vec<Message>, event: &RunEvent) {
+    match event {
+        RunEvent::AssistantMessageCommitted { message, .. }
+        | RunEvent::ToolResultsCommitted { message, .. } => round_messages.push(message.clone()),
+        _ => {}
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // 公开驱动边界，收拢为参数对象会同时扰动所有递归调用方。
 pub fn run_once<'a>(
     client: &'a LlmClient,
@@ -191,6 +200,20 @@ pub fn run_once_with_parts<'a>(
             initial_parts,
             subagent,
         );
+        // D-655:消息历史会在轮中被压缩/裁剪,不能再用 prior.len() 反推本轮。
+        // 事件提交前复制本轮消息,作为不受结构性删短影响的统计真源。
+        let round_messages = std::sync::Arc::new(std::sync::Mutex::new(
+            messages.last().cloned().into_iter().collect::<Vec<_>>(),
+        ));
+        let round_messages_for_events = std::sync::Arc::clone(&round_messages);
+        let outer_on_event = on_event;
+        let mut on_event = move |event: RunEvent| {
+            record_round_message(
+                &mut round_messages_for_events.lock().unwrap(),
+                &event,
+            );
+            outer_on_event(event);
+        };
         let halt = config.halt.as_ref();
         let halted = || halt.is_some_and(|token| token.is_cancelled());
         loop {
@@ -208,6 +231,7 @@ pub fn run_once_with_parts<'a>(
                     messages,
                     context_report: context_report.clone(),
                     overflow_traces: overflow_traces.clone(),
+                    round_messages: round_messages.lock().unwrap().clone(),
                 });
             }
             // R-184:只有显式标记的动态源在轮内刷新。它作为本步临时 system 段
@@ -240,7 +264,7 @@ pub fn run_once_with_parts<'a>(
                 calibration,
                 &mut futile_compactions,
                 &mut overflow_traces,
-                on_event,
+                &mut on_event,
             )
             .await;
 
@@ -261,7 +285,7 @@ pub fn run_once_with_parts<'a>(
                 last_step,
                 budget_checkpoint,
                 halt,
-                on_event,
+                &mut on_event,
                 &mut calibration,
                 &mut last_input_tokens,
                 &mut last_estimated_tokens,
@@ -287,6 +311,7 @@ pub fn run_once_with_parts<'a>(
                         messages,
                         context_report: context_report.clone(),
                         overflow_traces: overflow_traces.clone(),
+                        round_messages: round_messages.lock().unwrap().clone(),
                     });
                 }
             };
@@ -300,7 +325,7 @@ pub fn run_once_with_parts<'a>(
                 &mut messages,
                 step,
                 halt,
-                on_event,
+                &mut on_event,
             ) {
                 StepMessageOutcome::Proceed => {}
                 StepMessageOutcome::Return { halted_by_user } => {
@@ -318,6 +343,7 @@ pub fn run_once_with_parts<'a>(
                         messages,
                         context_report: context_report.clone(),
                         overflow_traces: overflow_traces.clone(),
+                        round_messages: round_messages.lock().unwrap().clone(),
                     });
                 }
             }
@@ -333,7 +359,7 @@ pub fn run_once_with_parts<'a>(
                     &calls,
                     halt,
                     line_runtime,
-                    on_event,
+                    &mut on_event,
                 )
                 .await;
 
@@ -351,7 +377,7 @@ pub fn run_once_with_parts<'a>(
                 &mut task_results,
                 images_supported,
                 halt,
-                on_event,
+                &mut on_event,
                 ask,
                 &mut session_approved,
                 &mut session_rules,
@@ -375,6 +401,7 @@ pub fn run_once_with_parts<'a>(
                         messages,
                         context_report: context_report.clone(),
                         overflow_traces: overflow_traces.clone(),
+                        round_messages: round_messages.lock().unwrap().clone(),
                     });
                 }
             };
@@ -392,7 +419,7 @@ pub fn run_once_with_parts<'a>(
                 halt,
                 &mut redundancy,
                 &mut recall,
-                on_event,
+                &mut on_event,
             ) {
                 StepFinalOutcome::Continue => {}
                 StepFinalOutcome::Break => break,
@@ -411,12 +438,14 @@ pub fn run_once_with_parts<'a>(
                         messages,
                         context_report: context_report.clone(),
                         overflow_traces: overflow_traces.clone(),
+                        round_messages: round_messages.lock().unwrap().clone(),
                     });
                 }
             }
         }
 
         recall.finish(RecallRunOutcome::Completed);
+        let round_messages = round_messages.lock().unwrap().clone();
         Ok(RunSummary {
             text: final_text,
             usage: total_usage,
@@ -426,6 +455,7 @@ pub fn run_once_with_parts<'a>(
             messages,
             context_report,
             overflow_traces: overflow_traces.clone(),
+            round_messages,
         })
     })
 }
@@ -1224,6 +1254,67 @@ mod tests {
             json!({ "command": "echo hi" }),
             "{}".to_string(),
         )
+    }
+
+    /// D-655:轮中压缩只改可发送的 history,事件提交形成的本轮真源仍完整。
+    /// 同一份真源同时供 tools/metrics/failure 三种轮末统计,避免各调用点各自切片。
+    #[test]
+    fn 本轮真源不随压缩删短_history_统计仍只含本轮() {
+        let current_call = Message::assistant(vec![Part::ToolCall {
+            id: "current-1".into(),
+            name: "edit".into(),
+            input: json!({ "path": "current.rs" }),
+        }]);
+        let current_result = Message::tool_results(vec![Part::ToolResult {
+            call_id: "current-1".into(),
+            content: "old_string not found in current.rs".into(),
+            is_error: true,
+        }]);
+        let mut round_messages = vec![Message::user_text("本轮指令")];
+        record_round_message(
+            &mut round_messages,
+            &RunEvent::AssistantMessageCommitted {
+                step: 1,
+                message: current_call,
+            },
+        );
+        record_round_message(
+            &mut round_messages,
+            &RunEvent::ToolResultsCommitted {
+                step: 1,
+                message: current_result,
+            },
+        );
+        record_round_message(
+            &mut round_messages,
+            &RunEvent::AssistantMessageCommitted {
+                step: 2,
+                message: Message::assistant(vec![Part::ToolCall {
+                    id: "current-2".into(),
+                    name: "edit".into(),
+                    input: json!({ "path": "current.rs" }),
+                }]),
+            },
+        );
+        record_round_message(
+            &mut round_messages,
+            &RunEvent::ToolResultsCommitted {
+                step: 2,
+                message: Message::tool_results(vec![Part::ToolResult {
+                    call_id: "current-2".into(),
+                    content: "old_string not found in current.rs".into(),
+                    is_error: true,
+                }]),
+            },
+        );
+
+        // 模拟压缩把 prior 与本轮消息在可发送 history 中删短;真源不参与该修改。
+        let mut compacted_history = vec![Message::user_text("压缩后的纪要")];
+        compacted_history.truncate(1);
+        assert_eq!(summarize_tools(&round_messages).get("edit"), Some(&2));
+        assert_eq!(summarize_metrics(&round_messages).total_calls, 2);
+        assert_eq!(summarize_failures(&round_messages).len(), 1);
+        assert!(summarize_tools(&compacted_history).is_empty());
     }
 
     #[test]

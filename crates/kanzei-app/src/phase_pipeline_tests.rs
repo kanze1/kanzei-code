@@ -1,8 +1,8 @@
 //! R-173 批6:阶段流水线接线的行为锚点。
 //!
 //! 重点是**分段驱动不能弄坏历史**:修正段是第二次 `run_once`,它的 `prior` 接的是
-//! 实现段跑完的完整 `messages`。轮末统计口径(`&summary.messages[prior.len()..]`)
-//! 依赖这条,错了会让 token 计数、失败提炼、episode 画像一起歪掉。
+//! 实现段跑完的完整 `messages`。D-655:轮末统计使用 `RunSummary::round_messages`
+//! 这一稳定真源,不再依赖压缩后 `messages` 的 `prior.len()` 切片。
 
 use std::sync::{Arc, Mutex};
 
@@ -219,6 +219,7 @@ fn implementation_summary() -> kanzei_core::RunSummary {
         ],
         context_report: vec![("agent/system".into(), 10)],
         overflow_traces: vec!["impl-overflow".into()],
+        round_messages: vec![Message::user_text("原始用户消息")],
     }
 }
 

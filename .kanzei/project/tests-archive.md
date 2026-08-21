@@ -9327,3 +9327,43 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-310
 - 收尾: 1787271417
 - 源码指纹: v2 crates/kanzei-app/src/conversation.rs@9a25348b1fbf,crates/kanzei-app/src/conversation_tests.rs@c9cbcf9e39d7,crates/kanzei-tools/src/symbols.rs@ee3fd9abf3bc
+
+## T-1786922726649 D-655 kanzei-core 定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 2.7s
+- 摘要: 核心 crate 定向回归通过：243 passed；包含轮中压缩后 round_messages 统计仅含本轮的回归测试。
+- 关联: D-655
+- 收尾: 1787284123
+- 源码指纹: v2 crates/kanzei-app/src/phase_pipeline_tests.rs@5c9861f5e4ae,crates/kanzei-app/src/run/coordinator.rs@c711ee78df18,crates/kanzei-app/src/run/execution.rs@ebb23a125f72,crates/kanzei-app/src/run/mod.rs@84b31ca7af34,crates/kanzei-app/src/run/persistence.rs@a81d7721b866,crates/kanzei-app/src/state_tests.rs@f573660f0c14,crates/kanzei-core/src/runner/drive.rs@3ba3141c0015,crates/kanzei-core/src/runner/event.rs@18e4f6af1252,crates/kanzei/src/cli/run/finalize.rs@2d9673701219
+
+## T-1786922726650 D-655 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.2s
+- 摘要: 桌面端 crate 定向测试通过：237 passed；包含 phase pipeline/统计消费链相关回归。
+- 关联: D-655
+- 收尾: 1787284206
+- 源码指纹: v2 crates/kanzei-app/src/phase_pipeline_tests.rs@5c9861f5e4ae,crates/kanzei-app/src/run/coordinator.rs@c711ee78df18,crates/kanzei-app/src/run/execution.rs@ebb23a125f72,crates/kanzei-app/src/run/mod.rs@84b31ca7af34,crates/kanzei-app/src/run/persistence.rs@a81d7721b866,crates/kanzei-app/src/state_tests.rs@f573660f0c14,crates/kanzei-core/src/runner/drive.rs@3ba3141c0015,crates/kanzei-core/src/runner/event.rs@18e4f6af1252,crates/kanzei/src/cli/run/finalize.rs@2d9673701219
+
+## T-1786922726651 D-655 kanzei CLI 定向测试 [passed]
+- 命令: cargo test -p kanzei
+- 时长: 20.9s
+- 摘要: CLI crate 定向测试通过：44 unit + 32 integration passed；覆盖 CLI finalize 依赖的运行链路。
+- 关联: D-655
+- 收尾: 1787284216
+- 源码指纹: v2 crates/kanzei-app/src/phase_pipeline_tests.rs@5c9861f5e4ae,crates/kanzei-app/src/run/coordinator.rs@c711ee78df18,crates/kanzei-app/src/run/execution.rs@ebb23a125f72,crates/kanzei-app/src/run/mod.rs@84b31ca7af34,crates/kanzei-app/src/run/persistence.rs@a81d7721b866,crates/kanzei-app/src/state_tests.rs@f573660f0c14,crates/kanzei-core/src/runner/drive.rs@3ba3141c0015,crates/kanzei-core/src/runner/event.rs@18e4f6af1252,crates/kanzei/src/cli/run/finalize.rs@2d9673701219
+
+## T-1786922726652 D-656 package.ps1 语法与发布标签门禁检查 [failed]
+- 命令: PowerShell AST parse plus required D-656 guard string checks
+- 时长: 0.1s
+- 摘要: AST 解析通过，但测试脚本的字符串探针写成了不存在的连续文本 `git ls-remote...`，实际代码包含 `git -C $root`;需修正测试探针后重跑。
+- 关联: D-656
+- 收尾: 1787284467
+- 源码指纹: v2 crates/kanzei-app/src/phase_pipeline_tests.rs@5c9861f5e4ae,crates/kanzei-app/src/run/coordinator.rs@c711ee78df18,crates/kanzei-app/src/run/execution.rs@ebb23a125f72,crates/kanzei-app/src/run/mod.rs@84b31ca7af34,crates/kanzei-app/src/run/persistence.rs@a81d7721b866,crates/kanzei-app/src/state_tests.rs@f573660f0c14,crates/kanzei-core/src/runner/drive.rs@3ba3141c0015,crates/kanzei-core/src/runner/event.rs@18e4f6af1252,crates/kanzei/src/cli/run/finalize.rs@2d9673701219,scripts/package.ps1@224e140b0bea
+
+## T-1786922726653 D-656 package.ps1 语法与发布标签门禁检查 [passed]
+- 命令: PowerShell AST parse plus required D-656 guard string checks
+- 时长: 0.1s
+- 摘要: package.ps1 AST 解析通过；确认远端标签集合校验、不同步提示、发布后 fetch 与本地同步 warning 分支均存在。
+- 关联: D-656
+- 收尾: 1787284484
+- 源码指纹: v2 crates/kanzei-app/src/phase_pipeline_tests.rs@5c9861f5e4ae,crates/kanzei-app/src/run/coordinator.rs@c711ee78df18,crates/kanzei-app/src/run/execution.rs@ebb23a125f72,crates/kanzei-app/src/run/mod.rs@84b31ca7af34,crates/kanzei-app/src/run/persistence.rs@a81d7721b866,crates/kanzei-app/src/state_tests.rs@f573660f0c14,crates/kanzei-core/src/runner/drive.rs@3ba3141c0015,crates/kanzei-core/src/runner/event.rs@18e4f6af1252,crates/kanzei/src/cli/run/finalize.rs@2d9673701219,scripts/package.ps1@224e140b0bea

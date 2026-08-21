@@ -88,19 +88,21 @@
 - 验收: ①本轮口径不再依赖 prior.len() 盲切:由 runner 维护跨压缩稳定的本轮边界(RunSummary 携带)或统计改事件真源;②三处调用点(coordinator/persistence/CLI finalize)统一新口径;③回归:模拟轮中压缩删短 prior 后,episode tools/metrics 与 harvest 仍只含本轮内容
 - refs: D-654
 - 优先级: P2
-- 进展: 已按设计冻结开工：不变式为本轮统计不依赖 prior.len()，权威来源改为稳定本轮边界或事件真源；预期覆盖 coordinator/persistence/CLI finalize 三处及压缩回归。下一步：并行读取三处调用链和 runner 的消息压缩/事件记录实现，确定最小统一边界接口。
-- observed_head: 6505dfb899d2463192337b058f4cba9a5b74319f
-- observed_worktree_hash: fnv1a64:b300c4c79e4511a4
-- recorded_at: 1787271607086
+- 进展: D-655 实现与验证完成：`RunSummary::round_messages` 在 crates/kanzei-core/src/runner/drive.rs 由 AssistantMessageCommitted/ToolResultsCommitted 事件捕获，轮中压缩不影响；桌面端 coordinator/persistence 与 CLI finalize 已统一读取该真源；复核修正段在 run/execution.rs 合并两段 round_messages。回归测试已覆盖压缩删短后 tools/metrics/failures 仍只取本轮。证据：T-1786922726649（kanzei-core 243 passed）、T-1786922726650（kanzei-app 237 passed）、T-1786922726651（kanzei 44 unit + 32 integration passed）。剩余：提交前 workspace fmt gate 被已登记 D-666 的 profiles/dev.rs 悬空 `draft.tools` 阻断，需先处理该验证阻断，再提交 D-655。
+- observed_head: 32513251d54e6dd311f08c44fac6df2adfa8454b
+- observed_worktree_hash: fnv1a64:0ed0323fde7f7dd4
+- recorded_at: 1787284251791
 - 取活依据: engine:唯一可执行 WIP 是 D-655，必须先恢复它
+- 停车: D-655 实现与三 crate 定向测试已完成；提交前 workspace fmt gate 被 D-666 的现有悬空 `draft.tools` 语法缺陷阻断，先释放唯一 WIP 槽修复并单独提交 D-666，随后立即恢复 D-655 提交。恢复人:agent
 
-## D-656 package.ps1 -Publish 后 build 标签只存在于远端,本地缺失使下次 -Ack 范围核对失真 [open] (low)
+## D-656 package.ps1 -Publish 后 build 标签只存在于远端,本地缺失使下次 -Ack 范围核对失真 [fixing] (low)
 - 复现: 2026-08-21 发版 build-6cc9333c:gh release create 在远端建标签,本地 git tag --list build-6cc9333c 为空;package.ps1 的 D-183 发布范围核对用本地 git tag --list build-* 取上一标签,本地缺最新标签时下次发版会从更旧的标签起算,-Ack 条数被迫虚高
 - 影响: 发布范围核对(D-183)口径失真;本次已手工 git fetch origin tag build-6cc9333c 补齐
 - 来源: 2026-08-21 D-654 发版现场 self-found
 - 标签: 发布
 - 验收: ①publish 成功后在本地创建或 fetch 同名 build 标签(脚本内完成,失败仅警告不阻断);②发布范围核对前校验最新本地 build 标签与远端一致,不一致给出明确提示
 - 优先级: P3
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-656(unblocks=0)
 
 ## D-660 D-659 提交混入 conversation.rs 原有会话投影改动 [open] (medium)
 - refs: D-659
@@ -111,16 +113,6 @@
 - 进展: 已登记，暂不回滚或重写历史；待按父提交与原始工作树证据确认归属，再决定补充归属说明或开独立修正提交。
 - 优先级: P1
 
-## D-661 wave 调度器保守封波损失可达并行度 [fixed] (medium)
-- 原始描述: 外部评估 #3：确定性换掉了最大并行度。顺序扫描封波不是最优调度，损失 wall-clock latency 与 IO 利用率，一轮几十个调用时明显。用户判定这算缺陷不算决策
-- 复现: 调用序 [A,B,C,D]，冲突关系 A↔B、C↔D，跨对互不冲突。旧实现顺序扫描遇冲突即封波，得 [[A],[B,C],[D]] 三波；可达最优 [[A,C],[B,D]] 两波，且不颠倒任何冲突对的先后
-- 标签: 核心
-- 优先级: P2
-- 进展: 切波改按冲突前驱层级(tool_exec.rs build_tool_execution_waves_with),保持不变式 i<j 且冲突 => wave(i)<wave(j)。六条单测锚定:不相交冲突链两波、冲突对顺序不颠倒、容量装满、Exclusive 独占、容量满向后顺延、空输入。commit 4f0f46a0
-- observed_head: 4f0f46a0c252556f3d77f7cedfe4a137eee6dea5
-- observed_worktree_hash: fnv1a64:c7cc7013afe35e6f
-- recorded_at: 1787274281826
-
 ## D-662 托管文档专用工具膨胀致工具选择面过载 [fixing] (medium)
 - 原始描述: 外部评估 #5：Managed Documents 造成 Tool Explosion，从 Unix-like tools 走向 Domain-specific OS。用户判定这是工具设计问题，算缺陷不算决策
 - 复现: 当前注册工具已 30+，其中 req/defect/idea/decision/architecture/test_record/work/memory_* 等托管域工具与通用 edit/write 语义重叠；模型需在 edit 与 req(update) 之间做领域判断，工具越多误选概率越高，且每个工具签名等同公开 API
@@ -130,6 +122,7 @@
 - observed_head: 5fe846054117b3f861c38111d55f0b85cb022ee2
 - observed_worktree_hash: fnv1a64:583f30e55ad1ef2b
 - recorded_at: 1787276942772
+- 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
 
 ## D-663 readonly 档写与命令通道漏网:plot/latex/process/browser 仅 Ask [open] (medium)
 - 原始描述: D-662 工具面预算测试(R-323 勘察)顺带发现。readonly 档位契约写的是「read/glob/grep/task 放行，写与命令硬拒绝」，但硬拒名单按工具名逐个列举，新增写/命令类工具不会自动纳入。非交互轮会被 declined 所以暴露面限于交互轮
@@ -142,3 +135,17 @@
 - 复现: 在 8ed3256f(R-310 B4 收口)之后跑 scripts/verify.ps1,连续两步报红:①设计时效门禁——磁盘 42 份设计文档、索引 41 条,r310_repo_map_design.md 未登记;②回涨闸——crates/kanzei-tools/src/symbols.rs 生产行 731→881 超出每文件 100 行允许量,基线未同步
 - 标签: 流程
 - 优先级: P2
+
+## D-665 file-annotations 只增不删,测试夹具残留占该文件九成 [open] (medium)
+- 原始描述: 2026-08-21 结伴会话查 files 工具时发现。测试夹具被扫描并写入标注后目录被删,标注没跟着清;标注存储在实现上是只增不删,任何扫过一次的路径永久留存。当前影响是文件体积与加载成本(905KB 中约九成死重),files 工具输出本身按真实树查表所以未见污染;但存储会无界增长,且测试夹具混进了策展资产
+- 复现: 读 .kanzei/file-annotations.json(905KB):files 键下 5578 条标注,而 git ls-files 只有 804 个受跟踪文件;5073 条指向不存在或未跟踪的路径,其中 5000 条顶层目录是 r277-kill-fixture(R-277 遗留的测试夹具),抽样 2000 条只有 1 条磁盘仍存在。crates/kanzei-tools/src/files.rs 的 save_annotations 只做整体序列化,load_annotations 整体读入,全程没有按「路径是否仍存在」清理的环节
+- 标签: 核心
+- 优先级: P2
+
+## D-666 DevProfile 删除 todowrite 注册后留下悬空链导致 workspace 无法解析 [fixed] (high)
+- 复现: crates/kanzei-tools/src/profiles/dev.rs:70-72 仅剩 `draft.tools`，缺少后续方法调用；cargo fmt --all 与 workspace 解析报 expected `;`, found `draft`
+- 影响: workspace 格式门禁和依赖 kanzei-tools 的验证无法运行；当前不是 D-655 引入的改动
+- 来源: self-found，D-655 定向验证时发现
+- 标签: 核心
+- refs: D-655
+- 优先级: P1
