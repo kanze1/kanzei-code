@@ -1,11 +1,11 @@
 {
-  "batch_id": "inbox-1787247987110",
-  "status": "failed",
-  "input_notes": 10,
-  "input_bytes": 9502,
-  "success_notes": 0,
-  "pending_after": 38,
-  "failure_reason": "fast manager run failed: transport error: error sending request for url (http://127.0.0.1:8091/v1/chat/completions): client error (Connect): tcp connect error: 由于目标计算机积极拒绝，无法连接。 (os error 10061)",
-  "consecutive_failures": 44,
-  "updated_at_ms": 1787248026183
+  "batch_id": "inbox-1787308261886",
+  "status": "completed",
+  "input_notes": 2,
+  "input_bytes": 1634,
+  "success_notes": 2,
+  "pending_after": 0,
+  "failure_reason": null,
+  "consecutive_failures": 0,
+  "updated_at_ms": 1787308273790
 }

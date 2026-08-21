@@ -2,12 +2,12 @@
 id: M-012
 scope: project
 category: fact
-title: ID 同现于活动与归档时完整性门禁拒绝所有 tracker 写操作
-description: 处理 goal/defect/req 写操作因条目同时存在活动与归档或已归档终态而被拒时必读：停止普通更新，确认终态；需要纠正时改用 defect fix_terminal 并填写 fixed/wontfix 与原因。
+title: ID 同现于活动与归档时改用 terminal 专用操作
+description: 处理 goal/defect/req 报 is archived、尤其需要把已归档条目改为 fixed/wontfix 等终态时必读：先停止普通 update，确认条目已进入 terminal，再执行 defect fix_terminal id=<id> status=<fixed|wontfix> reason=<why>；不要对 archived 条目重试普通写操作。
 status: active
 created: 2026-08-08
-updated: 2026-08-20
+updated: 2026-08-21
 source: inbox:2026-08-08
 ---
 
-ID 同现于活动与归档时，goal/defect/req 写操作会被完整性门禁拒绝。遇到原文 `D-538 is archived — this action does not apply to terminal entries. To correct a wrong terminal status (e.g. fixed should be wontfix), use defect fix_terminal id=D-538 status=<fixed|wontfix> reason=<why>.`：不要继续普通 defect 更新；先确认归档/终态，再仅在确需纠正终态时使用 `defect fix_terminal id=<id> status=<fixed|wontfix> reason=<why>`。 [fp:defect|is archived — this action does not apply to terminal entries. To correct a wrong]
+判据：若错误包含 `is archived — this action does not apply to terminal entries`，说明目标已是 terminal，普通 tracker 写操作不适用。需要纠正终态时使用 `defect fix_terminal id=<id> status=<fixed|wontfix> reason=<why>`，并提供原因；例如 D-663 不能用普通 defect update 改状态。复发证据： [fp:defect|is archived — this action does not apply to terminal entries. To correct a wrong]

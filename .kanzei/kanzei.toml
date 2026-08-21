@@ -1,7 +1,7 @@
 [models]
-primary = 'llama-fast:.\models\Qwen3.8-4B-Q4_K_M.gguf'
-fast = 'llama-fast:.\models\Qwen3.8-4B-Q4_K_M.gguf'
-compact = 'llama-fast:.\models\Qwen3.8-4B-Q4_K_M.gguf'
+primary = "codex:gpt-5.6-luna"
+fast = "codex:gpt-5.6-luna"
+compact = "codex:gpt-5.6-luna"
 reasoning = "high"
 codex_fast_mode = true
 
