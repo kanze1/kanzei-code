@@ -80,18 +80,6 @@
 - 取活依据: engine:唯一可执行 WIP 是 D-592，必须先恢复它
 - 阻塞: 等待用户提供或释放可安全接管的 llama-local 实测窗口；解除人：用户准备 llama-server 窗口并告知 agent 执行多步工具循环验收。
 
-## D-654 鞭挞工具画像按 prior.len() 切片,轮中上下文压缩后切空,真实动作被误判 NoAction 自停 [fixed] (high)
-- 复现: 用户 2026-08-21 现场:自举鞭挞在有真实 edit/bash/commit 的轮次被停,UI 报「连续两轮没有实质动作」。判定链:coordinator.rs 轮末用 summarize_tools(&summary.messages[prior.len()..]) 拼画像;而 compact_with_digest/trim_tail_for_protocol 会在轮中结构性删短 messages(中段换纪要/逐条移除),prior.len() 切片随即错位——压缩删掉的条数超过本轮新增时切片为空,画像只剩子代理上卷,has_progress_tools=false → 第一轮 Nudge、第二轮 Stop(NoAction)。D-592 修正预算锚定后压缩真正开始触发,该口径缺陷随之显形。同因:closed_count_this_round 扫全历史 messages,历史 close 每轮重复计入,verify_every_n 节律被刷穿
-- 影响: 长会话(历史超过压缩触发线)里自举鞭挞必然误停:越接近压缩线越容易连续两轮画像切空;停止原因误报「无实质动作」误导排障;VerifyRound 节律失真
-- 来源: 2026-08-21 用户实测反馈(主会话诊断)
-- 标签: 后端
-- 验收: ①鞭挞工具画像改为事件真源(ToolStart 边跑边收),与消息列表任何改写(压缩/prune/trim)解耦,有回归测试;②close 成功计数改事件收口(ToolStart 登记意图+ToolEnd ok 计数),只收本轮,判据保持「调用 close 且结果非 error」;③kanzei-app/kanzei-harness 测试全绿;④轮末统计落库(episodes/harvest)仍用切片口径的残留问题另行登记不混入本条
-- 优先级: P1
-- 进展: 修复提交 a6c74ac3。验收对账:① 已完成:crates/kanzei-app/src/run/events/mod.rs:247-253 note_round_tool 事件收集主轮工具名,crates/kanzei-app/src/run/events/mod.rs:326 接入 ToolStart,crates/kanzei-app/src/run/coordinator.rs:344-352 轮末 tools_vec 改取 round_tools∪subagent_tools 不再消费消息切片;回归测试 crates/kanzei-app/src/run/events/mod.rs:697(主轮工具画像走事件真源_与消息切片解耦)。② 已完成:crates/kanzei-app/src/run/events/mod.rs:259-262 ToolEnd ok 收口 close 计数,crates/kanzei-app/src/run/coordinator.rs:372 消费 round_closed;原 closed_count_this_round 已删除(crates/kanzei-app/src/auto_run.rs:101-104 留移除说明);回归测试 crates/kanzei-app/src/run/events/mod.rs:715(close计数事件收口_成功才计_失败与update不计)。③ 已完成:cargo test -p kanzei-app -p kanzei-harness 全绿(kzapp 234 passed 0 failed,harness 154 passed 0 failed),cargo fmt --all 已过,均在提交 a6c74ac3 上执行。④ 已完成:统计侧残留已登记 .kanzei/project/defects.md:91(D-655,refs 指回 D-654),不混入本条
-- observed_head: a6c74ac3ab899cb642639ce41dfc792201fd425d
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1787269042302
-
 ## D-655 轮末统计切片 prior.len() 在轮中压缩后错位,episodes/harvest/失败提炼画像失真 [open] (medium)
 - 复现: 与 D-654 同根因的统计侧残留:coordinator.rs 轮末 summarize_tools 切片、persistence.rs:133 与 crates/kanzei/src/cli/run/finalize.rs:151 的 this_run 切片都按 prior.len().min(len) 取本轮;compact_with_digest/trim_tail_for_protocol 在轮中结构性删短 messages 后切片错位:压缩量大于本轮新增时切空,否则混入错误区段。鞭挞判定已在 D-654 改事件真源,这三处统计口径(episode metrics/harvest_end_of_run 失败提炼/工具计数)仍用切片
 - 影响: 遥测与记忆收割质量:压缩触发的轮次 episode 画像不全或为空、失败观察漏投;不影响鞭挞判定(已解耦)

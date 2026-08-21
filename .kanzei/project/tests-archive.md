@@ -9282,3 +9282,48 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-310 D-653
 - 收尾: 1787267500
 - 源码指纹: v2 crates/kanzei-core/src/runner/tool_failure_telemetry.rs@0e54f6af9380
+
+## T-1786922726643 R-310 symbols 定向测试（首次） [failed]
+- 命令: cargo test -p kanzei-tools symbols
+- 摘要: 13 个 symbols 测试中 12 通过；repo_map 单测因合法单行 workspace members 未被 crate_ident_to_dir 解析而失败，已登记 D-658，修复后重跑。
+- 关联: R-310 D-658
+- 收尾: 1787270631
+- 源码指纹: v2 crates/kanzei-tools/src/symbols.rs@9a88a346d22e
+
+## T-1786922726644 R-310 symbols 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools symbols
+- 时长: 23.0s
+- 摘要: 13 passed, 0 failed；覆盖 crate/module/public 分层、当前文件变更反映、既有 callers/define/filter 与路径自愈查询。D-658 回归通过。
+- 关联: R-310 D-658
+- 收尾: 1787270672
+- 源码指纹: v2 crates/kanzei-tools/src/symbols.rs@9a88a346d22e
+
+## T-1786922726645 R-310 B3 最终格式与定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools symbols
+- 时长: 12.0s
+- 摘要: rustfmt 检查通过；symbols 定向测试 13 passed、0 failed。最终覆盖 crate/module/public 地图、单行 workspace members、实时文件更新及既有查询兼容。
+- 关联: R-310
+- 收尾: 1787270946
+- 源码指纹: v2 crates/kanzei-tools/src/symbols.rs@ee3fd9abf3bc
+
+## T-1786922726646 R-310 B4 自举档失手率复测 [passed]
+- 摘要: 真实自举档 run 遥测：基线 run_1787269956737526500 为 24/32=75.00%；复测 run_1787270303537435000 为 8/57=14.04%，下降 60.96 个百分点（相对下降约 81.28%）。
+- 关联: R-310
+- 收尾: 1787270964
+- 源码指纹: v2 crates/kanzei-tools/src/symbols.rs@ee3fd9abf3bc
+
+## T-1786922726647 D-659 kanzei-app clippy 与定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app; cargo clippy -p kanzei-app -- -D warnings
+- 时长: 39.0s
+- 摘要: kanzei-app 234 passed、0 failed；fmt 通过；kanzei-app clippy -D warnings 通过。两处仅 lint 等价修复。
+- 关联: D-659
+- 收尾: 1787271296
+- 源码指纹: v2 crates/kanzei-app/src/conversation.rs@9a25348b1fbf,crates/kanzei-app/src/conversation_tests.rs@c9cbcf9e39d7,crates/kanzei-tools/src/symbols.rs@ee3fd9abf3bc
+
+## T-1786922726648 R-310 kanzei-tools 全量定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 36.0s
+- 摘要: kanzei-tools 全量定向套件通过：425 passed、0 failed、1 ignored；symbols repo map 回归包含在内。
+- 关联: R-310
+- 收尾: 1787271417
+- 源码指纹: v2 crates/kanzei-app/src/conversation.rs@9a25348b1fbf,crates/kanzei-app/src/conversation_tests.rs@c9cbcf9e39d7,crates/kanzei-tools/src/symbols.rs@ee3fd9abf3bc

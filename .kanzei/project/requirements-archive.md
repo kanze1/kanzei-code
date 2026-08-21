@@ -4125,3 +4125,21 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787263273053
 - status: done
+
+## R-310 仓库导航效率:失手遥测、工具自愈报错与代码地图,把认知预算还给问题本身 [done]
+- refs: D-575 D-568 R-308 T-1786922726640 T-1786922726641 T-1786922726642 T-1786922726645 T-1786922726646
+- 内容: 批1 失手遥测:工具调用失败机械分类(不存在路径/越界范围/漏参数/空搜索/权限拒绝),按 run 落 telemetry,产出失手率基线;批2 报错自愈:落地 D-575 验收(最近邻候选/合法范围/必填参数点名);批3 代码地图:crate→模块→公共符号的机器生成索引,symbols 扩仓级查询或注入轻量 repo map——批3 动工前先出小设计对比 token 成本再定形态;批4 复测:同类任务失手率对比基线,弱模型(自举档)实测
+- 复杂度: 大
+- 来源: 2026-08-20 外部工程评估对照 Claude Code/Codex；本轮来源：系统续作指令
+- 标签: 核心
+- 设计文档: docs/design/weakness_register_20260820.md
+- 边界: 不做 embedding/语义代码检索;repo map 若走注入必须过 token 成本核算,超预算宁可工具化按需查;不改 grep/glob 既有语义;记忆召回不相关问题归 D-568/R-308 不在本条
+- 验收: ①失手遥测有分类与按 run 聚合,基线数字落档;②D-575 五条验收全部通过;③代码地图机器生成、随提交可增量更新,查询路径有定向测试;④失手率相对基线下降有真实运行数据支撑;⑤repo map 的 token 成本核算落档
+- 优先级: P1
+- 批次: 4/4
+- 设计冻结: 不变式：每个失败结果最多记录一次且不改变原工具结果；权威数据源：ToolOutput.code/outcome/content、ToolCtx.run_id、.kanzei/artifacts/tool-failures/<run_id>.json；预期文件：crates/kanzei-core/src/runner/tool_failure_telemetry.rs、runner/mod.rs、runner/tool_exec.rs及core测试；最小测试：五类失败分类、按run聚合/重复调用、cargo test -p kanzei-core。
+- 进展: 验收逐条对账：①已完成（既有 B1 能力，非本次新增）：crates/kanzei-core/src/runner/tool_failure_telemetry.rs:14-22,35-48,83-126,139-183 固定五类失败分类、按 run 聚合、calls/failure_count/failure_rate 与 call_id 去重；基线落档 .kanzei/artifacts/tool-failures/run_1787269956737526500.json（24/32=75.00%），证据 T-1786922726640、T-1786922726642。②已完成（既有 D-575 能力，非本次新增）：crates/kanzei-tools/src/edit.rs 的 READ_PATH_NOT_FOUND、READ_RANGE_OUT_OF_BOUNDS、INVALID_TOOL_INPUT、空搜索、USER_DECLINED/permission denied 五类自愈提示；T-1786922726640、T-1786922726641。③已完成（本次 B3）：crates/kanzei-tools/src/symbols.rs:17-43 输入契约，104-138 crate/module 分流，275-371 实时 crate→module→public symbol 地图，512-582 单行/多行 workspace 解析，1160-1221 定向测试；T-1786922726645 为 fmt 通过且 13 passed。④已完成（本次 B4）：真实自举档复测 .kanzei/artifacts/tool-failures/run_1787270303537435000.json（8/57=14.04%），相对基线下降 60.96 个百分点/约 81.28%，T-1786922726646。⑤已完成：docs/design/r310_repo_map_design.md:10-18 记录 A/B/C 方案与 UTF-8 字节/4 token 成本公式，20-26 记录采用 B 的边界与实时扫描决策。R-310 全部验收完成；D-657、D-658 已 fixed。
+- observed_head: a6c74ac3ab899cb642639ce41dfc792201fd425d
+- observed_worktree_hash: fnv1a64:590bacf6c17bf734
+- recorded_at: 1787271017388
+- 取活依据: engine:唯一可执行 WIP 是 R-310，必须先恢复它

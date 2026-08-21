@@ -8081,3 +8081,39 @@
 - observed_head: f0a6942853f1f78cfe011c28fadb8a44feb68808
 - observed_worktree_hash: fnv1a64:b265818201b65269
 - recorded_at: 1787267517587
+
+## D-654 鞭挞工具画像按 prior.len() 切片,轮中上下文压缩后切空,真实动作被误判 NoAction 自停 [fixed] (high)
+- 复现: 用户 2026-08-21 现场:自举鞭挞在有真实 edit/bash/commit 的轮次被停,UI 报「连续两轮没有实质动作」。判定链:coordinator.rs 轮末用 summarize_tools(&summary.messages[prior.len()..]) 拼画像;而 compact_with_digest/trim_tail_for_protocol 会在轮中结构性删短 messages(中段换纪要/逐条移除),prior.len() 切片随即错位——压缩删掉的条数超过本轮新增时切片为空,画像只剩子代理上卷,has_progress_tools=false → 第一轮 Nudge、第二轮 Stop(NoAction)。D-592 修正预算锚定后压缩真正开始触发,该口径缺陷随之显形。同因:closed_count_this_round 扫全历史 messages,历史 close 每轮重复计入,verify_every_n 节律被刷穿
+- 影响: 长会话(历史超过压缩触发线)里自举鞭挞必然误停:越接近压缩线越容易连续两轮画像切空;停止原因误报「无实质动作」误导排障;VerifyRound 节律失真
+- 来源: 2026-08-21 用户实测反馈(主会话诊断)
+- 标签: 后端
+- 验收: ①鞭挞工具画像改为事件真源(ToolStart 边跑边收),与消息列表任何改写(压缩/prune/trim)解耦,有回归测试;②close 成功计数改事件收口(ToolStart 登记意图+ToolEnd ok 计数),只收本轮,判据保持「调用 close 且结果非 error」;③kanzei-app/kanzei-harness 测试全绿;④轮末统计落库(episodes/harvest)仍用切片口径的残留问题另行登记不混入本条
+- 优先级: P1
+- 进展: 修复提交 a6c74ac3。验收对账:① 已完成:crates/kanzei-app/src/run/events/mod.rs:247-253 note_round_tool 事件收集主轮工具名,crates/kanzei-app/src/run/events/mod.rs:326 接入 ToolStart,crates/kanzei-app/src/run/coordinator.rs:344-352 轮末 tools_vec 改取 round_tools∪subagent_tools 不再消费消息切片;回归测试 crates/kanzei-app/src/run/events/mod.rs:697(主轮工具画像走事件真源_与消息切片解耦)。② 已完成:crates/kanzei-app/src/run/events/mod.rs:259-262 ToolEnd ok 收口 close 计数,crates/kanzei-app/src/run/coordinator.rs:372 消费 round_closed;原 closed_count_this_round 已删除(crates/kanzei-app/src/auto_run.rs:101-104 留移除说明);回归测试 crates/kanzei-app/src/run/events/mod.rs:715(close计数事件收口_成功才计_失败与update不计)。③ 已完成:cargo test -p kanzei-app -p kanzei-harness 全绿(kzapp 234 passed 0 failed,harness 154 passed 0 failed),cargo fmt --all 已过,均在提交 a6c74ac3 上执行。④ 已完成:统计侧残留已登记 .kanzei/project/defects.md:91(D-655,refs 指回 D-654),不混入本条
+- observed_head: a6c74ac3ab899cb642639ce41dfc792201fd425d
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787269042302
+
+## D-658 symbols 代码地图无法解析合法单行 workspace members [fixed] (medium)
+- 复现: R-310 B3 新增 repo_map 测试使用合法单行 `[workspace] members = ["crates/demo-crate"]`，`symbols` 返回 `SYMBOLS_CRATE_NOT_FOUND` 且 available crates 为空；根因是 crate_ident_to_dir 只读取 members 数组中独占一行的引号项。
+- 影响: 合法 workspace 清单无法被代码地图 crate 查询识别，R-310 的 crate→module→public symbol 查询在常见 TOML 写法下不可用。
+- 来源: self-found：cargo test -p kanzei-tools symbols
+- 标签: 核心
+- refs: R-310
+- 优先级: P1
+- 进展: 已修复：crates/kanzei-tools/src/symbols.rs:531-551 解析单行与多行 workspace.members；D-658 回归测试位于 symbols.rs:1160-1221，T-1786922726644 cargo test -p kanzei-tools symbols 为 13 passed、0 failed。
+- 验证: T-1786922726644；单行 members fixture 查询 demo_crate→crate→public symbol 成功，修改 lib.rs 后第二次查询出现 second。
+- observed_head: a6c74ac3ab899cb642639ce41dfc792201fd425d
+- observed_worktree_hash: fnv1a64:2bc8f47327427864
+- recorded_at: 1787270789508
+
+## D-657 R-310 代码地图设计草稿混入工具调用转录且验收项未与实际实现对齐 [fixed] (low)
+- 复现: 读取 docs/design/r310_repo_map_design.md 可见第 54 行后混入 <tool_call>/<think>/<function=websearch> 等转录残片，且验收仍写着未实现的 --crate/--module 与待验证项。
+- 影响: 设计工件不是可复核的 R-310 方案，容易把未交付能力误报为代码地图已完成，并污染后续 token 成本与验收判断。
+- 来源: self-found：R-310 批3 复核
+- 标签: 流程
+- 优先级: P2
+- 进展: 已修复：docs/design/r310_repo_map_design.md 已清理工具调用转录残片，补齐 B3 方案对比、可复算 token 成本、实现契约、定向测试证据与 B4 真实遥测数据。文档当前第 1-46 行可复核。
+- observed_head: a6c74ac3ab899cb642639ce41dfc792201fd425d
+- observed_worktree_hash: fnv1a64:2bc8f47327427864
+- recorded_at: 1787270798799

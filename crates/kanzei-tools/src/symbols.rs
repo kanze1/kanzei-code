@@ -34,6 +34,12 @@ struct SymbolsInput {
     /// 与 callers 互斥(同时给出会显式报错)。
     #[serde(default)]
     define: Option<String>,
+    /// R-310 B3:按 workspace crate 生成实时分层地图(ident 使用 Cargo 的 `-`→`_`约定)。
+    #[serde(default, rename = "crate")]
+    crate_name: Option<String>,
+    /// R-310 B3:按模块路径过滤分层地图,如 `runner` 或 `runner::drive`。
+    #[serde(default)]
+    module: Option<String>,
 }
 
 /// 一个符号:名称、种类、行号、可见性。
@@ -63,7 +69,10 @@ impl Tool for SymbolsTool {
          cwd), filter (substring match on symbol name), public_only, callers (symbol \
          name — list reference points that call it, capped at 50), define (bare name or \
          crate::path — locate its definition anywhere in the tree, resolving cross-crate \
-         re-exports; mutually exclusive with callers)."
+         re-exports; mutually exclusive with callers), crate (workspace crate ident, \
+         `-` becomes `_`) and module (module path prefix) for a live crate→module→public \
+         symbol map. Map queries rescan the current worktree, so commits never leave a \
+         stale persisted index behind.)"
             .into()
     }
 
@@ -95,11 +104,39 @@ impl Tool for SymbolsTool {
                 ),
             );
         }
-        let files = collect_rs_files(&target);
+        let crate_dirs = crate_ident_to_dir(&ctx.project_root);
+        let files = if let Some(crate_name) = input.crate_name.as_deref() {
+            let Some((_, crate_dir)) = crate_dirs.iter().find(|(ident, _)| ident == crate_name)
+            else {
+                let available = crate_dirs
+                    .iter()
+                    .map(|(ident, _)| ident.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return ToolOutput::failed(
+                    "SYMBOLS_CRATE_NOT_FOUND",
+                    format!(
+                        "workspace crate `{crate_name}` not found; available crates: {available}"
+                    ),
+                );
+            };
+            collect_rs_files(&crate_dir.join("src"))
+        } else {
+            collect_rs_files(&target)
+        };
         if files.is_empty() {
             return ToolOutput::ok(format!("(no .rs files under {})", target.display()));
         }
-        // R-265:define 与 callers 互斥——同时给出是参数错误,显式报错而非静默取其一。
+        if input.crate_name.is_some() || input.module.is_some() {
+            return ToolOutput::ok(render_repo_map(
+                &files,
+                &crate_dirs,
+                &ctx.project_root,
+                input.module.as_deref(),
+                input.filter.as_deref(),
+            ));
+        }
+        // R-265:define 与 callers 互斥——同时给出是参数错误,而非静默取其一。
         if input.define.is_some() && input.callers.is_some() {
             return ToolOutput::error(
                 "symbols: `define` 与 `callers` 互斥,一次只能查一个(定义位置 vs 调用点)。",
@@ -233,6 +270,101 @@ fn collect_rs_files(path: &Path) -> Vec<std::path::PathBuf> {
     }
     out.sort();
     out
+}
+
+/// R-310 B3:从当前工作树实时生成 crate → module → public symbol 地图。
+/// 不写缓存文件；每次查询重新扫描 Cargo workspace 和 `.rs` 文件，故提交后的增量
+/// 变化会立即进入下一次查询，避免维护一份会过期的静态索引。
+fn render_repo_map(
+    files: &[std::path::PathBuf],
+    crate_dirs: &[(String, std::path::PathBuf)],
+    project_root: &std::path::Path,
+    module_filter: Option<&str>,
+    symbol_filter: Option<&str>,
+) -> String {
+    use std::collections::BTreeMap;
+
+    let mut modules: BTreeMap<(String, String, std::path::PathBuf), Vec<Symbol>> = BTreeMap::new();
+    for file in files {
+        let Some((crate_name, crate_dir)) = crate_dirs
+            .iter()
+            .find(|(_, dir)| file.starts_with(dir.join("src")))
+        else {
+            continue;
+        };
+        let module = module_path(file, crate_dir);
+        if let Some(wanted) = module_filter {
+            let matches = module == wanted || module.starts_with(&format!("{wanted}::"));
+            if !matches {
+                continue;
+            }
+        }
+        let public_symbols = scan_symbols(file)
+            .into_iter()
+            .filter(|symbol| symbol.public)
+            .filter(|symbol| symbol_filter.is_none_or(|filter| symbol.name.contains(filter)))
+            .collect::<Vec<_>>();
+        if !public_symbols.is_empty() {
+            modules.insert((crate_name.clone(), module, file.clone()), public_symbols);
+        }
+    }
+    if modules.is_empty() {
+        return "(no public symbols match crate/module filter)".into();
+    }
+
+    let crate_count = modules
+        .keys()
+        .map(|(crate_name, _, _)| crate_name)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let module_count = modules.len();
+    let symbol_count = modules.values().map(Vec::len).sum::<usize>();
+    let mut report = format!(
+        "repo map (crates: {crate_count}, modules: {module_count}, public_symbols: {symbol_count})\n"
+    );
+    let mut previous_crate = None;
+    for ((crate_name, module, file), symbols) in modules {
+        if previous_crate.as_deref() != Some(crate_name.as_str()) {
+            report.push_str(&format!("== crate `{crate_name}`\n"));
+            previous_crate = Some(crate_name.clone());
+        }
+        let relative = file.strip_prefix(project_root).unwrap_or(&file);
+        report.push_str(&format!("  module `{module}` ({})\n", relative.display()));
+        for symbol in symbols {
+            report.push_str(&format!(
+                "    pub {} {}:{}\n",
+                symbol.kind, symbol.name, symbol.line
+            ));
+        }
+    }
+    report
+}
+
+fn module_path(file: &std::path::Path, crate_dir: &std::path::Path) -> String {
+    let src = crate_dir.join("src");
+    let Ok(relative) = file.strip_prefix(src) else {
+        return "crate".into();
+    };
+    let mut parts = relative
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    let Some(last) = parts.last_mut() else {
+        return "crate".into();
+    };
+    if last == "lib.rs" || last == "main.rs" {
+        return "crate".into();
+    }
+    if last == "mod.rs" {
+        parts.pop();
+    } else if let Some(stem) = last.strip_suffix(".rs") {
+        *last = stem.to_string();
+    }
+    if parts.is_empty() {
+        "crate".into()
+    } else {
+        parts.join("::")
+    }
 }
 
 /// R-265:符号反查。`define` 输入裸名或限定路径(crate::mod::sym),全树按
@@ -393,8 +525,26 @@ fn crate_ident_to_dir(project_root: &std::path::Path) -> Vec<(String, std::path:
         if !in_workspace {
             continue;
         }
-        if t.starts_with("members") {
-            in_members = true;
+        if let Some(rest) = t
+            .strip_prefix("members")
+            .and_then(|rest| rest.trim_start().strip_prefix('='))
+        {
+            // 合法 TOML 既可能把 members 写成单行数组，也可能写成多行数组。
+            // 单行数组不能只依赖下面的「每行一个引号项」分支，否则 crate 查询会
+            // 静默得到空 workspace。
+            let mut remaining = rest;
+            while let Some(start) = remaining.find('"') {
+                let after_start = &remaining[start + 1..];
+                let Some(end) = after_start.find('"') else {
+                    break;
+                };
+                let member = &after_start[..end];
+                if !member.is_empty() {
+                    members.push(member.to_string());
+                }
+                remaining = &after_start[end + 1..];
+            }
+            in_members = !rest.contains(']');
             continue;
         }
         if !in_members {
@@ -1005,6 +1155,80 @@ mod tests {
     }
 
     /// R-265:crate ident → 源码目录映射(`-`→`_`)。
+    /// R-310 B3:分层查询只输出 public symbol,并且第二次查询反映当前文件内容，
+    /// 证明它是机器实时生成而不是提交前一次性写死的索引。
+    #[tokio::test]
+    async fn repo_map_按crate与module查询并随当前文件增量更新() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-symbols-repo-map-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let crate_dir = dir.join("crates/demo-crate");
+        std::fs::create_dir_all(crate_dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/demo-crate\"]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            crate_dir.join("Cargo.toml"),
+            "[package]\nname = \"demo-crate\"\n",
+        )
+        .unwrap();
+        let source = crate_dir.join("src/lib.rs");
+        std::fs::write(&source, "pub fn first() {}\nfn hidden() {}\n").unwrap();
+        let ctx = kanzei_harness::ToolCtx::new(dir.clone(), dir.clone());
+        let tool = SymbolsTool;
+        let first = tool
+            .execute(
+                serde_json::json!({
+                    "crate": "demo_crate",
+                    "module": "crate"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!first.is_error, "{}", first.content);
+        assert!(
+            first.content.contains("crate `demo_crate`"),
+            "{}",
+            first.content
+        );
+        assert!(
+            first.content.contains("module `crate`"),
+            "{}",
+            first.content
+        );
+        assert!(first.content.contains("pub fn first"), "{}", first.content);
+        assert!(!first.content.contains("hidden"), "{}", first.content);
+
+        std::fs::write(
+            &source,
+            "pub fn first() {}\npub fn second() {}\nfn hidden() {}\n",
+        )
+        .unwrap();
+        let second = tool
+            .execute(
+                serde_json::json!({
+                    "crate": "demo_crate",
+                    "module": "crate"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!second.is_error, "{}", second.content);
+        assert!(
+            second.content.contains("pub fn second"),
+            "{}",
+            second.content
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn crate_ident_to_dir_映射_下划线ident到目录() {
         let dir = std::env::temp_dir().join(format!(
