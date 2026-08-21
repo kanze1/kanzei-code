@@ -4246,3 +4246,21 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787298833936
 - 取活依据: engine:唯一可执行 WIP 是 R-311，必须先恢复它
+
+## R-313 需求发现分层:Discovery Record、待确认字段生命周期与歧义落点,让发现阶段先于交付冲动 [done]
+- refs: R-248 R-311 D-577 docs/design/weakness_register_20260820.md
+- 内容: 批1 Discovery Record:中/大需求 req add 前产出轻量发现记录(Intent 用户真正要什么/Explicit 用户原话/Assumptions 推断/Ambiguities 歧义/领域对象/最小成功闭环/延后决策),来源字段必须含用户原话引用而非只写「用户消息」;批2 待确认生命周期:核心语义类待确认未决时,设计冻结与进入 doing 前要求先走 question 工具或用户显式豁免留痕——把「检测到的歧义」从散文变成有 teeth 的状态;批3 新增限定词一致性检查:需求文本出现用户原话中没有的关键限定词(如用户说「收藏」需求写「浏览器书签」)时机械提示「未确认解释:确认/标 assumption/移除限定」;批4 复测:文章获取器场景回归,同样输入下歧义在冻结前被逼出
+- 复杂度: 大
+- 来源: 2026-08-20 用户需求发现实测(文章获取器项目)+外部评估。实测对评估的关键修正:模型其实检测到了歧义并写入原 R-003 待确认字段(逐字:「收藏」默认解释为浏览器书签/收藏夹;需要确认是否还要适配特定网站的站内收藏),但 question 工具全程零调用、默认解释选错边(上下文「帖子喜好」指向站内收藏)、设计冻结把「浏览器书签 API/导入文件」写进权威数据源——待确认是死字段,没有任何门禁消费它,歧义靠用户事后「先知乎就行」纠正
+- 标签: 核心
+- 设计文档: docs/design/weakness_register_20260820.md
+- 边界: 不加重 hard gate,Discovery Record 是轻结构不是审批流;「图 ontology 是否 user-centric」这类高级语义判断不做规则化(评估共识:靠模型或产品 persona,规则 gate 判不了);小需求不强制;不改 R-248 prior-art 门,两者在 req add 处组合(prior-art 管「查已有方案」,本条管「问题究竟是什么」)
+- 验收: ①中/大需求缺 Discovery Record 或来源无用户原话引用被拒,有定向测试;②含未决核心语义待确认的条目在冻结/doing 前被拦并指向 question,豁免路径留痕可审计;③限定词一致性检查有真实触发与放行案例各一;④文章获取器场景复测:「收藏」歧义在登记前被逼出而非用户事后纠正;⑤既有小需求登记路径无回归
+- 优先级: P1
+- 取活依据: engine:已完成并提交 5908665f，验收证据齐全
+- 批次: 4/4
+- 批次表: B1 Discovery Record 登记门禁与来源原话校验；B2 待确认生命周期/question 或用户豁免门禁并接入 doing/claim；B3 限定词一致性检查与 assumption 放行；B4 文章获取器“收藏”场景及小需求回归、验收收口。
+- 进展: 已完成并提交 5908665f。验收逐项对账：①中/大需求缺 Discovery Record 或来源无用户原话拒绝：crates/kanzei-tools/src/tracker.rs:731-846、crates/kanzei-tools/src/tracker/actions.rs:267-272；定向证据 T-1786922726675、T-1786922726676、T-1786922726677。②未决核心语义在 update→doing、work_units_v1 claim、legacy claim 前拦截并指向 question，用户豁免可审计放行：tracker.rs:740-746、848-886，tracker/actions.rs:524-549，work/tool.rs:328-333、629-637；T-1786922726676/T-1786922726677。③限定词真实触发与 assumption 放行：tracker.rs:888-917，tracker.rs:4407-4457；T-1786922726675/T-1786922726677。④文章获取器“收藏”→“浏览器书签”在 req add 前被拒，未等用户事后纠正；同时覆盖发现阶段待确认与 claim 前拦截：tracker.rs:4407-4457、4474-4583；T-1786922726675/T-1786922726676。⑤既有小需求登记路径无回归：tracker.rs:4459-4470；T-1786922726675。D-672 已登记、修复并归档，修复位置 tracker.rs:900，证据 T-1786922726677。
+- observed_head: 5908665fa20e9f63803ddbdff8c6f3cc93e9297a
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787301389539
