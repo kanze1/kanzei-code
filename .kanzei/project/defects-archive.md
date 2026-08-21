@@ -8488,3 +8488,15 @@
 - observed_head: 8296c89415ecbdad059c14034864ec694e6fa2a8
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787322683499
+
+## D-691 D-498 回退了 R-264 B1 的 UI 源码目录遍历，ESM 单入口会造成静态冒烟覆盖退化 [fixed] (medium)
+- 复现: 当前 scripts/ui-sources.mjs 的 loadUiSources() 在第 15-29 行读取 index.html 的 <script src> 清单；git 历史显示 R-264 B1 的 89c56049 目录遍历实现随后被 D-498 的 29653d83 改回 HTML 清单。
+- 影响: 原生 ESM 单入口时 loader 会只收集入口脚本，a11y/i18n/markdown 等 joined 静态断言可能静默退化；R-264 B1 的文件数下限与目录覆盖验收失效。
+- 来源: self-found；R-264 恢复对账。
+- 标签: 前端
+- refs: R-264 D-498
+- 优先级: P1
+- 进展: 已修复：scripts/ui-sources.mjs:13-25 改为遍历 ui/ 根目录直接 .js 并以 MIN_UI_FILES=24 做覆盖下限；scripts/ui-runtime-smoke.mjs:1223-1237 校验 HTML 入口均在目录清单中，scripts/ui-runtime-smoke.mjs:1321-1369 按 HTML 顺序逐文件执行，目录额外文件只参加静态覆盖。T-1786922726749 六条前端冒烟全绿，runtime 覆盖 26 个源码、0 运行时错误。
+- observed_head: 8296c89415ecbdad059c14034864ec694e6fa2a8
+- observed_worktree_hash: fnv1a64:88ef538c702760c9
+- recorded_at: 1787342914900

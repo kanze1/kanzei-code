@@ -7,8 +7,8 @@ import vm from "node:vm";
 import { loadUiSources } from "./ui-sources.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-// B0:按 index.html 的 <script src> 清单按序读入全部脚本(单文件 = 清单的退化情形)。
-// 后续 R-154 批次把 main.js 拆成 18 个文件时,冒烟对文件形态透明,无需再改。
+// B1:loadUiSources 的 scriptSrcs 是 ui/ 目录覆盖清单，不再声称它就是浏览器执行顺序。
+// B2/D-498:运行时执行仍必须按 index.html 的 <script src> 顺序，保住 classic/defer TDZ。
 const { html, scriptSrcs, sources, joined: source } = loadUiSources();
 const style = await readFile(resolve(root, "crates/kanzei-app/ui/style.css"), "utf8");
 
@@ -1220,13 +1220,21 @@ async function drainTimersOnce(label) {
 }
 
 function assert(condition, message) { if (!condition) fail(message); }
-// D-498：共享加载器必须与浏览器真正执行的 index.html script 顺序完全一致。
+// D-498/B1：目录覆盖与浏览器执行顺序分离。HTML 顺序只校验每个真实入口都能在
+// 目录清单中找到；目录额外文件（例如迁移期未接入入口的文件）不能被静默丢掉，
+// 但也不能插入浏览器执行序列破坏 classic/defer TDZ。
 const htmlScriptSrcs = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)]
   .map((match) => match[1])
   .filter((src) => src.endsWith(".js") && !src.includes("://"));
+const uiSourceNames = new Set(scriptSrcs);
+const missingHtmlSources = htmlScriptSrcs.filter((name) => !uiSourceNames.has(name));
 assert(
-  JSON.stringify(scriptSrcs) === JSON.stringify(htmlScriptSrcs),
-  `冒烟脚本顺序与 index.html 不一致：\n实际=${htmlScriptSrcs.join(" → ")}\n冒烟=${scriptSrcs.join(" → ")}`,
+  missingHtmlSources.length === 0,
+  `index.html 引用了不在 ui/ 目录清单中的脚本：${missingHtmlSources.join(", ")}`,
+);
+assert(
+  scriptSrcs.length >= htmlScriptSrcs.length,
+  `ui/ 目录清单少于 index.html 执行入口：目录 ${scriptSrcs.length}，HTML ${htmlScriptSrcs.length}`,
 );
 const listText = (id) => byId.get(id)?.textContent ?? "";
 
@@ -1311,33 +1319,41 @@ async function executeUiSource(instrumented, filename, sandbox, sourcesByName) {
 async function runUiSources() {
   const sourcesByName = new Map();
   sources.forEach((src, i) => sourcesByName.set(scriptSrcs[i], src));
+  const executionSources = htmlScriptSrcs.map((name) => {
+    const src = sourcesByName.get(name);
+    if (src === undefined) throw new Error(`index.html 执行入口 ${name} 不在 ui/ 源码清单中`);
+    return [name, src];
+  });
+  const sourceIndexes = new Map(scriptSrcs.map((name, index) => [name, index]));
   try {
     // R-264 批3:两阶段加载。第一阶段:创建+link 全部 ESM 模块(link 回调按依赖
     // 图递归,循环依赖返回缓存实例——不在 link 期间 evaluate,避免「请求未入缓存」)。
-    // classic 文件仍即时 runInContext(无依赖,保逐文件 TDZ 语义)。
+    // classic 文件仍按 index.html 逐文件 runInContext，保住浏览器的 TDZ/执行顺序；
+    // 目录中的额外源码只进入静态覆盖，不冒充浏览器已加载脚本。
     const esmOrder = [];
-    for (let i = 0; i < sources.length; i += 1) {
-      let instrumented = sources[i].replace(
+    for (const [name, sourceText] of executionSources) {
+      let instrumented = sourceText.replace(
         PROBE_INIT,
         'toastError(`${localizedLabel}${t("加载失败")}:${err}`); __reportInitError?.(label, err);'
       );
-      if (instrumented !== sources[i]) probeHits += 1;
+      if (instrumented !== sourceText) probeHits += 1;
       const beforePersist = instrumented;
       instrumented = instrumented.replace(
         PROBE_PERSIST,
         "function reportPersistentError(text, { retry = null } = {}) { __reportPersistentError?.(text);"
       );
       if (instrumented !== beforePersist) probeHits += 1;
-      sources[i] = instrumented;
-      sourcesByName.set(scriptSrcs[i], instrumented);
+      const index = sourceIndexes.get(name);
+      if (index !== undefined) sources[index] = instrumented;
+      sourcesByName.set(name, instrumented);
       const isEsm = /^\s*(import|export)\b/m.test(instrumented);
       if (!isEsm) {
-        vm.runInContext(instrumented, sandbox, { filename: scriptSrcs[i] });
+        vm.runInContext(instrumented, sandbox, { filename: name });
       } else {
         // 第一阶段:创建+link 模块(link 回调按依赖图递归,循环依赖返回缓存实例;
         // evaluate 在 linkAndEvaluate 内完成,幂等)。
-        await linkAndEvaluate(scriptSrcs[i], instrumented, sandbox, sourcesByName);
-        esmOrder.push(scriptSrcs[i]);
+        await linkAndEvaluate(name, instrumented, sandbox, sourcesByName);
+        esmOrder.push(name);
       }
     }
     // 第二阶段:ESM 模块按 index.html 顺序 evaluate(link 已完成,依赖实例就绪;

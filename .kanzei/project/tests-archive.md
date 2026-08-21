@@ -10093,3 +10093,26 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 发布前全量 verify 在当前 HEAD d0826efb 全绿：14 个步骤全部执行、Rust workspace 测试与六条前端 smoke 通过；关键结果 kanzei-app 245、kanzei-core 253、kanzei-harness 32、kanzei-llm 55、kanzei-memory 169、kanzei-tools 491（490 passed、1 ignored）。dist/verification.json 已绑定完整 SHA，full_verify=true，skipped_steps=[]。
 - 关联: R-321
 - 收尾: 1787322974
+
+## T-1786922726747 R-264 批4迁移前六条前端冒烟基线 [passed]
+- 命令: $ErrorActionPreference='Stop'; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 8.0s
+- 摘要: 批4动工前基线六条前端冒烟全绿：runtime、lint、parallel-lines、a11y、i18n、markdown；runtime 覆盖 25 个 UI 脚本、2342 次 invoke、10 个视图切换且 0 运行时错误。stderr 仅有既有 smoke probe marker。
+- 关联: R-264
+- 收尾: 1787342449
+
+## T-1786922726748 R-264 B1 修改后六条前端冒烟回归 [failed]
+- 命令: $ErrorActionPreference='Stop'; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 7.0s
+- 摘要: B1 修改后 runtime 冒烟失败 1 处：目录遍历清单包含 06-agent-panel.js 且按字典序把 18-startup.js 放到 19-* 前，当前 runtime 仍直接按 scriptSrcs 执行并与 index.html 顺序比较；其余 lint、parallel-lines、a11y、i18n、markdown 五条通过。stderr 的 smoke probe marker 为既有提示。
+- 关联: R-264 D-691
+- 收尾: 1787342737
+- 源码指纹: v2 scripts/ui-sources.mjs@7f3fc44fc934
+
+## T-1786922726749 R-264 B1 目录覆盖与浏览器执行顺序修复后六条冒烟 [passed]
+- 命令: $ErrorActionPreference='Stop'; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 8.0s
+- 摘要: B1 修复后六条前端冒烟全绿：runtime 按 index.html 顺序执行 26 个目录源码、初始化 2342 次 invoke、10 个主视图、0 运行时错误；lint、parallel-lines、a11y、i18n、markdown 全部通过。目录覆盖与浏览器执行顺序已分离。stderr 仅有既有 smoke probe marker。
+- 关联: R-264 D-691
+- 收尾: 1787342861
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@71ef6092d86c,scripts/ui-sources.mjs@7f3fc44fc934

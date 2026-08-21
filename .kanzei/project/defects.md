@@ -105,3 +105,11 @@
 - observed_worktree_hash: fnv1a64:a1d1426a5522a197
 - recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
+
+## D-690 R-264 B3 设计文档指定 08-compose 持有测试钩子但状态实际在 08-auto [open] (low)
+- 复现: 读取 docs/design/ui_esm_migration.md §二 B3 与当前 crates/kanzei-app/ui/08-auto.js、08-compose.js：文档将 autoRounds/noActionRounds/autoContinueTimers 等归于 08-compose，而实际声明位于 08-auto.js。
+- 影响: 若按文档直接让 08-compose.js export __kzTest，无法闭包捕获 08-auto.js 的模块私有状态；B3 会形成错误导出或迫使无关业务状态搬家。
+- 来源: self-found；R-264 批4实现前代码复核。
+- 标签: 流程
+- refs: R-264
+- 优先级: P2
