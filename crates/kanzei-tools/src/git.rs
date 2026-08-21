@@ -1029,6 +1029,11 @@ async fn commit_with_gate_state(
     if let Err(error) = placeholder_id_gate(&staged_diff, &paths) {
         return ToolOutput::error(error);
     }
+    // R-321 B2:重复/跨轮/阻塞的 execution incident 必须先与正式 D-ID 互链，
+    // 防止提交把应晋升的过程失手继续伪装成瞬时 incident。
+    if let Err(error) = crate::incident::commit_promotion_gate(&ctx.project_root) {
+        return ToolOutput::error(format!("[commit] {error}"));
+    }
     if !gates_already_run && paths.iter().any(|p| is_source_path(p)) {
         // 顺序有讲究:先验门禁(机械真值),再看测试记录(自报证据)。编译不过时
         // 报编译错误比报"没有测试背书"有用得多。D-264:fmt/clippy 为提交前硬门禁

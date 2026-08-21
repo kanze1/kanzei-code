@@ -9972,3 +9972,43 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-321 D-685
 - 收尾: 1787320171
 - 源码指纹: v2 crates/kanzei-tools/src/incident.rs@24fbfed0dbec,crates/kanzei-tools/src/lib.rs@010e7ba45a6a,crates/kanzei-tools/src/profiles.rs@c5258f0ae6c4,crates/kanzei-tools/src/profiles/dev.rs@3b4401d8a722
+
+## T-1786922726731 R-321 B2 incident 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools incident
+- 时长: 13.1s
+- 摘要: B2 incident 定向测试通过：5 passed、0 failed、0 ignored。覆盖 recurrence promotion、blocked/cross-round、append-only promotion link。
+- 关联: R-321 D-686
+- 收尾: 1787320802
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@300e561802ef,crates/kanzei-tools/src/incident.rs@37a8d9213a6a
+
+## T-1786922726732 R-321 B2 git 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools git::tests
+- 时长: 4.2s
+- 摘要: B2 git 定向测试通过：31 passed、0 failed、0 ignored。现有 finalize、stage、source_test_gate 与新增提交门禁编译通过。
+- 关联: R-321 D-686
+- 收尾: 1787320808
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@300e561802ef,crates/kanzei-tools/src/incident.rs@37a8d9213a6a
+
+## T-1786922726733 D-686 verify.ps1 提交前门禁 [failed]
+- 命令: .\scripts\verify.ps1
+- 时长: 0.1s
+- 摘要: verify.ps1 在测试前被工作树干净度门禁拦截：crates/kanzei-tools/src/git.rs 与 incident.rs 有 B2 未提交源码；未进入后续测试步骤。
+- 关联: D-686 R-321
+- 收尾: 1787320815
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@300e561802ef,crates/kanzei-tools/src/incident.rs@37a8d9213a6a
+
+## T-1786922726734 R-321 B2 kanzei-tools 完整定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 37.0s
+- 摘要: B2 提交前完整 kanzei-tools 测试通过：489 passed、0 failed、1 ignored；incident 与 git 门禁测试均在全 crate 中通过。cargo fmt --all -- --check 同步通过。
+- 关联: R-321 D-686
+- 收尾: 1787320876
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@300e561802ef,crates/kanzei-tools/src/incident.rs@37a8d9213a6a
+
+## T-1786922726735 R-321 B2 kanzei-tools 完整测试（clippy 修正后） [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 37.1s
+- 摘要: 修正 IncidentEventType 默认枚举后完整 kanzei-tools 测试通过：489 passed、0 failed、1 ignored；cargo fmt --all -- --check 通过，等待结构化 commit 的 fmt/clippy gate。
+- 关联: R-321 D-686 D-687
+- 收尾: 1787321046
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@300e561802ef,crates/kanzei-tools/src/incident.rs@d32d96016123
