@@ -70,6 +70,7 @@ const EXPERIENCE_NEURAL_EVENTS = new Map([
   ["text_delta", "assistant_streaming"],
   ["reasoning_delta", "reasoning_active"],
   ["tool_started", "tool_started"],
+  ["tool_progressed", "tool_progressed"],
   ["tool_completed", "tool_completed"],
   ["run_status_changed", "run_status_changed"],
   ["stream_restarted", "stream_restarted"],

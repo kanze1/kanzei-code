@@ -1454,6 +1454,25 @@ await runUiSources();
       && vm.runInContext("__experienceProbe.animation[0]", sandbox) === "run_started",
     "R-284 B3 当前 session 事件未分发到表现层",
   );
+  handlers.get("kz:experience")({
+    payload: {
+      ...projectFact,
+      event_id: "experience-smoke-tool-progress-1",
+      event_type: "tool_progressed",
+      session_id: vm.runInContext("activeSessionId", sandbox),
+      topic_id: null,
+      entity_id: null,
+      class: "delta",
+      payload: { text: "tool chunk" },
+    },
+  });
+  await flush();
+  assert(
+    vm.runInContext("__experienceProbe.animation.length", sandbox) === 2
+      && vm.runInContext("__experienceProbe.animation[1]", sandbox) === "tool_progressed",
+    "D-684 tool_progressed 未分发到当前 session 神经流",
+  );
+
   for (const [event_id, text] of [["experience-smoke-delta-1", "a"], ["experience-smoke-delta-2", "b"], ["experience-smoke-delta-3", "c"]]) {
     handlers.get("kz:experience")({
       payload: {
@@ -1470,9 +1489,9 @@ await runUiSources();
   }
   await flush();
   assert(
-    vm.runInContext("__experienceProbe.animation.length", sandbox) === 2
-      && vm.runInContext("__experienceProbe.payloads[1].delta_count", sandbox) === 3
-      && vm.runInContext("__experienceProbe.payloads[1].text", sandbox) === "abc",
+    vm.runInContext("__experienceProbe.animation.length", sandbox) === 3
+      && vm.runInContext("__experienceProbe.payloads[2].delta_count", sandbox) === 3
+      && vm.runInContext("__experienceProbe.payloads[2].text", sandbox) === "abc",
     "R-284 B4 text delta 未合并为单次表现事件",
   );
   handlers.get("kz:experience")({
@@ -1487,7 +1506,7 @@ await runUiSources();
     },
   });
   assert(
-    vm.runInContext("__experienceProbe.animation.length", sandbox) === 2,
+    vm.runInContext("__experienceProbe.animation.length", sandbox) === 3,
     "R-284 B4 未知体验事件错误驱动表现层",
   );
   const replayFact = {

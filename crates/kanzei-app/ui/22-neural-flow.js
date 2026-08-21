@@ -362,6 +362,7 @@ let neuralFlowEmit = null;
     reasoning_active: ["stream", "运行中", 0.42],
     assistant_streaming: ["stream", "运行中", 0.32],
     tool_started: ["tool", "运行中", 0.64],
+    tool_progressed: ["tool", "运行中", 0.42],
     tool_completed: ["complete", "收敛", 0.62],
     run_completed: ["complete", "收敛", 0.86],
     run_failed: ["error", "受阻", 0.9],

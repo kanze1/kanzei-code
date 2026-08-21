@@ -8412,3 +8412,15 @@
 - observed_head: e9950f24c703a59efe8a073eb80f2b7f7e7b3ab1
 - observed_worktree_hash: fnv1a64:492c860738a1f2e8
 - recorded_at: 1787318685072
+
+## D-684 未知体验事件 tool_progressed 持续报错 [fixed] (medium)
+- 原始描述: 描述(原文): 日志里一直报 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:53  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed 21:26:54  未知体验事件:tool_progressed
+- 复现: 待澄清: 请说明出现日志的具体操作步骤、运行环境（版本/端）、完整相关日志，以及该问题是否影响功能使用？
+- 标签: 核心
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-684(unblocks=0)
+- 来源: self-found
+- 进展: 已修复并验证：根因是 crates/kanzei-app/ui/01-core.js:68-78 的 EXPERIENCE_NEURAL_EVENTS 缺少 tool_progressed 映射，导致 handleExperienceEvent:180-213 进入“未知体验事件”告警分支；同时 crates/kanzei-app/ui/22-neural-flow.js:360-391 缺少对应表现规格。修复后 tool_progressed 映射为自身神经事件并使用工具运行态表现规格；scripts/ui-runtime-smoke.mjs:1457-1474 新增真实 VM 体验事件断言，确认当前 session 收到 tool_progressed。对原始描述“日志里一直报未知体验事件:tool_progressed”：T-1786922726727 运行 3 个 node --check、ui-lint-smoke（54 文件/0 no-undef）和 ui-runtime-smoke（25 脚本、2342 次 invoke、0 运行时错误）均通过，缺陷行为已消失。
+- observed_head: e6364cb981d67df86801a4b6ceb3a139063cda64
+- observed_worktree_hash: fnv1a64:645ebd1ec7217d87
+- recorded_at: 1787319524355

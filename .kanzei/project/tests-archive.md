@@ -9942,3 +9942,17 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: verify policy 在提交 e6364cb9 上通过：metrics/crate_sync/design freshness/PS1 BOM/IPC/UI connectivity/fmt/clippy 全部通过；workspace 相关测试全绿（kanzei-tools 484 passed/1 ignored，kanzei-core 253 passed，kanzei-memory 169 passed，kanzei-app 245 passed，kanzei 32 passed，kanzei-llm 55 passed，kanzei-base 44 passed），verification.json 绑定当前 commit。按改动范围跳过 frontend smoke 与 ui_runtime。
 - 关联: R-320
 - 收尾: 1787319220
+
+## T-1786922726727 D-684 tool_progressed 前端定向回归 [passed]
+- 命令: $ErrorActionPreference = 'Stop'; $commands = @('node --check crates/kanzei-app/ui/01-core.js','node --check crates/kanzei-app/ui/22-neural-flow.js','node --check scripts/ui-runtime-smoke.mjs','node scripts/ui-lint-smoke.mjs','node scripts/ui-runtime-smoke.mjs'); foreach ($command in $commands) { Invoke-Expression $command; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+- 摘要: 3 个前端脚本 node --check 通过；ui-lint-smoke 通过（54 个文件、no-undef 0）；ui-runtime-smoke 通过（25 个 UI 脚本、2342 次 invoke、0 运行时错误）。新增 D-684 断言验证 tool_progressed 进入当前 session 神经流。
+- 关联: D-684
+- 收尾: 1787319509
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@f8f8d8cfc9fe
+
+## T-1786922726728 D-684 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: kanzei-app 定向测试通过：245 passed、0 failed、0 ignored，耗时 11.32s。
+- 关联: D-684
+- 收尾: 1787319600
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@f8f8d8cfc9fe
