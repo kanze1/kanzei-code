@@ -111,12 +111,12 @@
 - 复现: 在 8ed3256f(R-310 B4 收口)之后跑 scripts/verify.ps1,连续两步报红:①设计时效门禁——磁盘 42 份设计文档、索引 41 条,r310_repo_map_design.md 未登记;②回涨闸——crates/kanzei-tools/src/symbols.rs 生产行 731→881 超出每文件 100 行允许量,基线未同步
 - 标签: 流程
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-664(unblocks=0)
-- 批次: 0/2
-- 进展: B0 已复核关闭路径：crates/kanzei-tools/src/tracker/actions.rs:353-388 原仅有祖先链与前端 smoke 门禁，未检查设计文档/显著单文件变更对应的 verify；scripts/verify.ps1:18-23 要求源码树干净并在 170-181 写入当前 HEAD 绑定证据。B1 已实现但尚未提交：action_helpers.rs 增加 HEAD^..HEAD numstat 判定，test_record/coverage.rs 增加当前 HEAD verify 证据与关联记录校验，actions.rs:358-369 接入 close。下一步：提交 B1，运行 verify，登记 D-664 关联证据后关闭。
-- observed_head: 53c72b3a867aea270dc5f472598e78159626287b
-- observed_worktree_hash: fnv1a64:56ee2da16df6ce64
-- recorded_at: 1787295269023
+- 取活依据: engine:唯一可执行 WIP 是 D-664，必须先恢复它
+- 批次: 1/2
+- 进展: B0 复核根因：关闭路径原仅有祖先链与前端 smoke 门禁，未检查设计文档/显著单文件变更对应的 verify。B1 已交付并提交 939a4f23：crates/kanzei-tools/src/tracker/actions/action_helpers.rs:36-92 的 numstat_requires_verify/close_requires_verify 识别 docs/design/ 任意变更及单文件增删合计>=100行；crates/kanzei-tools/src/tracker/actions.rs:358-369 在非终态 close 前接入门禁；crates/kanzei-tools/src/test_record/coverage.rs:309-331 的 verification_passed_for 要求 dist/verification.json 当前 HEAD、all_pass=true，并要求关联条目存在 status=passed 且命令包含 verify.ps1 的 test_record。B2 验收证据已落地：真实 .\\scripts\\verify.ps1 于当前 HEAD 939a4f2336366b9cd80ab9f01b7dd930a6e3d148 通过并由 scripts/verify.ps1:170-181 写入绑定证据；T-1786922726660 记录命令、通过结果并关联 D-664；cargo test -p kanzei-tools 462 passed、0 failed、1 ignored。下一步：提交本批 tracker/test 记录，随后将批次记为 2/2 并执行 defect close。
+- observed_head: 939a4f2336366b9cd80ab9f01b7dd930a6e3d148
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787295822662
 
 ## D-665 file-annotations 只增不删,测试夹具残留占该文件九成 [open] (medium)
 - 原始描述: 2026-08-21 结伴会话查 files 工具时发现。测试夹具被扫描并写入标注后目录被删,标注没跟着清;标注存储在实现上是只增不删,任何扫过一次的路径永久留存。当前影响是文件体积与加载成本(905KB 中约九成死重),files 工具输出本身按真实树查表所以未见污染;但存储会无界增长,且测试夹具混进了策展资产

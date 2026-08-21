@@ -9413,3 +9413,9 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-664
 - 收尾: 1787295429
 - 源码指纹: v2 crates/kanzei-tools/src/test_record.rs@c5cdd3201d42,crates/kanzei-tools/src/test_record/coverage.rs@12372148ce36,crates/kanzei-tools/src/tracker/actions.rs@74060c88cf37,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@d85cc1674823
+
+## T-1786922726660 D-664 关闭前 verify 门禁 [passed]
+- 命令: .\scripts\verify.ps1
+- 摘要: 真实目标仓库 verify 通过：targeted 模式 rust=true、frontend=false；设计时效门禁、R-266 crate_sync、metrics regression gate（30 rows，giants 3/3，单文件 allowance 100）、PS1 BOM、IPC contract、fmt、clippy、ui-connectivity 与 workspace test 全部通过，生成当前 HEAD 绑定的 dist/verification.json。
+- 关联: D-664
+- 收尾: 1787295685
