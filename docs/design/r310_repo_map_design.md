@@ -1,5 +1,8 @@
 # Repo Map Design for R-310 Batch 3
 
+- 身份: validated_design
+- 最近核验依据: 8ed3256f
+
 **Date:** 2026-08-20
 **Status:** Accepted for R-310 B3; implementation landed in `crates/kanzei-tools/src/symbols.rs`.
 

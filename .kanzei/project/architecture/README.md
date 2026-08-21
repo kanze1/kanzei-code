@@ -42,6 +42,7 @@
 - [identity: validated_design; last_verified_commit: d374cb9f] [`parallel_lines_ui.md`](../../../docs/design/parallel_lines_ui.md)：多线协作可见性——协作上下文、并列线路状态、文件冲突预警及收活流程(R-184/R-185/R-222 done，P3 三级卡住判据仍是边界)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`r059_mobile_agent_communication.md`](../../../docs/design/r059_mobile_agent_communication.md)：主代理/子代理消息与通知演进设计(R-059 dropped、R-270/R-271 done，R-288 真机 E3 仍在范围)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`r108_ai_design_decision_records.md`](../../../docs/design/r108_ai_design_decision_records.md)：设计记录规范的真实示例(R-108 done)。
+- [identity: validated_design; last_verified_commit: 8ed3256f] [`r310_repo_map_design.md`](../../../docs/design/r310_repo_map_design.md)：代码地图形态与 token 成本对比——symbols 实时按需查询胜出，拒绝全量注入与持久索引(R-310 B3 done,实现在 kanzei-tools/src/symbols.rs)。
 - [identity: validated_design; last_verified_commit: e08eb0a] [`research_workspace.md`](../../../docs/design/research_workspace.md)：研究工作台与来源/发现工件交互设计(R-276/R-277 done,D-413 fixed)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`reliability_usability_self_hosting_quality.md`](../../../docs/design/reliability_usability_self_hosting_quality.md)：可靠性、可用性与自举质量不变量、验证证据和 R-317 执行模型权威。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`ui_esm_migration.md`](../../../docs/design/ui_esm_migration.md)：前端 ESM 迁移评估(结论:保持有序 classic script,A-008)。
