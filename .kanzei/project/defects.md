@@ -95,24 +95,6 @@
 - 取活依据: engine:唯一可执行 WIP 是 D-655，必须先恢复它
 - 停车: D-655 实现与三 crate 定向测试已完成；提交前 workspace fmt gate 被 D-666 的现有悬空 `draft.tools` 语法缺陷阻断，先释放唯一 WIP 槽修复并单独提交 D-666，随后立即恢复 D-655 提交。恢复人:agent
 
-## D-656 package.ps1 -Publish 后 build 标签只存在于远端,本地缺失使下次 -Ack 范围核对失真 [fixing] (low)
-- 复现: 2026-08-21 发版 build-6cc9333c:gh release create 在远端建标签,本地 git tag --list build-6cc9333c 为空;package.ps1 的 D-183 发布范围核对用本地 git tag --list build-* 取上一标签,本地缺最新标签时下次发版会从更旧的标签起算,-Ack 条数被迫虚高
-- 影响: 发布范围核对(D-183)口径失真;本次已手工 git fetch origin tag build-6cc9333c 补齐
-- 来源: 2026-08-21 D-654 发版现场 self-found
-- 标签: 发布
-- 验收: ①publish 成功后在本地创建或 fetch 同名 build 标签(脚本内完成,失败仅警告不阻断);②发布范围核对前校验最新本地 build 标签与远端一致,不一致给出明确提示
-- 优先级: P3
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-656(unblocks=0)
-
-## D-660 D-659 提交混入 conversation.rs 原有会话投影改动 [open] (medium)
-- refs: D-659
-- 复现: D-659 提交 6505dfb8 预期只包含 crates/kanzei-app/src/conversation.rs 两处 clippy 等价修复，但提交 diff 同时包含 conversation_get 的 typed fact 历史投影回放逻辑与 project_segment_at_sequence 辅助函数；这些改动在 D-659 修复前已存在于工作树，来源属于其他未收口工作。
-- 影响: 提交边界与条目归属不一致，审计无法把 6505dfb8 的行为改动准确归因到对应需求；可能造成后续重复实现或错误回滚。
-- 来源: self-found：D-659 提交后文件核对
-- 标签: 流程
-- 进展: 已登记，暂不回滚或重写历史；待按父提交与原始工作树证据确认归属，再决定补充归属说明或开独立修正提交。
-- 优先级: P1
-
 ## D-662 托管文档专用工具膨胀致工具选择面过载 [fixing] (medium)
 - 原始描述: 外部评估 #5：Managed Documents 造成 Tool Explosion，从 Unix-like tools 走向 Domain-specific OS。用户判定这是工具设计问题，算缺陷不算决策
 - 复现: 当前注册工具已 30+，其中 req/defect/idea/decision/architecture/test_record/work/memory_* 等托管域工具与通用 edit/write 语义重叠；模型需在 edit 与 req(update) 之间做领域判断，工具越多误选概率越高，且每个工具签名等同公开 API
@@ -141,11 +123,3 @@
 - 复现: 读 .kanzei/file-annotations.json(905KB):files 键下 5578 条标注,而 git ls-files 只有 804 个受跟踪文件;5073 条指向不存在或未跟踪的路径,其中 5000 条顶层目录是 r277-kill-fixture(R-277 遗留的测试夹具),抽样 2000 条只有 1 条磁盘仍存在。crates/kanzei-tools/src/files.rs 的 save_annotations 只做整体序列化,load_annotations 整体读入,全程没有按「路径是否仍存在」清理的环节
 - 标签: 核心
 - 优先级: P2
-
-## D-666 DevProfile 删除 todowrite 注册后留下悬空链导致 workspace 无法解析 [fixed] (high)
-- 复现: crates/kanzei-tools/src/profiles/dev.rs:70-72 仅剩 `draft.tools`，缺少后续方法调用；cargo fmt --all 与 workspace 解析报 expected `;`, found `draft`
-- 影响: workspace 格式门禁和依赖 kanzei-tools 的验证无法运行；当前不是 D-655 引入的改动
-- 来源: self-found，D-655 定向验证时发现
-- 标签: 核心
-- refs: D-655
-- 优先级: P1

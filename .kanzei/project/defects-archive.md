@@ -8139,3 +8139,38 @@
 - observed_head: 4f0f46a0c252556f3d77f7cedfe4a137eee6dea5
 - observed_worktree_hash: fnv1a64:c7cc7013afe35e6f
 - recorded_at: 1787274281826
+
+## D-666 DevProfile 删除 todowrite 注册后留下悬空链导致 workspace 无法解析 [fixed] (high)
+- 复现: crates/kanzei-tools/src/profiles/dev.rs:70-72 仅剩 `draft.tools`，缺少后续方法调用；cargo fmt --all 与 workspace 解析报 expected `;`, found `draft`
+- 影响: workspace 格式门禁和依赖 kanzei-tools 的验证无法运行；当前不是 D-655 引入的改动
+- 来源: self-found，D-655 定向验证时发现
+- 标签: 核心
+- refs: D-655
+- 优先级: P1
+
+## D-656 package.ps1 -Publish 后 build 标签只存在于远端,本地缺失使下次 -Ack 范围核对失真 [fixed] (low)
+- 复现: 2026-08-21 发版 build-6cc9333c:gh release create 在远端建标签,本地 git tag --list build-6cc9333c 为空;package.ps1 的 D-183 发布范围核对用本地 git tag --list build-* 取上一标签,本地缺最新标签时下次发版会从更旧的标签起算,-Ack 条数被迫虚高
+- 影响: 发布范围核对(D-183)口径失真;本次已手工 git fetch origin tag build-6cc9333c 补齐
+- 来源: 2026-08-21 D-654 发版现场 self-found
+- 标签: 发布
+- 验收: ①publish 成功后在本地创建或 fetch 同名 build 标签(脚本内完成,失败仅警告不阻断);②发布范围核对前校验最新本地 build 标签与远端一致,不一致给出明确提示
+- 优先级: P3
+- 取活依据: engine:唯一可执行 WIP 是 D-656，必须先恢复它
+- observed_head: bee53bd53a5565d34809eab6ab6ce7e0eada4da4
+- 进展: 结项对账（实现与证据）：① publish 成功后本地创建或 fetch 同名 build 标签（失败仅警告不阻断）——既有实现 scripts/package.ps1:228-244：gh release 成功后在:235 fetch origin tag $tag，:236-238 失败仅 Write-Warning，:239-244 校验本地标签指向并仅告警；真实脚本验证 scripts/package-tag-smoke.mjs:90-100 断言 fetch 与告警分支，T-1786922726655（node --check scripts/package-tag-smoke.mjs; node scripts/package-tag-smoke.mjs; node scripts/check-ps1-bom.mjs）。② 发布范围核对前校验最新本地 build 标签与远端一致，不一致明确提示——既有实现 scripts/package.ps1:30-69：:44-51 比对标签集合并明确提示，:58-69 比对最新标签指向并中止；真实启动 package.ps1 的不一致场景在 scripts/package-tag-smoke.mjs:64-88 覆盖，T-1786922726655。补充交付：bee53bd5 新增 smoke；既有实现来源 71524272，未将既有代码重复计为本轮实现。
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787294199871
+- refs: T-1786922726655
+
+## D-660 D-659 提交混入 conversation.rs 原有会话投影改动 [fixed] (medium)
+- refs: D-659
+- 复现: D-659 提交 6505dfb8 预期只包含 crates/kanzei-app/src/conversation.rs 两处 clippy 等价修复，但提交 diff 同时包含 conversation_get 的 typed fact 历史投影回放逻辑与 project_segment_at_sequence 辅助函数；这些改动在 D-659 修复前已存在于工作树，来源属于其他未收口工作。
+- 影响: 提交边界与条目归属不一致，审计无法把 6505dfb8 的行为改动准确归因到对应需求；可能造成后续重复实现或错误回滚。
+- 来源: self-found：D-659 提交后文件核对
+- 标签: 流程
+- 进展: 归属审计完成：git show 6505dfb8 明确显示该提交包含两类内容——D-659 的两处 clippy 等价修复，以及 conversation_get typed-fact 历史回放分派和 project_segment_at_sequence。父提交 8ed3256f 已有 R-242 的 segment/reset 与最新投影基础，但 git log -S 确认 project_segment_at_sequence 和 typed-fact 历史回放只在 6505dfb8 首次进入历史，无法从现有 Git 证据恢复更早独立提交。归属结论：行为改动属于 R-242 投影链路的后续补全，D-659 提交标题/边界不完整但代码有真实消费者；历史不可安全重写，保留实现并以本条记录纠正审计归因。证据：6505dfb8^=8ed3256f；git show 6505dfb8 -- crates/kanzei-app/src/conversation.rs；R-242 先行实现提交 1d3a915e/3b30bc0d；行为消费者为 conversation_get 的 typed-fact 历史读取路径。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-660(unblocks=0)
+- observed_head: bee53bd53a5565d34809eab6ab6ce7e0eada4da4
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787294287001
