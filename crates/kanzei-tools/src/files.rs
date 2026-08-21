@@ -45,11 +45,58 @@ pub fn annotations_path(project_root: &Path) -> PathBuf {
     project_root.join(".kanzei").join("file-annotations.json")
 }
 
+fn annotation_target(project_root: &Path, rel: &str) -> Option<PathBuf> {
+    let path = Path::new(rel);
+    if rel.is_empty()
+        || path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::Prefix(_)
+                    | std::path::Component::RootDir
+                    | std::path::Component::ParentDir
+            )
+        })
+    {
+        return None;
+    }
+    Some(project_root.join(path))
+}
+
+fn prune_missing_annotations(project_root: &Path, store: &mut AnnotationStore) -> bool {
+    let mut changed = false;
+    store.files.retain(|rel, _| {
+        let keep = annotation_target(project_root, rel)
+            .and_then(|path| std::fs::metadata(path).ok())
+            .is_some_and(|meta| meta.is_file());
+        changed |= !keep;
+        keep
+    });
+    store.dirs.retain(|rel, _| {
+        let keep = if rel.is_empty() {
+            project_root.is_dir()
+        } else {
+            annotation_target(project_root, rel)
+                .and_then(|path| std::fs::metadata(path).ok())
+                .is_some_and(|meta| meta.is_dir())
+        };
+        changed |= !keep;
+        keep
+    });
+    changed
+}
+
 pub fn load_annotations(project_root: &Path) -> AnnotationStore {
-    std::fs::read_to_string(annotations_path(project_root))
+    let mut store = std::fs::read_to_string(annotations_path(project_root))
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // D-665:标注缓存是可重建派生数据。删除测试夹具或源码后，加载即清理并回写，
+    // 否则每次 annotate 只会覆盖新键，已消失的路径会永久堆积在缓存里。
+    if prune_missing_annotations(project_root, &mut store) {
+        let _ = save_annotations(project_root, &store);
+    }
+    store
 }
 
 pub fn save_annotations(project_root: &Path, store: &AnnotationStore) -> std::io::Result<()> {
@@ -624,6 +671,50 @@ mod tests {
         assert_ne!(lib.stamp, lib2.stamp, "内容变了指纹必须变");
         let tree = render_tree(&rescanned, &loaded, None);
         assert!(!tree.contains("工具函数集合"), "过期标注不得注入:\n{tree}");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 加载标注会清除已删除路径并回写缓存() {
+        let root = fixture("prune");
+        let entries = scan(&root);
+        let lib = entries.iter().find(|e| e.path == "src/lib.rs").unwrap();
+        let mut store = AnnotationStore::default();
+        store.files.insert(
+            "src/lib.rs".into(),
+            Annotation {
+                hash: lib.stamp.clone(),
+                note: "仍存在".into(),
+            },
+        );
+        store.files.insert(
+            "gone/old.rs".into(),
+            Annotation {
+                hash: "stale".into(),
+                note: "测试夹具残留".into(),
+            },
+        );
+        store.files.insert(
+            "../outside.rs".into(),
+            Annotation {
+                hash: "unsafe".into(),
+                note: "非法路径".into(),
+            },
+        );
+        store.dirs.insert("src".into(), "仍存在的目录".into());
+        store.dirs.insert("gone".into(), "已删除目录".into());
+        save_annotations(&root, &store).unwrap();
+
+        let loaded = load_annotations(&root);
+        assert!(loaded.files.contains_key("src/lib.rs"));
+        assert!(!loaded.files.contains_key("gone/old.rs"));
+        assert!(!loaded.files.contains_key("../outside.rs"));
+        assert!(loaded.dirs.contains_key("src"));
+        assert!(!loaded.dirs.contains_key("gone"));
+
+        let persisted = load_annotations(&root);
+        assert_eq!(persisted.files.len(), 1, "清理结果必须持久化");
+        assert_eq!(persisted.dirs.len(), 1, "目录清理结果必须持久化");
         std::fs::remove_dir_all(root).ok();
     }
 

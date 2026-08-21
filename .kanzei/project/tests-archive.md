@@ -9419,3 +9419,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 真实目标仓库 verify 通过：targeted 模式 rust=true、frontend=false；设计时效门禁、R-266 crate_sync、metrics regression gate（30 rows，giants 3/3，单文件 allowance 100）、PS1 BOM、IPC contract、fmt、clippy、ui-connectivity 与 workspace test 全部通过，生成当前 HEAD 绑定的 dist/verification.json。
 - 关联: D-664
 - 收尾: 1787295685
+
+## T-1786922726661 D-665 file annotations 清理 kanzei-tools 定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-tools
+- 时长: 56.2s
+- 摘要: D-665 标注缓存清理回归通过：新增“删除文件/目录及非法相对路径后加载即清理并回写”测试通过；kanzei-tools 全 crate 463 passed，0 failed，1 ignored。测试夹具产生的 git warning 不影响结果。
+- 关联: D-665
+- 收尾: 1787296088
+- 源码指纹: v2 crates/kanzei-tools/src/files.rs@230136ac0bca

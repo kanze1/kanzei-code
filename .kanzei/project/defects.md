@@ -105,9 +105,3 @@
 - observed_worktree_hash: fnv1a64:a1d1426a5522a197
 - recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
-
-## D-665 file-annotations 只增不删,测试夹具残留占该文件九成 [open] (medium)
-- 原始描述: 2026-08-21 结伴会话查 files 工具时发现。测试夹具被扫描并写入标注后目录被删,标注没跟着清;标注存储在实现上是只增不删,任何扫过一次的路径永久留存。当前影响是文件体积与加载成本(905KB 中约九成死重),files 工具输出本身按真实树查表所以未见污染;但存储会无界增长,且测试夹具混进了策展资产
-- 复现: 读 .kanzei/file-annotations.json(905KB):files 键下 5578 条标注,而 git ls-files 只有 804 个受跟踪文件;5073 条指向不存在或未跟踪的路径,其中 5000 条顶层目录是 r277-kill-fixture(R-277 遗留的测试夹具),抽样 2000 条只有 1 条磁盘仍存在。crates/kanzei-tools/src/files.rs 的 save_annotations 只做整体序列化,load_annotations 整体读入,全程没有按「路径是否仍存在」清理的环节
-- 标签: 核心
-- 优先级: P2

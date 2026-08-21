@@ -8197,3 +8197,14 @@
 - observed_head: 939a4f2336366b9cd80ab9f01b7dd930a6e3d148
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787295862467
+
+## D-665 file-annotations 只增不删,测试夹具残留占该文件九成 [fixed] (medium)
+- 原始描述: 2026-08-21 结伴会话查 files 工具时发现。测试夹具被扫描并写入标注后目录被删,标注没跟着清;标注存储在实现上是只增不删,任何扫过一次的路径永久留存。当前影响是文件体积与加载成本(905KB 中约九成死重),files 工具输出本身按真实树查表所以未见污染;但存储会无界增长,且测试夹具混进了策展资产
+- 复现: 读 .kanzei/file-annotations.json(905KB):files 键下 5578 条标注,而 git ls-files 只有 804 个受跟踪文件;5073 条指向不存在或未跟踪的路径,其中 5000 条顶层目录是 r277-kill-fixture(R-277 遗留的测试夹具),抽样 2000 条只有 1 条磁盘仍存在。crates/kanzei-tools/src/files.rs 的 save_annotations 只做整体序列化,load_annotations 整体读入,全程没有按「路径是否仍存在」清理的环节
+- 标签: 核心
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-665(unblocks=0)
+- 进展: 根因：crates/kanzei-tools/src/files.rs:89-93 原 load_annotations 只反序列化，不校验已删除路径；真实消费方是 files.rs:478 与 crates/kanzei-app/src/files_view.rs:149，真实写入方是 files_view.rs:210-211、250，因此旧测试夹具键会被长期带入并只增不删。修复：crates/kanzei-tools/src/files.rs:48-87 新增 annotation_target 与 prune_missing_annotations，删除不存在、非文件/非目录及绝对/ParentDir 非法路径；files.rs:89-100 加载后在发生变化时通过 save_annotations 回写清理结果，同时保留仍存在的未跟踪文件。验收：删除测试夹具后标注缓存不再无限堆积——由 files.rs:96-97 持久化清理，files_view.rs:149 和 files.rs:478 的真实加载调用方都会触发；files.rs:678-718 回归测试覆盖保留现存文件/目录、删除残留和非法路径且验证二次加载已持久化；T-1786922726661 记录 cargo fmt --all; cargo test -p kanzei-tools 通过，463 passed、0 failed、1 ignored。
+- observed_head: 939a4f2336366b9cd80ab9f01b7dd930a6e3d148
+- observed_worktree_hash: fnv1a64:e78b832643fb73f5
+- recorded_at: 1787296127447
