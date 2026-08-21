@@ -306,6 +306,31 @@ pub fn records_for_entry(root: &Path, entry_id: &str) -> Vec<serde_json::Value> 
     out
 }
 
+/// D-664:关闭涉及设计文档或显著变更的条目时，验证证据必须同时满足三点：
+/// ① `dist/verification.json` 绑定当前 HEAD；② verify 全部通过；③存在关联该条目的
+/// passed test_record 且命令确实调用 `verify.ps1`。只看一个全局旧记录会把别的提交的
+/// 证据错归到当前关闭，因此不接受无当前 HEAD 绑定的记录。
+pub fn verification_passed_for(root: &Path, entry_id: &str) -> bool {
+    let Some(head) = current_head(root) else {
+        return false;
+    };
+    let Ok(text) = std::fs::read_to_string(root.join("dist/verification.json")) else {
+        return false;
+    };
+    let Ok(evidence) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    if evidence["commit"].as_str() != Some(head.as_str())
+        || evidence["all_pass"].as_bool() != Some(true)
+    {
+        return false;
+    }
+    records_for_entry(root, entry_id).into_iter().any(|record| {
+        record["status"].as_str() == Some("passed")
+            && record_command_text(&record).contains("verify.ps1")
+    })
+}
+
 /// R-309 B3:verify 产出的当前 HEAD 证据可替代重复的前端冒烟记录。
 ///
 /// targeted verify 也可能运行全部前端步骤,所以这里只要求关闭门禁真正需要的三项

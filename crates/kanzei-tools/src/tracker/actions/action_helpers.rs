@@ -33,6 +33,64 @@ pub(super) fn check_close_source_ancestry(entry: &Entry, cwd: &Path) -> Option<S
     }
 }
 
+/// D-664:当最近一次交付新增/修改设计文档，或单文件变更达到显著阈值时，关闭前
+/// 必须有当前 HEAD 绑定的 verify 证据。关闭动作本身不能替代 verify：verify 需要
+/// 源码树干净，而 tracker 状态写入会让工作树变脏，所以这里先检查 Git 变更形态，
+/// 再由 test_record/verification.json 提供可复核证据。
+const SIGNIFICANT_CLOSE_CHANGE_LINES: usize = 100;
+
+fn numstat_requires_verify(numstat: &str) -> bool {
+    numstat.lines().any(|line| {
+        let mut fields = line.splitn(3, '\t');
+        let additions = fields.next().unwrap_or_default();
+        let deletions = fields.next().unwrap_or_default();
+        let path = fields.next().unwrap_or_default().replace('\\', "/");
+        if path.starts_with("docs/design/") {
+            return true;
+        }
+        let Some(additions) = additions.parse::<usize>().ok() else {
+            return false;
+        };
+        let Some(deletions) = deletions.parse::<usize>().ok() else {
+            return false;
+        };
+        additions.saturating_add(deletions) >= SIGNIFICANT_CLOSE_CHANGE_LINES
+    })
+}
+
+pub(super) fn close_requires_verify(cwd: &Path) -> bool {
+    let output = Command::new("git")
+        .args(["diff", "--numstat", "HEAD^", "HEAD", "--"])
+        .current_dir(cwd)
+        .output();
+    let Ok(output) = output else { return false };
+    if !output.status.success() {
+        return false;
+    }
+    numstat_requires_verify(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(test)]
+mod verify_change_tests {
+    use super::numstat_requires_verify;
+
+    #[test]
+    fn design_document_always_requires_verify() {
+        assert!(numstat_requires_verify("1\t0\tdocs/design/new_doc.md"));
+        assert!(numstat_requires_verify("-\t-\tdocs/design/binary.md"));
+    }
+
+    #[test]
+    fn significant_single_file_change_requires_verify() {
+        assert!(numstat_requires_verify(
+            "100\t0\tcrates/kanzei-tools/src/symbols.rs"
+        ));
+        assert!(!numstat_requires_verify(
+            "99\t0\tcrates/kanzei-tools/src/symbols.rs"
+        ));
+    }
+}
+
 /// R-229:收集关闭文本里的「剩余/其余 N 处」式分类断言声明的 N。
 /// 只认「剩余/其余 + 数字 + 处」的形态(允许空白),如「剩余 3 处」「其余 2 处」;
 /// 「剩余价值」这类无数字的用法不算断言。返回每个断言声明的处数。

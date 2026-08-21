@@ -13,8 +13,8 @@ pub(crate) mod maintenance;
 mod action_helpers;
 use action_helpers::{
     archived_or_unknown, check_close_acceptance_reconciliation,
-    check_close_classification_evidence, check_close_source_ancestry, field_diff_summary,
-    render_line, unknown_id, user_visible_fields,
+    check_close_classification_evidence, check_close_source_ancestry, close_requires_verify,
+    field_diff_summary, render_line, unknown_id, user_visible_fields,
 };
 
 pub(crate) fn list(
@@ -354,6 +354,19 @@ pub(crate) fn update_close(
         if let Some(ancestry_err) = check_close_source_ancestry(&entries[pos], &ctx.cwd) {
             return ToolOutput::error(format!("{id} {ancestry_err}"));
         }
+    }
+    // D-664:设计文档新增/修改或显著单文件变更的交付，必须先经过当前 HEAD
+    // 绑定的 verify。verify 只能在源码树干净时生成证据，不能在 close 内替跑。
+    if action == "close"
+        && !already_terminal
+        && close_requires_verify(&ctx.project_root)
+        && !crate::test_record::verification_passed_for(&ctx.project_root, id)
+    {
+        return ToolOutput::error(format!(
+            "{id} 最近一次提交新增/修改了设计文档或显著改动了单文件，但没有当前 HEAD 绑定的 verify 全绿证据，不能关闭。\
+             先运行 .\\scripts\\verify.ps1，再用 test_record 记录 status=passed、命令包含 verify.ps1、关联 {id}；\
+             verify 失败时先修复门禁欠账。"
+        ));
     }
     if action == "close" && !already_terminal {
         let tag = entries[pos]

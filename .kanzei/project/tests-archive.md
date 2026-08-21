@@ -9397,3 +9397,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-663
 - 收尾: 1787294767
 - 源码指纹: v2 crates/kanzei-tools/src/profiles.rs@754395367a8b,crates/kanzei-tools/src/profiles/readonly.rs@a8829c7dd8c3
+
+## T-1786922726658 D-664 close verify gate kanzei-tools 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 42.7s
+- 摘要: 关闭门禁辅助逻辑、当前 HEAD verify 证据校验与既有 tracker/test_record 回归通过：462 passed，0 failed，1 ignored。测试夹具产生的 git warning 不影响结果。
+- 关联: D-664
+- 收尾: 1787295235
+- 源码指纹: v2 crates/kanzei-tools/src/test_record.rs@60c9444efea1,crates/kanzei-tools/src/test_record/coverage.rs@12372148ce36,crates/kanzei-tools/src/tracker/actions.rs@74060c88cf37,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@38b0fe4377e1
+
+## T-1786922726659 D-664 close verify gate kanzei-tools 定向回归（fmt 后） [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 40.9s
+- 摘要: cargo fmt 后重新回归：关闭 verify 门禁与 kanzei-tools 全 crate 测试通过，462 passed，0 failed，1 ignored。测试夹具 git warning 不影响结果。
+- 关联: D-664
+- 收尾: 1787295429
+- 源码指纹: v2 crates/kanzei-tools/src/test_record.rs@c5cdd3201d42,crates/kanzei-tools/src/test_record/coverage.rs@12372148ce36,crates/kanzei-tools/src/tracker/actions.rs@74060c88cf37,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@d85cc1674823

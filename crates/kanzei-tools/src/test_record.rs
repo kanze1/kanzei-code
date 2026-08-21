@@ -24,7 +24,8 @@ mod coverage;
 use coverage::check_frontend_smoke_claim;
 pub use coverage::{
     coverage_from_command, frontend_smoke_passed, last_passed, last_passed_at,
-    last_passed_for_fingerprint, records_for_entry, unclosed_running_for, TestCoverage,
+    last_passed_for_fingerprint, records_for_entry, unclosed_running_for, verification_passed_for,
+    TestCoverage,
 };
 
 /// 测试记录(相对项目根)。

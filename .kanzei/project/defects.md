@@ -106,11 +106,17 @@
 - recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
 
-## D-664 R-310 B4 关闭时未跑 verify,设计索引与回涨闸欠账留到发版才暴露 [open] (medium)
+## D-664 R-310 B4 关闭时未跑 verify,设计索引与回涨闸欠账留到发版才暴露 [fixing] (medium)
 - 原始描述: 2026-08-21 本轮方向调整发版时发现。条目关闭走的是自身验收,没有跑发版门禁,于是两笔门禁欠账攒到下一次发版才由别人付。R-310 已归档无法回退,本条记录过程缺口:关闭涉及新增设计文档或显著改动单文件行数的条目时,应在关闭前跑一次 verify
 - 复现: 在 8ed3256f(R-310 B4 收口)之后跑 scripts/verify.ps1,连续两步报红:①设计时效门禁——磁盘 42 份设计文档、索引 41 条,r310_repo_map_design.md 未登记;②回涨闸——crates/kanzei-tools/src/symbols.rs 生产行 731→881 超出每文件 100 行允许量,基线未同步
 - 标签: 流程
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-664(unblocks=0)
+- 批次: 0/2
+- 进展: B0 已复核关闭路径：crates/kanzei-tools/src/tracker/actions.rs:353-388 原仅有祖先链与前端 smoke 门禁，未检查设计文档/显著单文件变更对应的 verify；scripts/verify.ps1:18-23 要求源码树干净并在 170-181 写入当前 HEAD 绑定证据。B1 已实现但尚未提交：action_helpers.rs 增加 HEAD^..HEAD numstat 判定，test_record/coverage.rs 增加当前 HEAD verify 证据与关联记录校验，actions.rs:358-369 接入 close。下一步：提交 B1，运行 verify，登记 D-664 关联证据后关闭。
+- observed_head: 53c72b3a867aea270dc5f472598e78159626287b
+- observed_worktree_hash: fnv1a64:56ee2da16df6ce64
+- recorded_at: 1787295269023
 
 ## D-665 file-annotations 只增不删,测试夹具残留占该文件九成 [open] (medium)
 - 原始描述: 2026-08-21 结伴会话查 files 工具时发现。测试夹具被扫描并写入标注后目录被删,标注没跟着清;标注存储在实现上是只增不删,任何扫过一次的路径永久留存。当前影响是文件体积与加载成本(905KB 中约九成死重),files 工具输出本身按真实树查表所以未见污染;但存储会无界增长,且测试夹具混进了策展资产
