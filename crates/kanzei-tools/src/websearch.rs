@@ -1,7 +1,7 @@
 //! websearch 工具(R-023):通过 DuckDuckGo HTML 搜索页返回结构化结果。
 
 use async_trait::async_trait;
-use kanzei_harness::{Tool, ToolCtx, ToolOutput};
+use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use kanzei_llm::proxy::build_http_client;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -48,6 +48,26 @@ impl Tool for WebSearchTool {
 
     fn resources(&self, _input: &serde_json::Value) -> Vec<String> {
         vec![SEARCH_URL.into()]
+    }
+
+    /// R-323 并发审计:**按入参分流**,不能一刀切成只读。
+    ///
+    /// 检索本身是纯网络读,但带 `prior_art_topic` 时 `execute` 会调
+    /// `prior_art::consume_search_round` **扣减该 topic 的轮次预算**——那是一次
+    /// 读-改-写。两个同 topic 的调用并发扣减会互相吃掉对方的写入,预算形同虚设。
+    ///
+    /// 锁键用 prior-art 专属前缀而不是工作树键:预算落在 `.kanzei/research/`,
+    /// 与代码树写入毫无关系,拿工作树键会让它和 edit/bash 无谓地互斥。
+    fn concurrency(&self, input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
+        match input.get("prior_art_topic").and_then(|v| v.as_str()) {
+            Some(topic) if !topic.trim().is_empty() => ToolConcurrency::WorktreeWrite(format!(
+                "prior-art:{}",
+                ctx.project_write_key()
+                    .replace(0x5c as char, "/")
+                    .to_lowercase()
+            )),
+            _ => ToolConcurrency::shared_worktree(ctx),
+        }
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
@@ -344,5 +364,50 @@ mod tests {
         assert_eq!(output.code, Some("PRIOR_ART_SEARCH_LIMIT"));
         assert!(output.content.contains("1/1"));
         std::fs::remove_dir_all(root).ok();
+    }
+}
+
+#[cfg(test)]
+mod concurrency_audit_tests {
+    use super::WebSearchTool;
+    use kanzei_harness::{Tool, ToolConcurrency, ToolCtx};
+    use serde_json::json;
+
+    fn ctx() -> ToolCtx {
+        ToolCtx::new(
+            std::path::PathBuf::from("/repo/wt"),
+            std::path::PathBuf::from("/repo/main"),
+        )
+    }
+
+    /// R-323:不带 prior_art_topic 的检索是纯网络读,必须能并行。
+    /// 这是本次审计的收益点——原先走 Exclusive 默认,三条检索白白串行。
+    #[test]
+    fn 纯检索可并行() {
+        let ctx = ctx();
+        let a = WebSearchTool.concurrency(&json!({"query": "a"}), &ctx);
+        let b = WebSearchTool.concurrency(&json!({"query": "b"}), &ctx);
+        assert!(!a.conflicts_with(&b), "纯检索之间不该冲突");
+        assert!(matches!(a, ToolConcurrency::Shared(_)));
+    }
+
+    /// 带 prior_art_topic 时会读-改-写轮次预算,必须互斥——
+    /// 并发扣减会互相吃掉对方的写入,预算形同虚设。
+    #[test]
+    fn 带先行方案主题的检索互斥() {
+        let ctx = ctx();
+        let a = WebSearchTool.concurrency(&json!({"query": "a", "prior_art_topic": "t1"}), &ctx);
+        let b = WebSearchTool.concurrency(&json!({"query": "b", "prior_art_topic": "t2"}), &ctx);
+        assert!(a.conflicts_with(&b), "同项目的预算扣减必须串行");
+        // 但它不该和代码树写入互斥:预算落在 .kanzei/research/,与 edit/bash 无关。
+        let code_write = ToolConcurrency::write_worktree(&ctx);
+        assert!(!a.conflicts_with(&code_write), "预算锁不该拖住代码树写入");
+    }
+
+    /// 空白 topic 视为没给,回落纯读——否则 `"prior_art_topic": " "` 会白白上锁。
+    #[test]
+    fn 空白主题回落纯读() {
+        let c = WebSearchTool.concurrency(&json!({"query": "a", "prior_art_topic": "  "}), &ctx());
+        assert!(matches!(c, ToolConcurrency::Shared(_)));
     }
 }

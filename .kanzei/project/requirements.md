@@ -334,7 +334,7 @@
 - observed_worktree_hash: fnv1a64:067bf5aea0a11591
 - recorded_at: 1787275857928
 
-## R-323 工具编排抽象层：模型声明执行计划 [todo]
+## R-323 工具编排抽象层：模型声明执行计划 [doing]
 - 原始描述: 外部评估 #2：Harness 的保守规则可能成为模型能力的上限。用户定调：提供底层工具+一层抽象层，让模型去编排
 - 复杂度: 大
 - 标签: 核心
@@ -342,3 +342,8 @@
 - 先行调研: .kanzei/research/r323-prior-art/prior-art.md
 - refs: R-322 D-661
 - 优先级: P2
+- 批次: 1/2
+- 进展: B1 已落地:工具并发契约审计。勘察发现 30+ 工具中 13 个未实现 concurrency() 走 Exclusive 默认,而该默认原意是「未审计前不自动并行」——是信息缺失的占位不是安全断言,#2 说的「保守规则成为模型能力上限」在这里字面成立。审计后提升:webfetch/frontend_locate/frontend_check/todowrite → Shared(生产路径只读或完全无状态,写全在 mod tests 之后);websearch 按入参分流(带 prior_art_topic 时读-改-写轮次预算,用 prior-art 专属锁键,不拖住代码树写入)。仍为 Exclusive 的 9 个(question/process/prior_art/research_*/tracker 四件套/work)真有共享可变状态,留 B2。关键结论:审计后剩余 Exclusive 大多真有状态,模型对其并行安全性并不比引擎知道得多,纯收紧方向在当前契约下也几乎无用武之地,故不预先造声明通道,等真实现场再做。3 条审计单测,workspace 15 个二进制全绿,clippy 干净
+- observed_head: a032aa492ae157c2791c2cfa9cf768740f093517
+- observed_worktree_hash: fnv1a64:dee5f1692c68b6ad
+- recorded_at: 1787276362163

@@ -1,7 +1,7 @@
 //! todowrite 工具(R-028):维护当前 agent 运行内的结构化计划，不写入项目 backlog。
 
 use async_trait::async_trait;
-use kanzei_harness::{Tool, ToolCtx, ToolOutput};
+use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -43,6 +43,12 @@ impl Tool for TodoWriteTool {
 
     fn resources(&self, _input: &serde_json::Value) -> Vec<String> {
         vec![]
+    }
+
+    /// R-323 并发审计:**完全无状态**——校验入参后直接回一个 display,
+    /// 不落盘、不写注册表、不碰 session。并行任意多个都安全。
+    fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
+        ToolConcurrency::shared_worktree(ctx)
     }
 
     async fn execute(&self, input: serde_json::Value, _ctx: &ToolCtx) -> ToolOutput {

@@ -7,7 +7,7 @@
 //! 这三个工具都是只读的:定位与检查,不改文件。
 
 use async_trait::async_trait;
-use kanzei_harness::{Tool, ToolCtx, ToolOutput};
+use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -170,6 +170,12 @@ impl Tool for FrontendLocateTool {
     fn input_schema(&self) -> serde_json::Value {
         serde_json::to_value(schemars::schema_for!(FrontendLocateInput)).unwrap()
     }
+    /// R-323 并发审计:生产路径**只读**——读 `ctx.cwd` 下的样式表/源码做定位与
+    /// 结构检查;文件内的 `std::fs::write` 全在 `#[cfg(test)] mod tests` 之后。
+    fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
+        ToolConcurrency::shared_worktree(ctx)
+    }
+
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
         let input: FrontendLocateInput = match serde_json::from_value(input) {
             Ok(value) => value,
@@ -235,6 +241,12 @@ impl Tool for FrontendCheckTool {
     fn input_schema(&self) -> serde_json::Value {
         serde_json::to_value(schemars::schema_for!(FrontendCheckInput)).unwrap()
     }
+    /// R-323 并发审计:生产路径**只读**——读 `ctx.cwd` 下的样式表/源码做定位与
+    /// 结构检查;文件内的 `std::fs::write` 全在 `#[cfg(test)] mod tests` 之后。
+    fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
+        ToolConcurrency::shared_worktree(ctx)
+    }
+
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
         let input: FrontendCheckInput = match serde_json::from_value(input) {
             Ok(value) => value,

@@ -164,9 +164,38 @@ D-662 已经把「工具膨胀」判成缺陷——`work` 本就是取活/工作
    **不成立**:它要求 `C` 跑在 `B` 之前,而两者冲突。真实见证用例换成
    `[A,B,C,D]` + `A↔B`、`C↔D`:旧实现 `[[A],[B,C],[D]]` 三波,新实现
    `[[A,C],[B,D]]` 两波,且不颠倒任何冲突对。
-2. **R-323 后做**:模型可在工具调用里声明并行分组,引擎以 `ToolConcurrency`
-   冲突检测作为**单调收紧**的安全网(与 tool_pipeline 的 Guard 同一原则:
-   声明是 policy 层提议,冲突是 guard 层否决,只收紧不放宽)。
+2. **R-323 B1 先审计工具契约,而不是先造声明通道。**
+
+   勘察发现 30+ 工具里有 13 个根本没实现 `concurrency()`,走的是 `Exclusive` 默认。
+   而那个默认的原意写得很清楚:「旧工具**未显式审计**前绝不自动并行」——
+   它是**信息缺失**的保守占位,不是安全断言。#2 说的「harness 的保守规则可能成为
+   模型能力的上限」,在这里是字面成立的:三条 `webfetch` 天然可并行,却因为没人
+   填过这张表而串行。
+
+   让模型去补一张工具作者本就该填的表,是把责任推错了地方。所以先审计:
+
+   | 工具 | 审计结论 | 契约 |
+   | --- | --- | --- |
+   | `webfetch` | 生产路径只读(写全在 `mod tests` 之后) | `Shared` |
+   | `frontend_locate` / `frontend_check` | 只读探查源码 | `Shared` |
+   | `todowrite` | 完全无状态,校验入参后直接回 display | `Shared` |
+   | `websearch` | **按入参分流**:带 `prior_art_topic` 时会读-改-写轮次预算 | 无 topic `Shared`;有 topic `WorktreeWrite("prior-art:…")` |
+
+   `websearch` 那条是审计的价值所在:一刀切成只读会让两个同 topic 的并发调用
+   互相吃掉对方对轮次预算的写入。锁键用 prior-art 专属前缀而不是工作树键——
+   预算落在 `.kanzei/research/`,拿工作树键会让它和 `edit`/`bash` 无谓互斥。
+
+   **仍为 `Exclusive` 的**:`question`(用户交互,天然串行,结论正确)、
+   `process`(后台注册表变更)、`prior_art`、`research_index/plan/verify/write`、
+   tracker 四件套、`work`。这些都真的有共享可变状态(托管文档 ID 引擎、
+   state.db、进程注册表),逐个审计的收益与风险都比上面四类高,留后续批次。
+
+3. **声明通道的必要性待重估(不预先建)。** 审计之后,剩下的 `Exclusive` 大多是
+   **真有状态**,不是信息缺失——模型对它们的并行安全性并不比引擎知道得多。
+   而纯收紧方向(模型声明「B 必须在 A 之后」)在当前契约下几乎无用武之地:
+   同一棵树上读与写、写与写本来就已经冲突。所以本条目**不预先造声明通道**,
+   等出现真实的「引擎判错了、模型知道对的」现场再做——按本仓惯例,
+   没有消费者的能力不算交付。
 
 ### 三点五、轻档 loop 的可达性(R-322 B2)
 
@@ -254,6 +283,9 @@ Claude Code 的 `/goal` 作为参照,定调把停止规则本身也交出去。
 - 2026-08-21:建档。依据 2026-08-21 外部七点评估与用户逐点定调。
   登记 R-322/R-323/D-661/D-662,先行方案对照见
   `.kanzei/research/r322-prior-art/prior-art.md` 与 `r323-prior-art/prior-art.md`。
+- 2026-08-21:R-323 B1 落地。先审计工具并发契约而不是先造模型声明通道——
+  `Exclusive` 默认是信息缺失的占位,不是安全断言;4 类工具提升为可并行,
+  `websearch` 按入参分流。并记录「声明通道必要性待重估」的理由。
 - 2026-08-21:B3 落地。结伴档 loop 的停止规则改为**用户给定的目标条件**
   (参照 Claude Code `/goal`,用户 2026-08-21 定调)。新增 `AutoRunCtx::goal_active`、
   `AutoRunAction::GoalPending`、`AutoStopReason::{GoalMet, GoalUnreachable}`、
@@ -308,7 +340,15 @@ B3(workspace 15 个测试二进制全绿,UI 冒烟通过,`clippy -D warnings` �
 | 用户意图与资源兜底压过目标 | `auto_run.rs::目标不能压过用户意图与资源兜底` |
 | 目标文本归一(空串撤销/超长按字符截断) | `kanzei-app/src/auto_run.rs::目标文本归一_空串撤销_超长截断` |
 
-未覆盖:真机端到端验收(留 B4)。
+R-323 B1(工具并发契约审计):
+
+| 验收点 | 锚点 |
+| --- | --- |
+| 纯检索可并行 | `websearch.rs::concurrency_audit_tests::纯检索可并行` |
+| 带 prior-art 主题的检索互斥,且不拖住代码树写入 | `websearch.rs::concurrency_audit_tests::带先行方案主题的检索互斥` |
+| 空白主题回落纯读 | `websearch.rs::concurrency_audit_tests::空白主题回落纯读` |
+
+未覆盖:真机端到端验收(留 B4);剩余 9 个 `Exclusive` 工具的逐个审计。
 
 ## TODO 与后续风险
 

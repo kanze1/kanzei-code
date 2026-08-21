@@ -2,7 +2,7 @@
 //! 响应大小与输出长度双重截断;research 模式的主力工具。
 
 use async_trait::async_trait;
-use kanzei_harness::{Tool, ToolCtx, ToolOutput};
+use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use kanzei_llm::proxy::build_http_client;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -111,6 +111,14 @@ impl Tool for WebFetchTool {
         // http://docs.rs/...;`*` 匹配一切(默认 Ask 不因形态变化而放宽)。
         let url = input["url"].as_str().unwrap_or("*");
         vec![normalize_url_resource(url)]
+    }
+
+    /// R-323 并发审计:生产路径**只读**——文件内的 `std::fs::write` 全部位于
+    /// `#[cfg(test)] mod tests` 之后(测试夹具),`execute` 本身不落盘。
+    /// 原先走 `Exclusive` 默认是「未审计」而非「不安全」,白白把可并行的调用串起来。
+    /// 网络抓取不碰工作树,与任何读写都无冲突。
+    fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
+        ToolConcurrency::shared_worktree(ctx)
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
