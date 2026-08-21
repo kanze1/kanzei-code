@@ -9793,3 +9793,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-319 D-679
 - 收尾: 1787305849
 - 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@dd68db77c57a
+
+## T-1786922726708 R-319 B4 app 二进制定向回归 [failed]
+- 命令: cargo test -p kanzei-app --bin kzapp
+- 时长: 13.5s
+- 摘要: 本次新增 persistence/event 测试均通过；全 kzapp 245 tests 中 243 passed、2 failed。失败为既有夹具：线上闭环测试要求 fixture 提供发现记录，idea_split 测试产生 I-001→D-001；均未涉及 R-319 改动。
+- 关联: R-319
+- 收尾: 1787306094
+- 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@02cf7181028c,crates/kanzei-app/src/run/persistence.rs@da2c6a06a3b8
+
+## T-1786922726709 R-319 B4 transaction telemetry 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app --bin kzapp 事务延长; cargo test -p kanzei-app --bin kzapp transaction_budget_result
+- 时长: 1.0s
+- 摘要: 格式门禁通过；事务延长 4 passed、结果事件持久化测试 1 passed。覆盖白名单/永久 taint/审批与源码编辑拒绝/run_id 去重，以及实际动作和 completed 结果事件。
+- 关联: R-319
+- 收尾: 1787306113
+- 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@02cf7181028c,crates/kanzei-app/src/run/persistence.rs@da2c6a06a3b8
+
+## T-1786922726710 R-319 B4 真实长程十条基线统计 [passed]
+- 命令: python - read-only .kanzei/state.db episode/run.trace cohort query
+- 时长: 0.2s
+- 摘要: 真实项目 state.db 只读统计：选取最近 10 条 steps>=28 的 episode，9 条为 32-step、1 条为 28-step；10 条均无 run.transaction_budget_extended/result 事件。run.trace 可重放工具轨迹，样本含 test_record/git/tracker 及读码收尾；这是 rollout 前基线，不能据此宣称下降效果。
+- 关联: R-319
+- 收尾: 1787306188
+- 源码指纹: v2 crates/kanzei-app/src/run/events/mod.rs@02cf7181028c,crates/kanzei-app/src/run/persistence.rs@da2c6a06a3b8

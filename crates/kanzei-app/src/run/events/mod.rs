@@ -195,6 +195,15 @@ impl TraceSink {
                     "base_max_steps": base_max_steps,
                     "extension_steps": extension_steps,
                     "reason": "tests_passed_files_staged_commit_tracker_anchor_only",
+                    "trigger": {
+                        "tests_passed": true,
+                        "files_staged": true,
+                        "commit_pending": true,
+                        "source_edited": false,
+                        "unexpected_tool": false,
+                        "approval_seen": false,
+                    },
+                    "allowed_actions": ["git", "req", "defect", "work", "test_record"],
                 }),
             )
             .is_ok()

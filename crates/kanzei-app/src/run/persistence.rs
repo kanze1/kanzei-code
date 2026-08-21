@@ -67,6 +67,53 @@ pub(crate) struct RoundReport<'a> {
     pub(crate) live: &'a Arc<Mutex<LiveRun>>,
 }
 
+/// R-319 B3:扩展事务的触发事件只记录授予事实；轮末再追加结果事件，避免把
+/// 尚未发生的 commit/tracker 动作伪装成已完成。实际动作从同一 run_id 的 run.trace
+/// 顺序重放，结果由本轮真实 run_result 决定。
+fn record_transaction_budget_result(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    run_id: &str,
+    result: &str,
+) {
+    let Ok(events) = store.list_events_by_type(session_id, 0, "run.trace") else {
+        return;
+    };
+    let mut extension_seen = false;
+    let mut actual_actions = Vec::new();
+    for stored in events {
+        if stored.payload["run_id"].as_str() != Some(run_id) {
+            continue;
+        }
+        let Some(trace_events) = stored.payload["events"].as_array() else {
+            continue;
+        };
+        for event in trace_events {
+            if event["kind"].as_str() == Some("transaction_budget.extended") {
+                extension_seen = true;
+                continue;
+            }
+            if extension_seen && event["kind"].as_str() == Some("tool.completed") {
+                if let Some(name) = event["name"].as_str() {
+                    actual_actions.push(name.to_string());
+                }
+            }
+        }
+    }
+    if !extension_seen {
+        return;
+    }
+    let _ = store.append_event(
+        session_id,
+        "run.transaction_budget_result",
+        &json!({
+            "run_id": run_id,
+            "result": result,
+            "actual_actions": actual_actions,
+        }),
+    );
+}
+
 /// 轮末落库:状态/事件/episode/通知(原 run.rs persist_round_outcome)。
 /// 注:不能收 SessionContext/RoundContext 整体——run_task 内部分字段被 move 给
 /// 子函数后 struct 不可整体借用,故仍传展开字段(保留 allow)。
@@ -95,6 +142,16 @@ pub(crate) fn persist_round_outcome(
         }
     };
     if let Some(store) = final_store.as_ref() {
+        record_transaction_budget_result(
+            store,
+            session_id,
+            run_id,
+            if run_result.is_ok() {
+                "completed"
+            } else {
+                "failed"
+            },
+        );
         match run_result {
             Ok(summary) => {
                 typed_writer
@@ -522,4 +579,50 @@ pub(crate) async fn finalize_round(
     // D-342:本 run 收尾,收回停止令牌(stop 已 take 过则本来就是 None,幂等)。
     halt_slot.lock_or_recover().take();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn transaction_budget_result_records_actual_actions_and_outcome() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-transaction-result-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let state_path = root.join("state.db");
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        store.create_session("ses-result", "C:/proj", None).unwrap();
+        store
+            .append_event(
+                "ses-result",
+                "run.trace",
+                &json!({
+                    "run_id": "run-result",
+                    "events": [
+                        {"kind": "transaction_budget.extended"},
+                        {"kind": "tool.completed", "name": "git"},
+                        {"kind": "tool.completed", "name": "req"}
+                    ]
+                }),
+            )
+            .unwrap();
+
+        record_transaction_budget_result(&store, "ses-result", "run-result", "completed");
+
+        let results = store
+            .list_events_by_type("ses-result", 0, "run.transaction_budget_result")
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].payload["result"], "completed");
+        assert_eq!(results[0].payload["actual_actions"], json!(["git", "req"]));
+        std::fs::remove_dir_all(root).ok();
+    }
 }
