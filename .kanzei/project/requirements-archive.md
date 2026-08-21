@@ -4228,3 +4228,21 @@
 - observed_head: 575beb7213732441860b47ccee7cb04c34e3c809
 - observed_worktree_hash: fnv1a64:16ae57ff9bad9baf
 - recorded_at: 1787292023514
+
+## R-311 收尾闭环硬化:设计冻结不变式可执行化与收尾链完成度遥测 [done]
+- refs: R-309 R-310 docs/design/weakness_register_20260820.md
+- 内容: 批1 不变式可执行化:设计冻结字段支持登记机器可跑断言(grep 模式/测试名/脚本),finalize 与条目关闭时自动执行,失败拒关并点名失败断言;批2 收尾链遥测:条目关闭时机械核对收尾链各环节(编译/定向测试/回归/验收对照/提交)证据是否在档,缺环计数落 telemetry;批3 长程统计:按条目/批次聚合导航失手率(数据来自 R-310)、门禁拒绝、返工次数、收尾链完整度,滚动报表进 metrics——这是外部评估点名缺失的「连续几十个 requirement 的统计证据」载体
+- 复杂度: 中
+- 来源: 2026-08-20 外部工程评估:execution tail reliability(实现→定向测试→回归→不变式复查→验收对照→提交的最后一公里)是与 Codex 的主要剩余差距;kanzei 已有 13 步 verify 与关闭门禁,缺的是不变式机械检查与按条目的收尾链证据统计
+- 标签: 流程
+- 设计文档: docs/design/weakness_register_20260820.md
+- 边界: 不重复 R-309 的门禁裁剪与成本治理;不变式登记是新增可选能力,不给存量条目回填;报表只出数不自动拒绝任何操作
+- 验收: ①冻结不变式断言在 finalize/close 自动执行且失败拒关,有定向测试;②收尾链缺环可观测并落 telemetry;③滚动报表真实出数且覆盖不少于 10 个已关闭条目
+- 优先级: P2
+- 对账: 2026-08-20 需求发现实测补充真实案例:文章获取器项目 D-001 在后置条件未复核下归档 fixed(进展字段自写「复核应确认 raw_lines 为空」即验证后置),本会话复查游离行仍在(D-577)——「终态迁移无后置条件核验」正是批1 不变式可执行化要防的形态,复测场景纳入批4 回归
+- 批次: 4/4
+- 进展: 最终验收对账：①已完成——`crates/kanzei-tools/src/tracker/invariants.rs:run_one/check_entry_invariants` 执行 grep/test/script；`crates/kanzei-tools/src/tracker/actions.rs:update_close` 在 close 状态迁移前执行，失败点名 `#N` 并拒绝迁移；`crates/kanzei-tools/src/git/finalize.rs:finalize` 经 `git/tool.rs:GitInput` 绑定 requirement_id 后执行，存在声明却未绑定则拒绝。证据 T-1786922726665、T-1786922726674，覆盖 close 失败保持 doing、修复后放行与 finalize 绑定门禁。②已完成——`crates/kanzei-tools/src/close_telemetry.rs:record_close/read_records/rolling_metrics` 将每次成功 close 的编译/定向测试/回归/验收对照/提交证据、缺环数、批次和返工序号写入 `.kanzei/artifacts/close-telemetry.jsonl`；`tracker/actions.rs:599-624` 保证 tracker 写盘成功后才记录，缺环只观测不新增拒绝门禁。证据 T-1786922726667、T-1786922726670、T-1786922726672、T-1786922726674。③已完成——`crates/kanzei/src/cli/metrics.rs:render_close_metrics/metrics_cli` 真实消费 rolling_metrics，输出关闭条目、telemetry 接入数、完整链比例、缺环、门禁拒绝、返工和 R-310 导航失手率；T-1786922726669 真实项目根 smoke 输出关闭条目 965、导航失手 159/886、门禁拒绝 4，`close_telemetry` 单测覆盖 10 条关闭条目。B4 后置条件回归——T-1786922726673：tools raw_lines/raw_delete、update 后置条件和 kanzei-memory 166 tests 全通过，覆盖 D-577 的纯空行误判及“删除报成功后仍存在”同形态；D-577 原文要求的文章获取器 R-002 外部现场仍由其自身阻塞字段降级，本条不冒充外部现场证据。实现已提交 f446bd01（R-311 B3），当前 HEAD 定向回归 T-1786922726674 通过。
+- observed_head: f446bd018e2e03242a0d4756cdb77ccf4b76b56b
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787298833936
+- 取活依据: engine:唯一可执行 WIP 是 R-311，必须先恢复它

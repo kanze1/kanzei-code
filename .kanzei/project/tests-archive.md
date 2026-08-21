@@ -9515,3 +9515,17 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-311 D-671
 - 收尾: 1787298331
 - 源码指纹: v2 crates/kanzei-tools/src/close_telemetry.rs@c0fdb08f26a1,crates/kanzei-tools/src/git/finalize.rs@4ff1f294300c,crates/kanzei-tools/src/git/tool.rs@e32415efed12,crates/kanzei-tools/src/lib.rs@6a0d00f00a81,crates/kanzei-tools/src/tracker.rs@f4f9c0459b75,crates/kanzei-tools/src/tracker/actions.rs@8e8d1e9e28c6,crates/kanzei-tools/src/tracker/invariants.rs@201e1f91a9f4,crates/kanzei/src/cli/metrics.rs@6fb53685eb5e,crates/kanzei/src/cli/mod.rs@c88683253696
+
+## T-1786922726673 R-311 B4 D-577 游离行后置条件回归 [passed]
+- 命令: cargo test -p kanzei-tools raw_lines_raw_delete_清理游离行且字段不受影响 --lib; cargo test -p kanzei-tools update多行值不新增游离段落且已有残留被自检点名 --lib; cargo test -p kanzei-memory --lib
+- 时长: 42.0s
+- 摘要: B4 D-577 同形态回归通过：tools raw_lines/raw_delete 1 passed；tools update 后置条件回归 1 passed；kanzei-memory 166 passed、0 failed。覆盖纯空行不计游离段落、删除后重新读取校验、删除报成功后仍存在的历史游离行形态。D-577 外部文章获取器现场条款仍按其自身记录降级，不冒充本地证据。
+- 关联: R-311 D-577
+- 收尾: 1787298701
+
+## T-1786922726674 R-311 B4 当前 HEAD 关闭前定向回归 [passed]
+- 命令: cargo test -p kanzei-tools --lib; cargo test -p kanzei --bin kz
+- 时长: 45.4s
+- 摘要: 提交 f446bd01 后当前 HEAD 受影响 crate 回归通过：kanzei-tools 470 passed、0 failed、1 ignored；kz bin 44 passed。用于关闭前当前提交证据绑定。
+- 关联: R-311
+- 收尾: 1787298815

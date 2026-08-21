@@ -231,24 +231,6 @@
 - 批次: 4/4
 - 停车: 用户本轮明确要求优先从 defects.md 最上面可执行项开始；R-309 B1-B4 代码与门禁验证已完成，剩余①～③需真实前端事件证据，暂让出唯一 WIP 槽；恢复人:agent。
 
-## R-311 收尾闭环硬化:设计冻结不变式可执行化与收尾链完成度遥测 [doing]
-- refs: R-309 R-310 docs/design/weakness_register_20260820.md
-- 内容: 批1 不变式可执行化:设计冻结字段支持登记机器可跑断言(grep 模式/测试名/脚本),finalize 与条目关闭时自动执行,失败拒关并点名失败断言;批2 收尾链遥测:条目关闭时机械核对收尾链各环节(编译/定向测试/回归/验收对照/提交)证据是否在档,缺环计数落 telemetry;批3 长程统计:按条目/批次聚合导航失手率(数据来自 R-310)、门禁拒绝、返工次数、收尾链完整度,滚动报表进 metrics——这是外部评估点名缺失的「连续几十个 requirement 的统计证据」载体
-- 复杂度: 中
-- 来源: 2026-08-20 外部工程评估:execution tail reliability(实现→定向测试→回归→不变式复查→验收对照→提交的最后一公里)是与 Codex 的主要剩余差距;kanzei 已有 13 步 verify 与关闭门禁,缺的是不变式机械检查与按条目的收尾链证据统计
-- 标签: 流程
-- 设计文档: docs/design/weakness_register_20260820.md
-- 边界: 不重复 R-309 的门禁裁剪与成本治理;不变式登记是新增可选能力,不给存量条目回填;报表只出数不自动拒绝任何操作
-- 验收: ①冻结不变式断言在 finalize/close 自动执行且失败拒关,有定向测试;②收尾链缺环可观测并落 telemetry;③滚动报表真实出数且覆盖不少于 10 个已关闭条目
-- 优先级: P2
-- 对账: 2026-08-20 需求发现实测补充真实案例:文章获取器项目 D-001 在后置条件未复核下归档 fixed(进展字段自写「复核应确认 raw_lines 为空」即验证后置),本会话复查游离行仍在(D-577)——「终态迁移无后置条件核验」正是批1 不变式可执行化要防的形态,复测场景纳入批4 回归
-- 批次: 3/4
-- 进展: B1 已落地并验证：新增 crates/kanzei-tools/src/tracker/invariants.rs，以单行 JSON `不变式` 字段执行 grep/test/script 三类项目相对路径断言；grep 启用多行边界语义。close 接线位于 crates/kanzei-tools/src/tracker/actions.rs:update_close，使用 merged 快照，失败点名 `#N` 并拒绝状态迁移；finalize 接线位于 crates/kanzei-tools/src/git/finalize.rs:finalize，Git 输入位于 crates/kanzei-tools/src/git/tool.rs:GitInput，存在声明而无 requirement_id 时拒绝，绑定后执行。定向证据：T-1786922726663、T-1786922726664、T-1786922726665；完整 kanzei-tools lib 为 465 passed。D-667 已登记并修复 grep 行边界。B2/B3 已落地并验证：新增 crates/kanzei-tools/src/close_telemetry.rs，close 成功迁移后写入 `.kanzei/artifacts/close-telemetry.jsonl`，机械核对编译/定向测试/回归/验收对照/提交并记录缺环与返工序号；`kz metrics` 在 crates/kanzei/src/cli/metrics.rs 接入滚动报表，聚合 telemetry、R-310 导航失手、门禁拒绝和条目/批次完整度。真实 smoke T-1786922726669：关闭条目 965、导航失手 159/886、门禁拒绝 4；10 条目聚合单测通过。D-671 在收尾复核中发现并修复：crates/kanzei-tools/src/tracker/actions.rs:update_close 先成功 `store.save` 再调用 `record_close`，避免写盘失败产生虚假记录；定向回归 T-1786922726672（kanzei-tools 470 passed、kz 44 passed）。下一步 B4：纳入 D-577 游离行后置条件回归，补齐真实收尾链证据并逐项对账验收。
-- observed_head: 9c7f2606117f064e85cdc88dac6535a1058df727
-- observed_worktree_hash: fnv1a64:9f2083e78dad5c45
-- recorded_at: 1787298359312
-- 取活依据: engine:唯一可执行 WIP 是 R-311，必须先恢复它
-
 ## R-312 Agent 减负:上下文供给账单、状态机字段瘦身与压缩协同(勘察+设计) [todo]
 - refs: D-573 R-310 docs/design/context_compaction.md docs/design/weakness_register_20260820.md
 - 内容: 本条只做测量+设计,实施条目由设计文档评审后另立(先计划后自举)。批1 测量:上下文账单按注入块出数(conventions 全量/memory-index/resolved-control-state/条目全文/工具输出),并统计真实会话里模型侧维护状态机自由文本字段(进展/对账/停车)的 token 占比与写入频次;批2 设计四个方向的方案与取舍:①机器可代填字段(测试记录号/提交号/批次等机械部分由引擎代写,模型只写判断性内容);②注入分层(当前 WIP 条目全文+依赖闭包,其余给索引行);③进展/对账历史段落按批次折叠沉档,req get 默认返回当前批次视图;④压缩与注入协同——可机械重取的注入块不进纪要预算(context_compaction.md L0 prune 思路从工具输出延伸到 harness 注入面),条目内 file:line 锚点腐烂的对策一并评估;批3 用户评审拍板后拆实施条目
