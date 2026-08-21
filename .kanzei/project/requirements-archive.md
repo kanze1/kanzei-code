@@ -4264,3 +4264,14 @@
 - observed_head: 5908665fa20e9f63803ddbdff8c6f3cc93e9297a
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787301389539
+
+## R-314 单线程运行时协作者工具自动隐去 [done]
+- 复杂度: 小
+- 标签: 前端
+- 验收: 检测到仅有 1 条运行线时，前端隐藏"协作者工具"组件
+- 优先级: P1
+- 取活依据: engine:唯一可执行 WIP 是 R-314，必须先恢复它
+- 进展: 验收对照：检测到仅有 1 条运行线时，前端隐藏"协作者工具"组件——已实现于 crates/kanzei-app/ui/index.html:340 的 #collaboration-tools 容器、crates/kanzei-app/ui/09-sessions.js:253-261 的 syncCollaboratorToolsVisibility（以真实 process_list 数量为唯一判据，<=1 隐藏、>1 恢复）及 crates/kanzei-app/ui/09-sessions.js:394 的 renderProcesses 调用。真实自动化证据：scripts/ui-runtime-smoke.mjs:1808-1814 覆盖单线路隐藏与多线路恢复；T-1786922726678 的 node --check 与 UI runtime/ui-lint/parallel-lines/ui-a11y/ui-i18n/ui-markdown 六项冒烟全部通过。既有能力：process_list/renderProcesses 运行态投影；本次交付：协作者工具容器及按线路数的可见性投影。
+- observed_head: 5908665fa20e9f63803ddbdff8c6f3cc93e9297a
+- observed_worktree_hash: fnv1a64:d405c3ef94c2a719
+- recorded_at: 1787301777903

@@ -9553,3 +9553,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-313 D-672
 - 收尾: 1787301318
 - 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@407614174f6e,crates/kanzei-tools/src/tracker/actions.rs@1844ae65a08a,crates/kanzei-tools/src/work/tool.rs@6c4b870f82cb
+
+## T-1786922726678 R-314 前端六项冒烟与语法检查 [passed]
+- 命令: node --check crates/kanzei-app/ui/09-sessions.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 8.6s
+- 摘要: R-314 单线程/多线路断言通过；UI runtime、UI lint、并行线路、无障碍、i18n、Markdown 六项前端冒烟全部通过，0 运行时错误。ui-lint-globals 已按生成脚本同步。
+- 关联: R-314
+- 收尾: 1787301742
+- 源码指纹: v2 scripts/ui-lint-globals.json@2343652a9326,scripts/ui-runtime-smoke.mjs@d55d292ed079
+
+## T-1786922726679 R-314 kanzei-app 定向回归（全包） [failed]
+- 命令: cargo test -p kanzei-app
+- 时长: 35.6s
+- 摘要: 编译成功；238 passed，2 failed。失败为既有测试夹具与本次无关：processes::tests::线上闭环触发 R-313 发现记录门禁；subagents::tests::idea_split 返回 I-001 → D-001。
+- 关联: R-314
+- 收尾: 1787301875
+- 源码指纹: v2 scripts/ui-lint-globals.json@2343652a9326,scripts/ui-runtime-smoke.mjs@d55d292ed079
+
+## T-1786922726680 R-314 kanzei-app 运行态投影定向测试 [passed]
+- 命令: cargo test -p kanzei-app collaboration::tests::协作块取真实运行态_单线不注入_文件变化后原位刷新
+- 时长: 6.6s
+- 摘要: kanzei-app 相关运行态投影定向测试通过：1 passed，0 failed，239 filtered out。为提交门禁补充 crate 覆盖证据；全包测试的两个既有夹具失败另有 T-1786922726679 记录。
+- 关联: R-314
+- 收尾: 1787301953
+- 源码指纹: v2 scripts/ui-lint-globals.json@2343652a9326,scripts/ui-runtime-smoke.mjs@d55d292ed079

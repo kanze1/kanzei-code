@@ -250,6 +250,14 @@ function processRunning(item) {
   // 未收敛时则合并事件缓存与后端快照,覆盖事件丢失/乱序的窗口。
   return state.converged ? state.running : state.running || Boolean(item.running);
 }
+function syncCollaboratorToolsVisibility(items) {
+  const tools = $("collaboration-tools");
+  if (!tools) return;
+  // 单线程时没有跨线协作对象,隐藏勘察/复核与 task 工具开关；保留真实进程列表
+  // 作为唯一判据,不从当前视图或活动面板反推线路数。
+  const lineCount = Array.isArray(items) ? items.length : 0;
+  tools.classList.toggle("hidden", lineCount <= 1);
+}
 async function closeParallelProcess(processId) {
   const item = processItems.find((candidate) => candidate.id === processId);
   if (!item || item.id.startsWith("d|")) return;
@@ -383,6 +391,7 @@ function renderProcesses(items) {
   const previousProcessKey = processItems.map((item) => item.id).join("\u0000");
   const previousProcessId = activeProcessId;
   processItems = items ?? [];
+  syncCollaboratorToolsVisibility(processItems);
   const liveIds = new Set(processItems.map((item) => item.id));
   // 只清当前项目中确认已注销的线路；切项目时旧项目配置继续保留。身份虽已由后端
   // 保证永不复用，这里仍回收 timer/session/profile，避免长期运行积累死缓存。

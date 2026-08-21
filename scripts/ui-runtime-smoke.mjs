@@ -1805,6 +1805,13 @@ assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲
     "点击测试关联徽标未触发跳转刷新",
   );
 }
+// R-314:单线程时隐藏协作者工具，多线路恢复显示；判据来自真实 process_list 投影。
+{
+  vm.runInContext(`renderProcesses(${JSON.stringify([payloads.process_list[0]])})`, sandbox);
+  assert(byId.get("collaboration-tools").classList.contains("hidden"), "单线程时协作者工具仍可见");
+  vm.runInContext(`renderProcesses(${JSON.stringify(payloads.process_list)})`, sandbox);
+  assert(!byId.get("collaboration-tools").classList.contains("hidden"), "多线路时协作者工具未恢复显示");
+}
 // 历史必须随线路渲染，不能再退回一个全局 conversation-list，否则切线后无法判断归属。
 assert(!byId.has("conversation-list"), "历史对话不应再有独立的全局列表");
 const lineHistories = document.querySelectorAll("#parallel-task-status .parallel-line-history");

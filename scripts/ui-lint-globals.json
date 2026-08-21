@@ -713,6 +713,7 @@
   "syncAutoRunState",
   "syncBatchBar",
   "syncBgRoleFilterOptions",
+  "syncCollaboratorToolsVisibility",
   "syncDocFilterControls",
   "syncDocumentFilters",
   "syncDocumentsProjectSelect",
