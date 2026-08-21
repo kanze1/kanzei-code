@@ -262,10 +262,10 @@
 - 批次: 3/4
 - 批次表: B1 复核现有 step budget/轮次结束与收尾事件链，锁定真实扩展入口；B2 实现白名单收尾状态、有界扩展与取消条件；B3 接入可审计 session event 与重启去重恢复；B4 真实长程条目对比、回归测试与验收收口。
 - 取活依据: engine:唯一可执行 WIP 是 R-319，必须先恢复它
-- 进展: B1 已完成：复核真实步数边界与轮末收口链。B2 已落地并提交 08992b47：events/mod.rs:256-435 以真实 test_record passed、git stage 成功、无源码编辑/审批/未知工具为白名单，最多授予一次 2 步 extension；core runner/drive.rs:243-256 在事件回调后读取有界信号，普通 max_steps 不变。B3 已提交并补强：events/mod.rs:167-207 写 run.transaction_budget_extended，含 run_id、step、base_max_steps、extension_steps、reason、trigger、allowed_actions，并按 run_id 去重；persistence.rs:70-119 新增轮末 run.transaction_budget_result，按同一 run_id 的 run.trace 重放 extension 后实际 tool.completed 动作并写 completed/failed 结果；T-1786922726709 覆盖事务状态/taint/去重/结果事件。发现并修复 D-679：失败 test_record/stage 永久 taint，提交 2b27245f，回归 T-1786922726707。B4 基线已取：T-1786922726710 从真实 .kanzei/state.db 选取最近 10 条 steps>=28 episode，9 条 32-step、1 条 28-step，均无新 extension/result event；该结果是 rollout 前基线，不能宣称事务中点切轮或纯恢复调用已下降。当前下一步：提交 telemetry 结果事件改动，随后积累/重放至少 10 条 rollout 后真实长程条目；若无足够 post-rollout 样本，验收④保持未满足，不关闭 R-319。完整 kzapp 回归 T-1786922726708 为既有两夹具失败（243 passed/2 failed），新增 5 个 R-319 测试均通过。
-- observed_head: 2b27245fb564b5917bbb5ab11c80ca3567ba591c
-- observed_worktree_hash: fnv1a64:110671cdb36c382f
-- recorded_at: 1787306200561
+- 进展: B1 已完成：复核真实步数边界与轮末收口链。B2 已落地并提交 08992b47：events/mod.rs:256-435 以真实 test_record passed、git stage 成功、无源码编辑/审批/未知工具为白名单，最多授予一次 2 步 extension；core runner/drive.rs:243-256 在事件回调后读取有界信号，普通 max_steps 不变。B3 已提交并补强，提交 f62097cf：events/mod.rs:167-216 写 run.transaction_budget_extended，含 run_id、step、base_max_steps、extension_steps、reason、trigger、allowed_actions，并按 run_id 去重；persistence.rs:70-119 新增轮末 run.transaction_budget_result，按同一 run_id 的 run.trace 重放 extension 后实际 tool.completed 动作并写 completed/failed 结果。T-1786922726709 覆盖事务状态/taint/去重/结果事件；D-679 已由 2b27245f 修复失败 test_record/stage 永久 taint，回归 T-1786922726707。B4 基线已取：T-1786922726710 从真实 .kanzei/state.db 选取最近 10 条 steps>=28 episode，9 条 32-step、1 条 28-step，均无新 extension/result event；这是 rollout 前基线，不能宣称事务中点切轮或纯恢复调用已下降。完整 kzapp 回归 T-1786922726708 为既有两夹具失败（243 passed/2 failed），新增 5 个 R-319 测试均通过。下一步：积累并重放至少 10 条 f62097cf rollout 后真实长程条目；若无足够 post-rollout 样本，验收④保持未满足，不关闭 R-319。
+- observed_head: f62097cfde97e559534c16f898a6c0f1fb5a3e23
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787306265598
 
 ## R-320 编辑后局部结构校验:在完整回归前捕获语法作用域与类型断裂 [todo]
 - refs: R-310 D-615
