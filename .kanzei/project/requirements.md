@@ -100,7 +100,7 @@
 - 依赖: R-242
 - 内容: 统一工具结果为 Inline 或 Spilled{preview,artifact_id,bytes,sha256,retrieval_hint}；read 优先指向原文件 offset/limit，bash、git、test_record、web 等完整原文进入与 state.db 同生命周期的 Git 忽略运行目录。提供存储与整理入口，按类别、会话、日期、大小预览占用，支持清理无引用 artifact；经风险确认后，用可恢复失败的删除计划物理删除已选会话的事件、投影和引用 artifact；并支持 SQLite checkpoint、VACUUM 与迁移备份管理。默认不自动过期。
 - 复杂度: 大
-- 批次: 3/5
+- 批次: 4/5
 - 来源: DeepSeek Harness spill policy、本地 state.db 输出分布统计，以及用户确认“不自动过期但需要显式整理入口”。
 - 标签: 核心
 - 边界: 任何事件仍引用的 artifact 不得被静默清理；整理前显示预计释放空间和不可恢复范围，执行后给清单与实际释放量。32 KiB 先做 shadow telemetry。普通会话删除保证产品不可检索且重启不复生；安全整理才处理 SQLite freelist、WAL 和含旧正文备份。当前库为 WAL、secure_delete=OFF、auto_vacuum=NONE，不能把 DELETE 行等同磁盘字节已擦除。弹窗必须区分仅删除与删除并安全整理，取消零写入；显式整理不是定时任务。
@@ -108,12 +108,13 @@
 - 阻塞: 
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
-- 进展: B3 已完成：`store/session.rs` 扫描 session_events 中的 artifact_id/安全 relative_path，按 `.kanzei/artifacts/tool-results` 实际文件生成引用/无引用清单；shadow 目录排除、路径穿越拒绝、dry-run 保证零数据库写入。`kz artifacts plan --dry-run [--json]` 已接入真实 CLI，stats 同步显示无引用占用。验证：T-1786922726775、T-1786922726776、T-1786922726777、T-1786922726778、T-1786922726780；cargo fmt --all -- --check 通过；真实 CLI 输出 dry_run=true。下一步：提交 B3；后续恢复 B4 的显式整理执行/删除计划。
-- observed_head: c40a3403448d7c6d4aef1d7b52557bf74989ed37
-- observed_worktree_hash: fnv1a64:737f3479fd2fa3bf
-- recorded_at: 1787604361891
+- 进展: B4 已完成：实现 `SessionDeletionPlan`/`SessionDeletionResult` 与 `SessionStore::session_deletion_plan`、`delete_session`；删除前拒绝运行中会话和未结束输入，事务删除 session_events/session_inputs/episodes 及 recall/memory 关联，提交后按全库引用图删除无其他引用 artifact，失败项返回可重试清单；CLI 接入 `kz artifacts delete --session <id> --dry-run|--confirm --json`。证据：`crates/kanzei-core/src/store/session.rs:457-645`、`crates/kanzei/src/cli/artifacts.rs:56-181`、T-1786922726781、T-1786922726782。下一步 B5：安全整理入口、checkpoint/VACUUM、迁移备份处置及剩余权限/配额覆盖。
+- observed_head: 9e5149d5f3e91090df8b0cdc10472845bf854bc4
+- observed_worktree_hash: fnv1a64:2abc9f87e693d926
+- recorded_at: 1787605369728
 - 停车: 
 - 取活依据: engine:唯一可执行 WIP 是 R-245，必须先恢复它
+- status: doing
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245

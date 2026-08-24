@@ -454,6 +454,275 @@ impl SessionStore {
     }
 }
 
+impl SessionStore {
+    /// 构造选定会话的删除计划。默认 dry-run，计划包含不可恢复范围和 artifact 处置。
+    pub fn session_deletion_plan(
+        &self,
+        session_id: &str,
+        project_root: &Path,
+    ) -> Result<super::SessionDeletionPlan, StoreError> {
+        let session = self
+            .get_session(session_id)?
+            .ok_or_else(|| StoreError::InvalidInput(format!("会话不存在: {session_id}")))?;
+        let active_inputs: u64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM session_inputs
+                 WHERE session_id = ?1 AND status IN ('pending', 'promoted', 'running')",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        let blocked_reason = if session.status == "running" {
+            Some("会话仍在运行".to_string())
+        } else if active_inputs > 0 {
+            Some("会话仍有未结束输入".to_string())
+        } else {
+            None
+        };
+        let event_count = count_for_session(&self.connection, "session_events", session_id)?;
+        let input_count = count_for_session(&self.connection, "session_inputs", session_id)?;
+        let episode_count = count_for_session(&self.connection, "episodes", session_id)?;
+        let recall_event_count: u64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM recall_events
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        let memory_source_count: u64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM memory_sources
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+
+        let session_references = collect_event_references(&self.connection, Some(session_id))?;
+        let all_references = collect_event_references(&self.connection, None)?;
+        let artifact_root = project_root.join(".kanzei/artifacts/tool-results");
+        let mut files = Vec::new();
+        collect_artifact_inventory(
+            &artifact_root,
+            project_root,
+            false,
+            &all_references,
+            &mut files,
+        );
+        let mut target_artifacts = Vec::new();
+        let mut deletable_artifacts = Vec::new();
+        let mut missing_artifacts = Vec::new();
+        for file in files {
+            let session_reference_count = artifact_reference_count(&session_references, &file);
+            if session_reference_count == 0 {
+                continue;
+            }
+            let global_reference_count = artifact_reference_count(&all_references, &file);
+            let artifact = super::SessionArtifactReport {
+                artifact_id: file.artifact_id,
+                relative_path: file.relative_path,
+                bytes: file.bytes,
+                session_reference_count,
+                other_reference_count: global_reference_count
+                    .saturating_sub(session_reference_count),
+            };
+            if artifact.other_reference_count == 0 {
+                deletable_artifacts.push(artifact.clone());
+            }
+            target_artifacts.push(artifact);
+        }
+        for key in session_references.keys() {
+            if !target_artifacts.iter().any(|artifact| {
+                artifact_reference_key_matches(key, &artifact.artifact_id, &artifact.relative_path)
+            }) {
+                missing_artifacts.push(key.clone());
+            }
+        }
+        let blocked_reason = blocked_reason.or_else(|| {
+            (!missing_artifacts.is_empty()).then(|| "存在缺失或不安全的 artifact 引用".to_string())
+        });
+        Ok(super::SessionDeletionPlan {
+            dry_run: true,
+            session_id: session_id.to_string(),
+            eligible: blocked_reason.is_none(),
+            blocked_reason,
+            event_count,
+            input_count,
+            episode_count,
+            recall_event_count,
+            memory_source_count,
+            target_artifacts,
+            deletable_artifacts,
+            missing_artifacts,
+        })
+    }
+
+    /// 提交会话删除后再清理 artifact；物理文件失败不回滚已提交数据，但结果可重试。
+    pub fn delete_session(
+        &self,
+        session_id: &str,
+        project_root: &Path,
+    ) -> Result<super::SessionDeletionResult, StoreError> {
+        let plan = self.session_deletion_plan(session_id, project_root)?;
+        if !plan.eligible {
+            return Err(StoreError::InvalidInput(
+                plan.blocked_reason
+                    .unwrap_or_else(|| "会话删除计划不可执行".to_string()),
+            ));
+        }
+        let tx = self.connection.unchecked_transaction()?;
+        let status: String = tx.query_row(
+            "SELECT status FROM sessions WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        let active_inputs: u64 = tx.query_row(
+            "SELECT COUNT(*) FROM session_inputs
+                 WHERE session_id = ?1 AND status IN ('pending', 'promoted', 'running')",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        if status == "running" || active_inputs > 0 {
+            return Err(StoreError::InvalidInput(
+                "会话在删除提交前变为活动状态".to_string(),
+            ));
+        }
+        let deleted_recall_events = tx.execute(
+            "DELETE FROM recall_events
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+        )? as u64;
+        let deleted_memory_sources = tx.execute(
+            "DELETE FROM memory_sources
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+        )? as u64;
+        let deleted_episodes = tx.execute(
+            "DELETE FROM episodes WHERE session_id = ?1",
+            params![session_id],
+        )? as u64;
+        let deleted_events = tx.execute(
+            "DELETE FROM session_events WHERE session_id = ?1",
+            params![session_id],
+        )? as u64;
+        let deleted_inputs = tx.execute(
+            "DELETE FROM session_inputs WHERE session_id = ?1",
+            params![session_id],
+        )? as u64;
+        let deleted_sessions = tx.execute(
+            "DELETE FROM sessions WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        if deleted_sessions != 1 {
+            return Err(StoreError::InvalidInput("删除会话行数异常".to_string()));
+        }
+        tx.commit()?;
+
+        let remaining_references = collect_event_references(&self.connection, None)?;
+        let mut deleted_artifacts = Vec::new();
+        let mut artifact_cleanup_errors = Vec::new();
+        for artifact in plan.deletable_artifacts {
+            if artifact_reference_key_count(&remaining_references, &artifact) > 0 {
+                continue;
+            }
+            let Some(path) = safe_artifact_path(project_root, &artifact.relative_path) else {
+                artifact_cleanup_errors.push(format!("拒绝路径逃逸: {}", artifact.relative_path));
+                continue;
+            };
+            match std::fs::remove_file(&path) {
+                Ok(()) => deleted_artifacts.push(artifact.relative_path),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    artifact_cleanup_errors.push(format!("{}: {error}", artifact.relative_path))
+                }
+            }
+        }
+        Ok(super::SessionDeletionResult {
+            session_id: session_id.to_string(),
+            deleted_events,
+            deleted_inputs,
+            deleted_episodes,
+            deleted_recall_events,
+            deleted_memory_sources,
+            deleted_artifacts,
+            artifact_cleanup_errors,
+        })
+    }
+}
+
+fn count_for_session(
+    connection: &Connection,
+    table: &str,
+    session_id: &str,
+) -> Result<u64, StoreError> {
+    let sql = format!("SELECT COUNT(*) FROM {table} WHERE session_id = ?1");
+    Ok(connection.query_row(&sql, params![session_id], |row| row.get(0))?)
+}
+
+fn collect_event_references(
+    connection: &Connection,
+    session_id: Option<&str>,
+) -> Result<BTreeMap<String, u64>, StoreError> {
+    let mut statement = match session_id {
+        Some(_) => {
+            connection.prepare("SELECT payload_json FROM session_events WHERE session_id = ?1")?
+        }
+        None => connection.prepare("SELECT payload_json FROM session_events")?,
+    };
+    let mut rows = match session_id {
+        Some(session_id) => statement.query(params![session_id])?,
+        None => statement.query([])?,
+    };
+    let mut references = BTreeMap::new();
+    while let Some(row) = rows.next()? {
+        let payload: String = row.get(0)?;
+        let value: serde_json::Value = serde_json::from_str(&payload)?;
+        collect_artifact_references(&value, &mut references);
+    }
+    Ok(references)
+}
+
+fn artifact_reference_count(
+    references: &BTreeMap<String, u64>,
+    file: &super::ArtifactFileReport,
+) -> u64 {
+    references
+        .get(&format!("id:{}", file.artifact_id))
+        .copied()
+        .unwrap_or_default()
+        .saturating_add(
+            references
+                .get(&format!("path:{}", file.relative_path))
+                .copied()
+                .unwrap_or_default(),
+        )
+}
+
+fn artifact_reference_key_matches(key: &str, artifact_id: &str, relative_path: &str) -> bool {
+    key == format!("id:{artifact_id}") || key == format!("path:{relative_path}")
+}
+
+fn artifact_reference_key_count(
+    references: &BTreeMap<String, u64>,
+    artifact: &super::SessionArtifactReport,
+) -> u64 {
+    references
+        .get(&format!("id:{}", artifact.artifact_id))
+        .copied()
+        .unwrap_or_default()
+        .saturating_add(
+            references
+                .get(&format!("path:{}", artifact.relative_path))
+                .copied()
+                .unwrap_or_default(),
+        )
+}
+
+fn safe_artifact_path(project_root: &Path, relative_path: &str) -> Option<PathBuf> {
+    let normalized = normalize_artifact_relative_path(relative_path)?;
+    let path = project_root.join(&normalized);
+    if path.strip_prefix(project_root).is_ok() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
 fn file_size(path: &Path) -> u64 {
     std::fs::metadata(path)
         .map(|metadata| metadata.len())
@@ -727,6 +996,93 @@ mod tests {
         assert_eq!(before_data_version, after_data_version);
         assert!(artifact_root.join("orphan.log").exists());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn 会话删除计划和执行保持引用安全并可重试() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-session-delete-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let artifact_path = root.join(".kanzei/artifacts/tool-results/shared.bin");
+        std::fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+        std::fs::write(&artifact_path, b"shared artifact").unwrap();
+        let store = SessionStore::open(&state_path).unwrap();
+        for session_id in ["ses-delete-one", "ses-delete-two"] {
+            store
+                .create_session(session_id, &root.display().to_string(), None)
+                .unwrap();
+            store
+                .append_event(
+                    session_id,
+                    "tool.completed",
+                    &serde_json::json!({"artifact": {"artifact_id": "shared"}}),
+                )
+                .unwrap();
+        }
+
+        let plan = store
+            .session_deletion_plan("ses-delete-one", &root)
+            .unwrap();
+        assert!(plan.eligible);
+        assert_eq!(plan.event_count, 1);
+        assert_eq!(plan.target_artifacts.len(), 1);
+        assert!(plan.deletable_artifacts.is_empty());
+        assert_eq!(plan.target_artifacts[0].other_reference_count, 1);
+
+        let read_only = SessionStore::open_read_only(&state_path).unwrap();
+        assert!(read_only.delete_session("ses-delete-one", &root).is_err());
+        assert!(read_only.get_session("ses-delete-one").unwrap().is_some());
+        drop(read_only);
+
+        let first = store.delete_session("ses-delete-one", &root).unwrap();
+        assert_eq!(first.deleted_events, 1);
+        assert!(first.deleted_artifacts.is_empty());
+        assert!(artifact_path.exists());
+        assert!(store.get_session("ses-delete-one").unwrap().is_none());
+        drop(store);
+
+        let reopened = SessionStore::open_read_only(&state_path).unwrap();
+        assert!(reopened.get_session("ses-delete-one").unwrap().is_none());
+        assert!(reopened.get_session("ses-delete-two").unwrap().is_some());
+        drop(reopened);
+
+        let store = SessionStore::open(&state_path).unwrap();
+        let second = store.delete_session("ses-delete-two", &root).unwrap();
+        assert_eq!(second.deleted_events, 1);
+        assert_eq!(
+            second.deleted_artifacts,
+            vec![".kanzei/artifacts/tool-results/shared.bin"]
+        );
+        assert!(!artifact_path.exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 会话删除计划拒绝运行中会话() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-session-delete-active-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let store = SessionStore::open(&state_path).unwrap();
+        store
+            .create_session("ses-active", &root.display().to_string(), None)
+            .unwrap();
+        store.set_status("ses-active", "running").unwrap();
+        let plan = store.session_deletion_plan("ses-active", &root).unwrap();
+        assert!(!plan.eligible);
+        assert_eq!(plan.blocked_reason.as_deref(), Some("会话仍在运行"));
+        assert!(store.delete_session("ses-active", &root).is_err());
+        assert!(store.get_session("ses-active").unwrap().is_some());
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

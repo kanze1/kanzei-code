@@ -93,6 +93,46 @@ pub struct ArtifactCleanupPlan {
     pub unreferenced: Vec<ArtifactFileReport>,
 }
 
+/// B4 会话删除前的可审计计划；只描述目标，不执行任何删除。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionDeletionPlan {
+    pub dry_run: bool,
+    pub session_id: String,
+    pub eligible: bool,
+    pub blocked_reason: Option<String>,
+    pub event_count: u64,
+    pub input_count: u64,
+    pub episode_count: u64,
+    pub recall_event_count: u64,
+    pub memory_source_count: u64,
+    pub target_artifacts: Vec<SessionArtifactReport>,
+    pub deletable_artifacts: Vec<SessionArtifactReport>,
+    pub missing_artifacts: Vec<String>,
+}
+
+/// 会话引用的 artifact 在全库删除后的处置判断。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionArtifactReport {
+    pub artifact_id: String,
+    pub relative_path: String,
+    pub bytes: u64,
+    pub session_reference_count: u64,
+    pub other_reference_count: u64,
+}
+
+/// 会话删除提交后的结果；artifact 失败项保留，下一次显式整理可重试。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionDeletionResult {
+    pub session_id: String,
+    pub deleted_events: u64,
+    pub deleted_inputs: u64,
+    pub deleted_episodes: u64,
+    pub deleted_recall_events: u64,
+    pub deleted_memory_sources: u64,
+    pub deleted_artifacts: Vec<String>,
+    pub artifact_cleanup_errors: Vec<String>,
+}
+
 /// D-374:`SessionStore::open` 的累计次数,**按库路径分桶**。
 ///
 /// open **不便宜**(见 `session.rs::open`:create_dir_all + Connection::open + 三个

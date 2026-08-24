@@ -10352,3 +10352,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-245
 - 收尾: 1787604342
 - 源码指纹: v2 crates/kanzei-core/src/lib.rs@915891c7a04e,crates/kanzei-core/src/store/mod.rs@572c03e30796,crates/kanzei-core/src/store/session.rs@80a6b563b937,crates/kanzei/src/cli/artifacts.rs@946a19184a28,crates/kanzei/src/cli/mod.rs@9db008534660
+
+## T-1786922726781 R-245 B4 core 与 CLI 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core; cargo test -p kanzei
+- 时长: 29.0s
+- 摘要: B4 格式门禁、kanzei-core 256 项测试与 kanzei 46 项单元/32 项集成测试全部通过；包含会话删除计划、只读失败保护、跨会话 artifact 引用和重启恢复测试。
+- 关联: R-245
+- 收尾: 1787605181
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@f72ae230cd5b,crates/kanzei-core/src/store/mod.rs@13d07613ceb3,crates/kanzei-core/src/store/session.rs@a3cd502da785,crates/kanzei/src/cli/artifacts.rs@32004d722d1d
+
+## T-1786922726782 R-245 B4 CLI delete 命令验证 [passed]
+- 命令: cargo run -p kanzei -- artifacts delete --session cli-session --dry-run --json --project-root C:\Users\kanzei\AppData\Local\Temp\kz-r245-cli-15384; cargo run -p kanzei -- artifacts delete --session cli-session --confirm --json --project-root C:\Users\kanzei\AppData\Local\Temp\kz-r245-cli-15384
+- 时长: 27.0s
+- 摘要: 真实 kz CLI 在临时 SQLite/artifact 项目上完成 delete --dry-run 与 --confirm；dry-run 列出事件和 artifact 释放范围，confirm 删除 1 个事件并物理删除 1 个无其他引用 artifact。
+- 关联: R-245
+- 收尾: 1787605352
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@f72ae230cd5b,crates/kanzei-core/src/store/mod.rs@13d07613ceb3,crates/kanzei-core/src/store/session.rs@a3cd502da785,crates/kanzei/src/cli/artifacts.rs@32004d722d1d
