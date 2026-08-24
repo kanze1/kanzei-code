@@ -10216,3 +10216,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-264 D-693
 - 收尾: 1787569491
 - 源码指纹: v2 scripts/gen-esm-graph.mjs@425471d59fac,scripts/gen-esm-migrate.mjs@6b78fea4e0e7,scripts/ui-esm-graph.json@b76cf682536f
+
+## T-1786922726763 R-264 B9 neural-flow 单文件 ESM 迁移 [passed]
+- 命令: node scripts/gen-esm-graph.mjs --write; node scripts/gen-esm-migrate.mjs --dry-run; node --check crates/kanzei-app/ui/22-neural-flow.js; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 2.4s
+- 摘要: B9 将 22-neural-flow.js 切为 ESM module 并保留 globalThis 兼容桥；graph 刷新覆盖 27 文件，迁移 dry-run 772 个 export 候选/198 条 import 语句；node --check 与六条前端冒烟全部通过，runtime 0 错误。
+- 关联: R-264
+- 收尾: 1787569869

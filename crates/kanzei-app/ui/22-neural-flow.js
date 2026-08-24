@@ -1,6 +1,6 @@
 // R-285 金色神经流。
 // 顶层声明作为所有 classic script 的统一事件入口；初始化前保持可安全调用。
-let neuralFlowEmit = null;
+export let neuralFlowEmit = null;
 // 视觉层只消费真实运行事件；Canvas 丢帧、隐藏或关闭不会反向改变任何业务状态。
 (() => {
   const chatCanvas = $("neural-flow-chat");
@@ -436,3 +436,6 @@ let neuralFlowEmit = null;
     fields.forEach((field) => field.resizeObserver?.disconnect());
   });
 })();
+
+// R-264 B9：未迁移的 classic 消费者仍通过兼容桥读取 live ESM 入口。
+Object.assign(globalThis, { neuralFlowEmit });
