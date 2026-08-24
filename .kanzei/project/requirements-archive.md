@@ -1337,14 +1337,12 @@
 - refs: D-121
 
 - 批次: 3/3
-- 进展: 2026-08-10 批次规划(复杂度中→3批):批1=只读档位概念落码——CLI 参数/配置接入(readonly 档位解析 + profile 合并 + 权限快照函数),批2=权限强制(read/write/edit 硬 deny、bash 禁用提示替代、read/glob/grep/task 放行)+ 非交互零配置路径打通,批3=档位权限快照测试 + 文档。
+- 进展: 2026-08-10 批次规划(复杂度中→3批):批1=只读档位概念落码——CLI 参数/配置接入(readonly 档位解析 + profile 合并 + 权限快照函数),批2=权限强制(read/write/edit 硬 deny、bash 禁用提示替代、read/glob/grep/task 放行)+ 非交互零配置路径打通,批3=档位权限快照测试 + 文档。；状态对账: 归档正文旧字段 `doing` 与权威标题状态 `done` 冲突;已移除正文副本。
 2026-08-10 批1 完成(b2e6947):ProfileKind::Readonly 档位(defs.rs:7-10)、ReadonlyProfile 组件注册只读 agent(profiles.rs)、CLI --readonly 解析与 profile 合并(main.rs parse_run_args/run_cli)、permission_snapshot 快照函数(harness.rs)。
 2026-08-10 批2 完成(4d00537):ReadonlyProfile 权限强制——write/edit/bash 硬 deny(managed 替代指引点 read/glob/grep/files/git status|diff|log/webfetch)、只读族与 git 只读子命令放行、工具物化摘除写命令。真实冒烟:kz run --readonly 用 ollama 非交互零配置跑完,read 放行、零权限询问。
 2026-08-10 批3 完成(55c6c82):档位权限快照断言(快照 write/edit/bash=Deny+fully_denied、read/glob/grep/files/webfetch=Allow、task 不摘除)。文档:usage 已含 --readonly 行。
 批次 3/3 走满,三批提交 b2e6947/4d00537/55c6c82,定向测试全绿,待全量测试后关闭。
 2026-08-10 批1 完成(b2e6947):ProfileKind::Readonly 档位(defs.rs:7-10)、ReadonlyProfile 组件注册只读 agent(profiles.rs)、CLI --readonly 解析与 profile 合并(main.rs parse_run_args/run_cli)、permission_snapshot 快照函数(harness.rs)。kz --help 实测展示 --readonly;harness 130 + kz bin 7 测试全绿,workspace check 通过。批2 开始:ReadonlyProfile 权限强制(write/edit/bash 硬 deny)。
-
-- 状态: doing
 
 ## R-103 Memory 系统总纲:文件优先、分级、子代理管理 [done]
 - 移交: 2026-08-08 用户宣布移交自举循环。M1~M4 已落地并在实测中,后续完善由循环承接;设计基线见 docs/design/memory_system.md,改动不得偏离其 §0 品味决策(文件优先、不引向量库/图谱、读写分离)。
@@ -1451,8 +1449,7 @@
 - 验收: ①空转检测/连数上限/全部阻塞停止/NUDGE 判定均有 harness 单测，断言可覆盖七种场景(与 R-076 同级别)；②桌面端鞭挞行为与现状等价：runtime smoke 断言轮末续跑、全部阻塞自动停止且解除后可恢复、无动作第一次追加 NUDGE 第二次停；③CLI 轮末具备同款自主循环或状态机单源可被 CLI 消费(D-229 类桌面端独占架构债消除)；④前端 08-compose.js/07-events.js 不再承载状态机判定逻辑(只留控件与事件转发)。
 
 - 批次: 4/4
-- 状态: doing
-- 进展: 2026-08-10 四批全部完成。批1: kanzei-harness/src/auto_run.rs 策略模块(空转画像/连数/阻塞/优先级/状态机 decide + 12 单测)。批2: kanzei-app 后端接线——auto_state_update/auto_action 命令、run.rs kz:done 携带 autoAction、AppState 双线程 Mutex。批3: 前端壳化——07-events.js kz:done 只执行 autoAction(Continue/Nudge/Stop/NoContinue),08-compose.js 删除 decideAutoContinue/stopAutoWhenBacklogEmpty 等判定函数,控件经 auto_state_update 同步后端;四条冒烟按新契约重写并全绿。批4: backlog 单源下沉 kanzei-tools::tracker::backlog_status(三态单测),app 转发复用,CLI main.rs 轮末消费(AllBlocked/Empty 提示),D-229 架构债消除。全量 cargo test --workspace 全绿。
+- 进展: 2026-08-10 四批全部完成。批1: kanzei-harness/src/auto_run.rs 策略模块(空转画像/连数/阻塞/优先级/状态机 decide + 12 单测)。批2: kanzei-app 后端接线——auto_state_update/auto_action 命令、run.rs kz:done 携带 autoAction、AppState 双线程 Mutex。批3: 前端壳化——07-events.js kz:done 只执行 autoAction(Continue/Nudge/Stop/NoContinue),08-compose.js 删除 decideAutoContinue/stopAutoWhenBacklogEmpty 等判定函数,控件经 auto_state_update 同步后端;四条冒烟按新契约重写并全绿。批4: backlog 单源下沉 kanzei-tools::tracker::backlog_status(三态单测),app 转发复用,CLI main.rs 轮末消费(AllBlocked/Empty 提示),D-229 架构债消除。全量 cargo test --workspace 全绿。；状态对账: 归档正文旧字段 `doing` 与权威标题状态 `done` 冲突;已移除正文副本。
 
 - 关闭证据: 验收①: crates/kanzei-harness/src/auto_run.rs #[cfg(test)] 12 个单测覆盖七场景(有实质动作续跑/无动作第一次 NUDGE 第二次停/达连数上限/全部阻塞/清空/暂停/本轮后停/用户拒绝/优先级排序/重置),cargo test -p kanzei-harness auto_run 12 passed。验收②: scripts/ui-runtime-smoke.mjs 鞭挞块重写为 autoAction 执行断言——①Continue 镜像计数续跑、②Nudge 追加推进指令提示、③Stop(NoAction)停止+原因、④Stop(AllBlocked)停止并取消开关、⑤Continue 恢复续跑不误刹车、⑥Stop(BacklogEmpty)清空停止、⑦Stop(StopAfterRound)本轮后停开关联动、⑧Stop(MaxRounds)清零、⑨Stop(Paused)暂停停/恢复续跑、⑩NoContinue(halted)计数不动;四条 ui 冒烟全绿。验收③: CLI 消费点 crates/kanzei/src/main.rs 轮末调用 kanzei_tools::tracker::backlog_status 打印 AllBlocked/Empty 提示(状态机单源),backlog 实现下沉 crates/kanzei-tools/src/tracker.rs backlog_status(带三态单测),app/auto_run.rs 只转发复用不留第二份逻辑。验收④: crates/kanzei-app/ui/07-events.js kz:done 只执行 autoAction,08-compose.js 已删 decideAutoContinue/stopAutoWhenBacklogEmpty 等判定函数,控件事件仅转发 auto_state_update;grep 无残留引用。全量 cargo test --workspace 全绿。
 
@@ -1574,11 +1571,9 @@
 - 验收: ①每条 active 记忆可查 F(m) 估计与置信区间;②至少一次真实 merge 经 D<ε 判定放行或拒绝且判定依据落库;③shadow 条目不注入生产但被评估(测试);④代码中无按时间衰减的淘汰路径。
 - refs: R-149 R-150 docs/design/memory_control_plane.md
 
-- 进展: 关闭。验收对照:①F(m) 可查=store/eval.rs memory_effect(memory_id) 查 memory_eval_agg(effect_mean/effect_ci/eval_n/last_eval),测试 forgetting_cost_aggregates_and_queries;②merge D<ε=merge_conservation_delta + memory_merge 守恒闸(D≥0.5 拒绝带依据),测试 merge_gate_rejects_distorting_merge_with_delta + merge_conservation_delta_measures_distortion;③shadow 可评估不注入=to_shadow + search 硬排除,测试 shadow_entry_is_evaluable_but_not_injected;④无时间衰减淘汰=memory 模块 grep 审计无 age/ttl 路径,deprecate 只由 F(m) 驱动,测试 deprecate_candidates_require_low_value_and_high_confidence。全量 cargo test --workspace 全绿(core 97+tools 183)。
+- 进展: 关闭。验收对照:①F(m) 可查=store/eval.rs memory_effect(memory_id) 查 memory_eval_agg(effect_mean/effect_ci/eval_n/last_eval),测试 forgetting_cost_aggregates_and_queries;②merge D<ε=merge_conservation_delta + memory_merge 守恒闸(D≥0.5 拒绝带依据),测试 merge_gate_rejects_distorting_merge_with_delta + merge_conservation_delta_measures_distortion;③shadow 可评估不注入=to_shadow + search 硬排除,测试 shadow_entry_is_evaluable_but_not_injected;④无时间衰减淘汰=memory 模块 grep 审计无 age/ttl 路径,deprecate 只由 F(m) 驱动,测试 deprecate_candidates_require_low_value_and_high_confidence。全量 cargo test --workspace 全绿(core 97+tools 183)。；状态对账: 归档正文旧字段 `doing` 与权威标题状态 `done` 冲突;已移除正文副本。
 
 - 批次: 5/5
-
-- 状态: doing
 
 ## R-150 记忆决策价值 P2:空闲整理与 UI 消费零采纳与复发清单 [done]
 - 优先级: P1
@@ -1955,8 +1950,7 @@
 
 - 标签: 流程
 
-- 状态: doing
-- 进展: 2026-08-11 完成并提交 8b918ed,已推送。验收①②③ 证据齐备。
+- 进展: 2026-08-11 完成并提交 8b918ed,已推送。验收①②③ 证据齐备。；状态对账: 归档正文旧字段 `doing` 与权威标题状态 `done` 冲突;已移除正文副本。
 
 - 复杂度: 小
 - 验收证据: ①最低配 ESLint flat config,只开 no-undef,不引入构建步骤——eslint.config.js(81 行)唯一启用 no-undef 规则,ui/*.js 以 sourceType=script + 跨文件 globals 白名单(scripts/ui-lint-globals.json,1054 个顶层标识符,由 scripts/gen-ui-lint-globals.mjs 自动提取)+ Tauri/browser 宿主 readonly;package.json 仅 devDependencies(eslint@^9.39.5 + globals),无任何 build/transform 脚本,无打包步骤。②main.js 无未定义变量错误——main.js 已于 R-154 拆解为 ui/*.js(既有能力,非本次交付);ui/*.js 全量经 no-undef 检查零错误(ui-lint-smoke 30 文件)。③lint 可跑且纳入冒烟脚本——scripts/ui-lint-smoke.mjs 第五条冒烟(ESLint Node API 断言 zero error + globals 清单与源码同步断言),verify.ps1 发布门禁新增 ui_lint 步骤(ui-runtime 之后);npm run lint 即独立可跑。负向验证:临时注入 totallyUndefinedName 被 no-undef 报错 exit 1。测试:五条冒烟全绿(T-1786445522)。
@@ -2751,12 +2745,11 @@
 - content: 架构浏览(architecture 索引/设计文档)当前只有文字树与索引列表,读起来很不直观。需要一个代码生成的架构图渲染工具(harness 或 skills 形态),自动从真实代码/文档数据生成架构图并嵌入浏览界面。硬约束:架构图必须是代码生成的(如 mermaid/graphviz/SVG),不是文生图,也不是预置的静态图片。
 - label: 核心
 - priority: P2
-- status: todo
 - 既有能力(§1.25 显式标注,不得重复申报为本次产出): 架构浏览页本身已存在(R-122)——后端 `architecture_snapshot` 只读命令供数据(架构索引正文 + docs/design 文档清单),前端 crates/kanzei-app/ui/19-arch.js:8-104 渲染「索引 + 设计文档树」,按索引状态分层(已入册的按索引章节分组、未入册的单列,让「有文档没入册」的缺口在界面上直接可见),点击条目走既有 Markdown 查看器 openDocViewer。本条是在这份既有数据源与视图之上**加图**,不是另起一个架构页;验收③的降级文字视图就是这棵既有的树,不要重写。
 - 现状(2026-08-12 读码核实,dev HEAD): 19-arch.js 全文 129 行,**无任何图形渲染**——零 svg/canvas/mermaid/graphviz 依赖,输出是纯 DOM 文本树;`architecture_snapshot` 也只回「索引文本 + 文档名/标题列表」,**不含依赖边、调用关系、模块归属等成图所需的结构化数据**。所以本条的第一道工作量在**数据侧**(从 crates 依赖、模块引用或设计文档里抽出可成图的节点与边),渲染选型(mermaid/graphviz/自绘 SVG)是第二道;验收①的「真实数据源」指的就是这层抽取,不能拿手写的图字面量顶替。
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-188
 - 批次: 2/2
-- 进展: 2026-08-16 完成并关闭(2 批:4d9fb34 数据侧 + de5a346 前端)。验收逐条:①工具从真实数据源生成架构图,纯代码渲染,禁止文生图/预置图——architecture_snapshot 新增 graph 字段,build_workspace_graph 从 workspace Cargo.toml members + 各 crate 的 kanzei-* 依赖(workspace/path 两形态)抽取依赖边,单测覆盖;前端 renderArchGraph 自绘 SVG(零外部依赖,桌面端离线可用),非文生图/预置图;②架构浏览页显示生成的架构图并随 refreshArch 刷新——renderArch 调 renderArchGraph,index.html 加 #arch-graph 容器,刷新即重渲染;③图不可用时降级文字树不空白——图数据空或无 createElementNS 时 arch-graph 隐藏、renderArch 文字树照常渲染(renderArchGraph 调用包 try-catch,异常不中断),冒烟断言文字树保留;④节点可点击定位——openArchCrate 优先打开同名设计文档,否则 crate Cargo.toml(均经 docs_read_custom 只读),冒烟断言点击触发 docs_read_custom;⑤生成链路自动化验证——build_workspace_graph 单测 + ui-runtime-smoke R-188 断言(SVG 渲染/节点边计数/点击定位/降级)。既有能力标注:架构浏览页文字树与 architecture_snapshot 为 R-122 交付,未重写,作为降级视图复用。前端五冒烟 + kanzei-app 148 + 关闭前全量 cargo test --workspace 全绿(T-1786656195)。
+- 进展: 2026-08-16 完成并关闭(2 批:4d9fb34 数据侧 + de5a346 前端)。验收逐条:①工具从真实数据源生成架构图,纯代码渲染,禁止文生图/预置图——architecture_snapshot 新增 graph 字段,build_workspace_graph 从 workspace Cargo.toml members + 各 crate 的 kanzei-* 依赖(workspace/path 两形态)抽取依赖边,单测覆盖;前端 renderArchGraph 自绘 SVG(零外部依赖,桌面端离线可用),非文生图/预置图;②架构浏览页显示生成的架构图并随 refreshArch 刷新——renderArch 调 renderArchGraph,index.html 加 #arch-graph 容器,刷新即重渲染;③图不可用时降级文字树不空白——图数据空或无 createElementNS 时 arch-graph 隐藏、renderArch 文字树照常渲染(renderArchGraph 调用包 try-catch,异常不中断),冒烟断言文字树保留;④节点可点击定位——openArchCrate 优先打开同名设计文档,否则 crate Cargo.toml(均经 docs_read_custom 只读),冒烟断言点击触发 docs_read_custom;⑤生成链路自动化验证——build_workspace_graph 单测 + ui-runtime-smoke R-188 断言(SVG 渲染/节点边计数/点击定位/降级)。既有能力标注:架构浏览页文字树与 architecture_snapshot 为 R-122 交付,未重写,作为降级视图复用。前端五冒烟 + kanzei-app 148 + 关闭前全量 cargo test --workspace 全绿(T-1786656195)。；状态对账: 归档正文旧字段 `todo` 与权威标题状态 `done` 冲突;已移除正文副本。
 - observed_head: de5a3466eb6c52b9b0be37e2e59610f3923e89cb
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786656204141
@@ -2767,11 +2760,10 @@
 - content: 当前桌面端只有暗色主题。需要先评估现有前端渲染器代码的颜色来源是否结构化(颜色是否集中在可换色层如 CSS 变量/主题类,还是散落硬编码),再设计并落地一套亮色主题。
 - label: 前端
 - priority: P2
-- status: todo
 - 现状评估(2026-08-12 读码核实,dev HEAD;直接对应验收①): 结构上适合换色,工作量在收口不在重构。颜色集中在 style.css :root 语义 token,ui/*.js 与 index.html 零颜色字面量,换色纯 CSS;剩余字面量分四类(a 半透明叠加保留/b 徽章底色成对给亮色值/c 框架面提升 token/d diff语法着色与 on-accent)。两处非 CSS 换色面:color-scheme 与 Monaco setTheme。落地:拆 [data-theme] 两组 token + 字面量提升 + 非 CSS 面同一开关。
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-189
 - 批次: 3/3
-- 进展: 2026-08-16 完成并关闭(提交 1fb30eb)。验收①评估结论写入「现状评估」字段:颜色集中在 style.css :root 语义 token,ui/*.js 与 index.html 零颜色字面量;剩余字面量四类处置,手动 token 化引用点逐处引证:滚动条 style.css:77-78→--scrollbar/--scrollbar-hover;活动栏 style.css:83→--activitybar;workspace 状态 style.css:297-299→--badge-ok-soft/--badge-warn-soft/--badge-soft;优先级徽章 style.css:400-402→--badge-err/--badge-warn/--badge-info;状态胶囊 style.css:408-410→--badge-alert/--badge-info/--badge-ok;danger 按钮 style.css:649-650→--danger-btn+--on-accent;代码块/工具输出底 style.css:1047/1184/1205/1208→--code-bg/--code-output-bg;warn 徽章底 style.css:1166→--badge-warn;diff 着色 style.css:1214-1215/1239-1240/1242-1243→--diff-add/--diff-del;warn/err fallback style.css:904/1321/1444-1445/1456-1457→--warn/--err;线路主题色 style.css:441-444→--line-1..4;状态点 style.css:673-674→--dot-idle/--dot-run;diff 行号 style.css:1212→--diff-line-number;语法着色 style.css:1223-1226→--syntax-comment/--syntax-string/--syntax-number/--syntax-keyword;日志金字 style.css:1250→--log-gold;未入册头 style.css:1547→--arch-unindexed;新 token 定义 style.css:21-29(dark)/style.css:42-48(light),成对给亮色值。验收②[data-theme=light] style.css:32-48 + 03-shell.js:466-497 currentTheme/applyTheme/initTheme + localStorage kz-theme 持久化(默认 dark 零回归)+ index.html:667 theme-toggle + 17-files.js:222-228 Monaco setTheme(vs/vs-dark);color-scheme style.css:19/41 随主题(D-154 原生控件)。验收③ui-runtime-smoke.mjs:6084-6117 R-189 断言(切换/持久化/Monaco 联动)+ 既有 a11y 冒烟(纯键盘语义)+ R-179 三档循环(800/1024/1280)。验收④换色纯 CSS + Monaco setTheme,未引入新框架,沿用 :root token 结构。前端五冒烟 + kanzei-app 148 + 关闭前全量 cargo test --workspace 全绿(T-1786656576)。
+- 进展: 2026-08-16 完成并关闭(提交 1fb30eb)。验收①评估结论写入「现状评估」字段:颜色集中在 style.css :root 语义 token,ui/*.js 与 index.html 零颜色字面量;剩余字面量四类处置,手动 token 化引用点逐处引证:滚动条 style.css:77-78→--scrollbar/--scrollbar-hover;活动栏 style.css:83→--activitybar;workspace 状态 style.css:297-299→--badge-ok-soft/--badge-warn-soft/--badge-soft;优先级徽章 style.css:400-402→--badge-err/--badge-warn/--badge-info;状态胶囊 style.css:408-410→--badge-alert/--badge-info/--badge-ok;danger 按钮 style.css:649-650→--danger-btn+--on-accent;代码块/工具输出底 style.css:1047/1184/1205/1208→--code-bg/--code-output-bg;warn 徽章底 style.css:1166→--badge-warn;diff 着色 style.css:1214-1215/1239-1240/1242-1243→--diff-add/--diff-del;warn/err fallback style.css:904/1321/1444-1445/1456-1457→--warn/--err;线路主题色 style.css:441-444→--line-1..4;状态点 style.css:673-674→--dot-idle/--dot-run;diff 行号 style.css:1212→--diff-line-number;语法着色 style.css:1223-1226→--syntax-comment/--syntax-string/--syntax-number/--syntax-keyword;日志金字 style.css:1250→--log-gold;未入册头 style.css:1547→--arch-unindexed;新 token 定义 style.css:21-29(dark)/style.css:42-48(light),成对给亮色值。验收②[data-theme=light] style.css:32-48 + 03-shell.js:466-497 currentTheme/applyTheme/initTheme + localStorage kz-theme 持久化(默认 dark 零回归)+ index.html:667 theme-toggle + 17-files.js:222-228 Monaco setTheme(vs/vs-dark);color-scheme style.css:19/41 随主题(D-154 原生控件)。验收③ui-runtime-smoke.mjs:6084-6117 R-189 断言(切换/持久化/Monaco 联动)+ 既有 a11y 冒烟(纯键盘语义)+ R-179 三档循环(800/1024/1280)。验收④换色纯 CSS + Monaco setTheme,未引入新框架,沿用 :root token 结构。前端五冒烟 + kanzei-app 148 + 关闭前全量 cargo test --workspace 全绿(T-1786656576)。；状态对账: 归档正文旧字段 `todo` 与权威标题状态 `done` 冲突;已移除正文副本。
 - observed_head: 1fb30ebff4553181f4de5344479c2dd991093cc1
 - observed_worktree_hash: fnv1a64:8c41ba37517e4824
 - recorded_at: 1786656720597
@@ -3001,11 +2993,10 @@
 - 验收: ①`kz run` 在 worktree 里后台运行(stdin 关闭)能完成一次真实的「改代码 → `cargo test` → 提交」闭环,不因权限被拒而中断;②非交互默认策略三态各有测试,**缺省仍是 `deny`**(不改变现有用户的行为,旧配置无该键时行为不变);③从 worktree 运行时,主根的 permission 规则能命中(有测试直接断言同一条规则在主根与 worktree 下匹配结果一致);④每次自动放行有可查轨迹,含命中的规则原文;⑤无 TTY 检测本身有测试(不是靠"读到 EOF"倒推)。
 - 依赖: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-183
-- 进展: 批3 完成(2026-08-16),条目收口。验收对照(逐项引用实现位置):①`kz run` 无 TTY 无人值守闭环——E2E `crates/kanzei/tests/always_allow_bash.rs:92 cli_allow_listed_executes_bash_without_tty`(用户 D-363 落地,非交互 allow_listed + `--allow bash:*` 下 bash 真执行、本轮成功,反证 --allow 一次性不落常驻规则);worktree 后台跑的前提由验收③覆盖。②三态各有测试、缺省 deny——`crates/kanzei-harness/src/config.rs` `non_interactive_三态解析`/`non_interactive_缺省与非法取值_fail_closed回落deny`(缺键/空串/非法全回落 Deny,旧配置不变)+ main.rs 决策三态测试。③worktree 主根规则命中——`crates/kanzei-tools/src/bash.rs:30 permission_workdir_view`(worktree_key 存在时 workdir 视图按主根,仅权限判定文本、执行目录不变)+ 测试 `权限workdir视图_worktree映射回主根`/`同一规则_主根与worktree下匹配结果一致`(7db3b48)。④自动放行轨迹含规则原文——`permission.rs evaluate_with_rule`(last-match-wins 命中规则,硬 deny/无匹配 None)+ `event.rs:84 PermissionResolved.rule` + drive.rs 串行门禁/并行 wave 两评估站点填 describe_rule + CLI 打印 `[规则: ...]`(ba0726f)。⑤无 TTY 检测有测试——`main.rs interactive_stdin()`(stdin.is_terminal 显式检测,不靠读 EOF)+ non_interactive_decision 测试(批1,caa9d62)。全量:cargo test --workspace 全绿 0 failed(T-1786737712 复核,含 D-363 桩服务器超时修复)。边界遵守:无全放行隐式默认(allow_listed 需显式 --allow)、不改 profile/agent、不做桌面端。关闭。
+- 进展: 批3 完成(2026-08-16),条目收口。验收对照(逐项引用实现位置):①`kz run` 无 TTY 无人值守闭环——E2E `crates/kanzei/tests/always_allow_bash.rs:92 cli_allow_listed_executes_bash_without_tty`(用户 D-363 落地,非交互 allow_listed + `--allow bash:*` 下 bash 真执行、本轮成功,反证 --allow 一次性不落常驻规则);worktree 后台跑的前提由验收③覆盖。②三态各有测试、缺省 deny——`crates/kanzei-harness/src/config.rs` `non_interactive_三态解析`/`non_interactive_缺省与非法取值_fail_closed回落deny`(缺键/空串/非法全回落 Deny,旧配置不变)+ main.rs 决策三态测试。③worktree 主根规则命中——`crates/kanzei-tools/src/bash.rs:30 permission_workdir_view`(worktree_key 存在时 workdir 视图按主根,仅权限判定文本、执行目录不变)+ 测试 `权限workdir视图_worktree映射回主根`/`同一规则_主根与worktree下匹配结果一致`(7db3b48)。④自动放行轨迹含规则原文——`permission.rs evaluate_with_rule`(last-match-wins 命中规则,硬 deny/无匹配 None)+ `event.rs:84 PermissionResolved.rule` + drive.rs 串行门禁/并行 wave 两评估站点填 describe_rule + CLI 打印 `[规则: ...]`(ba0726f)。⑤无 TTY 检测有测试——`main.rs interactive_stdin()`(stdin.is_terminal 显式检测,不靠读 EOF)+ non_interactive_decision 测试(批1,caa9d62)。全量:cargo test --workspace 全绿 0 failed(T-1786737712 复核,含 D-363 桩服务器超时修复)。边界遵守:无全放行隐式默认(allow_listed 需显式 --allow)、不改 profile/agent、不做桌面端。关闭。 [reopen 2026-08-14] D-359 修复后用正路退回:原阻塞(让位 D-332)的解除条件早已达成(D-332 已 fixed 归档);本条 doing 是 engine 自动认领留下的空档,进展字段自述从未开工、无进展锚点。退回 todo 按 P0 重新入队,不再靠往阻塞字段塞理由把它挪出 WIP 槽。
 - observed_head: 87471a232e7946d358ecb7e21565318f8961d42f
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786737755878
-- 进展: [reopen 2026-08-14] D-359 修复后用正路退回:原阻塞(让位 D-332)的解除条件早已达成(D-332 已 fixed 归档);本条 doing 是 engine 自动认领留下的空档,进展字段自述从未开工、无进展锚点。退回 todo 按 P0 重新入队,不再靠往阻塞字段塞理由把它挪出 WIP 槽。
 - 批次: 3/3
 
 ## R-238 大文本交付通道:bash 命令行超长防护 + kz run 文件入口 [done]
@@ -3075,8 +3066,7 @@
 - 标签: 前端
 - 验收: 左侧菜单能够正常进行数据/内容的刷新的，不会滞留旧的内容或失效的数据
 - 优先级: P2
-- 状态: doing
-- 进展: 验收对照:验收原文「左侧菜单能够正常进行数据/内容的刷新的，不会滞留旧的内容或失效的数据」——达成。根因:侧边栏「并行任务」列表(#parallel-task-status)数据源为 process_list,但全仓无 process_list 定时轮询(01-core.js L73 注释声称「process_list 轮询」实际无定时器;09-sessions.js renderProcesses L391 校正逻辑假定「下一次轮询」兜底事件丢失;后端 processes.rs 无进程级 emit)。事件偶发丢失、外部创建/注销进程、列表结构变化时,侧边栏滞留到下次手动操作。修复(crates/kanzei-app/ui/01-core.js):加 process_list 3s 定时轮询 setInterval,typeof refreshProcesses 守卫,refreshProcesses 内部按项目单飞去重(processRefreshInFlight),轮询安全;事件驱动路径(kz:* 事件投影)保留不动,轮询补齐兜底。验证:node --check + ui-runtime 21 项 + ui-lint 31 文件零错 + i18n/a11y/markdown 冒烟(T-1786744592)、kanzei-app 163(T-1786744653)、全量 workspace 全绿(T-1786744744)。
+- 进展: 验收对照:验收原文「左侧菜单能够正常进行数据/内容的刷新的，不会滞留旧的内容或失效的数据」——达成。根因:侧边栏「并行任务」列表(#parallel-task-status)数据源为 process_list,但全仓无 process_list 定时轮询(01-core.js L73 注释声称「process_list 轮询」实际无定时器;09-sessions.js renderProcesses L391 校正逻辑假定「下一次轮询」兜底事件丢失;后端 processes.rs 无进程级 emit)。事件偶发丢失、外部创建/注销进程、列表结构变化时,侧边栏滞留到下次手动操作。修复(crates/kanzei-app/ui/01-core.js):加 process_list 3s 定时轮询 setInterval,typeof refreshProcesses 守卫,refreshProcesses 内部按项目单飞去重(processRefreshInFlight),轮询安全;事件驱动路径(kz:* 事件投影)保留不动,轮询补齐兜底。验证:node --check + ui-runtime 21 项 + ui-lint 31 文件零错 + i18n/a11y/markdown 冒烟(T-1786744592)、kanzei-app 163(T-1786744653)、全量 workspace 全绿(T-1786744744)。；状态对账: 归档正文旧字段 `doing` 与权威标题状态 `done` 冲突;已移除正文副本。
 - observed_head: 1cea2a86d9808bb0996f90cdcfa64e0769d395c4
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786744753379
@@ -3736,11 +3726,10 @@
 - 验收: ①复刻「英文改写 M-044」场景被拦并指路 memory_update(单测);②伪造指纹的 add 被拒;③存量 6 条交付状态记忆逐条处置;④各拦截路径有单测。
 - refs: R-194 R-195 R-196 D-299 D-282
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-216
-- 进展: R-216 已完成关闭验收：①英文改写 M-044 被拦并指路 tracker：`crates/kanzei-memory/src/memory/store.rs:1221-1230,2522-2560` 的 Uncertain/add 硬闸与 `memory::store::tests::英文改写被add硬闸拦截返回候选`，workspace 回归 T-1786922726199；②伪造 [fp:] 被拒、来源 note 指纹放行：`crates/kanzei-memory/src/memory/store.rs:2448-2468` 与对应单测，workspace 回归 T-1786922726199；③六条存量交付状态逐条处置：M-032/M-033/M-035/M-036/M-040 原有 deprecated archive 墓碑保留，M-037 归档并保留通用防重复规则 stale 墓碑，错误重复候选 M-150/M-151 归档并写明错误来源，真实 consolidation `T-1786922726196` 报告 5 条请求 completed、pending_after=0；④各拦截路径及新退役链有自动化证据：`crates/kanzei-memory/src/memory/manager.rs:1091-1131` 的 STALE prompt/断言，`crates/kanzei-memory/src/memory/store.rs:634-660` 的 archive 源/目标 write-log、`crates/kanzei-memory/src/memory/inbox.rs:111-138,251-296` 的 inbox/checkpoint write-log，`crates/kanzei-tools/src/memory_consolidation.rs:137-220,289-340,514-520` 的显式 STALE runner/parser 单测；T-1786922726198 定向通过，T-1786922726199 workspace 全量 0 failed。
+- 进展: R-216 已完成关闭验收：①英文改写 M-044 被拦并指路 tracker：`crates/kanzei-memory/src/memory/store.rs:1221-1230,2522-2560` 的 Uncertain/add 硬闸与 `memory::store::tests::英文改写被add硬闸拦截返回候选`，workspace 回归 T-1786922726199；②伪造 [fp:] 被拒、来源 note 指纹放行：`crates/kanzei-memory/src/memory/store.rs:2448-2468` 与对应单测，workspace 回归 T-1786922726199；③六条存量交付状态逐条处置：M-032/M-033/M-035/M-036/M-040 原有 deprecated archive 墓碑保留，M-037 归档并保留通用防重复规则 stale 墓碑，错误重复候选 M-150/M-151 归档并写明错误来源，真实 consolidation `T-1786922726196` 报告 5 条请求 completed、pending_after=0；④各拦截路径及新退役链有自动化证据：`crates/kanzei-memory/src/memory/manager.rs:1091-1131` 的 STALE prompt/断言，`crates/kanzei-memory/src/memory/store.rs:634-660` 的 archive 源/目标 write-log、`crates/kanzei-memory/src/memory/inbox.rs:111-138,251-296` 的 inbox/checkpoint write-log，`crates/kanzei-tools/src/memory_consolidation.rs:137-220,289-340,514-520` 的显式 STALE runner/parser 单测；T-1786922726198 定向通过，T-1786922726199 workspace 全量 0 failed。；状态对账: 归档正文旧字段 `todo` 与权威标题状态 `done` 冲突;已移除正文副本。
 - observed_head: 82b5cdfce1f709b26869f888e3a319a110cab2c0
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1786993824175
-- 状态: todo
 - 依赖: 
 - 停车: 
 
@@ -3755,9 +3744,8 @@
 - 边界: 不伪造历史 provenance;R-235 的 28 条存量零证据 active 仍由用户拍板;不把 action_changed 直接写成 outcome_improved;不静默删除 inbox/candidate/active;数据库 schema 变化需 Alembic 不适用(Rust SQLite migration),必须提供前滚、已有数据兼容和恢复策略。
 - 验收: ①当前 224 条 inbox 在真实 manager 运行中按批下降,任一批失败可见且重启后从 checkpoint 继续;②桌面与 CLI 调用同一服务并有集成测试;③新 candidate/active 100% 可回溯真实 episode/source,空来源晋升被拒;④一次真实 recurrence→shadow→promote 有状态事件和 UI 轨迹;⑤counterfactual arms 形成非空聚合并区分 action_changed/outcome_improved;⑥修复提交确实位于 dev,tracker/tests/代码三方一致。
 - 批次: 4/4
-- 状态: done
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-286
-- 进展: R-286 已完成并提交：`dcf6e11c R-286 B4 接入记忆控制面与失败重试`，提交位于 dev。关闭验收逐项对账：①真实 manager 分批整理与失败/恢复能力沿用已交付的 `crates/kanzei-memory/src/memory/inbox.rs:18-122`、`crates/kanzei-tools/src/memory_consolidation.rs:1-301`，控制面读取 `InboxCheckpoint` 并在 `crates/kanzei-app/src/memory.rs:42-87` 展示 backlog、最老等待、批次状态与 failure_reason，重试入口在 `crates/kanzei-app/ui/13-memory.js:47-86`；真实运行证据 T-1786922726169，关闭前 workspace 回归 T-1786922726213。②桌面与 CLI 共用 `crates/kanzei-app/src/memory.rs:298-306` 的 `consolidate_memory_inbox`，Tauri 注册在 `crates/kanzei-app/src/main.rs:197-200`，桌面定向测试 T-1786922726210，真实共享服务链路 T-1786922726169。③新 candidate/active 的空来源硬门禁由既有 `crates/kanzei-memory/src/memory/lifecycle.rs:24-87` 执行；控制面在 `crates/kanzei-app/src/memory.rs:55-62` 将 candidate/shadow/active 缺 source/refs 计为 promotion_gaps；生命周期回放 T-1786922726202。④recurrence→shadow→promote 由既有 lifecycle 写者产生状态事件，本次统一事件 payload 在 `crates/kanzei-memory/src/memory/mod.rs:38-77`，写者接线位于 `memory/inbox.rs:206-218`、`memory/store.rs:369-383`、`memory/lifecycle.rs`；控制面 UI 消费并展示状态，证据 T-1786922726202、T-1786922726211、T-1786922726212。⑤六臂 counterfactual 回放在 `crates/kanzei-core/src/replay.rs:300-318` 调用 `recompute_memory_effect`，`memory_eval_agg` 查询位于 `crates/kanzei-core/src/store/eval.rs:54-74`，action_changed/outcome_improved 分开统计位于 `crates/kanzei-core/src/store/telemetry.rs:167-204`，证据 T-1786922726207、T-1786922726209；控制面价值画像消费位于 `crates/kanzei-app/src/memory.rs:64-79`。⑥修复提交 `dcf6e11c` 已位于 dev；requirements、defects、tests archive 与代码同批提交，且 tracker/tests/代码三方一致；六条前端冒烟 T-1786922726212、app/core staged 定向回归 T-1786922726216/T-1786922726217、workspace 全量 T-1786922726213 均通过。既有能力已明确标注为沿用，本次交付为批4控制面投影、失败重试、聚合查询消费及配套验证。
+- 进展: R-286 已完成并提交：`dcf6e11c R-286 B4 接入记忆控制面与失败重试`，提交位于 dev。关闭验收逐项对账：①真实 manager 分批整理与失败/恢复能力沿用已交付的 `crates/kanzei-memory/src/memory/inbox.rs:18-122`、`crates/kanzei-tools/src/memory_consolidation.rs:1-301`，控制面读取 `InboxCheckpoint` 并在 `crates/kanzei-app/src/memory.rs:42-87` 展示 backlog、最老等待、批次状态与 failure_reason，重试入口在 `crates/kanzei-app/ui/13-memory.js:47-86`；真实运行证据 T-1786922726169，关闭前 workspace 回归 T-1786922726213。②桌面与 CLI 共用 `crates/kanzei-app/src/memory.rs:298-306` 的 `consolidate_memory_inbox`，Tauri 注册在 `crates/kanzei-app/src/main.rs:197-200`，桌面定向测试 T-1786922726210，真实共享服务链路 T-1786922726169。③新 candidate/active 的空来源硬门禁由既有 `crates/kanzei-memory/src/memory/lifecycle.rs:24-87` 执行；控制面在 `crates/kanzei-app/src/memory.rs:55-62` 将 candidate/shadow/active 缺 source/refs 计为 promotion_gaps；生命周期回放 T-1786922726202。④recurrence→shadow→promote 由既有 lifecycle 写者产生状态事件，本次统一事件 payload 在 `crates/kanzei-memory/src/memory/mod.rs:38-77`，写者接线位于 `memory/inbox.rs:206-218`、`memory/store.rs:369-383`、`memory/lifecycle.rs`；控制面 UI 消费并展示状态，证据 T-1786922726202、T-1786922726211、T-1786922726212。⑤六臂 counterfactual 回放在 `crates/kanzei-core/src/replay.rs:300-318` 调用 `recompute_memory_effect`，`memory_eval_agg` 查询位于 `crates/kanzei-core/src/store/eval.rs:54-74`，action_changed/outcome_improved 分开统计位于 `crates/kanzei-core/src/store/telemetry.rs:167-204`，证据 T-1786922726207、T-1786922726209；控制面价值画像消费位于 `crates/kanzei-app/src/memory.rs:64-79`。⑥修复提交 `dcf6e11c` 已位于 dev；requirements、defects、tests archive 与代码同批提交，且 tracker/tests/代码三方一致；六条前端冒烟 T-1786922726212、app/core staged 定向回归 T-1786922726216/T-1786922726217、workspace 全量 T-1786922726213 均通过。既有能力已明确标注为沿用，本次交付为批4控制面投影、失败重试、聚合查询消费及配套验证。；状态对账: 归档正文旧字段 `done` 与权威标题状态 `done` 重复;已移除正文副本。
 - observed_head: dcf6e11c4a0557ad9283234084a431bf61f3e083
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1786996479550
@@ -3898,11 +3886,10 @@
 - 验收: 按设计文档既有验收文案交付;三态转换有测试;真实长任务不被误判死
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-301
-- 进展: 验收逐条对账：①「按设计文档既有验收文案交付」——`crates/kanzei-app/src/collaboration.rs:56-109,170-260` 以 `SessionRuntime.running` → 最近 `RunEvent` → worktree 变更文件 mtime 的顺序生成 status，并由 `ui/20-lines.js:258-278,335-339` 真实消费，未新增自动停止/处置；`src/state.rs:159-203,205-238` 与 `src/run/events/mod.rs:130-133,236-240` 提供事件和 outcome 真源。②「三态转换有测试」——`collaboration.rs:501-535` 覆盖 running、suspected_stuck、failed、completed、idle 及事件时间刷新；T-1786922726463 通过，kanzei-app 218 passed。③「真实长任务不被误判死」——`collaboration.rs:514-519` 反证事件长期空闲但 worktree mtime 新鲜仍为 running，且实现只显示 suspected_stuck、不触发处置；T-1786922726464 前端六项门禁通过，T-1786922726465 workspace 全量通过。前端可复核位置：`ui/02-i18n.js:13`、`ui/style.css:614-621`、`scripts/ui-lint-globals.json:343-344`；ui_dom 找到真实泳道节点，ui_console 无错误。
+- 进展: 验收逐条对账：①「按设计文档既有验收文案交付」——`crates/kanzei-app/src/collaboration.rs:56-109,170-260` 以 `SessionRuntime.running` → 最近 `RunEvent` → worktree 变更文件 mtime 的顺序生成 status，并由 `ui/20-lines.js:258-278,335-339` 真实消费，未新增自动停止/处置；`src/state.rs:159-203,205-238` 与 `src/run/events/mod.rs:130-133,236-240` 提供事件和 outcome 真源。②「三态转换有测试」——`collaboration.rs:501-535` 覆盖 running、suspected_stuck、failed、completed、idle 及事件时间刷新；T-1786922726463 通过，kanzei-app 218 passed。③「真实长任务不被误判死」——`collaboration.rs:514-519` 反证事件长期空闲但 worktree mtime 新鲜仍为 running，且实现只显示 suspected_stuck、不触发处置；T-1786922726464 前端六项门禁通过，T-1786922726465 workspace 全量通过。前端可复核位置：`ui/02-i18n.js:13`、`ui/style.css:614-621`、`scripts/ui-lint-globals.json:343-344`；ui_dom 找到真实泳道节点，ui_console 无错误。；状态对账: 归档正文旧字段 `done` 与权威标题状态 `done` 重复;已移除正文副本。
 - observed_head: 81e6800a12e6165fccf3bbca04e99d9269cba576
 - observed_worktree_hash: fnv1a64:a8ca96c02292909b
 - recorded_at: 1787080157525
-- 状态: done
 
 ## R-302 桌面 E2 路线立项:浏览器工具通道 vs Windows UI Automation 选型 [done]
 - refs: R-101 D-511
@@ -3914,11 +3901,10 @@
 - 验收: 选型结论有对比依据落档;最小 E2 真实桌面跑通;R-101 验收清单按新路线更新
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-302
-- 进展: 验收逐条对账：①「选型结论有对比依据落档」——本字段记录浏览器工具与 Windows UIA 的边界、真实消费者、CDP 约束和 provider 风险；R-269 既有实现位置 `crates/kanzei-tools/src/browser_tool.rs`、`scripts/browser-helper.mjs`，真实桌面路线位置 `scripts/ui-desktop-uia.ps1:78-158`。②「最小 E2 真实桌面跑通」——T-1786922726466 原样命令 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1` 通过：真实安装位 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`、PID 25652、窗口 `kanzei`/`Tauri Window`、生产 `prompt` Edit + `ValuePattern` marker 写入回读、真实截图 `.kanzei/research/r302-desktop-e2/kzapp-uia.png` 454737 bytes；T-1786922726467 语法与唯一 Responding 进程收尾通过。③「R-101 验收清单按新路线更新」——`requirements.md` R-101 已更新技术路线、完整权限弹窗/pending ask/切项目复位/手写内容保留/run_task 收尾/停止/长会话范围及后续批次边界，R-302 只核销选型+最小 E2。关闭前中复杂度全量门禁 T-1786922726468：`cargo test --workspace` 通过。既有能力明确：R-269 headless 浏览器工具不是本次桌面 E2 交付；本次新增 `scripts/ui-desktop-uia.ps1` 为真实桌面 UIA 最小验证。
+- 进展: 验收逐条对账：①「选型结论有对比依据落档」——本字段记录浏览器工具与 Windows UIA 的边界、真实消费者、CDP 约束和 provider 风险；R-269 既有实现位置 `crates/kanzei-tools/src/browser_tool.rs`、`scripts/browser-helper.mjs`，真实桌面路线位置 `scripts/ui-desktop-uia.ps1:78-158`。②「最小 E2 真实桌面跑通」——T-1786922726466 原样命令 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1` 通过：真实安装位 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`、PID 25652、窗口 `kanzei`/`Tauri Window`、生产 `prompt` Edit + `ValuePattern` marker 写入回读、真实截图 `.kanzei/research/r302-desktop-e2/kzapp-uia.png` 454737 bytes；T-1786922726467 语法与唯一 Responding 进程收尾通过。③「R-101 验收清单按新路线更新」——`requirements.md` R-101 已更新技术路线、完整权限弹窗/pending ask/切项目复位/手写内容保留/run_task 收尾/停止/长会话范围及后续批次边界，R-302 只核销选型+最小 E2。关闭前中复杂度全量门禁 T-1786922726468：`cargo test --workspace` 通过。既有能力明确：R-269 headless 浏览器工具不是本次桌面 E2 交付；本次新增 `scripts/ui-desktop-uia.ps1` 为真实桌面 UIA 最小验证。；状态对账: 归档正文旧字段 `done` 与权威标题状态 `done` 重复;已移除正文副本。
 - observed_head: 676fddefe6d82f7442035b81b8d65efe0b71ccfa
 - observed_worktree_hash: fnv1a64:4dc73574e4527fea
 - recorded_at: 1787080933030
-- 状态: done
 
 ## R-303 文档一致性批次订正 [done]
 - refs: R-283 R-264
@@ -3944,13 +3930,12 @@
 - 边界: 与 R-248 prior-art 门禁互补不重复:R-248 管开工前对照,本条管勘察产物落盘可回溯
 - 验收: 落点约定落档并有工具/文档支持;勘察产物可按条目回溯;R-248 恢复时可直接复用该约定
 - 优先级: P3
-- 进展: 已完成：`docs/design/research_mode.md:55-65` 固定 dev 勘察落点 `.kanzei/research/<entry-id>-<slug>/`、最终 `report.md`、entry_refs/进展回溯、V0-V3 证据、既有 write/edit/insert 与 read/glob/grep/files 工具复用、active→archived 清理策略，并明确 R-248 可复用而不替代其用户阻塞。`README.md:110` 增加用户可发现入口；示例工件 `.kanzei/research/r304-dev-recon/report.md:1-30` 已按约定落盘并回指 R-304。
+- 进展: 已完成：`docs/design/research_mode.md:55-65` 固定 dev 勘察落点 `.kanzei/research/<entry-id>-<slug>/`、最终 `report.md`、entry_refs/进展回溯、V0-V3 证据、既有 write/edit/insert 与 read/glob/grep/files 工具复用、active→archived 清理策略，并明确 R-248 可复用而不替代其用户阻塞。`README.md:110` 增加用户可发现入口；示例工件 `.kanzei/research/r304-dev-recon/report.md:1-30` 已按约定落盘并回指 R-304。；状态对账: 归档正文旧字段 `done` 与权威标题状态 `done` 重复;已移除正文副本。
 - observed_head: f74190424c0bbf129c107776e8b3d52b4b908b61
 - observed_worktree_hash: fnv1a64:22647b63185a2bb9
 - recorded_at: 1787162500319
 - 取活依据: engine:唯一可执行 WIP 是 R-304，必须先恢复它
 - 停车: 
-- 状态: done
 - 验收核验: ①落点约定落档并有工具/文档支持：`docs/design/research_mode.md:55-65`；`README.md:110`；既有工具消费者为 `crates/kanzei-tools/src/profiles/dev.rs:102-157` 的项目资产权限边界与 dev 侧 write/edit/insert、read/glob/grep/files 通道（既有能力，本次仅固化约定）。②勘察产物可按条目回溯：`docs/design/research_mode.md:61` 规定 tracker refs 只写 R-/D-/T-、进展写报告路径、报告头写 entry_refs；`.kanzei/research/r304-dev-recon/report.md:1-8` 实例化 `entry_refs: R-304`，T-1786922726481 通过。③R-248 恢复时可直接复用：`docs/design/research_mode.md:65` 与 `.kanzei/research/r304-dev-recon/report.md:28-30` 复用根目录、命名、report.md 和 active→archived 生命周期，同时保留 R-248 原有 refs API/topic 来源用户阻塞；T-1786922726481 通过。
 
 ## R-305 subagent 策略层与 Agent 目录 [done]
@@ -4120,11 +4105,10 @@
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-308(unblocks=0)
 - 批次: 7/7
-- 进展: R-308 ①-⑤ 已逐条完成对账并已提交 B1-B7：① CLI真实统计与T-1786922726625=project36/36、global24/24、merged28；② admission gate + store regression T-1786922726616=165 passed；③ retrieval active单轨与candidate排除 T-1786922726611=163 passed；④现场77→24、global marker recall rows=1，T-1786922726625；⑤ canonical INDEX guard与显式repair `store.rs:801-900`，T-1786922726622=166 passed。提交：B1 `99809920`、B2 `168c404f`、B3 `1ec1d4c7`、B4 `3509d54b`、B5 `9c64dd6e`、B6 `90c75498`、B7 `7635faee`+`edcaf7bb`。④原文74为勘察时点数，现场77已完整处理，属于范围扩展降级说明；D-568 M-014/M-015语义源文缺口继续由独立 fixing 项负责。
+- 进展: R-308 ①-⑤ 已逐条完成对账并已提交 B1-B7：① CLI真实统计与T-1786922726625=project36/36、global24/24、merged28；② admission gate + store regression T-1786922726616=165 passed；③ retrieval active单轨与candidate排除 T-1786922726611=163 passed；④现场77→24、global marker recall rows=1，T-1786922726625；⑤ canonical INDEX guard与显式repair `store.rs:801-900`，T-1786922726622=166 passed。提交：B1 `99809920`、B2 `168c404f`、B3 `1ec1d4c7`、B4 `3509d54b`、B5 `9c64dd6e`、B6 `90c75498`、B7 `7635faee`+`edcaf7bb`。④原文74为勘察时点数，现场77已完整处理，属于范围扩展降级说明；D-568 M-014/M-015语义源文缺口继续由独立 fixing 项负责。；状态对账: 归档正文旧字段 `done` 与权威标题状态 `done` 重复;已移除正文副本。
 - observed_head: 7635faeed1a51ed625e1c9b9ddd09834d36c67b2
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787263273053
-- status: done
 
 ## R-310 仓库导航效率:失手遥测、工具自愈报错与代码地图,把认知预算还给问题本身 [done]
 - refs: D-575 D-568 R-308 T-1786922726640 T-1786922726641 T-1786922726642 T-1786922726645 T-1786922726646

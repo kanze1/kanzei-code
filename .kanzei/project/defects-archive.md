@@ -8795,3 +8795,17 @@
 - observed_head: 6c995805be2611e46ff60da4b40178b9d6cb12fd
 - observed_worktree_hash: fnv1a64:592c85236a67b399
 - recorded_at: 1787608483658
+
+## D-713 需求标题状态与正文状态冲突,取活和恢复口径不唯一 [fixed] (high)
+- 复杂度: medium
+- 复现: .kanzei/project/requirements.md 中存在结构化状态与正文状态不一致：R-284:23 标题为 [doing]、:34 正文状态为 todo；R-249:117/133 同样为 doing/todo；R-264:135/152 同样为 doing/todo；R-101:71 标题为 [doing]，:86 又记录 doing→todo 的状态纠正。机械对账已复现上述冲突。
+- 影响: work next、WIP 统计、依赖判断和 Agent 恢复可能按不同字段选取同一需求，导致已暂停条目被误取活、进行中条目被漏掉，需求台账无法作为唯一进度真源。
+- 来源: 2026-08-25 全面项目审查；requirements.md 状态一致性对账
+- 标签: 流程
+- 验收: 明确唯一规范状态源并完成存量清理；正文不再保留会被解析为当前状态的重复字段，历史变更移入进展/对账；机械检查对状态冲突直接失败；kz work next、需求页面和 Agent 恢复读取同一状态口径，并补充 R-284/R-249/R-264/R-101 回归核对。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-713(unblocks=0)
+- 进展: 已完成并验证。唯一状态源：crates/kanzei-memory/src/docstore/model.rs:157-164 的 Entry.status，由 parse.rs:137-173 从标题尾部 [status] 解析；crates/kanzei-tools/src/tracker/actions/action_helpers.rs:342-360 的用户可见视图、tracker/scheduling.rs:33-47/102-127 的写入门禁与调度均消费该字段。存量清理：requirements.md 与 requirements-archive.md 已通过 kz req normalize --apply 清除所有正文 状态/status 副本，冲突历史追加到进展；normalize 实现位于 crates/kanzei-tools/src/tracker/actions.rs:797-1108，归档专用清理位于 crates/kanzei-memory/src/docstore/archive.rs:371-429。机械冲突门禁位于 crates/kanzei-memory/src/docstore/validation.rs:145-189，并由 tracker.rs:406-429 拒绝普通写入。回归：tracker.rs:2643-2780 覆盖 R-284/R-249/R-264/R-101、活动/归档、dry-run 零写入、普通写拒绝、apply 幂等；T-1786922726803 定向回归通过；T-1786922726804 fmt + kanzei-memory 169 passed + kanzei-tools 491 passed/1 ignored + kanzei 47+32 passed；T-1786922726805 真实 req normalize 0 finding/0 fix、work next integrity_errors 为空且继续读取 D-713。验收逐条：①唯一源与存量清理=Entry.status/normalize及当前文档无正文状态字段；②历史移入进展=normalize活动/归档对账逻辑与文档状态对账记录；③机械冲突失败=integrity_issues+普通写门禁及回归；④同一口径=标题解析、页面可见字段、调度/work next与Agent profile均读取Entry.status。
+- observed_head: 3af8ed3cb4435a59d0079c1e7fd41741c2a296fc
+- observed_worktree_hash: fnv1a64:25b1e0bd2cae09cb
+- recorded_at: 1787609565836

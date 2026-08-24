@@ -10525,3 +10525,43 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-712
 - 收尾: 1787608588
 - 源码指纹: v2 scripts/ui-narrow-layout-smoke.mjs@8e5ed41ff641
+
+## T-1786922726803 D-713 状态唯一真源定向回归 [passed]
+- 命令: cargo test -p kanzei-tools d713_status_field_conflicts_are_gated_and_normalized_for_regression_ids
+- 时长: 23.0s
+- 摘要: D-713 回归通过：R-284/R-249/R-264/R-101 正文状态冲突进入完整性门禁；普通写入失败；normalize dry-run 零写入，apply 移除正文副本并将历史写入进展，重复执行幂等。
+- 关联: D-713
+- 收尾: 1787609040
+- 源码指纹: v2 crates/kanzei-memory/src/docstore/validation.rs@01488f4aec15,crates/kanzei-tools/src/tracker.rs@c7aba3676574,crates/kanzei-tools/src/tracker/actions.rs@2a8b71a3e916
+
+## T-1786922726804 D-713 状态源统一受影响 crate 回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-memory; cargo test -p kanzei-tools; cargo test -p kanzei
+- 时长: 138.0s
+- 摘要: D-713 受影响 crate 回归全通过：fmt check；kanzei-memory 169 passed；kanzei-tools 491 passed, 1 ignored；kanzei CLI 47 + integration 32 passed。
+- 关联: D-713
+- 收尾: 1787609459
+- 源码指纹: v2 crates/kanzei-memory/src/docstore/archive.rs@0e6832d42f6c,crates/kanzei-memory/src/docstore/validation.rs@01488f4aec15,crates/kanzei-tools/src/tracker.rs@fac2d0703d79,crates/kanzei-tools/src/tracker/actions.rs@930525d367f4
+
+## T-1786922726805 D-713 CLI 状态源一致性验证 [passed]
+- 命令: cargo run -p kanzei -- req normalize; cargo run -p kanzei -- work next
+- 时长: 35.0s
+- 摘要: 真实 CLI 验收通过：req normalize 返回 0 finding/0 fix 并报告 clean；work next 仍按同一 DocStore 状态源选择 D-713，integrity_errors 为空。
+- 关联: D-713
+- 收尾: 1787609531
+- 源码指纹: v2 crates/kanzei-memory/src/docstore/archive.rs@0e6832d42f6c,crates/kanzei-memory/src/docstore/validation.rs@01488f4aec15,crates/kanzei-tools/src/tracker.rs@fac2d0703d79,crates/kanzei-tools/src/tracker/actions.rs@930525d367f4
+
+## T-1786922726806 D-713 提交前 kanzei-tools 回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 59.0s
+- 摘要: 修正 clippy 单字符 push 后，kanzei-tools 完整回归 491 passed, 1 ignored；为提交门禁补跑。
+- 关联: D-713
+- 收尾: 1787609701
+- 源码指纹: v2 crates/kanzei-memory/src/docstore/archive.rs@0e6832d42f6c,crates/kanzei-memory/src/docstore/validation.rs@01488f4aec15,crates/kanzei-tools/src/tracker.rs@fac2d0703d79,crates/kanzei-tools/src/tracker/actions.rs@c59b74203061
+
+## T-1786922726807 D-713 提交前 kanzei-memory 回归 [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 35.0s
+- 摘要: 提交前补跑 kanzei-memory 169 passed, 1 doc-test ignored；覆盖当前 tracker/actions 组合指纹后的受影响状态存储实现。
+- 关联: D-713
+- 收尾: 1787609760
+- 源码指纹: v2 crates/kanzei-memory/src/docstore/archive.rs@0e6832d42f6c,crates/kanzei-memory/src/docstore/validation.rs@01488f4aec15,crates/kanzei-tools/src/tracker.rs@fac2d0703d79,crates/kanzei-tools/src/tracker/actions.rs@c59b74203061

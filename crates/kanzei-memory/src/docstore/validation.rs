@@ -172,13 +172,19 @@ impl DocStore {
                     ));
                 }
                 for (key, value) in &entry.fields {
-                    if (key.eq_ignore_ascii_case("status") || key == "状态")
-                        && !self.kind.statuses.contains(&value.trim())
-                    {
-                        issues.push(format!(
-                            "{region} {}: reserved status field `{value}` is invalid for header `{}`",
-                            entry.id, entry.status
-                        ));
+                    if key.eq_ignore_ascii_case("status") || key == "状态" {
+                        let value = value.trim();
+                        if !self.kind.statuses.contains(&value) {
+                            issues.push(format!(
+                                "{region} {}: reserved status field `{value}` is invalid for header `{}`",
+                                entry.id, entry.status
+                            ));
+                        } else if value != entry.status {
+                            issues.push(format!(
+                                "{region} {}: reserved status field `{value}` conflicts with authoritative header `{}` — use normalize",
+                                entry.id, entry.status
+                            ));
+                        }
                     }
                 }
             }

@@ -2640,6 +2640,139 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn d713_status_field_conflicts_are_gated_and_normalized_for_regression_ids() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-status-source-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let ids = ["R-284", "R-249", "R-264", "R-101"];
+        let entries: Vec<_> = ids
+            .iter()
+            .map(|id| Entry {
+                id: (*id).into(),
+                title: format!("回归 {id}"),
+                status: "doing".into(),
+                severity: None,
+                fields: vec![
+                    ("状态".into(), "todo".into()),
+                    ("进展".into(), "既有进展".into()),
+                ],
+            })
+            .collect();
+        store.save(&entries).unwrap();
+
+        std::fs::write(
+            store.archive_file(),
+            "# Requirements Archive\n\n## R-101 归档回归 [done]\n- 状态: doing\n- 进展: 归档旧记录\n",
+        )
+        .unwrap();
+
+        let issues = store.integrity_issues(&store.load().unwrap());
+        for id in ids {
+            assert!(
+                issues
+                    .iter()
+                    .any(|issue| issue.contains(id) && issue.contains("conflicts")),
+                "{id} 的正文状态冲突必须进入完整性门禁: {issues:?}"
+            );
+        }
+
+        let rejected = tool
+            .execute(
+                json!({"action": "update", "id": "R-284", "fields": {"进展": "不应写入"}}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            rejected.is_error,
+            "冲突状态下普通写入必须失败: {}",
+            rejected.content
+        );
+        assert!(rejected.content.contains("tracker integrity is broken"));
+
+        let dry = tool.execute(json!({"action": "normalize"}), &ctx).await;
+        assert!(!dry.is_error, "dry-run 仍应可诊断冲突: {}", dry.content);
+        for id in ids {
+            assert!(
+                dry.content.contains(id),
+                "dry-run 必须点名 {id}: {}",
+                dry.content
+            );
+        }
+        assert!(
+            store
+                .load()
+                .unwrap()
+                .iter()
+                .all(|entry| entry.fields.iter().any(|(key, _)| key == "状态")),
+            "dry-run 不得写入"
+        );
+
+        let fixed = tool
+            .execute(json!({"action": "normalize", "apply": true}), &ctx)
+            .await;
+        assert!(!fixed.is_error, "apply 应能修复冲突: {}", fixed.content);
+        let cleaned = store.load().unwrap();
+        for id in ids {
+            let entry = cleaned.iter().find(|entry| entry.id == id).unwrap();
+            assert_eq!(entry.status, "doing");
+            assert!(
+                entry
+                    .fields
+                    .iter()
+                    .all(|(key, _)| key != "状态" && !key.eq_ignore_ascii_case("status")),
+                "{id} 不得保留正文状态副本: {:?}",
+                entry.fields
+            );
+            assert!(
+                entry
+                    .fields
+                    .iter()
+                    .any(|(key, value)| key == "进展" && value.contains("状态对账")),
+                "{id} 必须把旧状态移入进展: {:?}",
+                entry.fields
+            );
+        }
+        let archived = store.load_archive().unwrap();
+        assert!(
+            archived[0]
+                .fields
+                .iter()
+                .all(|(key, _)| key != "状态" && !key.eq_ignore_ascii_case("status")),
+            "归档区也不得保留正文状态副本: {:?}",
+            archived[0].fields
+        );
+        assert!(
+            archived[0]
+                .fields
+                .iter()
+                .any(|(key, value)| key == "进展" && value.contains("状态对账")),
+            "归档旧状态必须进入进展: {:?}",
+            archived[0].fields
+        );
+        let again = tool.execute(json!({"action": "normalize"}), &ctx).await;
+        assert!(
+            !again.content.contains("reserved status field"),
+            "apply 必须幂等: {}",
+            again.content
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
     async fn normalize_archived_non_terminal_reports_and_keeps_status() {
         // D-336:归档区非终态 lifecycle 仍只报告(修复通道是 fix_terminal 纠错),
         // apply 不改归档 status;归档**重复字段**由 apply 走 dedupe_archived_fields

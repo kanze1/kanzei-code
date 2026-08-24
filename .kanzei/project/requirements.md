@@ -10,8 +10,7 @@
 - 边界: 本条只做跨条目编排、依赖和结项门禁,不重复实现 R-221/R-277/R-286/R-287;一期 loop/dev 主链进入稳定维护,存量缺陷仍按原条目处理;每个边界分别报告静态、测试、WebView2、provider、安装和工作树状态。
 - 验收: ①所有二期子条目有明确依赖、批次、风险、数据边界和证据等级;②Wave 0～4 各有 Go/No-Go 记录;③联合闭环按 session/topic/memory id 可回溯;④二期结项时 requirements/defects/tests/实现无相互矛盾状态。
 - 批次: 3/5
-- 进展: 2026-08-17 用户确认：R-283 是二期系统升级总控条目，具体工作必须按不同任务展开为独立条目。现有子条目为 research(R-221/R-276/R-277)、记忆晋升与遥测(R-286)、统一事件契约(R-284)、金色神经流(R-285)、voice(R-287)；Wave 0 先修当前 dev 缺失的 D-428。R-283 保持 3/5，只在子条目形成真实证据后更新门禁，不再被取活为实现任务。
-- 状态: doing
+- 进展: 2026-08-17 用户确认：R-283 是二期系统升级总控条目，具体工作必须按不同任务展开为独立条目。现有子条目为 research(R-221/R-276/R-277)、记忆晋升与遥测(R-286)、统一事件契约(R-284)、金色神经流(R-285)、voice(R-287)；Wave 0 先修当前 dev 缺失的 D-428。R-283 保持 3/5，只在子条目形成真实证据后更新门禁，不再被取活为实现任务。；状态对账: 正文旧字段 `doing` 与权威标题状态 `doing` 重复;已移除正文副本。
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-283
 - observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
@@ -31,8 +30,7 @@
 - 边界: 不改变 R-242 的 session 真源;瞬时表现事件允许丢帧且不写长期数据库;动画和音频不得反向决定业务状态;未知事件不崩 UI;事件字段不混用 camelCase,第三方/旧事件在适配层转换。
 - 验收: ①词表和 JSON 契约有 schema/单测;②同一 memory promote/research verify/voice state 事实可重放且不重复副作用;③后台会话事件不驱动当前会话动画;④text delta 压缩后长回复无事件风暴;⑤重连从持久事实恢复状态,不依赖错过的表现事件。
 - 批次: 4/4
-- 状态: todo
-- 进展: B4 已实现并提交 `605c6413`，按验收逐条对账：① 既有 B1 `crates/kanzei-core/src/experience_events.rs:20-41,97-119` 提供 snake_case JSON schema/validate，`T-1786922726586` 覆盖 schema 与 legacy 归一化；② memory/research 事实由 B2 `crates/kanzei-core/src/experience_events.rs:126-164` 幂等落库/回放，`crates/kanzei-app/ui/13-memory.js:18` 消费 `experience_facts` 恢复前端投影，`T-1786922726586` 覆盖 memory/research；验收降级：voice state 原文→当前仓库无真实 ASR/TTS/VAD 生产者，不能伪造 voice 证据，保留 R-287 缺口；③ B3 `crates/kanzei-app/ui/01-core.js:78-100,180-213` 按 session/topic/entity 归并并隔离后台 session，`T-1786922726593` 回归通过；④ B4 `01-core.js:102-150,197-200` 在一帧内合并 text delta、携带 delta_count，未知事件只诊断，`scripts/ui-runtime-smoke.mjs:1447-1481` 断言三段文本合为一次表现事件，`T-1786922726593` 通过；⑤ B4 `01-core.js:152-160` + `13-memory.js:18` 从持久 facts 恢复且 event_id 幂等，`scripts/ui-runtime-smoke.mjs:1483-1495` 断言首次恢复/重复恢复，`T-1786922726593` 通过。最终验证：`T-1786922726593` 六条前端冒烟全通过，`T-1786922726594` cargo test -p kanzei-app 231 passed。当前仍保持 doing：voice state 生产者缺口未满足，不能关闭 R-284。
+- 进展: B4 已实现并提交 `605c6413`，按验收逐条对账：① 既有 B1 `crates/kanzei-core/src/experience_events.rs:20-41,97-119` 提供 snake_case JSON schema/validate，`T-1786922726586` 覆盖 schema 与 legacy 归一化；② memory/research 事实由 B2 `crates/kanzei-core/src/experience_events.rs:126-164` 幂等落库/回放，`crates/kanzei-app/ui/13-memory.js:18` 消费 `experience_facts` 恢复前端投影，`T-1786922726586` 覆盖 memory/research；验收降级：voice state 原文→当前仓库无真实 ASR/TTS/VAD 生产者，不能伪造 voice 证据，保留 R-287 缺口；③ B3 `crates/kanzei-app/ui/01-core.js:78-100,180-213` 按 session/topic/entity 归并并隔离后台 session，`T-1786922726593` 回归通过；④ B4 `01-core.js:102-150,197-200` 在一帧内合并 text delta、携带 delta_count，未知事件只诊断，`scripts/ui-runtime-smoke.mjs:1447-1481` 断言三段文本合为一次表现事件，`T-1786922726593` 通过；⑤ B4 `01-core.js:152-160` + `13-memory.js:18` 从持久 facts 恢复且 event_id 幂等，`scripts/ui-runtime-smoke.mjs:1483-1495` 断言首次恢复/重复恢复，`T-1786922726593` 通过。最终验证：`T-1786922726593` 六条前端冒烟全通过，`T-1786922726594` cargo test -p kanzei-app 231 passed。当前仍保持 doing：voice state 生产者缺口未满足，不能关闭 R-284。；状态对账: 正文旧字段 `todo` 与权威标题状态 `doing` 冲突;已移除正文副本。
 - observed_head: 605c64135451bae1bd3128ef2a20666b98d57504
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
 - recorded_at: 1787246367339
@@ -51,8 +49,7 @@
 - 视觉主张: 深暖近黑工作台中的低亮金色生命体;常态静息,真实运行才增强;主对话内容与操作状态始终高于动画。静态网络是运行场,不冒充知识图谱或伪造记忆关系。
 - 验收: ①主对话 run→text→tool→done/error 的动画状态与真实事件一致;②记忆页真实搜索/整理/清理触发对应流动且失败不播放成功结晶;③后台会话不串到当前动画;④Canvas 不拦点击/选择/滚动;⑤reduced-motion 下无连续动画仍保留静态层;⑥暗/亮主题、800/1024/1280 三档可读;⑦WebView2 长回复和记忆页实测无明显帧率/CPU 回退并留截图或录屏工件。
 - 批次: 2/4
-- 进展: 2026-08-17 主会话完成批1+批2。新增 22-neural-flow.js:确定性神经拓扑、单 RAF 调度、活动/静息节流、ResizeObserver、DPR≤1.75、窗口隐藏暂停、reduced-motion 静态降级,实现呼吸/流动/结晶与失败阻塞四类表现;index.html 接主对话 Canvas 与记忆流舞台,style.css 使用 app 金色 token 且 Canvas pointer-events:none。真实接线:07-events.js 的 turn/text/reasoning/tool start/end/compacted/stopped/done/error;13-memory.js 的 snapshot/search/consolidate/candidate discard/cleanup,失败事件独立且不播放成功结晶。测试:T-1786922726035 前端全冒烟通过;T-1786922726036 真实 Chromium 1440/800 视觉验收通过。剩余批3=依赖 R-284 的原生 recall injected/candidate promoted/research/voice 事件;批4=设置/质量档/真实 WebView2 长会话性能与录屏。
-- 状态: doing
+- 进展: 2026-08-17 主会话完成批1+批2。新增 22-neural-flow.js:确定性神经拓扑、单 RAF 调度、活动/静息节流、ResizeObserver、DPR≤1.75、窗口隐藏暂停、reduced-motion 静态降级,实现呼吸/流动/结晶与失败阻塞四类表现;index.html 接主对话 Canvas 与记忆流舞台,style.css 使用 app 金色 token 且 Canvas pointer-events:none。真实接线:07-events.js 的 turn/text/reasoning/tool start/end/compacted/stopped/done/error;13-memory.js 的 snapshot/search/consolidate/candidate discard/cleanup,失败事件独立且不播放成功结晶。测试:T-1786922726035 前端全冒烟通过;T-1786922726036 真实 Chromium 1440/800 视觉验收通过。剩余批3=依赖 R-284 的原生 recall injected/candidate promoted/research/voice 事件;批4=设置/质量档/真实 WebView2 长会话性能与录屏。；状态对账: 正文旧字段 `doing` 与权威标题状态 `doing` 重复;已移除正文副本。
 
 ## R-287 voice 语音交互:流式 ASR/VAD、语音回复、定制声音与打断 [todo]
 - 优先级: P2
@@ -66,7 +63,7 @@
 - 边界: 第一阶段不改为端到端 speech-to-speech,保留文本、工具、权限、审计和记忆链;模型下载/长时间 GPU 基准先由用户确认执行;任何 provider 激活必须有真实认证输出,配置或容器日志不算完成。
 - 验收: ①真麦克风设备切换、录音和播放;②50 条基准报告 partial/final 延迟、CER/术语修正率、实时率与资源;③ASR 文本进入现有输入和权限链;④TTS 失败不阻断文本回复;⑤真实授权定制声音输出;⑥播放中插话能中断并恢复会话状态;⑦原始音频、consent、key 的存储与删除边界有测试。
 - 批次: 0/5
-- 状态: todo
+- 进展: 状态对账: 正文旧字段 `todo` 与权威标题状态 `todo` 重复;已移除正文副本。
 
 ## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [doing]
 - 复杂度: 大
@@ -108,13 +105,12 @@
 - 阻塞: 
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
-- 进展: B7 已提交：commit 194b1eec。修复 D-716 的删除/安全整理错误边界，代码位置 crates/kanzei-app/ui/15-views-misc.js:650-680；scripts/ui-runtime-smoke.mjs 真实重放首次 delete×1/cleanup×1、错误面板 retry 后 delete×1/cleanup×2，证据 T-1786922726797；T-1786922726799 为提交前 kanzei-app 246 passed。全 UI 六条记录 T-1786922726798 仍被既有 D-711 的四个 memory filter 缺 data-i18n-* 阻断，未声称六条全绿。B7 完成但 R-245 保持 doing：验收⑦真实桌面 E2 与验收⑩磁盘配额测试仍缺。
+- 进展: B7 已提交：commit 194b1eec。修复 D-716 的删除/安全整理错误边界，代码位置 crates/kanzei-app/ui/15-views-misc.js:650-680；scripts/ui-runtime-smoke.mjs 真实重放首次 delete×1/cleanup×1、错误面板 retry 后 delete×1/cleanup×2，证据 T-1786922726797；T-1786922726799 为提交前 kanzei-app 246 passed。全 UI 六条记录 T-1786922726798 仍被既有 D-711 的四个 memory filter 缺 data-i18n-* 阻断，未声称六条全绿。B7 完成但 R-245 保持 doing：验收⑦真实桌面 E2 与验收⑩磁盘配额测试仍缺。；状态对账: 正文旧字段 `doing` 与权威标题状态 `doing` 重复;已移除正文副本。
 - observed_head: 194b1eec3184e5290fe84f35d5f4dc8df879e61c
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787607943733
 - 停车: B7 实现与自动化回归已提交；剩余仅为真实桌面点击证据和未定义配额语义的验证缺口，暂让出唯一 WIP 槽，待真实桌面 E2 窗口与配额策略明确后恢复。
 - 取活依据: engine:唯一可执行 WIP 是 R-245，必须先恢复它
-- status: doing
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
@@ -125,14 +121,13 @@
 - 来源: 2026-08-14 三系统工具面对照(DeepSeek harness / Claude Code / kanzei):read_image 是唯一的能力硬缺口。桌面端 ui_dom/ui_console/ui_style 能读结构与数值但看不见渲染结果,对齐、遮挡、观感一类问题无法自查。
 - 标签: 核心
 - 边界: ToolOutput 是 harness 核心契约,R-244 明确要冻结「ToolOutput 公共契约」、R-245 要把它改成 Inline/Spilled 二态——本条**不得抢在 R-244 之前改这个结构**,否则必然返工。图片体积走 R-245 的 spill 口径,不在 ToolOutput 内联大 base64。不实现 UI 点击/输入/滚动(那是 R-101 的 E2 harness 范围),本条只做「看得见」不做「动得了」。deepseek_responses 协议当前丢弃 Image part,本条不负责补齐该 provider,但要在 provider 不支持时给出显式降级提示,不静默丢弃。
-- 进展: 2026-08-14 批1 交付(1831239)。勘察修正了原条目的一处前提:`Part::Image` 的三协议映射早在 R-014 就通了,缺的只是**工具侧出口**,协议层零改动即可打通——不必等 R-244。实现:①ToolOutput 增 images 载荷(空 vec 与既有行为逐字节一致,53 处 `ToolOutput {` 里只有 4 个真构造点,其余是解构模式);②read 按 magic bytes 而非扩展名识图(PNG/JPEG/WebP/GIF),扩展名撒谎会让 media_type 与真实字节不符、provider 400 且报错指向请求体;③图片 Part 只能追加在所有 ToolResult 之后——Anthropic 要求 tool_result 块在 user 消息最前,而 results[i]↔calls[i] 由 note_step 的 debug_assert 锁着,中间也不能插;④provider 不支持时**在进 messages 前**降级为显式文本说明,判据收敛为 Route::supports_images() 与 client.rs 硬拒绝共用一处。新增 10 条测试。 || 2026-08-14 批2 交付:新增 ui_screenshot 工具(kanzei-app/src/screenshot.rs)。实窗验证三轮才对,两次假绿都值得记——①未声明 DPI 感知时 GetWindowRect 返回虚拟化坐标(2582px 的窗口报成 1295px),抓到的是横跨多个窗口的错误区域;②改用正确矩形后,屏幕 DC 抓取拿到的是压在上面那个应用的界面(kzapp 被完全遮挡),内容丰富所以 looks_blank 一路放行。两次都是「测试通过但抓的不是那个窗口」。最终改用 PrintWindow+PW_RENDERFULLCONTENT 离屏渲染,免疫遮挡,在完全被盖住的状态下抓到 kzapp 完整界面并经人眼与用户实拍逐项比对一致;屏幕 DC 仅在 PrintWindow 失效且本窗口为前台时作回退,不是前台宁可报错——返回别人的界面比返回错误坏得多。测试记录 T-1786705800。 || 2026-08-16 复核:批1 已解除;批3 的依赖 R-244 已 done 并归档(Tool Pipeline 契约已冻结),只余 R-245 确定图片类 artifact 的 spill 落点,而 R-245 自身仍等 R-242。当前 park 的唯一原因是 WIP 槽由 R-195 持有(用户 2026-08-16 指定)。解除动作: R-195 关闭后清本字段直接续做批2。解除人: agent(批2)/ 依赖自然解除(批3 等 R-245)。 || 2026-08-16 让位:本轮按队列顺序取 R-186(P0 队首),本条 doing→todo 让位,待 R-186 交付后按队列轮转;批1/批2(ui_screenshot/read 识图)已交付,剩余批3 等 R-245(R-242 完成后才解)。
+- 进展: 2026-08-14 批1 交付(1831239)。勘察修正了原条目的一处前提:`Part::Image` 的三协议映射早在 R-014 就通了,缺的只是**工具侧出口**,协议层零改动即可打通——不必等 R-244。实现:①ToolOutput 增 images 载荷(空 vec 与既有行为逐字节一致,53 处 `ToolOutput {` 里只有 4 个真构造点,其余是解构模式);②read 按 magic bytes 而非扩展名识图(PNG/JPEG/WebP/GIF),扩展名撒谎会让 media_type 与真实字节不符、provider 400 且报错指向请求体;③图片 Part 只能追加在所有 ToolResult 之后——Anthropic 要求 tool_result 块在 user 消息最前,而 results[i]↔calls[i] 由 note_step 的 debug_assert 锁着,中间也不能插;④provider 不支持时**在进 messages 前**降级为显式文本说明,判据收敛为 Route::supports_images() 与 client.rs 硬拒绝共用一处。新增 10 条测试。 || 2026-08-14 批2 交付:新增 ui_screenshot 工具(kanzei-app/src/screenshot.rs)。实窗验证三轮才对,两次假绿都值得记——①未声明 DPI 感知时 GetWindowRect 返回虚拟化坐标(2582px 的窗口报成 1295px),抓到的是横跨多个窗口的错误区域;②改用正确矩形后,屏幕 DC 抓取拿到的是压在上面那个应用的界面(kzapp 被完全遮挡),内容丰富所以 looks_blank 一路放行。两次都是「测试通过但抓的不是那个窗口」。最终改用 PrintWindow+PW_RENDERFULLCONTENT 离屏渲染,免疫遮挡,在完全被盖住的状态下抓到 kzapp 完整界面并经人眼与用户实拍逐项比对一致;屏幕 DC 仅在 PrintWindow 失效且本窗口为前台时作回退,不是前台宁可报错——返回别人的界面比返回错误坏得多。测试记录 T-1786705800。 || 2026-08-16 复核:批1 已解除;批3 的依赖 R-244 已 done 并归档(Tool Pipeline 契约已冻结),只余 R-245 确定图片类 artifact 的 spill 落点,而 R-245 自身仍等 R-242。当前 park 的唯一原因是 WIP 槽由 R-195 持有(用户 2026-08-16 指定)。解除动作: R-195 关闭后清本字段直接续做批2。解除人: agent(批2)/ 依赖自然解除(批3 等 R-245)。 || 2026-08-16 让位:本轮按队列顺序取 R-186(P0 队首),本条 doing→todo 让位,待 R-186 交付后按队列轮转;批1/批2(ui_screenshot/read 识图)已交付,剩余批3 等 R-245(R-242 完成后才解)。；状态对账: 正文旧字段 `todo` 与权威标题状态 `doing` 冲突;已移除正文副本。
 - 阻塞: 
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 - observed_head: 98d7a586f38a09f5b449b75b7a3c93c62d01852f
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786835811870
-- 状态: todo
 
 ## R-264 前端迁移原生 ESM(勘察已完成,方案见 docs/design/ui_esm_migration.md) [doing]
 - refs: docs/design/ui_esm_migration.md R-142 R-154
@@ -147,11 +142,10 @@
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:唯一可执行 WIP 是 R-264，必须先恢复它
 - 批次: 10/10
-- 进展: B10 已完成并待提交：21-palette.js 迁移为 ESM，导出命令面板 API（crates/kanzei-app/ui/21-palette.js:235-251），index.html:1192 改为 type=module；为仍为 classic 的真实提供方建立渐进兼容桥：01-core.js:810 导出 $, on, promptBox 到 globalThis，02-i18n.js:1080 导出 localizeDynamic、t，03-shell.js:650 导出 log。保持命令面板通过既有控件 click 委托，不改业务行为。T-1786922726764：4 个目标/提供方 JS node --check、ESM runtime、ui-lint、parallel-lines、a11y、i18n、markdown 全部通过；runtime 覆盖 27 文件、2339 次 invoke、10 个主视图、0 错误。真实窗口 #app DOM 正常，console 无错误/警告，style.css 结构完整。graph --write 与迁移 dry-run 覆盖 27 文件，772 exports/198 import statements。剩余原验收⑤ globals 补偿删除、eslint sourceType 收口及⑥ 10 处顶层跨文件读/6 处 typeof 守卫显式 import，转入后续条目。
+- 进展: B10 已完成并待提交：21-palette.js 迁移为 ESM，导出命令面板 API（crates/kanzei-app/ui/21-palette.js:235-251），index.html:1192 改为 type=module；为仍为 classic 的真实提供方建立渐进兼容桥：01-core.js:810 导出 $, on, promptBox 到 globalThis，02-i18n.js:1080 导出 localizeDynamic、t，03-shell.js:650 导出 log。保持命令面板通过既有控件 click 委托，不改业务行为。T-1786922726764：4 个目标/提供方 JS node --check、ESM runtime、ui-lint、parallel-lines、a11y、i18n、markdown 全部通过；runtime 覆盖 27 文件、2339 次 invoke、10 个主视图、0 错误。真实窗口 #app DOM 正常，console 无错误/警告，style.css 结构完整。graph --write 与迁移 dry-run 覆盖 27 文件，772 exports/198 import statements。剩余原验收⑤ globals 补偿删除、eslint sourceType 收口及⑥ 10 处顶层跨文件读/6 处 typeof 守卫显式 import，转入后续条目。；状态对账: 正文旧字段 `todo` 与权威标题状态 `doing` 冲突;已移除正文副本。
 - observed_head: 679376ddf5e4b19799d609adb8f89b9f26097154
 - observed_worktree_hash: fnv1a64:3ae00a2f403fdaee
 - recorded_at: 1787570378136
-- 状态: todo
 - 阻塞: 
 - 对账: 2026-08-18 用户拍板 ESM 收尾「做完」,原 P3 留档提级 P2;剩余工作=批4(withSessionRender 等 5 处跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序与冒烟断言适配、删除 gen-ui-lint-globals 补偿机制);动工前先修 D-498(冒烟执行顺序与浏览器不一致),否则逐文件迁移的冒烟证据不可信;设计文档状态过期由 R-303 订正
 - 发现记录: {"Intent":"完成原生 ESM 迁移剩余批4并移除全局补偿机制","Explicit":"先完成 withSessionRender 跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序适配，再逐文件迁移并删除 globals 补偿","Assumptions":"批1-B3 的既有提交仍是当前 dev 基线且六条前端冒烟可作为迁移回归入口","Ambiguities":"现有条目进展标注批3/4但代码与 HEAD 已偏离，需要先按提交和工作树复核真实落点；设计文档索引显示路径存在性需以实际仓库为准","领域对象":"ui/*.js、index.html、scripts/ui-* smoke、ESLint globals 生成与配置","最小成功闭环":"测试 harness 能执行 ESM 且六条冒烟全绿，迁移后的浏览器入口能加载并保留逐文件 TDZ 语义","延后决策":"不引入打包器/TypeScript，不改 vendor 与业务逻辑；未能在本批收口的深层跨模块写另开后续条目"}
@@ -226,8 +220,7 @@
 - 边界: cargo test --workspace 的 90.3s 是真实成本不动;CI 全量保持;裁剪只作用本地 verify,发版通道必须全量
 - 验收: ①改一行前端的批次 verify 墙钟 <15s(实测);②改 globals 清单的缺陷族在门禁上线后零新增;③关闭前端条目不再需要第三轮冒烟(用 verify 证据通过一次真实关闭);④metrics 口径漂移场景拒绝出数的定向测试;⑤裁剪过的 verification.json 被 package.ps1 拒绝的定向测试
 - 优先级: P1
-- status: doing
-- 进展: B1 已提交：`a173eb6a`，globals 实时收集与缓存降级已验证。B2 已提交：`481f4463`，`scripts/verify-policy.mjs:5-91`、`scripts/verify.ps1:41-178`、`scripts/package.ps1:109-114` 完成路径裁剪和 full evidence 门禁；D-642/D-643/D-644 已关闭，归档收口提交 `1e28fe28`，真实 package 拒绝 cropped evidence 证据 T-1786922726629。B3 已提交：`b5d23c28`，`crates/kanzei-tools/src/test_record/coverage.rs` 优先消费当前 HEAD 的 `dist/verification.json`，要求 `all_pass=true`、`ui_runtime/ui_lint/ui_i18n` 三项 pass，并校验 24 小时新鲜度与工作区源码指纹；T-1786922726630：424 passed、0 failed、1 ignored。B4 已提交：`f2d10c44`，`crates/kanzei/src/cli/metrics.rs:401-437` 输出 v1；`scripts/metrics-regression-gate.ps1:27-70` 拒绝口径漂移且 cargo build 已移至 `scripts/verify.ps1:99-101` 独立 metrics_build；`scripts/parallel-lines-regression.mjs:4-23` 使用 loadUiSources 与源码标记；`scripts/ipc-event-smoke.mjs:46-53`、`scripts/check-ps1-bom.mjs:36-40` 增加下限/空集断言；`crates/kanzei-tools/src/git.rs:1929-2008`、`.github/workflows/ci.yml:32-33` 清单同步；`docs/design/metrics_baseline.md:4,11-60` 更新 v1 基线。D-645～D-650 已逐项 fixed，T-1786922726632：fmt、kanzei-tools 424 passed、kanzei 44+32 passed、JS/PS smoke 和真实 metrics gate 全通过。提交锚点补正：`8ad3bb28`。T-1786922726633：真实当前 HEAD targeted verify 3.34s，生成绑定 HEAD 的 verification.json，但 changed=1 且 rust/frontend 均 false，明确不能核销 frontend-only ①。T-1786922726634 与 T-1786922726635：cargo test --workspace 全量通过（各 crate 无 failed）。T-1786922726636：真实当前 HEAD full verify 通过，14/14 checks、skipped_steps 为空、rust/frontend 均执行，绑定 `b564f2134ae6c8d8828a33b42745df0f48a42b5a`，耗时 105.67s；该证据证明 full evidence，不冒充 frontend-only ①或真实前端关闭③。验收对账：①仍缺真实“只改一行前端”verify 墙钟 <15s；②仍缺门禁上线后 globals 缺陷族零新增证据；③仍缺一次真实前端条目关闭复用 verify 证据；④已满足，T-1786922726632 的 v999 metrics fixture 拒绝与真实 gate 通过；⑤已满足，T-1786922726629 证明 package 拒绝 cropped verification。R-309 保持 doing，批次 4/4；虽然 B4、targeted/full verify 与 workspace 测试已完成，不能把①-③的证据缺口降级或误标 done。
+- 进展: B1 已提交：`a173eb6a`，globals 实时收集与缓存降级已验证。B2 已提交：`481f4463`，`scripts/verify-policy.mjs:5-91`、`scripts/verify.ps1:41-178`、`scripts/package.ps1:109-114` 完成路径裁剪和 full evidence 门禁；D-642/D-643/D-644 已关闭，归档收口提交 `1e28fe28`，真实 package 拒绝 cropped evidence 证据 T-1786922726629。B3 已提交：`b5d23c28`，`crates/kanzei-tools/src/test_record/coverage.rs` 优先消费当前 HEAD 的 `dist/verification.json`，要求 `all_pass=true`、`ui_runtime/ui_lint/ui_i18n` 三项 pass，并校验 24 小时新鲜度与工作区源码指纹；T-1786922726630：424 passed、0 failed、1 ignored。B4 已提交：`f2d10c44`，`crates/kanzei/src/cli/metrics.rs:401-437` 输出 v1；`scripts/metrics-regression-gate.ps1:27-70` 拒绝口径漂移且 cargo build 已移至 `scripts/verify.ps1:99-101` 独立 metrics_build；`scripts/parallel-lines-regression.mjs:4-23` 使用 loadUiSources 与源码标记；`scripts/ipc-event-smoke.mjs:46-53`、`scripts/check-ps1-bom.mjs:36-40` 增加下限/空集断言；`crates/kanzei-tools/src/git.rs:1929-2008`、`.github/workflows/ci.yml:32-33` 清单同步；`docs/design/metrics_baseline.md:4,11-60` 更新 v1 基线。D-645～D-650 已逐项 fixed，T-1786922726632：fmt、kanzei-tools 424 passed、kanzei 44+32 passed、JS/PS smoke 和真实 metrics gate 全通过。提交锚点补正：`8ad3bb28`。T-1786922726633：真实当前 HEAD targeted verify 3.34s，生成绑定 HEAD 的 verification.json，但 changed=1 且 rust/frontend 均 false，明确不能核销 frontend-only ①。T-1786922726634 与 T-1786922726635：cargo test --workspace 全量通过（各 crate 无 failed）。T-1786922726636：真实当前 HEAD full verify 通过，14/14 checks、skipped_steps 为空、rust/frontend 均执行，绑定 `b564f2134ae6c8d8828a33b42745df0f48a42b5a`，耗时 105.67s；该证据证明 full evidence，不冒充 frontend-only ①或真实前端关闭③。验收对账：①仍缺真实“只改一行前端”verify 墙钟 <15s；②仍缺门禁上线后 globals 缺陷族零新增证据；③仍缺一次真实前端条目关闭复用 verify 证据；④已满足，T-1786922726632 的 v999 metrics fixture 拒绝与真实 gate 通过；⑤已满足，T-1786922726629 证明 package 拒绝 cropped verification。R-309 保持 doing，批次 4/4；虽然 B4、targeted/full verify 与 workspace 测试已完成，不能把①-③的证据缺口降级或误标 done。；状态对账: 正文旧字段 `doing` 与权威标题状态 `doing` 重复;已移除正文副本。
 - observed_head: f2d10c44f9e47b2f199d346d13429e25d4a9f196
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787266377330

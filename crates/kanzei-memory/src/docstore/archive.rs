@@ -368,6 +368,72 @@ impl DocStore {
         Ok((true, removed))
     }
 
+    /// D-713:归档区同样只允许 header 保存生命周期状态。删除正文 `状态`/`status`
+    /// 副本前,把旧值追加到进展,避免把历史纠正变成无来源的静默删字段。
+    pub fn reconcile_archived_status_fields(&self, id: &str) -> std::io::Result<(bool, usize)> {
+        let _lock = self.lock()?;
+        let mut archived = self.load_archive()?;
+        let Some(pos) = archived.iter().position(|entry| entry.id == id) else {
+            return Ok((false, 0));
+        };
+        let authoritative = archived[pos].status.clone();
+        let mut old_values = Vec::new();
+        archived[pos].fields.retain(|(key, value)| {
+            let reserved = key.eq_ignore_ascii_case("status") || key == "状态";
+            if reserved {
+                if !value.trim().is_empty() {
+                    old_values.push(value.trim().to_string());
+                }
+                false
+            } else {
+                true
+            }
+        });
+        if old_values.is_empty() {
+            return Ok((false, 0));
+        }
+        let old = old_values.join("、");
+        let note = if old_values.iter().any(|value| value != &authoritative) {
+            format!(
+                "状态对账: 归档正文旧字段 `{old}` 与权威标题状态 `{authoritative}` 冲突;已移除正文副本。"
+            )
+        } else {
+            format!(
+                "状态对账: 归档正文旧字段 `{old}` 与权威标题状态 `{authoritative}` 重复;已移除正文副本。"
+            )
+        };
+        match archived[pos]
+            .fields
+            .iter_mut()
+            .find(|(key, _)| key == "进展")
+        {
+            Some((_, progress)) => {
+                if !progress.is_empty() {
+                    progress.push('；');
+                }
+                progress.push_str(&note);
+            }
+            None => archived[pos].fields.push(("进展".into(), note)),
+        }
+        let template = self
+            .preserved_archive
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or(DocumentTemplate {
+                preamble: Vec::new(),
+                entries: Vec::new(),
+            });
+        let archived_text = render_with_template(self.kind, &archived, &template);
+        let text = archived_text.replacen(
+            &format!("# {}\n", self.kind.heading),
+            &format!("# {} Archive\n", self.kind.heading),
+            1,
+        );
+        crate::atomic_file::write_atomic(&self.archive_file(), &text)?;
+        Ok((true, old_values.len()))
+    }
+
     /// R-227:归档条目字段里的占位符测试 ID 回填。占位符形态 `T-<数字>xxx`
     /// (真实测试 ID 是 `T-<10位时间戳>`),曾出现在 R-198/R-199/D-219/D-266/D-279/
     /// D-281/D-282/D-316 关闭证据里。回填 = 把占位符替换为 test_record 落盘的真实 ID。

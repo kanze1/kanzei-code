@@ -851,10 +851,16 @@ pub(crate) fn normalize(
                 ));
             }
         }
-        // ② duplicate fields(key 大小写不敏感,如「优先级」vs「priority」)
+        // ② duplicate fields(key 大小写不敏感,如「优先级」vs「priority」)。
+        // 保留字段「状态」暂不参加通用去重:它们必须全部被下面的状态对账逻辑
+        // 消费,否则第二个旧状态会在历史证据生成前被静默丢掉。
         let mut seen: Vec<String> = Vec::new();
         let mut dropped = 0usize;
         entry.fields.retain(|(key, _)| {
+            let reserved_status = key.eq_ignore_ascii_case("status") || key == "状态";
+            if reserved_status {
+                return true;
+            }
             let norm = key.trim().to_ascii_lowercase();
             if seen.contains(&norm) {
                 if dropped == 0 {
@@ -875,28 +881,68 @@ pub(crate) fn normalize(
                 "{region} {entry_id}: deduplicated {dropped} field(s)"
             ));
         }
-        // 完整性门禁会拒绝空的保留字段「状态」；这是旧式 tracker 写入
-        // 把 header 状态误落进字段时留下的元数据残留。空值没有可恢复语义，normalize
-        // 可以安全删除；非空非法值仍只报告，避免猜测用户意图。
-        let mut empty_reserved_status = 0usize;
+        // D-713:生命周期状态的唯一真源是标题 header 的 Entry.status。旧式 tracker
+        // 曾把状态再写进正文 `状态`/`status` 字段,导致调度与页面可能各读一份。无论
+        // 值是否与 header 相同,apply 都移除正文副本;不一致时把旧值写进进展，保留
+        // 可审计历史而不再留下会被解析成当前状态的字段。
+        let mut reserved_status_values = Vec::new();
         entry.fields.retain(|(key, value)| {
             let reserved = key.eq_ignore_ascii_case("status") || key == "状态";
-            if reserved && value.trim().is_empty() {
-                empty_reserved_status += 1;
+            if reserved {
+                let value = value.trim();
+                if !value.is_empty() {
+                    reserved_status_values.push(value.to_string());
+                }
                 false
             } else {
                 true
             }
         });
-        if empty_reserved_status > 0 {
-            findings.push(format!(
-                "{region} {entry_id}: removed {empty_reserved_status} empty reserved status field(s)"
-            ));
-            touched = true;
-            fixed.push(format!(
-                "{region} {entry_id}: removed {empty_reserved_status} empty reserved status field(s)"
-            ));
+        if !reserved_status_values.is_empty() {
+            let old = reserved_status_values.join("、");
+            let differs = reserved_status_values
+                .iter()
+                .any(|value| value != entry.status.trim());
+            let finding = if differs {
+                format!(
+                    "{region} {entry_id}: reserved status field(s) `{old}` conflict with header `{}`; apply 将移除并写入进展",
+                    entry.status
+                )
+            } else {
+                format!(
+                    "{region} {entry_id}: redundant reserved status field(s) `{old}`; apply 将移除并写入进展"
+                )
+            };
+            findings.push(finding);
+            if apply {
+                let note = if differs {
+                    format!(
+                        "状态对账: 正文旧字段 `{old}` 与权威标题状态 `{}` 冲突;已移除正文副本。",
+                        entry.status
+                    )
+                } else {
+                    format!(
+                        "状态对账: 正文旧字段 `{old}` 与权威标题状态 `{}` 重复;已移除正文副本。",
+                        entry.status
+                    )
+                };
+                match entry.fields.iter_mut().find(|(key, _)| key == "进展") {
+                    Some((_, progress)) => {
+                        if !progress.is_empty() {
+                            progress.push('；');
+                        }
+                        progress.push_str(&note);
+                    }
+                    None => entry.fields.push(("进展".into(), note)),
+                }
+                touched = true;
+                fixed.push(format!(
+                    "{region} {entry_id}: removed {} reserved status field(s) and recorded history",
+                    reserved_status_values.len()
+                ));
+            }
         }
+        // 空的保留字段也由上面的统一逻辑移除;空值没有可恢复语义,不写入进展。
         // ③ 标题状态标记污染(D-331 口径:状态的家是 header,不是标题)
         if let Some(marker) = crate::docstore::title_status_marker(&entry.title) {
             let stripped = crate::docstore::strip_status_markers(&entry.title);
@@ -944,6 +990,31 @@ pub(crate) fn normalize(
                 entry.id
             ));
         }
+        let reserved_status_values: Vec<&str> = entry
+            .fields
+            .iter()
+            .filter(|(key, value)| {
+                (key.eq_ignore_ascii_case("status") || key == "状态") && !value.trim().is_empty()
+            })
+            .map(|(_, value)| value.trim())
+            .collect();
+        if !reserved_status_values.is_empty() {
+            let values = reserved_status_values.join("、");
+            let differs = reserved_status_values
+                .iter()
+                .any(|value| *value != entry.status.trim());
+            findings.push(if differs {
+                format!(
+                    "archived {}: reserved status field(s) `{values}` conflict with authoritative header `{}`; apply 将移除并写入进展",
+                    entry.id, entry.status
+                )
+            } else {
+                format!(
+                    "archived {}: redundant reserved status field(s) `{values}`; apply 将移除并写入进展",
+                    entry.id
+                )
+            });
+        }
         let mut seen: Vec<String> = Vec::new();
         for (key, _) in &entry.fields {
             let norm = key.trim().to_ascii_lowercase();
@@ -986,6 +1057,19 @@ pub(crate) fn normalize(
                 Ok((false, _)) => {}
                 Err(e) => {
                     return ToolOutput::error(format!("cannot dedupe archived {}: {e}", entry.id))
+                }
+            }
+            match store.reconcile_archived_status_fields(&entry.id) {
+                Ok((true, removed)) => fixed.push(format!(
+                    "archived {}: removed {removed} reserved status field(s) and recorded history",
+                    entry.id
+                )),
+                Ok((false, _)) => {}
+                Err(e) => {
+                    return ToolOutput::error(format!(
+                        "cannot reconcile archived status {}: {e}",
+                        entry.id
+                    ))
                 }
             }
         }
