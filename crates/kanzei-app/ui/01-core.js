@@ -1,12 +1,42 @@
+import { t } from "./02-i18n.js";
+import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
+import { setCurrentReasoningHead } from "./05-chat-render.js";
+import { setChatAgentFolds } from "./05-chat-render.js";
+import {
+  activeSessionId,
+  currentAssistant,
+  currentProject,
+  currentReasoning,
+  log,
+  sessionState,
+  sessionStates,
+  transitionSession,
+} from "./03-shell.js";
+import {
+  chatAgentFolds,
+  currentReasoningHead,
+  followLatest,
+  noteProgrammaticScroll,
+  scrollBottom,
+} from "./05-chat-render.js";
+import { autoContinueTimers, cancelAutoContinueTimer, releaseAutoContinue } from "./08-auto.js";
+import { handleBackgroundAutoFail, handleBackgroundSessionDone } from "./08-compose-runtime.js";
+import { state } from "./08-compose.js";
+import { refreshParallelTaskProjection, refreshProcesses } from "./09-sessions.js";
+import { refreshMemory } from "./13-memory.js";
+import { refreshConversationLists, renderTrimmedHint, sessionLiveNow } from "./15-views-misc.js";
+import { refreshResearch } from "./19-research.js";
+import { neuralFlowEmit } from "./22-neural-flow.js";
+
 // kanzei 桌面端前端逻辑(静态,无构建步骤)。
-const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+export const { invoke } = window.__TAURI__.core;
+export const { listen } = window.__TAURI__.event;
 
 // R-126:自加载起累积 console 错误与未捕获异常,供 ui_console 工具取样。
 // 必须在最前面装:晚一步就漏掉初始化阶段的错误,而那正是最要命的一段。
-const uiConsoleLog = [];
-const UI_CONSOLE_MAX = 200;
-function recordConsole(level, args) {
+export const uiConsoleLog = [];
+export const UI_CONSOLE_MAX = 200;
+export function recordConsole(level, args) {
   if (uiConsoleLog.length >= UI_CONSOLE_MAX) uiConsoleLog.shift();
   uiConsoleLog.push({
     level,
@@ -29,7 +59,7 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 // 事件订阅统一入口:注册失败必须可见(D-005 教训——ACL 拒绝时曾静默失联)。
-const SESSION_PROGRESS_EVENTS = new Set([
+export const SESSION_PROGRESS_EVENTS = new Set([
   "kz:meta", "kz:status", "kz:text", "kz:reasoning",
   "kz:tool-start", "kz:tool-progress", "kz:task-progress", "kz:step", "kz:permission-resolved",
 ]);
@@ -42,7 +72,7 @@ const SESSION_PROGRESS_EVENTS = new Set([
 // 刻意**不含** kz:status/kz:step/kz:meta/kz:task-progress/kz:tool-progress:
 // 那几条改的是状态栏、轮次显示、活动面板与工具进度条,都是**全局 UI**,
 // 后台会话触发它们才是串线(用户会看到别的线的状态盖在当前线上)。
-const BACKGROUND_RENDER_EVENTS = new Set([
+export const BACKGROUND_RENDER_EVENTS = new Set([
   "kz:text",
   "kz:reasoning",
   "kz:tool-start",
@@ -51,7 +81,7 @@ const BACKGROUND_RENDER_EVENTS = new Set([
   "kz:compacted",
   "kz:experience",
 ]);
-const SESSIONLESS_EVENTS = new Set([
+export const SESSIONLESS_EVENTS = new Set([
   "kz:ask",
   "kz:fast-setup",
   "kz:ui-probe",
@@ -60,12 +90,12 @@ const SESSIONLESS_EVENTS = new Set([
 ]);
 // R-284 B3:结构化体验事件的前端归并层。旧 kz:* 事件继续由各现有 handler
 // 消费；kz:experience 先按 session/topic/entity 归并到 store,再分发到表现层和工作台。
-const experienceEventIds = new Set();
-const experienceProjectionBySession = new Map();
-const pendingExperienceRefreshes = new Set();
-const pendingExperienceDeltas = new Map();
-let experienceDeltaFlushScheduled = false;
-const EXPERIENCE_NEURAL_EVENTS = new Map([
+export const experienceEventIds = new Set();
+export const experienceProjectionBySession = new Map();
+export const pendingExperienceRefreshes = new Set();
+export const pendingExperienceDeltas = new Map();
+export let experienceDeltaFlushScheduled = false;
+export const EXPERIENCE_NEURAL_EVENTS = new Map([
   ["run_started", "run_started"],
   ["text_delta", "assistant_streaming"],
   ["reasoning_delta", "reasoning_active"],
@@ -76,7 +106,7 @@ const EXPERIENCE_NEURAL_EVENTS = new Map([
   ["stream_restarted", "stream_restarted"],
   ["usage_delta", "usage_delta"],
 ]);
-function rememberExperienceEvent(event) {
+export function rememberExperienceEvent(event) {
   if (experienceEventIds.has(event.event_id)) return false;
   experienceEventIds.add(event.event_id);
   if (experienceEventIds.size > 4096) {
@@ -100,14 +130,14 @@ function rememberExperienceEvent(event) {
   experienceProjectionBySession.set(event.session_id, session);
   return true;
 }
-function mergeExperienceDeltaPayload(previous, next) {
+export function mergeExperienceDeltaPayload(previous, next) {
   const merged = { ...previous, ...next };
   if (typeof previous.text === "string" && typeof next.text === "string") {
     merged.text = previous.text + next.text;
   }
   return merged;
 }
-function flushExperienceDeltas() {
+export function flushExperienceDeltas() {
   experienceDeltaFlushScheduled = false;
   const queued = [...pendingExperienceDeltas.values()];
   pendingExperienceDeltas.clear();
@@ -124,14 +154,14 @@ function flushExperienceDeltas() {
     }
   }
 }
-function scheduleExperienceDeltaFlush() {
+export function scheduleExperienceDeltaFlush() {
   if (experienceDeltaFlushScheduled) return;
   experienceDeltaFlushScheduled = true;
   const flush = () => flushExperienceDeltas();
   if (typeof requestAnimationFrame === "function") requestAnimationFrame(flush);
   else setTimeout(flush, 0);
 }
-function queueExperienceDelta(event, neuralEvent) {
+export function queueExperienceDelta(event, neuralEvent) {
   const key = `${event.session_id}:${event.event_type}`;
   const queued = pendingExperienceDeltas.get(key);
   if (queued) {
@@ -150,7 +180,7 @@ function queueExperienceDelta(event, neuralEvent) {
   }
   scheduleExperienceDeltaFlush();
 }
-function replayExperienceFacts(facts) {
+export function replayExperienceFacts(facts) {
   if (!Array.isArray(facts)) return 0;
   let restored = 0;
   for (const event of facts) {
@@ -159,7 +189,7 @@ function replayExperienceFacts(facts) {
   }
   return restored;
 }
-function refreshExperienceWorkbench(event) {
+export function refreshExperienceWorkbench(event) {
   // B2 的 memory/research 事实使用 canonical project session,不是当前 run
   // session；它们只能刷新同项目工作台，不能触发当前会话神经流。
   if (event.class !== "fact" || typeof currentProject === "undefined" || !currentProject) return;
@@ -178,7 +208,7 @@ function refreshExperienceWorkbench(event) {
   }
   Promise.resolve(refresh()).finally(() => pendingExperienceRefreshes.delete(refreshKey));
 }
-function handleExperienceEvent(payload) {
+export function handleExperienceEvent(payload) {
   const event = payload && typeof payload === "object" ? payload : null;
   if (!event?.event_id || !event.session_id || !event.event_type) {
     log(`${t("忽略无效体验事件")}:missing_identity`, "warn");
@@ -213,8 +243,9 @@ function handleExperienceEvent(payload) {
   }
 }
 
-function on(event, handler) {
-  listen(event, (eventPayload) => {
+export function on(event, handler) {
+  setTimeout(() => {
+    listen(event, (eventPayload) => {
     // 旧 kz:* 事件来自 Tauri payload,保留 sessionId；R-284 结构化包络已
     // 在适配层统一为 snake_case,因此直接读取 session_id。
     const sessionId = event === "kz:experience"
@@ -274,8 +305,8 @@ function on(event, handler) {
     }
     // 事件流是线路状态的实时投影入口。不能等 kz:done/kz:idle 或下一次
     // process_list 轮询，否则工具执行期间线路按钮和 stop 会按轮次滞后。
-    if (sessionId && typeof refreshParallelTaskProjection === "function") {
-      refreshParallelTaskProjection(sessionId);
+    if (sessionId && typeof globalThis.refreshParallelTaskProjection === "function") {
+      globalThis.refreshParallelTaskProjection(sessionId);
     }
     const controlEvent =
       event === "kz:ask" ||
@@ -335,13 +366,13 @@ function on(event, handler) {
           stage: "空闲",
           detail: "",
         });
-        if (typeof refreshParallelTaskProjection === "function") {
-          refreshParallelTaskProjection(sessionId);
+        if (typeof globalThis.refreshParallelTaskProjection === "function") {
+          globalThis.refreshParallelTaskProjection(sessionId);
         }
       }
       // D-387:手机消息注入桌面——刷新会话列表(消息已由后端持久化,打开会话可见)。
       if (event === "kz:mobile-message") {
-        if (typeof refreshConversationLists === "function") void refreshConversationLists();
+        if (typeof globalThis.refreshConversationLists === "function") void globalThis.refreshConversationLists();
         if (typeof refreshProcesses === "function") refreshProcesses();
         if (typeof handleMobileMessage === "function") handleMobileMessage(eventPayload.payload);
         return;
@@ -349,17 +380,17 @@ function on(event, handler) {
       // kz:ask 不走路由分支:它必须始终进 handler,按 sessionId 入队
       // (handler 内只在活动会话时弹窗),否则后台 ask 会被丢弃挂死(D-055 根因)。
       if (event !== "kz:ask" && sessionId !== activeSessionId) {        // 控制事件的 UI 副作用不能串到活动线路，但所属线路的历史与自主推进必须执行。
-        if (event === "kz:done" && typeof handleBackgroundSessionDone === "function") {
-          handleBackgroundSessionDone(eventPayload.payload);
+        if (event === "kz:done" && typeof globalThis.handleBackgroundSessionDone === "function") {
+          globalThis.handleBackgroundSessionDone(eventPayload.payload);
         }
         if (event === "kz:stopped" || terminalError) {
           // 后台线路的终态错误同样不得掐掉在途的失败退避重试(上面 retryPending 同源):
           // 后台线更没人看着,一次断网就永久停摆。in-flight 标记照旧释放——重试那一枪
           // 到点后才发得出去。
-          if (!retryPending && typeof cancelAutoContinueTimer === "function") cancelAutoContinueTimer(sessionId);
+          if (!retryPending && typeof globalThis.cancelAutoContinueTimer === "function") globalThis.cancelAutoContinueTimer(sessionId);
           if (typeof releaseAutoContinue === "function") releaseAutoContinue(sessionId);
         }
-        if (typeof refreshConversationLists === "function") void refreshConversationLists();
+        if (typeof globalThis.refreshConversationLists === "function") void globalThis.refreshConversationLists();
         refreshProcesses();
         log(`${t("后台会话控制事件已路由")}:${event} ${sessionId}`);
         return;
@@ -370,11 +401,12 @@ function on(event, handler) {
     log(`${t("事件订阅失败")} ${event}: ${err} — ${t("界面将收不到运行事件,请反馈")}`, "err");
     $("log-panel").classList.remove("hidden");
   });
+  }, 0);
 }
 
 // D-387:手机消息到达桌面——标记对应会话有未读新消息(打开会话即见持久化消息)。
 // 轻量:只 log 提示,不打断当前界面;会话列表已由 kz:mobile-message 刷新。
-function handleMobileMessage(payload) {
+export function handleMobileMessage(payload) {
   const sessionId = payload?.session_id;
   if (!sessionId) return;
   const text = payload?.text || "";
@@ -390,12 +422,25 @@ on("kz:experience", (eventPayload) => {
   handleExperienceEvent(eventPayload.payload);
 });
 
-const $ = (id) => document.getElementById(id);
+export const $ = (id) => document.getElementById(id);
+// R-264 ESM:延迟执行——把「模块求值期跨模块顶层调用」推迟到全部模块求值完成
+// (DOMContentLoaded)。classic 下 DOM 已就绪(readyState 非 loading)立即执行,no-op;
+// ESM 下循环依赖的求值顺序不保证提供方先就绪,直接顶层调用会 TDZ。与浏览器
+// `<script type="module">` 的 deferred 语义一致。
+export function defer(fn) {
+  if (typeof document !== "undefined" && document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", fn);
+  } else {
+    // ESM 模块求值可能仍处于循环依赖图中；即使 DOM 已就绪，也必须跨过当前求值栈，
+    // 让所有 provider 的 lexical binding 先完成初始化，避免回调读取 import 时撞 TDZ。
+    setTimeout(fn, 0);
+  }
+}
 // D-418:统一确认弹窗(替代浏览器原生 window.confirm)。
 // options: { title, message, list?: string[], okText?, danger?: boolean }
 // 返回 Promise<boolean>;确认 resolve(true),取消/Esc/遮罩 resolve(false)。
 // 与应用自定义弹窗体系(ask/viewer)同构,可承载清单与风险分级(R-245 删除弹窗规范)。
-function confirmDialog(options) {
+export let confirmDialog = function confirmDialog(options) {
   return new Promise((resolve) => {
     const overlay = $("confirm-overlay");
     const ok = $("confirm-ok");
@@ -441,9 +486,11 @@ function confirmDialog(options) {
   });
 }
 // D-420:WebView2 不提供 window.prompt,统一使用应用内输入弹窗。
+export function setConfirmDialog(value) { confirmDialog = value; }
+// D-420:WebView2 不提供 window.prompt,统一使用应用内输入弹窗。
 // options: { title, message?, value?, placeholder?, okText? }
 // 返回 Promise<string|null>;确认返回输入值,取消/Esc/遮罩返回 null。
-function inputDialog(options) {
+export let inputDialog = function inputDialog(options) {
   return new Promise((resolve) => {
     const overlay = $("input-overlay");
     const ok = $("input-ok");
@@ -483,8 +530,10 @@ function inputDialog(options) {
   });
 }
 // localStorage 里的 JSON 可能被手改坏;读不出来就当没有,绝不让偏好读取抛异常
+export function setInputDialog(value) { inputDialog = value; }
+// localStorage 里的 JSON 可能被手改坏;读不出来就当没有,绝不让偏好读取抛异常
 // 把整个初始化带崩。
-function readJson(key, fallback) {
+export function readJson(key, fallback) {
   try {
     const parsed = JSON.parse(localStorage.getItem(key) || "null");
     return parsed && typeof parsed === "object" ? parsed : fallback;
@@ -492,7 +541,7 @@ function readJson(key, fallback) {
     return fallback;
   }
 }
-function writeJson(key, value) {
+export function writeJson(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
@@ -505,8 +554,8 @@ function writeJson(key, value) {
 // 等偏好经 ui_prefs_get/ui_prefs_set 存 ~/.kanzei/app.json;localStorage 仅作
 // 旧值兼容(读时先本地后后端,写时双写)。uiPrefsSave 失败静默——偏好丢失可接受,
 // 不该打断当前操作。
-let uiPrefsCache = null;
-async function uiPrefsLoad() {
+export let uiPrefsCache = null;
+export async function uiPrefsLoad() {
   if (!uiPrefsCache) {
     try {
       uiPrefsCache = (await invoke("ui_prefs_get")) || {};
@@ -516,7 +565,7 @@ async function uiPrefsLoad() {
   }
   return uiPrefsCache;
 }
-async function uiPrefsSave(patch) {
+export async function uiPrefsSave(patch) {
   try {
     await invoke("ui_prefs_set", patch);
     if (uiPrefsCache) uiPrefsCache = { ...uiPrefsCache, ...patch };
@@ -528,7 +577,7 @@ async function uiPrefsSave(patch) {
 // R-184 P2:子代理角色名 → 确定性强调色(0-4)。活动面板角色色点与主对话折叠组共用,
 // 只做确定性映射(同一角色刷新不变),不承诺语义排序;角色名文本是主标识,颜色是辅助
 // (design §2.2 不得只靠颜色区分)。
-function agentRoleAccent(role) {
+export function agentRoleAccent(role) {
   if (!role) return 0;
   let sum = 0;
   for (let i = 0; i < role.length; i += 1) sum = (sum * 31 + role.charCodeAt(i)) >>> 0;
@@ -538,7 +587,7 @@ function agentRoleAccent(role) {
 // R-267:`messages` 只是**滚动容器**;消息本体挂在它下面的 per-session pane 里。
 // 这个分工是整个改造能低风险落地的关键——滚动/跟随/复制那几处照旧读 `messages`,
 // 一行不用改;只有「往哪儿追加」换成 activePane。
-const messages = $("messages");
+export const messages = $("messages");
 
 // ---------- R-267:每会话渲染面 ----------
 //
@@ -549,15 +598,16 @@ const messages = $("messages");
 //
 // 改造后:每个会话一个 pane,事件永远渲染进**自己那个** pane,切线只是换显示。
 // 缺口消失、切换零重渲染、sessionDomCache 整个不需要了。
-const messagePanes = new Map();
+export const messagePanes = new Map();
 /// pane 保活上限。超出后淘汰最久未访问的(仅**非运行中**会话),下次切回按
 /// loadConversation 重建——退化成改造前的行为,而不是退回「有缺口」。
 /// 上限取小是因为消息本体没有窗口化(批2 前一个会话可到 993 条/1665 个 part),
 /// 多个长会话的 pane 常驻会把内存放大。批2 落地后可以调大。
-const MESSAGE_PANE_MAX = 4;
-let activePane = messages.querySelector(".msg-pane");
+export const MESSAGE_PANE_MAX = 4;
+export let activePane = messages.querySelector(".msg-pane");
+export function setActivePane(value) { activePane = value; }
 
-function paneFor(sessionId) {
+export function paneFor(sessionId) {
   const key = sessionId || "";
   let pane = messagePanes.get(key);
   if (!pane) {
@@ -576,7 +626,7 @@ function paneFor(sessionId) {
 
 /// 切到某个会话的 pane:隐藏旧的、显示新的。**不重建 DOM**。
 /// 返回 true = 该 pane 已有内容(切回来即见),false = 新建的空 pane(调用方需要装历史)。
-function showPane(sessionId) {
+export function showPane(sessionId) {
   const pane = paneFor(sessionId);
   if (activePane && activePane !== pane) {
     activePane.classList.add("hidden");
@@ -602,13 +652,13 @@ function showPane(sessionId) {
 ///
 /// 这里给实时面加上界:超过 PANE_LIVE_MAX 就从**头部**砍到 PANE_LIVE_KEEP。被砍掉的
 /// 只是本地视图,消息本身在后端对话历史里,切走再切回按 loadConversation 重建。
-const PANE_LIVE_MAX = 600;
-const PANE_LIVE_KEEP = 400;
+export const PANE_LIVE_MAX = 600;
+export const PANE_LIVE_KEEP = 400;
 
 /// 往当前 pane 追加消息节点。顺手打上「有内容」标志——切回时靠它判断是否需要装载,
 /// 而不是去数子节点或找 .empty-state:空状态本身也是子节点,而冒烟的假 DOM 对
 /// 类选择器支持有限,判空一旦不准就会把「已有完整内容」误判成「空 pane」再重建一遍。
-function appendToPane(node) {
+export function appendToPane(node) {
   activePane.dataset.hasContent = "1";
   activePane.appendChild(node);
   trimLivePane(activePane);
@@ -619,9 +669,9 @@ function appendToPane(node) {
 /// 用户翻上去读历史时,允许暂时超出上界多少倍。上界本身是为了让主线程不被布局
 /// 吃掉;而**正在读的人**比那点布局更重要,所以读历史期间不裁,等他滚回底部再补。
 /// 但也不能无限让步——挂在半空的会话照样会把内存和布局拖垮,所以给一个硬顶。
-const PANE_LIVE_HARD_MAX = PANE_LIVE_MAX * 3;
+export const PANE_LIVE_HARD_MAX = PANE_LIVE_MAX * 3;
 
-function trimLivePane(pane) {
+export function trimLivePane(pane) {
   if (!pane || typeof pane.children?.length !== "number") return;
   // renderMessagesInto 会把 activePane 临时换成一个**游离的 holder** 再渲染
   // (15-views-misc.js),补齐一窗历史时那个 holder 可能有上千个节点。在游离节点上
@@ -688,7 +738,7 @@ function trimLivePane(pane) {
   if (typeof renderTrimmedHint === "function") renderTrimmedHint(pane);
 }
 /// 清空当前 pane 并复位「有内容」标志。
-function resetPane() {
+export function resetPane() {
   activePane.replaceChildren();
   delete activePane.dataset.hasContent;
   // 清 pane 就等于把折叠组的 DOM 一起清了;缓存里的引用不清,后续子代理工具块
@@ -700,7 +750,7 @@ function resetPane() {
 
 /// 超出上限时淘汰最久未访问的 pane。**运行中的会话永不淘汰**——它正在往里写,
 /// 淘汰了就等于把缺口又造回来。
-function evictStalePanes() {
+export function evictStalePanes() {
   if (messagePanes.size <= MESSAGE_PANE_MAX) return;
   const candidates = [...messagePanes.entries()]
     .filter(([id, pane]) => pane !== activePane && !(typeof sessionLiveNow === "function" && sessionLiveNow(id)))
@@ -723,8 +773,8 @@ function evictStalePanes() {
 // **取回**。渲染函数照旧读写全局,语义不变;代价只是一次存取。这比把 sessionId
 // 一路穿进 addMessage/appendAssistant/chatToolStart 要小一个数量级,也不会在
 // 调用链上留下几十个「这个 id 是哪来的」。
-const sessionStreams = new Map();
-function streamStateFor(sessionId) {
+export const sessionStreams = new Map();
+export function streamStateFor(sessionId) {
   const key = sessionId || "";
   let state = sessionStreams.get(key);
   if (!state) {
@@ -733,7 +783,7 @@ function streamStateFor(sessionId) {
   }
   return state;
 }
-function dropSessionStream(sessionId) {
+export function dropSessionStream(sessionId) {
   sessionStreams.delete(sessionId || "");
 }
 
@@ -742,8 +792,8 @@ function dropSessionStream(sessionId) {
 /// 后台渲染进行中。事件 handler 里混着**全局 UI**副作用(状态栏文案、首响应计时),
 /// 那些只属于活动会话——后台会话触发它们就会把别人的状态盖在当前线上。
 /// 用一个标志让那几处自我屏蔽,比把 sessionId 穿进每个 handler 便宜得多。
-let renderingBackground = false;
-function withSessionRender(sessionId, fn) {
+export let renderingBackground = false;
+export function withSessionRender(sessionId, fn) {
   if (!sessionId || sessionId === activeSessionId) return fn();
   const state = streamStateFor(sessionId);
   const savedPane = activePane;
@@ -754,12 +804,12 @@ function withSessionRender(sessionId, fn) {
   const savedFolds = chatAgentFolds;
   renderingBackground = true;
   activePane = paneFor(sessionId);
-  currentAssistant = state.assistant;
-  currentReasoning = state.reasoning;
-  currentReasoningHead = state.reasoningHead;
+  setCurrentAssistant(state.assistant);
+  setCurrentReasoning(state.reasoning);
+  setCurrentReasoningHead(state.reasoningHead);
   // 子代理折叠组表也必须跟着换会话。不换的话,后台线的 task 工具块会被
   // appendChild 进前台线对话里的同名组头——用户在 A 线看见自己没派过的调用。
-  chatAgentFolds = state.folds;
+  setChatAgentFolds(state.folds);
   try {
     return fn();
   } finally {
@@ -767,15 +817,15 @@ function withSessionRender(sessionId, fn) {
     state.reasoning = currentReasoning;
     state.reasoningHead = currentReasoningHead;
     state.folds = chatAgentFolds;
-    chatAgentFolds = savedFolds;
+    setChatAgentFolds(savedFolds);
     renderingBackground = savedBackground;
     activePane = savedPane;
-    currentAssistant = savedAssistant;
-    currentReasoning = savedReasoning;
-    currentReasoningHead = savedHead;
+    setCurrentAssistant(savedAssistant);
+    setCurrentReasoning(savedReasoning);
+    setCurrentReasoningHead(savedHead);
   }
 }
-const promptBox = $("prompt");// R-260:process_list 定时轮询。01-core 事件处理与 09-sessions 的 renderProcesses
+export const promptBox = $("prompt");// R-260:process_list 定时轮询。01-core 事件处理与 09-sessions 的 renderProcesses
 // 校正逻辑都假定「下一次 process_list 轮询」会兜底事件丢失与列表结构变化(外部创建/
 // 注销进程、Tauri 事件偶发丢失),但轮询定时器从未实现——侧边栏任务列表只能靠事件
 // 投影 + 用户操作刷新,事件一丢或列表结构一变就滞留到下一次手动操作。3s 一轮:
@@ -789,10 +839,10 @@ const promptBox = $("prompt");// R-260:process_list 定时轮询。01-core 事�
 // 实现上保留**单个** setInterval 跳拍,而不是按需重排的递归 setTimeout:后者每次
 // 触发都新建一个定时器,冒烟 harness 的「排空待处理定时器」会因此自我续命(实测三条
 // 断言被搅红)。跳拍方案对外只是"少调几次",定时器身份与节拍都不变。
-const PROCESS_POLL_MS = 3000;
-const PROCESS_POLL_IDLE_EVERY = 5; // 空闲时每 5 拍拉一次 = 15s
-let processPollTick = 0;
-function anySessionBusy() {
+export const PROCESS_POLL_MS = 3000;
+export const PROCESS_POLL_IDLE_EVERY = 5; // 空闲时每 5 拍拉一次 = 15s
+export let processPollTick = 0;
+export function anySessionBusy() {
   // 取状态机而不是上一次轮询的 item.running:新一轮由 kz:turn 立刻拨到 running,
   // 不必等下一次轮询才把节律提上来。auto_pending 也算忙——鞭挞正等着下一轮。
   if (typeof sessionStates === "undefined") return false;

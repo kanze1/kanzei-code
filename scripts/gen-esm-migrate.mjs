@@ -14,7 +14,7 @@ const dryRun = process.argv.includes("--dry-run");
 // 依赖图(由 gen-esm-graph.mjs --write 生成)。
 // file -> { imports: { symbol: sourceFile } }
 const graph = JSON.parse(fs.readFileSync(path.join(here, "ui-esm-graph.json"), "utf8")).graph;
-const uiFiles = fs.readdirSync(uiDir).filter((file) => file.endsWith(".js")).sort();
+const uiFiles = fs.readdirSync(uiDir).filter((file) => file.endsWith(".js") && file !== "06-agent-panel.js").sort();
 const graphFiles = Object.keys(graph).sort();
 const missingFromGraph = uiFiles.filter((file) => !graphFiles.includes(file));
 const staleGraphEntries = graphFiles.filter((file) => !uiFiles.includes(file));
@@ -31,10 +31,13 @@ if (missingFromGraph.length > 0 || staleGraphEntries.length > 0) {
 
 function addExports(src) {
   const lines = src.split(/\r?\n/);
+  // 已有完整的尾部 named export 列表时，保持人工/既有列表，避免再次生成重复导出。
+  // R-331/D-694：04-markdown、21-palette 的旧列表与逐项 export 候选重叠。
+  const hasNamedExportList = /(?:^|\n)\s*export\s*\{/.test(src);
   let changed = 0;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
-    if (/^\s/.test(line) || /^export\b/.test(line)) continue;
+    if (hasNamedExportList || /^\s/.test(line) || /^export\b/.test(line)) continue;
     if (
       line.match(/^(?:async\s+)?function\s+[A-Za-z_$][\w$]*/) ||
       line.match(/^class\s+[A-Za-z_$][\w$]*/) ||

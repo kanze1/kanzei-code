@@ -1,9 +1,38 @@
-function formatWorkspaceTime(value) {
+import { defer } from "./01-core.js";
+import { localizeDynamic } from "./02-i18n.js";
+import { $, invoke } from "./01-core.js";
+import { applyLanguage, localizedDocStatus, t } from "./02-i18n.js";
+import {
+  activeProcessId,
+  activeSessionId,
+  currentProject,
+  log,
+  processItems,
+  running,
+  toastError,
+} from "./03-shell.js";
+import { selectedWorkPriority } from "./08-auto.js";
+import { state } from "./08-compose.js";
+import { enterProject } from "./09-sessions.js";
+import {
+  NEUTRAL_DOC_FILTERS,
+  entryBlocked,
+  openDocumentsView,
+  saveDocFilters,
+  syncTagFilter,
+} from "./10-docs-core.js";
+import { consumePendingJump, jumpToEntry, renderDocList, syncBatchBar } from "./11-docs-list.js";
+import { renderIncidentMetrics } from "./13-memory.js";
+import { refreshDocs } from "./14-docs-actions.js";
+import { renderConventions } from "./15-views-misc.js";
+import { collaborationLines, renderLineWorkItemOptions } from "./20-lines.js";
+
+export function formatWorkspaceTime(value) {
   if (!value) return t("暂无时间");
   return new Date(Number(value)).toLocaleString();
 }
 
-async function selectWorkspaceProject(path) {
+export async function selectWorkspaceProject(path) {
   try {
     // D-355:Workspace 卡片与文档页下拉复用同一切换事务(enterProject)——
     // 目标 process_list → active session → conversation_get 原子链一致。
@@ -14,8 +43,8 @@ async function selectWorkspaceProject(path) {
   }
 }
 
-let lastWorkspaceSnapshot = null;
-function renderWorkspace(snapshot) {
+export let lastWorkspaceSnapshot = null;
+export function renderWorkspace(snapshot) {
   lastWorkspaceSnapshot = snapshot;
   const root = $("workspace-projects");
   root.replaceChildren();
@@ -100,35 +129,36 @@ function renderWorkspace(snapshot) {
   }
 }
 
-async function refreshWorkspace() {
+export async function refreshWorkspace() {
   try {
     renderWorkspace(await invoke("workspace_snapshot"));
   } catch (error) {
     toastError(`${t("工作区刷新失败")}:${error}`, { retry: refreshWorkspace });
   }
 }
-let documentsKind = "req";
-let latestDocsSnapshot = null;
+export let documentsKind = "req";
+export function setDocumentsKind(v) { documentsKind = v; }
+export let latestDocsSnapshot = null;
 // 每队按项目持久化的筛选字段与它们的默认值,全仓只此一份:documentFilters 的初值、
 // saveDocFilters 的落盘字段表、restoreDocFilters 换项目时的复位,三处共用。写第二份
 // 默认值迟早会漂(docstore.rs 的注释专门写过这个教训),漂了就是"存了却复位不到"。
 // grouped 不在这里:它按 kz-grouped-docs 全局记、不随项目走(见 bindGroupToggle),
 // 换项目时不该被复位。
-const DOC_FILTER_DEFAULTS = Object.freeze({
+export const DOC_FILTER_DEFAULTS = Object.freeze({
   req: Object.freeze({ status: "all", priority: "all", complexity: "all", tag: "all", blocked: "all", sort: "manual" }),
   defect: Object.freeze({ status: "all", priority: "all", tag: "all", blocked: "all" }),
 });
-const documentFilters = {
+export const documentFilters = {
   req: { ...DOC_FILTER_DEFAULTS.req, grouped: localStorage.getItem("kz-grouped-docs") !== "0" },
   defect: { ...DOC_FILTER_DEFAULTS.defect, grouped: localStorage.getItem("kz-grouped-docs") !== "0" },
 };
-const documentStatusOptions = {
+export const documentStatusOptions = {
   req: [["all", "全部状态"], ["todo", "todo"], ["doing", "doing"], ["done", "done"], ["dropped", "dropped"]],
   defect: [["all", "全部状态"], ["open", "open"], ["fixing", "fixing"], ["fixed", "fixed"], ["wontfix", "wontfix"]],
 };
 // 取活口径的合法 lifecycle:从状态筛选选项派生,不再抄第三份状态表。
 // 与引擎 DocKind.statuses(crates/kanzei-memory/src/docstore.rs)逐字对应。
-const DOC_LIFECYCLE_STATUSES = Object.freeze(Object.fromEntries(
+export const DOC_LIFECYCLE_STATUSES = Object.freeze(Object.fromEntries(
   Object.entries(documentStatusOptions).map(([kind, options]) => [
     kind,
     Object.freeze(options.map(([value]) => value).filter((value) => value !== "all")),
@@ -139,7 +169,7 @@ const DOC_LIFECYCLE_STATUSES = Object.freeze(Object.fromEntries(
 // 注意适用范围:这是 **applyDocFilter(用户主动调控件)** 的写入目标。
 // syncDocumentFilters 的回填/纠正**不得**照着它跨队列写——那条路径上用户什么都没做,
 // 只是切了个标签页,写下去就是"看一眼就改掉状态"(见 syncDocumentFilters 里标签那段)。
-function docFilterTargets() {
+export function docFilterTargets() {
   // 测试记录没有筛选口径:documentFilters 里没有 "tests" 这一档,返回空让 applyDocFilter
   // 与筛选回填统统空转,而不是拿 undefined 去读 .status 把整条渲染链炸掉。
   if (documentsKind === "tests") return [];
@@ -154,7 +184,7 @@ function docFilterTargets() {
 // 只覆盖状态里**确实存在**的键,不凭空造键:缺陷队列没有复杂度/排序口径,凭空写进去
 // 会让锁提示列出一个 docDragEnabled 根本不看的条件(D-211 反向脱节)。
 // 返回值与渲染、拖拽判定共用同一个对象——"列表完不完整"和"能不能拖"必须同源。
-function neutralizedDocFilters(state) {
+export function neutralizedDocFilters(state) {
   if (!state) return NEUTRAL_DOC_FILTERS;
   const overrides = {};
   // 对照页两队状态机不同,状态筛选只提供「全部」,渲染必须跟着中性。
@@ -183,7 +213,7 @@ function neutralizedDocFilters(state) {
   for (const field of changed) copy[field] = overrides[field];
   return copy;
 }
-function syncDocumentFilters(snapshot) {
+export function syncDocumentFilters(snapshot) {
   const statusFilter = $("documents-status-filter");
   const priorityFilter = $("documents-priority-filter");
   const complexityFilter = $("documents-complexity-filter");
@@ -267,7 +297,7 @@ function syncDocumentFilters(snapshot) {
     saveDocFilters();
   }
 }
-function renderDocuments(snapshot) {
+export function renderDocuments(snapshot) {
   latestDocsSnapshot = snapshot;
   if (typeof renderLineWorkItemOptions === "function") renderLineWorkItemOptions(snapshot);
   // tab 直调不经 renderDocsSnapshot,work-priority 可能刚切过——重算一次,幂等。
@@ -322,8 +352,9 @@ function renderDocuments(snapshot) {
 // 高亮它的依赖链——向上(它依赖谁)与向下(谁依赖它),整条链一眼可读。
 // 数据来自批1 的 docs_snapshot 每条目 dependencies/dependents 字段(「依赖:」语义,
 // refs 不参与),与引擎取活/阻塞判断同源,不做第二套解析。
-let dependencyViewOpen = false;
-function renderDependencyView(snapshot) {
+export let dependencyViewOpen = false;
+export function setDependencyViewOpen(v) { dependencyViewOpen = v; }
+export function renderDependencyView(snapshot) {
   const depView = $("documents-dep-view");
   const toggle = $("documents-dep-toggle");
   if (!depView || !toggle) return;
@@ -399,7 +430,7 @@ function renderDependencyView(snapshot) {
     depView.appendChild(empty);
   }
 }
-function highlightDependencyChain(clicked, entry, byId) {
+export function highlightDependencyChain(clicked, entry, byId) {
   const depView = $("documents-dep-view");
   if (!depView) return;
   const rows = [...depView.querySelectorAll(".dep-entry")];
@@ -438,31 +469,31 @@ function highlightDependencyChain(clicked, entry, byId) {
 // 取活焦点按**线路**计算。项目文档快照仍是共享真源,但 claimed_by 将条目归到
 // 具体分支线;默认线则只消费未被分支线取得的条目。运行证据也按 session_id 保存,
 // 避免切线后上一条线的运行焦点留在当前侧栏。
-let agentFocus = { active: null, activeSource: null };
-const runtimeFocusBySession = new Map();
-const lineAgentFocusByProcessId = new Map();
-function activeProcessItem() {
+export let agentFocus = { active: null, activeSource: null };
+export const runtimeFocusBySession = new Map();
+export const lineAgentFocusByProcessId = new Map();
+export function activeProcessItem() {
   return typeof processItems !== "undefined"
     ? processItems.find((item) => item.id === activeProcessId) ?? null
     : null;
 }
-function setRuntimeFocus(id, sessionId = activeSessionId) {
+export function setRuntimeFocus(id, sessionId = activeSessionId) {
   if (sessionId && id) runtimeFocusBySession.set(sessionId, { id, stale: false });
 }
 // 轮开始不再删除运行证据,只降级为「上轮遗留」:一轮的前半段(勘察/写码/测试)
 // 不会产生任何 tracker/提交事件,删掉就是每轮开头一段"未取得条目"的空窗,
 // 面板看起来像不刷新。上轮条目仍是最好的猜测,新证据到达时自然覆盖。
-function markRuntimeFocusStale(sessionId = activeSessionId) {
+export function markRuntimeFocusStale(sessionId = activeSessionId) {
   const focus = sessionId ? runtimeFocusBySession.get(sessionId) : null;
   if (focus) focus.stale = true;
 }
-function processIsPrimary(process) {
+export function processIsPrimary(process) {
   return !process
     || process.authority === "primary"
     || process.id?.startsWith("d|")
     || (!process.authority && !process.worktree_path);
 }
-function focusEntriesForProcess(snapshot, process) {
+export function focusEntriesForProcess(snapshot, process) {
   const entries = [...(snapshot?.requirements ?? []), ...(snapshot?.defects ?? [])];
   if (!process) return entries;
   const branch = String(process.branch ?? "").trim();
@@ -473,7 +504,7 @@ function focusEntriesForProcess(snapshot, process) {
     ? entries.filter((entry) => String(entry.claimed_by ?? "").trim() === branch)
     : [];
 }
-function computeAgentFocus(snapshot, sessionId = activeSessionId, process = null) {
+export function computeAgentFocus(snapshot, sessionId = activeSessionId, process = null) {
   // activeSource:焦点卡片要能说出「凭什么指这一条」——runtime = 本轮运行证据命中,
   // order = 按取活序推断,claim = 线路取得事实,null = 没有在做的条目。
   const focus = { active: null, activeSource: null };
@@ -514,7 +545,7 @@ function computeAgentFocus(snapshot, sessionId = activeSessionId, process = null
   return focus;
 }
 
-function computeLineAgentFocuses(snapshot) {
+export function computeLineAgentFocuses(snapshot) {
   const lines = typeof processItems !== "undefined" && processItems.length ? processItems : [null];
   lineAgentFocusByProcessId.clear();
   return lines.map((line) => {
@@ -523,13 +554,13 @@ function computeLineAgentFocuses(snapshot) {
     return { line, focus };
   });
 }
-function focusForProcess(processId) {
+export function focusForProcess(processId) {
   return lineAgentFocusByProcessId.get(processId) ?? null;
 }
 
 // ---------- 侧栏焦点卡片(按线路显示各自当前条目) ----------
 // 数据全部来自 docs_snapshot + 当前 process_list,不把一条线路的运行事实投影到另一条。
-function focusEntryOf(snapshot, id) {
+export function focusEntryOf(snapshot, id) {
   if (!id) return null;
   const req = (snapshot?.requirements ?? []).find((entry) => entry.id === id);
   if (req) return { entry: req, kind: "req" };
@@ -537,14 +568,14 @@ function focusEntryOf(snapshot, id) {
   if (defect) return { entry: defect, kind: "defect" };
   return null;
 }
-function focusMetaChip(text, title) {
+export function focusMetaChip(text, title) {
   const chip = document.createElement("span");
   chip.className = "focus-chip";
   chip.textContent = text;
   if (title) chip.title = title;
   return chip;
 }
-function buildFocusCard(entry, kind, focusSource = agentFocus.activeSource) {
+export function buildFocusCard(entry, kind, focusSource = agentFocus.activeSource) {
   const card = document.createElement("div");
   const pri = (entry.priority || "").toUpperCase();
   const blocked = entryBlocked(entry);
@@ -702,7 +733,7 @@ function buildFocusCard(entry, kind, focusSource = agentFocus.activeSource) {
 // 口径**逐条复刻引擎** backlog_status(crates/kanzei-tools/src/tracker/scheduling.rs),
 // 前端一个字都不另造:closed 是后端按 DocKind.terminal 判的,blocked 是
 // schedule_for_display 的 !block_reasons.is_empty(),与 kz work next 同源。
-function backlogTally(entries, kind) {
+export function backlogTally(entries, kind) {
   const legal = DOC_LIFECYCLE_STATUSES[kind] ?? [];
   const tally = { active: 0, workable: 0, blocked: 0, invalid: 0 };
   for (const entry of entries) {
@@ -719,7 +750,7 @@ function backlogTally(entries, kind) {
 }
 // 一个「标签 数字」对。标签挂 data-i18n-key 交给 applyDataI18nKeys 就地翻译,
 // 不依赖 refreshDocs 重渲——切语言时侧栏未必在文档视图里,拿不到那次刷新。
-function backlogStat(labelKey, value, cls) {
+export function backlogStat(labelKey, value, cls) {
   const stat = document.createElement("span");
   stat.className = `backlog-stat ${cls}`;
   const label = document.createElement("span");
@@ -732,7 +763,7 @@ function backlogStat(labelKey, value, cls) {
   stat.append(label, num);
   return stat;
 }
-function backlogRow(kindKey, kind, tally) {
+export function backlogRow(kindKey, kind, tally) {
   const row = document.createElement("div");
   row.className = "backlog-row";
   row.dataset.kind = kind;
@@ -747,7 +778,7 @@ function backlogRow(kindKey, kind, tally) {
   );
   return row;
 }
-function renderFocusPanel(snapshot) {
+export function renderFocusPanel(snapshot) {
   const body = $("focus-body");
   if (!body) return;
   agentFocus = computeAgentFocus(snapshot, activeSessionId, activeProcessItem());
@@ -850,7 +881,7 @@ function renderFocusPanel(snapshot) {
 }
 
 /// 只重绘文档列表与计数(不含历史/测试/工作树):供运行中高频刷新使用。
-function renderDocsSnapshot(snapshot) {
+export function renderDocsSnapshot(snapshot) {
   agentFocus = computeAgentFocus(snapshot, activeSessionId, activeProcessItem());
   renderFocusPanel(snapshot);
   renderDocList($("idea-list"), snapshot.ideas ?? [], "idea", snapshot.archived?.idea ?? 0, NEUTRAL_DOC_FILTERS, snapshot.archived_entries?.idea ?? []);

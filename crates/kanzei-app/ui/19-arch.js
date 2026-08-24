@@ -1,11 +1,17 @@
+import { defer } from "./01-core.js";
+import { $, invoke } from "./01-core.js";
+import { t } from "./02-i18n.js";
+import { currentProject, toastError } from "./03-shell.js";
+import { openDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
+
 // ---------- R-122 架构浏览:索引 + 设计文档树可视化 ----------
 // 数据来自 architecture_snapshot(只读):架构索引文本 + docs/design 文档清单。
 // 文档树按「索引状态」分层——索引里出现的归入其所在章节,未入册的单独列出,
 // 让「有文档没入册」(D-173 类缺口)在界面上直接可见。点击文档/索引走应用内
 // Markdown 查看器(openDocViewer 既有能力),不重复造查看器。
-let latestArchSnapshot = null;
+export let latestArchSnapshot = null;
 
-async function refreshArch() {
+export async function refreshArch() {
   if (!currentProject) {
     $("arch-tree").textContent = t("先选择一个项目");
     return;
@@ -20,7 +26,7 @@ async function refreshArch() {
   }
 }
 
-function renderArch(snap) {
+export function renderArch(snap) {
   const tree = $("arch-tree");
   tree.replaceChildren();
   // R-188:架构图(代码生成的 SVG 依赖图)渲染在图容器;任何异常(旧环境/桩
@@ -110,7 +116,7 @@ function renderArch(snap) {
 
 // 打开设计文档/索引:docs_read_custom 读取 docs/ 下任意 md(只读),
 // 架构索引走既有 docs_read("architecture")。
-async function openArchDoc(name) {
+export async function openArchDoc(name) {
   try {
     if (name === "README.md") {
       openDocViewer("architecture");
@@ -126,18 +132,24 @@ async function openArchDoc(name) {
   }
 }
 
-$("arch-refresh").addEventListener("click", refreshArch);
-$("arch-open-index").addEventListener("click", () => openDocViewer("architecture"));
+defer(() => {
+  $("arch-refresh").addEventListener("click", refreshArch);
+});
+defer(() => {
+  $("arch-open-index").addEventListener("click", () => openDocViewer("architecture"));
+});
 // 批3:记忆管理入口——跳转记忆页触达既有 memory_* 维护命令(编辑/整理/重心设置)。
 // 复用导航栏 memory 按钮的既有切换逻辑,不重复实现视图激活。
-$("arch-goto-memory").addEventListener("click", () => {
-  const memoryBtn = document.querySelector('.activity-item[data-view="memory"]');
-  if (memoryBtn) memoryBtn.click();
-  else document.querySelectorAll(".view").forEach((v) => v.classList.remove("active")), $("view-memory").classList.add("active");
-});$("arch-goto-memory").addEventListener("click", () => {
-  const memoryBtn = document.querySelector('.activity-item[data-view="memory"]');
-  if (memoryBtn) memoryBtn.click();
-  else document.querySelectorAll(".view").forEach((v) => v.classList.remove("active")), $("view-memory").classList.add("active");
+defer(() => {
+  $("arch-goto-memory").addEventListener("click", () => {
+    const memoryBtn = document.querySelector('.activity-item[data-view="memory"]');
+    if (memoryBtn) memoryBtn.click();
+    else document.querySelectorAll(".view").forEach((v) => v.classList.remove("active")), $("view-memory").classList.add("active");
+  });$("arch-goto-memory").addEventListener("click", () => {
+    const memoryBtn = document.querySelector('.activity-item[data-view="memory"]');
+    if (memoryBtn) memoryBtn.click();
+    else document.querySelectorAll(".view").forEach((v) => v.classList.remove("active")), $("view-memory").classList.add("active");
+  });
 });
 
 // ---------- R-188 架构图:代码生成的 SVG 依赖图 ----------
@@ -145,7 +157,7 @@ $("arch-goto-memory").addEventListener("click", () => {
 // 抽取,纯代码生成,非文生图/预置图)。自绘 SVG(零外部依赖,桌面端离线可用):
 // 每 crate 一个节点,依赖边从上向下指;节点可点击定位到对应 crate。图数据为空
 // 或渲染异常时隐藏,降级为既有文字树(不空白)。
-function renderArchGraph(graph) {
+export function renderArchGraph(graph) {
   const host = $("arch-graph");
   if (!host) return;
   try {
@@ -255,7 +267,7 @@ function renderArchGraph(graph) {
 
 // R-188 验收④:图上节点点击定位——crate 无对应设计文档时打开其 Cargo.toml
 // 说明(经 docs_read_custom 只读),有同名设计文档则打开文档。
-async function openArchCrate(crate) {
+export async function openArchCrate(crate) {
   const docName = `${crate}.md`;
   try {
     const file = await invoke("docs_read_custom", {

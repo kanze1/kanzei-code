@@ -4340,3 +4340,20 @@
 - observed_head: 8b7e484ac267139f81d0258cce935635f93ffa95
 - observed_worktree_hash: fnv1a64:b8b1eeb579448a3e
 - recorded_at: 1787322242786
+
+## R-331 R-264 后续：ESM 显式 import 与 globals 补偿收口 [done]
+- 内容: 承接 R-264 批1-B10 已完成的 harness 重建与渐进 ESM 入口迁移，完成剩余最终收口：把设计文档 §三 的 10 处顶层跨文件读与 6 处 typeof 守卫逐条改成真实显式 import/可写 setter；移除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验，并将 eslint.config.js sourceType 改为 module。不得迁移未加载的历史提示文件 06-agent-panel.js，不改 vendor、业务行为或引入打包器。
+- 发现记录: {"Intent":"完成原生 ESM 迁移最终收口","Explicit":"补齐10处顶层跨文件读、6处typeof守卫、删除globals补偿并切换eslint module","Assumptions":"R-264 B1-B10 与 T-1786922726764 仍是当前基线；渐进globalThis桥只在classic提供方尚未迁移期间存在","Ambiguities":"现有graph覆盖27个js且包含未加载历史提示文件；设计文档统计的44处守卫与本条点名6处的口径需以当前代码和验收表逐条对账","领域对象":"ui/*.js、index.html、scripts/ui-runtime-smoke.mjs、globals生成/清单、eslint.config.js","最小成功闭环":"所有实际加载UI模块可由ESM显式依赖连接，六条冒烟保留逐文件TDZ能力并全部通过，globals补偿删除后lint仍可运行","延后决策":"不引入打包器/TypeScript；未能在本后续条目内完成的深层循环依赖另开条目，不以兼容桥永久替代显式import"}
+- 复杂度: 大
+- 来源: 用户原话“继续推进，规则按系统提示执行”；承接 R-264 未完成验收⑤/⑥。
+- 标签: 前端
+- 验收: ①设计文档 §三 表格中的 10 处顶层跨文件读逐条改为真实显式 import，并覆盖 activeSessionId、promptBox、t、bgFilters/documentFilters/applyBatch、createWorktreeLine 等列出的依赖；②6 处 typeof X 守卫逐条改为显式 import 或等价的模块存在性判断，禁止继续依赖未定义裸标识符的 typeof 语义；③删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验，eslint.config.js 使用 sourceType: "module"；④每个迁移单元后运行六条前端冒烟，最终 graph 覆盖实际加载模块且 UI runtime、DOM、console 均通过；⑤保留浏览器逐文件执行与 TDZ 断言，06-agent-panel.js 仅作历史路径提示不纳入迁移。
+- refs: R-264
+- 优先级: P2
+- 取活依据: engine:唯一可执行 WIP 是 R-331，必须先恢复它
+- 批次: 4/4
+- 批次表: B1 对账 10 处顶层读与 6 处守卫；B2 实现跨模块显式 import/setter 并迁移实际加载单元；B3 删除 globals 补偿并切换 ESLint module；B4 最终 graph/TDZ/六条冒烟与真实窗口验收。
+- 进展: B4 完成：①实际加载入口 `crates/kanzei-app/ui/index.html:1169-1194` 全部为 `type="module"`；`scripts/ui-esm-graph.json` 覆盖 27 个实际模块及 activeSessionId、promptBox、t、bgFilters、documentFilters、applyBatch、createWorktreeLine 等关键 import（如 graph:64-80、371、762、978-989、1556）。②跨模块可变状态通过显式 import/setter 收口：`ui/01-core.js:1-29`、`ui/03-shell.js:88-121`、`ui/05-chat-render.js:477-556`、`ui/11-docs-list.js:160-178`、`ui/22-neural-flow.js:8-9`；未定义裸标识符的可选守卫改为 globalThis 存在性判断（`ui/01-core.js:308-393`、`ui/02-i18n.js:1091`），其余 typeof 均为已 import 绑定或宿主 API。③globals 补偿文件已删除：`scripts/gen-ui-lint-globals.mjs`、`scripts/ui-lint-globals.json`、`scripts/ui-lint-globals-config-smoke.mjs`；`scripts/ui-lint-smoke.mjs:1-3` 明确使用真实 ESM import/export；`eslint.config.js:10,90` 为 module，`:69` 是未迁移 mobile-PWA 的既有 script 配置。`ui/04-markdown.js` 已移除无实际 classic 消费者的 globalThis bridge，保持纯 ESM。④六条前端冒烟及全 UI 语法检查记录于 T-1786922726766：runtime 使用 `node --experimental-vm-modules scripts/ui-runtime-smoke.mjs`，27 模块、2348 invoke、0 runtime error；lint、parallel-lines、a11y、i18n、markdown 全部通过。⑤浏览器逐文件/TDZ 断言保留在 `scripts/ui-runtime-smoke.mjs:1241-1423`，真实入口不含 `06-agent-panel.js`（`index.html:1169-1194`）；D-710 的执行器探针缓存问题已修复，纯 Markdown ESM smoke 通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574850962

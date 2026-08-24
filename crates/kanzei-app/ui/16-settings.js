@@ -1,14 +1,31 @@
-// ---------- 设置 ----------
-let settingsProviders = [];
-let languagePreferenceLoaded = null;
-let languagePreferenceDirty = false;
+import { defer } from "./01-core.js";
+import { $, confirmDialog, inputDialog, invoke } from "./01-core.js";
+import { LANGUAGE_PREFERENCES, normalizeLanguagePreference, setLanguagePreference, t } from "./02-i18n.js";
+import {
+  currentProject,
+  playRunNotice,
+  readSoundSettings,
+  saveSoundSettings,
+  toast,
+  toastError,
+} from "./03-shell.js";
+import { fastStatusText } from "./06-activity.js";
+import { state } from "./08-compose.js";
+import { MANUAL_MODEL_SENTINEL } from "./08-models.js";
+import { syncProjectSwitchExpanded } from "./09-sessions.js";
+import { readManualShowPref, refreshManual, saveManualShowPref } from "./15-views-misc.js";
 
-function markLanguagePreferenceDirty() {
+// ---------- 设置 ----------
+export let settingsProviders = [];
+export let languagePreferenceLoaded = null;
+export let languagePreferenceDirty = false;
+
+export function markLanguagePreferenceDirty() {
   languagePreferenceDirty = true;
   syncSettingsDirty();
 }
 
-async function testProvider(provider) {
+export async function testProvider(provider) {
   try {
     const mode = $("set-proxy-mode")?.value;
     const proxy = mode === "custom" ? $("set-proxy-url")?.value.trim() : mode;
@@ -25,7 +42,7 @@ async function testProvider(provider) {
   }
 }
 
-function renderProviders() {
+export function renderProviders() {
   const tbody = document.querySelector("#providers-table tbody");
   tbody.innerHTML = "";
   settingsProviders.forEach((p, index) => {
@@ -149,7 +166,7 @@ function renderProviders() {
   });
 }
 
-async function deletePermissionRule(rule) {
+export async function deletePermissionRule(rule) {
   try {
     await invoke("permission_rule_delete", { projectDir: currentProject, index: rule.index });
     toast(t("已删除权限规则"));
@@ -159,7 +176,7 @@ async function deletePermissionRule(rule) {
   }
 }
 
-function renderPermissionRules(data) {
+export function renderPermissionRules(data) {
   const tbody = $("permission-rules-table").querySelector("tbody");
   tbody.replaceChildren();
   const rules = data?.rules ?? [];
@@ -187,7 +204,7 @@ function renderPermissionRules(data) {
   }
 }
 
-async function loadPermissionRules() {
+export async function loadPermissionRules() {
   if (!currentProject) {
     renderPermissionRules({ rules: [] });
     return;
@@ -202,7 +219,7 @@ async function loadPermissionRules() {
 // D-157:设置页是一张表单,填了不点保存不生效。此前没有任何提示,于是界面显示
 // deepseek、运行却用 anthropic,而报错只说"provider anthropic 需要环境变量",
 // 完全看不出"你以为改了的那个根本没生效"。这里做脏状态可见。
-const SETTINGS_FORM_IDS = [
+export const SETTINGS_FORM_IDS = [
   "language-select",
   "set-primary", "set-fast", "set-compact", "set-profile", "set-reasoning",
   "set-proxy-mode", "set-proxy-url",
@@ -220,9 +237,9 @@ const SETTINGS_FORM_IDS = [
 // 03-shell.js:107 每次进设置页都重跑 loadSettings,把表单整张覆盖回磁盘值:走开一趟
 // 再回来,勾过的开关就悄悄弹回去了,而角标从头到尾没亮过。用户看到的就是
 // "这个开关点了没用"(D-157 那条"界面显示 A、运行用 B"的开关版)。
-const SETTINGS_TOGGLE_IDS = ["set-codex-fast-mode"];
-let settingsSnapshot = "";
-function settingsFingerprint() {
+export const SETTINGS_TOGGLE_IDS = ["set-codex-fast-mode"];
+export let settingsSnapshot = "";
+export function settingsFingerprint() {
   // provider 表格是动态行,单独序列化;它和标量字段一起构成"这张表单当前的样子"。
   const scalars = SETTINGS_FORM_IDS.map((id) => `${id}=${$(id)?.value ?? ""}`).join("|");
   const toggles = SETTINGS_TOGGLE_IDS.map((id) => `${id}=${$(id)?.checked ? 1 : 0}`).join("|");
@@ -231,19 +248,19 @@ function settingsFingerprint() {
   );
   return `${scalars}|${toggles}||${providers}`;
 }
-function syncSettingsDirty() {
+export function syncSettingsDirty() {
   const badge = $("settings-dirty");
   if (!badge) return;
   badge.classList.toggle("hidden", settingsFingerprint() === settingsSnapshot);
 }
-function markSettingsSaved() {
+export function markSettingsSaved() {
   settingsSnapshot = settingsFingerprint();
   syncSettingsDirty();
 }
 
 // 生效值与全局值不一致 = 项目级 kanzei.toml 覆盖了。必须明说,否则用户会
 // 一直在改一个不生效的值(D-168)。
-function renderEffectiveNotice(s) {
+export function renderEffectiveNotice(s) {
   const box = $("settings-effective");
   if (!box) return;
   const diffs = [];
@@ -284,8 +301,8 @@ function renderEffectiveNotice(s) {
 
 // R-305 B1:把 phase_pipeline 的 roster_cap 从日志事实投影到策略面板。
 // 未保存输入也要即时可见，避免用户调小上限后不知道阶段角色会被省略。
-let settingsEffectiveSnapshot = null;
-function renderRosterCapNotice(s) {
+export let settingsEffectiveSnapshot = null;
+export function renderRosterCapNotice(s) {
   const box = $("set-max-tasks-hint");
   if (!box) return;
   const capacity = Number(s?.phaseRosterCapacity ?? 5);
@@ -302,26 +319,28 @@ function renderRosterCapNotice(s) {
     : `${t("阶段流水线角色上限")}: ${Math.floor(limit)}/${capacity} · ${t("阶段流水线不会截断角色")}`;
 }
 
-$("set-max-tasks")?.addEventListener("input", () => renderRosterCapNotice(settingsEffectiveSnapshot));
+defer(() => {
+  $("set-max-tasks")?.addEventListener("input", () => renderRosterCapNotice(settingsEffectiveSnapshot));
+});
 
-function providerSourceLabel(source) {
+export function providerSourceLabel(source) {
   return {
     project: t("本项目配置"),
     global: t("全局配置"),
     builtin: t("内建"),
   }[source] || source;
 }
-function agentSourceLabel(source) {
+export function agentSourceLabel(source) {
   return { builtin: t("内建"), global: t("全局"), project: t("项目") }[source] || source;
 }
-function agentStatusLabel(status) {
+export function agentStatusLabel(status) {
   return {
     available: t("可用"),
     configurationError: t("配置错误"),
     hidden: t("当前档位隐藏"),
   }[status] || status;
 }
-function appendAgentField(card, label, value) {
+export function appendAgentField(card, label, value) {
   const row = document.createElement("div");
   row.className = "agent-directory-field";
   const name = document.createElement("span");
@@ -332,7 +351,7 @@ function appendAgentField(card, label, value) {
   row.append(name, content);
   card.append(row);
 }
-function renderAgentDirectory(snapshot) {
+export function renderAgentDirectory(snapshot) {
   const host = $("agent-directory");
   if (!host) return;
   host.replaceChildren();
@@ -376,7 +395,7 @@ function renderAgentDirectory(snapshot) {
     host.append(card);
   }
 }
-async function loadAgentDirectory() {
+export async function loadAgentDirectory() {
   const status = $("agent-directory-status");
   try {
     const snapshot = await invoke("agent_directory_get", {
@@ -397,13 +416,17 @@ async function loadAgentDirectory() {
     }
   }
 }
-$("agent-directory-refresh")?.addEventListener("click", () => void loadAgentDirectory());
-$("set-profile")?.addEventListener("change", () => void loadAgentDirectory());
+defer(() => {
+  $("agent-directory-refresh")?.addEventListener("click", () => void loadAgentDirectory());
+});
+defer(() => {
+  $("set-profile")?.addEventListener("change", () => void loadAgentDirectory());
+});
 
 
 // 模型角色改成真下拉:自由文本框要手打 `provider:model`,拼错一个字母要到运行时
 // 才炸,而那时人早已离开设置页。这里从各 provider 探测到的清单里选,手填只作兜底。
-let knownModelIds = [];
+export let knownModelIds = [];
 /// desired = { primary, fast }:调用方把"该保留哪个值"显式传进来(loadSettings 用已存值)。
 /// 不传则以下拉当前值为基准(「重新探测模型」「一键就绪子代理」——那时选项已经建好,
 /// 读 DOM 才是对的)。**绝不能**让 loadSettings 靠"先 select.value = 已存值、再来这里读
@@ -415,7 +438,7 @@ let knownModelIds = [];
 // 只重建 option、**永不主动改 value**:desired 只在首次回填那一次给,之后一律
 // 以下拉当前值为准(那可能正是用户刚选的)。原来这个函数把「网络探测」和「写表单」
 // 焊在一起,await 期间用户填的东西会被 resolve 后的全量重建整个抹掉。
-function applyModelOptions(desired, ids) {
+export function applyModelOptions(desired, ids) {
   const roles = [[$("set-primary"), "primary"], [$("set-fast"), "fast"], [$("set-compact"), "compact"]].filter(([el]) => el);
   if (!roles.length) return;
   const current = desired ? null : roles.map(([el]) => el.value);
@@ -455,7 +478,7 @@ function applyModelOptions(desired, ids) {
 // 用户在这几秒里切走或重载过设置页,迟到的结果直接丢弃。
 // (models_list 串行探测每个 provider 六秒超时,配几个远端就能拖十几秒,
 // 这段时间里页面是可交互的,原来 resolve 之后一次全量重建就把输入吃掉了。)
-async function probeModelsAndMergeOptions(token) {
+export async function probeModelsAndMergeOptions(token) {
   let ids;
   try {
     const models = await invoke("models_list", { projectDir: currentProject });
@@ -474,7 +497,7 @@ async function probeModelsAndMergeOptions(token) {
 /// 下拉里没有这个值就补一个兜底 option。选项表写死在 index.html 里,而配置文件的合法
 /// 取值集合比它大(例如 [profile] default 还认 readonly),硬塞一个不存在的值只会让
 /// select 落到空串,保存一次就把用户配置改成默认档——与模型角色同一个坑。
-function ensureSelectOption(select, value) {
+export function ensureSelectOption(select, value) {
   if (!select || !value) return;
   if ([...select.options].some((o) => o.value === value)) return;
   const opt = document.createElement("option");
@@ -484,7 +507,7 @@ function ensureSelectOption(select, value) {
 }
 
 // 手填分支:两个角色下拉共用。选中哨兵值时弹输入,校验格式后插回列表。
-function wireManualModelRole(id) {
+export function wireManualModelRole(id) {
   const select = $(id);
   if (!select) return;
   let last = select.value;
@@ -510,18 +533,26 @@ function wireManualModelRole(id) {
     syncSettingsDirty();
   });
 }
-wireManualModelRole("set-primary");
-wireManualModelRole("set-fast");
-wireManualModelRole("set-compact");
-$("models-refresh")?.addEventListener("click", async () => {
-  const ok = await probeModelsAndMergeOptions(settingsLoadToken);
-  if (ok) toast(`${t("已重新探测")}:${knownModelIds.length}`);
+defer(() => {
+  wireManualModelRole("set-primary");
+});
+defer(() => {
+  wireManualModelRole("set-fast");
+});
+defer(() => {
+  wireManualModelRole("set-compact");
+});
+defer(() => {
+  $("models-refresh")?.addEventListener("click", async () => {
+    const ok = await probeModelsAndMergeOptions(settingsLoadToken);
+    if (ok) toast(`${t("已重新探测")}:${knownModelIds.length}`);
+  });
 });
 
 // R-136:fast 子代理模型的就绪状态与一键安装。此前要用户手工装 Ollama、
 // 手工 pull、手工配置——三步里断任何一步,记忆整理/快速记录这些子代理杂活
 // 就全部静默失效,而界面上毫无线索。
-async function refreshFastStatus() {
+export async function refreshFastStatus() {
   const status = $("fast-status");
   const btn = $("fast-setup");
   if (!status || !btn) return;
@@ -550,24 +581,26 @@ async function refreshFastStatus() {
   status.classList.add("warn-text");
   btn.classList.remove("hidden");
 }
-$("fast-setup")?.addEventListener("click", async () => {
-  const btn = $("fast-setup");
-  btn.disabled = true;
-  try {
-    const done = await invoke("fast_model_setup");
-    toast(done);
-    await probeModelsAndMergeOptions(settingsLoadToken);
-  } catch (err) {
-    toastError(`${t("子代理安装失败")}:${err}`);
-  } finally {
-    btn.disabled = false;
-    refreshFastStatus();
-  }
+defer(() => {
+  $("fast-setup")?.addEventListener("click", async () => {
+    const btn = $("fast-setup");
+    btn.disabled = true;
+    try {
+      const done = await invoke("fast_model_setup");
+      toast(done);
+      await probeModelsAndMergeOptions(settingsLoadToken);
+    } catch (err) {
+      toastError(`${t("子代理安装失败")}:${err}`);
+    } finally {
+      btn.disabled = false;
+      refreshFastStatus();
+    }
+  });
 });
 
 // [limits] 表单:输入框 id ↔ 后端 camelCase 键。加参数时只改这一张表,
 // 读取与保存两侧都走它,不会再出现"读了没存"或"存了没读"的半边接线。
-const LIMIT_FIELDS = [
+export const LIMIT_FIELDS = [
   ["set-max-tokens", "maxTokens"],
   ["set-subagent-max-tokens", "subagentMaxTokens"],
   ["set-subagent-timeout", "subagentTimeoutSecs"],
@@ -582,14 +615,14 @@ const LIMIT_FIELDS = [
 
 // 节奏(R-157):id ↔ settings_get 返回的 cadence snake_case 键。
 // 留空 = None,保存时该键从 [cadence] 移除,回落 §1.4 默认。
-const CADENCE_FIELDS = [
+export const CADENCE_FIELDS = [
   ["set-cadence-full-test", "full_test"],
   ["set-cadence-targeted-test", "targeted_test"],
   ["set-cadence-commit", "commit"],
   ["set-cadence-push", "push"],
 ];
 
-function collectCadence() {
+export function collectCadence() {
   const out = {};
   for (const [id, key] of CADENCE_FIELDS) {
     const value = $(id).value.trim();
@@ -602,7 +635,7 @@ function collectCadence() {
 }
 
 /// 空 → null(后端据此删掉该键,回落内置默认);非法输入也当空,不把 NaN 写进配置。
-function collectLimits() {
+export function collectLimits() {
   const out = {};
   for (const [id, key] of LIMIT_FIELDS) {
     const raw = $(id).value.trim();
@@ -613,25 +646,27 @@ function collectLimits() {
 }
 
 // 每次加载自增;await 回来对不上就说明用户已经切走/重载过,回填一律丢弃。
-let settingsLoadToken = 0;
+export let settingsLoadToken = 0;
 // 首次成功回填后置 true。没有它的话,空表单的指纹和「干净基线」永远对不上,
 // 脏值守卫会在第一次加载时就把自己挡掉。
-let settingsHydrated = false;
+export let settingsHydrated = false;
 // 表单有未保存改动时**拒绝**用磁盘值覆盖,并把「为什么没刷新」说出来——
 // 静悄悄地把用户填了一半的东西回滚成磁盘值,正是「突然刷新」最恼人的那一下。
-function showSettingsStale() {
+export function showSettingsStale() {
   const el = $("settings-stale");
   if (el) el.classList.remove("hidden");
 }
-function hideSettingsStale() {
+export function hideSettingsStale() {
   const el = $("settings-stale");
   if (el) el.classList.add("hidden");
 }
-$("settings-discard")?.addEventListener("click", () => {
-  settingsHydrated = false;
-  void loadSettings({ force: true });
+defer(() => {
+  $("settings-discard")?.addEventListener("click", () => {
+    settingsHydrated = false;
+    void loadSettings({ force: true });
+  });
 });
-async function loadSettings({ force = false } = {}) {
+export async function loadSettings({ force = false } = {}) {
   const token = ++settingsLoadToken;
   let s;
   try {
@@ -661,7 +696,7 @@ async function loadSettings({ force = false } = {}) {
   void probeModelsAndMergeOptions(token);
   void loadAgentDirectory();
 }
-function hydrateSettingsForm(s) {
+export function hydrateSettingsForm(s) {
   const storedLanguage = LANGUAGE_PREFERENCES.has(s.language)
     ? s.language
     : normalizeLanguagePreference(localStorage.getItem("kz-language"));
@@ -740,7 +775,7 @@ function hydrateSettingsForm(s) {
   loadManualShowControl();
 }
 
-function loadSoundSettingsControls() {
+export function loadSoundSettingsControls() {
   const s = readSoundSettings();
   const set = (id, value) => {
     const el = $(id);
@@ -758,18 +793,20 @@ function loadSoundSettingsControls() {
 }
 
 // R-251:使用手册显隐是本地显示偏好,回填控件 + change 即存(与 R-187 sound 同模式)。
-function loadManualShowControl() {
+export function loadManualShowControl() {
   const el = $("set-show-manual");
   if (el) el.checked = readManualShowPref();
 }
-$("set-show-manual")?.addEventListener("change", () => {
-  const el = $("set-show-manual");
-  if (!el) return;
-  saveManualShowPref(el.checked);
-  if (typeof refreshManual === "function") refreshManual();
+defer(() => {
+  $("set-show-manual")?.addEventListener("change", () => {
+    const el = $("set-show-manual");
+    if (!el) return;
+    saveManualShowPref(el.checked);
+    if (typeof refreshManual === "function") refreshManual();
+  });
 });
 
-function bindSoundSettingsControls() {
+export function bindSoundSettingsControls() {
   const collect = () => ({
     enabled: $("set-sound-enabled")?.checked ?? true,
     volume: (Number($("set-sound-volume")?.value ?? 12)) / 100,
@@ -788,25 +825,33 @@ function bindSoundSettingsControls() {
     playRunNotice("completed");
   });
 }
-bindSoundSettingsControls();
-for (const id of SETTINGS_FORM_IDS) {
-  $(id)?.addEventListener("input", syncSettingsDirty);
-  $(id)?.addEventListener("change", syncSettingsDirty);
-}
+defer(() => {
+  bindSoundSettingsControls();
+});
+defer(() => {
+  for (const id of SETTINGS_FORM_IDS) {
+    $(id)?.addEventListener("input", syncSettingsDirty);
+    $(id)?.addEventListener("change", syncSettingsDirty);
+  };
+});
 // checkbox 只有 change 有意义(input 事件对它不触发脏状态之外的语义)。
-for (const id of SETTINGS_TOGGLE_IDS) {
-  $(id)?.addEventListener("change", syncSettingsDirty);
-}
+defer(() => {
+  for (const id of SETTINGS_TOGGLE_IDS) {
+    $(id)?.addEventListener("change", syncSettingsDirty);
+  };
+});
 // provider 表格是动态重建的,逐行绑会随重绘丢失;在容器上做事件委托一次覆盖全表。
 // 委托要在捕获阶段之后跑——行内的 input 监听器先把值写回 settingsProviders,
 // 我们才比对得到新指纹。
-for (const event of ["input", "change"]) {
-  $("providers-table")?.addEventListener(event, () => setTimeout(syncSettingsDirty, 0));
-}
+defer(() => {
+  for (const event of ["input", "change"]) {
+    $("providers-table")?.addEventListener(event, () => setTimeout(syncSettingsDirty, 0));
+  };
+});
 
 // R-184 P6(D-247):选「指定地址」却留空时,后端按空串回落 env——这是静默降级,
 // 界面必须把「将回落环境变量」说出来,不许用户以为地址已生效。
-function updateProxyHint() {
+export function updateProxyHint() {
   const hint = $("set-proxy-hint");
   if (!$("set-proxy-url") || !hint) return;
   const mode = $("set-proxy-mode").value;
@@ -817,30 +862,36 @@ function updateProxyHint() {
     $("set-proxy-url").classList.remove("hidden");
   }
 }
-$("set-proxy-mode").addEventListener("change", () => {
-  $("set-proxy-url").classList.toggle("hidden", $("set-proxy-mode").value !== "custom");
-  // 留空时输入框保持可见,否则提示「回落」但地址框都找不到,更迷惑。
-  if ($("set-proxy-mode").value === "custom") $("set-proxy-url").classList.remove("hidden");
-  updateProxyHint();
+defer(() => {
+  $("set-proxy-mode").addEventListener("change", () => {
+    $("set-proxy-url").classList.toggle("hidden", $("set-proxy-mode").value !== "custom");
+    // 留空时输入框保持可见,否则提示「回落」但地址框都找不到,更迷惑。
+    if ($("set-proxy-mode").value === "custom") $("set-proxy-url").classList.remove("hidden");
+    updateProxyHint();
+  });
 });
-$("set-proxy-url").addEventListener("input", updateProxyHint);
+defer(() => {
+  $("set-proxy-url").addEventListener("input", updateProxyHint);
+});
 
-$("mobile-service-stop").addEventListener("click", async () => {
-  try {
-    await invoke("mobile_service_stop");
-    $("mobile-service-status").textContent = t("移动端本机桥接已停止");
-    $("mobile-service-start").classList.remove("hidden");
-    $("mobile-service-stop").classList.add("hidden");
-    $("mobile-pair-regenerate").disabled = true;
-    $("mobile-device-list").textContent = t("启动服务后显示");
-  } catch (error) {
-    toastError(`${t("停止移动端桥接失败")}:${error}`, { retry: () => $("mobile-service-stop").click() });
-  }
+defer(() => {
+  $("mobile-service-stop").addEventListener("click", async () => {
+    try {
+      await invoke("mobile_service_stop");
+      $("mobile-service-status").textContent = t("移动端本机桥接已停止");
+      $("mobile-service-start").classList.remove("hidden");
+      $("mobile-service-stop").classList.add("hidden");
+      $("mobile-pair-regenerate").disabled = true;
+      $("mobile-device-list").textContent = t("启动服务后显示");
+    } catch (error) {
+      toastError(`${t("停止移动端桥接失败")}:${error}`, { retry: () => $("mobile-service-stop").click() });
+    }
+  });
 });
 
 // D-386:设备列表 + 逐台撤销 + 配对码再生。revoke/list/regenerate 命令 R-270 已注册,
 // 此前 UI 零调用(多设备实际不可能、撤销=空集、配对码不可再生)。
-async function refreshMobileDevices() {
+export async function refreshMobileDevices() {
   const container = $("mobile-device-list");
   if (!container) return;
   try {
@@ -875,32 +926,36 @@ async function refreshMobileDevices() {
   }
 }
 
-$("mobile-service-start").addEventListener("click", async () => {
-  // 启动成功后启用配对码再生 + 加载设备列表(上面的 start 逻辑由事件顺序保证先执行)。
-  const lan = !!$("mobile-service-lan")?.checked;
-  try {
-    const info = await invoke("mobile_service_start", { projectDir: currentProject, port: null, lan });
-    const lanLabel = lan ? "LAN" : t("回环");
-    $("mobile-service-status").textContent = `${lanLabel} · ${info.address} · token ${info.token}`;
-    $("mobile-service-start").classList.add("hidden");
-    $("mobile-service-stop").classList.remove("hidden");
-    $("mobile-pair-regenerate").disabled = false;
-    refreshMobileDevices();
-    toast(t("移动端本机桥接已启动"));
-  } catch (error) {
-    toastError(`${t("启动移动端桥接失败")}:${error}`, { retry: () => $("mobile-service-start").click() });
-  }
+defer(() => {
+  $("mobile-service-start").addEventListener("click", async () => {
+    // 启动成功后启用配对码再生 + 加载设备列表(上面的 start 逻辑由事件顺序保证先执行)。
+    const lan = !!$("mobile-service-lan")?.checked;
+    try {
+      const info = await invoke("mobile_service_start", { projectDir: currentProject, port: null, lan });
+      const lanLabel = lan ? "LAN" : t("回环");
+      $("mobile-service-status").textContent = `${lanLabel} · ${info.address} · token ${info.token}`;
+      $("mobile-service-start").classList.add("hidden");
+      $("mobile-service-stop").classList.remove("hidden");
+      $("mobile-pair-regenerate").disabled = false;
+      refreshMobileDevices();
+      toast(t("移动端本机桥接已启动"));
+    } catch (error) {
+      toastError(`${t("启动移动端桥接失败")}:${error}`, { retry: () => $("mobile-service-start").click() });
+    }
+  });
 });
-$("mobile-pair-regenerate").addEventListener("click", async () => {
-  try {
-    const newCode = await invoke("mobile_pair_code_regenerate");
-    $("mobile-service-status").textContent = `${$("mobile-service-status").textContent.split(" · token ")[0]} · token ${newCode}`;
-    toast(`${t("新配对码")}: ${newCode}`);
-  } catch (error) {
-    toastError(`${t("重新生成配对码失败")}:${error}`);
-  }
+defer(() => {
+  $("mobile-pair-regenerate").addEventListener("click", async () => {
+    try {
+      const newCode = await invoke("mobile_pair_code_regenerate");
+      $("mobile-service-status").textContent = `${$("mobile-service-status").textContent.split(" · token ")[0]} · token ${newCode}`;
+      toast(`${t("新配对码")}: ${newCode}`);
+    } catch (error) {
+      toastError(`${t("重新生成配对码失败")}:${error}`);
+    }
+  });
 });
-async function agentContainerAction(action) {
+export async function agentContainerAction(action) {
   const agentId = $("agent-container-id").value.trim();
   if (!agentId) return toast(t("先填写 agent id"));
   try {
@@ -914,129 +969,147 @@ async function agentContainerAction(action) {
     toastError(String(error), { retry: () => agentContainerAction(action) });
   }
 }
-$("agent-container-create").addEventListener("click", () => agentContainerAction("create"));
-$("agent-container-upgrade").addEventListener("click", () => agentContainerAction("upgrade"));
-$("agent-container-rollback").addEventListener("click", () => agentContainerAction("rollback"));
-
-$("provider-add").addEventListener("click", () => {
-  settingsProviders.push({ name: "", protocol: "openai", baseUrl: "http://", apiKeyEnv: "" });
-  renderProviders();
-  syncSettingsDirty();
+defer(() => {
+  $("agent-container-create").addEventListener("click", () => agentContainerAction("create"));
+});
+defer(() => {
+  $("agent-container-upgrade").addEventListener("click", () => agentContainerAction("upgrade"));
+});
+defer(() => {
+  $("agent-container-rollback").addEventListener("click", () => agentContainerAction("rollback"));
 });
 
-$("providers-test").addEventListener("click", async () => {
-  const button = $("providers-test");
-  const result = $("providers-test-result");
-  if (!settingsProviders.length) {
-    result.textContent = t("没有可测试的 provider");
-    return;
-  }
-  button.disabled = true;
-  result.textContent = `${t("测试中")}(0/${settingsProviders.length})…`;
-  try {
-    let passed = 0;
-    for (const [index, provider] of settingsProviders.entries()) {
-      const status = await testProvider(provider);
-      if (status.startsWith("✓")) passed += 1;
-      result.textContent = `${t("测试中")}(${index + 1}/${settingsProviders.length})…`;
+defer(() => {
+  $("provider-add").addEventListener("click", () => {
+    settingsProviders.push({ name: "", protocol: "openai", baseUrl: "http://", apiKeyEnv: "" });
+    renderProviders();
+    syncSettingsDirty();
+  });
+});
+
+defer(() => {
+  $("providers-test").addEventListener("click", async () => {
+    const button = $("providers-test");
+    const result = $("providers-test-result");
+    if (!settingsProviders.length) {
+      result.textContent = t("没有可测试的 provider");
+      return;
     }
-    result.textContent = `${t("连通性检查完成")}: ${passed}/${settingsProviders.length} ${t("可用")}`;
-  } finally {
-    button.disabled = false;
-  }
+    button.disabled = true;
+    result.textContent = `${t("测试中")}(0/${settingsProviders.length})…`;
+    try {
+      let passed = 0;
+      for (const [index, provider] of settingsProviders.entries()) {
+        const status = await testProvider(provider);
+        if (status.startsWith("✓")) passed += 1;
+        result.textContent = `${t("测试中")}(${index + 1}/${settingsProviders.length})…`;
+      }
+      result.textContent = `${t("连通性检查完成")}: ${passed}/${settingsProviders.length} ${t("可用")}`;
+    } finally {
+      button.disabled = false;
+    }
+  });
 });
 
-$("settings-save").addEventListener("click", async () => {
-  const mode = $("set-proxy-mode").value;
-  const proxy = mode === "custom" ? $("set-proxy-url").value.trim() : mode;
-  const scope = $("set-save-scope").value;
-  try {
-    await invoke("settings_save", {
-      // R-178 批4 D7:scope=project 只把模型角色写进主根 .kanzei/kanzei.toml;
-      // 其余字段(proxy/limits/cadence/providers)始终走全局,后端按 scope 拦截。
-      scope,
-      projectDir: scope === "project" ? currentProject : null,
-      payload: {
-        // 未显式改过且后端返回 null 时继续传 null,不要因为表单默认中文就把默认键写入配置。
-        language: languagePreferenceDirty ? $("language-select").value : languagePreferenceLoaded,
-        primary: $("set-primary").value,
-        fast: $("set-fast").value,
-        compact: $("set-compact") ? $("set-compact").value : "",
-        proxy,
-        profileDefault: $("set-profile").value,
-        reasoning: $("set-reasoning").value,
-        codexFastMode: $("set-codex-fast-mode").checked,
-        limits: collectLimits(),
-        cadence: collectCadence(),
-        // 约定:清单非空 = 清单即权威,后端会删掉配置里不在清单中的 [providers.X]
-        // (否则表格里点了「×」保存后重开又回来)。所以这里**必须发整张表**,
-        // 任何时候都不许只发"改动过的那几行"。
-        providers: settingsProviders.map((p) => ({
-          name: p.name,
-          protocol: p.protocol,
-          baseUrl: p.baseUrl,
-          apiKeyEnv: p.apiKeyEnv || null,
-          apiKey: p.apiKey || null,
-          auth: p.auth || null,
-          contextLimit: p.contextLimit ?? null,
-        })),
-      },
-    });
-    toast(t("已保存"));
-    // force:刚存完就是干净态,但指纹要等 markSettingsSaved 才更新,不 force 会被
-    // 脏值守卫挡住,用户看到一个莫名其妙的「磁盘上的配置已更新」。
-    loadSettings({ force: true });
-  } catch (err) {
-    toastError(`${t("保存失败")}: ${err}`, { retry: () => $("settings-save").click() });
-  }
+defer(() => {
+  $("settings-save").addEventListener("click", async () => {
+    const mode = $("set-proxy-mode").value;
+    const proxy = mode === "custom" ? $("set-proxy-url").value.trim() : mode;
+    const scope = $("set-save-scope").value;
+    try {
+      await invoke("settings_save", {
+        // R-178 批4 D7:scope=project 只把模型角色写进主根 .kanzei/kanzei.toml;
+        // 其余字段(proxy/limits/cadence/providers)始终走全局,后端按 scope 拦截。
+        scope,
+        projectDir: scope === "project" ? currentProject : null,
+        payload: {
+          // 未显式改过且后端返回 null 时继续传 null,不要因为表单默认中文就把默认键写入配置。
+          language: languagePreferenceDirty ? $("language-select").value : languagePreferenceLoaded,
+          primary: $("set-primary").value,
+          fast: $("set-fast").value,
+          compact: $("set-compact") ? $("set-compact").value : "",
+          proxy,
+          profileDefault: $("set-profile").value,
+          reasoning: $("set-reasoning").value,
+          codexFastMode: $("set-codex-fast-mode").checked,
+          limits: collectLimits(),
+          cadence: collectCadence(),
+          // 约定:清单非空 = 清单即权威,后端会删掉配置里不在清单中的 [providers.X]
+          // (否则表格里点了「×」保存后重开又回来)。所以这里**必须发整张表**,
+          // 任何时候都不许只发"改动过的那几行"。
+          providers: settingsProviders.map((p) => ({
+            name: p.name,
+            protocol: p.protocol,
+            baseUrl: p.baseUrl,
+            apiKeyEnv: p.apiKeyEnv || null,
+            apiKey: p.apiKey || null,
+            auth: p.auth || null,
+            contextLimit: p.contextLimit ?? null,
+          })),
+        },
+      });
+      toast(t("已保存"));
+      // force:刚存完就是干净态,但指纹要等 markSettingsSaved 才更新,不 force 会被
+      // 脏值守卫挡住,用户看到一个莫名其妙的「磁盘上的配置已更新」。
+      loadSettings({ force: true });
+    } catch (err) {
+      toastError(`${t("保存失败")}: ${err}`, { retry: () => $("settings-save").click() });
+    }
+  });
 });
 
-$("settings-open").addEventListener("click", () => invoke("settings_open").catch((e) => toastError(String(e), { retry: () => $("settings-open").click() })));
-
-$("export-pick-dir").addEventListener("click", async () => {
-  try {
-    const path = await invoke("export_pick_dir");
-    if (path) $("export-output-dir").value = path;
-  } catch (error) {
-    toastError(`${t("选择导出目录失败")}:${error}`);
-  }
+defer(() => {
+  $("settings-open").addEventListener("click", () => invoke("settings_open").catch((e) => toastError(String(e), { retry: () => $("settings-open").click() })));
 });
-$("export-project").addEventListener("click", async () => {
-  if (!currentProject) return toast(t("先在左侧「项目」里添加并选择一个目录"));
-  const outputDir = $("export-output-dir").value.trim();
-  if (!outputDir) return toast(t("选择导出目录"));
-  const button = $("export-project");
-  button.disabled = true;
-  $("export-result").textContent = `${t("导出工作资料")}…`;
-  try {
-    const result = await invoke("export_project_data", {
-      options: {
-        projectDir: currentProject,
-        outputDir,
-        includeMemory: $("export-memory").checked,
-        includeRequirements: $("export-requirements").checked,
-        includeDefects: $("export-defects").checked,
-        includeConfig: $("export-config").checked,
-      },
-    });
-    $("export-result").textContent = `${t("导出完成")}: ${result.path} (${result.files.length} ${t("条")})`;
-    toast(t("导出完成"));
-  } catch (error) {
-    $("export-result").textContent = String(error);
-    toastError(`${t("导出失败")}:${error}`);
-  } finally {
-    button.disabled = false;
-  }
+
+defer(() => {
+  $("export-pick-dir").addEventListener("click", async () => {
+    try {
+      const path = await invoke("export_pick_dir");
+      if (path) $("export-output-dir").value = path;
+    } catch (error) {
+      toastError(`${t("选择导出目录失败")}:${error}`);
+    }
+  });
+});
+defer(() => {
+  $("export-project").addEventListener("click", async () => {
+    if (!currentProject) return toast(t("先在左侧「项目」里添加并选择一个目录"));
+    const outputDir = $("export-output-dir").value.trim();
+    if (!outputDir) return toast(t("选择导出目录"));
+    const button = $("export-project");
+    button.disabled = true;
+    $("export-result").textContent = `${t("导出工作资料")}…`;
+    try {
+      const result = await invoke("export_project_data", {
+        options: {
+          projectDir: currentProject,
+          outputDir,
+          includeMemory: $("export-memory").checked,
+          includeRequirements: $("export-requirements").checked,
+          includeDefects: $("export-defects").checked,
+          includeConfig: $("export-config").checked,
+        },
+      });
+      $("export-result").textContent = `${t("导出完成")}: ${result.path} (${result.files.length} ${t("条")})`;
+      toast(t("导出完成"));
+    } catch (error) {
+      $("export-result").textContent = String(error);
+      toastError(`${t("导出失败")}:${error}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
 });
 
 // ---------- 版本与更新(GitHub Releases 为源) ----------
-let updateUrl = null;
+export let updateUrl = null;
 // D-287:「没有可装的东西」有三种成因,以前一律渲染成「已是最新(<latest>)」——
 // 于是「当前版本 a7a122a」下面紧挨着「已是最新(build-c99304f)」,两个 hash 打架,
 // 看着就像更新检查坏了。只有 status=latest 这一态有资格说「已是最新」;本地领先
 // 与无法比较各自说自己的话(D-004:不做的理由要说出来),别人的 hash 一律标成
 // 「最新发布」,不冒充「当前」。
-function updateResultText(r) {
+export function updateResultText(r) {
   if (r.status === "none") return r.message;
   const latest = `${t("最新发布")}:${r.latest}`;
   switch (r.status) {
@@ -1052,65 +1125,73 @@ function updateResultText(r) {
       return `${t("已是最新")}(${r.latest || r.current})`;
   }
 }
-$("update-check").addEventListener("click", async () => {
-  $("update-result").textContent = t("检查中…");
-  $("update-install").classList.add("hidden");
-  updateUrl = null;
-  try {
-    const r = await invoke("update_check");
-    if (r.current) $("update-current").textContent = r.current;
-    $("update-result").textContent = updateResultText(r);
-    if (r.newer && r.url) {
-      updateUrl = r.url;
-      $("update-install").classList.remove("hidden");
+defer(() => {
+  $("update-check").addEventListener("click", async () => {
+    $("update-result").textContent = t("检查中…");
+    $("update-install").classList.add("hidden");
+    updateUrl = null;
+    try {
+      const r = await invoke("update_check");
+      if (r.current) $("update-current").textContent = r.current;
+      $("update-result").textContent = updateResultText(r);
+      if (r.newer && r.url) {
+        updateUrl = r.url;
+        $("update-install").classList.remove("hidden");
+      }
+    } catch (err) {
+      $("update-result").textContent = `${t("检查失败")}:${err}`;
     }
-  } catch (err) {
-    $("update-result").textContent = `${t("检查失败")}:${err}`;
-  }
+  });
 });
-$("update-install").addEventListener("click", async () => {
-  if (!updateUrl) return;
-  $("update-result").textContent = t("下载中…(应用将退出,安装完成后请手动启动)");
-  $("update-install").disabled = true;
-  try {
-    $("update-result").textContent = await invoke("update_install", { url: updateUrl });
-  } catch (err) {
-    $("update-result").textContent = String(err);
-  } finally {
-    $("update-install").disabled = false;
-  }
+defer(() => {
+  $("update-install").addEventListener("click", async () => {
+    if (!updateUrl) return;
+    $("update-result").textContent = t("下载中…(应用将退出,安装完成后请手动启动)");
+    $("update-install").disabled = true;
+    try {
+      $("update-result").textContent = await invoke("update_install", { url: updateUrl });
+    } catch (err) {
+      $("update-result").textContent = String(err);
+    } finally {
+      $("update-install").disabled = false;
+    }
+  });
 });
 
 // ---------- 侧边栏分区折叠:标题文字收/展,记忆到 localStorage ----------
-document.querySelectorAll(".sidebar-section").forEach((section) => {
-  const title = section.querySelector(".section-title > span:first-child");
-  if (!title) return;
-  const collapseKey = section.dataset.collapseKey || title.textContent.replace(/[\d\s]/g, "").slice(0, 8);
-  const key = `kz-collapse-${collapseKey}`;
-  const legacyKey = `kz-collapse-${title.textContent.replace(/[\d\s]/g, "").slice(0, 8)}`;
-  const saved = localStorage.getItem(key) ?? (legacyKey === key ? null : localStorage.getItem(legacyKey));
-  // data-collapse-default="collapsed":没有存过偏好时默认收起。项目列表用它——
-  // 当前项目已经由侧栏工作区头常驻显示,整份列表只在切项目时才需要。
-  const collapsedByDefault = section.dataset.collapseDefault === "collapsed";
-  if (saved === "1" || (saved === null && collapsedByDefault)) {
-    section.classList.add("collapsed");
-    if (legacyKey !== key) localStorage.setItem(key, "1");
-  }
-  title.setAttribute("role", "button");
-  title.setAttribute("tabindex", "0");
-  const syncExpanded = () => title.setAttribute("aria-expanded", String(!section.classList.contains("collapsed")));
-  const toggle = () => {
-    const collapsed = section.classList.toggle("collapsed");
-    localStorage.setItem(key, collapsed ? "1" : "0");
+defer(() => {
+  document.querySelectorAll(".sidebar-section").forEach((section) => {
+    const title = section.querySelector(".section-title > span:first-child");
+    if (!title) return;
+    const collapseKey = section.dataset.collapseKey || title.textContent.replace(/[\d\s]/g, "").slice(0, 8);
+    const key = `kz-collapse-${collapseKey}`;
+    const legacyKey = `kz-collapse-${title.textContent.replace(/[\d\s]/g, "").slice(0, 8)}`;
+    const saved = localStorage.getItem(key) ?? (legacyKey === key ? null : localStorage.getItem(legacyKey));
+    // data-collapse-default="collapsed":没有存过偏好时默认收起。项目列表用它——
+    // 当前项目已经由侧栏工作区头常驻显示,整份列表只在切项目时才需要。
+    const collapsedByDefault = section.dataset.collapseDefault === "collapsed";
+    if (saved === "1" || (saved === null && collapsedByDefault)) {
+      section.classList.add("collapsed");
+      if (legacyKey !== key) localStorage.setItem(key, "1");
+    }
+    title.setAttribute("role", "button");
+    title.setAttribute("tabindex", "0");
+    const syncExpanded = () => title.setAttribute("aria-expanded", String(!section.classList.contains("collapsed")));
+    const toggle = () => {
+      const collapsed = section.classList.toggle("collapsed");
+      localStorage.setItem(key, collapsed ? "1" : "0");
+      syncExpanded();
+    };
     syncExpanded();
-  };
-  syncExpanded();
-  title.addEventListener("click", toggle);
-  title.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    toggle();
+    title.addEventListener("click", toggle);
+    title.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      toggle();
+    });
   });
 });
 // 工作区头的箭头方向要跟着上面刚恢复的折叠态走(09-sessions.js 定义)。
-if (typeof syncProjectSwitchExpanded === "function") syncProjectSwitchExpanded();
+defer(() => {
+  if (typeof syncProjectSwitchExpanded === "function") syncProjectSwitchExpanded();
+});

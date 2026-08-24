@@ -1,4 +1,21 @@
-function setupResize(elementId, key, side, min, max) {
+import { defer } from "./01-core.js";
+import { $, invoke, renderingBackground, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
+import { I18N_EN, localizeDynamic, t } from "./02-i18n.js";
+import { fastStatusText } from "./06-activity.js";
+import { clearStoppingWatchdog } from "./08-auto.js";
+import { send } from "./08-compose-runtime.js";
+import { state } from "./08-compose.js";
+import { refreshWorktrees } from "./09-sessions.js";
+import { refreshWorkspace } from "./12-docs-pages.js";
+import { refreshMemory, refreshMetrics } from "./13-memory.js";
+import { refreshDocs } from "./14-docs-actions.js";
+import { loadSettings } from "./16-settings.js";
+import { filesViewLeft, showFilesView } from "./17-files.js";
+import { refreshArch } from "./19-arch.js";
+import { refreshResearch } from "./19-research.js";
+import { refreshLines } from "./20-lines.js";
+
+export function setupResize(elementId, key, side, min, max) {
   const element = $(elementId);
   if (!element) return;
   const saved = Number.parseInt(localStorage.getItem(key), 10);
@@ -62,17 +79,24 @@ function setupResize(elementId, key, side, min, max) {
   handle.addEventListener("pointercancel", stop);
   handle.addEventListener("lostpointercapture", stop);
 }
-setupResize("sidebar", "kz-sidebar-width", "right", 220, 460);
-setupResize("bg-panel", "kz-activity-width", "left", 240, 520);
-let activeProcessId = null;
-let activeSessionId = null;
-let processItems = [];
+defer(() => {
+  setupResize("sidebar", "kz-sidebar-width", "right", 220, 460);
+});
+defer(() => {
+  setupResize("bg-panel", "kz-activity-width", "left", 240, 520);
+});
+export let activeProcessId = null;
+export function setActiveProcessId(v) { activeProcessId = v; }
+export let activeSessionId = null;
+export function setActiveSessionId(v) { activeSessionId = v; }
+export let processItems = [];
+export function setProcessItems(value) { processItems = value; }
 
 // R-086:每个会话独立的运行状态机。控制事件按 sessionId 更新对应状态机,视图只
 // 投影活动会话的状态——后台会话的 idle/stopped 先落这里,切回时从状态机重建,
 // 而不是依赖事件在"恰好活动"时才会被处理。待答队列另有 askQueues,不放这里。
-const sessionStates = new Map();
-function sessionState(sessionId) {
+export const sessionStates = new Map();
+export function sessionState(sessionId) {
   let state = sessionStates.get(sessionId);
   if (!state) {
     state = {
@@ -91,50 +115,58 @@ function sessionState(sessionId) {
   return state;
 }
 
-let running = false;
-let runControlPending = false;
-let currentProject = null;
-let currentAssistant = null;
-let currentReasoning = null;
-let attachments = [];
-let lastRequest = null;
-let runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+export let running = false;
+export let runControlPending = false;
+export let currentProject = null;
+export function setCurrentProject(v) { currentProject = v; }
+export let currentAssistant = null;
+export let currentReasoning = null;
+export function setCurrentAssistant(value) { currentAssistant = value; }
+export function setCurrentReasoning(value) { currentReasoning = value; }
+export let attachments = [];
+export let lastRequest = null;
+export function setAttachments(value) { attachments = Array.isArray(value) ? value : []; }
+export function setLastRequest(value) { lastRequest = value; }
+export let runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+export function setRunTokens(value) { runTokens = value; }
 
 // ---------- 视图切换 ----------
 // 只绑带 data-view 的按钮:rail 上还有侧栏开合这类布局开关,它们不是视图。
-document.querySelectorAll(".activity-item[data-view]").forEach((item) => {
-  item.addEventListener("click", () => {
-    document.querySelectorAll(".activity-item[data-view]").forEach((i) => {
-      i.classList.remove("active");
-      i.removeAttribute("aria-current");
+defer(() => {
+  document.querySelectorAll(".activity-item[data-view]").forEach((item) => {
+    item.addEventListener("click", () => {
+      document.querySelectorAll(".activity-item[data-view]").forEach((i) => {
+        i.classList.remove("active");
+        i.removeAttribute("aria-current");
+      });
+      item.classList.add("active");
+      item.setAttribute("aria-current", "page");
+      const view = item.dataset.view;
+      document.body.classList.toggle("documents-active", view === "documents");
+      // 已经在这个视图里就别再重载一遍:设置页尤其致命——再点一次侧栏图标,
+      // 填了一半没保存的表单会静悄悄回滚成磁盘值。
+      const previousView = document.querySelector(".view.active")?.id;
+      document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+      $(`view-${view}`).classList.add("active");
+      if (view === "settings" && previousView !== "view-settings") loadSettings();
+      if (view === "workspace") refreshWorkspace();
+      if (view === "documents") refreshDocs();
+      if (view === "research") refreshResearch();
+      if (view === "memory") refreshMemory();
+      if (view === "metrics") refreshMetrics();
+      if (view === "files") showFilesView();
+      if (view === "arch") refreshArch();
+      // 工作树清单现在是线路页的一块内容(侧栏只读),进页面要一并拉。
+      if (view === "lines") { refreshLines(); refreshWorktrees(); }
+      if (view !== "files") filesViewLeft();
     });
-    item.classList.add("active");
-    item.setAttribute("aria-current", "page");
-    const view = item.dataset.view;
-    document.body.classList.toggle("documents-active", view === "documents");
-    // 已经在这个视图里就别再重载一遍:设置页尤其致命——再点一次侧栏图标,
-    // 填了一半没保存的表单会静悄悄回滚成磁盘值。
-    const previousView = document.querySelector(".view.active")?.id;
-    document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
-    $(`view-${view}`).classList.add("active");
-    if (view === "settings" && previousView !== "view-settings") loadSettings();
-    if (view === "workspace") refreshWorkspace();
-    if (view === "documents") refreshDocs();
-    if (view === "research") refreshResearch();
-    if (view === "memory") refreshMemory();
-    if (view === "metrics") refreshMetrics();
-    if (view === "files") showFilesView();
-    if (view === "arch") refreshArch();
-    // 工作树清单现在是线路页的一块内容(侧栏只读),进页面要一并拉。
-    if (view === "lines") { refreshLines(); refreshWorktrees(); }
-    if (view !== "files") filesViewLeft();
   });
 });
 
 // ---------- toast ----------
-let toastTimer = null;
-let errorRetry = null;
-function toast(text) {
+export let toastTimer = null;
+export let errorRetry = null;
+export function toast(text) {
   const el = $("toast");
   const source = String(text);
   const translated = Object.prototype.hasOwnProperty.call(I18N_EN, source) ? t(source) : source;
@@ -143,23 +175,23 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
 }
-function reportPersistentError(text, { retry = null } = {}) {
+export function reportPersistentError(text, { retry = null } = {}) {
   log(text, "err");
   errorRetry = retry;
   $("log-retry").classList.toggle("hidden", typeof retry !== "function");
   $("log-panel").classList.remove("hidden");
 }
-function toastError(text, options = {}) {
+export function toastError(text, options = {}) {
   reportPersistentError(text, options);
 }
 
-let completionAudioContext = null;
-const baseTitle = document.title;
+export let completionAudioContext = null;
+export const baseTitle = document.title;
 
 // R-187:提示音配置——总开关 + 分事件开关 + 音量(0-1)。持久化在 localStorage,
 // 设置页「提示音」区块可改,默认全部开启、音量 0.12(与原固定音量一致)。
-const SOUND_STORAGE_KEY = "kz-sound-settings";
-function readSoundSettings() {
+export const SOUND_STORAGE_KEY = "kz-sound-settings";
+export function readSoundSettings() {
   try {
     const parsed = JSON.parse(localStorage.getItem(SOUND_STORAGE_KEY) || "null");
     if (parsed && typeof parsed === "object") {
@@ -176,10 +208,10 @@ function readSoundSettings() {
   }
   return { enabled: true, volume: 0.12, completed: true, failed: true, stopped: true };
 }
-function saveSoundSettings(settings) {
+export function saveSoundSettings(settings) {
   localStorage.setItem(SOUND_STORAGE_KEY, JSON.stringify(settings));
 }
-function soundEnabledFor(kind) {
+export function soundEnabledFor(kind) {
   const s = readSoundSettings();
   if (!s.enabled) return false;
   if (kind === "failed") return s.failed;
@@ -187,7 +219,7 @@ function soundEnabledFor(kind) {
   return s.completed;
 }
 
-function playRunNotice(kind) {
+export function playRunNotice(kind) {
   if (!soundEnabledFor(kind)) return;
   try {
     const AudioCtor = window.AudioContext || window.webkitAudioContext;
@@ -214,13 +246,13 @@ function playRunNotice(kind) {
   }
 }
 
-let notificationPermissionPrompted = false;
-function explainNotificationFallback(message) {
+export let notificationPermissionPrompted = false;
+export function explainNotificationFallback(message) {
   log(message, "warn");
   $("log-panel").classList.remove("hidden");
   toast(message);
 }
-async function ensureNotificationPermission() {
+export async function ensureNotificationPermission() {
   if (notificationPermissionPrompted) return false;
   notificationPermissionPrompted = true;
   if (!("Notification" in window)) {
@@ -242,7 +274,7 @@ async function ensureNotificationPermission() {
   }
 }
 
-function notifyRunState(kind, text) {
+export function notifyRunState(kind, text) {
   const labels = { completed: t("运行完成"), failed: t("运行失败"), stopped: t("运行已停止") };
   const label = labels[kind] || t("运行状态");
   toast(`${label}: ${text}`);
@@ -259,14 +291,19 @@ function notifyRunState(kind, text) {
   }
 }
 
-function resetTitleOnFocus() {
+export function resetTitleOnFocus() {
   if (!document.hidden && document.hasFocus()) document.title = baseTitle;
 }
-document.addEventListener("visibilitychange", resetTitleOnFocus);
-window.addEventListener("focus", resetTitleOnFocus);
-let activityPanelOpen = localStorage.getItem("kz-activity-panel") === "1";
+defer(() => {
+  document.addEventListener("visibilitychange", resetTitleOnFocus);
+});
+defer(() => {
+  window.addEventListener("focus", resetTitleOnFocus);
+});
+export let activityPanelOpen = localStorage.getItem("kz-activity-panel") === "1";
+export function setActivityPanelOpen(value) { activityPanelOpen = Boolean(value); }
 
-function syncActivityPanel() {
+export function syncActivityPanel() {
   $("bg-panel").classList.toggle("hidden", !activityPanelOpen);
   const toggle = $("activity-toggle");
   toggle.classList.toggle("active", activityPanelOpen);
@@ -276,15 +313,19 @@ function syncActivityPanel() {
   toggle.title = activityPanelOpen ? t("隐藏右侧活动面板") : t("显示右侧活动面板");
 }
 
-$("activity-toggle").addEventListener("click", () => {
-  activityPanelOpen = !activityPanelOpen;
-  localStorage.setItem("kz-activity-panel", activityPanelOpen ? "1" : "0");
+defer(() => {
+  $("activity-toggle").addEventListener("click", () => {
+    activityPanelOpen = !activityPanelOpen;
+    localStorage.setItem("kz-activity-panel", activityPanelOpen ? "1" : "0");
+    syncActivityPanel();
+  });
+});
+defer(() => {
   syncActivityPanel();
 });
-syncActivityPanel();
 
-let sidebarCollapsed = localStorage.getItem("kz-sidebar-collapsed") === "1";
-function syncSidebar() {
+export let sidebarCollapsed = localStorage.getItem("kz-sidebar-collapsed") === "1";
+export function syncSidebar() {
   const sidebar = $("sidebar");
   sidebar.classList.toggle("collapsed", sidebarCollapsed);
   // rail 上的常驻开关与顶栏按钮同步同一状态:窄视口下侧栏悬浮盖住顶栏时,
@@ -299,7 +340,7 @@ function syncSidebar() {
 
 // 多线路只允许从具名会话状态投影运行控件。保留旧布尔字段供现有视图读取，
 // 但所有新增竞态路径都通过这一入口同时更新 phase 与兼容字段。
-function transitionSession(sessionId, phase, detail = {}) {
+export function transitionSession(sessionId, phase, detail = {}) {
   if (!sessionId) return null;
   const state = sessionState(sessionId);
   // 真终态一到就把停止看门狗撤掉,免得它在 10 秒后对一条已经正常收尾的会话
@@ -341,44 +382,54 @@ function transitionSession(sessionId, phase, detail = {}) {
   Object.assign(state, detail);
   return state;
 }
-function toggleSidebar() {
+export function toggleSidebar() {
   sidebarCollapsed = !sidebarCollapsed;
   localStorage.setItem("kz-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
   syncSidebar();
 }
-$("rail-sidebar-toggle")?.addEventListener("click", toggleSidebar);
+defer(() => {
+  $("rail-sidebar-toggle")?.addEventListener("click", toggleSidebar);
+});
 // 悬浮模式(≤900px,缩放放大同样会触发)下侧栏盖在主区上:点侧栏外的任意
 // 位置就收起,不再需要先找到被盖住的开关。
 // matchMedia 在冒烟 harness 里不存在:回退成"永不悬浮",真实浏览器不受影响。
-const sidebarOverlayQuery = typeof window.matchMedia === "function"
+export const sidebarOverlayQuery = typeof window.matchMedia === "function"
   ? window.matchMedia("(max-width: 900px)")
   : { matches: false };
-document.addEventListener("pointerdown", (event) => {
-  if (sidebarCollapsed || !sidebarOverlayQuery.matches) return;
-  if (event.target.closest("#sidebar, #activitybar")) return;
-  sidebarCollapsed = true;
-  localStorage.setItem("kz-sidebar-collapsed", "1");
-  syncSidebar();
+defer(() => {
+  document.addEventListener("pointerdown", (event) => {
+    if (sidebarCollapsed || !sidebarOverlayQuery.matches) return;
+    if (event.target.closest("#sidebar, #activitybar")) return;
+    sidebarCollapsed = true;
+    localStorage.setItem("kz-sidebar-collapsed", "1");
+    syncSidebar();
+  });
 });
 /// 进入悬浮态(≤900px)时先把抽屉收起来。悬浮的侧栏 z-index 高于输入区上下文行,
 /// 展开着就把「当前项目 / 模型 / 思考强度」整条盖掉——顶栏删除后那一行是**唯一**
 /// 能看到自己在对哪个项目、用哪个模型说话的地方,被盖住时 Ctrl+Enter 是盲发。
 /// 只在**跨过断点的那一刻**收,不动用户在宽窗口下的选择。
-function collapseSidebarForOverlay(matches) {
+export function collapseSidebarForOverlay(matches) {
   if (!matches || sidebarCollapsed) return;
   sidebarCollapsed = true;
   localStorage.setItem("kz-sidebar-collapsed", "1");
   syncSidebar();
 }
-if (typeof sidebarOverlayQuery.addEventListener === "function") {
-  sidebarOverlayQuery.addEventListener("change", (event) => collapseSidebarForOverlay(event.matches));
-}
-collapseSidebarForOverlay(sidebarOverlayQuery.matches);
-syncSidebar();
+defer(() => {
+  if (typeof sidebarOverlayQuery.addEventListener === "function") {
+    sidebarOverlayQuery.addEventListener("change", (event) => collapseSidebarForOverlay(event.matches));
+  };
+});
+defer(() => {
+  collapseSidebarForOverlay(sidebarOverlayQuery.matches);
+});
+defer(() => {
+  syncSidebar();
+});
 
 // ---------- 运行日志面板 ----------
-const LOG_MAX = 300;
-function log(text, cls = "") {
+export const LOG_MAX = 300;
+export function log(text, cls = "") {
   const lines = $("log-lines");
   const line = document.createElement("div");
   line.className = `log-line ${cls}`;
@@ -388,36 +439,44 @@ function log(text, cls = "") {
   while (lines.childElementCount > LOG_MAX) lines.firstElementChild.remove();
   lines.scrollTop = lines.scrollHeight;
 }
-$("log-toggle").addEventListener("click", () => $("log-panel").classList.toggle("hidden"));
-$("log-retry").addEventListener("click", async () => {
-  if (typeof errorRetry !== "function") return;
-  const retry = errorRetry;
-  $("log-retry").disabled = true;
-  try {
-    await retry();
-  } finally {
-    $("log-retry").disabled = false;
-  }
+defer(() => {
+  $("log-toggle").addEventListener("click", () => $("log-panel").classList.toggle("hidden"));
 });
-$("log-copy").addEventListener("click", async () => {
-  const text = $("log-lines").innerText.trim();
-  if (!text) {
-    toast(t("暂无可复制的运行日志"));
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(text);
-    toast(t("运行日志已复制"));
-  } catch (error) {
-    toastError(`${t("复制运行日志失败")}:${error}`);
-  }
+defer(() => {
+  $("log-retry").addEventListener("click", async () => {
+    if (typeof errorRetry !== "function") return;
+    const retry = errorRetry;
+    $("log-retry").disabled = true;
+    try {
+      await retry();
+    } finally {
+      $("log-retry").disabled = false;
+    }
+  });
 });
-$("log-clear").addEventListener("click", () => ($("log-lines").innerHTML = ""));
+defer(() => {
+  $("log-copy").addEventListener("click", async () => {
+    const text = $("log-lines").innerText.trim();
+    if (!text) {
+      toast(t("暂无可复制的运行日志"));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(t("运行日志已复制"));
+    } catch (error) {
+      toastError(`${t("复制运行日志失败")}:${error}`);
+    }
+  });
+});
+defer(() => {
+  $("log-clear").addEventListener("click", () => ($("log-lines").innerHTML = ""));
+});
 
 // ---------- 状态栏 ----------
-let statusTextSource = "";
-let statusRunning = false;
-function setStatus(text, isRunning) {
+export let statusTextSource = "";
+export let statusRunning = false;
+export function setStatus(text, isRunning) {
   // R-267:后台会话的渲染不得改写状态栏——那是活动会话的位置。
   if (typeof renderingBackground !== "undefined" && renderingBackground) return;
   statusTextSource = String(text ?? "");
@@ -429,16 +488,16 @@ function setStatus(text, isRunning) {
 }
 
 // 运行计时 + 首响应看门狗:等太久时把"卡在哪"讲清楚。
-let runStart = 0;
-let firstSignal = false;
-let elapsedTimer = null;
-function roundElapsedSeconds(reportedMs) {
+export let runStart = 0;
+export let firstSignal = false;
+export let elapsedTimer = null;
+export function roundElapsedSeconds(reportedMs) {
   const elapsedMs = Number(reportedMs);
   if (Number.isFinite(elapsedMs) && elapsedMs >= 0) return elapsedMs / 1000;
   if (runStart <= 0) return null;
   return (Date.now() - runStart) / 1000;
 }
-function startElapsed() {
+export function startElapsed() {
   runStart = Date.now();
   firstSignal = false;
   clearInterval(elapsedTimer);
@@ -450,12 +509,12 @@ function startElapsed() {
     }
   }, 1000);
 }
-function stopElapsed() {
+export function stopElapsed() {
   clearInterval(elapsedTimer);
   elapsedTimer = null;
   $("status-elapsed").textContent = "";
 }
-function markFirstSignal() {
+export function markFirstSignal() {
   // R-267:首响应计时属于活动会话的这一轮,后台会话的事件不参与。
   if (typeof renderingBackground !== "undefined" && renderingBackground) return;
   if (!firstSignal) {
@@ -464,19 +523,22 @@ function markFirstSignal() {
   }
 }
 
-let ctxLimit = null;
+export let ctxLimit = null;
+export function setCtxLimit(value) { ctxLimit = value; }
 // 并行线各自的 kz:meta 按会话缓存:状态栏只反映当前活跃线。kz:meta 每条线只在
 // run 启动时发一次,不缓存的话切线后状态栏要等到那条线下一轮才会变对。
-const sessionMetaCache = new Map();
-function applySessionMeta(sessionId) {
+export const sessionMetaCache = new Map();
+export function applySessionMeta(sessionId) {
   const meta = sessionId ? sessionMetaCache.get(sessionId) : null;
   if (!meta) return;
   $("status-model").textContent = `${meta.model} · ${meta.profile}`;
   ctxLimit = meta.contextLimit ?? null;
 }
-let ctxTokens = 0;
-let ctxPending = false;
-function renderTokens() {
+export let ctxTokens = 0;
+export let ctxPending = false;
+export function setCtxTokens(value) { ctxTokens = value; }
+export function setCtxPending(value) { ctxPending = value; }
+export function renderTokens() {
   const tokens = runTokens;
   let text = tokens.input + tokens.output === 0
     ? ""
@@ -505,7 +567,7 @@ function renderTokens() {
   $("status-tokens").textContent = text;
 }
 
-function setRunning(value, statusText) {
+export function setRunning(value, statusText) {
   running = value;
   runControlPending = false;
   const send = $("send");
@@ -523,7 +585,7 @@ function setRunning(value, statusText) {
 /// 「新对话」的守卫(running || runControlPending)必须**看得见**。
 /// 按钮长得能点、点下去只弹一句一闪而过的 toast,用户的读数就是「点了没反应」,
 /// 于是连点几次直到某一下落进空隙——这正是"要点好几次才是真的新对话"的成因。
-function syncNewChatEnabled() {
+export function syncNewChatEnabled() {
   const fresh = $("new-chat");
   if (!fresh) return;
   const blocked = running || runControlPending;
@@ -533,7 +595,7 @@ function syncNewChatEnabled() {
     : t("清空多轮对话历史,开一段新会话");
 }
 
-function setStopping(statusText) {
+export function setStopping(statusText) {
   running = true;
   runControlPending = false;
   $("send").disabled = true;
@@ -548,7 +610,7 @@ function setStopping(statusText) {
 
 // 鞭挞在两轮之间等待时，后端会话已经结束本轮但自动续跑定时器仍可取消。
 // 这不是 idle：停止按钮必须继续可用，且不能把 running 伪装成真实执行。
-function setRunPending(statusText) {
+export function setRunPending(statusText) {
   runControlPending = true;
   const stop = $("stop");
   stop.disabled = false;
@@ -558,7 +620,7 @@ function setRunPending(statusText) {
   setStatus(statusText ?? t("等待下一轮"), false);
 }
 
-function clearRunPending() {
+export function clearRunPending() {
   runControlPending = false;
   const stop = $("stop");
   stop.classList.toggle("hidden", !running);
@@ -569,11 +631,11 @@ function clearRunPending() {
 // ---------- R-189 主题切换:暗/亮持久化 ----------
 // 默认暗色(现状);切亮色改 html[data-theme="light"],CSS token 组接管换色;
 // 原生控件 color-scheme 已随 token 组同步;Monaco 主题由 17-files.js 读这里。
-const THEME_STORAGE_KEY = "kz-theme";
-function currentTheme() {
+export const THEME_STORAGE_KEY = "kz-theme";
+export function currentTheme() {
   return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
 }
-function applyTheme(theme) {
+export function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   localStorage.setItem(THEME_STORAGE_KEY, theme);
   // D-404:后端 app.json 持久化(WebView2 localStorage 数据文件缺失时重启不丢)。
@@ -593,7 +655,7 @@ function applyTheme(theme) {
   if (sun) sun.classList.toggle("hidden", theme !== "light");
   if (moon) moon.classList.toggle("hidden", theme !== "dark");
 }
-function initTheme() {
+export function initTheme() {
   const saved = localStorage.getItem(THEME_STORAGE_KEY);
   applyTheme(saved === "light" || saved === "dark" ? saved : "dark");
   // D-404:localStorage 旧值可能已丢;后端 app.json 是权威,有值则覆盖。
@@ -601,16 +663,20 @@ function initTheme() {
     if (p.theme === "light" || p.theme === "dark") applyTheme(p.theme);
   });
 }
-initTheme();
-$("theme-toggle")?.addEventListener("click", () => applyTheme(currentTheme() === "light" ? "dark" : "light"));
+defer(() => {
+  initTheme();
+});
+defer(() => {
+  $("theme-toggle")?.addEventListener("click", () => applyTheme(currentTheme() === "light" ? "dark" : "light"));
+});
 
 // ---------- R-190 常驻 fast 模型状态 ----------
 // 状态栏 #status-fast 显示 fast 子代理模型运行态:未托管时隐藏,托管时显示
 // fastStatusText 的短文案并随真实探测每 10 秒刷新——Ollama 服务停掉后状态
 // 自动翻红、重新起来后自动转回就绪,无需重开任何视图。
-const FAST_STATUS_POLL_MS = 10000;
-let fastStatusTimer = null;
-async function refreshFastStatusBar() {
+export const FAST_STATUS_POLL_MS = 10000;
+export let fastStatusTimer = null;
+export async function refreshFastStatusBar() {
   const el = $("status-fast");
   if (!el) return;
   let s;
@@ -624,7 +690,7 @@ async function refreshFastStatusBar() {
     el.textContent = "";
     return;
   }
-  const st = typeof fastStatusText === "function" ? fastStatusText(s) : null;
+  const st = typeof globalThis.fastStatusText === "function" ? globalThis.fastStatusText(s) : null;
   const short = st
     ? s.ready
       ? `✓ ${t("子代理就绪")}`
@@ -638,15 +704,19 @@ async function refreshFastStatusBar() {
   el.classList.remove("hidden");
   el.classList.toggle("warn-text", Boolean(st?.warn));
 }
-function startFastStatusBar() {
+export function startFastStatusBar() {
   clearInterval(fastStatusTimer);
   void refreshFastStatusBar();
   fastStatusTimer = setInterval(() => void refreshFastStatusBar(), FAST_STATUS_POLL_MS);
 }
 // 依赖 06-activity.js 的 fastStatusText;06 在 03 之后加载,轮询首跑在
 // DOM 就绪且脚本全部加载后,这里直接启动(函数调用发生在事件循环,届时已定义)。
-startFastStatusBar();
+defer(() => {
+  startFastStatusBar();
+});
 
 // R-264 B10：21-palette.js 的渐进 ESM 兼容桥；最终由显式模块 import 取代。
-Object.assign(globalThis, { log });
+defer(() => {
+  Object.assign(globalThis, { log });
+});
 

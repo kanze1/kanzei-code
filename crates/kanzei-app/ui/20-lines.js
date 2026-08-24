@@ -1,14 +1,42 @@
+import { defer } from "./01-core.js";
+import { $, confirmDialog, invoke } from "./01-core.js";
+import { t } from "./02-i18n.js";
+import {
+  activeProcessId,
+  currentProject,
+  log,
+  processItems,
+  running,
+  sessionState,
+  toastError,
+} from "./03-shell.js";
+import { buildDiffTree } from "./06-activity.js";
+import { lineAutoConfig, queueProcessUpdate, setLineAutoState, updateLocalProcessItem } from "./08-compose-runtime.js";
+import { state } from "./08-compose.js";
+import { loadModels, syncModelSelectToActiveLine } from "./08-models.js";
+import {
+  closeParallelProcess,
+  createWorktreeLine,
+  processRunning,
+  refreshWorktrees,
+  switchProcess,
+  worktreeLineCreateInFlight,
+} from "./09-sessions.js";
+import { latestDocsSnapshot, renderDocuments } from "./12-docs-pages.js";
+import { refreshDocs } from "./14-docs-actions.js";
+import { refreshGit } from "./15-views-misc.js";
+
 // ---------- R-184 B 面:任务级并行线路 ----------
 // 这里不另造状态仓库。agent 协作块和用户并列视图都读 collaboration_snapshot,
 // 其 branch / phase / tool / changed_files 来自后端当前运行态和 git 现场。
-let collaborationLines = [];
-let linesRefreshInFlight = false;
-let linesRefreshTimer = null;
-let linesRefreshQueued = false;
-const LINES_REFRESH_IDLE_MS = 8000;
-const LINES_REFRESH_RUNNING_MS = 3500;
+export let collaborationLines = [];
+export let linesRefreshInFlight = false;
+export let linesRefreshTimer = null;
+export let linesRefreshQueued = false;
+export const LINES_REFRESH_IDLE_MS = 8000;
+export const LINES_REFRESH_RUNNING_MS = 3500;
 
-function lineAgentCodes(lines) {
+export function lineAgentCodes(lines) {
   const codes = new Map();
   let branchIndex = 0;
   for (const line of [...lines].sort((a, b) => a.process_id.localeCompare(b.process_id))) {
@@ -24,7 +52,7 @@ function lineAgentCodes(lines) {
 
 // R-247:开线区只列当前可领取(todo/open)、未阻塞的 R/D 条目。最终 claim 仍由
 // 后端 WorkTool 原子校验；这里负责让用户先选事实对象，不在前端复制调度器。
-function renderLineWorkItemOptions(snapshot = null) {
+export function renderLineWorkItemOptions(snapshot = null) {
   const select = $("lines-work-item");
   const add = $("lines-add");
   if (!select || !add) return;
@@ -49,11 +77,11 @@ function renderLineWorkItemOptions(snapshot = null) {
   add.disabled = worktreeLineCreateInFlight || !select.value;
 }
 
-function normalizedChangedFile(path) {
+export function normalizedChangedFile(path) {
   return String(path).replaceAll("\\", "/").toLocaleLowerCase();
 }
 
-function lineConflictPairs(lines) {
+export function lineConflictPairs(lines) {
   const byFile = new Map();
   for (const line of lines) {
     for (const file of line.changed_files ?? []) {
@@ -80,13 +108,13 @@ function lineConflictPairs(lines) {
   return [...pairs.values()];
 }
 
-function formatLineTokens(value) {
+export function formatLineTokens(value) {
   const count = Number(value || 0);
   if (count < 1000) return String(count);
   return `${(count / 1000).toFixed(count < 10000 ? 1 : 0)}k`;
 }
 
-function lineFact(label, value, className = "") {
+export function lineFact(label, value, className = "") {
   const row = document.createElement("div");
   row.className = `line-fact ${className}`.trim();
   const key = document.createElement("span");
@@ -105,9 +133,9 @@ function lineFact(label, value, className = "") {
 // 线路页正是唯一能一屏看全所有线的地方。控件本身不持有状态:开关/暂停/本轮后停/上限
 // 一律经 setLineAutoState 落到该线存档 + 它自己的后端 auto_state;模型经
 // queueProcessUpdate 落该线 process(run_prompt 的 model 回落读的就是它)。
-let linesModelCatalog = null;
-let linesModelCatalogProject = null;
-async function loadLinesModelCatalog() {
+export let linesModelCatalog = null;
+export let linesModelCatalogProject = null;
+export async function loadLinesModelCatalog() {
   if (linesModelCatalog && linesModelCatalogProject === currentProject) return linesModelCatalog;
   const forProject = currentProject;
   try {
@@ -123,7 +151,7 @@ async function loadLinesModelCatalog() {
   return linesModelCatalog;
 }
 
-function buildLineModelSelect(item) {
+export function buildLineModelSelect(item) {
   const select = document.createElement("select");
   select.className = "ctx-select line-model-select";
   select.title = t("模型改动下一轮生效");
@@ -158,7 +186,7 @@ function buildLineModelSelect(item) {
   return select;
 }
 
-function buildLineAutoControls(line) {
+export function buildLineAutoControls(line) {
   const box = document.createElement("div");
   box.className = "line-autorun";
   const item = processItems.find((process) => process.id === line.process_id);
@@ -227,7 +255,7 @@ function buildLineAutoControls(line) {
   return box;
 }
 
-function renderLineConflicts(lines) {
+export function renderLineConflicts(lines) {
   const target = $("lines-conflict-list");
   target.replaceChildren();
   const pairs = lineConflictPairs(lines);
@@ -255,7 +283,7 @@ function renderLineConflicts(lines) {
   }
 }
 
-function lineStatusKey(line, lineRunning) {
+export function lineStatusKey(line, lineRunning) {
   const status = line.status;
   if (["running", "suspected_stuck", "failed", "completed", "stopped", "idle"].includes(status)) {
     return status;
@@ -264,7 +292,7 @@ function lineStatusKey(line, lineRunning) {
   return lineRunning ? "running" : "idle";
 }
 
-function lineStatusLabel(status) {
+export function lineStatusLabel(status) {
   return {
     running: t("运行中"),
     suspected_stuck: t("疑似卡住"),
@@ -275,7 +303,7 @@ function lineStatusLabel(status) {
   }[status] || t("空闲");
 }
 
-function renderLines(lines) {
+export function renderLines(lines) {
   collaborationLines = lines ?? [];
   const target = $("lines-list");
   // 线路页按快照重绘是必要的,但收活面板不是快照字段:它承载用户已经加载的
@@ -436,16 +464,16 @@ function renderLines(lines) {
 // ① 读报告 → ② 人读 diff → ③ 跑门禁 → ④ 合并 → ⑤ 回写 tracker。
 // ② 不可跳过:未点「我已读过 diff」时 ③④ 全部禁用(⑤ 由批5 接入)。
 // 格3 门禁由 kanzei 跑(worktree_gate:fmt/clippy/test/前端冒烟),不能信线自己说的绿。
-function forProject() {
+export function forProject() {
   return currentProject;
 }
 
-function harvestClaimId(value) {
+export function harvestClaimId(value) {
   const match = String(value ?? "").trim().match(/^(R|D)-(\d+)(?:\s|$)/);
   return match ? `${match[1]}-${match[2]}` : "";
 }
 
-function buildHarvestPanel(line, projectDir, agentCode) {
+export function buildHarvestPanel(line, projectDir, agentCode) {
   const panel = document.createElement("div");
   panel.className = "line-harvest";
   const harvestState = {
@@ -870,7 +898,7 @@ function buildHarvestPanel(line, projectDir, agentCode) {
   return panel;
 }
 
-async function refreshLines() {
+export async function refreshLines() {
   if (!currentProject) {
     renderLines([]);
     return;
@@ -906,7 +934,7 @@ async function refreshLines() {
   }
 }
 
-function scheduleLinesRefresh(delay) {
+export function scheduleLinesRefresh(delay) {
   if (linesRefreshTimer) clearTimeout(linesRefreshTimer);
   linesRefreshTimer = setTimeout(() => {
     linesRefreshTimer = null;
@@ -914,7 +942,7 @@ function scheduleLinesRefresh(delay) {
   }, delay);
 }
 
-async function confirmWorktreeMerge(item, forProject) {
+export async function confirmWorktreeMerge(item, forProject) {
   let lines;
   try {
     lines = await invoke("collaboration_snapshot", { projectDir: forProject });
@@ -959,6 +987,12 @@ async function confirmWorktreeMerge(item, forProject) {
 }
 
 // 侧栏的 ↻ 撤掉之后,这一颗要同时刷线路与工作树清单——否则孤儿树没有任何刷新入口。
-$("lines-refresh").addEventListener("click", () => { void refreshLines(); void refreshWorktrees(); });
-$("lines-work-item").addEventListener("change", () => renderLineWorkItemOptions());
-$("lines-add").addEventListener("click", createWorktreeLine);
+defer(() => {
+  $("lines-refresh").addEventListener("click", () => { void refreshLines(); void refreshWorktrees(); });
+});
+defer(() => {
+  $("lines-work-item").addEventListener("change", () => renderLineWorkItemOptions());
+});
+defer(() => {
+  $("lines-add").addEventListener("click", createWorktreeLine);
+});

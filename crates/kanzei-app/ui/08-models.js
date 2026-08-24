@@ -1,7 +1,15 @@
+import { defer } from "./01-core.js";
+import { $, inputDialog, invoke, readJson, writeJson } from "./01-core.js";
+import { t } from "./02-i18n.js";
+import { activeProcessId, currentProject, log, processItems, reportPersistentError, toast } from "./03-shell.js";
+import { queueProcessUpdate, updateLocalProcessItem } from "./08-compose-runtime.js";
+import { refreshProcesses } from "./09-sessions.js";
+import { restoreDocFilters } from "./10-docs-core.js";
+
 // ---------- 模型直选 ----------
-const SHOW_ALL_MODELS_SENTINEL = "__show_all_models__";
-let showAllModels = false;
-async function loadModels({ showAll = false } = {}) {
+export const SHOW_ALL_MODELS_SENTINEL = "__show_all_models__";
+export let showAllModels = false;
+export async function loadModels({ showAll = false } = {}) {
   showAllModels = showAll;
   const select = $("model-select");
   // R-178 批3:首次进入项目时把 localStorage 旧键上迁后端(幂等,成功后不再执行)。
@@ -75,7 +83,7 @@ async function loadModels({ showAll = false } = {}) {
 // 顶栏模型下拉 ← 活动线。原来只有 switchProcess 尾巴上那一句在做这件事,于是冷启动、
 // 切项目、以及 renderProcesses 兜底选中活动线(线路被回收后)这三条路径全都不回显——
 // 下拉停在上一条线的值,而用户以为那就是当前线的模型。
-function syncModelSelectToActiveLine() {
+export function syncModelSelectToActiveLine() {
   const select = $("model-select");
   if (!select) return;
   const item = processItems.find((candidate) => candidate.id === activeProcessId);
@@ -92,7 +100,7 @@ function syncModelSelectToActiveLine() {
 
 // 手填模型:provider:model 直指。有些 OpenAI 兼容端点不提供 /models,
 // 或者 key 尚未配好导致探测为空,这条通道保证配了 provider 就一定能用。
-const MANUAL_MODEL_SENTINEL = "__manual__";
+export const MANUAL_MODEL_SENTINEL = "__manual__";
 // R-178 批3:localStorage 旧键一次性上迁后端(②层),前端不再以 localStorage 为真源。
 // 旧键形态:`kz-model`(更早的全局键)、`kz-model:<project>`(R-115 项目级)、
 // `kz-manual-models:<project>`(手填候选)。保留旧键 fallback 一个版本——迁移执行前
@@ -101,14 +109,14 @@ const MANUAL_MODEL_SENTINEL = "__manual__";
 // 幂等:旧键不存在时直接返回;迁移失败保留旧键,下次 loadModels 再试。不设一次性
 // 标志——「旧键清除后自然不再迁移」就是幂等,也让失败可重试(保留旧键 fallback
 // 一个版本:迁移函数保留到下一大版本再删)。
-function legacyModelPrefValue() {
+export function legacyModelPrefValue() {
   return localStorage.getItem(prefKey("model")) ?? localStorage.getItem("kz-model") ?? "";
 }
-function legacyManualModels() {
+export function legacyManualModels() {
   const list = readJson(prefKey("manual-models"), []);
   return Array.isArray(list) ? list.filter((x) => typeof x === "string") : [];
 }
-async function migrateLegacyModelPrefs() {
+export async function migrateLegacyModelPrefs() {
   if (!currentProject) return;
   const legacyModel = legacyModelPrefValue();
   const legacyManual = legacyManualModels();
@@ -128,12 +136,12 @@ async function migrateLegacyModelPrefs() {
     reportPersistentError(`${t("旧模型偏好迁移失败")}:${error}`);
   }
 }
-function manualModels() {
+export function manualModels() {
   const legacy = legacyManualModels();
   const list = legacy.length > 0 ? legacy : (processItems.find((item) => item.id.startsWith("d|"))?.manual_models ?? []);
   return Array.isArray(list) ? list.filter((x) => typeof x === "string") : [];
 }
-function addManualModel(id) {
+export function addManualModel(id) {
   const list = manualModels();
   if (!list.includes(id)) list.push(id);
   const defaultProcess = processItems.find((item) => item.id.startsWith("d|"));
@@ -148,10 +156,10 @@ function addManualModel(id) {
 }
 // R-115:模型与思考强度按项目记——不同项目常配不同模型,共用一个全局键会互相打架。
 // 思考强度此前只写不读(kz-reasoning 全仓零处 getItem),等于每次重启都回默认档。
-function prefKey(name) {
+export function prefKey(name) {
   return `kz-${name}:${currentProject || "default"}`;
 }
-function restoreProjectPrefs() {
+export function restoreProjectPrefs() {
   const reasoning = localStorage.getItem(prefKey("reasoning"));
   const select = $("reasoning-select");
   // 选项不存在时不要硬塞:赋一个无效值会让 select 落到空串,反而清掉配置默认档。
@@ -167,50 +175,54 @@ function restoreProjectPrefs() {
 }
 
 // 思考强度:空值=用配置默认档,其余为本进程覆盖。
-$("reasoning-select").addEventListener("change", () => {
-  const value = $("reasoning-select").value;
-  localStorage.setItem(prefKey("reasoning"), value);
-  if (activeProcessId) {
-    updateLocalProcessItem(activeProcessId, { reasoning: value });
-    queueProcessUpdate(activeProcessId, { reasoning: value })
-      .catch((error) => reportPersistentError(`${t("进程思考强度保存失败")}:${error}`));
-  }
+defer(() => {
+  $("reasoning-select").addEventListener("change", () => {
+    const value = $("reasoning-select").value;
+    localStorage.setItem(prefKey("reasoning"), value);
+    if (activeProcessId) {
+      updateLocalProcessItem(activeProcessId, { reasoning: value });
+      queueProcessUpdate(activeProcessId, { reasoning: value })
+        .catch((error) => reportPersistentError(`${t("进程思考强度保存失败")}:${error}`));
+    }
+  });
 });
 
-$("model-select").addEventListener("change", async () => {
-  const select = $("model-select");
-  if (select.value === SHOW_ALL_MODELS_SENTINEL) {
-    const selected = processItems.find((item) => item.id === activeProcessId)?.model ||
-      legacyModelPrefValue();
-    loadModels({ showAll: true }).then(() => {
-      select.value = selected;
-    });
-    return;
-  }
-  if (select.value === MANUAL_MODEL_SENTINEL) {
-    const input = ((await inputDialog({
-      title: t("填 provider:model,例如 deepseek:deepseek-chat"),
-    })) || "").trim();
-    // provider 名必须对得上配置里的键,否则后端 resolve_model 会直接失败。
-    if (!/^[\w.-]+:.+$/.test(input)) {
-      if (input) toast(t("格式应为 provider:model"));
-      select.value = processItems.find((item) => item.id === activeProcessId)?.model || "";
+defer(() => {
+  $("model-select").addEventListener("change", async () => {
+    const select = $("model-select");
+    if (select.value === SHOW_ALL_MODELS_SENTINEL) {
+      const selected = processItems.find((item) => item.id === activeProcessId)?.model ||
+        legacyModelPrefValue();
+      loadModels({ showAll: true }).then(() => {
+        select.value = selected;
+      });
       return;
     }
-    addManualModel(input).then(() => loadModels()).then(() => {
-      $("model-select").value = input;
-    });
+    if (select.value === MANUAL_MODEL_SENTINEL) {
+      const input = ((await inputDialog({
+        title: t("填 provider:model,例如 deepseek:deepseek-chat"),
+      })) || "").trim();
+      // provider 名必须对得上配置里的键,否则后端 resolve_model 会直接失败。
+      if (!/^[\w.-]+:.+$/.test(input)) {
+        if (input) toast(t("格式应为 provider:model"));
+        select.value = processItems.find((item) => item.id === activeProcessId)?.model || "";
+        return;
+      }
+      addManualModel(input).then(() => loadModels()).then(() => {
+        $("model-select").value = input;
+      });
+      if (activeProcessId) {
+        updateLocalProcessItem(activeProcessId, { model: input });
+        queueProcessUpdate(activeProcessId, { model: input })
+          .catch((error) => reportPersistentError(`${t("进程模型保存失败")}:${error}`));
+      }
+      return;
+    }
     if (activeProcessId) {
-      updateLocalProcessItem(activeProcessId, { model: input });
-      queueProcessUpdate(activeProcessId, { model: input })
+      // 空串=清除本进程的模型覆盖(回落 agent 默认);传 null 会被后端当作"不修改"。
+      updateLocalProcessItem(activeProcessId, { model: select.value || null });
+      queueProcessUpdate(activeProcessId, { model: select.value })
         .catch((error) => reportPersistentError(`${t("进程模型保存失败")}:${error}`));
     }
-    return;
-  }
-  if (activeProcessId) {
-    // 空串=清除本进程的模型覆盖(回落 agent 默认);传 null 会被后端当作"不修改"。
-    updateLocalProcessItem(activeProcessId, { model: select.value || null });
-    queueProcessUpdate(activeProcessId, { model: select.value })
-      .catch((error) => reportPersistentError(`${t("进程模型保存失败")}:${error}`));
-  }
+  });
 });

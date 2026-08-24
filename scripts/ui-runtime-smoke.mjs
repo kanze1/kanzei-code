@@ -1331,6 +1331,9 @@ async function runUiSources() {
     // classic 文件仍按 index.html 逐文件 runInContext，保住浏览器的 TDZ/执行顺序；
     // 目录中的额外源码只进入静态覆盖，不冒充浏览器已加载脚本。
     const esmOrder = [];
+    // 先统一完成探针注入，再创建任何 ESM module。若边遍历边注入，前面的 ESM
+    // 在 link 期间会缓存尚未处理的后续依赖，导致 reportPersistentError 等探针
+    // 只落在未被实际消费的副本上。
     for (const [name, sourceText] of executionSources) {
       let instrumented = sourceText.replace(
         PROBE_INIT,
@@ -1346,6 +1349,9 @@ async function runUiSources() {
       const index = sourceIndexes.get(name);
       if (index !== undefined) sources[index] = instrumented;
       sourcesByName.set(name, instrumented);
+    }
+    for (const [name] of executionSources) {
+      const instrumented = sourcesByName.get(name);
       const isEsm = /^\s*(import|export)\b/m.test(instrumented);
       if (!isEsm) {
         vm.runInContext(instrumented, sandbox, { filename: name });
@@ -1375,6 +1381,31 @@ async function runUiSources() {
         // 忽略不可读 namespace。
       }
     }
+    // ESM 的可变导出不是 sandbox 普通属性：测试中的赋值必须经模块 setter，
+    // 否则只改了兼容桥副本，消费者仍读取原 live binding，测试会把真实链路误判为失效。
+    const bindMutableEsmGlobal = (name, moduleName, setterName) => {
+      const module = esmModuleCache.get(moduleName);
+      const setter = module?.namespace?.[setterName];
+      if (!module || typeof setter !== "function") {
+        throw new Error(`mutable ESM export ${name} missing ${moduleName}.${setterName}`);
+      }
+      Object.defineProperty(sandbox, name, {
+        configurable: true,
+        enumerable: true,
+        get: () => module.namespace[name],
+        set: (value) => setter(value),
+      });
+    };
+    bindMutableEsmGlobal("renderMarkdown", "04-markdown.js", "setRenderMarkdown");
+    bindMutableEsmGlobal("activePane", "01-core.js", "setActivePane");
+    bindMutableEsmGlobal("inputDialog", "01-core.js", "setInputDialog");
+    bindMutableEsmGlobal("confirmDialog", "01-core.js", "setConfirmDialog");
+    bindMutableEsmGlobal("pendingJumpId", "11-docs-list.js", "setPendingJumpId");
+    bindMutableEsmGlobal("activeProcessId", "03-shell.js", "setActiveProcessId");
+    bindMutableEsmGlobal("activeSessionId", "03-shell.js", "setActiveSessionId");
+    bindMutableEsmGlobal("currentProject", "03-shell.js", "setCurrentProject");
+    bindMutableEsmGlobal("neuralFlowEmit", "22-neural-flow.js", "setNeuralFlowEmit");
+
     // R-264 ESM:模拟浏览器 deferred module 语义——所有模块求值完后 DOM 就绪,
     // 触发收集到的 DOMContentLoaded 回调(顶层延迟执行的点在这里跑)。
     for (const fn of domReadyCallbacks.splice(0)) {
@@ -1403,14 +1434,15 @@ await runUiSources();
     /id="neural-flow-chat"[^>]*aria-hidden="true"/.test(html),
     "主对话神经流必须对辅助技术隐藏",
   );
-  const neuralFlowRegistered = vm.runInContext('typeof neuralFlowEmit === "function"', sandbox);
-  assert(neuralFlowRegistered, "R-285 neuralFlowEmit 顶层运行时入口未注册");
+  const neuralFlowModule = esmModuleCache.get("22-neural-flow.js");
+  const neuralFlowEmit = neuralFlowModule?.namespace?.neuralFlowEmit;
+  assert(typeof neuralFlowEmit === "function", "R-285 neuralFlowEmit ESM 入口未注册");
   assert(
     source.includes("const idleAlpha = isMemory ? 0.22 : 0.075") && source.includes("const ambientProgress ="),
     "R-285 记忆流静息轨迹必须保持清晰亮度与定向流光",
   );
   assert(source.includes("const trailSteps = 5"), "R-285 业务事件脉冲必须带可辨识的流动尾迹");
-  vm.runInContext('neuralFlowEmit("memory_search_started", { query_length: 6 })', sandbox);
+  neuralFlowEmit("memory_search_started", { query_length: 6 });
   assert(memoryState.textContent === "检索中", `记忆检索动画状态错误:${memoryState.textContent}`);
   vm.runInContext('neuralFlowEmit("memory_search_completed", { hit_count: 2 })', sandbox);
   assert(memoryState.textContent === "收敛", `记忆检索完成状态错误:${memoryState.textContent}`);
@@ -1426,10 +1458,16 @@ await runUiSources();
 
 // R-284 B3:结构化体验事件必须先归并到事实 store,再按归属分发。
 {
-  vm.runInContext(
-    '__kzOriginalNeuralFlowEmit = neuralFlowEmit; __kzOriginalRefreshMemory = refreshMemory; __experienceProbe = { animation: [], payloads: [], memory_refreshes: 0 }; neuralFlowEmit = (type, payload) => { __experienceProbe.animation.push(type); __experienceProbe.payloads.push(payload); }; refreshMemory = () => { __experienceProbe.memory_refreshes += 1; };',
-    sandbox,
-  );
+  const neuralFlowModule = esmModuleCache.get("22-neural-flow.js");
+  const originalNeuralFlowEmit = neuralFlowModule.namespace.neuralFlowEmit;
+  const experienceProbe = { animation: [], payloads: [], memory_refreshes: 0 };
+  sandbox.__experienceProbe = experienceProbe;
+  neuralFlowModule.namespace.setNeuralFlowEmit((type, payload) => {
+    if (type === "memory_snapshot") return;
+    experienceProbe.animation.push(type);
+    experienceProbe.payloads.push(payload);
+  });
+  const memoryRefreshBefore = invokeLog.filter((cmd) => cmd === "memory_overview").length;
   const projectFact = {
     schema_version: 1,
     event_id: "experience-smoke-memory-1",
@@ -1445,22 +1483,24 @@ await runUiSources();
   };
   handlers.get("kz:experience")({ payload: projectFact });
   await flush();
+  experienceProbe.memory_refreshes = invokeLog.filter((cmd) => cmd === "memory_overview").length;
   assert(
     vm.runInContext('experienceProjectionBySession.get("project-session-smoke").topics.has("memory-topic")', sandbox),
     "R-284 B3 体验事件未按 topic_id 进入 session store",
   );
+  assert(experienceProbe.memory_refreshes > memoryRefreshBefore, "R-284 B3 memory fact 未刷新同项目工作台");
   assert(
     vm.runInContext('experienceProjectionBySession.get("project-session-smoke").entities.has("memory-001")', sandbox),
     "R-284 B3 体验事件未按 entity_id 进入 session store",
   );
   assert(
-    vm.runInContext("__experienceProbe.memory_refreshes", sandbox) === 1,
-    "R-284 B3 memory fact 未刷新同项目工作台",
+    vm.runInContext("__experienceProbe.memory_refreshes", sandbox) === experienceProbe.memory_refreshes,
+    "R-284 B3 memory fact 刷新计数未同步到探针",
   );
   handlers.get("kz:experience")({ payload: projectFact });
   await flush();
   assert(
-    vm.runInContext("__experienceProbe.memory_refreshes", sandbox) === 1,
+    vm.runInContext("__experienceProbe.memory_refreshes", sandbox) === experienceProbe.memory_refreshes,
     "R-284 B3 重放同一 event_id 产生了重复工作台副作用",
   );
   handlers.get("kz:experience")({
@@ -1564,8 +1604,7 @@ await runUiSources();
     vm.runInContext('experienceProjectionBySession.get("reconnected-session-smoke").facts.has("research_verify_completed")', sandbox),
     "R-284 B4 重连未从持久事实恢复 session 投影",
   );
-  vm.runInContext("neuralFlowEmit = __kzOriginalNeuralFlowEmit", sandbox);
-  vm.runInContext("refreshMemory = __kzOriginalRefreshMemory", sandbox);
+  neuralFlowModule.namespace.setNeuralFlowEmit(originalNeuralFlowEmit);
 }
 
 // D-420:先验证生产输入弹窗本身可打开、回填并确认,再替换为立即返回桩供后续业务用例复用。
@@ -5690,14 +5729,15 @@ assert(
 // 每 delta 一次,这两条就红。
 {
   const walksBefore = fullDocumentWalks;
+  const markdownModule = esmModuleCache.get("04-markdown.js");
+  const realRenderMarkdown = markdownModule.namespace.renderMarkdown;
   let renders = 0;
-  const realRenderMarkdown = sandbox.renderMarkdown;
-  sandbox.renderMarkdown = (raw) => { renders += 1; return realRenderMarkdown(raw); };
+  markdownModule.namespace.setRenderMarkdown((raw) => { renders += 1; return realRenderMarkdown(raw); });
   const DELTAS = 200;
   for (let i = 0; i < DELTAS; i += 1) sandbox.appendAssistant(`stream-chunk-${i} with some filler text
 `);
   await flush();
-  sandbox.renderMarkdown = realRenderMarkdown;
+  markdownModule.namespace.setRenderMarkdown(realRenderMarkdown);
 
   assert(renders > 0, "renderMarkdown 包装未生效,本组断言全是假通过");
   assert(
@@ -7566,7 +7606,7 @@ const docsB = {
     `R-190:常驻指示未反映服务未运行,实得 "${fastEl.textContent}"`,
   );
   assert(fastEl.classList.contains("warn-text"), "R-190:未就绪时指示应标红(warn-text)");
-  const timerRegistered = vm.runInContext("typeof fastStatusTimer !== 'undefined' && fastStatusTimer !== null", sandbox);
+  const timerRegistered = esmModuleCache.get("03-shell.js")?.namespace?.fastStatusTimer !== null;
   assert(timerRegistered, "R-190:常驻轮询定时器未注册(状态不会随真实探测更新)");
 }
 
@@ -7683,7 +7723,7 @@ const docsB = {
     `R-190:常驻指示未反映服务未运行,实得 "${fastEl.textContent}"`,
   );
   assert(fastEl.classList.contains("warn-text"), "R-190:未就绪时指示应标红(warn-text)");
-  const timerRegistered = vm.runInContext("typeof fastStatusTimer !== 'undefined' && fastStatusTimer !== null", sandbox);
+  const timerRegistered = esmModuleCache.get("03-shell.js")?.namespace?.fastStatusTimer !== null;
   assert(timerRegistered, "R-190:常驻轮询定时器未注册(状态不会随真实探测更新)");
 }
 

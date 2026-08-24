@@ -1,6 +1,14 @@
+import { defer } from "./01-core.js";
+import { escapeHtml } from "./04-markdown.js";
+import { $, confirmDialog, invoke, on, replayExperienceFacts, uiConsoleLog } from "./01-core.js";
+import { t } from "./02-i18n.js";
+import { currentProject, toast, toastError } from "./03-shell.js";
+import { latestDocsSnapshot } from "./12-docs-pages.js";
+import { neuralFlowEmit } from "./22-neural-flow.js";
+
 // ---------- 记忆页(R-107):透明化——架构总览/条目/账单/检索/整理 ----------
-let memorySelection = null;
-async function refreshMemory() {
+export let memorySelection = null;
+export async function refreshMemory() {
   if (!currentProject) {
     $("memory-arch").innerHTML = `<p class="dim">${t("先在左侧「项目」里添加并选择一个目录")}</p>`;
     return;
@@ -29,7 +37,7 @@ async function refreshMemory() {
   }
 }
 
-function renderMemoryControlPlane(data) {
+export function renderMemoryControlPlane(data) {
   const box = $("memory-control-plane");
   if (!box) return;
   box.innerHTML = "";
@@ -86,7 +94,7 @@ function renderMemoryControlPlane(data) {
 // ---------- R-127 运行画像面板 ----------
 // 判断 agent 跑得好不好此前全靠翻轨迹。数据源早就有(RunSummary 的 context_report、
 // summarize_tools、summarize_metrics),缺的只是把它们汇到一处。
-async function refreshMetrics() {
+export async function refreshMetrics() {
   if (!currentProject) {
     $("metrics-rounds").innerHTML = `<p class="dim">${t("先在左侧「项目」里添加并选择一个目录")}</p>`;
     return;
@@ -108,7 +116,7 @@ async function refreshMetrics() {
 
 // R-240:按需求类型(R-/D-)与复杂度(小/中/大)聚合的 token 指标,方便针对
 // 上下文与 harness 做优化分析。
-function renderMetricsCategories(cats) {
+export function renderMetricsCategories(cats) {
   const box = $("metrics-categories");
   box.innerHTML = "";
   const groups = cats.groups ?? [];
@@ -154,7 +162,7 @@ function renderMetricsCategories(cats) {
   box.append(head, table);
 }
 
-function renderMetrics(rounds) {
+export function renderMetrics(rounds) {
   const trend = $("metrics-trend");
   const list = $("metrics-rounds");
   trend.innerHTML = "";
@@ -213,7 +221,7 @@ function renderMetrics(rounds) {
   }
 }
 
-function redundantLine(m) {
+export function redundantLine(m) {
   const total = (m.redundant_git ?? 0) + (m.redundant_test ?? 0) + (m.redundant_task ?? 0);
   if (total === 0) return "";
   const parts = [];
@@ -223,14 +231,14 @@ function redundantLine(m) {
   return ` · ${t("冗余提醒")} ${parts.join(" ")}`;
 }
 
-const INCIDENT_CLASS_LABELS = Object.freeze({
+export const INCIDENT_CLASS_LABELS = Object.freeze({
   execution_incident: "execution_incident",
   development_defect: "development_defect",
   product_defect: "product_defect",
   regression: "regression",
 });
 
-function formatIncidentDuration(metrics) {
+export function formatIncidentDuration(metrics) {
   const samples = Number(metrics?.repair_duration_samples ?? 0);
   if (!samples) return t("暂无");
   const average = Number(metrics?.repair_duration_ms_average ?? 0);
@@ -238,7 +246,7 @@ function formatIncidentDuration(metrics) {
   return `${(average / 1000).toFixed(1)}s`;
 }
 
-function renderIncidentMetrics(data, targetId) {
+export function renderIncidentMetrics(data, targetId) {
   const box = $(targetId);
   if (!box) return;
   box.replaceChildren();
@@ -286,9 +294,9 @@ function renderIncidentMetrics(data, targetId) {
 // ---------- R-126 UI 自查探针:在真实运行中的窗口里取样 ----------
 // 后端工具发 kz:ui-probe,这里取样后用 ui_probe_result 回传。取的是用户眼前这个
 // 窗口的实际渲染结果——不是重新起一个空白页,那样查不出任何真实的渲染问题。
-const UI_PROBE_NODE_LIMIT = 60;
+export const UI_PROBE_NODE_LIMIT = 60;
 
-function describeNode(el, depth) {
+export function describeNode(el, depth) {
   const indent = "  ".repeat(depth);
   const cls = el.className && typeof el.className === "string" ? `.${el.className.trim().split(/\s+/).join(".")}` : "";
   const id = el.id ? `#${el.id}` : "";
@@ -304,7 +312,7 @@ function describeNode(el, depth) {
   return `${indent}<${el.tagName.toLowerCase()}${id}${cls}>${hidden}${own ? ` "${own}"` : ""}`;
 }
 
-function probeDom(selector) {
+export function probeDom(selector) {
   const roots = [...document.querySelectorAll(selector)];
   if (!roots.length) return `没有匹配 \`${selector}\` 的元素(选择器写错,或该区域此刻未渲染)。`;
   const lines = [];
@@ -323,14 +331,14 @@ function probeDom(selector) {
   return `${head}\n${lines.join("\n")}${truncated ? `\n… 已截断(上限 ${UI_PROBE_NODE_LIMIT} 个节点)` : ""}`;
 }
 
-function probeConsole() {
+export function probeConsole() {
   if (!uiConsoleLog.length) return "自加载以来没有 console 错误或警告。";
   return uiConsoleLog
     .map((e) => `[${e.level}] ${new Date(e.at).toLocaleTimeString()} ${e.text}`)
     .join("\n");
 }
 
-function probeStyle(selector) {
+export function probeStyle(selector) {
   const els = [...document.querySelectorAll(selector)].slice(0, 5);
   if (!els.length) return `没有匹配 \`${selector}\` 的元素。`;
   // 只给与"为什么没显示/为什么挤成一团"相关的属性,不倾倒整个 computed style。
@@ -349,24 +357,26 @@ function probeStyle(selector) {
     .join("\n");
 }
 
-on("kz:ui-probe", (event) => {
-  const { id, kind, arg } = event.payload ?? {};
-  let result;
-  try {
-    if (kind === "dom") result = probeDom(arg);
-    else if (kind === "console") result = probeConsole();
-    else if (kind === "style") result = probeStyle(arg);
-    else result = `未知探针类型: ${kind}`;
-  } catch (err) {
-    // 探针自身出错也要如实回传,不能让后端悬到超时。
-    result = `探针执行失败: ${err}`;
-  }
-  invoke("ui_probe_result", { id, result }).catch(() => {});
+defer(() => {
+  on("kz:ui-probe", (event) => {
+    const { id, kind, arg } = event.payload ?? {};
+    let result;
+    try {
+      if (kind === "dom") result = probeDom(arg);
+      else if (kind === "console") result = probeConsole();
+      else if (kind === "style") result = probeStyle(arg);
+      else result = `未知探针类型: ${kind}`;
+    } catch (err) {
+      // 探针自身出错也要如实回传,不能让后端悬到超时。
+      result = `探针执行失败: ${err}`;
+    }
+    invoke("ui_probe_result", { id, result }).catch(() => {});
+  });
 });
 
 // R-124:待确认候选。SOP 是用户的常用模板,不能由 agent 自己决定入库——
 // 所以候选只停在这里,采纳/丢弃都是用户一键的事。
-function renderMemoryCandidates(list) {
+export function renderMemoryCandidates(list) {
   const box = $("memory-candidates");
   const count = $("memory-candidate-count");
   if (!box) return;
@@ -438,7 +448,7 @@ function renderMemoryCandidates(list) {
 // R-150:空闲整理清单。零采纳候选(召回≥3 采纳=0)与复发候选只展示+可点开详情,
 // 处置不在这里静默删——点条目打开详情页走既有墓碑机制(降级/修订/归档)。
 // D-217:stale 积压(已归档条目数)也进清单——归档保留墓碑正文可回看复查。
-function renderMemoryValueFlags(data) {
+export function renderMemoryValueFlags(data) {
   const box = $("memory-value-flags");
   const count = $("memory-flags-count");
   if (!box) return;
@@ -498,7 +508,7 @@ function renderMemoryValueFlags(data) {
 }
 
 // 从清单跳详情:按 scope+id 定位条目并复用现有详情渲染。
-async function openMemoryDetailById(scope, id) {
+export async function openMemoryDetailById(scope, id) {
   try {
     const list = await invoke("memory_entries", { projectDir: currentProject, scope, category: null });
     const entry = (list || []).find((e) => e.id === id);
@@ -509,7 +519,7 @@ async function openMemoryDetailById(scope, id) {
 }
 
 // R-125:召回明细。没有这块界面就没有任何评估手段——记忆有没有用只能凭感觉。
-function renderMemoryRecalls(data) {
+export function renderMemoryRecalls(data) {
   const box = $("memory-recalls");
   const rate = $("memory-recall-rate");
   if (!box) return;
@@ -557,7 +567,7 @@ function renderMemoryRecalls(data) {
   }
 }
 
-function renderMemoryArch(overview) {
+export function renderMemoryArch(overview) {
   const arch = $("memory-arch");
   arch.innerHTML = "";
   let inboxPending = 0;
@@ -597,7 +607,7 @@ function renderMemoryArch(overview) {
   $("memory-inbox-badge").textContent = inboxPending ? `inbox ${inboxPending} ${t("条待整理")}` : "";
 }
 
-async function loadMemoryList(scope, category) {
+export async function loadMemoryList(scope, category) {
   try {
     const list = await invoke("memory_entries", { projectDir: currentProject, scope, category });
     const container = $("memory-list");
@@ -640,7 +650,7 @@ async function loadMemoryList(scope, category) {
   }
 }
 
-function showMemoryDetail(scope, entry) {
+export function showMemoryDetail(scope, entry) {
   const box = $("memory-detail");
   box.classList.remove("hidden");
   box.innerHTML = "";
@@ -737,7 +747,7 @@ function showMemoryDetail(scope, entry) {
 // D-204 批2(验收②查看展示):sop 条目正文按「步骤 + 判断依据」结构渲染——
 // 以「1. / 2. / 3. …」编号开头的行识别为结构化小节,渲染成可扫读的步骤块
 // (标题加粗 + 间距),不再是糊成一片的纯文本段落。
-function renderMemoryBodyRead(container, bodyText) {
+export function renderMemoryBodyRead(container, bodyText) {
   container.innerHTML = "";
   const text = String(bodyText ?? "");
   const paragraphs = splitMemoryParagraphs(text);
@@ -814,13 +824,13 @@ function renderMemoryBodyRead(container, bodyText) {
 }
 
 // R-129:取正文当前值——编辑模式(textarea 在场)读 textarea,阅读模式回原文。
-function readMemoryBody(container, fallback) {
+export function readMemoryBody(container, fallback) {
   const ta = container.querySelector("textarea[aria-label]");
   return ta ? ta.value : String(fallback ?? "");
 }
 
 // R-129:按空行拆段(兼容 \r\n),只保留非空段。
-function splitMemoryParagraphs(text) {
+export function splitMemoryParagraphs(text) {
   return String(text ?? "")
     .split(/\r?\n\s*\r?\n/)
     .map((s) => s.trim())
@@ -828,13 +838,13 @@ function splitMemoryParagraphs(text) {
 }
 
 // 条目"年纪":用于零命中判定——刚写下来还没被检索过不算没用。
-function memoryAgeDays(updated) {
+export function memoryAgeDays(updated) {
   const stamp = Date.parse(`${updated}T00:00:00Z`);
   if (Number.isNaN(stamp)) return 0;
   return Math.max(0, Math.floor((Date.now() - stamp) / 86_400_000));
 }
 
-function renderMemoryBill(data) {
+export function renderMemoryBill(data) {
   const bill = $("memory-bill");
   bill.innerHTML = "";
   const entries = Array.isArray(data.bill) ? data.bill : [];
@@ -868,66 +878,72 @@ function renderMemoryBill(data) {
   }
 }
 
-$("memory-search-input").addEventListener("keydown", async (event) => {
-  if (event.key !== "Enter") return;
-  const query = event.target.value.trim();
-  if (!query || !currentProject) return;
-  neuralFlowEmit?.("memory_search_started", { query_length: query.length });
-  try {
-    const hits = await invoke("memory_search_page", { projectDir: currentProject, query });
-    neuralFlowEmit?.("memory_search_completed", { hit_count: hits.length });
-    memorySelection = null;
-    const container = $("memory-list");
-    container.innerHTML = hits.length ? "" : `<p class="dim">${t("没有命中的记忆")}</p>`;
-    for (const hit of hits) {
-      const row = document.createElement("div");
-      row.className = "memory-row";
-      row.innerHTML = `<span class="memory-row-id">${escapeHtml(hit.id)}</span><span class="memory-row-title">${escapeHtml(hit.title)}</span><span class="dim">${escapeHtml(hit.snippet)}</span><span class="memory-row-meta dim">${escapeHtml(hit.scope)}/${escapeHtml(hit.category)} · ${t("命中")} ${hit.hits}</span>`;
-      container.appendChild(row);
+defer(() => {
+  $("memory-search-input").addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    const query = event.target.value.trim();
+    if (!query || !currentProject) return;
+    neuralFlowEmit?.("memory_search_started", { query_length: query.length });
+    try {
+      const hits = await invoke("memory_search_page", { projectDir: currentProject, query });
+      neuralFlowEmit?.("memory_search_completed", { hit_count: hits.length });
+      memorySelection = null;
+      const container = $("memory-list");
+      container.innerHTML = hits.length ? "" : `<p class="dim">${t("没有命中的记忆")}</p>`;
+      for (const hit of hits) {
+        const row = document.createElement("div");
+        row.className = "memory-row";
+        row.innerHTML = `<span class="memory-row-id">${escapeHtml(hit.id)}</span><span class="memory-row-title">${escapeHtml(hit.title)}</span><span class="dim">${escapeHtml(hit.snippet)}</span><span class="memory-row-meta dim">${escapeHtml(hit.scope)}/${escapeHtml(hit.category)} · ${t("命中")} ${hit.hits}</span>`;
+        container.appendChild(row);
+      }
+    } catch (err) {
+      neuralFlowEmit?.("memory_search_failed");
+      toastError(`${t("记忆检索失败")}:${err}`);
     }
-  } catch (err) {
-    neuralFlowEmit?.("memory_search_failed");
-    toastError(`${t("记忆检索失败")}:${err}`);
-  }
+  });
 });
 
-$("memory-consolidate-btn").addEventListener("click", async () => {
-  if (!currentProject) return;
-  neuralFlowEmit?.("memory_consolidation_started");
-  try {
-    const result = await invoke("memory_consolidate", { projectDir: currentProject });
-    neuralFlowEmit?.(result?.pending ? "memory_consolidation_partial" : "memory_consolidation_completed", { pending: Boolean(result?.pending) });
-    toast(result.pending ? t("inbox 尚有草稿未消化") : t("inbox 已整理完毕"));
-    refreshMemory();
-  } catch (err) {
-    neuralFlowEmit?.("memory_consolidation_failed");
-    toastError(`${t("整理失败")}:${err}`);
-  }
+defer(() => {
+  $("memory-consolidate-btn").addEventListener("click", async () => {
+    if (!currentProject) return;
+    neuralFlowEmit?.("memory_consolidation_started");
+    try {
+      const result = await invoke("memory_consolidate", { projectDir: currentProject });
+      neuralFlowEmit?.(result?.pending ? "memory_consolidation_partial" : "memory_consolidation_completed", { pending: Boolean(result?.pending) });
+      toast(result.pending ? t("inbox 尚有草稿未消化") : t("inbox 已整理完毕"));
+      refreshMemory();
+    } catch (err) {
+      neuralFlowEmit?.("memory_consolidation_failed");
+      toastError(`${t("整理失败")}:${err}`);
+    }
+  });
 });
 
 // R-132:一键整理——对零采纳候选(召回≥3 采纳=0)批量降级 stale,可逆不删。
 // 结果反馈:降级数量 + 跳过数量,明细进 toast 尾部。
-$("memory-cleanup-btn").addEventListener("click", async () => {
-  if (!currentProject) return;
-  const btn = $("memory-cleanup-btn");
-  btn.disabled = true;
-  neuralFlowEmit?.("memory_cleanup_started");
-  try {
-    const result = await invoke("memory_cleanup_demote", { projectDir: currentProject });
-    const demoted = Array.isArray(result?.demoted) ? result.demoted : [];
-    const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
-    neuralFlowEmit?.("memory_cleanup_completed", { demoted_count: demoted.length, skipped_count: skipped.length });
-    if (demoted.length) {
-      const names = demoted.slice(0, 3).map((d) => d.title).join("、");
-      toast(`${t("已降级")} ${demoted.length} ${t("条记忆为 stale")}${skipped.length ? `,${t("跳过")} ${skipped.length}` : ""}${demoted.length > 3 ? "…" : ""}${names ? `:${names}` : ""}`);
-    } else {
-      toast(skipped.length ? `${t("无候选可降级")},${t("跳过")} ${skipped.length}` : t("无零采纳候选需要整理"));
+defer(() => {
+  $("memory-cleanup-btn").addEventListener("click", async () => {
+    if (!currentProject) return;
+    const btn = $("memory-cleanup-btn");
+    btn.disabled = true;
+    neuralFlowEmit?.("memory_cleanup_started");
+    try {
+      const result = await invoke("memory_cleanup_demote", { projectDir: currentProject });
+      const demoted = Array.isArray(result?.demoted) ? result.demoted : [];
+      const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
+      neuralFlowEmit?.("memory_cleanup_completed", { demoted_count: demoted.length, skipped_count: skipped.length });
+      if (demoted.length) {
+        const names = demoted.slice(0, 3).map((d) => d.title).join("、");
+        toast(`${t("已降级")} ${demoted.length} ${t("条记忆为 stale")}${skipped.length ? `,${t("跳过")} ${skipped.length}` : ""}${demoted.length > 3 ? "…" : ""}${names ? `:${names}` : ""}`);
+      } else {
+        toast(skipped.length ? `${t("无候选可降级")},${t("跳过")} ${skipped.length}` : t("无零采纳候选需要整理"));
+      }
+      refreshMemory();
+    } catch (err) {
+      neuralFlowEmit?.("memory_cleanup_failed");
+      toastError(`${t("整理失败")}:${err}`);
+    } finally {
+      btn.disabled = false;
     }
-    refreshMemory();
-  } catch (err) {
-    neuralFlowEmit?.("memory_cleanup_failed");
-    toastError(`${t("整理失败")}:${err}`);
-  } finally {
-    btn.disabled = false;
-  }
+  });
 });

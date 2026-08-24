@@ -1,7 +1,10 @@
+import { defer } from "./01-core.js";
+import { __kzAutoTestState } from "./08-auto.js";
+
 // R-264 B3：测试钩子是正式 ESM namespace 的唯一出口。
 // 业务 runtime 保持在 08-compose-runtime.js；这里不复制业务逻辑，只把 classic
 // runtime 提供的可观测状态桥接成可显式 import 的测试 API。
-const state = () => globalThis.__kzAutoTestState;
+export const state = () => globalThis.__kzAutoTestState;
 
 export const __kzTest = Object.freeze({
   rounds: () => state()?.rounds() ?? 0,

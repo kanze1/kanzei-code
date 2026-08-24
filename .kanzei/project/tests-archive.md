@@ -10230,3 +10230,48 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: B10 通过：4 个目标/提供方 JS node --check 全部通过；ESM runtime 覆盖 27 个 UI 文件、2339 次 invoke、10 个主视图、0 错误；ui-lint、parallel-lines、a11y、i18n、markdown 五条其余前端冒烟全部通过。仅有 Node ExperimentalWarning，无应用错误。
 - 关联: R-264
 - 收尾: 1787570313
+
+## T-1786922726765 R-331 B2 守卫存在性判断局部回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/03-shell.js; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 摘要: B2 守卫收口局部回归通过：3 个目标文件语法通过，UI runtime 覆盖 27 文件、2339 次 invoke、10 个主视图、0 运行时错误。
+- 关联: R-331
+- 收尾: 1787570842
+
+## T-1786922726766 R-331 六条前端冒烟与全 UI 语法检查 [passed]
+- 命令: node --check crates/kanzei-app/ui/*.js（排除06-agent-panel.js）; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 摘要: 全 UI 非历史入口语法检查通过；六条前端冒烟全部通过，runtime 27 个模块按序执行、2348 次 invoke、0 运行时错误。
+- 关联: R-331 D-710
+- 收尾: 1787574790
+- 源码指纹: v2 scripts/gen-esm-graph.mjs@097b7e68694b,scripts/gen-esm-migrate.mjs@06f729f030ab,scripts/gen-ui-lint-globals.mjs@000000000000,scripts/ui-esm-graph.json@9195f9ec723f,scripts/ui-lint-globals-config-smoke.mjs@000000000000,scripts/ui-lint-globals.json@000000000000,scripts/ui-lint-smoke.mjs@e8ebf556c739,scripts/ui-runtime-smoke.mjs@0505fa402a59
+
+## T-1786922726767 D-707 文档依赖视图回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/12-docs-pages.js; node --check crates/kanzei-app/ui/14-docs-actions.js; node --check crates/kanzei-app/ui/15-views-misc.js; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 时长: 2.0s
+- 摘要: 12-docs-pages、14-docs-actions、15-views-misc node --check 通过；UI ESLint 53 文件零 no-undef；runtime 27 模块、2348 次 invoke、0 运行时错误，documents-dep-toggle 交互链通过。
+- 关联: D-707
+- 收尾: 1787575082
+- 源码指纹: v2 scripts/gen-esm-graph.mjs@097b7e68694b,scripts/gen-esm-migrate.mjs@06f729f030ab,scripts/gen-ui-lint-globals.mjs@000000000000,scripts/ui-esm-graph.json@9195f9ec723f,scripts/ui-lint-globals-config-smoke.mjs@000000000000,scripts/ui-lint-globals.json@000000000000,scripts/ui-lint-smoke.mjs@e8ebf556c739,scripts/ui-runtime-smoke.mjs@0505fa402a59
+
+## T-1786922726768 D-708 文档类型切换回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/12-docs-pages.js; node --check crates/kanzei-app/ui/14-docs-actions.js; node --check crates/kanzei-app/ui/15-views-misc.js; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 时长: 2.0s
+- 摘要: 12-docs-pages、14-docs-actions、15-views-misc node --check 通过；UI ESLint 53 文件零 no-undef；runtime 27 模块、2348 次 invoke、0 运行时错误，四类文档类型切换消费者均通过。
+- 关联: D-708
+- 收尾: 1787575147
+- 源码指纹: v2 scripts/gen-esm-graph.mjs@097b7e68694b,scripts/gen-esm-migrate.mjs@06f729f030ab,scripts/gen-ui-lint-globals.mjs@000000000000,scripts/ui-esm-graph.json@9195f9ec723f,scripts/ui-lint-globals-config-smoke.mjs@000000000000,scripts/ui-lint-globals.json@000000000000,scripts/ui-lint-smoke.mjs@e8ebf556c739,scripts/ui-runtime-smoke.mjs@0505fa402a59
+
+## T-1786922726769 D-709 流式跟随态回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/05-chat-render.js; node --check crates/kanzei-app/ui/07-events.js; node --check crates/kanzei-app/ui/15-views-misc.js; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 时长: 2.0s
+- 摘要: 05-chat-render、07-events、15-views-misc node --check 通过；UI ESLint 53 文件零 no-undef；runtime 27 模块、2348 次 invoke、0 运行时错误，历史恢复/搜索/跳转最新链路通过。
+- 关联: D-709
+- 收尾: 1787575211
+- 源码指纹: v2 scripts/gen-esm-graph.mjs@097b7e68694b,scripts/gen-esm-migrate.mjs@06f729f030ab,scripts/gen-ui-lint-globals.mjs@000000000000,scripts/ui-esm-graph.json@9195f9ec723f,scripts/ui-lint-globals-config-smoke.mjs@000000000000,scripts/ui-lint-globals.json@000000000000,scripts/ui-lint-smoke.mjs@e8ebf556c739,scripts/ui-runtime-smoke.mjs@0505fa402a59
+
+## T-1786922726770 R-331 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 25.8s
+- 摘要: kanzei-app 定向测试通过：245 passed，0 failed，0 ignored。
+- 关联: R-331 D-707 D-708 D-709
+- 收尾: 1787575391
+- 源码指纹: v2 scripts/gen-esm-graph.mjs@097b7e68694b,scripts/gen-esm-migrate.mjs@06f729f030ab,scripts/gen-ui-lint-globals.mjs@000000000000,scripts/ui-esm-graph.json@9195f9ec723f,scripts/ui-lint-globals-config-smoke.mjs@000000000000,scripts/ui-lint-globals.json@000000000000,scripts/ui-lint-smoke.mjs@e8ebf556c739,scripts/ui-runtime-smoke.mjs@0505fa402a59

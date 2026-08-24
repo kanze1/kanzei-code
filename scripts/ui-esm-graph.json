@@ -19,6 +19,7 @@
         "anySessionBusy",
         "appendToPane",
         "confirmDialog",
+        "defer",
         "dropSessionStream",
         "evictStalePanes",
         "experienceDeltaFlushScheduled",
@@ -114,6 +115,7 @@
         "$": "01-core.js",
         "askActive": "07-events.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
         "lastWorkspaceSnapshot": "12-docs-pages.js",
         "markLanguagePreferenceDirty": "16-settings.js",
         "refreshConversationList": "15-views-misc.js",
@@ -179,6 +181,9 @@
         "sessionMetaCache",
         "sessionState",
         "sessionStates",
+        "setActiveProcessId",
+        "setActiveSessionId",
+        "setCurrentProject",
         "setRunPending",
         "setRunning",
         "setStatus",
@@ -204,6 +209,7 @@
       "imports": {
         "$": "01-core.js",
         "clearStoppingWatchdog": "08-auto.js",
+        "defer": "01-core.js",
         "fastStatusText": "06-activity.js",
         "filesViewLeft": "17-files.js",
         "I18N_EN": "02-i18n.js",
@@ -237,7 +243,9 @@
         "splitTableRow",
         "tableAlignment"
       ],
-      "imports": {}
+      "imports": {
+        "defer": "01-core.js"
+      }
     },
     "05-chat-render.js": {
       "provides": [
@@ -293,8 +301,12 @@
         "$": "01-core.js",
         "activePane": "01-core.js",
         "agentRoleAccent": "01-core.js",
+        "appendDisplayBlock": "06-activity.js",
         "appendToPane": "01-core.js",
         "attachments": "03-shell.js",
+        "currentAssistant": "03-shell.js",
+        "currentReasoning": "03-shell.js",
+        "defer": "01-core.js",
         "lastRequest": "03-shell.js",
         "liveSet": "06-activity.js",
         "loadEarlierMessages": "15-views-misc.js",
@@ -407,8 +419,11 @@
         "activeProcessId": "03-shell.js",
         "activeSessionId": "03-shell.js",
         "activityPanelOpen": "03-shell.js",
+        "agentRoleAccent": "01-core.js",
         "autoStopReason": "08-auto.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
+        "escapeHtml": "04-markdown.js",
         "invoke": "01-core.js",
         "localizeDynamic": "02-i18n.js",
         "log": "03-shell.js",
@@ -429,10 +444,6 @@
         "toastError": "03-shell.js",
         "toolCallSummary": "05-chat-render.js"
       }
-    },
-    "06-agent-panel.js": {
-      "provides": [],
-      "imports": {}
     },
     "07-events.js": {
       "provides": [
@@ -496,6 +507,7 @@
         "autoContinueMax": "08-auto.js",
         "autoContinueTimers": "08-auto.js",
         "autoFailStopReasonText": "08-compose-runtime.js",
+        "autoRounds": "08-auto.js",
         "BG_MAX": "06-activity.js",
         "bgAbortRunning": "06-activity.js",
         "bgAdd": "06-activity.js",
@@ -519,6 +531,7 @@
         "currentAutoRounds": "08-auto.js",
         "currentReasoning": "03-shell.js",
         "currentReasoningHead": "05-chat-render.js",
+        "defer": "01-core.js",
         "followLatest": "05-chat-render.js",
         "invoke": "01-core.js",
         "isActivityTool": "06-activity.js",
@@ -611,8 +624,12 @@
         "resetAutoRunState",
         "selectedAgent",
         "selectedWorkPriority",
+        "setAutoHint",
+        "setAutoPaused",
         "setAutoRounds",
+        "setAutoStopAfterRound",
         "setAutoStopReason",
+        "setNoActionRounds",
         "stoppingWatchdogs",
         "syncAutoRunState",
         "syncWorkPriorityControl",
@@ -623,6 +640,7 @@
         "$": "01-core.js",
         "activeSessionId": "03-shell.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
         "invoke": "01-core.js",
         "localizeDynamic": "02-i18n.js",
         "log": "03-shell.js",
@@ -730,6 +748,7 @@
         "currentReasoning": "03-shell.js",
         "DEFAULT_AUTO_CONTINUE_MAX": "08-auto.js",
         "DEFAULT_CONTINUE_PROMPT": "08-auto.js",
+        "defer": "01-core.js",
         "ensureNotificationPermission": "03-shell.js",
         "hideAsk": "07-events.js",
         "invoke": "01-core.js",
@@ -759,8 +778,12 @@
         "selectedAgent": "08-auto.js",
         "selectedWorkPriority": "08-auto.js",
         "sessionState": "03-shell.js",
+        "setAutoHint": "08-auto.js",
+        "setAutoPaused": "08-auto.js",
         "setAutoRounds": "08-auto.js",
+        "setAutoStopAfterRound": "08-auto.js",
         "setAutoStopReason": "08-auto.js",
+        "setNoActionRounds": "08-auto.js",
         "setRunning": "03-shell.js",
         "setStatus": "03-shell.js",
         "setStopping": "03-shell.js",
@@ -785,7 +808,8 @@
         "state"
       ],
       "imports": {
-        "__kzAutoTestState": "08-auto.js"
+        "__kzAutoTestState": "08-auto.js",
+        "defer": "01-core.js"
       }
     },
     "08-models.js": {
@@ -807,6 +831,7 @@
         "$": "01-core.js",
         "activeProcessId": "03-shell.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
         "inputDialog": "01-core.js",
         "invoke": "01-core.js",
         "log": "03-shell.js",
@@ -876,6 +901,7 @@
         "clearAutoNotices": "08-auto.js",
         "confirmDialog": "01-core.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
         "forProject": "20-lines.js",
         "hideAsk": "07-events.js",
         "inputDialog": "01-core.js",
@@ -906,6 +932,9 @@
         "running": "03-shell.js",
         "sessionState": "03-shell.js",
         "sessionStates": "03-shell.js",
+        "setActiveProcessId": "03-shell.js",
+        "setActiveSessionId": "03-shell.js",
+        "setCurrentProject": "03-shell.js",
         "setRunning": "03-shell.js",
         "setRunPending": "03-shell.js",
         "setStopping": "03-shell.js",
@@ -943,6 +972,7 @@
       ],
       "imports": {
         "$": "01-core.js",
+        "defer": "01-core.js",
         "DOC_FILTER_DEFAULTS": "12-docs-pages.js",
         "docFilterTargets": "12-docs-pages.js",
         "documentFilters": "12-docs-pages.js",
@@ -981,6 +1011,7 @@
         "agentFocus": "12-docs-pages.js",
         "collaborationLines": "20-lines.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
         "DOC_TAG_ORDER": "10-docs-core.js",
         "docGroupTag": "10-docs-core.js",
         "documentFilters": "12-docs-pages.js",
@@ -992,6 +1023,7 @@
         "invoke": "01-core.js",
         "lineAgentCodes": "20-lines.js",
         "localizedDocStatus": "02-i18n.js",
+        "localizeDynamic": "02-i18n.js",
         "log": "03-shell.js",
         "matchesBlockedFilter": "10-docs-core.js",
         "NEUTRAL_DOC_FILTERS": "10-docs-core.js",
@@ -1047,6 +1079,8 @@
         "renderWorkspace",
         "runtimeFocusBySession",
         "selectWorkspaceProject",
+        "setDependencyViewOpen",
+        "setDocumentsKind",
         "setRuntimeFocus",
         "syncDocumentFilters"
       ],
@@ -1058,11 +1092,13 @@
         "collaborationLines": "20-lines.js",
         "consumePendingJump": "11-docs-list.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
         "enterProject": "09-sessions.js",
         "entryBlocked": "10-docs-core.js",
         "invoke": "01-core.js",
         "jumpToEntry": "11-docs-list.js",
         "localizedDocStatus": "02-i18n.js",
+        "localizeDynamic": "02-i18n.js",
         "log": "03-shell.js",
         "NEUTRAL_DOC_FILTERS": "10-docs-core.js",
         "openDocumentsView": "10-docs-core.js",
@@ -1116,6 +1152,8 @@
         "$": "01-core.js",
         "confirmDialog": "01-core.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
+        "escapeHtml": "04-markdown.js",
         "invoke": "01-core.js",
         "latestDocsSnapshot": "12-docs-pages.js",
         "neuralFlowEmit": "22-neural-flow.js",
@@ -1147,6 +1185,7 @@
         "bgSync": "06-activity.js",
         "clearPendingJump": "11-docs-list.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
         "dependencyViewOpen": "12-docs-pages.js",
         "docFilterTargets": "12-docs-pages.js",
         "documentFilters": "12-docs-pages.js",
@@ -1167,6 +1206,7 @@
         "running": "03-shell.js",
         "saveDocFilters": "10-docs-core.js",
         "selectWorkspaceProject": "12-docs-pages.js",
+        "setDocumentsKind": "12-docs-pages.js",
         "t": "02-i18n.js",
         "toast": "03-shell.js",
         "toastError": "03-shell.js"
@@ -1237,6 +1277,8 @@
         "currentProject": "03-shell.js",
         "currentReasoning": "03-shell.js",
         "currentReasoningHead": "05-chat-render.js",
+        "defer": "01-core.js",
+        "escapeHtml": "04-markdown.js",
         "fillToolBlock": "05-chat-render.js",
         "followLatest": "05-chat-render.js",
         "forProject": "20-lines.js",
@@ -1320,6 +1362,7 @@
         "$": "01-core.js",
         "confirmDialog": "01-core.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
         "fastStatusText": "06-activity.js",
         "inputDialog": "01-core.js",
         "invoke": "01-core.js",
@@ -1364,6 +1407,7 @@
         "$": "01-core.js",
         "currentProject": "03-shell.js",
         "currentTheme": "03-shell.js",
+        "defer": "01-core.js",
         "invoke": "01-core.js",
         "languageIsEnglish": "02-i18n.js",
         "on": "01-core.js",
@@ -1376,6 +1420,7 @@
       "provides": [],
       "imports": {
         "$": "01-core.js",
+        "defer": "01-core.js",
         "invoke": "01-core.js",
         "LANGUAGE_PREFERENCES": "02-i18n.js",
         "loadConversation": "15-views-misc.js",
@@ -1406,6 +1451,7 @@
       "imports": {
         "$": "01-core.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
         "invoke": "01-core.js",
         "openDocViewer": "15-views-misc.js",
         "openRuntimeMarkdown": "15-views-misc.js",
@@ -1459,9 +1505,11 @@
       "imports": {
         "$": "01-core.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
         "invoke": "01-core.js",
         "localizedDocStatus": "02-i18n.js",
         "log": "03-shell.js",
+        "renderMarkdown": "04-markdown.js",
         "researchLinkField": "11-docs-list.js",
         "researchOpenLink": "11-docs-list.js",
         "t": "02-i18n.js",
@@ -1507,6 +1555,7 @@
         "confirmDialog": "01-core.js",
         "createWorktreeLine": "09-sessions.js",
         "currentProject": "03-shell.js",
+        "defer": "01-core.js",
         "invoke": "01-core.js",
         "latestDocsSnapshot": "12-docs-pages.js",
         "lineAutoConfig": "08-compose-runtime.js",
@@ -1550,6 +1599,7 @@
       ],
       "imports": {
         "$": "01-core.js",
+        "defer": "01-core.js",
         "localizeDynamic": "02-i18n.js",
         "log": "03-shell.js",
         "on": "01-core.js",
@@ -1565,6 +1615,7 @@
       "imports": {
         "$": "01-core.js",
         "activeSessionId": "03-shell.js",
+        "defer": "01-core.js",
         "t": "02-i18n.js"
       }
     }

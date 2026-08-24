@@ -1,8 +1,35 @@
+import { defer } from "./01-core.js";
+import { agentRoleAccent } from "./01-core.js";
+import { escapeHtml } from "./04-markdown.js";
+import { $, invoke, messages, on } from "./01-core.js";
+import { localizeDynamic, t } from "./02-i18n.js";
+import {
+  activeProcessId,
+  activeSessionId,
+  activityPanelOpen,
+  setActivityPanelOpen,
+  currentProject,
+  log,
+  processItems,
+  running,
+  setStatus,
+  statusRunning,
+  statusTextSource,
+  syncActivityPanel,
+  toast,
+  toastError,
+} from "./03-shell.js";
+import { renderMarkdown } from "./04-markdown.js";
+import { toolCallSummary } from "./05-chat-render.js";
+import { renderContextDetail } from "./07-events.js";
+import { autoStopReason, renderAutoStatus } from "./08-auto.js";
+import { state } from "./08-compose.js";
+
 // ---------- 活动面板(R-037):完整工具活动入列,详情点击展开 ----------
-const bgEntries = new Map(); // call_id -> {el, title, prog, meta, detail, startedAt, done}
-const diffSummary = new Map();
-const BG_MAX = 120;
-function renderDiffSummary() {
+export const bgEntries = new Map(); // call_id -> {el, title, prog, meta, detail, startedAt, done}
+export const diffSummary = new Map();
+export const BG_MAX = 120;
+export function renderDiffSummary() {
   const panel = $("diff-summary");
   const label = $("diff-summary-toggle");
   const files = [...diffSummary.values()];
@@ -17,7 +44,7 @@ function renderDiffSummary() {
 
 // R-133:diff 汇总按路径层级构成目录树,替代原来的一长串平铺路径——
 // 目录可折叠,文件行缩进在所属目录下,+/- 计数与 diff 行同色,视觉清爽不重叠。
-function buildDiffTree(files) {
+export function buildDiffTree(files) {
   const root = { name: "", children: new Map(), items: [] };
   for (const item of files) {
     const segs = item.path.split("/").filter(Boolean);
@@ -34,7 +61,7 @@ function buildDiffTree(files) {
   return wrap;
 }
 
-function appendDiffNode(container, node, depth) {
+export function appendDiffNode(container, node, depth) {
   // 目录在前、文件在后,目录可折叠(▸/▾),文件行保留增删计数。
   for (const dir of node.children.values()) {
     const box = document.createElement("div");
@@ -77,7 +104,7 @@ function appendDiffNode(container, node, depth) {
   }
 }
 
-function bgSync() {
+export function bgSync() {
   // 面板开关只由用户控制;工具事件只能更新内容,不能擅自开关。
   syncActivityPanel();
   syncBgRoleFilterOptions();
@@ -88,7 +115,7 @@ function bgSync() {
 
 // R-184 P2:角色筛选下拉的选项随条目动态刷新(全部 + 当前有 role 的去重角色),
 // 选中值在重建时保留。放在 bgSync 里随条目增减一并维护,不单独监听。
-function syncBgRoleFilterOptions() {
+export function syncBgRoleFilterOptions() {
   const select = $("bg-role-filter");
   if (!select) return;
   const current = select.value;
@@ -109,21 +136,21 @@ function syncBgRoleFilterOptions() {
 // 活动栏现在保留完整工具轨迹。主对话仍然是主要阅读区,但活动面板需要回答
 // 「刚才实际做了什么、现在卡在哪、失败在哪里」,不能把 read/grep/edit 等成功调用
 // 静默到只剩终端和错误,否则用户看到的就是空白面板。
-const ORCH_PHASES = new Set(["scouting", "review"]);
-function orchPhaseOf(input) {
+export const ORCH_PHASES = new Set(["scouting", "review"]);
+export function orchPhaseOf(input) {
   const phase = input?.phase;
   return typeof phase === "string" && ORCH_PHASES.has(phase) ? phase : null;
 }
-function orchPhaseLabel(phase) {
+export function orchPhaseLabel(phase) {
   // 写成两个字面量调用而不是查表:i18n 冒烟只扫源码里带字符串常量的翻译调用,
   // 查表写法(t(MAP[phase]))会整条绕过 key 覆盖率检查,英文界面上就地漏译。
   return phase === "scouting" ? t("勘察") : t("复核");
 }
-function isActivityTool(name, input) {
+export function isActivityTool(name, input) {
   return Boolean(name);
 }
 
-const BG_TOOL_TYPES = {
+export const BG_TOOL_TYPES = {
   bash: "terminal", process: "terminal",
   read: "file", write: "file", edit: "file", multiedit: "file", glob: "file", grep: "file",
   req: "tracker", defect: "tracker", idea: "tracker", source: "tracker", finding: "tracker", decision: "tracker",
@@ -132,11 +159,11 @@ const BG_TOOL_TYPES = {
 };
 // 保留这个待收尾表是为了兼容历史回放路径；当前实时工具调用统一进入活动栏，
 // 因此 bgQuiet 固定返回 false，成功/失败都保留完整轨迹。
-const bgPending = new Map(); // call_id -> {name, summary, input, startedAt}
-function bgQuiet(name, input) {
+export const bgPending = new Map(); // call_id -> {name, summary, input, startedAt}
+export function bgQuiet(name, input) {
   return false;
 }
-function bgStartQuiet(id, name, summary, input) {
+export function bgStartQuiet(id, name, summary, input) {
   if (!id) return;
   bgPending.set(id, { name, summary, input, startedAt: Date.now() });
   // 悬挂上限:异常中断的静默调用不该无限累积。
@@ -144,7 +171,7 @@ function bgStartQuiet(id, name, summary, input) {
 }
 // 收尾历史兼容路径中的待定调用。成功返回 true；失败补建真实条目，
 // 让调用方继续走 bgEnd 把错误详情画出来。
-function bgFinishQuiet(id, ok) {
+export function bgFinishQuiet(id, ok) {
   const pending = bgPending.get(id);
   if (!pending) return false;
   bgPending.delete(id);
@@ -154,26 +181,27 @@ function bgFinishQuiet(id, ok) {
   if (entry) entry.startedAt = pending.startedAt;
   return false;
 }
-function bgToolType(name) {
+export function bgToolType(name) {
   return BG_TOOL_TYPES[name] ?? "other";
 }
 // 终端类输出才提供复制/导出:diff 与追踪结果在主对话里已有更好的呈现。
-function bgIsTerminal(name) {
+export function bgIsTerminal(name) {
   return bgToolType(name) === "terminal";
 }
 
-const bgFilters = {
+export function setBgDoneOpen(value) { bgDoneOpen = Boolean(value); }
+export const bgFilters = {
   type: localStorage.getItem("kz-bg-type") || "all",
   status: localStorage.getItem("kz-bg-status") || "all",
   // R-184 P2:按子代理角色筛活动轨迹。只对编排派发(带 role)的条目生效,
   // 其它工具一律通过——角色筛是活动面板里的一个维度,不是把活动栏变成子代理专用。
   role: localStorage.getItem("kz-bg-role") || "all",
 };
-function bgEntryStatus(entry) {
+export function bgEntryStatus(entry) {
   if (!entry.done) return "running";
   return entry.el.classList.contains("err") ? "err" : "ok";
 }
-function applyBgFilters() {
+export function applyBgFilters() {
   let shown = 0;
   for (const entry of bgEntries.values()) {
     const typeOk = bgFilters.type === "all" || entry.type === bgFilters.type;
@@ -197,24 +225,24 @@ function applyBgFilters() {
 // R-173:编排派发的子代理按 input.phase 分区(勘察 / 复核)。这是用户要的 Running/
 // Finished 分区的雏形,复用 #bg-list 而不是另起一个平行面板——独立子代理面板归 R-174,
 // 本轮只把丢掉的信息接回来。
-const bgGroups = new Map(); // `${section}|${phase}` -> {wrap, head, body}
-const BG_SECTION_BODY = { running: "bg-running", attention: "bg-attention", done: "bg-done" };
-let bgDoneOpen = localStorage.getItem("kz-bg-done-open") === "1";
+export const bgGroups = new Map(); // `${section}|${phase}` -> {wrap, head, body}
+export const BG_SECTION_BODY = { running: "bg-running", attention: "bg-attention", done: "bg-done" };
+export let bgDoneOpen = localStorage.getItem("kz-bg-done-open") === "1";
 // 条目该落哪一段。成功判据只认 ToolEnd 的机器可读 outcome(经 activityOutcomeView
 // 折算成 cls),不看文案、不反推 DOM:成功与 noop 收进折叠区,其余(失败/需确认/
 // 需修正/超时)留在「需要关注」——收错地方比不收更糟。
-function bgSectionFor(entry) {
+export function bgSectionFor(entry) {
   if (!entry.done) return "running";
   return entry.cls === "ok" || entry.cls === "noop" ? "done" : "attention";
 }
-function bgPlace(entry) {
+export function bgPlace(entry) {
   const section = bgSectionFor(entry);
   if (entry.section === section && entry.el.parentNode) return;
   entry.section = section;
   entry.el.dataset.bgSection = section;
   bgGroupBody(entry.phase, section).appendChild(entry.el);
 }
-function bgGroupBody(phase, section = "running") {
+export function bgGroupBody(phase, section = "running") {
   const host = $(BG_SECTION_BODY[section]) ?? $("bg-list");
   if (!phase) return host;
   // 分组键带上段:同一个 phase 在三段里各有一份组容器,否则条目落位后又被组容器拽回去。
@@ -238,7 +266,7 @@ function bgGroupBody(phase, section = "running") {
 }
 // 组标题给"完成数/总数",这是本轮最直接的推进度读数;整组被筛选清空就收起,
 // 不留一个指向空气的标题。
-function renderBgGroups() {
+export function renderBgGroups() {
   for (const [key, group] of bgGroups) {
     const mine = [...bgEntries.values()].filter((e) => e.phase === group.phase && e.section === group.section);
     if (!mine.length) {
@@ -256,7 +284,7 @@ function renderBgGroups() {
 }
 // 三段的计数、空态与折叠。运行中那段额外给出终端条数——用户开这个面板就是要看
 // 「现在有几个终端在跑、跑的是什么」。
-function renderBgSections() {
+export function renderBgSections() {
   const visible = (section) => [...bgEntries.values()]
     .filter((e) => e.section === section && !e.el.classList.contains("hidden"));
   const running = visible("running");
@@ -293,7 +321,7 @@ function renderBgSections() {
 
 /// 差异汇总必须独立于活动面板的过滤:diff 来自 write/edit,而这两个工具已不进活动面板,
 /// 原先把累计写在 bgEnd 里就等于永远拿不到数据,#diff-summary 变成接不到数据源的空壳(D-137)。
-function recordDiffSummary(display) {
+export function recordDiffSummary(display) {
   if (display?.kind !== "diff") return;
   diffSummary.set(display.path || `#${diffSummary.size + 1}`, {
     path: display.path || t("未命名文件"),
@@ -305,7 +333,7 @@ function recordDiffSummary(display) {
 
 // 完整入参永远可展开:summary 是一行摘要,复核"到底拿什么参数调的"要看原文。
 // 编排派发的子代理尤其需要——input.prompt 就是派给该角色的完整指令。
-function bgAppendArgs(entry, input) {
+export function bgAppendArgs(entry, input) {
   if (!input || !Object.keys(input).length) return;
   const args = document.createElement("pre");
   args.className = "tool-display term bg-args";
@@ -316,7 +344,7 @@ function bgAppendArgs(entry, input) {
 
 // 当前正在用的工具名。工具结束后保留名字但转灰(.idle):子代理在两次工具调用之间
 // 是在思考,清空会让这一行大部分时间是空的,反而看不出它刚干了什么。
-function bgSetCurrentTool(entry, name, running) {
+export function bgSetCurrentTool(entry, name, running) {
   if (!entry.current) return;
   const label = String(name ?? "");
   entry.current.textContent = label ? `⚙ ${label}` : "";
@@ -328,7 +356,7 @@ function bgSetCurrentTool(entry, name, running) {
 
 // 运行中的元信息一行。编排派发的子代理要的是"跑了多久 + 内部调用了几次工具",
 // 只有秒数看不出它到底在推进还是卡死。1 秒心跳与建条时共用同一段,建条即可读。
-function bgTick(entry) {
+export function bgTick(entry) {
   const seconds = Math.round((Date.now() - entry.startedAt) / 1000);
   entry.el.dataset.bgElapsed = String(seconds);
   entry.meta.textContent = entry.phase
@@ -339,7 +367,7 @@ function bgTick(entry) {
 // 角色名就是 id,而角色跨轮复用(每个自主推进轮都有 architecture_scout)。同名角色
 // 再次派发时必须原地复位:被 bgEntries.has(id) 直接挡掉的话,第二轮的 progress/end
 // 会全写进上一轮那条已终态的行,面板从此定格在上一轮。
-function bgRestart(id, summary, input, sessionId = activeSessionId) {
+export function bgRestart(id, summary, input, sessionId = activeSessionId) {
   const entry = bgEntries.get(id);
   if (!entry) return;
   entry.done = false;
@@ -368,7 +396,7 @@ function bgRestart(id, summary, input, sessionId = activeSessionId) {
   bgSync();
 }
 
-function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
+export function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
   if (!id) return;
   const phase = name === "task" ? orchPhaseOf(input) : null;
   if (bgEntries.has(id)) {
@@ -467,7 +495,7 @@ function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
 
 // 每条的可操作项。运行中的后台进程/子代理能单独停;结束后能重跑;
 // 终端类输出能复制与导出——这三样是"面板能干活"与"面板只是日志"的分界。
-function bgRenderActions(id, entry) {
+export function bgRenderActions(id, entry) {
   entry.actions.innerHTML = "";
   const add = (label, title, handler) => {
     const btn = document.createElement("button");
@@ -535,14 +563,14 @@ function bgRenderActions(id, entry) {
   }
 }
 
-function bgPlainText(entry) {
+export function bgPlainText(entry) {
   return [
     `# ${entry.name} ${entry.summary}`,
     entry.input ? `\n## 入参\n${JSON.stringify(entry.input, null, 2)}` : "",
     `\n## 输出\n${entry.detail.textContent || entry.prog.textContent || ""}`,
   ].join("\n");
 }
-function highlightLine(container, text, language) {
+export function highlightLine(container, text, language) {
   const pattern = /("(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\/\/.*|#.*|\b\d+(?:\.\d+)?\b|\b(?:fn|let|const|function|class|return|if|else|for|while|pub|struct|use|import|from|true|false|null|None|async|await)\b)/g;
   let cursor = 0;
   for (const match of text.matchAll(pattern)) {
@@ -556,7 +584,7 @@ function highlightLine(container, text, language) {
   if (cursor < text.length) container.appendChild(document.createTextNode(text.slice(cursor)));
 }
 
-function renderDiff(display) {
+export function renderDiff(display) {
   const block = document.createElement("div");
   block.className = "tool-display diff";
   let mode = "unified";
@@ -632,7 +660,7 @@ function renderDiff(display) {
   render();
   return block;
 }
-function appendDisplayBlock(parent, display) {
+export function appendDisplayBlock(parent, display) {
   if (!display) return;
   if (display.kind === "diff") {
     parent.appendChild(renderDiff(display));
@@ -656,7 +684,7 @@ function appendDisplayBlock(parent, display) {
 // R-329:deliver 的交付卡片。与 create 块的区别是「给谁看」——create 是模型刚写了
 // 什么的事实回执,这张卡是给**用户**的:文件名、大小、一句话说明,外加两个真能点的
 // 动作(打开 / 在资源管理器中定位)。路径已由后端校验在工作树内。
-function renderFileCard(display) {
+export function renderFileCard(display) {
   const card = document.createElement("div");
   card.className = "tool-display file-card";
   const head = document.createElement("div");
@@ -694,7 +722,7 @@ function renderFileCard(display) {
   return card;
 }
 
-function formatBytes(bytes) {
+export function formatBytes(bytes) {
   const n = Number(bytes) || 0;
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -703,8 +731,8 @@ function formatBytes(bytes) {
 // 工具执行中的增量输出(kz:tool-progress,bash 等长任务):展开区里逐段追加,
 // 收起状态下进度行显示最后一行——装依赖/发版这类长命令"跑到哪了"一眼可见。
 // 只保留末尾 16k 字符:进度要的是尾部,完整输出等 ToolEnd 的终态块。
-const BG_STREAM_MAX = 16000;
-function bgStream(id, chunk) {
+export const BG_STREAM_MAX = 16000;
+export function bgStream(id, chunk) {
   const entry = bgEntries.get(id);
   if (!entry || entry.done || !chunk) return;
   if (!entry.live) {
@@ -720,7 +748,7 @@ function bgStream(id, chunk) {
   if (!entry.detail.classList.contains("hidden")) entry.live.scrollTop = entry.live.scrollHeight;
 }
 
-function bgProgress(id, text, trace) {
+export function bgProgress(id, text, trace) {
   const entry = bgEntries.get(id);
   if (!entry) return;
   if (text) entry.prog.textContent = text;
@@ -759,14 +787,14 @@ function bgProgress(id, text, trace) {
   if (!entry.done) bgTick(entry);
 }
 
-function activityOutcomeView(ok, outcome) {
+export function activityOutcomeView(ok, outcome) {
   const state = outcome || (ok ? "success" : "failed");
   if (state === "noop") return { state, cls: "noop" };
   if (state === "needs_correction" || state === "needs_confirmation") return { state, cls: "warn" };
   return state === "success" ? { state, cls: "ok" } : { state, cls: "err" };
 }
 
-function bgEnd(id, ok, preview, display, outcome) {
+export function bgEnd(id, ok, preview, display, outcome) {
   const entry = bgEntries.get(id);
   if (!entry) return;
   const view = activityOutcomeView(ok, outcome);
@@ -831,7 +859,7 @@ function bgEnd(id, ok, preview, display, outcome) {
 // 旧实现读的却是不存在的 event.text/event.trace,name 硬编码 "task"、标题硬编码
 // "历史子代理轨迹"——上百条同名条目,类型筛选也跟着失真;而且标终态后没重渲染
 // 动作区,停止按钮残留在早已结束的历史轨迹上。回放条目一律终态、无停止按钮。
-function renderRecoveredTraces(payloads) {
+export function renderRecoveredTraces(payloads) {
   for (const payload of payloads || []) {
     for (const event of payload.events || []) {
       if (!event.id) continue; // turn.started / context.compacted 等无 id 事件不进列表
@@ -879,7 +907,7 @@ function renderRecoveredTraces(payloads) {
   bgSync();
 }
 
-function bgClear() {
+export function bgClear() {
   for (const entry of bgEntries.values()) entry.el.remove();
   bgEntries.clear();
   bgPending.clear();
@@ -895,7 +923,7 @@ function bgClear() {
   bgSync();
 }
 // 中止/出错时把仍在跑的条目标记为中止,不再空转。
-function bgAbortRunning(label) {
+export function bgAbortRunning(label) {
   for (const entry of bgEntries.values()) {
     if (!entry.done) {
       entry.done = true;
@@ -908,15 +936,17 @@ function bgAbortRunning(label) {
   }
   renderBgGroups();
 }
-setInterval(() => {
-  for (const entry of bgEntries.values()) {
-    if (!entry.done) bgTick(entry);
-  }
-}, 1000);
+defer(() => {
+  setInterval(() => {
+    for (const entry of bgEntries.values()) {
+      if (!entry.done) bgTick(entry);
+    }
+  }, 1000);
+});
 
 // ---------- 当前进展:侧边栏实时状态卡(把握 agent 进度,不用等它汇报) ----------
-const liveTextSources = new Map();
-function syncDynamicUiLanguage() {
+export const liveTextSources = new Map();
+export function syncDynamicUiLanguage() {
   if (statusTextSource) setStatus(statusTextSource, statusRunning);
   for (const [id, source] of liveTextSources) {
     const el = $(id);
@@ -927,7 +957,7 @@ function syncDynamicUiLanguage() {
   if (!$("context-detail")?.classList.contains("hidden")) renderContextDetail();
   renderAutoStatus(autoStopReason);
 }
-function liveSet(id, text) {
+export function liveSet(id, text) {
   const el = $(id);
   const source = String(text ?? "");
   if (!source) {
@@ -941,7 +971,7 @@ function liveSet(id, text) {
   el.textContent = localizeDynamic(source);
   el.title = localizeDynamic(source);
 }
-function liveIdle(label) {
+export function liveIdle(label) {
   const turn = $("live-turn");
   const source = String(label ?? "");
   liveTextSources.set("live-turn", source);
@@ -952,7 +982,7 @@ function liveIdle(label) {
   }
   liveSet("live-action", "");
 }
-function liveTurn(text) {
+export function liveTurn(text) {
   const turn = $("live-turn");
   const source = String(text ?? "");
   liveTextSources.set("live-turn", source);
@@ -966,11 +996,11 @@ function liveTurn(text) {
 // ---------- 子代理面板(R-174):与活动面板共用本文件的事件/渲染基础 ----------
 // 子代理面板仍是独立 DOM 视图,但其状态、transcript、usage 与活动轨迹由同一脚本维护,
 // 避免 06-agent-panel.js 与 06-activity.js 之间复制调用器和渲染辅助函数。
-const agentEntries = new Map(); // id -> {el, head, meta, detail, calls, tokens, startedAt, state}
-const agentAudits = new Map(); // session_id -> latest run audit projection
-let agentAuditSession = null;
+export const agentEntries = new Map(); // id -> {el, head, meta, detail, calls, tokens, startedAt, state}
+export const agentAudits = new Map(); // session_id -> latest run audit projection
+export let agentAuditSession = null;
 
-function newAgentAudit(sessionId) {
+export function newAgentAudit(sessionId) {
   return {
     sessionId,
     primaryModel: "",
@@ -984,7 +1014,7 @@ function newAgentAudit(sessionId) {
   };
 }
 
-function agentAuditFor(sessionId = activeSessionId) {
+export function agentAuditFor(sessionId = activeSessionId) {
   if (!sessionId) return null;
   let audit = agentAudits.get(sessionId);
   if (!audit) {
@@ -995,7 +1025,7 @@ function agentAuditFor(sessionId = activeSessionId) {
   return audit;
 }
 
-function agentAuditBegin(sessionId) {
+export function agentAuditBegin(sessionId) {
   if (!sessionId) return;
   const previous = agentAudits.get(sessionId);
   const audit = newAgentAudit(sessionId);
@@ -1006,30 +1036,30 @@ function agentAuditBegin(sessionId) {
   if (card && sessionId === activeSessionId) card.classList.add("hidden");
 }
 
-function auditUsageTokens(usage) {
+export function auditUsageTokens(usage) {
   if (!usage) return 0;
   return ["input", "output", "cache_read", "cacheRead", "cache_write", "cacheWrite"]
     .reduce((sum, key) => sum + (Number(usage[key]) || 0), 0);
 }
 
-function formatAuditTokens(value) {
+export function formatAuditTokens(value) {
   const tokens = Number(value) || 0;
   return tokens < 1000 ? String(tokens) : `${(tokens / 1000).toFixed(tokens < 10000 ? 1 : 0)}k`;
 }
 
-function agentAuditMeta(sessionId, model) {
+export function agentAuditMeta(sessionId, model) {
   const audit = agentAuditFor(sessionId);
   if (audit) audit.primaryModel = String(model || "");
 }
 
-function agentAuditStep(sessionId, payload) {
+export function agentAuditStep(sessionId, payload) {
   const audit = agentAuditFor(sessionId);
   if (!audit) return;
   audit.primaryCalls += 1;
   audit.primaryTokens += auditUsageTokens(payload);
 }
 
-function agentAuditTaskStart(sessionId, payload) {
+export function agentAuditTaskStart(sessionId, payload) {
   const audit = agentAuditFor(sessionId);
   if (!audit || payload.name !== "task") return;
   const input = payload.input || {};
@@ -1044,7 +1074,7 @@ function agentAuditTaskStart(sessionId, payload) {
   });
 }
 
-function agentAuditTaskProgress(sessionId, payload) {
+export function agentAuditTaskProgress(sessionId, payload) {
   const audit = agentAuditFor(sessionId);
   const trace = payload.trace;
   if (!audit || !trace) return;
@@ -1053,7 +1083,7 @@ function agentAuditTaskProgress(sessionId, payload) {
   if (trace.phase === "usage") task.usage = trace.usage || null;
 }
 
-function agentAuditTaskEnd(sessionId, payload) {
+export function agentAuditTaskEnd(sessionId, payload) {
   const audit = agentAuditFor(sessionId);
   if (!audit || payload.name !== "task") return;
   const id = String(payload.id);
@@ -1064,20 +1094,20 @@ function agentAuditTaskEnd(sessionId, payload) {
   audit.tasks.set(id, task);
 }
 
-function agentAuditPermission(sessionId, payload) {
+export function agentAuditPermission(sessionId, payload) {
   const audit = agentAuditFor(sessionId);
   if (!audit) return;
   if (["deny", "declined"].includes(String(payload.decision || ""))) audit.permissionDenials += 1;
 }
 
-function agentAuditPrompt(sessionId, payload) {
+export function agentAuditPrompt(sessionId, payload) {
   if (payload.kind === "permission") {
     const audit = agentAuditFor(sessionId);
     if (audit) audit.permissionPrompts += 1;
   }
 }
 
-function auditFact(label, value) {
+export function auditFact(label, value) {
   const row = document.createElement("div");
   row.className = "agent-audit-fact";
   const key = document.createElement("span");
@@ -1089,7 +1119,7 @@ function auditFact(label, value) {
   return row;
 }
 
-function renderAgentAudit(sessionId = agentAuditSession || activeSessionId) {
+export function renderAgentAudit(sessionId = agentAuditSession || activeSessionId) {
   const card = $("agent-audit");
   if (!card) return;
   const audit = agentAudits.get(sessionId);
@@ -1153,7 +1183,7 @@ function renderAgentAudit(sessionId = agentAuditSession || activeSessionId) {
   }
 }
 
-function agentAuditFinish(sessionId, state = "completed") {
+export function agentAuditFinish(sessionId, state = "completed") {
   const audit = agentAuditFor(sessionId);
   if (!audit) return;
   audit.state = state;
@@ -1161,11 +1191,11 @@ function agentAuditFinish(sessionId, state = "completed") {
   renderAgentAudit(sessionId);
 }
 
-let agentPanelOpen = false;
+export let agentPanelOpen = false;
 
 // D-278:子代理就绪文案——设置页 fast 行与侧边栏子代理面板共用同一计算,避免两处漂移。
 // s 来自 fast_model_status 的载荷:managed/ready/model/installed/serviceUp。
-function fastStatusText(s) {
+export function fastStatusText(s) {
   if (!s.managed) return { text: t("fast 指向外部 provider,不由本机托管"), warn: false };
   if (s.ready) return { text: `✓ ${t("子代理就绪")}(${s.model})`, warn: false };
   const missing = !s.installed
@@ -1178,7 +1208,7 @@ function fastStatusText(s) {
 
 // D-278:面板头部就绪状态行。打开面板时查询 fast_model_status,与设置页同源文案;
 // 查询失败(命令不可用/旧引擎)时保持隐藏,不遮挡面板其余内容。
-async function refreshAgentPanelStatus() {
+export async function refreshAgentPanelStatus() {
   const line = $("agent-panel-status");
   if (!line) return;
   let s;
@@ -1194,12 +1224,12 @@ async function refreshAgentPanelStatus() {
   line.classList.toggle("warn-text", st.warn);
 }
 
-function agentPhaseLabel(phase) {
+export function agentPhaseLabel(phase) {
   const labels = { scouting: t("勘察"), review: t("复核"), fixup: t("修复") };
   return labels[phase] || phase || t("子代理");
 }
 
-function agentTick(entry) {
+export function agentTick(entry) {
   const seconds = Math.round((Date.now() - entry.startedAt) / 1000);
   entry.el.dataset.agentElapsed = String(seconds);
   const bits = [`${seconds}s`, `${t("工具调用")} ${entry.calls.size}`, `${t("token")} ${entry.tokens}`];
@@ -1207,14 +1237,14 @@ function agentTick(entry) {
   entry.meta.textContent = bits.join(" · ");
 }
 
-function agentSetCurrentTool(entry, name, running) {
+export function agentSetCurrentTool(entry, name, running) {
   entry.currentTool = name ? String(name) : "";
   entry.el.dataset.agentCurrentTool = entry.currentTool;
   agentTick(entry);
 }
 
 // 统计 token:task-progress 的 trace 在 phase=="usage" 时携带累计 usage(StepEnd 逐轮累计)。
-function agentAddUsage(entry, usage) {
+export function agentAddUsage(entry, usage) {
   if (!usage) return;
   const input = Number(usage.input) || 0;
   const output = Number(usage.output) || 0;
@@ -1225,7 +1255,7 @@ function agentAddUsage(entry, usage) {
   entry.tokens += input + output + cacheRead + cacheWrite;
 }
 
-function agentCountsSync() {
+export function agentCountsSync() {
   let running = 0;
   let finished = 0;
   let closed = 0;
@@ -1243,7 +1273,7 @@ function agentCountsSync() {
 }
 
 // 打开/收起面板。与活动面板互斥:一个开着时另一个收起,避免右侧两栏叠在一起。
-function agentTogglePanel() {
+export function agentTogglePanel() {
   agentPanelOpen = !agentPanelOpen;
   $("agent-panel").classList.toggle("hidden", !agentPanelOpen);
   $("bg-panel").classList.toggle("hidden", agentPanelOpen);
@@ -1255,7 +1285,7 @@ function agentTogglePanel() {
 
 // D-350:面板头部 ✕ 关闭。与 agentTogglePanel 的互斥切换不同,这里只关子代理面板,
 // 并把活动面板恢复到用户既有的 activityPanelOpen 状态,不强行弹开。
-function agentClosePanel() {
+export function agentClosePanel() {
   agentPanelOpen = false;
   $("agent-panel").classList.add("hidden");
   syncActivityPanel(); // bg-panel 回到 activityPanelOpen 决定的状态
@@ -1264,7 +1294,7 @@ function agentClosePanel() {
   $("agent-toggle").title = t("打开子代理面板");
 }
 
-function agentStart(id, name, summary, input, sessionId = activeSessionId) {
+export function agentStart(id, name, summary, input, sessionId = activeSessionId) {
   if (!id) return;
   const phase = name === "task" ? orchPhaseOf(input) : null;
   const existing = agentEntries.get(id);
@@ -1337,7 +1367,7 @@ function agentStart(id, name, summary, input, sessionId = activeSessionId) {
   agentCountsSync();
 }
 
-function agentProgress(id, text, trace) {
+export function agentProgress(id, text, trace) {
   const entry = agentEntries.get(id);
   if (!entry || entry.state !== "running") return;
   if (text) entry.prog.textContent = text;
@@ -1378,7 +1408,7 @@ function agentProgress(id, text, trace) {
 }
 
 // transcript:子代理自己的文字消息 + 每次工具调用,按各自数据源可回看。
-function renderAgentTranscript(entry) {
+export function renderAgentTranscript(entry) {
   const detail = entry.detail;
   // 重建:调用序列或正文有新增时整体重画(频率低,一次 task-progress 一批)。
   detail.querySelectorAll(".agent-message, .agent-call").forEach((node) => node.remove());
@@ -1409,7 +1439,7 @@ function renderAgentTranscript(entry) {
   if (detail.children.length) entry.title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
 }
 
-function agentEnd(id, ok, preview, display) {
+export function agentEnd(id, ok, preview, display) {
   const entry = agentEntries.get(id);
   if (!entry) return;
   entry.state = "finished";
@@ -1434,7 +1464,7 @@ function agentEnd(id, ok, preview, display) {
   agentCountsSync();
 }
 
-function agentClose(id) {
+export function agentClose(id) {
   const entry = agentEntries.get(id);
   if (!entry || entry.state !== "finished") return;
   entry.state = "closed";
@@ -1444,7 +1474,7 @@ function agentClose(id) {
   agentCountsSync();
 }
 
-function agentDelete(id) {
+export function agentDelete(id) {
   const entry = agentEntries.get(id);
   if (!entry || entry.state !== "closed") return;
   entry.el.remove();
@@ -1453,7 +1483,7 @@ function agentDelete(id) {
 }
 
 // 每条的操作项:运行中的能单条停止;结束后能查看/关闭;关闭后才能删除本地条目。
-function agentRenderActions(id, entry) {
+export function agentRenderActions(id, entry) {
   entry.actions.innerHTML = "";
   const add = (label, title, handler) => {
     const btn = document.createElement("button");
@@ -1502,7 +1532,7 @@ function agentRenderActions(id, entry) {
 }
 
 // Clear:清空 Finished/Closed 区,保留运行中的;真正删除前必须先关闭。
-function agentClearFinished() {
+export function agentClearFinished() {
   for (const [id, entry] of agentEntries) {
     if (entry.state === "finished" || entry.state === "closed") {
       entry.el.remove();
@@ -1512,14 +1542,14 @@ function agentClearFinished() {
   agentCountsSync();
 }
 
-function agentPanelSetup() {
+export function agentPanelSetup() {
   const toggle = $("agent-toggle");
   toggle.addEventListener("click", agentTogglePanel);
   $("agent-close").addEventListener("click", agentClosePanel);
   $("agent-clear").addEventListener("click", agentClearFinished);
   $("agent-audit-trace").addEventListener("click", () => {
     agentClosePanel();
-    activityPanelOpen = true;
+    setActivityPanelOpen(true);
     localStorage.setItem("kz-activity-panel", "1");
     syncActivityPanel();
   });
@@ -1534,5 +1564,7 @@ function agentPanelSetup() {
   });
 }
 // 06-activity.js 是唯一的活动/子代理脚本,加载时 DOM 已解析完毕。
-agentPanelSetup();
+defer(() => {
+  agentPanelSetup();
+});
 

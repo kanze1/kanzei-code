@@ -1,9 +1,16 @@
+import { defer } from "./01-core.js";
+import { $, readJson, writeJson } from "./01-core.js";
+import { localizeDynamic } from "./02-i18n.js";
+import { state } from "./08-compose.js";
+import { prefKey } from "./08-models.js";
+import { DOC_FILTER_DEFAULTS, docFilterTargets, documentFilters } from "./12-docs-pages.js";
+
 // ---------- 文档条目(可展开 + 状态流转) ----------
 // 完整需求/缺陷列表已整体收进单页视图(用户定调:侧栏只显示当前在做),侧栏不再持有
 // 一份筛选状态——两份状态各自漂移的话,同一条件下两处会给出不同条目集合。
 // idea/source/finding 三类列表本来就没有筛选控件,统一用这份中性口径当占位;
 // 冻结是为了防止有人顺手往共享占位里写值,把三个列表一起搞坏。
-const NEUTRAL_DOC_FILTERS = Object.freeze({
+export const NEUTRAL_DOC_FILTERS = Object.freeze({
   status: "all", priority: "all", complexity: "all", tag: "all", blocked: "all", sort: "manual", grouped: false,
 });
 
@@ -13,15 +20,15 @@ const NEUTRAL_DOC_FILTERS = Object.freeze({
 // 字段清单直接取自 DOC_FILTER_DEFAULTS(12-docs-pages.js)的键,不另抄一份:清单与默认值
 // 一旦分成两处,漏加一个字段就成了"存得下、复位不掉"。惰性求值是因为 10-docs-core.js
 // 先于 12-docs-pages.js 执行,顶层直接读那个 const 会撞 TDZ。
-const filterFields = (kind) => Object.keys(DOC_FILTER_DEFAULTS[kind]);
-function saveDocFilters() {
+export const filterFields = (kind) => Object.keys(DOC_FILTER_DEFAULTS[kind]);
+export function saveDocFilters() {
   const pick = (state, kind) => Object.fromEntries(filterFields(kind).map((f) => [f, state[f]]));
   writeJson(prefKey("filters"), {
     docReq: pick(documentFilters.req, "req"),
     docDefect: pick(documentFilters.defect, "defect"),
   });
 }
-function restoreDocFilters() {
+export function restoreDocFilters() {
   const saved = readJson(prefKey("filters"), {});
   // 先复位再叠加,顺序不能反:documentFilters 是模块级状态,换项目不会重建它。只叠加
   // "保存里存在的字段"的话,新项目没保存过的字段仍挂着上一个项目的值;而 syncDocumentFilters
@@ -45,7 +52,7 @@ function restoreDocFilters() {
 // 状态回填到控件上,否则下拉显示"全部"而实际在筛选,看起来就像列表丢了条目。
 // 控件只有单页视图那一套;当前标签页是哪一队,就回填哪一队的值(tests 页没有筛选口径,
 // docFilterTargets() 返回空,回落到需求那支即可,反正控件此时是禁用的)。
-function syncDocFilterControls() {
+export function syncDocFilterControls() {
   const primary = documentFilters[docFilterTargets()[0]] ?? documentFilters.req;
   const pairs = [
     ["documents-status-filter", primary.status],
@@ -62,7 +69,7 @@ function syncDocFilterControls() {
 }
 // 跨视图跳转:复用导航栏按钮的既有切换逻辑(含 active/aria-current/documents-active
 // 与该视图的数据刷新),不重复实现一套视图激活。
-function openDocumentsView() {
+export function openDocumentsView() {
   const btn = document.querySelector('.activity-item[data-view="documents"]');
   if (btn) {
     btn.click();
@@ -72,19 +79,19 @@ function openDocumentsView() {
   $("view-documents")?.classList.add("active");
 }
 // 标签受控词表(conventions §1.35,用户定调):分组顺序即展示顺序。
-const DOC_TAG_ORDER = ["核心", "后端", "前端", "模型", "发布", "流程"];
-function docGroupTag(entry) {
+export const DOC_TAG_ORDER = ["核心", "后端", "前端", "模型", "发布", "流程"];
+export function docGroupTag(entry) {
   const tags = entryTags(entry);
   return DOC_TAG_ORDER.find((tag) => tags.includes(tag)) || "其他";
 }
-const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 };
-const statusRank = { doing: 0, todo: 1, done: 2, dropped: 3 };
-const complexityRank = { "小": 0, "中": 1, "大": 2 };
-function entryTags(entry) {
+export const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 };
+export const statusRank = { doing: 0, todo: 1, done: 2, dropped: 3 };
+export const complexityRank = { "小": 0, "中": 1, "大": 2 };
+export function entryTags(entry) {
   const field = (entry.fields ?? []).find(([key]) => ["标签", "tags", "tag"].includes(String(key).toLowerCase()));
   return String(field?.[1] || "").split(/[\s,]+/).map((tag) => tag.trim()).filter(Boolean);
 }
-function tagOptions(entries) {
+export function tagOptions(entries) {
   // 受控词表优先,词表外的存量标签跟在后面(过渡期可见,便于归一)。
   const seen = new Set(entries.flatMap(entryTags));
   const extras = [...seen].filter((tag) => !DOC_TAG_ORDER.includes(tag)).sort((a, b) => a.localeCompare(b));
@@ -93,23 +100,23 @@ function tagOptions(entries) {
 // 返回实际生效的值:保存的标签在当前项目里可能根本不存在,那时下拉会回落成
 // "全部",但**筛选状态必须跟着回落**——否则状态里还留着那个标签,列表被筛空,
 // 而界面显示"没有筛选",看起来就是"条目凭空掉了"(D-169)。
-function syncTagFilter(select, entries, selected = "all") {
+export function syncTagFilter(select, entries, selected = "all") {
   select.replaceChildren(new Option(localizeDynamic("全部标签"), "all"));
   for (const tag of tagOptions(entries)) select.appendChild(new Option(localizeDynamic(tag), tag));
   select.value = selectedOptions(select, selected);
   return select.value;
 }
-function selectedOptions(select, selected) {
+export function selectedOptions(select, selected) {
   return [...select.options].some((option) => option.value === selected) ? selected : "all";
 }
 
-function entryBlocked(entry) {
+export function entryBlocked(entry) {
   return Boolean(entry?.blocked);
 }
-function matchesBlockedFilter(entry, value) {
+export function matchesBlockedFilter(entry, value) {
   return value === "all" || (value === "blocked" ? entryBlocked(entry) : !entryBlocked(entry));
 }
-function filterRequirements(entries, filters = NEUTRAL_DOC_FILTERS) {
+export function filterRequirements(entries, filters = NEUTRAL_DOC_FILTERS) {
   const filtered = entries
     .filter((entry) => filters.status === "all" || entry.status === filters.status)
     .filter((entry) => filters.priority === "all" || entry.priority === filters.priority)

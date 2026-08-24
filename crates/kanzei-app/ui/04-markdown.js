@@ -1,5 +1,5 @@
 // ---------- markdown-lite(安全子集:代码围栏/语言标识/行内码/加粗/标题/列表/表格/安全外链) ----------
-function escapeHtml(s) {
+export function escapeHtml(s) {
   return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -7,20 +7,20 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
-function splitTableRow(line) {
+export function splitTableRow(line) {
   const value = line.trim().replace(/^\|/, "").replace(/\|$/, "");
   return value.split("|").map((cell) => cell.trim());
 }
-function tableAlignment(cell) {
+export function tableAlignment(cell) {
   if (/^:-+:$/.test(cell)) return "center";
   if (/^-+:$/.test(cell)) return "right";
   return "left";
 }
-function safeMarkdownUrl(value) {
+export function safeMarkdownUrl(value) {
   const url = value.trim();
   return /^(?:https?:\/\/|mailto:)/i.test(url) && !/[\s"'<]/.test(url) ? url : null;
 }
-function renderInlineMarkdown(raw) {
+export function renderInlineMarkdown(raw) {
   const placeholders = [];
   const stash = (html) => {
     const token = `\u0000md-${placeholders.length}\u0000`;
@@ -39,7 +39,7 @@ function renderInlineMarkdown(raw) {
   html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   return html.replace(/\u0000md-(\d+)\u0000/g, (_, index) => placeholders[Number(index)]);
 }
-function renderMarkdown(raw) {
+export let renderMarkdown = function renderMarkdown(raw) {
   const lines = String(raw).replace(/\r\n?/g, "\n").split("\n");
   let html = "";
   let paragraph = [];
@@ -130,29 +130,9 @@ function renderMarkdown(raw) {
   flushList();
   return html;
 }
-function isTableSeparator(line) {
+export function isTableSeparator(line) {
   const cells = splitTableRow(line);
   return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
 }
 
-// R-264 B6：该文件无顶层 DOM 副作用，先作为第一块正式 ESM 模块加载。
-// 尚未迁移的 classic 消费者仍通过 globalThis 兼容桥调用；桥只保留到这些消费者
-// 完成显式 import 为止，不是新的业务全局状态源。
-export {
-  escapeHtml,
-  isTableSeparator,
-  renderInlineMarkdown,
-  renderMarkdown,
-  safeMarkdownUrl,
-  splitTableRow,
-  tableAlignment,
-};
-Object.assign(globalThis, {
-  escapeHtml,
-  isTableSeparator,
-  renderInlineMarkdown,
-  renderMarkdown,
-  safeMarkdownUrl,
-  splitTableRow,
-  tableAlignment,
-});
+export function setRenderMarkdown(value) { renderMarkdown = value; }

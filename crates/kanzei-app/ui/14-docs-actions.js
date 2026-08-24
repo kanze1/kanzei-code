@@ -1,10 +1,33 @@
+import { defer } from "./01-core.js";
+import { $, invoke, on } from "./01-core.js";
+import { t } from "./02-i18n.js";
+import { currentProject, processItems, running, toast, toastError } from "./03-shell.js";
+import { applyBgFilters, bgDoneOpen, bgEntries, bgFilters, bgSync, renderBgSections, setBgDoneOpen } from "./06-activity.js";
+import { refreshTests, refreshWorktrees } from "./09-sessions.js";
+import { openDocumentsView, saveDocFilters } from "./10-docs-core.js";
+import { applyBatch, batchSelection, clearPendingJump } from "./11-docs-list.js";
+import {
+  dependencyViewOpen,
+  setDependencyViewOpen,
+  docFilterTargets,
+  documentFilters,
+  documentsKind,
+  latestDocsSnapshot,
+  renderDocsSnapshot,
+  renderDocuments,
+  selectWorkspaceProject,
+  setDocumentsKind,
+} from "./12-docs-pages.js";
+import { openRuntimeMarkdown, refreshConversationList } from "./15-views-misc.js";
+import { forProject } from "./20-lines.js";
+
 // await 前后各认一次项目。这份快照是替 forProject 取的:await 期间用户切走了,它就是
 // **上一个项目**的数据,照旧渲染的后果不止"闪一下上个项目的列表"——syncDocumentFilters
 // 会拿新项目的筛选去旧项目的条目里判「这标签还在不在」,判否就回落并落盘(D-169 那段),
 // 而落盘走的是**新项目**的键:用户在新项目从没设过筛选,列表却永久少一批,重启也回不来。
 // 挂起的跳转高亮不必在这条路径上作废:切项目必然跟着 selectWorkspaceProject 自己那次
 // refreshDocs,由那次重绘消费(目标不在新项目的列表里就自然作罢),不会留成悬挂高亮。
-async function refreshDocs() {
+export async function refreshDocs() {
   if (!currentProject) return;
   const forProject = currentProject;
   try {
@@ -27,8 +50,8 @@ async function refreshDocs() {
 
 // agent 在运行中改需求/缺陷/目标时,侧栏必须跟着动:否则状态、计数和状态流转按钮
 // 会一直停在开跑前的样子,要等本轮结束才更新(D-098)。合并 400ms 内的连续变更。
-let docsLiveTimer = null;
-function refreshDocsSoon() {
+export let docsLiveTimer = null;
+export function refreshDocsSoon() {
   if (!currentProject) return;
   clearTimeout(docsLiveTimer);
   docsLiveTimer = setTimeout(async () => {
@@ -59,30 +82,46 @@ function refreshDocsSoon() {
 // 兜底轮询:agent 经 write/bash 直改台账文件时不产生 tracker 工具事件,侧栏要等
 // 整轮结束(kz:done)才刷(D-098 只覆盖了 req/defect 工具路径)。任一线路运行中
 // 每 20 秒补一次快照(仍走 refreshDocsSoon 的合并窗口与让路逻辑);空闲不打扰。
-setInterval(() => {
-  const anyRunning = typeof processItems !== "undefined"
-    && processItems.some((item) => item.running);
-  if (anyRunning) refreshDocsSoon();
-}, 20000);
-
-$("documents-project-select").addEventListener("change", (event) => {
-  if (event.target.value && event.target.value !== currentProject) selectWorkspaceProject(event.target.value);
+defer(() => {
+  setInterval(() => {
+    const anyRunning = typeof processItems !== "undefined"
+      && processItems.some((item) => item.running);
+    if (anyRunning) refreshDocsSoon();
+  }, 20000);
 });
 
-$("documents-tab-req").addEventListener("click", () => { documentsKind = "req"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
-$("documents-tab-defect").addEventListener("click", () => { documentsKind = "defect"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+defer(() => {
+  $("documents-project-select").addEventListener("change", (event) => {
+    if (event.target.value && event.target.value !== currentProject) selectWorkspaceProject(event.target.value);
+  });
+});
+
+defer(() => {
+  $("documents-tab-req").addEventListener("click", () => { setDocumentsKind("req"); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+});
+defer(() => {
+  $("documents-tab-defect").addEventListener("click", () => { setDocumentsKind("defect"); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+});
 // 测试记录已从侧栏搬到这里:切过去顺手刷一次,否则看到的是上次 refreshDocs 的旧快照。
-$("documents-tab-tests").addEventListener("click", () => {
-  documentsKind = "tests";
-  if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
-  refreshTests();
+defer(() => {
+  $("documents-tab-tests").addEventListener("click", () => {
+    setDocumentsKind("tests");
+    if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
+    refreshTests();
+  });
 });
-$("documents-tab-both").addEventListener("click", () => { documentsKind = "both"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
-$("documents-dep-toggle").addEventListener("click", () => { dependencyViewOpen = !dependencyViewOpen; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+defer(() => {
+  $("documents-tab-both").addEventListener("click", () => { setDocumentsKind("both"); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+});
+defer(() => {
+  $("documents-dep-toggle").addEventListener("click", () => { setDependencyViewOpen(!dependencyViewOpen); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+});
 // 侧栏焦点卡片旁的「打开完整需求与缺陷列表」:列表不在侧栏之后的可发现性入口。
-$("focus-open-documents").addEventListener("click", openDocumentsView);
+defer(() => {
+  $("focus-open-documents").addEventListener("click", openDocumentsView);
+});
 
-async function runDefectReview() {
+export async function runDefectReview() {
   if (!currentProject) {
     toast(t("先在左侧「项目」里添加并选择一个目录"));
     return;
@@ -107,55 +146,77 @@ async function runDefectReview() {
     button.disabled = false;
   }
 }
-$("defect-review").addEventListener("click", runDefectReview);
+defer(() => {
+  $("defect-review").addEventListener("click", runDefectReview);
+});
 
 // 三个筛选改完都要重算段计数:筛掉一半条目而段头还写着原来的数,
 // 比不显示更误导(「运行中 5」但底下一条都没有)。
-$("bg-type-filter").addEventListener("change", (e) => {
-  bgFilters.type = e.target.value;
-  localStorage.setItem("kz-bg-type", bgFilters.type);
-  applyBgFilters();
-  renderBgSections();
+defer(() => {
+  $("bg-type-filter").addEventListener("change", (e) => {
+    bgFilters.type = e.target.value;
+    localStorage.setItem("kz-bg-type", bgFilters.type);
+    applyBgFilters();
+    renderBgSections();
+  });
 });
-$("bg-status-filter").addEventListener("change", (e) => {
-  bgFilters.status = e.target.value;
-  localStorage.setItem("kz-bg-status", bgFilters.status);
-  applyBgFilters();
-  renderBgSections();
+defer(() => {
+  $("bg-status-filter").addEventListener("change", (e) => {
+    bgFilters.status = e.target.value;
+    localStorage.setItem("kz-bg-status", bgFilters.status);
+    applyBgFilters();
+    renderBgSections();
+  });
 });
-$("bg-role-filter").addEventListener("change", (e) => {
-  bgFilters.role = e.target.value;
-  localStorage.setItem("kz-bg-role", bgFilters.role);
-  applyBgFilters();
-  renderBgSections();
+defer(() => {
+  $("bg-role-filter").addEventListener("change", (e) => {
+    bgFilters.role = e.target.value;
+    localStorage.setItem("kz-bg-role", bgFilters.role);
+    applyBgFilters();
+    renderBgSections();
+  });
 });
 // 已完成段的折叠:记住用户的选择,别每次刷新都弹回收起。
-$("bg-done-toggle").addEventListener("click", () => {
-  bgDoneOpen = !bgDoneOpen;
-  localStorage.setItem("kz-bg-done-open", bgDoneOpen ? "1" : "0");
-  renderBgSections();
+defer(() => {
+  $("bg-done-toggle").addEventListener("click", () => {
+    setBgDoneOpen(!bgDoneOpen);
+    localStorage.setItem("kz-bg-done-open", bgDoneOpen ? "1" : "0");
+    renderBgSections();
+  });
 });
 // 清空只摘已完成那一段——在跑的和需要关注的一条都不动。
-$("bg-clear-done").addEventListener("click", () => {
-  for (const [id, entry] of [...bgEntries]) {
-    if (entry.section !== "done") continue;
-    entry.el.remove();
-    bgEntries.delete(id);
-  }
-  bgSync();
+defer(() => {
+  $("bg-clear-done").addEventListener("click", () => {
+    for (const [id, entry] of [...bgEntries]) {
+      if (entry.section !== "done") continue;
+      entry.el.remove();
+      bgEntries.delete(id);
+    }
+    bgSync();
+  });
 });
-$("bg-type-filter").value = bgFilters.type;
-$("bg-status-filter").value = bgFilters.status;
-$("bg-role-filter").value = bgFilters.role;
+defer(() => {
+  $("bg-type-filter").value = bgFilters.type;
+});
+defer(() => {
+  $("bg-status-filter").value = bgFilters.status;
+});
+defer(() => {
+  $("bg-role-filter").value = bgFilters.role;
+});
 
-$("documents-batch-apply").addEventListener("click", applyBatch);
-$("documents-batch-clear").addEventListener("click", () => { batchSelection.clear(); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+defer(() => {
+  $("documents-batch-apply").addEventListener("click", applyBatch);
+});
+defer(() => {
+  $("documents-batch-clear").addEventListener("click", () => { batchSelection.clear(); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+});
 // 筛选写进 docFilterTargets() 给出的每个队列:对照模式下两边共用同一套条件。
 // 但只写给**确实拥有该字段**的队列:缺陷没有复杂度/排序口径(documentFilters.defect
 // 里根本没这两个键)。凭空写进去,锁提示的 `key in reqFilterState` 就会列出
 // 「复杂度=大」,而 docDragEnabled 的缺陷分支只看 status/priority/tag/blocked——
 // 提示说锁了、实际仍可拖,是 D-211 的反向脱节。
-function applyDocFilter(field, value) {
+export function applyDocFilter(field, value) {
   for (const kind of docFilterTargets()) {
     if (!(field in documentFilters[kind])) continue;
     documentFilters[kind][field] = value;
@@ -164,20 +225,34 @@ function applyDocFilter(field, value) {
   if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
 }
 // 交付方式(插入/排队)是个人习惯,全局记一份即可,不按项目分。
-$("delivery-select").addEventListener("change", (event) => {
-  localStorage.setItem("kz-delivery", event.target.value);
+defer(() => {
+  $("delivery-select").addEventListener("change", (event) => {
+    localStorage.setItem("kz-delivery", event.target.value);
+  });
 });
-$("documents-status-filter").addEventListener("change", (e) => applyDocFilter("status", e.target.value));
-$("documents-priority-filter").addEventListener("change", (e) => applyDocFilter("priority", e.target.value));
-$("documents-complexity-filter").addEventListener("change", (e) => applyDocFilter("complexity", e.target.value));
-$("documents-tag-filter").addEventListener("change", (e) => applyDocFilter("tag", e.target.value));
-$("documents-blocked-filter").addEventListener("change", (e) => applyDocFilter("blocked", e.target.value));
+defer(() => {
+  $("documents-status-filter").addEventListener("change", (e) => applyDocFilter("status", e.target.value));
+});
+defer(() => {
+  $("documents-priority-filter").addEventListener("change", (e) => applyDocFilter("priority", e.target.value));
+});
+defer(() => {
+  $("documents-complexity-filter").addEventListener("change", (e) => applyDocFilter("complexity", e.target.value));
+});
+defer(() => {
+  $("documents-tag-filter").addEventListener("change", (e) => applyDocFilter("tag", e.target.value));
+});
+defer(() => {
+  $("documents-blocked-filter").addEventListener("change", (e) => applyDocFilter("blocked", e.target.value));
+});
 // 排序走 applyDocFilter:它只改 documentFilters(显示口径),永远不会碰 docs_update(reorder)。
 // 能改取活顺序的入口只有一个——手动排序下的拖拽,见 commitDocOrder。
-$("documents-sort").addEventListener("change", (e) => applyDocFilter("sort", e.target.value));
+defer(() => {
+  $("documents-sort").addEventListener("change", (e) => applyDocFilter("sort", e.target.value));
+});
 // 分组开关(用户定调:按受控标签分组展示):关掉即回纯开发顺序+拖拽。
 // 完整列表只剩单页视图一处,开关也只剩这一个。
-function bindGroupToggle(id, storageKey, apply) {
+export function bindGroupToggle(id, storageKey, apply) {
   const btn = $(id);
   if (!btn) return;
   const sync = (on) => {
@@ -192,11 +267,13 @@ function bindGroupToggle(id, storageKey, apply) {
     if (latestDocsSnapshot) renderDocsSnapshot(latestDocsSnapshot);
   });
 }
-bindGroupToggle("documents-group-toggle", "kz-grouped-docs", (op) => {
-  if (op === "toggle") {
-    const next = !documentFilters.req.grouped;
-    documentFilters.req.grouped = next;
-    documentFilters.defect.grouped = next;
-  }
-  return documentFilters.req.grouped;
+defer(() => {
+  bindGroupToggle("documents-group-toggle", "kz-grouped-docs", (op) => {
+    if (op === "toggle") {
+      const next = !documentFilters.req.grouped;
+      documentFilters.req.grouped = next;
+      documentFilters.defect.grouped = next;
+    }
+    return documentFilters.req.grouped;
+  });
 });

@@ -1,7 +1,65 @@
-let worktreeItems = [];
-let worktreeLineCreateInFlight = false;
-let worktreeLineCreateSequence = 0;
-function renderWorktrees(items) {
+import { defer } from "./01-core.js";
+import { setProcessItems } from "./03-shell.js";
+import { setActiveProcessId, setActiveSessionId } from "./03-shell.js";
+import { $, confirmDialog, inputDialog, invoke } from "./01-core.js";
+import { localizeDynamic, t } from "./02-i18n.js";
+import {
+  activeProcessId,
+  activeSessionId,
+  applySessionMeta,
+  currentProject,
+  log,
+  processItems,
+  running,
+  setCurrentProject,
+  sessionState,
+  sessionStates,
+  setRunPending,
+  setRunning,
+  setStopping,
+  toast,
+  toastError,
+  transitionSession,
+} from "./03-shell.js";
+import { addMessage } from "./05-chat-render.js";
+import { bgClear } from "./06-activity.js";
+import { askActive, askQueueFor, hideAsk, pumpAsk } from "./07-events.js";
+import {
+  cancelAutoContinueTimer,
+  clearAutoNotices,
+  renderAutoStatus,
+  syncAutoRunState,
+  syncWorkPriorityControl,
+} from "./08-auto.js";
+import {
+  applyAutoUiState,
+  applyProfileValue,
+  persistProcessAutoState,
+  persistProcessProfiles,
+  processAutoState,
+  processProfileUi,
+  queueProcessUpdate,
+  rememberAutoUiState,
+  updateLocalProcessItem,
+} from "./08-compose-runtime.js";
+import { state } from "./08-compose.js";
+import { loadModels, restoreProjectPrefs, syncModelSelectToActiveLine } from "./08-models.js";
+import { jumpToEntry } from "./11-docs-list.js";
+import { latestDocsSnapshot, renderFocusPanel } from "./12-docs-pages.js";
+import { refreshDocs } from "./14-docs-actions.js";
+import {
+  loadConversation,
+  refreshConversationLists,
+  refreshGit,
+  refreshManual,
+  renderLineConversationHistory,
+} from "./15-views-misc.js";
+import { forProject, refreshLines } from "./20-lines.js";
+
+export let worktreeItems = [];
+export let worktreeLineCreateInFlight = false;
+export let worktreeLineCreateSequence = 0;
+export function renderWorktrees(items) {
   worktreeItems = items ?? [];
   const list = $("worktree-list");
   list.replaceChildren();
@@ -44,7 +102,7 @@ function renderWorktrees(items) {
 //
 // D-251 的性质**照旧守住**:projectDir 在 await **之前**认领,回来后再认一次,
 // 替旧项目拉回来的清单不画进新项目的面板。
-async function refreshWorktrees() {
+export async function refreshWorktrees() {
   if (!currentProject) return renderWorktrees([]);
   const forProject = currentProject;
   let live = [];
@@ -56,7 +114,7 @@ async function refreshWorktrees() {
 // D-251:合并/放弃是一次真实 IPC,用户可能在它落地前切走。projectDir 必须在 await
 // **之前**认领——按 currentProject 取就会拿新项目当参数去操作旧项目的工作树。
 // 清单本身不再需要维护(真源在 git),末尾重刷一次即可。
-async function handleWorktreeAction(item, action) {
+export async function handleWorktreeAction(item, action) {
   const forProject = currentProject;
   const active = processItems.find((process) => process.id === activeProcessId);
   const discardingActiveLine = action === "discard" && active?.worktree_path === item.path;
@@ -115,7 +173,7 @@ async function handleWorktreeAction(item, action) {
 // 并行线路页的工作树清单:侧栏只读之后,差异/收活/放弃都落在这里。
 // 已绑定线路的行给「收活」(跳到对应 lane 展开收活六格),孤儿树给「差异 / 放弃」——
 // 后者是它今天唯一的出口,侧栏按钮撤掉后必须在这里补上,否则只能回 git 命令行收拾。
-function renderLinesWorktrees() {
+export function renderLinesWorktrees() {
   const list = $("lines-worktree-list");
   if (!list) return;
   list.replaceChildren();
@@ -168,7 +226,7 @@ function renderLinesWorktrees() {
     list.appendChild(row);
   }
 }
-async function createWorktreeLine(event) {
+export async function createWorktreeLine(event) {
   if (!currentProject || worktreeLineCreateInFlight) return;
   const fromLinesView = (event?.currentTarget?.id || event?.target?.id) === "lines-add";
   const workItemId = fromLinesView ? String($("lines-work-item")?.value ?? "").trim() : "";
@@ -229,28 +287,30 @@ async function createWorktreeLine(event) {
     restore();
   }
 }
-$("worktree-add").addEventListener("click", createWorktreeLine);
+defer(() => {
+  $("worktree-add").addEventListener("click", createWorktreeLine);
+});
 
 // ---------- R-030:项目内独立进程 ----------
-let syncedRunningProcessId = null;
-let syncedRunningState = null;
+export let syncedRunningProcessId = null;
+export let syncedRunningState = null;
 // 已向后端补拉过待答队列的会话,防止每次进程列表刷新都打一次 pending_asks_get。
-let askSyncedSession = null;
+export let askSyncedSession = null;
 // D-355:process_list 单飞去项目化。旧的全局 inFlight/queued 不携带请求所属项目——
 // 项目 A 的 process_list 在途时切到 B,B 的 refreshProcesses 命中 A 的 inFlight 后返回
 // A 的 Promise,loadConversation 误等它,等到的却是「A 的列表完成」而 B 的 activeProcessId
 // 仍是 null,于是 B 的 conversation_get 永远不发出,切仓库后目标对话不恢复。现在按项目
 // 键控:同项目去重(合并并发调用),跨项目各自独立请求,返回的 Promise 恒为「本项目
 // 列表刷新完成」——等待方(loadConversation)等到的就是 B 自己的列表。
-const processRefreshInFlight = new Map();
-let processSwitchGeneration = 0;
-function processRunning(item) {
+export const processRefreshInFlight = new Map();
+export let processSwitchGeneration = 0;
+export function processRunning(item) {
   const state = sessionState(item.session_id);
   // 终态事件已经收敛时,旧轮询里的 running=true 不能把线路重新点亮；
   // 未收敛时则合并事件缓存与后端快照,覆盖事件丢失/乱序的窗口。
   return state.converged ? state.running : state.running || Boolean(item.running);
 }
-function syncCollaboratorToolsVisibility(items) {
+export function syncCollaboratorToolsVisibility(items) {
   const tools = $("collaboration-tools");
   if (!tools) return;
   // 单线程时没有跨线协作对象,隐藏勘察/复核与 task 工具开关；保留真实进程列表
@@ -258,7 +318,7 @@ function syncCollaboratorToolsVisibility(items) {
   const lineCount = Array.isArray(items) ? items.length : 0;
   tools.classList.toggle("hidden", lineCount <= 1);
 }
-async function closeParallelProcess(processId) {
+export async function closeParallelProcess(processId) {
   const item = processItems.find((candidate) => candidate.id === processId);
   if (!item || item.id.startsWith("d|")) return;
   const forProject = currentProject;
@@ -274,8 +334,8 @@ async function closeParallelProcess(processId) {
     const result = await invoke("process_close", { processId });
     if (currentProject !== forProject) return;
     if (wasActive) {
-      activeProcessId = null;
-      activeSessionId = null;
+      setActiveProcessId(null);
+      setActiveSessionId(null);
     }
     await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines(), refreshDocs()]);
     if (currentProject !== forProject) return;
@@ -287,7 +347,7 @@ async function closeParallelProcess(processId) {
     toastError(`${t("关闭线路失败")}:${error}`);
   }
 }
-function renderParallelTaskStatus(items) {
+export function renderParallelTaskStatus(items) {
   const target = $("parallel-task-status");
   const count = $("parallel-task-count");
   if (!target || !count) return;
@@ -351,7 +411,7 @@ function renderParallelTaskStatus(items) {
     }
   }
 }
-function refreshParallelTaskProjection(sessionId) {
+export function refreshParallelTaskProjection(sessionId) {
   if (!sessionId) return;
   const item = processItems.find((candidate) => candidate.session_id === sessionId);
   if (!item) return;
@@ -386,11 +446,11 @@ function refreshParallelTaskProjection(sessionId) {
     setRunning(runningNow, runningNow ? t("运行中") : t("空闲"));
   }
 }
-function renderProcesses(items) {
+export function renderProcesses(items) {
   const previousItems = processItems;
   const previousProcessKey = processItems.map((item) => item.id).join("\u0000");
   const previousProcessId = activeProcessId;
-  processItems = items ?? [];
+  setProcessItems(items ?? []);
   syncCollaboratorToolsVisibility(processItems);
   const liveIds = new Set(processItems.map((item) => item.id));
   // 只清当前项目中确认已注销的线路；切项目时旧项目配置继续保留。身份虽已由后端
@@ -429,10 +489,10 @@ function renderProcesses(items) {
   }
   if (!activeProcessId || !processItems.some((item) => item.id === activeProcessId)) {
     const preferred = processItems.find((item) => item.id.startsWith("d|")) || processItems[0];
-    activeProcessId = preferred?.id ?? null;
+    setActiveProcessId(preferred?.id ?? null);
   }
   const active = processItems.find((item) => item.id === activeProcessId);
-  activeSessionId = active?.session_id ?? null;
+  setActiveSessionId(active?.session_id ?? null);
   const activeProcessChanged = previousProcessId !== activeProcessId;
   if (activeProcessChanged && activeProcessId) {
     // 首次加载、切项目重建或活动线被回收后选 fallback 时，必须恢复目标线的
@@ -492,7 +552,7 @@ function renderProcesses(items) {
   }
 }
 
-async function refreshProcesses() {
+export async function refreshProcesses() {
   if (!currentProject) return null;
   const forProject = currentProject;
   // 同项目在途请求直接复用:合并并发调用,后端不会同时吃两份同项目清单。
@@ -512,7 +572,7 @@ async function refreshProcesses() {
   return promise;
 }
 
-async function refreshPendingAsks() {
+export async function refreshPendingAsks() {
   if (!currentProject || !activeSessionId) return;
   try {
     const pending = await invoke("pending_asks_get", {
@@ -535,7 +595,7 @@ async function refreshPendingAsks() {
 }
 
 
-async function switchProcess(processId, forceReload = false) {
+export async function switchProcess(processId, forceReload = false) {
   if (processId === activeProcessId && !forceReload) return;
   const target = processItems.find((item) => item.id === processId);
   if (!target) return;
@@ -555,8 +615,8 @@ async function switchProcess(processId, forceReload = false) {
   }
   // R-267:切走不再需要存快照——pane 留在 DOM 里,内容原样还在。
   hideAsk(true);
-  activeProcessId = processId;
-  activeSessionId = target.session_id;
+  setActiveProcessId(processId);
+  setActiveSessionId(target.session_id);
   applyAutoUiState(activeProcessId);
   applyProfileValue(target.profile);
   // 状态栏模型/上下文上限回放该线最近一次 kz:meta,不再停留在上一条线的值。
@@ -592,66 +652,74 @@ async function switchProcess(processId, forceReload = false) {
   log(`${t("已切换到进程")} ${target.label}`);
 }
 
-$("process-add").addEventListener("click", async () => {
-  if (!currentProject) return;
-  try {
-    // 新进程与默认进程同一默认:勘察复核关(要显式打开才强制走七阶段)。
-    const item = await invoke("process_create", { projectDir: currentProject, phasePipeline: false });
-    await refreshProcesses();
-    await switchProcess(item.id);
-  } catch (err) {
-    toastError(`${t("创建进程失败")}:${err}`);
-  }
+defer(() => {
+  $("process-add").addEventListener("click", async () => {
+    if (!currentProject) return;
+    try {
+      // 新进程与默认进程同一默认:勘察复核关(要显式打开才强制走七阶段)。
+      const item = await invoke("process_create", { projectDir: currentProject, phasePipeline: false });
+      await refreshProcesses();
+      await switchProcess(item.id);
+    } catch (err) {
+      toastError(`${t("创建进程失败")}:${err}`);
+    }
+  });
 });
 
-$("process-phase-pipeline").addEventListener("change", async (event) => {
-  if (!activeProcessId) return;
-  try {
-    await queueProcessUpdate(activeProcessId, { phasePipeline: event.target.checked });
-    updateLocalProcessItem(activeProcessId, { phase_pipeline: event.target.checked });
-    await refreshProcesses();
-    log(event.target.checked ? t("勘察复核已开启:每个任务强制走勘察→实现→复核") : t("勘察复核已关闭:恢复一问一答,模型仍可自己派子代理"));
-  } catch (err) {
-    event.target.checked = !event.target.checked;
-    toastError(`${t("更新进程能力失败")}:${err}`);
-  }
-  renderAutoStatus();
+defer(() => {
+  $("process-phase-pipeline").addEventListener("change", async (event) => {
+    if (!activeProcessId) return;
+    try {
+      await queueProcessUpdate(activeProcessId, { phasePipeline: event.target.checked });
+      updateLocalProcessItem(activeProcessId, { phase_pipeline: event.target.checked });
+      await refreshProcesses();
+      log(event.target.checked ? t("勘察复核已开启:每个任务强制走勘察→实现→复核") : t("勘察复核已关闭:恢复一问一答,模型仍可自己派子代理"));
+    } catch (err) {
+      event.target.checked = !event.target.checked;
+      toastError(`${t("更新进程能力失败")}:${err}`);
+    }
+    renderAutoStatus();
+  });
 });
 
-$("process-subagents").addEventListener("change", async (event) => {
-  if (!activeProcessId) return;
-  try {
-    await queueProcessUpdate(activeProcessId, { subagentsEnabled: event.target.checked });
-    updateLocalProcessItem(activeProcessId, { subagents_enabled: event.target.checked });
-    await refreshProcesses();
-    log(event.target.checked ? t("子代理已开启") : t("子代理已关闭:新一轮工具面不含 task"));
-  } catch (err) {
-    event.target.checked = !event.target.checked;
-    toastError(`${t("更新进程能力失败")}:${err}`);
-  }
+defer(() => {
+  $("process-subagents").addEventListener("change", async (event) => {
+    if (!activeProcessId) return;
+    try {
+      await queueProcessUpdate(activeProcessId, { subagentsEnabled: event.target.checked });
+      updateLocalProcessItem(activeProcessId, { subagents_enabled: event.target.checked });
+      await refreshProcesses();
+      log(event.target.checked ? t("子代理已开启") : t("子代理已关闭:新一轮工具面不含 task"));
+    } catch (err) {
+      event.target.checked = !event.target.checked;
+      toastError(`${t("更新进程能力失败")}:${err}`);
+    }
+  });
 });
 
-$("process-tracker-writes").addEventListener("change", async (event) => {
-  const active = processItems.find((item) => item.id === activeProcessId);
-  if (!activeProcessId || !active?.worktree_path) return;
-  try {
-    await queueProcessUpdate(activeProcessId, { trackerWrites: event.target.checked });
-    updateLocalProcessItem(activeProcessId, { tracker_writes: event.target.checked });
-    await refreshProcesses();
-    log(event.target.checked ? t("当前分支线已允许写主根追踪器") : t("当前分支线已恢复为只读主根追踪器"));
-  } catch (err) {
-    event.target.checked = !event.target.checked;
-    toastError(`${t("更新追踪器写入权限失败")}:${err}`);
-  }
+defer(() => {
+  $("process-tracker-writes").addEventListener("change", async (event) => {
+    const active = processItems.find((item) => item.id === activeProcessId);
+    if (!activeProcessId || !active?.worktree_path) return;
+    try {
+      await queueProcessUpdate(activeProcessId, { trackerWrites: event.target.checked });
+      updateLocalProcessItem(activeProcessId, { tracker_writes: event.target.checked });
+      await refreshProcesses();
+      log(event.target.checked ? t("当前分支线已允许写主根追踪器") : t("当前分支线已恢复为只读主根追踪器"));
+    } catch (err) {
+      event.target.checked = !event.target.checked;
+      toastError(`${t("更新追踪器写入权限失败")}:${err}`);
+    }
+  });
 });
 
 // ---------- 项目管理 ----------
-function baseName(path) {
+export function baseName(path) {
   const parts = path.replaceAll("\\", "/").split("/").filter(Boolean);
   return parts[parts.length - 1] || path;
 }
 
-function syncDocumentsProjectSelect(prefs) {
+export function syncDocumentsProjectSelect(prefs) {
   const select = $("documents-project-select");
   if (!select) return;
   select.replaceChildren();
@@ -668,8 +736,8 @@ function syncDocumentsProjectSelect(prefs) {
 // 给一键分离,由用户决定。
 // 隔离问题往往一次影响多个项目(它们共用同一个祖先)。只在当前项目上提示会让
 // 用户切一个发现一个,修到一半以为修完了。这里一次报全,只报一次。
-let isolationReported = false;
-async function reportIsolationAcrossProjects() {
+export let isolationReported = false;
+export async function reportIsolationAcrossProjects() {
   if (isolationReported) return;
   isolationReported = true;
   try {
@@ -690,7 +758,7 @@ async function reportIsolationAcrossProjects() {
   }
 }
 
-async function checkProjectIsolation() {
+export async function checkProjectIsolation() {
   const box = $("project-shared-warn");
   if (!box || !currentProject) return;
   let info;
@@ -731,9 +799,9 @@ async function checkProjectIsolation() {
   box.append(text, act);
 }
 
-function renderProjects(prefs) {
+export function renderProjects(prefs) {
   const previousProject = currentProject;
-  currentProject = prefs.current;
+  setCurrentProject(prefs.current);
   syncWorkPriorityControl();
   // R-115:按项目记的偏好(模型/思考强度/筛选)要跟着项目切换回填,
   // 也覆盖了启动这一次——currentProject 在这里才第一次确定。
@@ -742,8 +810,8 @@ function renderProjects(prefs) {
   // R-147:手册内容随项目走——启动首次确定项目与切换/移除项目时都刷新一次。
   if (typeof refreshManual === "function") refreshManual();
   if (previousProject !== currentProject) {
-    activeProcessId = null;
-    activeSessionId = null;
+    setActiveProcessId(null);
+    setActiveSessionId(null);
   }
   const list = $("project-list");
   list.innerHTML = "";
@@ -824,7 +892,7 @@ function renderProjects(prefs) {
 
 // 侧栏工作区头。它只是 #projects-section 的开合把手 + 当前项目身份的显示位,
 // 不持有自己的列表状态——列表就是下面那个既有分区,持久化沿用 kz-collapse-projects。
-function renderProjectSwitch(prefs) {
+export function renderProjectSwitch(prefs) {
   const nameEl = $("project-switch-name");
   const pathEl = $("project-switch-path");
   if (!nameEl || !pathEl) return;
@@ -837,21 +905,23 @@ function renderProjectSwitch(prefs) {
   syncProjectSwitchExpanded();
 }
 
-function projectsSectionTitle() {
+export function projectsSectionTitle() {
   return document.querySelector("#projects-section .section-title > span:first-child");
 }
 
-function syncProjectSwitchExpanded() {
+export function syncProjectSwitchExpanded() {
   const button = $("project-switch");
   const section = $("projects-section");
   if (!button || !section) return;
   button.setAttribute("aria-expanded", section.classList.contains("collapsed") ? "false" : "true");
 }
 
-$("project-switch")?.addEventListener("click", () => {
-  // 复用分区标题的折叠处理器(它负责写 localStorage 与 aria),这里不复制一份状态。
-  projectsSectionTitle()?.click();
-  syncProjectSwitchExpanded();
+defer(() => {
+  $("project-switch")?.addEventListener("click", () => {
+    // 复用分区标题的折叠处理器(它负责写 localStorage 与 aria),这里不复制一份状态。
+    projectsSectionTitle()?.click();
+    syncProjectSwitchExpanded();
+  });
 });
 
 // D-355:切项目统一事务。侧栏点击、Workspace 卡片/文档页下拉、添加/移除/初始化项目
@@ -861,7 +931,7 @@ $("project-switch")?.addEventListener("click", () => {
 //    落地时一次性替换,失败时旧内容仍在,不会出现「切换后空白 + 无法恢复」的假象;
 //  - 迟到的旧项目响应由各自的 project/generation 守卫丢弃,不能覆盖新目标。
 // 没切换项目(点当前项/重命名)时只刷周边,不重载对话。
-async function enterProject(prefs, options = {}) {
+export async function enterProject(prefs, options = {}) {
   const previous = currentProject;
   renderProjects(prefs);
   if (previous !== currentProject) {
@@ -881,39 +951,43 @@ async function enterProject(prefs, options = {}) {
   await refreshPendingInputs();
 }
 
-$("project-init").addEventListener("click", async () => {
-  const path = await inputDialog({
-    title: t("新项目目录路径(不存在时会创建)"),
-  });
-  if (path === null || !path.trim()) return;
-  const name = await inputDialog({
-    title: t("项目显示名(可留空)"),
-    value: baseName(path.trim()),
-  });
-  if (name === null) return;
-  try {
-    const prefs = await invoke("projects_init", {
-      path: path.trim(),
-      name: name.trim() || null,
+defer(() => {
+  $("project-init").addEventListener("click", async () => {
+    const path = await inputDialog({
+      title: t("新项目目录路径(不存在时会创建)"),
     });
-    await enterProject(prefs, { notice: t("已初始化并切换到新项目") });
-    toast(t("项目初始化完成"));
-  } catch (err) {
-    toastError(String(err));
-  }
+    if (path === null || !path.trim()) return;
+    const name = await inputDialog({
+      title: t("项目显示名(可留空)"),
+      value: baseName(path.trim()),
+    });
+    if (name === null) return;
+    try {
+      const prefs = await invoke("projects_init", {
+        path: path.trim(),
+        name: name.trim() || null,
+      });
+      await enterProject(prefs, { notice: t("已初始化并切换到新项目") });
+      toast(t("项目初始化完成"));
+    } catch (err) {
+      toastError(String(err));
+    }
+  });
 });
 
-$("project-add").addEventListener("click", async () => {
-  try {
-    const prefs = await invoke("projects_pick");
-    if (prefs) await enterProject(prefs);
-  } catch (err) {
-    toastError(String(err));
-  }
+defer(() => {
+  $("project-add").addEventListener("click", async () => {
+    try {
+      const prefs = await invoke("projects_pick");
+      if (prefs) await enterProject(prefs);
+    } catch (err) {
+      toastError(String(err));
+    }
+  });
 });
 
 // ---------- 队列输入 ----------
-function renderPendingInputs(items) {
+export function renderPendingInputs(items) {
   const list = $("queue-list");
   const count = $("queue-count");
   // 排队条挂在 composer(用户定调:排队输入放到排队按钮那里),空队列整条隐藏。
@@ -963,7 +1037,7 @@ function renderPendingInputs(items) {
   }
 }
 
-async function refreshPendingInputs() {
+export async function refreshPendingInputs() {
   if (!currentProject) {
     renderPendingInputs([]);
     return;
@@ -978,7 +1052,7 @@ async function refreshPendingInputs() {
   }
 }
 
-function renderTestRuns(snapshot) {
+export function renderTestRuns(snapshot) {
   const list = $("test-list");
   const records = [...(snapshot?.active ?? []), ...(snapshot?.archived ?? [])];
   list.replaceChildren();
@@ -1016,7 +1090,7 @@ function renderTestRuns(snapshot) {
   }
 }
 
-async function refreshTests() {
+export async function refreshTests() {
   if (!currentProject) {
     renderTestRuns({ active: [], archived: [] });
     return;
@@ -1032,4 +1106,6 @@ async function refreshTests() {
   }
 }
 
-$("tests-refresh").addEventListener("click", refreshTests);
+defer(() => {
+  $("tests-refresh").addEventListener("click", refreshTests);
+});

@@ -1,7 +1,31 @@
+import { defer } from "./01-core.js";
+import { localizeDynamic } from "./02-i18n.js";
+import { $, invoke } from "./01-core.js";
+import { localizedDocStatus, t } from "./02-i18n.js";
+import { currentProject, log, sidebarCollapsed, syncSidebar, toast, toastError } from "./03-shell.js";
+import {
+  DOC_TAG_ORDER,
+  NEUTRAL_DOC_FILTERS,
+  docGroupTag,
+  entryBlocked,
+  entryTags,
+  filterRequirements,
+  matchesBlockedFilter,
+  openDocumentsView,
+  saveDocFilters,
+  syncDocFilterControls,
+} from "./10-docs-core.js";
+import { agentFocus, documentFilters, documentStatusOptions, focusForProcess } from "./12-docs-pages.js";
+import { refreshDocs } from "./14-docs-actions.js";
+import { openDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
+import { openFilePreview } from "./17-files.js";
+import { selectedResearchTopic } from "./19-research.js";
+import { collaborationLines, lineAgentCodes } from "./20-lines.js";
+
 // R-054:拖拽重排(手动模式限定)。拖完提交完整 ID 序——注意 order 必须覆盖
 // 全部条目,所以在有筛选时禁止拖拽(顺序不完整会被引擎拒绝)。
-let dragReqId = null;
-function reqDragEnabled(filters = NEUTRAL_DOC_FILTERS) {
+export let dragReqId = null;
+export function reqDragEnabled(filters = NEUTRAL_DOC_FILTERS) {
   return filters.sort === "manual" && filters.status === "all" && filters.priority === "all" && filters.complexity === "all" && filters.tag === "all" && (filters.blocked ?? "all") === "all";
 }
 // 职责分离(用户定调,替代 R-123 的两 surface 平分):侧栏只留「当前在做」焦点卡片
@@ -9,15 +33,15 @@ function reqDragEnabled(filters = NEUTRAL_DOC_FILTERS) {
 // 拖拽改序、字段编辑、批量操作、依赖视图整体收进单页视图。renderDocList 仍保留
 // surface 概念——idea/source/finding 这些侧栏轻列表还走它,它们没有深度管理能力。
 // D-211 的教训继续有效:锁提示渲染出来了就必须真的能解锁并拖动,承诺与能力不能脱节。
-function docSurface(listEl) {
+export function docSurface(listEl) {
   return String(listEl?.id ?? "").startsWith("documents-") ? "documents" : "sidebar";
 }
 
 // 批量操作选中集:id → kind。跨重绘保留,否则 agent 的一次刷新就把选择清空了。
-const batchSelection = new Map();
-const archiveLoaders = new Map();
+export const batchSelection = new Map();
+export const archiveLoaders = new Map();
 
-function syncBatchBar() {
+export function syncBatchBar() {
   const bar = $("documents-batch-bar");
   if (!bar) return;
   // 条目可能因筛选/归档而消失,选中集要随之收敛,不然会对不存在的条目发批量请求。
@@ -37,7 +61,7 @@ function syncBatchBar() {
   statusSelect.disabled = kinds.size !== 1;
 }
 
-async function applyBatch() {
+export async function applyBatch() {
   const status = $("documents-batch-status").value;
   const tag = $("documents-batch-tag").value;
   if (!status && !tag) {
@@ -79,7 +103,7 @@ async function applyBatch() {
   refreshDocs();
 }
 
-function docDragEnabled(kind, listEl, filterState) {
+export function docDragEnabled(kind, listEl, filterState) {
   // 拖拽改序(手动+无筛选限定):侧栏与独立文档页一致提供(D-211——锁提示与解锁按钮
   // 两侧都渲染,但 R-123 曾把排序收进文档页,侧栏 draggable 永不设置:解锁后锁提示
   // 消失、条目"能选"却拖不动。用户实测复现,验收要求两侧均可拖,承诺与实际必须一致)。
@@ -91,7 +115,7 @@ function docDragEnabled(kind, listEl, filterState) {
     (key) => (filterState[key] ?? "all") === "all"
   );
 }
-async function commitDocOrder(listEl, kind) {
+export async function commitDocOrder(listEl, kind) {
   const order = [...listEl.querySelectorAll(".doc-item[data-doc-id]")].map((el) => el.dataset.docId);
   try {
     const msg = await invoke("docs_update", {
@@ -112,7 +136,7 @@ async function commitDocOrder(listEl, kind) {
 // 引用跳转。目标可能被筛选藏起来、在折叠分区里、在收起的侧栏里,或者已经归档——
 // 旧实现只认当前可见节点(offsetParent !== null),这四种情况一律静默失败:点了没反应,
 // 也没有任何提示,看起来就是"引用是死链"(D-166)。
-function revealEntryNode(target) {
+export function revealEntryNode(target) {
   // 只掀开确实会藏住条目的两类容器,不对任意祖先去 hidden——那会顺手展开整个视图。
   for (let node = target; node; node = node.parentElement) {
     if (node.classList?.contains("doc-archive-list")) node.classList.remove("hidden");
@@ -125,16 +149,17 @@ function revealEntryNode(target) {
 // 单页视图里承载条目的容器。按容器 id 判定而不是按 #view-documents 祖先:侧栏的
 // 目标/来源/发现列表同样挂 data-doc-id,笼统地「不在侧栏就当在单页」会把跳转一个目标
 // 也变成切视图。
-const DOCUMENTS_ENTRY_CONTAINERS = ["documents-req-list", "documents-defect-list", "documents-dep-view"];
-const inDocumentsPage = (item) => DOCUMENTS_ENTRY_CONTAINERS.some((id) => item.closest(`#${id}`));
+export const DOCUMENTS_ENTRY_CONTAINERS = ["documents-req-list", "documents-defect-list", "documents-dep-view"];
+export const inDocumentsPage = (item) => DOCUMENTS_ENTRY_CONTAINERS.some((id) => item.closest(`#${id}`));
 // 跨视图跳转的高亮必须活过随后的那次刷新。openDocumentsView() 会触发 refreshDocs(),
 // 它 await 的是一次真实 IPC(真机毫秒级),而 setTimeout(…, 0) 就在当下这一轮跑——
 // 顺序必然是"先高亮、后重绘",高亮落在旧节点上,紧接着 renderDocList 的
 // `el.innerHTML = ""` 把该节点连同 scrollIntoView 的落点一起清掉:用户被切到单页视图,
 // 却看不出到底是哪一条(D-166 的另一种复发形态)。
 // 所以不猜时机:把待高亮 id 存起来,由重绘收尾(renderDocsSnapshot)消费。
-let pendingJumpId = null;
-function consumePendingJump() {
+export let pendingJumpId = null;
+export function setPendingJumpId(value) { pendingJumpId = value; }
+export function consumePendingJump() {
   if (!pendingJumpId) return;
   const ref = pendingJumpId;
   // 只给一次机会:目标此刻若被筛掉或已不在列表里就作罢,不留一个会在将来某次
@@ -149,12 +174,12 @@ function consumePendingJump() {
 // 消费就永远不会发生。留着这个 id 正是上面「不留悬挂高亮」的反面:之后任意一次无关刷新
 // ——agent 触发的 refreshDocsSoon、或用户下次再进文档页——都会把它兑现,用户没点跳转
 // 条目却自己亮了。所以跳转的失败路径必须显式作废(D-211:承诺与实现不能脱节)。
-function clearPendingJump() {
+export function clearPendingJump() {
   pendingJumpId = null;
 }
 // D-413:研究工件里两类「本该可点」的字段——文献 URL 与代码域证据锚(file:line)。
 // 判据放这里单点定义,渲染侧只问「这个字段是不是可打开的」,不各自认字符串。
-function researchLinkField(key, value) {
+export function researchLinkField(key, value) {
   const k = String(key).toLowerCase();
   const v = String(value ?? "").trim();
   if (!v) return false;
@@ -165,7 +190,7 @@ function researchLinkField(key, value) {
 
 /// 造一个真入口按钮:文献进内置 viewer(用户 2026-08-16 定调,不跳出应用),
 /// 代码域按 file:line 打开文件预览。取不到内容时如实报错,不静默变成死按钮。
-function researchOpenLink(key, value, topic = "") {
+export function researchOpenLink(key, value, topic = "") {
   const raw = String(value).trim();
   const btn = document.createElement("button");
   btn.className = "ref-link";
@@ -215,7 +240,7 @@ function researchOpenLink(key, value, topic = "") {
   return btn;
 }
 
-async function jumpToEntry(ref) {
+export async function jumpToEntry(ref) {
   const findAll = () =>
     [...document.querySelectorAll("[data-doc-id]")].filter((item) => item.dataset.docId === ref);
   let matches = findAll();
@@ -260,7 +285,7 @@ async function jumpToEntry(ref) {
 // R-247:「被取得」只读 docs_snapshot 暴露的 tracker 取得线事实。
 // 显式取得线按 branch 对上协作快照；doing/fixing 且无字段是 D-354 定义的默认线持有。
 // 运行/空闲不改变持有关系，prompt 文本和前端排序均不参与。
-function claimedCollaborationLineFor(entry) {
+export function claimedCollaborationLineFor(entry) {
   const lines = typeof collaborationLines !== "undefined" && Array.isArray(collaborationLines)
     ? collaborationLines
     : [];
@@ -302,7 +327,7 @@ function claimedCollaborationLineFor(entry) {
   };
 }
 
-function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NEUTRAL_DOC_FILTERS, archivedEntries = []) {
+export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NEUTRAL_DOC_FILTERS, archivedEntries = []) {
   const surface = docSurface(el);
   // 筛掉了多少条:用于"被筛空"时说清原因。列表凭空变空是最容易被当成数据丢失的
   // 一类现象,必须给出条数与一键清除,而不是留一片空白(D-169)。

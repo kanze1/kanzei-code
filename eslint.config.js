@@ -1,24 +1,6 @@
 // R-142:前端最低配 ESLint(flat config)。
-// 只开 no-undef 类规则(防手误),不引入构建步骤。ui/*.js 是经典 script 按序加载,
-// 顶层声明的全局标识符清单由 scripts/gen-ui-lint-globals.mjs 生成(冒烟会校验同步)。
+// 只开 no-undef 类规则(防手误),不引入构建步骤。ui/*.js 以 ESM 显式 import/export 连接。
 import globals from "globals";
-import { collectUiGlobals, readCachedUiGlobals } from "./scripts/gen-ui-lint-globals.mjs";
-
-export function loadUiGlobals({ collect = collectUiGlobals, readCache = readCachedUiGlobals } = {}) {
-  try {
-    return collect();
-  } catch (error) {
-    try {
-      const cached = readCache();
-      console.warn(`实时 UI globals 生成失败，降级使用缓存清单: ${error.message}`);
-      return cached;
-    } catch (cacheError) {
-      throw new Error(`实时 UI globals 生成失败且缓存不可用: ${cacheError.message}`, { cause: error });
-    }
-  }
-}
-
-const uiGlobals = loadUiGlobals();
 
 export default [
   {
@@ -27,9 +9,6 @@ export default [
       ecmaVersion: "latest",
       sourceType: "module",
       globals: {
-        // ui/*.js 跨文件全局(经典 script 顶层作用域共享)。放前面:同名宿主全局
-        // 由后面的 Tauri/browser 只读块覆盖,保持 readonly 语义。
-        ...Object.fromEntries(uiGlobals.map((name) => [name, "writable"])),
         // Tauri 注入的宿主对象
         window: "readonly",
         document: "readonly",

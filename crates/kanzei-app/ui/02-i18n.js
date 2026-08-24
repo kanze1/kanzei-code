@@ -1,4 +1,15 @@
-const I18N_EN = {
+import { defer } from "./01-core.js";
+import { $ } from "./01-core.js";
+import { currentProject, syncActivityPanel, syncSidebar } from "./03-shell.js";
+import { renderAgentAudit, syncDynamicUiLanguage } from "./06-activity.js";
+import { askActive, updateAskQueueStatus } from "./07-events.js";
+import { refreshWorktrees } from "./09-sessions.js";
+import { lastWorkspaceSnapshot, renderWorkspace } from "./12-docs-pages.js";
+import { refreshDocs } from "./14-docs-actions.js";
+import { refreshConversationList } from "./15-views-misc.js";
+import { markLanguagePreferenceDirty, renderProviders } from "./16-settings.js";
+
+export const I18N_EN = {
   // R-329:deliver 交付卡片。
   "在资源管理器中显示": "Show in File Explorer",
   "打开失败": "Could not open",
@@ -722,7 +733,7 @@ const I18N_EN = {
   "内置": "Built-in",
   "内置 provider 由 kanzei 默认提供,不可删除;可改配置或编辑连接信息": "Built-in providers ship with kanzei and cannot be removed; edit their connection info instead",
 };
-const I18N_DYNAMIC_EN = {
+export const I18N_DYNAMIC_EN = {
   "完成提示音不可用": "Completion sound unavailable",
   "系统通知不可用": "System notification unavailable",
   "展开左侧栏": "Expand left sidebar",
@@ -941,16 +952,16 @@ const I18N_DYNAMIC_EN = {
   "丢弃无 session_id 的运行事件": "Dropped run event without session_id", "使用手册刷新失败": "Failed to refresh user guide",
   "输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送": "Enter a task to begin · permission requests will prompt · Ctrl+Enter to send"
 };
-const I18N_LOCALIZE_ENTRIES = [...Object.entries(I18N_EN), ...Object.entries(I18N_DYNAMIC_EN)]
+export const I18N_LOCALIZE_ENTRIES = [...Object.entries(I18N_EN), ...Object.entries(I18N_DYNAMIC_EN)]
   .sort(([a], [b]) => b.length - a.length);
 // 紧邻这些字符时说明命中的是路径/标识符的一部分,不是产品文案。
-const I18N_TOKEN_BOUNDARY = /[\\/._\-a-zA-Z0-9]/;
+export const I18N_TOKEN_BOUNDARY = /[\\/._\-a-zA-Z0-9]/;
 
 /// 只替换"独立出现"的产品文案。
 /// 原实现对整段自由文本无边界 replaceAll,而该函数同时用于渲染用户输入、模型输出与
 /// 文件路径,于是英文模式下 `crates/前端/模型.md` 被改写成 `crates/Frontend/Model.md`
 /// ——展示层篡改用户数据(D-135)。现在命中处紧邻路径分隔符或 ASCII 标识符字符即跳过。
-function replaceStandalone(text, source, translated) {
+export function replaceStandalone(text, source, translated) {
   if (!source) return text;
   let out = "";
   let index = 0;
@@ -964,7 +975,7 @@ function replaceStandalone(text, source, translated) {
     index = at + source.length;
   }
 }
-function localizeDynamic(value) {
+export function localizeDynamic(value) {
   const text = String(value ?? "");
   if (!languageIsEnglish()) return text;
   // 整串命中优先:状态文案通常整句就是一个 key,这条路径最准也最快。
@@ -977,18 +988,18 @@ function localizeDynamic(value) {
   }
   return out;
 }
-function languageIsEnglish() {
+export function languageIsEnglish() {
   return resolveUiLanguage() === "en";
 }
-function t(key) {
+export function t(key) {
   const language = resolveUiLanguage();
   return language === "en" ? (I18N_EN[key] || I18N_DYNAMIC_EN[key] || key) : key;
 }
-function localizedDocStatus(status) {
+export function localizedDocStatus(status) {
   const labels = { todo: "To do", doing: "In progress", done: "Done", dropped: "Dropped", fixing: "Fixing", fixed: "Fixed", open: "Open", wontfix: "Won't fix" };
   return languageIsEnglish() ? (labels[status] || status) : status;
 }
-function applyLanguage() {
+export function applyLanguage() {
   // R-140 批10:MutationObserver 退役。动态字符串(状态栏/日志/活动卡/权限队列等)全部
   // 在渲染点经 t()/localizeDynamic 产出;语言切换时由 change 处理器里的 syncDynamicUiLanguage/
   // syncActivityPanel/syncSidebar/renderProviders/refreshDocs/refreshWorktrees/
@@ -1002,7 +1013,7 @@ function applyLanguage() {
 // 消息容器内的动态文案(复制按钮、错误级别)与静态 DOM(侧栏标题、按钮属性)共用:
 // 元素渲染时写入 key,语言切换/节点插入时由这里重算 t()。这是「翻译发生在渲染点」
 // 的落地,不依赖 observer 事后词典改写。
-function applyDataI18nKeys(root, language) {
+export function applyDataI18nKeys(root, language) {
   if (!root || typeof root.querySelectorAll !== "function") return;
   for (const el of root.querySelectorAll("[data-i18n-key]")) {
     const key = el.dataset.i18nKey;
@@ -1033,18 +1044,19 @@ function applyDataI18nKeys(root, language) {
     if (el.getAttribute("placeholder") !== next) el.setAttribute("placeholder", next);
   }
 }
-const languageSelect = $("language-select");
-const LANGUAGE_PREFERENCES = new Set(["system", "zh", "en"]);
-function normalizeLanguagePreference(value) {
+export let languageSelect = null;
+defer(() => { languageSelect = $("language-select"); });
+export const LANGUAGE_PREFERENCES = new Set(["system", "zh", "en"]);
+export function normalizeLanguagePreference(value) {
   return LANGUAGE_PREFERENCES.has(value) ? value : "zh";
 }
-function resolveUiLanguage(preference = localStorage.getItem("kz-language")) {
+export function resolveUiLanguage(preference = localStorage.getItem("kz-language")) {
   const normalized = normalizeLanguagePreference(preference);
   if (normalized !== "system") return normalized;
   const systemLanguage = typeof navigator === "undefined" ? "" : navigator.language || "";
   return /^zh(?:[-_]|$)/i.test(systemLanguage) ? "zh" : "en";
 }
-function setLanguagePreference(preference, { persist = true, rerender = true } = {}) {
+export function setLanguagePreference(preference, { persist = true, rerender = true } = {}) {
   const normalized = normalizeLanguagePreference(preference);
   if (persist) localStorage.setItem("kz-language", normalized);
   languageSelect.value = normalized;
@@ -1066,16 +1078,24 @@ function setLanguagePreference(preference, { persist = true, rerender = true } =
     updateAskQueueStatus();
   }
 }
-function syncLanguagePreferenceFromSettings(preference) {
+export function syncLanguagePreferenceFromSettings(preference) {
   if (!LANGUAGE_PREFERENCES.has(preference)) return;
   setLanguagePreference(preference);
 }
-languageSelect.value = normalizeLanguagePreference(localStorage.getItem("kz-language"));
-languageSelect.addEventListener("change", () => {
-  setLanguagePreference(languageSelect.value);
-  if (typeof markLanguagePreferenceDirty === "function") markLanguagePreferenceDirty();
+defer(() => {
+  languageSelect.value = normalizeLanguagePreference(localStorage.getItem("kz-language"));
 });
-applyLanguage();
+defer(() => {
+  languageSelect.addEventListener("change", () => {
+    setLanguagePreference(languageSelect.value);
+    if (typeof globalThis.markLanguagePreferenceDirty === "function") globalThis.markLanguagePreferenceDirty();
+  });
+});
+defer(() => {
+  applyLanguage();
+});
 
 // R-264 B10：21-palette.js 尚未迁移其提供方时，通过 globalThis 读取稳定的 i18n API。
-Object.assign(globalThis, { localizeDynamic, t });
+defer(() => {
+  Object.assign(globalThis, { localizeDynamic, t });
+});

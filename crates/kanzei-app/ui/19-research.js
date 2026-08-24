@@ -1,3 +1,10 @@
+import { defer } from "./01-core.js";
+import { renderMarkdown } from "./04-markdown.js";
+import { $, invoke } from "./01-core.js";
+import { localizedDocStatus, t } from "./02-i18n.js";
+import { currentProject, log, toast, toastError } from "./03-shell.js";
+import { researchLinkField, researchOpenLink } from "./11-docs-list.js";
+
 // 研究工作台(R-276 批3)。
 //
 // 为什么独立成一个主视图,而不是继续在侧栏那两条列表上打补丁:侧栏一列一百多像素,
@@ -8,21 +15,21 @@
 // 设计依据 docs/design/research_workspace.md:结果>过程(报告是主角)、溯源冗余
 // (卡片里能开、报告里能跳)、数据已结构化的不许降级成字符串。
 
-let researchTab = "sources";
-let selectedResearchTopic = "";
-let researchSnapshot = { sources: [], findings: [], research_topics: [] };
+export let researchTab = "sources";
+export let selectedResearchTopic = "";
+export let researchSnapshot = { sources: [], findings: [], research_topics: [] };
 
-let researchFilters = { query: "", type: "", level: "", year: "", sort: "" };
+export let researchFilters = { query: "", type: "", level: "", year: "", sort: "" };
 
-function researchEntryType(entry) {
+export function researchEntryType(entry) {
   return researchField(entry, "类型", "type", "域", "domain");
 }
 
-function researchEntryYear(entry) {
+export function researchEntryYear(entry) {
   return researchField(entry, "年份", "year");
 }
 
-function researchCitationCount(entry, topic = selectedResearchTopicData()) {
+export function researchCitationCount(entry, topic = selectedResearchTopicData()) {
   const id = entry?.id;
   if (!id) return 0;
   return (topic.findings ?? []).filter((finding) =>
@@ -30,7 +37,7 @@ function researchCitationCount(entry, topic = selectedResearchTopicData()) {
   ).length;
 }
 
-function filteredResearchEntries() {
+export function filteredResearchEntries() {
   const topic = selectedResearchTopicData();
   const query = researchFilters.query.trim().toLowerCase();
   const entries = selectedResearchEntries().filter((entry) => {
@@ -52,7 +59,7 @@ function filteredResearchEntries() {
   return entries;
 }
 
-function setResearchSelectOptions(select, values, emptyLabel) {
+export function setResearchSelectOptions(select, values, emptyLabel) {
   if (!select) return;
   const current = select.value;
   select.innerHTML = "";
@@ -69,7 +76,7 @@ function setResearchSelectOptions(select, values, emptyLabel) {
   select.value = values.includes(current) ? current : "";
 }
 
-function renderResearchFilters() {
+export function renderResearchFilters() {
   const topic = selectedResearchTopicData();
   const entries = selectedResearchEntries();
   const types = [...new Set(entries.map(researchEntryType).filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -98,7 +105,7 @@ function renderResearchFilters() {
   if (citedCount) citedCount.textContent = `${cited} ${t("处反查")}`;
 }
 
-function researchBibtex(entry) {
+export function researchBibtex(entry) {
   const author = researchField(entry, "作者", "author") || "Unknown";
   const year = researchEntryYear(entry) || "n.d.";
   const title = entry.title || researchField(entry, "标题", "title") || entry.id;
@@ -110,7 +117,7 @@ function researchBibtex(entry) {
   return `@misc{${key},\\n  author = {${author}},\\n  title = {${title}},\\n  year = {${year}},\\n${location}\\n}`;
 }
 
-async function copyResearchCitation(entry) {
+export async function copyResearchCitation(entry) {
   try {
     await navigator.clipboard.writeText(researchBibtex(entry));
     toast(`${entry.id} ${t("BibTeX 已复制")}`);
@@ -119,15 +126,15 @@ async function copyResearchCitation(entry) {
   }
 }
 
-function researchTopicKey(topic) {
+export function researchTopicKey(topic) {
   return topic?.topic ?? "";
 }
 
-function researchTopicLabel(topic) {
+export function researchTopicLabel(topic) {
   return topic?.label || topic?.topic || t("旧版平铺");
 }
 
-function selectedResearchTopicData() {
+export function selectedResearchTopicData() {
   const topics = researchSnapshot.research_topics ?? [];
   return topics.find((topic) => researchTopicKey(topic) === selectedResearchTopic) ?? topics[0] ?? {
     topic: null,
@@ -138,7 +145,7 @@ function selectedResearchTopicData() {
   };
 }
 
-function renderResearchTopicPicker() {
+export function renderResearchTopicPicker() {
   const select = $("research-topic-select");
   if (!select) return;
   const topics = researchSnapshot.research_topics ?? [];
@@ -161,19 +168,19 @@ function renderResearchTopicPicker() {
   select.value = selectedResearchTopic;
 }
 
-function selectedResearchEntries() {
+export function selectedResearchEntries() {
   const topic = selectedResearchTopicData();
   return researchTab === "findings" ? (topic.findings ?? []) : (topic.sources ?? []);
 }
 
-function selectedResearchTopicArg() {
+export function selectedResearchTopicArg() {
   const topic = selectedResearchTopicData();
   return topic.legacy || !topic.topic ? {} : { topic: topic.topic };
 }
 
-let researchPlan = null;
+export let researchPlan = null;
 
-function renderResearchPlan(plan) {
+export function renderResearchPlan(plan) {
   const panel = $("research-plan-panel");
   const status = $("research-plan-status");
   const tree = $("research-plan-tree");
@@ -199,7 +206,7 @@ function renderResearchPlan(plan) {
   for (const node of plan.nodes ?? []) appendNode(node, tree);
 }
 
-async function refreshResearchPlan() {
+export async function refreshResearchPlan() {
   const topic = selectedResearchTopicData();
   if (topic.legacy || !topic.topic) {
     researchPlan = null;
@@ -219,7 +226,7 @@ async function refreshResearchPlan() {
 
 
 /// 取字段值(大小写与中英别名都认;取不到给空串)。
-function researchField(entry, ...names) {
+export function researchField(entry, ...names) {
   const wanted = names.map((n) => n.toLowerCase());
   const hit = (entry.fields ?? []).find(([k]) => wanted.includes(String(k).toLowerCase()));
   return hit ? String(hit[1]) : "";
@@ -227,7 +234,7 @@ function researchField(entry, ...names) {
 
 /// 一张来源/发现卡片。与侧栏的一行不同,这里给全:完整标题不截断、要点摘要、
 /// 可打开入口、可编辑与归档——研究工件与 req/defect 同权(D-413 的初衷)。
-function researchCard(entry, kind) {
+export function researchCard(entry, kind) {
   const card = document.createElement("article");
   card.className = "research-card";
   card.dataset.docId = entry.id;
@@ -375,7 +382,7 @@ function researchCard(entry, kind) {
 }
 
 /// 行内编辑:字段逐条给输入框,保存走 docs_update(与 req/defect 同一条写通道)。
-function researchEdit(entry, kind, card) {
+export function researchEdit(entry, kind, card) {
   if (card.querySelector(".research-edit")) {
     card.querySelector(".research-edit").remove();
     return;
@@ -415,7 +422,7 @@ function researchEdit(entry, kind, card) {
 }
 
 /// 报告里点 [S-00x] 或卡片里点 refs → 滚到那张卡并高亮。溯源要能双向走。
-function researchFocus(id) {
+export function researchFocus(id) {
   const target = String(id).trim();
   researchTab = target.startsWith("F-") ? "findings" : "sources";
   renderResearchCards();
@@ -426,7 +433,7 @@ function researchFocus(id) {
   setTimeout(() => card.classList.remove("ref-highlight"), 1600);
 }
 
-function renderResearchCards() {
+export function renderResearchCards() {
   const host = $("research-cards");
   if (!host) return;
   const kind = researchTab === "findings" ? "finding" : "source";
@@ -460,12 +467,12 @@ function renderResearchCards() {
   host.appendChild(group);
 }
 
-const RESEARCH_REPORT_WINDOW_SIZE = 40;
-let researchReportBlocks = [];
-let researchReportWindowStart = 0;
-let researchReportScrollHost = null;
+export const RESEARCH_REPORT_WINDOW_SIZE = 40;
+export let researchReportBlocks = [];
+export let researchReportWindowStart = 0;
+export let researchReportScrollHost = null;
 
-function splitResearchReportBlocks(text) {
+export function splitResearchReportBlocks(text) {
   const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
   const blocks = [];
   let block = [];
@@ -487,7 +494,7 @@ function splitResearchReportBlocks(text) {
   return blocks;
 }
 
-function decorateResearchReportReferences(host) {
+export function decorateResearchReportReferences(host) {
   // 渲染后回扫文本节点,把引用编号替换为按钮。只认已登记的编号,避免把普通
   // 文本里的 S-/F- 误变成死链。
   const topic = selectedResearchTopicData();
@@ -522,7 +529,7 @@ function decorateResearchReportReferences(host) {
   }
 }
 
-function renderResearchReportWindow() {
+export function renderResearchReportWindow() {
   const host = $("research-report");
   if (!host) return;
   host.innerHTML = "";
@@ -546,7 +553,7 @@ function renderResearchReportWindow() {
   host.dataset.reportWindowSize = String(RESEARCH_REPORT_WINDOW_SIZE);
 }
 
-function loadEarlierResearchReport() {
+export function loadEarlierResearchReport() {
   const host = $("research-report");
   if (!host || researchReportWindowStart <= 0) return false;
   const before = host.scrollHeight || 0;
@@ -557,7 +564,7 @@ function loadEarlierResearchReport() {
   return true;
 }
 
-function bindResearchReportScroll(host) {
+export function bindResearchReportScroll(host) {
   if (researchReportScrollHost === host) return;
   researchReportScrollHost = host;
   host.addEventListener("scroll", () => {
@@ -566,7 +573,7 @@ function bindResearchReportScroll(host) {
 }
 
 /// 报告正文按窗口渲染 markdown,并把 [S-00x]/[F-00x] 变成可点角标。
-function renderResearchReport(text) {
+export function renderResearchReport(text) {
   const host = $("research-report");
   if (!host) return;
   researchReportBlocks = splitResearchReportBlocks(text);
@@ -575,7 +582,7 @@ function renderResearchReport(text) {
   renderResearchReportWindow();
 }
 
-async function refreshResearchReport() {
+export async function refreshResearchReport() {
   try {
     const doc = await invoke("docs_read", {
       projectDir: currentProject,
@@ -589,7 +596,7 @@ async function refreshResearchReport() {
   }
 }
 
-async function refreshResearch() {
+export async function refreshResearch() {
   if (!currentProject) return;
   try {
     const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
@@ -611,50 +618,62 @@ async function refreshResearch() {
   await refreshResearchReport();
 }
 
-$("research-tab-sources")?.addEventListener("click", () => {
-  researchTab = "sources";
-  renderResearchCards();
-});
-$("research-tab-findings")?.addEventListener("click", () => {
-  researchTab = "findings";
-  renderResearchCards();
-});
-$("research-topic-select")?.addEventListener("change", async (event) => {
-  selectedResearchTopic = event.currentTarget.value;
-  const topic = selectedResearchTopicData();
-  const counts = [$("research-sources-count"), $("research-findings-count")];
-  if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
-  if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
-  renderResearchCards();
-  await refreshResearchPlan();
-  await refreshResearchReport();
-});
-
-for (const [id, key] of [["research-filter-query", "query"], ["research-filter-type", "type"], ["research-filter-level", "level"], ["research-filter-year", "year"], ["research-filter-sort", "sort"]]) {
-  const control = $(id);
-  control?.addEventListener(control.tagName === "INPUT" ? "input" : "change", (event) => {
-    researchFilters[key] = event.currentTarget.value;
+defer(() => {
+  $("research-tab-sources")?.addEventListener("click", () => {
+    researchTab = "sources";
     renderResearchCards();
   });
-}
-$("research-report-refresh")?.addEventListener("click", () => refreshResearchReport());
-$("research-plan-approve")?.addEventListener("click", async () => {
-  const topic = selectedResearchTopicData();
-  if (!topic.topic) return;
-  try {
-    const result = await invoke("research_plan_approve", { projectDir: currentProject, topic: topic.topic });
-    researchPlan = result.plan ?? researchPlan;
-    renderResearchPlan(researchPlan);
-    toast(t("研究计划已批准"));
-  } catch (error) {
-    toastError(`${t("研究计划审批失败")}:${error}`);
-  }
+});
+defer(() => {
+  $("research-tab-findings")?.addEventListener("click", () => {
+    researchTab = "findings";
+    renderResearchCards();
+  });
+});
+defer(() => {
+  $("research-topic-select")?.addEventListener("change", async (event) => {
+    selectedResearchTopic = event.currentTarget.value;
+    const topic = selectedResearchTopicData();
+    const counts = [$("research-sources-count"), $("research-findings-count")];
+    if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
+    if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
+    renderResearchCards();
+    await refreshResearchPlan();
+    await refreshResearchReport();
+  });
+});
+
+defer(() => {
+  for (const [id, key] of [["research-filter-query", "query"], ["research-filter-type", "type"], ["research-filter-level", "level"], ["research-filter-year", "year"], ["research-filter-sort", "sort"]]) {
+    const control = $(id);
+    control?.addEventListener(control.tagName === "INPUT" ? "input" : "change", (event) => {
+      researchFilters[key] = event.currentTarget.value;
+      renderResearchCards();
+    });
+  };
+});
+defer(() => {
+  $("research-report-refresh")?.addEventListener("click", () => refreshResearchReport());
+});
+defer(() => {
+  $("research-plan-approve")?.addEventListener("click", async () => {
+    const topic = selectedResearchTopicData();
+    if (!topic.topic) return;
+    try {
+      const result = await invoke("research_plan_approve", { projectDir: currentProject, topic: topic.topic });
+      researchPlan = result.plan ?? researchPlan;
+      renderResearchPlan(researchPlan);
+      toast(t("研究计划已批准"));
+    } catch (error) {
+      toastError(`${t("研究计划审批失败")}:${error}`);
+    }
+  });
 });
 
 /// research 档才出现研究工作台;dev 档反过来藏起研究入口。
 /// 用户定调:research 档下 dev 视图(需求/缺陷/测试/git)完全隐藏,模式感优先。
-const DEV_ONLY_VIEWS = ["documents", "metrics", "arch"];
-function syncResearchWorkspaceVisibility() {
+export const DEV_ONLY_VIEWS = ["documents", "metrics", "arch"];
+export function syncResearchWorkspaceVisibility() {
   const isResearch = $("profile-select")?.value === "research";
   $("activity-research")?.classList.toggle("hidden", !isResearch);
   for (const view of DEV_ONLY_VIEWS) {

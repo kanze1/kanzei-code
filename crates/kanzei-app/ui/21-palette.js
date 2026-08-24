@@ -1,3 +1,9 @@
+import { defer } from "./01-core.js";
+import { $, on, promptBox } from "./01-core.js";
+import { localizeDynamic, t } from "./02-i18n.js";
+import { log } from "./03-shell.js";
+import { state } from "./08-compose.js";
+
 // ---------- 命令面板(Ctrl/Cmd+P) ----------
 // 这个应用有 10 个主视图、N 个项目、N 条并行线,外加一批散在各处的动作按钮。
 // 想切到「运行画像」得先认出 rail 上第 9 个图标;想切到 p14 得先在侧栏滚到它。
@@ -7,20 +13,20 @@
 // 选择、线路切换、新对话、停止……每一条都已经有唯一实现和自己的守卫(比如运行中
 // 不许开新对话、运行中不许切历史)。面板复制一份行为 = 复制一份要同步的守卫,
 // 迟早漂移;点它本人则永远和界面上的按钮同一个语义。
-const PALETTE_LIMIT = 40;
-let paletteEntries = [];
-let paletteIndex = 0;
-let paletteRestoreFocus = null;
+export const PALETTE_LIMIT = 40;
+export let paletteEntries = [];
+export let paletteIndex = 0;
+export let paletteRestoreFocus = null;
 
-function paletteEl() {
+export function paletteEl() {
   return $("palette");
 }
-function paletteIsOpen() {
+export function paletteIsOpen() {
   return !paletteEl()?.classList.contains("hidden");
 }
 
 /// 采集候选项。每次打开时重新采集——项目/线路是活的,缓存只会给出过期清单。
-function collectPaletteEntries() {
+export function collectPaletteEntries() {
   const entries = [];
   const push = (group, label, detail, run) => {
     if (!label) return;
@@ -73,7 +79,7 @@ function collectPaletteEntries() {
 
 /// 子序列匹配:输入的每个字符按顺序出现即命中。比 includes 宽松(「运画」能命中
 /// 「运行画像」),又不像全模糊那样什么都命中。空查询返回全部。
-function paletteMatches(entry, query) {
+export function paletteMatches(entry, query) {
   if (!query) return true;
   const hay = `${entry.group} ${entry.label} ${entry.detail}`.toLowerCase();
   let at = 0;
@@ -85,7 +91,7 @@ function paletteMatches(entry, query) {
   return true;
 }
 
-function renderPaletteList() {
+export function renderPaletteList() {
   const list = $("palette-list");
   if (!list) return;
   const query = ($("palette-input")?.value || "").trim().toLowerCase();
@@ -130,7 +136,7 @@ function renderPaletteList() {
   paletteEntries.active = matched[paletteIndex] ?? null;
 }
 
-function runPaletteEntry(entry) {
+export function runPaletteEntry(entry) {
   closePalette();
   try {
     entry?.run?.();
@@ -147,7 +153,7 @@ function runPaletteEntry(entry) {
 /// 「哪些算可聚焦」这张永远会漏的表),而且顺带堵住语义泄漏——屏幕阅读器不会在一个
 /// 模态对话框里继续读整个应用。按兄弟遍历而不是写死 #app,是因为权限询问弹窗、文档
 /// 查看器也在 #app 外面,写死一个 id 就会漏掉它们。
-function setBackgroundInert(on) {
+export function setBackgroundInert(on) {
   const panel = paletteEl();
   const siblings = document.body?.children;
   if (!panel || !siblings) return;
@@ -159,7 +165,7 @@ function setBackgroundInert(on) {
   }
 }
 
-function openPalette() {
+export function openPalette() {
   const panel = paletteEl();
   const input = $("palette-input");
   if (!panel || !input) return;
@@ -173,7 +179,7 @@ function openPalette() {
   input.focus();
 }
 
-function closePalette() {
+export function closePalette() {
   const panel = paletteEl();
   if (!panel || panel.classList.contains("hidden")) return;
   panel.classList.add("hidden");
@@ -184,68 +190,60 @@ function closePalette() {
   paletteRestoreFocus = null;
 }
 
-function movePaletteSelection(delta) {
+export function movePaletteSelection(delta) {
   const rows = $("palette-list")?.querySelectorAll(".palette-row") ?? [];
   if (!rows.length) return;
   paletteIndex = (paletteIndex + delta + rows.length) % rows.length;
   renderPaletteList();
 }
 
-$("palette-input")?.addEventListener("input", () => {
-  paletteIndex = 0;
-  renderPaletteList();
+defer(() => {
+  $("palette-input")?.addEventListener("input", () => {
+    paletteIndex = 0;
+    renderPaletteList();
+  });
 });
-$("palette-input")?.addEventListener("keydown", (event) => {
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    movePaletteSelection(1);
-  } else if (event.key === "ArrowUp") {
-    event.preventDefault();
-    movePaletteSelection(-1);
-  } else if (event.key === "Enter") {
-    event.preventDefault();
-    if (paletteEntries.active) runPaletteEntry(paletteEntries.active);
-  } else if (event.key === "Escape") {
-    event.preventDefault();
-    closePalette();
-  }
+defer(() => {
+  $("palette-input")?.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      movePaletteSelection(1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      movePaletteSelection(-1);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (paletteEntries.active) runPaletteEntry(paletteEntries.active);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closePalette();
+    }
+  });
 });
 // 点遮罩(不是面板本体)关闭。
-paletteEl()?.addEventListener("mousedown", (event) => {
-  if (event.target === paletteEl()) closePalette();
+defer(() => {
+  paletteEl()?.addEventListener("mousedown", (event) => {
+    if (event.target === paletteEl()) closePalette();
+  });
 });
 
-window.addEventListener("keydown", (event) => {
-  // Esc 必须挂在**窗口**上,不能只挂输入框:焦点一旦离开输入框(Tab 一下、
-  // 或点了一下列表),输入框级的 Escape 就再也收不到,面板看起来关不掉了。
-  if (event.key === "Escape" && paletteIsOpen()) {
+defer(() => {
+  window.addEventListener("keydown", (event) => {
+    // Esc 必须挂在**窗口**上,不能只挂输入框:焦点一旦离开输入框(Tab 一下、
+    // 或点了一下列表),输入框级的 Escape 就再也收不到,面板看起来关不掉了。
+    if (event.key === "Escape" && paletteIsOpen()) {
+      event.preventDefault();
+      closePalette();
+      return;
+    }
+    const modifier = event.ctrlKey || event.metaKey;
+    if (!modifier || event.altKey) return;
+    if (event.key.toLowerCase() !== "p") return;
+    // WebView 里 Ctrl+P 默认是打印,必须拦下。
     event.preventDefault();
-    closePalette();
-    return;
-  }
-  const modifier = event.ctrlKey || event.metaKey;
-  if (!modifier || event.altKey) return;
-  if (event.key.toLowerCase() !== "p") return;
-  // WebView 里 Ctrl+P 默认是打印,必须拦下。
-  event.preventDefault();
-  if (paletteIsOpen()) closePalette();
-  else openPalette();
+    if (paletteIsOpen()) closePalette();
+    else openPalette();
+  });
 });
 
 // R-264 B10：命令面板进入 ESM；未迁移的 classic 提供方通过 globalThis 兼容桥提供 API。
-export {
-  PALETTE_LIMIT,
-  closePalette,
-  collectPaletteEntries,
-  movePaletteSelection,
-  openPalette,
-  paletteEl,
-  paletteEntries,
-  paletteIndex,
-  paletteIsOpen,
-  paletteMatches,
-  paletteRestoreFocus,
-  renderPaletteList,
-  runPaletteEntry,
-  setBackgroundInert,
-};

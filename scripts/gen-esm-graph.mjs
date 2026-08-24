@@ -53,7 +53,7 @@ function referencedIdentifiers(src) {
   return found;
 }
 
-const files = fs.readdirSync(uiDir).filter((f) => f.endsWith(".js")).sort();
+const files = fs.readdirSync(uiDir).filter((f) => f.endsWith(".js") && f !== "06-agent-panel.js").sort();
 const provides = new Map();
 const sourceOf = new Map();
 const conflicts = new Map();

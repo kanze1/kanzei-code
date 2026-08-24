@@ -8538,3 +8538,193 @@
 - observed_head: d7a7472985a4965c7a643bae75e92fe9901d4f69
 - observed_worktree_hash: fnv1a64:a1e14f67081b43e8
 - recorded_at: 1787569499032
+
+## D-710 ui-runtime-smoke ESM setter 改造留下重复代码块导致语法损坏 [fixed] (medium)
+- 复现: 在 R-331 冒烟脚本中将 renderMarkdown 测试替身改为 ESM namespace setter 后，node --check scripts/ui-runtime-smoke.mjs 报 Unexpected end of input；scripts/ui-runtime-smoke.mjs:5720-5724 出现重复代码块开头。
+- 影响: 阻断 R-331 的 UI runtime smoke 与后续六条前端冒烟，无法验证 ESM 收口。
+- 来源: self-found：R-331 继续推进时复核上一轮未提交改动。
+- 标签: 流程
+- 优先级: P1
+- 进展: 已修复：`scripts/ui-runtime-smoke.mjs:1328-1361` 先统一注入探针再创建/link ESM module，避免后续依赖缓存未注入源码；重复代码块已在 `scripts/ui-runtime-smoke.mjs:5720-5724` 清除。验证：T-1786922726766，runtime smoke 使用 `node --experimental-vm-modules` 通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574860388
+
+## D-694 gen-esm-migrate 对已有 export 列表重复生成导致 ESM 语法错误 [fixed] (medium)
+- 复现: 在已有 04-markdown.js export 列表的基线上运行 node scripts/gen-esm-migrate.mjs，再执行 node --check crates/kanzei-app/ui/04-markdown.js；报 SyntaxError: Duplicate export of 'tableAlignment'。
+- 影响: ESM 批量迁移生成结果无法通过语法检查，阻断实际加载模块和六条前端冒烟。
+- 来源: self-found：R-331 B2 运行 gen-esm-migrate 后的全 UI node --check。
+- 标签: 流程
+- 优先级: P1
+- 进展: 已修复：`scripts/gen-esm-migrate.mjs:31-43` 检测已有 named export 列表后跳过重复生成；`ui/04-markdown.js` 与 `ui/21-palette.js` 保留单一导出来源。T-1786922726766 全 UI node --check 通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574913043
+
+## D-695 ESM 迁移生成结果残留顶层 DOM 读与 imported 可写绑定直接赋值 [fixed] (medium)
+- 复现: 运行 node scripts/gen-esm-migrate.mjs 与 node scripts/gen-esm-defer.mjs 后，未加载的 crates/kanzei-app/ui/06-agent-panel.js 被加入 import；02-i18n.js:1085 在 defer 外读取 languageSelect；08-compose-runtime.js 对从 08-auto.js import 的 autoPaused/autoStopAfterRound/autoHint/autoStopReason/noActionRounds 直接赋值。
+- 影响: 实际入口切为 ESM 后会产生未加载历史文件污染、模块求值期 null DOM 访问或 imported binding 只读赋值异常，阻断 UI 启动和 TDZ 验收。
+- 来源: self-found：R-331 继续收口时的静态依赖与代码核对。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：实际加载模块均由显式 ESM import 连接，`scripts/gen-esm-graph.mjs:56` 与 `gen-esm-migrate.mjs:17` 排除未加载历史 `06-agent-panel.js`；`ui/02-i18n.js`、`08-compose-runtime.js` 等跨模块初始化均经 `defer`。T-1786922726766 六条冒烟通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574926530
+
+## D-696 ESM 求值期 defer 立即执行导致跨模块 $ 绑定 TDZ [fixed] (high)
+- 复现: 运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；ESM 两阶段加载在 02-i18n.js 求值期间执行 defer 回调，报 ReferenceError: Cannot access '$' before initialization。
+- 影响: 实际加载模块在循环依赖下无法完成求值，阻断 UI runtime、DOM/console/TDZ 验收和六条前端冒烟。
+- 来源: self-found：R-331 B2 runtime 冒烟；根因位于 crates/kanzei-app/ui/01-core.js:425-430 与 02-i18n.js:1048。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：`ui/01-core.js:430-437` 的 `defer` 跨过当前 ESM 求值栈；`ui/02-i18n.js` 初始化监听改为 defer，避免循环依赖中的 `$` TDZ。T-1786922726766 runtime 27 模块通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574932409
+
+## D-697 neural-flow 顶层 IIFE 读取 ESM $ 绑定触发 TDZ [fixed] (high)
+- 复现: 运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；ESM 求值进入 22-neural-flow.js 时，顶层 IIFE 在第 11 行读取导入的 $，报 ReferenceError: Cannot access '$' before initialization。
+- 影响: 神经流模块无法完成求值，阻断 UI runtime 和 neuralFlowEmit 顶层入口验收。
+- 来源: self-found：R-331 B2；实际消费者为 crates/kanzei-app/ui/22-neural-flow.js:10-13。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：`ui/22-neural-flow.js:1-12,440-449` 显式 import `$` 并将画布初始化与 globalThis bridge 放入 `defer`；真实入口的 neuralFlowEmit 通过 runtime smoke 验证。T-1786922726766 通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574938895
+
+## D-698 ESM 求值期事件注册立即读取 listen 导致 TDZ [fixed] (high)
+- 复现: 运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；模块求值期间 03-shell.js 的顶层事件订阅调用 01-core.on()，在 01-core.js:244 读取尚未初始化的 listen，报 ReferenceError: Cannot access 'listen' before initialization。
+- 影响: 跨模块事件订阅在 ESM 循环依赖下无法初始化，阻断 UI runtime 和所有后续冒烟。
+- 来源: self-found：R-331 B2 runtime；根因位于 crates/kanzei-app/ui/01-core.js:243-244。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：`ui/01-core.js:243-407` 的 `on()` 订阅注册经 `setTimeout` 延迟到 provider bindings 初始化后执行，`07-events.js` 等订阅全部经 defer 接线。T-1786922726766 runtime 与 DOM/console 断言通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574946537
+
+## D-699 ESM imported 流式状态直接赋值导致运行时常量写入错误 [fixed] (high)
+- 复现: 运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；后台事件进入 01-core.withSessionRender 时，跨模块对从 03-shell.js 导入的 currentAssistant 赋值，报 TypeError: Assignment to constant variable。
+- 影响: 后台会话渲染路径无法切换/恢复 assistant、reasoning 流状态，runtime 事件处理失败。
+- 来源: self-found：R-331 B2 runtime；写入点 crates/kanzei-app/ui/01-core.js:799，提供方 crates/kanzei-app/ui/03-shell.js:121。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：`ui/01-core.js:799-825` 通过 `setCurrentAssistant`、`setCurrentReasoning`、`setCurrentReasoningHead` 写回 provider live binding，不再给 imported binding 赋值。T-1786922726766 runtime 通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574952162
+
+## D-700 ESM imported chatAgentFolds 直接赋值导致后台渲染失败 [fixed] (high)
+- 复现: 运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；后台事件进入 01-core.withSessionRender 时，对从 05-chat-render.js 导入的 chatAgentFolds 赋值，报 TypeError: Assignment to constant variable。
+- 影响: 后台会话切换无法保存/恢复子代理折叠组状态，事件处理链继续中断。
+- 来源: self-found：R-331 B2 runtime；写入点 crates/kanzei-app/ui/01-core.js:806，提供方 crates/kanzei-app/ui/05-chat-render.js。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：`ui/05-chat-render.js:477-478` 提供 `setChatAgentFolds`，`ui/01-core.js:804-820` 通过 setter 切换/恢复每会话 folds。T-1786922726766 runtime 通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574957719
+
+## D-701 ESM imported processItems 直接赋值导致进程列表刷新失败 [fixed] (high)
+- 复现: 运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；执行 renderProcesses 时对从 03-shell.js 导入的 processItems 赋值，报 TypeError: Assignment to constant variable。
+- 影响: 进程列表刷新链在 runtime 断言阶段中断，阻断后续 UI 事件与启动恢复验收。
+- 来源: self-found：R-331 B2 runtime；消费者 crates/kanzei-app/ui/09-sessions.js:renderProcesses，提供方 crates/kanzei-app/ui/03-shell.js:processItems。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：`ui/03-shell.js:121-122` 提供 `setProcessItems`，`ui/09-sessions.js:446-447` 通过 setter 更新进程列表。T-1786922726766 runtime 的 process_list/历史恢复断言通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574963076
+
+## D-702 ESM imported activeProcessId 直接赋值导致线路选择刷新失败 [fixed] (high)
+- 复现: 运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；renderProcesses 在选定首条进程时对从 03-shell.js 导入的 activeProcessId 赋值，报 TypeError: Assignment to constant variable。
+- 影响: 进程列表刷新无法同步当前活动线路，后续 session/process 投影验收中断。
+- 来源: self-found：R-331 B2 runtime；消费者 crates/kanzei-app/ui/09-sessions.js:492，提供方 crates/kanzei-app/ui/03-shell.js。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：`ui/03-shell.js:88-89` 提供 `setActiveProcessId`，`ui/09-sessions.js:489-492` 通过 setter 选择活动进程并同步 session。T-1786922726766 runtime 通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574968143
+
+## D-703 ESM imported 活动线路状态直接赋值 [fixed] (high)
+- 复现: 运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；09-sessions.renderProcesses 在选择活动线路时直接写入 imported activeProcessId/activeSessionId，报 Assignment to constant variable。
+- 影响: 活动线路与会话投影无法在进程列表刷新后同步。
+- 来源: self-found：R-331 B2 静态写入扫描与 runtime 首错，消费者 crates/kanzei-app/ui/09-sessions.js:492-495。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：`ui/03-shell.js:90-91` 提供 `setActiveSessionId`，`ui/09-sessions.js:492` 通过 setter 同步活动 session；切项目/切线测试均通过。T-1786922726766 runtime 通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574975325
+
+## D-704 ESM imported ctxLimit 直接赋值导致上下文元数据更新失败 [fixed] (high)
+- 复现: 静态扫描发现 07-events.js:124 对从 03-shell.js 导入的 ctxLimit 直接赋值；运行对应事件路径会触发 imported binding 写入错误。
+- 影响: kz:meta 事件无法更新上下文上限，状态栏上下文容量投影会中断。
+- 来源: self-found：R-331 B2 静态跨模块写入对账，消费者 crates/kanzei-app/ui/07-events.js:124。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：`ui/03-shell.js:557-558` 提供 `setCtxLimit`，`ui/07-events.js:133-136` 通过 setter 更新 metadata 上下文上限。T-1786922726766 runtime 通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574981225
+
+## D-705 ESM imported activePane 直接赋值导致 pane 恢复失败 [fixed] (high)
+- 复现: 静态扫描发现 15-views-misc.js:366、370 对从 01-core.js 导入的 activePane 直接赋值；执行会话 pane 恢复路径会触发 imported binding 写入错误。
+- 影响: 切换/恢复会话 pane 时无法更新活动 DOM 容器。
+- 来源: self-found：R-331 B2 静态跨模块写入对账，消费者 crates/kanzei-app/ui/15-views-misc.js:366-370。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：`ui/01-core.js:607-608` 提供 `setActivePane`，`ui/15-views-misc.js:375-383` 通过 setter 临时切换并恢复历史渲染 pane。T-1786922726766 runtime/DOM 通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574987544
+
+## D-706 ESM defer 导致 kz:tool-end 事件处理器未注册 [fixed] (high)
+- 复现: 运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；测试注入阶段执行 handlers.get("kz:tool-end")({ ... })，但 07-events.js 的事件注册未进入 handlers，报 TypeError: handlers.get(...) is not a function。
+- 影响: tool-end 事件链无法被 runtime harness 注入，阻断工具轨迹、任务审计和后续 UI 事件验收。
+- 来源: self-found：R-331 B2 runtime；scripts/ui-runtime-smoke.mjs:2277，消费者注册位 crates/kanzei-app/ui/07-events.js。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复：`ui/07-events.js` 的 `on("kz:tool-end", ...)` 等订阅已包入 defer，`ui/01-core.js:430-437` 负责跨栈延迟注册；runtime handler 注入与工具历史回放通过 T-1786922726766。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787574993120
+
+## D-707 ESM imported dependencyViewOpen 直接赋值导致文档依赖视图崩溃 [fixed] (high)
+- 复现: 运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；点击 documents-dep-toggle 时，15-views-misc.js 直接对 imported dependencyViewOpen 赋值，报 TypeError: Assignment to constant variable。
+- 影响: 文档依赖视图开关交互中断，后续文档 DOM 验收无法继续。
+- 来源: self-found：R-331 B2 runtime；消费者 crates/kanzei-app/ui/15-views-misc.js:116，提供方为文档动作模块。
+- 标签: 前端
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-707(unblocks=0)
+- 进展: 已修复：`crates/kanzei-app/ui/14-docs-actions.js:117` 使用 `setDependencyViewOpen(!dependencyViewOpen)` 写回 `12-docs-pages.js:355-356` 的 live binding，不再直接赋值 imported binding。T-1786922726767：相关模块 node --check、UI lint、runtime smoke 通过；27 模块、2348 次 invoke、0 运行时错误，documents-dep-toggle 交互通过。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787575088082
+
+## D-708 ESM imported documentsKind 直接赋值导致文档类型切换崩溃 [fixed] (high)
+- 复现: 运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；点击文档类型切换时，15-views-misc.js 对 imported documentsKind 直接赋值，报 TypeError: Assignment to constant variable。
+- 影响: 文档测试/需求/缺陷视图切换中断，无法完成后续文档筛选与渲染验收。
+- 来源: self-found：R-331 B2 runtime；消费者 crates/kanzei-app/ui/15-views-misc.js:108，提供方 crates/kanzei-app/ui/12-docs-pages.js。
+- 标签: 前端
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-708(unblocks=0)
+- 进展: 既有修复能力（R-331 交付，本轮未重复实现）：`crates/kanzei-app/ui/14-docs-actions.js:100-114` 的需求、缺陷、测试、对照四个真实点击消费者均调用 `setDocumentsKind(...)`，提供方为 `12-docs-pages.js:139-140`，不再直接写 imported `documentsKind`。T-1786922726768：相关模块 node --check、UI lint、runtime smoke 通过；27 模块、2348 次 invoke、0 运行时错误。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787575168452
+
+## D-709 ESM imported followLatest 直接赋值导致历史恢复与流式跟随态中断 [fixed] (high)
+- 复现: 静态扫描发现 15-views-misc.js:457、07-events.js:1098/1156 对从 05-chat-render.js 导入的 export let followLatest 直接赋值；历史恢复或流式滚动事件执行时会报 Assignment to constant variable。
+- 影响: 历史消息恢复、流式跟随态和用户滚动行为会在运行时中断，工具块无法完成渲染。
+- 来源: self-found：R-331 B2 runtime 后续静态扫描；提供方 crates/kanzei-app/ui/05-chat-render.js:20。
+- 标签: 前端
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-709(unblocks=0)
+- 进展: 既有修复能力（R-331 交付，本轮未重复实现）：`crates/kanzei-app/ui/05-chat-render.js:20-21` 提供 `setFollowLatest`；历史恢复 `15-views-misc.js:457-462`、搜索 `07-events.js:1099-1104`、跳转最新 `07-events.js:1154-1162` 均通过 setter，provider 内部 `05-chat-render.js:63` 的赋值为合法写入。T-1786922726769：相关模块 node --check、UI lint、runtime smoke 通过；27 模块、2348 次 invoke、0 运行时错误。
+- observed_head: 1aff7f1941f1af05c35142c660719956c4833800
+- observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
+- recorded_at: 1787575217484

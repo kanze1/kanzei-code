@@ -1,16 +1,28 @@
+import { defer } from "./01-core.js";
+import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
+import { appendDisplayBlock } from "./06-activity.js";
+import { $, activePane, agentRoleAccent, appendToPane, messages, trimLivePane } from "./01-core.js";
+import { t } from "./02-i18n.js";
+import { attachments, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
+import { renderMarkdown } from "./04-markdown.js";
+import { liveSet } from "./06-activity.js";
+import { sendText } from "./08-compose-runtime.js";
+import { loadEarlierMessages } from "./15-views-misc.js";
+
 // ---------- 消息渲染 ----------
-function clearEmptyState() {
+export function clearEmptyState() {
   // R-267:空状态改为每个 pane 各有一份(按类名在 pane 内定位)。原来用 id 定位,
   // 多 pane 下会出现重复 id,而且清的可能是别的会话那一份。
   const empty = activePane?.querySelector(".empty-state");
   if (empty) empty.remove();
 }
 
-let followLatest = true;
-function nearBottom() {
+export let followLatest = true;
+export function setFollowLatest(value) { followLatest = value; }
+export function nearBottom() {
   return messages.scrollHeight - messages.scrollTop - messages.clientHeight < 48;
 }
-function updateLatestButton() {
+export function updateLatestButton() {
   // 容错而非兜底修复:按钮一旦不在 DOM 里(例如又被挪进 #messages 然后被
   // innerHTML 清掉),这里只是不更新,不能把整条滚动/渲染链路一起拖崩——
   // 2026-08-12 就是这么炸的:恢复历史、新建并行线路全报 null.classList。
@@ -31,28 +43,32 @@ function updateLatestButton() {
 /// 改用意图判定:自己滚过之后的一小段时间内不重算跟随态;而**真实手势**(滚轮、
 /// 按住滚动条、触摸、按键)立刻作废这个窗口,让用户随时能滚上去停住。
 /// 退化方向是安全的:万一漏掉某种手势,最坏也只是晚 120ms 才认出用户在读历史。
-const PROGRAMMATIC_SCROLL_WINDOW_MS = 120;
-let programmaticUntil = 0;
-function noteProgrammaticScroll() {
+export const PROGRAMMATIC_SCROLL_WINDOW_MS = 120;
+export let programmaticUntil = 0;
+export function noteProgrammaticScroll() {
   programmaticUntil = Date.now() + PROGRAMMATIC_SCROLL_WINDOW_MS;
 }
-for (const gesture of ["wheel", "pointerdown", "touchstart", "keydown"]) {
-  messages.addEventListener(gesture, () => { programmaticUntil = 0; }, { passive: true });
-}
-messages.addEventListener("scroll", () => {
-  if (Date.now() < programmaticUntil) {
+defer(() => {
+  for (const gesture of ["wheel", "pointerdown", "touchstart", "keydown"]) {
+    messages.addEventListener(gesture, () => { programmaticUntil = 0; }, { passive: true });
+  };
+});
+defer(() => {
+  messages.addEventListener("scroll", () => {
+    if (Date.now() < programmaticUntil) {
+      updateLatestButton();
+      return;
+    }
+    const wasReading = !followLatest;
+    followLatest = nearBottom();
     updateLatestButton();
-    return;
-  }
-  const wasReading = !followLatest;
-  followLatest = nearBottom();
-  updateLatestButton();
-  // 读历史期间 trimLivePane 会让步(见 01-core.js);人滚回底部了就把欠下的那次补上,
-  // 否则跑一整轮回来 pane 还挂在硬顶上。
-  if (wasReading && followLatest && typeof trimLivePane === "function") trimLivePane(activePane);
-  // R-267 批2:触顶自动补齐上一窗。按钮仍在(可点),但滚上去就该出来,
-  // 不该让人先找到按钮再点——这是「更丝滑」的一部分。
-  if (messages.scrollTop < 80 && typeof loadEarlierMessages === "function") loadEarlierMessages();
+    // 读历史期间 trimLivePane 会让步(见 01-core.js);人滚回底部了就把欠下的那次补上,
+    // 否则跑一整轮回来 pane 还挂在硬顶上。
+    if (wasReading && followLatest && typeof trimLivePane === "function") trimLivePane(activePane);
+    // R-267 批2:触顶自动补齐上一窗。按钮仍在(可点),但滚上去就该出来,
+    // 不该让人先找到按钮再点——这是「更丝滑」的一部分。
+    if (messages.scrollTop < 80 && typeof loadEarlierMessages === "function") loadEarlierMessages();
+  });
 });
 /// 跟随滚动按帧合并。`messages.scrollTop = messages.scrollHeight` 是一次**强制同步
 /// 布局**,而它原先挂在每一条消息、每一个工具块的追加之后:一轮里几十个块 = 几十次
@@ -60,9 +76,9 @@ messages.addEventListener("scroll", () => {
 /// 一帧内追加多少条都只在帧末滚一次;force 在合并窗口里是**粘性**的——历史恢复那种
 /// 「必须落到底」的请求不能被同帧的普通追加冲掉。
 /// requestAnimationFrame 不可用时(冒烟的假 DOM)退回同步,行为与改造前一致。
-let scrollFlushScheduled = false;
-let scrollFlushForce = false;
-function flushScrollBottom() {
+export let scrollFlushScheduled = false;
+export let scrollFlushForce = false;
+export function flushScrollBottom() {
   scrollFlushScheduled = false;
   const force = scrollFlushForce;
   scrollFlushForce = false;
@@ -72,7 +88,7 @@ function flushScrollBottom() {
   }
   updateLatestButton();
 }
-function scrollBottom(force = false) {
+export function scrollBottom(force = false) {
   if (force) scrollFlushForce = true;
   if (typeof requestAnimationFrame !== "function") {
     flushScrollBottom();
@@ -82,7 +98,7 @@ function scrollBottom(force = false) {
   scrollFlushScheduled = true;
   requestAnimationFrame(flushScrollBottom);
 }
-function copyButton() {
+export function copyButton() {
   const button = document.createElement("button");
   button.className = "copy-btn";
   button.type = "button";
@@ -95,7 +111,7 @@ function copyButton() {
   return button;
 }
 
-function addMessage(cls, text) {
+export function addMessage(cls, text) {
   clearEmptyState();
   const el = document.createElement("div");
   el.className = `msg ${cls}`;
@@ -111,7 +127,7 @@ function addMessage(cls, text) {
   return el;
 }
 
-function addUserMessage(text, promptAttachments = []) {
+export function addUserMessage(text, promptAttachments = []) {
   const el = addMessage("user", text);
   if (promptAttachments.length === 0) return el;
   const body = el.querySelector(".message-body");
@@ -128,7 +144,7 @@ function addUserMessage(text, promptAttachments = []) {
   return el;
 }
 
-function addErrorMessage(message, { retryable = false } = {}) {
+export function addErrorMessage(message, { retryable = false } = {}) {
   const el = addMessage("error", "");
   const body = el.querySelector(".message-body");
   const contextOverflow = /context[_ ]length|context overflow|prompt is too long|input is too long|上下文.{0,4}(过长|超限)/i.test(message);
@@ -157,27 +173,28 @@ function addErrorMessage(message, { retryable = false } = {}) {
   return el;
 }
 
-function isRetryableError(message) {
+export function isRetryableError(message) {
   return /timed out|timeout|connect|connection|dns|网络|连接|超时|context[_ ]length|context overflow|prompt is too long|input is too long|上下文.{0,4}(过长|超限)/i.test(message);
 }
 
-function reportError(message, { retryable = isRetryableError(message) } = {}) {
+export function reportError(message, { retryable = isRetryableError(message) } = {}) {
   addErrorMessage(message, { retryable });
   log(`${t("错误")}:${message}`, "err");
 }
 
-let outputChars = 0;
+export let outputChars = 0;
+export function setOutputChars(value) { outputChars = Number(value) || 0; }
 // ---------- D-202:流式渲染合帧 ----------
 // 原先每个 delta 都要:整条 renderMarkdown + 整块 innerHTML + 把整条 raw split 一遍
 // + 读 scrollHeight(强制同步重排整个消息列表)。前三项在单条消息内是 O(n²),
 // 最后一项随轮次增长——流一开就把主线程占满。现在 delta 只累加文本,渲染压到
 // 每帧最多一次;上一次渲染实测超过 8ms 就按实测耗时退避(长消息自动降频),
 // 无论消息多长都给交互留得出时间片。
-let pendingAssistantRender = null;
-let pendingReasoningRender = null;
-let streamFlushScheduled = false;
-let streamRenderCost = 0;
-function scheduleStreamRender() {
+export let pendingAssistantRender = null;
+export let pendingReasoningRender = null;
+export let streamFlushScheduled = false;
+export let streamRenderCost = 0;
+export function scheduleStreamRender() {
   if (streamFlushScheduled) return;
   streamFlushScheduled = true;
   const run = () => {
@@ -189,7 +206,7 @@ function scheduleStreamRender() {
 }
 /// 把累计到的流式文本一次性渲染出去。目标元素可能已被收尾逻辑摘掉引用(甚至已从
 /// DOM 摘除,如 stream-restart),照渲染即可——写进游离节点无害,少写一次分支。
-function flushStreamRender() {
+export function flushStreamRender() {
   const assistant = pendingAssistantRender;
   const reasoning = pendingReasoningRender;
   pendingAssistantRender = null;
@@ -208,7 +225,7 @@ function flushStreamRender() {
   scrollBottom();
 }
 /// 取最后一个非空行。只在尾部窗口里找,并丢掉被窗口截断的首行,避免预览从半个词开始。
-function lastNonEmptyLine(raw, window = 2000) {
+export function lastNonEmptyLine(raw, window = 2000) {
   let tail = raw.length > window ? raw.slice(-window) : raw;
   if (raw.length > window) {
     const cut = tail.indexOf("\n");
@@ -220,9 +237,9 @@ function lastNonEmptyLine(raw, window = 2000) {
     .filter(Boolean);
   return lines[lines.length - 1] || "";
 }
-function appendAssistant(text) {
+export function appendAssistant(text) {
   if (!currentAssistant) {
-    currentAssistant = addMessage("assistant md", "");
+    setCurrentAssistant(addMessage("assistant md", ""));
     currentAssistant.dataset.raw = "";
   }
   currentAssistant.dataset.raw += text;
@@ -241,7 +258,7 @@ function appendAssistant(text) {
 // 亮暗主题切换零改动。口径:**图标标「组」,文字标「身份」**。同组多工具共用一个字形,
 // 区分靠紧邻的 .tool-msg-name(D-105:不得只靠颜色/形状区分,文本始终在场)。
 // 这条口径同时让 memory_* / ui_* / frontend_* 的前缀兜底成为正确行为而不是将就。
-const TOOL_ICON_PATHS = {
+export const TOOL_ICON_PATHS = {
   file: "M7 3h6l4.2 4.2V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z M13 3v4.5h4.2 M9 13h6 M9 16.5h4",
   folder: "M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z",
   braces: "M9.6 3.8c-2.2 0-2.2 2.6-2.2 4.4S6.6 11.4 5 11.4v1.2c1.6 0 2.4 1.4 2.4 3.2s0 4.4 2.2 4.4 M14.4 3.8c2.2 0 2.2 2.6 2.2 4.4s.8 3.2 2.4 3.2v1.2c-1.6 0-2.4 1.4-2.4 3.2s0 4.4-2.2 4.4",
@@ -271,7 +288,7 @@ const TOOL_ICON_PATHS = {
   wrench: "M14.6 4.4a4.6 4.6 0 0 0-5.7 5.7l-4.7 4.7a1.5 1.5 0 0 0 0 2.1l2.9 2.9a1.5 1.5 0 0 0 2.1 0l4.7-4.7a4.6 4.6 0 0 0 5.7-5.7l-3 3-2.8-.7-.7-2.8 3-3Z",
 };
 // 工具名 → [组, 字形]。组决定配色与语义归属,字形决定画什么。
-const TOOL_GROUPS = {
+export const TOOL_GROUPS = {
   read: ["read", "file"], files: ["read", "folder"], symbols: ["read", "braces"],
   write: ["write", "pencil"], edit: ["write", "pencil"], insert: ["write", "pencil"],
   multiedit: ["write", "pencil"],
@@ -289,12 +306,12 @@ const TOOL_GROUPS = {
 };
 // 前缀兜底:memory_* 与 ui_*/frontend_* 各自同组同字形——「图标标组」这条口径下
 // 这是正确行为,顺带让后端新增同族工具时前端零改动、不落 wrench 兜底。
-const TOOL_GROUP_PREFIXES = [
+export const TOOL_GROUP_PREFIXES = [
   ["memory_", ["memory", "layers"]],
   ["ui_", ["ui", "window"]],
   ["frontend_", ["ui", "window"]],
 ];
-function toolGroupEntry(name) {
+export function toolGroupEntry(name) {
   const key = String(name ?? "").trim().toLowerCase();
   if (TOOL_GROUPS[key]) return TOOL_GROUPS[key];
   for (const [prefix, entry] of TOOL_GROUP_PREFIXES) if (key.startsWith(prefix)) return entry;
@@ -302,7 +319,7 @@ function toolGroupEntry(name) {
 }
 /// 图标节点。innerHTML 拼的是常量路径字面量,没有任何外部输入进得来。
 /// 组与字形一并写进 data-*:只断言画了图标看不出「画对了但归错组」。
-function toolIconNode(name) {
+export function toolIconNode(name) {
   const [group, icon] = toolGroupEntry(name);
   const span = document.createElement("span");
   span.className = `tool-icon tool-icon-${group}`;
@@ -314,7 +331,7 @@ function toolIconNode(name) {
 }
 
 /// 工具调用的人类摘要:取该工具最有信息量的那个参数,而不是整坨 JSON。
-function toolCallSummary(name, input) {
+export function toolCallSummary(name, input) {
   const source = input && typeof input === "object" ? input : {};
   const pick = (...keys) => {
     for (const key of keys) {
@@ -347,7 +364,7 @@ function toolCallSummary(name, input) {
 
 /// ⎿ 行的字数预算。摘要在这里切断,剩余原文从同一个位置接着给——
 /// 一个字要么在摘要里、要么在详情里,不会两边都有。
-const TOOL_PREVIEW_MAX = 110;
+export const TOOL_PREVIEW_MAX = 110;
 
 /// 把工具结果切成互不重叠的两段:
 /// - `text`:⎿ 行的摘要,取第一行有信息量的内容(bash 的 "exit code: 0" 独占首行时顺延到下一行),
@@ -355,7 +372,7 @@ const TOOL_PREVIEW_MAX = 110;
 /// - `rest`:摘要没覆盖到的剩余原文(被顺延跳过的行、被截断的首行尾巴、以及后续所有行)。
 /// 从"取摘要"改成"切两段",是因为原先摘要与详情各自独立地从同一份 content 取一遍,
 /// 详情那边靠 `full !== preview` 去重——只挡得住单行短结果,首行超长或多行一律双写。
-function toolResultSplit(content, isError) {
+export function toolResultSplit(content, isError) {
   const lines = String(content ?? "").split("\n");
   const informative = (line) => line.trim() && !/^exit code:\s*0$/i.test(line.trim());
   let idx = lines.findIndex(informative);
@@ -373,7 +390,7 @@ function toolResultSplit(content, isError) {
 }
 
 /// 构造一个工具块。done=false 时是运行中占位,后续由 fillToolBlock 收尾。
-function buildToolBlock(name, input) {
+export function buildToolBlock(name, input) {
   const wrap = document.createElement("div");
   wrap.className = "msg tool-msg running";
   const head = document.createElement("button");
@@ -410,7 +427,7 @@ function buildToolBlock(name, input) {
 
 /// 收尾:状态图标 + 结果摘要行 + 折叠详情(摘要之外的剩余输出 + 完整入参)。
 /// ⎿ 行与详情是同一份文本切出来的两段,同一段文字在一个工具块里只出现一次。
-function toolOutcomeView(ok, outcome) {
+export function toolOutcomeView(ok, outcome) {
   const state = outcome || (ok ? "success" : "failed");
   if (state === "noop") return { state, cls: "noop", icon: "↪" };
   if (state === "needs_correction" || state === "needs_confirmation") {
@@ -421,7 +438,7 @@ function toolOutcomeView(ok, outcome) {
     : { state, cls: "err", icon: "✗" };
 }
 
-function fillToolBlock(block, { ok, outcome, content, display, input }) {
+export function fillToolBlock(block, { ok, outcome, content, display, input }) {
   const view = toolOutcomeView(ok, outcome);
   block.wrap.classList.remove("running");
   block.wrap.classList.add(view.cls);
@@ -449,8 +466,8 @@ function fillToolBlock(block, { ok, outcome, content, display, input }) {
   if (block.detail.children.length) block.wrap.classList.add("has-detail");
 }
 
-const chatToolBlocks = new Map();
-const CHAT_TOOL_KEEP = 200; // D-090 同款上界:长跑只保留最近块的活引用,DOM 留在历史里。
+export const chatToolBlocks = new Map();
+export const CHAT_TOOL_KEEP = 200; // D-090 同款上界:长跑只保留最近块的活引用,DOM 留在历史里。
 
 // R-184 P2:主对话里的 task 工具块按角色折叠成组(R-174 遗留 (a):编排派发的 8 条
 // 子代理各自生成一个平铺工具块、偏吵)。组头是唯一新增的 DOM,组内块走既有
@@ -459,8 +476,9 @@ const CHAT_TOOL_KEEP = 200; // D-090 同款上界:长跑只保留最近块的活
 // 换 activePane,但折叠组表没跟着换,B 线的子代理工具块会 appendChild 进 A 线对话里的
 // 同名组头——用户在 A 线看见自己没派过的工具调用,去 B 线却找不到。
 // 用 let:withSessionRender 按会话整表换引用(01-core.js),比逐条搬运便宜也不会漏。
-let chatAgentFolds = new Map(); // role -> {head, body, countEl, count}
-function chatAgentFold(role) {
+export let chatAgentFolds = new Map(); // role -> {head, body, countEl, count}
+export function setChatAgentFolds(value) { chatAgentFolds = value; }
+export function chatAgentFold(role) {
   let group = chatAgentFolds.get(role);
   // 组头的 DOM 可能已经不在页面上了:切历史对话/切线路会 resetPane(),裁剪也会删它。
   // 缓存里那份引用还在,于是后续子代理工具块被 appendChild 进一个游离节点——
@@ -506,7 +524,7 @@ function chatAgentFold(role) {
   return group;
 }
 
-function chatToolStart(id, name, summary, input) {
+export function chatToolStart(id, name, summary, input) {
   if (!id || chatToolBlocks.has(id)) return;
   clearEmptyState();
   // 实时路径拿不到结构化 input(事件里只有 summary 文本),退化为把 summary 当参数展示。
@@ -527,7 +545,7 @@ function chatToolStart(id, name, summary, input) {
   }
   scrollBottom();
 }
-function chatToolEnd(id, ok, preview, display, outcome) {
+export function chatToolEnd(id, ok, preview, display, outcome) {
   const block = chatToolBlocks.get(id);
   if (!block) return;
   // 注意语义:实时事件里的 preview 是后端 runner::preview 的单行摘要(首行 120 字 +
@@ -537,10 +555,11 @@ function chatToolEnd(id, ok, preview, display, outcome) {
   fillToolBlock(block, { ok, outcome, content: preview, display });
 }
 
-let currentReasoningHead = null;
+export let currentReasoningHead = null;
+export function setCurrentReasoningHead(value) { currentReasoningHead = value; }
 /// 思考块构造器:实时流与历史恢复(15-views-misc renderRecoveredMessages)共用,
 /// 两处观感必须一致;body.dataset.raw 始终持有完整思考文本——收起态的复制上下文靠它。
-function buildReasoningBlock(raw) {
+export function buildReasoningBlock(raw) {
   const wrap = document.createElement("div");
   wrap.className = "msg reasoning";
   const head = document.createElement("button");
@@ -563,14 +582,14 @@ function buildReasoningBlock(raw) {
   wrap.append(head, body);
   return { wrap, head, body };
 }
-function appendReasoning(text) {
+export function appendReasoning(text) {
   if (!currentReasoning) {
     // 思考块:每个思考段独立一块,头部实时显示摘要首行,默认折叠(R-015 修正)。
     clearEmptyState();
     const block = buildReasoningBlock("");
     appendToPane(block.wrap);
-    currentReasoning = block.body;
-    currentReasoningHead = block.head;
+    setCurrentReasoning(block.body);
+    setCurrentReasoningHead(block.head);
   }
   currentReasoning.dataset.raw += text;
   // D-202:与 assistant 同样合帧,头部摘要跟着渲染一起更新(见 flushStreamRender)。
@@ -578,7 +597,7 @@ function appendReasoning(text) {
   pendingReasoningRender = currentReasoning;
   scheduleStreamRender();
 }
-function renderReasoningBlock(body) {
+export function renderReasoningBlock(body) {
   body.innerHTML = renderMarkdown(body.dataset.raw);
   const head = body._head;
   if (!head) return;

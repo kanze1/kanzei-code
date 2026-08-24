@@ -1,5 +1,58 @@
+import { defer } from "./01-core.js";
+import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
+import { setCurrentReasoningHead } from "./05-chat-render.js";
+import { setCtxTokens } from "./03-shell.js";
+import { setActivePane } from "./01-core.js";
+import { escapeHtml } from "./04-markdown.js";
+import {
+  $,
+  activePane,
+  appendToPane,
+  confirmDialog,
+  invoke,
+  messages,
+  resetPane,
+  showPane,
+} from "./01-core.js";
+import { t } from "./02-i18n.js";
+import {
+  activeProcessId,
+  activeSessionId,
+  ctxTokens,
+  currentAssistant,
+  currentProject,
+  currentReasoning,
+  log,
+  processItems,
+  renderTokens,
+  runControlPending,
+  running,
+  sessionState,
+  setStatus,
+  toast,
+  toastError,
+} from "./03-shell.js";
+import { renderMarkdown } from "./04-markdown.js";
+import {
+  addMessage,
+  buildReasoningBlock,
+  buildToolBlock,
+  currentReasoningHead,
+  fillToolBlock,
+  followLatest,
+  renderReasoningBlock,
+  setFollowLatest,
+  scrollBottom,
+} from "./05-chat-render.js";
+import { bgClear, renderRecoveredTraces } from "./06-activity.js";
+import { addSummaryEntry } from "./07-events.js";
+import { cancelAutoContinueTimer } from "./08-auto.js";
+import { processRunning, processSwitchGeneration, refreshProcesses, switchProcess } from "./09-sessions.js";
+import { refreshDocs } from "./14-docs-actions.js";
+import { forProject } from "./20-lines.js";
+
 // ---------- R-053 快速记录:独立子代理结构化落库(需求/缺陷通用),不打断主对话 ----------
-function quickCaptureForm(kind, sectionId, noun) {
+export function quickCaptureForm(kind, sectionId, noun) {
   const section = $(sectionId);
   const title = section.querySelector(".section-title");
   // 需求与缺陷两种快记现在共用「当前在做」这一个分区标题。旧守卫只看"有没有表单",
@@ -58,10 +111,14 @@ function quickCaptureForm(kind, sectionId, noun) {
   title.append(form);
   input.focus();
 }
-$("req-quick").addEventListener("click", () => quickCaptureForm("req", "focus-section", "需求"));
-$("defect-quick").addEventListener("click", () => quickCaptureForm("defect", "focus-section", "缺陷"));
+defer(() => {
+  $("req-quick").addEventListener("click", () => quickCaptureForm("req", "focus-section", "需求"));
+});
+defer(() => {
+  $("defect-quick").addEventListener("click", () => quickCaptureForm("defect", "focus-section", "缺陷"));
+});
 
-function renderConventions(conv) {
+export function renderConventions(conv) {
   const el = $("conv-list");
   el.innerHTML = "";
   if (!conv || !conv.exists) {
@@ -83,53 +140,59 @@ function renderConventions(conv) {
 }
 
 // 新建想法:内联输入(webview 无 window.prompt)。录入不过模型,原样收下(R-252 ②)。
-$("idea-add").addEventListener("click", () => {
-  const list = $("idea-list");
-  if (list.querySelector(".idea-add-form")) return;
-  const form = document.createElement("div");
-  form.className = "idea-add-form";
-  const input = document.createElement("input");
-  input.placeholder = t("想法描述,回车创建(Esc 取消)");
-  input.addEventListener("keydown", async (e) => {
-    if (e.key === "Escape") {
-      form.remove();
-      return;
-    }
-    if (e.key !== "Enter" || !input.value.trim()) return;
+defer(() => {
+  $("idea-add").addEventListener("click", () => {
+    const list = $("idea-list");
+    if (list.querySelector(".idea-add-form")) return;
+    const form = document.createElement("div");
+    form.className = "idea-add-form";
+    const input = document.createElement("input");
+    input.placeholder = t("想法描述,回车创建(Esc 取消)");
+    input.addEventListener("keydown", async (e) => {
+      if (e.key === "Escape") {
+        form.remove();
+        return;
+      }
+      if (e.key !== "Enter" || !input.value.trim()) return;
+      try {
+        const msg = await invoke("docs_update", {
+          projectDir: currentProject,
+          kind: "idea",
+          action: "add",
+          id: "",
+          title: input.value.trim(),
+        });
+        log(msg);
+        form.remove();
+        refreshDocs();
+      } catch (err) {
+        toastError(String(err));
+      }
+    });
+    form.appendChild(input);
+    list.prepend(form);
+    input.focus();
+  });
+});
+
+defer(() => {
+  $("conv-init").addEventListener("click", async () => {
     try {
-      const msg = await invoke("docs_update", {
-        projectDir: currentProject,
-        kind: "idea",
-        action: "add",
-        id: "",
-        title: input.value.trim(),
-      });
-      log(msg);
-      form.remove();
+      const path = await invoke("conventions_init", { projectDir: currentProject });
+      toast(`${t("规范文件已就绪")}:${path}`);
       refreshDocs();
     } catch (err) {
-      toastError(String(err));
+      toastError(String(err), { retry: () => $("conv-init").click() });
     }
   });
-  form.appendChild(input);
-  list.prepend(form);
-  input.focus();
 });
-
-$("conv-init").addEventListener("click", async () => {
-  try {
-    const path = await invoke("conventions_init", { projectDir: currentProject });
-    toast(`${t("规范文件已就绪")}:${path}`);
-    refreshDocs();
-  } catch (err) {
-    toastError(String(err), { retry: () => $("conv-init").click() });
-  }
+defer(() => {
+  $("conv-open").addEventListener("click", () => openDocViewer("conventions"));
 });
-$("conv-open").addEventListener("click", () => openDocViewer("conventions"));
 
 // ---------- 应用内文档查看器:markdown/代码直接渲染,外部打开是兜底 ----------
-let viewerKind = null;
-function openRuntimeMarkdown(title, content) {
+export let viewerKind = null;
+export function openRuntimeMarkdown(title, content) {
   viewerKind = null;
   $("viewer-title").textContent = title;
   const body = $("viewer-body");
@@ -140,7 +203,7 @@ function openRuntimeMarkdown(title, content) {
   $("viewer-overlay").classList.remove("hidden");
   $("viewer-close").focus();
 }
-async function openDocViewer(kind) {
+export async function openDocViewer(kind) {
   try {
     const doc = await invoke("docs_read", { projectDir: currentProject, kind });
     viewerKind = kind;
@@ -161,20 +224,26 @@ async function openDocViewer(kind) {
     toastError(String(err), { retry: () => openDocViewer(kind) });
   }
 }
-$("viewer-close").addEventListener("click", () => $("viewer-overlay").classList.add("hidden"));
-$("viewer-overlay").addEventListener("click", (e) => {
-  if (e.target === $("viewer-overlay")) $("viewer-overlay").classList.add("hidden");
+defer(() => {
+  $("viewer-close").addEventListener("click", () => $("viewer-overlay").classList.add("hidden"));
 });
-$("viewer-external").addEventListener("click", () => {
-  if (viewerKind) invoke("docs_open", { projectDir: currentProject, kind: viewerKind }).catch((e) => toastError(String(e), { retry: () => $("viewer-external").click() }));
+defer(() => {
+  $("viewer-overlay").addEventListener("click", (e) => {
+    if (e.target === $("viewer-overlay")) $("viewer-overlay").classList.add("hidden");
+  });
+});
+defer(() => {
+  $("viewer-external").addEventListener("click", () => {
+    if (viewerKind) invoke("docs_open", { projectDir: currentProject, kind: viewerKind }).catch((e) => toastError(String(e), { retry: () => $("viewer-external").click() }));
+  });
 });
 
 // ---------- git 状态 ----------
 // 输入框上方的「本轮改动」条。数据取 git 真源(git_status 的 numstat),不靠把
 // kz:tool-end 的 diff 事件在前端累加——事件累加会漏掉手工改动、漏掉 agent 用 bash
 // 改的文件,而且切会话/重连后归零,给出的数字与工作树对不上。
-let changeBarOpen = false;
-function renderChangeBar(status) {
+export let changeBarOpen = false;
+export function renderChangeBar(status) {
   const bar = $("change-bar");
   if (!bar) return;
   const files = status?.files ?? [];
@@ -227,13 +296,15 @@ function renderChangeBar(status) {
     box.appendChild(row);
   }
 }
-$("change-bar-toggle")?.addEventListener("click", () => {
-  changeBarOpen = !changeBarOpen;
-  void refreshGit();
+defer(() => {
+  $("change-bar-toggle")?.addEventListener("click", () => {
+    changeBarOpen = !changeBarOpen;
+    void refreshGit();
+  });
 });
 
-let gitRefreshGeneration = 0;
-async function refreshGit(processId = activeProcessId) {
+export let gitRefreshGeneration = 0;
+export async function refreshGit(processId = activeProcessId) {
   if (!currentProject) return;
   const forProject = currentProject;
   const forProcessId = processId || null;
@@ -268,8 +339,8 @@ async function refreshGit(processId = activeProcessId) {
 }
 
 // 运行中改文件/跑命令后刷新工作区徽章,合并 600ms 内的连续变更。
-let gitLiveTimer = null;
-function refreshGitSoon() {
+export let gitLiveTimer = null;
+export function refreshGitSoon() {
   clearTimeout(gitLiveTimer);
   gitLiveTimer = setTimeout(() => {
     gitLiveTimer = null;
@@ -285,26 +356,26 @@ function refreshGitSoon() {
 //     要走 renderMarkdown),切一次线卡一次;
 //   - 批1 之后 pane 常驻,多个长会话叠起来的 DOM 是新的内存来源——不窗口化的话,
 //     批1 省下的重渲染会换成常驻内存,拆东墙补西墙。
-const PANE_WINDOW_SIZE = 120;
+export const PANE_WINDOW_SIZE = 120;
 /// 每条会话的完整历史与「已渲染到哪」:sessionId → { items, rendered }。
 /// 存的是数据不是 DOM,长会话的未渲染部分只占它自己那点 JSON。
-const paneHistory = new Map();
+export const paneHistory = new Map();
 
 /// 把 `items` 渲染进 `container`。复用同一套配对/思考块/markdown 逻辑——
 /// 窗口化不能有第二份渲染实现,否则「首屏」与「补齐」两段迟早长歪。
-function renderMessagesInto(container, items) {
+export function renderMessagesInto(container, items) {
   const savedPane = activePane;
-  activePane = container;
+  setActivePane(container);
   try {
     renderMessageParts(items);
   } finally {
-    activePane = savedPane;
+    setActivePane(savedPane);
   }
 }
 
 /// 向上补齐一窗。保持滚动位置:前插会把内容顶下去,按高度差回补 scrollTop,
 /// 否则用户每次触顶都会被弹到别处。
-function loadEarlierMessages() {
+export function loadEarlierMessages() {
   const history = paneHistory.get(activeSessionId || "");
   if (!history) return false;
   const remaining = history.items.length - history.rendered;
@@ -330,7 +401,7 @@ function loadEarlierMessages() {
 /// 手上,点一下就补齐」;这条是「本地视图为了保持流畅丢掉了,完整内容在后端对话历史里,
 /// 切走再切回会按窗口重建」。做成静态说明而不是按钮——运行中重载对话会把正在写入的
 /// pane 整个换掉,不该给一个跑着的时候点了会出事的入口。
-function renderTrimmedHint(pane) {
+export function renderTrimmedHint(pane) {
   const target = pane || activePane;
   if (!target || typeof target.querySelector !== "function") return;
   const dropped = Number(target.dataset.droppedLive || 0);
@@ -351,7 +422,7 @@ function renderTrimmedHint(pane) {
 }
 
 /// 顶部提示条:还剩多少条没渲染。它同时是入口(点它补齐)与状态(还剩多少)。
-function renderEarlierHint() {
+export function renderEarlierHint() {
   const history = paneHistory.get(activeSessionId || "");
   const remaining = history ? history.items.length - history.rendered : 0;
   const existing = activePane.querySelector(".earlier-hint");
@@ -374,21 +445,21 @@ function renderEarlierHint() {
 
 // 空态标记 = app 图标的 K 几何(竖干 + 右上三条平行记忆层 + 右下一笔行动),
 // 与 index.html 里那份首屏静态副本同一份形状——改一处必须改两处,别让它们漂移。
-const EMPTY_STATE_LOGO = '<svg viewBox="0 0 64 64"><g fill="none" stroke="currentColor" stroke-linecap="square">'
+export const EMPTY_STATE_LOGO = '<svg viewBox="0 0 64 64"><g fill="none" stroke="currentColor" stroke-linecap="square">'
   + '<path d="M14 8v48" stroke-width="7"/><path d="M21 33 44 56" stroke-width="7"/>'
   + '<path d="M21.5 31.5 43 8M25.5 35 50 8M29.5 38.5 57 8" stroke-width="3"/></g></svg>';
-function emptyStateMarkup() {
+export function emptyStateMarkup() {
   return `<div class="empty-state"><div class="logo-mark" aria-hidden="true">${EMPTY_STATE_LOGO}</div>`
     + `<div class="hint hint-lead">${t("输入任务开始 · 权限请求会弹窗询问")}</div>`
     + `<div class="hint hint-keys">${t("Ctrl+Enter 发送 · Ctrl/Cmd+P 命令面板 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止")}</div></div>`;
 }
 
-function renderRecoveredMessages(items) {
-  followLatest = true;
+export function renderRecoveredMessages(items) {
+  setFollowLatest(true);
   resetPane();
-  currentAssistant = null;
-  currentReasoning = null;
-  currentReasoningHead = null;
+  setCurrentAssistant(null);
+  setCurrentReasoning(null);
+  setCurrentReasoningHead(null);
   const all = items ?? [];
   paneHistory.set(activeSessionId || "", { items: all, rendered: 0 });
   const tail = all.slice(Math.max(0, all.length - PANE_WINDOW_SIZE));
@@ -404,7 +475,7 @@ function renderRecoveredMessages(items) {
 
 /// 渲染一段消息(配对 tool_call/tool_result、思考块、markdown)。
 /// 首屏与向上补齐共用它。
-function renderMessageParts(items) {
+export function renderMessageParts(items) {
   // 调用与结果按 call_id 配对成一块渲染:原先每个 part 各占一行,
   // 结果行只显示原始 call id,对人毫无信息量(用户 2026-08-08 反馈"太丑")。
   const pending = new Map();
@@ -462,7 +533,7 @@ function renderMessageParts(items) {
   }
 }
 
-async function loadConversation(sequence = null, switchGeneration = null) {
+export async function loadConversation(sequence = null, switchGeneration = null) {
   if (!currentProject) return;
   // 启动时项目列表与历史恢复并行触发,先确保进程列表已选出主会话,再锁定
   // processId。否则首次 conversation_get 可能带着 null,历史会被竞态丢掉。
@@ -529,21 +600,21 @@ async function loadConversation(sequence = null, switchGeneration = null) {
 // replaceChildren 重建一次(09-sessions.js renderParallelTaskStatus),勾选框是
 // 每次新建的——只要有任何一条线在跑,用户永远勾不满三条就被抹掉一次,
 // 「勾选后点删除」这条唯一的删除路径在运行期间根本走不完。
-const conversationChecked = new Map(); // processId -> Set(JSON.stringify(sequences))
-const conversationItemsByProcess = new Map();
-const conversationErrorsByProcess = new Map();
-let conversationListGeneration = 0;
+export const conversationChecked = new Map(); // processId -> Set(JSON.stringify(sequences))
+export const conversationItemsByProcess = new Map();
+export const conversationErrorsByProcess = new Map();
+export let conversationListGeneration = 0;
 
-function lineHistoryElement(processId) {
+export function lineHistoryElement(processId) {
   return [...document.querySelectorAll(".parallel-line-history")]
     .find((element) => element.dataset.processId === processId) ?? null;
 }
 
-function historyProcessItem(processId) {
+export function historyProcessItem(processId) {
   return processItems.find((item) => item.id === processId) ?? null;
 }
 
-async function openConversationForProcess(processId, sequence) {
+export async function openConversationForProcess(processId, sequence) {
   const target = historyProcessItem(processId);
   if (!target) return;
   if (processRunning(target)) {
@@ -555,7 +626,7 @@ async function openConversationForProcess(processId, sequence) {
   addMessage("notice", `${t("已打开历史对话")} #${sequence}`);
 }
 
-async function deleteConversationsForProcess(processId, sequences) {
+export async function deleteConversationsForProcess(processId, sequences) {
   if (!sequences.length) {
     toast(t("先勾选要删除的历史对话"));
     return;
@@ -582,9 +653,9 @@ async function deleteConversationsForProcess(processId, sequences) {
 // 历史对话默认收起。每条线路都挂一份完整快照列表,四五条线一起展开时侧栏
 // 前两屏全是历史标题,当前在做什么反而被挤下去。展开态按线路记在 localStorage,
 // 用户手动展开过的线路下次进来仍是展开的。
-const LINE_HISTORY_OPEN_KEY = "kz-line-history-open";
-const lineHistoryOpen = new Set(readLineHistoryOpen());
-function readLineHistoryOpen() {
+export const LINE_HISTORY_OPEN_KEY = "kz-line-history-open";
+export const lineHistoryOpen = new Set(readLineHistoryOpen());
+export function readLineHistoryOpen() {
   try {
     const raw = JSON.parse(localStorage.getItem(LINE_HISTORY_OPEN_KEY) ?? "[]");
     return Array.isArray(raw) ? raw.filter((id) => typeof id === "string") : [];
@@ -592,7 +663,7 @@ function readLineHistoryOpen() {
     return [];
   }
 }
-function saveLineHistoryOpen() {
+export function saveLineHistoryOpen() {
   try {
     localStorage.setItem(LINE_HISTORY_OPEN_KEY, JSON.stringify([...lineHistoryOpen]));
   } catch {
@@ -600,7 +671,7 @@ function saveLineHistoryOpen() {
   }
 }
 
-function renderLineConversationHistory(processId) {
+export function renderLineConversationHistory(processId) {
   const el = lineHistoryElement(processId);
   if (!el) return;
   el.replaceChildren();
@@ -693,7 +764,7 @@ function renderLineConversationHistory(processId) {
   el.appendChild(body);
 }
 
-async function refreshConversationLists() {
+export async function refreshConversationLists() {
   if (!currentProject) return;
   const forProject = currentProject;
   const generation = ++conversationListGeneration;
@@ -729,7 +800,7 @@ async function refreshConversationLists() {
   }
 }
 
-async function refreshConversationList() {
+export async function refreshConversationList() {
   return refreshConversationLists();
 }
 
@@ -742,75 +813,81 @@ async function refreshConversationList() {
 
 // 会话是否仍处于运行中。pane 淘汰要用它——正在往里写的会话永不淘汰。
 // 口径:只有 starting/running/stopping 判活。
-function sessionLiveNow(sessionId) {
+export function sessionLiveNow(sessionId) {
   return ["starting", "running", "stopping"].includes(sessionState(sessionId).phase);
 }
-function clearChat(noticeText) {
+export function clearChat(noticeText) {
   resetPane();
-  currentAssistant = null;
-  currentReasoning = null;
-  currentReasoningHead = null;
-  ctxTokens = 0;
+  setCurrentAssistant(null);
+  setCurrentReasoning(null);
+  setCurrentReasoningHead(null);
+  setCtxTokens(0);
   renderTokens();
   if (noticeText) addMessage("notice", noticeText);
 }
 
-$("new-chat").addEventListener("click", async () => {
-  // 鞭挞的轮间等待(runControlPending)后端已收尾、running 为假,但下一轮定时器还挂着:
-  // 这个窗口里清空会被随即开跑的那一轮立刻灌满,用户看到的是「点了没用」。它和运行中
-  // 一样属于"这条线还没停",一并挡住,并由 setRunning/setRunPending 把按钮真的禁掉——
-  // 按钮看着能点、点了只弹一句 toast,正是"要点好几次才生效"的来源。
-  if (running || runControlPending) {
-    toast(t("任务运行中,先停止再开新对话"));
-    return;
-  }
-  try {
-    await invoke("conversation_clear", { projectDir: currentProject, processId: activeProcessId });
-    // 开新段是明确的人为介入:armed 的自动续跑必须一起撤掉,否则新段刚建立就被
-    // 上一轮排好的续跑写满,新对话名存实亡。
-    if (typeof cancelAutoContinueTimer === "function") cancelAutoContinueTimer();
-    clearChat(t("已开启新对话(历史保留可审计)"));
-    await refreshConversationList();
-    log(t("新对话:历史保留,开启新段"));
-  } catch (err) {
-    toastError(String(err), { retry: () => $("new-chat").click() });
-  }
+defer(() => {
+  $("new-chat").addEventListener("click", async () => {
+    // 鞭挞的轮间等待(runControlPending)后端已收尾、running 为假,但下一轮定时器还挂着:
+    // 这个窗口里清空会被随即开跑的那一轮立刻灌满,用户看到的是「点了没用」。它和运行中
+    // 一样属于"这条线还没停",一并挡住,并由 setRunning/setRunPending 把按钮真的禁掉——
+    // 按钮看着能点、点了只弹一句 toast,正是"要点好几次才生效"的来源。
+    if (running || runControlPending) {
+      toast(t("任务运行中,先停止再开新对话"));
+      return;
+    }
+    try {
+      await invoke("conversation_clear", { projectDir: currentProject, processId: activeProcessId });
+      // 开新段是明确的人为介入:armed 的自动续跑必须一起撤掉,否则新段刚建立就被
+      // 上一轮排好的续跑写满,新对话名存实亡。
+      if (typeof cancelAutoContinueTimer === "function") cancelAutoContinueTimer();
+      clearChat(t("已开启新对话(历史保留可审计)"));
+      await refreshConversationList();
+      log(t("新对话:历史保留,开启新段"));
+    } catch (err) {
+      toastError(String(err), { retry: () => $("new-chat").click() });
+    }
+  });
 });
 
 // ---------- 对话总结 ----------
-$("summarize-btn").addEventListener("click", async () => {
-  if (!currentProject) {
-    toast(t("先选择一个项目"));
-    return;
-  }
-  const transcript = [...messages.querySelectorAll(".msg, .tool-chip")]
-    .map((el) => el.textContent.trim())
-    .filter(Boolean)
-    .join("\n\n")
-    .slice(0, 60000);
-  if (!transcript) {
-    toast(t("当前没有可总结的对话"));
-    return;
-  }
-  $("summarize-btn").disabled = true;
-  setStatus(`${t("总结中")}(fast model)`, true);
-  log(t("开始总结当前对话…"));
-  try {
-    const r = await invoke("summarize_chat", { projectDir: currentProject, transcript });
-    addSummaryEntry(r.summary, r.path);
-    toast(t("小总结已收纳到活动面板"));
-    log(`${t("总结完成,已收纳并存档")}:${r.path}`);
-  } catch (err) {
-    toastError(`${t("总结失败")}:${err}`, { retry: () => $("summarize-btn").click() });
-  } finally {
-    $("summarize-btn").disabled = false;
-    setStatus(running ? t("运行中") : t("空闲"), running);
-  }
+defer(() => {
+  $("summarize-btn").addEventListener("click", async () => {
+    if (!currentProject) {
+      toast(t("先选择一个项目"));
+      return;
+    }
+    const transcript = [...messages.querySelectorAll(".msg, .tool-chip")]
+      .map((el) => el.textContent.trim())
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 60000);
+    if (!transcript) {
+      toast(t("当前没有可总结的对话"));
+      return;
+    }
+    $("summarize-btn").disabled = true;
+    setStatus(`${t("总结中")}(fast model)`, true);
+    log(t("开始总结当前对话…"));
+    try {
+      const r = await invoke("summarize_chat", { projectDir: currentProject, transcript });
+      addSummaryEntry(r.summary, r.path);
+      toast(t("小总结已收纳到活动面板"));
+      log(`${t("总结完成,已收纳并存档")}:${r.path}`);
+    } catch (err) {
+      toastError(`${t("总结失败")}:${err}`, { retry: () => $("summarize-btn").click() });
+    } finally {
+      $("summarize-btn").disabled = false;
+      setStatus(running ? t("运行中") : t("空闲"), running);
+    }
+  });
 });
 
-for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["idea-open", "idea"], ["report-open", "report"]]) {
-  $(btn).addEventListener("click", () => openDocViewer(kind));
-}
+defer(() => {
+  for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["idea-open", "idea"], ["report-open", "report"]]) {
+    $(btn).addEventListener("click", () => openDocViewer(kind));
+  };
+});
 
 // ---------- R-147 使用手册:读取项目手册并渲染到设置页 ----------
 // 内容来源按顺序取项目根下 docs/使用手册.md → docs/目录.md,都没有时不显示区块。
@@ -821,9 +898,9 @@ for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["ide
 // 启动与切换项目都会触发(见 09-sessions.js renderProjects 与 18-startup.js),此处只负责读与渲染。
 // R-251:是否展示由设置页「高级功能→在设置页显示使用手册」控制(localStorage,
 // 本地显示偏好,不进 kanzei.toml;参照 R-187 sound 的持久化模式)。
-const MANUAL_SHOW_KEY = "kz-show-manual";
-const MANUAL_PATHS = ["docs/使用手册.md", "docs/目录.md"];
-function readManualShowPref() {
+export const MANUAL_SHOW_KEY = "kz-show-manual";
+export const MANUAL_PATHS = ["docs/使用手册.md", "docs/目录.md"];
+export function readManualShowPref() {
   try {
     const raw = localStorage.getItem(MANUAL_SHOW_KEY);
     return raw === null ? true : raw !== "0";
@@ -831,14 +908,14 @@ function readManualShowPref() {
     return true;
   }
 }
-function saveManualShowPref(show) {
+export function saveManualShowPref(show) {
   try {
     localStorage.setItem(MANUAL_SHOW_KEY, show ? "1" : "0");
   } catch {
     /* localStorage 不可用时仅本次会话生效 */
   }
 }
-async function refreshManual() {
+export async function refreshManual() {
   const panel = $("manual-panel");
   const body = $("manual-body");
   if (!panel || !body || !currentProject) return;
