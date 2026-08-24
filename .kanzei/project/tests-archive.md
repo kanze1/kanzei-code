@@ -10171,3 +10171,17 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-264 D-692
 - 收尾: 1787344255
 - 源码指纹: v2 crates/kanzei-tools/src/tracker/actions.rs@29941b35491e,scripts/ui-markdown-smoke.mjs@ac48b271f4a8
+
+## T-1786922726757 ui-markdown-smoke [passed]
+- 命令: node scripts/ui-markdown-smoke.mjs
+- 时长: 0.2s
+- 摘要: 直接 import ESM 版 04-markdown.js；列表、表格、代码语言、安全外链与 XSS 断言全部通过
+- 关联: D-692 R-264
+- 收尾: 1787541131
+
+## T-1786922726758 04-markdown.js ESM 执行回归 [passed]
+- 命令: node scripts/ui-markdown-smoke.mjs
+- 时长: 0.1s
+- 摘要: 脚本直接 import ESM 形式的 04-markdown.js；现有列表、表格、代码语言、安全外链与 XSS 断言全部通过。
+- 关联: D-692 R-264
+- 收尾: 1787568507

@@ -8511,3 +8511,17 @@
 - observed_head: d9ccedb42eae22c38880197c920fe0fa6489ad28
 - observed_worktree_hash: fnv1a64:5ad68bab9cd1af64
 - recorded_at: 1787343398236
+
+## D-692 ui-markdown-smoke 仍以 Function 执行 ESM 源码导致迁移后冒烟崩溃 [fixed] (medium)
+- 复现: 将 crates/kanzei-app/ui/04-markdown.js 切换为 ESM export 后运行 node scripts/ui-markdown-smoke.mjs，new Function(source) 在 export 处抛 SyntaxError: Unexpected token 'export'。
+- 影响: R-264 要求每迁移一个 UI 文件运行全套六条前端冒烟；markdown 冒烟无法验证任何 ESM markdown 实现，导致迁移证据缺失。
+- 来源: self-found；R-264 B6 将 04-markdown.js 接入 ESM 后的六条冒烟回归。
+- 标签: 流程
+- 验收: ui-markdown-smoke 能执行当前 ESM 形式的 04-markdown.js，并继续保留现有 markdown 断言；node scripts/ui-markdown-smoke.mjs 通过。
+- refs: R-264
+- 优先级: P1
+- 进展: 验收逐项对账：①“ui-markdown-smoke 能执行当前 ESM 形式的 04-markdown.js”→scripts/ui-markdown-smoke.mjs:1-2 直接 import ../crates/kanzei-app/ui/04-markdown.js 的 renderMarkdown；②“继续保留现有 markdown 断言”→scripts/ui-markdown-smoke.mjs:6-23 保留列表、表格、对齐、外链安全属性、代码语言与 XSS 断言；③“node scripts/ui-markdown-smoke.mjs 通过”→T-1786922726758，命令原样执行并通过。实现已由提交 d7a74729 落地。六条前端冒烟中的 ui-runtime 另有既有 vm.SourceTextModule/neuralFlowEmit 失败，不影响本缺陷的单项验收。
+- observed_head: d7a7472985a4965c7a643bae75e92fe9901d4f69
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787568791909
+- 取活依据: engine:唯一可执行 WIP 是 D-692，必须先恢复它
