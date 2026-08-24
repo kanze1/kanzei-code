@@ -412,7 +412,7 @@ export const I18N_EN = {
   "最近命中": "Last hit", "从未命中": "Never hit", "长期零命中": "Never recalled", "累计命中": "Total hits",
   "从磁盘删除该记忆文件,不可撤销": "Delete this memory file from disk — cannot be undone",
   "确认删除": "Delete", "此操作不可撤销": " — this cannot be undone.", "已删除": "Deleted", "删除失败": "Delete failed",
-  "将删除勾选的": "Delete the selected", "份历史对话快照": "historical conversation snapshot(s)", "消息与运行轨迹": "Messages and run traces", "工具调用与结果引用": "Tool calls and result references",
+  "将删除勾选的": "Delete the selected", "份历史对话快照": "historical conversation snapshot(s)", "消息与运行轨迹": "Messages and run traces", "工具调用与结果引用": "Tool calls and result references", "删除并安全整理": "Delete and safely clean up", "会话事件与投影": "Session events and projection", "运行轨迹与工具结果": "Run traces and tool results", "草稿与未完成输入": "Drafts and unfinished inputs", "引用中的 artifact 保留,无引用 artifact 才可整理": "Referenced artifacts are retained; only unreferenced artifacts are cleaned", "仅删除": "Delete only", "安全整理释放": "Safely cleaned up:",
   "已开启新对话(历史保留可审计)": "New conversation started (history retained for audit)", "新对话:历史保留,开启新段": "New conversation: history retained, new segment started",
   "覆盖确认": "Override confirmation", "确认": "Confirm", "创建并行线路": "Create parallel line",
   "暂无待确认候选": "No candidates awaiting your decision", "采纳": "Adopt", "丢弃": "Discard",

@@ -10440,3 +10440,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-245 D-715
 - 收尾: 1787606592
 - 源码指纹: v2 crates/kanzei-core/src/lib.rs@948fb8e92c06,crates/kanzei-core/src/store/mod.rs@7ff6e3885537,crates/kanzei-core/src/store/session.rs@7866d08a56c4,crates/kanzei/src/cli/artifacts.rs@7692a39b69b1
+
+## T-1786922726792 R-245 B6 UI 门禁（既有 D-711 阻断） [failed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/15-views-misc.js; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs
+- 时长: 0.0s
+- 摘要: 本批改动的三处 node --check、UI lint、runtime、parallel-lines、a11y 均通过；i18n smoke 被既有 D-711 的四个 memory filter 缺少 data-i18n-* 阻断。未声称前端六条全绿。
+- 关联: R-245 D-711
+- 收尾: 1787607086
+- 源码指纹: v2 crates/kanzei-app/src/conversation.rs@1c2524fbabc0,crates/kanzei-app/src/conversation_tests.rs@9f28a677bf2d,crates/kanzei-app/src/main.rs@7720f82edc82
+
+## T-1786922726793 R-245 B6 UI Markdown 检查 [passed]
+- 命令: node scripts/ui-markdown-smoke.mjs
+- 时长: 1.0s
+- 摘要: UI Markdown 列表、表格、代码语言、安全外链与 XSS 用例通过。
+- 关联: R-245
+- 收尾: 1787607086
+- 源码指纹: v2 crates/kanzei-app/src/conversation.rs@1c2524fbabc0,crates/kanzei-app/src/conversation_tests.rs@9f28a677bf2d,crates/kanzei-app/src/main.rs@7720f82edc82
+
+## T-1786922726794 R-245 B6 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 42.0s
+- 摘要: kanzei-app 246 项通过，新增 conversation_cleanup_command_runs_explicit_storage_cleanup 验证 Tauri command 实际调用 core cleanup_storage 并删除 orphan artifact、返回 checkpoint/VACUUM/释放量。
+- 关联: R-245
+- 收尾: 1787607143
+- 源码指纹: v2 crates/kanzei-app/src/conversation.rs@1c2524fbabc0,crates/kanzei-app/src/conversation_tests.rs@9f28a677bf2d,crates/kanzei-app/src/main.rs@7720f82edc82

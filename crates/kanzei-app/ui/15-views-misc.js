@@ -631,18 +631,30 @@ export async function deleteConversationsForProcess(processId, sequences) {
     toast(t("先勾选要删除的历史对话"));
     return;
   }
-  // D-418:R-245 设计——删除弹窗列清单,取消不产生任何写入。
-  const ok = await confirmDialog({
+  // D-418:R-245 设计——删除弹窗列清单,取消不产生任何写入；safe 分支另行调用
+  // 显式 storage cleanup，失败时保留可重试的清理入口。
+  const mode = await confirmDialog({
     title: t("确认删除"),
     message: `${t("将删除勾选的")} ${sequences.length} ${t("份历史对话快照")}${t("此操作不可撤销")}`,
-    list: [t("消息与运行轨迹"), t("工具调用与结果引用")],
-    okText: t("删除"),
+    list: [
+      t("会话事件与投影"),
+      t("运行轨迹与工具结果"),
+      t("草稿与未完成输入"),
+      t("引用中的 artifact 保留,无引用 artifact 才可整理"),
+    ],
+    okText: t("仅删除"),
+    safeText: t("删除并安全整理"),
     danger: true,
   });
-  if (!ok) return;
+  if (!mode) return;
   try {
     const n = await invoke("conversation_delete", { projectDir: currentProject, processId, sequences });
-    toast(`${t("已删除")} ${n}${t("份对话快照")}`);
+    if (mode === "safe") {
+      const cleanup = await invoke("conversation_cleanup", { projectDir: currentProject });
+      toast(`${t("已删除")} ${n}${t("份对话快照")}; ${t("安全整理释放")} ${cleanup.actual_freed_bytes ?? 0} bytes`);
+    } else {
+      toast(`${t("已删除")} ${n}${t("份对话快照")}`);
+    }
     conversationChecked.delete(processId);
     await refreshConversationLists();
   } catch (err) {

@@ -453,6 +453,17 @@ pub(crate) fn conversation_delete(
     Ok(deleted)
 }
 
+/// R-245 B6:删除弹窗选择“安全整理”后的真实 storage cleanup 消费方。
+#[tauri::command]
+pub(crate) fn conversation_cleanup(project_dir: String) -> Result<serde_json::Value, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let state_path = kanzei_core::project_state_path(&root);
+    let store = kanzei_core::SessionStore::open_for_explicit_cleanup(&state_path)
+        .map_err(|e| e.to_string())?;
+    let result = store.cleanup_storage(&root).map_err(|e| e.to_string())?;
+    serde_json::to_value(result).map_err(|e| e.to_string())
+}
+
 fn recover_latest_legacy_segment_raw(
     store: &kanzei_core::SessionStore,
     session_id: &str,

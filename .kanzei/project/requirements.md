@@ -100,7 +100,7 @@
 - 依赖: R-242
 - 内容: 统一工具结果为 Inline 或 Spilled{preview,artifact_id,bytes,sha256,retrieval_hint}；read 优先指向原文件 offset/limit，bash、git、test_record、web 等完整原文进入与 state.db 同生命周期的 Git 忽略运行目录。提供存储与整理入口，按类别、会话、日期、大小预览占用，支持清理无引用 artifact；经风险确认后，用可恢复失败的删除计划物理删除已选会话的事件、投影和引用 artifact；并支持 SQLite checkpoint、VACUUM 与迁移备份管理。默认不自动过期。
 - 复杂度: 大
-- 批次: 5/5
+- 批次: 6/6
 - 来源: DeepSeek Harness spill policy、本地 state.db 输出分布统计，以及用户确认“不自动过期但需要显式整理入口”。
 - 标签: 核心
 - 边界: 任何事件仍引用的 artifact 不得被静默清理；整理前显示预计释放空间和不可恢复范围，执行后给清单与实际释放量。32 KiB 先做 shadow telemetry。普通会话删除保证产品不可检索且重启不复生；安全整理才处理 SQLite freelist、WAL 和含旧正文备份。当前库为 WAL、secure_delete=OFF、auto_vacuum=NONE，不能把 DELETE 行等同磁盘字节已擦除。弹窗必须区分仅删除与删除并安全整理，取消零写入；显式整理不是定时任务。
@@ -108,10 +108,10 @@
 - 阻塞: 
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
-- 进展: B5 已完成：新增 `StorageCleanupPlan`/`StorageCleanupResult`/`StorageBackupReport`（`crates/kanzei-core/src/store/mod.rs:73-106`），`SessionStore::storage_cleanup_plan` 与 `cleanup_storage`（`crates/kanzei-core/src/store/session.rs:364-485`），显式整理打开路径（`session.rs:28-79`），运行静止检查、WAL checkpoint、VACUUM、无引用 artifact/旧迁移备份清理和实际释放量核对；CLI 接入 `kz artifacts clean --dry-run|--confirm --json`（`crates/kanzei/src/cli/artifacts.rs:58-129`）。条款对账：⑤由 clean plan JSON/CLI 列出 state.db、WAL、freelist、artifact、无引用文件、迁移备份和预计释放，证据 T-1786922726791；⑥无引用 artifact 成功删除、引用安全由前批计划保护，实际释放 16188 bytes，证据 T-1786922726785/T-1786922726791；⑨运行中会话拒绝、静止时 checkpoint/VACUUM/备份处置可核对，证据 T-1786922726785/T-1786922726786/T-1786922726791。前批①-④、⑧沿用各批已落地能力，B5 未重复申报；⑦桌面删除弹窗与“仅删除/安全整理”交互仍未接入；⑩权限、磁盘配额及不可预测文件名的完整测试仍缺，R-245 保持 doing。
-- observed_head: 5aa4dbeb34607450cc9276a94c923e4d67adec3b
-- observed_worktree_hash: fnv1a64:97e0f1b65dd1e4d6
-- recorded_at: 1787606619711
+- 进展: B6 已完成代码与定向验证：验收⑦的删除弹窗在 crates/kanzei-app/ui/15-views-misc.js:631-662 列出会话事件/投影、运行轨迹/工具结果、草稿/未完成输入及 artifact 保留规则；仅删除与删除并安全整理分别由 confirmDialog 三态返回接线至 conversation_delete / conversation_cleanup，取消在 ui/01-core.js:444-495 直接返回 false 不调用写入口；confirm-safe 已接入 ui/index.html:1164-1167，文案在 ui/02-i18n.js:415。后端真实消费者为 crates/kanzei-app/src/conversation.rs:456-465，已在 main.rs:228 注册；T-1786922726794 的 kanzei-app 246 项全绿，新增 command 测试核对 checkpoint/VACUUM、无引用 artifact 删除与实际释放量。UI node/runtime/lint/parallel/a11y/markdown 均通过；T-1786922726792 记录 i18n smoke 被既有 D-711 的四个 memory filter 缺 data-i18n-* 阻断，故不声称六条全绿。B6 已落地但 R-245 保持 doing：验收⑩权限、磁盘配额、不可预测文件名测试仍缺；验收⑦尚缺真实桌面点击路径的 E2 证据，保留为后续验证缺口。
+- observed_head: 4f54a31b9f67b49322bd015aa67f1a294aa7a557
+- observed_worktree_hash: fnv1a64:9bdfdf3eb28a1ea1
+- recorded_at: 1787607244234
 - 停车: 
 - 取活依据: engine:唯一可执行 WIP 是 R-245，必须先恢复它
 - status: doing

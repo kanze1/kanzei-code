@@ -437,13 +437,15 @@ export function defer(fn) {
   }
 }
 // D-418:统一确认弹窗(替代浏览器原生 window.confirm)。
-// options: { title, message, list?: string[], okText?, danger?: boolean }
-// 返回 Promise<boolean>;确认 resolve(true),取消/Esc/遮罩 resolve(false)。
+// options: { title, message, list?: string[], okText?, safeText?, danger?: boolean }
+// 返回 Promise<boolean|string>;确认 resolve(true),safeText 按钮 resolve("safe"),
+// 取消/Esc/遮罩 resolve(false)。
 // 与应用自定义弹窗体系(ask/viewer)同构,可承载清单与风险分级(R-245 删除弹窗规范)。
 export let confirmDialog = function confirmDialog(options) {
   return new Promise((resolve) => {
     const overlay = $("confirm-overlay");
     const ok = $("confirm-ok");
+    const safe = $("confirm-safe");
     const cancel = $("confirm-cancel");
     $("confirm-title").textContent = options.title ?? t("确认");
     $("confirm-message").textContent = options.message ?? "";
@@ -461,16 +463,21 @@ export let confirmDialog = function confirmDialog(options) {
     }
     ok.textContent = options.okText ?? t("确认");
     ok.classList.toggle("danger", !!options.danger);
+    safe.textContent = options.safeText ?? t("删除并安全整理");
+    safe.classList.toggle("hidden", !options.safeText);
+    safe.classList.toggle("danger", !!options.danger);
     overlay.classList.remove("hidden");
     const done = (value) => {
       overlay.classList.add("hidden");
       ok.removeEventListener("click", onOk);
+      safe.removeEventListener("click", onSafe);
       cancel.removeEventListener("click", onCancel);
       document.removeEventListener("keydown", onKey);
       overlay.removeEventListener("click", onBackdrop);
       resolve(value);
     };
     const onOk = () => done(true);
+    const onSafe = () => done("safe");
     const onCancel = () => done(false);
     const onKey = (e) => {
       if (e.key === "Escape") done(false);
@@ -479,6 +486,7 @@ export let confirmDialog = function confirmDialog(options) {
       if (e.target === overlay) done(false);
     };
     ok.addEventListener("click", onOk);
+    safe.addEventListener("click", onSafe);
     cancel.addEventListener("click", onCancel);
     document.addEventListener("keydown", onKey);
     overlay.addEventListener("click", onBackdrop);

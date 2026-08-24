@@ -228,6 +228,7 @@ fn main() {
             docs::conventions_init,
             conversation::conversation_clear,
             conversation::conversation_delete,
+            conversation::conversation_cleanup,
             docs::docs_read,
             docs::docs_read_custom,
             docs::architecture_snapshot,

@@ -645,6 +645,42 @@ fn conversation_list_projected_segments_by_reset_boundary() {
     std::fs::remove_dir_all(root).unwrap();
 }
 #[test]
+fn conversation_cleanup_command_runs_explicit_storage_cleanup() {
+    use kanzei_core::SessionStore;
+
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-app-conversation-cleanup-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let artifact = root.join(".kanzei/artifacts/tool-results/orphan.bin");
+    std::fs::create_dir_all(artifact.parent().unwrap()).unwrap();
+    std::fs::write(&artifact, b"orphan artifact").unwrap();
+    let canonical = crate::normalized_project_root(&root);
+    let store = SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+    let session_id = crate::process_session_id(&canonical, None);
+    store
+        .create_session(&session_id, &canonical.display().to_string(), None)
+        .unwrap();
+    drop(store);
+
+    let result =
+        crate::conversation::conversation_cleanup(canonical.display().to_string()).unwrap();
+    assert_eq!(result["checkpointed"], true);
+    assert_eq!(result["vacuumed"], true);
+    assert_eq!(
+        result["deleted_artifacts"][0],
+        ".kanzei/artifacts/tool-results/orphan.bin"
+    );
+    assert!(result["actual_freed_bytes"].as_u64().unwrap() > 0);
+    assert!(!artifact.exists());
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn conversation_delete_removes_projected_segment() {
     // D-421:投影模式下 conversation_delete 收到的是投影段末的 typed fact sequence,
     // 必须删除整段(typed facts + 快照)而不是只删快照——否则「删不掉」。
