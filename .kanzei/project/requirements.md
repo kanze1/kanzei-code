@@ -145,10 +145,10 @@
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:唯一可执行 WIP 是 R-264，必须先恢复它
 - 批次: 9/10
-- 进展: B9 已完成单文件 ESM 迁移：crates/kanzei-app/ui/22-neural-flow.js:3 将 neuralFlowEmit 改为 export let live binding，:440 在初始化 IIFE 后写入 globalThis 兼容桥；crates/kanzei-app/ui/index.html:1193 将 22-neural-flow.js 切换为 type=module，未改 R-285 事件逻辑。T-1786922726763：graph 刷新覆盖 27 文件，迁移 dry-run 772 个 export 候选/198 条 import 语句，node --check 与六条前端冒烟全部通过；运行时覆盖 27 个 UI 文件、2339 次 invoke、10 个主视图、0 错误。当前窗口 ui_dom 的 #app 正常，ui_console 无错误/警告，截图检查通过。下一步按 graph 选择最后一个低风险迁移单元，之后再处理剩余跨模块显式 import、defer 时序和 globals 补偿删除。
-- observed_head: 983cc04117131538bc4e1b4fa6a9fe66fff5345b
-- observed_worktree_hash: fnv1a64:1f16463db8da13ee
-- recorded_at: 1787569894325
+- 进展: B9 已完成并提交 679376dd：crates/kanzei-app/ui/22-neural-flow.js:3 导出 neuralFlowEmit live binding，:440 在初始化 IIFE 后建立 globalThis 兼容桥；crates/kanzei-app/ui/index.html:1193 切换为 type=module；未改 R-285 事件逻辑。T-1786922726763：graph 刷新覆盖 27 文件，迁移 dry-run 772 个 export 候选/198 条 import 语句，node --check 与六条前端冒烟全部通过；runtime 27 文件、2339 次 invoke、10 个主视图、0 错误；当前窗口 #app 正常、console 无错误/警告。复核决策：06-agent-panel.js 仅是未加载的历史路径提示，不作为迁移单元；21-palette.js 依赖多个尚未完成显式 import/兼容桥，暂不扩大 B9 范围。下一步先设计真实跨模块 import/写 setter 的迁移批次，再继续，不执行全量迁移。
+- observed_head: 679376ddf5e4b19799d609adb8f89b9f26097154
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787569994054
 - 状态: todo
 - 阻塞: 
 - 对账: 2026-08-18 用户拍板 ESM 收尾「做完」,原 P3 留档提级 P2;剩余工作=批4(withSessionRender 等 5 处跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序与冒烟断言适配、删除 gen-ui-lint-globals 补偿机制);动工前先修 D-498(冒烟执行顺序与浏览器不一致),否则逐文件迁移的冒烟证据不可信;设计文档状态过期由 R-303 订正
