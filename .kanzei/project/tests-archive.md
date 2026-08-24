@@ -10304,3 +10304,51 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-332
 - 收尾: 1787581643
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@6e9e41dc8995
+
+## T-1786922726775 R-245 core artifact 引用图定向测试 [passed]
+- 命令: cargo test -p kanzei-core store::session::tests::artifact_plan_tracks_references_rejects_path_escape_and_is_read_only -- --exact
+- 时长: 10.0s
+- 摘要: 引用/无引用盘点、路径逃逸拒绝、dry-run 零写入测试通过。
+- 关联: R-245
+- 收尾: 1787604201
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@915891c7a04e,crates/kanzei-core/src/store/mod.rs@572c03e30796,crates/kanzei-core/src/store/session.rs@80a6b563b937,crates/kanzei/src/cli/artifacts.rs@946a19184a28,crates/kanzei/src/cli/mod.rs@9db008534660
+
+## T-1786922726776 R-245 CLI artifacts dry-run 参数测试 [passed]
+- 命令: cargo test -p kanzei --bin kz cli::artifacts::tests::parses_explicit_dry_run_plan -- --exact
+- 时长: 10.0s
+- 摘要: kz artifacts plan --dry-run 参数解析测试通过。
+- 关联: R-245
+- 收尾: 1787604201
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@915891c7a04e,crates/kanzei-core/src/store/mod.rs@572c03e30796,crates/kanzei-core/src/store/session.rs@80a6b563b937,crates/kanzei/src/cli/artifacts.rs@946a19184a28,crates/kanzei/src/cli/mod.rs@9db008534660
+
+## T-1786922726777 R-245 kanzei-core 定向套件 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 8.0s
+- 摘要: kanzei-core 全部 254 个测试通过。
+- 关联: R-245
+- 收尾: 1787604304
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@915891c7a04e,crates/kanzei-core/src/store/mod.rs@572c03e30796,crates/kanzei-core/src/store/session.rs@80a6b563b937,crates/kanzei/src/cli/artifacts.rs@946a19184a28,crates/kanzei/src/cli/mod.rs@9db008534660
+
+## T-1786922726778 R-245 kanzei 定向套件 [passed]
+- 命令: cargo test -p kanzei
+- 时长: 21.0s
+- 摘要: kanzei 单元 45 个与集成 32 个测试全部通过。
+- 关联: R-245
+- 收尾: 1787604305
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@915891c7a04e,crates/kanzei-core/src/store/mod.rs@572c03e30796,crates/kanzei-core/src/store/session.rs@80a6b563b937,crates/kanzei/src/cli/artifacts.rs@946a19184a28,crates/kanzei/src/cli/mod.rs@9db008534660
+
+## T-1786922726779 R-245 artifacts dry-run 真实 CLI（首次路径参数） [failed]
+- 命令: cargo run -p kanzei -- artifacts plan --dry-run --json --project-root "$((Get-Location).Path)"
+- 时长: 18.0s
+- 摘要: 目标 CLI 已构建，但 PowerShell Get-Location 的 ProviderPath 前缀被作为项目路径传入，命令在路径校验前失败；随后用 ProviderPath 重跑。
+- 关联: R-245
+- 收尾: 1787604305
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@915891c7a04e,crates/kanzei-core/src/store/mod.rs@572c03e30796,crates/kanzei-core/src/store/session.rs@80a6b563b937,crates/kanzei/src/cli/artifacts.rs@946a19184a28,crates/kanzei/src/cli/mod.rs@9db008534660
+
+## T-1786922726780 R-245 artifacts dry-run 真实 CLI [passed]
+- 命令: $root = (Get-Location).ProviderPath; $output = cargo run -p kanzei -- artifacts plan --dry-run --json --project-root "$root" | Out-String; if (-not $output.Contains('"dry_run": true')) { throw "dry-run JSON marker missing" }
+- 时长: 14.0s
+- 摘要: 真实 kz artifacts plan --dry-run --json 执行成功，输出 dry_run=true、总量、引用量、无引用量；未执行删除或数据库写入。
+- 关联: R-245
+- 收尾: 1787604342
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@915891c7a04e,crates/kanzei-core/src/store/mod.rs@572c03e30796,crates/kanzei-core/src/store/session.rs@80a6b563b937,crates/kanzei/src/cli/artifacts.rs@946a19184a28,crates/kanzei/src/cli/mod.rs@9db008534660

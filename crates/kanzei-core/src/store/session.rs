@@ -1,6 +1,7 @@
 //! session 域(R-155 S6):会话生命周期、打开/路径身份与迁移前备份。
 //! StoreError/Session/SessionStore 类型定义留 mod.rs(跨域共享契约)。
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -349,7 +350,7 @@ impl SessionStore {
 }
 
 impl SessionStore {
-    /// R-245 B2:只读读取 state.db/WAL/freelist、artifact 与迁移备份占用。
+    /// R-245 B2/B3:只读读取存储占用，并把 session_events 中的 artifact 引用与磁盘文件对账。
     /// 不执行 DELETE、VACUUM、checkpoint 或备份处置；显式整理批次另行实现。
     pub fn storage_report(&self, project_root: &Path) -> Result<StorageReport, StoreError> {
         let owned_state_path;
@@ -377,12 +378,17 @@ impl SessionStore {
             freelist_pages,
             artifact_files: 0,
             artifact_bytes: 0,
+            unreferenced_artifact_files: 0,
+            unreferenced_artifact_bytes: 0,
             shadow_files: 0,
             shadow_bytes: 0,
             migration_backup_files: 0,
             migration_backup_bytes: 0,
         };
         collect_artifact_files(&artifacts_root, false, &mut report);
+        let plan = self.artifact_cleanup_plan(project_root)?;
+        report.unreferenced_artifact_files = plan.unreferenced_artifact_files;
+        report.unreferenced_artifact_bytes = plan.unreferenced_artifact_bytes;
         if let Some(parent) = state_path.parent() {
             if let Ok(entries) = std::fs::read_dir(parent) {
                 for entry in entries.flatten() {
@@ -399,12 +405,156 @@ impl SessionStore {
         }
         Ok(report)
     }
+
+    /// 构造 artifact 引用图和无引用候选。该入口严格只读，返回的计划永远是 dry-run。
+    pub fn artifact_cleanup_plan(
+        &self,
+        project_root: &Path,
+    ) -> Result<super::ArtifactCleanupPlan, StoreError> {
+        let mut references = BTreeMap::new();
+        let mut statement = self
+            .connection
+            .prepare("SELECT payload_json FROM session_events")?;
+        let payloads = statement.query_map([], |row| row.get::<_, String>(0))?;
+        for payload in payloads {
+            let payload = payload?;
+            let value: serde_json::Value = serde_json::from_str(&payload)?;
+            collect_artifact_references(&value, &mut references);
+        }
+
+        let artifact_root = project_root.join(".kanzei/artifacts/tool-results");
+        let mut files = Vec::new();
+        collect_artifact_inventory(&artifact_root, project_root, false, &references, &mut files);
+        let total_artifact_files = files.len() as u64;
+        let total_artifact_bytes = files.iter().map(|file| file.bytes).sum();
+        let referenced_artifact_files =
+            files.iter().filter(|file| file.reference_count > 0).count() as u64;
+        let referenced_artifact_bytes = files
+            .iter()
+            .filter(|file| file.reference_count > 0)
+            .map(|file| file.bytes)
+            .sum();
+        let unreferenced: Vec<_> = files
+            .into_iter()
+            .filter(|file| file.reference_count == 0)
+            .collect();
+        let unreferenced_artifact_files = unreferenced.len() as u64;
+        let unreferenced_artifact_bytes = unreferenced.iter().map(|file| file.bytes).sum();
+
+        Ok(super::ArtifactCleanupPlan {
+            dry_run: true,
+            total_artifact_files,
+            total_artifact_bytes,
+            referenced_artifact_files,
+            referenced_artifact_bytes,
+            unreferenced_artifact_files,
+            unreferenced_artifact_bytes,
+            unreferenced,
+        })
+    }
 }
 
 fn file_size(path: &Path) -> u64 {
     std::fs::metadata(path)
         .map(|metadata| metadata.len())
         .unwrap_or(0)
+}
+
+fn collect_artifact_references(value: &serde_json::Value, references: &mut BTreeMap<String, u64>) {
+    match value {
+        serde_json::Value::Object(object) => {
+            if let Some(artifact_id) = object.get("artifact_id").and_then(|value| value.as_str()) {
+                *references.entry(format!("id:{artifact_id}")).or_default() += 1;
+            }
+            if let Some(relative_path) = object
+                .get("relative_path")
+                .and_then(|value| value.as_str())
+                .and_then(normalize_artifact_relative_path)
+            {
+                *references
+                    .entry(format!("path:{relative_path}"))
+                    .or_default() += 1;
+            }
+            for child in object.values() {
+                collect_artifact_references(child, references);
+            }
+        }
+        serde_json::Value::Array(array) => {
+            for child in array {
+                collect_artifact_references(child, references);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_artifact_relative_path(value: &str) -> Option<String> {
+    use std::path::Component;
+
+    let mut components = Vec::new();
+    for component in Path::new(value).components() {
+        match component {
+            Component::Normal(component) => {
+                components.push(component.to_string_lossy().into_owned())
+            }
+            Component::CurDir => {}
+            Component::Prefix(_) | Component::RootDir | Component::ParentDir => return None,
+        }
+    }
+    let normalized = components.join("/");
+    if normalized
+        .strip_prefix(".kanzei/artifacts/tool-results/")
+        .is_some_and(|rest| !rest.is_empty())
+    {
+        Some(normalized)
+    } else {
+        None
+    }
+}
+
+fn collect_artifact_inventory(
+    path: &Path,
+    project_root: &Path,
+    in_shadow: bool,
+    references: &BTreeMap<String, u64>,
+    files: &mut Vec<super::ArtifactFileReport>,
+) {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let child_shadow = in_shadow || entry.file_name() == "shadow";
+            collect_artifact_inventory(&path, project_root, child_shadow, references, files);
+        } else if path.is_file() && !in_shadow {
+            let relative_path = path
+                .strip_prefix(project_root)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            let artifact_id = path
+                .file_stem()
+                .map(|value| value.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let reference_count = references
+                .get(&format!("id:{artifact_id}"))
+                .copied()
+                .unwrap_or_default()
+                .saturating_add(
+                    references
+                        .get(&format!("path:{relative_path}"))
+                        .copied()
+                        .unwrap_or_default(),
+                );
+            files.push(super::ArtifactFileReport {
+                artifact_id,
+                relative_path,
+                bytes: file_size(&path),
+                reference_count,
+            });
+        }
+    }
 }
 
 fn collect_artifact_files(path: &Path, in_shadow: bool, report: &mut StorageReport) {
@@ -496,6 +646,86 @@ mod tests {
         assert_eq!(before.migration_backup_files, 1);
         assert_eq!(before.migration_backup_bytes, 6);
         assert!(state_path.exists());
+        assert_eq!(before.unreferenced_artifact_files, 1);
+        assert_eq!(before.unreferenced_artifact_bytes, 3);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn artifact_plan_tracks_references_rejects_path_escape_and_is_read_only() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-artifact-plan-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let store = SessionStore::open(&state_path).unwrap();
+        store
+            .create_session("ses_artifacts", "C:/project", None)
+            .unwrap();
+        let artifact_root = root.join(".kanzei/artifacts/tool-results");
+        std::fs::create_dir_all(artifact_root.join("shadow")).unwrap();
+        std::fs::write(artifact_root.join("kept.txt"), b"kept").unwrap();
+        std::fs::write(artifact_root.join("path-ref.bin"), b"path").unwrap();
+        std::fs::write(artifact_root.join("orphan.log"), b"orphan").unwrap();
+        std::fs::write(artifact_root.join("shadow/telemetry.json"), b"shadow").unwrap();
+        store
+            .append_event(
+                "ses_artifacts",
+                "tool.completed",
+                &serde_json::json!({"artifact": {"artifact_id": "kept"}}),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_artifacts",
+                "tool.completed",
+                &serde_json::json!({
+                    "artifact": {"relative_path": ".kanzei/artifacts/tool-results/path-ref.bin"}
+                }),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_artifacts",
+                "tool.completed",
+                &serde_json::json!({
+                    "artifact": {
+                        "artifact_id": "not-a-file",
+                        "relative_path": ".kanzei/artifacts/tool-results/../orphan.log"
+                    }
+                }),
+            )
+            .unwrap();
+
+        let before_data_version: i64 = store
+            .connection
+            .pragma_query_value(None, "data_version", |row| row.get(0))
+            .unwrap();
+        let before_events = store.list_events("ses_artifacts", 0).unwrap().len();
+        let plan = store.artifact_cleanup_plan(&root).unwrap();
+        let after_data_version: i64 = store
+            .connection
+            .pragma_query_value(None, "data_version", |row| row.get(0))
+            .unwrap();
+
+        assert!(plan.dry_run);
+        assert_eq!(plan.total_artifact_files, 3);
+        assert_eq!(plan.referenced_artifact_files, 2);
+        assert_eq!(plan.unreferenced_artifact_files, 1);
+        assert_eq!(plan.unreferenced_artifact_bytes, 6);
+        assert_eq!(
+            plan.unreferenced[0].relative_path,
+            ".kanzei/artifacts/tool-results/orphan.log"
+        );
+        assert_eq!(
+            before_events,
+            store.list_events("ses_artifacts", 0).unwrap().len()
+        );
+        assert_eq!(before_data_version, after_data_version);
+        assert!(artifact_root.join("orphan.log").exists());
         let _ = std::fs::remove_dir_all(root);
     }
 

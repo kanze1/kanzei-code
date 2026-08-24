@@ -91,6 +91,7 @@ pub(crate) fn usage_text() -> &'static str {
        kz lock status                       # 外部写入者可见性:主根/git 工作树改动/活跃线(R-181)\n\
        kz config schema                     # kanzei.toml 用户面配置参考:全部已知键+说明+默认值(R-220)\n\
        kz artifacts stats [--json]         # 只读查看 state.db/WAL/freelist/artifact/telemetry 占用(R-245)\n\
+       kz artifacts plan --dry-run [--json] # 列出 artifact 引用图与无引用清理候选,不写盘(R-245 B3)\n\
        kz metrics [--top N]                 # 巨石度量 + 条目关闭收尾链滚动遥测(R-258/R-311)\n\
        kz memory repair-index               # 按 Markdown 真源显式修复项目 INDEX/FTS(D-568/R-308)\n\
        kz memory review-global              # 无模型执行一次真实 project/global memory review(R-308)\n\

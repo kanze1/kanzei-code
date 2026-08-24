@@ -10,6 +10,7 @@ use super::{explicit_main_root, main_project_root, PROJECT_ROOT_FLAG};
 #[derive(Debug, Default, PartialEq, Eq)]
 struct ArtifactArgs {
     json: bool,
+    plan: bool,
     project_root: Option<PathBuf>,
 }
 
@@ -18,7 +19,8 @@ fn parse_args(args: &[String]) -> anyhow::Result<ArtifactArgs> {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
-            "stats" => {}
+            "stats" => parsed.plan = false,
+            "plan" | "--dry-run" => parsed.plan = true,
             "--json" => parsed.json = true,
             PROJECT_ROOT_FLAG => {
                 let value = args
@@ -28,7 +30,7 @@ fn parse_args(args: &[String]) -> anyhow::Result<ArtifactArgs> {
                 index += 1;
             }
             other => anyhow::bail!(
-                "未知 artifacts 参数: {other}; 用法: kz artifacts stats [--json] [--project-root <path>]"
+                "未知 artifacts 参数: {other}; 用法: kz artifacts stats [--json] | kz artifacts plan --dry-run [--json] [--project-root <path>]"
             ),
         }
         index += 1;
@@ -45,6 +47,33 @@ pub(crate) async fn artifacts_cli(args: &[String]) -> anyhow::Result<()> {
     )?;
     let state_path = kanzei_core::project_state_path(&project_root);
     let store = kanzei_core::SessionStore::open_read_only(&state_path)?;
+    if parsed.plan {
+        let plan = store.artifact_cleanup_plan(&project_root)?;
+        if parsed.json {
+            println!("{}", serde_json::to_string_pretty(&plan)?);
+        } else {
+            println!(
+                "artifact files: {} / {} bytes",
+                plan.total_artifact_files, plan.total_artifact_bytes
+            );
+            println!(
+                "referenced: {} / {} bytes",
+                plan.referenced_artifact_files, plan.referenced_artifact_bytes
+            );
+            println!(
+                "unreferenced: {} / {} bytes (estimated reclaim)",
+                plan.unreferenced_artifact_files, plan.unreferenced_artifact_bytes
+            );
+            for file in &plan.unreferenced {
+                println!(
+                    "- {} | {} bytes | references: {}",
+                    file.relative_path, file.bytes, file.reference_count
+                );
+            }
+            println!("mode: dry-run; no artifact deletion, database mutation or expiry performed");
+        }
+        return Ok(());
+    }
     let report = store.storage_report(&project_root)?;
     if parsed.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -62,6 +91,10 @@ pub(crate) async fn artifacts_cli(args: &[String]) -> anyhow::Result<()> {
             report.artifact_files, report.artifact_bytes
         );
         println!(
+            "unreferenced artifacts: {} files / {} bytes",
+            report.unreferenced_artifact_files, report.unreferenced_artifact_bytes
+        );
+        println!(
             "shadow telemetry: {} files / {} bytes",
             report.shadow_files, report.shadow_bytes
         );
@@ -69,7 +102,6 @@ pub(crate) async fn artifacts_cli(args: &[String]) -> anyhow::Result<()> {
             "migration backups: {} files / {} bytes",
             report.migration_backup_files, report.migration_backup_bytes
         );
-        println!("unreferenced artifacts: pending explicit cleanup batch");
         println!("mode: read-only; no expiry, delete, checkpoint or VACUUM performed");
     }
     Ok(())
@@ -92,7 +124,21 @@ mod tests {
             parse_args(&args).unwrap(),
             ArtifactArgs {
                 json: true,
+                plan: false,
                 project_root: Some(PathBuf::from("C:/project")),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_explicit_dry_run_plan() {
+        let args = vec!["plan".into(), "--dry-run".into(), "--json".into()];
+        assert_eq!(
+            parse_args(&args).unwrap(),
+            ArtifactArgs {
+                json: true,
+                plan: true,
+                project_root: None,
             }
         );
     }

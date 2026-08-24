@@ -63,10 +63,34 @@ pub struct StorageReport {
     pub freelist_pages: i64,
     pub artifact_files: u64,
     pub artifact_bytes: u64,
+    pub unreferenced_artifact_files: u64,
+    pub unreferenced_artifact_bytes: u64,
     pub shadow_files: u64,
     pub shadow_bytes: u64,
     pub migration_backup_files: u64,
     pub migration_backup_bytes: u64,
+}
+
+/// 单个 durable artifact 的引用图节点；路径来自项目 artifact 根目录内的实际文件。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArtifactFileReport {
+    pub artifact_id: String,
+    pub relative_path: String,
+    pub bytes: u64,
+    pub reference_count: u64,
+}
+
+/// R-245 B3 的只读整理计划。它描述可回收候选，但绝不执行删除。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArtifactCleanupPlan {
+    pub dry_run: bool,
+    pub total_artifact_files: u64,
+    pub total_artifact_bytes: u64,
+    pub referenced_artifact_files: u64,
+    pub referenced_artifact_bytes: u64,
+    pub unreferenced_artifact_files: u64,
+    pub unreferenced_artifact_bytes: u64,
+    pub unreferenced: Vec<ArtifactFileReport>,
 }
 
 /// D-374:`SessionStore::open` 的累计次数,**按库路径分桶**。
