@@ -8754,3 +8754,16 @@
 - observed_head: 5aa4dbeb34607450cc9276a94c923e4d67adec3b
 - observed_worktree_hash: fnv1a64:97e0f1b65dd1e4d6
 - recorded_at: 1787606602334
+
+## D-716 安全整理失败重试会重复删除会话且未展示清理错误 [fixed] (medium)
+- 复现: R-245 B6 后，桌面删除弹窗选择“删除并安全整理”；conversation_cleanup 返回 artifact_cleanup_errors 或 backup_cleanup_errors 时，15-views-misc.js 当前共用 catch 的 retry 会再次调用 deleteConversationsForProcess，且成功返回中的错误数组没有展示。
+- 影响: 物理整理失败不可见，用户点击重试可能再次删除已删除会话；不能核对安全整理失败范围，违背失败可恢复且不静默。
+- 来源: self-found：R-245 B6 提交前后代码审查
+- 标签: 前端
+- 验收: 删除成功后安全整理失败只重试 conversation_cleanup，不重复 conversation_delete；artifact/backup 清理错误在 UI 中可见并保留重试入口；仅删除分支保持原有删除失败重试。
+- refs: R-245
+- 优先级: P1
+- 进展: D-716 已修复：删除失败 catch 与 cleanup 失败路径拆分于 crates/kanzei-app/ui/15-views-misc.js:650-680；cleanup 返回 artifact_cleanup_errors/backup_cleanup_errors 时由 657-674 展示错误并将 retry 绑定到 conversation_cleanup，conversation_delete 仅在 651-655 的删除失败路径重试。scripts/ui-runtime-smoke.mjs 的 D-716/R-245 B7 真实调用断言验证 delete×1、cleanup 首次×1、retry 后 cleanup×2，证据 T-1786922726797；T-1786922726796 kanzei-app 246 项通过。
+- observed_head: ba9ace56d7eaf72a7cb7a5dfa975d8c747b5a724
+- observed_worktree_hash: fnv1a64:c4bd3ddf81c1b0b0
+- recorded_at: 1787607745908

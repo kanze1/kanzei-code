@@ -8139,6 +8139,37 @@ const docsB = {
   }
 }
 
+// D-716/R-245 B7:重放真实删除弹窗的安全整理失败路径。第一次 cleanup 返回可见错误，
+// 之后通过生产错误面板的 retry 钩子成功；retry 不得再次发起 conversation_delete。
+{
+  const deleteConversation = esmModuleCache.get("15-views-misc.js")?.namespace?.deleteConversationsForProcess;
+  const shell = esmModuleCache.get("03-shell.js")?.namespace;
+  assert(typeof deleteConversation === "function", "D-716 删除入口未注册为真实 UI 消费方");
+  assert(shell && typeof shell.errorRetry === "function", "D-716 错误面板 retry 入口未注册");
+  const before = invokeArgs.length;
+  let cleanupCalls = 0;
+  payloads.conversation_delete = () => 1;
+  payloads.conversation_cleanup = () => {
+    cleanupCalls += 1;
+    return cleanupCalls === 1
+      ? { actual_freed_bytes: 0, artifact_cleanup_errors: ["artifact busy"], backup_cleanup_errors: [] }
+      : { actual_freed_bytes: 12, artifact_cleanup_errors: [], backup_cleanup_errors: [] };
+  };
+  sandbox.currentProject = PROJECT;
+  sandbox.confirmDialog = () => Promise.resolve("safe");
+  expectedPersistentError = "Safe cleanup partly failed";
+  await deleteConversation("p|bg", [1]);
+  const firstCalls = invokeArgs.slice(before).map(({ cmd }) => cmd);
+  assert(firstCalls.filter((cmd) => cmd === "conversation_delete").length === 1, "D-716 首次删除未调用一次");
+  assert(firstCalls.filter((cmd) => cmd === "conversation_cleanup").length === 1, "D-716 首次安全整理未调用一次");
+  assert(expectedPersistentHits > 0, "D-716 安全整理错误未进入持久错误面板");
+  await shell.errorRetry();
+  const retriedCalls = invokeArgs.slice(before).map(({ cmd }) => cmd);
+  assert(retriedCalls.filter((cmd) => cmd === "conversation_delete").length === 1, "D-716 cleanup retry 重复删除会话");
+  assert(retriedCalls.filter((cmd) => cmd === "conversation_cleanup").length === 2, "D-716 cleanup retry 未只重试安全整理");
+  expectedPersistentError = null;
+}
+
 // ---------- D-381 IPC 形状契约:fixture 必须与后端真实形状一致 ----------
 // 这是全仓唯一一条「两侧都改对了才对、但没人检查」的缝:93 个 tauri command 里 30+ 个
 // 手搓 JSON 过 IPC,而上面那些 payloads 是**前端自己写的**。后端改一个字段名,

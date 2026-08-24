@@ -647,19 +647,36 @@ export async function deleteConversationsForProcess(processId, sequences) {
     danger: true,
   });
   if (!mode) return;
+  let n;
   try {
-    const n = await invoke("conversation_delete", { projectDir: currentProject, processId, sequences });
-    if (mode === "safe") {
-      const cleanup = await invoke("conversation_cleanup", { projectDir: currentProject });
-      toast(`${t("已删除")} ${n}${t("份对话快照")}; ${t("安全整理释放")} ${cleanup.actual_freed_bytes ?? 0} bytes`);
-    } else {
-      toast(`${t("已删除")} ${n}${t("份对话快照")}`);
-    }
-    conversationChecked.delete(processId);
-    await refreshConversationLists();
+    n = await invoke("conversation_delete", { projectDir: currentProject, processId, sequences });
   } catch (err) {
     toastError(String(err), { retry: () => deleteConversationsForProcess(processId, sequences) });
+    return;
   }
+  if (mode === "safe") {
+    const retryCleanup = async () => {
+      try {
+        const cleanup = await invoke("conversation_cleanup", { projectDir: currentProject });
+        const failures = [
+          ...(cleanup.artifact_cleanup_errors ?? []),
+          ...(cleanup.backup_cleanup_errors ?? []),
+        ];
+        if (failures.length) {
+          toastError(`${t("安全整理部分失败")}\n${failures.join("\n")}`, { retry: retryCleanup });
+          return;
+        }
+        toast(`${t("已删除")} ${n}${t("份对话快照")}; ${t("安全整理释放")} ${cleanup.actual_freed_bytes ?? 0} bytes`);
+      } catch (err) {
+        toastError(`${t("安全整理失败")}: ${String(err)}`, { retry: retryCleanup });
+      }
+    };
+    await retryCleanup();
+  } else {
+    toast(`${t("已删除")} ${n}${t("份对话快照")}`);
+  }
+  conversationChecked.delete(processId);
+  await refreshConversationLists();
 }
 
 // 历史对话默认收起。每条线路都挂一份完整快照列表,四五条线一起展开时侧栏

@@ -10464,3 +10464,41 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-245
 - 收尾: 1787607143
 - 源码指纹: v2 crates/kanzei-app/src/conversation.rs@1c2524fbabc0,crates/kanzei-app/src/conversation_tests.rs@9f28a677bf2d,crates/kanzei-app/src/main.rs@7720f82edc82
+
+## T-1786922726795 R-245 B7 UI 语法 lint runtime 检查 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/15-views-misc.js; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 时长: 1.0s
+- 摘要: B7 变更面语法、UI lint 与 runtime 检查通过；runtime 2359 次 invoke、0 运行时错误。未将该记录声明为六条前端冒烟。
+- 关联: R-245 D-716
+- 收尾: 1787607555
+
+## T-1786922726796 R-245 B7 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 29.0s
+- 摘要: kanzei-app 246 项测试全部通过，包含 conversation cleanup Tauri command 回归。
+- 关联: R-245 D-716
+- 收尾: 1787607559
+
+## T-1786922726797 R-245 B7 D-716 重试链路 runtime 回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/15-views-misc.js; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 时长: 1.0s
+- 摘要: B7 runtime 回归断言通过：真实删除入口先调用一次 conversation_delete，cleanup 失败进入错误面板，retry 后 cleanup 调用两次而 conversation_delete 仍只有一次；语法与 lint 也通过。
+- 关联: R-245 D-716
+- 收尾: 1787607711
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@28d62c3003e6
+
+## T-1786922726798 R-245 B7 UI 六条冒烟（D-711 阻断） [failed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/15-views-misc.js; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 1.0s
+- 摘要: 语法、lint、runtime、parallel-lines、a11y 通过；ui-i18n-smoke 在既有 D-711 的四个 memory filter 缺 data-i18n-* 处失败，因此 markdown 未执行。
+- 关联: R-245 D-716 D-711
+- 收尾: 1787607719
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@28d62c3003e6
+
+## T-1786922726799 R-245 B7 提交前 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 38.0s
+- 摘要: 提交门禁要求的最新 crate 覆盖测试通过：kanzei-app 246 passed, 0 failed；conversation cleanup command 回归包含在内。
+- 关联: R-245 D-716
+- 收尾: 1787607863
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@28d62c3003e6
