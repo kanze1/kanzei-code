@@ -145,10 +145,10 @@
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:唯一可执行 WIP 是 R-264，必须先恢复它
 - 批次: 8/10
-- 进展: B8 已完成 ESM 迁移 graph 覆盖修复并关闭 D-693：scripts/gen-esm-graph.mjs 新增 --write，按当前 ui/*.js 生成 scripts/ui-esm-graph.json；scripts/gen-esm-migrate.mjs 在执行前双向校验 graph 与 27 个直接 UI 脚本，不一致即硬失败。T-1786922726762：node --check、graph --write、迁移 dry-run 全部通过，覆盖 27 文件、773 个 export 候选、198 条 import 语句；T-1786922726761：六条前端冒烟按 --experimental-vm-modules 全部通过。下一步按已对账的真实依赖图选择下一文件迁移，仍不得直接执行全量迁移。
-- observed_head: d7a7472985a4965c7a643bae75e92fe9901d4f69
-- observed_worktree_hash: fnv1a64:a1e14f67081b43e8
-- recorded_at: 1787569518193
+- 进展: B8 已完成 ESM 迁移 graph 覆盖修复并关闭 D-693，已提交 983cc041（实际文件：scripts/gen-esm-graph.mjs、scripts/gen-esm-migrate.mjs、scripts/ui-esm-graph.json 及对应 tracker/test 归档）：graph 生成器新增 --write，按当前 ui/*.js 生成 graph；迁移器执行前双向校验 graph 与 27 个直接 UI 脚本，不一致即硬失败。T-1786922726762：node --check、graph --write、迁移 dry-run 全部通过，覆盖 27 文件、773 个 export 候选、198 条 import 语句；T-1786922726761：六条前端冒烟按 --experimental-vm-modules 全部通过。下一步按已对账的真实依赖图选择下一文件迁移，仍不得直接执行全量迁移。
+- observed_head: 983cc04117131538bc4e1b4fa6a9fe66fff5345b
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787569644785
 - 状态: todo
 - 阻塞: 
 - 对账: 2026-08-18 用户拍板 ESM 收尾「做完」,原 P3 留档提级 P2;剩余工作=批4(withSessionRender 等 5 处跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序与冒烟断言适配、删除 gen-ui-lint-globals 补偿机制);动工前先修 D-498(冒烟执行顺序与浏览器不一致),否则逐文件迁移的冒烟证据不可信;设计文档状态过期由 R-303 订正
