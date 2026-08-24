@@ -1021,6 +1021,7 @@ const payloads = {
     { id: "M-SOP-001", category: "sop", title: "冒烟 SOP", description: "继续执行冒烟任务", status: "active", body: "执行冒烟任务", hits: 4, lastHitAt: 1_760_000_000_000, recalled: 4, fetched: 2, updated: "2026-08-01" },
     { id: "M-DEAD-001", category: "fact", title: "从没被用到的记忆", description: "冒烟用:零命中条目", status: "active", body: "陈旧结论", hits: 0, lastHitAt: 0, recalled: 0, fetched: 0, updated: "2026-01-01" },
   ],
+  memory_search_page: [{ id: "M-SOP-001", scope: "project", category: "sop", title: "冒烟 SOP", snippet: "继续执行冒烟任务", status: "active", description: "继续执行冒烟任务", body: "执行冒烟任务", hits: 4, recalled: 4, fetched: 2, updated: "2026-08-01" }],
   memory_context_bill: { turns: [] },
   workspace_snapshot: {},
 };
@@ -3417,6 +3418,37 @@ assert(
   "记忆详情缺少删除入口(stale 只是降权,仍占索引)",
 );
 assert(listText("memory-detail").includes("累计命中"), "记忆详情未给出效果画像");
+
+// ---------- R-332 记忆管理工作区:统一条目、筛选、选中态、搜索打开详情 ----------
+const memoryScopeFilter = document.querySelector("#memory-scope-filter");
+const memoryCategoryFilter = document.querySelector("#memory-category-filter");
+const memoryStatusFilter = document.querySelector("#memory-status-filter");
+const memorySortFilter = document.querySelector("#memory-sort-filter");
+assert(memoryScopeFilter && memoryCategoryFilter && memoryStatusFilter && memorySortFilter, "记忆管理工作区缺少筛选控件");
+assert(memorySortFilter.options.length >= 3, "记忆管理工作区缺少稳定排序选项");
+assert(listText("memory-list-count").includes("2"), "记忆列表未显示当前结果数量");
+assert(document.querySelector("#memory-list .memory-row.selected")?.dataset.memoryId === "M-DEAD-001", "打开详情后列表未显示明确选中态");
+assert(
+  listText("memory-detail").includes("标题") && listText("memory-detail").includes("召回钩子") && listText("memory-detail").includes("正文"),
+  "记忆详情字段缺少可见标签",
+);
+// 稳定排序:命中最多应把 M-SOP-001 放到第一项。
+memorySortFilter.value = "hits";
+memorySortFilter.dispatchEvent({ type: "change" });
+await flush();
+assert(document.querySelector("#memory-list .memory-row")?.dataset.memoryId === "M-SOP-001", "命中排序未生效");
+// 搜索结果沿用同一条目组件,点击后必须打开真实详情而不是只展示文本。
+const memorySearchInput = document.querySelector("#memory-search-input");
+memorySearchInput.value = "冒烟";
+memorySearchInput.dispatchEvent({ type: "keydown", key: "Enter" });
+await flush();
+const searchRow = document.querySelector("#memory-list .memory-row");
+assert(searchRow?.dataset.memoryId === "M-SOP-001", "搜索结果未使用统一可交互条目");
+searchRow.click();
+await flush();
+assert(listText("memory-detail").includes("冒烟 SOP"), "搜索结果点击后未打开详情");
+assert(document.querySelector("#memory-list .memory-row.selected")?.dataset.memoryId === "M-SOP-001", "搜索打开详情后选中态错误");
+assert(document.querySelector("#memory-search-clear") && !document.querySelector("#memory-search-clear").hidden, "搜索后缺少清除搜索入口");
 
 // ---------- R-129 正文分段阅读:摘要行 + 段落块 + 超长折叠 + 编辑切换 ----------
 // 用长多段正文替换载荷,走真实渲染路径(loadMemoryList → 点击条目 → showMemoryDetail),

@@ -10275,3 +10275,32 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-331 D-707 D-708 D-709
 - 收尾: 1787575391
 - 源码指纹: v2 scripts/gen-esm-graph.mjs@097b7e68694b,scripts/gen-esm-migrate.mjs@06f729f030ab,scripts/gen-ui-lint-globals.mjs@000000000000,scripts/ui-esm-graph.json@9195f9ec723f,scripts/ui-lint-globals-config-smoke.mjs@000000000000,scripts/ui-lint-globals.json@000000000000,scripts/ui-lint-smoke.mjs@e8ebf556c739,scripts/ui-runtime-smoke.mjs@0505fa402a59
+
+## T-1786922726771 发布前 cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 时长: 63.0s
+- 摘要: 发布树 workspace 全量通过：所有 crate 测试通过；各 crate 汇总 44、32、245、22、253、172、55、169、491（其中 1 ignored）及其余 doc-tests 无失败。
+- 收尾: 1787575713
+
+## T-1786922726772 发布前 full verify [passed]
+- 命令: .\scripts\verify.ps1 -Full
+- 时长: 128.0s
+- 摘要: 发布树 full verify 通过：full mode，fmt/clippy/workspace test、全前端冒烟、IPC/可达性/设计与 metrics 门禁均通过；生成绑定 HEAD 2eda98603c374458e42eb02aacc6986df47e7d29 的 full verification.json。
+- 关联: R-331
+- 收尾: 1787575947
+
+## T-1786922726773 R-332 记忆管理工作区前端门禁 [passed]
+- 命令: node --check crates/kanzei-app/ui/13-memory.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 时长: 3.0s
+- 摘要: 语法检查、53 文件 UI lint 与 27 个 UI 文件运行时冒烟通过；冒烟新增验证筛选控件、结果数量、选中态、命中排序、搜索结果打开详情和清除搜索入口。
+- 关联: R-332
+- 收尾: 1787581412
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@6e9e41dc8995
+
+## T-1786922726774 R-332 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 53.0s
+- 摘要: kanzei-app 定向测试通过：245 passed，0 failed，0 ignored。
+- 关联: R-332
+- 收尾: 1787581643
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@6e9e41dc8995

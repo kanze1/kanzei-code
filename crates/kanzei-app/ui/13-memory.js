@@ -6,14 +6,67 @@ import { currentProject, toast, toastError } from "./03-shell.js";
 import { latestDocsSnapshot } from "./12-docs-pages.js";
 import { neuralFlowEmit } from "./22-neural-flow.js";
 
-// ---------- 记忆页(R-107):透明化——架构总览/条目/账单/检索/整理 ----------
-export let memorySelection = null;
+// ---------- 记忆页(R-107/R-332):管理工作区 + 透明化诊断 ----------
+export let memorySelection = { scope: "project", category: "all" };
+let memoryCurrentEntryId = null;
+let memoryListEntries = [];
+const memoryManagerFilters = { scope: "project", category: "all", status: "active", sort: "updated" };
+
+function memoryFilterLabel(value) {
+  return value === "all" ? t("全部") : t(value);
+}
+
+function setupMemoryManagerFilters() {
+  const definitions = [
+    ["memory-scope-filter", [["project", t("项目记忆")], ["global", t("全局记忆")], ["all", t("全部")]]],
+    ["memory-category-filter", [["all", t("全部分类")], ["fact", "fact"], ["sop", "sop"], ["habit", "habit"], ["preference", "preference"], ["episode", "episode"]]],
+    ["memory-status-filter", [["active", "active"], ["candidate", "candidate"], ["shadow", "shadow"], ["stale", "stale"], ["all", t("全部状态")]]],
+    ["memory-sort-filter", [["updated", t("最近更新")], ["hits", t("命中最多")], ["title", t("标题")], ["id", t("ID")]]],
+  ];
+  for (const [id, options] of definitions) {
+    const select = $(id);
+    if (!select || select.options.length) continue;
+    for (const [value, label] of options) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      select.appendChild(option);
+    }
+    select.value = memoryManagerFilters[id.replace("memory-", "").replace("-filter", "")];
+    select.addEventListener("change", () => {
+      const key = id === "memory-scope-filter" ? "scope" : id === "memory-category-filter" ? "category" : id === "memory-status-filter" ? "status" : "sort";
+      memoryManagerFilters[key] = select.value;
+      memorySelection = { scope: memoryManagerFilters.scope, category: memoryManagerFilters.category };
+      memoryCurrentEntryId = null;
+      hideMemoryDetail();
+      loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category);
+    });
+  }
+}
+
+function syncMemoryManagerFilters() {
+  setupMemoryManagerFilters();
+  for (const [id, value] of [["memory-scope-filter", memoryManagerFilters.scope], ["memory-category-filter", memoryManagerFilters.category], ["memory-status-filter", memoryManagerFilters.status], ["memory-sort-filter", memoryManagerFilters.sort]]) {
+    const select = $(id);
+    if (select) select.value = value;
+  }
+}
+
+function hideMemoryDetail() {
+  const box = $("memory-detail");
+  if (box) {
+    box.classList.add("hidden");
+    box.replaceChildren();
+  }
+}
+
 export async function refreshMemory() {
   if (!currentProject) {
     $("memory-arch").innerHTML = `<p class="dim">${t("先在左侧「项目」里添加并选择一个目录")}</p>`;
     return;
   }
   try {
+    setupMemoryManagerFilters();
     const [overview, billData, recallData, candidates, flags, controlPlane] = await Promise.all([
       invoke("memory_overview", { projectDir: currentProject }),
       invoke("memory_context_bill", { projectDir: currentProject }),
@@ -31,7 +84,7 @@ export async function refreshMemory() {
     renderMemoryValueFlags(flags);
     const total = (overview?.scopes ?? []).reduce((sum, scope) => sum + Number(scope.total ?? 0), 0);
     neuralFlowEmit?.("memory_snapshot", { memory_count: total, candidate_count: candidates?.length ?? 0 });
-    if (memorySelection) await loadMemoryList(memorySelection.scope, memorySelection.category);
+    await loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category, { preserveSelection: true });
   } catch (err) {
     toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
   }
@@ -512,7 +565,16 @@ export async function openMemoryDetailById(scope, id) {
   try {
     const list = await invoke("memory_entries", { projectDir: currentProject, scope, category: null });
     const entry = (list || []).find((e) => e.id === id);
-    if (entry) showMemoryDetail(scope, entry);
+    if (entry) {
+      memoryManagerFilters.scope = scope;
+      memoryManagerFilters.category = entry.category || "all";
+      memoryManagerFilters.status = "all";
+      memoryCurrentEntryId = id;
+      memorySelection = { scope, category: entry.category || "all" };
+      syncMemoryManagerFilters();
+      renderMemoryList(list, { search: false });
+      showMemoryDetail(scope, entry);
+    }
   } catch (err) {
     toastError(`${t("记忆条目加载失败")}:${err}`);
   }
@@ -590,7 +652,12 @@ export function renderMemoryArch(overview) {
       const staleNote = info.stale ? `${info.stale} stale` : "";
       cell.innerHTML = `<span class="memory-cat-name">${escapeHtml(cat)}</span><span class="memory-cat-count">${info.active}</span><span class="dim">${staleNote} ${escapeHtml(info.last || "")}</span>`;
       cell.addEventListener("click", () => {
+        memoryManagerFilters.scope = scope.scope;
+        memoryManagerFilters.category = cat;
+        memoryManagerFilters.status = "active";
         memorySelection = { scope: scope.scope, category: cat };
+        memoryCurrentEntryId = null;
+        hideMemoryDetail();
         loadMemoryList(scope.scope, cat);
       });
       grid.appendChild(cell);
@@ -607,65 +674,123 @@ export function renderMemoryArch(overview) {
   $("memory-inbox-badge").textContent = inboxPending ? `inbox ${inboxPending} ${t("条待整理")}` : "";
 }
 
-export async function loadMemoryList(scope, category) {
+export async function loadMemoryList(scope, category, { preserveSelection = false } = {}) {
   try {
-    const list = await invoke("memory_entries", { projectDir: currentProject, scope, category });
-    const container = $("memory-list");
-    container.innerHTML = "";
-    if (!list.length) {
-      container.innerHTML = `<p class="dim">${t("该分类暂无记忆")}</p>`;
-      return;
-    }
-    for (const entry of list) {
-      const row = document.createElement("button");
-      row.type = "button";
-      // R-125:零命中要一眼看得出来——这是判断某条记忆该不该留的直接依据。
-      // 只在条目有一定年纪时才标,刚写下来还没被检索过不算"没用"。
-      const ageDays = memoryAgeDays(entry.updated);
-      const dormant = (entry.hits ?? 0) === 0 && ageDays >= 3 && entry.status !== "stale";
-      // R-150:零采纳标记——召回≥3 但从未拉正文 = 语义显著但决策无关。
-      const zeroAdopt = (entry.recalled ?? 0) >= 3 && (entry.fetched ?? 0) === 0 && entry.status !== "stale";
-      row.className = `memory-row${entry.status === "stale" ? " stale" : ""}${dormant ? " dormant" : ""}${zeroAdopt ? " zero-adopt" : ""}${entry.category === "sop" ? " sop" : ""}`;
-      row.dataset.memoryId = entry.id;
-      const lastHit = entry.lastHitAt
-        ? `${t("最近命中")} ${new Date(entry.lastHitAt).toLocaleDateString()}`
-        : t("从未命中");
-      // R-150:召回/采纳率并入 meta——采纳率 = fetched/recalled。
-      const recallMeta = (entry.recalled ?? 0) > 0
-        ? ` · ${t("召回")} ${entry.recalled}/${t("采纳")} ${entry.fetched}`
-        : "";
-      row.innerHTML =
-        `<span class="memory-row-id">${escapeHtml(entry.id)}</span>` +
-        `<span class="memory-row-title">${escapeHtml(entry.title)}</span>` +
-        `${entry.category === "sop" ? `<em class="memory-row-cat sop">${t("SOP")}</em>` : ""}` +
-        `<span class="dim">${escapeHtml(entry.description)}</span>` +
-        `<span class="memory-row-meta dim">${escapeHtml(entry.status)} · ${t("命中")} ${entry.hits}${recallMeta} · ${lastHit} · ${escapeHtml(entry.updated)}` +
-        `${dormant ? ` · <em class="memory-dormant-flag">${t("长期零命中")}</em>` : ""}` +
-        `${zeroAdopt ? ` · <em class="memory-zero-adopt-flag">${t("零采纳候选")}</em>` : ""}</span>`;
-      row.addEventListener("click", () => showMemoryDetail(scope, entry));
-      container.appendChild(row);
+    memoryManagerFilters.scope = scope || "project";
+    memoryManagerFilters.category = category || "all";
+    syncMemoryManagerFilters();
+    const scopes = memoryManagerFilters.scope === "all" ? ["project", "global"] : [memoryManagerFilters.scope];
+    const results = await Promise.all(scopes.map((itemScope) => invoke("memory_entries", {
+      projectDir: currentProject,
+      scope: itemScope,
+      category: null,
+    })));
+    memoryListEntries = results.flat().map((entry) => ({ ...entry, scope: entry.scope || memoryManagerFilters.scope }));
+    const filtered = memoryListEntries
+      .filter((entry) => memoryManagerFilters.category === "all" || entry.category === memoryManagerFilters.category)
+      .filter((entry) => memoryManagerFilters.status === "all" || entry.status === memoryManagerFilters.status)
+      .sort((a, b) => {
+        if (memoryManagerFilters.sort === "hits") return (b.hits ?? 0) - (a.hits ?? 0) || a.id.localeCompare(b.id, undefined, { numeric: true });
+        if (memoryManagerFilters.sort === "title") return a.title.localeCompare(b.title) || a.id.localeCompare(b.id, undefined, { numeric: true });
+        if (memoryManagerFilters.sort === "id") return a.id.localeCompare(b.id, undefined, { numeric: true });
+        return String(b.updated || "").localeCompare(String(a.updated || "")) || a.id.localeCompare(b.id, undefined, { numeric: true });
+      });
+    renderMemoryList(filtered);
+    if (preserveSelection && memoryCurrentEntryId) {
+      const current = memoryListEntries.find((entry) => entry.id === memoryCurrentEntryId);
+      if (current) showMemoryDetail(current.scope || scope, current);
+      else hideMemoryDetail();
     }
   } catch (err) {
     toastError(`${t("记忆条目加载失败")}:${err}`);
   }
 }
 
+export function renderMemoryList(entries, { search = false } = {}) {
+  const container = $("memory-list");
+  const count = $("memory-list-count");
+  const state = $("memory-list-state");
+  container.innerHTML = "";
+  count.textContent = `${entries.length} ${t("条")}`;
+  state.textContent = search ? t("搜索结果") : `${memoryFilterLabel(memoryManagerFilters.scope)} / ${memoryFilterLabel(memoryManagerFilters.category)}`;
+  if (!entries.length) {
+    container.innerHTML = `<p class="dim">${t(search ? "没有命中的记忆" : "该筛选暂无记忆")}</p>`;
+    return;
+  }
+  for (const entry of entries) {
+    const row = document.createElement("button");
+    row.type = "button";
+    const ageDays = memoryAgeDays(entry.updated);
+    const dormant = !search && (entry.hits ?? 0) === 0 && ageDays >= 3 && entry.status !== "stale";
+    const zeroAdopt = !search && (entry.recalled ?? 0) >= 3 && (entry.fetched ?? 0) === 0 && entry.status !== "stale";
+    row.className = `memory-row${entry.id === memoryCurrentEntryId ? " selected" : ""}${entry.status === "stale" ? " stale" : ""}${dormant ? " dormant" : ""}${zeroAdopt ? " zero-adopt" : ""}${entry.category === "sop" ? " sop" : ""}`;
+    row.dataset.memoryId = entry.id;
+    const lastHit = entry.lastHitAt ? `${t("最近命中")} ${new Date(entry.lastHitAt).toLocaleDateString()}` : t("从未命中");
+    const recallMeta = (entry.recalled ?? 0) > 0 ? ` · ${t("召回")} ${entry.recalled}/${t("采纳")} ${entry.fetched}` : "";
+    const snippet = search ? entry.snippet : entry.description;
+    row.innerHTML =
+      `<span class="memory-row-top"><span class="memory-row-id">${escapeHtml(entry.id)}</span><span class="memory-row-title">${escapeHtml(entry.title)}</span><span class="memory-status-badge ${escapeHtml(entry.status || "")}">${escapeHtml(entry.status || "")}</span></span>` +
+      `${entry.category === "sop" ? `<em class="memory-row-cat sop">${t("SOP")}</em>` : ""}` +
+      `<span class="dim memory-row-description">${escapeHtml(snippet || "")}</span>` +
+      `<span class="memory-row-meta dim">${escapeHtml(entry.scope || memoryManagerFilters.scope)}/${escapeHtml(entry.category || "")} · ${t("命中")} ${entry.hits ?? 0}${recallMeta} · ${lastHit} · ${escapeHtml(entry.updated || "")}` +
+      `${dormant ? ` · <em class="memory-dormant-flag">${t("长期零命中")}</em>` : ""}` +
+      `${zeroAdopt ? ` · <em class="memory-zero-adopt-flag">${t("零采纳候选")}</em>` : ""}</span>`;
+    row.addEventListener("click", () => {
+      if (search) openMemoryDetailById(entry.scope, entry.id);
+      else showMemoryDetail(entry.scope || memoryManagerFilters.scope, entry);
+    });
+    container.appendChild(row);
+  }
+}
+
 export function showMemoryDetail(scope, entry) {
   const box = $("memory-detail");
+  if (!box) return;
+  memoryCurrentEntryId = entry.id;
+  memorySelection = { scope, category: entry.category || "all" };
   box.classList.remove("hidden");
   box.innerHTML = "";
-  const meta = document.createElement("p");
-  meta.className = "dim";
+  document.querySelectorAll("#memory-list .memory-row.selected").forEach((row) => row.classList.remove("selected"));
+  const selected = [...document.querySelectorAll("#memory-list .memory-row")].find((row) => row.dataset.memoryId === entry.id);
+  selected?.classList.add("selected");
+  const heading = document.createElement("div");
+  heading.className = "memory-detail-head";
+  const headingTitle = document.createElement("div");
+  headingTitle.className = "memory-detail-title";
+  headingTitle.textContent = entry.title || entry.id;
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "ghost mini";
+  close.textContent = t("关闭详情");
+  close.addEventListener("click", () => {
+    memoryCurrentEntryId = null;
+    hideMemoryDetail();
+    document.querySelectorAll("#memory-list .memory-row.selected").forEach((row) => row.classList.remove("selected"));
+  });
+  heading.append(headingTitle, close);
+  const meta = document.createElement("div");
+  meta.className = "memory-detail-meta";
   const refsText = (entry.refs && entry.refs.length) ? ` · ${t("引用来源")} ${entry.refs.join(" ")}` : "";
-  meta.textContent = `${entry.id} · ${entry.status} · ${t("来源")} ${entry.source} · ${entry.path}${refsText}`;
+  meta.textContent = `${entry.id} · ${entry.scope || scope} / ${entry.category || ""} · ${entry.status} · ${t("来源")} ${entry.source || t("未知")}${refsText}`;
+  const profile = document.createElement("p");
+  profile.className = "dim memory-profile";
+  const lastHit = entry.lastHitAt ? new Date(entry.lastHitAt).toLocaleString() : t("从未命中");
+  profile.textContent = `${t("累计命中")} ${entry.hits ?? 0} · ${t("最近命中")} ${lastHit} · ${t("更新")} ${entry.updated || t("未知")}`;
+  const field = (labelText, control) => {
+    const wrapper = document.createElement("label");
+    wrapper.className = "memory-detail-field";
+    const label = document.createElement("span");
+    label.className = "memory-detail-label";
+    label.textContent = labelText;
+    wrapper.append(label, control);
+    return wrapper;
+  };
   const title = document.createElement("input");
   title.value = entry.title;
   title.setAttribute("aria-label", t("记忆标题"));
   const desc = document.createElement("input");
   desc.value = entry.description;
   desc.setAttribute("aria-label", t("召回钩子"));
-  // R-129:正文从单一 textarea 改为「摘要 + 分段阅读」,减少长文认知负荷;
-  // 点「编辑正文」才切换回 textarea,保存仍走既有 memory_entry_save。
   const bodyBox = document.createElement("div");
   bodyBox.className = "memory-body-read";
   const bodyText = String(entry.body ?? "");
@@ -676,19 +801,19 @@ export function showMemoryDetail(scope, entry) {
   save.textContent = t("保存修改");
   save.addEventListener("click", async () => {
     try {
+      const body = readMemoryBody(bodyBox, bodyText);
       await invoke("memory_entry_save", {
         projectDir: currentProject,
         scope,
         id: entry.id,
         title: title.value,
         description: desc.value,
-        body: readMemoryBody(bodyBox, bodyText),
+        body,
         status: null,
       });
       toast(t("记忆已保存"));
-      // 就地重渲染详情:阅读视图要显示刚保存的新正文,不能停在旧值上。
-      showMemoryDetail(scope, { ...entry, title: title.value, description: desc.value, body: readMemoryBody(bodyBox, bodyText) });
-      refreshMemory();
+      memoryCurrentEntryId = entry.id;
+      await refreshMemory();
     } catch (err) {
       toastError(`${t("记忆保存失败")}:${err}`);
     }
@@ -708,13 +833,13 @@ export function showMemoryDetail(scope, entry) {
         body: null,
         status: entry.status === "active" ? "stale" : "active",
       });
-      box.classList.add("hidden");
+      memoryCurrentEntryId = null;
+      hideMemoryDetail();
       refreshMemory();
     } catch (err) {
       toastError(`${t("记忆保存失败")}:${err}`);
     }
   });
-  // 零命中的条目要能直接删掉,不能只有"标记失效"——stale 仍占索引与列表。
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
   deleteBtn.className = "ghost danger";
@@ -725,22 +850,19 @@ export function showMemoryDetail(scope, entry) {
     try {
       await invoke("memory_entry_delete", { projectDir: currentProject, scope, id: entry.id });
       toast(t("已删除"));
-      box.classList.add("hidden");
+      memoryCurrentEntryId = null;
+      hideMemoryDetail();
       refreshMemory();
     } catch (err) {
       toastError(`${t("删除失败")}:${err}`);
     }
   });
-  // 效果画像:这条到底被用过没有,直接摆在详情里,不用去列表里对。
-  const profile = document.createElement("p");
-  profile.className = "dim memory-profile";
-  const lastHit = entry.lastHitAt ? new Date(entry.lastHitAt).toLocaleString() : t("从未命中");
-  profile.textContent = `${t("累计命中")} ${entry.hits ?? 0} · ${t("最近命中")} ${lastHit}`;
   const actions = document.createElement("div");
   actions.className = "memory-detail-actions";
   actions.append(save, staleBtn, deleteBtn);
-  box.append(meta, profile, title, desc, bodyBox, actions);
+  box.append(heading, meta, profile, field(t("标题"), title), field(t("召回钩子"), desc), field(t("正文"), bodyBox), actions);
 }
+
 
 // R-129:正文从单一 textarea 改为「摘要 + 分段阅读」。摘要行取首段去换行截 140 字,
 // 让长文先有可扫读的要点;分段列表按空行拆段,超长段折叠 + 展开按钮,一段一块不糊成整片。
@@ -805,7 +927,7 @@ export function renderMemoryBodyRead(container, bodyText) {
     list.appendChild(empty);
   }
   container.appendChild(list);
-  // 编辑入口:阅读视图是默认态,想改才切回 textarea(保存仍走上方 save 按钮)。
+  // 编辑入口:阅读视图是默认态,编辑时提供取消,避免误入 textarea 后只能刷新页面恢复阅读。
   const editRow = document.createElement("div");
   editRow.className = "memory-body-edit-row";
   const editBtn = document.createElement("button");
@@ -817,7 +939,12 @@ export function renderMemoryBodyRead(container, bodyText) {
     ta.rows = 8;
     ta.value = readMemoryBody(container, text);
     ta.setAttribute("aria-label", t("记忆正文"));
-    container.replaceChildren(ta);
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "ghost mini";
+    cancel.textContent = t("取消编辑");
+    cancel.addEventListener("click", () => renderMemoryBodyRead(container, text));
+    container.replaceChildren(ta, cancel);
   });
   editRow.appendChild(editBtn);
   container.appendChild(editRow);
@@ -879,27 +1006,40 @@ export function renderMemoryBill(data) {
 }
 
 defer(() => {
-  $("memory-search-input").addEventListener("keydown", async (event) => {
-    if (event.key !== "Enter") return;
-    const query = event.target.value.trim();
-    if (!query || !currentProject) return;
+  const input = $("memory-search-input");
+  const clear = $("memory-search-clear");
+  const runSearch = async () => {
+    const query = input.value.trim();
+    if (!query || !currentProject) {
+      clear.hidden = true;
+      memoryCurrentEntryId = null;
+      hideMemoryDetail();
+      await loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category);
+      return;
+    }
+    clear.hidden = false;
     neuralFlowEmit?.("memory_search_started", { query_length: query.length });
     try {
       const hits = await invoke("memory_search_page", { projectDir: currentProject, query });
       neuralFlowEmit?.("memory_search_completed", { hit_count: hits.length });
-      memorySelection = null;
-      const container = $("memory-list");
-      container.innerHTML = hits.length ? "" : `<p class="dim">${t("没有命中的记忆")}</p>`;
-      for (const hit of hits) {
-        const row = document.createElement("div");
-        row.className = "memory-row";
-        row.innerHTML = `<span class="memory-row-id">${escapeHtml(hit.id)}</span><span class="memory-row-title">${escapeHtml(hit.title)}</span><span class="dim">${escapeHtml(hit.snippet)}</span><span class="memory-row-meta dim">${escapeHtml(hit.scope)}/${escapeHtml(hit.category)} · ${t("命中")} ${hit.hits}</span>`;
-        container.appendChild(row);
-      }
+      memoryCurrentEntryId = null;
+      hideMemoryDetail();
+      renderMemoryList(hits.map((hit) => ({ ...hit, scope: hit.scope || "project" })), { search: true });
     } catch (err) {
       neuralFlowEmit?.("memory_search_failed");
       toastError(`${t("记忆检索失败")}:${err}`);
     }
+  };
+  input.addEventListener("keydown", async (event) => {
+    if (event.key === "Enter") await runSearch();
+  });
+  input.addEventListener("input", () => {
+    clear.hidden = !input.value.trim();
+  });
+  clear.addEventListener("click", async () => {
+    input.value = "";
+    clear.hidden = true;
+    await loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category);
   });
 });
 

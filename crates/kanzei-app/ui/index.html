@@ -553,38 +553,52 @@
           <p class="dim" data-i18n-key="文件优先的分级记忆:所有条目都是 .kanzei/memory 下可手改的 markdown,此页与文件实时同步。">文件优先的分级记忆:所有条目都是 .kanzei/memory 下可手改的 markdown,此页与文件实时同步。</p>
           <div class="memory-toolbar">
             <input id="memory-search-input" type="search" placeholder="检索全部记忆(FTS)" data-i18n-placeholder="检索全部记忆(FTS)" aria-label="检索记忆" data-i18n-aria-label="检索记忆" />
+            <button type="button" id="memory-search-clear" class="ghost" hidden data-i18n-key="清除搜索">清除搜索</button>
             <button type="button" id="memory-consolidate-btn" title="立即让 memory-manager 消化 inbox 草稿" data-i18n-title="立即让 memory-manager 消化 inbox 草稿"><span data-i18n-key="整理 inbox">整理 inbox</span></button>
             <span id="memory-inbox-badge" class="dim"></span>
           </div>
-          <div id="memory-flow-stage" class="memory-flow-stage" aria-hidden="true">
-            <canvas id="neural-flow-memory" class="neural-flow-canvas neural-flow-memory"></canvas>
-            <div class="memory-flow-meta">
-              <span class="memory-flow-title" data-i18n-key="记忆流">记忆流</span>
-              <span id="memory-flow-state" class="memory-flow-state" data-i18n-key="静息">静息</span>
-            </div>
+          <div class="memory-manager-toolbar" role="search" aria-label="记忆列表筛选" data-i18n-aria-label="记忆列表筛选">
+            <label><span data-i18n-key="范围">范围</span><select id="memory-scope-filter" aria-label="记忆范围"></select></label>
+            <label><span data-i18n-key="分类">分类</span><select id="memory-category-filter" aria-label="记忆分类"></select></label>
+            <label><span data-i18n-key="状态">状态</span><select id="memory-status-filter" aria-label="记忆状态"></select></label>
+            <label><span data-i18n-key="排序">排序</span><select id="memory-sort-filter" aria-label="记忆排序"></select></label>
+            <span id="memory-list-count" class="memory-list-count dim"></span>
           </div>
-          <div id="memory-arch" class="memory-arch" aria-label="记忆架构总览" data-i18n-aria-label="记忆架构总览"></div>
-          <div id="memory-control-plane" class="memory-control-plane" aria-label="记忆控制面" data-i18n-aria-label="记忆控制面"></div>
-          <div class="memory-columns">
-            <div id="memory-list" class="memory-list" aria-label="记忆条目列表" data-i18n-aria-label="记忆条目列表"></div>
+          <div class="memory-manager-workspace">
+            <section class="memory-list-pane" aria-labelledby="memory-list-title">
+              <div class="memory-pane-head"><h2 id="memory-list-title" data-i18n-key="记忆条目">记忆条目</h2><span id="memory-list-state" class="dim"></span></div>
+              <div id="memory-list" class="memory-list" aria-label="记忆条目列表" data-i18n-aria-label="记忆条目列表"></div>
+            </section>
             <div id="memory-side">
               <div id="memory-detail" class="memory-detail hidden"></div>
-              <h2><span data-i18n-key="待确认候选">待确认候选</span> <span id="memory-candidate-count" class="dim"></span></h2>
-              <p class="dim" data-i18n-key="完成一个完整条目后自动提炼的 SOP 候选。候选不会自己入库——采纳才交给记忆管理子代理提炼成条目，丢弃则直接移出。">完成一个完整条目后自动提炼的 SOP 候选。候选不会自己入库——采纳才交给记忆管理子代理提炼成条目，丢弃则直接移出。</p>
-              <div id="memory-candidates" class="memory-candidates"></div>
-              <h2><span data-i18n-key="空闲整理清单">空闲整理清单</span> <span id="memory-flags-count" class="dim"></span>
-                <button type="button" id="memory-cleanup-btn" class="mini" title="对零采纳候选(召回≥3 采纳=0)一键降级为 stale,可逆不删" data-i18n-title="对零采纳候选(召回≥3 采纳=0)一键降级为 stale,可逆不删"><span data-i18n-key="一键整理">一键整理</span></button>
-              </h2>
-              <p class="dim" data-i18n-key="零采纳候选 = 召回≥3 但从未拉正文(语义显著却决策无关);复发候选 = 召回频次高的活跃条目。处置走既有墓碑机制(降级/修订),不静默删。">零采纳候选 = 召回≥3 但从未拉正文(语义显著却决策无关);复发候选 = 召回频次高的活跃条目。处置走既有墓碑机制(降级/修订),不静默删。</p>
-              <div id="memory-value-flags" class="memory-value-flags"></div>
-              <h2><span data-i18n-key="召回评估">召回评估</span> <span id="memory-recall-rate" class="dim"></span></h2>
-              <p class="dim" data-i18n-key="每轮开跑时按 prompt 预检索命中了什么。「已采纳」= 召回后正文确实被拉取过；只注入索引行而没拉正文，就是召回了但没用上。">每轮开跑时按 prompt 预检索命中了什么。「已采纳」= 召回后正文确实被拉取过；只注入索引行而没拉正文，就是召回了但没用上。</p>
-              <div id="memory-recalls" class="memory-recalls"></div>
-              <h2 data-i18n-key="上下文账单">上下文账单</h2>
-              <p class="dim" data-i18n-key="最近一轮 system 注入的各来源字符数。">最近一轮 system 注入的各来源字符数。</p>
-              <div id="memory-bill" class="memory-bill"></div>
-              <h2 data-i18n-key="最近轮次">最近轮次</h2>
-              <div id="memory-episodes" class="memory-episodes"></div>
+              <details class="memory-diagnostics">
+                <summary data-i18n-key="整理与诊断">整理与诊断</summary>
+                <div id="memory-flow-stage" class="memory-flow-stage" aria-hidden="true">
+                  <canvas id="neural-flow-memory" class="neural-flow-canvas neural-flow-memory"></canvas>
+                  <div class="memory-flow-meta">
+                    <span class="memory-flow-title" data-i18n-key="记忆流">记忆流</span>
+                    <span id="memory-flow-state" class="memory-flow-state" data-i18n-key="静息">静息</span>
+                  </div>
+                </div>
+                <div id="memory-arch" class="memory-arch" aria-label="记忆架构总览" data-i18n-aria-label="记忆架构总览"></div>
+                <div id="memory-control-plane" class="memory-control-plane" aria-label="记忆控制面" data-i18n-aria-label="记忆控制面"></div>
+                <h3><span data-i18n-key="待确认候选">待确认候选</span> <span id="memory-candidate-count" class="dim"></span></h3>
+                <p class="dim" data-i18n-key="完成一个完整条目后自动提炼的 SOP 候选。候选不会自己入库——采纳才交给记忆管理子代理提炼成条目，丢弃则直接移出。">完成一个完整条目后自动提炼的 SOP 候选。候选不会自己入库——采纳才交给记忆管理子代理提炼成条目，丢弃则直接移出。</p>
+                <div id="memory-candidates" class="memory-candidates"></div>
+                <h3><span data-i18n-key="空闲整理清单">空闲整理清单</span> <span id="memory-flags-count" class="dim"></span>
+                  <button type="button" id="memory-cleanup-btn" class="mini" title="对零采纳候选(召回≥3 采纳=0)一键降级为 stale,可逆不删" data-i18n-title="对零采纳候选(召回≥3 采纳=0)一键降级为 stale,可逆不删"><span data-i18n-key="一键整理">一键整理</span></button>
+                </h3>
+                <p class="dim" data-i18n-key="零采纳候选 = 召回≥3 但从未拉正文(语义显著却决策无关);复发候选 = 召回频次高的活跃条目。处置走既有墓碑机制(降级/修订),不静默删。">零采纳候选 = 召回≥3 但从未拉正文(语义显著却决策无关);复发候选 = 召回频次高的活跃条目。处置走既有墓碑机制(降级/修订),不静默删。</p>
+                <div id="memory-value-flags" class="memory-value-flags"></div>
+                <h3><span data-i18n-key="召回评估">召回评估</span> <span id="memory-recall-rate" class="dim"></span></h3>
+                <p class="dim" data-i18n-key="每轮开跑时按 prompt 预检索命中了什么。「已采纳」= 召回后正文确实被拉取过；只注入索引行而没拉正文，就是召回了但没用上。">每轮开跑时按 prompt 预检索命中了什么。「已采纳」= 召回后正文确实被拉取过；只注入索引行而没拉正文，就是召回了但没用上。</p>
+                <div id="memory-recalls" class="memory-recalls"></div>
+                <h3 data-i18n-key="上下文账单">上下文账单</h3>
+                <p class="dim" data-i18n-key="最近一轮 system 注入的各来源字符数。">最近一轮 system 注入的各来源字符数。</p>
+                <div id="memory-bill" class="memory-bill"></div>
+                <h3 data-i18n-key="最近轮次">最近轮次</h3>
+                <div id="memory-episodes" class="memory-episodes"></div>
+              </details>
             </div>
           </div>
         </div>

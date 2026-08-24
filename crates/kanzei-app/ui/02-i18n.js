@@ -391,7 +391,7 @@ export const I18N_EN = {
     "File-first layered memory: every entry is a hand-editable markdown file under .kanzei/memory; this page mirrors the files.",
   "上下文账单": "Context bill", "最近一轮 system 注入的各来源字符数。": "Characters injected per source in the latest run.",
   "最近轮次": "Recent rounds", "全局记忆": "Global memory", "项目记忆": "Project memory",
-  "条": "entries", "命中": "hits", "条待整理": "notes pending", "该分类暂无记忆": "No entries in this category",
+  "条": "entries", "命中": "hits", "条待整理": "notes pending", "该分类暂无记忆": "No entries in this category", "该筛选暂无记忆": "No entries match this filter", "全部": "All", "全部分类": "All categories", "全部状态": "All statuses", "最近更新": "Recently updated", "命中最多": "Most hits", "搜索结果": "Search results", "范围": "Scope", "分类": "Category", "状态": "Status", "ID": "ID", "更新": "Updated", "正文": "Body", "记忆条目": "Memory entries", "记忆列表筛选": "Memory list filters", "记忆范围": "Memory scope", "记忆分类": "Memory category", "记忆状态": "Memory status", "记忆排序": "Memory sort", "整理与诊断": "Consolidation & diagnostics", "关闭详情": "Close details", "清除搜索": "Clear search", "取消编辑": "Cancel editing",
   "待整理 backlog": "Inbox backlog", "最老等待": "Oldest waiting", "晋升缺口": "Promotion gaps", "召回/采纳": "Recalled/fetched", "召回关联": "Recall linked", "悬空": "orphaned", "价值画像": "Value profiles", "最近批次": "Latest batch", "未知": "unknown", "剩余": "remaining", "尚无整理批次": "No consolidation batch yet", "重试整理": "Retry consolidation",
   "记忆页加载失败": "Failed to load memory page", "记忆条目加载失败": "Failed to load entries",
   "记忆标题": "Title", "召回钩子": "Recall hook", "记忆正文": "Body", "来源": "Source", "引用来源": "Source refs", "冗余提醒": "redundancy tips",
