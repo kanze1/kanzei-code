@@ -10502,3 +10502,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-245 D-716
 - 收尾: 1787607863
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@28d62c3003e6
+
+## T-1786922726800 D-711 memory 筛选器 i18n 完整前端门禁 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/13-memory.js; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 1.0s
+- 摘要: 四个 memory 筛选器的 data-i18n-aria-label 已被完整门禁覆盖；语法、lint、runtime、parallel-lines、a11y、i18n、markdown 全部通过。i18n 统计 1413 个资源 key、465 项 HTML 文案、57 项动态契约。
+- 关联: D-711
+- 收尾: 1787608027

@@ -107,15 +107,6 @@
 - recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
 
-## D-711 记忆页筛选器 aria-label 未接入 i18n,英文界面可访问名称仍为中文 [open] (high)
-- 复杂度: small
-- 复现: scripts/ui-i18n-smoke.mjs 当前失败：crates/kanzei-app/ui/index.html:560-565 的 memory-scope-filter、memory-category-filter、memory-status-filter、memory-sort-filter 仅有中文 aria-label，未挂 data-i18n-*；对应静态检查报“静态中文元素未挂 data-i18n-*”。
-- 影响: 英文界面及屏幕阅读器仍读取中文筛选器名称，页面国际化冒烟持续失败，筛选控件的可访问名称与当前语言不一致。
-- 来源: 2026-08-25 全面项目审查；UI i18n 冒烟实测
-- 标签: 前端
-- 验收: 四个筛选 select 均补齐 data-i18n-aria-label 并接入 02-i18n.js 的渲染路径；node scripts/ui-i18n-smoke.mjs 通过；切换中英文后可访问名称同步变化，且不再有静态中文 aria-label 漏检。
-- 优先级: P1
-
 ## D-712 800px 窄窗口侧栏抽屉遮挡对话空态,首屏引导被截断 [open] (high)
 - 复杂度: small
 - 复现: 在静态 UI 页面使用真实浏览器视口 800x600 并展开左侧栏：crates/kanzei-app/ui/style.css:764-769 将非折叠 sidebar 设为 absolute 抽屉，而空态仍在主内容区居中；截图显示空态图标和引导文字被侧栏覆盖/截断。1024x768 基本正常，说明问题集中在窄窗口断点。

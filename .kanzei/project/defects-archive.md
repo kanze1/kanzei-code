@@ -8767,3 +8767,17 @@
 - observed_head: ba9ace56d7eaf72a7cb7a5dfa975d8c747b5a724
 - observed_worktree_hash: fnv1a64:c4bd3ddf81c1b0b0
 - recorded_at: 1787607745908
+
+## D-711 记忆页筛选器 aria-label 未接入 i18n,英文界面可访问名称仍为中文 [fixed] (high)
+- 复杂度: small
+- 复现: scripts/ui-i18n-smoke.mjs 当前失败：crates/kanzei-app/ui/index.html:560-565 的 memory-scope-filter、memory-category-filter、memory-status-filter、memory-sort-filter 仅有中文 aria-label，未挂 data-i18n-*；对应静态检查报“静态中文元素未挂 data-i18n-*”。
+- 影响: 英文界面及屏幕阅读器仍读取中文筛选器名称，页面国际化冒烟持续失败，筛选控件的可访问名称与当前语言不一致。
+- 来源: 2026-08-25 全面项目审查；UI i18n 冒烟实测
+- 标签: 前端
+- 验收: 四个筛选 select 均补齐 data-i18n-aria-label 并接入 02-i18n.js 的渲染路径；node scripts/ui-i18n-smoke.mjs 通过；切换中英文后可访问名称同步变化，且不再有静态中文 aria-label 漏检。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-711(unblocks=0)
+- 进展: D-711 已修复：crates/kanzei-app/ui/index.html:561-564 为 memory-scope-filter、memory-category-filter、memory-status-filter、memory-sort-filter 分别补 data-i18n-aria-label；真实渲染消费者为 crates/kanzei-app/ui/02-i18n.js:1034-1039 的 applyDataI18nKeys aria-label 路径，英文资源键已存在于 02-i18n.js:394。T-1786922726800 通过完整前端门禁：node check、UI lint、runtime、parallel-lines、a11y、i18n、markdown 全部通过；i18n 覆盖 1413 个资源 key、465 项 HTML 文案、57 项动态契约。
+- observed_head: 194b1eec3184e5290fe84f35d5f4dc8df879e61c
+- observed_worktree_hash: fnv1a64:3e8986577383912e
+- recorded_at: 1787608037531
