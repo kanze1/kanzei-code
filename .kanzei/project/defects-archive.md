@@ -8728,3 +8728,29 @@
 - observed_head: 1aff7f1941f1af05c35142c660719956c4833800
 - observed_worktree_hash: fnv1a64:2a157dcb3ecdd444
 - recorded_at: 1787575217484
+
+## D-714 R-245 B5 测试夹具迁移备份路径与 state.db 目录不一致 [fixed] (low)
+- 复现: 运行 `store::session::tests::显式安全整理只在静止时执行并核对释放量`，测试把 state.db.v1.bak/state.db.v2.bak 写入项目根；实现按 state_path 同目录扫描，导致 migration_backups 数量为 0，断言失败。
+- 影响: B5 定向测试失败，未证明生产整理逻辑错误；测试夹具不能覆盖迁移备份处置。
+- 来源: self-found：cargo test -p kanzei-core
+- 标签: 核心
+- 验收: 修正夹具使用 state_path 同目录后，B5 core 定向测试通过并验证旧备份删除/最新备份保留。
+- refs: R-245
+- 优先级: P2
+- 进展: 已修复测试夹具：迁移备份写入并断言使用 state_path 同目录，代码位置 `crates/kanzei-core/src/store/session.rs:1318-1343`；B5 core 全套 258 项通过并验证旧 v1 删除、最新 v2 保留，证据 T-1786922726786。
+- observed_head: 5aa4dbeb34607450cc9276a94c923e4d67adec3b
+- observed_worktree_hash: fnv1a64:97e0f1b65dd1e4d6
+- recorded_at: 1787606602066
+
+## D-715 R-245 B5 安全整理实际释放量被数据库文件变化抵消 [fixed] (medium)
+- 复现: 运行 `store::session::tests::显式安全整理只在静止时执行并核对释放量`，整理成功删除 orphan artifact 与旧迁移备份，但 `actual_freed_bytes` 以整理前后总占用差计算，因 VACUUM/SQLite 文件大小变化抵消删除量而返回 0。
+- 影响: 安全整理结果无法可靠报告实际释放量，违反 R-245 对释放量可核对的要求；物理删除本身已完成。
+- 来源: self-found：cargo test -p kanzei-core 重跑 B5 定向套件
+- 标签: 核心
+- 验收: 实际释放量至少包含成功删除 artifact/迁移备份的文件字节，并叠加数据库/WAL 正向缩减；新增测试稳定断言大于 0。
+- refs: R-245 D-714
+- 优先级: P1
+- 进展: 已修复释放量计算：删除成功时累计 artifact/备份实际文件字节，并叠加数据库/WAL 正向缩减，代码位置 `crates/kanzei-core/src/store/session.rs:416-483`；精确测试、core 258 项、CLI 47+32 项及真实 CLI clean integration 均通过，证据 T-1786922726785、T-1786922726786、T-1786922726791。
+- observed_head: 5aa4dbeb34607450cc9276a94c923e4d67adec3b
+- observed_worktree_hash: fnv1a64:97e0f1b65dd1e4d6
+- recorded_at: 1787606602334

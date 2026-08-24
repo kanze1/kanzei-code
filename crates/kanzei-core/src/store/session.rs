@@ -13,6 +13,15 @@ use super::{
 
 impl SessionStore {
     pub fn open(path: &Path) -> Result<Self, StoreError> {
+        Self::open_internal(path, true)
+    }
+
+    /// 显式安全整理专用打开路径：迁移完成后不自动触发 housekeeping，调用方先检查静止状态。
+    pub fn open_for_explicit_cleanup(path: &Path) -> Result<Self, StoreError> {
+        Self::open_internal(path, false)
+    }
+
+    fn open_internal(path: &Path, run_housekeeping: bool) -> Result<Self, StoreError> {
         // D-374:见 mod.rs::OPEN_COUNTS——open 的次数是一条可断言的性能事实。
         super::note_store_open(path);
         if let Some(parent) = path.parent() {
@@ -32,14 +41,15 @@ impl SessionStore {
             path: Some(path.to_path_buf()),
         };
         store.migrate()?;
-        // D-298:空闲时机条件整理——freelist 死页超阈值才 VACUUM、迁移备份只留最近一版。
-        // 放在 open 末尾:任何打开库的路径(桌面命令/CLI/移动端)都会走到,无需单独调度。
-        if let Err(error) = store.maintain_housekeeping() {
-            tracing::warn!(
-                error = %error,
-                path = %path.display(),
-                "state.db housekeeping failed; open continues"
-            );
+        // D-298:普通 open 仍保留既有 housekeeping；显式安全整理路径禁止在静止性检查前触发。
+        if run_housekeeping {
+            if let Err(error) = store.maintain_housekeeping() {
+                tracing::warn!(
+                    error = %error,
+                    path = %path.display(),
+                    "state.db housekeeping failed; open continues"
+                );
+            }
         }
         Ok(store)
     }
@@ -345,6 +355,132 @@ impl SessionStore {
         Ok(Self {
             connection,
             path: Some(path.to_path_buf()),
+        })
+    }
+}
+
+impl SessionStore {
+    /// 生成显式安全整理计划；读取完整占用和可释放文件，但不写数据库或磁盘。
+    pub fn storage_cleanup_plan(
+        &self,
+        project_root: &Path,
+    ) -> Result<super::StorageCleanupPlan, StoreError> {
+        let report = self.storage_report(project_root)?;
+        let artifact_plan = self.artifact_cleanup_plan(project_root)?;
+        let migration_backups = migration_backup_reports(self.path.as_deref());
+        let keep_version = migration_backups.iter().map(|backup| backup.version).max();
+        let deletable_backup_versions: Vec<_> = migration_backups
+            .iter()
+            .filter(|backup| Some(backup.version) != keep_version)
+            .map(|backup| backup.version)
+            .collect();
+        let estimated_reclaim_bytes = artifact_plan.unreferenced_artifact_bytes.saturating_add(
+            migration_backups
+                .iter()
+                .filter(|backup| Some(backup.version) != keep_version)
+                .map(|backup| backup.bytes)
+                .sum(),
+        );
+        let blocked_reason = runtime_block_reason(&self.connection)?;
+        Ok(super::StorageCleanupPlan {
+            dry_run: true,
+            eligible: blocked_reason.is_none(),
+            blocked_reason,
+            report,
+            unreferenced: artifact_plan.unreferenced,
+            migration_backups,
+            deletable_backup_versions,
+            estimated_reclaim_bytes,
+        })
+    }
+
+    /// 执行显式安全整理：先重查静止状态，再 checkpoint/VACUUM，最后删除可核对的文件。
+    pub fn cleanup_storage(
+        &self,
+        project_root: &Path,
+    ) -> Result<super::StorageCleanupResult, StoreError> {
+        let plan = self.storage_cleanup_plan(project_root)?;
+        if !plan.eligible {
+            return Err(StoreError::InvalidInput(
+                plan.blocked_reason
+                    .unwrap_or_else(|| "运行仍未静止".to_string()),
+            ));
+        }
+        if let Some(reason) = runtime_block_reason(&self.connection)? {
+            return Err(StoreError::InvalidInput(reason));
+        }
+        let before = plan.report.clone();
+        let checkpointed = checkpoint_wal(&self.connection)?;
+        self.connection.execute("VACUUM", [])?;
+        let mut deleted_artifacts = Vec::new();
+        let mut deleted_artifact_bytes = 0u64;
+        let mut artifact_cleanup_errors = Vec::new();
+        for artifact in &plan.unreferenced {
+            let Some(path) = safe_artifact_path(project_root, &artifact.relative_path) else {
+                artifact_cleanup_errors.push(format!("拒绝路径逃逸: {}", artifact.relative_path));
+                continue;
+            };
+            let bytes = file_size(&path);
+            match std::fs::remove_file(path) {
+                Ok(()) => {
+                    deleted_artifacts.push(artifact.relative_path.clone());
+                    deleted_artifact_bytes = deleted_artifact_bytes.saturating_add(bytes);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    artifact_cleanup_errors.push(format!("{}: {error}", artifact.relative_path))
+                }
+            }
+        }
+        let keep_version = plan
+            .migration_backups
+            .iter()
+            .map(|backup| backup.version)
+            .max();
+        let mut deleted_backups = Vec::new();
+        let mut deleted_backup_bytes = 0u64;
+        let mut backup_cleanup_errors = Vec::new();
+        for backup in &plan.migration_backups {
+            if Some(backup.version) == keep_version {
+                continue;
+            }
+            let Some(path) = self
+                .path
+                .as_ref()
+                .and_then(|state| state.parent())
+                .map(|parent| parent.join(&backup.relative_path))
+            else {
+                backup_cleanup_errors.push(format!("无法定位迁移备份: {}", backup.relative_path));
+                continue;
+            };
+            let bytes = file_size(&path);
+            match std::fs::remove_file(path) {
+                Ok(()) => {
+                    deleted_backups.push(backup.relative_path.clone());
+                    deleted_backup_bytes = deleted_backup_bytes.saturating_add(bytes);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    backup_cleanup_errors.push(format!("{}: {error}", backup.relative_path))
+                }
+            }
+        }
+        let after = self.storage_report(project_root)?;
+        let actual_freed_bytes = deleted_artifact_bytes
+            .saturating_add(deleted_backup_bytes)
+            .saturating_add(
+                database_total_bytes(&before).saturating_sub(database_total_bytes(&after)),
+            );
+        Ok(super::StorageCleanupResult {
+            before,
+            after,
+            checkpointed,
+            vacuumed: true,
+            deleted_artifacts,
+            deleted_backups,
+            artifact_cleanup_errors,
+            backup_cleanup_errors,
+            actual_freed_bytes,
         })
     }
 }
@@ -723,6 +859,80 @@ fn safe_artifact_path(project_root: &Path, relative_path: &str) -> Option<PathBu
     }
 }
 
+fn runtime_block_reason(connection: &Connection) -> Result<Option<String>, StoreError> {
+    let running_sessions: u64 = connection.query_row(
+        "SELECT COUNT(*) FROM sessions WHERE status = 'running'",
+        [],
+        |row| row.get(0),
+    )?;
+    if running_sessions > 0 {
+        return Ok(Some(format!("仍有 {running_sessions} 个会话运行中")));
+    }
+    let active_inputs: u64 = connection.query_row(
+        "SELECT COUNT(*) FROM session_inputs WHERE status IN ('pending', 'promoted', 'running')",
+        [],
+        |row| row.get(0),
+    )?;
+    if active_inputs > 0 {
+        return Ok(Some(format!("仍有 {active_inputs} 个输入未结束")));
+    }
+    Ok(None)
+}
+
+fn checkpoint_wal(connection: &Connection) -> Result<bool, StoreError> {
+    let (busy, _log, _checkpointed): (i64, i64, i64) =
+        connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+    if busy != 0 {
+        return Err(StoreError::InvalidInput(format!(
+            "SQLite WAL checkpoint 忙碌，未执行安全整理: busy={busy}"
+        )));
+    }
+    Ok(true)
+}
+
+fn migration_backup_reports(path: Option<&Path>) -> Vec<super::StorageBackupReport> {
+    let Some(path) = path else {
+        return Vec::new();
+    };
+    let Some(parent) = path.parent() else {
+        return Vec::new();
+    };
+    let stem = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut backups: Vec<_> = std::fs::read_dir(parent)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            let version = name
+                .strip_prefix(&format!("{stem}.v"))?
+                .strip_suffix(".bak")?
+                .parse::<i64>()
+                .ok()?;
+            Some(super::StorageBackupReport {
+                version,
+                relative_path: name,
+                bytes: file_size(&path),
+            })
+        })
+        .collect();
+    backups.sort_by_key(|backup| backup.version);
+    backups
+}
+
+fn database_total_bytes(report: &StorageReport) -> u64 {
+    report
+        .state_db_bytes
+        .saturating_add(report.wal_bytes)
+        .saturating_add(report.shm_bytes)
+}
+
 fn file_size(path: &Path) -> u64 {
     std::fs::metadata(path)
         .map(|metadata| metadata.len())
@@ -1082,6 +1292,82 @@ mod tests {
         assert_eq!(plan.blocked_reason.as_deref(), Some("会话仍在运行"));
         assert!(store.delete_session("ses-active", &root).is_err());
         assert!(store.get_session("ses-active").unwrap().is_some());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 显式安全整理只在静止时执行并核对释放量() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-storage-cleanup-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let artifact_path = root.join(".kanzei/artifacts/tool-results/orphan.bin");
+        std::fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+        std::fs::write(&artifact_path, b"orphan artifact").unwrap();
+        let store = SessionStore::open(&state_path).unwrap();
+        store
+            .create_session("ses-cleanup", &root.display().to_string(), None)
+            .unwrap();
+        for version in [1i64, 2] {
+            std::fs::copy(
+                &state_path,
+                state_path.with_file_name(format!("state.db.v{version}.bak")),
+            )
+            .unwrap();
+        }
+
+        let plan = store.storage_cleanup_plan(&root).unwrap();
+        assert!(plan.eligible);
+        assert_eq!(plan.unreferenced.len(), 1);
+        assert_eq!(plan.migration_backups.len(), 2);
+        assert_eq!(plan.deletable_backup_versions, vec![1]);
+        assert!(plan.estimated_reclaim_bytes >= b"orphan artifact".len() as u64);
+        assert!(artifact_path.exists());
+        assert!(state_path.with_file_name("state.db.v1.bak").exists());
+
+        let result = store.cleanup_storage(&root).unwrap();
+        assert!(result.checkpointed);
+        assert!(result.vacuumed);
+        assert_eq!(
+            result.deleted_artifacts,
+            vec![".kanzei/artifacts/tool-results/orphan.bin"]
+        );
+        assert_eq!(result.deleted_backups, vec!["state.db.v1.bak"]);
+        assert!(result.actual_freed_bytes > 0);
+        assert!(!artifact_path.exists());
+        assert!(!state_path.with_file_name("state.db.v1.bak").exists());
+        assert!(state_path.with_file_name("state.db.v2.bak").exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 显式安全整理拒绝运行中会话且不删除文件() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-r245-storage-cleanup-active-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state_path = project_state_path(&root);
+        let artifact_path = root.join(".kanzei/artifacts/tool-results/orphan.bin");
+        std::fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+        std::fs::write(&artifact_path, b"orphan artifact").unwrap();
+        let store = SessionStore::open(&state_path).unwrap();
+        store
+            .create_session("ses-cleanup-active", &root.display().to_string(), None)
+            .unwrap();
+        store.set_status("ses-cleanup-active", "running").unwrap();
+
+        let plan = store.storage_cleanup_plan(&root).unwrap();
+        assert!(!plan.eligible);
+        assert!(plan.blocked_reason.is_some());
+        assert!(store.cleanup_storage(&root).is_err());
+        assert!(artifact_path.exists());
         std::fs::remove_dir_all(root).ok();
     }
 

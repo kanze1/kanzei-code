@@ -1,7 +1,6 @@
-//! `kz artifacts` R-245 B2:只读查看运行状态库、artifact 与 shadow telemetry 占用。
+//! `kz artifacts` R-245：查看和显式整理运行状态库、artifact 与 shadow telemetry 占用。
 //!
-//! 这里故意不复用 SessionStore::open：普通 open 会执行迁移 housekeeping，统计入口
-//! 必须只读。清理、VACUUM、checkpoint 和备份处置留给后续显式整理批次。
+//! stats/plan/clean 的 dry-run 路径只读；只有显式 `--confirm` 才执行整理。
 
 use std::path::PathBuf;
 
@@ -12,6 +11,7 @@ struct ArtifactArgs {
     json: bool,
     plan: bool,
     delete: bool,
+    clean: bool,
     session_id: Option<String>,
     confirm: bool,
     project_root: Option<PathBuf>,
@@ -25,9 +25,11 @@ fn parse_args(args: &[String]) -> anyhow::Result<ArtifactArgs> {
             "stats" => {
                 parsed.plan = false;
                 parsed.delete = false;
+                parsed.clean = false;
             }
             "plan" | "--dry-run" => parsed.plan = true,
             "delete" => parsed.delete = true,
+            "clean" | "cleanup" => parsed.clean = true,
             "--session" => {
                 let value = args
                     .get(index + 1)
@@ -45,7 +47,7 @@ fn parse_args(args: &[String]) -> anyhow::Result<ArtifactArgs> {
                 index += 1;
             }
             other => anyhow::bail!(
-                "未知 artifacts 参数: {other}; 用法: kz artifacts stats [--json] | kz artifacts plan --dry-run [--json] [--project-root <path>] | kz artifacts delete --session <id> [--dry-run|--confirm] [--json]"
+                "未知 artifacts 参数: {other}; 用法: kz artifacts stats [--json] | kz artifacts plan --dry-run [--json] [--project-root <path>] | kz artifacts clean --dry-run|--confirm [--json] [--project-root <path>] | kz artifacts delete --session <id> [--dry-run|--confirm] [--json]"
             ),
         }
         index += 1;
@@ -62,6 +64,70 @@ pub(crate) async fn artifacts_cli(args: &[String]) -> anyhow::Result<()> {
     )?;
     let state_path = kanzei_core::project_state_path(&project_root);
     let store = kanzei_core::SessionStore::open_read_only(&state_path)?;
+    if parsed.clean {
+        let plan = store.storage_cleanup_plan(&project_root)?;
+        if !parsed.confirm || parsed.plan {
+            if parsed.json {
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+            } else {
+                println!("eligible: {}", plan.eligible);
+                println!("state.db: {} bytes", plan.report.state_db_bytes);
+                println!(
+                    "WAL: {} bytes | freelist pages: {}",
+                    plan.report.wal_bytes, plan.report.freelist_pages
+                );
+                println!(
+                    "artifacts: {} files / {} bytes",
+                    plan.report.artifact_files, plan.report.artifact_bytes
+                );
+                println!(
+                    "unreferenced artifacts: {} files / {} bytes",
+                    plan.unreferenced.len(),
+                    plan.report.unreferenced_artifact_bytes
+                );
+                println!(
+                    "migration backups: {} | deletable versions: {:?}",
+                    plan.migration_backups.len(),
+                    plan.deletable_backup_versions
+                );
+                println!("estimated reclaim: {} bytes", plan.estimated_reclaim_bytes);
+                if let Some(reason) = &plan.blocked_reason {
+                    println!("blocked: {reason}");
+                }
+                println!(
+                    "mode: dry-run; pass --confirm to checkpoint, VACUUM and delete listed files"
+                );
+            }
+            return Ok(());
+        }
+        let result = {
+            drop(store);
+            let store = kanzei_core::SessionStore::open_for_explicit_cleanup(&state_path)?;
+            store.cleanup_storage(&project_root)?
+        };
+        if parsed.json {
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        } else {
+            println!(
+                "checkpointed: {} | vacuumed: {}",
+                result.checkpointed, result.vacuumed
+            );
+            println!(
+                "deleted artifacts: {} | deleted backups: {}",
+                result.deleted_artifacts.len(),
+                result.deleted_backups.len()
+            );
+            println!("actual freed: {} bytes", result.actual_freed_bytes);
+            for error in result
+                .artifact_cleanup_errors
+                .iter()
+                .chain(result.backup_cleanup_errors.iter())
+            {
+                println!("cleanup pending: {error}");
+            }
+        }
+        return Ok(());
+    }
     if parsed.delete {
         let session_id = parsed
             .session_id
@@ -199,6 +265,7 @@ mod tests {
                 json: true,
                 plan: false,
                 delete: false,
+                clean: false,
                 session_id: None,
                 confirm: false,
                 project_root: Some(PathBuf::from("C:/project")),
@@ -221,7 +288,25 @@ mod tests {
                 json: true,
                 plan: false,
                 delete: true,
+                clean: false,
                 session_id: Some("ses-1".into()),
+                confirm: true,
+                project_root: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_explicit_cleanup_confirmation_and_dry_run() {
+        let args = vec!["clean".into(), "--confirm".into(), "--json".into()];
+        assert_eq!(
+            parse_args(&args).unwrap(),
+            ArtifactArgs {
+                json: true,
+                plan: false,
+                delete: false,
+                clean: true,
+                session_id: None,
                 confirm: true,
                 project_root: None,
             }
@@ -237,6 +322,7 @@ mod tests {
                 json: true,
                 plan: true,
                 delete: false,
+                clean: false,
                 session_id: None,
                 confirm: false,
                 project_root: None,

@@ -8,13 +8,13 @@
 - 验收: 收敛单一真源(Map/state),DOM 只做投影;切线/后台线/重启回归用例;冒烟覆盖
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-504
-- 进展: 实现提交 `8f490d92` 与自动化证据已完成。已确认真实安装位 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe` 存在且当前进程正在运行；当前窗口显示用户正在使用该应用，按发布规则不得强杀或擅自关闭。因此最后一项“已安装桌面应用退出→重启→读取持久化状态”暂记外部阻塞，待用户关闭窗口后执行真实重启链路；其余验收保持已通过。
-- observed_head: 8f490d92856e1e0208efee838b55b18254d6c883
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787008359348
+- 进展: 2026-08-25 复核更正：Computer Use 应用枚举确认安装位 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe 当前存在唯一窗口且正在使用；此前 Get-Process 路径筛选未识别该 Tauri/WebView2 窗口，不能据此执行重启。代码、静态与自动化回归仍已完成；剩余唯一动作是用户空闲后执行真实退出→重启→回读持久化 auto state，本轮不接管用户会话。
+- observed_head: c40a3403448d7c6d4aef1d7b52557bf74989ed37
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787602751911
 - 阻塞: 
 - 对账: 2026-08-20 对账:用户已关闭 kzapp 窗口,阻塞解除;剩余动作=重新启动安装位 kzapp 回读持久化 auto state 完成真实重启验收(桌面窗口空闲期执行,CLI 循环亦可承接);其余验收已通过(8f490d92)
-- 停车: 等待用户 kzapp 窗口空闲:剩余验收=重启安装位回读持久化 auto state,当前 PID 51368 为用户使用中进程不可接管;上一窗口期(2026-08-20 03:5x)已用于 R-101 停止 E2。解除人:用户空闲窗口+agent 执行
+- 停车: 等待用户空闲窗口：Computer Use 已确认安装位 kzapp 当前有唯一使用中窗口；剩余验收=退出→重启→回读持久化 auto state。用户空闲后由 agent 执行。
 
 ## D-566 cross-tree 隔离快照无回收且构建产物误报,121 目录 143MB 纯堆积 [fixing] (medium)
 - refs: D-395 D-397 R-306
@@ -88,12 +88,13 @@
 - 验收: ①本轮口径不再依赖 prior.len() 盲切:由 runner 维护跨压缩稳定的本轮边界(RunSummary 携带)或统计改事件真源;②三处调用点(coordinator/persistence/CLI finalize)统一新口径;③回归:模拟轮中压缩删短 prior 后,episode tools/metrics 与 harvest 仍只含本轮内容
 - refs: D-654
 - 优先级: P2
-- 进展: D-655 实现与验证完成：`RunSummary::round_messages` 在 crates/kanzei-core/src/runner/drive.rs 由 AssistantMessageCommitted/ToolResultsCommitted 事件捕获，轮中压缩不影响；桌面端 coordinator/persistence 与 CLI finalize 已统一读取该真源；复核修正段在 run/execution.rs 合并两段 round_messages。回归测试已覆盖压缩删短后 tools/metrics/failures 仍只取本轮。证据：T-1786922726649（kanzei-core 243 passed）、T-1786922726650（kanzei-app 237 passed）、T-1786922726651（kanzei 44 unit + 32 integration passed）。剩余：提交前 workspace fmt gate 被已登记 D-666 的 profiles/dev.rs 悬空 `draft.tools` 阻断，需先处理该验证阻断，再提交 D-655。
-- observed_head: 32513251d54e6dd311f08c44fac6df2adfa8454b
-- observed_worktree_hash: fnv1a64:0ed0323fde7f7dd4
-- recorded_at: 1787284251791
+- 进展: 2026-08-25 对账更正：D-655 实现与三 crate 定向回归已完成，D-666 已归档 fixed，cargo fmt --all -- --check 当前通过。尝试关闭时被 D-664 门禁拒绝：当前 HEAD 尚无绑定该条目的 full verify 全绿证据；不能绕过关闭门禁，也不把实现完成误写成条目已关闭。后续只需在不覆盖用户未提交改动的前提下取得当前 HEAD verify 证据，再执行 close/archive。
+- observed_head: c40a3403448d7c6d4aef1d7b52557bf74989ed37
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787602813016
 - 取活依据: engine:唯一可执行 WIP 是 D-655，必须先恢复它
-- 停车: D-655 实现与三 crate 定向测试已完成；提交前 workspace fmt gate 被 D-666 的现有悬空 `draft.tools` 语法缺陷阻断，先释放唯一 WIP 槽修复并单独提交 D-666，随后立即恢复 D-655 提交。恢复人:agent
+- 停车: 
+- 阻塞: 等待 D-664 关闭门禁所需的当前 HEAD 绑定 full verify 全绿证据；当前工作树含用户未提交的 memory 改动，本轮不覆盖或擅自提交。取得独立、可审计的 verify 证据后再关闭。
 
 ## D-662 托管文档专用工具膨胀致工具选择面过载 [fixing] (medium)
 - 原始描述: 外部评估 #5：Managed Documents 造成 Tool Explosion，从 Unix-like tools 走向 Domain-specific OS。用户判定这是工具设计问题，算缺陷不算决策
@@ -105,3 +106,30 @@
 - observed_worktree_hash: fnv1a64:a1d1426a5522a197
 - recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
+
+## D-711 记忆页筛选器 aria-label 未接入 i18n,英文界面可访问名称仍为中文 [open] (high)
+- 复杂度: small
+- 复现: scripts/ui-i18n-smoke.mjs 当前失败：crates/kanzei-app/ui/index.html:560-565 的 memory-scope-filter、memory-category-filter、memory-status-filter、memory-sort-filter 仅有中文 aria-label，未挂 data-i18n-*；对应静态检查报“静态中文元素未挂 data-i18n-*”。
+- 影响: 英文界面及屏幕阅读器仍读取中文筛选器名称，页面国际化冒烟持续失败，筛选控件的可访问名称与当前语言不一致。
+- 来源: 2026-08-25 全面项目审查；UI i18n 冒烟实测
+- 标签: 前端
+- 验收: 四个筛选 select 均补齐 data-i18n-aria-label 并接入 02-i18n.js 的渲染路径；node scripts/ui-i18n-smoke.mjs 通过；切换中英文后可访问名称同步变化，且不再有静态中文 aria-label 漏检。
+- 优先级: P1
+
+## D-712 800px 窄窗口侧栏抽屉遮挡对话空态,首屏引导被截断 [open] (high)
+- 复杂度: small
+- 复现: 在静态 UI 页面使用真实浏览器视口 800x600 并展开左侧栏：crates/kanzei-app/ui/style.css:764-769 将非折叠 sidebar 设为 absolute 抽屉，而空态仍在主内容区居中；截图显示空态图标和引导文字被侧栏覆盖/截断。1024x768 基本正常，说明问题集中在窄窗口断点。
+- 影响: 窄屏首次进入对话时，空态引导、图标与文案不可完整阅读，侧栏与主内容争抢首屏空间；用户无法清楚理解下一步操作。
+- 来源: 2026-08-25 全面项目审查；Playwright 静态浏览器 800x600/1024x768 视觉检查；docs/design/reliability_usability_self_hosting_quality.md:284-292 窄窗口可读性基线
+- 标签: 前端
+- 验收: 真实 UI 在 800x500、800x600、1024x720、1280x840 且侧栏展开/折叠时，空态图标文案、prompt/composer、右侧抽屉和状态栏均不重叠不截断；键盘焦点始终可见；补充对应窄窗口回归截图或自动化断言。
+- 优先级: P1
+
+## D-713 需求标题状态与正文状态冲突,取活和恢复口径不唯一 [open] (high)
+- 复杂度: medium
+- 复现: .kanzei/project/requirements.md 中存在结构化状态与正文状态不一致：R-284:23 标题为 [doing]、:34 正文状态为 todo；R-249:117/133 同样为 doing/todo；R-264:135/152 同样为 doing/todo；R-101:71 标题为 [doing]，:86 又记录 doing→todo 的状态纠正。机械对账已复现上述冲突。
+- 影响: work next、WIP 统计、依赖判断和 Agent 恢复可能按不同字段选取同一需求，导致已暂停条目被误取活、进行中条目被漏掉，需求台账无法作为唯一进度真源。
+- 来源: 2026-08-25 全面项目审查；requirements.md 状态一致性对账
+- 标签: 流程
+- 验收: 明确唯一规范状态源并完成存量清理；正文不再保留会被解析为当前状态的重复字段，历史变更移入进展/对账；机械检查对状态冲突直接失败；kz work next、需求页面和 Agent 恢复读取同一状态口径，并补充 R-284/R-249/R-264/R-101 回归核对。
+- 优先级: P1

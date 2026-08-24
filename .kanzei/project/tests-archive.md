@@ -10368,3 +10368,75 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-245
 - 收尾: 1787605352
 - 源码指纹: v2 crates/kanzei-core/src/lib.rs@f72ae230cd5b,crates/kanzei-core/src/store/mod.rs@13d07613ceb3,crates/kanzei-core/src/store/session.rs@a3cd502da785,crates/kanzei/src/cli/artifacts.rs@32004d722d1d
+
+## T-1786922726783 R-245 B5 定向套件（首次失败） [failed]
+- 命令: cargo test -p kanzei-core; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei
+- 时长: 25.0s
+- 摘要: kanzei-core 258 项中 257 通过、B5 新测试因迁移备份夹具写入错误目录失败；kanzei 尚未执行。已登记 D-714。
+- 关联: R-245 D-714
+- 收尾: 1787606042
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@948fb8e92c06,crates/kanzei-core/src/store/mod.rs@7ff6e3885537,crates/kanzei-core/src/store/session.rs@17955064c0eb,crates/kanzei/src/cli/artifacts.rs@7692a39b69b1
+
+## T-1786922726784 R-245 B5 定向套件（释放量指标失败） [failed]
+- 命令: cargo test -p kanzei-core
+- 时长: 8.0s
+- 摘要: kanzei-core 258 项中 257 通过；B5 生产指标断言 actual_freed_bytes > 0 失败，确认已删除文件字节被前后总占用差抵消。已登记 D-715 并修复计算口径。
+- 关联: R-245 D-715
+- 收尾: 1787606153
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@948fb8e92c06,crates/kanzei-core/src/store/mod.rs@7ff6e3885537,crates/kanzei-core/src/store/session.rs@7866d08a56c4,crates/kanzei/src/cli/artifacts.rs@7692a39b69b1
+
+## T-1786922726785 R-245 B5 安全整理精确测试 [passed]
+- 命令: cargo test -p kanzei-core store::session::tests::显式安全整理只在静止时执行并核对释放量 -- --exact; cargo test -p kanzei-core store::session::tests::显式安全整理拒绝运行中会话且不删除文件 -- --exact; cargo fmt --all -- --check
+- 时长: 8.0s
+- 摘要: B5 两个安全整理精确测试通过，分别验证空闲库 checkpoint/VACUUM/文件删除/释放量与运行中会话拒绝；cargo fmt --all -- --check 通过。测试命令期间 managed-file guard 回滚了测试触碰的 .kanzei/memory/index.db，未留下改动。
+- 关联: R-245 D-715
+- 收尾: 1787606222
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@948fb8e92c06,crates/kanzei-core/src/store/mod.rs@7ff6e3885537,crates/kanzei-core/src/store/session.rs@7866d08a56c4,crates/kanzei/src/cli/artifacts.rs@7692a39b69b1
+
+## T-1786922726786 R-245 B5 改动 crate 定向套件 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei
+- 时长: 49.0s
+- 摘要: kanzei-core 258 项通过，kanzei 单元 47 项与集成 32 项通过；B5 安全整理、CLI clean 参数和现有回归全部通过。
+- 关联: R-245 D-715
+- 收尾: 1787606281
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@948fb8e92c06,crates/kanzei-core/src/store/mod.rs@7ff6e3885537,crates/kanzei-core/src/store/session.rs@7866d08a56c4,crates/kanzei/src/cli/artifacts.rs@7692a39b69b1
+
+## T-1786922726787 R-245 B5 CLI clean 冒烟（路径前置失败） [failed]
+- 命令: 临时项目复制脚本：检查 .kanzei/state.db 后执行 artifacts clean dry-run/confirm
+- 时长: 0.0s
+- 摘要: 前置路径假设错误：项目状态库不在 .kanzei/state.db，脚本在复制前停止，未执行 CLI 清理。
+- 关联: R-245
+- 收尾: 1787606341
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@948fb8e92c06,crates/kanzei-core/src/store/mod.rs@7ff6e3885537,crates/kanzei-core/src/store/session.rs@7866d08a56c4,crates/kanzei/src/cli/artifacts.rs@7692a39b69b1
+
+## T-1786922726788 R-245 B5 CLI clean 冒烟（extended path 前置失败） [failed]
+- 命令: 临时项目复制脚本：Resolve-Path extended path 传给 Copy-Item 后执行 artifacts clean dry-run/confirm
+- 时长: 13.0s
+- 摘要: Copy-Item 不接受 Resolve-Path 返回的 \\?\C: extended path，临时 state.db 未复制，CLI 无法打开临时库；未修改项目库。
+- 关联: R-245
+- 收尾: 1787606401
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@948fb8e92c06,crates/kanzei-core/src/store/mod.rs@7ff6e3885537,crates/kanzei-core/src/store/session.rs@7866d08a56c4,crates/kanzei/src/cli/artifacts.rs@7692a39b69b1
+
+## T-1786922726789 R-245 B5 CLI clean 冒烟（运行态拒绝） [failed]
+- 命令: cargo run -p kanzei -- artifacts clean --dry-run --json --project-root <temp>; cargo run -p kanzei -- artifacts clean --confirm --json --project-root <temp>
+- 时长: 37.0s
+- 摘要: 真实 CLI dry-run 成功；confirm 按安全整理契约拒绝临时副本中的 1 个 running 会话，未删除任何文件。下一次冒烟将在临时副本内先将会话/输入置为终态。
+- 关联: R-245
+- 收尾: 1787606488
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@948fb8e92c06,crates/kanzei-core/src/store/mod.rs@7ff6e3885537,crates/kanzei-core/src/store/session.rs@7866d08a56c4,crates/kanzei/src/cli/artifacts.rs@7692a39b69b1
+
+## T-1786922726790 R-245 B5 CLI clean 冒烟（Python fixture 脚本失败） [failed]
+- 命令: 临时副本 Python sqlite 状态更新脚本后执行 artifacts clean dry-run/confirm
+- 时长: 0.0s
+- 摘要: Python -c 引号转义错误导致临时副本状态更新脚本语法失败，CLI 未执行，项目库未修改。
+- 关联: R-245
+- 收尾: 1787606518
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@948fb8e92c06,crates/kanzei-core/src/store/mod.rs@7ff6e3885537,crates/kanzei-core/src/store/session.rs@7866d08a56c4,crates/kanzei/src/cli/artifacts.rs@7692a39b69b1
+
+## T-1786922726791 R-245 B5 CLI clean integration [passed]
+- 命令: $root=Join-Path $env:TEMP ('kz-r245-cli-smoke-'+$PID); copy current .kanzei/state.db to temp; Python sqlite3 sets sessions/session_inputs terminal; cargo run -p kanzei -- artifacts clean --dry-run --json --project-root $root; cargo run -p kanzei -- artifacts clean --confirm --json --project-root $root; verify orphan/v1 deleted and v2 retained
+- 时长: 35.0s
+- 摘要: 真实 CLI clean integration 通过：dry-run 列出 state.db/WAL/freelist/artifact/无引用文件/迁移备份和预计释放 16188 bytes；confirm 返回 checkpointed/vacuumed=true，删除 orphan artifact 与 v1 备份，保留 v2，actual_freed_bytes=16188。
+- 关联: R-245 D-715
+- 收尾: 1787606592
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@948fb8e92c06,crates/kanzei-core/src/store/mod.rs@7ff6e3885537,crates/kanzei-core/src/store/session.rs@7866d08a56c4,crates/kanzei/src/cli/artifacts.rs@7692a39b69b1

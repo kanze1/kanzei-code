@@ -32,9 +32,10 @@ pub use store::{
     EpisodeRecord, FunnelCounts, RecallEvent, RecallLinkStats, RecallMetrics, Session,
     SessionArtifactReport, SessionDeletionPlan, SessionDeletionResult, SessionFact,
     SessionFactEnvelope, SessionFactError, SessionInvariant, SessionProjection, SessionStore,
-    SessionTurnTerminal, ShadowComparison, ShadowVerdictStats, StorageReport, StoreError,
-    StoredEvent, StoredProcess, StoredWorkEvent, TypedSessionWriter, WorkCheckpoint, WorkEvidence,
-    WorkFact, WorkProjection, WorkUnitSpec, WorkUnitStatus, MAX_CHECKPOINT_SUMMARY_CHARS,
+    SessionTurnTerminal, ShadowComparison, ShadowVerdictStats, StorageBackupReport,
+    StorageCleanupPlan, StorageCleanupResult, StorageReport, StoreError, StoredEvent,
+    StoredProcess, StoredWorkEvent, TypedSessionWriter, WorkCheckpoint, WorkEvidence, WorkFact,
+    WorkProjection, WorkUnitSpec, WorkUnitStatus, MAX_CHECKPOINT_SUMMARY_CHARS,
     MAX_WORK_ITEM_CHARS, MAX_WORK_LIST_ITEMS, MAX_WORK_OBJECTIVE_CHARS, SUBAGENT_TRANSCRIPT,
     WORK_PROJECTION_FORMAT_VERSION,
 };

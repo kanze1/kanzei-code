@@ -70,6 +70,40 @@ pub struct StorageReport {
     pub migration_backup_files: u64,
     pub migration_backup_bytes: u64,
 }
+/// 单个迁移备份的可审计占用记录。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageBackupReport {
+    pub version: i64,
+    pub relative_path: String,
+    pub bytes: u64,
+}
+
+/// R-245 B5 显式安全整理计划；dry-run 只读取并列出预计释放量。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageCleanupPlan {
+    pub dry_run: bool,
+    pub eligible: bool,
+    pub blocked_reason: Option<String>,
+    pub report: StorageReport,
+    pub unreferenced: Vec<ArtifactFileReport>,
+    pub migration_backups: Vec<StorageBackupReport>,
+    pub deletable_backup_versions: Vec<i64>,
+    pub estimated_reclaim_bytes: u64,
+}
+
+/// 显式安全整理的执行结果；失败项保留在结果中供下一次重试。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageCleanupResult {
+    pub before: StorageReport,
+    pub after: StorageReport,
+    pub checkpointed: bool,
+    pub vacuumed: bool,
+    pub deleted_artifacts: Vec<String>,
+    pub deleted_backups: Vec<String>,
+    pub artifact_cleanup_errors: Vec<String>,
+    pub backup_cleanup_errors: Vec<String>,
+    pub actual_freed_bytes: u64,
+}
 
 /// 单个 durable artifact 的引用图节点；路径来自项目 artifact 根目录内的实际文件。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
