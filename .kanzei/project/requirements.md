@@ -108,11 +108,11 @@
 - 阻塞: 
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
-- 进展: B7 已完成并待提交：修复 D-716 的删除/安全整理错误边界，代码位置 crates/kanzei-app/ui/15-views-misc.js:650-680；删除 IPC 失败仍只重试 conversation_delete，cleanup 失败与 artifact_cleanup_errors/backup_cleanup_errors 在 657-674 进入可见错误面板，retry 只调用 conversation_cleanup。新增 runtime 真实重放断言 scripts/ui-runtime-smoke.mjs（D-716/R-245 B7 段，位于 D-381 IPC 契约段前）：首次调用轨迹为 delete×1/cleanup×1，错误面板 retry 后为 delete×1/cleanup×2，证据 T-1786922726797。新增文案 crates/kanzei-app/ui/02-i18n.js:415。变更面 node check、lint、runtime、parallel-lines、a11y 通过；全 UI 六条记录 T-1786922726798 被既有 D-711 的四个 memory filter 缺 data-i18n-* 阻断，未声称六条全绿；kanzei-app 246 项定向回归 T-1786922726796 通过。B7 收口但 R-245 仍 doing：验收⑩磁盘配额测试与验收⑦真实桌面 E2 证据仍缺。
-- observed_head: ba9ace56d7eaf72a7cb7a5dfa975d8c747b5a724
-- observed_worktree_hash: fnv1a64:c4bd3ddf81c1b0b0
-- recorded_at: 1787607737247
-- 停车: 
+- 进展: B7 已提交：commit 194b1eec。修复 D-716 的删除/安全整理错误边界，代码位置 crates/kanzei-app/ui/15-views-misc.js:650-680；scripts/ui-runtime-smoke.mjs 真实重放首次 delete×1/cleanup×1、错误面板 retry 后 delete×1/cleanup×2，证据 T-1786922726797；T-1786922726799 为提交前 kanzei-app 246 passed。全 UI 六条记录 T-1786922726798 仍被既有 D-711 的四个 memory filter 缺 data-i18n-* 阻断，未声称六条全绿。B7 完成但 R-245 保持 doing：验收⑦真实桌面 E2 与验收⑩磁盘配额测试仍缺。
+- observed_head: 194b1eec3184e5290fe84f35d5f4dc8df879e61c
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787607943733
+- 停车: B7 实现与自动化回归已提交；剩余仅为真实桌面点击证据和未定义配额语义的验证缺口，暂让出唯一 WIP 槽，待真实桌面 E2 窗口与配额策略明确后恢复。
 - 取活依据: engine:唯一可执行 WIP 是 R-245，必须先恢复它
 - status: doing
 
