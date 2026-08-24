@@ -231,3 +231,21 @@ window.addEventListener("keydown", (event) => {
   if (paletteIsOpen()) closePalette();
   else openPalette();
 });
+
+// R-264 B10：命令面板进入 ESM；未迁移的 classic 提供方通过 globalThis 兼容桥提供 API。
+export {
+  PALETTE_LIMIT,
+  closePalette,
+  collectPaletteEntries,
+  movePaletteSelection,
+  openPalette,
+  paletteEl,
+  paletteEntries,
+  paletteIndex,
+  paletteIsOpen,
+  paletteMatches,
+  paletteRestoreFocus,
+  renderPaletteList,
+  runPaletteEntry,
+  setBackgroundInert,
+};

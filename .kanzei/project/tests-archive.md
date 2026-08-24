@@ -10223,3 +10223,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: B9 将 22-neural-flow.js 切为 ESM module 并保留 globalThis 兼容桥；graph 刷新覆盖 27 文件，迁移 dry-run 772 个 export 候选/198 条 import 语句；node --check 与六条前端冒烟全部通过，runtime 0 错误。
 - 关联: R-264
 - 收尾: 1787569869
+
+## T-1786922726764 R-264 B10 palette ESM 前端回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/01-core.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/03-shell.js; node --check crates/kanzei-app/ui/21-palette.js; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 3.0s
+- 摘要: B10 通过：4 个目标/提供方 JS node --check 全部通过；ESM runtime 覆盖 27 个 UI 文件、2339 次 invoke、10 个主视图、0 错误；ui-lint、parallel-lines、a11y、i18n、markdown 五条其余前端冒烟全部通过。仅有 Node ExperimentalWarning，无应用错误。
+- 关联: R-264
+- 收尾: 1787570313

@@ -144,16 +144,16 @@
 - 来源: 2026-08-15 用户提出「前端改成打包呢」。勘察(21 文件逐文件审计 + index.html 专项 + 外部依赖专项)结论:前端本身不是障碍(587 个真顶层符号、零重名冲突、零内联事件处理器),阻塞全在测试 harness——ui-runtime-smoke.mjs 的 6799 行断言建立在 vm.runInContext 逐文件跑经典脚本之上,ESM 下整体作废;且 ui-sources.mjs 修好正则后会出现「三个冒烟静默变绿」的失效模式。同轮用户问「做了对自举有收益吗」,结论是没有:ESM 不影响 cargo 任何耗时,前端六个冒烟合计约 4 秒;唯一收益(模型读代码时 import 自带溯源)已被 20467db 修好白名单后大体覆盖。故降为 P3 留档。
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:唯一可执行 WIP 是 R-264，必须先恢复它
-- 批次: 9/10
-- 进展: B9 已完成并提交 679376dd：crates/kanzei-app/ui/22-neural-flow.js:3 导出 neuralFlowEmit live binding，:440 在初始化 IIFE 后建立 globalThis 兼容桥；crates/kanzei-app/ui/index.html:1193 切换为 type=module；未改 R-285 事件逻辑。T-1786922726763：graph 刷新覆盖 27 文件，迁移 dry-run 772 个 export 候选/198 条 import 语句，node --check 与六条前端冒烟全部通过；runtime 27 文件、2339 次 invoke、10 个主视图、0 错误；当前窗口 #app 正常、console 无错误/警告。复核决策：06-agent-panel.js 仅是未加载的历史路径提示，不作为迁移单元；21-palette.js 依赖多个尚未完成显式 import/兼容桥，暂不扩大 B9 范围。下一步先设计真实跨模块 import/写 setter 的迁移批次，再继续，不执行全量迁移。
+- 批次: 10/10
+- 进展: B10 已完成并待提交：21-palette.js 迁移为 ESM，导出命令面板 API（crates/kanzei-app/ui/21-palette.js:235-251），index.html:1192 改为 type=module；为仍为 classic 的真实提供方建立渐进兼容桥：01-core.js:810 导出 $, on, promptBox 到 globalThis，02-i18n.js:1080 导出 localizeDynamic、t，03-shell.js:650 导出 log。保持命令面板通过既有控件 click 委托，不改业务行为。T-1786922726764：4 个目标/提供方 JS node --check、ESM runtime、ui-lint、parallel-lines、a11y、i18n、markdown 全部通过；runtime 覆盖 27 文件、2339 次 invoke、10 个主视图、0 错误。真实窗口 #app DOM 正常，console 无错误/警告，style.css 结构完整。graph --write 与迁移 dry-run 覆盖 27 文件，772 exports/198 import statements。剩余原验收⑤ globals 补偿删除、eslint sourceType 收口及⑥ 10 处顶层跨文件读/6 处 typeof 守卫显式 import，转入后续条目。
 - observed_head: 679376ddf5e4b19799d609adb8f89b9f26097154
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1787569994054
+- observed_worktree_hash: fnv1a64:3ae00a2f403fdaee
+- recorded_at: 1787570378136
 - 状态: todo
 - 阻塞: 
 - 对账: 2026-08-18 用户拍板 ESM 收尾「做完」,原 P3 留档提级 P2;剩余工作=批4(withSessionRender 等 5 处跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序与冒烟断言适配、删除 gen-ui-lint-globals 补偿机制);动工前先修 D-498(冒烟执行顺序与浏览器不一致),否则逐文件迁移的冒烟证据不可信;设计文档状态过期由 R-303 订正
 - 发现记录: {"Intent":"完成原生 ESM 迁移剩余批4并移除全局补偿机制","Explicit":"先完成 withSessionRender 跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序适配，再逐文件迁移并删除 globals 补偿","Assumptions":"批1-B3 的既有提交仍是当前 dev 基线且六条前端冒烟可作为迁移回归入口","Ambiguities":"现有条目进展标注批3/4但代码与 HEAD 已偏离，需要先按提交和工作树复核真实落点；设计文档索引显示路径存在性需以实际仓库为准","领域对象":"ui/*.js、index.html、scripts/ui-* smoke、ESLint globals 生成与配置","最小成功闭环":"测试 harness 能执行 ESM 且六条冒烟全绿，迁移后的浏览器入口能加载并保留逐文件 TDZ 语义","延后决策":"不引入打包器/TypeScript，不改 vendor 与业务逻辑；未能在本批收口的深层跨模块写另开后续条目"}
-- 停车: 无
+- 停车: 批次上限已达 10/10；B10 已通过验证，R-264 原验收⑤/⑥及剩余跨模块显式 import 尚未完成，已拆出后续条目继续；恢复人:agent。
 
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1
@@ -298,3 +298,14 @@
 - observed_worktree_hash: fnv1a64:dee5f1692c68b6ad
 - recorded_at: 1787276362163
 - 停车: 本轮 WIP 超限，B1 工具并发契约审计已完成；B2 尚未开始，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent
+
+## R-331 R-264 后续：ESM 显式 import 与 globals 补偿收口 [doing]
+- 内容: 承接 R-264 批1-B10 已完成的 harness 重建与渐进 ESM 入口迁移，完成剩余最终收口：把设计文档 §三 的 10 处顶层跨文件读与 6 处 typeof 守卫逐条改成真实显式 import/可写 setter；移除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验，并将 eslint.config.js sourceType 改为 module。不得迁移未加载的历史提示文件 06-agent-panel.js，不改 vendor、业务行为或引入打包器。
+- 发现记录: {"Intent":"完成原生 ESM 迁移最终收口","Explicit":"补齐10处顶层跨文件读、6处typeof守卫、删除globals补偿并切换eslint module","Assumptions":"R-264 B1-B10 与 T-1786922726764 仍是当前基线；渐进globalThis桥只在classic提供方尚未迁移期间存在","Ambiguities":"现有graph覆盖27个js且包含未加载历史提示文件；设计文档统计的44处守卫与本条点名6处的口径需以当前代码和验收表逐条对账","领域对象":"ui/*.js、index.html、scripts/ui-runtime-smoke.mjs、globals生成/清单、eslint.config.js","最小成功闭环":"所有实际加载UI模块可由ESM显式依赖连接，六条冒烟保留逐文件TDZ能力并全部通过，globals补偿删除后lint仍可运行","延后决策":"不引入打包器/TypeScript；未能在本后续条目内完成的深层循环依赖另开条目，不以兼容桥永久替代显式import"}
+- 复杂度: 大
+- 来源: 用户原话“继续推进，规则按系统提示执行”；承接 R-264 未完成验收⑤/⑥。
+- 标签: 前端
+- 验收: ①设计文档 §三 表格中的 10 处顶层跨文件读逐条改为真实显式 import，并覆盖 activeSessionId、promptBox、t、bgFilters/documentFilters/applyBatch、createWorktreeLine 等列出的依赖；②6 处 typeof X 守卫逐条改为显式 import 或等价的模块存在性判断，禁止继续依赖未定义裸标识符的 typeof 语义；③删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验，eslint.config.js 使用 sourceType: "module"；④每个迁移单元后运行六条前端冒烟，最终 graph 覆盖实际加载模块且 UI runtime、DOM、console 均通过；⑤保留浏览器逐文件执行与 TDZ 断言，06-agent-panel.js 仅作历史路径提示不纳入迁移。
+- refs: R-264
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-331(unblocks=0)

@@ -806,3 +806,6 @@ setInterval(() => {
   if (!anySessionBusy() && processPollTick % PROCESS_POLL_IDLE_EVERY !== 0) return;
   if (typeof refreshProcesses === "function") refreshProcesses();
 }, PROCESS_POLL_MS);
+
+// R-264 B10：为仍为 classic 的提供方建立显式兼容边界；ESM 消费者只读这些桥。
+Object.assign(globalThis, { $, on, promptBox });

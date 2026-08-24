@@ -647,3 +647,6 @@ function startFastStatusBar() {
 // DOM 就绪且脚本全部加载后,这里直接启动(函数调用发生在事件循环,届时已定义)。
 startFastStatusBar();
 
+// R-264 B10：21-palette.js 的渐进 ESM 兼容桥；最终由显式模块 import 取代。
+Object.assign(globalThis, { log });
+

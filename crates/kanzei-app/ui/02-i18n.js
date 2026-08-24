@@ -1076,3 +1076,6 @@ languageSelect.addEventListener("change", () => {
   if (typeof markLanguagePreferenceDirty === "function") markLanguagePreferenceDirty();
 });
 applyLanguage();
+
+// R-264 B10：21-palette.js 尚未迁移其提供方时，通过 globalThis 读取稳定的 i18n API。
+Object.assign(globalThis, { localizeDynamic, t });
