@@ -10509,3 +10509,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 四个 memory 筛选器的 data-i18n-aria-label 已被完整门禁覆盖；语法、lint、runtime、parallel-lines、a11y、i18n、markdown 全部通过。i18n 统计 1413 个资源 key、465 项 HTML 文案、57 项动态契约。
 - 关联: D-711
 - 收尾: 1787608027
+
+## T-1786922726801 D-712 窄窗口布局与完整 UI 门禁 [passed]
+- 命令: node --check scripts/ui-narrow-layout-smoke.mjs; node scripts/ui-narrow-layout-smoke.mjs; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 1.0s
+- 摘要: D-712 完整前端门禁通过：真实 Edge 窄窗口 4 视口×3 状态 0 重叠/截断/越界；UI lint、runtime、parallel-lines、a11y、i18n、markdown 全部通过。
+- 关联: D-712
+- 收尾: 1787608466
+- 源码指纹: v2 scripts/ui-narrow-layout-smoke.mjs@8e5ed41ff641
+
+## T-1786922726802 D-712 提交前 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 29.0s
+- 摘要: 提交门禁要求的 kanzei-app crate 覆盖通过：246 passed, 0 failed。
+- 关联: D-712
+- 收尾: 1787608588
+- 源码指纹: v2 scripts/ui-narrow-layout-smoke.mjs@8e5ed41ff641

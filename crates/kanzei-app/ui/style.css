@@ -768,6 +768,13 @@ button.mini { padding: 2px 10px; font-size: var(--fs-11-5); }
     box-shadow: 5px 0 18px var(--shadow);
   }
 }
+/* D-712:窄屏侧栏是抽屉，展开时必须从主区内容预算中显式扣除抽屉宽度。
+   否则空态的长提示会从抽屉下面穿过，图标/文案虽在 DOM 中却不可读。 */
+@media (max-width: 900px) {
+  #sidebar:not(.collapsed) ~ #main {
+    padding-left: min(320px, calc(100vw - 360px));
+  }
+}
 .crumb { font-size: var(--fs-12); color: var(--dim); font-family: var(--mono); }
 .spacer { flex: 1; min-width: 6px; }
 select {
@@ -1270,6 +1277,13 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--accent); outli
   /* 上下分区规则(当年计划面板与另一面板同开时各占一半)随 todowrite 一并摘除:
      子代理面板与活动面板本就互斥切换(agent-toggle/bg-toggle),不会同屏,
      没有第二个面板能与之并存了。 */
+/* D-712:右侧抽屉为绝对定位时，从主区预算扣除抽屉宽度；否则空态、composer
+   和状态栏会继续占满被抽屉覆盖的右侧像素。 */
+@media (max-width: 1400px) {
+  #main:has(~ #bg-panel:not(.hidden), ~ #agent-panel:not(.hidden)) {
+    padding-right: var(--right-drawer-width);
+  }
+}
 }
 .parallel-task-status { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .parallel-line { position: relative; display: flex; flex-direction: column; gap: 2px; }

@@ -8781,3 +8781,17 @@
 - observed_head: 194b1eec3184e5290fe84f35d5f4dc8df879e61c
 - observed_worktree_hash: fnv1a64:3e8986577383912e
 - recorded_at: 1787608037531
+
+## D-712 800px 窄窗口侧栏抽屉遮挡对话空态,首屏引导被截断 [fixed] (high)
+- 复杂度: small
+- 复现: 在静态 UI 页面使用真实浏览器视口 800x600 并展开左侧栏：crates/kanzei-app/ui/style.css:764-769 将非折叠 sidebar 设为 absolute 抽屉，而空态仍在主内容区居中；截图显示空态图标和引导文字被侧栏覆盖/截断。1024x768 基本正常，说明问题集中在窄窗口断点。
+- 影响: 窄屏首次进入对话时，空态引导、图标与文案不可完整阅读，侧栏与主内容争抢首屏空间；用户无法清楚理解下一步操作。
+- 来源: 2026-08-25 全面项目审查；Playwright 静态浏览器 800x600/1024x768 视觉检查；docs/design/reliability_usability_self_hosting_quality.md:284-292 窄窗口可读性基线
+- 标签: 前端
+- 验收: 真实 UI 在 800x500、800x600、1024x720、1280x840 且侧栏展开/折叠时，空态图标文案、prompt/composer、右侧抽屉和状态栏均不重叠不截断；键盘焦点始终可见；补充对应窄窗口回归截图或自动化断言。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-712(unblocks=0)
+- 进展: D-712 已修复并完成验收：crates/kanzei-app/ui/style.css:771-777 在 max-width:900px 为展开侧栏的 #main 扣除抽屉宽度；style.css:1280-1286 在 max-width:1400px 且 #bg-panel/#agent-panel 可见时为 #main 扣除右抽屉宽度，因此空态、composer 与状态栏不再进入抽屉覆盖区。新增真实 Edge/Playwright 回归 scripts/ui-narrow-layout-smoke.mjs:1-92，覆盖 800x500、800x600、1024x720、1280x840，侧栏展开/折叠与右抽屉状态；对 .empty-state、#prompt、#composer-context、#composer-bar、#statusbar 做视口边界与重叠断言，并聚焦 #rail-sidebar-toggle 验证键盘焦点可见。T-1786922726801：窄窗口 4 视口×3 状态 0 重叠/截断/越界，UI lint、runtime、parallel-lines、a11y、i18n、markdown 全通过。
+- observed_head: 6c995805be2611e46ff60da4b40178b9d6cb12fd
+- observed_worktree_hash: fnv1a64:592c85236a67b399
+- recorded_at: 1787608483658
