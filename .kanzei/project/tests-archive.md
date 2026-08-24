@@ -10185,3 +10185,34 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 脚本直接 import ESM 形式的 04-markdown.js；现有列表、表格、代码语言、安全外链与 XSS 断言全部通过。
 - 关联: D-692 R-264
 - 收尾: 1787568507
+
+## T-1786922726759 R-264 ESM 迁移面与静态 graph 审计 [passed]
+- 命令: node scripts/gen-esm-migrate.mjs --dry-run; node --input-type=module -e "import fs from 'node:fs'; const ui=fs.readdirSync('crates/kanzei-app/ui').filter(f=>f.endsWith('.js')).sort(); const graph=Object.keys(JSON.parse(fs.readFileSync('scripts/ui-esm-graph.json','utf8')).graph).sort(); console.log(JSON.stringify({ui_count:ui.length,graph_count:graph.length,missing_from_graph:ui.filter(f=>!graph.includes(f)),stale_graph_entries:graph.filter(f=>!ui.includes(f))},null,2));"
+- 时长: 0.2s
+- 摘要: 迁移 dry-run 计算 20 个 graph 文件、611 个 export 候选和 142 条 import 语句；目录对账发现当前 27 个 UI 脚本中有 7 个未进入静态 graph，确认全量迁移前存在漏覆盖风险。
+- 关联: R-264
+- 收尾: 1787569259
+
+## T-1786922726760 R-264 graph 修复后六条前端冒烟 [failed]
+- 命令: node --check scripts/gen-esm-graph.mjs; node --check scripts/gen-esm-migrate.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 1.8s
+- 摘要: graph 对账与 dry-run 已通过；ui-lint、parallel-lines、a11y、i18n、markdown 通过，但 ui-runtime 在现有 Node 22.14.0 中于 vm.SourceTextModule 构造处失败，后续 probeHits/neuralFlow 失败为级联结果。
+- 关联: R-264 D-693
+- 收尾: 1787569426
+- 源码指纹: v2 scripts/gen-esm-graph.mjs@425471d59fac,scripts/gen-esm-migrate.mjs@6b78fea4e0e7,scripts/ui-esm-graph.json@b76cf682536f
+
+## T-1786922726761 R-264 graph 修复后六条前端冒烟（正确 ESM 参数） [passed]
+- 命令: node --check scripts/gen-esm-graph.mjs; node --check scripts/gen-esm-migrate.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 1.9s
+- 摘要: graph 生成器与迁移器语法检查通过；runtime 使用项目要求的 --experimental-vm-modules 后覆盖 27 个 UI 脚本、2339 次 invoke、10 个视图且 0 运行时错误；ui-lint、parallel-lines、a11y、i18n、markdown 全部通过。
+- 关联: R-264 D-693
+- 收尾: 1787569468
+- 源码指纹: v2 scripts/gen-esm-graph.mjs@425471d59fac,scripts/gen-esm-migrate.mjs@6b78fea4e0e7,scripts/ui-esm-graph.json@b76cf682536f
+
+## T-1786922726762 D-693 ESM graph 覆盖对账与迁移 dry-run [passed]
+- 命令: node --check scripts/gen-esm-graph.mjs; node --check scripts/gen-esm-migrate.mjs; node scripts/gen-esm-graph.mjs --write; node scripts/gen-esm-migrate.mjs --dry-run
+- 时长: 0.3s
+- 摘要: graph 生成器显式写回 27 个当前 UI 脚本；迁移器对账通过并 dry-run 覆盖 27 个文件、773 个 export 候选、198 条 import 语句，无漏项或悬空项。
+- 关联: R-264 D-693
+- 收尾: 1787569491
+- 源码指纹: v2 scripts/gen-esm-graph.mjs@425471d59fac,scripts/gen-esm-migrate.mjs@6b78fea4e0e7,scripts/ui-esm-graph.json@b76cf682536f

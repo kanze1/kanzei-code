@@ -106,4 +106,10 @@ for (const file of files) {
     imports: Object.fromEntries([...imports.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
   };
 }
-console.log(JSON.stringify({ graph, conflicts: Object.fromEntries(conflicts) }, null, 2));
+const output = JSON.stringify({ graph, conflicts: Object.fromEntries(conflicts) }, null, 2) + "\n";
+if (process.argv.includes("--write")) {
+  fs.writeFileSync(path.join(here, "ui-esm-graph.json"), output);
+  console.log(`wrote ${Object.keys(graph).length} UI files to scripts/ui-esm-graph.json`);
+} else {
+  process.stdout.write(output);
+}

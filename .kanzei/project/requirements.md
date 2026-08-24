@@ -144,16 +144,16 @@
 - 来源: 2026-08-15 用户提出「前端改成打包呢」。勘察(21 文件逐文件审计 + index.html 专项 + 外部依赖专项)结论:前端本身不是障碍(587 个真顶层符号、零重名冲突、零内联事件处理器),阻塞全在测试 harness——ui-runtime-smoke.mjs 的 6799 行断言建立在 vm.runInContext 逐文件跑经典脚本之上,ESM 下整体作废;且 ui-sources.mjs 修好正则后会出现「三个冒烟静默变绿」的失效模式。同轮用户问「做了对自举有收益吗」,结论是没有:ESM 不影响 cargo 任何耗时,前端六个冒烟合计约 4 秒;唯一收益(模型读代码时 import 自带溯源)已被 20467db 修好白名单后大体覆盖。故降为 P3 留档。
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:唯一可执行 WIP 是 R-264，必须先恢复它
-- 批次: 6/10
-- 进展: B6 已落地：crates/kanzei-app/ui/04-markdown.js 增加 ESM exports 与迁移期 globalThis 兼容桥；crates/kanzei-app/ui/index.html 将 04-markdown 切换为 type=module；scripts/ui-markdown-smoke.mjs 直接 import 真实 ESM 模块，修复 D-692 的 Function 执行回归。T-1786922726754 六条前端冒烟全绿；T-1786922726755 kanzei-tools 定向测试 490 passed。下一步：收口 D-692 的 tracker 元数据后继续依赖闭包迁移。
-- observed_head: 8d35b99178bef97e54ad31a201a28b4ad0055e60
-- observed_worktree_hash: fnv1a64:0d10269ea8f349d4
-- recorded_at: 1787344225285
+- 批次: 8/10
+- 进展: B8 已完成 ESM 迁移 graph 覆盖修复并关闭 D-693：scripts/gen-esm-graph.mjs 新增 --write，按当前 ui/*.js 生成 scripts/ui-esm-graph.json；scripts/gen-esm-migrate.mjs 在执行前双向校验 graph 与 27 个直接 UI 脚本，不一致即硬失败。T-1786922726762：node --check、graph --write、迁移 dry-run 全部通过，覆盖 27 文件、773 个 export 候选、198 条 import 语句；T-1786922726761：六条前端冒烟按 --experimental-vm-modules 全部通过。下一步按已对账的真实依赖图选择下一文件迁移，仍不得直接执行全量迁移。
+- observed_head: d7a7472985a4965c7a643bae75e92fe9901d4f69
+- observed_worktree_hash: fnv1a64:a1e14f67081b43e8
+- recorded_at: 1787569518193
 - 状态: todo
 - 阻塞: 
 - 对账: 2026-08-18 用户拍板 ESM 收尾「做完」,原 P3 留档提级 P2;剩余工作=批4(withSessionRender 等 5 处跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序与冒烟断言适配、删除 gen-ui-lint-globals 补偿机制);动工前先修 D-498(冒烟执行顺序与浏览器不一致),否则逐文件迁移的冒烟证据不可信;设计文档状态过期由 R-303 订正
 - 发现记录: {"Intent":"完成原生 ESM 迁移剩余批4并移除全局补偿机制","Explicit":"先完成 withSessionRender 跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序适配，再逐文件迁移并删除 globals 补偿","Assumptions":"批1-B3 的既有提交仍是当前 dev 基线且六条前端冒烟可作为迁移回归入口","Ambiguities":"现有条目进展标注批3/4但代码与 HEAD 已偏离，需要先按提交和工作树复核真实落点；设计文档索引显示路径存在性需以实际仓库为准","领域对象":"ui/*.js、index.html、scripts/ui-* smoke、ESLint globals 生成与配置","最小成功闭环":"测试 harness 能执行 ESM 且六条冒烟全绿，迁移后的浏览器入口能加载并保留逐文件 TDZ 语义","延后决策":"不引入打包器/TypeScript，不改 vendor 与业务逻辑；未能在本批收口的深层跨模块写另开后续条目"}
-- 停车: B6 已提交 d7a74729，当前唯一剩余动作是先修复并收口 D-692 的 tracker 完整性；本轮主动让位 defect-first，待 D-692 关闭后恢复 B7。恢复人:agent
+- 停车: 无
 
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1

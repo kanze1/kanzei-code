@@ -8525,3 +8525,16 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787568791909
 - 取活依据: engine:唯一可执行 WIP 是 D-692，必须先恢复它
+
+## D-693 ESM 迁移静态 graph 漏掉新增 UI 脚本，可能静默跳过迁移 [fixed] (high)
+- 复现: 运行 node scripts/gen-esm-migrate.mjs --dry-run，再对比 crates/kanzei-app/ui 直接 .js 与 scripts/ui-esm-graph.json 的键；当前 27 个脚本仅 20 个入图，漏掉 7 个文件。
+- 影响: 全量迁移工具只遍历静态 graph，不会处理漏图文件；迁移结果可能部分成功但 index.html 仍加载 classic 脚本，导致 ESM 收口与验收覆盖范围失真。
+- 来源: self-found：R-264 B7 迁移面审计。
+- 标签: 流程
+- 验收: 迁移工具在 graph 与 ui/*.js 不一致时硬失败并列出漏项；graph 覆盖一致时 dry-run 覆盖全部直接 UI 脚本；现有六条前端冒烟保持通过。
+- refs: R-264 T-1786922726759
+- 优先级: P1
+- 进展: 验收逐项完成：①迁移器在 scripts/gen-esm-migrate.mjs:17-29 对 ui/*.js 与 graph 进行双向对账，发现漏项或悬空项即抛错并拒绝迁移，避免静默跳过；②scripts/gen-esm-graph.mjs:93-115 从当前 UI 目录遍历全部直接 .js，并由 --write 更新 scripts/ui-esm-graph.json，当前 graph 覆盖 27 个文件；③node --check、graph --write、gen-esm-migrate --dry-run 通过，dry-run 覆盖 27 文件/773 export 候选/198 import 语句，证据 T-1786922726762；六条前端冒烟按项目要求的 --experimental-vm-modules 全部通过，证据 T-1786922726761。
+- observed_head: d7a7472985a4965c7a643bae75e92fe9901d4f69
+- observed_worktree_hash: fnv1a64:a1e14f67081b43e8
+- recorded_at: 1787569499032

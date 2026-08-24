@@ -11,9 +11,23 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const uiDir = path.resolve(here, "../crates/kanzei-app/ui");
 const dryRun = process.argv.includes("--dry-run");
 
-// 依赖图(由 gen-esm-graph.mjs 生成后手动核对,避免脚本依赖脚本)。
+// 依赖图(由 gen-esm-graph.mjs --write 生成)。
 // file -> { imports: { symbol: sourceFile } }
 const graph = JSON.parse(fs.readFileSync(path.join(here, "ui-esm-graph.json"), "utf8")).graph;
+const uiFiles = fs.readdirSync(uiDir).filter((file) => file.endsWith(".js")).sort();
+const graphFiles = Object.keys(graph).sort();
+const missingFromGraph = uiFiles.filter((file) => !graphFiles.includes(file));
+const staleGraphEntries = graphFiles.filter((file) => !uiFiles.includes(file));
+if (missingFromGraph.length > 0 || staleGraphEntries.length > 0) {
+  throw new Error(
+    [
+      "scripts/ui-esm-graph.json 与 crates/kanzei-app/ui/*.js 不一致，已拒绝迁移以避免静默漏项。",
+      missingFromGraph.length ? `graph 缺少: ${missingFromGraph.join(", ")}` : "",
+      staleGraphEntries.length ? `graph 悬空: ${staleGraphEntries.join(", ")}` : "",
+      "请先运行 node scripts/gen-esm-graph.mjs --write。",
+    ].filter(Boolean).join(" "),
+  );
+}
 
 function addExports(src) {
   const lines = src.split(/\r?\n/);
