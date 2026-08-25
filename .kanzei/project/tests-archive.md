@@ -10565,3 +10565,26 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-713
 - 收尾: 1787609760
 - 源码指纹: v2 crates/kanzei-memory/src/docstore/archive.rs@0e6832d42f6c,crates/kanzei-memory/src/docstore/validation.rs@01488f4aec15,crates/kanzei-tools/src/tracker.rs@fac2d0703d79,crates/kanzei-tools/src/tracker/actions.rs@c59b74203061
+
+## T-1786922726808 发布候选 4f51113f 完整 verify [failed]
+- 命令: scripts\verify.ps1 -Full (发布树 C:\Users\kanzei\Documents\kanzei-release)
+- 时长: 0.0s
+- 摘要: 完整发布验证除 metrics regression gate 外全部通过；crate_sync 拦截 crates/kanzei-tools/src/tracker/actions.rs 生产行从基线 1003 增至 1109，增长 106，超过每文件允许 100 行，未生成 dist/verification.json，未进入打包发布。
+- 关联: D-713
+- 收尾: 1787643532
+
+## T-1786922726809 D-717 normalize 拆分定向回归 [passed]
+- 命令: cargo test -p kanzei-tools tracker::tests::d713_status_field_conflicts_are_gated_and_normalized_for_regression_ids -- --exact; cargo fmt --all -- --check
+- 时长: 2.0s
+- 摘要: normalize 拆分后 D-713 状态唯一真源回归 1 passed，workspace fmt check 通过。首次 0-test 过滤器未计入证据。
+- 关联: D-717
+- 收尾: 1787643835
+- 源码指纹: v2 crates/kanzei-tools/src/tracker/actions.rs@37c0f219b409,crates/kanzei-tools/src/tracker/actions/normalize.rs@7238d335ae58
+
+## T-1786922726810 D-717 提交前 kanzei-tools 全量回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 49.0s
+- 摘要: normalize 拆分后 kanzei-tools 完整回归 491 passed, 1 ignored。
+- 关联: D-717
+- 收尾: 1787643899
+- 源码指纹: v2 crates/kanzei-tools/src/tracker/actions.rs@37c0f219b409,crates/kanzei-tools/src/tracker/actions/normalize.rs@7238d335ae58

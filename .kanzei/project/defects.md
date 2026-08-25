@@ -106,3 +106,12 @@
 - observed_worktree_hash: fnv1a64:a1d1426a5522a197
 - recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
+
+## D-717 发布门禁被 tracker/actions.rs 增长 6 行拦截,normalize action 需要按动作族拆分 [fixing] (medium)
+- 复现: 在发布树 4f51113f 执行 .\scripts\verify.ps1 -Full；除 crate_sync 外全部步骤和 workspace 全量测试通过，metrics regression gate 报 crates/kanzei-tools/src/tracker/actions.rs 基线生产行 1003、当前 1109、增长 106，超过每文件允许 100 行。
+- 影响: 发布候选无法生成 dist/verification.json，package.ps1 -Publish 被证据门禁阻断；若直接抬 metrics_baseline 会绕过既有“下次先拆”治理约束。
+- 来源: self-found：D-713 完成后的发布前完整 verify
+- 标签: 流程
+- 验收: 按现有 tracker/actions/ 动作族模块结构拆出 normalize 实现，保持 TrackerTool 路由、输出、状态清理和全部回归行为不变；metrics regression gate 不再因该文件增长超 100 行失败；完整 verify 生成绑定当前 HEAD 的全绿 dist/verification.json。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 D-717(unblocks=0)
