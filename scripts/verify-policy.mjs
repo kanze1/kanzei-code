@@ -93,7 +93,9 @@ export function validateFullVerification(evidence, expectedCommit) {
 }
 
 function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, "utf8"));
+  // 剥 BOM:证据可能由不同 PowerShell 宿主写出(5.1 的 Set-Content -Encoding UTF8
+  // 带 BOM,pwsh 7 不带)。JSON.parse 遇 BOM 直接语法错,报错完全看不出根因。
+  return JSON.parse(fs.readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
 }
 
 const [command, arg1, arg2] = process.argv.slice(2);

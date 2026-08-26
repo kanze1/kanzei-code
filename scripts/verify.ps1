@@ -178,5 +178,12 @@ New-Item -ItemType Directory -Force "$root\dist" | Out-Null
     skipped_steps = @($policy.skipped_steps)
     checks = $checks
     all_pass = $true
-} | ConvertTo-Json | Set-Content "$root\dist\verification.json" -Encoding UTF8
+} | ConvertTo-Json | ForEach-Object {
+    # 不能用 `Set-Content -Encoding UTF8`:Windows PowerShell 5.1 会写 BOM,pwsh 7 不会。
+    # 带 BOM 的证据让发版门禁的 JSON.parse 直接语法错,且报错看不出根因。
+    [IO.File]::WriteAllText(
+        "$root\dist\verification.json",
+        $_,
+        [Text.UTF8Encoding]::new($false))
+}
 Write-Host "==> 证据已写入 dist\verification.json(commit $full_hash)" -ForegroundColor Green
