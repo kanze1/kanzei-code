@@ -216,6 +216,15 @@ pub fn run_once_with_parts<'a>(
         // 收尾落盘一旦进入就保持到本轮结束——延长的每一步都要重复这条指令,
         // 只在授予的那一步说一次,模型下一步就忘了自己在收尾。
         let mut winddown_until_end = false;
+        // 已授予的延长步数,**跨步保持**。
+        //
+        // `budget_extension` 每步新建,而授予判据是一次性的(`extension_used`):
+        // 授予后的下一步再问,拿到的是 0。若每步都用当步信号重算上限,授予当步
+        // 之后 `effective_max_steps` 会掉回 `max_steps`,而 `step` 已经越过它,
+        // `step == effective_max_steps` 永远不再成立——步数上限就此失效,整轮只能
+        // 靠模型自己停止调用工具才会结束。收尾提交的形状(只差一次 commit 就收手)
+        // 掩盖了这一点;收尾落盘的触发面宽得多,不修就会真的跑出无上限的轮。
+        let mut granted_extension: u32 = 0;
         loop {
             step += 1;
             // D-342 步首检查点:停止已置位就不再发起新的 provider 请求,以 halted
@@ -251,16 +260,17 @@ pub fn run_once_with_parts<'a>(
                 budget_extension: budget_extension.clone(),
                 winddown: winddown_signal.clone(),
             });
-            let extension = budget_extension
-                .load(std::sync::atomic::Ordering::Relaxed)
-                .min(2);
+            granted_extension = granted_extension.max(
+                budget_extension
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                    .min(2),
+            );
             // 收尾落盘信号一旦置位就保持到本轮结束——延长的每一步都要重复
             // 这条指令,只在授予的那一步说一次,模型下一步就忘了自己在收尾。
             if winddown_signal.load(std::sync::atomic::Ordering::Relaxed) {
                 winddown_until_end = true;
             }
-            let effective_max_steps = max_steps.saturating_add(extension);
-            let last_step = effective_max_steps > 0 && step == effective_max_steps;
+            let last_step = reached_step_ceiling(step, max_steps, granted_extension);
             // 步数预算(D-173):旧配置中的 0 已在装配段转换为有限默认上限。
             // 到达最后一步时收走工具并要求模型用文本收敛，防止工具/模型循环无限延长。
             let budget_checkpoint = is_budget_checkpoint(step);
@@ -1209,6 +1219,15 @@ fn commit_step_messages(
     StepMessageOutcome::Proceed
 }
 
+/// 本步是否已到达(或越过)含延长在内的步数上限。
+///
+/// `>=` 而不是 `==`:相等判据只要被跨过一次就再也不成立,把"上限"变成一个可以
+/// 错过的点。配合调用方跨步保持的 `granted_extension`,授予延长之后上限仍然成立。
+pub(crate) fn reached_step_ceiling(step: u32, max_steps: u32, granted_extension: u32) -> bool {
+    let effective = max_steps.saturating_add(granted_extension);
+    effective > 0 && step >= effective
+}
+
 /// R-202 批6:步骤收尾段的产物。
 enum StepFinalOutcome {
     /// 本步工具结果已落库,进入下一轮。
@@ -1506,6 +1525,31 @@ mod tests {
                 halted_by_user: false
             }
         ));
+    }
+
+    /// 授予收尾延长之后,步数上限必须仍然成立。
+    ///
+    /// 反例形态:授予判据是一次性的,授予当步之后再问拿到的是 0;若每步都用当步
+    /// 信号重算上限并按 `step == effective` 判定,`step` 已越过 `max_steps`,相等
+    /// 永远不再成立——整轮只能靠模型自己停手才结束。收尾提交的形状(只差一次
+    /// commit 就收手)掩盖了它;收尾落盘的触发面宽得多,不修就会跑出无上限的轮。
+    #[test]
+    fn 授予延长后步数上限仍然成立() {
+        // 无延长:到点即收敛。
+        assert!(!reached_step_ceiling(31, 32, 0));
+        assert!(reached_step_ceiling(32, 32, 0));
+
+        // 授予 2 步:延长期内不收敛,到新上限收敛。
+        assert!(!reached_step_ceiling(33, 32, 2));
+        assert!(reached_step_ceiling(34, 32, 2));
+
+        // 关键回归:即使延长额度丢失(退回 0),越过上限的步也必须收敛,
+        // 而不是因为"不相等"一路跑下去。
+        assert!(reached_step_ceiling(33, 32, 0));
+        assert!(reached_step_ceiling(99, 32, 0));
+
+        // max_steps=0 表示无上限,任何步都不收敛。
+        assert!(!reached_step_ceiling(9999, 0, 0));
     }
 
     #[test]
