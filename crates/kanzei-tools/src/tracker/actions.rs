@@ -16,8 +16,8 @@ mod action_helpers;
 use action_helpers::{
     archived_or_unknown, check_close_acceptance_reconciliation,
     check_close_classification_evidence, check_close_complexity_evidence,
-    check_close_source_ancestry, close_requires_verify, field_diff_summary, render_line,
-    unknown_id, user_visible_fields,
+    check_close_source_ancestry, close_verify_trigger, field_diff_summary, render_line, unknown_id,
+    user_visible_fields,
 };
 
 pub(crate) fn list(
@@ -441,14 +441,17 @@ pub(crate) fn update_close(
     if action == "close"
         && !already_terminal
         && crate::test_record::project_has_verify_script(&ctx.project_root)
-        && close_requires_verify(&ctx.project_root)
-        && !crate::test_record::verification_passed_for(&ctx.project_root, id)
     {
-        return ToolOutput::error(format!(
-            "{id} 最近一次提交新增/修改了设计文档或显著改动了单文件，但没有当前 HEAD 绑定的 verify 全绿证据，不能关闭。\
-             先运行 .\\scripts\\verify.ps1，再用 test_record 记录 status=passed、命令包含 verify.ps1、关联 {id}；\
-             verify 失败时先修复门禁欠账。"
-        ));
+        if let Some(trigger) = close_verify_trigger(&ctx.project_root) {
+            if let Some(gap) = crate::test_record::verification_evidence_gap(&ctx.project_root, id)
+            {
+                return ToolOutput::error(format!(
+                    "{id} 需要 verify 证据才能关闭({trigger}——这条判据看的是仓库最近一次提交,\
+                     不是 {id} 自己的改动面)。\n缺口:{gap}。\n\
+                     verify 失败时先修门禁欠账,不要绕过。"
+                ));
+            }
+        }
     }
     if action == "close" && !already_terminal {
         let tag = entries[pos]

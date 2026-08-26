@@ -39,35 +39,39 @@ pub(super) fn check_close_source_ancestry(entry: &Entry, cwd: &Path) -> Option<S
 /// 再由 test_record/verification.json 提供可复核证据。
 const SIGNIFICANT_CLOSE_CHANGE_LINES: usize = 100;
 
-fn numstat_requires_verify(numstat: &str) -> bool {
-    numstat.lines().any(|line| {
+/// 触发这道门禁的那一行改动;没有就返回 None。
+///
+/// 返回具体原因而不是 bool:这条判据看的是**仓库最近一次提交**,不是被关闭的那个
+/// 条目。一次 177 行的实现提交会让同一轮里所有 close 都要出示 verify 证据,包括
+/// 三行的导入修复。判据本身照旧,但报错必须说清"你背的是哪次提交的账",否则 agent
+/// 会去自己条目的改动面里找一个根本不存在的原因。
+fn numstat_verify_trigger(numstat: &str) -> Option<String> {
+    numstat.lines().find_map(|line| {
         let mut fields = line.splitn(3, '\t');
         let additions = fields.next().unwrap_or_default();
         let deletions = fields.next().unwrap_or_default();
         let path = fields.next().unwrap_or_default().replace('\\', "/");
         if path.starts_with("docs/design/") {
-            return true;
+            return Some(format!("最近一次提交改了设计文档 {path}"));
         }
-        let Some(additions) = additions.parse::<usize>().ok() else {
-            return false;
-        };
-        let Some(deletions) = deletions.parse::<usize>().ok() else {
-            return false;
-        };
-        additions.saturating_add(deletions) >= SIGNIFICANT_CLOSE_CHANGE_LINES
+        let additions = additions.parse::<usize>().ok()?;
+        let deletions = deletions.parse::<usize>().ok()?;
+        let total = additions.saturating_add(deletions);
+        (total >= SIGNIFICANT_CLOSE_CHANGE_LINES)
+            .then(|| format!("最近一次提交单文件改动 {total} 行:{path}"))
     })
 }
 
-pub(super) fn close_requires_verify(cwd: &Path) -> bool {
+pub(super) fn close_verify_trigger(cwd: &Path) -> Option<String> {
     let output = Command::new("git")
         .args(["diff", "--numstat", "HEAD^", "HEAD", "--"])
         .current_dir(cwd)
-        .output();
-    let Ok(output) = output else { return false };
+        .output()
+        .ok()?;
     if !output.status.success() {
-        return false;
+        return None;
     }
-    numstat_requires_verify(&String::from_utf8_lossy(&output.stdout))
+    numstat_verify_trigger(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// R-229:收集关闭文本里的「剩余/其余 N 处」式分类断言声明的 N。
@@ -442,21 +446,29 @@ pub(super) fn archived_or_unknown(
 
 #[cfg(test)]
 mod verify_change_tests {
-    use super::numstat_requires_verify;
+    use super::numstat_verify_trigger;
 
     #[test]
     fn design_document_always_requires_verify() {
-        assert!(numstat_requires_verify("1\t0\tdocs/design/new_doc.md"));
-        assert!(numstat_requires_verify("-\t-\tdocs/design/binary.md"));
+        assert!(numstat_verify_trigger("1\t0\tdocs/design/new_doc.md").is_some());
+        assert!(numstat_verify_trigger("-\t-\tdocs/design/binary.md").is_some());
     }
 
     #[test]
     fn significant_single_file_change_requires_verify() {
-        assert!(numstat_requires_verify(
-            "100\t0\tcrates/kanzei-tools/src/symbols.rs"
-        ));
-        assert!(!numstat_requires_verify(
-            "99\t0\tcrates/kanzei-tools/src/symbols.rs"
-        ));
+        assert!(numstat_verify_trigger("100\t0\tcrates/kanzei-tools/src/symbols.rs").is_some());
+        assert!(numstat_verify_trigger("99\t0\tcrates/kanzei-tools/src/symbols.rs").is_none());
+    }
+
+    /// 触发原因必须点名是哪次提交的哪个文件——判据看的是仓库最近一次提交,
+    /// 不是被关闭的条目。不点名,agent 就会去自己条目的改动面里找不存在的原因。
+    #[test]
+    fn 触发原因点名文件与行数() {
+        let reason = numstat_verify_trigger("120\t57\tsrc/core_service.py").expect("应触发");
+        assert!(reason.contains("core_service.py"), "{reason}");
+        assert!(reason.contains("177"), "{reason}");
+
+        let design = numstat_verify_trigger("1\t0\tdocs/design/plan.md").expect("应触发");
+        assert!(design.contains("docs/design/plan.md"), "{design}");
     }
 }

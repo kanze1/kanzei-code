@@ -311,24 +311,86 @@ pub fn records_for_entry(root: &Path, entry_id: &str) -> Vec<serde_json::Value> 
 /// passed test_record 且命令确实调用 `verify.ps1`。只看一个全局旧记录会把别的提交的
 /// 证据错归到当前关闭，因此不接受无当前 HEAD 绑定的记录。
 pub fn verification_passed_for(root: &Path, entry_id: &str) -> bool {
-    let Some(head) = current_head(root) else {
-        return false;
-    };
-    let Ok(text) = std::fs::read_to_string(root.join("dist/verification.json")) else {
-        return false;
-    };
-    let Ok(evidence) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return false;
-    };
-    if evidence["commit"].as_str() != Some(head.as_str())
-        || evidence["all_pass"].as_bool() != Some(true)
-    {
-        return false;
+    verification_evidence_gap(root, entry_id).is_none()
+}
+
+/// 证据不足时**说清缺的是哪一条**;齐备返回 None。
+///
+/// 报错文本必须是判据的完整说明。原实现只返回 bool,而调用方的提示只讲了第③条
+/// (「先跑 verify.ps1,再 test_record 记 passed」)——`dist/verification.json` 一个字
+/// 没提。实测后果:agent 严格照做三轮、被拒三轮,然后自己编了个错误理由(以为缺
+/// 「源码指纹」),条目一直关不掉。被挡住的 agent 会卡住;被挡住又不知道为什么的
+/// agent 会空转。
+///
+/// 另一半是**可满足性**:`dist/verification.json` 是 kanzei 自己 `verify.ps1` 的产物
+/// 格式。别的项目有自己的 verify 脚本,却不产这个文件,第①条就永远不成立——修好、
+/// 验过、记录齐全的条目照样关不掉,open 队列变成只增不减的棘轮。所以这个文件**不
+/// 存在**时不索要它,退回同等强度的替代:该条目自己的、跑过 verify 且被当前源码指纹
+/// 背书的 passed 记录。证据要绑当前代码这一层意图保住,不再要求一种私有文件格式。
+pub fn verification_evidence_gap(root: &Path, entry_id: &str) -> Option<String> {
+    let head = current_head(root)?;
+    let verify_record = records_for_entry(root, entry_id)
+        .into_iter()
+        .find(|record| {
+            record["status"].as_str() == Some("passed")
+                && record_command_text(record).contains("verify.ps1")
+        });
+
+    let evidence_path = root.join("dist/verification.json");
+    if !evidence_path.exists() {
+        // 本项目不产 kanzei 的证据文件:按"条目自己的新鲜 verify 记录"判。
+        let Some(record) = verify_record else {
+            return Some(format!(
+                "缺关联 {entry_id} 的 verify 全绿测试记录。先跑本项目的 \
+                 scripts/verify.ps1,再用 test_record 记 status=passed、命令包含 \
+                 verify.ps1、关联 {entry_id}"
+            ));
+        };
+        let fresh = record_finished_at(&record)
+            .map(|at| record_is_fresh(root, &record, at))
+            .unwrap_or(false);
+        if fresh {
+            return None;
+        }
+        return Some(format!(
+            "关联 {entry_id} 的 verify 记录 {} 没有被当前源码背书(过期,或「源码指纹」\
+             字段缺失/对不上当前工作树)。提交后重跑一次 verify 并重新登记,让证据绑住\
+             要关闭的这份代码",
+            record["id"].as_str().unwrap_or("?")
+        ));
     }
-    records_for_entry(root, entry_id).into_iter().any(|record| {
-        record["status"].as_str() == Some("passed")
-            && record_command_text(&record).contains("verify.ps1")
-    })
+
+    // kanzei 自己:严格路径,证据文件必须绑定当前 HEAD 且全绿。
+    let Ok(text) = std::fs::read_to_string(&evidence_path) else {
+        return Some(format!("{} 读不出来", evidence_path.display()));
+    };
+    // 证据可能由不同 PowerShell 宿主写出,BOM 不该让判定失败得莫名其妙。
+    let Ok(evidence) =
+        serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}'))
+    else {
+        return Some(format!("{} 不是合法 JSON", evidence_path.display()));
+    };
+    match evidence["commit"].as_str() {
+        Some(commit) if commit == head => {}
+        Some(commit) => {
+            return Some(format!(
+                "dist/verification.json 绑的是 {} 而当前 HEAD 是 {head};\
+                 证据必须绑要关闭的这次提交,提交后重跑 verify",
+                &commit[..commit.len().min(8)]
+            ))
+        }
+        None => return Some("dist/verification.json 没有 commit 字段".into()),
+    }
+    if evidence["all_pass"].as_bool() != Some(true) {
+        return Some("dist/verification.json 的 all_pass 不是 true;先修门禁欠账".into());
+    }
+    if verify_record.is_none() {
+        return Some(format!(
+            "verify 证据齐备,但缺一条关联 {entry_id}、status=passed、命令包含 verify.ps1 \
+             的 test_record——证据要挂到条目上才算这条的验收"
+        ));
+    }
+    None
 }
 
 /// R-309 B3:verify 产出的当前 HEAD 证据可替代重复的前端冒烟记录。
@@ -547,6 +609,146 @@ pub(super) fn check_frontend_smoke_claim(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 建一个"有自己的 verify.ps1、但不产 dist/verification.json"的项目根。
+    /// 这是 kanzei 之外任何项目的常态形状。
+    fn foreign_project(tag: &str) -> std::path::PathBuf {
+        let root = temp_root(tag);
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::create_dir_all(root.join("scripts")).unwrap();
+        std::fs::write(root.join("scripts/verify.ps1"), "# fixture\n").unwrap();
+        let mut command = std::process::Command::new("git");
+        crate::hide_console(&mut command);
+        command
+            .args(["init", "--quiet"])
+            .current_dir(&root)
+            .output()
+            .ok();
+        for args in [
+            ["config", "user.email", "t@example.com"],
+            ["config", "user.name", "t"],
+        ] {
+            let mut c = std::process::Command::new("git");
+            crate::hide_console(&mut c);
+            c.args(args).current_dir(&root).output().ok();
+        }
+        std::fs::write(root.join("base.txt"), "one\n").unwrap();
+        for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", "base"]] {
+            let mut c = std::process::Command::new("git");
+            crate::hide_console(&mut c);
+            c.args(&args).current_dir(&root).output().ok();
+        }
+        root
+    }
+
+    /// 核心回归:项目有自己的 verify 脚本、却不产 kanzei 私有的 dist/verification.json 时,
+    /// 关闭证据判据必须退回"条目自己的新鲜 verify 记录",而不是永远判缺。
+    ///
+    /// 反例是实测形态:Akashic-AgentOS 的 11 条 open 里有 4 条代码修好、verify 跑绿、
+    /// 记录齐全,却因为第①条永远不成立而关不掉——open 队列成了只增不减的棘轮,
+    /// 看起来就像"越修越多"。
+    #[test]
+    fn 无证据文件的项目退回条目自身的verify记录() {
+        let root = foreign_project("no-evidence-file");
+        assert!(
+            !root.join("dist/verification.json").exists(),
+            "fixture 前提:本项目不产这个文件"
+        );
+
+        // 一条记录都没有:说清缺的是记录本身。
+        let gap = verification_evidence_gap(&root, "D-044").expect("没有记录时必须判缺");
+        assert!(gap.contains("verify"), "{gap}");
+        assert!(gap.contains("D-044"), "{gap}");
+
+        // 补一条关联该条目、跑过 verify 的 passed 记录 → 放行。
+        crate::test_record::append_test_run(
+            &root,
+            "D-044 严格命令 verify",
+            "passed",
+            Some(".\\scripts\\verify.ps1"),
+            None,
+            Some(&["D-044".to_string()]),
+        )
+        .unwrap();
+        assert_eq!(
+            verification_evidence_gap(&root, "D-044"),
+            None,
+            "有本项目的新鲜 verify 记录就该放行"
+        );
+        // 别的条目不蹭这份证据。
+        assert!(
+            verification_evidence_gap(&root, "D-045").is_some(),
+            "证据要挂到条目上,不能全局复用"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// 缺口说明必须点名缺的是哪一条。报错文本不是判据的完整说明时,
+    /// 被挡住的 agent 会从"卡住"变成"空转"——实测是照着提示做三轮、被拒三轮,
+    /// 然后自己编了个错误理由。
+    #[test]
+    fn 证据文件存在时缺口说明点名具体那一条() {
+        let root = foreign_project("evidence-gaps");
+        std::fs::create_dir_all(root.join("dist")).unwrap();
+
+        // commit 对不上当前 HEAD。
+        std::fs::write(
+            root.join("dist/verification.json"),
+            r#"{"commit":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef","all_pass":true}"#,
+        )
+        .unwrap();
+        let gap = verification_evidence_gap(&root, "D-044").expect("commit 对不上必须判缺");
+        assert!(gap.contains("HEAD"), "{gap}");
+
+        // 绑对了 HEAD 但没全绿。
+        let head = current_head(&root).expect("fixture 是 git 仓库");
+        std::fs::write(
+            root.join("dist/verification.json"),
+            format!(r#"{{"commit":"{head}","all_pass":false}}"#),
+        )
+        .unwrap();
+        let gap = verification_evidence_gap(&root, "D-044").expect("未全绿必须判缺");
+        assert!(gap.contains("all_pass"), "{gap}");
+
+        // 全绿且绑定 HEAD,但没有挂到条目上的记录。
+        std::fs::write(
+            root.join("dist/verification.json"),
+            format!(r#"{{"commit":"{head}","all_pass":true}}"#),
+        )
+        .unwrap();
+        let gap = verification_evidence_gap(&root, "D-044").expect("缺条目记录必须判缺");
+        assert!(gap.contains("test_record"), "{gap}");
+        assert!(gap.contains("D-044"), "{gap}");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// 证据文件带 BOM(Windows PowerShell 5.1 的 Set-Content 会写)不该让判定
+    /// 变成"读不出来"——那会把一个编码问题伪装成缺证据。
+    #[test]
+    fn 证据文件带bom照样解析() {
+        let root = foreign_project("evidence-bom");
+        std::fs::create_dir_all(root.join("dist")).unwrap();
+        let head = current_head(&root).expect("fixture 是 git 仓库");
+        std::fs::write(
+            root.join("dist/verification.json"),
+            format!(
+                "{BOM}{{\"commit\":\"{head}\",\"all_pass\":true}}",
+                BOM = '\u{feff}'
+            ),
+        )
+        .unwrap();
+        crate::test_record::append_test_run(
+            &root,
+            "D-044 verify",
+            "passed",
+            Some("verify.ps1"),
+            None,
+            Some(&["D-044".to_string()]),
+        )
+        .unwrap();
+        assert_eq!(verification_evidence_gap(&root, "D-044"), None);
+        std::fs::remove_dir_all(root).ok();
+    }
 
     fn temp_root(tag: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
