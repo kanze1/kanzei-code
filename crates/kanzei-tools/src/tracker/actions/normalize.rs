@@ -157,6 +157,34 @@ pub(crate) fn normalize(
             }
         }
         // 空的保留字段也由上面的统一逻辑移除;空值没有可恢复语义,不写入进展。
+        // 机制产物字段:引擎每轮重算的东西被腌进了条目。`取活依据` 是典型——
+        // structured_entry 会把条目的**全部** fields 序列化进控制状态,于是这行必然
+        // 过期的快照跟着条目进每一次 work next 与文档快照,而调度器本来就每轮重算。
+        // 不写进展:它没有可审计价值,留一句"曾经写过"只是把噪音换个地方放。
+        let engine_fields: Vec<String> = entry
+            .fields
+            .iter()
+            .filter(|(key, _)| {
+                crate::docstore::DocStore::ENGINE_DERIVED_FIELDS.contains(&key.trim())
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+        if !engine_fields.is_empty() {
+            findings.push(format!(
+                "{region} {entry_id}: engine-derived field(s) `{}` — 引擎每轮重算,apply 将移除",
+                engine_fields.join("、")
+            ));
+            if apply {
+                entry.fields.retain(|(key, _)| {
+                    !crate::docstore::DocStore::ENGINE_DERIVED_FIELDS.contains(&key.trim())
+                });
+                touched = true;
+                fixed.push(format!(
+                    "{region} {entry_id}: removed {} engine-derived field(s)",
+                    engine_fields.len()
+                ));
+            }
+        }
         // ③ 标题状态标记污染(D-331 口径:状态的家是 header,不是标题)
         if let Some(marker) = crate::docstore::title_status_marker(&entry.title) {
             let stripped = crate::docstore::strip_status_markers(&entry.title);
@@ -229,6 +257,21 @@ pub(crate) fn normalize(
                 )
             });
         }
+        let archived_engine_fields: Vec<&str> = entry
+            .fields
+            .iter()
+            .filter(|(key, _)| {
+                crate::docstore::DocStore::ENGINE_DERIVED_FIELDS.contains(&key.trim())
+            })
+            .map(|(key, _)| key.as_str())
+            .collect();
+        if !archived_engine_fields.is_empty() {
+            findings.push(format!(
+                "archived {}: engine-derived field(s) `{}` — apply 将移除",
+                entry.id,
+                archived_engine_fields.join("、")
+            ));
+        }
         let mut seen: Vec<String> = Vec::new();
         for (key, _) in &entry.fields {
             let norm = key.trim().to_ascii_lowercase();
@@ -271,6 +314,19 @@ pub(crate) fn normalize(
                 Ok((false, _)) => {}
                 Err(e) => {
                     return ToolOutput::error(format!("cannot dedupe archived {}: {e}", entry.id))
+                }
+            }
+            match store.drop_archived_engine_fields(&entry.id) {
+                Ok((true, removed)) => fixed.push(format!(
+                    "archived {}: removed {removed} engine-derived field(s)",
+                    entry.id
+                )),
+                Ok((false, _)) => {}
+                Err(e) => {
+                    return ToolOutput::error(format!(
+                        "cannot drop archived engine fields {}: {e}",
+                        entry.id
+                    ))
                 }
             }
             match store.reconcile_archived_status_fields(&entry.id) {

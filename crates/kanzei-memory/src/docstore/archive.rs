@@ -434,6 +434,48 @@ impl DocStore {
         Ok((true, old_values.len()))
     }
 
+    /// 引擎每轮重算的机制产物字段——写进条目是走错门,清掉不留痕。
+    ///
+    /// 与 `reconcile_archived_status_fields` 的区别在**要不要写进展**:状态副本可能
+    /// 与权威 header 冲突,冲突本身是可审计的历史;机制产物没有这种价值——它只是
+    /// 一份必然过期的快照,引擎下一轮照样重算一遍,留一句"曾经写过"纯属噪音。
+    pub const ENGINE_DERIVED_FIELDS: &[&str] = &["取活依据"];
+
+    /// 清掉归档条目里的机制产物字段。与 dedupe/reconcile 共用同一把锁与写路径,
+    /// 不制造第二套整表写 API。
+    pub fn drop_archived_engine_fields(&self, id: &str) -> std::io::Result<(bool, usize)> {
+        let _lock = self.lock()?;
+        let mut archived = self.load_archive()?;
+        let Some(pos) = archived.iter().position(|entry| entry.id == id) else {
+            return Ok((false, 0));
+        };
+        let before = archived[pos].fields.len();
+        archived[pos]
+            .fields
+            .retain(|(key, _)| !Self::ENGINE_DERIVED_FIELDS.contains(&key.trim()));
+        let removed = before - archived[pos].fields.len();
+        if removed == 0 {
+            return Ok((false, 0));
+        }
+        let template = self
+            .preserved_archive
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or(DocumentTemplate {
+                preamble: Vec::new(),
+                entries: Vec::new(),
+            });
+        let archived_text = render_with_template(self.kind, &archived, &template);
+        let text = archived_text.replacen(
+            &format!("# {}\n", self.kind.heading),
+            &format!("# {} Archive\n", self.kind.heading),
+            1,
+        );
+        crate::atomic_file::write_atomic(&self.archive_file(), &text)?;
+        Ok((true, removed))
+    }
+
     /// R-227:归档条目字段里的占位符测试 ID 回填。占位符形态 `T-<数字>xxx`
     /// (真实测试 ID 是 `T-<10位时间戳>`),曾出现在 R-198/R-199/D-219/D-266/D-279/
     /// D-281/D-282/D-316 关闭证据里。回填 = 把占位符替换为 test_record 落盘的真实 ID。

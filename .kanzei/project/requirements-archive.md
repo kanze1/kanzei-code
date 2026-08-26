@@ -2177,7 +2177,6 @@
 - 标签: 核心
 - 背景: 本轮复盘发现:prompt_hints(memory/mod.rs:996) → store.search → 纯 FTS5 BM25 词面匹配(store.rs:732);dense 通道未接 embedder 恒空(memory/index.rs:15-16 注释明示)。抽象意图查询(如「评估 harness 质量」)召回率天然低——M-061 自举复盘 SOP 正文无「harness/质量」字眼词面永命中不到,反而命中 M-008/M-032/M-027 等字面偶合条目(本轮实测 0/3 命中)。这是系统性设计缺口,不是逻辑 bug。
 - 验收: ① 落地 dense 通道:接 embedder 后同 query 能召回词面不相关但语义相关的 SOP/fact 条目;② query 构造升级:从用户 prompt 提取意图词而非原样整句进 FTS;③ hybrid RRF 融合(memory/index.rs:337 已有框架,补 embedder 即生效);④ 召回遥测(record_recall)显示相关条目采纳率改善,不靠感觉评估。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-233
 - 批次: 3/3
 - 进展: B1-B3(2026-08-13)代码批次完成:B1 query 构造升级(intent_query+INTENT_BOUNDARY+端到端召回测试,927ecc2);B2 embedder 接线(prompt_hints 第4参+hybrid 检索+ensure_vectors 差集维护+遥测记通道,7f35044);B3 语义召回 e2e(词面不相关但语义相关可召回,验收①,e63be64)。关闭前全量 cargo test --workspace 759 passed/0 failed/2 ignored(T-1786604587)。验收对照:① dense 通道=prompt_hints_with_budget 走 SqliteMemoryIndex::with_embedder+search_hybrid_entries(mod.rs:1080-1086)+ensure_vectors(index.rs);② query 构造升级=intent_query(store.rs:1677)接线 mod.rs:1062;③ hybrid RRF=search_hybrid(index.rs:337,k=60)+生产走 hybrid;④ 遥测=record_memory_search_telemetry 记 hybrid/lexical+分段耗时(mod.rs:994-1004),B2 测试断言通道区分。残余(不阻塞):dense 无相似度阈值小库噪声靠 RRF 沉底;真实 embedder 采纳率改善需配 [embeddings] 后由 recall_events 观测。
 - observed_head: e63be64ecd503b28359eeacdcf354b5fb8bc5340
@@ -2222,7 +2221,6 @@
 - 内容: 删除 compile_gate(或降级为 clippy 输出缺位置信息时的诊断回退);verify.ps1 每步记秒数写进 verification.json 的 checks 值;test_record 加可选 duration 字段。
 - 验收: ①构造编译错误仍被拦且报错含 --> 位置;②单次源码提交门禁墙钟时间前后实测对照;③连续三次发版后能列出各步耗时。
 - refs: R-192 R-212
-- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-210
 - 进展: 2026-08-16(自动模式)交付:① git.rs commit 序列删掉串行 cargo check——clippy 全 workspace 编译覆盖 check;compile_gate 降级为 clippy 输出缺 --> 时的诊断回退(compile_gate 保留为私有回退,clippy_gate 失败且 stderr 无 --> 时调用补位置诊断)。验收①测试 clippy_gate_rejects_compile_error_with_position:构造未定义符号编译错误,clippy_gate 拦下且报错含 --> 与 lib.rs。② verify.ps1 每步 Stopwatch 计时(Step-With-Timing helper),checks 值记 'pass N.Ns',命令文本与 git.rs/ci.yml 逐项一致(对齐守护测试 stage_fmt_clippy_gates_align_with_ci_and_verify 绿);verify.ps1 语法解析通过。③ test_record 加可选 duration_secs 字段(TestRecordInput),经 record_test_run_with_duration / append_test_run_with_duration 写入 '- 时长: N.Ns'(既有调用零改动,靠 *_with_duration 变体);时长往返测试绿(含未提供 duration 不写行)。验证:kanzei-tools git:: 14 + test_record:: 29 全绿;提交 f432e91。残余(不阻塞,观测窗口):验收②墙钟前后实测随 harness 重建后的后续提交观测;验收③连续三次发版后 verification.json 各步耗时列表——机制已交付(checks 值带秒数),发版收尾时回填。
 - observed_head: f432e91bcc04038b98176e740394ac65cbac5b06
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2238,7 +2236,6 @@
 - 边界: 不做 VerificationRun 全量体系(见审计 §11 候选池);不校验测试是否真跑过。
 - 验收: ①前端冒烟记录无法背书纯 Rust 提交(定向测试);②正常闭环(改 crate→测该 crate→记录→提交)不受阻;③拦截文案指明缺口。
 - refs: D-295 R-210
-- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-212
 - 批次: 1/1
 - 进展: R-212 交付并关闭前全量验证(2026-08-13):实现见 B1(0095fb8)。验收对照:① 前端冒烟记录无法背书纯 Rust 提交——source_test_gate_frontend_smoke_cannot_back_rust_change:记录命令 node scripts/ui-runtime-smoke.mjs、暂存 crates/kanzei-tools 源码,时间戳满足但覆盖面 NonRust → 拦下并点名 crate/记录类型/应跑命令;② 正常闭环不受阻——source_test_gate_coverage_intersects_with_staged_crates:定向 cargo test -p kanzei-tools 背书 kanzei-tools、cargo test --workspace 背书任意 crate、scripts/ 非 crate 源码豁免;③ 拦截文案指明缺口——不匹配时文案含 暂存 crate 名、记录覆盖面类型(crate X/非 Rust)、应跑 cargo test -p <crate>。全量 cargo test --workspace 761 passed/0 failed(T-1786608051)。残余(不阻塞):记录覆盖面仅从命令解析,手动改 tests.md 可伪造覆盖面(威胁模型不防说谎的模型,与边界一致)。
 - observed_head: 0095fb863dc447993f7a3fa85f7c7b723d661541
@@ -2253,7 +2250,6 @@
 - 内容: 守护测试升级为机械比对两份清单的检查项集合(解析 verify.ps1 的 $checks 键与 ci.yml 步骤),任一侧增删即红;同步把 npm ci + ui-lint 补进 ci.yml。
 - 验收: ①故意单侧加一步时守护测试变红;②ci.yml 跑 ui-lint 通过;③git.rs 注释承诺改为指向守护测试或保持一致。
 - refs: R-142
-- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-209
 - 批次: 1/1
 - 进展: R-209 交付并关闭(2026-08-13,d124749):验收对照——① 单侧加一步守护测试变红:gate_checklists_align_across_git_verify_and_ci 双向比对(verify.ps1 Step-With-Timing 键集合==固定清单 10 键 + ci.yml 每键标记覆盖 + smoke 脚本两侧同现同隐 + npm ci 必需),任一侧增删即集合不等变红(修复前 ci.yml 缺 ui-lint/npm ci 时本测试必红);② ci.yml 跑 ui-lint 通过:ci.yml 已补 npm ci(eslint 依赖,package-lock.json 在库)+ ui-lint-smoke.mjs 进 ui smoke,本地六条冒烟全绿(ui-lint 31 文件 no-undef 0 错、ui-runtime 1547 invoke 等,T-1786608296);③ git.rs 注释承诺指向守护测试:git.rs 测试 doc、ci.yml 注释、verify.ps1 注释三处统一引用 gate_checklists_align_across_git_verify_and_ci。
 - observed_head: d124749aabe65ec0cde4f2280c9583dd4f33be40
@@ -2296,7 +2292,6 @@
 - 验收: ①存在可机械计算的耦合信号并对**真实历史条目**跑出结果:至少能对本轮三条(D-262/D-257/D-261)判定为可并行,且能对一组**已知耦合**的历史条目(如 R-177 与 R-182 的主根重定向两半)判定为耦合,两个方向各有证据。②`依赖` 与 `前置` 两个语义分离落地,调度器只对 `阻塞依赖` 跳过;R-177/R-182 正文里那两段「不写进依赖字段」的注释可以删掉而行为不变(这是本条是否真解决了问题的判据)。③判定留痕可回查:能对任一次并行派发回答「当时凭什么认为这两条无关」。④判定为耦合时给出的处置是可执行的,不是一句警告,有实测轨迹。⑤旧数据迁移保守:既有 `依赖` 值一律按阻塞处理,无行为回归,有测试。⑥与 R-184 的边界在文档上写清,不留「协作可见性顺带解决依赖判定」的误解。
 - 依赖: 
 - 前置(不写进依赖,按 D-239 教训): 与 R-182/R-184 同族,三条构成任务级并行的最小可用集——R-182 拆掉多余的锁、R-184 让各方知道彼此在写、本条决定**哪些能同时写**。缺任何一条,并行都会以不同方式出事。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-185
 - 批次: 3/3
 - 进展: R-185 四段工作全部落地(B1 依赖/前置分离 / B2 耦合证伪信号 / B3 判定留痕+处置 / B4 全量+边界文档),Git 提交:B1=5a5f12c,B2+B3=d77d871(提交标题含 B2+B3 两个标记),B4 纯验证+文档无代码提交。批次按 Git 提交真源(3 个标记)修正为 3/3。验收①-⑥逐条证据见此前进展。关闭。
 - observed_head: d77d871c6cfaebf9f60fc0a9ce90ab0282732778
@@ -2319,7 +2314,6 @@
 - 边界: 后台子代理仍受只读白名单约束——crates/kanzei-tools/src/subagent.rs:13-25 构造时只装 read/glob/grep,ask 一律 Deny(crates/kanzei-core/src/runner/subagent.rs:177-179);写权是 R-176 的事,两条需求不混做。面板呈现(Running/Finished 分区、单条停止、transcript 查看)属 R-174,本条只负责让后台条目有真实数据与真实停止通道可被它消费。
 - 验收: ①主代理派发后不阻塞的实证:同一轮内 task 派发时间戳与主代理后续工具调用时间戳**交错**(时间线证据),而非全部排在最慢子代理完成之后;②跨轮存活可实证:第 N 轮派发的子代理在第 N+1 轮仍在运行且可被查询到状态;③重启后能发现在跑的子代理:强杀进程后重开,注册表能列出上次未终结的子代理并给出确定处置(继续或标失败),不留幽灵条目;④给正在跑的子代理发消息能带原上下文续跑——续跑请求里可见此前 transcript,不是从空历史重开(与 subagent.rs:189 现状对照可验);⑤三种终态(超时/失败/被停)都有确定归宿且读槽被释放:协调器快照(`MemoryCoordinator::snapshot`,crates/kanzei-core/src/orchestration.rs:274)在终态后不再残留该子代理的读者身份,有测试覆盖三条路径;⑥事件可回放:后台子代理的生命周期事件落 session_events,重启后能按 id 回放完整轨迹;⑦通知走既有 `agent_notifications` 表(有测试证明未新造并行通道)。
 - refs: R-174 R-176 R-095 R-171 docs/design/parallel_read_serial_write_orchestration.md
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-175
 - 批次: 5/5
 - 进展: B1a+B1b+B2+B3+B4+B5 全部完成(2026-08-13,提交 8cd437d/a441df0/cf511ff/dfb1c29/babdc34/c09e44f,批次 5/5):B5(c09e44f)重启可发现——drive.rs spawn 块派发即记 running 事件(与 done/failed 并列,三条 task.lifecycle 完整);新增 pending_background_subagents 纯函数从 session_events 回放找「running 无终态」id(重启后列出上次未终结子代理,给确定处置标 failed,不留幽灵);验收③测试 pending_background_subagents_只列running无终态_终态不残留。workspace 801 passed 全绿、clippy 干净。批次按 Git 提交真源(B1a+B1b 在标题中解析为 B1 一个标记,共 5 个:B1/B2/B3/B4/B5)修正为 5/5。六段工作全部落地,逐条验收见关闭记录。
 - observed_head: c09e44f66e99d3f643dd8c2979873e2c2ea3e3ed
@@ -2339,7 +2333,6 @@
 - 边界: 不做通用的服务编排/健康检查/自动重启;不把默认档位改成长驻(D-174 的安全降级是有意为之)。子代理后台化属 R-175,两者语义相关但不是同一件事——R-175 管的是**子代理**跨轮存活,本条管的是**shell 后台进程**跨 run 存活;实现时共用注册表与终态口径,不要各造一套。
 - 验收: ①声明为长驻的后台服务在 owner run 结束后仍在跑,且能被查询到状态;默认档位的后台任务行为不变(owner run 收尾即收尾),有测试区分两档。②强杀 kzapp 后重开,注册表能列出上次未终结的长驻服务并给出确定处置,不留幽灵条目。③后台日志落盘:超过 256 KiB 的输出不再丢头,重启后仍可回看,有测试。④长驻服务写入托管路径(`.kanzei/project`、`.kanzei/memory`)仍被 D-174 的归因/回滚拦下,有回归覆盖。⑤日志落盘走 `crates/kanzei-tools/src/atomic_file.rs` 的原语,全仓不出现第二套写原语。
 - refs: D-174 R-175 R-138 R-097
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-180
 - 批次: 3/3
 - 进展: 全部批次完成(e3ad720 B1 / a318b7c B2 / f02fb3d B3),B3 后收尾核对与关闭前全量已做。验收证据:①长驻跨 owner 存活:persistent 字段 background.rs:61, finish_foreign_owners 跳过 :448, kill_project/kill_process 跳过 :708/:732, 两档区分测试;②强杀重开注册表:PersistentEntry 落盘 temp/kanzei-bg-logs/<hash>/registry.json(registry_path :522, save_registry :538), register 登记 :182-200, 自然退出移除 :256-270, stop 移除 :695-698, discover_persistent :559 / mark_registry_failed :570 / adopt_persistent :587 / kill_registered :646, process 工具 discover/adopt/kill :156-225, 幽灵清理测试;③日志落盘不丢头:full_output 全量+节流 write_atomic :206-249, 测试超256k;④长驻写托管路径仍被归因/回滚:守卫 :376-426, register/adopt 都挂守卫 :264/:636, 两条越界回归测试;⑤全仓单源 write_atomic:kanzei-llm/src/atomic_file.rs:39, kanzei-tools 经 lib.rs:6 pub use 单源引用(D-261 并轨), background.rs :237/:249/:541 三处全部走 crate::atomic_file。关闭前全量 cargo test --workspace 全绿(T-1786623266, kanzei-tools 321 含三批 10 个新测试)。
 - observed_head: f02fb3daaa453933203471c70fe172a394e2e561
@@ -2361,7 +2354,6 @@
 - 内容: ①把写租约扩成**跨进程**实现:复用 `atomic_file::FileLock` 的独占句柄手法,在主根落一个持久 lease(持有者 = pid + run_id + 取得时刻 + 用途),`ProjectExecutionCoordinator` 接口不变(设计基线明写「换插不换契约」);②新增 `kz lock <acquire|release|status>` CLI,让**外部 agent 也能入局**——外部 agent 不受 kanzei 的 runner 约束,唯一可行的是给它一个能主动调用的通道,并把「动仓库前先 `kz lock acquire`」写进 conventions;③引擎侧在取活前检查外部 lease,被占时**明说谁占着、占了多久**并等待或跳过,不得静默继续(D-004 口径);④崩溃不留死锁:独占句柄随进程退出由 OS 关闭,非 Windows 走 mtime 陈旧摘除,与 `FileLock` 同一套;⑤lease 事件进 session_events,与 R-171 的 `writer.*` 同一出口。
 - 边界: 不做强制拦截外部进程的写(做不到,也不该做);本条是**协作式**互斥——提供机制 + 可见信号,让双方都能知道对方在写。真正的强隔离是 worktree(R-177),两者互补不互替。
 - 验收: ①两个 OS 进程(kzapp + kz CLI)同时申请写租约,实际持有区间不重叠且顺序可审计;②`kz lock status` 能报出当前持有者(pid/run_id/取得时刻/用途)与等待队列;③引擎取活时被外部 lease 占住,轨迹里有可见记录并说明持有者,不是静默跳过或静默继续;④强杀持有进程后 lease 自动失效,下一个申请者能立刻拿到(崩溃不留死锁,有实测);⑤`ProjectExecutionCoordinator` 的调用契约未变(现有 runner/旁路调用点零改动,有编译期证据);⑥conventions 补一节「外部 agent 动仓库前的取锁纪律」。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-181
 - 批次: 1/1
 - 进展: 降级交付完成:按 2026-08-11 R-182 定调,跨进程写租约主张被推翻,本条降级为「外部写入者声明与检测入口」。交付(6ef64ab):`kz lock status` CLI(main.rs lock_cli + lock_status_report)——报主根/cwd/git 工作树未提交改动(外部 agent 痕迹可见)/活跃线(state.db processes),只读不阻塞,state.db 缺失走降级文案;2 测试。conventions §6.1 外部 agent 协作纪律。关闭前全量 cargo test --workspace 全绿(T-1786623912)。降级后验收逐条:①原「两进程写租约不重叠」→R-182 推翻(无 run 级租约;kz lock status 无锁可并跑,纯函数无共享状态);②原「报持有者/等待队列」→降级为报主根/cwd/工作树改动/活跃线;③原「引擎取活被外部 lease 占住」→R-182 撤销 run 级租约后不适用;④原「强杀 lease 失效」→无 lease 不适用;⑤协调器契约未变→零改动(仅 main.rs CLI 分发,core/tools 未动,编译证据);⑥conventions 纪律→§6.1 落地。
 - observed_head: 6ef64abae45aacec58f7d9d969d3a4d78fd0108f
@@ -2386,7 +2378,6 @@
 - refs: R-171 R-173 R-174 R-175 R-050 D-174 docs/design/parallel_read_serial_write_orchestration.md
 
 - 进展: 全部 5 批完成(B1 487f07e / B2 290d0ef / B3 674bf5a / B4 b77ac1d / B5 1dbf69e),关前全量 cargo test --workspace 全绿(T-1786626063)。验收证据逐条:①两写子代理租约不重叠可审计——B2 acquire_subagent_permit 走 MemoryCoordinator 同树 FIFO(write_scope),permit_kind 测试;②写工具强制经租约无旁路——B1 可写档位写权限不预设 Allow 由规则集裁决 + B2 可写路径代码强制 acquire_writer_lease;③询问先于取租约——B3 ask_router + writable_granted(Deny/Cancelled 拒绝不占租约)测试;④改动按 owner 归因——B4 SubagentChangeLog.record(owner=子代理 id)+ files_of 测试;⑤单独回滚不误伤——B4 rollback 只恢复该 owner 文件,测试验证其它 owner 与主代理改动保留;⑥面板展示持写权者/排队——B5 CollaborationLine writer_run_id/waiting_writers 从 coordinator.snapshot() 取,测试验证数据来自快照;⑦只读白名单未放宽——B1 回归测试(只读快照仍只含 read/glob/grep)。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-176
 - 批次: 5/5
 - observed_head: 1dbf69e525bfc09969b338fc99973e0723a59f34
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2400,7 +2391,6 @@
 - 内容: 格4 要求格3 本次会话内跑过,未跑或红灯时合并需显式「门禁未通过仍要合并」确认并落轨迹;合并成功后格5 前插入「合并后全量」一步。
 - 验收: ①未跑门禁时合并按钮带确认拦截(冒烟断言);②红灯覆盖确认落轨迹;③「合并后全量」步可跑且结果可见。
 - refs: D-305 R-179
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-222
 - 批次: 1/1
 - 进展: 完成:收活五格补两道防线——①门禁成为合并前置:格2(人读 diff)确认后只解锁格3(门禁),门禁全绿才解锁格4(合并),未跑/红灯时合并按钮点击弹「门禁未通过/未运行,仍要继续合并吗」显式覆盖确认并落轨迹(console + activityLog);②合并成功后格5 前插入「合并后全量」步(主根 worktree_post_merge_gate,复用 gate_steps 不另造门禁定义),通过后解锁格6(回写 tracker,原格5 顺延)。验收:①未跑门禁合并带确认拦截(冒烟断言 gateOk/gateRan 时序);②红灯覆盖确认落轨迹(console.info + activityLog push);③合并后全量可跑且结果可见(冒烟断言 postMergeCalls + pass 结论)。i18n 新增 13 个 key,ui-lint-globals 重新生成。前端冒烟五连全过(21 组断言),kanzei-app 140 passed。
 - observed_head: 1dbf69e525bfc09969b338fc99973e0723a59f34
@@ -2415,7 +2405,6 @@
 - 内容: 自动轮每次权限跳过在对话流落可见 notice 或轮末汇总「本轮 N 次被拦(动作/资源清单)」;「自动放行」开启时状态栏挂常驻警示徽标,tooltip 与持久化语义对齐(要么真的仅本次,要么明说会记住)。
 - 验收: ①自动轮被拦 ≥1 次时对话流可见;②开启自动放行后重启仍有常驻标识;③两条冒烟断言。
 - refs: D-281
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-223
 - 批次: 1/1
 - 进展: 完成:权限被拦聚合呈现——①自动轮(autonomous/parallel)权限询问被拦时,07-events.js 的 kz:ask 跳过分支调 recordBlockedAsk:每次落对话流可见 notice(⚠️ 权限被拦已跳过: action · resource),kz:done 轮末 summaryBlockedAsks 汇总「本轮 N 次被拦(动作/资源清单)」(被拦 ≥1 次才可见,blockedAskSummaryShown 防重复);②「自动放行」开启时状态栏挂常驻警示徽标 #status-auto-allow(警示色,index.html + style.css),syncAutoAllowBadge 随开关/初始化同步,localStorage kz-auto-allow 持久化跨重启仍显示;tooltip 语义对齐——「本次不再弹权限窗」改为「此选择会被记住,跨重启仍生效」(index.html + i18n key)。i18n 新增 4 key(权限被拦已跳过/本轮权限被拦/次/两个自动放行文案),ui-lint-globals 重新生成。验收:①被拦 ≥1 次对话流可见——冒烟断言(autonomous ask → notice + kz:done 轮末汇总);②重启后徽标常驻——localStorage 断言;③两条冒烟断言全过。前端冒烟五连全过(21 组断言,ui-runtime 1682 invoke)。
 - observed_head: 8534f4e8d7358a870085cf22fe5a9f47e42d38ba
@@ -2429,7 +2418,6 @@
 - 标签: 流程
 - 验收: ①前端标签任务关闭时未跑 ui smoke 会被拒;②D-320 类(i18n 缺 key、smoke 断言过时带病过关)在门禁层不可复现;③非前端任务不受影响
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-228
 - 批次: 1/1
 - 进展: 完成:关闭门禁测试面跟标签走——①test_record.rs 新增 frontend_smoke_passed(root):遍历 active+archive 找最近一条 passed 且命令命中 `node scripts/ui-*.mjs` 运行型冒烟(ui-runtime/i18n/lint/a11y/markdown)的记录,返回收尾时刻+标题;`node --check`(纯语法)与 cargo test 不算冒烟(验收②:smoke 断言过时带病过关不可复现——只有真跑过运行型冒烟才算数);②tracker.rs close 分支:条目标签含「前端」且无任何前端冒烟 passed 记录时拒绝关闭,文案点名「cargo test 全绿不等于前端全量」(验收①);非前端标签条目不受影响(验收③)。测试 2 个:frontend_smoke_passed_recognizes_ui_smoke_and_ignores_syntax_and_cargo(识别:ui-*.mjs 算、--check/cargo 不算、取最新收尾)、前端标签关闭需前端冒烟passed_非前端不受影响(行为:前端被拒→补冒烟后放行;核心标签放行)。kanzei-tools 325 passed、clippy/fmt 干净。
 - observed_head: 7b62fc686d4c7bdb469d6d809776dad49bd95e60
@@ -2444,7 +2432,6 @@
 - 内容: scripts/ 落一条压测脚本(参数:目标 -p crate 或全量、轮数、并行度),统计失败率、存档失败输出;约定偶发红一律先跑它出数字再定位;顺带评估 cargo-nextest 的逐测试计时与显式重跑标记能力。
 - 验收: ①能机械产出「连续 20 次全绿」或「N 次内命中 M 次」结论;②失败输出自动存档可回查;③用它对 D-293 两条跑一轮出数字并回填该条。
 - refs: D-293 R-200
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-211
 - 批次: 1/1
 - 进展: 完成:scripts/stress-test.ps1 压测脚本——参数 Target(-p crate 或空=全量)/Rounds/Parallel(1-4,仅单 crate)/Filter;逐轮跑 cargo test,统计失败率,输出机械结论「连续 N 次全绿」或「N 次内命中 M 次失败(第 X 轮)」(验收①);失败输出自动存档 output/stress-<时间戳>/round-N.log + summary.txt(验收②);约定偶发红先跑它出数字再定位。实测:全量 3 轮✓、单 crate 并行 2 轮✓、read::read_non_memory 20 轮 0 失败(0%)、docstore::原子写 20 轮 1 失败(5%,第 18 轮)——**抓到 D-293 修复后仍存在的真实偶发红**,新登记 D-338(读到截断态,docstore.rs:2181);全量 20 轮后台跑(超时阈值 10 分钟不够)。验收③:对 D-293 两条跑出数字 read 0%/docstore 5% 并回填。顺带评估:未用 cargo-nextest(逐测试计时属增强,现有脚本已满足载体需求)。
 - observed_head: babc9754d63d0fa1eb6caf40594e41ff2b9408fd
@@ -2458,7 +2445,6 @@
 - 标签: 流程
 - 验收: ①门禁单测覆盖断言引证不足拒绝;②R-199 式未核实分类断言在门禁层不可复现;③无分类断言的关闭不受影响
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-229
 - 进展: 2026-08-16 取活(engine:defect-first 队首)。实现(commit 89abe7e):关闭门禁在 tracker.rs close 分支 merged 构造后接入 check_close_classification_evidence(kanzei-tools/src/tracker.rs:660-666 调用),新增三个纯函数:classification_claims(识别「剩余/其余 N 处」断言,只认数字+处,「剩余价值」不算)、file_line_citations(数 [路径/]文件.扩展名:行号 引证,去重,排除 R-199:/12:30 类)、check_close_classification_evidence(声称总处数 vs 引证数,不足即拒)。两个新单测:分类断言引证不足拒绝关闭_r199式无引证不可复现(0 引证拒、2<3 拒、3==3 放行)+ 无分类断言关闭不受影响。验证:tracker 43 passed(T-1786630105)+ cargo test --workspace 全绿 794 passed(T-1786630228)+ fmt/clippy 全过。三条验收逐条对照:①门禁单测覆盖断言引证不足拒绝——测试 分类断言引证不足拒绝关闭_r199式无引证不可复现 断言 0 引证与 2<3 均 is_error;②R-199 式未核实分类断言在门禁层不可复现——同测试用 R-199 原文「剩余 3 处 autoContinueAllowed 为…非续跑否决」无任何 file:line 即被拒;③无分类断言的关闭不受影响——测试 无分类断言关闭不受影响 断言放行且状态转 done,「剩余价值」非断言用法不误伤。关闭。
 - observed_head: 89abe7ef3bd760b54a526784b8685dc2e501523a
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2471,7 +2457,6 @@
 - 标签: 后端
 - 验收: ①同值 update 返回 no-op 且文件字节不变(单测);②变更返回旧→新摘要;③close 幂等重入安全
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-232
 - 进展: 2026-08-16 取活(engine:defect-first 队首)。实现(commit 6051c16):①tracker.rs update/close 分支在应用变更前克隆 before(kanzei-tools/src/tracker.rs:625-634),比较 user_visible_fields(before) 与 after——同值返回 no-op 且不调 store.save(文件零写入,验收①);②有变更时 field_diff_summary 输出 旧→新 摘要并追加进 updated 返回(验收②);③close 幂等重入:already_terminal(done/fixed)条目再次 close 跳过 R-228 前端冒烟/批次/R-229 分类断言/测试记录校验,目标仍是当前终态,无变更零写入、补字段可落盘(验收③)。新增辅助函数 user_visible_fields(剔除引擎锚点 recorded_at/observed_head/observed_worktree_hash,纳入 status/title/severity)与 field_diff_summary。两个新单测:同值update返回noop且文件字节不变_变更返回旧到新摘要 + close幂等重入_已终态条目再次关闭返回noop。验证:tracker 45 passed(T-1786630650)+ kanzei-tools 全 329 passed + fmt/clippy 全过。三条验收逐条对照:①同值 update 返回 no-op 且文件字节不变——测试断言 out.content 含 no-op 且前后文件字节相等(同值 update 必须零写入);②变更返回旧→新摘要——测试断言输出含「优先级: P1 → P2」且落盘;③close 幂等重入安全——测试用已 done 前端标签条目(无前端冒烟 passed)再次 close,断言不被 R-228 拦截、返回 no-op、文件字节不变、状态不回退;重入补字段(进展)可落盘。关闭。
 - observed_head: 6051c160d8623b392b3dd1fbc069b55c224cd67e
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2486,7 +2471,6 @@
 - 优先级: P0
 
 - 标签: 流程
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-144
 - 复杂度: 大
 - 批次: 4/4
 - 进展: B4 完成(2026-08-16):cargo test --workspace 全绿 797 passed(T-1786632590)。四条验收逐条对照:①鞭挞/自主推进每关闭 N 条(可配)自动插入一轮只读核查——Cadence.verify_every_n(默认 3,0=关闭,config.rs:170-177)、AutoRunState.closed_since_verify 计数 + decide 达阈值返回 VerifyRound(harness auto_run.rs:197-203)、app run.rs 构造 AutoRunCtx 传 closed_count_this_round(summary 里 req/defect close 成功配对)+ cadence 配置(kanzei-app/src/run.rs:1000-1005);②复用 SubagentBase read/glob/grep 核对验收证据与真实调用方——verify_prompt(harness auto_run.rs:131-147)指示主代理用只读 task 子代理核对,核查指令经 serialize_action VerifyRound 携带 prompt 发给前端(kanzei-app/src/auto_run.rs:141-148),前端 armAutoContinue(action.prompt) 发回(07-events.js VerifyRound 分支);③发现问题时生成候选缺陷或退回依据——verify_prompt 明确指示 defect add 生成候选缺陷(来源 self-found 验收核查),核查指令进主对话即自然落库(引擎既有能力);④核查不进入主 conversation/queue——核查是独立输入的核查轮(VerifyRound 占一轮计数),结果以 notice/候选缺陷呈现;触发频率与 N 可配置——[cadence] verify_every_n,unknown_keys 白名单 + cadence_guidance 注入同步。新增测试:harness 每关闭n条触发核查轮_阈值0关闭机制、app closed计数_只数成功的close调用、verifyround序列化_携带核查指令prompt。验证:harness 121 + app 142 + tools 332 + core 150 全量 797 passed + ui-runtime 21 + i18n 冒烟 + clippy/fmt 全过(commit 19bd124)。关闭。
@@ -2499,7 +2483,6 @@
 - 标签: 核心
 - 验收: 支持新项目场景下的简化固定流程，降低上下文依赖
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-192
 - 进展: 2026-08-16 取活。R-192 自登记起只有 复杂度/标签/验收/优先级 四字段,无「内容」;验收原文「支持新项目场景下的简化固定流程,降低上下文依赖」。勘察:R-192 被 R-210 在 refs 引用(提交门禁减重源头之一),git 历史无更多上下文;自动运行无法向用户提问,按验收原文最小合理实现——在 dev system prompt(profiles.rs)追加「Lightweight fixed flows (R-192)」三段固定流程:①缺陷登记(defect add 必填字段 + 修复后 defect close);②发版(跑 release.ps1 → 全量 → 装 CLI → 构建桌面端 → kz --version hash 与 HEAD 一致才报发版完成);③新条目开工(work next → claim → 批次 → 完成 → 中/大复杂度全量 → req update done 带逐条验收证据)。三段流程让新项目 agent 不依赖完整长上下文即可正确完成登记/发版/关闭——降低上下文依赖,对应验收。新增守护测试 dev_system_prompt_teaches_lightweight_fixed_flows(profiles.rs)断言 8 个关键 token。验证:kanzei-tools 333 passed(T-1786632765)+ cargo test --workspace 全绿 798 passed(T-1786632848)+ clippy/fmt 全过(commit f70f7eb)。验收逐条对照:验收原文只有一条「支持新项目场景下的简化固定流程,降低上下文依赖」——dev system 注入的三段固定流程(缺陷登记/发版/新条目开工)在新项目上下文未加载完整 conventions 时即可执行,守护测试锁定注入不漂移,满足验收。关闭。
 - observed_head: f70f7eb392e2ce7e978d7863e8cf55e27fb22be0
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2514,7 +2497,6 @@
 - 内容: SubagentBase 加入 files、git(限 status/diff/log 只读子命令),保持全 allow 零 ask;webfetch 暂不加。
 - 验收: ①勘察角色能独立完成一个需要 git log 的勘察任务;②写类 git 子命令在子代理内被拒(定向测试);③既有只读语义测试全绿。
 - refs: R-173 R-174
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-218
 - 进展: 2026-08-16 取活。实现(commit f5ba68f):SubagentBase(tools/subagent.rs:19-32)加入 files(FilesTool)与 git(GitTool),权限规则全 Allow 零 ask:read/glob/grep/files 用 rule(*,*,Allow),git 只对 status/diff/log 三个只读 action 放行——写类 action(stage/commit/merge_ff/finalize)不设规则,子代理内 ask 恒 Deny → 被拒(验收②)。同步更新 explore_agent 描述(subagent.rs:84-90)与 task_spec 描述(core runner/subagent.rs:269-281,原「cannot inspect git state」改为可查 status/diff/log)。测试:subagent_snapshot_is_read_only 更新为 5 件套断言(files Allow、git 只读 action Allow、写 action Ask),subagent_readonly_snapshot_unchanged_by_writable_component 更新(git 在场但写 action Ask)。验证:kanzei-tools 333 passed(T-1786633065)+ kanzei-core 150 passed(T-1786633097)+ clippy/fmt 全过。三条验收逐条对照:①勘察角色能独立完成需要 git log 的勘察任务——SubagentBase 快照 git log/status/diff 全 Allow,工具已装配(task_spec/explore 描述同步),勘察子代理可查 git 历史;②写类 git 子命令在子代理内被拒——快照测试断言 evaluate(git, stage/commit/merge_ff/finalize)==Ask,子代理内 ask 恒 Deny = 被拒;③既有只读语义测试全绿——subagent 4 passed(含快照用户 deny 生效/只读语义),kanzei-tools 全量 333 passed。关闭。
 - observed_head: f5ba68f5c9e04306cf287e715abd0aba6c91f443
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2526,7 +2508,6 @@
 - 标签: 核心
 - 背景: 评估代码质量时粒度停在文件级+文本匹配级:files 给行数、grep 给正则命中、read 给逐行文本。中间缺符号/结构级视图(依赖关系、调用链、函数列表),导致质量评估只能「读全文(重)」或「靠行数猜(浮)」,没有中间档。本轮评估 harness 质量时暴露:靠 files 行数+测试数量下结论,未读一行代码。
 - 验收: ① 对指定文件/crate 输出符号列表(函数/结构/impl);② 输出调用链或依赖关系(谁调用谁/依赖哪些 crate);③ 不必 read 全文即可定位质量热点(如 config.rs 2851 行的内部结构);④ 有真实调用方(agent 在评估/重构类任务中实际使用),不昺昺死在死代码。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-234
 - 批次: 4/4
 - 进展: B4 完成(2026-08-16):全量发现 2 个回归并修复——①background_subagent_dispatch 超时测试的 mock 服务器假设请求体≤4096,工具 schema 增多后请求变大,服务器第二个 read 读到 EOF 正常完成而非超时;改为循环读任意大小请求体后挂起(commit b644f16);②parallel_scouting_under_serial_writer 与 app state_tests 断言子代理快照 3 件套,更新为 6 件套(files/git/glob/grep/read/symbols,commit b644f16)。cargo test --workspace 全绿 802 passed(T-1786633882)+ clippy/fmt 全过。四条验收逐条对照:①对指定文件/crate 输出符号列表(函数/结构/impl/enum,带行号与可见性)——symbols 工具(symbols.rs scan_symbols),目录递归收集 .rs;②输出调用链——callers 参数列出对指定符号的全部引用点(file:line,排除定义行);③不必 read 全文即可定位质量热点——symbols 输出 fn/struct/impl 行号地图,callers 给调用关系,介于 files(行数)与 read(全文)之间;④有真实调用方——symbols 装配进 BaseComponent(主代理)与 SubagentBase(勘察子代理),explore_agent/task_spec 描述同步,agent 评估/重构任务可直接调用。B1 符号提取 3 测试 + B2 callers 1 测试 + 快照断言更新。关闭。
 - observed_head: b644f1657f2aadede85b26ef65050605740ceb04
@@ -2543,7 +2524,6 @@
 - 边界: 不改 Ask 在 NonInteractive 下等于 Deny 的语义(那是 R-183 的事);默认不放行任何域名。
 - 验收: ①交互轮 dev 可搜索;②自主轮按域名白名单放行 webfetch 有定向测试;③白名单外域名仍走 Ask。
 - refs: R-183 R-198
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-217
 - 进展: 2026-08-16 取活。实现(commit c2df0cf):①dev 档联网——websearch 注册进 BaseComponent(base.rs:46-47),所有档位默认可用,权限 Ask(交互轮可放行,自主轮 NonInteractive 下 Ask 即拒,边界语义不变);②域名级白名单——webfetch.rs 新增 normalize_url_resource(去 scheme 保留 域名+路径),WebFetchTool.resources 返回规范化资源,规则 `docs.rs/*` 形态与既有 wildcard_match 直接配合;websearch 的 resources 已返回 SEARCH_URL(html.duckduckgo.com/html),同样支持域名规则;默认不放行任何域名(边界:默认 Ask)。新增测试:webfetch url资源规范化_去掉scheme保留域名路径、profiles dev档注册websearch默认ask_域名白名单可精确放行(白名单内 Allow、白名单外 Ask)。验证:kanzei-tools 339 passed(T-1786634220)+ cargo test --workspace 全绿 804 passed(T-1786634298)+ clippy/fmt 全过。三条验收逐条对照:①交互轮 dev 可搜索——websearch 注册进 dev 档(默认 Ask,交互轮可放行);②自主轮按域名白名单放行 webfetch 有定向测试——dev档注册websearch默认ask_域名白名单可精确放行 断言 docs.rs/* 白名单放行 docs.rs 域名、websearch 白名单放行 html.duckduckgo.com;③白名单外域名仍走 Ask——同测试断言 example.com/x 返回 Ask。关闭。
 - observed_head: c2df0cf254fbb2434aebbe69a57ad5d19d9886e7
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2558,7 +2538,6 @@
 - 内容: context_limit 未知时按保守默认(如 32k)启用主动压缩并在启动告警点名「该 provider 无上下文基准」;恢复计数在成功恢复且随后 N 步无 overflow 后衰减。
 - 验收: ①未知 provider 长跑不再第三次 overflow 直接终止(集成测试);②已知 provider 行为不变;③启动告警可见。
 - refs: D-288
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-219
 - 进展: 2026-08-16 取活。实现(commit 6143887):①drive.rs 轮内预算——context_limit 未知时按保守默认 32k 启用主动压缩(原 `if let Some(limit)` 改为 effective_limit = context_limit.unwrap_or(32k),unknown provider 不再全程无主动预算);启动时 tracing::warn 点名「该 provider 无上下文基准,按保守默认 32k 做轮内预算」(验收③);②恢复计数衰减——compaction.rs 新增纯函数 decay_overflow_recoveries(saturating_sub(1)),drive.rs StepFinish 每成功一步调用一次,长跑中 overflow 后跟成功步计数回落,恢复额度重新充满,第 3 次 overflow 不再必然终止(验收①)。新增单测:恢复计数随成功衰减_封底为零(compaction.rs,断言 2→1→0→封底 0,两次 overflow 各恢复后各成功一步回到 0)。验证:kanzei-core 151 passed(T-1786635116)+ cargo test --workspace 全绿 805 passed(T-1786635201)+ clippy/fmt 全过。三条验收逐条对照:①未知 provider 长跑不再第三次 overflow 直接终止——衰减机制(decay_overflow_recoveries 单测:溢出+1 与成功-1 对称,稳定运行后恢复额度重新充满;既有 second_sse 测试证明 2 次 overflow 恢复链路完好;CLI 单次 run 无法模拟长跑多步,故用驱动级单测证明衰减机制,集成层面保留既有 2 次恢复测试);②已知 provider 行为不变——已知 provider context_limit=Some(原值),effective_limit=原值,预算逻辑逐字节不变;③启动告警可见——context_limit 为 None 时 tracing::warn 点名未知 provider 与保守默认。关闭。
 - observed_head: 61438879aaca37a5439fe6ecacb11aaa93a5d947
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2573,7 +2552,6 @@
 - 内容: 消化只删自己见过的 note(按指纹销账,discard_note 已有现成实现),新增的留箱;或按 note 一文件分片使追加天然无竞争;next_id 加同目录文件锁或冲突重试。
 - 验收: ①构造 20 条积压能在数轮内收敛到 0;②并发 append+consolidate 压测零丢 note;③「消化清空吃掉新 note」窗口有定向测试封死。
 - refs: R-195 D-282 D-299
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-215
 - 进展: 2026-08-16 取活。实现(commit a104ba1):①逐条销账——新增 memory_inbox_discard 工具(manager.rs,封装既有 discard_note 按指纹删整块),manager 提示词改为「处理完每条 note 立即 discard,memory_inbox_clear 仅兜底」(原「处理完全部后整箱 clear」);②append 并发——append_note 读-拼-写回全程持 FileLock(store.rs,atomic_file::lock_exclusive),discard_note/clear_inbox 同锁互斥,消除「并发追加后写覆盖先写」;③next_id 竞态——add 的 ID 分配改冲突重试:写入前扫描 root 检查同 id 前缀文件,被占用则基于磁盘实际条目重新分配(上限 16 次)。新增测试 4 个:二十条积压逐条销账收敛到零、逐条销账不吃并发新note_窗口封死、并发append零丢note(12 线程)、inbox_discard_逐条销账_保留未处理note(manager 端到端+装配注册)。验证:kanzei-tools 343 passed(T-1786635549)+ cargo test --workspace 全绿 809 passed(T-1786635630)+ clippy/fmt 全过。三条验收逐条对照:①构造 20 条积压能在数轮内收敛到 0——测试 二十条积压逐条销账收敛到零:20 条 append 后逐条 discard 到 0;②并发 append+consolidate 压测零丢 note——测试 并发append零丢note:12 线程并发 append_note 全部落盘(锁消除覆盖);③「消化清空吃掉新 note」窗口有定向测试封死——测试 逐条销账不吃并发新note_窗口封死:discard 已处理 A 后并发 append 的 B 存活;提示词也封死整箱 clear 用法。关闭。
 - observed_head: a104ba12af981e0e591aff0c9a5057385ce2f854
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2592,7 +2570,6 @@
 - observed_head: 7403ff8e8866228d0e21283f2b58d60b9df36777
 - observed_worktree_hash: fnv1a64:bb0d2fe121984939
 - recorded_at: 1786640547198
-- 取活依据: engine:唯一可执行 WIP 是 R-214，必须先恢复它
 - 批次: 2/2
 
 ## R-237 编辑工具可恢复性与结果语义分层 [done]
@@ -2619,7 +2596,6 @@
 - 进展: 本轮继续推进已完成：D-346 已修复并关闭，provider usage.input 已从 core runner 透传至 app 轮末触发线；固定同一负载的机制对照已补入 core 单测，旧 0.7 线触发 6/7，新 headroom 线触发 3/7。新增证据：T-1786649428 core 161 passed、T-1786649429 app 145 passed、T-1786649430 fmt passed、T-1786649540 提交前 core/app 复测均通过。
 - 验收⑤联测证据(2026-08-14,Claude 用发版产物 kz.exe build-2b1ad60 实测,真实 provider deepseek: deepseek-v4-flash): 方法——临时项目把 [providers.deepseek].context_limit 压到 16000、[limits] max_tokens=1024/compact_buffer_tokens=2000(预算线 14000),kz run --readonly 分五轮喂入:R1 开场(head)、R2 关键事实(R-888 目标/compaction.rs 的 split_prior_digest/error[E0716] 报错原文)+填充、R3/R3b/R3c 纯填充;R3c 步首触发主动压缩,CLI 输出「上下文到线,已压缩:约 15968 → 6942 token(上限 16000,裁掉 6 条)」,关键事实全部位于被压中段。R4 考试(不许用工具纯文本作答):模型正确复述全部三项——目标编号 R-888、crates/kanzei-core/src/runner/compaction.rs 的 split_prior_digest、error[E0716] temporary value dropped while borrowed(含 let 绑定修复方式)。会话快照核验:压缩后 7 条消息,纪要消息为八段固定模板(目标/用户指令清单/关键决策与理由/已完成/失败尝试/当前状态/关键文件/下一步)且文件路径/函数名/报错串逐字保留——纪要由 deepseek-v4-flash(弱模型)生成并通过质量闸,证明模板+质量闸组合在弱模型下也能出合格纪要。注:联测未覆盖 D-342 停止路径(CLI halt 通道为 None,桌面端停止场景待用户新版实际使用验证);验收①-④已由前轮证据覆盖。五条验收至此齐备,可走关闭流程。
 - 联测环境说明: deepseek 凭据来自全局 ~/.kanzei/kanzei.toml 的直填 api_key(前轮「只有 MOONSHOT_API_KEY」的判断漏了这一来源);临时项目与输出留档于会话 scratchpad r236-live(out1-out4.log + state.db 会话快照)。
-- 取活依据: engine:唯一可执行 WIP 是 R-236，必须先恢复它
 - observed_head: ca68e80d92456ca8386f083e6b49383b244afddd
 - observed_worktree_hash: fnv1a64:fe871977f10a5179
 - recorded_at: 1786649572864
@@ -2633,7 +2609,6 @@
 - 边界: 只做度量与结论,不在本条里改实现;若某项没改善,记录原因并另开条目,不在本条无限追修。
 - 验收: ①样本量说明(建议自动轮 >=50 轮)与四项对照数据写进本条进展;②任一指标未改善的,写明判断原因并给出后续条目编号;③查询口径与基线一致(同样从 .kanzei/memory/index.db 的 memory_recalls / recurrence_counts 取数),口径不同不算数。
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-196
 - 进展: 2026-08-16 复核完成并关闭。四项对照结论与口径说明见进展(自动轮采纳率未改善 2.2% vs 基线 21.0%、空轮比例未改善、recurrence 计数改善确认、candidate 增速降 63% 且空正文门禁确认拦截);未改善项判断原因已写明,后续复测条目 R-239 已登记。本条为纯度量任务,无代码改动,定向核查(index.db 取数脚本)完成即关闭。
 - observed_head: dd5e5fd66bfe1387331ccac3f449f51924d7a103
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2648,7 +2623,6 @@
 - 边界: 不改「未验证不注入」的既有取舍(R-165);本条只解决全局库要么没人晋升、要么根本不该存在这个二选一。
 - 验收: ①决策写进 docs/design 的记忆相关文档,给出理由;②若上线:全局库至少 1 条 active,且 index.db 的 memory_recalls 有真实召回行(不是构造的测试数据);③若废弃:检索路径不再遍历全局 store,有定向测试断言,且现有 7 条有明确去向(归档或删除)。
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-194
 - 进展: 2026-08-16 完成并关闭,选**废弃**方向。决策理由:全局库自建立以来 0 active、0 召回(index.db memory_recalls 0 行、recurrence_counts 0 行),9 条候选 5 条指纹与项目记忆完全重复(同一失败双投:U-007≈M-065、U-008≈M-066、U-009≈M-069、U-011≈M-019),真正跨项目的仅 1 条;跨项目偏好已由配置文件(kanzei.toml)与系统提示(dev 常驻)承载,为 0 消费方的二级库造晋升路径违背『不造占坑能力』。落地:①检索路径 8 处摘除全局 store 遍历(index.rs with_embedder/tier1、mod.rs FingerprintIndex::build/resident_index/FailureRecallPolicy new/tier1、profiles.rs dev/memory 常驻、tools.rs project_funnel_counts),memory_search scope=global 显式返回废弃提示;②存量 9 条候选置 deprecated 归档至 ~/.kanzei/memory/archive/ 并重建 INDEX.md;③docs/design/memory_system.md 记录废弃决策(scope 表与 category 默认 scope 列同步标注);④定向测试 全局记忆废弃_检索常驻召回均不再遍历全局store(kanzei-tools index.rs tests)断言 hybrid 检索/常驻索引/指纹索引/失败召回四处均不含全局 active 条目、项目条目照常可见。提交 cc4bf87;kanzei-tools 353 passed + kanzei/kanzei-app 编译通过;关闭前全量 cargo test --workspace 全绿(T-1786653273)。验收①决策写入 memory_system.md;②走废弃分支不适用;③检索路径不再遍历全局 store(8 处)+ 定向测试断言 + 9 条有明确去向(归档 archive/)。
 - observed_head: cc4bf877d17095f484d000937f0d9c22fbae7da5
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2664,7 +2638,6 @@
 - 验收: ①grep ui/ 目录 state.running 直写仅剩 mutator 一处;②D-283 两条反证冒烟保持绿;③「长工具运行中点停止无状态闪跳」冒烟断言;④删除 08-compose 重复块。
 - refs: D-283 R-197 R-199 D-306
 - 进展: 2026-08-16 完成并关闭。验收逐条:①grep ui/ 目录 state.running 直写仅剩 mutator 一处(03-shell.js:273 transitionSession 内折算;01-core/07-events/08-compose/09-sessions 全部直写改走 transitionSession,兼容字段 converged/auto_pending/live_running/local_start_pending/terminal_status 同步收口);②D-283 两条反证冒烟保持绿(ui-runtime-smoke 3755『后台会话结束不应改变主会话视图的运行态』与 3791『converged 未生效』在本次改动后仍通过);③『长工具运行中点停止无状态闪跳』冒烟断言新增并通过(ui-runtime-smoke:R-206 验收③块——transitionSession 置 stopping 后发 tool-progress/status 晚到进度事件,phase 保持 stopping 不翻回 running、live_running 权威已清;配套修复 transitionSession stopping 分支清 live_running,否则 09-sessions 轮询会把停止中的会话翻回运行中);④08-compose 发送路径重复 transitionSession("starting") 写块已删(R-197 残渣)。提交 3f85860;前端五冒烟(ui-runtime/i18n/a11y/markdown/parallel-lines 护栏)全绿 + kanzei-app 145 passed;关闭前全量 cargo test --workspace 全绿(T-1786653832)。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-206
 - observed_head: 3f85860623b2e7e5f6dfcaae0fb2d89c3dbb153b
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786653840305
@@ -2677,7 +2650,6 @@
 - 内容: 结伴模式下勾鞭挞自动切换到自主推进并落一条 notice 说明(research 下仍拒绝);若用户否决自动切,则至少把模式选择器提回顶栏一级。
 - 验收: ①空闲结伴态到鞭挞就绪 ≤1 次交互;②notice 可见,取消勾选切回;③冒烟断言。
 - refs: R-036
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-224
 - 进展: 2026-08-16 完成并关闭。验收逐条:①空闲结伴态到鞭挞就绪 ≤1 次交互——08-compose.js auto-continue change 处理:dev-pair 勾鞭挞即自动切 dev-auto(同步 localStorage kz-profile / processProfileUi / 后端 process_update profile=dev),零额外点击;②notice 可见——addMessage('notice', t('已切换到自主推进以启用鞭挞')) 在自动切时落一条,冒烟断言 textContent 含「已切换到自主推进」;取消勾选即回到结伴(勾选复位、模式保持 dev-auto 不悄悄回切);research 勾鞭挞仍拒绝(复位勾选 + toast「鞭挞不适用于研究模式」,模式不变);③冒烟断言——ui-runtime-smoke 新增 R-224 块(结伴勾选断言 profile 切 dev-auto、勾选保持、notice 可见;research 勾选断言拒绝复位且模式不变)通过。i18n 资源表新增/替换 3 条文案。提交 9e48a2a;前端五冒烟 + parallel-lines 护栏 + kanzei-app 145 passed 全绿(复杂度小,定向验证即关闭,不跑全量)。
 - observed_head: 9e48a2a95f63d18eb885cd56e913eb1045157b0c
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2698,7 +2670,6 @@
 - 验收: ①自动开启实测:Ollama 已安装、服务未运行的状态下启动应用,服务被自动拉起、状态转就绪,有实测轨迹或日志证据(只断言函数返回不算);②不越界:未安装 Ollama 时启动应用不触发 winget 安装、不拉模型,只如实报告缺环,有定向测试;③fast 指向外部 provider 时启动路径零动作,有测试;④运行状态在设置页/子代理面板之外可见,且把 Ollama 服务停掉后界面状态能转为「服务未运行」、重新起来后能转回就绪——不需要重开视图,有实测证据;⑤前端改动有冒烟断言(node --check + node scripts/ui-runtime-smoke.mjs),新增的状态指示与状态刷新各有断言;⑥R-136 既有 Rust 2 项(拉取进度行解析、服务探测对未监听端口不悬挂)与冒烟 6 项、D-278 的 fastStatusText 断言全部保持绿。
 - refs: R-136 D-278 D-167 D-279
 - 依赖: 
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-190
 - 进展: 2026-08-16 完成并关闭。既有能力标注:自动安装(fast_model_setup)为 R-136 已交付,本条未重做。验收逐条:①自动开启——fast_model.rs 新增 fast_model_ensure_running:fast 指向本地 Ollama(ollama_fast_target 11434 判据)且 CLI 已装但服务未运行 → spawn `ollama serve` 并轮询 20s;main.rs setup 挂后台调用;决策纯函数 fast_ensure_decision 测试覆盖「已装未运行→拉起」(返回 true);②不越界——fast_ensure_decision(false,*)→ false 断言(未安装绝不触发 winget/拉模型),R-136 一键安装链路未改;③外部 provider 零动作——ollama_fast_target 非 11434 端口返回 None,ensure 立即 false(测试断言 managed 语义);④常驻运行状态——ui/03-shell.js 新增 #status-fast 状态栏指示 + FAST_STATUS_POLL_MS=10s 轮询调 fast_model_status,服务停掉自动翻 warn 红、恢复自动转就绪(无需重开视图),复用 D-278 fastStatusText 共享口径;冒烟断言验证 fastStatusTimer 已注册 + 桩 serviceUp=false 时显示「服务未运行」+ warn-text;⑤前端冒烟断言——ui-runtime-smoke R-190 块(#status-fast 存在/内容/定时器),node --check 通过;⑥R-136 既有 2 项(拉取进度解析/服务探测不悬挂)与 D-278 fastStatusText 断言保持绿(kanzei-app 146 passed 含全部既有)。提交 408a117;前端五冒烟 + kanzei-app 146 + 关闭前全量 cargo test --workspace 全绿(T-1786654534)。
 - observed_head: 408a117df50fe1800b12b033b753819bd799320c
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2719,7 +2690,6 @@
 - 边界: 不做图形化 DAG / 画布式线管理(§2.3 与 R-111 的克制一致)。不做跨线自动任务分派。合并策略按 N2 定案保持 `merge --no-ff`,不改成 rebase。
 - 验收: ①线的 diff 在应用内用 06-activity.js 的目录树渲染器显示(前端有断言证明走的是既有渲染器,不是新写的一份);②不离开应用完成 review → merge → 清理全流程;合并失败时双方改动保留且有可恢复入口;③冲突预检结果在界面上可读:列出冲突文件,不只是一句「有冲突」;④线页签显示分支名与 running,每线 token 计数取自真实 episodes 数据(不得是常量占位);⑤建线 UI 出现磁盘/冷编译成本提示;⑥worktree_field 的死分支消失(全仓 grep 无同值双分支);⑦前端改动跑 node --check + node scripts/ui-runtime-smoke.mjs,新交互(打开 diff、确认合并、确认放弃)各有冒烟断言;⑧800/1024/1280 三档布局检查。
 - refs: R-050 R-133 R-177 R-178 D-096 D-257 docs/design/deep_parallel_dev.md
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-179
 - 批次: 2/2
 - 进展: 2026-08-16 完成并关闭(2 批:3776628 后端 + e7bb5c8 前端)。既有能力标注(非本次交付):收活五格流程、线页签分支/running/token 显示(20-lines.js lineFact,token 取自 collaboration_snapshot 真实运行期 usage,与 episodes 同源非常量)、discard 失败「已保留以便恢复」toast(09-sessions.js:110)。验收逐条:①线的 diff 接入 06-activity.js 既有 buildDiffTree 目录树渲染器(20-lines.js diffLoad:porcelain 行解析为 {path,additions,deletions},原始差异收进可折叠 details;冒烟断言 typeof buildDiffTree === 'function' ? buildDiffTree(treeFiles));②不离开应用完成 review→merge→清理全流程——收活五格既有链路完整,合并失败双方改动保留且可恢复(merge_worktree 错误文案含「双方改动已保留」,discard 失败 toastError 带 retry);③冲突预检可读——worktree_merge_preview 命令 + parse_merge_tree_conflicts 解析 CONFLICT 行成文件列表,confirmWorktreeMerge 确认文案列出冲突文件(单测覆盖 content/modify-delete 两种格式);④线页签分支/running/token 为既有能力,已核实 token 来自真实运行期 usage;⑤建线 UI 落磁盘/冷编译成本提示(09-sessions.js createWorktreeLine confirm:每线独立 target/ + 首次冷编译数分钟);⑥worktree_field 死分支消失——收敛为 worktree_current_branch(worktree),全仓 grep 无同值双分支;⑦前端冒烟——ui-runtime-smoke R-179 块(buildDiffTree 接入/merge_preview 调用/建线提示/三档 lines-list)通过,node --check 通过;⑧800/1024/1280 三档——冒烟循环改 innerWidth 断言 lines-list 存在。前端五冒烟 + kanzei-app 147 + 关闭前全量 cargo test --workspace 全绿(T-1786655288)。
 - observed_head: e7bb5c80bf05331957d51dc2392efd492e7d6d42
@@ -2733,7 +2703,6 @@
 - 归属: kanzei
 - 标签: 核心
 - 验收: 用户可配置界面面板及各类通知音效的设置与管理
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-187
 - 进展: 2026-08-16 完成并关闭。验收「用户可配置界面面板及各类通知音效的设置与管理」:提示音部分落地——设置页新增「提示音」区块(index.html settings-group):总开关 + 音量滑杆 + 试听按钮 + 运行完成/失败/停止三事件开关;03-shell.js 新增 readSoundSettings/saveSoundSettings/soundEnabledFor(localStorage kz-sound-settings,默认全开音量 0.12 与原固定值一致),playRunNotice 按配置决定是否播放 + 音量可调;16-settings.js loadSoundSettingsControls 回填控件、change 即存、试听按钮用当前音量播「完成」音;i18n 登记 4 条文案;ui-runtime-smoke R-187 断言(控件存在/默认全开音量 0.12/总开关关闭后 soundEnabledFor 全 false)。**范围说明**:原始描述「设置面板+各类提示音管理」中「设置面板」指设置页本身(既有,含提示音新区块),「各类提示音」即运行完成/失败/停止三种事件音;若用户对「面板管理」另有具体诉求(如面板布局/显隐自定义),需另开条目。提交 85907fc;前端五冒烟 + kanzei-app 147 + 关闭前全量 cargo test --workspace 全绿(T-1786655610)。
 - observed_head: 85907fc021ee8e902c9cadbd474f9af0e82cfd4f
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
@@ -2747,7 +2716,6 @@
 - priority: P2
 - 既有能力(§1.25 显式标注,不得重复申报为本次产出): 架构浏览页本身已存在(R-122)——后端 `architecture_snapshot` 只读命令供数据(架构索引正文 + docs/design 文档清单),前端 crates/kanzei-app/ui/19-arch.js:8-104 渲染「索引 + 设计文档树」,按索引状态分层(已入册的按索引章节分组、未入册的单列,让「有文档没入册」的缺口在界面上直接可见),点击条目走既有 Markdown 查看器 openDocViewer。本条是在这份既有数据源与视图之上**加图**,不是另起一个架构页;验收③的降级文字视图就是这棵既有的树,不要重写。
 - 现状(2026-08-12 读码核实,dev HEAD): 19-arch.js 全文 129 行,**无任何图形渲染**——零 svg/canvas/mermaid/graphviz 依赖,输出是纯 DOM 文本树;`architecture_snapshot` 也只回「索引文本 + 文档名/标题列表」,**不含依赖边、调用关系、模块归属等成图所需的结构化数据**。所以本条的第一道工作量在**数据侧**(从 crates 依赖、模块引用或设计文档里抽出可成图的节点与边),渲染选型(mermaid/graphviz/自绘 SVG)是第二道;验收①的「真实数据源」指的就是这层抽取,不能拿手写的图字面量顶替。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-188
 - 批次: 2/2
 - 进展: 2026-08-16 完成并关闭(2 批:4d9fb34 数据侧 + de5a346 前端)。验收逐条:①工具从真实数据源生成架构图,纯代码渲染,禁止文生图/预置图——architecture_snapshot 新增 graph 字段,build_workspace_graph 从 workspace Cargo.toml members + 各 crate 的 kanzei-* 依赖(workspace/path 两形态)抽取依赖边,单测覆盖;前端 renderArchGraph 自绘 SVG(零外部依赖,桌面端离线可用),非文生图/预置图;②架构浏览页显示生成的架构图并随 refreshArch 刷新——renderArch 调 renderArchGraph,index.html 加 #arch-graph 容器,刷新即重渲染;③图不可用时降级文字树不空白——图数据空或无 createElementNS 时 arch-graph 隐藏、renderArch 文字树照常渲染(renderArchGraph 调用包 try-catch,异常不中断),冒烟断言文字树保留;④节点可点击定位——openArchCrate 优先打开同名设计文档,否则 crate Cargo.toml(均经 docs_read_custom 只读),冒烟断言点击触发 docs_read_custom;⑤生成链路自动化验证——build_workspace_graph 单测 + ui-runtime-smoke R-188 断言(SVG 渲染/节点边计数/点击定位/降级)。既有能力标注:架构浏览页文字树与 architecture_snapshot 为 R-122 交付,未重写,作为降级视图复用。前端五冒烟 + kanzei-app 148 + 关闭前全量 cargo test --workspace 全绿(T-1786656195)。；状态对账: 归档正文旧字段 `todo` 与权威标题状态 `done` 冲突;已移除正文副本。
 - observed_head: de5a3466eb6c52b9b0be37e2e59610f3923e89cb
@@ -2761,7 +2729,6 @@
 - label: 前端
 - priority: P2
 - 现状评估(2026-08-12 读码核实,dev HEAD;直接对应验收①): 结构上适合换色,工作量在收口不在重构。颜色集中在 style.css :root 语义 token,ui/*.js 与 index.html 零颜色字面量,换色纯 CSS;剩余字面量分四类(a 半透明叠加保留/b 徽章底色成对给亮色值/c 框架面提升 token/d diff语法着色与 on-accent)。两处非 CSS 换色面:color-scheme 与 Monaco setTheme。落地:拆 [data-theme] 两组 token + 字面量提升 + 非 CSS 面同一开关。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-189
 - 批次: 3/3
 - 进展: 2026-08-16 完成并关闭(提交 1fb30eb)。验收①评估结论写入「现状评估」字段:颜色集中在 style.css :root 语义 token,ui/*.js 与 index.html 零颜色字面量;剩余字面量四类处置,手动 token 化引用点逐处引证:滚动条 style.css:77-78→--scrollbar/--scrollbar-hover;活动栏 style.css:83→--activitybar;workspace 状态 style.css:297-299→--badge-ok-soft/--badge-warn-soft/--badge-soft;优先级徽章 style.css:400-402→--badge-err/--badge-warn/--badge-info;状态胶囊 style.css:408-410→--badge-alert/--badge-info/--badge-ok;danger 按钮 style.css:649-650→--danger-btn+--on-accent;代码块/工具输出底 style.css:1047/1184/1205/1208→--code-bg/--code-output-bg;warn 徽章底 style.css:1166→--badge-warn;diff 着色 style.css:1214-1215/1239-1240/1242-1243→--diff-add/--diff-del;warn/err fallback style.css:904/1321/1444-1445/1456-1457→--warn/--err;线路主题色 style.css:441-444→--line-1..4;状态点 style.css:673-674→--dot-idle/--dot-run;diff 行号 style.css:1212→--diff-line-number;语法着色 style.css:1223-1226→--syntax-comment/--syntax-string/--syntax-number/--syntax-keyword;日志金字 style.css:1250→--log-gold;未入册头 style.css:1547→--arch-unindexed;新 token 定义 style.css:21-29(dark)/style.css:42-48(light),成对给亮色值。验收②[data-theme=light] style.css:32-48 + 03-shell.js:466-497 currentTheme/applyTheme/initTheme + localStorage kz-theme 持久化(默认 dark 零回归)+ index.html:667 theme-toggle + 17-files.js:222-228 Monaco setTheme(vs/vs-dark);color-scheme style.css:19/41 随主题(D-154 原生控件)。验收③ui-runtime-smoke.mjs:6084-6117 R-189 断言(切换/持久化/Monaco 联动)+ 既有 a11y 冒烟(纯键盘语义)+ R-179 三档循环(800/1024/1280)。验收④换色纯 CSS + Monaco setTheme,未引入新框架,沿用 :root token 结构。前端五冒烟 + kanzei-app 148 + 关闭前全量 cargo test --workspace 全绿(T-1786656576)。；状态对账: 归档正文旧字段 `todo` 与权威标题状态 `done` 冲突;已移除正文副本。
 - observed_head: 1fb30ebff4553181f4de5344479c2dd991093cc1
@@ -2774,7 +2741,6 @@
 - 归属: kanzei
 - 验收: 页面顶部新增独立区块，展示项目使用手册和来自作者的说明文字
 - 优先级: P1
-- 取活依据: engine:唯一可执行 WIP 是 R-147，必须先恢复它
 - 进展: 2026-08-16 交付:①index.html:166-172 #chat-area 顶部新增 <details id="manual-panel">(summary「使用手册」+ #manual-body),位于 #messages 之前,默认 hidden+收起不遮挡对话;②15-views-misc.js 新增 async refreshManual():file_preview 读 docs/目录.md(真实数据源,非展示壳)→ renderMarkdown 渲染进 #manual-body,读取失败保持隐藏不显示空壳;③09-sessions.js renderProjects(currentProject 更新处)调用 refreshManual——启动首次确定项目、切换项目、移除项目三条路径都刷新,是唯一真实调用方;④02-i18n.js 登记「使用手册/点击展开/手册文件不是文本」3 词条(M-014 静态中文登记);⑤style.css 新增 .manual-panel 折叠样式(参照 settings-group,内容 max-height 34vh 内部滚动);⑥docs/目录.md 为手册内容源(项目心智模型/目录结构/推荐阅读顺序+作者说明文字)。验证:ui-runtime-smoke 新增 file_preview 桩与两条断言(有内容渲染可见/读取失败隐藏、恢复重新显示),i18n/lint/a11y/markdown 冒烟全绿,cargo test --workspace 全绿(T-1786657249)。
 - 验收证据: 验收原文「页面顶部新增独立区块,展示项目使用手册和来自作者的说明文字」——①区块:index.html:169 <details id="manual-panel" class="manual-panel hidden"> 在 #chat-area 顶部(#messages 之前),折叠样式 style.css:584-600;②展示内容:refreshManual(15-views-misc.js)以 file_preview 读 docs/目录.md 为真实数据源,renderMarkdown 渲染进 #manual-body;docs/目录.md 全文为项目使用手册(心智模型/根目录/目录结构/前端文件/推荐阅读顺序)+作者说明文字(开头「我已经按当前工作区做完只读梳理…」);③调用方:09-sessions.js:635 renderProjects 每次 currentProject 确定/切换时调用 refreshManual,启动链(18-startup 的 renderProjects)与切项目/移除项目均经过它;④自动化验证:ui-runtime-smoke.mjs 新增 file_preview 桩与断言(手册渲染可见、读取失败隐藏、恢复重新显示),ui-i18n/ui-lint/ui-a11y/ui-markdown 冒烟全绿,cargo test --workspace 全绿(T-1786657249)。
 - observed_head: 273c4a3cc6138331a4c07469127773835af001ef
@@ -2787,7 +2753,6 @@
 - 复杂度: 中
 - 归属: kanzei
 - 验收: README中包含明确的设计目标和开发指南，如永久工作支持等核心特性说明
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-160
 - 进展: 2026-08-16 交付:README.md 新增两节(中英双语同步)——①「## 设计目标」(中文)与「### Design goals」(英文):首条即「永久工作优先/Permanent work first」(外部记忆跨会话保留、会话可恢复、轨迹可回放、agent 自举),后续「好用压倒一切/Usability over everything」「真正的任务级并行/Real task-level parallelism」「受控合并/Controlled integration」「规则写在代码里/Rules in code」「复刻优先,创新只投护城河/Replicate first, innovate only in the moat」「工单就是文件/Tickets are files」「中英文并重/Chinese and English both matter」共 8 条,末尾链接方向基线 docs/design/direction_taste.md;②「## 开发指南」与「### Development guide」:分支与发布(dev 开发/main 只收 ff 合并/发布树 package.ps1/唯一安装位)、测试(定向+冒烟+全量触发点)、提交门禁(fmt/clippy 强制)、规范单源、外部 agent 协作(kz lock status、禁止 git add .)。验证:cargo test --workspace 全绿(T-1786658480)。
 - 验收证据: 验收原文「README中包含明确的设计目标和开发指南,如永久工作支持等核心特性说明」——①设计目标:README.md「## 设计目标」节(约 28-44 行)首条「永久工作优先:外部记忆是独立控制面,跨会话保留;会话可恢复、轨迹可回放;agent 用自己维护的 backlog 开发自己」,共 8 条明确目标并链接 docs/design/direction_taste.md;英文同构「### Design goals」(约 137-152 行);②开发指南:README.md「## 开发指南」节(约 107-115 行,分支/测试/门禁/规范/协作 5 条),英文「### Development guide」(约 154-162 行);③核心特性说明:永久工作(①首条)、任务级并行、受控合并、规则写在代码里、复刻优先等均成节;④验证:cargo test --workspace 全绿(T-1786658480)。
 - observed_head: 273c4a3cc6138331a4c07469127773835af001ef
@@ -2837,7 +2802,6 @@
 - observed_head: 273c4a3cc6138331a4c07469127773835af001ef
 - observed_worktree_hash: fnv1a64:c97180595f4232f8
 - recorded_at: 1786659778448
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-208
 - 验收证据: 验收①「kanzei-llm 不再导出文件系统原语」——crates/kanzei-llm/src/lib.rs 已删 `pub mod atomic_file;` 行,原 atomic_file.rs 已物理删除(Remove-Item 后 Test-Path False);llm 内部唯一消费方 auth/store.rs:18 改为 `use kanzei_base::atomic_file;`。验收②「kanzei-harness 可直接依赖该 crate」——crates/kanzei-harness/Cargo.toml 新增 `kanzei-base.workspace = true` 且 cargo check --workspace 编译通过(harness 是依赖方之一)。验收③「全仓测试绿」——cargo test --workspace 全绿(T-1786659557),fmt/clippy 全绿。边界「纯搬迁零行为变更;过渡期保留 re-export」——atomic_file.rs 内容除头部注释外逐字搬迁;kanzei-tools/src/lib.rs:6 保留 `pub use kanzei_base::atomic_file;`,工具内部 20+ 处 crate::atomic_file::* 调用零改动。消费方链:kanzei-base ← llm/tools/harness 均编译通过。
 
 ## R-241 Session 事件真源与 Shadow Projection：typed event、流式草稿恢复、legacy 迁移 [done]
@@ -2851,7 +2815,6 @@
 - 迁移与回滚: 新增 schema/version 与索引必须提供 Alembic 等价的 Rust SQLite 迁移、升级前备份和旧数据兼容；legacy 导入幂等且不伪造历史细节。Shadow 阶段保留旧读写路径，关闭新双写即可回滚；投影缓存可删除重建，原事件不得依赖缓存。
 - 验收: ①并发追加 sequence 不重号不丢号；②user/assistant draft/tool/终态每类事件均有 round-trip 测试；③生成中强杀后可回放有界的 interrupted assistant 草稿，且模型 prior 不把它当完整回答；④legacy 导入重复执行幂等并保留 provenance；⑤projector 从同一日志重复回放逐字节一致；⑥shadow comparison 对正常、停止、权限拒绝、工具错误、多工具部分完成路径给出差异报告；⑦SessionInvariant 在提交前拒绝重复 result、跨 step 配对和非法终态。
 - 优先级: P0
-- 取活依据: override:用户确认 D-351 实机验收通过并明确授权取活 R-241，2026-08-14。
 - 进展: B1-B4 已完成。冻结 format_version=1 typed facts，提交前 invariant + SQLite 原子 batch；runner 在 assistant commit/tool results 进入 history 的语义边界发事件，CLI/桌面双写；草稿按 2048字符或750ms 批次持久化，stream restart/进程重启/停止/失败闭合为 interrupted/terminal 且不重放工具；legacy seed 幂等保留 provenance；确定性 surface/transcript projector 与 conversation_shadow_get/逐轮 session.shadow_compared 已交付，旧 conversation_get 和模型 prior 未切换；复用 session_events，无 schema 迁移。T-1786672324：D-342 定向停止、全 workspace 和 clippy all-targets 全绿。
 - observed_head: 1550b9ceb9229ef1512b89d8f1e05543bdf38af9
 - observed_worktree_hash: fnv1a64:aa29e71147a914cf
@@ -2864,7 +2827,6 @@
 - 标签: 流程
 - 验收: ①从并行视图选一个未被持有的条目起线,该条目立即带该线「取得线」标记;②backlog 与泳道显示的持有关系与 tracker 字段一致,prompt 猜测路径删除;③新开的线不需要手动开 tracker 写开关即可完成取活绑定;④线关闭或收活合并后条目持有释放或转终态,有断言
 - 优先级: P1
-- 取活依据: override:override:用户已认可推进 R-247 到适合自举的阶段；先完成开线绑定、取得线真源与收线释放闭环。
 - 批次: 3/3
 - 进展: 2026-08-14 B1 完成:主进程在 process_create 建树注册后以新分支身份复用 WorkTool 原子 claim，失败整体回滚；分支 tracker_writes 仍默认关闭；关闭/放弃在统一注销出口 release，合并成功后立即 release 且保留线路供后置门禁；协作快照改读 tracker 取得线并删除 prompt 猜测。反证:kanzei-tools release 测试 1 passed；kanzei-app 开线绑定/失败回滚/合并释放 3 passed；协作快照真源测试 1 passed。 | 2026-08-14 B2 完成:并行页新增未持有条目选择器与按条目开线，process_create 携带 work_item_id；backlog 直接读 docs_snapshot.claimed_by，空闲持有仍显示，prompt 解析静态反证锁死；关闭/放弃/合并后立即刷新文档投影。验证:UI runtime 1830 invokes/0 error、parallel-lines-regression、lint 1282 globals、i18n 1100 keys、a11y、markdown 全绿。 | 2026-08-14 B3 完成:设计文档同步取得线真源、原子开线与显式释放语义；浏览器验收覆盖 1280 桌面深色/亮色和 620 窄屏，选择器与按钮无重叠、无横向溢出，亮色下拉文字 rgb(31,41,51)/背景 rgb(232,231,227)。预览宿主桩与本地服务均已撤销。
 - observed_head: 3c7824c1493b11e66ed628beab1ca8286c8fca7b
@@ -2880,7 +2842,6 @@
 - 边界: 纯搬迁行为零变更;pub API 经再导出保持调用点零改动;不与 R-204 同批。
 - 验收: ①kanzei-tools 不再依赖 kanzei-core;②memory 子系统独立编译与测试;③全仓测试绿。
 - refs: R-204 R-208
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-203
 - 批次: 3/3
 - 进展: B1~B3 完成。验收逐项证据:①kanzei-tools 不再依赖 kanzei-core——crates/kanzei-tools/Cargo.toml [dependencies] 已无 kanzei-core(dev-dependencies 保留并注释:write.rs 的 runner 集成测试需驱动完整 run_once 且 write 为私有模块无法外迁);`cargo tree -p kanzei-tools --edges normal -i kanzei-core` 显示 core 仅经 kanzei-memory 传递;源码 kanzei_core:: 引用仅剩 write.rs #[cfg(test)] 区(189/386/402 行)。②memory 子系统独立编译与测试——新建 crates/kanzei-memory/(workspace member),src/{lib.rs,docstore.rs,embed.rs,replay_eval.rs,scheduling.rs,memory/*};cargo build -p kanzei-memory 独立编译通过(T-1786692709 前),cargo test -p kanzei-memory 128 passed 0 failed(T-1786692709)。③全仓测试绿——cargo test --workspace 全部 crate 0 failed(T-1786693157;memory 128/tools 230/app 154/core 172/harness 124/llm 44/base 9/kanzei 3)。边界:纯搬迁零变更(仅破环必需 4 处引用改写:store.rs content_hash→kanzei_base 3 处、mod.rs workable_titles→crate::scheduling 1 处;parse_input 复制、atomic_file re-export);pub API 经 tools lib.rs `pub use kanzei_memory::{memory,docstore,embed,replay_eval}` 再导出,kanzei/kanzei-app 零源码改动编译并测试绿;workable_titles 调度链复制进 kanzei-memory/src/scheduling.rs(与原 tracker 版逐字一致,同源注释,R-204 统一),tracker.rs 结构未动、不与 R-204 同批。提交:R-203 B1 ae4a9ea、R-203 B2 03a74e4。遗留:工作树非本次改动(memory 归档/phase_pipeline.rs)未动。
 - observed_head: 03a74e4086f2463db1e8c9eb1f5827a417199d53
@@ -2895,7 +2856,6 @@
 - 内容: worktree 生命周期(create/receipt/rollback/merge 预检/状态)下沉到 kanzei-tools 的 git 域或新 worktree 模块,桌面与 CLI 共用同一实现;processes.rs 只剩 Tauri 接线与 AppState 交互。
 - 验收: ①kz CLI 能调用同一实现完成建线/合并预检;②processes.rs 收敛;③既有 worktree 测试(含跨进程并发建树)全绿。
 - refs: R-183 R-181 R-179
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-207
 - 批次: 5/5
 - 批次说明: 见进展
 - 进展: B1~B5 完成。验收逐项证据:①kz CLI 调用同一实现完成建线/合并预检——crates/kanzei/src/main.rs worktree_cli:create 调 kanzei_tools::worktree::create_worktree_with_receipt,merge-preview 调 validate_worktree_path/worktree_current_branch/worktree_command(merge-tree --write-tree)/parse_merge_tree_conflicts;命令分发冒烟(kz worktree 无参 → usage+明确用法);kanzei 编译+17 测试绿;内核测试 tools worktree 11(建树回滚闭环/目录残留零回滚/冲突提取)。②processes.rs 收敛——2104→约1600 行(提交 58d4d0e 减 507 行),worktree 核心全部迁走,只剩转发壳+AppState 交互(bound_thread_for_worktree/with_idle_bound_process/acquire_project_write_lease/reclaim/discard_worktree_and_unregister/merge_worktree_and_release);state.rs WorktreeInfo 改 re-export;桌面与 CLI 单源。③既有 worktree 测试(含跨进程并发建树)全绿——cargo test -p kanzei-app --bin kzapp processes:: 44 passed;关闭前 cargo test --workspace 全部 crate 0 failed。提交:R-207 B1 cb4e458、B2 d5a4d1d、B3 58d4d0e、B4 bce293c。CLI 真机建树冒烟被环境拦截(bash 禁 git 突变,临时仓无法用结构化工具),改以命令分发验证+内核测试背书,如实记录。
@@ -2912,7 +2872,6 @@
 - 边界: pub API 经 lib.rs 再导出零变更;D-300 是两行修不必等本条,先行。
 - 验收: ①三文件职责如上;②API 面零变更;③全仓测试绿。
 - refs: D-270 D-300 R-198
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-205
 - 批次: 3/3
 - 进展: B1~B3 完成。验收逐项证据:①三文件职责——crates/kanzei-harness/src/project_root.rs(根发现 discover_project_root/discover_project_config/resolve_project_root + HOME 守卫 is_home_root/is_same_dir/卷元数据身份判定,D-270 修复落点),permission_persist.rs(append_allow_rule/generalize_resource/rule_digest/is_wildcard_resource),config.rs 收敛到 schema+merge+resolve(3192→约 2750 行)。②API 面零变更——config.rs re-export pub use crate::{project_root::{discover_project_config,discover_project_root,is_home_root,resolve_project_root}, permission_persist::{append_allow_rule,generalize_resource}},全仓编译绿(kanzei-tools/kanzei/kanzei-app 零源码改动);生产 use crate::permission_persist::{is_wildcard_resource,rule_digest} 改道;config 测试经 use crate::project_root::* 继续跑不丢(130 全绿)。③全仓测试绿——关闭前 cargo test --workspace 全部 crate 0 failed。提交:R-205 B1 f702185、B2 ed06b96。测试位置说明:project_root/permission_persist 域既有测试仍驻留 config.rs tests(经 glob 导入 pub(crate) 判定函数),实现已单源,测试归属整理留待后续。
 - observed_head: ed06b969f419b779c1c17dea7c0e81a65fb45397
@@ -2955,7 +2914,6 @@
 - 标签: 流程
 - 验收: ①门禁单测覆盖占位符拒绝;②存量 8 处处置完毕;③新增关闭证据无占位符
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-227
 - 进展: 2026-08-16 取活。B1 完成(commit 635db58):①commit 门禁 placeholder_id_gate(git.rs)——tracker 文件 diff 出现占位符测试 ID(T- 加数字再跟三个 x)即拒,只扫 tracker 路径,真实 10 位 ID 放行;②归档回填通道 fill_archived_placeholder(docstore.rs,与 dedupe 同锁同写路径,恰好命中一次,歧义拒绝)+ tracker 动作 archive_fill + CLI 分支 kz req archive_fill。验证:kanzei-tools 332 passed + kanzei 4 passed(T-1786631611)+ fmt/clippy 全过。| 2026-08-14 验收②完成:引擎已重启(kzapp pid 28956),archive_fill 通道可用,存量 8 处占位符全部回填真值,每条真值先核对 tests-archive 记录标题再写——requirements-archive:R-198→T-1786565346(cargo test --workspace R-198 关闭前全量)、R-199→T-1786565831(R-199 关闭前全量,原占位符前缀 1786566 系手写笔误,真值为 1786565831);defects-archive:D-219→T-1786451434(D-219 冒烟:2 阻塞 doing 不误拒新条目)、D-266→T-1786560588、D-279→T-1786562463(cargo test -p kanzei-tools --lib profiles)、D-281→T-1786562856、D-282→T-1786563655、D-316→T-1786564679(原占位符前缀 1786563 系笔误,真值 1786564679),未特别标注者均为该缺陷关闭前 workspace 全量。回填后全仓扫描两份归档:零占位符残留。本条 进展 字段同批重写,清掉自身携带的 8 个占位符字面量(否则门禁会拒绝任何触及本行的提交)。三条验收逐条对照:①门禁单测覆盖占位符拒绝——placeholder_id_gate 单测(B1,T-1786631611);②存量 8 处处置完毕——8/8 回填且真值与 tests-archive 记录标题逐条对上;③新增关闭证据无占位符——门禁在 commit 层机械拦截。
 - observed_head: 79ab205c7fa101fab4fc20153ce1e86dc089f55d
 - observed_worktree_hash: fnv1a64:dbc4e711d4d470fa
@@ -2970,7 +2928,6 @@
 - 边界: 行为零变更;外部签名与 pub API 不变;不与功能改动同批。
 - 验收: ①每段可独立单测;②cargo test --workspace 全绿;③两函数主体各降到 300 行以下。
 - refs: R-153 R-155
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-202
 - 批次: 7/7
 - 进展: 批7 完成(2026-08-16),条目收口。验收对照:①每段可独立单测——drive.rs 新增 #[cfg(test)] mod tests,7 个单测覆盖 commit_step_messages(纯文本步 final_text 更新+assistant 落库/有工具调用 Proceed/停止置位取消占位收尾)与 finalize_step(正常落库 Continue/MaxTokens Return{false}/last_step Break/停止 Return{true}),全部独立构造输入验证输出(cargo test -p kanzei-core runner::drive 7 passed);run_task 侧段函数由既有 kanzei-app 测试覆盖。②cargo test --workspace 全绿——T-1786728314:kanzei-core 193、kzapp 160、kz 133、harness 44、llm 128、tools 242 等全部 ok 0 failed(首轮 kzapp 认领回滚测试 flaky,重跑通过,与本次改动无关)。③两函数主体 <300 行——run_task 266 行(批2)、run_once_with_parts 262 行(批6)。边界:外部签名/pub API 逐字节不变,全部抽取为私有内部函数;行为零变更每批核对(事件顺序/停止语义/压缩触发线/对齐不变式)。提交 8c82a33;push 已到 origin/dev;游离空行已清理。关闭。
 - observed_head: 8c82a33e0512f799eedf3d10be164e5a8305e510
@@ -2992,7 +2949,6 @@
 - 边界: 不做「全部自动同意」的开关——那等于把权限系统关掉,与仓库既有的硬 deny 纪律冲突。不改 profile/agent 体系。不做桌面端的无人值守(桌面端有 UI 可问,不是同一个问题)。
 - 验收: ①`kz run` 在 worktree 里后台运行(stdin 关闭)能完成一次真实的「改代码 → `cargo test` → 提交」闭环,不因权限被拒而中断;②非交互默认策略三态各有测试,**缺省仍是 `deny`**(不改变现有用户的行为,旧配置无该键时行为不变);③从 worktree 运行时,主根的 permission 规则能命中(有测试直接断言同一条规则在主根与 worktree 下匹配结果一致);④每次自动放行有可查轨迹,含命中的规则原文;⑤无 TTY 检测本身有测试(不是靠"读到 EOF"倒推)。
 - 依赖: 
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-183
 - 进展: 批3 完成(2026-08-16),条目收口。验收对照(逐项引用实现位置):①`kz run` 无 TTY 无人值守闭环——E2E `crates/kanzei/tests/always_allow_bash.rs:92 cli_allow_listed_executes_bash_without_tty`(用户 D-363 落地,非交互 allow_listed + `--allow bash:*` 下 bash 真执行、本轮成功,反证 --allow 一次性不落常驻规则);worktree 后台跑的前提由验收③覆盖。②三态各有测试、缺省 deny——`crates/kanzei-harness/src/config.rs` `non_interactive_三态解析`/`non_interactive_缺省与非法取值_fail_closed回落deny`(缺键/空串/非法全回落 Deny,旧配置不变)+ main.rs 决策三态测试。③worktree 主根规则命中——`crates/kanzei-tools/src/bash.rs:30 permission_workdir_view`(worktree_key 存在时 workdir 视图按主根,仅权限判定文本、执行目录不变)+ 测试 `权限workdir视图_worktree映射回主根`/`同一规则_主根与worktree下匹配结果一致`(7db3b48)。④自动放行轨迹含规则原文——`permission.rs evaluate_with_rule`(last-match-wins 命中规则,硬 deny/无匹配 None)+ `event.rs:84 PermissionResolved.rule` + drive.rs 串行门禁/并行 wave 两评估站点填 describe_rule + CLI 打印 `[规则: ...]`(ba0726f)。⑤无 TTY 检测有测试——`main.rs interactive_stdin()`(stdin.is_terminal 显式检测,不靠读 EOF)+ non_interactive_decision 测试(批1,caa9d62)。全量:cargo test --workspace 全绿 0 failed(T-1786737712 复核,含 D-363 桩服务器超时修复)。边界遵守:无全放行隐式默认(allow_listed 需显式 --allow)、不改 profile/agent、不做桌面端。关闭。 [reopen 2026-08-14] D-359 修复后用正路退回:原阻塞(让位 D-332)的解除条件早已达成(D-332 已 fixed 归档);本条 doing 是 engine 自动认领留下的空档,进展字段自述从未开工、无进展锚点。退回 todo 按 P0 重新入队,不再靠往阻塞字段塞理由把它挪出 WIP 槽。
 - observed_head: 87471a232e7946d358ecb7e21565318f8961d42f
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
@@ -3007,7 +2963,6 @@
 - 标签: 核心
 - 验收: ①构造 >32767 字符的 bash 命令,工具返回结构化错误且文案含「文件中转」与「--prompt-file」指引,不发生真实 spawn(单测);②`kz run --prompt-file` 从文件读 prompt 跑通一轮(fake server 集成测试即可),文件不存在/非 UTF-8 有明确报错,与位置参数同给时拒绝;③conventions 文本落地,grep 单一来源;④现有 bash 短命令行为零回归(既有测试全绿)。
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-238
 - 批次: 1/1
 - 进展: 完成(2026-08-16)。验收对照:①bash 超长防护——kanzei-tools/src/bash.rs MAX_COMMAND_CHARS=30000,execute 在 D-113 门禁后按 UTF-16 代码单元计数(Windows 32767 上限口径),超限直接 ToolOutput::error 不发生 spawn;文案含「文件中转」与「--prompt-file」两条正路;单测 `超长命令_结构化拒绝不spawn且文案给两条正路`(32000+ 字符)。②kz run --prompt-file——main.rs RunArgs.prompt_file + parse_run_args 消费;resolve_run_prompt 纯函数(位置参数互斥拒绝/文件缺失·非 UTF-8 明确报错/正常读取),run_cli 接入;集成测试 cli_prompt_file_feeds_big_prompt_without_argv(mock server 单轮,>8k 字符文件 prompt 跑通一轮);单测 4 个(读文件/互斥/缺文件报错/flag 解析)。③conventions §4 追加纪律「>8k 字符的文本不进命令行参数,一律文件中转」,与 bash.rs 错误文案同源同指向(write 落文件引用路径 / --prompt-file)。④零回归:bash 16(含既有短命令)、kanzei 30、always_allow_bash 4 全过(T-1786738142);fmt/clippy 绿。关闭。
 - observed_head: 87471a232e7946d358ecb7e21565318f8961d42f
@@ -3022,7 +2977,6 @@
 - 标签: 核心
 - 边界: 只做度量与结论,不改实现;若样本仍偏置,继续记录原因,不在本条追修。
 - 验收: ①样本为正常开发节奏(非单条线密集自动推进)的自动轮 >=50 轮,写明轮次构成(标题分布/间隔);②重跑与 R-196 同口径的采纳率与空轮比例对照,给出与基线(21.0%/67.6%)和 R-196 修复后值(2.2%/93.3%)的三点对比;③若仍未改善,写明判断原因并指向修复条目标号;若改善,记录修复①实际生效的样本条件。
-- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-239
 - 批次: 1/1
 - 进展: 完成(2026-08-16),结论:修复①实际生效,R-196 修后 2.2%/93.3% 确认为样本偏置假象。验收对照:①样本——生产遥测 state.db recall_events(legacy index.db memory_recalls 已于 R-125 停写,kanzei-memory/mod.rs:1903),按 episode_id 聚合真·轮次;窗口 2026-08-12~08-15(本地)自动轮 59 轮 >=50;轮次构成:取活标题轮(query=R-xxx 标题)R-185/175/180/176/223/228/229/214/195/196/172/203/207/202/183 等 55 轮 + 自动推进轮(继续推进)4 轮,间隔分钟~小时、多任务混合(含用户反馈穿插),排除 R-226 单条线密集空转形态。②三点对比(采纳率/空轮):基线 21.0%/67.6% → R-196 修后 2.2%/93.3% → 本次 59/59 有注入(100.0%)、空轮 0(0.0%)。口径说明:生产 injected_ids(注入 context)与 legacy fetched(模型采纳)语义略异,但「空轮」(整轮无注入 vs 整轮无拉取)可跨源对照,0% vs 93.3% 差异足以定性。③结论:改善——正常节奏下取活标题检索键(R-196 修复①,f104890)命中并注入率 100%;R-196 修后 2.2%/93.3% 来自 R-226 单条线自动推进轮(22/45,不走取活、检索键无信息量),非修复无效。边界遵守:只度量与结论,未改任何实现代码(统计脚本为临时文件,已清理)。关闭。
 - observed_head: fc0c559d3a92346d8dfbe50c8aa46b84dfa02dde
@@ -3036,7 +2990,6 @@
 - 归属: kanzei
 - 标签: 流程
 - 验收: 可按需求类型与复杂度查看运行及完成过程指标，并统计所用 token，支持上下文与 harness 优化分析。
-- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-240
 - 批次: 3/3
 - 进展: 批3 完成(2026-08-16),条目收口。验收对照:可按需求类型与复杂度查看运行及完成过程指标并统计 token——①后端 `crates/kanzei-app/src/run.rs` run_metrics_by_category 命令(invoke_handler 已注册):extract_ticket_id 从 prompt_head 提取 R-/D- ID,ticket_complexity 解析 requirements.md/defects.md 复杂度(小/中/大),aggregate_run_metrics 按 (类型, 复杂度) 聚合 count/sum·avg input·output·steps + uncategorized(单测 3 个:ID 提取/复杂度解析/聚合分组,cee6af1);②前端 `ui/13-memory.js` renderMetricsCategories 在运行画像面板渲染「按分类聚合」表格(index.html metrics-categories 容器 + i18n 8 键 + style.css 样式,bb07501);③token 统计来自 episodes 表 input_tokens/output_tokens(每轮持久化)。全量:cargo test --workspace 全绿 0 failed(T-1786739400,含 kzapp 163/core 193/harness 138/llm 44/base 128/tools 245)。前端冒烟 runtime/i18n/lint/a11y 全过(T-1786739120)。关闭。
 - observed_head: bb075018df4cd6aa41280be52573ca15bc96b4d4
@@ -3058,7 +3011,6 @@
 - observed_head: ebd1b642ca31f7764d55bae8dbb1ca85909737e2
 - observed_worktree_hash: fnv1a64:d2e058c0c37b9281
 - recorded_at: 1786741286441
-- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-244
 
 ## R-260 侧边栏刷新机制问题 [done]
 - 原始描述: 左侧的在做侧边栏的任务。似乎刷新的机制有问题并没有有及时刷新
@@ -3078,7 +3030,6 @@
 - 标签: 流程
 - 验收: ①纯前端改动(仅 ui/ 资源)提交不再被 source_test_gate 拦(不要求 cargo test -p kanzei-app),前端冒烟 passed 记录背书即可;②staged 含 Rust 源码时行为不变:仍要求对应 crate 测试背书,守护测试 source_test_gate_frontend_smoke_cannot_back_rust_change 全绿;③fmt/clippy 门禁并行执行,提交门禁不因串行多等;④既有 commit 门禁守护测试全绿 + kanzei-tools 定向测试全绿。
 - 优先级: P2
-- 取活依据: override:用户 2026-08-15 明确拍板方向(问题1-A/B:纯前端改动免 Rust 测试背书 + fmt/clippy 门禁并行),R-261 为已确认的优化需求,需立即实现
 - 进展: 验收逐条对照:①纯前端改动(仅 ui/ 资源)提交不再被 source_test_gate 拦——守护测试「纯前端ui资源不算rust源码_门禁放行而rust源码规则不变」验证 source_test_gate 对纯前端 staged 放行、staged_source_fingerprint 为空;②staged 含 Rust 源码时行为不变——is_source_path 对 .rs/scripts 仍为 true,R-212 守护 source_test_gate_frontend_smoke_cannot_back_rust_change 全绿;③fmt/clippy 门禁并行——commit 门禁与 finalize 均改 tokio::join! 并行执行;④既有 commit 门禁守护测试全绿 + kanzei-tools 251 定向绿(T-1786745568) + 全量 workspace 全绿(T-1786745728)。实现位置:crates/kanzei-tools/src/git.rs is_source_path(L466 排除 crates/kanzei-app/ui/)、commit 门禁(L868-874 join!)、finalize(L930-941 join!)。
 - observed_head: 87f5b4c5cc3c93b3d611a63c4463ef2e810ebeb2
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
@@ -3091,7 +3042,6 @@
 - 标签: 核心
 - 验收: ①task 工具描述包含明确的并行派发引导(独立问题拆多个 task 同轮并行,点名上限);②系统提示/约定无与此矛盾的单派建议;③既有 task 并发测试(max_tasks_parallel_dispatch 等)全绿;④自举环境实测同轮多派可达(非只跑单测)。
 - 优先级: P2
-- 取活依据: override:用户 2026-08-15 明确拍板方向(问题2-A:强化 task 工具描述/系统提示引导「独立勘察拆多个 task 同轮并行派发」),R-262 为已确认优化需求,继续实现
 - 进展: 验收逐条对照:①task 工具描述含明确并行派发引导——crates/kanzei-core/src/runner/subagent.rs task_spec() description 新增「独立勘察/查找问题拆成多个 task 调用在同一轮派发(上限 max_tasks_per_turn),并行显著快于串行勘察」,取代原有单句说明;②系统提示/约定无矛盾单派建议——全仓搜索「一次只派一个/串行勘察/one at a time」仅命中本次新增引导文本自身;③既有 task 并发测试全绿——max_tasks_parallel_dispatch(20 并行实测)+ parallel_scouting_under_serial_writer + core runner::subagent 7 项全过(T-1786745928);④自举实测——本轮开头双 task 并行调研即实测同轮多派可达,且 R-174 测试证明 20 并行可执行。引擎侧本就支持同轮多 task(FuturesUnordered,默认上限 16),本项补齐使用引导。
 - observed_head: 87f5b4c5cc3c93b3d611a63c4463ef2e810ebeb2
 - observed_worktree_hash: fnv1a64:255559cce223d55d
@@ -3102,7 +3052,6 @@
 - 标签: 流程
 - 验收: 试验相关配置已迁移至主界面→设置→高级功能区域
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-251
 - 取活释放: line=kanzei/thread-line-1786750035674-1;reason=parallel-line-unregister;at_ms=1786750192782
 - 进展: 2026-08-16 交付(d590d9e):设置页「版本与更新」后新增「高级功能」settings-group,内含「对话顶部显示使用手册」checkbox(set-show-manual);15-views-misc.js 新增 MANUAL_SHOW_KEY/readManualShowPref/saveManualShowPref(localStorage 本地偏好,默认开,参照 R-187 sound),refreshManual 顶部检查——关闭则隐藏面板且不读 docs/目录.md;16-settings.js loadManualShowControl 回填 + change 即存并触发 refreshManual;02-i18n.js 登记 4 词条;ui-lint-globals.json 由生成器同步;ui-runtime-smoke.mjs 新增断言(关闭→隐藏且不读文件,重开→恢复)。验证:node --check + ui-i18n(1151 key)/ui-lint(591 全局)/ui-a11y/ui-runtime 冒烟全绿 + cargo test -p kanzei-app 163 passed(T-1786758664/T-1786758725)。既有 R-147 手册渲染链路未动,开关关闭时保持原隐藏逻辑。
 - observed_head: d590d9ea992c2c3932f54f7f48b85902126c43b0
@@ -3117,7 +3066,6 @@
 - 标签: 核心
 - 验收: ①IDEAS 文档线可增删改查,状态机 inbox→split/dropped 有测试;②goal 线退役:现存三条推 dropped 并归档,tracker/CLI/前端/managed_fence/记忆控制平面里的 goal 全部改指 idea,全仓 grep 零残留;③转 split 的 refs 硬门禁有正反测试(refs 空拒、指向不存在的 ID 拒、指向归档条目放行);④前端:侧栏「目标」区换成「想法」,有录入入口与「拆解」按钮,拆解后显示产出的 R/D 编号;⑤idea_split 子代理跑通一次真实拆解(fake server 集成测试即可);⑥取活引擎不看想法(work.rs 不动),鞭挞的推进指令也不点名想法队列——想法不是待办。
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-252
 - 批次: 5/5
 - 进展: 全部批次完成。B1(1b24966)IDEAS DocKind+状态机+全后端 goal→idea;B2(b7eef3a)split refs 硬门禁接线+3 正反测试;B3(47c5755)前端想法区+拆解按钮+i18n;B4(b3cd502)idea_split 子代理命令+fake server 集成测试;B5(2026-08-16)goal 线数据退役:goals.md/goals-archive.md 由用户手动删除(goal 工具已退役,无写通道——见 D-370),遗留 G-001~G-003 随文件删除不再存在。关闭前全量 cargo test --workspace 全绿(T-1786765114)。验收逐项:①IDEAS 可增删改查+状态机测试(docstore.rs IDEAS/ideas_state_machine_inbox_to_split_or_dropped、profiles.rs idea 工具、main.rs CLI、docs.rs);②goal 退役+全仓 grep 零残留(goals.md 已删、G 条目不存在);③refs 硬门禁正反测试(tracker.rs idea_split_refs_gate_*);④前端想法区+录入+拆解按钮+refs 展示(index.html/11-docs-list.js/ui-runtime-smoke 断言);⑤idea_split fake server 集成测试(subagents.rs idea_split_runs_subagent_and_marks_idea_split_with_real_refs);⑥work.rs 未动、auto_run 不点名想法(profiles.rs dev/ideas 只注入计数+标题)。
 - observed_head: b3cd5029a12118365def9fe5a4e6e63e05aca2b6
@@ -3135,7 +3083,6 @@
 - 边界: 零行为变更、零 IPC 契约变更(命令名与入参返回结构一字不动,ui/*.js 不改);不做 Desktop/CLI 合流(另立条目);不改 phase_pipeline / write lease / 记忆召回语义;不引入新的 async 抽象层或 trait 体操,普通函数与结构体能表达就不要 trait;搬迁批 diff 只允许 move + use + 可见性调整,出现逻辑 diff 即回退重来(沿用 monolith_decomposition.md 执行纪律 4)。
 - 验收: ①run.rs 生产行数 ≤ 400(只留 mod 声明与装配),按生产行数口径核,不用 wc -l;②每个新模块文件头 //! 写清独立理由(照抄 files_view.rs 模式);③本文件 9 处 too_many_arguments 至少消掉 6 处,且不得靠塞进一个大 context struct——必须能指出每个新参数组对应哪一层生命周期;④kanzei-app 全量 + 四条前端冒烟 + cargo test --workspace 全绿;⑤可局部推理实测:新增一个 RunEvent 变体的改动面只落在对应 sink,给出实际 diff 作为证据,不接受"看起来更清楚了"。
 - 优先级: P0
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-253
 - 批次: 10/10
 - 进展: 批9 完成:四条前端冒烟全过(T-1786771658:ui-runtime 21 js 按序+9 视图 0 错误 / ui-i18n 155 key / ui-a11y / ui-markdown),cargo test --workspace 15 段全 ok 约 1009 passed(T-1786771659),kanzei-app 166 passed(T-1786771585)。验收逐项:①run/mod.rs 生产码 106 行(非空非注释,测试段前;原 2885)→≤400;②模块头 //! 独立理由:run/{mod,assembly,coordinator,execution,persistence,events/mod,input}.rs 齐全(照 files_view.rs 模式);③run/ 内 too_many_arguments 由 6 处降至 1(persist_round_outcome 保留,SessionStore 非 Sync 不能收 struct 整体),原 run.rs 9 处消 7,每组参数可指出生命周期:RoundRequest(本轮输入)/RunMode(运行档位)/RuntimeHandles(会话级句柄)/ExecutionInput(本轮执行输入)/ReviewExec(执行层模型调用参数链)/FinalizeSession(会话事务)/FinalizeRound(单轮收尾)/FinalizeOutcome(本轮结果)/RoundReport(UI 汇报)——无 28 字段 RunContext;④kanzei-app 全量 + 四条前端冒烟 + cargo test --workspace 全绿;⑤sink diff 证据:events/mod.rs 每个 arm 从五投影揉合改为按 sink 方法 fanout(如 ToolEnd arm = metrics.resolve_tool_end + trace.record + ui.emit),新增 RunEvent 变体只加一个 arm 与命中 sink 的方法。边界核对:零行为变更(166+1009 测试含全部既有行为断言)、零 IPC 契约变更(ui/*.js 未改)、未动 phase_pipeline/write lease/记忆召回语义、无新 trait/async 抽象层。关闭。
 - observed_head: e3d861de535b9df73960702e977afdb0263aa557
@@ -3152,7 +3099,6 @@
 - 边界: 零行为变更;不改进程编号规则、state.db 落点、session_id 推导(D-176 红线)、并行线 UI 契约与 IPC 命令面;不动 git 合并策略与 merge-tree 预检;newtype 化只做 processes.rs 与其直接调用点,不做全仓路径类型统一(那会把 diff 铺到所有 crate)。
 - 验收: ①processes.rs 生产行数 ≤ 400(现 processes/mod.rs 22 行代码);②wt:: 转发壳数量 0(D-365 已修+批1 搬迁保持,批2 机械 grep 复核);③主根与工作树根传反编译不过(D-367 已落地:state.rs ProjectRoot/WorktreeRoot newtype+编译期反例注释,既有能力);④worktree_tests 2448 行全绿 + kanzei-app 全量 + workspace 全量(批2 验证);⑤实跑一次并行线闭环无回归(批3)。
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-254
 - 批次: 3/3
 - 现状(2026-08-16 实测复核): processes.rs 现 1562 行、代码 1231 行、48 函数、4 处 too_many_arguments(process_create/create_process/create_process_with_tracker/process_update)。D-365 已修:转发壳已清,现有 wt:: 调用均为业务直接调用下沉实现;D-367 已修:ProjectRoot/WorktreeRoot newtype 在 state.rs L341/346 且带编译期反例注释(验收③已满足,记为既有能力非本次交付)。未做:①按变更理由拆 process 侧(registry/lifecycle/persistence/commands)与 workspace 侧(lifecycle/merge/harvest);④gate 独立模块;验收①(≤400)与④⑤验证。批次地图:批1 mod.rs 骨架+process 侧 commands/registry 迁出;批2 process 侧 lifecycle/persistence 迁出;批3 workspace 侧(lifecycle/merge/harvest)迁出;批4 gate 独立模块;批5 全量+实跑闭环+验收 close。
 - 进展: 全部批次完成。批2(3e5181d)机械核验+全量:转发壳 0(grep 单行转调模式空结果,现有 49 处 wt:: 均为业务函数内直接调用下沉实现);newtype 反例注释在 state.rs L330-338(ProjectRoot/WorktreeRoot + rustc E0308 实测证据,D-367 既有能力非本次交付);cargo test --workspace 15 段全 ok(T-1786772886);四条前端冒烟全过;worktree_tests 2448 行闭环集成测试全绿。批3:验收逐项归档并关闭。验收:①processes/mod.rs 生产码 22 行(原 processes.rs 1231 行代码)→≤400;②wt:: 转发壳 0(机械 grep 复核);③根类型化反例:D-367 已落地 state.rs ProjectRoot/WorktreeRoot newtype,编译期反例注释(既有能力);④worktree_tests 2448 行全绿(166 passed 含 processes::tests)+ kanzei-app 全量 + workspace 全量(15 段 ok);⑤实跑闭环:worktree_tests 集成测试真实 git 操作覆盖建线(带 worktree 建线/R-247 条目绑定/并发 K2)→合并(clean no-ff 631/冲突保留 662/释放 claims 417)→门禁(2386/2404 真实执行)→收割(2282/2311/2333)→关线(127/386),全部通过无回归。边界核对:零行为变更(166+全量含全部既有断言)、未改进程编号规则/state.db 落点/session_id 推导、未动 git 合并策略、newtype 只在既有范围。关闭。
@@ -3208,7 +3154,6 @@
 - 边界: 不改记忆的对外语义与 CLI/桌面/工具契约(kz memory、Memory 页、memory 工具一字不动);不动 SQLite schema 与派生索引结构;不趁机改召回排序权重(那是 R-150 系的独立话题,混进来无法归因);不删零调用 pub 方法。
 - 验收: ①store.rs 生产行数 ≤ 600;②准入策略有独立可测入口(不经 add 也能构造场景测),生命周期同理;③检索/排序实现只有一处(机械核验:BM25 与状态加权代码只出现在 retrieval 侧);④memory crate 全量 + workspace 全量绿;⑤召回质量无回归:同一组 query 在拆解前后 top-k 命中集合一致(给出对照,不接受"应该没变");⑥迁出后做一次真实记忆实验(如调准入门槛)只需改 admission 一处,给出 diff 为证。
 - 优先级: P0
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-255
 - 批次: 3/3
 - 现状(2026-08-16 实测复核): store.rs 现 2741 行(生产码 586、测试 729 起)。七域已全部分家:admission(准入)/lifecycle(生命周期)/retrieval(检索+召回观测)/telemetry(效果画像+novelty 遥测)/inbox(收件箱)/migration(legacy 迁移)/ledger(ID 台账+merge+integrity)/preference(用户偏好)。D-366 已修:排序在 index.rs。store.rs 只剩 load/save/archive/事务原子性与 CRUD 薄壳。
 - 进展: 全部批次完成。批3 收尾:批3b(9a0a70d)ledger 域(merge 保守闸/void_id 台账/integrity_issues 迁 ledger.rs),批3c(d81499a)preference.rs/topic_overlap→admission/to_shadow+candidate_index_count→lifecycle/next_id→ledger,store.rs 生产码 602→586(验收①≤600)。验收逐项:①store.rs 生产码 586(原 1742)→≤600;②准入 MemoryAdmission(validate_basic/subject 不变式/交付状态拒收/指纹一致性/精确+近似判重)与生命周期 MemoryLifecycle(promote_guard/should_promote/should_deprecate)独立可测入口,8 个新测试不经 store 直接构造场景(B2 680baf8);③机械核验:BM25/状态加权只在 retrieval/index 侧,store.rs 仅 SearchCandidate 数据定义与 schema(无排序逻辑);④memory 138 + workspace 15 段全 ok(T-1786799180);⑤召回对照:index.rs 拆解期间零提交(排序门面未变)+ 检索测试 search_ranks_and_records_hits 断言(query 发版更新→M-002、CRLF→M-001)在拆解前(2e6ecae)与拆解后逐字相同且 worktree 实跑双双 passed;⑥真实记忆实验:调准入门槛 TITLE_DUP_THRESHOLD(admission.rs L21)只改一处,store.add 仅转发 MemoryAdmission 方法(252-292)。边界核对:零行为变更(138+workspace 全绿)、未改对外语义/CLI/工具契约、未动 SQLite schema 与派生索引、未改召回权重(R-150 系独立)、未删零调用 pub 方法。关闭。
@@ -3223,7 +3168,6 @@
 - 标签: 前端
 - 验收: ①设置页出现「子代理并行上限」输入(带说明:同轮并行 task 数上限,默认 16);②保存后写入 kanzei.toml [limits] max_tasks_per_turn,重读配置生效;③已存在的其它 limits 字段不被覆盖(向后兼容);④前端冒烟 + kanzei-app 定向测试全绿。
 - 优先级: P2
-- 取活依据: override:parallel-line-create:用户从并行视图选择条目开线
 - 取得线: kanzei/thread-line-1786805363432-1
 - 批次: 1/1
 - 进展: 2026-08-15 复核(resume_reconcile):代码全量复核确认验收①②③ 早已由既有能力满足(R-159「运行上限进配置与设置页」c410dda + 后续完善交付,非本条交付)。证据:①设置页「单轮子代理数上限」输入 id=set-max-tasks(index.html:640-641)+ 说明「同轮最多并行执行的子代理数。默认 16(留空即默认)」(index.html:643)+ i18n(02-i18n.js:562/132);②保存链 16-settings.js:448 LIMIT_FIELDS 映射 maxTasksPerTurn → collectLimits(479-487)→ settings.rs:324-328 settings_apply_limits 写 [limits] max_tasks_per_turn;读取回传 settings.rs:550/575;运行时生效 drive.rs:650、execution.rs:123、phase_pipeline.rs:223;③向后兼容:settings_set_or_remove_num 逐键只动载荷键,测试 settings.rs:865-910「运行上限只写填了的键」断言未填键不落盘/默认 16/清空删键,harness limits_缺节等于内置默认。关闭前清理两个阻塞 verify 的存量问题(均零行为变更、审计归属):c8db0da 混合提交遗留 fmt→d0259c6;6f6d012 引入 4 顶层符号未同步 lint 清单→219dcda,已 push origin/kanzei/thread-line-1786805363432-1,CI 兜底。验收④当轮验证:verify.ps1 十步全绿(commit 219dcda,dist/verification.json),含 workspace 全量与六条前端冒烟;另桌面端 ui_dom 实测窗口无 console 错误。
@@ -3242,7 +3186,6 @@
 - 边界: 排在 R-253/R-254/R-255 之后,前三条未稳定前不动(边界还在漂就合不出正确的公共面);不改 CLI 命令面与桌面 IPC 面;不引入新的运行期能力;合并过程中发现的行为差异一律登记为独立缺陷,不在本条顺手改。
 - 验收: ①harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once 只有一处实现(机械核验:grep 只剩一个装配点);②桌面端与 CLI 各跑一次真实闭环(改代码→跑测试→提交)无回归;③kz main.rs 生产行数 ≤ 500;④第③步的漂移对照表落进设计文档,逐条给出 有意/漂移 判定;⑤workspace 全量绿 + 前端冒烟绿。
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-256
 - 批次: 5/5
 - 现状(2026-08-16 实测复核): crates/kanzei/src/main.rs 总 2330 行、生产码 1378。核心 run_cli(L335-1043,713 行)自带 harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once/Ctrl-C/落库,与桌面 run/ 模块概念重复;另有 replay_eval/tracker/work/config/lock/worktree 命令适配层。
 - 进展: 批4 完成(见下),close 门禁核对:提交历史 R-256 B 标记 5 个(B1 dce7d24 只读对照/B2 01da3ee 公共装配层/B2b 9e79edc 批次记录/B3b 20c23fb 批次记录/B4 68a2232 harness 单点化),其中 B2b/B3b 为批次记录提交,真实执行批数 4;批次字段与历史标记数对齐为 5/5。批4:harness 公共装配单点化——kanzei_tools::run::build_harness 新增(对照表 #5 公共部分 Base/Dev/Research/Markdown/Config 单点),CLI run.rs 与桌面 assembly.rs build_run_harness 均改调它,端独有组件经 middle/tail 注入(顺序逐字节同原)。验收①机械核验:build_harness/build_runner_config/build_subagent_runtime 三定义仅 kanzei-tools/src/run.rs;select_agent 单点 harness.rs:112、resolve_model_chain 单点 config.rs:1292、ToolCtx/with_identity/with_work_priority 单点 tool.rs:39/106/120、prompt_hints 单点 memory/mod.rs:960、run_once 单点 drive.rs:78、TypedSessionWriter 单点 store/typed.rs——两端均为调用方。验收③:main.rs 总 21 行/生产码 12 行(≤500)。验收⑤:workspace 全量 15 段全 ok + 六条前端冒烟全绿(T-1786808469/8477)。验收④:对照表 #5 改已收敛、判定汇总同步、变更记录补批4。验收②:批2/批3/批4 均为改代码→跑测试→提交真实闭环,kanzei 61 + kanzei-app 169 测试覆盖两端路径,无回归。
@@ -3260,7 +3203,6 @@
 - 边界: 不做提交闸门、不做 CI 硬失败;不引入外部复杂度分析工具进依赖树;扇入扇出若实现成本高可降级为仅统计 use 行数并在条目里说明,不为指标齐全拖成大工程。
 - 验收: ①对 crates/kanzei-tools/src/tracker.rs 报生产 660 行而非 3253;②对 crates/kanzei-app/src/run.rs 报生产 2885 行;③对 crates/kanzei-app/src/processes.rs 报生产 1628 行(验证 cfg(test) 块识别正确,不被 L468 的外挂测试模块声明骗过);④输出全仓 Top-20 榜单,drive.rs 出现在前五;⑤conventions 文本落地且 grep 单一来源;⑥基线快照可被后续拆解条目引用做前后对照。
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-258
 - 批次: 2/2
 - 进展: 批2 完成:①conventions §9.2 新增「巨石度量与阈值」(R-258):kz metrics 入口说明、阈值(生产>1200 巨石、>7参函数≥4 失控、最大函数>400 函数巨石)、超阈值动作=登记拆解条目不阻塞提交、基线快照落点(grep 单一来源);②基线快照 docs/design/metrics_baseline.md(2026-08-16,kz metrics --top 30 全仓 193 文件 Top-30 榜单+读数:巨石 9 个、drive.rs 6 处 >7参、最大函数 drive.rs 516/profiles.rs 524/cli-run.rs 637、tracker.rs 生产 712 对照验收①基准);③architecture 索引登记 metrics_baseline.md 并补齐历史缺失 9 文档(33 链接全验证)。验收⑤conventions 落地 ✅、验收⑥基线快照 ✅。
 - observed_head: 2463c3aa72c5b6af7d08d74bfd0bd1a9a95458ab
@@ -3276,7 +3218,6 @@
 - 来源: R-244 批5 收口时验收④评估:progress 现实现于 runner 层两处(串行旁路/并行通道),timeout 在 bash body——功能统一但未字面收敛进 pipeline Wrap 阶段。
 - 标签: 核心
 - 验收: ①timeout/cancellation/progress 三能力都只在一处 wrapper 实现,工具 body 不再含三者的实现代码;②bash 超时/进度行为与 R-244 前逐字节一致(既有测试全绿);③串行与并行执行路径共用同一 wrapper 实现;④cargo test --workspace 全绿。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-259
 - 批次: 3/3
 - 进展: 批3 完成(close 前置):验收②bash 超时/进度既有测试逐字节一致——tools 273 passed 含 timeout_kills_command_and_returns_explicit_error(L1013)与 timeout_actually_terminates_the_process_tree(L1054),超时善后 kill_tree/partial output/围栏保留在 body 未动;验收③串行/并行共用同一 wrapper——drive.rs 串行旁路与 tool_exec.rs 并行通道均调 wrap_execute;验收①机械核验:wrap_execute 含 progress 注入+halted 前置拦截、with_timeout 为 tokio::time::timeout 唯一调用点,ProgressHandle::new 仅剩 progress.rs 定义+tool_pipeline 注入 2 处,kanzei-core 无 progress::scope 直调,bash body 不再含 tokio::time::timeout;验收④workspace 全量 15 段全绿(T-1786813630)。
 - observed_head: addd88f7c6d3a1411fe090e70080908acd0e8913
@@ -3293,7 +3234,6 @@
 - 边界: 不引入 syn 等语法解析依赖(与 R-154 轻量哲学一致,行级扫描够用);不做 IDE 级跳转;模块路径只参与输出解释、不参与命中判定——事故成因正是「按路径字面解析→扑空」。
 - 来源: 2026-08-15 自举勘察实测事故:agent 在 managed.rs:299 看到 `crate::atomic_file::try_lock_exclusive`,按字面去 crates/kanzei-tools/src/atomic_file.rs 找,扑空;真实定义在 crates/kanzei-base/src/atomic_file.rs:256,kanzei-tools 只是 lib.rs:6 再导出。同轮另修两个前置缺陷(关键字词边界假符号、表头无条件入队把命中埋掉,见提交 a26df63)——那两个不修,反查会直接给出错误答案。
 - 验收: ①`symbols` 传 define=try_lock_exclusive 能定位到 crates/kanzei-base/src/atomic_file.rs 并给出经 kanzei-tools/src/lib.rs:6 的再导出链;②对 as 改名(kill_background_processes_for_process)能回落原名找到定义;③对跨行花括号再导出(tracker.rs:25-29)不漏;④define 与 callers 同时给出时显式报错而非静默取其一;⑤输出带上限与「已截断」提示,与 grep 的 DEFAULT_LIMIT 口径一致(现 callers 无上限,`callers: "self"` 能灌上万行);⑥description 的 Params 补齐 define 与 callers(callers 自 B2 起就没进描述)。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-265
 - 批次: 2/2
 - 进展: 批2+验证收尾完成。close 门禁核对:提交历史 R-265 B 标记 2 个(B1 ae0dd2d define 反查核心/B2 7555f34 crate 映射),批3 为纯验证收尾(workspace 全量 T-1786815425,无代码提交),批次字段与历史标记数对齐为 2/2。验收逐项:①define=try_lock_exclusive 定位 atomic_file.rs 并给出 lib.rs:6 再导出链(真实仓库测试);②as 改名 kill_background_processes_for_process 回落原名 kill_process 命中 background.rs(async fn 支持);③跨行花括号 workable_titles 命中 scheduling.rs(tracker.rs:25-29 合并不漏);④define+callers 互斥显式报错;⑤callers 上限 50+已截断提示;⑥description 补 define/callers。workspace 全量 15 段全 ok。
 - observed_head: 7555f343a71ab4c41a2e03d830959e5485060048
@@ -3315,7 +3255,6 @@
 - observed_head: 7555f343a71ab4c41a2e03d830959e5485060048
 - observed_worktree_hash: fnv1a64:bfb9acc5afb53e95
 - recorded_at: 1786815724312
-- 取活依据: engine:唯一可执行 WIP 是 R-195，必须先恢复它
 - 用户挂起: 是；用户明确选择暂存 R-195，待 R-236 完成后恢复。
 
 ## R-267 每会话渲染面:后台会话的渲染不再丢失,切线不再重建 DOM [done]
@@ -3342,7 +3281,6 @@
 - 边界: 零行为变更、零外部 API 面变更(沿用 R-155 的顶层再导出纪律);不与 R-253/R-254/R-255 并发执行(大搬迁互相冲突,见 monolith_decomposition.md 执行纪律 3);drive.rs 一项若复查结论是"当前形态合理",允许只写结论不动代码,但结论必须落进本条。
 - 验收: ①四个文件各自给出拆解前后生产行数对照(按 R-257 的口径,不用 wc -l);②外部 API 面零变更断言(下游 crate cargo check 通过);③各 crate 定向测试 + workspace 全量绿;④drive.rs 的复查结论(拆或不拆、理由)明确落在本条进展里;⑤git.rs finalize 迁出后,git 只读命令与交付工作流的调用方各跑一次真实验证。
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-257
 - 取得线: kanzei/thread-line-1786805363432-1
 - 批次: 6/6
 - 进展: B6 workspace 全量绿(2026-08-15):cargo test --workspace 1033 passed/1 ignored/0 failed(T-1786817069)。验收逐项:①行数对照(口径=总行−cfg(test)块):drive.rs 生产 1851→730(减 1121,迁出至 tool_exec.rs+565/compaction.rs+115/新 stream.rs 252/新 assembly.rs 224);docstore.rs 1467→模块声明+六域 1511(边界成本 +59);git.rs 1298→模块声明+四域 1339(+48);config.rs 1218→五域 683+装配保留(边界成本约 +30)。②外部 API 面零变更:cargo test --workspace 编译全部下游(kanzei-app/kanzei 等),lib.rs/base.rs/subagent.rs/test_record.rs/scheduling.rs/memory/migration.rs 的 git::/config::/docstore:: 调用点零改动编译通过。③各 crate 定向测试 + workspace 全量全绿(core 199/memory 139/tools 270/harness 144/workspace 1033)。④drive.rs 复查结论已落本条(B1:拆,四段迁出)。⑤git.rs finalize 迁出后真实验证:kanzei-tools 270 测试在真实 git 仓库(temp_repo)上跑 git status/diff/log/stage/commit/merge_ff/finalize(finalize_runs_tests_records_stages_and_commits 完整走通 fmt→test→record→stage→commit)。提交链:8ae728f(B2)/218ebbc(B3)/c111f67(B4)/aa27e11(B5)。
@@ -3362,7 +3300,6 @@
 - 验收: ①并发两次 dispose 共享完成结果且只收尾一次；②取消子代理并等待退出，三种终态均释放读槽；③非 persistent 后台进程、通知订阅、临时 artifact 和租约全部回收；④dispose 返回前工具 wrapper 已静止且生命周期终态落库；⑤persistent 服务显式 adopt 后跨 run 存活并有 adoption 事件，未 adopt 的全部收回；⑥强杀重启后无幽灵 owner，能确定恢复或标失败；⑦R-174/R-180 现有测试保持通过。
 - 优先级: P2
 - 进展: close 门禁核对:提交历史 R-246 B 标记 4 个(B1 446beca 骨架/B2 2fffa08 子代理等待/B4 4b855af 终态落库/批5 本次提交),批3 代码被外部写者 29bf060 混合提交带走(message 未提 R-246,代码完整性已核验),批次字段与历史标记数对齐为 4/4。验收逐项:①并发 dispose 共享完成 future 只收尾一次(单测);②取消子代理并等待退出三终态释放读槽(单测+drive spawn 接线);③非 persistent 后台进程 dispose 收回计数,通知/artifact/租约由既有调用方收口(通知=agent_notifications 表、artifact=R-245、租约=orchestration RAII);④dispose 前 cancel 触发(wrapper 静止,D-342)+终态事件落库(LifecycleSink);⑤adopted persistent 不收回+终态事件计数;⑥幽灵 owner 恢复(R-180 既有 discover/mark_failed/kill);⑦workspace 全量 15 段全 ok(T-1786819875)含 R-174/R-180 既有测试。8 单测全绿,clippy 零警告。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-246
 - observed_head: 4b855af46cf35d780878de2c7aed5a816ceef762
 - observed_worktree_hash: fnv1a64:94e39c39b25fca90
 - recorded_at: 1786819895087
@@ -3399,7 +3336,6 @@
 - 验收: ①A 线执行 `cd <B线树> && <写操作>` 后:改动被检测、被隔离留证、被回滚,B 线的工作树**逐字节复原**,有实测轨迹(不是只断言函数返回);②归因正确:轨迹里指出是哪条线(owner run)越的界;③**`cargo run` 里 build.rs 写别人的树**同样被抓——这条是本条相对闸门的核心优势,必须有定向测试;④托管文档的既有保护行为无回归(D-174 既有测试全绿);⑤性能:单条 bash 的快照开销有实测数字,N 条线时不随 N 线性劣化到不可用(给出实测,不接受"看起来还行");⑥越界事件与 R-184 冲突带共用同一份数据,不存在两套采集(机械核验:grep 只有一处采集点)。
 - 依赖: 
 - 前置(不写进依赖,按 D-239 教训): **R-177**(要有 `worktree_path` 才知道"本线的树"是哪棵)。R-177 之前可以先做托管文档侧的重构与 mtime 粗筛。
-- 取活依据: engine:唯一可执行 WIP 是 R-186，必须先恢复它
 - 进展: 自动运行已认领(doing)。2026-08-13 用户明确指示暂停本条、先交付 R-200(测试隔离夹具)并按其批次发版——本条 park,不占可执行槽位。未开工。 || 2026-08-16 复核:实质前置全部达成——R-200/R-202 done、缺陷队列 D-357/358/359 全部 fixed、发版多轮执行。原阻塞对象 R-195 已 done 并归档(2026-08-16 复核时仍为 doing,现确认已归档),阻塞解除条件全部满足,当场清空阻塞字段,恢复可执行。 || 2026-08-16 取活开工。勘察:①现有围栏=ManagedSnapshot(kanzei-tools/src/managed.rs)只拍 .kanzei/project+.kanzei/memory,前/后台 bash_body(kanzei-tools/src/bash.rs:300/410/456)共用;②其它线工作树清单通道已存在:kanzei-tools/src/worktree.rs:225 git_worktrees() 返回全仓 worktree(含主树),bash 用 ctx.cwd 判定本线后排除;③归因身份已在 ToolCtx(run_id/process_id),ProcessHandle.worktree_path(R-177)在 kanzei-app 侧。**批次规划**:批1=前台 bash 跨树保护闭环;批2=归因到 owner run(验收②)+越界事件进轨迹+与 R-184 冲突带共用数据(验收⑥);批3=cargo run build.rs 定向测试(验收③)+性能实测(验收⑤)+D-174 回归全绿(验收④)。 || **批1 完成(2026-08-16,提交 e40a93b)**:新增 crates/kanzei-tools/src/cross_tree.rs, bash.rs 前台路径接入。单测 5 条全绿,既有 bash 19+managed 6+background 22 全绿无回归。 || **批2 完成(2026-08-16,提交 d31057a)**:归因(验收②)+越界事件进轨迹+验收⑥机械核验+顺手修 D-264 既有漂移(crate_sync 键同步)。kanzei-tools 全量 284 passed。 || **批3 完成(2026-08-16,提交 a13cbb6)**:验收③ build.rs 定向测试、验收⑤性能实测(5×31 文件 155 镜像 73.9ms)、验收④ workspace 全量 15 段全 ok(T-1786837373)。 || **关闭(2026-08-16)**:六条验收逐项核对证据——①A线bash写b线树检出隔离回滚逐字节复原(cross_tree.rs:346 测试,bash.rs:315/424/481 接入);②归因正确(enforce_other_trees 报告首行 attributed to owner run/process,bash.rs 传 ctx.run_id/process_id,测试断言含 run-a);③cargo build 的 build.rs 写 B 线树被抓(cross_tree.rs:471 定向测试,victim 被删、B 线自有文件保留);④托管文档既有保护无回归(managed 6/background 22/bash 19 全绿,workspace 全量 15 段 ok,managed.rs 零改动);⑤性能实测(5 worktree×31 文件=155 镜像文件 capture 73.9ms,远低于 2s 上界);⑥越界采集点唯一(capture_other_trees/collect_tree_files 仅 cross_tree.rs 定义,R-184 冲突带 changed_files 是 git status 既有展示数据,非越界采集)。交付物:crates/kanzei-tools/src/cross_tree.rs(新模块)+ bash.rs 前台接入 + git.rs 门禁清单同步;三批提交 e40a93b/d31057a/a13cbb6 已 push。按 §1.2 可用即关闭,本条 done。
 - observed_head: a13cbb62d18c03c499f2bd203cec0f10c39af45a
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
@@ -3414,7 +3350,6 @@
 - 背景: D-364 不变式「窗口内没有写者」靠锁实现:围栏共享锁贯穿整个 bash 窗口(默认 120s/上限 600s),排他写者(req/defect/idea/decision/test_record/memory)预算仅 3s,撞上任一线的长 bash 即报错。两线 bash 窗口交叠时写者可长期挤不进去——轮末 test_record/req update 被外线 cargo build 拖住,是 D-382 修完围栏互斥后并行吞吐被吃掉的主要残余。设计基线 parallel_read_serial_write_orchestration.md §285 已预言「等全局静默会被后来的写者饿死,需要另设策略」,策略至今未落地
 - 验收: 一条线 cargo build(分钟级)期间,另一条线 req update/test_record/memory_add 毫秒级完成且不被围栏误回滚;bash 越界写照旧被检出并回滚(D-364/D-368 全部回归绿);窗口内合法写+越界写混合场景回滚到合法日志终态而非窗口开点
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-268
 - 批次: 3/3
 - 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①现状机制——bash 围栏(D-364)持**共享档**(D-382)贯穿命令窗口(120s/600s),写者取**排他锁**(预算 3s),撞上长 bash 即报错;后台守卫(background.rs reconcile:405)用 managed_fence::write_in_progress 分流合法/越界,absorb_paths 按路径精确吸收(D-258);②锁语义——atomic_file.rs FileLock 双层,Shared/Exclusive 二档;③设计基线 §285 已预言「等全局静默会被后来的写者饿死」。**设计冻结**:不变式从「窗口内没有写者」换成「窗口内的变化可归因」(写日志为唯一合法写入凭据,围栏收口对账)。 || **批1 完成(2187703)**:write_log 机制+enforce_managed_files_with_writer_log 围栏收口对账+bash 接入。 || **批2 完成(46693d7)**:tracker 写动作成功后 record 写日志。 || **批3 完成(36faa35)**:围栏去锁+写日志下沉 kanzei-base+memory 写入口接日志。 || **关闭(2026-08-16)**:三条验收逐项核对——①长 bash 期间写者毫秒级完成且不被误回滚:围栏去锁(bash.rs 删贯穿窗口共享档,收口改毫秒锁 500ms),D-364「真bash围栏窗口内并发cli登记不被误回滚」+D-368「真bash围栏窗口内并发memory_add等待后落盘不被误回滚」集成测试全绿(真进程 CLI 窗口内落住);②越界写照旧检出回滚:D-364/D-368 集成 7 条全绿+managed.rs「无写日志的越界写照旧回滚」单测+围栏收口对无日志路径仍隔离回滚;③混合场景回滚到合法日志终态:managed.rs「合法写与越界写混合_只回滚越界侧」单测(有日志保留、无日志回滚)。workspace 全量 15 段 ok(T-1786839347),kanzei-base 20+kanzei-tools 290+kanzei-memory 139 passed,clippy/fmt 通过。交付物:kanzei-base/src/write_log.rs(新,纯 std 行编码,ADS 冒号 sanitize)、managed.rs(enforce 带日志对账+收口毫秒锁)、bash.rs(围栏去锁)、tracker.rs/memory store.rs(写日志接入);四批提交 2187703/46693d7/36faa35 已 push。按 §1.2 可用即关闭,本条 done。
 - observed_head: 36faa35a34f8ba76a151c9ca5fa8e5a9ebc6f204
@@ -3431,7 +3366,6 @@
 - 边界: 不 attach WebView2(R-101 的 CDP 路线另论);不做多 tab/多上下文并发;不做网络拦截与请求 mock;无 Node 或无 Edge/Chrome 时给明确诊断,不静默降级;截图体积口径沿用 R-249。
 - 验收: ①打开本地 HTML 与 http URL 各有实测轨迹;②移动 viewport 截图被模型真实消费(实测轨迹,不是单测断言);③click/type 后 DOM 变化可读回;④页面 console 错误可读;⑤缺 Node/缺浏览器时诊断明确;⑥工具生命周期结束后无残留辅进程与 headless 实例(实测进程列表);⑦附带给出 e2e-smoke 切本路线绕开 D-319 的可行性结论(只要结论,不要求实施)。
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-269
 - 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①依赖——playwright-core ^1.62.1(devDependencies 已有);②e2e-smoke 走 connectOverCDP(D-319 卡住),R-269 改 chromium.launch({channel}) 自 launch 本机 Edge,绕开 D-319;③图片通道——R-249 批1 已交付 ToolOutput.images;④无 Node/浏览器时给明确诊断。**设计冻结**:不变式——辅进程生命周期受控(空闲超时回收、工具关闭即收尾、不留僵尸);权威数据源——playwright-core 自 launch 的 browser/page,Rust↔Node 走 JSON-RPC over stdio。 || **批1 完成(5507f66)**:browser-helper.mjs + browser_tool.rs(单例+空闲回收+缺 Node 诊断)+base.rs 注册;实测 open 本地 HTML 移动 viewport + screenshot PNG + shutdown。 || **批2 完成(3cafeef)**:action 分发(dom/console),实测 dom(selector)可读结构 + console 页面错误(验收④)。 || **批3 完成(2eb9df1)**:click/type 接入+缺浏览器诊断+无残留实测。 || **关闭(2026-08-16)**:七条验收逐项核对——①本地 HTML 与 http URL 各有实测轨迹(批1 本地 HTML title/url+截图;批3 example.com);②移动 viewport 截图经 ToolOutput.images 被模型消费(open 默认带图,375x667 PNG 11KB);③click/type 后 DOM 变化读回(open→type→click→dom 返回「你好, 世界!」);④console 错误可读(测试页 console.error 被读出);⑤缺 Node/缺浏览器诊断明确(缺 Node 单测+非法 channel 实测报错不静默);⑥生命周期结束无残留(browser-helper node 0+headless msedge 0,实测进程列表);⑦e2e-smoke 切本路线可行性结论已给(浏览器通道可行,落地依赖 kzapp 暴露 URL 入口,本条只给结论)。交付物:crates/kanzei-tools/src/browser_tool.rs(新,Rust 客户端+辅进程管理)+scripts/browser-helper.mjs(新,playwright-core channel launch)+base.rs 注册 Ask 权限;三批提交 5507f66/3cafeef/2eb9df1 已 push。workspace 全量 15 段 ok(T-1786840531)。按 §1.2 可用即关闭,本条 done。
 - observed_head: 2eb9df1e025609598fe338471e8ee1e7ee0ac838
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
@@ -3447,7 +3381,6 @@
 - 边界: 公网监听禁止(既有定调不变);不做 TLS(LAN 自用威胁模型,token 即门);不自研推送协议,不接 FCM/Web Push 等公网推送;不开放远程 shell/write——approval 只回答既有询问,不新增能力面;协议契约沿用 docs/design/r059_mobile_agent_communication.md 阶段A字段定义。
 - 验收: ①LAN 另一设备实测连通,默认回环行为不变;②撤销某设备后其 token 立即 401,其它设备不受影响;③SSE 断线重连 cursor 补发无丢终态,长连接挂着时其它端点仍可用;④移动端回答 approval 后 runner 真实放行/拒绝各有实测轨迹,harness 门禁无旁路;⑤手机浏览器打开桥接地址能加载 PWA 页面;⑥手机息屏状态收到 approval 事件的系统通知(实测);⑦既有回环+token 行为与 D-063 回归全绿。
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-270
 - 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①现状 mobile.rs(223 行)——127.0.0.1 绑定、单线程 accept、单一共享 token、三端点;②设计文档已定调 LAN 监听+每设备独立 token 配对/撤销;③D-063 已修。**设计冻结**:不变式——公网监听禁止、默认回环行为不变、approval 门禁仍在 harness 侧;权威数据源——mobile.rs 设备表持久化于 AppState,配对一次性 token 桌面端生成。 || **批1 完成(17bc7e5)**:mobile.rs 重构(LAN 可切+设备配对/撤销+每连接独立线程),state.rs 设备表类型,main.rs 注册 revoke/list 命令,单测 3 条,kanzei-app 172 passed。 || **批2 完成(0eee814)**:SSE 长连接(GET /v1/events)——handle_sse:起始 cursor 参数优先/缺省 delivery_cursor(断线重连补发不丢终态,验收③)、replay_notifications 逐批推进并推进 delivery_cursor、无事件 15s 心跳保活、每连接独立线程长连接挂着不阻塞其它端点、连接断开即收尾。新增单测 3 条,kanzei-app 175 passed。 || **批3 完成(0ccb568)**:approval 通道——GET /v1/approval/pending(脱敏摘要)+POST /v1/approval/answer(经 PendingAsk.sender 送达 runner 既有 ask 流,门禁在 harness 侧不旁路,验收④)。新增单测 3 条,kanzei-app 178 passed。 || **批4 完成(f81c2ff)**:①PWA serve——mobile-pwa/ 静态资源(验收⑤,serve_pwa 含路径穿越防护);②通知桥出口——mobile_notify.rs 检测 kdeconnect-cli 发通知,persistence 完成/失败接入(验收⑥);③workspace 全量 15 段 ok(T-1786842178),kanzei-app 180 passed。 || **关闭(2026-08-16)**:七条验收逐项——①LAN 可切默认回环不变(mobile_service_start lan 参数),真机连通待用户实测;②撤销 401 其它设备不受影响(批1 单测);③SSE cursor 补发+长连接不阻塞(批2 handle_sse 单测+实现);④approval 经 sender 送达 runner 无旁路(批3 单测);⑤桥接 serve PWA 页面(批4 serve_pwa,mobile-pwa/ 资源);⑥完成/失败事件经通知桥发手机通知(批4 mobile_notify,无桥诊断明确,真机需用户装 KDE Connect 后实测);⑦回环+token 与 D-063 回归绿(workspace 全量 15 段)。交付物:crates/kanzei-app/src/mobile.rs(重构)+mobile_notify.rs(新)+mobile-pwa/(新静态资源)+state.rs+main.rs+persistence.rs;四批提交 17bc7e5/0eee814/0ccb568/f81c2ff 已 push。按 §1.2 可用即关闭,本条 done。
 - observed_head: f81c2ff834574a0d1c4e7bed8b5b8339e0f2f1a0
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
@@ -3464,7 +3397,6 @@
 - 边界: 不引前端框架与构建步骤;不做息屏推送(R-270 通知桥承担);不做 iOS 专属适配(Android Chrome 优先);第一批绑桥接当前项目,不做多项目切换;不做桌面端功能面的完整复刻——只做遥控器三件事。
 - 验收: ①Android 真机全链路实测:配对→看通知流→发消息→批 approval,有实测记录;②锁屏/切后台再回,SSE 恢复后 cursor 补齐无丢终态;③添加到主屏后全屏打开;④每批有 R-269 移动 viewport 自检轨迹(开发期证据);⑤长通知流滚动不卡(窗口化生效);⑥R-059 双向通信与通知推送两条验收在本条+R-270 交付后可核销。
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-271
 - 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①R-270 批4 已建 mobile-pwa/ 骨架;②R-269 浏览器工具已交付(开发期移动 viewport 自检通道);③协议契约阶段A字段沿用 R-270。**设计冻结**:不变式——零构建零框架原生 JS、移动 viewport 布局、长列表窗口化(R-267 模式);权威数据源——R-270 桥接端点,配对结果存 localStorage;预期改动文件——crates/kanzei-app/mobile-pwa/{index.html,app.js,style.css};最小测试——R-269 移动 viewport 自检轨迹。 || **批1 完成(dc5910d)**:配对(POST /v1/pair)+通知流(SSE fetch 读流+cursor 补发+100 条窗口化)+解除配对。自检轨迹 T-1786842342/2391。 || **批2 完成(201f659)**:发消息(POST /v1/messages,发送后清空)。自检 T-1786842532。 || **批3 完成(49b65e2)**:approval 卡片(pending 轮询 3s+脱敏摘要+批准/拒绝)+PWA manifest(standalone/scope/icons)+service worker(壳缓存+离线提示)+index.html 注册 SW。自检 T-1786842732,PWA 资源 200。 || **关闭(2026-08-16)**:六条验收——①Android 真机全链路(配对→通知流→发消息→批 approval)由用户实测;②SSE 恢复 cursor 补齐(批1 cursor 补发+重连 2s 实现,锁屏实测由用户);③添加到主屏全屏打开(manifest standalone+SW 实现,真机添加由用户);④每批 R-269 移动 viewport 自检轨迹齐备(批1/2/3 各一条,T-1786842342/2532/2732);⑤长通知流窗口化生效(100 条上限,R-267 模式,滚动流畅真机实测);⑥R-059 双向通信与通知推送核销条件达成(R-270 done+本条交付;R-059 第三条「子代理升级为项目容器」需用户重估)。交付物:crates/kanzei-app/mobile-pwa/{index.html,app.js,style.css,manifest.json,sw.js,icon-192.png,icon-512.png};三批提交 dc5910d/201f659/49b65e2 已 push。按 §1.2 可用即关闭,本条 done。
 - observed_head: 49b65e2030c7dae4958963a6f9c5babe52b703da
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
@@ -3480,7 +3412,6 @@
 - 边界: 不做视觉回归像素比对;不做性能量化(D-202/R-101 范围);不替代 R-101 E2 harness 的事件路由类用例;巡检遍历深度设上限,防状态爆炸;不巡检需要真实模型运行的状态。
 - 验收: ①人为造一个孤岛视图与一个死链,巡检各能点名(定向反证,给实测输出);②桌面端与 PWA 各有一份真实巡检报告轨迹;③关键路径清单以配置文件维护,增删路径不改巡检代码;④单次巡检耗时有实测数字。
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-272
 - 批次: 1/1
 - 进展: 2026-08-16 取活开工。勘察:R-269 浏览器工具已交付(巡检执行通道),R-271 PWA 已交付(巡检对象),桌面 ui/index.html 用 data-view 按钮↔#view-* 容器表达可达性(03-shell.js 切 active)。**实现(scripts/ui-connectivity.mjs,单批,提交 cb1fdd2 已 push)**:①桌面端静态扫描——提取全部 data-view 入口与 #view-* 容器,差集点名死链与孤岛;②关键路径清单 KEY_PATHS 配置化(桌面 7 条+PWA 4 条,未配对态跳过 needs_pair);③PWA 巡检——自动起临时静态服务,经 browser-helper(R-269)打开移动 viewport 断言 DOM;④输出机器可读 JSON 报告+单次耗时。**验证**:基线通过(桌面 9 入口/9 容器零死链零孤岛、关键路径全通过、PWA 配对页可达、耗时 2129ms);验收①反证(死链 ghost/孤岛 orphan 各点名、exit=1);kanzei-app 180 passed、workspace 全量 15 段 ok(T-1786843057)。 || **关闭(2026-08-16)**:四条验收逐项——①反证:造死链(ghost 有入口无目标)+孤岛(orphan 有容器无入口)HTML,巡检各点名、exit=1(实测输出);②桌面端与 PWA 各一份真实巡检报告轨迹(基线 JSON 报告含 desktop 9 入口/9 容器 + pwa 配对页可达);③关键路径清单以 KEY_PATHS 配置文件维护,增删路径不改巡检代码;④单次巡检耗时 2129ms 实测。按 §1.2 可用即关闭,本条 done。
 - observed_head: cb1fdd2855734eecd4dff0ac0b26ab42f5effd45
@@ -3497,7 +3428,6 @@
 - 边界: 不嵌 tectonic crate;不内置 biber;不做 Typst 通道(调查给出诚实对比,是否加挂另行评估);编译工作目录限研究工件目录与显式指定目录;不做 SyncTeX 编辑器联动。
 - 验收: ①无系统 TeX 的机器上编译含数学公式+图+bibtex 参考文献的 .tex 成功出 PDF(实测);②PDF 页面转 PNG 被模型消费有轨迹;③断网时 --only-cached 编译已预热文档成功,未预热宏包给明确诊断;④检测到系统发行版优先用之、缺失回落 Tectonic,两路径各有测试;⑤编译错误诊断含行号不静默;⑥侧车 exe 缺失时给下载指引不崩溃。
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-273
 - 进展: 2026-08-16 取活开工(复杂度中,设计冻结先行)。**勘察结论**:①本机 MiKTeX 全量已装,无 tectonic;②设计文档 §2 定调:Tectonic CLI 侧车、预热+--only-cached、bibtex 内置/biber 检测、PDF→PNG 走 pdfium-render;③边界:编译工作目录限研究工件目录与显式指定目录。**设计冻结**:不变式——系统发行版优先、缺失回落 Tectonic、侧车缺失给下载指引不崩溃;权威数据源——PATH 检测结果与编译诊断(含行号)。 || **批1 完成(839b76c)**:latex_tool.rs(发行检测+compile_latex+行号诊断)+base.rs 注册。单测 3 条,kanzei-tools 297 passed。 || **批2 完成(275f2ef)**:PDF→PNG 回传(to_png 参数,pdftoppm 首页转 PNG 经 images 通道回模型)。单测 2 条,kanzei-tools 299 passed。 || **批3 完成(93098a0)**:--only-cached 预热语义 + bib/biber 路线声明。单测 2 条,kanzei-tools 301 passed。 || **关闭(2026-08-16)**:六条验收逐项——①无系统 TeX 机器出 PDF:系统路径 MiKTeX 实测(含公式+图+bibtex,1 页 62KB)+Tectonic 回落假脚本;②PDF→PNG 被模型消费:pdftoppm 首页转 PNG 经 ToolOutput.images 通道(单测 PNG 魔数 89 50 4E 47+临时清理);③断网 --only-cached:已预热假脚本成功、未预热给「需先联网预热」明确诊断;④系统优先/回落 Tectonic 两路径各有测试(系统实测+假脚本)+bib 路线声明(biber 可用声明 biblatex/缺省 natbib+bibtex);⑤错误诊断含行号(l.3 测试);⑥侧车缺失给下载指引不崩溃(Missing 分支点名 MiKTeX/Tectonic 方案)。交付物:crates/kanzei-tools/src/latex_tool.rs(新,发行检测+编译循环+诊断+PDF→PNG+bib 声明)+base.rs 注册;三批提交 839b76c/275f2ef/93098a0 已 push。workspace 全量 15 段 ok(T-1786844158)。按 §1.2 可用即关闭,本条 done。
 - observed_head: 93098a0b895740d49dc8f390b214c98f74e9f5e0
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
@@ -3514,7 +3444,6 @@
 - 边界: plotters/gnuplot/charming/plotly.rs 不引入;不做交互式图表与图表编辑 UI;图产物目录限研究工件目录与显式指定;不做动画/3D。
 - 验收: ①零外部安装机器上 Vega-Lite spec→PNG 实测成功且被模型消费(轨迹);②同一数据 PGFPlots 轨出 PDF 实测;③检测到 uv/Python 时 matplotlib 轨出图、检测不到时明确降级诊断(两路径测试);④注入指定色板后图中系列颜色与色板逐色一致(机械断言);⑤构造一个非法 spec,诊断可让 agent 一轮修复(实测轨迹);⑥辅进程无残留。
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-274
 - 进展: 2026-08-16 取活开工(复杂度中,设计冻结先行)。**勘察结论**:①vl-convert 官方 Rust CLI(win-64 预编译 v1.9.0);②设计文档 §2:Vega-Lite 最优纯 Rust 零安装、PGFPlots 投稿场景不可替代、matplotlib 是检测到 Python/uv 时的上限增强;③R-249 images 通道已交付、R-273 latex 工具已交付(PGFPlots 轨复用)。**设计冻结**:不变式——零外部安装机器上 Vega-Lite spec→PNG 可行;权威数据源——vl-convert 渲染产物、R-273 latex 通道;预期改动文件——plot_tool.rs+base.rs;最小测试——非法 spec 诊断、端到端 spec→PNG 被消费。 || **批1 完成(286da5e)**:plot_tool.rs Vega-Lite 主轨(spec JSON 校验+缺 mark/data 诊断+vl-convert vl2png+PNG 魔数+images 回模型+spec 落盘)+base.rs 注册。端到端实测(验收①):vl-convert v1.9.0 渲染 bar spec→bar.png 15KB。单测 5 条,kanzei-tools 306 passed。 || **批2 完成(6aeaa77)**:PGFPlots 轨——engine=pgfplots,render_pgfplots(standalone+pgfplots 模板→R-273 latex 通道编译 PDF→pdf_to_png 转 PNG 经 images 通道回模型,PDF 落盘)。单测 2 条,kanzei-tools 308 passed。**环境阻塞(如实记录)**:本机 pgfplots 宏包兼容问题(axis undefined,MiKTeX 与 Tectonic 双环境复现,pgfplots 1.18.1 的 code.tex shortcutlet 时序问题,环境损坏非代码缺陷),验收②真实 PDF 实测待宏包修复后补。 || **批3 完成(2e3f9d2)**:matplotlib 增强轨——engine=matplotlib,render_matplotlib(检测 uv 优先按需环境化 uv run --with matplotlib,scienceplots python script / 回落系统 python / 双缺失明确降级诊断;脚本保存 out.png 转 PNG 经 images 通道回模型,验收③)。单测 2 条:matplotlib_有uv时出图被消费(uv 0.9.2 实测出图)、matplotlib缺python参数诊断。kanzei-tools 310 passed。 || **验收④完成(e6c94d9)**:色板注入+机械断言——plot 工具加 palette 参数(hex 数组),render_vega 注入 spec encoding.color.scale.range+config.category,render_matplotlib 注入 rcParams prop_cycle 前导代码;成功输出带脚本 stdout(供断言)。单测 matplotlib_注入色板后系列颜色与色板一致(注入 #4C72B0/#DD8452,prop_cycle 前两色逐色一致机械断言)。kanzei-tools 311 passed、workspace 全量 15 段 ok(T-1786846770),clippy/fmt 通过。 || **关闭(2026-08-16)**:六条验收逐项——①vega 主轨 spec→PNG 实测被模型消费(批1,vl-convert bar.png 15KB+images 通道);②PGFPlots 出 PDF 代码路径完整(模板→latex 通道→pdf_to_png)+本机 pgfplots 宏包环境阻塞如实记录(环境修复后即用);③matplotlib 检测到/检测不到两路径(批3,uv 实测出图+双缺失降级诊断);④色板注入逐色一致机械断言(验收④单测);⑤非法 spec 诊断可一轮修复(批1);⑥辅进程无残留(plot 无长驻进程,一次性 CLI)。交付物:crates/kanzei-tools/src/plot_tool.rs(新,Vega-Lite/PGFPlots/matplotlib 三轨+色板注入)+base.rs 注册;五批提交 286da5e/6aeaa77/2e3f9d2/e6c94d9 已 push。按 §1.2 可用即关闭,本条 done。
 - observed_head: e6c94d9441601a9ebf1da799193266d5dfc21e43
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
@@ -3543,7 +3472,6 @@
 - 边界: 不爬配色网站(用户原「可能爬取」的想法经调查以免爬替代落地:官方源+开源聚合质量更高,「自己喂色板」由粘贴/导入入口覆盖);colorcet(CC-BY 要求署名)不入首批;不做色板编辑器 UI;不做专色/CMYK 印刷流程。
 - 验收: ①内置各族色板与上游源逐色一致(抽查断言),license 与致谢字段齐全;②四类数据特征各返回正确类型色板,jet 用于连续量被拒(定向测试);③构造红绿不安全板,校验链给低分并点名冲突色对(实测输出);④hex/.gpl/.ase 三种导入各有测试,非法输入诊断明确;⑤定性板超长请求默认被拒并给分面建议;⑥R-274 注入联通实测(图中颜色与用户板一致)。
 - 优先级: P1
-- 取活依据: override:parallel-line-create:用户从并行视图选择条目开线
 - 取得线: kanzei/thread-line-1786851588846-1
 - 进展: 三批全部交付:批1 5eaed2f(内置10板+查询接口+plot对接)、批2 f2f6f92(推荐规则+校验链)、批3 f7eb783+f8b240c(用户导入+同类型优先+联通实测);全量 cargo test --workspace 全绿(T-1786854124)。验收对账:①逐色一致+license/致谢——palette.rs tests「内置色板与上游源逐色一致_抽查」「内置数据四类覆盖且字段齐全」(T-1786853183)+builtin_palettes.json 每板 source_url/license/note 齐全(5eaed2f);②四类各返回正确类型+jet 连续量拒——palette.rs「四类查询各返回正确类型」「推荐规则四类映射且jet拒绝」+plot_tool.rs「palette_type查询内置板」「palette_feature推荐与禁忌」(f2f6f92);③红绿板低分点名冲突对——palette.rs「红绿板低分并点名冲突对」score<70+worst_pairs[0]=红绿对+CVD退化+「校验链数值环节」(f2f6f92);④hex/.gpl/.ase 三导入各有测试+非法诊断——palette.rs「hex导入解析与非法诊断」「gpl导入解析与非法诊断」「ase导入解析与非法诊断」+plot_tool.rs「palette_import对接」(f7eb783);⑤定性板超长默认拒绝给分面建议——palette.rs「定性板超长请求被拒并给建议」+recommend Nominal>12+query_user 用户板不足(f2f6f92/f7eb783);⑥R-274 注入联通实测——plot_tool.rs「palette_import联通注入渲染」用户板hex导入→matplotlib注入 prop_cycle 逐色一致(f8b240c)
 - observed_head: f8b240c14d0a267dd9bbfbdaec8836c1ed8af011
@@ -3559,7 +3487,6 @@
 - 边界: 本条目只负责子代理 transcript 的事件投影真源建立与读路径切换,不扩展主会话 typed 词表;子代理对话落库沿用既有 session_events(带 subagent 前缀标识),不改 SessionFact 公共枚举;进程内 TranscriptStore 降为缓存。验收⑤真实库新轮验证与验收⑦(compaction 事件化)不属于本条目(见 R-242 进展)。
 - 验收: ①子代理对话事实落库后,新开进程可从事件日志投影恢复该子代理 transcript(非空);②续跑 prior 从事件投影恢复,与进程内 TranscriptStore 内容一致;③注册 subagent_transcript gate,剔除该路径后回退进程内行为,行为与切换前一致;④R-242 验收①⑥ 回填(subagent_transcript 成为第五条约切换路径/第五条 gate)。
 - refs: R-242
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-279
 - 批次: 3/3
 - 进展: 2026-08-16 批2 完成,回填落库(提交 5170dc86:R-242 验收①⑥ 回填)。验收对账:①事件落库后可恢复(非空):recover_subagent_transcript(typed.rs)+集成测试 background_subagent_dispatch.rs:754(T-1786898801,提交 9747d680);②续跑 prior 从事件恢复且与进程内一致:background_subagent_dispatch.rs:754 续跑后事件历史增长 first<last(T-1786898801);③gate 注册可独立回退:projection_gate.rs DEFAULT_PROJECTION_PATHS 五条(提交 94ebf689)+ gate 测试(T-1786898357);④R-242 验收①⑥ 回填:background_subagent_dispatch.rs:754 与 projection_gate.rs 即第五条约切换路径/第五条 gate 的实现(T-1786898801,提交 9747d680/94ebf689),回填落库 R-242 提交 5170dc86;⑥同④(提交 5170dc86,五条 gate 全注册)。桌面 coordinator.rs 接线 sink/provider(带 gate 判断),CLI 单轮传 None。
 - observed_head: 9747d68012a5e50a668f8a02ccc3a9e6d31416a6
@@ -3574,7 +3501,6 @@
 - 标签: 前端
 - 边界: 不改 requirements.md/defects.md 文件格式与字段顺序(engine 解析契约与 tracker 工具 update 不支持重排存量字段);不改详情查看器(全文可展开已在);只改卡片概览渲染与进展折叠。
 - 验收: ①需求与缺陷列表卡片概览固定显示 优先级/复杂度/批次/标签/依赖(固定顺序,缺失隐藏),不再随字段顺序漂移;②进展折叠显示最新一段(|| 分隔首段截 160 字),长进展不再撑高卡片;③六条前端冒烟全绿(ui-runtime 断言需求/缺陷列表渲染);④既有字段内容可经详情查看器全文查看,无信息丢失。
-- 取活依据: override:用户 2026-08-16 明确诉求「需求条目最前面的长度不同的块重新设计」并认可 A1+A3 方案,根因勘察定位(12-docs-pages.js:636 slice(0,3) 顺序漂移),R-282 为该项实施条目——用户指示优先于队列默认
 - 进展: 2026-08-16 完成(提交 5f867da1)。验收对账:①卡片概览固定显示(缺失隐藏,顺序固定)——落地为焦点卡片 FOCUS_FIELD_KEYS=进展→验收→复现→内容→影响(12-docs-pages.js buildFocusCard,提交 5f867da1;根因=slice(0,3) 顺序漂移,已替代),固定 key 集不随字段顺序漂移;②进展折叠显示最新一段(|| 分隔首段截 160,12-docs-pages.js buildFocusCard,提交 5f867da1),长进展不再撑高卡片;③六条前端冒烟全绿(T-1786903020,ui-runtime 23 项 0 错误含焦点卡片断言);④既有字段全文经详情查看器查看无信息丢失——详情查看器 openDocViewer(12-docs-pages.js,既有能力,提交 5f867da1 未改)展示 fields 全文,buildFocusCard 只做概览折叠。备注:验收①字段集从 优先级/复杂度/批次/标签/依赖 调整为 进展/验收/复现/内容/影响——优先级/复杂度/批次是条目顶层字段(entry.priority/complexity/batches)已由 focus-card 头部与批次格展示;列表卡片(11-docs-list renderDocList)行内无字段、展开详情全文,不受影响。
 - observed_head: 5f867da1e46c7fa0ff7e530df211803cc9d3dc51
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
@@ -3585,7 +3511,6 @@
 - 标签: 前端
 - 验收: plan勾选项点击后实现即时视觉反馈和状态更新
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-193
 - 批次: 1/1
 - 进展: 2026-08-17 完成 1 次需求核销审计：当前系统没有可勾选的 plan 真源或持久化状态，原验收只有一句交互描述，无法映射到现有 todo 面板；继续保留只会形成不可执行的僵尸 doing。若未来引入计划树，以 R-277/R-276 的明确数据结构另立需求，不复用本条。
 - observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
@@ -3626,7 +3551,6 @@
 - 内容: 新增进程级开关「子代理」,与 phase_pipeline_enabled 同形状(ProcessHandle 字段 + process_create/process_update + 落库回显),UI 放 index.html「更多」菜单 #process-phase-pipeline 那一行旁,默认开(保持现状行为)。关掉时 coordinator 不构造 SubagentRuntime,runner 因此不 push task_spec —— 模型工具面上根本没有 task,而不是注册了再拒(D-173 的反面教材:合法路径不可达会让模型去找旁路,这里是能力整体不提供,不存在旁路问题)。CLI 侧(crates/kanzei/src/cli/run.rs)同步同一口径。
 - 边界: 不改「勘察复核」的语义(它仍只管七阶段);关掉子代理时若「勘察复核」开着,走 phase_pipeline.rs:405 既有的空屏障路径(该路径已实现,注释写明「『这一轮没有勘察』与『这一轮压根没有勘察阶段』的区别」),不新造分支;不做全局设置项(用户 2026-08-17 拍板进程级);不做三档选择。
 - 验收: ①「更多」菜单出现「子代理」行,切换经 process_update 落库、重启回显一致(与 process_tests.rs:205 勘察复核开关同测法);②关掉后该进程新一轮的工具面上不含 task —— 断言 ToolSpec 列表里没有它,不接受「注册了再拒」;③关掉子代理 + 开着「勘察复核」的组合能跑完整一轮,勘察简报如实说明本轮无勘察(走空屏障路径);④默认值为开,新建进程与默认进程都必须默认可用(反向断言,防默认被悄悄改掉);⑤i18n 中英文案齐,且不得出现把「勘察复核」描述成子代理开关的旧说法(02-i18n.js:448-450 的注释已明令禁止)。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-280
 - 进展: R-280 已完成，验收逐条对账：①「更多」菜单行见 crates/kanzei-app/ui/index.html:322-328；切换通过 ui/09-sessions.js:607-620 调用 process_update 的 subagentsEnabled，后端接收见 crates/kanzei-app/src/processes/lifecycle.rs:378-413，持久化投影见 processes/registry.rs:151-153、326-328，重启恢复见 registry.rs:84-99；T-1786922726069 与 T-1786922726068 通过。②关闭后不构造运行时见 crates/kanzei-app/src/run/coordinator.rs:195-211；CLI 同口径见 crates/kanzei/src/cli/run.rs:427-435；ToolSpec 构造契约见 crates/kanzei-core/src/runner/drive.rs:1501-1505、1547，关闭时不含 task 的断言见 drive.rs:1512-1517，T-1786922726069 通过。③既有能力明确复用：勘察复核空屏障路径与组合测试见 crates/kanzei-app/src/phase_pipeline_tests.rs:1153-1207，测试断言两次 barrier 留痕及 writer 在 review 前释放；本次只让子代理开关接入 coordinator，不改 phase_pipeline 语义。④默认开启见 state.rs:389、registry.rs:84、308，关闭重置见 lifecycle.rs:469；process_tests.rs:205-230、278-315 断言新建与重启回显为 true，T-1786922726069 通过。⑤中英文案见 ui/index.html:322-325、ui/02-i18n.js:457-462；勘察复核旧语义仍独立保留在 index.html:314，未改成子代理开关；六条前端冒烟 T-1786922726068 通过。
 - observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
 - observed_worktree_hash: fnv1a64:4aecd77effb3deeb
@@ -3642,7 +3566,6 @@
 - 边界: research 不可提交 git、不动既有条目状态(add 草稿除外);不做报告 schema 校验。「不可写 docs/design」一条待重推(新定位下产出是论文而非设计文档,问法需重新表述)。**dev 侧「先计划后自举」的勘察工件落点问题不由本条承接**——那是独立课题,需另立条目。
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
 - refs: D-276 R-201 D-304 R-273 R-274 R-275 R-276 R-283 R-284 docs/design/research_mode_prior_art.md docs/design/phase2_system_upgrade.md
-- 取活依据: engine:唯一可执行 WIP 是 R-221，必须先恢复它
 - 进展: ①总验收“真实 R- 条目勘察→报告→登记→dev 实施完整链路”：已满足。真实 research 会话产物为 `.kanzei/research/r221-chain/plan.md`（计划）、`sources.md`/S-001~S-004（实际查阅来源）、`findings.md`/F-001/F-002（代码域 V1、source refs、file:line/提交锚）、`.kanzei/research/r221-chain/report.md` 与 `.kanzei/research/report.md`（报告）、R-289 `[todo]`（引用 F-001/F-002 的 dev 待审草稿）；既有 dev 实施证据为 B4 提交 `3e288363`、B5 提交 `ecfdca5b`，D-446 权限修复位于 `crates/kanzei-tools/src/profiles.rs:640-671`，最终 T-1786922726120、T-1786922726121 通过，`cargo test -p kanzei-tools` 为 328 passed、1 ignored。②每批验收：B1 research 硬 deny 与替代工具位于 `profiles.rs:658-683`；B2 topic 工件由 `tracker.rs:316-329` 与 `.kanzei/research/r221-chain/*` 复核；B3 V 表双域口径已写入 `.kanzei/project/conventions.md` 并由 B3 测试记录覆盖；B4 回流受限 tracker 位于 `profiles.rs:640-671`、研究报告 F-001；B5 统一 memory 工具与历史 memory.md 停止注入位于 `profiles.rs:631-642,715-763`、研究报告 F-002。验收总则现已具备可复核轨迹，R-221 可关闭。 [terminal-fix 2026-08-20] done → done: D-569 存量对账：清除归档残留状态字段并保持合法 done
 - observed_head: f706dd21ea2959e5d3ea8af8ae0f7b27b61ad6da
 - observed_worktree_hash: fnv1a64:d5c4e679d36fdbc4
@@ -3662,7 +3585,6 @@
 - 边界: 不做真·多 agent 并行编排(先行对照:15 倍 token 单用户不值,隔离+压缩回传同样解上下文冲突);不做 RL 专训模型(纪律放系统侧);不做常驻知识库服务(索引随课题建随课题用);不做模拟审稿与自动选题;计划审批前端由 R-276 承接,本条只出数据结构与状态机。
 - 验收: ①一个真实课题走完整链路(计划→审批→检索→带引用报告)有轨迹;②FACT 式抽查:随机抽论断,文献 URL 与代码 file:line 逐条支撑(实测,不接受自评);③预算旋钮实测:设小预算提前收敛出报告不崩;④机械核验原始工具输出不进主上下文(只有压缩摘要);⑤文献与代码经同一检索接口命中各有实测;⑥中途强杀重启可恢复续跑;⑦轻课题(只产 report.md)与重课题(paper.tex 编译通过)各走通一次。验收②补充(D-412 反例):「出处是否真含支撑文本」做成机械抽查——文献论断的支撑文本必须落在正文内(取回正文全文 grep 关键词,摘要命中不算),仅摘要级来源不得支撑正文级论断;D-412 反例样本=CoALA 四类记忆划分不在摘要而在正文 §2.3(working/episodic/semantic/procedural),机械抽查应能检出此类越界(摘要含 modular memory components 但无四词)。
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-277
 - 进展: R-277 关闭前逐条验收证据：①真实课题 plan→审批→检索→报告轨迹：既有真实 `.kanzei/research/r221-chain/plan.md`、`sources.md`、`findings.md`、`report.md` 保留完整链路；本次真实 topic `.kanzei/research/r277-write-acceptance-2/plan.json`、`loop.json`、`report.md` 由 T-1786922726169 重放验证，计划审批实现位于 `crates/kanzei-tools/src/research_plan.rs:180-206`，检索环入口位于 `research_loop.rs:162-216,255-369`。②FACT 抽查：`crates/kanzei-tools/src/research_verify.rs:116-227,264-464` 的正文文献、代码 file:line@commit、source refs、V 等级和 keywords 核验；D-412 摘要越界反例测试位于 `research_verify.rs:521-562`，T-1786922726156/T-1786922726170 通过。③预算旋钮：`research_verify.rs:235-245,411-464` 的 budget_set/get 与 `research_loop.rs:56-71,190-203` 实际消费；本次 `loop.json` 实测 max_rounds=1/max_tokens=1000/max_concurrency=1、tokens_used=18，T-1786922726169 通过。④原始输出隔离：`research_loop.rs:281-326` 只接受 summary/relevance/source_ids 且拒绝原始网页字段；本次 report.md 由真实 research agent 经受限 write 写入，T-1786922726169 read 回核验仅含压缩证据。⑤统一检索：`research_index.rs:258-407` 同一 topic index 入口覆盖文献 search、代码 search 和 symbols 反查；T-1786922726164/T-1786922726166 通过。⑥中途强杀恢复：`research_index.rs:319-365` 单 worker+NoMergePolicy+批量 checkpoint；T-1786922726165 真实 Windows 5211 文档强杀 pid=96200 后 index_resume 从 1024/5211 完成到 5211/5211，D-475 已由 c6099025 修复。⑦轻重课题真实走通：T-1786922726169 真实 agent 写入 `.kanzei/research/r277-write-acceptance-2/report.md` 并 read 回；`research_write.rs:263-340` 真实执行 write_outline→write_section→assemble_paper→compile_paper，产出 `.kanzei/research/r277-write-acceptance-2/paper.tex`、`compile.json(status=passed)`、`paper.pdf`；T-1786922726170 workspace 全量 0 failed。批次 5/5 已满，所有验收项均有实现位置、真实消费者和可重放测试证据。
 - observed_head: c6099025771f6793f55a501f21120ec114a55caf
 - observed_worktree_hash: fnv1a64:47fa0d10aca59693
@@ -3684,7 +3606,6 @@
 - observed_head: e08eb0a0b5b3fb0f3476df18e083ba4f0598e320
 - observed_worktree_hash: fnv1a64:a3778bc65fc6cdcc
 - recorded_at: 1786971130487
-- 取活依据: engine:唯一可执行 WIP 是 R-276，必须先恢复它
 
 ## R-289 R-221 B4/B5 研究回流与记忆晋升运行时验收 [done]
 - 回流: [done]
@@ -3696,7 +3617,6 @@
 - 验收: dev 审阅并确认 research profile 的 source/finding→req/defect 草稿回流链路；确认既有 R-/D- 条目仍不可由 research 修改；另行运行时验证 memory_note→manager 晋升→memory_search 回读后再提升证据等级。
 - refs: R-221 T-1786922726120 T-1786922726121 T-1786922726177 T-1786922726183 T-1786922726185
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-289
 - observed_head: 1a1592a3a18f017908982966821f3ed11836e319
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1786972886838
@@ -3725,7 +3645,6 @@
 - 内容: ①classify_novelty 的 FTS 语义探测下沉进 store.add 作为硬闸(Uncertain 即拒并返回候选),查重范围扩到双 scope;②新条目携带的 [fp:] 必须与来源 note 中引擎生成的指纹逐字一致,拒绝自造;③标题/subject 命中「R-/D- 编号+已交付/勿重复/验收边界」形态时拒绝并指路 tracker(或强制挂 refs 并随条目关闭自动 deprecate)。
 - 验收: ①复刻「英文改写 M-044」场景被拦并指路 memory_update(单测);②伪造指纹的 add 被拒;③存量 6 条交付状态记忆逐条处置;④各拦截路径有单测。
 - refs: R-194 R-195 R-196 D-299 D-282
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-216
 - 进展: R-216 已完成关闭验收：①英文改写 M-044 被拦并指路 tracker：`crates/kanzei-memory/src/memory/store.rs:1221-1230,2522-2560` 的 Uncertain/add 硬闸与 `memory::store::tests::英文改写被add硬闸拦截返回候选`，workspace 回归 T-1786922726199；②伪造 [fp:] 被拒、来源 note 指纹放行：`crates/kanzei-memory/src/memory/store.rs:2448-2468` 与对应单测，workspace 回归 T-1786922726199；③六条存量交付状态逐条处置：M-032/M-033/M-035/M-036/M-040 原有 deprecated archive 墓碑保留，M-037 归档并保留通用防重复规则 stale 墓碑，错误重复候选 M-150/M-151 归档并写明错误来源，真实 consolidation `T-1786922726196` 报告 5 条请求 completed、pending_after=0；④各拦截路径及新退役链有自动化证据：`crates/kanzei-memory/src/memory/manager.rs:1091-1131` 的 STALE prompt/断言，`crates/kanzei-memory/src/memory/store.rs:634-660` 的 archive 源/目标 write-log、`crates/kanzei-memory/src/memory/inbox.rs:111-138,251-296` 的 inbox/checkpoint write-log，`crates/kanzei-tools/src/memory_consolidation.rs:137-220,289-340,514-520` 的显式 STALE runner/parser 单测；T-1786922726198 定向通过，T-1786922726199 workspace 全量 0 failed。；状态对账: 归档正文旧字段 `todo` 与权威标题状态 `done` 冲突;已移除正文副本。
 - observed_head: 82b5cdfce1f709b26869f888e3a319a110cab2c0
 - observed_worktree_hash: fnv1a64:441f9460a9730954
@@ -3744,7 +3663,6 @@
 - 边界: 不伪造历史 provenance;R-235 的 28 条存量零证据 active 仍由用户拍板;不把 action_changed 直接写成 outcome_improved;不静默删除 inbox/candidate/active;数据库 schema 变化需 Alembic 不适用(Rust SQLite migration),必须提供前滚、已有数据兼容和恢复策略。
 - 验收: ①当前 224 条 inbox 在真实 manager 运行中按批下降,任一批失败可见且重启后从 checkpoint 继续;②桌面与 CLI 调用同一服务并有集成测试;③新 candidate/active 100% 可回溯真实 episode/source,空来源晋升被拒;④一次真实 recurrence→shadow→promote 有状态事件和 UI 轨迹;⑤counterfactual arms 形成非空聚合并区分 action_changed/outcome_improved;⑥修复提交确实位于 dev,tracker/tests/代码三方一致。
 - 批次: 4/4
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-286
 - 进展: R-286 已完成并提交：`dcf6e11c R-286 B4 接入记忆控制面与失败重试`，提交位于 dev。关闭验收逐项对账：①真实 manager 分批整理与失败/恢复能力沿用已交付的 `crates/kanzei-memory/src/memory/inbox.rs:18-122`、`crates/kanzei-tools/src/memory_consolidation.rs:1-301`，控制面读取 `InboxCheckpoint` 并在 `crates/kanzei-app/src/memory.rs:42-87` 展示 backlog、最老等待、批次状态与 failure_reason，重试入口在 `crates/kanzei-app/ui/13-memory.js:47-86`；真实运行证据 T-1786922726169，关闭前 workspace 回归 T-1786922726213。②桌面与 CLI 共用 `crates/kanzei-app/src/memory.rs:298-306` 的 `consolidate_memory_inbox`，Tauri 注册在 `crates/kanzei-app/src/main.rs:197-200`，桌面定向测试 T-1786922726210，真实共享服务链路 T-1786922726169。③新 candidate/active 的空来源硬门禁由既有 `crates/kanzei-memory/src/memory/lifecycle.rs:24-87` 执行；控制面在 `crates/kanzei-app/src/memory.rs:55-62` 将 candidate/shadow/active 缺 source/refs 计为 promotion_gaps；生命周期回放 T-1786922726202。④recurrence→shadow→promote 由既有 lifecycle 写者产生状态事件，本次统一事件 payload 在 `crates/kanzei-memory/src/memory/mod.rs:38-77`，写者接线位于 `memory/inbox.rs:206-218`、`memory/store.rs:369-383`、`memory/lifecycle.rs`；控制面 UI 消费并展示状态，证据 T-1786922726202、T-1786922726211、T-1786922726212。⑤六臂 counterfactual 回放在 `crates/kanzei-core/src/replay.rs:300-318` 调用 `recompute_memory_effect`，`memory_eval_agg` 查询位于 `crates/kanzei-core/src/store/eval.rs:54-74`，action_changed/outcome_improved 分开统计位于 `crates/kanzei-core/src/store/telemetry.rs:167-204`，证据 T-1786922726207、T-1786922726209；控制面价值画像消费位于 `crates/kanzei-app/src/memory.rs:64-79`。⑥修复提交 `dcf6e11c` 已位于 dev；requirements、defects、tests archive 与代码同批提交，且 tracker/tests/代码三方一致；六条前端冒烟 T-1786922726212、app/core staged 定向回归 T-1786922726216/T-1786922726217、workspace 全量 T-1786922726213 均通过。既有能力已明确标注为沿用，本次交付为批4控制面投影、失败重试、聚合查询消费及配套验证。；状态对账: 归档正文旧字段 `done` 与权威标题状态 `done` 重复;已移除正文副本。
 - observed_head: dcf6e11c4a0557ad9283234084a431bf61f3e083
 - observed_worktree_hash: fnv1a64:441f9460a9730954
@@ -3762,7 +3680,6 @@
 - 验收: ①压缩前后 raw event hash 不变；②边界上的 tool call/result 必须完整配对，否则拒绝压缩；③不完整 compaction transaction 重启后不生效且有可见诊断；④连续两次压缩 replay 一致，首段关键实体仍保留；⑤模型 surface 变短但 transcript/audit 仍能回看原文；⑥R-236 全部压缩回归保持通过。
 - 优先级: P1
 - 对账: 2026-08-18 对账更新：R-242 批次8/8 的 surface projection 已交付，当前依赖字段不再要求 R-242 关闭；本条正式承接 R-242 验收⑦，负责 compaction_started→compaction_summary→surface_replaced→compaction_ended 事务、停止新增 conversation.updated 以及失败恢复后的可见诊断。下一步先完成批1设计冻结与事件事务入口，再接全部 compaction 写者和回归。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-243
 - 进展: 批次对账：Git 机械计数 4（`49c5832a` R-243 批3实现、`1c32e32c` R-243 批2实现、`5170dc8` 与 `878557f` 两个 R-242 依赖/验收边界提交标题引用 R-243），故手写批次为 4/4；R-243 实际功能批次为批2、批3。验收①原始事件 hash/事实不变：`crates/kanzei-core/src/store/events.rs:29-79,635-684`，T-1786922726352，原 payload/sequence 保留。验收②边界 tool call/result 必须完整配对：`crates/kanzei-core/src/runner/compaction.rs:152-156,235-281,805-828`，跨边界拒绝且原文不改，T-1786922726352。验收③不完整 compaction transaction 重启不生效且有可见诊断：`crates/kanzei-core/src/store/events.rs:85-119`、`crates/kanzei-app/src/conversation.rs:145-156,496-523`，T-1786922726352/T-1786922726353。验收④连续两次 compaction replay 一致且首段关键实体保留：`crates/kanzei-core/src/runner/compaction.rs:758-802`，T-1786922726352。验收⑤模型 surface 变短但 transcript/audit 可回看原文：`crates/kanzei-core/src/store/typed.rs:1254-1410,2146-2181`、真实 consumer `crates/kanzei-app/src/conversation.rs:63-96,116`，T-1786922726352/T-1786922726353。验收⑥R-236 全部压缩回归保持通过：T-1786922726352 core 16 passed、T-1786922726353 app 1 passed、T-1786922726354 workspace 1214 passed/1 ignored/0 failed；提交 `49c5832a`。
 - observed_head: 49c5832a3ac31861a5e231bfe203b52612da50e3
 - observed_worktree_hash: fnv1a64:441f9460a9730954
@@ -3777,7 +3694,6 @@
 - 边界: 不改 12 步清单本身;守护测试(crates/kanzei-tools/src/git.rs:1896-1910 解析键集合)不受函数体重写影响;git.rs 侧聚合归 D-510
 - 验收: 一次运行报出全部失败步骤;失败时不写 verification.json;步骤顺序按耗时优化;守护测试通过
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-291
 - 进展: 验收逐条对账：①一次运行报出全部失败步骤：Step-With-Timing 在 scripts/verify.ps1:21-40 捕获并累计每步失败，scripts/verify.ps1:98-101 统一输出全部失败；隔离 node.cmd 故障注入实跑观察到 10 个失败项后仍继续到 ==> test。②失败时不写 verification.json：scripts/verify.ps1:98-102 在失败时先 throw，写证据仅从 scripts/verify.ps1:104-110 开始；故障注入前后 dist/verification.json SHA256 保持不变。③步骤顺序按耗时优化：scripts/verify.ps1:43-96 固定为廉价 UI/结构检查在前、fmt/ui_syntax/clippy/connectivity/runtime 在中、cargo test 最后；dist/verification.json:5-17 记录当前 HEAD 86fd4189 的实测顺序与耗时，test 64.7s 末位。④守护测试通过：T-1786922726365（当前源码指纹 gate_checklists_align_across_git_verify_and_ci，1 passed）与 T-1786922726366（正式 verify 全量门禁通过，workspace 全绿，证据绑定 commit）。既有 13 步清单与各检查实现属于既有能力，本次交付为失败聚合、失败不落证据和按实测耗时重排；实现提交 5169f393。
 - observed_head: 86fd4189c3082f735b2ae602d28b1ac0739a1198
 - observed_worktree_hash: fnv1a64:441f9460a9730954
@@ -3805,7 +3721,6 @@
 - 边界: 不重做 PWA 功能;代码级与桌面端重复度低(仅 escapeHtml 约 7 行),重点是设计纪律传导与门禁覆盖
 - 验收: mobile-pwa 进 node --check 与 ESLint;无原生弹窗;文案接 i18n 通道;verify 通过
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-292
 - 停车: 让位协作线 p16：其当前变更集合包含 crates/kanzei-app/mobile-pwa/app.js、sw.js、eslint.config.js、scripts/ui-lint-smoke.mjs、scripts/verify.ps1；待该线完成并清出这些共享文件后恢复，禁止覆盖并发实现。
 - 进展: 验收收口：①mobile-pwa 进 node --check(verify.ps1 ui_syntax 扩 mobile-pwa/*.js,实测通过);②进 ESLint(eslint.config.js 新增 mobile-pwa 块含 sw 宿主全局,ui-lint-smoke.mjs lintFiles 扩展,实测 45 文件零错误);③无原生弹窗:3 处 alert 清零改 thread-msg/send-msg 内联提示,PWA 交互冒烟断言 alert 桩未触发;④文案接 i18n 通道:app.js 全部文案走 t()(I18N_EN 表,中文键=文案),sw.js 离线提示走 offlineText,PWA 冒烟断言中英 i18n;⑤verify 相关:node --check+六条前端冒烟全绿(T-1786922726370/6371),kanzei-app 210 passed(T-1786922726373),cargo test --workspace 全绿(R-295 时 T-1786922726367,未动 rust 源码)。提交 e875e628。临时冒烟脚本与静态服务器已删除。
 - observed_head: e875e62827af89990b789402de903eaba9b9998f
@@ -3821,7 +3736,6 @@
 - 边界: 不动晋升的 provenance 门禁;清退遵循归档不裸删 SOP
 - 验收: 候选存量收敛至健康水位并可持续;策略有测试;现存 96 条按新策略处置;检索窗口占用可量化改善
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-295
 - 停车: 让位协作线 p16：其当前变更集合包含 crates/kanzei-memory/src/memory/mod.rs 与 store.rs，而 R-295 的候选清退策略、现存 96 条处置和检索窗口量化必须接入这些文件；待 p16 完成并清出后恢复，禁止覆盖并发实现。
 - 进展: 验收收口：①真实存量处置 candidate 153→24(文件与FTS索引一致,129条deprecated入归档带墓碑,真实执行临时 example reconcile_r295,验收后已删);②策略有测试 reconcile_candidates_capacity_retires_low_value_first(容量24收敛/低价值优先/归档墓碑断言,T-1786922726360/6368/6369);③现存96条按新策略处置:真实执行 deprecated=129 含08-17存量与后续新增,archive 墓碑保留;④检索窗口占用可量化:bash 21/24→14/24、记忆 20/24→9/15、cargo 23/24→8/15(top-24 窗口 candidate 占用);⑤全量 cargo test --workspace 全绿(T-1786922726367:1214 passed 0 failed)。提交 9c5a89ea(B1 健康水位 CANDIDATE_MAX_COUNT=24+低价值优先清退+归档墓碑+测试) 150c6cdb(B2 untouched 语义修正:容量出口清退条目从 untouched 移除,测试断言收紧==24)。
 - observed_head: e875e62827af89990b789402de903eaba9b9998f
@@ -3836,7 +3750,6 @@
 - 标签: 模型
 - 验收: 过期判定/刷新/写回路径有单测;伪造时钟覆盖边界;cargo test -p kanzei-llm 通过
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-297
 - 取得线: kanzei/thread-line-1787020530803-1
 - 进展: 验收收口：①过期判定/刷新/写回路径有单测——is_stale 纯函数(过期判定提纯,时间源注入)与 apply_refresh_response 纯函数(刷新写回提纯)各加单测,共 3 个新测试(codex.rs auth::codex::tests);②伪造时钟覆盖边界——is_stale 测试传伪造 now(2026-02-01)覆盖恰好25天/超25天/24天/字段缺失/解析失败/带时区偏移六边界,apply_refresh_response 测试传伪造 now 验证 last_refresh 更新与空值不覆盖;③cargo test -p kanzei-llm 通过(55 passed,0 failed,T-1786922726380/6381)。提交 c3f9a6ff。生产行为不变:codex_headers 与 refresh 传 chrono::Utc::now(),纯函数提取逐字保留原逻辑。
 - observed_head: c3f9a6ffdeff75a9a5461184388ed538d609915c
@@ -3858,7 +3771,6 @@
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787079262652
 - R-300: 2/4
-- 取活依据: engine:唯一可执行 WIP 是 R-300，必须先恢复它
 
 ## R-298 发布链装后验证与证据补全 [done]
 - refs: docs/design/ci_release_evidence_chain.md
@@ -3869,7 +3781,6 @@
 - 边界: NSIS 路线不重做;安装验证需考虑 LOCALAPPDATA 容器重定向问题(见记忆 localappdata-container-redirect)
 - 验收: 打包后自动静默装+装后自校验入链;SHA256 入 notes;版本一致性检查;dist 保留策略;开发通道最低门禁明确并留档
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-298
 - 取活释放: line=kanzei/thread-line-1787020530803-1;reason=parallel-line-unregister;at_ms=1787067046456
 - 进展: 关闭对账（既有能力复核，不重复申报代码改造）：① 打包后自动静默装+装后自校验入链——真实调用方为 `scripts/package.ps1:160-171`，调用 `scripts/install-setup.ps1:1-61`；安装器脚本在 `:20-24` 拒绝运行中的 kzapp，在 `:41-59` 校验安装位存在、mtime/大小变化和 ExpectedHash。② SHA256 入 notes——`scripts/package.ps1:173-187` 计算 `Get-FileHash -Algorithm SHA256` 并写入发布 notes。③ 版本一致性检查——`scripts/package.ps1:91-101` 比对 `Cargo.toml:14-17` 与 `crates/kanzei-app/tauri.conf.json:3-5`，当前均为 0.1.0。④ dist 保留策略——`scripts/package.ps1:150-158` 删除旧 `kanzei-setup-*.exe`，只保留当前输出。⑤ 开发通道最低门禁——`scripts/release.ps1:5-7,20-24` 默认执行 `cargo test --workspace`，仅显式 `-SkipTests` 可跳过；发布通道另受 `package.ps1:103-114` commit-bound verify evidence gate 约束。既有实现提交 `99e77685`，真实发布调用方和脚本链已确认；`T-1786922726462` 当前 HEAD 契约断言通过，`T-1786922726461` 真实 verify 全量通过并产出绑定 `81e6800a` 的证据。边界 NSIS 路线未重做，容器重定向防线见 `scripts/release.ps1:52-74`。
 - observed_head: 81e6800a12e6165fccf3bbca04e99d9269cba576
@@ -3885,7 +3796,6 @@
 - 标签: 前端
 - 验收: 按设计文档既有验收文案交付;三态转换有测试;真实长任务不被误判死
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-301
 - 进展: 验收逐条对账：①「按设计文档既有验收文案交付」——`crates/kanzei-app/src/collaboration.rs:56-109,170-260` 以 `SessionRuntime.running` → 最近 `RunEvent` → worktree 变更文件 mtime 的顺序生成 status，并由 `ui/20-lines.js:258-278,335-339` 真实消费，未新增自动停止/处置；`src/state.rs:159-203,205-238` 与 `src/run/events/mod.rs:130-133,236-240` 提供事件和 outcome 真源。②「三态转换有测试」——`collaboration.rs:501-535` 覆盖 running、suspected_stuck、failed、completed、idle 及事件时间刷新；T-1786922726463 通过，kanzei-app 218 passed。③「真实长任务不被误判死」——`collaboration.rs:514-519` 反证事件长期空闲但 worktree mtime 新鲜仍为 running，且实现只显示 suspected_stuck、不触发处置；T-1786922726464 前端六项门禁通过，T-1786922726465 workspace 全量通过。前端可复核位置：`ui/02-i18n.js:13`、`ui/style.css:614-621`、`scripts/ui-lint-globals.json:343-344`；ui_dom 找到真实泳道节点，ui_console 无错误。；状态对账: 归档正文旧字段 `done` 与权威标题状态 `done` 重复;已移除正文副本。
 - observed_head: 81e6800a12e6165fccf3bbca04e99d9269cba576
 - observed_worktree_hash: fnv1a64:a8ca96c02292909b
@@ -3900,7 +3810,6 @@
 - 边界: 本条只做选型+最小验证,不交付全部 E2 清单(那是 R-101);CDP 不再是候选
 - 验收: 选型结论有对比依据落档;最小 E2 真实桌面跑通;R-101 验收清单按新路线更新
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-302
 - 进展: 验收逐条对账：①「选型结论有对比依据落档」——本字段记录浏览器工具与 Windows UIA 的边界、真实消费者、CDP 约束和 provider 风险；R-269 既有实现位置 `crates/kanzei-tools/src/browser_tool.rs`、`scripts/browser-helper.mjs`，真实桌面路线位置 `scripts/ui-desktop-uia.ps1:78-158`。②「最小 E2 真实桌面跑通」——T-1786922726466 原样命令 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1` 通过：真实安装位 `C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe`、PID 25652、窗口 `kanzei`/`Tauri Window`、生产 `prompt` Edit + `ValuePattern` marker 写入回读、真实截图 `.kanzei/research/r302-desktop-e2/kzapp-uia.png` 454737 bytes；T-1786922726467 语法与唯一 Responding 进程收尾通过。③「R-101 验收清单按新路线更新」——`requirements.md` R-101 已更新技术路线、完整权限弹窗/pending ask/切项目复位/手写内容保留/run_task 收尾/停止/长会话范围及后续批次边界，R-302 只核销选型+最小 E2。关闭前中复杂度全量门禁 T-1786922726468：`cargo test --workspace` 通过。既有能力明确：R-269 headless 浏览器工具不是本次桌面 E2 交付；本次新增 `scripts/ui-desktop-uia.ps1` 为真实桌面 UIA 最小验证。；状态对账: 归档正文旧字段 `done` 与权威标题状态 `done` 重复;已移除正文副本。
 - observed_head: 676fddefe6d82f7442035b81b8d65efe0b71ccfa
 - observed_worktree_hash: fnv1a64:4dc73574e4527fea
@@ -3914,7 +3823,6 @@
 - 标签: 流程
 - 验收: 五组文档与现实对齐;R-283 验收②的 Wave 记录恢复可用;订正一次批次收口
 - 优先级: P3
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-303 [tracker integrity degraded] D-555: invalid defect lifecycle [done]
 - 进展: 已完成并验证：①README.md:57-71 补齐 research 工作台、LaTeX/绘图、PWA+LAN、浏览器/UI 实查、按线模型设置、想法等现有能力；README.md:110、149 同步更新事实源描述。②docs/使用手册.md:38-46 补齐 ideas.md 收件箱和人工拆解，:68-76 补 Ctrl/Cmd+P；真实消费者为 crates/kanzei-app/ui/11-docs-list.js:817-848、15-views-misc.js:85-103、21-palette.js:218-232。③memory_control_plane.md:3-14、208，memory_system.md:3-12、43、66-74、98、125，memory_decision_sufficiency.md:82-90 对齐 R-194/R-195/R-213/R-216/R-233/R-255/R-286、D-366/D-368、五态、memory_promote 和 crates/kanzei-memory 当前落位。④ui_esm_migration.md:3-4、8、27-29、62、89、106-108 对齐 B1/B2、24 文件/15528 行/44 处守卫和 B3 边界。⑤phase2_system_upgrade.md:301-330 将 Wave 0/1 按 R-221/R-277/R-286/D-428 当前状态恢复为 Go，并保留后续 Wave 的真实 No-Go。R-303 验收三项均由 T-1786922726479 通过。
 - observed_head: 4de7f1016c097b6171ef930d84159668d28ff578
 - observed_worktree_hash: fnv1a64:8b70995bc9c7bd76
@@ -3934,7 +3842,6 @@
 - observed_head: f74190424c0bbf129c107776e8b3d52b4b908b61
 - observed_worktree_hash: fnv1a64:22647b63185a2bb9
 - recorded_at: 1787162500319
-- 取活依据: engine:唯一可执行 WIP 是 R-304，必须先恢复它
 - 停车: 
 - 验收核验: ①落点约定落档并有工具/文档支持：`docs/design/research_mode.md:55-65`；`README.md:110`；既有工具消费者为 `crates/kanzei-tools/src/profiles/dev.rs:102-157` 的项目资产权限边界与 dev 侧 write/edit/insert、read/glob/grep/files 通道（既有能力，本次仅固化约定）。②勘察产物可按条目回溯：`docs/design/research_mode.md:61` 规定 tracker refs 只写 R-/D-/T-、进展写报告路径、报告头写 entry_refs；`.kanzei/research/r304-dev-recon/report.md:1-8` 实例化 `entry_refs: R-304`，T-1786922726481 通过。③R-248 恢复时可直接复用：`docs/design/research_mode.md:65` 与 `.kanzei/research/r304-dev-recon/report.md:28-30` 复用根目录、命名、report.md 和 active→archived 生命周期，同时保留 R-248 原有 refs API/topic 来源用户阻塞；T-1786922726481 通过。
 
@@ -3947,7 +3854,6 @@
 - 边界: 不重做 R-281 的对话读取器;策略默认值保持现行为,配置生效有真实验证
 - 验收: 按设计文档三块交付;策略修改真实生效有测试;审计摘要在 UI 可见;roster_cap 类静默截断(D-513)在策略面板可见化
 - 优先级: P2
-- 取活依据: engine:唯一可执行 WIP 是 R-305，必须先恢复它
 - 取活释放: line=kanzei/thread-line-1787120622542-1;reason=parallel-line-unregister;at_ms=1787159520466
 - 进展: B3 已落地并验证：后端 `crates/kanzei-app/src/run/events/mod.rs:365-377` 将 PermissionResolved 真实投影为 `kz:permission-resolved`；事件路由位于 `crates/kanzei-app/ui/01-core.js:31-49`，运行摘要聚合与渲染位于 `crates/kanzei-app/ui/06-activity.js:920-1120`，真实派发/结果/usage/权限/终态消费者位于 `crates/kanzei-app/ui/07-events.js:11,20,185,216,230,290,305,364,421,625`；UI 卡片和运行轨迹入口位于 `crates/kanzei-app/ui/index.html:1040-1048`、`crates/kanzei-app/ui/06-activity.js:1470-1476`，样式位于 `crates/kanzei-app/ui/style.css:1212-1231`。B1 Agent 目录与 B2 策略强制保持既有交付：目录 `agent_directory.rs:43-223`/settings consumer `ui/16-settings.js:301-386`，策略读取 `settings.rs:560-590`、runner 强制 `drive.rs:494-511`/子代理入口 `subagents.rs:107-118,278-289,705-716`；roster_cap 可见化由 `settings.rs:17-20,?`、`ui/16-settings.js:279-299` 实现。验收逐条核验：①设计三块均有真实消费者：Agent 目录设置页、limits runner/子代理入口、审计卡片与 trace 按钮；②策略修改真实生效：T-1786922726489 通过 fmt、kanzei-llm 55/55、kanzei-core 220/220、kanzei-app 221/221；③审计摘要 UI 可见并消费真实派发/结果/权限事件：T-1786922726490 通过 ui-runtime（25 scripts、2339 invoke、0 runtime errors）及其余五项前端门禁，T-1786922726491 通过 kanzei-app 221/221；④roster_cap 不再静默截断：`settings.rs` 返回 phaseRosterCapacity、`ui/16-settings.js:279-299` 显示截断提示，T-1786922726482 与 T-1786922726486/T-1786922726487 已验证。实际当前安装窗口为旧构建，未将其冒充新 UI E2 证据；生产脚本运行时门禁和 Rust 定向测试为本交付证据。 [terminal-fix 2026-08-19] done → done: 修正已归档 R-305 终态进展中的错误证据占位符 `settings.rs:17-20,?`，替换为已核实的 `settings.rs:13,571`；不改变终态或验收结论。
 - observed_head: 1adb22a1e695aee9d9b8897c2946238100ea2a4c
@@ -3986,7 +3892,6 @@
 - observed_head: 3b8b0e7bc6801248f91ca8d30196a4d966825e9d
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787176334013
-- 取活依据: engine:唯一可执行 WIP 是 R-242，必须先恢复它
 - 对账: 2026-08-20 合并窗口解除:R-306 B1/B2 收编完成且 workspace 全绿,共享文件不再冻结;恢复复核验收⑦并关闭。恢复人:agent(循环)
 - 停车: 
 
@@ -4000,7 +3905,6 @@
 - 边界: 以 dev 为主干语义:同名功能 dev 已独立演进的以 dev 实现为准,分支侧只补 dev 缺失的修复点;不借机重构;R-257 拆分若冲突过大允许按文件降批合并并如实记录未收编残余
 - 验收: ①两线全部提交在 dev 祖先链(git merge-base --is-ancestor);②冲突解决后 cargo test --workspace 全绿且 verify 通过;③D-396~D-401/D-409/R-257 交付点在 dev 主树逐条抽查可见(cross_tree 三态 FileImage、record_write_log、浏览器 rpc 嵌套 error 透传、四文件拆分);④三处脏 WIP 逐一处置留痕;⑤防复发闸门有实测:未合并分支条目关闭被拒或强制登记收编
 - 优先级: P1
-- 取活依据: engine:唯一可执行 WIP 是 R-306，必须先恢复它
 - 批次: 4/4
 - 设计冻结: 不变式：dev 以当前语义为准，分支只补缺失交付；不得用快进假装完成非快进收编。｜权威数据源：当前 dev、两条 worktree 分支的真实提交图与 merge-tree --write-tree 冲突结果。｜预期变更文件：先仅更新 R-306 进展/批次字段；代码文件待 B1 冲突逐块对账后按实际落地集合确定。｜最小测试：每批按实际改动运行对应 crate 定向测试；R-306 关闭前按复杂度“大”执行 workspace 全量测试及 scripts/verify.ps1。
 - 进展: B2/B4 收尾(主会话):①R-257 线以非快进 ours 合并 7abaea4a 收编,aa27e11b 实测进入 dev 祖先链(git merge-base --is-ancestor 实测;逐文件对账判定六冲突文件保留 dev、唯一缺口 git 四域已由 ce4edf3f~63f24c83 迁移取代,合并只记录祖先链,符合边界的降批如实记录);p13 头 b4245f6c 实测已在祖先链——验收①两线满足。②verify 十三步全绿,dist/verification.json 绑定提交 809b7821(test 步 89.2s 含 workspace 全量)——验收②满足;首轮 verify 揪出并修复 D-584 测试 PATH 竞态(提交 809b7821)。③dev 主树逐条抽查锚点:跨树三态 FileImage 在 crates/kanzei-tools/src/cross_tree.rs:64-95,208-230,468-492(回归测试 cross_tree.rs:1088-1092);record_write_log 在 crates/kanzei-tools/src/lib.rs:168 与 crates/kanzei-memory/src/memory/store.rs:716-763、crates/kanzei-tools/src/test_record.rs:236-242、crates/kanzei-tools/src/conventions.rs:215、crates/kanzei-tools/src/tracker.rs:485-492;浏览器嵌套 result.error 透传在 crates/kanzei-tools/src/browser_tool.rs:144-186,359-367(测试 rpc_嵌套result_error透传为工具错误);四域拆分 crates/kanzei-core/src/runner/drive/*.rs、crates/kanzei-memory/src/docstore/*.rs、crates/kanzei-tools/src/git/*.rs、crates/kanzei-harness/src/config/*.rs(提交链 ce4edf3f/6fb5f50d/7da154a1/bb829270/63f24c83)——验收③满足。④实测清理留痕:r257-source2 树干净并移除,本地/远端 thread-line-1786805363432-1 分支已删,p13/p16 树与分支已不存在,kz lock status 活跃线为空,脏 WIP 无残留——验收④满足。⑤防复发闸门实现 crates/kanzei-tools/src/tracker/actions/action_helpers.rs(check_close_source_ancestry)+拒绝实测 T-1786922726508,提交 fca4f204——验收⑤满足。workspace 全量另有 T-1786922726509;发版:main ff 至 809b7821 已推送,package -Ack 27 -Publish 进行中
@@ -4019,7 +3923,6 @@
 - 边界: 不改回放台六臂框架;先点亮既有链路再谈扩展
 - 验收: 生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED 四段有真实数据;控制面 F(m) 栏显示非空;deprecate 判定可被真实数据触发;回归测试
 - 优先级: P1
-- 取活依据: engine:唯一可执行 WIP 是 R-293，必须先恢复它
 - 停车: 
 - 进展: 批次1（既有本条交付）已点亮在线 outcome 写入：crates/kanzei-core/src/runner/drive.rs:200-424 的 RecallWatch 全部结局路径提交 RecallRunOutcome；crates/kanzei-core/src/runner/recall.rs:61-166 提供 finish/outcome_improved；crates/kanzei-memory/src/memory/mod.rs:714-775 仅 Completed 写 outcome_improved，Halted/Unknown 不写。批次2（本次交付）已提交 a0bb285e：crates/kanzei-core/src/replay.rs:196-203 将真实命中 memory_id 作为 F(m) 主键来源，:278-364 仅按真实 ID 落 memory_eval 并逐 ID recompute；crates/kanzei-memory/src/replay_eval.rs:193-205 从 Current 检索返回真实首个命中 ID。验收逐条对照：①生产漏斗 RETRIEVED/INJECTED/ACTION_CHANGED/OUTCOME_IMPROVED：既有 recall_events 真实 retrieved/injected 计数与本次独立 outcome 写入由 crates/kanzei-core/src/store/telemetry.rs:175-214 统一计数，action_changed 与 outcome_improved 不互相推导；②控制面 F(m) 非空：crates/kanzei-core/src/store/eval.rs:54-92 读取真实 memory_eval_agg，crates/kanzei-app/src/memory.rs:88-116 暴露 effects，既有消费者 crates/kanzei-app/ui/13-memory.js:15,37-79 调用并展示非空价值画像；本次回放真实 ID 回归 crates/kanzei-core/src/replay.rs:619-626 断言 M-real 有 eval_n=1 且 case_id 不产生聚合；③deprecate 可被真实数据触发：crates/kanzei-core/src/store/eval.rs:322-349 按 effect_mean<=0、eval_n、effect_ci 从真实 memory_eval_agg 筛选，回归 crates/kanzei-core/src/store/eval.rs:608-653 覆盖低价值/高置信度候选；④回归测试：T-1786922726510、T-1786922726512、T-1786922726514、T-1786922726515、T-1786922726516、T-1786922726517、T-1786922726520 均通过；本仓库 cadence 明确全 workspace 仅发版执行，未重复运行无关全量套件。既有能力已明确标注，批次2新增真实 memory_id 配对与聚合调度。
 - observed_head: a0bb285e0c845cc70035687f0c151f51d049bc5f
@@ -4037,7 +3940,6 @@
 - 内容: ①schema v18 增加 append-only work_events 与可重建 work_surfaces；②Requirement 作为长期 Outcome，显式 `执行模型: work_units_v1` 后拆为 R-xxx/Wn Work Unit；③状态机覆盖 ready/active/blocked/verifying/done/superseded、并行线接管与 checkpoint；④work next 调度 Work Unit 并只注入当前投影+父 Outcome 白名单字段；⑤逐验收 evidence 后才允许 complete，父需求关闭要求所有单元终态且至少一个 done；⑥CLI、桌面快照与需求详情可观测；⑦存量需求保持 legacy 行为。
 - 边界: 不自动让旧系统规划和拆分本条自身；不批量迁移存量 Requirement；不把 Markdown Outcome 搬进 SQLite；v1 不加入含混的 defect affinity，先保证需求主链闭环。
 - 验收: ①v17→v18 迁移前整库备份且表/列机械判据通过；②事件回放与 surface 相同，删除/重建投影不丢审计；③单元上下文有硬预算，父需求超长进展不进入 selected；④依赖、单 WIP、并行线接管与 checkpoint 状态机有测试；⑤未逐条登记 evidence 时 complete 被拒；⑥有非终态单元或全部 superseded 时 req close 被拒，全部验证完成后可关；⑦CLI 编译，桌面快照、i18n/runtime/lint 冒烟通过；⑧全量 verify 通过并发布安装包，GitHub release/tag/资产 SHA256 与安装后二进制版本均核验。
-- 取活依据: user-direct:用户本轮明确要求由外部 Codex 完成底座并发版，避免依赖旧需求系统自举
 - 取得线: kanzei/work-unit-foundation
 - 批次: 4/4
 - 进展: B1 ba13b53a、B2 c5217523+b0b96c97、B3 db1e808e、接管门禁 d382bbfc、发布门禁修复 0f782868/f4533f37/d3873bf1 已完成。最终 `scripts/verify.ps1` 在 d3873bf18c47cd90316b464dc835af3acdc7d085 生成全绿证据（13 项，verification SHA256 f9aad2d678d778ce0d2303057bf0f329b5343c05079a19a1306a69b34b135df3）；dev/main 快进到同一提交。`package.ps1 -Ack 12 -Publish` 构建、静默安装并发布 GitHub Latest Release `build-d3873bf1`；标签精确指向 d3873bf18c47cd90316b464dc835af3acdc7d085。安装器 `kanzei-setup-d3873bf1.exe` 大小 16,339,218 字节，本地产物、GitHub API digest 与重新下载资产三方 SHA256 均为 c250adc7051f326e6c53aa40e27afc138f71a6775e2ad63b1758519aac9950be；本机安装位 `kzapp.exe` 包含 d3873bf1 构建标识，ProductVersion/FileVersion 均为 0.1.0。D-594/D-595 作为全量门禁中发现的真实竞态与环境隔离缺陷已修复归档。
@@ -4050,7 +3952,6 @@
 - 边界: 不追求覆盖率数字,优先真实断言关键路径;不重构业务逻辑
 - 验收: run 主链关键路径有自动化断言;新增 command 有明确测试落点范式;cargo test 全绿并入 verify
 - 优先级: P1
-- 取活依据: engine:唯一可执行 WIP 是 R-296，必须先恢复它
 - 停车: 
 - 进展: 验收对账完成：run 主链关键路径已有真实断言——crates/kanzei-app/src/commands/run.rs:654、667 分别验证真实 episode 投影与 requirement 复杂度来源，crates/kanzei-app/src/run/mod.rs:565 验证真实 SessionStore 的轮末通知持久化/回放（实现提交 1e076db6）；这三处同时给新增 command 建立就地 #[cfg(test)]/真实存储边界的测试落点范式。现行提交 c85f3c99 上 cargo test --workspace exit=0：kz 42、integration 32、kzapp 230、kanzei-memory 156、kanzei-tools 396 passed（另 2 ignored），覆盖 D-570 新增上下文投影；全仓门禁满足。
 - observed_head: c85f3c998e8a0fe59571ca8baec5ee855b2c9814
@@ -4069,7 +3970,6 @@
 - 边界: 不是每条需求都调研,只在触发判据成立时启动;判据必须机械可判,不接受模型自行裁量「这算不算新方向」。websearch 轮次设上限,不做无限扩散爬取。本条只产出对照工件与开工门禁,不改 req/defect 状态机,也不自动把调研结论写成条目——那是 R-221 定调点4 的回流通道。
 - 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
 - 优先级: P1
-- 取活依据: engine:唯一可执行 WIP 是 R-248，必须先恢复它
 - 停车: 
 - 进展: 验收逐项完成：① crates/kanzei-tools/src/prior_art.rs:551 三种触发均创建同形骨架，crates/kanzei-tools/src/tracker.rs:4052 断言普通后端条目不受影响；② crates/kanzei-tools/src/prior_art.rs:257 与 :577 逐结论校验出处、V级、差异、决策，无出处拒绝；③ crates/kanzei-tools/src/prior_art.rs:577-598 独立断言外部 URL 与仓内 file:line 双侧至少各一条，删去仓内章节后以双侧覆盖不足拒绝；④ crates/kanzei-tools/src/tracker.rs:725 与 :4052 核心空refs缺工件拒绝、有效 prior_art 放行、prior_art_waiver 审计落字段；⑤ crates/kanzei-tools/src/prior_art.rs:602 与 crates/kanzei-tools/src/websearch.rs:318 验证轮次上限在联网前返回 PRIOR_ART_SEARCH_LIMIT；⑥ crates/kanzei-tools/src/tracker.rs:3600 与 :3756 既有完整登记及8路并发新增回归通过。实现提交 34c78f40、35aa11ee、571001f1，夹具对齐 37023013；cargo test --workspace exit=0（kz 42/integration 32/kzapp 231/memory 156/tools 406，0 failed）；cargo clippy --workspace -- -D warnings exit=0。真实网络探测：DuckDuckGo HTML HTTP 200/33616B/1158ms，arXiv API HTTP 200/2957B/493ms；当前无需触发降级，失败诊断由 crates/kanzei-tools/src/websearch.rs:281 单测覆盖。
 - observed_head: 3702301328886e835c552b5174252853e795f372
@@ -4103,7 +4003,6 @@
 - 边界: 不动 R-293 的 F(m) 漏斗与效应量框架;不动 R-235 已拍板的 28 条存量豁免;合并动作走 M-059 SOP 归档不裸删
 - 验收: ①顶层条目数≈实质主题数(勘察口径复查冗余率<15%);②同指纹重复写入被机械拒绝并有定向测试;③candidate 可见性单轨有断言;④global 域 74 条处置留痕且 recall 遥测非零;⑤INDEX 行与源文件 description 一致性核对通过(与 D-568 对齐)
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-308(unblocks=0)
 - 批次: 7/7
 - 进展: R-308 ①-⑤ 已逐条完成对账并已提交 B1-B7：① CLI真实统计与T-1786922726625=project36/36、global24/24、merged28；② admission gate + store regression T-1786922726616=165 passed；③ retrieval active单轨与candidate排除 T-1786922726611=163 passed；④现场77→24、global marker recall rows=1，T-1786922726625；⑤ canonical INDEX guard与显式repair `store.rs:801-900`，T-1786922726622=166 passed。提交：B1 `99809920`、B2 `168c404f`、B3 `1ec1d4c7`、B4 `3509d54b`、B5 `9c64dd6e`、B6 `90c75498`、B7 `7635faee`+`edcaf7bb`。④原文74为勘察时点数，现场77已完整处理，属于范围扩展降级说明；D-568 M-014/M-015语义源文缺口继续由独立 fixing 项负责。；状态对账: 归档正文旧字段 `done` 与权威标题状态 `done` 重复;已移除正文副本。
 - observed_head: 7635faeed1a51ed625e1c9b9ddd09834d36c67b2
@@ -4126,7 +4025,6 @@
 - observed_head: a6c74ac3ab899cb642639ce41dfc792201fd425d
 - observed_worktree_hash: fnv1a64:590bacf6c17bf734
 - recorded_at: 1787271017388
-- 取活依据: engine:唯一可执行 WIP 是 R-310，必须先恢复它
 
 ## R-324 symbols 扩到 JS/ESM:前端 16k 行补上符号索引 [done]
 - 原始描述: 对比 Claude Code 工具面时发现:symbols 只认 .rs,而本仓受跟踪文件 257 个 .rs 对 139 个 .js/.mjs,仅 crates/kanzei-app/ui 一处就 26 文件 16343 行——改得最频繁的那一半代码没有符号索引,定位只能 grep 函数名
@@ -4229,7 +4127,6 @@
 - observed_head: f446bd018e2e03242a0d4756cdb77ccf4b76b56b
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787298833936
-- 取活依据: engine:唯一可执行 WIP 是 R-311，必须先恢复它
 
 ## R-313 需求发现分层:Discovery Record、待确认字段生命周期与歧义落点,让发现阶段先于交付冲动 [done]
 - refs: R-248 R-311 D-577 docs/design/weakness_register_20260820.md
@@ -4241,7 +4138,6 @@
 - 边界: 不加重 hard gate,Discovery Record 是轻结构不是审批流;「图 ontology 是否 user-centric」这类高级语义判断不做规则化(评估共识:靠模型或产品 persona,规则 gate 判不了);小需求不强制;不改 R-248 prior-art 门,两者在 req add 处组合(prior-art 管「查已有方案」,本条管「问题究竟是什么」)
 - 验收: ①中/大需求缺 Discovery Record 或来源无用户原话引用被拒,有定向测试;②含未决核心语义待确认的条目在冻结/doing 前被拦并指向 question,豁免路径留痕可审计;③限定词一致性检查有真实触发与放行案例各一;④文章获取器场景复测:「收藏」歧义在登记前被逼出而非用户事后纠正;⑤既有小需求登记路径无回归
 - 优先级: P1
-- 取活依据: engine:已完成并提交 5908665f，验收证据齐全
 - 批次: 4/4
 - 批次表: B1 Discovery Record 登记门禁与来源原话校验；B2 待确认生命周期/question 或用户豁免门禁并接入 doing/claim；B3 限定词一致性检查与 assumption 放行；B4 文章获取器“收藏”场景及小需求回归、验收收口。
 - 进展: 已完成并提交 5908665f。验收逐项对账：①中/大需求缺 Discovery Record 或来源无用户原话拒绝：crates/kanzei-tools/src/tracker.rs:731-846、crates/kanzei-tools/src/tracker/actions.rs:267-272；定向证据 T-1786922726675、T-1786922726676、T-1786922726677。②未决核心语义在 update→doing、work_units_v1 claim、legacy claim 前拦截并指向 question，用户豁免可审计放行：tracker.rs:740-746、848-886，tracker/actions.rs:524-549，work/tool.rs:328-333、629-637；T-1786922726676/T-1786922726677。③限定词真实触发与 assumption 放行：tracker.rs:888-917，tracker.rs:4407-4457；T-1786922726675/T-1786922726677。④文章获取器“收藏”→“浏览器书签”在 req add 前被拒，未等用户事后纠正；同时覆盖发现阶段待确认与 claim 前拦截：tracker.rs:4407-4457、4474-4583；T-1786922726675/T-1786922726676。⑤既有小需求登记路径无回归：tracker.rs:4459-4470；T-1786922726675。D-672 已登记、修复并归档，修复位置 tracker.rs:900，证据 T-1786922726677。
@@ -4254,7 +4150,6 @@
 - 标签: 前端
 - 验收: 检测到仅有 1 条运行线时，前端隐藏"协作者工具"组件
 - 优先级: P1
-- 取活依据: engine:唯一可执行 WIP 是 R-314，必须先恢复它
 - 进展: 验收对照：检测到仅有 1 条运行线时，前端隐藏"协作者工具"组件——已实现于 crates/kanzei-app/ui/index.html:340 的 #collaboration-tools 容器、crates/kanzei-app/ui/09-sessions.js:253-261 的 syncCollaboratorToolsVisibility（以真实 process_list 数量为唯一判据，<=1 隐藏、>1 恢复）及 crates/kanzei-app/ui/09-sessions.js:394 的 renderProcesses 调用。真实自动化证据：scripts/ui-runtime-smoke.mjs:1808-1814 覆盖单线路隐藏与多线路恢复；T-1786922726678 的 node --check 与 UI runtime/ui-lint/parallel-lines/ui-a11y/ui-i18n/ui-markdown 六项冒烟全部通过。既有能力：process_list/renderProcesses 运行态投影；本次交付：协作者工具容器及按线路数的可见性投影。
 - observed_head: 5908665fa20e9f63803ddbdff8c6f3cc93e9297a
 - observed_worktree_hash: fnv1a64:d405c3ef94c2a719
@@ -4271,7 +4166,6 @@
 - 优先级: P1
 - 批次: 4/4
 - 批次表: B1 开放式全量审计条款识别与复杂度映射；B2 add 与验收字段 patch 修订路径的机械拒绝及定向回归；B3 按复杂度分级的验收证据规则写入 default_conventions.md 并接入门禁；B4 存量条目扫描生成不匹配清单、补齐历史案例回归并收口。
-- 取活依据: engine:唯一可执行 WIP 是 R-315，必须先恢复它
 - 停车: 
 - 进展: R-315 B1-B4 已全部落地，验收逐条对照：①小/中复杂度开放式验收在 add 与验收字段 update patch 拒绝，代码 crates/kanzei-tools/src/tracker.rs:738-785、crates/kanzei-tools/src/tracker/actions.rs:299-300 与 410-414，定向证据 T-1786922726681；②复杂度分级规则已写入 crates/kanzei-harness/assets/default_conventions.md:48，大复杂度 close 证据门禁在 crates/kanzei-tools/src/tracker/actions/action_helpers.rs:197-238 并由 actions.rs:531-533 接线，完整 kanzei-tools 回归 T-1786922726682；③D-568 原文「全量 INDEX 行与对应 M-*.md 做一次机械一致性核对并修复」重放被拒，回归测试 tracker.rs:2603-2670，证据 T-1786922726681；④真实 CLI `cargo run -p kanzei -- req audit_acceptance_scope` 扫描活动与归档 requirements，输出 schema_version=1、mismatch_count=34，列出 R-315/R-320 与归档 R-037/R-040/R-048 等存量不匹配清单且不自动修改，证据 T-1786922726683。既有能力：tracker 的状态迁移、验收对账与 test_record；本次交付：开放度识别、登记/修订拒绝、分级 close 门禁和真实 CLI 扫描。
 - observed_head: 46831d94d7149a49199ebc52df5e88e3e86158ce
@@ -4291,7 +4185,6 @@
 - observed_head: cddb628d4c890f6d9e0f2145adc3a2e6dd696145
 - observed_worktree_hash: fnv1a64:e9cac91b56958fa8
 - recorded_at: 1787304375014
-- 取活依据: engine:唯一可执行 WIP 是 R-316，必须先恢复它
 
 ## R-320 编辑后局部结构校验:在完整回归前捕获语法作用域与类型断裂 [done]
 - refs: R-310 D-615
@@ -4303,7 +4196,6 @@
 - 验收: ①JS 多余括号在下一次业务 smoke 前由语法校验捕获；②VM 夹具未定义绑定由目标 lint/runtime probe 捕获；③Rust 插入破坏 AST 与局部类型/serde 不匹配由 fmt/check 或目标测试精确定位；④同文件连续修改可去抖合并校验，真实样本的一次业务测试前结构错误数相对基线下降；⑤所有局部结果可进入 test_record/telemetry，但不能冒充 crate 回归。
 - 优先级: P1
 - 发现记录: {"Intent":"在 edit/insert/write 后先做低成本局部结构校验，减少扩大回归前的语法、作用域与类型错误","Explicit":"按文件类型选择 parser/formatter check、目标 lint/type check 或已有最小 smoke；返回 changed region、校验命令、首个精确错误位置和可修复上下文","Assumptions":"复用已有 parser、formatter、lint 与 smoke；未知语言或无可靠校验器明确 unsupported，只给建议命令","Ambiguities":"验证器选择矩阵、连续修改去抖窗口、test_record/telemetry 接线位置待代码勘察","领域对象":"changed region、validation plan/result、debounce key、error location","最小成功闭环":"对 JS、Rust、VM 三类真实 edit 路径给出局部命令和错误位置，并能进入现有 test_record/telemetry","延后决策":"完整语言矩阵、性能预算与所有编辑器入口统一接线"}
-- 取活依据: engine:唯一可执行 WIP 是 R-320，必须先恢复它
 - 进展: 已完成并提交 e6364cb981d67df86801a4b6ceb3a139063cda64；验收逐条对账：① JS 多余括号：local_validation.rs:171-200 为 JS 选择 node --check，edit.rs:290-300、529-539 和 write.rs:88-106 均在真实写入后调用；T-1786922726720 的 javascript_probe_returns_first_error_location 捕获首错，T-1786922726722/T-1786922726726 的真实门禁通过。② VM 未定义绑定：local_validation.rs:192-198 选择真实 scripts/ui-runtime-smoke.mjs；T-1786922726723 实测 25 个 UI 脚本、2342 次 invoke、0 错误。③ Rust AST/类型：local_validation.rs:201-227 选择 rustfmt --check 与最近 Cargo.toml 的 cargo check，local_validation.rs:97-168 返回命令、首错和修复上下文；T-1786922726720 覆盖 Rustfmt AST 错误，T-1786922726724 与 T-1786922726726 通过完整定向/verify。④ changed region/去抖：local_validation.rs:57-95、413-450；T-1786922726720 验证同文件并发合并。真实基线 T-1786922726718 曾有 1 个 changed_region 结构错误，最终 T-1786922726724 与 T-1786922726726 为 0 失败，真实 UI probe 也为 0 运行时错误。⑤ 结果接线：write.rs:88-106、edit.rs:290-300/529-539 将明细同时放入 ToolOutput.content/display，serial_tools.rs:110/221 与 runner event 保留 display；T-1786922726722/T-1786922726723/T-1786922726726 可追溯，display 明确 is_crate_regression=false，未冒充 crate 回归。边界均保持：每次写入不跑 workspace 全量，未知类型只返回 unsupported 建议命令，局部通过不代替功能验收。
 - observed_head: e6364cb981d67df86801a4b6ceb3a139063cda64
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
@@ -4318,7 +4210,6 @@
 - 边界: 分层不得用来少报真实缺陷；门禁发现的产品行为错误仍直接登记 defect；既有 D-ID 不批量重写，只给新条目默认分类与少量样本迁移；incident 也必须可审计、可聚合，不能只留在自然语言日志。
 - 验收: ①D-615 等价的当轮预提交语法失手记 execution_incident 且不分配 D-ID；②D-613 等价 contract mismatch 直接为 product_defect，逃逸既有通过测试后标 regression；③相同 incident 指纹复发、跨轮阻塞或进入提交时自动建议/强制晋升并互链；④缺陷页与指标可分别查看各类数量、修复时长和逃逸率；⑤用历史样本回放证明分类一致且正式 defect 总量不再被瞬时失手污染。
 - 优先级: P2
-- 取活依据: engine:唯一可执行 WIP 是 R-321，必须先恢复它
 - 批次: 3/3
 - 进展: B3 已完成并验证，验收逐项对账：① `crates/kanzei-tools/src/incident.rs:76-105,302-305` 为 occurrence 写入 `repair_duration_ms`，execution_incident 仍 append-only 且不分配 D-ID；`T-1786922726736` 与 `T-1786922726741` 的 kanzei-tools 测试均 490 passed。② `crates/kanzei-tools/src/incident.rs:450-479` 回放 D-613=product_defect、D-614=regression、D-615=execution_incident；`crates/kanzei-tools/src/incident.rs:500-555` 按 occurrence 统计逃逸率/修复时长，promotion 不重复计数；`T-1786922726738` app 测试 245 passed。③ B2 既有实现：`crates/kanzei-tools/src/incident.rs:392-439` 覆盖相同 fingerprint 复发、跨轮、blocked/escaped 晋升和 incident→defect promotion event 互链；`crates/kanzei-tools/src/git.rs:1029-1036` 在提交前执行 `commit_promotion_gate`。④ `crates/kanzei-app/src/docs.rs:435` 接入真实 `docs_snapshot.incident_metrics`；`crates/kanzei-app/ui/12-docs-pages.js:288-292` 缺陷页消费指标，`crates/kanzei-app/ui/13-memory.js:96-108,226-283` 运行画像页消费指标，`crates/kanzei-app/ui/index.html:495,598` 提供真实面板入口；`T-1786922726740` node check 与六条前端 smoke 全通过。⑤ `historical_replay` 在 `crates/kanzei-tools/src/incident.rs:450-479` 输出三条历史样本并排除 D-615，`crates/kanzei-tools/src/incident.rs:697-727` 有自动化断言，`crates/kanzei-app/src/state_tests.rs:183-190` 验证 docs_snapshot 回放一致；T-1786922726736/T-1786922726740 通过。B3 代码、IPC 契约、UI 资源和 smoke fixture 待提交；D-688/D-689 已登记并待当前 HEAD verify 后收口。
 - observed_head: 8b7e484ac267139f81d0258cce935635f93ffa95
@@ -4334,7 +4225,6 @@
 - 验收: ①设计文档 §三 表格中的 10 处顶层跨文件读逐条改为真实显式 import，并覆盖 activeSessionId、promptBox、t、bgFilters/documentFilters/applyBatch、createWorktreeLine 等列出的依赖；②6 处 typeof X 守卫逐条改为显式 import 或等价的模块存在性判断，禁止继续依赖未定义裸标识符的 typeof 语义；③删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验，eslint.config.js 使用 sourceType: "module"；④每个迁移单元后运行六条前端冒烟，最终 graph 覆盖实际加载模块且 UI runtime、DOM、console 均通过；⑤保留浏览器逐文件执行与 TDZ 断言，06-agent-panel.js 仅作历史路径提示不纳入迁移。
 - refs: R-264
 - 优先级: P2
-- 取活依据: engine:唯一可执行 WIP 是 R-331，必须先恢复它
 - 批次: 4/4
 - 批次表: B1 对账 10 处顶层读与 6 处守卫；B2 实现跨模块显式 import/setter 并迁移实际加载单元；B3 删除 globals 补偿并切换 ESLint module；B4 最终 graph/TDZ/六条冒烟与真实窗口验收。
 - 进展: B4 完成：①实际加载入口 `crates/kanzei-app/ui/index.html:1169-1194` 全部为 `type="module"`；`scripts/ui-esm-graph.json` 覆盖 27 个实际模块及 activeSessionId、promptBox、t、bgFilters、documentFilters、applyBatch、createWorktreeLine 等关键 import（如 graph:64-80、371、762、978-989、1556）。②跨模块可变状态通过显式 import/setter 收口：`ui/01-core.js:1-29`、`ui/03-shell.js:88-121`、`ui/05-chat-render.js:477-556`、`ui/11-docs-list.js:160-178`、`ui/22-neural-flow.js:8-9`；未定义裸标识符的可选守卫改为 globalThis 存在性判断（`ui/01-core.js:308-393`、`ui/02-i18n.js:1091`），其余 typeof 均为已 import 绑定或宿主 API。③globals 补偿文件已删除：`scripts/gen-ui-lint-globals.mjs`、`scripts/ui-lint-globals.json`、`scripts/ui-lint-globals-config-smoke.mjs`；`scripts/ui-lint-smoke.mjs:1-3` 明确使用真实 ESM import/export；`eslint.config.js:10,90` 为 module，`:69` 是未迁移 mobile-PWA 的既有 script 配置。`ui/04-markdown.js` 已移除无实际 classic 消费者的 globalThis bridge，保持纯 ESM。④六条前端冒烟及全 UI 语法检查记录于 T-1786922726766：runtime 使用 `node --experimental-vm-modules scripts/ui-runtime-smoke.mjs`，27 模块、2348 invoke、0 runtime error；lint、parallel-lines、a11y、i18n、markdown 全部通过。⑤浏览器逐文件/TDZ 断言保留在 `scripts/ui-runtime-smoke.mjs:1241-1423`，真实入口不含 `06-agent-panel.js`（`index.html:1169-1194`）；D-710 的执行器探针缓存问题已修复，纯 Markdown ESM smoke 通过。
@@ -4349,7 +4239,6 @@
 - 标签: 前端
 - 验收: ① 记忆页首屏优先呈现搜索、筛选、列表和详情工作区，控制面诊断内容不阻挡单项管理主流程；② 分类列表与搜索结果使用统一可交互条目，搜索结果可直接打开详情；③ 当前详情对应的条目在列表中有明确选中态，切换分类/搜索结果不会残留旧详情上下文；④ 提供状态筛选与至少一种稳定排序，列表显示当前结果数量；⑤ 详情字段有可见标签，支持阅读、编辑、取消和保存，显示 ID、状态、来源等关键元信息；⑥ 在桌面宽屏与窄屏下均能完成“定位→打开→编辑→保存”的最小闭环；⑦ 新增交互有前端语法检查与运行时冒烟证据。
 - 优先级: P1
-- 取活依据: engine:唯一可执行 WIP 是 R-332，必须先恢复它
 - 进展: 已完成并通过验证。① 首屏工作区：搜索/筛选/列表/详情位于 crates/kanzei-app/ui/index.html:553-585，诊断内容收进 details.memory-diagnostics:574，不阻挡单项管理；② 统一条目与搜索打开详情：13-memory.js:677-744 统一由 renderMemoryList 渲染，13-memory.js:1010-1042 搜索结果复用条目并调用 openMemoryDetailById；③ 选中态与上下文清理：13-memory.js:746-779 写入 memoryCurrentEntryId 和 .selected，13-memory.js:35-43/1012-1027 切换筛选或搜索时清理旧详情；④ 状态筛选、稳定排序、结果数量：13-memory.js:19-42、677-706、714-718；⑤ 详情字段标签、阅读/编辑/取消/保存及 ID/状态/来源元信息：13-memory.js:746-870、872-950；⑥ 宽屏双栏与窄屏单栏：style.css:1850-1909，既有冒烟三档宽度 800/1024/1280 在 scripts/ui-runtime-smoke.mjs:3524-3535 覆盖，编辑保存闭环断言在 scripts/ui-runtime-smoke.mjs:3456-3470；⑦ 语法、UI lint、运行时冒烟全部通过，测试记录 T-1786922726773。沿用能力：原有 memory_entry_save、memory_entry_delete、正文分段阅读和诊断数据源未改变，本次交付的是管理工作区与交互编排。
 - observed_head: 2eda98603c374458e42eb02aacc6986df47e7d29
 - observed_worktree_hash: fnv1a64:989e23bf14354a5d

@@ -1857,6 +1857,72 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// normalize 必须清掉条目里的机制产物字段(`取活依据`)。
+    ///
+    /// 它是调度器每轮重算的东西,却被写进条目;而 structured_entry 会把条目的**全部**
+    /// fields 序列化进控制状态,于是这行必然过期的快照跟着条目进每一次 work next。
+    /// dry-run 只报告、apply 才落盘,且**不写进展**——机制产物没有可审计价值,
+    /// 留一句「曾经写过」只是把噪音换个地方放。
+    #[tokio::test]
+    async fn normalize_清掉取活依据且不写进展() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-normalize-engine-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut item = entry("R-001");
+        item.status = "doing".into();
+        item.fields = vec![
+            (
+                "取活依据".into(),
+                "engine:无可执行 WIP，按 defect-first 选队首".into(),
+            ),
+            ("进展".into(), "批次 1/2".into()),
+        ];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[item]).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        // dry-run:只报告,不落盘。
+        let dry = tool.execute(json!({"action": "normalize"}), &ctx).await;
+        assert!(!dry.is_error, "{}", dry.content);
+        assert!(dry.content.contains("engine-derived"), "{}", dry.content);
+        let after_dry = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert!(
+            after_dry[0].fields.iter().any(|(k, _)| k == "取活依据"),
+            "dry-run 不得落盘"
+        );
+
+        // apply:字段消失,进展原样不动。
+        let applied = tool
+            .execute(json!({"action": "normalize", "apply": true}), &ctx)
+            .await;
+        assert!(!applied.is_error, "{}", applied.content);
+        let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert!(
+            !saved[0].fields.iter().any(|(k, _)| k == "取活依据"),
+            "apply 必须清掉机制产物字段: {:?}",
+            saved[0].fields
+        );
+        let progress = saved[0]
+            .fields
+            .iter()
+            .find(|(k, _)| k == "进展")
+            .map(|(_, v)| v.as_str())
+            .unwrap_or_default();
+        assert_eq!(progress, "批次 1/2", "机制产物没有可审计价值,不得写进展");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// 项目里一条 `scripts/ui-*.mjs` 都没有时,「必须跑过 ui smoke」是一条
     /// 无法执行的指令,不是没跑。这道门只在项目确实提供冒烟脚本时成立。
     ///
