@@ -146,8 +146,24 @@ pub fn worktree_target(root: &Path, name: &str) -> Result<(PathBuf, String), Str
     Ok((
         parent.join(format!(".kanzei-worktree-{project_tag}.{safe_name}")),
         // 分支名不必带项目名:分支活在本仓库里,跨项目不共享命名空间。
-        format!("kanzei/thread-{safe_name}"),
+        line_branch_name(root, &safe_name),
     ))
+}
+
+/// 线分支名。默认 `kanzei/thread-<name>`;`kanzei/` 命名空间被占时退回扁平名。
+///
+/// git 的 ref 是一棵目录树:只要仓库里存在一条**叫 `kanzei` 的分支**,
+/// `refs/heads/kanzei` 就是个文件,`refs/heads/kanzei/thread-…` 这条路径再也建不出来
+/// ——git 报 `cannot lock ref …: 'refs/heads/kanzei' exists`。
+///
+/// 实测:Akashic-AgentOS 的主工作分支就叫 `kanzei`,于是那个仓库里**每一次**建线都
+/// 必然失败,且无解——除非用户去改自己项目的分支名。让 harness 的命名习惯逼着别人
+/// 改分支,是把自己的形状强加给项目;这里改成主动让路,扁平名不占任何命名空间。
+fn line_branch_name(root: &Path, safe_name: &str) -> String {
+    if branch_exists(root, "kanzei") {
+        return format!("kanzei-thread-{safe_name}");
+    }
+    format!("kanzei/thread-{safe_name}")
 }
 
 /// 工作树的真实工作区状态:未提交文件清单 + diff。
@@ -326,6 +342,13 @@ fn branch_claim_error(root: &Path, branch: &str, worktree: &Path, git_error: &st
              `git -C \"{}\" branch -D {branch}` 再重试,想保留就换一个工作树名字",
             worktree.display(),
             git_arg_path(root),
+            git_arg_path(root),
+        )
+    } else if git_error.contains("cannot lock ref") && git_error.contains("exists; cannot create") {
+        // git 的 ref 是目录树:某个祖先段已经是叶子 ref 时,整个子命名空间都建不出来。
+        // 原来这里只把 git 的原文抛出去,读的人得自己认出这是命名空间冲突而不是重名。
+        format!(
+            "认领分支 {branch} 失败:它的某一段父命名空间已经被一条同名分支占着,             整个子命名空间都建不出 ref。本次建线没有创建任何东西(磁盘与 git 状态未变)。             用 `git -C \"{}\" show-ref | findstr /R \"refs/heads/\"` 找出那条占位分支,             改名或删除后重试。\ngit 原文:{git_error}",
             git_arg_path(root),
         )
     } else {
@@ -623,6 +646,62 @@ mod tests {
         assert!(path.to_string_lossy().contains(".kanzei-worktree-"));
         assert!(path.extension().is_some(), "名字应经 `.` 连在项目名后");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// 仓库里存在一条叫 `kanzei` 的分支时,`kanzei/` 整个命名空间都建不出 ref
+    /// (git: `cannot lock ref …: 'refs/heads/kanzei' exists`)。这不是罕见形态——
+    /// Akashic-AgentOS 的主工作分支就叫 `kanzei`,那个仓库里每一次建线都必然失败,
+    /// 而且无解:除非用户去改自己项目的分支名。harness 的命名习惯不该逼别人改分支,
+    /// 这里主动让路用扁平名,不占任何命名空间。
+    #[test]
+    fn 命名空间被同名分支占用时退回扁平分支名() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-line-ns-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .current_dir(&root)
+                .args(args)
+                .output()
+                .expect("git 可用");
+        };
+        git(&["init", "-q", "."]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "t"]);
+        std::fs::write(root.join("seed.txt"), "x\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", "init"]);
+
+        // 没有占位分支:仍然用命名空间形态。
+        let (_, branch) = worktree_target(&root, "alpha").unwrap();
+        assert_eq!(branch, "kanzei/thread-alpha");
+
+        // 建一条叫 kanzei 的分支,命名空间就被叶子 ref 占住了。
+        git(&["branch", "kanzei"]);
+        let (_, branch) = worktree_target(&root, "alpha").unwrap();
+        assert_eq!(
+            branch, "kanzei-thread-alpha",
+            "命名空间被占时必须让路,否则整个仓库永远建不了线"
+        );
+
+        // 让路之后必须真的能认领成功——这才是这条修复的意义。
+        let claimed = std::process::Command::new("git")
+            .current_dir(&root)
+            .args(["branch", &branch, "HEAD"])
+            .output()
+            .expect("git 可用");
+        assert!(
+            claimed.status.success(),
+            "扁平名必须能建出来: {}",
+            String::from_utf8_lossy(&claimed.stderr)
+        );
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
