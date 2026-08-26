@@ -515,9 +515,24 @@ impl Tool for WorkTool {
                     "handoff 只能在有可复核证据时成功；请提供至少一个 evidence_refs（file:line、测试记录或提交号）。",
                 );
             }
+            let criterion = criterion.unwrap();
+            // 工具为了拿到这两样硬拦了两次,拿到后必须留痕——否则就是"逼模型干活
+            // 然后扔掉":MetricsSink 只取「调用成功」这个事实位,内容一个字都没存。
+            // 停机理由恰恰是最该可追溯的东西。它不属于条目状态(条目可能压根没关),
+            // 属于这一轮运行的过程事实,所以落 work-log 而不是新增条目字段。
+            crate::work::log::append(
+                &ctx.project_root,
+                "handoff",
+                input.id.as_deref(),
+                ctx,
+                serde_json::json!({
+                    "summary": summary,
+                    "criterion": criterion,
+                    "evidence_refs": input.evidence_refs,
+                }),
+            );
             return ToolOutput::ok(format!(
-                "model completion declared: {summary}\ncriterion: {}\nevidence_refs: {}\nauto-run controller will decide the stop reason from this successful completion declaration.",
-                criterion.unwrap(),
+                "model completion declared: {summary}\ncriterion: {criterion}\nevidence_refs: {}\nauto-run controller will decide the stop reason from this successful completion declaration.",
                 input.evidence_refs.join(", ")
             ));
         }
@@ -662,22 +677,26 @@ impl Tool for WorkTool {
             }
             entries[position].status = wip_status.into();
         }
-        let audit = if is_default {
-            format!("engine:{}", state.reason)
-        } else {
-            format!(
-                "override:{}",
-                input.reason.as_deref().unwrap_or_default().trim()
-            )
-        };
-        match entries[position]
-            .fields
-            .iter_mut()
-            .find(|(key, _)| key == "取活依据")
-        {
-            Some((_, value)) => *value = audit,
-            None => entries[position].fields.push(("取活依据".into(), audit)),
-        }
+        // 取活依据是**调度器每轮重算的机制产物**,不是条目自身的状态。
+        // 原来把它写进条目字段,而 `structured_entry` 会把条目的全部 fields 序列化进
+        // 控制状态——于是这行必然过期的快照跟着条目进每一次 `work next` 与文档快照,
+        // 只写不读却永久占上下文(全仓 grep,唯一"读者"就是覆盖它的这段自己)。
+        // 现在落 append-only 过程事实,与 incident 同一去处。
+        crate::work::log::append(
+            &ctx.project_root,
+            "claim",
+            Some(id),
+            ctx,
+            serde_json::json!({
+                "source": if is_default { "engine" } else { "override" },
+                "reason": if is_default {
+                    state.reason.clone()
+                } else {
+                    input.reason.as_deref().unwrap_or_default().trim().to_string()
+                },
+                "decision": format!("{:?}", state.decision),
+            }),
+        );
         // D-354:落「取得线」事实(设计 parallel_lines_ui §1.2:被取得是事实不是推断)。
         // 默认线不写字段(无字段 = 默认线),接管时清掉他线残留。
         match &me {

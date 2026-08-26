@@ -1209,6 +1209,7 @@ pub fn resolved_control_prompt_of(state: Result<ResolvedControlState, String>) -
     )
 }
 
+pub(crate) mod log;
 mod resume;
 use resume::collect_resume_worktree;
 pub use resume::ResumeWorktree;
@@ -1333,7 +1334,11 @@ mod tests {
     /// D-680:handoff 缺少完整完成证据时必须拒绝，避免把临时批次收尾送进鞭挞停机路径。
     #[tokio::test]
     async fn d680_handoff_requires_completion_criterion_and_evidence() {
-        let ctx = ToolCtx::default();
+        // handoff 会把完成条件与证据落成过程事实;ToolCtx::default() 的 project_root
+        // 是当前工作目录(跑 cargo test 时就是 crate 目录),会把 .kanzei/artifacts 写进
+        // 源码树。用临时根隔离。
+        let dir = fixture("handoff");
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
         let missing_criterion = WorkTool
             .execute(
                 serde_json::json!({
@@ -1347,6 +1352,10 @@ mod tests {
         assert_eq!(
             missing_criterion.code,
             Some("HANDOFF_COMPLETION_CRITERION_REQUIRED")
+        );
+        assert!(
+            !dir.join(crate::work::log::WORK_LOG_REL).exists(),
+            "被拦下的 handoff 不该留痕——留痕的是发生过的事,不是被拒绝的意图"
         );
 
         let missing_evidence = WorkTool
@@ -1377,6 +1386,17 @@ mod tests {
         assert!(accepted.content.contains("model completion declared"));
         assert!(accepted.content.contains("auto-run controller"));
         assert!(!accepted.content.contains("control returned to the user"));
+
+        // 工具为了拿到 criterion/evidence_refs 硬拦了两次,拿到就必须留痕——
+        // 否则是"逼模型干活然后扔掉":停机理由恰恰是最该可追溯的。
+        let work_log = std::fs::read_to_string(dir.join(crate::work::log::WORK_LOG_REL)).unwrap();
+        assert!(
+            work_log.contains("鞭挞模式不因阶段性收尾交换控制权"),
+            "{work_log}"
+        );
+        assert!(work_log.contains("work/tool.rs:493"), "{work_log}");
+        assert!(work_log.contains("\"event\":\"handoff\""), "{work_log}");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// D-368:Resume 且进展锚点已陈旧时,裁决必须把「先复核已落地范围」作为前置动作给出。
@@ -2002,9 +2022,18 @@ mod tests {
         assert!(!claimed.is_error, "{}", claimed.content);
         let requirements = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
         assert_eq!(requirements[0].status, "doing");
-        assert!(field(&requirements[0], "取活依据")
-            .unwrap()
-            .contains("用户本轮明确要求"));
+        // 取活理由留痕,但**不落条目**:它是调度器每轮重算的机制产物,写进 fields 会被
+        // structured_entry 序列化进控制状态,变成永久占上下文的过期快照。
+        assert!(
+            field(&requirements[0], "取活依据").is_none(),
+            "机制产物不该腌进条目字段"
+        );
+        let work_log = std::fs::read_to_string(dir.join(crate::work::log::WORK_LOG_REL)).unwrap();
+        assert!(
+            work_log.contains("用户本轮明确要求"),
+            "override 理由必须留在过程事实里: {work_log}"
+        );
+        assert!(work_log.contains("\"source\":\"override\""), "{work_log}");
 
         let rejected = tool
             .execute(

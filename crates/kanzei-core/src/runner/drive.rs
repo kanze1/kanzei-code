@@ -540,10 +540,21 @@ async fn stream_request_step(
         // 最后一步收走工具强制收敛;必须同时明确告知(D-027:只收走不告知,
         // codex 仍试图调用工具,把调用 JSON 当纯文本狂喷并在思考里反复自我纠正)。
         if last_step {
+            // 这一步没有工具,所以这段文字**改变不了任何持久状态**:自动续跑的判定
+            // (AutoRunCtx)里根本没有文本字段,下一轮也不读它。凡是没写进 tracker /
+            // 提交 / 测试记录的东西,写在这里等于丢掉。
+            //
+            // 所以措辞必须堵住"拿报告当落盘替代品"这条路——实测形态是模型在这里
+            // 写下「D-044/045/046 已修复待关闭」,而条目里一个字没有,下一轮从零重建。
+            // 同时限长:它只是给人看的摘要,不是记录,没必要复述一遍 tracker。
             request_messages.push(Message::user_text(
                 "(system) Final step of this run: tools are no longer available. Do NOT \
-                 attempt any tool call and do NOT emit JSON — reply in plain text only, \
-                 summarizing what was completed and what remains.",
+                 attempt any tool call and do NOT emit JSON — reply in plain text only. \
+                 This text is a DIGEST FOR A HUMAN, not a record: nothing you write here \
+                 is read by the next round, and anything not already in the tracker, a \
+                 commit, or a test record is lost. Do not restate the tracker. At most 5 \
+                 lines, no nested bullets: what changed, what is left, and — if anything \
+                 that matters failed to reach the tracker — say exactly what and why.",
             ));
         } else if winddown {
             // 步数预算已经吃完,本轮改了源码却一次都没提交。再多写一行代码
