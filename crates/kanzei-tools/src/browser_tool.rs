@@ -481,11 +481,7 @@ async fn execute_console(input: &BrowserInput) -> ToolOutput {
             }
             let lines = errors
                 .iter()
-                .map(|e| {
-                    let ty = e["type"].as_str().unwrap_or("?");
-                    let text = e["text"].as_str().unwrap_or("?");
-                    format!("[{ty}] {text}")
-                })
+                .map(format_console_error)
                 .collect::<Vec<_>>()
                 .join("\n");
             ToolOutput::error(format!(
@@ -494,6 +490,22 @@ async fn execute_console(input: &BrowserInput) -> ToolOutput {
             ))
         }
         Err(e) => browser_error(e),
+    }
+}
+
+/// 将 console 条目格式化为面向模型的诊断文本。浏览器提供资源 URL 时必须保留，
+/// 否则诸如 favicon 404 只剩一条无来源的通用错误，无法区分页面脚本与静态资源。
+fn format_console_error(error: &serde_json::Value) -> String {
+    let ty = error["type"].as_str().unwrap_or("?");
+    let text = error["text"].as_str().unwrap_or("?");
+    let Some(url) = error["url"].as_str().filter(|url| !url.is_empty()) else {
+        return format!("[{ty}] {text}");
+    };
+    let line = error["line"].as_u64();
+    let column = error["column"].as_u64();
+    match (line, column) {
+        (Some(line), Some(column)) => format!("[{ty}] {text} ({url}:{line}:{column})"),
+        _ => format!("[{ty}] {text} ({url})"),
     }
 }
 
@@ -793,6 +805,24 @@ mod tests {
         assert!(refused.content.contains("Local URL"));
     }
 
+    #[test]
+    fn console错误保留来源url与行列() {
+        let formatted = format_console_error(&serde_json::json!({
+            "type": "error",
+            "text": "Failed to load resource: 404",
+            "url": "http://127.0.0.1:4173/favicon.ico",
+            "line": 0,
+            "column": 0
+        }));
+        assert!(formatted.contains("favicon.ico:0:0"), "{formatted}");
+
+        let without_location = format_console_error(&serde_json::json!({
+            "type": "pageerror",
+            "text": "boom"
+        }));
+        assert_eq!(without_location, "[pageerror] boom");
+    }
+
     /// D-718:真实 Edge 走完整包装层。旧实现会在 type/click/dom 前强制要求
     /// url/path 并重新导航，输入值在点击前已经丢失；该测试必须覆盖省略目标的连续动作。
     #[cfg(target_os = "windows")]
@@ -800,7 +830,7 @@ mod tests {
     async fn 连续open_type_click_dom复用当前页面状态() {
         let html = r#"<!doctype html><html><head><title>stateful-browser</title></head><body>
 <input id="value"><button id="commit" onclick="document.getElementById('result').textContent=document.getElementById('value').value">commit</button>
-<div id="result">empty</div></body></html>"#;
+<div id="result">empty</div><script>console.error('stateful diagnostic')</script></body></html>"#;
         let path = std::env::temp_dir().join(format!(
             "kz-browser-stateful-{}-{}.html",
             std::process::id(),
@@ -859,6 +889,16 @@ mod tests {
             text: None,
         })
         .await;
+        let console = execute_browser(BrowserInput {
+            url: None,
+            path: None,
+            viewport: None,
+            channel: "msedge".into(),
+            action: "console".into(),
+            selector: None,
+            text: None,
+        })
+        .await;
         shutdown_helper();
         std::fs::remove_file(&path).ok();
 
@@ -869,6 +909,17 @@ mod tests {
         assert!(!clicked.is_error, "{}", clicked.content);
         assert!(!dom.is_error, "{}", dom.content);
         assert!(dom.content.contains("kept-state"), "{}", dom.content);
+        assert!(console.is_error, "console.error 必须作为工具错误返回");
+        assert!(
+            console.content.contains("stateful diagnostic"),
+            "{}",
+            console.content
+        );
+        assert!(
+            console.content.contains("kz-browser-stateful-"),
+            "{}",
+            console.content
+        );
     }
 
     /// D-400:rpc 统查 result.error(嵌套)——辅进程把所有错误(含 catch)写进

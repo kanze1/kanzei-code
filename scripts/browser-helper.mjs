@@ -70,7 +70,14 @@ async function ensureBrowser(channel) {
   consoleErrors = [];
   page.on("console", (msg) => {
     if (msg.type() === "error" || msg.type() === "warning") {
-      consoleErrors.push({ type: msg.type(), text: msg.text() });
+      const location = msg.location();
+      consoleErrors.push({
+        type: msg.type(),
+        text: msg.text(),
+        url: location?.url || undefined,
+        line: Number.isInteger(location?.lineNumber) ? location.lineNumber : undefined,
+        column: Number.isInteger(location?.columnNumber) ? location.columnNumber : undefined,
+      });
     }
   });
   page.on("pageerror", (err) => {
