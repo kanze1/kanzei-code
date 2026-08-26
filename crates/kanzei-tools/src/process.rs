@@ -177,7 +177,17 @@ impl Tool for ProcessTool {
                     return ToolOutput::error("stop requires `id`");
                 };
                 if crate::background::get(id).is_none() {
-                    return ToolOutput::error(format!("unknown process id `{id}`"));
+                    if managed_process_id(id) {
+                        return ToolOutput::ok(format!(
+                            "{id} is no longer active (it already exited or was cleaned up); nothing to stop. Use action=list to see live ids."
+                        ));
+                    }
+                    return ToolOutput::needs_correction(
+                        "PROCESS_STOP_BAD_ID",
+                        format!(
+                            "invalid process id `{id}`; expected the bg<number> id returned by bash background=true. Use action=list to see live ids"
+                        ),
+                    );
                 }
                 if crate::background::stop(id).await {
                     ToolOutput::ok(format!("stopped {id}"))
@@ -263,10 +273,16 @@ impl Tool for ProcessTool {
                 }
             }
             other => ToolOutput::error(format!(
-                "unknown action `{other}`; use list | output | stop | discover | adopt | kill"
+                "unknown action `{other}`; use list | output | stop | wait | discover | adopt | kill"
             )),
         }
     }
+}
+
+fn managed_process_id(id: &str) -> bool {
+    id.strip_prefix("bg").is_some_and(|digits| {
+        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+    })
 }
 
 /// 越界写入的归因报告。空 = 该后台任务没碰过托管路径。
@@ -405,7 +421,7 @@ fn regex_lite_compile(pattern: &str) -> Result<regex::Regex, String> {
 
 #[cfg(test)]
 mod wait_tests {
-    use super::{regex_lite_compile, tail, WAIT_MAX_SECS, WAIT_TAIL_CHARS};
+    use super::{managed_process_id, regex_lite_compile, tail, WAIT_MAX_SECS, WAIT_TAIL_CHARS};
     use kanzei_harness::{Tool, ToolConcurrency, ToolCtx};
     use serde_json::json;
 
@@ -478,5 +494,28 @@ mod wait_tests {
             "要指路: {}",
             out.content
         );
+    }
+
+    #[tokio::test]
+    async fn stop已回收bg句柄幂等_非法id仍拒绝() {
+        assert!(managed_process_id("bg1"));
+        assert!(managed_process_id("bg999999999"));
+        assert!(!managed_process_id("bg"));
+        assert!(!managed_process_id("process-1"));
+
+        let tool = super::ProcessTool;
+        let stopped = tool
+            .execute(json!({"action": "stop", "id": "bg999999999"}), &ctx())
+            .await;
+        assert!(!stopped.is_error, "{}", stopped.content);
+        assert!(stopped.content.contains("no longer active"));
+        assert!(stopped.content.contains("nothing to stop"));
+
+        let invalid = tool
+            .execute(json!({"action": "stop", "id": "process-1"}), &ctx())
+            .await;
+        assert!(invalid.is_error);
+        assert_eq!(invalid.code, Some("PROCESS_STOP_BAD_ID"));
+        assert!(invalid.content.contains("bg<number>"));
     }
 }

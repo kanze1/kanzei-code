@@ -16,6 +16,7 @@ import { chromium } from "playwright-core";
 
 // ---- 状态:单 browser / 单 page / 单 context(边界:不做多 tab/多上下文) ----
 let browser = null;
+let browserChannel = null;
 let context = null;
 let page = null;
 let consoleErrors = [];
@@ -35,8 +36,19 @@ function resolveChannel(channel) {
 }
 
 async function ensureBrowser(channel) {
+  const requestedChannel = resolveChannel(channel ?? "msedge");
   if (browser && browser.isConnected && !browser.isConnected()) {
     browser = null;
+    browserChannel = null;
+    context = null;
+    page = null;
+  }
+  // 同一辅进程允许调用方显式切换 channel。旧实现一旦先开了 Edge，后续传
+  // chrome 也会静默复用 Edge，工具回显与真实执行面不一致。
+  if (browser && browserChannel !== requestedChannel) {
+    await browser.close().catch(() => {});
+    browser = null;
+    browserChannel = null;
     context = null;
     page = null;
   }
@@ -44,10 +56,11 @@ async function ensureBrowser(channel) {
     return;
   }
   browser = await chromium.launch({
-    channel: resolveChannel(channel),
+    channel: requestedChannel,
     headless: true,
     args: ["--no-first-run", "--disable-features=msEdgeSidebarV2"],
   });
+  browserChannel = requestedChannel;
   context = await browser.newContext({
     // 默认桌面 viewport;移动预设由 Rust 侧按需传 viewport 覆盖。
     viewport: { width: 1280, height: 720 },
@@ -71,6 +84,7 @@ async function handle(method, params) {
       if (browser) {
         await browser.close().catch(() => {});
         browser = null;
+        browserChannel = null;
         context = null;
         page = null;
       }
@@ -82,6 +96,9 @@ async function handle(method, params) {
       if (viewport) {
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
       }
+      // console 查询只应覆盖本次导航之后的页面。否则先前 URL 的错误会污染
+      // 后续页面，模型会把旧页故障归因到当前前端。
+      consoleErrors = [];
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
       return { title: await page.title().catch(() => ""), url: page.url() };
     }
@@ -123,10 +140,11 @@ async function handle(method, params) {
         for (const r of roots) out.push(...walk(r, 0));
         return JSON.stringify(out);
       }, selector ?? null);
-      return { dom: structure };
+      return { dom: structure, url: page.url() };
     }
     case "console": {
-      return { errors: consoleErrors };
+      if (!browser) return { error: "no browser: call open first" };
+      return { errors: consoleErrors, url: page.url() };
     }
     case "click": {
       const { selector } = params ?? {};
@@ -140,7 +158,7 @@ async function handle(method, params) {
       if (!browser) return { error: "no browser: call open first" };
       if (!selector || typeof text !== "string") return { error: "type requires selector and text" };
       await page.fill(selector, text);
-      return { ok: true };
+      return { ok: true, url: page.url() };
     }
     default:
       return { error: `unknown method: ${method}` };

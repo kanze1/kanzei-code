@@ -44,7 +44,9 @@ impl kanzei_harness::Tool for BrowserTool {
          a screenshot through the image channel. Params: url or path; optional viewport \
          (mobile-375x667 | mobile-390x844 | mobile-412x915 | mobile-360x800) for mobile UI \
          self-checks; optional channel (msedge default | chrome). The screenshot is delivered \
-         as an image the model can actually see."
+         as an image the model can actually see. Stateful flow: call open with url/path once, \
+         then call dom/console/click/type without url/path to keep the current page state. \
+         Supplying url/path to an action explicitly reloads that target before the action."
             .into()
     }
 
@@ -420,32 +422,29 @@ async fn execute_open(input: &BrowserInput) -> ToolOutput {
             }]);
             output
         }
-        Err(e) => ToolOutput::error(format!("浏览器工具失败: {e}")),
+        Err(e) => browser_error(e),
     }
 }
 
 /// dom:读页面可读结构(可选 selector,默认 body 整树)。
 async fn execute_dom(input: &BrowserInput) -> ToolOutput {
-    let url = match resolve_target(input) {
-        Ok(u) => u,
+    let target = match resolve_optional_target(input) {
+        Ok(target) => target,
         Err(e) => return ToolOutput::error(e),
     };
     let viewport = parse_viewport(input.viewport.as_deref());
     let selector = input.selector.clone().unwrap_or_default();
 
     match with_helper(|helper| {
-        // dom 前先确保页面已打开(open 幂等:已 open 则复用 browser/page)。
-        helper.rpc(
-            "open",
-            serde_json::json!({
-                "url": url,
-                "channel": input.channel,
-                "viewport": viewport,
-            }),
-        )?;
+        let opened = open_if_target(helper, target.as_deref(), input, viewport.as_ref())?;
         let dom = helper.rpc("dom", serde_json::json!({ "selector": selector }))?;
         let structure = dom["dom"].as_str().unwrap_or("").to_string();
-        Ok((url, structure))
+        let page_url = dom["url"]
+            .as_str()
+            .or(opened.as_deref())
+            .unwrap_or("(current page)")
+            .to_string();
+        Ok((page_url, structure))
     }) {
         Ok((url, structure)) => {
             if structure.is_empty() {
@@ -453,31 +452,28 @@ async fn execute_dom(input: &BrowserInput) -> ToolOutput {
             }
             ToolOutput::ok(format!("页面 DOM 结构(url: {url}):\n{structure}"))
         }
-        Err(e) => ToolOutput::error(format!("浏览器工具失败: {e}")),
+        Err(e) => browser_error(e),
     }
 }
 
 /// console:读页面累积的 console 错误/警告。
 async fn execute_console(input: &BrowserInput) -> ToolOutput {
-    let url = match resolve_target(input) {
-        Ok(u) => u,
+    let target = match resolve_optional_target(input) {
+        Ok(target) => target,
         Err(e) => return ToolOutput::error(e),
     };
     let viewport = parse_viewport(input.viewport.as_deref());
 
     match with_helper(|helper| {
-        // console 前同样先确保页面已打开。
-        helper.rpc(
-            "open",
-            serde_json::json!({
-                "url": url,
-                "channel": input.channel,
-                "viewport": viewport,
-            }),
-        )?;
+        let opened = open_if_target(helper, target.as_deref(), input, viewport.as_ref())?;
         let console = helper.rpc("console", serde_json::json!({}))?;
         let errors = console["errors"].as_array().cloned().unwrap_or_default();
-        Ok((url, errors))
+        let page_url = console["url"]
+            .as_str()
+            .or(opened.as_deref())
+            .unwrap_or("(current page)")
+            .to_string();
+        Ok((page_url, errors))
     }) {
         Ok((url, errors)) => {
             if errors.is_empty() {
@@ -497,14 +493,14 @@ async fn execute_console(input: &BrowserInput) -> ToolOutput {
                 errors.len()
             ))
         }
-        Err(e) => ToolOutput::error(format!("浏览器工具失败: {e}")),
+        Err(e) => browser_error(e),
     }
 }
 
 /// click:点击页面元素(selector 必填)。
 async fn execute_click(input: &BrowserInput) -> ToolOutput {
-    let url = match resolve_target(input) {
-        Ok(u) => u,
+    let target = match resolve_optional_target(input) {
+        Ok(target) => target,
         Err(e) => return ToolOutput::error(e),
     };
     let selector = match input.selector.as_deref() {
@@ -514,27 +510,24 @@ async fn execute_click(input: &BrowserInput) -> ToolOutput {
     let viewport = parse_viewport(input.viewport.as_deref());
 
     match with_helper(|helper| {
-        helper.rpc(
-            "open",
-            serde_json::json!({
-                "url": url,
-                "channel": input.channel,
-                "viewport": viewport,
-            }),
-        )?;
+        let opened = open_if_target(helper, target.as_deref(), input, viewport.as_ref())?;
         let result = helper.rpc("click", serde_json::json!({ "selector": selector }))?;
-        let page_url = result["url"].as_str().unwrap_or(&url).to_string();
+        let page_url = result["url"]
+            .as_str()
+            .or(opened.as_deref())
+            .unwrap_or("(current page)")
+            .to_string();
         Ok(page_url)
     }) {
         Ok(page_url) => ToolOutput::ok(format!("已点击 {selector:?};当前 url: {page_url}")),
-        Err(e) => ToolOutput::error(format!("浏览器工具失败: {e}")),
+        Err(e) => browser_error(e),
     }
 }
 
 /// type:向输入框填入文本(selector + text 必填)。
 async fn execute_type(input: &BrowserInput) -> ToolOutput {
-    let url = match resolve_target(input) {
-        Ok(u) => u,
+    let target = match resolve_optional_target(input) {
+        Ok(target) => target,
         Err(e) => return ToolOutput::error(e),
     };
     let selector = match input.selector.as_deref() {
@@ -548,26 +541,67 @@ async fn execute_type(input: &BrowserInput) -> ToolOutput {
     let viewport = parse_viewport(input.viewport.as_deref());
 
     match with_helper(|helper| {
-        helper.rpc(
-            "open",
-            serde_json::json!({
-                "url": url,
-                "channel": input.channel,
-                "viewport": viewport,
-            }),
-        )?;
-        helper.rpc(
+        let opened = open_if_target(helper, target.as_deref(), input, viewport.as_ref())?;
+        let result = helper.rpc(
             "type",
             serde_json::json!({ "selector": selector, "text": text }),
         )?;
-        Ok(())
+        let page_url = result["url"]
+            .as_str()
+            .or(opened.as_deref())
+            .unwrap_or("(current page)")
+            .to_string();
+        Ok(page_url)
     }) {
-        Ok(()) => ToolOutput::ok(format!(
-            "已向 {selector:?} 填入文本({} 字符)",
-            text.chars().count()
+        Ok(page_url) => ToolOutput::ok(format!(
+            "已向 {selector:?} 填入文本({} 字符);当前 url: {page_url}",
+            text.chars().count(),
         )),
-        Err(e) => ToolOutput::error(format!("浏览器工具失败: {e}")),
+        Err(e) => browser_error(e),
     }
+}
+
+/// url/path 是可选导航目标。open 必须提供目标；其它动作省略目标时复用当前页，
+/// 这是表单连续交互不丢状态的关键语义。
+fn resolve_optional_target(input: &BrowserInput) -> Result<Option<String>, String> {
+    if input.path.is_none() && input.url.is_none() {
+        return Ok(None);
+    }
+    resolve_target(input).map(Some)
+}
+
+fn open_if_target(
+    helper: &mut HelperProcess,
+    target: Option<&str>,
+    input: &BrowserInput,
+    viewport: Option<&serde_json::Value>,
+) -> Result<Option<String>, String> {
+    let Some(url) = target else {
+        return Ok(None);
+    };
+    let opened = helper.rpc(
+        "open",
+        serde_json::json!({
+            "url": url,
+            "channel": input.channel,
+            "viewport": viewport,
+        }),
+    )?;
+    Ok(Some(opened["url"].as_str().unwrap_or(url).to_string()))
+}
+
+fn browser_error(error: String) -> ToolOutput {
+    let hint = if error.contains("no browser: call open first") {
+        "先调用 browser open 并提供 url/path；后续 click/type/dom/console 可省略目标以复用当前页面。"
+    } else if error.contains("ERR_CONNECTION_REFUSED")
+        || error.contains("ERR_HTTP_RESPONSE_CODE_FAILURE")
+        || error.contains("net::ERR_")
+    {
+        "先用 process list/output/wait 确认前端服务仍在运行，再按启动日志中的实际 Local URL 与端口访问；不要假设固定为 5173 或 4173。"
+    } else {
+        "可先用 browser console 和 process output 获取页面与服务端诊断。"
+    };
+    ToolOutput::error(format!("浏览器工具失败: {error}\n处理建议: {hint}"))
 }
 
 /// 解析目标:path(本地文件)转 file:// URL;url 原样。
@@ -621,12 +655,12 @@ pub(crate) fn input_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "object",
         "properties": {
-            "url": { "type": "string", "description": "目标 http(s) URL" },
-            "path": { "type": "string", "description": "本地 HTML 文件路径(file:// 自动转换)" },
+            "url": { "type": "string", "description": "目标 http(s) URL；open 必填，其他动作省略时复用当前页面，提供时先重新导航" },
+            "path": { "type": "string", "description": "本地 HTML 文件路径(file:// 自动转换)；open 必填，其他动作省略时复用当前页面" },
             "action": {
                 "type": "string",
                 "enum": ["open", "dom", "console", "click", "type"],
-                "description": "动作:open(默认,打开并截图回模型)| dom(读可读 DOM 结构,可选 selector)| console(读页面 console 错误/警告)| click(点击 selector 元素)| type(向 selector 输入框填入 text)"
+                "description": "动作:open(默认,打开并截图回模型)| dom(读可读 DOM 结构,可选 selector)| console(读当前导航后的 console 错误/警告)| click(点击 selector 元素)| type(向 selector 输入框填入 text)。连续动作省略 url/path 即复用当前页"
             },
             "selector": { "type": "string", "description": "dom/click/type 用:CSS selector" },
             "text": { "type": "string", "description": "type 用:要填入输入框的文本" },
@@ -734,6 +768,107 @@ mod tests {
         );
         assert_eq!(parse_viewport(Some("unknown")), None);
         assert_eq!(parse_viewport(None), None);
+    }
+
+    #[test]
+    fn 非open动作允许省略目标且网络错误给前端服务诊断() {
+        let input = BrowserInput {
+            url: None,
+            path: None,
+            viewport: None,
+            channel: "msedge".into(),
+            action: "click".into(),
+            selector: Some("#submit".into()),
+            text: None,
+        };
+        assert_eq!(resolve_optional_target(&input).unwrap(), None);
+
+        let no_open = browser_error("no browser: call open first".into());
+        assert!(no_open.is_error);
+        assert!(no_open.content.contains("先调用 browser open"));
+
+        let refused = browser_error("page.goto: net::ERR_CONNECTION_REFUSED".into());
+        assert!(refused.is_error);
+        assert!(refused.content.contains("process list/output/wait"));
+        assert!(refused.content.contains("Local URL"));
+    }
+
+    /// D-718:真实 Edge 走完整包装层。旧实现会在 type/click/dom 前强制要求
+    /// url/path 并重新导航，输入值在点击前已经丢失；该测试必须覆盖省略目标的连续动作。
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn 连续open_type_click_dom复用当前页面状态() {
+        let html = r#"<!doctype html><html><head><title>stateful-browser</title></head><body>
+<input id="value"><button id="commit" onclick="document.getElementById('result').textContent=document.getElementById('value').value">commit</button>
+<div id="result">empty</div></body></html>"#;
+        let path = std::env::temp_dir().join(format!(
+            "kz-browser-stateful-{}-{}.html",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::write(&path, html).unwrap();
+
+        shutdown_helper();
+        let before_open = execute_browser(BrowserInput {
+            url: None,
+            path: None,
+            viewport: None,
+            channel: "msedge".into(),
+            action: "dom".into(),
+            selector: Some("#result".into()),
+            text: None,
+        })
+        .await;
+        let opened = execute_browser(BrowserInput {
+            url: None,
+            path: Some(path.display().to_string()),
+            viewport: None,
+            channel: "msedge".into(),
+            action: "open".into(),
+            selector: None,
+            text: None,
+        })
+        .await;
+        let typed = execute_browser(BrowserInput {
+            url: None,
+            path: None,
+            viewport: None,
+            channel: "msedge".into(),
+            action: "type".into(),
+            selector: Some("#value".into()),
+            text: Some("kept-state".into()),
+        })
+        .await;
+        let clicked = execute_browser(BrowserInput {
+            url: None,
+            path: None,
+            viewport: None,
+            channel: "msedge".into(),
+            action: "click".into(),
+            selector: Some("#commit".into()),
+            text: None,
+        })
+        .await;
+        let dom = execute_browser(BrowserInput {
+            url: None,
+            path: None,
+            viewport: None,
+            channel: "msedge".into(),
+            action: "dom".into(),
+            selector: Some("#result".into()),
+            text: None,
+        })
+        .await;
+        shutdown_helper();
+        std::fs::remove_file(&path).ok();
+
+        assert!(before_open.is_error, "未 open 不得假成功");
+        assert!(before_open.content.contains("先调用 browser open"));
+        assert!(!opened.is_error, "{}", opened.content);
+        assert!(!typed.is_error, "{}", typed.content);
+        assert!(!clicked.is_error, "{}", clicked.content);
+        assert!(!dom.is_error, "{}", dom.content);
+        assert!(dom.content.contains("kept-state"), "{}", dom.content);
     }
 
     /// D-400:rpc 统查 result.error(嵌套)——辅进程把所有错误(含 catch)写进
