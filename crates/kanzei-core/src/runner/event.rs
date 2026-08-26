@@ -2,7 +2,10 @@
 //! 拆分自 runner.rs(设计 §C B1);RunEvent/RunSummary/Ask* 经 mod.rs pub use 平铺,
 //! drain_task_events/preview 仅 runner 内部使用,见 mod.rs 的 use event 导入。
 
-use std::sync::{atomic::AtomicU32, Arc};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU32},
+    Arc,
+};
 
 use kanzei_harness::ToolArtifact;
 use kanzei_llm::{FinishReason, Message, Usage};
@@ -43,6 +46,10 @@ pub enum RunEvent {
         /// R-319:事件消费者可在最后一步授予一次受控收尾延长；core
         /// 在回调返回后读取该信号，不改变普通步数上限。
         budget_extension: Arc<AtomicU32>,
+        /// 这次延长是「收尾落盘」而不是「收尾提交」——本轮改了源码却一次
+        /// 都没提交。core 据此在延长的那几步注入收尾指令,让模型把半个事务落成
+        /// 可恢复的检查点(提交 WIP + 写回进展),而不是接着写新代码。
+        winddown: Arc<AtomicBool>,
     },
     Text(String),
     Reasoning(String),

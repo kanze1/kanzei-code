@@ -21,11 +21,12 @@ use serde::Deserialize;
 use serde_json::json;
 
 mod coverage;
+pub(crate) use coverage::available_frontend_smokes;
 use coverage::check_frontend_smoke_claim;
 pub use coverage::{
     coverage_from_command, frontend_smoke_passed, last_passed, last_passed_at,
-    last_passed_for_fingerprint, records_for_entry, unclosed_running_for, verification_passed_for,
-    TestCoverage,
+    last_passed_for_fingerprint, project_has_verify_script, records_for_entry,
+    unclosed_running_for, verification_passed_for, TestCoverage,
 };
 
 /// 测试记录(相对项目根)。
@@ -525,7 +526,7 @@ pub fn record_test_run_with_duration(
     if let Some(command) = final_command.as_deref() {
         block.push_str(&format!("- 命令: {command}\n"));
         // D-371:声称前端冒烟全过时,命令必须覆盖 verify.ps1 六条冒烟(差集非空判红)。
-        check_frontend_smoke_claim(title, Some(command), status)?;
+        check_frontend_smoke_claim(root, title, Some(command), status)?;
     }
     if let Some(secs) = duration_secs {
         block.push_str(&format!("- 时长: {secs:.1}s\n"));
@@ -603,7 +604,7 @@ pub fn append_test_run_with_duration(
         return Err(format!("测试状态必须是 {} 之一", VALID_STATUS.join("、")));
     }
     // D-371:声称前端冒烟全过时,命令必须覆盖 verify.ps1 六条冒烟(差集非空判红)。
-    check_frontend_smoke_claim(title, command, status)?;
+    check_frontend_smoke_claim(root, title, command, status)?;
     let path = root.join(TEST_RUNS_REL);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -956,6 +957,26 @@ mod tests {
         // R-141 后 ToolCtx::new 不再发现取根,但 DocStore/托管路径仍以 .kanzei
         // 为准;保留标记,让 fixture 与可能位于某个 checkout 之下的 CI 临时目录隔离。
         std::fs::create_dir(dir.join(".kanzei")).unwrap();
+        dir
+    }
+
+    /// 门禁是能力条件式的——只有项目真的提供了冒烟脚本,「声称冒烟」才可核验。
+    /// 需要门禁生效的用例用这个 fixture 建根,把六条 smoke 与 verify.ps1 实际落盘。
+    fn temp_project_with_smokes(tag: &str) -> std::path::PathBuf {
+        let dir = temp_project(tag);
+        let scripts = dir.join("scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        for name in [
+            "ui-runtime-smoke.mjs",
+            "ui-lint-smoke.mjs",
+            "parallel-lines-regression.mjs",
+            "ui-a11y-smoke.mjs",
+            "ui-i18n-smoke.mjs",
+            "ui-markdown-smoke.mjs",
+            "verify.ps1",
+        ] {
+            std::fs::write(scripts.join(name), "// fixture\n").unwrap();
+        }
         dir
     }
 
@@ -2064,7 +2085,7 @@ mod tests {
     // D-371:声称「前端冒烟全过」必须覆盖 verify.ps1 六条冒烟,差集非空即判红。
     #[test]
     fn d371_声称冒烟但只跑四条被拒() {
-        let root = temp_project("d371-subset");
+        let root = temp_project_with_smokes("d371-subset");
         let err = append_test_run(
             &root,
             "R-999 四条前端冒烟全过",
@@ -2081,7 +2102,7 @@ mod tests {
 
     #[test]
     fn d371_六条全跑通过() {
-        let root = temp_project("d371-full");
+        let root = temp_project_with_smokes("d371-full");
         let ok = append_test_run(
             &root,
             "R-999 前端冒烟六连全过",
@@ -2111,9 +2132,66 @@ mod tests {
         assert!(ok2.is_ok(), "{:?}", ok2.err());
     }
 
+    /// 项目一条 `scripts/ui-*.mjs` 都不提供时,「声称冒烟」不再被拦。
+    /// 原判据把 kanzei 仓库的六个脚本名当普遍真理,别的项目里永远差集非空——
+    /// 实测代价是模型改标题绕过门禁,等于被教会谎报跑过什么。
+    #[test]
+    fn 门禁能力条件式_项目无冒烟脚本时声称不再被拦() {
+        let root = temp_project("d720-no-scripts");
+        let ok = append_test_run(
+            &root,
+            "R-999 前端冒烟全过",
+            "passed",
+            Some("npm run test:e2e"),
+            None,
+            None,
+        );
+        assert!(ok.is_ok(), "{:?}", ok.err());
+        // 无命令同样不拦:无法核验的前提是"本该有东西可核验"。
+        let ok2 = append_test_run(&root, "前端冒烟全过", "passed", None, None, None);
+        assert!(ok2.is_ok(), "{:?}", ok2.err());
+    }
+
+    /// 项目只提供两条时,门禁按这两条判——报错点名的是本项目真有的脚本,
+    /// 不是 kanzei 的固定六条。
+    #[test]
+    fn 门禁能力条件式_按项目实际提供的脚本判覆盖() {
+        let root = temp_project("d720-partial");
+        let scripts = root.join("scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        std::fs::write(scripts.join("ui-runtime-smoke.mjs"), "// fixture\n").unwrap();
+        std::fs::write(scripts.join("ui-i18n-smoke.mjs"), "// fixture\n").unwrap();
+
+        let err = append_test_run(
+            &root,
+            "R-999 前端冒烟全过",
+            "passed",
+            Some("node scripts/ui-runtime-smoke.mjs"),
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(err.contains("1/2"), "{err}");
+        assert!(err.contains("ui-i18n-smoke"), "{err}");
+        assert!(
+            !err.contains("parallel-lines-regression"),
+            "不该点名本项目没有的脚本:{err}"
+        );
+
+        let ok = append_test_run(
+            &root,
+            "R-999 前端冒烟全过",
+            "passed",
+            Some("node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs"),
+            None,
+            None,
+        );
+        assert!(ok.is_ok(), "{:?}", ok.err());
+    }
+
     #[test]
     fn d371_声称冒烟但无命令被拒() {
-        let root = temp_project("d371-nocmd");
+        let root = temp_project_with_smokes("d371-nocmd");
         let err = append_test_run(&root, "前端冒烟全过", "passed", None, None, None).unwrap_err();
         assert!(err.contains("无法核验"), "{err}");
     }
@@ -2121,7 +2199,7 @@ mod tests {
     // D-371 验收④:回溯核查——历史「只跑四条却报全绿」的声称(R-253 B9 的形态)在新判据下会被拦下。
     #[test]
     fn d371_历史声称四条的记录会被新判据拦下() {
-        let root = temp_project("d371-replay");
+        let root = temp_project_with_smokes("d371-replay");
         let err = append_test_run(
             &root,
             "R-253 批9 四条前端冒烟(ui-runtime/i18n/a11y/markdown)",

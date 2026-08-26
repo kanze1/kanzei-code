@@ -170,12 +170,66 @@ impl TraceSink {
         base_max_steps: u32,
         extension_steps: u32,
     ) -> bool {
+        self.record_budget_grant(
+            "run.transaction_budget_extended",
+            step,
+            base_max_steps,
+            extension_steps,
+            "tests_passed_files_staged_commit_tracker_anchor_only",
+            json!({
+                "tests_passed": true,
+                "files_staged": true,
+                "commit_pending": true,
+                "source_edited": false,
+                "unexpected_tool": false,
+                "approval_seen": false,
+            }),
+            json!(["git", "req", "defect", "work", "test_record"]),
+        )
+    }
+
+    /// 收尾落盘的授予事件。**故意用另一个事件类型**——R-319 的 rollout 基线
+    /// 数的是 `run.transaction_budget_extended`(收尾提交),两族延长的触发条件和
+    /// 目的都不同,混进同一个桶会让那条验收再也读不出信号。
+    fn record_transaction_winddown(
+        &self,
+        step: u32,
+        base_max_steps: u32,
+        extension_steps: u32,
+    ) -> bool {
+        self.record_budget_grant(
+            "run.transaction_budget_winddown",
+            step,
+            base_max_steps,
+            extension_steps,
+            "source_edited_without_commit",
+            json!({
+                "source_edited": true,
+                "round_committed": false,
+                "approval_seen": false,
+            }),
+            json!(["git", "req", "defect", "work", "test_record", "bash"]),
+        )
+    }
+
+    /// 同一 run 内每种授予只记一次;已记过就返回 false,让调用方不要真的延长。
+    #[allow(clippy::too_many_arguments)]
+    fn record_budget_grant(
+        &self,
+        event_type: &str,
+        step: u32,
+        base_max_steps: u32,
+        extension_steps: u32,
+        reason: &str,
+        trigger: serde_json::Value,
+        allowed_actions: serde_json::Value,
+    ) -> bool {
         let store = self.store.lock().unwrap();
         let Some(store) = store.as_ref() else {
             return false;
         };
         let already_recorded = store
-            .list_events_by_type(&self.session_id, 0, "run.transaction_budget_extended")
+            .list_events_by_type(&self.session_id, 0, event_type)
             .map(|events| {
                 events
                     .iter()
@@ -188,22 +242,15 @@ impl TraceSink {
         store
             .append_event(
                 &self.session_id,
-                "run.transaction_budget_extended",
+                event_type,
                 &json!({
                     "run_id": self.run_id,
                     "step": step,
                     "base_max_steps": base_max_steps,
                     "extension_steps": extension_steps,
-                    "reason": "tests_passed_files_staged_commit_tracker_anchor_only",
-                    "trigger": {
-                        "tests_passed": true,
-                        "files_staged": true,
-                        "commit_pending": true,
-                        "source_edited": false,
-                        "unexpected_tool": false,
-                        "approval_seen": false,
-                    },
-                    "allowed_actions": ["git", "req", "defect", "work", "test_record"],
+                    "reason": reason,
+                    "trigger": trigger,
+                    "allowed_actions": allowed_actions,
                 }),
             )
             .is_ok()
@@ -449,6 +496,33 @@ impl MetricsSink {
                 .swap(true, std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// 收尾落盘:步数预算吃完,本轮改了源码却一次都没提交。
+    ///
+    /// R-319 的收尾提交只覆盖「已 stage、测试全绿、只差 commit」这一种干净形状,
+    /// 实测被切断的多数不是这一种:实现写到一半、测试还没写、什么都没提交,进程一停
+    /// 全部留在工作树里。下一轮先花 4~8 步靠 git status / diff / log / 重读把现场
+    /// 拼回来——这些步骤对产品零产出。多给 2 步把半个事务落成可恢复的检查点,
+    /// 比省下这 2 步再赔上下一轮的恢复成本划算。
+    ///
+    /// 边界与 R-319 一致:审批中不自动延长;`extension_used` 是**共用**的一次性
+    /// 闸门,两族延长每轮合计只发生一次,不存在续命循环。
+    fn maybe_winddown(&self, step: u32, max_steps: u32) -> bool {
+        if max_steps == 0 || step < max_steps {
+            return false;
+        }
+        self.source_edited
+            .load(std::sync::atomic::Ordering::Relaxed)
+            && !self
+                .round_committed
+                .load(std::sync::atomic::Ordering::Relaxed)
+            && !self
+                .approval_seen
+                .load(std::sync::atomic::Ordering::Relaxed)
+            && !self
+                .extension_used
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
+    }
+
     fn note_approval(&self) {
         self.approval_seen
             .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -474,6 +548,7 @@ pub(crate) fn build_event_handler(
                 step,
                 max_steps,
                 budget_extension,
+                winddown,
             } => {
                 if metrics.maybe_extend_transaction(step, max_steps)
                     && trace.record_transaction_budget_extension(step, max_steps, 2)
@@ -485,6 +560,21 @@ pub(crate) fn build_event_handler(
                         "baseMaxSteps": max_steps,
                         "extensionSteps": 2,
                         "reason": "tests_passed_files_staged_commit_tracker_anchor_only",
+                        "at": now_ms(),
+                    }));
+                } else if metrics.maybe_winddown(step, max_steps)
+                    && trace.record_transaction_winddown(step, max_steps, 2)
+                {
+                    // 延长的同时置收尾信号,core 会在这几步注入「只落盘,
+                    // 不要接着写」的指令——光给步数不给指令,模型会继续实现。
+                    budget_extension.store(2, std::sync::atomic::Ordering::Relaxed);
+                    winddown.store(true, std::sync::atomic::Ordering::Relaxed);
+                    trace.record(json!({
+                        "kind": "transaction_budget.winddown",
+                        "step": step,
+                        "baseMaxSteps": max_steps,
+                        "extensionSteps": 2,
+                        "reason": "source_edited_without_commit",
                         "at": now_ms(),
                     }));
                 }
@@ -983,6 +1073,100 @@ mod tests {
         approved.resolve_tool_end("stage", "git", true);
         approved.note_approval();
         assert!(!approved.maybe_extend_transaction(32, 32));
+    }
+
+    /// 验收①:实现写到一半、什么都没提交时授予收尾落盘——这正是 R-319 的
+    /// 收尾提交拒绝的形状(source_edited),也是实测里被步数边界切断的多数形状。
+    #[test]
+    fn 收尾落盘_改了源码没提交时授予收尾落盘() {
+        let (sink, _, _) = mk_metrics_sink();
+        sink.note_round_tool("e1", "edit", &json!({"path": "src/lib.rs"}));
+        // R-319 的收尾提交不认这种形状(没有 passed 测试、没有 stage)。
+        assert!(!sink.maybe_extend_transaction(32, 32));
+        assert!(sink.maybe_winddown(32, 32));
+    }
+
+    /// 边界与 R-319 一致——没到最后一步不给、本轮已提交不给、审批中不给,
+    /// 并且 `extension_used` 是共用的一次性闸门,每轮合计只发生一次延长。
+    #[test]
+    fn 收尾落盘_收尾落盘的边界与一次性() {
+        let (early, _, _) = mk_metrics_sink();
+        early.note_round_tool("e1", "edit", &json!({"path": "src/lib.rs"}));
+        assert!(!early.maybe_winddown(31, 32), "没到最后一步不给");
+
+        let (committed, _, _) = mk_metrics_sink();
+        committed.note_round_tool("e1", "edit", &json!({"path": "src/lib.rs"}));
+        committed.note_round_tool("s", "git", &json!({"action": "stage"}));
+        committed.resolve_tool_end("s", "git", true);
+        committed.note_round_tool("c", "git", &json!({"action": "commit"}));
+        committed.note_commit_intent("git", &json!({"action": "commit"}));
+        committed.resolve_tool_end("c", "git", true);
+        assert!(
+            !committed.maybe_winddown(32, 32),
+            "本轮已经提交过,现场不会丢,不需要落盘延长"
+        );
+
+        let (approved, _, _) = mk_metrics_sink();
+        approved.note_round_tool("e1", "edit", &json!({"path": "src/lib.rs"}));
+        approved.note_approval();
+        assert!(!approved.maybe_winddown(32, 32), "审批中不自动延长");
+
+        let (untouched, _, _) = mk_metrics_sink();
+        untouched.note_round_tool("r", "read", &json!({}));
+        assert!(!untouched.maybe_winddown(32, 32), "没改源码就没有现场要落");
+
+        let (once, _, _) = mk_metrics_sink();
+        once.note_round_tool("e1", "edit", &json!({"path": "src/lib.rs"}));
+        assert!(once.maybe_winddown(32, 32));
+        assert!(
+            !once.maybe_winddown(34, 34),
+            "共用一次性闸门,一轮只延长一次"
+        );
+    }
+
+    /// 收尾落盘写的是**另一个**事件类型——R-319 的 rollout 基线数的是
+    /// `run.transaction_budget_extended`,两族延长混进一个桶会让那条验收读不出信号。
+    #[test]
+    fn 收尾落盘_收尾落盘事件与收尾提交分桶且各自去重() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-winddown-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join("state.db");
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        store.create_session("ses_wd", "C:/proj", None).unwrap();
+        drop(store);
+        let live = Arc::new(Mutex::new(LiveRun::default()));
+        live.lock().unwrap().begin("run-wd", "in-1", "头", "p", "m");
+        let sink = TraceSink::new(live, state_path.clone(), "ses_wd".into(), "run-wd".into());
+
+        assert!(sink.record_transaction_winddown(32, 32, 2));
+        assert!(
+            !sink.record_transaction_winddown(32, 32, 2),
+            "同 run 只记一次"
+        );
+
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        assert_eq!(
+            store
+                .list_events_by_type("ses_wd", 0, "run.transaction_budget_winddown")
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            store
+                .list_events_by_type("ses_wd", 0, "run.transaction_budget_extended")
+                .unwrap()
+                .is_empty(),
+            "收尾落盘不得计入 R-319 的收尾提交基线"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// R-319 B3:扩展事件必须按 run_id 去重，重启恢复或重复回调不得重复记账。

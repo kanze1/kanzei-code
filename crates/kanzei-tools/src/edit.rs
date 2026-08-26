@@ -46,6 +46,216 @@ const NET_DELETE_CONFIRM_LINES: usize = 3;
 /// 这是「替换顺手吃掉邻居」的直接信号:R-158 那两处回退(Responses 的 reasoning
 /// effort 整段、设置页思考强度说明段)净行数分别是 0 和 +2,靠行数门禁一个都拦不住,
 /// 但两次都在这个列表里明明白白。
+/// 锚点与文件之间的统一缩进差。`Add` = 文件比锚点多这段前缀,`Strip` = 少这段。
+#[derive(Debug, Clone, PartialEq)]
+enum IndentDelta {
+    Add(String),
+    Strip(String),
+}
+
+impl IndentDelta {
+    fn is_noop(&self) -> bool {
+        match self {
+            IndentDelta::Add(p) | IndentDelta::Strip(p) => p.is_empty(),
+        }
+    }
+
+    /// 按同一缩进差重排 new_string。空行不动;`Strip` 时任何一行前缀对不上就放弃
+    /// ——宁可退回未命中反馈,也不写出缩进错乱的文本。
+    fn reindent(&self, text: &str) -> Option<String> {
+        if self.is_noop() {
+            return Some(text.to_string());
+        }
+        let trailing_newline = text.ends_with('\n');
+        let mut out = Vec::new();
+        for line in text.lines() {
+            if line.trim().is_empty() {
+                out.push(line.to_string());
+                continue;
+            }
+            match self {
+                IndentDelta::Add(prefix) => out.push(format!("{prefix}{line}")),
+                // 任何一行剥不掉这段前缀就整体放弃(返回 None):宁可退回未命中反馈,
+                // 也不写出缩进错乱的文本。
+                IndentDelta::Strip(prefix) => {
+                    out.push(line.strip_prefix(prefix.as_str())?.to_string());
+                }
+            }
+        }
+        let mut joined = out.join("\n");
+        if trailing_newline {
+            joined.push('\n');
+        }
+        Some(joined)
+    }
+}
+
+fn leading_ws(line: &str) -> &str {
+    &line[..line.len() - line.trim_start().len()]
+}
+
+/// 两行缩进之间的统一差;一方不是另一方的前缀(比如 tab 与空格混用)就没有统一解读。
+fn indent_delta(file_line: &str, anchor_line: &str) -> Option<IndentDelta> {
+    let file_indent = leading_ws(file_line);
+    let anchor_indent = leading_ws(anchor_line);
+    if let Some(extra) = file_indent.strip_prefix(anchor_indent) {
+        return Some(IndentDelta::Add(extra.to_string()));
+    }
+    anchor_indent
+        .strip_prefix(file_indent)
+        .map(|extra| IndentDelta::Strip(extra.to_string()))
+}
+
+/// 第三层匹配的结果。
+enum WhitespaceMatch {
+    /// 唯一命中:文件里的实际原文(逐字节)与统一缩进差。
+    One {
+        matched: String,
+        delta: IndentDelta,
+    },
+    /// 多处仅空白差异的候选——歧义就不猜,退回未命中反馈让模型补上下文。
+    Ambiguous(usize),
+    None,
+}
+
+/// 第三层:仅空白差异(行尾空白 / 统一缩进增删)的容错匹配。
+///
+/// 前两层(逐字节、CRLF 归一)之外,自举轨迹里剩下的未命中几乎全是同一个形状:
+/// 模型凭记忆重写锚点时把缩进抄少了或抄多了,或吞掉了行尾空白。这类锚点在语义上
+/// 是**唯一确定**的,却按 old_string not found 打回,换来一轮 read + 重试。
+///
+/// 判据故意收得很紧,只在"只可能有一种解读"时才自动应用:
+/// ① 逐行 trim 后完全相等的**连续**行窗口;② 全文只有一个这样的窗口;
+/// ③ 每个非空行的缩进差**完全一致**(统一缩进,不是零散错位)。
+/// 任何一条不满足就返回 None/Ambiguous,退回原来的未命中反馈——不猜。
+fn whitespace_tolerant_match(content: &str, anchor: &str) -> WhitespaceMatch {
+    let anchor_lines: Vec<&str> = anchor.lines().collect();
+    if anchor_lines.is_empty() {
+        return WhitespaceMatch::None;
+    }
+    // 行起始字节偏移,用来把命中窗口还原成 content 的精确切片。
+    let mut line_starts = Vec::new();
+    let mut offset = 0usize;
+    for line in content.split('\n') {
+        line_starts.push(offset);
+        offset += line.len() + 1;
+    }
+    let content_lines: Vec<&str> = content.split('\n').collect();
+    if content_lines.len() < anchor_lines.len() {
+        return WhitespaceMatch::None;
+    }
+
+    let mut hits: Vec<(usize, IndentDelta)> = Vec::new();
+    for start in 0..=(content_lines.len() - anchor_lines.len()) {
+        let mut delta: Option<IndentDelta> = None;
+        let mut ok = true;
+        for (i, anchor_line) in anchor_lines.iter().enumerate() {
+            let file_line = content_lines[start + i];
+            if file_line.trim() != anchor_line.trim() {
+                ok = false;
+                break;
+            }
+            if anchor_line.trim().is_empty() {
+                continue;
+            }
+            match indent_delta(file_line, anchor_line) {
+                Some(d) => match &delta {
+                    Some(existing) if *existing != d => {
+                        ok = false;
+                        break;
+                    }
+                    Some(_) => {}
+                    None => delta = Some(d),
+                },
+                None => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            hits.push((start, delta.unwrap_or(IndentDelta::Add(String::new()))));
+        }
+    }
+
+    match hits.len() {
+        0 => WhitespaceMatch::None,
+        1 => {
+            let (start, delta) = hits.into_iter().next().unwrap();
+            let begin = line_starts[start];
+            let last = start + anchor_lines.len() - 1;
+            let end = line_starts[last] + content_lines[last].len();
+            WhitespaceMatch::One {
+                matched: content[begin..end].to_string(),
+                delta,
+            }
+        }
+        n => WhitespaceMatch::Ambiguous(n),
+    }
+}
+
+/// import 形状的行。`import type` 与值 import 可以共存且写法不同,排除在外。
+fn import_shaped(line: &str) -> bool {
+    let t = line.trim();
+    (t.starts_with("import ")
+        || t.starts_with("import{")
+        || t.starts_with("import*")
+        || t.starts_with("from ")
+        || t.starts_with("#include"))
+        && !t.starts_with("import type ")
+}
+
+/// 这次替换新加进来的行(new 有、old 没有,按 trim 后的多重集差)——`dropped_lines` 的反向。
+fn added_lines(old: &str, new: &str) -> Vec<String> {
+    let mut had: HashMap<&str, usize> = HashMap::new();
+    for line in old.lines() {
+        *had.entry(line.trim()).or_insert(0) += 1;
+    }
+    let mut out = Vec::new();
+    for line in new.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        match had.get_mut(trimmed) {
+            Some(remaining) if *remaining > 0 => *remaining -= 1,
+            _ => out.push(trimmed.to_string()),
+        }
+    }
+    out
+}
+
+/// 只在这些扩展名上查重复 import。Rust 的 `use` 在多个 inline mod 里逐字节重复是
+/// 合法的(`mod a { use std::fmt; } mod b { use std::fmt; }`),不能一刀切;
+/// JS/TS/Vue 这一族里,文件级出现两条完全相同的 import 一定是 bug。
+const IMPORT_DUP_EXTENSIONS: &[&str] = &["js", "jsx", "ts", "tsx", "mjs", "cjs", "vue", "svelte"];
+
+fn checks_duplicate_imports(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| IMPORT_DUP_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+/// 这次替换新增的 import 行,在写回后的全文里出现了不止一次。
+///
+/// 实测形态:模型在 Vue 单文件组件里补 `SafeIcon` 的 import,而文件顶部已经有一条
+/// 一模一样的——写进去要等到 lint 那一轮才发现,又是一轮定位 + 修复 + 记 incident。
+/// 这是"写之前就能确定是错的"那一类,拦在写盘前最省。
+fn duplicated_import_lines(updated: &str, added: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in added {
+        if !import_shaped(line) {
+            continue;
+        }
+        let occurrences = updated.lines().filter(|l| l.trim() == line).count();
+        if occurrences > 1 && !out.contains(line) {
+            out.push(line.clone());
+        }
+    }
+    out
+}
+
 fn dropped_lines(old: &str, new: &str) -> Vec<String> {
     let mut kept: HashMap<&str, usize> = HashMap::new();
     for line in new.lines() {
@@ -184,6 +394,55 @@ impl Tool for EditTool {
             }
         }
 
+        // 第三层:仅空白差异(行尾空白 / 统一缩进增删)。只在唯一命中且缩进差一致时
+        // 自动对齐——歧义或缩进错位一律退回未命中反馈,不猜。
+        let mut whitespace_note = String::new();
+        if count == 0 {
+            let normalized_content = content.replace("\r\n", "\n");
+            let normalized_old = input.old_string.replace("\r\n", "\n");
+            match whitespace_tolerant_match(&normalized_content, &normalized_old) {
+                WhitespaceMatch::One { matched, delta } => {
+                    let normalized_new = input.new_string.replace("\r\n", "\n");
+                    if let Some(reindented) = delta.reindent(&normalized_new) {
+                        whitespace_note = format!(
+                            "\nNOTE: old_string 与文件仅空白差异(唯一命中),已按文件实际缩进对齐{}。\
+                             下次直接用文件里的原文当锚点可以省掉这一步。",
+                            match &delta {
+                                IndentDelta::Add(p) if !p.is_empty() =>
+                                    format!(",new_string 每行补了 {} 个前导空白字符", p.len()),
+                                IndentDelta::Strip(p) if !p.is_empty() =>
+                                    format!(",new_string 每行去掉了 {} 个前导空白字符", p.len()),
+                                _ => String::new(),
+                            }
+                        );
+                        haystack = normalized_content;
+                        old_string = matched;
+                        new_string = reindented;
+                        count = 1;
+                        if ending_note.is_empty() {
+                            ending_note = " (whitespace-only mismatch realigned automatically)";
+                        }
+                    }
+                }
+                WhitespaceMatch::Ambiguous(n) => {
+                    self.record_miss(&path);
+                    return ToolOutput::needs_correction(
+                        "EDIT_ANCHOR_WHITESPACE_AMBIGUOUS",
+                        format!(
+                            "old_string 逐字节没命中,但文件里有 {n} 处只差空白的候选——歧义就不替你猜。\
+                             把 old_string 换成文件里的原文(含缩进),或多带几行上下文让它唯一。\
+                             \n第一处候选附近的实际内容:\n{}",
+                            excerpt_around(
+                                &content,
+                                input.old_string.lines().next().unwrap_or("").trim()
+                            ),
+                        ),
+                    );
+                }
+                WhitespaceMatch::None => {}
+            }
+        }
+
         if count == 0 {
             return self.miss_feedback(&path, &input.old_string, &content);
         }
@@ -259,6 +518,26 @@ impl Tool for EditTool {
         } else {
             haystack.replacen(&old_string, &new_string, 1)
         };
+        // 新增的 import 在写回后的全文里出现两次 = 重复 import,写之前就能定性。
+        // 拦在写盘前,省掉「写进去 → lint 报错 → 定位 → 修复 → 记 incident」整整一轮。
+        if checks_duplicate_imports(&path) {
+            let duplicated =
+                duplicated_import_lines(&updated, &added_lines(&old_string, &new_string));
+            if !duplicated.is_empty() {
+                self.misses.lock().unwrap().remove(&path);
+                return ToolOutput::needs_correction(
+                    "EDIT_DUPLICATE_IMPORT",
+                    format!(
+                        "这次替换会让下面 {} 条 import 在 {} 里出现两次——文件里已经有一模一样的了。\
+                         把它从 new_string 里去掉再重发;如果本意是改这条已有的 import,\
+                         就把已有那条作为 old_string 直接替换,而不是再加一条。\n{}",
+                        duplicated.len(),
+                        path.display(),
+                        preview_lines(&duplicated)
+                    ),
+                );
+            }
+        }
         // 归一匹配的写回:按原文件主导换行风格还原,避免半 CRLF 半 LF。
         let updated = if !ending_note.is_empty() && dominant_crlf(&content) {
             updated.replace('\n', "\r\n")
@@ -275,7 +554,7 @@ impl Tool for EditTool {
         crate::write::record_worktree_write_log(ctx, &input.path, updated.as_bytes());
         self.misses.lock().unwrap().remove(&path);
         let mut message = format!(
-            "replaced {count} occurrence(s) in {}{ending_note}",
+            "replaced {count} occurrence(s) in {}{ending_note}{whitespace_note}",
             path.display()
         );
         // 没到拦截线也要把丢掉的行报出来:替换吃掉邻居时净行数往往不减反增,
@@ -549,6 +828,10 @@ mod tests {
     use serde_json::json;
 
     fn setup(name: &str, content: &str) -> (std::path::PathBuf, ToolCtx) {
+        setup_named(name, "target.txt", content)
+    }
+
+    fn setup_named(name: &str, file: &str, content: &str) -> (std::path::PathBuf, ToolCtx) {
         let dir = std::env::temp_dir().join(format!(
             "kz-edit-{name}-{}-{}",
             std::process::id(),
@@ -558,9 +841,180 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("target.txt"), content).unwrap();
+        std::fs::write(dir.join(file), content).unwrap();
         let ctx = ToolCtx::new(dir.clone(), dir.clone());
         (dir, ctx)
+    }
+
+    /// 验收①:锚点只差缩进时按文件实际缩进自动对齐,不再打回 old_string not found。
+    ///
+    /// 这是自举轨迹里前两层(逐字节、CRLF)之外剩下的头号未命中形状:模型凭记忆重写
+    /// 锚点把缩进抄丢了,语义上唯一确定,却要换一轮 read + 重试。
+    #[tokio::test]
+    async fn 锚点空白容错_仅缩进差异的锚点自动对齐() {
+        let (dir, ctx) = setup(
+            "ws-indent",
+            "fn outer() {\n    if flag {\n        old_call();\n    }\n}\n",
+        );
+        let out = EditTool::default()
+            .execute(
+                json!({
+                    "path": "target.txt",
+                    "old_string": "if flag {\n    old_call();\n}",
+                    "new_string": "if flag {\n    new_call();\n}"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let saved = std::fs::read_to_string(dir.join("target.txt")).unwrap();
+        assert_eq!(
+            saved, "fn outer() {\n    if flag {\n        new_call();\n    }\n}\n",
+            "重排后的缩进必须与文件原有层级一致"
+        );
+        assert!(out.content.contains("仅空白差异"), "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// 多行锚点里某一行带行尾空白时(逐字节必然未命中)照样对齐。
+    /// 单行锚点靠子串命中,行尾空白本来就不构成未命中,不在这道判据的射程内。
+    #[tokio::test]
+    async fn 锚点空白容错_行内行尾空白差异被容忍() {
+        let (dir, ctx) = setup("ws-trailing", "fn a() {   \n    old();\n}\n");
+        let out = EditTool::default()
+            .execute(
+                json!({
+                    "path": "target.txt",
+                    "old_string": "fn a() {\n    old();\n}",
+                    "new_string": "fn a() {\n    new();\n}"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let saved = std::fs::read_to_string(dir.join("target.txt")).unwrap();
+        assert_eq!(saved, "fn a() {\n    new();\n}\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// 验收②:有多处只差空白的候选时不猜,报歧义并要求补上下文——
+    /// 自动对齐的前提是"只可能有一种解读"。
+    #[tokio::test]
+    async fn 锚点空白容错_多处空白候选时报歧义而不猜() {
+        // 逐字节零命中(文件里没有 4 空格缩进的 step()),去掉空白后两处候选。
+        let (dir, ctx) = setup(
+            "ws-ambiguous",
+            "fn a() {\n  step();\n}\nfn b() {\n    step();\n}\n",
+        );
+        let out = EditTool::default()
+            .execute(
+                json!({
+                    "path": "target.txt",
+                    "old_string": "        step();",
+                    "new_string": "        step2();"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(out.content.contains("只差空白的候选"), "{}", out.content);
+        let saved = std::fs::read_to_string(dir.join("target.txt")).unwrap();
+        assert!(saved.contains("step();"), "歧义时不得写盘");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// 缩进差不统一(逐行错位)不算"仅空白差异",退回原来的未命中反馈。
+    #[tokio::test]
+    async fn 锚点空白容错_缩进差不统一时不自动对齐() {
+        let (dir, ctx) = setup("ws-uneven", "    let a = 1;\n        let b = 2;\n");
+        let out = EditTool::default()
+            .execute(
+                json!({
+                    "path": "target.txt",
+                    "old_string": "let a = 1;\n  let b = 2;",
+                    "new_string": "let a = 9;\n  let b = 9;"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        let saved = std::fs::read_to_string(dir.join("target.txt")).unwrap();
+        assert_eq!(saved, "    let a = 1;\n        let b = 2;\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// 验收③:新增的 import 在文件里已经有一条一模一样的,拦在写盘前。
+    ///
+    /// 实测形态是 Vue 单文件组件里重复补 `SafeIcon` 的 import——写进去要等 lint
+    /// 那一轮才发现,又是一轮定位 + 修复 + 记 incident。
+    #[tokio::test]
+    async fn 锚点空白容错_重复import拦在写盘前() {
+        let content =
+            "import { SafeIcon } from './SafeIcon.vue'\nimport { ref } from 'vue'\n\nconst x = 1\n";
+        let (dir, ctx) = setup_named("dup-import", "App.vue", content);
+        let out = EditTool::default()
+            .execute(
+                json!({
+                    "path": "App.vue",
+                    "old_string": "const x = 1",
+                    "new_string": "import { SafeIcon } from './SafeIcon.vue'\nconst x = 1"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(out.content.contains("出现两次"), "{}", out.content);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("App.vue")).unwrap(),
+            content,
+            "拦下时不得写盘"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// Rust 的 `use` 在多个 inline mod 里逐字节重复是合法的,不受这道判据影响;
+    /// 首次引入一条**新** import 也照常放行。
+    #[tokio::test]
+    async fn 锚点空白容错_重复import判据不误伤rust与首次引入() {
+        let (rs_dir, rs_ctx) = setup_named(
+            "dup-import-rs",
+            "lib.rs",
+            "mod a {\n    use std::fmt;\n}\nmod b {\n    pub fn f() {}\n}\n",
+        );
+        let out = EditTool::default()
+            .execute(
+                json!({
+                    "path": "lib.rs",
+                    "old_string": "    pub fn f() {}",
+                    "new_string": "    use std::fmt;\n    pub fn f() {}"
+                }),
+                &rs_ctx,
+            )
+            .await;
+        assert!(
+            !out.is_error,
+            "Rust inline mod 重复 use 合法: {}",
+            out.content
+        );
+        std::fs::remove_dir_all(rs_dir).ok();
+
+        let (vue_dir, vue_ctx) = setup_named(
+            "new-import-vue",
+            "App.vue",
+            "import { ref } from 'vue'\n\nconst x = 1\n",
+        );
+        let out = EditTool::default()
+            .execute(
+                json!({
+                    "path": "App.vue",
+                    "old_string": "const x = 1",
+                    "new_string": "import { computed } from 'vue'\nconst x = 1"
+                }),
+                &vue_ctx,
+            )
+            .await;
+        assert!(!out.is_error, "首次引入不该被拦: {}", out.content);
+        std::fs::remove_dir_all(vue_dir).ok();
     }
 
     #[tokio::test]

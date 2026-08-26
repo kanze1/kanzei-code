@@ -176,6 +176,30 @@ pub struct ResolvedControlState {
     /// 「取活依据」字段,那会把整段提示灌进 tracker 文档留下噪音审计行。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_reconcile: Option<String>,
+    /// Resume 时的工作树现场——分支、HEAD、未提交改动清单(排除 `.kanzei`)。
+    ///
+    /// 恢复一条 WIP 的第一件事总是「现在到底改了什么」。这个事实引擎一条 git 命令
+    /// 就能给出,却被逐轮外包给模型:实测的恢复开场是 `git status` → `git diff` →
+    /// `git log` → `collaboration_status` → 逐个重读改过的文件,四到八步之后才
+    /// 写出第一行代码。步数预算被这段吃掉,事务就更容易在中途被切断,下一轮再赔
+    /// 一次同样的开场——这是让碎片化自我放大的那条边。
+    ///
+    /// 只在 Resume 且确实有未提交改动时出现:没有现场就不占篇幅。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_worktree: Option<ResumeWorktree>,
+}
+
+/// 恢复现场快照。字段都是**事实**,不含建议——怎么用写在注入块的说明里。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ResumeWorktree {
+    /// 当前分支名;detached 时是 `HEAD`。
+    pub branch: String,
+    /// `<短 sha> <提交标题>`。
+    pub head: String,
+    /// 未提交改动,形如 `crates/x.rs +12/-3` 或 `docs/new.md (untracked)`。
+    pub uncommitted: Vec<String>,
+    /// 未提交文件总数(`uncommitted` 可能被截断)。
+    pub uncommitted_files: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -356,6 +380,77 @@ fn fnv1a64(chunks: &[&[u8]]) -> String {
         }
     }
     format!("fnv1a64:{hash:016x}")
+}
+
+/// 清单最多列这么多个文件;超出只报总数。二十个足够看清"改动面在哪",
+/// 再多就变成噪音,而且真到那个规模,现场本身就该先提交而不是继续恢复。
+const RESUME_WORKTREE_MAX_FILES: usize = 20;
+
+/// 采集恢复现场。没有未提交改动就返回 None——干净树没有现场要交代。
+///
+/// 排除 `.kanzei/**`:托管文档每轮都在动,列进来会把真正的代码改动淹掉。
+fn collect_resume_worktree(cwd: &std::path::Path) -> Option<ResumeWorktree> {
+    let numstat = String::from_utf8_lossy(&command_output(
+        cwd,
+        &[
+            "diff",
+            "--numstat",
+            "HEAD",
+            "--",
+            ".",
+            ":(exclude).kanzei/**",
+        ],
+    ))
+    .to_string();
+    let untracked = String::from_utf8_lossy(&command_output(
+        cwd,
+        &[
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--",
+            ".",
+            ":(exclude).kanzei/**",
+        ],
+    ))
+    .to_string();
+
+    let mut files: Vec<String> = Vec::new();
+    for line in numstat.lines() {
+        let mut fields = line.splitn(3, '\t');
+        let added = fields.next().unwrap_or_default().trim();
+        let deleted = fields.next().unwrap_or_default().trim();
+        let path = fields.next().unwrap_or_default().trim();
+        if path.is_empty() {
+            continue;
+        }
+        files.push(format!("{path} +{added}/-{deleted}"));
+    }
+    for line in untracked.lines() {
+        let path = line.trim();
+        if !path.is_empty() {
+            files.push(format!("{path} (untracked)"));
+        }
+    }
+    if files.is_empty() {
+        return None;
+    }
+
+    let uncommitted_files = files.len();
+    files.truncate(RESUME_WORKTREE_MAX_FILES);
+    let branch =
+        String::from_utf8_lossy(&command_output(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]))
+            .trim()
+            .to_string();
+    let head = String::from_utf8_lossy(&command_output(cwd, &["log", "-1", "--format=%h %s"]))
+        .trim()
+        .to_string();
+    Some(ResumeWorktree {
+        branch,
+        head,
+        uncommitted: files,
+        uncommitted_files,
+    })
 }
 
 pub fn repo_observation(cwd: &std::path::Path) -> RepoObservation {
@@ -1141,6 +1236,12 @@ pub fn resolve_work_decision(
         (WorkDecision::Resume, Some(item)) => resume_reconcile_hint(item),
         _ => None,
     };
+    // 只在 Resume 时采集。Start 是从干净起点开始,工作树里的东西不是它的现场;
+    // Blocked/WipViolation 也不需要——那两种裁决的下一步不是写代码。
+    let resume_worktree = match decision {
+        WorkDecision::Resume => collect_resume_worktree(cwd),
+        _ => None,
+    };
     Ok(ResolvedControlState {
         schema_version: 2,
         work_priority: priority_name(priority).into(),
@@ -1155,6 +1256,7 @@ pub fn resolve_work_decision(
         line: me,
         foreign_wip,
         resume_reconcile,
+        resume_worktree,
     })
 }
 
@@ -1184,7 +1286,10 @@ pub fn resolved_control_prompt_of(state: Result<ResolvedControlState, String>) -
          decision_locked=true 时该裁决已冻结:没有新的控制面事实(队列变化/阻塞解除/用户指示)就\
          不要重新讨论做哪个、做不做——直接执行 selected。\n\
          resume_reconcile 非空时:冻结的是「做哪个」,不是「已经做到哪」。先按该字段复核代码与\
-         提交、确认哪些批次已落地并把真实进度写回条目,再继续实现——否则会把已完成的批次重做一遍。\n"
+         提交、确认哪些批次已落地并把真实进度写回条目,再继续实现——否则会把已完成的批次重做一遍。\n\
+         resume_worktree 是引擎已经替你跑过的 git status/diff 结果(已排除 .kanzei 托管文档)。\
+         不要再跑一遍 git status / git diff --stat / git log 去问同一个问题——直接从这份清单\
+         接着干:先读清单里点到的文件,而不是从头重新勘察。清单为空(字段不存在)= 工作树干净。\n"
     )
 }
 
@@ -1216,6 +1321,93 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// 建一个带一次提交的真 git 仓库,供恢复现场用例使用。
+    fn git_fixture(tag: &str) -> std::path::PathBuf {
+        let dir = fixture(tag);
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .current_dir(&dir)
+                .args(args)
+                .output()
+                .expect("git 可用")
+        };
+        run(&["init", "--quiet"]);
+        run(&["config", "user.email", "t@example.com"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(dir.join("base.txt"), "one\n").unwrap();
+        run(&["add", "-A"]);
+        run(&["commit", "-q", "-m", "base"]);
+        dir
+    }
+
+    /// 验收①:Resume 时把工作树现场直接交给模型,省掉
+    /// `git status` → `git diff` → `git log` 这段逐轮重跑的恢复开场。
+    #[tokio::test]
+    async fn 恢复现场_resume带出未提交现场() {
+        let dir = git_fixture("resume-worktree");
+        std::fs::write(dir.join("base.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(dir.join("extra.txt"), "new\n").unwrap();
+        let mut doing = entry("R-001", "doing");
+        doing.fields.push(("进展".into(), "批次 1/3".into()));
+        DocStore::open(&dir, &REQUIREMENTS).save(&[doing]).unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Resume, "{}", state.reason);
+        let worktree = state.resume_worktree.expect("Resume 必须带出现场");
+        assert_eq!(worktree.uncommitted_files, 2, "{:?}", worktree.uncommitted);
+        assert!(
+            worktree
+                .uncommitted
+                .iter()
+                .any(|f| f.starts_with("base.txt +1/-0")),
+            "{:?}",
+            worktree.uncommitted
+        );
+        assert!(
+            worktree
+                .uncommitted
+                .iter()
+                .any(|f| f == "extra.txt (untracked)"),
+            "{:?}",
+            worktree.uncommitted
+        );
+        assert!(worktree.head.contains("base"), "{}", worktree.head);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// 干净树不占篇幅;Start 裁决不带现场——工作树里的东西不是它的现场。
+    #[tokio::test]
+    async fn 恢复现场_干净树与start裁决不带现场() {
+        let clean = git_fixture("resume-clean");
+        let mut doing = entry("R-001", "doing");
+        doing.fields.push(("进展".into(), "批次 1/3".into()));
+        DocStore::open(&clean, &REQUIREMENTS)
+            .save(&[doing])
+            .unwrap();
+        let state = resolve_work_decision(&clean, &clean, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Resume, "{}", state.reason);
+        assert!(
+            state.resume_worktree.is_none(),
+            "干净树没有现场要交代: {:?}",
+            state.resume_worktree
+        );
+        std::fs::remove_dir_all(clean).ok();
+
+        let start = git_fixture("resume-start");
+        std::fs::write(start.join("base.txt"), "one\ntwo\n").unwrap();
+        DocStore::open(&start, &REQUIREMENTS)
+            .save(&[entry("R-001", "todo")])
+            .unwrap();
+        let state = resolve_work_decision(&start, &start, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Start, "{}", state.reason);
+        assert!(
+            state.resume_worktree.is_none(),
+            "Start 不带现场: {:?}",
+            state.resume_worktree
+        );
+        std::fs::remove_dir_all(start).ok();
     }
 
     /// D-680:handoff 缺少完整完成证据时必须拒绝，避免把临时批次收尾送进鞭挞停机路径。

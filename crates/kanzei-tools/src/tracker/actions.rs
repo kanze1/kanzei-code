@@ -433,8 +433,14 @@ pub(crate) fn update_close(
     }
     // D-664:设计文档新增/修改或显著单文件变更的交付，必须先经过当前 HEAD
     // 绑定的 verify。verify 只能在源码树干净时生成证据，不能在 close 内替跑。
+    // 门禁索要的证据必须是这个项目**能生产**的。`scripts/verify.ps1` 是
+    // kanzei 自己仓库的形状;同一套 harness 跑在别的项目上时该脚本不存在,门禁却
+    // 照旧要求"先跑 verify.ps1",条目就永远关不掉——实测形态是 agent 反复
+    // `.\scripts\verify.ps1` → command not found → glob 全仓库 → 确认不存在 →
+    // 记一条失败测试 → 条目仍 open,整段对产品零价值。没有该脚本就不设这道门。
     if action == "close"
         && !already_terminal
+        && crate::test_record::project_has_verify_script(&ctx.project_root)
         && close_requires_verify(&ctx.project_root)
         && !crate::test_record::verification_passed_for(&ctx.project_root, id)
     {
@@ -451,14 +457,23 @@ pub(crate) fn update_close(
             .find(|(k, _)| k == "标签")
             .map(|(_, v)| v.as_str())
             .unwrap_or("");
+        // 同上——项目里一条 `scripts/ui-*.mjs` 都没有时,"必须跑过 ui smoke"
+        // 是一条无法执行的指令,不是没跑。只在项目确实提供了冒烟脚本时才设这道门,
+        // 并且报错里点名的是**本项目真有的**脚本,不是 kanzei 的固定六条。
+        let available = crate::test_record::available_frontend_smokes(&ctx.project_root);
         if tag.contains("前端")
+            && !available.is_empty()
             && crate::test_record::frontend_smoke_passed(&ctx.project_root).is_none()
         {
             return ToolOutput::error(format!(
                 "{id} 带「前端」标签,但没有任何前端冒烟 passed 测试记录,不能关闭。\
-                 前端标签任务关闭前必须跑过 ui smoke(node scripts/ui-runtime-smoke.mjs / \
-                 ui-i18n-smoke.mjs / ui-lint-smoke.mjs 等)并用 test_record 记 passed;\
-                 cargo test --workspace 全绿不等于前端全量。"
+                 前端标签任务关闭前必须跑过本项目的 ui smoke({})并用 test_record 记 passed;\
+                 cargo test --workspace 全绿不等于前端全量。",
+                available
+                    .iter()
+                    .map(|s| format!("node scripts/{s}"))
+                    .collect::<Vec<_>>()
+                    .join(" / ")
             ));
         }
     }

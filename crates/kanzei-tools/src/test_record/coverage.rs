@@ -475,10 +475,34 @@ const FRONTEND_SMOKE_LIST: &[&str] = &[
     "ui-markdown-smoke.mjs",
 ];
 
+/// 门禁只对**本项目真的提供了的**脚本生效。
+///
+/// 这六个名字和 `scripts/verify.ps1` 都是 kanzei 自己仓库的形状。同一套 harness
+/// 跑在别的项目上时,项目里根本没有 `scripts/ui-*.mjs`——门禁照旧索要,条目就永远
+/// 关不掉,agent 只能一轮轮去 glob 一个不存在的脚本,或者把测试记录标题从「前端冒烟」
+/// 改成「定向测试」来绕开判据。后者尤其糟:门禁把模型教成了**谎报自己跑了什么**。
+///
+/// 判据因此改成"能力条件式":项目提供了哪几条,就要求哪几条;一条都没有就不是
+/// 「没跑」,而是「这个项目没有这类冒烟」,门禁自动让开。
+pub(crate) fn available_frontend_smokes(root: &Path) -> Vec<&'static str> {
+    FRONTEND_SMOKE_LIST
+        .iter()
+        .copied()
+        .filter(|script| root.join("scripts").join(script).is_file())
+        .collect()
+}
+
+/// 本项目是否提供 `scripts/verify.ps1`。关闭门禁索要 verify 全绿证据之前必须先问这一句:
+/// 没有这个脚本的项目里,「先跑 verify.ps1」是一条无法执行的指令。
+pub fn project_has_verify_script(root: &Path) -> bool {
+    root.join("scripts").join("verify.ps1").is_file()
+}
+
 /// D-371 机械判据:title 声称「冒烟」且 status=passed 时,command 必须覆盖
 /// verify.ps1 的六条前端冒烟,差集非空即拒绝写入——「全绿」的定义是 verify.ps1
 /// 十步,不是任意子集。未提供命令时同样拒绝(无法核验 = 判红)。
 pub(super) fn check_frontend_smoke_claim(
+    root: &Path,
     title: &str,
     command: Option<&str>,
     status: &str,
@@ -486,14 +510,23 @@ pub(super) fn check_frontend_smoke_claim(
     if status != "passed" || !title.contains("冒烟") {
         return Ok(());
     }
+    // 只按本项目真的提供的冒烟脚本判。一条都没有 = 这个项目没有前端冒烟
+    // 这回事,不是「跑了子集、报了全称」,门禁让开。原判据把 kanzei 自己仓库的
+    // 六个脚本名当成普遍真理,别的项目里它无法满足——实测代价是模型把测试记录
+    // 标题从「前端冒烟」改成「定向测试」来绕开,门禁反过来教会了谎报跑过什么。
+    let expected = available_frontend_smokes(root);
+    if expected.is_empty() {
+        return Ok(());
+    }
     let Some(command) = command.map(str::trim).filter(|c| !c.is_empty()) else {
         return Err(format!(
             "声称「{title}」是前端冒烟全过,但未提供命令,无法核验覆盖。\
-             verify.ps1 十步含六条冒烟({}),差集非空即判红(D-371)",
-            FRONTEND_SMOKE_LIST.join(" ")
+             本项目提供 {} 条冒烟({}),差集非空即判红(D-371)",
+            expected.len(),
+            expected.join(" ")
         ));
     };
-    let missing: Vec<&str> = FRONTEND_SMOKE_LIST
+    let missing: Vec<&str> = expected
         .iter()
         .copied()
         .filter(|script| !command.contains(script))
@@ -503,11 +536,11 @@ pub(super) fn check_frontend_smoke_claim(
     }
     Err(format!(
         "声称「{title}」是前端冒烟,但命令只覆盖 {}/{} 条,缺:{}。\
-         verify.ps1 十步含六条冒烟,差集非空即判红(D-371)。请补跑:{}",
-        FRONTEND_SMOKE_LIST.len() - missing.len(),
-        FRONTEND_SMOKE_LIST.len(),
+         差集非空即判红(D-371)。请补跑:{}",
+        expected.len() - missing.len(),
+        expected.len(),
         missing.join("、"),
-        FRONTEND_SMOKE_LIST.join(" ")
+        expected.join(" ")
     ))
 }
 

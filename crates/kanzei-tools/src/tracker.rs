@@ -1857,12 +1857,53 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// 项目里一条 `scripts/ui-*.mjs` 都没有时,「必须跑过 ui smoke」是一条
+    /// 无法执行的指令,不是没跑。这道门只在项目确实提供冒烟脚本时成立。
+    ///
+    /// 反例形态(实测):同一套 harness 跑在别的项目上,前端标签条目关闭被拒,
+    /// agent 去 glob 一个不存在的脚本、记一条失败测试,条目仍 open——整段零价值。
+    #[tokio::test]
+    async fn 门禁能力条件式_项目无冒烟脚本时前端标签照常可关闭() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-frontend-close-nogate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut front = entry("R-001");
+        front.status = "doing".into();
+        front.fields = vec![("标签".into(), "前端".into())];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[front]).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(
+            !out.is_error,
+            "项目不提供冒烟脚本时不该设这道门: {}",
+            out.content
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// R-228 验收①③:带「前端」标签的条目关闭前必须已有前端冒烟 passed 测试记录
     /// ——没有则拒绝(验收①);非前端标签条目不受影响(验收③)。
     #[tokio::test]
     async fn 前端标签关闭需前端冒烟passed_非前端不受影响() {
         let dir = std::env::temp_dir().join(format!("kz-frontend-close-{}", std::process::id()));
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        // 门禁是能力条件式的——项目得真的提供冒烟脚本,这道门才成立。
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::write(dir.join("scripts/ui-runtime-smoke.mjs"), "// fixture\n").unwrap();
         let mut front = entry("R-001");
         front.status = "doing".into();
         front.fields = vec![("标签".into(), "前端".into())];

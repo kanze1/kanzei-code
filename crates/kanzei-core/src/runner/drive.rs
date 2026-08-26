@@ -213,6 +213,9 @@ pub fn run_once_with_parts<'a>(
         };
         let halt = config.halt.as_ref();
         let halted = || halt.is_some_and(|token| token.is_cancelled());
+        // 收尾落盘一旦进入就保持到本轮结束——延长的每一步都要重复这条指令,
+        // 只在授予的那一步说一次,模型下一步就忘了自己在收尾。
+        let mut winddown_until_end = false;
         loop {
             step += 1;
             // D-342 步首检查点:停止已置位就不再发起新的 provider 请求,以 halted
@@ -241,19 +244,27 @@ pub fn run_once_with_parts<'a>(
                 system.push(refreshable_baseline.clone());
             }
             let budget_extension = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+            let winddown_signal = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             on_event(RunEvent::TurnStart {
                 step,
                 max_steps,
                 budget_extension: budget_extension.clone(),
+                winddown: winddown_signal.clone(),
             });
             let extension = budget_extension
                 .load(std::sync::atomic::Ordering::Relaxed)
                 .min(2);
+            // 收尾落盘信号一旦置位就保持到本轮结束——延长的每一步都要重复
+            // 这条指令,只在授予的那一步说一次,模型下一步就忘了自己在收尾。
+            if winddown_signal.load(std::sync::atomic::Ordering::Relaxed) {
+                winddown_until_end = true;
+            }
             let effective_max_steps = max_steps.saturating_add(extension);
             let last_step = effective_max_steps > 0 && step == effective_max_steps;
             // 步数预算(D-173):旧配置中的 0 已在装配段转换为有限默认上限。
             // 到达最后一步时收走工具并要求模型用文本收敛，防止工具/模型循环无限延长。
             let budget_checkpoint = is_budget_checkpoint(step);
+            let winddown = winddown_until_end;
 
             // R-202 批6:轮内上下文预算(主动 prune/压缩/trim,含 D-206 无效计数
             // 与 R-219 保守默认 32k)抽离为 enforce_context_budget。
@@ -290,6 +301,7 @@ pub fn run_once_with_parts<'a>(
                 step,
                 last_step,
                 budget_checkpoint,
+                winddown,
                 halt,
                 &mut on_event,
                 &mut calibration,
@@ -500,6 +512,7 @@ async fn stream_request_step(
     step: u32,
     last_step: bool,
     budget_checkpoint: bool,
+    winddown: bool,
     halt: Option<&CancellationToken>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
     calibration: &mut f64,
@@ -521,6 +534,21 @@ async fn stream_request_step(
                 "(system) Final step of this run: tools are no longer available. Do NOT \
                  attempt any tool call and do NOT emit JSON — reply in plain text only, \
                  summarizing what was completed and what remains.",
+            ));
+        } else if winddown {
+            // 步数预算已经吃完,本轮改了源码却一次都没提交。再多写一行代码
+            // 都会随进程结束蒸发,下一轮还得靠 git status / diff / 重读把现场拼回来。
+            // 这几步的唯一任务是把半个事务落成可恢复的检查点。
+            request_messages.push(Message::user_text(
+                "(system) Wind-down: the step budget for this run is exhausted and you have \
+                 edited source without committing. Do NOT start or continue any implementation \
+                 work — anything you write now will be lost. Use the remaining steps ONLY to \
+                 make the current state durable and resumable: run the relevant test/build if \
+                 one is cheap and already set up, stage and commit the work in progress with an \
+                 honest message about what is and is not done, and write the real stopping point \
+                 into the tracker entry's progress field (which files changed, what remains, what \
+                 the next concrete step is). If committing is not possible, say precisely why in \
+                 plain text.",
             ));
         } else if budget_checkpoint {
             request_messages.push(Message::user_text(format!(
