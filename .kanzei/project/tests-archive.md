@@ -10644,3 +10644,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 以提交 19586fccf359bd420f2b20c535b161812e96a8fa 为验证锚点，targeted verify 全部通过：六条 UI/前端门禁、IPC 24=24、UI connectivity、运行时 0 错误、设计时效和 metrics 等均通过；无 Rust 路径故跳过 fmt/clippy/test。
 - 关联: R-334 D-720
 - 收尾: 1787893781
+
+## T-1786922726819 R-335 架构图与绘图工具定向审计验证 [passed]
+- 命令: cargo test -p kanzei-tools plot_tool; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-app workspace图; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+- 时长: 21.0s
+- 摘要: kanzei-tools plot_tool 17 passed；kanzei-app workspace图测试 1 passed；UI 运行时冒烟 27 个脚本、2364 次 invoke、10 个主视图切换、0 个运行时错误。
+- 关联: R-335
+- 收尾: 1787894077
