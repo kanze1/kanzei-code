@@ -44,7 +44,12 @@ assert.match(css, /:focus-visible/);
 assert.equal((js.match(/function reportError\(/g) || []).length, 1, "reportError 只能有一个定义");
 assert.match(js, /function toastError\(text, options = \{\}\) \{\s*reportPersistentError\(text, options\);/);
 assert.match(js, /function reportPersistentError\([\s\S]*?\$\("log-panel"\)\.classList\.remove\("hidden"\)/);
-assert.match(css, /@media \(max-width: 1400px\)[\s\S]*#bg-panel, #agent-panel[\s\S]*position: absolute/);
+assert.match(html, /id="bg-panel"[^>]*role="dialog"[^>]*aria-labelledby="bg-panel-title"/);
+assert.match(html, /id="agent-panel"[^>]*role="dialog"[^>]*aria-labelledby="agent-panel-title"/);
+assert.match(html, /id="bg-close"[^>]*aria-label="关闭活动面板"/);
+assert.match(js, /if \(activityPanelOpen\) agentClosePanel\(\)/);
+assert.match(css, /#bg-panel\s*\{[^}]*position: absolute/);
+assert.match(css, /#agent-panel\s*\{[^}]*position: absolute/);
 // D-662:todowrite 摘除后 #todo-panel 的规则(含抽屉上下分区)应当一条不剩。
 // 子代理面板与活动面板本就互斥切换,不会同屏,没有第二个面板能与之并存。
 assert.doesNotMatch(css, /#todo-panel/, "#todo-panel 规则应随 todowrite 一并摘除");
@@ -135,7 +140,8 @@ assert.doesNotMatch(html, /id="process-tabs"/, "顶部进程切换条不应与�
 assert.match(css, /@media \(max-width: 900px\)[\s\S]*#sidebar:not\(\.collapsed\)[\s\S]*position: absolute/);
 assert.match(css, /#sidebar:not\(\.collapsed\)[^}]*max-width: min\(320px, calc\(100vw - 360px\)\)/);
 assert.match(css, /#sidebar\.collapsed[\s\S]*width: 0/);
-assert.match(css, /@media \(max-width: 1400px\)[\s\S]*#bg-panel, #agent-panel[\s\S]*position: absolute/);
+assert.match(css, /#bg-panel\s*\{[^}]*position: absolute/);
+assert.match(css, /#agent-panel\s*\{[^}]*position: absolute/);
 assert.match(js, /localStorage\.setItem\("kz-sidebar-collapsed"/);
 assert.ok(html.includes('id="send"'), "缺少发送按钮");
 assert.ok(html.includes('id="stop"'), "缺少停止按钮");

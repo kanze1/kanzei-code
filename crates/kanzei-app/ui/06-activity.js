@@ -1275,8 +1275,13 @@ export function agentCountsSync() {
 // 打开/收起面板。与活动面板互斥:一个开着时另一个收起,避免右侧两栏叠在一起。
 export function agentTogglePanel() {
   agentPanelOpen = !agentPanelOpen;
+  if (agentPanelOpen) {
+    // 临时浮层只保留一个当前上下文,不要让隐藏的活动状态在关闭子代理后突然弹回。
+    setActivityPanelOpen(false);
+    localStorage.setItem("kz-activity-panel", "0");
+    syncActivityPanel();
+  }
   $("agent-panel").classList.toggle("hidden", !agentPanelOpen);
-  $("bg-panel").classList.toggle("hidden", agentPanelOpen);
   $("agent-toggle").classList.toggle("active", agentPanelOpen);
   $("agent-toggle").setAttribute("aria-expanded", String(agentPanelOpen));
   $("agent-toggle").title = agentPanelOpen ? t("收起子代理面板") : t("打开子代理面板");
@@ -1284,7 +1289,7 @@ export function agentTogglePanel() {
 }
 
 // D-350:面板头部 ✕ 关闭。与 agentTogglePanel 的互斥切换不同,这里只关子代理面板,
-// 并把活动面板恢复到用户既有的 activityPanelOpen 状态,不强行弹开。
+// 活动面板是否显示由当前 activityPanelOpen 状态决定(打开子代理时已清零)。
 export function agentClosePanel() {
   agentPanelOpen = false;
   $("agent-panel").classList.add("hidden");

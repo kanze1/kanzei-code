@@ -1,7 +1,7 @@
 import { defer } from "./01-core.js";
 import { $, invoke, renderingBackground, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
 import { I18N_EN, localizeDynamic, t } from "./02-i18n.js";
-import { fastStatusText } from "./06-activity.js";
+import { agentClosePanel, fastStatusText } from "./06-activity.js";
 import { clearStoppingWatchdog } from "./08-auto.js";
 import { send } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
@@ -81,9 +81,6 @@ export function setupResize(elementId, key, side, min, max) {
 }
 defer(() => {
   setupResize("sidebar", "kz-sidebar-width", "right", 220, 460);
-});
-defer(() => {
-  setupResize("bg-panel", "kz-activity-width", "left", 240, 520);
 });
 export let activeProcessId = null;
 export function setActiveProcessId(v) { activeProcessId = v; }
@@ -313,12 +310,21 @@ export function syncActivityPanel() {
   toggle.title = activityPanelOpen ? t("隐藏右侧活动面板") : t("显示右侧活动面板");
 }
 
+export function closeActivityPanel() {
+  activityPanelOpen = false;
+  localStorage.setItem("kz-activity-panel", "0");
+  syncActivityPanel();
+  $("activity-toggle")?.focus();
+}
+
 defer(() => {
   $("activity-toggle").addEventListener("click", () => {
     activityPanelOpen = !activityPanelOpen;
     localStorage.setItem("kz-activity-panel", activityPanelOpen ? "1" : "0");
+    if (activityPanelOpen) agentClosePanel();
     syncActivityPanel();
   });
+  $("bg-close")?.addEventListener("click", closeActivityPanel);
 });
 defer(() => {
   syncActivityPanel();

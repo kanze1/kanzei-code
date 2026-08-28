@@ -1018,8 +1018,8 @@
     </main>
 
 
-    <aside id="bg-panel" class="hidden">
-      <div class="bg-head"><span data-i18n-key="活动">活动</span> <span id="bg-count" class="dim"></span> <span id="diff-summary-toggle" class="diff-summary-label"></span><span class="spacer"></span><button type="button" id="bg-clear-done" class="ghost mini hidden" title="清空已完成的活动条目" data-i18n-title="清空已完成的活动条目"><span data-i18n-key="清空">清空</span></button></div>
+    <aside id="bg-panel" class="hidden" role="dialog" aria-modal="false" aria-labelledby="bg-panel-title">
+      <div class="bg-head"><span id="bg-panel-title" data-i18n-key="活动">活动</span> <span id="bg-count" class="dim"></span> <span id="diff-summary-toggle" class="diff-summary-label"></span><span class="spacer"></span><button type="button" id="bg-clear-done" class="ghost mini hidden" title="清空已完成的活动条目" data-i18n-title="清空已完成的活动条目"><span data-i18n-key="清空">清空</span></button><button type="button" id="bg-close" class="icon-btn" title="关闭活动面板" data-i18n-title="关闭活动面板" aria-label="关闭活动面板" data-i18n-aria-label="关闭活动面板">✕</button></div>
       <div class="bg-filters">
         <select id="bg-type-filter" class="doc-filter" title="按工具类型筛选" data-i18n-title="按工具类型筛选">
           <option value="all" data-i18n-key="全部类型">全部类型</option>
@@ -1063,8 +1063,8 @@
       </div>
     </aside>
 
-    <aside id="agent-panel" class="hidden">
-      <div class="bg-head"><span data-i18n-key="子代理">子代理</span>
+    <aside id="agent-panel" class="hidden" role="dialog" aria-modal="false" aria-labelledby="agent-panel-title">
+      <div class="bg-head"><span id="agent-panel-title" data-i18n-key="子代理">子代理</span>
         <span id="agent-running-count" class="dim"></span>
         <span id="agent-finished-count" class="dim"></span>
         <button type="button" id="agent-clear" class="ghost mini hidden" title="清空已完成和已关闭的子代理条目" data-i18n-title="清空已完成和已关闭的子代理条目" data-i18n-key="清空">清空</button>

@@ -6802,7 +6802,8 @@ const docsB = {
   assert(!bgPanel.classList.contains("hidden"), "运行审计摘要的运行轨迹入口未打开活动面板");
   agentToggle.click();
   assert(!agentPanel.classList.contains("hidden"), "打开运行轨迹后无法返回子代理面板");
-  byId.get("activity-toggle").click(); // 恢复后续 D-350 用例的活动面板初始状态
+  byId.get("activity-toggle").click(); // 切换到活动面板时应立即收起子代理面板
+  assert(agentPanel.classList.contains("hidden"), "切换到活动面板后 #agent-panel 未自动收起");
   // Finished 区的条目有「打开」(transcript 视图入口)。
   assert(a1f.querySelectorAll(".bg-actions button").some((b) => b.textContent === "Open"), "Finished 区子代理缺少打开 transcript 入口");
   // 关闭只收起条目,后端历史仍保留;重新打开可恢复到 Finished,再删除才移除本次 UI 条目。
@@ -6820,14 +6821,13 @@ const docsB = {
   byId.get("agent-clear").click();
   await flush();
   assert(!document.querySelector('#agent-finished .bg-entry[data-agent-id="my_scout"]'), "Clear 未清空 Finished 区");
-  // 关闭面板,恢复活动面板互斥状态。
-  agentToggle.click();
+  // 面板已在切换到活动视图时收起,这里确认测试结束状态。
   assert(agentPanel.classList.contains("hidden"), "断言结束后 #agent-panel 未收起");
 }
 // ---------- D-350 面板 ✕ 关闭按钮:子代理面板头部的显式关闭入口 ----------
 {
   // 子代理面板:展开后头部应有 ✕(#agent-close),点击后面板收起,且不误弹活动面板
-  // (agentClosePanel 恢复 activityPanelOpen 决定的状态)。
+  // (agentClosePanel 只回到当前 activityPanelOpen 状态)。
   const agentPanel = byId.get("agent-panel");
   const bgPanel = byId.get("bg-panel");
   const agentClose = byId.get("agent-close");

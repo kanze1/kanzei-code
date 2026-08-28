@@ -10607,3 +10607,33 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 27 个 ui/*.js 按序执行、初始化序列 2364 次 invoke、需求/缺陷/目标/测试/历史列表渲染及 10 个主视图切换均通过，0 个运行时错误；Node 输出实验模块警告但命令退出码为 0。
 - 关联: R-333
 - 收尾: 1787891857
+
+## T-1786922726814 R-334 子代理与活动面板基线运行时/布局/无障碍检查 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-narrow-layout-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 摘要: 基线证据：运行时 27 个 ui/*.js、2364 次 invoke、10 个主视图、0 错误；窄布局 4 个视口×3 个侧栏/右抽屉状态，0 重叠/截断/越界；无障碍 22 个静态 icon-btn 与核心键盘/焦点规则通过。
+- 关联: R-334
+- 收尾: 1787892324
+
+## T-1786922726815 R-334 面板改造六条前端冒烟与布局回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/03-shell.js; node --check crates/kanzei-app/ui/06-activity.js; node --check scripts/ui-a11y-smoke.mjs; node --check scripts/ui-narrow-layout-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-narrow-layout-smoke.mjs
+- 时长: 4.0s
+- 摘要: 通过：运行时 27 个 ui/*.js、2364 次 invoke、10 个主视图、0 错误；lint 54 文件；并行线路；无障碍 23 个 icon-btn；i18n 1414 key/466 HTML/57 动态契约；Markdown；面板布局 5 个视口 × 6 个状态，主区宽度不变、浮层无越界且互斥。
+- 关联: R-334 D-720
+- 收尾: 1787893458
+- 源码指纹: v2 scripts/ui-a11y-smoke.mjs@38513a2b0360,scripts/ui-narrow-layout-smoke.mjs@6a360e364818,scripts/ui-runtime-smoke.mjs@1fbe9eab2b4a
+
+## T-1786922726816 R-334/D-720 面板改造六条前端冒烟与语法检查 [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/03-shell.js; node --check crates/kanzei-app/ui/06-activity.js; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 5.0s
+- 摘要: 三项变更脚本语法检查通过；六条前端冒烟全部通过：运行时 27 个脚本/2364 次 invoke/0 错误，UI lint 54 文件，parallel-lines，a11y 23 个 icon-btn，i18n 1414 keys/466 HTML/57 动态契约，Markdown 安全用例。
+- 关联: R-334 D-720
+- 收尾: 1787893590
+- 源码指纹: v2 scripts/ui-a11y-smoke.mjs@38513a2b0360,scripts/ui-narrow-layout-smoke.mjs@6a360e364818,scripts/ui-runtime-smoke.mjs@1fbe9eab2b4a
+
+## T-1786922726817 R-334/D-720 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 13.3s
+- 摘要: kanzei-app 定向测试全部通过：249 passed, 0 failed, 0 ignored。
+- 关联: R-334 D-720
+- 收尾: 1787893729
+- 源码指纹: v2 scripts/ui-a11y-smoke.mjs@38513a2b0360,scripts/ui-narrow-layout-smoke.mjs@6a360e364818,scripts/ui-runtime-smoke.mjs@1fbe9eab2b4a
