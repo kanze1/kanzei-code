@@ -10674,3 +10674,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-721
 - 收尾: 1787895679
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@f6334cd973ee
+
+## T-1786922726823 D-721 当前 HEAD verify 门禁 [passed]
+- 命令: .\scripts\verify.ps1
+- 时长: 34.0s
+- 摘要: verify.ps1 以 targeted/frontend 模式完成并写入 dist/verification.json，commit=23c16add951a51b0cc2dbdaf6f15a3121fddf1e5；并行线路、UI 无障碍/i18n/markdown/lint、IPC 事件契约、UI connectivity、UI runtime 等门禁全部通过，runtime 0 errors。
+- 关联: D-721
+- 收尾: 1787895731
