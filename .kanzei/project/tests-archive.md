@@ -10588,3 +10588,22 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-717
 - 收尾: 1787643899
 - 源码指纹: v2 crates/kanzei-tools/src/tracker/actions.rs@37c0f219b409,crates/kanzei-tools/src/tracker/actions/normalize.rs@7238d335ae58
+
+## T-1786922726811 发布候选 ee2503dc 完整 verify [passed]
+- 命令: scripts\verify.ps1 -Full
+- 时长: 167.0s
+- 摘要: 发布树 ee2503dc 完整 verify 全绿：full mode，30 metrics rows，metrics regression gate passed；六项前端冒烟、IPC、fmt、clippy、ui runtime、workspace 全量测试均通过；生成绑定 ee2503dce9341e25fc5d9cef919b316cc184c575 的 dist/verification.json。
+- 关联: D-717
+- 收尾: 1787644162
+
+## T-1786922726812 记忆前端现有冒烟基线 [failed]
+- 命令: node scripts/ui-runtime-smoke.mjs
+- 摘要: 在 Node.js v22.14.0 运行时于 ESM harness 初始化阶段失败：vm.SourceTextModule is not a constructor；随后 R-285 neuralFlowEmit ESM 入口未注册，未进入完整记忆页断言。
+- 关联: R-333
+- 收尾: 1787859438
+
+## T-1786922726813 R-333 Memory 页面运行时序列（单项） [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 摘要: 27 个 ui/*.js 按序执行、初始化序列 2364 次 invoke、需求/缺陷/目标/测试/历史列表渲染及 10 个主视图切换均通过，0 个运行时错误；Node 输出实验模块警告但命令退出码为 0。
+- 关联: R-333
+- 收尾: 1787891857
