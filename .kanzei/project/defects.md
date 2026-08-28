@@ -7,7 +7,6 @@
 - 标签: 前端
 - 验收: 收敛单一真源(Map/state),DOM 只做投影;切线/后台线/重启回归用例;冒烟覆盖
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-504
 - 进展: 2026-08-25 复核更正：Computer Use 应用枚举确认安装位 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe 当前存在唯一窗口且正在使用；此前 Get-Process 路径筛选未识别该 Tauri/WebView2 窗口，不能据此执行重启。代码、静态与自动化回归仍已完成；剩余唯一动作是用户空闲后执行真实退出→重启→回读持久化 auto state，本轮不接管用户会话。
 - observed_head: c40a3403448d7c6d4aef1d7b52557bf74989ed37
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
@@ -28,7 +27,6 @@
 - observed_head: 3adcfd663ccd5736581d107aa09ffa36a3926fd6
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787192820656
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-566(unblocks=0)
 - 批次: 2/2
 - 停车: 历史121目录逐目录manifest无法从当前文件系统重建；代码与真实并行构建已完成，暂让位下一条可执行缺陷；恢复人:agent，恢复条件:找到历史清单或重新产生可逐目录审计的存量窗口
 
@@ -39,7 +37,6 @@
 - 标签: 后端
 - 验收: ①M-014/M-015 描述修正与源文件 description 一致;②全量 INDEX 行与对应 M-*.md 的 description 做一次机械一致性核对,输出不一致清单并修复;③重建 index.db FTS 后检索抽查不再串号;④INDEX 生成/更新路径补一致性断言防复发
 - 优先级: P2
-- 取活依据: engine:唯一可执行 WIP 是 D-568，必须先恢复它
 - 进展: 对账 2026-08-20(resume reconcile):④已落地——7c238573(D-590)在 store.rs assert_index_matches_entries 接入 refresh_derived 写入路径+守护测试 index_description_guard_rejects_mismatched_source,验收④视为既有能力核销。①②③未落地,且发现比登记更深:不止 INDEX 串号,M-014/M-015 源文件本身 description+正文整段串号(当前 M-014 正文是 M-009 的 edit SOP、M-015 正文是 M-029 的 git 拦截 SOP),真源=git 1476098e 建条原始版(已从历史取出全文)。修正路径被 managed fence 挡死:.kanzei/memory/*.md 仅 memory 写工具白名单可写,edit 被拒(R-316 来源实录);同步修正通道 R-316 仍 todo。下一步:探查既有 memory 工具族是否已有改现有条目文本的能力,无则按 R-316 最小实现(memory 文本修正工具+fence 白名单+审计留痕),落地后修 M-014/M-015 源文件→refresh_derived 重建 INDEX+FTS→②全量机械核对→③FTS 抽查。
 - observed_head: 11b60ae32647a5ff999329120316e8ffebad7fd8
 - observed_worktree_hash: fnv1a64:441f9460a9730954
@@ -54,13 +51,13 @@
 - 标签: 核心
 - 验收: ①定性空行游离判定是否误报,若误报则空行不再计为游离段落;②raw_delete 返回前复查后置条件,删不掉如实报错而非报成功;③文章获取器 R-002 现场复核游离行清零;④回归测试覆盖「删除报成功后仍存在」形态
 - 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-577(unblocks=0)
 - 进展: 批次: 1/1；已完成：`crates/kanzei-memory/src/docstore/validation.rs:265-287` 过滤纯空白 Raw，`:313-339` 让 raw_delete ordinal 与 raw_lines 同口径，`:346-365` 写回后重新 load 并核对条目存在及非空 Raw 数量；`crates/kanzei-memory/src/docstore.rs:321-331` 与 `crates/kanzei-tools/src/tracker.rs:1518-1528、1616-1626` 加入空行误判回归夹具。关键决策：布局空行不再属于游离段落；raw_delete 失败后置条件返回 error，不报成功。T-1786922726559、T-1786922726560 已通过。条款③仍待外部项目现场复核，不能冒充完成。
 - observed_head: cd3b43ecb78444ac519e825e246445f2187b13a1
 - observed_worktree_hash: fnv1a64:e3e760efa1f03e67
 - recorded_at: 1787235788581
 - 验收对账: ①已完成：`crates/kanzei-memory/src/docstore/validation.rs:273-287` 只返回非空 Raw；docstore 回归 `docstore.rs:321-342` 与 tracker 回归 `tracker.rs:1539-1549` 证明布局空行不再计数；T-1786922726559。②已完成：`validation.rs:313-365` 删除按同一 ordinal 契约定位，原子写回后 `load()` + `raw_lines()` 复查条目存在和数量，失败返回“raw_delete 后置条件失败”；T-1786922726559、T-1786922726560。③验收降级：原文“文章获取器 R-002 现场复核游离行清零”本轮未执行，当前仓库无该外部项目与可重放目标命令；实际已由同形态端到端回归 `tracker.rs:1518-1579` 覆盖，外部现场仍需用户/外部项目执行。④已完成：空行在 ordinal 1 时旧实现会误删空行而保留真实游离文本，新回归夹具 `docstore.rs:321-389`、`tracker.rs:1518-1598` 覆盖该“报成功后仍存在”形态；T-1786922726559。
-- 阻塞: 文章获取器 R-002 外部现场复核需要用户提供该项目路径或可重放目标命令；解除人:用户提供可访问项目与目标命令后由 agent 执行并回填现场证据。
+- 阻塞: 
+- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与本仓回归已完成，R-002 外部现场证据缺口保留；恢复人:agent
 
 ## D-592 上下文预算检查信 bytes/4 估算不锚定真实 usage,本地小窗口模型压缩零触发直至撞 400 [fixing] (high)
 - refs: D-203 D-206 R-219 R-236
@@ -77,8 +74,8 @@
 - observed_head: 2871fee76493998dda6871a50059918849ac3826
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
 - recorded_at: 1787239449856
-- 取活依据: engine:唯一可执行 WIP 是 D-592，必须先恢复它
-- 阻塞: 等待用户提供或释放可安全接管的 llama-local 实测窗口；解除人：用户准备 llama-server 窗口并告知 agent 执行多步工具循环验收。
+- 阻塞: 
+- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；代码与回归已完成，llama-local 真实窗口证据缺口保留；恢复人:agent
 
 ## D-655 轮末统计切片 prior.len() 在轮中压缩后错位,episodes/harvest/失败提炼画像失真 [fixing] (medium)
 - 复现: 与 D-654 同根因的统计侧残留:coordinator.rs 轮末 summarize_tools 切片、persistence.rs:133 与 crates/kanzei/src/cli/run/finalize.rs:151 的 this_run 切片都按 prior.len().min(len) 取本轮;compact_with_digest/trim_tail_for_protocol 在轮中结构性删短 messages 后切片错位:压缩量大于本轮新增时切空,否则混入错误区段。鞭挞判定已在 D-654 改事件真源,这三处统计口径(episode metrics/harvest_end_of_run 失败提炼/工具计数)仍用切片
@@ -92,9 +89,8 @@
 - observed_head: c40a3403448d7c6d4aef1d7b52557bf74989ed37
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787602813016
-- 取活依据: engine:唯一可执行 WIP 是 D-655，必须先恢复它
-- 停车: 
-- 阻塞: 等待 D-664 关闭门禁所需的当前 HEAD 绑定 full verify 全绿证据；当前工作树含用户未提交的 memory 改动，本轮不覆盖或擅自提交。取得独立、可审计的 verify 证据后再关闭。
+- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与定向回归已完成，当前 HEAD full verify 关闭证据缺口保留；恢复人:agent
+- 阻塞: 
 
 ## D-662 托管文档专用工具膨胀致工具选择面过载 [fixing] (medium)
 - 原始描述: 外部评估 #5：Managed Documents 造成 Tool Explosion，从 Unix-like tools 走向 Domain-specific OS。用户判定这是工具设计问题，算缺陷不算决策
@@ -107,11 +103,28 @@
 - recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
 
-## D-717 发布门禁被 tracker/actions.rs 增长 6 行拦截,normalize action 需要按动作族拆分 [fixing] (medium)
-- 复现: 在发布树 4f51113f 执行 .\scripts\verify.ps1 -Full；除 crate_sync 外全部步骤和 workspace 全量测试通过，metrics regression gate 报 crates/kanzei-tools/src/tracker/actions.rs 基线生产行 1003、当前 1109、增长 106，超过每文件允许 100 行。
-- 影响: 发布候选无法生成 dist/verification.json，package.ps1 -Publish 被证据门禁阻断；若直接抬 metrics_baseline 会绕过既有“下次先拆”治理约束。
-- 来源: self-found：D-713 完成后的发布前完整 verify
-- 标签: 流程
-- 验收: 按现有 tracker/actions/ 动作族模块结构拆出 normalize 实现，保持 TrackerTool 路由、输出、状态清理和全部回归行为不变；metrics regression gate 不再因该文件增长超 100 行失败；完整 verify 生成绑定当前 HEAD 的全绿 dist/verification.json。
+## D-718 browser 连续 click/type/dom/console 重复导航导致页面状态丢失 [fixing] (high)
+- 复杂度: small
+- 复现: 先 browser open 本地前端，再不改变目标页面依次 type 输入、click 提交、dom 读取结果；Rust 包装层在每个动作前再次 open URL，输入状态被清空或动作落在初始页。
+- 影响: 浏览器工具只能做单步截图，无法可信执行表单、设置页或工作流连续交互；单次 helper 与静态巡检均会假绿。
+- 标签: 前端
+- 验收: 带 url/path 的动作保持显式重载；不带目标的 click/type/dom/console 复用当前页面；未 open 时给可行动错误；Windows 真实 Edge 回归覆盖 open→type→click→dom；服务连接失败提示核对 process wait/list 与实际 Local URL。
 - 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 D-717(unblocks=0)
+- 进展: 已修复 browser 包装层的状态语义：open 首次导航，后续省略 url/path 的 type/click/dom/console 复用当前页；显式目标仍重新导航。真实 Edge open→type→click→dom 回归、kanzei-tools 全量 494 passed/1 ignored、UI lint/runtime/connectivity/browser probe 均通过。当前源码尚未提交，故保持 fixing。
+- observed_head: ee2503dce9341e25fc5d9cef919b316cc184c575
+- observed_worktree_hash: fnv1a64:62f219d59ffcf79b
+- recorded_at: 1787732247483
+- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与真实 Edge 回归已完成，待新调研条目收口后提交/关闭；恢复人:agent
+
+## D-719 process stop 对已自然退出的 bg 句柄返回 unknown error [fixing] (medium)
+- 复杂度: small
+- 复现: bash background 启动前端服务，进程在 stop 前自然退出并被内存注册表回收；随后 process stop bg1 返回 unknown process id。
+- 影响: 清理动作被误报为失败，Agent 会反复 stop/list 或错误归因工具故障；与浏览器启动失败组合时阻断自愈。
+- 标签: 前端
+- 验收: 格式合法但已不活跃的 bg 句柄 stop 幂等成功并说明无需停止；非法 ID 仍返回可修正错误；活进程 stop 与进程树真实退出回归不退化。
+- 优先级: P1
+- 进展: 已将 stop 对合法且已回收的 bg<number> 句柄改为幂等成功，对非法 ID 保持 PROCESS_STOP_BAD_ID；新增定向测试并由 kanzei-tools 全量 494 passed/1 ignored 覆盖既有活进程停止回归。当前源码尚未提交，故保持 fixing。
+- observed_head: ee2503dce9341e25fc5d9cef919b316cc184c575
+- observed_worktree_hash: fnv1a64:62f219d59ffcf79b
+- recorded_at: 1787732249253
+- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与定向回归已完成，待新调研条目收口后提交/关闭；恢复人:agent

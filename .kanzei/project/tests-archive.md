@@ -10637,3 +10637,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-334 D-720
 - 收尾: 1787893729
 - 源码指纹: v2 scripts/ui-a11y-smoke.mjs@38513a2b0360,scripts/ui-narrow-layout-smoke.mjs@6a360e364818,scripts/ui-runtime-smoke.mjs@1fbe9eab2b4a
+
+## T-1786922726818 D-720 当前提交绑定 verify 门禁 [passed]
+- 命令: .\scripts\verify.ps1
+- 时长: 24.0s
+- 摘要: 以提交 19586fccf359bd420f2b20c535b161812e96a8fa 为验证锚点，targeted verify 全部通过：六条 UI/前端门禁、IPC 24=24、UI connectivity、运行时 0 错误、设计时效和 metrics 等均通过；无 Rust 路径故跳过 fmt/clippy/test。
+- 关联: R-334 D-720
+- 收尾: 1787893781
