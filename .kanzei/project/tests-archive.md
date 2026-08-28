@@ -10681,3 +10681,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: verify.ps1 以 targeted/frontend 模式完成并写入 dist/verification.json，commit=23c16add951a51b0cc2dbdaf6f15a3121fddf1e5；并行线路、UI 无障碍/i18n/markdown/lint、IPC 事件契约、UI connectivity、UI runtime 等门禁全部通过，runtime 0 errors。
 - 关联: D-721
 - 收尾: 1787895731
+
+## T-1786922726824 R-336 设置页使用手册移除回归（六项 UI smoke） [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/09-sessions.js; node --check crates/kanzei-app/ui/15-views-misc.js; node --check crates/kanzei-app/ui/16-settings.js; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-narrow-layout-smoke.mjs
+- 时长: 1.0s
+- 摘要: 4 个改动 UI 模块语法检查通过；六条前端冒烟全部通过：ui-lint 54 文件、parallel-lines、a11y 23 个 icon-btn、i18n 1408 个资源 key/463 项 HTML 文案/57 项动态契约、markdown、runtime 27 个脚本且 0 运行时错误；另有 5 视口×6 状态面板布局通过。
+- 关联: R-336
+- 收尾: 1787896231
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@f54c2033391c
+
+## T-1786922726825 R-336 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.4s
+- 摘要: kanzei-app 定向测试全部通过：249 passed, 0 failed, 0 ignored。
+- 关联: R-336
+- 收尾: 1787896369
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@f54c2033391c

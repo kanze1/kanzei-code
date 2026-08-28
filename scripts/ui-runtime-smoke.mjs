@@ -735,8 +735,6 @@ const payloads = {
     dirNotes: { "src": "源码目录" },
     unannotated: 1,
   },
-  // R-147:使用手册内容源——docs/目录.md 的文件预览桩。
-  file_preview: { content: "# 使用手册\n\n冒烟手册段落:kanzei 使用说明与作者的话。", binary: false, truncated: false, size: 96 },
   // R-252:拆解子代理命令桩——返回新产出的 R/D 编号,前端 toast/log/刷新用。
   idea_split: (args) => `I-${args?.id?.replace(/^I-/, "") ?? "001"} → R-101 D-101`,
   docs_snapshot: {
@@ -1661,52 +1659,21 @@ assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
   const afterReload = vm.runInContext("runStart = 0; roundElapsedSeconds(undefined)", sandbox);
   assert(afterReload === null, `无本地 runStart 时不应生成绝对耗时: ${afterReload}`);
 }
-// R-147 使用手册:启动后随项目自动读取 docs/目录.md 渲染到对话区顶部;读取失败
-// (项目没有手册文件)时区块保持隐藏,不显示空壳、不遮挡对话。
+// R-336:设置页不再提供使用手册入口、内容或专属交互；通用文件预览仍由文件查看器单独覆盖。
 {
-  const manualPanel = byId.get("manual-panel");
-  const manualBody = byId.get("manual-body");
-  assert(manualPanel && manualBody, "使用手册区块未渲染(index.html 缺 manual-panel/manual-body)");
-  // 2026-08-16 首选 docs/使用手册.md(新手手册),docs/目录.md 降为回退。
+  const manualIds = ["manual-panel", "manual-body", "manual-toggle-hint", "set-show-manual"];
   assert(
-    invokeArgs.some(({ cmd, args }) => cmd === "file_preview" && args?.path === "docs/使用手册.md"),
-    "启动后未读取 docs/使用手册.md(使用手册加载链路断了)",
+    manualIds.every((id) => !byId.has(id)),
+    `R-336:设置页仍残留使用手册 DOM: ${manualIds.filter((id) => byId.has(id)).join(",")}`,
   );
-  assert(!manualPanel.classList.contains("hidden"), "有手册内容时使用手册区块应可见(仍 hidden)");
   assert(
-    manualBody.textContent.includes("冒烟手册段落"),
-    `手册内容未渲染进 manual-body: "${manualBody.textContent.slice(0, 80)}"`,
+    !sources.some((source) => /refreshManual|readManualShowPref|saveManualShowPref|MANUAL_SHOW_KEY|MANUAL_PATHS|manual-panel|set-show-manual/.test(source)),
+    "R-336:前端仍残留使用手册专属函数、偏好或选择器",
   );
-  // 无手册文件的项目:读取失败 → 区块隐藏;恢复读取后重新显示。
-  invokeFailures.set("file_preview", "无法打开 docs/目录.md");
-  await sandbox.refreshManual();
-  await flush();
-  assert(manualPanel.classList.contains("hidden"), "手册读取失败时区块应隐藏(不显示空壳)");
-  invokeFailures.delete("file_preview");
-  await sandbox.refreshManual();
-  await flush();
-  assert(!manualPanel.classList.contains("hidden"), "恢复读取后区块未重新显示");
-}
-// R-251:设置页「高级功能→对话顶部显示使用手册」控制手册区块显隐。
-// 关闭后 refreshManual 直接隐藏且不读手册文件;重新打开后恢复读取与显示。
-{
-  const manualPanel = byId.get("manual-panel");
-  const manualBody = byId.get("manual-body");
-  const filePreviewCount = () => invokeArgs.filter(({ cmd }) => cmd === "file_preview").length;
-  const before = filePreviewCount();
-  sandbox.saveManualShowPref(false);
-  await sandbox.refreshManual();
-  await flush();
-  assert(manualPanel.classList.contains("hidden"), "关闭「对话顶部显示使用手册」后区块应隐藏");
   assert(
-    filePreviewCount() === before,
-    "关闭开关后 refreshManual 不应再读取手册文件(file_preview 被调用)",
+    !invokeArgs.some(({ cmd, args }) => cmd === "file_preview" && ["docs/使用手册.md", "docs/目录.md"].includes(args?.path)),
+    "R-336:初始化仍读取使用手册文件",
   );
-  sandbox.saveManualShowPref(true);
-  await sandbox.refreshManual();
-  await flush();
-  assert(!manualPanel.classList.contains("hidden"), "重新打开开关后区块应恢复显示");
-  assert(filePreviewCount() > before, "重新打开开关后应重新读取手册文件");
 }
 // D-317:空配置必须停在明确的「未选择项目」状态，不能因渲染而触发项目级请求。
 // 后端另有纯函数反证锁死「不拿 current_dir 造项目」；这里验证 classic-script 的空态承载。

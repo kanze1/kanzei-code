@@ -13,7 +13,6 @@ import { fastStatusText } from "./06-activity.js";
 import { state } from "./08-compose.js";
 import { MANUAL_MODEL_SENTINEL } from "./08-models.js";
 import { syncProjectSwitchExpanded } from "./09-sessions.js";
-import { readManualShowPref, refreshManual, saveManualShowPref } from "./15-views-misc.js";
 
 // ---------- 设置 ----------
 export let settingsProviders = [];
@@ -771,8 +770,6 @@ export function hydrateSettingsForm(s) {
   markSettingsSaved();
   // R-187:提示音是本地偏好(不进 kanzei.toml),设置页控件回填 + change 即存。
   loadSoundSettingsControls();
-  // R-251:使用手册显隐同样是本地偏好,回填 + change 即存,不进 kanzei.toml。
-  loadManualShowControl();
 }
 
 export function loadSoundSettingsControls() {
@@ -791,20 +788,6 @@ export function loadSoundSettingsControls() {
   setChecked("set-sound-failed", s.failed);
   setChecked("set-sound-stopped", s.stopped);
 }
-
-// R-251:使用手册显隐是本地显示偏好,回填控件 + change 即存(与 R-187 sound 同模式)。
-export function loadManualShowControl() {
-  const el = $("set-show-manual");
-  if (el) el.checked = readManualShowPref();
-}
-defer(() => {
-  $("set-show-manual")?.addEventListener("change", () => {
-    const el = $("set-show-manual");
-    if (!el) return;
-    saveManualShowPref(el.checked);
-    if (typeof refreshManual === "function") refreshManual();
-  });
-});
 
 export function bindSoundSettingsControls() {
   const collect = () => ({

@@ -149,10 +149,11 @@
 
     <main id="main">
       <!-- 对话视图 -->
-      <!-- 顶栏已整条删除(用户 2026-08-16 定调)。原先它承载五类东西,分别有了更该在的地方:
+      <!-- 顶栏已整条删除(用户 2026-08-16 定调)。原先它承载四类东西,分别有了更该在的地方:
            ①新对话 → 侧栏工作区头;②活动面板开关 → 左侧 rail(与子代理面板同类);
            ③项目名 → 输入区上方的上下文胶囊(和模型/思考强度在一起,发送前一眼看全);
-           ④「更多」低频菜单 → 同一条上下文行的右端;⑤使用手册 → 设置页。
+           ④「更多」低频菜单 → 同一条上下文行的右端。
+
            对话区因此直接顶到窗口边,主区高度多出 38px。 -->
       <div id="view-chat" class="view active">
         <div id="chat-area">
@@ -683,14 +684,6 @@
             <p class="dim" data-i18n-key="从左侧选择项目，在对话框输入任务；遇到权限请求时选择允许、拒绝或总是允许。运行结果、错误和工具详情会留在当前会话中。">从左侧选择项目，在对话框输入任务；遇到权限请求时选择允许、拒绝或总是允许。运行结果、错误和工具详情会留在当前会话中。</p>
           </section>
 
-          <!-- R-147 使用手册:原先常驻对话区顶部,每开一次应用都在主视野里占一条。
-               它是**新手读一次**的东西,不是每轮都要看的东西,所以搬进设置页——
-               内容仍来自项目根 docs/目录.md,项目没有该文件时整块隐藏。 -->
-          <details id="manual-panel" class="manual-panel hidden">
-            <summary class="manual-summary"><span data-i18n-key="使用手册">使用手册</span> <span id="manual-toggle-hint" class="dim"></span></summary>
-            <div id="manual-body" class="manual-body"></div>
-          </details>
-
           <div class="form-row">
             <label data-i18n-key="界面语言">界面语言</label>
             <select id="language-select">
@@ -940,11 +933,6 @@
           <details class="settings-group">
             <summary data-i18n-key="高级功能">高级功能</summary>
           <p class="dim" data-i18n-key="试验性功能与本地显示偏好的开关,即时生效,不需要保存。">试验性功能与本地显示偏好的开关,即时生效,不需要保存。</p>
-          <div class="form-row">
-            <label><input id="set-show-manual" type="checkbox" /> <span data-i18n-key="在设置页显示使用手册">在设置页显示使用手册</span></label>
-          </div>
-          <p class="dim" data-i18n-key="关闭后本页不再展示 docs/目录.md 使用手册区块(有该文件时)。">关闭后本页不再展示 docs/目录.md 使用手册区块(有该文件时)。</p>
-
           </details>
           <details class="settings-group" open>
             <summary data-i18n-key="提示音">提示音</summary>

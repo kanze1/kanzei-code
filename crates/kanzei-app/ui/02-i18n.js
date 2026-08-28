@@ -38,14 +38,9 @@ export const I18N_EN = {
   "模型交还控制权": "Model handed back control",
   "模型声明任务完成，引擎未再推进": "The model declared the task finished; the engine did not push further",
   "模型声明任务完成,交还控制权": "Model declared the task finished and handed control back",
-  "使用手册": "Manual",
   "点击展开": "click to expand",
-  "手册文件不是文本": "Manual file is not text",
-  "没有手册文件": "No manual file found",
   "高级功能": "Advanced features",
   "试验性功能与本地显示偏好的开关,即时生效,不需要保存。": "Toggles for experimental features and local display preferences; they take effect immediately and need no save.",
-  "在设置页显示使用手册": "Show the manual on this settings page",
-  "关闭后本页不再展示 docs/目录.md 使用手册区块(有该文件时)。": "When off, the project manual block (docs/manual file) no longer appears on this page.",
   "显示或隐藏右侧活动面板": "Show or hide the activity panel",
   "切换项目": "Switch project",
   "当前项目": "Current project",
@@ -949,7 +944,7 @@ export const I18N_DYNAMIC_EN = {
   "已": "elapsed", "订阅高峰或网络较慢时属正常": "normal during subscription peaks or slow networks",
   "超时上限": "timeout limit", "连接": "connection", "读": "read",
   "模型开始响应": "Model started responding", "已迁移旧模型偏好到后端": "Migrated legacy model preferences to the backend",
-  "丢弃无 session_id 的运行事件": "Dropped run event without session_id", "使用手册刷新失败": "Failed to refresh user guide",
+  "丢弃无 session_id 的运行事件": "Dropped run event without session_id",
   "输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送": "Enter a task to begin · permission requests will prompt · Ctrl+Enter to send"
 };
 export const I18N_LOCALIZE_ENTRIES = [...Object.entries(I18N_EN), ...Object.entries(I18N_DYNAMIC_EN)]

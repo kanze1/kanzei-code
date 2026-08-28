@@ -804,26 +804,6 @@ select {
   mask-image: radial-gradient(92% 88% at 86% 36%, #000 0 26%, rgba(0,0,0,.72) 49%, transparent 82%);
 }
 #messages { position: relative; z-index: var(--z-raised); }
-/* R-147 使用手册:2026-08-16 搬进设置页(见 index.html #view-settings)。
-   展开后内容给上界内部滚动,不让一份长手册把设置项挤到看不见。 */
-.manual-panel { flex: 0 0 auto; margin: 14px 0 0; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel); }
-.manual-panel > summary {
-  padding: 8px 12px; cursor: pointer; list-style: none; user-select: none;
-  font-size: var(--fs-13); font-weight: 600; color: var(--fg-strong); border-radius: 6px;
-  display: flex; align-items: baseline; gap: 8px;
-}
-.manual-panel > summary::-webkit-details-marker { display: none; }
-.manual-panel > summary::before { content: "▸"; color: var(--fg-dim); font-size: var(--fs-10); transition: transform 0.12s ease; }
-.manual-panel[open] > summary::before { transform: rotate(90deg); }
-.manual-panel > summary:hover { background: var(--panel2); }
-.manual-panel > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.manual-body { max-height: 34vh; overflow-y: auto; padding: 4px 14px 12px; font-size: var(--fs-12-5); line-height: 1.55; }
-.manual-body > :first-child { margin-top: 8px; }
-.manual-body h1, .manual-body h2, .manual-body h3 { margin: 14px 0 6px; }
-.manual-body p, .manual-body ul, .manual-body ol, .manual-body table { margin: 6px 0; }
-.manual-body table { border-collapse: collapse; }
-.manual-body td, .manual-body th { border: 1px solid var(--border-soft); padding: 3px 8px; }
-.manual-body pre { overflow-x: auto; background: var(--panel2); padding: 8px; border-radius: 4px; }
 /* 顶栏删除后对话直接顶到窗口边,首条消息需要自己的呼吸位;限宽与输入区同一档
    (1080px)让两块视觉上是同一列,宽屏下不再一条到底。 */
 #messages { flex: 1; overflow-y: auto; padding: 26px 22px 18px; display: flex; flex-direction: column; gap: 12px; }
