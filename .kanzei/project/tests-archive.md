@@ -10697,3 +10697,31 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-336
 - 收尾: 1787896369
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@f54c2033391c
+
+## T-1786922726826 R-337 当前运行画像页面加载检查 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 时长: 2.4s
+- 摘要: 真实桌面 UI 初始化检查通过：27 个 ui/*.js 按序执行、2326 次 invoke、需求/缺陷/目标/测试/历史列表渲染、10 个主视图切换均通过，0 个运行时错误；该记录验证既有入口可加载，不代表 task 画像已实现。
+- 关联: R-337
+- 收尾: 1787897188
+
+## T-1786922726827 R-337 task close 聚合设计向量 [passed]
+- 命令: @' ... @ | python -
+- 时长: 0.1s
+- 摘要: 真实 `.kanzei/state.db` 的主 session episode 1154–1157 聚合断言通过：task-demo-a=(2 rounds,64 steps,942136 input,21219 output,445321ms span)，task-demo-b=(2 rounds,64 steps,771947 input,35934 output,528678ms span)；明确只有显式 task.closed 才进入 completed trend。
+- 关联: R-337
+- 收尾: 1787897194
+
+## T-1786922726828 R-337 可重放 task close 聚合设计向量 [passed]
+- 命令: python -c 'import sqlite3; c=sqlite3.connect(".kanzei/state.db"); r={x[0]:x for x in c.execute("select episode_id,created_at,steps,input_tokens,output_tokens from episodes where session_id=\"ses_project_c0b8d633186c2464\" and episode_id between 1154 and 1157")}; assert set(r)=={1154,1155,1156,1157}; g=[[1156,1157],[1154,1155]]; a=[(len([r[i] for i in z]),sum(r[i][2] for i in z),sum(r[i][3] for i in z),sum(r[i][4] for i in z),max(r[i][1] for i in z)-min(r[i][1] for i in z)) for z in g]; assert a==[(2,64,942136,21219,445321),(2,64,771947,35934,528678)]; print(a)'
+- 时长: 0.1s
+- 摘要: 真实 `.kanzei/state.db` 主 session episode 1154–1157 的两组 task-close 设计演算断言通过：两组分别为 2 rounds/64 steps，输入 942136/771947，输出 21219/35934，时间跨度 445321/528678ms。
+- 关联: R-337
+- 收尾: 1787897224
+
+## T-1786922726829 R-337 真实运行画像数据审计查询 [passed]
+- 命令: python -c 'import sqlite3; c=sqlite3.connect(".kanzei/state.db"); print("episodes_sessions", c.execute("select count(*),count(distinct session_id) from episodes").fetchone()); print("main_session", c.execute("select count(*),count(distinct run_id),count(distinct input_id) from episodes where session_id=\"ses_project_c0b8d633186c2464\"").fetchone())'
+- 时长: 0.1s
+- 摘要: 真实 `.kanzei/state.db` 只读审计命令通过；当前快照为 episodes=1158、sessions=11，主 session episodes=1073、distinct run_id=1072、distinct input_id=1072。数字随运行持续写入，作为时间快照而非静态不变量。
+- 关联: R-337
+- 收尾: 1787897444

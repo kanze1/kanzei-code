@@ -287,21 +287,46 @@
 - recorded_at: 1787276362163
 - 停车: 本轮 WIP 超限，B1 工具并发契约审计已完成；B2 尚未开始，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent
 
-## R-337 运行画像改按执行任务关闭粒度聚合 [doing]
-- 优先级: P1
-- 内容: 审计运行画像当前统计量、session/task/round 的数据来源与展示粒度，针对鞭挞模式中单个会话持续很长的问题，设计以执行任务关闭为主粒度的运行画像。方案需明确任务身份、开始/关闭事件、跨会话归属、统计字段、会话下钻、迁移兼容和前后端真源；本条先做审计与设计，未经语义确认不修改统计实现。
-- 发现记录: {"Intent":"让运行画像反映可比较的执行任务，而不是被长会话吞没","Explicit":"当前统计量太少且会话粒度不合理；鞭挞模式会话很长，应按执行任务关闭粒度展示","Assumptions":"一个长 session 可能承载多个可独立完成的执行任务；session 仍有诊断价值但不应作为主画像分组","Ambiguities":"执行任务的唯一身份、关闭事件、跨 session 是否允许、未关闭任务如何显示、session 是否保留为下钻维度尚未完全定义；需先审计并向用户确认，不擅自拍板统计真源","领域对象":"运行画像、鞭挞模式、session、执行任务、round、tool event、task close、统计指标、趋势与下钻","最小成功闭环":"当前画像统计缺口有源码/运行时证据，任务级聚合定义可评审，至少一条长 session 多任务场景能从任务关闭事件得到稳定画像，并明确 session 下钻和未关闭状态","延后决策":"任务身份生成方、关闭权限、跨 session 续接、历史数据迁移和默认指标集合待设计评审"}
+## R-338 任务级运行画像事实链路与可重建投影 [todo]
+- 内容: 在 R-337 设计评审通过后，接入显式 task.started/task.closed 事实、task membership 与可重建 task projection；保持 session/input/round 原始事实，提供 completed_tasks、in_progress_tasks、trend 和 task 下钻查询，前端必须有真实消费者。task start 入口、关闭权限/outcome、跨 session attach 与 schema 细节以用户评审结论为准，未确认前不实现。
+- 发现记录: {"Intent":"让运行画像以可比较的执行任务为主对象","Explicit":"task close 驱动完成画像，session/round 作为下钻","Assumptions":"append-only session_events 可承载 task 事实，projection 可从事件重建","Ambiguities":"task start 入口、关闭权限/outcome、跨 session attach、新 schema 待用户评审","领域对象":"task、session、input、episode、task.started、task.closed、membership、projection、运行画像 API","最小成功闭环":"真实 task 事实能生成可重建 projection，已关闭 task 进入趋势，未关闭 task 独立返回，前端有真实查询消费者","延后决策":"task 标题/关闭理由、跨 session 策略、事件版本和迁移顺序"}
 - 复杂度: 大
-- 批次: 1/3
-- 批次表: B1 运行画像审计：统计来源、session/round/task 现状、真实长会话样本与当前展示缺口；B2 任务级画像设计：任务身份/关闭事件/指标/跨 session 归属/会话下钻/未关闭状态与迁移；B3 用户确认后的实施拆分：前后端契约、历史兼容、测试与链路收口边界（本条不直接实现）
 - 来源: 用户消息：「运行画像的部分显示的统计量非常少，会话的粒度也有问题，我们现在的鞭挞模式其实一个会话非常长，这个不应该按照会话来分，按照执行任务关闭的粒度来显示我觉得比较合理。」
 - 标签: 核心
-- 边界: 覆盖运行画像的数据来源、任务/会话/轮次的聚合语义、鞭挞模式长会话、画像展示与下钻；不在本条未经确认修改任务生命周期、事件生产者、历史数据或运行控制逻辑。
-- 验收: ①当前运行画像展示字段、统计来源和会话聚合缺口有复现步骤、精确源码锚点与运行时/测试证据；②设计明确执行任务身份、关闭事件、跨会话归属、未关闭任务、主指标与会话下钻关系；③至少一个长会话承载多个任务的样例可按任务关闭得到可复核聚合结果；④设计明确保留、改变、待用户拍板边界，并拆出后续实现/迁移/测试条目，不把未确认语义写入代码
-- refs: R-284 D-655
-- 确认记录: 用户确认（本轮）：运行画像以 task close/执行任务关闭记录为主粒度；长 session 仅作为任务下钻上下文；未关闭任务单独显示为进行中，不进入已完成趋势。
-- 进展: B1 已完成：审计 `crates/kanzei-app/src/commands/run.rs:448-603`、`crates/kanzei-app/src/run/persistence.rs:194-231`、`crates/kanzei-core/src/store/mod.rs:266-286`、`crates/kanzei-app/ui/13-memory.js:150-275`，并读取真实 `.kanzei/state.db`；确认 1157 episodes/11 sessions，最大 session 1072 episodes、1071 run_id/input_id、1310 inputs，session_events 无 task/close 事件。设计草案与架构索引已落地；下一步 B2 补 task 身份、关闭事件、指标、跨 session、下钻和迁移边界。
-- observed_head: dbafb50f10b78d3cd1f27383f9b611f4131986d5
-- observed_worktree_hash: fnv1a64:26bb76f3b5007183
-- recorded_at: 1787896934669
-- 设计文档: docs/design/run_metrics_task_granularity.md
+- 边界: 只承接 R-337 已评审的 task 主粒度与未关闭口径；不在用户确认 task start/close 权限/outcome、跨 session 和 schema 前修改生产代码。
+- 验收: ①task.started/task.closed 与 membership 有 append-only 事实和唯一 task projection 真源；②completed/in_progress/trend 的关闭筛选与去重可由自动化测试复核；③真实 Tauri/API 调用方消费 task projection 并提供 task→session→round 下钻数据；④未确认语义不进入代码，迁移与回滚由独立条目覆盖
+- refs: R-337
+- 优先级: P1
+
+## R-339 运行画像历史任务兼容迁移与回滚 [todo]
+- 内容: 在 R-338 任务事实与 projection 方案评审后，设计并实施运行画像历史兼容：旧 episodes/session_inputs/session_events 不改写，无 task close 的历史数据保留 legacy/未归属视图且不进入已完成趋势；新增 schema/索引、重建对账、备份和可回滚路径必须明确。
+- 发现记录: {"Intent":"让 task 画像上线不破坏旧 session/round 事实和历史查询","Explicit":"历史迁移兼容、未关闭/legacy 边界和回滚需要独立处理","Assumptions":"采用 additive migration，旧 rounds 查询可在过渡期保留","Ambiguities":"投影表或事件 membership 的最终 schema、版本号、备份策略和历史回填是否允许待评审","领域对象":"SQLite schema、episodes、session_inputs、session_events、task projection、legacy、migration、rollback","最小成功闭环":"旧库可升级且原始事实可读，新旧查询结果对账可复核，legacy 不进入 completed trend，失败可回滚","延后决策":"是否允许人工历史归属、迁移窗口、旧 API 下线时机"}
+- 复杂度: 中
+- 来源: 用户消息：「运行画像的部分显示的统计量非常少，会话的粒度也有问题，我们现在的鞭挞模式其实一个会话非常长，这个不应该按照会话来分，按照执行任务关闭的粒度来显示我觉得比较合理。」
+- 标签: 后端
+- 边界: 只覆盖 R-337/R-338 的历史数据兼容、迁移、对账和回滚，不自行推断旧 task close，不改变任务生命周期语义。
+- 验收: ①迁移/回滚说明覆盖 schema、旧数据、备份和失败恢复；②旧 episodes/session_inputs/session_events 可读且计数对账有自动化证据；③无 task close 的历史记录明确为 legacy/未归属且排除 completed trend；④旧 API 与新 projection 的过渡边界有真实调用方验证
+- refs: R-337 R-338
+- 优先级: P1
+
+## R-340 运行画像任务主视图与 session/round 下钻 [todo]
+- 内容: 在 R-338 task projection 契约评审并可消费后，重做运行画像前端主展示：以已关闭 task 为趋势/主列表，进行中 task 独立展示；点击 task 下钻到 session 分段、input 与 round/episode 细节，保留 provider/model、工具、上下文账单和错误；保留旧 rounds/legacy 提示与空态，不在前端自行聚合。
+- 发现记录: {"Intent":"让用户先看到可比较的任务完成结果，再查看长 session 内的执行细节","Explicit":"task close 是主粒度，session 仅下钻，未关闭任务单列进行中","Assumptions":"后端 projection 提供 completed_tasks、in_progress_tasks、trend 和下钻所需 rounds/sessions","Ambiguities":"task 标题、关闭 outcome 标签、下钻交互和跨 session 展示待评审","领域对象":"运行画像页面、task trend、completed task、in-progress task、session drilldown、round、legacy","最小成功闭环":"真实 metrics 入口加载 task projection，完成/进行中分区正确，点击 task 能看到 session→round 下钻，未关闭不进入趋势","延后决策":"分页/排序、筛选字段、移动端布局和旧 rounds 的下线时间"}
+- 复杂度: 中
+- 来源: 用户消息：「运行画像的部分显示的统计量非常少，会话的粒度也有问题，我们现在的鞭挞模式其实一个会话非常长，这个不应该按照会话来分，按照执行任务关闭的粒度来显示我觉得比较合理。」
+- 标签: 前端
+- 边界: 只覆盖运行画像 UI 真实消费者和 task/session/round 展示，不在前端复制 task 状态机，不修改后端事实生产和迁移。
+- 验收: ①真实 metrics 入口消费后端 task projection 而非 display-only fixture；②已关闭 task 趋势、进行中单列、legacy 空态均有运行时断言；③task→session→round 下钻显示真实数据与错误/空态；④前端保持 snake_case API 适配边界，不擅自决定未确认语义
+- refs: R-337 R-338
+- 优先级: P1
+
+## R-341 运行画像任务级真实链路收口与回归矩阵 [todo]
+- 内容: 作为 R-338/R-339/R-340 的链路收口，验证真实入口从 task 事实生产、SQLite projection/API 查询到运行画像 UI 的端到端闭环：创建并关闭多个任务、同一长 session 多轮、未关闭任务、session 下钻、legacy 历史和失败路径均可复核；不以单测、viewport 模拟或替身服务冒充真实链路。
+- 发现记录: {"Intent":"防止后端 task 事实、历史兼容和前端展示各自通过但真实运行画像仍断链","Explicit":"任务关闭主粒度必须贯通真实入口到 UI 效果","Assumptions":"R-338/R-339/R-340 各自交付后可在真实桌面端重放","Ambiguities":"真实验收环境、任务创建/关闭入口和跨 session 场景等待前置设计评审","领域对象":"真实 Tauri 入口、session_events、SQLite projection、run_metrics API、运行画像 UI、task/session/round","最小成功闭环":"真实入口产生 task start/close，UI 显示关闭 task 趋势并能下钻 session/round，未关闭与 legacy 边界正确，失败路径可见","延后决策":"桌面验收账号/项目、跨 session 是否纳入首版和发布门禁范围"}
+- 复杂度: 中
+- 来源: 用户消息：「运行画像的部分显示的统计量非常少，会话的粒度也有问题，我们现在的鞭挞模式其实一个会话非常长，这个不应该按照会话来分，按照执行任务关闭的粒度来显示我觉得比较合理。」
+- 标签: 流程
+- 边界: 只验证 R-338/R-339/R-340 组成的真实用户链路与回归矩阵，不实现 task 事实、迁移或 UI 组件，不用替身或静态副本核销。
+- 验收: ①真实任务开始/关闭入口到 SQLite projection/API/UI 有可重放命令和真实目标；②长 session 多任务、未关闭、legacy、失败路径逐项有结果；③task→session→round 下钻与主趋势的用户可见效果可核验；④单测、viewport 模拟、替身服务仅作辅助，不能作为链路关闭证据
+- refs: R-337 R-338 R-339 R-340
+- 优先级: P1
