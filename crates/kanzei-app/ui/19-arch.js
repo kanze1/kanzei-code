@@ -145,10 +145,6 @@ defer(() => {
     const memoryBtn = document.querySelector('.activity-item[data-view="memory"]');
     if (memoryBtn) memoryBtn.click();
     else document.querySelectorAll(".view").forEach((v) => v.classList.remove("active")), $("view-memory").classList.add("active");
-  });$("arch-goto-memory").addEventListener("click", () => {
-    const memoryBtn = document.querySelector('.activity-item[data-view="memory"]');
-    if (memoryBtn) memoryBtn.click();
-    else document.querySelectorAll(".view").forEach((v) => v.classList.remove("active")), $("view-memory").classList.add("active");
   });
 });
 

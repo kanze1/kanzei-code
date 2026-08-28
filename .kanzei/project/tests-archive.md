@@ -10658,3 +10658,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 设计正文 3 个 JSON fenced block 均成功提取并由 JSON.parse 校验通过。
 - 关联: R-335
 - 收尾: 1787894972
+
+## T-1786922726821 D-721 架构记忆入口单击导航回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/19-arch.js; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node --check scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+- 时长: 1.2s
+- 摘要: 19-arch.js 与 UI runtime smoke 脚本语法检查通过；真实 runtime smoke 通过：27 个 ui/*.js、2365 次 invoke、10 个主视图切换、0 个运行时错误，新增 D-721 单击一次 memory 导航与到达 memory 视图断言通过。
+- 关联: D-721
+- 收尾: 1787895587
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@f6334cd973ee
+
+## T-1786922726822 D-721 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 10.6s
+- 摘要: kanzei-app 定向测试全部通过：249 passed, 0 failed, 0 ignored。
+- 关联: D-721
+- 收尾: 1787895679
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@f6334cd973ee

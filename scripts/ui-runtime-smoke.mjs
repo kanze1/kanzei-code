@@ -7741,6 +7741,21 @@ const docsB = {
   );
 }
 
+// D-721:架构页记忆管理入口单击只能触发一次真实 memory 导航。
+{
+  const archMemoryEntry = document.querySelector('.activity-item[data-view="memory"]');
+  const archGotoMemory = byId.get("arch-goto-memory");
+  assert(archMemoryEntry && archGotoMemory, "D-721:记忆管理导航回归缺少入口夹具");
+  let archMemoryNavigations = 0;
+  archMemoryEntry.addEventListener("click", () => { archMemoryNavigations += 1; });
+  archGotoMemory.click();
+  await flush();
+  assert(archMemoryNavigations === 1, `D-721:架构页单击应触发一次 memory 导航,实得 ${archMemoryNavigations}`);
+  assert(byId.get("view-memory")?.classList.contains("active"), "D-721:架构页单击未到达 memory 视图");
+  document.querySelector('.activity-item[data-view="arch"]')?.click();
+  await flush();
+}
+
 // ---------- R-190 常驻 fast 模型状态指示 ----------
 // 状态栏 #status-fast 在托管且未就绪时显示缺环文案(桩:serviceUp=false);
 // 且轮询函数已注册(fastStatusTimer 非空),说明常驻刷新不是一次性快照。
