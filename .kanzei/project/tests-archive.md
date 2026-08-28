@@ -10651,3 +10651,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: kanzei-tools plot_tool 17 passed；kanzei-app workspace图测试 1 passed；UI 运行时冒烟 27 个脚本、2364 次 invoke、10 个主视图切换、0 个运行时错误。
 - 关联: R-335
 - 收尾: 1787894077
+
+## T-1786922726820 R-335 B3 设计 JSON 契约校验 [passed]
+- 命令: node -e "const fs=require('fs');const s=fs.readFileSync('docs/design/agent_visualization_tools.md','utf8');const f=String.fromCharCode(96);const re=new RegExp(f+f+f+'json\\s*([\\s\\S]*?)'+f+f+f,'g');const blocks=[...s.matchAll(re)];if(blocks.length!==3)throw new Error('expected 3 json blocks, got '+blocks.length);blocks.forEach((b,i)=>JSON.parse(b[1]));console.log('design JSON blocks valid: '+blocks.length);"
+- 时长: 0.4s
+- 摘要: 设计正文 3 个 JSON fenced block 均成功提取并由 JSON.parse 校验通过。
+- 关联: R-335
+- 收尾: 1787894972

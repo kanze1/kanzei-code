@@ -4272,10 +4272,27 @@
 - 标签: 前端
 - 边界: 覆盖桌面端主对话中的子代理与活动呈现、布局占用、展开/收起、历史读取和响应式适配；保留现有真实事件与 Tauri 数据源，不改子代理调度、权限和执行协议。
 - 验收: ① Codex 与 Claude Code 各至少一份一手资料对照，逐项记录呈现位置、对象模型、展开/历史/状态反馈和取舍；②当前两个面板关键路径问题有复现步骤、精确源码锚点与运行时/测试证据；③设计工件明确保留、改变、待确认边界，并回指现有问题；④实现后两个面板不再占用固定侧边栏，真实事件/历史消费者仍可达，桌面与移动响应式回归通过
-- refs: R-281
 - 批次: 3/3
 - 批次表: B1 当前面板审计与 Codex/Claude Code 一手资料对照，形成保留/改变/待确认边界与设计工件；B2 按设计将子代理/活动改为非固定侧栏的对话式或临时展开呈现，保持真实事件与历史消费者；B3 桌面/移动响应式与六条前端冒烟回归、验收收口
 - 进展: B3 已完成并正式收口，逐条对照验收：① Codex 与 Claude Code 一手资料逐项对照见 `.kanzei/research/subagent-panel-layout/prior-art.md:20-45`，呈现位置、对象模型、展开/历史/状态反馈和取舍均有记录；②当前问题的复现步骤、精确源码锚点及运行时/测试证据见同工件 `:49-87`，D-720 已登记并 fixed；③保留/改变/待确认边界及问题回指见同工件 `:89-120`；④ `crates/kanzei-app/ui/style.css:1180-1219` 将两个面板改为不参与 flex 的 absolute 临时浮层，`crates/kanzei-app/ui/03-shell.js:320-328` 与 `06-activity.js:1275-1288` 保证入口互斥，`index.html:1021-1066` 保留真实活动/子代理事件与历史消费者并补齐 dialog/关闭语义，`scripts/ui-runtime-smoke.mjs:6800-6806`、`scripts/ui-narrow-layout-smoke.mjs:60-88` 覆盖互斥、主区宽度、浮层越界和 5 个桌面/移动视口；T-1786922726816 六条前端冒烟、T-1786922726817 `cargo test -p kanzei-app` 249 passed、T-1786922726818 当前提交 `19586fccf359bd420f2b20c535b161812e96a8fa` 绑定 `verify.ps1` 全部通过。实现已提交：`19586fcc`。
 - observed_head: 19586fccf359bd420f2b20c535b161812e96a8fa
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787893813974
+
+## R-335 架构图与研究绘图工具调研及 Agent 绘图工具设计 [done]
+- 优先级: P1
+- 先行调研: .kanzei/research/agent-visualization-tools/prior-art.md
+- 内容: 对专门架构图工具与科学绘图工具开展证据化调研，先审计当前 architecture browser 生成架构图和现有 plot 工具的输入、布局、渲染、导出、可读性、可复现性与 Agent 调用边界，再形成一套面向 Agent 的绘图工具设计。设计需同时覆盖架构图与 research mode 的科学图表，明确工具 API、输入工件、布局/配色/字体、错误反馈、导出格式、版本化与可验证产物；本条只做审计、先行方案和设计，不直接实现工具链。
+- 发现记录: {"Intent":"解决架构浏览架构图粗糙及 research mode 绘图能力不足","Explicit":"调研专门做架构图的工具，设计好用的 Agent 绘图工具，并覆盖后续 research mode；当前绘图工具需要重新评估","Assumptions":"问题同时存在于架构图表达和科学图表生成；Agent 需要结构化输入、可重现输出和机器可验证错误，而不是只增加一个自由文本绘图入口","Ambiguities":"未指定是否引入 Mermaid/Graphviz/ELK/PlantUML 或 Python/vega 等具体引擎，未指定最终导出格式、主题和交互图需求；先以一手资料对照后提出候选，不擅自拍板引擎迁移","领域对象":"architecture index、docs/design 文档关系图、研究数据图表、绘图工具 API、布局引擎、渲染产物、SVG/PNG/PDF、图表语义检查、Agent 反馈","最小成功闭环":"至少四个架构图工具和三个科学绘图方案有一手资料对照，当前工具问题有源码/运行时证据，形成可评审的统一 Agent 绘图工具设计并定义最小可验证输出","延后决策":"最终引擎组合、是否支持交互式图、默认视觉主题、渲染依赖打包方式和迁移实施顺序待用户评审"}
+- 复杂度: 大
+- 批次: 3/3
+- 批次表: B1 当前架构浏览与绘图工具审计：源码、真实渲染、现有 smoke 与失败模式；B2 外部工具对照：至少四个架构图工具、三个科学绘图方案及一手资料；B3 Agent 绘图工具设计：统一 API、验证/导出/反馈契约、research mode 接入边界与评审决策
+- 来源: 用户消息：「架构浏览生成的架构图也很粗糙，我希望你去调研一下专门做架构图的工具，并且设计一套好用的绘图工具给agent用，后面的research mode也是需要绘图工具的，现在的绘图工具完全不行。」
+- 标签: 前端
+- 边界: 覆盖 architecture browser 的架构关系图、research mode 的静态科学图表和 Agent 调用/反馈/导出契约；不在本条直接迁移渲染引擎、不改变 architecture index 与 research 数据真源、不把自由绘图输出冒充可验证研究证据。
+- 验收: ①至少四个专门架构图工具与三个科学绘图方案完成一手资料对照，逐项覆盖输入模型、自动布局/编码、渲染导出、可读性反馈、版本化与权限/运行约束；②当前架构图与绘图工具问题有复现步骤、精确源码锚点和运行时/测试证据；③先行调研工件逐条记录出处、V0-V3、证据锚、证据深度、差异与决策；④设计文档给出统一 Agent 绘图工具 API、架构图/科学图表两类最小成功闭环、错误与验证契约、产物格式和迁移边界，并明确保留/改变/待用户拍板项
+- refs: R-122 R-221
+- 进展: B3 已完成，设计正文为 `docs/design/agent_visualization_tools.md`，并已登记 `.kanzei/project/architecture/README.md`。验收对账：① 四个架构工具与三个科学绘图方案逐项覆盖输入模型、布局/编码、渲染导出、可读性反馈、版本化和权限/运行约束，证据见 `.kanzei/research/agent-visualization-tools/prior-art.md:16-100`，`prior_art validate --entry-ref R-335 --topic agent-visualization-tools` 返回 `valid=true`、external_count=4、internal_count=3；② 当前问题、复现边界和源码/运行证据见 `.kanzei/research/agent-visualization-tools/prior-art.md:104-163`、`crates/kanzei-app/ui/19-arch.js:143`、`crates/kanzei-app/src/docs.rs:808`、`crates/kanzei-tools/src/plot_tool.rs:111`，测试证据为 `T-1786922726819`（plot 17 passed、架构边 1 passed、UI runtime 0 errors），并明确 smoke 不等于可读性证明；③ 先行工件逐条含出处、V1/V2、证据锚、证据深度、差异和决策，见 `.kanzei/research/agent-visualization-tools/prior-art.md:16-163`，同一 validate 结果为有效；④ 设计文档给出统一 API `:63-110`、架构图/科学图表最小成功闭环 `:111-131`、错误与验证契约 `:133-166`、格式/版本/权限 `:168-202`、保留/改变/调用方边界 `:204-228` 和用户待拍板项 `:230-239`；JSON 契约测试为 `T-1786922726820`，architecture index 校验通过。设计只产出审计/方案，不宣称引擎迁移或最终组合已获用户接受。
+- observed_head: 19586fccf359bd420f2b20c535b161812e96a8fa
+- observed_worktree_hash: fnv1a64:f7be8da47243257a
+- recorded_at: 1787895195681

@@ -287,24 +287,6 @@
 - recorded_at: 1787276362163
 - 停车: 本轮 WIP 超限，B1 工具并发契约审计已完成；B2 尚未开始，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent
 
-## R-335 架构图与研究绘图工具调研及 Agent 绘图工具设计 [doing]
-- 优先级: P1
-- 先行调研: .kanzei/research/agent-visualization-tools/prior-art.md
-- 内容: 对专门架构图工具与科学绘图工具开展证据化调研，先审计当前 architecture browser 生成架构图和现有 plot 工具的输入、布局、渲染、导出、可读性、可复现性与 Agent 调用边界，再形成一套面向 Agent 的绘图工具设计。设计需同时覆盖架构图与 research mode 的科学图表，明确工具 API、输入工件、布局/配色/字体、错误反馈、导出格式、版本化与可验证产物；本条只做审计、先行方案和设计，不直接实现工具链。
-- 发现记录: {"Intent":"解决架构浏览架构图粗糙及 research mode 绘图能力不足","Explicit":"调研专门做架构图的工具，设计好用的 Agent 绘图工具，并覆盖后续 research mode；当前绘图工具需要重新评估","Assumptions":"问题同时存在于架构图表达和科学图表生成；Agent 需要结构化输入、可重现输出和机器可验证错误，而不是只增加一个自由文本绘图入口","Ambiguities":"未指定是否引入 Mermaid/Graphviz/ELK/PlantUML 或 Python/vega 等具体引擎，未指定最终导出格式、主题和交互图需求；先以一手资料对照后提出候选，不擅自拍板引擎迁移","领域对象":"architecture index、docs/design 文档关系图、研究数据图表、绘图工具 API、布局引擎、渲染产物、SVG/PNG/PDF、图表语义检查、Agent 反馈","最小成功闭环":"至少四个架构图工具和三个科学绘图方案有一手资料对照，当前工具问题有源码/运行时证据，形成可评审的统一 Agent 绘图工具设计并定义最小可验证输出","延后决策":"最终引擎组合、是否支持交互式图、默认视觉主题、渲染依赖打包方式和迁移实施顺序待用户评审"}
-- 复杂度: 大
-- 批次: 1/3
-- 批次表: B1 当前架构浏览与绘图工具审计：源码、真实渲染、现有 smoke 与失败模式；B2 外部工具对照：至少四个架构图工具、三个科学绘图方案及一手资料；B3 Agent 绘图工具设计：统一 API、验证/导出/反馈契约、research mode 接入边界与评审决策
-- 来源: 用户消息：「架构浏览生成的架构图也很粗糙，我希望你去调研一下专门做架构图的工具，并且设计一套好用的绘图工具给agent用，后面的research mode也是需要绘图工具的，现在的绘图工具完全不行。」
-- 标签: 前端
-- 边界: 覆盖 architecture browser 的架构关系图、research mode 的静态科学图表和 Agent 调用/反馈/导出契约；不在本条直接迁移渲染引擎、不改变 architecture index 与 research 数据真源、不把自由绘图输出冒充可验证研究证据。
-- 验收: ①至少四个专门架构图工具与三个科学绘图方案完成一手资料对照，逐项覆盖输入模型、自动布局/编码、渲染导出、可读性反馈、版本化与权限/运行约束；②当前架构图与绘图工具问题有复现步骤、精确源码锚点和运行时/测试证据；③先行调研工件逐条记录出处、V0-V3、证据锚、证据深度、差异与决策；④设计文档给出统一 Agent 绘图工具 API、架构图/科学图表两类最小成功闭环、错误与验证契约、产物格式和迁移边界，并明确保留/改变/待用户拍板项
-- refs: R-122 R-221
-- 进展: B1 已完成并落档：`.kanzei/research/agent-visualization-tools/prior-art.md` 新增当前 architecture browser、plot 工具和 D-721 证据边界。架构输入/调用链锚点为 `crates/kanzei-app/src/docs.rs:808-889`、`crates/kanzei-app/ui/19-arch.js:14-115,160-266`；当前 SVG 为固定 320 宽、三列、52×22 节点、8px 文本，无布局质量反馈/缩放/导出/manifest。plot 三轨与错误/产物锚点为 `crates/kanzei-tools/src/plot_tool.rs:111-180,283-602`。验证 `T-1786922726819`：plot 17 passed、workspace 架构边 1 passed、UI runtime 27 scripts/0 errors；该 smoke 只证明渲染接线，不证明布局可读性。D-721（19-arch.js:143-152 重复 click 绑定）保持由独立缺陷处理。下一步：B2 至少四个架构工具与三个科学绘图方案的一手资料对照，并完成 prior_art 校验。
-- observed_head: 19586fccf359bd420f2b20c535b161812e96a8fa
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1787894149047
-
 ## R-336 移除设置页无效使用手册，暂不实现替代引导 [todo]
 - 优先级: P1
 - 内容: 移除设置页面现有使用手册功能，包括入口、展示内容和仅服务于该功能的死交互；保留设置页其他真实功能，不实现替代的新手引导。后续新手引导另行讨论和登记。
