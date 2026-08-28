@@ -29,6 +29,7 @@
 - [identity: live_design; last_verified_commit: 6505dfb8] [`model_autonomy_and_harness_intensity.md`](../../../docs/design/model_autonomy_and_harness_intensity.md)：模型自治与门禁强度——结伴/自主两档门禁、模型停机权与编排抽象层(R-322/R-323,D-661/D-662;2026-08-21 外部七点评估的逐点定调)。
 - [identity: live_design; last_verified_commit: c3222943] [`work_unit_foundation.md`](../../../docs/design/work_unit_foundation.md)：Work Unit 底座——Outcome/执行状态/历史三分离的事件存储、投影与迁移契约(R-317)。
 - [identity: live_design; last_verified_commit: c9f42992] [`context_supply_bill_20260821.md`](../../../docs/design/context_supply_bill_20260821.md)：R-312 B1 真实 session 上下文注入账单；记录 7 个有非空账单的 session、块级字符占比、粗 token 估算及进展/对账/停车字段的当前测量缺口。
+- [identity: live_design; last_verified_commit: dbafb50f] [`run_metrics_task_granularity.md`](../../../docs/design/run_metrics_task_granularity.md)：R-337 运行画像按执行任务关闭粒度的审计与设计草案；B1 已完成现状证据，B2 任务级方案待评审。
 
 ## validated_design
 
