@@ -368,7 +368,7 @@ impl SessionStore {
 }
 
 /// 事件行解析。
-fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredEvent> {
+pub(crate) fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredEvent> {
     let payload_json: String = row.get(4)?;
     Ok(StoredEvent {
         event_id: row.get(0)?,

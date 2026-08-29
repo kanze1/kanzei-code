@@ -287,7 +287,7 @@
 - recorded_at: 1787276362163
 - 停车: 本轮 WIP 超限，B1 工具并发契约审计已完成；B2 尚未开始，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent
 
-## R-338 任务级运行画像事实链路与可重建投影 [todo]
+## R-338 任务级运行画像事实链路与可重建投影 [doing]
 - 内容: 在 R-337 设计评审通过后，接入显式 task.started/task.closed 事实、task membership 与可重建 task projection；保持 session/input/round 原始事实，提供 completed_tasks、in_progress_tasks、trend 和 task 下钻查询，前端必须有真实消费者。task start 入口、关闭权限/outcome、跨 session attach 与 schema 细节以用户评审结论为准，未确认前不实现。
 - 发现记录: {"Intent":"让运行画像以可比较的执行任务为主对象","Explicit":"task close 驱动完成画像，session/round 作为下钻","Assumptions":"append-only session_events 可承载 task 事实，projection 可从事件重建","Ambiguities":"task start 入口、关闭权限/outcome、跨 session attach、新 schema 待用户评审","领域对象":"task、session、input、episode、task.started、task.closed、membership、projection、运行画像 API","最小成功闭环":"真实 task 事实能生成可重建 projection，已关闭 task 进入趋势，未关闭 task 独立返回，前端有真实查询消费者","延后决策":"task 标题/关闭理由、跨 session 策略、事件版本和迁移顺序"}
 - 复杂度: 大
@@ -297,8 +297,15 @@
 - 验收: ①task.started/task.closed 与 membership 有 append-only 事实和唯一 task projection 真源；②completed/in_progress/trend 的关闭筛选与去重可由自动化测试复核；③真实 Tauri/API 调用方消费 task projection 并提供 task→session→round 下钻数据；④未确认语义不进入代码，迁移与回滚由独立条目覆盖
 - refs: R-337
 - 优先级: P1
+- 进展: B1 已完成并通过 T-1786922726830：新增 `crates/kanzei-core/src/store/task.rs`，以现有 `session_events` 追加 task.started/task.membership_added/task.closed 事实；`task_event_id` 在 SQLite 写事务内幂等，membership 可显式跨 session，`list_task_events` 可跨 session 回放，TaskOutcome 支持 completed/failed/cancelled/abandoned。`crates/kanzei-core/src/store/mod.rs` 已导出 API，`events.rs` 提供共享行解析。下一步 B2：实现从 task 事实重建唯一 task projection 与查询口径；本批未实现 API/UI，未回填 legacy。
+- 阻塞: 
+- observed_head: 25485bdf9c636006b964c5653fe4c9d1bcd85e22
+- observed_worktree_hash: fnv1a64:b483ec75fb9a342f
+- recorded_at: 1787925095933
+- 批次: 1/4
+- 确认记录: 用户确认（本轮）：“按建议全部确认”：显式 task start；运行线/用户可关闭；outcome=completed/failed/cancelled/abandoned；默认不跨 session，仅显式 attach；task.started/task.membership_added/task.closed 与可重建 projection；legacy 不回填。
 
-## R-339 运行画像历史任务兼容迁移与回滚 [todo]
+## R-339 运行画像历史任务兼容迁移与回滚 [doing]
 - 内容: 在 R-338 任务事实与 projection 方案评审后，设计并实施运行画像历史兼容：旧 episodes/session_inputs/session_events 不改写，无 task close 的历史数据保留 legacy/未归属视图且不进入已完成趋势；新增 schema/索引、重建对账、备份和可回滚路径必须明确。
 - 发现记录: {"Intent":"让 task 画像上线不破坏旧 session/round 事实和历史查询","Explicit":"历史迁移兼容、未关闭/legacy 边界和回滚需要独立处理","Assumptions":"采用 additive migration，旧 rounds 查询可在过渡期保留","Ambiguities":"投影表或事件 membership 的最终 schema、版本号、备份策略和历史回填是否允许待评审","领域对象":"SQLite schema、episodes、session_inputs、session_events、task projection、legacy、migration、rollback","最小成功闭环":"旧库可升级且原始事实可读，新旧查询结果对账可复核，legacy 不进入 completed trend，失败可回滚","延后决策":"是否允许人工历史归属、迁移窗口、旧 API 下线时机"}
 - 复杂度: 中
@@ -308,8 +315,15 @@
 - 验收: ①迁移/回滚说明覆盖 schema、旧数据、备份和失败恢复；②旧 episodes/session_inputs/session_events 可读且计数对账有自动化证据；③无 task close 的历史记录明确为 legacy/未归属且排除 completed trend；④旧 API 与新 projection 的过渡边界有真实调用方验证
 - refs: R-337 R-338
 - 优先级: P1
+- 依赖: R-338
+- 进展: 用户已解除语义评审阻塞；R-339 仍依赖 R-338 完成 task 事件与 projection 契约。待 R-338 B1-B4 落地后，再按确认的 additive migration、legacy 不回填、对账和回滚边界实施。
+- 阻塞: 
+- observed_head: 25485bdf9c636006b964c5653fe4c9d1bcd85e22
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787898122242
+- 确认记录: 用户确认（本轮）：“按建议全部确认”：沿用 R-338 的显式 task 事件、四种 outcome、默认不跨 session/仅显式 attach、原始事实不改写和 legacy 规则。
 
-## R-340 运行画像任务主视图与 session/round 下钻 [todo]
+## R-340 运行画像任务主视图与 session/round 下钻 [doing]
 - 内容: 在 R-338 task projection 契约评审并可消费后，重做运行画像前端主展示：以已关闭 task 为趋势/主列表，进行中 task 独立展示；点击 task 下钻到 session 分段、input 与 round/episode 细节，保留 provider/model、工具、上下文账单和错误；保留旧 rounds/legacy 提示与空态，不在前端自行聚合。
 - 发现记录: {"Intent":"让用户先看到可比较的任务完成结果，再查看长 session 内的执行细节","Explicit":"task close 是主粒度，session 仅下钻，未关闭任务单列进行中","Assumptions":"后端 projection 提供 completed_tasks、in_progress_tasks、trend 和下钻所需 rounds/sessions","Ambiguities":"task 标题、关闭 outcome 标签、下钻交互和跨 session 展示待评审","领域对象":"运行画像页面、task trend、completed task、in-progress task、session drilldown、round、legacy","最小成功闭环":"真实 metrics 入口加载 task projection，完成/进行中分区正确，点击 task 能看到 session→round 下钻，未关闭不进入趋势","延后决策":"分页/排序、筛选字段、移动端布局和旧 rounds 的下线时间"}
 - 复杂度: 中
@@ -319,8 +333,15 @@
 - 验收: ①真实 metrics 入口消费后端 task projection 而非 display-only fixture；②已关闭 task 趋势、进行中单列、legacy 空态均有运行时断言；③task→session→round 下钻显示真实数据与错误/空态；④前端保持 snake_case API 适配边界，不擅自决定未确认语义
 - refs: R-337 R-338
 - 优先级: P1
+- 依赖: R-338
+- 进展: 用户已解除语义评审阻塞；R-340 仍依赖 R-338 的真实 task projection/API。待后端契约可消费后，再修改 13-memory.js 的真实 metrics 消费者，不在前端自行聚合或猜测字段。
+- 阻塞: 
+- observed_head: 25485bdf9c636006b964c5653fe4c9d1bcd85e22
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787898129566
+- 确认记录: 用户确认（本轮）：“按建议全部确认”：前端沿用 task 主趋势、进行中/legacy 分区、session/round 下钻和仅显式 attach 的后端语义。
 
-## R-341 运行画像任务级真实链路收口与回归矩阵 [todo]
+## R-341 运行画像任务级真实链路收口与回归矩阵 [doing]
 - 内容: 作为 R-338/R-339/R-340 的链路收口，验证真实入口从 task 事实生产、SQLite projection/API 查询到运行画像 UI 的端到端闭环：创建并关闭多个任务、同一长 session 多轮、未关闭任务、session 下钻、legacy 历史和失败路径均可复核；不以单测、viewport 模拟或替身服务冒充真实链路。
 - 发现记录: {"Intent":"防止后端 task 事实、历史兼容和前端展示各自通过但真实运行画像仍断链","Explicit":"任务关闭主粒度必须贯通真实入口到 UI 效果","Assumptions":"R-338/R-339/R-340 各自交付后可在真实桌面端重放","Ambiguities":"真实验收环境、任务创建/关闭入口和跨 session 场景等待前置设计评审","领域对象":"真实 Tauri 入口、session_events、SQLite projection、run_metrics API、运行画像 UI、task/session/round","最小成功闭环":"真实入口产生 task start/close，UI 显示关闭 task 趋势并能下钻 session/round，未关闭与 legacy 边界正确，失败路径可见","延后决策":"桌面验收账号/项目、跨 session 是否纳入首版和发布门禁范围"}
 - 复杂度: 中
@@ -330,3 +351,10 @@
 - 验收: ①真实任务开始/关闭入口到 SQLite projection/API/UI 有可重放命令和真实目标；②长 session 多任务、未关闭、legacy、失败路径逐项有结果；③task→session→round 下钻与主趋势的用户可见效果可核验；④单测、viewport 模拟、替身服务仅作辅助，不能作为链路关闭证据
 - refs: R-337 R-338 R-339 R-340
 - 优先级: P1
+- 依赖: R-338 R-339 R-340
+- 进展: 用户已解除语义评审阻塞；R-341 仍依赖 R-338/R-339/R-340 完成。待三项实现与自动化证据具备后，执行真实桌面入口到 SQLite projection/API/UI 的回归矩阵。
+- 阻塞: 
+- observed_head: 25485bdf9c636006b964c5653fe4c9d1bcd85e22
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1787898137370
+- 确认记录: 用户确认（本轮）：“按建议全部确认”：真实收口覆盖显式 task start/close、长 session 多任务、未关闭、legacy、失败和 task→session→round 下钻；不以替身或单测替代真实链路。

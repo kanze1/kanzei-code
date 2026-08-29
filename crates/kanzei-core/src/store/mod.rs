@@ -295,13 +295,19 @@ mod notifications;
 mod processes;
 mod schema;
 mod session;
+mod task;
 mod telemetry;
 mod typed;
 mod work;
 
 pub use eval::{EffectEstimate, EvalCaseSet};
 pub use processes::StoredProcess;
+pub use task::{
+    TaskOutcome, TASK_CLOSED_EVENT_TYPE, TASK_EVENT_SCHEMA_VERSION,
+    TASK_MEMBERSHIP_ADDED_EVENT_TYPE, TASK_STARTED_EVENT_TYPE,
+};
 pub use telemetry::{FunnelCounts, RecallEvent, RecallLinkStats, RecallMetrics};
+
 pub use typed::{
     compare_shadow, decode_session_fact, prepare_typed_session, project_session_facts,
     project_session_facts_with_surface, stable_json_hash, stable_message_hash,

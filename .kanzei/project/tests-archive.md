@@ -10725,3 +10725,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 真实 `.kanzei/state.db` 只读审计命令通过；当前快照为 episodes=1158、sessions=11，主 session episodes=1073、distinct run_id=1072、distinct input_id=1072。数字随运行持续写入，作为时间快照而非静态不变量。
 - 关联: R-337
 - 收尾: 1787897444
+
+## T-1786922726830 R-338 B1 kanzei-core task 事实链路定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.5s
+- 摘要: 修正跨 session 事件顺序测试后，kanzei-core 全部通过：262 passed, 0 failed, 0 ignored；覆盖 task.started、task.membership_added、task.closed 的追加、幂等、跨 session 回放与输入校验。
+- 关联: R-338
+- 收尾: 1787925086
+- 源码指纹: v2 crates/kanzei-core/src/store/events.rs@b59fe991a1d9,crates/kanzei-core/src/store/mod.rs@c5f717ec7f15,crates/kanzei-core/src/store/task.rs@ad6e4301168a
