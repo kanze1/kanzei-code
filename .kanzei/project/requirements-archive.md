@@ -4393,3 +4393,19 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788268327261
 - 批次: 2/2
+
+## R-345 实验环境登记表与运行时快照:声明与实况分离、环境漂移可见 [done]
+- 内容: 按设计 §2.3/§2.4 实现环境管理:.kanzei/research/environments.md 手工登记契约(ENV-<name>、kind、host、归属、执行策略、gpu、workdir、运行时限、计费、凭据引用、准备步骤、状态);每次实验启动时采集 environment.json 快照(nvidia-smi、python/框架版本、可用显存、git commit 与工作树是否 dirty)存进结果产物目录并被结果事实引用;登记与快照不一致时显式标注环境漂移。执行策略按环境分档 relaxed/managed/approval/strict(A-018):managed/approval 走占用认领与结束或超时释放,approval 启动前给预估并等确认;凭据不入 Markdown 只存 secret 引用;远端首跑由人工准备并把步骤写进准备步骤字段供后续复用。
+- 发现记录: {"Intent":"让实验结果的可比性有据可查,环境漂移不被静默吞掉","Explicit":"服务器与显卡清单手工登记,每次运行抓运行时快照,两者分开存","Assumptions":"远端可执行 nvidia-smi 与版本查询;不可用时允许降级","Ambiguities":"快照采集项清单是否可配置、漂移判定的容忍度,本条按固定项与逐字段比对处理","领域对象":"Environment 登记项、environment.json 快照、run 事实引用、漂移标注","最小成功闭环":"登记一台 SSH 环境并跑一次实验,快照落盘且与登记项比对结果可见","延后决策":"依赖安装与镜像管理、多环境同实验并行对比、采集项可配置"}
+- 复杂度: 中
+- 来源: 用户选定环境登记方式为「手工登记 + 运行时快照」;策略分档来自用户原话「这个我建议设计一个选项吧,给用户受控的,或者我是自己的服务器和卡就可以随意一点」。
+- 标签: 后端
+- 边界: 不做全自动环境探测代替登记表;不自动改写登记表;采集失败降级为部分快照并显式标注,不阻断实验;不做容器镜像管理与依赖安装。
+- 验收: ①environments.md 缺字段或坏枚举(含 policy)被检出并可定位;②一次 run 能产出 environment.json 并被 run 事实引用;③登记与快照不一致时前端显式标注漂移且登记表未被覆盖;④采集命令不可用时仍能跑完实验并留下降级说明;⑤relaxed 档不弹确认但命令记录/快照/终端/产物/超时清理一项不少;⑥managed 档并发冲突被拒绝且租约在结束与超时后都会释放;⑦Markdown 里不出现任何真实凭据。
+- refs: R-344 R-343
+- 优先级: P2
+- 批次: 4/4
+- 进展: 批次 4/4 已完成并已提交 `89461dcd`（提交主题含 `R-345 B4`），R-345 验收逐条对账：①环境登记字段/枚举与 policy 的定位诊断在 `crates/kanzei-tools/src/research_environment.rs:143-217`，证据 `T-1786922726869`；②运行结束写 `environment.json`、run 保留 `environment_snapshot_ref` 在 `crates/kanzei-tools/src/research_runner.rs:333-397,595-598`，docs_snapshot 读取真实 run/snapshot 在 `crates/kanzei-app/src/docs.rs:23-42,88`，证据 `T-1786922726866`、`T-1786922726870`；③前端真实消费者与 drift 标注在 `crates/kanzei-app/ui/index.html:543-545`、`ui/19-research.js:599-632,659,684`，冒烟夹具/断言在 `scripts/ui-runtime-smoke.mjs:783-791,3089-3092`，证据 `T-1786922726872`；④采集失败降级仍完成运行并标记 `degraded` 在 `research_runner.rs:606-690`，证据 `T-1786922726866`；⑤relaxed 不确认且命令/快照/终端/产物/超时路径保持在 `research_runner.rs:286-604`，证据 `T-1786922726866`、`T-1786922726869`；⑥managed/approval 租约 schema 与原子认领、冲突拒绝、结束/取消/异常/过期释放在 `store/schema.rs:250-285`、`store/research_runs.rs:71-166`、`research_runner.rs:373-383,595,852`，证据 `T-1786922726865`、`T-1786922726866`；⑦登记表仅接受 `secret://` 且拒疑似真实凭据在 `research_environment.rs:208-217`，测试与样例同文件 `241-267`。B4 修正后前端/app 回归 `T-1786922726872` 通过；关闭前 workspace 全量 `T-1786922726871` 通过；代码已提交且实际提交文件与预期一致。
+- observed_head: 89461dcd26be481fdfd0fdaaf938a4fa916f7780
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788275462210
