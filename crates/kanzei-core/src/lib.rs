@@ -9,6 +9,7 @@ pub mod orchestration;
 pub mod phase;
 pub mod replay;
 pub mod research;
+pub mod research_runner;
 pub mod runner;
 pub mod store;
 
@@ -21,6 +22,10 @@ pub use research::{
     ExperimentResult, ExperimentResultStatus, ExplorationDocument, ExplorationFrontmatter,
     ExplorationStatus, ParsedExploration, ResearchDiagnostic, ResearchError, ResearchTopic,
     ResultArtifactSkeleton,
+};
+pub use research_runner::{
+    parse_callback_line, CallbackStats, ParsedCallbackLine, ResearchCallbackEvent, CALLBACK_PREFIX,
+    MAX_CALLBACK_LINE_BYTES,
 };
 pub use runner::{
     compact_conversation, compaction_budget, completed_entry, estimate_conversation_tokens,

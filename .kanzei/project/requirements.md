@@ -324,7 +324,7 @@
 - recorded_at: 1787898137370
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：真实收口覆盖显式 task start/close、长 session 多任务、未关闭、legacy、失败和 task→session→round 下钻；不以替身或单测替代真实链路。
 
-## R-344 Experiment Runner:本机与 SSH 执行、@@kanzei 回调解析与 run 事实落盘 [todo]
+## R-344 Experiment Runner:本机与 SSH 执行、@@kanzei 回调解析与 run 事实落盘 [doing]
 - 内容: 按设计 §3/§5 实现实验运行器:local 起进程与 ssh 复用系统客户端两种执行;逐行解析带 @@kanzei 前缀的单行 JSON(stage/metric/progress/artifact/checkpoint/message/heartbeat/result),其余输出原样保留为终端日志;运行器另记 run_started/run_finished/run_failed/run_cancelled/environment_captured;结果事实进 state.db 并回写探索文件的实验结果表,产物落 explorations/<E-id>/<result-id>/;记录 params_text、code_ref、policy/lease_id/max_duration/cleanup、callback_stats。
 - 发现记录: {"Intent":"让实验真的能在本机和显卡服务器上跑起来并回传结构化实时事件","Explicit":"第一版只做 local 与 ssh;协议是 @@kanzei 前缀单行 JSON;不依赖第三方实验平台","Assumptions":"远端只需能跑命令并把带前缀的行打到 stdout;系统 ssh 客户端可用","Ambiguities":"远端工作目录与代码同步方式、并发 run 上限,本条按人工准备 workdir 与串行一次一个处理","领域对象":"Run、execution(local/ssh)、callback 事件、产物目录、state.db 运行事实、终端日志","最小成功闭环":"一条真实 SSH 实验跑完:阶段/指标/进度/产物事件被解析,run 事实与产物可回读","延后决策":"作业调度器提交、并发队列、数据集同步、语言级便利封装库"}
 - 复杂度: 大
@@ -334,6 +334,11 @@
 - 验收: ①本机与 SSH 两条路径都能跑完一次真实实验并留下结果事实、产物与回写的结果表行;②坏 JSON、超长行、未知事件不终止运行且计入 callback_stats;③取消与远端强杀都能收敛到终态,heartbeat 超时判定卡死;④断线重连后视图从持久事实恢复,不显示假运行中;⑤research 档 bash 仍为硬 deny,运行器不成为绕过通道;⑥新环境缺准备步骤时运行器询问并记录,不自行同步文件。
 - refs: R-343 R-221
 - 优先级: P1
+- 批次: 1/4
+- 进展: 批次 1/4：已落地 `crates/kanzei-core/src/research_runner.rs` 与 `crates/kanzei-core/src/lib.rs:12,26-30` 的 callback 解析内核和公开导出。`parse_callback_line` 支持 stage/metric/progress/artifact/checkpoint/message/heartbeat/result 八类事件；未知事件保留原行，坏 JSON/坏字段不抛错，超过 8KB 的 callback 返回可见 warning 并计 truncated，普通 stdout 不截断；`CallbackStats` 提供 parsed/malformed/truncated 增量。真实编译消费者为 core→app 依赖链，后续由 `kanzei-tools` research_runner Tool 消费。测试 `T-1786922726852`（callback 4 passed）与 `T-1786922726853`（app 250 passed）通过。下一步：新增独立 research_runs/research_run_events state.db 表及存储 API，再接 local/SSH Tool。
+- observed_head: 9d0fa9e92650bc19dcf2ebfaa9eea4db006c7e1a
+- observed_worktree_hash: fnv1a64:7c6b1526e1897446
+- recorded_at: 1788268768835
 
 ## R-345 实验环境登记表与运行时快照:声明与实况分离、环境漂移可见 [todo]
 - 内容: 按设计 §2.3/§2.4 实现环境管理:.kanzei/research/environments.md 手工登记契约(ENV-<name>、kind、host、归属、执行策略、gpu、workdir、运行时限、计费、凭据引用、准备步骤、状态);每次实验启动时采集 environment.json 快照(nvidia-smi、python/框架版本、可用显存、git commit 与工作树是否 dirty)存进结果产物目录并被结果事实引用;登记与快照不一致时显式标注环境漂移。执行策略按环境分档 relaxed/managed/approval/strict(A-018):managed/approval 走占用认领与结束或超时释放,approval 启动前给预估并等确认;凭据不入 Markdown 只存 secret 引用;远端首跑由人工准备并把步骤写进准备步骤字段供后续复用。
