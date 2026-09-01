@@ -8779,3 +8779,16 @@
 - observed_head: 0fb924ce09e6ae83e04cdb076208b04528801494
 - observed_worktree_hash: fnv1a64:6161a224e11eae21
 - recorded_at: 1788302932453
+
+## D-726 对话内搜索作用域是整个 messages 容器,会命中其他会话 [fixed] (medium)
+- 修复方向: 改用 activePane 作为查询根,与复制上下文(同文件 1047 行)保持同一作用域口径。
+- 来源: 主对话呈现勘察发现,锚点经复核确认。
+- 标签: 前端
+- 根因: crates/kanzei-app/ui/07-events.js:1093 updateSearch 用 `messages.querySelectorAll(".msg, .tool-chip")` 取候选,作用域是整个 messages 容器而不是当前 activePane。
+- 现象: 在对话内搜索时会命中当前会话之外的内容,跳转成空操作。
+- refs: R-350
+- 优先级: P2
+- 进展: 已完成并验证：`crates/kanzei-app/ui/07-events.js:1090-1094` 的 `updateSearch` 现在以 `activePane.querySelectorAll(".msg, .tool-chip")` 为唯一候选根，保留原有大小写归一、索引、标记和滚动逻辑；真实消费者为同文件 `:1138-1152` 的输入、Enter、前后跳转事件。`scripts/ui-runtime-smoke.mjs:3537-3574` 构造两个同时挂在 `#messages` 下的 pane，验证当前 pane 命中、其他 pane 不带 `search-hit`、计数为 `1/1`，直接覆盖原现象“命中其他会话并跳转空操作”。证据：`T-1786922726886` 的 node check、`node --experimental-vm-modules scripts/ui-runtime-smoke.mjs`（27 个脚本/2336 次 invoke/10 个主视图）与 UI lint（54 个文件）通过；`T-1786922726887` 的 `cargo test -p kanzei-app` 250 passed、0 failed、0 ignored。
+- observed_head: 919db73e6d27566a4c64aa0ca1cbd15ece5ba91b
+- observed_worktree_hash: fnv1a64:f3ab2053a2267fa2
+- recorded_at: 1788303280086

@@ -1090,7 +1090,7 @@ export let searchIndex = 0;
 export function updateSearch() {
   const query = $("chat-search-input").value.trim().toLowerCase();
   document.querySelectorAll(".search-hit, .search-current").forEach((el) => el.classList.remove("search-hit", "search-current"));
-  searchMatches = query ? [...messages.querySelectorAll(".msg, .tool-chip")].filter((el) => el.textContent.toLowerCase().includes(query)) : [];
+  searchMatches = query ? [...activePane.querySelectorAll(".msg, .tool-chip")].filter((el) => el.textContent.toLowerCase().includes(query)) : [];
   searchIndex = Math.min(searchIndex, Math.max(0, searchMatches.length - 1));
   searchMatches.forEach((el) => el.classList.add("search-hit"));
   if (searchMatches.length) {

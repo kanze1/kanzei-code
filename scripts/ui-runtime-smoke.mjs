@@ -3534,6 +3534,44 @@ await flush();
 assert(invokeLog.includes("memory_cleanup_demote"), "一键整理未调用后端整理流程");
 assert(listText("memory-flags-count").includes("2"), "整理后未刷新空闲整理清单计数");
 
+// ---------- D-726:对话搜索只在当前 activePane 内取候选 ----------
+// `messages` 同时挂着多个会话 pane。搜索必须和复制上下文一样只读当前 pane,
+// 否则命中别的会话后 scrollIntoView 会表现为空操作。
+{
+  const previousPane = vm.runInContext("activePane", sandbox);
+  const previousQuery = byId.get("chat-search-input").value;
+  const previousIndex = vm.runInContext("searchIndex", sandbox);
+  vm.runInContext(
+    "globalThis.__d726SearchPane = document.createElement('div'); __d726SearchPane.className = 'msg-pane';",
+    sandbox,
+  );
+  const scopedPane = vm.runInContext("__d726SearchPane", sandbox);
+  const currentHit = document.createElement("div");
+  currentHit.className = "msg";
+  currentHit.textContent = "D-726 当前会话关键词";
+  scopedPane.appendChild(currentHit);
+  const foreignPane = document.createElement("div");
+  foreignPane.className = "msg-pane";
+  const foreignHit = document.createElement("div");
+  foreignHit.className = "msg";
+  foreignHit.textContent = "D-726 其他会话关键词";
+  foreignPane.appendChild(foreignHit);
+  byId.get("messages").append(scopedPane, foreignPane);
+  vm.runInContext("activePane = __d726SearchPane", sandbox);
+  byId.get("chat-search-input").value = "d-726";
+  vm.runInContext("searchIndex = 0; updateSearch()", sandbox);
+  assert(currentHit.classList.contains("search-current"), "当前会话内的搜索命中未标记");
+  assert(!foreignHit.classList.contains("search-hit"), "对话搜索越过 activePane 命中其他会话");
+  assert(byId.get("chat-search-count").textContent === "1/1", "当前会话搜索计数未排除其他会话");
+  scopedPane.remove();
+  foreignPane.remove();
+  byId.get("chat-search-input").value = previousQuery;
+  sandbox.__d726PreviousPane = previousPane;
+  vm.runInContext(
+    `activePane = globalThis.__d726PreviousPane; searchIndex = ${previousIndex}; updateSearch(); delete globalThis.__d726PreviousPane; delete globalThis.__d726SearchPane;`,
+    sandbox,
+  );
+}
 // ---------- 主对话工具块:⎿ 摘要行与展开详情不得双写同一段文案(历史回放路径) ----------
 // 用户实测:一条 edit 失败,⎿ 行显示了一段文案,点开详情又把同一段完整贴了一遍。
 // 根因是摘要与详情各自独立地从同一份 content 取一遍,详情靠 `full !== preview` 去重,

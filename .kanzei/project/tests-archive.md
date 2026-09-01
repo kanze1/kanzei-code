@@ -11159,3 +11159,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-725 R-037
 - 收尾: 1788303013
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@ce1a87324d71
+
+## T-1786922726886 D-726 对话搜索 activePane 隔离回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/07-events.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 4.1s
+- 摘要: 搜索隔离回归通过：在两个挂载于 messages 的 pane 中，仅 activePane 的命中被标记，计数为 1/1；UI runtime（27 个脚本/2336 次 invoke/10 个主视图）与 lint（54 个文件）均通过。
+- 关联: D-726 R-350
+- 收尾: 1788303213
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@eda5f16c31fd
+
+## T-1786922726887 D-726 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.0s
+- 摘要: D-726 关联 kanzei-app 定向回归通过：250 passed，0 failed，0 ignored；搜索作用域改动未引入应用层回归。
+- 关联: D-726 R-350
+- 收尾: 1788303262
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@eda5f16c31fd
