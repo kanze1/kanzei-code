@@ -1060,6 +1060,20 @@ defer(() => {
         const head = el.querySelector(".head")?.textContent?.trim();
         const result = el.querySelector(".result")?.textContent?.trim();
         if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
+      } else if (el.classList.contains("agent-fold")) {
+        // 子代理组头是当前 pane 的顶层节点,工具块在 agent-fold-body 内。
+        // 这里沿用普通工具 chip 的摘要口径,逐块下钻但不把隐藏详情重复贴进上下文。
+        const role = el.querySelector(".agent-fold-role")?.textContent?.trim();
+        for (const tool of el.querySelectorAll(".tool-msg")) {
+          const name = tool.querySelector(".tool-msg-name")?.textContent?.trim();
+          const arg = tool.querySelector(".tool-msg-arg")?.textContent?.trim();
+          const result = tool.querySelector(".tool-msg-result")?.textContent?.trim();
+          const label = [name, arg].filter(Boolean).join(" ");
+          if (label) {
+            const owner = role ? `${t("子代理")}:${role}\n> ` : "";
+            parts.push(`> ${owner}${t("工具")}:${label.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
+          }
+        }
       } else if (el.classList.contains("turn-divider")) {
         parts.push(`---\n${el.textContent}`);
       } else if (el.classList.contains("pane-trimmed-hint") || el.classList.contains("earlier-hint")) {

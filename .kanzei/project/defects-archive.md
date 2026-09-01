@@ -8792,3 +8792,16 @@
 - observed_head: 919db73e6d27566a4c64aa0ca1cbd15ece5ba91b
 - observed_worktree_hash: fnv1a64:f3ab2053a2267fa2
 - recorded_at: 1788303280086
+
+## D-727 复制上下文只遍历顶层 children,子代理折叠组整组不导出 [fixed] (medium)
+- 修复方向: 改为按需递归进折叠组,或对已知的分组容器显式下钻;导出口径应与屏幕可见内容一致。
+- 来源: 主对话呈现勘察发现,锚点经复核确认。
+- 标签: 前端
+- 根因: crates/kanzei-app/ui/07-events.js:1047 `for (const el of activePane.children)` 只遍历顶层子节点;子代理折叠组是嵌套容器,其内部消息不在顶层,因此整组被跳过。
+- 现象: 用「复制上下文」把对话贴给其他 AI 时,子代理那一整组内容一条都没带出来,粘贴结果比屏幕上看到的少一大块。
+- refs: R-350
+- 优先级: P2
+- 进展: 已完成并验证：`crates/kanzei-app/ui/07-events.js:1047-1088` 保持当前 `activePane` 顶层遍历，并新增 `.agent-fold` 分支，在 `.agent-fold-body` 内逐个下钻 `.tool-msg`，导出子代理角色、工具名/参数摘要与结果，沿用普通工具 chip 的截断口径且不重复隐藏详情；真实入口仍是同文件 `:1045` 的 `copy-context` click 消费者。`scripts/ui-runtime-smoke.mjs:3889-3897` 点击真实复制入口，断言 architecture_scout 及首轮/第二轮结果均进入剪贴板文本，覆盖原现象“整组一条都没带出”。证据：`T-1786922726888` 的 node check、`node --experimental-vm-modules scripts/ui-runtime-smoke.mjs`（27 个脚本/2336 次 invoke/10 个主视图）与 UI lint（54 个文件）通过；`T-1786922726889` 的 `cargo test -p kanzei-app` 250 passed、0 failed、0 ignored。
+- observed_head: fdd0d545b0cf19bc5085a761b00a6899a7009b21
+- observed_worktree_hash: fnv1a64:7c34a4ec083cf350
+- recorded_at: 1788303514766

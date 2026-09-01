@@ -3886,6 +3886,16 @@ for (const role of scoutRoles.slice(1)) {
   assert(document.querySelector(`.agent-fold[data-agent-role=${role}]`), `角色 ${role} 没有自己的折叠组`);
 }
 
+// ---------- D-727:复制上下文包含子代理折叠组 ----------
+byId.get("copy-context").click();
+await flush();
+assert(
+  copiedResearchCitation.includes("architecture_scout") &&
+    copiedResearchCitation.includes("勘察简报首行") &&
+    copiedResearchCitation.includes("第二轮简报"),
+  "复制上下文漏掉子代理折叠组内的工具调用结果",
+);
+
 // ---------- D-237 活动面板:diff 汇总着色 + bash 完整输出可展开 ----------
 const d237ToolStart = handlers.get("kz:tool-start");
 const editEnd = handlers.get("kz:tool-end");

@@ -11175,3 +11175,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-726 R-350
 - 收尾: 1788303262
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@eda5f16c31fd
+
+## T-1786922726888 D-727 子代理折叠组复制回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/07-events.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 4.2s
+- 摘要: 复制上下文回归通过：真实折叠组内的 architecture_scout、首轮与第二轮工具结果均出现在复制文本；UI runtime（27 个脚本/2336 次 invoke/10 个主视图）与 lint（54 个文件）通过。
+- 关联: D-727 R-350
+- 收尾: 1788303421
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@358ab0212fc4
+
+## T-1786922726889 D-727 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.3s
+- 摘要: D-727 关联 kanzei-app 定向回归通过：250 passed，0 failed，0 ignored；复制上下文改动未引入应用层回归。
+- 关联: D-727 R-350
+- 收尾: 1788303471
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@358ab0212fc4
