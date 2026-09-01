@@ -380,3 +380,14 @@
 - 验收: ①从模板新建能在 topic 的 latex/ 得到可编译的完整项目骨架;②编译失败时错误可定位到 .tex 行;③PDF 可在应用内预览且历史版本可回看;④编译产物记录了当时的环境快照引用;⑤实验图表能被论文引用且路径在重建后仍有效。
 - refs: R-273 R-343
 - 优先级: P2
+
+## R-349 Tracker 机械对账:按提交与证据自动判定条目真实状态,消除过期 active 条目 [todo]
+- 内容: 实现一条机械对账链路:条目进展中声明的 commit / 源码指纹 → 当前 HEAD 与工作树 → 测试证据 → 应有状态,自动把每条 active 条目归入四类:stale(声明与现实不符)、implemented-uncommitted(改了没提交)、committed-unverified(提交了没证据)、verified-unclosed(证据齐了没关闭)。输出可供人核对,并让调度器在取活时避开已实现的过期条目。
+- 发现记录: {"Intent":"让 tracker 重新成为可信的事实源,避免调度器按过期状态取活并重复验证已发布代码","Explicit":"四类判定 stale/implemented-uncommitted/committed-unverified/verified-unclosed;判据链是 声明commit与指纹 → HEAD与工作树 → 测试证据 → 应有状态;只判定不自动改","Assumptions":"条目已有 observed_head / observed_worktree_hash / 测试记录三类字段可消费;verify 证据仍由既有门禁产出","Ambiguities":"是否在取活时硬拦过期条目还是只降权,本条按硬拦已判定为已实现的条目处理","领域对象":"Requirement、Defect、测试记录、observed_head、源码指纹、取活裁决","最小成功闭环":"对当前活动条目跑一次判定,四类各有实例且判据可回溯,D-718/D-719 不再被判为待修","延后决策":"自动改状态、自动关闭、归档策略调整、tests.md 活动面重建"}
+- 复杂度: 大
+- 来源: 用户原话「Tracker 已无法可靠表达当前真实状态」「这不是单纯文档问题。调度器把 tracker 当事实源,过期 active 条目会占用 WIP、污染 defect-first 取活,并使 Agent 不断重复验证已经发布的代码」「需要一个机械 reconcile」「我觉得这里说明我们的设计还有一些缺陷」。
+- 标签: 流程
+- 边界: 只做判定与报告,不自动改条目状态、不自动关闭——判定错了自动改会把错误固化;不替代 verify 门禁,只消费它已产出的证据;不动 tests-archive 的归档口径。
+- 验收: ①对每条 active 条目给出四类之一的判定与判据(引用的 commit、指纹、测试记录 id);②D-718/D-719 这类「修复提交已是 HEAD 祖先、条目仍 fixing 且正文写着未提交」被判为 committed-unverified 或 verified-unclosed 而非漏判;③声明的源码指纹未覆盖本次改动文件时(如 R-338 B4 的前端文件)判为证据不成立;④调度器取活时不再选中被判为已实现的过期条目。
+- refs: D-723 R-309
+- 优先级: P0
