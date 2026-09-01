@@ -26,7 +26,7 @@
 - [identity: live_design; last_verified_commit: 1ebbb218] [`research_experiment_runner.md`](../../../docs/design/research_experiment_runner.md)：Research 实验运行与路线图的字段与 Markdown 格式冻结(两层模型、@@kanzei 回调、本机+SSH、环境策略分档与路线图投影;A-014~A-019,R-343~R-348 承接)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`research_mode.md`](../../../docs/design/research_mode.md)：研究模式设计基线草案(2026-08-12 八维度审计维度 8 产出；八个定调点待用户确认,R-221 承接)。
 - [identity: live_design; last_verified_commit: dbafb50f] [`run_metrics_task_granularity.md`](../../../docs/design/run_metrics_task_granularity.md)：R-337 运行画像按执行任务关闭粒度的审计与设计草案；B1 已完成现状证据，B2 任务级方案待评审。
-- [identity: live_design; last_verified_commit: 288bb57a] [`run_metrics_task_migration.md`](../../../docs/design/run_metrics_task_migration.md)：R-339 历史 task 兼容、legacy/未归属对账、旧 API 过渡与 SQLite 备份回滚边界。
+- [identity: live_design; last_verified_commit: e3d77ea4] [`run_metrics_task_migration.md`](../../../docs/design/run_metrics_task_migration.md)：R-339 历史 task 兼容、legacy/未归属对账、旧 API 过渡与 SQLite 备份回滚边界。
 - [identity: live_design; last_verified_commit: d374cb9f] [`readme.md`](../../../docs/design/readme.md)：docs/design 的记录规范与文档模板；定义设计正文最小结构和方案变更规则。
 - [identity: live_design; last_verified_commit: d374cb9f] [`session_state_and_line_runtime.md`](../../../docs/design/session_state_and_line_runtime.md)：会话状态与线路运行态设计(状态持久化、恢复与并发线路隔离)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`subagent_management.md`](../../../docs/design/subagent_management.md)：子代理管理四层方案(R-058 done,策略层未实施)。
