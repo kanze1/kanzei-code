@@ -11091,3 +11091,40 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-347
 - 收尾: 1788300521
 - 源码指纹: v2 crates/kanzei-core/src/store/research_runs.rs@fb9f68a57a4e,crates/kanzei-tools/src/research_runner.rs@318390ca2ddb
+
+## T-1786922726877 R-347 B3 kanzei-tools 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: research_runner 预算预检、环境级/探索级上限、成本结算与回调投影回归通过；527 passed，1 ignored。
+- 关联: R-347
+- 收尾: 1788301717
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@5f10158d8b72,crates/kanzei-tools/src/research_environment.rs@4b69c3aadd7c,crates/kanzei-tools/src/research_runner.rs@f258108b8803
+
+## T-1786922726878 R-347 B3 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 桌面端 research snapshot 命令与 UI 消费链编译及测试通过；250 passed，2 ignored。
+- 关联: R-347
+- 收尾: 1788301721
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@5f10158d8b72,crates/kanzei-tools/src/research_environment.rs@4b69c3aadd7c,crates/kanzei-tools/src/research_runner.rs@f258108b8803
+
+## T-1786922726879 R-347 B3 frontend smoke 全部六项 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 六项前端冒烟全通过：runtime、lint、parallel-lines regression、a11y、i18n、markdown；runtime 0 错误。
+- 关联: R-347
+- 收尾: 1788301726
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@5f10158d8b72,crates/kanzei-tools/src/research_environment.rs@4b69c3aadd7c,crates/kanzei-tools/src/research_runner.rs@f258108b8803
+
+## T-1786922726880 D-731 clippy 修复后 kanzei-tools 定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 41.1s
+- 摘要: 修复 check_budget 返回类型后，fmt 通过；kanzei-tools 528 tests 中 527 passed、1 ignored、0 failed。
+- 关联: D-731 R-347
+- 收尾: 1788302131
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@5f10158d8b72,crates/kanzei-tools/src/research_environment.rs@4b69c3aadd7c,crates/kanzei-tools/src/research_runner.rs@8cfa7fa4cb78
+
+## T-1786922726881 D-731 clippy 修复后 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.7s
+- 摘要: kanzei-app 定向回归通过：250 passed，0 failed，0 ignored。
+- 关联: D-731 R-347
+- 收尾: 1788302252
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@5f10158d8b72,crates/kanzei-tools/src/research_environment.rs@4b69c3aadd7c,crates/kanzei-tools/src/research_runner.rs@8cfa7fa4cb78

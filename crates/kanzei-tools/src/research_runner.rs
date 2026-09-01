@@ -8,7 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use kanzei_core::{
-    parse_callback_line, project_state_path, CallbackStats, ResearchRunRecord, SessionStore,
+    load_research_topic, parse_callback_line, project_state_path, CallbackStats, ResearchRunRecord,
+    SessionStore,
 };
 use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,266 @@ use crate::research_environment::{load_environment, ResearchEnvironment};
 
 const DEFAULT_MAX_DURATION_MS: u64 = 60 * 60 * 1000;
 const METRIC_COALESCE_WINDOW_MS: i64 = 1_000;
+
+#[derive(Debug, Clone, Copy)]
+enum BudgetBasis {
+    GpuSeconds,
+    Amount,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BudgetLimit {
+    value: f64,
+    basis: BudgetBasis,
+}
+
+fn first_number(text: &str) -> Option<f64> {
+    let mut token = String::new();
+    let mut decimal = false;
+    for character in text.chars() {
+        if character.is_ascii_digit() {
+            token.push(character);
+        } else if character == '.' && !token.is_empty() && !decimal {
+            decimal = true;
+            token.push(character);
+        } else if !token.is_empty() {
+            break;
+        }
+    }
+    token.parse().ok()
+}
+
+fn parse_budget_limit(raw: &str) -> Result<BudgetLimit, String> {
+    let value = first_number(raw).ok_or_else(|| format!("预算 `{raw}` 缺少数值"))?;
+    if !value.is_finite() || value < 0.0 {
+        return Err(format!("预算 `{raw}` 必须是非负有限数"));
+    }
+    let normalized = raw.to_ascii_lowercase().replace('_', "-");
+    if normalized.contains("gpu-hour") || normalized.contains("gpu hour") {
+        return Ok(BudgetLimit {
+            value: value * 3600.0,
+            basis: BudgetBasis::GpuSeconds,
+        });
+    }
+    if normalized.contains("gpu-second") || normalized.contains("gpu second") {
+        return Ok(BudgetLimit {
+            value,
+            basis: BudgetBasis::GpuSeconds,
+        });
+    }
+    Ok(BudgetLimit {
+        value,
+        basis: BudgetBasis::Amount,
+    })
+}
+
+fn gpu_count(environment: Option<&ResearchEnvironment>) -> f64 {
+    environment
+        .and_then(|environment| first_number(&environment.gpu))
+        .unwrap_or(1.0)
+        .max(1.0)
+}
+
+fn billing_rate_per_gpu_hour(environment: Option<&ResearchEnvironment>) -> f64 {
+    environment
+        .map(|environment| {
+            let billing = environment.billing.to_ascii_lowercase();
+            if billing.contains("单价") || billing.contains("rate") {
+                first_number(&environment.billing).unwrap_or(0.0)
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0)
+        .max(0.0)
+}
+
+fn cost_json(
+    environment: Option<&ResearchEnvironment>,
+    environment_id: Option<&str>,
+    gpu_seconds: f64,
+    estimated_gpu_seconds: f64,
+) -> String {
+    let rate = billing_rate_per_gpu_hour(environment);
+    let amount = gpu_seconds / 3600.0 * rate;
+    let estimated_amount = estimated_gpu_seconds / 3600.0 * rate;
+    json!({
+        "environment_id": environment_id,
+        "billing": environment.map(|item| item.billing.as_str()).unwrap_or("unregistered"),
+        "gpu_count": gpu_count(environment),
+        "rate_per_gpu_hour": rate,
+        "gpu_seconds": gpu_seconds,
+        "amount": amount,
+        "estimated_gpu_seconds": estimated_gpu_seconds,
+        "estimated_amount": estimated_amount,
+        "currency": "billing_unit"
+    })
+    .to_string()
+}
+
+fn finalize_cost_json(run: &ResearchRunRecord, finished_at: i64) -> String {
+    let previous = serde_json::from_str::<Value>(&run.cost_json).unwrap_or_else(|_| json!({}));
+    let gpu_count = previous
+        .get("gpu_count")
+        .and_then(Value::as_f64)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let rate = previous
+        .get("rate_per_gpu_hour")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0)
+        .max(0.0);
+    let gpu_seconds = (finished_at.saturating_sub(run.started_at) as f64 / 1000.0) * gpu_count;
+    let amount = gpu_seconds / 3600.0 * rate;
+    let mut result = previous.as_object().cloned().unwrap_or_default();
+    result.insert("gpu_seconds".into(), json!(gpu_seconds));
+    result.insert("amount".into(), json!(amount));
+    Value::Object(result).to_string()
+}
+
+fn run_cost_values(run: &ResearchRunRecord) -> (f64, f64) {
+    let cost = serde_json::from_str::<Value>(&run.cost_json).unwrap_or_else(|_| json!({}));
+    let prefix = if run.status == "running" {
+        "estimated_"
+    } else {
+        ""
+    };
+    (
+        cost.get(format!("{prefix}gpu_seconds"))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0),
+        cost.get(format!("{prefix}amount"))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0),
+    )
+}
+
+fn run_environment_id(run: &ResearchRunRecord) -> Option<String> {
+    serde_json::from_str::<Value>(&run.execution_json)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("environment_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+}
+
+fn budget_warning(
+    scope: &str,
+    limit: BudgetLimit,
+    used_gpu_seconds: f64,
+    used_amount: f64,
+    estimated_gpu_seconds: f64,
+    estimated_amount: f64,
+) -> ToolOutput {
+    let projected = match limit.basis {
+        BudgetBasis::GpuSeconds => used_gpu_seconds + estimated_gpu_seconds,
+        BudgetBasis::Amount => used_amount + estimated_amount,
+    };
+    ToolOutput::failed(
+        "RESEARCH_BUDGET_EXCEEDED",
+        json!({
+            "scope": scope,
+            "limit": limit.value,
+            "projected": projected,
+            "used_gpu_seconds": used_gpu_seconds,
+            "used_amount": used_amount,
+            "estimated_gpu_seconds": estimated_gpu_seconds,
+            "estimated_amount": estimated_amount,
+            "message": format!("{scope} 预算已超限，停止发起新实验；在跑实验不受影响")
+        })
+        .to_string(),
+    )
+}
+
+fn check_budget(
+    store: &SessionStore,
+    root: &Path,
+    topic: &str,
+    exploration_id: &str,
+    environment_id: Option<&str>,
+    environment: Option<&ResearchEnvironment>,
+    max_duration_ms: u64,
+) -> Result<(), Box<ToolOutput>> {
+    let estimated_gpu_seconds = max_duration_ms as f64 / 1000.0 * gpu_count(environment);
+    let estimated_amount = estimated_gpu_seconds / 3600.0 * billing_rate_per_gpu_hour(environment);
+    let runs = store.list_research_runs(topic).map_err(|error| {
+        Box::new(ToolOutput::error(format!(
+            "读取 research 成本事实失败: {error}"
+        )))
+    })?;
+    let (exploration_gpu_seconds, exploration_amount) = runs
+        .iter()
+        .filter(|run| run.exploration_id == exploration_id)
+        .map(run_cost_values)
+        .fold((0.0, 0.0), |(gpu, amount), (next_gpu, next_amount)| {
+            (gpu + next_gpu, amount + next_amount)
+        });
+    if let Some(exploration) = match load_research_topic(root, topic) {
+        Ok(topic) => topic
+            .explorations
+            .into_iter()
+            .find(|item| item.frontmatter.id == exploration_id),
+        Err(_) => None,
+    } {
+        if let Some(raw) = exploration.frontmatter.budget.as_deref() {
+            let limit = parse_budget_limit(raw).map_err(|error| {
+                Box::new(ToolOutput::needs_correction(
+                    "INVALID_EXPLORATION_BUDGET",
+                    error,
+                ))
+            })?;
+            let projected = match limit.basis {
+                BudgetBasis::GpuSeconds => exploration_gpu_seconds + estimated_gpu_seconds,
+                BudgetBasis::Amount => exploration_amount + estimated_amount,
+            };
+            if projected > limit.value {
+                return Err(Box::new(budget_warning(
+                    "探索级",
+                    limit,
+                    exploration_gpu_seconds,
+                    exploration_amount,
+                    estimated_gpu_seconds,
+                    estimated_amount,
+                )));
+            }
+        }
+    }
+    if let (Some(environment_id), Some(environment_limit)) = (
+        environment_id,
+        environment.and_then(|item| item.budget_limit.as_deref()),
+    ) {
+        let limit = parse_budget_limit(environment_limit).map_err(|error| {
+            Box::new(ToolOutput::needs_correction(
+                "INVALID_ENVIRONMENT_BUDGET",
+                error,
+            ))
+        })?;
+        let (environment_gpu_seconds, environment_amount) = runs
+            .iter()
+            .filter(|run| run_environment_id(run).as_deref() == Some(environment_id))
+            .map(run_cost_values)
+            .fold((0.0, 0.0), |(gpu, amount), (next_gpu, next_amount)| {
+                (gpu + next_gpu, amount + next_amount)
+            });
+        let projected = match limit.basis {
+            BudgetBasis::GpuSeconds => environment_gpu_seconds + estimated_gpu_seconds,
+            BudgetBasis::Amount => environment_amount + estimated_amount,
+        };
+        if projected > limit.value {
+            return Err(Box::new(budget_warning(
+                "环境级",
+                limit,
+                environment_gpu_seconds,
+                environment_amount,
+                estimated_gpu_seconds,
+                estimated_amount,
+            )));
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Deserialize)]
 struct RunnerInput {
@@ -358,7 +619,13 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         metrics_last_json: "{}".into(),
         progress_json: "{}".into(),
         metrics_series_path: relative_ref(&ctx.project_root, &output_dir.join("metrics.jsonl")),
-        cost_json: "{}".into(),
+        cost_json: cost_json(
+            declared_environment.as_ref(),
+            input.environment_id.as_deref(),
+            0.0,
+            input.max_duration_ms.unwrap_or(DEFAULT_MAX_DURATION_MS) as f64 / 1000.0
+                * gpu_count(declared_environment.as_ref()),
+        ),
         callback_stats_json: serde_json::to_string(&CallbackStats::default()).unwrap_or_default(),
         heartbeat_at: None,
         terminal_log_path: relative_ref(&ctx.project_root, &terminal_log_path),
@@ -367,6 +634,17 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         Ok(store) => store,
         Err(error) => return ToolOutput::error(format!("打开 state.db 失败: {error}")),
     };
+    if let Err(output) = check_budget(
+        &store,
+        &ctx.project_root,
+        &input.topic,
+        &run.exploration_id,
+        input.environment_id.as_deref(),
+        declared_environment.as_ref(),
+        input.max_duration_ms.unwrap_or(DEFAULT_MAX_DURATION_MS),
+    ) {
+        return *output;
+    }
     if matches!(effective_policy, "managed" | "approval") {
         let Some(environment) = declared_environment.as_ref() else {
             return ToolOutput::needs_correction(
@@ -565,6 +843,7 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         .ok()
         .flatten()
         .is_some_and(|current| current.status == "cancelled");
+    run.cost_json = finalize_cost_json(&run, finished_at);
     run.finished_at = Some(finished_at);
     run.exit_code = exit_code;
     run.status = if cancelled {
@@ -896,7 +1175,9 @@ fn finish_failed(
     event_type: &str,
 ) -> ToolOutput {
     run.status = "failed".into();
-    run.finished_at = Some(unix_ms());
+    let finished_at = unix_ms();
+    run.finished_at = Some(finished_at);
+    run.cost_json = finalize_cost_json(&run, finished_at);
     let _ = append_event(
         &store,
         &run.result_id,
@@ -1396,6 +1677,89 @@ mod tests {
         );
         assert!(events.iter().any(|event| event.event_type == "progress"));
         assert!(events.iter().any(|event| event.event_type == "message"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cost_snapshot_records_gpu_seconds_and_billing_amount() {
+        let environment = ResearchEnvironment {
+            id: "ENV-gpu".into(),
+            status: "active".into(),
+            kind: "ssh".into(),
+            host: "gpu.example".into(),
+            owner: "test".into(),
+            policy: "relaxed".into(),
+            gpu: "2 × RTX 4090".into(),
+            workdir: "/data".into(),
+            runtime_limit: "1h".into(),
+            billing: "按卡时 | 单价 3600/h".into(),
+            budget_limit: None,
+            credential_ref: "secret://gpu".into(),
+            preparation_steps: "ready".into(),
+            notes: String::new(),
+        };
+        let cost = serde_json::from_str::<Value>(&cost_json(
+            Some(&environment),
+            Some("ENV-gpu"),
+            2.0,
+            10.0,
+        ))
+        .unwrap();
+        assert_eq!(cost["environment_id"], "ENV-gpu");
+        assert_eq!(cost["gpu_seconds"], 2.0);
+        assert_eq!(cost["amount"], 2.0);
+        assert_eq!(cost["estimated_amount"], 10.0);
+    }
+
+    #[test]
+    fn budget_check_rejects_new_run_before_spawn() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let environment = ResearchEnvironment {
+            id: "ENV-cap".into(),
+            status: "active".into(),
+            kind: "local".into(),
+            host: String::new(),
+            owner: "test".into(),
+            policy: "relaxed".into(),
+            gpu: "2 × GPU".into(),
+            workdir: ".".into(),
+            runtime_limit: "1h".into(),
+            billing: "单价 1/h".into(),
+            budget_limit: Some("0 gpu-second".into()),
+            credential_ref: String::new(),
+            preparation_steps: "ready".into(),
+            notes: String::new(),
+        };
+        let output = check_budget(
+            &store,
+            Path::new("C:/missing-project"),
+            "nas-search",
+            "E-001",
+            Some("ENV-cap"),
+            Some(&environment),
+            1_000,
+        )
+        .unwrap_err();
+        assert!(output.is_error);
+        assert_eq!(output.code, Some("RESEARCH_BUDGET_EXCEEDED"));
+        assert!(output.content.contains("环境级"));
+    }
+
+    #[test]
+    fn exploration_budget_is_checked_before_spawn() {
+        let root = std::env::temp_dir().join(format!("kz-research-budget-{}", unix_ms()));
+        let explorations = root.join(".kanzei/research/nas-search/explorations");
+        std::fs::create_dir_all(&explorations).unwrap();
+        std::fs::write(
+            explorations.join("E-001.md"),
+            "---\nkind: exploration\nid: E-001\ntopic: nas-search\ntitle: test\nstatus: running\nhypothesis: test\ndepends_on:\nsupersedes:\nentry_refs:\nenvironment: ENV-cap\nbudget: 0 gpu-second\ncreated_at: 1\nupdated_at: 1\n---\n\n## 假设\ntest\n\n## 实验结果\n| 实验 | 参数 | 状态 | 关键指标 | 产物 | 结论 |\n| --- | --- | --- | --- | --- | --- |\n\n## 结论\n待定\n",
+        )
+        .unwrap();
+        let store = SessionStore::open_in_memory().unwrap();
+        let output =
+            check_budget(&store, &root, "nas-search", "E-001", None, None, 1_000).unwrap_err();
+        assert!(output.is_error);
+        assert!(output.content.contains("探索级"));
         let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -21,6 +21,7 @@ pub struct ResearchEnvironment {
     pub workdir: String,
     pub runtime_limit: String,
     pub billing: String,
+    pub budget_limit: Option<String>,
     pub credential_ref: String,
     pub preparation_steps: String,
     pub notes: String,
@@ -158,6 +159,7 @@ fn validate_entry(
     let (workdir, _workdir_line) = get(&["workdir"]);
     let (runtime_limit, _) = get(&["运行时限", "runtime_limit"]);
     let (billing, _) = get(&["计费", "billing"]);
+    let (budget_limit, _) = get(&["预算上限", "budget_limit", "environment_budget"]);
     let (credential_ref, credential_line) = get(&["凭据引用", "credential_ref"]);
     let (preparation_steps, preparation_line) = get(&["准备步骤", "preparation_steps"]);
     let (notes, _) = get(&["备注", "notes"]);
@@ -228,6 +230,7 @@ fn validate_entry(
         workdir,
         runtime_limit,
         billing,
+        budget_limit: (!budget_limit.is_empty()).then_some(budget_limit),
         credential_ref,
         preparation_steps,
         notes,
@@ -265,5 +268,12 @@ mod tests {
             .diagnostics
             .iter()
             .any(|item| item.line == 6 && item.message.contains("secret://")));
+    }
+
+    #[test]
+    fn parses_optional_environment_budget_limit() {
+        let text = VALID.replace("- 凭据引用:", "- 预算上限: 12 gpu-hour\n- 凭据引用:");
+        let environment = &parse_environments_markdown(&text).unwrap()[0];
+        assert_eq!(environment.budget_limit.as_deref(), Some("12 gpu-hour"));
     }
 }

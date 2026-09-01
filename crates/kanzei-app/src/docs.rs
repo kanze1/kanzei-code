@@ -29,13 +29,27 @@ fn research_runs(root: &Path, topic: &str) -> Result<Vec<serde_json::Value>, Str
         .map(|runs| {
             runs.into_iter()
                 .map(|run| {
+                    let events = store
+                        .list_research_run_events(&run.result_id, 0)
+                        .unwrap_or_default();
                     let snapshot_path = root.join(&run.environment_snapshot_ref);
                     let environment = std::fs::read_to_string(snapshot_path)
                         .ok()
                         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
                         .unwrap_or_else(|| json!({}));
+                    let terminal_path = root.join(&run.terminal_log_path);
+                    let terminal_preview = std::fs::read(&terminal_path)
+                        .ok()
+                        .map(|bytes| {
+                            const PREVIEW_BYTES: usize = 64 * 1024;
+                            let start = bytes.len().saturating_sub(PREVIEW_BYTES);
+                            String::from_utf8_lossy(&bytes[start..]).into_owned()
+                        })
+                        .unwrap_or_default();
                     json!({
                         "run": run,
+                        "events": events,
+                        "terminal_preview": terminal_preview,
                         "environment": environment,
                         "drift": environment.get("drift").cloned().unwrap_or_else(|| json!({})),
                     })

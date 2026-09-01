@@ -596,6 +596,47 @@ export async function refreshResearchReport() {
   }
 }
 
+function researchRunPayload(event) {
+  if (!event) return {};
+  if (typeof event.payload_json === "string") {
+    try { return JSON.parse(event.payload_json); } catch { return {}; }
+  }
+  return event.payload_json ?? {};
+}
+
+function renderResearchRunMetricChart(card, events) {
+  const points = (events ?? [])
+    .filter((event) => event.event_type === "metric")
+    .map(researchRunPayload)
+    .filter((payload) => typeof payload.name === "string" && Number.isFinite(Number(payload.value)))
+    .slice(-80);
+  if (!points.length) return;
+  const chart = document.createElement("div");
+  chart.className = "research-run-chart";
+  const label = document.createElement("span");
+  label.className = "research-run-chart-label";
+  label.textContent = `${points[0].name}: ${Number(points.at(-1).value).toPrecision(5)}`;
+  chart.appendChild(label);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 320 80");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", `${points[0].name} metric curve`);
+  const values = points.map((point) => Number(point.value));
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+  polyline.setAttribute("fill", "none");
+  polyline.setAttribute("stroke", "currentColor");
+  polyline.setAttribute("stroke-width", "2");
+  polyline.setAttribute("points", values.map((value, index) =>
+    `${(index / Math.max(1, values.length - 1)) * 316 + 2},${76 - ((value - min) / span) * 72}`
+  ).join(" "));
+  svg.appendChild(polyline);
+  chart.appendChild(svg);
+  card.appendChild(chart);
+}
+
 export function renderResearchRuns() {
   const host = $("research-run-cards");
   if (!host) return;
@@ -612,6 +653,7 @@ export function renderResearchRuns() {
   }
   for (const item of runs) {
     const run = item.run ?? {};
+    const events = item.events ?? [];
     const card = document.createElement("article");
     card.className = "research-run-card";
     card.dataset.resultId = run.result_id ?? "";
@@ -634,9 +676,57 @@ export function renderResearchRuns() {
     meta.className = "research-run-meta";
     meta.textContent = `${run.policy || "relaxed"} · ${run.execution_json || ""}`;
     card.appendChild(meta);
+
+    let progress = {};
+    try { progress = JSON.parse(run.progress_json || "{}"); } catch { progress = {}; }
+    const done = Number(progress.done);
+    const total = Number(progress.total);
+    if (Number.isFinite(done) && Number.isFinite(total) && total > 0) {
+      const progressBox = document.createElement("label");
+      progressBox.className = "research-run-progress";
+      progressBox.textContent = `${t("进度")}: ${done}/${total}${progress.unit ? ` ${progress.unit}` : ""}`;
+      const bar = document.createElement("progress");
+      bar.max = total;
+      bar.value = Math.min(total, Math.max(0, done));
+      bar.title = progressBox.textContent;
+      progressBox.appendChild(bar);
+      card.appendChild(progressBox);
+    }
+    let cost = {};
+    try { cost = JSON.parse(run.cost_json || "{}"); } catch { cost = {}; }
+    const costLine = document.createElement("span");
+    costLine.className = "research-run-cost";
+    const gpuSeconds = Number(cost.gpu_seconds || 0);
+    const amount = Number(cost.amount || 0);
+    costLine.textContent = `${t("成本")}: ${gpuSeconds.toFixed(1)} gpu_seconds · ${amount.toFixed(4)} ${cost.currency || "billing_unit"}`;
+    card.appendChild(costLine);
+    renderResearchRunMetricChart(card, events);
+
+    const terminal = document.createElement("pre");
+    terminal.className = "research-run-terminal";
+    const messages = events
+      .filter((event) => event.event_type === "message")
+      .map((event) => {
+        const payload = researchRunPayload(event);
+        return `[${payload.level || "info"}] ${payload.text || ""}`;
+      });
+    terminal.textContent = [...messages, item.terminal_preview || ""].filter(Boolean).join("\n");
+    terminal.hidden = !terminal.textContent;
+    if (!terminal.hidden) card.appendChild(terminal);
     host.appendChild(card);
   }
 }
+
+let researchRefreshTimer = null;
+export function startResearchPolling() {
+  if (researchRefreshTimer) return;
+  researchRefreshTimer = setInterval(() => {
+    if ($("profile-select")?.value === "research" && $("view-research")?.classList.contains("active")) {
+      refreshResearch();
+    }
+  }, 1000);
+}
+
 
 export async function refreshResearch() {
   if (!currentProject) return;
@@ -719,6 +809,7 @@ defer(() => {
 export const DEV_ONLY_VIEWS = ["documents", "metrics", "arch"];
 export function syncResearchWorkspaceVisibility() {
   const isResearch = $("profile-select")?.value === "research";
+  if (isResearch) startResearchPolling();
   $("activity-research")?.classList.toggle("hidden", !isResearch);
   for (const view of DEV_ONLY_VIEWS) {
     document.querySelector(`.activity-item[data-view="${view}"]`)?.classList.toggle("hidden", isResearch);

@@ -121,7 +121,7 @@ code_ref: { repo, commit, dirty }              # dirty=true 时结论只能标 V
 environment_snapshot_ref                       # <result-id>/environment.json
 artifacts[]: { kind, path, bytes }             # checkpoint | figure | log | metric-series
 metrics_last: { name -> value }                # 末值;完整序列在指标产物里
-cost: { gpu_seconds, currency, amount, source } # §7
+cost: { environment_id, billing, gpu_seconds, currency, amount, rate_per_gpu_hour, estimated_* } # §7
 callback_stats: { parsed, malformed, truncated }
 ```
 
@@ -218,7 +218,7 @@ callback_stats: { parsed, malformed, truncated }
 ## 7. 付费资源控制
 
 - 每个环境登记计费口径(按卡时/包月/自有);每条结果记 `gpu_seconds` 与折算金额。
-- 预算旋钮两级:探索级 `budget`(frontmatter)与环境级上限;`approval` 档启动前先给预估。
+- 预算旋钮两级:探索级 `budget`(frontmatter)与环境级 `预算上限`(environments.md,支持 gpu-hour/gpu-second 或计费金额);`approval` 档启动前先给预估。
 - 超限行为:**停止发起新实验 + 显式告警**,不杀正在跑的、不静默继续烧钱。
 - **不做**:真实账单对接、自动扣费、跨环境成本优化调度。
 
@@ -311,6 +311,7 @@ callback_stats: { parsed, malformed, truncated }
 - workdir: /data/exp/nas-search
 - 运行时限: 24h
 - 计费: 自有 | 单价 0 | 结算方 —
+- 预算上限: 20 gpu-hour
 - 凭据引用: secret://gpu01/ssh
 - 准备步骤: 首次已人工完成:git clone <repo> 到 workdir;数据集软链到 /data/datasets;conda activate exp。后续实验直接复用本目录。
 - 备注: 卡 0-1 常被室友占,跑前看一眼 nvidia-smi。

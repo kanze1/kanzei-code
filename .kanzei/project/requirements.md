@@ -354,22 +354,6 @@
 - refs: R-343 R-276
 - 优先级: P2
 
-## R-347 实验实时监控与付费资源预算:指标曲线、终端回放与超限刹车 [doing]
-- 内容: 按设计 §6/§7 实现实时监控与成本控制:订阅实验事件流画指标曲线与进度条、message 与原始输出进终端视图;同名 metric 在时间窗内合并避免长跑事件风暴;重连从持久事实恢复。成本侧按环境计费口径记 gpu_seconds 与折算金额,支持探索级 budget 与环境级上限,超限停止发起新实验并显式告警。
-- 发现记录: {"Intent":"长跑实验期间能看见发生了什么,并且不会在无人看管时静默烧钱","Explicit":"实时指标/进度/终端可见;预算超限只停新 run 不杀在跑的","Assumptions":"R-344 已产出结构化事件流;R-345 已提供环境计费口径","Ambiguities":"曲线合并窗口大小、多指标同图的默认选择,本条按固定窗口与末值优先处理","领域对象":"run 事件流、metric 序列、进度、终端回放、cost 记账、budget 上限","最小成功闭环":"一次远程长跑实验:曲线与进度实时更新,断线重连恢复,预算超限后新 run 被拦","延后决策":"账单对接、成本优化调度、告警外发到手机、指标看板自定义布局"}
-- 复杂度: 中
-- 来源: 用户列出的关注点含「实时实验监控」与「付费资源控制」;本轮定调执行边界为「本机 + SSH 远程服务器」,成本按环境登记口径折算。
-- 标签: 前端
-- 边界: 不杀正在跑的实验;不做真实账单对接、自动扣费与跨环境成本优化调度;不做实验队列与并行调度;表现事件允许丢帧但持久事实不允许;不与 dev 任务级运行画像合并展示。
-- 验收: ①一次长跑实验的指标曲线与进度实时可见且不产生事件风暴;②断线重连后从持久事实恢复,不显示假运行中;③超过实验级或环境级预算时停止发起新 run 并告警,在跑的不被杀;④成本记账能追溯到具体 run 与环境计费口径。
-- refs: R-344 R-345
-- 优先级: P2
-- 批次: 2/3
-- 进展: 批次 2/3 已完成：本批新增 `crates/kanzei-core/src/store/research_runs.rs:206-304` 的指标事件窗口合并，固定 1 秒内同名 metric 更新同一持久事件；`crates/kanzei-tools/src/research_runner.rs:777-883` 将每个 metric 完整追加 `metrics.jsonl`、更新 `metrics_last_json` 末值映射、持久化 `progress_json`，并把结构化 message 写入可读终端日志。既有 B1 的 schema/事实列不重复计入本批。新增回归 `store::research_runs::tests::metric_events_coalesce_by_name_within_window_and_keep_latest_value` 与 `research_runner::tests::callback_projection_persists_metric_series_progress_and_readable_messages`；证据 `T-1786922726876`（cargo fmt 检查通过；kanzei-core 277 passed；kanzei-tools 523 passed，1 ignored）。下一步 B3：接入环境计费口径、gpu_seconds/金额累计、探索级与环境级预算检查及超限告警/拒绝新 run。
-- observed_head: e98b156a915bc6bdc19e066973b9d5ca9a06e715
-- observed_worktree_hash: fnv1a64:146303043d17d954
-- recorded_at: 1788300531903
-
 ## R-348 内置 LaTeX 模板与 PDF 预览:模板落项目、编译日志、PDF 历史版本、实验图表引用 [todo]
 - 内容: 按设计 §8 落地研究文档模板与 PDF 闭环:内置四套基础 LaTeX 模板(基础报告/基础论文/实验记录/带图表论文),新建论文或报告时选模板并复制进 topic 的 latex/;复用既有 LaTeX 专用通道编译,保留编译日志与错误定位;PDF 在应用内直接预览并保留历史版本;实验图表以路径引用插入论文;一次编译记为可追溯产物(.tex → 编译运行 → 编译日志 → PDF → 当时环境快照)。
 - 发现记录: {"Intent":"让研究结论能直接走到可发布的 PDF,而不必离开工具去手工搭 LaTeX 项目","Explicit":"只内置基础模板;不做外部模板导入与模板市场;PDF 应用内预览并保留历史版本","Assumptions":"R-273 的 LaTeX 编译通道可用;topic 目录结构沿用 research_mode.md §3","Ambiguities":"模板变量的填充方式与 PDF 历史版本的保留条数,本条按最小占位替换与保留全部编译产出处理","领域对象":"LaTeX 模板、latex/ 项目目录、编译运行、编译日志、PDF 版本、图表引用、环境快照","最小成功闭环":"选一套模板新建论文,插入一张实验图表,编译出 PDF 并在应用内预览,失败时错误可定位","延后决策":"外部模板导入、上游模板同步、模板市场、论文协作与版本合并"}

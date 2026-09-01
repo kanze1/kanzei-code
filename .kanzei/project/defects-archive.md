@@ -8713,3 +8713,27 @@
 - observed_head: e3d77ea46de118bfae93feaa3bf5299e95790304
 - observed_worktree_hash: fnv1a64:6f2f9aabafa89e5e
 - recorded_at: 1788267966813
+
+## D-730 before-anchor 插入调用重复保留锚点导致瞬时语法损坏 [fixed] (low)
+- 复现: 使用 insert(position=before) 时把原 anchor 同时放入 content，连续两次在 runner/environment 测试尾部造成重复闭合；读取实际尾部并删除重复段后恢复。
+- 影响: 编辑过程瞬时破坏 Rust 文件并触发编译门禁，增加提交前恢复成本；未逃逸到提交。
+- 来源: self-found / execution incident I-1788301173806-56、I-1788301297701-57
+- 标签: 流程
+- 进展: 已修复并复核：两次 execution incident 均已存在晋升互链（I-1788301173806-56、I-1788301297701-57 → D-730）；通过读取 `crates/kanzei-tools/src/research_runner.rs` 实际尾部删除重复闭合后，rustfmt/cargo check 恢复通过，未进入提交。
+- refs: R-347
+- 优先级: P3
+- observed_head: caf962b072f4d82d2577c182d5dc854d944c8071
+- observed_worktree_hash: fnv1a64:0655dd47abeb7782
+- recorded_at: 1788302173811
+
+## D-731 check_budget 返回大型 ToolOutput 触发 clippy result_large_err 阻断提交 [fixed] (low)
+- refs: R-347
+- 复现: 执行结构化 git commit 的 clippy 门禁，`crates/kanzei-tools/src/research_runner.rs:206` 报 `the Err-variant returned from this function is very large`。
+- 影响: R-347 B3 功能测试通过，但 Rust 提交门禁拒绝提交。
+- 来源: self-found / clippy gate
+- 标签: 核心
+- 进展: 修复完成并验证：`crates/kanzei-tools/src/research_runner.rs:206` 将 `check_budget` 返回值改为 `Result<(), Box<ToolOutput>>`，`227-252` 包装错误、`235-271` 包装预算超限结果，调用点 `628-638` 解包后保持原 `ToolOutput` 错误码/文案和 spawn 前拦截时序不变。证据 `T-1786922726880`：`cargo fmt --all -- --check; cargo test -p kanzei-tools` 通过，527 passed、1 ignored、0 failed。
+- 优先级: P2
+- observed_head: caf962b072f4d82d2577c182d5dc854d944c8071
+- observed_worktree_hash: fnv1a64:0655dd47abeb7782
+- recorded_at: 1788302184777

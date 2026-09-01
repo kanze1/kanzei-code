@@ -337,7 +337,7 @@ export const I18N_EN = {
   "输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送 · Ctrl/Cmd+P 命令面板 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止":
     "Enter a task to begin · permission requests appear as dialogs · Ctrl+Enter send · Ctrl/Cmd+K focus input · Ctrl/Cmd+Shift+N new chat · Ctrl/Cmd+Shift+C stop",
   "暂无测试记录": "No test runs", "暂无排队输入": "No queued input", "暂无时间": "No time",
-  "运行中": "Running", "等待模型响应": "Waiting for model response", "空闲": "Idle", "条任务": "tasks", "实验运行记录": "Experiment runs", "暂无实验运行记录": "No experiment runs", "未知运行": "Unknown run", "环境漂移": "Environment drift", "环境声明一致": "Environment declaration matches", "登记环境与运行配置一致": "Registered environment matches execution",
+  "运行中": "Running", "等待模型响应": "Waiting for model response", "空闲": "Idle", "条任务": "tasks", "实验运行记录": "Experiment runs", "暂无实验运行记录": "No experiment runs", "未知运行": "Unknown run", "环境漂移": "Environment drift", "环境声明一致": "Environment declaration matches", "登记环境与运行配置一致": "Registered environment matches execution", "进度": "Progress", "成本": "Cost",
   "主代理": "Primary agent", "并行线": "Parallel line", "点击切换到此线路": "Click to switch to this line", "并行任务状态": "Parallel task status",
   "关闭": "Close", "删除": "Delete", "已关闭": "Closed",
   "关闭该条目但保留后端历史与审计记录": "Close this entry but keep backend history and audit records",
