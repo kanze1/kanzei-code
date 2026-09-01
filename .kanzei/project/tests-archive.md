@@ -11128,3 +11128,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-731 R-347
 - 收尾: 1788302252
 - 源码指纹: v2 crates/kanzei-app/src/docs.rs@5f10158d8b72,crates/kanzei-tools/src/research_environment.rs@4b69c3aadd7c,crates/kanzei-tools/src/research_runner.rs@8cfa7fa4cb78
+
+## T-1786922726882 D-723 trim_tail 工具调用配对回归 [passed]
+- 命令: cargo test -p kanzei-core trim_tail
+- 时长: 1.0s
+- 摘要: trim_tail 相关 3 项回归全部通过，包含 D-723 工具调用/结果配对不变式；3 passed，274 filtered out。
+- 关联: D-723 R-202
+- 收尾: 1788302386

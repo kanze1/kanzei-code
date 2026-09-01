@@ -129,20 +129,6 @@
 - recorded_at: 1787732249253
 - 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与定向回归已完成，待新调研条目收口后提交/关闭；恢复人:agent
 
-## D-723 trim_tail 按下标删整条消息会把工具调用与结果拆成孤儿,Responses 协议直接 400 [open] (high)
-- 修复: trim_tail_for_protocol 循环结束后,若确实删过消息则补跑一次 crate::history::filter_message_history。它只会再删不会让 token 涨回线上,且与既有清洗口径同源,不引入第二套配对规则。
-- 回归: crates/kanzei-core/src/runner/context.rs 新增 trim_tail不得把工具调用与结果拆成孤儿:构造 12 轮 assistant(正文+ToolCall)+user(ToolResult),在 200..6000 步进 10 的预算上逐个验证不变式(trim 后的历史经 filter_message_history 应逐字节不变)。去掉修复后该测试在 budget=220 复现失败。
-- 来源: 用户上报运行中断:「致命错误 provider returned HTTP 400 ... No tool call found for function call output with call_id call_PHdQ9vdsuf8JcJ4HqV7cqYK3」,伴随「鞭挞停止:运行失败:致命错误,自动推进已停止」。
-- 标签: 核心
-- 根因: crates/kanzei-core/src/runner/context.rs 的 trim_tail_for_protocol 在压缩后仍超线时按下标逐条 messages.remove(i)。一次工具轮在历史里是两条消息:assistant(正文+ToolCall) 与 user(ToolResult)。循环的预算检查在顶部,一旦恰好在删掉 assistant 那条后就够线收手,留下的 user(ToolResult) 就是孤儿 function_call_output。装载期的 filter_message_history(drive/assembly.rs:142)清的是入参历史,清不到 trim_tail 之后新造的孤儿;enforce_context_budget 返回后直接建流发送,中间没有第二道清洗。assistant 那条带正文时删除它的 token 跳变足够大,断点落在两者之间的概率显著上升,所以真实长会话比构造样本更容易撞。
-- 现象: 鞭挞运行中出现致命错误并停机:provider returned HTTP 400 {"error":{"message":"No tool call found for function call output with call_id call_XXX","type":"invalid_request_error","param":"input"}}。表现为间歇性,长会话/长轮更容易触发。
-- refs: R-202
-- 优先级: P0
-- 进展: 修复已提交(09a655af)并有回归测试,但两点须知:①运行态是 2026-08-26 的安装版 kzapp.exe,源码改动未进二进制,当前进程里这条修复不生效;②经事件流核对,用户本次上报的 400 不是本条——那一轮压缩后 238446 <= budget 239232,trim 分支未执行。本条属真实潜伏缺陷(长会话压缩后仍超线时才走到),另立 D-724 追当前的确定性 400。
-- observed_head: 09a655af2466ddd2e1c688eb0fb8b910f5f70f10
-- observed_worktree_hash: fnv1a64:8d638449d776ebc9
-- recorded_at: 1788294668151
-
 ## D-724 压缩后仍产出孤儿 function_call_output:同一 call_id 每轮必现 400,与 trim_tail 无关 [open] (high)
 - 已排除: ①不是 D-723 的 trim_tail:压缩后 238446 <= budget 239232,enforce_context_budget 的 trim 分支条件 anchored>budget 不成立,trim_tail 本轮从未执行;②不是存储或投影写坏:全会话扫描 assistant_message_committed 与 tool_result_committed,无对应 tool_call 的 tool_result 为 0 条,该 call_id 在 seq 290321 的 assistant 消息里带 reasoning+tool_call 两个 part,290326 有配对结果;③不是装配漏清洗:drive/assembly.rs:142 对 prior 跑了 filter_message_history;④不是压缩切开配对:compaction_range_has_complete_tool_pairs 双向判定齐全,且 compact_with_digest 结尾对 rebuilt 再跑一次 filter_message_history;⑤不是序列化器:openai_responses.rs build_body 对 Assistant 的 Part::ToolCall 与 User 的 Part::ToolResult 是 1:1 映射,无条件丢弃。
 - 影响: 该会话历史约 388k token,每轮必触发压缩,故每轮必败,鞭挞无法继续。绕过办法:开新对话(历史不进压缩即不触发),持久事实在 tracker 里不丢。
