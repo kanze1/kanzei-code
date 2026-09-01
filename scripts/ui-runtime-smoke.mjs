@@ -3591,7 +3591,7 @@ assert(listText("memory-flags-count").includes("2"), "整理后未刷新空闲�
   assert(restOf(h4) === null, "只有一行结果时不该出展开区(展开了还是那一行 = 假承诺)");
 }
 
-// ---------- 活动面板：完整工具调用 + 筛选 + 信息量 + 可操作 ----------
+// ---------- 活动面板：终端与失败入列(R-168) + 筛选 + 信息量 + 可操作 ----------
 const toolStart = handlers.get("kz:tool-start");
 const toolEnd = handlers.get("kz:tool-end");
 const taskProgress = handlers.get("kz:task-progress");
@@ -3610,8 +3610,20 @@ toolStart({ payload: { id: "T3", name: "task", summary: "审查子代理", input
 await flush();
 const bashEntry = document.querySelector("#bg-list .bg-entry[data-bg-tool=bash]");
 assert(bashEntry, "活动面板缺少终端类条目");
-assert(document.querySelector("#bg-list .bg-entry[data-bg-id=T2]"), "成功 edit 未进入完整活动栏");
-assert(document.querySelector("#bg-list .bg-entry[data-bg-id=T3]"), "运行中的 task 未进入完整活动栏");
+assert(!document.querySelector("#bg-list .bg-entry[data-bg-id=T2]"), "成功 edit 不该进入活动栏(R-168)");
+assert(!document.querySelector("#bg-list .bg-entry[data-bg-id=T3]"), "不带 phase 的 task 不该进入活动栏(R-168)");
+// D-729:上面两条只看 DOM 结果,判据被抽空成恒真时它们会一起红但说不出原因。
+// 直接对谓词断言:c611f909 那次反转只改函数体就全绿通过了,因为当时的门禁(本文件 :142)
+// 只匹配调用点字符串。这一段让同类反转必须连断言一起改才能过。
+{
+  const isActivityToolFn = esmModuleCache.get("06-activity.js")?.namespace?.isActivityTool;
+  assert(typeof isActivityToolFn === "function", "R-168 isActivityTool 未导出,无法校验降噪判据");
+  assert(isActivityToolFn("bash") === true, "R-168:bash 必须入活动栏");
+  assert(isActivityToolFn("edit") === false, "R-168:成功 edit 不得入活动栏(判据被改成恒真了?)");
+  assert(isActivityToolFn("read") === false, "R-168:成功 read 不得入活动栏");
+  assert(isActivityToolFn("task", { phase: "scouting" }) === true, "R-173:编排派发的 task 必须入活动栏");
+  assert(isActivityToolFn("task", { prompt: "x" }) === false, "R-168:模型自派的 task 不得入活动栏");
+}
 assert(
   bashEntry.querySelector(".bg-tool")?.textContent === "bash"
     && bashEntry.querySelector(".bg-target")?.textContent.includes("cargo test"),
@@ -3700,7 +3712,7 @@ await flush();
 for (const role of scoutRoles) {
   assert(orchEntry(role), `编排派发的勘察子代理 ${role} 没进活动面板(内部进度整批丢掉)`);
 }
-  assert(orchEntry("MODEL_TASK"), "模型自己派的 task 未进入完整活动栏");
+  assert(!orchEntry("MODEL_TASK"), "模型自己派的 task 被一起放行了(R-168 静默口径被打破)");
 // ② 分组:按 input.phase 分区,这是 Running/Finished 分区的雏形。
 assert(orchGroup("scouting"), "勘察子代理未按 input.phase 分组");
 assert(
@@ -3885,13 +3897,13 @@ assert(
   assert(head.getAttribute("aria-expanded") === "false", "折叠后 aria-expanded 应为 false");
 }
 
-// ---------- 完整活动流 + bash 实时输出 + rail 侧栏开合 ----------
-// ① 成功工具也进入活动流,失败仍保留失败态。
+// ---------- 小工具降噪 + bash 实时输出 + rail 侧栏开合 ----------
+// ① 成功小工具静默,失败仍由 bgFinishQuiet 补建条目(R-168)。
 const quietBefore = document.querySelectorAll("#bg-list .bg-entry").length;
   toolStart({ payload: { id: "Q1", name: "read", summary: "crates/kanzei/src/main.rs", input: { path: "crates/kanzei/src/main.rs" }, sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "Q1", name: "read", ok: true, preview: "1 //! kz", display: null, sessionId: "sess-smoke" } });
 await flush();
-assert(document.querySelectorAll("#bg-list .bg-entry").length === quietBefore + 1, "成功的 read 未进入完整活动流");
+assert(document.querySelectorAll("#bg-list .bg-entry").length === quietBefore, "成功的 read 仍进了活动流(小工具降噪未生效)");
   toolStart({ payload: { id: "Q2", name: "req", summary: "update R-999", input: { action: "update" }, sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "Q2", name: "req", ok: false, preview: "找不到 R-999", display: null, sessionId: "sess-smoke" } });
 await flush();
@@ -4043,7 +4055,10 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
     "运行日志里仍直接拼后端 summary(edit 在日志里还是一坨入参 JSON)",
   );
   // summary 缺省时不能抛:事件里 summary 并非必填,`summary.slice()` 会把整条事件链打断。
+  // D-729:read 成功路径已按 R-168 静默,所以这里用**失败的 read**探同一件事——
+  // 它同时覆盖了 bgFinishQuiet 的补建路径与 summary 缺省的回落链,比原来只探回落更严。
   toolStart({ payload: { id: "BGJ2b", name: "read", input: { path: "crates/kanzei/src/main.rs" }, sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "BGJ2b", name: "read", ok: false, preview: "permission denied", display: null, sessionId: "sess-smoke" } });
   await flush();
   assert(
     bgEntry("BGJ2b")?.querySelector(".bg-target")?.textContent.includes("crates/kanzei/src/main.rs"),

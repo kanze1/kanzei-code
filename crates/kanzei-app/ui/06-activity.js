@@ -133,9 +133,14 @@ export function syncBgRoleFilterOptions() {
   }
   select.value = roles.includes(current) || current === "all" ? current : "all";
 }
-// 活动栏现在保留完整工具轨迹。主对话仍然是主要阅读区,但活动面板需要回答
-// 「刚才实际做了什么、现在卡在哪、失败在哪里」,不能把 read/grep/edit 等成功调用
-// 静默到只剩终端和错误,否则用户看到的就是空白面板。
+// R-168(用户原话「不要在活动栏记录所有工具,edit啥的,只记录报错的和非工具的 bash」):
+// 活动栏只收**终端类调用**与**失败调用**。成功的 read/grep/edit/tracker 类走 bgStartQuiet 静默,
+// 失败时由 bgFinishQuiet 补建条目——「只记录报错的」靠的是收尾补建,不是入列时就全收。
+// R-173 开了唯一例外:编排派发的勘察/复核子代理 name 恒为 "task",不经模型 tool call,
+// 主对话没有内联工具块兜底,只看 name 会把它们连同模型自派的 task 一起静默。
+// —— c611f909(2026-08-12)曾把两个判据改成恒真/恒假,未带条目编号也未动 tracker,
+// R-168 却一直显示 [done];D-729 按用户重申的原意恢复。要改口径请改 BG_TOOL_TYPES 或
+// 在此加显式集合,别再回到恒真——恒真等于没有判据。
 export const ORCH_PHASES = new Set(["scouting", "review"]);
 export function orchPhaseOf(input) {
   const phase = input?.phase;
@@ -147,7 +152,7 @@ export function orchPhaseLabel(phase) {
   return phase === "scouting" ? t("勘察") : t("复核");
 }
 export function isActivityTool(name, input) {
-  return Boolean(name);
+  return bgIsTerminal(name) || (name === "task" && orchPhaseOf(input) !== null);
 }
 
 export const BG_TOOL_TYPES = {
@@ -157,11 +162,11 @@ export const BG_TOOL_TYPES = {
   task: "agent",
   memory_note: "memory", memory_search: "memory", memory_stats: "memory",
 };
-// 保留这个待收尾表是为了兼容历史回放路径；当前实时工具调用统一进入活动栏，
-// 因此 bgQuiet 固定返回 false，成功/失败都保留完整轨迹。
+// 静默调用先挂这里等收尾:成功就无声丢弃,失败由 bgFinishQuiet 补建真实条目。
+// R-168 的「只记录报错的」那一半就是靠它兑现的,不是靠入列判据。
 export const bgPending = new Map(); // call_id -> {name, summary, input, startedAt}
 export function bgQuiet(name, input) {
-  return false;
+  return !isActivityTool(name, input);
 }
 export function bgStartQuiet(id, name, summary, input) {
   if (!id) return;
