@@ -36,6 +36,10 @@ pub(crate) fn register_tools(draft: &mut HarnessDraft) {
         Arc::new(crate::research_loop::ResearchLoopTool),
     );
     draft.tools.insert(
+        "research_runner",
+        Arc::new(crate::research_runner::ResearchRunnerTool),
+    );
+    draft.tools.insert(
         "research_write",
         Arc::new(crate::research_write::ResearchWriteTool),
     );
@@ -154,6 +158,11 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
         draft
             .permissions
             .push(rule("research_plan", resource, Effect::Allow));
+    }
+    for resource in ["write:run", "read:get"] {
+        draft
+            .permissions
+            .push(rule("research_runner", resource, Effect::Allow));
     }
     for resource in [
         "read:resume",

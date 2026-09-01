@@ -334,11 +334,11 @@
 - 验收: ①本机与 SSH 两条路径都能跑完一次真实实验并留下结果事实、产物与回写的结果表行;②坏 JSON、超长行、未知事件不终止运行且计入 callback_stats;③取消与远端强杀都能收敛到终态,heartbeat 超时判定卡死;④断线重连后视图从持久事实恢复,不显示假运行中;⑤research 档 bash 仍为硬 deny,运行器不成为绕过通道;⑥新环境缺准备步骤时运行器询问并记录,不自行同步文件。
 - refs: R-343 R-221
 - 优先级: P1
-- 批次: 2/4
-- 进展: 批次 2/4：在 B1 callback 内核基础上，新增 `crates/kanzei-core/src/store/research_runs.rs` 的 `SessionStore::upsert_research_run/get_research_run/append_research_run_event/list_research_run_events`；`crates/kanzei-core/src/store/mod.rs` 增加 `ResearchRunRecord/ResearchRunEvent` 事实结构；`crates/kanzei-core/src/store/schema.rs` 将 state.db schema 升至 v19，新增 research_runs、research_run_events 及回放索引，并更新对象/列冻结判据与上一版存量库迁移测试。测试 `T-1786922726856`（facts 1 passed）、`T-1786922726857`（schema 26 passed）、`T-1786922726858`（core 273/app 250 passed）通过；初次清单排序失败已登记 `T-1786922726855` 并修复。下一步：在 kanzei-tools 接入 local/SSH 进程执行、逐行 callback 消费、终态/heartbeat/cancel 收敛和产物/终端日志落盘。
-- observed_head: d7878698a4e5886070c55f8fc6340632586bb7f9
-- observed_worktree_hash: fnv1a64:10d864d2ee3da74c
-- recorded_at: 1788269541682
+- 批次: 3/4
+- 进展: 批次 3/4：在 B2 事实存储基础上，新增 `crates/kanzei-tools/src/research_runner.rs` 并在 `crates/kanzei-tools/src/profiles/research.rs:38-41` 注册；`run` 通过 local shell 或系统 `ssh -o BatchMode=yes` 启动人工准备命令，逐行调用 core `parse_callback_line`，把 callback 事件、callback_stats、heartbeat/metric、普通 stdout/stderr、terminal.log、environment.json、artifact 复制与 `artifacts_json` 写入事实；`get` 从 `state.db` 回读 run/events。research profile 仅放行 `research_runner` 的 write:run/read:get，bash 硬拒绝仍在 `profiles/research.rs:133-138`。测试 `T-1786922726859`：kanzei-tools 516 passed、1 ignored，runner 3 项均实际执行通过。下一步 B4：补 cancel/远端强杀终态、heartbeat 超时 stuck、断线恢复及探索结果表回写；不把 B3 的局部 SSH 构造测试冒充真实远端链路。
+- observed_head: 2de93d524ba4d3178c762e9e689952da8a9ea949
+- observed_worktree_hash: fnv1a64:c88b9315a97638a8
+- recorded_at: 1788270691971
 
 ## R-345 实验环境登记表与运行时快照:声明与实况分离、环境漂移可见 [todo]
 - 内容: 按设计 §2.3/§2.4 实现环境管理:.kanzei/research/environments.md 手工登记契约(ENV-<name>、kind、host、归属、执行策略、gpu、workdir、运行时限、计费、凭据引用、准备步骤、状态);每次实验启动时采集 environment.json 快照(nvidia-smi、python/框架版本、可用显存、git commit 与工作树是否 dirty)存进结果产物目录并被结果事实引用;登记与快照不一致时显式标注环境漂移。执行策略按环境分档 relaxed/managed/approval/strict(A-018):managed/approval 走占用认领与结束或超时释放,approval 启动前给预估并等确认;凭据不入 Markdown 只存 secret 引用;远端首跑由人工准备并把步骤写进准备步骤字段供后续复用。
