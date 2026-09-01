@@ -189,6 +189,14 @@
                和输入框贴在一起,而不是散在窗口最上沿。右端收低频菜单。 -->
           <div id="composer-context" class="composer-context">
             <span id="project-label" class="ctx-chip ctx-project" title="当前项目" data-i18n-title="当前项目"></span>
+            <!-- R-342:模式芯片常驻。它原来埋在鞭挞「设置」弹出面板里——对话期间唯一必须
+                 一眼可见的档位事实,却要点开两层才看得到,结果是「现在是结伴还是自主」全凭记忆。
+                 这里**不新增第二个真源**:选择器本体整个搬过来,设置面板只留门禁强度这条后果回显。 -->
+            <select id="profile-select" class="ctx-select ctx-mode" title="运行模式:结伴开发=有人监督、轻门禁;自主推进=无人监督、重门禁,只有它允许鞭挞" data-i18n-title="运行模式:结伴开发=有人监督、轻门禁;自主推进=无人监督、重门禁,只有它允许鞭挞">
+              <option value="dev-pair"><span data-i18n-key="结伴开发">结伴开发</span></option>
+              <option value="dev-auto"><span data-i18n-key="自主推进">自主推进</span></option>
+              <option value="research"><span data-i18n-key="research 研究">research 研究</span></option>
+            </select>
             <select id="model-select" class="ctx-select" title="模型(agent 默认或直选)" data-i18n-title="模型(agent 默认或直选)"></select>
             <select id="reasoning-select" class="ctx-select" title="思考强度(仅推理模型有效;越高越慢越贵)" data-i18n-title="思考强度(仅推理模型有效;越高越慢越贵)">
               <option value=""><span data-i18n-key="思考:默认">思考:默认</span></option>
@@ -258,17 +266,6 @@
                 <div class="autorun-menu" role="group" aria-label="鞭挞设置" data-i18n-aria-label="鞭挞设置">
                   <div class="menu-section">
                     <span class="menu-section-label" data-i18n-key="模式">模式</span>
-                    <label class="menu-row" for="profile-select">
-                      <span class="menu-row-main">
-                        <span class="menu-row-title" data-i18n-key="运行模式">运行模式</span>
-                        <span class="menu-row-desc" data-i18n-key="只有自主推进档允许鞭挞;档位不对引擎会直接停机">只有自主推进档允许鞭挞;档位不对引擎会直接停机</span>
-                      </span>
-                      <select id="profile-select" title="模式" data-i18n-title="模式">
-                        <option value="dev-pair"><span data-i18n-key="结伴开发">结伴开发</span></option>
-                        <option value="dev-auto"><span data-i18n-key="自主推进">自主推进</span></option>
-                        <option value="research"><span data-i18n-key="research 研究">research 研究</span></option>
-                      </select>
-                    </label>
                     <!-- R-322:门禁强度是模式的**后果**,不是第二个开关。做成只读回显
                          是有意的——用户抱怨的是「区别不够明显」,不是「少一个旋钮」。
                          逐条列出这一档下引擎会不会插手,选模式时就看得见代价。 -->

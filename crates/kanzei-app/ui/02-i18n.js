@@ -235,6 +235,7 @@ export const I18N_EN = {
   "鞭挞设置": "Auto-run settings",
   "清零轮次并重新开始鞭挞": "Reset the round count and restart auto-run",
   "运行模式": "Run mode",
+  "运行模式:结伴开发=有人监督、轻门禁;自主推进=无人监督、重门禁,只有它允许鞭挞": "Run mode: Paired development = supervised, light harness; Self-directed progress = unsupervised, heavy harness and the only mode that allows Auto-run",
   "只有自主推进档允许鞭挞;档位不对引擎会直接停机": "Auto-run requires the self-directed profile; any other profile makes the engine stop.",
   "取活顺序": "Queue order",
   "两条队列都有可执行条目时先取哪一队": "Which queue to pull from when both have ready items.",

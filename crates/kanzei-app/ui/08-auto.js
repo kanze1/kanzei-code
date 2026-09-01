@@ -95,6 +95,11 @@ export function harnessIntensityOf(agentName) {
 // 逐条列出这一档下引擎会不会插手。用户抱怨的是「区别不够明显」,所以不能只写
 // 「轻/重」两个字——要把具体让渡了什么写出来。
 export function renderHarnessIntensity() {
+  // R-342:模式芯片的配色搭同一趟车。它与门禁强度是同一件事的两个面：
+  // 芯片告诉你现在是哪个人格,强度告诉你这个人格下引擎会插手到什么程度。
+  // 不另起监听器:三处调用点(冷启动/进程回显/用户切换)已经覆盖全,多挂一个只会多一处漏调。
+  const chip = $("profile-select");
+  if (chip) chip.dataset.mode = chip.value;
   const badge = $("harness-intensity-badge");
   const desc = $("harness-intensity-desc");
   if (!badge || !desc) return;

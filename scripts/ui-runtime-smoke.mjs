@@ -5358,6 +5358,32 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   kzTest.cancelTimers();
 }
 
+// ---------- R-342 模式芯片常驻:选择器在上下文行,配色随档位 ----------
+// 「区别不够明显」的根因不是缺一个旋钮,是唯一的旋钮埋在鞭挞设置弹层里——对话时
+// 根本不在视野内。这里锁两件事:①选择器留在 composer-context(不许再退回弹层);
+// ②data-mode 与 value 同步(配色靠它,漂了就等于没换色)。
+{
+  const contextRow = html.slice(html.indexOf('id="composer-context"'), html.indexOf('id="attachments"'));
+  assert(
+    contextRow.includes('id="profile-select"') && contextRow.includes("ctx-mode"),
+    "R-342:模式选择器必须常驻输入框上方的上下文行(带 ctx-mode 芯片样式)",
+  );
+  const savedProfileR342 = byId.get("profile-select").value;
+  for (const mode of ["dev-auto", "dev-pair", "research"]) {
+    byId.get("profile-select").value = mode;
+    byId.get("profile-select").dispatchEvent({ type: "change" });
+    await flush();
+    assert(
+      byId.get("profile-select").dataset.mode === mode,
+      `R-342:切到 ${mode} 后芯片 data-mode=${byId.get("profile-select").dataset.mode},配色会停在上一档`,
+    );
+  }
+  byId.get("profile-select").value = savedProfileR342;
+  byId.get("profile-select").dispatchEvent({ type: "change" });
+  await flush();
+  kzTest.cancelTimers();
+}
+
 // ---------- R-226 后台控制事件与双线路 timer 必须按 session 隔离 ----------
 {
   const lines = [

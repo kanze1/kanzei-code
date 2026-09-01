@@ -88,3 +88,25 @@
 
 ## A-013 独立验证者暂不建设:容忍本地 self-report 验证闭环 [draft]
 - 内容: 2026-08-18 用户拍板:ci.yml 无 runner、VerificationRun 四角色体系(reliability_usability_self_hosting_quality.md:300-352)零实现的现状予以容忍,不投入独立验证者建设;自举 agent 的测试通过继续接受 self-report,防线保持结果侧快照+回滚(与威胁模型「自用工具无敌对模型」一致)。若未来出现 self-report 与真实状态背离的实证(如 D-496 类交付丢失再发),可凭该证据重开此决策
+
+## A-014 Research Mode 采用终端事件回调协议 [accepted]
+- 事件: 首批支持 stage、metric、progress、artifact、checkpoint、message、heartbeat、result；运行器另行记录 run_started、run_finished、run_failed、run_cancelled、environment_captured。
+- 事实边界: 高频 terminal 与指标进入运行事件流/日志/指标产物；稳定研究事实由实验结束后的 Markdown 摘要维护，不把每条回调写入事实文档。
+- 关联: Research Mode 实验运行、实时监控、环境管理与路线图
+- 决策: Research Experiment Runner 以带 `@@kanzei` 前缀的单行 JSON 作为通用 terminal callback 协议；普通 stdout/stderr 原样保留，带前缀的行解析为结构化实时事件。
+- 来源: 用户确认：“确认采用”
+- 范围: 支持任意语言、远程 SSH 和本地运行；第一版不依赖 W&B、TensorBoard 或云端账户，后续可提供语言级便利封装。
+
+## A-015 实验路线图以 Experiment Markdown 为唯一真源,图是只读投影 [accepted]
+- 依据: 用户逐点定调「实验为主」与「实验 Markdown 为真源」;双真源必然漂移,项目已在 D-276/D-294 一族付过学费(同一事实两个落点,最后两边都不可信)。图可被完整重建,叙事不能,所以机器关系归字段、叙事归 route.md。
+- 决定: Research 实验路线图的主节点是 Experiment;假设、结果、结论是节点的上下文,多次 Run 不单独占主图节点而进实验详情。路线关系(depends_on / supersedes)写在每个实验 Markdown 的 frontmatter,是唯一真源;路线图是可整块重建的只读投影。route.md 若保留只写研究者的总体叙事与人工注释,不承载机器关系。
+- 备注: 完整字段与段落契约见 docs/design/research_experiment_runner.md §1/§2/§4。重议须新开设计文档说明理由。
+- 日期: 2026-09-01
+- refs: R-343 R-346
+
+## A-016 Experiment Runner 第一版执行边界=本机+SSH,环境=手工登记+运行时快照 [accepted]
+- 依据: 用户在两个选项集上分别选定「本机 + SSH 远程服务器」与「手工登记 + 运行时快照」。调度器会把第一版字段扩到 job_id/队列/资源申请,工作量显著变大且当前无此场景;全自动探测省事但要先写探测器与容错,而环境漂移本就是结果不可比的头号原因,声明与实况分开记才看得见。
+- 决定: Research Experiment Runner 第一版只做两种执行:本机起进程与 SSH 远程服务器(复用系统 ssh 客户端);不做 Slurm/K8s 作业调度器提交与容器编排。服务器与显卡环境由用户手工登记在 .kanzei/research/environments.md,每次 Run 启动时另抓一份 environment.json 运行时快照;登记表是声明、快照是实况,两者不一致显式标注环境漂移,不静默覆盖登记表。运行器是专用工具通道,不为此给 research 档开 bash。
+- 备注: 字段清单见 docs/design/research_experiment_runner.md §2.2/§2.4/§5;research 档 bash 硬 deny 的原始定调见 research_mode.md 定调点 6。
+- 日期: 2026-09-01
+- refs: R-344 R-345

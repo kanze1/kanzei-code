@@ -358,3 +358,72 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787898137370
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：真实收口覆盖显式 task start/close、长 session 多任务、未关闭、legacy、失败和 task→session→round 下钻；不以替身或单测替代真实链路。
+
+## R-342 运行模式芯片常驻:模式选择器移出鞭挞设置弹层并按档位配色 [doing]
+- 内容: 把 #profile-select 从鞭挞「设置」弹出面板整体搬到输入框上方的 composer-context 上下文行,做成常驻可点击切换的芯片;三档(结伴开发/自主推进/research)由 JS 写 data-mode,CSS 按档位给中性/告警/信息三套配色;设置面板保留门禁强度这条只读后果回显,不留第二个模式控件。
+- 复杂度: 小
+- 来源: 用户原话「autorun模式和用户结伴模式，虽然是两套提示词，但是我在对话区分不够明显，你做一个当前模式的选择呢?」;追问后用户选定「常驻模式芯片(点击切换)」一层,未选消息徽标与整区换色。
+- 标签: 前端
+- 边界: 只改前端呈现位置与配色,不改模式语义、agent 选择、鞭挞准入判据与后端 profile 存档;不新增第二个模式真源,不做每条消息的模式徽标与对话区整体换色(用户本轮只选了常驻芯片)。
+- 验收: ①#profile-select 位于 #composer-context 内且带 ctx-mode 类,ui-runtime-smoke 机械断言不许退回弹层;②切换三档后 data-mode 与 value 同步,有运行时断言;③ui-i18n/ui-a11y/ui-lint/ui-runtime 冒烟全过;④设置面板不再出现第二个模式选择控件。
+- refs: R-322
+- 优先级: P1
+- 进展: 2026-09-01 已落地并通过前端全部冒烟(ui-i18n / ui-a11y / ui-lint / ui-markdown / ui-narrow-layout / parallel-lines-regression / ui-runtime,后者带 R-342 新增断言):#profile-select 已移入 composer-context 并带 ctx-mode 芯片样式,style.css 按 data-mode 给三档配色,renderHarnessIntensity 同步 data-mode,鞭挞设置面板只留门禁强度只读回显。关闭欠 verify.ps1 证据:主工作树当前持有他人未提交 WIP(crates/kanzei-app/src/commands/run.rs、kanzei-core/src/store/task.rs 等 R-338 一线改动),verify 要求工作树干净,须等该线收口或在隔离工作树内补跑后再关闭。
+- observed_head: 1ebbb218afa1b970ab52ae4c50c695da038634ea
+- observed_worktree_hash: fnv1a64:7fdf349684490654
+- recorded_at: 1788257559741
+
+## R-343 Research 实验事实模型与 Markdown 真源:Experiment/Run/Result/Environment 字段落地 [todo]
+- 内容: 按 docs/design/research_experiment_runner.md §2 落地实验事实模型:experiments/E-<n>.md 的 frontmatter(kind/id/topic/title/status/hypothesis/depends_on/supersedes/entry_refs/environment/budget/时间戳)与固定段落(假设/参数/运行/结果/结论/后续)解析与校验;topic 内 E- 编号分配;experiments/ 与 runs/ 目录骨架;参数段摘要 params_digest 生成。
+- 发现记录: {"Intent":"让实验路线关系与实验事实有唯一可解析的真源,避免图与文件双真源漂移","Explicit":"节点=Experiment;关系写在实验 frontmatter 的 depends_on/supersedes;route.md 只写人工叙事","Assumptions":"沿用 tracker 的单行值口径;topic 目录结构沿用 research_mode.md §3","Ambiguities":"E- 编号是否跨 topic 全局唯一、参数表是否需要类型约束,本条按 topic 内唯一与纯文本处理","领域对象":"Experiment、Run 引用、Result 段、Environment 引用、topic 目录、params_digest","最小成功闭环":"一个 topic 下两个互相依赖的实验文件被解析成对象与边,坏字段有诊断","延后决策":"跨 topic 引用、实验模板生成、Markdown 到 LaTeX 的实验表导出"}
+- 复杂度: 中
+- 来源: 用户原话「Markdown 事实格式:route.md、experiment.md、run.md、result.md、环境文档和快照」;本轮定调「实验 Markdown 为真源」,路线图只是投影。
+- 标签: 核心
+- 边界: 只做事实模型与 Markdown 契约,不实现运行器、不连服务器、不做路线图前端;不引入嵌套 YAML,单行值口径与 tracker 一致;不把高频回调写进 Markdown;不改 research_mode.md 已验收的工件落点。
+- 验收: ①能从一个 topic 的 experiments/*.md 解析出完整对象并对缺字段/坏枚举报出可定位诊断;②E- 编号在 topic 内唯一且并发新建不撞号;③参数段变更导致 params_digest 变化,有单测;④非法 depends_on(悬挂/成环)被检出并报诊断而不是静默丢弃。
+- refs: R-221 R-277
+- 优先级: P1
+
+## R-344 Experiment Runner:本机与 SSH 执行、@@kanzei 回调解析与 run 事实落盘 [todo]
+- 内容: 按设计 §3/§5 实现实验运行器:local 起进程与 ssh 复用系统客户端两种执行;逐行解析带 @@kanzei 前缀的单行 JSON(stage/metric/progress/artifact/checkpoint/message/heartbeat/result),其余输出原样保留为终端日志;运行器另记 run_started/run_finished/run_failed/run_cancelled/environment_captured;run 事实进 state.db,产物落 runs/<run-id>/;记录 code_ref、params_digest、callback_stats。
+- 发现记录: {"Intent":"让实验真的能在本机和显卡服务器上跑起来并回传结构化实时事件","Explicit":"第一版只做 local 与 ssh;协议是 @@kanzei 前缀单行 JSON;不依赖第三方实验平台","Assumptions":"远端只需能跑命令并把带前缀的行打到 stdout;系统 ssh 客户端可用","Ambiguities":"远端工作目录与代码同步方式、并发 run 上限,本条按人工准备 workdir 与串行一次一个处理","领域对象":"Run、execution(local/ssh)、callback 事件、产物目录、state.db 运行事实、终端日志","最小成功闭环":"一条真实 SSH 实验跑完:阶段/指标/进度/产物事件被解析,run 事实与产物可回读","延后决策":"作业调度器提交、并发队列、数据集同步、语言级便利封装库"}
+- 复杂度: 大
+- 来源: 用户选定第一版执行方式为「本机 + SSH 远程服务器」;协议方向见 A-014 用户确认「确认采用」。
+- 标签: 后端
+- 边界: 运行器是专用工具通道,不给 research 档开 bash(research_mode.md 定调点 6 的硬 deny 不变);不做 Slurm/K8s 作业提交、容器编排、跨机分布式训练编排与数据同步;不做 W&B/TensorBoard/云端账户对接;不把回调写进 Markdown。
+- 验收: ①本机与 SSH 两条路径都能跑完一次真实实验并留下 run 事实与产物;②坏 JSON、超长行、未知事件不终止运行且计入 callback_stats;③取消与远端强杀都能收敛到终态,heartbeat 超时判定卡死;④断线重连后视图从持久事实恢复,不显示假运行中;⑤research 档 bash 仍为硬 deny,运行器不成为绕过通道。
+- refs: R-343 R-221
+- 优先级: P1
+
+## R-345 实验环境登记表与运行时快照:声明与实况分离、环境漂移可见 [todo]
+- 内容: 按设计 §2.4 实现 .kanzei/research/environments.md 手工登记契约(ENV-<name>、kind、host、gpu、workdir、计费口径、状态);每次 Run 启动时采集 environment.json 快照(nvidia-smi、python/框架版本、可用显存、git commit 与工作树是否 dirty)存进 run 产物目录并被 run 事实引用;登记与快照不一致时在运行画像标注环境漂移。
+- 发现记录: {"Intent":"让实验结果的可比性有据可查,环境漂移不被静默吞掉","Explicit":"服务器与显卡清单手工登记,每次运行抓运行时快照,两者分开存","Assumptions":"远端可执行 nvidia-smi 与版本查询;不可用时允许降级","Ambiguities":"快照采集项清单是否可配置、漂移判定的容忍度,本条按固定项与逐字段比对处理","领域对象":"Environment 登记项、environment.json 快照、run 事实引用、漂移标注","最小成功闭环":"登记一台 SSH 环境并跑一次实验,快照落盘且与登记项比对结果可见","延后决策":"依赖安装与镜像管理、多环境同实验并行对比、采集项可配置"}
+- 复杂度: 中
+- 来源: 用户选定环境登记方式为「手工登记 + 运行时快照」;用户原话列出的事实格式含「环境文档和快照」。
+- 标签: 后端
+- 边界: 不做全自动环境探测代替登记表;不自动改写登记表;采集失败降级为部分快照并显式标注,不阻断实验;不做容器镜像管理与依赖安装。
+- 验收: ①environments.md 缺字段或坏枚举被检出并可定位;②一次 run 能产出 environment.json 并被 run 事实引用;③登记与快照不一致时前端显式标注漂移且登记表未被覆盖;④采集命令不可用时仍能跑完实验并留下降级说明。
+- refs: R-344 R-343
+- 优先级: P2
+
+## R-346 实验路线图投影与下钻前端:节点即实验、图从 Markdown 重建 [todo]
+- 内容: 按设计 §4 实现只读路线图:节点=Experiment(颜色随 status,悬停显示 hypothesis),边=depends_on(实线)与 supersedes(虚线);输入只有 <topic>/experiments/*.md,整块可重建;点击节点下钻实验详情(假设/参数/运行列表/结果/结论),再点 run 进入终端回放、指标曲线与产物入口。
+- 发现记录: {"Intent":"让研究路线一眼可见并能从图直达具体实验与运行,而不必人工维护一份图","Explicit":"图是只读投影;节点是实验;不单独维护图数据","Assumptions":"R-343 已提供可解析的实验对象与边;前端沿用研究工作台入口","Ambiguities":"布局算法、大量实验时的折叠策略与筛选维度,本条按自动布局与按 topic 过滤处理","领域对象":"路线图节点、depends_on/supersedes 边、实验详情、run 列表、终端回放入口","最小成功闭环":"一个 topic 的多实验依赖图渲染出来,点节点能进详情、点 run 能看产物","延后决策":"布局手工微调、跨 topic 全局图、图导出为论文插图"}
+- 复杂度: 中
+- 来源: 用户原话「路线图投影:从 Markdown 显式关系生成图;图节点点击到实验、运行、Terminal 和结果;不单独维护一份需要人工同步的图数据」。
+- 标签: 前端
+- 边界: 不做图的手工编辑与图数据持久化(编辑图=编辑 Markdown);不在前端自行推断关系或补边;Run 不占主图节点;不合并 dev 侧任务级运行画像的展示。
+- 验收: ①同一批实验文件两次投影结果一致,删掉缓存也能重建;②悬挂引用/成环/缺 id 在界面上报诊断而不是静默丢边;③节点到实验详情再到 run 的下钻链路显示真实数据与空态;④没有第二份需要人工同步的图数据文件。
+- refs: R-343 R-276
+- 优先级: P2
+
+## R-347 实验实时监控与付费资源预算:指标曲线、终端回放与超限刹车 [todo]
+- 内容: 按设计 §6/§7 实现实时监控与成本控制:订阅 run 事件流画指标曲线与进度条、message 与原始输出进终端视图;同名 metric 在时间窗内合并避免长跑事件风暴;重连从持久事实恢复。成本侧按环境计费口径记 gpu_seconds 与折算金额,支持实验级 budget 与环境级上限,超限停止发起新 run 并显式告警。
+- 发现记录: {"Intent":"长跑实验期间能看见发生了什么,并且不会在无人看管时静默烧钱","Explicit":"实时指标/进度/终端可见;预算超限只停新 run 不杀在跑的","Assumptions":"R-344 已产出结构化事件流;R-345 已提供环境计费口径","Ambiguities":"曲线合并窗口大小、多指标同图的默认选择,本条按固定窗口与末值优先处理","领域对象":"run 事件流、metric 序列、进度、终端回放、cost 记账、budget 上限","最小成功闭环":"一次远程长跑实验:曲线与进度实时更新,断线重连恢复,预算超限后新 run 被拦","延后决策":"账单对接、成本优化调度、告警外发到手机、指标看板自定义布局"}
+- 复杂度: 中
+- 来源: 用户列出的关注点含「实时实验监控」与「付费资源控制」;本轮定调执行边界为「本机 + SSH 远程服务器」,成本按环境登记口径折算。
+- 标签: 前端
+- 边界: 不杀正在跑的 run;不做真实账单对接、自动扣费与跨环境成本优化调度;表现事件允许丢帧但持久事实不允许;不与 dev 任务级运行画像合并展示。
+- 验收: ①一次长跑实验的指标曲线与进度实时可见且不产生事件风暴;②断线重连后从持久事实恢复,不显示假运行中;③超过实验级或环境级预算时停止发起新 run 并告警,在跑的不被杀;④成本记账能追溯到具体 run 与环境计费口径。
+- refs: R-344 R-345
+- 优先级: P2

@@ -131,6 +131,7 @@ research 模式与 dev 侧代码勘察保持能力边界独立，但两者复用
 
 ## 8. 与既有系统的关系
 
+- **[research_experiment_runner.md](research_experiment_runner.md)**:实验运行与路线图那半条链路(Experiment/Run/Result/Environment 字段、@@kanzei 回调协议、本机+SSH 执行、只读路线图投影、付费资源预算)由它承接,本文只管文献与仓库研究到论文级工件;两者共用 topic 目录与 V 等级,互不改对方已验收的范围。
 - **interaction_modes.md**:前端模式三选一不变;research 下连跑仍禁用(研究不自动推进)。
 - **memory_control_plane.md**:研究结论进记忆走统一管线;S-/F- 引用是记忆 provenance 的合法来源类型;refs.bib 与记忆无关。
 - **D-276/R-201(游离文本)**:report.md/paper.tex 是多行内容的合法落点,tracker 字段回归单行摘要。
