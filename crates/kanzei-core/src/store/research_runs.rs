@@ -68,6 +68,22 @@ impl SessionStore {
         Ok(())
     }
 
+    pub fn list_research_runs(&self, topic: &str) -> Result<Vec<ResearchRunRecord>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT result_id FROM research_runs WHERE topic = ?1 ORDER BY started_at DESC, result_id DESC",
+        )?;
+        let ids = statement
+            .query_map(params![topic], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut runs = Vec::with_capacity(ids.len());
+        for result_id in ids {
+            if let Some(run) = self.get_research_run(&result_id)? {
+                runs.push(run);
+            }
+        }
+        Ok(runs)
+    }
+
     pub fn get_research_run(
         &self,
         result_id: &str,
@@ -109,6 +125,72 @@ impl SessionStore {
             )
             .optional()
             .map_err(Into::into)
+    }
+
+    pub fn acquire_research_environment_lease(
+        &self,
+        environment_id: &str,
+        result_id: &str,
+        policy: &str,
+        duration_ms: i64,
+    ) -> Result<(), StoreError> {
+        if environment_id.trim().is_empty() || result_id.trim().is_empty() {
+            return Err(StoreError::InvalidInput(
+                "环境租约的 environment_id/result_id 不能为空".into(),
+            ));
+        }
+        let now = now_ms();
+        let expires_at = now.saturating_add(duration_ms.max(1));
+        let tx = self.connection.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM research_environment_leases WHERE expires_at <= ?1",
+            params![now],
+        )?;
+        let existing: Option<(String, i64)> = tx
+            .query_row(
+                "SELECT result_id, expires_at FROM research_environment_leases
+                 WHERE environment_id = ?1",
+                params![environment_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        if let Some((existing_result_id, existing_expires_at)) = existing {
+            return Err(StoreError::InvalidInput(format!(
+                "环境 `{environment_id}` 已被 result `{existing_result_id}` 占用至 {existing_expires_at}"
+            )));
+        }
+        tx.execute(
+            "INSERT INTO research_environment_leases
+                 (environment_id, result_id, policy, acquired_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![environment_id, result_id, policy, now, expires_at],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn release_research_environment_lease(
+        &self,
+        environment_id: &str,
+        result_id: &str,
+    ) -> Result<bool, StoreError> {
+        let changed = self.connection.execute(
+            "DELETE FROM research_environment_leases
+             WHERE environment_id = ?1 AND result_id = ?2",
+            params![environment_id, result_id],
+        )?;
+        Ok(changed == 1)
+    }
+
+    pub fn release_research_environment_lease_for_result(
+        &self,
+        result_id: &str,
+    ) -> Result<bool, StoreError> {
+        let changed = self.connection.execute(
+            "DELETE FROM research_environment_leases WHERE result_id = ?1",
+            params![result_id],
+        )?;
+        Ok(changed == 1)
     }
 
     pub fn append_research_run_event(
@@ -196,6 +278,35 @@ mod tests {
             heartbeat_at: Some(10),
             terminal_log_path: "stdout.log".into(),
         }
+    }
+
+    #[test]
+    fn research_environment_lease_rejects_conflict_and_releases() {
+        let store = SessionStore::open_in_memory().unwrap();
+        store
+            .acquire_research_environment_lease("ENV-shared", "run-1", "managed", 10_000)
+            .unwrap();
+        let conflict =
+            store.acquire_research_environment_lease("ENV-shared", "run-2", "managed", 10_000);
+        assert!(conflict.is_err());
+        assert!(store
+            .release_research_environment_lease("ENV-shared", "run-1")
+            .unwrap());
+        store
+            .acquire_research_environment_lease("ENV-shared", "run-2", "managed", 10_000)
+            .unwrap();
+    }
+
+    #[test]
+    fn research_environment_lease_expiry_allows_reclaim() {
+        let store = SessionStore::open_in_memory().unwrap();
+        store
+            .acquire_research_environment_lease("ENV-expiring", "run-1", "managed", 1)
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        store
+            .acquire_research_environment_lease("ENV-expiring", "run-2", "managed", 10_000)
+            .unwrap();
     }
 
     #[test]

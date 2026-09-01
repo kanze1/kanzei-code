@@ -36,6 +36,7 @@ struct RunnerInput {
     max_duration_ms: Option<u64>,
     cleanup: Option<String>,
     heartbeat_timeout_ms: Option<u64>,
+    confirmed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,7 +86,8 @@ impl Tool for ResearchRunnerTool {
                 "lease_id": { "type": "string" },
                 "max_duration_ms": { "type": "integer", "minimum": 1 },
                 "heartbeat_timeout_ms": { "type": "integer", "minimum": 1 },
-                "cleanup": { "type": "string" }
+                "cleanup": { "type": "string" },
+                "confirmed": { "type": "boolean" }
             },
             "required": ["action", "topic"]
         })
@@ -197,6 +199,7 @@ async fn cancel_run(input: &RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         if let Err(error) = store.upsert_research_run(&run) {
             return ToolOutput::error(format!("写入取消终态失败: {error}"));
         }
+        let _ = store.release_research_environment_lease_for_result(result_id);
         return ToolOutput::ok(json!({ "result_id": result_id, "status": run.status }).to_string());
     };
     let killed = crate::shell::kill_tree(pid).await;
@@ -218,6 +221,7 @@ async fn cancel_run(input: &RunnerInput, ctx: &ToolCtx) -> ToolOutput {
     if let Err(error) = store.upsert_research_run(&run) {
         return ToolOutput::error(format!("写入取消终态失败: {error}"));
     }
+    let _ = store.release_research_environment_lease_for_result(result_id);
     ToolOutput::ok(json!({ "result_id": result_id, "status": run.status, "pid": pid }).to_string())
 }
 
@@ -276,6 +280,20 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             execution.workdir = Some(environment.workdir.clone());
         }
     }
+    let effective_policy = declared_environment
+        .as_ref()
+        .map(|environment| environment.policy.as_str())
+        .or(input.policy.as_deref())
+        .unwrap_or("relaxed");
+    if !matches!(
+        effective_policy,
+        "relaxed" | "managed" | "approval" | "strict"
+    ) {
+        return ToolOutput::needs_correction(
+            "INVALID_EXECUTION_POLICY",
+            format!("执行策略 `{effective_policy}` 只能是 relaxed/managed/approval/strict"),
+        );
+    }
 
     let exploration_id = input
         .exploration_id
@@ -285,6 +303,22 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         .result_id
         .clone()
         .unwrap_or_else(|| format!("run-{}", unix_ms()));
+    if matches!(effective_policy, "approval" | "strict") && input.confirmed != Some(true) {
+        return ToolOutput::needs_confirmation(
+            "RESEARCH_RUN_CONFIRMATION_REQUIRED",
+            json!({
+                "result_id": result_id,
+                "policy": effective_policy,
+                "estimated_duration_ms": input.max_duration_ms.unwrap_or(DEFAULT_MAX_DURATION_MS),
+                "billing": declared_environment
+                    .as_ref()
+                    .map(|environment| environment.billing.as_str())
+                    .unwrap_or("unspecified"),
+                "message": "该 research 环境需要显式确认后才会启动"
+            })
+            .to_string(),
+        );
+    }
     let output_dir = ctx
         .project_root
         .join(".kanzei/research")
@@ -307,11 +341,7 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         topic: input.topic.clone(),
         status: "running".into(),
         execution_json: execution_json.to_string(),
-        policy: declared_environment
-            .as_ref()
-            .map(|environment| environment.policy.clone())
-            .or(input.policy)
-            .unwrap_or_else(|| "relaxed".into()),
+        policy: effective_policy.to_owned(),
         lease_id: input.lease_id.unwrap_or_default(),
         max_duration_ms: input.max_duration_ms.unwrap_or(DEFAULT_MAX_DURATION_MS) as i64,
         cleanup: input.cleanup.unwrap_or_else(|| "retain".into()),
@@ -333,7 +363,24 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         Ok(store) => store,
         Err(error) => return ToolOutput::error(format!("打开 state.db 失败: {error}")),
     };
+    if matches!(effective_policy, "managed" | "approval") {
+        let Some(environment) = declared_environment.as_ref() else {
+            return ToolOutput::needs_correction(
+                "MISSING_MANAGED_ENVIRONMENT",
+                "managed/approval 策略必须通过 environment_id 指定登记环境",
+            );
+        };
+        if let Err(error) = store.acquire_research_environment_lease(
+            &environment.id,
+            &result_id,
+            effective_policy,
+            run.max_duration_ms,
+        ) {
+            return ToolOutput::failed("ENVIRONMENT_LEASE_CONFLICT", error.to_string());
+        }
+    }
     if let Err(error) = store.upsert_research_run(&run) {
+        let _ = store.release_research_environment_lease_for_result(&result_id);
         return ToolOutput::error(format!("写入 run_started 事实失败: {error}"));
     }
     let _ = append_event(
@@ -360,6 +407,7 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
 
     if let Ok(Some(current)) = store.get_research_run(&result_id) {
         if current.status == "cancelled" {
+            let _ = store.release_research_environment_lease_for_result(&result_id);
             return ToolOutput::ok(
                 json!({ "result_id": result_id, "status": "cancelled" }).to_string(),
             );
@@ -544,6 +592,7 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             json!({ "exit_code": exit_code, "status": run.status, "timed_out": timed_out, "reason": run.cancel_reason }),
         );
     }
+    let _ = store.release_research_environment_lease_for_result(&result_id);
     let _ = store.upsert_research_run(&run);
     let result_table = append_result_table_row(&ctx.project_root, &run);
     let summary = json!({ "result_id": result_id, "status": run.status, "exit_code": exit_code, "terminal_log": run.terminal_log_path, "environment": run.environment_snapshot_ref, "callback_stats": run.callback_stats_json, "result_table": result_table });
@@ -800,6 +849,7 @@ fn finish_failed(
         event_type,
         json!({ "error": error }),
     );
+    let _ = store.release_research_environment_lease_for_result(&run.result_id);
     let _ = store.upsert_research_run(&run);
     ToolOutput::error(error)
 }
@@ -826,6 +876,7 @@ fn unix_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kanzei_harness::ToolOutcome;
 
     #[test]
     fn local_command_uses_explicit_workdir_and_ssh_uses_batch_mode() {
@@ -896,6 +947,7 @@ mod tests {
                 max_duration_ms: Some(10_000),
                 cleanup: Some("retain".into()),
                 heartbeat_timeout_ms: Some(10_000),
+                confirmed: None,
             },
             &ctx,
         )
@@ -924,6 +976,121 @@ mod tests {
             .unwrap()
             .contains("ordinary"));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn approval_environment_requires_confirmation_before_spawn() {
+        let root = std::env::temp_dir().join(format!("kz-research-approval-{}", unix_ms()));
+        std::fs::create_dir_all(root.join(".kanzei/research")).unwrap();
+        std::fs::write(
+            root.join(".kanzei/research/environments.md"),
+            format!(
+                "## ENV-approval [active]\n- kind: local\n- host: \n- 归属: test\n- 执行策略: approval\n- gpu: unknown\n- workdir: {}\n- 运行时限: 10m\n- 计费: approval-budget\n- 凭据引用: secret://ref\n- 准备步骤: pre-provisioned\n",
+                root.display()
+            ),
+        )
+        .unwrap();
+        let output = run_experiment(
+            RunnerInput {
+                action: "run".into(),
+                topic: "approval-test".into(),
+                environment_id: Some("ENV-approval".into()),
+                exploration_id: Some("E-approval".into()),
+                result_id: Some("E-approval-01".into()),
+                execution: Some(ExecutionSpec {
+                    kind: "local".into(),
+                    command: "echo must-not-spawn".into(),
+                    host: None,
+                    user: None,
+                    workdir: None,
+                }),
+                params_text: None,
+                code_ref: None,
+                policy: None,
+                lease_id: None,
+                max_duration_ms: Some(12_000),
+                cleanup: None,
+                heartbeat_timeout_ms: None,
+                confirmed: None,
+            },
+            &ToolCtx::new(root.clone(), root.clone()),
+        )
+        .await;
+        assert_eq!(output.outcome, ToolOutcome::NeedsConfirmation);
+        assert_eq!(output.code, Some("RESEARCH_RUN_CONFIRMATION_REQUIRED"));
+        assert!(output.content.contains("approval-budget"));
+        assert!(!root.join(".kanzei/state.db").is_file());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn managed_environment_conflict_rejects_and_completed_run_releases() {
+        let root = std::env::temp_dir().join(format!("kz-research-managed-{}", unix_ms()));
+        let explorations = root.join(".kanzei/research/managed-test/explorations");
+        std::fs::create_dir_all(&explorations).unwrap();
+        std::fs::write(
+            explorations.join("E-managed.md"),
+            "---\nkind: exploration\nid: E-managed\ntopic: managed-test\ntitle: test\nstatus: running\nhypothesis: test\ndepends_on:\nsupersedes:\nentry_refs:\nenvironment: ENV-managed\nbudget: 1\ncreated_at: 1\nupdated_at: 1\n---\n\n## 假设\ntest\n\n## 实验结果\n| 实验 | 参数 | 状态 | 关键指标 | 产物 | 结论 |\n| --- | --- | --- | --- | --- | --- |\n\n## 结论\n待定\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".kanzei/research/environments.md"),
+            format!(
+                "## ENV-managed [active]\n- kind: local\n- host: \n- 归属: test\n- 执行策略: managed\n- gpu: unknown\n- workdir: {}\n- 运行时限: 10m\n- 计费: none\n- 凭据引用: secret://ref\n- 准备步骤: pre-provisioned\n",
+                root.display()
+            ),
+        )
+        .unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let store = SessionStore::open(&project_state_path(&root)).unwrap();
+        store
+            .acquire_research_environment_lease("ENV-managed", "held", "managed", 10_000)
+            .unwrap();
+        let conflict = run_experiment(managed_input("E-managed-01", "E-managed", None), &ctx).await;
+        assert_eq!(conflict.code, Some("ENVIRONMENT_LEASE_CONFLICT"));
+        assert!(conflict.is_error);
+        store
+            .release_research_environment_lease("ENV-managed", "held")
+            .unwrap();
+        let output = run_experiment(managed_input("E-managed-02", "E-managed", None), &ctx).await;
+        assert!(!output.is_error, "{}", output.content);
+        let reopened = SessionStore::open(&project_state_path(&root)).unwrap();
+        reopened
+            .acquire_research_environment_lease("ENV-managed", "after", "managed", 10_000)
+            .unwrap();
+        reopened
+            .release_research_environment_lease("ENV-managed", "after")
+            .unwrap();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn managed_input(
+        result_id: &str,
+        exploration_id: &str,
+        confirmed: Option<bool>,
+    ) -> RunnerInput {
+        RunnerInput {
+            action: "run".into(),
+            topic: "managed-test".into(),
+            environment_id: Some("ENV-managed".into()),
+            exploration_id: Some(exploration_id.into()),
+            result_id: Some(result_id.into()),
+            execution: Some(ExecutionSpec {
+                kind: "local".into(),
+                command: "echo managed".into(),
+                host: None,
+                user: None,
+                workdir: None,
+            }),
+            params_text: None,
+            code_ref: None,
+            policy: None,
+            lease_id: None,
+            max_duration_ms: Some(10_000),
+            cleanup: None,
+            heartbeat_timeout_ms: None,
+            confirmed,
+        }
     }
 
     #[tokio::test]
@@ -959,6 +1126,7 @@ mod tests {
                 max_duration_ms: Some(10_000),
                 cleanup: None,
                 heartbeat_timeout_ms: Some(50),
+                confirmed: None,
             },
             &ToolCtx::new(root.clone(), root.clone()),
         )
@@ -1007,6 +1175,7 @@ mod tests {
                     max_duration_ms: Some(10_000),
                     cleanup: None,
                     heartbeat_timeout_ms: Some(10_000),
+                    confirmed: None,
                 },
                 &ctx_for_run,
             )
@@ -1027,6 +1196,7 @@ mod tests {
                 lease_id: None,
                 max_duration_ms: None,
                 cleanup: None,
+                confirmed: None,
                 heartbeat_timeout_ms: None,
             },
             &ctx,

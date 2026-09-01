@@ -10995,3 +10995,67 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-345
 - 收尾: 1788273348
 - 源码指纹: v2 crates/kanzei-tools/src/research_runner.rs@94787b3cb186
+
+## T-1786922726865 R-345 core 环境租约定向测试 [passed]
+- 命令: cargo test -p kanzei-core research_environment_lease
+- 时长: 8.0s
+- 摘要: 环境租约 core 回归 2 passed、0 failed：同环境冲突拒绝、显式释放后重认领、过期回收。
+- 关联: R-345
+- 收尾: 1788274362
+- 源码指纹: v2 crates/kanzei-core/src/store/mod.rs@175a587a813b,crates/kanzei-core/src/store/research_runs.rs@4a96ebbdc431,crates/kanzei-core/src/store/schema.rs@0a1f843ddf38,crates/kanzei-tools/src/research_runner.rs@8b5e28d8a344
+
+## T-1786922726866 R-345 runner 策略租约定向测试 [passed]
+- 命令: cargo test -p kanzei-tools research_runner
+- 时长: 34.0s
+- 摘要: research_runner 定向回归 7 passed、0 failed：approval 未确认不 spawn、managed 冲突拒绝与完成释放、取消、heartbeat 超时、环境快照与结果表。
+- 关联: R-345 R-344
+- 收尾: 1788274362
+- 源码指纹: v2 crates/kanzei-core/src/store/mod.rs@175a587a813b,crates/kanzei-core/src/store/research_runs.rs@4a96ebbdc431,crates/kanzei-core/src/store/schema.rs@0a1f843ddf38,crates/kanzei-tools/src/research_runner.rs@8b5e28d8a344
+
+## T-1786922726867 R-345 前端冒烟与环境漂移显示 [passed]
+- 命令: $ErrorActionPreference = 'Stop'; Get-ChildItem 'crates/kanzei-app/ui' -Filter '*.js' -File | ForEach-Object { node --check $_.FullName }; node 'scripts/parallel-lines-regression.mjs'; node 'scripts/ui-a11y-smoke.mjs'; node 'scripts/ui-i18n-smoke.mjs'; node 'scripts/ui-markdown-smoke.mjs'; node 'scripts/ui-lint-smoke.mjs'; node --experimental-vm-modules 'scripts/ui-runtime-smoke.mjs'
+- 时长: 20.0s
+- 摘要: 前端全部 JS 语法检查、六条前端冒烟和 R-345 run/drift 断言通过；运行时 27 个 UI 文件执行、2336 次 invoke、0 错误。
+- 关联: R-345
+- 收尾: 1788274969
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@5cc56f433372,crates/kanzei-core/src/store/mod.rs@175a587a813b,crates/kanzei-core/src/store/research_runs.rs@11dec086a087,crates/kanzei-core/src/store/schema.rs@fa97803b3b34,crates/kanzei-tools/src/research_runner.rs@8f56f1c4330b,scripts/ui-runtime-smoke.mjs@27865d9c096c
+
+## T-1786922726868 R-345 kanzei-core 全量定向回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 14.0s
+- 摘要: kanzei-core 全 crate 275 passed、0 failed，含 schema v20、租约冲突与过期回收测试。
+- 关联: R-345
+- 收尾: 1788274969
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@5cc56f433372,crates/kanzei-core/src/store/mod.rs@175a587a813b,crates/kanzei-core/src/store/research_runs.rs@11dec086a087,crates/kanzei-core/src/store/schema.rs@fa97803b3b34,crates/kanzei-tools/src/research_runner.rs@8f56f1c4330b,scripts/ui-runtime-smoke.mjs@27865d9c096c
+
+## T-1786922726869 R-345 kanzei-tools 全量定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 41.0s
+- 摘要: kanzei-tools 全 crate 522 passed、1 ignored、0 failed，含 runner 策略与环境测试。
+- 关联: R-345
+- 收尾: 1788274969
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@5cc56f433372,crates/kanzei-core/src/store/mod.rs@175a587a813b,crates/kanzei-core/src/store/research_runs.rs@11dec086a087,crates/kanzei-core/src/store/schema.rs@fa97803b3b34,crates/kanzei-tools/src/research_runner.rs@8f56f1c4330b,scripts/ui-runtime-smoke.mjs@27865d9c096c
+
+## T-1786922726870 R-345 kanzei-app 全量定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 13.0s
+- 摘要: kanzei-app 全 crate 250 passed、0 failed，含 docs_snapshot research runs 数据接线编译与回归。
+- 关联: R-345
+- 收尾: 1788274970
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@5cc56f433372,crates/kanzei-core/src/store/mod.rs@175a587a813b,crates/kanzei-core/src/store/research_runs.rs@11dec086a087,crates/kanzei-core/src/store/schema.rs@fa97803b3b34,crates/kanzei-tools/src/research_runner.rs@8f56f1c4330b,scripts/ui-runtime-smoke.mjs@27865d9c096c
+
+## T-1786922726871 R-345 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 94.0s
+- 摘要: 中复杂度 R-345 关闭前 workspace 全量通过：workspace 内所有运行测试 通过，core 275、tools 522、app 250 均通过；仅既有 ignored，无失败。
+- 关联: R-345
+- 收尾: 1788275260
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@5cc56f433372,crates/kanzei-core/src/store/mod.rs@175a587a813b,crates/kanzei-core/src/store/research_runs.rs@11dec086a087,crates/kanzei-core/src/store/schema.rs@fa97803b3b34,crates/kanzei-tools/src/research_runner.rs@a26e392d0570,scripts/ui-runtime-smoke.mjs@27865d9c096c
+
+## T-1786922726872 R-345 B4 修正后前端与 app 回归 [passed]
+- 命令: $ErrorActionPreference = 'Stop'; Get-ChildItem 'crates/kanzei-app/ui' -Filter '*.js' -File | ForEach-Object { node --check $_.FullName }; node 'scripts/parallel-lines-regression.mjs'; node 'scripts/ui-a11y-smoke.mjs'; node 'scripts/ui-i18n-smoke.mjs'; node 'scripts/ui-markdown-smoke.mjs'; node 'scripts/ui-lint-smoke.mjs'; node --experimental-vm-modules 'scripts/ui-runtime-smoke.mjs'; cargo test -p kanzei-app
+- 时长: 35.0s
+- 摘要: HTML 结构修正后，全部 UI JS 语法、六条前端冒烟、run/drift DOM 断言及 kanzei-app 250 passed 均通过。
+- 关联: R-345
+- 收尾: 1788275375
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@5cc56f433372,crates/kanzei-core/src/store/mod.rs@175a587a813b,crates/kanzei-core/src/store/research_runs.rs@11dec086a087,crates/kanzei-core/src/store/schema.rs@fa97803b3b34,crates/kanzei-tools/src/research_runner.rs@a26e392d0570,scripts/ui-runtime-smoke.mjs@27865d9c096c

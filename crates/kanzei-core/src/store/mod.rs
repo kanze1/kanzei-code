@@ -41,9 +41,11 @@ use serde_json::Value;
 // v18:Work Unit 底座——work_events 保存 append-only 执行事实，work_surfaces 保存可从
 //     事件重建的当前投影；Requirement 回归长期 Outcome，不再兼任执行历史容器。
 //
+// v20:R-345——research_environment_leases 持久化 managed/approval 环境占用,结束/超时释放。
+//
 // **改建表批 = 同时 +1 本常量并更新 SCHEMA_OBJECTS/SCHEMA_COLUMNS**(schema.rs 的机械
 // 判据会拦):早退分支让「代码里有、存量库里没有」不产生任何编译或测试信号,只能靠判据站岗。
-const SCHEMA_VERSION: i64 = 19;
+const SCHEMA_VERSION: i64 = 20;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;

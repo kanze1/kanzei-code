@@ -275,6 +275,15 @@ impl SessionStore {
                      heartbeat_at INTEGER,
                      terminal_log_path TEXT NOT NULL
                  );
+                 CREATE TABLE IF NOT EXISTS research_environment_leases (
+                     environment_id TEXT PRIMARY KEY NOT NULL,
+                     result_id TEXT NOT NULL,
+                     policy TEXT NOT NULL,
+                     acquired_at INTEGER NOT NULL,
+                     expires_at INTEGER NOT NULL
+                 );
+                 CREATE INDEX IF NOT EXISTS research_environment_leases_result
+                     ON research_environment_leases(result_id);
                  CREATE TABLE IF NOT EXISTS research_run_events (
                      result_id TEXT NOT NULL REFERENCES research_runs(result_id) ON DELETE CASCADE,
                      sequence INTEGER NOT NULL,
@@ -285,7 +294,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS research_run_events_result_created
                      ON research_run_events(result_id, created_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '19')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '20')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -428,6 +437,8 @@ mod tests {
         "processes_origin",
         "recall_events",
         "recall_events_episode",
+        "research_environment_leases",
+        "research_environment_leases_result",
         "research_run_events",
         "research_run_events_result_created",
         "research_runs",
@@ -531,6 +542,11 @@ mod tests {
         "recall_events.trigger_payload",
         "recall_events.trigger_type",
         "recall_events.vector_ms",
+        "research_environment_leases.acquired_at",
+        "research_environment_leases.environment_id",
+        "research_environment_leases.expires_at",
+        "research_environment_leases.policy",
+        "research_environment_leases.result_id",
         "research_run_events.created_at",
         "research_run_events.event_type",
         "research_run_events.payload_json",

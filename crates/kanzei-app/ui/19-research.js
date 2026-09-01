@@ -596,6 +596,48 @@ export async function refreshResearchReport() {
   }
 }
 
+export function renderResearchRuns() {
+  const host = $("research-run-cards");
+  if (!host) return;
+  const runs = selectedResearchTopicData().runs ?? [];
+  host.innerHTML = "";
+  const count = $("research-runs-count");
+  if (count) count.textContent = `${runs.length} ${t("条")}`;
+  if (!runs.length) {
+    const empty = document.createElement("div");
+    empty.className = "doc-empty";
+    empty.textContent = t("暂无实验运行记录");
+    host.appendChild(empty);
+    return;
+  }
+  for (const item of runs) {
+    const run = item.run ?? {};
+    const card = document.createElement("article");
+    card.className = "research-run-card";
+    card.dataset.resultId = run.result_id ?? "";
+    const title = document.createElement("strong");
+    title.textContent = run.result_id || t("未知运行");
+    card.appendChild(title);
+    const status = document.createElement("span");
+    status.className = `research-badge st-${run.status || ""}`;
+    status.textContent = localizedDocStatus(run.status || "");
+    card.appendChild(status);
+    const drift = Array.isArray(item.drift) ? item.drift : [];
+    const driftBadge = document.createElement("span");
+    driftBadge.className = `research-run-drift ${drift.length ? "has-drift" : "no-drift"}`;
+    driftBadge.textContent = drift.length
+      ? `${t("环境漂移")}: ${drift.join(", ")}`
+      : t("环境声明一致");
+    driftBadge.title = drift.length ? drift.join(", ") : t("登记环境与运行配置一致");
+    card.appendChild(driftBadge);
+    const meta = document.createElement("span");
+    meta.className = "research-run-meta";
+    meta.textContent = `${run.policy || "relaxed"} · ${run.execution_json || ""}`;
+    card.appendChild(meta);
+    host.appendChild(card);
+  }
+}
+
 export async function refreshResearch() {
   if (!currentProject) return;
   try {
@@ -614,6 +656,7 @@ export async function refreshResearch() {
   if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
   if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
   renderResearchCards();
+  renderResearchRuns();
   await refreshResearchPlan();
   await refreshResearchReport();
 }
@@ -638,6 +681,7 @@ defer(() => {
     if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
     if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
     renderResearchCards();
+    renderResearchRuns();
     await refreshResearchPlan();
     await refreshResearchReport();
   });

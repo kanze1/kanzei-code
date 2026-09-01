@@ -20,6 +20,30 @@ fn research_entry_json(entry: &kanzei_tools::docstore::Entry, topic: &str) -> se
 }
 
 /// R-221 B2:枚举 topic 目录，来源/发现/报告以同一 topic 作为隔离边界。
+fn research_runs(root: &Path, topic: &str) -> Result<Vec<serde_json::Value>, String> {
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(root))
+        .map_err(|error| format!("读取 topic `{topic}` research runs 失败: {error}"))?;
+    store
+        .list_research_runs(topic)
+        .map_err(|error| format!("读取 topic `{topic}` research runs 失败: {error}"))
+        .map(|runs| {
+            runs.into_iter()
+                .map(|run| {
+                    let snapshot_path = root.join(&run.environment_snapshot_ref);
+                    let environment = std::fs::read_to_string(snapshot_path)
+                        .ok()
+                        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+                        .unwrap_or_else(|| json!({}));
+                    json!({
+                        "run": run,
+                        "environment": environment,
+                        "drift": environment.get("drift").cloned().unwrap_or_else(|| json!({})),
+                    })
+                })
+                .collect()
+        })
+}
+
 fn research_topics(root: &Path) -> Result<Vec<serde_json::Value>, String> {
     let research_root = root.join(".kanzei/research");
     let mut names = std::fs::read_dir(&research_root)
@@ -61,6 +85,7 @@ fn research_topics(root: &Path) -> Result<Vec<serde_json::Value>, String> {
                 "report": report.is_file(),
                 "explorations": experiment_model.explorations,
                 "exploration_diagnostics": experiment_model.diagnostics,
+                "runs": research_runs(root, &topic)?,
             }))
         })
         .collect::<Result<Vec<_>, String>>()?;

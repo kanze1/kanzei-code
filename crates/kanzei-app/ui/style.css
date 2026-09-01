@@ -2365,6 +2365,16 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .research-main-head { display: flex; align-items: baseline; gap: 12px; padding: 12px 22px 0; }
 .research-main-head h1 { margin: 0; }
 .research-plan-panel { margin: 10px 22px 0; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 8px; background: color-mix(in srgb, var(--panel) 82%, transparent); }
+.research-runs { margin: 10px 22px 0; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 8px; background: color-mix(in srgb, var(--panel) 82%, transparent); }
+.research-runs-head { display: flex; align-items: baseline; gap: 8px; }
+.research-runs-head strong { color: var(--fg-strong); }
+.research-run-cards { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.research-run-card { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 7px 8px; border: 1px solid var(--border-soft); border-radius: 6px; background: var(--panel); font-size: var(--fs-11); }
+.research-run-card strong { color: var(--fg-strong); font-family: var(--mono); }
+.research-run-drift { padding: 1px 6px; border-radius: 9px; }
+.research-run-drift.has-drift { color: var(--warn); background: color-mix(in srgb, var(--warn) 18%, transparent); }
+.research-run-drift.no-drift { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+.research-run-meta { width: 100%; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .research-plan-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .research-plan-head strong { color: var(--fg-strong); }
 .research-plan-tree { margin: 8px 0 0 18px; padding: 0; color: var(--dim); font-size: var(--fs-12); line-height: 1.55; }

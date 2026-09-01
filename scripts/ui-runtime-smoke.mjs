@@ -782,6 +782,10 @@ const payloads = {
         legacy: false,
         sources: [docEntry("S-101", "Alpha 一手论文", "active", { topic: "alpha-study", fields: [["URL", "https://example.com/alpha"], ["类型", "文献(一手)"], ["作者", "Alpha Researcher"], ["年份", "2024"], ["等级", "V2"], ["证据深度", "正文级"]] }), docEntry("S-102", "Alpha 代码来源", "active", { topic: "alpha-study", fields: [["证据锚", "crates/kanzei-tools/src/websearch.rs:9"], ["类型", "代码域"], ["年份", "2023"]] }), docEntry("S-103", "Alpha arXiv 正文", "active", { topic: "alpha-study", fields: [["URL", "https://arxiv.org/abs/2301.12345"], ["类型", "文献(一手)"], ["年份", "2022"], ["证据深度", "摘要级"]] })],
         findings: [docEntry("F-101", "Alpha 发现", "draft", { topic: "alpha-study", fields: [["等级", "V2"], ["refs", "S-101"]] })],
+        runs: [
+          { run: { result_id: "E-101-01", status: "succeeded", policy: "managed", execution_json: '{"kind":"local"}' }, drift: ["workdir"] },
+          { run: { result_id: "E-101-02", status: "failed", policy: "relaxed", execution_json: '{"kind":"local"}' }, drift: [] },
+        ],
         report: true,
       },
       {
@@ -3082,6 +3086,9 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   assert(topicSelect && topicSelect.options.length === 2, `研究课题选择器应有两个 topic,实得 ${topicSelect?.options.length ?? 0}`);
   assert(topicSelect.value === "alpha-study", `默认应选择排序后的 alpha-study,实得 ${topicSelect.value}`);
   assert(document.querySelector('#research-cards .research-topic-group[data-topic="alpha-study"]'), "alpha topic 分组未渲染");
+  assert(byId.get("research-runs-count").textContent === "2 条", "真实 research run 数量未渲染");
+  assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-drift.has-drift')?.textContent.includes("环境漂移"), "登记与快照不一致时未显示环境漂移");
+  assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-02"] .research-run-drift.no-drift')?.textContent.includes("环境声明一致"), "无漂移 run 未显示一致状态");
   assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("Alpha 一手论文"), "alpha topic 来源未渲染");
   assert(!byId.get("research-plan-panel").hidden, "alpha topic 未展示研究计划面板");
   assert(byId.get("research-plan-status").textContent === "awaiting_approval", "研究计划初始状态不是 awaiting_approval");
