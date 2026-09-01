@@ -128,3 +128,13 @@
 - observed_worktree_hash: fnv1a64:62f219d59ffcf79b
 - recorded_at: 1787732249253
 - 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与定向回归已完成，待新调研条目收口后提交/关闭；恢复人:agent
+
+## D-723 trim_tail 按下标删整条消息会把工具调用与结果拆成孤儿,Responses 协议直接 400 [open] (high)
+- 修复: trim_tail_for_protocol 循环结束后,若确实删过消息则补跑一次 crate::history::filter_message_history。它只会再删不会让 token 涨回线上,且与既有清洗口径同源,不引入第二套配对规则。
+- 回归: crates/kanzei-core/src/runner/context.rs 新增 trim_tail不得把工具调用与结果拆成孤儿:构造 12 轮 assistant(正文+ToolCall)+user(ToolResult),在 200..6000 步进 10 的预算上逐个验证不变式(trim 后的历史经 filter_message_history 应逐字节不变)。去掉修复后该测试在 budget=220 复现失败。
+- 来源: 用户上报运行中断:「致命错误 provider returned HTTP 400 ... No tool call found for function call output with call_id call_PHdQ9vdsuf8JcJ4HqV7cqYK3」,伴随「鞭挞停止:运行失败:致命错误,自动推进已停止」。
+- 标签: 核心
+- 根因: crates/kanzei-core/src/runner/context.rs 的 trim_tail_for_protocol 在压缩后仍超线时按下标逐条 messages.remove(i)。一次工具轮在历史里是两条消息:assistant(正文+ToolCall) 与 user(ToolResult)。循环的预算检查在顶部,一旦恰好在删掉 assistant 那条后就够线收手,留下的 user(ToolResult) 就是孤儿 function_call_output。装载期的 filter_message_history(drive/assembly.rs:142)清的是入参历史,清不到 trim_tail 之后新造的孤儿;enforce_context_budget 返回后直接建流发送,中间没有第二道清洗。assistant 那条带正文时删除它的 token 跳变足够大,断点落在两者之间的概率显著上升,所以真实长会话比构造样本更容易撞。
+- 现象: 鞭挞运行中出现致命错误并停机:provider returned HTTP 400 {"error":{"message":"No tool call found for function call output with call_id call_XXX","type":"invalid_request_error","param":"input"}}。表现为间歇性,长会话/长轮更容易触发。
+- refs: R-202
+- 优先级: P0

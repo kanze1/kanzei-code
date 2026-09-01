@@ -283,6 +283,7 @@ pub(crate) fn trim_tail_for_protocol(
     overflow_traces: &mut Vec<String>,
     protocol: Option<ProtocolKind>,
 ) {
+    let mut dropped_any = false;
     loop {
         // 校准口径,与调用方判"是否仍超线"同源(D-203):这里用原始估算的话,
         // calibration>1 时会提前收手,调用方视角仍超线,下一步立刻再压。
@@ -307,7 +308,16 @@ pub(crate) fn trim_tail_for_protocol(
             break;
         };
         let dropped_msg = messages.remove(i);
+        dropped_any = true;
         overflow_traces.push(dropped_trace(std::slice::from_ref(&dropped_msg)));
+    }
+    // D-723:按下标删整条消息会把 ToolCall 和它的 ToolResult 拆开。循环一旦恰好
+    // 在删掉 assistant 那条后够线收手,留下的就是孤儿结果;Responses 协议下
+    // 直接 400:No tool call found for function call output with call_id ...。
+    // 装载时的 filter_message_history 清的是**入参历史**,清不到本函数刚制造的
+    // 孤儿,所以这里补一次。它只会再删,不会把 token 涨回线上。
+    if dropped_any {
+        *messages = crate::history::filter_message_history(messages);
     }
 }
 
@@ -633,6 +643,58 @@ mod tests {
         assert!(text.contains("tail 第 29 条"), "最近的 tail 要优先保住");
         assert!(!text.contains("tail 第 0 条"), "最旧的 tail 先被回收");
         assert!(!traces.is_empty(), "回收的 tail 要留轨迹");
+    }
+    /// D-723:trim_tail 删的是**整条消息**,而一次工具轮是 assistant(ToolCall) +
+    /// user(ToolResult) 两条。只删前一条就留下孤儿 function_call_output,
+    /// Responses 协议直接 400。预算线落在哪里是连续的,所以这里扫一排预算
+    /// 逐个验证不变式:trim 完的历史经 filter_message_history 应逐字节不变。
+    #[test]
+    fn trim_tail不得把工具调用与结果拆成孤儿() {
+        let system = vec![String::new()];
+        let big = "y".repeat(600);
+        let build = || {
+            let mut messages = vec![Message::user_text("任务定义:修复空指针")];
+            for i in 0..12 {
+                // 真实历史里 assistant 那条是**正文 + 工具调用**一起的。只放一个光秃
+                // ToolCall 的话删它几乎不降 token,循环几乎总在删完结果那步才收手,
+                // 孤儿碍于样本形状被掩盖。带正文才能让断点落在两者之间。
+                messages.push(Message::assistant(vec![
+                    Part::Text {
+                        text: format!("先看一下第 {i} 个文件 {}", big.clone()),
+                    },
+                    Part::ToolCall {
+                        id: format!("call_{i}"),
+                        name: "read".into(),
+                        input: serde_json::json!({"path": format!("src/f{i}.rs")}),
+                    },
+                ]));
+                messages.push(Message::tool_results(vec![Part::ToolResult {
+                    call_id: format!("call_{i}"),
+                    content: big.clone(),
+                    is_error: false,
+                }]));
+            }
+            messages.push(Message::user_text("当前指令:继续修"));
+            messages
+        };
+        for budget in (200..6_000).step_by(10) {
+            let mut messages = build();
+            let mut traces = Vec::new();
+            trim_tail(&mut messages, &system, &[], budget, 1.0, &mut traces);
+            let filtered = crate::history::filter_message_history(&messages);
+            assert_eq!(
+                filtered.len(),
+                messages.len(),
+                "budget={budget} 时 trim_tail 留下了孤儿工具 part（Responses 会 400）"
+            );
+            for (a, b) in filtered.iter().zip(messages.iter()) {
+                assert_eq!(
+                    a.parts.len(),
+                    b.parts.len(),
+                    "budget={budget} 时有孤儿 part"
+                );
+            }
+        }
     }
     /// D-206:检查点是周期性动作,不是有限清单。旧实现 20|40|80 之后永不盘点,
     /// 无步数上限的自举 run 后半程恰恰最需要。
