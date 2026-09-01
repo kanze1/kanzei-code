@@ -324,22 +324,6 @@
 - recorded_at: 1787898137370
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：真实收口覆盖显式 task start/close、长 session 多任务、未关闭、legacy、失败和 task→session→round 下钻；不以替身或单测替代真实链路。
 
-## R-343 Research 实验事实模型与 Markdown 真源:Experiment/Run/Result/Environment 字段落地 [doing]
-- 内容: 按 docs/design/research_experiment_runner.md §2/§11 落地两层事实模型:explorations/E-<n>.md 的 frontmatter(kind/id/topic/title/status/hypothesis/depends_on/supersedes/entry_refs/environment/budget/时间戳)与固定段落(假设/实验结果/结论/后续)解析与校验;实验结果表六列(实验|参数|状态|关键指标|产物|结论)解析,参数列按自由文本原样保存不解析;topic 内 E- 编号与结果 E-<n>-<nn> 编号分配;explorations/<E-id>/<result-id>/ 产物目录骨架。
-- 发现记录: {"Intent":"让研究路线关系与实验事实有唯一可解析的真源,同时不越界去定义参数语义","Explicit":"两层模型:探索是图节点,实验结果挂在探索下;参数是自由文本;编号 topic 内唯一;不做并发新建","Assumptions":"沿用 tracker 的单行值口径;topic 目录结构沿用 research_mode.md §3","Ambiguities":"结果 id 形态与指标序列文件格式,本条按 E-<n>-<nn> 与 metrics.jsonl 处理","领域对象":"研究方向、探索、实验结果、产物目录、环境引用","最小成功闭环":"一个 topic 下两个互相依赖的探索文件被解析成节点与边,结果行可读,坏字段有诊断","延后决策":"跨 topic 引用的解析、探索模板生成、Markdown 到 LaTeX 的结果表导出"}
-- 复杂度: 中
-- 来源: 用户原话「我们的数据模型只有研究方向,对应的探索,每个探索下面挂实验结果就行,跑多少参数就挂多少」与「我们只负责结果记录,不负责定义这些」;编号口径见「跨课题得情况比较少,这里也不需要并行」。
-- 标签: 核心
-- 边界: 只做事实模型与 Markdown 契约,不实现运行器、不连服务器、不做路线图前端;不建第三层对象、不建模参数空间、不判定两条结果是否可比;不引入嵌套 YAML,单行值口径与 tracker 一致;不把高频回调写进 Markdown;不改 research_mode.md 已验收的工件落点。
-- 验收: ①能从一个 topic 的 explorations/*.md 解析出探索与其结果行并对缺字段/坏枚举报出可定位诊断;②E- 与 E-<n>-<nn> 编号在 topic 内唯一;③参数列原文进 params_text 且不被解析或规范化;④非法 depends_on(悬挂/成环)被检出并报诊断而不是静默丢弃;⑤删掉派生索引后仍能从 Markdown 与产物完整重建探索状态。
-- refs: R-221 R-277
-- 优先级: P1
-- 进展: 批次 1/2：已落地 `crates/kanzei-core/src/research.rs` 的两层事实模型、flat frontmatter/固定段落/六列表格解析、params_text 原样字段、重复/悬挂/成环依赖诊断、topic/结果顺序编号规划和 `explorations/<E-id>/<result-id>/` 产物骨架；`crates/kanzei-core/src/lib.rs` 导出，`crates/kanzei-app/src/docs.rs:53-64` 将探索与诊断接入现有 research topic 快照。关键修复：结果表仅消费表格行，重复 ID 不覆盖依赖图首节点。测试 `T-1786922726848`（core 268 passed）与 `T-1786922726849`（app 250 passed）通过。下一步：提交 B1 后做最终验收对账、workspace 全量测试并关闭 R-343。
-- observed_head: e3d77ea46de118bfae93feaa3bf5299e95790304
-- observed_worktree_hash: fnv1a64:6f2f9aabafa89e5e
-- recorded_at: 1788267957042
-- 批次: 1/2
-
 ## R-344 Experiment Runner:本机与 SSH 执行、@@kanzei 回调解析与 run 事实落盘 [todo]
 - 内容: 按设计 §3/§5 实现实验运行器:local 起进程与 ssh 复用系统客户端两种执行;逐行解析带 @@kanzei 前缀的单行 JSON(stage/metric/progress/artifact/checkpoint/message/heartbeat/result),其余输出原样保留为终端日志;运行器另记 run_started/run_finished/run_failed/run_cancelled/environment_captured;结果事实进 state.db 并回写探索文件的实验结果表,产物落 explorations/<E-id>/<result-id>/;记录 params_text、code_ref、policy/lease_id/max_duration/cleanup、callback_stats。
 - 发现记录: {"Intent":"让实验真的能在本机和显卡服务器上跑起来并回传结构化实时事件","Explicit":"第一版只做 local 与 ssh;协议是 @@kanzei 前缀单行 JSON;不依赖第三方实验平台","Assumptions":"远端只需能跑命令并把带前缀的行打到 stdout;系统 ssh 客户端可用","Ambiguities":"远端工作目录与代码同步方式、并发 run 上限,本条按人工准备 workdir 与串行一次一个处理","领域对象":"Run、execution(local/ssh)、callback 事件、产物目录、state.db 运行事实、终端日志","最小成功闭环":"一条真实 SSH 实验跑完:阶段/指标/进度/产物事件被解析,run 事实与产物可回读","延后决策":"作业调度器提交、并发队列、数据集同步、语言级便利封装库"}

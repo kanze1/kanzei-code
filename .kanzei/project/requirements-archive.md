@@ -4373,8 +4373,23 @@
 - 优先级: P1
 - 依赖: 
 - 进展: R-339 已完成，逐条验收对账：①迁移/回滚说明覆盖 schema、旧数据、备份和失败恢复：`docs/design/run_metrics_task_migration.md:19-27,61-70`；既有 `backup_before_upgrade` 使用 `VACUUM INTO` 位于 `crates/kanzei-core/src/store/session.rs:229-261`，高版本拒绝/备份回归位于 `crates/kanzei-core/src/store/schema.rs:988-1067`，证据 `T-1786922726846`。②旧 `episodes/session_inputs/session_events` 可读且计数对账：`crates/kanzei-core/src/store/task.rs:361-440` 的 `task_compatibility_audit`，测试 `task_compatibility_audit_marks_legacy_without_entering_trend` 位于 `:777-867`，证据 `T-1786922726844`、`T-1786922726846`。③无 task close 的历史记录明确为 `legacy_unassigned` 且排除 completed trend：`task.rs:442-466` 输出 legacy 并只将 closed task 加入 trend，`:848-866` 逐项断言，app response 断言位于 `crates/kanzei-app/src/commands/run.rs:771-786`，证据 `T-1786922726844`、`T-1786922726845`。④旧 API 与新 projection 的过渡边界有真实调用方：`run.rs:448-475` 的两个 Tauri command，真实 SQLite fixture 同时调用旧 `run_metrics` 与新 `run_metrics_by_task` 的测试位于 `:700-795`，证据 `T-1786922726845`、`T-1786922726846`。本次交付为读取契约迁移，不提升 schema v18、不回填旧 task close；R-340/R-341 保留后续 UI/端到端边界。
-- 阻塞: 
 - observed_head: 288bb57adfbebd38988c2a29cfc0e3648d2d5e23
 - observed_worktree_hash: fnv1a64:7816ba6d4c4efd95
 - recorded_at: 1788266687256
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：沿用 R-338 的显式 task 事件、四种 outcome、默认不跨 session/仅显式 attach、原始事实不改写和 legacy 规则。
+
+## R-343 Research 实验事实模型与 Markdown 真源:Experiment/Run/Result/Environment 字段落地 [done]
+- 内容: 按 docs/design/research_experiment_runner.md §2/§11 落地两层事实模型:explorations/E-<n>.md 的 frontmatter(kind/id/topic/title/status/hypothesis/depends_on/supersedes/entry_refs/environment/budget/时间戳)与固定段落(假设/实验结果/结论/后续)解析与校验;实验结果表六列(实验|参数|状态|关键指标|产物|结论)解析,参数列按自由文本原样保存不解析;topic 内 E- 编号与结果 E-<n>-<nn> 编号分配;explorations/<E-id>/<result-id>/ 产物目录骨架。
+- 发现记录: {"Intent":"让研究路线关系与实验事实有唯一可解析的真源,同时不越界去定义参数语义","Explicit":"两层模型:探索是图节点,实验结果挂在探索下;参数是自由文本;编号 topic 内唯一;不做并发新建","Assumptions":"沿用 tracker 的单行值口径;topic 目录结构沿用 research_mode.md §3","Ambiguities":"结果 id 形态与指标序列文件格式,本条按 E-<n>-<nn> 与 metrics.jsonl 处理","领域对象":"研究方向、探索、实验结果、产物目录、环境引用","最小成功闭环":"一个 topic 下两个互相依赖的探索文件被解析成节点与边,结果行可读,坏字段有诊断","延后决策":"跨 topic 引用的解析、探索模板生成、Markdown 到 LaTeX 的结果表导出"}
+- 复杂度: 中
+- 来源: 用户原话「我们的数据模型只有研究方向,对应的探索,每个探索下面挂实验结果就行,跑多少参数就挂多少」与「我们只负责结果记录,不负责定义这些」;编号口径见「跨课题得情况比较少,这里也不需要并行」。
+- 标签: 核心
+- 边界: 只做事实模型与 Markdown 契约,不实现运行器、不连服务器、不做路线图前端;不建第三层对象、不建模参数空间、不判定两条结果是否可比;不引入嵌套 YAML,单行值口径与 tracker 一致;不把高频回调写进 Markdown;不改 research_mode.md 已验收的工件落点。
+- 验收: ①能从一个 topic 的 explorations/*.md 解析出探索与其结果行并对缺字段/坏枚举报出可定位诊断;②E- 与 E-<n>-<nn> 编号在 topic 内唯一;③参数列原文进 params_text 且不被解析或规范化;④非法 depends_on(悬挂/成环)被检出并报诊断而不是静默丢弃;⑤删掉派生索引后仍能从 Markdown 与产物完整重建探索状态。
+- refs: R-221 R-277
+- 优先级: P1
+- 进展: 批次 2/2：最终验收逐项完成并提交 B1 `9d0fa9e9`。① `crates/kanzei-core/src/research.rs:175-346` 解析 frontmatter/固定段落，`:645-777` 解析六列表格并在 `:1016-1032` 测试缺字段/坏枚举可定位诊断；现有 research topic 消费者接线于 `crates/kanzei-app/src/docs.rs:53-64`。② topic 唯一性校验与结果编号校验在 `:791-855`、`:900-910`，顺序规划在 `:124-157`，`T-1786922726848` 覆盖 E-003/E-001-02。③ `ExperimentResult.params_text` 原样承载于 `:89-99`、`:765-772`，`T-1786922726848` 断言未规范化文本。④ 悬挂/成环诊断在 `:846-860`、`:864-898`，`T-1786922726848` 覆盖重复/悬挂/成环。⑤ `load_research_topic` 从 Markdown 重建于 `:348-404`，产物骨架于 `:406-434`，删除 index 后重建测试在 `:1068-1089`。定向验证 `T-1786922726848` core 268 passed、`T-1786922726849` app 250 passed、`T-1786922726850` core 268 passed、`T-1786922726851` app 250 passed；workspace 全量按项目 cadence 仅在发版执行，本次非发版不重复运行。
+- observed_head: 9d0fa9e92650bc19dcf2ebfaa9eea4db006c7e1a
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788268327261
+- 批次: 2/2
