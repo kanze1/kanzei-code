@@ -252,7 +252,40 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS work_surfaces_requirement_status
                      ON work_surfaces(requirement_id, status, unit_id);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '18')
+                 CREATE TABLE IF NOT EXISTS research_runs (
+                     result_id TEXT PRIMARY KEY NOT NULL,
+                     exploration_id TEXT NOT NULL,
+                     topic TEXT NOT NULL,
+                     status TEXT NOT NULL,
+                     execution_json TEXT NOT NULL,
+                     policy TEXT NOT NULL,
+                     lease_id TEXT NOT NULL,
+                     max_duration_ms INTEGER NOT NULL,
+                     cleanup TEXT NOT NULL,
+                     started_at INTEGER NOT NULL,
+                     finished_at INTEGER,
+                     exit_code INTEGER,
+                     cancel_reason TEXT,
+                     params_text TEXT NOT NULL,
+                     code_ref_json TEXT NOT NULL,
+                     environment_snapshot_ref TEXT NOT NULL,
+                     artifacts_json TEXT NOT NULL,
+                     metrics_last_json TEXT NOT NULL,
+                     callback_stats_json TEXT NOT NULL,
+                     heartbeat_at INTEGER,
+                     terminal_log_path TEXT NOT NULL
+                 );
+                 CREATE TABLE IF NOT EXISTS research_run_events (
+                     result_id TEXT NOT NULL REFERENCES research_runs(result_id) ON DELETE CASCADE,
+                     sequence INTEGER NOT NULL,
+                     event_type TEXT NOT NULL,
+                     payload_json TEXT NOT NULL,
+                     created_at INTEGER NOT NULL,
+                     PRIMARY KEY(result_id, sequence)
+                 );
+                 CREATE INDEX IF NOT EXISTS research_run_events_result_created
+                     ON research_run_events(result_id, created_at);
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '19')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -395,6 +428,9 @@ mod tests {
         "processes_origin",
         "recall_events",
         "recall_events_episode",
+        "research_run_events",
+        "research_run_events_result_created",
+        "research_runs",
         "retired_processes",
         "retired_processes_origin",
         "schema_meta",
@@ -495,6 +531,32 @@ mod tests {
         "recall_events.trigger_payload",
         "recall_events.trigger_type",
         "recall_events.vector_ms",
+        "research_run_events.created_at",
+        "research_run_events.event_type",
+        "research_run_events.payload_json",
+        "research_run_events.result_id",
+        "research_run_events.sequence",
+        "research_runs.artifacts_json",
+        "research_runs.callback_stats_json",
+        "research_runs.cancel_reason",
+        "research_runs.cleanup",
+        "research_runs.code_ref_json",
+        "research_runs.environment_snapshot_ref",
+        "research_runs.execution_json",
+        "research_runs.exit_code",
+        "research_runs.exploration_id",
+        "research_runs.finished_at",
+        "research_runs.heartbeat_at",
+        "research_runs.lease_id",
+        "research_runs.max_duration_ms",
+        "research_runs.metrics_last_json",
+        "research_runs.params_text",
+        "research_runs.policy",
+        "research_runs.result_id",
+        "research_runs.started_at",
+        "research_runs.status",
+        "research_runs.terminal_log_path",
+        "research_runs.topic",
         "retired_processes.origin_project",
         "retired_processes.process_id",
         "retired_processes.retired_at",

@@ -43,7 +43,7 @@ use serde_json::Value;
 //
 // **改建表批 = 同时 +1 本常量并更新 SCHEMA_OBJECTS/SCHEMA_COLUMNS**(schema.rs 的机械
 // 判据会拦):早退分支让「代码里有、存量库里没有」不产生任何编译或测试信号,只能靠判据站岗。
-const SCHEMA_VERSION: i64 = 18;
+const SCHEMA_VERSION: i64 = 19;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;
@@ -286,6 +286,40 @@ pub struct EpisodeRecord<'a> {
     pub overflow_json: &'a str,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResearchRunRecord {
+    pub result_id: String,
+    pub exploration_id: String,
+    pub topic: String,
+    pub status: String,
+    pub execution_json: String,
+    pub policy: String,
+    pub lease_id: String,
+    pub max_duration_ms: i64,
+    pub cleanup: String,
+    pub started_at: i64,
+    pub finished_at: Option<i64>,
+    pub exit_code: Option<i64>,
+    pub cancel_reason: Option<String>,
+    pub params_text: String,
+    pub code_ref_json: String,
+    pub environment_snapshot_ref: String,
+    pub artifacts_json: String,
+    pub metrics_last_json: String,
+    pub callback_stats_json: String,
+    pub heartbeat_at: Option<i64>,
+    pub terminal_log_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResearchRunEvent {
+    pub result_id: String,
+    pub sequence: i64,
+    pub event_type: String,
+    pub payload_json: String,
+    pub created_at: i64,
+}
+
 mod episodes;
 mod eval;
 mod events;
@@ -293,6 +327,7 @@ mod inbox;
 mod mobile_devices;
 mod notifications;
 mod processes;
+mod research_runs;
 mod schema;
 mod session;
 mod task;
