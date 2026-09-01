@@ -271,6 +271,9 @@ impl SessionStore {
                      environment_snapshot_ref TEXT NOT NULL,
                      artifacts_json TEXT NOT NULL,
                      metrics_last_json TEXT NOT NULL,
+                     progress_json TEXT NOT NULL,
+                     metrics_series_path TEXT NOT NULL,
+                     cost_json TEXT NOT NULL,
                      callback_stats_json TEXT NOT NULL,
                      heartbeat_at INTEGER,
                      terminal_log_path TEXT NOT NULL
@@ -294,7 +297,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS research_run_events_result_created
                      ON research_run_events(result_id, created_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '20')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '21')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -329,6 +332,18 @@ impl SessionStore {
             "ALTER TABLE processes ADD COLUMN subagents_enabled INTEGER NOT NULL DEFAULT 1",
             [],
         );
+        // v21(R-347):运行态的进度、指标序列与成本必须在旧库中补齐,否则既有
+        // state.db 会在读取 research_runs 时因 no such column 失效。
+        for column in [
+            "progress_json TEXT NOT NULL DEFAULT '{}'",
+            "metrics_series_path TEXT NOT NULL DEFAULT ''",
+            "cost_json TEXT NOT NULL DEFAULT '{}'",
+        ] {
+            let _ = tx.execute(
+                &format!("ALTER TABLE research_runs ADD COLUMN {column}"),
+                [],
+            );
+        }
         // session_inputs 的 status CHECK 写死在建表语句里,ALTER 改不了,只能重建。
         // 只在旧约束still生效时做,重建是幂等的:新库建出来就已经含 running。
         let legacy_check: Option<String> = tx
@@ -557,6 +572,7 @@ mod tests {
         "research_runs.cancel_reason",
         "research_runs.cleanup",
         "research_runs.code_ref_json",
+        "research_runs.cost_json",
         "research_runs.environment_snapshot_ref",
         "research_runs.execution_json",
         "research_runs.exit_code",
@@ -566,8 +582,10 @@ mod tests {
         "research_runs.lease_id",
         "research_runs.max_duration_ms",
         "research_runs.metrics_last_json",
+        "research_runs.metrics_series_path",
         "research_runs.params_text",
         "research_runs.policy",
+        "research_runs.progress_json",
         "research_runs.result_id",
         "research_runs.started_at",
         "research_runs.status",

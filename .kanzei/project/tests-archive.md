@@ -11059,3 +11059,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-345
 - 收尾: 1788275375
 - 源码指纹: v2 crates/kanzei-app/src/docs.rs@5cc56f433372,crates/kanzei-core/src/store/mod.rs@175a587a813b,crates/kanzei-core/src/store/research_runs.rs@11dec086a087,crates/kanzei-core/src/store/schema.rs@fa97803b3b34,crates/kanzei-tools/src/research_runner.rs@a26e392d0570,scripts/ui-runtime-smoke.mjs@27865d9c096c
+
+## T-1786922726873 R-347 B1 core 事实模型与 schema 定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core
+- 时长: 13.0s
+- 摘要: kanzei-core 定向测试通过：275 passed、0 failed；覆盖 schema v21 旧库迁移、research_runs 新字段读写、既有 research 事件/租约回归。
+- 关联: R-347
+- 收尾: 1788275894
+- 源码指纹: v2 crates/kanzei-core/src/store/mod.rs@101402935835,crates/kanzei-core/src/store/research_runs.rs@8a2d271f72ba,crates/kanzei-core/src/store/schema.rs@232127db6e33,crates/kanzei-tools/src/research_runner.rs@edba69714616
+
+## T-1786922726874 R-347 B1 kanzei-tools 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 45.0s
+- 摘要: kanzei-tools 定向测试通过：522 passed、1 ignored、0 failed；包含 research_runner 既有运行、取消、心跳超时、环境租约与结果事实回归。
+- 关联: R-347
+- 收尾: 1788276015
+- 源码指纹: v2 crates/kanzei-core/src/store/mod.rs@101402935835,crates/kanzei-core/src/store/research_runs.rs@8a2d271f72ba,crates/kanzei-core/src/store/schema.rs@232127db6e33,crates/kanzei-tools/src/research_runner.rs@edba69714616

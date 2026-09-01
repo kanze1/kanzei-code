@@ -16,10 +16,11 @@ impl SessionStore {
                  result_id, exploration_id, topic, status, execution_json, policy, lease_id,
                  max_duration_ms, cleanup, started_at, finished_at, exit_code, cancel_reason,
                  params_text, code_ref_json, environment_snapshot_ref, artifacts_json,
-                 metrics_last_json, callback_stats_json, heartbeat_at, terminal_log_path
+                 metrics_last_json, progress_json, metrics_series_path, cost_json, callback_stats_json,
+                 heartbeat_at, terminal_log_path
              ) VALUES (
                  ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                 ?17, ?18, ?19, ?20, ?21
+                 ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24
              ) ON CONFLICT(result_id) DO UPDATE SET
                  exploration_id = excluded.exploration_id,
                  topic = excluded.topic,
@@ -38,6 +39,9 @@ impl SessionStore {
                  environment_snapshot_ref = excluded.environment_snapshot_ref,
                  artifacts_json = excluded.artifacts_json,
                  metrics_last_json = excluded.metrics_last_json,
+                 progress_json = excluded.progress_json,
+                 metrics_series_path = excluded.metrics_series_path,
+                 cost_json = excluded.cost_json,
                  callback_stats_json = excluded.callback_stats_json,
                  heartbeat_at = excluded.heartbeat_at,
                  terminal_log_path = excluded.terminal_log_path",
@@ -60,6 +64,9 @@ impl SessionStore {
                 run.environment_snapshot_ref,
                 run.artifacts_json,
                 run.metrics_last_json,
+                run.progress_json,
+                run.metrics_series_path,
+                run.cost_json,
                 run.callback_stats_json,
                 run.heartbeat_at,
                 run.terminal_log_path,
@@ -93,8 +100,8 @@ impl SessionStore {
                 "SELECT result_id, exploration_id, topic, status, execution_json, policy,
                         lease_id, max_duration_ms, cleanup, started_at, finished_at, exit_code,
                         cancel_reason, params_text, code_ref_json, environment_snapshot_ref,
-                        artifacts_json, metrics_last_json, callback_stats_json, heartbeat_at,
-                        terminal_log_path
+                        artifacts_json, metrics_last_json, progress_json, metrics_series_path,
+                        cost_json, callback_stats_json, heartbeat_at, terminal_log_path
                  FROM research_runs WHERE result_id = ?1",
                 params![result_id],
                 |row| {
@@ -117,9 +124,12 @@ impl SessionStore {
                         environment_snapshot_ref: row.get(15)?,
                         artifacts_json: row.get(16)?,
                         metrics_last_json: row.get(17)?,
-                        callback_stats_json: row.get(18)?,
-                        heartbeat_at: row.get(19)?,
-                        terminal_log_path: row.get(20)?,
+                        progress_json: row.get(18)?,
+                        metrics_series_path: row.get(19)?,
+                        cost_json: row.get(20)?,
+                        callback_stats_json: row.get(21)?,
+                        heartbeat_at: row.get(22)?,
+                        terminal_log_path: row.get(23)?,
                     })
                 },
             )
@@ -274,6 +284,9 @@ mod tests {
             environment_snapshot_ref: "environment.json".into(),
             artifacts_json: "[]".into(),
             metrics_last_json: "{}".into(),
+            progress_json: "{}".into(),
+            metrics_series_path: "metrics.jsonl".into(),
+            cost_json: "{}".into(),
             callback_stats_json: r#"{"parsed":0,"malformed":0,"truncated":0}"#.into(),
             heartbeat_at: Some(10),
             terminal_log_path: "stdout.log".into(),

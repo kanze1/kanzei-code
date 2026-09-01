@@ -42,10 +42,11 @@ use serde_json::Value;
 //     事件重建的当前投影；Requirement 回归长期 Outcome，不再兼任执行历史容器。
 //
 // v20:R-345——research_environment_leases 持久化 managed/approval 环境占用,结束/超时释放。
+// v21:R-347——research_runs 增加 progress/metrics_series/cost 事实列。
 //
 // **改建表批 = 同时 +1 本常量并更新 SCHEMA_OBJECTS/SCHEMA_COLUMNS**(schema.rs 的机械
 // 判据会拦):早退分支让「代码里有、存量库里没有」不产生任何编译或测试信号,只能靠判据站岗。
-const SCHEMA_VERSION: i64 = 20;
+const SCHEMA_VERSION: i64 = 21;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;
@@ -308,6 +309,9 @@ pub struct ResearchRunRecord {
     pub environment_snapshot_ref: String,
     pub artifacts_json: String,
     pub metrics_last_json: String,
+    pub progress_json: String,
+    pub metrics_series_path: String,
+    pub cost_json: String,
     pub callback_stats_json: String,
     pub heartbeat_at: Option<i64>,
     pub terminal_log_path: String,
