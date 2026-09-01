@@ -10851,3 +10851,43 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-339
 - 收尾: 1788266667
 - 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@c2e6015e1545,crates/kanzei-core/src/store/mod.rs@03812b35f072,crates/kanzei-core/src/store/task.rs@a0c15219f963
+
+## T-1786922726847 R-343 B1 research Markdown 模型定向测试 [passed]
+- 命令: cargo test -p kanzei-core research::tests
+- 时长: 9.0s
+- 摘要: R-343 B1 research 专项测试 3 passed、0 failed；覆盖合法结果表/params_text、重复/悬挂/成环依赖诊断、产物目录与删除 index 后重建。修复 D-722 后通过。
+- 关联: R-343 D-722
+- 收尾: 1788267602
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@7027a9d2234c,crates/kanzei-core/src/lib.rs@1faed36ad753,crates/kanzei-core/src/research.rs@53c4f24522cc
+
+## T-1786922726848 R-343 kanzei-core 定向回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 12.0s
+- 摘要: kanzei-core 全 crate 定向测试通过：268 passed、0 failed；包含 R-343 research 4 项专项测试。
+- 关联: R-343 D-722
+- 收尾: 1788267927
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@7027a9d2234c,crates/kanzei-core/src/lib.rs@1faed36ad753,crates/kanzei-core/src/research.rs@9cea4fe39efc
+
+## T-1786922726849 R-343 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 16.0s
+- 摘要: kanzei-app 定向测试通过：250 passed、0 failed；包含 docs_snapshot 现有 IPC 形状回归，research topic 新字段接线编译并保持兼容。
+- 关联: R-343
+- 收尾: 1788267932
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@7027a9d2234c,crates/kanzei-core/src/lib.rs@1faed36ad753,crates/kanzei-core/src/research.rs@9cea4fe39efc
+
+## T-1786922726850 R-343 clippy 修复后 core 回归 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 9.0s
+- 摘要: 修复 clippy 后 kanzei-core 全 crate 定向测试通过：268 passed、0 failed。
+- 关联: R-343
+- 收尾: 1788268151
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@7027a9d2234c,crates/kanzei-core/src/lib.rs@1faed36ad753,crates/kanzei-core/src/research.rs@405809562e49
+
+## T-1786922726851 R-343 最新 core 后 app 回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 13.0s
+- 摘要: 最新 core clippy 修复后 app 定向测试通过：250 passed、0 failed。
+- 关联: R-343
+- 收尾: 1788268236
+- 源码指纹: v2 crates/kanzei-app/src/docs.rs@7027a9d2234c,crates/kanzei-core/src/lib.rs@1faed36ad753,crates/kanzei-core/src/research.rs@405809562e49

@@ -50,6 +50,8 @@ fn research_topics(root: &Path) -> Result<Vec<serde_json::Value>, String> {
             .map_err(|error| format!("读取 topic `{topic}` 发现失败: {error}"))?
             .load()
             .map_err(|error| format!("读取 topic `{topic}` 发现失败: {error}"))?;
+            let experiment_model = kanzei_core::load_research_topic(root, &topic)
+                .map_err(|error| format!("读取 topic `{topic}` 探索事实失败: {error}"))?;
             let report = root.join(".kanzei/research").join(&topic).join("report.md");
             Ok(json!({
                 "topic": topic,
@@ -57,6 +59,8 @@ fn research_topics(root: &Path) -> Result<Vec<serde_json::Value>, String> {
                 "sources": sources.iter().map(|entry| research_entry_json(entry, &topic)).collect::<Vec<_>>(),
                 "findings": findings.iter().map(|entry| research_entry_json(entry, &topic)).collect::<Vec<_>>(),
                 "report": report.is_file(),
+                "explorations": experiment_model.explorations,
+                "exploration_diagnostics": experiment_model.diagnostics,
             }))
         })
         .collect::<Result<Vec<_>, String>>()?;

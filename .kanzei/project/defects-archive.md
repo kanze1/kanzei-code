@@ -8701,3 +8701,15 @@
 - observed_head: d193acd8b9566738688ec9e3293a7fb175a81e0f
 - observed_worktree_hash: fnv1a64:dcb11265818bf00e
 - recorded_at: 1787895598630
+
+## D-722 R-343 结果表解析误把 Markdown 产物链接行识别为单列 [fixed] (medium)
+- 复现: 运行 `cargo test -p kanzei-core`，research::tests::loads_explorations_results_and_preserves_parameter_text 与 reports_duplicate_dangling_and_cyclic_dependencies 失败；合法结果行含 `[产物](E-001/E-001-01/)` 时被诊断为实际 1 列。
+- 影响: 合法六列表格无法解析结果行，R-343 的结果读取与依赖诊断测试被阻断。
+- 来源: self-found：R-343 B1 定向测试。
+- 标签: 核心
+- refs: R-343
+- 优先级: P1
+- 进展: 已修复并验证：`crates/kanzei-core/src/research.rs:614-739` 仅按 Markdown 表格行解析六列，保留 `[产物](...)` 单元格；`crates/kanzei-core/src/research.rs:824-852` 对重复探索 ID 保留首个依赖图节点并继续报告重复。`T-1786922726848` core 268 passed、`T-1786922726849` app 250 passed。
+- observed_head: e3d77ea46de118bfae93feaa3bf5299e95790304
+- observed_worktree_hash: fnv1a64:6f2f9aabafa89e5e
+- recorded_at: 1788267966813

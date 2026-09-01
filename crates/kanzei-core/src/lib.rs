@@ -8,6 +8,7 @@ pub mod notification;
 pub mod orchestration;
 pub mod phase;
 pub mod replay;
+pub mod research;
 pub mod runner;
 pub mod store;
 
@@ -15,6 +16,12 @@ pub use assemble::build_route;
 pub use history::filter_message_history;
 pub use notification::AgentNotification;
 pub use phase::{PhaseOrchestrator, ScoutTask};
+pub use research::{
+    ensure_result_artifact_skeleton, load_research_topic, parse_exploration_markdown,
+    ExperimentResult, ExperimentResultStatus, ExplorationDocument, ExplorationFrontmatter,
+    ExplorationStatus, ParsedExploration, ResearchDiagnostic, ResearchError, ResearchTopic,
+    ResultArtifactSkeleton,
+};
 pub use runner::{
     compact_conversation, compaction_budget, completed_entry, estimate_conversation_tokens,
     is_usable_failure_kind, mask_volatile_payload, normalize_fp_marker,
