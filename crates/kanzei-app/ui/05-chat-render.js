@@ -525,10 +525,15 @@ export function chatAgentFold(role) {
 }
 
 export function chatToolStart(id, name, summary, input) {
-  if (!id || chatToolBlocks.has(id)) return;
+  const existing = id ? chatToolBlocks.get(id) : null;
+  // 同一调用仍在执行时保持去重;后端编排角色会跨轮复用 id,上一轮已结束则按
+  // 活动面板的 restart 语义创建新块。旧块留在 DOM 历史里,Map 只指向当前块,
+  // 因而后续同 id 的 ToolEnd 不会覆写上一轮已结束的块。
+  if (!id || (existing && !existing.finished)) return;
   clearEmptyState();
   // 实时路径拿不到结构化 input(事件里只有 summary 文本),退化为把 summary 当参数展示。
   const block = buildToolBlock(name, input ?? { command: summary });
+  block.finished = false;
   if (name === "task") {
     // task 工具的 id 就是角色名(编排派发)或调用 id(模型自派);折叠组按它归并,
     // 平铺退化为"每个调用一组",不影响非 task 工具的现有渲染路径。
@@ -548,6 +553,7 @@ export function chatToolStart(id, name, summary, input) {
 export function chatToolEnd(id, ok, preview, display, outcome) {
   const block = chatToolBlocks.get(id);
   if (!block) return;
+  block.finished = true;
   // 注意语义:实时事件里的 preview 是后端 runner::preview 的单行摘要(首行 120 字 +
   // " (+N lines)"),不是完整输出。展开区因此只会拿到这一行的尾巴——这是事实,别为了
   // "聊天里也想看全输出"再往 detail 里塞一份 preview,那正是双写的来路。完整输出看

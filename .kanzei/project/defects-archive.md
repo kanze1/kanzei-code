@@ -8765,3 +8765,17 @@
 - observed_head: 2ba3945c0656c0b7a857a7e8036383041d8846b5
 - observed_worktree_hash: fnv1a64:16839f2c494079a4
 - recorded_at: 1788302687709
+
+## D-725 同名子代理跨轮撞 id:主对话静默吞块并覆写上一轮内容 [fixed] (high)
+- 修复方向: 撞 id 时走活动面板同款 restart 语义,或给实时路径的 id 拼轮次序号使其全局唯一;两者取一,不要在前端另造一套角色轮次推断。
+- 复现: 开启阶段流水线,让同一角色在两轮里都被派出(勘察角色天然复用),观察主对话组头计数与上一轮块内容。
+- 来源: 用户提出「主对话的呈现和渲染现在不满意…我有点描述不清楚」后的并行勘察发现,经对抗式证伪并由我复核 05-chat-render.js:528 与 phase_pipeline.rs:321 两处锚点确认。
+- 标签: 前端
+- 根因: crates/kanzei-app/ui/05-chat-render.js:528 chatToolStart 开头 `if (!id || chatToolBlocks.has(id)) return;` 在建块与计数之前早退;chatToolEnd 用同一 id 取回的是第一轮的块并原地覆写。id 冲突是确定性的:crates/kanzei-app/src/phase_pipeline.rs:321 直接用 `id: role.to_string()` 作为 ToolStart 的 id,裸角色名无轮次后缀;chatToolBlocks 从不 clear,resetPane 也不动它。对照组:活动面板 06-activity.js:1305-1312 显式处理了跨轮重启并在注释里点名「角色跨轮复用」,主对话这条路没有对应分支。
+- 现象: 同一角色(如 architecture_scout)第二轮被派出时,主对话区不再出现新块,组头计数停在 (1),右侧活动面板照常运行;该轮结束时上一轮那个块的内容被原地覆写。全程无报错、无空白、无闪烁——用户会怀疑是自己记错了。
+- refs: R-037
+- 优先级: P1
+- 进展: 已按修复方向选择活动面板同款 restart 语义（不改后端轮次 ID、不在前端推断轮次）：`crates/kanzei-app/ui/05-chat-render.js:527-552` 以 `finished` 区分“仍在执行的同 ID 去重”和“已结束后再次启动”，旧块保留在 DOM，活跃 Map 只指向新块；`05-chat-render.js:553-561` 的 ToolEnd 只填当前 Map 块。真实消费者是 `crates/kanzei-app/ui/07-events.js:274-296,334-374` 的 tool-start/tool-end 订阅。原复现“同一角色两轮派出”在 `scripts/ui-runtime-smoke.mjs:3705-3710,3757-3760,3789-3797` 重放；原三项现象逐项验证：①新块=`:3834-3837` 断言组内 2 块；②计数=`:3838` 断言组头 `(2)`；③旧块不覆写=`:3839-3840` 断言首轮与第二轮结果同时保留。证据 `T-1786922726884`：node check、`node --experimental-vm-modules scripts/ui-runtime-smoke.mjs`（27 脚本/2336 invoke/10 主视图）及 `node scripts/ui-lint-smoke.mjs`（54 文件）全部通过。
+- observed_head: 0fb924ce09e6ae83e04cdb076208b04528801494
+- observed_worktree_hash: fnv1a64:6161a224e11eae21
+- recorded_at: 1788302932453

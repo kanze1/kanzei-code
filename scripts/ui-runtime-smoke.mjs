@@ -3831,11 +3831,13 @@ const foldBody = fold.querySelector(".agent-fold-body");
 assert(foldHead && foldBody, "折叠组缺头部或主体");
 assert(foldBody.classList.contains("hidden"), "折叠组默认应收起");
 assert(foldHead.getAttribute("aria-expanded") === "false", "折叠组头 aria-expanded 初始应为 false");
-// 编排角色固定调用 id,第二轮 start 被 chatToolBlocks.has(id) 守卫吞(既有行为:
-// 同一调用 id 只渲染一次),折叠组内保留第一轮的 1 个块。
+// 编排角色固定调用 id,第二轮 start 应按 restart 语义保留第一轮块并追加第二轮块。
+// 活跃索引只指向当前轮,所以两次 ToolEnd 各自填充对应的当前块。
 const inFold = foldBody.querySelectorAll(".tool-msg").length;
-assert(inFold === 1, `architecture_scout 折叠组内应有 1 个工具块,实得 ${inFold}`);
-assert(fold.querySelector(".agent-fold-count")?.textContent.includes("1"), "折叠组头未显示块数");
+assert(inFold === 2, `architecture_scout 折叠组内应有 2 个工具块,实得 ${inFold}`);
+assert(fold.querySelector(".agent-fold-count")?.textContent.includes("2"), "折叠组头未显示累计块数");
+assert(foldBody.textContent.includes("勘察简报首行") && foldBody.textContent.includes("第二轮简报"),
+  "跨轮同名调用的两次结果没有分别保留");
 foldHead.click();
 await flush();
 assert(!foldBody.classList.contains("hidden"), "点击折叠组头未展开");

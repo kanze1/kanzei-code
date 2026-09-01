@@ -11143,3 +11143,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-724 D-723
 - 收尾: 1788302675
 - 源码指纹: v2 crates/kanzei-app/src/conversation.rs@0efa20374ffc,crates/kanzei-app/src/conversation_tests.rs@3b338c6dc60f
+
+## T-1786922726884 D-725 chatTool 同 ID 跨轮渲染回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/05-chat-render.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 4.4s
+- 摘要: 变更脚本语法检查、UI runtime smoke（27 个脚本/2336 次 invoke/10 个主视图）与 UI lint smoke（54 个文件）全部通过；新增跨轮同 ID 断言通过，0 运行时错误。
+- 关联: D-725 R-037
+- 收尾: 1788302908
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@ce1a87324d71
+
+## T-1786922726885 D-725 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.9s
+- 摘要: 前端改动关联的 kanzei-app 定向回归通过：250 passed，0 failed，0 ignored；与 UI runtime/lint 回归共同覆盖主对话工具块跨轮复用。
+- 关联: D-725 R-037
+- 收尾: 1788303013
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@ce1a87324d71
