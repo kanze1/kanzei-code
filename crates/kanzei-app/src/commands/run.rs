@@ -700,6 +700,25 @@ mod tests {
     fn run_metrics_by_task_command_reads_real_task_projection() {
         let (root, session_id) = fixture("task-metrics");
         let store = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        store
+            .append_episode(&EpisodeRecord {
+                session_id: &session_id,
+                prompt_head: "legacy round retained by old API",
+                outcome: "completed",
+                steps: 2,
+                input_tokens: 13,
+                output_tokens: 7,
+                tools_json: "{}",
+                context_json: "[]",
+                metrics_json: "{}",
+                provider: "test-provider",
+                model: "test-model",
+                run_id: "run-legacy-command",
+                input_id: "input-legacy-command",
+                duration_ms: 22,
+                overflow_json: "[]",
+            })
+            .unwrap();
         let episode_id = store
             .append_episode(&EpisodeRecord {
                 session_id: &session_id,
@@ -761,6 +780,21 @@ mod tests {
             output["completed_tasks"][0]["rounds"][0]["episode_id"],
             episode_id
         );
+        assert_eq!(output["legacy"]["classification"], "legacy_unassigned");
+        assert_eq!(output["legacy"]["episode_count"], 1);
+        assert_eq!(output["audit"]["total_episode_count"], 2);
+        assert_eq!(output["audit"]["assigned_episode_count"], 1);
+
+        let old_output = run_metrics(root.display().to_string(), Some(10)).unwrap();
+        let old_rounds = old_output["rounds"].as_array().unwrap();
+        assert_eq!(
+            old_rounds.len(),
+            2,
+            "旧 rounds API 必须继续看见 legacy episode"
+        );
+        assert!(old_rounds
+            .iter()
+            .any(|round| round["prompt"] == "legacy round retained by old API"));
         std::fs::remove_dir_all(root).ok();
     }
 }

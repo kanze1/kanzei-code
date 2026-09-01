@@ -10827,3 +10827,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-338
 - 收尾: 1788265718
 - 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@524169cd1941,crates/kanzei-app/src/main.rs@5368997158ed,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675,scripts/ui-runtime-smoke.mjs@4e459a162dd6
+
+## T-1786922726844 R-339 kanzei-core 历史兼容与对账定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.4s
+- 摘要: 264 passed、0 failed；覆盖 task compatibility audit、legacy_unassigned 排除 completed trend、schema 迁移备份与旧事实回归。
+- 关联: R-339
+- 收尾: 1788266319
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@c2e6015e1545,crates/kanzei-core/src/store/mod.rs@03812b35f072,crates/kanzei-core/src/store/task.rs@a0c15219f963
+
+## T-1786922726845 R-339 kanzei-app 旧 API 与新 projection 调用方定向测试 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-app
+- 时长: 43.3s
+- 摘要: 组合定向命令实际完成：kanzei-core 首次 test 编译因漏导入失败后修复并单独重跑 264 passed；随后 kanzei-app 编译与测试命令退出 0，运行画像旧 API/新 task projection 测试通过。
+- 关联: R-339
+- 收尾: 1788266326
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@c2e6015e1545,crates/kanzei-core/src/store/mod.rs@03812b35f072,crates/kanzei-core/src/store/task.rs@a0c15219f963
+
+## T-1786922726846 R-339 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 92.0s
+- 摘要: workspace 全量通过：47 + 32 + 250 + 22 + 264 + 172 + 55 + 169 + 513，1 ignored；各 crate doc-tests 通过或按既有配置 ignored。
+- 关联: R-339
+- 收尾: 1788266667
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@c2e6015e1545,crates/kanzei-core/src/store/mod.rs@03812b35f072,crates/kanzei-core/src/store/task.rs@a0c15219f963

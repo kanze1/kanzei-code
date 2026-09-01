@@ -287,24 +287,6 @@
 - recorded_at: 1787276362163
 - 停车: 本轮 WIP 超限，B1 工具并发契约审计已完成；B2 尚未开始，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent
 
-## R-339 运行画像历史任务兼容迁移与回滚 [doing]
-- 内容: 在 R-338 任务事实与 projection 方案评审后，设计并实施运行画像历史兼容：旧 episodes/session_inputs/session_events 不改写，无 task close 的历史数据保留 legacy/未归属视图且不进入已完成趋势；新增 schema/索引、重建对账、备份和可回滚路径必须明确。
-- 发现记录: {"Intent":"让 task 画像上线不破坏旧 session/round 事实和历史查询","Explicit":"历史迁移兼容、未关闭/legacy 边界和回滚需要独立处理","Assumptions":"采用 additive migration，旧 rounds 查询可在过渡期保留","Ambiguities":"投影表或事件 membership 的最终 schema、版本号、备份策略和历史回填是否允许待评审","领域对象":"SQLite schema、episodes、session_inputs、session_events、task projection、legacy、migration、rollback","最小成功闭环":"旧库可升级且原始事实可读，新旧查询结果对账可复核，legacy 不进入 completed trend，失败可回滚","延后决策":"是否允许人工历史归属、迁移窗口、旧 API 下线时机"}
-- 复杂度: 中
-- 来源: 用户消息：「运行画像的部分显示的统计量非常少，会话的粒度也有问题，我们现在的鞭挞模式其实一个会话非常长，这个不应该按照会话来分，按照执行任务关闭的粒度来显示我觉得比较合理。」
-- 标签: 后端
-- 边界: 只覆盖 R-337/R-338 的历史数据兼容、迁移、对账和回滚，不自行推断旧 task close，不改变任务生命周期语义。
-- 验收: ①迁移/回滚说明覆盖 schema、旧数据、备份和失败恢复；②旧 episodes/session_inputs/session_events 可读且计数对账有自动化证据；③无 task close 的历史记录明确为 legacy/未归属且排除 completed trend；④旧 API 与新 projection 的过渡边界有真实调用方验证
-- refs: R-337 R-338
-- 优先级: P1
-- 依赖: R-338
-- 进展: 用户已解除语义评审阻塞；R-339 仍依赖 R-338 完成 task 事件与 projection 契约。待 R-338 B1-B4 落地后，再按确认的 additive migration、legacy 不回填、对账和回滚边界实施。
-- 阻塞: 
-- observed_head: 25485bdf9c636006b964c5653fe4c9d1bcd85e22
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1787898122242
-- 确认记录: 用户确认（本轮）：“按建议全部确认”：沿用 R-338 的显式 task 事件、四种 outcome、默认不跨 session/仅显式 attach、原始事实不改写和 legacy 规则。
-
 ## R-340 运行画像任务主视图与 session/round 下钻 [doing]
 - 内容: 在 R-338 task projection 契约评审并可消费后，重做运行画像前端主展示：以已关闭 task 为趋势/主列表，进行中 task 独立展示；点击 task 下钻到 session 分段、input 与 round/episode 细节，保留 provider/model、工具、上下文账单和错误；保留旧 rounds/legacy 提示与空态，不在前端自行聚合。
 - 发现记录: {"Intent":"让用户先看到可比较的任务完成结果，再查看长 session 内的执行细节","Explicit":"task close 是主粒度，session 仅下钻，未关闭任务单列进行中","Assumptions":"后端 projection 提供 completed_tasks、in_progress_tasks、trend 和下钻所需 rounds/sessions","Ambiguities":"task 标题、关闭 outcome 标签、下钻交互和跨 session 展示待评审","领域对象":"运行画像页面、task trend、completed task、in-progress task、session drilldown、round、legacy","最小成功闭环":"真实 metrics 入口加载 task projection，完成/进行中分区正确，点击 task 能看到 session→round 下钻，未关闭不进入趋势","延后决策":"分页/排序、筛选字段、移动端布局和旧 rounds 的下线时间"}
@@ -322,6 +304,7 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787898129566
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：前端沿用 task 主趋势、进行中/legacy 分区、session/round 下钻和仅显式 attach 的后端语义。
+- 停车: 让位 R-339 历史任务兼容迁移与回滚；R-339 完成后恢复本条主视图与下钻验收。恢复人:agent
 
 ## R-341 运行画像任务级真实链路收口与回归矩阵 [doing]
 - 内容: 作为 R-338/R-339/R-340 的链路收口，验证真实入口从 task 事实生产、SQLite projection/API 查询到运行画像 UI 的端到端闭环：创建并关闭多个任务、同一长 session 多轮、未关闭任务、session 下钻、legacy 历史和失败路径均可复核；不以单测、viewport 模拟或替身服务冒充真实链路。

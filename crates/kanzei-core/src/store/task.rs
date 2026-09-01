@@ -105,6 +105,31 @@ pub struct TaskMetricsProjection {
     pub completed_tasks: Vec<TaskProjection>,
     pub in_progress_tasks: Vec<TaskProjection>,
     pub trend: TaskTrend,
+    pub legacy: TaskLegacyProjection,
+    pub audit: TaskCompatibilityAudit,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TaskLegacyProjection {
+    pub classification: String,
+    pub episode_count: u64,
+    pub input_count: u64,
+    pub session_event_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TaskCompatibilityAudit {
+    pub task_count: u64,
+    pub membership_count: u64,
+    pub total_episode_count: u64,
+    pub assigned_episode_count: u64,
+    pub legacy_episode_count: u64,
+    pub total_input_count: u64,
+    pub assigned_input_count: u64,
+    pub legacy_input_count: u64,
+    pub total_session_event_count: u64,
+    pub task_event_count: u64,
+    pub legacy_session_event_count: u64,
 }
 
 impl SessionStore {
@@ -333,12 +358,101 @@ impl SessionStore {
             .collect()
     }
 
+    /// 统计旧事实与 task 事实的覆盖关系；不改写任何历史行。
+    pub fn task_compatibility_audit(&self) -> Result<TaskCompatibilityAudit, StoreError> {
+        let task_count = self.count(
+            "SELECT COUNT(DISTINCT json_extract(payload_json, '$.task_id'))
+                 FROM session_events
+                 WHERE event_type IN (?1, ?2, ?3)
+                   AND json_extract(payload_json, '$.task_id') IS NOT NULL",
+            &[
+                TASK_STARTED_EVENT_TYPE,
+                TASK_MEMBERSHIP_ADDED_EVENT_TYPE,
+                TASK_CLOSED_EVENT_TYPE,
+            ],
+        )?;
+        let membership_count = self.count(
+            "SELECT COUNT(*) FROM session_events
+                 WHERE event_type = ?1",
+            &[TASK_MEMBERSHIP_ADDED_EVENT_TYPE],
+        )?;
+        let total_episode_count = self.count("SELECT COUNT(*) FROM episodes", &[])?;
+        let assigned_episode_count = self.count(
+            "SELECT COUNT(DISTINCT json_extract(event.payload_json, '$.episode_id'))
+                 FROM session_events AS event
+                 INNER JOIN episodes ON episodes.episode_id =
+                     json_extract(event.payload_json, '$.episode_id')
+                 WHERE event.event_type = ?1
+                   AND json_extract(event.payload_json, '$.episode_id') IS NOT NULL",
+            &[TASK_MEMBERSHIP_ADDED_EVENT_TYPE],
+        )?;
+        let total_input_count = self.count("SELECT COUNT(*) FROM session_inputs", &[])?;
+        let assigned_input_count = self.count(
+            "SELECT COUNT(*) FROM session_inputs AS input
+                 WHERE EXISTS (
+                     SELECT 1 FROM session_events AS event
+                     WHERE event.event_type IN (?1, ?2, ?3)
+                       AND json_extract(event.payload_json, '$.input_id') = input.input_id
+                 )",
+            &[
+                TASK_STARTED_EVENT_TYPE,
+                TASK_MEMBERSHIP_ADDED_EVENT_TYPE,
+                TASK_CLOSED_EVENT_TYPE,
+            ],
+        )?;
+        let total_session_event_count = self.count("SELECT COUNT(*) FROM session_events", &[])?;
+        let task_event_count = self.count(
+            "SELECT COUNT(*) FROM session_events
+                 WHERE event_type IN (?1, ?2, ?3)
+                   AND json_extract(payload_json, '$.task_id') IS NOT NULL",
+            &[
+                TASK_STARTED_EVENT_TYPE,
+                TASK_MEMBERSHIP_ADDED_EVENT_TYPE,
+                TASK_CLOSED_EVENT_TYPE,
+            ],
+        )?;
+        let audit = TaskCompatibilityAudit {
+            task_count,
+            membership_count,
+            total_episode_count,
+            assigned_episode_count,
+            legacy_episode_count: total_episode_count.saturating_sub(assigned_episode_count),
+            total_input_count,
+            assigned_input_count,
+            legacy_input_count: total_input_count.saturating_sub(assigned_input_count),
+            total_session_event_count,
+            task_event_count,
+            legacy_session_event_count: total_session_event_count.saturating_sub(task_event_count),
+        };
+        Ok(audit)
+    }
+
+    fn count(&self, sql: &str, values: &[&str]) -> Result<u64, StoreError> {
+        let mut statement = self.connection.prepare(sql)?;
+        let count: i64 = match values {
+            [] => statement.query_row([], |row| row.get(0))?,
+            [a] => statement.query_row(params![a], |row| row.get(0))?,
+            [a, b] => statement.query_row(params![a, b], |row| row.get(0))?,
+            [a, b, c] => statement.query_row(params![a, b, c], |row| row.get(0))?,
+            _ => unreachable!("task audit only supports up to three SQL parameters"),
+        };
+        Ok(count.max(0) as u64)
+    }
+
     /// 按关闭事实分流，trend 只消费已关闭 task；未关闭 task 保持独立列表。
     pub fn task_metrics(&self) -> Result<TaskMetricsProjection, StoreError> {
+        let audit = self.task_compatibility_audit()?;
         let mut result = TaskMetricsProjection {
             completed_tasks: Vec::new(),
             in_progress_tasks: Vec::new(),
             trend: TaskTrend::default(),
+            legacy: TaskLegacyProjection {
+                classification: "legacy_unassigned".to_string(),
+                episode_count: audit.legacy_episode_count,
+                input_count: audit.legacy_input_count,
+                session_event_count: audit.legacy_session_event_count,
+            },
+            audit,
         };
         for task in self.list_task_projections()? {
             if task.closed_at.is_some() {
@@ -488,6 +602,7 @@ fn validate_identifier(name: &str, value: &str) -> Result<(), StoreError> {
 mod tests {
     use super::*;
     use crate::store::testutil::store;
+    use crate::Delivery;
 
     #[test]
     fn task_events_are_append_only_replayable_and_idempotent() {
@@ -658,6 +773,107 @@ mod tests {
         assert_eq!(metrics.trend.completed_task_count, 1);
         assert_eq!(metrics.trend.round_count, 1);
         assert_eq!(metrics.trend.input_tokens_sum, 100);
+    }
+
+    #[test]
+    fn task_compatibility_audit_marks_legacy_without_entering_trend() {
+        let store = store();
+        store
+            .admit_input("ses_test", "input-legacy", "legacy round", Delivery::Queue)
+            .unwrap();
+        let legacy_episode_id = store
+            .append_episode(&crate::store::EpisodeRecord {
+                session_id: "ses_test",
+                prompt_head: "legacy round",
+                outcome: "completed",
+                steps: 2,
+                input_tokens: 10,
+                output_tokens: 5,
+                tools_json: "{}",
+                context_json: "[]",
+                metrics_json: "{}",
+                provider: "provider",
+                model: "model",
+                run_id: "run-legacy",
+                input_id: "input-legacy",
+                duration_ms: 100,
+                overflow_json: "[]",
+            })
+            .unwrap();
+        store
+            .append_event(
+                "ses_test",
+                "run.completed",
+                &serde_json::json!({ "input_id": "input-legacy" }),
+            )
+            .unwrap();
+
+        store
+            .admit_input("ses_test", "input-task", "task round", Delivery::Queue)
+            .unwrap();
+        let task_episode_id = store
+            .append_episode(&crate::store::EpisodeRecord {
+                session_id: "ses_test",
+                prompt_head: "task round",
+                outcome: "completed",
+                steps: 8,
+                input_tokens: 20,
+                output_tokens: 6,
+                tools_json: "{}",
+                context_json: "[]",
+                metrics_json: "{}",
+                provider: "provider",
+                model: "model",
+                run_id: "run-task",
+                input_id: "input-task",
+                duration_ms: 200,
+                overflow_json: "[]",
+            })
+            .unwrap();
+        store
+            .append_task_started("ses_test", "task-audit", None, Some("input-task"))
+            .unwrap();
+        store
+            .append_task_membership_added(
+                "ses_test",
+                "task-audit",
+                "membership-audit",
+                Some("input-task"),
+                Some(task_episode_id),
+            )
+            .unwrap();
+        store
+            .append_task_closed(
+                "ses_test",
+                "task-audit",
+                TaskOutcome::Completed,
+                "agent",
+                None,
+            )
+            .unwrap();
+
+        let metrics = store.task_metrics().unwrap();
+        assert_eq!(metrics.legacy.classification, "legacy_unassigned");
+        assert_eq!(metrics.legacy.episode_count, 1);
+        assert_eq!(metrics.legacy.input_count, 1);
+        assert_eq!(metrics.legacy.session_event_count, 1);
+        assert_eq!(metrics.completed_tasks.len(), 1);
+        assert_eq!(metrics.trend.closed_task_count, 1);
+        assert_eq!(metrics.audit.task_count, 1);
+        assert_eq!(metrics.audit.membership_count, 1);
+        assert_eq!(metrics.audit.total_episode_count, 2);
+        assert_eq!(metrics.audit.assigned_episode_count, 1);
+        assert_eq!(metrics.audit.legacy_episode_count, 1);
+        assert_eq!(metrics.audit.total_input_count, 2);
+        assert_eq!(metrics.audit.assigned_input_count, 1);
+        assert_eq!(metrics.audit.legacy_input_count, 1);
+        assert_eq!(metrics.audit.total_session_event_count, 4);
+        assert_eq!(metrics.audit.task_event_count, 3);
+        assert_eq!(metrics.audit.legacy_session_event_count, 1);
+        assert_ne!(
+            metrics.completed_tasks[0].rounds[0].episode_id,
+            legacy_episode_id
+        );
     }
 
     #[test]

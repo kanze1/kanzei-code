@@ -4355,9 +4355,26 @@
 - refs: R-337
 - 优先级: P1
 - 进展: B4 完成。① append-only task.started/task.membership_added/task.closed 与唯一可重建 projection 真源位于 `crates/kanzei-core/src/store/task.rs:91-400`，全库 task_id 去重与 task_metrics 关闭分流位于 `:332-400`；② `task_projection_rebuilds_rounds_and_splits_closed_tasks`（`task.rs:591-660`）与 `run_metrics_by_task_command_reads_real_task_projection`（`crates/kanzei-app/src/commands/run.rs:700-759`）复核 completed_tasks/in_progress_tasks/trend、去重和 task→round，T-1786922726838 全绿；③真实 Tauri command 位于 `commands/run.rs:467-474`，`main.rs:209-211` 注册，`ui/13-memory.js:150-231` 的 refreshMetrics/renderTaskMetrics 真实消费 `run_metrics_by_task`，`ui/index.html:609` 提供消费者，task→session→round UI 断言位于 `scripts/ui-runtime-smoke.mjs:4740-4746`，T-1786922726839 六条前端冒烟全绿；④用户确认记录已冻结显式 task start、运行线/用户关闭、四种 outcome、默认不跨 session/仅显式 attach、task 事实与可重建 projection、legacy 不回填；迁移与回滚由独立 R-339 承接，未在本条实现。 [terminal-fix 2026-09-01] done → done: 归档时未同步最终批次；B4 已完成并有 T-1786922726839、T-1786922726840、T-1786922726841 证据。
-- 阻塞: 
 - observed_head: 9790961199110257b0cd5ebed5b30c476da12a71
 - observed_worktree_hash: fnv1a64:3da84230a281e7f8
 - recorded_at: 1788265367525
 - 批次: 3/4
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：显式 task start；运行线/用户可关闭；outcome=completed/failed/cancelled/abandoned；默认不跨 session，仅显式 attach；task.started/task.membership_added/task.closed 与可重建 projection；legacy 不回填。
+
+## R-339 运行画像历史任务兼容迁移与回滚 [done]
+- 内容: 在 R-338 任务事实与 projection 方案评审后，设计并实施运行画像历史兼容：旧 episodes/session_inputs/session_events 不改写，无 task close 的历史数据保留 legacy/未归属视图且不进入已完成趋势；新增 schema/索引、重建对账、备份和可回滚路径必须明确。
+- 发现记录: {"Intent":"让 task 画像上线不破坏旧 session/round 事实和历史查询","Explicit":"历史迁移兼容、未关闭/legacy 边界和回滚需要独立处理","Assumptions":"采用 additive migration，旧 rounds 查询可在过渡期保留","Ambiguities":"投影表或事件 membership 的最终 schema、版本号、备份策略和历史回填是否允许待评审","领域对象":"SQLite schema、episodes、session_inputs、session_events、task projection、legacy、migration、rollback","最小成功闭环":"旧库可升级且原始事实可读，新旧查询结果对账可复核，legacy 不进入 completed trend，失败可回滚","延后决策":"是否允许人工历史归属、迁移窗口、旧 API 下线时机"}
+- 复杂度: 中
+- 来源: 用户消息：「运行画像的部分显示的统计量非常少，会话的粒度也有问题，我们现在的鞭挞模式其实一个会话非常长，这个不应该按照会话来分，按照执行任务关闭的粒度来显示我觉得比较合理。」
+- 标签: 后端
+- 边界: 只覆盖 R-337/R-338 的历史数据兼容、迁移、对账和回滚，不自行推断旧 task close，不改变任务生命周期语义。
+- 验收: ①迁移/回滚说明覆盖 schema、旧数据、备份和失败恢复；②旧 episodes/session_inputs/session_events 可读且计数对账有自动化证据；③无 task close 的历史记录明确为 legacy/未归属且排除 completed trend；④旧 API 与新 projection 的过渡边界有真实调用方验证
+- refs: R-337 R-338
+- 优先级: P1
+- 依赖: 
+- 进展: R-339 已完成，逐条验收对账：①迁移/回滚说明覆盖 schema、旧数据、备份和失败恢复：`docs/design/run_metrics_task_migration.md:19-27,61-70`；既有 `backup_before_upgrade` 使用 `VACUUM INTO` 位于 `crates/kanzei-core/src/store/session.rs:229-261`，高版本拒绝/备份回归位于 `crates/kanzei-core/src/store/schema.rs:988-1067`，证据 `T-1786922726846`。②旧 `episodes/session_inputs/session_events` 可读且计数对账：`crates/kanzei-core/src/store/task.rs:361-440` 的 `task_compatibility_audit`，测试 `task_compatibility_audit_marks_legacy_without_entering_trend` 位于 `:777-867`，证据 `T-1786922726844`、`T-1786922726846`。③无 task close 的历史记录明确为 `legacy_unassigned` 且排除 completed trend：`task.rs:442-466` 输出 legacy 并只将 closed task 加入 trend，`:848-866` 逐项断言，app response 断言位于 `crates/kanzei-app/src/commands/run.rs:771-786`，证据 `T-1786922726844`、`T-1786922726845`。④旧 API 与新 projection 的过渡边界有真实调用方：`run.rs:448-475` 的两个 Tauri command，真实 SQLite fixture 同时调用旧 `run_metrics` 与新 `run_metrics_by_task` 的测试位于 `:700-795`，证据 `T-1786922726845`、`T-1786922726846`。本次交付为读取契约迁移，不提升 schema v18、不回填旧 task close；R-340/R-341 保留后续 UI/端到端边界。
+- 阻塞: 
+- observed_head: 288bb57adfbebd38988c2a29cfc0e3648d2d5e23
+- observed_worktree_hash: fnv1a64:7816ba6d4c4efd95
+- recorded_at: 1788266687256
+- 确认记录: 用户确认（本轮）：“按建议全部确认”：沿用 R-338 的显式 task 事件、四种 outcome、默认不跨 session/仅显式 attach、原始事实不改写和 legacy 规则。
