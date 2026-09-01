@@ -39,6 +39,7 @@ mod process;
 pub mod quarantine;
 mod question;
 mod read;
+pub mod research_environment;
 pub mod research_index;
 pub mod research_loop;
 pub mod research_plan;

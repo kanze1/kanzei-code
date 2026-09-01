@@ -335,13 +335,15 @@
 - refs: R-343 R-221
 - 优先级: P1
 - 批次: 4/4
-- 进展: 批次 4/4 已完成并验证：`crates/kanzei-tools/src/research_runner.rs:102-112,157-206` 新增 cancel 独立并发槽、pid 读取与 process tree kill，`209-490` 收尾优先保留 cancelled、heartbeat_timeout→stuck、run_finished/run_failed/run_cancelled 事实；`492-535` 回写探索 Markdown 的实验结果表；`583-645` 继续复用 core callback parser 并更新 callback_stats；`profiles/research.rs:38-41,133-138,162-166` 注册专用 runner、允许 run/cancel/get 且 bash 硬 deny。证据 `T-1786922726860`（tools 518 passed/1 ignored、app 250 passed）与 `T-1786922726861`（runner 5 passed）：①本机结果事实/产物/结果表已由 `T-1786922726861` 验证；SSH 仅有 `research_runner.rs:544-562` 系统客户端构造测试，真实 SSH 服务器链路缺口，验收降级；②坏 JSON/超长行/未知事件沿用既有 core parser 与 B3 测试，callback_stats 写入 `583-645`，本批未新增证据；③cancel/进程树 kill `157-206`、heartbeat stuck `343-410`，由 `T-1786922726861` 验证；④get 从 state.db 回读 `137-155`，但断线重连后的真实恢复场景缺自动化证据，验收降级；⑤research bash 硬 deny `profiles/research.rs:133-138`，runner 专用权限 `162-166`，由 `T-1786922726860` profile 回归覆盖；⑥当前 runner 接受人工准备命令并记录 environment snapshot `229-303`，但缺准备步骤时询问/记录尚未实现，验收降级。后续需拆出真实 SSH/断线恢复/环境准备协议条目，R-344 保持 doing。
-- observed_head: 36aa55e9f9ab823ceeae8cc2cbfbd43e2427a8f5
-- observed_worktree_hash: fnv1a64:f58c06f5e568c5c1
-- recorded_at: 1788271852964
+- 进展: 批次 4/4 已完成并提交 `00ae196f`：`crates/kanzei-tools/src/research_runner.rs:102-112,157-206` 新增 cancel 独立并发槽、pid 读取与 process tree kill，`209-490` 收尾优先保留 cancelled、heartbeat_timeout→stuck、run_finished/run_failed/run_cancelled 事实；`492-535` 回写探索 Markdown 的实验结果表；`583-645` 继续复用 core callback parser 并更新 callback_stats；`profiles/research.rs:38-41,133-138,162-166` 注册专用 runner、允许 run/cancel/get 且 bash 硬 deny。证据 `T-1786922726860`（tools 518 passed/1 ignored、app 250 passed）与 `T-1786922726861`（runner 5 passed）：①本机结果事实/产物/结果表已验证；SSH 真实服务器链路因缺用户提供的目标/凭据/人工准备目录，验收降级并登记外部阻塞；②坏 JSON/超长行/未知事件沿用 core parser 与 B3 测试，callback_stats 写入 `583-645`；③cancel/进程树 kill `157-206`、heartbeat stuck `343-410` 已验证；④get 从 state.db 回读 `137-155`，真实断线重连恢复由 R-347 承接，当前验收降级；⑤research bash 硬 deny `profiles/research.rs:133-138`，runner 专用权限 `162-166` 已回归；⑥环境快照 `229-303` 已记录，但缺环境准备步骤询问/记录由 R-345 承接，当前验收降级。后续依赖 R-345/R-347 完成后恢复本条收口。
+- observed_head: 00ae196ffdb6aa47a46f67ba7464d637a771b505
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788271993948
 - 状态: doing
+- 依赖: R-345 R-347
+- 阻塞: 真实 SSH 服务器端到端验收需要用户提供可连接的 SSH 目标、账号/凭据与人工准备目录；解除人:用户
 
-## R-345 实验环境登记表与运行时快照:声明与实况分离、环境漂移可见 [todo]
+## R-345 实验环境登记表与运行时快照:声明与实况分离、环境漂移可见 [doing]
 - 内容: 按设计 §2.3/§2.4 实现环境管理:.kanzei/research/environments.md 手工登记契约(ENV-<name>、kind、host、归属、执行策略、gpu、workdir、运行时限、计费、凭据引用、准备步骤、状态);每次实验启动时采集 environment.json 快照(nvidia-smi、python/框架版本、可用显存、git commit 与工作树是否 dirty)存进结果产物目录并被结果事实引用;登记与快照不一致时显式标注环境漂移。执行策略按环境分档 relaxed/managed/approval/strict(A-018):managed/approval 走占用认领与结束或超时释放,approval 启动前给预估并等确认;凭据不入 Markdown 只存 secret 引用;远端首跑由人工准备并把步骤写进准备步骤字段供后续复用。
 - 发现记录: {"Intent":"让实验结果的可比性有据可查,环境漂移不被静默吞掉","Explicit":"服务器与显卡清单手工登记,每次运行抓运行时快照,两者分开存","Assumptions":"远端可执行 nvidia-smi 与版本查询;不可用时允许降级","Ambiguities":"快照采集项清单是否可配置、漂移判定的容忍度,本条按固定项与逐字段比对处理","领域对象":"Environment 登记项、environment.json 快照、run 事实引用、漂移标注","最小成功闭环":"登记一台 SSH 环境并跑一次实验,快照落盘且与登记项比对结果可见","延后决策":"依赖安装与镜像管理、多环境同实验并行对比、采集项可配置"}
 - 复杂度: 中
@@ -351,6 +353,11 @@
 - 验收: ①environments.md 缺字段或坏枚举(含 policy)被检出并可定位;②一次 run 能产出 environment.json 并被 run 事实引用;③登记与快照不一致时前端显式标注漂移且登记表未被覆盖;④采集命令不可用时仍能跑完实验并留下降级说明;⑤relaxed 档不弹确认但命令记录/快照/终端/产物/超时清理一项不少;⑥managed 档并发冲突被拒绝且租约在结束与超时后都会释放;⑦Markdown 里不出现任何真实凭据。
 - refs: R-344 R-343
 - 优先级: P2
+- 批次: 1/3
+- 进展: 批次 1/3 已完成：新增 `crates/kanzei-tools/src/research_environment.rs`，解析 `.kanzei/research/environments.md` 的 `## ENV-* [status]` 段和中英文固定字段；校验 kind=local/ssh、执行策略=relaxed/managed/approval/strict、SSH host、workdir、准备步骤、secret:// 凭据引用，并返回字段行号诊断；`crates/kanzei-tools/src/lib.rs:42-46` 注册模块。证据 `T-1786922726862`：kanzei-tools 520 passed、1 ignored，环境模块 2 项测试通过。下一步 B2：runner 按 environment_id 消费登记，采集 local/SSH 快照并比较声明漂移，保持登记表不被覆盖。
+- observed_head: 00ae196ffdb6aa47a46f67ba7464d637a771b505
+- observed_worktree_hash: fnv1a64:0947420051129f55
+- recorded_at: 1788272307263
 
 ## R-346 实验路线图投影与下钻前端:节点即实验、图从 Markdown 重建 [todo]
 - 内容: 按设计 §4 实现只读路线图:节点=探索(颜色随 status,悬停显示 hypothesis,节点上带已跑次数与最近一次状态),边=depends_on(实线)与 supersedes(虚线);输入只有 <topic>/explorations/*.md,整块可重建;点击节点下钻探索详情(假设/实验结果表/结论/后续),再点单条结果进入终端回放、指标曲线与产物入口。

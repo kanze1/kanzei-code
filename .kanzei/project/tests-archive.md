@@ -10971,3 +10971,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-344
 - 收尾: 1788271814
 - 源码指纹: v2 crates/kanzei-tools/src/profiles/research.rs@6c43dc6edc29,crates/kanzei-tools/src/research_runner.rs@577219780ce6
+
+## T-1786922726862 R-345 B1 环境登记解析回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 45.0s
+- 摘要: R-345 B1 环境登记解析接入后 kanzei-tools 全 crate 通过：520 passed、1 ignored；新增 research_environment 2 项测试通过，覆盖合法声明、policy/准备步骤/凭据诊断与行号。
+- 关联: R-345
+- 收尾: 1788272299
+- 源码指纹: v2 crates/kanzei-tools/src/lib.rs@eba536fe955b,crates/kanzei-tools/src/research_environment.rs@57c67c1520bc
+
+## T-1786922726863 R-345 B1 环境解析 clippy 回归 [passed]
+- 命令: cargo test -p kanzei-tools research_environment; cargo clippy -p kanzei-tools --all-targets -- -D warnings
+- 时长: 43.0s
+- 摘要: 修复 clippy 类型复杂度后，research_environment 2 passed；kanzei-tools clippy -D warnings 通过。
+- 关联: R-345
+- 收尾: 1788272438
+- 源码指纹: v2 crates/kanzei-tools/src/lib.rs@eba536fe955b,crates/kanzei-tools/src/research_environment.rs@facbb0c704ab
