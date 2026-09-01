@@ -353,11 +353,11 @@
 - 验收: ①environments.md 缺字段或坏枚举(含 policy)被检出并可定位;②一次 run 能产出 environment.json 并被 run 事实引用;③登记与快照不一致时前端显式标注漂移且登记表未被覆盖;④采集命令不可用时仍能跑完实验并留下降级说明;⑤relaxed 档不弹确认但命令记录/快照/终端/产物/超时清理一项不少;⑥managed 档并发冲突被拒绝且租约在结束与超时后都会释放;⑦Markdown 里不出现任何真实凭据。
 - refs: R-344 R-343
 - 优先级: P2
-- 批次: 1/3
-- 进展: 批次 1/3 已完成：新增 `crates/kanzei-tools/src/research_environment.rs`，解析 `.kanzei/research/environments.md` 的 `## ENV-* [status]` 段和中英文固定字段；校验 kind=local/ssh、执行策略=relaxed/managed/approval/strict、SSH host、workdir、准备步骤、secret:// 凭据引用，并返回字段行号诊断；`crates/kanzei-tools/src/lib.rs:42-46` 注册模块。证据 `T-1786922726862`：kanzei-tools 520 passed、1 ignored，环境模块 2 项测试通过。下一步 B2：runner 按 environment_id 消费登记，采集 local/SSH 快照并比较声明漂移，保持登记表不被覆盖。
-- observed_head: 00ae196ffdb6aa47a46f67ba7464d637a771b505
-- observed_worktree_hash: fnv1a64:0947420051129f55
-- recorded_at: 1788272307263
+- 批次: 2/3
+- 进展: 批次 2/3 已完成：`crates/kanzei-tools/src/research_runner.rs:23-37,60-99` 增加可选 `environment_id` schema；`212-265` 从登记表加载 active 环境、以声明 policy/host/workdir 约束 execution；`286-375` 先写 run_started，再采集并写入 `environment.json`，快照包含 declared/observed/degraded/drift，run.execution_json 保留 environment_id，且启动中 cancel 不会 spawn 命令；`712-790` 实现 local 四项与 SSH 探针。既有 run 无 environment_id 仍复用旧路径。证据 `T-1786922726864`：research_runner 5 passed；覆盖真实 local runner 消费登记、environment.json 产物与 run 事实引用、降级字段、取消竞态。下一步 B3：managed/approval/strict 策略的占用租约、确认语义与结束/超时释放；前端漂移展示需接真实 run 数据。
+- observed_head: bd30e9e253e699edfe03afd9415a869c1e8eba25
+- observed_worktree_hash: fnv1a64:43fcea5d86f2386d
+- recorded_at: 1788273358567
 
 ## R-346 实验路线图投影与下钻前端:节点即实验、图从 Markdown 重建 [todo]
 - 内容: 按设计 §4 实现只读路线图:节点=探索(颜色随 status,悬停显示 hypothesis,节点上带已跑次数与最近一次状态),边=depends_on(实线)与 supersedes(虚线);输入只有 <topic>/explorations/*.md,整块可重建;点击节点下钻探索详情(假设/实验结果表/结论/后续),再点单条结果进入终端回放、指标曲线与产物入口。

@@ -10987,3 +10987,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-345
 - 收尾: 1788272438
 - 源码指纹: v2 crates/kanzei-tools/src/lib.rs@eba536fe955b,crates/kanzei-tools/src/research_environment.rs@facbb0c704ab
+
+## T-1786922726864 R-345 B2 runner 环境快照回归 [passed]
+- 命令: cargo test -p kanzei-tools research_runner
+- 时长: 40.0s
+- 摘要: R-345 B2 runner 回归 5 passed、0 failed：environment_id 登记消费、environment.json 声明/observed/degraded/drift、local run 事实与启动中 cancel 均通过。
+- 关联: R-345
+- 收尾: 1788273348
+- 源码指纹: v2 crates/kanzei-tools/src/research_runner.rs@94787b3cb186

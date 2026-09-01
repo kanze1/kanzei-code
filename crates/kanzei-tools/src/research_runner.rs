@@ -17,6 +17,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 use crate::docstore::DocStore;
+use crate::research_environment::{load_environment, ResearchEnvironment};
 
 const DEFAULT_MAX_DURATION_MS: u64 = 60 * 60 * 1000;
 
@@ -24,6 +25,7 @@ const DEFAULT_MAX_DURATION_MS: u64 = 60 * 60 * 1000;
 struct RunnerInput {
     action: String,
     topic: String,
+    environment_id: Option<String>,
     exploration_id: Option<String>,
     result_id: Option<String>,
     execution: Option<ExecutionSpec>,
@@ -63,6 +65,7 @@ impl Tool for ResearchRunnerTool {
             "properties": {
                 "action": { "type": "string", "enum": ["run", "get", "cancel"] },
                 "topic": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+                "environment_id": { "type": "string", "pattern": "^ENV-.+" },
                 "exploration_id": { "type": "string" },
                 "result_id": { "type": "string" },
                 "execution": {
@@ -182,7 +185,19 @@ async fn cancel_run(input: &RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         .and_then(|value| value.get("pid").and_then(Value::as_u64))
         .map(|value| value as u32);
     let Some(pid) = pid else {
-        return ToolOutput::failed("RUN_PID_MISSING", "运行事实尚未登记可取消的进程 pid");
+        run.status = "cancelled".into();
+        run.finished_at = Some(unix_ms());
+        run.cancel_reason = Some("user_requested_before_spawn".into());
+        let _ = append_event(
+            &store,
+            result_id,
+            "run_cancelled",
+            json!({ "reason": "user_requested_before_spawn" }),
+        );
+        if let Err(error) = store.upsert_research_run(&run) {
+            return ToolOutput::error(format!("写入取消终态失败: {error}"));
+        }
+        return ToolOutput::ok(json!({ "result_id": result_id, "status": run.status }).to_string());
     };
     let killed = crate::shell::kill_tree(pid).await;
     if !killed && crate::shell::process_alive(pid) {
@@ -207,11 +222,27 @@ async fn cancel_run(input: &RunnerInput, ctx: &ToolCtx) -> ToolOutput {
 }
 
 async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
-    let Some(execution) = input.execution.clone() else {
+    let Some(mut execution) = input.execution.clone() else {
         return ToolOutput::needs_correction(
             "MISSING_EXECUTION",
             "run 必须提供 execution.kind 与 execution.command",
         );
+    };
+    let declared_environment = match input.environment_id.as_deref() {
+        Some(environment_id) => match load_environment(&ctx.project_root, environment_id) {
+            Ok(environment) if environment.status == "active" => Some(environment),
+            Ok(environment) => {
+                return ToolOutput::needs_correction(
+                    "ENVIRONMENT_INACTIVE",
+                    format!(
+                        "环境 `{}` 当前状态为 `{}`，只能运行 active 环境",
+                        environment.id, environment.status
+                    ),
+                )
+            }
+            Err(error) => return ToolOutput::needs_correction("INVALID_ENVIRONMENT", error),
+        },
+        None => None,
     };
     if execution.command.trim().is_empty() {
         return ToolOutput::needs_correction("EMPTY_COMMAND", "execution.command 不能为空");
@@ -222,8 +253,28 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             "execution.kind 只能是 local 或 ssh",
         );
     }
-    if execution.kind == "ssh" && execution.host.as_deref().unwrap_or("").trim().is_empty() {
+    if execution.kind == "ssh"
+        && execution.host.as_deref().unwrap_or("").trim().is_empty()
+        && declared_environment.is_none()
+    {
         return ToolOutput::needs_correction("MISSING_SSH_HOST", "ssh 执行必须提供 execution.host");
+    }
+    if let Some(environment) = declared_environment.as_ref() {
+        if execution.kind != environment.kind {
+            return ToolOutput::needs_correction(
+                "ENVIRONMENT_KIND_MISMATCH",
+                format!(
+                    "execution.kind `{}` 与登记环境 `{}` 的 kind `{}` 不一致",
+                    execution.kind, environment.id, environment.kind
+                ),
+            );
+        }
+        if execution.host.is_none() && !environment.host.is_empty() {
+            execution.host = Some(environment.host.clone());
+        }
+        if execution.workdir.is_none() {
+            execution.workdir = Some(environment.workdir.clone());
+        }
     }
 
     let exploration_id = input
@@ -246,25 +297,21 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
     }
     let terminal_log_path = output_dir.join("terminal.log");
     let environment_path = output_dir.join("environment.json");
-    let environment = json!({
-        "captured_at": unix_ms(),
-        "os": std::env::consts::OS,
-        "arch": std::env::consts::ARCH,
-        "local_workdir": ctx.cwd,
-        "execution_kind": execution.kind,
-        "remote_host": execution.host,
-        "remote_workdir": execution.workdir,
-    });
-    if let Err(error) = write_json(&environment_path, &environment) {
-        return ToolOutput::error(format!("写入 environment.json 失败: {error}"));
+    let mut execution_json = serde_json::to_value(&execution).unwrap_or_else(|_| json!({}));
+    if let Some(environment_id) = input.environment_id.as_deref() {
+        execution_json["environment_id"] = json!(environment_id);
     }
     let mut run = ResearchRunRecord {
         result_id: result_id.clone(),
         exploration_id,
         topic: input.topic.clone(),
         status: "running".into(),
-        execution_json: serde_json::to_string(&execution).unwrap_or_default(),
-        policy: input.policy.unwrap_or_else(|| "relaxed".into()),
+        execution_json: execution_json.to_string(),
+        policy: declared_environment
+            .as_ref()
+            .map(|environment| environment.policy.clone())
+            .or(input.policy)
+            .unwrap_or_else(|| "relaxed".into()),
         lease_id: input.lease_id.unwrap_or_default(),
         max_duration_ms: input.max_duration_ms.unwrap_or(DEFAULT_MAX_DURATION_MS) as i64,
         cleanup: input.cleanup.unwrap_or_else(|| "retain".into()),
@@ -295,12 +342,29 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         "run_started",
         json!({ "execution": execution }),
     );
+    let environment = capture_environment(&execution, ctx, declared_environment.as_ref()).await;
+    if let Err(error) = write_json(&environment_path, &environment) {
+        return finish_failed(
+            store,
+            run,
+            format!("写入 environment.json 失败: {error}"),
+            "run_failed",
+        );
+    }
     let _ = append_event(
         &store,
         &result_id,
         "environment_captured",
         environment.clone(),
     );
+
+    if let Ok(Some(current)) = store.get_research_run(&result_id) {
+        if current.status == "cancelled" {
+            return ToolOutput::ok(
+                json!({ "result_id": result_id, "status": "cancelled" }).to_string(),
+            );
+        }
+    }
 
     let mut command = match command_for(&execution, ctx) {
         Ok(command) => command,
@@ -319,7 +383,8 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             )
         }
     };
-    let mut execution_json = serde_json::to_value(&execution).unwrap_or_else(|_| json!({}));
+    let mut execution_json =
+        serde_json::from_str::<Value>(&run.execution_json).unwrap_or_else(|_| json!({}));
     if let Some(pid) = child.id() {
         execution_json["pid"] = json!(pid);
         run.execution_json = execution_json.to_string();
@@ -487,6 +552,93 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
     } else {
         ToolOutput::error(summary.to_string())
     }
+}
+
+async fn run_environment_probe(mut command: Command) -> Value {
+    match command.output().await {
+        Ok(output) => json!({
+            "ok": output.status.success(),
+            "stdout": String::from_utf8_lossy(&output.stdout),
+            "stderr": String::from_utf8_lossy(&output.stderr),
+            "exit_code": output.status.code(),
+        }),
+        Err(error) => json!({ "ok": false, "stdout": "", "stderr": error.to_string() }),
+    }
+}
+
+async fn capture_environment(
+    execution: &ExecutionSpec,
+    ctx: &ToolCtx,
+    declared: Option<&ResearchEnvironment>,
+) -> Value {
+    let observed = if execution.kind == "ssh" {
+        let mut command = Command::new("ssh");
+        let target = match execution.user.as_deref() {
+            Some(user) if !user.trim().is_empty() => {
+                format!("{user}@{}", execution.host.as_deref().unwrap_or_default())
+            }
+            _ => execution.host.clone().unwrap_or_default(),
+        };
+        command.args([
+            "-o",
+            "BatchMode=yes",
+            &target,
+            "nvidia-smi; python --version; git rev-parse HEAD; git status --porcelain",
+        ]);
+        run_environment_probe(command).await
+    } else {
+        let workdir = execution
+            .workdir
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| ctx.cwd.clone());
+        let mut probes = serde_json::Map::new();
+        for (name, program, args) in [
+            ("nvidia_smi", "nvidia-smi", Vec::<&str>::new()),
+            ("python_version", "python", vec!["--version"]),
+            ("git_commit", "git", vec!["rev-parse", "HEAD"]),
+            ("git_status", "git", vec!["status", "--porcelain"]),
+        ] {
+            let mut command = Command::new(program);
+            command.args(args).current_dir(&workdir);
+            probes.insert(name.into(), run_environment_probe(command).await);
+        }
+        Value::Object(probes)
+    };
+    let mut drift = Vec::new();
+    if let Some(declared) = declared {
+        if declared.kind != execution.kind {
+            drift.push("kind");
+        }
+        if declared.host != execution.host.clone().unwrap_or_default() && declared.kind == "ssh" {
+            drift.push("host");
+        }
+        if declared.workdir != execution.workdir.clone().unwrap_or_default() {
+            drift.push("workdir");
+        }
+    }
+    let degraded = if execution.kind == "ssh" {
+        observed.get("ok") != Some(&Value::Bool(true))
+    } else {
+        observed.as_object().is_some_and(|probes| {
+            probes
+                .values()
+                .any(|probe| probe.get("ok") != Some(&Value::Bool(true)))
+        })
+    };
+    json!({
+        "captured_at": unix_ms(),
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+        "local_workdir": ctx.cwd,
+        "execution_kind": execution.kind,
+        "remote_host": execution.host,
+        "remote_workdir": execution.workdir,
+        "declared": declared,
+        "observed": observed,
+        "degraded": degraded,
+        "drift": drift,
+    })
 }
 
 fn append_result_table_row(root: &Path, run: &ResearchRunRecord) -> Result<String, String> {
@@ -714,11 +866,20 @@ mod tests {
             "---\nkind: exploration\nid: E-001\ntopic: nas-search\ntitle: test\nstatus: running\nhypothesis: test\ndepends_on:\nsupersedes:\nentry_refs:\nenvironment: ENV-test\nbudget: 1\ncreated_at: 1\nupdated_at: 1\n---\n\n## 假设\ntest\n\n## 实验结果\n| 实验 | 参数 | 状态 | 关键指标 | 产物 | 结论 |\n| --- | --- | --- | --- | --- | --- |\n\n## 结论\n待定\n",
         )
         .unwrap();
+        std::fs::write(
+            root.join(".kanzei/research/environments.md"),
+            format!(
+                "## ENV-test [active]\n- kind: local\n- host: \n- 归属: test\n- 执行策略: relaxed\n- gpu: unknown\n- workdir: {}\n- 运行时限: 10m\n- 计费: none\n- 凭据引用: \n- 准备步骤: local test environment is already prepared\n",
+                root.display()
+            ),
+        )
+        .unwrap();
         let ctx = ToolCtx::new(root.clone(), root.clone());
         let output = run_experiment(
             RunnerInput {
                 action: "run".into(),
                 topic: "nas-search".into(),
+                environment_id: Some("ENV-test".into()),
                 exploration_id: Some("E-001".into()),
                 result_id: Some("E-001-01".into()),
                 execution: Some(ExecutionSpec {
@@ -748,6 +909,17 @@ mod tests {
         assert!(store.list_research_run_events("E-001-01", 0).unwrap().len() >= 2);
         assert!(root.join(&run.terminal_log_path).is_file());
         assert!(root.join(&run.environment_snapshot_ref).is_file());
+        let snapshot: Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join(&run.environment_snapshot_ref)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(snapshot["declared"]["id"], "ENV-test");
+        assert!(snapshot.get("observed").is_some());
+        assert!(snapshot.get("degraded").is_some());
+        assert!(snapshot.get("drift").is_some());
+        let execution: Value = serde_json::from_str(&run.execution_json).unwrap();
+        assert_eq!(execution["environment_id"], "ENV-test");
+        assert_eq!(run.policy, "relaxed");
         assert!(std::fs::read_to_string(root.join(&run.terminal_log_path))
             .unwrap()
             .contains("ordinary"));
@@ -770,6 +942,7 @@ mod tests {
             RunnerInput {
                 action: "run".into(),
                 topic: "nas-search".into(),
+                environment_id: None,
                 exploration_id: Some("E-001".into()),
                 result_id: Some("E-001-02".into()),
                 execution: Some(ExecutionSpec {
@@ -813,6 +986,7 @@ mod tests {
                 RunnerInput {
                     action: "run".into(),
                     topic: "nas-search".into(),
+                    environment_id: None,
                     exploration_id: Some("E-001".into()),
                     result_id: Some("E-001-03".into()),
                     execution: Some(ExecutionSpec {
@@ -843,6 +1017,7 @@ mod tests {
             &RunnerInput {
                 action: "cancel".into(),
                 topic: "nas-search".into(),
+                environment_id: None,
                 exploration_id: None,
                 result_id: Some("E-001-03".into()),
                 execution: None,
