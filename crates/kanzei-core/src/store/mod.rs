@@ -303,8 +303,9 @@ mod work;
 pub use eval::{EffectEstimate, EvalCaseSet};
 pub use processes::StoredProcess;
 pub use task::{
-    TaskOutcome, TASK_CLOSED_EVENT_TYPE, TASK_EVENT_SCHEMA_VERSION,
-    TASK_MEMBERSHIP_ADDED_EVENT_TYPE, TASK_STARTED_EVENT_TYPE,
+    TaskMetricsProjection, TaskOutcome, TaskProjection, TaskRoundProjection, TaskStatus,
+    TASK_CLOSED_EVENT_TYPE, TASK_EVENT_SCHEMA_VERSION, TASK_MEMBERSHIP_ADDED_EVENT_TYPE,
+    TASK_STARTED_EVENT_TYPE,
 };
 pub use telemetry::{FunnelCounts, RecallEvent, RecallLinkStats, RecallMetrics};
 

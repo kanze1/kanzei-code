@@ -464,6 +464,16 @@ pub(crate) fn run_metrics(
     Ok(serde_json::json!({ "rounds": rounds }))
 }
 
+/// R-338 B3:读取可重建的 task 运行画像；前端只消费此 projection，不自行分组。
+#[tauri::command]
+pub(crate) fn run_metrics_by_task(project_dir: String) -> Result<serde_json::Value, String> {
+    let root = PathBuf::from(&project_dir);
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|error| error.to_string())?;
+    let projection = store.task_metrics().map_err(|error| error.to_string())?;
+    serde_json::to_value(projection).map_err(|error| error.to_string())
+}
+
 /// R-240:从 prompt_head 提取需求 ID(`R-123` / `D-321`),取第一个命中。
 /// 自举/取活轮的 prompt 以条目标题开头(R-xxx …),用户轮通常无——据此归类。
 pub(crate) fn extract_ticket_id(prompt_head: &str) -> Option<String> {
@@ -605,7 +615,8 @@ pub(crate) fn run_metrics_by_category(
 
 #[cfg(test)]
 mod tests {
-    use super::{run_metrics, run_metrics_by_category};
+    use super::{run_metrics, run_metrics_by_category, run_metrics_by_task};
+    use kanzei_core::store::TaskOutcome;
     use kanzei_core::{EpisodeRecord, SessionStore};
     use std::path::{Path, PathBuf};
 
@@ -683,6 +694,73 @@ mod tests {
         assert_eq!(group["count"], 1);
         assert_eq!(group["sumInput"], 17);
         assert_eq!(output["uncategorized"]["count"], 0);
+        std::fs::remove_dir_all(root).ok();
+    }
+    #[test]
+    fn run_metrics_by_task_command_reads_real_task_projection() {
+        let (root, session_id) = fixture("task-metrics");
+        let store = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        let episode_id = store
+            .append_episode(&EpisodeRecord {
+                session_id: &session_id,
+                prompt_head: "task projection command",
+                outcome: "completed",
+                steps: 4,
+                input_tokens: 31,
+                output_tokens: 11,
+                tools_json: "{}",
+                context_json: "[]",
+                metrics_json: "{}",
+                provider: "test-provider",
+                model: "test-model",
+                run_id: "run-task-command",
+                input_id: "input-task-command",
+                duration_ms: 44,
+                overflow_json: "[]",
+            })
+            .unwrap();
+        store
+            .append_task_started(
+                &session_id,
+                "task-command-closed",
+                Some("命令 task"),
+                Some("input-task-command"),
+            )
+            .unwrap();
+        store
+            .append_task_membership_added(
+                &session_id,
+                "task-command-closed",
+                "membership-command",
+                Some("input-task-command"),
+                Some(episode_id),
+            )
+            .unwrap();
+        store
+            .append_task_closed(
+                &session_id,
+                "task-command-closed",
+                TaskOutcome::Completed,
+                "agent",
+                None,
+            )
+            .unwrap();
+        store
+            .append_task_started(&session_id, "task-command-open", None, None)
+            .unwrap();
+
+        let output = run_metrics_by_task(root.display().to_string()).unwrap();
+        assert_eq!(output["completed_tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(output["in_progress_tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(output["trend"]["closed_task_count"], 1);
+        assert_eq!(
+            output["completed_tasks"][0]["task_id"],
+            "task-command-closed"
+        );
+        assert_eq!(
+            output["completed_tasks"][0]["rounds"][0]["episode_id"],
+            episode_id
+        );
         std::fs::remove_dir_all(root).ok();
     }
 }

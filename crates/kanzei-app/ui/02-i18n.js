@@ -430,7 +430,8 @@ export const I18N_EN = {
   "子代理就绪": "Subagent ready", "Ollama 未安装": "Ollama is not installed", "Ollama 服务未运行": "Ollama service is not running",
   "模型未拉取": "Model not pulled", "子代理杂活(记忆整理/快速记录)暂不可用": "subagent chores (memory consolidation, quick capture) are unavailable",
   "子代理安装": "Subagent setup", "子代理安装失败": "Subagent setup failed",
-  "运行画像加载失败": "Failed to load run metrics", "还没有轮次记录:跑一轮后这里会出现画像": "No rounds recorded yet — run once and metrics will appear here",
+  "运行画像加载失败": "Failed to load run metrics", "还没有轮次记录:跑一轮后这里会出现画像": "No rounds recorded yet — run once and metrics will appear here",  "任务画像": "Task profile", "已关闭任务": "Closed tasks", "进行中任务": "In-progress tasks", "暂无任务画像": "No task profile yet", "会话": "Sessions", "输入": "Inputs", "轮": "rounds",
+
   "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate",
   "平均步数": "Avg steps", "平均输出 token": "Avg output tokens", "近": "Last", "轮均值": "round average",
   "按分类聚合(类型 × 复杂度)": "By category (type × complexity)", "类型": "Type", "轮数": "Rounds", "输入合计": "Input total", "输出合计": "Output total", "平均输入": "Avg input", "平均输出": "Avg output", "未归类": "Uncategorized", "事件分类指标": "Incident classification metrics", "缺陷分类指标": "Defect classification metrics", "数量": "Count", "平均修复时长": "Avg repair duration", "逃逸率": "Escape rate", "晋升": "Promotions", "总事件": "Total incidents", "总体逃逸率": "Overall escape rate", "晋升事件": "Promotion events", "历史样本回放": "Historical sample replay", "一致": "consistent", "不一致": "inconsistent", "瞬时失手排除": "Instant self-errors excluded",

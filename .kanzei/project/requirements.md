@@ -287,24 +287,6 @@
 - recorded_at: 1787276362163
 - 停车: 本轮 WIP 超限，B1 工具并发契约审计已完成；B2 尚未开始，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent
 
-## R-338 任务级运行画像事实链路与可重建投影 [doing]
-- 内容: 在 R-337 设计评审通过后，接入显式 task.started/task.closed 事实、task membership 与可重建 task projection；保持 session/input/round 原始事实，提供 completed_tasks、in_progress_tasks、trend 和 task 下钻查询，前端必须有真实消费者。task start 入口、关闭权限/outcome、跨 session attach 与 schema 细节以用户评审结论为准，未确认前不实现。
-- 发现记录: {"Intent":"让运行画像以可比较的执行任务为主对象","Explicit":"task close 驱动完成画像，session/round 作为下钻","Assumptions":"append-only session_events 可承载 task 事实，projection 可从事件重建","Ambiguities":"task start 入口、关闭权限/outcome、跨 session attach、新 schema 待用户评审","领域对象":"task、session、input、episode、task.started、task.closed、membership、projection、运行画像 API","最小成功闭环":"真实 task 事实能生成可重建 projection，已关闭 task 进入趋势，未关闭 task 独立返回，前端有真实查询消费者","延后决策":"task 标题/关闭理由、跨 session 策略、事件版本和迁移顺序"}
-- 复杂度: 大
-- 来源: 用户消息：「运行画像的部分显示的统计量非常少，会话的粒度也有问题，我们现在的鞭挞模式其实一个会话非常长，这个不应该按照会话来分，按照执行任务关闭的粒度来显示我觉得比较合理。」
-- 标签: 核心
-- 边界: 只承接 R-337 已评审的 task 主粒度与未关闭口径；不在用户确认 task start/close 权限/outcome、跨 session 和 schema 前修改生产代码。
-- 验收: ①task.started/task.closed 与 membership 有 append-only 事实和唯一 task projection 真源；②completed/in_progress/trend 的关闭筛选与去重可由自动化测试复核；③真实 Tauri/API 调用方消费 task projection 并提供 task→session→round 下钻数据；④未确认语义不进入代码，迁移与回滚由独立条目覆盖
-- refs: R-337
-- 优先级: P1
-- 进展: B1 已完成并通过 T-1786922726830：新增 `crates/kanzei-core/src/store/task.rs`，以现有 `session_events` 追加 task.started/task.membership_added/task.closed 事实；`task_event_id` 在 SQLite 写事务内幂等，membership 可显式跨 session，`list_task_events` 可跨 session 回放，TaskOutcome 支持 completed/failed/cancelled/abandoned。`crates/kanzei-core/src/store/mod.rs` 已导出 API，`events.rs` 提供共享行解析。下一步 B2：实现从 task 事实重建唯一 task projection 与查询口径；本批未实现 API/UI，未回填 legacy。
-- 阻塞: 
-- observed_head: 25485bdf9c636006b964c5653fe4c9d1bcd85e22
-- observed_worktree_hash: fnv1a64:b483ec75fb9a342f
-- recorded_at: 1787925095933
-- 批次: 1/4
-- 确认记录: 用户确认（本轮）：“按建议全部确认”：显式 task start；运行线/用户可关闭；outcome=completed/failed/cancelled/abandoned；默认不跨 session，仅显式 attach；task.started/task.membership_added/task.closed 与可重建 projection；legacy 不回填。
-
 ## R-339 运行画像历史任务兼容迁移与回滚 [doing]
 - 内容: 在 R-338 任务事实与 projection 方案评审后，设计并实施运行画像历史兼容：旧 episodes/session_inputs/session_events 不改写，无 task close 的历史数据保留 legacy/未归属视图且不进入已完成趋势；新增 schema/索引、重建对账、备份和可回滚路径必须明确。
 - 发现记录: {"Intent":"让 task 画像上线不破坏旧 session/round 事实和历史查询","Explicit":"历史迁移兼容、未关闭/legacy 边界和回滚需要独立处理","Assumptions":"采用 additive migration，旧 rounds 查询可在过渡期保留","Ambiguities":"投影表或事件 membership 的最终 schema、版本号、备份策略和历史回填是否允许待评审","领域对象":"SQLite schema、episodes、session_inputs、session_events、task projection、legacy、migration、rollback","最小成功闭环":"旧库可升级且原始事实可读，新旧查询结果对账可复核，legacy 不进入 completed trend，失败可回滚","延后决策":"是否允许人工历史归属、迁移窗口、旧 API 下线时机"}
@@ -358,20 +340,6 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787898137370
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：真实收口覆盖显式 task start/close、长 session 多任务、未关闭、legacy、失败和 task→session→round 下钻；不以替身或单测替代真实链路。
-
-## R-342 运行模式芯片常驻:模式选择器移出鞭挞设置弹层并按档位配色 [doing]
-- 内容: 把 #profile-select 从鞭挞「设置」弹出面板整体搬到输入框上方的 composer-context 上下文行,做成常驻可点击切换的芯片;三档(结伴开发/自主推进/research)由 JS 写 data-mode,CSS 按档位给中性/告警/信息三套配色;设置面板保留门禁强度这条只读后果回显,不留第二个模式控件。
-- 复杂度: 小
-- 来源: 用户原话「autorun模式和用户结伴模式，虽然是两套提示词，但是我在对话区分不够明显，你做一个当前模式的选择呢?」;追问后用户选定「常驻模式芯片(点击切换)」一层,未选消息徽标与整区换色。
-- 标签: 前端
-- 边界: 只改前端呈现位置与配色,不改模式语义、agent 选择、鞭挞准入判据与后端 profile 存档;不新增第二个模式真源,不做每条消息的模式徽标与对话区整体换色(用户本轮只选了常驻芯片)。
-- 验收: ①#profile-select 位于 #composer-context 内且带 ctx-mode 类,ui-runtime-smoke 机械断言不许退回弹层;②切换三档后 data-mode 与 value 同步,有运行时断言;③ui-i18n/ui-a11y/ui-lint/ui-runtime 冒烟全过;④设置面板不再出现第二个模式选择控件。
-- refs: R-322
-- 优先级: P1
-- 进展: 2026-09-01 已落地并通过前端全部冒烟(ui-i18n / ui-a11y / ui-lint / ui-markdown / ui-narrow-layout / parallel-lines-regression / ui-runtime,后者带 R-342 新增断言):#profile-select 已移入 composer-context 并带 ctx-mode 芯片样式,style.css 按 data-mode 给三档配色,renderHarnessIntensity 同步 data-mode,鞭挞设置面板只留门禁强度只读回显。关闭欠 verify.ps1 证据:主工作树当前持有他人未提交 WIP(crates/kanzei-app/src/commands/run.rs、kanzei-core/src/store/task.rs 等 R-338 一线改动),verify 要求工作树干净,须等该线收口或在隔离工作树内补跑后再关闭。
-- observed_head: 1ebbb218afa1b970ab52ae4c50c695da038634ea
-- observed_worktree_hash: fnv1a64:7fdf349684490654
-- recorded_at: 1788257559741
 
 ## R-343 Research 实验事实模型与 Markdown 真源:Experiment/Run/Result/Environment 字段落地 [todo]
 - 内容: 按 docs/design/research_experiment_runner.md §2/§11 落地两层事实模型:explorations/E-<n>.md 的 frontmatter(kind/id/topic/title/status/hypothesis/depends_on/supersedes/entry_refs/environment/budget/时间戳)与固定段落(假设/实验结果/结论/后续)解析与校验;实验结果表六列(实验|参数|状态|关键指标|产物|结论)解析,参数列按自由文本原样保存不解析;topic 内 E- 编号与结果 E-<n>-<nn> 编号分配;explorations/<E-id>/<result-id>/ 产物目录骨架。

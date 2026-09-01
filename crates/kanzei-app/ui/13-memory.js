@@ -149,22 +149,86 @@ export function renderMemoryControlPlane(data) {
 // summarize_tools、summarize_metrics),缺的只是把它们汇到一处。
 export async function refreshMetrics() {
   if (!currentProject) {
+    $("metrics-tasks").innerHTML = `<p class="dim">${t("先在左侧「项目」里添加并选择一个目录")}</p>`;
     $("metrics-rounds").innerHTML = `<p class="dim">${t("先在左侧「项目」里添加并选择一个目录")}</p>`;
     return;
   }
   try {
-    const [data, cats] = await Promise.all([
+    const [data, cats, taskData] = await Promise.all([
       invoke("run_metrics", { projectDir: currentProject, limit: 20 }),
       invoke("run_metrics_by_category", { projectDir: currentProject, limit: 200 }),
+      invoke("run_metrics_by_task", { projectDir: currentProject }),
     ]);
     const incidentData = latestDocsSnapshot?.incident_metrics
       ?? (await invoke("docs_snapshot", { projectDir: currentProject })).incident_metrics;
+    renderTaskMetrics(taskData ?? {});
     renderMetrics(data?.rounds ?? []);
     renderMetricsCategories(cats ?? {});
     renderIncidentMetrics(incidentData, "metrics-incident");
   } catch (err) {
     toastError(`${t("运行画像加载失败")}:${err}`, { retry: refreshMetrics });
   }
+}
+
+export function renderTaskMetrics(data) {
+  const box = $("metrics-tasks");
+  if (!box) return;
+  box.replaceChildren();
+  const completed = data.completed_tasks ?? [];
+  const inProgress = data.in_progress_tasks ?? [];
+  const trend = data.trend ?? {};
+  const heading = document.createElement("div");
+  heading.className = "metrics-trend-head dim";
+  heading.textContent = `${t("任务画像")} · ${trend.closed_task_count ?? 0} ${t("已关闭任务")} · ${inProgress.length} ${t("进行中任务")}`;
+  box.appendChild(heading);
+  if (!completed.length && !inProgress.length) {
+    const empty = document.createElement("p");
+    empty.className = "dim";
+    empty.textContent = t("暂无任务画像");
+    box.appendChild(empty);
+    return;
+  }
+  appendTaskGroup(box, t("已关闭任务"), completed);
+  appendTaskGroup(box, t("进行中任务"), inProgress);
+}
+
+function appendTaskGroup(box, label, tasks) {
+  if (!tasks.length) return;
+  const group = document.createElement("section");
+  group.className = "metrics-task-group";
+  const title = document.createElement("h2");
+  title.className = "metrics-trend-head";
+  title.textContent = `${label} (${tasks.length})`;
+  group.appendChild(title);
+  for (const task of tasks) {
+    const details = document.createElement("details");
+    details.className = "metrics-task-card";
+    const summary = document.createElement("summary");
+    const status = {
+      completed: "已完成",
+      failed: "失败",
+      cancelled: "已取消",
+      abandoned: "已放弃",
+      in_progress: "进行中",
+    }[task.status] ?? task.status ?? "未知";
+    summary.textContent = `${task.title || task.task_id} · ${t(status)} · ${task.round_count ?? 0} ${t("轮")}`;
+    details.appendChild(summary);
+    const meta = document.createElement("div");
+    meta.className = "metrics-round-stats dim";
+    meta.textContent = `${task.task_id} · ${t("会话")} ${task.session_ids?.join(", ") || "—"} · ${t("输入")} ${task.input_count ?? 0} · ${t("步")} ${task.steps_sum ?? 0} · ↑${task.input_tokens_sum ?? 0} ↓${task.output_tokens_sum ?? 0}`;
+    details.appendChild(meta);
+    const rounds = document.createElement("div");
+    rounds.className = "metrics-task-rounds";
+    for (const round of task.rounds ?? []) {
+      const item = document.createElement("div");
+      item.className = "metrics-round-tools dim";
+      item.textContent = `${new Date(round.created_at).toLocaleString()} · ${round.session_id} · ${round.outcome} · ${round.steps} ${t("步")} · ↑${round.input_tokens} ↓${round.output_tokens}`;
+      rounds.appendChild(item);
+    }
+    details.appendChild(rounds);
+    group.appendChild(details);
+  }
+  box.appendChild(group);
 }
 
 // R-240:按需求类型(R-/D-)与复杂度(小/中/大)聚合的 token 指标,方便针对

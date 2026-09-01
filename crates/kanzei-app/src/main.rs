@@ -208,6 +208,7 @@ fn main() {
             memory::memory_note_discard,
             commands::run::run_metrics,
             commands::run::run_metrics_by_category,
+            commands::run::run_metrics_by_task,
             projects::project_root_info,
             projects::project_detach,
             projects::projects_isolation_report,

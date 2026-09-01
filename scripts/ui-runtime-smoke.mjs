@@ -895,6 +895,21 @@ const payloads = {
       },
     ],
   },
+  // R-338/R-340:真实 task projection 消费者夹具；禁止只测旧 rounds fixture。
+  run_metrics_by_task: {
+    completed_tasks: [{
+      task_id: "task-metrics-1", title: "任务画像演示", status: "completed",
+      session_ids: ["sess-smoke"], input_count: 1, round_count: 1,
+      steps_sum: 12, input_tokens_sum: 48_000, output_tokens_sum: 3_200,
+      rounds: [{ session_id: "sess-smoke", episode_id: 42, created_at: 1_760_000_000_000, outcome: "completed", steps: 12, input_tokens: 48_000, output_tokens: 3_200 }],
+    }],
+    in_progress_tasks: [{
+      task_id: "task-metrics-open", title: "进行中画像", status: "in_progress",
+      session_ids: ["sess-smoke"], input_count: 0, round_count: 0, steps_sum: 0,
+      input_tokens_sum: 0, output_tokens_sum: 0, rounds: [],
+    }],
+    trend: { closed_task_count: 1, completed_task_count: 1 },
+  },
   // 历史回放里的工具调用/结果:此前只有一条纯文本消息,历史工具块在运行时从未被执行过
   // (只有源码字符串断言),⎿ 摘要与展开详情的双写在这条路径上完全没有护栏。
   conversation_get: [
@@ -4723,6 +4738,13 @@ assert(metricsText.includes("该轮早于度量落地"), "未区分「没度量�
 const trendText = listText("metrics-trend");
 assert(trendText.includes("1 ") && trendText.includes("轮均值"), "趋势未按已度量轮次统计");
 assert(trendText.includes("17%"), `均值应只算已度量轮次(1/6≈17%),实得: ${trendText}`);
+assert(invokeArgs.some((call) => call.cmd === "run_metrics_by_task"), "运行画像页未消费真实 task projection command");
+const taskMetricGroups = document.querySelectorAll("#metrics-tasks .metrics-task-group");
+assert(taskMetricGroups.length === 2, `任务画像应分已关闭/进行中两组,实得 ${taskMetricGroups.length}`);
+const taskMetricsText = listText("metrics-tasks");
+assert(taskMetricsText.includes("任务画像演示") && taskMetricsText.includes("进行中画像"), "任务画像未渲染 projection 中的任务标题");
+assert(taskMetricsText.includes("sess-smoke") && taskMetricsText.includes("completed") && taskMetricsText.includes("12"), "任务画像未提供 task→session→round 下钻数据");
+assert(document.querySelectorAll("#metrics-tasks .metrics-task-rounds .metrics-round-tools").length === 1, "已关闭 task 的 round 细节未渲染");
 
 // ---------- R-126 UI 自查探针：在真实窗口里取样并回传 ----------
 const probe = handlers.get("kz:ui-probe");

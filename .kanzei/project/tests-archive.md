@@ -10733,3 +10733,97 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-338
 - 收尾: 1787925086
 - 源码指纹: v2 crates/kanzei-core/src/store/events.rs@b59fe991a1d9,crates/kanzei-core/src/store/mod.rs@c5f717ec7f15,crates/kanzei-core/src/store/task.rs@ad6e4301168a
+
+## T-1786922726831 R-338 B2 task projection 定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.4s
+- 摘要: kanzei-core 全部通过：263 passed, 0 failed, 0 ignored；新增覆盖 task projection 重建、completed/in_progress 分流、episode round 指标、task 去重与跨 session 原料回放。
+- 关联: R-338
+- 收尾: 1788011582
+- 源码指纹: v2 crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675
+
+## T-1786922726832 R-338 B3 task metrics Tauri command 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.1s
+- 摘要: kanzei-app 定向测试全部通过：250 passed, 0 failed, 0 ignored；新增 run_metrics_by_task Tauri command 已注册并由 command test 读取真实 SQLite task projection，验证 completed_tasks/in_progress_tasks/trend 与 task→round 数据。测试清理器检测并回滚了既有测试对 .kanzei/memory/index.db 的触碰。
+- 关联: R-338
+- 收尾: 1788011871
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@803ee21cda72,crates/kanzei-app/src/main.rs@fda44e72b5ad,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675
+
+## T-1786922726833 R-338 B4 前端六条完整冒烟 [passed]
+- 命令: $ErrorActionPreference = 'Stop'; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/13-memory.js; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 6.4s
+- 摘要: 前端六条完整冒烟全部通过：ui-lint、ui-runtime、parallel-lines、ui-a11y、ui-i18n、ui-markdown；另有 02/13-memory.js 语法检查通过。runtime 27 个脚本、2328 次 invoke、10 个主视图切换、0 运行时错误；parallel/a11y/i18n/markdown 均通过。
+- 关联: R-338 R-340
+- 收尾: 1788012065
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@803ee21cda72,crates/kanzei-app/src/main.rs@fda44e72b5ad,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675
+
+## T-1786922726834 R-338 定向测试（首次命令目标错误） [failed]
+- 命令: cargo test -p kanzei-core --lib; cargo test -p kanzei-app --lib（无 library target，命令契约错误）; node --check 未执行
+- 摘要: kanzei-core 263 passed；kanzei-app 不存在 library target，已核对 Cargo.toml，实际 target 为 bin kzapp。
+- 关联: R-338
+- 收尾: 1788256154
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@803ee21cda72,crates/kanzei-app/src/main.rs@fda44e72b5ad,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675
+
+## T-1786922726835 R-338 定向测试与前端语法检查 [passed]
+- 命令: cargo test -p kanzei-app --bin kzapp; node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/13-memory.js
+- 摘要: kanzei-app kzapp 250 passed；R-338 新增 run_metrics_by_task command 测试通过；02-i18n.js 与 13-memory.js 语法检查通过。
+- 关联: R-338
+- 收尾: 1788256198
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@803ee21cda72,crates/kanzei-app/src/main.rs@fda44e72b5ad,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675
+
+## T-1786922726836 R-338 完整 verify（提交前置条件） [failed]
+- 命令: .\scripts\verify.ps1
+- 摘要: verify 在第 23 行因 R-338 源码存在未提交改动而拒绝进入测试；未执行后续测试步骤。
+- 关联: R-338
+- 收尾: 1788256235
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@803ee21cda72,crates/kanzei-app/src/main.rs@fda44e72b5ad,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675
+
+## T-1786922726837 R-342 前端六条冒烟与 UI 语法检查 [passed]
+- 命令: Get-ChildItem crates/kanzei-app/ui -Filter *.js -File | ForEach-Object { node --check $_.FullName }; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 摘要: R-342 模式芯片位置、data-mode/value 同步及前端回归全部通过；六条前端冒烟均通过。
+- 关联: R-342
+- 收尾: 1788264924
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@803ee21cda72,crates/kanzei-app/src/main.rs@fda44e72b5ad,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675
+
+## T-1786922726838 R-338 Rust 定向回归（core + app） [passed]
+- 命令: cargo test -p kanzei-core --manifest-path Cargo.toml; cargo test -p kanzei-app --manifest-path Cargo.toml
+- 摘要: kanzei-core 263 passed；kanzei-app 250 passed；覆盖 task 事实回放、projection 分流、Tauri command 真实 state.db 消费。
+- 关联: R-338
+- 收尾: 1788265119
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@803ee21cda72,crates/kanzei-app/src/main.rs@5368997158ed,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675
+
+## T-1786922726839 R-338 前端六条冒烟回归 [passed]
+- 命令: $ErrorActionPreference = 'Stop'; node --check scripts/ui-runtime-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-lint-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 摘要: 六条前端冒烟全通过；运行时 27 个 ui/*.js、2336 次 invoke、10 个主视图切换、0 运行时错误，并覆盖 task projection 真实 command 与 task→session→round 渲染。
+- 关联: R-338
+- 收尾: 1788265319
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@803ee21cda72,crates/kanzei-app/src/main.rs@5368997158ed,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675,scripts/ui-runtime-smoke.mjs@4e459a162dd6
+
+## T-1786922726840 R-338 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: kanzei-app kzapp 定向测试 250 passed；包含 run_metrics_by_task command 真实 SQLite projection 测试。
+- 关联: R-338
+- 收尾: 1788265447
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@803ee21cda72,crates/kanzei-app/src/main.rs@5368997158ed,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675,scripts/ui-runtime-smoke.mjs@4e459a162dd6
+
+## T-1786922726841 R-338 kanzei-core 定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: kanzei-core 定向测试 263 passed；覆盖 task 事实追加/幂等/跨 session、projection 重建、关闭分流与指标去重。
+- 关联: R-338
+- 收尾: 1788265452
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@803ee21cda72,crates/kanzei-app/src/main.rs@5368997158ed,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675,scripts/ui-runtime-smoke.mjs@4e459a162dd6
+
+## T-1786922726842 R-338 格式化后 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: cargo fmt 后复跑 kanzei-app：250 passed，验证格式化未改变 run_metrics_by_task command 与相关回归。
+- 关联: R-338
+- 收尾: 1788265679
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@524169cd1941,crates/kanzei-app/src/main.rs@5368997158ed,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675,scripts/ui-runtime-smoke.mjs@4e459a162dd6
+
+## T-1786922726843 R-338 格式化后 kanzei-core 定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: cargo test -p kanzei-core 实际 263 passed、doc-tests 0 passed；命令末尾仅出现 managed-files 对 index.db 触碰的自动回滚提示，不影响测试结果。
+- 关联: R-338
+- 收尾: 1788265718
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@524169cd1941,crates/kanzei-app/src/main.rs@5368997158ed,crates/kanzei-core/src/store/mod.rs@9b8cf28b5c4d,crates/kanzei-core/src/store/task.rs@fc0de6504675,scripts/ui-runtime-smoke.mjs@4e459a162dd6

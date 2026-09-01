@@ -4329,3 +4329,35 @@
 - observed_worktree_hash: fnv1a64:ae65aa6f330a22e5
 - recorded_at: 1787897551288
 - 设计文档: docs/design/run_metrics_task_granularity.md
+
+## R-342 运行模式芯片常驻:模式选择器移出鞭挞设置弹层并按档位配色 [done]
+- 内容: 把 #profile-select 从鞭挞「设置」弹出面板整体搬到输入框上方的 composer-context 上下文行,做成常驻可点击切换的芯片;三档(结伴开发/自主推进/research)由 JS 写 data-mode,CSS 按档位给中性/告警/信息三套配色;设置面板保留门禁强度这条只读后果回显,不留第二个模式控件。
+- 复杂度: 小
+- 来源: 用户原话「autorun模式和用户结伴模式，虽然是两套提示词，但是我在对话区分不够明显，你做一个当前模式的选择呢?」;追问后用户选定「常驻模式芯片(点击切换)」一层,未选消息徽标与整区换色。
+- 标签: 前端
+- 边界: 只改前端呈现位置与配色,不改模式语义、agent 选择、鞭挞准入判据与后端 profile 存档;不新增第二个模式真源,不做每条消息的模式徽标与对话区整体换色(用户本轮只选了常驻芯片)。
+- 验收: ①#profile-select 位于 #composer-context 内且带 ctx-mode 类,ui-runtime-smoke 机械断言不许退回弹层;②切换三档后 data-mode 与 value 同步,有运行时断言;③ui-i18n/ui-a11y/ui-lint/ui-runtime 冒烟全过;④设置面板不再出现第二个模式选择控件。
+- refs: R-322
+- 优先级: P1
+- 进展: 已完成并关闭。① `crates/kanzei-app/ui/index.html:190-199` 将唯一 #profile-select 放入 #composer-context 且带 ctx-mode；`scripts/ui-runtime-smoke.mjs:5361-5369` 断言不会退回弹层。② `crates/kanzei-app/ui/08-auto.js:97-103` 以选择器 value 同步 data-mode，`crates/kanzei-app/ui/08-compose-runtime.js:1137-1148` 接入真实 change 消费者；`scripts/ui-runtime-smoke.mjs:5371-5380` 逐一断言 dev-auto/dev-pair/research。③ `T-1786922726837`：node --check 与 parallel-lines-regression、ui-a11y、ui-i18n、ui-markdown、ui-lint、ui-runtime 六条前端冒烟通过。④ `crates/kanzei-app/ui/index.html:265-278` 设置面板仅保留门禁强度只读回显，唯一模式控件仍为 :195；`scripts/ui-runtime-smoke.mjs:5366-5369` 覆盖唯一常驻位置。既有模式语义与后端 profile 存档能力沿用，本次交付仅为位置、芯片样式及 data-mode 同步。
+- observed_head: 9790961199110257b0cd5ebed5b30c476da12a71
+- observed_worktree_hash: fnv1a64:75c16ae4a3f53371
+- recorded_at: 1788264947975
+
+## R-338 任务级运行画像事实链路与可重建投影 [done]
+- 内容: 在 R-337 设计评审通过后，接入显式 task.started/task.closed 事实、task membership 与可重建 task projection；保持 session/input/round 原始事实，提供 completed_tasks、in_progress_tasks、trend 和 task 下钻查询，前端必须有真实消费者。task start 入口、关闭权限/outcome、跨 session attach 与 schema 细节以用户评审结论为准，未确认前不实现。
+- 发现记录: {"Intent":"让运行画像以可比较的执行任务为主对象","Explicit":"task close 驱动完成画像，session/round 作为下钻","Assumptions":"append-only session_events 可承载 task 事实，projection 可从事件重建","Ambiguities":"task start 入口、关闭权限/outcome、跨 session attach、新 schema 待用户评审","领域对象":"task、session、input、episode、task.started、task.closed、membership、projection、运行画像 API","最小成功闭环":"真实 task 事实能生成可重建 projection，已关闭 task 进入趋势，未关闭 task 独立返回，前端有真实查询消费者","延后决策":"task 标题/关闭理由、跨 session 策略、事件版本和迁移顺序"}
+- 复杂度: 大
+- 来源: 用户消息：「运行画像的部分显示的统计量非常少，会话的粒度也有问题，我们现在的鞭挞模式其实一个会话非常长，这个不应该按照会话来分，按照执行任务关闭的粒度来显示我觉得比较合理。」
+- 标签: 核心
+- 边界: 只承接 R-337 已评审的 task 主粒度与未关闭口径；不在用户确认 task start/close 权限/outcome、跨 session 和 schema 前修改生产代码。
+- 验收: ①task.started/task.closed 与 membership 有 append-only 事实和唯一 task projection 真源；②completed/in_progress/trend 的关闭筛选与去重可由自动化测试复核；③真实 Tauri/API 调用方消费 task projection 并提供 task→session→round 下钻数据；④未确认语义不进入代码，迁移与回滚由独立条目覆盖
+- refs: R-337
+- 优先级: P1
+- 进展: B4 完成。① append-only task.started/task.membership_added/task.closed 与唯一可重建 projection 真源位于 `crates/kanzei-core/src/store/task.rs:91-400`，全库 task_id 去重与 task_metrics 关闭分流位于 `:332-400`；② `task_projection_rebuilds_rounds_and_splits_closed_tasks`（`task.rs:591-660`）与 `run_metrics_by_task_command_reads_real_task_projection`（`crates/kanzei-app/src/commands/run.rs:700-759`）复核 completed_tasks/in_progress_tasks/trend、去重和 task→round，T-1786922726838 全绿；③真实 Tauri command 位于 `commands/run.rs:467-474`，`main.rs:209-211` 注册，`ui/13-memory.js:150-231` 的 refreshMetrics/renderTaskMetrics 真实消费 `run_metrics_by_task`，`ui/index.html:609` 提供消费者，task→session→round UI 断言位于 `scripts/ui-runtime-smoke.mjs:4740-4746`，T-1786922726839 六条前端冒烟全绿；④用户确认记录已冻结显式 task start、运行线/用户关闭、四种 outcome、默认不跨 session/仅显式 attach、task 事实与可重建 projection、legacy 不回填；迁移与回滚由独立 R-339 承接，未在本条实现。 [terminal-fix 2026-09-01] done → done: 归档时未同步最终批次；B4 已完成并有 T-1786922726839、T-1786922726840、T-1786922726841 证据。
+- 阻塞: 
+- observed_head: 9790961199110257b0cd5ebed5b30c476da12a71
+- observed_worktree_hash: fnv1a64:3da84230a281e7f8
+- recorded_at: 1788265367525
+- 批次: 3/4
+- 确认记录: 用户确认（本轮）：“按建议全部确认”：显式 task start；运行线/用户可关闭；outcome=completed/failed/cancelled/abandoned；默认不跨 session，仅显式 attach；task.started/task.membership_added/task.closed 与可重建 projection；legacy 不回填。
