@@ -11135,3 +11135,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: trim_tail 相关 3 项回归全部通过，包含 D-723 工具调用/结果配对不变式；3 passed，274 filtered out。
 - 关联: D-723 R-202
 - 收尾: 1788302386
+
+## T-1786922726883 D-724 conversation_prior 持久快照优先回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app
+- 时长: 20.8s
+- 摘要: 修复 conversation_prior 后 kanzei-app 定向回归通过：250 passed，0 failed，0 ignored；包含持久快照覆盖旧内存缓存和空持久事实缓存回退测试。
+- 关联: D-724 D-723
+- 收尾: 1788302675
+- 源码指纹: v2 crates/kanzei-app/src/conversation.rs@0efa20374ffc,crates/kanzei-app/src/conversation_tests.rs@3b338c6dc60f

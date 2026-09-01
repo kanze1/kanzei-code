@@ -8751,3 +8751,17 @@
 - observed_head: 2ba3945c0656c0b7a857a7e8036383041d8846b5
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788302395192
+
+## D-724 压缩后仍产出孤儿 function_call_output:同一 call_id 每轮必现 400,与 trim_tail 无关 [fixed] (high)
+- 已排除: ①不是 D-723 的 trim_tail:压缩后 238446 <= budget 239232,enforce_context_budget 的 trim 分支条件 anchored>budget 不成立,trim_tail 本轮从未执行;②不是存储或投影写坏:全会话扫描 assistant_message_committed 与 tool_result_committed,无对应 tool_call 的 tool_result 为 0 条,该 call_id 在 seq 290321 的 assistant 消息里带 reasoning+tool_call 两个 part,290326 有配对结果;③不是装配漏清洗:drive/assembly.rs:142 对 prior 跑了 filter_message_history;④不是压缩切开配对:compaction_range_has_complete_tool_pairs 双向判定齐全,且 compact_with_digest 结尾对 rebuilt 再跑一次 filter_message_history;⑤不是序列化器:openai_responses.rs build_body 对 Assistant 的 Part::ToolCall 与 User 的 Part::ToolResult 是 1:1 映射,无条件丢弃。
+- 影响: 该会话历史约 388k token,每轮必触发压缩,故每轮必败,鞭挞无法继续。绕过办法:开新对话(历史不进压缩即不触发),持久事实在 tracker 里不丢。
+- 来源: 用户上报「还是不行呢」,在 D-723 修复提交后仍复现同一 call_id 的 400。
+- 标签: 核心
+- 现象: 会话 ses_project_ 连续三轮(seq 290579/290594/后续)以同一 call_id call_PHdQ9vdsuf8JcJ4HqV7cqYK3 报 provider 400 "No tool call found for function call output"。确定性复现:每轮 turn_started 后固定出现 context.pruned(cleared 30,388066→311722)与 context.compacted(311722→238446,budget 239232,dropped 65),紧接 turn_failed,无任何工具事件,即失败发生在该轮第 1 步的首个请求。
+- 线索: 同会话 session.shadow_compared 报 equal=false、expected_mismatch=false、first_mismatch=1、diagnostics 为空,即真正发送的 legacy 历史与事件投影在第 1 条消息处就不一致。legacy 历史来自 conversation.updated 事件的整包 messages 快照(conversation.rs recover_messages_raw)并经 conversation_prior 与内存 conversation map 合流,该合流路径是下一步排查的重点。
+- refs: D-723
+- 优先级: P0
+- 进展: 已修复并验证：真实调用链 `crates/kanzei-app/src/run/coordinator.rs:169-175` 先按 gate 取得 persisted，`crates/kanzei-app/src/conversation.rs:540-556` 现在以非空 persisted 覆盖同 session 的旧内存 map，仅在 persisted 为空时缓存回退，避免旧 legacy 快照继续进入 provider；既有首请求 `filter_message_history` 仍由 `crates/kanzei-core/src/runner/drive/assembly.rs:140-163` 消费。回归 `crates/kanzei-app/src/conversation_tests.rs:54-82` 覆盖持久快照刷新和空持久数据回退。证据 `T-1786922726883`：`cargo fmt --all -- --check; cargo test -p kanzei-app`，250 passed、0 failed。原“现象/线索”已由该调用链修复覆盖，D-723 作为已修复的配对清洗基础能力保留。
+- observed_head: 2ba3945c0656c0b7a857a7e8036383041d8846b5
+- observed_worktree_hash: fnv1a64:16839f2c494079a4
+- recorded_at: 1788302687709

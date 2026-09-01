@@ -129,16 +129,6 @@
 - recorded_at: 1787732249253
 - 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与定向回归已完成，待新调研条目收口后提交/关闭；恢复人:agent
 
-## D-724 压缩后仍产出孤儿 function_call_output:同一 call_id 每轮必现 400,与 trim_tail 无关 [open] (high)
-- 已排除: ①不是 D-723 的 trim_tail:压缩后 238446 <= budget 239232,enforce_context_budget 的 trim 分支条件 anchored>budget 不成立,trim_tail 本轮从未执行;②不是存储或投影写坏:全会话扫描 assistant_message_committed 与 tool_result_committed,无对应 tool_call 的 tool_result 为 0 条,该 call_id 在 seq 290321 的 assistant 消息里带 reasoning+tool_call 两个 part,290326 有配对结果;③不是装配漏清洗:drive/assembly.rs:142 对 prior 跑了 filter_message_history;④不是压缩切开配对:compaction_range_has_complete_tool_pairs 双向判定齐全,且 compact_with_digest 结尾对 rebuilt 再跑一次 filter_message_history;⑤不是序列化器:openai_responses.rs build_body 对 Assistant 的 Part::ToolCall 与 User 的 Part::ToolResult 是 1:1 映射,无条件丢弃。
-- 影响: 该会话历史约 388k token,每轮必触发压缩,故每轮必败,鞭挞无法继续。绕过办法:开新对话(历史不进压缩即不触发),持久事实在 tracker 里不丢。
-- 来源: 用户上报「还是不行呢」,在 D-723 修复提交后仍复现同一 call_id 的 400。
-- 标签: 核心
-- 现象: 会话 ses_project_ 连续三轮(seq 290579/290594/后续)以同一 call_id call_PHdQ9vdsuf8JcJ4HqV7cqYK3 报 provider 400 "No tool call found for function call output"。确定性复现:每轮 turn_started 后固定出现 context.pruned(cleared 30,388066→311722)与 context.compacted(311722→238446,budget 239232,dropped 65),紧接 turn_failed,无任何工具事件,即失败发生在该轮第 1 步的首个请求。
-- 线索: 同会话 session.shadow_compared 报 equal=false、expected_mismatch=false、first_mismatch=1、diagnostics 为空,即真正发送的 legacy 历史与事件投影在第 1 条消息处就不一致。legacy 历史来自 conversation.updated 事件的整包 messages 快照(conversation.rs recover_messages_raw)并经 conversation_prior 与内存 conversation map 合流,该合流路径是下一步排查的重点。
-- refs: D-723
-- 优先级: P0
-
 ## D-725 同名子代理跨轮撞 id:主对话静默吞块并覆写上一轮内容 [open] (high)
 - 修复方向: 撞 id 时走活动面板同款 restart 语义,或给实时路径的 id 拼轮次序号使其全局唯一;两者取一,不要在前端另造一套角色轮次推断。
 - 复现: 开启阶段流水线,让同一角色在两轮里都被派出(勘察角色天然复用),观察主对话组头计数与上一轮块内容。

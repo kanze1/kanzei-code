@@ -546,7 +546,9 @@ pub(crate) fn conversation_prior(
 ) -> Vec<kanzei_llm::Message> {
     let mut conversations = conversation.lock().unwrap();
     let conv = conversations.entry(session_id.to_string()).or_default();
-    if conv.is_empty() && !persisted.is_empty() {
+    if !persisted.is_empty() {
+        // 持久事实是 coordinator 按当前 projection/legacy gate 选择出的权威来源。
+        // 内存 map 只是进程内缓存；若它非空就拒绝刷新会把旧快照继续喂给 provider。
         *conv = persisted;
     }
     conv.clone()

@@ -52,7 +52,7 @@ fn session_id_does_not_change_non_object_payload() {
 }
 
 #[test]
-fn conversation_prior_prefers_existing_memory_over_persisted_snapshot() {
+fn conversation_prior_prefers_persisted_snapshot_over_stale_memory() {
     let conversation = Arc::new(Mutex::new(HashMap::new()));
     let persisted = vec![kanzei_llm::Message::user_text("恢复快照")];
     assert_eq!(
@@ -60,18 +60,22 @@ fn conversation_prior_prefers_existing_memory_over_persisted_snapshot() {
         persisted[0].parts
     );
     let existing = vec![kanzei_llm::Message::user_text("内存旧快照")];
+    conversation.lock().unwrap().insert("ses".into(), existing);
+    let latest = vec![kanzei_llm::Message::user_text("最新持久化")];
+    assert_eq!(
+        conversation_prior(&conversation, "ses", latest.clone())[0].parts,
+        latest[0].parts,
+        "持久快照变化时不能继续使用旧内存历史"
+    );
+    let cached = vec![kanzei_llm::Message::user_text("仅内存缓存")];
     conversation
         .lock()
         .unwrap()
-        .insert("ses".into(), existing.clone());
+        .insert("ses".into(), cached.clone());
     assert_eq!(
-        conversation_prior(
-            &conversation,
-            "ses",
-            vec![kanzei_llm::Message::user_text("最新持久化")]
-        )[0]
-        .parts,
-        existing[0].parts
+        conversation_prior(&conversation, "ses", Vec::new())[0].parts,
+        cached[0].parts,
+        "持久事实暂时为空时保留缓存回退"
     );
 }
 
