@@ -374,29 +374,29 @@
 - recorded_at: 1788257559741
 
 ## R-343 Research 实验事实模型与 Markdown 真源:Experiment/Run/Result/Environment 字段落地 [todo]
-- 内容: 按 docs/design/research_experiment_runner.md §2 落地实验事实模型:experiments/E-<n>.md 的 frontmatter(kind/id/topic/title/status/hypothesis/depends_on/supersedes/entry_refs/environment/budget/时间戳)与固定段落(假设/参数/运行/结果/结论/后续)解析与校验;topic 内 E- 编号分配;experiments/ 与 runs/ 目录骨架;参数段摘要 params_digest 生成。
-- 发现记录: {"Intent":"让实验路线关系与实验事实有唯一可解析的真源,避免图与文件双真源漂移","Explicit":"节点=Experiment;关系写在实验 frontmatter 的 depends_on/supersedes;route.md 只写人工叙事","Assumptions":"沿用 tracker 的单行值口径;topic 目录结构沿用 research_mode.md §3","Ambiguities":"E- 编号是否跨 topic 全局唯一、参数表是否需要类型约束,本条按 topic 内唯一与纯文本处理","领域对象":"Experiment、Run 引用、Result 段、Environment 引用、topic 目录、params_digest","最小成功闭环":"一个 topic 下两个互相依赖的实验文件被解析成对象与边,坏字段有诊断","延后决策":"跨 topic 引用、实验模板生成、Markdown 到 LaTeX 的实验表导出"}
+- 内容: 按 docs/design/research_experiment_runner.md §2/§11 落地两层事实模型:explorations/E-<n>.md 的 frontmatter(kind/id/topic/title/status/hypothesis/depends_on/supersedes/entry_refs/environment/budget/时间戳)与固定段落(假设/实验结果/结论/后续)解析与校验;实验结果表六列(实验|参数|状态|关键指标|产物|结论)解析,参数列按自由文本原样保存不解析;topic 内 E- 编号与结果 E-<n>-<nn> 编号分配;explorations/<E-id>/<result-id>/ 产物目录骨架。
+- 发现记录: {"Intent":"让研究路线关系与实验事实有唯一可解析的真源,同时不越界去定义参数语义","Explicit":"两层模型:探索是图节点,实验结果挂在探索下;参数是自由文本;编号 topic 内唯一;不做并发新建","Assumptions":"沿用 tracker 的单行值口径;topic 目录结构沿用 research_mode.md §3","Ambiguities":"结果 id 形态与指标序列文件格式,本条按 E-<n>-<nn> 与 metrics.jsonl 处理","领域对象":"研究方向、探索、实验结果、产物目录、环境引用","最小成功闭环":"一个 topic 下两个互相依赖的探索文件被解析成节点与边,结果行可读,坏字段有诊断","延后决策":"跨 topic 引用的解析、探索模板生成、Markdown 到 LaTeX 的结果表导出"}
 - 复杂度: 中
-- 来源: 用户原话「Markdown 事实格式:route.md、experiment.md、run.md、result.md、环境文档和快照」;本轮定调「实验 Markdown 为真源」,路线图只是投影。
+- 来源: 用户原话「我们的数据模型只有研究方向,对应的探索,每个探索下面挂实验结果就行,跑多少参数就挂多少」与「我们只负责结果记录,不负责定义这些」;编号口径见「跨课题得情况比较少,这里也不需要并行」。
 - 标签: 核心
-- 边界: 只做事实模型与 Markdown 契约,不实现运行器、不连服务器、不做路线图前端;不引入嵌套 YAML,单行值口径与 tracker 一致;不把高频回调写进 Markdown;不改 research_mode.md 已验收的工件落点。
-- 验收: ①能从一个 topic 的 experiments/*.md 解析出完整对象并对缺字段/坏枚举报出可定位诊断;②E- 编号在 topic 内唯一且并发新建不撞号;③参数段变更导致 params_digest 变化,有单测;④非法 depends_on(悬挂/成环)被检出并报诊断而不是静默丢弃。
+- 边界: 只做事实模型与 Markdown 契约,不实现运行器、不连服务器、不做路线图前端;不建第三层对象、不建模参数空间、不判定两条结果是否可比;不引入嵌套 YAML,单行值口径与 tracker 一致;不把高频回调写进 Markdown;不改 research_mode.md 已验收的工件落点。
+- 验收: ①能从一个 topic 的 explorations/*.md 解析出探索与其结果行并对缺字段/坏枚举报出可定位诊断;②E- 与 E-<n>-<nn> 编号在 topic 内唯一;③参数列原文进 params_text 且不被解析或规范化;④非法 depends_on(悬挂/成环)被检出并报诊断而不是静默丢弃;⑤删掉派生索引后仍能从 Markdown 与产物完整重建探索状态。
 - refs: R-221 R-277
 - 优先级: P1
 
 ## R-344 Experiment Runner:本机与 SSH 执行、@@kanzei 回调解析与 run 事实落盘 [todo]
-- 内容: 按设计 §3/§5 实现实验运行器:local 起进程与 ssh 复用系统客户端两种执行;逐行解析带 @@kanzei 前缀的单行 JSON(stage/metric/progress/artifact/checkpoint/message/heartbeat/result),其余输出原样保留为终端日志;运行器另记 run_started/run_finished/run_failed/run_cancelled/environment_captured;run 事实进 state.db,产物落 runs/<run-id>/;记录 code_ref、params_digest、callback_stats。
+- 内容: 按设计 §3/§5 实现实验运行器:local 起进程与 ssh 复用系统客户端两种执行;逐行解析带 @@kanzei 前缀的单行 JSON(stage/metric/progress/artifact/checkpoint/message/heartbeat/result),其余输出原样保留为终端日志;运行器另记 run_started/run_finished/run_failed/run_cancelled/environment_captured;结果事实进 state.db 并回写探索文件的实验结果表,产物落 explorations/<E-id>/<result-id>/;记录 params_text、code_ref、policy/lease_id/max_duration/cleanup、callback_stats。
 - 发现记录: {"Intent":"让实验真的能在本机和显卡服务器上跑起来并回传结构化实时事件","Explicit":"第一版只做 local 与 ssh;协议是 @@kanzei 前缀单行 JSON;不依赖第三方实验平台","Assumptions":"远端只需能跑命令并把带前缀的行打到 stdout;系统 ssh 客户端可用","Ambiguities":"远端工作目录与代码同步方式、并发 run 上限,本条按人工准备 workdir 与串行一次一个处理","领域对象":"Run、execution(local/ssh)、callback 事件、产物目录、state.db 运行事实、终端日志","最小成功闭环":"一条真实 SSH 实验跑完:阶段/指标/进度/产物事件被解析,run 事实与产物可回读","延后决策":"作业调度器提交、并发队列、数据集同步、语言级便利封装库"}
 - 复杂度: 大
 - 来源: 用户选定第一版执行方式为「本机 + SSH 远程服务器」;协议方向见 A-014 用户确认「确认采用」。
 - 标签: 后端
-- 边界: 运行器是专用工具通道,不给 research 档开 bash(research_mode.md 定调点 6 的硬 deny 不变);不做 Slurm/K8s 作业提交、容器编排、跨机分布式训练编排与数据同步;不做 W&B/TensorBoard/云端账户对接;不把回调写进 Markdown。
-- 验收: ①本机与 SSH 两条路径都能跑完一次真实实验并留下 run 事实与产物;②坏 JSON、超长行、未知事件不终止运行且计入 callback_stats;③取消与远端强杀都能收敛到终态,heartbeat 超时判定卡死;④断线重连后视图从持久事实恢复,不显示假运行中;⑤research 档 bash 仍为硬 deny,运行器不成为绕过通道。
+- 边界: 运行器是专用工具通道,不给 research 档开 bash(research_mode.md 定调点 6 的硬 deny 不变);不自动同步代码与数据集(远端第一次人工准备,准备步骤记进环境登记项后复用);不做实验队列与并行调度;不做 Slurm/K8s 提交、容器编排、跨机分布式训练编排;不做 W&B/TensorBoard 对接;不把回调写进 Markdown。
+- 验收: ①本机与 SSH 两条路径都能跑完一次真实实验并留下结果事实、产物与回写的结果表行;②坏 JSON、超长行、未知事件不终止运行且计入 callback_stats;③取消与远端强杀都能收敛到终态,heartbeat 超时判定卡死;④断线重连后视图从持久事实恢复,不显示假运行中;⑤research 档 bash 仍为硬 deny,运行器不成为绕过通道;⑥新环境缺准备步骤时运行器询问并记录,不自行同步文件。
 - refs: R-343 R-221
 - 优先级: P1
 
 ## R-345 实验环境登记表与运行时快照:声明与实况分离、环境漂移可见 [todo]
-- 内容: 按设计 §2.4/§2.5 实现环境管理:.kanzei/research/environments.md 手工登记契约(ENV-<name>、kind、host、gpu、workdir、计费口径、policy、状态);每次 Run 启动时采集 environment.json 快照(nvidia-smi、python/框架版本、可用显存、git commit 与工作树是否 dirty)存进 run 产物目录并被 run 事实引用;登记与快照不一致时在运行画像标注环境漂移。执行策略按环境分档 relaxed/managed/approval/strict(A-018):managed/approval 走租约认领与并发上限、结束或超时释放,approval 启动前给预估并等确认;凭据不入 Markdown,只存 secret 引用;每次 run 记 policy/lease_id/max_duration/cleanup。
+- 内容: 按设计 §2.3/§2.4 实现环境管理:.kanzei/research/environments.md 手工登记契约(ENV-<name>、kind、host、归属、执行策略、gpu、workdir、运行时限、计费、凭据引用、准备步骤、状态);每次实验启动时采集 environment.json 快照(nvidia-smi、python/框架版本、可用显存、git commit 与工作树是否 dirty)存进结果产物目录并被结果事实引用;登记与快照不一致时显式标注环境漂移。执行策略按环境分档 relaxed/managed/approval/strict(A-018):managed/approval 走占用认领与结束或超时释放,approval 启动前给预估并等确认;凭据不入 Markdown 只存 secret 引用;远端首跑由人工准备并把步骤写进准备步骤字段供后续复用。
 - 发现记录: {"Intent":"让实验结果的可比性有据可查,环境漂移不被静默吞掉","Explicit":"服务器与显卡清单手工登记,每次运行抓运行时快照,两者分开存","Assumptions":"远端可执行 nvidia-smi 与版本查询;不可用时允许降级","Ambiguities":"快照采集项清单是否可配置、漂移判定的容忍度,本条按固定项与逐字段比对处理","领域对象":"Environment 登记项、environment.json 快照、run 事实引用、漂移标注","最小成功闭环":"登记一台 SSH 环境并跑一次实验,快照落盘且与登记项比对结果可见","延后决策":"依赖安装与镜像管理、多环境同实验并行对比、采集项可配置"}
 - 复杂度: 中
 - 来源: 用户选定环境登记方式为「手工登记 + 运行时快照」;策略分档来自用户原话「这个我建议设计一个选项吧,给用户受控的,或者我是自己的服务器和卡就可以随意一点」。
@@ -407,23 +407,23 @@
 - 优先级: P2
 
 ## R-346 实验路线图投影与下钻前端:节点即实验、图从 Markdown 重建 [todo]
-- 内容: 按设计 §4 实现只读路线图:节点=Experiment(颜色随 status,悬停显示 hypothesis),边=depends_on(实线)与 supersedes(虚线);输入只有 <topic>/experiments/*.md,整块可重建;点击节点下钻实验详情(假设/参数/运行列表/结果/结论),再点 run 进入终端回放、指标曲线与产物入口。
+- 内容: 按设计 §4 实现只读路线图:节点=探索(颜色随 status,悬停显示 hypothesis,节点上带已跑次数与最近一次状态),边=depends_on(实线)与 supersedes(虚线);输入只有 <topic>/explorations/*.md,整块可重建;点击节点下钻探索详情(假设/实验结果表/结论/后续),再点单条结果进入终端回放、指标曲线与产物入口。
 - 发现记录: {"Intent":"让研究路线一眼可见并能从图直达具体实验与运行,而不必人工维护一份图","Explicit":"图是只读投影;节点是实验;不单独维护图数据","Assumptions":"R-343 已提供可解析的实验对象与边;前端沿用研究工作台入口","Ambiguities":"布局算法、大量实验时的折叠策略与筛选维度,本条按自动布局与按 topic 过滤处理","领域对象":"路线图节点、depends_on/supersedes 边、实验详情、run 列表、终端回放入口","最小成功闭环":"一个 topic 的多实验依赖图渲染出来,点节点能进详情、点 run 能看产物","延后决策":"布局手工微调、跨 topic 全局图、图导出为论文插图"}
 - 复杂度: 中
 - 来源: 用户原话「路线图投影:从 Markdown 显式关系生成图;图节点点击到实验、运行、Terminal 和结果;不单独维护一份需要人工同步的图数据」。
 - 标签: 前端
-- 边界: 不做图的手工编辑与图数据持久化(编辑图=编辑 Markdown);不在前端自行推断关系或补边;Run 不占主图节点;不合并 dev 侧任务级运行画像的展示。
+- 边界: 不做图的手工编辑与图数据持久化(编辑图=编辑 Markdown);不在前端自行推断关系或补边;实验结果不占主图节点;不合并 dev 侧任务级运行画像的展示。
 - 验收: ①同一批实验文件两次投影结果一致,删掉缓存也能重建;②悬挂引用/成环/缺 id 在界面上报诊断而不是静默丢边;③节点到实验详情再到 run 的下钻链路显示真实数据与空态;④没有第二份需要人工同步的图数据文件。
 - refs: R-343 R-276
 - 优先级: P2
 
 ## R-347 实验实时监控与付费资源预算:指标曲线、终端回放与超限刹车 [todo]
-- 内容: 按设计 §6/§7 实现实时监控与成本控制:订阅 run 事件流画指标曲线与进度条、message 与原始输出进终端视图;同名 metric 在时间窗内合并避免长跑事件风暴;重连从持久事实恢复。成本侧按环境计费口径记 gpu_seconds 与折算金额,支持实验级 budget 与环境级上限,超限停止发起新 run 并显式告警。
+- 内容: 按设计 §6/§7 实现实时监控与成本控制:订阅实验事件流画指标曲线与进度条、message 与原始输出进终端视图;同名 metric 在时间窗内合并避免长跑事件风暴;重连从持久事实恢复。成本侧按环境计费口径记 gpu_seconds 与折算金额,支持探索级 budget 与环境级上限,超限停止发起新实验并显式告警。
 - 发现记录: {"Intent":"长跑实验期间能看见发生了什么,并且不会在无人看管时静默烧钱","Explicit":"实时指标/进度/终端可见;预算超限只停新 run 不杀在跑的","Assumptions":"R-344 已产出结构化事件流;R-345 已提供环境计费口径","Ambiguities":"曲线合并窗口大小、多指标同图的默认选择,本条按固定窗口与末值优先处理","领域对象":"run 事件流、metric 序列、进度、终端回放、cost 记账、budget 上限","最小成功闭环":"一次远程长跑实验:曲线与进度实时更新,断线重连恢复,预算超限后新 run 被拦","延后决策":"账单对接、成本优化调度、告警外发到手机、指标看板自定义布局"}
 - 复杂度: 中
 - 来源: 用户列出的关注点含「实时实验监控」与「付费资源控制」;本轮定调执行边界为「本机 + SSH 远程服务器」,成本按环境登记口径折算。
 - 标签: 前端
-- 边界: 不杀正在跑的 run;不做真实账单对接、自动扣费与跨环境成本优化调度;表现事件允许丢帧但持久事实不允许;不与 dev 任务级运行画像合并展示。
+- 边界: 不杀正在跑的实验;不做真实账单对接、自动扣费与跨环境成本优化调度;不做实验队列与并行调度;表现事件允许丢帧但持久事实不允许;不与 dev 任务级运行画像合并展示。
 - 验收: ①一次长跑实验的指标曲线与进度实时可见且不产生事件风暴;②断线重连后从持久事实恢复,不显示假运行中;③超过实验级或环境级预算时停止发起新 run 并告警,在跑的不被杀;④成本记账能追溯到具体 run 与环境计费口径。
 - refs: R-344 R-345
 - 优先级: P2
