@@ -11207,3 +11207,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-728
 - 收尾: 1788303904
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@c80f67658e1a
+
+## T-1786922726892 D-729 活动栏降噪谓词与真实事件回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/06-activity.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 4.2s
+- 摘要: 活动栏降噪回归通过：bash 入列，成功 edit/read 与无 phase task 静默，带 scouting/review phase 的编排 task 入列，失败静默调用由收尾补建；UI runtime 27 个脚本、2336 次 invoke、10 个主视图、0 运行时错误；UI lint 54 个文件通过。
+- 关联: D-729 R-168 R-173
+- 收尾: 1788303992

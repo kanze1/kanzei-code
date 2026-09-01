@@ -8819,3 +8819,17 @@
 - observed_head: aab039bad43ed1f6b20f5b6ebb543d60dd7e2da9
 - observed_worktree_hash: fnv1a64:723bcc24f479a52d
 - recorded_at: 1788303847228
+
+## D-729 活动栏降噪判据被抽空成恒真:R-168 显示已交付而行为相反 [fixed] (high)
+- 修复: 恢复 R-168 与 R-173 的原判据(isActivityTool 只放行终端类与带 phase 的编排 task,bgQuiet 取其反),失败调用仍由 bgFinishQuiet 补建条目;四条冒烟断言翻回,并新增直接对谓词的行为断言(bash=true / edit=false / read=false / task+phase=true / task 无 phase=false),使同类反转必须连断言一起改才能通过;parallel_lines_ui.md §3.3 改回 R-168 口径并附修订说明。
+- 来源: 用户原话「R-168这个你好像理解错了,活动栏是活动栏不是主对话,你看下,正好把这个修复了」;原始诉求见 R-168「不要在活动栏记录所有工具,edit啥的,只记录报错的和非工具的bash」。
+- 标签: 前端
+- 根因: c611f909(2026-08-12 05:46「修复并行线路状态与活动记录」)把 crates/kanzei-app/ui/06-activity.js 的 isActivityTool 由 `bgIsTerminal(name) || (name==="task" && orchPhaseOf(input)!==null)` 改成 `return Boolean(name)`(恒真),bgQuiet 由 `!isActivityTool(name,input)` 改成 `return false`;同一提交把 ui-runtime-smoke 里四条 R-168 断言逐条翻反,并改写 docs/design/parallel_lines_ui.md §3.3 写下「不得重新引入成功小工具静默丢弃的分流」。该提交只有一行标题、不带任何 R-/D- 编号、未触碰任何 .kanzei/ 追踪文件,因此条目状态与运行行为从此背离。门禁没拦住:ui-runtime-smoke.mjs:142 只匹配调用点字符串,不检查谓词行为,函数体被抽空成恒真照样全绿。
+- 现象: 活动面板记录了所有工具调用(read/grep/edit/tracker 类的成功调用全部入列),与 R-168 的验收条款「活动栏不记录 edit 等工具调用,仅记录报错和非工具的 bash 命令」相反;R-168 在 requirements-archive 中一直是 P1 [done]。
+- refs: R-168
+- 优先级: P1
+- 状态说明: 已修复并确认：恢复 R-168 活动栏降噪语义；当前实现是既有落地代码，本轮交付为对其验收证据的复核与补强，不重复申报原实现。
+- 进展: 逐项验收：①恢复 `isActivityTool` 原判据——`crates/kanzei-app/ui/06-activity.js:154-156` 仅放行终端类与带 `scouting/review` phase 的编排 task；`bgQuiet` 在 `:168-169` 取其反。②成功小工具静默、失败可见——`06-activity.js:171-187` 由 `bgStartQuiet` 暂存，`bgFinishQuiet` 成功丢弃、失败调用 `bgAdd` 补建；真实事件消费方为 `crates/kanzei-app/ui/07-events.js:67-77` 导入并在工具事件路径调用。③回归断言——`scripts/ui-runtime-smoke.mjs:3632-3664` 验证 bash 入列、成功 edit/read 与无 phase task 不入列、带 phase task 入列，并直接验证谓词五种输入；失败静默补建路径由同文件工具结束回归继续覆盖。④设计口径——`docs/design/parallel_lines_ui.md:83-87` 明确活动栏只收终端/失败调用及 R-173 编排 task，并保留 D-729 修订说明。证据：`T-1786922726892` 的 node check、`node --experimental-vm-modules scripts/ui-runtime-smoke.mjs`（27 个脚本/2336 次 invoke/10 个主视图，0 运行时错误）与 UI lint（54 个文件）通过。
+- observed_head: 3d612fd9d620822a0b097aee916cadfacb7dfc35
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788304008686
