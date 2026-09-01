@@ -39,6 +39,7 @@
 - [identity: validated_design; last_verified_commit: c0ea88d] [`ci_release_evidence_chain.md`](../../../docs/design/ci_release_evidence_chain.md)：CI 与发布证据链——本地门禁 + commit 锚定(R-152/R-146/R-156/R-298 done)。
 - [identity: validated_design; last_verified_commit: e791536] [`continue_prompt_dissection.md`](../../../docs/design/continue_prompt_dissection.md)：继续文案拆解与鞭挞引擎化——实施前拆解与 R-128/R-157/R-169/R-170 交付映射。
 - [identity: validated_design; last_verified_commit: e791536] [`deep_parallel_dev.md`](../../../docs/design/deep_parallel_dev.md)：任务级并行基线——一线一 worktree、diff/合并/恢复与模型隔离(R-177/R-178/R-179/R-182 done)。
+- [identity: live_design; last_verified_commit: cf20bf6c] [`chat_presentation_contract.md`](../../../docs/design/chat_presentation_contract.md)：主对话区分层契约——正文/轨迹/后台三层,工具一行可展开、轮间留白、单行思考不成块;附 state.db 复核的正文与轨迹字节比(R-350~R-352,D-725)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`interaction_modes.md`](../../../docs/design/interaction_modes.md)：双人格与对话为主布局设计(R-036 done)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`m2_sqlite_store.md`](../../../docs/design/m2_sqlite_store.md)：SQLite 会话存储 Schema v1(R-003 done)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`memory_decision_sufficiency.md`](../../../docs/design/memory_decision_sufficiency.md)：Memory 判据层升级——决策充分性(R-145/R-150 done,含边界拍板与实证修正记录)。

@@ -152,3 +152,40 @@
 - 线索: 同会话 session.shadow_compared 报 equal=false、expected_mismatch=false、first_mismatch=1、diagnostics 为空,即真正发送的 legacy 历史与事件投影在第 1 条消息处就不一致。legacy 历史来自 conversation.updated 事件的整包 messages 快照(conversation.rs recover_messages_raw)并经 conversation_prior 与内存 conversation map 合流,该合流路径是下一步排查的重点。
 - refs: D-723
 - 优先级: P0
+
+## D-725 同名子代理跨轮撞 id:主对话静默吞块并覆写上一轮内容 [open] (high)
+- 修复方向: 撞 id 时走活动面板同款 restart 语义,或给实时路径的 id 拼轮次序号使其全局唯一;两者取一,不要在前端另造一套角色轮次推断。
+- 复现: 开启阶段流水线,让同一角色在两轮里都被派出(勘察角色天然复用),观察主对话组头计数与上一轮块内容。
+- 来源: 用户提出「主对话的呈现和渲染现在不满意…我有点描述不清楚」后的并行勘察发现,经对抗式证伪并由我复核 05-chat-render.js:528 与 phase_pipeline.rs:321 两处锚点确认。
+- 标签: 前端
+- 根因: crates/kanzei-app/ui/05-chat-render.js:528 chatToolStart 开头 `if (!id || chatToolBlocks.has(id)) return;` 在建块与计数之前早退;chatToolEnd 用同一 id 取回的是第一轮的块并原地覆写。id 冲突是确定性的:crates/kanzei-app/src/phase_pipeline.rs:321 直接用 `id: role.to_string()` 作为 ToolStart 的 id,裸角色名无轮次后缀;chatToolBlocks 从不 clear,resetPane 也不动它。对照组:活动面板 06-activity.js:1305-1312 显式处理了跨轮重启并在注释里点名「角色跨轮复用」,主对话这条路没有对应分支。
+- 现象: 同一角色(如 architecture_scout)第二轮被派出时,主对话区不再出现新块,组头计数停在 (1),右侧活动面板照常运行;该轮结束时上一轮那个块的内容被原地覆写。全程无报错、无空白、无闪烁——用户会怀疑是自己记错了。
+- refs: R-037
+- 优先级: P1
+
+## D-726 对话内搜索作用域是整个 messages 容器,会命中其他会话 [open] (medium)
+- 修复方向: 改用 activePane 作为查询根,与复制上下文(同文件 1047 行)保持同一作用域口径。
+- 来源: 主对话呈现勘察发现,锚点经复核确认。
+- 标签: 前端
+- 根因: crates/kanzei-app/ui/07-events.js:1093 updateSearch 用 `messages.querySelectorAll(".msg, .tool-chip")` 取候选,作用域是整个 messages 容器而不是当前 activePane。
+- 现象: 在对话内搜索时会命中当前会话之外的内容,跳转成空操作。
+- refs: R-350
+- 优先级: P2
+
+## D-727 复制上下文只遍历顶层 children,子代理折叠组整组不导出 [open] (medium)
+- 修复方向: 改为按需递归进折叠组,或对已知的分组容器显式下钻;导出口径应与屏幕可见内容一致。
+- 来源: 主对话呈现勘察发现,锚点经复核确认。
+- 标签: 前端
+- 根因: crates/kanzei-app/ui/07-events.js:1047 `for (const el of activePane.children)` 只遍历顶层子节点;子代理折叠组是嵌套容器,其内部消息不在顶层,因此整组被跳过。
+- 现象: 用「复制上下文」把对话贴给其他 AI 时,子代理那一整组内容一条都没带出来,粘贴结果比屏幕上看到的少一大块。
+- refs: R-350
+- 优先级: P2
+
+## D-728 流式合帧是全局单槽,两条线并流会互相覆盖导致末帧丢失 [open] (medium)
+- 修复方向: 按 pane/session 分槽(Map 键为 paneId),或在切槽前强制 flush;不要靠提高刷新频率掩盖。
+- 来源: 主对话呈现勘察发现,锚点经复核确认。
+- 标签: 前端
+- 根因: crates/kanzei-app/ui/05-chat-render.js:193-194 的 pendingAssistantRender / pendingReasoningRender 是模块级单槽(export let),不按 pane 或 session 分槽;两条流并发时后者覆盖前者,被覆盖的那帧不会补渲染。
+- 现象: 两条并行线同时在流式输出时,屏幕上的回复可能缺一段;而「复制上下文」导出的内容是全的——即数据在,只是没渲染上去。
+- refs: R-350
+- 优先级: P2
