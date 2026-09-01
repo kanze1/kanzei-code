@@ -129,15 +129,6 @@
 - recorded_at: 1787732249253
 - 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与定向回归已完成，待新调研条目收口后提交/关闭；恢复人:agent
 
-## D-728 流式合帧是全局单槽,两条线并流会互相覆盖导致末帧丢失 [open] (medium)
-- 修复方向: 按 pane/session 分槽(Map 键为 paneId),或在切槽前强制 flush;不要靠提高刷新频率掩盖。
-- 来源: 主对话呈现勘察发现,锚点经复核确认。
-- 标签: 前端
-- 根因: crates/kanzei-app/ui/05-chat-render.js:193-194 的 pendingAssistantRender / pendingReasoningRender 是模块级单槽(export let),不按 pane 或 session 分槽;两条流并发时后者覆盖前者,被覆盖的那帧不会补渲染。
-- 现象: 两条并行线同时在流式输出时,屏幕上的回复可能缺一段;而「复制上下文」导出的内容是全的——即数据在,只是没渲染上去。
-- refs: R-350
-- 优先级: P2
-
 ## D-729 活动栏降噪判据被抽空成恒真:R-168 显示已交付而行为相反 [open] (high)
 - 修复: 恢复 R-168 与 R-173 的原判据(isActivityTool 只放行终端类与带 phase 的编排 task,bgQuiet 取其反),失败调用仍由 bgFinishQuiet 补建条目;四条冒烟断言翻回,并新增直接对谓词的行为断言(bash=true / edit=false / read=false / task+phase=true / task 无 phase=false),使同类反转必须连断言一起改才能通过;parallel_lines_ui.md §3.3 改回 R-168 口径并附修订说明。
 - 来源: 用户原话「R-168这个你好像理解错了,活动栏是活动栏不是主对话,你看下,正好把这个修复了」;原始诉求见 R-168「不要在活动栏记录所有工具,edit啥的,只记录报错的和非工具的bash」。

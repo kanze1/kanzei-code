@@ -189,40 +189,47 @@ export function setOutputChars(value) { outputChars = Number(value) || 0; }
 // + 读 scrollHeight(强制同步重排整个消息列表)。前三项在单条消息内是 O(n²),
 // 最后一项随轮次增长——流一开就把主线程占满。现在 delta 只累加文本,渲染压到
 // 每帧最多一次;上一次渲染实测超过 8ms 就按实测耗时退避(长消息自动降频),
-// 无论消息多长都给交互留得出时间片。
-export let pendingAssistantRender = null;
-export let pendingReasoningRender = null;
-export let streamFlushScheduled = false;
-export let streamRenderCost = 0;
+// 无论消息多长都给交互留得出时间片。D-728:合帧槽与调度标记按 pane 隔离,
+// 后台会话的待渲染节点不会再覆盖活动会话的末帧。
+export const pendingAssistantRender = new WeakMap();
+export const pendingReasoningRender = new WeakMap();
+export const streamFlushScheduled = new WeakSet();
+export const streamRenderCost = new WeakMap();
 export function scheduleStreamRender() {
-  if (streamFlushScheduled) return;
-  streamFlushScheduled = true;
+  const pane = activePane;
+  if (!pane || streamFlushScheduled.has(pane)) return;
+  streamFlushScheduled.add(pane);
   const run = () => {
-    streamFlushScheduled = false;
-    flushStreamRender();
+    streamFlushScheduled.delete(pane);
+    flushStreamRender(pane);
   };
-  if (streamRenderCost > 8) setTimeout(run, Math.min(250, Math.round(streamRenderCost)));
+  const cost = streamRenderCost.get(pane) || 0;
+  if (cost > 8) setTimeout(run, Math.min(250, Math.round(cost)));
   else requestAnimationFrame(run);
 }
 /// 把累计到的流式文本一次性渲染出去。目标元素可能已被收尾逻辑摘掉引用(甚至已从
 /// DOM 摘除,如 stream-restart),照渲染即可——写进游离节点无害,少写一次分支。
-export function flushStreamRender() {
-  const assistant = pendingAssistantRender;
-  const reasoning = pendingReasoningRender;
-  pendingAssistantRender = null;
-  pendingReasoningRender = null;
+/// D-728:传入 pane 固定本次 flush 的归属;切换线路后不向新 pane 滚动,也不污染其 live-note。
+export function flushStreamRender(pane = activePane) {
+  if (!pane) return;
+  const assistant = pendingAssistantRender.get(pane);
+  const reasoning = pendingReasoningRender.get(pane);
+  pendingAssistantRender.delete(pane);
+  pendingReasoningRender.delete(pane);
   if (!assistant && !reasoning) return;
   const started = Date.now();
   if (assistant) {
     assistant.querySelector(".message-body").innerHTML = renderMarkdown(assistant.dataset.raw);
     // 侧边栏"最近在说":assistant 输出的最新一行。只看尾部窗口——扫整条 raw
     // 是纯浪费,而这里只需要最后那一行。
-    const line = lastNonEmptyLine(assistant.dataset.raw);
-    if (line) liveSet("live-note", `💬 ${line.slice(0, 60)}`);
+    if (pane === activePane) {
+      const line = lastNonEmptyLine(assistant.dataset.raw);
+      if (line) liveSet("live-note", `💬 ${line.slice(0, 60)}`);
+    }
   }
   if (reasoning) renderReasoningBlock(reasoning);
-  streamRenderCost = Date.now() - started;
-  scrollBottom();
+  streamRenderCost.set(pane, Date.now() - started);
+  if (pane === activePane) scrollBottom();
 }
 /// 取最后一个非空行。只在尾部窗口里找,并丢掉被窗口截断的首行,避免预览从半个词开始。
 export function lastNonEmptyLine(raw, window = 2000) {
@@ -244,7 +251,7 @@ export function appendAssistant(text) {
   }
   currentAssistant.dataset.raw += text;
   outputChars += text.length;
-  pendingAssistantRender = currentAssistant;
+  pendingAssistantRender.set(activePane, currentAssistant);
   scheduleStreamRender();
 }
 
@@ -600,7 +607,7 @@ export function appendReasoning(text) {
   currentReasoning.dataset.raw += text;
   // D-202:与 assistant 同样合帧,头部摘要跟着渲染一起更新(见 flushStreamRender)。
   currentReasoning._head = currentReasoningHead;
-  pendingReasoningRender = currentReasoning;
+  pendingReasoningRender.set(activePane, currentReasoning);
   scheduleStreamRender();
 }
 export function renderReasoningBlock(body) {

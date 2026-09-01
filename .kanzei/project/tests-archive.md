@@ -11191,3 +11191,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-727 R-350
 - 收尾: 1788303471
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@358ab0212fc4
+
+## T-1786922726890 D-728 流式合帧跨 pane 回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/05-chat-render.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 4.8s
+- 摘要: 按 pane 隔离的 assistant/reasoning 合帧通过回归；双会话同帧发送 kz:turn+kz:text 后，A/B 两个 pane 的末帧均落入 DOM。UI runtime 27 个脚本、2336 次 invoke、10 个主视图通过，运行时错误 0；UI lint 54 个文件 no-undef 与 import/export 解析通过。
+- 关联: D-728 R-350
+- 收尾: 1788303832
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@c80f67658e1a
+
+## T-1786922726891 D-728 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 11.9s
+- 摘要: kanzei-app 定向回归通过：250 passed，0 failed，0 ignored。覆盖事件路由、会话 pane 隔离、对话渲染相关应用层回归。
+- 关联: D-728
+- 收尾: 1788303904
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@c80f67658e1a

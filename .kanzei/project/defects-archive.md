@@ -8805,3 +8805,17 @@
 - observed_head: fdd0d545b0cf19bc5085a761b00a6899a7009b21
 - observed_worktree_hash: fnv1a64:7c34a4ec083cf350
 - recorded_at: 1788303514766
+
+## D-728 流式合帧是全局单槽,两条线并流会互相覆盖导致末帧丢失 [fixed] (medium)
+- 修复方向: 按 pane/session 分槽(Map 键为 paneId),或在切槽前强制 flush;不要靠提高刷新频率掩盖。
+- 来源: 主对话呈现勘察发现,锚点经复核确认。
+- 标签: 前端
+- 根因: crates/kanzei-app/ui/05-chat-render.js:193-194 的 pendingAssistantRender / pendingReasoningRender 是模块级单槽(export let),不按 pane 或 session 分槽;两条流并发时后者覆盖前者,被覆盖的那帧不会补渲染。
+- 现象: 两条并行线同时在流式输出时,屏幕上的回复可能缺一段;而「复制上下文」导出的内容是全的——即数据在,只是没渲染上去。
+- refs: R-350
+- 优先级: P2
+- 状态说明: 已修复：pending 槽与合帧调度从模块级单槽改为 per-pane；保留 D-727 已提交的复制上下文折叠组导出能力。
+- 进展: 已完成并验证原缺陷现象：①“两条并行线同时流式输出不再互相覆盖”——`crates/kanzei-app/ui/05-chat-render.js:194-208` 将 assistant/reasoning 待渲染槽、调度标记与渲染耗时按 pane 隔离，`:213-232` 按固定 pane flush，切线后不向新 pane 滚动或污染其 live-note；真实事件调用链由 `crates/kanzei-app/ui/07-events.js:160-168` 消费 `kz:text`，并经 `crates/kanzei-app/ui/01-core.js:328-330` 的 `withSessionRender` 路由到所属 session pane。②“复制上下文仍完整”——本次未改动既有复制消费者，D-727 已在 `crates/kanzei-app/ui/07-events.js:1045-1088` 修复折叠组导出并已提交，本条不重复申报既有能力。③跨会话末帧可复核——`scripts/ui-runtime-smoke.mjs:8154-8167` 在真实双会话事件路由中先发送 `kz:turn`，再同帧发送 A/B `kz:text`，断言两个 pane 均包含末帧。证据：`T-1786922726890` 的 node check、`node --experimental-vm-modules scripts/ui-runtime-smoke.mjs`（27 个脚本/2336 次 invoke/10 个主视图，0 运行时错误）和 UI lint（54 个文件）通过。
+- observed_head: aab039bad43ed1f6b20f5b6ebb543d60dd7e2da9
+- observed_worktree_hash: fnv1a64:723bcc24f479a52d
+- recorded_at: 1788303847228

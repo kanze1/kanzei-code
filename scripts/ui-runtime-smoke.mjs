@@ -8151,6 +8151,20 @@ const docsB = {
     "kz:done 之后 pane 内容被冲掉了",
   );
 
+  // ---------- D-728:并行会话的流式合帧各自落到所属 pane ----------
+  // 两条事件在同一帧内交错到达:旧版全局 pending 槽会让 B 覆盖 A,导致 A 的末帧不落 DOM。
+  const streamPaneA = vm.runInContext('messagePanes.get("sess-smoke")', sandbox);
+  const streamPaneB = vm.runInContext('messagePanes.get("sess-bg")', sandbox);
+  const STREAM_A = "D-728 流式会话 A 末帧";
+  const STREAM_B = "D-728 流式会话 B 末帧";
+  await handlers.get("kz:turn")({ payload: { sessionId: "sess-smoke" } });
+  await handlers.get("kz:turn")({ payload: { sessionId: "sess-bg" } });
+  await handlers.get("kz:text")({ payload: { sessionId: "sess-smoke", text: STREAM_A } });
+  await handlers.get("kz:text")({ payload: { sessionId: "sess-bg", text: STREAM_B } });
+  await flush();
+  assert(streamPaneA?.textContent.includes(STREAM_A), "并流时会话 A 的末帧被另一会话覆盖");
+  assert(streamPaneB?.textContent.includes(STREAM_B), "并流时会话 B 的末帧没有渲染");
+
   // ---------- R-267 批2:长会话只渲染尾部一窗,向上补齐 ----------
   // 不窗口化的话,批1 省下的重渲染会换成常驻内存(pane 常驻 × 993 条消息),
   // 属于拆东墙补西墙。这里钉住「首屏只渲染一窗 + 补齐能拿到更早的」。
