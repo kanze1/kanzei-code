@@ -209,23 +209,96 @@ impl SessionStore {
         event_type: &str,
         payload_json: &str,
     ) -> Result<ResearchRunEvent, StoreError> {
+        self.append_research_run_event_inner(result_id, event_type, payload_json, None)
+    }
+
+    /// 追加运行事件；同一指标在窗口内只更新最近的投影事件，避免长跑把 state.db
+    /// 变成每个 callback 一行的事件风暴。完整指标点仍由 runner 追加到 metrics.jsonl。
+    pub fn append_research_run_metric_event(
+        &self,
+        result_id: &str,
+        metric_name: &str,
+        payload_json: &str,
+        window_ms: i64,
+    ) -> Result<ResearchRunEvent, StoreError> {
+        if metric_name.trim().is_empty() {
+            return Err(StoreError::InvalidInput(
+                "research metric name 不能为空".into(),
+            ));
+        }
+        self.append_research_run_event_inner(
+            result_id,
+            "metric",
+            payload_json,
+            Some((metric_name, window_ms.max(0))),
+        )
+    }
+
+    fn append_research_run_event_inner(
+        &self,
+        result_id: &str,
+        event_type: &str,
+        payload_json: &str,
+        metric_coalesce: Option<(&str, i64)>,
+    ) -> Result<ResearchRunEvent, StoreError> {
         if result_id.trim().is_empty() || event_type.trim().is_empty() {
             return Err(StoreError::InvalidInput(
                 "research run event 的 result_id/event_type 不能为空".into(),
             ));
         }
-        let sequence: i64 = self.connection.query_row(
+        let created_at = now_ms();
+        let tx = self.connection.unchecked_transaction()?;
+        if let Some((metric_name, window_ms)) = metric_coalesce {
+            let latest: Option<(i64, i64, String)> = tx
+                .query_row(
+                    "SELECT sequence, created_at, payload_json
+                     FROM research_run_events
+                     WHERE result_id = ?1 AND event_type = 'metric'
+                     ORDER BY sequence DESC LIMIT 1",
+                    params![result_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?;
+            if let Some((sequence, previous_at, previous_payload)) = latest {
+                let same_metric = serde_json::from_str::<serde_json::Value>(&previous_payload)
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .get("name")
+                            .and_then(|name| name.as_str())
+                            .map(str::to_owned)
+                    })
+                    .is_some_and(|name| name == metric_name);
+                if same_metric && created_at.saturating_sub(previous_at) <= window_ms {
+                    tx.execute(
+                        "UPDATE research_run_events
+                         SET payload_json = ?3, created_at = ?4
+                         WHERE result_id = ?1 AND sequence = ?2",
+                        params![result_id, sequence, payload_json, created_at],
+                    )?;
+                    tx.commit()?;
+                    return Ok(ResearchRunEvent {
+                        result_id: result_id.to_string(),
+                        sequence,
+                        event_type: event_type.to_string(),
+                        payload_json: payload_json.to_string(),
+                        created_at,
+                    });
+                }
+            }
+        }
+        let sequence: i64 = tx.query_row(
             "SELECT COALESCE(MAX(sequence), 0) + 1 FROM research_run_events WHERE result_id = ?1",
             params![result_id],
             |row| row.get(0),
         )?;
-        let created_at = now_ms();
-        self.connection.execute(
+        tx.execute(
             "INSERT INTO research_run_events
                  (result_id, sequence, event_type, payload_json, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![result_id, sequence, event_type, payload_json, created_at],
         )?;
+        tx.commit()?;
         Ok(ResearchRunEvent {
             result_id: result_id.to_string(),
             sequence,
@@ -320,6 +393,34 @@ mod tests {
         store
             .acquire_research_environment_lease("ENV-expiring", "run-2", "managed", 10_000)
             .unwrap();
+    }
+
+    #[test]
+    fn metric_events_coalesce_by_name_within_window_and_keep_latest_value() {
+        let store = SessionStore::open_in_memory().unwrap();
+        store
+            .upsert_research_run(&run())
+            .expect("run fact must exist before appending events");
+        let first = store
+            .append_research_run_metric_event(
+                "E-001-01",
+                "acc",
+                r#"{"t":"metric","name":"acc","value":0.8}"#,
+                1_000,
+            )
+            .unwrap();
+        let second = store
+            .append_research_run_metric_event(
+                "E-001-01",
+                "acc",
+                r#"{"t":"metric","name":"acc","value":0.9}"#,
+                1_000,
+            )
+            .unwrap();
+        assert_eq!(first.sequence, second.sequence);
+        let events = store.list_research_run_events("E-001-01", 0).unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(events[0].payload_json.contains("0.9"));
     }
 
     #[test]

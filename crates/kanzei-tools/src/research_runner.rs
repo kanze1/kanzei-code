@@ -20,6 +20,7 @@ use crate::docstore::DocStore;
 use crate::research_environment::{load_environment, ResearchEnvironment};
 
 const DEFAULT_MAX_DURATION_MS: u64 = 60 * 60 * 1000;
+const METRIC_COALESCE_WINDOW_MS: i64 = 1_000;
 
 #[derive(Debug, Clone, Deserialize)]
 struct RunnerInput {
@@ -794,13 +795,50 @@ fn handle_line(
     }
     let mut heartbeat = false;
     if let Some(event) = parsed.event {
-        let _ = append_event(store, result_id, &event.event_type, event.payload.clone());
+        let is_metric = event.event_type == "metric";
+        if is_metric {
+            let _ = append_metric_series(output_dir, &event.payload);
+            if let (Some(name), Some(value)) = (
+                event.payload.get("name").and_then(Value::as_str),
+                event.payload.get("value").filter(|value| value.is_number()),
+            ) {
+                let mut metrics: serde_json::Map<String, Value> =
+                    serde_json::from_str(&run.metrics_last_json).unwrap_or_default();
+                metrics.insert(name.to_owned(), value.clone());
+                run.metrics_last_json = Value::Object(metrics).to_string();
+            }
+        }
+        if event.event_type == "progress" {
+            run.progress_json = event.payload.to_string();
+        }
+        if event.event_type == "message" {
+            let level = event
+                .payload
+                .get("level")
+                .and_then(Value::as_str)
+                .unwrap_or("info");
+            let text = event
+                .payload
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let _ = writeln!(terminal, "[message/{level}] {text}");
+        }
+        if is_metric {
+            if let Some(name) = event.payload.get("name").and_then(Value::as_str) {
+                let _ = store.append_research_run_metric_event(
+                    result_id,
+                    name,
+                    &event.payload.to_string(),
+                    METRIC_COALESCE_WINDOW_MS,
+                );
+            }
+        } else {
+            let _ = append_event(store, result_id, &event.event_type, event.payload.clone());
+        }
         if event.event_type == "heartbeat" {
             heartbeat = true;
             run.heartbeat_at = Some(unix_ms());
-        }
-        if event.event_type == "metric" {
-            run.metrics_last_json = event.payload.to_string();
         }
         if event.event_type == "artifact" {
             if let Some(path) = copy_artifact(output_dir, &event.payload) {
@@ -813,6 +851,19 @@ fn handle_line(
     }
     let _ = store.upsert_research_run(run);
     heartbeat
+}
+
+fn append_metric_series(output_dir: &Path, payload: &Value) -> Result<(), String> {
+    use std::io::Write;
+    let path = output_dir.join("metrics.jsonl");
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|error| format!("打开指标序列失败: {error}"))?;
+    serde_json::to_writer(&mut file, payload)
+        .map_err(|error| format!("写入指标序列失败: {error}"))?;
+    writeln!(file).map_err(|error| format!("结束指标序列行失败: {error}"))
 }
 
 fn copy_artifact(output_dir: &Path, payload: &Value) -> Option<String> {
@@ -1268,6 +1319,83 @@ mod tests {
         );
         assert_eq!(run.artifacts_json, r#"["artifacts/checkpoint.bin"]"#);
         assert!(output_dir.join("artifacts/checkpoint.bin").is_file());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn callback_projection_persists_metric_series_progress_and_readable_messages() {
+        let root = std::env::temp_dir().join(format!("kz-research-projection-{}", unix_ms()));
+        let output_dir = root.join("result");
+        std::fs::create_dir_all(&output_dir).unwrap();
+        let store = SessionStore::open_in_memory().unwrap();
+        let mut run = ResearchRunRecord {
+            result_id: "R-projection".into(),
+            exploration_id: "E-001".into(),
+            topic: "nas-search".into(),
+            status: "running".into(),
+            execution_json: "{}".into(),
+            policy: "relaxed".into(),
+            lease_id: "".into(),
+            max_duration_ms: 10_000,
+            cleanup: "retain".into(),
+            started_at: unix_ms(),
+            finished_at: None,
+            exit_code: None,
+            cancel_reason: None,
+            params_text: "".into(),
+            code_ref_json: "{}".into(),
+            environment_snapshot_ref: "environment.json".into(),
+            artifacts_json: "[]".into(),
+            metrics_last_json: "{}".into(),
+            progress_json: "{}".into(),
+            metrics_series_path: "metrics.jsonl".into(),
+            cost_json: "{}".into(),
+            callback_stats_json: serde_json::to_string(&CallbackStats::default()).unwrap(),
+            heartbeat_at: None,
+            terminal_log_path: "terminal.log".into(),
+        };
+        store.upsert_research_run(&run).unwrap();
+        let mut terminal = std::fs::File::create(root.join("terminal.log")).unwrap();
+        for line in [
+            r#"@@kanzei {"t":"metric","name":"acc","value":0.8,"step":1}"#,
+            r#"@@kanzei {"t":"metric","name":"acc","value":0.9,"step":2}"#,
+            r#"@@kanzei {"t":"progress","done":2,"total":10,"unit":"step"}"#,
+            r#"@@kanzei {"t":"message","level":"warn","text":"checkpoint soon"}"#,
+            "ordinary output",
+        ] {
+            handle_line(
+                &store,
+                &mut run,
+                &mut terminal,
+                "R-projection",
+                line,
+                false,
+                &output_dir,
+            );
+        }
+        let series = std::fs::read_to_string(output_dir.join("metrics.jsonl")).unwrap();
+        assert_eq!(series.lines().count(), 2);
+        assert_eq!(
+            serde_json::from_str::<Value>(&run.metrics_last_json).unwrap()["acc"],
+            0.9
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&run.progress_json).unwrap()["done"],
+            2
+        );
+        let terminal_text = std::fs::read_to_string(root.join("terminal.log")).unwrap();
+        assert!(terminal_text.contains("[message/warn] checkpoint soon"));
+        assert!(terminal_text.contains("ordinary output"));
+        let events = store.list_research_run_events("R-projection", 0).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_type == "metric")
+                .count(),
+            1
+        );
+        assert!(events.iter().any(|event| event.event_type == "progress"));
+        assert!(events.iter().any(|event| event.event_type == "message"));
         let _ = std::fs::remove_dir_all(root);
     }
 }

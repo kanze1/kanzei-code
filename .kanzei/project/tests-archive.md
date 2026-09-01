@@ -11075,3 +11075,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-347
 - 收尾: 1788276015
 - 源码指纹: v2 crates/kanzei-core/src/store/mod.rs@101402935835,crates/kanzei-core/src/store/research_runs.rs@8a2d271f72ba,crates/kanzei-core/src/store/schema.rs@232127db6e33,crates/kanzei-tools/src/research_runner.rs@edba69714616
+
+## T-1786922726875 R-347 B2 research runner 定向回归 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-tools
+- 时长: 42.0s
+- 摘要: kanzei-core 277 passed；kanzei-tools 523 passed、1 ignored；新增指标窗口合并与回调投影测试通过。
+- 关联: R-347
+- 收尾: 1788300223
+- 源码指纹: v2 crates/kanzei-core/src/store/research_runs.rs@fb9f68a57a4e,crates/kanzei-tools/src/research_runner.rs@135c851c2a49
+
+## T-1786922726876 R-347 B2 格式门禁后定向回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core; cargo test -p kanzei-tools
+- 时长: 43.0s
+- 摘要: cargo fmt 检查通过；kanzei-core 277 passed；kanzei-tools 523 passed、1 ignored。
+- 关联: R-347
+- 收尾: 1788300521
+- 源码指纹: v2 crates/kanzei-core/src/store/research_runs.rs@fb9f68a57a4e,crates/kanzei-tools/src/research_runner.rs@318390ca2ddb

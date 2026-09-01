@@ -364,11 +364,11 @@
 - 验收: ①一次长跑实验的指标曲线与进度实时可见且不产生事件风暴;②断线重连后从持久事实恢复,不显示假运行中;③超过实验级或环境级预算时停止发起新 run 并告警,在跑的不被杀;④成本记账能追溯到具体 run 与环境计费口径。
 - refs: R-344 R-345
 - 优先级: P2
-- 批次: 1/3
-- 进展: 批次 1/3 已完成：`crates/kanzei-core/src/store/mod.rs` 将 schema 升至 v21 并扩展 `ResearchRunRecord` 的 `progress_json`/`metrics_series_path`/`cost_json`；`store/schema.rs` 新库建表、旧库 ALTER 迁移与 `SCHEMA_COLUMNS` 判据同步；`store/research_runs.rs` 的 upsert/get、测试构造器同步 24 列。关键决定=高频序列由后续 runner 追加 `metrics.jsonl`，state.db 只保存末值/进度/成本索引，保持持久事实与表现事件分层。证据 `T-1786922726873`（kanzei-core 275 passed）。下一步 B2：runner 消费 metric/progress/message，窗口合并并维护指标序列与进度投影。
-- observed_head: 89461dcd26be481fdfd0fdaaf938a4fa916f7780
-- observed_worktree_hash: fnv1a64:b08b8cb2e937b1ef
-- recorded_at: 1788275905987
+- 批次: 2/3
+- 进展: 批次 2/3 已完成：本批新增 `crates/kanzei-core/src/store/research_runs.rs:206-304` 的指标事件窗口合并，固定 1 秒内同名 metric 更新同一持久事件；`crates/kanzei-tools/src/research_runner.rs:777-883` 将每个 metric 完整追加 `metrics.jsonl`、更新 `metrics_last_json` 末值映射、持久化 `progress_json`，并把结构化 message 写入可读终端日志。既有 B1 的 schema/事实列不重复计入本批。新增回归 `store::research_runs::tests::metric_events_coalesce_by_name_within_window_and_keep_latest_value` 与 `research_runner::tests::callback_projection_persists_metric_series_progress_and_readable_messages`；证据 `T-1786922726876`（cargo fmt 检查通过；kanzei-core 277 passed；kanzei-tools 523 passed，1 ignored）。下一步 B3：接入环境计费口径、gpu_seconds/金额累计、探索级与环境级预算检查及超限告警/拒绝新 run。
+- observed_head: e98b156a915bc6bdc19e066973b9d5ca9a06e715
+- observed_worktree_hash: fnv1a64:146303043d17d954
+- recorded_at: 1788300531903
 
 ## R-348 内置 LaTeX 模板与 PDF 预览:模板落项目、编译日志、PDF 历史版本、实验图表引用 [todo]
 - 内容: 按设计 §8 落地研究文档模板与 PDF 闭环:内置四套基础 LaTeX 模板(基础报告/基础论文/实验记录/带图表论文),新建论文或报告时选模板并复制进 topic 的 latex/;复用既有 LaTeX 专用通道编译,保留编译日志与错误定位;PDF 在应用内直接预览并保留历史版本;实验图表以路径引用插入论文;一次编译记为可追溯产物(.tex → 编译运行 → 编译日志 → PDF → 当时环境快照)。
