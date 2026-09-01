@@ -10891,3 +10891,83 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-343
 - 收尾: 1788268236
 - 源码指纹: v2 crates/kanzei-app/src/docs.rs@7027a9d2234c,crates/kanzei-core/src/lib.rs@1faed36ad753,crates/kanzei-core/src/research.rs@405809562e49
+
+## T-1786922726852 R-344 B1 callback 专项测试 [passed]
+- 命令: cargo test -p kanzei-core research_runner
+- 时长: 1.0s
+- 摘要: R-344 B1 callback 专项测试通过：4 passed；覆盖 8 类已知事件、坏 JSON/坏字段、未知事件、超长 callback、普通日志保留与 callback_stats 增量。
+- 关联: R-344
+- 收尾: 1788268750
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@cbe2b70f4c1c,crates/kanzei-core/src/research_runner.rs@76acffc5073e
+
+## T-1786922726853 R-344 B1 app 编译回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 13.0s
+- 摘要: R-344 B1 core callback module 接入后 kanzei-app 定向测试通过：250 passed、0 failed。
+- 关联: R-344
+- 收尾: 1788268755
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@cbe2b70f4c1c,crates/kanzei-core/src/research_runner.rs@76acffc5073e
+
+## T-1786922726854 R-344 B1 clippy 修复后 callback 回归 [passed]
+- 命令: cargo test -p kanzei-core research_runner
+- 时长: 1.0s
+- 摘要: 修复 clippy 后 R-344 callback 专项测试通过：4 passed、0 failed。
+- 关联: R-344
+- 收尾: 1788268909
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@cbe2b70f4c1c,crates/kanzei-core/src/research_runner.rs@d97a603adf43
+
+## T-1786922726855 R-344 B2 state.db schema 清单初测 [failed]
+- 命令: cargo test -p kanzei-core research_runs; cargo test -p kanzei-core schema
+- 时长: 24.0s
+- 摘要: research_runs 1 passed；schema 26 中 3 个失败，均为 SCHEMA_OBJECTS/SCHEMA_COLUMNS 冻结清单排序与 exploration_id 漏列，迁移建表本身已创建 research_* 对象。
+- 关联: R-344
+- 收尾: 1788269299
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@433686e81a30,crates/kanzei-core/src/store/mod.rs@9cb95b359e94,crates/kanzei-core/src/store/research_runs.rs@fd7ab50b2dc4,crates/kanzei-core/src/store/schema.rs@e0d7b1970622
+
+## T-1786922726856 R-344 B2 research run facts 回归 [passed]
+- 命令: cargo test -p kanzei-core research_runs
+- 时长: 1.0s
+- 摘要: R-344 B2 research_runs Store API 测试通过：1 passed；事实与事件序列可写入并回读，params_text 保持原文。
+- 关联: R-344
+- 收尾: 1788269406
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@433686e81a30,crates/kanzei-core/src/store/mod.rs@9cb95b359e94,crates/kanzei-core/src/store/research_runs.rs@fd7ab50b2dc4,crates/kanzei-core/src/store/schema.rs@d1903a3d8bc6
+
+## T-1786922726857 R-344 B2 state.db v19 migration 回归 [passed]
+- 命令: cargo test -p kanzei-core schema
+- 时长: 1.0s
+- 摘要: R-344 B2 schema 回归通过：26 passed；覆盖 v19 对象/列冻结清单与上一版存量库迁移补齐。
+- 关联: R-344
+- 收尾: 1788269413
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@433686e81a30,crates/kanzei-core/src/store/mod.rs@9cb95b359e94,crates/kanzei-core/src/store/research_runs.rs@fd7ab50b2dc4,crates/kanzei-core/src/store/schema.rs@d1903a3d8bc6
+
+## T-1786922726858 R-344 B2 core/app 定向回归 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-app
+- 时长: 52.0s
+- 摘要: R-344 B2 定向回归通过：kanzei-core 273 passed、doc-tests 0 passed；kanzei-app 250 passed。覆盖 v19 迁移、research run facts/events API、既有 app 依赖编译。
+- 关联: R-344
+- 收尾: 1788269529
+- 源码指纹: v2 crates/kanzei-core/src/lib.rs@433686e81a30,crates/kanzei-core/src/store/mod.rs@9cb95b359e94,crates/kanzei-core/src/store/research_runs.rs@fd7ab50b2dc4,crates/kanzei-core/src/store/schema.rs@d1903a3d8bc6
+
+## T-1786922726859 R-344 B3 kanzei-tools 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 42.0s
+- 摘要: kanzei-tools 全 crate 定向测试通过：516 passed、1 ignored；research_runner 3 项测试均执行并通过，覆盖 local 事实、SSH command 构造、artifact callback 复制与索引。
+- 关联: R-344
+- 收尾: 1788270682
+- 源码指纹: v2 crates/kanzei-tools/src/lib.rs@470306b2f56f,crates/kanzei-tools/src/profiles/research.rs@c63aecc8bfdb,crates/kanzei-tools/src/research_runner.rs@a7ed557c9db2
+
+## T-1786922726860 R-344 B4 tools/app 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools; cargo test -p kanzei-app
+- 时长: 103.0s
+- 摘要: B4 定向回归通过：kanzei-tools 518 passed、1 ignored，kanzei-app 250 passed；包含 research_runner 5 项测试（cancel、heartbeat/max_duration stuck、结果表、artifact、local/SSH）。测试输出中的临时仓库 fatal git 提示来自既有测试夹具，最终测试块完整通过。
+- 关联: R-344
+- 收尾: 1788271601
+- 源码指纹: v2 crates/kanzei-tools/src/profiles/research.rs@6c43dc6edc29,crates/kanzei-tools/src/research_runner.rs@3d4b1da2c2c1
+
+## T-1786922726861 R-344 B4 终态与 heartbeat 回归 [passed]
+- 命令: cargo test -p kanzei-tools research_runner
+- 时长: 29.0s
+- 摘要: 去重与真实 heartbeat 超时回归通过：research_runner 5 passed、0 failed；heartbeat 分支断言 heartbeat_timeout，cancel 终态仍写入 run_cancelled 且不重复。
+- 关联: R-344
+- 收尾: 1788271814
+- 源码指纹: v2 crates/kanzei-tools/src/profiles/research.rs@6c43dc6edc29,crates/kanzei-tools/src/research_runner.rs@577219780ce6

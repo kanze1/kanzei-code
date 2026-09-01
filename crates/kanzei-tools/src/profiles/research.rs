@@ -159,7 +159,7 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
             .permissions
             .push(rule("research_plan", resource, Effect::Allow));
     }
-    for resource in ["write:run", "read:get"] {
+    for resource in ["write:run", "write:cancel", "read:get"] {
         draft
             .permissions
             .push(rule("research_runner", resource, Effect::Allow));

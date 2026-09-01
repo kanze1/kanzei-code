@@ -334,11 +334,12 @@
 - 验收: ①本机与 SSH 两条路径都能跑完一次真实实验并留下结果事实、产物与回写的结果表行;②坏 JSON、超长行、未知事件不终止运行且计入 callback_stats;③取消与远端强杀都能收敛到终态,heartbeat 超时判定卡死;④断线重连后视图从持久事实恢复,不显示假运行中;⑤research 档 bash 仍为硬 deny,运行器不成为绕过通道;⑥新环境缺准备步骤时运行器询问并记录,不自行同步文件。
 - refs: R-343 R-221
 - 优先级: P1
-- 批次: 3/4
-- 进展: 批次 3/4：在 B2 事实存储基础上，新增 `crates/kanzei-tools/src/research_runner.rs` 并在 `crates/kanzei-tools/src/profiles/research.rs:38-41` 注册；`run` 通过 local shell 或系统 `ssh -o BatchMode=yes` 启动人工准备命令，逐行调用 core `parse_callback_line`，把 callback 事件、callback_stats、heartbeat/metric、普通 stdout/stderr、terminal.log、environment.json、artifact 复制与 `artifacts_json` 写入事实；`get` 从 `state.db` 回读 run/events。research profile 仅放行 `research_runner` 的 write:run/read:get，bash 硬拒绝仍在 `profiles/research.rs:133-138`。测试 `T-1786922726859`：kanzei-tools 516 passed、1 ignored，runner 3 项均实际执行通过。下一步 B4：补 cancel/远端强杀终态、heartbeat 超时 stuck、断线恢复及探索结果表回写；不把 B3 的局部 SSH 构造测试冒充真实远端链路。
-- observed_head: 2de93d524ba4d3178c762e9e689952da8a9ea949
-- observed_worktree_hash: fnv1a64:c88b9315a97638a8
-- recorded_at: 1788270691971
+- 批次: 4/4
+- 进展: 批次 4/4 已完成并验证：`crates/kanzei-tools/src/research_runner.rs:102-112,157-206` 新增 cancel 独立并发槽、pid 读取与 process tree kill，`209-490` 收尾优先保留 cancelled、heartbeat_timeout→stuck、run_finished/run_failed/run_cancelled 事实；`492-535` 回写探索 Markdown 的实验结果表；`583-645` 继续复用 core callback parser 并更新 callback_stats；`profiles/research.rs:38-41,133-138,162-166` 注册专用 runner、允许 run/cancel/get 且 bash 硬 deny。证据 `T-1786922726860`（tools 518 passed/1 ignored、app 250 passed）与 `T-1786922726861`（runner 5 passed）：①本机结果事实/产物/结果表已由 `T-1786922726861` 验证；SSH 仅有 `research_runner.rs:544-562` 系统客户端构造测试，真实 SSH 服务器链路缺口，验收降级；②坏 JSON/超长行/未知事件沿用既有 core parser 与 B3 测试，callback_stats 写入 `583-645`，本批未新增证据；③cancel/进程树 kill `157-206`、heartbeat stuck `343-410`，由 `T-1786922726861` 验证；④get 从 state.db 回读 `137-155`，但断线重连后的真实恢复场景缺自动化证据，验收降级；⑤research bash 硬 deny `profiles/research.rs:133-138`，runner 专用权限 `162-166`，由 `T-1786922726860` profile 回归覆盖；⑥当前 runner 接受人工准备命令并记录 environment snapshot `229-303`，但缺准备步骤时询问/记录尚未实现，验收降级。后续需拆出真实 SSH/断线恢复/环境准备协议条目，R-344 保持 doing。
+- observed_head: 36aa55e9f9ab823ceeae8cc2cbfbd43e2427a8f5
+- observed_worktree_hash: fnv1a64:f58c06f5e568c5c1
+- recorded_at: 1788271852964
+- 状态: doing
 
 ## R-345 实验环境登记表与运行时快照:声明与实况分离、环境漂移可见 [todo]
 - 内容: 按设计 §2.3/§2.4 实现环境管理:.kanzei/research/environments.md 手工登记契约(ENV-<name>、kind、host、归属、执行策略、gpu、workdir、运行时限、计费、凭据引用、准备步骤、状态);每次实验启动时采集 environment.json 快照(nvidia-smi、python/框架版本、可用显存、git commit 与工作树是否 dirty)存进结果产物目录并被结果事实引用;登记与快照不一致时显式标注环境漂移。执行策略按环境分档 relaxed/managed/approval/strict(A-018):managed/approval 走占用认领与结束或超时释放,approval 启动前给预估并等确认;凭据不入 Markdown 只存 secret 引用;远端首跑由人工准备并把步骤写进准备步骤字段供后续复用。

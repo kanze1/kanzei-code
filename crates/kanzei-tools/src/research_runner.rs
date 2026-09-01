@@ -33,6 +33,7 @@ struct RunnerInput {
     lease_id: Option<String>,
     max_duration_ms: Option<u64>,
     cleanup: Option<String>,
+    heartbeat_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,7 +61,7 @@ impl Tool for ResearchRunnerTool {
         json!({
             "type": "object",
             "properties": {
-                "action": { "type": "string", "enum": ["run", "get"] },
+                "action": { "type": "string", "enum": ["run", "get", "cancel"] },
                 "topic": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
                 "exploration_id": { "type": "string" },
                 "result_id": { "type": "string" },
@@ -80,6 +81,7 @@ impl Tool for ResearchRunnerTool {
                 "policy": { "type": "string" },
                 "lease_id": { "type": "string" },
                 "max_duration_ms": { "type": "integer", "minimum": 1 },
+                "heartbeat_timeout_ms": { "type": "integer", "minimum": 1 },
                 "cleanup": { "type": "string" }
             },
             "required": ["action", "topic"]
@@ -97,7 +99,16 @@ impl Tool for ResearchRunnerTool {
         )]
     }
 
-    fn concurrency(&self, _input: &Value, ctx: &ToolCtx) -> ToolConcurrency {
+    fn concurrency(&self, input: &Value, ctx: &ToolCtx) -> ToolConcurrency {
+        if input.get("action").and_then(Value::as_str) == Some("cancel") {
+            return ToolConcurrency::Shared(format!(
+                "research-cancel:{}",
+                input
+                    .get("result_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+            ));
+        }
         ToolConcurrency::WorktreeWrite(ctx.worktree_concurrency_key())
     }
 
@@ -114,9 +125,10 @@ impl Tool for ResearchRunnerTool {
         match parsed.action.as_str() {
             "get" => get_run(&parsed, ctx),
             "run" => run_experiment(parsed, ctx).await,
+            "cancel" => cancel_run(&parsed, ctx).await,
             other => ToolOutput::needs_correction(
                 "UNKNOWN_ACTION",
-                format!("research_runner 不支持 action `{other}`，可用 run/get"),
+                format!("research_runner 不支持 action `{other}`，可用 run/get/cancel"),
             ),
         }
     }
@@ -140,6 +152,58 @@ fn get_run(input: &RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         Ok(None) => ToolOutput::error(format!("未找到 research result `{result_id}`")),
         Err(error) => ToolOutput::error(format!("读取 research run 失败: {error}")),
     }
+}
+
+async fn cancel_run(input: &RunnerInput, ctx: &ToolCtx) -> ToolOutput {
+    let Some(result_id) = input.result_id.as_deref() else {
+        return ToolOutput::needs_correction("MISSING_RESULT_ID", "cancel 必须提供 result_id");
+    };
+    let store = match SessionStore::open(&project_state_path(&ctx.project_root)) {
+        Ok(store) => store,
+        Err(error) => return ToolOutput::error(format!("打开 state.db 失败: {error}")),
+    };
+    let Some(mut run) = (match store.get_research_run(result_id) {
+        Ok(run) => run,
+        Err(error) => return ToolOutput::error(format!("读取 research run 失败: {error}")),
+    }) else {
+        return ToolOutput::needs_correction(
+            "UNKNOWN_RESULT_ID",
+            format!("未找到 research result `{result_id}`"),
+        );
+    };
+    if run.status != "running" {
+        return ToolOutput::noop(
+            "RUN_ALREADY_TERMINAL",
+            format!("research result `{result_id}` 已是终态 `{}`", run.status),
+        );
+    }
+    let pid = serde_json::from_str::<Value>(&run.execution_json)
+        .ok()
+        .and_then(|value| value.get("pid").and_then(Value::as_u64))
+        .map(|value| value as u32);
+    let Some(pid) = pid else {
+        return ToolOutput::failed("RUN_PID_MISSING", "运行事实尚未登记可取消的进程 pid");
+    };
+    let killed = crate::shell::kill_tree(pid).await;
+    if !killed && crate::shell::process_alive(pid) {
+        return ToolOutput::failed(
+            "RUN_CANCEL_FAILED",
+            format!("无法终止 research result `{result_id}` 的进程树 pid={pid}"),
+        );
+    }
+    run.status = "cancelled".into();
+    run.finished_at = Some(unix_ms());
+    run.cancel_reason = Some("user_requested".into());
+    let _ = append_event(
+        &store,
+        result_id,
+        "run_cancelled",
+        json!({ "pid": pid, "reason": "user_requested" }),
+    );
+    if let Err(error) = store.upsert_research_run(&run) {
+        return ToolOutput::error(format!("写入取消终态失败: {error}"));
+    }
+    ToolOutput::ok(json!({ "result_id": result_id, "status": run.status, "pid": pid }).to_string())
 }
 
 async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
@@ -255,6 +319,12 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             )
         }
     };
+    let mut execution_json = serde_json::to_value(&execution).unwrap_or_else(|_| json!({}));
+    if let Some(pid) = child.id() {
+        execution_json["pid"] = json!(pid);
+        run.execution_json = execution_json.to_string();
+        let _ = store.upsert_research_run(&run);
+    }
     let stdout = child.stdout.take().map(BufReader::new);
     let stderr = child.stderr.take().map(BufReader::new);
     let mut stdout = stdout.map(|reader| reader.lines());
@@ -270,14 +340,19 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             )
         }
     };
-    let timeout = tokio::time::sleep(std::time::Duration::from_millis(
-        run.max_duration_ms.max(1) as u64
-    ));
+    let max_duration = std::time::Duration::from_millis(run.max_duration_ms.max(1) as u64);
+    let heartbeat_duration = std::time::Duration::from_millis(
+        input.heartbeat_timeout_ms.unwrap_or(10 * 60 * 1000).max(1),
+    );
+    let timeout = tokio::time::sleep(max_duration);
+    let heartbeat_timeout = tokio::time::sleep(heartbeat_duration);
     tokio::pin!(timeout);
+    tokio::pin!(heartbeat_timeout);
     let mut stdout_done = stdout.is_none();
     let mut stderr_done = stderr.is_none();
     let mut exit_code = None;
     let mut timed_out = false;
+    let mut timeout_reason: Option<&'static str> = None;
     while !(stdout_done && stderr_done) {
         tokio::select! {
             line = async {
@@ -286,7 +361,14 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
                     None => Ok(None),
                 }
             }, if !stdout_done => {
-                match line { Ok(Some(line)) => handle_line(&store, &mut run, &mut terminal, &result_id, &line, false, &output_dir), _ => stdout_done = true }
+                match line {
+                    Ok(Some(line)) => {
+                        if handle_line(&store, &mut run, &mut terminal, &result_id, &line, false, &output_dir) {
+                            heartbeat_timeout.as_mut().reset(tokio::time::Instant::now() + heartbeat_duration);
+                        }
+                    }
+                    _ => stdout_done = true,
+                }
             }
             line = async {
                 match stderr.as_mut() {
@@ -294,7 +376,14 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
                     None => Ok(None),
                 }
             }, if !stderr_done => {
-                match line { Ok(Some(line)) => handle_line(&store, &mut run, &mut terminal, &result_id, &line, true, &output_dir), _ => stderr_done = true }
+                match line {
+                    Ok(Some(line)) => {
+                        if handle_line(&store, &mut run, &mut terminal, &result_id, &line, true, &output_dir) {
+                            heartbeat_timeout.as_mut().reset(tokio::time::Instant::now() + heartbeat_duration);
+                        }
+                    }
+                    _ => stderr_done = true,
+                }
             }
             status = child.wait() => {
                 exit_code = status.ok().and_then(|status| status.code()).map(i64::from);
@@ -302,6 +391,14 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             }
             _ = &mut timeout => {
                 timed_out = true;
+                timeout_reason = Some("max_duration");
+                let _ = child.kill().await;
+                exit_code = child.wait().await.ok().and_then(|status| status.code()).map(i64::from);
+                break;
+            }
+            _ = &mut heartbeat_timeout => {
+                timed_out = true;
+                timeout_reason = Some("heartbeat_timeout");
                 let _ = child.kill().await;
                 exit_code = child.wait().await.ok().and_then(|status| status.code()).map(i64::from);
                 break;
@@ -346,9 +443,18 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             .map(i64::from);
     }
     let finished_at = unix_ms();
+    let cancelled = store
+        .get_research_run(&result_id)
+        .ok()
+        .flatten()
+        .is_some_and(|current| current.status == "cancelled");
     run.finished_at = Some(finished_at);
     run.exit_code = exit_code;
-    run.status = if timed_out {
+    run.status = if cancelled {
+        run.cancel_reason = Some("user_requested".into());
+        "cancelled"
+    } else if timed_out {
+        run.cancel_reason = timeout_reason.map(str::to_string);
         "stuck"
     } else if exit_code == Some(0) {
         "succeeded"
@@ -356,26 +462,82 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         "failed"
     }
     .into();
-    let event_type = if timed_out {
+    let event_type = if cancelled {
+        "run_cancelled"
+    } else if timed_out {
         "run_failed"
     } else if run.status == "succeeded" {
         "run_finished"
     } else {
         "run_failed"
     };
-    let _ = append_event(
-        &store,
-        &result_id,
-        event_type,
-        json!({ "exit_code": exit_code, "status": run.status, "timed_out": timed_out }),
-    );
+    if !cancelled {
+        let _ = append_event(
+            &store,
+            &result_id,
+            event_type,
+            json!({ "exit_code": exit_code, "status": run.status, "timed_out": timed_out, "reason": run.cancel_reason }),
+        );
+    }
     let _ = store.upsert_research_run(&run);
-    let summary = json!({ "result_id": result_id, "status": run.status, "exit_code": exit_code, "terminal_log": run.terminal_log_path, "environment": run.environment_snapshot_ref, "callback_stats": run.callback_stats_json });
-    if run.status == "succeeded" {
+    let result_table = append_result_table_row(&ctx.project_root, &run);
+    let summary = json!({ "result_id": result_id, "status": run.status, "exit_code": exit_code, "terminal_log": run.terminal_log_path, "environment": run.environment_snapshot_ref, "callback_stats": run.callback_stats_json, "result_table": result_table });
+    if run.status == "succeeded" && result_table.is_ok() {
         ToolOutput::ok(summary.to_string())
     } else {
         ToolOutput::error(summary.to_string())
     }
+}
+
+fn append_result_table_row(root: &Path, run: &ResearchRunRecord) -> Result<String, String> {
+    if !run
+        .result_id
+        .starts_with(&format!("{}-", run.exploration_id))
+    {
+        return Err(format!(
+            "result_id `{}` 不匹配 exploration_id `{}`",
+            run.result_id, run.exploration_id
+        ));
+    }
+    let path = root
+        .join(".kanzei/research")
+        .join(&run.topic)
+        .join("explorations")
+        .join(format!("{}.md", run.exploration_id));
+    let mut text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("读取探索 Markdown {} 失败: {error}", path.display()))?;
+    let section_start = text
+        .find("## 实验结果")
+        .ok_or_else(|| "探索 Markdown 缺少 `## 实验结果` 段".to_string())?;
+    let section_end = text[section_start..]
+        .find("\n## ")
+        .map(|offset| section_start + offset)
+        .unwrap_or(text.len());
+    let params = run.params_text.replace('|', "\\|").replace('\n', " ");
+    let metrics = run.metrics_last_json.replace('|', "\\|").replace('\n', " ");
+    let artifacts: Vec<String> = serde_json::from_str(&run.artifacts_json).unwrap_or_default();
+    let artifact_text = artifacts.join(", ").replace('|', "\\|");
+    let row = format!(
+        "| {} | {} | {} | {} | {} | {} |\n",
+        run.result_id,
+        params,
+        run.status,
+        metrics,
+        artifact_text,
+        run.cancel_reason.clone().unwrap_or_default()
+    );
+    let insert_at = section_end;
+    if !text[..insert_at].ends_with('\n') {
+        text.insert(insert_at, '\n');
+    }
+    let insert_at = if text[..insert_at].ends_with('\n') {
+        insert_at
+    } else {
+        insert_at + 1
+    };
+    text.insert_str(insert_at, &row);
+    std::fs::write(&path, text).map_err(|error| format!("写回探索结果表失败: {error}"))?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 fn command_for(execution: &ExecutionSpec, ctx: &ToolCtx) -> Result<Command, String> {
@@ -416,7 +578,7 @@ fn handle_line(
     line: &str,
     stderr: bool,
     output_dir: &Path,
-) {
+) -> bool {
     use std::io::Write;
     let parsed = parse_callback_line(line);
     let mut stats: CallbackStats =
@@ -426,9 +588,11 @@ fn handle_line(
     if let Some(log) = parsed.terminal_log.as_deref() {
         let _ = writeln!(terminal, "{}{}", if stderr { "[stderr] " } else { "" }, log);
     }
+    let mut heartbeat = false;
     if let Some(event) = parsed.event {
         let _ = append_event(store, result_id, &event.event_type, event.payload.clone());
         if event.event_type == "heartbeat" {
+            heartbeat = true;
             run.heartbeat_at = Some(unix_ms());
         }
         if event.event_type == "metric" {
@@ -444,6 +608,7 @@ fn handle_line(
         }
     }
     let _ = store.upsert_research_run(run);
+    heartbeat
 }
 
 fn copy_artifact(output_dir: &Path, payload: &Value) -> Option<String> {
@@ -543,14 +708,19 @@ mod tests {
     #[tokio::test]
     async fn local_run_persists_terminal_fact_and_environment_snapshot() {
         let root = std::env::temp_dir().join(format!("kz-research-runner-{}", unix_ms()));
-        std::fs::create_dir_all(root.join(".kanzei/research/nas-search")).unwrap();
+        std::fs::create_dir_all(root.join(".kanzei/research/nas-search/explorations")).unwrap();
+        std::fs::write(
+            root.join(".kanzei/research/nas-search/explorations/E-001.md"),
+            "---\nkind: exploration\nid: E-001\ntopic: nas-search\ntitle: test\nstatus: running\nhypothesis: test\ndepends_on:\nsupersedes:\nentry_refs:\nenvironment: ENV-test\nbudget: 1\ncreated_at: 1\nupdated_at: 1\n---\n\n## 假设\ntest\n\n## 实验结果\n| 实验 | 参数 | 状态 | 关键指标 | 产物 | 结论 |\n| --- | --- | --- | --- | --- | --- |\n\n## 结论\n待定\n",
+        )
+        .unwrap();
         let ctx = ToolCtx::new(root.clone(), root.clone());
         let output = run_experiment(
             RunnerInput {
                 action: "run".into(),
                 topic: "nas-search".into(),
                 exploration_id: Some("E-001".into()),
-                result_id: Some("R-001".into()),
+                result_id: Some("E-001-01".into()),
                 execution: Some(ExecutionSpec {
                     kind: "local".into(),
                     command: "echo ordinary".into(),
@@ -564,6 +734,7 @@ mod tests {
                 lease_id: None,
                 max_duration_ms: Some(10_000),
                 cleanup: Some("retain".into()),
+                heartbeat_timeout_ms: Some(10_000),
             },
             &ctx,
         )
@@ -571,15 +742,131 @@ mod tests {
         assert!(!output.is_error, "{}", output.content);
         assert!(output.content.contains("succeeded"), "{}", output.content);
         let store = SessionStore::open(&project_state_path(&root)).unwrap();
-        let run = store.get_research_run("R-001").unwrap().unwrap();
+        let run = store.get_research_run("E-001-01").unwrap().unwrap();
         assert_eq!(run.status, "succeeded");
         assert_eq!(run.params_text, "seed=3");
-        assert!(store.list_research_run_events("R-001", 0).unwrap().len() >= 2);
+        assert!(store.list_research_run_events("E-001-01", 0).unwrap().len() >= 2);
         assert!(root.join(&run.terminal_log_path).is_file());
         assert!(root.join(&run.environment_snapshot_ref).is_file());
         assert!(std::fs::read_to_string(root.join(&run.terminal_log_path))
             .unwrap()
             .contains("ordinary"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn heartbeat_timeout_marks_run_stuck_and_writes_result_row() {
+        let root = std::env::temp_dir().join(format!("kz-research-timeout-{}", unix_ms()));
+        let explorations = root.join(".kanzei/research/nas-search/explorations");
+        std::fs::create_dir_all(&explorations).unwrap();
+        let markdown = "---\nkind: exploration\nid: E-001\ntopic: nas-search\ntitle: test\nstatus: running\nhypothesis: test\ndepends_on:\nsupersedes:\nentry_refs:\nenvironment: ENV-test\nbudget: 1\ncreated_at: 1\nupdated_at: 1\n---\n\n## 假设\ntest\n\n## 实验结果\n| 实验 | 参数 | 状态 | 关键指标 | 产物 | 结论 |\n| --- | --- | --- | --- | --- | --- |\n\n## 结论\n待定\n";
+        std::fs::write(explorations.join("E-001.md"), markdown).unwrap();
+        let command = if cfg!(windows) {
+            "ping -n 10 127.0.0.1 > NUL"
+        } else {
+            "sleep 10"
+        };
+        let output = run_experiment(
+            RunnerInput {
+                action: "run".into(),
+                topic: "nas-search".into(),
+                exploration_id: Some("E-001".into()),
+                result_id: Some("E-001-02".into()),
+                execution: Some(ExecutionSpec {
+                    kind: "local".into(),
+                    command: command.into(),
+                    host: None,
+                    user: None,
+                    workdir: None,
+                }),
+                params_text: Some("timeout=true".into()),
+                code_ref: None,
+                policy: None,
+                lease_id: None,
+                max_duration_ms: Some(10_000),
+                cleanup: None,
+                heartbeat_timeout_ms: Some(50),
+            },
+            &ToolCtx::new(root.clone(), root.clone()),
+        )
+        .await;
+        assert!(output.is_error);
+        let store = SessionStore::open(&project_state_path(&root)).unwrap();
+        let run = store.get_research_run("E-001-02").unwrap().unwrap();
+        assert_eq!(run.status, "stuck");
+        assert_eq!(run.cancel_reason.as_deref(), Some("heartbeat_timeout"));
+        let text = std::fs::read_to_string(explorations.join("E-001.md")).unwrap();
+        assert!(text.contains("| E-001-02 |"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn cancel_kills_local_run_and_persists_cancelled_event() {
+        let root = std::env::temp_dir().join(format!("kz-research-cancel-{}", unix_ms()));
+        let explorations = root.join(".kanzei/research/nas-search/explorations");
+        std::fs::create_dir_all(&explorations).unwrap();
+        std::fs::write(explorations.join("E-001.md"), "---\nkind: exploration\nid: E-001\ntopic: nas-search\ntitle: test\nstatus: running\nhypothesis: test\ndepends_on:\nsupersedes:\nentry_refs:\nenvironment: ENV-test\nbudget: 1\ncreated_at: 1\nupdated_at: 1\n---\n\n## 假设\ntest\n\n## 实验结果\n| 实验 | 参数 | 状态 | 关键指标 | 产物 | 结论 |\n| --- | --- | --- | --- | --- | --- |\n\n## 结论\n待定\n").unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let ctx_for_run = ctx.clone();
+        let run_task = tokio::spawn(async move {
+            run_experiment(
+                RunnerInput {
+                    action: "run".into(),
+                    topic: "nas-search".into(),
+                    exploration_id: Some("E-001".into()),
+                    result_id: Some("E-001-03".into()),
+                    execution: Some(ExecutionSpec {
+                        kind: "local".into(),
+                        command: if cfg!(windows) {
+                            "ping -n 10 127.0.0.1 > NUL".into()
+                        } else {
+                            "sleep 10".into()
+                        },
+                        host: None,
+                        user: None,
+                        workdir: None,
+                    }),
+                    params_text: None,
+                    code_ref: None,
+                    policy: None,
+                    lease_id: None,
+                    max_duration_ms: Some(10_000),
+                    cleanup: None,
+                    heartbeat_timeout_ms: Some(10_000),
+                },
+                &ctx_for_run,
+            )
+            .await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let cancel = cancel_run(
+            &RunnerInput {
+                action: "cancel".into(),
+                topic: "nas-search".into(),
+                exploration_id: None,
+                result_id: Some("E-001-03".into()),
+                execution: None,
+                params_text: None,
+                code_ref: None,
+                policy: None,
+                lease_id: None,
+                max_duration_ms: None,
+                cleanup: None,
+                heartbeat_timeout_ms: None,
+            },
+            &ctx,
+        )
+        .await;
+        assert!(!cancel.is_error, "{}", cancel.content);
+        let _ = run_task.await.unwrap();
+        let store = SessionStore::open(&project_state_path(&root)).unwrap();
+        let run = store.get_research_run("E-001-03").unwrap().unwrap();
+        assert_eq!(run.status, "cancelled");
+        assert!(store
+            .list_research_run_events("E-001-03", 0)
+            .unwrap()
+            .iter()
+            .any(|event| event.event_type == "run_cancelled"));
         let _ = std::fs::remove_dir_all(root);
     }
 
