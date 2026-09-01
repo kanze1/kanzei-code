@@ -110,3 +110,17 @@
 - 备注: 字段清单见 docs/design/research_experiment_runner.md §2.2/§2.4/§5;research 档 bash 硬 deny 的原始定调见 research_mode.md 定调点 6。
 - 日期: 2026-09-01
 - refs: R-344 R-345
+
+## A-017 Research Mode 业务模型独立、底层基础设施复用 [accepted]
+- 依据: 用户开篇要求「research mode 必须是一个独立的模块,和 dev 模式完全独立」,追问后确认为「对的底层可复用,主要是数据与业务模型的独立」。把研究结果挂成 dev 对话历史的附件会让实验事实无法独立重建;共享 task 状态机则让 dev 的关闭纪律误伤实验生命周期。
+- 决定: Research Mode 是独立模块:领域对象(研究问题/假设/Experiment/Run/Result/Environment)、事实链、运行态显示、UI 工作台与后端命令命名空间全部自成一套,不拿 dev 的 task/session/round 冒充实验模型,dev 的任务关闭逻辑不影响实验状态,dev 无活动任务时实验照样可监控。底层可复用:SQLite 与事件存储、文件与 artifact 存储、进程启动与日志捕获、Tauri command、Markdown/PDF 渲染、LaTeX 编译引擎、搜索与权限框架。共用底层但分开建表分开投影,两边只保留显式登记回流,不共享业务状态。
+- 备注: 边界清单见 docs/design/research_experiment_runner.md §0.1。回流通道沿用 research_mode.md 定调点 4(报告「建议登记」段 + finding→req/defect 草稿)。
+- 日期: 2026-09-01
+- refs: R-343 R-221
+
+## A-018 实验执行策略按环境分档:relaxed/managed/approval/strict [accepted]
+- 依据: 用户原话「这个我建议设计一个选项吧,给用户受控的,或者我是自己的服务器和卡就可以随意一点」。全局一个权限档会在两头都错:自用机器上每次弹窗是纯摩擦,共享或付费机器上放开则会出两类具体事故——两个实验抢同一块卡、实验失败后远端进程继续挂着烧钱。
+- 决定: 执行策略是环境登记项的一个字段,不是全局开关。relaxed(自己的机器与卡)直接跑不问;managed(共享服务器)启动前查租约、资源与并发,结束或超时释放占用;approval(付费资源)启动前给出预估时长与费用并等用户确认,叠加预算刹车;strict 每次运行都要显式确认。relaxed 免掉的只是每次弹确认,命令记录、环境快照、terminal 捕获、产物保存、超时与异常清理一条都不能省。凭据不写进 Markdown,登记项只存服务器标识与 secret 引用。每次 run 另记 policy、lease_id、max_duration、cleanup,作为「启动前答应了什么」的留痕。
+- 备注: 档位与运行合同字段见 docs/design/research_experiment_runner.md §2.5;预算刹车见 §7。
+- 日期: 2026-09-01
+- refs: R-345 R-344
