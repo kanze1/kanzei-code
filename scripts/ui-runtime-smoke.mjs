@@ -780,11 +780,38 @@ const payloads = {
       {
         topic: "alpha-study",
         legacy: false,
+        explorations: [
+          {
+            source_path: "C:/smoke/project/.kanzei/research/alpha-study/explorations/E-101.md",
+            frontmatter: { kind: "exploration", id: "E-101", topic: "alpha-study", title: "Alpha 基线", status: "done", hypothesis: "基线可以复现", depends_on: [], supersedes: null },
+            assumption: "基线假设",
+            results: [{ result_id: "E-101-01", params_text: "默认参数", status: "succeeded", key_metrics_text: "acc=0.9", artifact_text: "figure.png", conclusion: "支持", artifact_dir: "explorations/E-101/E-101-01", source_line: 16 }],
+            conclusion: "支持",
+            follow_up: "继续扩大样本",
+          },
+          {
+            source_path: "C:/smoke/project/.kanzei/research/alpha-study/explorations/E-102.md",
+            frontmatter: { kind: "exploration", id: "E-102", topic: "alpha-study", title: "Alpha 扩展", status: "running", hypothesis: "扩展仍能复现", depends_on: ["E-101"], supersedes: "E-099" },
+            assumption: "扩展假设",
+            results: [],
+            conclusion: "不确定",
+            follow_up: "等待运行",
+          },
+          {
+            source_path: "C:/smoke/project/.kanzei/research/alpha-study/explorations/E-103.md",
+            frontmatter: { kind: "exploration", id: "E-103", topic: "alpha-study", title: "Alpha 复核", status: "draft", hypothesis: "复核可以否定偏差", depends_on: ["E-102"], supersedes: null },
+            assumption: "复核假设",
+            results: [],
+            conclusion: "待验证",
+            follow_up: "准备运行",
+          },
+        ],
+        exploration_diagnostics: [{ path: "C:/smoke/project/.kanzei/research/alpha-study/explorations/E-102.md", line: 8, message: "depends_on 引用悬挂探索 `E-099`" }],
         sources: [docEntry("S-101", "Alpha 一手论文", "active", { topic: "alpha-study", fields: [["URL", "https://example.com/alpha"], ["类型", "文献(一手)"], ["作者", "Alpha Researcher"], ["年份", "2024"], ["等级", "V2"], ["证据深度", "正文级"]] }), docEntry("S-102", "Alpha 代码来源", "active", { topic: "alpha-study", fields: [["证据锚", "crates/kanzei-tools/src/websearch.rs:9"], ["类型", "代码域"], ["年份", "2023"]] }), docEntry("S-103", "Alpha arXiv 正文", "active", { topic: "alpha-study", fields: [["URL", "https://arxiv.org/abs/2301.12345"], ["类型", "文献(一手)"], ["年份", "2022"], ["证据深度", "摘要级"]] })],
         findings: [docEntry("F-101", "Alpha 发现", "draft", { topic: "alpha-study", fields: [["等级", "V2"], ["refs", "S-101"]] })],
         runs: [
-          { run: { result_id: "E-101-01", status: "succeeded", policy: "managed", execution_json: '{"kind":"local"}' }, drift: ["workdir"] },
-          { run: { result_id: "E-101-02", status: "failed", policy: "relaxed", execution_json: '{"kind":"local"}' }, drift: [] },
+          { run: { result_id: "E-101-01", exploration_id: "E-101", status: "succeeded", policy: "managed", execution_json: '{"kind":"local"}', started_at: 10, finished_at: 20, artifacts_json: '[{"kind":"figure","path":".kanzei/research/alpha-study/explorations/E-101/E-101-01/figure.png"}]', terminal_log_path: ".kanzei/research/alpha-study/explorations/E-101/E-101-01/terminal.log", metrics_series_path: ".kanzei/research/alpha-study/explorations/E-101/E-101-01/metrics.jsonl" }, events: [{ event_type: "metric", payload_json: '{"name":"acc","value":0.8}' }, { event_type: "message", payload_json: '{"level":"info","text":"训练完成"}' }], drift: ["workdir"] },
+          { run: { result_id: "E-101-02", exploration_id: "E-101", status: "failed", policy: "relaxed", execution_json: '{"kind":"local"}', started_at: 30, finished_at: 40 }, drift: [] },
         ],
         report: true,
       },
@@ -3087,6 +3114,30 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   assert(topicSelect.value === "alpha-study", `默认应选择排序后的 alpha-study,实得 ${topicSelect.value}`);
   assert(document.querySelector('#research-cards .research-topic-group[data-topic="alpha-study"]'), "alpha topic 分组未渲染");
   assert(byId.get("research-runs-count").textContent === "2 条", "真实 research run 数量未渲染");
+  const roadmapGraph = byId.get("research-roadmap-graph");
+  assert(roadmapGraph.querySelectorAll(".research-roadmap-node").length === 3, "探索路线图节点未按 Markdown 真源渲染");
+  assert(roadmapGraph.querySelectorAll(".research-roadmap-edge.edge-depends_on").length === 2, "depends_on 实线未完整投影");
+  assert(roadmapGraph.querySelectorAll(".research-roadmap-edge.edge-supersedes").length === 0, "悬挂 supersedes 不应伪造可见边");
+  assert(!byId.get("research-roadmap-diagnostics").hidden && byId.get("research-roadmap-diagnostics").textContent.includes("悬挂"), "悬挂关系诊断未在界面显式呈现");
+  const firstProjection = vm.runInContext("JSON.stringify(researchRouteProjection())", sandbox);
+  vm.runInContext("renderResearchRoadmap()", sandbox);
+  assert(firstProjection === vm.runInContext("JSON.stringify(researchRouteProjection())", sandbox), "同一批探索文件重复投影结果不一致");
+  roadmapGraph.querySelector('.research-roadmap-node[data-node-id="E-101"]').click();
+  assert(!byId.get("research-exploration-detail").hidden && byId.get("research-exploration-detail-body").textContent.includes("Alpha 基线"), "点击路线图节点未进入探索详情");
+  const detailBody = byId.get("research-exploration-detail-body");
+  assert(detailBody.textContent.includes("基线假设") && detailBody.textContent.includes("支持") && detailBody.textContent.includes("继续扩大样本"), "探索详情未展示假设/结论/后续真实字段");
+  assert(detailBody.querySelectorAll(".research-results-table tr").length === 2, "探索详情结果表未保留 Markdown 结果行");
+  detailBody.querySelector(".research-result-open")?.click();
+  assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"]')?.classList.contains("is-selected"), "结果行未定位并高亮对应 run");
+  assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-chart polyline'), "run 指标事件未渲染曲线");
+  assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-terminal')?.textContent.includes("训练完成"), "run 终端 message 未进入回放");
+  const artifactLink = document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-artifact-link');
+  assert(artifactLink, "run 未展示产物入口");
+  artifactLink.click();
+  await flush();
+  assert(invokeArgs.some((call) => call.cmd === "file_preview" && call.args?.path.includes("figure.png")), "产物入口未调用真实 file_preview");
+
+
   assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-drift.has-drift')?.textContent.includes("环境漂移"), "登记与快照不一致时未显示环境漂移");
   assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-02"] .research-run-drift.no-drift')?.textContent.includes("环境声明一致"), "无漂移 run 未显示一致状态");
   assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("Alpha 一手论文"), "alpha topic 来源未渲染");
@@ -3127,6 +3178,9 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   topicSelect.dispatchEvent({ type: "change", currentTarget: topicSelect });
   await flush();
   assert(document.querySelector('#research-cards .research-topic-group[data-topic="beta-study"]'), "beta topic 分组未渲染");
+  assert(byId.get("research-roadmap").querySelectorAll(".research-roadmap-node").length === 0, "无探索 topic 不应残留上一个 topic 的节点");
+  assert(byId.get("research-roadmap-graph").querySelector(".research-roadmap-empty"), "无探索 topic 未展示路线图空态");
+
   assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("Beta 代码来源"), "相同 S-101 未切换到 beta topic 数据");
   assert(!document.querySelector('#research-cards .research-card')?.textContent.includes("Alpha 一手论文"), "切换 topic 后仍混入 alpha 来源");
   assert(byId.get("research-report").textContent.includes("Beta report"), "beta topic 未读取对应 report");

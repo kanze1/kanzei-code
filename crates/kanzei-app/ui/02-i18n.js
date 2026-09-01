@@ -337,7 +337,7 @@ export const I18N_EN = {
   "输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送 · Ctrl/Cmd+P 命令面板 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止":
     "Enter a task to begin · permission requests appear as dialogs · Ctrl+Enter send · Ctrl/Cmd+K focus input · Ctrl/Cmd+Shift+N new chat · Ctrl/Cmd+Shift+C stop",
   "暂无测试记录": "No test runs", "暂无排队输入": "No queued input", "暂无时间": "No time",
-  "运行中": "Running", "等待模型响应": "Waiting for model response", "空闲": "Idle", "条任务": "tasks", "实验运行记录": "Experiment runs", "暂无实验运行记录": "No experiment runs", "未知运行": "Unknown run", "环境漂移": "Environment drift", "环境声明一致": "Environment declaration matches", "登记环境与运行配置一致": "Registered environment matches execution", "进度": "Progress", "成本": "Cost",
+  "运行中": "Running", "等待模型响应": "Waiting for model response", "空闲": "Idle", "条任务": "tasks", "实验运行记录": "Experiment runs", "暂无实验运行记录": "No experiment runs", "未知运行": "Unknown run", "环境漂移": "Environment drift", "环境声明一致": "Environment declaration matches", "登记环境与运行配置一致": "Registered environment matches execution", "进度": "Progress", "成本": "Cost", "实验路线图": "Experiment roadmap", "路线图": "Roadmap", "探索详情": "Exploration details", "暂无探索路线图": "No exploration roadmap", "次运行": "runs", "个探索": "explorations", "在文件预览中打开": "Open in file preview", "产物": "Artifact", "未命名探索": "Untitled exploration", "假设": "Hypothesis", "实验结果": "Experiment results", "暂无实验结果": "No experiment results", "实验": "Experiment", "参数": "Parameters", "关键指标": "Key metrics", "运行": "Run", "打开运行": "Open run", "暂无运行记录": "No run record", "结论": "Conclusion", "后续": "Follow-up",
   "主代理": "Primary agent", "并行线": "Parallel line", "点击切换到此线路": "Click to switch to this line", "并行任务状态": "Parallel task status",
   "关闭": "Close", "删除": "Delete", "已关闭": "Closed",
   "关闭该条目但保留后端历史与审计记录": "Close this entry but keep backend history and audit records",
@@ -432,7 +432,7 @@ export const I18N_EN = {
   "子代理安装": "Subagent setup", "子代理安装失败": "Subagent setup failed",
   "运行画像加载失败": "Failed to load run metrics", "还没有轮次记录:跑一轮后这里会出现画像": "No rounds recorded yet — run once and metrics will appear here",  "任务画像": "Task profile", "已关闭任务": "Closed tasks", "进行中任务": "In-progress tasks", "暂无任务画像": "No task profile yet", "会话": "Sessions", "输入": "Inputs", "轮": "rounds",
 
-  "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate",
+  "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate", "指标": "Metrics",
   "平均步数": "Avg steps", "平均输出 token": "Avg output tokens", "近": "Last", "轮均值": "round average",
   "按分类聚合(类型 × 复杂度)": "By category (type × complexity)", "类型": "Type", "轮数": "Rounds", "输入合计": "Input total", "输出合计": "Output total", "平均输入": "Avg input", "平均输出": "Avg output", "未归类": "Uncategorized", "事件分类指标": "Incident classification metrics", "缺陷分类指标": "Defect classification metrics", "数量": "Count", "平均修复时长": "Avg repair duration", "逃逸率": "Escape rate", "晋升": "Promotions", "总事件": "Total incidents", "总体逃逸率": "Overall escape rate", "晋升事件": "Promotion events", "历史样本回放": "Historical sample replay", "一致": "consistent", "不一致": "inconsistent", "瞬时失手排除": "Instant self-errors excluded",
   "步": "steps", "终端": "terminal", "组": "groups", "未命中": "missed", "子代理": "subagents",

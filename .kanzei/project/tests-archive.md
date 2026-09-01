@@ -11214,3 +11214,35 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 活动栏降噪回归通过：bash 入列，成功 edit/read 与无 phase task 静默，带 scouting/review phase 的编排 task 入列，失败静默调用由收尾补建；UI runtime 27 个脚本、2336 次 invoke、10 个主视图、0 运行时错误；UI lint 54 个文件通过。
 - 关联: D-729 R-168 R-173
 - 收尾: 1788303992
+
+## T-1786922726893 R-346 B1 路线图投影与诊断回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/19-research.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 4.6s
+- 摘要: R-346 B1 回归通过：路线图 3 节点、2 条 depends_on 边、悬挂关系诊断、重复投影一致、节点点击详情、空 topic 空态；UI runtime 27 个脚本/2336 次 invoke/10 个主视图/0 错误，UI lint 54 个文件通过。
+- 关联: R-346
+- 收尾: 1788304452
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@1d3ef5f02c7e
+
+## T-1786922726894 R-346 B2 探索详情与 run 下钻回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/19-research.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 4.8s
+- 摘要: R-346 B2 回归通过：详情展示假设/结果表/结论/后续；结果行定位并高亮真实 run；事件生成终端回放与指标曲线；产物入口调用 file_preview；空 topic 空态；UI runtime 27 个脚本/2337 次 invoke/10 个主视图/0 错误，UI lint 54 个文件通过。
+- 关联: R-346
+- 收尾: 1788304749
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@03c42f9d0359
+
+## T-1786922726895 R-346 B2 提交前前端回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/19-research.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 4.5s
+- 摘要: 修正 i18n 重复 key 与 smoke 断言排版后，R-346 前端回归再次通过：UI runtime 27 个脚本/2337 次 invoke/10 个主视图/0 错误；UI lint 54 个文件通过。
+- 关联: R-346
+- 收尾: 1788304903
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@9783555a41ef
+
+## T-1786922726896 R-346 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 12.4s
+- 摘要: 提交门禁要求的 kanzei-app 定向回归通过：250 passed，0 failed，0 ignored。
+- 关联: R-346
+- 收尾: 1788304995
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@9783555a41ef

@@ -4,6 +4,7 @@ import { $, invoke } from "./01-core.js";
 import { localizedDocStatus, t } from "./02-i18n.js";
 import { currentProject, log, toast, toastError } from "./03-shell.js";
 import { researchLinkField, researchOpenLink } from "./11-docs-list.js";
+import { openFilePreview } from "./17-files.js";
 
 // 研究工作台(R-276 批3)。
 //
@@ -467,6 +468,260 @@ export function renderResearchCards() {
   host.appendChild(group);
 }
 
+export let selectedResearchExplorationId = "";
+
+function explorationDocumentId(document) {
+  return document?.frontmatter?.id || "";
+}
+
+function researchExplorationRuns(topic, explorationId) {
+  return (topic?.runs ?? []).filter((item) => item?.run?.exploration_id === explorationId);
+}
+
+function researchRunTime(item) {
+  return Number(item?.run?.finished_at ?? item?.run?.started_at ?? 0);
+}
+
+/// 从当前 topic 的 Markdown 投影出稳定的节点和边；不写入、不缓存、不推断关系。
+export function researchRouteProjection(topic = selectedResearchTopicData()) {
+  const explorations = [...(topic?.explorations ?? [])]
+    .filter((document) => explorationDocumentId(document))
+    .sort((left, right) => explorationDocumentId(left).localeCompare(explorationDocumentId(right), undefined, { numeric: true }));
+  const columns = 4;
+  const nodes = explorations.map((document, index) => {
+    const id = explorationDocumentId(document);
+    const runs = researchExplorationRuns(topic, id).sort((left, right) => researchRunTime(right) - researchRunTime(left));
+    return {
+      id,
+      title: document.frontmatter.title || id,
+      status: document.frontmatter.status || "draft",
+      hypothesis: document.frontmatter.hypothesis || "",
+      resultCount: (document.results ?? []).length,
+      runCount: runs.length,
+      recentStatus: runs[0]?.run?.status || "—",
+      x: 28 + (index % columns) * 190,
+      y: 28 + Math.floor(index / columns) * 112,
+    };
+  });
+  const edges = [];
+  for (const document of explorations) {
+    const id = explorationDocumentId(document);
+    for (const dependency of document.frontmatter.depends_on ?? []) {
+      edges.push({ from: dependency, to: id, kind: "depends_on" });
+    }
+    const superseded = document.frontmatter.supersedes;
+    if (superseded) edges.push({ from: id, to: superseded, kind: "supersedes" });
+  }
+  edges.sort((left, right) => `${left.kind}:${left.from}:${left.to}`.localeCompare(`${right.kind}:${right.from}:${right.to}`, undefined, { numeric: true }));
+  const diagnostics = [...(topic?.exploration_diagnostics ?? [])].sort((left, right) =>
+    `${left.path}:${left.line}:${left.message}`.localeCompare(`${right.path}:${right.line}:${right.message}`, undefined, { numeric: true }),
+  );
+  return { nodes, edges, diagnostics };
+}
+
+function appendRoadmapText(parent, className, text, x, y) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  node.setAttribute("class", className);
+  node.setAttribute("x", String(x));
+  node.setAttribute("y", String(y));
+  node.textContent = text;
+  parent.appendChild(node);
+}
+
+export function renderResearchRoadmap() {
+  const graph = $("research-roadmap-graph");
+  const diagnosticsHost = $("research-roadmap-diagnostics");
+  if (!graph || !diagnosticsHost) return;
+  const projection = researchRouteProjection();
+  graph.replaceChildren();
+  const width = Math.max(640, 28 + (Math.min(4, projection.nodes.length) || 1) * 190);
+  const height = Math.max(96, 28 + Math.ceil(projection.nodes.length / 4) * 112);
+  graph.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  graph.setAttribute("aria-label", t("实验路线图"));
+  if (!projection.nodes.length) {
+    const empty = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    empty.setAttribute("class", "research-roadmap-empty");
+    empty.setAttribute("x", "28");
+    empty.setAttribute("y", "56");
+    empty.textContent = t("暂无探索路线图");
+    graph.appendChild(empty);
+  }
+  const nodeById = new Map(projection.nodes.map((node) => [node.id, node]));
+  for (const edge of projection.edges) {
+    const from = nodeById.get(edge.from);
+    const to = nodeById.get(edge.to);
+    if (!from || !to) continue;
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("class", `research-roadmap-edge edge-${edge.kind}`);
+    line.dataset.edgeFrom = edge.from;
+    line.dataset.edgeTo = edge.to;
+    line.dataset.edgeKind = edge.kind;
+    line.setAttribute("x1", String(from.x + 82));
+    line.setAttribute("y1", String(from.y + 28));
+    line.setAttribute("x2", String(to.x + 82));
+    line.setAttribute("y2", String(to.y + 28));
+    graph.appendChild(line);
+  }
+  for (const node of projection.nodes) {
+    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    group.classList.add("research-roadmap-node", `node-${node.status}`);
+    group.dataset.nodeId = node.id;
+    group.setAttribute("tabindex", "0");
+    group.setAttribute("role", "button");
+    const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    title.textContent = node.hypothesis ? `${node.title} — ${node.hypothesis}` : node.title;
+    group.appendChild(title);
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", String(node.x));
+    rect.setAttribute("y", String(node.y));
+    rect.setAttribute("width", "164");
+    rect.setAttribute("height", "56");
+    rect.setAttribute("rx", "7");
+    group.appendChild(rect);
+    appendRoadmapText(group, "research-roadmap-node-id", node.id, node.x + 9, node.y + 17);
+    appendRoadmapText(group, "research-roadmap-node-title", node.title, node.x + 9, node.y + 34);
+    appendRoadmapText(group, "research-roadmap-node-meta", `${node.runCount} ${t("次运行")} · ${node.recentStatus}`, node.x + 9, node.y + 49);
+    const open = () => selectResearchExploration(node.id);
+    group.addEventListener("click", open);
+    group.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        open();
+      }
+    });
+    graph.appendChild(group);
+  }
+  const count = $("research-roadmap-count");
+  if (count) count.textContent = `${projection.nodes.length} ${t("个探索")}`;
+  diagnosticsHost.replaceChildren();
+  diagnosticsHost.hidden = projection.diagnostics.length === 0;
+  for (const diagnostic of projection.diagnostics) {
+    const item = document.createElement("div");
+    item.className = "research-roadmap-diagnostic";
+    item.textContent = `${diagnostic.path}:${diagnostic.line} · ${diagnostic.message}`;
+    diagnosticsHost.appendChild(item);
+  }
+}
+
+export function selectResearchExploration(id) {
+  selectedResearchExplorationId = id;
+  renderResearchExplorationDetail();
+}
+
+function researchResultRun(topic, resultId) {
+  return (topic?.runs ?? []).find((item) => item?.run?.result_id === resultId);
+}
+
+export function focusResearchRun(resultId) {
+  const card = [...document.querySelectorAll(".research-run-card")]
+    .find((item) => item.dataset.resultId === resultId);
+  if (!card) return false;
+  document.querySelectorAll(".research-run-card.is-selected").forEach((item) => item.classList.remove("is-selected"));
+  card.classList.add("is-selected");
+  card.scrollIntoView?.({ block: "nearest" });
+  return true;
+}
+
+function appendResearchDetailSection(body, title, text) {
+  const section = document.createElement("section");
+  section.className = "research-detail-section";
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  section.appendChild(heading);
+  const content = document.createElement("p");
+  content.textContent = text || t("暂无");
+  section.appendChild(content);
+  body.appendChild(section);
+}
+
+function researchArtifactButton(path, kind) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "ghost mini research-artifact-link";
+  button.textContent = `${kind || t("产物")}: ${path}`;
+  button.title = t("在文件预览中打开");
+  button.addEventListener("click", () => {
+    document.querySelector('.activity-item[data-view="files"]')?.click();
+    openFilePreview({ path: String(path).replace(/\\\\/g, "/") });
+  });
+  return button;
+}
+
+export function renderResearchExplorationDetail() {
+  const panel = $("research-exploration-detail");
+  const body = $("research-exploration-detail-body");
+  if (!panel || !body) return;
+  const topic = selectedResearchTopicData();
+  const exploration = (topic.explorations ?? []).find((item) => explorationDocumentId(item) === selectedResearchExplorationId);
+  if (!exploration) {
+    panel.hidden = true;
+    body.replaceChildren();
+    return;
+  }
+  panel.hidden = false;
+  body.replaceChildren();
+  const frontmatter = exploration.frontmatter ?? {};
+  const title = document.createElement("h2");
+  title.className = "research-detail-title";
+  title.textContent = `${frontmatter.id || ""} · ${frontmatter.title || frontmatter.id || t("未命名探索")}`;
+  body.appendChild(title);
+  const status = document.createElement("span");
+  status.className = `research-badge st-${frontmatter.status || ""}`;
+  status.textContent = localizedDocStatus(frontmatter.status || "");
+  body.appendChild(status);
+  appendResearchDetailSection(body, t("假设"), [frontmatter.hypothesis, exploration.assumption].filter(Boolean).join("\n"));
+  const results = exploration.results ?? [];
+  const resultsSection = document.createElement("section");
+  resultsSection.className = "research-detail-section research-results-section";
+  const resultsHeading = document.createElement("h3");
+  resultsHeading.textContent = `${t("实验结果")} (${results.length})`;
+  resultsSection.appendChild(resultsHeading);
+  if (!results.length) {
+    const empty = document.createElement("p");
+    empty.className = "doc-empty";
+    empty.textContent = t("暂无实验结果");
+    resultsSection.appendChild(empty);
+  } else {
+    const table = document.createElement("table");
+    table.className = "research-results-table";
+    const header = document.createElement("tr");
+    for (const label of [t("实验"), t("参数"), t("状态"), t("关键指标"), t("运行")]) {
+      const cell = document.createElement("th");
+      cell.textContent = label;
+      header.appendChild(cell);
+    }
+    table.appendChild(header);
+    for (const result of results) {
+      const row = document.createElement("tr");
+      for (const value of [result.result_id, result.params_text, result.status, result.key_metrics_text]) {
+        const cell = document.createElement("td");
+        cell.textContent = value || "—";
+        row.appendChild(cell);
+      }
+      const actionCell = document.createElement("td");
+      const runItem = researchResultRun(topic, result.result_id);
+      if (runItem) {
+        const open = document.createElement("button");
+        open.type = "button";
+        open.className = "ref-link research-result-open";
+        open.dataset.resultId = result.result_id;
+        open.textContent = t("打开运行");
+        open.addEventListener("click", () => focusResearchRun(result.result_id));
+        actionCell.appendChild(open);
+      } else {
+        actionCell.textContent = t("暂无运行记录");
+      }
+      row.appendChild(actionCell);
+      table.appendChild(row);
+    }
+    resultsSection.appendChild(table);
+  }
+  body.appendChild(resultsSection);
+  appendResearchDetailSection(body, t("结论"), exploration.conclusion);
+  appendResearchDetailSection(body, t("后续"), exploration.follow_up);
+}
+
+
 export const RESEARCH_REPORT_WINDOW_SIZE = 40;
 export let researchReportBlocks = [];
 export let researchReportWindowStart = 0;
@@ -637,6 +892,32 @@ function renderResearchRunMetricChart(card, events) {
   card.appendChild(chart);
 }
 
+function renderResearchRunArtifacts(card, run) {
+  const links = document.createElement("div");
+  links.className = "research-run-artifacts";
+  const paths = [];
+  try {
+    const artifacts = JSON.parse(run.artifacts_json || "[]");
+    if (Array.isArray(artifacts)) {
+      for (const artifact of artifacts) {
+        if (artifact?.path) paths.push([artifact.kind || t("产物"), artifact.path]);
+      }
+    }
+  } catch {
+    // 运行记录损坏时保留其它事实，不让详情面板崩溃。
+  }
+  if (run.terminal_log_path) paths.push([t("终端"), run.terminal_log_path]);
+  if (run.metrics_series_path) paths.push([t("指标"), run.metrics_series_path]);
+  const unique = new Set();
+  for (const [kind, path] of paths) {
+    const key = `${kind}:${path}`;
+    if (unique.has(key)) continue;
+    unique.add(key);
+    links.appendChild(researchArtifactButton(path, kind));
+  }
+  if (links.childNodes.length) card.appendChild(links);
+}
+
 export function renderResearchRuns() {
   const host = $("research-run-cards");
   if (!host) return;
@@ -701,6 +982,7 @@ export function renderResearchRuns() {
     costLine.textContent = `${t("成本")}: ${gpuSeconds.toFixed(1)} gpu_seconds · ${amount.toFixed(4)} ${cost.currency || "billing_unit"}`;
     card.appendChild(costLine);
     renderResearchRunMetricChart(card, events);
+    renderResearchRunArtifacts(card, run);
 
     const terminal = document.createElement("pre");
     terminal.className = "research-run-terminal";
@@ -746,6 +1028,8 @@ export async function refreshResearch() {
   if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
   if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
   renderResearchCards();
+  renderResearchRoadmap();
+  renderResearchExplorationDetail();
   renderResearchRuns();
   await refreshResearchPlan();
   await refreshResearchReport();
@@ -771,6 +1055,8 @@ defer(() => {
     if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
     if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
     renderResearchCards();
+    renderResearchRoadmap();
+    renderResearchExplorationDetail();
     renderResearchRuns();
     await refreshResearchPlan();
     await refreshResearchReport();
@@ -785,6 +1071,12 @@ defer(() => {
       renderResearchCards();
     });
   };
+});
+defer(() => {
+  $("research-exploration-close")?.addEventListener("click", () => {
+    selectedResearchExplorationId = "";
+    renderResearchExplorationDetail();
+  });
 });
 defer(() => {
   $("research-report-refresh")?.addEventListener("click", () => refreshResearchReport());

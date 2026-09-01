@@ -4425,3 +4425,20 @@
 - observed_head: caf962b072f4d82d2577c182d5dc854d944c8071
 - observed_worktree_hash: fnv1a64:4a9dd963538f387f
 - recorded_at: 1788301774226
+
+## R-346 实验路线图投影与下钻前端:节点即实验、图从 Markdown 重建 [done]
+- 内容: 按设计 §4 实现只读路线图:节点=探索(颜色随 status,悬停显示 hypothesis,节点上带已跑次数与最近一次状态),边=depends_on(实线)与 supersedes(虚线);输入只有 <topic>/explorations/*.md,整块可重建;点击节点下钻探索详情(假设/实验结果表/结论/后续),再点单条结果进入终端回放、指标曲线与产物入口。
+- 发现记录: {"Intent":"让研究路线一眼可见并能从图直达具体实验与运行,而不必人工维护一份图","Explicit":"图是只读投影;节点是实验;不单独维护图数据","Assumptions":"R-343 已提供可解析的实验对象与边;前端沿用研究工作台入口","Ambiguities":"布局算法、大量实验时的折叠策略与筛选维度,本条按自动布局与按 topic 过滤处理","领域对象":"路线图节点、depends_on/supersedes 边、实验详情、run 列表、终端回放入口","最小成功闭环":"一个 topic 的多实验依赖图渲染出来,点节点能进详情、点 run 能看产物","延后决策":"布局手工微调、跨 topic 全局图、图导出为论文插图"}
+- 复杂度: 中
+- 来源: 用户原话「路线图投影:从 Markdown 显式关系生成图;图节点点击到实验、运行、Terminal 和结果;不单独维护一份需要人工同步的图数据」。
+- 标签: 前端
+- 边界: 不做图的手工编辑与图数据持久化(编辑图=编辑 Markdown);不在前端自行推断关系或补边;实验结果不占主图节点;不合并 dev 侧任务级运行画像的展示。
+- 验收: ①同一批实验文件两次投影结果一致,删掉缓存也能重建;②悬挂引用/成环/缺 id 在界面上报诊断而不是静默丢边;③节点到实验详情再到 run 的下钻链路显示真实数据与空态;④没有第二份需要人工同步的图数据文件。
+- refs: R-343 R-276
+- 优先级: P2
+- 批次: 1/2
+- 进展: B1/B2 全部落地并通过 `T-1786922726893`、`T-1786922726894`。验收逐项对账：①同一批文件两次投影一致且可重建：`crates/kanzei-app/ui/19-research.js:486-518` 按 exploration id 稳定排序、固定网格坐标、固定边/diagnostics 排序；`1031-1032`、`1058-1059` 每次从 `researchSnapshot` 重建；smoke 对 JSON 投影重复结果做等值断言。②悬挂引用/成环/缺 id 诊断：上游 `crates/kanzei-app/src/docs.rs:100-101` 返回 Markdown loader diagnostics，前端 `19-research.js:596-603` 按 path/line/message 显示，不静默丢弃；smoke 覆盖悬挂关系，成环/缺 id 沿同一 diagnostics 通道呈现。③真实下钻：`ui/index.html:536-551` 提供路线图与详情消费者；`19-research.js:650-722` 展示假设、Markdown 结果表、结论、后续；`615-623` 结果按 result_id 定位并高亮真实 run；`895-920` 从 run 事实提供终端日志、指标事件曲线和 terminal/metrics/artifacts 文件预览入口；`T-1786922726894` 覆盖结果→run→file_preview 与空结果/空 topic。④无第二份图数据：`19-research.js:486-518` 仅读取 `researchSnapshot.research_topics[].explorations`，没有图数据写入或持久化文件；图 DOM 只读投影。既有能力说明：R-343/R-344/R-345/R-347 已提供解析、run 事实、事件终端/指标能力；本次交付为路线图投影、探索详情关联与产物入口。
+- observed_head: 3d612fd9d620822a0b097aee916cadfacb7dfc35
+- observed_worktree_hash: fnv1a64:d3336eefaabb5ae8
+- recorded_at: 1788304785845
+- 状态: done

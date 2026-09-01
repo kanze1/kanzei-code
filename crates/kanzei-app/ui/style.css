@@ -2364,6 +2364,28 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .research-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .research-main-head { display: flex; align-items: baseline; gap: 12px; padding: 12px 22px 0; }
 .research-main-head h1 { margin: 0; }
+.research-roadmap { margin: 10px 22px 0; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 8px; background: color-mix(in srgb, var(--panel) 82%, transparent); }
+.research-roadmap-head, .research-exploration-detail-head { display: flex; align-items: center; gap: 8px; }
+.research-roadmap-head strong, .research-exploration-detail-head strong { color: var(--fg-strong); }
+.research-roadmap-canvas { overflow-x: auto; margin-top: 8px; }
+#research-roadmap-graph { display: block; min-width: 640px; width: 100%; height: auto; color: var(--dim); }
+.research-roadmap-edge { stroke: var(--border); stroke-width: 1.5; }
+.research-roadmap-edge.edge-supersedes { stroke: var(--accent); stroke-dasharray: 5 4; }
+.research-roadmap-node { cursor: pointer; outline: none; }
+.research-roadmap-node rect { fill: var(--panel); stroke: var(--border); stroke-width: 1.2; }
+.research-roadmap-node:hover rect, .research-roadmap-node:focus rect { stroke: var(--accent); stroke-width: 2; }
+.research-roadmap-node.node-running rect { stroke: var(--info); }
+.research-roadmap-node.node-done rect { stroke: var(--ok); }
+.research-roadmap-node.node-abandoned rect { stroke: var(--muted); opacity: .75; }
+.research-roadmap-node-id { fill: var(--muted); font: 10px var(--mono); }
+.research-roadmap-node-title { fill: var(--fg-strong); font-size: 11px; }
+.research-roadmap-node-meta { fill: var(--dim); font-size: 10px; }
+.research-roadmap-empty { fill: var(--muted); font-size: 12px; }
+.research-roadmap-diagnostics { margin-top: 8px; padding: 6px 8px; border-left: 2px solid var(--warn); color: var(--warn); font-size: var(--fs-11); }
+.research-roadmap-diagnostic + .research-roadmap-diagnostic { margin-top: 3px; }
+.research-exploration-detail { margin: 10px 22px 0; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel); }
+.research-exploration-detail-head { justify-content: space-between; }
+#research-exploration-detail-body { margin-top: 8px; color: var(--dim); }
 .research-plan-panel { margin: 10px 22px 0; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 8px; background: color-mix(in srgb, var(--panel) 82%, transparent); }
 .research-runs { margin: 10px 22px 0; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 8px; background: color-mix(in srgb, var(--panel) 82%, transparent); }
 .research-runs-head { display: flex; align-items: baseline; gap: 8px; }
@@ -2374,6 +2396,15 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .research-run-drift { padding: 1px 6px; border-radius: 9px; }
 .research-run-drift.has-drift { color: var(--warn); background: color-mix(in srgb, var(--warn) 18%, transparent); }
 .research-run-drift.no-drift { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+.research-run-artifacts { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.research-run-card.is-selected { outline: 2px solid var(--accent); }
+.research-detail-title { display: inline; margin-right: 8px; color: var(--fg-strong); font-size: var(--fs-14); }
+.research-detail-section { margin-top: 10px; }
+.research-detail-section h3 { color: var(--fg-strong); font-size: var(--fs-12); }
+.research-detail-section p { margin-top: 3px; white-space: pre-wrap; color: var(--dim); }
+.research-results-table { width: 100%; margin-top: 6px; border-collapse: collapse; font-size: var(--fs-11); }
+.research-results-table th, .research-results-table td { padding: 5px 6px; border-bottom: 1px solid var(--border-soft); text-align: left; vertical-align: top; }
+.research-results-table th { color: var(--muted); font-weight: 600; }
 .research-run-meta { width: 100%; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .research-plan-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .research-plan-head strong { color: var(--fg-strong); }
