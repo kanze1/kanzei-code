@@ -11364,3 +11364,24 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: D-733 提交前定向 crate 回归通过：kanzei-app 256 passed，0 failed，0 ignored。
 - 关联: D-733
 - 收尾: 1788309446
+
+## T-1786922726912 D-734 ui_i18n 定向回归 [passed]
+- 命令: node scripts/ui-i18n-smoke.mjs
+- 时长: 0.3s
+- 摘要: i18n 资源与静态文案检查通过：1472 个资源 key、481 项 HTML 文案、57 项动态契约覆盖。
+- 关联: D-734
+- 收尾: 1788309621
+
+## T-1786922726913 D-734 前端运行时与 lint 回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 2.6s
+- 摘要: i18n 改动关联前端回归通过：02-i18n.js 语法检查、27 个 UI 脚本运行时冒烟（2346 次 invoke、0 错误）、54 个文件 lint 全绿。
+- 关联: D-734
+- 收尾: 1788309627
+
+## T-1786922726914 D-734 提交前 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 27.5s
+- 摘要: D-734 提交前定向 crate 回归通过：kanzei-app 256 passed，0 failed，0 ignored。
+- 关联: D-734
+- 收尾: 1788309632

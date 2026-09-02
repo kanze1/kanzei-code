@@ -156,10 +156,14 @@
 - observed_worktree_hash: fnv1a64:c1f5dd43e0663279
 - recorded_at: 1788309392105
 
-## D-734 ui_i18n 未收录研究结果图静态文案 [open] (low)
+## D-734 ui_i18n 未收录研究结果图静态文案 [fixing] (low)
 - 复现: 运行 .\scripts\verify.ps1 或 node scripts/ui-i18n-smoke.mjs；检查 crates/kanzei-app/ui/index.html，静态文案「实验结果图」未在 I18N_ZH/I18N_EN 资源表中。
 - 影响: i18n 门禁失败，研究视图静态文案无法按语言资源契约校验，阻断 verify 证据生成。
 - 来源: self-found：R-350 提交后运行 verify.ps1 发现。
 - 标签: 前端
 - refs: R-350
 - 优先级: P1
+- 进展: 已修复并验证：crates/kanzei-app/ui/index.html:550 为 research-latex-figure-caption 增加 data-i18n-placeholder="实验结果图"；crates/kanzei-app/ui/02-i18n.js:303 增加 I18N_EN['实验结果图']='Experiment results figure'。T-1786922726912 的 ui_i18n 通过（1472 key/481 HTML/57 动态契约），T-1786922726913 的前端 runtime/lint 通过，T-1786922726914 的 kanzei-app 256 项定向测试通过。
+- observed_head: 2d57bb467b7dfd51bb928e55ebc33b580d50e6dc
+- observed_worktree_hash: fnv1a64:721bbcd1b7351d71
+- recorded_at: 1788309638581
