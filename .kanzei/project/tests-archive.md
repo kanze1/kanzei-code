@@ -11350,3 +11350,17 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-350 D-732
 - 收尾: 1788309236
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@ddf7e737ef9e
+
+## T-1786922726910 D-733 a11y 定向回归 [failed]
+- 命令: node scripts/ui-a11y-smoke.mjs
+- 时长: 0.4s
+- 摘要: D-733 的 style.css:2375 字面量背景色已越过；a11y 随后暴露 4 处既有裸字号：font:10px、font-size:11px、font-size:10px、font-size:12px。
+- 关联: D-733
+- 收尾: 1788309396
+
+## T-1786922726911 D-733 提交前 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 29.4s
+- 摘要: D-733 提交前定向 crate 回归通过：kanzei-app 256 passed，0 failed，0 ignored。
+- 关联: D-733
+- 收尾: 1788309446

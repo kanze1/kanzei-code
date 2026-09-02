@@ -141,3 +141,25 @@
 - observed_head: b0827f3964668a47e3091a2bc625509b43ffd65e
 - observed_worktree_hash: fnv1a64:ea8f978af9e578d9
 - recorded_at: 1788309119392
+- 停车: 当前提交的 verify.ps1 被两个既有前端门禁欠账拒绝：ui_a11y style.css:2249 与 ui_i18n index.html「实验结果图」；先登记并修复门禁缺陷，生成绑定当前提交的新 verify 证据后恢复关闭；恢复人:agent
+
+## D-733 ui_a11y 拒绝研究 LaTeX PDF 预览字面量背景色 [fixing] (low)
+- 复现: 运行 .\scripts\verify.ps1 或 node scripts/ui-a11y-smoke.mjs；检查 crates/kanzei-app/ui/style.css:2249，.research-latex-pdf 使用 background: #fff。
+- 影响: 浅色主题之外的字面量颜色违反主题 token 门禁，a11y 验证失败并阻断 verify 证据生成。
+- 来源: self-found：R-350 提交后运行 verify.ps1 发现。
+- 标签: 前端
+- refs: R-350
+- 优先级: P1
+- 停车: D-733 专属修复已完成，提交后让位 D-734 与后续 a11y 裸字号门禁缺陷；待完整 verify 重新通过后恢复关闭；恢复人:agent
+- 进展: 已完成本缺陷的具体修复：style.css:2375 将 .research-latex-pdf 的 background: #fff 改为 background: var(--panel)，frontend_check 通过。a11y 复跑已越过本缺陷，继续暴露 4 处既有裸字号（font:10px、font-size:11/10/12px），这些属于后续独立门禁缺陷；D-733 的专属根因已消除。
+- observed_head: 3a114ffda3639a2808a3e521af6c3d450fa6d5fc
+- observed_worktree_hash: fnv1a64:c1f5dd43e0663279
+- recorded_at: 1788309392105
+
+## D-734 ui_i18n 未收录研究结果图静态文案 [open] (low)
+- 复现: 运行 .\scripts\verify.ps1 或 node scripts/ui-i18n-smoke.mjs；检查 crates/kanzei-app/ui/index.html，静态文案「实验结果图」未在 I18N_ZH/I18N_EN 资源表中。
+- 影响: i18n 门禁失败，研究视图静态文案无法按语言资源契约校验，阻断 verify 证据生成。
+- 来源: self-found：R-350 提交后运行 verify.ps1 发现。
+- 标签: 前端
+- refs: R-350
+- 优先级: P1
