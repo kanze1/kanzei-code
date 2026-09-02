@@ -8938,3 +8938,16 @@
 - observed_head: 7823d6f6bab0e6d1fe9321dfa5ac50de36b28a12
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788349499518
+
+## D-737 update status=终态 绕过全部关闭门禁,近期需求线一道门没跑 [fixed] (high)
+- 修复方向: update 目标为终态时转走 close 门禁,或在交付态为 unstarted(账本零行且无 observed_head)时拒绝。判据取自改动面账本,可满足性成立:提交过就有账本行。详见 docs/design/tracker_evidence_ledger.md §3.2。
+- 来源: 用户「现在可以处理track相关的设计了」后的并行勘察发现,经对抗式证伪确认;close-telemetry.jsonl 的 17 行全为 D-* 是直接证据。
+- 标签: 核心
+- 根因: docstore 的生命周期校验对任意 → 终态的转移无条件放行;而 actions 里 update 分支直接采用入参 status,不经过 close 的门禁链。两条路通向同一个终态,只有一条设了门。
+- 现象: 用 tracker update 把条目状态直接改成终态时,关闭门禁(测试记录、verify 证据、验收条款覆盖等)一条都不执行——它们全部只挂在 action=close 上。实测证据:.kanzei/artifacts/close-telemetry.jsonl 只有 17 行且全部是 D-*,R-346 至 R-352 一条都不在,说明近期需求线是走 update 关掉的。
+- refs: R-349
+- 优先级: P0
+- 进展: 实现、回归与提交已完成。①已完成：`crates/kanzei-tools/src/tracker/actions.rs:428-491` 将 update 目标终态识别为 `is_terminal_update`，与 close 共用祖先链、verify、前端 smoke 门禁；`actions.rs:491-650` 共用批次、分类断言、测试记录与状态迁移门禁。②已完成：非终态 update 仍走原普通字段/状态更新路径；已终态条目仍按幂等重入规则处理；证据为 `crates/kanzei-tools/src/tracker.rs:1310-1375` 的 direct update 回归。③已完成：`actions.rs:729-741` 让 direct update→终态成功后写入既有 close telemetry，测试断言条目 R-001 产生 1 条记录。验证：T-1786922726936（`cargo test -p kanzei-tools tracker`，81 passed）；提交前 `cargo check --workspace --all-targets`、`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings` 均通过；提交 `93fe3b49`。
+- observed_head: 93fe3b49905591327a02fd124280fb32acf90d3b
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788388327027

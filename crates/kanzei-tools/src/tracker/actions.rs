@@ -450,7 +450,7 @@ pub(crate) fn update_close(
         && !already_terminal
         && crate::test_record::project_has_verify_script(&ctx.project_root)
     {
-        if let Some(trigger) = close_verify_trigger(&ctx.project_root) {
+        if let Some(trigger) = close_verify_trigger(&ctx.project_root, id) {
             if let Some(gap) = crate::test_record::verification_evidence_gap(&ctx.project_root, id)
             {
                 return ToolOutput::error(format!(

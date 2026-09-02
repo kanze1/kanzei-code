@@ -88,15 +88,10 @@
 - recorded_at: 1787288788389
 - 停车: WIP 单槽纪律：R-353 已有进行中的 finalize/deliver 实现与未提交改动，本条主动让位；待 R-353 收口后恢复；恢复人:agent
 
-## D-737 update status=终态 绕过全部关闭门禁,近期需求线一道门没跑 [fixing] (high)
-- 修复方向: update 目标为终态时转走 close 门禁,或在交付态为 unstarted(账本零行且无 observed_head)时拒绝。判据取自改动面账本,可满足性成立:提交过就有账本行。详见 docs/design/tracker_evidence_ledger.md §3.2。
-- 来源: 用户「现在可以处理track相关的设计了」后的并行勘察发现,经对抗式证伪确认;close-telemetry.jsonl 的 17 行全为 D-* 是直接证据。
+## D-738 reconcile 遗留条目脏源码回归为 committed-unverified [open] (medium)
+- 复现: R-354 B2 将 implemented-uncommitted 改为仅计算 deliver paths 交集后，历史无 deliver 账本但 observed_head 指向基线、工作树有源码改动的条目被分类为 committed-unverified；回归 `work::reconcile::tests::reconcile_detects_source_changes_left_uncommitted` 失败。
+- 影响: 历史账本行数为 0 的条目失去既有脏源码提示，遗留迁移期间交付态判断不准确。
+- 来源: R-354 B2 定向回归 self-found
 - 标签: 核心
-- 根因: docstore 的生命周期校验对任意 → 终态的转移无条件放行;而 actions 里 update 分支直接采用入参 status,不经过 close 的门禁链。两条路通向同一个终态,只有一条设了门。
-- 现象: 用 tracker update 把条目状态直接改成终态时,关闭门禁(测试记录、verify 证据、验收条款覆盖等)一条都不执行——它们全部只挂在 action=close 上。实测证据:.kanzei/artifacts/close-telemetry.jsonl 只有 17 行且全部是 D-*,R-346 至 R-352 一条都不在,说明近期需求线是走 update 关掉的。
-- refs: R-349
-- 优先级: P0
-- 进展: 已完成恢复复核：未提交范围仅 `crates/kanzei-tools/src/tracker/actions.rs`（D-737 门禁接线）与 `crates/kanzei-tools/src/tracker.rs`（回归测试），无已提交 D-737 批次可重复。实现证据：`actions.rs:428-491` 将 update→终态识别为 closing action，共享祖先链/verify/前端 smoke 门禁；`actions.rs:491-650` 共享批次、分类断言、测试记录与状态迁移；`actions.rs:732-741` 共享 close telemetry。回归证据：T-1786922726935（tracker 81 passed），提交前仍待 check/fmt/clippy、stage/commit；此前测试现场 stderr 的临时 git warning 不影响断言。下一步：完成门禁、提交后逐项关闭。
-- observed_head: 2337474bb3467c028d6929fd3ef373c163b5dc05
-- observed_worktree_hash: fnv1a64:21fccbabfd7210ab
-- recorded_at: 1788388161759
+- refs: R-354
+- 优先级: P1

@@ -3,6 +3,7 @@
 //! 这些函数只服务于 `tracker::actions`，单独成文件让 action 分发文件保留在可读规模，
 //! 不改变任何校验顺序、错误文本或序列化行为。
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
@@ -62,16 +63,40 @@ fn numstat_verify_trigger(numstat: &str) -> Option<String> {
     })
 }
 
-pub(super) fn close_verify_trigger(cwd: &Path) -> Option<String> {
-    let output = Command::new("git")
-        .args(["diff", "--numstat", "HEAD^", "HEAD", "--"])
-        .current_dir(cwd)
-        .output()
-        .ok()?;
-    if !output.status.success() {
+pub(super) fn close_verify_trigger(cwd: &Path, entry_id: &str) -> Option<String> {
+    let facts = crate::work::log::deliver_facts(cwd, entry_id);
+    if facts.is_empty() {
+        // R-354:无本条目账本证据时默认放行，避免索要不可产出的全局证据。
         return None;
     }
-    numstat_verify_trigger(&String::from_utf8_lossy(&output.stdout))
+    let mut paths = BTreeSet::new();
+    for fact in facts {
+        paths.extend(fact.paths.into_iter().map(|path| path.replace('\\', "/")));
+    }
+    if paths.is_empty() {
+        return None;
+    }
+    let path_args = paths.iter().map(String::as_str).collect::<Vec<_>>();
+    for fact in crate::work::log::deliver_facts(cwd, entry_id) {
+        let commit = fact.commit.trim();
+        if commit.is_empty() {
+            continue;
+        }
+        let parent = format!("{commit}^");
+        let mut args = vec!["diff", "--numstat", parent.as_str(), commit, "--"];
+        args.extend(path_args.iter().copied());
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .ok()?;
+        if output.status.success() {
+            if let Some(reason) = numstat_verify_trigger(&String::from_utf8_lossy(&output.stdout)) {
+                return Some(reason.replace("最近一次提交", "本条目账本提交"));
+            }
+        }
+    }
+    None
 }
 
 /// R-229:收集关闭文本里的「剩余/其余 N 处」式分类断言声明的 N。

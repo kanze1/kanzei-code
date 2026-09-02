@@ -87,6 +87,31 @@ pub(crate) fn append(
     }
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct DeliverFact {
+    pub commit: String,
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub test_record_ids: Vec<String>,
+}
+
+/// 读取指定条目的交付账本行；坏行/其他 event 忽略，账本是追加式过程事实。
+pub(crate) fn deliver_facts(project_root: &Path, entry_id: &str) -> Vec<DeliverFact> {
+    let Ok(text) = std::fs::read_to_string(project_root.join(WORK_LOG_REL)) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).ok()?;
+            (value.get("event").and_then(serde_json::Value::as_str) == Some("deliver"))
+                .then_some(())?;
+            (value.get("id").and_then(serde_json::Value::as_str) == Some(entry_id)).then_some(())?;
+            serde_json::from_value(value).ok()
+        })
+        .collect()
+}
+
 /// 返回当前运行/线路最近一次成功 claim 的条目 id，供 finalize 归属 deliver。
 /// 没有同一 run/line 的 claim 时返回 None，避免把无主提交误归给别线条目。
 pub(crate) fn latest_claim_id(
@@ -118,6 +143,45 @@ pub(crate) fn latest_claim_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deliver账本按条目读取改动面和测试记录() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-deliver-facts-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = kanzei_harness::ToolCtx::new(dir.clone(), dir.clone());
+        append(
+            &dir,
+            "deliver",
+            Some("R-353"),
+            &ctx,
+            serde_json::json!({
+                "commit": "abcdef1234567890",
+                "paths": ["crates/example/src/lib.rs"],
+                "test_record_ids": ["T-001"],
+                "source": "engine"
+            }),
+        );
+        append(
+            &dir,
+            "deliver",
+            Some("D-other"),
+            &ctx,
+            serde_json::json!({
+                "commit": "1111111111111111",
+                "paths": ["crates/other/src/lib.rs"]
+            }),
+        );
+        let facts = deliver_facts(&dir, "R-353");
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].commit, "abcdef1234567890");
+        assert_eq!(facts[0].paths, ["crates/example/src/lib.rs"]);
+        assert_eq!(facts[0].test_record_ids, ["T-001"]);
+        std::fs::remove_dir_all(dir).ok();
+    }
 
     #[test]
     fn 追加两条并各自成行() {

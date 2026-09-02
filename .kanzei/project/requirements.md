@@ -353,12 +353,13 @@
 - 验收: ①一次经 kz 提交通道的真实交付在 work-log 留下 deliver 行,paths 与该次提交暂存集一致;②交付态可由账本推导且四种取值各有真实实例;③账本零行的存量条目落入遗留模式,判定只作提示不产生拒绝;④交付态不出现在任何 Markdown 条目字段里;⑤模型侧工具无法写入 deliver 事件。
 - refs: R-349 D-736
 - 优先级: P0
-- 进展: 批次: 1/1；恢复复核确认未提交范围仅 3 个源码文件，前置无已提交批次。已落地：`crates/kanzei-tools/src/git/finalize.rs:124-196` 捕获 passed test_record id、提交后真实 HEAD/path，并写 deliver；`crates/kanzei-tools/src/work/log.rs:90-119` 按同 run/line 解析最近 claim 归属；`crates/kanzei-tools/src/git.rs:12` 暴露 finalize 所需真实 git 读取。现状：实现尚未测试/提交；下一步运行 kanzei-tools 定向回归，修正失败，再按显式文件 stage/commit。
-- observed_head: 5a2e76a795039b8bb2e18252f9190dc479580926
-- observed_worktree_hash: fnv1a64:5ddfe2f202e921c6
-- recorded_at: 1788387390670
+- 进展: 批次: 1/2；B1 已提交 `2337474b`。①已完成：`git finalize` 在真实提交后写入 deliver（条目 id、commit、commit 实际 paths、test_record_ids、source），`work/log.rs` 已能按同 run/line 找到最近 claim；测试与门禁证据为 T-1786922726932、`cargo check --workspace --all-targets`、`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`。既有能力（本次未新增）：`work/reconcile.rs` 已有四类分类框架，但当前仍主要读 tracker observed_head/test 证据，尚未消费 deliver 账本。B2 下一步：让 reconciliation 按 deliver paths/commit/test_record_ids 推导四态，补账本零行遗留提示不拦、Markdown 无交付态字段和模型不能写 deliver 的回归。
+- observed_head: 2337474bb3467c028d6929fd3ef373c163b5dc05
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788387719951
+- 停车: WIP 单槽纪律：当前 defect-first 队首 D-737 已有完成实现与未提交改动，本条 B2 尚未开始，主动让位；待 D-737 收口后恢复；恢复人:agent
 
-## R-354 门禁判据换成本条目改动面,并确立可满足性通则 [todo]
+## R-354 门禁判据换成本条目改动面,并确立可满足性通则 [doing]
 - 内容: 按设计 §3.3 把三处基于全局代理量的判据换成本条目改动面:close_verify_trigger 由 HEAD^..HEAD numstat 改为该条目账本所有 commit 的 paths 并集;reconcile 的 target_fingerprint 由 declared_commit..HEAD 全量改为账本记录的 paths;implemented-uncommitted 由全树指纹改为脏文件与本条目 paths 的交集(source_endorsement_fingerprint_for_paths 已存在)。同时把可满足性通则写进 conventions 并做成代码不变式:门禁拿不到本条目证据时默认放行不默认拒绝,拒绝时必须给出一条本项目产得出的命令。
 - 发现记录: {"Intent":"让门禁判的是本条目干了什么,而不是仓库最近发生了什么","Explicit":"三处判据换输入;可满足性通则做成代码不变式;双写观察期后再切换","Assumptions":"R-353 的账本已可提供本条目 paths;现成的改动面函数可直接复用","Ambiguities":"观察期长度与分歧容忍度,本条按记录分歧不拦截处理","领域对象":"close_verify_trigger、target_fingerprint、implemented-uncommitted、账本 paths、可满足性通则","最小成功闭环":"一条走完整流程的条目在干净树上通过关闭门禁,且无关提交不再触发它的门","延后决策":"归档面对账判据、跨条目共享改动面的归属裁定"}
 - 复杂度: 中
@@ -368,6 +369,10 @@
 - 验收: ①三处判据均以本条目账本 paths 为输入,与仓库最近一次提交无关;②干净工作树上仍能产出可覆盖 target 的证据(现状恒空导致条目永远 committed-unverified 的问题消失);③拿不到本条目证据时放行而非拒绝,有单测;④任一拒绝路径都附带一条可复制执行的命令;⑤双写观察期内新旧判据分歧被记录到 work-log 而不影响裁决。
 - refs: R-353 D-737
 - 优先级: P1
+- 进展: 批次: 1/1；R-354 实现、回归待提交。①已完成：`crates/kanzei-tools/src/tracker/actions/action_helpers.rs:65-98` 的 close trigger 读取本条目 deliver paths 并按账本 commit 逐项 numstat；`crates/kanzei-tools/src/work/reconcile.rs:170-235、280-360` 的 reconcile 以 deliver commit/paths/test_record_ids 为主，implemented-uncommitted 只用脏文件∩本条目 paths，遗留无账本条目保留旧提示兼容。②已完成：干净树 target 使用账本 paths 的 `head_fingerprint_for_paths`，`ledger_paths_are_authoritative_and_legacy_divergence_is_observed` 与 `current_head_verify_covers_historical_source_paths` 回归证明无关提交不会污染目标；证据 T-1786922726937、T-1786922726938。③已完成：缺少 deliver/paths 时 close trigger 默认返回 None，reconcile 不把缺证据升级为硬阻塞；既有 `evidence_covers` 的 None target 放行逻辑复用，新增账本/work-log 回归证据 T-1786922726937。④已完成：拒绝路径继续复用既有 `verification_evidence_gap` 的可复制 `scripts/verify.ps1` 命令文案（`crates/kanzei-tools/src/test_record/coverage.rs:330-393`），本次未重新声明该既有能力；账本 numstat 触发原因也点名账本提交/路径。⑤已完成：`reconcile_active` 在新旧改动面分歧时写 `reconcile_observation`，且 decision 固定为 unchanged；回归断言 work-log 含该事件和 old_paths。验证：T-1786922726938（kanzei-tools 536 passed/1 ignored）、提交前待 check/fmt/clippy、stage/commit。
+- observed_head: 93fe3b49905591327a02fd124280fb32acf90d3b
+- observed_worktree_hash: fnv1a64:5715489960ba43fb
+- recorded_at: 1788388974438
 
 ## R-355 对账结果可见:prompt 裁剪与结构化输出分家 [todo]
 - 内容: 按设计 §3.5 把 compact_for_context 限定在 prompt 注入路径,kz work next 不再与 prompt 共用同一次压缩——今天两者共用导致 26 条判定算出来却 reconciliation.items 恒为 0,判定结果一条都不可见。新增只读动作 work reconcile 输出四类全表(id / class / 账本行数 / 改动面文件数 / test_record_ids / 缺口一句话),不含指纹串;block_reasons 只保留 class 名、条目 id 与文件数。

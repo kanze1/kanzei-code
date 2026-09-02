@@ -11548,3 +11548,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-737
 - 收尾: 1788388259
 - 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@07b724d50e7d,crates/kanzei-tools/src/tracker/actions.rs@0b7d96f5b90c
+
+## T-1786922726937 R-354 B2 改动面账本定向回归 [passed]
+- 命令: cargo test -p kanzei-tools work::reconcile; cargo test -p kanzei-tools work::log
+- 时长: 1.1s
+- 摘要: R-354 B2 reconcile 6 passed、work-log 2 passed；覆盖 deliver paths 权威、遗留脏树兼容、干净 HEAD 证据与新旧改动面分歧记录。
+- 关联: R-354 D-738
+- 收尾: 1788388888
+- 源码指纹: v2 crates/kanzei-tools/src/tracker/actions.rs@b28b134bf17f,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@5663c68f76ed,crates/kanzei-tools/src/work/log.rs@04b1a3e7abcb,crates/kanzei-tools/src/work/reconcile.rs@f33c8ced1b2e
+
+## T-1786922726938 R-354 kanzei-tools 全 crate 回归（B2） [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 42.8s
+- 摘要: R-354 B2 后 kanzei-tools 全 crate 回归通过：536 passed，1 ignored；包含账本 paths、遗留兼容和双写观察测试。
+- 关联: R-354 D-738
+- 收尾: 1788388956
+- 源码指纹: v2 crates/kanzei-tools/src/tracker/actions.rs@b28b134bf17f,crates/kanzei-tools/src/tracker/actions/action_helpers.rs@5663c68f76ed,crates/kanzei-tools/src/work/log.rs@04b1a3e7abcb,crates/kanzei-tools/src/work/reconcile.rs@f33c8ced1b2e

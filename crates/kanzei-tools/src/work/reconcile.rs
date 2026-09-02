@@ -4,7 +4,7 @@
 //! 只读报告。它不写 tracker，也不替代 close/verify；work next 将报告作为选中条目的
 //! 可见提示，绝不把对账分类当作阻塞或重复取活的硬门禁。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 
@@ -193,6 +193,47 @@ fn changed_source_files(root: &Path, commit: &str, head: &str) -> Vec<String> {
     paths
 }
 
+fn changed_worktree_source_files(root: &Path, allowed: &[String]) -> Vec<String> {
+    let allowed = allowed.iter().cloned().collect::<BTreeSet<_>>();
+    let Some(output) = git_stdout(root, &["diff", "--name-only", "HEAD", "--", "."]) else {
+        return Vec::new();
+    };
+    output
+        .lines()
+        .map(str::trim)
+        .map(|path| path.replace('\\', "/"))
+        .filter(|path| allowed.contains(path) && is_source_path(path))
+        .collect()
+}
+
+fn ledger_scope(root: &Path, entry_id: &str) -> (bool, Vec<String>, Option<String>, Vec<String>) {
+    let facts = crate::work::log::deliver_facts(root, entry_id);
+    if facts.is_empty() {
+        return (false, Vec::new(), None, Vec::new());
+    }
+    let mut paths = BTreeSet::new();
+    let mut test_record_ids = BTreeSet::new();
+    let mut commit = None;
+    for fact in facts {
+        paths.extend(
+            fact.paths
+                .into_iter()
+                .map(|path| path.replace('\\', "/"))
+                .filter(|path| is_source_path(path)),
+        );
+        test_record_ids.extend(fact.test_record_ids);
+        if !fact.commit.trim().is_empty() {
+            commit = Some(fact.commit);
+        }
+    }
+    (
+        true,
+        paths.into_iter().collect(),
+        commit,
+        test_record_ids.into_iter().collect(),
+    )
+}
+
 fn head_fingerprint_for_paths(root: &Path, paths: &[String]) -> Option<String> {
     if paths.is_empty() {
         return None;
@@ -284,16 +325,44 @@ fn reconcile_entry(
     current_head: &str,
     current_worktree_fingerprint: Option<&str>,
 ) -> ReconcileItem {
-    let declared_commit = declared_commit(entry);
+    let (has_ledger, ledger_paths, ledger_commit, ledger_test_record_ids) =
+        ledger_scope(root, &entry.id);
+    let declared_commit = ledger_commit.or_else(|| declared_commit(entry));
     let declared_source_fingerprint = declared_fingerprint(entry);
-    let (test_record_ids, evidence_source_fingerprints) = passed_evidence(root, &entry.id);
-    let source_files = declared_commit
-        .as_deref()
-        .filter(|commit| is_ancestor(root, commit, current_head))
-        .map(|commit| changed_source_files(root, commit, current_head))
+    let (passed_test_record_ids, evidence_source_fingerprints) = passed_evidence(root, &entry.id);
+    let mut test_record_ids = passed_test_record_ids.clone();
+    for record_id in ledger_test_record_ids {
+        if !test_record_ids.contains(&record_id) {
+            test_record_ids.push(record_id);
+        }
+    }
+    let source_files = if has_ledger {
+        ledger_paths
+    } else {
+        declared_commit
+            .as_deref()
+            .filter(|commit| is_ancestor(root, commit, current_head))
+            .map(|commit| changed_source_files(root, commit, current_head))
+            .unwrap_or_default()
+    };
+    let dirty_paths = current_worktree_fingerprint
+        .filter(|_| has_ledger)
+        .map(|_| changed_worktree_source_files(root, &source_files))
         .unwrap_or_default();
+    let current_entry_fingerprint = if !has_ledger {
+        // 遗留条目没有可关联的账本 paths，保留旧的全树脏提示；只读提示不参与硬门禁。
+        current_worktree_fingerprint.map(str::to_string)
+    } else if dirty_paths.is_empty() {
+        None
+    } else {
+        crate::git::source_endorsement_fingerprint_for_paths(root, &dirty_paths)
+            .ok()
+            .filter(|value| !value.is_empty())
+    };
     let historical_fingerprint = head_fingerprint_for_paths(root, &source_files);
-    let target_fingerprint = current_worktree_fingerprint.or(historical_fingerprint.as_deref());
+    let target_fingerprint = current_entry_fingerprint
+        .as_deref()
+        .or(historical_fingerprint.as_deref());
     let mut reasons = Vec::new();
 
     let classification = match declared_commit.as_deref() {
@@ -309,21 +378,21 @@ fn reconcile_entry(
         }
         Some(commit) => {
             if let Some(declared) = declared_source_fingerprint.as_deref() {
-                if let Some(current) = current_worktree_fingerprint {
+                if let Some(current) = current_entry_fingerprint.as_deref() {
                     if !crate::git::fingerprint_endorses(declared, current) {
                         reasons.push("声明的源码指纹未覆盖当前工作树源码改动".into());
                     }
                 }
             }
-            if let Some(current) = current_worktree_fingerprint {
+            if let Some(current) = current_entry_fingerprint.as_deref() {
                 reasons.push(format!(
-                    "当前工作树仍有源码改动，源码指纹 `{current}` 未形成提交"
+                    "当前工作树仍有本条目改动面源码改动，源码指纹 `{current}` 未形成提交"
                 ));
                 ReconcileClass::ImplementedUncommitted
             } else if !evidence_covers(
                 &evidence_source_fingerprints,
                 target_fingerprint,
-                !test_record_ids.is_empty(),
+                !passed_test_record_ids.is_empty(),
                 current_head_verification_passed(root, current_head),
             ) {
                 if let Some(target) = target_fingerprint {
@@ -377,13 +446,37 @@ pub fn reconcile_active(
             if terminal.contains(&entry.status.as_str()) {
                 continue;
             }
-            items.push(reconcile_entry(
+            let (has_ledger, _, _, _) = ledger_scope(root, &entry.id);
+            let item = reconcile_entry(
                 root,
                 kind,
                 entry,
                 &current_head,
                 current_worktree.as_deref(),
-            ));
+            );
+            if has_ledger {
+                let legacy_paths = declared_commit(entry)
+                    .as_deref()
+                    .filter(|commit| is_ancestor(root, commit, &current_head))
+                    .map(|commit| changed_source_files(root, commit, &current_head))
+                    .unwrap_or_default();
+                if legacy_paths != item.source_files {
+                    let ctx = kanzei_harness::ToolCtx::new(root.to_path_buf(), root.to_path_buf());
+                    crate::work::log::append(
+                        root,
+                        "reconcile_observation",
+                        Some(&entry.id),
+                        &ctx,
+                        serde_json::json!({
+                            "old_paths": legacy_paths,
+                            "new_paths": item.source_files,
+                            "decision": "unchanged",
+                            "source": "engine",
+                        }),
+                    );
+                }
+            }
+            items.push(item);
         }
     }
     items.sort_by(|left, right| left.id.cmp(&right.id));
@@ -488,6 +581,80 @@ mod tests {
             report.items[0].classification,
             ReconcileClass::VerifiedUnclosed
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ledger_paths_are_authoritative_and_legacy_divergence_is_observed() {
+        let root = git_fixture("ledger-scope");
+        let base = head(&root);
+        std::fs::write(
+            root.join("crates/example/src/lib.rs"),
+            "pub fn value() -> u8 { 2 }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("crates/example/src/other.rs"),
+            "pub fn unrelated() -> u8 { 9 }\n",
+        )
+        .unwrap();
+        let run = |args: &[&str]| {
+            let status = Command::new("git")
+                .current_dir(&root)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        };
+        run(&["add", "."]);
+        run(&["commit", "--quiet", "-m", "deliver"]);
+        let current = head(&root);
+        let ctx = kanzei_harness::ToolCtx::new(root.clone(), root.clone());
+        crate::work::log::append(
+            &root,
+            "deliver",
+            Some("R-353"),
+            &ctx,
+            serde_json::json!({
+                "commit": current,
+                "paths": ["crates/example/src/lib.rs"],
+                "test_record_ids": ["T-ledger"]
+            }),
+        );
+        std::fs::create_dir_all(root.join("dist")).unwrap();
+        std::fs::write(
+            root.join("dist/verification.json"),
+            format!(r#"{{"commit":"{current}","all_pass":true}}"#),
+        )
+        .unwrap();
+        crate::test_record::append_test_run(
+            &root,
+            "R-353 verify",
+            "passed",
+            Some(".\\scripts\\verify.ps1 -Full"),
+            Some("passed"),
+            Some(&["R-353".to_string()]),
+        )
+        .unwrap();
+        let report = reconcile_active(
+            &root,
+            &[],
+            &[],
+            &[active("R-353", &base)],
+            &[],
+            &RepoObservation {
+                recorded_at: "now".into(),
+                observed_head: current,
+                observed_worktree_hash: "clean".into(),
+            },
+        );
+        let item = &report.items[0];
+        assert_eq!(item.classification, ReconcileClass::VerifiedUnclosed);
+        assert_eq!(item.source_files, ["crates/example/src/lib.rs"]);
+        assert!(item.test_record_ids.iter().any(|id| id != "T-ledger"));
+        let log = std::fs::read_to_string(root.join(crate::work::log::WORK_LOG_REL)).unwrap();
+        assert!(log.contains("reconcile_observation"), "{log}");
+        assert!(log.contains("old_paths"), "{log}");
         let _ = std::fs::remove_dir_all(root);
     }
 
