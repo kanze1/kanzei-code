@@ -2387,10 +2387,10 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .research-roadmap-node.node-running rect { stroke: var(--info); }
 .research-roadmap-node.node-done rect { stroke: var(--ok); }
 .research-roadmap-node.node-abandoned rect { stroke: var(--muted); opacity: .75; }
-.research-roadmap-node-id { fill: var(--muted); font: 10px var(--mono); }
-.research-roadmap-node-title { fill: var(--fg-strong); font-size: 11px; }
-.research-roadmap-node-meta { fill: var(--dim); font-size: 10px; }
-.research-roadmap-empty { fill: var(--muted); font-size: 12px; }
+.research-roadmap-node-id { fill: var(--muted); font: var(--fs-10) var(--mono); }
+.research-roadmap-node-title { fill: var(--fg-strong); font-size: var(--fs-11); }
+.research-roadmap-node-meta { fill: var(--dim); font-size: var(--fs-10); }
+.research-roadmap-empty { fill: var(--muted); font-size: var(--fs-12); }
 .research-roadmap-diagnostics { margin-top: 8px; padding: 6px 8px; border-left: 2px solid var(--warn); color: var(--warn); font-size: var(--fs-11); }
 .research-roadmap-diagnostic + .research-roadmap-diagnostic { margin-top: 3px; }
 .research-exploration-detail { margin: 10px 22px 0; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel); }

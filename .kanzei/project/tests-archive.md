@@ -11385,3 +11385,31 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: D-734 提交前定向 crate 回归通过：kanzei-app 256 passed，0 failed，0 ignored。
 - 关联: D-734
 - 收尾: 1788309632
+
+## T-1786922726915 D-734 当前 HEAD verify 回归 [failed]
+- 命令: .\scripts\verify.ps1
+- 时长: 8.4s
+- 摘要: D-734 的 ui_i18n 已通过（1472 key/481 HTML/57 动态契约）；verify 当前唯一失败为 ui_a11y 的 4 处裸字号：font:10px、font-size:11px、font-size:10px、font-size:12px，未生成 verification.json。
+- 关联: D-734
+- 收尾: 1788309685
+
+## T-1786922726916 D-735 提交前 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 26.4s
+- 摘要: D-735 提交前定向 crate 回归通过：kanzei-app 256 passed，0 failed，0 ignored。
+- 关联: D-735
+- 收尾: 1788309790
+
+## T-1786922726917 D-735 ui_a11y 定向回归 [passed]
+- 命令: node scripts/ui-a11y-smoke.mjs
+- 时长: 0.5s
+- 摘要: ui_a11y 静态冒烟通过：23 个静态 icon-btn，核心键盘语义与焦点规则覆盖；4 处裸字号检查通过。
+- 关联: D-735
+- 收尾: 1788309795
+
+## T-1786922726918 D-735 前端 runtime 与 lint 回归 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 2.1s
+- 摘要: D-735 关联前端回归通过：UI runtime 27 个脚本/2346 次 invoke/0 错误，UI lint 54 个文件零 no-undef。
+- 关联: D-735
+- 收尾: 1788309799

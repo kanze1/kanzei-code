@@ -163,7 +163,19 @@
 - 标签: 前端
 - refs: R-350
 - 优先级: P1
-- 进展: 已修复并验证：crates/kanzei-app/ui/index.html:550 为 research-latex-figure-caption 增加 data-i18n-placeholder="实验结果图"；crates/kanzei-app/ui/02-i18n.js:303 增加 I18N_EN['实验结果图']='Experiment results figure'。T-1786922726912 的 ui_i18n 通过（1472 key/481 HTML/57 动态契约），T-1786922726913 的前端 runtime/lint 通过，T-1786922726914 的 kanzei-app 256 项定向测试通过。
-- observed_head: 2d57bb467b7dfd51bb928e55ebc33b580d50e6dc
-- observed_worktree_hash: fnv1a64:721bbcd1b7351d71
-- recorded_at: 1788309638581
+- 进展: 已修复并提交 af7b635c：index.html:550 增加 data-i18n-placeholder="实验结果图"，02-i18n.js:303 增加英文资源。T-1786922726912 ui_i18n、T-1786922726913 runtime/lint、T-1786922726914 kanzei-app 256 项测试均通过；T-1786922726915 当前 HEAD verify 已确认 i18n 通过，唯一失败转为独立裸字号门禁。
+- observed_head: af7b635cb48dfa2e22f259bcf33cfa37ba1a3c6a
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788309693350
+- 停车: D-734 专属 i18n 修复已提交并通过 ui_i18n；当前 HEAD verify 唯一剩余失败是独立的 4 处裸字号门禁，先让位 D-735，待裸字号修复后恢复关闭；恢复人:agent
+
+## D-735 ui_a11y 拒绝主题外裸字号 [fixing] (low)
+- 复现: 运行 .\scripts\verify.ps1 或 node scripts/ui-a11y-smoke.mjs；检查 ui/style.css，门禁报告 font: 10px、font-size: 11px、font-size: 10px、font-size: 12px 四处裸字号。
+- 影响: 主题字号未经过 --fs-* 集中 token 管理，ui_a11y 失败并阻断 verify 证据生成。
+- 来源: self-found：D-734 提交后运行 verify.ps1，越过背景色与 i18n 缺口后发现。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复并验证：crates/kanzei-app/ui/style.css:2390 将路线图节点 ID 的 font:10px 改为 var(--fs-10)，:2391 的 font-size:11px 改为 var(--fs-11)，:2392 的 font-size:10px 改为 var(--fs-10)，:2393 的 font-size:12px 改为 var(--fs-12)，像素值不变。frontend_check、T-1786922726917 ui_a11y、T-1786922726918 runtime/lint、T-1786922726916 kanzei-app 256 项测试均通过。
+- observed_head: af7b635cb48dfa2e22f259bcf33cfa37ba1a3c6a
+- observed_worktree_hash: fnv1a64:7fcc589c1a2234a1
+- recorded_at: 1788309806804
