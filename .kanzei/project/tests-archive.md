@@ -11470,3 +11470,17 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-349
 - 收尾: 1788347731
 - 源码指纹: v2 crates/kanzei-tools/src/work/reconcile.rs@641a958f3098
+
+## T-1786922726927 修复后当前 HEAD 全量验证 [passed]
+- 命令: .\scripts\verify.ps1 -Full
+- 摘要: 修复后当前 HEAD 全量 verify 通过：full 模式、六项前端冒烟、IPC/metrics/fmt/clippy/workspace 测试全部通过；dist/verification.json 绑定 commit 1b3115ea。
+- 关联: R-340 R-319 R-283 R-284 R-285 R-287 R-101 R-245 R-249 R-264 R-281 R-307 R-309 R-312 R-322 R-323 R-341 R-344 D-732 D-504 D-566 D-568 D-577 D-592 D-655 D-662 D-718 D-719 R-349
+- 收尾: 1788348367
+
+## T-1786922726928 D-736 work/reconcile 调度回归 [passed]
+- 命令: cargo test -p kanzei-tools work::
+- 时长: 6.9s
+- 摘要: work/reconcile 调度回归通过：35 passed，覆盖对账分类、已对账活动条目仍可 Start、停车先于对账且 parked_items 与 blocked_items 分离、WIP/候选不变量。
+- 关联: D-736
+- 收尾: 1788349361
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@23e5fa7a7099,crates/kanzei-tools/src/work/reconcile.rs@504a4a9ded6a

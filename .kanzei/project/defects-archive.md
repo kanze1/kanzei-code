@@ -8870,3 +8870,59 @@
 - observed_head: d48ba988230d8e4a63e2faa2fd6ae7dbd9ba242c
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788309935878
+
+## D-732 主对话成功工具结果强制第二行且单行思考仍生成独立块 [fixed] (medium)
+- 复现: 主对话历史或实时渲染一个成功工具结果；观察 `.tool-msg`，结果摘要位于工具调用行下方；再渲染只有一行的 reasoning，仍生成独立 `.msg.reasoning` 块。
+- 影响: 主对话轨迹行数翻倍，单行思考出现无内容可展开的独立点击块，违背主对话三层呈现契约。
+- 来源: self-found：读取 docs/design/chat_presentation_contract.md §4.1/§4.3 与 05-chat-render.js 实现后确认。
+- 标签: 前端
+- refs: R-350
+- 优先级: P1
+- 状态说明: D-732 根因已由 R-350 实现修复，本缺陷现具备自动化回归证据，准备关闭。
+- 进展: 关闭验收对账：核心行为已由 R-350 实现，05-chat-render.js:419-431 将成功工具结果摘要放在工具 head 第二行，:448-473 保留详情展开；:575-596、:614-629 对单行 reasoning 不生成独立块、多行 reasoning 保留 expandable；style.css:2030-2034 收紧工具间距并保留轮间留白。自动化证据：T-1786922726908（node/runtime/lint/markdown/parallel）及 T-1786922726927（修复后当前 HEAD .\scripts\verify.ps1 -Full，六项前端冒烟与 workspace 全量通过）；现行 HEAD 1b3115ea，残余 a11y/i18n 基线缺口不影响本缺陷核心行为，另按既有基线处理。
+- observed_head: 1b3115ea3e39fb001a1b431f12bf87e469245b0d
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788348449338
+- 停车: 
+
+## D-718 browser 连续 click/type/dom/console 重复导航导致页面状态丢失 [fixed] (high)
+- 复杂度: small
+- 复现: 先 browser open 本地前端，再不改变目标页面依次 type 输入、click 提交、dom 读取结果；Rust 包装层在每个动作前再次 open URL，输入状态被清空或动作落在初始页。
+- 影响: 浏览器工具只能做单步截图，无法可信执行表单、设置页或工作流连续交互；单次 helper 与静态巡检均会假绿。
+- 标签: 前端
+- 验收: 带 url/path 的动作保持显式重载；不带目标的 click/type/dom/console 复用当前页面；未 open 时给可行动错误；Windows 真实 Edge 回归覆盖 open→type→click→dom；服务连接失败提示核对 process wait/list 与实际 Local URL。
+- 优先级: P1
+- 进展: 已修复 browser 包装层的状态语义：open 首次导航，后续省略 url/path 的 type/click/dom/console 复用当前页；显式目标仍重新导航。真实 Edge open→type→click→dom 回归、kanzei-tools 全量 494 passed/1 ignored、UI lint/runtime/connectivity/browser probe 均通过。当前源码尚未提交，故保持 fixing。
+- observed_head: ee2503dce9341e25fc5d9cef919b316cc184c575
+- observed_worktree_hash: fnv1a64:62f219d59ffcf79b
+- recorded_at: 1787732247483
+- 停车: 
+
+## D-719 process stop 对已自然退出的 bg 句柄返回 unknown error [fixed] (medium)
+- 复杂度: small
+- 复现: bash background 启动前端服务，进程在 stop 前自然退出并被内存注册表回收；随后 process stop bg1 返回 unknown process id。
+- 影响: 清理动作被误报为失败，Agent 会反复 stop/list 或错误归因工具故障；与浏览器启动失败组合时阻断自愈。
+- 标签: 前端
+- 验收: 格式合法但已不活跃的 bg 句柄 stop 幂等成功并说明无需停止；非法 ID 仍返回可修正错误；活进程 stop 与进程树真实退出回归不退化。
+- 优先级: P1
+- 进展: 已将 stop 对合法且已回收的 bg<number> 句柄改为幂等成功，对非法 ID 保持 PROCESS_STOP_BAD_ID；新增定向测试并由 kanzei-tools 全量 494 passed/1 ignored 覆盖既有活进程停止回归。当前源码尚未提交，故保持 fixing。
+- observed_head: ee2503dce9341e25fc5d9cef919b316cc184c575
+- observed_worktree_hash: fnv1a64:62f219d59ffcf79b
+- recorded_at: 1787732249253
+- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与定向回归已完成，待新调研条目收口后提交/关闭；恢复人:agent
+
+## D-655 轮末统计切片 prior.len() 在轮中压缩后错位,episodes/harvest/失败提炼画像失真 [fixed] (medium)
+- 复现: 与 D-654 同根因的统计侧残留:coordinator.rs 轮末 summarize_tools 切片、persistence.rs:133 与 crates/kanzei/src/cli/run/finalize.rs:151 的 this_run 切片都按 prior.len().min(len) 取本轮;compact_with_digest/trim_tail_for_protocol 在轮中结构性删短 messages 后切片错位:压缩量大于本轮新增时切空,否则混入错误区段。鞭挞判定已在 D-654 改事件真源,这三处统计口径(episode metrics/harvest_end_of_run 失败提炼/工具计数)仍用切片
+- 影响: 遥测与记忆收割质量:压缩触发的轮次 episode 画像不全或为空、失败观察漏投;不影响鞭挞判定(已解耦)
+- 来源: D-654 修复现场 self-found
+- 标签: 后端
+- 验收: ①本轮口径不再依赖 prior.len() 盲切:由 runner 维护跨压缩稳定的本轮边界(RunSummary 携带)或统计改事件真源;②三处调用点(coordinator/persistence/CLI finalize)统一新口径;③回归:模拟轮中压缩删短 prior 后,episode tools/metrics 与 harvest 仍只含本轮内容
+- refs: D-654
+- 优先级: P2
+- 进展: 批次: 1/1；实现与回归已完成。①已完成：`crates/kanzei-app/src/run/coordinator.rs:350-351` 改用 `summary.round_messages` 作为稳定本轮真源，不再按 `prior.len()` 盲切；证据：T-1786922726649、T-1786922726650、T-1786922726651。②已完成：`crates/kanzei-app/src/run/persistence.rs:190-196` 与 `crates/kanzei/src/cli/run/finalize.rs:150-158、180-193` 统一使用本轮消息边界，三处调用链不再依赖压缩后的 prior 切片；证据：T-1786922726649、T-1786922726650、T-1786922726651。③已完成：上述三条定向回归模拟轮中压缩删短 prior 后，episode tools/metrics 与 harvest 只含本轮内容；证据：T-1786922726649、T-1786922726650、T-1786922726651，当前 HEAD full verify 由 T-1786922726927 与 `dist/verification.json` 绑定 `1b3115ea` 通过。
+- observed_head: 1b3115ea3e39fb001a1b431f12bf87e469245b0d
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788348920574
+- 停车: 
+- 阻塞: 
+- 验收对账: ①已完成：`crates/kanzei-app/src/run/coordinator.rs:350-351` 改用 `summary.round_messages` 作为稳定本轮真源，不再按 `prior.len()` 盲切；②已完成：`crates/kanzei-app/src/run/persistence.rs:190-196` 与 `crates/kanzei/src/cli/run/finalize.rs:150-158、180-193` 统一使用本轮消息边界，三处调用链不再依赖压缩后的 prior 切片；③已完成：轮中压缩删短 prior 的回归由 T-1786922726649（kanzei-core）、T-1786922726650（kanzei-app）、T-1786922726651（kanzei CLI）passed 覆盖，且当前 HEAD full verify 由 T-1786922726927、`dist/verification.json` 绑定 `1b3115ea` 通过。

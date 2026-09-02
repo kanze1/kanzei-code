@@ -955,16 +955,8 @@ pub fn resolve_work_decision(
             );
             if view.lifecycle_status == wip_status && view.claimed_by.as_deref() != me.as_deref() {
                 // 他线的 WIP:只作背景可见,不进本线任何裁决(blocked 也不进——
-                // 它的阻塞该由持有线处理)。
+                // 它的阻塞由持有线处理)。
                 foreign_wip.push(WorkItemSummary::from(&view));
-            } else if reconciliation.already_committed(&view.id) {
-                let mut view = view;
-                if let Some(reason) = reconciliation.classification_reason(&view.id) {
-                    view.blocked = true;
-                    view.block_reasons
-                        .push(format!("机械对账禁止重复取活：{reason}"));
-                }
-                blocked_items.push(view);
             } else if view.parked {
                 // D-434:停车先于阻塞判定——停车条目照样不可执行,但要落在自己的
                 // 清单里,裁决面才分得清「等外部前提」和「主动让槽」。
@@ -972,6 +964,7 @@ pub fn resolve_work_decision(
             } else if view.blocked {
                 blocked_items.push(view);
             } else if view.lifecycle_status == wip_status {
+                // D-736:机械对账是只读提示,不能把已有实现的活动条目变成硬阻塞。
                 executable_wip.push(view);
             }
         }
@@ -1021,7 +1014,6 @@ pub fn resolve_work_decision(
                     let invalid = !status.is_empty() && !kind.statuses.contains(&status);
                     if invalid
                         || status == wip_status
-                        || reconciliation.already_committed(&scheduled_item.entry.id)
                         || (kind.prefix == "R"
                             && work_unit_requirement_ids.contains(&scheduled_item.entry.id))
                     {
@@ -1172,6 +1164,12 @@ pub fn resolve_work_decision(
         }
     };
 
+    // D-736:对账结果只作为选中条目的可见提示,不改变 WIP/候选/阻塞裁决。
+    let reason = selected
+        .as_ref()
+        .and_then(|item| reconciliation.classification_reason(&item.id))
+        .map(|hint| format!("{reason};机械对账提示（不阻断）:{hint}"))
+        .unwrap_or(reason);
     let decision_locked = matches!(decision, WorkDecision::Resume | WorkDecision::Start);
     // D-368:Resume 且进展锚点陈旧时,恢复的第一步是复核而不是接着写。
     let resume_reconcile = match (&decision, &selected) {
@@ -1626,6 +1624,9 @@ mod tests {
         parked
             .fields
             .push(("停车".into(), "单 WIP 槽让给 D-001".into()));
+        parked
+            .fields
+            .push(("observed_head".into(), repo_observation(&dir).observed_head));
         DocStore::open(&dir, &REQUIREMENTS).save(&[parked]).unwrap();
         DocStore::open(&dir, &DEFECTS)
             .save(&[entry("D-001", "fixing")])
@@ -1874,7 +1875,7 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_committed_entry_is_not_selected_again() {
+    fn reconcile_committed_entry_remains_executable_and_is_reported() {
         let dir = git_fixture("reconcile-scheduler");
         let mut committed = entry("D-900", "open");
         committed
@@ -1883,14 +1884,15 @@ mod tests {
         DocStore::open(&dir, &DEFECTS).save(&[committed]).unwrap();
 
         let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
-        assert_eq!(state.decision, WorkDecision::Blocked, "{}", state.reason);
-        assert!(state.selected.is_none());
+        assert_eq!(state.decision, WorkDecision::Start, "{}", state.reason);
+        assert_eq!(state.selected.unwrap().id, "D-900");
         assert!(state.reconciliation.already_committed("D-900"));
-        assert!(state.blocked_items.iter().any(|item| item.id == "D-900"
-            && item
-                .block_reasons
-                .iter()
-                .any(|reason| reason.contains("机械对账"))));
+        assert!(state.blocked_items.is_empty(), "对账提示不得制造硬阻塞");
+        assert!(
+            state.reason.contains("机械对账提示（不阻断）"),
+            "选中条目必须看得到对账提示: {}",
+            state.reason
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -1,8 +1,8 @@
 //! R-349：active tracker 条目的机械对账投影。
 //!
 //! 这里把「声明的 commit / 源码指纹 → 当前 HEAD 与工作树 → 测试记录」收敛为
-//! 只读报告。它不写 tracker，也不替代 close/verify；work next 只消费其中明确证明
-//! 已提交代码的条目，避免把已落地的旧 WIP 再当成新的实现任务。
+//! 只读报告。它不写 tracker，也不替代 close/verify；work next 将报告作为选中条目的
+//! 可见提示，绝不把对账分类当作阻塞或重复取活的硬门禁。
 
 use std::collections::BTreeMap;
 use std::path::Path;

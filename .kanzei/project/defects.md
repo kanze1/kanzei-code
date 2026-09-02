@@ -41,7 +41,7 @@
 - observed_head: 11b60ae32647a5ff999329120316e8ffebad7fd8
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787203506741
-- 停车: 停车: 本轮用户请求仅为复核并清理过期阻塞，未进入 D-568 实现；R-316 前置已完成，待后续按 defect-first 恢复 D-568 修复。恢复人:agent。
+- 停车: 
 
 ## D-577 raw_lines 把空行判成游离段落且 raw_delete 报成功后游离行仍在,后置条件不成立 [fixing] (medium)
 - 复杂度: 中
@@ -57,7 +57,7 @@
 - recorded_at: 1787235788581
 - 验收对账: ①已完成：`crates/kanzei-memory/src/docstore/validation.rs:273-287` 只返回非空 Raw；docstore 回归 `docstore.rs:321-342` 与 tracker 回归 `tracker.rs:1539-1549` 证明布局空行不再计数；T-1786922726559。②已完成：`validation.rs:313-365` 删除按同一 ordinal 契约定位，原子写回后 `load()` + `raw_lines()` 复查条目存在和数量，失败返回“raw_delete 后置条件失败”；T-1786922726559、T-1786922726560。③验收降级：原文“文章获取器 R-002 现场复核游离行清零”本轮未执行，当前仓库无该外部项目与可重放目标命令；实际已由同形态端到端回归 `tracker.rs:1518-1579` 覆盖，外部现场仍需用户/外部项目执行。④已完成：空行在 ordinal 1 时旧实现会误删空行而保留真实游离文本，新回归夹具 `docstore.rs:321-389`、`tracker.rs:1518-1598` 覆盖该“报成功后仍存在”形态；T-1786922726559。
 - 阻塞: 
-- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与本仓回归已完成，R-002 外部现场证据缺口保留；恢复人:agent
+- 停车: 
 
 ## D-592 上下文预算检查信 bytes/4 估算不锚定真实 usage,本地小窗口模型压缩零触发直至撞 400 [fixing] (high)
 - refs: D-203 D-206 R-219 R-236
@@ -77,21 +77,6 @@
 - 阻塞: 
 - 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；代码与回归已完成，llama-local 真实窗口证据缺口保留；恢复人:agent
 
-## D-655 轮末统计切片 prior.len() 在轮中压缩后错位,episodes/harvest/失败提炼画像失真 [fixing] (medium)
-- 复现: 与 D-654 同根因的统计侧残留:coordinator.rs 轮末 summarize_tools 切片、persistence.rs:133 与 crates/kanzei/src/cli/run/finalize.rs:151 的 this_run 切片都按 prior.len().min(len) 取本轮;compact_with_digest/trim_tail_for_protocol 在轮中结构性删短 messages 后切片错位:压缩量大于本轮新增时切空,否则混入错误区段。鞭挞判定已在 D-654 改事件真源,这三处统计口径(episode metrics/harvest_end_of_run 失败提炼/工具计数)仍用切片
-- 影响: 遥测与记忆收割质量:压缩触发的轮次 episode 画像不全或为空、失败观察漏投;不影响鞭挞判定(已解耦)
-- 来源: D-654 修复现场 self-found
-- 标签: 后端
-- 验收: ①本轮口径不再依赖 prior.len() 盲切:由 runner 维护跨压缩稳定的本轮边界(RunSummary 携带)或统计改事件真源;②三处调用点(coordinator/persistence/CLI finalize)统一新口径;③回归:模拟轮中压缩删短 prior 后,episode tools/metrics 与 harvest 仍只含本轮内容
-- refs: D-654
-- 优先级: P2
-- 进展: 2026-08-25 对账更正：D-655 实现与三 crate 定向回归已完成，D-666 已归档 fixed，cargo fmt --all -- --check 当前通过。尝试关闭时被 D-664 门禁拒绝：当前 HEAD 尚无绑定该条目的 full verify 全绿证据；不能绕过关闭门禁，也不把实现完成误写成条目已关闭。后续只需在不覆盖用户未提交改动的前提下取得当前 HEAD verify 证据，再执行 close/archive。
-- observed_head: c40a3403448d7c6d4aef1d7b52557bf74989ed37
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1787602813016
-- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与定向回归已完成，当前 HEAD full verify 关闭证据缺口保留；恢复人:agent
-- 阻塞: 
-
 ## D-662 托管文档专用工具膨胀致工具选择面过载 [fixing] (medium)
 - 原始描述: 外部评估 #5：Managed Documents 造成 Tool Explosion，从 Unix-like tools 走向 Domain-specific OS。用户判定这是工具设计问题，算缺陷不算决策
 - 复现: 当前注册工具已 30+，其中 req/defect/idea/decision/architecture/test_record/work/memory_* 等托管域工具与通用 edit/write 语义重叠；模型需在 edit 与 req(update) 之间做领域判断，工具越多误选概率越高，且每个工具签名等同公开 API
@@ -103,42 +88,11 @@
 - recorded_at: 1787288788389
 - 停车: 本轮 WIP 超限，工具面预算门禁已落地但后续减面尚未形成可执行批次；先让位当前缺陷优先项 D-655，槽位释放后按取活顺序恢复。恢复人:agent
 
-## D-718 browser 连续 click/type/dom/console 重复导航导致页面状态丢失 [fixing] (high)
-- 复杂度: small
-- 复现: 先 browser open 本地前端，再不改变目标页面依次 type 输入、click 提交、dom 读取结果；Rust 包装层在每个动作前再次 open URL，输入状态被清空或动作落在初始页。
-- 影响: 浏览器工具只能做单步截图，无法可信执行表单、设置页或工作流连续交互；单次 helper 与静态巡检均会假绿。
-- 标签: 前端
-- 验收: 带 url/path 的动作保持显式重载；不带目标的 click/type/dom/console 复用当前页面；未 open 时给可行动错误；Windows 真实 Edge 回归覆盖 open→type→click→dom；服务连接失败提示核对 process wait/list 与实际 Local URL。
-- 优先级: P1
-- 进展: 已修复 browser 包装层的状态语义：open 首次导航，后续省略 url/path 的 type/click/dom/console 复用当前页；显式目标仍重新导航。真实 Edge open→type→click→dom 回归、kanzei-tools 全量 494 passed/1 ignored、UI lint/runtime/connectivity/browser probe 均通过。当前源码尚未提交，故保持 fixing。
-- observed_head: ee2503dce9341e25fc5d9cef919b316cc184c575
-- observed_worktree_hash: fnv1a64:62f219d59ffcf79b
-- recorded_at: 1787732247483
-- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与真实 Edge 回归已完成，待新调研条目收口后提交/关闭；恢复人:agent
-
-## D-719 process stop 对已自然退出的 bg 句柄返回 unknown error [fixing] (medium)
-- 复杂度: small
-- 复现: bash background 启动前端服务，进程在 stop 前自然退出并被内存注册表回收；随后 process stop bg1 返回 unknown process id。
-- 影响: 清理动作被误报为失败，Agent 会反复 stop/list 或错误归因工具故障；与浏览器启动失败组合时阻断自愈。
-- 标签: 前端
-- 验收: 格式合法但已不活跃的 bg 句柄 stop 幂等成功并说明无需停止；非法 ID 仍返回可修正错误；活进程 stop 与进程树真实退出回归不退化。
-- 优先级: P1
-- 进展: 已将 stop 对合法且已回收的 bg<number> 句柄改为幂等成功，对非法 ID 保持 PROCESS_STOP_BAD_ID；新增定向测试并由 kanzei-tools 全量 494 passed/1 ignored 覆盖既有活进程停止回归。当前源码尚未提交，故保持 fixing。
-- observed_head: ee2503dce9341e25fc5d9cef919b316cc184c575
-- observed_worktree_hash: fnv1a64:62f219d59ffcf79b
-- recorded_at: 1787732249253
-- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与定向回归已完成，待新调研条目收口后提交/关闭；恢复人:agent
-
-## D-732 主对话成功工具结果强制第二行且单行思考仍生成独立块 [fixing] (medium)
-- 复现: 主对话历史或实时渲染一个成功工具结果；观察 `.tool-msg`，结果摘要位于工具调用行下方；再渲染只有一行的 reasoning，仍生成独立 `.msg.reasoning` 块。
-- 影响: 主对话轨迹行数翻倍，单行思考出现无内容可展开的独立点击块，违背主对话三层呈现契约。
-- 来源: self-found：读取 docs/design/chat_presentation_contract.md §4.1/§4.3 与 05-chat-render.js 实现后确认。
-- 标签: 前端
-- refs: R-350
-- 优先级: P1
-- 状态说明: D-732 根因已由 R-350 实现修复，本缺陷现具备自动化回归证据，准备关闭。
-- 进展: 已修复并验证：05-chat-render.js:419-431 将结果摘要放入可点击工具 head，:448-473 保留详情展开；:575-596、:614-629 隐藏单行 reasoning、保留多行 expandable；style.css:2030-2034 收紧工具间距并增加轮间留白；已移除 .turn-divider。T-1786922726908 通过 node check、runtime、lint、markdown、parallel；a11y/i18n 既有基线失败已另记。
-- observed_head: b0827f3964668a47e3091a2bc625509b43ffd65e
-- observed_worktree_hash: fnv1a64:ea8f978af9e578d9
-- recorded_at: 1788309119392
-- 停车: 
+## D-736 取活裁决全局死锁:对账把 24 条判成已提交并硬拦,executable_wip 为空 [fixing] (high)
+- 修复方向: 对账结果降级为提示与排序依据,不进 blocked_items(队列必须永远有出路);并补一条硬不变式:存在非终态且未停车的条目时 decision 不得为 Blocked。另修 already_committed 与 view.parked 的判定顺序。判据换成本条目改动面属后续设计,与本条解耦。
+- 来源: 用户「现在可以处理track相关的设计了」后的并行勘察发现;kz work next 实测输出经我复核:decision=blocked、executable_wip=[]、blocked_items=24、reconciliation.items=0、block_reasons 176382 字符。
+- 标签: 核心
+- 根因: R-349 B1(b0827f39)的对账结果被当作硬拦判据:reconcile 的 already_committed(committed-unverified 与 verified-unclosed 都返回 true)在 work.rs 里直接推进 blocked_items,且该分支排在 view.parked 之前,把停车条目也抢先算成阻塞——推翻了 D-434 刻意做的「停车≠阻塞」分离。判定本身又建立在全局代理量上:target_fingerprint 取 declared_commit..HEAD 之间全部源码文件(与被判条目无关),而 passed 记录的源码指纹只在脏工作区才写,干净树上恒空,于是覆盖判定恒不成立、条目恒为 committed-unverified。1b3115ea 的「当前 HEAD 有 full verify 即算覆盖」短路只把 committed-unverified 变成 verified-unclosed,两者都被 already_committed 拦,未解锁。
+- 现象: kz work next 当前返回 decision=blocked、selected=null、executable_wip=[]、blocked_items=24、parked_items=2;reconciliation.counts={committed-unverified:22, stale:4} 而 reconciliation.items=0(判定结果一条都不可见);block_reasons 合计 176382 字符进 prompt。自举循环因此一条活都取不出来,活动文件里的常驻条目自 R-349 B1 落地后无人认领。
+- refs: R-349
+- 优先级: P0
