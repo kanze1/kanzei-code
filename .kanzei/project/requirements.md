@@ -256,7 +256,7 @@
 - observed_head: f62097cfde97e559534c16f898a6c0f1fb5a3e23
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787306265598
-- 停车: 用户明确要求优先修复新缺陷 D-680；R-319 已完成 B3，B4 等待真实 post-rollout 长程样本，D-680 收口后恢复。恢复人:agent
+- 停车: 
 
 ## R-322 门禁强度分档与模型停机权 [doing]
 - 原始描述: 外部评估七点反馈中的 #1 Harness Tax、#4 模式区分不够明显、#7 双控制器问题。用户定调：控制权交给模型；结伴接近 Claude Code 的高自治，自主推进保留重门禁；决策点要呈现给用户
@@ -304,7 +304,7 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787898129566
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：前端沿用 task 主趋势、进行中/legacy 分区、session/round 下钻和仅显式 attach 的后端语义。
-- 停车: 让位 R-339 历史任务兼容迁移与回滚；R-339 完成后恢复本条主视图与下钻验收。恢复人:agent
+- 停车: 
 
 ## R-341 运行画像任务级真实链路收口与回归矩阵 [doing]
 - 内容: 作为 R-338/R-339/R-340 的链路收口，验证真实入口从 task 事实生产、SQLite projection/API 查询到运行画像 UI 的端到端闭环：创建并关闭多个任务、同一长 session 多轮、未关闭任务、session 下钻、legacy 历史和失败路径均可复核；不以单测、viewport 模拟或替身服务冒充真实链路。

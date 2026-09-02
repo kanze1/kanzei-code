@@ -141,4 +141,4 @@
 - observed_head: b0827f3964668a47e3091a2bc625509b43ffd65e
 - observed_worktree_hash: fnv1a64:ea8f978af9e578d9
 - recorded_at: 1788309119392
-- 停车: 当前提交的 verify.ps1 被两个既有前端门禁欠账拒绝：ui_a11y style.css:2249 与 ui_i18n index.html「实验结果图」；先登记并修复门禁缺陷，生成绑定当前提交的新 verify 证据后恢复关闭；恢复人:agent
+- 停车: 

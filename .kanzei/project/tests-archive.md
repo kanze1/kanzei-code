@@ -11444,3 +11444,9 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-352
 - 收尾: 1788310924
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@f4c7218ec70e
+
+## T-1786922726923 六项前端冒烟（当前 HEAD，运行时启用 VM Modules） [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 六项前端冒烟全部通过；运行时 27 个 ui/*.js 按序执行、2346 次 invoke、0 运行时错误；其余 ESLint/并行线路/a11y/i18n/Markdown 均通过。
+- 关联: R-340 D-732 R-319
+- 收尾: 1788346845
