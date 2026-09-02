@@ -31,6 +31,7 @@
 - [identity: live_design; last_verified_commit: d374cb9f] [`session_state_and_line_runtime.md`](../../../docs/design/session_state_and_line_runtime.md)：会话状态与线路运行态设计(状态持久化、恢复与并发线路隔离)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`subagent_management.md`](../../../docs/design/subagent_management.md)：子代理管理四层方案(R-058 done,策略层未实施)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`weakness_register_20260820.md`](../../../docs/design/weakness_register_20260820.md)：弱点登记与 Agent 减负方向(2026-08-20 两轮外部评估对照；R-310~R-313、D-575/D-577/D-578,§六 为需求发现实测复核,减负方案待 R-312 勘察后评审)。
+- [identity: live_design; last_verified_commit: 7823d6f6] [`tracker_evidence_ledger.md`](../../../docs/design/tracker_evidence_ledger.md)：tracker 状态可信化——改动面账本、意图态/交付态两轴、门禁判据换成本条目改动面、调度只提示不封禁(D-736 已落地 §3.4)。
 - [identity: live_design; last_verified_commit: c3222943] [`work_unit_foundation.md`](../../../docs/design/work_unit_foundation.md)：Work Unit 底座——Outcome/执行状态/历史三分离的事件存储、投影与迁移契约(R-317)。
 
 ## validated_design
