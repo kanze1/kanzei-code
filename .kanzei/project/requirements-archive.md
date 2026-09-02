@@ -4536,3 +4536,17 @@
 - observed_head: 13154063c90d8960e6957d5f2bd27bc3115ed9d1
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788389340677
+
+## R-355 对账结果可见:prompt 裁剪与结构化输出分家 [done]
+- 内容: 按设计 §3.5 把 compact_for_context 限定在 prompt 注入路径,kz work next 不再与 prompt 共用同一次压缩——今天两者共用导致 26 条判定算出来却 reconciliation.items 恒为 0,判定结果一条都不可见。新增只读动作 work reconcile 输出四类全表(id / class / 账本行数 / 改动面文件数 / test_record_ids / 缺口一句话),不含指纹串;block_reasons 只保留 class 名、条目 id 与文件数。
+- 复杂度: 小
+- 来源: 实测 kz work next 返回 reconciliation.counts 有 26 条而 items 为 0,block_reasons 达 176382 字符;代码注释自称「完整对账仍由结构化 resolve 输出保留」但无任何 caller 走未压缩路径。
+- 标签: 核心
+- 边界: 只改输出与裁剪边界,不改分类判据本身;不把指纹串放进任何进 prompt 的路径;不新增写操作。
+- 验收: ①kz work next 的 reconciliation.items 与实际判定条数一致;②work reconcile 能列出四类全表且输出不含指纹串;③进 prompt 的 block_reasons 不含指纹;④裁决输出字符数不因判定条数增长而爆炸。
+- refs: R-349 D-736
+- 优先级: P1
+- 进展: 批次: 1/1；最终实现已提交 `4c44dfbe`。①`crates/kanzei-tools/src/work/tool.rs:546-564` 的 work next 保留 reconciliation.items 实际判定数量，真实输出 33/33；②`work/tool.rs:546-557` 的只读 work reconcile 由真实 CLI 消费，`work.rs:749-769` 输出 id/class/ledger_rows/source_file_count/test_record_ids/gap 六字段，33 条全表且无 fingerprint；③`work.rs:797-810` 的 compact_for_context 只走 prompt 注入路径并清空 reconciliation，`work.rs:771-795` 的 structured_control_output 脱敏 reason、selected/block reasons、敏感标题和原始证据字段，prompt/next 无 fingerprint；④ structured next 原始输出从 220148 降至 24747 字符，items/counts=33/33。证据：T-1786922726948、T-1786922726949、T-1786922726950；最终 tools work 39 passed、kanzei 47+32 passed，check/fmt/clippy 全绿，提交 `4c44dfbe`。
+- observed_head: 4c44dfbe7ce2413ffb00ddd6c74206b019f7560f
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788390912372

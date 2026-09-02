@@ -88,7 +88,7 @@
 - recorded_at: 1787288788389
 - 停车: WIP 单槽纪律：R-353 已有进行中的 finalize/deliver 实现与未提交改动，本条主动让位；待 R-353 收口后恢复；恢复人:agent
 
-## D-739 work next 顶层 reason 仍泄漏对账 fingerprint [open] (medium)
+## D-739 work next 顶层 reason 仍泄漏对账 fingerprint [fixing] (medium)
 - 复现: R-355 将 reconciliation item 的 commit/fingerprint 字段从 work next item 清空后，实际 `kz work next` 顶层 reason 仍拼接 `机械对账提示` 的原始 classification_reason，输出包含 fingerprint；`work reconcile` 已无该问题。
 - 影响: 结构化取活输出若直接进入模型上下文仍泄漏源码 fingerprint，破坏 R-355 的 prompt/结构化边界与指纹不进 prompt 不变量。
 - 来源: R-355 CLI 最终回归 self-found
@@ -99,3 +99,11 @@
 - observed_head: 13154063c90d8960e6957d5f2bd27bc3115ed9d1
 - observed_worktree_hash: fnv1a64:64382cd628ed78ce
 - recorded_at: 1788390797066
+
+## D-740 R-355 输出投影新增生产行触发 work.rs metrics 增量门禁 [open] (medium)
+- 复现: 执行 `. scripts\verify.ps1 -Full` 时 workspace/UI/各 crate 测试均通过，但 metrics_build 报 `crates/kanzei-tools/src/work.rs: production lines grew 122 (baseline 1194, current 1316, allowance 100)`，R-355 新增输出 helper 使 work.rs 超出巨石增量门禁。
+- 影响: 当前 HEAD 无法生成验证证据，阻断 D-739 收口；work.rs 继续承载输出投影也会扩大核心调度巨石。
+- 来源: R-355 当前 HEAD full verify self-found
+- 标签: 流程
+- refs: R-355
+- 优先级: P2

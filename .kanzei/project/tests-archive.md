@@ -11659,3 +11659,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-355 D-739
 - 收尾: 1788390759
 - 源码指纹: v2 crates/kanzei-tools/src/work.rs@10564df1d9f8,crates/kanzei-tools/src/work/reconcile.rs@a39b039a9724,crates/kanzei-tools/src/work/tool.rs@aca30bd8721f,crates/kanzei/src/cli/work.rs@a20285cf4307
+
+## T-1786922726951 R-355 work 回归（metrics 拆分后） [passed]
+- 命令: cargo test -p kanzei-tools work::
+- 时长: 4.9s
+- 摘要: 将 R-355 输出 helper 移出 work.rs 后 work/reconcile 回归 39 passed，证明模块化仅改变文件边界未改变行为。
+- 关联: R-355 D-740
+- 收尾: 1788391242
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@a8c053e40ca2,crates/kanzei-tools/src/work/output.rs@0602022be9fc,crates/kanzei-tools/src/work/tool.rs@fa43a0e01b39
+
+## T-1786922726952 R-355/D-739 输出投影拆分后定向 crate 回归 [passed]
+- 命令: cargo test -p kanzei-tools; cargo test -p kanzei
+- 时长: 96.0s
+- 摘要: 拆分后的 kanzei-tools 全量 538 passed/1 ignored；kanzei 47+32 passed，覆盖工具输出模块和 CLI 调用方。
+- 关联: R-355 D-739 D-740
+- 收尾: 1788391396
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@a8c053e40ca2,crates/kanzei-tools/src/work/output.rs@0602022be9fc,crates/kanzei-tools/src/work/tool.rs@fa43a0e01b39
+
+## T-1786922726953 D-739 提交前 kanzei-tools 最终定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 40.1s
+- 摘要: 格式化后的当前源码 kanzei-tools 全量回归通过：538 passed，1 ignored；为提交源码指纹提供最新背书。
+- 关联: R-355 D-739 D-740
+- 收尾: 1788391549
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@a8c053e40ca2,crates/kanzei-tools/src/work/output.rs@0602022be9fc,crates/kanzei-tools/src/work/tool.rs@40812eae2dba

@@ -546,7 +546,7 @@ impl Tool for WorkTool {
         if input.action == "reconcile" {
             return match resolve_work_decision(&ctx.cwd, &ctx.project_root, ctx.work_priority) {
                 Ok(state) => ToolOutput::ok(
-                    serde_json::to_string_pretty(&reconciliation_output(
+                    serde_json::to_string_pretty(&super::output::reconciliation_output(
                         &state.reconciliation,
                         &ctx.project_root,
                     ))
@@ -558,7 +558,8 @@ impl Tool for WorkTool {
         if input.action == "next" {
             return match resolve_work_decision(&ctx.cwd, &ctx.project_root, ctx.work_priority) {
                 Ok(state) => ToolOutput::ok(
-                    serde_json::to_string_pretty(&structured_control_output(state)).unwrap(),
+                    serde_json::to_string_pretty(&super::output::structured_control_output(state))
+                        .unwrap(),
                 ),
                 Err(error) => ToolOutput::error(error),
             };
