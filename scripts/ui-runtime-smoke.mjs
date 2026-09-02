@@ -150,7 +150,7 @@ if (!source.includes("function renderRecoveredMessages(items)") || !source.inclu
 }
 const errorRenderer = source.slice(source.indexOf("function addErrorMessage"), source.indexOf("function isRetryableError"));
 if (errorRenderer.includes("setTimeout")) fail("长错误反馈不应由短 toast 定时移除");
-if (!source.includes("function renderMarkdown(raw)") || !source.includes("function renderDiff(display)")) {
+if (!source.includes("function renderMarkdown(raw)") || !source.includes("renderDiff(")) {
   fail("对话 Markdown 或 diff 详情渲染入口缺失");
 }
 // 历史消息只进入恢复渲染器，实时事件继续使用 currentAssistant，不应把运行输出写入历史快照。
@@ -3704,6 +3704,39 @@ assert(listText("memory-flags-count").includes("2"), "整理后未刷新空闲�
   assert(/\.msg\.tool-msg\s*\{[^}]*margin:\s*-4px\s+0/.test(style), "工具行间距未收紧");
   assert(/\.msg\.user:not\(:first-child\)\s*\{[^}]*margin-top:\s*36px/.test(style), "轮间留白未显著拉开");
   const chatRenderer = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const activityRenderer = esmModuleCache.get("06-activity.js")?.namespace;
+  // ---------- R-352:主区展示预算、限定上下文与活动面板出口 ----------
+  {
+    const longDiff = Array.from({ length: 40 }, (_, index) => ({
+      kind: index === 20 ? "add" : "ctx",
+      old_line: index + 1,
+      new_line: index + 1,
+      text: index === 20 ? "真正的一行改动" : `远处上下文 ${index + 1}`,
+    }));
+    const display = { kind: "diff", path: "src/large.rs", additions: 1, deletions: 0, language: "rust", lines: longDiff };
+    const compactBlock = chatRenderer?.buildToolBlock("edit", { path: "src/large.rs" });
+    chatRenderer?.fillToolBlock(compactBlock, { ok: true, outcome: "success", content: "changed", display, input: {} });
+    const compactDisplay = compactBlock?.detail.querySelector(".tool-display.diff");
+    assert(compactDisplay, "主区 edit 未渲染差异展示块");
+    assert(compactDisplay.querySelectorAll(".diff-row").length < longDiff.length, "主区 diff 仍渲染整份文件");
+    assert(compactDisplay.querySelector(".diff-omitted"), "主区 diff 缺少省略上下文提示");
+    assert(compactDisplay.textContent.includes("真正的一行改动"), "主区限定 diff 丢失真实变更行");
+    assert(compactBlock?.detail.querySelector(".tool-display-more")?.textContent === "去活动面板看全", "超限 diff 缺少活动面板出口");
+    assert(
+      /\.tool-msg-detail > \.tool-display\s*\{[^}]*max-height:\s*420px[^}]*overflow:\s*auto/.test(style),
+      "主区 tool-display 缺少 420px 滚动上限",
+    );
+    assert(/\.tool-msg-raw\s*\{[^}]*max-height:\s*420px/.test(style) && source.includes("rest.length > 8000"), "tool-msg-raw 的 420px/8000 字限制被削弱");
+    const activityHost = document.createElement("div");
+    const fullDisplay = activityRenderer?.appendDisplayBlock(activityHost, display);
+    assert(activityHost.querySelectorAll(".diff-row").length === longDiff.length, "活动面板默认全量 diff 消费被裁剪");
+    byId.get("messages").appendChild(compactBlock.wrap);
+    byId.get("bg-panel").classList.add("hidden");
+    compactBlock.detail.querySelector(".tool-display-more").click();
+    assert(!byId.get("bg-panel").classList.contains("hidden"), "活动面板出口未打开真实活动面板");
+    compactBlock.wrap.remove();
+    fullDisplay?.remove?.();
+  }
   const singleReasoning = chatRenderer?.buildReasoningBlock("单行思考摘要");
   chatRenderer?.renderReasoningBlock(singleReasoning.body);
   assert(singleReasoning.wrap.hidden === true, "单行思考仍生成可见独立块");

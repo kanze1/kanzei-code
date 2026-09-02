@@ -589,7 +589,38 @@ export function highlightLine(container, text, language) {
   if (cursor < text.length) container.appendChild(document.createTextNode(text.slice(cursor)));
 }
 
-export function renderDiff(display) {
+export const DIFF_CONTEXT_LINES = 3;
+
+// 主对话只看变更附近的上下文；活动面板调用 renderDiff 的默认全量模式。
+// 这样 write/edit 的 display 事实不变，主区不会因一行修改展开整份源码。
+export function compactDiffLines(lines, context = DIFF_CONTEXT_LINES) {
+  if (!Array.isArray(lines) || lines.length === 0) return lines || [];
+  const changed = lines
+    .map((line, index) => (line?.kind === "add" || line?.kind === "del" ? index : -1))
+    .filter((index) => index >= 0);
+  if (changed.length === 0) return lines;
+  const keep = new Set();
+  for (const index of changed) {
+    for (let cursor = Math.max(0, index - context); cursor <= Math.min(lines.length - 1, index + context); cursor += 1) {
+      keep.add(cursor);
+    }
+  }
+  const compacted = [];
+  let cursor = 0;
+  while (cursor < lines.length) {
+    if (keep.has(cursor)) {
+      compacted.push(lines[cursor]);
+      cursor += 1;
+      continue;
+    }
+    const start = cursor;
+    while (cursor < lines.length && !keep.has(cursor)) cursor += 1;
+    compacted.push({ kind: "omitted", count: cursor - start });
+  }
+  return compacted;
+}
+
+export function renderDiff(display, { compact = false } = {}) {
   const block = document.createElement("div");
   block.className = "tool-display diff";
   let mode = "unified";
@@ -606,7 +637,11 @@ export function renderDiff(display) {
   header.append(label, toggle);
   const body = document.createElement("div");
   body.className = "diff-body";
-  const lines = display.lines?.length ? display.lines : (display.diff || "").split("\n").filter(Boolean).map((text) => ({ kind: text[0] === "+" ? "add" : text[0] === "-" ? "del" : "ctx", text: text.slice(1) }));
+  const sourceLines = display.lines?.length ? display.lines : (display.diff || "").split("\n").filter(Boolean).map((text) => ({ kind: text[0] === "+" ? "add" : text[0] === "-" ? "del" : "ctx", text: text.slice(1) }));
+  const lines = compact ? compactDiffLines(sourceLines) : sourceLines;
+  function omittedLabel(count) {
+    return `… ${count} ${t("行上下文已省略")}`;
+  }
   function render() {
     body.innerHTML = "";
     body.className = `diff-body ${mode}`;
@@ -616,6 +651,12 @@ export function renderDiff(display) {
       for (const line of lines) {
         const row = document.createElement("div");
         row.className = `diff-row ${line.kind || "ctx"}`;
+        if (line.kind === "omitted") {
+          row.classList.add("diff-omitted");
+          row.textContent = omittedLabel(line.count);
+          body.appendChild(row);
+          continue;
+        }
         const oldNo = document.createElement("span");
         const newNo = document.createElement("span");
         oldNo.className = newNo.className = "diff-line-number";
@@ -630,7 +671,8 @@ export function renderDiff(display) {
       const rows = [];
       for (let i = 0; i < lines.length; i += 1) {
         const line = lines[i];
-        if (line.kind === "del" && lines[i + 1]?.kind === "add") rows.push([line, lines[++i]]);
+        if (line.kind === "omitted") rows.push([line, null]);
+        else if (line.kind === "del" && lines[i + 1]?.kind === "add") rows.push([line, lines[++i]]);
         else if (line.kind === "del") rows.push([line, null]);
         else if (line.kind === "add") rows.push([null, line]);
         else rows.push([line, line]);
@@ -638,6 +680,12 @@ export function renderDiff(display) {
       for (const [left, right] of rows) {
         const row = document.createElement("div");
         row.className = "diff-split-row";
+        if (left?.kind === "omitted") {
+          row.classList.add("diff-omitted");
+          row.textContent = omittedLabel(left.count);
+          body.appendChild(row);
+          continue;
+        }
         for (const line of [left, right]) {
           const pane = document.createElement("div");
           pane.className = `diff-pane ${line?.kind || "empty"}`;
@@ -665,10 +713,10 @@ export function renderDiff(display) {
   render();
   return block;
 }
-export function appendDisplayBlock(parent, display) {
+export function appendDisplayBlock(parent, display, { compact = false } = {}) {
   if (!display) return;
   if (display.kind === "diff") {
-    parent.appendChild(renderDiff(display));
+    parent.appendChild(renderDiff(display, { compact }));
   } else if (display.kind === "terminal") {
     const block = document.createElement("div");
     block.className = "tool-display term";

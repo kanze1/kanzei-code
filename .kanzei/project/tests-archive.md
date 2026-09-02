@@ -11436,3 +11436,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-351
 - 收尾: 1788310344
 - 源码指纹: v2 scripts/ui-markdown-smoke.mjs@2cf9338eb506
+
+## T-1786922726922 R-352 主对话展示预算与 diff 裁剪六项前端冒烟 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 6.1s
+- 摘要: R-352 六项前端冒烟全绿：runtime 27 个脚本/2346 次 invoke/0 错误；lint 54 文件；parallel-lines；a11y；i18n 1474 个资源 key/481 项 HTML 文案/57 项动态契约；markdown。新增覆盖 compact diff 限定上下文、活动面板全量渲染、420px 上限和真实入口点击。
+- 关联: R-352
+- 收尾: 1788310924
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@f4c7218ec70e

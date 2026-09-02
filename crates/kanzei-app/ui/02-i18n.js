@@ -351,7 +351,7 @@ export const I18N_EN = {
   "无需修改": "No change needed", "需要确认": "Needs confirmation", "需要修正": "Needs correction",
   "故障": "failure", "受控拒绝": "guard rejection",
   "思考中": "Thinking", "生成中": "Generating", "等待模型": "Waiting for model", "一轮完成": "Round completed",
-  "活动": "Activity", "隐藏右侧活动面板": "Hide activity panel", "显示右侧活动面板": "Show activity panel", "关闭活动面板": "Close activity panel",
+  "活动": "Activity", "去活动面板看全": "View the full result in Activity", "行上下文已省略": "context lines omitted", "隐藏右侧活动面板": "Hide activity panel", "显示右侧活动面板": "Show activity panel", "关闭活动面板": "Close activity panel",
   "上下文压缩 · 点击查看纪要": "Context compaction · click to view summary", "上下文压缩纪要": "Context compaction summary",
   "对话小总结 · 点击查看": "Conversation summary · click to view", "展开或收起上下文压缩纪要": "Expand or collapse context compaction summary",
   "展开或收起对话总结": "Expand or collapse conversation summary",

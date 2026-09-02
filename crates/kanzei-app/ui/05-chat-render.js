@@ -1,6 +1,6 @@
 import { defer } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
-import { appendDisplayBlock } from "./06-activity.js";
+import { appendDisplayBlock, compactDiffLines } from "./06-activity.js";
 import { $, activePane, agentRoleAccent, appendToPane, messages, trimLivePane } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { attachments, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
@@ -396,6 +396,36 @@ export function toolResultSplit(content, isError) {
   return { text, rest: [...skipped, ...tail, ...lines.slice(idx + 1)].join("\n") };
 }
 
+export function displayNeedsActivityNotice(display) {
+  if (!display) return false;
+  if (display.kind === "diff") {
+    const lines = Array.isArray(display.lines) ? display.lines : [];
+    return Boolean(display.truncated) || (lines.length > 0 && compactDiffLines(lines).length < lines.length);
+  }
+  if (display.kind === "terminal") {
+    const text = String(display.full ?? display.output ?? "");
+    return text.length > 4000 || text.split("\n").length > 20;
+  }
+  if (display.kind === "create") {
+    return String(display.preview ?? "").split("\n").length > 20;
+  }
+  return false;
+}
+
+export function appendActivityNotice(parent) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "ghost mini tool-display-more";
+  button.textContent = t("去活动面板看全");
+  button.title = t("去活动面板看全");
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    // 复用活动面板唯一真实开关,保持互斥面板和持久化状态由既有消费者处理。
+    $("activity-toggle")?.click();
+  });
+  parent.appendChild(button);
+}
+
 /// 构造一个工具块。done=false 时是运行中占位,后续由 fillToolBlock 收尾。
 export function buildToolBlock(name, input) {
   const wrap = document.createElement("div");
@@ -455,7 +485,8 @@ export function fillToolBlock(block, { ok, outcome, content, display, input }) {
   const { text: summary, rest } = toolResultSplit(content, !ok);
   block.result.textContent = `⎿ ${summary}`;
   block.result.classList.remove("hidden");
-  appendDisplayBlock(block.detail, display);
+  appendDisplayBlock(block.detail, display, { compact: true });
+  if (displayNeedsActivityNotice(display)) appendActivityNotice(block.detail);
   // 详情只放摘要没覆盖到的部分:`rest` 非空本身就是"还有没显示完的内容"这个判据,
   // 单行短结果照旧不出框(不给"展开了还是那一行"的假承诺),多行/长首行也不再重复正文。
   if (rest.trim()) {

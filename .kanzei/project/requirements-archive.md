@@ -4505,3 +4505,19 @@
 - observed_head: d48ba988230d8e4a63e2faa2fd6ae7dbd9ba242c
 - observed_worktree_hash: fnv1a64:53ac7c22eb8821c7
 - recorded_at: 1788310263201
+
+## R-352 主对话展开区高度上限与 diff 裁剪:点开不再顶掉阅读位置 [done]
+- 内容: ①给主对话区的 .tool-display / .term / .diff 加与 .tool-msg-raw 同档的 max-height(现在它们没有任何上限,而同一展开容器里的 .tool-msg-raw 有 420px + 8000 字符两道限制、活动面板同款有 180px,唯独主区漏了);②超限时给出「去活动面板看全的」出口;③write 工具产出的 diff 改为带限定上下文而非全文件(源码注释称由前端裁剪,但前端并无裁剪代码,改一行的 edit 打在 800 行文件上就展开 800 行)。
+- 复杂度: 小
+- 来源: 用户提出主对话呈现不满意后的勘察发现;实测工具结果字节 p50=903、p90=8830、p99=36964、max=209453,而主区展开区无任何 max-height。
+- 标签: 前端
+- 边界: 只限制主对话区的展示高度与 diff 产出体积,不改 diff 语义、不改工具结果的持久化内容;活动面板与原始日志仍可看全;不引入虚拟滚动。
+- 验收: ①主区任一工具展开后高度受上限约束,阅读位置不被顶走;②超限时有明确的去活动面板入口;③一行改动的 edit 不再产出全文件 diff;④已有的 .tool-msg-raw 两道限制不被削弱。
+- refs: R-350
+- 优先级: P2
+- 进展: 验收逐条对账：①主区任一工具展开后的展示块统一受 420px 上限并滚动：style.css:2089-2092 为 .tool-msg-detail > .tool-display 设置 max-height:420px/overflow:auto，既有 .tool-msg-raw 仍在 style.css:2103-2108 保持 max-height:420px/overflow:auto；scripts/ui-runtime-smoke.mjs:3726-3729 断言主区上限与 raw 420px/8000 双限制，T-1786922726922 通过。②超限显示“去活动面板看全”真实出口：05-chat-render.js:399-425 按 diff/terminal/create 的超限判据创建按钮并点击真实 #activity-toggle，scripts/ui-runtime-smoke.mjs:3724-3738 覆盖入口点击后 bg-panel 打开，T-1786922726922。③一行 edit 不再在主区展开全文件 diff：06-activity.js:592-621 的 compactDiffLines 只保留变更前后 3 行并生成省略标记，05-chat-render.js:488-489 让主区使用 compact 模式；活动面板仍由 06-activity.js:623-641 的默认 compact=false 全量消费，scripts/ui-runtime-smoke.mjs:3721-3732 同时断言主区裁剪与活动面板全量，T-1786922726922。④既有 .tool-msg-raw 两道限制未削弱：05-chat-render.js:491-495 仍按 rest.length > 8000 截断，style.css:2103-2108 仍保留 420px 滚动上限，scripts/ui-runtime-smoke.mjs:3726-3729 机械断言，T-1786922726922。验证：六项前端冒烟全绿，runtime 27 脚本/2346 invoke/0 错误，lint 54 文件，i18n 1474 key/481 HTML/57 动态契约。
+- observed_head: 988b5af34d6bce83b512867723c6f2e2766081ee
+- observed_worktree_hash: fnv1a64:6e2af55c9e46fa7f
+- recorded_at: 1788310970892
+- 状态说明: R-352 已实现并通过前端六项冒烟；本次交付仅改变主对话展示消费路径，不改变 write/edit 的原始 display 数据或持久化内容，不引入虚拟滚动。活动面板继续使用 renderDiff 默认全量模式。
+- 进展证据: T-1786922726922；05-chat-render.js:399-425,488-495；06-activity.js:592-641,653-685；style.css:2089-2108；scripts/ui-runtime-smoke.mjs:3708-3738

@@ -2086,6 +2086,20 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .tool-msg.err .tool-msg-result { color: var(--err); }
 .tool-msg.warn .tool-msg-result { color: var(--warn); }
 .tool-msg-detail { margin: 2px 0 6px 18px; }
+.tool-msg-detail > .tool-display {
+  max-height: 420px;
+  overflow: auto;
+}
+.diff-omitted {
+  min-height: 24px;
+  padding: 4px 8px;
+  color: var(--dim);
+  text-align: center;
+  font-style: italic;
+}
+.tool-display-more {
+  margin: 2px 0 4px;
+}
 .tool-msg-raw {
   margin: 2px 0; padding: 6px 8px; font-size: var(--fs-13); line-height: 1.55;
   background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
