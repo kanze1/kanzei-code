@@ -8963,3 +8963,27 @@
 - observed_head: 13154063c90d8960e6957d5f2bd27bc3115ed9d1
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788389143800
+
+## D-739 work next 顶层 reason 仍泄漏对账 fingerprint [fixed] (medium)
+- 复现: R-355 将 reconciliation item 的 commit/fingerprint 字段从 work next item 清空后，实际 `kz work next` 顶层 reason 仍拼接 `机械对账提示` 的原始 classification_reason，输出包含 fingerprint；`work reconcile` 已无该问题。
+- 影响: 结构化取活输出若直接进入模型上下文仍泄漏源码 fingerprint，破坏 R-355 的 prompt/结构化边界与指纹不进 prompt 不变量。
+- 来源: R-355 CLI 最终回归 self-found
+- 标签: 核心
+- refs: R-355
+- 优先级: P1
+- 进展: 已完成并提交 `732a0e4f`。①结构化 work next 对账 item 的标题/reasons/selected/block reasons 脱敏集中于 `crates/kanzei-tools/src/work/output.rs:5-69`，去除 commit/HEAD/source fingerprint 与源码文件；真实消费者为 `crates/kanzei-tools/src/work/tool.rs:549-565` 的 work reconcile/next。②prompt 注入仍经 `crates/kanzei-tools/src/work.rs:731-752,1222` 的 compact_for_context，仅保留安全可行动提示，不携带 reconciliation 全表。③D-740 暴露的 work.rs metrics 增量通过 `work/output.rs` 模块拆分解决，当前 metrics 30 rows、giants 5/4。证据：T-1786922726953（提交前 kanzei-tools 538 passed）、T-1786922726954（当前 HEAD full verify 全绿）、提交 `732a0e4f`。
+- observed_head: 732a0e4fb939a965985e11ce49e51d92a43fe0c8
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788391730087
+
+## D-740 R-355 输出投影新增生产行触发 work.rs metrics 增量门禁 [fixed] (medium)
+- 复现: 执行 `. scripts\verify.ps1 -Full` 时 workspace/UI/各 crate 测试均通过，但 metrics_build 报 `crates/kanzei-tools/src/work.rs: production lines grew 122 (baseline 1194, current 1316, allowance 100)`，R-355 新增输出 helper 使 work.rs 超出巨石增量门禁。
+- 影响: 当前 HEAD 无法生成验证证据，阻断 D-739 收口；work.rs 继续承载输出投影也会扩大核心调度巨石。
+- 来源: R-355 当前 HEAD full verify self-found
+- 标签: 流程
+- refs: R-355
+- 优先级: P2
+- 进展: 已完成并提交 `732a0e4f`：将 R-355 的对账输出 helper 从 `crates/kanzei-tools/src/work.rs` 拆至 `crates/kanzei-tools/src/work/output.rs:1-69`，`work.rs:731-752` 与 `work/tool.rs:549-565` 保持真实调用链不变。证据 T-1786922726951、T-1786922726952、T-1786922726953 均通过；当前 HEAD T-1786922726954 full verify 通过，metrics regression gate 报告 30 rows、giants 5/4，故原 work.rs 生产行增量门禁缺口已消除。
+- observed_head: 732a0e4fb939a965985e11ce49e51d92a43fe0c8
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788391746374

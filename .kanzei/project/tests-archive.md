@@ -11683,3 +11683,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-355 D-739 D-740
 - 收尾: 1788391549
 - 源码指纹: v2 crates/kanzei-tools/src/work.rs@a8c053e40ca2,crates/kanzei-tools/src/work/output.rs@0602022be9fc,crates/kanzei-tools/src/work/tool.rs@40812eae2dba
+
+## T-1786922726954 D-739 当前 HEAD full verify [passed]
+- 命令: .\scripts\verify.ps1 -Full
+- 时长: 96.0s
+- 摘要: 当前 HEAD 732a0e4f full verify 全绿：metrics 30 rows、giants 5/4，六条 UI 冒烟、workspace 各 crate 测试与 fmt/clippy 全部通过，dist/verification.json 已绑定当前提交。
+- 关联: D-739 D-740 R-355
+- 收尾: 1788391714
