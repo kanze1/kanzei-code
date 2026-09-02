@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use kanzei_harness::{auto_run::BacklogStatus, ToolCtx};
 
+use super::fields;
 use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 
 type DependencyMap = BTreeMap<String, Vec<String>>;
@@ -464,10 +465,24 @@ pub(crate) fn structured_entry(
         .iter()
         .find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority"))
         .map(|(_, value)| value.clone());
+    let mut unknown_field_count = 0usize;
     let fields: Vec<serde_json::Value> = entry
         .fields
         .iter()
-        .map(|(name, value)| serde_json::json!({"name": name, "value": value}))
+        .map(|(name, value)| {
+            let metadata = fields::metadata(name);
+            if !metadata["known"].as_bool().unwrap_or(false) {
+                unknown_field_count += 1;
+            }
+            serde_json::json!({
+                "name": name,
+                "value": value,
+                "category": metadata["category"],
+                "has_consumer": metadata["has_consumer"],
+                "known": metadata["known"],
+                "presentation": metadata.get("presentation"),
+            })
+        })
         .collect();
     serde_json::json!({
         "id": entry.id,
@@ -478,6 +493,8 @@ pub(crate) fn structured_entry(
         "priority": priority,
         "blocked": !reasons.is_empty(),
         "block_reasons": reasons,
+        "unknown_field_count": unknown_field_count,
+        "field_registry": fields::registry_json(),
         "fields": fields,
     })
 }

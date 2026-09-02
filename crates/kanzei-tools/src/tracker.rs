@@ -23,6 +23,7 @@ mod scheduling_tests;
 // R-311:close action 在状态迁移前写入收尾链遥测。
 // R-204:每个 action 独立函数(actions.rs),execute 只剩路由。
 mod actions;
+mod fields;
 mod validation;
 
 pub(crate) use invariants::check_entry_invariants;

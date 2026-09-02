@@ -359,7 +359,7 @@
 - recorded_at: 1788387719951
 - 停车: WIP 单槽纪律：当前 defect-first 队首 D-737 已有完成实现与未提交改动，本条 B2 尚未开始，主动让位；待 D-737 收口后恢复；恢复人:agent
 
-## R-356 字段三类与词表:引擎/调度/叙事分层,清理零消费者字段并删不变式执行器 [todo]
+## R-356 字段三类与词表:引擎/调度/叙事分层,清理零消费者字段并删不变式执行器 [doing]
 - 内容: 按设计 §3.6 把 tracker 字段分三类并在写入边界区别对待:引擎字段(observed_head/observed_worktree_hash/recorded_at/取活依据)补上「模型不得写」的拦截;调度字段(优先级/依赖/阻塞/停车/阶段/取得线/refs)把已有的语法判据从读侧挪到写侧硬拒;叙事字段保持自由文本。建 FIELD_REGISTRY 记录键名到类别与有无消费者,未知键照写但计数并在 req get 里标灰。清理零消费者字段(对账、批次表、背景、根因、执行者、归属、原始描述、不变量)走 ENGINE_DERIVED_FIELDS 的归档 retain 先例。删除 不变式 字段的执行器与它挂着的两道恒真通过的门禁。
 - 发现记录: {"Intent":"止住字段基数只增不减,并让登记时被强制填的字段真的有人读","Explicit":"三类分层;引擎字段禁模型写;不硬拒未知键;删不变式执行器与两道门禁","Assumptions":"ENGINE_DERIVED_FIELDS 的归档 retain 机制可复用;req get 可承载标灰展示","Ambiguities":"标灰的展示形态与计数阈值,本条按最小实现处理","领域对象":"引擎字段、调度字段、叙事字段、FIELD_REGISTRY、不变式执行器","最小成功闭环":"登记一条新需求时引擎字段拒绝模型写入、阻塞缺解除条件当场被拒、归档时零消费者字段被清","延后决策":"标灰的 UI 形态、未知键的治理阈值、历史条目的键名归一"}
 - 复杂度: 中
@@ -369,6 +369,11 @@
 - 验收: ①引擎字段被模型侧工具写入时被拒;②阻塞字段缺解除条件在写入时即被拒而非读时才发现;③FIELD_REGISTRY 能列出每个键的类别与消费者有无;④零消费者字段在归档时被自动 retain;⑤不变式执行器与两道门禁移除后无残留调用点。
 - refs: R-353
 - 优先级: P2
+- 批次: 1/4
+- 进展: 批次: 1/4；已落地 `crates/kanzei-tools/src/tracker/fields.rs`：`FIELD_REGISTRY` 登记 26 个已知键及 engine/scheduling/narrative 类别、消费者布尔值；`registry_json` 提供结构化清单；`metadata` 对未知键返回 unknown/gray。`tracker/scheduling.rs:458-500` 的 `structured_entry` 是真实 req get/list 消费者，附加 `unknown_field_count`、字段分类/消费者/灰显标记和完整 registry。回归 T-1786922726955（2 passed）与 T-1786922726956（540 passed/1 ignored）。下一步 B2：在 tracker 写入边界拒绝引擎字段，并把阻塞解除条件从读侧判据前移到写侧。
+- observed_head: 732a0e4fb939a965985e11ce49e51d92a43fe0c8
+- observed_worktree_hash: fnv1a64:87cc565ccd3f0cf4
+- recorded_at: 1788392229737
 
 ## R-357 活动面按裁决可达性划分:停车超期移出、tests.md 废止、缺口由 work gaps 回答 [todo]
 - 内容: 按设计 §3.7 重划活动面与归档面:停车超过 14 天且解除条件未变的条目移入 parked 面,裁决不再遍历但 work reconcile 与前端仍可见;废止 tests.md 作为 Markdown 面(它只有 12 字节、零记录,唯一可能的居民 running 是瞬态,不该占治理真源),running 迁 state.db;新增 kz work gaps 回答「还需要跑什么」,输入为账本改动面加该条目 passed 记录的指纹覆盖与关闭门禁判据,每条缺口一行并附一条可直接复制的命令,给不出可执行命令的缺口不出行。

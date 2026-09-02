@@ -11690,3 +11690,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 当前 HEAD 732a0e4f full verify 全绿：metrics 30 rows、giants 5/4，六条 UI 冒烟、workspace 各 crate 测试与 fmt/clippy 全部通过，dist/verification.json 已绑定当前提交。
 - 关联: D-739 D-740 R-355
 - 收尾: 1788391714
+
+## T-1786922726955 R-356 B1 字段 registry 投影回归 [passed]
+- 命令: cargo test -p kanzei-tools tracker::fields
+- 时长: 16.1s
+- 摘要: B1 字段 registry 与 req get 结构化投影回归通过：2 passed，覆盖分类/消费者、未知键计数及灰显。
+- 关联: R-356
+- 收尾: 1788392104
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@a6388f663bb8,crates/kanzei-tools/src/tracker/fields.rs@07289f47e26c,crates/kanzei-tools/src/tracker/scheduling.rs@7bedd0fcb321
+
+## T-1786922726956 R-356 B1 kanzei-tools 全量定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 50.0s
+- 摘要: B1 提交前 kanzei-tools 全量定向回归通过：540 passed，1 ignored；包含字段 registry、结构化字段投影及现有 tracker 回归。
+- 关联: R-356
+- 收尾: 1788392224
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@a6388f663bb8,crates/kanzei-tools/src/tracker/fields.rs@07289f47e26c,crates/kanzei-tools/src/tracker/scheduling.rs@7bedd0fcb321
