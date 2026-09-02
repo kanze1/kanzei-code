@@ -14,9 +14,6 @@ use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 // 本文件保留既有 pub 面(re-export),消费方调用点零改动;行为零变更。
 pub mod scheduling;
 
-// R-311:设计冻结不变式执行器由 tracker 统一提供给 close 与 git finalize。
-mod invariants;
-
 #[cfg(test)]
 mod scheduling_tests;
 
@@ -26,8 +23,6 @@ mod actions;
 mod fields;
 mod validation;
 
-pub(crate) use invariants::check_entry_invariants;
-pub(crate) use invariants::check_finalize_invariants;
 #[cfg(test)]
 pub(crate) use scheduling::block_reasons;
 pub use scheduling::{
@@ -1437,12 +1432,12 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
-    /// R-311 批1:close 运行冻结不变式；失败点名断言且不迁移状态，修复后才可关闭。
+    /// R-356 B3:不变式字段已不再触发 close 门禁，历史字段作为普通自由文本处理。
     #[tokio::test]
-    async fn close执行不变式失败拒绝迁移并在修复后放行() {
-        let dir = std::env::temp_dir().join(format!("kz-close-invariant-{}", std::process::id()));
+    async fn close不再执行不变式字段门禁() {
+        let dir =
+            std::env::temp_dir().join(format!("kz-close-no-invariant-{}", std::process::id()));
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
-        std::fs::write(dir.join("state.txt"), "ready\n").unwrap();
         let mut e = entry("R-001");
         e.status = "doing".into();
         e.fields = vec![
@@ -1463,31 +1458,15 @@ mod tests {
             requires_refs: None,
         };
 
-        let rejected = tool
-            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
-            .await;
-        assert!(rejected.is_error, "{}", rejected.content);
-        assert!(
-            rejected.content.contains("冻结不变式执行失败"),
-            "{}",
-            rejected.content
-        );
-        assert!(
-            rejected.content.contains("#1") && rejected.content.contains("拒绝终态迁移"),
-            "{}",
-            rejected.content
-        );
-        assert_eq!(store.load().unwrap()[0].status, "doing");
-
-        std::fs::write(dir.join("state.txt"), "done\n").unwrap();
         let accepted = tool
             .execute(json!({"action": "close", "id": "R-001"}), &ctx)
             .await;
-        assert!(!accepted.is_error, "{}", accepted.content);
+        assert!(
+            !accepted.is_error,
+            "不变式字段不应再触发 close 门禁: {}",
+            accepted.content
+        );
         assert_eq!(store.load().unwrap()[0].status, "done");
-        let telemetry = crate::close_telemetry::read_records(&dir);
-        assert_eq!(telemetry.len(), 1);
-        assert_eq!(telemetry[0].entry_id, "R-001");
         std::fs::remove_dir_all(dir).ok();
     }
 

@@ -8987,3 +8987,15 @@
 - observed_head: 732a0e4fb939a965985e11ce49e51d92a43fe0c8
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788391746374
+
+## D-741 R-356 删除不变式门禁后遗留测试仍断言旧行为 [fixed] (medium)
+- 复现: R-356 B3 删除不变式执行器后运行 `cargo test -p kanzei-tools`，旧测试 `tracker::tests::close执行不变式失败拒绝迁移并在修复后放行` 仍构造不变式并断言 close 必须失败，导致 539 passed/1 failed。
+- 影响: 测试套件继续把已明确删除的两道不变式门禁当作产品契约，阻断 R-356 B3 验证与提交。
+- 来源: R-356 B3 定向回归 self-found
+- 标签: 流程
+- 验收: 旧门禁测试删除或改为验证 `不变式` 字段不会触发 close 拒绝；删除执行器后 kanzei-tools 全量定向回归通过。
+- 优先级: P1
+- 进展: 已修复并提交前验证：旧不变式门禁测试已改为 `crates/kanzei-tools/src/tracker.rs:1435-1470` 的 close 成功回归，不再断言已删除执行器。证据 T-1786922726962：kanzei-tools 540 passed/1 ignored、kanzei-memory 169 passed/1 ignored，验收中的旧测试删除/改写与全量定向回归均满足；待随 R-356 B3 提交归档。
+- observed_head: bce9467ac4a91bae043b58aef432253071dcea7a
+- observed_worktree_hash: fnv1a64:ae0a2c516bc3152c
+- recorded_at: 1788393244132

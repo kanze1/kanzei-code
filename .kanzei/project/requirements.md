@@ -369,11 +369,11 @@
 - 验收: ①引擎字段被模型侧工具写入时被拒;②阻塞字段缺解除条件在写入时即被拒而非读时才发现;③FIELD_REGISTRY 能列出每个键的类别与消费者有无;④零消费者字段在归档时被自动 retain;⑤不变式执行器与两道门禁移除后无残留调用点。
 - refs: R-353
 - 优先级: P2
-- 批次: 2/4
-- 进展: 批次: 2/4；B1 registry 已在 `adb0b6cd` 提交。B2 已在 `tracker.rs:347-355` 的统一写入路由接入 `fields::reject_engine_writes` 与 `scheduling::validate_write_fields`：模型提交 `observed_head/observed_worktree_hash/recorded_at/取活依据` 即拒；非空 `阻塞/停车` 必须含可解析 `解除条件:R-/D-/T-` 或 `解除条件:用户`，清除值仍放行；未知键/叙事字段不受影响。真实 `TrackerTool::execute` 回归 `tracker.rs` 测试 `write_boundary_rejects_engine_and_unstructured_blocker`；纯规则回归位于 `fields.rs` 与 `scheduling.rs`。证据 T-1786922726957（543 passed/1 ignored）。下一步 B3：归档时 retain 零消费者字段，并删除 不变式 执行器及两道门禁。
-- observed_head: adb0b6cda4dc1af6c75e383815506a7dbbb5a7d1
-- observed_worktree_hash: fnv1a64:f9002a89cd6e48e6
-- recorded_at: 1788392585398
+- 批次: 3/4
+- 进展: 批次: 3/4；B1 registry 已在 `adb0b6cd` 提交，B2 写入门禁已在 `bce9467a` 提交。B3 已在 `crates/kanzei-memory/src/docstore/archive.rs:442-474,555-579` 增加独立 `ZERO_CONSUMER_FIELDS`，archive_terminal 的统一 normalize 会自动清理 `对账/批次表/背景/根因/执行者/归属/原始描述/不变量` 与 `取活依据`，不删除普通叙事；`crates/kanzei-tools/src/tracker/invariants.rs` 已删除，`tracker/actions.rs` close 与 `git/finalize.rs` 两处门禁调用已移除，grep 无残留调用点。旧门禁测试已改为 `tracker.rs:1435-1470` 的 close 成功回归。证据 T-1786922726960（归档 1 passed）、T-1786922726961（旧测试失败已登记 D-741）、T-1786922726962（memory 169 passed/1 ignored，tools 540 passed/1 ignored）。下一步 B4：执行当前 HEAD 的 workspace full verify，逐条核对 R-356 ①～⑤并结项。
+- observed_head: bce9467ac4a91bae043b58aef432253071dcea7a
+- observed_worktree_hash: fnv1a64:ae0a2c516bc3152c
+- recorded_at: 1788393236229
 
 ## R-357 活动面按裁决可达性划分:停车超期移出、tests.md 废止、缺口由 work gaps 回答 [todo]
 - 内容: 按设计 §3.7 重划活动面与归档面:停车超过 14 天且解除条件未变的条目移入 parked 面,裁决不再遍历但 work reconcile 与前端仍可见;废止 tests.md 作为 Markdown 面(它只有 12 字节、零记录,唯一可能的居民 running 是瞬态,不该占治理真源),running 迁 state.db;新增 kz work gaps 回答「还需要跑什么」,输入为账本改动面加该条目 passed 记录的指纹覆盖与关闭门禁判据,每条缺口一行并附一条可直接复制的命令,给不出可执行命令的缺口不出行。

@@ -26,13 +26,6 @@ pub(crate) async fn finalize(
             "`files` is required for finalize: explicitly list the files to commit",
         );
     }
-    // R-311 批1:finalize 先执行冻结不变式，再进入 fmt/测试/stage/commit 事务；
-    // 有声明却未绑定条目时明确拒绝，不能让旧调用路径静默绕过门禁。
-    if let Err(error) =
-        crate::tracker::check_finalize_invariants(&ctx.project_root, cwd, requirement_id.as_deref())
-    {
-        return ToolOutput::error(format!("[finalize] {error}"));
-    }
     let plan = match build_commit_plan(&ctx.project_root, cwd, &files).await {
         Ok(plan) => plan,
         Err(error) => return ToolOutput::error(format!("[finalize] commit_plan failed: {error}")),

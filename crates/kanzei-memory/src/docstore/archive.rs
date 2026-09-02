@@ -439,6 +439,19 @@ impl DocStore {
     /// 与 `reconcile_archived_status_fields` 的区别在**要不要写进展**:状态副本可能
     /// 与权威 header 冲突,冲突本身是可审计的历史;机制产物没有这种价值——它只是
     /// 一份必然过期的快照,引擎下一轮照样重算一遍,留一句"曾经写过"纯属噪音。
+    /// 归档时自动清理的零消费者叙事键。它们与 `ENGINE_DERIVED_FIELDS` 分开登记：
+    /// 前者是没有真实读取方的历史散文，后者是引擎每轮重算的快照。
+    pub const ZERO_CONSUMER_FIELDS: &[&str] = &[
+        "对账",
+        "批次表",
+        "背景",
+        "根因",
+        "执行者",
+        "归属",
+        "原始描述",
+        "不变量",
+    ];
+
     pub const ENGINE_DERIVED_FIELDS: &[&str] = &["取活依据"];
 
     /// 清掉归档条目里的机制产物字段。与 dedupe/reconcile 共用同一把锁与写路径,
@@ -563,7 +576,11 @@ impl DocStore {
             entry.fields.retain(|(key, value)| {
                 let key = key.trim();
                 let value = value.trim();
-                if key.is_empty() || (value.is_empty() && key == "阻塞") {
+                if key.is_empty()
+                    || (value.is_empty() && key == "阻塞")
+                    || Self::ENGINE_DERIVED_FIELDS.contains(&key)
+                    || Self::ZERO_CONSUMER_FIELDS.contains(&key)
+                {
                     return false;
                 }
                 seen_fields.insert((key.to_string(), value.to_string()))

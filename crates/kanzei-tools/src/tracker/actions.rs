@@ -6,7 +6,7 @@ use crate::docstore::{DocStore, Entry};
 use kanzei_harness::{ToolCtx, ToolOutput};
 
 use super::scheduling::{deadlock_banner, dependency_states, schedule_entries, structured_entry};
-use super::{check_entry_invariants, TrackerInput, TrackerTool};
+use super::{TrackerInput, TrackerTool};
 
 pub(crate) mod maintenance;
 pub(crate) mod normalize;
@@ -563,12 +563,6 @@ pub(crate) fn update_close(
             // 并带证据锚,沉默降级即拒(详见函数注释;真伪由波次审计另查)。
             if let Some(reconcile_err) = check_close_acceptance_reconciliation(&merged) {
                 return ToolOutput::error(format!("{id} {reconcile_err}"));
-            }
-            // R-311 批1:设计冻结不变式在 close 的状态迁移前执行。使用 merged
-            // 快照，允许本次 update 同时登记/修改不变式；失败必须点名断言并拒绝关闭。
-            if let Err(invariant_err) = check_entry_invariants(&ctx.project_root, &ctx.cwd, &merged)
-            {
-                return ToolOutput::error(format!("{id} {invariant_err}"));
             }
             let derived_done = crate::git_batches::completed_batches(&ctx.project_root, id)
                 .ok()

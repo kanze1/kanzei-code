@@ -11722,3 +11722,43 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-356
 - 收尾: 1788392679
 - 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@399dce1e9218,crates/kanzei-tools/src/tracker/fields.rs@18e2e6544ee9,crates/kanzei-tools/src/tracker/scheduling.rs@6ba6de2bd890
+
+## T-1786922726959 R-356 B3 归档测试过滤器校验 [skipped]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory docstore::archive_terminal_净化重复条目与孤儿字段
+- 时长: 9.6s
+- 摘要: 命令成功但过滤器未命中测试，完整输出为 running 0 tests；已改用函数名过滤器重跑。
+- 关联: R-356
+- 收尾: 1788392960
+- 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@0135a5f2c782,crates/kanzei-memory/src/docstore/archive.rs@4f8ec970cfa2,crates/kanzei-tools/src/git/finalize.rs@bb9c33784fe6,crates/kanzei-tools/src/tracker.rs@c8e57c521fe8,crates/kanzei-tools/src/tracker/actions.rs@290273be7388,crates/kanzei-tools/src/tracker/invariants.rs@000000000000
+
+## T-1786922726960 R-356 B3 archive_terminal 零消费者清理回归 [passed]
+- 命令: cargo test -p kanzei-memory archive_terminal_净化重复条目与孤儿字段
+- 时长: 0.3s
+- 摘要: 真实 archive_terminal 归档净化回归通过：1 passed；8 个零消费者字段与取活依据均被清除，叙事字段保留。
+- 关联: R-356
+- 收尾: 1788392973
+- 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@0135a5f2c782,crates/kanzei-memory/src/docstore/archive.rs@4f8ec970cfa2,crates/kanzei-tools/src/git/finalize.rs@bb9c33784fe6,crates/kanzei-tools/src/tracker.rs@c8e57c521fe8,crates/kanzei-tools/src/tracker/actions.rs@290273be7388,crates/kanzei-tools/src/tracker/invariants.rs@000000000000
+
+## T-1786922726961 R-356 B3 两 crate 定向回归（旧门禁测试待更新） [failed]
+- 命令: cargo test -p kanzei-memory; cargo test -p kanzei-tools
+- 时长: 64.8s
+- 摘要: kanzei-memory 169 passed/1 ignored；kanzei-tools 539 passed/1 ignored，唯一失败为旧不变式门禁测试，预期需随 R-356 B3 删除门禁后更新。
+- 关联: R-356
+- 收尾: 1788393079
+- 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@0135a5f2c782,crates/kanzei-memory/src/docstore/archive.rs@4f8ec970cfa2,crates/kanzei-tools/src/git/finalize.rs@bb9c33784fe6,crates/kanzei-tools/src/tracker.rs@c8e57c521fe8,crates/kanzei-tools/src/tracker/actions.rs@290273be7388,crates/kanzei-tools/src/tracker/invariants.rs@000000000000
+
+## T-1786922726962 R-356 B3 两 crate 最终定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-tools close不再执行不变式字段门禁; cargo test -p kanzei-memory; cargo test -p kanzei-tools
+- 时长: 70.8s
+- 摘要: D-741 更新后最终定向回归通过：kanzei-memory 169 passed/1 ignored；kanzei-tools 540 passed/1 ignored；close 新契约测试 1 passed。
+- 关联: R-356 D-741
+- 收尾: 1788393224
+- 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@0135a5f2c782,crates/kanzei-memory/src/docstore/archive.rs@4f8ec970cfa2,crates/kanzei-tools/src/git/finalize.rs@bb9c33784fe6,crates/kanzei-tools/src/tracker.rs@a9ca3fbb7cfe,crates/kanzei-tools/src/tracker/actions.rs@290273be7388,crates/kanzei-tools/src/tracker/invariants.rs@000000000000
+
+## T-1786922726963 R-356 B3 最终两 crate 定向回归 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory; cargo test -p kanzei-tools
+- 时长: 67.1s
+- 摘要: B3 注释清理后最终定向回归通过：kanzei-memory 169 passed/1 ignored；kanzei-tools 540 passed/1 ignored，含新 close 不变式回归。
+- 关联: R-356 D-741
+- 收尾: 1788393374
+- 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@0efb0e32ac8c,crates/kanzei-memory/src/docstore/archive.rs@4f8ec970cfa2,crates/kanzei-tools/src/git/finalize.rs@bb9c33784fe6,crates/kanzei-tools/src/tracker.rs@a9ca3fbb7cfe,crates/kanzei-tools/src/tracker/actions.rs@290273be7388,crates/kanzei-tools/src/tracker/invariants.rs@000000000000
