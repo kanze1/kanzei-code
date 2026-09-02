@@ -187,6 +187,8 @@ pub struct ResolvedControlState {
     /// 只在 Resume 且确实有未提交改动时出现:没有现场就不占篇幅。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_worktree: Option<ResumeWorktree>,
+    /// R-349:所有 active tracker 条目的只读机械对账结果；不自动改状态。
+    pub reconciliation: ReconciliationReport,
 }
 
 #[derive(Debug, Clone)]
@@ -736,6 +738,13 @@ fn compact_for_context(mut state: ResolvedControlState) -> ResolvedControlState 
     ) {
         state.executable_wip.clear();
     }
+    // R-349:完整对账仍由结构化 resolve 输出保留；注入 prompt 只带 selected 的判据，
+    // 不把其它 active 条目的标题/进展灌进模型上下文，延续 prompt 隔离契约。
+    let selected_id = state.selected.as_ref().map(|item| item.id.as_str());
+    state
+        .reconciliation
+        .items
+        .retain(|item| Some(item.id.as_str()) == selected_id);
     state
 }
 
@@ -758,6 +767,14 @@ pub fn resolve_work_decision(
         dependency_states_from_documents((&requirements, &req_archive), (&defects, &def_archive));
     let reference_index = reference_index((&requirements, &req_archive), (&defects, &def_archive));
     let observation = repo_observation(cwd);
+    let reconciliation = reconcile_active(
+        project_root,
+        &requirements,
+        REQUIREMENTS.terminal,
+        &defects,
+        DEFECTS.terminal,
+        &observation,
+    );
     let scheduled_requirements = schedule_for_display_with_states(&requirements, &states);
     let scheduled_defects = schedule_for_display_with_states(&defects, &states);
     // D-354:WIP 纪律按线圈定。他线持有的 WIP 不进本线的 Resume/WipViolation,
@@ -940,6 +957,14 @@ pub fn resolve_work_decision(
                 // 他线的 WIP:只作背景可见,不进本线任何裁决(blocked 也不进——
                 // 它的阻塞该由持有线处理)。
                 foreign_wip.push(WorkItemSummary::from(&view));
+            } else if reconciliation.already_committed(&view.id) {
+                let mut view = view;
+                if let Some(reason) = reconciliation.classification_reason(&view.id) {
+                    view.blocked = true;
+                    view.block_reasons
+                        .push(format!("机械对账禁止重复取活：{reason}"));
+                }
+                blocked_items.push(view);
             } else if view.parked {
                 // D-434:停车先于阻塞判定——停车条目照样不可执行,但要落在自己的
                 // 清单里,裁决面才分得清「等外部前提」和「主动让槽」。
@@ -996,6 +1021,7 @@ pub fn resolve_work_decision(
                     let invalid = !status.is_empty() && !kind.statuses.contains(&status);
                     if invalid
                         || status == wip_status
+                        || reconciliation.already_committed(&scheduled_item.entry.id)
                         || (kind.prefix == "R"
                             && work_unit_requirement_ids.contains(&scheduled_item.entry.id))
                     {
@@ -1173,6 +1199,7 @@ pub fn resolve_work_decision(
         foreign_wip,
         resume_reconcile,
         resume_worktree,
+        reconciliation,
     })
 }
 
@@ -1210,6 +1237,9 @@ pub fn resolved_control_prompt_of(state: Result<ResolvedControlState, String>) -
 }
 
 pub(crate) mod log;
+mod reconcile;
+pub use reconcile::{reconcile_active, ReconcileClass, ReconcileItem, ReconciliationReport};
+
 mod resume;
 use resume::collect_resume_worktree;
 pub use resume::ResumeWorktree;
@@ -1840,6 +1870,27 @@ mod tests {
         assert_eq!(state.decision, WorkDecision::Blocked);
         assert!(state.reason.contains("生命周期非法被隔离"));
         assert!(state.selected.is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reconcile_committed_entry_is_not_selected_again() {
+        let dir = git_fixture("reconcile-scheduler");
+        let mut committed = entry("D-900", "open");
+        committed
+            .fields
+            .push(("observed_head".into(), repo_observation(&dir).observed_head));
+        DocStore::open(&dir, &DEFECTS).save(&[committed]).unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Blocked, "{}", state.reason);
+        assert!(state.selected.is_none());
+        assert!(state.reconciliation.already_committed("D-900"));
+        assert!(state.blocked_items.iter().any(|item| item.id == "D-900"
+            && item
+                .block_reasons
+                .iter()
+                .any(|reason| reason.contains("机械对账"))));
         let _ = std::fs::remove_dir_all(dir);
     }
 

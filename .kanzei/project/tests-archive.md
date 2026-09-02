@@ -11294,3 +11294,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-348
 - 收尾: 1788307269
 - 源码指纹: v2 crates/kanzei-app/src/main.rs@498444016332,crates/kanzei-app/src/research_latex.rs@300ac37bee79,crates/kanzei-tools/src/latex_tool.rs@909bde5d9fdb,crates/kanzei-tools/src/lib.rs@4242adfb18a3,scripts/ui-runtime-smoke.mjs@7ce5ace9cec5
+
+## T-1786922726903 R-349 reconcile 机械对账定向测试 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 40.0s
+- 摘要: R-349 定向验证通过：531 passed、0 failed、1 ignored；新增测试覆盖 stale、implemented-uncommitted、committed-unverified、verified-unclosed、源码指纹覆盖与 prompt 隔离回归。
+- 关联: R-349
+- 收尾: 1788308205
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@83252f37ebbf,crates/kanzei-tools/src/work/reconcile.rs@b53d1407ecd7
+
+## T-1786922726904 R-349 关闭前 workspace 全量测试 [passed]
+- 命令: cargo test --workspace
+- 时长: 86.4s
+- 摘要: R-349 大复杂度关闭前 workspace 全量通过：各 crate 测试全部通过；工具 crate 532 passed、0 failed、1 ignored，app 256 passed，core 277 passed，llm 55 passed，harness 172 passed，memory 169 passed，base 22 passed，CLI 47 passed；仅既有 ignored 测试。
+- 关联: R-349
+- 收尾: 1788308478
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@5c49cfbdce6d,crates/kanzei-tools/src/work/reconcile.rs@b53d1407ecd7
