@@ -11450,3 +11450,23 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 六项前端冒烟全部通过；运行时 27 个 ui/*.js 按序执行、2346 次 invoke、0 运行时错误；其余 ESLint/并行线路/a11y/i18n/Markdown 均通过。
 - 关联: R-340 D-732 R-319
 - 收尾: 1788346845
+
+## T-1786922726924 当前 HEAD 全量验证（解除源码指纹对账） [passed]
+- 命令: .\scripts\verify.ps1 -Full
+- 摘要: 当前 HEAD 全量 verify 通过：full 模式、前端/IPC/metrics/fmt/clippy/workspace 测试全部通过，dist/verification.json 绑定 commit 9b620fee；关联仅证明当前源码验证覆盖，不替代各条目的 Android/SSH/语音/llama-local/桌面现场验收。
+- 关联: R-340 R-319 R-283 R-284 R-285 R-287 R-101 R-245 R-249 R-264 R-281 R-307 R-309 R-312 R-322 R-323 R-341 R-344 D-732 D-504 D-566 D-568 D-577 D-592 D-655 D-662 D-718 D-719
+- 收尾: 1788347447
+
+## T-1786922726925 work reconcile 当前 HEAD 证据承接回归 [passed]
+- 命令: cargo test -p kanzei-tools work::reconcile
+- 摘要: reconcile 定向回归 5 passed、0 failed；覆盖当前 HEAD 全量 verification.json 对历史源码路径的证据承接、逐路径指纹门禁、stale 与 implemented-uncommitted 分类。
+- 关联: R-349
+- 收尾: 1788347673
+- 源码指纹: v2 crates/kanzei-tools/src/work/reconcile.rs@668ce84f36b4
+
+## T-1786922726926 work reconcile 当前 HEAD 证据承接最终回归 [passed]
+- 命令: cargo test -p kanzei-tools work::reconcile
+- 摘要: 最终代码版本 reconcile 定向回归 5 passed、0 failed；验证当前 HEAD verification.json 可覆盖历史源码路径，且旧逐路径指纹、stale、implemented-uncommitted 分类保持不变。
+- 关联: R-349
+- 收尾: 1788347731
+- 源码指纹: v2 crates/kanzei-tools/src/work/reconcile.rs@641a958f3098

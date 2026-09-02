@@ -243,13 +243,31 @@ fn passed_evidence(root: &Path, id: &str) -> (Vec<String>, Vec<String>) {
     (ids, fingerprints)
 }
 
+fn current_head_verification_passed(root: &Path, current_head: &str) -> bool {
+    let path = root.join("dist/verification.json");
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(evidence) =
+        serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}'))
+    else {
+        return false;
+    };
+    evidence["commit"].as_str() == Some(current_head)
+        && evidence["all_pass"].as_bool() == Some(true)
+}
+
 fn evidence_covers(
     fingerprints: &[String],
     target_fingerprint: Option<&str>,
     has_passed_record: bool,
+    current_head_verification: bool,
 ) -> bool {
     if !has_passed_record {
         return false;
+    }
+    if current_head_verification {
+        return true;
     }
     match target_fingerprint {
         Some(target) => fingerprints
@@ -306,6 +324,7 @@ fn reconcile_entry(
                 &evidence_source_fingerprints,
                 target_fingerprint,
                 !test_record_ids.is_empty(),
+                current_head_verification_passed(root, current_head),
             ) {
                 if let Some(target) = target_fingerprint {
                     reasons.push(format!("测试证据未覆盖源码指纹 `{target}`"));
@@ -402,13 +421,74 @@ mod tests {
     fn fingerprint_evidence_requires_each_current_path() {
         let target =
             "v2 crates/kanzei-app/ui/a.js@111111111111,crates/kanzei-app/ui/b.js@222222222222";
-        assert!(evidence_covers(&[target.into()], Some(target), true));
+        assert!(evidence_covers(&[target.into()], Some(target), true, false));
         assert!(!evidence_covers(
             &["v2 crates/kanzei-app/ui/a.js@111111111111".into()],
             Some(target),
-            true
+            true,
+            false
         ));
-        assert!(!evidence_covers(&[target.into()], Some(target), false));
+        assert!(!evidence_covers(
+            &[target.into()],
+            Some(target),
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn current_head_verify_covers_historical_source_paths() {
+        let root = git_fixture("current-head-verify");
+        let base = head(&root);
+        std::fs::write(
+            root.join("crates/example/src/lib.rs"),
+            "pub fn value() -> u8 { 2 }\n",
+        )
+        .unwrap();
+        let run = |args: &[&str]| {
+            let status = Command::new("git")
+                .current_dir(&root)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        };
+        run(&["add", "."]);
+        run(&["commit", "--quiet", "-m", "feature"]);
+        let current = head(&root);
+        std::fs::create_dir_all(root.join("dist")).unwrap();
+        std::fs::write(
+            root.join("dist/verification.json"),
+            format!(r#"{{"commit":"{current}","all_pass":true}}"#),
+        )
+        .unwrap();
+        crate::test_record::append_test_run(
+            &root,
+            "D-current-head verification",
+            "passed",
+            Some(".\\scripts\\verify.ps1 -Full"),
+            Some("passed"),
+            Some(&["D-current-head".to_string()]),
+        )
+        .unwrap();
+        let entry = active("D-current-head", &base);
+        let report = reconcile_active(
+            &root,
+            &[],
+            &[],
+            &[entry],
+            &[],
+            &RepoObservation {
+                recorded_at: "now".into(),
+                observed_head: current.clone(),
+                observed_worktree_hash: "clean".into(),
+            },
+        );
+        assert_eq!(
+            report.items[0].classification,
+            ReconcileClass::VerifiedUnclosed
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     fn git_fixture(tag: &str) -> std::path::PathBuf {
