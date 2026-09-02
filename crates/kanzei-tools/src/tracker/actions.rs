@@ -426,7 +426,15 @@ pub(crate) fn update_close(
     // key、smoke 断言过时(D-320 根因)。非前端标签条目不受影响(验收③)。
     // R-232:终态重入跳过——已关闭条目的再次 close 不是新关闭,不再要求冒烟。
     let action = input.action.clone();
-    if action == "close" && !already_terminal {
+    // D-737:direct update 到终态必须走 close 的同一条门禁链；否则两条路径
+    // 都会落入同一个终态，但只有 close 会校验证据与收尾条件。
+    let is_terminal_update = action == "update"
+        && input
+            .status
+            .as_deref()
+            .is_some_and(|status| tool.kind.terminal.contains(&status));
+    let is_closing_action = action == "close" || is_terminal_update;
+    if is_closing_action && !already_terminal {
         if let Some(ancestry_err) = check_close_source_ancestry(&entries[pos], &ctx.cwd) {
             return ToolOutput::error(format!("{id} {ancestry_err}"));
         }
@@ -438,7 +446,7 @@ pub(crate) fn update_close(
     // 照旧要求"先跑 verify.ps1",条目就永远关不掉——实测形态是 agent 反复
     // `.\scripts\verify.ps1` → command not found → glob 全仓库 → 确认不存在 →
     // 记一条失败测试 → 条目仍 open,整段对产品零价值。没有该脚本就不设这道门。
-    if action == "close"
+    if is_closing_action
         && !already_terminal
         && crate::test_record::project_has_verify_script(&ctx.project_root)
     {
@@ -453,7 +461,7 @@ pub(crate) fn update_close(
             }
         }
     }
-    if action == "close" && !already_terminal {
+    if is_closing_action && !already_terminal {
         let tag = entries[pos]
             .fields
             .iter()
@@ -480,7 +488,7 @@ pub(crate) fn update_close(
             ));
         }
     }
-    let target_status = if action == "close" {
+    let target_status = if is_closing_action {
         // R-232 验收③:close 幂等重入——已终态条目再次 close 不是新关闭,
         // 跳过批次/断言/测试记录等关闭校验,目标仍是当前终态。
         // 字段合并照常(重入可补字段),无变更时下方 no-op 判定会零写入返回。
@@ -721,7 +729,7 @@ pub(crate) fn update_close(
     let line = render_line(&entries[pos]);
     // 先保留成功迁移后的快照；telemetry 必须在 store.save 成功后才写入，避免
     // 写盘失败时产生“未实际关闭却已有收尾记录”的虚假证据。
-    let telemetry_entry = if action == "close" && !already_terminal {
+    let telemetry_entry = if is_closing_action && !already_terminal {
         Some(entries[pos].clone())
     } else {
         None

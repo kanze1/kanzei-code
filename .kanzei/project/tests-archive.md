@@ -11516,3 +11516,35 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-353
 - 收尾: 1788387656
 - 源码指纹: v2 crates/kanzei-tools/src/git.rs@b4fd542fc684,crates/kanzei-tools/src/git/finalize.rs@78f3cf1e23a2,crates/kanzei-tools/src/work/log.rs@12ca84ac698f
+
+## T-1786922726933 D-737 direct update 终态关闭门禁回归 [passed]
+- 命令: cargo test -p kanzei-tools tracker::tests::update直达终态复用关闭门禁
+- 时长: 0.2s
+- 摘要: direct update→terminal 共享 observed_head 关闭门禁：无效 head 拒绝且状态不变，满足门禁后迁移成功并写 close telemetry。
+- 关联: D-737
+- 收尾: 1788387960
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@24f008b98f27,crates/kanzei-tools/src/tracker/actions.rs@0b7d96f5b90c
+
+## T-1786922726934 D-737 tracker 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools tracker
+- 时长: 2.0s
+- 摘要: tracker action/门禁/调度定向回归通过：81 passed；包含 direct update→terminal 共享 close 门禁测试。
+- 关联: D-737
+- 收尾: 1788387976
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@24f008b98f27,crates/kanzei-tools/src/tracker/actions.rs@0b7d96f5b90c
+
+## T-1786922726935 D-737 tracker 定向回归（当前源码） [passed]
+- 命令: cargo test -p kanzei-tools tracker
+- 时长: 1.8s
+- 摘要: rustfmt 修正后的 tracker 定向回归通过：81 passed，包含 direct update→terminal 共享 close 门禁与 telemetry 回归。
+- 关联: D-737
+- 收尾: 1788388084
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@a353708ffc1e,crates/kanzei-tools/src/tracker/actions.rs@0b7d96f5b90c
+
+## T-1786922726936 D-737 tracker 定向回归（fmt 后） [passed]
+- 命令: cargo test -p kanzei-tools tracker
+- 时长: 1.8s
+- 摘要: 官方 cargo fmt 规范化后的 tracker 定向回归通过：81 passed，包含 direct update→terminal 门禁回归。
+- 关联: D-737
+- 收尾: 1788388259
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@07b724d50e7d,crates/kanzei-tools/src/tracker/actions.rs@0b7d96f5b90c

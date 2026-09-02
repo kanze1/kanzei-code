@@ -1307,6 +1307,71 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// D-737:direct update 到终态必须共享 close 门禁，不能绕过 observed_head 校验。
+    #[tokio::test]
+    async fn update直达终态复用关闭门禁() {
+        let dir =
+            std::env::temp_dir().join(format!("kz-update-terminal-gate-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut e = entry("R-001");
+        e.status = "doing".into();
+        e.fields = vec![(
+            "observed_head".into(),
+            "0000000000000000000000000000000000000000".into(),
+        )];
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        store.save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        let rejected = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "status": "done"}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            rejected.is_error,
+            "direct update 不得绕过关闭门禁: {}",
+            rejected.content
+        );
+        assert!(
+            rejected.content.contains("不在当前 HEAD 祖先链"),
+            "{}",
+            rejected.content
+        );
+        assert_eq!(store.load().unwrap()[0].status, "doing");
+
+        let mut repaired = store.load().unwrap();
+        repaired[0].fields.retain(|(key, _)| key != "observed_head");
+        store.save(&repaired).unwrap();
+        let accepted = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "status": "done"}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !accepted.is_error,
+            "direct update 通过关闭门禁后应可迁移: {}",
+            accepted.content
+        );
+        assert_eq!(store.load().unwrap()[0].status, "done");
+        let telemetry = crate::close_telemetry::read_records(&dir);
+        assert_eq!(
+            telemetry.len(),
+            1,
+            "direct update 到终态也应进入关闭 telemetry"
+        );
+        assert_eq!(telemetry[0].entry_id, "R-001");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// R-311 批1:close 运行冻结不变式；失败点名断言且不迁移状态，修复后才可关闭。
     #[tokio::test]
     async fn close执行不变式失败拒绝迁移并在修复后放行() {

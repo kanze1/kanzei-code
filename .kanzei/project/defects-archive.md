@@ -8924,5 +8924,17 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788348920574
 - 停车: 
-- 阻塞: 
 - 验收对账: ①已完成：`crates/kanzei-app/src/run/coordinator.rs:350-351` 改用 `summary.round_messages` 作为稳定本轮真源，不再按 `prior.len()` 盲切；②已完成：`crates/kanzei-app/src/run/persistence.rs:190-196` 与 `crates/kanzei/src/cli/run/finalize.rs:150-158、180-193` 统一使用本轮消息边界，三处调用链不再依赖压缩后的 prior 切片；③已完成：轮中压缩删短 prior 的回归由 T-1786922726649（kanzei-core）、T-1786922726650（kanzei-app）、T-1786922726651（kanzei CLI）passed 覆盖，且当前 HEAD full verify 由 T-1786922726927、`dist/verification.json` 绑定 `1b3115ea` 通过。
+
+## D-736 取活裁决全局死锁:对账把 24 条判成已提交并硬拦,executable_wip 为空 [fixed] (high)
+- 修复方向: 对账结果降级为提示与排序依据,不进 blocked_items(队列必须永远有出路);并补一条硬不变式:存在非终态且未停车的条目时 decision 不得为 Blocked。另修 already_committed 与 view.parked 的判定顺序。判据换成本条目改动面属后续设计,与本条解耦。
+- 来源: 用户「现在可以处理track相关的设计了」后的并行勘察发现;kz work next 实测输出经我复核:decision=blocked、executable_wip=[]、blocked_items=24、reconciliation.items=0、block_reasons 176382 字符。
+- 标签: 核心
+- 根因: R-349 B1(b0827f39)的对账结果被当作硬拦判据:reconcile 的 already_committed(committed-unverified 与 verified-unclosed 都返回 true)在 work.rs 里直接推进 blocked_items,且该分支排在 view.parked 之前,把停车条目也抢先算成阻塞——推翻了 D-434 刻意做的「停车≠阻塞」分离。判定本身又建立在全局代理量上:target_fingerprint 取 declared_commit..HEAD 之间全部源码文件(与被判条目无关),而 passed 记录的源码指纹只在脏工作区才写,干净树上恒空,于是覆盖判定恒不成立、条目恒为 committed-unverified。1b3115ea 的「当前 HEAD 有 full verify 即算覆盖」短路只把 committed-unverified 变成 verified-unclosed,两者都被 already_committed 拦,未解锁。
+- 现象: kz work next 当前返回 decision=blocked、selected=null、executable_wip=[]、blocked_items=24、parked_items=2;reconciliation.counts={committed-unverified:22, stale:4} 而 reconciliation.items=0(判定结果一条都不可见);block_reasons 合计 176382 字符进 prompt。自举循环因此一条活都取不出来,活动文件里的常驻条目自 R-349 B1 落地后无人认领。
+- refs: R-349
+- 优先级: P0
+- 进展: 批次: 1/1；实现、回归与提交已完成。①已完成：对账分类不再进入 `blocked_items`，`crates/kanzei-tools/src/work.rs:955-970` 先处理他线 WIP/停车/真实阻塞，再把普通活动 WIP 纳入 executable；候选筛选 `work.rs:1014-1026` 已移除 `already_committed` 硬拦。②已完成：存在非终态且未停车条目时不再因机械对账得到 Blocked，选中项通过 `work.rs:1167-1172` 将分类作为“机械对账提示（不阻断）”写入 reason，真实消费者为 work next 的 resolved control state。③已完成：停车优先于对账并继续进入 `parked_items`，回归 `work.rs:1621-1656` 使用带 observed_head 的停车条目验证不混入 blocked；已对账活动条目 Start 回归在 `work.rs:1877-1897`。④证据：T-1786922726928（`cargo test -p kanzei-tools work::`，35 passed）、提交 `7823d6f6`；提交前 `cargo check --workspace --all-targets`、`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings` 均通过。
+- observed_head: 7823d6f6bab0e6d1fe9321dfa5ac50de36b28a12
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788349499518
