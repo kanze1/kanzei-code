@@ -8833,3 +8833,40 @@
 - observed_head: 3d612fd9d620822a0b097aee916cadfacb7dfc35
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788304008686
+
+## D-735 ui_a11y 拒绝主题外裸字号 [fixed] (low)
+- 复现: 运行 .\scripts\verify.ps1 或 node scripts/ui-a11y-smoke.mjs；检查 ui/style.css，门禁报告 font: 10px、font-size: 11px、font-size: 10px、font-size: 12px 四处裸字号。
+- 影响: 主题字号未经过 --fs-* 集中 token 管理，ui_a11y 失败并阻断 verify 证据生成。
+- 来源: self-found：D-734 提交后运行 verify.ps1，越过背景色与 i18n 缺口后发现。
+- 标签: 前端
+- 优先级: P1
+- 进展: 已修复并提交 d48ba988：style.css:2390 的 font:10px→var(--fs-10)，:2391 的 font-size:11px→var(--fs-11)，:2392 的 font-size:10px→var(--fs-10)，:2393 的 font-size:12px→var(--fs-12)，像素值不变。复现命令 node scripts/ui-a11y-smoke.mjs 由 T-1786922726917 通过；相关 runtime/lint 为 T-1786922726918，kanzei-app 256 项定向测试为 T-1786922726916；当前 HEAD 完整 .\scripts\verify.ps1 由 T-1786922726919 通过并生成绑定 d48ba988 的 dist/verification.json。
+- observed_head: d48ba988230d8e4a63e2faa2fd6ae7dbd9ba242c
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788309903430
+
+## D-734 ui_i18n 未收录研究结果图静态文案 [fixed] (low)
+- 复现: 运行 .\scripts\verify.ps1 或 node scripts/ui-i18n-smoke.mjs；检查 crates/kanzei-app/ui/index.html，静态文案「实验结果图」未在 I18N_ZH/I18N_EN 资源表中。
+- 影响: i18n 门禁失败，研究视图静态文案无法按语言资源契约校验，阻断 verify 证据生成。
+- 来源: self-found：R-350 提交后运行 verify.ps1 发现。
+- 标签: 前端
+- refs: R-350
+- 优先级: P1
+- 进展: 已修复并提交 af7b635c：crates/kanzei-app/ui/index.html:550 为 research-latex-figure-caption 增加 data-i18n-placeholder="实验结果图"；crates/kanzei-app/ui/02-i18n.js:303 增加 I18N_EN['实验结果图']='Experiment results figure'。验收=复现命令 node scripts/ui-i18n-smoke.mjs 已由 T-1786922726912 通过（1472 个资源 key、481 项 HTML 文案、57 项动态契约）；关联 runtime/lint 为 T-1786922726913，kanzei-app 256 项定向测试为 T-1786922726914；当前 HEAD af7b635c 后续完整 verify 中 ui_i18n 已通过，D-735 修复后 T-1786922726919 证明完整 .\scripts\verify.ps1 全绿并生成绑定 d48ba988 的 dist/verification.json。
+- observed_head: d48ba988230d8e4a63e2faa2fd6ae7dbd9ba242c
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788309921890
+- 停车: 
+
+## D-733 ui_a11y 拒绝研究 LaTeX PDF 预览字面量背景色 [fixed] (low)
+- 复现: 运行 .\scripts\verify.ps1 或 node scripts/ui-a11y-smoke.mjs；检查 crates/kanzei-app/ui/style.css:2249，.research-latex-pdf 使用 background: #fff。
+- 影响: 浅色主题之外的字面量颜色违反主题 token 门禁，a11y 验证失败并阻断 verify 证据生成。
+- 来源: self-found：R-350 提交后运行 verify.ps1 发现。
+- 标签: 前端
+- refs: R-350
+- 优先级: P1
+- 停车: 
+- 进展: 已修复并提交 2d57bb46：crates/kanzei-app/ui/style.css:2375 将 .research-latex-pdf 的 background: #fff 改为 background: var(--panel)，不改变布局尺寸。验收=原复现项的主题外字面量颜色已消除；frontend_check 通过，D-733 专项 node scripts/ui-a11y-smoke.mjs 已记录为 T-1786922726910（该次随后暴露的是独立裸字号），相关 kanzei-app 256 项测试为 T-1786922726911；D-735 修复后 T-1786922726919 证明当前 HEAD 完整 .\scripts\verify.ps1 全绿并生成绑定 d48ba988 的 dist/verification.json。
+- observed_head: d48ba988230d8e4a63e2faa2fd6ae7dbd9ba242c
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788309935878

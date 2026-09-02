@@ -11413,3 +11413,10 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: D-735 关联前端回归通过：UI runtime 27 个脚本/2346 次 invoke/0 错误，UI lint 54 个文件零 no-undef。
 - 关联: D-735
 - 收尾: 1788309799
+
+## T-1786922726919 D-733 D-734 D-735 当前 HEAD 完整 verify [passed]
+- 命令: .\scripts\verify.ps1
+- 时长: 9.1s
+- 摘要: 当前 HEAD d48ba988 完整 verify 通过：parallel-lines、ui_a11y、ui_i18n、ui_markdown、metrics/crate_sync、ps1_bom、ui_lint、ipc_event_contract、ui_connectivity、ui_runtime 全部通过，生成绑定提交的 dist/verification.json。
+- 关联: D-733 D-734 D-735
+- 收尾: 1788309895
