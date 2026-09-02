@@ -2294,6 +2294,11 @@ prunable gitdir file points to non-existent location
         )
         .unwrap();
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/requirements.md"),
+            "# Requirements\n\n## R-001 finalize probe [todo]\n",
+        )
+        .unwrap();
         // 初始提交(empty repo 无法 stage 后看 log;先提交 README 占位)。
         commit_file(&dir, "README.md", "finalize probe\n", "init");
 

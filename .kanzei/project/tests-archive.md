@@ -11484,3 +11484,35 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-736
 - 收尾: 1788349361
 - 源码指纹: v2 crates/kanzei-tools/src/work.rs@23e5fa7a7099,crates/kanzei-tools/src/work/reconcile.rs@504a4a9ded6a
+
+## T-1786922726929 R-353 finalize 与 work-log 定向回归（首次） [failed]
+- 命令: cargo test -p kanzei-tools git::tests::finalize; cargo test -p kanzei-tools work::log
+- 时长: 1.1s
+- 摘要: 首次定向回归未进入测试，编译阶段因 work/log.rs 重复 tests 模块触发 E0428；随后已删除重复空模块。
+- 关联: R-353
+- 收尾: 1788387443
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@b4fd542fc684,crates/kanzei-tools/src/git/finalize.rs@15a25bbe33ec,crates/kanzei-tools/src/work/log.rs@12ca84ac698f
+
+## T-1786922726930 R-353 finalize 与 work-log 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools git::tests::finalize; cargo test -p kanzei-tools work::log
+- 时长: 14.8s
+- 摘要: 修复重复 tests 模块后定向回归通过：finalize 2 passed，work-log 1 passed。
+- 关联: R-353
+- 收尾: 1788387479
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@b4fd542fc684,crates/kanzei-tools/src/git/finalize.rs@15a25bbe33ec,crates/kanzei-tools/src/work/log.rs@12ca84ac698f
+
+## T-1786922726931 R-353 kanzei-tools 全 crate 回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 54.5s
+- 摘要: kanzei-tools 全 crate 回归通过：533 passed，1 ignored。
+- 关联: R-353
+- 收尾: 1788387554
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@b4fd542fc684,crates/kanzei-tools/src/git/finalize.rs@15a25bbe33ec,crates/kanzei-tools/src/work/log.rs@12ca84ac698f
+
+## T-1786922726932 R-353 kanzei-tools 全 crate 回归（当前源码） [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 47.7s
+- 摘要: 格式修复后的 kanzei-tools 全 crate 回归通过：533 passed，1 ignored。
+- 关联: R-353
+- 收尾: 1788387656
+- 源码指纹: v2 crates/kanzei-tools/src/git.rs@b4fd542fc684,crates/kanzei-tools/src/git/finalize.rs@78f3cf1e23a2,crates/kanzei-tools/src/work/log.rs@12ca84ac698f

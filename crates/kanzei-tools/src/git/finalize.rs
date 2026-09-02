@@ -5,7 +5,7 @@ use kanzei_harness::{ToolCtx, ToolOutput};
 
 use super::{
     aggregate_gate_errors, build_commit_plan, clippy_gate, commit_with_gate_state, fmt_gate,
-    source_endorsement_fingerprint, stage,
+    run_git, source_endorsement_fingerprint, stage,
 };
 
 /// D-334:finalize 事务化——把「fmt → 相关测试 → test_record → stage → CAS commit」
@@ -107,7 +107,7 @@ pub(crate) async fn finalize(
     } else {
         passed_summary
     };
-    if let Err(error) = crate::test_record::record_test_run_with_duration(
+    let test_record = match crate::test_record::record_test_run_with_duration(
         &ctx.project_root,
         None,
         &format!("git finalize (auto): {test_command}"),
@@ -118,8 +118,14 @@ pub(crate) async fn finalize(
         Some(duration_secs),
         Some(&fingerprint),
     ) {
-        return ToolOutput::error(format!("[finalize] test_record failed: {error}"));
-    }
+        Ok(snapshot) => snapshot,
+        Err(error) => return ToolOutput::error(format!("[finalize] test_record failed: {error}")),
+    };
+    let test_record_ids = test_record
+        .get("recorded_id")
+        .and_then(serde_json::Value::as_str)
+        .map(|id| vec![id.to_string()])
+        .unwrap_or_default();
 
     let staged = stage(&ctx.project_root, cwd, &files, None).await;
     let ToolOutput {
@@ -153,9 +159,44 @@ pub(crate) async fn finalize(
             committed.content
         ));
     }
+    let deliver_note = match run_git(cwd, &["rev-parse", "HEAD"]).await {
+        Ok(commit) => {
+            let paths = run_git(
+                cwd,
+                &["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
+            )
+            .await
+            .unwrap_or_default()
+            .lines()
+            .filter(|path| !path.trim().is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+            let entry_id = requirement_id
+                .or_else(|| crate::work::log::latest_claim_id(&ctx.project_root, ctx));
+            if let Some(entry_id) = entry_id {
+                crate::work::log::append(
+                    &ctx.project_root,
+                    "deliver",
+                    Some(&entry_id),
+                    ctx,
+                    serde_json::json!({
+                        "commit": commit.trim(),
+                        "paths": paths,
+                        "test_record_ids": test_record_ids,
+                        "source": "engine",
+                    }),
+                );
+                format!("\ndeliver recorded: {entry_id} @ {}", commit.trim())
+            } else {
+                "\nWarning: no bound claim found; commit remains legacy without a deliver record"
+                    .to_string()
+            }
+        }
+        Err(error) => format!("\nWarning: committed but deliver lookup failed: {error}"),
+    };
     ToolOutput::ok(format!(
-        "[finalize] complete: {test_command} passed in {duration_secs:.1}s → staged {staged_hash} → committed\n{content}\n{}",
-        committed.content
+        "[finalize] complete: {test_command} passed in {duration_secs:.1}s → staged {staged_hash} → committed\n{content}\n{}{}",
+        committed.content, deliver_note
     ))
     .with_display(display.unwrap_or_else(|| serde_json::json!({ "kind": "terminal" })))
 }

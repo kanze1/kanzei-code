@@ -256,7 +256,7 @@
 - observed_head: f62097cfde97e559534c16f898a6c0f1fb5a3e23
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787306265598
-- 停车: 
+- 停车: WIP 单槽纪律：当前 defect-first 队首保留 D-568；本条未开始本轮实现，主动让位，待 D-568 收口后恢复；恢复人:agent
 
 ## R-322 门禁强度分档与模型停机权 [doing]
 - 原始描述: 外部评估七点反馈中的 #1 Harness Tax、#4 模式区分不够明显、#7 双控制器问题。用户定调：控制权交给模型；结伴接近 Claude Code 的高自治，自主推进保留重门禁；决策点要呈现给用户
@@ -270,7 +270,7 @@
 - observed_head: 32513251d54e6dd311f08c44fac6df2adfa8454b
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787283272605
-- 停车: 本轮 WIP 超限，B1-B3 已完成；B4 需要真实端到端会话验收，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent
+- 停车: WIP 单槽纪律：当前 defect-first 队首保留 D-568；本条尚未开始 B4 实现，主动让位，待 D-568 收口后恢复；恢复人:agent
 
 ## R-323 工具编排抽象层：模型声明执行计划 [doing]
 - 原始描述: 外部评估 #2：Harness 的保守规则可能成为模型能力的上限。用户定调：提供底层工具+一层抽象层，让模型去编排
@@ -285,7 +285,7 @@
 - observed_head: a032aa492ae157c2791c2cfa9cf768740f093517
 - observed_worktree_hash: fnv1a64:dee5f1692c68b6ad
 - recorded_at: 1787276362163
-- 停车: 本轮 WIP 超限，B1 工具并发契约审计已完成；B2 尚未开始，先让位缺陷优先的 D-655，槽位释放后恢复。恢复人:agent
+- 停车: WIP 单槽纪律：R-353 已有进行中的 finalize/deliver 实现与未提交改动，本条主动让位；待 R-353 收口后恢复；恢复人:agent
 
 ## R-340 运行画像任务主视图与 session/round 下钻 [doing]
 - 内容: 在 R-338 task projection 契约评审并可消费后，重做运行画像前端主展示：以已关闭 task 为趋势/主列表，进行中 task 独立展示；点击 task 下钻到 session 分段、input 与 round/episode 细节，保留 provider/model、工具、上下文账单和错误；保留旧 rounds/legacy 提示与空态，不在前端自行聚合。
@@ -304,7 +304,7 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787898129566
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：前端沿用 task 主趋势、进行中/legacy 分区、session/round 下钻和仅显式 attach 的后端语义。
-- 停车: 
+- 停车: WIP 单槽纪律：当前 defect-first 队首保留 D-568；本条未开始本轮实现，主动让位，待 D-568 收口后恢复；恢复人:agent
 
 ## R-341 运行画像任务级真实链路收口与回归矩阵 [doing]
 - 内容: 作为 R-338/R-339/R-340 的链路收口，验证真实入口从 task 事实生产、SQLite projection/API 查询到运行画像 UI 的端到端闭环：创建并关闭多个任务、同一长 session 多轮、未关闭任务、session 下钻、legacy 历史和失败路径均可复核；不以单测、viewport 模拟或替身服务冒充真实链路。
@@ -342,3 +342,83 @@
 - 状态: doing
 - 依赖: R-345 R-347
 - 阻塞: 真实 SSH 服务器端到端验收需要用户提供可连接的 SSH 目标、账号/凭据与人工准备目录；解除人:用户
+
+## R-353 改动面账本与交付态推导:让条目、改动、证据成为可机械关联的事实 [doing]
+- 内容: 按 docs/design/tracker_evidence_ledger.md §3.1/§3.2 建立地基:在 .kanzei/artifacts/work-log.jsonl 新增 deliver 事件(条目 id、commit、paths、test_record_ids、时间戳、来源),写入点设在 git finalize 提交通道——该处已在机器写 passed 测试记录,同一时刻引擎已知 WIP 持有者、暂存文件集与提交 sha。据此推导交付态 unstarted/uncommitted/committed/verified,作为纯派生量供门禁与调度消费,不落 Markdown、不新增条目字段。
+- 发现记录: {"Intent":"让门禁与调度能问出本条目的改动面,而不是拿全局代理量猜条目与改动的关系","Explicit":"账本由引擎在提交通道写;交付态是纯派生量不落 Markdown;意图态仍归模型;存量走遗留模式","Assumptions":"git finalize 处已知 WIP 持有者与暂存集;work-log.jsonl 已是引擎写的 append-only 事实流","Ambiguities":"主树手工 commit 如何补账,本条按遗留模式只提示不拦处理,不引入模型可写的补记通道","领域对象":"deliver 事件、改动面 paths、交付态、意图态、work-log、提交通道","最小成功闭环":"一条需求从取活到提交,账本自动留痕,交付态推导正确,遗留条目不被误拦","延后决策":"归档面对账、跨线路账本合并、账本的压缩与轮转"}
+- 复杂度: 大
+- 来源: 用户就「交付态由谁产」定调选择「引擎在提交通道自动记账本」,并接受「所有提交须走 kz 提交通道、主树手工 commit 缺账落遗留模式」的代价;根因见用户原话「Tracker 已无法可靠表达当前真实状态」。
+- 标签: 核心
+- 边界: 不改意图态(todo/doing/done)的语义与写法,模型继续声明意图;交付态引擎独产,模型不得写;不回改存量条目,账本零行者走遗留模式仅提示不拦;不为防敌对模型设计,账本不可伪造仅因模型不经手提交通道;主树手工 commit 缺账属已接受代价。
+- 验收: ①一次经 kz 提交通道的真实交付在 work-log 留下 deliver 行,paths 与该次提交暂存集一致;②交付态可由账本推导且四种取值各有真实实例;③账本零行的存量条目落入遗留模式,判定只作提示不产生拒绝;④交付态不出现在任何 Markdown 条目字段里;⑤模型侧工具无法写入 deliver 事件。
+- refs: R-349 D-736
+- 优先级: P0
+- 进展: 批次: 1/1；恢复复核确认未提交范围仅 3 个源码文件，前置无已提交批次。已落地：`crates/kanzei-tools/src/git/finalize.rs:124-196` 捕获 passed test_record id、提交后真实 HEAD/path，并写 deliver；`crates/kanzei-tools/src/work/log.rs:90-119` 按同 run/line 解析最近 claim 归属；`crates/kanzei-tools/src/git.rs:12` 暴露 finalize 所需真实 git 读取。现状：实现尚未测试/提交；下一步运行 kanzei-tools 定向回归，修正失败，再按显式文件 stage/commit。
+- observed_head: 5a2e76a795039b8bb2e18252f9190dc479580926
+- observed_worktree_hash: fnv1a64:5ddfe2f202e921c6
+- recorded_at: 1788387390670
+
+## R-354 门禁判据换成本条目改动面,并确立可满足性通则 [todo]
+- 内容: 按设计 §3.3 把三处基于全局代理量的判据换成本条目改动面:close_verify_trigger 由 HEAD^..HEAD numstat 改为该条目账本所有 commit 的 paths 并集;reconcile 的 target_fingerprint 由 declared_commit..HEAD 全量改为账本记录的 paths;implemented-uncommitted 由全树指纹改为脏文件与本条目 paths 的交集(source_endorsement_fingerprint_for_paths 已存在)。同时把可满足性通则写进 conventions 并做成代码不变式:门禁拿不到本条目证据时默认放行不默认拒绝,拒绝时必须给出一条本项目产得出的命令。
+- 发现记录: {"Intent":"让门禁判的是本条目干了什么,而不是仓库最近发生了什么","Explicit":"三处判据换输入;可满足性通则做成代码不变式;双写观察期后再切换","Assumptions":"R-353 的账本已可提供本条目 paths;现成的改动面函数可直接复用","Ambiguities":"观察期长度与分歧容忍度,本条按记录分歧不拦截处理","领域对象":"close_verify_trigger、target_fingerprint、implemented-uncommitted、账本 paths、可满足性通则","最小成功闭环":"一条走完整流程的条目在干净树上通过关闭门禁,且无关提交不再触发它的门","延后决策":"归档面对账判据、跨条目共享改动面的归属裁定"}
+- 复杂度: 中
+- 来源: 勘察发现三处门禁与被判条目关系为零,其中 close_verify_trigger 的代码注释自陈「这条判据看的是仓库最近一次提交,不是被关闭的那个条目」;用户原话「调度器把 tracker 当事实源,过期 active 条目会污染取活」。
+- 标签: 核心
+- 边界: 复用现成的 changed_source_files 与 head_fingerprint_for_paths,不新造改动面计算;不引入外部 CI 作为证据源;不把门禁落在模型自填的字符串上(D-371 教训:那会教会模型改标题绕开);切换走双写观察期,新判据先只记录不拦截。
+- 验收: ①三处判据均以本条目账本 paths 为输入,与仓库最近一次提交无关;②干净工作树上仍能产出可覆盖 target 的证据(现状恒空导致条目永远 committed-unverified 的问题消失);③拿不到本条目证据时放行而非拒绝,有单测;④任一拒绝路径都附带一条可复制执行的命令;⑤双写观察期内新旧判据分歧被记录到 work-log 而不影响裁决。
+- refs: R-353 D-737
+- 优先级: P1
+
+## R-355 对账结果可见:prompt 裁剪与结构化输出分家 [todo]
+- 内容: 按设计 §3.5 把 compact_for_context 限定在 prompt 注入路径,kz work next 不再与 prompt 共用同一次压缩——今天两者共用导致 26 条判定算出来却 reconciliation.items 恒为 0,判定结果一条都不可见。新增只读动作 work reconcile 输出四类全表(id / class / 账本行数 / 改动面文件数 / test_record_ids / 缺口一句话),不含指纹串;block_reasons 只保留 class 名、条目 id 与文件数。
+- 复杂度: 小
+- 来源: 实测 kz work next 返回 reconciliation.counts 有 26 条而 items 为 0,block_reasons 达 176382 字符;代码注释自称「完整对账仍由结构化 resolve 输出保留」但无任何 caller 走未压缩路径。
+- 标签: 核心
+- 边界: 只改输出与裁剪边界,不改分类判据本身;不把指纹串放进任何进 prompt 的路径;不新增写操作。
+- 验收: ①kz work next 的 reconciliation.items 与实际判定条数一致;②work reconcile 能列出四类全表且输出不含指纹串;③进 prompt 的 block_reasons 不含指纹;④裁决输出字符数不因判定条数增长而爆炸。
+- refs: R-349 D-736
+- 优先级: P1
+
+## R-356 字段三类与词表:引擎/调度/叙事分层,清理零消费者字段并删不变式执行器 [todo]
+- 内容: 按设计 §3.6 把 tracker 字段分三类并在写入边界区别对待:引擎字段(observed_head/observed_worktree_hash/recorded_at/取活依据)补上「模型不得写」的拦截;调度字段(优先级/依赖/阻塞/停车/阶段/取得线/refs)把已有的语法判据从读侧挪到写侧硬拒;叙事字段保持自由文本。建 FIELD_REGISTRY 记录键名到类别与有无消费者,未知键照写但计数并在 req get 里标灰。清理零消费者字段(对账、批次表、背景、根因、执行者、归属、原始描述、不变量)走 ENGINE_DERIVED_FIELDS 的归档 retain 先例。删除 不变式 字段的执行器与它挂着的两道恒真通过的门禁。
+- 发现记录: {"Intent":"止住字段基数只增不减,并让登记时被强制填的字段真的有人读","Explicit":"三类分层;引擎字段禁模型写;不硬拒未知键;删不变式执行器与两道门禁","Assumptions":"ENGINE_DERIVED_FIELDS 的归档 retain 机制可复用;req get 可承载标灰展示","Ambiguities":"标灰的展示形态与计数阈值,本条按最小实现处理","领域对象":"引擎字段、调度字段、叙事字段、FIELD_REGISTRY、不变式执行器","最小成功闭环":"登记一条新需求时引擎字段拒绝模型写入、阻塞缺解除条件当场被拒、归档时零消费者字段被清","延后决策":"标灰的 UI 形态、未知键的治理阈值、历史条目的键名归一"}
+- 复杂度: 中
+- 来源: 勘察发现 不变式 字段全库条目使用 0 次却背着 355 行执行器与两道因 declared 恒空而恒真通过的门禁,同期模型实际手写的是零消费者散文键 不变量;用户就此定调「删执行器与两道门禁」。
+- 标签: 流程
+- 边界: 不硬拒未知键——R/D 各有 167/185 个不同键、81/114 个只用过一次,硬拒会把历史条目变成完整性破损,而完整性破损会拒绝该 kind 的一切写操作;不回改归档条目;不搞全局 schema 强校验;不把 不变式 与散文键 不变量 合并(二者类型不同)。
+- 验收: ①引擎字段被模型侧工具写入时被拒;②阻塞字段缺解除条件在写入时即被拒而非读时才发现;③FIELD_REGISTRY 能列出每个键的类别与消费者有无;④零消费者字段在归档时被自动 retain;⑤不变式执行器与两道门禁移除后无残留调用点。
+- refs: R-353
+- 优先级: P2
+
+## R-357 活动面按裁决可达性划分:停车超期移出、tests.md 废止、缺口由 work gaps 回答 [todo]
+- 内容: 按设计 §3.7 重划活动面与归档面:停车超过 14 天且解除条件未变的条目移入 parked 面,裁决不再遍历但 work reconcile 与前端仍可见;废止 tests.md 作为 Markdown 面(它只有 12 字节、零记录,唯一可能的居民 running 是瞬态,不该占治理真源),running 迁 state.db;新增 kz work gaps 回答「还需要跑什么」,输入为账本改动面加该条目 passed 记录的指纹覆盖与关闭门禁判据,每条缺口一行并附一条可直接复制的命令,给不出可执行命令的缺口不出行。
+- 发现记录: {"Intent":"让活动面重新回答得了「还剩什么没做、还需要跑什么」这两个问题","Explicit":"按裁决可达性划面而非按是否终态;tests.md 废止;缺口由命令回答","Assumptions":"parked 面可被前端与 reconcile 消费;running 迁 state.db 不影响回放","Ambiguities":"14 天阈值与解除条件未变的判定方式,本条按字段文本未变处理","领域对象":"活动面、parked 面、tests.md、running 记录、work gaps、缺口","最小成功闭环":"裁决只遍历真正可达的条目,work gaps 对一条待关闭条目给出可复制命令","延后决策":"parked 面的复活策略、归档面对账、阈值可配置化"}
+- 复杂度: 中
+- 来源: 用户原话「tests.md 只有一个 #,全部 1600+ 测试记录进入 archive,当前活动测试面无法直接表达还需要跑什么」;实测活动面 29 条里 23 条处于停车,有效不足 6 条却每轮全遍历。
+- 标签: 流程
+- 边界: 不回改归档条目;不改 Markdown 作为治理真源的地位;停车条目只移面不改内容;work gaps 只读不写。
+- 验收: ①停车超期条目不再进入取活遍历,但在 work reconcile 与前端可见;②tests.md 不再作为治理面存在且 running 记录可从 state.db 读回;③work gaps 对每条活动条目给出缺口与可执行命令;④缺口行为零时该条目确实可关闭。
+- refs: R-353 R-355
+- 优先级: P2
+
+## R-358 批次与 Work Unit 收敛为一套:分子停手写,验收条款绑结构化证据 [todo]
+- 内容: 按设计 §3.8 废除 Work Unit 的独立机制、保留批次,并把 Work Unit 唯一不可替代的能力搬上来:①批次分子由 git 推导,add/update 接受 批次: /N 形式,存量 k/N 继续解析但 k 被忽略,删掉那道分子对账门(引擎已能推导且推导值已优先,只是对模型不可见,导致模型必然在 close 那一刻才知道对不对得上);②把 acceptance 与 evidence 的机械绑定下沉到条目级,从「进展文本包含条款号」升级为「每条验收条款一行结构化 evidence(file:line 或 T- 记录 id)」;③删除 执行模型: work_units_v1 开关。
+- 发现记录: {"Intent":"把两套并行的子任务机制并成一套,并消除模型手写分子这个必然漂移源","Explicit":"废 Work Unit 独立机制、保留批次、分子由 git 推导、验收条款绑结构化证据、删开关","Assumptions":"git_batches 的推导已可用且推导值已优先;条目级已有半成品的条款覆盖检查","Ambiguities":"结构化 evidence 的最小格式,本条按 file:line 或 T- 记录 id 两种处理","领域对象":"批次、Work Unit、批次分子、验收条款、evidence、work_units_v1 开关","最小成功闭环":"一条多批次需求在不手写分子的情况下走完并关闭,未覆盖条款被逐条点名","延后决策":"历史 work_events 的处置、跨批次证据继承、分母的自动建议"}
+- 复杂度: 中
+- 来源: 勘察发现两套并行账本 close 时两道门同时跑而中间零一致性校验(设计文档明写这是有意的);Work Unit 全库只用过一条而批次遍地,且「Git 是批次真源」对 work_units_v1 因命名空间不认 W 而静默失效。
+- 标签: 流程
+- 边界: 分母(总批数)git 推不出来,继续手写,不属冗余;不回改存量条目的 k/N 写法;不迁移 state.db 里既有 work_events 记录;删开关不等于删历史数据。
+- 验收: ①批次分子不再由模型手写,且 R-283 R-101 R-312 R-249 这四条分子与实际不符的存量条目不再触发对账拒绝;②每条验收条款可绑定结构化 evidence,关闭时逐条点名未覆盖项;③work_units_v1 开关移除后不再存在两道互不校验的并行门;④批次推导认得 W 命名空间,不再对 work_units_v1 静默失效。
+- refs: R-353
+- 优先级: P2
+
+## R-359 取消鞭挞连续次数上限但保留轮次、上下文预算与停机条件 [todo]
+- 发现记录: {"Intent":"让鞭挞不因固定连续次数上限提前停止","Explicit":"取消鞭挞次数上限","Assumptions":"现有轮次上限、上下文预算和停机条件继续作为硬边界","Ambiguities":"无；已通过 question 确认无限仅指次数","领域对象":"鞭挞状态机、连续次数、轮次上限、上下文预算、停机条件","最小成功闭环":"取消次数门禁后鞭挞可继续运行，并仍被其他安全边界正常停止","延后决策":"次数统计是否继续展示、配置兼容字段如何迁移"}
+- 复杂度: 中
+- 来源: 用户原话：「帮我加个需求，鞭挞上限来个无限上」；确认记录：用户选择「取消鞭挞次数上限，但保留轮次、上下文预算和停机条件」。
+- 标签: 核心
+- 确认记录: 已通过 question 确认：无限仅取消鞭挞次数上限；轮次上限、上下文预算、停机条件保留。
+- 边界: 只取消鞭挞连续次数上限；不取消轮次上限、上下文预算、用户暂停/本轮后停、全部阻塞/清空、错误和其他停机条件。
+- 验收: ①鞭挞状态机不再因连续次数达到 `autoContinueMax` 而停止；②轮次上限、上下文预算和停机条件仍能独立阻止后续鞭挞；③既有配置/界面不再把次数上限误报为硬停机原因，兼容旧配置读取；④为次数取消与其余边界分别补充自动化回归，且现有鞭挞行为不回归。
+- refs: R-169
+- 优先级: P1

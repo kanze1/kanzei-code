@@ -25,7 +25,7 @@ const SCHEMA_VERSION: u32 = 1;
 #[derive(Serialize)]
 struct WorkLogRecord<'a> {
     schema_version: u32,
-    /// `claim` | `handoff`
+    /// `claim` | `handoff` | `deliver`
     event: &'a str,
     at_ms: u128,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -85,6 +85,34 @@ pub(crate) fn append(
     if let Ok(mut file) = opened {
         let _ = file.write_all(line.as_bytes());
     }
+}
+
+/// 返回当前运行/线路最近一次成功 claim 的条目 id，供 finalize 归属 deliver。
+/// 没有同一 run/line 的 claim 时返回 None，避免把无主提交误归给别线条目。
+pub(crate) fn latest_claim_id(
+    project_root: &Path,
+    ctx: &kanzei_harness::ToolCtx,
+) -> Option<String> {
+    let text = std::fs::read_to_string(project_root.join(WORK_LOG_REL)).ok()?;
+    let current_line = super::line_identity(&ctx.cwd, project_root);
+    let current_run = ctx.run_id.as_deref();
+    text.lines().rev().find_map(|line| {
+        let value: serde_json::Value = serde_json::from_str(line).ok()?;
+        if value.get("event").and_then(serde_json::Value::as_str) != Some("claim") {
+            return None;
+        }
+        let same_run = current_run.is_some()
+            && value.get("run_id").and_then(serde_json::Value::as_str) == current_run;
+        let same_line = current_line.as_deref().is_some()
+            && value.get("line").and_then(serde_json::Value::as_str) == current_line.as_deref();
+        if !(same_run || same_line) {
+            return None;
+        }
+        value
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    })
 }
 
 #[cfg(test)]
