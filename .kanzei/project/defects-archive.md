@@ -8951,3 +8951,15 @@
 - observed_head: 93fe3b49905591327a02fd124280fb32acf90d3b
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788388327027
+
+## D-738 reconcile 遗留条目脏源码回归为 committed-unverified [fixed] (medium)
+- 复现: R-354 B2 将 implemented-uncommitted 改为仅计算 deliver paths 交集后，历史无 deliver 账本但 observed_head 指向基线、工作树有源码改动的条目被分类为 committed-unverified；回归 `work::reconcile::tests::reconcile_detects_source_changes_left_uncommitted` 失败。
+- 影响: 历史账本行数为 0 的条目失去既有脏源码提示，遗留迁移期间交付态判断不准确。
+- 来源: R-354 B2 定向回归 self-found
+- 标签: 核心
+- refs: R-354
+- 优先级: P1
+- 进展: 修复、回归与提交已完成。①已完成：历史无 deliver 账本但 observed_head 有效且工作树有改动的条目，在 `crates/kanzei-tools/src/work/reconcile.rs:352-391` 保留 legacy 全树脏源码提示并分类为 `ImplementedUncommitted`，不再回归为 `CommittedUnverified`；证据：T-1786922726937。②已完成：有 deliver 账本的条目仍在 `reconcile.rs:328-360` 使用条目 paths 交集，未被 legacy 兼容分支污染；证据：T-1786922726937、T-1786922726938。③已完成：修复随 R-354 提交 `13154063`，`cargo test -p kanzei-tools` 通过 536 passed/1 ignored，check/fmt/clippy 均通过；本缺陷无独立验收字段，以上逐项覆盖复现与影响。
+- observed_head: 13154063c90d8960e6957d5f2bd27bc3115ed9d1
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788389143800

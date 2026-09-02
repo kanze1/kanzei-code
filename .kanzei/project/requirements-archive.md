@@ -4521,3 +4521,18 @@
 - recorded_at: 1788310970892
 - 状态说明: R-352 已实现并通过前端六项冒烟；本次交付仅改变主对话展示消费路径，不改变 write/edit 的原始 display 数据或持久化内容，不引入虚拟滚动。活动面板继续使用 renderDiff 默认全量模式。
 - 进展证据: T-1786922726922；05-chat-render.js:399-425,488-495；06-activity.js:592-641,653-685；style.css:2089-2108；scripts/ui-runtime-smoke.mjs:3708-3738
+
+## R-354 门禁判据换成本条目改动面,并确立可满足性通则 [done]
+- 内容: 按设计 §3.3 把三处基于全局代理量的判据换成本条目改动面:close_verify_trigger 由 HEAD^..HEAD numstat 改为该条目账本所有 commit 的 paths 并集;reconcile 的 target_fingerprint 由 declared_commit..HEAD 全量改为账本记录的 paths;implemented-uncommitted 由全树指纹改为脏文件与本条目 paths 的交集(source_endorsement_fingerprint_for_paths 已存在)。同时把可满足性通则写进 conventions 并做成代码不变式:门禁拿不到本条目证据时默认放行不默认拒绝,拒绝时必须给出一条本项目产得出的命令。
+- 发现记录: {"Intent":"让门禁判的是本条目干了什么,而不是仓库最近发生了什么","Explicit":"三处判据换输入;可满足性通则做成代码不变式;双写观察期后再切换","Assumptions":"R-353 的账本已可提供本条目 paths;现成的改动面函数可直接复用","Ambiguities":"观察期长度与分歧容忍度,本条按记录分歧不拦截处理","领域对象":"close_verify_trigger、target_fingerprint、implemented-uncommitted、账本 paths、可满足性通则","最小成功闭环":"一条走完整流程的条目在干净树上通过关闭门禁,且无关提交不再触发它的门","延后决策":"归档面对账判据、跨条目共享改动面的归属裁定"}
+- 复杂度: 中
+- 来源: 勘察发现三处门禁与被判条目关系为零,其中 close_verify_trigger 的代码注释自陈「这条判据看的是仓库最近一次提交,不是被关闭的那个条目」;用户原话「调度器把 tracker 当事实源,过期 active 条目会污染取活」。
+- 标签: 核心
+- 边界: 复用现成的 changed_source_files 与 head_fingerprint_for_paths,不新造改动面计算;不引入外部 CI 作为证据源;不把门禁落在模型自填的字符串上(D-371 教训:那会教会模型改标题绕开);切换走双写观察期,新判据先只记录不拦截。
+- 验收: ①三处判据均以本条目账本 paths 为输入,与仓库最近一次提交无关;②干净工作树上仍能产出可覆盖 target 的证据(现状恒空导致条目永远 committed-unverified 的问题消失);③拿不到本条目证据时放行而非拒绝,有单测;④任一拒绝路径都附带一条可复制执行的命令;⑤双写观察期内新旧判据分歧被记录到 work-log 而不影响裁决。
+- refs: R-353 D-737
+- 优先级: P1
+- 进展: 批次: 1/1；已完成并提交 `13154063`。①已完成：`crates/kanzei-tools/src/tracker/actions/action_helpers.rs:65-98` 的 close trigger 读取本条目 deliver paths，按账本所有 commit 逐项 numstat，不再使用 HEAD^..HEAD 全局量；`crates/kanzei-tools/src/work/reconcile.rs:328-360` 以 deliver commit/paths/test_record_ids 为主。②已完成：`reconcile.rs:362-365` 对账本 paths 生成 clean HEAD target，回归 `ledger_paths_are_authoritative_and_legacy_divergence_is_observed` 覆盖无关提交不污染；T-1786922726937、T-1786922726938。③已完成：无 deliver/paths 时 close trigger 返回 None，reconcile 的缺证据路径不升级为硬拒绝；`reconcile.rs:352-360` 保留遗留无账本提示，D-738 已修复并关闭。④已完成：拒绝仍复用既有 `verification_evidence_gap` 可复制命令（既有能力，`crates/kanzei-tools/src/test_record/coverage.rs:330-393`），账本 numstat 原因点名本条目提交/路径。⑤已完成：`reconcile_active` 在新旧改动面分歧时写 `reconcile_observation` 且 decision=unchanged，测试断言 old_paths；T-1786922726937。验收与验证：T-1786922726938（kanzei-tools 536 passed/1 ignored）、T-1786922726939（当前 HEAD `verify.ps1 -Full` passed，含六条 UI 冒烟与 workspace tests）；提交前 check/fmt/clippy 全绿；提交 `13154063`。
+- observed_head: 13154063c90d8960e6957d5f2bd27bc3115ed9d1
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788389340677
