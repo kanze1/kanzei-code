@@ -37,6 +37,8 @@ export function renderInlineMarkdown(raw) {
       : `${label} (${escapeHtml(decodedUrl)})`;
   });
   html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  html = html.replace(/_([^_\n]+)_/g, "<em>$1</em>");
   return html.replace(/\u0000md-(\d+)\u0000/g, (_, index) => placeholders[Number(index)]);
 }
 export let renderMarkdown = function renderMarkdown(raw) {
@@ -44,16 +46,19 @@ export let renderMarkdown = function renderMarkdown(raw) {
   let html = "";
   let paragraph = [];
   let list = null;
+  let listStack = [];
   let code = null;
   const flushParagraph = () => {
     if (!paragraph.length) return;
     html += `<p>${renderInlineMarkdown(paragraph.join("\n"))}</p>`;
     paragraph = [];
   };
+  const renderList = (node) => `<${node.type}>${node.items.map((item) => `<li>${renderInlineMarkdown(item.text)}${item.children.map(renderList).join("")}</li>`).join("")}</${node.type}>`;
   const flushList = () => {
     if (!list) return;
-    html += `<${list.type}>${list.items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</${list.type}>`;
+    html += renderList(list);
     list = null;
+    listStack = [];
   };
   const flushCode = () => {
     if (!code) return;
@@ -94,16 +99,34 @@ export let renderMarkdown = function renderMarkdown(raw) {
     if (heading) {
       flushParagraph();
       flushList();
-      html += `<strong class="md-h">${renderInlineMarkdown(heading[2])}</strong>`;
+      html += `<h${heading[1].length} class="md-h md-h-${heading[1].length}">${renderInlineMarkdown(heading[2])}</h${heading[1].length}>`;
       continue;
     }
-    const listItem = line.match(/^\s*(?:[-*+]\s+|\d+[.]\s+)(.+)$/);
+    const listItem = line.match(/^(\s*)(?:([-*+]\s+)|(\d+[.]\s+))(.+)$/);
     if (listItem) {
       flushParagraph();
-      const type = /^\s*\d+[.]\s+/.test(line) ? "ol" : "ul";
-      if (list && list.type !== type) flushList();
-      list ??= { type, items: [] };
-      list.items.push(listItem[1]);
+      const indent = listItem[1].replace(/\t/g, "  ").length;
+      const type = listItem[3] ? "ol" : "ul";
+      if (!list) {
+        list = { type, items: [] };
+        listStack = [{ node: list, indent, item: null }];
+      } else {
+        while (listStack.length > 1 && indent < listStack.at(-1).indent) listStack.pop();
+        const current = listStack.at(-1);
+        if (indent > current.indent && current.item) {
+          const nested = { type, items: [] };
+          current.item.children.push(nested);
+          listStack.push({ node: nested, indent, item: null });
+        } else if (indent === current.indent && type !== current.node.type) {
+          flushList();
+          list = { type, items: [] };
+          listStack = [{ node: list, indent, item: null }];
+        }
+      }
+      const current = listStack.at(-1);
+      const item = { text: listItem[4], children: [] };
+      current.node.items.push(item);
+      current.item = item;
       continue;
     }
     const nextLine = lines[index + 1];

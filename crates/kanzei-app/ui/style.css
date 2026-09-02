@@ -1646,14 +1646,21 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
   background: var(--code-inline); border-radius: 3px; padding: 1px 5px;
   font-family: var(--mono); font-size: var(--fs-13);
 }
-.msg.md p { margin: 5px 0; }
+.msg.md p { margin: .7em 0; }
 .msg.md ul, .msg.md ol { margin: 6px 0; padding-left: 24px; }
 .msg.md li { margin: 2px 0; }
 .msg.md table { display: block; width: max-content; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 8px 0; }
 .msg.md th, .msg.md td { border: 1px solid var(--border-soft); padding: 4px 8px; text-align: left; vertical-align: top; }
 .msg.md th { color: var(--fg-strong); background: var(--panel2); }
 .msg.md a { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
-.md-h { display: block; margin: 8px 0 2px; color: var(--fg-strong); }
+.md-h { display: block; margin: 8px 0 2px; color: var(--fg-strong); font-weight: 600; line-height: 1.25; }
+.md-h-1 { font-size: var(--fs-20); }
+.md-h-2 { font-size: var(--fs-18); }
+.md-h-3 { font-size: var(--fs-16); }
+.md-h-4 { font-size: var(--fs-14); }
+.md-h-5 { font-size: var(--fs-13); }
+.md-h-6 { font-size: var(--fs-12); }
+
 .tool-display {
   margin-top: 6px; border-radius: 4px; overflow-x: auto;
   font-family: var(--mono); font-size: var(--fs-13); line-height: 1.58; user-select: text;

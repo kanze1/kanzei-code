@@ -11420,3 +11420,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 当前 HEAD d48ba988 完整 verify 通过：parallel-lines、ui_a11y、ui_i18n、ui_markdown、metrics/crate_sync、ps1_bom、ui_lint、ipc_event_contract、ui_connectivity、ui_runtime 全部通过，生成绑定提交的 dist/verification.json。
 - 关联: D-733 D-734 D-735
 - 收尾: 1788309895
+
+## T-1786922726920 R-351 六项前端冒烟 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 6.2s
+- 摘要: R-351 六项前端冒烟全绿：runtime 27 个脚本/2346 次 invoke/0 错误；lint 54 文件；parallel-lines；a11y；i18n 1472 key/481 HTML/57 动态契约；markdown 四项新增结构断言及既有安全回归。
+- 关联: R-351
+- 收尾: 1788310249
+- 源码指纹: v2 scripts/ui-markdown-smoke.mjs@2cf9338eb506
+
+## T-1786922726921 R-351 提交前 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 27.5s
+- 摘要: R-351 提交前定向 crate 回归通过：kanzei-app 256 passed，0 failed，0 ignored。
+- 关联: R-351
+- 收尾: 1788310344
+- 源码指纹: v2 scripts/ui-markdown-smoke.mjs@2cf9338eb506
