@@ -163,7 +163,7 @@ pub(crate) fn detect_backend() -> TeXBackend {
 /// 编译一个 .tex 文件。`workdir` 是编译工作目录(限研究工件目录与显式指定目录)。
 ///
 /// 返回 (exit_ok, 输出诊断文本)。PDF 产物在 `workdir/<stem>.pdf`。
-pub(crate) fn compile_latex(workdir: &Path, tex_name: &str) -> (bool, String) {
+pub fn compile_latex(workdir: &Path, tex_name: &str) -> (bool, String) {
     let tex_path = workdir.join(tex_name);
     if !tex_path.is_file() {
         return (false, format!("找不到 .tex 文件: {}", tex_path.display()));

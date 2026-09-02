@@ -2364,6 +2364,22 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .research-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .research-main-head { display: flex; align-items: baseline; gap: 12px; padding: 12px 22px 0; }
 .research-main-head h1 { margin: 0; }
+.research-latex { margin: 10px 22px 0; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel); }
+.research-latex-head { display: flex; align-items: baseline; gap: 8px; }
+.research-latex-head strong { color: var(--fg-strong); }
+.research-latex-form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 8px; }
+.research-latex-form label { display: flex; flex-direction: column; gap: 3px; min-width: 150px; color: var(--muted); font-size: var(--fs-11); }
+.research-latex-form input, .research-latex-form select { min-height: 26px; }
+.research-latex-status { min-height: 18px; margin-top: 6px; color: var(--dim); font-size: var(--fs-11); }
+.research-latex-figure-form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-soft); }
+.research-latex-figure-form label { display: flex; flex-direction: column; gap: 3px; min-width: 150px; color: var(--muted); font-size: var(--fs-11); }
+.research-latex-figure-form input { min-height: 26px; }
+.research-latex-actions { display: flex; gap: 8px; margin-top: 8px; }
+.research-latex-diagnostics { max-height: 180px; overflow: auto; margin: 8px 0 0; padding: 8px; color: var(--fg); background: var(--bg-deep); border-radius: 6px; white-space: pre-wrap; }
+.research-latex-history { display: grid; gap: 4px; margin-top: 8px; }
+.research-latex-history-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 7px; color: var(--muted); background: var(--bg-deep); border-radius: 5px; font-size: var(--fs-11); }
+.research-latex-pdf { width: 100%; min-height: 480px; margin-top: 10px; border: 1px solid var(--border-soft); border-radius: 6px; background: #fff; }
+
 .research-roadmap { margin: 10px 22px 0; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 8px; background: color-mix(in srgb, var(--panel) 82%, transparent); }
 .research-roadmap-head, .research-exploration-detail-head { display: flex; align-items: center; gap: 8px; }
 .research-roadmap-head strong, .research-exploration-detail-head strong { color: var(--fg-strong); }

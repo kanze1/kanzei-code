@@ -4442,3 +4442,19 @@
 - observed_worktree_hash: fnv1a64:d3336eefaabb5ae8
 - recorded_at: 1788304785845
 - 状态: done
+
+## R-348 内置 LaTeX 模板与 PDF 预览:模板落项目、编译日志、PDF 历史版本、实验图表引用 [done]
+- 内容: 按设计 §8 落地研究文档模板与 PDF 闭环:内置四套基础 LaTeX 模板(基础报告/基础论文/实验记录/带图表论文),新建论文或报告时选模板并复制进 topic 的 latex/;复用既有 LaTeX 专用通道编译,保留编译日志与错误定位;PDF 在应用内直接预览并保留历史版本;实验图表以路径引用插入论文;一次编译记为可追溯产物(.tex → 编译运行 → 编译日志 → PDF → 当时环境快照)。
+- 发现记录: {"Intent":"让研究结论能直接走到可发布的 PDF,而不必离开工具去手工搭 LaTeX 项目","Explicit":"只内置基础模板;不做外部模板导入与模板市场;PDF 应用内预览并保留历史版本","Assumptions":"R-273 的 LaTeX 编译通道可用;topic 目录结构沿用 research_mode.md §3","Ambiguities":"模板变量的填充方式与 PDF 历史版本的保留条数,本条按最小占位替换与保留全部编译产出处理","领域对象":"LaTeX 模板、latex/ 项目目录、编译运行、编译日志、PDF 版本、图表引用、环境快照","最小成功闭环":"选一套模板新建论文,插入一张实验图表,编译出 PDF 并在应用内预览,失败时错误可定位","延后决策":"外部模板导入、上游模板同步、模板市场、论文协作与版本合并"}
+- 复杂度: 中
+- 来源: 用户原话「还有latex渲染,可以直接看到PDF,还有模板导入等」;范围经用户收敛为「模板就是latex的那些模板,我们内置一些基础的就行」。
+- 标签: 前端
+- 边界: 只做内置模板,不做外部 LaTeX 模板导入、模板市场与上游模板同步;不新造编译引擎与绘图能力(复用 R-273/R-274);不做论文协作与版本合并;模板变量填充只做最小占位替换。
+- 验收: ①从模板新建能在 topic 的 latex/ 得到可编译的完整项目骨架;②编译失败时错误可定位到 .tex 行;③PDF 可在应用内预览且历史版本可回看;④编译产物记录了当时的环境快照引用;⑤实验图表能被论文引用且路径在重建后仍有效。
+- refs: R-273 R-343
+- 优先级: P2
+- 批次: 3/3
+- 进展: R-348 已完成并通过 `T-1786922726899`（B3）与 `T-1786922726900`（关闭前 workspace 全量）。逐条验收对账：① `crates/kanzei-app/src/research_latex.rs:205-250` 的四套内置模板/完整 latex 骨架与 `tests::create_copies_selected_template_into_topic_latex` 落盘验证；② 本次复用既有 R-273 能力 `crates/kanzei-tools/src/latex_tool.rs:166-324`，其既有行号诊断解析位于 `:428-446`，本次 `research_latex_compile` 在 `crates/kanzei-app/src/research_latex.rs:394-456` 将 diagnostics 写入 compile.log，失败可定位 .tex 行；③ `research_latex_history` `:458-490` 保留并排序历史，`research_latex_pdf` `:524-535` 做 topic/latex 边界校验并返回应用内 PDF 数据，UI 预览消费者为 `crates/kanzei-app/ui/19-research.js:128-168` 与 `index.html:554-559`；④ `research_latex_compile` `:414-456` 写入 environment.json 与 compile.json manifest 的环境快照引用，测试逐项检查 manifest/environment/log 文件存在；⑤ `research_latex_insert_figure` `:300-385` 验证 topic/figures 文件、拒绝越界并写入稳定 `../figures/<file>`，UI 真实入口为 `19-research.js:81-111`、`index.html:547-551`，测试验证图表路径与重建所需相对引用。边界保持：只内置模板，不做外部模板导入/市场/同步；编译器与图表能力复用 R-273/R-274。
+- observed_head: 8c51ede54cc8e8f1d73a4f70d27f19611152cb1e
+- observed_worktree_hash: fnv1a64:91a59b0fcd116cc2
+- recorded_at: 1788307043828

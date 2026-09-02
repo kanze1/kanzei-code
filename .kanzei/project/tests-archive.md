@@ -11246,3 +11246,51 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-346
 - 收尾: 1788304995
 - 源码指纹: v2 scripts/ui-runtime-smoke.mjs@9783555a41ef
+
+## T-1786922726897 R-348 B1 内置模板与创建入口 [passed]
+- 命令: cargo test -p kanzei-app; node --check crates/kanzei-app/ui/19-research.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 25.1s
+- 摘要: B1 模板与创建入口验证通过：kanzei-app 253 passed；UI runtime 27 个脚本、2340 次 invoke、0 运行时错误、10 个主视图；UI lint 54 文件通过；CSS 花括号通过；覆盖四模板列表、模板选择与 research_latex_create 调用、Rust 模板落盘与路径穿越拒绝。
+- 关联: R-348
+- 收尾: 1788305852
+- 源码指纹: v2 crates/kanzei-app/src/main.rs@6a1d4e519088,crates/kanzei-app/src/research_latex.rs@656381db5e33,scripts/ui-runtime-smoke.mjs@cc0389161477
+
+## T-1786922726898 R-348 B2 LaTeX 编译历史与 PDF 预览 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-app; node --check crates/kanzei-app/ui/19-research.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 40.0s
+- 摘要: B2 编译闭环通过：research_latex_compile 复用 R-273 compile_latex，保存源文件、compile.log、可选 latex.log、PDF、environment.json 与 compile.json；history 命令读取版本；PDF command 做 topic/latex 边界校验并返回 base64 预览；UI compile/history/iframe preview 真实 IPC smoke 通过；kanzei-app 255 passed。
+- 关联: R-348
+- 收尾: 1788306427
+- 源码指纹: v2 crates/kanzei-app/src/main.rs@8d2e1058284b,crates/kanzei-app/src/research_latex.rs@89cc5aeb1b37,crates/kanzei-tools/src/latex_tool.rs@909bde5d9fdb,crates/kanzei-tools/src/lib.rs@4242adfb18a3,scripts/ui-runtime-smoke.mjs@99dfefb74832
+
+## T-1786922726899 R-348 B3 图表引用与 LaTeX 闭环 [passed]
+- 命令: rustfmt --edition 2021 crates/kanzei-app/src/research_latex.rs crates/kanzei-app/src/main.rs; cargo fmt --all -- --check; cargo test -p kanzei-app; node --check crates/kanzei-app/ui/19-research.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 65.0s
+- 摘要: B3 及结项前定向验证通过：kanzei-app 256 passed；research_latex 四模板/完整骨架、编译历史日志环境 manifest、PDF topic/latex 边界、图表引用稳定 ../figures 路径和 label/caption 转义均有测试；UI runtime 27 个脚本、2346 次 invoke、0 错误；UI lint 54 文件通过；CSS 结构通过。
+- 关联: R-348
+- 收尾: 1788306855
+- 源码指纹: v2 crates/kanzei-app/src/main.rs@498444016332,crates/kanzei-app/src/research_latex.rs@300ac37bee79,crates/kanzei-tools/src/latex_tool.rs@909bde5d9fdb,crates/kanzei-tools/src/lib.rs@4242adfb18a3,scripts/ui-runtime-smoke.mjs@81955927f3e0
+
+## T-1786922726900 R-348 关闭前 workspace 全量回归 [passed]
+- 命令: cargo test --workspace
+- 时长: 110.0s
+- 摘要: R-348 中复杂度关闭前 workspace 全量回归通过：所有 workspace 测试组通过，累计 2088 passed，1 ignored，0 failed；包含 kanzei-app 256 tests 与新增 research_latex 图表/历史/PDF 回归。
+- 关联: R-348
+- 收尾: 1788307019
+- 源码指纹: v2 crates/kanzei-app/src/main.rs@498444016332,crates/kanzei-app/src/research_latex.rs@300ac37bee79,crates/kanzei-tools/src/latex_tool.rs@909bde5d9fdb,crates/kanzei-tools/src/lib.rs@4242adfb18a3,scripts/ui-runtime-smoke.mjs@81955927f3e0
+
+## T-1786922726901 R-348 末次前端格式回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/19-research.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 4.5s
+- 摘要: R-348 末次格式修正后的前端回归通过：27 个 UI 脚本运行时冒烟、2346 次 invoke、0 运行时错误；54 个文件 lint 通过；02-i18n.js、19-research.js、ui-runtime-smoke.mjs node --check 通过；style.css 花括号结构通过。
+- 关联: R-348
+- 收尾: 1788307160
+- 源码指纹: v2 crates/kanzei-app/src/main.rs@498444016332,crates/kanzei-app/src/research_latex.rs@300ac37bee79,crates/kanzei-tools/src/latex_tool.rs@909bde5d9fdb,crates/kanzei-tools/src/lib.rs@4242adfb18a3,scripts/ui-runtime-smoke.mjs@7ce5ace9cec5
+
+## T-1786922726902 R-348 提交前受影响 crate 定向回归 [passed]
+- 命令: cargo test -p kanzei-app; cargo test -p kanzei-tools
+- 时长: 61.5s
+- 摘要: 提交前受影响 crate 定向回归通过：kanzei-app 256 passed，kanzei-tools 527 passed、1 ignored，0 failed；新增 research_latex 测试及 latex_tool 回归均通过。
+- 关联: R-348
+- 收尾: 1788307269
+- 源码指纹: v2 crates/kanzei-app/src/main.rs@498444016332,crates/kanzei-app/src/research_latex.rs@300ac37bee79,crates/kanzei-tools/src/latex_tool.rs@909bde5d9fdb,crates/kanzei-tools/src/lib.rs@4242adfb18a3,scripts/ui-runtime-smoke.mjs@7ce5ace9cec5

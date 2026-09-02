@@ -1067,6 +1067,34 @@ const payloads = {
   ],
   memory_search_page: [{ id: "M-SOP-001", scope: "project", category: "sop", title: "冒烟 SOP", snippet: "继续执行冒烟任务", status: "active", description: "继续执行冒烟任务", body: "执行冒烟任务", hits: 4, recalled: 4, fetched: 2, updated: "2026-08-01" }],
   memory_context_bill: { turns: [] },
+  research_latex_templates: [
+    { id: "basic_report", name: "基础报告", description: "适合研究阶段性报告与结论摘要。" },
+    { id: "basic_paper", name: "基础论文", description: "适合结构完整的研究论文初稿。" },
+    { id: "experiment_record", name: "实验记录", description: "适合按时间记录实验设置、结果与复盘。" },
+    { id: "paper_with_figures", name: "带图表论文", description: "适合引用 research topic 中 figures/实验产物的论文。" },
+  ],
+  research_latex_create: (args) => ({
+    tex_name: `${args?.documentName || "main"}.tex`,
+    tex_path: `.kanzei/research/${args?.topic || "demo"}/latex/${args?.documentName || "main"}.tex`,
+  }),  research_latex_insert_figure: (args) => ({
+    reference: `../figures/${args?.figureName || "result.png"}`,
+    tex_path: `.kanzei/research/${args?.topic || "demo"}/latex/${args?.documentName || "main"}.tex`,
+  }),
+  research_latex_compile: (args) => ({
+    run_id: "run-smoke-1",
+    success: true,
+    document_name: `${args?.documentName || "main"}.tex`,
+    diagnostics: "[smoke] PDF generated",
+    pdf_path: `.kanzei/research/${args?.topic || "demo"}/latex/history/run-smoke-1/${args?.documentName || "main"}.pdf`,
+  }),
+  research_latex_history: [{
+    run_id: "run-smoke-1",
+    success: true,
+    document_name: "paper.tex",
+    pdf_path: ".kanzei/research/alpha-study/latex/history/run-smoke-1/paper.pdf",
+  }],
+  research_latex_pdf: { media_type: "application/pdf", data: "cGRmLXNtb2tl" },
+
   workspace_snapshot: {},
 };
 const invokeLog = [];
@@ -3114,6 +3142,28 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   assert(topicSelect.value === "alpha-study", `默认应选择排序后的 alpha-study,实得 ${topicSelect.value}`);
   assert(document.querySelector('#research-cards .research-topic-group[data-topic="alpha-study"]'), "alpha topic 分组未渲染");
   assert(byId.get("research-runs-count").textContent === "2 条", "真实 research run 数量未渲染");
+  const latexTemplate = byId.get("research-latex-template");
+  assert(latexTemplate && latexTemplate.options.length === 4, "LaTeX 模板选择器未加载四套内置模板");
+  latexTemplate.value = "paper_with_figures";
+  byId.get("research-latex-document-name").value = "paper";
+  byId.get("research-latex-title").value = "Alpha 论文";
+  byId.get("research-latex-create").click();
+  await flush();
+  assert(invokeArgs.some((call) => call.cmd === "research_latex_create" && call.args?.templateId === "paper_with_figures"), "模板新建未调用真实 research_latex_create");
+  assert(byId.get("research-latex-status").textContent.includes("latex/"), "模板新建成功状态未返回项目路径");
+  byId.get("research-latex-compile").click();
+  await flush();
+  assert(invokeArgs.some((call) => call.cmd === "research_latex_compile" && call.args?.documentName === "paper"), "PDF 编译未调用真实 research_latex_compile");
+  assert(invokeArgs.some((call) => call.cmd === "research_latex_pdf"), "编译成功后未调用真实 research_latex_pdf 预览");
+  assert(!byId.get("research-latex-pdf").hidden && byId.get("research-latex-pdf").src.includes("application/pdf"), "PDF 预览 iframe 未显示 data URL");
+  byId.get("research-latex-figure-name").value = "result.png";
+  byId.get("research-latex-figure-caption").value = "实验结果";
+  byId.get("research-latex-figure-label").value = "fig:result";
+  byId.get("research-latex-insert-figure").click();
+  await flush();
+  assert(invokeArgs.some((call) => call.cmd === "research_latex_insert_figure" && call.args?.figureName === "result.png"), "实验图表入口未调用真实 research_latex_insert_figure");
+  assert(byId.get("research-latex-status").textContent.includes("../figures/result.png"), "图表引用成功状态未显示稳定相对路径");
+  assert(byId.get("research-latex-history").childNodes.length === 1, "编译历史未渲染可回看的版本");
   const roadmapGraph = byId.get("research-roadmap-graph");
   assert(roadmapGraph.querySelectorAll(".research-roadmap-node").length === 3, "探索路线图节点未按 Markdown 真源渲染");
   assert(roadmapGraph.querySelectorAll(".research-roadmap-edge.edge-depends_on").length === 2, "depends_on 实线未完整投影");

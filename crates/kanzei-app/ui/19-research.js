@@ -19,7 +19,184 @@ import { openFilePreview } from "./17-files.js";
 export let researchTab = "sources";
 export let selectedResearchTopic = "";
 export let researchSnapshot = { sources: [], findings: [], research_topics: [] };
+export let researchLatexTemplates = [];
 
+export function renderResearchLatexTemplates() {
+  const select = $("research-latex-template");
+  if (!select) return;
+  const current = select.value;
+  select.replaceChildren();
+  for (const item of researchLatexTemplates) {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.description ? `${item.name} · ${item.description}` : item.name;
+    select.appendChild(option);
+  }
+  if (researchLatexTemplates.some((item) => item.id === current)) select.value = current;
+}
+
+export async function refreshResearchLatexTemplates() {
+  try {
+    const templates = await invoke("research_latex_templates");
+    researchLatexTemplates = Array.isArray(templates) ? templates : [];
+  } catch (error) {
+    researchLatexTemplates = [];
+    log(`${t("LaTeX 模板加载失败")}:${error}`, "warn");
+  }
+  renderResearchLatexTemplates();
+}
+
+export async function createResearchLatexDocument() {
+  const topic = selectedResearchTopicData();
+  const template = $("research-latex-template")?.value;
+  const documentName = $("research-latex-document-name")?.value || "main";
+  const title = $("research-latex-title")?.value || "";
+  const status = $("research-latex-status");
+  if (!topic.topic || !template) {
+    if (status) status.textContent = t("请先选择研究课题");
+    return;
+  }
+  const button = $("research-latex-create");
+  if (button) button.disabled = true;
+  try {
+    const result = await invoke("research_latex_create", {
+      projectDir: currentProject,
+      topic: topic.topic,
+      templateId: template,
+      documentName,
+      title,
+    });
+    if (status) status.textContent = `${t("已创建")}: ${result.tex_path}`;
+    toast(`${t("LaTeX 文档已创建")}: ${result.tex_name}`);
+  } catch (error) {
+    if (status) status.textContent = `${t("创建失败")}: ${error}`;
+    toastError(`${t("LaTeX 文档创建失败")}: ${error}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+
+
+export async function insertResearchLatexFigure() {
+  const topic = researchLatexTopic();
+  const status = $("research-latex-status");
+  if (!topic) {
+    if (status) status.textContent = t("请先选择研究课题");
+    return;
+  }
+  try {
+    const result = await invoke("research_latex_insert_figure", {
+      projectDir: currentProject,
+      topic,
+      documentName: $("research-latex-document-name")?.value || "main",
+      figureName: $("research-latex-figure-name")?.value || "",
+      caption: $("research-latex-figure-caption")?.value || undefined,
+      label: $("research-latex-figure-label")?.value || undefined,
+    });
+    if (status) status.textContent = `${t("已插入图表引用")}: ${result.reference}`;
+    toast(`${t("图表引用已写入")}: ${result.tex_path}`);
+  } catch (error) {
+    if (status) status.textContent = `${t("图表引用失败")}: ${error}`;
+    toastError(`${t("图表引用失败")}: ${error}`);
+  }
+}
+
+function researchLatexTopic() {
+  return selectedResearchTopicData().topic || selectedResearchTopic;
+}
+
+export function renderResearchLatexHistory(entries = []) {
+  const host = $("research-latex-history");
+  if (!host) return;
+  host.replaceChildren();
+  for (const entry of entries) {
+    const row = document.createElement("div");
+    row.className = "research-latex-history-row";
+    const label = document.createElement("span");
+    label.textContent = `${entry.document_name || "main.tex"} · ${entry.success ? t("编译成功") : t("编译失败")} · ${entry.run_id || ""}`;
+    row.appendChild(label);
+    if (entry.pdf_path) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost mini";
+      button.textContent = t("预览 PDF");
+      button.addEventListener("click", () => previewResearchLatexPdf(entry.pdf_path));
+      row.appendChild(button);
+    }
+    host.appendChild(row);
+  }
+}
+
+export async function refreshResearchLatexHistory() {
+  const topic = researchLatexTopic();
+  if (!topic) {
+    renderResearchLatexHistory();
+    return;
+  }
+  try {
+    const documentName = $("research-latex-document-name")?.value || undefined;
+    const entries = await invoke("research_latex_history", {
+      projectDir: currentProject,
+      topic,
+      documentName,
+    });
+    renderResearchLatexHistory(Array.isArray(entries) ? entries : []);
+  } catch (error) {
+    renderResearchLatexHistory();
+    log(`${t("编译历史读取失败")}:${error}`, "warn");
+  }
+}
+
+export async function previewResearchLatexPdf(pdfPath) {
+  const frame = $("research-latex-pdf");
+  try {
+    const result = await invoke("research_latex_pdf", {
+      projectDir: currentProject,
+      topic: researchLatexTopic(),
+      pdfPath,
+    });
+    if (!frame) return;
+    frame.src = `data:${result.media_type};base64,${result.data}`;
+    frame.hidden = false;
+  } catch (error) {
+    const status = $("research-latex-status");
+    if (status) status.textContent = `${t("PDF 预览失败")}: ${error}`;
+    toastError(`${t("PDF 预览失败")}: ${error}`);
+  }
+}
+
+export async function compileResearchLatexDocument() {
+  const topic = researchLatexTopic();
+  const documentName = $("research-latex-document-name")?.value || "main";
+  const status = $("research-latex-status");
+  const diagnostics = $("research-latex-diagnostics");
+  const button = $("research-latex-compile");
+  if (!topic) {
+    if (status) status.textContent = t("请先选择研究课题");
+    return;
+  }
+  if (button) button.disabled = true;
+  try {
+    const result = await invoke("research_latex_compile", {
+      projectDir: currentProject,
+      topic,
+      documentName,
+    });
+    if (diagnostics) {
+      diagnostics.textContent = result.diagnostics || "";
+      diagnostics.hidden = !result.diagnostics;
+    }
+    if (status) status.textContent = result.success ? t("编译成功") : t("编译失败，详见日志");
+    await refreshResearchLatexHistory();
+    if (result.pdf_path) await previewResearchLatexPdf(result.pdf_path);
+  } catch (error) {
+    if (status) status.textContent = `${t("编译失败")}: ${error}`;
+    toastError(`${t("LaTeX 编译失败")}: ${error}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
 export let researchFilters = { query: "", type: "", level: "", year: "", sort: "" };
 
 export function researchEntryType(entry) {
@@ -1023,6 +1200,8 @@ export async function refreshResearch() {
     log(`${t("研究工件刷新失败")}:${error}`, "warn");
   }
   renderResearchTopicPicker();
+  await refreshResearchLatexTemplates();
+  await refreshResearchLatexHistory();
   const topic = selectedResearchTopicData();
   const counts = [$("research-sources-count"), $("research-findings-count")];
   if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
@@ -1034,6 +1213,13 @@ export async function refreshResearch() {
   await refreshResearchPlan();
   await refreshResearchReport();
 }
+
+defer(() => {
+  $("research-latex-create")?.addEventListener("click", () => createResearchLatexDocument());
+  $("research-latex-compile")?.addEventListener("click", () => compileResearchLatexDocument());
+  $("research-latex-history-refresh")?.addEventListener("click", () => refreshResearchLatexHistory());
+  $("research-latex-insert-figure")?.addEventListener("click", () => insertResearchLatexFigure());
+});
 
 defer(() => {
   $("research-tab-sources")?.addEventListener("click", () => {

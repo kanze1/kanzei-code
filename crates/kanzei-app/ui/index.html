@@ -533,6 +533,32 @@
               <h1 data-i18n-key="研究报告">研究报告</h1>
               <button type="button" id="research-report-refresh" class="ghost mini" title="重新读取 report.md" data-i18n-title="重新读取 report.md"><span data-i18n-key="刷新">刷新</span></button>
             </div>
+            <section class="research-latex" id="research-latex" aria-label="LaTeX 文档" data-i18n-aria-label="LaTeX 文档">
+              <div class="research-latex-head">
+                <strong data-i18n-key="LaTeX 文档">LaTeX 文档</strong>
+                <span class="dim" data-i18n-key="内置模板">内置模板</span>
+              </div>
+              <div class="research-latex-form">
+                <label><span data-i18n-key="模板">模板</span><select id="research-latex-template"></select></label>
+                <label><span data-i18n-key="文档名">文档名</span><input id="research-latex-document-name" value="main" placeholder="main" /></label>
+                <label><span data-i18n-key="标题">标题</span><input id="research-latex-title" placeholder="Research document" /></label>
+                <button type="button" id="research-latex-create" class="primary mini" data-i18n-key="从模板新建">从模板新建</button>
+              </div>
+              <div id="research-latex-status" class="research-latex-status" role="status"></div>
+              <div class="research-latex-figure-form">
+                <label><span data-i18n-key="图表文件">图表文件</span><input id="research-latex-figure-name" placeholder="result.png" /></label>
+                <label><span data-i18n-key="图注">图注</span><input id="research-latex-figure-caption" placeholder="实验结果图" /></label>
+                <label><span data-i18n-key="图表标签">图表标签</span><input id="research-latex-figure-label" placeholder="fig:result" /></label>
+                <button type="button" id="research-latex-insert-figure" class="ghost mini" data-i18n-key="插入实验图表引用">插入实验图表引用</button>
+              </div>
+              <div class="research-latex-actions">
+                <button type="button" id="research-latex-compile" class="primary mini" data-i18n-key="编译 PDF">编译 PDF</button>
+                <button type="button" id="research-latex-history-refresh" class="ghost mini" data-i18n-key="读取编译历史">读取编译历史</button>
+              </div>
+              <pre id="research-latex-diagnostics" class="research-latex-diagnostics" hidden></pre>
+              <div id="research-latex-history" class="research-latex-history" aria-live="polite"></div>
+              <iframe id="research-latex-pdf" class="research-latex-pdf" title="PDF 预览" data-i18n-title="PDF 预览" hidden></iframe>
+            </section>
             <section class="research-roadmap" id="research-roadmap" aria-label="路线图" data-i18n-aria-label="路线图">
               <div class="research-roadmap-head">
                 <strong data-i18n-key="实验路线图">实验路线图</strong>
@@ -557,6 +583,7 @@
                 <button type="button" id="research-plan-approve" class="primary mini" hidden data-i18n-key="批准计划">批准计划</button>
               </div>
               <ol id="research-plan-tree" class="research-plan-tree" aria-label="研究计划树" data-i18n-aria-label="研究计划树"></ol>
+            </div>
             <section id="research-runs" class="research-runs" aria-label="实验运行记录" data-i18n-aria-label="实验运行记录">
               <div class="research-runs-head"><strong data-i18n-key="实验运行记录">实验运行记录</strong><span id="research-runs-count" class="dim"></span></div>
               <div id="research-run-cards" class="research-run-cards"></div>

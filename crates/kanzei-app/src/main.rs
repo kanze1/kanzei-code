@@ -35,6 +35,7 @@ mod prefs;
 mod processes;
 mod projection_gate;
 mod projects;
+mod research_latex;
 mod run;
 mod screenshot;
 mod settings;
@@ -222,6 +223,12 @@ fn main() {
             commands::models::models_list,
             docs::docs_update,
             docs::webfetch_preview,
+            research_latex::research_latex_templates,
+            research_latex::research_latex_create,
+            research_latex::research_latex_insert_figure,
+            research_latex::research_latex_compile,
+            research_latex::research_latex_history,
+            research_latex::research_latex_pdf,
             docs::research_arxiv_preview,
             docs::docs_open,
             commands::summarize::summarize_chat,
