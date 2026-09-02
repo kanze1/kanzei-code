@@ -728,6 +728,72 @@ fn resume_reconcile_hint(item: &WorkItem) -> Option<String> {
     ))
 }
 
+fn prompt_safe_block_reason(reason: &str) -> String {
+    if reason.contains("机械对账") || reason.contains("源码指纹") || reason.contains("fingerprint")
+    {
+        "机械对账详情已裁剪，请使用 `work reconcile` 查看结构化结果".into()
+    } else {
+        reason.into()
+    }
+}
+
+fn reconciliation_gap(classification: ReconcileClass) -> &'static str {
+    match classification {
+        ReconcileClass::Stale => "缺少可验证的声明或交付证据",
+        ReconcileClass::ImplementedUncommitted => "本条目改动面尚有未提交源码",
+        ReconcileClass::CommittedUnverified => "本条目交付缺少验证证据",
+        ReconcileClass::VerifiedUnclosed => "无新增对账缺口，仍待条目关闭",
+    }
+}
+
+fn reconciliation_output(
+    report: &ReconciliationReport,
+    project_root: &std::path::Path,
+) -> serde_json::Value {
+    let items = report
+        .items
+        .iter()
+        .map(|item| {
+            let ledger_rows = crate::work::log::deliver_facts(project_root, &item.id).len();
+            json!({
+                "id": item.id,
+                "class": reconcile::classification_name(item.classification),
+                "ledger_rows": ledger_rows,
+                "source_file_count": item.source_files.len(),
+                "test_record_ids": item.test_record_ids,
+                "gap": reconciliation_gap(item.classification),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({"items": items, "counts": report.counts})
+}
+
+pub(crate) fn structured_control_output(mut state: ResolvedControlState) -> ResolvedControlState {
+    for item in &mut state.reconciliation.items {
+        if item.title.contains("fingerprint") || item.title.contains("指纹") {
+            item.title = "reconciliation item".into();
+        }
+        item.reasons = vec![reconciliation_gap(item.classification).into()];
+        item.declared_commit = None;
+        item.current_head.clear();
+        item.declared_source_fingerprint = None;
+        item.evidence_source_fingerprints.clear();
+        item.source_files.clear();
+    }
+    state.reason = prompt_safe_block_reason(&state.reason);
+    if let Some(item) = &mut state.selected {
+        for reason in &mut item.block_reasons {
+            *reason = prompt_safe_block_reason(reason);
+        }
+    }
+    for item in &mut state.blocked_items {
+        for reason in &mut item.block_reasons {
+            *reason = prompt_safe_block_reason(reason);
+        }
+    }
+    state
+}
+
 fn compact_for_context(mut state: ResolvedControlState) -> ResolvedControlState {
     if state.decision != WorkDecision::Blocked {
         state.blocked_items.clear();
@@ -738,13 +804,15 @@ fn compact_for_context(mut state: ResolvedControlState) -> ResolvedControlState 
     ) {
         state.executable_wip.clear();
     }
-    // R-349:完整对账仍由结构化 resolve 输出保留；注入 prompt 只带 selected 的判据，
-    // 不把其它 active 条目的标题/进展灌进模型上下文，延续 prompt 隔离契约。
-    let selected_id = state.selected.as_ref().map(|item| item.id.as_str());
-    state
-        .reconciliation
-        .items
-        .retain(|item| Some(item.id.as_str()) == selected_id);
+    for item in &mut state.blocked_items {
+        for reason in &mut item.block_reasons {
+            *reason = prompt_safe_block_reason(reason);
+        }
+    }
+    // R-355:结构化对账只保留在 resolve/work reconcile 输出；prompt 注入路径不携带
+    // 全表、指纹或大段缺口，避免判定条数增长导致上下文膨胀。
+    state.reconciliation.items.clear();
+    state.reconciliation.counts.clear();
     state
 }
 
@@ -1260,6 +1328,112 @@ mod tests {
             severity: id.starts_with("D-").then(|| "medium".into()),
             fields: vec![],
         }
+    }
+
+    #[test]
+    fn prompt_compaction_keeps_reconciliation_out_and_redacts_fingerprints() {
+        let state = ResolvedControlState {
+            schema_version: 2,
+            work_priority: "defect-first".into(),
+            decision: WorkDecision::Blocked,
+            reason: "blocked".into(),
+            selected: None,
+            executable_wip: Vec::new(),
+            blocked_items: vec![WorkItemSummary {
+                id: "D-001".into(),
+                kind: "defect".into(),
+                title: "blocked".into(),
+                lifecycle_status: "open".into(),
+                block_reasons: vec!["机械对账禁止取活：源码指纹 `deadbeef`".into()],
+            }],
+            parked_items: Vec::new(),
+            decision_locked: false,
+            integrity_errors: Vec::new(),
+            line: None,
+            foreign_wip: Vec::new(),
+            resume_reconcile: None,
+            resume_worktree: None,
+            reconciliation: ReconciliationReport {
+                items: vec![ReconcileItem {
+                    id: "D-001".into(),
+                    kind: "defect".into(),
+                    title: "blocked".into(),
+                    classification: ReconcileClass::CommittedUnverified,
+                    reasons: vec!["源码指纹 `deadbeef` 未覆盖".into()],
+                    declared_commit: Some("deadbeef".into()),
+                    current_head: "cafebabe".into(),
+                    declared_source_fingerprint: Some("deadbeef".into()),
+                    evidence_source_fingerprints: vec!["deadbeef".into()],
+                    test_record_ids: Vec::new(),
+                    source_files: vec!["crates/example/src/lib.rs".into()],
+                }],
+                counts: [("committed-unverified".into(), 1)].into_iter().collect(),
+            },
+        };
+        let compact = compact_for_context(state);
+        let rendered = serde_json::to_string(&compact).unwrap();
+        assert!(compact.reconciliation.items.is_empty());
+        assert!(compact.reconciliation.counts.is_empty());
+        assert!(
+            !rendered.contains("deadbeef"),
+            "prompt 泄漏了指纹: {rendered}"
+        );
+        assert!(
+            rendered.contains("work reconcile"),
+            "应保留可行动摘要: {rendered}"
+        );
+    }
+
+    #[test]
+    fn reconcile_output_lists_all_classes_without_fingerprints() {
+        let dir = fixture("reconcile-output");
+        let classes = [
+            ReconcileClass::Stale,
+            ReconcileClass::ImplementedUncommitted,
+            ReconcileClass::CommittedUnverified,
+            ReconcileClass::VerifiedUnclosed,
+        ];
+        let items = classes
+            .into_iter()
+            .enumerate()
+            .map(|(index, classification)| ReconcileItem {
+                id: format!("R-00{index}"),
+                kind: "requirement".into(),
+                title: format!("entry {index}"),
+                classification,
+                reasons: vec!["fingerprint `deadbeef`".into()],
+                declared_commit: Some("deadbeef".into()),
+                current_head: "cafebabe".into(),
+                declared_source_fingerprint: Some("deadbeef".into()),
+                evidence_source_fingerprints: Vec::new(),
+                test_record_ids: vec![format!("T-00{index}")],
+                source_files: vec![format!("crates/example/src/{index}.rs")],
+            })
+            .collect();
+        let report = ReconciliationReport {
+            items,
+            counts: BTreeMap::new(),
+        };
+        let output = reconciliation_output(&report, &dir);
+        let rendered = serde_json::to_string(&output).unwrap();
+        assert_eq!(output["items"].as_array().unwrap().len(), 4);
+        for class in [
+            "stale",
+            "implemented-uncommitted",
+            "committed-unverified",
+            "verified-unclosed",
+        ] {
+            assert!(rendered.contains(class), "缺少 class {class}: {rendered}");
+        }
+        assert!(rendered.contains("ledger_rows"));
+        assert!(rendered.contains("source_file_count"));
+        assert!(rendered.contains("test_record_ids"));
+        assert!(rendered.contains("gap"));
+        assert!(
+            !rendered.contains("deadbeef"),
+            "reconcile 输出泄漏指纹: {rendered}"
+        );
+        std::fs::remove_dir_all(dir).ok();
     }
 
     fn fixture(tag: &str) -> std::path::PathBuf {

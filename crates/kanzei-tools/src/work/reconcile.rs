@@ -30,11 +30,16 @@ pub struct ReconcileItem {
     pub title: String,
     pub classification: ReconcileClass,
     pub reasons: Vec<String>,
+    #[serde(skip_serializing)]
     pub declared_commit: Option<String>,
+    #[serde(skip_serializing)]
     pub current_head: String,
+    #[serde(skip_serializing)]
     pub declared_source_fingerprint: Option<String>,
+    #[serde(skip_serializing)]
     pub evidence_source_fingerprints: Vec<String>,
     pub test_record_ids: Vec<String>,
+    #[serde(skip_serializing)]
     pub source_files: Vec<String>,
 }
 
@@ -66,7 +71,7 @@ impl ReconciliationReport {
     }
 }
 
-fn classification_name(classification: ReconcileClass) -> &'static str {
+pub fn classification_name(classification: ReconcileClass) -> &'static str {
     match classification {
         ReconcileClass::Stale => "stale",
         ReconcileClass::ImplementedUncommitted => "implemented-uncommitted",

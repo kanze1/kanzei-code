@@ -13,6 +13,7 @@ pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
     if !matches!(
         action.as_str(),
         "next"
+            | "reconcile"
             | "claim"
             | "create_unit"
             | "get_unit"

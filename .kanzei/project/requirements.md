@@ -359,7 +359,7 @@
 - recorded_at: 1788387719951
 - 停车: WIP 单槽纪律：当前 defect-first 队首 D-737 已有完成实现与未提交改动，本条 B2 尚未开始，主动让位；待 D-737 收口后恢复；恢复人:agent
 
-## R-355 对账结果可见:prompt 裁剪与结构化输出分家 [todo]
+## R-355 对账结果可见:prompt 裁剪与结构化输出分家 [doing]
 - 内容: 按设计 §3.5 把 compact_for_context 限定在 prompt 注入路径,kz work next 不再与 prompt 共用同一次压缩——今天两者共用导致 26 条判定算出来却 reconciliation.items 恒为 0,判定结果一条都不可见。新增只读动作 work reconcile 输出四类全表(id / class / 账本行数 / 改动面文件数 / test_record_ids / 缺口一句话),不含指纹串;block_reasons 只保留 class 名、条目 id 与文件数。
 - 复杂度: 小
 - 来源: 实测 kz work next 返回 reconciliation.counts 有 26 条而 items 为 0,block_reasons 达 176382 字符;代码注释自称「完整对账仍由结构化 resolve 输出保留」但无任何 caller 走未压缩路径。
@@ -368,6 +368,10 @@
 - 验收: ①kz work next 的 reconciliation.items 与实际判定条数一致;②work reconcile 能列出四类全表且输出不含指纹串;③进 prompt 的 block_reasons 不含指纹;④裁决输出字符数不因判定条数增长而爆炸。
 - refs: R-349 D-736
 - 优先级: P1
+- 进展: 批次: 1/1；实现、真实 CLI 回归与门禁完成，待提交。①已完成：`crates/kanzei-tools/src/work/tool.rs:558-564` 的 `work next` 使用 `structured_control_output`，真实输出 items/counts=33/33；证据 T-1786922726945、T-1786922722749、T-1786922726950。②已完成：`work/tool.rs:546-557` 注册只读 `work reconcile`，`crates/kanzei-tools/src/work.rs:749-769` 输出 id/class/ledger_rows/source_file_count/test_record_ids/gap 六字段；T-1786922726949、T-1786922726950 真实重放 33 条且无 fingerprint。③已完成：`work.rs:797-810` 的 compact_for_context 清空 reconciliation 并裁剪 block_reasons，`work.rs:771-795` 的 structured_control_output 脱敏 reason、selected/block reasons、敏感标题和原始证据字段；T-1786922726948、T-1786922722749、T-1786922726950 证明 prompt/next 无 fingerprint。④已完成：structured next 保留完整判定数但移除原始 commit/HEAD/fingerprint/source_files，真实输出从 220148 降至 24747 字符；T-1786922726945、T-1786922726949、T-1786922722749、T-1786922726950；最终 `cargo test -p kanzei-tools work::` 39 passed、`cargo test -p kanzei` 47+32 passed，check/fmt/clippy 全绿，最新源码未提交。
+- observed_head: 13154063c90d8960e6957d5f2bd27bc3115ed9d1
+- observed_worktree_hash: fnv1a64:64382cd628ed78ce
+- recorded_at: 1788390839979
 
 ## R-356 字段三类与词表:引擎/调度/叙事分层,清理零消费者字段并删不变式执行器 [todo]
 - 内容: 按设计 §3.6 把 tracker 字段分三类并在写入边界区别对待:引擎字段(observed_head/observed_worktree_hash/recorded_at/取活依据)补上「模型不得写」的拦截;调度字段(优先级/依赖/阻塞/停车/阶段/取得线/refs)把已有的语法判据从读侧挪到写侧硬拒;叙事字段保持自由文本。建 FIELD_REGISTRY 记录键名到类别与有无消费者,未知键照写但计数并在 req get 里标灰。清理零消费者字段(对账、批次表、背景、根因、执行者、归属、原始描述、不变量)走 ENGINE_DERIVED_FIELDS 的归档 retain 先例。删除 不变式 字段的执行器与它挂着的两道恒真通过的门禁。

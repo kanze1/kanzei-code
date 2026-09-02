@@ -449,6 +449,7 @@ impl Tool for WorkTool {
         let mut schema = serde_json::to_value(schemars::schema_for!(WorkInput)).unwrap();
         schema["properties"]["action"]["enum"] = json!([
             "next",
+            "reconcile",
             "claim",
             "create_unit",
             "get_unit",
@@ -471,7 +472,10 @@ impl Tool for WorkTool {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("unknown");
         // R-322:handoff 是控制面声明,不碰磁盘,按只读归类(权限上无副作用可管)。
-        let read_only = matches!(action, "next" | "get_unit" | "list_units" | "handoff");
+        let read_only = matches!(
+            action,
+            "next" | "reconcile" | "get_unit" | "list_units" | "handoff"
+        );
         vec![format!(
             "{}:{action}",
             if read_only { "read" } else { "write" }
@@ -539,10 +543,22 @@ impl Tool for WorkTool {
         if let Some(output) = execute_work_unit_action(&input, ctx) {
             return output;
         }
+        if input.action == "reconcile" {
+            return match resolve_work_decision(&ctx.cwd, &ctx.project_root, ctx.work_priority) {
+                Ok(state) => ToolOutput::ok(
+                    serde_json::to_string_pretty(&reconciliation_output(
+                        &state.reconciliation,
+                        &ctx.project_root,
+                    ))
+                    .unwrap(),
+                ),
+                Err(error) => ToolOutput::error(error),
+            };
+        }
         if input.action == "next" {
             return match resolve_work_decision(&ctx.cwd, &ctx.project_root, ctx.work_priority) {
                 Ok(state) => ToolOutput::ok(
-                    serde_json::to_string_pretty(&compact_for_context(state)).unwrap(),
+                    serde_json::to_string_pretty(&structured_control_output(state)).unwrap(),
                 ),
                 Err(error) => ToolOutput::error(error),
             };

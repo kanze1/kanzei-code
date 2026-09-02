@@ -11571,3 +11571,91 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 当前 HEAD 13154063 的 verify.ps1 -Full 通过；verify policy、六条 UI 冒烟、workspace tests、各 crate tests 全部通过，dist/verification.json 已绑定当前提交。
 - 关联: D-738 R-354
 - 收尾: 1788389319
+
+## T-1786922726940 R-355 work/reconcile 输出边界回归 [passed]
+- 命令: cargo test -p kanzei-tools work::
+- 时长: 5.2s
+- 摘要: work/reconcile 回归通过：39 passed；覆盖 work next 结构化全表、prompt 裁剪去指纹、work reconcile 四类安全输出与既有 WIP/调度行为。fixture stderr 的非 git 临时路径/换行警告不影响断言。
+- 关联: R-355
+- 收尾: 1788389857
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@97617cebc76d,crates/kanzei-tools/src/work/reconcile.rs@cf48d7ec6155,crates/kanzei-tools/src/work/tool.rs@fe2fcbe5349f,crates/kanzei/src/cli/work.rs@a20285cf4307
+
+## T-1786922726941 R-355 work reconcile CLI UTF-8 管道回归（首次） [failed]
+- 命令: cargo run -q -p kanzei -- work reconcile | ConvertFrom-Json
+- 时长: 0.5s
+- 摘要: 真实 work reconcile 命令完成但 PowerShell 管道按本地代码页损坏 UTF-8 中文 gap，ConvertFrom-Json 在 items[0].gap 解析失败；不是命令退出或业务 JSON 生成失败。
+- 关联: R-355
+- 收尾: 1788389927
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@97617cebc76d,crates/kanzei-tools/src/work/reconcile.rs@cf48d7ec6155,crates/kanzei-tools/src/work/tool.rs@fe2fcbe5349f,crates/kanzei/src/cli/work.rs@a20285cf4307
+
+## T-1786922726942 R-355 work reconcile CLI UTF-8 文件回归 [passed]
+- 命令: $path = Join-Path $env:TEMP "kz-r355-reconcile.json"; cargo run -q -p kanzei -- work reconcile > $path; $raw = [IO.File]::ReadAllText($path); $json = $raw | ConvertFrom-Json; $leak = $raw -match 'fingerprint|declared_commit|current_head|declared_source_fingerprint|evidence_source_fingerprints'; if ($LASTEXITCODE -ne 0 -or @($json.items).Count -lt 1 -or $leak) { exit 1 }
+- 时长: 1.2s
+- 摘要: 真实 `kz work reconcile` 通过 UTF-8 文件重放：输出 32 条结构化对账，包含当前出现的 class，具备 id/class/ledger_rows/source_file_count/test_record_ids/gap，未发现 fingerprint 或原始指纹字段。
+- 关联: R-355
+- 收尾: 1788389959
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@97617cebc76d,crates/kanzei-tools/src/work/reconcile.rs@cf48d7ec6155,crates/kanzei-tools/src/work/tool.rs@fe2fcbe5349f,crates/kanzei/src/cli/work.rs@a20285cf4307
+
+## T-1786922726943 R-355 work 与 kanzei crate 定向回归（当前源码） [passed]
+- 命令: cargo test -p kanzei-tools work::; cargo test -p kanzei
+- 时长: 26.1s
+- 摘要: 当前源码回归通过：kanzei-tools work 39 passed，kanzei 47+32 passed；覆盖完整 work next、prompt 裁剪、work reconcile CLI 接线相关调用方。
+- 关联: R-355
+- 收尾: 1788390092
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@97617cebc76d,crates/kanzei-tools/src/work/reconcile.rs@cf48d7ec6155,crates/kanzei-tools/src/work/tool.rs@fe2fcbe5349f,crates/kanzei/src/cli/work.rs@a20285cf4307
+
+## T-1786922726944 R-355 work next 对账计数回归（错误指纹口径） [failed]
+- 命令: cargo run -q -p kanzei -- work next > $env:TEMP\kz-r355-next.json; $raw = [IO.File]::ReadAllText($env:TEMP\kz-r355-next.json); $json = $raw | ConvertFrom-Json; $items = @($json.reconciliation.items).Count; $total = ($json.reconciliation.counts.PSObject.Properties | ForEach-Object { [int]$_.Value } | Measure-Object -Sum).Sum; $leak = $raw -match 'fingerprint|declared_source_fingerprint|evidence_source_fingerprints'; if ($items -ne $total -or $leak) { exit 1 }
+- 时长: 1.3s
+- 摘要: work next 的 items/counts 数量一致（32=32），但测试错误地要求 structured resolve 也不得含 fingerprint；原验收仅约束 work reconcile 与 prompt 路径，未改代码。
+- 关联: R-355
+- 收尾: 1788390125
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@97617cebc76d,crates/kanzei-tools/src/work/reconcile.rs@cf48d7ec6155,crates/kanzei-tools/src/work/tool.rs@fe2fcbe5349f,crates/kanzei/src/cli/work.rs@a20285cf4307
+
+## T-1786922726945 R-355 work next 对账计数回归 [passed]
+- 命令: $path = Join-Path $env:TEMP "kz-r355-next.json"; cargo run -q -p kanzei -- work next > $path; $raw = [IO.File]::ReadAllText($path); $json = $raw | ConvertFrom-Json; $items = @($json.reconciliation.items).Count; $total = ($json.reconciliation.counts.PSObject.Properties | ForEach-Object { [int]$_.Value } | Measure-Object -Sum).Sum; if ($LASTEXITCODE -ne 0 -or $items -lt 1 -or $items -ne $total) { exit 1 }
+- 时长: 1.3s
+- 摘要: 真实 work next UTF-8 重放通过：reconciliation.items 32 条，与 counts 汇总 32 条一致；structured resolve 保留完整证据供结构化消费者使用。
+- 关联: R-355
+- 收尾: 1788390149
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@97617cebc76d,crates/kanzei-tools/src/work/reconcile.rs@cf48d7ec6155,crates/kanzei-tools/src/work/tool.rs@fe2fcbe5349f,crates/kanzei/src/cli/work.rs@a20285cf4307
+
+## T-1786922726946 R-355 work 与 kanzei crate 定向回归（压缩边界修复后） [passed]
+- 命令: cargo test -p kanzei-tools work::; cargo test -p kanzei
+- 时长: 26.1s
+- 摘要: 完成压缩边界修复后的当前源码回归：kanzei-tools work 39 passed；kanzei 47+32 passed。
+- 关联: R-355
+- 收尾: 1788390247
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@65defa19caec,crates/kanzei-tools/src/work/reconcile.rs@cf48d7ec6155,crates/kanzei-tools/src/work/tool.rs@aca30bd8721f,crates/kanzei/src/cli/work.rs@a20285cf4307
+
+## T-1786922726947 R-355 work/reconcile 回归（最终格式化后） [passed]
+- 命令: cargo fmt -p kanzei-tools -- --check; cargo test -p kanzei-tools work::
+- 时长: 4.8s
+- 摘要: 官方 rustfmt 后 R-355 work/reconcile 回归通过：39 passed；包含 prompt 指纹裁剪、work next count 对账、work reconcile 四类输出。
+- 关联: R-355
+- 收尾: 1788390296
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@3c49fa786013,crates/kanzei-tools/src/work/reconcile.rs@cf48d7ec6155,crates/kanzei-tools/src/work/tool.rs@aca30bd8721f,crates/kanzei/src/cli/work.rs@a20285cf4307
+
+## T-1786922726948 R-355 work/reconcile 脱敏回归 [passed]
+- 命令: cargo test -p kanzei-tools work::
+- 时长: 5.1s
+- 摘要: D-739 脱敏修复后的 work/reconcile 回归通过：39 passed，覆盖 prompt、structured work next 与 work reconcile 输出。
+- 关联: R-355 D-739
+- 收尾: 1788390453
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@58c0883d1b7b,crates/kanzei-tools/src/work/reconcile.rs@cf48d7ec6155,crates/kanzei-tools/src/work/tool.rs@aca30bd8721f,crates/kanzei/src/cli/work.rs@a20285cf4307
+
+## T-1786922726949 R-355 最终 work 输出与脱敏回归 [passed]
+- 命令: cargo test -p kanzei-tools work::; cargo run -q -p kanzei -- work next > $env:TEMP\kz-r355-next-final.json; cargo run -q -p kanzei -- work reconcile > $env:TEMP\kz-r355-reconcile-final.json
+- 时长: 5.3s
+- 摘要: 最终 work 输出验收通过：work 39 passed；真实 work next items/counts=33/33、24747 chars、无指纹；work reconcile 33 条、六字段齐全、无指纹。
+- 关联: R-355 D-739
+- 收尾: 1788390664
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@10564df1d9f8,crates/kanzei-tools/src/work/reconcile.rs@a39b039a9724,crates/kanzei-tools/src/work/tool.rs@aca30bd8721f,crates/kanzei/src/cli/work.rs@a20285cf4307
+
+## T-1786922726950 R-355 最终 crate 定向回归 [passed]
+- 命令: cargo test -p kanzei-tools work::; cargo test -p kanzei
+- 时长: 26.1s
+- 摘要: 当前源码最终回归通过：kanzei-tools work 39 passed；kanzei 47+32 passed。
+- 关联: R-355 D-739
+- 收尾: 1788390759
+- 源码指纹: v2 crates/kanzei-tools/src/work.rs@10564df1d9f8,crates/kanzei-tools/src/work/reconcile.rs@a39b039a9724,crates/kanzei-tools/src/work/tool.rs@aca30bd8721f,crates/kanzei/src/cli/work.rs@a20285cf4307

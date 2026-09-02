@@ -87,3 +87,15 @@
 - observed_worktree_hash: fnv1a64:a1d1426a5522a197
 - recorded_at: 1787288788389
 - 停车: WIP 单槽纪律：R-353 已有进行中的 finalize/deliver 实现与未提交改动，本条主动让位；待 R-353 收口后恢复；恢复人:agent
+
+## D-739 work next 顶层 reason 仍泄漏对账 fingerprint [open] (medium)
+- 复现: R-355 将 reconciliation item 的 commit/fingerprint 字段从 work next item 清空后，实际 `kz work next` 顶层 reason 仍拼接 `机械对账提示` 的原始 classification_reason，输出包含 fingerprint；`work reconcile` 已无该问题。
+- 影响: 结构化取活输出若直接进入模型上下文仍泄漏源码 fingerprint，破坏 R-355 的 prompt/结构化边界与指纹不进 prompt 不变量。
+- 来源: R-355 CLI 最终回归 self-found
+- 标签: 核心
+- refs: R-355
+- 优先级: P1
+- 进展: 修复已完成并待随 R-355 提交：①`crates/kanzei-tools/src/work.rs:771-795` 对 structured work next 的 reconciliation item 标题、reason、selected/block reasons 做敏感词脱敏，避免 fingerprint 进入输出；②原始字段名在 `crates/kanzei-tools/src/work/reconcile.rs:33-43` 设为 skip_serializing，work reconcile 仍由 `work.rs:749-769` 输出安全六字段；③真实 CLI 最终回归 T-1786922726949、T-1786922726950 通过，next 33 条/24747 字符且无泄漏，reconcile 33 条且无泄漏；提交前 check/fmt/clippy 全绿。
+- observed_head: 13154063c90d8960e6957d5f2bd27bc3115ed9d1
+- observed_worktree_hash: fnv1a64:64382cd628ed78ce
+- recorded_at: 1788390797066
