@@ -689,6 +689,27 @@ fn is_stage_key(key: &str) -> bool {
     key.trim() == "阶段" || matches!(lower.as_str(), "stage" | "phase")
 }
 
+/// R-356 B2:阻塞/停车写入必须携带可解析的解除条件。历史条目不回扫，
+/// 只约束本次模型提交的字段，避免自由文本继续进入读侧才发现的不可执行阻塞。
+pub(crate) fn validate_write_fields(fields: &BTreeMap<String, String>) -> Result<(), String> {
+    for (key, value) in fields {
+        if !(is_blocker_key(key) || is_park_key(key)) || !is_present_blocker(value) {
+            continue;
+        }
+        if parse_release_condition(value).is_none() {
+            let label = if is_blocker_key(key) {
+                "阻塞"
+            } else {
+                "停车"
+            };
+            return Err(format!(
+                "{label}字段写入缺少可解析的解除条件；请在字段值中添加 `解除条件:R-123`、`解除条件:D-123` 或 `解除条件:用户`。"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn is_present_blocker(value: &str) -> bool {
     let value = value.trim();
     !value.is_empty()
@@ -1039,6 +1060,23 @@ mod tests {
 
     /// R-307 批2:存量自由文本的复核提醒——编号全部终态才点名,无编号不误报,
     /// 带结构化解除条件的字段不参与。
+    #[test]
+    fn write_blockers_require_structured_release_conditions() {
+        let valid = std::collections::BTreeMap::from([
+            ("阻塞".into(), "等待服务;解除条件:D-123".into()),
+            ("停车".into(), "暂让槽;解除条件:用户".into()),
+            ("备注".into(), "自由文本".into()),
+        ]);
+        assert!(validate_write_fields(&valid).is_ok());
+
+        let missing = std::collections::BTreeMap::from([("阻塞".into(), "等待用户回复".into())]);
+        let error = validate_write_fields(&missing).expect_err("无解除条件应拒绝");
+        assert!(error.contains("解除条件"));
+
+        let clear = std::collections::BTreeMap::from([("停车".into(), "无".into())]);
+        assert!(validate_write_fields(&clear).is_ok());
+    }
+
     #[test]
     fn stale_blocker_evidence_终态编号点名_无编号不误报() {
         let terminal = states_of(&[], &[entry("D-486", "fixed", vec![])]);

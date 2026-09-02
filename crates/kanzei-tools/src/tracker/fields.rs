@@ -160,6 +160,18 @@ pub(crate) const FIELD_REGISTRY: &[FieldDefinition] = &[
     },
 ];
 
+pub(crate) fn reject_engine_writes(
+    fields: &std::collections::BTreeMap<String, String>,
+) -> Option<String> {
+    let engine = fields.iter().find(|(key, _)| {
+        definition(key).is_some_and(|definition| definition.category == FieldCategory::Engine)
+    })?;
+    Some(format!(
+        "模型不得写入引擎字段 `{}`；该字段由引擎在真实状态落盘时维护，请改写叙事/调度字段或调用对应引擎动作。",
+        engine.0
+    ))
+}
+
 pub(crate) fn registry_json() -> serde_json::Value {
     serde_json::json!(FIELD_REGISTRY
         .iter()
@@ -184,6 +196,14 @@ mod tests {
         assert!(engine.has_consumer);
         let zero = definition("不变量").expect("零消费者字段应登记");
         assert!(!zero.has_consumer);
+    }
+
+    #[test]
+    fn engine_fields_are_rejected_from_model_write_input() {
+        let fields =
+            std::collections::BTreeMap::from([("observed_head".into(), "deadbeef".into())]);
+        let error = reject_engine_writes(&fields).expect("引擎字段必须拒绝");
+        assert!(error.contains("observed_head"));
     }
 
     #[test]

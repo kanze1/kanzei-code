@@ -332,6 +332,14 @@ impl Tool for TrackerTool {
         if let Some(complexity) = input.complexity.take() {
             input.fields.insert("复杂度".into(), complexity);
         }
+        if WRITE_ACTIONS.contains(&input.action.as_str()) {
+            if let Some(error) = fields::reject_engine_writes(&input.fields) {
+                return ToolOutput::error(error);
+            }
+            if let Err(error) = scheduling::validate_write_fields(&input.fields) {
+                return ToolOutput::error(error);
+            }
+        }
         if input.action == "list"
             && matches!(self.kind.prefix, "R" | "D")
             && !matches!(
@@ -961,6 +969,62 @@ mod tests {
             "延后决策": "扩展站点范围"
         })
         .to_string()
+    }
+
+    #[tokio::test]
+    async fn write_boundary_rejects_engine_and_unstructured_blocker() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-r356-write-boundary-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        store.save(&mut [entry("R-001")]).unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+
+        let engine = tool
+            .execute(
+                json!({
+                    "action": "update",
+                    "id": "R-001",
+                    "fields": {"observed_head": "deadbeef"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(engine.is_error, "引擎字段写入必须拒绝: {}", engine.content);
+        assert!(engine.content.contains("observed_head"));
+
+        let blocker = tool
+            .execute(
+                json!({
+                    "action": "update",
+                    "id": "R-001",
+                    "fields": {"阻塞": "等待用户回复"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            blocker.is_error,
+            "无解除条件的阻塞必须拒绝: {}",
+            blocker.content
+        );
+        assert!(blocker.content.contains("解除条件"));
+        assert!(
+            store.load().unwrap()[0].fields.is_empty(),
+            "拒绝写入不得改文档"
+        );
     }
 
     #[test]

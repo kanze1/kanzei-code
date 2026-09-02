@@ -11706,3 +11706,19 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-356
 - 收尾: 1788392224
 - 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@a6388f663bb8,crates/kanzei-tools/src/tracker/fields.rs@07289f47e26c,crates/kanzei-tools/src/tracker/scheduling.rs@7bedd0fcb321
+
+## T-1786922726957 R-356 B2 kanzei-tools 全量定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 38.6s
+- 摘要: B2 写入边界回归通过：543 passed/1 ignored；覆盖真实 TrackerTool update 对引擎字段和无解除条件阻塞的即时拒绝，以及既有 tracker 全量回归。
+- 关联: R-356
+- 收尾: 1788392578
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@f7706504b11b,crates/kanzei-tools/src/tracker/fields.rs@18e2e6544ee9,crates/kanzei-tools/src/tracker/scheduling.rs@6ba6de2bd890
+
+## T-1786922726958 R-356 B2 格式化后最终定向回归 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 39.2s
+- 摘要: B2 格式化修复后的最终定向回归通过：543 passed/1 ignored；覆盖写入边界和现有 kanzei-tools 全量测试。
+- 关联: R-356
+- 收尾: 1788392679
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@399dce1e9218,crates/kanzei-tools/src/tracker/fields.rs@18e2e6544ee9,crates/kanzei-tools/src/tracker/scheduling.rs@6ba6de2bd890

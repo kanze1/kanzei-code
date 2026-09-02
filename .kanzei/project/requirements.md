@@ -369,11 +369,11 @@
 - 验收: ①引擎字段被模型侧工具写入时被拒;②阻塞字段缺解除条件在写入时即被拒而非读时才发现;③FIELD_REGISTRY 能列出每个键的类别与消费者有无;④零消费者字段在归档时被自动 retain;⑤不变式执行器与两道门禁移除后无残留调用点。
 - refs: R-353
 - 优先级: P2
-- 批次: 1/4
-- 进展: 批次: 1/4；已落地 `crates/kanzei-tools/src/tracker/fields.rs`：`FIELD_REGISTRY` 登记 26 个已知键及 engine/scheduling/narrative 类别、消费者布尔值；`registry_json` 提供结构化清单；`metadata` 对未知键返回 unknown/gray。`tracker/scheduling.rs:458-500` 的 `structured_entry` 是真实 req get/list 消费者，附加 `unknown_field_count`、字段分类/消费者/灰显标记和完整 registry。回归 T-1786922726955（2 passed）与 T-1786922726956（540 passed/1 ignored）。下一步 B2：在 tracker 写入边界拒绝引擎字段，并把阻塞解除条件从读侧判据前移到写侧。
-- observed_head: 732a0e4fb939a965985e11ce49e51d92a43fe0c8
-- observed_worktree_hash: fnv1a64:87cc565ccd3f0cf4
-- recorded_at: 1788392229737
+- 批次: 2/4
+- 进展: 批次: 2/4；B1 registry 已在 `adb0b6cd` 提交。B2 已在 `tracker.rs:347-355` 的统一写入路由接入 `fields::reject_engine_writes` 与 `scheduling::validate_write_fields`：模型提交 `observed_head/observed_worktree_hash/recorded_at/取活依据` 即拒；非空 `阻塞/停车` 必须含可解析 `解除条件:R-/D-/T-` 或 `解除条件:用户`，清除值仍放行；未知键/叙事字段不受影响。真实 `TrackerTool::execute` 回归 `tracker.rs` 测试 `write_boundary_rejects_engine_and_unstructured_blocker`；纯规则回归位于 `fields.rs` 与 `scheduling.rs`。证据 T-1786922726957（543 passed/1 ignored）。下一步 B3：归档时 retain 零消费者字段，并删除 不变式 执行器及两道门禁。
+- observed_head: adb0b6cda4dc1af6c75e383815506a7dbbb5a7d1
+- observed_worktree_hash: fnv1a64:f9002a89cd6e48e6
+- recorded_at: 1788392585398
 
 ## R-357 活动面按裁决可达性划分:停车超期移出、tests.md 废止、缺口由 work gaps 回答 [todo]
 - 内容: 按设计 §3.7 重划活动面与归档面:停车超过 14 天且解除条件未变的条目移入 parked 面,裁决不再遍历但 work reconcile 与前端仍可见;废止 tests.md 作为 Markdown 面(它只有 12 字节、零记录,唯一可能的居民 running 是瞬态,不该占治理真源),running 迁 state.db;新增 kz work gaps 回答「还需要跑什么」,输入为账本改动面加该条目 passed 记录的指纹覆盖与关闭门禁判据,每条缺口一行并附一条可直接复制的命令,给不出可执行命令的缺口不出行。
