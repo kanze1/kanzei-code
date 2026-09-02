@@ -11310,3 +11310,43 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-349
 - 收尾: 1788308478
 - 源码指纹: v2 crates/kanzei-tools/src/work.rs@5c49cfbdce6d,crates/kanzei-tools/src/work/reconcile.rs@b53d1407ecd7
+
+## T-1786922726905 R-350 前端初轮冒烟（a11y 既有基线失败） [failed]
+- 命令: node --check crates/kanzei-app/ui/05-chat-render.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 时长: 8.0s
+- 摘要: R-350 相关 runtime/lint/frontend_check 通过；ui-a11y-smoke 在既有 crates/kanzei-app/ui/style.css:2249 发现主题块外字面量 background:#fff，未触及 R-350 主对话规则；后续脚本因串行命令停止未执行。
+- 关联: R-350 D-732
+- 收尾: 1788308914
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@341a772425be
+
+## T-1786922726906 R-350 分层契约专项回归 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/parallel-lines-regression.mjs
+- 时长: 5.1s
+- 摘要: R-350 相关专项回归通过：runtime 27 个 UI 脚本/2346 次 invoke/0 运行时错误，lint 54 个文件，markdown 与 parallel-lines 均通过；不包含另有既有基线失败的 i18n/a11y。
+- 关联: R-350 D-732
+- 收尾: 1788308971
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@341a772425be
+
+## T-1786922726907 R-350 i18n 基线检查 [failed]
+- 命令: node scripts/ui-i18n-smoke.mjs
+- 时长: 0.3s
+- 摘要: 既有 i18n 门禁失败：crates/kanzei-app/ui/index.html 文案“实验结果图”未进入资源表；与 R-350 修改的 05-chat-render.js/style.css 无关。
+- 关联: R-350 D-732
+- 收尾: 1788308972
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@341a772425be
+
+## T-1786922726908 R-350 主对话分层契约最终验证 [passed]
+- 命令: node --check crates/kanzei-app/ui/05-chat-render.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/parallel-lines-regression.mjs
+- 时长: 5.3s
+- 摘要: R-350 最终相关前端验证通过：node 语法检查、UI runtime 27 脚本/2346 次 invoke/0 错误、UI lint 54 文件、markdown、parallel-lines；runtime 新增断言覆盖成功工具不渲染第二行、工具行点击展开、失败默认可见、单行思考不成块、多行思考保留展开块、turn-divider 清理与轮间留白。未包含另有既有基线失败的 a11y/i18n。
+- 关联: R-350 D-732
+- 收尾: 1788309063
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@ddf7e737ef9e
+
+## T-1786922726909 R-350 提交前 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 29.1s
+- 摘要: 提交前定向 crate 回归通过：kanzei-app 256 passed，0 failed，0 ignored。
+- 关联: R-350 D-732
+- 收尾: 1788309236
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@ddf7e737ef9e

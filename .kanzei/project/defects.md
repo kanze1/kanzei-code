@@ -128,3 +128,16 @@
 - observed_worktree_hash: fnv1a64:62f219d59ffcf79b
 - recorded_at: 1787732249253
 - 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；实现与定向回归已完成，待新调研条目收口后提交/关闭；恢复人:agent
+
+## D-732 主对话成功工具结果强制第二行且单行思考仍生成独立块 [fixing] (medium)
+- 复现: 主对话历史或实时渲染一个成功工具结果；观察 `.tool-msg`，结果摘要位于工具调用行下方；再渲染只有一行的 reasoning，仍生成独立 `.msg.reasoning` 块。
+- 影响: 主对话轨迹行数翻倍，单行思考出现无内容可展开的独立点击块，违背主对话三层呈现契约。
+- 来源: self-found：读取 docs/design/chat_presentation_contract.md §4.1/§4.3 与 05-chat-render.js 实现后确认。
+- 标签: 前端
+- refs: R-350
+- 优先级: P1
+- 状态说明: D-732 根因已由 R-350 实现修复，本缺陷现具备自动化回归证据，准备关闭。
+- 进展: 已修复并验证：05-chat-render.js:419-431 将结果摘要放入可点击工具 head，:448-473 保留详情展开；:575-596、:614-629 隐藏单行 reasoning、保留多行 expandable；style.css:2030-2034 收紧工具间距并增加轮间留白；已移除 .turn-divider。T-1786922726908 通过 node check、runtime、lint、markdown、parallel；a11y/i18n 既有基线失败已另记。
+- observed_head: b0827f3964668a47e3091a2bc625509b43ffd65e
+- observed_worktree_hash: fnv1a64:ea8f978af9e578d9
+- recorded_at: 1788309119392

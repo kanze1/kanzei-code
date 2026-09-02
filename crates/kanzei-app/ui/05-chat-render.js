@@ -416,11 +416,11 @@ export function buildToolBlock(name, input) {
   arg.textContent = summary ? `(${summary})` : "";
   // 类型图标与成败字形**并存**:.tool-msg-status 承载的是「形状 + 颜色双重区分」的
   // 无障碍承诺(D-105),不能被类型图标顶掉。成败在前,类型在后,再是工具名。
-  head.append(icon, toolIconNode(name), label, arg);
-  // 可访问名带上参数;"展开或收起"只进 aria-label,绝不进可见文本。
-  head.setAttribute("aria-label", `${name} ${summary} — ${t("展开或收起工具详情")}`);
-  const result = document.createElement("div");
+  const result = document.createElement("span");
   result.className = "tool-msg-result hidden";
+  head.append(icon, toolIconNode(name), label, arg, result);
+  // 可访问名带上参数;“展开或收起”只进 aria-label,绝不进可见文本。
+  head.setAttribute("aria-label", `${name} ${summary} — ${t("展开或收起工具详情")}`);
   const detail = document.createElement("div");
   detail.className = "tool-msg-detail hidden";
   head.addEventListener("click", () => {
@@ -428,7 +428,7 @@ export function buildToolBlock(name, input) {
     const open = detail.classList.toggle("hidden");
     head.setAttribute("aria-expanded", String(!open));
   });
-  wrap.append(head, result, detail);
+  wrap.append(head, detail);
   return { wrap, head, icon, result, detail };
 }
 
@@ -575,6 +575,7 @@ export function setCurrentReasoningHead(value) { currentReasoningHead = value; }
 export function buildReasoningBlock(raw) {
   const wrap = document.createElement("div");
   wrap.className = "msg reasoning";
+  wrap.hidden = true;
   const head = document.createElement("button");
   head.type = "button";
   head.className = "reasoning-head";
@@ -620,8 +621,10 @@ export function renderReasoningBlock(body) {
     .map((l) => l.replace(/[#*`]/g, "").trim())
     .filter(Boolean);
   const preview = (lines[lines.length - 1] || "").slice(0, 60);
-  // codex 常常只给一行摘要标题:没有更多内容就不给"展开"的假承诺。
+  // codex 常常只给一行摘要标题:没有更多内容就不把它作为主区独立块展示。
   const expandable = lines.length > 1;
+  const wrap = body.parentElement;
+  if (wrap) wrap.hidden = !expandable;
   head.textContent = `· ${preview || t("思考中…")}${expandable ? `(${t("点击展开")})` : ""}`;
   head.classList.toggle("expandable", expandable);
   if (!expandable) head.setAttribute("aria-expanded", "false");

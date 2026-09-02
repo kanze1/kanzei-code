@@ -1637,14 +1637,6 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .ask-line .dim { white-space: nowrap; min-width: 52px; }
 .ask-line code { word-break: break-all; }
 
-/* ---------- R-015:对话全状态显示 ---------- */
-.turn-divider {
-  text-align: center; color: var(--dim); font-size: var(--fs-11); margin: 10px 0 4px;
-  display: flex; align-items: center; gap: 10px;
-}
-.turn-divider::before, .turn-divider::after {
-  content: ""; flex: 1; border-top: 1px solid var(--border-soft);
-}
 .msg.md pre.code, .reasoning-body pre.code {
   background: var(--code-output-bg); border: 1px solid var(--border-soft); border-radius: 4px;
   padding: 8px 10px; margin: 6px 0; overflow-x: auto;
@@ -2036,8 +2028,10 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .menu-row > input[type="checkbox"] { flex: 0 0 auto; }
 
 /* ---------- 主对话内联工具块(R-090):形态对齐 Claude Code ---------- */
-/* 无边框无底色,靠字重与缩进建立层次;两行一块:调用行 + ⎿ 结果行。 */
-.msg.tool-msg { padding: 0; margin: 1px 0; background: transparent; border: none; }
+/* 无边框无底色,工具调用与结果摘要共用同一行;轮次边界由下一条用户消息的留白表达。 */
+.msg.tool-msg { padding: 0; margin: -4px 0; background: transparent; border: none; }
+/* 同一轮内部的轨迹压紧;下一轮用户消息再恢复明确的呼吸区。 */
+.msg.user:not(:first-child) { margin-top: 36px; }
 
 /* R-184 P2:子代理角色色点(活动面板轨迹 + 主对话折叠组共用)。颜色来自
    line-accent-* 的 --line-color;色点旁必有角色名文本,颜色不作唯一区分。 */
@@ -2078,7 +2072,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
   text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
 }
 .tool-msg-result {
-  margin: 0 0 2px 18px; font-size: var(--fs-13); color: var(--dim);
+  flex: 0 1 42%; min-width: 0; margin: 0; font-size: var(--fs-13); color: var(--dim);
   font-family: var(--mono, ui-monospace, monospace);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }

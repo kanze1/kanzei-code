@@ -3687,6 +3687,29 @@ assert(listText("memory-flags-count").includes("2"), "整理后未刷新空闲�
   assert(blocks.length === 4, `历史回放应按 call_id 配出 4 个工具块,实得 ${blocks.length}`);
   const [h1, h2, h3, h4] = blocks;
   const resultOf = (block) => block.querySelector(".tool-msg-result")?.textContent ?? "";
+  assert(h1.querySelector(".tool-msg-head .tool-msg-result"), "工具结果摘要未并入可点击的工具行");
+  assert(h1.querySelectorAll(".tool-msg-result").length === 1, "工具块结果摘要出现重复节点");
+  assert(!h1.querySelector(".tool-msg > .tool-msg-result"), "成功工具块仍把结果摘要渲染成第二行");
+  assert(!h1.querySelector(".tool-msg-result").classList.contains("hidden"), "失败工具错误摘要没有默认可见");
+  assert(h2.querySelector(".tool-msg-head .tool-msg-result"), "成功工具结果摘要未与调用信息合并到同一行");
+  assert(!h2.querySelector(".tool-msg > .tool-msg-result"), "成功工具块仍渲染了独立的第二行结果");
+  const h2Head = h2.querySelector(".tool-msg-head");
+  const h2Detail = h2.querySelector(".tool-msg-detail");
+  assert(h2Detail.classList.contains("hidden"), "成功工具详情不应默认展开");
+  h2Head.click();
+  assert(!h2Detail.classList.contains("hidden") && h2Head.getAttribute("aria-expanded") === "true", "点击工具行未展开完整详情");
+  h2Head.click();
+  assert(h2Detail.classList.contains("hidden") && h2Head.getAttribute("aria-expanded") === "false", "再次点击工具行未收起详情");
+  assert(!style.includes(".turn-divider"), "样式表仍残留无创建点的 .turn-divider");
+  assert(/\.msg\.tool-msg\s*\{[^}]*margin:\s*-4px\s+0/.test(style), "工具行间距未收紧");
+  assert(/\.msg\.user:not\(:first-child\)\s*\{[^}]*margin-top:\s*36px/.test(style), "轮间留白未显著拉开");
+  const chatRenderer = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const singleReasoning = chatRenderer?.buildReasoningBlock("单行思考摘要");
+  chatRenderer?.renderReasoningBlock(singleReasoning.body);
+  assert(singleReasoning.wrap.hidden === true, "单行思考仍生成可见独立块");
+  const multiReasoning = chatRenderer?.buildReasoningBlock("第一行思考\n第二行思考");
+  chatRenderer?.renderReasoningBlock(multiReasoning.body);
+  assert(!multiReasoning.wrap.hidden && multiReasoning.head.classList.contains("expandable"), "多行思考未保留可展开块");
   // 详情里真正的"剩余输出"块(带 args 类的那个是完整入参,不是结果原文)。
   const restOf = (block) =>
     block.querySelectorAll(".tool-msg-raw").find((n) => !n.classList.contains("args")) ?? null;
