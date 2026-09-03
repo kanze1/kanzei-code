@@ -3,7 +3,7 @@
 //! 规则写在用户可编辑文案里会与引擎行为脱节)。
 //!
 //! 这些判定原本全在桌面端前端 JS(08-compose.js / 07-events.js):空转工具画像、
-//! 连数上限、全部阻塞/清空停止、无动作 NUDGE、暂停/本轮后停/停止原因。
+//! 连续推进的旧版次数上限、全部阻塞/清空停止、无动作 NUDGE、暂停/本轮后停/停止原因。
 //! 本模块把它们下沉为**纯逻辑状态机**(无 IO):kanzei-core runner 轮末消费,
 //! 桌面端与 CLI 共用同一套判定(D-229 类「能力只在桌面端」的架构债消除),
 //! UI 只保留控件与状态回显。设计见 docs/design/continue_prompt_dissection.md §4。
@@ -72,7 +72,7 @@ pub enum AutoStopReason {
     Paused,
     /// 用户勾选「本轮后停」(一次性意图,不持久化)。
     StopAfterRound,
-    /// 已达连数上限(带上限值供展示)。
+    /// 旧版本的连续次数上限停止原因，仅为兼容历史事件保留；当前状态机不再产生此原因。
     MaxRounds(u32),
     /// 连续两轮无实质动作。
     NoAction,
@@ -192,7 +192,7 @@ pub fn verify_prompt() -> String {
 pub struct AutoRunState {
     /// 本轮内已自动续跑的轮数(手动发送归零)。
     pub rounds: u32,
-    /// 连数上限(防失控;clamp 到 1..=100)。
+    /// 旧版连续次数上限,仅作为兼容配置保留,不参与状态机停止判定。
     pub max_rounds: u32,
     /// 用户暂停。
     pub paused: bool,
@@ -258,10 +258,9 @@ impl AutoRunState {
         self.goal_idle_rounds = 0;
     }
 
-    /// 轮末判定。判定顺序与前端 07-events.js:288-352 完全一致:
-    /// ①backlog 全阻塞/清空最优先(前端 stopAutoWhenBacklogEmpty 最先跑);
-    /// ②用户拒绝(halted)不续跑不重置;③暂停;④本轮后停;⑤连数上限;
-    /// ⑥无动作(第一次 NUDGE/第二次停);⑦正常续跑。
+    /// 轮末判定。判定顺序与前端 07-events.js:288-352 保持一致,但不再受旧版连续次数上限影响:
+    /// ①backlog 全阻塞/清空最优先;②用户拒绝;③暂停;④本轮后停;⑤失败;
+    /// ⑥模型声明完成;⑦无动作/真实进展/核查等安全边界;⑧正常续跑。
     /// R-199:档位检查在 backlog 之后——模式不匹配时引擎 Stop(ProfileMismatch)
     /// 且计数不 +1(重置为 0),前端不再有第二次否决(计数与实际轮次不再漂移)。
     ///
@@ -270,11 +269,13 @@ impl AutoRunState {
     /// ```text
     /// 资源/用户段(模型无权否决):
     ///   backlog(仅自主档:那一档的活来自队列) → auto_allowed → halted → paused
-    ///   → stop_after_round → max_rounds → round_failure
+    ///   → stop_after_round → round_failure
     /// 模型段(模型的停机权,引擎无权否决):
     ///   → model_declared_done
     /// 任务判断段(仅 Autonomous 档借给引擎):
     ///   → no_action/Nudge → zero_output → verify_round → Continue
+    ///
+    /// `max_rounds` 保留用于兼容旧配置和状态投影,不再作为连续鞭挞的硬上限。
     /// ```
     ///
     /// `zero_output`(D-583)看着像任务判断,其实不是:它比对 (HEAD、worktree hash、
@@ -304,11 +305,9 @@ impl AutoRunState {
         if self.stop_after_round {
             return self.stop_with(AutoStopReason::StopAfterRound);
         }
-        if self.rounds >= self.max_rounds {
-            return self.stop_with(AutoStopReason::MaxRounds(self.max_rounds));
-        }
         // D-403:失败轮不算「无动作」——模型没机会动作,不该吃 Nudge/NoAction 刹车。
         // 瞬态失败退避重试,连续 MAX_FAILED_ROUNDS 轮才停;致命/限流失败立即停不空转。
+        // 旧 max_rounds 仅保留为输入兼容字段,不属于资源兜底。
         if let Some(failure) = ctx.round_failure {
             self.no_action_rounds = 0;
             return match failure {
@@ -319,7 +318,7 @@ impl AutoRunState {
                     if self.failed_rounds >= MAX_FAILED_ROUNDS {
                         self.stop_with(AutoStopReason::RepeatedFailure(self.failed_rounds))
                     } else {
-                        self.rounds += 1;
+                        self.rounds = self.rounds.saturating_add(1);
                         AutoRunAction::RetryAfterFailure {
                             attempt: self.failed_rounds,
                         }
@@ -365,7 +364,7 @@ impl AutoRunState {
                 self.goal_idle_rounds = 0;
             }
             self.no_action_rounds = 0;
-            self.rounds += 1;
+            self.rounds = self.rounds.saturating_add(1);
             return AutoRunAction::GoalPending;
         }
         if no_action && self.rounds > 0 {
@@ -376,7 +375,7 @@ impl AutoRunState {
             }
             if self.no_action_rounds == 0 {
                 self.no_action_rounds = 1;
-                self.rounds += 1;
+                self.rounds = self.rounds.saturating_add(1);
                 return AutoRunAction::Nudge;
             }
             return self.stop_with(AutoStopReason::NoAction);
@@ -395,10 +394,10 @@ impl AutoRunState {
             && self.closed_since_verify >= ctx.verify_every_n
         {
             self.closed_since_verify = 0;
-            self.rounds += 1;
+            self.rounds = self.rounds.saturating_add(1);
             return AutoRunAction::VerifyRound;
         }
-        self.rounds += 1;
+        self.rounds = self.rounds.saturating_add(1);
         AutoRunAction::Continue
     }
 
@@ -441,7 +440,7 @@ impl AutoRunState {
     }
 }
 
-/// 默认连数上限 10(与桌面端 DEFAULT_AUTO_CONTINUE_MAX 一致)。
+/// 默认兼容值 10;不参与鞭挞停止判定。
 impl Default for AutoRunState {
     fn default() -> Self {
         AutoRunState::new(10)
@@ -840,7 +839,7 @@ mod tests {
     }
 
     #[test]
-    fn 达连数上限_停止并带上限值() {
+    fn 旧连续次数上限不再阻断鞭挞_但轮次继续计数() {
         let mut state = AutoRunState::new(2);
         let ok = AutoRunCtx {
             steps: 2,
@@ -849,11 +848,8 @@ mod tests {
         };
         assert_eq!(state.decide(&ok), AutoRunAction::Continue); // rounds=1
         assert_eq!(state.decide(&ok), AutoRunAction::Continue); // rounds=2
-        assert_eq!(
-            state.decide(&ok),
-            AutoRunAction::Stop(AutoStopReason::MaxRounds(2))
-        );
-        assert_eq!(state.rounds, 0);
+        assert_eq!(state.decide(&ok), AutoRunAction::Continue); // 旧上限不再阻断
+        assert_eq!(state.rounds, 3, "轮次仍应持续计数而不是被旧上限归零");
     }
 
     /// R-144 B1:每关闭 N 条触发一轮只读核查(VerifyRound),触发后计数归零;
@@ -1199,8 +1195,8 @@ mod tests {
         );
     }
 
-    /// 资源类兜底与副作用边界不随强度松动:结伴档同样吃限流、致命、连数上限、
-    /// backlog 停。这条是 R-322 的护栏——强度只调「任务判断」,不调资源判断。
+    /// 资源类兜底与副作用边界不随强度松动:结伴档同样吃限流、致命与零产出熔断。
+    /// 连续次数上限是旧配置兼容字段,不再属于资源停机条件。
     #[test]
     fn 结伴档_资源类兜底一条不少() {
         let tools = mk_tools(&["edit", "bash"]);
@@ -1225,7 +1221,7 @@ mod tests {
         });
         assert_eq!(action, AutoRunAction::Stop(AutoStopReason::FatalError));
 
-        // 连数上限
+        // 旧版连续次数上限不再阻断结伴档的正常续跑,但轮次仍计数。
         let mut state = AutoRunState::new(2);
         state.rounds = 2;
         let ctx = AutoRunCtx {
@@ -1233,10 +1229,8 @@ mod tests {
             steps: 5,
             ..ctx_with_tools(&tools)
         };
-        assert_eq!(
-            state.decide(&ctx),
-            AutoRunAction::Stop(AutoStopReason::MaxRounds(2))
-        );
+        assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
+        assert_eq!(state.rounds, 3);
     }
 
     /// D-583 的 ZeroOutput 熔断是**资源判断**(比对真实签名),不随强度关闭。
@@ -1525,7 +1519,7 @@ mod tests {
         );
     }
 
-    /// 用户意图与资源兜底压过目标:按了停、限流、达连数上限都立即停。
+    /// 用户意图与资源兜底压过目标:按了停、限流、失败等立即停。
     #[test]
     fn 目标不能压过用户意图与资源兜底() {
         let tools = mk_tools(&["edit"]);
@@ -1549,15 +1543,17 @@ mod tests {
             AutoRunAction::Stop(AutoStopReason::RateLimited)
         );
 
-        let mut capped = AutoRunState::new(2);
-        capped.rounds = 2;
+        let mut unlimited = AutoRunState::new(2);
+        unlimited.rounds = 2;
         assert_eq!(
-            capped.decide(&AutoRunCtx {
+            unlimited.decide(&AutoRunCtx {
                 goal_active: true,
                 steps: 5,
                 ..ctx_with_tools(&tools)
             }),
-            AutoRunAction::Stop(AutoStopReason::MaxRounds(2))
+            AutoRunAction::GoalPending,
+            "目标推进不应被旧连续次数上限截断"
         );
+        assert_eq!(unlimited.rounds, 3);
     }
 }

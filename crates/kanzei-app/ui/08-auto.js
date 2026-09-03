@@ -17,7 +17,7 @@ import { state } from "./08-compose.js";
 import { refreshProcesses } from "./09-sessions.js";
 
 // ---------- 自动续跑状态与渲染 ----------
-// 鞭挞状态:自动续跑计数(手动发送归零),上限防失控。
+// 鞭挞状态:自动续跑轮次(手动发送归零);旧 maxRounds 仅保留兼容读取。
 export const DEFAULT_AUTO_CONTINUE_MAX = 10;
 export let autoRounds = 0;
 export let autoPaused = false;
@@ -168,17 +168,15 @@ export function autoRunPhase() {
 export function renderAutoRun() {
   const bar = $("autorun-bar");
   if (!bar) return;
-  const max = autoContinueMax();
   autoRounds = currentAutoRounds();
   const phase = autoRunPhase();
   const armed = $("auto-continue")?.checked === true;
   bar.dataset.phase = phase;
   bar.classList.toggle("armed", armed);
   $("auto-round-now").textContent = String(autoRounds);
-  $("auto-round-max").textContent = String(max);
   const progress = $("auto-progress");
-  progress.style.setProperty("--auto-progress", `${Math.min(100, (autoRounds / max) * 100)}%`);
-  progress.setAttribute("aria-label", `${t("鞭挞轮次")} ${autoRounds}/${max}`);
+  progress.style.removeProperty("--auto-progress");
+  progress.setAttribute("aria-label", `${t("鞭挞轮次")} ${autoRounds}`);
   $("auto-phase").textContent = t(AUTO_PHASE_LABEL[phase]);
   // 原因槽:一次性提示优先(无动作/验收核查/未续跑),否则显示停机原因;推进中不显示。
   const reason = autoHint || (["off", "idle", "paused"].includes(phase) ? autoStopReason : "");
@@ -247,9 +245,10 @@ export function setAutoStopReason(reason) {
 export function autoContinueAllowed() {
   return $("profile-select").value !== "research";
 }
+// 兼容旧状态/配置的读取接口。`auto_max` 仍可被旧前端状态携带,但不再是停止条件或界面设置。
 export function autoContinueMax() {
-  const value = Number.parseInt($("auto-max").value, 10);
-  return Number.isFinite(value) ? Math.min(100, Math.max(1, value)) : DEFAULT_AUTO_CONTINUE_MAX;
+  const stored = Number.parseInt(localStorage.getItem("kz-auto-max"), 10);
+  return Number.isFinite(stored) ? Math.min(100, Math.max(1, stored)) : DEFAULT_AUTO_CONTINUE_MAX;
 }
 // R-322 B3:目标条件(Claude Code /goal 的形状)。真源是后端 AutoRunController.goal;
 // 输入框只是它的编辑入口,每次同步整串发过去,空串即撤销。
@@ -280,7 +279,6 @@ export function syncAutoRunState() {
     enabled: $("auto-continue").checked,
     paused: autoPaused,
     stopAfterRound: autoStopAfterRound,
-    maxRounds: autoContinueMax(),
     goal: currentGoalText(),
   });
 }

@@ -81,7 +81,6 @@ import {
   recordDiffSummary,
 } from "./06-activity.js";
 import {
-  autoContinueMax,
   autoContinueTimers,
   cancelAutoContinueTimer,
   clearGoalInput,
@@ -587,26 +586,24 @@ defer(() => {
     // R-169:鞭挞判定已引擎化(harness auto_run 状态机)——kz:done 携带 autoAction,
     // 前端只执行:Continue→续跑;Nudge→发引擎生成的推进指令;Stop→停+显示原因;
     // NoContinue→不动作(用户拒绝/未开启)。前端不再做任何机械判定
-    // (空转画像/连数/全部阻塞/无动作 NUDGE 全部在后端,见 harness auto_run.rs)。
+    // (空转画像/全部阻塞/无动作 NUDGE 全部在后端,见 harness auto_run.rs)。
     const action = p.autoAction || { type: "NoContinue" };
     if (action.type === "Continue") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
-      const max = action.max ?? autoContinueMax();
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("自主推进")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
-      renderAutoStatus(`${t("自主推进")} ${autoRounds}/${max} · ${t("等待下一轮")}`);
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("自主推进")} ${autoRounds} · 2 ${t("秒后继续")}…`);
+      renderAutoStatus(`${t("自主推进")} ${autoRounds} · ${t("等待下一轮")}`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // 收口对象跟着本轮的会话走:并行线结束时 activeSessionId 可能已经是别人了,
       // 拿它清 pending 会把另一条线的横幅清掉,而这条线自己一直挂着(D-291)。
       armAutoContinue(continuePrompt(), p.sessionId);
     } else if (action.type === "Nudge") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
-      const max = action.max ?? autoContinueMax();
       addMessage("notice", t("上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)"));
       log(`${t("鞭挞")}:${t("无动作 · 追加推进指令")}`);
-      renderAutoStatus(`${t("无动作 · 追加推进指令")} ${autoRounds}/${max}`);
+      renderAutoStatus(`${t("无动作 · 追加推进指令")} · ${autoRounds}`);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("无动作 · 追加推进指令")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("无动作 · 追加推进指令")} ${autoRounds} · 2 ${t("秒后继续")}…`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // D-291:与 Continue 分支共用同一个闸门实现(armAutoContinue)。此前这里是一份
       // 复制的 setTimeout,四个条件各自静默 return——两处副本还漏掉了 pending 收口。
@@ -616,11 +613,10 @@ defer(() => {
       // 与 Nudge 走同一条闸门(armAutoContinue),区别只在文案来源:那条是引擎
       // 发明的「去 backlog 找活」,这条是用户的原话——引擎不发明工作。
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
-      const max = action.max ?? autoContinueMax();
       log(`${t("目标推进")}:${t("条件未达成,继续")}`);
-      renderAutoStatus(`${t("目标推进")} ${autoRounds}/${max}`);
+      renderAutoStatus(`${t("目标推进")} ${autoRounds}`);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("目标推进")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("目标推进")} ${autoRounds} · 2 ${t("秒后继续")}…`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // prompt 由后端从 controller.goal 填入;万一为空则回落默认续跑文案,不空发。
       armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
@@ -630,12 +626,11 @@ defer(() => {
       // 下一轮输入发回,主代理用只读 task 子代理核对验收证据与真实调用方,
       // 发现问题生成候选缺陷或退回依据;前端只显示状态并继续。
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
-      const max = action.max ?? autoContinueMax();
       addMessage("notice", t("已关闭 N 条,插入一轮只读验收核查(核对验收证据与真实调用方)"));
       log(`${t("鞭挞")}:${t("验收核查轮")}`);
-      renderAutoStatus(`${t("验收核查轮")} ${autoRounds}/${max}`);
+      renderAutoStatus(`${t("验收核查轮")} ${autoRounds}`);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("验收核查轮")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("验收核查轮")} ${autoRounds} · 2 ${t("秒后继续")}…`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
     } else if (action.type === "Stop") {
@@ -654,8 +649,9 @@ defer(() => {
         log(`${t("鞭挞停止")}:${t("本轮后停")}`);
         setAutoStopReason(`${t("本轮后停")},${t("已停止")}`);
       } else if (reason === "MaxRounds") {
-        addMessage("notice", `${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")} (${action.max ?? autoContinueMax()})`);
-        setAutoStopReason(`${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")}`);
+        // 兼容旧版事件:新引擎不会产生 MaxRounds,旧事件也不能向用户宣称仍有次数硬上限。
+        addMessage("notice", `${t("鞭挞停止")}:${t("旧版鞭挞状态已兼容,请重新触发")}`);
+        setAutoStopReason(t("鞭挞停止"));
       } else if (reason === "GoalMet") {
         // R-322 B3:目标达成由**模型**判定,后端已清除目标,前端同步清输入框。
         clearGoalInput();

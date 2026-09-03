@@ -839,6 +839,7 @@ export const I18N_DYNAMIC_EN = {
   "文件补全失败": "Failed to complete file suggestions",
   "继续文案已升级到新版(含【阻塞】刹车约定)": "Continue prompt upgraded (with the blocked brake rule)",
   "鞭挞已暂停": "Auto-run paused",
+  "旧版鞭挞状态已兼容,请重新触发": "Legacy auto-run state was accepted; trigger auto-run again",
   "鞭挞已恢复": "Auto-run resumed",
   "本轮结束后将停止鞭挞": "Auto-run will stop after this round",
   "已取消本轮后停": "Stop-after-round cancelled",

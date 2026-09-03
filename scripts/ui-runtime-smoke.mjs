@@ -1795,9 +1795,10 @@ assert(
   await flush();
 }
 const initialAutoState = invokeArgs.find(({ cmd, args }) =>
-  cmd === "auto_state_update" && args?.sessionId === "sess-smoke" && args?.maxRounds === 3
+  cmd === "auto_state_update" && args?.sessionId === "sess-smoke"
 );
-assert(initialAutoState, "启动恢复的自动推进状态未将当前会话和已保存上限一并同步给后端");
+assert(initialAutoState && !Object.hasOwn(initialAutoState.args, "maxRounds"), "启动恢复不得把旧上限发送为新的硬停机门禁");
+assert(storage.get("kz-auto-max") === "3", "旧 auto_max 配置应继续保留供兼容读取");
 // 完整需求/缺陷列表整体搬进单页视图(侧栏只留「当前在做」的焦点卡片),落点换了、断言跟着搬。
 assert(listText("documents-req-list").includes("冒烟需求"), `需求列表未渲染出桩数据: "${listText("documents-req-list").slice(0, 60)}"`);
 assert(listText("documents-defect-list").includes("冒烟缺陷"), "缺陷列表未渲染出桩数据");
@@ -5409,14 +5410,13 @@ handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1
 await flush();
 assert(!byId.get("auto-stop-round").checked, "本轮后停后开关应自动取消勾选");
 assert(kzTest.stopReason().includes("本轮后停"), `本轮后停原因不对: ${kzTest.stopReason()}`);
-// ⑧ Stop(MaxRounds):达上限,计数清零原因明确。
+// ⑧ 旧版 Stop(MaxRounds) 事件仍可投影,但不得把次数上限误报为当前硬停机原因。
 byId.get("auto-continue").checked = true;
-const autoMaxWhip = Number.parseInt(byId.get("auto-max").value, 10) || 10;
-kzTest.setRounds(autoMaxWhip);
-handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "MaxRounds", max: autoMaxWhip }, sessionId: "sess-smoke" } });
+kzTest.setRounds(3);
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "MaxRounds", max: 3 }, sessionId: "sess-smoke" } });
 await flush();
-assert(kzTest.rounds() === 0, "达到上限后推进计数应清零");
-assert(kzTest.stopReason().includes("已达连上限"), `上限刹车原因不对: ${kzTest.stopReason()}`);
+assert(kzTest.rounds() === 0, "旧版停止事件的轮次收口应清零");
+assert(!kzTest.stopReason().includes("已达连上限"), `旧版事件不应显示次数硬上限: ${kzTest.stopReason()}`);
 // ⑨ Stop(Paused):暂停中完成本轮 → 停;恢复后 Continue 再推进。
 byId.get("auto-continue").checked = true;
 kzTest.setRounds(1);
@@ -5711,15 +5711,15 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   // 线路页按线操控:后台线开鞭挞只动**它自己**的存档与后端状态机,不碰当前线勾选框。
   kzTest.cancelTimers();
   byId.get("auto-continue").checked = false;
-  await sandbox.setLineAutoState("p|bg-loop", { enabled: true, maxRounds: 7 });
+  await sandbox.setLineAutoState("p|bg-loop", { enabled: true });
   await flush();
   const lineSync = invokeArgs.findLast(({ cmd, args }) => cmd === "auto_state_update" && args?.sessionId === "sess-bg-loop");
   assert(lineSync?.args?.enabled === true, "线路页开后台线鞭挞未推该线后端状态机");
-  assert(lineSync?.args?.maxRounds === 7, `线路页改上限未同步后端,实得 ${lineSync?.args?.maxRounds}`);
+  assert(!Object.hasOwn(lineSync.args, "maxRounds"), "线路页不应把兼容上限字段发送为硬门禁");
   assert(kzTest.getAutoState("p|bg-loop")?.enabled === true, "线路页开后台线鞭挞未落该线存档");
   assert(byId.get("auto-continue").checked === false, "线路页操控后台线污染了当前线的鞭挞勾选");
   sandbox.applyAutoUiState("p|bg-loop");
-  assert(byId.get("auto-continue").checked === true && byId.get("auto-max").value === "7", "切线回显未读取后台线路自己的 Map 配置");
+  assert(byId.get("auto-continue").checked === true && !byId.has("auto-max"), "切线回显应读取后台线路配置且不再渲染上限控件");
   kzTest.cancelTimers();
   payloads.process_list = savedLoopList;
   sandbox.renderProcesses(savedLoopList);

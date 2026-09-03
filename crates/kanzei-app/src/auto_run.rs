@@ -32,7 +32,7 @@ pub(crate) fn intensity_for_agent(agent: &str) -> kanzei_harness::HarnessIntensi
     }
 }
 
-/// 桌面端自主推进状态:控件输入(开关/暂停/本轮后停/上限)由前端经
+/// 桌面端自主推进状态:控件输入(开关/暂停/本轮后停;旧上限字段兼容读取)由前端经
 /// `auto_state_update` 同步,轮末判定由 run.rs 调用 `decide_auto_run`。
 #[derive(Default)]
 pub(crate) struct AutoRunController {
@@ -52,7 +52,7 @@ pub(crate) struct AutoRunController {
 /// 目标文本上限。超长条件既没法让模型稳定判定,也会每轮重发挤占上下文。
 pub(crate) const MAX_GOAL_CHARS: usize = 500;
 
-/// 前端控件变化同步(开关/暂停/本轮后停/连数上限)。
+/// 前端状态同步(开关/暂停/本轮后停;旧 max_rounds 仅兼容读取)。
 #[tauri::command]
 pub fn auto_state_update(
     state: State<'_, AppState>,
@@ -91,7 +91,7 @@ fn apply_state_update(
 ) {
     if let Some(v) = enabled {
         if ctrl.enabled != v {
-            // 开关重开应重新计数；否则 UI 已清零而引擎仍沿用旧轮数，会立刻误触上限。
+            // 开关重开应重新计数；否则 UI 已清零而引擎仍沿用旧轮数，状态投影会漂移。
             ctrl.state.reset();
         }
         ctrl.enabled = v;
@@ -586,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn 开关切换会清空本会话旧轮数_上限保持边界约束() {
+    fn 开关切换会清空本会话旧轮数_兼容字段保持边界约束() {
         let mut ctrl = AutoRunController {
             enabled: true,
             ..Default::default()

@@ -104,7 +104,10 @@ fn 新对话清空鞭挞失败轮数但保留用户开关设置() {
         "失败重试轮数必须清零,否则新对话形同虚设"
     );
     assert!(ctrl.enabled, "用户开启的鞭挞开关不该被新对话连带关掉");
-    assert_eq!(ctrl.state.max_rounds, 7, "用户设的连数上限不该被新对话重置");
+    assert_eq!(
+        ctrl.state.max_rounds, 7,
+        "旧 max_rounds 兼容字段不该被新对话重置"
+    );
     assert!(ctrl.state.paused, "用户的暂停状态不该被新对话清掉");
 }
 

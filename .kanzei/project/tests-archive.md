@@ -11774,3 +11774,31 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 当前 HEAD f321ee34 full verify 全绿：metrics 30 rows、giants 5/4；六条 UI 冒烟、workspace 各 crate 测试、fmt/clippy、IPC/crate sync/设计时效门禁均通过，dist/verification.json 已绑定该提交。
 - 关联: R-356
 - 收尾: 1788393835
+
+## T-1786922726966 R-359 鞭挞状态机定向回归 [passed]
+- 命令: cargo test -p kanzei-harness
+- 摘要: 鞭挞状态机定向回归 172 passed：旧连续次数上限达到后仍 Continue 且轮次继续计数；失败/暂停/本轮后停/阻塞清空/零产出/目标与模式边界均通过。
+- 关联: R-359
+- 收尾: 1788394850
+- 源码指纹: v2 crates/kanzei-harness/src/auto_run.rs@539d8c7443e8,scripts/ui-runtime-smoke.mjs@a6fa5fa9ad74
+
+## T-1786922726967 R-359 前端语法与六条 UI 冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/07-events.js; node --check crates/kanzei-app/ui/08-auto.js; node --check crates/kanzei-app/ui/08-compose-runtime.js; node --check crates/kanzei-app/ui/20-lines.js; node --check scripts/ui-runtime-smoke.mjs; node --check scripts/parallel-lines-regression.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: node --check 7 个变更脚本通过；六条 UI 冒烟全部通过：ui-runtime（27 个脚本、2346 次 invoke、0 运行时错误）、ui-lint、parallel-lines-regression、ui-a11y、ui-i18n、ui-markdown。
+- 关联: R-359
+- 收尾: 1788394857
+- 源码指纹: v2 crates/kanzei-harness/src/auto_run.rs@539d8c7443e8,scripts/ui-runtime-smoke.mjs@a6fa5fa9ad74
+
+## T-1786922726968 R-359 harness 格式与状态机回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-harness
+- 摘要: fmt check 通过；harness 172 passed。覆盖旧 max_rounds 达值后仍 Continue 且 rounds=3、saturating 计数、失败/暂停/本轮后停/阻塞清空/零产出/目标/模式边界。
+- 关联: R-359
+- 收尾: 1788395052
+- 源码指纹: v2 crates/kanzei-app/src/auto_run.rs@61e76e6e12ad,crates/kanzei-app/src/conversation_tests.rs@b16b51990409,crates/kanzei-harness/src/auto_run.rs@f81d3bf15abd,scripts/ui-runtime-smoke.mjs@a6fa5fa9ad74
+
+## T-1786922726969 R-359 kanzei-app 定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: kanzei-app 定向回归 256 passed。覆盖旧 max_rounds 兼容字段保留、会话重置轮次、auto_state_update 状态隔离，以及相关运行/IPC/持久化回归。
+- 关联: R-359
+- 收尾: 1788395060
+- 源码指纹: v2 crates/kanzei-app/src/auto_run.rs@61e76e6e12ad,crates/kanzei-app/src/conversation_tests.rs@b16b51990409,crates/kanzei-harness/src/auto_run.rs@f81d3bf15abd,scripts/ui-runtime-smoke.mjs@a6fa5fa9ad74

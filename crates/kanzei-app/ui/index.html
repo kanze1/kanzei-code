@@ -305,13 +305,7 @@
                       <kbd class="menu-key">2</kbd>
                       <input type="checkbox" id="auto-stop-round" />
                     </label>
-                    <label class="menu-row" for="auto-max">
-                      <span class="menu-row-main">
-                        <span class="menu-row-title" data-i18n-key="连续推进上限">连续推进上限</span>
-                        <span class="menu-row-desc" data-i18n-key="到达后停下等你,防失控">到达后停下等你,防失控</span>
-                      </span>
-                      <input id="auto-max" class="auto-max" type="number" min="1" max="100" step="1" value="10" title="鞭挞上限(1-100)" data-i18n-title="鞭挞上限(1-100)" />
-                    </label>
+                    <!-- 旧版连续推进上限控件已移除。旧 auto_max 仍由状态层兼容读取,但不再是硬停机条件。 -->
                     <!-- R-322 B3:目标条件(Claude Code /goal 的形状)。留空 = 沿用
                          「有没有实质动作」的旧判据;填了 = 停止规则整体换成
                          「模型判定条件达成前不停」,引擎不再替模型决定还有没有活干。 -->
@@ -363,7 +357,7 @@
                   </div>
                 </div>
               </details>
-              <span id="auto-progress" class="auto-progress" role="img" aria-label="鞭挞轮次" data-i18n-aria-label="鞭挞轮次"><b id="auto-round-now">0</b>/<span id="auto-round-max">10</span></span>
+              <span id="auto-progress" class="auto-progress" role="img" aria-label="鞭挞轮次" data-i18n-aria-label="鞭挞轮次"><b id="auto-round-now">0</b></span>
               <span id="auto-phase" class="auto-phase"></span>
               <span id="auto-status" class="auto-reason hidden" role="status" aria-live="polite"></span>
               <button id="auto-resume" class="ghost mini hidden" type="button" title="清零轮次并重新开始鞭挞" data-i18n-title="清零轮次并重新开始鞭挞"><span data-i18n-key="继续鞭挞">继续鞭挞</span></button>

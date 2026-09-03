@@ -128,9 +128,9 @@ export function lineFact(label, value, className = "") {
   return row;
 }
 
-// 每线鞭挞 + 每线模型:原先这两样只有「当前打开的那条线」有(输入框上方那一份),
+// 线路页每条线都有鞭挞与模型控件:原先这两样只有「当前打开的那条线」有(输入框上方那一份),
 // 要给 N 条线配不同模型、或让某条后台线开始/停止自主推进,就得切 N 次线——而并行
-// 线路页正是唯一能一屏看全所有线的地方。控件本身不持有状态:开关/暂停/本轮后停/上限
+// 线路页正是唯一能一屏看全所有线的地方。鞭挞控件本身不持有状态:开关/暂停/本轮后停
 // 一律经 setLineAutoState 落到该线存档 + 它自己的后端 auto_state;模型经
 // queueProcessUpdate 落该线 process(run_prompt 的 model 回落读的就是它)。
 export let linesModelCatalog = null;
@@ -213,22 +213,8 @@ export function buildLineAutoControls(line) {
 
   const progress = document.createElement("span");
   progress.className = "line-auto-rounds";
-  progress.textContent = `${rounds}/${config.maxRounds}`;
-  progress.title = t("鞭挞上限(轮)");
-
-  const max = document.createElement("input");
-  max.type = "number";
-  max.className = "line-auto-max";
-  max.min = "1";
-  max.max = "100";
-  max.value = String(config.maxRounds);
-  max.title = t("鞭挞上限(轮)");
-  max.addEventListener("change", () => {
-    const value = Number.parseInt(max.value, 10);
-    const clamped = Number.isFinite(value) ? Math.min(100, Math.max(1, value)) : config.maxRounds;
-    max.value = String(clamped);
-    void setLineAutoState(line.process_id, { maxRounds: clamped });
-  });
+  progress.textContent = `${rounds}`;
+  progress.title = t("鞭挞轮次");
 
   const pause = document.createElement("button");
   pause.type = "button";
@@ -251,7 +237,7 @@ export function buildLineAutoControls(line) {
   const modelLabel = document.createElement("span");
   modelLabel.className = "line-auto-model-label";
   modelLabel.textContent = t("模型");
-  box.append(toggle, progress, max, pause, stopRound, modelLabel, buildLineModelSelect(item));
+  box.append(toggle, progress, pause, stopRound, modelLabel, buildLineModelSelect(item));
   return box;
 }
 

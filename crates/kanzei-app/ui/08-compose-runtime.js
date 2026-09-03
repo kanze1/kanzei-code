@@ -374,10 +374,10 @@ export async function sendText(prompt, { auto = false, promptAttachments = [] } 
   setOutputChars(0);
   renderTokens();
   const attachmentStatus = promptAttachments.length > 0
-    ? `${auto ? `${t("鞭挞")} ${autoRounds}/${autoContinueMax()} · ` : ""}${t("正在发送")} ${promptAttachments.length} ${t("个附件")} · ${t("准备中")}`
-    : auto ? `${t("鞭挞")} ${autoRounds}/${autoContinueMax()} · ${t("准备中")}` : t("准备中");
+    ? `${auto ? `${t("鞭挞")} ${autoRounds} · ` : ""}${t("正在发送")} ${promptAttachments.length} ${t("个附件")} · ${t("准备中")}`
+    : auto ? `${t("鞭挞")} ${autoRounds} · ${t("准备中")}` : t("准备中");
   if (auto) {
-    addMessage("notice", `${t("鞭挞已触发")} · ${autoRounds}/${autoContinueMax()}`);
+    addMessage("notice", `${t("鞭挞已触发")} · ${autoRounds}`);
   } else {
     addUserMessage(prompt, promptAttachments);
   }
@@ -693,17 +693,12 @@ defer(() => {
     void uiPrefsSave({ continue_prompt: value || DEFAULT_CONTINUE_PROMPT });
   });
 });
-defer(() => {
-  $("auto-max").value = Math.min(100, Math.max(1, Number.parseInt(localStorage.getItem("kz-auto-max"), 10) || DEFAULT_AUTO_CONTINUE_MAX));
-});
-// D-404:localStorage 可能重启即丢;后端 app.json 权威值覆盖(缺省回落默认)。
-// 同步回写 localStorage,normalizeAutoState 的 legacyMax 回退路径也能拿到后端值。
+// D-404:仍读取旧 auto_max 到 localStorage,供旧状态迁移链兼容;它不再驱动控件或停止条件。
 defer(() => {
   void uiPrefsLoad().then((p) => {
     if (Number.isFinite(p.auto_max)) {
       const max = Math.min(100, Math.max(1, Number(p.auto_max)));
       localStorage.setItem("kz-auto-max", String(max));
-      $("auto-max").value = String(max);
     }
   });
 });
@@ -822,22 +817,7 @@ defer(() => {
     log(goal ? `${t("目标条件已设置")}:${goal}` : t("目标条件已清除"));
   });
 });
-defer(() => {
-  $("auto-max").addEventListener("change", () => {
-    const max = autoContinueMax();
-    $("auto-max").value = max;
-    localStorage.setItem("kz-auto-max", String(max));
-    void uiPrefsSave({ auto_max: max }); // D-404:后端持久化
-    rememberAutoUiState();
-    renderAutoStatus();
-    setAutoRounds(activeSessionId, 0);
-    cancelAutoContinueTimer();
-    // R-169:上限同步后端状态机。
-    void syncAutoRunState();
-    resetAutoRunState();
-    log(`${t("鞭挞上限已设为")} ${max} ${t("轮")}`);
-  });
-});
+// 旧 auto_max 控件已移除。历史配置仍由 normalizeAutoState 读取,但不再被用户编辑或用作停止门禁。
 defer(() => {
   $("auto-continue").addEventListener("change", () => {
     if ($("auto-continue").checked && $("profile-select").value === "research") {
@@ -868,7 +848,7 @@ defer(() => {
     if (!$('auto-continue').checked) cancelAutoContinueTimer();
     // R-169:开关同步后端状态机(enabled)。
     void syncAutoRunState();
-    log($("auto-continue").checked ? `${t("鞭挞已开启:每轮结束自动推进队列")} (${t("轮")} ${autoContinueMax()})` : t("鞭挞已关闭"));
+    log($("auto-continue").checked ? t("鞭挞已开启:每轮结束自动推进队列") : t("鞭挞已关闭"));
     // BUG 修复(触发):空闲时勾上鞭挞必须立刻抽第一鞭——原来只挂在"上一轮结束"上,
     // 冷启动勾选后永远没有第一轮,必须手点"继续"才动。
     if ($("auto-continue").checked && !running && !autoPaused) {
@@ -969,11 +949,13 @@ export function persistProcessAutoState() {
 export let applyingProfileEcho = false;
 export function rememberAutoUiState(processId = activeProcessId) {
   if (!processId || applyingProfileEcho) return;
+  const previous = processAutoState.get(processId);
   processAutoState.set(processId, {
     enabled: $("auto-continue").checked,
     paused: autoPaused,
     stopAfterRound: autoStopAfterRound,
-    maxRounds: autoContinueMax(),
+    // 旧配置只保留在状态投影中,不再发送给引擎作硬门禁。
+    maxRounds: Number.isFinite(Number(previous?.maxRounds)) ? previous.maxRounds : autoContinueMax(),
   });
   persistProcessAutoState();
 }
@@ -1011,11 +993,7 @@ export function applyAutoUiState(processId) {
   setAutoPaused(next.paused);
   setAutoStopAfterRound(next.stopAfterRound);
   $("auto-stop-round").checked = autoStopAfterRound;
-  $("auto-max").value = String(next.maxRounds);
-  $("auto-pause").classList.toggle("active", autoPaused);
-  $("auto-pause").textContent = autoPaused ? t("继续鞭挞") : t("暂停鞭挞");
-  // 轮次不能一律清零:切回一条**正在鞭挞**的线路时,它已经跑到第 7 轮了,显示
-  // 0/10 会让人以为还能再跑十轮,实际下一轮就撞上限停机;进度条也一起回到 0%。
+  // 轮次是真实会话状态的只读投影,不再回显旧版上限控件。
   // 真源是会话状态里的 auto_rounds(07-events.js 每轮都写),这里读回来即可。
   const target = processItems.find((item) => item.id === processId);
   setAutoRounds(target?.session_id, currentAutoRounds(target?.session_id));
@@ -1048,7 +1026,6 @@ export async function setLineAutoState(processId, patch) {
     setAutoPaused(next.paused);
     setAutoStopAfterRound(next.stopAfterRound);
     $("auto-stop-round").checked = next.stopAfterRound;
-    $("auto-max").value = String(next.maxRounds);
     $("auto-pause").classList.toggle("active", autoPaused);
     $("auto-pause").textContent = autoPaused ? t("继续鞭挞") : t("暂停鞭挞");
     rememberAutoUiState(processId);
@@ -1062,7 +1039,6 @@ export async function setLineAutoState(processId, patch) {
       enabled: next.enabled,
       paused: next.paused,
       stopAfterRound: next.stopAfterRound,
-      maxRounds: next.maxRounds,
     });
   }
   // 关/暂停立刻撤掉在途的那一枪;开且该线空闲就当场抽第一鞭——不然「开了没反应」要等到
