@@ -359,22 +359,6 @@
 - recorded_at: 1788387719951
 - 停车: WIP 单槽纪律：当前 defect-first 队首 D-737 已有完成实现与未提交改动，本条 B2 尚未开始，主动让位；待 D-737 收口后恢复；恢复人:agent
 
-## R-356 字段三类与词表:引擎/调度/叙事分层,清理零消费者字段并删不变式执行器 [doing]
-- 内容: 按设计 §3.6 把 tracker 字段分三类并在写入边界区别对待:引擎字段(observed_head/observed_worktree_hash/recorded_at/取活依据)补上「模型不得写」的拦截;调度字段(优先级/依赖/阻塞/停车/阶段/取得线/refs)把已有的语法判据从读侧挪到写侧硬拒;叙事字段保持自由文本。建 FIELD_REGISTRY 记录键名到类别与有无消费者,未知键照写但计数并在 req get 里标灰。清理零消费者字段(对账、批次表、背景、根因、执行者、归属、原始描述、不变量)走 ENGINE_DERIVED_FIELDS 的归档 retain 先例。删除 不变式 字段的执行器与它挂着的两道恒真通过的门禁。
-- 发现记录: {"Intent":"止住字段基数只增不减,并让登记时被强制填的字段真的有人读","Explicit":"三类分层;引擎字段禁模型写;不硬拒未知键;删不变式执行器与两道门禁","Assumptions":"ENGINE_DERIVED_FIELDS 的归档 retain 机制可复用;req get 可承载标灰展示","Ambiguities":"标灰的展示形态与计数阈值,本条按最小实现处理","领域对象":"引擎字段、调度字段、叙事字段、FIELD_REGISTRY、不变式执行器","最小成功闭环":"登记一条新需求时引擎字段拒绝模型写入、阻塞缺解除条件当场被拒、归档时零消费者字段被清","延后决策":"标灰的 UI 形态、未知键的治理阈值、历史条目的键名归一"}
-- 复杂度: 中
-- 来源: 勘察发现 不变式 字段全库条目使用 0 次却背着 355 行执行器与两道因 declared 恒空而恒真通过的门禁,同期模型实际手写的是零消费者散文键 不变量;用户就此定调「删执行器与两道门禁」。
-- 标签: 流程
-- 边界: 不硬拒未知键——R/D 各有 167/185 个不同键、81/114 个只用过一次,硬拒会把历史条目变成完整性破损,而完整性破损会拒绝该 kind 的一切写操作;不回改归档条目;不搞全局 schema 强校验;不把 不变式 与散文键 不变量 合并(二者类型不同)。
-- 验收: ①引擎字段被模型侧工具写入时被拒;②阻塞字段缺解除条件在写入时即被拒而非读时才发现;③FIELD_REGISTRY 能列出每个键的类别与消费者有无;④零消费者字段在归档时被自动 retain;⑤不变式执行器与两道门禁移除后无残留调用点。
-- refs: R-353
-- 优先级: P2
-- 批次: 3/4
-- 进展: 批次: 3/4；B1 registry 已在 `adb0b6cd` 提交，B2 写入门禁已在 `bce9467a` 提交。B3 已在 `crates/kanzei-memory/src/docstore/archive.rs:442-474,555-579` 增加独立 `ZERO_CONSUMER_FIELDS`，archive_terminal 的统一 normalize 会自动清理 `对账/批次表/背景/根因/执行者/归属/原始描述/不变量` 与 `取活依据`，不删除普通叙事；`crates/kanzei-tools/src/tracker/invariants.rs` 已删除，`tracker/actions.rs` close 与 `git/finalize.rs` 两处门禁调用已移除，grep 无残留调用点。旧门禁测试已改为 `tracker.rs:1435-1470` 的 close 成功回归。证据 T-1786922726960（归档 1 passed）、T-1786922726961（旧测试失败已登记 D-741）、T-1786922726962（memory 169 passed/1 ignored，tools 540 passed/1 ignored）。下一步 B4：执行当前 HEAD 的 workspace full verify，逐条核对 R-356 ①～⑤并结项。
-- observed_head: bce9467ac4a91bae043b58aef432253071dcea7a
-- observed_worktree_hash: fnv1a64:ae0a2c516bc3152c
-- recorded_at: 1788393236229
-
 ## R-357 活动面按裁决可达性划分:停车超期移出、tests.md 废止、缺口由 work gaps 回答 [todo]
 - 内容: 按设计 §3.7 重划活动面与归档面:停车超过 14 天且解除条件未变的条目移入 parked 面,裁决不再遍历但 work reconcile 与前端仍可见;废止 tests.md 作为 Markdown 面(它只有 12 字节、零记录,唯一可能的居民 running 是瞬态,不该占治理真源),running 迁 state.db;新增 kz work gaps 回答「还需要跑什么」,输入为账本改动面加该条目 passed 记录的指纹覆盖与关闭门禁判据,每条缺口一行并附一条可直接复制的命令,给不出可执行命令的缺口不出行。
 - 发现记录: {"Intent":"让活动面重新回答得了「还剩什么没做、还需要跑什么」这两个问题","Explicit":"按裁决可达性划面而非按是否终态;tests.md 废止;缺口由命令回答","Assumptions":"parked 面可被前端与 reconcile 消费;running 迁 state.db 不影响回放","Ambiguities":"14 天阈值与解除条件未变的判定方式,本条按字段文本未变处理","领域对象":"活动面、parked 面、tests.md、running 记录、work gaps、缺口","最小成功闭环":"裁决只遍历真正可达的条目,work gaps 对一条待关闭条目给出可复制命令","延后决策":"parked 面的复活策略、归档面对账、阈值可配置化"}

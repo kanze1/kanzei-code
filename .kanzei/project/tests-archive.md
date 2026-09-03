@@ -11762,3 +11762,9 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-356 D-741
 - 收尾: 1788393374
 - 源码指纹: v2 crates/kanzei-memory/src/docstore.rs@0efb0e32ac8c,crates/kanzei-memory/src/docstore/archive.rs@4f8ec970cfa2,crates/kanzei-tools/src/git/finalize.rs@bb9c33784fe6,crates/kanzei-tools/src/tracker.rs@a9ca3fbb7cfe,crates/kanzei-tools/src/tracker/actions.rs@290273be7388,crates/kanzei-tools/src/tracker/invariants.rs@000000000000
+
+## T-1786922726964 R-356 B4 当前 HEAD workspace full verify [passed]
+- 命令: ./scripts/verify.ps1 -Full
+- 摘要: 当前 HEAD f321ee34 full verify 全绿：metrics 30 rows、giants 5/4；六条 UI 冒烟、workspace 各 crate 测试、fmt/clippy、IPC/crate sync/设计时效门禁均通过，dist/verification.json 已绑定该提交。
+- 关联: R-356
+- 收尾: 1788393699

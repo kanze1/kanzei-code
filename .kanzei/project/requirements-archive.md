@@ -4550,3 +4550,19 @@
 - observed_head: 4c44dfbe7ce2413ffb00ddd6c74206b019f7560f
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788390912372
+
+## R-356 字段三类与词表:引擎/调度/叙事分层,清理零消费者字段并删不变式执行器 [done]
+- 内容: 按设计 §3.6 把 tracker 字段分三类并在写入边界区别对待:引擎字段(observed_head/observed_worktree_hash/recorded_at/取活依据)补上「模型不得写」的拦截;调度字段(优先级/依赖/阻塞/停车/阶段/取得线/refs)把已有的语法判据从读侧挪到写侧硬拒;叙事字段保持自由文本。建 FIELD_REGISTRY 记录键名到类别与有无消费者,未知键照写但计数并在 req get 里标灰。清理零消费者字段(对账、批次表、背景、根因、执行者、归属、原始描述、不变量)走 ENGINE_DERIVED_FIELDS 的归档 retain 先例。删除 不变式 字段的执行器与它挂着的两道恒真通过的门禁。
+- 发现记录: {"Intent":"止住字段基数只增不减,并让登记时被强制填的字段真的有人读","Explicit":"三类分层;引擎字段禁模型写;不硬拒未知键;删不变式执行器与两道门禁","Assumptions":"ENGINE_DERIVED_FIELDS 的归档 retain 机制可复用;req get 可承载标灰展示","Ambiguities":"标灰的展示形态与计数阈值,本条按最小实现处理","领域对象":"引擎字段、调度字段、叙事字段、FIELD_REGISTRY、不变式执行器","最小成功闭环":"登记一条新需求时引擎字段拒绝模型写入、阻塞缺解除条件当场被拒、归档时零消费者字段被清","延后决策":"标灰的 UI 形态、未知键的治理阈值、历史条目的键名归一"}
+- 复杂度: 中
+- 来源: 勘察发现 不变式 字段全库条目使用 0 次却背着 355 行执行器与两道因 declared 恒空而恒真通过的门禁,同期模型实际手写的是零消费者散文键 不变量;用户就此定调「删执行器与两道门禁」。
+- 标签: 流程
+- 边界: 不硬拒未知键——R/D 各有 167/185 个不同键、81/114 个只用过一次,硬拒会把历史条目变成完整性破损,而完整性破损会拒绝该 kind 的一切写操作;不回改归档条目;不搞全局 schema 强校验;不把 不变式 与散文键 不变量 合并(二者类型不同)。
+- 验收: ①引擎字段被模型侧工具写入时被拒;②阻塞字段缺解除条件在写入时即被拒而非读时才发现;③FIELD_REGISTRY 能列出每个键的类别与消费者有无;④零消费者字段在归档时被自动 retain;⑤不变式执行器与两道门禁移除后无残留调用点。
+- refs: R-353
+- 优先级: P2
+- 批次: 4/4
+- 进展: 批次: 4/4；B1 registry 已在 `adb0b6cd` 提交，B2 写入门禁已在 `bce9467a` 提交，B3 清理/删除已在 `f321ee34` 提交。验收逐条：①引擎字段模型写入在 `crates/kanzei-tools/src/tracker.rs:331-335` 统一拒绝，真实 `TrackerTool::execute` 回归在 `tracker.rs:970-1014`；②阻塞/停车缺 `解除条件` 在 `crates/kanzei-tools/src/tracker/scheduling.rs:694-713` 写入即拒，成功/拒绝/清除由同模块测试覆盖；③`FIELD_REGISTRY` 在 `tracker/fields.rs:30-171` 登记类别与消费者，`registry_json/metadata` 在 `:175-...` 被 `tracker/scheduling.rs:458-500` 的 req get/list 真实消费，未知键计数并标灰；④`ZERO_CONSUMER_FIELDS` 在 `crates/kanzei-memory/src/docstore/archive.rs:444-455` 与 `ENGINE_DERIVED_FIELDS` 分离，`normalize_archive:576-584` 在 archive_terminal 统一清理，T-1786922726960 归档回归通过；⑤`crates/kanzei-tools/src/tracker/invariants.rs` 已删除，`tracker/actions.rs` close 与 `git/finalize.rs` 两处调用已移除，grep 无残留；D-741 旧测试已改为 close 成功回归。证据 T-1786922726960、T-1786922726961（旧测试失败并登记 D-741）、T-1786922726962、T-1786922726963、T-1786922726964；当前 HEAD `f321ee34` full verify 全绿：metrics 30 rows、giants 5/4、六条 UI 冒烟、workspace 测试、fmt/clippy 与 IPC/设计门禁均通过。批次已满，R-356 验收 ①～⑤均有实现、真实调用方和证据。
+- observed_head: f321ee34118a9cbfbd95dfa90a02a1862cc718b6
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788393725316
