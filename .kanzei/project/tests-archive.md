@@ -11768,3 +11768,9 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 当前 HEAD f321ee34 full verify 全绿：metrics 30 rows、giants 5/4；六条 UI 冒烟、workspace 各 crate 测试、fmt/clippy、IPC/crate sync/设计时效门禁均通过，dist/verification.json 已绑定该提交。
 - 关联: R-356
 - 收尾: 1788393699
+
+## T-1786922726965 R-356 B4 当前 HEAD workspace full verify（原样命令） [passed]
+- 命令: .\scripts\verify.ps1 -Full
+- 摘要: 当前 HEAD f321ee34 full verify 全绿：metrics 30 rows、giants 5/4；六条 UI 冒烟、workspace 各 crate 测试、fmt/clippy、IPC/crate sync/设计时效门禁均通过，dist/verification.json 已绑定该提交。
+- 关联: R-356
+- 收尾: 1788393835
