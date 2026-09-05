@@ -84,3 +84,29 @@
 - observed_worktree_hash: fnv1a64:c20dc36842c96a1b
 - recorded_at: 1788638068169
 - 实现提交: ce95733b
+
+## D-743 记忆召回明细仍读旧表且注入次数被当成采纳参与展示和排序 [open] (high)
+- refs: R-361
+- 复现: 当前 memory_recalls IPC 读取 index.db 旧表；recall_profile 已返回新表召回/注入计数，但 UI 和排序仍使用 fetched 语义。
+- 影响: 真实召回不可见，注入被误记为采纳，零采纳整理和排序缺少可信依据。
+- 标签: 前端
+- 验收: 旧表为空且新表有记录时明细正确；同轮真实读取可见；跨运行读取不串号；历史未知不伪造；排序与降级不再使用注入代替采用。
+- 优先级: P1
+- 根因: 旧 index.db 召回表仍驱动页面，新 recall_events 的 injected 被旧 fetched 命名误解为采纳。
+- 进展: 首批修复已实现并通过 core/memory/ReadTool/桌面 IPC 定向回归与六条前端冒烟；统一 run_id 与读取事实、保留历史未知、移除注入加权和零采纳自动降级。待完整 verify 与安装后桌面验收，暂不关闭。详见 docs/design/memory_feedback_reliability.md。
+- observed_head: 568adcc8063a0b0f3edd8feefebe5f67c6b4e497
+- observed_worktree_hash: fnv1a64:984b510070ebb714
+- recorded_at: 1788640885249
+
+## D-744 记忆自动晋升缺少对应恢复证据且在线结束被当成结果改善 [open] (high)
+- refs: R-361
+- 复现: should_promote 只检查复发次数、指纹与 episode 非空；在线 outcome_improved 只要求失败未复发且运行结束。
+- 影响: 未验证建议可能晋升，效果漏斗高估记忆收益。
+- 标签: 核心
+- 验收: 相同操作目标的失败后成功形成恢复证据；无关轮次和仅读取不能满足恢复；旧在线代理指标不再计入行为改变或收益。
+- 优先级: P1
+- 根因: 失败次数与 episode 存在代替了修复证据；在线未复发及运行结束被写成收益。
+- 进展: 首批增加 episode 工具恢复记录并要求同指纹来源；无关读取或命令成功不计恢复，后续失败撤销恢复；旧在线代理不再参与行为改变和收益统计。core 284、memory 168 项回归通过。待完整 verify，暂不关闭。详见 docs/design/memory_feedback_reliability.md。
+- observed_head: 568adcc8063a0b0f3edd8feefebe5f67c6b4e497
+- observed_worktree_hash: fnv1a64:984b510070ebb714
+- recorded_at: 1788640885622

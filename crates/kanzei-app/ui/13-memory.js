@@ -10,6 +10,9 @@ import { neuralFlowEmit } from "./22-neural-flow.js";
 export let memorySelection = { scope: "project", category: "all" };
 let memoryCurrentEntryId = null;
 let memoryListEntries = [];
+let memoryRefreshGeneration = 0;
+let memoryListGeneration = 0;
+let memoryRenderedProject = null;
 const memoryManagerFilters = { scope: "project", category: "all", status: "active", sort: "updated" };
 
 function memoryFilterLabel(value) {
@@ -61,6 +64,16 @@ function hideMemoryDetail() {
 }
 
 export async function refreshMemory() {
+  const project = currentProject;
+  const generation = ++memoryRefreshGeneration;
+  if (project !== memoryRenderedProject) {
+    memoryRenderedProject = project;
+    memoryCurrentEntryId = null;
+    memoryListEntries = [];
+    ++memoryListGeneration;
+    hideMemoryDetail();
+    for (const id of ["memory-recalls", "memory-control-plane", "memory-list", "memory-candidates", "memory-value-flags", "memory-bill", "memory-arch"]) $(id)?.replaceChildren();
+  }
   if (!currentProject) {
     $("memory-arch").innerHTML = `<p class="dim">${t("先在左侧「项目」里添加并选择一个目录")}</p>`;
     return;
@@ -68,13 +81,14 @@ export async function refreshMemory() {
   try {
     setupMemoryManagerFilters();
     const [overview, billData, recallData, candidates, flags, controlPlane] = await Promise.all([
-      invoke("memory_overview", { projectDir: currentProject }),
-      invoke("memory_context_bill", { projectDir: currentProject }),
-      invoke("memory_recalls", { projectDir: currentProject, limit: 20 }),
-      invoke("memory_note_candidates", { projectDir: currentProject }),
-      invoke("memory_value_flags", { projectDir: currentProject }),
-      invoke("memory_control_plane", { projectDir: currentProject }),
+      invoke("memory_overview", { projectDir: project }),
+      invoke("memory_context_bill", { projectDir: project }),
+      invoke("memory_recalls", { projectDir: project, limit: 20 }),
+      invoke("memory_note_candidates", { projectDir: project }),
+      invoke("memory_value_flags", { projectDir: project }),
+      invoke("memory_control_plane", { projectDir: project }),
     ]);
+    if (project !== currentProject || generation !== memoryRefreshGeneration) return;
     renderMemoryArch(overview);
     replayExperienceFacts(controlPlane?.experience_facts);
     renderMemoryControlPlane(controlPlane);
@@ -86,6 +100,7 @@ export async function refreshMemory() {
     neuralFlowEmit?.("memory_snapshot", { memory_count: total, candidate_count: candidates?.length ?? 0 });
     await loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category, { preserveSelection: true });
   } catch (err) {
+    if (project !== currentProject || generation !== memoryRefreshGeneration) return;
     toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
   }
 }
@@ -101,9 +116,9 @@ export function renderMemoryControlPlane(data) {
     [t("待整理 backlog"), data?.backlog ?? 0],
     [t("最老等待"), data?.oldest_waiting || t("暂无")],
     [t("晋升缺口"), data?.promotion_gaps ?? 0],
-    [t("召回/采纳"), `${recall.recalled ?? 0}/${recall.fetched ?? 0}`],
+    [t("召回 / 注入 / 正文读取"), `${recall.recalled ?? 0} / ${recall.injected ?? 0} / ${recall.read_observed ? recall.read : t("未知")}`],
     [t("召回关联"), `${recall.events_linked ?? 0}/${recall.events_total ?? 0} · ${t("悬空")} ${recall.events_orphaned ?? 0}`],
-    [t("价值画像"), `${effects.length} ${t("条")}`],
+    [t("收益评估"), effects.length ? `${effects.length} ${t("条")}` : t("尚无有效对照")],
   ];
   const summary = document.createElement("div");
   summary.className = "memory-control-summary";
@@ -562,7 +577,7 @@ export function renderMemoryCandidates(list) {
   }
 }
 
-// R-150:空闲整理清单。零采纳候选(召回≥3 采纳=0)与复发候选只展示+可点开详情,
+// 使用复查清单：已观测注入至少 3 次而未记录正文读取，或高频召回；可点开详情。
 // 处置不在这里静默删——点条目打开详情页走既有墓碑机制(降级/修订/归档)。
 // D-217:stale 积压(已归档条目数)也进清单——归档保留墓碑正文可回看复查。
 export function renderMemoryValueFlags(data) {
@@ -570,9 +585,9 @@ export function renderMemoryValueFlags(data) {
   const count = $("memory-flags-count");
   if (!box) return;
   box.innerHTML = "";
-  const zero = Array.isArray(data?.zeroAdopt) ? data.zeroAdopt : [];
-  const recur = Array.isArray(data?.recurring) ? data.recurring : [];
-  const staleArchived = Number(data?.staleArchived) || 0;
+  const zero = Array.isArray(data?.zero_read) ? data.zero_read : [];
+  const recur = Array.isArray(data?.frequent) ? data.frequent : [];
+  const staleArchived = Number(data?.stale_archived) || 0;
   const total = zero.length + recur.length;
   count.textContent = total ? `· ${total}` : "";
   if (staleArchived > 0) {
@@ -584,23 +599,23 @@ export function renderMemoryValueFlags(data) {
   if (!total) {
     const empty = document.createElement("p");
     empty.className = "dim";
-    empty.textContent = t("暂无零采纳或复发候选");
+    empty.textContent = t("暂无需要复查的使用记录");
     box.appendChild(empty);
     return;
   }
   if (zero.length) {
     const h = document.createElement("p");
     h.className = "memory-flags-head";
-    h.textContent = `${t("零采纳候选")} (${zero.length})`;
+    h.textContent = `${t("多次注入但未记录正文读取")} (${zero.length})`;
     box.appendChild(h);
     for (const item of zero) {
       const row = document.createElement("button");
       row.type = "button";
-      row.className = "memory-flag-row zero-adopt";
+      row.className = "memory-flag-row zero-read";
       row.innerHTML =
         `<span class="memory-row-id">${escapeHtml(item.id)}</span>` +
         `<span class="memory-row-title">${escapeHtml(item.title)}</span>` +
-        `<span class="dim">${t("召回")} ${item.recalled}/${t("采纳")} ${item.fetched}</span>`;
+        `<span class="dim">${t("召回")} ${item.recalled} · ${t("注入")} ${item.injected} · ${t("正文读取")} ${item.read_observed ? item.read : t("未知")}</span>`;
       row.addEventListener("click", () => openMemoryDetailById(item.scope, item.id));
       box.appendChild(row);
     }
@@ -608,16 +623,16 @@ export function renderMemoryValueFlags(data) {
   if (recur.length) {
     const h = document.createElement("p");
     h.className = "memory-flags-head";
-    h.textContent = `${t("复发候选")} (${recur.length})`;
+    h.textContent = `${t("高频召回")} (${recur.length})`;
     box.appendChild(h);
     for (const item of recur) {
       const row = document.createElement("button");
       row.type = "button";
-      row.className = "memory-flag-row recurring";
+      row.className = "memory-flag-row frequent";
       row.innerHTML =
         `<span class="memory-row-id">${escapeHtml(item.id)}</span>` +
         `<span class="memory-row-title">${escapeHtml(item.title)}</span>` +
-        `<span class="dim">${t("召回")} ${item.recalled}/${t("采纳")} ${item.fetched}</span>`;
+        `<span class="dim">${t("召回")} ${item.recalled} · ${t("注入")} ${item.injected} · ${t("正文读取")} ${item.read_observed ? item.read : t("未知")}</span>`;
       row.addEventListener("click", () => openMemoryDetailById(item.scope, item.id));
       box.appendChild(row);
     }
@@ -626,8 +641,11 @@ export function renderMemoryValueFlags(data) {
 
 // 从清单跳详情:按 scope+id 定位条目并复用现有详情渲染。
 export async function openMemoryDetailById(scope, id) {
+  const project = currentProject;
+  const generation = ++memoryListGeneration;
   try {
-    const list = await invoke("memory_entries", { projectDir: currentProject, scope, category: null });
+    const list = await invoke("memory_entries", { projectDir: project, scope, category: null });
+    if (project !== currentProject || generation !== memoryListGeneration) return;
     const entry = (list || []).find((e) => e.id === id);
     if (entry) {
       memoryManagerFilters.scope = scope;
@@ -640,53 +658,53 @@ export async function openMemoryDetailById(scope, id) {
       showMemoryDetail(scope, entry);
     }
   } catch (err) {
+    if (project !== currentProject || generation !== memoryListGeneration) return;
     toastError(`${t("记忆条目加载失败")}:${err}`);
   }
 }
 
-// R-125:召回明细。没有这块界面就没有任何评估手段——记忆有没有用只能凭感觉。
+// 召回、注入与正文读取分别呈现；历史未知与未记录读取不能混同。
 export function renderMemoryRecalls(data) {
   const box = $("memory-recalls");
   const rate = $("memory-recall-rate");
   if (!box) return;
   box.innerHTML = "";
   const rounds = data?.rounds ?? [];
-  const total = data?.rounds_total ?? rounds.length;
-  const used = data?.rounds_with_fetch ?? 0;
-  // 采纳率放在标题上:一眼就能看出"召回了但没人用"是不是常态。
-  rate.textContent = total ? `· ${t("采纳")} ${used}/${total}` : "";
+  rate.textContent = rounds.length ? `· ${t("最近")} ${rounds.length} ${t("次检索")}` : "";
   if (!rounds.length) {
-    box.innerHTML = `<p class="dim">${t("还没有召回记录:开跑时若无记忆命中,这里就是空的")}</p>`;
+    box.innerHTML = `<p class="dim">${t("暂无检索记录。下一次运行或搜索后可在这里查看。")}</p>`;
     return;
   }
+  const triggers = { memory_search: t("任务检索"), event_recall: t("失败触发"), user_search: t("手动搜索") };
   for (const round of rounds) {
-    const item = document.createElement("div");
+    const item = document.createElement("details");
     item.className = "memory-recall";
-    const head = document.createElement("div");
+    item.open = round === rounds[0];
+    const head = document.createElement("summary");
     head.className = "memory-recall-head";
-    const when = new Date(round.at).toLocaleString();
-    const adopted = round.hits.filter((h) => h.fetched).length;
-    head.innerHTML =
-      `<span class="memory-recall-when">${escapeHtml(when)}</span>` +
-      `<span class="dim">${round.hits.length} ${t("条命中")} · ${t("已采纳")} ${adopted} · ${t("注入")} ${round.injected_bytes}B</span>`;
+    const hits = round.hits ?? [];
+    head.textContent = `${new Date(round.at).toLocaleString()} · ${triggers[round.trigger_type] || round.trigger_type} · ${hits.length} ${t("条命中")}`;
     const prompt = document.createElement("div");
     prompt.className = "memory-recall-prompt dim";
-    prompt.textContent = round.prompt_head;
-    prompt.title = round.prompt_head;
-    item.append(head, prompt);
-    for (const hit of round.hits) {
+    prompt.textContent = `${round.prompt_head || round.query || t("未知")} · ${t("运行")} ${round.run_id || t("未知")} · ${t("轮次")} ${round.episode_id ?? t("未关联")}`;
+    const query = document.createElement("p");
+    query.className = "dim";
+    query.textContent = `${t("检索词")}: ${round.query || t("未知")} · ${round.policy_action} · ${round.total_ms} ms`;
+    item.append(head, prompt, query);
+    if (!hits.length) {
+      const empty = document.createElement("p");
+      empty.className = "dim";
+      empty.textContent = t("本次检索没有命中记忆");
+      item.appendChild(empty);
+    }
+    for (const hit of hits) {
       const row = document.createElement("div");
-      row.className = `memory-recall-hit${hit.fetched ? " adopted" : ""}`;
-      // 得分与片段一起给:「为什么召回这一条」必须能看出来,否则调不了检索。
+      row.className = `memory-recall-hit${hit.read === true ? " read" : ""}`;
+      const state = !hit.injected ? t("未注入") : hit.read === true ? t("已读取正文") : hit.read === false ? t("已注入 · 尚未记录正文读取") : t("已注入 · 历史读取未知");
       row.innerHTML =
         `<span class="memory-recall-id">${escapeHtml(hit.id)}</span>` +
         `<span class="memory-recall-title">${escapeHtml(hit.title)}</span>` +
-        `<span class="dim">${hit.score.toFixed(2)}</span>` +
-        `<span class="memory-recall-flag">${hit.fetched ? t("已采纳") : t("未拉取")}</span>`;
-      const snip = document.createElement("div");
-      snip.className = "memory-recall-snippet dim";
-      snip.textContent = hit.snippet.replace(/\n/g, " ");
-      row.appendChild(snip);
+        `<span class="memory-recall-flag">${escapeHtml(state)}</span>`;
       item.appendChild(row);
     }
     box.appendChild(item);
@@ -739,16 +757,19 @@ export function renderMemoryArch(overview) {
 }
 
 export async function loadMemoryList(scope, category, { preserveSelection = false } = {}) {
+  const project = currentProject;
+  const generation = ++memoryListGeneration;
   try {
     memoryManagerFilters.scope = scope || "project";
     memoryManagerFilters.category = category || "all";
     syncMemoryManagerFilters();
     const scopes = memoryManagerFilters.scope === "all" ? ["project", "global"] : [memoryManagerFilters.scope];
     const results = await Promise.all(scopes.map((itemScope) => invoke("memory_entries", {
-      projectDir: currentProject,
+      projectDir: project,
       scope: itemScope,
       category: null,
     })));
+    if (project !== currentProject || generation !== memoryListGeneration) return;
     memoryListEntries = results.flat().map((entry) => ({ ...entry, scope: entry.scope || memoryManagerFilters.scope }));
     const filtered = memoryListEntries
       .filter((entry) => memoryManagerFilters.category === "all" || entry.category === memoryManagerFilters.category)
@@ -766,6 +787,7 @@ export async function loadMemoryList(scope, category, { preserveSelection = fals
       else hideMemoryDetail();
     }
   } catch (err) {
+    if (project !== currentProject || generation !== memoryListGeneration) return;
     toastError(`${t("记忆条目加载失败")}:${err}`);
   }
 }
@@ -786,11 +808,11 @@ export function renderMemoryList(entries, { search = false } = {}) {
     row.type = "button";
     const ageDays = memoryAgeDays(entry.updated);
     const dormant = !search && (entry.hits ?? 0) === 0 && ageDays >= 3 && entry.status !== "stale";
-    const zeroAdopt = !search && (entry.recalled ?? 0) >= 3 && (entry.fetched ?? 0) === 0 && entry.status !== "stale";
-    row.className = `memory-row${entry.id === memoryCurrentEntryId ? " selected" : ""}${entry.status === "stale" ? " stale" : ""}${dormant ? " dormant" : ""}${zeroAdopt ? " zero-adopt" : ""}${entry.category === "sop" ? " sop" : ""}`;
+    const zeroRead = !search && (entry.read_observed ?? 0) >= 3 && (entry.read ?? 0) === 0 && entry.status !== "stale";
+    row.className = `memory-row${entry.id === memoryCurrentEntryId ? " selected" : ""}${entry.status === "stale" ? " stale" : ""}${dormant ? " dormant" : ""}${zeroRead ? " zero-read" : ""}${entry.category === "sop" ? " sop" : ""}`;
     row.dataset.memoryId = entry.id;
-    const lastHit = entry.lastHitAt ? `${t("最近命中")} ${new Date(entry.lastHitAt).toLocaleDateString()}` : t("从未命中");
-    const recallMeta = (entry.recalled ?? 0) > 0 ? ` · ${t("召回")} ${entry.recalled}/${t("采纳")} ${entry.fetched}` : "";
+    const lastHit = entry.last_hit_at ? `${t("最近命中")} ${new Date(entry.last_hit_at).toLocaleDateString()}` : t("从未命中");
+    const recallMeta = (entry.recalled ?? 0) > 0 ? ` · ${t("召回")} ${entry.recalled} · ${t("注入")} ${entry.injected ?? 0} · ${t("正文读取")} ${entry.read_observed ? entry.read : t("未知")}` : "";
     const snippet = search ? entry.snippet : entry.description;
     row.innerHTML =
       `<span class="memory-row-top"><span class="memory-row-id">${escapeHtml(entry.id)}</span><span class="memory-row-title">${escapeHtml(entry.title)}</span><span class="memory-status-badge ${escapeHtml(entry.status || "")}">${escapeHtml(entry.status || "")}</span></span>` +
@@ -798,7 +820,7 @@ export function renderMemoryList(entries, { search = false } = {}) {
       `<span class="dim memory-row-description">${escapeHtml(snippet || "")}</span>` +
       `<span class="memory-row-meta dim">${escapeHtml(entry.scope || memoryManagerFilters.scope)}/${escapeHtml(entry.category || "")} · ${t("命中")} ${entry.hits ?? 0}${recallMeta} · ${lastHit} · ${escapeHtml(entry.updated || "")}` +
       `${dormant ? ` · <em class="memory-dormant-flag">${t("长期零命中")}</em>` : ""}` +
-      `${zeroAdopt ? ` · <em class="memory-zero-adopt-flag">${t("零采纳候选")}</em>` : ""}</span>`;
+      `${zeroRead ? ` · <em class="memory-zero-read-flag">${t("多次注入但未记录正文读取")}</em>` : ""}</span>`;
     row.addEventListener("click", () => {
       if (search) openMemoryDetailById(entry.scope, entry.id);
       else showMemoryDetail(entry.scope || memoryManagerFilters.scope, entry);
@@ -838,7 +860,7 @@ export function showMemoryDetail(scope, entry) {
   meta.textContent = `${entry.id} · ${entry.scope || scope} / ${entry.category || ""} · ${entry.status} · ${t("来源")} ${entry.source || t("未知")}${refsText}`;
   const profile = document.createElement("p");
   profile.className = "dim memory-profile";
-  const lastHit = entry.lastHitAt ? new Date(entry.lastHitAt).toLocaleString() : t("从未命中");
+  const lastHit = entry.last_hit_at ? new Date(entry.last_hit_at).toLocaleString() : t("从未命中");
   profile.textContent = `${t("累计命中")} ${entry.hits ?? 0} · ${t("最近命中")} ${lastHit} · ${t("更新")} ${entry.updated || t("未知")}`;
   const field = (labelText, control) => {
     const wrapper = document.createElement("label");
@@ -1073,6 +1095,8 @@ defer(() => {
   const input = $("memory-search-input");
   const clear = $("memory-search-clear");
   const runSearch = async () => {
+    const project = currentProject;
+    const generation = ++memoryListGeneration;
     const query = input.value.trim();
     if (!query || !currentProject) {
       clear.hidden = true;
@@ -1084,12 +1108,14 @@ defer(() => {
     clear.hidden = false;
     neuralFlowEmit?.("memory_search_started", { query_length: query.length });
     try {
-      const hits = await invoke("memory_search_page", { projectDir: currentProject, query });
+      const hits = await invoke("memory_search_page", { projectDir: project, query });
+      if (project !== currentProject || generation !== memoryListGeneration) return;
       neuralFlowEmit?.("memory_search_completed", { hit_count: hits.length });
       memoryCurrentEntryId = null;
       hideMemoryDetail();
       renderMemoryList(hits.map((hit) => ({ ...hit, scope: hit.scope || "project" })), { search: true });
     } catch (err) {
+      if (project !== currentProject || generation !== memoryListGeneration) return;
       neuralFlowEmit?.("memory_search_failed");
       toastError(`${t("记忆检索失败")}:${err}`);
     }
@@ -1119,35 +1145,6 @@ defer(() => {
     } catch (err) {
       neuralFlowEmit?.("memory_consolidation_failed");
       toastError(`${t("整理失败")}:${err}`);
-    }
-  });
-});
-
-// R-132:一键整理——对零采纳候选(召回≥3 采纳=0)批量降级 stale,可逆不删。
-// 结果反馈:降级数量 + 跳过数量,明细进 toast 尾部。
-defer(() => {
-  $("memory-cleanup-btn").addEventListener("click", async () => {
-    if (!currentProject) return;
-    const btn = $("memory-cleanup-btn");
-    btn.disabled = true;
-    neuralFlowEmit?.("memory_cleanup_started");
-    try {
-      const result = await invoke("memory_cleanup_demote", { projectDir: currentProject });
-      const demoted = Array.isArray(result?.demoted) ? result.demoted : [];
-      const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
-      neuralFlowEmit?.("memory_cleanup_completed", { demoted_count: demoted.length, skipped_count: skipped.length });
-      if (demoted.length) {
-        const names = demoted.slice(0, 3).map((d) => d.title).join("、");
-        toast(`${t("已降级")} ${demoted.length} ${t("条记忆为 stale")}${skipped.length ? `,${t("跳过")} ${skipped.length}` : ""}${demoted.length > 3 ? "…" : ""}${names ? `:${names}` : ""}`);
-      } else {
-        toast(skipped.length ? `${t("无候选可降级")},${t("跳过")} ${skipped.length}` : t("无零采纳候选需要整理"));
-      }
-      refreshMemory();
-    } catch (err) {
-      neuralFlowEmit?.("memory_cleanup_failed");
-      toastError(`${t("整理失败")}:${err}`);
-    } finally {
-      btn.disabled = false;
     }
   });
 });

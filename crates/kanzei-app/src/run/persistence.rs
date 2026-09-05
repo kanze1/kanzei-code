@@ -226,6 +226,9 @@ pub(crate) fn persist_round_outcome(
                 }) {
                     // R-161:本轮开跑预检索的 recall_events 归因到该 episode,可 join 查询。
                     let _ = store.link_recall_events_to_episode(episode_id, run_epoch_ms);
+                    if let Err(error) = store.record_episode_recoveries(episode_id, this_run) {
+                        tracing::warn!(%error, episode_id, "记忆恢复证据写入失败，候选保持未验证");
+                    }
                     current_episode_id = Some(episode_id);
                 }
                 let _ = store.finish_input(promoted_input_id, true);

@@ -5,9 +5,6 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-/// 自动整理只接受最近 24 小时的现行 recall_events，避免陈旧遥测触发生命周期变更。
-const RECALL_FRESHNESS_MS: i64 = 24 * 60 * 60 * 1000;
-
 fn memory_stores_for(project_dir: &str) -> Vec<kanzei_tools::memory::MemoryStore> {
     let cwd = PathBuf::from(project_dir);
     let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
@@ -118,9 +115,14 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
         .and_then(|session| session.memory_ids_with_sources().ok())
         .unwrap_or_default();
     let promotion_gaps = promotion_gap_count(&entries, &source_backed);
-    let recall = store.recall_profile();
-    let recalled = recall.values().map(|(count, _)| *count).sum::<u64>();
-    let fetched = recall.values().map(|(_, count)| *count).sum::<u64>();
+    let recall = store.usage_counts();
+    let recalled = recall.values().map(|counts| counts.recalled).sum::<u64>();
+    let injected = recall.values().map(|counts| counts.injected).sum::<u64>();
+    let read = recall.values().map(|counts| counts.read).sum::<u64>();
+    let read_observed = recall
+        .values()
+        .map(|counts| counts.read_observed)
+        .sum::<u64>();
     let recall_links = session
         .as_ref()
         .and_then(|session| session.recall_link_stats().ok())
@@ -151,7 +153,9 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
         "promotion_gaps": promotion_gaps,
         "recall": {
             "recalled": recalled,
-            "fetched": fetched,
+            "injected": injected,
+            "read": read,
+            "read_observed": read_observed,
             "events_total": recall_links.total,
             "events_linked": recall_links.linked,
             "events_orphaned": recall_links.orphaned,
@@ -170,10 +174,19 @@ pub(crate) fn memory_entries(
     for store in memory_stores_for(&project_dir) {
         if store.scope.label() == scope {
             let profile = store.hit_profile();
-            // R-150:召回/采纳率并入条目——recall_profile 提供 (recalled, fetched),
-            // 前端据此显示采纳率与零采纳标记(零采纳候选的 UI 消费)。
-            let recall = store.recall_profile();
-            let list: Vec<serde_json::Value> = store.load_all().into_iter().filter(|(_, e)| category.as_deref().is_none_or(|c| e.category == c)).map(|(path, e)| { let (hits, last_hit_at) = profile.get(&e.id).copied().unwrap_or((0, 0)); let (recalled, fetched) = recall.get(&e.id).copied().unwrap_or((0, 0)); json!({"id": e.id, "category": e.category, "title": e.title, "description": e.description, "status": e.status, "updated": e.updated, "source": e.source, "refs": e.refs(), "hits": hits, "lastHitAt": last_hit_at, "recalled": recalled, "fetched": fetched, "path": path.display().to_string(), "body": e.body}) }).collect();
+            let usage = store.usage_counts();
+            let list: Vec<serde_json::Value> = store.load_all().into_iter()
+                .filter(|(_, entry)| category.as_deref().is_none_or(|value| entry.category == value))
+                .map(|(path, entry)| {
+                    let (hits, last_hit_at) = profile.get(&entry.id).copied().unwrap_or((0, 0));
+                    let counts = usage.get(&entry.id).cloned().unwrap_or_default();
+                    json!({"id": entry.id, "scope": store.scope.label(), "category": entry.category,
+                        "title": entry.title, "description": entry.description, "status": entry.status,
+                        "updated": entry.updated, "source": entry.source, "refs": entry.refs(),
+                        "hits": hits, "last_hit_at": last_hit_at, "recalled": counts.recalled,
+                        "injected": counts.injected, "read": counts.read, "read_observed": counts.read_observed,
+                        "path": path.display().to_string(), "body": entry.body})
+                }).collect();
             return Ok(json!(list));
         }
     }
@@ -214,85 +227,79 @@ pub(crate) fn memory_note_discard(
 }
 
 #[tauri::command]
-pub(crate) fn memory_recalls(project_dir: String, limit: Option<usize>) -> serde_json::Value {
+pub(crate) fn memory_recalls(
+    project_dir: String,
+    limit: Option<usize>,
+) -> Result<serde_json::Value, String> {
     let limit = limit.unwrap_or(20).clamp(1, 200);
-    let mut rounds: Vec<kanzei_tools::memory::RecallRound> = Vec::new();
-    for store in memory_stores_for(&project_dir) {
-        rounds.extend(store.recalls(limit));
-    }
-    rounds.sort_by_key(|round| std::cmp::Reverse(round.at));
-    rounds.truncate(limit);
-    let total = rounds.len();
-    let with_fetch = rounds
-        .iter()
-        .filter(|r| r.hits.iter().any(|h| h.fetched))
-        .count();
-    json!({"rounds": rounds, "rounds_total": total, "rounds_with_fetch": with_fetch})
+    let root = kanzei_harness::config::discover_project_root(&PathBuf::from(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let state = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|error| error.to_string())?;
+    let observations = state
+        .memory_recall_observations(limit)
+        .map_err(|error| error.to_string())?;
+    let entries = kanzei_tools::memory::MemoryStore::project(&root)
+        .load_all()
+        .into_iter()
+        .map(|(_, entry)| (entry.id.clone(), entry))
+        .collect::<std::collections::HashMap<_, _>>();
+    let rounds = observations
+        .into_iter()
+        .map(|observation| {
+            let hits = observation
+                .retrieved_ids
+                .iter()
+                .map(|id| {
+                    let entry = entries.get(id);
+                    let injected = observation.injected_ids.contains(id);
+                    let read = if injected {
+                        observation.read_ids.as_ref().map(|ids| ids.contains(id))
+                    } else {
+                        None
+                    };
+                    json!({"id": id, "title": entry.map(|entry| entry.title.as_str()).unwrap_or(id),
+                "scope": "project", "category": entry.map(|entry| entry.category.as_str()),
+                "injected": injected, "read": read})
+                })
+                .collect::<Vec<_>>();
+            let mut round =
+                serde_json::to_value(&observation).expect("serializable memory observation");
+            round["hits"] = json!(hits);
+            round
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({"rounds_total": rounds.len(), "rounds": rounds}))
 }
 
-/// R-150 空闲整理清单:零采纳候选、复发候选与 stale 积压(内容①)。
-/// 零采纳 = 召回≥3 但从未拉正文;复发 = 最近回放里同一标题反复出现(暂以
-/// 召回次数高且采纳为 0 的近似——精确复发标记走 fingerprint,这里给 UI 候选)。
-/// stale 积压(D-217) = archive/ 里已归档条目数(引擎 archive_dead 搬运后的
-/// 遗忘总量,供「待复查」提示——归档文件保留墓碑正文可回看)。
-/// 只列候选不处置——处置走既有墓碑机制(memory_entry_save 降级 / delete),不静默删。
+/// 使用观测只用于人工复查；高频召回和未读取均不证明无效或失败复发。
 #[tauri::command]
 pub(crate) fn memory_value_flags(project_dir: String) -> serde_json::Value {
-    let mut zero_adopt = Vec::new();
-    let mut recurring = Vec::new();
+    let mut zero_read = Vec::new();
+    let mut frequent = Vec::new();
     let mut stale_archived = 0usize;
     for store in memory_stores_for(&project_dir) {
-        let entries = store.load_all();
-        let profile = store.recall_profile();
-        // 零采纳候选:召回≥3 且从未采纳(active 条目的 UI 消费,只读)。
-        for (_, e) in entries.iter().filter(|(_, e)| e.status == "active") {
-            if let Some(&(recalled, fetched)) = profile.get(&e.id) {
-                if recalled >= 3 && fetched == 0 {
-                    zero_adopt.push(json!({"scope": store.scope.label(), "id": e.id, "title": e.title, "recalled": recalled, "fetched": 0}));
-                }
-            }
-        }
-        // 复发候选:召回轮次多、采纳为 0 的条目是「语义显著但决策无关」的头号嫌疑;
-        // 与 R-149 决策权重口径一致(召回≥3 才起权),同一清单给空闲整理用。
-        // 这里只汇总 active 且 recalled>=3 的条目(零采纳子集之外再加 fetched>0 的),
-        // 复发信号暂用 recalled 频次近似,精确 fingerprint 复发见 R-150 文档。
-        for (_, e) in entries.iter().filter(|(_, e)| e.status == "active") {
-            if let Some(&(recalled, fetched)) = profile.get(&e.id) {
-                if recalled >= 3 {
-                    recurring.push(json!({"scope": store.scope.label(), "id": e.id, "title": e.title, "recalled": recalled, "fetched": fetched}));
-                }
+        let usage = store.usage_counts();
+        for (_, entry) in store
+            .load_all()
+            .iter()
+            .filter(|(_, entry)| entry.status == "active")
+        {
+            let Some(counts) = usage.get(&entry.id) else {
+                continue;
+            };
+            let item = json!({"scope": store.scope.label(), "id": entry.id, "title": entry.title,
+                "recalled": counts.recalled, "injected": counts.injected,
+                "read": counts.read, "read_observed": counts.read_observed});
+            if counts.read_observed >= 3 && counts.read == 0 {
+                zero_read.push(item);
+            } else if counts.recalled >= 3 {
+                frequent.push(item);
             }
         }
         stale_archived += store.archived_count();
     }
-    json!({"zeroAdopt": zero_adopt, "recurring": recurring, "staleArchived": stale_archived})
-}
-
-/// R-132 一键整理:对零采纳候选(召回≥3 采纳=0 且 active)批量降级为 stale。
-/// 走既有墓碑机制(降级不删除、可逆——UI 详情可改回 active),不静默删。
-/// 返回降级清单与跳过清单,供前端给出结果反馈。
-#[tauri::command]
-pub(crate) fn memory_cleanup_demote(project_dir: String) -> Result<serde_json::Value, String> {
-    let mut demoted = Vec::new();
-    let mut skipped = Vec::new();
-    for store in memory_stores_for(&project_dir) {
-        let entries = store.load_all();
-        // D-493:自动降级只消费现行 state.db recall_events，且必须通过新鲜度门禁；
-        // 陈旧或缺失遥测一律不改变 active 生命周期。
-        let profile = store.fresh_recall_profile(RECALL_FRESHNESS_MS);
-        for (_, e) in entries.iter().filter(|(_, e)| e.status == "active") {
-            let Some(&(recalled, fetched)) = profile.get(&e.id) else {
-                continue;
-            };
-            if recalled >= 3 && fetched == 0 {
-                match store.update(&e.id, None, None, None, Some("stale"), None, false) {
-                    Ok(updated) => demoted.push(json!({"id": e.id, "title": updated.title})),
-                    Err(err) => skipped.push(json!({"id": e.id, "reason": err.to_string()})),
-                }
-            }
-        }
-    }
-    Ok(json!({"demoted": demoted, "skipped": skipped}))
+    json!({"zero_read": zero_read, "frequent": frequent, "stale_archived": stale_archived})
 }
 
 #[tauri::command]
@@ -364,7 +371,7 @@ pub(crate) fn memory_search_page(project_dir: String, query: String) -> serde_js
             json!({"id": h.entry.id, "scope": h.entry.scope, "category": h.entry.category, "title": h.entry.title, "description": h.entry.description, "status": h.entry.status, "snippet": h.snippet, "hits": h.hits})
         })
         .collect();
-    if !all_hits.is_empty() {
+    {
         kanzei_tools::memory::record_memory_search_telemetry(
             &root,
             &query,
@@ -372,6 +379,8 @@ pub(crate) fn memory_search_page(project_dir: String, query: String) -> serde_js
             false,
             "lexical",
             &kanzei_tools::memory::RetrievalTiming::default(),
+            None,
+            "user_search",
         );
     }
     json!(out)
@@ -447,6 +456,71 @@ mod tests {
     use super::promotion_gap_count;
     use std::collections::HashSet;
     use std::path::PathBuf;
+
+    #[test]
+    fn recalls_ipc_reads_current_state_and_keeps_unknown_distinct() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-recalls-ipc-{}-{}",
+            std::process::id(),
+            super::now_ms()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        let state =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        let event = kanzei_core::RecallEvent {
+            recall_id: "old",
+            episode_id: None,
+            step_id: None,
+            trigger_type: "memory_search",
+            trigger_payload: "{}",
+            policy_action: "lexical",
+            query: "query",
+            candidate_ids: "[\"M-1\"]",
+            retrieved_ids: "[\"M-1\"]",
+            injected_ids: "[\"M-1\"]",
+            lexical_ms: 0,
+            embed_ms: 0,
+            vector_ms: 0,
+            total_ms: 0,
+        };
+        state.record_recall_event(&event).unwrap();
+        state
+            .record_recall_event_for_run(
+                &kanzei_core::RecallEvent {
+                    recall_id: "new",
+                    ..event
+                },
+                Some("run-a"),
+            )
+            .unwrap();
+        let result = super::memory_recalls(root.display().to_string(), Some(20)).unwrap();
+        assert_eq!(result["rounds_total"], 2);
+        let rounds = result["rounds"].as_array().unwrap();
+        assert!(
+            rounds.iter().find(|row| row["recall_id"] == "old").unwrap()["hits"][0]["read"]
+                .is_null()
+        );
+        assert_eq!(
+            rounds.iter().find(|row| row["recall_id"] == "new").unwrap()["hits"][0]["read"],
+            false
+        );
+        state.record_memory_read("run-a", "M-1").unwrap();
+        let result = super::memory_recalls(root.display().to_string(), Some(20)).unwrap();
+        assert_eq!(result["rounds"][0]["hits"][0]["read"], true);
+        state
+            .record_recall_event(&kanzei_core::RecallEvent {
+                recall_id: "corrupt",
+                retrieved_ids: "not-json",
+                ..event
+            })
+            .unwrap();
+        assert!(
+            super::memory_recalls(root.display().to_string(), Some(20)).is_err(),
+            "损坏观测必须报告错误，不能伪装成空历史"
+        );
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn entry(
         id: &str,

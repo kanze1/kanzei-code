@@ -47,19 +47,18 @@ pub struct RecallHit {
 }
 
 /// 一次注入的轮末结局:注入后同 (tool, kind) 是否停止复发。
-/// 这是 ACTION_CHANGED 漏斗段的机械口径——"注入了但没拦住复发"与
-/// "注入后失败停止"在遥测里必须可区分,否则利用率只能凭感觉。
+/// 只描述余下轮次的失败观察，不能据此证明采用或收益。
 #[derive(Debug, Clone)]
 pub struct RecallOutcome {
     pub memory_id: String,
     pub tool: String,
     pub kind: String,
-    /// true = 注入后到轮末同 (tool,kind) 未再失败(行为改变);false = 又失败了。
-    pub changed: bool,
+    /// true = 注入后到轮末同 (tool,kind) 未再失败；false = 再次失败。
+    pub failure_not_repeated: bool,
 }
 
-/// 运行级最终结局。只有真实完成的运行才可写入 OUTCOME_IMPROVED；
-/// Unknown 是 Drop 兜底，防止未来新增提前返回路径时误报最终改善。
+/// 运行级终态观察。Completed 只说明引擎结束，不证明任务成功或收益。
+/// Unknown 表示提前返回时未提交明确结局。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecallRunOutcome {
     Completed,
@@ -85,15 +84,14 @@ pub trait RecallPolicy: Send + Sync {
         _retrieved: &[RecallHit],
         _injected: &[RecallHit],
         _elapsed_ms: u64,
+        _run_id: Option<&str>,
     ) {
     }
 
-    /// 轮末回收:每条注入的行为改变判定(ACTION_CHANGED)。空实现 = 不落库。
+    /// 轮末回收每条注入后的失败复发观察。空实现 = 不落库。
     fn record_outcomes(&self, _outcomes: &[RecallOutcome]) {}
 
-    /// 运行完成后的独立结果证据(OUTCOME_IMPROVED)。默认复用旧的行为改变
-    /// 回调，保证 core 内测试策略与第三方策略向后兼容；生产策略显式覆写，
-    /// 只有拿到真实运行结局才写 outcome_improved 臂。
+    /// 同时交付运行终态与失败观察；收益评估由独立证据提供。
     fn record_outcome_evidence(&self, outcomes: &[RecallOutcome], _run_outcome: RecallRunOutcome) {
         self.record_outcomes(outcomes);
     }
@@ -115,6 +113,7 @@ pub struct RecallWatch<'a> {
     policy: Option<&'a dyn RecallPolicy>,
     /// 显式 finish 后禁止 Drop 重复落库；Drop 仍作为未来提前返回路径的安全兜底。
     finished: bool,
+    run_id: Option<String>,
 }
 
 impl<'a> RecallWatch<'a> {
@@ -125,11 +124,16 @@ impl<'a> RecallWatch<'a> {
             pending: Vec::new(),
             policy,
             finished: false,
+            run_id: None,
         }
     }
 
-    /// 在 RunSummary 构造前提交真实运行结局。完成运行才有资格产生
-    /// OUTCOME_IMPROVED；未显式调用时 Drop 以 Unknown 兜底，只保留 ACTION_CHANGED。
+    pub fn with_run_id(mut self, run_id: Option<String>) -> Self {
+        self.run_id = run_id;
+        self
+    }
+
+    /// 在 RunSummary 构造前提交终态；Drop 使用 Unknown，且不重复落库。
     pub fn finish(&mut self, run_outcome: RecallRunOutcome) {
         if self.finished {
             return;
@@ -154,7 +158,7 @@ impl<'a> RecallWatch<'a> {
                     memory_id,
                     tool,
                     kind,
-                    changed: now <= at_count,
+                    failure_not_repeated: now <= at_count,
                 }
             })
             .collect();
@@ -218,7 +222,7 @@ impl<'a> RecallWatch<'a> {
             }
             // miss 也落遥测(retrieved/injected 皆空):没有 miss 记录就永远
             // 看不见"高频失败但零记忆覆盖"的缺口。
-            policy.record_trigger(&trigger, &retrieved, &hits, elapsed);
+            policy.record_trigger(&trigger, &retrieved, &hits, elapsed, self.run_id.as_deref());
             if hits.is_empty() {
                 continue;
             }
@@ -285,6 +289,7 @@ mod tests {
             retrieved: &[RecallHit],
             injected: &[RecallHit],
             _elapsed_ms: u64,
+            _run_id: Option<&str>,
         ) {
             self.triggers
                 .lock()
@@ -528,7 +533,7 @@ mod tests {
         let got = outcomes.lock().unwrap().clone();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].memory_id, "M-009");
-        assert!(!got[0].changed, "注入后同类又失败,行为未改变: {got:?}");
+        assert!(!got[0].failure_not_repeated, "注入后同类失败复发: {got:?}");
 
         let outcomes2 = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let policy2 = RecordingPolicy {
@@ -553,7 +558,10 @@ mod tests {
         }
         let got2 = outcomes2.lock().unwrap().clone();
         assert_eq!(got2.len(), 1);
-        assert!(got2[0].changed, "注入后未再失败,行为改变成立: {got2:?}");
+        assert!(
+            got2[0].failure_not_repeated,
+            "注入后到轮末未再记录同类失败: {got2:?}"
+        );
     }
 
     #[test]

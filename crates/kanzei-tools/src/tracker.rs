@@ -978,7 +978,7 @@ mod tests {
         ));
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         let store = DocStore::open(&dir, &REQUIREMENTS);
-        store.save(&mut [entry("R-001")]).unwrap();
+        store.save(&[entry("R-001")]).unwrap();
         let tool = TrackerTool {
             tool_name: "req",
             noun: "requirement",

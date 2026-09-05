@@ -391,3 +391,17 @@
 - recorded_at: 1788638067795
 - 后续验收: 发布前在发布提交运行 pwsh -File scripts/verify.ps1 -Full；上传后核对 tag、安装包大小和 SHA-256、HTTP 206；安装后重复设计文档中的原生桌面关键操作。
 - 实现提交: ce95733b
+
+## R-361 记忆收益闭环与任务信息呈现改进 [doing]
+- 内容: 分三批：观测真源与证据判据；决策点召回与固定任务收益对照；有界任务上下文与结果呈现。
+- 发现记录: {"Intent":"让记忆改善任务表现并可理解呈现","Explicit":"统一召回真源，厘清注入读取采用验证，收紧晋升与效果判据，改善当前任务呈现","Assumptions":"复用 SQLite 与现有记忆生命周期","Ambiguities":"无阻碍第一批实施的未决项","领域对象":"recall_event、memory_entry、episode、work_unit","最小成功闭环":"同一运行召回读取与恢复证据可对应且不夸大收益","延后决策":"真实 provider 对照结果与长期调度策略"}
+- 复杂度: 大
+- 批次: 1/3
+- 来源: 2026-09-06 用户原话「同意，开工吧」，确认上一轮审计建议
+- 标签: 前端
+- 进展: 第一批代码及定向回归完成：统一 recall_events、run_id 读取事实、匹配恢复晋升和页面使用呈现。core 284、memory 168、ReadTool 10、桌面 memory IPC 2 项测试通过，六条前端冒烟通过。完整 verify、原生桌面验收、真实收益对照及第二三批尚未完成。详见 docs/design/memory_feedback_reliability.md。
+- 验收: 新旧库迁移可回归；读取按运行隔离；正常结束不冒充收益；无匹配恢复证据不得自动晋升；前端区分注入读取与未知；实际收益独立对照留证。
+- 优先级: P1
+- observed_head: 568adcc8063a0b0f3edd8feefebe5f67c6b4e497
+- observed_worktree_hash: fnv1a64:984b510070ebb714
+- recorded_at: 1788640856825

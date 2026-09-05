@@ -878,20 +878,22 @@ const payloads = {
     defectCount: 1,
     report: "# 缺陷自动审查报告\n\n- D-001: `src/main.rs:10` 有可复核证据",
   },
-  // R-125:召回明细。一轮里既有被拉取的(算采纳)也有没拉的,才能验证两种状态都渲染得出来。
+  // 新旧读取观测、未注入与 miss 必须按事实分别呈现。
   memory_recalls: {
     rounds: [{
-      recall_id: "1-M",
-      at: 1_760_000_000_000,
-      prompt_head: "这轮要发版",
-      injected_bytes: 512,
+      recall_id: "1-M", at: 1_760_000_000_000, run_id: "run-7", episode_id: 7,
+      prompt_head: "这轮要发版", trigger_type: "memory_search", policy_action: "lexical", query: "发版 SOP", total_ms: 8,
       hits: [
-        { id: "M-002", title: "发版 SOP", scope: "project", category: "sop", score: 3.25, snippet: "package.ps1 -Publish", fetched: true },
-        { id: "M-001", title: "CRLF 未命中", scope: "project", category: "fact", score: 1.1, snippet: "edit 换行", fetched: false },
+        { id: "M-002", title: "发版 SOP", scope: "project", injected: true, read: true },
+        { id: "M-001", title: "CRLF 未命中", scope: "project", injected: true, read: false },
+        { id: "M-003", title: "历史记忆", scope: "project", injected: true, read: null },
+        { id: "M-004", title: "候选", scope: "project", injected: false, read: null },
       ],
+    }, {
+      recall_id: "2-M", at: 1_760_000_000_001, run_id: null, episode_id: null,
+      prompt_head: null, trigger_type: "event_recall", policy_action: "miss", query: "unknown failure", total_ms: 1, hits: [],
     }],
-    rounds_total: 1,
-    rounds_with_fetch: 1,
+    rounds_total: 2,
   },
   // R-124:SOP 候选(带指纹,用于丢弃定位)。
   memory_note_candidates: [{
@@ -902,13 +904,11 @@ const payloads = {
     fingerprint: "[sop:R-123]",
   }],
   memory_note_discard: true,
-  // R-150:空闲整理清单——零采纳(召回≥3 采纳=0)+ 复发候选,前端只展示。
   memory_value_flags: {
-    zeroAdopt: [{ scope: "project", id: "M-001", title: "CRLF 未命中", recalled: 5, fetched: 0 }],
-    recurring: [{ scope: "project", id: "M-002", title: "发版 SOP", recalled: 4, fetched: 1 }],
+    zero_read: [{ scope: "project", id: "M-001", title: "CRLF 未命中", recalled: 5, injected: 4, read: 0, read_observed: 4 }],
+    frequent: [{ scope: "project", id: "M-002", title: "发版 SOP", recalled: 4, injected: 3, read: 1, read_observed: 2 }],
+    stale_archived: 0,
   },
-  // R-132:一键整理——零采纳候选降级 stale,返回降级/跳过清单。
-  memory_cleanup_demote: { demoted: [{ id: "M-001", title: "CRLF 未命中" }], skipped: [] },
   // R-099/R-127:一轮有画像、一轮早于度量落地,验证两者区分得开。
   run_metrics: {
     rounds: [
@@ -1056,16 +1056,16 @@ const payloads = {
     oldest_waiting: "2026-08-20 [fact]",
     batch: { batch_id: "batch-7", status: "failed", pending_after: 3, failure_reason: "模拟 manager 失败" },
     promotion_gaps: 1,
-    recall: { recalled: 8, fetched: 3 },
+    recall: { recalled: 8, injected: 3, read: 1, read_observed: 2 },
     effects: [{ memory_id: "M-SOP-001", effect_mean: 0.5, effect_ci: 0.2, eval_n: 4, last_eval: 1_760_000_000_000 }],
     experience_facts: [],
   },
   // 两条:一条有命中,一条陈旧且零命中(验证「长期零命中」标记与清理入口)。
   memory_entries: [
-    { id: "M-SOP-001", category: "sop", title: "冒烟 SOP", description: "继续执行冒烟任务", status: "active", body: "执行冒烟任务", hits: 4, lastHitAt: 1_760_000_000_000, recalled: 4, fetched: 2, updated: "2026-08-01" },
-    { id: "M-DEAD-001", category: "fact", title: "从没被用到的记忆", description: "冒烟用:零命中条目", status: "active", body: "陈旧结论", hits: 0, lastHitAt: 0, recalled: 0, fetched: 0, updated: "2026-01-01" },
+    { id: "M-SOP-001", category: "sop", title: "冒烟 SOP", description: "继续执行冒烟任务", status: "active", body: "执行冒烟任务", hits: 4, last_hit_at: 1_760_000_000_000, recalled: 4, injected: 3, read: 2, read_observed: 3, updated: "2026-08-01" },
+    { id: "M-DEAD-001", category: "fact", title: "从没被用到的记忆", description: "冒烟用:零命中条目", status: "active", body: "陈旧结论", hits: 0, last_hit_at: 0, recalled: 0, injected: 0, read: 0, read_observed: 0, updated: "2026-01-01" },
   ],
-  memory_search_page: [{ id: "M-SOP-001", scope: "project", category: "sop", title: "冒烟 SOP", snippet: "继续执行冒烟任务", status: "active", description: "继续执行冒烟任务", body: "执行冒烟任务", hits: 4, recalled: 4, fetched: 2, updated: "2026-08-01" }],
+  memory_search_page: [{ id: "M-SOP-001", scope: "project", category: "sop", title: "冒烟 SOP", snippet: "继续执行冒烟任务", status: "active", description: "继续执行冒烟任务", body: "执行冒烟任务", hits: 4, recalled: 4, injected: 3, read: 2, read_observed: 3, updated: "2026-08-01" }],
   memory_context_bill: { turns: [] },
   research_latex_templates: [
     { id: "basic_report", name: "基础报告", description: "适合研究阶段性报告与结论摘要。" },
@@ -3497,18 +3497,15 @@ candidateButtons.find((b) => b.textContent === "丢弃").click();
 await flush();
 assert(invokeLog.includes("memory_note_discard"), "丢弃候选未调用后端");
 const recallHits = document.querySelectorAll("#memory-recalls .memory-recall-hit");
-assert(recallHits.length === 2, `召回明细未渲染命中条目,实得 ${recallHits.length}`);
-assert(
-  listText("memory-recalls").includes("M-002") && listText("memory-recalls").includes("3.25"),
-  "召回明细未给出条目 id 与检索得分(看不出为什么召回这几条)",
-);
-assert(listText("memory-recalls").includes("package.ps1"), "召回明细未给出命中片段");
-assert(listText("memory-recalls").includes("512B"), "召回明细未给出注入字节数(上下文账单无从算起)");
-assert(
-  recallHits.filter((n) => n.classList.contains("adopted")).length === 1,
-  "采纳标记未按 fetched 区分:召回了但没拉正文不能算起了作用",
-);
-assert(listText("memory-recall-rate").includes("1/1"), "标题未给出采纳率");
+assert(recallHits.length === 4, `召回明细未渲染全部命中,实得 ${recallHits.length}`);
+const recallText = listText("memory-recalls");
+for (const text of ["M-002", "run-7", "发版 SOP", "已读取正文", "尚未记录正文读取", "历史读取未知", "未注入", "本次检索没有命中记忆", "未知"]) {
+  assert(recallText.includes(text), `召回明细缺少 ${text}`);
+}
+assert(!recallText.includes("已采纳"), "读取或注入不得被称为采纳");
+assert(recallHits.filter((node) => node.classList.contains("read")).length === 1, "正文读取状态错误");
+assert(listText("memory-recall-rate").includes("2"), "标题未显示最近检索数量");
+assert(document.querySelector("#memory-recalls .memory-recall")?.open === true, "最新一次召回应默认展开");
 // 效果画像:零命中要在列表里看得出来,且能直接删。
 // 列表只在选中某个 scope/category 后渲染,冒烟里直接驱动该入口。
 await sandbox.loadMemoryList("project", null);
@@ -3562,8 +3559,8 @@ assert(document.querySelector("#memory-search-clear") && !document.querySelector
 {
   const savedEntries = structuredClone(payloads.memory_entries);
   payloads.memory_entries = [
-    { id: "M-LONG-001", category: "fact", title: "长正文记忆", description: "钩子", status: "active", body: "第一段要点：这是正文摘要应展示的首段内容。\n\n第二段：拆出来的第二个段落块。\n\n第三段超长：\n" + "很长的段落文本，需要折叠。".repeat(30), hits: 0, lastHitAt: 0, recalled: 0, fetched: 0, updated: "2026-08-01" },
-    { id: "M-DEAD-001", category: "fact", title: "从没被用到的记忆", description: "冒烟用:零命中条目", status: "active", body: "陈旧结论", hits: 0, lastHitAt: 0, recalled: 0, fetched: 0, updated: "2026-01-01" },
+    { id: "M-LONG-001", category: "fact", title: "长正文记忆", description: "钩子", status: "active", body: "第一段要点：这是正文摘要应展示的首段内容。\n\n第二段：拆出来的第二个段落块。\n\n第三段超长：\n" + "很长的段落文本，需要折叠。".repeat(30), hits: 0, last_hit_at: 0, recalled: 0, injected: 0, read: 0, read_observed: 0, updated: "2026-08-01" },
+    { id: "M-DEAD-001", category: "fact", title: "从没被用到的记忆", description: "冒烟用:零命中条目", status: "active", body: "陈旧结论", hits: 0, last_hit_at: 0, recalled: 0, injected: 0, read: 0, read_observed: 0, updated: "2026-01-01" },
   ];
   await sandbox.loadMemoryList("project", null);
   await flush();
@@ -3615,7 +3612,7 @@ assert(invokeLog.includes("memory_value_flags"), "记忆页未拉取空闲整理
 const flagRows = document.querySelectorAll("#memory-value-flags .memory-flag-row");
 assert(flagRows.length === 2, `空闲整理清单未渲染全部候选,实得 ${flagRows.length}`);
 assert(
-  document.querySelector("#memory-value-flags .memory-flag-row.zero-adopt"),
+  document.querySelector("#memory-value-flags .memory-flag-row.zero-read"),
   "零采纳候选未按类别标记(区分「语义显著但决策无关」)",
 );
 assert(
@@ -3624,7 +3621,7 @@ assert(
 );
 // 记忆列表采纳率:召回/采纳 数据在条目 meta 可见。
 assert(
-  listText("memory-list").includes("召回") && listText("memory-list").includes("采纳"),
+  listText("memory-list").includes("召回") && listText("memory-list").includes("正文读取"),
   "记忆列表未展示召回/采纳数据(验收②数据面)",
 );
 // 三档宽度:800/1024/1280 下记忆页不崩、清单与采纳率数据仍在 DOM。
@@ -3636,20 +3633,41 @@ for (const width of [800, 1024, 1280]) {
     `${width}px 下空闲整理清单缺失`,
   );
   assert(
-    listText("memory-list").includes("召回") && listText("memory-list").includes("采纳"),
+    listText("memory-list").includes("召回") && listText("memory-list").includes("正文读取"),
     `${width}px 下记忆列表召回/采纳数据缺失`,
   );
 }
 windowShim.innerWidth = 1280;
 await flush();
 
-// ---------- R-132 一键整理:手动触发整理入口 + 结果反馈 ----------
-const cleanupBtn = byId.get("memory-cleanup-btn");
-assert(cleanupBtn, "空闲整理清单缺少一键整理入口(验收:手动触发整理)");
-cleanupBtn.click();
-await flush();
-assert(invokeLog.includes("memory_cleanup_demote"), "一键整理未调用后端整理流程");
-assert(listText("memory-flags-count").includes("2"), "整理后未刷新空闲整理清单计数");
+// 无读取证据不能直接批量降级记忆，用户仍可打开条目逐条修订。
+assert(!document.getElementById("memory-cleanup-btn"), "不应提供按未读取批量降级入口");
+assert(!invokeLog.includes("memory_cleanup_demote"), "不得调用旧批量降级接口");
+assert(listText("memory-flags-count").includes("2"), "复查清单计数错误");
+
+// 跨项目迟到响应不得覆盖当前项目；失败后可重新加载。
+{
+  const previousProject = sandbox.currentProject;
+  let release;
+  invokeGates.set("memory_recalls", new Promise((resolve) => { release = resolve; }));
+  const pending = sandbox.refreshMemory();
+  invokeGates.delete("memory_recalls");
+  sandbox.currentProject = "C:/memory-other-project";
+  await sandbox.refreshMemory();
+  byId.get("memory-recalls").textContent = "当前项目的记录";
+  release();
+  await pending;
+  assert(listText("memory-recalls") === "当前项目的记录", "旧项目迟到响应覆盖了当前项目");
+  expectedPersistentError = "记忆页加载失败";
+  invokeFailures.set("memory_recalls", "memory read unavailable");
+  await sandbox.refreshMemory();
+  invokeFailures.delete("memory_recalls");
+  expectedPersistentError = null;
+  await sandbox.refreshMemory();
+  assert(listText("memory-recalls").includes("run-7"), "读取失败后重试未恢复");
+  sandbox.currentProject = previousProject;
+  await sandbox.refreshMemory();
+}
 
 // ---------- D-726:对话搜索只在当前 activePane 内取候选 ----------
 // `messages` 同时挂着多个会话 pane。搜索必须和复制上下文一样只读当前 pane,
@@ -6282,8 +6300,7 @@ assert(
   assert(memKey("整理 inbox") === "Consolidate inbox", `英文态「整理 inbox」未翻译,实际 "${memKey("整理 inbox")}"`);
   assert(memKey("待确认候选") === "Pending candidates", `英文态「待确认候选」未翻译(span 包裹),实际 "${memKey("待确认候选")}"`);
   assert(memKey("空闲整理清单") === "Idle cleanup list", `英文态「空闲整理清单」未翻译,实际 "${memKey("空闲整理清单")}"`);
-  assert(memKey("一键整理") === "Clean up now", `英文态「一键整理」未翻译,实际 "${memKey("一键整理")}"`);
-  assert(memKey("召回评估") === "Recall evaluation", `英文态「召回评估」未翻译,实际 "${memKey("召回评估")}"`);
+  assert(memKey("最近记忆使用") === "Recent memory usage", `英文态记忆使用标题未翻译`);
   assert(memKey("上下文账单") === "Context bill", `英文态「上下文账单」未翻译,实际 "${memKey("上下文账单")}"`);
   assert(memKey("最近轮次") === "Recent rounds", `英文态「最近轮次」未翻译,实际 "${memKey("最近轮次")}"`);
   assert(attrOf("memory-search-input", "placeholder") === "Search all memory (FTS)", `英文态搜索框 placeholder 未翻译(渲染点属性补齐),实际 "${attrOf("memory-search-input", "placeholder")}"`);

@@ -19,7 +19,7 @@ pub use event::*;
 /// D-342:协作式停止的信号类型对外再导出——桌面端(kanzei-app)不用为此单独
 /// 引 tokio-util,与 TaskCancellations 用的是同一个类型。
 pub use tokio_util::sync::CancellationToken;
-mod metrics;
+pub(crate) mod metrics;
 pub use metrics::*;
 mod context;
 mod redundancy;

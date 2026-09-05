@@ -208,7 +208,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // cwd 是那棵树、主根是 .kanzei 托管文档的真源),所以两者必须分别传。
     //
     let (worktree_key, write_key) = cli_identity_keys(&cwd, &project_root);
-    let ctx = ToolCtx::new(cwd, project_root.clone())
+    let mut ctx = ToolCtx::new(cwd, project_root.clone())
         .with_work_priority(kanzei_harness::auto_run::WorkPriority::DefectFirst)
         .with_identity(
             worktree_key,
@@ -276,6 +276,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         "run_{}",
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
     );
+    ctx.run_id = Some(run_id.clone());
     // R-241：CLI 与桌面端共用同一个 typed writer 和投影契约。
     let typed_writer = Arc::new(Mutex::new(kanzei_core::TypedSessionWriter::new(
         &state_path,
@@ -331,7 +332,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // D-185:提示块不再拼进 prompt,改由 run_once 作为本轮 system 一次性注入——
     // 拼进 prompt 会随 User message 进 messages → 落 conversations → 下轮回灌累积。
     // CLI 的 `kz run` 一律是用户显式发起的一轮,prompt 就是真实检索键(非自动轮)。
-    let memory_hints = kanzei_tools::memory::prompt_hints(
+    let memory_hints = kanzei_tools::memory::prompt_hints_for_run(
         &ctx.project_root,
         &prompt,
         false,
@@ -339,6 +340,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         kanzei_tools::embed::embedder_from_config(&config)
             .ok()
             .flatten(),
+        ctx.run_id.as_deref(),
     );
     let run_prompt = prompt.clone();
     let typed_flush_writer = Arc::downgrade(&typed_writer);

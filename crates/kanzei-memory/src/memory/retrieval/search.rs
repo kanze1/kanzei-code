@@ -13,6 +13,17 @@ use crate::memory::store::{now_ms, MemoryStore, SearchCandidate};
 use crate::memory::{MemoryEntry, MemoryScope, Novelty};
 
 impl MemoryStore {
+    pub fn usage_counts(&self) -> BTreeMap<String, kanzei_core::MemoryUsageCounts> {
+        let Some(project_root) = self.project_root.as_deref() else {
+            return BTreeMap::new();
+        };
+        let path = kanzei_core::project_state_path(project_root);
+        let Ok(store) = kanzei_core::SessionStore::open(&path) else {
+            return BTreeMap::new();
+        };
+        store.memory_usage_counts().unwrap_or_default()
+    }
+
     /// FTS 候选集访问(存储侧):bm25 取候选 + status/shadow 过滤,不做任何
     /// 排序/加权决策——ranking 只属于检索门面(SqliteMemoryIndex,D-366)。
     /// 一致性守护保留在热路径:FTS 是派生物,失步自动重建(实证:2026-08-13

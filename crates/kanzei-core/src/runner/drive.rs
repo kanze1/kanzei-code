@@ -200,6 +200,7 @@ pub fn run_once_with_parts<'a>(
             initial_parts,
             subagent,
         );
+        recall = recall.with_run_id(ctx.run_id.clone());
         // D-655:消息历史会在轮中被压缩/裁剪,不能再用 prior.len() 反推本轮。
         // 事件提交前复制本轮消息,作为不受结构性删短影响的统计真源。
         let round_messages = std::sync::Arc::new(std::sync::Mutex::new(

@@ -203,6 +203,10 @@ pub(crate) async fn finish_run(
         }) {
             // R-161:本轮开跑预检索的 recall_events 归因到该 episode,可 join 查询。
             let _ = store.link_recall_events_to_episode(episode_id, state.run_epoch_ms);
+            if let Err(error) = store.record_episode_recoveries(episode_id, &summary.round_messages)
+            {
+                eprintln!("记忆恢复证据写入失败，候选保持未验证: {error}");
+            }
             current_episode_id = Some(episode_id);
         }
         // 给这次输入一个结局:此后任何停止都不再把它追认为 cancelled。

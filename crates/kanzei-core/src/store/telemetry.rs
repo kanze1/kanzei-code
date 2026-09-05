@@ -11,21 +11,22 @@ pub struct FunnelCounts {
     pub retrieved: u64,
     pub injected: u64,
     pub action_changed: u64,
+    pub action_changed_available: bool,
     pub outcome_improved: u64,
     /// 当前无在线写入方；展示层据此显示 N/A 而不是把离线缺口当作 0。
     pub outcome_improved_available: bool,
 }
 
 /// 从 recall_events 直接聚合每类触发的检索/注入覆盖率。
-/// 这是运行时可计算的 operational precision/recall，不混入离线 memory_eval。
+/// 命中率和注入率只描述检索过程，不表示相关性精确率或记忆收益。
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecallMetrics {
     pub trigger_type: String,
     pub events: u64,
     pub retrieved_events: u64,
     pub injected_events: u64,
-    pub precision: f64,
-    pub recall: f64,
+    pub injection_rate: f64,
+    pub hit_rate: f64,
 }
 
 /// recall_events 与 episodes 的可复算关联分母。
@@ -56,12 +57,21 @@ pub struct RecallEvent<'a> {
 
 impl SessionStore {
     pub fn record_recall_event(&self, event: &RecallEvent<'_>) -> Result<(), StoreError> {
+        self.record_recall_event_for_run(event, None)
+    }
+
+    pub fn record_recall_event_for_run(
+        &self,
+        event: &RecallEvent<'_>,
+        run_id: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let run_id = run_id.filter(|id| !id.trim().is_empty());
         self.connection.execute(
             "INSERT INTO recall_events
              (recall_id, episode_id, step_id, trigger_type, trigger_payload, policy_action,
               query, candidate_ids, retrieved_ids, injected_ids, lexical_ms, embed_ms,
-              vector_ms, total_ms, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+              vector_ms, total_ms, created_at, run_id, read_ids)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 event.recall_id,
                 event.episode_id,
@@ -78,6 +88,8 @@ impl SessionStore {
                 event.vector_ms as i64,
                 event.total_ms as i64,
                 now_ms(),
+                run_id,
+                run_id.map(|_| "[]"),
             ],
         )?;
         Ok(())
@@ -147,24 +159,20 @@ impl SessionStore {
         Ok(())
     }
 
-    /// 把本轮时间窗内且尚未关联 episode 的 recall_events 回填到该 episode。
+    /// 把相同 run_id 且尚未关联的 recall_events 回填到该 episode。
     /// 开跑预检索(R-106)发生在 episode 落库之前,写入时没有 episode_id;
-    /// 轮末 append_episode 后用本轮开始时间戳回填,recall_events 才能 join episodes(验收①)。
-    /// 上界使用目标 episode 的落库时间,避免把 episode 创建之后才产生的下一轮事件
-    /// 误归因到上一轮。返回实际回填行数;没有待回填行时静默返回 0。
+    /// 轮末 append_episode 后按运行身份回填；没有身份的历史事件保持未关联。
     pub fn link_recall_events_to_episode(
         &self,
         episode_id: i64,
-        since_ms: i64,
+        _since_ms: i64,
     ) -> Result<usize, StoreError> {
         let n = self.connection.execute(
             "UPDATE recall_events SET episode_id = ?1
              WHERE episode_id IS NULL
-               AND created_at >= ?2
-               AND created_at <= (
-                   SELECT created_at FROM episodes WHERE episode_id = ?1
-               )",
-            params![episode_id, since_ms],
+               AND run_id = (SELECT run_id FROM episodes WHERE episode_id = ?1)
+               AND run_id != ''",
+            params![episode_id],
         )?;
         Ok(n)
     }
@@ -175,14 +183,14 @@ impl SessionStore {
     pub fn funnel_counts(&self, available_active: u64) -> Result<FunnelCounts, StoreError> {
         let retrieved = self.connection.query_row(
             "SELECT COUNT(DISTINCT memory_id) FROM (
-                 SELECT value AS memory_id FROM recall_events, json_each(retrieved_ids)
+                 SELECT value AS memory_id FROM recall_events, json_each(retrieved_ids) WHERE trigger_type != 'user_search'
              )",
             [],
             |row| row.get::<_, i64>(0),
         )?;
         let injected = self.connection.query_row(
             "SELECT COUNT(DISTINCT memory_id) FROM (
-                 SELECT value AS memory_id FROM recall_events, json_each(injected_ids)
+                 SELECT value AS memory_id FROM recall_events, json_each(injected_ids) WHERE trigger_type != 'user_search'
              )",
             [],
             |row| row.get::<_, i64>(0),
@@ -190,17 +198,22 @@ impl SessionStore {
         // arm='action_changed' 与 arm='outcome_improved' 是两条独立证据链：
         // 前者表示行为发生变化，后者必须有单独的结果改善证据，不能由前者推导。
         let action_changed = self.connection.query_row(
-            "SELECT COUNT(DISTINCT memory_id) FROM memory_eval WHERE arm = 'action_changed' AND success = 1",
+            "SELECT COUNT(DISTINCT memory_id) FROM memory_eval WHERE arm = 'action_changed' AND success = 1 AND model != 'online'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let action_evidence = self.connection.query_row(
+            "SELECT COUNT(*) FROM memory_eval WHERE arm = 'action_changed' AND model != 'online'",
             [],
             |row| row.get::<_, i64>(0),
         )?;
         let outcome_evidence = self.connection.query_row(
-            "SELECT COUNT(*) FROM memory_eval WHERE arm = 'outcome_improved'",
+            "SELECT COUNT(*) FROM memory_eval WHERE arm = 'outcome_improved' AND model != 'online'",
             [],
             |row| row.get::<_, i64>(0),
         )?;
         let outcome_improved = self.connection.query_row(
-            "SELECT COUNT(DISTINCT memory_id) FROM memory_eval WHERE arm = 'outcome_improved' AND success = 1",
+            "SELECT COUNT(DISTINCT memory_id) FROM memory_eval WHERE arm = 'outcome_improved' AND success = 1 AND model != 'online'",
             [],
             |row| row.get::<_, i64>(0),
         )?;
@@ -209,13 +222,14 @@ impl SessionStore {
             retrieved: retrieved as u64,
             injected: injected as u64,
             action_changed: action_changed as u64,
+            action_changed_available: action_evidence > 0,
             outcome_improved: outcome_improved as u64,
             outcome_improved_available: outcome_evidence > 0,
         })
     }
 
     /// 直接按 recall_events 聚合每类触发的检索/注入覆盖率。
-    /// precision = injected / retrieved，recall = retrieved / all trigger events；
+    /// injection_rate = injected / retrieved，hit_rate = retrieved / all trigger events；
     /// miss 作为 retrieved=0 的分母保留，因而可从落库事实复算。
     pub fn recall_metrics(&self) -> Result<Vec<RecallMetrics>, StoreError> {
         let mut statement = self.connection.prepare(
@@ -235,12 +249,12 @@ impl SessionStore {
                 events,
                 retrieved_events: retrieved,
                 injected_events: injected,
-                precision: if retrieved == 0 {
+                injection_rate: if retrieved == 0 {
                     0.0
                 } else {
                     injected as f64 / retrieved as f64
                 },
-                recall: if events == 0 {
+                hit_rate: if events == 0 {
                     0.0
                 } else {
                     retrieved as f64 / events as f64
@@ -341,6 +355,21 @@ impl SessionStore {
 mod tests {
     use super::*;
     use crate::store::testutil::store;
+
+    #[test]
+    fn legacy_online_proxies_do_not_prove_adoption_or_benefit() {
+        let store = store();
+        for arm in ["action_changed", "outcome_improved"] {
+            store
+                .record_memory_eval(
+                    "M-1", "old-case", arm, "online", "v1", true, 0, 0, 0, 0, None,
+                )
+                .unwrap();
+        }
+        let funnel = store.funnel_counts(1).unwrap();
+        assert_eq!((funnel.action_changed, funnel.outcome_improved), (0, 0));
+        assert!(!funnel.action_changed_available && !funnel.outcome_improved_available);
+    }
 
     #[test]
     fn recall_link_stats_保留悬空事件作为分母() {
@@ -530,6 +559,7 @@ mod tests {
                 retrieved: 1,
                 injected: 1,
                 action_changed: 1,
+                action_changed_available: true,
                 outcome_improved: 1,
                 outcome_improved_available: true,
             }
@@ -608,8 +638,8 @@ mod tests {
         assert_eq!(metric.events, 2);
         assert_eq!(metric.retrieved_events, 1);
         assert_eq!(metric.injected_events, 1);
-        assert_eq!(metric.precision, 1.0);
-        assert_eq!(metric.recall, 0.5);
+        assert_eq!(metric.injection_rate, 1.0);
+        assert_eq!(metric.hit_rate, 0.5);
     }
 
     #[test]
@@ -619,22 +649,25 @@ mod tests {
         let store = store();
         // 开跑预检索先落一条 recall_event(episode 尚未创建,episode_id=NULL)。
         store
-            .record_recall_event(&RecallEvent {
-                recall_id: "memory-search-pre-run",
-                episode_id: None,
-                step_id: None,
-                trigger_type: "memory_search",
-                trigger_payload: "{}",
-                policy_action: "lexical",
-                query: "cargo test",
-                candidate_ids: "[\"M-1\"]",
-                retrieved_ids: "[\"M-1\"]",
-                injected_ids: "[\"M-1\"]",
-                lexical_ms: 1,
-                embed_ms: 0,
-                vector_ms: 0,
-                total_ms: 1,
-            })
+            .record_recall_event_for_run(
+                &RecallEvent {
+                    recall_id: "memory-search-pre-run",
+                    episode_id: None,
+                    step_id: None,
+                    trigger_type: "memory_search",
+                    trigger_payload: "{}",
+                    policy_action: "lexical",
+                    query: "cargo test",
+                    candidate_ids: "[\"M-1\"]",
+                    retrieved_ids: "[\"M-1\"]",
+                    injected_ids: "[\"M-1\"]",
+                    lexical_ms: 1,
+                    embed_ms: 0,
+                    vector_ms: 0,
+                    total_ms: 1,
+                },
+                Some("r"),
+            )
             .unwrap();
         // 轮末 append_episode,回填时间窗设为"本轮开始"(0 = 早于一切)。
         let episode = store

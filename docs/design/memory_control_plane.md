@@ -6,6 +6,8 @@
 - 决策: A-011(向量检索翻案)
 - 前置文档: [memory_system.md](memory_system.md)(存储形态基线,继续有效)、[memory_decision_sufficiency.md](memory_decision_sufficiency.md)(判据层,本文是其执行架构)
 
+2026-09-06 口径更新：当前工作树已实现召回/注入/读取分离、按 run_id 关联、恢复证据晋升及历史在线代理指标排除。正文中的旧采纳率排序、零采纳降级与在线收益解释由 [memory_feedback_reliability.md](memory_feedback_reliability.md) 的事实契约替代；真实收益对照与任务上下文改造仍待推进。
+
 ## 0. 定调(2026-08-10 用户拍板,后续不再重议)
 
 1. **Memory 是控制系统,不是 RAG 模块**。优化对象是 Terminal Decision Quality(预算约束下),Recall@K 降级为中间诊断指标。一切设计问「这条记忆缺失/压缩/过期会造成多少决策损失」,不问「记得多像」。

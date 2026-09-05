@@ -376,6 +376,7 @@ mod tests {
             .map(|(p, e)| (e.id, p))
             .unwrap();
         let eid = crate::memory::seed_episode(&root, "ses");
+        crate::memory::seed_entry_recovery(&store, eid, &cand_id);
         store
             .promote(&cand_id, &[(eid, Some(0), Some(5))], Some("replay-test"))
             .unwrap();

@@ -111,6 +111,8 @@ impl Tool for MemorySearchTool {
             !all_hits.is_empty(),
             "lexical",
             &crate::memory::index::RetrievalTiming::default(),
+            ctx.run_id.as_deref(),
+            "memory_search",
         );
         if all_hits.is_empty() {
             return ToolOutput::ok(format!(
@@ -346,18 +348,26 @@ impl Tool for MemoryStatsTool {
             for (category, (active, stale)) in &by_category {
                 out.push_str(&format!(" · {category} {active}a/{stale}s"));
             }
-            // R-149 决策价值观测:召回→采纳转化是「记忆是否真进了决策」的机械口径。
-            let profile = store.recall_profile();
+            // 可观察的使用事实单独呈现，采用与收益保留独立证据口径。
+            let profile = store.usage_counts();
             if !profile.is_empty() {
-                let recalled: u64 = profile.values().map(|(r, _)| r).sum();
-                let fetched: u64 = profile.values().map(|(_, f)| f).sum();
-                out.push_str(&format!(" · 召回 {recalled}/采纳 {fetched}"));
+                let recalled: u64 = profile.values().map(|usage| usage.recalled).sum();
+                let injected: u64 = profile.values().map(|usage| usage.injected).sum();
+                let read: u64 = profile.values().map(|usage| usage.read).sum();
+                out.push_str(&format!(
+                    " · 召回 {recalled}/注入 {injected}/正文读取 {read}（采用与收益需独立证据）"
+                ));
             }
             // R-161 五段漏斗(与 episodes 同库,CLI/桌面端同源写入):A→R→I→U→Y。
             // 只在项目 scope 报一次,避免跨 store 重复计数(global store 命中也会
             // 记进项目 state.db 的 recall_events)。
             if store.scope.label() == "project" {
                 if let Some(funnel) = project_funnel_counts(ctx) {
+                    let action = if funnel.action_changed_available {
+                        funnel.action_changed.to_string()
+                    } else {
+                        "N/A".into()
+                    };
                     let outcome = if funnel.outcome_improved_available {
                         funnel.outcome_improved.to_string()
                     } else {
@@ -368,7 +378,7 @@ impl Tool for MemoryStatsTool {
                         funnel.available,
                         funnel.retrieved,
                         funnel.injected,
-                        funnel.action_changed,
+                        action,
                         outcome
                     ));
                     if let Ok(db) = kanzei_core::SessionStore::open(
@@ -377,9 +387,9 @@ impl Tool for MemoryStatsTool {
                         if let Ok(metrics) = db.recall_metrics() {
                             for metric in metrics {
                                 out.push_str(&format!(
-                                    "\n  触发 {}: events={} retrieved={} injected={} precision={:.2} recall={:.2}",
+                                    "\n  触发 {}: events={} retrieved={} injected={} injection_rate={:.2} hit_rate={:.2}",
                                     metric.trigger_type, metric.events, metric.retrieved_events,
-                                    metric.injected_events, metric.precision, metric.recall
+                                    metric.injected_events, metric.injection_rate, metric.hit_rate
                                 ));
                             }
                         }
@@ -413,8 +423,8 @@ impl Tool for MemoryStatsTool {
             // 零采纳候选:召回≥3 从未拉正文 = 语义显著但决策无关的头号嫌疑,
             // 供空闲整理与 UI 消费;这里只报不删(淘汰决定留给人,墓碑可逆)。
             let mut flagged = 0usize;
-            for (id, (recalled, fetched)) in &profile {
-                if *recalled < 3 || *fetched > 0 || flagged >= 3 {
+            for (id, usage) in &profile {
+                if usage.read_observed < 3 || usage.read > 0 || flagged >= 3 {
                     continue;
                 }
                 if let Some((_, e)) = entries
@@ -422,8 +432,8 @@ impl Tool for MemoryStatsTool {
                     .find(|(_, e)| &e.id == id && e.status == "active")
                 {
                     out.push_str(&format!(
-                        "\n  ⚠ 零采纳候选 {}《{}》召回 {} 次未被采纳",
-                        id, e.title, recalled
+                        "\n  待检查 {}《{}》已观测 {} 次注入，未记录正文读取；这不代表无价值",
+                        id, e.title, usage.read_observed
                     ));
                     flagged += 1;
                 }
@@ -571,6 +581,8 @@ mod tests {
                 false,
                 "lexical",
                 &crate::memory::index::RetrievalTiming::default(),
+                Some("stats-run"),
+                "memory_search",
             );
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
@@ -585,30 +597,28 @@ mod tests {
             true,
             "lexical",
             &crate::memory::index::RetrievalTiming::default(),
+            Some("stats-run"),
+            "memory_search",
         );
         let stats = MemoryStatsTool.execute(json!({}), &ctx).await;
         assert!(!stats.is_error);
-        assert!(stats.content.contains("召回 4/采纳 1"), "{}", stats.content);
         assert!(
-            stats.content.contains("零采纳候选 M-001"),
+            stats.content.contains("召回 4/注入 1/正文读取 0"),
             "{}",
             stats.content
         );
-        assert!(
-            stats.content.contains("召回 3 次未被采纳"),
-            "{}",
-            stats.content
-        );
+        assert!(!stats.content.contains("待检查 M-001"), "{}", stats.content);
+        assert!(!stats.content.contains("未被采纳"), "{}", stats.content);
         // AVAILABLE 段按记忆库文件真源统计(本测试恰有 1 条 active)——旧口径数
         // 恒空的 memory_sources,首段永远 0,漏斗两端全是死数据。
         assert!(
-            stats.content.contains("漏斗 A→R→I→U→Y: 1/2/1/0/N/A"),
+            stats.content.contains("漏斗 A→R→I→U→Y: 1/2/1/N/A/N/A"),
             "{}",
             stats.content
         );
         assert!(
             stats.content.contains(
-                "触发 memory_search: events=4 retrieved=4 injected=1 precision=0.25 recall=1.00"
+                "触发 memory_search: events=4 retrieved=4 injected=1 injection_rate=0.25 hit_rate=1.00"
             ),
             "{}",
             stats.content

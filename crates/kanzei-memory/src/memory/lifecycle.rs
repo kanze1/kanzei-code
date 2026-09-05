@@ -18,7 +18,7 @@ use super::{today, MemoryEntry, MemoryScope, MemoryStore};
 pub(crate) struct MemoryLifecycle;
 
 /// 失败指纹的持久化晋升门槛：第 2 次复发才允许 manager 生成 candidate，
-/// 第 3 次复发且有真实 episode provenance 才允许进入 active。
+/// 第 3 次复发且对应 episode 有匹配工具恢复证据才允许进入 active。
 pub(crate) const CANDIDATE_RECURRENCE_MIN: u32 = 2;
 pub(crate) const ACTIVE_RECURRENCE_MIN: u32 = 3;
 
@@ -71,6 +71,15 @@ impl MemoryLifecycle {
                         "cannot promote `{id}`: episode_id {episode_id} does not exist in \
                          state.db episodes — provenance requires real episodes, not fabricated ids"
                     );
+                }
+            }
+            if let Some(fingerprint) = entry.fingerprint() {
+                let mut recovered = false;
+                for (episode_id, _, _) in sources {
+                    recovered |= store.has_memory_recovery(*episode_id, &fingerprint)?;
+                }
+                if !recovered {
+                    anyhow::bail!("cannot promote `{id}`: no matching tool recovery in source episodes; repeated failure or reading a file does not verify the repair");
                 }
             }
         }

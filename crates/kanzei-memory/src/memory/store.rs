@@ -3321,7 +3321,7 @@ mod tests {
     }
 
     #[test]
-    fn 零采纳条目在检索里沉底_高采纳浮上() {
+    fn 注入次数不同不能改变相关性排序() {
         let (dir, store) = temp_store();
         // 两条在 bm25 上等价的条目(标题仅一字之差,description/body 同构)。
         add(
@@ -3351,13 +3351,15 @@ mod tests {
         let profile = store.recall_profile();
         assert_eq!(profile.get(&a), Some(&(3, 0)), "{profile:?}");
         assert_eq!(profile.get(&b), Some(&(3, 3)), "{profile:?}");
-        // 乙(×1.3)必须压过甲(×0.6),无论 bm25 平局时的原始顺序。
         let ranked = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
         assert_eq!(
-            ranked[0].entry.id,
-            b,
-            "{:?}",
-            ranked.iter().map(|h| &h.entry.id).collect::<Vec<_>>()
+            ranked
+                .iter()
+                .map(|hit| (&hit.entry.id, hit.score))
+                .collect::<Vec<_>>(),
+            hits.iter()
+                .map(|hit| (&hit.entry.id, hit.score))
+                .collect::<Vec<_>>()
         );
         std::fs::remove_dir_all(dir).ok();
     }
@@ -3429,7 +3431,7 @@ mod tests {
     }
 
     #[test]
-    fn preference_豁免采纳率降权() {
+    fn 无读取证据不能降低任何分类的相关性分数() {
         // preference 正文全文常驻,永远不需要拉正文——采纳率对它结构性无意义,
         // 同样的「召回 3 采纳 0」不得让定调条目在检索里被降权。
         let (dir, store) = temp_store();
@@ -3455,23 +3457,14 @@ mod tests {
             record_current_recall(&store, &hits, &[]);
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        // 两条同为召回 3/采纳 0:fact 吃 ×0.6,preference 保持 ×1.0 → 严格高分在前。
         let ranked = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
         assert_eq!(
-            ranked[0].entry.category,
-            "preference",
-            "{:?}",
             ranked
                 .iter()
-                .map(|h| (&h.entry.id, h.score))
-                .collect::<Vec<_>>()
-        );
-        assert!(
-            ranked[0].score > ranked[1].score,
-            "豁免缺失时两条同权重打平,必须是严格大于: {:?}",
-            ranked
-                .iter()
-                .map(|h| (&h.entry.id, h.score))
+                .map(|hit| (&hit.entry.id, hit.score))
+                .collect::<Vec<_>>(),
+            hits.iter()
+                .map(|hit| (&hit.entry.id, hit.score))
                 .collect::<Vec<_>>()
         );
         std::fs::remove_dir_all(dir).ok();
@@ -3589,13 +3582,23 @@ mod tests {
         // 手写文件进 FTS,让索引计数与文件计数一致(存量 before 可审计)。
         store.refresh_derived().unwrap();
         let eid = crate::memory::seed_episode(&dir, "ses");
+        assert!(
+            store
+                .promote(&promotable.id, &[(eid, None, None)], None)
+                .is_err(),
+            "仅复发和 episode 不得晋升"
+        );
+        let unverified = store.reconcile_candidates(Some(eid), 365).unwrap();
+        assert!(unverified.promoted.is_empty());
+        assert!(unverified.untouched.contains(&promotable.id));
+        crate::memory::seed_entry_recovery(&store, eid, &promotable.id);
         let report = store.reconcile_candidates(Some(eid), 14).unwrap();
         let promotable_id = promotable.id.clone();
         let keep_id = keep.id.clone();
         assert_eq!(
             report.promoted,
             vec![promotable_id.clone()],
-            "复发≥3 + 真实 episode 应自动晋升"
+            "复发≥3 + 对应恢复证据应自动晋升"
         );
         assert_eq!(report.deprecated, vec!["M-990"], "超期未处置应自动清退");
         assert_eq!(

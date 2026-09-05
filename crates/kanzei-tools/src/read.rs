@@ -103,9 +103,8 @@ async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         tokio::task::spawn_blocking(move || read_any(&path_for_read, &input, &project_root)).await;
     match result {
         Ok(Ok(ReadPayload::Text(text))) => {
-            // R-161 采纳盲区:read 读记忆文件正文 = 这次召回起了作用,
-            // 回填 fetched(与 memory_search 回填同口径,CLI/桌面同源)。
-            crate::memory::mark_memory_file_read(&ctx.project_root, &path);
+            // 成功返回记忆文件文本后记录同一运行内读取，不推断采用或收益。
+            crate::memory::mark_memory_file_read(&ctx.project_root, &path, ctx.run_id.as_deref());
             ToolOutput::ok(text)
         }
         Ok(Ok(ReadPayload::Image {
@@ -448,15 +447,14 @@ mod tests {
             ToolCtx {
                 cwd: dir.clone(),
                 project_root: dir.clone(),
+                run_id: Some("read-run".into()),
                 ..Default::default()
             },
         )
     }
 
     #[tokio::test]
-    async fn read_memory_file_backfills_recall_fetched() {
-        // R-161 验收②:read 工具读 .kanzei/memory/ 下的记忆文件正文 = 这次召回
-        // 被采纳,必须回填 fetched(此前只有 memory_search 回填,read 是盲区)。
+    async fn read_memory_file_records_current_run_without_rewriting_legacy() {
         let (dir, ctx) = temp_project();
         let store = crate::memory::MemoryStore::project(&dir);
         let entry = match store
@@ -484,19 +482,23 @@ mod tests {
             5,
         );
         assert!(!hits.is_empty());
-        // 制造一次召回:此时 fetched=0(召回≠采纳)。
-        let recall_id = store.record_recall("这轮要发版", &hits, 128);
-        let rounds = store.recalls(10);
-        assert!(
-            !rounds[0]
-                .hits
-                .iter()
-                .find(|h| h.id == entry.id)
-                .unwrap()
-                .fetched
+        store.record_recall("历史轮次", &hits, 128);
+        crate::memory::record_memory_search_telemetry(
+            &dir,
+            "发版",
+            &hits,
+            true,
+            "lexical",
+            &crate::memory::RetrievalTiming::default(),
+            ctx.run_id.as_deref(),
+            "memory_search",
         );
-
-        // 通过 ReadTool 读该记忆文件 → 回填 fetched。
+        assert_eq!(store.usage_counts()[&entry.id].read, 0);
+        let failed = ReadTool
+            .execute(json!({"path": ".kanzei/memory/M-001-missing.md"}), &ctx)
+            .await;
+        assert!(failed.is_error);
+        assert_eq!(store.usage_counts()[&entry.id].read, 0, "失败读取不得回填");
         let path = store
             .load_all()
             .into_iter()
@@ -509,17 +511,11 @@ mod tests {
         assert!(!out.is_error, "{}", out.content);
         assert!(out.content.contains("package.ps1"), "{}", out.content);
 
-        // 回填只作用于最近一次召回的同一条目。
-        let after = store.recalls(10);
-        let hit = after
-            .iter()
-            .find(|r| r.recall_id == recall_id)
-            .unwrap()
-            .hits
-            .iter()
-            .find(|h| h.id == entry.id)
-            .unwrap();
-        assert!(hit.fetched, "read 记忆文件后未回填采纳");
+        assert_eq!(store.usage_counts()[&entry.id].read, 1);
+        assert!(
+            !store.recalls(10)[0].hits[0].fetched,
+            "历史旧表不得被追认为读取"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

@@ -27,18 +27,6 @@ use super::store::SearchHit;
 use super::{FingerprintIndex, MemoryEntry, MemoryStore};
 use crate::embed::Embedder;
 
-/// 决策权重(R-149):召回≥3 的条目按采纳率温和降权/提权(×0.6~×1.3)。
-/// 下限 0.6 不清零:prompt_hints 只注入索引行,「看行即用不拉正文」会被记为未采纳,
-/// 样本天然有偏——只降权不淘汰,淘汰决定留给人与整理流程。参数为初始值,待实证复核。
-/// D-366:排序决策只属于检索侧,定义与调用都在本模块(store 不再持有 ranking)。
-pub fn decision_weight(recalled: u64, fetched: u64) -> f64 {
-    if recalled < 3 {
-        return 1.0;
-    }
-    let rate = fetched.min(recalled) as f64 / recalled as f64;
-    0.6 + 0.7 * rate
-}
-
 /// 一次检索请求:文本与指纹触发二选一(可同时携带)。
 #[derive(Debug, Clone, Default)]
 pub struct IndexQuery {
@@ -246,7 +234,6 @@ impl SqliteMemoryIndex {
         let Ok(cands) = store.search_candidates(query, category, status) else {
             return Vec::new();
         };
-        let recall_stats = store.recall_profile();
         let mut out: Vec<SearchHit> = Vec::new();
         for c in cands {
             // bm25 越小越相关(fts5 返回负值);取负得正相关度。
@@ -257,11 +244,7 @@ impl SqliteMemoryIndex {
             // R-149:反复被召回却从不被采纳的条目 = 语义显著但决策无关,温和沉底。
             // preference 豁免:其正文全文常驻(STANDING DIRECTIVES),模型永远不需要
             // 再拉正文,采纳率结构性偏低、无意义(实证:M-002 召回 22 采纳 4)。
-            if c.entry.category != "preference" {
-                if let Some(&(recalled, fetched)) = recall_stats.get(&c.entry.id) {
-                    score *= decision_weight(recalled, fetched);
-                }
-            }
+            // 注入与读取是观测事实，不能作为采用率给相关性排序加权。
             if c.entry.status != "active" {
                 score *= 0.5;
             }
@@ -1491,19 +1474,6 @@ mod tests {
             assert_eq!(got, want, "query {q:?} top{k} 命中集合与改动前快照漂移");
         }
         std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn decision_weight_边界与单调性() {
-        // 样本不足(召回<3)不动分。
-        assert_eq!(decision_weight(0, 0), 1.0);
-        assert_eq!(decision_weight(2, 0), 1.0);
-        // 零采纳沉到下限 0.6,全采纳升到 1.3,中间线性。
-        assert!((decision_weight(3, 0) - 0.6).abs() < 1e-9);
-        assert!((decision_weight(4, 4) - 1.3).abs() < 1e-9);
-        assert!((decision_weight(10, 5) - 0.95).abs() < 1e-9);
-        // 脏数据防御:fetched > recalled 按全采纳截断。
-        assert!((decision_weight(3, 9) - 1.3).abs() < 1e-9);
     }
 
     #[test]

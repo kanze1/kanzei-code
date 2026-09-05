@@ -183,6 +183,28 @@ pub(crate) fn registry_json() -> serde_json::Value {
         .collect::<Vec<_>>())
 }
 
+pub(crate) fn definition(key: &str) -> Option<&'static FieldDefinition> {
+    FIELD_REGISTRY
+        .iter()
+        .find(|definition| definition.key == key || definition.key.eq_ignore_ascii_case(key))
+}
+
+pub(crate) fn metadata(key: &str) -> serde_json::Value {
+    match definition(key) {
+        Some(definition) => serde_json::json!({
+            "category": definition.category.as_str(),
+            "has_consumer": definition.has_consumer,
+            "known": true,
+        }),
+        None => serde_json::json!({
+            "category": "unknown",
+            "has_consumer": false,
+            "known": false,
+            "presentation": "gray",
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,27 +250,5 @@ mod tests {
             .unwrap()
             .iter()
             .any(|item| { item["key"] == "observed_head" && item["category"] == "engine" }));
-    }
-}
-
-pub(crate) fn definition(key: &str) -> Option<&'static FieldDefinition> {
-    FIELD_REGISTRY
-        .iter()
-        .find(|definition| definition.key == key || definition.key.eq_ignore_ascii_case(key))
-}
-
-pub(crate) fn metadata(key: &str) -> serde_json::Value {
-    match definition(key) {
-        Some(definition) => serde_json::json!({
-            "category": definition.category.as_str(),
-            "has_consumer": definition.has_consumer,
-            "known": true,
-        }),
-        None => serde_json::json!({
-            "category": "unknown",
-            "has_consumer": false,
-            "known": false,
-            "presentation": "gray",
-        }),
     }
 }

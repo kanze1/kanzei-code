@@ -760,6 +760,7 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
         retrieved: &[kanzei_core::RecallHit],
         injected: &[kanzei_core::RecallHit],
         elapsed_ms: u64,
+        run_id: Option<&str>,
     ) {
         // policy_action 由 Retriever 随命中结果携带；miss 没有命中层级时记 miss。
         let policy_action = retrieved
@@ -809,13 +810,11 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
             vector_ms: 0,
             total_ms: elapsed_ms,
         };
-        let _ = store.record_recall_event(&event);
+        let _ = store.record_recall_event_for_run(&event, run_id);
     }
 
     fn record_outcomes(&self, outcomes: &[kanzei_core::RecallOutcome]) {
-        // ACTION_CHANGED 机械口径落 memory_eval(与漏斗 funnel_counts 的查询臂名
-        // 对齐):注入后同 (tool,kind) 到轮末未再失败 = success。此前该漏斗段
-        // 没有任何生产写入方,恒为 0。
+        // 仅保存同类失败是否在余下轮次再次出现，不能当成行为改变。
         if outcomes.is_empty() {
             return;
         }
@@ -828,10 +827,10 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
             let _ = store.record_memory_eval(
                 &outcome.memory_id,
                 &case,
-                "action_changed",
+                "failure_not_repeated",
                 "online",
-                "v1",
-                outcome.changed,
+                "observation-v2",
+                outcome.failure_not_repeated,
                 0,
                 0,
                 0,
@@ -846,8 +845,7 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
         outcomes: &[kanzei_core::RecallOutcome],
         run_outcome: kanzei_core::RecallRunOutcome,
     ) {
-        // ACTION_CHANGED 与 OUTCOME_IMPROVED 分开落行：前者来自同类失败是否复发，
-        // 后者还要求本轮有真实 completed 结局，不能把行为改变直接冒充最终结果改善。
+        // 运行结束与失败未复发是独立原始事实，均不能单独证明任务收益。
         self.record_outcomes(outcomes);
         if outcomes.is_empty() || run_outcome != kanzei_core::RecallRunOutcome::Completed {
             return;
@@ -861,10 +859,10 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
             let _ = store.record_memory_eval(
                 &outcome.memory_id,
                 &case,
-                "outcome_improved",
+                "run_ended_without_repeated_failure",
                 "online",
-                "v1",
-                outcome.changed,
+                "observation-v2",
+                outcome.failure_not_repeated,
                 0,
                 0,
                 0,
@@ -1104,7 +1102,7 @@ pub fn harvest_end_of_run(
 }
 
 /// candidate 自动处置的默认时限(R-195/D-341):超过 N 个日历日仍未满足
-/// 晋升条件(复发≥3 + 真实当轮 episode)的 candidate 自动 deprecated 归档。
+/// 晋升条件(复发≥3 + 真实当轮恢复证据)的 candidate 自动 deprecated 归档。
 /// 取 14 天:给「复发计数随轮次增长」留足观察窗口,又不让存量无限堆积。
 pub const CANDIDATE_MAX_AGE_DAYS: i64 = 14;
 /// candidate 健康水位(R-295)：与生产检索 top-24 窗口同量级，
@@ -1167,7 +1165,7 @@ fn reconcile_global_candidates(max_age_days: i64) -> anyhow::Result<CandidateRec
 /// 自主调用 memory_promote/memory_stale。
 ///
 /// 判定规则与 `MemoryStore::reconcile_candidates` 一致:
-/// - 有真实当轮 episode、复发计数≥3 且带 fingerprint → promote(active);
+/// - 真实当轮存在相同指纹的工具恢复、复发计数≥3 → promote(active);
 /// - 没有晋升条件且超过 `max_age_days` 个日历日未处置 → deprecated 并归档;
 /// - candidate 超过 `CANDIDATE_MAX_COUNT` → 按低价值优先 deprecated 并归档;
 /// - 其余保持 candidate(不改变「未验证不注入」边界)。
@@ -1205,6 +1203,16 @@ pub fn prompt_hints(
     autonomous: bool,
     embedder: Option<std::sync::Arc<dyn Embedder>>,
 ) -> Option<String> {
+    prompt_hints_for_run(project_root, prompt, autonomous, embedder, None)
+}
+
+pub fn prompt_hints_for_run(
+    project_root: &std::path::Path,
+    prompt: &str,
+    autonomous: bool,
+    embedder: Option<std::sync::Arc<dyn Embedder>>,
+    run_id: Option<&str>,
+) -> Option<String> {
     let query = if autonomous {
         let titles = crate::scheduling::workable_titles(project_root, 2);
         if titles.is_empty() {
@@ -1214,7 +1222,13 @@ pub fn prompt_hints(
     } else {
         prompt.to_string()
     };
-    prompt_hints_with_budget(project_root, &query, MEMORY_CONTEXT_BUDGET, embedder)
+    prompt_hints_scoped(
+        project_root,
+        &query,
+        MEMORY_CONTEXT_BUDGET,
+        embedder,
+        run_id,
+    )
 }
 
 /// 把一次实际记忆检索写入 state.db。CLI 的开跑预检索、memory_search 工具和
@@ -1224,6 +1238,7 @@ pub fn prompt_hints(
 /// 跑 hybrid 时 `"hybrid"`(R-233 ④:召回遥测要能区分通道,否则看不出语义
 /// 通道是否改善了采纳率);hits 为空时 policy_action 统一记 `"miss"`。
 /// `timing` 为各段耗时(lexical/embed/vector),纯 lexical 路径传默认值。
+#[allow(clippy::too_many_arguments)]
 pub fn record_memory_search_telemetry(
     project_root: &std::path::Path,
     query: &str,
@@ -1231,6 +1246,8 @@ pub fn record_memory_search_telemetry(
     injected: bool,
     channel: &str,
     timing: &index::RetrievalTiming,
+    run_id: Option<&str>,
+    trigger_type: &str,
 ) {
     let path = project_root.join(".kanzei").join("state.db");
     let Ok(store) = kanzei_core::SessionStore::open(&path) else {
@@ -1248,7 +1265,7 @@ pub fn record_memory_search_telemetry(
         recall_id: &format!("memory-search-{now}"),
         episode_id: None,
         step_id: None,
-        trigger_type: "memory_search",
+        trigger_type,
         trigger_payload: "{}",
         // miss 也留痕(R-161):零命中的检索是"查了什么却什么都想不起来"的
         // 直接证据,缺了它就永远看不见记忆缺口。
@@ -1262,11 +1279,16 @@ pub fn record_memory_search_telemetry(
         vector_ms: timing.vector_ms,
         total_ms: timing.total(),
     };
-    let _ = store.record_recall_event(&event);
+    let _ = store.record_recall_event_for_run(&event, run_id);
 }
 
-/// 在真正读取记忆文件后回填旧 index.db 的 fetched 事实。搜索结果本身不算采纳。
-pub fn mark_memory_file_read(project_root: &std::path::Path, path: &std::path::Path) {
+/// 在真正读取记忆文件后记录同一运行内的正文读取，不推断采用或收益。
+pub fn mark_memory_file_read(
+    project_root: &std::path::Path,
+    path: &std::path::Path,
+    run_id: Option<&str>,
+) {
+    let Some(run_id) = run_id else { return };
     // 快速路径:不在任一记忆库根目录下的文件直接返回,避免对任意 read
     // 触发 MemoryStore 构造(legacy 迁移/建库)这类副作用。
     // 注意:read 工具落点经 normalize_resource 折叠过大小写,这里必须做
@@ -1297,7 +1319,12 @@ pub fn mark_memory_file_read(project_root: &std::path::Path, path: &std::path::P
         if !starts_with_ci(path, &store.root) {
             continue;
         }
-        store.mark_recall_fetched(&memory_id);
+        let state_path = kanzei_core::project_state_path(project_root);
+        if let Ok(state) = kanzei_core::SessionStore::open(&state_path) {
+            if let Err(error) = state.record_memory_read(run_id, &memory_id) {
+                tracing::warn!(%error, %memory_id, "记忆正文读取观测写入失败");
+            }
+        }
     }
 }
 
@@ -1306,15 +1333,26 @@ pub fn mark_memory_file_read(project_root: &std::path::Path, path: &std::path::P
 fn starts_with_ci(path: &std::path::Path, root: &std::path::Path) -> bool {
     let p = path.to_string_lossy().replace('\\', "/").to_lowercase();
     let r = root.to_string_lossy().replace('\\', "/").to_lowercase();
-    p.starts_with(&r)
+    p == r || p.starts_with(&format!("{}/", r.trim_end_matches('/')))
 }
 
 /// budget 与常驻注入同源,决定「哪些条目已在 memory-index 里」的判定口径。
+#[cfg(test)]
 fn prompt_hints_with_budget(
     project_root: &std::path::Path,
     prompt: &str,
     budget: usize,
     embedder: Option<std::sync::Arc<dyn Embedder>>,
+) -> Option<String> {
+    prompt_hints_scoped(project_root, prompt, budget, embedder, None)
+}
+
+fn prompt_hints_scoped(
+    project_root: &std::path::Path,
+    prompt: &str,
+    budget: usize,
+    embedder: Option<std::sync::Arc<dyn Embedder>>,
+    run_id: Option<&str>,
 ) -> Option<String> {
     // R-233 ④:遥测记真实通道——接了 embedder 就是 hybrid(即使 dense 内部
     // 降级,embed/vector 耗时也如实落库),没接就是 lexical。
@@ -1334,6 +1372,8 @@ fn prompt_hints_with_budget(
             false,
             channel,
             &index::RetrievalTiming::default(),
+            run_id,
+            "memory_search",
         );
         return None;
     }
@@ -1348,7 +1388,16 @@ fn prompt_hints_with_budget(
     hits.retain(|h| h.entry.category != "preference");
     if hits.is_empty() {
         // miss 也落遥测(R-161):开跑预检索零命中是记忆缺口的第一手证据。
-        record_memory_search_telemetry(project_root, prompt, &[], false, channel, &timing);
+        record_memory_search_telemetry(
+            project_root,
+            prompt,
+            &[],
+            false,
+            channel,
+            &timing,
+            run_id,
+            "memory_search",
+        );
         return None;
     }
     hits.sort_by(|a, b| {
@@ -1357,30 +1406,7 @@ fn prompt_hints_with_budget(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     hits.truncate(3);
-    // 连续轮次同 query 同命中集不重复注入:自主轮拿固定的取活标题做检索键,
-    // 每轮塞同一批索引行(实证:单条目连续注入 138 次仅 25 次采纳,后段归零)。
-    // continue 链共享消息历史,上一轮的 hints 还在上下文里,重复注入是纯噪声,
-    // 还把召回遥测刷成"高召回零采纳"的假象。query 或命中集任一变化照常注入。
-    {
-        let mut current_ids: Vec<String> = hits.iter().map(|h| h.entry.id.clone()).collect();
-        current_ids.sort_unstable();
-        let state_path = project_root.join(".kanzei").join("state.db");
-        if let Ok(state) = kanzei_core::SessionStore::open(&state_path) {
-            if let Ok(Some((last_at, last_query, mut last_ids))) = state.latest_memory_search() {
-                last_ids.sort_unstable();
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0);
-                if last_query == prompt
-                    && last_ids == current_ids
-                    && now.saturating_sub(last_at) < 30 * 60 * 1000
-                {
-                    return None;
-                }
-            }
-        }
-    }
+    // hints 不持久化到消息历史，每轮独立组装；跨运行去重会造成下一轮缺失。
     // D-216:已在常驻索引里的条目只给指向不重复整行(重复的大头是 description);
     // 被预算折叠掉的条目才值得在这里给全行。
     let (_, resident_ids, _) = resident_index(project_root, budget);
@@ -1403,7 +1429,16 @@ fn prompt_hints_with_budget(
     );
     // R-125 的 legacy memory_recalls 已停写，保留 recalls()/mark_recall_fetched()
     // 供历史 index.db 留读与 ReadTool 回填；当前真源是 state.db recall_events。
-    record_memory_search_telemetry(project_root, prompt, &hits, true, channel, &timing);
+    record_memory_search_telemetry(
+        project_root,
+        prompt,
+        &hits,
+        true,
+        channel,
+        &timing,
+        run_id,
+        "memory_search",
+    );
     Some(block)
 }
 
@@ -1478,6 +1513,48 @@ pub(crate) fn seed_episode(project_root: &std::path::Path, session_id: &str) -> 
             overflow_json: "[]",
         })
         .unwrap()
+}
+
+#[cfg(test)]
+pub(crate) fn seed_entry_recovery(store: &MemoryStore, episode_id: i64, memory_id: &str) {
+    use kanzei_llm::{Message, Part};
+    let entry = store
+        .load_all()
+        .into_iter()
+        .find(|(_, entry)| entry.id == memory_id)
+        .unwrap()
+        .1;
+    let Some(fingerprint) = entry.fingerprint() else {
+        return;
+    };
+    let (tool, kind) = fingerprint
+        .trim_start_matches("[fp:")
+        .trim_end_matches(']')
+        .split_once('|')
+        .unwrap();
+    let mut messages = Vec::new();
+    for (id, is_error) in [("failure", true), ("recovered", false)] {
+        messages.push(Message::assistant(vec![Part::ToolCall {
+            id: id.into(),
+            name: tool.into(),
+            input: if tool == "bash" {
+                serde_json::json!({"command": "cargo test recovery-fixture"})
+            } else {
+                serde_json::json!({"path": "fixture.rs"})
+            },
+        }]));
+        messages.push(Message::tool_results(vec![Part::ToolResult {
+            call_id: id.into(),
+            content: if is_error { kind } else { "ok" }.into(),
+            is_error,
+        }]));
+    }
+    let root = store.project_root.as_ref().unwrap();
+    let state = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(root)).unwrap();
+    state
+        .record_episode_recoveries(episode_id, &messages)
+        .unwrap();
+    assert!(state.has_memory_recovery(episode_id, &fingerprint).unwrap());
 }
 
 #[cfg(test)]
@@ -1680,12 +1757,10 @@ mod tests {
         let hit = prompt_hints(&dir, "帮我把这一批发版出去", false, None);
         assert!(hit.is_some());
         assert!(hit.unwrap().contains("M-001"), "提示块应含索引行");
-        // 连续轮次同 query 同命中集不重复注入(自主轮固定检索键的实证噪声:
-        // 单条目连续注入 138 次仅 25 次采纳)——continue 链共享历史,上一轮
-        // 的 hints 还在上下文里。
+        // hints 不保存到历史，每次组装均须注入，包括同一查询的下一运行。
         assert!(
-            prompt_hints(&dir, "帮我把这一批发版出去", false, None).is_none(),
-            "同 query 同命中集 30 分钟内不得重复注入"
+            prompt_hints_for_run(&dir, "帮我把这一批发版出去", false, None, Some("new-run"))
+                .is_some()
         );
         // query 变化照常注入(命中同一条目也算新语境)。
         assert!(
@@ -2108,29 +2183,31 @@ mod tests {
         // D-366:决策排序在检索门面,经 index 取命中。
         let index = SqliteMemoryIndex::new(&dir);
         let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
-        let recall_id = store.record_recall("要发版", &hits, 256);
+        record_memory_search_telemetry(
+            &dir,
+            "要发版",
+            &hits,
+            true,
+            "lexical",
+            &index::RetrievalTiming::default(),
+            Some("read-run"),
+            "memory_search",
+        );
         let (path, _) = store
             .load_all()
             .into_iter()
             .find(|(_, e)| e.id == entry.id)
             .unwrap();
-        // 模拟 read 工具读该文件 → 回填采纳。
-        mark_memory_file_read(&dir, &path);
-        let after = store.recalls(10);
-        let hit = after
-            .iter()
-            .find(|r| r.recall_id == recall_id)
-            .unwrap()
-            .hits
-            .iter()
-            .find(|h| h.id == entry.id)
-            .unwrap();
-        assert!(hit.fetched, "read 记忆文件后 fetched 未回填");
+        mark_memory_file_read(&dir, &path, Some("wrong-run"));
+        assert_eq!(store.usage_counts()[&entry.id].read, 0);
+        mark_memory_file_read(&dir, &path, Some("read-run"));
+        assert_eq!(store.usage_counts()[&entry.id].read, 1);
+        assert!(store.recalls(10).is_empty(), "不得回写 legacy 表");
         // 非记忆库路径:快速路径短路,不产生任何副作用(记忆库不因读普通文件被创建)。
         let plain = dir.join("notes.md");
         std::fs::write(&plain, "普通笔记").unwrap();
         std::fs::remove_dir_all(dir.join(".kanzei")).unwrap();
-        mark_memory_file_read(&dir, &plain);
+        mark_memory_file_read(&dir, &plain, Some("read-run"));
         assert!(
             !dir.join(".kanzei").exists(),
             "非记忆文件的 read 不应重建记忆库目录"
@@ -2333,6 +2410,7 @@ mod tests {
             .map(|(p, e)| (e.id, p))
             .unwrap();
         let eid = crate::memory::seed_episode(&dir, "ses");
+        seed_entry_recovery(&store, eid, &cid);
         store.promote(&cid, &[(eid, None, None)], None).unwrap();
 
         // 第二次同类失败:必须改投修订笔记,点名既有条目,不再原坑重投。
@@ -2564,6 +2642,7 @@ source: user
             .map(|(p, e)| (e.id, p))
             .unwrap();
         let eid = crate::memory::seed_episode(&root, "ses");
+        seed_entry_recovery(&store, eid, &cid);
         store.promote(&cid, &[(eid, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let t = trigger("edit", &kind, "main.rs", 1);
@@ -2603,6 +2682,7 @@ source: user
             .map(|(p, e)| (e.id, p))
             .unwrap();
         let eid = crate::memory::seed_episode(&root, "ses");
+        seed_entry_recovery(&store, eid, &cid);
         store.promote(&cid, &[(eid, None, None)], None).unwrap();
         // Tier1 通道的功能验证直接走存储候选集(无 30ms 预算干扰)——预算降级是
         // 运行期保护,不该让测试在共享繁忙环境断言"必然命中"而偶发红(D-293)。
@@ -2667,12 +2747,13 @@ source: user
             .map(|(p, e)| (e.id, p))
             .unwrap();
         let eid = crate::memory::seed_episode(&root, "ses");
+        seed_entry_recovery(&store, eid, &cid);
         store.promote(&cid, &[(eid, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let t = trigger("edit", &kind, "main.rs", 2);
         let hits = policy.retrieve(&t);
         assert!(!hits.is_empty());
-        policy.record_trigger(&t, &hits, &hits, 3);
+        policy.record_trigger(&t, &hits, &hits, 3, Some("run"));
         // state.db 里应能查到 event_recall 记录(trigger/action/延迟)。
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
@@ -2699,7 +2780,7 @@ source: user
         let t = trigger("bash", "some brand new failure", "build.rs", 1);
         let hits = policy.retrieve(&t);
         assert!(hits.is_empty(), "空库必然 miss");
-        policy.record_trigger(&t, &hits, &hits, 1);
+        policy.record_trigger(&t, &hits, &hits, 1, Some("run"));
         // 伪造 tier1 命中(不依赖真实 BM25,预算降级会让并行测试偶发红,D-293)。
         let tier1_hit = kanzei_core::RecallHit {
             id: "M-X".into(),
@@ -2710,7 +2791,7 @@ source: user
             policy_action: "reretrieve".into(),
         };
         let t3 = trigger("bash", "some brand new failure", "build.rs", 3);
-        policy.record_trigger(&t3, std::slice::from_ref(&tier1_hit), &[], 7);
+        policy.record_trigger(&t3, std::slice::from_ref(&tier1_hit), &[], 7, Some("run"));
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
         let log = sstore.event_recall_log().unwrap();
@@ -2724,9 +2805,7 @@ source: user
     }
 
     #[test]
-    fn 轮末对账写入action_changed与outcome_improved两条独立臂() {
-        // ACTION_CHANGED 记录同类失败是否停止；OUTCOME_IMPROVED 还要求真实
-        // completed 结局，不能把前者直接冒充最终结果改善。
+    fn 轮末对账仅记录原始观察且不证明收益() {
         let root = temp_memory_root("outcome");
         let policy = FailureRecallPolicy::new(&root);
         policy.record_outcome_evidence(
@@ -2735,13 +2814,13 @@ source: user
                     memory_id: "M-1".into(),
                     tool: "edit".into(),
                     kind: "old_string not found".into(),
-                    changed: true,
+                    failure_not_repeated: true,
                 },
                 kanzei_core::RecallOutcome {
                     memory_id: "M-2".into(),
                     tool: "bash".into(),
                     kind: "exit code:".into(),
-                    changed: false,
+                    failure_not_repeated: false,
                 },
             ],
             kanzei_core::RecallRunOutcome::Completed,
@@ -2749,9 +2828,9 @@ source: user
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
         let funnel = sstore.funnel_counts(2).unwrap();
-        assert_eq!(funnel.action_changed, 1);
-        assert_eq!(funnel.outcome_improved, 1);
-        assert!(funnel.outcome_improved_available);
+        assert_eq!(funnel.action_changed, 0);
+        assert_eq!(funnel.outcome_improved, 0);
+        assert!(!funnel.outcome_improved_available);
 
         std::fs::remove_dir_all(root).ok();
     }
@@ -2765,14 +2844,14 @@ source: user
                 memory_id: "M-halted".into(),
                 tool: "edit".into(),
                 kind: "old_string not found".into(),
-                changed: true,
+                failure_not_repeated: true,
             }],
             kanzei_core::RecallRunOutcome::Halted,
         );
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
         let funnel = sstore.funnel_counts(1).unwrap();
-        assert_eq!(funnel.action_changed, 1);
+        assert_eq!(funnel.action_changed, 0);
         assert_eq!(funnel.outcome_improved, 0);
         assert!(!funnel.outcome_improved_available);
         std::fs::remove_dir_all(root).ok();
@@ -2815,18 +2894,19 @@ source: user
             .map(|(p, e)| (e.id, p))
             .unwrap();
         let eid = crate::memory::seed_episode(&root, "ses");
+        seed_entry_recovery(&store, eid, &cid);
         store.promote(&cid, &[(eid, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         // 第一次失败(fingerprint 命中,policy_action=fingerprint)。
         let t1 = trigger("edit", &kind, "main.rs", 1);
         let hits1 = policy.retrieve(&t1);
         assert_eq!(hits1.len(), 1);
-        policy.record_trigger(&t1, &hits1, &hits1, 2);
+        policy.record_trigger(&t1, &hits1, &hits1, 2, Some("run"));
         // 第三次失败:tier0 仍命中 → 标签仍是 fingerprint(同轮去重后注入为空)。
         let t3 = trigger("edit", &kind, "main.rs", 3);
         let hits3 = policy.retrieve(&t3);
         assert_eq!(hits3.len(), 1, "指纹仍命中");
-        policy.record_trigger(&t3, &hits3, &[], 4);
+        policy.record_trigger(&t3, &hits3, &[], 4, Some("run"));
 
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
@@ -2875,6 +2955,7 @@ source: user
             .map(|(p, e)| (e.id, p))
             .unwrap();
         let eid = crate::memory::seed_episode(&root, "ses");
+        seed_entry_recovery(&store, eid, &cid);
         store.promote(&cid, &[(eid, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let mut watch = kanzei_core::RecallWatch::new(Some(&policy));

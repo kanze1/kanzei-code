@@ -151,6 +151,8 @@ impl SessionStore {
                      candidate_ids TEXT NOT NULL,
                      retrieved_ids TEXT NOT NULL,
                      injected_ids TEXT NOT NULL,
+                     run_id TEXT,
+                     read_ids TEXT,
                      lexical_ms INTEGER NOT NULL DEFAULT 0,
                      embed_ms INTEGER NOT NULL DEFAULT 0,
                      vector_ms INTEGER NOT NULL DEFAULT 0,
@@ -159,6 +161,15 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS recall_events_episode
                      ON recall_events(episode_id, created_at);
+                 CREATE TABLE IF NOT EXISTS memory_recoveries (
+                     episode_id INTEGER NOT NULL REFERENCES episodes(episode_id),
+                     fingerprint TEXT NOT NULL,
+                     failed_call_id TEXT NOT NULL,
+                     recovered_call_id TEXT NOT NULL,
+                     tool TEXT NOT NULL,
+                     target TEXT NOT NULL,
+                     PRIMARY KEY(episode_id, fingerprint, failed_call_id)
+                 );
                  CREATE TABLE IF NOT EXISTS memory_sources (
                      memory_id TEXT NOT NULL,
                      episode_id INTEGER NOT NULL REFERENCES episodes(episode_id),
@@ -298,7 +309,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS research_run_events_result_created
                      ON research_run_events(result_id, created_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '22')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '23')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -335,6 +346,21 @@ impl SessionStore {
         );
         // v22:课题绑定为空的旧会话保持未绑定，无推测性回填。
         let _ = tx.execute("ALTER TABLE processes ADD COLUMN research_topic TEXT", []);
+        // v23:历史读取状态保持 NULL；先补列，再建依赖新列的索引。
+        for column in ["run_id TEXT", "read_ids TEXT"] {
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('recall_events') WHERE name = ?1)",
+                [column.split_whitespace().next().unwrap()],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                tx.execute(
+                    &format!("ALTER TABLE recall_events ADD COLUMN {column}"),
+                    [],
+                )?;
+            }
+        }
+        tx.execute_batch("CREATE INDEX IF NOT EXISTS recall_events_run_created ON recall_events(run_id, created_at);")?;
         // v21(R-347):运行态的进度、指标序列与成本必须在旧库中补齐,否则既有
         // state.db 会在读取 research_runs 时因 no such column 失效。
         for column in [
@@ -449,12 +475,14 @@ mod tests {
         "memory_eval",
         "memory_eval_agg",
         "memory_eval_memory",
+        "memory_recoveries",
         "memory_sources",
         "mobile_devices",
         "processes",
         "processes_origin",
         "recall_events",
         "recall_events_episode",
+        "recall_events_run_created",
         "research_environment_leases",
         "research_environment_leases_result",
         "research_run_events",
@@ -524,6 +552,12 @@ mod tests {
         "memory_eval_agg.eval_n",
         "memory_eval_agg.last_eval",
         "memory_eval_agg.memory_id",
+        "memory_recoveries.episode_id",
+        "memory_recoveries.failed_call_id",
+        "memory_recoveries.fingerprint",
+        "memory_recoveries.recovered_call_id",
+        "memory_recoveries.target",
+        "memory_recoveries.tool",
         "memory_sources.episode_id",
         "memory_sources.event_end",
         "memory_sources.event_start",
@@ -554,8 +588,10 @@ mod tests {
         "recall_events.lexical_ms",
         "recall_events.policy_action",
         "recall_events.query",
+        "recall_events.read_ids",
         "recall_events.recall_id",
         "recall_events.retrieved_ids",
+        "recall_events.run_id",
         "recall_events.step_id",
         "recall_events.total_ms",
         "recall_events.trigger_payload",
