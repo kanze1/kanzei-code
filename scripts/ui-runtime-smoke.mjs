@@ -3094,7 +3094,7 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
 // 锁提示显式限定 kind),而且写回一律走 documentFilters[kind](这三类取不到就不写)。
 // 两道保险都要在:机械钉住"根本没渲染",免得哪天筛选放开了顺手踩到冻结对象上抛异常。
 {
-  for (const listId of ["idea-list", "source-list", "finding-list"]) {
+  for (const listId of ["idea-list"]) {
     assert(
       !document.querySelector(`#${listId} .doc-filtered-empty`) && !document.querySelector(`#${listId} .drag-hint`),
       `#${listId} 渲染出了会写筛选状态的按钮,但它拿到的是冻结的 NEUTRAL_DOC_FILTERS`,
@@ -3108,7 +3108,13 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
 // 空数组,整条渲染路径从没被走过。断言钉三件事:①有可打开字段的来源必须出 ↗;
 // ②点击真的发起 webfetch_preview(不是死按钮);③代码域来源认 file:line 而非 URL。
 {
-  const openButtons = [...document.querySelectorAll("#source-list .doc-open-src")];
+  // 来源已经移入独立研究页；通用列表渲染器仍单独验证打开能力。
+  const source_host = document.createElement("div");
+  source_host.id = "source-test-list";
+  document.body.appendChild(source_host);
+  byId.set(source_host.id, source_host);
+  sandbox.renderDocList(source_host, payloads.docs_snapshot.sources, "source");
+  const openButtons = [...document.querySelectorAll("#source-test-list .doc-open-src")];
   assert(
     openButtons.length === 2,
     `来源列表应为两条可打开来源各渲染一个 ↗,实得 ${openButtons.length} 个`,
@@ -3131,8 +3137,9 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
 {
   const profile = byId.get("profile-select");
   const savedProfile = profile.value;
-  profile.value = "research";
-  profile.dispatchEvent({ type: "change" });
+  const original_processes = payloads.process_list;
+  payloads.process_list = [...original_processes, { id: "p|research", session_id: "sess-research", profile: "research", research_topic: "alpha-study", label: "Alpha 研究", running: false }];
+  await vm.runInContext('switch_workspace("research")', sandbox);
   await flush();
   const researchActivity = document.querySelector('.activity-item[data-view="research"]');
   assert(researchActivity && !researchActivity.classList.contains("hidden"), "research 档未显示研究工作台入口");
@@ -3143,6 +3150,8 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   assert(topicSelect.value === "alpha-study", `默认应选择排序后的 alpha-study,实得 ${topicSelect.value}`);
   assert(document.querySelector('#research-cards .research-topic-group[data-topic="alpha-study"]'), "alpha topic 分组未渲染");
   assert(byId.get("research-runs-count").textContent === "2 条", "真实 research run 数量未渲染");
+  vm.runInContext('show_research_page("writing")', sandbox);
+  await flush();
   const latexTemplate = byId.get("research-latex-template");
   assert(latexTemplate && latexTemplate.options.length === 4, "LaTeX 模板选择器未加载四套内置模板");
   latexTemplate.value = "paper_with_figures";
@@ -3193,13 +3202,13 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-02"] .research-run-drift.no-drift')?.textContent.includes("环境声明一致"), "无漂移 run 未显示一致状态");
   assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("Alpha 一手论文"), "alpha topic 来源未渲染");
   assert(!byId.get("research-plan-panel").hidden, "alpha topic 未展示研究计划面板");
-  assert(byId.get("research-plan-status").textContent === "awaiting_approval", "研究计划初始状态不是 awaiting_approval");
+  assert(byId.get("research-plan-status").textContent === "待批准", "研究计划初始状态未显示待批准");
   assert(byId.get("research-plan-tree").querySelectorAll("li").length === 2, "研究计划树节点未渲染完整");
   const approvePlan = byId.get("research-plan-approve");
   assert(!approvePlan.hidden, "待审批计划未显示批准按钮");
   approvePlan.click();
   await flush();
-  assert(byId.get("research-plan-status").textContent === "approved", "计划批准后状态未更新");
+  assert(byId.get("research-plan-status").textContent === "已批准", "计划批准后状态未更新");
   const approveCalls = invokeArgs.filter((call) => call.cmd === "research_plan_approve");
   assert(approveCalls.at(-1)?.args?.topic === "alpha-study", "计划审批调用未携带 alpha topic");
   assert(document.querySelector('#research-cards .research-card[data-doc-id="S-101"]')?.textContent.includes("正文级"), "来源卡未展示正文级证据深度");
@@ -3284,6 +3293,9 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   filterSort.value = "";
   filterSort.dispatchEvent({ type: "change", currentTarget: filterSort });
   await flush();
+  await vm.runInContext('switch_workspace("dev")', sandbox);
+  payloads.process_list = original_processes;
+  await sandbox.refreshProcesses();
   profile.value = savedProfile;
   profile.dispatchEvent({ type: "change" });
   await flush();
@@ -5594,7 +5606,9 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
     "R-322 B2:结伴档鞭挞未落轻控制语义 notice",
   );
   // ② research 勾鞭挞:拒绝并复位勾选,模式不变。
-  byId.get("profile-select").value = "research";
+  const dev_processes = payloads.process_list;
+  payloads.process_list = [...dev_processes, { id: "p|research-auto-test", session_id: "sess-research-auto", profile: "research", label: "研究", running: false }];
+  await vm.runInContext('switch_workspace("research")', sandbox);
   byId.get("auto-continue").checked = true;
   byId.get("auto-continue").dispatchEvent({ type: "change" });
   await flush();
@@ -5603,10 +5617,13 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
     "R-322 B2:research 勾鞭挞未被拒绝复位",
   );
   assert(
-    byId.get("profile-select").value === "research",
+    vm.runInContext("selectedAgent().profile", sandbox) === "research",
     "R-322 B2:research 拒绝路径不应改模式",
   );
   // 收尾恢复。
+  await vm.runInContext('switch_workspace("dev")', sandbox);
+  payloads.process_list = dev_processes;
+  await sandbox.refreshProcesses();
   byId.get("auto-continue").checked = false;
   byId.get("profile-select").value = savedProfileR224;
   kzTest.cancelTimers();
@@ -5623,7 +5640,7 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
     "R-342:模式选择器必须常驻输入框上方的上下文行(带 ctx-mode 芯片样式)",
   );
   const savedProfileR342 = byId.get("profile-select").value;
-  for (const mode of ["dev-auto", "dev-pair", "research"]) {
+  for (const mode of ["dev-auto", "dev-pair"]) {
     byId.get("profile-select").value = mode;
     byId.get("profile-select").dispatchEvent({ type: "change" });
     await flush();
@@ -5878,7 +5895,7 @@ assert(
   // (按 id 造节点直接挂 body),祖先链走不通,所以判定落在源码文本上。
   assert(
     (() => {
-      const open = html.indexOf('<div id="autorun-bar"');
+      const open = html.indexOf('<div class="task-options-panel"');
       if (open < 0) return false;
       let depth = 0;
       const tag = /<\/?div\b/g;
@@ -5892,7 +5909,7 @@ assert(
       }
       return false;
     })(),
-    "「勘察复核」开关必须落在鞭挞控制台里,不能还挂在顶栏「更多」",
+    "「勘察复核」开关必须归入任务设置的开发协作分组",
   );
   assert(!pipelineToggle.checked, "勘察复核此刻应为关闭态");
   assert(
@@ -6123,7 +6140,7 @@ assert(
   localStorageShim.setItem("kz-language", "en");
   sandbox.applyLanguage();
   assert(sectionTitle("项目") === "Projects", `英文态侧栏「项目」未翻译,实际 "${sectionTitle("项目")}"`);
-  assert(sectionTitle("当前状态") === "Current status", `英文态侧栏「当前状态」未翻译,实际 "${sectionTitle("当前状态")}"`);
+  assert(sectionTitle("任务与对话") === "Tasks and conversations", `英文态侧栏「当前状态」未翻译,实际 "${sectionTitle("任务与对话")}"`);
   assert(sectionTitle("开发规范") === "Conventions", `英文态侧栏「开发规范」未翻译,实际 "${sectionTitle("开发规范")}"`);
   assert(titleOf("project-init") === "Initialize a new project directory", `英文态 project-init title 未翻译,实际 "${titleOf("project-init")}"`);
   assert(sectionTitle("隔离工作树") === "Isolated worktrees", `英文态侧栏「隔离工作树」未翻译,实际 "${sectionTitle("隔离工作树")}"`);
@@ -6153,7 +6170,7 @@ assert(
   assert(keyText("新对话") === "New chat", `英文态「新对话」未翻译,实际 "${keyText("新对话")}"`);
   assert(keyText("发送") === "Send", `英文态「发送」未翻译,实际 "${keyText("发送")}"`);
   assert(keyText("停止") === "Stop", `英文态「停止」未翻译,实际 "${keyText("停止")}"`);
-  assert(keyText("工作区") === "Workspace", `英文态「工作区」未翻译,实际 "${keyText("工作区")}"`);
+  assert(keyText("项目总览") === "All projects", `英文态「工作区」未翻译,实际 "${keyText("项目总览")}"`);
   assert(keyText("并行线路") === "Parallel lines", `英文态「并行线路」未翻译,实际 "${keyText("并行线路")}"`);
   assert(keyText("刷新") === "Refresh", `英文态「刷新」未翻译,实际 "${keyText("刷新")}"`);
   assert(keyText("鞭挞") === "Auto-run", `英文态「鞭挞」未翻译,实际 "${keyText("鞭挞")}"`);

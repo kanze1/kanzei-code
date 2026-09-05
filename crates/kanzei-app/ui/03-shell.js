@@ -14,6 +14,8 @@ import { filesViewLeft, showFilesView } from "./17-files.js";
 import { refreshArch } from "./19-arch.js";
 import { refreshResearch } from "./19-research.js";
 import { refreshLines } from "./20-lines.js";
+import { active_space, remember_workspace_view, view_allowed } from "./03-workspaces.js";
+import { open_research_chat } from "./19-research-navigation.js";
 
 export function setupResize(elementId, key, side, min, max) {
   const element = $(elementId);
@@ -129,34 +131,43 @@ export function setRunTokens(value) { runTokens = value; }
 
 // ---------- 视图切换 ----------
 // 只绑带 data-view 的按钮:rail 上还有侧栏开合这类布局开关,它们不是视图。
+export function navigate_view(view) {
+  if (!view_allowed(view)) return;
+  const item = document.querySelector(`.activity-item[data-view="${view}"]`);
+  if (!item || !$(`view-${view}`)) return;
+  document.body.dataset.view = view;
+  if (view !== "chat") {
+    $("bg-panel")?.classList.add("hidden");
+    $("agent-panel")?.classList.add("hidden");
+  }
+  remember_workspace_view(view);
+  document.querySelectorAll(".activity-item[data-view]").forEach((i) => {
+    i.classList.remove("active");
+    i.removeAttribute("aria-current");
+  });
+  item.classList.add("active");
+  item.setAttribute("aria-current", "page");
+  document.body.classList.toggle("documents-active", view === "documents");
+  // 已经在这个视图里就别再重载一遍:设置页尤其致命——再点一次侧栏图标,
+  // 填了一半没保存的表单会静悄悄回滚成磁盘值。
+  const previousView = document.querySelector(".view.active")?.id;
+  document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+  $(`view-${view}`).classList.add("active");
+  if (view === "settings" && previousView !== "view-settings") loadSettings();
+  if (view === "workspace") refreshWorkspace();
+  if (view === "documents") refreshDocs();
+  if (view === "research") refreshResearch();
+  if (view === "memory") refreshMemory();
+  if (view === "metrics") refreshMetrics();
+  if (view === "files") showFilesView();
+  if (view === "arch") refreshArch();
+  // 工作树清单现在是线路页的一块内容(侧栏只读),进页面要一并拉。
+  if (view === "lines") { refreshLines(); refreshWorktrees(); }
+  if (view !== "files") filesViewLeft();
+}
 defer(() => {
   document.querySelectorAll(".activity-item[data-view]").forEach((item) => {
-    item.addEventListener("click", () => {
-      document.querySelectorAll(".activity-item[data-view]").forEach((i) => {
-        i.classList.remove("active");
-        i.removeAttribute("aria-current");
-      });
-      item.classList.add("active");
-      item.setAttribute("aria-current", "page");
-      const view = item.dataset.view;
-      document.body.classList.toggle("documents-active", view === "documents");
-      // 已经在这个视图里就别再重载一遍:设置页尤其致命——再点一次侧栏图标,
-      // 填了一半没保存的表单会静悄悄回滚成磁盘值。
-      const previousView = document.querySelector(".view.active")?.id;
-      document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
-      $(`view-${view}`).classList.add("active");
-      if (view === "settings" && previousView !== "view-settings") loadSettings();
-      if (view === "workspace") refreshWorkspace();
-      if (view === "documents") refreshDocs();
-      if (view === "research") refreshResearch();
-      if (view === "memory") refreshMemory();
-      if (view === "metrics") refreshMetrics();
-      if (view === "files") showFilesView();
-      if (view === "arch") refreshArch();
-      // 工作树清单现在是线路页的一块内容(侧栏只读),进页面要一并拉。
-      if (view === "lines") { refreshLines(); refreshWorktrees(); }
-      if (view !== "files") filesViewLeft();
-    });
+    item.addEventListener("click", () => active_space === "research" && item.dataset.view === "chat" ? open_research_chat() : navigate_view(item.dataset.view));
   });
 });
 
@@ -594,9 +605,9 @@ export function setRunning(value, statusText) {
 export function syncNewChatEnabled() {
   const fresh = $("new-chat");
   if (!fresh) return;
-  const blocked = running || runControlPending;
+  const blocked = active_space === "dev" && (running || runControlPending);
   fresh.disabled = blocked;
-  fresh.title = blocked
+  fresh.title = active_space === "research" ? t("新建课题会话，保留已有对话") : blocked
     ? t("任务运行中,先停止再开新对话")
     : t("清空多轮对话历史,开一段新会话");
 }
@@ -725,4 +736,3 @@ defer(() => {
 defer(() => {
   Object.assign(globalThis, { log });
 });
-

@@ -15,6 +15,7 @@ pub struct StoredProcess {
     pub worktree_path: Option<String>,
     pub model: Option<String>,
     pub profile: Option<String>,
+    pub research_topic: Option<String>,
     pub reasoning: Option<String>,
     /// 项目级手填模型候选(provider:model 列表)。R-178 批3 起由默认进程行承载,
     /// 前端下拉的「手填」候选从后端读,不再以 localStorage 为真源。
@@ -32,14 +33,15 @@ impl SessionStore {
         self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
-                  model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                  model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(process_id) DO UPDATE SET
                  origin_project = excluded.origin_project,
                  project_dir = excluded.project_dir,
                  worktree_path = excluded.worktree_path,
                  model = excluded.model,
                  profile = excluded.profile,
+                 research_topic = excluded.research_topic,
                  reasoning = excluded.reasoning,
                  manual_models = excluded.manual_models,
                  phase_pipeline = excluded.phase_pipeline,
@@ -59,6 +61,7 @@ impl SessionStore {
                 process.subagents_enabled,
                 process.tracker_writes_enabled,
                 process.updated_at,
+                process.research_topic,
             ],
         )?;
         Ok(())
@@ -79,8 +82,8 @@ impl SessionStore {
         let affected = self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
-                  model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                  model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(process_id) DO NOTHING",
             params![
                 process.process_id,
@@ -95,6 +98,7 @@ impl SessionStore {
                 process.subagents_enabled,
                 process.tracker_writes_enabled,
                 process.updated_at,
+                process.research_topic,
             ],
         )?;
         Ok(affected > 0)
@@ -104,7 +108,7 @@ impl SessionStore {
     pub fn list_processes(&self, origin_project: &str) -> Result<Vec<StoredProcess>, StoreError> {
         let mut stmt = self.connection.prepare(
             "SELECT process_id, origin_project, project_dir, worktree_path,
-                    model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at
+                    model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic
              FROM processes WHERE origin_project = ?1 ORDER BY process_id",
         )?;
         let rows = stmt.query_map(params![origin_project], |row| {
@@ -115,6 +119,7 @@ impl SessionStore {
                 worktree_path: row.get(3)?,
                 model: row.get(4)?,
                 profile: row.get(5)?,
+                research_topic: row.get(12)?,
                 reasoning: row.get(6)?,
                 manual_models: serde_json::from_str(row.get::<_, String>(7)?.as_str())
                     .unwrap_or_default(),
@@ -162,7 +167,7 @@ impl SessionStore {
         self.connection
             .query_row(
                 "SELECT process_id, origin_project, project_dir, worktree_path,
-                        model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at
+                        model, profile, reasoning, manual_models, phase_pipeline, subagents_enabled, tracker_writes_enabled, updated_at, research_topic
                  FROM processes WHERE process_id = ?1",
                 params![process_id],
                 |row| {
@@ -173,6 +178,7 @@ impl SessionStore {
                         worktree_path: row.get(3)?,
                         model: row.get(4)?,
                         profile: row.get(5)?,
+                        research_topic: row.get(12)?,
                         reasoning: row.get(6)?,
                         manual_models: serde_json::from_str(row.get::<_, String>(7)?.as_str())
                             .unwrap_or_default(),
@@ -201,6 +207,7 @@ mod tests {
             worktree_path: None,
             model: Some("deepseek:deepseek-v4-flash".into()),
             profile: Some("dev".into()),
+            research_topic: None,
             reasoning: Some("high".into()),
             manual_models: vec!["deepseek:deepseek-chat".into()],
             phase_pipeline: true,
@@ -236,6 +243,41 @@ mod tests {
         );
         // 另一个主项目互不串扰(D-170 式隔离)。
         assert!(store.list_processes("D:/other").unwrap().is_empty());
+    }
+
+    #[test]
+    fn research_topic_binding_survives_database_upgrade_and_reopen() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-topic-migrate-{}-{}",
+            std::process::id(),
+            crate::store::now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        let legacy = sample();
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store.upsert_process(&legacy).unwrap();
+            store.connection.execute_batch("ALTER TABLE processes DROP COLUMN research_topic; UPDATE schema_meta SET value='21' WHERE key='schema_version';").unwrap();
+        }
+        let mut bound = sample();
+        bound.process_id = "p2|C:/project".into();
+        bound.profile = Some("research".into());
+        bound.research_topic = Some("topic-a".into());
+        {
+            let store = SessionStore::open(&path).unwrap();
+            assert_eq!(
+                store.get_process(&legacy.process_id).unwrap(),
+                Some(legacy.clone())
+            );
+            assert!(store.insert_new_process(&bound).unwrap());
+        }
+        {
+            let store = SessionStore::open(&path).unwrap();
+            assert_eq!(store.get_process(&bound.process_id).unwrap(), Some(bound));
+            assert_eq!(store.get_process(&legacy.process_id).unwrap(), Some(legacy));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

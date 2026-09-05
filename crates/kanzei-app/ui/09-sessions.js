@@ -8,6 +8,7 @@ import {
   activeSessionId,
   applySessionMeta,
   currentProject,
+  navigate_view,
   log,
   processItems,
   running,
@@ -54,6 +55,10 @@ import {
   renderLineConversationHistory,
 } from "./15-views-misc.js";
 import { forProject, refreshLines } from "./20-lines.js";
+import { active_space, adopt_process_workspace, create_workspace_process, preferred_workspace_process, project_workspace, workspace_processes } from "./03-workspaces.js";
+
+import { sync_composer_scope } from "./03-workspaces.js";
+import { reset_research_project } from "./19-research.js";
 
 export let worktreeItems = [];
 export let worktreeLineCreateInFlight = false;
@@ -315,7 +320,7 @@ export function syncCollaboratorToolsVisibility(items) {
   // 单线程时没有跨线协作对象,隐藏勘察/复核与 task 工具开关；保留真实进程列表
   // 作为唯一判据,不从当前视图或活动面板反推线路数。
   const lineCount = Array.isArray(items) ? items.length : 0;
-  tools.classList.toggle("hidden", lineCount <= 1);
+  tools.classList.toggle("hidden", active_space !== "dev" || lineCount <= 1);
 }
 export async function closeParallelProcess(processId) {
   const item = processItems.find((candidate) => candidate.id === processId);
@@ -350,10 +355,18 @@ export function renderParallelTaskStatus(items) {
   const target = $("parallel-task-status");
   const count = $("parallel-task-count");
   if (!target || !count) return;
-  const processes = items ?? [];
+  const processes = workspace_processes(items);
   count.textContent = processes.length ? `${processes.length} ${t("条任务")}` : "";
   target.replaceChildren();
-  if (!processes.length) return;
+  if (!processes.length) {
+    if (active_space === "research") {
+      const empty = document.createElement("p");
+      empty.className = "dim";
+      empty.textContent = t("暂无课题会话");
+      target.appendChild(empty);
+    }
+    return;
+  }
   for (const item of processes) {
     const state = sessionState(item.session_id);
     if (item.running && item.stage && (!state.stage || state.stage === "空闲")) state.stage = item.stage;
@@ -368,7 +381,7 @@ export function renderParallelTaskStatus(items) {
     row.className = `parallel-task-row${item.id === activeProcessId ? " active" : ""}${runningNow ? " running" : ""}${pendingNow ? " auto-pending" : ""}`;
     row.dataset.processId = item.id;
     row.setAttribute("role", "listitem");
-    const authority = item.authority === "primary" || item.id.startsWith("d|") ? t("主代理") : t("并行线");
+    const authority = item.profile === "research" ? t("研究对话") : item.authority === "primary" || item.id.startsWith("d|") ? t("主代理") : t("并行线");
     const head = document.createElement("span");
     head.className = "parallel-task-head";
     head.textContent = `${authority} · ${item.label}${item.branch ? ` · ${item.branch}` : ""}`;
@@ -421,7 +434,7 @@ export function refreshParallelTaskProjection(sessionId) {
   const runningNow = processRunning(item);
   const pendingNow = state.phase === "auto_pending" || (state.auto_pending === true && !runningNow);
   const stoppingNow = state.phase === "stopping";
-  const authority = item.authority === "primary" || item.id.startsWith("d|") ? t("主代理") : t("并行线");
+  const authority = item.profile === "research" ? t("研究对话") : item.authority === "primary" || item.id.startsWith("d|") ? t("主代理") : t("并行线");
   const stage = runningNow
     ? [state.stage, item.stage].find((value) => value && value !== "空闲") || t("运行中")
     : pendingNow ? t("等待下一轮") : t("空闲");
@@ -487,7 +500,7 @@ export function renderProcesses(items) {
     }
   }
   if (!activeProcessId || !processItems.some((item) => item.id === activeProcessId)) {
-    const preferred = processItems.find((item) => item.id.startsWith("d|")) || processItems[0];
+    const preferred = preferred_workspace_process(processItems) || processItems.find((item) => item.id.startsWith("d|")) || processItems[0];
     setActiveProcessId(preferred?.id ?? null);
   }
   const active = processItems.find((item) => item.id === activeProcessId);
@@ -496,6 +509,7 @@ export function renderProcesses(items) {
   if (activeProcessChanged && activeProcessId) {
     // 首次加载、切项目重建或活动线被回收后选 fallback 时，必须恢复目标线的
     // 完整设置；普通轮询不重复应用，避免覆盖用户刚修改的控件和鞭挞计数。
+    adopt_process_workspace(active);
     applyAutoUiState(activeProcessId);
     applyProfileValue(active?.profile);
     // 模型下拉同属「该线的完整设置」:冷启动与兜底选中都走这里,不能只靠 switchProcess。
@@ -616,6 +630,7 @@ export async function switchProcess(processId, forceReload = false) {
   hideAsk(true);
   setActiveProcessId(processId);
   setActiveSessionId(target.session_id);
+  adopt_process_workspace(target);
   applyAutoUiState(activeProcessId);
   applyProfileValue(target.profile);
   // 状态栏模型/上下文上限回放该线最近一次 kz:meta,不再停留在上一条线的值。
@@ -656,9 +671,7 @@ defer(() => {
     if (!currentProject) return;
     try {
       // 新进程与默认进程同一默认:勘察复核关(要显式打开才强制走七阶段)。
-      const item = await invoke("process_create", { projectDir: currentProject, phasePipeline: false });
-      await refreshProcesses();
-      await switchProcess(item.id);
+      await create_workspace_process(active_space === "research" ? project_workspace().research.topic : null);
     } catch (err) {
       toastError(`${t("创建进程失败")}:${err}`);
     }
@@ -809,6 +822,8 @@ export function renderProjects(prefs) {
   if (previousProject !== currentProject) {
     setActiveProcessId(null);
     setActiveSessionId(null);
+    sync_composer_scope();
+    reset_research_project();
   }
   const list = $("project-list");
   list.innerHTML = "";
@@ -946,6 +961,10 @@ export async function enterProject(prefs, options = {}) {
   await loadModels();
   refreshGit();
   await refreshPendingInputs();
+  if (previous !== currentProject) {
+    const workspace = project_workspace();
+    navigate_view(workspace[workspace.space].view);
+  }
 }
 
 defer(() => {

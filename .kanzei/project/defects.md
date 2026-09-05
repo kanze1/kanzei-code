@@ -72,3 +72,14 @@
 - observed_worktree_hash: fnv1a64:a1d1426a5522a197
 - recorded_at: 1787288788389
 - 停车: 排队:排在 D-568 之后恢复(原停车前提 R-353 未提交改动已不存在,按 defect-first 改排在缺陷队列末);恢复后继续 tracker 四件套与 research 五件套减面评估;恢复人:agent;解除条件:D-568
+
+## D-742 研究侧栏报告入口未传课题且模式切换混合导航与进程配置 [fixing] (medium)
+- 复杂度: medium
+- 复现: 研究工作台选择课题后，侧栏报告按钮调用 docs_read 不带 topic；profile-select 同时切换界面并更新当前进程 profile。
+- 标签: 前端
+- 验收: 仅保留按课题定位的报告入口；切换工作领域恢复相应会话而不改写旧会话配置。
+- 优先级: P1
+- 进展: 已移除侧栏无 topic 报告入口，文献状态更新补齐 topic；空间切换恢复各自任务，不调用旧任务 profile 更新或 stop_run。ui-workspace-smoke 验证开发运行保持、来源状态作用域及课题发送参数通过。完整 verify 与真实桌面验收待执行。
+- observed_head: 0ac5755ca01760a9a4b1149c8c351287aa36791c
+- observed_worktree_hash: fnv1a64:951470f18ba20475
+- recorded_at: 1788636983418

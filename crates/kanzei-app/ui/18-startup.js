@@ -1,3 +1,4 @@
+import { navigate_view } from "./03-shell.js";
 import { defer } from "./01-core.js";
 import { $, invoke } from "./01-core.js";
 import { LANGUAGE_PREFERENCES, syncLanguagePreferenceFromSettings, t } from "./02-i18n.js";
@@ -7,6 +8,7 @@ import { refreshPendingInputs, refreshProcesses, renderProjects } from "./09-ses
 import { refreshDocs } from "./14-docs-actions.js";
 import { loadConversation, refreshGit } from "./15-views-misc.js";
 import { updateResultText } from "./16-settings.js";
+import { project_workspace, restore_workspace_preferences } from "./03-workspaces.js";
 
 // ---------- 启动 ----------
 defer(() => {
@@ -49,6 +51,7 @@ defer(() => {
     };
     // 项目列表必须先落地:后面每一步都要 currentProject(历史对话还要等它选出主会话),
     // 这一条是真依赖,串行。
+    await restore_workspace_preferences();
     await runStep(["项目列表", async () => renderProjects(await invoke("projects_get"))]);
     // 线路列表是「历史对话」与「模型列表」的**共同前置**:前者要它选出主会话才知道
     // conversation_get 带哪个 processId,后者要按当前线路已选模型收敛紧凑列表。
@@ -75,6 +78,8 @@ defer(() => {
         ["排队输入", refreshPendingInputs],
       ].map(runStep),
     );
+    const workspace = project_workspace();
+    navigate_view(workspace[workspace.space].view);
     setStatus("空闲", false);
   })();
 });

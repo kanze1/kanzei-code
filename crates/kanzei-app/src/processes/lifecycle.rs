@@ -121,6 +121,7 @@ pub async fn process_create(
     // R-247:并行视图选中的 R/D 条目。由桌面主进程在建树后以新分支身份执行真实
     // work claim；不因此放开该分支线的通用 tracker 写权限。
     work_item_id: Option<String>,
+    research_topic: Option<String>,
 ) -> Result<ProcessInfo, String> {
     create_process_with_tracker(
         &state,
@@ -133,6 +134,7 @@ pub async fn process_create(
         tracker_writes,
         worktree_name,
         work_item_id,
+        research_topic,
     )
     .await
 }
@@ -199,6 +201,7 @@ pub(crate) async fn create_process(
         None,
         worktree_name,
         None,
+        None,
     )
     .await
 }
@@ -215,8 +218,18 @@ pub(crate) async fn create_process_with_tracker(
     tracker_writes: Option<bool>,
     worktree_name: Option<String>,
     work_item_id: Option<String>,
+    research_topic: Option<String>,
 ) -> Result<ProcessInfo, String> {
     let root = normalized_project_root(Path::new(project_dir));
+    crate::research_topics::validate_run_topic(
+        &root,
+        profile.as_deref(),
+        research_topic.as_deref(),
+        research_topic.as_deref(),
+    )?;
+    if research_topic.is_some() && worktree_name.is_some() {
+        return Err("研究会话不能创建开发工作树".into());
+    }
     ensure_default_process(state, &root);
     // 恒主根:见本文件头的「字段口径」。worktree 路径只进 worktree_path。
     let project = root.display().to_string();
@@ -281,6 +294,7 @@ pub(crate) async fn create_process_with_tracker(
         ThreadSettings {
             model,
             profile,
+            research_topic,
             reasoning,
             phase_pipeline,
             subagents_enabled,
@@ -359,6 +373,7 @@ pub(crate) async fn create_process_with_work_item(
         Some(false),
         Some(worktree_name),
         Some(work_item_id),
+        None,
     )
     .await
 }
@@ -387,6 +402,11 @@ pub fn process_update(
         .get(&process_id)
         .cloned()
         .ok_or_else(|| format!("进程不存在: {process_id}"))?;
+    if process.research_topic.lock().unwrap().is_some()
+        && profile.as_deref().is_some_and(|value| value != "research")
+    {
+        return Err("已绑定课题的研究会话不能切换为开发任务".into());
+    }
     if let Some(model) = model {
         *process.model.lock().unwrap() = Some(model).filter(|value| !value.trim().is_empty());
     }

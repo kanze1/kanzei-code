@@ -213,6 +213,7 @@ impl SessionStore {
                      worktree_path TEXT,
                      model TEXT,
                      profile TEXT,
+                     research_topic TEXT,
                      reasoning TEXT,
                      manual_models TEXT NOT NULL DEFAULT '[]',
                      phase_pipeline INTEGER NOT NULL DEFAULT 0,
@@ -297,7 +298,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS research_run_events_result_created
                      ON research_run_events(result_id, created_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '21')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '22')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -332,6 +333,8 @@ impl SessionStore {
             "ALTER TABLE processes ADD COLUMN subagents_enabled INTEGER NOT NULL DEFAULT 1",
             [],
         );
+        // v22:课题绑定为空的旧会话保持未绑定，无推测性回填。
+        let _ = tx.execute("ALTER TABLE processes ADD COLUMN research_topic TEXT", []);
         // v21(R-347):运行态的进度、指标序列与成本必须在旧库中补齐,否则既有
         // state.db 会在读取 research_runs 时因 no such column 失效。
         for column in [
@@ -538,6 +541,7 @@ mod tests {
         "processes.profile",
         "processes.project_dir",
         "processes.reasoning",
+        "processes.research_topic",
         "processes.subagents_enabled",
         "processes.tracker_writes_enabled",
         "processes.updated_at",

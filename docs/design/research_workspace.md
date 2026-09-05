@@ -1,7 +1,7 @@
 # research 工作台前端设计(R-276 批1 设计稿)
 
-- 身份: validated_design
-- 状态: 已实施基线；R-276、R-277 已完成，D-413 已修复
+- 身份: superseded
+- 状态: 2026-09-06 的空间导航、侧栏、课题会话及分屏方案由 [workspace_information_architecture.md](workspace_information_architecture.md) 接替。以下保留 R-276/R-277 的历史设计及工件交互依据。
 - 实施条目: R-276 (done)、D-413 (fixed)、R-277 (done)
 - 最近核验提交: e08eb0a / c609902
 - 设计输入: [research_mode_prior_art.md](research_mode_prior_art.md) §1 前端横评(Gemini/ChatGPT/Perplexity/Manus 四家)、[research_mode.md](research_mode.md) §3 工件契约、2026-08-16 首轮真实研究会话的实测反馈

@@ -376,3 +376,16 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788393904818
 - 停车: 排队:原停车前提 R-359 已 done 归档并提交(0ac5755c);排在 R-357 之后恢复 B1;恢复人:agent;解除条件:R-357
+
+## R-360 开发与研究信息架构分离：独立空间、课题会话与研究工作页面 [doing]
+- 内容: 实施 docs/design/workspace_information_architecture.md。
+- 发现记录: {"Intent":"实施已确认的信息架构","Explicit":"开发研究分离及独立侧栏课题导航","Assumptions":"沿用现有主题与运行能力","Ambiguities":"无","领域对象":"空间、项目、课题、会话、研究成果","最小成功闭环":"切换空间恢复上下文且课题会话正确发送","延后决策":"发布安装由验证完成后单独执行"}
+- 复杂度: 大
+- 来源: 用户原话「可以我认可你说的点，按照这个设计，帮我进行改造吧」
+- 标签: 前端
+- 进展: 已完成开发/研究独立空间、分类导航、课题创建及会话绑定、分屏研究页、草稿附件隔离和迟到响应守卫。store 110 tests、app 260 tests、前端运行与静态回归、Edge 模拟 IPC 3 视口×6 页面通过。验证细节与原生桌面操作路径见 docs/design/workspace_information_architecture.md；完整 verify、安装及真实桌面验收尚未执行，保留 doing 等待提交绑定证据。
+- 验收: 导航不改写任务 profile；课题会话绑定持久化；报告按课题读取；开发调研独立分类；相关回归通过。
+- 优先级: P1
+- observed_head: 0ac5755ca01760a9a4b1149c8c351287aa36791c
+- observed_worktree_hash: fnv1a64:951470f18ba20475
+- recorded_at: 1788636983050

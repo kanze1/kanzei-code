@@ -90,10 +90,14 @@ fn research_topics(root: &Path) -> Result<Vec<serde_json::Value>, String> {
             .map_err(|error| format!("读取 topic `{topic}` 发现失败: {error}"))?;
             let experiment_model = kanzei_core::load_research_topic(root, &topic)
                 .map_err(|error| format!("读取 topic `{topic}` 探索事实失败: {error}"))?;
-            let report = root.join(".kanzei/research").join(&topic).join("report.md");
+            let topic_path = crate::research_topics::topic_path(root, &topic)?;
+            let metadata = crate::research_topics::describe_topic(&topic_path, !sources.is_empty() || !findings.is_empty())?;
+            let report = topic_path.join("report.md");
             Ok(json!({
                 "topic": topic,
                 "legacy": false,
+                "kind": metadata.kind,
+                "label": metadata.title,
                 "sources": sources.iter().map(|entry| research_entry_json(entry, &topic)).collect::<Vec<_>>(),
                 "findings": findings.iter().map(|entry| research_entry_json(entry, &topic)).collect::<Vec<_>>(),
                 "report": report.is_file(),
@@ -117,6 +121,7 @@ fn research_topics(root: &Path) -> Result<Vec<serde_json::Value>, String> {
         topics.push(json!({
             "topic": null,
             "legacy": true,
+            "kind": "legacy",
             "label": "旧版平铺",
             "sources": legacy_sources.iter().map(|entry| research_entry_json(entry, "")).collect::<Vec<_>>(),
             "findings": legacy_findings.iter().map(|entry| research_entry_json(entry, "")).collect::<Vec<_>>(),

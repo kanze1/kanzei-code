@@ -59,6 +59,7 @@ pub(crate) struct RunMode {
     pub(crate) block_tracker_writes: bool,
     // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
     pub(crate) profile: Option<String>,
+    pub(crate) research_topic: Option<String>,
     pub(crate) agent_name: Option<String>,
     pub(crate) model_override: Option<String>,
     pub(crate) work_priority: Option<String>,
@@ -187,6 +188,9 @@ pub(crate) async fn assemble_run(
     let mut agent = snapshot.select_agent(mode.agent_name.as_deref())?.clone();
     let work_priority = normalize_work_priority(mode.work_priority.as_deref());
     append_dev_guidance(&mut agent.system, profile, work_priority, &config);
+    if let Some(topic) = mode.research_topic.as_deref() {
+        agent.system.push_str(&format!("\n\n当前研究课题: {topic}。本会话的研究工件位于 .kanzei/research/{topic}/。来源、发现、计划、实验和报告均使用该 topic；其他课题仅在用户明确要求比较时读取，不改变当前课题归属。"));
+    }
     // 裁决**一轮只算一次**:它内部有 4 次 git 调用(含 git diff --binary HEAD)。
     // 同一份快照既进 system prompt,也作为任务上下文灌给勘察/复核角色——同源同刻,
     // 主代理与 8 个角色看到的必然是同一条条目。

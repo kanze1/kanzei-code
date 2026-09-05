@@ -602,6 +602,7 @@ mod tests {
             branch: Some("kanzei/thread-r184".into()),
             model: Arc::new(Mutex::new(None)),
             profile: Arc::new(Mutex::new(None)),
+            research_topic: Arc::new(std::sync::Mutex::new(None)),
             reasoning: Arc::new(Mutex::new(None)),
             manual_models: Arc::new(Mutex::new(Vec::new())),
             phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),

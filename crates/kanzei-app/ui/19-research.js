@@ -5,6 +5,8 @@ import { localizedDocStatus, t } from "./02-i18n.js";
 import { currentProject, log, toast, toastError } from "./03-shell.js";
 import { researchLinkField, researchOpenLink } from "./11-docs-list.js";
 import { openFilePreview } from "./17-files.js";
+import { active_space, project_workspace, save_research_workspace } from "./03-workspaces.js";
+import { research_category, research_status_label, render_research_navigation, render_research_overview, show_research_page, sync_research_page } from "./19-research-navigation.js";
 
 // 研究工作台(R-276 批3)。
 //
@@ -20,6 +22,45 @@ export let researchTab = "sources";
 export let selectedResearchTopic = "";
 export let researchSnapshot = { sources: [], findings: [], research_topics: [] };
 export let researchLatexTemplates = [];
+let research_context_generation = 0;
+export function research_context_guard() {
+  const project = currentProject;
+  const topic = selectedResearchTopic;
+  const generation = research_context_generation;
+  return () => project === currentProject && topic === selectedResearchTopic && generation === research_context_generation;
+}
+
+export function reset_research_project() {
+  research_context_generation += 1;
+  researchSnapshot = { sources: [], findings: [], research_topics: [] };
+  selectedResearchTopic = project_workspace().research.topic;
+  researchPlan = null;
+  selectedResearchExplorationId = "";
+  research_report_text = null;
+  renderResearchCards();
+  renderResearchRoadmap();
+  renderResearchExplorationDetail();
+  renderResearchRuns();
+  renderResearchPlan(null);
+  renderResearchReport("");
+  clear_research_writing();
+  const select = $("research-topic-select");
+  if (select) { select.replaceChildren(); select.disabled = true; }
+  render_research_overview();
+}
+
+function clear_research_writing() {
+  const frame = $("research-latex-pdf");
+  if (frame) { frame.hidden = true; frame.removeAttribute("src"); }
+  for (const id of ["research-latex-status", "research-latex-history", "research-latex-diagnostics"]) {
+    if ($(id)) $(id).textContent = "";
+  }
+  for (const id of ["research-latex-title", "research-latex-figure-name", "research-latex-figure-caption", "research-latex-figure-label"]) {
+    if ($(id)) $(id).value = "";
+  }
+  if ($("research-latex-document-name")) $("research-latex-document-name").value = "main";
+}
+
 
 export function renderResearchLatexTemplates() {
   const select = $("research-latex-template");
@@ -47,6 +88,7 @@ export async function refreshResearchLatexTemplates() {
 }
 
 export async function createResearchLatexDocument() {
+  const is_current = research_context_guard();
   const topic = selectedResearchTopicData();
   const template = $("research-latex-template")?.value;
   const documentName = $("research-latex-document-name")?.value || "main";
@@ -66,9 +108,11 @@ export async function createResearchLatexDocument() {
       documentName,
       title,
     });
+    if (!is_current()) return;
     if (status) status.textContent = `${t("已创建")}: ${result.tex_path}`;
     toast(`${t("LaTeX 文档已创建")}: ${result.tex_name}`);
   } catch (error) {
+    if (!is_current()) return;
     if (status) status.textContent = `${t("创建失败")}: ${error}`;
     toastError(`${t("LaTeX 文档创建失败")}: ${error}`);
   } finally {
@@ -79,6 +123,7 @@ export async function createResearchLatexDocument() {
 
 
 export async function insertResearchLatexFigure() {
+  const is_current = research_context_guard();
   const topic = researchLatexTopic();
   const status = $("research-latex-status");
   if (!topic) {
@@ -94,9 +139,11 @@ export async function insertResearchLatexFigure() {
       caption: $("research-latex-figure-caption")?.value || undefined,
       label: $("research-latex-figure-label")?.value || undefined,
     });
+    if (!is_current()) return;
     if (status) status.textContent = `${t("已插入图表引用")}: ${result.reference}`;
     toast(`${t("图表引用已写入")}: ${result.tex_path}`);
   } catch (error) {
+    if (!is_current()) return;
     if (status) status.textContent = `${t("图表引用失败")}: ${error}`;
     toastError(`${t("图表引用失败")}: ${error}`);
   }
@@ -129,6 +176,7 @@ export function renderResearchLatexHistory(entries = []) {
 }
 
 export async function refreshResearchLatexHistory() {
+  const is_current = research_context_guard();
   const topic = researchLatexTopic();
   if (!topic) {
     renderResearchLatexHistory();
@@ -141,14 +189,17 @@ export async function refreshResearchLatexHistory() {
       topic,
       documentName,
     });
+    if (!is_current()) return;
     renderResearchLatexHistory(Array.isArray(entries) ? entries : []);
   } catch (error) {
+    if (!is_current()) return;
     renderResearchLatexHistory();
     log(`${t("编译历史读取失败")}:${error}`, "warn");
   }
 }
 
 export async function previewResearchLatexPdf(pdfPath) {
+  const is_current = research_context_guard();
   const frame = $("research-latex-pdf");
   try {
     const result = await invoke("research_latex_pdf", {
@@ -156,10 +207,12 @@ export async function previewResearchLatexPdf(pdfPath) {
       topic: researchLatexTopic(),
       pdfPath,
     });
+    if (!is_current()) return;
     if (!frame) return;
     frame.src = `data:${result.media_type};base64,${result.data}`;
     frame.hidden = false;
   } catch (error) {
+    if (!is_current()) return;
     const status = $("research-latex-status");
     if (status) status.textContent = `${t("PDF 预览失败")}: ${error}`;
     toastError(`${t("PDF 预览失败")}: ${error}`);
@@ -167,6 +220,7 @@ export async function previewResearchLatexPdf(pdfPath) {
 }
 
 export async function compileResearchLatexDocument() {
+  const is_current = research_context_guard();
   const topic = researchLatexTopic();
   const documentName = $("research-latex-document-name")?.value || "main";
   const status = $("research-latex-status");
@@ -183,20 +237,24 @@ export async function compileResearchLatexDocument() {
       topic,
       documentName,
     });
+    if (!is_current()) return;
     if (diagnostics) {
       diagnostics.textContent = result.diagnostics || "";
       diagnostics.hidden = !result.diagnostics;
     }
     if (status) status.textContent = result.success ? t("编译成功") : t("编译失败，详见日志");
     await refreshResearchLatexHistory();
+    if (!is_current()) return;
     if (result.pdf_path) await previewResearchLatexPdf(result.pdf_path);
   } catch (error) {
+    if (!is_current()) return;
     if (status) status.textContent = `${t("编译失败")}: ${error}`;
     toastError(`${t("LaTeX 编译失败")}: ${error}`);
   } finally {
     if (button) button.disabled = false;
   }
 }
+
 export let researchFilters = { query: "", type: "", level: "", year: "", sort: "" };
 
 export function researchEntryType(entry) {
@@ -313,37 +371,68 @@ export function researchTopicLabel(topic) {
 }
 
 export function selectedResearchTopicData() {
+  const category = project_workspace().research.category;
   const topics = researchSnapshot.research_topics ?? [];
-  return topics.find((topic) => researchTopicKey(topic) === selectedResearchTopic) ?? topics[0] ?? {
-    topic: null,
-    legacy: true,
-    label: t("旧版平铺"),
-    sources: researchSnapshot.sources ?? [],
-    findings: researchSnapshot.findings ?? [],
-  };
+  return topics.find((topic) => researchTopicKey(topic) === selectedResearchTopic && research_category(topic) === category)
+    ?? { topic: null, legacy: false, label: "", sources: [], findings: [], runs: [] };
+}
+
+export function sync_research_process_context(item) {
+  const topic = item.research_topic || "";
+  const metadata = researchSnapshot.research_topics.find((entry) => entry.topic === topic);
+  if (metadata) save_research_workspace({ category: research_category(metadata) });
+  if (selectedResearchTopic === topic) return;
+  if (metadata || !topic) void select_research_topic(topic);
+  else selectedResearchTopic = topic;
 }
 
 export function renderResearchTopicPicker() {
   const select = $("research-topic-select");
   if (!select) return;
-  const topics = researchSnapshot.research_topics ?? [];
-  if (!topics.length) {
-    select.innerHTML = `<option value="">${t("暂无研究课题")}</option>`;
-    select.disabled = true;
-    selectedResearchTopic = "";
-    return;
-  }
-  const available = new Set(topics.map(researchTopicKey));
-  if (!available.has(selectedResearchTopic)) selectedResearchTopic = researchTopicKey(topics[0]);
-  select.disabled = false;
-  select.innerHTML = "";
+  const saved = project_workspace().research;
+  const topics = (researchSnapshot.research_topics ?? []).filter((topic) => research_category(topic) === saved.category);
+  selectedResearchTopic = topics.some((topic) => researchTopicKey(topic) === saved.topic)
+    ? saved.topic : topics.length ? researchTopicKey(topics[0]) : "";
+  if (saved.topic !== selectedResearchTopic) save_research_workspace({ topic: selectedResearchTopic });
+  select.replaceChildren();
+  select.disabled = !topics.length;
   for (const topic of topics) {
     const option = document.createElement("option");
     option.value = researchTopicKey(topic);
     option.textContent = researchTopicLabel(topic);
     select.appendChild(option);
   }
+  if (!topics.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = t("暂无研究课题");
+    select.appendChild(option);
+  }
   select.value = selectedResearchTopic;
+  render_research_navigation();
+}
+
+export async function select_research_topic(topic) {
+  research_context_generation += 1;
+  selectedResearchTopic = topic;
+  selectedResearchExplorationId = "";
+  researchPlan = null;
+  researchFilters = { query: "", type: "", level: "", year: "", sort: "" };
+  save_research_workspace({ topic });
+  clear_research_writing();
+  renderResearchTopicPicker();
+  renderResearchCards();
+  renderResearchRoadmap();
+  renderResearchExplorationDetail();
+  renderResearchRuns();
+  renderResearchPlan(null);
+  research_report_text = null;
+  renderResearchReport("");
+  const is_current = research_context_guard();
+  await Promise.all([refreshResearchPlan(), refreshResearchReport()]);
+  if (!is_current()) return;
+  render_research_overview();
+  sync_research_page();
 }
 
 export function selectedResearchEntries() {
@@ -364,15 +453,16 @@ export function renderResearchPlan(plan) {
   const tree = $("research-plan-tree");
   const approve = $("research-plan-approve");
   if (!panel || !status || !tree || !approve) return;
-  panel.hidden = !plan;
+  panel.hidden = false;
   tree.innerHTML = "";
-  if (!plan) return;
-  status.textContent = plan.status || "draft";
+  approve.hidden = !plan;
+  if (!plan) { status.textContent = t("尚未创建计划"); return; }
+  status.textContent = research_status_label(plan.status || "draft");
   approve.hidden = plan.status !== "awaiting_approval";
   const appendNode = (node, parent) => {
     const item = document.createElement("li");
     item.className = `research-plan-node plan-${node.status || "pending"}`;
-    item.textContent = `${node.id}: ${node.title} · ${node.status || "pending"}`;
+    item.textContent = `${node.title} · ${research_status_label(node.status || "pending")}`;
     if (node.objective) item.title = node.objective;
     parent.appendChild(item);
     if ((node.children ?? []).length) {
@@ -385,6 +475,8 @@ export function renderResearchPlan(plan) {
 }
 
 export async function refreshResearchPlan() {
+  const is_current = research_context_guard();
+  const project = currentProject;
   const topic = selectedResearchTopicData();
   if (topic.legacy || !topic.topic) {
     researchPlan = null;
@@ -393,9 +485,13 @@ export async function refreshResearchPlan() {
   }
   try {
     const snapshot = await invoke("research_plan_get", { projectDir: currentProject, topic: topic.topic });
+    if (!is_current()) return;
+    if (project !== currentProject || topic.topic !== selectedResearchTopicData().topic) return;
     researchPlan = snapshot.exists ? snapshot.plan : null;
     renderResearchPlan(researchPlan);
   } catch (error) {
+    if (!is_current()) return;
+    if (project !== currentProject || topic.topic !== selectedResearchTopicData().topic) return;
     researchPlan = null;
     renderResearchPlan(null);
     log(`${t("研究计划刷新失败")}:${error}`, "warn");
@@ -404,6 +500,7 @@ export async function refreshResearchPlan() {
 
 
 /// 取字段值(大小写与中英别名都认;取不到给空串)。
+
 export function researchField(entry, ...names) {
   const wanted = names.map((n) => n.toLowerCase());
   const hit = (entry.fields ?? []).find(([k]) => wanted.includes(String(k).toLowerCase()));
@@ -545,7 +642,7 @@ export function researchCard(entry, kind) {
       btn.textContent = `→ ${localizedDocStatus(next)}`;
       btn.addEventListener("click", async () => {
         try {
-          await invoke("docs_update", { projectDir: currentProject, kind, action: "update", id: entry.id, status: next });
+          await invoke("docs_update", { projectDir: currentProject, kind, action: "update", id: entry.id, topic: entry.topic || undefined, status: next });
           toast(`${entry.id} → ${localizedDocStatus(next)}`);
           refreshResearch();
         } catch (error) {
@@ -603,6 +700,7 @@ export function researchEdit(entry, kind, card) {
 export function researchFocus(id) {
   const target = String(id).trim();
   researchTab = target.startsWith("F-") ? "findings" : "sources";
+  show_research_page("literature");
   renderResearchCards();
   const card = document.querySelector(`.research-card[data-doc-id="${target}"]`);
   if (!card) return;
@@ -1015,18 +1113,26 @@ export function renderResearchReport(text) {
 }
 
 export async function refreshResearchReport() {
+  const project = currentProject;
+  const topic = selectedResearchTopicData();
+  if ((!topic.topic && !topic.legacy) || !topic.report) {
+    renderResearchReport(`_${t("尚未生成报告。可在课题对话中继续研究并整理成果。")}_`);
+    return;
+  }
   try {
-    const doc = await invoke("docs_read", {
-      projectDir: currentProject,
-      kind: "report",
-      ...selectedResearchTopicArg(),
-    });
-    renderResearchReport(doc.content ?? "");
-  } catch {
-    // 报告还没产出是正常状态(研究刚开始),给指引不报错。
-    renderResearchReport(`_${t("还没有报告。研究结束时把结论写进 .kanzei/research/report.md。")}_`);
+    const doc = await invoke("docs_read", { projectDir: project, kind: "report", ...selectedResearchTopicArg() });
+    if (project !== currentProject || topic.topic !== selectedResearchTopicData().topic) return;
+    if (research_report_text !== doc.content) {
+      research_report_text = doc.content;
+      renderResearchReport(doc.content ?? "");
+    }
+  } catch (error) {
+    if (project !== currentProject || topic.topic !== selectedResearchTopicData().topic) return;
+    renderResearchReport(`_${t("报告读取失败，请刷新重试。")}_`);
+    log(`${t("研究报告读取失败")}: ${error}`, "warn");
   }
 }
+let research_report_text = null;
 
 function researchRunPayload(event) {
   if (!event) return {};
@@ -1154,9 +1260,10 @@ export function renderResearchRuns() {
     try { cost = JSON.parse(run.cost_json || "{}"); } catch { cost = {}; }
     const costLine = document.createElement("span");
     costLine.className = "research-run-cost";
-    const gpuSeconds = Number(cost.gpu_seconds || 0);
-    const amount = Number(cost.amount || 0);
-    costLine.textContent = `${t("成本")}: ${gpuSeconds.toFixed(1)} gpu_seconds · ${amount.toFixed(4)} ${cost.currency || "billing_unit"}`;
+    const recorded = cost.amount != null || cost.gpu_seconds != null;
+    costLine.textContent = recorded
+      ? `${t("成本")}: ${cost.gpu_seconds == null ? "—" : Number(cost.gpu_seconds).toFixed(1)} GPU s · ${cost.amount == null ? "—" : Number(cost.amount).toFixed(4)} ${cost.currency || ""}`
+      : t("成本未记录");
     card.appendChild(costLine);
     renderResearchRunMetricChart(card, events);
     renderResearchRunArtifacts(card, run);
@@ -1180,38 +1287,53 @@ let researchRefreshTimer = null;
 export function startResearchPolling() {
   if (researchRefreshTimer) return;
   researchRefreshTimer = setInterval(() => {
-    if ($("profile-select")?.value === "research" && $("view-research")?.classList.contains("active")) {
+    if (active_space === "research" && $("view-research")?.classList.contains("active")) {
       refreshResearch();
     }
   }, 1000);
 }
 
 
+const research_refresh_inflight = new Map();
 export async function refreshResearch() {
   if (!currentProject) return;
-  try {
-    const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
-    researchSnapshot = {
-      sources: snapshot.sources ?? [],
-      findings: snapshot.findings ?? [],
-      research_topics: snapshot.research_topics ?? [],
-    };
-  } catch (error) {
-    log(`${t("研究工件刷新失败")}:${error}`, "warn");
-  }
-  renderResearchTopicPicker();
-  await refreshResearchLatexTemplates();
-  await refreshResearchLatexHistory();
-  const topic = selectedResearchTopicData();
-  const counts = [$("research-sources-count"), $("research-findings-count")];
-  if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
-  if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
-  renderResearchCards();
-  renderResearchRoadmap();
-  renderResearchExplorationDetail();
-  renderResearchRuns();
-  await refreshResearchPlan();
-  await refreshResearchReport();
+  const project = currentProject;
+  if (research_refresh_inflight.has(project)) return research_refresh_inflight.get(project);
+  const request = (async () => {
+    try {
+      const snapshot = await invoke("docs_snapshot", { projectDir: project });
+      if (project !== currentProject) return;
+      researchSnapshot = { sources: snapshot.sources ?? [], findings: snapshot.findings ?? [], research_topics: snapshot.research_topics ?? [] };
+      $("research-load-error")?.classList.add("hidden");
+      renderResearchTopicPicker();
+      const topic = selectedResearchTopicData();
+      if ($("research-sources-count")) $("research-sources-count").textContent = String((topic.sources ?? []).length);
+      if ($("research-findings-count")) $("research-findings-count").textContent = String((topic.findings ?? []).length);
+      renderResearchCards();
+      renderResearchRoadmap();
+      renderResearchExplorationDetail();
+      renderResearchRuns();
+      await Promise.all([refreshResearchPlan(), refreshResearchReport()]);
+      if (project !== currentProject) return;
+      if (project_workspace().research.page === "writing") {
+        if (!researchLatexTemplates.length) await refreshResearchLatexTemplates();
+        await refreshResearchLatexHistory();
+      }
+      if (project !== currentProject) return;
+      render_research_overview();
+      sync_research_page();
+    } catch (error) {
+      if (project !== currentProject) return;
+      const message = $("research-load-error");
+      if (message) { message.textContent = `${t("研究工件刷新失败")}: ${error}`; message.classList.remove("hidden"); }
+      log(`${t("研究工件刷新失败")}: ${error}`, "warn");
+    } finally {
+      research_refresh_inflight.delete(project);
+    }
+  })();
+  research_refresh_inflight.set(project, request);
+  startResearchPolling();
+  return request;
 }
 
 defer(() => {
@@ -1235,17 +1357,8 @@ defer(() => {
 });
 defer(() => {
   $("research-topic-select")?.addEventListener("change", async (event) => {
-    selectedResearchTopic = event.currentTarget.value;
-    const topic = selectedResearchTopicData();
-    const counts = [$("research-sources-count"), $("research-findings-count")];
-    if (counts[0]) counts[0].textContent = String((topic.sources ?? []).length);
-    if (counts[1]) counts[1].textContent = String((topic.findings ?? []).length);
-    renderResearchCards();
-    renderResearchRoadmap();
-    renderResearchExplorationDetail();
-    renderResearchRuns();
-    await refreshResearchPlan();
-    await refreshResearchReport();
+    await select_research_topic(event.currentTarget.value);
+    show_research_page("overview");
   });
 });
 
@@ -1270,9 +1383,11 @@ defer(() => {
 defer(() => {
   $("research-plan-approve")?.addEventListener("click", async () => {
     const topic = selectedResearchTopicData();
+    const is_current = research_context_guard();
     if (!topic.topic) return;
     try {
       const result = await invoke("research_plan_approve", { projectDir: currentProject, topic: topic.topic });
+      if (!is_current()) return;
       researchPlan = result.plan ?? researchPlan;
       renderResearchPlan(researchPlan);
       toast(t("研究计划已批准"));
@@ -1282,21 +1397,8 @@ defer(() => {
   });
 });
 
-/// research 档才出现研究工作台;dev 档反过来藏起研究入口。
-/// 用户定调:research 档下 dev 视图(需求/缺陷/测试/git)完全隐藏,模式感优先。
-export const DEV_ONLY_VIEWS = ["documents", "metrics", "arch"];
+// 可见性由空间导航统一控制；保留入口供原有导入方调用。
+export const DEV_ONLY_VIEWS = ["documents", "metrics", "arch", "lines"];
 export function syncResearchWorkspaceVisibility() {
-  const isResearch = $("profile-select")?.value === "research";
-  if (isResearch) startResearchPolling();
-  $("activity-research")?.classList.toggle("hidden", !isResearch);
-  for (const view of DEV_ONLY_VIEWS) {
-    document.querySelector(`.activity-item[data-view="${view}"]`)?.classList.toggle("hidden", isResearch);
-  }
-  // 正停在被隐藏的视图上时退回对话,避免留在一个入口已消失的页面里。
-  const active = document.querySelector(".view.active")?.id ?? "";
-  const strandedOnDev = isResearch && DEV_ONLY_VIEWS.some((v) => active === `view-${v}`);
-  const strandedOnResearch = !isResearch && active === "view-research";
-  if (strandedOnDev || strandedOnResearch) {
-    document.querySelector('.activity-item[data-view="chat"]')?.click();
-  }
+  if (active_space === "research") startResearchPolling();
 }

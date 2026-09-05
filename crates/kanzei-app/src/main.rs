@@ -36,6 +36,7 @@ mod processes;
 mod projection_gate;
 mod projects;
 mod research_latex;
+mod research_topics;
 mod run;
 mod screenshot;
 mod settings;
@@ -172,6 +173,7 @@ fn main() {
             projects::projects_select,
             projects::workspace_snapshot,
             docs::docs_snapshot,
+            research_topics::research_topic_create,
             docs::research_plan_get,
             docs::research_plan_approve,
             docs::docs_archive_entries,

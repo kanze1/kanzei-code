@@ -886,9 +886,6 @@ export function renderDocsSnapshot(snapshot) {
   renderFocusPanel(snapshot);
   renderDocList($("idea-list"), snapshot.ideas ?? [], "idea", snapshot.archived?.idea ?? 0, NEUTRAL_DOC_FILTERS, snapshot.archived_entries?.idea ?? []);
   renderDocuments(snapshot);
-  renderDocList($("source-list"), snapshot.sources ?? [], "source", snapshot.archived?.source ?? 0, NEUTRAL_DOC_FILTERS, snapshot.archived_entries?.source ?? []);
-  renderDocList($("finding-list"), snapshot.findings ?? [], "finding", snapshot.archived?.finding ?? 0, NEUTRAL_DOC_FILTERS, snapshot.archived_entries?.finding ?? []);
-  $("research-count").textContent = `${(snapshot.sources ?? []).length + (snapshot.findings ?? []).length}`;
   $("req-count").textContent = `${snapshot.requirements.filter((r) => !r.closed).length}`;
   $("defect-count").textContent = `${snapshot.defects.filter((d) => !d.closed).length}`;
   $("idea-count").textContent = `${(snapshot.ideas ?? []).filter((g) => g.status === "inbox").length}`;

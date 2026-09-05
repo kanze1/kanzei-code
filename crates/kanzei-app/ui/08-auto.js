@@ -2,6 +2,7 @@ import { defer } from "./01-core.js";
 import { $, invoke, uiPrefsLoad } from "./01-core.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
+  activeProcessId,
   activeSessionId,
   currentProject,
   log,
@@ -79,10 +80,11 @@ export const DEFAULT_CONTINUE_PROMPT = "继续推进，规则按系统提示执�
 // 无动作判定与推进指令由引擎给出,前端只负责在收到 Nudge 动作时发送。
 
 export function selectedAgent() {
+  if (processItems.find((item) => item.id === activeProcessId)?.profile === "research") return { profile: "research", agent: "research" };
   const mode = $("profile-select").value;
   if (mode === "dev-pair") return { profile: "dev", agent: "dev-pair" };
   if (mode === "dev-auto") return { profile: "dev", agent: "dev" };
-  return { profile: "research", agent: "research" };
+  return { profile: "dev", agent: "dev-pair" };
 }
 
 // R-322:门禁强度的**唯一真源是后端** `intensity_for_agent`(crates/kanzei-app/src/
@@ -243,7 +245,7 @@ export function setAutoStopReason(reason) {
 // R-322 B2:dev 两档都能续跑,区别在门禁强度不在能不能跑;research 仍拒绝。
 // 判据必须与后端 coordinator.rs 的 auto_allowed 一致(profile 级,不看 agent)。
 export function autoContinueAllowed() {
-  return $("profile-select").value !== "research";
+  return selectedAgent().profile !== "research";
 }
 // 兼容旧状态/配置的读取接口。`auto_max` 仍可被旧前端状态携带,但不再是停止条件或界面设置。
 export function autoContinueMax() {

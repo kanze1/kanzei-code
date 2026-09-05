@@ -80,6 +80,7 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
                 branch: restored_branch.clone(),
                 model: Arc::new(Mutex::new(None)),
                 profile: Arc::new(Mutex::new(None)),
+                research_topic: Arc::new(Mutex::new(None)),
                 reasoning: Arc::new(Mutex::new(None)),
                 manual_models: Arc::new(Mutex::new(Vec::new())),
                 phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
@@ -90,6 +91,7 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
         // 库值回填:process_update 每次落库,库是持久字段的权威。
         *handle.model.lock_or_recover() = record.model;
         *handle.profile.lock_or_recover() = record.profile;
+        *handle.research_topic.lock_or_recover() = record.research_topic;
         *handle.reasoning.lock_or_recover() = record.reasoning;
         *handle.manual_models.lock_or_recover() = record.manual_models;
         handle
@@ -147,6 +149,7 @@ pub(crate) fn persist_process(root: &Path, process: &ProcessHandle) -> Result<()
                 .map(|worktree| worktree.0.display().to_string()),
             model: process.model.lock_or_recover().clone(),
             profile: process.profile.lock_or_recover().clone(),
+            research_topic: process.research_topic.lock_or_recover().clone(),
             reasoning: process.reasoning.lock_or_recover().clone(),
             manual_models: process.manual_models.lock_or_recover().clone(),
             phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
@@ -226,6 +229,7 @@ fn process_index(id: &str) -> Option<u64> {
 pub(crate) struct ThreadSettings {
     pub(crate) model: Option<String>,
     pub(crate) profile: Option<String>,
+    pub(crate) research_topic: Option<String>,
     pub(crate) reasoning: Option<String>,
     pub(crate) phase_pipeline: Option<bool>,
     pub(crate) subagents_enabled: Option<bool>,
@@ -254,6 +258,7 @@ pub(crate) fn register_process(
     let ThreadSettings {
         model,
         profile,
+        research_topic,
         reasoning,
         phase_pipeline,
         subagents_enabled,
@@ -300,6 +305,7 @@ pub(crate) fn register_process(
         branch,
         model: Arc::new(Mutex::new(model.filter(|value| !value.trim().is_empty()))),
         profile: Arc::new(Mutex::new(profile.filter(|value| !value.trim().is_empty()))),
+        research_topic: Arc::new(Mutex::new(research_topic)),
         reasoning: Arc::new(Mutex::new(
             reasoning.filter(|value| !value.trim().is_empty()),
         )),
@@ -321,6 +327,7 @@ pub(crate) fn register_process(
                 .map(|worktree| worktree.0.display().to_string()),
             model: process.model.lock_or_recover().clone(),
             profile: process.profile.lock_or_recover().clone(),
+            research_topic: process.research_topic.lock_or_recover().clone(),
             reasoning: process.reasoning.lock_or_recover().clone(),
             manual_models: process.manual_models.lock_or_recover().clone(),
             phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),

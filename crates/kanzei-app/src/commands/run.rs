@@ -225,6 +225,7 @@ pub(crate) async fn run_prompt(
     process_id: Option<String>,
     autonomous: Option<bool>,
     auto_allow: Option<bool>,
+    research_topic: Option<String>,
 ) -> Result<(), String> {
     let autonomous = autonomous.unwrap_or(false);
     // D-281:自动放行开关——autonomous/parallel 轮在用户勾选时传 AutoAllow。
@@ -273,6 +274,12 @@ pub(crate) async fn run_prompt(
     let code_root = code_root_for(worktree_opt.as_deref(), &project_dir);
     let session_id = process_session_id(&project_root, Some(&process.id));
     let profile = profile.or_else(|| process.profile.lock().unwrap().clone());
+    let research_topic = crate::research_topics::validate_run_topic(
+        &project_root,
+        profile.as_deref(),
+        process.research_topic.lock().unwrap().as_deref(),
+        research_topic.as_deref(),
+    )?;
     let model = model.or_else(|| process.model.lock().unwrap().clone());
     let reasoning = process.reasoning.lock().unwrap().clone();
     let phase_pipeline_enabled = process.phase_pipeline_enabled.load(Ordering::SeqCst);
@@ -350,6 +357,7 @@ pub(crate) async fn run_prompt(
                     subagents_enabled,
                     block_tracker_writes,
                     profile: profile.clone(),
+                    research_topic: research_topic.clone(),
                     agent_name: agent.clone(),
                     model_override: model.clone(),
                     work_priority: work_priority.clone(),

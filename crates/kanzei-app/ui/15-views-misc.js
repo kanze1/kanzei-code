@@ -50,6 +50,7 @@ import { cancelAutoContinueTimer } from "./08-auto.js";
 import { processRunning, processSwitchGeneration, refreshProcesses, switchProcess } from "./09-sessions.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import { forProject } from "./20-lines.js";
+import { active_space, create_workspace_process, project_workspace } from "./03-workspaces.js";
 
 // ---------- R-053 快速记录:独立子代理结构化落库(需求/缺陷通用),不打断主对话 ----------
 export function quickCaptureForm(kind, sectionId, noun) {
@@ -857,6 +858,11 @@ export function clearChat(noticeText) {
 
 defer(() => {
   $("new-chat").addEventListener("click", async () => {
+    if (active_space === "research") {
+      try { await create_workspace_process(project_workspace().research.topic); }
+      catch (error) { toastError(String(error)); }
+      return;
+    }
     // 鞭挞的轮间等待(runControlPending)后端已收尾、running 为假,但下一轮定时器还挂着:
     // 这个窗口里清空会被随即开跑的那一轮立刻灌满,用户看到的是「点了没用」。它和运行中
     // 一样属于"这条线还没停",一并挡住,并由 setRunning/setRunPending 把按钮真的禁掉——
@@ -913,8 +919,7 @@ defer(() => {
 });
 
 defer(() => {
-  for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["idea-open", "idea"], ["report-open", "report"]]) {
+  for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["idea-open", "idea"]]) {
     $(btn).addEventListener("click", () => openDocViewer(kind));
   };
 });
-

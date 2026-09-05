@@ -27,6 +27,8 @@ pub(crate) struct AppPrefs {
     pub(crate) continue_prompt: Option<String>,
     #[serde(default)]
     pub(crate) process_auto_state: HashMap<String, Value>,
+    #[serde(default)]
+    pub(crate) workspace_state: HashMap<String, Value>,
 }
 
 fn prefs_path() -> PathBuf {
@@ -89,16 +91,19 @@ pub fn ui_prefs_get() -> serde_json::Value {
         "auto_max": p.auto_max,
         "continue_prompt": p.continue_prompt,
         "process_auto_state": p.process_auto_state,
+        "workspace_state": p.workspace_state,
     })
 }
 
-#[tauri::command]
+// UI 偏好通道的请求与持久化对象都使用 snake_case。
+#[tauri::command(rename_all = "snake_case")]
 pub fn ui_prefs_set(
     theme: Option<String>,
     work_priority: Option<HashMap<String, String>>,
     auto_max: Option<u32>,
     continue_prompt: Option<String>,
     process_auto_state: Option<HashMap<String, Value>>,
+    workspace_state: Option<HashMap<String, Value>>,
 ) -> Result<(), String> {
     let mut prefs = load_prefs();
     apply_ui_prefs(
@@ -109,6 +114,9 @@ pub fn ui_prefs_set(
         continue_prompt,
         process_auto_state,
     );
+    if let Some(workspace_state) = workspace_state {
+        prefs.workspace_state = workspace_state;
+    }
     save_prefs(&prefs);
     Ok(())
 }
@@ -151,6 +159,21 @@ mod tests {
         assert!(p.work_priority.is_empty());
         assert!(p.auto_max.is_none());
         assert!(p.process_auto_state.is_empty());
+        assert!(p.workspace_state.is_empty());
+    }
+
+    #[test]
+    fn workspace_preferences_preserve_each_project_and_space() {
+        let mut p = AppPrefs::default();
+        p.workspace_state.insert("project-a".into(), json!({"space":"research","dev":{"process_id":"dev-a","view":"chat"},"research":{"process_id":"research-a","topic":"topic-a","page":"writing","view":"research"}}));
+        p.workspace_state
+            .insert("project-b".into(), json!({"space":"dev"}));
+        let restored: AppPrefs = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(restored.workspace_state, p.workspace_state);
+        assert_eq!(
+            restored.workspace_state["project-a"]["research"]["topic"],
+            "topic-a"
+        );
     }
 
     #[test]

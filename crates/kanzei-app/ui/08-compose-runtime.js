@@ -75,6 +75,7 @@ import { state } from "./08-compose.js";
 import { processRunning, refreshParallelTaskProjection, refreshPendingInputs } from "./09-sessions.js";
 import { syncResearchWorkspaceVisibility } from "./19-research.js";
 import { collaborationLines, renderLines } from "./20-lines.js";
+import { sync_workspace_visibility } from "./03-workspaces.js";
 
 // `running` 与上面四条不同:它是**瞬态**,不是用户意图。kz:done 有意不收回运行态
 // (07-events.js:328「真正收回由 kz:idle/kz:stopped 负责」),所以 2 秒到点时上一轮
@@ -407,6 +408,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [] } 
       prompt,
       projectDir: requestProject,
       profile: mode.profile,
+      researchTopic: processItems.find((item) => item.id === requestProcessId)?.research_topic || undefined,
       agent: mode.agent,
       model: lineModelFor(requestProcessId),
       workPriority: selectedWorkPriority(),
@@ -820,7 +822,7 @@ defer(() => {
 // 旧 auto_max 控件已移除。历史配置仍由 normalizeAutoState 读取,但不再被用户编辑或用作停止门禁。
 defer(() => {
   $("auto-continue").addEventListener("change", () => {
-    if ($("auto-continue").checked && $("profile-select").value === "research") {
+    if ($("auto-continue").checked && selectedAgent().profile === "research") {
       // R-224:research 档位仍拒绝——研究模式无自主推进语义,自动切会掩盖误操作。
       $("auto-continue").checked = false;
       setAutoRounds(activeSessionId, 0);
@@ -867,16 +869,12 @@ export function syncResearchSectionVisibility() {
   // 放在早退之前:research-section 不存在时强度徽标仍要刷新。
   if (typeof renderHarnessIntensity === "function") renderHarnessIntensity();
   if (typeof renderGoalState === "function") renderGoalState();
-  const section = $("research-section");
-  if (!section) return;
-  section.classList.toggle("hidden", $("profile-select")?.value !== "research");
-  // R-276 批3:侧栏研究区与主视图工作台同一个档位判据,一处切换两处同步。
-  if (typeof syncResearchWorkspaceVisibility === "function") syncResearchWorkspaceVisibility();
+  sync_workspace_visibility();
 }
 export const PROFILE_STORAGE_KEY = "kz-profile";
 export const savedProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
 defer(() => {
-  if (["dev-pair", "dev-auto", "research"].includes(savedProfile)) {
+  if (["dev-pair", "dev-auto"].includes(savedProfile)) {
     $("profile-select").value = savedProfile;
   };
 });
@@ -1099,8 +1097,7 @@ export function applyProfileValue(backendProfile) {
   const fallback = activeProcessId?.startsWith("d|") && ["dev-pair", "dev-auto"].includes(globalChoice)
     ? globalChoice
     : "dev-pair";
-  if (backendProfile === "research") $("profile-select").value = "research";
-  else $("profile-select").value = remembered && remembered !== "research" ? remembered : fallback;
+  if (backendProfile !== "research") $("profile-select").value = remembered && remembered !== "research" ? remembered : fallback;
   // 回显期间关掉的鞭挞只是**跟随显示**,不是用户按下的开关:不落盘、不写全局键。
   applyingProfileEcho = true;
   try {
@@ -1113,12 +1110,13 @@ export function applyProfileValue(backendProfile) {
 defer(() => {
   $("profile-select").addEventListener("change", () => {
     const value = $("profile-select").value;
+    if (selectedAgent().profile === "research") return;
     syncResearchSectionVisibility();
     localStorage.setItem(PROFILE_STORAGE_KEY, value);
     if (activeProcessId) {
       processProfileUi.set(activeProcessId, value);
       persistProcessProfiles();
-      const profile = value === "research" ? "research" : "dev";
+      const profile = "dev";
       updateLocalProcessItem(activeProcessId, { profile });
       queueProcessUpdate(activeProcessId, { profile })
         .catch((error) => reportPersistentError(`${t("进程模式保存失败")}:${error}`));
