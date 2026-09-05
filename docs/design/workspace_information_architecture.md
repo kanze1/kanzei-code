@@ -1,10 +1,10 @@
 # 开发与研究空间信息架构
 
 - 身份: validated_design
-- 状态: 源码实现与分层回归已完成；完整 verify、打包及真实桌面验收待执行。
-- 实施条目: R-360、D-742，关闭记录等待当前提交绑定的完整 verify。
+- 状态: 源码实现、分层回归及完整 verify 已通过；发布结果以对应 GitHub Release 为准，原生桌面关键交互验收单独跟踪。
+- 实施条目: R-360、D-742，保留进行中状态跟踪原生桌面关键交互验收。
 - 日期: 2026-09-06
-- 最近核验提交: ce95733b（源码及分层回归）；完整 verify 和原生桌面仍待执行。
+- 最近核验提交: 894180e2（完整 verify 与浏览器交互）；正式发布前须重新生成绑定发布提交的完整 verify 证据。
 
 ## 产品结构
 
@@ -33,7 +33,8 @@ processes 新增可空 research_topic 字段，沿用原生 SQLite schema v22 �
 - [x] 课题身份、创建入口、会话绑定和后端发送校验。
 - [x] 研究概览、文献、计划、实验、成果、写作分屏；引用、报告和文献状态写入带课题。
 - [x] 更新 i18n、IPC 参数约定、回归测试与浏览器布局检查。
-- [ ] 当前提交的完整 verify 证据与真实桌面安装验收。
+- [x] 894180e2 的完整 verify 证据，14 项检查全部通过，无跳过步骤。
+- [ ] 安装后完成真实桌面关键交互验收。
 
 关键回归：开发自主运行中进入研究再返回；课题 A/B 各自会话与输入草稿恢复；重启后恢复空间、页面、课题和会话；跨项目迟到响应不覆盖新上下文；报告引用保持 topic；权限和自动运行原有门禁继续生效；空课题、读取失败、创建失败有可操作反馈。
 
@@ -48,8 +49,10 @@ processes 新增可空 research_topic 字段，沿用原生 SQLite schema v22 �
 | 前端静态与运行 | `ui-lint-smoke.mjs`、`ui-i18n-smoke.mjs`、`ui-a11y-smoke.mjs`、`ui-markdown-smoke.mjs`、`ipc-event-smoke.mjs`、`ui-runtime-smoke.mjs` | 全部通过；运行脚本需 `node --experimental-vm-modules` |
 | 既有布局与线路 | `node scripts/ui-narrow-layout-smoke.mjs`、`node scripts/parallel-lines-regression.mjs` | 5 视口 × 6 布局状态及并行线路护栏通过 |
 | 研究完整交互 | `node scripts/ui-workspace-smoke.mjs` | Edge 实际 DOM + 本地模拟 IPC；3 视口 × 6 页面及下列操作通过 |
-| 完整仓库门禁 | `pwsh -File scripts/verify.ps1 -Full` | 待执行；未生成本次 HEAD 的 dist/verification.json |
-| 真实桌面与安装包 | 关闭旧应用后安装/启动新构建，重复关键操作 | 待执行；浏览器模拟验证不代表原生 IPC、安装或真实模型任务已验收 |
+| 完整仓库门禁 | `pwsh -File scripts/verify.ps1 -Full` | 894180e2 已通过 14 项检查，无跳过步骤；Rust 1575 passed、0 failed；子进程辅助入口与文档伪代码共 2 项标记 ignored |
+| 真实桌面关键交互 | 安装/启动新构建，重复关键操作 | 待执行；浏览器模拟验证不代表原生 IPC 或真实模型任务已验收 |
+
+2026-09-06 用户授权完整验证及云端发布。发布流程在专用发布工作树执行，完整门禁绑定最终发布提交，并核对 GitHub Release 标签、公开状态、安装包大小、SHA-256 和 HTTP 206 下载响应；结果记录在对应 Release。安装器校验与上述原生桌面关键交互分别验收。
 
 ### 可重复的用户路径
 

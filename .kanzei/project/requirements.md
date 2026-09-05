@@ -383,11 +383,11 @@
 - 复杂度: 大
 - 来源: 用户原话「可以我认可你说的点，按照这个设计，帮我进行改造吧」
 - 标签: 前端
-- 进展: 已完成开发/研究独立空间、分类导航、课题创建及会话绑定、分屏研究页、草稿附件隔离和迟到响应守卫。store 110 tests、app 260 tests、前端运行与静态回归、Edge 模拟 IPC 3 视口×6 页面通过。验证细节与原生桌面操作路径见 docs/design/workspace_information_architecture.md；完整 verify、安装及真实桌面验收尚未执行，保留 doing 等待提交绑定证据。
+- 进展: 开发与研究空间、独立侧栏、课题会话及研究页面已实现。894180e2 完整 verify 14 项检查全部通过，Rust 1575 passed、0 failed；另有子进程辅助入口与文档伪代码共 2 项标记 ignored。ui-workspace-smoke 的会话、草稿、附件隔离及 3 视口×6 页面通过。用户已授权云端发布，发布结果以 GitHub Release 为准；原生桌面关键交互仍待安装后验收，保留 doing。
 - 验收: 导航不改写任务 profile；课题会话绑定持久化；报告按课题读取；开发调研独立分类；相关回归通过。
 - 优先级: P1
-- observed_head: 0ac5755ca01760a9a4b1149c8c351287aa36791c
-- observed_worktree_hash: fnv1a64:951470f18ba20475
-- recorded_at: 1788636983050
-- 后续验收: pwsh -File scripts/verify.ps1 -Full；完整门禁通过后打包并重复设计文档中的真实桌面路径。
+- observed_head: 894180e2192e2256983ad842f6c4516c9fa05619
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1788637581467
+- 后续验收: 发布前在发布提交运行 pwsh -File scripts/verify.ps1 -Full；上传后核对 tag、安装包大小和 SHA-256、HTTP 206；安装后重复设计文档中的原生桌面关键操作。
 - 实现提交: ce95733b

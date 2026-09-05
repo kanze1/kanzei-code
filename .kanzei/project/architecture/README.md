@@ -50,7 +50,7 @@
 - [identity: validated_design; last_verified_commit: d374cb9f] [`r059_mobile_agent_communication.md`](../../../docs/design/r059_mobile_agent_communication.md)：主代理/子代理消息与通知演进设计(R-059 dropped、R-270/R-271 done，R-288 真机 E3 仍在范围)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`r108_ai_design_decision_records.md`](../../../docs/design/r108_ai_design_decision_records.md)：设计记录规范的真实示例(R-108 done)。
 - [identity: validated_design; last_verified_commit: 8ed3256f] [`r310_repo_map_design.md`](../../../docs/design/r310_repo_map_design.md)：代码地图形态与 token 成本对比——symbols 实时按需查询胜出(R-310 B3 done)。
-- [identity: validated_design; last_verified_commit: ce95733b] [`workspace_information_architecture.md`](../../../docs/design/workspace_information_architecture.md)：开发与研究独立空间、课题绑定会话及研究页面；源码与分层回归通过，完整 verify 和原生桌面验收仍待执行(R-360/D-742)。
+- [identity: validated_design; last_verified_commit: 894180e2] [`workspace_information_architecture.md`](../../../docs/design/workspace_information_architecture.md)：开发与研究独立空间、课题绑定会话及研究页面；源码、分层回归和完整 verify 已通过，原生桌面关键交互验收仍待执行(R-360/D-742)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`reliability_usability_self_hosting_quality.md`](../../../docs/design/reliability_usability_self_hosting_quality.md)：可靠性、可用性与自举质量不变量、验证证据和 R-317 执行模型权威。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`ui_esm_migration.md`](../../../docs/design/ui_esm_migration.md)：前端 ESM 迁移评估(结论:保持有序 classic script,A-008)。
 
