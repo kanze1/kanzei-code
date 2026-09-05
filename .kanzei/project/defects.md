@@ -12,23 +12,8 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787602751911
 - 阻塞: 
-- 对账: 2026-08-20 对账:用户已关闭 kzapp 窗口,阻塞解除;剩余动作=重新启动安装位 kzapp 回读持久化 auto state 完成真实重启验收(桌面窗口空闲期执行,CLI 循环亦可承接);其余验收已通过(8f490d92)
-- 停车: 等待用户空闲窗口：Computer Use 已确认安装位 kzapp 当前有唯一使用中窗口；剩余验收=退出→重启→回读持久化 auto state。用户空闲后由 agent 执行。
-
-## D-566 cross-tree 隔离快照无回收且构建产物误报,121 目录 143MB 纯堆积 [fixing] (medium)
-- refs: D-395 D-397 R-306
-- 复杂度: 中
-- 复现: .kanzei/quarantine/ 现存 121 个目录共 143MB(shell-with-log 82、cross-tree 32、bg 7),最早 2026-08-16,无任何回收路径。抽查 cross-tree-1787021081327:内容是 crates/kanzei-app/gen/schemas/desktop-schema.json 与 windows-schema.json——Tauri 构建产物,任一线跑构建即重生成,被越界检测当跨树写入取证;cross-tree-1787060772922 存的是 p16 线自己 R-299 B1 提交(7188ba76)的前置内容,合法自身工作被判越界。08-16 单日 30 次 cross-tree 隔离(两线并行互撞日)
-- 影响: 误报占绝大多数,真越界信号被淹没;143MB 取证快照只进不出;构建产物类路径每次并行构建都会再触发
-- 标签: 流程
-- 验收: ①构建产物路径(gen/schemas 等)进入越界检测豁免清单或按内容指纹放行,有定向测试;②quarantine 提供按日期/类型的清理入口(dry-run+实际释放量),真越界证据可显式保留;③清理后 121 个存量目录处置留痕;④真实并行双线构建实测不再产生 schema 误报
-- 优先级: P2
-- 进展: B1 已提交 38497890：cross_tree.rs:48-82 新增 gen/schemas 完整路径级豁免，:214-218/:298-300 两条扫描路径共用 is_excluded_path；新增 tools/quarantine.rs:1-202，已知类型/毫秒时间戳扫描、dry-run eligible_bytes、apply freed_bytes、未知命名目录 preserved_paths。B2 已提交 e4ecfcf1：cli/quarantine.rs:1-121 提供真实 `kz quarantine` 调用方，默认 dry-run，apply 必须带 type/date 筛选；cli/mod.rs:20-56 接入分发，:86-90 接入帮助。B2 审计补强已提交 3adcfd66：tools/quarantine.rs:21-51 新增 CleanupAudit，:96-126 append_audit 每次成功 dry-run/apply 追加 `.kanzei/quarantine/cleanup-log.jsonl`，记录 eligible_paths 与 preserved_paths、筛选条件、字节和模式；:213-217 单测断言候选与保留目录均进 JSONL。T-1786922726528：393 passed、0 failed、1 ignored；T-1786922726529：真实 CLI dry-run 生成审计记录。新增真实并行验证：T-1786922726530，主树与同 HEAD 临时 worktree 并行执行 cargo tauri build --config {bundle active=false} 均 exit=0，两边各生成4个 gen/schemas 文件，主树 quarantine 目录数保持1、临时树为0。验收对账：①已完成，路径级豁免与回归在 cross_tree.rs:48-82、:806-828，T-1786922726524；②已完成，真实 CLI 为 cli/mod.rs:52、cli/quarantine.rs:58-91，dry-run/apply证据 T-1786922726527，未知证据保留由 tools/quarantine.rs:82-93、:128-156 保证；③新增未来每次清理的逐目录审计留痕：tools/quarantine.rs:96-126 的 cleanup-log.jsonl，T-1786922726528/6529 已断言候选/保留路径落盘并由真实 CLI 触发；历史基线仍为121目录/143MB，当前盘点为1目录/1204224 bytes，历史120目录无独立逐目录 manifest，故历史存量部分仍显式降级；④已完成，真实并行双线 Tauri 构建 T-1786922726530：两 worktree 同 HEAD、两个真实构建均成功，gen/schemas 各4个且无新增 quarantine schema 误报。下一步：提交本次并行验证记录；D-566 仍 fixing，仅③历史逐目录证据缺口未关闭。
-- observed_head: 3adcfd663ccd5736581d107aa09ffa36a3926fd6
-- observed_worktree_hash: fnv1a64:441f9460a9730954
-- recorded_at: 1787192820656
-- 批次: 2/2
-- 停车: 历史121目录逐目录manifest无法从当前文件系统重建；代码与真实并行构建已完成，暂让位下一条可执行缺陷；恢复人:agent，恢复条件:找到历史清单或重新产生可逐目录审计的存量窗口
+- 对账: 2026-09-05 对账:kzapp 安装位进程当前未运行(Get-Process kzapp 为空),停车前提「等待用户空闲窗口」已达成,恢复为 defect-first 队首 WIP;剩余动作=启动安装位 kzapp 回读持久化 auto state 完成真实重启验收
+- 停车: 
 
 ## D-568 记忆 INDEX 描述串号污染:M-014/M-015 描述抄错条目,毒化 FTS 检索 [fixing] (medium)
 - 复杂度: 小
@@ -41,7 +26,7 @@
 - observed_head: 11b60ae32647a5ff999329120316e8ffebad7fd8
 - observed_worktree_hash: fnv1a64:441f9460a9730954
 - recorded_at: 1787203506741
-- 停车: WIP 单槽纪律：R-353 已有进行中的 finalize/deliver 实现与未提交改动，本条主动让位；待 R-353 收口后恢复；恢复人:agent
+- 停车: 排队:D-504 现为 defect-first 队首 WIP,本条排其后恢复;R-316 修正通道已 done,恢复后按进展所列路径修 M-014/M-015 源文件→refresh_derived 重建 INDEX/FTS→②全量核对→③抽查;恢复人:agent;解除条件:D-504
 
 ## D-577 raw_lines 把空行判成游离段落且 raw_delete 报成功后游离行仍在,后置条件不成立 [fixing] (medium)
 - 复杂度: 中
@@ -57,7 +42,7 @@
 - recorded_at: 1787235788581
 - 验收对账: ①已完成：`crates/kanzei-memory/src/docstore/validation.rs:273-287` 只返回非空 Raw；docstore 回归 `docstore.rs:321-342` 与 tracker 回归 `tracker.rs:1539-1549` 证明布局空行不再计数；T-1786922726559。②已完成：`validation.rs:313-365` 删除按同一 ordinal 契约定位，原子写回后 `load()` + `raw_lines()` 复查条目存在和数量，失败返回“raw_delete 后置条件失败”；T-1786922726559、T-1786922726560。③验收降级：原文“文章获取器 R-002 现场复核游离行清零”本轮未执行，当前仓库无该外部项目与可重放目标命令；实际已由同形态端到端回归 `tracker.rs:1518-1579` 覆盖，外部现场仍需用户/外部项目执行。④已完成：空行在 ordinal 1 时旧实现会误删空行而保留真实游离文本，新回归夹具 `docstore.rs:321-389`、`tracker.rs:1518-1598` 覆盖该“报成功后仍存在”形态；T-1786922726559。
 - 阻塞: 
-- 停车: WIP 单槽纪律：当前 defect-first 队首保留 D-568；本条实现虽已有历史证据但剩余外部项目现场复核未完成，主动让位，待 D-568 收口后恢复；恢复人:agent
+- 停车: ①②④已完成并有回归;③需在外部项目「文章获取器」现场复核 R-002 游离行清零,本机 Documents 下未找到该项目,agent 无法自行执行;需用户指明项目位置,或接受③按同形态回归(tracker.rs:1518-1579)降级后关闭;解除人:用户;解除条件:用户
 
 ## D-592 上下文预算检查信 bytes/4 估算不锚定真实 usage,本地小窗口模型压缩零触发直至撞 400 [fixing] (high)
 - refs: D-203 D-206 R-219 R-236
@@ -75,7 +60,7 @@
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
 - recorded_at: 1787239449856
 - 阻塞: 
-- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；代码与回归已完成，llama-local 真实窗口证据缺口保留；恢复人:agent
+- 停车: ①～④代码与回归已完成;⑤需 llama-local(llama-server + Qwen3.8-27B)真实多步工具循环长任务实测不再 400,当前本机只有 ollama 进程、PATH 无 llama-server,agent 无可接管的实测窗口;需用户启动 llama-local 并允许 agent 接管一次长任务,或接受⑤降级后关闭;解除人:用户;解除条件:用户
 
 ## D-662 托管文档专用工具膨胀致工具选择面过载 [fixing] (medium)
 - 原始描述: 外部评估 #5：Managed Documents 造成 Tool Explosion，从 Unix-like tools 走向 Domain-specific OS。用户判定这是工具设计问题，算缺陷不算决策
@@ -86,4 +71,4 @@
 - observed_head: 81a80c64d552d4da9aba0f5692c23d2b5bafb012
 - observed_worktree_hash: fnv1a64:a1d1426a5522a197
 - recorded_at: 1787288788389
-- 停车: WIP 单槽纪律：R-353 已有进行中的 finalize/deliver 实现与未提交改动，本条主动让位；待 R-353 收口后恢复；恢复人:agent
+- 停车: 排队:排在 D-568 之后恢复(原停车前提 R-353 未提交改动已不存在,按 defect-first 改排在缺陷队列末);恢复后继续 tracker 四件套与 research 五件套减面评估;恢复人:agent;解除条件:D-568

@@ -34,7 +34,7 @@
 - observed_worktree_hash: fnv1a64:abf42289ad631ab3
 - recorded_at: 1787246367339
 - 批次表: B1 契约与事件包络：snake_case、持久事实/瞬时表现/high-frequency delta、归属字段和 schema；B2 后端生产者：memory/research/voice 事件接线与真实持久事实映射；B3 前端归并：按 session/topic/memory 归属入 store，再分发动画/音频/工作台；B4 压缩与恢复：delta 合并、未知事件诊断、重连回放和跨会话回归。
-- 停车: B1-B4 已完成并通过验证；剩余 voice state 生产者属于 R-287 的真实 ASR/TTS/VAD 范围，本条主动让位 R-287，待 voice 生产者落地后恢复验收②；恢复人:agent
+- 停车: B1-B4 已完成并通过验证;剩余验收②的 voice state 生产者属于 R-287 的真实 ASR/TTS/VAD 范围,本条让位 R-287,待其落地后回来补验收②;恢复人:agent;解除条件:R-287
 
 ## R-285 金色神经流:主对话与记忆层的真实事件驱动动画 [doing]
 - 优先级: P2
@@ -55,7 +55,7 @@
 - 复杂度: 大
 - 标签: 后端 前端 语音 集成
 - 来源: 2026-08-17 用户要求接入语音功能并优先支持定制语音;技术调研结论为 chained voice:音频→ASR→现有文本 Agent→TTS。
-- 依赖: R-284(voice 状态投影;设备/模型基准可先行)
+- 依赖: 
 - refs: R-285 docs/design/phase2_system_upgrade.md
 - 内容: 按 phase2_system_upgrade.md §5.6 分五批。批1 Rust cpal/WASAPI 设备枚举、录音播放和 50 条中英/代码术语基准,sherpa-onnx 与 whisper.cpp 对照。批2 push-to-talk+partial/final 字幕回填输入框。批3 TTS provider adapter 与播放/暂停/停止。批4 经授权的 voice profile:CosyVoice 本地 sidecar、OpenAI Custom Voice、ElevenLabs 可替换。批5 VAD 自动收尾、barge-in、流式首包和 R-285 动画联动。
 - 安全: 默认不保存原始录音;参考音频/consent 放应用数据目录且不进 Git/memory/普通日志;provider key 只在 Rust/后端;删除 voice 同时报告本地与云端结果;无明确授权不得克隆声音。
@@ -63,6 +63,8 @@
 - 验收: ①真麦克风设备切换、录音和播放;②50 条基准报告 partial/final 延迟、CER/术语修正率、实时率与资源;③ASR 文本进入现有输入和权限链;④TTS 失败不阻断文本回复;⑤真实授权定制声音输出;⑥播放中插话能中断并恢复会话状态;⑦原始音频、consent、key 的存储与删除边界有测试。
 - 批次: 0/5
 - 进展: 状态对账: 正文旧字段 `todo` 与权威标题状态 `todo` 重复;已移除正文副本。
+- 前置: R-284(事件契约 B1-B4 已交付,voice 词表可直接消费;voice state 生产者由本条产出,R-284 验收②反向等待本条)
+- 对账: 2026-09-05 对账:原「依赖: R-284」与 R-284 停车「让位 R-287、待 voice 生产者落地」构成互等环(R-284 等 R-287 产 voice 事件,R-287 等 R-284 关闭),两条永远互相阻塞;R-284 的契约已交付,本条所需的只是词表而非其关闭,故依赖降为前置断环。设备/模型基准批1 本就可先行
 
 ## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [doing]
 - 复杂度: 大
@@ -88,7 +90,7 @@
 - observed_head: a8e75106b629441cc19963dd5667aee07a74339a
 - observed_worktree_hash: fnv1a64:00ea97ae7b316f67
 - recorded_at: 1787168115069
-- 停车: 排队:B4 桌面 E2 体量大,排在收口类条目(D-504/R-242/R-296/R-299)之后恢复;恢复人:agent
+- 停车: 排队:原排队对象 R-242/R-296 已 done、D-504 已恢复为 WIP;排在 R-249 之后恢复 B4 桌面 E2(UIA 基座 scripts/ui-desktop-uia.ps1 可冷启动自拉起 kzapp);恢复人:agent;解除条件:R-249
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [doing]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
@@ -107,11 +109,11 @@
 - observed_head: 194b1eec3184e5290fe84f35d5f4dc8df879e61c
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787607943733
-- 停车: B7 实现与自动化回归已提交；剩余仅为真实桌面点击证据和未定义配额语义的验证缺口，暂让出唯一 WIP 槽，待真实桌面 E2 窗口与配额策略明确后恢复。
+- 停车: B7 已提交,①～⑥⑧⑨已验证;剩余⑦真实桌面 E2 点击证据(kzapp 空闲时 agent 可用 UIA 基座自行执行)与⑩磁盘配额语义未定义(需用户拍板:配额上限是什么、超限时拒绝 spill 还是降级为 Inline 截断);拍板后 agent 一并收口;解除人:用户;解除条件:用户
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
-- 依赖: R-245
+- 依赖: 
 - 内容: 现状 `ToolOutput.content` 只有 String(kanzei-harness/src/tool.rs:178),任何工具都无法把图片交给模型;`Part::Image` 的三协议映射早在 R-014 交付,但入口只有桌面端用户附件(kanzei-app/src/state.rs:29)。本条把 ToolOutput 扩成可携带 image part,并打通两个消费点:①`read` 读图片文件(PNG/JPEG/WebP/GIF)按 media_type 编码返回;②UI 自检补截图通道——现有 `ui_probe` 窗口通道加 `screenshot`,让 ui_dom/ui_style 的结构读数配上真实渲染画面。
 - 复杂度: 大
 - 批次: 0/4
@@ -125,27 +127,9 @@
 - observed_head: 98d7a586f38a09f5b449b75b7a3c93c62d01852f
 - observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
 - recorded_at: 1786835811870
-
-## R-264 前端迁移原生 ESM(勘察已完成,方案见 docs/design/ui_esm_migration.md) [doing]
-- refs: docs/design/ui_esm_migration.md R-142 R-154
-- 优先级: P2
-- 复杂度: 大
-- 标签: 前端 流程
-- 内容: ui/*.js 现为 21 个经典 script 共享全局作用域,靠 gen-ui-lint-globals.mjs 生成的白名单补 no-undef。迁到原生 ESM(<script type="module">,仍零构建步骤)可得真模块作用域并删掉整套补偿机制。**动工前必须先重建测试 harness**,顺序不可颠倒——详见设计文档 §二/§四。
-- 前置: 无(但内部三道前置 B1/B2/B3 必须先于任何前端文件改动完成)
-- 为什么是这个形态: 不上打包器。打包器的收益(minify/tree-shake 业务代码)在本仓不成立,而代价是 devDependencies 从 3 个变几百个、cargo build 经 beforeBuildCommand 依赖 npm 构建、六个冒烟脚本的加载模型全部重做。原生 ESM 拿到全部核心收益且仍无构建步骤。
-- 边界: 不删 vendor/monaco/basic-languages(独立决策,与本条无关);不引入打包器/TypeScript;不借机重构业务逻辑,迁移期间只改模块边界。
-- 来源: 2026-08-15 用户提出「前端改成打包呢」。勘察(21 文件逐文件审计 + index.html 专项 + 外部依赖专项)结论:前端本身不是障碍(587 个真顶层符号、零重名冲突、零内联事件处理器),阻塞全在测试 harness——ui-runtime-smoke.mjs 的 6799 行断言建立在 vm.runInContext 逐文件跑经典脚本之上,ESM 下整体作废;且 ui-sources.mjs 修好正则后会出现「三个冒烟静默变绿」的失效模式。同轮用户问「做了对自举有收益吗」,结论是没有:ESM 不影响 cargo 任何耗时,前端六个冒烟合计约 4 秒;唯一收益(模型读代码时 import 自带溯源)已被 20467db 修好白名单后大体覆盖。故降为 P3 留档。
-- 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
-- 批次: 10/10
-- 进展: B10 已完成并待提交：21-palette.js 迁移为 ESM，导出命令面板 API（crates/kanzei-app/ui/21-palette.js:235-251），index.html:1192 改为 type=module；为仍为 classic 的真实提供方建立渐进兼容桥：01-core.js:810 导出 $, on, promptBox 到 globalThis，02-i18n.js:1080 导出 localizeDynamic、t，03-shell.js:650 导出 log。保持命令面板通过既有控件 click 委托，不改业务行为。T-1786922726764：4 个目标/提供方 JS node --check、ESM runtime、ui-lint、parallel-lines、a11y、i18n、markdown 全部通过；runtime 覆盖 27 文件、2339 次 invoke、10 个主视图、0 错误。真实窗口 #app DOM 正常，console 无错误/警告，style.css 结构完整。graph --write 与迁移 dry-run 覆盖 27 文件，772 exports/198 import statements。剩余原验收⑤ globals 补偿删除、eslint sourceType 收口及⑥ 10 处顶层跨文件读/6 处 typeof 守卫显式 import，转入后续条目。；状态对账: 正文旧字段 `todo` 与权威标题状态 `doing` 冲突;已移除正文副本。
-- observed_head: 679376ddf5e4b19799d609adb8f89b9f26097154
-- observed_worktree_hash: fnv1a64:3ae00a2f403fdaee
-- recorded_at: 1787570378136
-- 阻塞: 
-- 对账: 2026-08-18 用户拍板 ESM 收尾「做完」,原 P3 留档提级 P2;剩余工作=批4(withSessionRender 等 5 处跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序与冒烟断言适配、删除 gen-ui-lint-globals 补偿机制);动工前先修 D-498(冒烟执行顺序与浏览器不一致),否则逐文件迁移的冒烟证据不可信;设计文档状态过期由 R-303 订正
-- 发现记录: {"Intent":"完成原生 ESM 迁移剩余批4并移除全局补偿机制","Explicit":"先完成 withSessionRender 跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序适配，再逐文件迁移并删除 globals 补偿","Assumptions":"批1-B3 的既有提交仍是当前 dev 基线且六条前端冒烟可作为迁移回归入口","Ambiguities":"现有条目进展标注批3/4但代码与 HEAD 已偏离，需要先按提交和工作树复核真实落点；设计文档索引显示路径存在性需以实际仓库为准","领域对象":"ui/*.js、index.html、scripts/ui-* smoke、ESLint globals 生成与配置","最小成功闭环":"测试 harness 能执行 ESM 且六条冒烟全绿，迁移后的浏览器入口能加载并保留逐文件 TDZ 语义","延后决策":"不引入打包器/TypeScript，不改 vendor 与业务逻辑；未能在本批收口的深层跨模块写另开后续条目"}
-- 停车: 批次上限已达 10/10；B10 已通过验证，R-264 原验收⑤/⑥及剩余跨模块显式 import 尚未完成，已拆出后续条目继续；恢复人:agent。
+- 停车: 排队:R-244 已 done、R-245 spill 落点已交付,依赖改为前置;排在 R-299 之后恢复批3;恢复人:agent;解除条件:R-299
+- 前置: R-245(spill 落点 B1-B7 已交付,仅余桌面 E2/配额验证缺口,不再作为阻塞依赖)
+- 对账: 2026-09-05 对账:批1(1831239)/批2(ui_screenshot)已交付;批3 所等的 R-245 spill 落点(Inline/Spilled 二态与 artifact 目录)已随 R-245 B1-B7 落地,R-245 仅余真实桌面 E2 与配额语义验证缺口,与本条批3 无关,故 依赖 R-245 改为 前置 R-245,不再等其关闭
 
 ## R-281 子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹 [doing]
 - 优先级: P1
@@ -162,7 +146,7 @@
 - observed_head: 148386f3d467b701f334932b2bfc85bbcfcea475
 - observed_worktree_hash: fnv1a64:6aa6fbd939a238f6
 - recorded_at: 1786933041284
-- 停车: 停车: 前置 R-221 已完成；按 defect-first 当前唯一 WIP 槽先收口 D-568，完成后恢复批2 transcript Tauri 读取通道；恢复人:agent。
+- 停车: 排队:前置 R-221 已 done;排在 R-340 之后恢复批2 transcript Tauri 读取通道;恢复人:agent;解除条件:R-340
 
 ## R-288 Android 真机 E3 验收:移动端 PWA 通知与双向消息真实链路 [todo]
 - refs: R-059 R-270 R-271 D-389
@@ -174,7 +158,7 @@
 - 阻塞: 
 - 验收: ①Android 真机可访问并完成鉴权；②收到真实运行成功/失败通知；③从手机发送消息后服务端产生可追溯事件；④保存截图、端口/设备与 session 证据；⑤失败时明确网络、权限或设备边界。
 - 优先级: P3
-- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；本条 Android 真机验收暂不抢占唯一 WIP 槽；恢复人:agent
+- 停车: 原停车前提 R-333 已 done;本条验收全部需要同一 LAN 下的 Android 真机(打开 PWA、bearer 配对、收通知、发消息),agent 无设备可用;需用户提供真机并预留一次配对窗口;解除人:用户;解除条件:用户
 
 ## R-299 IPC 与事件契约机械比对扩面 [doing]
 - refs: R-284
@@ -185,7 +169,7 @@
 - 边界: 作为 R-284 事件契约的前置批次,不与其四批重复;词表定义归 R-284
 - 验收: 契约覆盖高频 command;emit/listen 集合求差入冒烟;后端改事件名或字段名可被门禁捕获
 - 优先级: P2
-- 停车: 停车: 前置 R-296 已完成；按 defect-first 当前唯一 WIP 槽先收口 D-568，完成后恢复后续批次；恢复人:agent。
+- 停车: 排队:前置 R-296 已 done,B1 已入 dev(7188ba76);排在 R-323 之后恢复后续批次;恢复人:agent;解除条件:R-323
 - 对账: 2026-08-20 对账:p16 线(thread-line-1787020530803-1)提交已全部合入 dev(R-299 B1=7188ba76),停车点名的 ipc_contract.rs/ipc-contract.json/ipc-event-smoke.mjs/verify.ps1 均无未合并改动,停车解除;该 worktree 仅余 git.rs(+5)/ci.yml(+1) 未提交 WIP,处置归 R-306 B3;恢复动作=对账 B1 已入 dev 的证据后继续后续批次
 
 ## R-307 停车/依赖解锁机械化与依赖关系可视化:解除条件可判定、达成自动恢复、关键路径可见 [todo]
@@ -197,7 +181,7 @@
 - 边界: 不改单 WIP 纪律;自动恢复只清「排队/让位」类机器可判停车,「解除人:用户」永不自动清;不做自然语言解析,只认结构化语法,存量文本停车靠人工对账维持现状;不与 D-434(停车不被扫荡误清)冲突——自动清的前提是结构化条件显式达成
 - 验收: ①结构化解除条件有解析与调度测试,达成即自动清车且留痕;②work next 全线 blocked 时输出「哪些停车解除条件已达成」清单,不再只报死锁;③取活依据可见拓扑权重(点名 unblocks 计数);④依赖视图实测截图:关键路径与解锁数可见;⑤三起现场案例回归通过
 - 优先级: P1
-- 停车: 主会话线执行中(批1/2 委派隔离工作树子代理实现,主会话验收合入);恢复人:主会话
+- 停车: B1/B2 已合入 dev 并随 build-39cd402f 进入运行态;剩余 B3 前端依赖拓扑图与 B4 验收由主会话执行(执行者字段:循环勿取),需用户开一次主会话安排,或明确放行给自举循环;解除人:用户;解除条件:用户
 - 执行者: 主会话(SOL)+委派子代理实现,循环勿取
 - 批次: 2/4
 - 进展: B1/B2 已交付并合入 dev(baf0bdd1/213ec07c,合并提交含 355→389 测试):①「解除条件:」结构化标记解析(全/半角冒号、多编号、字面量「用户」永不达成),停车/阻塞字段带标记且所列编号全部终态→调度动态视为可执行,不写回,取活依据点名「解除条件已达成」;②全线 blocked 时对存量自由文本停车提取 R-/D- 编号,全部终态即输出「前提可能已达成请复核」提醒;③同显式优先级槽位内按反向依赖 unblocks 计数加权取活,取活依据点名 unblocks=N。注意:运行态生效需发版重装(kzapp/kz 是安装位二进制)。剩余批3 前端依赖拓扑图(关键路径/解锁数徽章),批4 已由 B1/B2 的 10 个新测试覆盖三起现场案例,可并入批3 验收
@@ -220,7 +204,7 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787266377330
 - 批次: 4/4
-- 停车: 用户本轮明确要求优先从 defects.md 最上面可执行项开始；R-309 B1-B4 代码与门禁验证已完成，剩余①～③需真实前端事件证据，暂让出唯一 WIP 槽；恢复人:agent。
+- 停车: 排队:原停车前提(用户当轮指示从缺陷队首开始)已过期;排在 R-319 之后恢复①～③真实证据:①只改前端的 targeted verify 墙钟实测;②globals 补偿机制已由 R-331 整体删除,该缺陷族无法再新增;③一次真实前端条目关闭复用 verify 证据;恢复人:agent;解除条件:R-319
 
 ## R-312 Agent 减负:上下文供给账单、状态机字段瘦身与压缩协同(勘察+设计) [doing]
 - refs: D-573 R-310 docs/design/context_compaction.md docs/design/weakness_register_20260820.md
@@ -239,7 +223,7 @@
 - observed_worktree_hash: fnv1a64:7580d1080253583e
 - recorded_at: 1787299505789
 - 阻塞: 
-- 停车: 用户明确要求优先登记并推进独立的记忆前端 BUG 与替代方案调研；B1/B2 已完成，待调研条目收口后恢复 B3；恢复人:agent
+- 停车: 原停车前提 R-333 已 done;B1/B2 已完成,B3 需用户对 docs/design/context_supply_bill_20260821.md §7 的四个拍板问题作出选择(注入层级默认、当前批次视图+可回放历史、方向一先行、conventions 按需化实验),拍板后 agent 登记实施条目并关闭本条;解除人:用户;解除条件:用户
 
 ## R-319 事务边界感知的步数预算:收尾软延长避免 stage 后切轮 [doing]
 - refs: R-307 R-311 D-335
@@ -256,7 +240,7 @@
 - observed_head: f62097cfde97e559534c16f898a6c0f1fb5a3e23
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787306265598
-- 停车: WIP 单槽纪律：当前 defect-first 队首保留 D-568；本条未开始本轮实现，主动让位，待 D-568 收口后恢复；恢复人:agent
+- 停车: 排队:排在 R-281 之后恢复 B4(重放 f62097cf rollout 后不少于 10 条真实长程 episode 对比基线 T-1786922726710);恢复人:agent;解除条件:R-281
 
 ## R-322 门禁强度分档与模型停机权 [doing]
 - 原始描述: 外部评估七点反馈中的 #1 Harness Tax、#4 模式区分不够明显、#7 双控制器问题。用户定调：控制权交给模型；结伴接近 Claude Code 的高自治，自主推进保留重门禁；决策点要呈现给用户
@@ -270,7 +254,7 @@
 - observed_head: 32513251d54e6dd311f08c44fac6df2adfa8454b
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787283272605
-- 停车: WIP 单槽纪律：当前 defect-first 队首保留 D-568；本条尚未开始 B4 实现，主动让位，待 D-568 收口后恢复；恢复人:agent
+- 停车: 排队:原停车前提 D-568 改排缺陷队列;排在 R-101 之后恢复 B4 真机端到端验收(目标条件 loop 跑一次真实会话看回显与自动清除);恢复人:agent;解除条件:R-101
 
 ## R-323 工具编排抽象层：模型声明执行计划 [doing]
 - 原始描述: 外部评估 #2：Harness 的保守规则可能成为模型能力的上限。用户定调：提供底层工具+一层抽象层，让模型去编排
@@ -285,7 +269,7 @@
 - observed_head: a032aa492ae157c2791c2cfa9cf768740f093517
 - observed_worktree_hash: fnv1a64:dee5f1692c68b6ad
 - recorded_at: 1787276362163
-- 停车: WIP 单槽纪律：R-353 已有进行中的 finalize/deliver 实现与未提交改动，本条主动让位；待 R-353 收口后恢复；恢复人:agent
+- 停车: 排队:原停车前提 R-353 未提交改动已不存在;排在 R-309 之后恢复 B2;恢复人:agent;解除条件:R-309
 
 ## R-340 运行画像任务主视图与 session/round 下钻 [doing]
 - 内容: 在 R-338 task projection 契约评审并可消费后，重做运行画像前端主展示：以已关闭 task 为趋势/主列表，进行中 task 独立展示；点击 task 下钻到 session 分段、input 与 round/episode 细节，保留 provider/model、工具、上下文账单和错误；保留旧 rounds/legacy 提示与空态，不在前端自行聚合。
@@ -304,7 +288,7 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787898129566
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：前端沿用 task 主趋势、进行中/legacy 分区、session/round 下钻和仅显式 attach 的后端语义。
-- 停车: WIP 单槽纪律：当前 defect-first 队首保留 D-568；本条未开始本轮实现，主动让位，待 D-568 收口后恢复；恢复人:agent
+- 停车: 排队:依赖 R-338 已 done,原停车前提 D-568 改排缺陷队列;排在 R-358 之后恢复实现;恢复人:agent;解除条件:R-358
 
 ## R-341 运行画像任务级真实链路收口与回归矩阵 [doing]
 - 内容: 作为 R-338/R-339/R-340 的链路收口，验证真实入口从 task 事实生产、SQLite projection/API 查询到运行画像 UI 的端到端闭环：创建并关闭多个任务、同一长 session 多轮、未关闭任务、session 下钻、legacy 历史和失败路径均可复核；不以单测、viewport 模拟或替身服务冒充真实链路。
@@ -341,7 +325,7 @@
 - recorded_at: 1788271993948
 - 状态: doing
 - 依赖: R-345 R-347
-- 阻塞: 真实 SSH 服务器端到端验收需要用户提供可连接的 SSH 目标、账号/凭据与人工准备目录；解除人:用户
+- 阻塞: 依赖 R-345/R-347 已 done 归档,依赖侧已解除;剩余验收①SSH 真实服务器端到端需用户提供可连接的 SSH 目标、账号/凭据与人工准备目录(本机跑通部分已验证),或接受①SSH 侧降级后由 agent 收口;解除人:用户;解除条件:用户
 
 ## R-353 改动面账本与交付态推导:让条目、改动、证据成为可机械关联的事实 [doing]
 - 内容: 按 docs/design/tracker_evidence_ledger.md §3.1/§3.2 建立地基:在 .kanzei/artifacts/work-log.jsonl 新增 deliver 事件(条目 id、commit、paths、test_record_ids、时间戳、来源),写入点设在 git finalize 提交通道——该处已在机器写 passed 测试记录,同一时刻引擎已知 WIP 持有者、暂存文件集与提交 sha。据此推导交付态 unstarted/uncommitted/committed/verified,作为纯派生量供门禁与调度消费,不落 Markdown、不新增条目字段。
@@ -357,7 +341,7 @@
 - observed_head: 2337474bb3467c028d6929fd3ef373c163b5dc05
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788387719951
-- 停车: WIP 单槽纪律：当前 defect-first 队首 D-737 已有完成实现与未提交改动，本条 B2 尚未开始，主动让位；待 D-737 收口后恢复；恢复人:agent
+- 停车: 排队:原停车前提 D-737 已 fixed 归档;按 defect-first 排在 D-662 之后恢复 B2(reconciliation 消费 deliver 账本推导四态);恢复人:agent;解除条件:D-662
 
 ## R-357 活动面按裁决可达性划分:停车超期移出、tests.md 废止、缺口由 work gaps 回答 [doing]
 - 内容: 按设计 §3.7 重划活动面与归档面:停车超过 14 天且解除条件未变的条目移入 parked 面,裁决不再遍历但 work reconcile 与前端仍可见;废止 tests.md 作为 Markdown 面(它只有 12 字节、零记录,唯一可能的居民 running 是瞬态,不该占治理真源),running 迁 state.db;新增 kz work gaps 回答「还需要跑什么」,输入为账本改动面加该条目 passed 记录的指纹覆盖与关闭门禁判据,每条缺口一行并附一条可直接复制的命令,给不出可执行命令的缺口不出行。
@@ -374,7 +358,7 @@
 - observed_head: f321ee34118a9cbfbd95dfa90a02a1862cc718b6
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788393813821
-- 停车: R-359 已有本轮实现中的未提交改动，单槽先收口 R-359；R-357 暂停，待 R-359 验证提交后由 agent 恢复。
+- 停车: 排队:原停车前提 R-359 已 done 归档并提交(0ac5755c);排在 R-353 之后恢复 B1;恢复人:agent;解除条件:R-353
 
 ## R-358 批次与 Work Unit 收敛为一套:分子停手写,验收条款绑结构化证据 [doing]
 - 内容: 按设计 §3.8 废除 Work Unit 的独立机制、保留批次,并把 Work Unit 唯一不可替代的能力搬上来:①批次分子由 git 推导,add/update 接受 批次: /N 形式,存量 k/N 继续解析但 k 被忽略,删掉那道分子对账门(引擎已能推导且推导值已优先,只是对模型不可见,导致模型必然在 close 那一刻才知道对不对得上);②把 acceptance 与 evidence 的机械绑定下沉到条目级,从「进展文本包含条款号」升级为「每条验收条款一行结构化 evidence(file:line 或 T- 记录 id)」;③删除 执行模型: work_units_v1 开关。
@@ -391,4 +375,4 @@
 - observed_head: f321ee34118a9cbfbd95dfa90a02a1862cc718b6
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788393904818
-- 停车: R-359 已有本轮实现中的未提交改动，单槽先收口 R-359；R-358 暂停，待 R-359 验证提交后由 agent 恢复。
+- 停车: 排队:原停车前提 R-359 已 done 归档并提交(0ac5755c);排在 R-357 之后恢复 B1;恢复人:agent;解除条件:R-357
