@@ -383,11 +383,11 @@
 - 复杂度: 大
 - 来源: 用户原话「可以我认可你说的点，按照这个设计，帮我进行改造吧」
 - 标签: 前端
-- 进展: 开发与研究空间、独立侧栏、课题会话及研究页面已实现。894180e2 完整 verify 14 项检查全部通过，Rust 1575 passed、0 failed；另有子进程辅助入口与文档伪代码共 2 项标记 ignored。ui-workspace-smoke 的会话、草稿、附件隔离及 3 视口×6 页面通过。用户已授权云端发布，发布结果以 GitHub Release 为准；原生桌面关键交互仍待安装后验收，保留 doing。
+- 进展: 开发与研究空间、独立侧栏、课题会话及研究页面已实现。9d784f21 在干净发布树完整 verify 14 项全过，Rust 1575 passed、0 failed；子进程辅助入口与文档伪代码共 2 项标记 ignored。发布前修复浏览器脚本抢在窄屏自动收栏之前点击的时序问题，增加宽窄屏往返并连续 5 次通过。用户已授权云端发布，发布结果以 GitHub Release 为准；原生桌面关键交互仍待安装后验收，保留 doing。
 - 验收: 导航不改写任务 profile；课题会话绑定持久化；报告按课题读取；开发调研独立分类；相关回归通过。
 - 优先级: P1
-- observed_head: 894180e2192e2256983ad842f6c4516c9fa05619
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1788637581467
+- observed_head: 9d784f21e39db69e56a934e398540a2e19acdfe6
+- observed_worktree_hash: fnv1a64:c20dc36842c96a1b
+- recorded_at: 1788638067795
 - 后续验收: 发布前在发布提交运行 pwsh -File scripts/verify.ps1 -Full；上传后核对 tag、安装包大小和 SHA-256、HTTP 206；安装后重复设计文档中的原生桌面关键操作。
 - 实现提交: ce95733b

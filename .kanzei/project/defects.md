@@ -79,8 +79,8 @@
 - 标签: 前端
 - 验收: 仅保留按课题定位的报告入口；切换工作领域恢复相应会话而不改写旧会话配置。
 - 优先级: P1
-- 进展: 已移除侧栏无 topic 报告入口，来源状态带 topic；空间切换恢复各自任务，不改旧任务 profile 或停止运行。894180e2 完整 verify 14 项全过，ui-workspace-smoke 已验证开发运行保持、来源状态作用域及课题发送参数。用户已授权云端发布，发布结果以 GitHub Release 为准；原生桌面关键交互仍待安装后验收，保留 fixing。
-- observed_head: 894180e2192e2256983ad842f6c4516c9fa05619
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1788637581915
+- 进展: 已移除侧栏无 topic 报告入口，来源状态带 topic；空间切换恢复各自任务，不改旧任务 profile 或停止运行。9d784f21 干净发布树完整 verify 14 项全过。浏览器验证补齐窄屏自动收栏状态等待与宽窄屏往返，连续 5 次验证开发运行保持、课题隔离及发送参数通过。发布结果以 GitHub Release 为准；原生桌面关键交互仍待安装后验收，保留 fixing。
+- observed_head: 9d784f21e39db69e56a934e398540a2e19acdfe6
+- observed_worktree_hash: fnv1a64:c20dc36842c96a1b
+- recorded_at: 1788638068169
 - 实现提交: ce95733b

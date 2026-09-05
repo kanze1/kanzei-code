@@ -225,8 +225,15 @@ try {
     await sessions.refreshProcesses();
     await (await import("./19-research.js")).refreshResearch();
   }, project);
-  for (const viewport of [{ width: 800, height: 600 }, { width: 1024, height: 720 }, { width: 1440, height: 960 }]) {
+  for (const viewport of [{ width: 800, height: 600 }, { width: 1024, height: 720 }, { width: 1440, height: 960 }, { width: 800, height: 600 }, { width: 1440, height: 960 }]) {
+    const was_overlay = await page.evaluate(() => globalThis.matchMedia("(max-width: 900px)").matches);
     await page.setViewportSize(viewport);
+    // setViewportSize 返回时 matchMedia 的 change 事件仍可能在途；先验证窄屏自动收栏，
+    // 再走用户展开侧栏的操作，避免刚检查可见就被断点处理收起。
+    if (!was_overlay && viewport.width <= 900) {
+      await page.waitForFunction(() => document.querySelector("#sidebar").classList.contains("collapsed")
+        && document.querySelector("#rail-sidebar-toggle").getAttribute("aria-expanded") === "false");
+    }
     for (const section of ["overview", "literature", "plan", "experiments", "report", "writing"]) {
       await research_page(section);
       const result = await page.evaluate(() => {
