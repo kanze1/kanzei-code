@@ -1,8 +1,8 @@
 import { defer } from "./01-core.js";
 import { localizeDynamic } from "./02-i18n.js";
-import { $, invoke } from "./01-core.js";
+import { $, invoke, promptBox } from "./01-core.js";
 import { localizedDocStatus, t } from "./02-i18n.js";
-import { currentProject, log, sidebarCollapsed, syncSidebar, toast, toastError } from "./03-shell.js";
+import { currentProject, log, navigate_view, sidebarCollapsed, syncSidebar, toast, toastError } from "./03-shell.js";
 import {
   DOC_TAG_ORDER,
   NEUTRAL_DOC_FILTERS,
@@ -707,6 +707,25 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     // 行内不显示需求 ID(R-054),身份收进展开详情——这里必须给全。
     full.textContent = kind === "req" ? `${entry.id} · ${entry.title}` : entry.title;
     detail.appendChild(full);
+    if (blocked && blockedReasons.length) {
+      const pending = document.createElement("div");
+      pending.className = "doc-pending-decision";
+      const reason = document.createElement("p");
+      reason.textContent = `${t("待解除条件")}: ${blockedReasons.join("；")}`;
+      const reply = document.createElement("button");
+      reply.type = "button";
+      reply.textContent = t("回复此事项");
+      reply.addEventListener("click", () => {
+        const context = `${entry.id} · ${entry.title}\n${blockedReasons.join("；")}\n${t("我的补充")}: `;
+        promptBox.value = [promptBox.value.trim(), context].filter(Boolean).join("\n\n");
+        navigate_view("chat");
+        promptBox.dispatchEvent(new Event("input", { bubbles: true }));
+        promptBox.focus();
+      });
+      pending.append(reason, reply);
+      detail.appendChild(pending);
+    }
+
     if (workUnits.length) {
       const section = document.createElement("section");
       section.className = "work-unit-list";

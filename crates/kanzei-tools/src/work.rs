@@ -144,6 +144,10 @@ pub struct ResolvedControlState {
     pub reason: String,
     pub selected: Option<WorkItem>,
     pub executable_wip: Vec<WorkItemSummary>,
+    /// 未完成但本步未选中的本线任务；排队不写入人工停车或技术依赖。
+    pub queued_wip: Vec<WorkItemSummary>,
+    /// 最近终态事实，用于覆盖对话中较早的失败结果。
+    pub recent_completed: Vec<WorkItemSummary>,
     pub blocked_items: Vec<WorkItemSummary>,
     /// D-434:显式停车的条目。与 blocked_items 分开列,免得复核阻塞的扫荡把
     /// 「主动让出 WIP 槽」当成「过期的自记阻塞」清掉——清完下一轮就撞 wip_violation。
@@ -755,6 +759,24 @@ pub fn resolve_work_decision(
     project_root: &std::path::Path,
     priority: WorkPriority,
 ) -> Result<ResolvedControlState, String> {
+    resolve_work_state(cwd, project_root, priority, true)
+}
+
+/// 每步当前裁决不扫描全队列交付证据；全量对账仍由显式 detail/reconcile 读取。
+pub fn resolve_work_selection(
+    cwd: &std::path::Path,
+    project_root: &std::path::Path,
+    priority: WorkPriority,
+) -> Result<ResolvedControlState, String> {
+    resolve_work_state(cwd, project_root, priority, false)
+}
+
+fn resolve_work_state(
+    cwd: &std::path::Path,
+    project_root: &std::path::Path,
+    priority: WorkPriority,
+    include_reconciliation: bool,
+) -> Result<ResolvedControlState, String> {
     let req_store = DocStore::open(project_root, &REQUIREMENTS);
     let def_store = DocStore::open(project_root, &DEFECTS);
     let requirements = req_store.load().map_err(|error| error.to_string())?;
@@ -769,14 +791,21 @@ pub fn resolve_work_decision(
         dependency_states_from_documents((&requirements, &req_archive), (&defects, &def_archive));
     let reference_index = reference_index((&requirements, &req_archive), (&defects, &def_archive));
     let observation = repo_observation(cwd);
-    let reconciliation = reconcile_active(
-        project_root,
-        &requirements,
-        REQUIREMENTS.terminal,
-        &defects,
-        DEFECTS.terminal,
-        &observation,
-    );
+    let reconciliation = if include_reconciliation {
+        reconcile_active(
+            project_root,
+            &requirements,
+            REQUIREMENTS.terminal,
+            &defects,
+            DEFECTS.terminal,
+            &observation,
+        )
+    } else {
+        ReconciliationReport {
+            items: Vec::new(),
+            counts: BTreeMap::new(),
+        }
+    };
     let scheduled_requirements = schedule_for_display_with_states(&requirements, &states);
     let scheduled_defects = schedule_for_display_with_states(&defects, &states);
     // D-354:WIP 纪律按线圈定。他线持有的 WIP 不进本线的 Resume/WipViolation,
@@ -987,19 +1016,24 @@ pub fn resolve_work_decision(
         )
     };
 
+    executable_wip.sort_by_key(|item| match priority {
+        WorkPriority::DefectFirst => item.kind != "defect",
+        WorkPriority::RequirementFirst => item.kind == "defect",
+    });
+    let queued_wip = executable_wip
+        .iter()
+        .skip(1)
+        .map(WorkItemSummary::from)
+        .collect();
+    executable_wip.truncate(1);
     let (decision, reason, selected) = match executable_wip.as_slice() {
-        [only] => (
+        [only, ..] => (
             WorkDecision::Resume,
-            format!("唯一可执行 WIP 是 {}，必须先恢复它", only.id),
-            Some(only.clone()),
-        ),
-        [_, _, ..] => (
-            WorkDecision::WipViolation,
             format!(
-                "检测到 {} 个可执行 WIP；先关闭或 park 到只剩一个，禁止新取活",
-                executable_wip.len()
+                "当前执行 {}；其余在途任务由引擎排队，完成或阻塞后重新选择，无需写停车字段",
+                only.id
             ),
-            None,
+            Some(only.clone()),
         ),
         [] => {
             let legacy_candidate = |kind: &'static DocKind, scheduled: &[ScheduledEntry]| {
@@ -1191,6 +1225,33 @@ pub fn resolve_work_decision(
         reason: format!("{reason}{integrity_banner}"),
         selected,
         executable_wip: executable_wip.iter().map(WorkItemSummary::from).collect(),
+        queued_wip,
+        recent_completed: [
+            (&requirements, &req_archive, &REQUIREMENTS),
+            (&defects, &def_archive, &DEFECTS),
+        ]
+        .into_iter()
+        .flat_map(|(active, archive, kind)| {
+            active
+                .iter()
+                .chain(archive.iter())
+                .filter(|entry| kind.terminal.contains(&entry.status.as_str()))
+                .rev()
+                .take(4)
+                .map(move |entry| WorkItemSummary {
+                    id: entry.id.clone(),
+                    kind: if kind.prefix == "R" {
+                        "requirement"
+                    } else {
+                        "defect"
+                    }
+                    .into(),
+                    title: entry.title.clone(),
+                    lifecycle_status: entry.status.clone(),
+                    block_reasons: Vec::new(),
+                })
+        })
+        .collect(),
         blocked_items: blocked_items.iter().map(WorkItemSummary::from).collect(),
         parked_items: parked_items.iter().map(WorkItemSummary::from).collect(),
         decision_locked,
@@ -1208,7 +1269,7 @@ pub fn resolved_control_prompt(
     project_root: &std::path::Path,
     priority: WorkPriority,
 ) -> String {
-    resolved_control_prompt_of(resolve_work_decision(cwd, project_root, priority))
+    resolved_control_prompt_of(resolve_work_selection(cwd, project_root, priority))
 }
 
 /// 把**已算好**的裁决渲染成注入块。
@@ -1219,12 +1280,12 @@ pub fn resolved_control_prompt(
 /// 条目的可能——尤其复核发生在实现段之后,重算会选到下一条。
 pub fn resolved_control_prompt_of(state: Result<ResolvedControlState, String>) -> String {
     let state = state
-        .map(compact_for_context)
+        .map(output::structured_control_output)
         .map(|state| serde_json::to_string_pretty(&state).unwrap_or_else(|_| "{}".into()))
         .unwrap_or_else(|error| json!({"decision": "error", "reason": error}).to_string());
     format!(
         "\n\n<resolved-control-state>\n{state}\n</resolved-control-state>\n\
-         This block is the engine's authoritative work decision for the turn. Execute it; do not \
+         This block is refreshed before this model step. Recent terminal facts supersede earlier errors. Execute it; do not \
          re-arbitrate queue priority from tracker prose. Call `work next` to refresh after state changes.\n\
          decision_locked=true 时该裁决已冻结:没有新的控制面事实(队列变化/阻塞解除/用户指示)就\
          不要重新讨论做哪个、做不做——直接执行 selected。\n\
@@ -1236,7 +1297,9 @@ pub fn resolved_control_prompt_of(state: Result<ResolvedControlState, String>) -
     )
 }
 
+mod context;
 pub(crate) mod log;
+pub use context::WorkControlContext;
 mod output;
 mod reconcile;
 pub use reconcile::{reconcile_active, ReconcileClass, ReconcileItem, ReconciliationReport};
@@ -1274,6 +1337,8 @@ mod tests {
             reason: "blocked".into(),
             selected: None,
             executable_wip: Vec::new(),
+            queued_wip: Vec::new(),
+            recent_completed: Vec::new(),
             blocked_items: vec![WorkItemSummary {
                 id: "D-001".into(),
                 kind: "defect".into(),
@@ -1317,6 +1382,49 @@ mod tests {
             rendered.contains("work reconcile"),
             "应保留可行动摘要: {rendered}"
         );
+    }
+
+    #[test]
+    fn refreshing_control_replaces_selected_after_close_and_bounds_history() {
+        let dir = fixture("refresh-control");
+        let mut first = entry("D-001", "fixing");
+        first.fields.push(("进展".into(), "重复历史".repeat(8000)));
+        let second = entry("D-002", "open");
+        let store = DocStore::open(&dir, &DEFECTS);
+        store.save(&[first.clone(), second.clone()]).unwrap();
+        let mut harness = kanzei_harness::Harness::default();
+        harness.add(WorkControlContext(WorkPriority::DefectFirst));
+        let snapshot = harness
+            .resolve(&kanzei_harness::ResolveCtx {
+                profile: kanzei_harness::ProfileKind::Dev,
+                cwd: dir.clone(),
+                project_root: dir.clone(),
+                config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
+            })
+            .unwrap();
+        assert!(snapshot.stable_system_baseline_with_report().0.is_empty());
+        let before = snapshot.refreshable_system_baseline_with_report().0;
+        assert!(before.contains("D-001"));
+        assert!(
+            before.len() < 14000,
+            "默认摘要不得携带长历史: {}",
+            before.len()
+        );
+        first.status = "fixed".into();
+        store.save(&[first, second]).unwrap();
+        let after = snapshot.refreshable_system_baseline_with_report().0;
+        let json = after
+            .split("<resolved-control-state>\n")
+            .nth(1)
+            .unwrap()
+            .split("\n</resolved-control-state>")
+            .next()
+            .unwrap();
+        let state: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(state["selected"]["id"], "D-002");
+        assert_eq!(state["recent_completed"][0]["id"], "D-001");
+        assert!(!after.contains("重复历史"));
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
@@ -1658,7 +1766,7 @@ mod tests {
     }
 
     #[test]
-    fn unique_wip_resumes_and_multiple_wip_violates() {
+    fn multiple_wip_queues_without_persistent_parking() {
         let dir = fixture("wip");
         DocStore::open(&dir, &REQUIREMENTS)
             .save(&[entry("R-001", "doing")])
@@ -1677,11 +1785,91 @@ mod tests {
             .save(&[entry("D-001", "fixing")])
             .unwrap();
         let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
-        assert_eq!(state.decision, WorkDecision::WipViolation);
-        assert_eq!(state.executable_wip.len(), 2);
-        // WipViolation 不是有效裁决,不冻结——必须先收敛 WIP 再取活。
-        assert!(!state.decision_locked, "WipViolation 不得冻结决策");
+        assert_eq!(state.decision, WorkDecision::Resume);
+        assert_eq!(state.selected.unwrap().id, "D-001");
+        let selection = resolve_work_selection(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(selection.selected.unwrap().id, "D-001");
+        assert_eq!(selection.decision, state.decision);
+        assert!(selection.reconciliation.items.is_empty());
+        assert_eq!(state.executable_wip.len(), 1);
+        assert_eq!(state.queued_wip[0].id, "R-001");
+        assert!(state.decision_locked);
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.selected.unwrap().id, "R-001");
+        let mut blocked = entry("D-001", "fixing");
+        blocked
+            .fields
+            .push(("阻塞".into(), "等待用户关闭窗口".into()));
+        DocStore::open(&dir, &DEFECTS).save(&[blocked]).unwrap();
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(state.selected.unwrap().id, "R-001");
+        assert!(state.queued_wip.is_empty());
+        assert!(DocStore::open(&dir, &REQUIREMENTS).load().unwrap()[0]
+            .fields
+            .is_empty());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn queued_wip_cannot_bypass_selection_and_full_detail_is_explicit() {
+        let dir = fixture("queued-claim");
+        let mut requirement = entry("R-001", "doing");
+        requirement
+            .fields
+            .push(("历史自定义".into(), "保留原始详情".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[requirement])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS)
+            .save(&[entry("D-001", "fixing")])
+            .unwrap();
+        let ctx =
+            ToolCtx::new(dir.clone(), dir.clone()).with_work_priority(WorkPriority::DefectFirst);
+        let output = WorkTool
+            .execute(
+                json!({"action":"claim","id":"R-001","reason":"尝试绕过"}),
+                &ctx,
+            )
+            .await;
+        assert!(output.is_error);
+        let ctx = ctx.with_work_priority(WorkPriority::RequirementFirst);
+        let compact = WorkTool.execute(json!({"action":"next"}), &ctx).await;
+        let detail = WorkTool
+            .execute(json!({"action":"next","detail":true}), &ctx)
+            .await;
+        assert!(!compact.is_error && !detail.is_error);
+        assert!(!compact.content.contains("保留原始详情"));
+        assert!(detail.content.contains("保留原始详情"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn archived_close_returns_terminal_fact_without_revalidation_or_writes() {
+        let dir = fixture("terminal-replay");
+        let store = DocStore::open(&dir, &DEFECTS);
+        store.save(&[entry("D-001", "fixed")]).unwrap();
+        store.archive_terminal().unwrap();
+        let before = store.load_archive().unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = crate::tracker::TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        };
+        let output = tool
+            .execute(json!({"action":"close","id":"D-001"}), &ctx)
+            .await;
+        assert_eq!(output.code, Some("ALREADY_TERMINAL"));
+        assert!(output.is_error, "已归档重放不得记成一次新的关闭成功");
+        assert!(output.content.contains("fixed") && output.content.contains("work next"));
+        assert_eq!(store.load_archive().unwrap(), before);
+        let detail = tool
+            .execute(json!({"action":"get","id":"D-001"}), &ctx)
+            .await;
+        assert!(!detail.is_error);
+        assert!(!detail.content.contains("field_registry"));
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

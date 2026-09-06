@@ -39,6 +39,7 @@ export const autoContinueTimers = new Map();
 // 重复 kz:done/定时器事件，终态事件再释放。否则重复事件会不断追加 queue 输入。
 export const autoContinueInFlight = new Set();
 export let autoStopReason = "";
+let auto_stop_kind = "";
 // 连续无实质动作的轮数:第一次只追加推进指令,第二次才刹车。
 // R-169:判定已下沉 harness auto_run 状态机,前端只保留镜像赋值。
 export let noActionRounds = 0;
@@ -185,7 +186,7 @@ export function renderAutoRun() {
   const el = $("auto-status");
   el.textContent = reason ? localizeDynamic(reason) : "";
   el.classList.toggle("hidden", !reason);
-  el.classList.toggle("ok", /已清空|全部被阻塞/.test(reason));
+  el.classList.toggle("ok", Boolean(reason) && !autoHint && auto_stop_kind === "completed");
   $("auto-resume").classList.toggle("hidden", !(autoStopReason && !autoHint && ["off", "idle"].includes(phase)));
   const pause = $("auto-pause");
   if (pause) pause.setAttribute("aria-pressed", String(autoPaused));
@@ -234,11 +235,13 @@ export function clearStoppingWatchdog(sessionId) {
 export function clearAutoNotices() {
   autoHint = "";
   autoStopReason = "";
+  auto_stop_kind = "";
   renderAutoRun();
 }
 
-export function setAutoStopReason(reason) {
+export function setAutoStopReason(reason, stop_kind = "") {
   autoStopReason = reason;
+  auto_stop_kind = stop_kind;
   autoHint = "";
   renderAutoRun();
 }

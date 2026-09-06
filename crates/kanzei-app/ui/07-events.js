@@ -562,13 +562,13 @@ defer(() => {
   
     addMessage(
       "notice",
-      `${t("完成")} · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? ` · ${t("按停止/拒绝收尾")}` : ""}`
+      `${t("本轮结束")} · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? ` · ${t("按停止/拒绝收尾")}` : ""}`
     );
     const elapsedSeconds = roundElapsedSeconds(p.elapsedMs);
     const duration = elapsedSeconds === null ? "" : ` · ${t("耗时")} ${elapsedSeconds.toFixed(1)}s`;
     log(`${t("运行完成")}: ${p.steps} ${t("轮")}${duration}`);
     stopElapsed();
-    notifyRunState(p.halted ? "stopped" : "completed", p.halted ? t("按停止/拒绝收尾") : `${t("完成")} ${p.steps} ${t("轮")}`);
+    notifyRunState(p.halted ? "stopped" : "completed", p.halted ? t("按停止/拒绝收尾") : `${t("本轮结束")} ${p.steps} ${t("轮")}`);
     // kz:done 只是本轮结束，不是会话级 idle；排队输入或鞭挞续跑仍可能马上开始。
     // 真正收回 stop 和运行态由 kz:idle/kz:stopped 的会话状态机负责。
     if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
@@ -676,14 +676,14 @@ defer(() => {
         setAutoStopReason(t("连续两轮无动作,鞭挞停止"));
       } else if (reason === "AllBlocked") {
         applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
-        const msg = t("需求与缺陷全部被阻塞，自动推进已停止");
-        setAutoStopReason(msg);
-        addMessage("notice", `✅ ${msg}`);
+        const msg = t("任务尚未完成，当前均有阻塞或停车条件；请在文档页查看并回复待确认事项");
+        setAutoStopReason(msg, "waiting");
+        addMessage("notice", `⏸ ${msg}`);
         log(t("自动推进停止:需求与缺陷全部被阻塞"));
       } else if (reason === "BacklogEmpty") {
         applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
         const msg = t("需求与缺陷已清空，自动推进已停止");
-        setAutoStopReason(msg);
+        setAutoStopReason(msg, "completed");
         addMessage("notice", `✅ ${msg}`);
         log(t("自动推进停止:需求与缺陷已清空"));
       } else if (reason === "ProfileMismatch") {

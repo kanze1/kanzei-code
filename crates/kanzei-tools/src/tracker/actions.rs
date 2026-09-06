@@ -106,6 +106,12 @@ pub(crate) fn audit_acceptance_scope(
     )
 }
 
+fn agent_entry(entry: &Entry, archived: bool) -> serde_json::Value {
+    let mut value = structured_entry(entry, &[], archived);
+    value.as_object_mut().unwrap().remove("field_registry");
+    value
+}
+
 pub(crate) fn get(
     _tool: &TrackerTool,
     input: TrackerInput,
@@ -117,18 +123,16 @@ pub(crate) fn get(
         return ToolOutput::error("`id` is required for get");
     };
     match entries.iter().find(|e| &e.id == id) {
-        Some(e) => {
-            ToolOutput::ok(serde_json::to_string_pretty(&structured_entry(e, &[], false)).unwrap())
-        }
+        Some(e) => ToolOutput::ok(serde_json::to_string_pretty(&agent_entry(e, false)).unwrap()),
         // 已归档条目仍可读:回落到 archive 文件(只读,不可 update)。
         None => match store
             .load_archive()
             .ok()
             .and_then(|arch| arch.into_iter().find(|e| &e.id == id))
         {
-            Some(e) => ToolOutput::ok(
-                serde_json::to_string_pretty(&structured_entry(&e, &[], true)).unwrap(),
-            ),
+            Some(e) => {
+                ToolOutput::ok(serde_json::to_string_pretty(&agent_entry(&e, true)).unwrap())
+            }
             None => ToolOutput::error(unknown_id(id, entries)),
         },
     }
@@ -369,6 +373,16 @@ pub(crate) fn update_close(
         return ToolOutput::error("`id` is required");
     };
     let Some(pos) = entries.iter().position(|e| &e.id == id) else {
+        if input.action == "close" {
+            if let Some(entry) = store
+                .load_archive()
+                .ok()
+                .and_then(|entries| entries.into_iter().find(|entry| &entry.id == id))
+            {
+                return ToolOutput::needs_correction("ALREADY_TERMINAL", format!(
+                    "{} 已归档，当前状态 {}；关闭已完成。本次未写入、无需补跑测试或重复关闭；执行 work next 查看当前任务。", entry.id, entry.status));
+            }
+        }
         return ToolOutput::error(archived_or_unknown(id, entries, store, tool.tool_name));
     };
     if let Some(sev_err) = tool.check_severity(&input.severity) {

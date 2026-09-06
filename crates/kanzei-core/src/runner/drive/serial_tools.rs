@@ -99,7 +99,7 @@ pub(super) async fn execute_serial_tool_calls(
 
         // question 是交互工具，不再叠加权限询问；答案作为工具结果回喂模型。
         if name == "question" {
-            let output = execute_question(config, &input, ask).await;
+            let output = execute_question(config.ask_policy, &input, ask).await;
             on_event(RunEvent::ToolEnd {
                 id: id.clone(),
                 name: name.clone(),

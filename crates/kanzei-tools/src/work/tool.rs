@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 struct WorkInput {
     /// next/claim 保留旧工作流；其余动作用于 work_units_v1。
     action: String,
+    /// next=true 时显式读取完整状态；默认返回有界决策摘要。
+    #[serde(default)]
+    detail: bool,
     /// claim/get_unit/checkpoint/block/unblock/verify/evidence/complete/supersede 必填。
     #[serde(default)]
     id: Option<String>,
@@ -556,10 +559,19 @@ impl Tool for WorkTool {
             };
         }
         if input.action == "next" {
-            return match resolve_work_decision(&ctx.cwd, &ctx.project_root, ctx.work_priority) {
+            let state = if input.detail {
+                resolve_work_decision(&ctx.cwd, &ctx.project_root, ctx.work_priority)
+            } else {
+                resolve_work_selection(&ctx.cwd, &ctx.project_root, ctx.work_priority)
+            };
+            return match state {
                 Ok(state) => ToolOutput::ok(
-                    serde_json::to_string_pretty(&super::output::structured_control_output(state))
-                        .unwrap(),
+                    serde_json::to_string_pretty(&if input.detail {
+                        serde_json::to_value(state).unwrap()
+                    } else {
+                        super::output::structured_control_output(state)
+                    })
+                    .unwrap(),
                 ),
                 Err(error) => ToolOutput::error(error),
             };

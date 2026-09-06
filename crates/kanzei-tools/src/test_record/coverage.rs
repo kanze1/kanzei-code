@@ -328,7 +328,9 @@ pub fn verification_passed_for(root: &Path, entry_id: &str) -> bool {
 /// 存在**时不索要它,退回同等强度的替代:该条目自己的、跑过 verify 且被当前源码指纹
 /// 背书的 passed 记录。证据要绑当前代码这一层意图保住,不再要求一种私有文件格式。
 pub fn verification_evidence_gap(root: &Path, entry_id: &str) -> Option<String> {
-    let head = current_head(root)?;
+    let Some(head) = current_head(root) else {
+        return Some("无法读取当前 HEAD，尚不能核验提交级验证证据".into());
+    };
     let verify_record = records_for_entry(root, entry_id)
         .into_iter()
         .find(|record| {
@@ -336,7 +338,10 @@ pub fn verification_evidence_gap(root: &Path, entry_id: &str) -> Option<String> 
                 && record_command_text(record).contains("verify.ps1")
         });
 
-    let evidence_path = root.join("dist/verification.json");
+    let evidence_path = verification_paths(root, &head)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| root.join("dist/verification.json"));
     if !evidence_path.exists() {
         // 本项目不产 kanzei 的证据文件:按"条目自己的新鲜 verify 记录"判。
         let Some(record) = verify_record else {
@@ -384,6 +389,22 @@ pub fn verification_evidence_gap(root: &Path, entry_id: &str) -> Option<String> 
     if evidence["all_pass"].as_bool() != Some(true) {
         return Some("dist/verification.json 的 all_pass 不是 true;先修门禁欠账".into());
     }
+    if evidence["checks"].as_object().is_some_and(|checks| {
+        checks.is_empty()
+            || checks.values().any(|check| {
+                !check
+                    .as_str()
+                    .is_some_and(|result| result.starts_with("pass "))
+            })
+    }) {
+        return Some(format!(
+            "{} 存在未通过或跳过的检查，不能用于全量验收",
+            evidence_path.display()
+        ));
+    }
+    if !verification_inputs_clean(root) {
+        return Some("当前工作树含未验证的源码或配置改动；当前 HEAD 的证据不能背书这些改动".into());
+    }
     if verify_record.is_none() {
         return Some(format!(
             "verify 证据齐备,但缺一条关联 {entry_id}、status=passed、命令包含 verify.ps1 \
@@ -398,9 +419,15 @@ pub fn verification_evidence_gap(root: &Path, entry_id: &str) -> Option<String> 
 /// targeted verify 也可能运行全部前端步骤,所以这里只要求关闭门禁真正需要的三项
 /// (`ui_runtime` / `ui_lint` / `ui_i18n`)通过;是否 full verify 由 package 门禁另行判断。
 fn verification_frontend_smoke_passed(root: &Path, expected_commit: &str) -> Option<(u64, String)> {
-    let path = root.join("dist/verification.json");
-    let text = std::fs::read_to_string(&path).ok()?;
-    let evidence: serde_json::Value = serde_json::from_str(&text).ok()?;
+    verification_paths(root, expected_commit)
+        .into_iter()
+        .find_map(|path| frontend_evidence_at(&path, expected_commit))
+}
+
+fn frontend_evidence_at(path: &Path, expected_commit: &str) -> Option<(u64, String)> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let evidence: serde_json::Value =
+        serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
     if evidence["commit"].as_str() != Some(expected_commit)
         || evidence["all_pass"].as_bool() != Some(true)
     {
@@ -416,15 +443,77 @@ fn verification_frontend_smoke_passed(root: &Path, expected_commit: &str) -> Opt
             return None;
         }
     }
-    let at = std::fs::metadata(&path)
+    let at = std::fs::metadata(path)
         .and_then(|metadata| metadata.modified())
         .ok()
         .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|duration| duration.as_secs())?;
     Some((
         at,
-        "dist/verification.json (ui_runtime/ui_lint/ui_i18n)".to_string(),
+        format!("{} (ui_runtime/ui_lint/ui_i18n)", path.display()),
     ))
+}
+
+/// 同提交的验证证据可来自注册工作树；本地修改不能借用提交级证据。
+fn verification_paths(root: &Path, expected_commit: &str) -> Vec<std::path::PathBuf> {
+    if !verification_inputs_clean(root) {
+        return Vec::new();
+    }
+    let mut roots = vec![root.to_path_buf()];
+    if let Ok(trees) = crate::worktree::git_worktrees(root) {
+        roots.extend(
+            trees
+                .into_iter()
+                .filter(|tree| !tree.bare && !tree.prunable && tree.path != root)
+                .map(|tree| tree.path),
+        );
+    }
+    roots
+        .into_iter()
+        .filter_map(|candidate| {
+            let path = candidate.join("dist/verification.json");
+            let text = std::fs::read_to_string(&path).ok()?;
+            let evidence: serde_json::Value =
+                serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
+            if evidence["commit"].as_str() != Some(expected_commit)
+                || evidence["all_pass"].as_bool() != Some(true)
+                || current_head(&candidate).as_deref() != Some(expected_commit)
+                || (candidate != root && !verification_inputs_clean(&candidate))
+            {
+                return None;
+            }
+            Some(path)
+        })
+        .collect()
+}
+
+fn verification_inputs_clean(root: &Path) -> bool {
+    // diff 使用 Git 规范化后的内容，避免纯 CRLF 状态把同提交证据误判为过期。
+    for args in [
+        vec!["diff", "--name-only", "-z", "HEAD"],
+        vec!["ls-files", "--others", "--exclude-standard", "-z"],
+    ] {
+        let Ok(output) = crate::worktree::worktree_command(root, &args) else {
+            return false;
+        };
+        if !output.status.success() {
+            return false;
+        }
+        let paths = String::from_utf8_lossy(&output.stdout);
+        if paths
+            .split('\0')
+            .filter(|path| !path.is_empty())
+            .any(|path| {
+                !path.starts_with(".kanzei/")
+                    && !path.starts_with("docs/")
+                    && !path.starts_with("dist/")
+                    && !(path.ends_with(".md") && !path.contains('/'))
+            })
+        {
+            return false;
+        }
+    }
+    true
 }
 
 fn current_head(root: &Path) -> Option<String> {
@@ -519,10 +608,29 @@ pub fn frontend_smoke_passed(root: &Path) -> Option<(u64, String)> {
 
 /// 是否前端运行型冒烟(`node scripts/ui-*.mjs`,不含 `--check` 语法检查)。
 fn is_frontend_smoke(command: &str) -> bool {
-    if !command.contains("node") || !command.contains("scripts/ui-") {
-        return false;
-    }
-    !command.contains("--check")
+    let command = command.replace('\\', "/").replace("&&", ";");
+    command.split([';', '\n']).any(|part| {
+        let tokens: Vec<_> = part
+            .split_whitespace()
+            .map(|token| token.trim_matches(['\'', '"']))
+            .collect();
+        let start = usize::from(tokens.first() == Some(&"&"));
+        let node = tokens
+            .get(start)
+            .map(|token| token.rsplit('/').next().unwrap_or(token));
+        matches!(node, Some("node" | "node.exe"))
+            && !tokens.iter().any(|token| {
+                matches!(
+                    *token,
+                    "--check" | "-c" | "--eval" | "-e" | "--print" | "-p"
+                ) || token.starts_with("--eval=")
+                    || token.starts_with("--print=")
+            })
+            && tokens
+                .iter()
+                .skip(start + 1)
+                .any(|token| token.contains("scripts/ui-") && token.ends_with(".mjs"))
+    })
 }
 
 /// verify.ps1 十步门禁中的六条前端冒烟(与 scripts/verify.ps1 逐条对应)。
@@ -609,6 +717,72 @@ pub(super) fn check_frontend_smoke_claim(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frontend_commands_recognize_windows_paths_and_runtime_flags() {
+        for command in [
+            r"node --experimental-vm-modules .\scripts\ui-runtime-smoke.mjs",
+            r#"$env:NODE_OPTIONS='--experimental-vm-modules'; node scripts/ui-runtime-smoke.mjs"#,
+            r"& node.exe .\scripts\ui-lint-smoke.mjs",
+        ] {
+            assert!(is_frontend_smoke(command), "{command}");
+        }
+        for command in [
+            "echo node scripts/ui-runtime-smoke.mjs",
+            "node --check scripts/ui-runtime-smoke.mjs",
+            "node -c scripts/ui-runtime-smoke.mjs",
+            "node -e 'scripts/ui-runtime-smoke.mjs'",
+            "node scripts/ui-other.txt",
+        ] {
+            assert!(!is_frontend_smoke(command), "{command}");
+        }
+    }
+
+    #[test]
+    fn registered_worktree_evidence_reuses_only_clean_current_commit() {
+        let root = foreign_project("shared-evidence");
+        let tree = root.with_extension("release");
+        let result = crate::worktree::worktree_command(
+            &root,
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                tree.to_str().unwrap(),
+                "HEAD",
+            ],
+        )
+        .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let head = current_head(&root).unwrap();
+        std::fs::create_dir_all(tree.join("dist")).unwrap();
+        let evidence = json!({"commit":head,"all_pass":true,"checks":{
+            "ui_runtime":"pass 1s", "ui_lint":"pass 1s", "ui_i18n":"pass 1s"}});
+        std::fs::write(tree.join("dist/verification.json"), evidence.to_string()).unwrap();
+        std::fs::create_dir_all(root.join("dist")).unwrap();
+        std::fs::write(
+            root.join("dist/verification.json"),
+            r#"{"commit":"stale","all_pass":true}"#,
+        )
+        .unwrap();
+        let found = verification_frontend_smoke_passed(&root, &head).unwrap();
+        assert!(found
+            .1
+            .replace('\\', "/")
+            .contains(&tree.to_string_lossy().replace('\\', "/")));
+        assert!(verification_frontend_smoke_passed(&root, "other-head").is_none());
+        std::fs::write(root.join("untracked.js"), "new source").unwrap();
+        assert!(verification_frontend_smoke_passed(&root, &head).is_none());
+        std::fs::remove_file(root.join("untracked.js")).unwrap();
+        std::fs::write(root.join("scripts/verify.ps1"), "changed").unwrap();
+        assert!(verification_frontend_smoke_passed(&root, &head).is_none());
+        std::fs::remove_dir_all(&tree).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     /// 建一个"有自己的 verify.ps1、但不产 dist/verification.json"的项目根。
     /// 这是 kanzei 之外任何项目的常态形状。
@@ -777,8 +951,8 @@ mod tests {
             }"#,
         )
         .unwrap();
-        assert!(verification_frontend_smoke_passed(&root, "head-1").is_some());
-        assert!(verification_frontend_smoke_passed(&root, "head-2").is_none());
+        assert!(frontend_evidence_at(&root.join("dist/verification.json"), "head-1").is_some());
+        assert!(frontend_evidence_at(&root.join("dist/verification.json"), "head-2").is_none());
 
         std::fs::write(
             root.join("dist/verification.json"),
@@ -793,7 +967,7 @@ mod tests {
             }"#,
         )
         .unwrap();
-        assert!(verification_frontend_smoke_passed(&root, "head-1").is_none());
+        assert!(frontend_evidence_at(&root.join("dist/verification.json"), "head-1").is_none());
         std::fs::remove_dir_all(root).ok();
     }
 

@@ -1210,6 +1210,7 @@ let expectedConsoleHits = 0;
 
 let copiedResearchCitation = "";
 const sandbox = {
+  Event: class Event { constructor(type, init = {}) { this.type = type; Object.assign(this, init); } },
   __reportInitError: (label, err) => fail(`初始化步骤 ${label} 抛异常(已被 main.js 吞掉): ${err?.stack ?? err}`),
   __reportPersistentError: (text) => {
     if (expectedPersistentError && String(text).includes(expectedPersistentError)) {
@@ -5383,7 +5384,7 @@ handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1
 await flush();
 assert(!byId.get("auto-continue").checked, "需求/缺陷全部被阻塞时自动推进应停止");
 assert(kzTest.rounds() === 0, "阻塞刹车后推进计数应清零");
-assert(kzTest.stopReason().includes("全部被阻塞"), `阻塞刹车原因不对: ${kzTest.stopReason()}`);
+assert(kzTest.stopReason().includes("任务尚未完成"), `阻塞刹车原因不对: ${kzTest.stopReason()}`);
 // ⑤ Continue:存在可推进条目时正常续跑(不误刹车)。
 byId.get("auto-continue").checked = true;
 kzTest.setRounds(1);
@@ -5882,6 +5883,48 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
   kzTest.cancelTimers();
   byId.get("auto-continue").checked = false;
 }
+// D-745:等待用户与队列完成必须区分；历史问题的回复只填写草稿。
+{
+  sandbox.setAutoStopReason("任务尚未完成，当前均有阻塞或停车条件；请在文档页查看并回复待确认事项");
+  sandbox.renderAutoRun();
+  assert(!byId.get("auto-status").classList.contains("ok"), "全部阻塞不得显示成功状态");
+  sandbox.setAutoStopReason("All tasks completed", "completed");
+  sandbox.renderAutoRun();
+  assert(byId.get("auto-status").classList.contains("ok"), "队列清空应保留完成状态");
+  sandbox.setAutoStopReason("");
+  const question = sandbox.buildToolBlock("question", { question: "选择 provider" });
+  sandbox.fillToolBlock(question, { ok: false, outcome: "needs_confirmation", content: "待用户回答", display: {
+    kind: "pending_question", question: "选择 provider", options: [{ label: "本地", note: "使用本机设备" }],
+  } });
+  assert(question.icon.textContent === "⏸", "待回答问题应显示等待");
+  const reply = question.wrap.querySelector(".pending-question-reply");
+  assert(reply, "持久化问题回放必须有回复入口");
+  const restored = sandbox.buildToolBlock("tool result", {});
+  sandbox.fillToolBlock(restored, { ok: false, content: '[tool_outcome=needs_confirmation code=QUESTION_PENDING]\n' + JSON.stringify({
+    kind: "pending_question", question: "历史问题", options: [],
+  }) });
+  assert(restored.wrap.querySelector(".pending-question-reply") && restored.icon.textContent === "⏸", "无实时 display 的历史回放也必须恢复回复入口");
+  const prompt = byId.get("prompt");
+  const saved = prompt.value;
+  prompt.value = "已有草稿";
+  const before = invokeArgs.length;
+  reply.dispatchEvent({ type: "click" });
+  assert(prompt.value.includes("已有草稿") && prompt.value.includes("选择 provider") && prompt.value.includes("本机设备"), "回复必须保留草稿、问题和选项说明");
+  assert(invokeArgs.slice(before).every(({ cmd }) => !["run", "answer_ask", "doc_update"].includes(cmd)), "点击回复不得替用户提交答案或解除阻塞");
+  const doc_host = document.createElement("div");
+  sandbox.renderDocList(doc_host, [{
+    id: "R-287", title: "需要用户决定模型", status: "doing", closed: false, blocked: true,
+    block_reasons: ["等待用户提供 provider 与设备选择"], fields: [],
+  }], "req");
+  const decision = doc_host.querySelector(".doc-pending-decision");
+  assert(decision?.textContent.includes("provider"), "阻塞详情必须显示用户待决事项");
+  const decision_reply = decision?.querySelector("button");
+  assert(decision_reply, "阻塞事项必须有回复入口");
+  decision_reply?.dispatchEvent({ type: "click" });
+  assert(prompt.value.includes("R-287") && prompt.value.includes("设备选择"), "事项回复草稿必须带上身份和待决条件");
+  prompt.value = saved;
+}
+
 // ---------- 「勘察复核」= 阶段流水线总闸(2026-08-11 换闸门) ----------
 // 闸门从 auto_runs[session].enabled 换成进程级开关后,「开鞭挞 = 每轮勘察+复核」这个
 // 旧心智模型不再成立。四种组合里只有「鞭挞开 + 闸门关」需要提示,这里把它和它的

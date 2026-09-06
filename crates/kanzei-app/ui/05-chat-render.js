@@ -1,7 +1,7 @@
 import { defer } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { appendDisplayBlock, compactDiffLines } from "./06-activity.js";
-import { $, activePane, agentRoleAccent, appendToPane, messages, trimLivePane } from "./01-core.js";
+import { $, activePane, promptBox, agentRoleAccent, appendToPane, messages, trimLivePane } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { attachments, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
 import { renderMarkdown } from "./04-markdown.js";
@@ -476,6 +476,13 @@ export function toolOutcomeView(ok, outcome) {
 }
 
 export function fillToolBlock(block, { ok, outcome, content, display, input }) {
+  // 历史 ToolResult 保存模型内容；从稳定结果码恢复和实时事件相同的等待视图。
+  if (!display && String(content).startsWith("[tool_outcome=needs_confirmation code=QUESTION_PENDING]\n")) {
+    try {
+      const pending = JSON.parse(String(content).slice(String(content).indexOf("\n") + 1));
+      if (pending.kind === "pending_question") { display = pending; outcome = "needs_confirmation"; }
+    } catch { /* 损坏历史仍以原始输出展示。 */ }
+  }
   const view = toolOutcomeView(ok, outcome);
   block.wrap.classList.remove("running");
   block.wrap.classList.add(view.cls);
@@ -486,6 +493,24 @@ export function fillToolBlock(block, { ok, outcome, content, display, input }) {
   block.result.textContent = `⎿ ${summary}`;
   block.result.classList.remove("hidden");
   appendDisplayBlock(block.detail, display, { compact: true });
+  if (display?.kind === "pending_question" && typeof display.question === "string") {
+    block.icon.textContent = "⏸";
+    block.result.textContent = `${t("待用户回答")}: ${display.question}`;
+    const reply = document.createElement("button");
+    reply.type = "button";
+    reply.className = "pending-question-reply";
+    reply.textContent = t("回复此问题");
+    reply.addEventListener("click", () => {
+      const options = (Array.isArray(display.options) ? display.options : []).map((option) =>
+        typeof option === "string" ? option : [option.label, option.note].filter(Boolean).join(": "));
+      const context = [display.question, ...options, `${t("我的补充")}: `].join("\n");
+      promptBox.value = [promptBox.value.trim(), context].filter(Boolean).join("\n\n");
+      promptBox.dispatchEvent(new Event("input", { bubbles: true }));
+      promptBox.focus();
+    });
+    block.wrap.appendChild(reply);
+  }
+
   if (displayNeedsActivityNotice(display)) appendActivityNotice(block.detail);
   // 详情只放摘要没覆盖到的部分:`rest` 非空本身就是"还有没显示完的内容"这个判据,
   // 单行短结果照旧不出框(不给"展开了还是那一行"的假承诺),多行/长首行也不再重复正文。

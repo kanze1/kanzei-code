@@ -301,6 +301,9 @@ try {
         screenshot = $shotPath
         screenshot_bytes = (Get-Item -LiteralPath $shotPath).Length
         process_owned_by_test = $owned
+        launch_mode = $(if ($owned) { 'cold_start' } else { 'existing_window' })
+        cold_start_verified = $owned
+        restart_verified = $false
     }
     $result | ConvertTo-Json -Compress
 } finally {

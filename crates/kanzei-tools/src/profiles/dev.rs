@@ -400,19 +400,12 @@ impl Component for DevProfile {
                          retrospective requests, read representative code samples and consult \
                          the memory index for a matching SOP before concluding — line counts, \
                          test counts and tracker history alone are not depth evidence. \
-                         WIP limit: ONE executable item at a time across BOTH queues — a \
-                         requirement in doing and a defect in fixing share the SAME single \
-                         slot; finish it, park it, or close it before picking up another. An \
-                         item that carries a valid blocking field (an external blocker with a \
-                         named unblocker) or that the user explicitly parked is NOT executable \
-                         and does NOT consume the slot — never refuse to start new work on the \
-                         grounds that a blocked item is sitting in doing or fixing. To park, \
-                         write a `停车:` field stating why the slot was handed over; parking is \
-                         NOT a blocker and must never be written into `阻塞:`. The two are cleared \
-                         differently: a blocker is re-checked against its external premise, a \
-                         parked item is resumed deliberately — so when you sweep stale blockers, \
-                         leave `停车:` alone. Hoarding backstop: when doing plus fixing, blocked \
-                         ones included, exceeds 4, open nothing new until the backlog is drained. \
+                         Execute only the selected item. Other unfinished items are queued by the \
+                         engine; completion or a real blocker selects the next item automatically. \
+                         Never write parking fields or dependencies just to reduce WIP count. \
+                         Preserve explicit user parking and real external blockers with their \
+                         original release conditions. Recent terminal facts override old errors; \
+                         do not repeat a completed close or rerun already applicable evidence. \
                          Batch protocol: YOU decide how many batches an item takes, from its \
                          actual work, with a hard ceiling of 10 — the 复杂度 field does NOT \
                          dictate the count. Most items are one batch and need no declaration. \

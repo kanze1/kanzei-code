@@ -236,11 +236,14 @@ impl SqliteMemoryIndex {
         };
         let mut out: Vec<SearchHit> = Vec::new();
         for c in cands {
+            let Some(weight) = super::relevance::lexical_weight(query, &c.entry) else {
+                continue;
+            };
             // bm25 越小越相关(fts5 返回负值);取负得正相关度。
             // R-150:退役 hits 乘子——搜索命中是自增强循环(常被搜到→排更前→更常被搜到),
             // 与采纳率权重「召回未采纳→沉底」方向冲突;理论 importance ≠ semantic salience。
             // 排序权重只留 bm25 相关度 + 采纳率决策价值,hit_count 降为观测(SearchHit.hits)。
-            let mut score = -c.bm25;
+            let mut score = -c.bm25 * weight;
             // R-149:反复被召回却从不被采纳的条目 = 语义显著但决策无关,温和沉底。
             // preference 豁免:其正文全文常驻(STANDING DIRECTIVES),模型永远不需要
             // 再拉正文,采纳率结构性偏低、无意义(实证:M-002 召回 22 采纳 4)。
@@ -396,6 +399,13 @@ impl SqliteMemoryIndex {
             return Vec::new();
         };
         self.dense_scan(&query_vec, limit)
+            .into_iter()
+            .filter(|hit| {
+                self.entries
+                    .get(&hit.id)
+                    .is_some_and(|entry| super::relevance::anchors_match(&query.text, entry))
+            })
+            .collect()
     }
 }
 
@@ -665,7 +675,15 @@ impl SqliteMemoryIndex {
         // 向量扫描(vector 段)。
         let vec_started = std::time::Instant::now();
         let dense = match &query_vec {
-            Some(qv) => self.dense_scan(qv, DENSE_TOP),
+            Some(qv) => self
+                .dense_scan(qv, DENSE_TOP)
+                .into_iter()
+                .filter(|hit| {
+                    self.entries
+                        .get(&hit.id)
+                        .is_some_and(|entry| super::relevance::anchors_match(&query.text, entry))
+                })
+                .collect(),
             None => Vec::new(),
         };
         timing.vector_ms = vec_started.elapsed().as_millis() as u64;
@@ -825,6 +843,75 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = MemoryStore::open(MemoryScope::Project, dir.join(".kanzei").join("memory"));
         (dir, store)
+    }
+
+    #[test]
+    fn explicit_memory_queries_reject_permission_story_but_preserve_matching_sop() {
+        let (root, store) = temp_root();
+        let permission = add(
+            &store,
+            "sop",
+            "自主会话权限审批",
+            "permission requires user approval 时停止重试",
+            "历史采纳；合并晋升 active 后仍有复发。权限审批留给用户，不能反复重试。",
+        );
+        let mut index = SqliteMemoryIndex::new(&root);
+        index.rebuild().unwrap();
+        let mut dense = SqliteMemoryIndex::with_embedder(
+            &root,
+            Some(Arc::new(crate::embed::FakeEmbedder::new(8))),
+        );
+        dense.rebuild().unwrap();
+        let anchor_query = IndexQuery::text("recall_profile recall_events index.db");
+        assert!(dense.search_hybrid(&anchor_query, 5).is_empty());
+        assert!(dense
+            .search_hybrid_with_timing(&anchor_query, 5)
+            .0
+            .is_empty());
+        for query in [
+            "recall_profile recall_events fetched injected 采纳 memory_recalls index.db",
+            "记忆自动晋升 恢复证据 outcome_improved 复发 在线代理",
+            "记忆自动晋升 恢复证据 复发 在线代理",
+        ] {
+            assert!(
+                index
+                    .search_entries(&IndexQuery::text(query), None, Some("active"), 5)
+                    .is_empty(),
+                "{query}"
+            );
+        }
+        let matching = add(
+            &store,
+            "fact",
+            "记忆恢复证据归属",
+            "recall_events 的 injected 与读取证据",
+            "recall_profile 在 index.db 中复核；outcome_improved 必须具有同目标失败恢复证据。",
+        );
+        index.upsert(&matching).unwrap();
+        let hits = index.search_entries(
+            &IndexQuery::text(
+                "recall_profile recall_events fetched injected 采纳 memory_recalls index.db",
+            ),
+            None,
+            Some("active"),
+            5,
+        );
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].entry.id, matching.id);
+        let hits = index.search_entries(
+            &IndexQuery::text("permission requires user approval"),
+            None,
+            Some("active"),
+            5,
+        );
+        assert_eq!(hits[0].entry.id, permission.id);
+        assert!(
+            index
+                .search_entries(&IndexQuery::text("recall_event"), None, Some("active"), 5)
+                .is_empty(),
+            "标识符前缀不能误配"
+        );
+        std::fs::remove_dir_all(root).ok();
     }
 
     fn add(
@@ -1416,9 +1503,9 @@ mod tests {
     /// D-366 验收③对照锚点:同一组 query 在检索边界重构前后 top-k 命中集合一致。
     /// 期望值来自 2026-08-16 改动前(store.search 持有 ranking 时)的实际运行快照:
     /// "edit old_string"→[M-001];"cargo build"→[M-002];"git merge 冲突"→[M-003,M-004];
-    /// "代理"→[M-004];"memory_note"→[M-005];"完全不存在 的 词"→[M-005]("的"单字 FTS 命中)。
+    /// 有效查询保持命中；D-745 起拒绝「完全不存在 的 词」仅由虚词产生的误命中。
     #[test]
-    fn 检索行为快照_改动前后topk命中集合一致() {
+    fn 检索行为快照_有效查询保留且无关查询返回空() {
         let (root, store) = temp_root();
         let _ = add(
             &store,
@@ -1463,7 +1550,7 @@ mod tests {
             ("git merge 冲突", 3, &["M-003", "M-004"]),
             ("代理", 3, &["M-004"]),
             ("memory_note", 3, &["M-005"]),
-            ("完全不存在 的 词", 3, &["M-005"]),
+            ("完全不存在 的 词", 3, &[]),
         ];
         for (q, k, want_ids) in cases {
             let hits = index.search_lexical(&IndexQuery::text(q), k);

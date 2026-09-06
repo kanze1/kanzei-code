@@ -42,28 +42,62 @@ pub(super) fn reconciliation_output(
     json!({"items": items, "counts": report.counts})
 }
 
-pub(super) fn structured_control_output(mut state: ResolvedControlState) -> ResolvedControlState {
-    for item in &mut state.reconciliation.items {
-        if item.title.contains("fingerprint") || item.title.contains("指纹") {
-            item.title = "reconciliation item".into();
-        }
-        item.reasons = vec![reconciliation_gap(item.classification).into()];
-        item.declared_commit = None;
-        item.current_head.clear();
-        item.declared_source_fingerprint = None;
-        item.evidence_source_fingerprints.clear();
-        item.source_files.clear();
-    }
+/// 模型默认只接收当前决策；完整对账和字段由显式 detail 请求获取。
+pub(super) fn structured_control_output(state: ResolvedControlState) -> serde_json::Value {
+    let counts = json!({
+        "queued_wip": state.queued_wip.len(), "blocked": state.blocked_items.len(),
+        "parked": state.parked_items.len(), "foreign_wip": state.foreign_wip.len(),
+        "reconciliation": state.reconciliation.counts,
+    });
+    let mut state = super::compact_for_context(state);
     state.reason = prompt_safe_block_reason(&state.reason);
-    if let Some(item) = &mut state.selected {
-        for reason in &mut item.block_reasons {
-            *reason = prompt_safe_block_reason(reason);
-        }
+    state.queued_wip.truncate(8);
+    state.blocked_items.truncate(8);
+    state.parked_items.truncate(8);
+    state.foreign_wip.truncate(8);
+    let mut value = serde_json::to_value(state).expect("control state serializes");
+    value["queue_counts"] = counts;
+    value["details"] = json!(
+        "work next detail=true 查看完整状态；work reconcile 查看对账；req/defect get 查看指定条目"
+    );
+    // 历史进展与重复验证字段不随每次请求线性增长。原字段保持在 tracker 中。
+    if let Some(selected) = value.get_mut("selected").filter(|v| v.is_object()) {
+        let fields = selected["fields"].as_array().cloned().unwrap_or_default();
+        let kept = [
+            "目标", "内容", "边界", "验收", "批次", "进展", "验证", "复现", "根因", "期望",
+        ]
+        .into_iter()
+        .filter_map(|name| {
+            fields
+                .iter()
+                .rev()
+                .find(|field| field["name"] == name)
+                .cloned()
+        })
+        .collect::<Vec<_>>();
+        selected["omitted_fields"] = json!(fields.len().saturating_sub(kept.len()));
+        selected["fields"] = json!(kept);
     }
-    for item in &mut state.blocked_items {
-        for reason in &mut item.block_reasons {
-            *reason = prompt_safe_block_reason(reason);
+    bound_text(&mut value);
+    value
+}
+
+fn bound_text(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) if text.chars().count() > 700 => {
+            *text = text.chars().take(700).collect::<String>() + "…[已裁剪，完整内容见 detail]";
         }
+        serde_json::Value::Array(items) => {
+            items.truncate(12);
+            for item in items {
+                bound_text(item);
+            }
+        }
+        serde_json::Value::Object(fields) => {
+            for item in fields.values_mut() {
+                bound_text(item);
+            }
+        }
+        _ => {}
     }
-    state
 }

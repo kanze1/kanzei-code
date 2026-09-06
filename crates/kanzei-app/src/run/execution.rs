@@ -99,10 +99,20 @@ pub(crate) async fn run_execution_loop(
     // 开跑预检索(R-106):prompt 命中既有记忆时前置索引提示块;历史存用户原文。
     // D-185:提示块不再拼进 run_prompt,改由 run_once 作为本轮 system 一次性注入——
     // 拼进去会随 User message 进 messages → 落 conversations → 下轮回灌累积。
+    // 自主轮以同一调度器的当前选择检索，保持与执行顺序一致。
+    let memory_query = if autonomous {
+        kanzei_tools::work::resolve_work_selection(&ctx.cwd, &ctx.project_root, ctx.work_priority)
+            .ok()
+            .and_then(|state| state.selected)
+            .map(|item| item.title)
+            .unwrap_or_default()
+    } else {
+        prompt.to_string()
+    };
     let memory_hints = kanzei_tools::memory::prompt_hints_for_run(
         &ctx.project_root,
-        prompt,
-        autonomous,
+        &memory_query,
+        false,
         // R-233:配置了 [embeddings] 就带 embedder 走 hybrid,否则纯 BM25。
         kanzei_tools::embed::embedder_from_config(config)
             .ok()

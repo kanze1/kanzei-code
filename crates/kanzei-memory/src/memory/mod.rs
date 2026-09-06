@@ -13,6 +13,7 @@ mod lifecycle;
 mod manager;
 mod migration;
 mod preference;
+mod relevance;
 mod retrieval;
 mod store;
 mod telemetry;

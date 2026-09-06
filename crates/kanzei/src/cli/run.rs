@@ -160,26 +160,20 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // 装配顺序即覆盖顺序:内置 → profile → 用户 markdown → 用户 toml(用户永远最后、永远赢)。
     // R-256 批4:与桌面共用 kanzei_tools::run::build_harness(对照表 #5 公共部分单点),
     // CLI 独有 Readonly 经 middle 注入(顺序与原来一致:Research 后、Markdown 前)。
-    let harness = kanzei_tools::run::build_harness(
+    let mut harness = kanzei_tools::run::build_harness(
         |harness| {
             harness.add(ReadonlyProfile);
         },
         |_harness| {},
     );
+    harness.add(kanzei_tools::work::WorkControlContext(
+        kanzei_harness::auto_run::WorkPriority::DefectFirst,
+    ));
     let snapshot = harness.resolve(&rctx)?;
 
-    let mut agent = snapshot
+    let agent = snapshot
         .select_agent(std::env::var("KANZEI_AGENT").ok().as_deref())?
         .clone();
-    if profile == ProfileKind::Dev {
-        agent
-            .system
-            .push_str(&kanzei_tools::resolved_control_prompt(
-                &cwd,
-                &project_root,
-                kanzei_harness::auto_run::WorkPriority::DefectFirst,
-            ));
-    }
 
     // 模型:KANZEI_MODEL 覆盖 agent 定义(快速试模型用)。R-178 P2 五层链 ①②③:
     // CLI 无线/进程概念(② 恒 None),本轮直选 = KANZEI_MODEL → agent 默认;

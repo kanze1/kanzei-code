@@ -34,6 +34,7 @@ pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
         kanzei_harness::auto_run::WorkPriority::DefectFirst
     };
     let mut input = serde_json::json!({"action": action});
+    input["detail"] = serde_json::json!(args.iter().any(|arg| arg == "--detail"));
     let id_actions = [
         "claim",
         "get_unit",

@@ -10,6 +10,13 @@ import { refreshConversationList } from "./15-views-misc.js";
 import { markLanguagePreferenceDirty, renderProviders } from "./16-settings.js";
 
 export const I18N_EN = {
+  "待用户回答": "Awaiting user response",
+  "回复此问题": "Reply to this question",
+  "本轮结束": "Turn ended",
+  "任务尚未完成，当前均有阻塞或停车条件；请在文档页查看并回复待确认事项": "Tasks remain unfinished and currently have blocking or parking conditions. Review and reply in Documents.",
+  "待解除条件": "Conditions to resolve",
+  "回复此事项": "Reply to this item",
+  "我的补充": "My response",
   "最近": "Latest",
   "召回 / 注入 / 正文读取": "Retrieved / injected / body reads",
   "收益评估": "Benefit evaluation",

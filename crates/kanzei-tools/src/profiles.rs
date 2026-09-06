@@ -196,16 +196,12 @@ mod tests {
         let system = dev_system_prompt("d242-wip");
 
         for required in [
-            // ① WIP:需求与缺陷合计只有一个可执行槽,阻塞项不占槽。
-            "ONE executable item",
-            "share the SAME single slot",
-            "does NOT consume the slot",
-            "exceeds 4",
-            // D-434:停车与阻塞是两个字段、两种清除方式。提示词里没有这条,
-            // 模型只能把停车写进「阻塞」,下一轮复核阻塞时又被当失效自阻塞清掉。
-            "write a `停车:` field",
-            "must never be written into `阻塞:`",
-            "leave `停车:` alone",
+            // D-745:引擎选择一项，其余排队，保留真实人工停车。
+            "Execute only the selected item",
+            "queued by the engine",
+            "Never write parking fields or dependencies just to reduce WIP count",
+            "Preserve explicit user parking",
+            "original release conditions",
             // ② 批次:数量由 agent 自定,上限 10,写法与提交标记有明确规矩。
             "hard ceiling of 10",
             "批次: 0/N",
@@ -222,7 +218,8 @@ mod tests {
         }
 
         assert!(
-            !system.contains("keep at most 2 requirements"),
+            !system.contains("keep at most 2 requirements")
+                && !system.contains("write a `停车:` field"),
             "D-219 旧口径残留:WIP 仍写着「最多 2 个 requirements in doing」,\
              与新的单槽口径互斥,模型会按就近句取其一。"
         );

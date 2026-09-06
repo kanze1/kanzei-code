@@ -79,7 +79,7 @@ pub(crate) fn usage_text() -> &'static str {
        kz run --readonly \"<prompt>\"  # 只读档位:读/检索放行,写与命令硬拒绝\n\
        kz run --no-subagents \"<prompt>\"  # 关闭本次 CLI 运行的 task 子代理工具（默认开启）\n\
        kz replay-eval [--limit N]     # 六臂回放评估:历史 run.trace 提取 case,fake 档真调\n\
-       kz work next [--requirement-first]  # 结构化取活裁决\n\
+       kz work next [--requirement-first] [--detail]  # 当前裁决；detail 显示完整状态\n\
        kz work claim <id> [--reason <text>] # 原子占用 Requirement/Defect/Work Unit\n\
        kz work create-unit --requirement R-xxx --objective <text> --acceptance <text> [--scope <path>] [--depends-on R-xxx/Wn] [--verify-with <cmd>]\n\
        kz work checkpoint R-xxx/Wn --summary <text> --next-action <text> [--decision <text>] [--retrieval-ref <ref>]\n\
