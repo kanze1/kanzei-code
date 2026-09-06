@@ -50,11 +50,11 @@
 - 批次: 2/4
 - 进展: 2026-08-17 主会话完成批1+批2。新增 22-neural-flow.js:确定性神经拓扑、单 RAF 调度、活动/静息节流、ResizeObserver、DPR≤1.75、窗口隐藏暂停、reduced-motion 静态降级,实现呼吸/流动/结晶与失败阻塞四类表现;index.html 接主对话 Canvas 与记忆流舞台,style.css 使用 app 金色 token 且 Canvas pointer-events:none。真实接线:07-events.js 的 turn/text/reasoning/tool start/end/compacted/stopped/done/error;13-memory.js 的 snapshot/search/consolidate/candidate discard/cleanup,失败事件独立且不播放成功结晶。测试:T-1786922726035 前端全冒烟通过;T-1786922726036 真实 Chromium 1440/800 视觉验收通过。剩余批3=依赖 R-284 的原生 recall injected/candidate promoted/research/voice 事件;批4=设置/质量档/真实 WebView2 长会话性能与录屏。；状态对账: 正文旧字段 `doing` 与权威标题状态 `doing` 重复;已移除正文副本。
 
-## R-287 voice 语音交互:流式 ASR/VAD、语音回复、定制声音与打断 [todo]
+## R-287 voice 语音交互:流式 ASR/VAD、语音回复、定制声音与打断 [doing]
 - 优先级: P2
 - 复杂度: 大
 - 标签: 后端 前端 语音 集成
-- 来源: 2026-08-17 用户要求接入语音功能并优先支持定制语音;技术调研结论为 chained voice:音频→ASR→现有文本 Agent→TTS。
+- 来源: 2026-08-17 用户要求接入语音功能并优先支持定制语音；用户原话：「接入语音功能并优先支持定制语音」；技术调研结论为 chained voice:音频→ASR→现有文本 Agent→TTS。
 - 依赖: 
 - refs: R-285 docs/design/phase2_system_upgrade.md
 - 内容: 按 phase2_system_upgrade.md §5.6 分五批。批1 Rust cpal/WASAPI 设备枚举、录音播放和 50 条中英/代码术语基准,sherpa-onnx 与 whisper.cpp 对照。批2 push-to-talk+partial/final 字幕回填输入框。批3 TTS provider adapter 与播放/暂停/停止。批4 经授权的 voice profile:CosyVoice 本地 sidecar、OpenAI Custom Voice、ElevenLabs 可替换。批5 VAD 自动收尾、barge-in、流式首包和 R-285 动画联动。
@@ -62,9 +62,14 @@
 - 边界: 第一阶段不改为端到端 speech-to-speech,保留文本、工具、权限、审计和记忆链;模型下载/长时间 GPU 基准先由用户确认执行;任何 provider 激活必须有真实认证输出,配置或容器日志不算完成。
 - 验收: ①真麦克风设备切换、录音和播放;②50 条基准报告 partial/final 延迟、CER/术语修正率、实时率与资源;③ASR 文本进入现有输入和权限链;④TTS 失败不阻断文本回复;⑤真实授权定制声音输出;⑥播放中插话能中断并恢复会话状态;⑦原始音频、consent、key 的存储与删除边界有测试。
 - 批次: 0/5
-- 进展: 状态对账: 正文旧字段 `todo` 与权威标题状态 `todo` 重复;已移除正文副本。
+- 进展: 已完成设计冻结与登记完整性补齐；尚未改源码。因 voice 属于高影响第三方集成，provider/模型/设备/授权声音与下载及 GPU 基准权限不能由 agent 猜测；已将以下待确认项保留在阻塞：ASR 选 whisper.cpp 或 sherpa-onnx，TTS/定制声音选 CosyVoice 本地 sidecar、OpenAI Custom Voice 或 ElevenLabs，Windows 真麦克风/播放设备，是否允许模型下载和长 GPU 基准，真实授权声音验收窗口。收到用户选择后从批1设备枚举、录放与50条基准开始。
 - 前置: R-284(事件契约 B1-B4 已交付,voice 词表可直接消费;voice state 生产者由本条产出,R-284 验收②反向等待本条)
 - 对账: 2026-09-05 对账:原「依赖: R-284」与 R-284 停车「让位 R-287、待 voice 生产者落地」构成互等环(R-284 等 R-287 产 voice 事件,R-287 等 R-284 关闭),两条永远互相阻塞;R-284 的契约已交付,本条所需的只是词表而非其关闭,故依赖降为前置断环。设备/模型基准批1 本就可先行
+- 发现记录: {"Intent":"在保留文本 Agent、权限、工具、审计和记忆链的前提下接入可用语音交互","Explicit":"R-287五批：设备录放与ASR基准、PTT字幕、TTS、授权定制声音、VAD/barge-in/动画联动；验收含真设备、50条报告、输入权限链、TTS降级、真实授权输出、打断恢复与敏感数据边界","Assumptions":"首版采用音频→ASR→现有文本Agent→TTS；默认不保存原始录音；provider key仅后端；模型下载和长GPU基准由用户确认","Ambiguities":"真麦克风/音频设备、ASR/TTS provider凭据与模型、授权定制声音目标、真机与性能基准环境尚未指定；R-285动画联动接口需与现有事件契约核对","领域对象":"VoiceDevice、AudioCapture、ASR partial/final、VoiceProfile、TTS playback、barge-in、voice state event、consent与secret storage","最小成功闭环":"真实麦克风录音→ASR文本进入现有输入与权限链→文本回复可见；TTS可选且失败不阻断；退出后敏感音频/consent/key边界可验证","延后决策":"provider与模型组合、定制声音授权方式、VAD阈值、原始音频保留策略、50条基准硬指标与真设备/真机验收窗口由用户确认后冻结"}
+- 阻塞: 用户：确认 R-287 的 ASR/TTS/provider 与模型组合、Windows 真麦克风/播放设备、模型下载/GPU 基准权限、授权定制声音及真实验收窗口；agent 不得在这些高影响决策未确认时实现第三方集成。解除条件:用户
+- observed_head: 4a85596cbcb5f8a4fe056f11b741317a14216f75
+- observed_worktree_hash: fnv1a64:30acc4843d86176e
+- recorded_at: 1788659241649
 
 ## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [doing]
 - 复杂度: 大
@@ -399,9 +404,21 @@
 - 批次: 1/3
 - 来源: 2026-09-06 用户原话「同意，开工吧」，确认上一轮审计建议
 - 标签: 前端
-- 进展: 第一批代码及定向回归完成：统一 recall_events、run_id 读取事实、匹配恢复晋升和页面使用呈现。core 284、memory 168、ReadTool 10、桌面 memory IPC 2 项测试通过，六条前端冒烟通过。完整 verify、原生桌面验收、真实收益对照及第二三批尚未完成。详见 docs/design/memory_feedback_reliability.md。
+- 进展: 首批及 D-745 修复已发布至 build-361de2e9；调度、动态上下文、有界输出、证据复用、检索相关性和待答信息完成回归。最终完整 verify 14 步全过，Rust 1590 通过/0 失败/2 既有忽略，T-1786922726980；独立下载安装包 SHA256/大小及 HTTP 206 验收通过。用户正在运行旧版，本轮未安装或重启。三批计划仍 1/3，原生交互与固定任务记忆收益对照待完成。详见 docs/design/memory_feedback_reliability.md 发布验收记录。
 - 验收: 新旧库迁移可回归；读取按运行隔离；正常结束不冒充收益；无匹配恢复证据不得自动晋升；前端区分注入读取与未知；实际收益独立对照留证。
 - 优先级: P1
-- observed_head: 568adcc8063a0b0f3edd8feefebe5f67c6b4e497
-- observed_worktree_hash: fnv1a64:984b510070ebb714
-- recorded_at: 1788640856825
+- observed_head: 361de2e974b3713f83bbecfa87e2d321d9c5a283
+- observed_worktree_hash: fnv1a64:43a1d1024625f1f8
+- recorded_at: 1788665103677
+
+## R-362 research 模式产出问题优先的论文骨架:因变量前置、主结果先行、机制走排除链、相关工作后移 [todo]
+- 内容: 批1 骨架模板落地:write_outline 增加问题优先骨架模板(默认启用,可显式关闭),八个槽位=①引言(背景→问题→方法一句→N 个发现→贡献);②量什么(测法为何这样设计、自变量定义、诊断即全文因变量集中定义一次、一张小表列出竞争解释各自预测什么);③主结果先行(带小节,先给量出了什么);④机制排除链(不是 X、是 Y、是什么在计时、擦除后剩下什么);⑤把方法或算子放回同一根轴上比较;⑥在真实系统上复现同一解剖;⑦相关工作后移以保持阅读动量;⑧结论。批2 校验与降级:缺槽位给点名诊断而非静默通过;轻课题(只有 report.md)降级为 ①②③④⑧ 五槽,不强套全结构,对齐 research_mode.md §3 结构是上限不是义务。批3 提示词接线:research system 提示补写作结构口径,让模型在 write_outline 之前就知道槽位语义;write_section 按槽位提示每节该回答什么。批4 真实课题跑通一次并留工件
+- 发现记录: {"Intent":"让 research 模式产出的论文结构本身就把问题呈现清楚,而不是每次即兴决定章节顺序","Explicit":"用户给出一份真实论文的建议新骨架截图,要求 research mode 生成这种结构","Assumptions":"write_outline 是唯一的结构决定点,提示词与校验两处同时接线才不会各说各话;轻课题仍允许只出 report.md","Ambiguities":"槽位是硬闸还是默认模板、轻重课题的分界、是否允许用户自定义模板,本条按默认模板加可关闭处理","领域对象":"research_write 的 outline 与 section、research agent 系统提示、topic 目录工件、轻重课题分级","最小成功闭环":"一个真实课题跑完,outline.md 八槽齐备且每节回答了该槽位的问题,缺槽位时诊断点名","延后决策":"多套领域模板、用户自定义模板语法、已归档 topic 的结构回改"}
+- 复杂度: 中
+- 批次: 0/4
+- 来源: 2026-09-07 用户贴出一份真实论文的建议新骨架截图,原话「我说的researchmode要生成这种结构」。现状缺口:research agent 的 system 提示(crates/kanzei-tools/src/profiles.rs:112-124)只说先 write_outline 再 write_section,对文章结构零约束;write_outline 的校验(crates/kanzei-tools/src/research_write.rs:84-153)也只查 id/title/objective/source_ids 非空与 id 唯一,结构完全由模型即兴决定,同一课题两次产出可以完全不同
+- 标签: 后端
+- 边界: 不改 V 等级、证据锚与 verify_claims 的既有契约;不强制轻课题走全结构;模板是默认不是硬闸,显式自由模式仍放行任意结构;不动 R-273 的 LaTeX 编译回环;不回改已归档 topic 目录的既有结构
+- 验收: ①write_outline 默认产出上述八槽骨架且槽位语义有单测;②outline 缺槽位或顺序颠倒时给出点名诊断(缺哪一槽、该槽该回答什么),不静默通过;③轻课题降级五槽有定向测试,不被全结构门禁拒绝;④research system 提示词含结构口径且与模板槽位机械一致(改一处则另一处测试失败);⑤真实跑一个课题产出符合骨架的 outline.md 与 report 或 paper,留工件路径;⑥自由模式仍可产出任意结构,既有 topic 目录不受影响
+- refs: R-221 R-277
+- 优先级: P1
