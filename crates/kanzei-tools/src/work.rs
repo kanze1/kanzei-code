@@ -1226,32 +1226,10 @@ fn resolve_work_state(
         selected,
         executable_wip: executable_wip.iter().map(WorkItemSummary::from).collect(),
         queued_wip,
-        recent_completed: [
+        recent_completed: context::recent_completed([
             (&requirements, &req_archive, &REQUIREMENTS),
             (&defects, &def_archive, &DEFECTS),
-        ]
-        .into_iter()
-        .flat_map(|(active, archive, kind)| {
-            active
-                .iter()
-                .chain(archive.iter())
-                .filter(|entry| kind.terminal.contains(&entry.status.as_str()))
-                .rev()
-                .take(4)
-                .map(move |entry| WorkItemSummary {
-                    id: entry.id.clone(),
-                    kind: if kind.prefix == "R" {
-                        "requirement"
-                    } else {
-                        "defect"
-                    }
-                    .into(),
-                    title: entry.title.clone(),
-                    lifecycle_status: entry.status.clone(),
-                    block_reasons: Vec::new(),
-                })
-        })
-        .collect(),
+        ]),
         blocked_items: blocked_items.iter().map(WorkItemSummary::from).collect(),
         parked_items: parked_items.iter().map(WorkItemSummary::from).collect(),
         decision_locked,
