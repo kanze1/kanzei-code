@@ -10,7 +10,7 @@ use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::docstore::DocStore;
+use crate::docstore::{DocStore, FINDINGS};
 use crate::latex_tool::compile_latex;
 
 const MAX_REPAIR_ATTEMPTS: u32 = 3;
@@ -29,6 +29,209 @@ pub struct ResearchOutline {
     pub topic: String,
     pub title: String,
     pub sections: Vec<OutlineSection>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StructureBasis {
+    pub version: u32,
+    pub topic: String,
+    pub light: bool,
+    pub variable_ids: Vec<String>,
+    pub main_result_ids: Vec<String>,
+    pub excluded_candidate_ids: Vec<String>,
+    pub competing_explanation_ids: Vec<String>,
+    pub related_work_ids: Vec<String>,
+    pub missing_roles: Vec<String>,
+}
+
+fn entry_field(entry: &crate::docstore::Entry, names: &[&str]) -> Option<String> {
+    entry
+        .fields
+        .iter()
+        .find(|(name, _)| names.iter().any(|candidate| name == candidate))
+        .map(|(_, value)| value.clone())
+}
+
+fn finding_roles(entry: &crate::docstore::Entry) -> Vec<String> {
+    let explicit = entry_field(entry, &["结构角色", "structure_role"]);
+    let text = format!(
+        "{} {}",
+        entry.title,
+        entry_field(entry, &["结论", "conclusion"]).unwrap_or_default()
+    );
+    let mut roles = explicit
+        .as_deref()
+        .unwrap_or("")
+        .split(['、', ',', ';', ' '])
+        .filter(|role| !role.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let has = |terms: &[&str]| terms.iter().any(|term| text.contains(term));
+    if roles.is_empty() {
+        if has(&["因变量", "指标", "诊断", "dependent variable", "metric"]) {
+            roles.push("variable_definition".into());
+        }
+        if has(&["主结果", "主要结果", "效果", "success", "improvement"]) {
+            roles.push("main_result".into());
+        }
+        if has(&["排除", "候选", "alternative", "eliminated"]) {
+            roles.push("excluded_candidate".into());
+        }
+        if has(&["竞争解释", "解释", "机制", "hypothesis", "mechanism"]) {
+            roles.push("competing_explanation".into());
+        }
+        if has(&["相关工作", "related work"]) {
+            roles.push("related_work".into());
+        }
+    }
+    roles
+}
+
+fn role_matches(role: &str, aliases: &[&str]) -> bool {
+    aliases.contains(&role)
+}
+
+fn derive_structure_basis(root: &Path, topic: &str) -> Result<StructureBasis, String> {
+    let store = DocStore::open_topic(root, &FINDINGS, topic)
+        .map_err(|error| format!("读取 findings 失败: {error}"))?;
+    let entries = store
+        .load()
+        .map_err(|error| format!("读取 findings 失败: {error}"))?;
+    let light = entries.is_empty();
+    let mut basis = StructureBasis {
+        version: 1,
+        topic: topic.into(),
+        light,
+        variable_ids: Vec::new(),
+        main_result_ids: Vec::new(),
+        excluded_candidate_ids: Vec::new(),
+        competing_explanation_ids: Vec::new(),
+        related_work_ids: Vec::new(),
+        missing_roles: Vec::new(),
+    };
+    for entry in entries {
+        for role in finding_roles(&entry) {
+            match role.as_str() {
+                role if role_matches(role, &["variable_definition", "因变量定义", "因变量"]) => {
+                    basis.variable_ids.push(entry.id.clone())
+                }
+                role if role_matches(role, &["main_result", "主结果"]) => {
+                    basis.main_result_ids.push(entry.id.clone())
+                }
+                role if role_matches(role, &["excluded_candidate", "被排除候选", "排除候选"]) => {
+                    basis.excluded_candidate_ids.push(entry.id.clone())
+                }
+                role if role_matches(role, &["competing_explanation", "竞争解释"]) => {
+                    basis.competing_explanation_ids.push(entry.id.clone())
+                }
+                role if role_matches(role, &["related_work", "相关工作"]) => {
+                    basis.related_work_ids.push(entry.id.clone())
+                }
+                _ => {}
+            }
+        }
+    }
+    if !basis.light {
+        for (label, ids) in [
+            ("因变量定义", &basis.variable_ids),
+            ("主结果", &basis.main_result_ids),
+        ] {
+            if ids.is_empty() {
+                basis.missing_roles.push(label.into());
+            }
+        }
+        if basis.excluded_candidate_ids.is_empty() {
+            basis.missing_roles.push("被排除候选".into());
+        }
+        if basis.competing_explanation_ids.is_empty() {
+            basis.missing_roles.push("竞争解释".into());
+        }
+    }
+    Ok(basis)
+}
+
+fn first_section_with(outline: &ResearchOutline, ids: &[String]) -> Option<usize> {
+    outline.sections.iter().position(|section| {
+        section
+            .source_ids
+            .iter()
+            .any(|id| ids.iter().any(|wanted| wanted == id))
+    })
+}
+
+fn structure_diagnostics(outline: &ResearchOutline, basis: &StructureBasis) -> Vec<String> {
+    let mut diagnostics = Vec::new();
+    if basis.light {
+        return diagnostics;
+    }
+    let first_section = |index: Option<usize>| {
+        index
+            .and_then(|position| outline.sections.get(position))
+            .map(|section| section.id.as_str())
+            .unwrap_or("未找到")
+    };
+    let variable = first_section_with(outline, &basis.variable_ids);
+    if let Some(first) = variable {
+        let all_in_first = basis.variable_ids.iter().all(|id| {
+            outline.sections[first]
+                .source_ids
+                .iter()
+                .any(|source_id| source_id == id)
+        });
+        if first > 0 || !all_in_first {
+            diagnostics.push(format!(
+                "性质① 章节 {}：因变量定义未在首次使用前集中出现",
+                first_section(Some(first))
+            ));
+        }
+    } else {
+        diagnostics.push("性质① 章节未找到：缺少因变量定义 finding".into());
+    }
+    let main = first_section_with(outline, &basis.main_result_ids);
+    let excluded = first_section_with(outline, &basis.excluded_candidate_ids);
+    let competing = first_section_with(outline, &basis.competing_explanation_ids);
+    if let (Some(main), Some(mechanism)) = (main, excluded.or(competing)) {
+        if main >= mechanism {
+            diagnostics.push(format!(
+                "性质③ 章节 {}：主结果必须先于机制/排除链",
+                first_section(Some(main))
+            ));
+        }
+    }
+    if let Some(main) = main {
+        if let Some(competing) = competing {
+            if competing >= main {
+                diagnostics.push(format!(
+                    "性质② 章节 {}：竞争解释预测必须出现在主结果之前",
+                    first_section(Some(competing))
+                ));
+            }
+        }
+    }
+    for id in &basis.excluded_candidate_ids {
+        if !outline
+            .sections
+            .iter()
+            .any(|section| section.source_ids.contains(id))
+        {
+            diagnostics.push(format!(
+                "性质④ 章节 {}：缺少被排除候选 finding {} 的排除证据",
+                first_section(excluded),
+                id
+            ));
+        }
+    }
+    if let (Some(main), Some(related)) =
+        (main, first_section_with(outline, &basis.related_work_ids))
+    {
+        if related <= main {
+            diagnostics.push(format!(
+                "性质⑥ 章节 {}：相关工作必须后移到主结果之后",
+                first_section(Some(related))
+            ));
+        }
+    }
+    diagnostics
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -267,10 +470,28 @@ impl Tool for ResearchWriteTool {
                 if dir.join("outline.json").exists() || dir.join("outline.md").exists() {
                     return ToolOutput::error("outline 已存在；写作阶段不允许重复生成".to_string());
                 }
+                let basis = match derive_structure_basis(&ctx.project_root, topic) {
+                    Ok(basis) => basis,
+                    Err(error) => return ToolOutput::error(error),
+                };
+                let basis_text = match serde_json::to_string_pretty(&basis) {
+                    Ok(text) => text,
+                    Err(error) => return ToolOutput::error(format!("序列化 structure_basis 失败: {error}")),
+                };
+                if let Err(error) = atomic_write(&dir.join("structure_basis.json"), &basis_text) {
+                    return ToolOutput::error(error);
+                }
+                if !basis.missing_roles.is_empty() {
+                    return ToolOutput::needs_correction(
+                        "MISSING_STRUCTURE_BASIS",
+                        format!("write_outline 前置结构依据缺少：{}", basis.missing_roles.join("、")),
+                    );
+                }
                 let outline = match parse_outline(&input, topic) {
                     Ok(outline) => outline,
                     Err(error) => return ToolOutput::needs_correction("INVALID_OUTLINE", error),
                 };
+                let diagnostics = structure_diagnostics(&outline, &basis);
                 let json_text = match serde_json::to_string_pretty(&outline) {
                     Ok(text) => text,
                     Err(error) => return ToolOutput::error(format!("序列化 outline 失败: {error}")),
@@ -281,7 +502,7 @@ impl Tool for ResearchWriteTool {
                 if let Err(error) = atomic_write(&dir.join("outline.md"), &outline_markdown(&outline)) {
                     return ToolOutput::error(error);
                 }
-                ToolOutput::ok(json!({ "topic": topic, "outline": "outline.md", "sections": outline.sections }).to_string())
+                ToolOutput::ok(json!({ "topic": topic, "outline": "outline.md", "structure_basis": basis, "diagnostics": diagnostics, "sections": outline.sections }).to_string())
             }
             "write_section" => {
                 let outline = match load_outline(&dir) {
@@ -411,6 +632,168 @@ mod tests {
         }
     }
 
+    fn finding(id: &str, title: &str, role: &str) -> crate::docstore::Entry {
+        crate::docstore::Entry {
+            id: id.into(),
+            title: title.into(),
+            status: "draft".into(),
+            severity: None,
+            fields: vec![("结构角色".into(), role.into())],
+        }
+    }
+
+    #[test]
+    fn structure_basis_drives_shape_and_diagnostics_without_title_slots() {
+        let root = root();
+        let topic = "shape-smoke";
+        let store = DocStore::open_topic(&root, &FINDINGS, topic).unwrap();
+        store
+            .save(&[
+                finding("F-001", "依变量测量", "variable_definition"),
+                finding("F-002", "候选解释预测", "competing_explanation"),
+                finding("F-003", "观察到的结果", "main_result"),
+                finding("F-004", "被排除候选", "excluded_candidate"),
+                finding("F-005", "背景材料", "related_work"),
+            ])
+            .unwrap();
+        let basis = derive_structure_basis(&root, topic).unwrap();
+        assert!(
+            !basis.variable_ids.is_empty(),
+            "basis 角色未读回: {basis:?}"
+        );
+        assert!(basis.missing_roles.is_empty());
+
+        let five_sections = ResearchOutline {
+            version: 1,
+            topic: topic.into(),
+            title: "问题优先论文".into(),
+            sections: vec![
+                OutlineSection {
+                    id: "define".into(),
+                    title: "测量什么".into(),
+                    objective: "定义诊断指标".into(),
+                    source_ids: vec!["F-001".into()],
+                },
+                OutlineSection {
+                    id: "predict".into(),
+                    title: "哪些解释可被检验".into(),
+                    objective: "列出预测".into(),
+                    source_ids: vec!["F-002".into()],
+                },
+                OutlineSection {
+                    id: "result".into(),
+                    title: "发生了什么".into(),
+                    objective: "给出主结果".into(),
+                    source_ids: vec!["F-003".into()],
+                },
+                OutlineSection {
+                    id: "exclude".into(),
+                    title: "哪些解释被排除".into(),
+                    objective: "给出排除证据".into(),
+                    source_ids: vec!["F-004".into()],
+                },
+                OutlineSection {
+                    id: "related".into(),
+                    title: "与既有工作如何相连".into(),
+                    objective: "后置相关工作".into(),
+                    source_ids: vec!["F-005".into()],
+                },
+            ],
+        };
+        let two_sections = ResearchOutline {
+            sections: vec![
+                OutlineSection {
+                    id: "evidence".into(),
+                    title: "测量与预测".into(),
+                    objective: "定义指标并列出预测".into(),
+                    source_ids: vec!["F-001".into(), "F-002".into()],
+                },
+                OutlineSection {
+                    id: "judgment".into(),
+                    title: "结果".into(),
+                    objective: "先给主结果".into(),
+                    source_ids: vec!["F-003".into()],
+                },
+                OutlineSection {
+                    id: "elimination".into(),
+                    title: "排除链与关联".into(),
+                    objective: "排除候选并后置相关工作".into(),
+                    source_ids: vec!["F-004".into(), "F-005".into()],
+                },
+            ],
+            ..five_sections.clone()
+        };
+        let first = structure_diagnostics(&five_sections, &basis);
+        let second = structure_diagnostics(&two_sections, &basis);
+        assert!(
+            first.is_empty(),
+            "basis={basis:?} 来源骨架应满足性质: {first:?}"
+        );
+        assert!(second.is_empty(), "不同形状也应满足性质: {second:?}");
+
+        let renamed = ResearchOutline {
+            sections: five_sections
+                .sections
+                .iter()
+                .map(|section| OutlineSection {
+                    title: format!("改名-{}", section.id),
+                    ..section.clone()
+                })
+                .collect(),
+            ..five_sections.clone()
+        };
+        assert_eq!(first, structure_diagnostics(&renamed, &basis));
+
+        let mut reversed = five_sections.clone();
+        reversed.sections.swap(0, 2);
+        let diagnostics = structure_diagnostics(&reversed, &basis).join(";");
+        assert!(diagnostics.contains("性质①") || diagnostics.contains("性质③"));
+        assert!(diagnostics.contains("章节"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn missing_roles_are_named_and_light_topics_skip_exclusion_chain() {
+        let root = root();
+        let topic = "missing-shape";
+        let store = DocStore::open_topic(&root, &FINDINGS, topic).unwrap();
+        store
+            .save(&[finding("F-only", "唯一结果", "main_result")])
+            .unwrap();
+        let basis = derive_structure_basis(&root, topic).unwrap();
+        assert_eq!(
+            basis.missing_roles,
+            vec!["因变量定义", "被排除候选", "竞争解释"]
+        );
+        let light = StructureBasis {
+            light: true,
+            ..StructureBasis {
+                version: 1,
+                topic: "light".into(),
+                light: false,
+                variable_ids: vec![],
+                main_result_ids: vec![],
+                excluded_candidate_ids: vec![],
+                competing_explanation_ids: vec![],
+                related_work_ids: vec![],
+                missing_roles: vec![],
+            }
+        };
+        let outline = ResearchOutline {
+            version: 1,
+            topic: "light".into(),
+            title: "轻课题".into(),
+            sections: vec![OutlineSection {
+                id: "report".into(),
+                title: "判断".into(),
+                objective: "报告结果".into(),
+                source_ids: vec!["S-1".into()],
+            }],
+        };
+        assert!(structure_diagnostics(&outline, &light).is_empty());
+        std::fs::remove_dir_all(root).ok();
+    }
+
     async fn ready_ctx() -> (PathBuf, ToolCtx) {
         let project = root();
         save_plan(&project, &approved_plan("write-smoke")).unwrap();
@@ -453,6 +836,43 @@ mod tests {
         let text = std::fs::read_to_string(project.join(".kanzei/research/write-smoke/paper.tex"))
             .unwrap();
         assert!(text.find("sections/intro").unwrap() < text.find("sections/method").unwrap());
+        std::fs::remove_dir_all(project).ok();
+    }
+
+    #[tokio::test]
+    async fn write_outline_persists_basis_before_naming_missing_roles() {
+        let (project, ctx) = ready_ctx().await;
+        DocStore::open_topic(&project, &FINDINGS, "write-smoke")
+            .unwrap()
+            .save(&[finding("F-001", "唯一结果", "main_result")])
+            .unwrap();
+        let output = ResearchWriteTool
+            .execute(
+                json!({
+                    "action": "write_outline",
+                    "topic": "write-smoke",
+                    "title": "缺结构依据",
+                    "sections": [{ "id": "result", "title": "结果", "objective": "给出结果", "source_ids": ["F-001"] }]
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(output.is_error);
+        assert!(output.content.contains("因变量定义"));
+        let basis: StructureBasis = serde_json::from_str(
+            &std::fs::read_to_string(
+                project.join(".kanzei/research/write-smoke/structure_basis.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            basis.missing_roles,
+            vec!["因变量定义", "被排除候选", "竞争解释"]
+        );
+        assert!(!project
+            .join(".kanzei/research/write-smoke/outline.json")
+            .exists());
         std::fs::remove_dir_all(project).ok();
     }
 

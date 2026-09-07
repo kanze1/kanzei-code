@@ -11952,3 +11952,55 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-746
 - 收尾: 1788803151
 - 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/store/task.rs@86ad8ef33233
+
+## T-1786922726991 R-362 结构依据接入前置回归 [passed]
+- 命令: cargo test -p kanzei-tools research_write::tests::
+- 时长: 23.0s
+- 摘要: research_write 既有流水线测试 2 passed、0 failed；测试期间 harness 触发的 .kanzei/memory/index.db 写入被 managed-files 保护回滚，未产生代码或受管文件改动。
+- 关联: R-362
+- 收尾: 1788803526
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-tools/src/research_write.rs@3463b250f918
+
+## T-1786922726992 R-362 结构性质测试（finding ID 夹具错误） [failed]
+- 命令: cargo test -p kanzei-tools research_write::tests::
+- 摘要: 结构性质专项测试首次失败：夹具使用非法 finding ID（F-var 等非数字），DocStore 按既有 ID 契约解析为空；随后改为 F-001..F-005。
+- 收尾: 1788803832
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-tools/src/research_write.rs@74a119fd4491
+
+## T-1786922726993 R-362 结构性质测试（形状夹具违反性质） [failed]
+- 命令: cargo test -p kanzei-tools research_write::tests::
+- 摘要: 结构性质专项测试第二次失败：不同形状夹具把主结果、排除链、相关工作合在同一节，性质③/⑥正确诊断；随后改为定义/主结果/排除链三节形状。
+- 收尾: 1788803838
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-tools/src/research_write.rs@74a119fd4491
+
+## T-1786922726994 R-362 结构依据与论文骨架性质回归 [passed]
+- 命令: cargo test -p kanzei-tools research_write::tests::
+- 时长: 3.0s
+- 摘要: 结构性质专项 4 passed、0 failed、544 filtered out：结构依据角色推导、五节/三节不同形状均满足性质、章节改名结果不变、倒置顺序点名性质与章节、缺角色点名、轻课题跳过排除链；既有 outline/LaTeX 回归继续通过。
+- 关联: R-362
+- 收尾: 1788803848
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-tools/src/research_write.rs@74a119fd4491
+
+## T-1786922726995 R-362 write_outline 结构依据集成回归 [passed]
+- 命令: cargo test -p kanzei-tools research_write::tests::
+- 时长: 8.0s
+- 摘要: R-362 research_write 专项 5 passed、0 failed：结构依据落盘先于 outline、缺角色诊断、六性质/不同形状、改名不变、轻课题降级，以及既有 LaTeX 写作回归。
+- 关联: R-362
+- 收尾: 1788803983
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-tools/src/research_write.rs@cbe6c9d2c518
+
+## T-1786922726996 R-362 论文骨架结构依据最终回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-tools
+- 时长: 44.0s
+- 摘要: 提交前完整定向回归通过：cargo fmt --all -- --check 通过；kanzei-tools 548 passed、1 ignored、0 failed；包含新增 structure_basis/write_outline 结构依据、六性质、不同形状、章节改名不变、轻课题降级与既有 research write/LaTeX 回归。
+- 关联: R-362
+- 收尾: 1788804121
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-tools/src/research_write.rs@e717afd87346
+
+## T-1786922726997 R-362 提交门禁修复后回归 [passed]
+- 命令: cargo fmt --all -- --check; cargo clippy -p kanzei-tools -- -D warnings; cargo test -p kanzei-tools research_write::tests::
+- 时长: 15.0s
+- 摘要: 提交门禁修复后当前源码验证通过：fmt check 通过；kanzei-tools clippy -D warnings 通过；research_write 专项 5 passed、0 failed。
+- 关联: R-362
+- 收尾: 1788804384
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-tools/src/research_write.rs@129d67e3104c
