@@ -31,6 +31,9 @@ pub struct RecallTrigger {
     pub target: String,
     /// 本轮内同 (tool, kind) 已失败次数(含本次)。≥2 时 policy 应走 ReRetrieve。
     pub failure_count: usize,
+    /// 同一 (tool, kind) 上一轮检索返回的原始候选，供 ReRetrieve 机械排除。
+    /// 首次触发为空；只表示同一运行内的检索事实，不跨运行猜测历史身份。
+    pub previous_retrieved_ids: Vec<String>,
 }
 
 /// 一次命中:要注入的 Memory Packet 内容。
@@ -106,6 +109,8 @@ pub struct RecallWatch<'a> {
     /// 已注入条目 id(同轮同条目只注入一次,防刷屏——设计 §3.3 按条目去重,
     /// 不按 (tool,kind),否则同类失败换了个措辞就重复注入)。
     injected: HashSet<String>,
+    /// 上一轮每个失败桶的原始检索候选，供重复失败重查排除。
+    last_retrieved: HashMap<(String, String), Vec<String>>,
     /// 待判定的注入结局:(memory_id, tool, kind, 注入时该 kind 的失败次数)。
     /// Drop 时对账——若失败计数没再涨,判定 ACTION_CHANGED 成立。
     pending: Vec<(String, String, String, usize)>,
@@ -121,6 +126,7 @@ impl<'a> RecallWatch<'a> {
         Self {
             failures: HashMap::new(),
             injected: HashSet::new(),
+            last_retrieved: HashMap::new(),
             pending: Vec::new(),
             policy,
             finished: false,
@@ -202,13 +208,22 @@ impl<'a> RecallWatch<'a> {
             };
             let trigger = RecallTrigger {
                 tool: name.clone(),
-                kind,
+                kind: kind.clone(),
                 sample: content.chars().take(240).collect(),
                 target,
                 failure_count: count,
+                previous_retrieved_ids: self
+                    .last_retrieved
+                    .get(&(name.clone(), kind.clone()))
+                    .cloned()
+                    .unwrap_or_default(),
             };
             let started = std::time::Instant::now();
             let retrieved = policy.retrieve(&trigger);
+            self.last_retrieved.insert(
+                (trigger.tool.clone(), trigger.kind.clone()),
+                retrieved.iter().map(|hit| hit.id.clone()).collect(),
+            );
             let elapsed = started.elapsed().as_millis() as u64;
             // 同轮同条目只注入一次:已注入的 id 从注入集丢弃,但保留在 retrieved
             // 里落遥测——"检索到但没再注入"与"根本没检索到"是两种漏斗事实。
@@ -570,12 +585,19 @@ mod tests {
         // 同 (tool, kind) 第三次失败时 failure_count 应到 3——policy 据此决定
         // ReRetrieve 换 query。用 Arc 共享计数验证 retrieve 收到的 failure_count 递增。
         struct CountingPolicy {
-            seen: std::sync::Arc<std::sync::Mutex<Vec<usize>>>,
+            seen: std::sync::Arc<std::sync::Mutex<Vec<(usize, Vec<String>)>>>,
         }
         impl RecallPolicy for CountingPolicy {
             fn retrieve(&self, trigger: &RecallTrigger) -> Vec<RecallHit> {
-                self.seen.lock().unwrap().push(trigger.failure_count);
-                vec![]
+                self.seen.lock().unwrap().push((
+                    trigger.failure_count,
+                    trigger.previous_retrieved_ids.clone(),
+                ));
+                if trigger.failure_count == 1 {
+                    vec![hit("M-009", "sop")]
+                } else {
+                    vec![]
+                }
             }
         }
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -595,7 +617,14 @@ mod tests {
             }];
             watch.note_step(&calls, &mut results);
         }
-        let counts = seen.lock().unwrap().clone();
+        let observations = seen.lock().unwrap().clone();
+        let counts: Vec<usize> = observations.iter().map(|(count, _)| *count).collect();
         assert_eq!(counts, vec![1, 2, 3], "失败计数必须随同类失败递增");
+        assert!(observations[0].1.is_empty(), "首次召回没有上一轮候选");
+        assert_eq!(
+            observations[1].1,
+            vec!["M-009".to_string()],
+            "重复失败必须收到上一轮原始候选"
+        );
     }
 }

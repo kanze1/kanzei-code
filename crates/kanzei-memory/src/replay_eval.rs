@@ -74,6 +74,7 @@ impl ReplayMemoryProvider {
             sample,
             target: String::new(),
             failure_count: 1,
+            previous_retrieved_ids: Vec::new(),
         })
     }
 

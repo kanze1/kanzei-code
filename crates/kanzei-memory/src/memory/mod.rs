@@ -633,6 +633,20 @@ pub struct FailureRecallPolicy {
 /// 设计 §3.2:p95<10ms;这里留 3 倍余量做硬闸。
 const TIER1_BUDGET_MS: u128 = 30;
 
+/// 构造当前触发实际使用的查询。重复失败显式加入修复意图词，避免把
+/// 上一次错误文本原样作为新检索；该函数同时供遥测记录，保证账本反映真实 query。
+fn recall_query(trigger: &kanzei_core::RecallTrigger) -> String {
+    let mut query = trigger.sample.chars().take(120).collect::<String>();
+    if !trigger.target.is_empty() {
+        query.push(' ');
+        query.push_str(&trigger.target);
+    }
+    if trigger.failure_count >= 2 {
+        query.push_str(" 再次失败 重试 修复");
+    }
+    query
+}
+
 impl FailureRecallPolicy {
     /// 启动扫描:构建 fingerprint 索引 + 条目快照(project + global 两级)。
     /// FingerprintIndex::build 已建好指纹→id 索引,这里只补条目快照,
@@ -682,14 +696,17 @@ impl FailureRecallPolicy {
         ids
     }
 
-    /// Tier1 BM25:错误原文 + 目标构 query。超过预算返回空(超时降级)。
-    fn tier1(&self, trigger: &kanzei_core::RecallTrigger) -> Vec<kanzei_core::RecallHit> {
+    /// Tier1 BM25:错误原文 + 目标构 query。重复失败时加入意图词，且排除上一轮候选。
+    /// 超过预算返回空(超时降级)。
+    fn tier1(
+        &self,
+        trigger: &kanzei_core::RecallTrigger,
+        excluded_ids: &[String],
+    ) -> Vec<kanzei_core::RecallHit> {
         let started = std::time::Instant::now();
-        let mut query = trigger.sample.chars().take(120).collect::<String>();
-        if !trigger.target.is_empty() {
-            query.push(' ');
-            query.push_str(&trigger.target);
-        }
+        let query = recall_query(trigger);
+        let excluded: std::collections::HashSet<&str> =
+            excluded_ids.iter().map(String::as_str).collect();
         let mut hits = Vec::new();
         // R-194:全局记忆废弃,失败召回 Tier1 只检索项目 store。
         // D-366:检索走统一门面(index.search_lexical 完成决策排序,ranking 只在此处)。
@@ -698,7 +715,7 @@ impl FailureRecallPolicy {
         }
         let index = SqliteMemoryIndex::new(&self.project_root);
         for hit in index.search_lexical(&IndexQuery::text(&query), 3) {
-            if self.entries.contains_key(&hit.id) {
+            if self.entries.contains_key(&hit.id) && !excluded.contains(hit.id.as_str()) {
                 hits.push(kanzei_core::RecallHit {
                     id: hit.id.clone(),
                     category: hit.category.clone(),
@@ -741,18 +758,28 @@ impl FailureRecallPolicy {
 
 impl kanzei_core::RecallPolicy for FailureRecallPolicy {
     fn retrieve(&self, trigger: &kanzei_core::RecallTrigger) -> Vec<kanzei_core::RecallHit> {
-        // Tier0:指纹精确匹配(p95<5ms)。
+        // 首次失败优先 Tier0 指纹精确匹配(p95<5ms)。
         let tier0_ids = self.tier0(&trigger.tool, &trigger.kind);
-        if !tier0_ids.is_empty() {
+        if trigger.failure_count < 2 && !tier0_ids.is_empty() {
             return self.materialize(&tier0_ids);
         }
-        // ReRetrieve(内容④):同 (tool,kind) 失败 ≥2 次换 query,禁止原 top-k 重塞。
-        // 实现:把目标文件词注入 query 的优先级,且前一次已返回的 id 不去重塞——
-        // 这里 Tier1 每次都是新检索(不同 trigger.sample),天然满足"换 query"。
+        // ReRetrieve(内容④):同 (tool,kind) 失败 ≥2 次时必须换 query，且
+        // 排除上一轮原始候选；没有新候选就真实 miss，不重复重塞旧 Packet。
+        let excluded = if trigger.failure_count >= 2 {
+            trigger.previous_retrieved_ids.as_slice()
+        } else {
+            &[]
+        };
         if trigger.failure_count >= 2 {
-            let _ = &trigger.target; // query 已含 target,保证与原 top-k 不同。
+            let fresh_tier0: Vec<String> = tier0_ids
+                .into_iter()
+                .filter(|id| !excluded.iter().any(|old| old == id))
+                .collect();
+            if !fresh_tier0.is_empty() {
+                return self.materialize(&fresh_tier0);
+            }
         }
-        self.tier1(trigger)
+        self.tier1(trigger, excluded)
     }
 
     fn record_trigger(
@@ -776,10 +803,12 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
         ) else {
             return;
         };
+        let query = recall_query(trigger);
         let payload = serde_json::json!({
             "tool": trigger.tool,
             "kind": trigger.kind,
             "count": trigger.failure_count,
+            "previous_retrieved_ids": trigger.previous_retrieved_ids,
         })
         .to_string();
         let path = self.project_root.join(".kanzei").join("state.db");
@@ -797,7 +826,7 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
             trigger_type: "event_recall",
             trigger_payload: &payload,
             policy_action,
-            query: &trigger.sample.chars().take(120).collect::<String>(),
+            query: &query,
             candidate_ids: &retrieved_json,
             retrieved_ids: &retrieved_json,
             injected_ids: &injected_json,
@@ -2606,6 +2635,7 @@ source: user
             sample: format!("{tool} 报错 {kind} 于 {target}"),
             target: target.into(),
             failure_count: count,
+            previous_retrieved_ids: Vec::new(),
         }
     }
 
@@ -2685,6 +2715,7 @@ source: user
         let eid = crate::memory::seed_episode(&root, "ses");
         seed_entry_recovery(&store, eid, &cid);
         store.promote(&cid, &[(eid, None, None)], None).unwrap();
+        let policy = FailureRecallPolicy::new(&root);
         // Tier1 通道的功能验证直接走存储候选集(无 30ms 预算干扰)——预算降级是
         // 运行期保护,不该让测试在共享繁忙环境断言"必然命中"而偶发红(D-293)。
         // D-366:候选集访问不排序,断言只查命中集合。
@@ -2698,6 +2729,19 @@ source: user
         assert!(rows
             .iter()
             .any(|row| row.entry.title == "cargo test 环境约束"));
+
+        let mut reretrieve = trigger("bash", "cargo test 需要 HTTPS_PROXY 代理", "", 2);
+        reretrieve.previous_retrieved_ids = vec![cid.clone()];
+        let reretrieve_hits = policy.retrieve(&reretrieve);
+        assert!(
+            reretrieve_hits.is_empty(),
+            "重查不得重复返回上一轮唯一候选: {reretrieve_hits:?}"
+        );
+        assert!(
+            recall_query(&reretrieve).ends_with("再次失败 重试 修复"),
+            "重查必须改变 query 并保留修复意图: {}",
+            recall_query(&reretrieve)
+        );
         std::fs::remove_dir_all(root).ok();
     }
 

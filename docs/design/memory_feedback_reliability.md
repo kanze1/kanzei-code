@@ -1,6 +1,6 @@
 # 记忆收益与任务信息呈现
 
-- 状态：第一批已发布并通过发布验收，整体实施中
+- 状态：第一批及 D-745 修复已发布并通过发布验收，整体实施中
 - 日期：2026-09-06
 - 关联需求：R-361
 - 关联缺陷：D-743、D-744、D-745
@@ -67,6 +67,14 @@
 
 前端操作验收：进入记忆页，最新检索默认展开，其余逐项展开；旧观测显示读取未知，未命中仍可查看检索词；发生加载错误时提示失败且能重试；快速切换项目时旧请求不得覆盖当前项目。
 
+## R-361 第二批：重复失败重查（2026-09-06）
+
+本批把重复失败从“仅增加 failure_count 标签”改为可审计的两步策略：`RecallWatch` 在同一运行内保存每个 `(tool, kind)` 最近一次原始候选 ID，并在下一次触发的 `RecallTrigger.previous_retrieved_ids` 中传给 policy；`FailureRecallPolicy` 在第二次及以后失败时加入“再次失败/重试/修复”意图词，过滤上一轮 Tier0/Tier1 候选，重新检索无新候选时返回真实 miss，不重复注入旧 Packet。实际 query 与排除候选写入 `recall_events`，因此遥测不会把重查次数倒推成策略变化（`crates/kanzei-core/src/runner/recall.rs:23-36,106-226`；`crates/kanzei-memory/src/memory/mod.rs:646-782,797-842`）。
+
+回放评估底座是既有能力：`ReplayCase` 从真实 `run.trace` 解析固定任务，`run_arms` 对同一 case 执行 Current/LeaveOneOut 配对并写 `memory_eval`，`recompute_memory_effect` 只聚合成对样本（`crates/kanzei-core/src/replay.rs:34-43,267-360`；`crates/kanzei-core/src/store/eval.rs:94-154`）。本批复用而不重复申报该底座；真实 provider 的固定任务样本、重试/重复探索/用户纠正/成功率/耗时报告仍待第三批独立执行，不能由本地单测替代。
+
+验证：`T-1786922726984` 记录 `cargo test -p kanzei-core -p kanzei-memory` 的 289+169 定向回归通过；新增 core 测试验证上一轮候选 ID 传播，新增 memory 测试验证重查 query 改变且旧唯一候选不再返回。
+
 ## TODO 与验证边界
 
 1. 发布准备同步修复两个既有 CI 测试告警：`tracker/fields.rs` 的生产函数移至测试模块前，`tracker.rs` 移除多余可变引用；不改变业务行为。`cargo clippy --workspace --all-targets -- -D warnings` 已通过；发布前继续执行完整验证。
@@ -114,12 +122,20 @@
 
 本地代码验证完成：工具层 545 通过、0 失败、1 项既有忽略；核心 287 通过；记忆 169 通过。轻量裁决路径调整后另跑 work 34 项全过；向量通道锚点约束另跑检索回归通过。六项前端检查、IPC 事件契约、PowerShell BOM、格式检查和相关包全目标 Clippy 均通过；桌面与 CLI 测试目标编译通过。
 
-当前项目 CLI 实测：默认输出 7432 字符/244 行，完整详情 60648 字符/934 行（字符数减少约 88%）；轻量默认裁决单次约 692ms，不作统计性能保证。两者同选 D-742，D-745/R-360/R-361 排队。全量交付对账只在显式 detail/reconcile 请求计算，不进入逐步刷新热路径。
+发布前项目 CLI 实测：默认输出 7432 字符/244 行，完整详情 60648 字符/934 行（字符数减少约 88%）；轻量默认裁决单次约 692ms，不作统计性能保证。当时两者同选 D-742，D-745/R-360/R-361 排队。全量交付对账只在显式 detail/reconcile 请求计算，不进入逐步刷新热路径。
 
 已逐条撤销 R-360/R-361/D-742 在该实录中写入的“WIP 收敛让位 D-504”停车条件；保留 D-504、R-287 等真实用户阻塞及其他人工停车。原始原因已由 tracker 更新日志留痕，状态恢复不代表这些条目完成。
 
-用户于 2026-09-06 明确授权「发版」。本批从 `kanzei/control-reliability` 进入提交、合并 `dev`、干净发布工作区完整验证及发布流程，结果以新提交绑定的验证凭证和发布后验收记录为准。D-745 保持 fixing 等待发布验收收口；R-361 保持 1/3，固定任务收益对照及原生桌面实操仍待完成。发布准备时已安装版本为 `build-4a85596c`。
+用户于 2026-09-06 明确授权「发版」。本批从 `kanzei/control-reliability` 合并至 `dev`，在干净发布工作区完成完整验证并发布为 `build-361de2e9`。D-745 已通过正常关闭门禁归档为 fixed；R-361 保持 1/3，固定任务收益对照及原生桌面实操仍待完成。当前用户仍在运行 `build-4a85596c`，本轮安装因进程运行而跳过。
 
 首次发布验证在 `c4537325` 检出 `work.rs` 相对规模基线增长 120 行，超过 100 行上限。将近期终态摘要组装移入已有 `work/context.rs`，保持选取顺序与数量不变；规模门禁恢复通过，发布须重新生成最终提交的完整验证凭证。
 
-本轮本地验收记录与裁决快照：`.kanzei/research/d745-control-reliability/validation.json`、`control.json`、`control-full.json`。这些是当前未提交源码的测试记录，不是绑定新提交的发布凭证。
+本轮本地验收记录与裁决快照：`.kanzei/research/d745-control-reliability/validation.json`、`control.json`、`control-full.json`。这些记录对应提交前源码；最终提交的发布凭证见下节。
+
+### D-745 发布后验收
+
+2026-09-06 已发布 `build-361de2e9`，最终提交 `361de2e974b3713f83bbecfa87e2d321d9c5a283`；相对 `build-4a85596c` 共 2 个提交，`dev`、`main` 和远端标签一致。最终提交完整 verify 的 14 个步骤全部通过、无跳步；Rust 1590 项通过、0 失败、2 项既有忽略用例。测试记录 `T-1786922726980` 通过正式 test_record 工具登记并关联 D-745/R-361，D-745 通过同提交工作树证据复用及条目关联门禁后关闭。
+
+独立下载安装包为 18,122,501 字节；SHA256 `624dd451b6169e71feb1e3669c7a1bbc7c86d1b5499a3120e5a1d2b0e93dbc4c` 与本地产物、GitHub 资产摘要一致。Range 请求返回 HTTP 206、`bytes 0-0/18122501`。Release 为正式发布，发布页：https://github.com/kanze1/kanzei-code/releases/tag/build-361de2e9。
+
+安装阶段检测到现有 `kzapp` 进程，按安装脚本规则跳过。本轮没有安装新版本、关闭或重启用户窗口，原生桌面操作与实际任务收益对照继续待验。发布凭证、打包日志及下载校验留在 `C:/Users/kanzei/Documents/kanzei-release/dist/acceptance-361de2e9/`；本节及 tracker 收尾记录在开发工作区维护，不另造发布提交。

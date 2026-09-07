@@ -1489,6 +1489,7 @@ mod tests {
             sample: "R-194 全局废弃钩子 全局 store 的 active 条目正文".into(),
             target: String::new(),
             failure_count: 1,
+            previous_retrieved_ids: Vec::new(),
         });
         assert!(
             tier1_hits.iter().all(|h| h.id != global_entry.id),

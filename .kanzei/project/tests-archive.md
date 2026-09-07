@@ -11900,3 +11900,17 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-360
 - 收尾: 1788801207
 - 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/store/task.rs@86ad8ef33233
+
+## T-1786922726984 R-361 召回重查定向测试 [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-memory
+- 时长: 1.0s
+- 摘要: 定向测试通过：kanzei-core 289 passed、kanzei-memory 169 passed，另有 1 个既有 doc-test ignored；覆盖 RecallWatch 候选传播、FailureRecallPolicy 重查排除与既有记忆生命周期/遥测回归。
+- 关联: R-361
+- 收尾: 1788801935
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/runner/recall.rs@e668cbd3d338,crates/kanzei-core/src/store/task.rs@86ad8ef33233,crates/kanzei-memory/src/memory/index.rs@e13f3d4f1852,crates/kanzei-memory/src/memory/mod.rs@94b42bc7839d,crates/kanzei-memory/src/replay_eval.rs@a3450108a166
+
+## T-1786922726985 R-361 召回重查定向测试（修复前编译失败） [failed]
+- 命令: cargo test -p kanzei-core -p kanzei-memory
+- 摘要: 首次定向测试编译阶段失败：新增 memory 回归测试漏初始化 FailureRecallPolicy 变量，错误为 memory/mod.rs:2734 cannot find value policy；随后已修复并重跑通过。
+- 收尾: 1788801949
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/runner/recall.rs@e668cbd3d338,crates/kanzei-core/src/store/task.rs@86ad8ef33233,crates/kanzei-memory/src/memory/index.rs@e13f3d4f1852,crates/kanzei-memory/src/memory/mod.rs@94b42bc7839d,crates/kanzei-memory/src/replay_eval.rs@a3450108a166
