@@ -8612,3 +8612,55 @@
 - recorded_at: 1787192820656
 - 批次: 2/2
 - 停车: 历史121目录逐目录manifest无法从当前文件系统重建；代码与真实并行构建已完成，暂让位下一条可执行缺陷；恢复人:agent，恢复条件:找到历史清单或重新产生可逐目录审计的存量窗口
+
+## D-743 记忆召回明细仍读旧表且注入次数被当成采纳参与展示和排序 [fixed] (high)
+- refs: R-361
+- 复现: 当前 memory_recalls IPC 读取 index.db 旧表；recall_profile 已返回新表召回/注入计数，但 UI 和排序仍使用 fetched 语义。
+- 影响: 真实召回不可见，注入被误记为采纳，零采纳整理和排序缺少可信依据。
+- 标签: 前端
+- 验收: 旧表为空且新表有记录时明细正确；同轮真实读取可见；跨运行读取不串号；历史未知不伪造；排序与降级不再使用注入代替采用。
+- 优先级: P1
+- 进展: 验收逐条对账（本条代码能力为既有 build-4a85596c 实现，本轮完成复核与定向验证）：①旧表为空且新表有记录时明细正确：crates/kanzei-app/src/memory.rs:230-272 的 memory_recalls 打开 state.db 并调用 memory_recall_observations，crates/kanzei-core/src/store/memory_observations.rs:39-88 直接查询 recall_events；T-1786922726974 的 recalls_ipc_reads_current_state_and_keeps_unknown_distinct 通过。②同轮真实读取可见：memory.rs:250-263 按 injected_ids 与 read_ids 生成 read，ui/13-memory.js:666-710 通过「已读取正文/已注入·尚未记录正文读取」渲染；T-1786922726973:3472-3507 覆盖。③跨运行读取不串号：memory_observations.rs:90-104 按 run_id 且只更新同一运行内最近注入事件，T-1786922726974 的 read_and_episode_links_are_isolated_by_run 通过。④历史 unknown 不伪造：memory.rs:256-259 对 NULL read_ids 保留 None，ui/13-memory.js:700-707 显示「历史读取未知」；T-1786922726974 的历史迁移/未知测试与 T-1786922726973:3502-3506 通过。⑤排序与降级不再使用注入代替采用：ui/13-memory.js:759-782 的排序仅使用 hits/title/id/updated，13-memory.js:580-640 仅作人工复查清单且不静默删除，T-1786922726973:3505 断言不出现「已采纳」，并覆盖稳定排序。真实消费者为 refreshMemory:81-101→invoke(memory_recalls)→renderMemoryRecalls:666-712；IPC 已注册 crates/kanzei-app/src/main.rs:206。验证：T-1786922726974（app 2 + core 5 定向测试）与 T-1786922726973（UI runtime 29 个脚本、2641 次 invoke、10 视图、0 运行时错误）通过。
+- observed_head: 4a85596cbcb5f8a4fe056f11b741317a14216f75
+- observed_worktree_hash: fnv1a64:30acc4843d86176e
+- recorded_at: 1788658811750
+
+## D-744 记忆自动晋升缺少对应恢复证据且在线结束被当成结果改善 [fixed] (high)
+- refs: R-361
+- 复现: should_promote 只检查复发次数、指纹与 episode 非空；在线 outcome_improved 只要求失败未复发且运行结束。
+- 影响: 未验证建议可能晋升，效果漏斗高估记忆收益。
+- 标签: 核心
+- 验收: 相同操作目标的失败后成功形成恢复证据；无关轮次和仅读取不能满足恢复；旧在线代理指标不再计入行为改变或收益。
+- 优先级: P1
+- 进展: 验收逐条对账（本条代码能力为既有 build-4a85596c 实现，本轮完成复核与定向验证）：①相同操作目标的失败后成功形成恢复证据：crates/kanzei-core/src/store/memory_observations.rs:133-165 的 record_episode_recoveries 只从真实工具消息配对生成恢复，crates/kanzei-memory/src/memory/lifecycle.rs:65-101 的 promote_guard 校验真实 episode、同 fingerprint 恢复并先落 memory_sources，真实调用链为 memory::reconcile_candidates:1174-1188→MemoryStore::reconcile_candidates:723-738→promote:617-667；T-1786922726979（reconcile_candidates_auto_promote_deprecate_and_keep、promote_is_sole_evidence_writer_and_rows_land）通过。②无关轮次和仅读取不能满足恢复：memory_observations.rs:397-432 的 recovery_requires_matching_tool_target_and_surviving_success 拒绝 read、不同命令与后续失败，lifecycle.rs:81-83 无匹配恢复时拒绝晋升；T-1786922726979 通过。③旧在线代理不计入行为改变或收益：crates/kanzei-memory/src/memory/mod.rs:816-871 仅记录 failure_not_repeated/run_ended_without_repeated_failure 原始观察，crates/kanzei-core/src/store/telemetry.rs:198-227 的 action_changed/outcome_improved 查询排除 model='online' 且独立要求证据；mod.rs:2807-2857 与 T-1786922726979 的 legacy_online_proxies_do_not_prove_adoption_or_benefit、轮末对账仅记录原始观察测试通过。真实消费者为 CLI/桌面轮末 reconcile_candidates 与 FailureRecallPolicy::record_outcome_evidence；验证：T-1786922726979（kanzei-memory 168 项、core telemetry 7 项）通过。
+- observed_head: 4a85596cbcb5f8a4fe056f11b741317a14216f75
+- observed_worktree_hash: fnv1a64:30acc4843d86176e
+- recorded_at: 1788659131582
+
+## D-745 自主运行调度、证据与检索状态失真导致重复验收及假阻塞 [fixed] (high)
+- 复杂度: medium
+- 复现: ses_project_c0b8d633186c2464#p20：多 WIP 被写停车依赖 D-504；已关闭 D-743 后重测重关；Windows 冒烟路径不识别；记忆弱相关命中；全部阻塞显示成功
+- 期望: 引擎排队与逐步刷新；有界输出；同提交证据复用；检索可返回空；等待状态和 UIA 启动来源如实展示
+- 标签: 核心
+- 验收: 调度、动态上下文、跨工作树证据、真实查询负例及前端状态回归通过
+- refs: R-361
+- 优先级: P1
+- 设计: docs/design/memory_feedback_reliability.md
+- 进展: 已发布 build-361de2e9（2 个提交），dev/main/远端标签一致。最终提交完整 verify 14 步全过、无跳步；Rust 1590 通过、0 失败、2 既有忽略，关联 T-1786922726980。独立下载大小 18122501 字节、SHA256 与本地及 GitHub 一致，HTTP 206。证据 C:/Users/kanzei/Documents/kanzei-release/dist/acceptance-361de2e9/release-acceptance.json。桌面进程仍运行，安装及原生实操待用户更新后验收；本缺陷的代码回归范围已完成。
+- observed_head: 361de2e974b3713f83bbecfa87e2d321d9c5a283
+- observed_worktree_hash: fnv1a64:43a1d1024625f1f8
+- recorded_at: 1788665102980
+- 实现提交: 361de2e9
+- 测试: T-1786922726980
+
+## D-742 研究侧栏报告入口未传课题且模式切换混合导航与进程配置 [fixed] (medium)
+- 复杂度: medium
+- 复现: 研究工作台选择课题后，侧栏报告按钮调用 docs_read 不带 topic；profile-select 同时切换界面并更新当前进程 profile。
+- 标签: 前端
+- 验收: 仅保留按课题定位的报告入口；切换工作领域恢复相应会话而不改写旧会话配置。
+- 优先级: P1
+- 进展: 验收①「仅保留按课题定位的报告入口」：旧侧栏平铺入口已移除，研究导航仅保留 data-research-page="report"（crates/kanzei-app/ui/index.html:89-117），正式课题由 selectedResearchTopicArg() 传入 topic，refreshResearchReport() 调用 docs_read 带 topic（crates/kanzei-app/ui/19-research.js:443-446,1115-1124）；旧版无 topic report.md 仅为既有历史兼容路径，不是侧栏入口。验收②「切换工作领域恢复相应会话而不改写旧会话配置」：switch_workspace() 选择并切换目标进程后恢复页面，不调用 process_update 或 stop_run（crates/kanzei-app/ui/03-workspaces.js:150-178）；switchProcess() 保持目标 session、草稿与 profile 回显且不在回显时写盘（crates/kanzei-app/ui/09-sessions.js:611-667）；真实调用方为研究空间按钮 defer 绑定（crates/kanzei-app/ui/03-workspaces.js:181-185）。ce95733b 已落地实现；T-1786922726981 记录首次错误命令（workspace smoke 已通过，runtime 因遗漏 --experimental-vm-modules 失败），T-1786922726982 记录按约定参数重跑的 runtime/lint 通过，另有 ui-workspace-smoke 通过输出。原生桌面安装后关键交互是设计文档单独跟踪项，不是本缺陷验收条款。
+- observed_head: 361de2e974b3713f83bbecfa87e2d321d9c5a283
+- observed_worktree_hash: fnv1a64:b8029a0a8a598a6a
+- recorded_at: 1788800884031
+- 实现提交: ce95733b

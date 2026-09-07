@@ -7,11 +7,11 @@
 - 标签: 前端
 - 验收: 收敛单一真源(Map/state),DOM 只做投影;切线/后台线/重启回归用例;冒烟覆盖
 - 优先级: P2
-- 进展: 2026-08-25 复核更正：Computer Use 应用枚举确认安装位 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe 当前存在唯一窗口且正在使用；此前 Get-Process 路径筛选未识别该 Tauri/WebView2 窗口，不能据此执行重启。代码、静态与自动化回归仍已完成；剩余唯一动作是用户空闲后执行真实退出→重启→回读持久化 auto state，本轮不接管用户会话。
-- observed_head: c40a3403448d7c6d4aef1d7b52557bf74989ed37
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1787602751911
-- 阻塞: 
+- 进展: 验收对账：①单一真源(Map/state)、DOM 仅投影：既有实现 crates/kanzei-app/ui/08-compose-runtime.js:899-1004、08-auto.js:26-34；运行时回归 T-1786922726973 覆盖 lineAutoConfig 不读 DOM。②切线/后台线隔离：既有实现 08-compose-runtime.js:1006-1054、07-events.js:546-635；T-1786922726973 覆盖后台双线路连续轮次、线路级配置与停机同步。③重启回归：安装位 C:\Users\kanzei\AppData\Local\kanzei\kzapp.exe 的真实 UIA 冷启动/ValuePattern 回读/需求缺陷→对话往返通过 T-1786922726971，但当前窗口非本次脚本所有，未执行退出→重启→回读持久化状态，待用户空闲窗口。④冒烟覆盖：T-1786922726972（29 个 UI JS 语法 + 57 文件 ESLint）与 T-1786922726973（29 个 UI JS、2641 次 invoke、10 视图、0 运行时错误）。上述源码能力为既有实现，本轮仅完成对账与验证；下一步由用户空闲后提供可关闭窗口，再执行真实重启回归。
+- observed_head: 4a85596cbcb5f8a4fe056f11b741317a14216f75
+- observed_worktree_hash: fnv1a64:30acc4843d86176e
+- recorded_at: 1788658691867
+- 阻塞: 用户：在 kzapp 安装位窗口空闲后关闭并允许 agent 执行一次退出→重启→回读持久化 auto state；当前 UIA 已识别窗口非本次测试所有，agent 不接管或强行关闭用户会话。解除条件:用户
 - 对账: 2026-09-05 对账:kzapp 安装位进程当前未运行(Get-Process kzapp 为空),停车前提「等待用户空闲窗口」已达成,恢复为 defect-first 队首 WIP;剩余动作=启动安装位 kzapp 回读持久化 auto state 完成真实重启验收
 - 停车: 
 
@@ -72,41 +72,3 @@
 - observed_worktree_hash: fnv1a64:a1d1426a5522a197
 - recorded_at: 1787288788389
 - 停车: 排队:排在 D-568 之后恢复(原停车前提 R-353 未提交改动已不存在,按 defect-first 改排在缺陷队列末);恢复后继续 tracker 四件套与 research 五件套减面评估;恢复人:agent;解除条件:D-568
-
-## D-742 研究侧栏报告入口未传课题且模式切换混合导航与进程配置 [fixing] (medium)
-- 复杂度: medium
-- 复现: 研究工作台选择课题后，侧栏报告按钮调用 docs_read 不带 topic；profile-select 同时切换界面并更新当前进程 profile。
-- 标签: 前端
-- 验收: 仅保留按课题定位的报告入口；切换工作领域恢复相应会话而不改写旧会话配置。
-- 优先级: P1
-- 进展: 已移除侧栏无 topic 报告入口，来源状态带 topic；空间切换恢复各自任务，不改旧任务 profile 或停止运行。9d784f21 干净发布树完整 verify 14 项全过。浏览器验证补齐窄屏自动收栏状态等待与宽窄屏往返，连续 5 次验证开发运行保持、课题隔离及发送参数通过。发布结果以 GitHub Release 为准；原生桌面关键交互仍待安装后验收，保留 fixing。
-- observed_head: 9d784f21e39db69e56a934e398540a2e19acdfe6
-- observed_worktree_hash: fnv1a64:c20dc36842c96a1b
-- recorded_at: 1788638068169
-- 实现提交: ce95733b
-
-## D-743 记忆召回明细仍读旧表且注入次数被当成采纳参与展示和排序 [open] (high)
-- refs: R-361
-- 复现: 当前 memory_recalls IPC 读取 index.db 旧表；recall_profile 已返回新表召回/注入计数，但 UI 和排序仍使用 fetched 语义。
-- 影响: 真实召回不可见，注入被误记为采纳，零采纳整理和排序缺少可信依据。
-- 标签: 前端
-- 验收: 旧表为空且新表有记录时明细正确；同轮真实读取可见；跨运行读取不串号；历史未知不伪造；排序与降级不再使用注入代替采用。
-- 优先级: P1
-- 根因: 旧 index.db 召回表仍驱动页面，新 recall_events 的 injected 被旧 fetched 命名误解为采纳。
-- 进展: 首批修复已实现并通过 core/memory/ReadTool/桌面 IPC 定向回归与六条前端冒烟；统一 run_id 与读取事实、保留历史未知、移除注入加权和零采纳自动降级。待完整 verify 与安装后桌面验收，暂不关闭。详见 docs/design/memory_feedback_reliability.md。
-- observed_head: 568adcc8063a0b0f3edd8feefebe5f67c6b4e497
-- observed_worktree_hash: fnv1a64:984b510070ebb714
-- recorded_at: 1788640885249
-
-## D-744 记忆自动晋升缺少对应恢复证据且在线结束被当成结果改善 [open] (high)
-- refs: R-361
-- 复现: should_promote 只检查复发次数、指纹与 episode 非空；在线 outcome_improved 只要求失败未复发且运行结束。
-- 影响: 未验证建议可能晋升，效果漏斗高估记忆收益。
-- 标签: 核心
-- 验收: 相同操作目标的失败后成功形成恢复证据；无关轮次和仅读取不能满足恢复；旧在线代理指标不再计入行为改变或收益。
-- 优先级: P1
-- 根因: 失败次数与 episode 存在代替了修复证据；在线未复发及运行结束被写成收益。
-- 进展: 首批增加 episode 工具恢复记录并要求同指纹来源；无关读取或命令成功不计恢复，后续失败撤销恢复；旧在线代理不再参与行为改变和收益统计。core 284、memory 168 项回归通过。待完整 verify，暂不关闭。详见 docs/design/memory_feedback_reliability.md。
-- observed_head: 568adcc8063a0b0f3edd8feefebe5f67c6b4e497
-- observed_worktree_hash: fnv1a64:984b510070ebb714
-- recorded_at: 1788640885622

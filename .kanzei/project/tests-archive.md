@@ -11802,3 +11802,93 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-359
 - 收尾: 1788395060
 - 源码指纹: v2 crates/kanzei-app/src/auto_run.rs@61e76e6e12ad,crates/kanzei-app/src/conversation_tests.rs@b16b51990409,crates/kanzei-harness/src/auto_run.rs@f81d3bf15abd,scripts/ui-runtime-smoke.mjs@a6fa5fa9ad74
+
+## T-1786922726970 发布构建与安装（安装延后，等待关闭 kzapp） [failed]
+- 命令: .\scripts\release.ps1
+- 摘要: workspace 全量测试通过（各 crate 全绿；kanzei-tools 540 passed/1 ignored），kz 与 kzapp release 构建成功；安装阶段因 %LOCALAPPDATA%\kanzei\kzapp.exe 正在运行无法覆盖，脚本已保存 kzapp.exe.pending 并按规则终止，未强杀进程。
+- 关联: R-359
+- 收尾: 1788435856
+
+## T-1786922726971 D-504 安装位桌面 UIA 基线 [passed]
+- 命令: pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui-desktop-uia.ps1 -Screenshot .kanzei\research\d504-desktop-e2\baseline.png
+- 摘要: 安装位 kzapp 真实窗口冷启动；UIA ValuePattern 写入/回读；需求/缺陷视图→对话往返后 prompt 保留；截图已落盘。脚本未关闭非本次所有进程。
+- 关联: D-504
+- 收尾: 1788658655
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726972 D-504 前端语法与 ESLint 回归 [passed]
+- 命令: node --check .\scripts\ui-runtime-smoke.mjs; Get-ChildItem .\crates\kanzei-app\ui\*.js | ForEach-Object { node --check $_.FullName }; node .\scripts\ui-lint-smoke.mjs
+- 摘要: scripts/ui-runtime-smoke.mjs 与 29 个 UI JS 语法检查通过；UI ESLint 冒烟 57 个文件 no-undef 零错误。
+- 关联: D-504
+- 收尾: 1788658655
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726973 D-504 前端运行时与鞭挞隔离回归 [passed]
+- 命令: node --experimental-vm-modules .\scripts\ui-runtime-smoke.mjs
+- 摘要: UI 运行时冒烟通过：29 个 ui/*.js 按序执行、2641 次 invoke、10 个主视图切换、0 运行时错误；包含 D-504 线路级真源/后台线连续轮次/停机同步断言。
+- 关联: D-504
+- 收尾: 1788658655
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726974 D-743 app/core 记忆召回定向回归 [passed]
+- 命令: cargo test -p kanzei-app --bin kzapp memory::tests --offline -- --test-threads=1; cargo test -p kanzei-core --lib store::memory_observations --offline -- --test-threads=1
+- 摘要: kanzei-app memory::tests 2 passed；kanzei-core store::memory_observations 5 passed。覆盖 state.db recall_events IPC、历史 unknown 与实测 false、run 隔离、空/手动搜索、迁移幂等及恢复配对。
+- 关联: D-743
+- 收尾: 1788658795
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726975 D-743 前端六项冒烟 [passed]
+- 命令: node --experimental-vm-modules .\scripts\ui-runtime-smoke.mjs; node .\scripts\ui-lint-smoke.mjs; node .\scripts\parallel-lines-regression.mjs; node .\scripts\ui-a11y-smoke.mjs; node .\scripts\ui-i18n-smoke.mjs; node .\scripts\ui-markdown-smoke.mjs
+- 摘要: 六项前端冒烟全通过：runtime 29 个 UI 脚本/2641 次 invoke/10 视图/0 运行时错误；lint 57 文件；并行线路；无障碍；i18n；Markdown 全通过。
+- 关联: D-743
+- 收尾: 1788658891
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726976 D-743 前端六项冒烟规范命令 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 六项前端冒烟全通过：runtime 29 个 UI 脚本/2641 次 invoke/10 视图/0 运行时错误；lint 57 文件；并行线路；无障碍；i18n；Markdown 全通过。
+- 关联: D-743
+- 收尾: 1788658928
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726977 D-743 前端六项冒烟规范命令（环境失败） [failed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 失败：Node 22 未启用 VM modules，ui-runtime 在 vm.SourceTextModule 初始化处报 TypeError，随后 neuralFlowEmit 入口断言失败；因首项失败未继续执行后续 shell 链。
+- 关联: D-743
+- 收尾: 1788658987
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726978 D-743 前端六项冒烟规范命令（VM modules） [passed]
+- 命令: $env:NODE_OPTIONS='--experimental-vm-modules'; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 在 Node 22 正确启用 VM modules 后，六项前端冒烟全通过：runtime 29 个 UI 脚本/2641 次 invoke/10 视图/0 运行时错误；lint 57 文件；并行线路；无障碍；i18n；Markdown。
+- 关联: D-743
+- 收尾: 1788659006
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726979 D-744 记忆晋升与收益口径定向回归 [passed]
+- 命令: cargo test -p kanzei-memory --lib --offline -- --test-threads=1; cargo test -p kanzei-core --lib store::telemetry --offline -- --test-threads=1
+- 摘要: kanzei-memory 168 项全通过；kanzei-core store::telemetry 7 项全通过。覆盖同工具同完整目标的失败后成功、仅读取/无关命令拒绝恢复、reconcile 保持 candidate、在线代理排除 action_changed/outcome_improved，以及独立收益证据可用性。
+- 关联: D-744
+- 收尾: 1788659118
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726980 D-745 最终提交完整 verify [passed]
+- 命令: pwsh -NoProfile -File scripts/verify.ps1 -Full
+- 摘要: 361de2e974b3713f83bbecfa87e2d321d9c5a283 干净发布树完整验证：14 个步骤全过，无跳步；Rust 1590 passed、0 failed、2 既有 ignored。证据：C:/Users/kanzei/Documents/kanzei-release/dist/verification.json，完整日志：dist/verify-361de2e9.log。
+- 关联: D-745 R-361
+- 收尾: 1788664943
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726981 D-742 前端定向验证（首次无 ESM 参数） [failed]
+- 命令: node --check crates/kanzei-app/ui/03-workspaces.js; node --check crates/kanzei-app/ui/09-sessions.js; node --check crates/kanzei-app/ui/19-research.js; node scripts/ui-workspace-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 摘要: 语法检查通过，ui-workspace-smoke 通过；ui-runtime-smoke 因未使用 --experimental-vm-modules，Node 22 报 SourceTextModule 不可用并连带 neuralFlowEmit 探针失败，命令未完成。
+- 收尾: 1788800846
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726982 D-742 前端运行时与 lint 定向回归 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 时长: 16.0s
+- 摘要: UI 运行时冒烟通过：29 个 ui/*.js 按序执行、初始化序列 2642 次 invoke、10 个主视图切换、0 运行时错误；UI lint 57 个文件 no-undef 零错误，模块 import/export 解析正常。
+- 关联: D-742
+- 收尾: 1788800872
+- 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
