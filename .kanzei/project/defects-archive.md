@@ -8664,3 +8664,15 @@
 - observed_worktree_hash: fnv1a64:b8029a0a8a598a6a
 - recorded_at: 1788800884031
 - 实现提交: ce95733b
+
+## D-747 Work Unit 上下文卡片新增文案未注册英文翻译键 [fixed] (low)
+- 复现: 修改 crates/kanzei-app/ui/11-docs-list.js 后运行 node --experimental-vm-modules scripts/ui-runtime-smoke.mjs；I18N_EN 报缺少 实质进展、决策记录、记忆来源、未记录、验证结果、未声明。
+- 影响: 工作单元卡片可渲染中文但破坏前端 i18n 冒烟，英文界面无法稳定呈现新增上下文字段。
+- 来源: self-found：B3 前端运行时预检
+- 标签: 前端
+- refs: R-361
+- 优先级: P2
+- 进展: 根因是 Work Unit 卡片新增 t("实质进展")、t("决策记录")、t("记忆来源")、t("未记录")、t("验证结果")、t("未声明")，但 I18N_EN 未登记对应键。修复位置：crates/kanzei-app/ui/02-i18n.js:92-98 增加 6 个英文映射；调用位置：crates/kanzei-app/ui/11-docs-list.js:746-789。T-1786922726986 记录 node --check、runtime（--experimental-vm-modules，29 脚本/0 错误）、lint、parallel-lines、a11y、i18n、markdown 全部通过，并断言 Work Unit 卡片呈现实质进展、记忆来源与验证结果。
+- observed_head: 7d172e8648eb08cb32e8959a70134d84f9770062
+- observed_worktree_hash: fnv1a64:c393184a648ee643
+- recorded_at: 1788802600617

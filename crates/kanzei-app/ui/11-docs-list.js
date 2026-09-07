@@ -747,6 +747,35 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
         objective.className = "work-unit-objective";
         objective.textContent = unit.objective;
         card.append(head, objective);
+        const checkpoint = unit.last_checkpoint ?? {};
+        if (checkpoint.summary) {
+          const progress = document.createElement("div");
+          progress.className = "work-unit-meta";
+          progress.textContent = `${t("实质进展")}: ${checkpoint.summary}`;
+          card.appendChild(progress);
+        }
+        if (Array.isArray(checkpoint.decisions) && checkpoint.decisions.length) {
+          const decisions = document.createElement("div");
+          decisions.className = "work-unit-meta";
+          decisions.textContent = `${t("决策记录")}: ${checkpoint.decisions.join("；")}`;
+          card.appendChild(decisions);
+        }
+        if (Array.isArray(checkpoint.retrieval_refs) && checkpoint.retrieval_refs.length) {
+          const sources = document.createElement("div");
+          sources.className = "work-unit-meta";
+          sources.textContent = `${t("记忆来源")}: ${checkpoint.retrieval_refs.join(", ")}`;
+          card.appendChild(sources);
+        } else {
+          const sources = document.createElement("div");
+          sources.className = "work-unit-meta muted";
+          sources.textContent = `${t("记忆来源")}: ${t("未记录")}`;
+          card.appendChild(sources);
+        }
+        const verification = document.createElement("div");
+        verification.className = "work-unit-meta";
+        const declared = Array.isArray(unit.verification) ? unit.verification : [];
+        verification.textContent = `${t("验证结果")}: ${declared.length ? declared.join("；") : t("未声明")}`;
+        card.appendChild(verification);
         if (unit.blocked_reason) {
           const blockedLine = document.createElement("div");
           blockedLine.className = "work-unit-meta blocked";

@@ -609,14 +609,57 @@ impl PhasePipeline {
 /// 要回答的是「本任务碰哪里」,不是复述条目。
 pub(crate) fn render_task_context(state: &kanzei_tools::ResolvedControlState) -> Option<String> {
     let item = state.selected.as_ref()?;
-    let mut out = format!("{} [{}] {}", item.id, item.lifecycle_status, item.title);
-    for field in &item.fields {
-        if matches!(
-            field.name.as_str(),
-            "进展" | "内容" | "验收" | "复现" | "改动面"
-        ) {
-            out.push_str(&format!("\n- {}: {}", field.name, field.value));
+    let Some(context) = item.work_unit_context.as_ref() else {
+        let mut out = format!("{} [{}] {}", item.id, item.lifecycle_status, item.title);
+        for field in &item.fields {
+            if matches!(
+                field.name.as_str(),
+                "进展" | "内容" | "验收" | "复现" | "改动面"
+            ) {
+                out.push_str(&format!("\n- {}: {}", field.name, field.value));
+            }
         }
+        return Some(out);
+    };
+
+    let unit = &context.unit;
+    let mut out = format!(
+        "{} [{}] {}\n[当前任务]\n- 目标: {}",
+        unit.unit_id,
+        unit.status.as_str(),
+        unit.objective,
+        unit.objective
+    );
+    if !unit.scope.is_empty() {
+        out.push_str(&format!("\n- 范围: {}", unit.scope.join(", ")));
+    }
+    if let Some(checkpoint) = &unit.last_checkpoint {
+        out.push_str(&format!(
+            "\n[实质进展]\n- 摘要: {}\n- 下一步: {}",
+            checkpoint.summary, checkpoint.next_action
+        ));
+        if !checkpoint.decisions.is_empty() {
+            out.push_str(&format!("\n- 决策: {}", checkpoint.decisions.join("；")));
+        }
+        if !checkpoint.retrieval_refs.is_empty() {
+            out.push_str(&format!(
+                "\n[记忆来源]\n- 声明来源: {}",
+                checkpoint.retrieval_refs.join(", ")
+            ));
+        }
+    } else {
+        out.push_str("\n[实质进展]\n- 尚无 checkpoint");
+    }
+    out.push_str("\n[验证结果]");
+    if unit.verification.is_empty() {
+        out.push_str("\n- 尚未声明验证命令");
+    } else {
+        out.push_str(&format!("\n- 声明命令: {}", unit.verification.join("；")));
+    }
+    if unit.evidence.is_empty() {
+        out.push_str("\n- 证据: 尚未登记（状态未知）");
+    } else {
+        out.push_str(&format!("\n- 证据: {} 条", unit.evidence.len()));
     }
     Some(out)
 }

@@ -75,6 +75,12 @@
 
 验证：`T-1786922726984` 记录 `cargo test -p kanzei-core -p kanzei-memory` 的 289+169 定向回归通过；新增 core 测试验证上一轮候选 ID 传播，新增 memory 测试验证重查 query 改变且旧唯一候选不再返回。
 
+## R-361 第三批：有界任务上下文与结果呈现（2026-09-06）
+
+B3 复用 Work Unit Projection 与既有事件真源，新增 `structured_control_output` 的 `context_capsule` 派生投影，按当前任务、实质进展、记忆来源声明和验证结果分组且继续受 `bound_text` 上界约束（`crates/kanzei-tools/src/work/output.rs:45-108`）。phase scout/review 对启用 Work Unit 的条目消费 checkpoint、决策、retrieval refs、验证命令和证据计数；legacy 条目保持原字段路径（`crates/kanzei-app/src/phase_pipeline.rs:606-670`）。docs snapshot 已提供完整 Work Projection，UI Work Unit 卡片展示实质进展、决策记录、记忆来源和验证结果（`crates/kanzei-app/src/docs.rs:404-418`；`crates/kanzei-app/ui/11-docs-list.js:729-800`）。记忆来源只标识 checkpoint 声明，注入/正文读取仍以 recall_events 为准，不把展示当采用或收益。
+
+验证：`T-1786922726986` 六项前端清单与新增卡片 DOM 断言通过；`T-1786922726987` kanzei-tools 545 passed、kanzei-app 261 passed。当前窗口未挂载 `.work-unit-card`，因此没有把窗口缺少该区域当作视觉通过；自动化 DOM fixture 是本批可重放证据。真实 provider 固定任务的 Current/NoMemory 独立对照与重试、重复探索、用户纠正、成功率、耗时结果仍未执行，保留为 R-361 的唯一开放验收，不由本批单测替代。
+
 ## TODO 与验证边界
 
 1. 发布准备同步修复两个既有 CI 测试告警：`tracker/fields.rs` 的生产函数移至测试模块前，`tracker.rs` 移除多余可变引用；不改变业务行为。`cargo clippy --workspace --all-targets -- -D warnings` 已通过；发布前继续执行完整验证。

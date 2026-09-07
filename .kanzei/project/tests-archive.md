@@ -11914,3 +11914,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 首次定向测试编译阶段失败：新增 memory 回归测试漏初始化 FailureRecallPolicy 变量，错误为 memory/mod.rs:2734 cannot find value policy；随后已修复并重跑通过。
 - 收尾: 1788801949
 - 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/runner/recall.rs@e668cbd3d338,crates/kanzei-core/src/store/task.rs@86ad8ef33233,crates/kanzei-memory/src/memory/index.rs@e13f3d4f1852,crates/kanzei-memory/src/memory/mod.rs@94b42bc7839d,crates/kanzei-memory/src/replay_eval.rs@a3450108a166
+
+## T-1786922726986 R-361 B3 前端上下文呈现回归 [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js; node --check crates/kanzei-app/ui/11-docs-list.js; node --check scripts/ui-runtime-smoke.mjs; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 时长: 4.0s
+- 摘要: 六项前端清单全部通过：runtime 29 个脚本/2642 次 invoke/10 个视图/0 错误；lint 57 文件；parallel-lines、a11y 22 icon-btn、i18n 1562 keys/495 HTML/57 动态契约、markdown 全部通过。新增 Work Unit 卡片断言覆盖实质进展、记忆来源、验证结果；Node runtime 使用 --experimental-vm-modules。
+- 关联: R-361 D-747
+- 收尾: 1788802486
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-app/src/phase_pipeline.rs@f480bbb5591c,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/store/task.rs@86ad8ef33233,crates/kanzei-tools/src/work/output.rs@0fd52d7d6bdc,scripts/ui-runtime-smoke.mjs@69c01447d094
+
+## T-1786922726987 R-361 B3 Work Unit 上下文 Rust 回归 [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-app
+- 时长: 56.0s
+- 摘要: 定向 Rust 回归通过：kanzei-tools 545 passed、1 ignored；kanzei-app 261 passed、0 failed；覆盖 Work Unit context capsule 输出、phase scout/review 任务上下文、docs snapshot/UI 投影及既有工具链。命令最终退出码 0；stderr 中临时仓库 fatal 行是既有测试夹具输出。
+- 关联: R-361 D-747
+- 收尾: 1788802584
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-app/src/phase_pipeline.rs@f480bbb5591c,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/store/task.rs@86ad8ef33233,crates/kanzei-tools/src/work/output.rs@0fd52d7d6bdc,scripts/ui-runtime-smoke.mjs@69c01447d094
+
+## T-1786922726988 R-361 B3 当前提交前 Rust 回归 [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-app
+- 时长: 53.0s
+- 摘要: 提交前当前源码指纹回归通过：kanzei-tools 545 passed、1 ignored；kanzei-app 261 passed、0 failed；phase_pipeline rustfmt 后重新验证，覆盖 B3 Work Unit context capsule、phase scout/review 上下文和 UI 投影依赖。命令最终退出码 0。
+- 关联: R-361 D-747
+- 收尾: 1788802856
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-app/src/phase_pipeline.rs@cbf625b2ff54,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/store/task.rs@86ad8ef33233,crates/kanzei-tools/src/work/output.rs@0fd52d7d6bdc,scripts/ui-runtime-smoke.mjs@69c01447d094

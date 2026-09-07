@@ -90,6 +90,12 @@ export const I18N_EN = {
   "成本未记录": "Cost not recorded",
   "当前课题还没有研究计划。": "This topic does not have a research plan yet.",
   "当前任务": "Current task",
+  "实质进展": "Substantive progress",
+  "决策记录": "Decision record",
+  "记忆来源": "Memory sources",
+  "未记录": "Not recorded",
+  "验证结果": "Verification result",
+  "未声明": "Not declared",
   "暂无课题会话": "No conversations for this topic",
   // R-329:deliver 交付卡片。
   "在资源管理器中显示": "Show in File Explorer",

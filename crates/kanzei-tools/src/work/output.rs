@@ -77,6 +77,32 @@ pub(super) fn structured_control_output(state: ResolvedControlState) -> serde_js
         .collect::<Vec<_>>();
         selected["omitted_fields"] = json!(fields.len().saturating_sub(kept.len()));
         selected["fields"] = json!(kept);
+        if selected["kind"] == "work_unit" {
+            let unit = selected["work_unit_context"]["unit"].clone();
+            let checkpoint = unit["last_checkpoint"].clone();
+            let checkpoint_or_empty = checkpoint.as_object().cloned().unwrap_or_default();
+            selected["context_capsule"] = json!({
+                "current_task": {
+                    "unit_id": unit["unit_id"], "objective": unit["objective"],
+                    "scope": unit["scope"], "status": unit["status"],
+                    "dependencies": unit["dependencies"]
+                },
+                "substantive_progress": {
+                    "summary": checkpoint_or_empty.get("summary").cloned().unwrap_or(json!("")),
+                    "next_action": checkpoint_or_empty.get("next_action").cloned().unwrap_or(json!("")),
+                    "decisions": checkpoint_or_empty.get("decisions").cloned().unwrap_or(json!([])),
+                    "provenance": unit["updated_at"]
+                },
+                "memory_sources": {
+                    "retrieval_refs": checkpoint_or_empty.get("retrieval_refs").cloned().unwrap_or(json!([])),
+                    "read_state": "只展示 checkpoint 声明的来源；注入/正文读取以 recall_events 为准"
+                },
+                "verification": {
+                    "declared": unit["verification"], "evidence": unit["evidence"],
+                    "state": if unit["evidence"].as_array().is_some_and(|items| !items.is_empty()) { "evidence_recorded" } else { "not_recorded" }
+                }
+            });
+        }
     }
     bound_text(&mut value);
     value

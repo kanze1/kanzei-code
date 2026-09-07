@@ -387,15 +387,15 @@
 - 内容: 分三批：观测真源与证据判据；决策点召回与固定任务收益对照；有界任务上下文与结果呈现。
 - 发现记录: {"Intent":"让记忆改善任务表现并可理解呈现","Explicit":"统一召回真源，厘清注入读取采用验证，收紧晋升与效果判据，改善当前任务呈现","Assumptions":"复用 SQLite 与现有记忆生命周期","Ambiguities":"无阻碍第一批实施的未决项","领域对象":"recall_event、memory_entry、episode、work_unit","最小成功闭环":"同一运行召回读取与恢复证据可对应且不夸大收益","延后决策":"真实 provider 对照结果与长期调度策略"}
 - 复杂度: 大
-- 批次: 2/3
+- 批次: 3/3
 - 来源: 2026-09-06 用户原话「同意，开工吧」，确认上一轮审计建议
 - 标签: 前端
-- 进展: B2 已完成并待提交：crates/kanzei-core/src/runner/recall.rs 新增 RecallTrigger.previous_retrieved_ids 与 RecallWatch.last_retrieved，同一运行内把上一轮原始候选传入重复失败；crates/kanzei-memory/src/memory/mod.rs 的 FailureRecallPolicy 在重复失败时显式改变 query（再次失败/重试/修复）、过滤上一轮 Tier0/Tier1 候选、无新候选真实 miss，并将实际 query/排除候选写入 recall_events；回放构造器同步补齐新字段。真实调用方是 drive 工具结果回喂 → RecallWatch → FailureRecallPolicy，新增 core/memory 回归覆盖候选传播与旧候选排除。T-1786922726984：kanzei-core 289 passed、kanzei-memory 169 passed；T-1786922726985 为修复前测试构造器缺 policy 的失败记录，已修复。既有 ReplayCase（真实 run.trace）→ Current/LeaveOneOut→memory_eval/recompute_memory_effect 是独立 with/without 底座，本批复用不重复申报；真实 provider 固定任务样本的重试、重复探索、用户纠正、成功率与耗时结果仍待 B3，未用单测替代收益证据。docs/design/memory_feedback_reliability.md 已追加 B2 策略与边界。下一步：提交 B2，随后实现 B3 有界任务上下文与真实收益报告。
+- 进展: B3 已完成并待提交：工具层 `structured_control_output` 在 crates/kanzei-tools/src/work/output.rs:45-108 派生有界 `context_capsule`，分组提供 current_task、substantive_progress、memory_sources（仅 checkpoint retrieval_refs 声明）和 verification；phase scout/review 在 crates/kanzei-app/src/phase_pipeline.rs:606-670 对 Work Unit 消费 checkpoint/决策/来源/验证，并保留 legacy 字段路径；docs snapshot 在 crates/kanzei-app/src/docs.rs:404-418 提供 Work Projection，UI 在 crates/kanzei-app/ui/11-docs-list.js:729-800 展示实质进展、决策记录、记忆来源、验证结果。真实消费者为 work 工具 structured 输出、桌面 phase pipeline 和文档页 Work Unit card。D-747 已 fixed：02-i18n.js:92-98 注册新增文案。T-1786922726986 六项前端冒烟与新增卡片 DOM 断言通过；T-1786922726987 kanzei-tools 545、kanzei-app 261 定向测试通过。验收对账：①新旧库迁移可回归——既有 T-1786922726980 发布 verify 及 B1 迁移回归；②读取按运行隔离——既有 T-1786922726980/B1 recall 回归；③正常结束不冒充收益——既有 B1 recovery/effect 判据回归；④无匹配恢复证据不得自动晋升——既有 B1 promote/recovery 回归；⑤前端区分注入读取与未知——既有 T-1786922726986 前端清单及 T-1786922726987 memory IPC 回归；⑥实际收益独立对照留证：未完成，真实 provider 固定任务 Current/NoMemory 对照及重试、重复探索、用户纠正、成功率、耗时尚未执行，不能用单测替代。docs/design/memory_feedback_reliability.md 已追加 B3 边界。下一步：提交 B3；R-361 保持 doing，待真实任务收益证据后再关闭。
 - 验收: 新旧库迁移可回归；读取按运行隔离；正常结束不冒充收益；无匹配恢复证据不得自动晋升；前端区分注入读取与未知；实际收益独立对照留证。
 - 优先级: P1
-- observed_head: 361de2e974b3713f83bbecfa87e2d321d9c5a283
-- observed_worktree_hash: fnv1a64:becf80e02f0c0a41
-- recorded_at: 1788802015936
+- observed_head: 7d172e8648eb08cb32e8959a70134d84f9770062
+- observed_worktree_hash: fnv1a64:5bafb875cfcbce16
+- recorded_at: 1788802637716
 
 ## R-362 research 模式产出问题优先的论文骨架:因变量前置、主结果先行、机制走排除链、相关工作后移 [todo]
 - 内容: 批1 把好结构落成可判定的性质,而不是固定章节表。性质取自来源截图那份骨架为什么好:①因变量(诊断/指标)在首次使用前集中定义一次;②竞争解释各自的预测出现在结果之前,读者拿它去对结果;③主结果先于机制解释出现;④机制以排除链呈现(每个被排除的候选各带证据),不散在叙述里;⑤章节标题是它回答的问题或它给出的判断,不是 Method/Experiments 一类占位标签;⑥相关工作不横在引言与首个结果之间。批2 从 findings 推导结构:write_outline 之前先产出结构依据——哪些 finding 是因变量定义、哪些是主结果、哪些是被排除的候选及其证据、有哪些竞争解释;outline 由这份依据推导,每节记录它回答的问题与消费的 finding id。批3 校验按性质而非按槽位:违反性质时点名诊断(哪一条性质、哪一节、缺什么),但不规定章节数量与名称,不同题材允许长出不同形状。批4 回归夹具:用真实 findings 重放断言推出的结构满足六条性质,再用一个不同题材的课题断言它长出另一种形状——证明结构是推导的不是套的

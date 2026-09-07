@@ -685,8 +685,11 @@ const smokeWorkUnit = {
   status: "active", claimed_by: "smoke-line", scope: ["crates/kanzei-tools"],
   dependencies: [], acceptance: ["上下文只含当前单元"], verification: ["cargo test"],
   base_revision: "smoke-base", blocked_reason: null,
-  last_checkpoint: { summary: "事件底座已落地", next_action: "同步 IPC 契约" },
-  evidence: [], created_at: 1_760_000_000_000, updated_at: 1_760_000_000_001,
+  last_checkpoint: {
+    summary: "事件底座已落地", next_action: "同步 IPC 契约",
+    decisions: ["只注入当前单元"], retrieval_refs: ["M-001"],
+  },
+  evidence: [{ criterion: "上下文只含当前单元", evidence_refs: ["work.rs:2618"] }], created_at: 1_760_000_000_000, updated_at: 1_760_000_000_001,
 };
 // ---------- 工具块夹具:历史回放里的四种结果形态 ----------
 // 双写缺陷(⎿ 摘要行与展开详情各渲染一遍同一段文案)只在"首行超过 ⎿ 预算"或"多行"时
@@ -1810,6 +1813,12 @@ assert(
 assert(
   document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("同步 IPC 契约"),
   "Work Unit 详情未渲染 checkpoint 的下一步",
+);
+assert(
+  document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("事件底座已落地") &&
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("记忆来源: M-001") &&
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("验证结果: cargo test"),
+  "Work Unit 卡片未呈现实质进展、记忆来源或验证结果",
 );
 // R-170:LEGACY 升级机制已删除——预置的旧默认文案必须原样读回,不再被覆盖
 // (验收③);删空 textarea 回落极简默认,且极简默认不含任何引擎规则文本(验收①)。
