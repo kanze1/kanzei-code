@@ -11892,3 +11892,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: D-742
 - 收尾: 1788800872
 - 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c
+
+## T-1786922726983 R-360 研究工作台空间与课题链路回归 [passed]
+- 命令: node scripts/ui-workspace-smoke.mjs
+- 时长: 13.0s
+- 摘要: 研究工作台浏览器回归通过：开发运行保持、课题会话/草稿/附件隔离、刷新恢复、内容分类、延迟响应、创建成功/失败，以及 3 视口 × 6 页面布局。
+- 关联: R-360
+- 收尾: 1788801207
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/store/task.rs@86ad8ef33233

@@ -4409,7 +4409,20 @@
 - observed_head: 0ac5755ca01760a9a4b1149c8c351287aa36791c
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1788569909496
-- 阻塞: 
-- 对账: 2026-09-05 对账:原验收⑤⑥已由拆出的 R-331 全部交付并归档 done;本条 B1-B10 已交付,停车「批次上限已达 10/10」不是可达成的前提,按已交付事实关闭。关闭门禁按 Git 提交标记数推导为 9(其中一批的提交未带 Bn 标记),批次字段按门禁口径对齐为 9/9,实际交付批次以进展所列 B1-B10 提交为准。前端冒烟证据:dist/verification.json full verify 绑定 0ac5755c 全绿
 - 发现记录: {"Intent":"完成原生 ESM 迁移剩余批4并移除全局补偿机制","Explicit":"先完成 withSessionRender 跨模块写 setter 化、B3 __kzTest 显式 export、defer 时序适配，再逐文件迁移并删除 globals 补偿","Assumptions":"批1-B3 的既有提交仍是当前 dev 基线且六条前端冒烟可作为迁移回归入口","Ambiguities":"现有条目进展标注批3/4但代码与 HEAD 已偏离，需要先按提交和工作树复核真实落点；设计文档索引显示路径存在性需以实际仓库为准","领域对象":"ui/*.js、index.html、scripts/ui-* smoke、ESLint globals 生成与配置","最小成功闭环":"测试 harness 能执行 ESM 且六条冒烟全绿，迁移后的浏览器入口能加载并保留逐文件 TDZ 语义","延后决策":"不引入打包器/TypeScript，不改 vendor 与业务逻辑；未能在本批收口的深层跨模块写另开后续条目"}
 - 停车: 
+
+## R-360 开发与研究信息架构分离：独立空间、课题会话与研究工作页面 [done]
+- 内容: 实施 docs/design/workspace_information_architecture.md。
+- 发现记录: {"Intent":"实施已确认的信息架构","Explicit":"开发研究分离及独立侧栏课题导航","Assumptions":"沿用现有主题与运行能力","Ambiguities":"无","领域对象":"空间、项目、课题、会话、研究成果","最小成功闭环":"切换空间恢复上下文且课题会话正确发送","延后决策":"发布安装由验证完成后单独执行"}
+- 复杂度: 大
+- 来源: 用户原话「可以我认可你说的点，按照这个设计，帮我进行改造吧」
+- 标签: 前端
+- 进展: 验收逐条对账（源码能力为既有 ce95733b/9d784f21 实现，本轮完成恢复复核与当前工作树定向回归，不将既有能力重复申报为新代码）：①「导航不改写任务 profile」：空间切换仅按保存的 process_id/topic 选择并调用 switchProcess、恢复页面，未调用 process_update 或 stop_run（crates/kanzei-app/ui/03-workspaces.js:150-178）；切线回显不写盘（crates/kanzei-app/ui/09-sessions.js:619-635），真实入口由 data-workspace 按钮绑定（03-workspaces.js:181-185）。②「课题会话绑定持久化」：研究对话按当前 topic 选择/创建 research process 并传 researchTopic（crates/kanzei-app/ui/19-research-navigation.js:46-67、crates/kanzei-app/ui/03-workspaces.js:126-147）；后端校验绑定 topic、profile 与目录并在重启恢复后保留 research_topic（crates/kanzei-app/src/research_topics.rs:107-123,176-224；crates/kanzei-app/src/processes/lifecycle.rs:123-138）。③「报告按课题读取」：课题快照按目录加载 report.md（crates/kanzei-app/src/docs.rs:61-107），正式课题报告 docs_read 调用传 selectedResearchTopicArg() 的 topic（crates/kanzei-app/ui/19-research.js:443-446,1115-1124）；旧版平铺报告仅作既有兼容读取（docs.rs:111-129），不再作为新入口。④「开发调研独立分类」：后端从 topic.json/报告元数据投影 kind（docs.rs:93-104），前端以 research_category 过滤并按类别保存选择（crates/kanzei-app/ui/19-research-navigation.js:15-35；crates/kanzei-app/ui/19-research.js:373-413），研究导航仅保留概览、对话、文献与发现、计划、实验、成果、写作（crates/kanzei-app/ui/index.html:89-115）。⑤「相关回归通过」：T-1786922726983 的 node scripts/ui-workspace-smoke.mjs 通过，覆盖开发运行保持、课题会话/草稿/附件隔离、刷新恢复、内容分类、延迟响应、创建成功/失败及 3 视口×6 页面布局；T-1786922726982 的 runtime/lint 定向回归通过（29 个 UI 脚本、2642 次 invoke、10 视图、0 运行时错误，57 文件 lint）。设计文档 docs/design/workspace_information_architecture.md:47-52 记录存储、应用后端及完整 verify 已通过；原生桌面关键交互是该设计的独立未完成跟踪项，不在 R-360 五条验收中。
+- 验收: 导航不改写任务 profile；课题会话绑定持久化；报告按课题读取；开发调研独立分类；相关回归通过。
+- 优先级: P1
+- observed_head: 361de2e974b3713f83bbecfa87e2d321d9c5a283
+- observed_worktree_hash: fnv1a64:ae10212f3bcb5eaa
+- recorded_at: 1788801239646
+- 后续验收: 发布前在发布提交运行 pwsh -File scripts/verify.ps1 -Full；上传后核对 tag、安装包大小和 SHA-256、HTTP 206；安装后重复设计文档中的原生桌面关键操作。
+- 实现提交: ce95733b
