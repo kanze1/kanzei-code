@@ -19,6 +19,15 @@ pub const TASK_MEMBERSHIP_ADDED_EVENT_TYPE: &str = "task.membership_added";
 pub const TASK_CLOSED_EVENT_TYPE: &str = "task.closed";
 pub const TASK_EVENT_SCHEMA_VERSION: u8 = 1;
 
+// 先收集 task 事件引用的输入，再走 input_id 主键查询。相关 EXISTS 会为每条
+// 历史输入重扫 session_events；长会话且尚无 task 事件时也会产生乘积级扫描。
+const ASSIGNED_TASK_INPUT_COUNT_SQL: &str = "SELECT COUNT(*) FROM session_inputs AS input
+         WHERE input.input_id IN (
+             SELECT json_extract(event.payload_json, '$.input_id')
+             FROM session_events AS event
+             WHERE event.event_type IN (?1, ?2, ?3)
+         )";
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskOutcome {
@@ -388,12 +397,7 @@ impl SessionStore {
         )?;
         let total_input_count = self.count("SELECT COUNT(*) FROM session_inputs", &[])?;
         let assigned_input_count = self.count(
-            "SELECT COUNT(*) FROM session_inputs AS input
-                 WHERE EXISTS (
-                     SELECT 1 FROM session_events AS event
-                     WHERE event.event_type IN (?1, ?2, ?3)
-                       AND json_extract(event.payload_json, '$.input_id') = input.input_id
-                 )",
+            ASSIGNED_TASK_INPUT_COUNT_SQL,
             &[
                 TASK_STARTED_EVENT_TYPE,
                 TASK_MEMBERSHIP_ADDED_EVENT_TYPE,
@@ -874,6 +878,88 @@ mod tests {
             metrics.completed_tasks[0].rounds[0].episode_id,
             legacy_episode_id
         );
+    }
+
+    #[test]
+    fn task_input_audit_deduplicates_memberships_and_ignores_missing_inputs() {
+        let store = store();
+        for input_id in ["input-one", "input-two", "input-legacy"] {
+            store
+                .admit_input("ses_test", input_id, "audit input", Delivery::Queue)
+                .unwrap();
+        }
+        store
+            .append_task_started("ses_test", "task-input-audit", None, Some("input-one"))
+            .unwrap();
+        for input_id in ["input-one", "input-two", "input-missing"] {
+            store
+                .append_task_membership_added(
+                    "ses_test",
+                    "task-input-audit",
+                    input_id,
+                    Some(input_id),
+                    None,
+                )
+                .unwrap();
+        }
+        store
+            .append_task_closed(
+                "ses_test",
+                "task-input-audit",
+                TaskOutcome::Completed,
+                "agent",
+                None,
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_test",
+                "run.completed",
+                &serde_json::json!({ "input_id": "input-legacy" }),
+            )
+            .unwrap();
+
+        let audit = store.task_compatibility_audit().unwrap();
+        assert_eq!(audit.total_input_count, 3);
+        assert_eq!(audit.assigned_input_count, 2);
+        assert_eq!(audit.legacy_input_count, 1);
+    }
+
+    #[test]
+    fn task_input_audit_scans_legacy_history_once() {
+        let store = store();
+        // 模拟已有大量历史、尚无 task 事实的项目；扫描步数不依赖机器速度。
+        store.connection.execute_batch(
+            "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 512)
+             INSERT INTO session_inputs (input_id, session_id, prompt, delivery, status, created_at)
+             SELECT 'input-' || x, 'ses_test', 'legacy', 'queue', 'completed', x FROM n;
+             WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 1024)
+             INSERT INTO session_events (event_id, session_id, sequence, event_type, payload_json, created_at)
+             SELECT 'event-' || x, 'ses_test', x, 'run.completed', '{}', x FROM n;",
+        ).unwrap();
+        let mut statement = store
+            .connection
+            .prepare(ASSIGNED_TASK_INPUT_COUNT_SQL)
+            .unwrap();
+        let assigned_input_count: i64 = statement
+            .query_row(
+                params![
+                    TASK_STARTED_EVENT_TYPE,
+                    TASK_MEMBERSHIP_ADDED_EVENT_TYPE,
+                    TASK_CLOSED_EVENT_TYPE
+                ],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(assigned_input_count, 0);
+        let scan_steps = statement.get_status(rusqlite::StatementStatus::FullscanStep);
+        assert!(scan_steps <= 2048, "历史审计重复扫描: {scan_steps} steps");
+
+        let metrics = store.task_metrics().unwrap();
+        assert_eq!(metrics.legacy.input_count, 512);
+        assert_eq!(metrics.legacy.session_event_count, 1024);
+        assert!(metrics.completed_tasks.is_empty());
+        assert!(metrics.in_progress_tasks.is_empty());
     }
 
     #[test]

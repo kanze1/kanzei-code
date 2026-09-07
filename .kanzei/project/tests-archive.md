@@ -11938,3 +11938,17 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-361 D-747
 - 收尾: 1788802856
 - 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-app/src/phase_pipeline.rs@cbf625b2ff54,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/store/task.rs@86ad8ef33233,crates/kanzei-tools/src/work/output.rs@0fd52d7d6bdc,scripts/ui-runtime-smoke.mjs@69c01447d094
+
+## T-1786922726989 D-746 运行画像定向测试（命令目标错误） [failed]
+- 命令: cargo test -p kanzei-core store::task:: --lib; cargo test -p kanzei-app commands::run::tests:: --lib
+- 摘要: core store::task:: 7 passed；app 命令因错误使用 --lib 失败，最终 stderr 为 no library targets found in package kanzei-app，未执行 app 测试。
+- 收尾: 1788803134
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/store/task.rs@86ad8ef33233
+
+## T-1786922726990 D-746 运行画像查询修复定向回归 [passed]
+- 命令: cargo test -p kanzei-core store::task:: --lib; cargo test -p kanzei-app commands::run::tests::
+- 时长: 1.0s
+- 摘要: 定向测试通过：kanzei-core store::task:: 7 passed（去重、缺失输入、legacy 口径、线性扫描）；kanzei-app commands::run::tests:: 3 passed（旧 rounds、分类聚合、异步 task projection）。
+- 关联: D-746
+- 收尾: 1788803151
+- 源码指纹: v2 crates/kanzei-app/src/commands/run.rs@41be5232c31c,crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-core/src/store/task.rs@86ad8ef33233

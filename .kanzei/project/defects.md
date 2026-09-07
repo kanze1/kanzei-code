@@ -73,18 +73,18 @@
 - recorded_at: 1787288788389
 - 停车: 排队:排在 D-568 之后恢复(原停车前提 R-353 未提交改动已不存在,按 defect-first 改排在缺陷队列末);恢复后继续 tracker 四件套与 research 五件套减面评估;恢复人:agent;解除条件:D-568
 
-## D-746 运行画像历史输入关联审计反复全表扫描并阻塞桌面窗口 [open] (high)
+## D-746 运行画像历史输入关联审计反复全表扫描并阻塞桌面窗口 [fixing] (high)
 - 复杂度: 小
 - 复现: 进入运行画像触发 run_metrics_by_task；当前项目只读数据库统计 session_inputs=1664、session_events=55211、task事件=0。task_compatibility_audit 的 assigned_input_count 使用相关 EXISTS，EXPLAIN QUERY PLAN 为 SCAN input + CORRELATED SCALAR SUBQUERY + SCAN event；旧查询超过5秒诊断上限仍未完成。
 - 影响: 点击运行画像时窗口事件循环长时间阻塞，历史数据越多越严重；即使尚无 task 生命周期事件也会触发。
 - 来源: 2026-09-08 用户反馈：一点运行画像就会卡死
 - 标签: 后端
 - 根因: 每条历史输入都重新扫描全部 session_events，查询复杂度为输入数乘事件数；同步 Tauri run_metrics_by_task 在窗口命令线程执行该审计。
-- 进展: 源码修复已完成：crates/kanzei-core/src/store/task.rs 将相关 EXISTS 改为一次集合查询，crates/kanzei-app/src/commands/run.rs 的 run_metrics_by_task 改为 async + spawn_blocking。core store::task:: 7 passed，app commands::run::tests:: 3 passed，定向 rustfmt 与 git diff --check 通过。当前数据库持续更新；新编译核心库 open_read_only+task_metrics 在1665输入/55700事件/1264轮/0 task事件上3次耗时281/268/267ms，legacy输入仍为1665。证据 output/d746-run-metrics/real_database_timing.txt。未构建安装桌面版本、未执行真实窗口点击验收，保持未关闭。
+- 进展: 下一个最小步骤已完成并待提交：①集合查询位置 crates/kanzei-core/src/store/task.rs:28-36,397-409，用 task 事件引用的 input_id 一次性集合查询替代每条历史 input 的相关 EXISTS；测试 task.rs:881-970 覆盖重复 membership 只计一次、缺失 input 不计入、legacy input 不进入 task trend，以及 512 inputs/1024 events 的 FullscanStep ≤2048。②窗口线程解耦位置 crates/kanzei-app/src/commands/run.rs:474-489，run_metrics_by_task 改为 async 并以 spawn_blocking 承载 SQLite/历史审计；调用测试 run.rs:709-790 已改为 tokio::test。③T-1786922726990 记录当前定向回归：core store::task:: 7 passed、app commands::run::tests:: 3 passed。T-1786922726989 记录一次错误的 app --lib 命令，根因是 kanzei-app 无 library target，随后已用正确命令通过。④「安装修复版本后真实窗口点击画像可响应」尚无安装/真实窗口证据，保持 fixing；不把自动化单测替代桌面验收。
 - 验收: 1.历史审计改为集合查询且重复归属、空 input_id、不存在输入、legacy 口径不变；2.大量legacy输入事件扫描步数保持线性；3.任务画像在后台阻塞线程查询且真实API测试通过；4.安装修复版本后真实窗口点击画像可响应。
 - refs: R-338 R-341
 - 优先级: P1
 - 测试用例: 1.cargo test -p kanzei-core store::task:: --lib：7项通过，含512输入/1024旧事件扫描步数上界、重复membership/不存在input排除和legacy分类；2.cargo test -p kanzei-app commands::run::tests::：3项通过，覆盖旧rounds、分类聚合和异步task projection；3.安装修复版后选择长历史项目点击运行画像，预期页面返回且仍可切换对话和操作窗口，完成真实窗口验收后才能关闭缺陷。
-- observed_head: 361de2e974b3713f83bbecfa87e2d321d9c5a283
-- observed_worktree_hash: fnv1a64:ae10212f3bcb5eaa
-- recorded_at: 1788801416373
+- observed_head: 8057f2cc91fa44016bfc38b17ff813e8f60a9845
+- observed_worktree_hash: fnv1a64:d1d568a4ca377cc2
+- recorded_at: 1788803167416

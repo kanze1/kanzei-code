@@ -474,12 +474,17 @@ pub(crate) fn run_metrics(
 
 /// R-338 B3:读取可重建的 task 运行画像；前端只消费此 projection，不自行分组。
 #[tauri::command]
-pub(crate) fn run_metrics_by_task(project_dir: String) -> Result<serde_json::Value, String> {
-    let root = PathBuf::from(&project_dir);
-    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
-        .map_err(|error| error.to_string())?;
-    let projection = store.task_metrics().map_err(|error| error.to_string())?;
-    serde_json::to_value(projection).map_err(|error| error.to_string())
+pub(crate) async fn run_metrics_by_task(project_dir: String) -> Result<serde_json::Value, String> {
+    // 历史审计和 SQLite 打开均可能阻塞；整个查询留在阻塞线程池，释放窗口事件循环。
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = PathBuf::from(&project_dir);
+        let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+            .map_err(|error| error.to_string())?;
+        let projection = store.task_metrics().map_err(|error| error.to_string())?;
+        serde_json::to_value(projection).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("任务画像查询任务失败: {error}"))?
 }
 
 /// R-240:从 prompt_head 提取需求 ID(`R-123` / `D-321`),取第一个命中。
@@ -704,8 +709,8 @@ mod tests {
         assert_eq!(output["uncategorized"]["count"], 0);
         std::fs::remove_dir_all(root).ok();
     }
-    #[test]
-    fn run_metrics_by_task_command_reads_real_task_projection() {
+    #[tokio::test]
+    async fn run_metrics_by_task_command_reads_real_task_projection() {
         let (root, session_id) = fixture("task-metrics");
         let store = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
         store
@@ -776,7 +781,9 @@ mod tests {
             .append_task_started(&session_id, "task-command-open", None, None)
             .unwrap();
 
-        let output = run_metrics_by_task(root.display().to_string()).unwrap();
+        let output = run_metrics_by_task(root.display().to_string())
+            .await
+            .unwrap();
         assert_eq!(output["completed_tasks"].as_array().unwrap().len(), 1);
         assert_eq!(output["in_progress_tasks"].as_array().unwrap().len(), 1);
         assert_eq!(output["trend"]["closed_task_count"], 1);
