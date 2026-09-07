@@ -390,12 +390,13 @@
 - 批次: 3/3
 - 来源: 2026-09-06 用户原话「同意，开工吧」，确认上一轮审计建议
 - 标签: 前端
-- 进展: B3 已提交：8057f2cc R-361 B3 完善有界任务上下文与结果呈现。工具层 `structured_control_output` 在 crates/kanzei-tools/src/work/output.rs:45-108 派生有界 `context_capsule`，分组提供 current_task、substantive_progress、memory_sources（仅 checkpoint retrieval_refs 声明）和 verification；phase scout/review 在 crates/kanzei-app/src/phase_pipeline.rs:606-670 对 Work Unit 消费 checkpoint/决策/来源/验证，并保留 legacy 字段路径；docs snapshot 在 crates/kanzei-app/src/docs.rs:404-418 提供 Work Projection，UI 在 crates/kanzei-app/ui/11-docs-list.js:729-800 展示实质进展、决策记录、记忆来源、验证结果。真实消费者为 work 工具 structured 输出、桌面 phase pipeline 和文档页 Work Unit card。D-747 已 fixed：02-i18n.js:92-98 注册新增文案。T-1786922726986 六项前端冒烟与新增卡片 DOM 断言通过；T-1786922726988 为 rustfmt 后当前源码的提交前回归，kanzei-tools 545、kanzei-app 261 定向测试通过；提交门禁已执行并通过。验收对账：①新旧库迁移可回归——既有 T-1786922726980 发布 verify 及 B1 迁移回归；②读取按运行隔离——既有 B1 recall 回归；③正常结束不冒充收益——既有 B1 recovery/effect 判据回归；④无匹配恢复证据不得自动晋升——既有 B1 promote/recovery 回归；⑤前端区分注入读取与未知——T-1786922726986 前端清单及 T-1786922726988 app/tools 回归；⑥实际收益独立对照留证：未完成，真实 provider 固定任务 Current/NoMemory 对照及重试、重复探索、用户纠正、成功率、耗时尚未执行，不能用单测替代。docs/design/memory_feedback_reliability.md 已追加 B3 边界。R-361 保持 doing，待真实任务收益证据后再关闭。
+- 进展: B3 已提交：8057f2cc R-361 B3 完善有界任务上下文与结果呈现；需求证据更新已提交 6e9969ea。工具层 `structured_control_output` 在 crates/kanzei-tools/src/work/output.rs:45-108 派生有界 `context_capsule`，phase scout/review 在 crates/kanzei-app/src/phase_pipeline.rs:606-670 消费 checkpoint/决策/来源/验证，docs snapshot 在 crates/kanzei-app/src/docs.rs:404-418 提供 Work Projection，UI 在 crates/kanzei-app/ui/11-docs-list.js:729-800 展示实质进展、决策记录、记忆来源、验证结果；D-747 已 fixed（02-i18n.js:92-98）。T-1786922726986 六项前端冒烟与卡片 DOM 断言通过；T-1786922726988 为 rustfmt 后当前源码的 kanzei-tools 545、kanzei-app 261 定向回归通过。验收①～⑤已有 B1/B2/B3 代码、测试与当前提交证据；验收⑥「实际收益独立对照留证」仍开放，不能用单测/replay 底座冒充真实 provider 结果。当前阻塞为真实 provider、固定任务与执行窗口，解除后下一步运行 Current/NoMemory 配对并写入成功率、重试、重复探索、用户纠正、耗时证据。
 - 验收: 新旧库迁移可回归；读取按运行隔离；正常结束不冒充收益；无匹配恢复证据不得自动晋升；前端区分注入读取与未知；实际收益独立对照留证。
 - 优先级: P1
 - observed_head: 8057f2cc91fa44016bfc38b17ff813e8f60a9845
 - observed_worktree_hash: fnv1a64:d1d568a4ca377cc2
-- recorded_at: 1788802904189
+- recorded_at: 1788803004691
+- 阻塞: 用户：提供一个可重复的真实 provider 运行入口（已配置模型/凭据或运行中的 provider）、固定任务与允许执行窗口；解除条件:用户
 
 ## R-362 research 模式产出问题优先的论文骨架:因变量前置、主结果先行、机制走排除链、相关工作后移 [todo]
 - 内容: 批1 把好结构落成可判定的性质,而不是固定章节表。性质取自来源截图那份骨架为什么好:①因变量(诊断/指标)在首次使用前集中定义一次;②竞争解释各自的预测出现在结果之前,读者拿它去对结果;③主结果先于机制解释出现;④机制以排除链呈现(每个被排除的候选各带证据),不散在叙述里;⑤章节标题是它回答的问题或它给出的判断,不是 Method/Experiments 一类占位标签;⑥相关工作不横在引言与首个结果之间。批2 从 findings 推导结构:write_outline 之前先产出结构依据——哪些 finding 是因变量定义、哪些是主结果、哪些是被排除的候选及其证据、有哪些竞争解释;outline 由这份依据推导,每节记录它回答的问题与消费的 finding id。批3 校验按性质而非按槽位:违反性质时点名诊断(哪一条性质、哪一节、缺什么),但不规定章节数量与名称,不同题材允许长出不同形状。批4 回归夹具:用真实 findings 重放断言推出的结构满足六条性质,再用一个不同题材的课题断言它长出另一种形状——证明结构是推导的不是套的
