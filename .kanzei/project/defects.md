@@ -80,11 +80,12 @@
 - 来源: 2026-09-08 用户反馈：一点运行画像就会卡死
 - 标签: 后端
 - 根因: 每条历史输入都重新扫描全部 session_events，查询复杂度为输入数乘事件数；同步 Tauri run_metrics_by_task 在窗口命令线程执行该审计。
-- 进展: 下一个最小步骤已完成并待提交：①集合查询位置 crates/kanzei-core/src/store/task.rs:28-36,397-409，用 task 事件引用的 input_id 一次性集合查询替代每条历史 input 的相关 EXISTS；测试 task.rs:881-970 覆盖重复 membership 只计一次、缺失 input 不计入、legacy input 不进入 task trend，以及 512 inputs/1024 events 的 FullscanStep ≤2048。②窗口线程解耦位置 crates/kanzei-app/src/commands/run.rs:474-489，run_metrics_by_task 改为 async 并以 spawn_blocking 承载 SQLite/历史审计；调用测试 run.rs:709-790 已改为 tokio::test。③T-1786922726990 记录当前定向回归：core store::task:: 7 passed、app commands::run::tests:: 3 passed。T-1786922726989 记录一次错误的 app --lib 命令，根因是 kanzei-app 无 library target，随后已用正确命令通过。④「安装修复版本后真实窗口点击画像可响应」尚无安装/真实窗口证据，保持 fixing；不把自动化单测替代桌面验收。
+- 进展: 源码修复已提交：79049ee1 D-746 B1 修复运行画像历史查询阻塞。①集合查询位置 crates/kanzei-core/src/store/task.rs:28-36,397-409，用 task 事件引用的 input_id 一次性集合查询替代每条历史 input 的相关 EXISTS；测试 task.rs:881-970 覆盖重复 membership 只计一次、缺失 input 不计入、legacy input 不进入 task trend，以及 512 inputs/1024 events 的 FullscanStep ≤2048。②窗口线程解耦位置 crates/kanzei-app/src/commands/run.rs:474-489，run_metrics_by_task 改为 async 并以 spawn_blocking 承载 SQLite/历史审计；调用测试 run.rs:709-790 已改为 tokio::test。③T-1786922726990 记录当前定向回归：core store::task:: 7 passed、app commands::run::tests:: 3 passed；T-1786922726989 记录一次错误的 app --lib 命令，根因是 kanzei-app 无 library target，随后已用正确命令通过。④「安装修复版本后真实窗口点击画像可响应」尚无安装/真实窗口证据，保持 fixing；不把自动化单测替代桌面验收。
 - 验收: 1.历史审计改为集合查询且重复归属、空 input_id、不存在输入、legacy 口径不变；2.大量legacy输入事件扫描步数保持线性；3.任务画像在后台阻塞线程查询且真实API测试通过；4.安装修复版本后真实窗口点击画像可响应。
 - refs: R-338 R-341
 - 优先级: P1
 - 测试用例: 1.cargo test -p kanzei-core store::task:: --lib：7项通过，含512输入/1024旧事件扫描步数上界、重复membership/不存在input排除和legacy分类；2.cargo test -p kanzei-app commands::run::tests::：3项通过，覆盖旧rounds、分类聚合和异步task projection；3.安装修复版后选择长历史项目点击运行画像，预期页面返回且仍可切换对话和操作窗口，完成真实窗口验收后才能关闭缺陷。
-- observed_head: 8057f2cc91fa44016bfc38b17ff813e8f60a9845
-- observed_worktree_hash: fnv1a64:d1d568a4ca377cc2
-- recorded_at: 1788803167416
+- observed_head: 79049ee18550f305b42e69544dedbbec21c94972
+- observed_worktree_hash: fnv1a64:43a1d1024625f1f8
+- recorded_at: 1788803219458
+- 阻塞: 用户：在 kzapp 安装位空闲后允许 agent 执行一次修复版本安装/启动，并用 UIA 点击长历史项目的运行画像验证窗口仍可响应；解除条件:用户
