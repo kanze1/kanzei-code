@@ -1,20 +1,15 @@
-// OC 的身体与光纹共享坐标和呼吸变换；透明图保留原始 alpha。
-// 这些路径对齐 oc-pixel-v3.png 的脸颊与颈部纹路，替图时需一起校准。
+import { initOcPerformance, ocPerformanceMarkup, sampleOcPerformance } from "./22-oc-performance.js";
+
+export function ocAnimationFrame(state, elapsed) {
+  return sampleOcPerformance(state, elapsed).pose;
+}
+
+export function initOcSpriteMotion(root) {
+  return initOcPerformance(root);
+}
+
 export function ocCompanionMarkup() {
-  const routes = [
-    "M80 576H192V416H384V576H584",
-    "M944 432H880V576H584",
-    "M944 1088H848V976H664V872",
-  ];
-  return `<div class="oc-figure"><div class="oc-body">`
-    + `<svg class="oc-network" viewBox="0 0 1024 1536" fill="none" aria-hidden="true">`
-    + routes.map((path) => `<path class="oc-route" d="${path}"/><path class="oc-signal" pathLength="100" d="${path}"/>`).join("")
-    + `<g class="oc-nodes"><rect x="74" y="570" width="12" height="12"/><rect x="938" y="426" width="12" height="12"/><rect x="938" y="1082" width="12" height="12"/></g></svg>`
-    + `<img class="oc-portrait" src="./assets/oc-pixel-v3.png" alt="" width="1024" height="1536" decoding="async" draggable="false"/>`
-    + `<svg class="oc-mark" viewBox="0 0 1024 1536" fill="none" aria-hidden="true">`
-    + `<g class="oc-cheek"><path d="M584 558V600M566 580H600"/></g>`
-    + `<g class="oc-neck"><path d="M658 860H672V866H678V880H672V886H658V880H652V866H658ZM664 886V912H672V940"/></g></svg>`
-    + `</div></div>`;
+  return ocPerformanceMarkup();
 }
 
 // 只缓存表现细节，不写入运行状态。会话真源的终态始终优先于动画缓存。
@@ -82,13 +77,14 @@ export function initOcCompanion(root, options) {
   root.querySelectorAll(".empty-art, #oc-companion").forEach((host) => {
     if (!host.querySelector(".oc-figure")) host.innerHTML = ocCompanionMarkup();
   });
+  const motion = initOcSpriteMotion(root);
+  let voice = null;
   function sync() {
     const paused = document.hidden || !root.closest(".view")?.classList.contains("active");
-    const pauseValue = paused ? "true" : "false";
-    if (root.dataset.ocPaused !== pauseValue) root.dataset.ocPaused = pauseValue;
-    if (paused) return;
-    const state = store.current();
-    if (root.dataset.ocState !== state) root.dataset.ocState = state;
+    const currentVoice = voice?.sessionId === options.getSessionId() ? voice : null;
+    motion.setState(currentVoice?.phase === "speaking" ? "replying" : currentVoice?.phase || store.current(), paused);
+    motion.setSpeaking(currentVoice?.phase === "speaking");
+    motion.setMouthLevel(currentVoice?.level || 0);
   }
   sync();
   // 状态投影只做低频只读同步，覆盖切会话、后台终态和轮询恢复。
@@ -96,8 +92,10 @@ export function initOcCompanion(root, options) {
   document.addEventListener("visibilitychange", sync);
   return {
     emit(type, detail) { store.emit(type, detail); sync(); },
+    voice(sessionId, phase, level = 0) { voice = phase ? { sessionId, phase, level } : null; sync(); },
     destroy() {
       clearInterval(timer);
+      motion.destroy();
       document.removeEventListener("visibilitychange", sync);
     },
   };

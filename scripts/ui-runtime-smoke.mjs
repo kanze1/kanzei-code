@@ -1170,6 +1170,7 @@ const localStorageShim = {
 const windowShim = {
   __TAURI__: { core: { invoke }, event: { listen } },
   addEventListener: () => {},
+  matchMedia: (media) => ({ media, matches: false, addEventListener() {}, removeEventListener() {} }),
   confirm: () => true,
   // D-418:业务确认弹窗从 window.confirm 迁移到 confirmDialog(01-core.js),
   // 冒烟同样 mock 成立(立即确认),否则确认类操作断言会挂在挂起的 Promise 上。
@@ -1236,6 +1237,7 @@ const sandbox = {
     },
   },
   window: windowShim,
+  performance: globalThis.performance,
   document,
   localStorage: localStorageShim,
   navigator: { clipboard: { writeText: async (text) => { copiedResearchCitation = String(text); } } },
@@ -8612,6 +8614,9 @@ if (issues.length) {
   for (const issue of issues) console.error(` - ${issue}`);
   process.exit(1);
 }
+// Keep streaming/cancellation regressions in the existing frontend runtime gate.
+await import("./ui-oc-companion-smoke.mjs");
+await import("./ui-voice-smoke.mjs");
 console.log(
   `UI 运行时冒烟通过:${sources.length} 个 ui/*.js 按序执行 + 初始化序列(${invokeLog.length} 次 invoke) + ` +
   `需求/缺陷/目标/测试/历史列表渲染 + ${document.querySelectorAll(".activity-item[data-view]").length} 个主视图切换,0 运行时错误`

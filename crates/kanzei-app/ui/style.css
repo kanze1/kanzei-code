@@ -855,31 +855,40 @@ select {
   mask-image: linear-gradient(to bottom, #000 0 91%, transparent 100%);
 }
 .oc-body { position: relative; width: 100%; height: 100%; animation: oc-breathe 6s steps(2, end) infinite; }
-.oc-portrait { position: relative; display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.oc-sprite { position: relative; width: 100%; height: 100%; overflow: hidden; }
+.oc-portrait {
+  position: absolute; display: block; width: 600%; height: 400%; max-width: none;
+  left: calc(var(--oc-sprite-col, 0) * -100%); top: 0;
+  image-rendering: pixelated;
+}
+.oc-face-layer { position: absolute; inset: 0; overflow: hidden; visibility: hidden; }
+.oc-eyes { clip-path: var(--oc-eye-clip); }
+.oc-mouth { clip-path: var(--oc-mouth-clip); }
+.oc-eye-portrait { top: -100%; }
+.oc-mouth-portrait { top: calc(var(--oc-mouth-row, 0) * -100%); }
+#chat-area[data-oc-blink="1"] .oc-eyes,
+#chat-area[data-oc-mouth="2"] .oc-mouth,
+#chat-area[data-oc-mouth="3"] .oc-mouth { visibility: visible; }
 .oc-network, .oc-mark { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; color: var(--oc-glow); }
 .oc-route { stroke: currentColor; stroke-width: 3; opacity: .09; }
 .oc-nodes { fill: currentColor; opacity: .22; }
 .oc-signal { stroke: currentColor; stroke-width: 10; stroke-linecap: butt; stroke-dasharray: 3 100; opacity: 0; }
 .oc-mark { stroke: currentColor; stroke-linecap: butt; stroke-linejoin: miter; stroke-width: 4; }
-.oc-cheek { opacity: .18; stroke-width: 10; transition: opacity .5s ease; }
-.oc-neck { opacity: 0; transition: opacity .5s ease; }
+.oc-cheek { opacity: .18; stroke-width: 7; transform: translate(var(--oc-cheek-x, 612px), var(--oc-cheek-y, 580px)); transition: opacity .5s ease; }
 #chat-area[data-oc-state="thinking"] .oc-cheek,
 #chat-area[data-oc-state="executing"] .oc-cheek,
 #chat-area[data-oc-state="replying"] .oc-cheek { animation: oc-think var(--oc-cycle) ease-in-out infinite; }
 #chat-area[data-oc-state="executing"] .oc-figure { --oc-cycle: 1.8s; }
 #chat-area[data-oc-state="executing"] .oc-signal,
 #chat-area[data-oc-state="replying"] .oc-signal { opacity: .75; animation: oc-flow var(--oc-cycle) linear infinite; }
-#chat-area[data-oc-state="executing"] .oc-neck { opacity: .7; animation: oc-think var(--oc-cycle) ease-in-out infinite; }
 #chat-area[data-oc-state="replying"] .oc-signal { animation-direction: reverse; opacity: .4; }
 #chat-area[data-oc-state="complete"] .oc-figure,
 #chat-area[data-oc-state="blocked"] .oc-figure { --oc-glow: var(--accent); }
-#chat-area[data-oc-state="complete"] .oc-cheek,
-#chat-area[data-oc-state="complete"] .oc-neck { animation: oc-settle 1.8s ease-out both; }
+#chat-area[data-oc-state="complete"] .oc-cheek { animation: oc-settle 1.8s ease-out both; }
 #chat-area[data-oc-state="blocked"] .oc-cheek { opacity: .6; }
 #chat-area[data-oc-state="blocked"] .oc-body { animation-play-state: paused; }
 #chat-area[data-oc-paused="true"] .oc-body,
 #chat-area[data-oc-paused="true"] .oc-cheek,
-#chat-area[data-oc-paused="true"] .oc-neck,
 #chat-area[data-oc-paused="true"] .oc-signal { animation-play-state: paused; }
 @keyframes oc-breathe {
   0%, 100% { transform: translateY(0); }
@@ -912,13 +921,28 @@ select {
 }
 @media (prefers-reduced-motion: reduce) {
   .empty-art, .empty-copy, #chat-area .oc-body, #chat-area .oc-cheek,
-  #chat-area .oc-neck, #chat-area .oc-signal { animation: none !important; transition: none !important; }
+  #chat-area .oc-signal { animation: none !important; transition: none !important; }
   #chat-area[data-oc-state="thinking"] .oc-cheek,
   #chat-area[data-oc-state="executing"] .oc-cheek,
   #chat-area[data-oc-state="replying"] .oc-cheek { opacity: .65; }
   #chat-area .oc-signal { display: none; }
 }
 
+.voice-panel { border-top: 1px solid var(--border); padding: 12px 0; margin: 6px 0; }
+.voice-line { display: flex; align-items: center; gap: 10px; font-size: var(--fs-12); color: var(--fg); }
+.voice-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--accent); }
+#voice-status { flex: 1; overflow-wrap: anywhere; }
+#voice-level { width: 52px; height: 6px; accent-color: var(--accent); }
+#voice-level::-webkit-meter-optimum-value { background: var(--accent); }
+#voice-caption { margin-top: 8px; max-height: 4.8em; overflow: auto; color: var(--fg-strong); font-size: var(--fs-13); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+#voice-caption:empty { display: none; }
+.voice-settings { margin-top: 8px; font-size: var(--fs-11); color: var(--dim); }
+.voice-settings summary { cursor: pointer; width: fit-content; }
+.voice-settings-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding-top: 10px; }
+.voice-settings-fields label { display: grid; gap: 4px; }
+.voice-settings-fields input { width: 100px; }
+.voice-settings-fields input, .voice-settings-fields select { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; }
+#voice-toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
 .msg { line-height: 1.68; animation: fadein .15s ease; }
 @keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
 /* 用户消息使用中性表面与琥珀左边线，避免长段文字铺满强调色。 */

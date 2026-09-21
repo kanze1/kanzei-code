@@ -330,6 +330,11 @@
                原来这些挤在顶栏——那是全屏唯一一条 nowrap 且已在做减法的容器,窄窗口下
                @media 直接把鞭挞状态 display:none 掉;而轮次只在瞬时调用里出现,下一帧就被
                无参重绘抹回上一次的停止原因,「跑到第几轮」实际从来看不见。 -->
+          <section id="voice-panel" class="voice-panel hidden" aria-label="语音对话" data-i18n-aria-label="语音对话">
+            <div class="voice-line"><span class="voice-dot" aria-hidden="true"></span><span id="voice-status" role="status" aria-live="polite" data-i18n-raw></span><meter id="voice-level" min="0" max="1" value="0" aria-label="麦克风音量" data-i18n-aria-label="麦克风音量"></meter><button id="voice-interrupt" class="ghost mini" type="button" data-i18n-key="打断">打断</button></div>
+            <p id="voice-caption" data-i18n-raw></p>
+            <details class="voice-settings"><summary data-i18n-key="语音设置">语音设置</summary><div class="voice-settings-fields"><label><span data-i18n-key="本机服务端口">本机服务端口</span><input id="voice-port" type="number" min="1024" max="65535" value="7388" /></label><label><span data-i18n-key="识别语言">识别语言</span><select id="voice-language"><option value="auto" data-i18n-key="自动识别">自动识别</option><option value="zh">简体中文</option><option value="en">English</option><option value="ja" data-i18n-key="日语">日语</option></select></label><button id="voice-check" type="button" class="ghost mini" data-i18n-key="保存并检查">保存并检查</button></div></details>
+          </section>
           <div id="composer-bar">
             <span id="hint" class="dim"></span>
             <div data-space-only="dev" id="autorun-bar" class="autorun-bar" role="group" aria-label="鞭挞控制台" data-i18n-aria-label="鞭挞控制台">
@@ -418,6 +423,7 @@
                 </select>
               </div>
               <button id="stop" class="danger hidden"><span data-i18n-key="停止">停止</span></button>
+              <button id="voice-toggle" class="ghost" type="button" aria-pressed="false" data-i18n-key="语音">语音</button>
               <button id="send" class="primary"><span data-i18n-key="发送">发送</span></button>
             </div>
           </div>
@@ -1274,6 +1280,7 @@
   <script type="module" src="19-research.js"></script>
   <script type="module" src="21-palette.js"></script>
   <script type="module" src="22-neural-flow.js"></script>
+  <script type="module" src="23-voice.js"></script>
   <script type="module" src="18-startup.js"></script>
 </body>
 </html>

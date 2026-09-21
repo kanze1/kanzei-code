@@ -7,6 +7,7 @@ import { initOcCompanion } from "./22-oc-companion.js";
 // R-285 事件神经流。OC 与画布共享真实事件，视觉层不接管运行状态。
 // 顶层声明作为所有 classic script 的统一事件入口；初始化前保持可安全调用。
 export let neuralFlowEmit = null;
+export let ocVoiceSignal = null;
 export function setNeuralFlowEmit(value) { neuralFlowEmit = value; }
 // 视觉层只消费真实运行事件；Canvas 丢帧、隐藏或关闭不会反向改变任何业务状态。
 defer(() => {
@@ -17,6 +18,7 @@ defer(() => {
     getSessionId: () => activeSessionId,
     getRuntime: (id) => sessionStates.get(id),
   });
+  ocVoiceSignal = (sessionId, phase, level) => companion?.voice(sessionId, phase, level);
   const reducedMotion = typeof window.matchMedia === "function"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const fields = [];

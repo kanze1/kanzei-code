@@ -45,6 +45,7 @@ mod state;
 mod subagents;
 mod typed_events;
 mod update;
+mod voice;
 
 #[cfg(test)]
 pub(crate) use projects::{export_project_data, ExportOptions};
@@ -104,6 +105,7 @@ fn main() {
         .init();
     tauri::Builder::default()
         .manage(AppState::default())
+        .manage(voice::VoiceState::default())
         // UI 探针的出口:装一次,之后工具侧只认 UI_PROBE_EMIT。
         .setup(|app| {
             let handle = app.handle().clone();
@@ -161,6 +163,12 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            voice::voice_settings_get,
+            voice::voice_settings_set,
+            voice::voice_status,
+            voice::voice_speak,
+            voice::voice_transcribe,
+            voice::voice_cancel,
             ui_probe_result,
             files_view::files_snapshot,
             files_view::file_preview,
