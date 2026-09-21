@@ -3,7 +3,7 @@ import { t } from "./02-i18n.js";
 import { activeProcessId, currentProject, navigate_view, processItems, toastError } from "./03-shell.js";
 import { active_space, create_workspace_process, project_workspace, save_research_workspace } from "./03-workspaces.js";
 import { renderParallelTaskStatus, switchProcess } from "./09-sessions.js";
-import { refreshResearch, researchPlan, researchSnapshot, researchTopicKey, researchTopicLabel, selectedResearchTopicData, select_research_topic } from "./19-research.js";
+import { refreshResearch, refreshResearchLatexHistory, refreshResearchLatexTemplates, researchPlan, researchSnapshot, researchTopicKey, researchTopicLabel, selectedResearchTopicData, select_research_topic } from "./19-research.js";
 import { renderResearchWorkflow } from "./19-research-auto.js";
 
 export const research_pages = { overview: "概览", chat: "对话", literature: "文献与发现", plan: "研究计划", experiments: "实验", report: "成果", writing: "论文写作" };
@@ -74,6 +74,7 @@ export function show_research_page(page) {
   save_research_workspace({ page });
   sync_research_page();
   navigate_view("research");
+  if (page === "writing") void Promise.all([refreshResearchLatexTemplates(), refreshResearchLatexHistory()]);
 }
 
 export function render_research_overview() {
