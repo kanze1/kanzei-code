@@ -6,6 +6,7 @@ import { clearStoppingWatchdog } from "./08-auto.js";
 import { send } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
 import { refreshWorktrees } from "./09-sessions.js";
+import { clearPendingJump } from "./11-docs-list.js";
 import { refreshWorkspace } from "./12-docs-pages.js";
 import { refreshMemory, refreshMetrics } from "./13-memory.js";
 import { refreshDocs } from "./14-docs-actions.js";
@@ -130,6 +131,8 @@ export let runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 export function setRunTokens(value) { runTokens = value; }
 
 // ---------- 视图切换 ----------
+let viewLoadTimer = null;
+let viewLoadGeneration = 0;
 // 只绑带 data-view 的按钮:rail 上还有侧栏开合这类布局开关,它们不是视图。
 export function navigate_view(view) {
   if (!view_allowed(view)) return;
@@ -151,19 +154,26 @@ export function navigate_view(view) {
   // 已经在这个视图里就别再重载一遍:设置页尤其致命——再点一次侧栏图标,
   // 填了一半没保存的表单会静悄悄回滚成磁盘值。
   const previousView = document.querySelector(".view.active")?.id;
+  if (previousView === `view-${view}`) return;
+  clearTimeout(viewLoadTimer);
+  const generation = ++viewLoadGeneration;
+  if (view !== "documents") clearPendingJump();
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
   $(`view-${view}`).classList.add("active");
-  if (view === "settings" && previousView !== "view-settings") loadSettings();
-  if (view === "workspace") refreshWorkspace();
-  if (view === "documents") refreshDocs();
-  if (view === "research") refreshResearch();
-  if (view === "memory") refreshMemory();
-  if (view === "metrics") refreshMetrics();
-  if (view === "files") showFilesView();
-  if (view === "arch") refreshArch();
-  // 工作树清单现在是线路页的一块内容(侧栏只读),进页面要一并拉。
-  if (view === "lines") { refreshLines(); refreshWorktrees(); }
   if (view !== "files") filesViewLeft();
+  document.dispatchEvent(new CustomEvent("kz:view-changed", { detail: { view } }));
+  // 先让选中态和新页面绘制；快速连续切换只加载最后一个页面。
+  requestAnimationFrame(() => {
+    if (generation !== viewLoadGeneration) return;
+    viewLoadTimer = setTimeout(() => {
+      if (generation !== viewLoadGeneration) return;
+      const loaders = { settings: loadSettings, workspace: refreshWorkspace, documents: refreshDocs,
+        research: refreshResearch, memory: refreshMemory, metrics: refreshMetrics,
+        files: showFilesView, arch: refreshArch, lines: refreshLines };
+      void loaders[view]?.();
+      if (view === "lines") void refreshWorktrees();
+    }, 0);
+  });
 }
 defer(() => {
   document.querySelectorAll(".activity-item[data-view]").forEach((item) => {

@@ -27,6 +27,7 @@ mod harness_ext;
 #[cfg(test)]
 mod ipc_contract;
 mod memory;
+mod memory_chat;
 mod mobile;
 mod mobile_notify;
 mod orchestration_trace;
@@ -106,6 +107,7 @@ fn main() {
     tauri::Builder::default()
         .manage(AppState::default())
         .manage(voice::VoiceState::default())
+        .manage(memory_chat::MemoryChatState::default())
         // UI 探针的出口:装一次,之后工具侧只认 UI_PROBE_EMIT。
         .setup(|app| {
             let handle = app.handle().clone();
@@ -232,6 +234,9 @@ fn main() {
             memory::memory_search_page,
             memory::memory_context_bill,
             memory::memory_consolidate,
+            memory_chat::memory_chat_history,
+            memory_chat::memory_chat_send,
+            memory_chat::memory_chat_stop,
             run::app_info,
             commands::models::models_list,
             docs::docs_update,

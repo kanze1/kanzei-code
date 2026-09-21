@@ -215,6 +215,17 @@
             </div>
           </section>
           <div id="oc-companion" aria-hidden="true"></div>
+          <section id="voice-stage" class="voice-stage hidden" aria-label="语音空间" data-i18n-aria-label="语音空间">
+            <header class="voice-stage-head"><span class="voice-stage-brand">kanzei <span data-i18n-key="语音">语音</span></span><div><button id="voice-history-toggle" class="ghost" type="button" aria-pressed="false" data-i18n-key="文字记录">文字记录</button><button id="voice-exit" class="ghost" type="button" data-i18n-key="返回文字对话">返回文字对话</button></div></header>
+            <div class="voice-art" aria-hidden="true"></div>
+            <div class="voice-stage-copy">
+              <div class="voice-stage-indicator"><span class="voice-dot" aria-hidden="true"></span><span id="voice-stage-status" data-i18n-raw></span></div>
+              <span id="voice-speaker" class="voice-speaker" data-i18n-raw>kanzei</span>
+              <p id="voice-live-caption" data-i18n-raw></p>
+              <div class="voice-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <p class="voice-stage-hint" data-i18n-key="停顿后发送，点击打断可停止播报。">停顿后发送，点击打断可停止播报。</p>
+            </div>
+          </section>
           <button id="jump-latest" class="ghost hidden"><span data-i18n-key="回到最新">回到最新</span></button>
         </div>
         <footer id="composer">
@@ -634,11 +645,12 @@
       <div id="view-memory" class="view">
         <div id="memory-scroll">
           <h1 data-i18n-key="记忆">记忆</h1>
-          <p class="dim" data-i18n-key="文件优先的分级记忆:所有条目都是 .kanzei/memory 下可手改的 markdown,此页与文件实时同步。">文件优先的分级记忆:所有条目都是 .kanzei/memory 下可手改的 markdown,此页与文件实时同步。</p>
+          <p class="dim" data-i18n-key="查看、整理和修订记忆，也可以直接用对话管理。">查看、整理和修订记忆，也可以直接用对话管理。</p>
           <div class="memory-toolbar">
             <input id="memory-search-input" type="search" placeholder="检索全部记忆(FTS)" data-i18n-placeholder="检索全部记忆(FTS)" aria-label="检索记忆" data-i18n-aria-label="检索记忆" />
             <button type="button" id="memory-search-clear" class="ghost" hidden data-i18n-key="清除搜索">清除搜索</button>
-            <button type="button" id="memory-consolidate-btn" title="立即让 memory-manager 消化 inbox 草稿" data-i18n-title="立即让 memory-manager 消化 inbox 草稿"><span data-i18n-key="整理 inbox">整理 inbox</span></button>
+            <button type="button" id="memory-refresh" class="ghost" data-i18n-key="刷新">刷新</button>
+            <button type="button" class="ghost" id="memory-consolidate-btn" title="立即让 memory-manager 消化 inbox 草稿" data-i18n-title="立即让 memory-manager 消化 inbox 草稿"><span data-i18n-key="整理 inbox">整理 inbox</span></button>
             <span id="memory-inbox-badge" class="dim"></span>
           </div>
           <div class="memory-manager-toolbar" role="search" aria-label="记忆列表筛选" data-i18n-aria-label="记忆列表筛选">
@@ -654,7 +666,26 @@
               <div id="memory-list" class="memory-list" aria-label="记忆条目列表" data-i18n-aria-label="记忆条目列表"></div>
             </section>
             <div id="memory-side">
-              <div id="memory-detail" class="memory-detail hidden"></div>
+              <div class="memory-tabs" role="tablist" aria-label="记忆管理" data-i18n-aria-label="记忆管理">
+                <button id="memory-read-tab" type="button" role="tab" aria-selected="true" aria-controls="memory-reader" data-i18n-key="阅读">阅读</button>
+                <button id="memory-chat-tab" type="button" role="tab" aria-selected="false" aria-controls="memory-chat" data-i18n-key="管理对话">管理对话</button>
+                <button id="memory-insights-tab" type="button" role="tab" aria-selected="false" aria-controls="memory-insights" data-i18n-key="使用记录">使用记录</button>
+              </div>
+              <section id="memory-reader" class="memory-tab-panel" role="tabpanel" aria-labelledby="memory-read-tab">
+                <div id="memory-reader-empty" class="memory-reader-empty"><strong data-i18n-key="选择一条记忆">选择一条记忆</strong><p data-i18n-key="在这里阅读全文，或通过管理对话修改。">在这里阅读全文，或通过管理对话修改。</p></div>
+                <div id="memory-detail" class="memory-detail hidden"></div>
+              </section>
+              <section id="memory-chat" class="memory-tab-panel hidden" role="tabpanel" aria-labelledby="memory-chat-tab">
+                <div class="memory-chat-head"><strong data-i18n-key="记忆管理助手">记忆管理助手</strong><span class="dim" data-i18n-key="独立对话，只管理记忆">独立对话，只管理记忆</span></div>
+                <div id="memory-chat-context" class="memory-chat-context" data-i18n-raw></div>
+                <div id="memory-chat-messages" class="memory-chat-messages" role="log" aria-label="管理对话记录" data-i18n-aria-label="管理对话记录"></div>
+                <form id="memory-chat-form" class="memory-chat-compose">
+                  <label class="sr-only" for="memory-chat-input" data-i18n-key="记忆管理指令">记忆管理指令</label>
+                  <textarea id="memory-chat-input" rows="3" placeholder="例如：把这条记忆改得更简洁，保留适用条件。" data-i18n-placeholder="例如：把这条记忆改得更简洁，保留适用条件。"></textarea>
+                  <div class="memory-chat-actions"><span id="memory-chat-status" role="status" data-i18n-raw></span><button id="memory-chat-stop" type="button" class="ghost hidden" data-i18n-key="停止">停止</button><button id="memory-chat-send" type="submit" class="primary" data-i18n-key="发送">发送</button></div>
+                </form>
+              </section>
+              <section id="memory-insights" class="memory-tab-panel hidden" role="tabpanel" aria-labelledby="memory-insights-tab">
               <section class="memory-usage" aria-labelledby="memory-usage-title">
                 <h2 id="memory-usage-title"><span data-i18n-key="最近记忆使用">最近记忆使用</span> <span id="memory-recall-rate" class="dim"></span></h2>
                 <p class="dim" data-i18n-key="查看任务检索、失败触发与正文读取。收益需要对照验证，历史缺失记录显示未知。">查看任务检索、失败触发与正文读取。收益需要对照验证，历史缺失记录显示未知。</p>
@@ -684,6 +715,7 @@
                 <h3 data-i18n-key="最近轮次">最近轮次</h3>
                 <div id="memory-episodes" class="memory-episodes"></div>
               </details>
+              </section>
             </div>
           </div>
         </div>
@@ -1271,6 +1303,7 @@
   <script type="module" src="11-docs-list.js"></script>
   <script type="module" src="12-docs-pages.js"></script>
   <script type="module" src="13-memory.js"></script>
+  <script type="module" src="13-memory-chat.js"></script>
   <script type="module" src="14-docs-actions.js"></script>
   <script type="module" src="15-views-misc.js"></script>
   <script type="module" src="16-settings.js"></script>

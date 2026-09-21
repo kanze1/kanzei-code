@@ -69,7 +69,8 @@ fn promotion_gap_count(
         .count()
 }
 
-#[tauri::command]
+// Filesystem and SQLite reads run off the window thread so navigation stays responsive.
+#[tauri::command(async)]
 pub(crate) fn memory_overview(project_dir: String) -> serde_json::Value {
     let mut scopes = Vec::new();
     for store in memory_stores_for(&project_dir) {
@@ -95,7 +96,7 @@ pub(crate) fn memory_overview(project_dir: String) -> serde_json::Value {
     json!({"scopes": scopes})
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
     let cwd = PathBuf::from(&project_dir);
     let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
@@ -165,7 +166,7 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn memory_entries(
     project_dir: String,
     scope: String,
@@ -193,7 +194,7 @@ pub(crate) fn memory_entries(
     Err(format!("未知记忆域: {scope}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn memory_note_candidates(project_dir: String) -> serde_json::Value {
     let mut out = Vec::new();
     for store in memory_stores_for(&project_dir) {
@@ -226,7 +227,7 @@ pub(crate) fn memory_note_discard(
     Err(format!("未知记忆域: {scope}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn memory_recalls(
     project_dir: String,
     limit: Option<usize>,
@@ -273,7 +274,7 @@ pub(crate) fn memory_recalls(
 }
 
 /// 使用观测只用于人工复查；高频召回和未读取均不证明无效或失败复发。
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn memory_value_flags(project_dir: String) -> serde_json::Value {
     let mut zero_read = Vec::new();
     let mut frequent = Vec::new();
@@ -351,7 +352,7 @@ pub(crate) fn memory_entry_delete(
     Err(format!("未知记忆域: {scope}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn memory_search_page(project_dir: String, query: String) -> serde_json::Value {
     let cwd = PathBuf::from(&project_dir);
     let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
@@ -401,7 +402,7 @@ pub(crate) fn memory_search_page(project_dir: String, query: String) -> serde_js
 // STANDING DIRECTIVES 注入机制本身没有问题(问题只在拿它承载引擎已经权威裁决的
 // 那个决策),将来写真正的用户偏好仍要用这对原语。
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn memory_context_bill(project_dir: String) -> serde_json::Value {
     let cwd = PathBuf::from(&project_dir);
     let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);

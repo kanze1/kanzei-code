@@ -74,7 +74,7 @@ export function initOcCompanion(root, options) {
   if (!root) return null;
   const store = createOcStateStore(options);
   // 初始 HTML 与动态空态复用同一份人物/光纹结构。
-  root.querySelectorAll(".empty-art, #oc-companion").forEach((host) => {
+  root.querySelectorAll(".empty-art, #oc-companion, .voice-art").forEach((host) => {
     if (!host.querySelector(".oc-figure")) host.innerHTML = ocCompanionMarkup();
   });
   const motion = initOcSpriteMotion(root);

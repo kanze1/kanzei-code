@@ -314,7 +314,7 @@ pub async fn test_runs_init_refs(
 /// 都不会重绘,**上一份快照原样留在屏幕上**,这正是我们要的降级方式。
 ///
 /// 唯一的例外是开头那次归档:它是**写**,写不成不该让读挂掉,失败收进 `warnings`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
@@ -852,7 +852,7 @@ pub fn docs_read_custom(
 /// 架构浏览快照(R-122):返回架构索引文本 + docs/design 文档目录清单
 /// (文件名、标题、字节数),供前端渲染「索引 + 设计文档树」的架构浏览视图。
 /// 只读;索引维护仍走 architecture 工具,本命令只做呈现数据源。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn architecture_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
