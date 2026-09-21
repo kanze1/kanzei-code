@@ -488,6 +488,13 @@ async fn cancel_run(input: &RunnerInput, ctx: &ToolCtx) -> ToolOutput {
 }
 
 async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
+    if let Err(error) = crate::research_workflow::check_run(
+        &ctx.project_root,
+        &input.topic,
+        input.exploration_id.as_deref().unwrap_or(""),
+    ) {
+        return ToolOutput::needs_correction("RESEARCH_WORKFLOW_RUN", error);
+    }
     let Some(mut execution) = input.execution.clone() else {
         return ToolOutput::needs_correction(
             "MISSING_EXECUTION",
@@ -564,7 +571,15 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
     let result_id = input
         .result_id
         .clone()
-        .unwrap_or_else(|| format!("run-{}", unix_ms()));
+        .unwrap_or_else(|| format!("{exploration_id}-{}", unix_ms()));
+    if let Err(error) = crate::research_workflow::validate_run_id(
+        &ctx.project_root,
+        &input.topic,
+        &exploration_id,
+        &result_id,
+    ) {
+        return ToolOutput::needs_correction("INVALID_RESEARCH_RESULT_ID", error);
+    }
     if matches!(effective_policy, "approval" | "strict") && input.confirmed != Some(true) {
         return ToolOutput::needs_confirmation(
             "RESEARCH_RUN_CONFIRMATION_REQUIRED",
@@ -661,7 +676,7 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             return ToolOutput::failed("ENVIRONMENT_LEASE_CONFLICT", error.to_string());
         }
     }
-    if let Err(error) = store.upsert_research_run(&run) {
+    if let Err(error) = crate::research_workflow::record_run_start(&ctx.project_root, &run) {
         let _ = store.release_research_environment_lease_for_result(&result_id);
         return ToolOutput::error(format!("写入 run_started 事实失败: {error}"));
     }

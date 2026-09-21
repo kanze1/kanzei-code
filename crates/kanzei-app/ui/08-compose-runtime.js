@@ -162,6 +162,7 @@ export async function sendAutoToSession(prompt, sessionId) {
   if (autoContinueInFlight.has(sessionId)) return;
   const item = processItems.find((candidate) => candidate.session_id === sessionId);
   if (!item) return abortAutoContinue("线路已关闭", sessionId);
+  const research = item.profile === "research";
   autoContinueInFlight.add(sessionId);
   if (sessionId === activeSessionId) {
     addMessage("notice", `${t("鞭挞已触发")} · ${sessionState(sessionId).auto_rounds || 0}`);
@@ -171,8 +172,9 @@ export async function sendAutoToSession(prompt, sessionId) {
     await invoke("run_prompt", {
       prompt,
       projectDir: item.project_dir,
-      profile: "dev",
-      agent: "dev",
+      profile: research ? "research" : "dev",
+      agent: research ? "research" : "dev",
+      researchTopic: research ? item.research_topic : undefined,
       model: item.model || null,
       workPriority: localStorage.getItem(`kz-work-priority:${item.origin_project}`) === "requirement-first" ? "requirement-first" : "defect-first",
       delivery: "queue",
@@ -209,14 +211,14 @@ export function handleBackgroundSessionDone(payload) {
   if (action.type === "Continue" || action.type === "Nudge" || action.type === "VerifyRound") {
     transitionSession(sessionId, "auto_pending", { auto_rounds: state.auto_rounds });
     refreshParallelTaskProjection(sessionId);
-    armAutoContinue(action.type === "Nudge" ? action.prompt : DEFAULT_CONTINUE_PROMPT, sessionId);
+    armAutoContinue(action.prompt || DEFAULT_CONTINUE_PROMPT, sessionId);
   } else if (action.type === "Stop") {
     transitionSession(sessionId, "idle");
     cancelAutoContinueTimer(sessionId);
     // 引擎判定该线不能再续跑(全阻塞/清空/档位不符)时,后台线自己的鞭挞存档
     // 也要置关——否则切回该线时勾选框回显"开着",与引擎的实际停机对不上;
     // 本轮后停是一次性意图,同样要在所属线上落地取消,不能等用户切回来。
-    if (["AllBlocked", "BacklogEmpty", "ProfileMismatch"].includes(action.reason)) {
+    if (["AllBlocked", "BacklogEmpty", "ProfileMismatch", "ResearchWaiting", "ResearchCompleted"].includes(action.reason)) {
       applyAutoStopToSession(sessionId, { enabled: false });
     } else if (action.reason === "StopAfterRound") {
       applyAutoStopToSession(sessionId, { stopAfterRound: false });
@@ -227,7 +229,8 @@ export function handleBackgroundSessionDone(payload) {
 
 // 失败停摆的原因文案:活动线(07-events kz:auto-fail)与后台线(下面那个)必须同一份,
 // 否则同一件事在两条线上说法不同。
-export function autoFailStopReasonText(reason) {
+export function autoFailStopReasonText(reason, message) {
+  if (["ResearchWaiting", "ResearchCompleted"].includes(reason)) return message || t("请查看研究课题概览");
   if (reason === "RateLimited") return t("provider 限流(429)，自动推进已暂停，请等待后手动恢复");
   if (reason === "RepeatedFailure") return t("连续多轮运行失败,自动推进已停止(已发手机通知)");
   return t("运行失败:致命错误,自动推进已停止");
@@ -256,7 +259,7 @@ export function handleBackgroundAutoFail(payload) {
     transitionSession(sessionId, "idle");
     cancelAutoContinueTimer(sessionId);
     // 后台线停摆没人看着:必须浮到界面上(abortAutoContinue 同一口径),不能只 log 一行。
-    reportPersistentError(`${label} ${t("鞭挞停止")}:${autoFailStopReasonText(action.reason)}`);
+    reportPersistentError(`${label} ${t("鞭挞停止")}:${autoFailStopReasonText(action.reason, action.message)}`);
   }
   refreshParallelTaskProjection(sessionId);
 }
@@ -822,18 +825,7 @@ defer(() => {
 // 旧 auto_max 控件已移除。历史配置仍由 normalizeAutoState 读取,但不再被用户编辑或用作停止门禁。
 defer(() => {
   $("auto-continue").addEventListener("change", () => {
-    if ($("auto-continue").checked && selectedAgent().profile === "research") {
-      // R-224:research 档位仍拒绝——研究模式无自主推进语义,自动切会掩盖误操作。
-      $("auto-continue").checked = false;
-      setAutoRounds(activeSessionId, 0);
-      cancelAutoContinueTimer();
-      rememberAutoUiState();
-      void syncAutoRunState();
-      toast(t("鞭挞不适用于研究模式"));
-      log(t("鞭挞未开启:研究模式不支持自动续跑"));
-      return;
-    }
-    if ($("auto-continue").checked && $("profile-select").value === "dev-pair") {
+    if ($("auto-continue").checked && selectedAgent().profile === "dev" && $("profile-select").value === "dev-pair") {
       // R-322 B2 取代 R-224 的强制切档。
       //
       // R-224 让结伴勾鞭挞自动切成 dev-auto,理由是「省去先切模式再勾两步」。但它的

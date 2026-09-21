@@ -535,7 +535,7 @@ defer(() => {
       setAutoRounds(p.sessionId || activeSessionId, 0);
       cancelAutoContinueTimer(p.sessionId || activeSessionId);
       // 文案与后台线共用一份(08-compose.js autoFailStopReasonText),同一件事不能两种说法。
-      const reasonText = autoFailStopReasonText(action.reason);
+      const reasonText = autoFailStopReasonText(action.reason, action.message);
       addMessage("notice", `${t("鞭挞停止")}:${reasonText}`);
       log(`${t("鞭挞停止")}:${reasonText}`);
       setAutoStopReason(reasonText);
@@ -596,7 +596,7 @@ defer(() => {
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // 收口对象跟着本轮的会话走:并行线结束时 activeSessionId 可能已经是别人了,
       // 拿它清 pending 会把另一条线的横幅清掉,而这条线自己一直挂着(D-291)。
-      armAutoContinue(continuePrompt(), p.sessionId);
+      armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
     } else if (action.type === "Nudge") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
       addMessage("notice", t("上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)"));
@@ -640,7 +640,12 @@ defer(() => {
       setNoActionRounds(0);
       cancelAutoContinueTimer(p.sessionId || activeSessionId);
       const reason = action.reason;
-      if (reason === "Paused") {
+      if (reason === "ResearchWaiting" || reason === "ResearchCompleted") {
+        applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
+        const message = action.message || t("请查看研究课题概览");
+        setAutoStopReason(message, reason === "ResearchCompleted" ? "completed" : "waiting");
+        addMessage("notice", message);
+      } else if (reason === "Paused") {
         addMessage("notice", `${t("鞭挞停止")}: ${t("处于暂停中,点顶栏「继续鞭挞」恢复")}`);
         setAutoStopReason("已暂停");
       } else if (reason === "StopAfterRound") {

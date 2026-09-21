@@ -7,6 +7,7 @@ import { researchLinkField, researchOpenLink } from "./11-docs-list.js";
 import { openFilePreview } from "./17-files.js";
 import { active_space, project_workspace, save_research_workspace } from "./03-workspaces.js";
 import { research_category, research_status_label, render_research_navigation, render_research_overview, show_research_page, sync_research_page } from "./19-research-navigation.js";
+import { refreshResearchWorkflow, resetResearchWorkflow } from "./19-research-auto.js";
 
 // 研究工作台(R-276 批3)。
 //
@@ -31,6 +32,7 @@ export function research_context_guard() {
 }
 
 export function reset_research_project() {
+  resetResearchWorkflow();
   research_context_generation += 1;
   researchSnapshot = { sources: [], findings: [], research_topics: [] };
   selectedResearchTopic = project_workspace().research.topic;
@@ -413,6 +415,7 @@ export function renderResearchTopicPicker() {
 }
 
 export async function select_research_topic(topic) {
+  resetResearchWorkflow();
   research_context_generation += 1;
   selectedResearchTopic = topic;
   selectedResearchExplorationId = "";
@@ -429,7 +432,7 @@ export async function select_research_topic(topic) {
   research_report_text = null;
   renderResearchReport("");
   const is_current = research_context_guard();
-  await Promise.all([refreshResearchPlan(), refreshResearchReport()]);
+  await Promise.all([refreshResearchPlan(), refreshResearchReport(), refreshResearchWorkflow()]);
   if (!is_current()) return;
   render_research_overview();
   sync_research_page();
@@ -1313,7 +1316,7 @@ export async function refreshResearch() {
       renderResearchRoadmap();
       renderResearchExplorationDetail();
       renderResearchRuns();
-      await Promise.all([refreshResearchPlan(), refreshResearchReport()]);
+      await Promise.all([refreshResearchPlan(), refreshResearchReport(), refreshResearchWorkflow()]);
       if (project !== currentProject) return;
       if (project_workspace().research.page === "writing") {
         if (!researchLatexTemplates.length) await refreshResearchLatexTemplates();

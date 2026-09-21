@@ -51,6 +51,7 @@ import { processRunning, processSwitchGeneration, refreshProcesses, switchProces
 import { refreshDocs } from "./14-docs-actions.js";
 import { forProject } from "./20-lines.js";
 import { active_space, create_workspace_process, project_workspace } from "./03-workspaces.js";
+import { ocCompanionMarkup } from "./22-oc-companion.js";
 
 // ---------- R-053 快速记录:独立子代理结构化落库(需求/缺陷通用),不打断主对话 ----------
 export function quickCaptureForm(kind, sectionId, noun) {
@@ -450,9 +451,13 @@ export const EMPTY_STATE_LOGO = '<svg viewBox="0 0 64 64"><g fill="none" stroke=
   + '<path d="M14 8v48" stroke-width="7"/><path d="M21 33 44 56" stroke-width="7"/>'
   + '<path d="M21.5 31.5 43 8M25.5 35 50 8M29.5 38.5 57 8" stroke-width="3"/></g></svg>';
 export function emptyStateMarkup() {
-  return `<div class="empty-state"><div class="logo-mark" aria-hidden="true">${EMPTY_STATE_LOGO}</div>`
-    + `<div class="hint hint-lead">${t("输入任务开始 · 权限请求会弹窗询问")}</div>`
-    + `<div class="hint hint-keys">${t("Ctrl+Enter 发送 · Ctrl/Cmd+P 命令面板 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止")}</div></div>`;
+  return `<div class="empty-state"><div class="empty-welcome"><div class="empty-copy">`
+    + `<div class="empty-brand"><div class="logo-mark" aria-hidden="true">${EMPTY_STATE_LOGO}</div><span>kanzei</span></div>`
+    + `<h1 data-i18n-key="开始一段新对话">${t("开始一段新对话")}</h1>`
+    + `<p class="hint" data-i18n-key="描述任务，或添加图片与 PDF。">${t("描述任务，或添加图片与 PDF。")}</p>`
+    + `<div class="empty-shortcuts"><span><kbd>Ctrl + Enter</kbd><span data-i18n-key="发送">${t("发送")}</span></span>`
+    + `<span><kbd>Ctrl/Cmd + P</kbd><span data-i18n-key="命令面板">${t("命令面板")}</span></span></div></div>`
+    + `<div class="empty-art" aria-hidden="true">${ocCompanionMarkup()}</div></div></div>`;
 }
 
 export function renderRecoveredMessages(items) {

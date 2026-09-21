@@ -190,20 +190,31 @@
           <section id="messages">
             <div class="msg-pane" data-session-id="" data-active="1">
               <div class="empty-state">
-                <!-- 空态标记 = app 图标的 K 几何(竖干 + 右上三条平行记忆层汇入一点 +
-                     右下一笔行动),不是一个圆里放个字母。见 docs/design/app_icon.md。 -->
-                <div class="logo-mark" aria-hidden="true">
-                  <svg viewBox="0 0 64 64"><g fill="none" stroke="currentColor" stroke-linecap="square">
-                    <path d="M14 8v48" stroke-width="7"/>
-                    <path d="M21 33 44 56" stroke-width="7"/>
-                    <path d="M21.5 31.5 43 8M25.5 35 50 8M29.5 38.5 57 8" stroke-width="3"/>
-                  </g></svg>
+                <div class="empty-welcome">
+                  <div class="empty-copy">
+                    <div class="empty-brand">
+                      <div class="logo-mark" aria-hidden="true">
+                        <svg viewBox="0 0 64 64"><g fill="none" stroke="currentColor" stroke-linecap="square">
+                          <path d="M14 8v48" stroke-width="7"/>
+                          <path d="M21 33 44 56" stroke-width="7"/>
+                          <path d="M21.5 31.5 43 8M25.5 35 50 8M29.5 38.5 57 8" stroke-width="3"/>
+                        </g></svg>
+                      </div>
+                      <span>kanzei</span>
+                    </div>
+                    <h1 data-i18n-key="开始一段新对话">开始一段新对话</h1>
+                    <p class="hint" data-i18n-key="描述任务，或添加图片与 PDF。">描述任务，或添加图片与 PDF。</p>
+                    <div class="empty-shortcuts">
+                      <span><kbd>Ctrl + Enter</kbd><span data-i18n-key="发送">发送</span></span>
+                      <span><kbd>Ctrl/Cmd + P</kbd><span data-i18n-key="命令面板">命令面板</span></span>
+                    </div>
+                  </div>
+                  <div class="empty-art" aria-hidden="true"></div>
                 </div>
-                <div class="hint hint-lead" data-i18n-key="输入任务开始 · 权限请求会弹窗询问">输入任务开始 · 权限请求会弹窗询问</div>
-                <div class="hint hint-keys" data-i18n-key="Ctrl+Enter 发送 · Ctrl/Cmd+P 命令面板 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止">Ctrl+Enter 发送 · Ctrl/Cmd+P 命令面板 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止</div>
               </div>
             </div>
           </section>
+          <div id="oc-companion" aria-hidden="true"></div>
           <button id="jump-latest" class="ghost hidden"><span data-i18n-key="回到最新">回到最新</span></button>
         </div>
         <footer id="composer">

@@ -451,6 +451,13 @@ impl Tool for ResearchVerifyTool {
                 }
             }
             "budget_get" => {
+                if dir.join("workflow.json").exists() {
+                    return match crate::research_workflow::load(&ctx.project_root, topic) {
+                        Ok(Some(workflow)) => ToolOutput::ok(json!({"topic":topic, "effective":workflow.budget, "source":"workflow"}).to_string()),
+                        Ok(None) => ToolOutput::error("AUTO research 状态不存在"),
+                        Err(error) => ToolOutput::error(error),
+                    };
+                }
                 let plan = match load_plan(&ctx.project_root, topic) {
                     Ok(Some(plan)) => plan,
                     Ok(None) => {
@@ -472,6 +479,9 @@ impl Tool for ResearchVerifyTool {
                 ToolOutput::ok(json!({ "topic": topic, "effective": effective, "override": dir.join("budget.json").is_file() }).to_string())
             }
             "budget_set" => {
+                if dir.join("workflow.json").exists() {
+                    return ToolOutput::needs_correction("AUTO_RESEARCH_BUDGET", "AUTO research 使用用户启动时设置的检索预算，请用 budget_get 回读，不能由模型重设");
+                }
                 let plan = match load_plan(&ctx.project_root, topic) {
                     Ok(Some(plan)) => plan,
                     Ok(None) => {

@@ -12,6 +12,10 @@ use crate::tracker::{ResearchTrackerTool, TrackerTool};
 /// `ResearchProfile` 的真实 Harness 装配路径。
 pub(crate) fn register_tools(draft: &mut HarnessDraft) {
     draft.tools.insert(
+        "research_workflow",
+        Arc::new(crate::research_workflow::ResearchWorkflowTool::default()),
+    );
+    draft.tools.insert(
         "source",
         Arc::new(TrackerTool {
             tool_name: "source",
@@ -85,6 +89,24 @@ pub(crate) fn register_tools(draft: &mut HarnessDraft) {
 
 /// Research 档位的权限与专用工具资源注册。
 pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
+    for action in [
+        "get",
+        "survey_complete",
+        "publish_map",
+        "define_mvp",
+        "environment_ready",
+        "record_mvp",
+        "interpret",
+        "request_input",
+    ] {
+        let resource = format!(
+            "{}:{action}",
+            if action == "get" { "read" } else { "write" }
+        );
+        draft
+            .permissions
+            .push(rule("research_workflow", &resource, Effect::Allow));
+    }
     draft
         .permissions
         .push(rule("memory_search", "*", Effect::Allow));
@@ -129,13 +151,25 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
         draft
             .permissions
             .push(rule(action, "*.kanzei/research/*", Effect::Allow));
+        for (file, tool) in [
+            ("workflow.json", "research_workflow"),
+            ("loop.json", "research_loop"),
+            ("budget.json", "research_verify"),
+            ("plan.json", "research_plan"),
+        ] {
+            draft.permissions.push_managed_hard_deny(
+                rule(action, &format!("*.kanzei/research/*/{file}"), Effect::Deny),
+                Some(tool),
+                Some("研究控制状态只能通过对应专用工具更新，AUTO 选题和预算由用户入口完成"),
+            );
+        }
     }
     // 研究档位的命令面是硬拒绝:专用工具是唯一真实替代通道,避免模型从 bash 绕过
     // LaTeX/绘图工具的权限边界。硬拒绝不可被用户规则重新放开。
     draft.permissions.push_managed_hard_deny(
         rule("bash", "*", Effect::Deny),
         None,
-        Some("research 档禁止 bash；请使用已注册的 `latex` 或 `plot` 专用工具，或使用 read/glob/grep/files/git status|diff|log 读取事实"),
+        Some("research 档禁止 bash；实验命令请使用 `research_runner`，编译与绘图使用 `latex` 或 `plot`，或使用 read/glob/grep/files/git status|diff|log 读取事实"),
     );
     // research 允许观察 Git，但禁止任何会改写仓库或发布的结构化动作。
     for subcommand in ["stage", "commit", "merge_ff", "finalize"] {

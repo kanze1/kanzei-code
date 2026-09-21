@@ -285,7 +285,14 @@ pub(crate) async fn run_task(
                 if !crate::auto_run::should_retry_failed_round(ctrl) {
                     None
                 } else {
-                    let signature = crate::auto_run::progress_signature(&deps.project_root);
+                    let signature = if deps.profile == kanzei_harness::ProfileKind::Research {
+                        crate::research_auto::progress_signature(
+                            &deps.project_root,
+                            deps.research_topic.as_deref(),
+                        )
+                    } else {
+                        crate::auto_run::progress_signature(&deps.project_root)
+                    };
                     let ctx = kanzei_harness::auto_run::AutoRunCtx {
                         backlog: crate::auto_run::backlog_status(&deps.project_root),
                         halted: false,
@@ -310,26 +317,35 @@ pub(crate) async fn run_task(
                             kanzei_harness::auto_run::RoundFailure::Fatal
                         }),
                     };
-                    let action = crate::auto_run::decide_auto_run(ctrl, ctx);
-                    if let kanzei_harness::auto_run::AutoRunAction::Stop(
-                        kanzei_harness::auto_run::AutoStopReason::RepeatedFailure(n),
-                    ) = action
-                    {
-                        // 过夜停摆必须让人知道:经 LAN 推送桥发手机通知(尽力而为)。
-                        if let Ok(message) = crate::mobile_notify::notify_mobile(
-                            "kanzei 自动运行停摆",
-                            &format!("连续 {n} 轮运行失败,自动推进已停止。最后错误: {error}"),
-                        ) {
-                            tracing::debug!("{message}");
+                    if deps.profile == kanzei_harness::ProfileKind::Research {
+                        Some(crate::research_auto::decide(
+                            ctrl,
+                            ctx,
+                            &deps.project_root,
+                            deps.research_topic.as_deref(),
+                        ))
+                    } else {
+                        let action = crate::auto_run::decide_auto_run(ctrl, ctx);
+                        if let kanzei_harness::auto_run::AutoRunAction::Stop(
+                            kanzei_harness::auto_run::AutoStopReason::RepeatedFailure(n),
+                        ) = action
+                        {
+                            // 过夜停摆必须让人知道:经 LAN 推送桥发手机通知(尽力而为)。
+                            if let Ok(message) = crate::mobile_notify::notify_mobile(
+                                "kanzei 自动运行停摆",
+                                &format!("连续 {n} 轮运行失败,自动推进已停止。最后错误: {error}"),
+                            ) {
+                                tracing::debug!("{message}");
+                            }
                         }
+                        let mut payload = crate::auto_run::serialize_action(
+                            action,
+                            crate::auto_run::work_priority_enum(deps.work_priority),
+                        );
+                        payload["rounds"] = json!(ctrl.state.rounds);
+                        payload["max"] = json!(ctrl.state.max_rounds);
+                        Some(payload)
                     }
-                    let mut payload = crate::auto_run::serialize_action(
-                        action,
-                        crate::auto_run::work_priority_enum(deps.work_priority),
-                    );
-                    payload["rounds"] = json!(ctrl.state.rounds);
-                    payload["max"] = json!(ctrl.state.max_rounds);
-                    Some(payload)
                 }
             };
             if let Some(auto) = auto_payload {
@@ -365,7 +381,11 @@ pub(crate) async fn run_task(
         names.into_iter().collect()
     };
     // D-583:真实进展签名——放在锁外算,避免在持锁期间做文件 IO/git 子进程调用。
-    let progress_signature = crate::auto_run::progress_signature(&deps.project_root);
+    let progress_signature = if deps.profile == kanzei_harness::ProfileKind::Research {
+        crate::research_auto::progress_signature(&deps.project_root, deps.research_topic.as_deref())
+    } else {
+        crate::auto_run::progress_signature(&deps.project_root)
+    };
     let auto_action_json = {
         let mut controllers = handles.auto_runs.lock_or_recover();
         let ctrl = controllers.entry(session_id.clone()).or_default();
@@ -382,7 +402,7 @@ pub(crate) async fn run_task(
             // 静默切成 dev-auto(连人格一起换掉),而不是拿到一条轻控制的 loop。
             // 现在 dev 两档都允许续跑,**区别落在 HarnessIntensity 而不是能不能跑**:
             // 结伴档不 Nudge、不插核查轮、不标冗余,模型说完成即停。
-            // research/readonly 仍然拒绝(无自主推进语义)。
+            // research 由课题工作流覆盖续跑判据；readonly 仍然拒绝。
             auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev),
             // R-322:门禁强度按 agent 取默认值。与 auto_allowed 是**两件事**——
             // 后者答「能不能自动发下一条」,前者答「引擎对任务判断介入多深」。
@@ -405,37 +425,48 @@ pub(crate) async fn run_task(
             // D-403:本轮正常完成——失败轮走上面的失败分支,不经过这里。
             round_failure: None,
         };
-        let action = crate::auto_run::decide_auto_run(ctrl, ctx);
-        let mut payload = crate::auto_run::serialize_action(
-            action,
-            crate::auto_run::work_priority_enum(deps.work_priority),
-        );
-        // R-322 B3:目标原文由 controller 填入(引擎不持有用户数据),
-        // 前端按 Nudge 同款机制把它作为下一轮输入发回。
-        if payload["type"] == json!("GoalPending") {
-            payload["prompt"] = json!(ctrl.goal.clone().unwrap_or_default());
-        }
-        // 达成或判定不可达 → 目标是一次性意图,就地清除(D-111 同型:一次性
-        // 意图留着会在下一段无关对话里继续生效)。前端收到 reason 后同步清输入框。
-        if matches!(
-            payload["reason"].as_str(),
-            Some("GoalMet" | "GoalUnreachable")
-        ) {
-            ctrl.goal = None;
-        }
-        payload["goalActive"] = json!(ctrl.goal.is_some());
-        // 判定和镜像值必须在同一把锁内取，避免后台会话完成时覆盖本会话的计数。
-        payload["rounds"] = json!(ctrl.state.rounds);
-        payload["max"] = json!(ctrl.state.max_rounds);
-        (
-            payload,
-            matches!(
+        if deps.profile == kanzei_harness::ProfileKind::Research {
+            let payload = crate::research_auto::decide(
+                ctrl,
+                ctx,
+                &deps.project_root,
+                deps.research_topic.as_deref(),
+            );
+            let zero_output = payload["reason"] == "ZeroOutput";
+            (payload, zero_output)
+        } else {
+            let action = crate::auto_run::decide_auto_run(ctrl, ctx);
+            let mut payload = crate::auto_run::serialize_action(
                 action,
-                kanzei_harness::auto_run::AutoRunAction::Stop(
-                    kanzei_harness::auto_run::AutoStopReason::ZeroOutput(_)
-                )
-            ),
-        )
+                crate::auto_run::work_priority_enum(deps.work_priority),
+            );
+            // R-322 B3:目标原文由 controller 填入(引擎不持有用户数据),
+            // 前端按 Nudge 同款机制把它作为下一轮输入发回。
+            if payload["type"] == json!("GoalPending") {
+                payload["prompt"] = json!(ctrl.goal.clone().unwrap_or_default());
+            }
+            // 达成或判定不可达 → 目标是一次性意图,就地清除(D-111 同型:一次性
+            // 意图留着会在下一段无关对话里继续生效)。前端收到 reason 后同步清输入框。
+            if matches!(
+                payload["reason"].as_str(),
+                Some("GoalMet" | "GoalUnreachable")
+            ) {
+                ctrl.goal = None;
+            }
+            payload["goalActive"] = json!(ctrl.goal.is_some());
+            // 判定和镜像值必须在同一把锁内取，避免后台会话完成时覆盖本会话的计数。
+            payload["rounds"] = json!(ctrl.state.rounds);
+            payload["max"] = json!(ctrl.state.max_rounds);
+            (
+                payload,
+                matches!(
+                    action,
+                    kanzei_harness::auto_run::AutoRunAction::Stop(
+                        kanzei_harness::auto_run::AutoStopReason::ZeroOutput(_)
+                    )
+                ),
+            )
+        }
     };
     // D-583:熔断留痕——不能只在 UI 一次性事件里过一眼(会话一多就沉底找不到)。
     // 与过夜停摆(RepeatedFailure)同一手法:追加审计行 + 尽力而为推手机通知。

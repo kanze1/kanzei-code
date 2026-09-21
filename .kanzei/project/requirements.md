@@ -397,3 +397,17 @@
 - observed_worktree_hash: fnv1a64:d1d568a4ca377cc2
 - recorded_at: 1788803004691
 - 阻塞: 用户：提供一个可重复的真实 provider 运行入口（已配置模型/凭据或运行中的 provider）、固定任务与允许执行窗口；解除条件:用户
+
+## R-363 AUTO research 首批闭环：调研地图、用户选题、MVP 与结果解读续跑 [doing]
+- 内容: 课题级持久阶段状态、方向地图和用户选择、MVP 合同与实验事实绑定、独立研究续跑和恢复入口；首批覆盖到 MVP 解读。
+- 发现记录: {"Intent":"让 research 按阶段自动推进到 MVP 结论","Explicit":"调研后出地图，用户选方向，MVP 与结果解读，可恢复续跑","Assumptions":"首批止于 MVP 解读，复用现有 local/SSH runner","Ambiguities":"无阻塞项","领域对象":"课题、方向候选、工作流状态、探索、实验结果","最小成功闭环":"方向到调研地图，经用户选择后完成 MVP 并关联真实结果解读","延后决策":"云 GPU 供应商自动开通、外部会议模板导入、完整实验扩展策略"}
+- 复杂度: 大
+- 来源: 用户原话：「我们现在继续来开发AUTO research模式」「同意开始吧」。
+- 标签: 核心
+- 进展: 首批实现及工作树回归完成。①地图强制等待用户选择、revision 拒绝过期写入；②MVP 协议绑定成功基线与真实运行指标，失败仅能给证据不足；③暂停/刷新恢复与预算调整、④前后台连续两轮 profile/topic/prompt 保持与开发待办隔离均有回归。⑤cargo test --workspace 1603 passed/0 failed/2 既有 ignore；fmt、Clippy、六项前端检查、Playwright 页面回归通过。证据 T-1786922726998、T-1786922726999；设计 docs/design/auto_research.md。尚未做真实 provider、SSH/GPU、安装版桌面 E2；未发布或安装，保留 doing 等待实际端到端验收。
+- 验收: ①地图后等待用户选题，agent 无法自选；②选题后依次产生 MVP 方案、基线与实验记录、结果解读；③暂停重启保持阶段证据，重复过期操作不跳阶段；④研究续跑不受 dev backlog 影响且不串课题；⑤后端及前端交互回归通过。
+- refs: R-277 R-343 R-348 R-360
+- 优先级: P1
+- observed_head: 6d1b5de05fa79b5c165769e72fe045a7e26a75e4
+- observed_worktree_hash: fnv1a64:7d45c8bf3eea681c
+- recorded_at: 1789980409036

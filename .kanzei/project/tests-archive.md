@@ -12004,3 +12004,15 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-362
 - 收尾: 1788804384
 - 源码指纹: v2 crates/kanzei-core/src/runner/drive/assembly.rs@63ae5885281c,crates/kanzei-tools/src/research_write.rs@129d67e3104c
+
+## T-1786922726998 R-363 AUTO research 工作区验证 [passed]
+- 命令: cargo fmt --all -- --check; cargo clippy --workspace -- -D warnings; cargo test --workspace --quiet
+- 摘要: 格式与 Clippy 通过；工作区 1603 passed、0 failed、2 既有 ignore。新增工作流和续跑测试 8 项，包含真实本地进程、基线指标、失败结果不能支持假设、预算、过期请求、恢复和开发待办隔离。日志 output/auto-research-cargo-test.log；工作树验证，不是提交或安装版验收。
+- 关联: R-363
+- 收尾: 1789980335
+
+## T-1786922726999 R-363 AUTO research 前端回归 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node --experimental-vm-modules scripts/ui-workspace-smoke.mjs
+- 摘要: 六项前端检查通过；Playwright 验证启动、用户选题、暂停恢复、刷新恢复、调整预算不自动启动和课题隔离；运行时新增前台及后台两轮研究续跑保持 profile/topic/prompt，等待选题停机。浏览器使用模拟 IPC，未执行真实 provider/SSH/GPU/安装版桌面 E2。截图 output/playwright/workspaces/auto-research-map.png。
+- 关联: R-363
+- 收尾: 1789980335

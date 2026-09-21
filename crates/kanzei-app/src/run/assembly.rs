@@ -102,6 +102,7 @@ pub(crate) struct RuntimeHandles {
 /// context monolith;对每一个参数组都要能说出它属于哪一层生命周期。
 pub(crate) struct RuntimeDeps {
     pub(crate) project_root: PathBuf,
+    pub(crate) research_topic: Option<String>,
     pub(crate) config: Arc<KanzeiConfig>,
     pub(crate) profile: kanzei_harness::ProfileKind,
     pub(crate) rctx: ResolveCtx,
@@ -188,6 +189,11 @@ pub(crate) async fn assemble_run(
     harness.add(kanzei_tools::work::WorkControlContext(
         crate::auto_run::work_priority_enum(work_priority),
     ));
+    if let Some(topic) = &mode.research_topic {
+        harness.add(kanzei_tools::research_workflow::ResearchWorkflowContext(
+            topic.clone(),
+        ));
+    }
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot.select_agent(mode.agent_name.as_deref())?.clone();
     append_dev_guidance(&mut agent.system, profile, work_priority, &config);
@@ -509,6 +515,7 @@ pub(crate) async fn assemble_run(
     Ok(RunAssembly {
         deps: RuntimeDeps {
             project_root,
+            research_topic: mode.research_topic,
             config,
             profile,
             rctx,

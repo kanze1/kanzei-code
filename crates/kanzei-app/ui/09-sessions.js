@@ -830,6 +830,7 @@ export function renderProjects(prefs) {
   for (const path of prefs.projects) {
     const item = document.createElement("div");
     item.className = `project-item${path === prefs.current ? " active" : ""}`;
+    item.title = path;
     item.setAttribute("role", "button");
     item.tabIndex = 0;
     item.setAttribute("aria-label", `${t("选择项目")} ${prefs.names?.[path] || baseName(path)}`);

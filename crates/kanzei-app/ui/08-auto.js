@@ -245,10 +245,9 @@ export function setAutoStopReason(reason, stop_kind = "") {
   autoHint = "";
   renderAutoRun();
 }
-// R-322 B2:dev 两档都能续跑,区别在门禁强度不在能不能跑;research 仍拒绝。
-// 判据必须与后端 coordinator.rs 的 auto_allowed 一致(profile 级,不看 agent)。
+// R-363:研究按课题工作流续跑；阶段/等待判定仍由后端负责。
 export function autoContinueAllowed() {
-  return selectedAgent().profile !== "research";
+  return ["dev", "research"].includes(selectedAgent().profile);
 }
 // 兼容旧状态/配置的读取接口。`auto_max` 仍可被旧前端状态携带,但不再是停止条件或界面设置。
 export function autoContinueMax() {

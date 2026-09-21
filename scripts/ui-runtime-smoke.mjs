@@ -832,6 +832,7 @@ const payloads = {
     archived: { req: 1, defect: 2, idea: 0, source: 0, finding: 0 },
     conventions: { exists: true, headings: ["开发规则", "测试要求"] },
   },
+  research_workflow_get: () => null,
   research_plan_get: (args) => args?.topic === "alpha-study"
     ? ({ exists: true, plan: smokeResearchPlan() })
     : ({ exists: false, topic: args?.topic }),
@@ -5633,21 +5634,26 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
     ),
     "R-322 B2:结伴档鞭挞未落轻控制语义 notice",
   );
-  // ② research 勾鞭挞:拒绝并复位勾选,模式不变。
+  // R-363:research 可武装续跑；后端依据课题工作流决定继续或等待。
   const dev_processes = payloads.process_list;
-  payloads.process_list = [...dev_processes, { id: "p|research-auto-test", session_id: "sess-research-auto", profile: "research", label: "研究", running: false }];
+  payloads.process_list = [...dev_processes, { id: "p|research-auto-test", session_id: "sess-research-auto", profile: "research", research_topic: "alpha-study", project_dir: PROJECT, label: "研究", running: false }];
   await vm.runInContext('switch_workspace("research")', sandbox);
   byId.get("auto-continue").checked = true;
   byId.get("auto-continue").dispatchEvent({ type: "change" });
   await flush();
   assert(
-    byId.get("auto-continue").checked === false,
-    "R-322 B2:research 勾鞭挞未被拒绝复位",
+    byId.get("auto-continue").checked === true,
+    "R-363:research 勾鞭挞不应再被旧门禁复位",
   );
   assert(
     vm.runInContext("selectedAgent().profile", sandbox) === "research",
-    "R-322 B2:research 拒绝路径不应改模式",
+    "R-363:research 续跑不应改模式",
   );
+  await sandbox.sendAutoToSession("按研究地图继续", "sess-research-auto");
+  const research_request = invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === "p|research-auto-test")?.args;
+  assert(research_request?.profile === "research" && research_request.agent === "research", "研究续跑被固定切成 dev");
+  assert(research_request.researchTopic === "alpha-study" && research_request.projectDir === PROJECT, "研究续跑丢失课题或项目");
+  sandbox.releaseAutoContinue("sess-research-auto");
   // 收尾恢复。
   await vm.runInContext('switch_workspace("dev")', sandbox);
   payloads.process_list = dev_processes;
@@ -5709,6 +5715,30 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   assert(backgroundRuns.some(({ args }) => args.processId === "p|bg-b"), "后台乙 done 没有续跑所属线路");
   payloads.process_list = savedProcessList;
   sandbox.renderProcesses(savedProcessList);
+}
+
+// R-363:后台研究连跑两轮仍保留课题和工作流指令，选题等待必须停机。
+{
+  const saved_research_processes = payloads.process_list;
+  const research_process = { id: "p|bg-research", label: "后台研究", session_id: "sess-bg-research", running: false, profile: "research", research_topic: "alpha-study", project_dir: PROJECT, origin_project: PROJECT };
+  payloads.process_list = [...saved_research_processes, research_process];
+  sandbox.renderProcesses(payloads.process_list);
+  kzTest.setAutoState(research_process.id, { enabled: true, paused: false, stopAfterRound: false });
+  const research_runs = () => invokeArgs.filter(({ cmd, args }) => cmd === "run_prompt" && args?.processId === research_process.id);
+  for (let round = 1; round <= 2; round += 1) {
+    handlers.get("kz:done")?.({ payload: { sessionId: research_process.session_id, steps: 2, autoAction: { type: "Continue", rounds: round, prompt: `AUTO research 第 ${round} 轮继续` } } });
+    await flush();
+    assert(research_runs().length === round, "后台研究没有连续续跑");
+    const request = research_runs().at(-1).args;
+    assert(request.profile === "research" && request.agent === "research" && request.researchTopic === "alpha-study", "后台研究串到开发模式或丢失课题");
+    assert(request.prompt === `AUTO research 第 ${round} 轮继续`, "后台研究丢失后端阶段指令");
+  }
+  handlers.get("kz:done")?.({ payload: { sessionId: research_process.session_id, steps: 2, autoAction: { type: "Stop", reason: "ResearchWaiting", message: "等待选题" } } });
+  await flush();
+  assert(research_runs().length === 2 && !kzTest.timerSessions().includes(research_process.session_id), "等待选题时仍在续跑");
+  assert(kzTest.getAutoState(research_process.id)?.enabled === false, "等待选题未关闭所属研究续跑");
+  payloads.process_list = saved_research_processes;
+  sandbox.renderProcesses(saved_research_processes);
 }
 
 // ---------- 切走的线路必须**连续**被鞭挞(不是只多跑一轮) ----------

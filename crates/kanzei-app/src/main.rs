@@ -35,6 +35,7 @@ mod prefs;
 mod processes;
 mod projection_gate;
 mod projects;
+mod research_auto;
 mod research_latex;
 mod research_topics;
 mod run;
@@ -174,6 +175,9 @@ fn main() {
             projects::workspace_snapshot,
             docs::docs_snapshot,
             research_topics::research_topic_create,
+            research_auto::research_workflow_get,
+            research_auto::research_workflow_start,
+            research_auto::research_workflow_update,
             docs::research_plan_get,
             docs::research_plan_approve,
             docs::docs_archive_entries,

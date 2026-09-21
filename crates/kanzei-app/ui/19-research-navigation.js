@@ -4,6 +4,7 @@ import { activeProcessId, currentProject, navigate_view, processItems, toastErro
 import { active_space, create_workspace_process, project_workspace, save_research_workspace } from "./03-workspaces.js";
 import { renderParallelTaskStatus, switchProcess } from "./09-sessions.js";
 import { refreshResearch, researchPlan, researchSnapshot, researchTopicKey, researchTopicLabel, selectedResearchTopicData, select_research_topic } from "./19-research.js";
+import { renderResearchWorkflow } from "./19-research-auto.js";
 
 export const research_pages = { overview: "概览", chat: "对话", literature: "文献与发现", plan: "研究计划", experiments: "实验", report: "成果", writing: "论文写作" };
 export function research_status_label(status) {
@@ -97,6 +98,7 @@ export function render_research_overview() {
     host.appendChild(create);
     return;
   }
+  renderResearchWorkflow(host);
   const rows = [
     ["文献与发现", `${(topic.sources ?? []).length} ${t("来源")} · ${(topic.findings ?? []).length} ${t("发现")}`, "literature"],
     ["研究计划", researchPlan ? research_status_label(researchPlan.status) || t("已创建") : t("尚未创建计划"), "plan"],

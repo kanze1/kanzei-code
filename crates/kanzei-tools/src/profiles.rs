@@ -115,7 +115,7 @@ impl Component for ResearchProfile {
                 mode: AgentMode::Primary,
                 // 0 = 无轮数上限(用户定调)。
                 steps: 0,
-                system: "You are the research agent. Before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. After approval, use the `research_loop` tool with start/resume actions to drive the bounded search-read-reflect loop. For each isolated subtask call begin_search first; every websearch/webfetch call MUST pass that topic and returned task_id, then pass the same task_id to add_evidence—the loop gate is mechanical. Before returning any result to the main context, compress it via research_loop add_evidence with relevance, source_ids, and a sourced summary—never pass raw webpage or tool output into the loop. Use reflect to record knowledge gaps and decide whether another round is needed; write findings only through add_finding with source refs. After the loop reaches writing, call the `research_write` tool: write_outline first, then write_section once per outline section, assemble_paper for heavy topics, and compile_paper through the LaTeX channel; use repair_paper only after a failed compile and preserve its diagnostics. Before starting a loop, use the `research_verify` tool budget_set for explicit round/token/concurrency knobs; after writing, use verify_claims to mechanically check every FACT source and evidence anchor, and use capture_source for complete literature正文 rather than trusting abstract/要点 fields. Before cross-checking claims, use the `research_index` tool: index_build/index_resume creates or resumes the topic Tantivy index, search uses the same interface for literature and code, and symbols mode performs code symbol reverse lookup. Record every consulted source \
+                system: "You are the research agent. If the current topic has an AUTO research workflow, call `research_workflow get` and follow its persisted stage: the user has already authorized its survey budget, so reuse the approved plan and use budget_get rather than creating another plan or setting another budget. Publish the evidence-backed map and wait for the user to choose a direction; then define and run the MVP using research_runner and interpret actual metrics. Stop when the workflow waits, pauses or completes. Otherwise, before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. After approval, use the `research_loop` tool with start/resume actions to drive the bounded search-read-reflect loop. For each isolated subtask call begin_search first; every websearch/webfetch call MUST pass that topic and returned task_id, then pass the same task_id to add_evidence—the loop gate is mechanical. Before returning any result to the main context, compress it via research_loop add_evidence with relevance, source_ids, and a sourced summary—never pass raw webpage or tool output into the loop. Use reflect to record knowledge gaps and decide whether another round is needed; write findings only through add_finding with source refs. When writing a report, call the `research_write` tool: write_outline first, then write_section once per outline section, assemble_paper for heavy topics, and compile_paper through the LaTeX channel; use repair_paper only after a failed compile and preserve its diagnostics. For manual research use `research_verify` budget_set before starting a loop; AUTO research uses the user's workflow budget. After writing, use verify_claims to mechanically check every FACT source and evidence anchor, and use capture_source for complete literature正文 rather than trusting abstract/要点 fields. Before cross-checking claims, use the `research_index` tool: index_build/index_resume creates or resumes the topic Tantivy index, search uses the same interface for literature and code, and symbols mode performs code symbol reverse lookup. Record every consulted source \
                          (`source add`) and register conclusions as findings citing those \
                          sources. Every conclusion must state its code or literature domain, \
                          V0-V3 level, evidence anchor, and literature evidence depth; use V \
@@ -123,7 +123,7 @@ impl Component for ResearchProfile {
                          literature evidence at V1. Use `memory_search` for project memory and \
                          `memory_note` for durable research conclusions; do not use the historical \
                          `.kanzei/research/memory.md`. The final report goes to \
-                         .kanzei/research/report.md."
+                         .kanzei/research/<topic>/report.md."
                     .into(),
             },
         );
@@ -1198,6 +1198,27 @@ mod tests {
         let snapshot = harness.resolve(&ctx).unwrap();
 
         assert_eq!(snapshot.evaluate("bash", "*"), Effect::Deny);
+        for action in ["write", "edit", "insert"] {
+            for file in ["workflow.json", "loop.json", "plan.json", "budget.json"] {
+                assert_eq!(
+                    snapshot.evaluate(action, &format!(".kanzei/research/demo/{file}")),
+                    Effect::Deny
+                );
+                if cfg!(windows) {
+                    assert_eq!(
+                        snapshot.evaluate(
+                            action,
+                            &format!(".kanzei/research/demo/{}", file.to_uppercase())
+                        ),
+                        Effect::Deny
+                    );
+                }
+            }
+            assert_eq!(
+                snapshot.evaluate(action, ".kanzei/research/demo/protocol.md"),
+                Effect::Allow
+            );
+        }
         let bash_hint = snapshot.denial_hint("bash", "anything");
         assert!(
             bash_hint.contains("latex") && bash_hint.contains("plot"),

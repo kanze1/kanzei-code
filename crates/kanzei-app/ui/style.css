@@ -1,31 +1,25 @@
-/* kanzei — 配色取自 app 图标(docs/design/app_icon.md):深暖近黑底 #0d110d~#1b1e13 +
-   金色主标记 #c9962e + 高光 #ead18a。图标里没有蓝色,界面强调色也就不该是蓝色——
-   原 VSCode 蓝 #0e639c 全面退场,只在 --info / --syntax-* / --line-1 这些**信息类**
-   语义上保留冷色,让工具轨迹与代码在暖底上仍然分得开。 */
+/* kanzei — 暖炭灰、纸白与少量香槟金，搭配简洁的像素 OC。
+   参考 Sand 的暖灰层级，背景去掉蓝调，强调色只承载重点。 */
 * { margin: 0; padding: 0; box-sizing: border-box; }
-/* R-189:默认主题 = 暗色(现状零回归)。:root 保留 dark 语义 token,
+/* R-189:默认主题 = 暗色。:root 保留 dark 语义 token,
    [data-theme="light"] 覆盖为亮色组;切换只改 html[data-theme],不碰引用点。 */
 :root {
-  --bg: #121110; --panel: #191816; --panel2: #21201d; --input: #2a2825;
-  --border: #35322c; --border-soft: #272521;
-  --fg: #d6d2c9; --fg-strong: #efebe2; --dim: #9d968a;
-  --accent: #c9962e; --accent-hover: #e2ab3e; --accent-soft: #3a2c11;
-  /* 一个金色 token 干不了两件事。--accent 要当**填充**(实测:按钮底色配 --on-accent),
-     又被 11 处拿去当**正文颜色**压在浅底上(markdown 链接、memory 条目号、面板分组标签…)。
-     亮色档下这两个要求把它夹在中间:#a8761a 当填充配白字 3.98:1、当正文压白底 3.92:1,
-     两头都够不到 4.5。拆成两个:--accent 只管填充/边框/焦点环,--accent-text 只管文字。 */
-  --accent-text: #c9962e;
-  --memory-flow: #d9a83f; --memory-flow-hot: #ffe3a0; --memory-flow-dim: #8a6328;
-  --ok: #8fb87a; --err: #d0684e; --warn: #e8b04b; --info: #7ba7c4;
-  --alert: #e8842a;
+  --bg: #181817; --panel: #21211f; --panel2: #2b2b28; --input: #282825;
+  --border: #3d3c36; --border-soft: #30302b;
+  --fg: #deded6; --fg-strong: #f1f0e9; --dim: #aaa99f;
+  --accent: #c6b08b; --accent-hover: #d5c3a3; --accent-soft: #302d26;
+  /* 填充与文字分别配色，保证亮色主题中的琥珀文字仍有足够对比。 */
+  --accent-text: #d2bc95;
+  --memory-flow: #bda985; --memory-flow-hot: #e0cfb0; --memory-flow-dim: #777266;
+  --ok: #a1b69b; --err: #d4968b; --warn: #c6b08b; --info: #a0bdb5;
+  --oc-circuit: #9bc9c4;
+  --alert: #c6b08b;
   --danger: var(--err); --muted: var(--dim);
-  --statusbar: #191816; --statusbar-run: #4a3a12;
-  --statusbar-fg: #d6d2c9; --statusbar-run-fg: #f5e6b3;
-  /* 对话区是全应用面积最大的一块,单独给它比 --bg 更深一档的「图标底色」,
-     让侧栏/输入区在它旁边浮起来;用户消息用金色低饱和贴纸而不是整块实心
-     强调色——实心金配任何前景都在可读性上打架,而且太吵。 */
-  --chat-bg: #0e0d0b;
-  --user-bubble: #23211a; --user-bubble-border: #4a3d1e;
+  --statusbar: #1b1b19; --statusbar-run: #302d26;
+  --statusbar-fg: #aaa99f; --statusbar-run-fg: #ded0b8;
+  /* 工作区与主背景同色；输入区、侧栏和消息通过表面明度区分。 */
+  --chat-bg: #181817;
+  --user-bubble: #292925; --user-bubble-border: #3d3c36;
   --on-danger: #f2d6cc;
   --mono: "Cascadia Mono", "Cascadia Code", "Microsoft YaHei UI", Consolas, monospace;
   --radius: 6px;
@@ -34,27 +28,27 @@
      逐个 input 去覆盖既漏且难维护(D-154)。 */
   color-scheme: dark;
   /* R-189:暗色专属徽章/状态胶囊底色(b 类字面量 token 化,亮色组成对给值)。 */
-  --badge-err: #3a221c; --badge-warn: #3d2e10; --badge-info: #1b2a34;
-  --badge-alert: #3d3113; --badge-ok: #22301c;
+  --badge-err: #362a28; --badge-warn: #302d26; --badge-info: #293330;
+  --badge-alert: #302d26; --badge-ok: #293127;
   --badge-err-soft: #2a8a4233; --badge-warn-soft: #b34a4a33; --badge-soft: #8883;
   /* 被 .workspace-status.running 引用却从未定义:唯一需要一眼看见的「运行中」
      反倒是四个状态胶囊里唯一没底色的那个。与 --ok 同色系,alpha 与同组一致。 */
   --badge-ok-soft: #8fb87a33;
   /* R-189:框架面未 token 化的字面量提升(b 类)——活动栏/滚动条/代码块等。 */
-  --activitybar: #141310; --sidebar-bg: #1a1815; --scrollbar: #3b382f; --scrollbar-hover: #4e4a3f;
-  --activity-fg: #837c6f; --activity-active: #f2ede1;
+  --activitybar: #181817; --sidebar-bg: #1d1d1b; --scrollbar: #414039; --scrollbar-hover: #5b594f;
+  --activity-fg: #96968a; --activity-active: #d2bc95;
 
-  --code-bg: #0c0b0a; --code-output-bg: #100f0d; --danger-btn: #5a2c1a;
-  --code-inline: #2b2823;
+  --code-bg: #151513; --code-output-bg: #1b1b18; --danger-btn: #50332f;
+  --code-inline: #30302b;
 
   /* R-189:diff/语法着色(c 类)与 on-accent 强调前景。 */
   --diff-add: #a5c98f; --diff-del: #dd8d72; --diff-repl: #f7768e; --diff-str: #e0af68;
-  /* 强调色是金色,前景必须是深色——白字压在 #c9962e 上只有 2.1:1。 */
-  --on-accent: #1c1405;
+  /* 琥珀按钮配深色文字。 */
+  --on-accent: #242018;
   /* R-189:语法着色/线路主题色/状态点色/杂项(d 类字面量 token 化)。 */
   --syntax-comment: #6a9955; --syntax-string: #ce9178; --syntax-number: #b5cea8; --syntax-keyword: #569cd6;
   --line-1: #7ba7c4; --line-2: #d3a14a; --line-3: #8fb87a; --line-4: #aa83bd;
-  --dot-idle: #a9bc6f; --dot-run: #e0ab3a;
+  --dot-idle: #a1b69b; --dot-run: #c6b08b;
   --diff-line-number: #666; --arch-unindexed: #b45309; --log-gold: #e8b04b;
   /* D-380:主题块之外**不允许**出现字面量颜色。以下是原先逃逸在交互态里的那批
      ——它们最难被静态发现,也最容易在亮色下出错(拒绝键 hover 变深灰块、线路条
@@ -81,40 +75,39 @@
 }
 /* R-189:亮色主题——在默认 dark 之上覆盖 token 值,引用点零改动。 */
 [data-theme="light"] {
-  /* 亮色不是「白纸 + 金」——纯白配金会发灰发脏。底色取图标金的极低饱和同色系
-     暖纸张,金色本身压暗到 #a8761a 才够 4.5:1(#c9962e 压在白底上只有 2.4:1)。 */
-  --bg: #f6f3ec; --panel: #fffdf8; --panel2: #efebe1; --input: #f3efe6;
-  --border: #dcd5c6; --border-soft: #e8e2d6;
-  --fg: #2e2b25; --fg-strong: #16140f; --dim: #6d675b;
-  --accent: #a8761a; --accent-hover: #8d6113; --accent-soft: #f6e8c8;
-  /* 填充金压暗到能配深字(见 --on-accent),正文金再压一档:#7d550f 压 --panel 6.5:1、
-     压 --accent-soft 5.4:1,两种浅底都过。 */
-  --accent-text: #7d550f;
-  --memory-flow: #8f6417; --memory-flow-hot: #a8761a; --memory-flow-dim: #c7aa6a;
-  --ok: #2f7d32; --err: #b3261e; --warn: #8a6100; --info: #1f6b96;
+  /* 浅色使用纸白与暖灰，和暗色共享相同的明度层级。 */
+  --bg: #f6f5f1; --panel: #fcfbf8; --panel2: #eeede7; --input: #f2f1ec;
+  --border: #d5d2c7; --border-soft: #e4e1d9;
+  --fg: #393831; --fg-strong: #25241f; --dim: #66645b;
+  --accent: #c1aa83; --accent-hover: #ceb994; --accent-soft: #eee6d8;
+  /* 文字琥珀比按钮填充更深。 */
+  --accent-text: #705c3a;
+  --memory-flow: #8e7956; --memory-flow-hot: #715b35; --memory-flow-dim: #b7ab94;
+  --ok: #4e6d43; --err: #a84036; --warn: #80602d; --info: #426d64;
+  --oc-circuit: #659f9b;
   --alert: #c2410c;
   --danger: var(--err); --muted: var(--dim);
-  --statusbar: #fffdf8; --statusbar-run: #f6df9f;
-  --statusbar-fg: #2e2b25; --statusbar-run-fg: #3f2a00;
+  --statusbar: #f0efe9; --statusbar-run: #eee6d8;
+  --statusbar-fg: #66645b; --statusbar-run-fg: #57472c;
   color-scheme: light;
-  --chat-bg: #fdfbf6;
-  --user-bubble: #f6ecd6; --user-bubble-border: #e3d0a2;
+  --chat-bg: #f6f5f1;
+  --user-bubble: #eeede7; --user-bubble-border: #d5d2c7;
   --on-danger: #8c1d18;
-  --badge-err: #fdecea; --badge-warn: #fdf3dd; --badge-info: #e7f0f6;
-  --badge-alert: #fdf1e3; --badge-ok: #e9f6e9;
+  --badge-err: #f4e6e0; --badge-warn: #f0e8d8; --badge-info: #e5ece6;
+  --badge-alert: #f0e8d8; --badge-ok: #e8ecdf;
   --badge-err-soft: #b3261e26; --badge-warn-soft: #9a670026; --badge-soft: #8888881f;
   --badge-ok-soft: #2f7d3226;
-  --activitybar: #eae4d5; --sidebar-bg: #f4f0e6; --scrollbar: #cfc7b6; --scrollbar-hover: #b9b09c;
-  --activity-fg: #5b5548; --activity-active: #16140f;
+  --activitybar: #eeede7; --sidebar-bg: #f0efe9; --scrollbar: #cfccc1; --scrollbar-hover: #afab9e;
+  --activity-fg: #777468; --activity-active: #705c3a;
 
-  --code-bg: #f1ede3; --code-output-bg: #ece7db; --danger-btn: #f8dcd6;
-  --code-inline: #e9e3d5;
+  --code-bg: #eeede6; --code-output-bg: #e8e6dd; --danger-btn: #f0dcd4;
+  --code-inline: #e7e5dc;
 
   --diff-add: #1a7f37; --diff-del: #cf222e; --diff-repl: #8250df; --diff-str: #953800;
-  --on-accent: #1c1405;
+  --on-accent: #242018;
   --syntax-comment: #6a737d; --syntax-string: #032f62; --syntax-number: #005cc5; --syntax-keyword: #d73a49;
   --line-1: #1f6b96; --line-2: #9a6700; --line-3: #1a7f37; --line-4: #8250df;
-  --dot-idle: #2f7d32; --dot-run: #9a6700;
+  --dot-idle: #4e6d43; --dot-run: #80602d;
   --diff-line-number: #8b949e; --arch-unindexed: #9a6700; --log-gold: #953800;
   /* 亮色的阴影不能照抄 53% 纯黑:同样的值在浅底上是一块脏印子。 */
   --shadow: #0000001f; --shadow-strong: #00000029;
@@ -148,11 +141,12 @@ body {
   width: 48px; height: 44px; display: flex; align-items: center; justify-content: center;
   cursor: pointer; border: 0; border-left: 2px solid transparent; padding: 0;
   background: transparent; color: var(--activity-fg); font: inherit;
+  transition: color .16s ease, background .16s ease;
 }
 .activity-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .activity-item svg { width: 22px; height: 22px; }
 .activity-item:hover { color: var(--fg-strong); }
-.activity-item.active { color: var(--activity-active); border-left-color: var(--activity-active); }
+.activity-item.active { color: var(--activity-active); border-left-color: var(--activity-active); background: var(--hover-wash); }
 /* 侧栏开合是布局开关不是视图切换:与视图按钮隔开,active(=侧栏展开)用
    accent 而不是视图态的白色,避免和 aria-current 的视觉语义混在一起。 */
 .rail-toggle { height: 38px; margin-bottom: 4px; border-bottom: 1px solid var(--border-soft); }
@@ -177,13 +171,13 @@ body {
    它 sticky 在侧栏顶部:侧栏内容一长,滚动时项目身份和新对话仍然在手边。 */
 .workspace-bar {
   position: sticky; top: 0; z-index: var(--z-sticky);
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 10px 10px 9px;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 12px 14px 18px;
   background: var(--sidebar-bg); border-bottom: 1px solid var(--border-soft);
 }
 .project-switch {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
-  padding: 6px 8px; border-radius: 7px; background: transparent; border: 1px solid transparent;
+  padding: 6px 2px; border-radius: 7px; background: transparent; border: 1px solid transparent;
   color: var(--fg-strong); cursor: pointer; font: inherit; min-width: 0;
 }
 .project-switch:hover { background: var(--panel2); border-color: var(--border-soft); }
@@ -191,13 +185,13 @@ body {
 /* 品牌标记:图标的 K 几何缩到 22px。它是这套界面里唯一一处纯装饰的金色实心块,
    放在侧栏最上角当锚点,其它地方的金色一律承载状态。 */
 .project-switch-mark {
-  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px;
+  flex: 0 0 auto; width: 32px; height: 32px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center;
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent-text);
 }
 .project-switch-mark svg { width: 15px; height: 15px; }
-.project-switch-text { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 1px; }
+.project-switch-text { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 4px; }
 .project-switch-name {
   font-size: var(--fs-13); font-weight: 650; color: var(--fg-strong);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -210,19 +204,21 @@ body {
 .project-switch[aria-expanded="true"] .project-switch-caret { transform: rotate(180deg); }
 .new-chat-btn {
   display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
-  padding: 7px 10px; border-radius: 7px; cursor: pointer; font: inherit;
+  padding: 9px 10px; border-radius: 8px; cursor: pointer; font: inherit;
   font-size: var(--fs-12-5); font-weight: 600;
-  background: var(--accent-soft); color: var(--accent-text);
-  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  background: var(--panel2); color: var(--fg-strong);
+  border: 1px solid var(--border);
+  transition: background .16s ease, border-color .16s ease;
 }
-.new-chat-btn:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg-strong); }
+.new-chat-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--fg-strong); }
 .new-chat-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .new-chat-btn svg { width: 14px; height: 14px; }
 
+.sidebar-section { padding: 14px 0 2px; }
 .section-title {
-  padding: 4px 14px 6px; font-size: var(--fs-11); text-transform: uppercase; letter-spacing: .6px;
+  padding: 0 16px 9px; font-size: var(--fs-11); font-weight: 600; letter-spacing: .3px;
   color: var(--dim); display: flex; align-items: center; justify-content: space-between;
-  flex-wrap: wrap; row-gap: 4px;
+  flex-wrap: wrap; row-gap: 8px;
 }
 .section-title > .quickreq-form { flex: 1 0 100%; min-width: 0; }
 /* 分区标题文字可点击折叠;控件(筛选/按钮)不参与折叠切换 */
@@ -262,16 +258,18 @@ body {
 
 .project-list { display: flex; flex-direction: column; }
 .project-item {
-  padding: 5px 14px; display: flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 8px 10px; margin: 2px 8px; min-height: 36px; border-radius: 7px;
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
   border-left: 2px solid transparent;
 }
 .project-item:hover { background: var(--panel2); }
-.project-item.active { background: var(--accent-soft); border-left-color: var(--info); }
+.project-item.active { background: var(--panel2); border-left-color: var(--accent); }
 .project-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.project-item .name { font-weight: 600; color: var(--fg-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.project-item .path { font-size: var(--fs-11); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; flex: 1; }
-.project-item .remove, .project-item .rename { visibility: hidden; }
+.project-item .name { font-weight: 500; color: var(--fg-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.project-item .path { display: none; }
+.project-item .remove, .project-item .rename { visibility: hidden; flex-shrink: 0; }
 .project-item:hover .remove, .project-item:hover .rename { visibility: visible; }
+.project-item:focus-within .remove, .project-item:focus-within .rename { visibility: visible; }
 
 .doc-filter {
   min-width: 84px; max-width: 160px; height: 26px; padding: 3px 8px;
@@ -290,7 +288,7 @@ body {
   word-break: break-all;
 }
 .project-shared-warn.hidden { display: none; }
-.doc-item { padding: 3px 14px; display: flex; flex-wrap: wrap; gap: 7px; align-items: baseline; }
+.doc-item { padding: 6px 16px; display: flex; flex-wrap: wrap; gap: 7px; align-items: baseline; }
 .doc-item:hover { background: var(--panel2); }
 /* 取活焦点(D-207):在做的高亮呼吸。排队顺序不由前端推断。 */
 .doc-item.agent-active {
@@ -307,9 +305,10 @@ body {
 /* 「各线当前在做」焦点卡片:每条在线路独立显示,但要比列表行完整。
    D-105:状态、阻塞、焦点依据一律用文字 + 边框表达,绿色只是装饰性冗余,
    把颜色全部去掉后信息量不减。 */
-#focus-body { padding: 0 10px 2px; display: flex; flex-direction: column; gap: 6px; }
-.line-focus { display: flex; flex-direction: column; gap: 3px; }
-.line-focus-head { color: var(--dim); font-size: var(--fs-10-5); padding: 1px 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#focus-body { padding: 0 14px 4px; display: flex; flex-direction: column; gap: 12px; }
+.line-focus { display: flex; flex-direction: column; gap: 5px; }
+.line-focus-head { color: var(--dim); font-size: var(--fs-11); padding: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#focus-section > .section-title > span:last-child { display: flex; align-items: center; gap: 6px; flex-basis: 100%; }
 .focus-card {
   border: 1px solid var(--border); border-left: 3px solid var(--ok);
   border-radius: var(--radius); background: var(--panel2);
@@ -319,21 +318,22 @@ body {
 .focus-id { font-family: var(--mono); font-size: var(--fs-11); color: var(--dim); }
 .focus-title { font-size: var(--fs-12-5); color: var(--fg-strong); line-height: 1.45; white-space: normal; word-break: break-word; }
 .focus-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
-.focus-chip { font-size: var(--fs-10); font-family: var(--mono); color: var(--dim); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; white-space: nowrap; }
+.focus-chip { font-size: var(--fs-11); color: var(--dim); padding: 1px 0; white-space: nowrap; }
+.focus-chip + .focus-chip { border-left: 1px solid var(--border); padding-left: 6px; }
 .focus-card .complexity-meter {
   display: grid; grid-template-columns: repeat(var(--cells, 3), 1fr); gap: 1px;
   align-items: center; height: 12px; width: 64px; flex-shrink: 0;
 }
 .focus-source { font-size: var(--fs-10-5); color: var(--dim); }
-.focus-card .doc-field { font-size: var(--fs-11); }
+.focus-card .doc-field { font-size: var(--fs-11); line-height: 1.6; }
 .focus-card .doc-actions { margin-top: 2px; }
 .focus-card.blocked { border-left-color: var(--warn); }
-.focus-empty { padding: 2px 4px 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: var(--fs-12); }
+.focus-empty { padding: 4px 2px 6px; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; font-size: var(--fs-12); line-height: 1.5; }
 .focus-empty .dim { font-size: var(--fs-11); }
 /* 侧栏待办计数:总数一行 + 需求/缺陷各一行。三个数字构成加法树
    (总数 = Σ(可执行+阻塞)),口径与引擎 backlog_status 一致。
    可执行/阻塞靠**文字**区分,颜色只做冗余强化——去掉颜色信息量不减。 */
-#focus-backlog { padding: 4px 14px 3px; font-size: var(--fs-11); display: flex; flex-direction: column; gap: 1px; }
+#focus-backlog { margin: 6px 16px 0; padding: 10px 0 2px; border-top: 1px solid var(--border-soft); font-size: var(--fs-11); display: flex; flex-direction: column; gap: 5px; }
 .backlog-total { color: var(--fg); }
 .backlog-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .backlog-kind { min-width: 2.6em; }
@@ -708,14 +708,15 @@ button.mini { padding: 2px 10px; font-size: var(--fs-11-5); }
    flex(与 #composer-bar 同一处例外),否则胶囊会竖着叠。 */
 #composer > #composer-context { display: flex; }
 .composer-context {
-  align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 7px;
+  align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 0;
+  padding-bottom: 10px; border-bottom: 1px solid var(--border-soft);
   position: relative; z-index: var(--z-raised);
 }
 .ctx-chip {
   display: inline-flex; align-items: center; gap: 5px; max-width: 34ch;
-  padding: 2px 9px; border-radius: 999px;
-  background: var(--panel2); border: 1px solid var(--border-soft);
-  color: var(--dim); font-size: var(--fs-11); font-family: var(--mono);
+  padding: 5px 8px; border-radius: 6px;
+  background: transparent; border: 1px solid transparent;
+  color: var(--dim); font-size: var(--fs-12);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* 项目胶囊常态只显示项目名,完整路径放 title/aria-label。旧版用 direction:rtl
@@ -730,25 +731,26 @@ button.mini { padding: 2px 10px; font-size: var(--fs-11-5); }
   width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
 }
 .ctx-select {
-  max-width: 200px; min-width: 84px; height: 24px; padding: 0 6px;
-  border-radius: 999px; background: var(--panel2); border: 1px solid var(--border-soft);
-  color: var(--dim); font-size: var(--fs-11); text-overflow: ellipsis;
+  max-width: 220px; min-width: 84px; height: 30px; padding: 0 8px;
+  border-radius: 6px; background: transparent; border: 1px solid transparent;
+  color: var(--dim); font-size: var(--fs-12); text-overflow: ellipsis;
+  transition: background .16s ease, color .16s ease;
 }
-.ctx-select:hover { color: var(--fg-strong); border-color: var(--border); }
+.ctx-select:hover { color: var(--fg-strong); background: var(--panel2); }
 /* R-342:模式芯片。三档各给一套色不是装饰——「结伴/自主」是对话期间行为与
    成本差别最大的一个开关,靠读字去分辨太慢。自主推进走告警色(引擎会自己接管、
    允许鞭挞),结伴保持中性(有人监督),research 走信息色。颜色由 JS 写 data-mode,
    真源仍是选择器自己的 value。 */
-.ctx-select.ctx-mode { min-width: 92px; font-family: var(--mono); }
-.ctx-select.ctx-mode[data-mode="dev-pair"] { color: var(--fg); border-color: var(--border); }
-.ctx-select.ctx-mode[data-mode="dev-auto"] { background: var(--badge-alert); color: var(--alert); border-color: var(--alert); }
-.ctx-select.ctx-mode[data-mode="research"] { background: var(--badge-info); color: var(--info); border-color: var(--info); }
+.ctx-select.ctx-mode { min-width: 92px; }
+.ctx-select.ctx-mode[data-mode="dev-pair"] { color: var(--fg); background: var(--panel2); }
+.ctx-select.ctx-mode[data-mode="dev-auto"] { background: var(--badge-alert); color: var(--accent-text); }
+.ctx-select.ctx-mode[data-mode="research"] { background: var(--badge-info); color: var(--info); }
 #process-phase-pipeline-wrap, #process-tracker-writes-wrap { font-size: var(--fs-11); color: var(--dim); display: flex; gap: 4px; align-items: center; }
 #process-tracker-writes-wrap.hidden { display: none; }
 #composer-more { position: relative; flex-shrink: 0; }
 #composer-more > summary {
-  list-style: none; cursor: pointer; height: 24px; display: inline-flex; align-items: center;
-  border-radius: 999px; padding: 0 10px;
+  list-style: none; cursor: pointer; height: 30px; display: inline-flex; align-items: center;
+  border-radius: 6px; padding: 0 8px; color: var(--dim); font-size: var(--fs-12);
 }
 #composer-more > summary::-webkit-details-marker { display: none; }
 #composer-more > summary::after { content: " ▾"; color: var(--dim); }
@@ -796,17 +798,15 @@ select {
    按钮**不能**放进 #messages——renderRecoveredMessages/clearChat 会
    `messages.innerHTML = ""`,一清就把按钮删了,之后 updateLatestButton 拿到
    null 直接抛 TypeError(2026-08-12 实测:恢复历史与新建并行线路全崩)。 */
-/* 对话区用比侧栏更深(暗色)/更暖(亮色)的一档底,取自 app 图标的画布色。
-   顶部一层极淡的金色晕是图标高光的延伸——只有几个百分点,滚动到长对话里
-   完全感知不到,只在空态和第一屏起「这块是主区」的作用。 */
+/* OC 在空态完整展示，对话时收进独立留白，不盖住消息。 */
+#view-chat { background: var(--chat-bg); }
 #chat-area {
   flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative;
-  background: var(--chat-bg);
-  background-image: radial-gradient(120% 42% at 50% 0%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 72%);
+  background: var(--chat-bg); container-type: inline-size;
 }
 .neural-flow-canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
 .neural-flow-chat {
-  position: absolute; inset: 0; z-index: var(--z-base); opacity: .8;
+  position: absolute; inset: 0; z-index: var(--z-base); opacity: .28;
   /* 神经场只在主区外围显形,消息正文所在的中部保持安静。 */
   -webkit-mask-image: radial-gradient(92% 88% at 86% 36%, #000 0 26%, rgba(0,0,0,.72) 49%, transparent 82%);
   mask-image: radial-gradient(92% 88% at 86% 36%, #000 0 26%, rgba(0,0,0,.72) 49%, transparent 82%);
@@ -830,34 +830,99 @@ select {
 #chat-search-count { color: var(--dim); font-size: var(--fs-11); min-width: 34px; text-align: center; }
 .search-hit { outline: 1px solid var(--accent-hover); background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .search-current { outline-color: var(--warn); }
-/* 空态:整片纯色里浮一个半透明圆 + 一长串快捷键,冷清且重心散。
-   改法——给背景一层极淡的径向光晕(把视线收到中央)、logo 用描边环+字面组合
-   (不再是一坨半透明色块)、提示文案分主次两行。全部走主题 token,亮暗色都成立。 */
+/* 空态是一幅完整构图：操作提示与 OC 并排，窄主区自动收为单列。 */
 .empty-state {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
-  color: var(--dim);
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--dim); padding: 24px 0;
 }
-/* 空态标记 = 图标本体(见 index.html 的内联 SVG),不是圆圈里塞个字母。
-   方形圆角底 + 金色描边,与任务栏图标一眼是同一个东西。 */
+.empty-welcome { width: 100%; max-width: 880px; display: grid; grid-template-columns: 1fr 1.1fr; align-items: center; gap: 24px; }
+.empty-copy { min-width: 0; padding-left: 24px; animation: fadein .35s ease; }
+.empty-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; color: var(--fg-strong); font-size: var(--fs-15); font-weight: 600; letter-spacing: .12em; }
 .logo-mark {
-  width: 74px; height: 74px; border-radius: 18px;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  color: var(--accent-text);
+  width: 42px; height: 42px; border-radius: 12px; flex-shrink: 0;
+  background: var(--accent-soft); color: var(--accent-text);
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 4%, transparent);
 }
-.logo-mark svg { width: 40px; height: 40px; }
-.empty-state .hint {
-  font-size: var(--fs-12); max-width: 46ch; text-align: center; line-height: 1.9;
-  color: var(--muted);
+.logo-mark svg { width: 23px; height: 23px; }
+.empty-copy h1 { color: var(--fg-strong); font-size: var(--fs-25); font-weight: 600; line-height: 1.4; letter-spacing: -.02em; margin-bottom: 12px; }
+.empty-state .hint { font-size: var(--fs-13); line-height: 1.8; color: var(--dim); }
+.empty-shortcuts { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 26px; font-size: var(--fs-11); }
+.empty-shortcuts > span { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.empty-shortcuts kbd { font: inherit; color: var(--fg); }
+.empty-art { min-width: 0; height: 288px; display: flex; justify-content: center; pointer-events: none; animation: fadein .5s ease; }
+.oc-figure {
+  position: relative; height: 100%; aspect-ratio: 2 / 3; max-width: 100%; pointer-events: none;
+  --oc-glow: var(--oc-circuit); --oc-cycle: 2.6s;
+  mask-image: linear-gradient(to bottom, #000 0 91%, transparent 100%);
+}
+.oc-body { position: relative; width: 100%; height: 100%; animation: oc-breathe 6s steps(2, end) infinite; }
+.oc-portrait { position: relative; display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.oc-network, .oc-mark { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; color: var(--oc-glow); }
+.oc-route { stroke: currentColor; stroke-width: 3; opacity: .09; }
+.oc-nodes { fill: currentColor; opacity: .22; }
+.oc-signal { stroke: currentColor; stroke-width: 10; stroke-linecap: butt; stroke-dasharray: 3 100; opacity: 0; }
+.oc-mark { stroke: currentColor; stroke-linecap: butt; stroke-linejoin: miter; stroke-width: 4; }
+.oc-cheek { opacity: .18; stroke-width: 10; transition: opacity .5s ease; }
+.oc-neck { opacity: 0; transition: opacity .5s ease; }
+#chat-area[data-oc-state="thinking"] .oc-cheek,
+#chat-area[data-oc-state="executing"] .oc-cheek,
+#chat-area[data-oc-state="replying"] .oc-cheek { animation: oc-think var(--oc-cycle) ease-in-out infinite; }
+#chat-area[data-oc-state="executing"] .oc-figure { --oc-cycle: 1.8s; }
+#chat-area[data-oc-state="executing"] .oc-signal,
+#chat-area[data-oc-state="replying"] .oc-signal { opacity: .75; animation: oc-flow var(--oc-cycle) linear infinite; }
+#chat-area[data-oc-state="executing"] .oc-neck { opacity: .7; animation: oc-think var(--oc-cycle) ease-in-out infinite; }
+#chat-area[data-oc-state="replying"] .oc-signal { animation-direction: reverse; opacity: .4; }
+#chat-area[data-oc-state="complete"] .oc-figure,
+#chat-area[data-oc-state="blocked"] .oc-figure { --oc-glow: var(--accent); }
+#chat-area[data-oc-state="complete"] .oc-cheek,
+#chat-area[data-oc-state="complete"] .oc-neck { animation: oc-settle 1.8s ease-out both; }
+#chat-area[data-oc-state="blocked"] .oc-cheek { opacity: .6; }
+#chat-area[data-oc-state="blocked"] .oc-body { animation-play-state: paused; }
+#chat-area[data-oc-paused="true"] .oc-body,
+#chat-area[data-oc-paused="true"] .oc-cheek,
+#chat-area[data-oc-paused="true"] .oc-neck,
+#chat-area[data-oc-paused="true"] .oc-signal { animation-play-state: paused; }
+@keyframes oc-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+@keyframes oc-think {
+  0%, 100% { opacity: .3; }
+  55% { opacity: .95; }
+}
+@keyframes oc-flow { from { stroke-dashoffset: 102; } to { stroke-dashoffset: 0; } }
+@keyframes oc-settle { 0% { opacity: .9; } 100% { opacity: .18; } }
+#oc-companion { display: none; position: absolute; right: 26px; bottom: 40px; height: 192px; width: 128px; z-index: var(--z-raised); pointer-events: none; }
+@container (min-width: 900px) {
+  #oc-companion { display: block; }
+  #chat-area:has(.msg-pane[data-active="1"] .empty-state) #oc-companion { display: none; }
+  #messages:not(:has(.msg-pane[data-active="1"] .empty-state)) { padding-right: 192px; }
+}
+@container (max-width: 760px) {
+  .empty-welcome { grid-template-columns: 1fr; max-width: 440px; }
+  .empty-copy { padding-left: 0; }
+  .empty-art { display: none; }
+}
+@media (max-height: 640px) {
+  .empty-state { padding: 8px 0; }
+  .empty-brand { margin-bottom: 12px; }
+  .empty-copy h1 { font-size: var(--fs-20); margin-bottom: 6px; }
+  .empty-shortcuts { display: none; }
+  .empty-art { height: 192px; }
+  #oc-companion { height: 144px; width: 96px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .empty-art, .empty-copy, #chat-area .oc-body, #chat-area .oc-cheek,
+  #chat-area .oc-neck, #chat-area .oc-signal { animation: none !important; transition: none !important; }
+  #chat-area[data-oc-state="thinking"] .oc-cheek,
+  #chat-area[data-oc-state="executing"] .oc-cheek,
+  #chat-area[data-oc-state="replying"] .oc-cheek { opacity: .65; }
+  #chat-area .oc-signal { display: none; }
 }
 
 .msg { line-height: 1.68; animation: fadein .15s ease; }
 @keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
-/* 用户消息不再是一整块实心强调色。金色实心配任何前景都在可读性上打架(白字
-   2.1:1、黑字在暗色主题里又太跳),而且长指令贴一大片纯色本身就吵。改成
-   金调低饱和贴纸 + 一条金色左脊:归属一眼可辨,正文仍用正常前景色。 */
+/* 用户消息使用中性表面与琥珀左边线，避免长段文字铺满强调色。 */
 .msg.user {
   align-self: flex-end; background: var(--user-bubble); color: var(--fg-strong);
   border: 1px solid var(--user-bubble-border); border-left: 2px solid var(--accent);
@@ -895,7 +960,13 @@ select {
 .msg.error .retry-btn:disabled { opacity: .6; cursor: wait; }
 .msg.notice { color: var(--dim); font-size: var(--fs-11-5); text-align: center; }
 
-#composer { border-top: 1px solid var(--border-soft); padding: 12px 14px; flex-shrink: 0; position: relative; }
+#composer {
+  width: calc(100% - 48px); max-width: 1080px; margin: 0 auto 20px; padding: 12px 16px 10px;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--panel);
+  box-shadow: 0 8px 28px var(--sunken-strong); flex-shrink: 0; position: relative;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+#composer:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); box-shadow: 0 8px 28px var(--sunken-strong); }
 /* 输入区限宽居中:宽屏(2000px+)下整行输入框既难扫读也难落笔,给它一个
    舒适的行宽上限,窄屏时 100% 照旧。附件条/输入框/发送行同宽,视觉成块。 */
 /* 限宽必须覆盖 composer 的**全部流内子元素**,漏一个就错一行:上一版只列了 5 个,
@@ -921,31 +992,32 @@ select {
 .attachment-chip:hover { background: var(--accent); }
 .attachment-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #prompt {
-  width: 100%; background: var(--input); color: var(--fg-strong); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 9px 12px; font: inherit; resize: none;
+  width: 100%; background: transparent; color: var(--fg-strong); border: 0;
+  border-radius: 0; padding: 16px 6px 12px; font: inherit; font-size: var(--fs-14); line-height: 1.6; resize: none;
 }
-#prompt:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
-#composer-bar { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin-top: 8px; flex-wrap: wrap; }
+#prompt::placeholder { color: var(--dim); }
+#prompt:focus { outline: none; }
+#composer-bar { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-top: 4px; flex-wrap: wrap; }
+#composer-bar #hint:empty { display: none; }
 .composer-actions { display: flex; gap: 10px; margin-left: auto; align-items: center; }
-/* 次级动作分段组:一圈外边框 + 段间发丝线,内部按钮自己不带边框。
-   目的是把「五个独立按钮」压成「一组次级动作」,让发送成为这一行唯一的主焦点。 */
+/* 次级动作使用同一表面的轻按钮，发送保留唯一的实心强调色。 */
 .composer-secondary {
-  display: flex; align-items: stretch;
-  border: 1px solid var(--border-soft); border-radius: 7px; background: var(--panel);
-  overflow: hidden;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
+  border: 0; border-radius: 7px; background: transparent;
 }
 .seg-btn, .seg-select {
   background: transparent; border: 0; color: var(--fg); font: inherit; font-size: var(--fs-12);
-  padding: 5px 11px; cursor: pointer; white-space: nowrap; border-radius: 0;
+  padding: 6px 9px; cursor: pointer; white-space: nowrap; border-radius: 6px;
 }
-.seg-btn + .seg-btn, .seg-btn + .seg-select { border-left: 1px solid var(--border-soft); }
+.seg-btn + .seg-select { margin-left: 4px; }
 .seg-btn:hover, .seg-select:hover { background: var(--panel2); color: var(--fg-strong); }
 .seg-btn:focus-visible, .seg-select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .seg-btn[aria-expanded="true"] { background: var(--accent-soft); color: var(--fg-strong); }
 .seg-select { padding-right: 6px; }
 /* 窄窗口:分段组自己换行,而不是把发送挤出去。 */
 @media (max-width: 1024px) {
-  .composer-actions { flex-wrap: wrap; row-gap: 6px; }
+  #composer { width: calc(100% - 24px); padding: 10px 12px; margin-bottom: 12px; }
+  .composer-actions { flex-wrap: wrap; row-gap: 6px; max-width: 100%; }
   .seg-btn, .seg-select { padding: 5px 8px; }
 }
 #composer-bar #hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1253,16 +1325,17 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--accent); outli
 #agent-panel .bg-entry { flex-shrink: 0; }
 #agent-panel .bg-entry.timeout { border-left-color: var(--warn); }
 #agent-panel .bg-entry[data-bg-status="stopped"] .bg-title::before { content: "⏹ "; color: var(--warn); }
-.parallel-task-status { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.parallel-task-status { display: flex; flex-direction: column; gap: 8px; margin-top: 0; }
 .parallel-line { position: relative; display: flex; flex-direction: column; gap: 2px; }
 .parallel-line-close { position: absolute; right: 5px; top: 5px; opacity: .72; }
 .parallel-line:hover .parallel-line-close, .parallel-line-close:focus-visible { opacity: 1; }
-.parallel-task-row { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 5px 48px 5px 7px; border: 1px solid var(--border-soft); border-radius: 4px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; font: inherit; }
-.parallel-task-row:hover, .parallel-task-row.active { border-color: var(--accent); background: var(--accent-soft); }
+.parallel-task-row { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 10px 40px 10px 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; font: inherit; }
+.parallel-task-row:hover { background: var(--panel2); }
+.parallel-task-row.active { border-color: var(--border); background: var(--panel2); }
 .parallel-task-row.running { border-left: 2px solid var(--ok); }
 .parallel-task-row.auto-pending { border-left: 2px solid var(--warn); }
-.parallel-task-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-size: var(--fs-11); }
-.parallel-task-state { color: var(--dim); font-size: var(--fs-10); }
+.parallel-task-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-size: var(--fs-12); font-weight: 500; }
+.parallel-task-state { color: var(--dim); font-size: var(--fs-11); }
 .parallel-line-history { margin: 0 3px 2px 10px; padding: 0 0 2px; border-left: 1px solid var(--border-soft); color: var(--dim); font-size: var(--fs-10); }
 /* 历史对话折叠头。默认收起——每条线路一份完整快照列表,三四条线同时铺开时
    侧栏前两屏全是历史标题,「各线当前在做」反而被挤下去。 */
@@ -1810,10 +1883,10 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .memory-warn { color: var(--warn); font-size: var(--fs-12); margin: 8px 0 0; }
 @media (max-width: 720px) {
   .memory-flow-stage { height: 124px; }
-  .neural-flow-chat { opacity: .58; }
+  .neural-flow-chat { opacity: .18; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .neural-flow-chat { opacity: .42; }
+  .neural-flow-chat { opacity: .18; }
   .memory-flow-state { transition: none; }
 }
 
@@ -1952,8 +2025,8 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
    设置紧随「鞭挞」勾选框——它是这个开关的配置入口,分隔到行尾会让人找不到。 */
 .autorun-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 3px 8px; font-size: var(--fs-11-5); color: var(--dim);
-  border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--panel);
+  padding: 3px 0; font-size: var(--fs-11-5); color: var(--dim);
+  border: 1px solid transparent; border-radius: var(--radius); background: transparent;
   min-width: 0; /* 状态文案长时让它自己截断,不撑开整行把发送按钮挤出去 */
 }
 .autorun-bar .auto-reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; }
@@ -1980,7 +2053,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 }
 .auto-reason.ok { border-color: var(--ok); }
 #autorun-more { position: relative; }
-#autorun-more > summary { list-style: none; cursor: pointer; padding: 1px 8px; border-radius: 4px; border: 1px solid var(--border); color: var(--dim); }
+#autorun-more > summary { list-style: none; cursor: pointer; padding: 5px 8px; border-radius: 6px; border: 1px solid transparent; color: var(--dim); }
 #autorun-more > summary::-webkit-details-marker { display: none; }
 #autorun-more > summary:hover { color: var(--fg); border-color: var(--accent); }
 #autorun-more[open] > summary { color: var(--fg); border-color: var(--accent); }
@@ -2261,7 +2334,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .workspace-line-branch { font-family: var(--mono); font-size: var(--fs-10-5); }
 
 /* 本轮改动条:贴在输入框上方,总量在右、文件清单可展开。 */
-.change-bar { margin-bottom: 6px; border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--panel); font-size: var(--fs-11-5); }
+.change-bar { margin-bottom: 6px; border-top: 1px solid var(--border-soft); background: transparent; font-size: var(--fs-11-5); }
 .change-bar-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 8px; border: 0; background: transparent; color: var(--dim); font: inherit; cursor: pointer; }
 .change-bar-head:hover { color: var(--fg); }
 .change-bar-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -2445,14 +2518,10 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .research-plan-node.plan-blocked { color: var(--warn); }
 .research-report { flex: 1; overflow-y: auto; padding: 8px 22px 22px; max-width: 900px; }
 .research-card.ref-highlight { outline: 2px solid var(--accent); }
-/* 空态提示分主次:第一行说"现在能做什么",第二行才是快捷键小字。 */
-.empty-state .hint-lead { font-size: var(--fs-12-5); color: var(--dim); }
-.empty-state .hint-keys { font-size: var(--fs-11); color: var(--muted); opacity: .85; }
-
 /* 开发 / 研究空间：导航、内容与任务控制分别组织。 */
-.workspace-switcher { display: flex; gap: 4px; padding: 12px 12px 6px; flex-shrink: 0; }
-.workspace-switcher button { flex: 1; border: 0; border-radius: 5px; background: transparent; color: var(--muted); padding: 8px 12px; font: inherit; cursor: pointer; transition: background .15s, color .15s; }
-.workspace-switcher button.active { color: var(--accent-text); background: var(--accent-soft); box-shadow: inset 0 -2px var(--accent); }
+.workspace-switcher { display: flex; gap: 4px; padding: 14px 14px 6px; flex-shrink: 0; }
+.workspace-switcher button { flex: 1; border: 0; border-radius: 7px; background: transparent; color: var(--muted); padding: 8px 12px; font: inherit; font-size: var(--fs-12); cursor: pointer; transition: background .15s, color .15s; }
+.workspace-switcher button.active { color: var(--fg-strong); background: var(--panel2); }
 .workspace-switcher button:hover { background: var(--hover-wash); color: var(--fg-strong); }
 .rail-section-separator, .rail-global-separator { width: 24px; min-height: 1px; background: var(--border-soft); margin: 8px 0; }
 .rail-global-separator { margin-top: auto; }
@@ -2485,6 +2554,22 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .research-overview-list button:hover strong { color: var(--accent-text); }
 .research-workspace > .research-overview, .research-workspace > .research-side, .research-workspace > .research-main { display: none; }
 .research-workspace[data-page="overview"] > .research-overview { display: block; }
+.research-auto-panel { margin: 24px 0; padding: 20px 0; border-top: 1px solid var(--border); }
+.research-auto-panel h3, .research-auto-panel h4 { margin: 0 0 10px; }
+.research-auto-panel p { margin: 10px 0; line-height: 1.65; }
+.research-auto-panel details { margin-top: 16px; }
+.research-auto-panel details form { margin-top: 12px; }
+.research-auto-map-root { font-weight: 600; }
+.research-auto-stages { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0; list-style-position: inside; color: var(--muted); }
+.research-auto-stages [aria-current="step"] { color: var(--fg-strong); font-weight: 700; }
+.research-auto-budget, .research-auto-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.research-auto-budget label { display: flex; flex-direction: column; gap: 6px; }
+.research-auto-budget input { max-width: 160px; }
+.research-auto-directions article { position: relative; margin-left: 8px; padding: 20px 0 20px 24px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.research-auto-directions article::before { content: ""; position: absolute; top: 28px; left: 0; width: 16px; border-top: 1px solid var(--border); }
+.research-auto-directions dl { display: grid; grid-template-columns: minmax(70px, 100px) minmax(0, 1fr); gap: 8px 16px; }
+.research-auto-directions dd { margin: 0; overflow-wrap: anywhere; }
+.research-auto-directions dt { color: var(--muted); }
 .research-workspace[data-page="literature"] > .research-side { display: flex; flex: 1; width: auto; border: 0; padding: 16px 28px; }
 .research-workspace[data-page="literature"] .research-cards { max-width: 960px; width: 100%; align-self: center; }
 .research-workspace[data-page="plan"] > .research-main, .research-workspace[data-page="experiments"] > .research-main, .research-workspace[data-page="report"] > .research-main, .research-workspace[data-page="writing"] > .research-main { display: flex; overflow: auto; }
@@ -2495,6 +2580,8 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .research-workspace .research-latex, .research-workspace .research-plan-panel, .research-workspace .research-roadmap, .research-workspace .research-runs { border: 0; background: transparent; border-radius: 0; margin: 0; padding: 24px 28px; }
 .task-options { position: relative; }
 .task-options summary { cursor: pointer; list-style: none; }
+.task-options > summary { display: flex; align-items: center; height: 30px; padding: 0 8px; border-radius: 6px; color: var(--dim); font-size: var(--fs-12); }
+.task-options > summary:hover, #composer-more > summary:hover { background: var(--panel2); color: var(--fg-strong); }
 .task-options-panel { position: absolute; bottom: calc(100% + 12px); right: 0; width: 340px; max-width: calc(100vw - 70px); max-height: 65vh; overflow-y: auto; padding: 14px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--sidebar-bg); box-shadow: 0 12px 35px var(--shadow); z-index: var(--z-float); }
 body[data-space="research"] #status-git, body[data-space="research"] #change-bar { display: none; }
 body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data-view="chat"]) #activity-toggle { display: none; }

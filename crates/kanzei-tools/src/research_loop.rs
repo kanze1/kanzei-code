@@ -192,6 +192,20 @@ impl Tool for ResearchLoopTool {
         }
         match action {
             "start" => {
+                let workflow = if ctx
+                    .project_root
+                    .join(".kanzei/research")
+                    .join(topic)
+                    .join("workflow.json")
+                    .exists()
+                {
+                    match crate::research_workflow::load(&ctx.project_root, topic) {
+                        Ok(state) => state,
+                        Err(error) => return ToolOutput::error(error),
+                    }
+                } else {
+                    None
+                };
                 let plan = match load_plan(&ctx.project_root, topic) {
                     Ok(Some(plan)) => plan,
                     Ok(None) => {
@@ -199,7 +213,7 @@ impl Tool for ResearchLoopTool {
                     }
                     Err(error) => return ToolOutput::error(error),
                 };
-                if plan.status != PlanStatus::Approved {
+                if plan.status != PlanStatus::Approved && workflow.is_none() {
                     return ToolOutput::needs_confirmation(
                         "PLAN_NOT_APPROVED",
                         format!("研究计划当前状态 {:?}，必须先由用户批准", plan.status),
@@ -210,10 +224,14 @@ impl Tool for ResearchLoopTool {
                     Ok(None) => {}
                     Err(error) => return ToolOutput::error(error),
                 }
-                let budget = match load_budget_override(&ctx.project_root, topic) {
-                    Ok(Some(budget)) => budget,
-                    Ok(None) => plan.budget.clone(),
-                    Err(error) => return ToolOutput::error(error),
+                let budget = if let Some(workflow) = workflow {
+                    workflow.budget
+                } else {
+                    match load_budget_override(&ctx.project_root, topic) {
+                        Ok(Some(budget)) => budget,
+                        Ok(None) => plan.budget.clone(),
+                        Err(error) => return ToolOutput::error(error),
+                    }
                 };
                 let state = ResearchLoopState {
                     version: 1,
