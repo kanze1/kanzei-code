@@ -231,7 +231,7 @@ pub async fn voice_speak(
                 sequence += 1;
             }
         }
-        if total == 0 || total % 2 != 0 {
+        if total == 0 || !total.is_multiple_of(2) {
             return Err("语音流为空或包含不完整采样".into());
         }
         on_chunk
