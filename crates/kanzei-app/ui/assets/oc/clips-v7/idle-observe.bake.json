@@ -11,8 +11,11 @@
     576,
     1728
   ],
-  "bytes": 1574419,
-  "sha256": "7f821d453b384633ebb874d2ec04c8d22adf0bd4e5c930e40a2ee9804ccc5199",
+  "bytes": 1753011,
+  "sha256": "48f214bfaec7693500176e77194211ace87407de281a40753a8246d3cebc6ee7",
   "closed_mouth": "baked",
-  "keying": "offline"
+  "keying": "offline",
+  "matte": "graph-cut-with-ink-preservation",
+  "opencv": "4.10.0",
+  "pipeline_sha256": "dbe4f0f174228796fd8dc2d6e3a5ca37b93ba5f7435cda52302a2c19c0141b2f"
 }

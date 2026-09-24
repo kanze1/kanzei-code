@@ -108,6 +108,8 @@ def main():
     if profile.get("nccl_p2p_disable"):
         environment["NCCL_P2P_DISABLE"] = "1"
     (root / "logs/launch.json").write_text(json.dumps(event, indent=2))
+    # exec keeps this PID, so stop.py must not reuse a previous deployment PID.
+    (root / "logs/serve.pid").write_text(str(os.getpid()) + "\n")
     os.execvpe(command[0], command, environment)
 
 

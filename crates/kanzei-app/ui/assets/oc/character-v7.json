@@ -8,7 +8,7 @@
   ],
   "videoLayout": "rgb-alpha-vertical",
   "poster": "master-workwear-v7-alpha.png",
-  "posterSha256": "b2bbf39616d96d514784c10128e7f1d4cc434aa61ec50c34a9928a85ad79ff82",
+  "posterSha256": "a70fbab02474aa3b5eff6b1bd4f69b51a348948ee750b81bc7d05e049a9240c9",
   "mouth": {
     "texture": "mouth-soft-v6.png",
     "reference": [
@@ -90,7 +90,7 @@
     "idle-breath": {
       "file": "clips-v7/idle-breath.mp4",
       "tracking": "clips-v7/idle-breath.json",
-      "sha256": "1ba0f0cee7b44095250264e3f93031177f97125ac1f84f3b059ae2c13a57dbde",
+      "sha256": "ffa732a4e9f196606e49b535de2ed6197b4085b37fe5b53b3386de1aba6f5459",
       "trackingSha256": "bc89e687b235c8329209dfada5d189958bad8cabe31a40b616a47a8c106464df",
       "frames": 192,
       "start": 0,
@@ -124,7 +124,7 @@
     "idle-observe": {
       "file": "clips-v7/idle-observe.mp4",
       "tracking": "clips-v7/idle-observe.json",
-      "sha256": "7f821d453b384633ebb874d2ec04c8d22adf0bd4e5c930e40a2ee9804ccc5199",
+      "sha256": "48f214bfaec7693500176e77194211ace87407de281a40753a8246d3cebc6ee7",
       "trackingSha256": "dfdff5d22730f04976140770198cd2921e22d55392737ebf53c8af38ec808b9e",
       "frames": 192,
       "start": 0,
@@ -158,7 +158,7 @@
     "idle-quiet": {
       "file": "clips-v7/idle-quiet.mp4",
       "tracking": "clips-v7/idle-quiet.json",
-      "sha256": "27221930aa5f22893996e382c06a44c8e798cb6cd61e9d2038a1a378de1b5672",
+      "sha256": "90888469e4631e6fd95f1d332108cc4782d61626864938c88eb0c98c07f24503",
       "trackingSha256": "2828a4d043642256c64bedf05942a59e413098a5c8641fa82b369e37b06938f7",
       "frames": 192,
       "start": 0,
@@ -192,7 +192,7 @@
     "listening": {
       "file": "clips-v7/listening.mp4",
       "tracking": "clips-v7/listening.json",
-      "sha256": "14f9618039534c62766b55c48713ea6dc184edfa57ca1e646f271202dfc850e3",
+      "sha256": "a6d30b509745181225e740803593a1156ba1410fb17ee634d8fcabbda7194ec7",
       "trackingSha256": "01d6535a3f126ad2a8adbd0b457598a2374a707b85d861deaa30cfc2fb0f17ce",
       "frames": 107,
       "start": 0,
@@ -213,7 +213,7 @@
     "thinking": {
       "file": "clips-v7/thinking.mp4",
       "tracking": "clips-v7/thinking.json",
-      "sha256": "83a8f324ee67cdc00551adf9f86d664dda4f9f2b730752a4463d3b76530f83bc",
+      "sha256": "eaf0b93c2e0f5f6844e41f8897135f335d5d68f0d4c1281dbe00204472294189",
       "trackingSha256": "8b68dfe829a17a5ccb3544c93bd3d9d981815f023c3b7a12f5164c418337da61",
       "frames": 158,
       "start": 0,
@@ -234,7 +234,7 @@
     "replying": {
       "file": "clips-v7/replying.mp4",
       "tracking": "clips-v7/replying.json",
-      "sha256": "290dbb59f3a40b369167e5d4f5a304908eeb90998f0f67e2820f920324811b23",
+      "sha256": "72ca9b3409ff60d9bbe440f97a5052d2e28b30069bc09073f2c6f1fd32693620",
       "trackingSha256": "574486144ac6d5278defe3071a94f072b5650994752c0371139b414e02f7f21d",
       "frames": 158,
       "start": 0,
@@ -256,7 +256,7 @@
     "executing": {
       "file": "clips-v7/executing.mp4",
       "tracking": "clips-v7/executing.json",
-      "sha256": "561796b7d56bb45a8912e08a52551446a8a458e27b24f0ad49b20e31a9006c5d",
+      "sha256": "9cf165bbbc42b6857f492bba6840e854c7e417c8b827c033a6c798a4ca9f34d0",
       "trackingSha256": "38f20d2f5d45520e31508b1a2d3e459d0c0c2991ff297c42ce1a79a0e3efab76",
       "frames": 158,
       "start": 0,
@@ -277,7 +277,7 @@
     "blocked": {
       "file": "clips-v7/blocked.mp4",
       "tracking": "clips-v7/blocked.json",
-      "sha256": "e80f7724afb15b3e13e322e51538daedea3d9d3a6005e187e89b5a2cb98eb098",
+      "sha256": "6a071267c4387854cad7283b3da65d0a99c937545d33e92d016797d53dc3a9aa",
       "trackingSha256": "045636e0d899e4817ab24ceb99a0d74dc53940d80e3ced6b7515e17634d13a67",
       "frames": 107,
       "start": 0,
@@ -298,7 +298,7 @@
     "aside": {
       "file": "clips-v7/aside.mp4",
       "tracking": "clips-v7/aside.json",
-      "sha256": "b36984bcc5c8756cec9cdfc6eae48d3a90a199e8af30e28ea053a50afc9fc3bb",
+      "sha256": "effbfee8975f7c46a10303c6766f8474d4e29d7138fa656d8cea09ac44f6f8ce",
       "trackingSha256": "a87a0c676e4626d01c29c7f6645b531633653d3be181b853e019e65242ce2b85",
       "frames": 107,
       "start": 0,
@@ -319,7 +319,7 @@
     "warm": {
       "file": "clips-v7/warm.mp4",
       "tracking": "clips-v7/warm.json",
-      "sha256": "9eaee57c3bc8b1d52932035da1e72c1ce2ee1d535f4a38b603e67ce65cb701d6",
+      "sha256": "7d4eeeeebf975b06de8e9862b322550b3df0450fc47d8997f9b27239a11ca255",
       "trackingSha256": "1920472ba79770bda367199b7d10cbaeb8b503030697ff42f3e39cb29de3e57c",
       "frames": 107,
       "start": 0,
@@ -340,7 +340,7 @@
     "complete": {
       "file": "clips-v7/complete.mp4",
       "tracking": "clips-v7/complete.json",
-      "sha256": "4564360dcad9d7fd00d7d98c261a68a49464c5a3de1e973dbd1d43c71c5d56d4",
+      "sha256": "330c8212716ccf8964ac012c3d238cce27841c1a5d198a960720a016e11fae7d",
       "trackingSha256": "9456d4358a96effed3812155a6a10e58f360eb3f4e505ef598fdccb7ffdd0c20",
       "frames": 107,
       "start": 0,
@@ -361,7 +361,7 @@
     "reply-rest": {
       "file": "clips-v7/idle-quiet.mp4",
       "tracking": "clips-v7/idle-quiet.json",
-      "sha256": "27221930aa5f22893996e382c06a44c8e798cb6cd61e9d2038a1a378de1b5672",
+      "sha256": "90888469e4631e6fd95f1d332108cc4782d61626864938c88eb0c98c07f24503",
       "trackingSha256": "2828a4d043642256c64bedf05942a59e413098a5c8641fa82b369e37b06938f7",
       "frames": 192,
       "start": 5,

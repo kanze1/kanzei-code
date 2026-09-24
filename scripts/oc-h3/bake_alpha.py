@@ -74,6 +74,8 @@ def matte(frame):
     cv2.setRNGSeed(7)
     cv2.grabCut(np.uint8(frame*255),gc,None,np.zeros((1,65)),np.zeros((1,65)),2,cv2.GC_INIT_WITH_MASK)
     silhouette = np.isin(gc,[cv2.GC_FGD,cv2.GC_PR_FGD]).astype(np.uint8)
+    _, components, areas, _ = cv2.connectedComponentsWithStats(silhouette,8)
+    silhouette = (components==1+np.argmax(areas[1:,cv2.CC_STAT_AREA])).astype(np.uint8)
     exterior = 1-cv2.dilate(silhouette,np.ones((7,7),np.uint8))
     _, bg_labels = cv2.distanceTransformWithLabels(1-exterior,cv2.DIST_L2,5,labelType=cv2.DIST_LABEL_PIXEL)
     background_colors = frame[exterior.astype(bool)]
@@ -87,6 +89,8 @@ def matte(frame):
     estimated = np.clip(np.sum(difference*direction,axis=2)/np.maximum(np.sum(direction*direction,axis=2),.0001),0,1)
     edge_zone = (solid==0)&(edge_distance<2)
     alpha = np.where(edge_zone,estimated,solid.astype(np.float32))
+    # Ink outlines are opaque foreground, not mixtures of skin and backdrop.
+    alpha = np.maximum(alpha,(dark&(silhouette>0)).astype(np.float32))
     # Foreground seeds define the boundary; keep a single antialiased fringe.
     support = silhouette.astype(np.float32)
     alpha *= support
@@ -107,6 +111,7 @@ def main():
     parser.add_argument('--poster', type=Path)
     parser.add_argument('--width', type=int, default=576)
     args = parser.parse_args()
+    cv2.setNumThreads(2)
     capture = cv2.VideoCapture(str(args.movie))
     fps = capture.get(cv2.CAP_PROP_FPS)
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -147,7 +152,9 @@ def main():
     if code or frames != count: raise RuntimeError(f'Incomplete packed video: {frames}/{count}, encoder={code}')
     record = dict(format='rgb-alpha-vertical', source=str(args.movie), frames=frames, fps=fps,
         size=[out_w,out_h], encoded_size=[out_w,out_h*2], bytes=args.output.stat().st_size,
-        sha256=hashlib.sha256(args.output.read_bytes()).hexdigest(), closed_mouth='baked', keying='offline')
+        sha256=hashlib.sha256(args.output.read_bytes()).hexdigest(), closed_mouth='baked', keying='offline',
+        matte='graph-cut-with-ink-preservation',opencv=cv2.__version__,
+        pipeline_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
     args.output.with_suffix('.bake.json').write_text(json.dumps(record,indent=2),encoding='utf-8')
     print(json.dumps(record))
 
