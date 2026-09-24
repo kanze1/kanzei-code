@@ -813,6 +813,20 @@
             </select>
           </div>
 
+          <details id="oc-settings" class="settings-group" open>
+            <summary data-i18n-key="角色外观与动作">角色外观与动作</summary>
+            <p class="dim" data-i18n-key="调整立即保存到本机。">调整立即保存到本机。</p>
+            <div class="form-row"><label for="set-oc-enabled" data-i18n-key="显示角色">显示角色</label><input id="set-oc-enabled" data-oc-setting="enabled" type="checkbox" /></div>
+            <div class="form-row oc-range-row"><label for="set-oc-scale" data-i18n-key="角色大小">角色大小</label><input id="set-oc-scale" data-oc-setting="scale" type="range" min="60" max="180" step="5" value="100" /><output for="set-oc-scale" data-oc-value="scale">100%</output></div>
+            <div class="form-row oc-range-row"><label for="set-oc-opacity" data-i18n-key="不透明度">不透明度</label><input id="set-oc-opacity" data-oc-setting="opacity" type="range" min="40" max="100" step="5" value="100" /><output for="set-oc-opacity" data-oc-value="opacity">100%</output></div>
+            <div class="form-row"><label for="set-oc-motion" data-i18n-key="动作模式">动作模式</label><select id="set-oc-motion" data-oc-setting="motion"><option value="full" data-i18n-key="完整动作">完整动作</option><option value="idle" data-i18n-key="仅待机">仅待机</option><option value="still" data-i18n-key="静态立绘">静态立绘</option></select></div>
+            <p class="dim" data-i18n-key="各模式均保留说话嘴型，动画遵循系统的减少动态效果设置。">各模式均保留说话嘴型，动画遵循系统的减少动态效果设置。</p>
+            <div class="form-row"><label for="set-oc-locked" data-i18n-key="锁定角色">锁定角色</label><input id="set-oc-locked" data-oc-setting="locked" type="checkbox" /><span class="dim" data-i18n-key="固定位置和大小，鼠标操作穿过角色。">固定位置和大小，鼠标操作穿过角色。</span></div>
+            <div class="form-row"><label data-i18n-key="角色位置">角色位置</label><button id="oc-reset-placement" class="ghost" type="button" data-i18n-key="重置位置与大小">重置位置与大小</button></div>
+            <p id="oc-adjust-help" class="dim" data-i18n-key="拖动角色调整位置，滚轮或右下角缩放。">拖动角色调整位置，滚轮或右下角缩放。</p>
+            <p class="dim" data-i18n-key="选中角色后，方向键移动，+ / - 缩放，Home 复位。">选中角色后，方向键移动，+ / - 缩放，Home 复位。</p>
+            <span id="oc-resize-label" hidden data-i18n-key="缩放角色">缩放角色</span>
+          </details>
           <details class="settings-group" open>
             <summary data-i18n-key="模型角色">模型角色</summary>
           <p id="settings-effective" class="settings-effective hidden" role="status"></p>

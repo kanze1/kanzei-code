@@ -244,6 +244,9 @@ export function createOcClipRenderer(host, resources, options = {}) {
     const resolution = Math.min(1.5, window.devicePixelRatio || 1, detailWidth / Math.max(1, Math.min(w, h * artWidth / artHeight)));
     app.renderer.resolution = resolution;
     app.renderer.resize(w, h);
+    // Render at the displayed size, but keep CSS sizing in the unscaled host.
+    // Pixi's autoDensity otherwise applies the figure scale twice and clips it.
+    app.view.style.width = "100%"; app.view.style.height = "100%";
     const scale = Math.min(w / artWidth, h / artHeight);
     stage.scale.set(scale); stage.position.set((w - artWidth * scale) / 2, h - artHeight * scale);
   }

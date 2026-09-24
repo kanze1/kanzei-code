@@ -1,6 +1,8 @@
 import { createOcDirector, ocMouthFrame } from "./22-oc-director.js";
 import { loadOcResources, createOcRenderer } from "./22-oc-renderer.js";
 import { OC_REFERENCE_SRC, OC_CHARACTER_PACK_SRC } from "./22-oc-config.js";
+import { readOcSettings } from "./22-oc-preference.js";
+import { initOcLayout } from "./22-oc-layout.js";
 
 export { ocMouthFrame };
 
@@ -18,6 +20,15 @@ export function initOcPerformance(root) {
   let smoothMouth = 0; let renderedFrames = 0; let failure = null;
   let enabled = document.documentElement.dataset.ocEnabled !== "false";
   let generation = 0;
+  let motionMode = readOcSettings().motion;
+  const reduced = () => media.matches || motionMode === "still";
+  const bodyState = () => motionMode === "idle" ? "idle" : state;
+  const layout = initOcLayout(root, () => {
+    motionMode = readOcSettings().motion;
+    director?.setState(bodyState());
+    refresh();
+    if (renderer && !paused && !document.hidden) paint();
+  });
 
   function visibleHost() {
     return Array.from(root.querySelectorAll(".oc-stage")).find(host => {
@@ -36,7 +47,7 @@ export function initOcPerformance(root) {
   function paint() {
     if (!renderer || !director || !activeHost || destroyed || !enabled) return;
     const sample = director.sample();
-    const painted = renderer.render(sample, { speaking, level: smoothMouth, reduced: media.matches });
+    const painted = renderer.render(sample, { speaking, level: smoothMouth, reduced: reduced() });
     if (painted === false) return;
     root.dataset.ocPhase = sample.phase;
     root.dataset.ocFrame = sample.to[0] + ":" + sample.to[1];
@@ -71,7 +82,7 @@ export function initOcPerformance(root) {
 
   function resumeClock() {
     if (!renderer || !enabled || paused || document.hidden || !activeHost || destroyed) { stopClock(); return; }
-    if (media.matches && !speaking) { stopClock(); smoothMouth = 0; paint(); return; }
+    if (reduced() && !speaking) { stopClock(); smoothMouth = 0; paint(); return; }
     renderer?.resume?.();
     if (frame === null) frame = requestAnimationFrame(tick);
   }
@@ -84,9 +95,10 @@ export function initOcPerformance(root) {
     loading = loadOcResources(OC_CHARACTER_PACK_SRC).then(resources => {
       if (destroyed || !enabled || requestGeneration !== generation) return;
       director = createOcDirector(resources.pack);
-      director.setState(state);
+      director.setState(bodyState());
       activeHost = visibleHost();
       if (!activeHost) return;
+      layout.refresh(activeHost);
       const poster = activeHost.querySelector(".oc-poster");
       if (poster && !poster.src) poster.src = OC_REFERENCE_SRC;
       renderer = createOcRenderer(activeHost, resources);
@@ -108,6 +120,7 @@ export function initOcPerformance(root) {
   function refresh() {
     if (destroyed) return;
     const nextHost = !enabled || paused || document.hidden ? null : visibleHost();
+    layout.refresh(nextHost);
     root.dataset.ocPaused = String(!nextHost);
     if (!nextHost) { activeHost = null; stopClock(); return; }
     if (nextHost !== activeHost) {
@@ -143,7 +156,7 @@ export function initOcPerformance(root) {
       state = next || "idle";
       paused = hidden;
       root.dataset.ocState = state;
-      director?.setState(state);
+      director?.setState(bodyState());
       if (state === "interrupted") {
         speaking = false; mouthLevel = 0; smoothMouth = 0;
         root.dataset.ocSpeaking = "false";
@@ -169,7 +182,7 @@ export function initOcPerformance(root) {
       mouthLevel = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
     },
     snapshot() {
-      return { state, speaking, paused: paused || !enabled, enabled, renderedFrames, error: failure, renderer: !enabled ? "off" : renderer ? "pixi" : "poster", sample: director?.sample() || null, media: renderer?.snapshot?.() || null };
+      return { state, speaking, paused: paused || !enabled, enabled, motionMode, renderedFrames, error: failure, renderer: !enabled ? "off" : renderer ? "pixi" : "poster", sample: director?.sample() || null, media: renderer?.snapshot?.() || null };
     },
     redraw() { paint(); },
     reset() {
@@ -185,6 +198,7 @@ export function initOcPerformance(root) {
     destroy() {
       if (destroyed) return;
       destroyed = true; stopClock();
+      layout.destroy();
       renderer?.destroy(); renderer = null;
       document.removeEventListener("visibilitychange", refresh);
       media.removeEventListener("change", refresh);
