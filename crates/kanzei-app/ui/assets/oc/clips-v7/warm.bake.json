@@ -1,8 +1,7 @@
 {
   "format": "rgb-alpha-vertical",
-  "source": "output\\oc-h3\\oc-warm-workwear-v7\\sample.mp4",
   "frames": 107,
-  "fps": 24.0,
+  "fps": 24,
   "size": [
     576,
     864
@@ -11,11 +10,12 @@
     576,
     1728
   ],
-  "bytes": 937184,
-  "sha256": "7d4eeeeebf975b06de8e9862b322550b3df0450fc47d8997f9b27239a11ca255",
-  "closed_mouth": "baked",
-  "keying": "offline",
-  "matte": "graph-cut-with-ink-preservation",
-  "opencv": "4.10.0",
-  "pipeline_sha256": "dbe4f0f174228796fd8dc2d6e3a5ca37b93ba5f7435cda52302a2c19c0141b2f"
+  "bytes": 906999,
+  "sha256": "5cbfa4b020078f88c22e2cdc0336a03f0e9b46c85eb85e4f1f8122b9fe728275",
+  "closed_mouth": "clean-plate",
+  "tattoo": "clean-plate",
+  "source_sha256": "7d4eeeeebf975b06de8e9862b322550b3df0450fc47d8997f9b27239a11ca255",
+  "raw_sha256": "87b04fa0fc2d87bc97a9508b50a7c52521fa2904df76438e7ae9993e7afc6949",
+  "pipeline_sha256": "73f2aaaa658691e7e2f44468786677e6cd433f56ea1dbd3114842e7d5e1b0a31",
+  "tattoo_track_min_confidence": 0.361111
 }

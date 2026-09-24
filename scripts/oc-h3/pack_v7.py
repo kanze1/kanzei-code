@@ -26,6 +26,8 @@ def main():
         checks=read(source/'review/checks.json')
         tracking=read(source/'review/tracking.json')
         bake=read(destination/(name+'.bake.json'))
+        if bake.get('closed_mouth')=='clean-plate':
+            tracking=read(destination/(name+'.json'))
         movie=destination/(name+'.mp4')
         if review.get('status')!='accepted' or checks['decode']!='passed':
             raise RuntimeError('Unreviewed video: '+name)
@@ -51,7 +53,8 @@ def main():
         'blocked':[.35,3.5],'aside':[.35,3.5],'warm':[.35,3.5],'complete':[.35,3.5],
     }.items(): clips[name]['protected']=[bounds]
     clips['reply-rest']={**clips['idle-quiet'],'start':5,'protected':[],'next':'replying','label':'平视回应'}
-    pack=dict(format='kanzei.character-pack.v3',version='2026.09.24.7',fps=24,size=[576,864],
+    fixed_details=all(record[3].get('closed_mouth')=='clean-plate' for record in records.values())
+    pack=dict(format='kanzei.character-pack.v3',version='2026.09.25.7.1' if fixed_details else '2026.09.24.7',fps=24,size=[576,864],
         videoLayout='rgb-alpha-vertical',poster='master-workwear-v7-alpha.png',posterSha256=sha(ASSETS/'master-workwear-v7-alpha.png'),
         mouth=dict(texture='mouth-soft-v6.png',reference=[.498,.234],tracking='per-frame affine',closed='baked'),
         background=[218,209,203],transitionMs=180,
@@ -66,6 +69,14 @@ def main():
             'aside':dict(clips=['aside','idle-quiet']),
             'warm':dict(clips=['warm'],once=True),'complete':dict(clips=['complete'],once=True),
         },clips=clips,demo=read(ROOT/'scripts/oc-h3/demo-v7.json'))
+    if fixed_details:
+        pack['basePoster']='base-workwear-v7-alpha.png'
+        pack['basePosterSha256']=sha(ASSETS/pack['basePoster'])
+        pack['mouth'].update(closed='clean-plate',closedTexture='detail-reference-v7.png',
+            closedTextureSha256=sha(ASSETS/'detail-reference-v7.png'),composite='source ink residual')
+        pack['tattoo']=dict(texture='reference.png',sha256=sha(ASSETS/'reference.png'),
+            reference=[811,1017],textureSize=[1254,1254],anchor=[.588,.340],scale=.3,
+            tracking='per-frame neck affine',composite='source pigment')
     (ASSETS/'character-v7.json').write_text(json.dumps(pack,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps(dict(videos=len(records),video_bytes=sum((destination/(name+'.mp4')).stat().st_size for name in records))))
 

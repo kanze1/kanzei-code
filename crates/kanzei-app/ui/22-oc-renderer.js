@@ -14,9 +14,11 @@ export function loadOcResources(manifestSrc) {
       for (const [name, state] of Object.entries(pack.states)) {
         if (!state.clips?.length || state.clips.some(id => !pack.clips[id])) throw new Error("Invalid OC state: " + name);
       }
-      const [poster, mouth, entries] = await Promise.all([
-        PIXI.Assets.load(new URL(pack.poster, url).href),
+      const [poster, mouth, closedMouth, tattoo, entries] = await Promise.all([
+        PIXI.Assets.load(new URL(pack.basePoster || pack.poster, url).href),
         PIXI.Assets.load(new URL(pack.mouth.texture, url).href),
+        pack.mouth.closedTexture ? PIXI.Assets.load(new URL(pack.mouth.closedTexture, url).href) : null,
+        pack.tattoo ? PIXI.Assets.load(new URL(pack.tattoo.texture, url).href) : null,
         Promise.all(Object.entries(pack.clips).map(async ([id, clip]) => {
           if (!Number.isFinite(clip.end) || !Number.isFinite(clip.start || 0) || !(clip.end > (clip.start || 0))) {
             throw new Error("Invalid OC clip duration: " + id);
@@ -30,10 +32,14 @@ export function loadOcResources(manifestSrc) {
               tracking.mouth.some(row => row.length < 4 || !row.slice(0,4).every(Number.isFinite))) {
             throw new Error("Invalid OC mouth tracking: " + id);
           }
+          if (pack.tattoo && (!tracking.tattoo || tracking.tattoo.length !== tracking.mouth.length ||
+              tracking.tattoo.some(row => row.length < 4 || !row.slice(0,4).every(Number.isFinite)))) {
+            throw new Error("Invalid OC tattoo tracking: " + id);
+          }
           return [id, { ...clip, url: new URL(clip.file, url).href, tracking }];
         })),
       ]);
-      return { PIXI, pack, poster, mouth, clips: Object.fromEntries(entries) };
+      return { PIXI, pack, poster, mouth, closedMouth, tattoo, clips: Object.fromEntries(entries) };
     })().catch(error => { resourceCache.delete(url); throw error; });
     resourceCache.set(url, loading);
   }

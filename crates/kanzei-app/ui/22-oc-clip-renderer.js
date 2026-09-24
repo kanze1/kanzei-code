@@ -1,5 +1,6 @@
 // Whole-character clips contain the body motion. Composite the measured mouth
 // anchor and remove the neutral backdrop without applying another idle rig.
+import { OC_DETAIL_FRAGMENT } from "./22-oc-detail-shader.js";
 const VERTEX = `
 precision mediump float;
 attribute vec2 aVertexPosition;
@@ -130,7 +131,7 @@ void main(){
 }`;
 
 export function createOcClipRenderer(host, resources, options = {}) {
-  const { PIXI, pack, poster, mouth, clips } = resources;
+  const { PIXI, pack, poster, mouth, closedMouth, tattoo, clips } = resources;
   const [artWidth, artHeight] = pack.size;
   const app = new PIXI.Application({
     width: 1, height: 1, autoStart: false, sharedTicker: false, backgroundAlpha: 0,
@@ -146,14 +147,21 @@ export function createOcClipRenderer(host, resources, options = {}) {
     .addAttribute("aTextureCoord", new Float32Array([0,0,1,0,1,1,0,1]), 2)
     .addIndex([0,1,2,0,2,3]);
   const uniforms = {
-    uVideoA: poster, uVideoB: poster, uMouthArt: mouth, uClosedMouthArt: poster,
+    uVideoA: poster, uVideoB: poster, uMouthArt: mouth, uClosedMouthArt: closedMouth || poster,
+    uTattooArt: tattoo || poster,
+    uTattooA: [...(pack.tattoo?.anchor || [.588,.340]),1,0],
+    uTattooB: [...(pack.tattoo?.anchor || [.588,.340]),1,0],
+    uTattooReference: pack.tattoo?.reference || [811,1017],
+    uTattooTextureSize: pack.tattoo?.textureSize || [1254,1254],
+    uTattooScale: pack.tattoo?.scale || .3,
     uMouthA: [...pack.mouth.reference,1,0], uMouthB: [...pack.mouth.reference,1,0],
     uMouthReference: pack.mouth.reference.slice(), uBackground: pack.background.map(n => n / 255),
     uTexel: [3 / artWidth, 3 / artHeight], uSize: pack.size.slice(),
     uBlend: 1, uMouth: 0, uKey: 1, uPacking: [0, 0],
   };
   const packed = pack.videoLayout === "rgb-alpha-vertical";
-  const mesh = new PIXI.Mesh(geometry, PIXI.Shader.from(VERTEX, packed ? PACKED_FRAGMENT : FRAGMENT, uniforms));
+  const shader = pack.mouth.closed === "clean-plate" ? OC_DETAIL_FRAGMENT : packed ? PACKED_FRAGMENT : FRAGMENT;
+  const mesh = new PIXI.Mesh(geometry, PIXI.Shader.from(VERTEX, shader, uniforms));
   stage.addChild(mesh);
   const entries = new Map();
   let currentHost = null, width = 0, height = 0, destroyed = false, paused = false;
@@ -191,7 +199,7 @@ export function createOcClipRenderer(host, resources, options = {}) {
     }
     if (video.requestVideoFrameCallback) entry.frameRequest = video.requestVideoFrameCallback(decoded);
     video.addEventListener("seeked", () => {
-      entry.mediaTime = video.currentTime; entry.frameVersion++;
+      if (!video.requestVideoFrameCallback) { entry.mediaTime = video.currentTime; entry.frameVersion++; }
     });
     entries.set(key, entry);
     entry.ready = new Promise(resolve => {
@@ -209,7 +217,9 @@ export function createOcClipRenderer(host, resources, options = {}) {
         if (video.videoWidth !== artWidth || video.videoHeight !== artHeight * (packed ? 2 : 1)) {
           return finish(new Error("OC video dimensions: " + id));
         }
-        entry.texture = PIXI.Texture.from(video, { resourceOptions: { autoPlay: false, updateFPS: pack.fps } });
+        // Decoded-frame versions below already gate uploads. A second Pixi FPS
+        // throttle can skip an explicit seek while the detail anchors advance.
+        entry.texture = PIXI.Texture.from(video, { resourceOptions: { autoPlay: false, updateFPS: 0 } });
         entry.texture.baseTexture.resource.autoUpdate = false;
         if (clip.start) video.currentTime = clip.start;
         entry.frameVersion++;
@@ -230,7 +240,8 @@ export function createOcClipRenderer(host, resources, options = {}) {
     const w = Math.max(1, Math.round(bounds.width)), h = Math.max(1, Math.round(bounds.height));
     if (w === width && h === height) return;
     width = w; height = h; paintSignature = "";
-    const resolution = Math.min(1.5, window.devicePixelRatio || 1, artWidth / Math.max(1, Math.min(w, h * artWidth / artHeight)));
+    const detailWidth = closedMouth ? Math.max(artWidth, closedMouth.width) : artWidth;
+    const resolution = Math.min(1.5, window.devicePixelRatio || 1, detailWidth / Math.max(1, Math.min(w, h * artWidth / artHeight)));
     app.renderer.resolution = resolution;
     app.renderer.resize(w, h);
     const scale = Math.min(w / artWidth, h / artHeight);
@@ -266,10 +277,12 @@ export function createOcClipRenderer(host, resources, options = {}) {
     }
     return true;
   }
-  function anchor(id, seconds) {
+  function anchor(id, seconds, kind = "mouth") {
     const tracking = clips[id].tracking;
-    const index = Math.max(0, Math.min(tracking.mouth.length - 1, Math.floor(seconds * tracking.fps + .001)));
-    return tracking.mouth[index].slice(0, 4);
+    const points = tracking[kind];
+    if (!points) return [...(pack.tattoo?.anchor || [.588,.340]),1,0];
+    const index = Math.max(0, Math.min(points.length - 1, Math.floor(seconds * tracking.fps + .001)));
+    return points[index].slice(0, 4);
   }
   function render(sample, options = {}) {
     if (destroyed) return false;
@@ -281,6 +294,7 @@ export function createOcClipRenderer(host, resources, options = {}) {
     if (reduced) {
       uniforms.uVideoA = uniforms.uVideoB = poster;
       uniforms.uMouthA = uniforms.uMouthB = [...pack.mouth.reference,1,0];
+      uniforms.uTattooA = uniforms.uTattooB = [...(pack.tattoo?.anchor || [.588,.340]),1,0];
       uniforms.uBlend = 1;
       uniforms.uPacking = [0, 0]; buffering = false;
     } else {
@@ -298,8 +312,10 @@ export function createOcClipRenderer(host, resources, options = {}) {
         if (before) previousReady = position(before, sample.previous.sourceTime, 1, true, sample.previous.serial);
         uniforms.uVideoB = current.texture;
         uniforms.uMouthB = anchor(sample.clip, current.frameTime);
+        uniforms.uTattooB = anchor(sample.clip, current.frameTime, "tattoo");
         uniforms.uVideoA = previousReady ? before.texture : current.texture;
         uniforms.uMouthA = previousReady ? anchor(sample.previous.clip, before.frameTime) : uniforms.uMouthB;
+        uniforms.uTattooA = previousReady ? anchor(sample.previous.clip, before.frameTime, "tattoo") : uniforms.uTattooB;
         uniforms.uBlend = previousReady ? sample.blend : 1;
         uniforms.uPacking = [packed ? 1 : 0, packed ? 1 : 0];
         signature = current.key + ":" + current.uploadedVersion + (previousReady ? ":" + before.key + ":" + before.uploadedVersion + ":" + Math.round(sample.blend * 100) : "");
@@ -308,6 +324,7 @@ export function createOcClipRenderer(host, resources, options = {}) {
         keep.add(displayed.key);
         uniforms.uVideoA = uniforms.uVideoB = displayed.texture;
         uniforms.uMouthA = uniforms.uMouthB = anchor(displayed.id, displayed.frameTime || 0);
+        uniforms.uTattooA = uniforms.uTattooB = anchor(displayed.id, displayed.frameTime || 0, "tattoo");
         uniforms.uBlend = 1;
         uniforms.uPacking = [packed ? 1 : 0, packed ? 1 : 0];
         signature = displayed.key + ":" + displayed.uploadedVersion;
@@ -347,7 +364,10 @@ export function createOcClipRenderer(host, resources, options = {}) {
         await active.ready;
         if (version !== seekVersion || destroyed) return;
         if (active.error) throw active.error;
-        const target = Math.max(0, Math.min(active.video.duration - 1 / pack.fps, pose.sourceTime));
+        const frameTime = Math.floor(Math.max(0, pose.sourceTime) * pack.fps + .001) / pack.fps;
+        // Seek inside the frame interval: a rounded 24 fps boundary can still
+        // fall in the preceding frame after the decoder converts timestamps.
+        const target = Math.min(active.video.duration - .0001, frameTime + .5 / pack.fps);
         active.video.pause();
         if (Math.abs(active.video.currentTime - target) > .0005) {
           await new Promise((resolve, reject) => {
@@ -361,7 +381,27 @@ export function createOcClipRenderer(host, resources, options = {}) {
             active.video.currentTime = target;
           });
         }
-        active.mediaTime = target; active.frameVersion++;
+        if (active.video.requestVideoFrameCallback) {
+          const expected = Math.floor(target * pack.fps + .001) / pack.fps;
+          if (active.mediaTime === null || Math.abs(active.mediaTime - expected) > .002) {
+            await new Promise((resolve, reject) => {
+              let request = null;
+              const timer = setTimeout(() => {
+                active.video.cancelVideoFrameCallback(request);
+                reject(new Error("OC decoded frame timeout: " + pose.clip + " target=" + target + " expected=" + expected + " decoded=" + active.mediaTime));
+              }, 8000);
+              const decoded = (_now, metadata) => {
+                if (active.cancelled || destroyed) { clearTimeout(timer); resolve(); return; }
+                if (Math.abs(metadata.mediaTime - expected) <= .002) {
+                  active.mediaTime = metadata.mediaTime;
+                  clearTimeout(timer); resolve();
+                } else request = active.video.requestVideoFrameCallback(decoded);
+              };
+              request = active.video.requestVideoFrameCallback(decoded);
+            });
+          }
+        } else active.mediaTime = target;
+        active.frameVersion++;
       }
       if (version !== seekVersion || destroyed) return;
       const wasPaused = paused; paused = true;
@@ -383,6 +423,7 @@ export function createOcClipRenderer(host, resources, options = {}) {
       for (const entry of entries.values()) entry.video.pause();
       uniforms.uVideoA = uniforms.uVideoB = poster;
       uniforms.uMouthA = uniforms.uMouthB = [...pack.mouth.reference,1,0];
+      uniforms.uTattooA = uniforms.uTattooB = [...(pack.tattoo?.anchor || [.588,.340]),1,0];
       uniforms.uBlend = 1; uniforms.uMouth = 0;
       uniforms.uPacking = [0, 0];
     },

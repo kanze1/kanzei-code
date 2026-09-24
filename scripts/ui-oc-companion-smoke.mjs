@@ -73,6 +73,12 @@ assert.equal(pack.format, "kanzei.character-pack.v3");
 assert.equal(createHash("sha256").update(reference).digest("hex"), pack.posterSha256);
 assert.deepEqual([reference.readUInt32BE(16),reference.readUInt32BE(20)],pack.size);
 assert.equal(pack.videoLayout,"rgb-alpha-vertical");
+if(pack.tattoo){
+  assert.equal(pack.mouth.closed,"clean-plate");
+  for(const [file,hash] of [[pack.basePoster,pack.basePosterSha256],[pack.mouth.closedTexture,pack.mouth.closedTextureSha256],[pack.tattoo.texture,pack.tattoo.sha256]]){
+    assert.equal(createHash("sha256").update(await readFile(new URL(file,packUrl))).digest("hex"),hash,"fixed detail source must match its approved image");
+  }
+}
 for(const name of ["idle","listening","thinking","replying","executing","blocked","complete","aside","warm"]){
   assert(pack.states[name]?.clips.length,name+" has authored clips");
   for(const id of pack.states[name].clips)assert(pack.clips[id]);
@@ -86,6 +92,10 @@ for(const [id,clip] of Object.entries(pack.clips)){
   const tracking=JSON.parse(trackBytes);
   assert.equal(tracking.fps,24);assert.equal(tracking.frames,clip.frames);
   assert.equal(tracking.mouth.length,clip.frames);
+  if(pack.tattoo){
+    assert.equal(tracking.tattoo.length,clip.frames);
+    assert(tracking.tattoo.every(row=>row.length===5&&row.every(Number.isFinite)&&row[0]>.3&&row[0]<.8&&row[1]>.2&&row[1]<.5));
+  }
   assert(clip.start>=0&&clip.end>clip.start&&clip.end<=clip.frames/24);
   assert(tracking.mouth.every(row=>row.length===5&&row.every(Number.isFinite)&&row[0]>0&&row[0]<1&&row[1]>0&&row[1]<1));
   for(const edge of [clip.next,clip.exit].filter(Boolean))assert(pack.clips[edge]);

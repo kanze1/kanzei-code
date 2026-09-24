@@ -1,8 +1,7 @@
 {
   "format": "rgb-alpha-vertical",
-  "source": "output\\oc-h3\\oc-idle-observe-workwear-v7-soft\\sample.mp4",
   "frames": 192,
-  "fps": 24.0,
+  "fps": 24,
   "size": [
     576,
     864
@@ -11,11 +10,12 @@
     576,
     1728
   ],
-  "bytes": 1753011,
-  "sha256": "48f214bfaec7693500176e77194211ace87407de281a40753a8246d3cebc6ee7",
-  "closed_mouth": "baked",
-  "keying": "offline",
-  "matte": "graph-cut-with-ink-preservation",
-  "opencv": "4.10.0",
-  "pipeline_sha256": "dbe4f0f174228796fd8dc2d6e3a5ca37b93ba5f7435cda52302a2c19c0141b2f"
+  "bytes": 1698562,
+  "sha256": "fb368f7997d622439beb58ae9443ef3fa3b418a621dd9516e62f7ea7f64d88f0",
+  "closed_mouth": "clean-plate",
+  "tattoo": "clean-plate",
+  "source_sha256": "48f214bfaec7693500176e77194211ace87407de281a40753a8246d3cebc6ee7",
+  "raw_sha256": "13085c7c92e0b948a579e309af5c3bd0dde34af15dbfc705680719b3efeaf710",
+  "pipeline_sha256": "73f2aaaa658691e7e2f44468786677e6cd433f56ea1dbd3114842e7d5e1b0a31",
+  "tattoo_track_min_confidence": 0.522727
 }

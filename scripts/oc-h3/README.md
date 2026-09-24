@@ -1,13 +1,30 @@
 # OC H3 deployment
 
-## Current v7 package (2026-09-24)
+## Current v7.1 package (2026-09-25)
 
 The current workwear master is `docs/design/oc-references/master-workwear-v7.png`.
 `action-plan-v7.json` generated 11 full-character clips with GPU 4 and 5 in
 NUMA 1. The service is stopped and port 30010 is closed; recheck availability
-before any launch. `bake_alpha.py` bakes closed mouths and RGB/alpha planes;
-`pack_v7.py` produces `crates/kanzei-app/ui/assets/oc/character-v7.json`.
+before any launch. `bake_alpha.py` bakes RGB/alpha planes; `repair_details.py`
+replaces the mouth/tattoo regions with clean skin plates and records neck tracks.
+The player samples lip ink from the approved master and the tattoo from the
+original `reference.png`. `pack_v7.py` produces
+`crates/kanzei-app/ui/assets/oc/character-v7.json` and hashes these detail sources.
 `make_demo_v7.py` records the revised lines through the selected C voice.
+
+The detail repair takes a raw motion clip, its pre-repair packed video and
+mouth tracking. Keep the packed input separately; do not repair an already
+repaired output. For example, from the project root:
+
+```powershell
+python scripts/oc-h3/repair_details.py output/oc-h3/oc-idle-breath-workwear-v7-soft/sample.mp4 --packed output/oc-v7-details/baseline/clips-v7/idle-breath.mp4 --tracking output/oc-v7-details/baseline/clips-v7/idle-breath.json --output output/oc-v7-details/clips/idle-breath.mp4 --poster output/oc-v7-details/clean-poster.png
+```
+
+Repeat for each clip, review the clean plates, copy the resulting MP4, tracking
+and bake records to `assets/oc/clips-v7`, then run `pack_v7.py`. Export the
+fallback poster through the same renderer so its mouth and tattoo match the
+animated version. The actual browser pixel regression is
+`scripts/oc-detail-regression.cjs`; the closeup is `oc-detail-review.cjs`.
 
 ## Historical v6 package
 
