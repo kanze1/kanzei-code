@@ -381,26 +381,10 @@ export function createOcClipRenderer(host, resources, options = {}) {
             active.video.currentTime = target;
           });
         }
-        if (active.video.requestVideoFrameCallback) {
-          const expected = Math.floor(target * pack.fps + .001) / pack.fps;
-          if (active.mediaTime === null || Math.abs(active.mediaTime - expected) > .002) {
-            await new Promise((resolve, reject) => {
-              let request = null;
-              const timer = setTimeout(() => {
-                active.video.cancelVideoFrameCallback(request);
-                reject(new Error("OC decoded frame timeout: " + pose.clip + " target=" + target + " expected=" + expected + " decoded=" + active.mediaTime));
-              }, 8000);
-              const decoded = (_now, metadata) => {
-                if (active.cancelled || destroyed) { clearTimeout(timer); resolve(); return; }
-                if (Math.abs(metadata.mediaTime - expected) <= .002) {
-                  active.mediaTime = metadata.mediaTime;
-                  clearTimeout(timer); resolve();
-                } else request = active.video.requestVideoFrameCallback(decoded);
-              };
-              request = active.video.requestVideoFrameCallback(decoded);
-            });
-          }
-        } else active.mediaTime = target;
+        // seeked makes the selected frame available for a texture upload.
+        // Paused WebView2 videos need not submit it to the compositor, so a
+        // requestVideoFrameCallback may never follow this explicit seek.
+        active.mediaTime = Math.floor(target * pack.fps + .001) / pack.fps;
         active.frameVersion++;
       }
       if (version !== seekVersion || destroyed) return;

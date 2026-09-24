@@ -12,21 +12,28 @@ async(page)=>{
     const resources=await loadOcResources(OC_CHARACTER_PACK_SRC);
     if(resources.pack.mouth.closed!=='clean-plate')throw new Error('Missing clean detail plates');
     const renderer=createOcRenderer(document.getElementById('host'),resources,{export:true});renderer.pause();
-    const reader=document.createElement('canvas');reader.width=renderer.canvas.width;reader.height=renderer.canvas.height;
+    // Component thresholds use a fixed inspection size across desktop DPI
+    // settings; native WebView2 can draw this host at a higher resolution.
+    const reader=document.createElement('canvas');reader.width=768;reader.height=1152;
     const ctx=reader.getContext('2d',{willReadFrequently:true}),w=reader.width,h=reader.height;
     const base=createOcDirector(resources.pack).sample();let positions=0,levels=0,maxOutsideChanges=0;
-    const capture=()=>{ctx.clearRect(0,0,w,h);ctx.drawImage(renderer.canvas,0,0);return ctx.getImageData(0,0,w,h).data;};
+    const capture=()=>{ctx.clearRect(0,0,w,h);ctx.drawImage(renderer.canvas,0,0,w,h);return ctx.getImageData(0,0,w,h).data;};
     function mouthComponents(data,track){
       const cx=Math.round(track[0]*w),cy=Math.round(track[1]*h),rw=61,rh=45,mask=new Uint8Array(rw*rh);
       const luminance=(x,y)=>{const i=(y*w+x)*4;return .2126*data[i]+.7152*data[i+1]+.0722*data[i+2];};
       const skin=(luminance(cx-24,cy-8)+luminance(cx+24,cy-8)+luminance(cx-24,cy+8)+luminance(cx+24,cy+8))/4;
-      for(let y=0;y<rh;y++)for(let x=0;x<rw;x++)mask[y*rw+x]=((x-30)/25)**2+((y-22)/14)**2<1&&skin-luminance(cx+x-30,cy+y-22)>33?1:0;
+      // Low-contrast lip fill connects the darker corners after DPI resampling.
+      // Only components containing strong ink count as a separate mouth.
+      for(let y=0;y<rh;y++)for(let x=0;x<rw;x++){
+        const ink=skin-luminance(cx+x-30,cy+y-22);
+        mask[y*rw+x]=((x-30)/20)**2+((y-22)/9)**2<1?(ink>33?2:ink>12?1:0):0;
+      }
       const areas=[];
       for(let i=0;i<mask.length;i++)if(mask[i]){
-        let area=0;const stack=[i];mask[i]=0;
-        while(stack.length){const p=stack.pop(),x=p%rw,y=Math.floor(p/rw);area++;
+        let area=mask[i]===2?1:0;const stack=[i];mask[i]=0;
+        while(stack.length){const p=stack.pop(),x=p%rw,y=Math.floor(p/rw);
           for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]){
-            const nx=x+dx,ny=y+dy,q=ny*rw+nx;if(nx>=0&&nx<rw&&ny>=0&&ny<rh&&mask[q]){mask[q]=0;stack.push(q);}
+            const nx=x+dx,ny=y+dy,q=ny*rw+nx;if(nx>=0&&nx<rw&&ny>=0&&ny<rh&&mask[q]){if(mask[q]===2)area++;mask[q]=0;stack.push(q);}
           }
         }if(area>4)areas.push(area);
       }return areas;
