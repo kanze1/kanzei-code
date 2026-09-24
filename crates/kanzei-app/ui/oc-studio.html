@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Kanzei · 动作预览</title>
+  <link rel="stylesheet" href="./oc-studio.css">
+</head>
+<body>
+  <main>
+    <header><div class="brand">KANZEI<span> / CHARACTER STUDY</span></div><span>01 — 2026</span></header>
+    <section class="presentation" aria-label="角色动作预览">
+      <div class="portrait"><div id="character"></div><span class="portrait-note">SAME EYES.<br>DIFFERENT TOMORROW.</span></div>
+      <div class="direction">
+        <p class="eyebrow">动作与表情 / 30 秒</p>
+        <h1>安静地，<br>把事情做好。</h1>
+        <p class="intro">冷静、直率。<br>偶尔把认真，藏在一句吐槽里。</p>
+        <div class="now"><span id="phase">待机</span><span id="time">00 / 30</span></div>
+        <p id="caption" aria-live="polite">先听你说。</p>
+        <label class="sr-only" for="timeline">样片时间</label><input id="timeline" type="range" min="0" max="30" step="0.01" value="0">
+        <div class="transport"><button id="play" type="button">播放样片</button><button id="reset" type="button">重新开始</button></div>
+        <div class="states" aria-label="单独查看动作">
+          <button type="button" data-state="idle">待机</button><button type="button" data-state="listening">倾听</button>
+          <button type="button" data-state="thinking">思考</button><button type="button" data-state="replying">说话</button>
+          <button type="button" data-state="executing">执行</button><button type="button" data-state="blocked">疑惑</button>
+          <button type="button" data-state="aside">吐槽</button><button type="button" data-state="warm">会意</button>
+          <button type="button" data-state="complete">完成</button>
+        </div>
+        <button class="interrupt" id="interrupt" type="button">打断当前动作 ↗</button>
+        <p id="error" role="alert"></p>
+      </div>
+    </section>
+    <footer><span>观察 / 思考 / 回应</span><span>CHARACTER IN MOTION</span></footer>
+  </main>
+  <script type="module" src="./oc-studio.js"></script>
+</body>
+</html>

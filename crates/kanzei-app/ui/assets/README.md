@@ -1,40 +1,36 @@
 # UI artwork
 
-`oc-pixel-cold-v1.png` is the active OC artwork for both themes: a transparent
-six-column, four-row atlas. It was generated with the built-in imagegen tool on
-2026-09-21 from the approved pixel portrait and the owner's original
-`kanzeiOC/4858512eb268378517c84d82747d1418.png` identity reference.
-The animation preserves the natural shoulder width and slim chest, with slender
-hands and relaxed arms in the neutral pose. Six poses cover calm attention,
-sideways attention, skepticism, thought, explanation and a quiet acknowledgment.
-Expressions are restrained; completion uses a subtle nod rather than a wave.
-The generated PNG and its alpha channel are preserved without pixel edits.
-Generation and revision prompts are in `oc-pixel-cold-v1.prompt.md`.
-`oc-pixel-motion-v1.png` and `oc-pixel-v3.png` remain earlier references.
+The active OC is `oc/character-v6.json` (format `kanzei.character-pack.v3`).
+The owner-approved v5 reference has a slim androgynous silhouette, flat chest,
+matte navy fabric, soft neutral lighting and loose sleeves that hang downward.
+`master-soft-v5.png` is the 1024 x 1536 static fallback.
 
-The UI uses warm charcoal, paper white and clear amber-gold status accents, informed
-by the [Radix neutral-palette guidance](https://www.radix-ui.com/colors/docs/palette-composition/composing-a-palette).
-These are custom theme tokens; text contrast is checked separately.
+Twelve H.264 videos in `oc/clips-v6/` contain complete-character motion at
+768 x 1152 and 24 fps. The graph has nine states and three idle variants. The
+arm, elbow, wrist and sleeve are never assembled from separate moving layers.
+The raising clip includes a held pose and joins a matching lowering clip;
+a resting interval separates repetitions. Pending states wait for authored
+neutral exit windows. Idle stabilization is recorded with its source hashes.
 
-`22-oc-performance.js` samples body pose and blinking on independent clocks.
-The first row supplies the body; calibrated face masks reveal closed eyes from
-row two and two mouth openings from rows three and four. Speech amplitude is
-provided separately through `setSpeaking` and `setMouthLevel`. Text events alone
-never open the mouth. The cheek light follows each pose's calibrated coordinates.
-Pose and blink timers run only at their next deadline; mouth updates are supplied
-by the audio consumer. Completion plays once and settles. The portrait and light
-share a subtle breathing motion; execution sends small light points inward and
-completion settles to gold.
+The renderer keys the pale grey backdrop and controls the closed/open mouth
+using per-frame tracking and `mouth-soft-v6.png`. Mouth amplitude comes from
+actual Web Audio playback. Hidden and reduced-motion views pause video
+playback. A bounded cache keeps at most four video decoders.
 
-The standalone `output/playwright/oc-cold-preview.html` demonstrates the poses and
-lip movement driven by an existing, owner-approved English voice sample. The
-sample is embedded only in the local preview, not bundled with the product. This
-uses sprite compositing rather than a Live2D rig. The product's `23-voice-*`
-modules separately connect live microphone input, streaming TTS and playback amplitude.
+`reference.png` preserves the original owner image. `demo-speech-c-v3.wav` is
+the 30-second soundtrack using the selected C voice; `speech-main-c-v3.wav`
+is its explanation line and the browser audio integration test input.
 
-Real task events drive these effects. Current-session identity and runtime
-terminal state take precedence over animation history. The decorative layer
-does not modify task state. The welcome view shows the large sprite, while
-conversations reserve a small right margin when the chat area is at least 900px.
-Narrow views hide it, hidden views pause it, and reduced-motion mode uses a static
-neutral pose and light. The sprite controller cleans up its timers and listeners.
+Raster keyframes and the mouth reference were edited with built-in imagegen.
+Complete video clips were generated with the pinned H3 / Larry deployment.
+PixiJS 7.4.3 and its license are in `../vendor/pixi/`.
+
+Use `node scripts/oc-preview.mjs` from the repository root. See the
+[design brief](../../../../docs/design/oc.md),
+[production record](../../../../docs/design/oc-production.md), and
+[idle direction](../../../../docs/design/oc-idle-direction.md).
+
+Retired v4 runtime assets and implementations are preserved outside the
+runtime directory at
+`C:/Users/kanzei/Documents/kanzei-oc-archive/2026-09-24-v4-runtime/`.
+The archive inventory records the exact file hashes.

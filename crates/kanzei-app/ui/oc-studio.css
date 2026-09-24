@@ -1,0 +1,24 @@
+:root{font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#24252a;background:#e9e6e0;font-synthesis:none}
+*{box-sizing:border-box}body{margin:0}button,a,input{-webkit-tap-highlight-color:transparent}button{font:inherit;color:inherit;cursor:pointer}a{color:inherit;text-decoration:none}
+main{max-width:1440px;margin:auto;padding:0 5vw}header,footer{display:flex;justify-content:space-between;align-items:center;font-size:10px;letter-spacing:.19em}
+header{height:80px;border-bottom:1px solid #3333}.brand{font-weight:650;font-size:14px;letter-spacing:.22em}.brand span{font-size:9px;font-weight:400;margin-left:15px;color:#72716e}
+.presentation{display:grid;grid-template-columns:1.15fr 1fr;min-height:calc(100vh - 128px);gap:7vw;align-items:center}
+.portrait{position:relative;height:min(790px,calc(100vh - 132px));align-self:end}
+#character{position:absolute;inset:0;width:100%;height:100%}.oc-canvas{display:block;width:100%;height:100%}
+.portrait-note{position:absolute;left:0;bottom:30px;font-size:9px;line-height:1.8;letter-spacing:.2em;color:#595d60}
+.direction{max-width:430px;padding:45px 0}.eyebrow{font-size:11px;letter-spacing:.16em;color:#6d757e;margin:0 0 24px}
+h1{font-family:"Microsoft YaHei",sans-serif;font-size:clamp(29px,3.2vw,45px);line-height:1.5;letter-spacing:.06em;font-weight:400;margin:0 0 23px}
+.intro{color:#737572;font-size:13px;line-height:2;margin:0 0 46px}.now{display:flex;justify-content:space-between;font-size:11px;letter-spacing:.1em}
+#phase{color:#2c5774}#time{font-variant-numeric:tabular-nums;color:#777}#caption{min-height:28px;font-size:14px;margin:20px 0 17px;line-height:1.7}
+input[type=range]{width:100%;accent-color:#3c6580;height:3px;cursor:pointer;margin:8px 0 21px}
+.transport{display:flex;gap:24px;align-items:center}.transport button{border:0;background:none;padding:10px 0;font-size:12px}
+.transport button:first-child{background:#273c4b;color:#f1eee7;padding:11px 22px;border-radius:2px}
+.states{margin-top:35px;border-top:1px solid #3333;padding-top:16px;display:flex;flex-wrap:wrap;gap:6px 17px}
+.states button{border:0;border-bottom:1px solid transparent;background:none;padding:6px 0;font-size:11px;color:#777}
+.states button[aria-pressed=true]{color:#253e50;border-color:#253e50}
+.interrupt{display:block;border:0;background:none;color:#81817b;padding:20px 0 0;font-size:10px}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #477c9c;outline-offset:5px}
+footer{height:48px;border-top:1px solid #3333;color:#7e807c;font-size:9px}
+#error{font-size:12px;color:#8f3428}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+@media(max-width:700px){main{padding:0 6vw}header{height:60px}.brand span{display:none}.presentation{grid-template-columns:1fr;gap:0;min-height:0}.portrait{height:56vh;min-height:350px;max-height:520px;margin-top:18px}.portrait-note{font-size:8px;bottom:10px}.direction{padding:22px 0 35px;max-width:none}h1{font-size:26px;line-height:1.45}.eyebrow{margin-bottom:14px}.intro{margin-bottom:28px}.states button,.transport button,.interrupt{min-height:44px}footer{height:45px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}

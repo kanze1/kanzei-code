@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
-import { createOcStateStore, ocAnimationFrame } from "../crates/kanzei-app/ui/22-oc-companion.js";
-import { ocMouthFrame, sampleOcPerformance } from "../crates/kanzei-app/ui/22-oc-performance.js";
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { createOcStateStore } from "../crates/kanzei-app/ui/22-oc-companion.js";
+import { createOcDirector, ocMouthFrame } from "../crates/kanzei-app/ui/22-oc-director.js";
+import { ocPerformanceMarkup } from "../crates/kanzei-app/ui/22-oc-performance.js";
+import { OC_REFERENCE_SRC, OC_CHARACTER_PACK_SRC } from "../crates/kanzei-app/ui/22-oc-config.js";
 
 let active = "a";
 let clock = 1000;
@@ -59,28 +63,48 @@ assert.equal(store.current(), "thinking", "新一轮任务必须清除上一轮�
 active = null;
 assert.equal(store.current(), "idle");
 assert.deepEqual(runtimes.get("a"), { phase: "running", running: true }, "动画不得改写业务状态");
-assert.equal(ocAnimationFrame("idle", 0), 0, "待机从自然垂臂开始");
-assert.equal(ocAnimationFrame("unknown", 0), 0, "未知表现状态回退到普通姿势");
-assert.equal(ocAnimationFrame("idle", NaN), 0, "非法时钟不得越出图集");
-assert.equal(ocAnimationFrame("complete", 10000), 0, "完成点头只播一次");
-assert.equal(ocAnimationFrame("complete", 1800), 0, "收尾时间结束后恢复普通姿势");
-for (const state of ["idle", "thinking", "executing", "replying", "complete", "blocked"]) {
-  const frames = new Set();
-  for (let ms = 0; ms < 10000; ms += 40) {
-    const frame = ocAnimationFrame(state, ms);
-    assert(Number.isInteger(frame) && frame >= 0 && frame < 6, "姿态下标必须始终有效");
-    frames.add(frame);
-  }
-  assert(frames.size > 1, `${state} 应有真实动作帧变化`);
+const uiUrl = new URL("../crates/kanzei-app/ui/", import.meta.url);
+const reference = await readFile(new URL(OC_REFERENCE_SRC, uiUrl));
+assert(ocPerformanceMarkup().includes(`src="${OC_REFERENCE_SRC}"`));
+const packUrl = new URL(OC_CHARACTER_PACK_SRC, uiUrl);
+const pack = JSON.parse(await readFile(packUrl, "utf8"));
+assert.equal(pack.format, "kanzei.character-pack.v3");
+assert.equal(createHash("sha256").update(reference).digest("hex"), pack.posterSha256);
+assert.deepEqual([reference.readUInt32BE(16),reference.readUInt32BE(20)],[1024,1536]);
+for(const name of ["idle","listening","thinking","replying","executing","blocked","complete","aside","warm"]){
+  assert(pack.states[name]?.clips.length,name+" has authored clips");
+  for(const id of pack.states[name].clips)assert(pack.clips[id]);
 }
-assert.equal(sampleOcPerformance("replying", 800).mouth, 0, "文字回复不能伪造语音嘴型");
-assert.equal(ocMouthFrame(NaN), 0, "非法音量必须闭嘴");
-assert.equal(ocMouthFrame(-1), 0, "负音量必须闭嘴");
-assert.equal(ocMouthFrame(Infinity), 0, "无效音量不得卡在张嘴状态");
-assert.equal(ocMouthFrame(1), 3, "实际音频峰值应能驱动说话帧");
-const blinking = Array.from({ length: 500 }, (_, i) => i * 40)
-  .find(time => sampleOcPerformance("idle", time).blink === 1);
-assert.notEqual(blinking, undefined, "待机有独立眨眼");
-assert.equal(sampleOcPerformance("thinking", 0, blinking).blink, 1, "身体换姿态不会重置眨眼时钟");
-assert.equal(sampleOcPerformance("thinking", 0, blinking, 1).mouth, 3, "眨眼与音频嘴型可以同时出现");
-console.log("OC 联动冒烟通过：状态隔离、终态收敛、独立眨眼、音频嘴型与完成收尾");
+for(const [id,clip] of Object.entries(pack.clips)){
+  const movie=await readFile(new URL(clip.file,packUrl));
+  assert.equal(movie.toString("ascii",4,8),"ftyp",id+" is an MP4");
+  assert.equal(createHash("sha256").update(movie).digest("hex"),clip.sha256);
+  const trackBytes=await readFile(new URL(clip.tracking,packUrl));
+  assert.equal(createHash("sha256").update(trackBytes).digest("hex"),clip.trackingSha256);
+  const tracking=JSON.parse(trackBytes);
+  assert.equal(tracking.fps,24);assert.equal(tracking.frames,clip.frames);
+  assert.equal(tracking.mouth.length,clip.frames);
+  assert(clip.start>=0&&clip.end>clip.start&&clip.end<=clip.frames/24);
+  assert(tracking.mouth.every(row=>row.length===5&&row.every(Number.isFinite)&&row[0]>0&&row[0]<1&&row[1]>0&&row[1]<1));
+  for(const edge of [clip.next,clip.exit].filter(Boolean))assert(pack.clips[edge]);
+  for(const [a,b] of clip.protected||[])assert(a>=clip.start&&b<=clip.end&&b>a);
+}
+const director=createOcDirector(pack);
+director.setState("replying");director.advance(1400);
+director.setState("thinking");director.setState("complete");
+assert.equal(director.sample().clip,"reply-enter");
+const seen=new Set();
+for(let t=0;t<8000;t+=20)seen.add(director.advance(20).clip);
+assert(seen.has("reply-exit"),"change state through the authored elbow recovery");
+assert(seen.has("complete"));assert(!seen.has("thinking"),"latest request wins");
+const idle=createOcDirector(pack),variants=new Set();
+for(let t=0;t<31000;t+=50)variants.add(idle.advance(50).clip);
+assert.equal(variants.size,3,"three idle variants alternate without an extra procedural breath");
+for(const bad of [NaN,-1,Infinity])assert.equal(ocMouthFrame(bad),0);
+assert.equal(ocMouthFrame(1),3);
+assert.equal(pack.demo.voice,"Kanzei OC CN C");
+for(let i=0;i<pack.demo.cues.length;i++){
+  const cue=pack.demo.cues[i];assert(cue.duration>0&&cue.at>=0&&cue.at+cue.duration<=pack.demo.duration);
+  if(i)assert(pack.demo.cues[i-1].at+pack.demo.cues[i-1].duration<=cue.at);
+}
+console.log("OC passed: session isolation, complete-frame pack integrity, three idle variants, coherent elbow exit, C voice timing and mouth controls.");

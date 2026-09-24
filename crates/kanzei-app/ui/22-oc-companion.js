@@ -1,8 +1,4 @@
-import { initOcPerformance, ocPerformanceMarkup, sampleOcPerformance } from "./22-oc-performance.js";
-
-export function ocAnimationFrame(state, elapsed) {
-  return sampleOcPerformance(state, elapsed).pose;
-}
+import { initOcPerformance, ocPerformanceMarkup } from "./22-oc-performance.js";
 
 export function initOcSpriteMotion(root) {
   return initOcPerformance(root);
@@ -79,10 +75,14 @@ export function initOcCompanion(root, options) {
   });
   const motion = initOcSpriteMotion(root);
   let voice = null;
+  let lastSessionId = options.getSessionId();
   function sync() {
+    const sessionId = options.getSessionId();
+    if (sessionId !== lastSessionId) { motion.reset(); lastSessionId = sessionId; }
     const paused = document.hidden || !root.closest(".view")?.classList.contains("active");
-    const currentVoice = voice?.sessionId === options.getSessionId() ? voice : null;
-    motion.setState(currentVoice?.phase === "speaking" ? "replying" : currentVoice?.phase || store.current(), paused);
+    const currentVoice = voice?.sessionId === sessionId ? voice : null;
+    const stopping = ["stopping", "stopped"].includes(options.getRuntime(sessionId)?.phase);
+    motion.setState(stopping ? "interrupted" : currentVoice?.phase === "speaking" ? "replying" : currentVoice?.phase || store.current(), paused);
     motion.setSpeaking(currentVoice?.phase === "speaking");
     motion.setMouthLevel(currentVoice?.level || 0);
   }

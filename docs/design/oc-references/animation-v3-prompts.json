@@ -1,0 +1,67 @@
+{
+  "tool": "builtin image_gen",
+  "native_size": [
+    1024,
+    1536
+  ],
+  "assets": [
+    {
+      "id": "body-clean-v3",
+      "refs": [
+        "body-layer.png",
+        "master-clean-v3.png"
+      ],
+      "prompt": "Use case: precise-object-edit. Image 1 is the exact animation BODY LAYER edit target: retain its exact placement on a 1024x1536 canvas, character identity, head, slim flat androgynous torso, remaining arm on viewer-right, and missing arm on viewer-left. Image 2 is the authoritative clean rendering reference. Apply Image 2's crisp charcoal and navy hair lock shading and smooth dry matte cotton shirt treatment to Image 1. The shirt has a calm even charcoal-navy base and a few broad long gravity-led folds, with two controlled shadow tones and thin blue neckline piping. Hair has coherent dark lock shapes, a restrained warm outer rim on viewer-left and a clear blue reflected accent. Preserve Image 1's exact head shape, amber eyes, restrained neutral mouth, cyan cheek fracture, gray neck mark, shoulder geometry and all pixel-space positioning. Keep the torso under the removed viewer-left arm fully painted; that arm and sleeve are an empty transparent cutout area ready for a separate movable layer. Crisp anime production linework. Preserve true transparent alpha around the character. Output one 1024x1536 RGBA character animation body layer.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-bbe5cd3b-ac73-4fd2-b796-330d3cec0f5d.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/body-clean-v3.png"
+    },
+    {
+      "id": "sleeve-clean-v3",
+      "refs": [
+        "sleeve-layer.png",
+        "master-clean-v3.png"
+      ],
+      "prompt": "Use case: precise-object-edit. Image 1 is an isolated sleeve animation layer and is the exact edit target. Image 2 is the approved material and lighting reference. Keep Image 1's exact sleeve outline, seams, folds, position, scale, rotation, crop and empty canvas. Change only its fabric rendering to clean smooth opaque dry matte cotton jersey, matching Image 2's charcoal-navy colors, broad coherent shadow planes and sparse thin contours. The light catches one narrow warm rim on the outside edge. The main fabric surface has an even continuous color within each fold plane. Render only this isolated sleeve on genuine transparent alpha. Output the same 1024x1536 canvas with identical element placement.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-b7004eac-ec2f-478d-992d-4463790f00f3.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/sleeve-clean-v3.png"
+    },
+    {
+      "id": "arm-open-v3",
+      "refs": [
+        "arm-layer.png",
+        "master-clean-v3.png"
+      ],
+      "prompt": "Use case: precise-object-edit. Asset: a separate forearm and open hand layer for the approved anime OC. Image 1 supplies the exact RIGHT forearm geometry and canvas placement. Image 2 supplies clean skin shading and slender adult character proportions. Keep Image 1's elbow centered at about (340,1166), the forearm slanting up to the wrist at about (570,626), and the same scale on a 1024x1536 canvas. Render ONLY the bare forearm and hand, with the entire clothing sleeve area and all surrounding space truly transparent. The elbow cap is smoothly rounded. Change the hand into a relaxed open palm for a small explanatory gesture, five elegant slender fingers naturally separated and slightly curved, palm facing the viewer and slightly upwards, wrist relaxed, fingertips extending into the upper-right area. Match Image 1's slender forearm anatomy and soft warm rim lighting; use clear cel-shaded skin with broad controlled shadow shapes and sharp fine linework. The arm must remain fully inside the canvas. One isolated transparent RGBA forearm and hand sprite, 1024x1536.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-a2f0493d-ae18-4138-a734-b03e330d1323.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/arm-open-v3.png"
+    },
+    {
+      "id": "arm-point-v3",
+      "refs": [
+        "arm-layer.png",
+        "master-clean-v3.png"
+      ],
+      "prompt": "Use case: precise-object-edit. Asset: a separate forearm and pointing hand layer for the approved anime OC. Image 1 supplies exact right forearm geometry and placement; Image 2 supplies the clean skin shading and slender adult character proportions. Keep the elbow centered at (340,1166), the same forearm slant and wrist at (570,626), on the same 1024x1536 canvas. Render ONLY the bare forearm and hand, with all clothing and surrounding space replaced by true transparent alpha. Keep the rounded elbow and the existing slender forearm proportions. Change the hand pose to one relaxed extended index finger directed up and slightly right, the other three fingers loosely curled and the thumb resting naturally across them, as a quiet precise conversational emphasis. Five anatomically clear elegant slender digits. Match the warm outer rim and neutral clean cel-shaded skin in the references. Crisp thin linework, broad controlled shadow shapes. Keep the entire finger silhouette inside the canvas. One isolated transparent RGBA forearm and pointing hand sprite, 1024x1536.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-62726907-3a03-4837-8891-ffa95637d02f.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/arm-point-v3.png"
+    },
+    {
+      "id": "face-clean-v3",
+      "refs": [
+        "master-clean-v3.png"
+      ],
+      "prompt": "Use case: precise-object-edit. Image 1 is the approved character master and exact edit target. Create an aligned facial animation texture on the identical 1024x1536 canvas. Change only the two eyelids and mouth: both eyes naturally fully closed in a gentle blink, and lips parted in a small relaxed conversational open mouth, showing a dark mouth interior and a subtle lower tongue. The mouth stays centered exactly at the existing lip position and is about 34 pixels wide by 18 pixels high. Eyelids track the original eye shape and position precisely. Keep every other element unchanged: head outline, fine facial features, face shape, hair, skin color, markings, flat slim body, clothing, lighting, framing and pose. Maintain the clean cel shading and continuous solid cloth colors of the input. Genuine transparent alpha outside the character. One matching 1024x1536 RGBA image.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-2285bce8-bcae-462c-a39b-dc0a6d52b60a.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/face-clean-v3.png"
+    },
+    {
+      "id": "face-aside-v3",
+      "refs": [
+        "master-clean-v3.png"
+      ],
+      "prompt": "Use case: precise-object-edit. Image 1 is the approved OC and exact edit target. Create a precisely aligned facial animation texture on the same 1024x1536 canvas. Keep the head completely still, and change only the expression: her amber irises glance slightly toward viewer-left, eyelids settle just a little lower, one brow lifts very subtly, and one corner of the closed mouth lifts into a tiny restrained knowing half-smile. This is a calm dry remark from a quiet direct androgynous young adult, with very understated warmth. Preserve the exact face identity, shape, head angle, hair shape, placement, scale, cyan cheek fracture, neck marking, slender flat torso, matte loose shirt, clean cel lighting and all other pixels as closely as possible. Both eyes remain open and centered in their existing sockets; expression is limited to small local changes. Transparent alpha around the original character. Output 1024x1536 RGBA.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-e96ad322-6641-4c32-a580-b28ae6b7b650.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/face-aside-v3.png"
+    }
+  ]
+}

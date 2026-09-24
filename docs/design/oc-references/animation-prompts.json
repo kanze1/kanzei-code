@@ -1,0 +1,51 @@
+{
+  "tool": "built-in imagegen",
+  "date": "2026-09-23",
+  "assets": [
+    {
+      "id": "oc_thinking",
+      "prompt": "Use case: identity-preserve. Animation production asset, transparent PNG. Image 1 is the approved character master and the exact edit target. Produce the same character at the same camera, same head size, same face position, same canvas framing and same illustrated texture. Change only the anatomical RIGHT arm (viewer-left) into a quiet thinking gesture: lift that slender forearm diagonally inward, right index finger resting naturally along the underside of the chin, other long fingers loosely curled, wrist relaxed; the elbow stays around lower-rib height. Her shoulders remain relaxed, and her direct gaze becomes gently thoughtful. Retain the approved lean androgynous FLAT torso, loose dry matte charcoal V-neck shirt, elbow-length roomy sleeves, thin blue edging, all face proportions, amber eyes, bob hair, viewer-right cyan cheek fracture and neck marking. Preserve the gold rim light on the hair itself. The area surrounding the character is genuinely transparent alpha, clean cutout. A single complete waist-up character, full head, hand and elbow clearly visible. Preserve the same calm facial expression and understated fabric folds. This is the final held pose for an animated hand-raising gesture.",
+      "file": "crates/kanzei-app/ui/assets/oc/thinking-key.png",
+      "nativeSize": [
+        1024,
+        1536
+      ]
+    },
+    {
+      "id": "oc_body_layer",
+      "prompt": "Use case: precise-object-edit. Image 1 is the approved master illustration, used as the exact edit target. Create a production-ready BODY LAYER for 2D character animation. Preserve every visible pixel of the head, eyes, hair, face markings, neck, blue V-neck piping, loose matte charcoal shirt and anatomical left arm (viewer-right) as closely as possible. The anatomical RIGHT arm and its short loose sleeve (viewer-left) will be animated on a separate layer: remove that entire sleeve and arm from the shoulder joint downward, then complete the slim torso's shirt edge behind it. The resulting body layer has a continuous narrow straight torso, flat chest and soft natural folds, with the viewer-left shoulder ending at the sleeve seam ready for an overlay arm. Keep the exact same 1024x1536 canvas, framing, positions and scale as the input; do not recenter. Genuinely transparent background and removed-arm area. The visible body and head remain identical to the approved image. One character body layer only.",
+      "file": "crates/kanzei-app/ui/assets/oc/body-layer.png",
+      "nativeSize": [
+        1024,
+        1536
+      ]
+    },
+    {
+      "id": "oc_arm_layer",
+      "prompt": "Use case: background-extraction. Image 1 is the exact thinking-pose edit target. Create the isolated animated RIGHT ARM layer (viewer-left arm) from this illustration: keep the complete charcoal loose sleeve from its shoulder seam down to its hanging hem, the entire bent bare forearm, wrist, and the delicate hand with the index finger under the chin. Everything else becomes transparent alpha, including the head, hair, face, neck, torso shirt, and the other arm. The hand retains all five natural fingers and exact painted shape from the input. Complete the small sleeve area at the shoulder and the small fingertip contour if previously covered by hair or chin, so the arm is a continuous clean isolated cutout. Keep the exact same 1024x1536 canvas, arm position, scale and warm directional shading. The sleeve texture stays soft dry matte, with the original folds. The extracted arm remains in its current bent thinking pose, floating alone on genuinely transparent alpha in the same position as the source. This is one production animation layer, not a new composition.",
+      "file": "crates/kanzei-app/ui/assets/oc/arm-layer.png",
+      "nativeSize": [
+        1024,
+        1536
+      ]
+    },
+    {
+      "id": "oc_face_layer",
+      "prompt": "Use case: precise-object-edit. Image 1 is the approved waist-up character master, the exact edit target. Create an aligned facial-animation source frame by changing ONLY her eyelids and mouth. Both eyes are gently fully closed for the middle of a natural blink, relaxed curved upper lash lines following the same eye perspective. Her mouth is gently open in the middle of a quiet spoken vowel, a small natural oval, with a restrained dark inner-mouth shape and delicate lower lip. Her expression stays calm and conversational. Keep the head tilt, face outline, nose, eyebrows, hair, skin shading, cyan cheek fracture, neck marking, flat slender torso, loose matte shirt and all positions exactly aligned with the source. Same 1024x1536 canvas, same character scale and framing. Genuinely transparent surroundings. This frame will supply tiny localized eyelid and mouth overlays over the original approved master, so precise identity and placement matching matters.",
+      "file": "crates/kanzei-app/ui/assets/oc/face-layer.png",
+      "nativeSize": [
+        1024,
+        1536
+      ]
+    },
+    {
+      "id": "oc_sleeve_layer",
+      "prompt": "Use case: background-extraction. Production 2D animation sleeve layer. Image 1 is the approved character master and exact source. Extract ONLY the complete anatomical right loose charcoal fabric sleeve (the sleeve on the viewer's LEFT), from the shoulder cap through its roomy elbow-length hanging opening and folded hem. Preserve its soft matte fabric texture, dark interior at the opening, warm rim light and every original fold. The sleeve is a COMPLETE continuous piece of cloth ready to layer behind a moving bare forearm; show the interior dark fabric at its opening. Everything else is genuinely transparent: the head, torso, bare skin forearm, other sleeve and background. Preserve the source canvas 1024x1536 and exact source placement/scale: shoulder top approximately x200 y660, sleeve opening around x170 y1250. Leave the large empty transparent area above and to its right. This cutout is for direct aligned compositing onto the same master, so retain its coordinates and avoid recentering the sleeve.",
+      "file": "crates/kanzei-app/ui/assets/oc/sleeve-layer.png",
+      "nativeSize": [
+        1024,
+        1536
+      ]
+    }
+  ]
+}

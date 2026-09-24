@@ -1,0 +1,46 @@
+{
+  "voice": "Kanzei OC CN C",
+  "reference_sha256": "d514364ac6d714134b9d26b6428784b7905e78ec7f3337e2c4853287b3ec1cc4",
+  "duration": 30,
+  "sample_rate": 24000,
+  "peak": 0.5862908376273737,
+  "cues": [
+    {
+      "source": "C:\\Users\\kanzei\\Documents\\ChatGPT\\kanzei音色\\deliverables\\oc-cn-20260924\\comparison\\shiki\\short01.wav",
+      "source_sha256": "508da13ecec92825ce952a65863657a9cc3c04f78532f7af3afbe64ef409a867",
+      "at": 3.1,
+      "duration": 3.12,
+      "text": "嗯，我在。你继续说。",
+      "gain": 1.7921248290460616,
+      "target_rms_dbfs": -23
+    },
+    {
+      "source": "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-app\\ui\\assets\\oc\\speech-main-c-v3.wav",
+      "source_sha256": "a25aecbe0d121c9c227914f6a063d92c5a4b18c2f3934744dff632df8ba8d7bb",
+      "at": 15.7,
+      "duration": 5.6,
+      "text": "问题在这里。先确认目标，再检查证据。先改这一处。",
+      "gain": 1.148562497878386,
+      "target_rms_dbfs": -23
+    },
+    {
+      "source": "C:\\Users\\kanzei\\Documents\\ChatGPT\\kanzei音色\\deliverables\\oc-cn-20260924\\comparison\\shiki\\short03.wav",
+      "source_sha256": "fcd1aaa56606f0d14a9a2cc83d7ffe097b74ebcb0c278088cca335d6370e44af",
+      "at": 22.3,
+      "duration": 3.92,
+      "text": "流程挺完整。连多做一遍都安排好了。",
+      "gain": 1.0005147420293317,
+      "target_rms_dbfs": -23
+    },
+    {
+      "source": "C:\\Users\\kanzei\\Documents\\ChatGPT\\kanzei音色\\deliverables\\oc-cn-20260924\\comparison\\shiki\\short06.wav",
+      "source_sha256": "8d6a8819eccdd7b9730a8001540c634122c9579491d45834c50a92f412777d25",
+      "at": 26.8,
+      "duration": 3.04,
+      "text": "已经处理好了，剩下的我再检查一遍。",
+      "gain": 1.0406624202651853,
+      "target_rms_dbfs": -23
+    }
+  ],
+  "output_sha256": "a38e241646de0eb0e2189829c2cbef276a4d68e3db318c5add75e440ca9ba141"
+}

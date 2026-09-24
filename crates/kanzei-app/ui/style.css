@@ -1,4 +1,4 @@
-/* kanzei — 暖炭灰、纸白与清晰的琥珀金状态，搭配简洁的像素 OC。
+/* kanzei — 暖炭灰、纸白与清晰的琥珀金状态，搭配用户确认的 OC 参考图。
    参考 Sand 的暖灰层级，背景去掉蓝调，强调色只承载重点。 */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 /* R-189:默认主题 = 暗色。:root 保留 dark 语义 token,
@@ -12,7 +12,6 @@
   --accent-text: #e4bb67;
   --memory-flow: #caa24e; --memory-flow-hot: #edc678; --memory-flow-dim: #806d42;
   --ok: #a8c887; --err: #ee9c88; --warn: #e7b957; --info: #dcc28c;
-  --oc-circuit: #9bc9c4;
   --alert: #dfb14f;
   --danger: var(--err); --muted: var(--dim);
   --statusbar: #1b1b19; --statusbar-run: #30281b;
@@ -83,7 +82,6 @@
   --accent-text: #815d16;
   --memory-flow: #a17a28; --memory-flow-hot: #815d16; --memory-flow-dim: #bfac80;
   --ok: #4e6d43; --err: #a84036; --warn: #855c10; --info: #426d64;
-  --oc-circuit: #659f9b;
   --alert: #c2410c;
   --danger: var(--err); --muted: var(--dim);
   --statusbar: #f0efe9; --statusbar-run: #f1e5c9;
@@ -878,55 +876,12 @@ select {
 .empty-art { min-width: 0; height: clamp(300px, 39vh, 408px); display: flex; justify-content: center; pointer-events: none; animation: fadein .5s ease; }
 .oc-figure {
   position: relative; height: 100%; aspect-ratio: 2 / 3; max-width: 100%; pointer-events: none;
-  --oc-glow: var(--oc-circuit); --oc-cycle: 2.6s;
   mask-image: linear-gradient(to bottom, #000 0 91%, transparent 100%);
 }
-.oc-body { position: relative; width: 100%; height: 100%; animation: oc-breathe 6s steps(2, end) infinite; }
-.oc-sprite { position: relative; width: 100%; height: 100%; overflow: hidden; }
-.oc-portrait {
-  position: absolute; display: block; width: 600%; height: 400%; max-width: none;
-  left: calc(var(--oc-sprite-col, 0) * -100%); top: 0;
-  image-rendering: pixelated;
-}
-.oc-face-layer { position: absolute; inset: 0; overflow: hidden; visibility: hidden; }
-.oc-eyes { clip-path: var(--oc-eye-clip); }
-.oc-mouth { clip-path: var(--oc-mouth-clip); }
-.oc-eye-portrait { top: -100%; }
-.oc-mouth-portrait { top: calc(var(--oc-mouth-row, 0) * -100%); }
-#chat-area[data-oc-blink="1"] .oc-eyes,
-#chat-area[data-oc-mouth="2"] .oc-mouth,
-#chat-area[data-oc-mouth="3"] .oc-mouth { visibility: visible; }
-.oc-network, .oc-mark { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; color: var(--oc-glow); }
-.oc-route { stroke: currentColor; stroke-width: 3; opacity: .09; }
-.oc-nodes { fill: currentColor; opacity: .22; }
-.oc-signal { stroke: currentColor; stroke-width: 10; stroke-linecap: butt; stroke-dasharray: 3 100; opacity: 0; }
-.oc-mark { stroke: currentColor; stroke-linecap: butt; stroke-linejoin: miter; stroke-width: 4; }
-.oc-cheek { opacity: .18; stroke-width: 7; transform: translate(var(--oc-cheek-x, 612px), var(--oc-cheek-y, 580px)); transition: opacity .5s ease; }
-#chat-area[data-oc-state="thinking"] .oc-cheek,
-#chat-area[data-oc-state="executing"] .oc-cheek,
-#chat-area[data-oc-state="replying"] .oc-cheek { animation: oc-think var(--oc-cycle) ease-in-out infinite; }
-#chat-area[data-oc-state="executing"] .oc-figure { --oc-cycle: 1.8s; }
-#chat-area[data-oc-state="executing"] .oc-signal,
-#chat-area[data-oc-state="replying"] .oc-signal { opacity: .75; animation: oc-flow var(--oc-cycle) linear infinite; }
-#chat-area[data-oc-state="replying"] .oc-signal { animation-direction: reverse; opacity: .4; }
-#chat-area[data-oc-state="complete"] .oc-figure,
-#chat-area[data-oc-state="blocked"] .oc-figure { --oc-glow: var(--accent); }
-#chat-area[data-oc-state="complete"] .oc-cheek { animation: oc-settle 1.8s ease-out both; }
-#chat-area[data-oc-state="blocked"] .oc-cheek { opacity: .6; }
-#chat-area[data-oc-state="blocked"] .oc-body { animation-play-state: paused; }
-#chat-area[data-oc-paused="true"] .oc-body,
-#chat-area[data-oc-paused="true"] .oc-cheek,
-#chat-area[data-oc-paused="true"] .oc-signal { animation-play-state: paused; }
-@keyframes oc-breathe {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
-}
-@keyframes oc-think {
-  0%, 100% { opacity: .3; }
-  55% { opacity: .95; }
-}
-@keyframes oc-flow { from { stroke-dashoffset: 102; } to { stroke-dashoffset: 0; } }
-@keyframes oc-settle { 0% { opacity: .9; } 100% { opacity: .18; } }
+.oc-stage { position: relative; width: 100%; height: 100%; overflow: hidden; }
+.oc-poster { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; object-position: center bottom; }
+.oc-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.oc-stage[data-oc-ready="true"] > .oc-poster { visibility: hidden; }
 #oc-companion { display: none; position: absolute; right: 24px; bottom: 34px; height: 246px; width: 164px; z-index: var(--z-raised); pointer-events: none; }
 @container (min-width: 900px) {
   #oc-companion { display: block; }
@@ -947,12 +902,7 @@ select {
   #oc-companion { height: 144px; width: 96px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .empty-art, .empty-copy, #chat-area .oc-body, #chat-area .oc-cheek,
-  #chat-area .oc-signal { animation: none !important; transition: none !important; }
-  #chat-area[data-oc-state="thinking"] .oc-cheek,
-  #chat-area[data-oc-state="executing"] .oc-cheek,
-  #chat-area[data-oc-state="replying"] .oc-cheek { opacity: .65; }
-  #chat-area .oc-signal { display: none; }
+  .empty-art, .empty-copy { animation: none !important; transition: none !important; }
 }
 
 .voice-stage { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: center; gap: 24px; padding: 70px 7% 30px; z-index: var(--z-raised); }

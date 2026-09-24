@@ -1,0 +1,43 @@
+{
+  "created_on": "2026-09-24",
+  "image_creation": "Built-in imagegen; full-character edits",
+  "status": "motion study; not integrated into the running character package",
+  "source_references": [
+    "crates/kanzei-app/ui/assets/oc/master-clean-v4.png",
+    "docs/design/oc-references/body-and-fabric.png"
+  ],
+  "images": [
+    {
+      "path": "docs/design/oc-references/master-soft-v5.png",
+      "role": "resting pose and revised lighting",
+      "sha256": "e1622218624a9ed909a5c2a80c211ba6fe91304da6f4b1faca9669a5d6588cee",
+      "size": [1024, 1536],
+      "mode": "RGB",
+      "prompt": "scripts/oc-h3/master-soft-v5.prompt.txt"
+    },
+    {
+      "path": "docs/design/oc-references/gesture-soft-v5.png",
+      "role": "compact hand gesture with downward sleeve drape",
+      "sha256": "94a96b0928cac9d417dd56b08de9f49be7e9143f5c80f0eab0ad4a1d38260251",
+      "size": [1024, 1536],
+      "mode": "RGB",
+      "prompt": "scripts/oc-h3/gesture-soft-v5-keyframe.prompt.txt"
+    }
+  ],
+  "video_creation": "MiniMax-H3 FL2VA with Larry v4-600 EMA, two endpoint images per segment",
+  "motion_prompts": [
+    "scripts/oc-h3/gesture-soft-v5-enter.txt",
+    "scripts/oc-h3/gesture-soft-v5-exit.txt"
+  ],
+  "gpu_profile": "scripts/oc-h3/profile-soft-v5.json",
+  "preview": {
+    "path": "output/oc-h3/oc-gesture-soft-v5/sample.mp4",
+    "duration_seconds": 8.916667,
+    "size": [768, 1152],
+    "fps": 24,
+    "frames": 214,
+    "sha256": "f8da39e0e02f5bdd9cd5f2209dbc4b3cc74a26a12ae1b061719f614122bc41b0",
+    "assembly": "output/oc-h3/oc-gesture-soft-v5/assembly.json",
+    "complete_decode": "passed"
+  }
+}
