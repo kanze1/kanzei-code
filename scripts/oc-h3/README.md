@@ -1,8 +1,17 @@
 # OC H3 deployment
 
-## Current v6 package (2026-09-24)
+## Current v7 package (2026-09-24)
 
-The active reference is `master-soft-v5.png`; the runtime package is
+The current workwear master is `docs/design/oc-references/master-workwear-v7.png`.
+`action-plan-v7.json` generated 11 full-character clips with GPU 4 and 5 in
+NUMA 1. The service is stopped and port 30010 is closed; recheck availability
+before any launch. `bake_alpha.py` bakes closed mouths and RGB/alpha planes;
+`pack_v7.py` produces `crates/kanzei-app/ui/assets/oc/character-v7.json`.
+`make_demo_v7.py` records the revised lines through the selected C voice.
+
+## Historical v6 package
+
+The v6 reference was `master-soft-v5.png`; its runtime package was
 `crates/kanzei-app/ui/assets/oc/character-v6.json`. GPU 4 and 5 in NUMA 1
 completed the v6 actions and the service has been stopped. Recheck availability
 with `profile-soft-v5.json` before any future launch.

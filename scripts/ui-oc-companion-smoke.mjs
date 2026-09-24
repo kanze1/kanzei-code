@@ -65,12 +65,14 @@ assert.equal(store.current(), "idle");
 assert.deepEqual(runtimes.get("a"), { phase: "running", running: true }, "动画不得改写业务状态");
 const uiUrl = new URL("../crates/kanzei-app/ui/", import.meta.url);
 const reference = await readFile(new URL(OC_REFERENCE_SRC, uiUrl));
-assert(ocPerformanceMarkup().includes(`src="${OC_REFERENCE_SRC}"`));
+assert(ocPerformanceMarkup().includes(`data-oc-poster="${OC_REFERENCE_SRC}"`));
+assert(!ocPerformanceMarkup().includes(' src="'), "disabled characters do not eagerly request an image");
 const packUrl = new URL(OC_CHARACTER_PACK_SRC, uiUrl);
 const pack = JSON.parse(await readFile(packUrl, "utf8"));
 assert.equal(pack.format, "kanzei.character-pack.v3");
 assert.equal(createHash("sha256").update(reference).digest("hex"), pack.posterSha256);
-assert.deepEqual([reference.readUInt32BE(16),reference.readUInt32BE(20)],[1024,1536]);
+assert.deepEqual([reference.readUInt32BE(16),reference.readUInt32BE(20)],pack.size);
+assert.equal(pack.videoLayout,"rgb-alpha-vertical");
 for(const name of ["idle","listening","thinking","replying","executing","blocked","complete","aside","warm"]){
   assert(pack.states[name]?.clips.length,name+" has authored clips");
   for(const id of pack.states[name].clips)assert(pack.clips[id]);
@@ -92,10 +94,10 @@ for(const [id,clip] of Object.entries(pack.clips)){
 const director=createOcDirector(pack);
 director.setState("replying");director.advance(1400);
 director.setState("thinking");director.setState("complete");
-assert.equal(director.sample().clip,"reply-enter");
+assert.equal(director.sample().clip,"replying");
 const seen=new Set();
+for(let t=0;t<3100;t+=20)assert.equal(director.advance(20).clip,"replying","finish the whole hand recovery before changing state");
 for(let t=0;t<8000;t+=20)seen.add(director.advance(20).clip);
-assert(seen.has("reply-exit"),"change state through the authored elbow recovery");
 assert(seen.has("complete"));assert(!seen.has("thinking"),"latest request wins");
 const idle=createOcDirector(pack),variants=new Set();
 for(let t=0;t<31000;t+=50)variants.add(idle.advance(50).clip);
@@ -103,6 +105,7 @@ assert.equal(variants.size,3,"three idle variants alternate without an extra pro
 for(const bad of [NaN,-1,Infinity])assert.equal(ocMouthFrame(bad),0);
 assert.equal(ocMouthFrame(1),3);
 assert.equal(pack.demo.voice,"Kanzei OC CN C");
+assert.equal(createHash("sha256").update(await readFile(new URL(pack.demo.audio,packUrl))).digest("hex"),pack.demo.audioSha256);
 for(let i=0;i<pack.demo.cues.length;i++){
   const cue=pack.demo.cues[i];assert(cue.duration>0&&cue.at>=0&&cue.at+cue.duration<=pack.demo.duration);
   if(i)assert(pack.demo.cues[i-1].at+pack.demo.cues[i-1].duration<=cue.at);

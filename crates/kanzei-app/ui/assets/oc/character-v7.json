@@ -1,0 +1,462 @@
+{
+  "format": "kanzei.character-pack.v3",
+  "version": "2026.09.24.7",
+  "fps": 24,
+  "size": [
+    576,
+    864
+  ],
+  "videoLayout": "rgb-alpha-vertical",
+  "poster": "master-workwear-v7-alpha.png",
+  "posterSha256": "b2bbf39616d96d514784c10128e7f1d4cc434aa61ec50c34a9928a85ad79ff82",
+  "mouth": {
+    "texture": "mouth-soft-v6.png",
+    "reference": [
+      0.498,
+      0.234
+    ],
+    "tracking": "per-frame affine",
+    "closed": "baked"
+  },
+  "background": [
+    218,
+    209,
+    203
+  ],
+  "transitionMs": 180,
+  "aliases": {
+    "interrupted": "idle",
+    "stopping": "idle",
+    "error": "blocked"
+  },
+  "states": {
+    "idle": {
+      "clips": [
+        "idle-breath",
+        "idle-observe",
+        "idle-quiet"
+      ]
+    },
+    "listening": {
+      "clips": [
+        "listening",
+        "idle-breath",
+        "idle-observe"
+      ]
+    },
+    "thinking": {
+      "clips": [
+        "thinking",
+        "idle-quiet"
+      ]
+    },
+    "replying": {
+      "clips": [
+        "replying"
+      ]
+    },
+    "executing": {
+      "clips": [
+        "executing",
+        "idle-breath"
+      ]
+    },
+    "blocked": {
+      "clips": [
+        "blocked",
+        "idle-quiet"
+      ]
+    },
+    "aside": {
+      "clips": [
+        "aside",
+        "idle-quiet"
+      ]
+    },
+    "warm": {
+      "clips": [
+        "warm"
+      ],
+      "once": true
+    },
+    "complete": {
+      "clips": [
+        "complete"
+      ],
+      "once": true
+    }
+  },
+  "clips": {
+    "idle-breath": {
+      "file": "clips-v7/idle-breath.mp4",
+      "tracking": "clips-v7/idle-breath.json",
+      "sha256": "1ba0f0cee7b44095250264e3f93031177f97125ac1f84f3b059ae2c13a57dbde",
+      "trackingSha256": "bc89e687b235c8329209dfada5d189958bad8cabe31a40b616a47a8c106464df",
+      "frames": 192,
+      "start": 0,
+      "end": 8.0,
+      "label": "轻呼吸",
+      "source": {
+        "job": "oc-idle-breath-workwear-v7-soft",
+        "sha256": "71657c6e24de4ec21a8e7c225b4447f62027fbf041c67963ebf6eea71af26f73",
+        "postproduction": {
+          "operation": "whole-frame vertical drift stabilization",
+          "source": "output\\oc-h3\\oc-idle-breath-workwear-v7\\sample.mp4",
+          "source_sha256": "a1c909768df7ab52891bd4d7e3e7771cbb8d053bbe768650a8e40553e4645958",
+          "output_sha256": "71657c6e24de4ec21a8e7c225b4447f62027fbf041c67963ebf6eea71af26f73",
+          "frames": 192,
+          "retained_displacement": {
+            "head": 0.08,
+            "collar": 0.2,
+            "lower_ribs": 0.45,
+            "hips": 0.05
+          },
+          "row_positions": [
+            0.15,
+            0.375,
+            0.575,
+            0.885
+          ],
+          "note": "Only authored idle clips use this pass. Gesture anatomy and limbs are never composited separately."
+        }
+      }
+    },
+    "idle-observe": {
+      "file": "clips-v7/idle-observe.mp4",
+      "tracking": "clips-v7/idle-observe.json",
+      "sha256": "7f821d453b384633ebb874d2ec04c8d22adf0bd4e5c930e40a2ee9804ccc5199",
+      "trackingSha256": "dfdff5d22730f04976140770198cd2921e22d55392737ebf53c8af38ec808b9e",
+      "frames": 192,
+      "start": 0,
+      "end": 8.0,
+      "label": "短暂移开视线",
+      "source": {
+        "job": "oc-idle-observe-workwear-v7-soft",
+        "sha256": "13085c7c92e0b948a579e309af5c3bd0dde34af15dbfc705680719b3efeaf710",
+        "postproduction": {
+          "operation": "whole-frame vertical drift stabilization",
+          "source": "output\\oc-h3\\oc-idle-observe-workwear-v7\\sample.mp4",
+          "source_sha256": "789a4ffcf8d5ed53d3882ff951708bebb9cf972af6bea133c954929a4ae739e6",
+          "output_sha256": "13085c7c92e0b948a579e309af5c3bd0dde34af15dbfc705680719b3efeaf710",
+          "frames": 192,
+          "retained_displacement": {
+            "head": 0.08,
+            "collar": 0.2,
+            "lower_ribs": 0.45,
+            "hips": 0.05
+          },
+          "row_positions": [
+            0.15,
+            0.375,
+            0.575,
+            0.885
+          ],
+          "note": "Only authored idle clips use this pass. Gesture anatomy and limbs are never composited separately."
+        }
+      }
+    },
+    "idle-quiet": {
+      "file": "clips-v7/idle-quiet.mp4",
+      "tracking": "clips-v7/idle-quiet.json",
+      "sha256": "27221930aa5f22893996e382c06a44c8e798cb6cd61e9d2038a1a378de1b5672",
+      "trackingSha256": "2828a4d043642256c64bedf05942a59e413098a5c8641fa82b369e37b06938f7",
+      "frames": 192,
+      "start": 0,
+      "end": 8.0,
+      "label": "安静停留",
+      "source": {
+        "job": "oc-idle-quiet-workwear-v7-soft",
+        "sha256": "c13d4e3ee2d8dd09c17f5447cfe74f7dd7844b6d17db390794dfdac231dc5af2",
+        "postproduction": {
+          "operation": "whole-frame vertical drift stabilization",
+          "source": "output\\oc-h3\\oc-idle-quiet-workwear-v7\\sample.mp4",
+          "source_sha256": "bdeb9ba15c45897d582b3b3c1e9a1e395e632cb1509a3e17b6d3d1dd89f51d2a",
+          "output_sha256": "c13d4e3ee2d8dd09c17f5447cfe74f7dd7844b6d17db390794dfdac231dc5af2",
+          "frames": 192,
+          "retained_displacement": {
+            "head": 0.08,
+            "collar": 0.2,
+            "lower_ribs": 0.45,
+            "hips": 0.05
+          },
+          "row_positions": [
+            0.15,
+            0.375,
+            0.575,
+            0.885
+          ],
+          "note": "Only authored idle clips use this pass. Gesture anatomy and limbs are never composited separately."
+        }
+      }
+    },
+    "listening": {
+      "file": "clips-v7/listening.mp4",
+      "tracking": "clips-v7/listening.json",
+      "sha256": "14f9618039534c62766b55c48713ea6dc184edfa57ca1e646f271202dfc850e3",
+      "trackingSha256": "01d6535a3f126ad2a8adbd0b457598a2374a707b85d861deaa30cfc2fb0f17ce",
+      "frames": 107,
+      "start": 0,
+      "end": 4.458333333333333,
+      "label": "注视与回应",
+      "source": {
+        "job": "oc-listening-workwear-v7",
+        "sha256": "fd458e6a209cf1af05fb336ae6307d707bb0c05a8858d5e64661e54dd34c05a8",
+        "postproduction": null
+      },
+      "protected": [
+        [
+          0.35,
+          3.5
+        ]
+      ]
+    },
+    "thinking": {
+      "file": "clips-v7/thinking.mp4",
+      "tracking": "clips-v7/thinking.json",
+      "sha256": "83a8f324ee67cdc00551adf9f86d664dda4f9f2b730752a4463d3b76530f83bc",
+      "trackingSha256": "8b68dfe829a17a5ccb3544c93bd3d9d981815f023c3b7a12f5164c418337da61",
+      "frames": 158,
+      "start": 0,
+      "end": 6.583333333333333,
+      "label": "低头思考",
+      "source": {
+        "job": "oc-thinking-workwear-v7",
+        "sha256": "cc3b119e463303e46a37863eb238684cda71abd940b7fa3b11a2df726ba0cc78",
+        "postproduction": null
+      },
+      "protected": [
+        [
+          0.55,
+          5.5
+        ]
+      ]
+    },
+    "replying": {
+      "file": "clips-v7/replying.mp4",
+      "tracking": "clips-v7/replying.json",
+      "sha256": "290dbb59f3a40b369167e5d4f5a304908eeb90998f0f67e2820f920324811b23",
+      "trackingSha256": "574486144ac6d5278defe3071a94f072b5650994752c0371139b414e02f7f21d",
+      "frames": 158,
+      "start": 0,
+      "end": 6.583333333333333,
+      "label": "抬手说明与收回",
+      "source": {
+        "job": "oc-replying-workwear-v7",
+        "sha256": "b7cabac161052c8aa5965631e1b57d2588abcf8eac83084652bc8e826873cbea",
+        "postproduction": null
+      },
+      "next": "reply-rest",
+      "protected": [
+        [
+          0.55,
+          4.55
+        ]
+      ]
+    },
+    "executing": {
+      "file": "clips-v7/executing.mp4",
+      "tracking": "clips-v7/executing.json",
+      "sha256": "561796b7d56bb45a8912e08a52551446a8a458e27b24f0ad49b20e31a9006c5d",
+      "trackingSha256": "38f20d2f5d45520e31508b1a2d3e459d0c0c2991ff297c42ce1a79a0e3efab76",
+      "frames": 158,
+      "start": 0,
+      "end": 6.583333333333333,
+      "label": "查看与核对",
+      "source": {
+        "job": "oc-executing-workwear-v7",
+        "sha256": "6dd6fa71fcc6b646f75d8f836b8e7f05d0558b3e44156945026e15267a9ddb5d",
+        "postproduction": null
+      },
+      "protected": [
+        [
+          0.55,
+          5.5
+        ]
+      ]
+    },
+    "blocked": {
+      "file": "clips-v7/blocked.mp4",
+      "tracking": "clips-v7/blocked.json",
+      "sha256": "e80f7724afb15b3e13e322e51538daedea3d9d3a6005e187e89b5a2cb98eb098",
+      "trackingSha256": "045636e0d899e4817ab24ceb99a0d74dc53940d80e3ced6b7515e17634d13a67",
+      "frames": 107,
+      "start": 0,
+      "end": 4.458333333333333,
+      "label": "停顿与疑惑",
+      "source": {
+        "job": "oc-blocked-workwear-v7",
+        "sha256": "6682047eb77ca79be7d8ef4b53ebec58255e572e83218a84d08806c811cfaa94",
+        "postproduction": null
+      },
+      "protected": [
+        [
+          0.35,
+          3.5
+        ]
+      ]
+    },
+    "aside": {
+      "file": "clips-v7/aside.mp4",
+      "tracking": "clips-v7/aside.json",
+      "sha256": "b36984bcc5c8756cec9cdfc6eae48d3a90a199e8af30e28ea053a50afc9fc3bb",
+      "trackingSha256": "a87a0c676e4626d01c29c7f6645b531633653d3be181b853e019e65242ce2b85",
+      "frames": 107,
+      "start": 0,
+      "end": 4.458333333333333,
+      "label": "侧眼吐槽",
+      "source": {
+        "job": "oc-aside-workwear-v7",
+        "sha256": "62e51e5bfcc22f5895c2d2844b3847915cf61e4af49953ab7c1929017ed7c4c0",
+        "postproduction": null
+      },
+      "protected": [
+        [
+          0.35,
+          3.5
+        ]
+      ]
+    },
+    "warm": {
+      "file": "clips-v7/warm.mp4",
+      "tracking": "clips-v7/warm.json",
+      "sha256": "9eaee57c3bc8b1d52932035da1e72c1ce2ee1d535f4a38b603e67ce65cb701d6",
+      "trackingSha256": "1920472ba79770bda367199b7d10cbaeb8b503030697ff42f3e39cb29de3e57c",
+      "frames": 107,
+      "start": 0,
+      "end": 4.458333333333333,
+      "label": "会意",
+      "source": {
+        "job": "oc-warm-workwear-v7",
+        "sha256": "87b04fa0fc2d87bc97a9508b50a7c52521fa2904df76438e7ae9993e7afc6949",
+        "postproduction": null
+      },
+      "protected": [
+        [
+          0.35,
+          3.5
+        ]
+      ]
+    },
+    "complete": {
+      "file": "clips-v7/complete.mp4",
+      "tracking": "clips-v7/complete.json",
+      "sha256": "4564360dcad9d7fd00d7d98c261a68a49464c5a3de1e973dbd1d43c71c5d56d4",
+      "trackingSha256": "9456d4358a96effed3812155a6a10e58f360eb3f4e505ef598fdccb7ffdd0c20",
+      "frames": 107,
+      "start": 0,
+      "end": 4.458333333333333,
+      "label": "轻点头确认",
+      "source": {
+        "job": "oc-complete-workwear-v7",
+        "sha256": "1a26eed48ea664f01c333c23b75afd346ea85daa6abacd070ceb453bac745218",
+        "postproduction": null
+      },
+      "protected": [
+        [
+          0.35,
+          3.5
+        ]
+      ]
+    },
+    "reply-rest": {
+      "file": "clips-v7/idle-quiet.mp4",
+      "tracking": "clips-v7/idle-quiet.json",
+      "sha256": "27221930aa5f22893996e382c06a44c8e798cb6cd61e9d2038a1a378de1b5672",
+      "trackingSha256": "2828a4d043642256c64bedf05942a59e413098a5c8641fa82b369e37b06938f7",
+      "frames": 192,
+      "start": 5,
+      "end": 8.0,
+      "label": "平视回应",
+      "source": {
+        "job": "oc-idle-quiet-workwear-v7-soft",
+        "sha256": "c13d4e3ee2d8dd09c17f5447cfe74f7dd7844b6d17db390794dfdac231dc5af2",
+        "postproduction": {
+          "operation": "whole-frame vertical drift stabilization",
+          "source": "output\\oc-h3\\oc-idle-quiet-workwear-v7\\sample.mp4",
+          "source_sha256": "bdeb9ba15c45897d582b3b3c1e9a1e395e632cb1509a3e17b6d3d1dd89f51d2a",
+          "output_sha256": "c13d4e3ee2d8dd09c17f5447cfe74f7dd7844b6d17db390794dfdac231dc5af2",
+          "frames": 192,
+          "retained_displacement": {
+            "head": 0.08,
+            "collar": 0.2,
+            "lower_ribs": 0.45,
+            "hips": 0.05
+          },
+          "row_positions": [
+            0.15,
+            0.375,
+            0.575,
+            0.885
+          ],
+          "note": "Only authored idle clips use this pass. Gesture anatomy and limbs are never composited separately."
+        }
+      },
+      "protected": [],
+      "next": "replying"
+    }
+  },
+  "demo": {
+    "audio": "demo-speech-c-v7.wav",
+    "duration": 30,
+    "fps": 24,
+    "voice": "Kanzei OC CN C",
+    "referenceSha256": "d514364ac6d714134b9d26b6428784b7905e78ec7f3337e2c4853287b3ec1cc4",
+    "audioSha256": "8b84d343bf1cfeee13134e4b89677996c463f3c362723a328eb33469c3085d29",
+    "events": [
+      [
+        0,
+        "idle"
+      ],
+      [
+        2.4,
+        "listening"
+      ],
+      [
+        6.5,
+        "thinking"
+      ],
+      [
+        13.2,
+        "replying"
+      ],
+      [
+        21.5,
+        "aside"
+      ],
+      [
+        26.2,
+        "complete"
+      ],
+      [
+        29.6,
+        "idle"
+      ]
+    ],
+    "cues": [
+      {
+        "at": 3.1,
+        "state": "listening",
+        "text": "说吧，今天折腾什么。",
+        "duration": 2.08
+      },
+      {
+        "at": 15.7,
+        "state": "replying",
+        "text": "找到毛病了。这个地方接错了，改一下就好。",
+        "duration": 3.36
+      },
+      {
+        "at": 22.3,
+        "state": "aside",
+        "text": "这弯绕得，还挺有创意。",
+        "duration": 2.72
+      },
+      {
+        "at": 26.8,
+        "state": "complete",
+        "text": "好了，试试。",
+        "duration": 1.84
+      }
+    ]
+  }
+}

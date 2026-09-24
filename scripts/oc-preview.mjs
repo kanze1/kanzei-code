@@ -3,7 +3,7 @@ import { readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const root=fileURLToPath(new URL("../crates/kanzei-app/ui/",import.meta.url));
-const output=fileURLToPath(new URL(process.argv.includes("--v6")?"../output/oc-film-v6/":"../output/oc-film/",import.meta.url));
+const output=fileURLToPath(new URL(process.argv.includes("--v7")?"../output/oc-film-v7/":process.argv.includes("--v6")?"../output/oc-film-v6/":"../output/oc-film/",import.meta.url));
 const types={".html":"text/html; charset=utf-8",".js":"text/javascript",".mjs":"text/javascript",".css":"text/css",".png":"image/png",".json":"application/json",".wav":"audio/wav",".mp4":"video/mp4",".webm":"video/webm"};
 const exporting=process.argv.includes("--export");
 const server=http.createServer(async(req,res)=>{

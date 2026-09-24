@@ -8,22 +8,23 @@ async (page) => {
   await page.evaluate(async state => {
     const {loadOcResources,createOcRenderer}=await import('/22-oc-renderer.js');
     const {createOcDirector}=await import('/22-oc-director.js');
-    const resources=await loadOcResources('./assets/oc/character-v6.json');
+    const {OC_CHARACTER_PACK_SRC}=await import('/22-oc-config.js');
+    const resources=await loadOcResources(OC_CHARACTER_PACK_SRC);
     window.materialRenders=[];
     for(const [id,level] of [['dark',0],['light',.55],['check',1]]){
-      const renderer=createOcRenderer(document.getElementById(id),resources);
+      const renderer=createOcRenderer(document.getElementById(id),resources,{export:true});
       const model=createOcDirector(resources.pack);model.setState(state);model.advance(state==='thinking'?3900:3400);
       renderer.pause();await renderer.seek(model.sample(),{speaking:level>0,level});
       window.materialRenders.push(renderer);
     }
   },state);
-  await page.screenshot({path:'output/playwright/oc-material-'+state+'-v6.png'});
+  await page.screenshot({path:'output/playwright/oc-material-'+state+'-v7.png'});
   await page.evaluate(()=>{
     for(const host of document.querySelectorAll('body>div')){
       host.style.width='384px';host.style.height='360px';host.style.overflow='hidden';
       const canvas=host.querySelector('canvas');canvas.style.position='absolute';canvas.style.width='768px';canvas.style.height='1152px';canvas.style.left='-192px';canvas.style.top='-90px';
     }
   });
-  await page.screenshot({path:'output/playwright/oc-mouth-'+state+'-v6.png'});
+  await page.screenshot({path:'output/playwright/oc-mouth-'+state+'-v7.png'});
   return {renderers:await page.evaluate(()=>window.materialRenders.map(renderer=>renderer.snapshot()))};
 }

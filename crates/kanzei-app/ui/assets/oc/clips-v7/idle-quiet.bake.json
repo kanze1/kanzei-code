@@ -1,0 +1,18 @@
+{
+  "format": "rgb-alpha-vertical",
+  "source": "output\\oc-h3\\oc-idle-quiet-workwear-v7-soft\\sample.mp4",
+  "frames": 192,
+  "fps": 24.0,
+  "size": [
+    576,
+    864
+  ],
+  "encoded_size": [
+    576,
+    1728
+  ],
+  "bytes": 1599285,
+  "sha256": "27221930aa5f22893996e382c06a44c8e798cb6cd61e9d2038a1a378de1b5672",
+  "closed_mouth": "baked",
+  "keying": "offline"
+}

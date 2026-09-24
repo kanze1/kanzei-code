@@ -906,6 +906,15 @@ select {
 }
 
 .voice-stage { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: center; gap: 24px; padding: 70px 7% 30px; z-index: var(--z-raised); }
+.oc-toggle { flex-direction: column; gap: 3px; }
+.oc-toggle > span { font-size: var(--fs-10); line-height: 1; }
+.oc-toggle[aria-pressed="true"] { color: var(--accent-text); background: var(--accent-soft); }
+html[data-oc-enabled="false"] :is(.empty-art, .voice-art, #oc-companion) { display: none !important; }
+html[data-oc-enabled="false"] .empty-welcome { grid-template-columns: 1fr; max-width: 540px; }
+html[data-oc-enabled="false"] #messages { padding-right: 24px; }
+html[data-oc-enabled="false"] .voice-stage { grid-template-columns: minmax(0, 640px); justify-content: center; }
+html[data-oc-enabled="false"] .voice-stage-copy { padding-right: 0; }
+html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68px max(24px, 9%) 20px; }
 .voice-stage-head { position: absolute; top: 22px; left: 30px; right: 30px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .voice-stage-head > div { display: flex; gap: 12px; }
 .voice-stage-brand { font-weight: 600; letter-spacing: .08em; color: var(--fg-strong); }

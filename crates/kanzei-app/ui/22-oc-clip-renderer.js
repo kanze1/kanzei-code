@@ -86,13 +86,56 @@ void main(){
   gl_FragColor=mix(character(uVideoA,uMouthA),character(uVideoB,uMouthB),uBlend);
 }`;
 
-export function createOcClipRenderer(host, resources) {
+// Packed RGB + alpha is authored offline; only mouth pixels need dynamic work.
+const PACKED_FRAGMENT = `
+precision mediump float;
+varying vec2 vUv;
+uniform sampler2D uVideoA;
+uniform sampler2D uVideoB;
+uniform sampler2D uMouthArt;
+uniform vec4 uMouthA;
+uniform vec4 uMouthB;
+uniform vec2 uMouthReference;
+uniform vec2 uSize;
+uniform vec2 uPacking;
+uniform float uBlend;
+uniform float uMouth;
+vec4 character(sampler2D art,vec4 track,float isPacked){
+  vec2 uv=vec2(vUv.x,vUv.y*mix(1.0,.5,isPacked));
+  vec4 color=texture2D(art,uv);
+  float alpha=color.a;
+  if(isPacked>.5)alpha=texture2D(art,vec2(vUv.x,.5+vUv.y*.5)).r;
+  if(alpha<.004)return vec4(0.0);
+  if(uMouth>.001){
+    vec2 pixels=(vUv-track.xy)*uSize;
+    float c=cos(track.w),s=sin(track.w);
+    vec2 local=vec2(c*pixels.x+s*pixels.y,-s*pixels.x+c*pixels.y)/max(track.z,.8)/uSize;
+    float region=1.0-smoothstep(.72,1.0,length(local/vec2(.042,.018)));
+    if(region>0.0){
+      vec2 openLocal=vec2(local.x,local.y/mix(.25,1.0,uMouth));
+      vec3 mouth=texture2D(uMouthArt,uMouthReference+openLocal).rgb;
+      vec2 skinUv=vec2(track.x,(track.y-.019)*mix(1.0,.5,isPacked));
+      vec3 skin=texture2D(art,skinUv).rgb;
+      vec3 source=texture2D(uMouthArt,uMouthReference+vec2(0.0,-.019)).rgb;
+      mouth+=clamp(skin-source,vec3(-.12),vec3(.12));
+      float opening=1.0-smoothstep(.82,1.0,length(openLocal/vec2(.024,.007)));
+      color.rgb=mix(color.rgb,mix(skin,clamp(mouth,0.0,1.0),opening),region);
+    }
+  }
+  return vec4(color.rgb*alpha,alpha);
+}
+void main(){
+  if(uBlend>=.999)gl_FragColor=character(uVideoB,uMouthB,uPacking.y);
+  else gl_FragColor=mix(character(uVideoA,uMouthA,uPacking.x),character(uVideoB,uMouthB,uPacking.y),uBlend);
+}`;
+
+export function createOcClipRenderer(host, resources, options = {}) {
   const { PIXI, pack, poster, mouth, clips } = resources;
   const [artWidth, artHeight] = pack.size;
   const app = new PIXI.Application({
     width: 1, height: 1, autoStart: false, sharedTicker: false, backgroundAlpha: 0,
-    antialias: true, autoDensity: true, resolution: Math.min(2, window.devicePixelRatio || 1),
-    powerPreference: "low-power", preserveDrawingBuffer: true,
+    antialias: false, autoDensity: true, resolution: Math.min(1.5, window.devicePixelRatio || 1),
+    powerPreference: "default", preserveDrawingBuffer: Boolean(options.export),
   });
   app.stop();
   app.view.className = "oc-canvas";
@@ -107,19 +150,22 @@ export function createOcClipRenderer(host, resources) {
     uMouthA: [...pack.mouth.reference,1,0], uMouthB: [...pack.mouth.reference,1,0],
     uMouthReference: pack.mouth.reference.slice(), uBackground: pack.background.map(n => n / 255),
     uTexel: [3 / artWidth, 3 / artHeight], uSize: pack.size.slice(),
-    uBlend: 1, uMouth: 0, uKey: 1,
+    uBlend: 1, uMouth: 0, uKey: 1, uPacking: [0, 0],
   };
-  const mesh = new PIXI.Mesh(geometry, PIXI.Shader.from(VERTEX, FRAGMENT, uniforms));
+  const packed = pack.videoLayout === "rgb-alpha-vertical";
+  const mesh = new PIXI.Mesh(geometry, PIXI.Shader.from(VERTEX, packed ? PACKED_FRAGMENT : FRAGMENT, uniforms));
   stage.addChild(mesh);
   const entries = new Map();
   let currentHost = null, width = 0, height = 0, destroyed = false, paused = false;
   let lastSample = null, lastOptions = null, displayed = null, usage = 0, seekVersion = 0;
   let seekQueue = Promise.resolve();
+  let frameCallback = null, paintSignature = "", buffering = false, textureUploads = 0, paints = 0;
 
   function dispose(entry) {
     entry.cancelled = true;
     entry.finish?.(new Error("OC video disposed"));
     entry.video.pause();
+    if (entry.frameRequest != null) entry.video.cancelVideoFrameCallback?.(entry.frameRequest);
     entry.texture?.destroy(true);
     entry.video.removeAttribute("src");
     entry.video.load();
@@ -135,7 +181,18 @@ export function createOcClipRenderer(host, resources) {
     const video = document.createElement("video");
     video.muted = true; video.defaultMuted = true; video.playsInline = true;
     video.preload = "auto"; video.loop = false;
-    const entry = { key, id, video, texture: null, error: null, cancelled: false, used: ++usage };
+    const entry = { key, id, video, texture: null, error: null, cancelled: false, used: ++usage,
+      frameVersion: 0, uploadedVersion: -1, mediaTime: null, startedSerial: null };
+    function decoded(_now, metadata) {
+      if (entry.cancelled || destroyed) return;
+      entry.mediaTime = metadata.mediaTime; entry.frameVersion++;
+      entry.frameRequest = video.requestVideoFrameCallback(decoded);
+      if (!paused && entry === displayed) frameCallback?.();
+    }
+    if (video.requestVideoFrameCallback) entry.frameRequest = video.requestVideoFrameCallback(decoded);
+    video.addEventListener("seeked", () => {
+      entry.mediaTime = video.currentTime; entry.frameVersion++;
+    });
     entries.set(key, entry);
     entry.ready = new Promise(resolve => {
       let settled = false;
@@ -149,11 +206,13 @@ export function createOcClipRenderer(host, resources) {
       };
       const loaded = () => {
         if (entry.cancelled || destroyed) return finish(new Error("OC video disposed"));
-        if (video.videoWidth !== artWidth || video.videoHeight !== artHeight) {
+        if (video.videoWidth !== artWidth || video.videoHeight !== artHeight * (packed ? 2 : 1)) {
           return finish(new Error("OC video dimensions: " + id));
         }
         entry.texture = PIXI.Texture.from(video, { resourceOptions: { autoPlay: false, updateFPS: pack.fps } });
         entry.texture.baseTexture.resource.autoUpdate = false;
+        if (clip.start) video.currentTime = clip.start;
+        entry.frameVersion++;
         finish(null);
       };
       const failed = () => finish(new Error("OC video unavailable: " + id));
@@ -170,7 +229,10 @@ export function createOcClipRenderer(host, resources) {
     const bounds = currentHost.getBoundingClientRect();
     const w = Math.max(1, Math.round(bounds.width)), h = Math.max(1, Math.round(bounds.height));
     if (w === width && h === height) return;
-    width = w; height = h; app.renderer.resize(w, h);
+    width = w; height = h; paintSignature = "";
+    const resolution = Math.min(1.5, window.devicePixelRatio || 1, artWidth / Math.max(1, Math.min(w, h * artWidth / artHeight)));
+    app.renderer.resolution = resolution;
+    app.renderer.resize(w, h);
     const scale = Math.min(w / artWidth, h / artHeight);
     stage.scale.set(scale); stage.position.set((w - artWidth * scale) / 2, h - artHeight * scale);
   }
@@ -179,20 +241,29 @@ export function createOcClipRenderer(host, resources) {
     currentHost?.removeAttribute("data-oc-ready");
     currentHost = next; next.appendChild(app.view); width = height = 0; resize();
   }
-  function position(entry, seconds, rate, playing) {
+  function position(entry, seconds, rate, playing, serial) {
     if (!entry.texture) return false;
     if (entry.error) throw entry.error;
     const target = Math.max(0, Math.min(entry.video.duration - 1 / pack.fps, seconds));
-    if (Math.abs(entry.video.currentTime - target) > .13 && !entry.video.seeking) entry.video.currentTime = target;
-    entry.video.playbackRate = rate;
-    if (playing && !paused && entry.video.paused) {
+    // Native video playback owns time inside a clip. Repeated wall-clock seeks
+    // forced the decoder back to a GOP boundary during stalls and transitions.
+    if (entry.startedSerial !== serial && !paused) {
+      entry.startedSerial = serial;
+      if (Math.abs(entry.video.currentTime - target) > 1 / pack.fps && !entry.video.seeking) entry.video.currentTime = target;
+    }
+    if (entry.video.playbackRate !== rate) entry.video.playbackRate = rate;
+    if (playing && !paused && entry.video.paused && !entry.video.ended) {
       void entry.video.play().catch(error => {
         if (error.name !== "AbortError" && !entry.cancelled && !destroyed) entry.error = error;
       });
     } else if (!playing || paused) entry.video.pause();
     if (entry.video.seeking || entry.video.readyState < 2) return false;
-    entry.frameTime = entry.video.currentTime;
-    entry.texture.baseTexture.resource.update();
+    entry.frameTime = entry.mediaTime ?? entry.video.currentTime;
+    const version = entry.video.requestVideoFrameCallback ? entry.frameVersion : Math.floor(entry.video.currentTime * pack.fps);
+    if (entry.uploadedVersion !== version) {
+      entry.texture.baseTexture.resource.update(); textureUploads++;
+      entry.uploadedVersion = version;
+    }
     return true;
   }
   function anchor(id, seconds) {
@@ -201,54 +272,70 @@ export function createOcClipRenderer(host, resources) {
     return tracking.mouth[index].slice(0, 4);
   }
   function render(sample, options = {}) {
-    if (destroyed) return;
+    if (destroyed) return false;
     lastSample = sample; lastOptions = options; resize();
     const { speaking = false, level = 0, reduced = false } = options;
     const keep = new Set();
+    const playing = new Set();
+    let signature = "poster";
     if (reduced) {
       uniforms.uVideoA = uniforms.uVideoB = poster;
       uniforms.uMouthA = uniforms.uMouthB = [...pack.mouth.reference,1,0];
       uniforms.uBlend = 1;
+      uniforms.uPacking = [0, 0]; buffering = false;
     } else {
       const current = entryFor(sample.clip, sample.serial);
       keep.add(current.key);
+      playing.add(current.key);
       if (current.error) throw current.error;
       const before = sample.previous && entryFor(sample.previous.clip, sample.previous.serial);
       if (before) keep.add(before.key);
-      const ready = position(current, sample.sourceTime, sample.playbackRate, true);
+      if (before) playing.add(before.key);
+      const ready = position(current, sample.sourceTime, sample.playbackRate, true, sample.serial);
+      buffering = !ready;
       if (ready) {
         let previousReady = false;
-        if (before) previousReady = position(before, sample.previous.sourceTime, 1, true);
+        if (before) previousReady = position(before, sample.previous.sourceTime, 1, true, sample.previous.serial);
         uniforms.uVideoB = current.texture;
         uniforms.uMouthB = anchor(sample.clip, current.frameTime);
         uniforms.uVideoA = previousReady ? before.texture : current.texture;
         uniforms.uMouthA = previousReady ? anchor(sample.previous.clip, before.frameTime) : uniforms.uMouthB;
         uniforms.uBlend = previousReady ? sample.blend : 1;
+        uniforms.uPacking = [packed ? 1 : 0, packed ? 1 : 0];
+        signature = current.key + ":" + current.uploadedVersion + (previousReady ? ":" + before.key + ":" + before.uploadedVersion + ":" + Math.round(sample.blend * 100) : "");
         displayed = current;
       } else if (displayed?.texture) {
         keep.add(displayed.key);
         uniforms.uVideoA = uniforms.uVideoB = displayed.texture;
         uniforms.uMouthA = uniforms.uMouthB = anchor(displayed.id, displayed.frameTime || 0);
         uniforms.uBlend = 1;
+        uniforms.uPacking = [packed ? 1 : 0, packed ? 1 : 0];
+        signature = displayed.key + ":" + displayed.uploadedVersion;
       }
       const sequence = pack.states[sample.requested]?.clips || pack.states.idle.clips;
       const nextId = sample.state !== sample.requested ? clips[sample.clip].exit || sequence[0] :
         clips[sample.clip].next || sequence[(sequence.indexOf(sample.clip) + 1) % sequence.length];
       if (nextId) keep.add(entryFor(nextId, sample.serial + 1).key);
     }
-    for (const entry of entries.values()) if (!keep.has(entry.key) || reduced) entry.video.pause();
+    for (const entry of entries.values()) if (!playing.has(entry.key) || reduced) entry.video.pause();
     while (entries.size > 4) {
       const disposable = [...entries.values()].filter(entry => !keep.has(entry.key)).sort((a,b) => a.used - b.used)[0];
       if (!disposable) break;
       entries.delete(disposable.key); dispose(disposable);
     }
-    uniforms.uMouth = speaking && level >= .12 ? Math.min(1, Math.max(0, level)) : 0;
+    uniforms.uMouth = speaking && level >= .12 ? Math.round(Math.min(1, Math.max(0, level)) * 30) / 30 : 0;
+    signature += ":" + uniforms.uMouth;
+    if (signature === paintSignature) return false;
+    paintSignature = signature;
     app.renderer.render(app.stage);
+    if (!paints && app.renderer.gl.getError() !== app.renderer.gl.NO_ERROR) throw new Error("OC shader initialization failed");
+    paints++;
     currentHost?.setAttribute("data-oc-ready", "true");
     app.view.dataset.ocClip = sample.state + "/" + sample.phase;
     app.view.dataset.ocAction = sample.clip;
     app.view.dataset.ocFrame = String(sample.to[1]);
     app.view.dataset.ocMouth = String(uniforms.uMouth);
+    return true;
   }
   function seek(sample, options = {}) {
     const version = ++seekVersion;
@@ -274,9 +361,11 @@ export function createOcClipRenderer(host, resources) {
             active.video.currentTime = target;
           });
         }
+        active.mediaTime = target; active.frameVersion++;
       }
       if (version !== seekVersion || destroyed) return;
       const wasPaused = paused; paused = true;
+      paintSignature = "";
       try { render(sample, options); } finally { paused = wasPaused; }
     };
     seekQueue = seekQueue.catch(() => {}).then(operation);
@@ -285,17 +374,20 @@ export function createOcClipRenderer(host, resources) {
   moveTo(host);
   return {
     canvas: app.view, moveTo, render, seek,
+    onFrame(callback) { frameCallback = callback; },
+    isBuffering: () => buffering,
     pause() { paused = true; for (const entry of entries.values()) entry.video.pause(); },
     resume() { seekVersion += 1; paused = false; },
     reset() {
-      seekVersion += 1; displayed = null;
+      seekVersion += 1; displayed = null; paintSignature = ""; buffering = false;
       for (const entry of entries.values()) entry.video.pause();
       uniforms.uVideoA = uniforms.uVideoB = poster;
       uniforms.uMouthA = uniforms.uMouthB = [...pack.mouth.reference,1,0];
       uniforms.uBlend = 1; uniforms.uMouth = 0;
+      uniforms.uPacking = [0, 0];
     },
-    redraw() { if (lastSample) render(lastSample, lastOptions); },
-    snapshot() { return { decodedSources: entries.size, playingSources: [...entries.values()].filter(e => !e.video.paused).length }; },
+    redraw() { paintSignature = ""; if (lastSample) render(lastSample, lastOptions); },
+    snapshot() { return { decodedSources: entries.size, playingSources: [...entries.values()].filter(e => !e.video.paused).length, textureUploads, paints, buffering, packedAlpha: packed, drawingBuffer: [app.view.width, app.view.height] }; },
     destroy() {
       if (destroyed) return;
       destroyed = true; currentHost?.removeAttribute("data-oc-ready");

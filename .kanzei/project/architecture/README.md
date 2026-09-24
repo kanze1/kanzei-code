@@ -11,6 +11,7 @@
 
 ## live_design
 
+- [identity: live_design; last_verified_commit: 534e6be0] [`oc-playback.md`](../../../docs/design/oc-playback.md)：预渲染透明视频、解码时钟、角色开关与运行性能证据。
 - [identity: live_design; last_verified_commit: aa9c924a] [`oc.md`](../../../docs/design/oc.md)：角色外观、性格与连续动作表现基线。
 - [identity: live_design; last_verified_commit: aa9c924a] [`oc-production.md`](../../../docs/design/oc-production.md)：完整视频角色包、嘴型跟踪、动作衔接及验收范围。
 - [identity: live_design; last_verified_commit: aa9c924a] [`oc-idle-direction.md`](../../../docs/design/oc-idle-direction.md)：呼吸、眨眼、视线变化与待机循环的制作和检查。

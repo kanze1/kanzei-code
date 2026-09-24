@@ -76,6 +76,10 @@ export function initOcCompanion(root, options) {
   const motion = initOcSpriteMotion(root);
   let voice = null;
   let lastSessionId = options.getSessionId();
+  function preferenceChanged() {
+    motion.setEnabled(document.documentElement.dataset.ocEnabled !== "false");
+    sync();
+  }
   function sync() {
     const sessionId = options.getSessionId();
     if (sessionId !== lastSessionId) { motion.reset(); lastSessionId = sessionId; }
@@ -86,17 +90,20 @@ export function initOcCompanion(root, options) {
     motion.setSpeaking(currentVoice?.phase === "speaking");
     motion.setMouthLevel(currentVoice?.level || 0);
   }
-  sync();
+  preferenceChanged();
   // 状态投影只做低频只读同步，覆盖切会话、后台终态和轮询恢复。
   const timer = setInterval(sync, 250);
   document.addEventListener("visibilitychange", sync);
+  document.addEventListener("kz:oc-preference", preferenceChanged);
   return {
     emit(type, detail) { store.emit(type, detail); sync(); },
     voice(sessionId, phase, level = 0) { voice = phase ? { sessionId, phase, level } : null; sync(); },
+    snapshot: () => motion.snapshot(),
     destroy() {
       clearInterval(timer);
       motion.destroy();
       document.removeEventListener("visibilitychange", sync);
+      document.removeEventListener("kz:oc-preference", preferenceChanged);
     },
   };
 }

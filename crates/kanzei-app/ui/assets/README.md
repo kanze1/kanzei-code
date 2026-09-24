@@ -1,36 +1,30 @@
 # UI artwork
 
-The active OC is `oc/character-v6.json` (format `kanzei.character-pack.v3`).
-The owner-approved v5 reference has a slim androgynous silhouette, flat chest,
-matte navy fabric, soft neutral lighting and loose sleeves that hang downward.
-`master-soft-v5.png` is the 1024 x 1536 static fallback.
+The active OC is `oc/character-v7.json`, format `kanzei.character-pack.v3`.
+Its charcoal matte work shirt, short cuffs and restrained brass shoulder seams
+match the graphite/amber interface. The slim androgynous silhouette, original
+face, dark bob, gold eyes and cyan cheek fracture remain the identity anchors.
 
-Twelve H.264 videos in `oc/clips-v6/` contain complete-character motion at
-768 x 1152 and 24 fps. The graph has nine states and three idle variants. The
-arm, elbow, wrist and sleeve are never assembled from separate moving layers.
-The raising clip includes a held pose and joins a matching lowering clip;
-a resting interval separates repetitions. Pending states wait for authored
-neutral exit windows. Idle stabilization is recorded with its source hashes.
+Eleven complete-character H.264 clips have a logical size of 576 x 864 at 24 fps.
+The encoded size is 576 x 1728: straight RGB above, greyscale alpha below.
+The action graph contains nine states and three idle variants. Each hand
+gesture includes its entire raise, hold and return, followed by quiet rest.
 
-The renderer keys the pale grey backdrop and controls the closed/open mouth
-using per-frame tracking and `mouth-soft-v6.png`. Mouth amplitude comes from
-actual Web Audio playback. Hidden and reduced-motion views pause video
-playback. A bounded cache keeps at most four video decoders.
+Transparency and closed mouths are baked offline. `mouth-soft-v6.png` supplies
+the open-mouth reference with per-frame affine tracking and actual Web Audio
+amplitude. `master-workwear-v7-alpha.png` supplies the transparent still frame.
+The renderer uploads newly decoded frames, keeps at most four cached video
+entries, and plays one stream in steady state or two during transitions.
 
-`reference.png` preserves the original owner image. `demo-speech-c-v3.wav` is
-the 30-second soundtrack using the selected C voice; `speech-main-c-v3.wav`
-is its explanation line and the browser audio integration test input.
+The left-rail character toggle defaults off. Switching it on loads the player;
+switching off destroys it. Hidden views and reduced motion pause video playback.
 
-Raster keyframes and the mouth reference were edited with built-in imagegen.
-Complete video clips were generated with the pinned H3 / Larry deployment.
-PixiJS 7.4.3 and its license are in `../vendor/pixi/`.
+`reference.png` is the original owner image. `demo-speech-c-v7.wav` is the new
+30-second sample soundtrack, recorded through the selected C voice service.
+Raster artwork was edited with built-in imagegen; whole-character videos were
+generated with the pinned H3 / Larry deployment. PixiJS 7.4.3 and its license
+are in `../vendor/pixi/`.
 
-Use `node scripts/oc-preview.mjs` from the repository root. See the
-[design brief](../../../../docs/design/oc.md),
+See the [design](../../../../docs/design/oc.md),
 [production record](../../../../docs/design/oc-production.md), and
-[idle direction](../../../../docs/design/oc-idle-direction.md).
-
-Retired v4 runtime assets and implementations are preserved outside the
-runtime directory at
-`C:/Users/kanzei/Documents/kanzei-oc-archive/2026-09-24-v4-runtime/`.
-The archive inventory records the exact file hashes.
+[playback research](../../../../docs/design/oc-playback.md).

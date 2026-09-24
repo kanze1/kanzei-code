@@ -40,6 +40,6 @@ export function loadOcResources(manifestSrc) {
   return resourceCache.get(url);
 }
 
-export function createOcRenderer(host, resources) {
-  return createOcClipRenderer(host, resources);
+export function createOcRenderer(host, resources, options) {
+  return createOcClipRenderer(host, resources, options);
 }

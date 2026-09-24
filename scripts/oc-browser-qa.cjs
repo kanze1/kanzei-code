@@ -3,6 +3,7 @@ async (page) => {
   const origin=await page.evaluate(()=>location.origin);
   const errors=[];
   page.on("pageerror",error=>errors.push(String(error)));
+  page.on("console",message=>{if(message.type()==="error")errors.push(message.text());});
   await page.route("**/__oc-qa",route=>route.fulfill({status:200,contentType:"text/html",body:`<!doctype html><html lang="zh-CN"><head><link rel="stylesheet" href="/style.css"><title>OC browser verification</title></head><body style="display:block;padding:30px"><main class="view active" style="display:block"><div id="probe" style="width:800px;height:540px;display:flex;justify-content:center"><div id="first" class="empty-art" style="display:block;width:360px;height:540px"></div><div id="second" class="voice-art" style="display:none;width:360px;height:540px"></div></div></main></body></html>`}));
   await page.goto(origin+"/__oc-qa");
   await page.evaluate(async()=>{
@@ -14,8 +15,8 @@ async (page) => {
   const check=(value,message)=>{if(!value)throw new Error(message);};
   await page.waitForFunction(()=>document.querySelector("#probe").dataset.ocRenderer==="pixi");
   await page.evaluate(()=>{window.ocTest.setState("replying");window.ocTest.setSpeaking(true);window.ocTest.setMouthLevel(.9);});
-  await page.waitForFunction(()=>window.ocTest.snapshot().sample.clip==="reply-enter"&&window.ocTest.snapshot().sample.sourceTime>2.1&&Number(document.querySelector("canvas").dataset.ocMouth)>.4);
-  check(await page.evaluate(()=>window.ocTest.snapshot().sample.sourceTime<4.4584),"whole-frame arm entrance");
+  await page.waitForFunction(()=>window.ocTest.snapshot().sample.clip==="replying"&&window.ocTest.snapshot().sample.sourceTime>2.1&&Number(document.querySelector("canvas").dataset.ocMouth)>.4);
+  check(await page.evaluate(()=>window.ocTest.snapshot().sample.sourceTime<4.55),"whole-frame arm gesture");
   await page.evaluate(()=>window.ocTest.setState("interrupted"));
   check(await page.evaluate(()=>document.querySelector("#probe").dataset.ocSpeaking==="false"&&document.querySelector("canvas").dataset.ocMouth==="0"),"interrupt closes actual canvas mouth immediately");
   await page.waitForFunction(()=>window.ocTest.snapshot().sample.state==="idle");
@@ -70,7 +71,7 @@ async (page) => {
     window.audioMotion=initOcPerformance(document.querySelector("#probe"));await window.audioMotion.ready();
     window.audioContext=new AudioContext();await window.audioContext.resume();
     window.audioPlayer=new VoicePlayer(window.audioContext,(speaking,level)=>{window.audioMotion.setSpeaking(speaking);window.audioMotion.setMouthLevel(level);});
-    const decoded=await window.audioContext.decodeAudioData(await (await fetch("/assets/oc/speech-main-c-v3.wav")).arrayBuffer());
+    const decoded=await window.audioContext.decodeAudioData(await (await fetch("/assets/oc/demo-speech-c-v7.wav")).arrayBuffer());
     window.audioPlayer.push(decoded.getChannelData(0),decoded.sampleRate);
   });
   check(await page.evaluate(()=>document.querySelector("canvas").dataset.ocMouth)==="0","audio preroll stays closed");
@@ -84,11 +85,17 @@ async (page) => {
     const {OC_CHARACTER_PACK_SRC}=await import('/22-oc-config.js');
     const resources=await loadOcResources(OC_CHARACTER_PACK_SRC);
     const host=document.createElement('div');host.style.cssText='width:384px;height:576px';document.body.append(host);
-    const renderer=createOcRenderer(host,resources),base=createOcDirector(resources.pack).sample();
+    const renderer=createOcRenderer(host,resources,{export:true}),base=createOcDirector(resources.pack).sample();
+    const readback=document.createElement('canvas');readback.width=64;readback.height=96;
+    const pixels=readback.getContext('2d',{willReadFrequently:true});
     renderer.pause();let frames=0,maxDecoders=0;
     try{
       for(const [id,clip] of Object.entries(resources.pack.clips))for(const time of [clip.start,(clip.start+clip.end)/2,clip.end-1/24]){
         await renderer.seek({...base,clip:id,serial:0,sourceTime:time,previous:null,blend:1,to:[base.state,Math.floor(time*24)]},{speaking:true,level:.6});
+        pixels.clearRect(0,0,64,96);pixels.drawImage(renderer.canvas,0,0,64,96);
+        const data=pixels.getImageData(0,0,64,96).data;
+        let visible=0;for(let p=3;p<data.length;p+=4)if(data[p]>128)visible++;
+        if(visible<1500||visible>5000)throw new Error('Invalid visible silhouette: '+id+' at '+time+', pixels='+visible);
         maxDecoders=Math.max(maxDecoders,renderer.snapshot().decodedSources);frames++;
       }
       renderer.render(base,{reduced:true});

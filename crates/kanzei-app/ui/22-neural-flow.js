@@ -3,6 +3,7 @@ import { $ } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { activeSessionId, sessionStates } from "./03-shell.js";
 import { initOcCompanion } from "./22-oc-companion.js";
+import { initOcPreference } from "./22-oc-preference.js";
 
 // R-285 事件神经流。OC 与画布共享真实事件，视觉层不接管运行状态。
 // 顶层声明作为所有 classic script 的统一事件入口；初始化前保持可安全调用。
@@ -11,6 +12,7 @@ export let ocVoiceSignal = null;
 export function setNeuralFlowEmit(value) { neuralFlowEmit = value; }
 // 视觉层只消费真实运行事件；Canvas 丢帧、隐藏或关闭不会反向改变任何业务状态。
 defer(() => {
+  initOcPreference($("oc-toggle"));
   const chatCanvas = $("neural-flow-chat");
   const memoryCanvas = $("neural-flow-memory");
   const stateLabel = $("memory-flow-state");
@@ -492,7 +494,7 @@ defer(() => {
     for (const field of fields) if (field.activeInView()) { field.resize(); if (reducedMotion) field.draw(flowNow()); }
     if (!reducedMotion && !frameHandle && fields.some(field => field.activeInView())) frameHandle = requestAnimationFrame(renderFrame);
   }
-  for (const event of ["kz:view-changed", "kz:voice-layout", "kz:memory-tab", "visibilitychange"]) document.addEventListener(event, resumeFields);
+  for (const event of ["kz:view-changed", "kz:voice-layout", "kz:oc-preference", "kz:memory-tab", "visibilitychange"]) document.addEventListener(event, resumeFields);
   document.addEventListener("toggle", resumeFields, true);
   const themeObserver = new MutationObserver(() => {
     for (const field of fields) field.colors = [themeColor("--memory-flow", "#c9962e"), themeColor("--memory-flow-hot", "#f0d58c"), themeColor("--err", "#d0684e")];

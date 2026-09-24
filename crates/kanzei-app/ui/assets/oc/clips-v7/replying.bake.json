@@ -1,0 +1,18 @@
+{
+  "format": "rgb-alpha-vertical",
+  "source": "output\\oc-h3\\oc-replying-workwear-v7\\sample.mp4",
+  "frames": 158,
+  "fps": 24.0,
+  "size": [
+    576,
+    864
+  ],
+  "encoded_size": [
+    576,
+    1728
+  ],
+  "bytes": 972859,
+  "sha256": "290dbb59f3a40b369167e5d4f5a304908eeb90998f0f67e2820f920324811b23",
+  "closed_mouth": "baked",
+  "keying": "offline"
+}

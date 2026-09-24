@@ -1,0 +1,18 @@
+{
+  "format": "rgb-alpha-vertical",
+  "source": "output\\oc-h3\\oc-idle-breath-workwear-v7-soft\\sample.mp4",
+  "frames": 192,
+  "fps": 24.0,
+  "size": [
+    576,
+    864
+  ],
+  "encoded_size": [
+    576,
+    1728
+  ],
+  "bytes": 1443468,
+  "sha256": "1ba0f0cee7b44095250264e3f93031177f97125ac1f84f3b059ae2c13a57dbde",
+  "closed_mouth": "baked",
+  "keying": "offline"
+}

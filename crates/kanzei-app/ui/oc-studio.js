@@ -3,9 +3,9 @@ import { loadOcResources, createOcRenderer } from "./22-oc-renderer.js";
 import { OC_CHARACTER_PACK_SRC } from "./22-oc-config.js";
 
 const labels={idle:"待机",listening:"倾听",thinking:"思考",replying:"说话",executing:"执行",blocked:"疑惑",aside:"吐槽",warm:"会意",complete:"完成"};
-const copy={idle:"先听你说。",listening:"嗯，我在听。",thinking:"让我想一下。",replying:"问题在这里。",executing:"先确认目标，再检查证据。",blocked:"这里还差一点信息。",aside:"流程挺完整。",warm:"你听出来了？",complete:"好了。"};
+const copy={idle:"说吧，今天折腾什么。",listening:"嗯，继续。",thinking:"等一下，我捋捋。",replying:"从这里说起。",executing:"找到毛病了。",blocked:"啧，卡在这里了。",aside:"这弯绕得，还挺有创意。",warm:"你听出来了？",complete:"好了，试试。"};
 const host=document.querySelector("#character");
-const packSrc=new URLSearchParams(location.search).has("v6")?"./assets/oc/character-v6.json":OC_CHARACTER_PACK_SRC;
+const packSrc=OC_CHARACTER_PACK_SRC;
 const timeline=document.querySelector("#timeline");
 const playButton=document.querySelector("#play");
 const controls=[...document.querySelectorAll("button,input")];
@@ -130,7 +130,7 @@ async function exportFrames(first=0,count=720,mode="demo"){
   const exportWidth=resources.pack.size[0]+2*(resources.pack.rig?.canvasPaddingX||0);
   exportHost.style.cssText=`position:fixed;width:${exportWidth}px;height:${resources.pack.size[1]}px;left:-3000px;top:0`;
   document.body.append(exportHost);
-  const exportRenderer=createOcRenderer(exportHost,resources);
+  const exportRenderer=createOcRenderer(exportHost,resources,{export:true});
   const canvas=document.createElement("canvas");canvas.width=1920;canvas.height=1080;
   const c=canvas.getContext("2d");
   try{

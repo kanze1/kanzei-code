@@ -4,6 +4,7 @@ import { activeSessionId, activeProcessId, currentProject, sessionStates } from 
 import { sendText } from "./08-compose-runtime.js";
 import { ocVoiceSignal } from "./22-neural-flow.js";
 import { VoiceConversation, microphoneFor } from "./23-voice-controller.js";
+import { VOICE_STATUS, voicePresenceLine } from "./23-voice-copy.js";
 
 export let voiceConversation = null;
 
@@ -13,9 +14,15 @@ defer(() => {
   const panel = $("voice-panel"); const status = $("voice-status"); const caption = $("voice-caption");
   const stage = $("voice-stage");
   const view = $("view-chat");
-  const labels = {off:"语音已关闭", connecting:"正在连接语音服务…", listening:"正在听，你可以说话", hearing:"正在聆听…", recognizing:"正在识别…", thinking:"等待回复…", speaking:"正在说话…", error:"语音暂不可用"};
+  const labels = VOICE_STATUS;
   const friendly = {voice_no_session:"请先选择一个会话", voice_service_unavailable:"语音服务尚未就绪", voice_microphone_ended:"麦克风已断开", voice_stop_pending:"上一轮尚未停止，请稍后重试", voice_queue_full:"播报队列已满，请查看文字回复"};
   let checked = false;
+  let currentState = "off", currentCaption = "";
+  function refreshPresence() {
+    const line = $("voice-live-caption");
+    if (line) line.textContent = currentCaption || t(voicePresenceLine(currentState, document.documentElement.dataset.ocEnabled === "true"));
+  }
+  document.addEventListener("kz:oc-preference", refreshPresence);
   const controller = new VoiceConversation({
     invoke, Channel:window.__TAURI__.core.Channel,
     getTarget:() => ({sessionId:activeSessionId, processId:activeProcessId, project:currentProject, running:Boolean(sessionStates.get(activeSessionId)?.running)}),
@@ -24,6 +31,7 @@ defer(() => {
     createContext:() => new (window.AudioContext || window.webkitAudioContext)(),
     createMicrophone:microphoneFor,
     onState:(state, detail = "") => {
+      currentState = state;
       const active = !["off", "error"].includes(state);
       button.setAttribute("aria-pressed", String(active)); button.dataset.i18nKey = active ? "结束语音" : "语音";
       button.textContent = t(button.dataset.i18nKey);
@@ -35,12 +43,13 @@ defer(() => {
       $("voice-interrupt").disabled = !active;
       status.textContent = `${t(labels[state] || labels.error)}${detail ? ` · ${t(friendly[detail] || detail)}` : ""}`;
       if ($("voice-stage-status")) $("voice-stage-status").textContent = t(labels[state] || labels.error);
-      if (active && !$("voice-live-caption")?.textContent) $("voice-live-caption").textContent = t("我在，你可以开始说话。");
+      refreshPresence();
       document.dispatchEvent(new CustomEvent("kz:voice-layout", { detail: { active } }));
     },
     onCaption:(text, role) => {
+      currentCaption = text;
       caption.textContent = text; caption.dataset.role = role;
-      if ($("voice-live-caption")) $("voice-live-caption").textContent = text || t("我在，你可以开始说话。");
+      refreshPresence();
       if ($("voice-speaker")) $("voice-speaker").textContent = role === "user" ? t("你") : "kanzei";
     },
     onLevel:value => {
@@ -54,6 +63,7 @@ defer(() => {
   button.addEventListener("click", async () => {
     if (controller.enabled || controller.starting) { controller.stop(); return; }
     caption.textContent = "";
+    currentCaption = "";
     if ($("voice-live-caption")) $("voice-live-caption").textContent = "";
     try { await controller.start(); } catch (error) { controller.fail(error); }
     if (!checked) {
@@ -94,6 +104,7 @@ defer(() => {
   $("stop").addEventListener("click", () => { if (controller.enabled) controller.interrupt(false); });
   window.addEventListener("beforeunload", () => {
     clearInterval(watch); controller.stop();
+    document.removeEventListener("kz:oc-preference", refreshPresence);
     subscriptions.forEach(subscription => { void subscription.then(unlisten => unlisten()).catch(() => {}); });
   });
 });
