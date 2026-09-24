@@ -11,6 +11,7 @@ use tokio::sync::watch;
 #[derive(Default)]
 pub struct VoiceState {
     requests: Mutex<HashMap<String, (String, watch::Sender<bool>)>>,
+    service_start: tokio::sync::Mutex<()>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -83,19 +84,37 @@ fn endpoint(settings: &VoiceSettings, path: &str) -> String {
 #[tauri::command]
 pub async fn voice_status() -> Result<Value, String> {
     let settings = voice_settings_get()?;
+    service_health(&settings).await
+}
+
+pub(super) async fn service_health(settings: &VoiceSettings) -> Result<Value, String> {
     let response = client()?
-        .get(endpoint(&settings, "/health"))
+        .get(endpoint(settings, "/health"))
         .timeout(Duration::from_secs(5))
         .send()
         .await
-        .map_err(|_| "本机语音服务未连接，请先运行 scripts/voice/start.ps1".to_string())?;
+        .map_err(|_| format!("本机语音服务未连接（端口 {}）", settings.port))?;
     if !response.status().is_success() {
         return Err(format!("语音服务检查失败：HTTP {}", response.status()));
     }
-    response
+    let health: Value = response
         .json()
         .await
-        .map_err(|e| format!("语音服务响应无效：{e}"))
+        .map_err(|e| format!("语音服务响应无效：{e}"))?;
+    if !health["ready"].is_boolean() {
+        return Err("该端口未返回有效的语音服务状态".into());
+    }
+    Ok(health)
+}
+
+#[tauri::command]
+pub async fn voice_start(state: State<'_, VoiceState>) -> Result<Value, String> {
+    let settings = voice_settings_get()?;
+    let root = config_path()?
+        .parent()
+        .ok_or("语音配置目录无效")?
+        .to_path_buf();
+    crate::voice_service::ensure_started(&settings, &root, &state.service_start).await
 }
 
 struct RequestGuard<'a> {

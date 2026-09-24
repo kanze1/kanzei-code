@@ -89,6 +89,8 @@ export const I18N_EN = {
   "自动识别": "Auto-detect",
   "日语": "Japanese",
   "保存并检查": "Save and check",
+  "保存并启动": "Save and start",
+  "正在准备语音服务…": "Preparing voice service…",
   "语音已关闭": "Voice is off",
   "正在连接语音服务…": "Connecting to voice service…",
   "正在听，你可以说话": "Listening — you can speak",

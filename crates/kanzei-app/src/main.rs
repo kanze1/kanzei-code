@@ -47,6 +47,7 @@ mod subagents;
 mod typed_events;
 mod update;
 mod voice;
+mod voice_service;
 
 #[cfg(test)]
 pub(crate) use projects::{export_project_data, ExportOptions};
@@ -168,6 +169,7 @@ fn main() {
             voice::voice_settings_get,
             voice::voice_settings_set,
             voice::voice_status,
+            voice::voice_start,
             voice::voice_speak,
             voice::voice_transcribe,
             voice::voice_cancel,

@@ -11,11 +11,13 @@
 
 本项目的模型组合使用本机 Faster-Whisper small（CPU int8）识别和 Qwen3-TTS 1.7B Base 克隆。合成由 vLLM-Omni 的异步音频分块提供，接收 24kHz 单声道 PCM16；不把一次性生成后切片冒充流式推理。接口依据 [vLLM-Omni speech API](https://docs.vllm.ai/projects/vllm-omni/en/stable/serving/speech_api/) 实现。
 
-选定音色沿用用户音色项目的 `artifacts/trilingual-01/ja_a75.wav`，与此前被接受的英文直接克隆方案一致，使用 `x_vector_only_mode`。不改写用户原模型，也不把中文候选标记为已验收。
+当前选定 C「低声利落」，使用音色交付包的 `selected/reference.wav` 和 `x_vector_only_mode`，选择记录见 [OC 音色方向](oc-voice-direction.md)。早期 A75 的 `artifacts/trilingual-01/ja_a75.wav` 保留为旧方案。
 
 ## 安装与运行
 
 需要 Windows、Ubuntu WSL2、NVIDIA GPU、Windows Python/uv。依赖安装在 WSL 的 `~/.venvs/kanzei-voice`，不修改系统 Python。模型及配置保存在 Windows 用户目录的 `.kanzei/voice-runtime`。
+
+以下脚本用于初始 A75 运行环境。已经部署的 C 音色复用这套模型与依赖，按下一节登记自己的启动目录。
 
 ```powershell
 ./scripts/voice/setup.ps1 -VoiceDirectory '音色项目的绝对路径'
@@ -23,7 +25,21 @@
 ./scripts/voice/stop.ps1
 ```
 
-首次安装下载模型和 CUDA 推理依赖；首次启动编译 GPU 内核，时间长于后续启动。进入桌面端后点击「语音」，允许麦克风即可。语音设置中的「保存并检查」显示实际服务是否就绪。网关监听 `127.0.0.1:7388`，TTS 监听 WSL 内的 `127.0.0.1:8091`。服务日志是私有运行目录下的 `gateway.log`、`tts.log`、`supervisor.log`。`start.ps1` 只启动服务；不会自动打开麦克风。
+首次安装下载模型和 CUDA 推理依赖；首次启动编译 GPU 内核，时间长于后续启动。进入桌面端后点击「语音」，允许麦克风即可。语音设置中的「保存并启动」显示实际服务是否就绪。旧 A75 网关监听 `127.0.0.1:7388`，TTS 监听 WSL 内的 `127.0.0.1:8091`。服务日志是私有运行目录下的 `gateway.log`、`tts.log`、`supervisor.log`。`start.ps1` 只启动旧 A75 服务；不会自动打开麦克风。
+
+### 2026-09-25 自动启动与选定音色
+
+当前选定 C 音色的端口是 7389，旧 A75 为 7388。桌面端原来只检查服务，没有启动入口，离线时还会提示旧服务脚本。现在「语音」和「保存并启动」调用 `voice_start`：已就绪直接复用；未运行则启动本机已登记的音色服务，等待识别与合成均就绪后才请求麦克风。界面显示准备状态，取消后即使模型稍后加载完毕，也不会打开麦克风。
+
+服务启动配置保存在 `KANZEI_HOME/voice-launcher.json`（默认 `~/.kanzei/`），记录服务端口、启动程序、独立参数数组和工作目录。端口必须与语音设置一致，避免启动旧音色。并发启动合并执行；启动超时或进程失败返回实际问题及 `voice-start.log` 路径。模型服务继续独立运行，结束语音释放录音与播放资源。
+
+本仓库的 `setup.ps1` 会复制运行脚本到私有运行目录并登记启动配置。接入支持 `manage.py start --port PORT` 的外部音色包时使用：
+
+```powershell
+./scripts/voice/register-runtime.ps1 -RuntimeDirectory '音色交付目录/runtime' -Port 7389
+```
+
+登记不下载模型、不打开麦克风；已有音色选择和识别语言继续保留。
 
 核心推理依赖版本固定在 `scripts/voice/requirements.txt`，模型版本记录在运行目录 `models.json`。CUDA 编译检查会先执行采样内核；链接别名和 CUDA 依赖都在私有 venv 内。WSL 的显存统计可能漏算 Windows 进程占用，所以单人对话的 KV 缓存明确限制为 512MiB，避免按空闲显存自动过量分配。
 

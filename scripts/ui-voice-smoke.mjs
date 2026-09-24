@@ -35,7 +35,7 @@ const controller = new VoiceConversation({
   getTarget:() => target, Channel,
   invoke:async (name, args) => {
     calls.push(name);
-    if (name === "voice_status") return {ready:true};
+    if (name === "voice_start") return {ready:true};
     if (["voice_speak", "voice_transcribe"].includes(name)) return new Promise((resolve, reject) => requests.push({name,args,resolve,reject}));
   },
   sendText:async text => transcripts.push(text), stopReply:async () => { target.running = false; },
@@ -84,6 +84,18 @@ requests.shift().resolve({text:"插话的新一句"}); await bargeIn;
 assert.deepEqual(transcripts, ["新的语音输入", "插话的新一句"], "late stop acknowledgement preserves the new utterance");
 assert.deepEqual(errors, []);
 controller.stop();
+
+// Finishing model startup after Stop must never acquire the microphone.
+let completeStartup; let microphoneStarts = 0;
+const originalInvoke = controller.invoke;
+controller.invoke = (name, args) => name === "voice_start" ? new Promise(resolve => { completeStartup = resolve; }) : originalInvoke(name, args);
+controller.createMicrophone = () => ({echoCancellation:true,start:async () => { microphoneStarts++; },destroy:() => {}});
+const starting = controller.start();
+assert.equal(controller.starting, true);
+controller.stop();
+completeStartup({ready:true}); await starting;
+assert.equal(microphoneStarts, 0, "cancelled model startup must not open microphone later");
+assert.equal(controller.enabled, false);
 
 let audioChannel; let finished = false;
 const stream = streamSpeech({
