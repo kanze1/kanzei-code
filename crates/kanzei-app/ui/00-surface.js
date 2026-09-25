@@ -246,8 +246,9 @@ function wirePopover(el) {
   if (el._kzPopoverWired || typeof el.addEventListener !== "function") return;
   el._kzPopoverWired = true;
   // 浏览器自己关掉它(元素被移出文档、popover 属性被改)时把栈同步回来。
+  // toggle 是异步派发的:关掉后同一任务里又打开时,迟到的 closed 事件不能把新句柄关掉。
   el.addEventListener("toggle", (event) => {
-    if (event.newState !== "closed") return;
+    if (event.newState !== "closed" || popoverShowing(el)) return;
     const handle = handleFor(el);
     if (handle && !handle.closed) finish(handle, undefined, { nativeClosed: true });
   });
@@ -273,7 +274,10 @@ function wireDialog(el) {
     event.preventDefault?.();
     handle.escape();
   });
+  // close 事件是异步派发的:排队的下一个确认框在同一任务里已经 showModal,
+  // 迟到的 close 不能把它当成「被关掉」(否则排队的第二问会立刻以取消收场)。
   el.addEventListener("close", () => {
+    if (el.open) return;
     const handle = handleFor(el);
     if (handle && !handle.closed) finish(handle, handle.cancelValue, { nativeClosed: true });
   });
