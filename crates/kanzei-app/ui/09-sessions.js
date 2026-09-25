@@ -1,4 +1,5 @@
 import { defer } from "./01-core.js";
+import { motionSync } from "./01-core.js";
 import { setProcessItems } from "./03-shell.js";
 import { setActiveProcessId, setActiveSessionId } from "./03-shell.js";
 import { $, confirmDialog, inputDialog, invoke } from "./01-core.js";
@@ -395,7 +396,7 @@ export function renderParallelTaskStatus(items) {
       ? [state.stage, item.stage].find((value) => value && value !== "空闲") || t("运行中")
       : pendingNow ? t("等待下一轮") : t("空闲");
     const detail = runningNow && state.detail ? ` · ${state.detail}` : "";
-    status.textContent = `${runningNow ? "●" : pendingNow ? "◐" : "○"} ${stoppingNow ? t("停止中…") : runningNow ? t("运行中") : pendingNow ? t("鞭挞等待") : t("空闲")} · ${stage}${detail}`;
+    renderParallelTaskState(status, { runningNow, pendingNow, stoppingNow, stage, detail });
     row.append(head, status);
     row.title = runningNow
       ? `${authority}: ${state.detail || stage}`
@@ -426,6 +427,7 @@ export function renderParallelTaskStatus(items) {
       setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
     }
   }
+  syncLineFocusLive();
 }
 export function refreshParallelTaskProjection(sessionId) {
   if (!sessionId) return;
@@ -446,7 +448,7 @@ export function refreshParallelTaskProjection(sessionId) {
   row.classList.toggle("running", runningNow);
   row.classList.toggle("auto-pending", pendingNow);
   const status = row.querySelector(".parallel-task-state");
-  if (status) status.textContent = `${runningNow ? "●" : pendingNow ? "◐" : "○"} ${stoppingNow ? t("停止中…") : runningNow ? t("运行中") : pendingNow ? t("鞭挞等待") : t("空闲")} · ${stage}${detail}`;
+  if (status) renderParallelTaskState(status, { runningNow, pendingNow, stoppingNow, stage, detail });
   row.title = runningNow
     ? `${authority}: ${state.detail || stage}`
     : pendingNow
@@ -460,6 +462,40 @@ export function refreshParallelTaskProjection(sessionId) {
     syncedRunningProcessId = item.id;
     syncedRunningState = runningNow;
     setRunning(runningNow, runningNow ? t("运行中") : t("空闲"));
+  }
+  syncLineFocusLive();
+}
+/// #7:线路行状态 = 独立的字形节点(.kz-glyph,只呼吸)+ 文案。字形文本 ●/◐/○ 原样保留
+/// (读屏与既有断言都读它),整行 textContent 与改前逐字一致。节点**原地更新**:
+/// 逐事件投影不再重建它,呼吸动画不会每个 kz:status 都从第 0 帧重来;
+/// 整表重绘新建的节点由 motionSync 对齐到全局相位。
+export function renderParallelTaskState(status, { runningNow, pendingNow, stoppingNow, stage, detail }) {
+  const state = stoppingNow ? "stopping" : runningNow ? "running" : pendingNow ? "pending" : "idle";
+  const mark = runningNow ? "●" : pendingNow ? "◐" : "○";
+  const label = `${stoppingNow ? t("停止中…") : runningNow ? t("运行中") : pendingNow ? t("鞭挞等待") : t("空闲")} · ${stage}${detail}`;
+  let glyph = status.querySelector(".kz-glyph");
+  let text = status.querySelector(".parallel-task-state-text");
+  if (!glyph || !text) {
+    glyph = document.createElement("span");
+    glyph.className = "kz-glyph";
+    glyph.setAttribute("aria-hidden", "true");
+    text = document.createElement("span");
+    text.className = "parallel-task-state-text";
+    status.replaceChildren(glyph, " ", text);
+  }
+  if (glyph.dataset.state !== state) {
+    glyph.dataset.state = state;
+    motionSync(glyph);
+  }
+  if (glyph.textContent !== mark) glyph.textContent = mark;
+  if (text.textContent !== label) text.textContent = label;
+}
+/// #7:侧栏「各线当前在做」卡片——线路进程真在跑才标 is-live(标题前呼吸点 + 批次格扫光)。
+/// 运行态只认 processRunning(状态机优先),与线路行同一判据。
+export function syncLineFocusLive() {
+  for (const section of document.querySelectorAll("#focus-body .line-focus")) {
+    const item = processItems.find((candidate) => candidate.id === section.dataset.processId);
+    section.classList.toggle("is-live", Boolean(item && processRunning(item)));
   }
 }
 export function renderProcesses(items) {

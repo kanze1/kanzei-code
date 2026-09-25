@@ -1415,7 +1415,7 @@ defer(() => {
 defer(() => {
   languageSelect.addEventListener("change", () => {
     setLanguagePreference(languageSelect.value);
-    if (typeof globalThis.markLanguagePreferenceDirty === "function") globalThis.markLanguagePreferenceDirty();
+    markLanguagePreferenceDirty();
   });
 });
 defer(() => {

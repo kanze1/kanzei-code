@@ -234,6 +234,9 @@
           </section>
           <button id="jump-latest" class="ghost hidden"><span data-i18n-key="回到最新">回到最新</span></button>
         </div>
+        <!-- #7 运行活动行(Claude 式「思考中… 12s」):只在活动会话运行/等待下一轮/停止中时出现。
+             文案复用状态栏存源,由 03-shell.js renderTurnActivity 写入;aria-live 关掉,免得每秒播报。 -->
+        <div id="turn-activity" class="turn-activity hidden" role="status" aria-live="off" aria-label="运行状态" data-i18n-aria-label="运行状态" data-phase="idle"><span id="turn-activity-glyph" class="kz-dot" data-state="idle" aria-hidden="true"></span><span id="turn-activity-label" class="turn-activity-label" data-i18n-raw></span><span id="turn-activity-elapsed" class="turn-activity-elapsed" data-i18n-raw></span></div>
         <footer id="composer">
           <input id="attachment-input" type="file" accept="image/*,.pdf,application/pdf" multiple hidden />
           <!-- 上下文行:发一条之前需要确认的三件事(去哪个项目、用哪个模型、想多久)
@@ -1123,7 +1126,7 @@
 
       <footer id="statusbar">
         <div class="status-left">
-          <span id="status-dot" class="dot idle"></span>
+          <span id="status-dot" class="dot kz-dot idle" data-state="idle" aria-hidden="true"></span>
           <span id="status-fast" class="status-fast hidden" role="status" title="fast 子代理模型状态" data-i18n-title="fast 子代理模型状态"></span>
           <span id="status-mode">空闲</span>
           <span id="status-text">空闲</span>

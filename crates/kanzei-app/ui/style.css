@@ -328,13 +328,8 @@ body {
   border-left: 3px solid var(--ok);
   padding-left: 11px;
   background: color-mix(in srgb, var(--ok) 9%, transparent);
-  animation: agent-pulse 2.4s ease-in-out infinite;
 }
 .doc-claim-fact { color: var(--ok); font-size: var(--fs-11); white-space: nowrap; }
-@keyframes agent-pulse {
-  0%, 100% { border-left-color: var(--ok); }
-  50% { border-left-color: color-mix(in srgb, var(--ok) 35%, transparent); }
-}
 /* 「各线当前在做」焦点卡片:每条在线路独立显示,但要比列表行完整。
    D-105:状态、阻塞、焦点依据一律用文字 + 边框表达,绿色只是装饰性冗余,
    把颜色全部去掉后信息量不减。 */
@@ -642,8 +637,6 @@ body {
 .line-running-state.failed { color: var(--err); }
 .line-running-state.completed { color: var(--ok); }
 .line-running-state.stopped { color: var(--dim); }
-.line-running-state.running::before { animation: line-running-pulse 1.7s ease-in-out infinite; }
-@keyframes line-running-pulse { 50% { opacity: .35; transform: scale(.75); } }
 .line-claim { margin: 14px 0 16px; color: var(--fg-strong); font-size: var(--fs-15); line-height: 1.6; overflow-wrap: anywhere; }
 .line-claim.error { color: var(--err); }
 .line-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -1018,7 +1011,7 @@ html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68
 .voice-settings-fields input { width: 100px; }
 .voice-settings-fields input, .voice-settings-fields select { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 5px 8px; }
 #voice-toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
-.msg { line-height: 1.68; animation: fadein .15s ease; }
+.msg { line-height: 1.68; animation: fadein var(--motion-fast) var(--ease-out); }
 @keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
 /* 用户消息 = Codex 式圆角灰气泡:中性表面、无边框、无竖条,强调色不进正文。 */
 .msg.user {
@@ -1045,8 +1038,7 @@ html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68
 .tool-chip .result { color: var(--dim); white-space: pre-wrap; word-break: break-all; }
 .tool-chip.ok .head::before { content: "✓ "; color: var(--ok); }
 .tool-chip.err .head::before { content: "✗ "; color: var(--err); }
-.tool-chip.running .head::before { content: "● "; color: var(--warn); animation: pulse 1s infinite; }
-@keyframes pulse { 50% { opacity: .35; } }
+.tool-chip.running .head::before { content: "● "; color: var(--warn); }
 .msg.error {
   color: var(--err); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--err) 30%, transparent);
   border-radius: var(--r-lg); padding: 10px 14px; max-width: 92%; white-space: pre-wrap; word-break: break-word;
@@ -1446,7 +1438,7 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
 .bg-entry .bg-title:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .bg-entry .bg-prog { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bg-entry .bg-meta { color: var(--dim); font-size: var(--fs-10-5); }
-.bg-entry.running .bg-title::before { content: "● "; color: var(--warn); animation: pulse 1s infinite; }
+.bg-entry.running .bg-title::before { content: "● "; color: var(--warn); }
 .bg-entry.ok .bg-title::before { content: "✓ "; color: var(--ok); }
 .bg-entry.noop .bg-title::before { content: "↪ "; color: var(--dim); }
 .bg-entry.warn .bg-title::before { content: "⚠ "; color: var(--warn); }
@@ -2901,5 +2893,133 @@ a.md-path { cursor: pointer; color: var(--accent-text); text-decoration: underli
 /* ===== 分区:需求卡片与单页 ===== */
 
 /* ===== 分区:动效 ===== */
+/* #7 动效系统:状态图标只在状态真的在进行时才动。纪律(由 ui-a11y-smoke「#7 动效纪律」机械校验):
+   ① 无限循环只挂在状态选择器上(.running/.pending/.is-live/[data-state=]/[data-phase=]/[data-kz-activity=]/
+      [data-running=]/[aria-busy=]/:not(.hidden) 等),基类永远静止——状态一结束动画自然停;
+   ② 关键帧只动 opacity/transform(合成层,不重排不重绘),唯一例外 kz-shimmer 的 background-position(两处单行文字);
+   ③ 循环时长只用 --motion-loop-fast/--motion-spin/--motion-loop/--motion-loop-slow(均为 2400ms 的约数,
+      motionSync 写 --kz-sync 负延迟对齐全局相位,频繁重建的节点看不出重启);
+   ④ 窗口隐藏时 html[data-kz-motion="paused"] 全部暂停;减少动效时装饰性动效由全局 .01ms 规则关掉,
+      运行态用更高特异性的 !important 退化为慢呼吸——「运行中」是信息,不是装饰。
+   全局相位只投影到 html[data-kz-activity](running|pending|stopping|idle),只由 03-shell.js 写入。 */
+@keyframes kz-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .32; } }
+@keyframes kz-ring { 0% { transform: scale(1); opacity: .55; } 70%, 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes kz-spin { to { transform: rotate(360deg); } }
+@keyframes kz-sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@keyframes kz-shimmer { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+@keyframes kz-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.2); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes kz-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-2px); } 40% { transform: translateX(2px); } 60% { transform: translateX(-1.5px); } 80% { transform: translateX(1px); } }
+@keyframes kz-tick { from { transform: translateY(45%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+/* 原语:CSS 画的点(可带扩散环) / 文本字形(只呼吸;字形文本保留给冒烟与视觉,对读屏隐藏——状态由相邻文案表达)。
+   data-state = idle | running | waiting | pending | stopping | done | failed。第二波的运行态字形复用它们:
+   .kz-glyph 要 aria-hidden 且旁边配一段可读文案;.kz-dot 的扩散环画在 ::after 上,自身与祖先都不能 overflow:hidden。 */
+.kz-dot { position: relative; display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+.kz-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit; opacity: 0; pointer-events: none; }
+.kz-dot[data-state="idle"], .kz-dot[data-state="done"] { background: var(--dot-idle); }
+.kz-dot[data-state="failed"] { background: var(--err); }
+.kz-dot[data-state="running"], .kz-dot[data-state="waiting"] { background: var(--dot-run); }
+.kz-dot[data-state="pending"], .kz-dot[data-state="stopping"] { background: var(--warn); }
+.kz-dot[data-state="running"]::after { animation: kz-ring var(--motion-loop) var(--ease-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.kz-dot[data-state="waiting"] { animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.kz-dot[data-state="pending"] { animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.kz-dot[data-state="stopping"] { animation: kz-breathe var(--motion-loop-fast) var(--ease-in-out) infinite; }
+.kz-glyph { display: inline-block; }
+.kz-glyph[data-state="idle"] { color: var(--dim); }
+.kz-glyph[data-state="done"] { color: var(--ok); }
+.kz-glyph[data-state="failed"] { color: var(--err); }
+.kz-glyph[data-state="running"] { color: var(--dot-run); animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.kz-glyph[data-state="waiting"] { color: var(--dot-run); animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.kz-glyph[data-state="pending"] { color: var(--warn); animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.kz-glyph[data-state="stopping"] { color: var(--warn); animation: kz-breathe var(--motion-loop-fast) var(--ease-in-out) infinite; }
+/* 一次性:只由 motionOnce 在状态真正跳变时挂上、定时摘除;历史回放不经过这些调用点。 */
+.kz-pop { animation: kz-pop var(--motion-base) var(--ease-spring) 1; }
+.kz-shake { animation: kz-shake var(--motion-slow) var(--ease-out) 1; }
+.kz-tick { display: inline-block; animation: kz-tick var(--motion-base) var(--ease-out) 1; }
+/* 状态栏:点的扩散环要有地方画,不能被 overflow 裁掉;轮末一次性反馈;上下文条等本轮 usage 时慢呼吸。
+   父容器靠 stretch + padding 让出画环的余量;基线 `.status-left > span { overflow: hidden }`(防长文案撑破)
+   同样命中这个点、会把 ::after 的环整个裁掉,用更高特异性单独放开它自己。 */
+.status-left { align-self: stretch; padding-left: 7px; margin-left: -7px; }
+.status-left > #status-dot { overflow: visible; }
+#status-dot[data-flash="completed"] { animation: kz-pop var(--motion-slow) var(--ease-spring) 1; }
+#status-dot[data-flash="completed"]::after { background: var(--ok); animation: kz-ring var(--motion-slow) var(--ease-out) 1; }
+#status-dot[data-flash="failed"] { animation: kz-shake var(--motion-slow) var(--ease-out) 1; }
+#status-dot[data-flash="failed"]::after { background: var(--err); animation: kz-ring var(--motion-slow) var(--ease-out) 1; }
+#ctx-bar.pending #ctx-bar-fill { animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; }
+/* 输入框上方的运行活动行(Claude 式「思考中… 12s」):与输入框同一列,文字与输入框正文左缘对齐。 */
+#turn-activity { flex: none; display: flex; align-items: center; gap: 8px; width: calc(100% - 48px); max-width: 1080px; min-height: 20px; margin: 0 auto 6px; padding: 0 22px; color: var(--dim); font-size: var(--fs-12); }
+.turn-activity-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-activity-elapsed { flex: none; font-family: var(--mono); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
+#turn-activity:is([data-phase="pending"], [data-phase="stopping"]) .turn-activity-label { color: var(--warn); }
+#turn-activity:is([data-phase="waiting"], [data-phase="thinking"], [data-phase="generating"], [data-phase="tool"], [data-phase="working"]) .turn-activity-label,
+html[data-kz-activity="running"] .reasoning-head.is-live {
+  background-image: linear-gradient(90deg, var(--shimmer-base) 0 40%, var(--shimmer-hot) 50%, var(--shimmer-base) 60% 100%);
+  background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: kz-shimmer var(--motion-loop-slow) linear infinite;
+}
+.voice-mode #turn-activity { display: none; }
+@media (max-width: 1024px) { #turn-activity { width: calc(100% - 24px); padding: 0 18px; } }
+/* 主对话工具行:运行中 9px 圆弧转圈(字形透明占位,行不跳);被中断的灰掉。 */
+.tool-msg-status { display: inline-block; position: relative; text-align: center; }
+.tool-msg.running .tool-msg-status { color: transparent; }
+.tool-msg.running .tool-msg-status::before { content: ""; position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; margin: -5px 0 0 -5px; border: 1.5px solid var(--accent-text); border-right-color: transparent; border-radius: 50%; animation: kz-spin var(--motion-spin) linear infinite; }
+.tool-msg.interrupted .tool-msg-status, .tool-msg.interrupted .tool-msg-result { color: var(--dim); }
+/* 子代理折叠组:组内有工具在跑,组头色点扩散(折叠态下唯一可见的运行信号)。 */
+.bg-dot { position: relative; }
+.bg-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit; opacity: 0; pointer-events: none; }
+.agent-fold:has(.tool-msg.running) > .agent-fold-head .bg-dot::after { animation: kz-ring var(--motion-loop) var(--ease-out) infinite; }
+/* 活动面板 / 子代理面板条目,rail 开关徽标(面板收起且有运行项时右上角呼吸)。 */
+.tool-chip.running .head::before, .bg-entry.running .bg-title::before { display: inline-block; animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
+.rail-toggle { position: relative; }
+.rail-toggle[data-running="true"]:not(.active)::after { content: ""; position: absolute; top: 9px; right: 11px; width: 6px; height: 6px; border-radius: 50%; background: var(--dot-run); box-shadow: 0 0 0 2px var(--activitybar); animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
+/* 侧栏各线在做 / 文档页在做条目:线真在跑才动。 */
+.line-focus.is-live .line-focus-head::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--dot-run); vertical-align: 1px; animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.complexity-cell { position: relative; overflow: hidden; }
+.line-focus.is-live .complexity-cell.current, html[data-kz-activity="running"] .doc-item.agent-active .complexity-cell.current { border-color: var(--accent); }
+.line-focus.is-live .complexity-cell.current::after, html[data-kz-activity="running"] .doc-item.agent-active .complexity-cell.current::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 60%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 70%, transparent), transparent); animation: kz-sweep var(--motion-loop) var(--ease-in-out) infinite; }
+html[data-kz-activity="running"] .doc-item.agent-active :is(.st-doing, .st-fixing)::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: currentColor; vertical-align: 1px; animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
+/* 线路页 / 工作区 / 输入区上下文。 */
+.line-running-state::after { content: ""; position: absolute; left: 0; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0; pointer-events: none; }
+.line-running-state.running::after { animation: kz-ring var(--motion-loop) var(--ease-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.line-running-state.suspected-stuck::before { animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.workspace-line.running .workspace-line-dot { display: inline-block; animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
+.workspace-status.running::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: currentColor; vertical-align: 1px; animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
+html[data-kz-activity="running"] .ctx-project::after { animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
+/* 鞭挞控制台:推进中不定进度扫光,等下一轮慢呼吸;「待命」保持静止。 */
+.autorun-bar[data-phase="running"] .auto-progress::after { width: 40%; background: linear-gradient(90deg, transparent, var(--warn), transparent); animation: kz-sweep var(--motion-loop) var(--ease-in-out) infinite; }
+.autorun-bar[data-phase="running"] #auto-continue-wrap::before { animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
+.autorun-bar[data-phase="pending"] .auto-phase { display: inline-block; animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; }
+/* 等用户:收起的提问 / 研究待选方向 —— 慢呼吸。收起的提问胶囊是弹层宿主,外观(边框/圆角/定位)归弹层组
+   的 surface.css;这里只用文本字形(.kz-glyph 同款:字形 + 颜色 + 呼吸),不碰宿主外观。读屏读 aria-label,不读它。 */
+#ask-reopen::before { content: "●"; display: inline-block; margin-right: 6px; color: var(--accent); font-size: var(--fs-10); vertical-align: 1px; }
+#ask-reopen:not(.hidden)::before { animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; }
+.research-auto-stages:is([data-live="true"], [data-waiting="true"]) [aria-current="step"]::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; vertical-align: 1px; }
+html[data-kz-activity="running"] .research-auto-stages[data-live="true"] [aria-current="step"]::before { background: var(--dot-run); animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
+.research-auto-stages[data-waiting="true"] [aria-current="step"]::before { background: var(--warn); animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; }
+/* 语音。 */
+.voice-dot { position: relative; }
+.voice-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit; opacity: 0; pointer-events: none; }
+[data-voice-state="listening"] .voice-dot::after { animation: kz-ring var(--motion-loop-slow) var(--ease-out) infinite; }
+[data-voice-state="speaking"] .voice-dot::after { animation: kz-ring var(--motion-loop) var(--ease-out) infinite; }
+[data-voice-state="hearing"] .voice-dot { animation: kz-breathe var(--motion-loop-fast) var(--ease-in-out) infinite; }
+:is([data-voice-state="connecting"], [data-voice-state="recognizing"], [data-voice-state="thinking"]) .voice-dot { animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
+[data-voice-state="error"] .voice-dot { background: var(--err); }
+/* 进行中的按钮统一转圈;20px 的图标按钮放不下并排的圈,改为盖在字形上。 */
+button[aria-busy="true"]::after { content: ""; display: inline-block; width: 10px; height: 10px; margin-left: 6px; vertical-align: -1px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: kz-spin var(--motion-spin) linear infinite; }
+.icon-btn[aria-busy="true"] { position: relative; color: transparent; }
+.icon-btn[aria-busy="true"]::after { position: absolute; left: 50%; top: 50%; margin: -5px 0 0 -5px; border-color: var(--dim); border-right-color: transparent; }
+/* 纪律④:窗口隐藏即暂停;减少动效时运行态退化为慢呼吸(环/扫光/弹跳/抖动由全局 reduce 规则关闭)。 */
+html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[data-kz-motion="paused"] *::after { animation-play-state: paused !important; }
+@media (prefers-reduced-motion: reduce) {
+  .kz-dot:is([data-state="running"], [data-state="waiting"], [data-state="pending"], [data-state="stopping"]),
+  .kz-glyph:is([data-state="running"], [data-state="waiting"], [data-state="pending"], [data-state="stopping"]),
+  .tool-msg.running .tool-msg-status::before, .line-running-state.running::before,
+  .rail-toggle[data-running="true"]:not(.active)::after, button[aria-busy="true"]::after {
+    animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite !important;
+  }
+  #turn-activity:is([data-phase="waiting"], [data-phase="thinking"], [data-phase="generating"], [data-phase="tool"], [data-phase="working"]) .turn-activity-label,
+  .reasoning-head.is-live { background-image: none !important; color: var(--dim) !important; }
+  .complexity-cell.current::after { display: none; }
+  .autorun-bar[data-phase="running"] .auto-progress::after { width: 100%; background: var(--warn); }
+}
 
 /* ===== 分区:子代理 ===== */

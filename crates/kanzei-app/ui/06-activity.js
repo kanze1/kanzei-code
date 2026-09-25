@@ -1,4 +1,5 @@
 import { defer } from "./01-core.js";
+import { motionCount } from "./01-core.js";
 import { agentRoleAccent } from "./01-core.js";
 import { escapeHtml } from "./04-markdown.js";
 import { $, invoke, messages, on } from "./01-core.js";
@@ -299,6 +300,11 @@ export function renderBgGroups() {
     group.wrap.classList.toggle("hidden", !mine.some((entry) => !entry.el.classList.contains("hidden")));
   }
 }
+// #7:面板收起时 rail 开关右上角的运行徽标(CSS 按 data-running 呼吸;面板展开时不显示)。
+export function syncActivityRailRunning() {
+  const railToggle = $("activity-toggle");
+  if (railToggle) railToggle.dataset.running = String([...bgEntries.values()].some((e) => !e.done));
+}
 // 三段的计数、空态与折叠。运行中那段额外给出终端条数——用户开这个面板就是要看
 // 「现在有几个终端在跑、跑的是什么」。
 export function renderBgSections() {
@@ -310,10 +316,11 @@ export function renderBgSections() {
   const terminals = running.filter((e) => e.name === "bash" || e.type === "bash").length;
   const runCount = $("bg-running-count");
   if (runCount) {
-    runCount.textContent = running.length
+    motionCount(runCount, running.length
       ? (terminals ? `${running.length} · ${t("终端")} ${terminals}` : String(running.length))
-      : "";
+      : "");
   }
+  syncActivityRailRunning();
   const emptyRow = $("bg-running-empty");
   if (emptyRow) emptyRow.classList.toggle("hidden", running.length > 0);
   const attentionSection = $("bg-section-attention");
@@ -1135,6 +1142,7 @@ export function bgAbortRunning(label) {
     }
   }
   renderBgGroups();
+  syncActivityRailRunning();
 }
 defer(() => {
   setInterval(() => {
@@ -1466,7 +1474,9 @@ export function agentCountsSync() {
   }
   $("agent-running-count").textContent = running ? `${t("运行中")} ${running}` : "";
   $("agent-finished-count").textContent = finished ? `${t("已完成")} ${finished}` : "";
-  $("agent-running-count2").textContent = running ? String(running) : "";
+  motionCount($("agent-running-count2"), running ? String(running) : "");
+  // #7:子代理面板收起时 rail 开关的运行徽标。
+  $("agent-toggle").dataset.running = String(running > 0);
   $("agent-finished-count2").textContent = finished ? String(finished) : "";
   $("agent-closed-count2").textContent = closed ? String(closed) : "";
   $("agent-clear").classList.toggle("hidden", finished === 0 && closed === 0);

@@ -165,6 +165,9 @@ export function renderResearchWorkflow(host) {
     panel.appendChild(form);
   } else {
     const flow = element("ol", undefined, "research-auto-stages");
+    // #7:当前步骤前的状态点——推进中(且全局在跑)呼吸,待用户选方向慢呼吸警示,其余静止。
+    flow.dataset.live = String(!state.paused && !state.waiting_reason && !["choose_direction", "completed"].includes(state.stage));
+    flow.dataset.waiting = String(state.stage === "choose_direction");
     for (const [id, label] of Object.entries(stages)) {
       const item = element("li", t(label));
       if (id === state.stage) item.setAttribute("aria-current", "step");

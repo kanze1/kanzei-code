@@ -1151,6 +1151,8 @@ defer(() => {
   $("update-check").addEventListener("click", async () => {
     $("update-result").textContent = t("检查中…");
     $("update-install").classList.add("hidden");
+    // #7:进行中的按钮统一由 button[aria-busy="true"] 转圈(读屏也能读到「忙」)。
+    $("update-check").setAttribute("aria-busy", "true");
     updateUrl = null;
     try {
       const r = await invoke("update_check");
@@ -1162,6 +1164,8 @@ defer(() => {
       }
     } catch (err) {
       $("update-result").textContent = `${t("检查失败")}:${err}`;
+    } finally {
+      $("update-check").removeAttribute("aria-busy");
     }
   });
 });
@@ -1170,12 +1174,14 @@ defer(() => {
     if (!updateUrl) return;
     $("update-result").textContent = t("下载中…(应用将退出,安装完成后请手动启动)");
     $("update-install").disabled = true;
+    $("update-install").setAttribute("aria-busy", "true");
     try {
       $("update-result").textContent = await invoke("update_install", { url: updateUrl });
     } catch (err) {
       $("update-result").textContent = String(err);
     } finally {
       $("update-install").disabled = false;
+      $("update-install").removeAttribute("aria-busy");
     }
   });
 });

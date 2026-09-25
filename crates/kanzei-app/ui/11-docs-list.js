@@ -2,7 +2,7 @@ import { defer } from "./01-core.js";
 import { localizeDynamic } from "./02-i18n.js";
 import { $, invoke, promptBox } from "./01-core.js";
 import { localizedDocStatus, t } from "./02-i18n.js";
-import { currentProject, log, navigate_view, sidebarCollapsed, syncSidebar, toast, toastError } from "./03-shell.js";
+import { currentProject, log, navigate_view, setSidebarCollapsed, sidebarCollapsed, syncSidebar, toast, toastError } from "./03-shell.js";
 import {
   DOC_TAG_ORDER,
   NEUTRAL_DOC_FILTERS,
@@ -275,7 +275,8 @@ export async function jumpToEntry(ref) {
   // 没有就取当前可见的,再没有就取第一个并把挡住它的容器逐层打开。
   const target = inDocuments ?? matches.find((item) => item.offsetParent) ?? matches[0];
   if (sidebarCollapsed && target.closest("#sidebar")) {
-    sidebarCollapsed = false;
+    // 不能直接给 import 绑定赋值:ESM 里那是只读的,旧写法一执行就抛 TypeError。
+    setSidebarCollapsed(false);
     localStorage.setItem("kz-sidebar-collapsed", "0");
     syncSidebar();
   }
@@ -315,9 +316,7 @@ export function claimedCollaborationLineFor(entry) {
   // 「谁是当前 WIP」的推断。即使用户当前查看并行线,主线的标记也不能跟着漂移。
   const primary = lines.find((candidate) => !candidate?.worktree_path);
   if (!primary) return null;
-  const primaryFocus = typeof globalThis.focusForProcess === "function"
-    ? globalThis.focusForProcess(primary.process_id)
-    : null;
+  const primaryFocus = focusForProcess(primary.process_id);
   const focused = primaryFocus?.active === entry.id;
   if (!focused) return null;
   return {
@@ -592,6 +591,8 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
         // 精确数字放进 title/aria——图形给概览,文字给准数。
         const cells = Math.min(total, 12);
         const filled = total <= cells ? done : Math.round((done / total) * cells);
+        // #7:正在推的那一格;动效只在 html[data-kz-activity=running] 且条目在做时由 CSS 打开。
+        const current = done < total && filled < cells ? filled + 1 : 0;
         const meter = document.createElement("span");
         meter.className = "complexity-meter batch-meter";
         // 轨道等分成几格由这里决定,CSS 只管固定总长(见 style.css 的 --cells)。
@@ -602,7 +603,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
         meter.title = label;
         for (let i = 1; i <= cells; i += 1) {
           const cell = document.createElement("span");
-          cell.className = `complexity-cell${i <= filled ? " filled" : ""}`;
+          cell.className = `complexity-cell${i <= filled ? " filled" : i === current ? " current" : ""}`;
           cell.setAttribute("aria-hidden", "true");
           meter.appendChild(cell);
         }

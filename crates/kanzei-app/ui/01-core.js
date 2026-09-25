@@ -3,6 +3,7 @@ import { t } from "./02-i18n.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
 import { setChatAgentFolds } from "./05-chat-render.js";
+import { chatAbortRunningFor } from "./05-chat-render.js";
 import {
   activeSessionId,
   currentAssistant,
@@ -307,9 +308,8 @@ export function on(event, handler) {
     }
     // 事件流是线路状态的实时投影入口。不能等 kz:done/kz:idle 或下一次
     // process_list 轮询，否则工具执行期间线路按钮和 stop 会按轮次滞后。
-    if (sessionId && typeof globalThis.refreshParallelTaskProjection === "function") {
-      globalThis.refreshParallelTaskProjection(sessionId);
-    }
+    // 直接调 ESM import:它从未挂到 globalThis,旧写法的 typeof 在真机上恒为 undefined(死调用)。
+    if (sessionId) refreshParallelTaskProjection(sessionId);
     const controlEvent =
       event === "kz:ask" ||
       event === "kz:status" ||
@@ -368,13 +368,11 @@ export function on(event, handler) {
           stage: "空闲",
           detail: "",
         });
-        if (typeof globalThis.refreshParallelTaskProjection === "function") {
-          globalThis.refreshParallelTaskProjection(sessionId);
-        }
+        refreshParallelTaskProjection(sessionId);
       }
       // D-387:手机消息注入桌面——刷新会话列表(消息已由后端持久化,打开会话可见)。
       if (event === "kz:mobile-message") {
-        if (typeof globalThis.refreshConversationLists === "function") void globalThis.refreshConversationLists();
+        void refreshConversationLists();
         if (typeof refreshProcesses === "function") refreshProcesses();
         if (typeof handleMobileMessage === "function") handleMobileMessage(eventPayload.payload);
         return;
@@ -382,17 +380,17 @@ export function on(event, handler) {
       // kz:ask 不走路由分支:它必须始终进 handler,按 sessionId 入队
       // (handler 内只在活动会话时弹窗),否则后台 ask 会被丢弃挂死(D-055 根因)。
       if (event !== "kz:ask" && sessionId !== activeSessionId) {        // 控制事件的 UI 副作用不能串到活动线路，但所属线路的历史与自主推进必须执行。
-        if (event === "kz:done" && typeof globalThis.handleBackgroundSessionDone === "function") {
-          globalThis.handleBackgroundSessionDone(eventPayload.payload);
-        }
+        if (event === "kz:done") handleBackgroundSessionDone(eventPayload.payload);
         if (event === "kz:stopped" || terminalError) {
           // 后台线路的终态错误同样不得掐掉在途的失败退避重试(上面 retryPending 同源):
           // 后台线更没人看着,一次断网就永久停摆。in-flight 标记照旧释放——重试那一枪
           // 到点后才发得出去。
-          if (!retryPending && typeof globalThis.cancelAutoContinueTimer === "function") globalThis.cancelAutoContinueTimer(sessionId);
+          if (!retryPending) cancelAutoContinueTimer(sessionId);
           if (typeof releaseAutoContinue === "function") releaseAutoContinue(sessionId);
+          // #7:该线 pane 里还在转圈的工具行随终态收尾(标「中断」),否则切回去永远在转。
+          chatAbortRunningFor(sessionId);
         }
-        if (typeof globalThis.refreshConversationLists === "function") void globalThis.refreshConversationLists();
+        void refreshConversationLists();
         refreshProcesses();
         log(`${t("后台会话控制事件已路由")}:${event} ${sessionId}`);
         return;
@@ -425,6 +423,47 @@ on("kz:experience", (eventPayload) => {
 });
 
 export const $ = (id) => document.getElementById(id);
+// ---------- #7 动效原语(纪律见 style.css「分区:动效」与 ui-a11y-smoke「#7 动效纪律」) ----------
+// 循环档时长全是 2400ms 的约数。频繁重建的节点(侧栏线路行每个 kz:status 整行重画)
+// 若不对齐,每次重建都从第 0 帧重来,呼吸点看起来一直在「抽」。motionSync 把节点的
+// animation-delay 写成「全局时钟在 2400ms 周期里的负偏移」,新节点与旧节点同相。
+export const MOTION_EPOCH_MS = 2400;
+export function motionSync(el) {
+  if (typeof el?.style?.setProperty !== "function") return el;
+  const now = typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+  el.style.setProperty("--kz-sync", `${-Math.round(now % MOTION_EPOCH_MS)}ms`);
+  return el;
+}
+/// 一次性动效:只在状态**真正跳变**的调用点挂上(历史回放不经过这些点),定时摘除。
+/// 不依赖 animationend——窗口隐藏/减少动效时它可能不来,类会一直挂着,下次就不再重播。
+export function motionOnce(el, cls, ms = 600) {
+  if (!el?.classList) return el;
+  const timers = (el._kzMotionTimers ??= {});
+  clearTimeout(timers[cls]);
+  el.classList.remove(cls);
+  // 强制一次重排:同一元素连续触发时让浏览器看见「摘掉再挂上」,动画才会重播。
+  void el.offsetWidth;
+  el.classList.add(cls);
+  timers[cls] = setTimeout(() => {
+    el.classList.remove(cls);
+    delete timers[cls];
+  }, ms);
+  return el;
+}
+/// 计数写入:文本不变不动;数值上升时 tick 一次(下降/清空不播,那不是「又多了一个」)。
+export function motionCount(el, text) {
+  if (!el) return el;
+  const next = String(text ?? "");
+  const previous = el.textContent ?? "";
+  if (previous === next) return el;
+  el.textContent = next;
+  const before = Number.parseInt(previous, 10);
+  const after = Number.parseInt(next, 10);
+  if (previous && Number.isFinite(before) && Number.isFinite(after) && after > before) motionOnce(el, "kz-tick", 320);
+  return el;
+}
 // R-264 ESM:延迟执行——把「模块求值期跨模块顶层调用」推迟到全部模块求值完成
 // (DOMContentLoaded)。classic 下 DOM 已就绪(readyState 非 loading)立即执行,no-op;
 // ESM 下循环依赖的求值顺序不保证提供方先就绪,直接顶层调用会 TDZ。与浏览器
