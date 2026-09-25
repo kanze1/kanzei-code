@@ -347,11 +347,11 @@ export function renderDocuments(snapshot) {
   syncBatchBar();
   if (isTests) $("documents-batch-bar")?.classList.add("hidden");
 }
-// 依赖视图(R-111):按依赖拓扑分层展示需求+缺陷。可做层 = 依赖全部满足(已关闭或
-// 不依赖任何未完成条目)的条目;被阻塞层 = 还有未完成依赖的条目。点击任意条目
-// 高亮它的依赖链——向上(它依赖谁)与向下(谁依赖它),整条链一眼可读。
-// 数据来自批1 的 docs_snapshot 每条目 dependencies/dependents 字段(「依赖:」语义,
-// refs 不参与),与引擎取活/阻塞判断同源,不做第二套解析。
+// 依赖视图(R-111):按依赖拓扑分层展示需求+缺陷。可做层 = 无依赖或同一 docs_snapshot
+// 未给该依赖返回引擎 block_reasons;被阻塞层 = 至少一个依赖仍有引擎阻塞原因。
+// 数据来自批1 的 dependencies/dependents 字段。分层消费快照里的依赖型 block_reasons,
+// 不从仅含活跃条目的列表重新构造 done 集合;归档终态依赖也因此与引擎同判(D-750)。
+// 其它用户阻塞/显式停车仍保持原字段和理由,本视图只分层依赖是否满足(M-006)。
 export let dependencyViewOpen = false;
 export function setDependencyViewOpen(v) { dependencyViewOpen = v; }
 export function renderDependencyView(snapshot) {
@@ -371,9 +371,14 @@ export function renderDependencyView(snapshot) {
   const defs = snapshot?.defects ?? [];
   const entries = [...reqs, ...defs];
   const byId = new Map(entries.map((e) => [e.id, e]));
-  const done = new Set(entries.filter((e) => e.closed || e.status === "done" || e.status === "fixed").map((e) => e.id));
   const hasDeps = (e) => Array.isArray(e.dependencies) && e.dependencies.length > 0;
-  const depsDone = (e) => (e.dependencies ?? []).every((id) => done.has(id));
+  // 各依赖是否阻塞由 docs_snapshot 与调度器基于 active+archive 同算,不要从 UI 的 active-only entries 重建 done 集合。
+  const depsDone = (e) =>
+    (e.dependencies ?? []).every((id) =>
+      !(e.block_reasons ?? []).some(
+        (reason) => reason === `未完成依赖: ${id}` || reason === `依赖不存在: ${id}`,
+      ),
+    );
   const layers = { ready: [], blocked: [] };
   for (const e of entries) {
     if (!hasDeps(e) || depsDone(e)) layers.ready.push(e);

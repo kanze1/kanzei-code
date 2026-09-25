@@ -745,7 +745,7 @@ const payloads = {
   // R-252:拆解子代理命令桩——返回新产出的 R/D 编号,前端 toast/log/刷新用。
   idea_split: (args) => `I-${args?.id?.replace(/^I-/, "") ?? "001"} → R-101 D-101`,
   docs_snapshot: {
-    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]], dependencies: [], dependents: ["R-002"], execution_model: "work_units_v1", work_units: [smokeWorkUnit] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 }, dependencies: ["R-001"], dependents: [] })],
+    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]], dependencies: [], dependents: ["R-002"], execution_model: "work_units_v1", work_units: [smokeWorkUnit] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 }, dependencies: ["R-001"], dependents: [], blocked: true, block_reasons: ["未完成依赖: R-001"] })],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待澄清: 用户视角的易用性还是模型可消费性?"]] })],
     incident_metrics: {
       schema_version: 2,
@@ -2645,6 +2645,31 @@ assert(r002.classList.contains("dep-lit"), "点击后目标条目未高亮");
 assert(r001.classList.contains("dep-lit"), "依赖链上游未高亮");
 const unrelated = depEntries.find((n) => n.dataset.docId === "D-001");
 if (unrelated) assert(unrelated.classList.contains("dep-dim"), "无关条目未压暗");
+// D-750:normal docs_snapshot 只带归档计数。依赖 R-111 已归档终态时,后端同快照的 block_reasons 为空;
+// 前端必须消费该权威判定,不能因 active requirements/defects 里没有 R-111 就误放进 blocked 层。
+const savedArchiveDependencyDocs = structuredClone(payloads.docs_snapshot);
+payloads.docs_snapshot = {
+  ...savedArchiveDependencyDocs,
+  requirements: [docEntry("R-900", "依赖归档终态 R-111", "todo", {
+    dependencies: ["R-111"],
+    blocked: false,
+    block_reasons: [],
+  })],
+  defects: [],
+  archived: { ...savedArchiveDependencyDocs.archived, req: 1 },
+};
+sandbox.renderDocsSnapshot(payloads.docs_snapshot);
+assert(
+  document.querySelector('#documents-dep-view .dep-entry[data-doc-id="R-900"]'),
+  "归档依赖 fixture 未渲染活跃需求 R-900",
+);
+assert(
+  document.querySelector("#documents-dep-view .dep-layer-head.ready")?.textContent.includes("(1)")
+    && document.querySelector("#documents-dep-view .dep-layer-head.blocked")?.textContent.includes("(0)"),
+  "依赖 R-111 已归档且引擎 block_reasons 为空时,R-900 应在可做层而非被阻塞层",
+);
+payloads.docs_snapshot = savedArchiveDependencyDocs;
+sandbox.renderDocsSnapshot(savedArchiveDependencyDocs);
 depToggle.click();
 await flush();
 assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点击依赖视图按钮后面板未隐藏");
