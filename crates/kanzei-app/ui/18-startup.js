@@ -1,3 +1,4 @@
+import { bindMenus, installTooltips } from "./00-surface.js";
 import { navigate_view } from "./03-shell.js";
 import { defer } from "./01-core.js";
 import { $, invoke } from "./01-core.js";
@@ -11,6 +12,12 @@ import { updateResultText } from "./16-settings.js";
 import { project_workspace, restore_active_workspace, restore_workspace_preferences } from "./03-workspaces.js";
 
 // ---------- 启动 ----------
+// 弹层原语接线:静态菜单触发器([data-kz-menu])与全局 tooltip(接管 title)。
+// 放在启动链之外、不等任何 IPC:菜单与提示在首屏就要能用。
+defer(() => {
+  bindMenus(document);
+  installTooltips(document);
+});
 defer(() => {
   (async () => {
     // R-225:语言的持久化真源是全局配置;localStorage 只保留即时切换/旧版本迁移所需的

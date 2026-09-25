@@ -20,10 +20,19 @@ assert.equal(
 // 必须如实为 false——宣称 true 会让读屏软件把背景内容整块隐藏,与实际可读可交互
 // 的事实相反,那才是真的无障碍缺陷。role/aria-labelledby 仍是硬要求。
 assert.match(html, /id="ask-overlay"[^>]*role="dialog"[^>]*aria-modal="false"[^>]*aria-labelledby="ask-title"/);
-assert.match(html, /id="viewer-overlay"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="viewer-title"/);
-assert.match(js, /if \(event\.key !== "Escape"\) return/);
+// UI-0926 #9 弹层技术栈:权限卡是 popover="manual" 的停靠卡片(showCard/hideCard),
+// 查看器/确认/输入/命令面板是 <dialog>(openDialog → showModal,原生模态语义,不再手写 aria-modal)。
+assert.match(html, /id="ask-overlay"[^>]*popover="manual"/, "权限卡必须是 popover=manual 的停靠卡片");
+for (const id of ["viewer-overlay", "confirm-overlay", "input-overlay", "palette"]) {
+  assert.match(html, new RegExp(`<dialog id="${id}"[^>]*class="[^"]*\\bk-surface k-dialog\\b`), `${id} 必须是 <dialog class="k-surface k-dialog">`);
+}
+assert.match(html, /<dialog id="viewer-overlay"[^>]*aria-labelledby="viewer-title"/);
+// Esc 只有一个入口:00-surface.js 在 document 捕获阶段只关栈顶;权限卡的 Esc 经 onEscape 拒绝/取消。
+assert.match(js, /if \(event\.key !== "Escape" \|\| event\.isComposing\) return;/);
+assert.match(js, /document\.addEventListener\("keydown", onKeydown, true\)/);
+assert.match(js, /onEscape: \(\) => \{\s*if \(askActive\) answerAsk\(askActive\.kind === "question" \? "cancel" : "deny"\)/);
 assert.match(js, /answerAsk\(askActive\.kind === "question" \? "cancel" : "deny"\)/);
-assert.match(js, /\$\("viewer-close"\)\.focus\(\)/);
+assert.match(js, /openDialog\(\$\("viewer-overlay"\), \{ initialFocus: "#viewer-close" \}\)/);
 assert.match(js, /if \(event\.key !== "Enter" && event\.key !== " "\) return/);
 for (const selector of ["activity-item", "rail-sidebar-toggle", "auto-continue", "auto-allow"]) {
   assert.ok(html.includes(`id="${selector}"`) || html.includes(`class="${selector}`), `缺少核心控件 ${selector}`);
@@ -147,7 +156,10 @@ assert.ok(html.includes('id="send"'), "缺少发送按钮");
 assert.ok(html.includes('id="stop"'), "缺少停止按钮");
 assert.match(html, /id="composer-more"[\s\S]*id="summarize-btn"/);
 assert.match(html, /id="composer-more"[\s\S]*id="worktree-add"/);
-assert.match(html, /id="task-options"[\s\S]*id="auto-allow"[\s\S]*id="process-phase-pipeline-wrap"[\s\S]*id="process-tracker-writes-wrap"[\s\S]*<\/details>/);
+// 任务设置是 data-kz-menu 触发器 + popover 弹层菜单(UI-0926 #9),开关都在弹层里。
+assert.match(html, /id="task-options"[^>]*data-kz-menu="task-options-menu"/);
+assert.match(html, /id="task-options-menu"[^>]*popover="manual"[\s\S]*id="auto-allow"[\s\S]*id="process-phase-pipeline-wrap"[\s\S]*id="process-tracker-writes-wrap"[\s\S]*id="composer-more"/);
+assert.doesNotMatch(html, /<details[^>]*id="(?:composer-more|task-options|autorun-more)"/, "输入区菜单不得再用 <details> 做弹层");
 assert.match(js, /function syncSidebar\(\)/);
 assert.match(js, /function syncActivityPanel\(\)/);
 assert.match(js, /localStorage\.setItem\("kz-activity-panel"/);

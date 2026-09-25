@@ -1,3 +1,4 @@
+import { closeSurface, hideCard, isSurfaceOpen, openPopover, showCard } from "./00-surface.js";
 import { defer } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
@@ -232,7 +233,7 @@ export function renderContextDetail() {
   const t = runTokens;
   const total = t.input + t.cacheRead + t.output;
   detail.innerHTML = `<strong>${localizeDynamic("上下文成分")}</strong><br>${localizeDynamic("输入上下文(系统/历史/工具结果)")}: ${t.input.toLocaleString()} tokens<br>${localizeDynamic("缓存读取(已复用上下文)")}: ${t.cacheRead.toLocaleString()} tokens<br>${localizeDynamic("本轮输出")}: ${t.output.toLocaleString()} tokens${lastCompactionSummary ? `<br>${localizeDynamic("最近一次压缩纪要已收进活动面板")}` : ""}<br>${localizeDynamic("合计")}: ${total.toLocaleString()} tokens`;
-  detail.classList.remove("hidden");
+  openPopover($("status-tokens"), detail, { placement: "top-end" });
   $("status-tokens").setAttribute("aria-expanded", "true");
   if (lastCompactionEntry) {
   setActivityPanelOpen(true);
@@ -242,7 +243,7 @@ export function renderContextDetail() {
 }
 
 export function hideContextDetail() {
-  $("context-detail").classList.add("hidden");
+  closeSurface($("context-detail"));
   $("status-tokens").setAttribute("aria-expanded", "false");
 }
 export function toggleContextDetail() {
@@ -256,19 +257,9 @@ defer(() => {
 defer(() => {
   $("status-tokens").classList.add("context-clickable");
 });
+// Esc 与点外关闭由 00-surface 的弹层栈统一处理(锚点按钮自身除外,点它是切换)。
 defer(() => {
   $("status-tokens").addEventListener("click", toggleContextDetail);
-});
-defer(() => {
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hideContextDetail();
-  });
-});
-defer(() => {
-  document.addEventListener("click", (event) => {
-    if (event.target.closest("#status-tokens, #context-detail")) return;
-    hideContextDetail();
-  });
 });
 on("kz:tool-start", (e) => {
   markFirstSignal();
@@ -913,37 +904,47 @@ export function pumpAsk() {
     }
     $("ask-answer").value = askActive.default || "";
     $("ask-answer").placeholder = multi ? t("补充说明(可选)") : t("输入你的回答");
-    setTimeout(() => $("ask-answer").focus(), 0);
     updateAskSubmitState();
   } else {
     $("ask-action").textContent = askActive.action;
     $("ask-resource").textContent = askActive.resource;
     $("ask-remember").textContent = `${askActive.action} ${askActive.remember ?? askActive.resource}`;
-    setTimeout(() => $("ask-allow").focus(), 0);
   }
   askCollapsed = false;
-  $("ask-overlay").classList.remove("hidden");
-  $("ask-reopen").classList.add("hidden");
+  showAskCard();
   updateAskQueueStatus();
+}
+
+// 权限/提问卡是停靠卡片(00-surface showCard):不轻关闭、不参与模态。
+// Esc 经弹层栈只作用于栈顶——确认框/命令面板开着时按 Esc 关的是它们,不会顺手拒掉这条请求。
+// 焦点 "auto":用户正在别处打字时不抢焦点(旧实现一弹出就把焦点抢到「允许一次」,下一个空格就放行)。
+export function showAskCard() {
+  showCard($("ask-overlay"), {
+    onEscape: () => {
+      if (askActive) answerAsk(askActive.kind === "question" ? "cancel" : "deny");
+    },
+    focus: "auto",
+    initialFocus: askActive?.kind === "question" ? "#ask-answer" : "#ask-allow",
+  });
+  hideCard($("ask-reopen"));
 }
 
 export function collapseAsk() {
   if (!askActive) return;
   askCollapsed = true;
-  $("ask-overlay").classList.add("hidden");
-  $("ask-reopen").classList.remove("hidden");
+  hideCard($("ask-overlay"));
+  showCard($("ask-reopen"), { focus: "none" });
   updateAskQueueStatus();
 }
 
 export function reopenAsk() {
   if (!askActive) {
-    $("ask-reopen").classList.add("hidden");
+    hideCard($("ask-reopen"));
     pumpAsk();
     return;
   }
   askCollapsed = false;
-  $("ask-overlay").classList.remove("hidden");
-  $("ask-reopen").classList.add("hidden");
+  showAskCard();
   updateAskQueueStatus();
 }
 
@@ -955,8 +956,8 @@ export function hideAsk(preserveActive = false) {
   }
   askActive = null;
   askCollapsed = false;
-  $("ask-overlay").classList.add("hidden");
-  $("ask-reopen").classList.add("hidden");
+  hideCard($("ask-overlay"));
+  hideCard($("ask-reopen"));
   updateAskQueueStatus();
 }
 export async function answerAsk(reply) {
@@ -966,8 +967,8 @@ export async function answerAsk(reply) {
   const summary = question ? askActive.question : `${askActive.action}: ${askActive.resource}`;
   askActive = null;
   askCollapsed = false;
-  $("ask-overlay").classList.add("hidden");
-  $("ask-reopen").classList.add("hidden");
+  hideCard($("ask-overlay"));
+  hideCard($("ask-reopen"));
   updateAskQueueStatus();
   const replyLabel = reply === "deny" ? t("拒绝") : reply === "always" ? t("总是允许") : reply;
   log(`${question ? t("回答") : t("权限")} ${replyLabel} — ${summary}`);
@@ -1008,17 +1009,6 @@ defer(() => {
 defer(() => {
   $("ask-answer").addEventListener("input", updateAskSubmitState);
 });
-defer(() => {
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    if (!$('ask-overlay').classList.contains("hidden") && askActive) {
-      answerAsk(askActive.kind === "question" ? "cancel" : "deny");
-      return;
-    }
-    if (!$('viewer-overlay').classList.contains("hidden")) $("viewer-close").click();
-  });
-});
-
 // ---------- 阅读辅助 ----------
 export async function copyReadable(el) {
   const text = el.dataset.raw || [...el.childNodes]
@@ -1128,21 +1118,22 @@ export function moveSearch(delta) {
 defer(() => {
   $("chat-search-toggle").addEventListener("click", () => {
     const bar = $("chat-search");
-    // 搜索框和这个按钮一起住在 <details id="composer-more"> 里。从菜单点进来时宿主
-    // 当然是开的,但命令面板(21-palette.js)会绕过菜单直接 .click() 这个按钮——那时
-    // 宿主是关着的,摘掉 hidden 也没人看得见:屏幕零变化、焦点落进 content-visibility
-    // 隐藏子树、接着敲的关键词全丢进 #prompt,裸 Enter 就把它当任务发给了 agent。
+    // 搜索框和这个按钮一起住在「更多」弹层菜单(#composer-more-menu,popover)里。从菜单点进来时
+    // 宿主当然是开的,但命令面板(21-palette.js)会绕过菜单直接 .click() 这个按钮——那时
+    // 宿主是关着的,摘掉 hidden 也没人看得见:屏幕零变化、焦点落进隐藏子树、
+    // 接着敲的关键词全丢进 #prompt,裸 Enter 就把它当任务发给了 agent。
     // 宿主的展开责任放在这里而不是调用方:凡是点这个按钮,行为就该一致。
     // 判据必须是「**实际看得见吗**」,不能只看自己的 hidden 类。
     // 可达状态:用户点开更多 → 点搜索(搜索条 hidden 摘掉)→ 再点更多把菜单收起。
-    // 此时搜索条没有 hidden 类,但整块在收起的 details 里,一个像素都看不见。
+    // 此时搜索条没有 hidden 类,但整块在收起的弹层里,一个像素都看不见。
     // 旧写法把它当"开着"于是执行关闭:菜单弹开、搜索条被藏掉、焦点原地不动,
     // 用户接着敲的关键词全落进 #prompt,裸 Enter 直接把它当任务发给了 agent。
-    const host = bar.closest("details");
-    const hiddenByAncestor = Boolean(host && !host.open);
+    const host = bar.closest("[popover]");
+    const hiddenByAncestor = Boolean(host && !isSurfaceOpen(host));
     const effectivelyHidden = bar.classList.contains("hidden") || hiddenByAncestor;
     if (effectivelyHidden) {
-      if (host) host.open = true;
+      // 经原语打开宿主(锚点取 bindMenus 登记的触发器),不直接改 popover 状态。
+      if (hiddenByAncestor) openPopover(null, host, { type: "menu" });
       bar.classList.remove("hidden");
       $("chat-search-input").focus();
     } else {
