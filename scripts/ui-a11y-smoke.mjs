@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadUiSources } from "./ui-sources.mjs";
+import { checkSurfaceRules, formatViolations, selfTestSurfaceRules } from "./ui-surface-rules.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const { html, joined: js } = loadUiSources();
+const { html, joined: js, scriptSrcs, sources } = loadUiSources();
+const uiSources = scriptSrcs.map((name, index) => ({ name, text: sources[index] }));
 const css = await readFile(resolve(root, "crates/kanzei-app/ui/style.css"), "utf8");
 
 const static_icon_buttons = [...html.matchAll(/<button[^>]*class="icon-btn"[^>]*>/g)];
@@ -207,20 +209,22 @@ assert.match(js, /t\("实际差异"\)/);
 // hover 完全没有反馈、消息附件分隔线在浅底上不可见。靠人眼复查抓不住,故立此判据。
 //
 // 白名单只有 mask-image:遮罩取的是 alpha 通道,写什么颜色都一样,不是主题的一部分。
+//
+// UI-0926 #9:旧判据只认 #hex,放过了 25 处 rgba()(其中 10 处在弹层上)。现在交给
+// ui-surface-rules.mjs:C1 连颜色函数与颜色名一起查,另有 T1 token 分层、S1 弹层外观归属、
+// H 页面结构、J 脚本四组判据;模块自带反例自测,任何一条判据恒绿都会先在这里红。
 {
   const themeBlockEnd = css.indexOf("/* ===== 主题 token 块结束");
   assert.ok(themeBlockEnd > 0, "找不到主题 token 块的结束标记,判据无法定位");
-  const offenders = [];
-  css.slice(themeBlockEnd).split("\n").forEach((line, index) => {
-    if (/mask-image/.test(line)) return;
-    if (/#[0-9a-fA-F]{3,8}\b/.test(line)) offenders.push(`+${index}: ${line.trim()}`);
-  });
+  const silentRules = selfTestSurfaceRules();
+  assert.deepEqual(silentRules, [], `ui-surface-rules 判据没能命中自己的反例(恒绿):${silentRules.join(", ")}`);
+  const surfaceCss = await readFile(resolve(root, "crates/kanzei-app/ui/surface.css"), "utf8");
+  const pwaCss = await readFile(resolve(root, "crates/kanzei-app/mobile-pwa/style.css"), "utf8");
+  const violations = checkSurfaceRules({ css, surfaceCss, pwaCss, html, sources: uiSources });
   assert.deepEqual(
-    offenders,
+    violations.map((v) => `${v.rule} ${v.file}:${v.line}`),
     [],
-    ["style.css 主题块之外出现字面量颜色(亮色主题下会照旧渲染暗色)。",
-     '改法:在 :root 与 [data-theme="light"] 两组各给一个语义 token,引用点写 var(--x)。',
-     ...offenders].join("\n"),
+    ["弹层与外观静态门禁(ui-surface-rules)未通过:", formatViolations(violations)].join("\n"),
   );
   // var(--x, #fallback) 的回退分支同样绕过主题:token 都存在时它是死代码,
   // 一旦 token 改名它就会静默把暗色值顶上来。

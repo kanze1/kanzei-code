@@ -62,8 +62,7 @@
   --fs-15: 15px; --fs-16: 16px; --fs-18: 18px; --fs-20: 20px; --fs-25: 25px; --fs-34: 34px;
   /* D-380 层级。 */
   --z-base: 1; --z-raised: 2; --z-sticky: 3; --z-rail: 19; --z-panel: 20;
-  --z-handle: 30; --z-float: 40; --z-drawer: 50; --z-overlay: 100;
-  --z-dialog: 200; --z-toast: 210;
+  --z-handle: 30; --z-drawer: 50;
   /* D-380 间距:6 档目标音阶,新代码用它。 */
   --sp-1: 2px; --sp-2: 4px; --sp-3: 6px; --sp-4: 8px; --sp-5: 12px; --sp-6: 16px;
   --shadow: #00000066; --shadow-strong: #00000080;
@@ -278,7 +277,7 @@ body {
 .queue-entry .queue-prompt { flex: 1; min-width: 0; font-size: var(--fs-11-5); line-height: 1.35; white-space: pre-wrap; word-break: break-word; max-height: 48px; overflow: hidden; }
 .queue-entry .queue-delivery { color: var(--info); font: var(--fs-10) var(--mono); flex-shrink: 0; }
 .queue-entry .queue-cancel { color: var(--err); padding: 0 3px; font-size: var(--fs-11); background: transparent; flex-shrink: 0; }
-.queue-entry .queue-cancel:hover { color: var(--fg-strong); background: rgba(208,104,78,.16); }
+.queue-entry .queue-cancel:hover { color: var(--fg-strong); background: color-mix(in srgb, var(--err) 16%, transparent); }
 .section-title em { font-style: normal; color: var(--dim); }
 .chat-select-all { font-size: var(--fs-10); color: var(--dim); cursor: pointer; margin-right: 3px; text-transform: none; letter-spacing: 0; }
 .icon-btn {
@@ -316,7 +315,7 @@ body {
 /* D-170:项目隔离失效的告警。数据串项目是最严重的一类问题,必须显眼 */
 .project-shared-warn {
   margin: 4px 10px 6px; padding: 6px 8px; font-size: var(--fs-11); line-height: 1.5;
-  color: var(--alert); background: rgba(232, 132, 42, .1);
+  color: var(--alert); background: color-mix(in srgb, var(--alert) 10%, transparent);
   border-left: 2px solid var(--alert); border-radius: 0 4px 4px 0;
   display: flex; flex-direction: column; gap: 5px; align-items: flex-start;
   word-break: break-all;
@@ -554,7 +553,7 @@ button.mini { padding: 2px 10px; font-size: var(--fs-11-5); }
   content: ""; position: absolute; left: 4px; top: 5px; bottom: 5px;
   width: 3px; border-radius: 2px;
 }
-.doc-item.pri-P0::before { background: var(--err); box-shadow: 0 0 6px rgba(208, 104, 78, .55); }
+.doc-item.pri-P0::before { background: var(--err); box-shadow: 0 0 6px color-mix(in srgb, var(--err) 55%, transparent); }
 .doc-item.pri-P0 .id { color: var(--err); }
 .doc-item.pri-P1::before { background: var(--alert, var(--warn)); }
 .doc-item.pri-P1 .id { color: var(--alert, var(--warn)); }
@@ -1046,7 +1045,7 @@ html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68
 .tool-chip.running .head::before { content: "● "; color: var(--warn); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
 .msg.error {
-  color: var(--err); background: rgba(208,104,78,.08); border: 1px solid rgba(208,104,78,.25);
+  color: var(--err); background: color-mix(in srgb, var(--err) 8%, transparent); border: 1px solid color-mix(in srgb, var(--err) 25%, transparent);
   border-radius: var(--radius); padding: 8px 12px; max-width: 92%; white-space: pre-wrap; word-break: break-word;
 }
 .msg.error .error-level { display: block; margin-bottom: 4px; font-size: var(--fs-11); letter-spacing: .04em; }
@@ -1485,7 +1484,7 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--accent); outli
 /* D-168:被项目级配置覆盖的提示。不说破的话,用户会一直改一个不生效的值 */
 .settings-effective {
   color: var(--warn); font-size: var(--fs-11-5); line-height: 1.5;
-  background: rgba(224, 171, 58, .08); border-left: 2px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 8%, transparent); border-left: 2px solid var(--warn);
   padding: 6px 10px; margin: 6px 0 10px; border-radius: 0 4px 4px 0;
 }
 .settings-effective.hidden { display: none; }
@@ -1556,7 +1555,7 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--accent); outli
 .memory-flag-row.recurring .memory-row-id { color: var(--info); }
 .memory-profile { font-size: var(--fs-11); margin-bottom: 4px; }
 button.ghost.danger { color: var(--err); }
-button.ghost.danger:hover { background: rgba(208, 104, 78, .14); }
+button.ghost.danger:hover { background: var(--danger-soft); }
 .bg-entry.has-detail .bg-title:hover { color: var(--fg-strong); }
 .bg-detail { margin-top: 4px; max-height: 320px; overflow-y: auto; user-select: text; }
 .bg-child { margin: 3px 0 0 8px; padding: 4px 6px; border-left: 2px solid var(--border); background: var(--panel); font-size: var(--fs-10-5); }
@@ -1727,7 +1726,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 
 #ask-dialog .ask-buttons { display: flex; gap: 8px; justify-content: flex-end; }
 #ask-always { border: 1px solid var(--alert); color: var(--alert); background: transparent; border-radius: 4px; padding: 5px 12px; cursor: pointer; }
-#ask-always:hover { background: rgba(232, 132, 42, .12); }
+#ask-always:hover { background: var(--alert-soft); }
 
 /* ---------- 三期:自动放行/总结/上下文占用/弹窗排版 ---------- */
 /* 开关胶囊(连跑/自动放行):隐藏原生勾选框,状态用圆点+底色表达 */
@@ -1796,12 +1795,12 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .diff-row { display: grid; grid-template-columns: 42px 42px minmax(max-content, 1fr); min-width: max-content; white-space: pre; }
 .diff-line-number { color: var(--diff-line-number); text-align: right; padding: 0 8px; user-select: none; }
 .diff-row code, .diff-pane code { padding: 0 10px; }
-.diff-row.add, .diff-pane.add { background: rgba(143, 184, 122, .13); color: var(--diff-add); }
-.diff-row.del, .diff-pane.del { background: rgba(208, 104, 78, .12); color: var(--diff-del); }
+.diff-row.add, .diff-pane.add { background: var(--diff-add-bg); color: var(--diff-add); }
+.diff-row.del, .diff-pane.del { background: var(--diff-del-bg); color: var(--diff-del); }
 .diff-row.ctx, .diff-pane.ctx { color: var(--dim); }
 .diff-split-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-width: 680px; }
 .diff-pane { display: flex; min-height: 1.5em; white-space: pre; border-right: 1px solid var(--border-soft); min-width: 0; overflow-x: auto; }
-.diff-pane.empty { background: rgba(255, 255, 255, .025); }
+.diff-pane.empty { background: var(--diff-empty-bg); }
 /* R-133:并排视图长行在自身列内横向滚动,不溢出覆盖相邻列(grid 子项默认 min-width:auto
    会被 pre 内容撑破;min-width:0 + overflow-x:auto 把滚动收进 pane)。 */
 .diff-pane code { flex: 1 1 auto; min-width: 0; }
@@ -1816,7 +1815,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
    同色系但加粗区分,折叠态用 .hidden 收起子目录。 */
 .diff-tree { font-family: var(--mono); font-size: var(--fs-11); }
 .diff-dir-head { display: flex; align-items: center; width: 100%; background: none; border: none; color: var(--fg-strong); font-family: inherit; font-size: var(--fs-11); font-weight: 600; padding: 3px 6px; cursor: pointer; text-align: left; }
-.diff-dir-head:hover { background: rgba(255, 255, 255, .04); }
+.diff-dir-head:hover { background: var(--diff-hover); }
 .diff-dir-body { padding-left: 14px; }
 .diff-dir-body.hidden { display: none; }
 /* D-237:汇总区 +/− 与 diff 行同色系,增删一眼可辨(纯文本灰看不出改了啥)。 */
@@ -1824,8 +1823,8 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .diff-add { color: var(--diff-add); }
 .diff-del { color: var(--diff-del); }
 .dl { padding: 0 10px; white-space: pre; }
-.dl.add { background: rgba(143, 184, 122, .13); color: var(--diff-add); }
-.dl.del { background: rgba(208, 104, 78, .12); color: var(--diff-del); }
+.dl.add { background: var(--diff-add-bg); color: var(--diff-add); }
+.dl.del { background: var(--diff-del-bg); color: var(--diff-del); }
 .dl.ctx { color: var(--dim); }
 .diff-stat { color: var(--dim); font-size: var(--fs-11); margin-left: 8px; }
 .tool-chip.ok .diff-stat { color: var(--ok); }
@@ -1833,7 +1832,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 /* R-223:「自动放行」常驻警示徽标——警示色,提示"权限门禁已松开且会记住"。 */
 #status-auto-allow {
   color: var(--log-gold);
-  border: 1px solid rgba(232, 176, 75, .55);
+  border: 1px solid color-mix(in srgb, var(--log-gold) 55%, transparent);
   border-radius: 3px;
   padding: 0 6px;
   margin-left: 8px;

@@ -1,4 +1,5 @@
 // R-142:前端最低配 ESLint 冒烟：ui/*.js + scripts/*.mjs 经 no-undef 检查零错误。
+// UI-0926 #9:ui/*.js 另加 no-restricted-syntax「弹层唯一写法」8 条(见 eslint.config.js),同样按 error 计。
 // 运行时模块之间通过真实 ESM import/export 连接，不再维护跨文件 globals 清单。
 // 与 ui-a11y/ui-i18n/ui-markdown/ui-runtime 冒烟并列,verify.ps1 发布门禁一并执行。
 import { ESLint } from "eslint";
@@ -20,9 +21,9 @@ for (const result of results) {
   }
 }
 if (errors.length) {
-  console.error(`UI ESLint 冒烟失败(${errors.length} 处 no-undef):`);
+  console.error(`UI ESLint 冒烟失败(${errors.length} 处 error:no-undef / 弹层唯一写法 no-restricted-syntax):`);
   for (const e of errors) console.error(` - ${e}`);
   process.exit(1);
 }
 
-console.log(`UI ESLint 冒烟通过:${results.length} 个文件 no-undef 零错误,模块 import/export 解析正常`);
+console.log(`UI ESLint 冒烟通过:${results.length} 个文件 no-undef 与弹层唯一写法零错误,模块 import/export 解析正常`);
