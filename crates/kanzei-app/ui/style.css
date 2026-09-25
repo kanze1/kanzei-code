@@ -2718,6 +2718,11 @@ body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data
 .picker-btn.is-pending .picker-label { color: var(--dim); }
 .picker-btn.is-error, .picker-btn.is-error .picker-label { color: var(--err); }
 @media (max-width: 1024px) { .picker-btn { max-width: 170px; } #reasoning-picker { max-width: 120px; } }
+/* 芯片菜单左侧的勾选列(08-model-picker.js openPicker 注入):✓ 只标当前生效项,中性色。
+   悬停/焦点与生效项的底色(surface.css)只差几个百分点,靠 ✓ 把「鼠标在哪」和「哪项生效」分开。
+   14px 列宽 + 菜单项 10px 间距 = 分组标题前的 24px 占位,两者文字左缘对齐。 */
+.picker-check { flex: 0 0 14px; width: 14px; text-align: center; color: var(--fg-strong); font-size: var(--fs-12); line-height: 1; }
+.picker-indent { display: inline-block; width: 24px; }
 /* 设置页:哪些项目有自己的模型配置。中性说明,不是警告(项目覆盖是正常用法)。 */
 .settings-note-intro { margin: 2px 0 6px; }
 .settings-note { color: var(--dim); font-size: var(--fs-12); line-height: 1.7; margin: 0 0 10px; }

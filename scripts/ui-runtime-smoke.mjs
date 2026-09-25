@@ -164,6 +164,16 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*syncModelSelectToActiveLine\(\);\r?\n(?=[ \t]*\/\/ 状态栏模型\/上下文上限回放)/,
       replace: "",
     },
+    // UI-0926 #3 复核:芯片菜单的 ✓ 只标当前生效项。改成不打 ✓,生效项与悬停项又只剩底色差几个百分点。
+    pickerCheckMark: {
+      pattern: /check\.textContent = button\.getAttribute\("aria-checked"\) === "true" \? "✓" : "";/,
+      replace: 'check.textContent = "";',
+    },
+    // UI-0926 #3 复核:切线时作废在途的乐观值。删了它,A 线刚选、还没写完的「X · 临时」会挂到 B 线芯片上。
+    optimisticDropsOnSwitch: {
+      pattern: /[ \t]*optimisticPatch = null;\r?\n(?=[ \t]*renderModelPicker\(\);\r?\n[ \t]*\}\);\r?\n[ \t]*document\.addEventListener\("kz-effective-model-optimistic")/,
+      replace: "",
+    },
 
     // ---- 分区:弹层与外观 ----
     // UI-0926 #9:Esc 只关栈顶。把「取栈顶第一个可 Esc 的句柄」换成「取栈底第一个」,
@@ -1495,9 +1505,14 @@ const localStorageShim = {
   removeItem: (k) => storage.delete(k),
 };
 
+// window 级监听只登记不派发(用例要测「回到前台重取」之类时自己按类型取出来调)。
+const windowListeners = new Map();
 const windowShim = {
   __TAURI__: { core: { invoke }, event: { listen } },
-  addEventListener: () => {},
+  addEventListener: (type, listener) => {
+    if (!windowListeners.has(type)) windowListeners.set(type, []);
+    windowListeners.get(type).push(listener);
+  },
   matchMedia: (media) => ({ media, matches: false, addEventListener() {}, removeEventListener() {} }),
   confirm: () => true,
   // D-418:业务确认弹窗从 window.confirm 迁移到 confirmDialog(01-core.js),
@@ -9696,6 +9711,12 @@ const docsB = {
   const checkedItems = menuButtons().filter((button) => button.getAttribute("aria-checked") === "true");
   assert(checkedItems.length === 1 && checkedItems[0].dataset.value === "codex:gpt-6-luna",
     `① 菜单应恰好一项高亮且等于芯片那一项:${checkedItems.map((button) => button.dataset.value).join(",")}`);
+  // 复核:生效项与悬停项光靠底色分不出(实测只差几个百分点透明度)——生效项必须带 ✓,且只有它带(变异 pickerCheckMark)。
+  const checkMarks = menuButtons().filter((button) => button.querySelector(".picker-check")?.textContent === "✓");
+  assert(checkMarks.length === 1 && checkMarks[0] === checkedItems[0],
+    `① 菜单应恰好生效项带 ✓:${checkMarks.map((button) => button.dataset.value ?? button.dataset.action).join(",") || "(无)"}`);
+  assert(menuButtons().every((button) => button.querySelector(".picker-check")?.getAttribute("aria-hidden") === "true"),
+    "① 勾选列应对读屏隐藏(状态已由 aria-checked 表达)");
   assert(chip.getAttribute("aria-expanded") === "true", "① 菜单打开时芯片 aria-expanded 未置 true");
   assert(menuValue("")?.textContent.includes("跟随默认") && menuValue("")?.textContent.includes("codex:gpt-5.6-luna"),
     `① 「跟随默认」一项应写明默认解析到的模型:"${menuValue("")?.textContent}"`);
@@ -9774,6 +9795,43 @@ const docsB = {
       `④ 切换完成后芯片应是 A 线的默认值:"${chip.textContent}" / ${sourceOf(chip)}`);
     assert(invokeArgs.findLast(({ cmd }) => cmd === "model_effective")?.args?.processId === "d|smoke", "④ model_effective 的 processId 不是目标线");
     assert(invokeLog.filter((cmd) => cmd === "models_list").length === catalogBefore, "④ 同项目内切线不应再探测 models_list");
+  }
+
+  // ④b 在途的乐观值不串线(复核):A 线选了 X、本线写入还没落地就切到 B——B 线芯片在 B 的回答到来前
+  //     只能标在途,不能显示「X · 临时」(变异 optimisticDropsOnSwitch)。
+  {
+    const picked = "anthropic:claude-sonnet-5";
+    await openMenuOf("model");
+    menuAction("show-all")?.click();
+    await flush();
+    let releaseUpdate = null;
+    invokeGates.set("process_update", new Promise((resolve) => { releaseUpdate = resolve; }));
+    menuValue(picked)?.click();
+    await settleOnly();
+    assert(chip.textContent.includes(picked) && sourceOf(chip) === "line",
+      `④b 前置:写入在途时 A 线芯片应乐观显示新选的模型:"${chip.textContent}" / ${sourceOf(chip)}`);
+    let releaseEffective = null;
+    invokeGates.set("model_effective", new Promise((resolve) => { releaseEffective = resolve; }));
+    const switching = sandbox.switchProcess("p|g2-b");
+    await settleOnly();
+    assert(!chip.textContent.includes(picked) && sourceOf(chip) !== "line" && chip.classList.contains("is-pending"),
+      `④b 切到 B 线后芯片不应沿用 A 线在途的「${picked} · 临时」:"${chip.textContent}" / ${sourceOf(chip)} / ${chip.className}`);
+    releaseUpdate?.();
+    invokeGates.delete("process_update");
+    releaseEffective?.();
+    invokeGates.delete("model_effective");
+    await switching;
+    await flush();
+    assert(chip.textContent.includes("ollama:qwen3") && sourceOf(chip) === "line" && !chip.textContent.includes(picked),
+      `④b 切换完成后芯片应是 B 线自己的临时覆盖 ollama:qwen3:"${chip.textContent}" / ${sourceOf(chip)}`);
+    // 收尾:回 A 线(写入已落地,A 线确有 X 的覆盖),清掉它,⑤ 从跟随默认的 A 线开始。
+    await sandbox.switchProcess("d|smoke");
+    await flush();
+    assert(chip.textContent.includes(picked) && sourceOf(chip) === "line", `④b 回到 A 线应看到落地的临时覆盖:"${chip.textContent}"`);
+    await openMenuOf("model");
+    menuValue("")?.click();
+    await flush();
+    assert(sourceOf(chip) === "project", `④b 收尾:A 线应回到跟随默认:${sourceOf(chip)}`);
   }
 
   // ⑤ 设为本项目默认:有本线覆盖时,依次 project_models_save{set:{primary}} → process_update{model:""},之后芯片来源回到项目级。
@@ -9905,6 +9963,70 @@ const docsB = {
     assert(contract.model_effective, "⑧ ipc-contract.json 缺 model_effective 条目");
     walk(contract.model_effective, shapeOf(payloads.model_effective({ processId: "d|smoke", agent: "dev-pair" })), "model_effective");
     for (const problem of problems) fail(`UI-0926 #3 IPC 契约:${problem}`);
+  }
+
+  // ⑨ 窗口回到前台重取(配置可能在外部编辑器里改过):第一次 focus 问一次 model_effective,2 秒内再来不重复问。
+  {
+    const focusListeners = windowListeners.get("focus") ?? [];
+    assert(focusListeners.length > 0, "⑨ 没有任何 window focus 监听(08-models.js 的回到前台重取没接上)");
+    const effectiveCalls = () => invokeLog.filter((cmd) => cmd === "model_effective").length;
+    const before = effectiveCalls();
+    for (const listener of focusListeners) listener({ type: "focus" });
+    await flush();
+    assert(effectiveCalls() === before + 1, `⑨ 回到前台应重取一次 model_effective:${effectiveCalls() - before} 次`);
+    for (const listener of focusListeners) listener({ type: "focus" });
+    await flush();
+    assert(effectiveCalls() === before + 1, `⑨ 2 秒内再次回到前台不应重复重取:${effectiveCalls() - before} 次`);
+  }
+
+  // ⑩ 没有项目:芯片收成中性占位,不能停在「…」在途态(refreshEffectiveModel 在无项目时也要广播)。
+  {
+    const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+    const savedProject = shellNs.currentProject;
+    shellNs.setCurrentProject(null);
+    await models.syncModelSelectToActiveLine();
+    await flush();
+    assert(!chip.classList.contains("is-pending") && chip.getAttribute("aria-busy") === "false" && !sourceOf(chip),
+      `⑩ 没有项目时模型芯片不应停在在途态:"${chip.textContent}" / ${chip.className} / ${sourceOf(chip)}`);
+    assert(!rchip.classList.contains("is-pending") && !sourceOf(rchip), `⑩ 没有项目时思考芯片不应停在在途态:"${rchip.textContent}"`);
+    assert(models.effectiveModel === null && models.effectivePending === false, "⑩ 没有项目时应清掉上一个项目的视图与在途标记");
+    shellNs.setCurrentProject(savedProject);
+    await models.syncModelSelectToActiveLine();
+    await flush();
+    assert(sourceOf(chip) === "project" && !chip.classList.contains("is-pending"), `⑩ 恢复项目后芯片应回到项目默认:"${chip.textContent}"`);
+  }
+
+  // ⑪ 上下文上限跟线:A 线 kz:meta 报 128k;切到本次没跑过的 B 线,上限不能沿用 A 的 128k——
+  //    回答到来前清空,回答后取 B 线下一轮模型的 contextLimit;切回 A 回放 A 的 kz:meta。
+  {
+    const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+    const savedMeta = shellNs.sessionMetaCache.get("sess-smoke");
+    const metaState = sandbox.sessionState("sess-smoke");
+    const savedPhase = metaState.phase;
+    const savedConverged = metaState.converged;
+    metaState.converged = false;
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 128000, sessionId: "sess-smoke" } });
+    vm.runInContext(`transitionSession("sess-smoke", ${JSON.stringify(savedPhase)})`, sandbox);
+    sandbox.sessionState("sess-smoke").converged = savedConverged;
+    await flush();
+    assert(shellNs.ctxLimit === 128000, `⑪ 前置:A 线 kz:meta 后上限应为 128k:${shellNs.ctxLimit}`);
+    let release = null;
+    invokeGates.set("model_effective", new Promise((resolve) => { release = resolve; }));
+    const switching = sandbox.switchProcess("p|g2-b");
+    await settleOnly();
+    assert(shellNs.ctxLimit === null && byId.get("status-model").textContent === "",
+      `⑪ 切到没跑过的 B 线,回答到来前上限应清空、状态栏不挂 A 的模型:${shellNs.ctxLimit} / "${byId.get("status-model").textContent}"`);
+    release?.();
+    invokeGates.delete("model_effective");
+    await switching;
+    await flush();
+    assert(shellNs.ctxLimit === 272000, `⑪ B 线的上限应取下一轮模型的 contextLimit(272k):${shellNs.ctxLimit}`);
+    await sandbox.switchProcess("d|smoke");
+    await flush();
+    assert(shellNs.ctxLimit === 128000, `⑪ 切回 A 线应回放 A 线 kz:meta 的上限:${shellNs.ctxLimit}`);
+    if (savedMeta) shellNs.sessionMetaCache.set("sess-smoke", savedMeta);
+    else shellNs.sessionMetaCache.delete("sess-smoke");
+    shellNs.applySessionMeta("sess-smoke");
   }
 
   picker.closePicker();

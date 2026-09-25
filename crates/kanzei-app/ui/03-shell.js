@@ -665,8 +665,14 @@ export function applySessionMeta(sessionId) {
   const meta = sessionId ? sessionMetaCache.get(sessionId) : null;
   if (!meta) {
     // UI-0926 #3:这条线本次还没跑过:状态栏不能继续挂着别的线「上一轮实际使用」的模型。
+    // 上下文上限同理:拿别的线的上限算这条线的占比是错的基准。先清空,等 model_effective
+    // 回来按下一轮会用的模型补上(08-models.js refreshEffectiveModel)。
     const status = $("status-model");
-    if (status) status.textContent = "";
+    if (status) {
+      status.textContent = "";
+      status.title = "";
+    }
+    ctxLimit = null;
     return;
   }
   showRunMeta(meta);

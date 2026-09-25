@@ -1,7 +1,19 @@
 import { defer } from "./01-core.js";
 import { $, invoke, readJson, writeJson } from "./01-core.js";
 import { t } from "./02-i18n.js";
-import { activeProcessId, currentProject, log, processItems, reportPersistentError, toast, toastError } from "./03-shell.js";
+import {
+  activeProcessId,
+  activeSessionId,
+  currentProject,
+  log,
+  processItems,
+  renderTokens,
+  reportPersistentError,
+  sessionMetaCache,
+  setCtxLimit,
+  toast,
+  toastError,
+} from "./03-shell.js";
 import { selectedAgent } from "./08-auto.js";
 import { queueProcessUpdate, updateLocalProcessItem } from "./08-compose-runtime.js";
 import { refreshProcesses } from "./09-sessions.js";
@@ -38,7 +50,17 @@ export async function refreshEffectiveModel() {
   const generation = ++effectiveGeneration;
   const forProject = currentProject;
   const forProcess = activeProcessId;
-  if (!forProject) return null;
+  if (!forProject) {
+    // 没有项目就没有「下一轮」:清掉旧视图并广播,芯片收成中性占位——不广播的话
+    // syncModelSelectToActiveLine 刚立起的在途标记没人撤,芯片会一直停在「…」。
+    effectiveModel = null;
+    effectiveError = null;
+    effectivePending = false;
+    effectiveProject = null;
+    projectDefaultModel = null;
+    announce("kz-effective-model", null);
+    return null;
+  }
   if (effectiveProject !== forProject) projectDefaultModel = null;
   const { profile, agent } = selectedAgent();
   const stale = () => generation !== effectiveGeneration || currentProject !== forProject || activeProcessId !== forProcess;
@@ -50,6 +72,12 @@ export async function refreshEffectiveModel() {
     effectivePending = false;
     effectiveProject = forProject;
     projectDefaultModel = view?.defaultModel?.resolved ?? null;
+    // 这条线本次还没跑过(没有 kz:meta 可回放,applySessionMeta 已把上限清空):上下文占比
+    // 按下一轮会用的模型的上限算,不沿用上一条线的。跑过的线以 kz:meta 为准,这里不碰。
+    if (!sessionMetaCache.has(activeSessionId)) {
+      setCtxLimit(view?.contextLimit ?? null);
+      renderTokens();
+    }
     announce("kz-effective-model", view);
     return view;
   } catch (error) {

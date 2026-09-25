@@ -59,8 +59,14 @@ function chip({ label, source = null, pendingState = false, error = false, title
   return { label, source, pending: pendingState, error, title, aria: aria || title || label, fast };
 }
 
+// 还没打开任何项目:没有「下一轮」可言。芯片给中性占位,不挂在途态(否则会永远停在「…」)。
+function idleChip(label) {
+  return chip({ label, source: null, title: t("先在左侧「项目」里添加并选择一个目录") });
+}
+
 // 模型芯片的文字/来源/提示。纯函数,冒烟直接调。
-export function modelChipText(view, { pending: isPending = false, error = null, optimistic = null } = {}) {
+export function modelChipText(view, { pending: isPending = false, error = null, optimistic = null, noProject = false } = {}) {
+  if (noProject) return idleChip(t("模型"));
   if (optimistic && typeof optimistic.model === "string" && optimistic.model) {
     const text = `${t("下一轮将使用")} ${optimistic.model} · ${t("来源")} ${sourceLabel("line")}`;
     return chip({ label: optimistic.model, source: "line", pendingState: true, title: text });
@@ -92,8 +98,9 @@ export function modelChipText(view, { pending: isPending = false, error = null, 
   });
 }
 
-export function reasoningChipText(view, { pending: isPending = false, optimistic = null } = {}) {
+export function reasoningChipText(view, { pending: isPending = false, optimistic = null, noProject = false } = {}) {
   const prefix = t("思考");
+  if (noProject) return idleChip(prefix);
   if (optimistic && typeof optimistic.reasoning === "string" && optimistic.reasoning) {
     const label = `${prefix} ${reasoningLabel(optimistic.reasoning)}`;
     return chip({ label, source: "line", pendingState: true, title: label });
@@ -138,7 +145,7 @@ function fillChip(button, spec) {
 }
 
 export function renderModelPicker() {
-  const state = { pending: pending || effectivePending, error: effectiveError, optimistic: optimisticPatch };
+  const state = { pending: pending || effectivePending, error: effectiveError, optimistic: optimisticPatch, noProject: !currentProject };
   fillChip($("model-picker"), modelChipText(effectiveModel, state));
   fillChip($("reasoning-picker"), reasoningChipText(effectiveModel, state));
 }
@@ -295,11 +302,25 @@ export function openPicker(kind, { showAll = false } = {}) {
   menu.dataset.picker = kind;
   const actionable = specs.filter((spec) => spec && typeof spec === "object" && !spec.heading);
   [...menu.querySelectorAll(".k-menu-item")].forEach((button, index) => {
+    // 左侧勾选列:✓ 只跟「当前生效」那一项走。悬停/焦点只有中性底色,与生效项的底色只差几个百分点,
+    // 光靠底色分不出「鼠标在哪」和「哪项在生效」——这正是原生下拉被换掉的原因。
+    const check = document.createElement("span");
+    check.className = "picker-check";
+    check.setAttribute("aria-hidden", "true");
+    check.textContent = button.getAttribute("aria-checked") === "true" ? "✓" : "";
+    button.prepend(check);
     const spec = actionable[index];
     if (!spec) return;
     if (spec.value !== undefined) button.dataset.value = spec.value;
     if (spec.action) button.dataset.action = spec.action;
   });
+  // 分组标题与菜单项的文字对齐(让出勾选列的宽度)。标题的内边距归 surface.css,这里只垫一个占位。
+  for (const heading of menu.querySelectorAll(".k-menu-heading")) {
+    const indent = document.createElement("span");
+    indent.className = "picker-indent";
+    indent.setAttribute("aria-hidden", "true");
+    heading.prepend(indent);
+  }
   menu.querySelector('[aria-checked="true"]')?.focus?.();
   return handle;
 }
@@ -325,6 +346,9 @@ defer(() => {
   });
   document.addEventListener("kz-effective-model-pending", () => {
     pending = true;
+    // 切线/换人格:上一条线还在途的乐观值作废——否则 A 线刚选的「X · 临时」会挂到 B 线芯片上,
+    // 直到 B 线的 model_effective 回来(变异 optimisticDropsOnSwitch 守这一行)。
+    optimisticPatch = null;
     renderModelPicker();
   });
   document.addEventListener("kz-effective-model-optimistic", (event) => {

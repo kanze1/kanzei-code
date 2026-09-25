@@ -540,19 +540,29 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     };
   };
 
-  // UI-0926 #3 项目模型配置弹窗:用户现场——项目把五个键全固定成 gpt-5.6-luna/high/Fast 开,全局是 gpt-6-luna/xhigh。
-  const previewProjectModels = (projectDir = PROJECT) => ({
-    projectDir,
-    configPath: PROJECT_CONFIG,
-    exists: true,
-    fields: {
-      primary: { project: PROJECT_PRIMARY, global: GLOBAL_PRIMARY, inherited: GLOBAL_PRIMARY, inheritedSource: "global", inheritedFollowsPrimary: false, effective: PROJECT_PRIMARY, source: "project", followsPrimary: false },
-      fast: { project: PROJECT_PRIMARY, global: GLOBAL_PRIMARY, inherited: GLOBAL_PRIMARY, inheritedSource: "global", inheritedFollowsPrimary: false, effective: PROJECT_PRIMARY, source: "project", followsPrimary: false },
-      compact: { project: null, global: null, inherited: PROJECT_PRIMARY, inheritedSource: "project", inheritedFollowsPrimary: true, effective: PROJECT_PRIMARY, source: "project", followsPrimary: true },
-      reasoning: { project: "high", global: "xhigh", inherited: "xhigh", inheritedSource: "global", inheritedFollowsPrimary: false, effective: "high", source: "project", followsPrimary: false },
-      codexFastMode: { project: true, global: true, inherited: true, inheritedSource: "global", inheritedFollowsPrimary: false, effective: true, source: "project", followsPrimary: false },
-    },
-  });
+  // UI-0926 #3 项目模型配置弹窗:用户现场——项目把五个键全固定成 gpt-5.6-luna/high/Fast 开
+  // (与 settings_get.projectModelOverrides 列的五个键一致)。「全局」一列取自上面 settings_get 用的
+  // 同一份 state.settings,设置页与弹窗两处说法一致;全局没写的角色键继承时跟随(项目的)primary。
+  const previewProjectModels = (projectDir = PROJECT) => {
+    const global = state.settings;
+    const role = (globalValue) => ({
+      project: PROJECT_PRIMARY, global: globalValue ?? null,
+      inherited: globalValue || PROJECT_PRIMARY, inheritedSource: globalValue ? "global" : "project", inheritedFollowsPrimary: !globalValue,
+      effective: PROJECT_PRIMARY, source: "project", followsPrimary: false,
+    });
+    return {
+      projectDir,
+      configPath: PROJECT_CONFIG,
+      exists: true,
+      fields: {
+        primary: { project: PROJECT_PRIMARY, global: global.primary, inherited: global.primary, inheritedSource: "global", inheritedFollowsPrimary: false, effective: PROJECT_PRIMARY, source: "project", followsPrimary: false },
+        fast: role(global.fast),
+        compact: role(global.compact),
+        reasoning: { project: "high", global: global.reasoning, inherited: global.reasoning, inheritedSource: "global", inheritedFollowsPrimary: false, effective: "high", source: "project", followsPrimary: false },
+        codexFastMode: { project: true, global: global.codexFastMode, inherited: global.codexFastMode, inheritedSource: "global", inheritedFollowsPrimary: false, effective: true, source: "project", followsPrimary: false },
+      },
+    };
+  };
 
   // run_prompt:回放一轮假回复,方便在浏览器里点「发送」看流式渲染。
   const fakeRun = (args, ctx) => {
