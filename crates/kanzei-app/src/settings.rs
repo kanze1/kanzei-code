@@ -170,7 +170,7 @@ fn project_root_for_settings(project_dir: Option<&str>) -> Option<PathBuf> {
         .and_then(kanzei_harness::config::discover_project_root)
 }
 
-fn config_from_file(path: &Path) -> kanzei_harness::KanzeiConfig {
+pub(crate) fn config_from_file(path: &Path) -> kanzei_harness::KanzeiConfig {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|text| toml::from_str(&text).ok())
@@ -207,12 +207,13 @@ fn provider_sources(
 }
 
 /// 保存前校验模型角色:`provider:model` 里的 provider 必须确实配了。
-/// 校验基线是全局+项目合并配置,再叠加当前表单 provider,不能只信前端清单。
-pub(crate) fn validate_model_roles(
-    payload: &SettingsPayload,
-    project_dir: Option<&str>,
-) -> Result<(), String> {
-    let mut probe = effective_settings_config(project_dir);
+///
+/// UI-0926 #3:设置页只写**全局**默认,校验基线因此也只看全局——全局文件 + 内置默认,
+/// 再叠加当前表单 provider。此前基线掺了当前项目的 provider:只在项目文件里定义的
+/// provider 能让全局 primary 通过校验,换到别的项目这份全局配置就解析不了。
+pub(crate) fn validate_model_roles(payload: &SettingsPayload) -> Result<(), String> {
+    let mut probe = config_from_file(&global_config_path());
+    probe.fill_defaults();
     for p in &payload.providers {
         probe.providers.insert(
             p.name.trim().to_string(),
@@ -244,12 +245,25 @@ pub(crate) fn validate_model_roles(
 }
 
 pub(crate) fn settings_read_document(path: &Path) -> Result<toml_edit::DocumentMut, String> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(format!("读取配置失败 {}: {e}", path.display())),
-    };
-    toml::from_str::<kanzei_harness::KanzeiConfig>(&text)
+    let text = settings_read_text(path)?.unwrap_or_default();
+    settings_parse_document(&text, path)
+}
+
+/// 读配置原文;文件不存在 = None(与「空文件」区分开,供写前复读比对用)。
+pub(crate) fn settings_read_text(path: &Path) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("读取配置失败 {}: {e}", path.display())),
+    }
+}
+
+/// 把已读到的原文解析成可文档化编辑的 toml(先按 KanzeiConfig 做语义校验)。
+pub(crate) fn settings_parse_document(
+    text: &str,
+    path: &Path,
+) -> Result<toml_edit::DocumentMut, String> {
+    toml::from_str::<kanzei_harness::KanzeiConfig>(text)
         .map_err(|e| format!("现有配置无法解析,拒绝覆盖保存 {}: {e}", path.display()))?;
     text.parse()
         .map_err(|e| format!("现有配置无法解析,拒绝覆盖保存 {}: {e}", path.display()))
@@ -313,10 +327,10 @@ pub(crate) fn settings_apply_scalar_fields(
     Ok(())
 }
 
-/// 只应用 [models] 节(primary/fast/reasoning/codex_fast_mode)。R-178 批4:D7
-/// 作用域选择器第一版只覆盖这一节——写项目配置时不许带出 proxy/profile/limits/
-/// cadence/providers,否则「选本项目保存」会悄悄把 provider 密钥写进被 git 跟踪的
-/// 项目 toml(D7 边界明确排除)。
+/// 全局 [models] 节(primary/fast/compact/reasoning/codex_fast_mode),只供设置页写全局用。
+/// UI-0926 #3:设置页不再有「保存到本项目」——项目级模型覆盖改由「项目模型配置」弹窗
+/// 逐键写(model_config::project_models_save,只写变动的键、可恢复继承),这里不再承担
+/// 项目作用域,也就不会再把表单上的全局值整块拷进项目文件。
 pub(crate) fn settings_apply_model_fields(
     doc: &mut toml_edit::DocumentMut,
     payload: &SettingsPayload,
@@ -579,15 +593,13 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     // 生效值:全局 + 项目级合并后的结果。项目级 .kanzei/kanzei.toml 能覆盖的**每一项**
     // 都要报,漏报一项就意味着用户在本页改它、看到「已保存」、运行却永远用项目值
     // (D-168 当年只报了模型角色,[limits]/proxy/[profile] 这几项一直是哑的)。
-    // 标量按与下面顶层字段**同一套**兜底归一化(proxy→env、profileDefault→dev、
-    // codexFastMode→false),否则前端拿 None 和顶层的默认值一比就会天天误报覆盖。
+    // 标量按与下面顶层字段**同一套**兜底归一化(proxy→env、profileDefault→dev),
+    // 否则前端拿 None 和顶层的默认值一比就会天天误报覆盖。
+    // UI-0926 #3:模型五键不在这里报——各项目的模型覆盖由 projectModelOverrides 列出、
+    // 在「项目模型配置」里逐键编辑;下一轮真正用哪个模型由 model_effective 回答。
     let effective = project_root.as_ref().map(|_| {
         let merged = &effective_config;
         json!({
-            "primary": merged.models.primary, "fast": merged.models.fast,
-            "compact": merged.models.compact,
-            "reasoning": merged.models.reasoning,
-            "codexFastMode": merged.models.codex_fast_mode.unwrap_or(false),
             "proxy": merged.proxy.clone().unwrap_or_else(|| "env".into()),
             "profileDefault": merged.profile.default.clone().unwrap_or_else(|| "dev".into()),
             "limits": {
@@ -649,6 +661,11 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         "projectConfig": project_root
             .as_ref()
             .map(|root| root.join(".kanzei").join("kanzei.toml").display().to_string()),
+        // 哪些已登记项目有自己的 [models](不用这里的全局默认),设置页据此给一行中性说明。
+        "projectModelOverrides": crate::model_config::project_model_overrides(
+            &crate::prefs::load_prefs(),
+            project_dir.as_deref(),
+        ),
     })
 }
 
@@ -668,48 +685,20 @@ pub(crate) fn settings_save_at_path_impl(
 
 #[cfg(test)]
 pub(crate) fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), String> {
-    settings_save_at_path_for_project(payload, path, None)
-}
-
-fn settings_save_at_path_for_project(
-    payload: SettingsPayload,
-    path: &Path,
-    project_dir: Option<&str>,
-) -> Result<(), String> {
-    validate_model_roles(&payload, project_dir)?;
+    validate_model_roles(&payload)?;
     settings_save_at_path_impl(payload, path)
 }
 
+/// 设置页保存:**只写全局** `~/.kanzei/kanzei.toml`。
+///
+/// UI-0926 #3:原先带 scope/project_dir,选「本项目」时把表单上的全局值整块拷进项目文件
+/// (五个模型键一次全固定,之后改全局对该项目永远不生效)。项目级模型覆盖现在只经
+/// 「项目模型配置」弹窗逐键写(model_config::project_models_save)。旧前端若仍带着
+/// scope/projectDir,Tauri 会忽略多余参数,结果也只会写全局,不会误写项目文件。
 #[tauri::command]
-pub fn settings_save(
-    payload: SettingsPayload,
-    scope: Option<String>,
-    project_dir: Option<String>,
-) -> Result<(), String> {
-    validate_model_roles(&payload, project_dir.as_deref())?;
-    // R-178 批4 D7:作用域选择器第一版只覆盖 [models]。选「本项目」时只把
-    // 模型角色写进主根 .kanzei/kanzei.toml,proxy/profile/limits/cadence/providers
-    // 一律不动——provider 密钥写进被 git 跟踪的项目 toml 有泄密风险(D7 边界)。
-    // 选「全局」(默认,缺省即全局)行为与既有完全一致:全字段写全局配置。
-    match scope.as_deref() {
-        Some("project") => {
-            let Some(dir) = project_dir.as_deref().filter(|d| !d.trim().is_empty()) else {
-                return Err("「本项目」作用域需要当前项目目录".into());
-            };
-            let root = kanzei_harness::config::discover_project_root(Path::new(dir))
-                .ok_or_else(|| format!("找不到项目根:{dir}"))?;
-            let path = root.join(".kanzei").join("kanzei.toml");
-            // 只应用模型字段;其余 apply_* 全部跳过。
-            let mut doc = settings_read_document(&path)?;
-            settings_apply_model_fields(&mut doc, &payload)?;
-            settings_write_document(doc, &path)
-        }
-        _ => settings_save_at_path_for_project(
-            payload,
-            &global_config_path(),
-            project_dir.as_deref(),
-        ),
-    }
+pub fn settings_save(payload: SettingsPayload) -> Result<(), String> {
+    validate_model_roles(&payload)?;
+    settings_save_at_path_impl(payload, &global_config_path())
 }
 /// 「打开配置原文」在文件不存在时铺的底:**只有注释,一个键都不写**。
 ///
@@ -1313,10 +1302,13 @@ mod tests {
         std::fs::remove_dir_all(home).ok();
     }
 
+    /// UI-0926 #3:设置页只写全局,校验基线也只看全局(全局文件 + 内置 + 表单 provider)。
+    /// - 全局文件里配了、表单清单里没带的 provider 仍能通过(原「前端清单不是唯一依据」的护栏保留);
+    /// - 只在项目文件里定义的 provider 不能让**全局** primary 通过——换到别的项目它就解析不了。
     #[test]
-    fn 项目provider不在前端清单时仍可校验并保存模型角色() {
+    fn validate_model_roles_uses_global_baseline() {
         let home = std::env::temp_dir().join(format!(
-            "kanzei-settings-project-provider-{}",
+            "kanzei-settings-global-baseline-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -1325,7 +1317,11 @@ mod tests {
         let project = home.join("project");
         std::fs::create_dir_all(project.join(".kanzei")).unwrap();
         let global_path = home.join("kanzei.toml");
-        std::fs::write(&global_path, "").unwrap();
+        std::fs::write(
+            &global_path,
+            "[providers.global-only]\nprotocol = \"openai\"\nbase_url = \"http://global\"\n",
+        )
+        .unwrap();
         std::fs::write(
             project.join(".kanzei/kanzei.toml"),
             "[providers.llama-local]\nprotocol = \"openai\"\nbase_url = \"http://llama\"\n",
@@ -1334,27 +1330,25 @@ mod tests {
 
         let old_home = std::env::var_os("KANZEI_HOME");
         std::env::set_var("KANZEI_HOME", &home);
-        let mut payload = 空载荷(vec![]);
-        payload.primary = "llama-local:7b".into();
         let result = std::panic::catch_unwind(|| {
-            settings_save_at_path_for_project(
-                payload,
-                &global_path,
-                Some(project.to_string_lossy().as_ref()),
+            let mut global_provider = 空载荷(vec![]);
+            global_provider.primary = "global-only:7b".into();
+            let mut project_provider = 空载荷(vec![]);
+            project_provider.primary = "llama-local:7b".into();
+            (
+                validate_model_roles(&global_provider),
+                validate_model_roles(&project_provider),
             )
         });
         match old_home {
             Some(value) => std::env::set_var("KANZEI_HOME", value),
             None => std::env::remove_var("KANZEI_HOME"),
         }
-        result.unwrap().unwrap();
-        let saved: KanzeiConfig =
-            toml::from_str(&std::fs::read_to_string(&global_path).unwrap()).unwrap();
-        assert_eq!(saved.models.primary.as_deref(), Some("llama-local:7b"));
-        assert!(
-            !saved.providers.contains_key("llama-local"),
-            "项目 provider 不应被强制复制到全局"
-        );
+        let (global_result, project_result) = result.unwrap();
+        global_result.expect("全局文件里配了的 provider,表单清单没带也必须能通过");
+        let error =
+            project_result.expect_err("只在项目文件里定义的 provider 不能让全局 primary 通过");
+        assert!(error.contains("llama-local"), "报错要点名那个模型:{error}");
         std::fs::remove_dir_all(home).ok();
     }
 
@@ -1649,81 +1643,5 @@ mod tests {
             "载荷缺 cadence 时不得动既有节"
         );
         let _ = std::fs::remove_file(path);
-    }
-
-    /// R-178 批4 D7:作用域选择器第一版只覆盖 [models]。
-    /// - scope=project → 只把模型角色写进主根 .kanzei/kanzei.toml,proxy/provider 不串写;
-    /// - scope=global(缺省)→ 与既有 settings_save 行为一致,项目配置不被触碰。
-    #[test]
-    fn settings_save_project_scope_writes_only_models() {
-        let project_root = std::env::temp_dir().join(format!(
-            "kanzei-d7-root-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let kanzei_dir = project_root.join(".kanzei");
-        std::fs::create_dir_all(&kanzei_dir).unwrap();
-        let project_toml = kanzei_dir.join("kanzei.toml");
-        std::fs::write(
-            &project_toml,
-            "# 项目配置\nproxy = \"off\"\n[providers.stub]\nprotocol = \"openai\"\nbase_url = \"http://x\"\n",
-        )
-        .unwrap();
-
-        // 载荷里 proxy 与 providers 都非空——scope=project 必须把它们挡在项目配置外。
-        let mut payload = 空载荷(vec![ProviderPayload {
-            name: "stub".into(),
-            protocol: "openai".into(),
-            base_url: "http://x".into(),
-            api_key_env: Some("STUB_KEY".into()),
-            api_key: None,
-            auth: None,
-            context_limit: None,
-        }]);
-        payload.proxy = "http://127.0.0.1:12000".into();
-        payload.primary = "codex:gpt-5.6-luna".into();
-        payload.fast = "codex:gpt-5.6-luna-fast".into();
-
-        settings_save(
-            payload,
-            Some("project".into()),
-            Some(project_root.display().to_string()),
-        )
-        .unwrap();
-
-        let text = std::fs::read_to_string(&project_toml).unwrap();
-        assert!(
-            text.contains("primary = \"codex:gpt-5.6-luna\""),
-            "模型角色未写入项目配置:\n{text}"
-        );
-        assert!(
-            text.contains("fast = \"codex:gpt-5.6-luna-fast\""),
-            "fast 未写入:\n{text}"
-        );
-        assert!(
-            !text.contains("127.0.0.1:12000"),
-            "proxy 被串写进项目配置:\n{text}"
-        );
-        assert!(
-            !text.contains("STUB_KEY"),
-            "provider 密钥被串写进项目配置:\n{text}"
-        );
-        assert!(
-            text.contains("[providers.stub]"),
-            "既有 providers 节被误删:\n{text}"
-        );
-        // 注释与未知内容保留(toml_edit 文档化编辑)。
-        assert!(text.contains("# 项目配置"), "注释丢失:\n{text}");
-        let _ = std::fs::remove_dir_all(&project_root);
-    }
-
-    /// D7 收尾:scope=project 且缺项目目录 → 报错而不是静默写全局(避免把「本项目」
-    /// 的意图落进全局配置——那正是 D-248 那类静默降级的复发形态)。
-    #[test]
-    fn settings_save_project_scope_without_project_dir_refuses() {
-        let result = settings_save(空载荷(vec![]), Some("project".into()), None);
-        assert!(result.is_err(), "缺项目目录必须报错,不得静默落全局");
     }
 }

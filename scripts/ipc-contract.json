@@ -206,6 +206,41 @@
     "reused": "number",
     "unannotated": "number"
   },
+  "model_effective": {
+    "agent": "string",
+    "agentError": "nullable",
+    "codexFastMode": {
+      "active": "bool",
+      "applies": "bool",
+      "enabled": "bool",
+      "source": "string"
+    },
+    "contextLimit": "number",
+    "defaultModel": {
+      "error": "nullable",
+      "followsPrimary": "bool",
+      "ref": "string",
+      "resolved": "string",
+      "role": "string",
+      "source": "string"
+    },
+    "defaultReasoning": {
+      "source": "string",
+      "value": "string"
+    },
+    "model": {
+      "error": "nullable",
+      "followsPrimary": "bool",
+      "ref": "string",
+      "resolved": "string",
+      "role": "nullable",
+      "source": "string"
+    },
+    "reasoning": {
+      "source": "string",
+      "value": "string"
+    }
+  },
   "project_root_info": {
     "autoRepaired": "bool",
     "resolved": "string",
