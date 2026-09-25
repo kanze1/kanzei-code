@@ -1362,18 +1362,17 @@ button.bg-section-toggle { width: 100%; border: 0; background: transparent; font
 button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 #bg-section-attention .bg-section-title { color: var(--err); border-top-color: var(--err); }
 .bg-empty { color: var(--dim); font-size: var(--fs-11); padding: 2px 2px 4px; }
-/* R-174:子代理面板——与活动面板平级的独立右侧面板,Running/Finished 两区。 */
+/* R-174 → UI-0926 #8:子代理侧栏——与活动面板同族的右侧抽屉,改为全高(顶部 --sp-4 到状态栏上方)。
+   外观归 .k-surface.k-panel;这里只写位置与尺寸。列表/详情两种模式的内容样式在「分区:子代理」。 */
 #agent-panel {
-  position: absolute; right: 16px; bottom: 32px; z-index: var(--z-drawer);
-  width: min(420px, calc(100vw - 32px)); max-height: min(70vh, 680px);
+  position: absolute; top: var(--sp-4); right: 16px; bottom: 32px; z-index: var(--z-drawer);
+  width: min(480px, calc(100vw - 32px)); max-height: none;
   display: flex; flex-direction: column; min-height: 0;
 }
 #agent-panel.hidden { display: none; }
 #agent-panel .bg-head { display: flex; align-items: center; gap: 8px; }
-#agent-panel .bg-head .ghost { margin-left: auto; }
-/* D-350:✕ 关闭按钮贴右;清空按钮隐藏(无已结束条目)时 ✕ 独自贴右,不悬在半空。 */
+/* D-350:✕ 关闭按钮贴右。 */
 #agent-panel .bg-head #agent-close { margin-left: auto; }
-#agent-panel .bg-head:has(#agent-clear:not(.hidden)) #agent-close { margin-left: 0; }
 /* D-278:面板就绪状态行——打开时显示「子代理就绪」或缺环文案,与设置页同源。 */
 #agent-panel .agent-panel-status {
   padding: 6px 14px; font-size: var(--fs-11); line-height: 1.45; color: var(--dim);
@@ -1400,23 +1399,6 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
 .agent-audit-model, .agent-audit-failure, .agent-audit-empty { color: var(--dim); font-size: var(--fs-10-5); line-height: 1.35; overflow-wrap: anywhere; }
 .agent-audit-failure { color: var(--err); }
 .agent-audit-failure.timeout { color: var(--warn); }
-#agent-panel .bg-sections { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 10px; }
-#agent-panel .bg-section { display: flex; flex-direction: column; gap: 6px; }
-#agent-panel .bg-section-title {
-  font-size: var(--fs-10-5); text-transform: uppercase; letter-spacing: .6px; color: var(--dim);
-  padding: 2px 2px 0; border-top: 1px solid var(--border-soft);
-}
-#agent-running, #agent-finished, #agent-closed { display: flex; flex-direction: column; gap: 6px; }
-#agent-running:empty::after { content: "暂无运行中的子代理"; color: var(--dim); font-size: var(--fs-11); padding: 4px 2px; }
-#agent-finished:empty::after { content: ""; }
-#agent-closed { opacity: .82; }
-#agent-closed:empty::after { content: "暂无已关闭的子代理"; color: var(--dim); font-size: var(--fs-11); padding: 4px 2px; }
-.agent-call { border-top: 1px dashed var(--border-soft); padding-top: 4px; margin-top: 4px; }
-.agent-call-head { font-size: var(--fs-11); color: var(--info); white-space: normal; word-break: break-word; }
-.agent-call .tool-display { margin-top: 4px; max-height: 180px; overflow: auto; }
-#agent-panel .bg-entry { flex-shrink: 0; }
-#agent-panel .bg-entry.timeout { border-left-color: var(--warn); }
-#agent-panel .bg-entry[data-bg-status="stopped"] .bg-title::before { content: "⏹ "; color: var(--warn); }
 /* 侧栏任务卡(UI-0926 #4):一行「字形 + 身份 · 名称 + 分支 + 状态词」。运行/等待靠字形
    (.kz-glyph 的形状 + 颜色 + 呼吸)表达,不再额外画左竖条;关闭是图标按钮,悬停/聚焦这条线路才出现。 */
 .parallel-task-status { display: flex; flex-direction: column; gap: 2px; margin-top: 0; }
@@ -2237,24 +2219,10 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 /* 同一轮内部的轨迹压紧;下一轮用户消息再恢复明确的呼吸区。 */
 .msg.user:not(:first-child) { margin-top: 36px; }
 
-/* R-184 P2:子代理角色色点(活动面板轨迹 + 主对话折叠组共用)。颜色来自
+/* R-184 P2:子代理角色色点(活动面板轨迹)。颜色来自
    line-accent-* 的 --line-color;色点旁必有角色名文本,颜色不作唯一区分。 */
 .bg-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-color, var(--dim)); flex-shrink: 0; align-self: center; }
 
-/* R-184 P2:主对话里同一子代理角色的工具块折叠组(默认收起,展开看全部)。 */
-.agent-fold { margin: 2px 0; }
-.agent-fold-head {
-  display: flex; gap: 6px; align-items: center; width: 100%;
-  background: transparent; border: none; color: var(--fg);
-  font-size: var(--fs-12); padding: 2px 0 2px 2px; cursor: pointer; text-align: left;
-  font-family: var(--mono, ui-monospace, monospace);
-}
-.agent-fold-head:hover .agent-fold-role { text-decoration: underline; }
-.agent-fold-head:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 2px; }
-.agent-fold-role { font-weight: 600; color: var(--line-color, var(--fg)); }
-.agent-fold-count { font-size: var(--fs-10-5); }
-.agent-fold-caret { margin-left: auto; color: var(--dim); }
-.agent-fold-body { padding-left: 2px; }
 /* UI-0926 #6:工具行整行改比例字体;只有工具名与代码记号(路径/命令/正则,.is-code 与
    .tool-sum-code)用等宽——此前整行 mono,人话摘要读起来像日志。 */
 .tool-msg-head {
@@ -3123,14 +3091,14 @@ html[data-kz-activity="running"] .reasoning-head.is-live {
 .tool-msg.running .tool-msg-status { color: transparent; }
 .tool-msg.running .tool-msg-status::before { content: ""; position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; margin: -5px 0 0 -5px; border: 1.5px solid var(--accent-text); border-right-color: transparent; border-radius: 50%; animation: kz-spin var(--motion-spin) linear infinite; }
 .tool-msg.interrupted .tool-msg-status, .tool-msg.interrupted .tool-msg-result { color: var(--dim); }
-/* 子代理折叠组:组内有工具在跑,组头色点扩散(折叠态下唯一可见的运行信号)。 */
-.bg-dot { position: relative; }
-.bg-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit; opacity: 0; pointer-events: none; }
-.agent-fold:has(.tool-msg.running) > .agent-fold-head .bg-dot::after { animation: kz-ring var(--motion-loop) var(--ease-out) infinite; }
 /* 活动面板 / 子代理面板条目,rail 开关徽标(面板收起且有运行项时右上角呼吸)。 */
 .tool-chip.running .head::before, .bg-entry.running .bg-title::before { display: inline-block; animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
 .rail-toggle { position: relative; }
 .rail-toggle[data-running="true"]:not(.active)::after { content: ""; position: absolute; top: 9px; right: 11px; width: 6px; height: 6px; border-radius: 50%; background: var(--dot-run); box-shadow: 0 0 0 2px var(--activitybar); animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
+/* UI-0926 #8(子代理组迁入,按 §1 动画声明归本分区):子代理开关显示运行数徽标时,徽标取代上面的呼吸点
+   (同一位置不叠两个信号);子代理卡片实时尾迹的新行一次性淡入(减少动效由全局 .01ms 规则关掉)。 */
+#agent-toggle:has(#agent-badge:not(.hidden))::after { display: none; }
+.sa-line { animation: fadein var(--motion-base) var(--ease-out); }
 /* 侧栏各线在做 / 文档页在做条目:线真在跑才动。 */
 .line-focus.is-live .line-focus-head::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--dot-run); vertical-align: 1px; animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; animation-delay: var(--kz-sync, 0ms); }
 .complexity-cell { position: relative; overflow: hidden; }
@@ -3183,3 +3151,122 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 }
 
 /* ===== 分区:子代理 ===== */
+/* UI-0926 #8 子代理卡片(docs/design/subagent_presentation.md §5/§10):一次委派一张安静的中性卡。
+   运行中 ≤3 行实时尾迹,终态收成一行;点卡头就地展开「指令/过程/结果」;同批并行合成一组(竖线 + 短横)。
+   字形动效全部来自 .kz-glyph 原语(动效分区),本分区不写 keyframes、不写无限动画;强调色只给「运行中」的
+   组边框、rail 徽标与定位闪烁,悬停/焦点一律中性。 */
+.sa-group {
+  display: flex; flex-direction: column; min-width: 0; margin: var(--sp-1) 0;
+  border: 1px solid var(--border-soft); border-radius: var(--radius);
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
+}
+.sa-group[data-running="true"] { border-color: color-mix(in srgb, var(--accent) 30%, var(--border-soft)); }
+.sa-group-head {
+  display: flex; align-items: center; gap: var(--sp-3); min-width: 0;
+  padding: var(--sp-3) var(--sp-3) 0 var(--sp-4); color: var(--dim); font-size: var(--fs-12-5);
+}
+.sa-group-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sa-group-body { display: flex; flex-direction: column; min-width: 0; }
+.sa-group:not(.solo) .sa-group-body { padding: var(--sp-1) 0 var(--sp-3) calc(var(--sp-4) + 5px); }
+.sa-card { position: relative; min-width: 0; padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-4); }
+/* 组成员:从组头字形下方垂下的细竖线 + 每行前的短横,最后一个成员的竖线只画到自己那一行。 */
+.sa-card[data-sa-variant="member"] { padding: var(--sp-2) var(--sp-3) var(--sp-2) 14px; }
+.sa-card[data-sa-variant="member"]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-left: 1px solid var(--border-soft); }
+.sa-card[data-sa-variant="member"]:last-child::before { bottom: auto; height: 16px; }
+.sa-card[data-sa-variant="member"]::after { content: ""; position: absolute; left: 0; top: 16px; width: 8px; border-top: 1px solid var(--border-soft); }
+.sa-row { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.sa-head {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-3);
+  padding: 0; border: 0; background: transparent; color: var(--fg);
+  font: inherit; font-family: var(--sans); font-size: var(--fs-13); line-height: 1.5; text-align: left; cursor: pointer;
+}
+.sa-head:hover .sa-desc { color: var(--fg-strong); }
+.sa-head:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-xs); }
+.sa-glyph { flex: none; width: 12px; text-align: center; font-size: var(--fs-11); line-height: 1; }
+.sa-agent { flex: none; color: var(--line-color, var(--fg-strong)); font-family: var(--mono); font-size: var(--fs-12-5); font-weight: 600; }
+.sa-desc { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.sa-chip { flex: none; padding: 0 6px; border: 1px solid var(--border-soft); border-radius: var(--r-pill); color: var(--dim); font-size: var(--fs-11); }
+.sa-now { flex: 0 1 32%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-family: var(--mono); font-size: var(--fs-12); }
+.sa-meta { flex: none; margin-left: auto; padding-left: var(--sp-4); color: var(--dim); font-size: var(--fs-11-5); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sa-actions { flex: none; display: flex; align-items: center; gap: var(--sp-1); }
+.sa-actions .icon-btn, .sa-group-open, .sa-locate { width: 22px; height: 22px; color: var(--dim); font-size: var(--fs-12); }
+/* ↗ 单卡常驻但低对比,组成员只在悬停/键盘焦点时出现(一列箭头太吵);■ 的位置常驻(计数列对齐),
+   只在还在跑的卡上悬停或键盘焦点进来时可见。 */
+.sa-open { opacity: .55; }
+.sa-card:hover .sa-open, .sa-open:focus-visible { opacity: 1; }
+.sa-card[data-sa-variant="member"] .sa-open { visibility: hidden; }
+.sa-card[data-sa-variant="member"]:hover .sa-open, .sa-card[data-sa-variant="member"] > .sa-row:focus-within .sa-open { visibility: visible; }
+.sa-stop { visibility: hidden; }
+.sa-row:hover .sa-stop:not(.is-off), .sa-row:focus-within .sa-stop:not(.is-off) { visibility: visible; }
+/* 实时尾迹:细竖线从字形下方垂下(代替 ⎿),行首与描述左缘对齐;最新那一行用前景色。 */
+.sa-live {
+  display: flex; flex-direction: column; min-width: 0; margin: var(--sp-2) 0 0 5px; padding-left: 12px;
+  border-left: 1px solid var(--border-soft); color: var(--dim);
+  font-family: var(--mono); font-size: var(--fs-12); line-height: 1.6;
+}
+.sa-line { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; white-space: nowrap; }
+.sa-line .tool-icon, .sa-line .tool-icon svg { width: 13px; height: 13px; }
+.sa-line-name { flex: none; }
+.sa-line-arg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sa-line-mark:empty { display: none; }
+.sa-line.is-current { color: var(--fg); }
+.sa-line.is-failed { color: var(--err); }
+.sa-idle, .sa-more { font-family: var(--sans); font-size: var(--fs-11-5); }
+.sa-error { margin: var(--sp-2) 0 0 18px; color: var(--err); font-size: var(--fs-12); line-height: 1.5; overflow-wrap: anywhere; }
+/* 超时/未启动/中断:字形与错误行只覆盖静态颜色为 warn(不加动画)。 */
+.sa-card:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"]) .sa-error,
+.sa-card:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"]) > .sa-row .sa-glyph,
+.sa-panel-row:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"]) .sa-glyph,
+#agent-detail:is([data-sa-state="timeout"], [data-sa-state="rejected"], [data-sa-state="interrupted"]) .sa-detail-head .sa-glyph { color: var(--warn); }
+/* 内联展开:指令 / 过程 / 结果,限高 420px 内部滚动,出口是「在侧栏查看完整过程」。 */
+.sa-body {
+  display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; max-height: 420px; overflow: auto;
+  margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--border-soft);
+}
+.sa-section { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.sa-section-title { color: var(--dim); font-size: var(--fs-11); }
+.sa-prompt, .sa-result { color: var(--fg); font-size: var(--fs-13); }
+.sa-prompt > :first-child, .sa-result > :first-child, .sa-msg > :first-child { margin-top: 0; }
+.sa-prompt > :last-child, .sa-result > :last-child, .sa-msg > :last-child { margin-bottom: 0; }
+/* 卡片里的 markdown 标题压到正文字号附近:结果是子代理的回答,不该比主对话标题还大。 */
+.sa-section .md-h { margin: 6px 0 2px; font-size: var(--fs-13-5); }
+.sa-prompt.is-clamped { max-height: 6.4em; overflow: hidden; }
+.sa-prompt-more { align-self: flex-start; }
+.sa-schema, .sa-steps-empty, .sa-result.is-pending { color: var(--dim); font-size: var(--fs-12); }
+.sa-steps { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.sa-steps > .msg.tool-msg { margin: 0; }
+.sa-msg { padding-left: 18px; color: var(--dim); font-size: var(--fs-12-5); }
+.sa-body-actions { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.sa-flash { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
+/* 侧栏:列表(按批次,新批次在上)与详情(与内联展开同一个渲染器,不限高,抽屉自身滚动)。 */
+#agent-list, #agent-detail { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-4) var(--sp-5); }
+#agent-list { display: flex; flex-direction: column; gap: var(--sp-5); }
+#agent-list.hidden, #agent-detail.hidden { display: none; }
+#agent-panel[data-mode="detail"] #agent-audit { display: none; }
+.sa-panel-empty { padding: var(--sp-4) var(--sp-1); color: var(--dim); font-size: var(--fs-12); }
+.sa-panel-batch { display: flex; flex-direction: column; gap: var(--sp-1); }
+.sa-panel-batch-title { padding: 0 var(--sp-1) var(--sp-1); color: var(--dim); font-size: var(--fs-11); }
+.sa-panel-row { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; border-radius: var(--r-sm); }
+.sa-panel-row:hover { background: var(--surface-hover); }
+.sa-panel-main {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-3); padding: var(--sp-3) var(--sp-3);
+  border: 0; background: transparent; color: var(--fg); font: inherit; font-size: var(--fs-12-5); text-align: left; cursor: pointer;
+}
+.sa-panel-main:focus-visible, .sa-panel-row .icon-btn:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+.sa-panel-main .sa-desc { flex: 1 1 auto; }
+.sa-panel-main .sa-meta { padding-left: var(--sp-3); }
+.sa-locate { flex: none; margin-right: var(--sp-2); }
+.sa-panel-detail { display: flex; flex-direction: column; gap: var(--sp-3); }
+.sa-detail-head { display: flex; align-items: baseline; gap: var(--sp-3); min-width: 0; font-size: var(--fs-14); }
+.sa-detail-head .sa-desc { flex: 1 1 auto; white-space: normal; color: var(--fg-strong); }
+.sa-detail-state { flex: none; color: var(--dim); font-size: var(--fs-12); }
+.sa-detail-meta { padding-left: 18px; color: var(--dim); font-size: var(--fs-11-5); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sa-detail-actions { display: flex; flex-wrap: wrap; gap: var(--sp-3); padding-left: 18px; }
+.sa-detail-body { display: flex; flex-direction: column; gap: var(--sp-5); margin-top: var(--sp-2); padding-top: var(--sp-4); border-top: 1px solid var(--border-soft); }
+/* rail 开关的运行数徽标(取代 #7 的呼吸点:同一位置不叠两个信号;让位规则写在动效分区 rail 点旁边)。 */
+.rail-badge {
+  position: absolute; top: 5px; right: 6px; min-width: 15px; height: 15px; padding: 0 4px;
+  border-radius: var(--r-pill); background: var(--accent); color: var(--on-accent);
+  font-size: var(--fs-10); font-weight: 600; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--activitybar); pointer-events: none;
+}

@@ -51,6 +51,15 @@ import {
   scrollBottom,
   updateLatestButton,
 } from "./05-chat-render.js";
+import {
+  subagentHistoryCall,
+  subagentHistoryOrphan,
+  subagentHistoryResult,
+  subagentPrependBegin,
+  subagentPrependEnd,
+  subagentResetSession,
+  subagentSealPaneTail,
+} from "./05-subagents.js";
 import { bgClear, renderRecoveredTraces } from "./06-activity.js";
 import { addSummaryEntry } from "./07-events.js";
 import { cancelAutoContinueTimer } from "./08-auto.js";
@@ -407,7 +416,13 @@ export function loadEarlierMessages() {
   const start = Math.max(0, remaining - PANE_WINDOW_SIZE);
   const chunk = history.items.slice(start, remaining);
   const holder = document.createElement("div");
-  renderMessagesInto(holder, chunk);
+  // UI-0926 #8:这一窗补出的子代理比已有的旧——侧栏列表里排在已有批次之下,不被当成最新一批。
+  subagentPrependBegin(activeSessionId);
+  try {
+    renderMessagesInto(holder, chunk);
+  } finally {
+    subagentPrependEnd();
+  }
   const before = messages.scrollHeight;
   activePane.prepend(...[...holder.childNodes]);
   history.rendered += chunk.length;
@@ -484,6 +499,9 @@ export function emptyStateMarkup() {
 
 export function renderRecoveredMessages(items) {
   setFollowLatest(true);
+  // UI-0926 #8:重载历史前丢掉该会话已结束的子代理 run(卡片随 pane 一起重建),运行中的保留。
+  subagentResetSession(activeSessionId);
+  anchoredTaskCalls = new WeakSet();
   resetPane();
   setCurrentAssistant(null);
   setCurrentReasoning(null);
@@ -501,6 +519,26 @@ export function renderRecoveredMessages(items) {
   scrollBottom(true);
 }
 
+/// UI-0926 #8:结果在已渲染的窗口里、调用在更早窗口里的 task 调用(按 part 对象认领,调用 id 重复也不串)。
+/// 每次整页重载时换新。
+let anchoredTaskCalls = new WeakSet();
+
+/// 窗口边界把调用与结果切开时,结果在这一窗里配不上调用。沿完整历史往回找发出这批调用的那条消息
+/// (跳过只装结果的消息,停在最近一条带调用的消息上),那里有同 id 的 task 调用就返回它。
+function orphanTaskCall(message, callId) {
+  const items = paneHistory.get(activeSessionId || "")?.items;
+  if (!items || !callId) return null;
+  for (let index = items.indexOf(message) - 1; index >= 0; index -= 1) {
+    const parts = items[index]?.parts ?? [];
+    if (parts.some((part) => part.type === "tool_call")) {
+      const call = parts.find((part) => part.type === "tool_call" && part.id === callId);
+      return call?.name === "task" ? call : null;
+    }
+    if (!parts.some((part) => part.type === "tool_result")) return null;
+  }
+  return null;
+}
+
 /// 渲染一段消息(配对 tool_call/tool_result、思考块、markdown)。
 /// 首屏与向上补齐共用它。
 export function renderMessageParts(items) {
@@ -508,7 +546,17 @@ export function renderMessageParts(items) {
   // 结果行只显示原始 call id,对人毫无信息量(用户 2026-08-08 反馈"太丑")。
   const pending = new Map();
   for (const message of items ?? []) {
+    // UI-0926 #8:一条带调用的消息 = 新的一批,先封住 pane 末尾还开着的子代理组。
+    if (message.parts?.some?.((part) => part.type === "tool_call")) subagentSealPaneTail();
     for (const part of message.parts ?? []) {
+      // UI-0926 #8:task 回放成与实时同形的子代理卡片(过程与计数随后由 run.trace 回放补齐)。
+      if (part.type === "tool_call" && part.name === "task" && part.id) {
+        // 结果在更晚的窗口里、已经按孤儿结果建过卡(见下):认领,不建第二张、不标中断。
+        if (anchoredTaskCalls.has(part)) continue;
+        subagentHistoryCall(activeSessionId, part.id, part.input);
+        pending.set(part.id, { subagent: true });
+        continue;
+      }
       if (part.type === "tool_call") {
         const block = buildToolBlock(part.name || "tool", part.input);
         // 轨迹里的耗时按调用 id 回填(applyRecoveredToolDurations)。
@@ -519,13 +567,21 @@ export function renderMessageParts(items) {
       }
       if (part.type === "tool_result") {
         const entry = pending.get(part.call_id);
-        if (entry) {
+        // UI-0926 #8:窗口边界把 task 的调用切到了更早的窗口:就在这里用那次调用的入参建卡、收成终态。
+        const taskCall = entry ? null : orphanTaskCall(message, part.call_id);
+        if (entry?.subagent) {
+          pending.delete(part.call_id);
+          subagentHistoryResult(activeSessionId, part.call_id, { ok: !part.is_error, content: part.content });
+        } else if (entry) {
           pending.delete(part.call_id);
           fillToolBlock(entry.block, {
             ok: !part.is_error,
             content: part.content,
             input: entry.input,
           });
+        } else if (taskCall) {
+          anchoredTaskCalls.add(taskCall);
+          subagentHistoryOrphan(activeSessionId, part.call_id, taskCall.input, { ok: !part.is_error, content: part.content });
         } else {
           // 配对不上(历史被压缩过):独立成块,总比丢掉强。
           const orphan = buildToolBlock("tool result", {});
@@ -556,7 +612,11 @@ export function renderMessageParts(items) {
   }
   // 没等到结果的调用(轮次被中断,或**窗口边界**把调用与结果切开了):标出来,
   // 不要停在"运行中"的假象上。窗口边界这一侧补齐后会重新配上,不影响最终形态。
-  for (const { block } of pending.values()) {
+  for (const [callId, { block, subagent }] of pending) {
+    if (subagent) {
+      subagentHistoryResult(activeSessionId, callId, { interrupted: true });
+      continue;
+    }
     block.wrap.classList.remove("running");
     block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
     block.result.classList.remove("hidden");
@@ -950,6 +1010,8 @@ export function showFreshConversation() {
   updateLatestButton();
   // 活动面板随对话走,与切线一致。
   bgClear();
+  // UI-0926 #8:子代理侧栏同理——新段里没有旧段的委派(运行中的保留)。
+  subagentResetSession(activeSessionId);
   promptBox.focus();
 }
 

@@ -4,7 +4,8 @@ import { $, invoke, renderingBackground, uiPrefsLoad, uiPrefsSave } from "./01-c
 import { I18N_EN, localizeDynamic, t } from "./02-i18n.js";
 import { parseErrorText } from "./04-structured-parse.js";
 import { renderErrorDetail } from "./04-structured.js";
-import { agentClosePanel, fastStatusText } from "./06-activity.js";
+import { fastStatusText } from "./06-activity.js";
+import { agentClosePanel } from "./06-agent-panel.js";
 import { autoContinueTimers, clearStoppingWatchdog } from "./08-auto.js";
 import { send } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
@@ -143,8 +144,10 @@ export function navigate_view(view) {
   if (!item || !$(`view-${view}`)) return;
   document.body.dataset.view = view;
   if (view !== "chat") {
+    // UI-0926 #8:经 agentClosePanel 收起,agentPanelOpen 与 DOM 保持一致(先关子代理面板,
+    // 它会按 activityPanelOpen 同步活动面板;随后照旧把活动面板也收起)。
+    agentClosePanel();
     $("bg-panel")?.classList.add("hidden");
-    $("agent-panel")?.classList.add("hidden");
   }
   remember_workspace_view(view);
   document.querySelectorAll(".activity-item[data-view]").forEach((i) => {

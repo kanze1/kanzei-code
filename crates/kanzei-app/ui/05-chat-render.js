@@ -2,7 +2,7 @@ import { defer } from "./01-core.js";
 import { messagePanes, motionOnce } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { appendDisplayBlock, compactDiffLines, quotaNoticeHeadline, quotaTruncation } from "./06-activity.js";
-import { $, activePane, promptBox, agentRoleAccent, appendToPane, messages, trimLivePane } from "./01-core.js";
+import { $, activePane, promptBox, appendToPane, messages, trimLivePane } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { attachments, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
 import { renderMarkdown } from "./04-markdown.js";
@@ -530,61 +530,6 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
 export const chatToolBlocks = new Map();
 export const CHAT_TOOL_KEEP = 200; // D-090 同款上界:长跑只保留最近块的活引用,DOM 留在历史里。
 
-// R-184 P2:主对话里的 task 工具块按角色折叠成组(R-174 遗留 (a):编排派发的 8 条
-// 子代理各自生成一个平铺工具块、偏吵)。组头是唯一新增的 DOM,组内块走既有
-// buildToolBlock/fillToolBlock 渲染;同一角色跨轮复用并入同一组,组头显示累计块数。
-// 每会话一份(R-267 口径)。原先是全局单表:并行线在后台渲染时走 withSessionRender
-// 换 activePane,但折叠组表没跟着换,B 线的子代理工具块会 appendChild 进 A 线对话里的
-// 同名组头——用户在 A 线看见自己没派过的工具调用,去 B 线却找不到。
-// 用 let:withSessionRender 按会话整表换引用(01-core.js),比逐条搬运便宜也不会漏。
-export let chatAgentFolds = new Map(); // role -> {head, body, countEl, count}
-export function setChatAgentFolds(value) { chatAgentFolds = value; }
-export function chatAgentFold(role) {
-  let group = chatAgentFolds.get(role);
-  // 组头的 DOM 可能已经不在页面上了:切历史对话/切线路会 resetPane(),裁剪也会删它。
-  // 缓存里那份引用还在,于是后续子代理工具块被 appendChild 进一个游离节点——
-  // 界面上凭空少掉一整批轨迹,而且没有任何报错。isConnected 明确为 false 才重建
-  // (冒烟的假 DOM 没有这个属性,给的是 undefined,不能当"已断开")。
-  if (group && group.body?.isConnected === false) {
-    chatAgentFolds.delete(role);
-    group = null;
-  }
-  if (group) return group;
-  const wrap = document.createElement("div");
-  wrap.className = "agent-fold";
-  wrap.dataset.agentRole = role;
-  const head = document.createElement("button");
-  head.type = "button";
-  head.className = "agent-fold-head";
-  head.setAttribute("aria-expanded", "false");
-  head.setAttribute("aria-label", `${role} — ${t("展开或收起该子代理的工具块")}`);
-  const dot = document.createElement("span");
-  dot.className = `bg-dot line-accent-${agentRoleAccent(role)}`;
-  dot.setAttribute("aria-hidden", "true");
-  const label = document.createElement("span");
-  label.className = "agent-fold-role";
-  label.textContent = role;
-  const countEl = document.createElement("span");
-  countEl.className = "agent-fold-count dim";
-  const caret = document.createElement("span");
-  caret.className = "agent-fold-caret";
-  caret.textContent = "▸";
-  head.append(dot, label, countEl, caret);
-  const body = document.createElement("div");
-  body.className = "agent-fold-body hidden";
-  head.addEventListener("click", () => {
-    // classList.toggle 返回的是移除后的状态:展开(类已移除)时返回 false。
-    const open = body.classList.toggle("hidden");
-    head.setAttribute("aria-expanded", String(!open));
-    caret.textContent = open ? "▸" : "▾";
-  });
-  wrap.append(head, body);
-  appendToPane(wrap);
-  group = { head, body, countEl, count: 0 };
-  chatAgentFolds.set(role, group);
-  return group;
-}
-
 export function chatToolStart(id, name, summary, input) {
   const existing = id ? chatToolBlocks.get(id) : null;
   // 同一调用仍在执行时保持去重;后端编排角色会跨轮复用 id,上一轮已结束则按
@@ -597,16 +542,7 @@ export function chatToolStart(id, name, summary, input) {
   const block = buildToolBlock(name, input ?? { command: summary });
   block.input = input ?? null;
   block.finished = false;
-  if (name === "task") {
-    // task 工具的 id 就是角色名(编排派发)或调用 id(模型自派);折叠组按它归并,
-    // 平铺退化为"每个调用一组",不影响非 task 工具的现有渲染路径。
-    chatAgentFold(String(id)).body.appendChild(block.wrap);
-    const group = chatAgentFolds.get(String(id));
-    group.count += 1;
-    group.countEl.textContent = `(${group.count})`;
-  } else {
-    appendToPane(block.wrap);
-  }
+  appendToPane(block.wrap);
   chatToolBlocks.set(id, block);
   if (chatToolBlocks.size > CHAT_TOOL_KEEP) {
     chatToolBlocks.delete(chatToolBlocks.keys().next().value);

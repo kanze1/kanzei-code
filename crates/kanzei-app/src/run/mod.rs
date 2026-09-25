@@ -349,16 +349,7 @@ mod assembly_tests {
             child_id: "child-1".into(),
             phase: phase.into(),
             name: name.into(),
-            summary: None,
-            ok: None,
-            outcome: None,
-            code: None,
-            preview: None,
-            artifact: None,
-            display: None,
-            input: None,
-            usage: None,
-            text: None,
+            ..Default::default()
         };
         assert_eq!(
             super::subagent_round_tool(&trace("end", "edit")),
@@ -379,6 +370,17 @@ mod assembly_tests {
             super::subagent_round_tool(&trace("cancelled", "")),
             None,
             "取消 trace 不带工具名,不计"
+        );
+        // UI-0926 #8:meta trace 只报人格与模型,不是一次工具调用。
+        let meta = kanzei_core::TaskTrace {
+            agent: Some("explore".into()),
+            model: Some("qwen3:8b".into()),
+            ..trace("meta", "")
+        };
+        assert_eq!(
+            super::subagent_round_tool(&meta),
+            None,
+            "meta trace 不是工具调用,不计"
         );
         assert_eq!(
             super::subagent_round_tool(&trace("end", "   ")),

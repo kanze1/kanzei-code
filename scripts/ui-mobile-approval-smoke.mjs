@@ -225,6 +225,17 @@ try {
   page.on("pageerror", (error) => pageErrors.push(String(error)));
   await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
   await page.locator('#approval-list .question[data-ask-id="21"]').waitFor();
+  // UI-0926 #8:通知行「字形 · 身份 · 摘要 · 时间」,不再是 `[序号] agent_status_changed — 摘要`;子代理行缩进。
+  const notice = await page.evaluate(() => {
+    const view = globalThis.formatNotice({ agent_id: "primary", kind: "agent_status_changed", status: "succeeded", summary: "运行完成", sequence: 7, created_at: new Date(2026, 8, 26, 9, 5).getTime() });
+    const item = globalThis.buildNoticeItem({ agent_id: "task:call_1", kind: "agent_status_changed", status: "running", summary: "explore · 找出 token 校验点", sequence: 8, created_at: Date.now() });
+    return { view, text: item.textContent, sub: item.classList.contains("notice-sub"), glyph: item.querySelector(".notice-glyph")?.dataset.status };
+  });
+  assert.equal(notice.view.glyph, "✓", "succeeded 通知应渲染 ✓");
+  assert.equal(notice.view.who, "主代理", "primary 通知的身份应为「主代理」");
+  assert.equal(notice.view.time, "09:05", "通知时间应格式化为 HH:MM");
+  assert.ok(!JSON.stringify(notice.view).includes("agent_status_changed"), "通知行不应再显示原始 kind");
+  assert.ok(notice.sub && notice.text.includes("子代理") && notice.glyph === "running" && !notice.text.includes("[8]"), `子代理通知行不对:${JSON.stringify(notice)}`);
   const cardCount = (id) => page.locator(`#approval-list [data-ask-id="${id}"]`).count();
 
   const single = page.locator('#approval-list .question[data-ask-id="21"]');

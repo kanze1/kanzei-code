@@ -64,11 +64,30 @@ const SCENES = {
 
   async agents(ctx) {
     await replayRunningTurn(ctx);
-    if (isHidden("#agent-panel")) $("#agent-toggle")?.click();
-    await waitFor(() => !isHidden("#agent-panel"));
-    // 展开运行中的第一个子代理,让 transcript(子工具轨迹 + 正文)进截图。
-    $("#agent-running .bg-entry .bg-title")?.click();
+    // UI-0926 #8:从主对话里运行中的子代理卡片点 ↗,侧栏进该次委派的详情(指令/过程/结果)。
+    const open = $('#messages .sa-card[data-sa-key$="|review_gate"] .sa-open') ?? $("#messages .sa-card .sa-open");
+    open?.click();
+    await waitFor(() => !isHidden("#agent-panel") && $("#agent-panel")?.dataset.mode === "detail");
+    // 合成点击没有真实指针,程序聚焦「‹ 返回」会被当成键盘焦点弹出提示;截图不要它。
+    document.activeElement?.blur?.();
     await ctx.sleep(80);
+  },
+
+  /// UI-0926 #8:同一轮并行派发 3 个子代理(一组、每个一行、各自计数),其中一个已完成。
+  async parallel(ctx) {
+    const { emit, fixtures, sleep } = ctx;
+    const e = fixtures.events;
+    emit("kz:meta", e.meta);
+    emit("kz:turn", e.turn);
+    emit("kz:status", e.status);
+    emit("kz:text", { ...e.text, text: "分三路并行勘察:调用点、刷新方案、相关测试。" });
+    await sleep(40);
+    for (const start of e.parallelStarts) emit("kz:tool-start", start);
+    for (const progress of e.parallelProgress) emit("kz:task-progress", progress);
+    emit("kz:tool-end", e.parallelEnd);
+    emit("kz:step", e.step);
+    await sleep(120);
+    await ctx.settle();
   },
 
   async settings(ctx) {

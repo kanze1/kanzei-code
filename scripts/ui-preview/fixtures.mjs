@@ -301,7 +301,7 @@ function mainConversation() {
         { type: "tool_result", call_id: "h-bash-ok", is_error: false, content: `exit code: 0\n${BASH_OK}` },
         { type: "tool_call", id: "h-bash-bill", name: "bash", input: { command: "cargo run -q -p kanzei --bin kz -- tools bill --profile dev --json" } },
         { type: "tool_result", call_id: "h-bash-bill", is_error: false, content: `exit code: 0\n${BILL_JSON}` },
-        { type: "tool_call", id: "architecture_scout", name: "task", input: { prompt: "审计常驻层 21 个工具近 30 天的调用频次,给出保留/延迟建议并附证据", phase: "scouting", role: "architecture_scout", model: "fast" } },
+        { type: "tool_call", id: "architecture_scout", name: "task", input: { prompt: "审计常驻层 21 个工具近 30 天的调用频次,给出保留/延迟建议并附证据", description: "审计常驻层调用频次", phase: "scouting", role: "architecture_scout", model: "fast" } },
         { type: "tool_result", call_id: "architecture_scout", is_error: false, content: TASK_RESULT },
         { type: "tool_call", id: "h-test-1", name: "test_record", input: { title: "cargo test -p kanzei-tools registry::", status: "passed", command: "cargo test -p kanzei-tools registry::", summary: "3 passed; 0 failed", refs: ["R-364"] } },
         { type: "tool_result", call_id: "h-test-1", is_error: false, content: TEST_RECORD_RESULT },
@@ -346,8 +346,10 @@ function mainTraces() {
   const now = Date.now();
   const tool = (id, name, summary, ok, durationMs, extra = {}) => ([
     { kind: "tool.started", id, name, summary, at: now - 600000 },
-    { kind: "tool.completed", id, ok, durationMs, at: now - 600000 + durationMs, ...extra },
+    { kind: "tool.completed", id, name, ok, durationMs, at: now - 600000 + durationMs, ...extra },
   ]);
+  // run.trace 里落库的子代理进度(无 kind 字段;入参是截到 4K 的字符串),历史回放据此补齐卡片的过程与计数。
+  const taskTrace = (id, trace, text = "") => ({ id, text, trace });
   return [{
     events: [
       { kind: "turn.started" },
@@ -359,6 +361,15 @@ function mainTraces() {
       ...tool("h-bash-ok", "bash", "cargo test -p kanzei-tools registry::", true, 39800, { preview: "exit code: 0 (+10 lines)" }),
       ...tool("h-bash-bill", "bash", "cargo run -q -p kanzei --bin kz -- tools bill --profile dev --json", true, 5300, { preview: "exit code: 0 (+1 lines)" }),
       ...tool("architecture_scout", "task", "审计常驻层 21 个工具近 30 天的调用频次", true, 73400, { preview: "## 常驻层审计结论 (+7 lines)" }),
+      taskTrace("architecture_scout", { child_id: "architecture_scout", phase: "meta", agent: "explore", model: FAST_MODEL, summary: "fast" }, `explore · ${FAST_MODEL}`),
+      taskTrace("architecture_scout", { child_id: "as-1", phase: "start", name: "grep", summary: "fn name", input: JSON.stringify({ pattern: "fn name\\(&self\\)", path: "crates/kanzei-tools/src" }) }),
+      taskTrace("architecture_scout", { child_id: "as-1", phase: "end", name: "grep", ok: true, preview: "crates/kanzei-tools/src/read.rs:141: fn name(&self) (+38 lines)" }),
+      taskTrace("architecture_scout", { child_id: "as-2", phase: "start", name: "read", summary: ".kanzei/metrics/tool_calls.jsonl", input: JSON.stringify({ path: ".kanzei/metrics/tool_calls.jsonl", limit: 400 }) }),
+      taskTrace("architecture_scout", { child_id: "as-2", phase: "end", name: "read", ok: true, preview: "{\"tool\":\"read\",\"calls\":412} (+399 lines)" }),
+      taskTrace("architecture_scout", { phase: "text", text: "`frontend_locate` 30 天只调了 2 次,`incident` 3 次,都低于 5 次阈值。" }),
+      taskTrace("architecture_scout", { child_id: "as-3", phase: "start", name: "grep", summary: "register_desktop", input: JSON.stringify({ pattern: "register_desktop", path: "crates" }) }),
+      taskTrace("architecture_scout", { child_id: "as-3", phase: "end", name: "grep", ok: true, preview: "crates/kanzei-app/src/tools.rs:22: register_desktop(&mut registry) (+1 lines)" }),
+      taskTrace("architecture_scout", { phase: "usage", name: "", usage: { input: 38200, output: 1450, cache_read: 21000 } }),
       ...tool("h-read-2", "read", "scripts/verify-policy.mjs", false, 3, { outcome: "failed", code: "READ_PATH_NOT_FOUND", preview: "path not found: C:/Users/kanzei/Documents/kanzei code/scripts/verify-policy.mjs (+1 lines)", error: "path not found: C:/Users/kanzei/Documents/kanzei code/scripts/verify-policy.mjs (+1 lines)" }),
     ],
   }];
@@ -388,9 +399,11 @@ export function liveEvents(ids = IDS) {
     // 编排派发的勘察子代理(运行中,带子工具轨迹)
     scoutStart: {
       sessionId, id: "review_gate", name: "task", summary: "复核预算门禁改动",
-      input: { prompt: "复核 verify-policy.mjs 的预算门禁拆分:常驻面 ≤ 24k、延迟目录 ≤ 3k,超限时是否报出具体工具名", phase: "review", role: "review_gate", model: "fast" },
+      input: { prompt: "复核 verify-policy.mjs 的预算门禁拆分:常驻面 ≤ 24k、延迟目录 ≤ 3k,超限时是否报出具体工具名", description: "复核预算门禁拆分", phase: "review", role: "review_gate", model: "fast" },
     },
     scoutProgress: [
+      // UI-0926 #8:后端先报 meta(实际人格与模型 id),再有任何子工具进度。
+      { sessionId, id: "review_gate", text: `explore · ${FAST_MODEL}`, trace: { child_id: "review_gate", phase: "meta", agent: "explore", model: FAST_MODEL, summary: "fast" } },
       { sessionId, id: "review_gate", text: "读取 scripts/verify-policy.mjs", trace: { phase: "start", child_id: "rg-1", name: "read", summary: "scripts/verify-policy.mjs", input: { path: "scripts/verify-policy.mjs" } } },
       { sessionId, id: "review_gate", text: "读取完成", trace: { phase: "end", child_id: "rg-1", name: "read", ok: true, preview: "     1\t// R-354 验证门禁的档位策略:按改动面挑命令集。 (+411 lines)" } },
       { sessionId, id: "review_gate", text: "检索 schema_budget 调用方", trace: { phase: "start", child_id: "rg-2", name: "grep", summary: "schema_budget", input: { pattern: "schema_budget", path: "scripts" } } },
@@ -402,13 +415,42 @@ export function liveEvents(ids = IDS) {
     // 模型自派的 task(已完成)
     selfTaskStart: {
       sessionId, id: "call_task_7Hq2", name: "task", summary: "核对 denial_hint 文案",
-      input: { prompt: "列出所有 denial_hint 文案,标出哪些还没指向 tool_search", model: "fast" },
+      input: { prompt: "列出所有 denial_hint 文案,标出哪些还没指向 tool_search", description: "核对 denial_hint 文案", model: "fast" },
     },
     selfTaskProgress: [
+      { sessionId, id: "call_task_7Hq2", text: `explore · ${FAST_MODEL}`, trace: { child_id: "call_task_7Hq2", phase: "meta", agent: "explore", model: FAST_MODEL, summary: "fast" } },
       { sessionId, id: "call_task_7Hq2", text: "检索 denial_hint", trace: { phase: "start", child_id: "t7-1", name: "grep", summary: "denial_hint", input: { pattern: "denial_hint", path: "crates" } } },
       { sessionId, id: "call_task_7Hq2", text: "检索完成", trace: { phase: "end", child_id: "t7-1", name: "grep", ok: true, preview: "crates/kanzei-core/src/runner/drive/permissions.rs:41:         snapshot.denial_hint(action, &resource), (+13 lines)" } },
+      { sessionId, id: "call_task_7Hq2", text: "读取 permissions.rs", trace: { phase: "start", child_id: "t7-2", name: "read", summary: "permissions.rs", input: { path: "crates/kanzei-core/src/runner/drive/permissions.rs", offset: 30, limit: 40 } } },
+      { sessionId, id: "call_task_7Hq2", text: "读取完成", trace: { phase: "end", child_id: "t7-2", name: "read", ok: true, preview: "    30\tpub(crate) fn denial_hint(action: &str, resource: &str) -> String { (+39 lines)" } },
       { sessionId, id: "call_task_7Hq2", text: "", trace: { phase: "text", text: "14 处 denial_hint 中 **9 处**仍写「该工具在当前档位不可用」,没有提示 `tool_search`。" } },
+      { sessionId, id: "call_task_7Hq2", text: "", trace: { phase: "usage", name: "", usage: { input: 9800, output: 740, cache_read: 4100 } } },
     ],
+    // UI-0926 #8 并行场景:模型同一轮并行派发 3 个 task(tool-start 连续到达,合成一组)。
+    parallelStarts: [
+      { sessionId, id: "call_par_a", name: "task", summary: "找出 token 校验调用点", input: { prompt: "找出所有调用 verify_token 的位置,列出文件与行号", description: "找出 token 校验调用点" } },
+      { sessionId, id: "call_par_b", name: "task", summary: "设计 token 刷新方案", input: { prompt: "基于现有会话层设计 token 刷新方案,给出改动面", description: "设计 token 刷新方案", agent: "plan", model: "primary" } },
+      { sessionId, id: "call_par_c", name: "task", summary: "定位相关测试", input: { prompt: "定位覆盖 token 校验的测试文件", description: "定位相关测试" } },
+    ],
+    parallelProgress: [
+      { sessionId, id: "call_par_a", text: `explore · ${FAST_MODEL}`, trace: { child_id: "call_par_a", phase: "meta", agent: "explore", model: FAST_MODEL, summary: "fast" } },
+      { sessionId, id: "call_par_b", text: `plan · ${PROJECT_PRIMARY}`, trace: { child_id: "call_par_b", phase: "meta", agent: "plan", model: PROJECT_PRIMARY, summary: "primary" } },
+      { sessionId, id: "call_par_c", text: `explore · ${FAST_MODEL}`, trace: { child_id: "call_par_c", phase: "meta", agent: "explore", model: FAST_MODEL, summary: "fast" } },
+      { sessionId, id: "call_par_a", text: "", trace: { phase: "start", child_id: "pa-1", name: "grep", summary: "verify_token", input: { pattern: "verify_token", path: "crates" } } },
+      { sessionId, id: "call_par_a", text: "", trace: { phase: "end", child_id: "pa-1", name: "grep", ok: true, preview: "crates/kanzei-app/src/auth/session.rs:88: verify_token(&claims) (+6 lines)" } },
+      { sessionId, id: "call_par_a", text: "", trace: { phase: "start", child_id: "pa-2", name: "read", summary: "session.rs", input: { path: "crates/kanzei-app/src/auth/session.rs" } } },
+      { sessionId, id: "call_par_b", text: "", trace: { phase: "start", child_id: "pb-1", name: "read", summary: "middleware.rs", input: { path: "crates/kanzei-app/src/auth/middleware.rs" } } },
+      { sessionId, id: "call_par_c", text: "", trace: { phase: "start", child_id: "pc-1", name: "glob", summary: "tests", input: { pattern: "crates/**/tests/*token*.rs" } } },
+      { sessionId, id: "call_par_c", text: "", trace: { phase: "end", child_id: "pc-1", name: "glob", ok: true, preview: "crates/kanzei-app/tests/token_refresh.rs (+1 lines)" } },
+      { sessionId, id: "call_par_c", text: "", trace: { phase: "usage", name: "", usage: { input: 1600, output: 420, cache_read: 0 } } },
+      { sessionId, id: "call_par_a", text: "", trace: { phase: "usage", name: "", usage: { input: 11200, output: 380, cache_read: 6100 } } },
+    ],
+    parallelEnd: {
+      sessionId, id: "call_par_c", name: "task", ok: true, outcome: "success",
+      preview: "2 个测试文件覆盖 token 校验 (+2 lines)",
+      content: "2 个测试文件覆盖 token 校验\n\n- crates/kanzei-app/tests/token_refresh.rs\n- crates/kanzei-app/src/auth/session_tests.rs",
+      contentBytes: 110, contentTruncated: false, durationMs: 9400, display: null,
+    },
     selfTaskEnd: {
       sessionId, id: "call_task_7Hq2", name: "task", ok: true, outcome: "success",
       preview: "14 处 denial_hint,9 处未指向 tool_search(清单见详情) (+3 lines)",

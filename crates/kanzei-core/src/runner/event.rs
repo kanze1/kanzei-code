@@ -10,7 +10,11 @@ use std::sync::{
 use kanzei_harness::ToolArtifact;
 use kanzei_llm::{FinishReason, Message, Usage};
 
-#[derive(Clone, Debug)]
+/// 子代理内部事件折叠出的一条轨迹(TaskProgress 的 trace)。
+///
+/// derive Default:各 phase 只填自己那几项,其余靠 `..Default::default()` 补齐,
+/// 加字段时不必逐个改全部字面量。
+#[derive(Clone, Debug, Default)]
 pub struct TaskTrace {
     pub child_id: String,
     pub phase: String,
@@ -33,6 +37,12 @@ pub struct TaskTrace {
     /// R-281:子代理 assistant 自己说的话。phase == "text" 时为完整文本，
     /// 供运行中阅读器实时追加，也让结束态不依赖被截断的 ToolEnd preview。
     pub text: Option<String>,
+    /// UI-0926 #8:phase == "meta" 时携带**实际选中**的人格名。`task` 入参里的
+    /// `agent` 只是请求,选不中会静默回落默认人格(resolve_agent),卡片要显示真值。
+    pub agent: Option<String>,
+    /// UI-0926 #8:phase == "meta" 时携带实际模型 id。`input.model` 只有
+    /// fast/primary 档位,用户看不出档位背后到底是哪个模型。
+    pub model: Option<String>,
 }
 
 /// 面向 UI 的运行事件(CLI/桌面端都消费这一层,不直接碰 LlmEvent)。

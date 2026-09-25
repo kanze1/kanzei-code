@@ -25,6 +25,7 @@ import {
 } from "./03-shell.js";
 import { addMessage } from "./05-chat-render.js";
 import { bgClear } from "./06-activity.js";
+import { agentPanelSync } from "./06-agent-panel.js";
 import { askActive, askQueueFor, hideAsk, pumpAsk } from "./07-events.js";
 import {
   cancelAutoContinueTimer,
@@ -565,6 +566,8 @@ export function renderProcesses(items) {
     // 模型下拉同属「该线的完整设置」:冷启动与兜底选中都走这里,不能只靠 switchProcess。
     syncModelSelectToActiveLine();
     applySessionMeta(activeSessionId);
+    // UI-0926 #8:子代理侧栏与 rail 徽标跟着活动线走。
+    agentPanelSync();
     // 兜底改选(活动线被注销/被工作空间过滤)时视图必须跟着换:只改 activeSessionId 不换
     // pane,新活动线的实时事件会走快路径写进旧线的 pane,新对话清的也是错的那块。
     // 首次选中、切项目(previousProcessId 为空)与切工作空间期间由调用方自己装载。
@@ -692,6 +695,8 @@ export async function switchProcess(processId, forceReload = false) {
   syncModelSelectToActiveLine();
   // 状态栏模型/上下文上限回放该线最近一次 kz:meta,不再停留在上一条线的值。
   applySessionMeta(activeSessionId);
+  // UI-0926 #8:子代理侧栏换成新线路的数据(详情不属于新线路时回到列表),徽标重算。
+  agentPanelSync();
   void syncAutoRunState();
   // 下面有一次显式 await refreshPendingAsks(),先认领这个会话,免得 renderProcesses
   // 里的补拉守卫又打一次 pending_asks_get(结果会被 id 去重,只是白跑一趟)。

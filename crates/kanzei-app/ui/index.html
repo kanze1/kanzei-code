@@ -31,7 +31,7 @@
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm3 3h10M7 12h6M7 15h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="rail-section-separator" aria-hidden="true"></div>
-      <button type="button" id="agent-toggle" class="activity-item rail-toggle" title="子代理面板" data-i18n-title="子代理面板" aria-label="打开或收起子代理面板" data-i18n-aria-label="打开或收起子代理面板" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="18" cy="6.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="18" cy="17.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8.6 11.2 15.8 7.4M8.6 12.8l7.2 3.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      <button type="button" id="agent-toggle" class="activity-item rail-toggle" title="子代理面板" data-i18n-title="子代理面板" aria-label="打开或收起子代理面板" data-i18n-aria-label="打开或收起子代理面板" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="18" cy="6.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="18" cy="17.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8.6 11.2 15.8 7.4M8.6 12.8l7.2 3.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span id="agent-badge" class="rail-badge hidden" aria-hidden="true"></span></button>
       <!-- 活动面板开关从顶栏搬到 rail:它和子代理面板一样是**布局开关**不是视图切换,
            两个同类开关放在一起;顶栏因此可以整条删掉(见 #view-chat)。 -->
       <button type="button" id="activity-toggle" class="activity-item rail-toggle" title="显示/隐藏右侧活动面板" data-i18n-title="显示/隐藏右侧活动面板" aria-label="显示或隐藏右侧活动面板" data-i18n-aria-label="显示或隐藏右侧活动面板" aria-pressed="false">
@@ -231,6 +231,8 @@
             </div>
           </section>
           <button id="jump-latest" class="ghost hidden"><span data-i18n-key="回到最新">回到最新</span></button>
+          <!-- UI-0926 #8:子代理终态播报(只播活动线路的终态;尾迹行不进 live region)。 -->
+          <div id="sa-announcer" class="sr-only" role="status" aria-live="polite"></div>
         </div>
         <!-- #7 运行活动行(Claude 式「思考中… 12s」):只在活动会话运行/等待下一轮/停止中时出现。
              文案复用状态栏存源,由 03-shell.js renderTurnActivity 写入;aria-live 关掉,免得每秒播报。 -->
@@ -1204,14 +1206,18 @@
       </div>
     </aside>
 
-    <aside id="agent-panel" class="k-surface k-panel hidden" role="dialog" aria-modal="false" aria-labelledby="agent-panel-title">
-      <div class="bg-head"><span id="agent-panel-title" data-i18n-key="子代理">子代理</span>
-        <span id="agent-running-count" class="dim"></span>
-        <span id="agent-finished-count" class="dim"></span>
-        <button type="button" id="agent-clear" class="ghost mini hidden" title="清空已完成和已关闭的子代理条目" data-i18n-title="清空已完成和已关闭的子代理条目" data-i18n-key="清空">清空</button>
+    <!-- UI-0926 #8 子代理侧栏:全高抽屉,list(当前线路全部子代理,按批次)/ detail(一次委派的完整过程)
+         两种模式,由 06-agent-panel.js 驱动;外观归 .k-surface.k-panel。 -->
+    <aside id="agent-panel" class="k-surface k-panel hidden" role="dialog" aria-modal="false" aria-labelledby="agent-panel-title" data-mode="list">
+      <div class="bg-head">
+        <button type="button" id="agent-back" class="icon-btn hidden" title="返回全部子代理" data-i18n-title="返回全部子代理" aria-label="返回全部子代理" data-i18n-aria-label="返回全部子代理">‹</button>
+        <span id="agent-panel-title" data-i18n-key="子代理">子代理</span>
+        <span id="agent-running-count" class="dim" data-i18n-raw></span>
         <button type="button" id="agent-close" class="icon-btn" title="关闭子代理面板" data-i18n-title="关闭子代理面板" aria-label="关闭子代理面板" data-i18n-aria-label="关闭子代理面板">✕</button>
       </div>
       <div id="agent-panel-status" class="agent-panel-status hidden" role="status"></div>
+      <div id="agent-list" class="sa-panel-list"></div>
+      <div id="agent-detail" class="sa-panel-detail hidden"></div>
       <section id="agent-audit" class="agent-audit hidden" aria-live="polite">
         <div class="agent-audit-head">
           <span data-i18n-key="运行审计摘要">运行审计摘要</span>
@@ -1222,20 +1228,6 @@
         <div id="agent-audit-models" class="agent-audit-models"></div>
         <div id="agent-audit-failures" class="agent-audit-failures hidden"></div>
       </section>
-      <div class="bg-sections">
-        <div class="bg-section">
-          <div class="bg-section-title"><span data-i18n-key="运行中">运行中</span> <span id="agent-running-count2" class="dim"></span></div>
-          <div id="agent-running"></div>
-        </div>
-        <div class="bg-section">
-          <div class="bg-section-title"><span data-i18n-key="已完成">已完成</span> <span id="agent-finished-count2" class="dim"></span></div>
-          <div id="agent-finished"></div>
-        </div>
-        <div class="bg-section">
-          <div class="bg-section-title"><span data-i18n-key="已关闭">已关闭</span> <span id="agent-closed-count2" class="dim"></span></div>
-          <div id="agent-closed"></div>
-        </div>
-      </div>
     </aside>
   </div>
 
@@ -1348,6 +1340,8 @@
   <script type="module" src="04-structured.js"></script>
   <script type="module" src="05-chat-render.js"></script>
   <!-- 分区脚本:子代理 -->
+  <script type="module" src="05-subagents.js"></script>
+  <script type="module" src="06-agent-panel.js"></script>
   <script type="module" src="06-activity.js"></script>
   <script type="module" src="07-events.js"></script>
   <script type="module" src="08-auto.js"></script>

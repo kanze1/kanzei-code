@@ -26,11 +26,24 @@ button.danger { background: #dc2626; margin-top: 12px; }
 .status {
   font-size: 12px; font-weight: normal; color: #6b7280; margin-left: 8px;
 }
+/* UI-0926 #8:通知行「字形 · 身份 · 摘要 · 时间」;子代理行左缩进。沿用本页既有配色(PWA 配色本版不改)。 */
 .notice {
+  display: grid; grid-template-columns: 14px auto minmax(0, 1fr) auto; align-items: baseline; column-gap: 8px;
   padding: 8px 0; border-bottom: 1px solid #eee;
-  font-size: 14px; word-break: break-all;
+  font-size: 14px;
 }
 .notice:last-child { border-bottom: none; }
+.notice-sub { padding-left: 12px; }
+.notice-glyph { text-align: center; color: #6b7280; }
+.notice-glyph[data-status="running"] { color: #2563eb; animation: notice-breathe 2.4s ease-in-out infinite; }
+.notice-glyph[data-status="failed"] { color: #dc2626; }
+.notice-who { color: #1f2937; font-weight: 600; font-size: 13px; white-space: nowrap; }
+.notice-summary { min-width: 0; word-break: break-word; }
+.notice-time { color: #6b7280; font-size: 12px; font-variant-numeric: tabular-nums; }
+@keyframes notice-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  .notice-glyph[data-status="running"] { animation: none; }
+}
 .question-options { display: grid; gap: 8px; margin: 8px 0; }
 .question-option {
   text-align: left; background: #fff; color: #1f2937;

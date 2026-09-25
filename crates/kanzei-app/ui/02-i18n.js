@@ -1084,6 +1084,16 @@ export const I18N_EN = {
   // ---- 分区:动效 ----
 
   // ---- 分区:子代理 ----
+  // UI-0926 #8 子代理卡片与侧栏(05-subagents.js / 06-agent-panel.js)。
+  "个子代理": "subagents", "次工具": "tool uses", "次更早的工具调用": "earlier tool uses",
+  "启动中": "Starting", "无回答": "No answer", "未启动": "Not started", "中断": "Interrupted",
+  "等待批准": "Awaiting approval", "续聊": "Resumed",
+  "指令": "Instructions", "过程": "Steps", "结果": "Result",
+  "复制结果": "Copy result", "已复制结果": "Result copied", "定位到对话": "Show in chat",
+  "在侧栏查看完整过程": "Open full transcript in side pane", "查看全部子代理": "View all subagents",
+  "返回全部子代理": "Back to all subagents", "当前线路还没有子代理": "No subagents on this line yet",
+  "停止这个子代理": "Stop this subagent", "子代理未给出回答": "The subagent returned no answer",
+  "该子代理已滚出当前视图": "This subagent is no longer in the chat view", "要求结构化返回": "Structured answer required",
 };
 export const I18N_DYNAMIC_EN = {
   "完成提示音不可用": "Completion sound unavailable",
