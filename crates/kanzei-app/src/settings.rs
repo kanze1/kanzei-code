@@ -1108,7 +1108,7 @@ mod tests {
             SettingsPayload {
                 language: None,
                 primary: "anthropic:claude-opus-5".into(),
-                fast: "ollama:qwen3.5:4b".into(),
+                fast: "anthropic:claude-sonnet-5".into(),
                 compact: String::new(),
                 proxy: "env".into(),
                 reasoning: Some("high".into()),
@@ -1116,7 +1116,16 @@ mod tests {
                 profile_default: Some("dev".into()),
                 profile: None,
                 limits: Default::default(),
-                providers: vec![],
+                // 固定 provider 夹具，避免校验隐式依赖本机全局 provider 清单。
+                providers: vec![ProviderPayload {
+                    name: "anthropic".into(),
+                    protocol: "anthropic".into(),
+                    base_url: "https://api.anthropic.com".into(),
+                    api_key_env: None,
+                    api_key: None,
+                    auth: None,
+                    context_limit: None,
+                }],
                 cadence: None,
             },
             &path,
