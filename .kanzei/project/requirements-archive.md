@@ -4438,8 +4438,21 @@
 - 验收: ①六条结构性质各有可判定实现与单测,判据只看 outline 与 findings 的关系,不匹配固定章节名(反向断言:把章节逐个改名后判定结果不变);②write_outline 之前的结构依据是必需产物,缺失时点名缺哪一类(因变量定义/主结果/被排除候选/竞争解释);③违反性质的诊断点名到具体章节与具体性质,且不给出应该叫什么名字的建议;④真实 findings 重放:推出的 outline 满足六条性质,且形状与来源骨架同构(主结果先行、排除链单列、相关工作后移);⑤换一个不同题材的课题,推出的形状与④在章节数与顺序上明显不同且仍满足六条性质,证明不是模板;⑥轻课题降级只查①③⑤,不因缺排除链被拒
 - refs: R-221 R-277
 - 优先级: P1
-- 对账: 2026-09-07 定调修正:本条第一版按八槽固定模板写,被用户否掉(原话「我是要让他自动出这个结构，而不是这个结构绑定死的模板」),已整条改写为推导+性质判据。标题里列的四项是**判据**不是章节表:实现里不得出现固定章节名或必须有第 N 节的枚举,同一批 findings 推出什么形状由内容决定,验收⑤专门用另一题材反证不是模板
 - 进展: 验收① T-1786922726994 crates/kanzei-tools/src/research_write.rs:55-224,287-356：六条性质可判定，章节改名结果不变。验收② T-1786922726995 crates/kanzei-tools/src/research_write.rs:473-494,843-878：write_outline 前落盘 structure_basis.json，缺失角色被点名。验收③ T-1786922726994 crates/kanzei-tools/src/research_write.rs:162-224,744-752：诊断点名 section 与性质，不建议章节名称。验收④ T-1786922726994 crates/kanzei-tools/src/research_write.rs:620-729：真实 DocStore findings 重放满足主结果先行、排除链单列、相关工作后移。验收⑤ T-1786922726994 crates/kanzei-tools/src/research_write.rs:652-729：五节与三节不同形状均满足性质。验收⑥ T-1786922726994 crates/kanzei-tools/src/research_write.rs:94-151,162-166,791-841：原文「轻课题降级只查①③⑤,不因缺排除链被拒」→无 findings 自动 light，跳过排除链/竞争解释且不拒绝。T-1786922726996：cargo fmt --all -- --check 与 kanzei-tools 548 passed、1 ignored、0 failed。批次由原估计4批收敛为本次真实单批1/1。
 - observed_head: 79049ee18550f305b42e69544dedbbec21c94972
 - observed_worktree_hash: fnv1a64:82db1a7f56b2d53f
 - recorded_at: 1788804240733
+
+## R-363 AUTO research 完整流程：研究地图、实验环境、完整实验与论文 PDF [done]
+- 内容: 课题级持久阶段与自动续跑：调研地图和用户选题、MVP、环境准备、完整实验矩阵、综合解读、论文生成/导入、引用数值检查、真实编译及交付清单。
+- 发现记录: {"Ambiguities":"无阻塞实现项","Assumptions":"复用本机或已登记 SSH 资源；会议模板可导入或自生成","Explicit":"用户要求继续完整实现，并用两个 case 测试","Intent":"从研究方向持续推进到完整实验与论文 PDF","延后决策":"云厂商付费租卡适配器；真实 LLM 自主研究质量评估","最小成功闭环":"调研地图经用户选题，完成实验及解读，交付真正编译的 PDF","领域对象":"课题、方向、工作流、探索、环境、运行矩阵、论文与交付清单"}
+- 复杂度: 大
+- 来源: 用户原话：开发 AUTO research 从文献调研与地图，经选题、MVP、GPU、完整实验、解读，到 LaTeX 论文编译；继续呢？完整实现，然后还要用两个 case 测试一下。
+- 标签: 核心
+- 进展: 验收逐条对账（AUTO 实现已在 d4e230d8 提交，当前 HEAD eab92725；本轮只重验，无源码改动）：①“调研地图等待用户选题”由 Stage 与 runnable 在 ChooseDirection 停止、publish_map 保存候选方向及 user_action select 控制（crates/kanzei-tools/src/research_workflow.rs:20-58,123-128,316-365,454-516），AUTO 命令由 main.rs:194-196 注册、ui/19-research-auto.js:36,90-103 消费；状态门与选题回归见 research_workflow/tests.rs:45-55、T-1786922727017。②“环境准备与真实运行绑定”由 compute.rs:107-255 创建课题 venv、探测 GPU/CUDA/显存并保存探测事实，lifecycle.rs:27-53 校验 run 的 kind/host/workdir/environment_id 和运行时间；T-1786922727019 在 RTX 4090/CUDA 13.0 实跑。③“MVP 迭代及完整实验有可追溯记录”由 research_workflow.rs:517-639 绑定基线/MVP 结果，lifecycle.rs:160-277 登记协议矩阵和成功 run、:316-363 从事实库汇总结果；full_tests.rs:73-238,347-380 覆盖跨环境、恢复、预算、矩阵校验；T-1786922727012、7013、7019。④“分析、论文源码、引用数值检查和真实 PDF”由 paper.rs:281-393 校验来源/引用、主张覆盖及数值，:395-472 实际调用 LaTeX 编译、校验 PDF/引用并写 delivery.json 哈希清单；T-1786922727019 产出 freshness/compression 两份真实 PDF。⑤“暂停恢复、课题隔离、测试及文件入口”由 research_workflow.rs:179-222 按 topic 持久化、:316-365 暂停/恢复，research_topics.rs:111-127 校验绑定，ui/19-research-auto.js:60-70,175-184 接入文件/PDF 预览；R-360 已有的研究工作区与课题库隔离能力在此复用，不重复申报；T-1786922727016 六项 UI smoke、7017 Edge 工作区回归（真实 Edge 页面、IPC fixture；未声称桌面/Tauri 真链路）、7020 app 研究模块 16 项通过，tools/core 全 crate 分别 571/292 项通过（T-1786922727012/7013）。整 app 测试 T-1786922727014 有一项与 R-363 无关的 provider fixture 失败，已登记 D-752；app Clippy T-1786922727023 有一项 voice_service 测试辅助代码 lint，已登记 D-754；未隐藏为通过，R-363 范围测试通过。⑥“两例真实本机 GPU 与 LaTeX 验收及边界”由 T-1786922727019 记录 21 次 RTX 4090/CUDA 实跑、两份带哈希交付清单 PDF；决策驱动为确定性测试驱动而非一般 LLM 自主质量证明，SSH 未测。既有 R-348 LaTeX 编译能力复用，R-363 本次交付为其 AUTO 研究流程整合与真实验收。workspace fmt 与 tools Clippy 通过 T-1786922727021/7022。
+- 验收: ①调研地图等待用户选题；②环境准备与真实运行绑定；③MVP 迭代及完整实验有可追溯记录；④有分析、论文源码、引用数值检查和真实 PDF；⑤暂停恢复、课题隔离、完整测试及文件入口有效；⑥两例真实本机 GPU 与 LaTeX 验收，明确标注驱动和验证边界。
+- refs: R-277 R-343 R-348 R-360 D-752 D-754
+- 优先级: P1
+- observed_head: eab92725608f19a803cf39f2cc74dfa25acf39f9
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790339655164

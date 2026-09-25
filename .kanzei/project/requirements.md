@@ -102,7 +102,7 @@
 - 依赖: R-242
 - 内容: 统一工具结果为 Inline 或 Spilled{preview,artifact_id,bytes,sha256,retrieval_hint}；read 优先指向原文件 offset/limit，bash、git、test_record、web 等完整原文进入与 state.db 同生命周期的 Git 忽略运行目录。提供存储与整理入口，按类别、会话、日期、大小预览占用，支持清理无引用 artifact；经风险确认后，用可恢复失败的删除计划物理删除已选会话的事件、投影和引用 artifact；并支持 SQLite checkpoint、VACUUM 与迁移备份管理。默认不自动过期。
 - 复杂度: 大
-- 批次: 7/7
+- 批次: 8/9
 - 来源: DeepSeek Harness spill policy、本地 state.db 输出分布统计，以及用户确认“不自动过期但需要显式整理入口”。
 - 标签: 核心
 - 边界: 任何事件仍引用的 artifact 不得被静默清理；整理前显示预计释放空间和不可恢复范围，执行后给清单与实际释放量。32 KiB 先做 shadow telemetry。普通会话删除保证产品不可检索且重启不复生；安全整理才处理 SQLite freelist、WAL 和含旧正文备份。当前库为 WAL、secure_delete=OFF、auto_vacuum=NONE，不能把 DELETE 行等同磁盘字节已擦除。弹窗必须区分仅删除与删除并安全整理，取消零写入；显式整理不是定时任务。
@@ -110,11 +110,11 @@
 - 阻塞: 
 - 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
-- 进展: B7 已提交：commit 194b1eec。修复 D-716 的删除/安全整理错误边界，代码位置 crates/kanzei-app/ui/15-views-misc.js:650-680；scripts/ui-runtime-smoke.mjs 真实重放首次 delete×1/cleanup×1、错误面板 retry 后 delete×1/cleanup×2，证据 T-1786922726797；T-1786922726799 为提交前 kanzei-app 246 passed。全 UI 六条记录 T-1786922726798 仍被既有 D-711 的四个 memory filter 缺 data-i18n-* 阻断，未声称六条全绿。B7 完成但 R-245 保持 doing：验收⑦真实桌面 E2 与验收⑩磁盘配额测试仍缺。；状态对账: 正文旧字段 `doing` 与权威标题状态 `doing` 重复;已移除正文副本。
-- observed_head: 194b1eec3184e5290fe84f35d5f4dc8df879e61c
+- 进展: B8 已提交 eab92725：`crates/kanzei-core/src/runner/tool_exec.rs` 增加 2 GiB 全目录配额计量、共享独占锁保护 spill/telemetry 写入、超限时 Inline 截断且不创建 artifact；保留现有 1 MiB spill 阈值。配额专项 19 项通过(T-1786922727007)，crate 全量 292 项通过(T-1786922727010)，workspace fmt 通过(T-1786922727011)。B9 仅剩验收⑦真实桌面删除弹窗 E2；当前 kzapp 是既有用户会话，D-746 禁止接管，需用户确认窗口空闲并允许执行；届时验证弹窗内容、两种删除选项与取消零写入。
+- observed_head: eab92725608f19a803cf39f2cc74dfa25acf39f9
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1787607943733
-- 停车: 
+- recorded_at: 1790338268439
+- 停车: 排队:B8 配额的性能与截断问题见 D-760(已在发版分支修复,待核验);⑦真实桌面删除弹窗 E2 按 A-002 转入 R-101 延期清单后即可关闭(自举循环运行在安装位 kzapp 中,无法自测该弹窗);解除条件:D-748
 - 对账: 2026-09-25 用户拍板验收⑩磁盘配额:上限 2 GiB,超限时降级为 Inline 截断并注明(原话「2 GiB,超了退回截断。先这样」)。配额统计 .kanzei/artifacts/tool-results 总占用,与 R-376(外置阈值降到 32 KiB)同口径;停车前提已达成,剩余⑦真实桌面 E2 由 agent 在 kzapp 空闲时自行执行。
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
@@ -399,31 +399,24 @@
 - recorded_at: 1788803004691
 - 阻塞: 用户：提供一个可重复的真实 provider 运行入口（已配置模型/凭据或运行中的 provider）、固定任务与允许执行窗口；解除条件:用户
 
-## R-363 AUTO research 首批闭环：调研地图、用户选题、MVP 与结果解读续跑 [doing]
-- 内容: 课题级持久阶段状态、方向地图和用户选择、MVP 合同与实验事实绑定、独立研究续跑和恢复入口；首批覆盖到 MVP 解读。
-- 发现记录: {"Intent":"让 research 按阶段自动推进到 MVP 结论","Explicit":"调研后出地图，用户选方向，MVP 与结果解读，可恢复续跑","Assumptions":"首批止于 MVP 解读，复用现有 local/SSH runner","Ambiguities":"无阻塞项","领域对象":"课题、方向候选、工作流状态、探索、实验结果","最小成功闭环":"方向到调研地图，经用户选择后完成 MVP 并关联真实结果解读","延后决策":"云 GPU 供应商自动开通、外部会议模板导入、完整实验扩展策略"}
-- 复杂度: 大
-- 来源: 用户原话：「我们现在继续来开发AUTO research模式」「同意开始吧」。
-- 标签: 核心
-- 进展: 首批实现及工作树回归完成。①地图强制等待用户选择、revision 拒绝过期写入；②MVP 协议绑定成功基线与真实运行指标，失败仅能给证据不足；③暂停/刷新恢复与预算调整、④前后台连续两轮 profile/topic/prompt 保持与开发待办隔离均有回归。⑤cargo test --workspace 1603 passed/0 failed/2 既有 ignore；fmt、Clippy、六项前端检查、Playwright 页面回归通过。证据 T-1786922726998、T-1786922726999；设计 docs/design/auto_research.md。尚未做真实 provider、SSH/GPU、安装版桌面 E2；未发布或安装，保留 doing 等待实际端到端验收。
-- 验收: ①地图后等待用户选题，agent 无法自选；②选题后依次产生 MVP 方案、基线与实验记录、结果解读；③暂停重启保持阶段证据，重复过期操作不跳阶段；④研究续跑不受 dev backlog 影响且不串课题；⑤后端及前端交互回归通过。
-- refs: R-277 R-343 R-348 R-360
-- 优先级: P1
-- observed_head: 6d1b5de05fa79b5c165769e72fe045a7e26a75e4
-- observed_worktree_hash: fnv1a64:7d45c8bf3eea681c
-- recorded_at: 1789980409036
-
-## R-364 工具延迟加载:常驻层约 20 个工具,其余经 tool_search 按需加载 [todo]
+## R-364 工具延迟加载:常驻层约 20 个工具,其余经 tool_search 按需加载 [doing]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.1/§5.2;实施地图(行号、批次、陷阱、裁决)见 docs/design/cc_codex_alignment_impl_maps.md §1。B1 逐工具 schema 字符账单并定稿常驻名单;B2 tool_search 与通用追加路径、预算门禁拆成常驻面与延迟目录两个数、denial_hint 指向 tool_search 与提示词改写(与 B4 同版发布);B3 Anthropic/Responses 原生延迟加载(先研究后编码);B4 同源测试与硬拒覆盖扩到延迟层。
 - 发现记录: {"Intent":"降低每步工具 schema 注入成本","Explicit":"A 档全收;常驻约 20 个,其余按需加载","Assumptions":"低频工具靠名称目录与 denial_hint 仍可被发现","Ambiguities":"原生 defer_loading 的字段名与载体待探针核对","领域对象":"常驻层、延迟目录、tool_search、已加载集","最小成功闭环":"首个请求只含常驻层,select 加载后下一步可调用","延后决策":"研究档是否分层;已加载集跨重启持久化"}
 - 复杂度: 大
-- 批次: 0/4
+- 批次: 1/4
 - 来源: 2026-09-25 用户审阅 CC/Codex 三方对照,A 档回答「同意」并要求「直接登记就行」;R-312 B1 实测工具 schema 占每步系统注入 48.6%
 - 标签: 核心
 - 边界: 不做 MCP/skills/hooks;不改 Part::ToolResult 与 LlmRequest 结构;research/readonly/子代理不分层;已加载集不跨重启持久化
 - 验收: ①dev 档主代理首个请求的 tools 只含常驻层(CLI 20、桌面 21),延迟工具以「名称 — 一句话」进 system,账单有 tools/catalog;②tool_search 支持 select 精确加载与关键词检索,加载后下一步起可调用,压缩与溢出恢复后仍可用;③直接调用未加载的延迟工具时自动加载并执行;④预算门禁拆为常驻面与延迟目录两个数,research/readonly/子代理工具面不变;⑤对延迟托管工具的硬拒提示指向 tool_search select;⑥Anthropic/Responses 原生延迟加载经探针核对后启用且加载不改变 tools 前缀,其余协议走追加路径并在账单可见
 - refs: D-662 R-312 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P1
+- 进展: B1 已提交 811497b8（批次 1/4），账单/测试见前述进展。B2 只读复核 §5.2 与实施地图：tool_search 未实现，现有 DEV_TOOL_BUDGET=30 只有单一工具数；地图裁决包括直接调用延迟工具自动加载、deny tool_search 回退全常驻、已加载集合从 prior 播种。地图同时指出 resident/catalog 双预算计入目录文本、搜索结果 schema、task_spec 与 tool_search 的公式未定。此处为核心门禁语义，已用 question 询问用户 A/B/自定义，当前 pending；没有改 B2 代码，收到答复后再设计冻结。
+- observed_head: 811497b8ac6db8734d9ba9060e79af178af353f0
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790356949944
+- 确认记录: 2026-09-25 B2 双预算计费语义已用 question 工具询问，当前 pending。问题：resident budget 是否统计本次请求全部完整 ToolSpec（初始常驻含 tool_search/task_spec + 已加载延迟项），catalog budget 是否只统计未加载延迟项的名称+一句话并在加载后移除；tool_search 返回 schema 是否仅走通用上下文预算。选项 A 为按实际集合计费并加载后移出目录；B 为始终保留全部目录项、加载后双计；另可自定义。未收到答复前不实现此门禁。
+- 阻塞: 
+- 对账: 2026-09-26 波次审计答复 B2 计费口径(无需用户确认,实施地图已规定):按 docs/design/cc_codex_alignment_impl_maps.md §1 B2 第 9 条与设计 §5.1——预算门禁数的是工具个数不是字符:常驻面预算 = resident_tools 名称数 + 手工补上的 task(dev 20 / 桌面 21,tool_search 计入常驻);延迟目录预算 = deferred_tools 个数(dev 12 / 桌面 19)。已加载工具的 schema 字符与 catalog 文本只进上下文账单(tools/catalog、tools/loaded:<name>),不计入预算门禁;core 私有的 task_spec 在账单表注明「未计入」。据此继续 B2。
 
 ## R-365 网页搜索与抓取升级:模型自带搜索、webfetch 按问题提取与翻页查找、websearch 批量与过滤 [todo]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.5;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §2。B1 订阅通道探针(codex 托管 web_search、codex /alpha/search、claude 服务端搜索、回放与边界行为);B2a 协议层托管搜索的声明、解析、原样回放与计费(Part::Hosted 带通道标识);B2b runner、[web] 配置与桌面渲染(pause_turn 续跑、编号来源列表);B3 webfetch 重做(url|ref、带行号 markdown、落盘、15 分钟缓存、from_line/find/links、跨域重定向不跟、PDF 落盘、web_extract 按问题提取);B4 websearch 批量化与 recency/domains、codex 搜索后端失效自动退 DuckDuckGo、research 档 add_finding 存证门禁。
@@ -437,17 +430,24 @@
 - refs: R-023 R-217 R-248 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P1
 
-## R-366 回退:每条用户消息一个检查点,可选对话+代码/只回退对话/只回退代码 [todo]
+## R-366 回退:每条用户消息一个检查点,可选对话+代码/只回退对话/只回退代码 [doing]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.9;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §3。B1 检查点存储(编辑前像按内容寻址存 .kanzei/artifacts/checkpoints,索引 file_checkpoints 表);B2 conversation.rewind 事件与历史重建(桌面、CLI、shadow 同口径);B3 代码还原、外部改动默认跳过、覆盖前留证、预览不会还原的内容;B4 桌面 UI(悬停回退按钮、三选项、预览确认、回填输入框、历史列表可查看已回退段)。
 - 发现记录: {"Intent":"像 CC 一样可回退到任一用户消息","Explicit":"默认对话+代码,可选只对话或只代码,外部改动默认跳过","Assumptions":"只还原编辑工具改过的文件,与 CC 行为契约一致","Ambiguities":"无阻塞项","领域对象":"文件检查点、前像 blob、隐藏区间、回退点","最小成功闭环":"一轮 edit 后回退,文件与对话同时回到该消息之前","延后决策":"检查点 blob 清理策略;冲突文件 diff 展示"}
 - 复杂度: 大
-- 批次: 0/4
+- 批次: 1/4
 - 来源: 用户 2026-09-25 原话「回退我很常用很重要」,回退范围选「对话+代码」
 - 标签: 核心
 - 边界: 不做模型回退工具与 CLI 回退命令;不还原 bash、git、追踪文档、记忆与附件;检查点 blob 的清理随 R-245 配额机制处理
 - 验收: ①edit/write/insert 首次触碰文件时保存前像,新建文件记为原本不存在,无 run_id 的调用无副作用;②回退对话后桌面、下一轮 prior 与 kz run 都看不到被回退段,历史列表可只读打开回退前原貌;③回退代码恢复前像并删除检查点后新建的文件,外部改动过的文件默认跳过并列出,确认后才覆盖且覆盖前留证;④预览列出将恢复与删除的文件,以及不会还原的 bash、提交、追踪文档与记忆写入;⑤运行中或有排队输入时拒绝回退;⑥不新增模型工具
 - refs: R-242 R-245 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P1
+- 进展: B1 已提交于 ef114f4c（atomic_file.rs、store/{mod.rs,schema.rs,file_checkpoints.rs}、tools/{edit.rs,write.rs}）：原子字节写、schema v24/file_checkpoints 表、每 run/path 首次前像、SHA256 blob、new-file 不存在哨兵、后像哈希；Write/Edit/Insert 接线。无 run_id/空 project_root 跳过检查点和 write-log副作用；带身份日志 path/run/process 保留。D-757 已 fixed。证据：T-1786922727053 tools fmt+573 passed/1 ignored+Clippy，T-1786922727054 base 23 passed，T-1786922727055 core 298 passed，T-1786922727056 verify.ps1 当前提交全绿并绑定 ef114f4c；全项在 commit ef114f4c。B2 冻结方案已向用户确认，等待批准/调整，未写 B2 代码。
+- observed_head: ef114f4c2aa733d6ef5454ef240c5b9c6cd17513
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790354370498
+- 确认记录: 2026-09-26 波次审计更正:用户未对单个批次作答;09-25 23:17 B1 冻结方案发出后只收到自动续跑提示「继续推进,规则按系统提示执行。」,不构成授权,也不存在「仅授权 B1」的限定(见 D-764)。R-366 整体方案经用户 2026-09-25「直接登记就行」批准,B2-B4 按 docs/design/cc_codex_alignment_impl_maps.md §3 实施,无需逐批授权;09-26 00:38 的 question(seq 12791)作废。
+- 阻塞: 
+- 停车: 排队:R-245 收尾后按实施地图 §3 继续 B2;B1 记录口径偏离见 D-762(已在发版分支修复,待核验);解除条件:R-245
 
 ## R-367 先读后写:edit/write/insert 对未读或读后被改的文件返回纠错码 [todo]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.6;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §4。B1 ReadLedger 与 ToolCtx 接线(含与 content_hash 格式一致的流式 hash);B2 read 记账与三个写工具的门禁;B3 桌面与 CLI 生产接线,子代理使用独立账本。
@@ -579,3 +579,14 @@
 - 验收: ①分叉新建一条线,历史截止到被点中消息之前,原文回填新线输入框,原线事件不变;②分叉不带代码状态,从 worktree 线分叉时明确提示;③新线首轮 prior 即种子历史,conversation_list 中显示为一段;④种子只写一条 LegacySeeded 事实
 - refs: R-242 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P3
+
+## R-378 文件检查点 blob 的保留、统计与清理:进入存储报告与整理入口,按回退可达范围回收 [todo]
+- 依赖: R-366
+- 内容: R-366 B1 起每个 run 首触文件的前像都写入 .kanzei/artifacts/checkpoints 与 file_checkpoints 表,但没有任何统计、配额或清理路径;R-366 边界称「随 R-245 配额机制处理」,而 R-245 配额只统计 tool-results,交接悬空。本条:存储报告单列 checkpoint_files/checkpoint_bytes;以 file_checkpoints.pre_blob 与回退留证 blob 为引用集构造清理计划(不能复用 session_events 引用图,否则全部 blob 被判无引用);会话删除时删除对应行;保留策略决定回退可达范围,需用户拍板。
+- 发现记录: {"Intent":"让检查点存储有上限且可整理","Explicit":"统计、清理与保留策略","Assumptions":"检查点不计入 tool-results 的 2 GiB 配额","Ambiguities":"保留天数或总量上限待用户拍板","领域对象":"检查点 blob、file_checkpoints 行、存储报告","最小成功闭环":"存储报告能看到检查点占用并能安全清理无引用 blob","延后决策":"保留策略的具体数值"}
+- 复杂度: 中
+- 来源: 波次质量审计 2026-09-26 发现 R-366 B1 的 blob 已在生产落盘而无任何清理归属;用户原话「回退我很常用很重要」决定了保留策略需要用户拍板
+- 标签: 后端
+- 验收: ①存储报告与 kz artifacts stats 单列检查点占用;②清理计划只回收无引用 blob 并有 dry-run;③会话删除同步删除检查点行;④保留策略经用户拍板后实施并有测试
+- refs: R-366 R-245 docs/design/bootstrap_quality_audit.md
+- 优先级: P2

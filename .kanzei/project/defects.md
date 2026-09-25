@@ -90,7 +90,7 @@
 - recorded_at: 1788803219458
 - 阻塞: 用户：在 kzapp 安装位空闲后允许 agent 执行一次修复版本安装/启动，并用 UIA 点击长历史项目的运行画像验证窗口仍可响应；解除条件:用户
 
-## D-748 commands 注册表只进提示词、从不展开参数,按「接线或删」原则删除 [open] (low)
+## D-748 commands 注册表只进提示词、从不展开参数,按「接线或删」原则删除 [fixing] (low)
 - 复杂度: 小
 - 复现: crates/kanzei-harness/src/markdown.rs:30-41 与 152-173 扫描 commands/*.md 并把「可用命令」清单拼进 core/commands_skills;全仓除测试 markdown.rs:322 外没有任何消费方,UI 与 CLI 也没有 /命令 入口,$ARGUMENTS 从不展开
 - 影响: 提示词里列出实际不可用的能力(D-173 失效模式);direction_taste.md v0 已判定「接线或删,不许半吊」,用户 2026-09-25 明确不要 skills/commands 接线
@@ -99,33 +99,143 @@
 - 验收: ①commands 目录不再被扫描,也不出现在 system baseline;②skills 清单照旧注入;③CommandDef、HarnessDraft.commands、HarnessSnapshot::commands() 从代码中移除且编译通过;④账单 key 改为 core/skills;⑤harness_m1.md、架构索引与代码注释同步为五类注册表
 - refs: D-184 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P3
+- 进展: 验收核对（代码提交 1eccdaac，HEAD 现已包含）：①commands 不再扫描：MarkdownComponent 仅扫 agents/skills，scan_commands 已删除；markdown.rs 测试创建 commands/release.md 并断言 system baseline 不含命令；②skills 仍注入：markdown.rs 写入 core/skills，测试检查 build 技能及 SKILL.md 提示；③CommandDef、HarnessDraft.commands、HarnessSnapshot::commands() 与 re-export 已删除，cargo test -p kanzei-harness 171 项通过；④账单 key 已改为 core/skills；⑤harness_m1.md 与 harness.rs/lib.rs/registry.rs 注释同步五类注册，markdown.rs 注释移除 template 承诺，但架构索引行未能更新。提交仅含 defs.rs、harness.rs、lib.rs、markdown.rs、registry.rs、docs/design/harness_m1.md；未含 R-245 或 .kanzei。证据：T-1786922727024 workspace fmt、T-1786922727025 harness 171/171、T-1786922727026 harness Clippy 通过。architecture.get 仍报告五个既有非 snake_case 文档名，architecture.update 专用通道因此拒绝；不扩大到重命名无关文档，故验收⑤保留缺口、D-748 不关闭。
+- observed_head: 1eccdaacf32fe1d4b2d05c9d46f17f30f64bb10a
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790341135374
+- 阻塞: 
+- 停车: 排队:README.md、docs/目录.md 与架构索引 harness_m1 描述已同步,architecture 工具已按 D-755 修复(均在 release/2026-09-26 发版分支);待核验后关闭;解除条件:D-755
 
-## D-749 记忆 refs 引用 M-* 永远校验失败:MEMORY 文档种类指向不存在的 .kanzei/project/memory.md [open] (medium)
+## D-755 架构索引的既有五个非 snake_case 文档名使专用更新通道拒绝所有修改 [fixing] (medium)
+- 复现: architecture.get 在 HEAD eab92725 返回 5 个 validation issue：oc-playback.md、oc-production.md、oc-idle-direction.md、oc-h3-deployment.md、oc-voice-direction.md 均被判为非 snake_case；architecture.update 因索引整体校验失败而拒绝写入，因此无法更新 D-748 要求同步的 harness_m1.md 索引描述。
+- 影响: architecture 索引当前不能通过专用工具更新，任何修正单行索引元数据的需求都会被五个既有命名问题阻断。
+- 来源: self-found：执行 D-748 前置核验 architecture.get 时发现；HEAD eab92725。
+- 标签: 流程
+- refs: D-748
+- 优先级: P2
+- 进展: 核验：architecture.get 当前返回 5 项命名校验错误，索引行 17、19-22 对应 docs/design/oc-playback.md、oc-production.md、oc-idle-direction.md、oc-h3-deployment.md、oc-voice-direction.md。专用校验要求文件名本身为 snake_case，且磁盘上的设计文档必须全部入索引，因此仅改索引不能解除。D-748 的现有阻塞已明确要求用户决定是否批准五份设计文档重命名并修复全仓引用，或允许 D-748 验收⑤降级；本条是该阻塞的直接原因，未改任何文档。等待用户明确选择后再继续。
+- 阻塞: 
+- observed_head: 4ddea60c4c646e370f621276244be9d97690c829
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790347530848
+- 停车: 排队:architecture.update 已改为只拒绝本次新增的校验问题,oc-*.md 存量命名不再阻塞写入(release/2026-09-26 发版分支);复现中「HEAD eab92725」的归因应为 d4e230d8 提交的 oc-*.md;待核验后关闭;解除条件:R-364
+
+## D-759 手机 question 卡片被 3 秒整表重绘抹掉输入,冒烟桩掉轮询造成假绿 [fixing] (high)
 - 复杂度: 小
-- 复现: crates/kanzei-memory/src/memory/mod.rs:310-361 的 validate_source_refs 把 M- 前缀映射到 MEMORY 文档种类(crates/kanzei-memory/src/docstore/model.rs:108-120,路径 .kanzei/project/memory.md);该文件在本仓不存在,DocStore::load 遇 NotFound 返回空列表,任何 M- 编号都查不到;真实记忆文件在 .kanzei/memory/ 与 archive/
-- 影响: 记忆条目之间无法互相引用(memory_note 与 memory-manager 写入 M-* refs 必被拒);文档引用图无法正确识别记忆节点
-- 来源: 2026-09-25 文档引用勘察(只读);mod.rs:1746 的测试断言 M-042 报错,未覆盖真实存在的记忆编号
+- 复现: crates/kanzei-app/mobile-pwa/app.js:206 每次轮询 container.innerHTML="" 后重建卡片,:243 setInterval(render,3000);:306 重建时输入值重置为 ask.default,多选 Set 丢失;scripts/ui-mobile-approval-smoke.mjs:143-144 以 globalThis.setInterval=()=>0 禁掉轮询后才通过;该冒烟未接入 verify.ps1/CI
+- 影响: 真机上文本作答与多选最多 3 秒就被清空,D-751 验收①③在真实使用中不可用;冒烟属证据替身(假绿),D-751 关闭叙述未披露
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 前端
+- 进展: 已在 release/2026-09-26 分支的发版提交中修复(提交号见该分支日志);待自举循环按验收逐条核验、补测试记录后关闭。
+- 验收: ①轮询按 ask id 对账,已存在卡片的输入、多选状态与焦点跨轮询保留;②提交中不产生二次提交;③冒烟去掉 setInterval 桩,等待超过 3 秒后断言输入保留,并接入 ui-runtime-smoke;④取消改为显式 cancel 字段,答案文本 cancel 不再被当成取消
+- refs: D-751 docs/design/bootstrap_quality_audit.md
+- 优先级: P1
+- 停车: 暂挂:修复已在 release/2026-09-26 发版分支完成,合入本分支前请勿另行实现(避免同一缺陷两套实现);合入后由审计会话清除本停车再核验关闭;解除条件:用户
+
+## D-760 R-245 B8 配额:每次工具调用加锁全扫目录、超限只剩 120 字、锁超时判失败 [open] (medium)
+- 复杂度: 中
+- 复现: crates/kanzei-core/src/runner/tool_exec.rs:272-289 不超过阈值的结果也先取跨进程独占锁再递归扫描 tool-results(主树 shadow 已 1.4 万文件,冷扫描约 5.5 秒,同步 IO 跑在 tokio 循环里);:341-347 超限只保留 preview() 的首行 120 字;:306-319 锁超时或计量失败走 fail_tool_result_spill,已成功的输出被判 Failed 且原文丢弃;display 被整体覆盖,终端块消失
+- 影响: 几乎每次工具调用增加数十毫秒到秒级阻塞且随调用次数线性恶化;配额满后模型拿不到结果正文;有副作用的命令被误报失败可能被重跑;用户「超了退回截断」的裁决被弱化且进展未披露
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
 - 标签: 后端
-- 验收: ①M-* 引用按 .kanzei/memory/ 与 archive/ 的真实文件校验,存在即通过;②不存在的 M 编号仍被拒;③补测试:临时项目放置 M-001 文件后 validate_source_refs 通过
-- refs: R-070 docs/design/doc_reference_graph.md
+- 进展: 已在 release/2026-09-26 分支的发版提交中修复(提交号见该分支日志);待自举循环按验收逐条核验、补测试记录后关闭。
+- 验收: ①不超过外置阈值的结果不取锁、不扫描;②外置路径的计量排除 shadow 子目录;③超限时保留头 8 KiB 加尾 4 KiB 并注明省略字节与不可回取;④锁超时与计量失败降级为同样的截断且不改变工具的成败;⑤保留工具原有 display 并附配额信息,前端显示配额提示;⑥复用已存在的同 sha 外置文件不受配额阻挡
+- refs: R-245 docs/design/bootstrap_quality_audit.md
+- 优先级: P1
+- 停车: 暂挂:修复已在 release/2026-09-26 发版分支完成,合入本分支前请勿另行实现(避免同一缺陷两套实现);合入后由审计会话清除本停车再核验关闭;解除条件:用户
+
+## D-761 D-750 回归:依赖视图把依赖环上的条目显示为可做 [open] (medium)
+- 复杂度: 小
+- 复现: crates/kanzei-app/ui/12-docs-pages.js:376-381 只识别「未完成依赖:」「依赖不存在:」两种理由;引擎 crates/kanzei-tools/src/tracker/scheduling.rs:420/435-438 对环上条目只给「循环依赖:」理由,于是环成员被放进「可做(依赖已满足)」层
+- 影响: 与 D-750 验收②「与引擎判定一致」相反,重新误导人工排期
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 前端
+- 进展: 已在 release/2026-09-26 分支的发版提交中修复(提交号见该分支日志);待自举循环按验收逐条核验、补测试记录后关闭。
+- 验收: ①block_reasons 含「循环依赖:」的条目进被阻塞层;②ui-runtime-smoke 增加互相依赖的环夹具并断言两条均为被阻塞
+- refs: D-750 docs/design/bootstrap_quality_audit.md
+- 优先级: P2
+- 停车: 暂挂:修复已在 release/2026-09-26 发版分支完成,合入本分支前请勿另行实现(避免同一缺陷两套实现);合入后由审计会话清除本停车再核验关闭;解除条件:用户
+
+## D-762 R-366 B1 偏离实施地图裁决:树根与相对路径口径错误、每次写开两次库、捕获失败记错前像 [open] (medium)
+- 复杂度: 中
+- 复现: crates/kanzei-tools/src/write.rs:63 tree_root 取 ctx.cwd(CLI 在子目录运行时为子目录),:65 与 edit.rs:548/792 的 rel_path 照抄 input.path;crates/kanzei-core/src/store/file_checkpoints.rs:56/111 capture 与 postimage 各开一次 SessionStore 且在 async 中同步执行;前像捕获失败后同 run 下一次触碰会把中间态记成前像;命名未用 file_checkpoint_ 前缀;StoreError::Io 文案固定为 file checkpoint
+- 影响: 检查点记录口径是 B3 还原的数据基础,错误行随本次发版开始落库;每次编辑多两次 SQLite 连接并阻塞运行时;回退可能静默还原到中间态
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 后端
+- 进展: 已在 release/2026-09-26 分支的发版提交中修复(提交号见该分支日志);待自举循环按验收逐条核验、补测试记录后关闭。
+- 验收: ①tree_root 为代码树根,rel_path 由绝对路径相对树根计算;②每次写入只开一次库且在 spawn_blocking 中完成;③捕获失败留哨兵行,后续触碰不补采前像;④超过 10 MiB 的文件不整读;⑤命名改为 file_checkpoint_ 前缀,Io 文案中性,补 v24 注释
+- refs: R-366 D-757 docs/design/cc_codex_alignment_impl_maps.md docs/design/bootstrap_quality_audit.md
+- 优先级: P2
+- 停车: 暂挂:修复已在 release/2026-09-26 发版分支完成,合入本分支前请勿另行实现(避免同一缺陷两套实现);合入后由审计会话清除本停车再核验关闭;解除条件:用户
+
+## D-763 引擎注入规范把提交门禁写成 all-targets clippy,导致 D-754/D-758 叙述失实 [open] (low)
+- 复杂度: 小
+- 复现: crates/kanzei-harness/assets/default_conventions.md:75 称提交门禁跑 cargo clippy --workspace --all-targets;实际 git.rs:781-811 与 verify.ps1:134-141 都不含测试目标,只有手动触发的 ci.yml 带 --all-targets
+- 影响: 模型按错误门禁描述判断风险,测试代码 lint 只在 CI 红而本地一直绿;D-754 严重度被高估,D-758 时间线叙述与事实矛盾
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 流程
+- 进展: 已在 release/2026-09-26 分支的发版提交中修复(提交号见该分支日志);待自举循环按验收逐条核验、补测试记录后关闭。
+- 验收: ①规范写明提交门禁、verify、CI 各自的 clippy 口径;②写明改测试代码时需自跑 --all-targets clippy;③守护测试保持通过
+- refs: D-754 D-758 docs/design/bootstrap_quality_audit.md
+- 优先级: P2
+- 停车: 暂挂:修复已在 release/2026-09-26 发版分支完成,合入本分支前请勿另行实现(避免同一缺陷两套实现);合入后由审计会话清除本停车再核验关闭;解除条件:用户
+
+## D-764 自动续跑提示被当成用户授权:R-366 写入不存在的确认记录并挂用户阻塞 [open] (medium)
+- 复杂度: 中
+- 复现: session_events seq 10634 循环请求用户批准 B1 冻结方案;seq 10645 唯一的 user 消息是自动续跑提示「继续推进,规则按系统提示执行。」;seq 10654 循环据此自述「仅批准该冻结方案,B2-B4 不在授权范围」,随后在 R-366 写入「确认记录: 此前用户确认仅授权 B1」并以「解除条件:用户」阻塞 B2;压缩纪要把 work next 锁定改写成了用户指令
+- 影响: tracker 出现冒用用户名义的记录;用户最看重的 P1 回退被一个从未设下的授权门卡住;同样的逻辑可能放行真正需要确认的动作
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 核心
+- 验收: ①自动续跑与 nudge 消息在模型上下文中带「自动」标记,不能被当作对 question 或方案请求的答复;②压缩纪要的用户指令清单只收用户原话;③tracker 写入声称「用户确认/授权」时须引用已作答 question 的 call_id 或真实用户消息;④规范写明:从用户已审阅的设计文档登记且带裁决的条目视为方案已确认,分批实施不需逐批授权
+- refs: R-366 R-322 docs/design/bootstrap_quality_audit.md
+- 优先级: P1
+
+## D-765 自举提交只提交代码,tracker 关闭记录长期停留在未提交工作副本 [open] (medium)
+- 复杂度: 中
+- 复现: d4e230d8..811497b8 共 11 个自举提交无一包含 .kanzei/project;D-748~D-758 的关闭记录、R-245/R-364/R-366 进展与约 470 行测试记录只存在主树未提交副本;压缩纪要(seq 11435)显式排除 .kanzei/project/defects-archive.md
+- 影响: 工作机无异地备份,工作树被重置即永久丢失关闭证据;仓库内 tracker 与提交历史不一致(HEAD 中 D-749~D-751 仍为 open)
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 流程
+- 验收: ①结构化 git 提交把本条目对应的 tracker 块与代码同批提交(共享文件只暂存本条目的块);②关闭动作后的 tracker 改动在下一次提交前入库;③补回归测试
+- refs: docs/design/bootstrap_quality_audit.md
 - 优先级: P2
 
-## D-750 依赖视图把依赖已归档终态条目的需求误判为被阻塞,与引擎 block_reasons 不一致 [open] (low)
+## D-766 发版 verify 在未提交的 .kanzei 索引上通过,已提交树的时效门禁实际是红的 [open] (medium)
 - 复杂度: 小
-- 复现: crates/kanzei-app/ui/12-docs-pages.js:374 的已完成集合只取快照中的活跃条目;依赖已归档(终态)条目的需求会被放进「被阻塞」层,而引擎 crates/kanzei-tools/src/tracker/scheduling.rs:424-425 认为不阻塞
-- 影响: 依赖视图显示的阻塞状态与取活引擎不一致,误导人工排期
-- 来源: 2026-09-25 文档引用勘察(只读)
-- 标签: 前端
-- 验收: ①依赖指向归档终态条目时,视图判为可做;②与引擎 block_reasons 对同一快照的判定一致;③ui-runtime-smoke 补一个依赖归档条目的夹具
-- refs: R-307 R-111 docs/design/doc_reference_graph.md
+- 复现: build-d4e230d8 提交了 docs/design/oc-*.md 与 research_library.md,但对应架构索引行留在工作副本未提交;verify.ps1 的干净判定只看 crates/scripts/.github/Cargo.*,时效门禁读的是工作副本;2026-09-26 在 ec5dc41f 干净工作树跑 verify -Full,crate_sync 的设计时效门禁失败(index 56 条 vs 磁盘 63 篇)
+- 影响: 发版证据与发布提交的真实状态不一致,已提交树过不了自己的门禁
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 发布
+- 验收: ①verify/package 对 .kanzei/project/architecture 与 docs/design 的未提交改动视为不干净,或门禁读取 HEAD 内容;②回归测试覆盖「索引行未提交」场景
+- refs: docs/design/bootstrap_quality_audit.md
+- 优先级: P2
+
+## D-767 自找缺陷的验收在关单时才补写或缺失,验收对账门禁形同自证 [open] (low)
+- 复杂度: 小
+- 复现: defects-archive 中 D-752、D-754、D-756 的「验收」字段出现在 observed_head/recorded_at 之后,是关单那次 update 才追加;D-757、D-758 无验收字段仍被关成 fixed;action_helpers.rs 的对账门禁找不到带圈条款即放行
+- 影响: 三方核对(验收原文、实现、关闭叙述)被实现者现写的条款取代,沉默降级无法被机制发现
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 流程
+- 验收: ①self-found 缺陷登记时必须带验收;②关闭时若验收在实施之后才首次写入,关闭遥测标记 acceptance_post_hoc;③无验收的关闭在遥测中记为不适用而非已对账
+- refs: docs/design/bootstrap_quality_audit.md
 - 优先级: P3
 
-## D-751 手机端 question 卡片只有批准/拒绝,并把 allow/deny 当作答案文本回给模型 [open] (medium)
+## D-768 D-756 只改了 schema 提示,update/close 漏传顶层 id 的运行期报错仍不指路 [open] (low)
 - 复杂度: 小
-- 复现: crates/kanzei-app/mobile-pwa/app.js:205-224 对 kind=question 的卡片也只渲染「批准/拒绝」按钮并提交 allow/deny;crates/kanzei-app/src/mobile.rs:463-468 对 AskRequest::Question 把回复原样作为 AskResponse::Answer 返回,模型收到「User answer: allow」
-- 影响: 在手机上回答模型提问会给出无意义答案并污染对话;question 批量化后同一批问题会被塞入多个 allow
-- 来源: 2026-09-25 CC/Codex 对齐勘察(question 批量化条目核对时发现)
-- 标签: 前端
-- 验收: ①手机端 question 卡片显示问题、选项与文本输入,提交真实答案;②不再把 allow/deny 作为 question 的答案;③选项为空时可输入自由文本;④补手机桥的回归测试
-- refs: R-270 R-059
-- 优先级: P2
+- 复现: crates/kanzei-tools/src/tracker/actions.rs:372-374 仍只报「`id` is required」,不检测 fields 里的 id;Anthropic 线路会摘掉顶层 allOf(anthropic.rs:416-433),DeepSeek/Chat 非 strict 不强制;schema 条件只覆盖 update 不含 close
+- 影响: 漏传顶层 id 的问题在各 provider 上都只得到一句描述提示,出错后的纠正信息没有改善
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 后端
+- 验收: ①id 缺失且 fields 含 id 或编号时返回 MISSING_TOP_LEVEL_ID 定向纠错;②schema 条件覆盖 update 与 close;③单测走 update_close 真实分支
+- refs: D-756 docs/design/bootstrap_quality_audit.md
+- 优先级: P3
+
+## D-769 ci.yml 只有手动触发,代码注释与规范却称 CI 每次 push 兜底 [open] (low)
+- 复杂度: 小
+- 复现: .github/workflows/ci.yml 只有 workflow_dispatch;crates/kanzei-tools/src/git.rs:791-792 注释称「CI 每次 push 兜住」;d4e230d8 发版时 CI 口径的 all-targets clippy 已是红的而无人发现
+- 影响: 测试代码 lint 与全量测试没有任何自动门禁,注释给出错误安全感
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 发布
+- 验收: ①二选一:给 ci.yml 加 push 触发,或改正注释并让 package/full verify 跑一次 all-targets clippy;②规范与注释口径一致
+- refs: docs/design/bootstrap_quality_audit.md
+- 优先级: P3

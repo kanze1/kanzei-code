@@ -12016,3 +12016,470 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 六项前端检查通过；Playwright 验证启动、用户选题、暂停恢复、刷新恢复、调整预算不自动启动和课题隔离；运行时新增前台及后台两轮研究续跑保持 profile/topic/prompt，等待选题停机。浏览器使用模拟 IPC，未执行真实 provider/SSH/GPU/安装版桌面 E2。截图 output/playwright/workspaces/auto-research-map.png。
 - 关联: R-363
 - 收尾: 1789980335
+
+## T-1786922727000 R-363 完整流程 Rust 工作区回归 [passed]
+- 命令: cargo test --workspace; cargo fmt --all -- --check; cargo clippy --workspace -- -D warnings
+- 摘要: 1606 passed / 0 failed / 2 既有 ignore；工作流定向 9 项通过。覆盖矩阵与配对种子、失败结果、旧版扩展、数值与引用检查、审阅输入变化；SSH workdir 引号命令断言通过。日志 output/auto-research-full-cargo-test.log 与 auto-research-clippy.log。
+- 关联: R-363
+- 收尾: 1789986963
+
+## T-1786922727001 R-363 前端六项冒烟与实际交互预览 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-workspace-smoke.mjs
+- 摘要: 六项检查通过。真实 Edge/Playwright 验证启动、选题、暂停/恢复、刷新、课题隔离、GPU/矩阵进度及 PDF、源码、清单实际点击；文本在 Monaco 显示，修复 AMD 翻译顺序、Worker 路径与缺失 JSON 包。IPC 为夹具，非安装版桌面 E2。日志 output/auto-research-browser.log；截图 output/playwright/workspaces/auto-research-completed.png。
+- 关联: R-363
+- 收尾: 1789986963
+
+## T-1786922727002 R-363 两例真实 CUDA 到论文 PDF 验收 [passed]
+- 命令: cargo run -p kanzei-tools --example auto_research_cases -- output/auto-research-acceptance-02
+- 摘要: RTX 4090：freshness 10 次真实运行、8 项完整矩阵、均值 0→1、1 次编译；compression 11 次（含注入失败）、8 项矩阵、1→0.115451393，2 次编译（先失败后修复）。两例 completed，各 2 页 PDF，全部页面渲染检查；PDF 哈希/报告/逐次编译诊断核对通过。确定性驱动提供决策和正文，HTTP/GPU/工具/TeX 为真实执行，不代表 LLM 自主质量。证据 output/auto-research-acceptance-02/results.json 与 artifact-checks.json。
+- 关联: R-363
+- 收尾: 1789986963
+
+## T-1786922727003 R-363 独立课题库 Rust 验证 [passed]
+- 命令: cargo test --workspace; cargo clippy -p kanzei-app --all-targets -- -D warnings
+- 摘要: 1611 passed, 0 failed, 2 existing ignored；新增独立目录与会话恢复、同名旧课题隔离、并发登记和损坏登记表保护测试；Clippy 通过。output/research-library-workspace-tests.log、output/research-library-clippy.log。
+- 关联: R-363
+- 收尾: 1789998230
+
+## T-1786922727004 R-363 独立课题真实浏览器两场景 [passed]
+- 命令: node scripts/ui-workspace-smoke.mjs
+- 摘要: 无开发项目创建并重载独立课题；两个项目的同名课题隔离及迟到快照；可选关联不改变存储；开发任务恢复；AUTO research 及论文/源码/清单点击预览；三个视口六页面。真实 Edge，IPC 夹具，不冒充桌面后端端到端。
+- 关联: R-363
+- 收尾: 1789998230
+
+## T-1786922727005 R-363 当前工作树六项前端检查 [failed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: lint、parallel-lines、a11y、markdown 通过。runtime 和 i18n 未通过：当前工作区另批记忆页/导航/线路/语音修改仍在进行，缺失文案与旧记忆页断言失败；本次课题/LaTeX 断言未报告失败。不宣称前端全绿。
+- 关联: R-363
+- 收尾: 1789998230
+
+## T-1786922727006 R-245 配额与 spill 定向测试 [failed]
+- 命令: cargo test -p kanzei-core runner::tool_exec::tests -- --nocapture
+- 摘要: 19 个 runner::tool_exec 测试中 18 通过；新增超配额用例的断言误把预置 existing.data 普通文件当成 artifact，配额截断路径本身通过其余行为断言。
+- 关联: R-245
+- 收尾: 1790337709
+- 源码指纹: v2 crates/kanzei-core/src/runner/tool_exec.rs@44036401bc7a
+
+## T-1786922727007 R-245 配额与 spill 定向测试 [passed]
+- 命令: cargo test -p kanzei-core runner::tool_exec::tests -- --nocapture
+- 摘要: 19 个 tool_exec 定向测试全过；覆盖 2 GiB 常量、递归统计含 shadow、超限 Inline 截断且无 spill 文件、恰好到上限仍可外置，以及现有 shadow/失败/重启恢复路径。
+- 关联: R-245
+- 收尾: 1790337741
+- 源码指纹: v2 crates/kanzei-core/src/runner/tool_exec.rs@720e5611e526
+
+## T-1786922727008 R-245 kanzei-core crate 测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: kanzei-core 全部 292 项单元测试通过，doc-tests 0 项。
+- 关联: R-245
+- 收尾: 1790337900
+- 源码指纹: v2 crates/kanzei-core/src/runner/tool_exec.rs@720e5611e526
+
+## T-1786922727009 R-245 workspace Rust 格式检查 [failed]
+- 命令: cargo fmt --all -- --check
+- 摘要: 格式检查仅报告 tool_exec.rs 本次修改的 import 顺序、空行、换行格式差异，无语义或编译失败。
+- 关联: R-245
+- 收尾: 1790337900
+- 源码指纹: v2 crates/kanzei-core/src/runner/tool_exec.rs@720e5611e526
+
+## T-1786922727010 R-245 kanzei-core crate 测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: 格式调整后复跑 kanzei-core 全量 crate 测试，292 项通过，doc-tests 0 项。
+- 关联: R-245
+- 收尾: 1790338037
+- 源码指纹: v2 crates/kanzei-core/src/runner/tool_exec.rs@fe3d8ffb9629
+
+## T-1786922727011 R-245 workspace Rust 格式检查 [passed]
+- 命令: cargo fmt --all -- --check
+- 摘要: workspace Rust 格式检查通过，无差异。
+- 关联: R-245
+- 收尾: 1790338038
+- 源码指纹: v2 crates/kanzei-core/src/runner/tool_exec.rs@fe3d8ffb9629
+
+## T-1786922727012 R-363 重验 cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 47.7s
+- 摘要: 571 passed、0 failed、1 existing ignored；包含 AUTO research workflow tests。
+- 关联: R-363
+- 收尾: 1790338731
+
+## T-1786922727013 R-363 重验 cargo test -p kanzei-core [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 1.1s
+- 摘要: 292 passed、0 failed；包含研究运行存储与工具结果配额测试。
+- 关联: R-363
+- 收尾: 1790338731
+
+## T-1786922727014 R-363 重验 cargo test -p kanzei-app [failed]
+- 命令: cargo test -p kanzei-app
+- 时长: 16.0s
+- 摘要: 274 passed、1 failed：settings::tests::settings_save_preserves_comments_and_unknown_fields 在 crates/kanzei-app/src/settings.rs:1124 因测试输入引用 anthropic:claude-opus-5、解析时当前 provider 集只有 codex 而失败；根因尚待核实。
+- 关联: R-363
+- 收尾: 1790338731
+
+## T-1786922727015 R-363 六项前端冒烟（首次命令缺 Node 参数） [failed]
+- 命令: $checks = @('scripts/ui-runtime-smoke.mjs', 'scripts/ui-lint-smoke.mjs', 'scripts/parallel-lines-regression.mjs', 'scripts/ui-a11y-smoke.mjs', 'scripts/ui-i18n-smoke.mjs', 'scripts/ui-markdown-smoke.mjs'); $failed = 0; foreach ($script in $checks) { & node $script; if ($LASTEXITCODE -ne 0) { $failed++ } }; if ($failed -gt 0) { exit 1 } else { exit 0 }
+- 时长: 12.0s
+- 摘要: ui-lint、parallel-lines、a11y、i18n、markdown 通过；runtime 因命令未带 --experimental-vm-modules 在 Node 22 抛 vm.SourceTextModule is not a constructor，neuralFlowEmit 错误为后续连带。
+- 关联: R-363
+- 收尾: 1790338872
+
+## T-1786922727016 R-363 六项前端冒烟（Node 22 配置修正后） [passed]
+- 命令: $checks = @('scripts/ui-runtime-smoke.mjs', 'scripts/ui-lint-smoke.mjs', 'scripts/parallel-lines-regression.mjs', 'scripts/ui-a11y-smoke.mjs', 'scripts/ui-i18n-smoke.mjs', 'scripts/ui-markdown-smoke.mjs'); $failed = 0; foreach ($script in $checks) { & node --experimental-vm-modules $script; if ($LASTEXITCODE -ne 0) { $failed++ } }; if ($failed -gt 0) { exit 1 } else { exit 0 }
+- 时长: 20.0s
+- 摘要: 六项全通过：runtime (48 个 UI 脚本、10 个主视图)、lint、parallel-lines、a11y、i18n、markdown；runtime 使用 Node 22 所需的 --experimental-vm-modules。
+- 关联: R-363
+- 收尾: 1790338872
+
+## T-1786922727017 R-363 真实 Edge 研究工作区浏览器回归 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-workspace-smoke.mjs
+- 时长: 15.0s
+- 摘要: Edge 浏览器工作区回归通过：独立课题创建/重载、同名课题跨根隔离、可选关联、AUTO research/交付预览、开发会话恢复、迟到响应与 3×6 视口/页面布局；IPC 为 fixture，Rust 接口由 crate tests 验证。
+- 关联: R-363
+- 收尾: 1790338907
+
+## T-1786922727018 R-363 两例真实 GPU 与 LaTeX 验收 [failed]
+- 命令: cargo run -p kanzei-tools --example auto_research_cases -- output/auto-research-acceptance-03
+- 时长: 5.0s
+- 摘要: freshness 案例完成调研地图与 MVP；prepare_compute 探测到 Python 3.13.2、torch 2.8.0+cpu、gpu_available=false、gpus=[]，未开始 CUDA 运行及 LaTeX 编译。
+- 关联: R-363
+- 收尾: 1790339016
+
+## T-1786922727019 R-363 两例真实 GPU 与 LaTeX 验收（Miniconda CUDA） [passed]
+- 命令: $output = 'output/auto-research-acceptance-04'; if (Test-Path "$output/freshness/.kanzei/research/agentmem-freshness") { exit 3 }; $env:PATH = 'C:\ProgramData\miniconda3;' + $env:PATH; cargo run -p kanzei-tools --example auto_research_cases -- $output
+- 摘要: 真实 RTX 4090/CUDA 13.0 两例通过：freshness 10 次、compression 11 次本机 GPU 运行；含一次预期运行失败与一次 TeX 编译修复重试；均生成经数值/引用检查的实际 PDF（各 3 页）和带 SHA-256 的 delivery.json。决策/论文正文为确定性驱动提供，不证明一般 LLM 自主研究质量；SSH 未测。
+- 关联: R-363
+- 收尾: 1790339276
+
+## T-1786922727020 R-363 app 研究模块回归 [passed]
+- 命令: cargo test -p kanzei-app research_
+- 时长: 1.4s
+- 摘要: 研究相关 app 模块 16 项通过：AUTO 续跑/停止、独立课题创建和恢复、主题隔离、LaTeX 模板及 PDF 预览/编译记录。
+- 关联: R-363
+- 收尾: 1790339299
+
+## T-1786922727021 R-363 workspace fmt check [passed]
+- 命令: cargo fmt --all -- --check
+- 摘要: workspace 格式检查通过。
+- 关联: R-363
+- 收尾: 1790339346
+
+## T-1786922727022 R-363 kanzei-tools Clippy [passed]
+- 命令: cargo clippy -p kanzei-tools --all-targets -- -D warnings
+- 时长: 6.3s
+- 摘要: kanzei-tools all-targets Clippy 通过。
+- 关联: R-363
+- 收尾: 1790339347
+
+## T-1786922727023 R-363 kanzei-app Clippy [failed]
+- 命令: cargo clippy -p kanzei-app --all-targets -- -D warnings
+- 摘要: Clippy 在非 R-363 的 crates/kanzei-app/src/voice_service.rs:179 报 unused_io_amount：测试读取请求头时忽略 read 的实际字节数。
+- 关联: R-363
+- 收尾: 1790339347
+
+## T-1786922727024 D-748 cargo fmt workspace [passed]
+- 命令: cargo fmt --all -- --check
+- 摘要: workspace Rust 格式检查通过，未发现需格式化文件。
+- 关联: D-748
+- 收尾: 1790340822
+- 源码指纹: v2 crates/kanzei-harness/src/defs.rs@1fcfce0182c3,crates/kanzei-harness/src/harness.rs@3b84b69e506f,crates/kanzei-harness/src/lib.rs@5513bb31dc58,crates/kanzei-harness/src/markdown.rs@ed55a9f628c3,crates/kanzei-harness/src/registry.rs@5a57cbe7de37
+
+## T-1786922727025 D-748 cargo test -p kanzei-harness [passed]
+- 命令: cargo test -p kanzei-harness
+- 时长: 4.0s
+- 摘要: kanzei-harness 单元测试 171/171 通过，Doc-tests 0 项；包含 markdown::commands_are_ignored_while_skills_render_into_system_baseline。
+- 关联: D-748
+- 收尾: 1790340846
+- 源码指纹: v2 crates/kanzei-harness/src/defs.rs@1fcfce0182c3,crates/kanzei-harness/src/harness.rs@3b84b69e506f,crates/kanzei-harness/src/lib.rs@5513bb31dc58,crates/kanzei-harness/src/markdown.rs@ed55a9f628c3,crates/kanzei-harness/src/registry.rs@5a57cbe7de37
+
+## T-1786922727026 D-748 cargo clippy -p kanzei-harness [passed]
+- 命令: cargo clippy -p kanzei-harness --all-targets -- -D warnings
+- 时长: 2.0s
+- 摘要: kanzei-harness 全 targets Clippy 通过，-D warnings 无告警。
+- 关联: D-748
+- 收尾: 1790340915
+- 源码指纹: v2 crates/kanzei-harness/src/defs.rs@1fcfce0182c3,crates/kanzei-harness/src/harness.rs@3b84b69e506f,crates/kanzei-harness/src/lib.rs@5513bb31dc58,crates/kanzei-harness/src/markdown.rs@ed55a9f628c3,crates/kanzei-harness/src/registry.rs@5a57cbe7de37
+
+## T-1786922727027 D-749 M-* 源引用校验定向验证 [passed]
+- 命令: cargo fmt --all -- --check; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-memory
+- 时长: 27.0s
+- 摘要: 格式检查通过；kanzei-memory 定向测试 169/169 通过，Doc-tests 0 passed/1 ignored。新增 validate_source_refs 回归用例覆盖活跃 M-001、归档 M-002 通过及不存在 M-042 拒绝。
+- 关联: D-749
+- 收尾: 1790342096
+- 源码指纹: v2 crates/kanzei-memory/src/memory/mod.rs@0f3fd0e8053e
+
+## T-1786922727028 D-750 前端六项冒烟 [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-lint-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/parallel-lines-regression.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-a11y-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-i18n-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-markdown-smoke.mjs; exit $LASTEXITCODE
+- 摘要: 六项均通过：ui-runtime-smoke（48 个 UI 脚本、0 运行时错误）、ui-lint-smoke（80 文件）、parallel-lines-regression、ui-a11y-smoke、ui-i18n-smoke（1731 keys）及 ui-markdown-smoke；归档 R-111 fixture 的可做层断言通过。
+- 关联: D-750
+- 收尾: 1790343348
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@5fd88a82e8c1
+
+## T-1786922727029 D-750 提交门禁 kanzei-app crate test [failed]
+- 命令: cargo test -p kanzei-app
+- 时长: 51.0s
+- 摘要: 274 passed、1 failed。settings::tests::settings_save_preserves_comments_and_unknown_fields 在 settings.rs:1124 因当前 provider 清单仅 codex/global-only，测试模型 anthropic:claude-opus-5 无法解析；与已登记 D-752 一致。命令有完整 test result 与 exit code 1。
+- 关联: D-750 D-752
+- 收尾: 1790343806
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@5fd88a82e8c1
+
+## T-1786922727030 D-750 docs_snapshot IPC 定向回归 [passed]
+- 命令: cargo test -p kanzei-app docs_snapshot
+- 时长: 11.0s
+- 摘要: kanzei-app docs_snapshot 定向回归 7/7 通过，覆盖快照 IPC 形状、缓存与按需归档读取、阻塞原因与调度顺序、读失败、并发刷新及 Work Unit 投影。
+- 关联: D-750
+- 收尾: 1790343850
+- 源码指纹: v2 scripts/ui-runtime-smoke.mjs@5fd88a82e8c1
+
+## T-1786922727031 D-751 kanzei-app 全量定向测试 [failed]
+- 命令: cargo test -p kanzei-app
+- 时长: 23.0s
+- 摘要: 276 tests started; 275 passed, 1 failed. 新增 mobile::tests::approval_pending_question_fields_and_answer_roundtrip 通过。唯一失败 settings::tests::settings_save_preserves_comments_and_unknown_fields (settings.rs:1124)：当前 provider 清单只有 codex，anthropic:claude-opus-5 无法解析；已登记为 D-752。
+- 关联: D-751 D-752
+- 收尾: 1790345240
+- 源码指纹: v2 crates/kanzei-app/mobile-pwa/app.js@6cd94723584c,crates/kanzei-app/mobile-pwa/style.css@d7f5fc35d88d,crates/kanzei-app/src/mobile.rs@1384444ad2bb,scripts/ui-mobile-approval-smoke.mjs@a78151bb6ae9
+
+## T-1786922727032 D-751 移动桥 question 回归 [passed]
+- 命令: cargo test -p kanzei-app approval_pending_question_fields_and_answer_roundtrip
+- 时长: 1.0s
+- 摘要: 移动桥问答往返 1/1 通过：question 完整文本与 options/notes/default/multiple 投影正确，resource 保持截断，答案文本按原值送达 AskResponse::Answer。
+- 关联: D-751
+- 收尾: 1790345272
+- 源码指纹: v2 crates/kanzei-app/mobile-pwa/app.js@6cd94723584c,crates/kanzei-app/mobile-pwa/style.css@d7f5fc35d88d,crates/kanzei-app/src/mobile.rs@1384444ad2bb,scripts/ui-mobile-approval-smoke.mjs@a78151bb6ae9
+
+## T-1786922727033 D-751 前端回归验证第一轮 [failed]
+- 命令: node --check crates/kanzei-app/mobile-pwa/app.js; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node --check scripts/ui-mobile-approval-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-lint-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/parallel-lines-regression.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-a11y-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-i18n-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-markdown-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-mobile-approval-smoke.mjs; exit $LASTEXITCODE
+- 摘要: 两个 node --check 与 ui-runtime-smoke（48 脚本）通过；ui-lint-smoke 在新增测试脚本第 144 行报告 `window` no-undef，按命令短路，后续标准冒烟与 PWA 浏览器脚本未运行。本次失败为测试脚本 lint 环境声明问题。
+- 关联: D-751
+- 收尾: 1790345461
+- 源码指纹: v2 crates/kanzei-app/mobile-pwa/app.js@6cd94723584c,crates/kanzei-app/mobile-pwa/style.css@d7f5fc35d88d,crates/kanzei-app/src/mobile.rs@1384444ad2bb,scripts/ui-mobile-approval-smoke.mjs@a78151bb6ae9
+
+## T-1786922727034 D-751 六项前端冒烟与 PWA 问答交互 [passed]
+- 命令: node --check crates/kanzei-app/mobile-pwa/app.js; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node --check scripts/ui-mobile-approval-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node --experimental-vm-modules scripts/ui-runtime-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-lint-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/parallel-lines-regression.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-a11y-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-i18n-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-markdown-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ui-mobile-approval-smoke.mjs; exit $LASTEXITCODE
+- 摘要: 前端六项标准回归全通过（ui-runtime、ui-lint、parallel-lines、a11y、i18n、markdown）；node --check 两文件通过；新增 Edge PWA 交互断言通过：单选真实选项、空选项自由文本、多选加补充文本、permission 保持批准/拒绝且 question 未提交 allow/deny。
+- 关联: D-751
+- 收尾: 1790345668
+- 源码指纹: v2 crates/kanzei-app/mobile-pwa/app.js@6cd94723584c,crates/kanzei-app/mobile-pwa/style.css@d7f5fc35d88d,crates/kanzei-app/src/mobile.rs@1384444ad2bb,scripts/ui-mobile-approval-smoke.mjs@db19964729cf
+
+## T-1786922727035 D-751 kanzei-app crate 回归（排除 D-752 单项） [passed]
+- 命令: cargo test -p kanzei-app -- --skip settings::tests::settings_save_preserves_comments_and_unknown_fields
+- 时长: 14.0s
+- 摘要: kanzei-app 275/275 通过，明确跳过唯一已归属 D-752 的 provider 环境测试；D-751 移动桥 regression 在本次 crate 运行中通过。完整未跳过运行仍为 T-1786922727031 的 275/276，保留失败事实。
+- 关联: D-751 D-752
+- 收尾: 1790345949
+- 源码指纹: v2 crates/kanzei-app/mobile-pwa/app.js@6cd94723584c,crates/kanzei-app/mobile-pwa/style.css@d7f5fc35d88d,crates/kanzei-app/src/mobile.rs@1384444ad2bb,scripts/ui-mobile-approval-smoke.mjs@db19964729cf
+
+## T-1786922727036 D-752 设置保存测试隔离 provider 配置 [passed]
+- 命令: cargo fmt --manifest-path crates/kanzei-app/Cargo.toml -- --check; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-app settings_save_preserves_comments_and_unknown_fields; exit $LASTEXITCODE
+- 时长: 7.0s
+- 摘要: Cargo edition-aware fmt 检查通过；曾在 provider 清单不含 anthropic 的本机环境稳定失败的 settings_save_preserves_comments_and_unknown_fields 现 1/1 通过，因测试载荷自带 Anthropic provider。
+- 关联: D-752
+- 收尾: 1790346479
+- 源码指纹: v2 crates/kanzei-app/src/settings.rs@cfe562f9b230
+
+## T-1786922727037 D-752 kanzei-app 全 crate provider 隔离回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 14.0s
+- 摘要: kanzei-app 全 crate 276/276 通过；settings_save_preserves_comments_and_unknown_fields 现使用显式 Anthropic ProviderPayload，在本机全局配置缺少 anthropic 的环境下通过。
+- 关联: D-752
+- 收尾: 1790346516
+- 源码指纹: v2 crates/kanzei-app/src/settings.rs@cfe562f9b230
+
+## T-1786922727038 D-754 kanzei-app Clippy 全目标门禁 [passed]
+- 命令: cargo clippy -p kanzei-app --all-targets -- -D warnings
+- 时长: 7.0s
+- 摘要: kanzei-app 全目标 Clippy 检查通过；原先 unused_io_amount 告警已消失。
+- 关联: D-754
+- 收尾: 1790347226
+- 源码指纹: v2 crates/kanzei-app/src/voice_service.rs@dfc5b9ede054
+
+## T-1786922727039 D-754 kanzei-app 全 crate TCP 服务测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 14.0s
+- 摘要: kanzei-app 全 crate 276/276 通过，包含 voice_service::tests::ready_service_needs_no_launcher_or_restart 的 TCP readiness 探测回归。
+- 关联: D-754
+- 收尾: 1790347233
+- 源码指纹: v2 crates/kanzei-app/src/voice_service.rs@dfc5b9ede054
+
+## T-1786922727040 D-756 kanzei-tools tracker schema 全 crate 测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: kanzei-tools 全 crate 测试通过：571 passed、0 failed、1 ignored；tracker::tests::schema_gives_real_enums_for_each_document_kind 覆盖 req/defect 的 update id schema 与 add 必填字段。
+- 关联: D-756
+- 收尾: 1790348158
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@0c8947d48060
+
+## T-1786922727041 D-756 kanzei-tools Clippy 全目标门禁 [passed]
+- 命令: cargo clippy -p kanzei-tools --all-targets -- -D warnings
+- 时长: 10.0s
+- 摘要: kanzei-tools 全目标 Clippy 检查通过，-D warnings 下无告警。
+- 关联: D-756
+- 收尾: 1790348272
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@0c8947d48060
+
+## T-1786922727042 D-756 kanzei-tools schema 回归重跑（编译失败） [failed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 编译阶段失败，测试未运行：crates/kanzei-tools/src/tracker.rs:3686 在 description 断言前残留重复 description 标识符。
+- 关联: D-756
+- 收尾: 1790348373
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@d5da3d73761f
+
+## T-1786922727043 D-756 kanzei-tools schema 修复后全 crate 复验 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 50.0s
+- 摘要: 修复断言后 kanzei-tools 全 crate 通过：571 passed、0 failed、1 ignored；schema_gives_real_enums_for_each_document_kind 现验证 req/defect 的非空 update id 条件与中文顶层 id 提示。
+- 关联: D-756
+- 收尾: 1790348643
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@27c1d6a82fbf
+
+## T-1786922727044 D-756 kanzei-tools Clippy 修复后复验 [passed]
+- 命令: cargo clippy -p kanzei-tools --all-targets -- -D warnings
+- 时长: 4.0s
+- 摘要: 最终源码全目标 Clippy 检查通过，-D warnings 下无告警。
+- 关联: D-756
+- 收尾: 1790348662
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@27c1d6a82fbf
+
+## T-1786922727045 R-366 B1 定向测试（改名修复前） [passed]
+- 命令: cargo test -p kanzei-base -p kanzei-core -p kanzei-tools
+- 摘要: 退出码0；kanzei-base 23通过，kanzei-core 298通过，kanzei-tools 573通过、1 ignored。新增文件检查点、v23迁移及 edit/write/insert 有身份/无身份测试均通过。输出含两个新测试函数名的 non_snake_case 警告，需改名后再跑 Clippy/复测。
+- 关联: R-366 D-757
+- 收尾: 1790351528
+- 源码指纹: v2 crates/kanzei-base/src/atomic_file.rs@cf79b3117baa,crates/kanzei-core/src/store/file_checkpoints.rs@01e78c1a575d,crates/kanzei-core/src/store/mod.rs@e251e79ee237,crates/kanzei-core/src/store/schema.rs@2f834279674a,crates/kanzei-tools/src/edit.rs@d516a9ddc29a,crates/kanzei-tools/src/write.rs@09205c1aea4f
+
+## T-1786922727046 R-366 B1 定向 Clippy all-targets 门禁 [failed]
+- 命令: cargo clippy -p kanzei-base -p kanzei-core -p kanzei-tools --all-targets -- -D warnings
+- 摘要: 退出码101；Clippy 在未修改文件 crates/kanzei-core/src/runner/recall.rs:588 因 std::sync::Arc<std::sync::Mutex<Vec<(usize, Vec<String>)>>> 触发 clippy::type_complexity，导致 kanzei-core lib test 编译失败。base/core/tools 的 Cargo-aware fmt 检查均通过；本次未发现 R-366 新增代码的 Clippy 诊断。
+- 关联: R-366
+- 收尾: 1790351702
+- 源码指纹: v2 crates/kanzei-base/src/atomic_file.rs@219944e35295,crates/kanzei-core/src/store/file_checkpoints.rs@8561486ada7d,crates/kanzei-core/src/store/mod.rs@e251e79ee237,crates/kanzei-core/src/store/schema.rs@2f834279674a,crates/kanzei-tools/src/edit.rs@d516a9ddc29a,crates/kanzei-tools/src/write.rs@09205c1aea4f
+
+## T-1786922727047 R-366 B1 测试名修复后复验 [passed]
+- 命令: cargo test -p kanzei-base --lib write_atomic_bytes_preserves_non_utf8_bytes; cargo test -p kanzei-core --lib non_not_found_io_error_is_not_misclassified_as_missing
+- 摘要: 改名后复验成功：base 原子字节写测试1通过；core NotFound 区分测试1通过。完整 base/core/tools 定向套件已由 T-1786922727045 记录并通过。
+- 关联: R-366 D-757
+- 收尾: 1790351772
+- 源码指纹: v2 crates/kanzei-base/src/atomic_file.rs@219944e35295,crates/kanzei-core/src/store/file_checkpoints.rs@8561486ada7d,crates/kanzei-core/src/store/mod.rs@e251e79ee237,crates/kanzei-core/src/store/schema.rs@2f834279674a,crates/kanzei-tools/src/edit.rs@d516a9ddc29a,crates/kanzei-tools/src/write.rs@09205c1aea4f
+
+## T-1786922727048 R-366 B1 变更 crate Clippy（排除既有 core test lint） [passed]
+- 命令: cargo clippy -p kanzei-base --all-targets -- -D warnings; cargo clippy -p kanzei-core --lib -- -D warnings; cargo clippy -p kanzei-tools --all-targets -- -D warnings
+- 摘要: base all-targets、core lib（不含 lib test）、tools all-targets 均通过 -D warnings。完整 all-targets 命令另记为失败 T-1786922727046，唯一诊断为未修改的 crates/kanzei-core/src/runner/recall.rs:588 type_complexity。
+- 关联: R-366 D-757 D-758
+- 收尾: 1790351856
+- 源码指纹: v2 crates/kanzei-base/src/atomic_file.rs@219944e35295,crates/kanzei-core/src/store/file_checkpoints.rs@8561486ada7d,crates/kanzei-core/src/store/mod.rs@e251e79ee237,crates/kanzei-core/src/store/schema.rs@2f834279674a,crates/kanzei-tools/src/edit.rs@d516a9ddc29a,crates/kanzei-tools/src/write.rs@09205c1aea4f
+
+## T-1786922727049 D-757 空 project_root Edit/Insert 副作用回归 [passed]
+- 命令: cargo test -p kanzei-tools --lib edit_edit_insert
+- 摘要: 1/1 通过：EditTool 与 InsertTool 在 run_id 存在但 project_root 为空时完成写入，且未创建 .kanzei。
+- 关联: D-757 R-366
+- 收尾: 1790352153
+- 源码指纹: v2 crates/kanzei-base/src/atomic_file.rs@219944e35295,crates/kanzei-core/src/store/file_checkpoints.rs@8561486ada7d,crates/kanzei-core/src/store/mod.rs@e251e79ee237,crates/kanzei-core/src/store/schema.rs@2f834279674a,crates/kanzei-tools/src/edit.rs@64dd1ccba29d,crates/kanzei-tools/src/write.rs@09205c1aea4f
+
+## T-1786922727050 D-757 tools 全包定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 退出码0；573 passed、1 ignored。新增 EditTool/InsertTool 空 project_root 无 .kanzei 回归测试已包含。输出中的 git fatal / 换行警告来自既有隔离测试夹具，不影响通过结果。
+- 关联: D-757 R-366
+- 收尾: 1790352293
+- 源码指纹: v2 crates/kanzei-base/src/atomic_file.rs@219944e35295,crates/kanzei-core/src/store/file_checkpoints.rs@8561486ada7d,crates/kanzei-core/src/store/mod.rs@e251e79ee237,crates/kanzei-core/src/store/schema.rs@2f834279674a,crates/kanzei-tools/src/edit.rs@d84503a0aeac,crates/kanzei-tools/src/write.rs@09205c1aea4f
+
+## T-1786922727051 R-366 B1 kanzei-base 全 crate 测试 [passed]
+- 命令: cargo test -p kanzei-base
+- 摘要: kanzei-base 全 crate 测试 23 passed、0 failed、0 ignored；包含非 UTF-8 字节原子写测试。
+- 关联: R-366
+- 收尾: 1790352574
+- 源码指纹: v2 crates/kanzei-base/src/atomic_file.rs@219944e35295,crates/kanzei-core/src/store/file_checkpoints.rs@8561486ada7d,crates/kanzei-core/src/store/mod.rs@e251e79ee237,crates/kanzei-core/src/store/schema.rs@2f834279674a,crates/kanzei-tools/src/edit.rs@d84503a0aeac,crates/kanzei-tools/src/write.rs@09205c1aea4f
+
+## T-1786922727052 R-366 B1 kanzei-core 全 crate 测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: kanzei-core 全 crate 测试 298 passed、0 failed、0 ignored；包含 schema v23→v24 迁移与 file_checkpoints 前像/后像回归。
+- 关联: R-366
+- 收尾: 1790352581
+- 源码指纹: v2 crates/kanzei-base/src/atomic_file.rs@219944e35295,crates/kanzei-core/src/store/file_checkpoints.rs@8561486ada7d,crates/kanzei-core/src/store/mod.rs@e251e79ee237,crates/kanzei-core/src/store/schema.rs@2f834279674a,crates/kanzei-tools/src/edit.rs@d84503a0aeac,crates/kanzei-tools/src/write.rs@09205c1aea4f
+
+## T-1786922727053 D-757 身份日志真实记录回归与 tools 全包验证 [passed]
+- 命令: cargo fmt --manifest-path crates/kanzei-tools/Cargo.toml -- --check; cargo test -p kanzei-tools; cargo clippy -p kanzei-tools --all-targets -- -D warnings
+- 摘要: 全部命令退出码0；Cargo-aware fmt 通过，kanzei-tools 573 passed/1 ignored，all-targets Clippy -D warnings 通过。新增身份写日志断言核对真实 entries_after 记录的相对 path/run_id/process_id。
+- 关联: D-757 R-366
+- 收尾: 1790353159
+- 源码指纹: v2 crates/kanzei-base/src/atomic_file.rs@219944e35295,crates/kanzei-core/src/store/file_checkpoints.rs@8561486ada7d,crates/kanzei-core/src/store/mod.rs@e251e79ee237,crates/kanzei-core/src/store/schema.rs@2f834279674a,crates/kanzei-tools/src/edit.rs@65e87e4b8b63,crates/kanzei-tools/src/write.rs@a7126ac52a95
+
+## T-1786922727054 D-757 kanzei-base 定向测试 [passed]
+- 命令: cargo test -p kanzei-base
+- 摘要: kanzei-base 23 passed，覆盖 atomic_file/write_log。
+- 关联: D-757 R-366
+- 收尾: 1790353462
+- 源码指纹: v2 crates/kanzei-base/src/atomic_file.rs@219944e35295,crates/kanzei-core/src/store/file_checkpoints.rs@8561486ada7d,crates/kanzei-core/src/store/mod.rs@e251e79ee237,crates/kanzei-core/src/store/schema.rs@2f834279674a,crates/kanzei-tools/src/edit.rs@65e87e4b8b63,crates/kanzei-tools/src/write.rs@a7126ac52a95
+
+## T-1786922727055 D-757 kanzei-core 定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: kanzei-core 298 passed，包含 file_checkpoints/schema 回归。
+- 关联: D-757 R-366
+- 收尾: 1790353467
+- 源码指纹: v2 crates/kanzei-base/src/atomic_file.rs@219944e35295,crates/kanzei-core/src/store/file_checkpoints.rs@8561486ada7d,crates/kanzei-core/src/store/mod.rs@e251e79ee237,crates/kanzei-core/src/store/schema.rs@2f834279674a,crates/kanzei-tools/src/edit.rs@65e87e4b8b63,crates/kanzei-tools/src/write.rs@a7126ac52a95
+
+## T-1786922727056 D-757 当前提交 verify.ps1 [passed]
+- 命令: .\scripts\verify.ps1
+- 摘要: verify policy targeted Rust（6 changed paths）；metrics/crate-sync/BOM/IPC、fmt、workspace Clippy、UI connectivity 与完整 cargo test --workspace 全部通过，23/32/276/171/52/169/574 tests各crate全绿，dist/verification.json 绑定 ef114f4c2aa733d6ef5454ef240c5b9c6cd17513。
+- 关联: D-757 R-366
+- 收尾: 1790353932
+
+## T-1786922727057 D-758 kanzei-core 定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: kanzei-core 全 crate 298 passed、0 failed、0 ignored；包括 `runner::recall::tests::失败计数累加_供ReRetrieve判重`。
+- 关联: D-758
+- 收尾: 1790354515
+- 源码指纹: v2 crates/kanzei-core/src/runner/recall.rs@e33d0f024e95
+
+## T-1786922727058 D-758 workspace all-targets Clippy [passed]
+- 命令: cargo clippy --workspace --all-targets -- -D warnings
+- 摘要: 提交门禁完全一致的 workspace all-targets Clippy -D warnings 全绿，kanzei-core 中 type_complexity 阻断已消失。
+- 关联: D-758
+- 收尾: 1790354565
+- 源码指纹: v2 crates/kanzei-core/src/runner/recall.rs@e33d0f024e95
+
+## T-1786922727059 R-364 B1 kanzei-llm 定向测试 [passed]
+- 命令: cargo test -p kanzei-llm
+- 摘要: 53 passed, 0 failed；新增 `request::tests::tool_spec_char_len_uses_unicode_character_counts` 通过。
+- 关联: R-364
+- 收尾: 1790355805
+- 源码指纹: v2 crates/kanzei-app/src/run/mod.rs@3aeaf3faeaba,crates/kanzei-core/src/runner/drive/assembly.rs@a639938ed66a,crates/kanzei-llm/src/request.rs@d696228472ac,crates/kanzei-tools/src/profiles.rs@38bdb12debc1
+
+## T-1786922727060 R-364 B1 kanzei-core assembly 定向测试 [passed]
+- 命令: cargo test -p kanzei-core subagent_tool_surface_tests
+- 摘要: subagent_tool_surface_tests 2 passed，0 failed；assembly.rs 的 ToolSpec::char_len 调用编译并通过该回归组。
+- 关联: R-364
+- 收尾: 1790355832
+- 源码指纹: v2 crates/kanzei-app/src/run/mod.rs@3aeaf3faeaba,crates/kanzei-core/src/runner/drive/assembly.rs@a639938ed66a,crates/kanzei-llm/src/request.rs@d696228472ac,crates/kanzei-tools/src/profiles.rs@38bdb12debc1
+
+## T-1786922727061 R-364 B1 CLI schema 账单初测 [passed]
+- 命令: cargo test -p kanzei-tools tool_surface_budget -- --nocapture
+- 摘要: tool_surface_budget 4 passed；CLI Dev 当前30个 materialized ToolSpec：resident 27,474 chars、deferred 17,877、unclassified 0、all 45,351。此初测表尚未打印延迟占比，后续补充并重跑。
+- 关联: R-364
+- 收尾: 1790355893
+- 源码指纹: v2 crates/kanzei-app/src/run/mod.rs@3aeaf3faeaba,crates/kanzei-core/src/runner/drive/assembly.rs@a639938ed66a,crates/kanzei-llm/src/request.rs@d696228472ac,crates/kanzei-tools/src/profiles.rs@38bdb12debc1
+
+## T-1786922727062 R-364 B1 桌面 UI schema 账单 [passed]
+- 命令: cargo test -p kanzei-app 账单 -- --nocapture
+- 摘要: 桌面账单测试 1 passed；真实 UI 工具增量共 7 项、2,684 chars；deliver 812、frontend_locate 489、frontend_check 359、ui_screenshot 270、ui_console 256、ui_dom 253、ui_style 245。collaboration_status 另行 probe。
+- 关联: R-364
+- 收尾: 1790356060
+- 源码指纹: v2 crates/kanzei-app/src/run/mod.rs@3aeaf3faeaba,crates/kanzei-core/src/runner/drive/assembly.rs@a639938ed66a,crates/kanzei-llm/src/request.rs@d696228472ac,crates/kanzei-tools/src/profiles.rs@0e7fb3703cd8
+
+## T-1786922727063 R-364 B1 CLI schema 账单最终版 [passed]
+- 命令: cargo test -p kanzei-tools tool_surface_budget -- --nocapture
+- 摘要: 最终账单版 tool_surface_budget 4 passed；30 个当前 materialized ToolSpec：resident=27,474 chars、deferred=17,877 chars（39.42%）、unclassified=0、all=45,351；tool_search（B2）与 core task_spec 未计入。
+- 关联: R-364
+- 收尾: 1790356119
+- 源码指纹: v2 crates/kanzei-app/src/run/mod.rs@3aeaf3faeaba,crates/kanzei-core/src/runner/drive/assembly.rs@a639938ed66a,crates/kanzei-llm/src/request.rs@d696228472ac,crates/kanzei-tools/src/profiles.rs@0e7fb3703cd8
+
+## T-1786922727064 R-364 B1 kanzei-core 完整定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: 完整 kanzei-core 套件 298 passed、0 failed；覆盖 assembly 的工具 schema 计量与子代理工具面。
+- 关联: R-364
+- 收尾: 1790356478
+- 源码指纹: v2 crates/kanzei-app/src/run/mod.rs@3aeaf3faeaba,crates/kanzei-core/src/runner/drive/assembly.rs@a639938ed66a,crates/kanzei-llm/src/request.rs@d696228472ac,crates/kanzei-tools/src/profiles.rs@0e7fb3703cd8
+
+## T-1786922727065 R-364 B1 kanzei-llm 完整定向测试 [passed]
+- 命令: cargo test -p kanzei-llm
+- 摘要: 完整 kanzei-llm 套件 53 passed、0 failed；包含新增 ToolSpec 字符计数 Unicode 单测。
+- 关联: R-364
+- 收尾: 1790356496
+- 源码指纹: v2 crates/kanzei-app/src/run/mod.rs@3aeaf3faeaba,crates/kanzei-core/src/runner/drive/assembly.rs@a639938ed66a,crates/kanzei-llm/src/request.rs@d696228472ac,crates/kanzei-tools/src/profiles.rs@0e7fb3703cd8

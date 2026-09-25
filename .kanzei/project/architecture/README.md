@@ -14,6 +14,14 @@
 - [identity: live_design; last_verified_commit: 250fb219] [`cc_codex_alignment_20260925.md`](../../../docs/design/cc_codex_alignment_20260925.md)：Claude Code / Codex 能力对照与对齐清单(复刻清单 v1;接口定义与用户筛选结论,R-364~R-367、R-369~R-377、D-748、D-751 承接)。
 - [identity: live_design; last_verified_commit: 250fb219] [`cc_codex_alignment_impl_maps.md`](../../../docs/design/cc_codex_alignment_impl_maps.md)：CC/Codex 对齐条目实施地图(行号、批次、陷阱与裁决;勘察加对抗核对产出)。
 - [identity: live_design; last_verified_commit: 250fb219] [`doc_reference_graph.md`](../../../docs/design/doc_reference_graph.md)：文档引用标记、引用历史与引用图(R-368;D-749、D-750)。
+- [identity: live_design; last_verified_commit: 534e6be0] [`oc-playback.md`](../../../docs/design/oc-playback.md)：预渲染透明视频、解码时钟、角色开关与运行性能证据。
+- [identity: live_design; last_verified_commit: aa9c924a] [`oc.md`](../../../docs/design/oc.md)：角色外观、性格与连续动作表现基线。
+- [identity: live_design; last_verified_commit: aa9c924a] [`oc-production.md`](../../../docs/design/oc-production.md)：完整视频角色包、嘴型跟踪、动作衔接及验收范围。
+- [identity: live_design; last_verified_commit: aa9c924a] [`oc-idle-direction.md`](../../../docs/design/oc-idle-direction.md)：呼吸、眨眼、视线变化与待机循环的制作和检查。
+- [identity: live_design; last_verified_commit: aa9c924a] [`oc-h3-deployment.md`](../../../docs/design/oc-h3-deployment.md)：H3 固定版本、同区双卡部署与素材生成记录。
+- [identity: live_design; last_verified_commit: aa9c924a] [`oc-voice-direction.md`](../../../docs/design/oc-voice-direction.md)：角色音色方向、C 配音选择及交接约定。
+- [identity: live_design; last_verified_commit: 250fb219] [`research_library.md`](../../../docs/design/research_library.md)：独立课题身份、存储及开发项目可选关联(R-363；该提交为变更前基线，工作树增量已验证，待提交验收)。
+
 - [identity: live_design; last_verified_commit: 788dc43e] [`voice_interaction.md`](../../../docs/design/voice_interaction.md)：本机语音识别、流式播报、插话打断、人物嘴型与安装验证边界。
 - [identity: live_design; last_verified_commit: 568adcc8] [`memory_feedback_reliability.md`](../../../docs/design/memory_feedback_reliability.md)：记忆观测、恢复证据与信息呈现改造(R-361；568adcc8 为审计基线，首批代码在工作树完成定向验证，收益对照与任务上下文改造待推进)。
 
@@ -29,7 +37,7 @@
 - [identity: live_design; last_verified_commit: d374cb9f] [`memory_system.md`](../../../docs/design/memory_system.md)：Memory 系统设计基线(R-103~R-107,现行实施依据)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`model_autonomy_and_harness_intensity.md`](../../../docs/design/model_autonomy_and_harness_intensity.md)：模型自治与门禁强度——结伴/自主两档门禁、模型停机权与编排抽象层(R-322/R-323,D-661/D-662;2026-08-21 外部七点评估的逐点定调)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`phase2_system_upgrade.md`](../../../docs/design/phase2_system_upgrade.md)：自举二期 research/memory/运行体验/动画/voice 的依赖、波次、Go/No-Go 与联合验收总纲(R-283)。
-- [identity: live_design; last_verified_commit: 6d1b5de0] [`auto_research.md`](../../../docs/design/auto_research.md)：AUTO research 首批闭环：调研地图、用户选题、MVP 与结果解读、可恢复阶段及预算（R-363，当前工作树增量）。
+- [identity: live_design; last_verified_commit: f6b57f9b] [`auto_research.md`](../../../docs/design/auto_research.md)：AUTO research 完整流程：调研地图、用户选题、MVP、本机/SSH 环境、完整实验、分析与论文 PDF；两例真实 GPU 验收（R-363，当前工作树增量）。
 - [identity: live_design; last_verified_commit: 1ebbb218] [`research_experiment_runner.md`](../../../docs/design/research_experiment_runner.md)：Research 实验运行与路线图的字段与 Markdown 格式冻结(两层模型、@@kanzei 回调、本机+SSH、环境策略分档与路线图投影;A-014~A-019,R-343~R-348 承接)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`research_mode.md`](../../../docs/design/research_mode.md)：研究模式设计基线草案(2026-08-12 八维度审计维度 8 产出；八个定调点待用户确认,R-221 承接)。
 - [identity: live_design; last_verified_commit: dbafb50f] [`run_metrics_task_granularity.md`](../../../docs/design/run_metrics_task_granularity.md)：R-337 运行画像按执行任务关闭粒度的审计与设计草案；B1 已完成现状证据，B2 任务级方案待评审。

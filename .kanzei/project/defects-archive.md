@@ -8676,3 +8676,120 @@
 - observed_head: 7d172e8648eb08cb32e8959a70134d84f9770062
 - observed_worktree_hash: fnv1a64:c393184a648ee643
 - recorded_at: 1788802600617
+
+## D-749 记忆 refs 引用 M-* 永远校验失败:MEMORY 文档种类指向不存在的 .kanzei/project/memory.md [fixed] (medium)
+- 复杂度: 小
+- 复现: crates/kanzei-memory/src/memory/mod.rs:310-361 的 validate_source_refs 把 M- 前缀映射到 MEMORY 文档种类(crates/kanzei-memory/src/docstore/model.rs:108-120,路径 .kanzei/project/memory.md);该文件在本仓不存在,DocStore::load 遇 NotFound 返回空列表,任何 M- 编号都查不到;真实记忆文件在 .kanzei/memory/ 与 archive/
+- 影响: 记忆条目之间无法互相引用(memory_note 与 memory-manager 写入 M-* refs 必被拒);文档引用图无法正确识别记忆节点
+- 来源: 2026-09-25 文档引用勘察(只读);mod.rs:1746 的测试断言 M-042 报错,未覆盖真实存在的记忆编号
+- 标签: 后端
+- 验收: ①M-* 引用按 .kanzei/memory/ 与 archive/ 的真实文件校验,存在即通过;②不存在的 M 编号仍被拒;③补测试:临时项目放置 M-001 文件后 validate_source_refs 通过
+- refs: R-070 docs/design/doc_reference_graph.md
+- 优先级: P2
+- 进展: 验收逐项对账（实现提交 f1bc82da）：①活跃 M-* 由 MemoryStore::load_all、归档 M-* 由 has_archived_id 校验，限定项目 `.kanzei/memory/` 与 archive/，实现 crates/kanzei-memory/src/memory/mod.rs:330-340；临时项目建立 M-001/M-002 真实文件并验证通过，测试 crates/kanzei-memory/src/memory/mod.rs:1744-1752,1763-1764（T-1786922727027）。②不存在的编号仍拒绝，错误分支 crates/kanzei-memory/src/memory/mod.rs:337-339；M-042 拒绝断言 crates/kanzei-memory/src/memory/mod.rs:1768（T-1786922727027）。③临时项目回归夹具创建于 crates/kanzei-memory/src/memory/mod.rs:1722-1759，M-001 通过 validate_source_refs 的断言在 crates/kanzei-memory/src/memory/mod.rs:1763（T-1786922727027）。`cargo fmt --all -- --check` 与 `cargo test -p kanzei-memory` 通过，后者 169/169；记录源码指纹与提交文件一致。
+- observed_head: f1bc82daa7ed75ba7e9b33bba8714e078e3afffc
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790342540002
+
+## D-750 依赖视图把依赖已归档终态条目的需求误判为被阻塞,与引擎 block_reasons 不一致 [fixed] (low)
+- 复杂度: 小
+- 复现: crates/kanzei-app/ui/12-docs-pages.js:374 的已完成集合只取快照中的活跃条目;依赖已归档(终态)条目的需求会被放进「被阻塞」层,而引擎 crates/kanzei-tools/src/tracker/scheduling.rs:424-425 认为不阻塞
+- 影响: 依赖视图显示的阻塞状态与取活引擎不一致,误导人工排期
+- 来源: 2026-09-25 文档引用勘察(只读)
+- 标签: 前端
+- 验收: ①依赖指向归档终态条目时,视图判为可做;②与引擎 block_reasons 对同一快照的判定一致;③ui-runtime-smoke 补一个依赖归档条目的夹具
+- refs: R-307 R-111 docs/design/doc_reference_graph.md
+- 优先级: P3
+- 进展: 验收逐项对账：①依赖指向归档终态时可做：crates/kanzei-app/ui/12-docs-pages.js:374-385 用同快照依赖型 block_reasons，不再从 active-only 列表重建 done；scripts/ui-runtime-smoke.mjs:2648-2669 的 R-900→归档 R-111 fixture 断言 ready(1)/blocked(0)。②同引擎判定：docs.rs:395-400 把 active+archive 交给 dependency_states_from_documents，kanzei-tools/src/tracker/scheduling.rs:237-259 建终态表、420-428 产生依赖 block_reasons，docs.rs:421-428/461-466 将其投影给前端；UI 按相同依赖原因分层。③runtime smoke fixture：scripts/ui-runtime-smoke.mjs:2648-2672；六项前端测试 T-1786922727028 全过，docs_snapshot Rust 定向回归 T-1786922727030 为 7/7。提交 7e0331f4 只含上述两个 D-750 文件。额外 cargo test -p kanzei-app 记录 T-1786922727029 为 274/275，唯一 settings_save_preserves_comments_and_unknown_fields 因 provider 配置失败，属已登记独立 D-752，不影响 D-750 验收。
+- observed_head: 7e0331f4cdb037f8a61fb930e8ce4cba3c152877
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790344043486
+
+## D-751 手机端 question 卡片只有批准/拒绝,并把 allow/deny 当作答案文本回给模型 [fixed] (medium)
+- 复杂度: 小
+- 复现: crates/kanzei-app/mobile-pwa/app.js:205-224 对 kind=question 的卡片也只渲染「批准/拒绝」按钮并提交 allow/deny;crates/kanzei-app/src/mobile.rs:463-468 对 AskRequest::Question 把回复原样作为 AskResponse::Answer 返回,模型收到「User answer: allow」
+- 影响: 在手机上回答模型提问会给出无意义答案并污染对话;question 批量化后同一批问题会被塞入多个 allow
+- 来源: 2026-09-25 CC/Codex 对齐勘察(question 批量化条目核对时发现)
+- 标签: 前端
+- 验收: ①手机端 question 卡片显示问题、选项与文本输入,提交真实答案;②不再把 allow/deny 作为 question 的答案;③选项为空时可输入自由文本;④补手机桥的回归测试
+- refs: R-270 R-059
+- 优先级: P2
+- 进展: 验收逐项对账（实现提交 2754f25d）：①手机端显示问题、选项与文本输入并提交真实答案：mobile.rs:403-435 投影 question/options/default/multiple；mobile-pwa/app.js:246-345 渲染安全 question 卡片/选项/文本输入，337-340 提交 answerApproval；scripts/ui-mobile-approval-smoke.mjs:151-160 用真实 Edge 验证，T-1786922727034。②question 不提交 allow/deny：app.js:213-215 将 question 与 permission 分流，question 实际答案由 337-340 传入，allow/deny 仅在 permission 分支 230-234；浏览器断言 156、182-183，T-1786922727034。③选项为空时可输入自由文本：app.js:302-307 始终渲染文本框、331-340 组装/提交文本；浏览器空选项用例 162-168，T-1786922727034。④手机桥回归：mobile.rs:1036-1082 覆盖长 question、选项 label/note、default/multiple、resource 截断及 Answer 原样往返，T-1786922727032 1/1。六项前端冒烟与 PWA 交互通过 T-1786922727034；cargo test -p kanzei-app 完整运行 275/276，唯一 D-752 provider 环境失败见 T-1786922727031；明确排除该单项后的 app crate 275/275 通过 T-1786922727035。提交仅含 app.js、style.css、mobile.rs 和 ui-mobile-approval-smoke.mjs 四个文件；D-751 四项验收均有代码与测试证据。
+- observed_head: 2754f25d109ec317433568e28eb50ea4abf5351b
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790346060229
+
+## D-752 设置保存回归测试依赖本机 provider 配置 [fixed] (low)
+- 复现: 运行 `cargo test -p kanzei-app`；`settings_save_preserves_comments_and_unknown_fields` 在临时配置中写入 anthropic 模型，但 providers 为空。`settings_save_at_path_for_project` 调用 `validate_model_roles`，而 `effective_settings_config(None)` 仍读取本机全局配置；本机 provider 集合不含 anthropic 时该测试失败。
+- 影响: kanzei-app 单 crate 测试结果受运行机器的全局 provider 配置影响；本次实际为 274 项通过、1 项失败。未发现生产 UI 保存链路错误，尚未修复。
+- 来源: self-found：R-363 当前代码回归验证（HEAD eab92725）。
+- 标签: 流程
+- refs: R-363
+- 优先级: P2
+- 进展: 验收逐项对账（提交 e21dbced）：①设置保存注释/未知字段夹具在 settings.rs:1107-1129 显式提供 Anthropic ProviderPayload，primary/fast 使用同一 provider；原始注释、未知字段与保存值断言保留在 1134-1158，不再依赖 machine-global provider。Cargo edition-aware fmt 与目标单测通过 T-1786922727036。②本机全局 provider 清单不含 Anthropic 时 kanzei-app 全 crate 仍通过：cargo test -p kanzei-app 为 276/276，T-1786922727037。提交仅包含 crates/kanzei-app/src/settings.rs；未改生产设置保存路径。
+- observed_head: e21dbced566580eb1922df3b74581ef547c21044
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790346626806
+- 验收: ①设置保存注释/未知字段回归夹具显式提供 Anthropic provider，运行时不依赖本机 provider 清单；②kanzei-app 全 crate 测试在本机缺少 Anthropic 的配置下通过。
+
+## D-753 test_record 工具调用重复遗漏必填标题 [wontfix] (low)
+- 复现: R-363 当前会话中连续两轮调用 `test_record` 时都遗漏必填 `title`，三条输入被参数校验拒绝；补齐标题后才成功登记。
+- 影响: 不会造成错误测试状态写入，但增加重复工具往返，并可能让真实测试证据暂时漏记。
+- 来源: self-found：同一 R-363 执行线内 `test_record` 参数调用错误重复发生。
+- 标签: 流程
+- refs: R-363
+- 优先级: P3
+- 进展: 结论（wontfix）：本条复现记录的是 R-363 执行时 agent 两轮漏传 test_record 必填 title；工具参数校验在写入前拒绝，未产生错误测试状态。工具要求显式标题是正确契约，自动推断会引入歧义且无合适产品代码修复；缺陷描述与影响保留在本条复现/影响字段，当前执行已按契约显式传 title。
+- observed_head: e21dbced566580eb1922df3b74581ef547c21044
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790346836335
+
+## D-754 voice_service 测试服务忽略 TCP 部分读取导致 Clippy 门禁失败 [fixed] (medium)
+- 复现: 运行 `cargo clippy -p kanzei-app --all-targets -- -D warnings`；`crates/kanzei-app/src/voice_service.rs:179` 测试服务端调用 `stream.read(&mut request).await.unwrap()` 后丢弃读取字节数，触发 `clippy::unused_io_amount`。
+- 影响: kanzei-app all-target Clippy 失败；任何触发 app Clippy gate 的 Rust 提交都将被拦截。问题在 voice_service 测试辅助服务，不属于 R-363 AUTO research 功能。
+- 来源: self-found：R-363 当前代码复验。
+- 标签: 后端
+- refs: R-363
+- 优先级: P1
+- 进展: 验收逐项对账（提交 4ddea60c）：①crates/kanzei-app/src/voice_service.rs:178-194 在测试服务中累计 read 返回量直至 CRLFCRLF，2048 字节上限与 EOF 均明确失败，支持分段读取；未改生产语音逻辑。②cargo clippy -p kanzei-app --all-targets -- -D warnings 通过，T-1786922727038。③cargo test -p kanzei-app 276/276 通过，含 voice_service::tests::ready_service_needs_no_launcher_or_restart，T-1786922727039。Cargo edition-aware fmt 检查通过。提交 4ddea60c 仅包含 crates/kanzei-app/src/voice_service.rs。
+- observed_head: 4ddea60c4c646e370f621276244be9d97690c829
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790347350937
+- 验收: ①TCP 测试服务按实际读取量累计消费到 HTTP 头结束符，支持分段读取并对 EOF/2048 字节上限明确失败；②kanzei-app 全目标 Clippy 在 -D warnings 下通过；③kanzei-app 全 crate 测试通过。
+
+## D-756 defect.update 重复漏传顶层 id 导致活动进展更新失败 [fixed] (low)
+- 复现: agent 连续在 D-750、D-751 的进展 checkpoint 调用 defect.update 时，漏传顶层 id；工具以 `id is required` 拒绝，未修改条目，直到下一次纠正调用。对应 execution incidents I-1790344031652-93 与 I-1790345362303-96。
+- 影响: 同类参数错误跨轮复发，浪费工具轮次并可能让活动缺陷的恢复进度滞后；修复方式是始终把 id 放在 defect.update 的顶层字段。
+- 来源: self-found：D-750 与 D-751 进展更新中的重复执行事故
+- 标签: 流程
+- refs: D-750 D-751
+- 优先级: P3
+- 进展: 验收逐项对账（提交 6b088d25）：①crates/kanzei-tools/src/tracker.rs:288-312 增加 action=update 的 required id + string/minLength=1 条件；测试辅助断言 3628-3639，req/defect schema 分别在 3652-3653、3697-3698 覆盖；原 add 必填断言保留于 3663-3665、3701-3710。②工具描述明确顶层 id，见 tracker.rs:182；update_close 在写盘前拒绝缺 id，见 crates/kanzei-tools/src/tracker/actions.rs:372-374。Anthropic 顶层 allOf 移除是既有协议限制，见 crates/kanzei-llm/src/protocol/anthropic.rs:405-433；未声称其 wire 层强制该条件。③edition-aware fmt 检查通过；cargo test -p kanzei-tools 571 passed/0 failed/1 ignored，T-1786922727043；cargo clippy -p kanzei-tools --all-targets -- -D warnings 通过，T-1786922727044。提交 6b088d25 仅包含 crates/kanzei-tools/src/tracker.rs。先前 T-1786922727042 编译失败由删除重复 description 标识符修复，并以 I-1790348523997-103 关联本条。
+- observed_head: 6b088d25b4080685f58917cce979ec83a8582b7c
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790348947033
+- 验收: ①TrackerTool 通用 schema 在 action=update 时要求非空字符串顶层 id，req/defect 两类均有断言；add 原必填字段保持，list 不增 id 条件。②工具描述明确 id 顶层位置；update_close 在写盘前拒绝缺 id。Anthropic 仍按协议移除顶层 allOf，不声称其 wire 层强制该条件。③edition-aware fmt、kanzei-tools 全包测试及 Clippy -D warnings 均通过。
+
+## D-757 无 run_id 的 edit/write/insert 仍落盘 write-log，违反无副作用边界 [fixed] (low)
+- 复现: 用 ToolCtx::new(temp_dir, temp_dir)（run_id=None）执行 edit/write/insert；write.rs:27-42 的 record_worktree_write_log 无身份判断，三条工具路径仍调用它，因而创建 temp_dir/.kanzei/.write-log。
+- 影响: R-366 要求无 run_id 的工具写入不产生检查点副作用，B1 地图还以执行后 .kanzei 不存在为测试判据；当前既有写日志仍制造目录/文件，导致验收无法成立。
+- 来源: 本轮代码审查自发现；关联 R-366 验收①与 B1 实施地图。
+- 标签: 核心
+- refs: R-366
+- 优先级: P2
+- 进展: ① 原复现修复：无 run_id 或空 project_root 时 write-log 在 write.rs:28-31 旁路；checkpointed_write 在 write.rs:55-57 直接写目标、不创建检查点。WriteTool 经 write.rs:124 接线，EditTool/InsertTool 经 edit.rs:548/792 接线。② 无身份/空 project_root 下不创建 .kanzei：write.rs:331 的 WriteTool 回归与 edit.rs:854 的 Edit/Insert 回归；带身份仍有真实日志 path/run_id/process_id：write.rs:374-382、edit.rs:895-903。新文件“不存在”哨兵及前像 blob/后像 hash 在 write.rs:362-372、edit.rs:905-912 验证。三 crate 定向证据 T-1786922727053/7054/7055；当前提交 verify T-1786922727056，dist/verification.json 绑定 ef114f4c2aa733d6ef5454ef240c5b9c6cd17513。提交 ef114f4c。
+- observed_head: ef114f4c2aa733d6ef5454ef240c5b9c6cd17513
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790353975496
+
+## D-758 kanzei-core 测试代码的 type_complexity 阻断 Clippy 门禁 [fixed] (low)
+- 复现: 运行 `cargo clippy -p kanzei-base -p kanzei-core -p kanzei-tools --all-targets -- -D warnings`，在 crates/kanzei-core/src/runner/recall.rs:588 的 `Arc<Mutex<Vec<(usize, Vec<String>)>>>` 报 clippy::type_complexity，退出码101。
+- 影响: 源码提交门禁运行 workspace all-targets Clippy；该既有测试代码警告阻断 R-366 B1 的提交，当前变更未触碰此文件。
+- 来源: 本轮 R-366 B1 定向 Clippy 验证自发现。
+- 标签: 核心
+- 进展: 修复提交 ec5dc41f：test 模块新增 `FailureObservationLog` alias（crates/kanzei-core/src/runner/recall.rs:582），`CountingPolicy.seen` 字段改用 alias（:590），行为不变。原复现 `Arc<Mutex<Vec<(usize, Vec<String>)>>>` 的 Clippy type_complexity 已消失，提交门禁阻断解除。Cargo fmt 通过；`cargo test -p kanzei-core` 298 passed（T-1786922727057）；`cargo clippy --workspace --all-targets -- -D warnings` 通过（T-1786922727058）。
+- refs: R-366
+- 优先级: P2
+- observed_head: ec5dc41f12d9fb65c3f64543d3bb3de265a64625
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1790354707630
