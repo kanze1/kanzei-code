@@ -308,6 +308,7 @@ assert.match(js, /t\("实际差异"\)/);
     "--auto-progress", // 08-auto.js 写鞭挞进度
     "--voice-level", // 23-voice.js 写音量
     "--kz-sync", // 01-core.js motionSync 写动画相位(动效分区)
+    "--tf-progress", // 04-structured.js renderTrackerFields 写批次进度条宽度
   ]);
   const definedTokens = new Set([...allClean.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
   const undefinedTokens = [...new Set([...allClean.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1]))]
