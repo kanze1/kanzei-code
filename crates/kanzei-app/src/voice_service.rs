@@ -176,7 +176,25 @@ mod tests {
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut request = [0; 2048];
-            stream.read(&mut request).await.unwrap();
+            let mut request_len = 0;
+            loop {
+                assert!(
+                    request_len < request.len(),
+                    "health request headers exceed 2048 bytes"
+                );
+                let bytes_read = stream.read(&mut request[request_len..]).await.unwrap();
+                assert_ne!(
+                    bytes_read, 0,
+                    "health request ended before headers were complete"
+                );
+                request_len += bytes_read;
+                if request[..request_len]
+                    .windows(4)
+                    .any(|window| window == b"\r\n\r\n")
+                {
+                    break;
+                }
+            }
             let body = r#"{"ready":true,"voice":"selected-C"}"#;
             stream
                 .write_all(
