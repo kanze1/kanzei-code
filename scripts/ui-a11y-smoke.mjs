@@ -196,7 +196,7 @@ assert.match(js, /t\("实际差异"\)/);
 //
 // 白名单只有 mask-image:遮罩取的是 alpha 通道,写什么颜色都一样,不是主题的一部分。
 {
-  const themeBlockEnd = css.indexOf("/* 勾选/单选的选中色统一走强调色");
+  const themeBlockEnd = css.indexOf("/* ===== 主题 token 块结束");
   assert.ok(themeBlockEnd > 0, "找不到主题 token 块的结束标记,判据无法定位");
   const offenders = [];
   css.slice(themeBlockEnd).split("\n").forEach((line, index) => {
@@ -255,7 +255,7 @@ assert.match(js, /t\("实际差异"\)/);
 // 靠全文搜索复原。token 化本身不改一个像素,但它把「这道阶梯到底有几级」变成看得见、
 // 可集中修改的一处;判据保证新代码不会再往回退。
 {
-  const themeBlockEnd = css.indexOf("/* 勾选/单选的选中色统一走强调色");
+  const themeBlockEnd = css.indexOf("/* ===== 主题 token 块结束");
   const body = css.slice(themeBlockEnd);
   const rawFontSizes = body.match(/font(?:-size)?:\s*[0-9.]+px/g) || [];
   assert.deepEqual(

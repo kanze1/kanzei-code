@@ -59,6 +59,20 @@ if (SMOKE_MUTATE) {
       pattern: /dropSessionDomCache\(p\.sessionId\);\r?\n(\s*)await loadConversation\(\);\r?\n(\s*)cacheSessionDom\(p\.sessionId\);/,
       replace: "dropSessionDomCache(p.sessionId);\n$2cacheSessionDom(p.sessionId);",
     },
+
+    // ---- 分区:会话生命周期 ----
+
+    // ---- 分区:模型选择 ----
+
+    // ---- 分区:弹层与外观 ----
+
+    // ---- 分区:工具行与结构化渲染 ----
+
+    // ---- 分区:需求卡片与单页 ----
+
+    // ---- 分区:动效 ----
+
+    // ---- 分区:子代理 ----
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -8779,6 +8793,21 @@ const docsB = {
   compatible(contract.docs_snapshot, shapeOf(payloads.docs_snapshot), "docs_snapshot", problems);
   for (const problem of problems) issues.push(`D-381 IPC 契约:${problem}`);
 }
+
+
+// ===== 分区:会话生命周期 =====
+
+// ===== 分区:模型选择 =====
+
+// ===== 分区:弹层与外观 =====
+
+// ===== 分区:工具行与结构化渲染 =====
+
+// ===== 分区:需求卡片与单页 =====
+
+// ===== 分区:动效 =====
+
+// ===== 分区:子代理 =====
 
 if (issues.length) {
   reportedIssues = true;

@@ -1,120 +1,156 @@
-/* kanzei — 暖炭灰、纸白与清晰的琥珀金状态，搭配用户确认的 OC 参考图。
-   参考 Sand 的暖灰层级，背景去掉蓝调，强调色只承载重点。 */
+/* kanzei — 中性灰阶 + 单一陶土橙强调(参照 Codex 桌面端)。表面只靠明度分层;
+   强调色只承载「运行中 / 链接 / 品牌 / 看这里」四类信号,选中、焦点、悬停一律中性。 */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 /* R-189:默认主题 = 暗色。:root 保留 dark 语义 token,
    [data-theme="light"] 覆盖为亮色组;切换只改 html[data-theme],不碰引用点。 */
 :root {
-  --bg: #181817; --panel: #21211f; --panel2: #2b2b28; --input: #282825;
-  --border: #3d3c36; --border-soft: #30302b;
-  --fg: #deded6; --fg-strong: #f1f0e9; --dim: #aaa99f;
-  --accent: #dfb14f; --accent-hover: #edc678; --accent-soft: #342b1b;
-  /* 填充与文字分别配色，保证亮色主题中的琥珀文字仍有足够对比。 */
-  --accent-text: #e4bb67;
-  --memory-flow: #caa24e; --memory-flow-hot: #edc678; --memory-flow-dim: #806d42;
-  --ok: #a8c887; --err: #ee9c88; --warn: #e7b957; --info: #dcc28c;
-  --alert: #dfb14f;
+  /* 表面层级(暗):侧栏/活动栏 < 主区 < 抬升(输入区/卡片)< 浮层(菜单/弹窗),全部 R=G=B 纯中性。
+     --surface-hover/-selected 与 --accent-soft 是半透明值,只用于下方已有不透明表面的元素;
+     浮起的元素(浮钮/菜单/弹窗)一律用不透明的 --panel2 / --surface-overlay。 */
+  --bg: #1e1e1e; --panel: #262626; --panel2: #2e2e2e; --input: #242424;
+  --surface-raised: #262626; --surface-overlay: #2a2a2a;
+  --surface-hover: #ffffff0b; --surface-selected: #ffffff12;
+  --border: #3a3a3a; --border-soft: #2d2d2d; --border-strong: #4a4a4a;
+  --fg: #d6d6d6; --fg-strong: #ececec; --dim: #a0a0a0;
+  /* 唯一强调色:陶土橙。填充与文字分别给值,文字值在所有表面上 ≥ 4.5:1。 */
+  --accent: #d97a48; --accent-hover: #e48c5e; --accent-soft: #d97a4829;
+  --accent-text: #ee9d6b;
+  --memory-flow: #c98a66; --memory-flow-hot: #ee9d6b; --memory-flow-dim: #4a4a4a;
+  /* 状态色降饱和;alert 与 warn 同值——「注意/风险」统一琥珀,与强调橙分开。 */
+  --ok: #7ec79a; --err: #f28b82; --warn: #dcb45e; --info: #8fb4e3;
+  --alert: #dcb45e;
   --danger: var(--err); --muted: var(--dim);
-  --statusbar: #1b1b19; --statusbar-run: #30281b;
-  --statusbar-fg: #aaa99f; --statusbar-run-fg: #edc678;
-  /* 工作区与主背景同色；输入区、侧栏和消息通过表面明度区分。 */
-  --chat-bg: #181817;
-  --user-bubble: #292925; --user-bubble-border: #3d3c36;
-  --on-danger: #f2d6cc;
+  --statusbar: #181818; --statusbar-run: #231d1a;
+  --statusbar-fg: #a0a0a0; --statusbar-run-fg: #ee9d6b;
+  --chat-bg: #1e1e1e;
+  --user-bubble: #2e2e2e; --user-bubble-border: #2e2e2e;
+  --on-danger: #ffd7d2;
   --mono: "Cascadia Mono", "Cascadia Code", "Microsoft YaHei UI", Consolas, monospace;
-  --radius: 6px;
+  --sans: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --radius: 8px;
+  /* 圆角阶梯:输入/代码 sm,按钮/列表行 md,卡片/面板/弹窗 lg,输入区与用户气泡 xl,徽标/胶囊 pill。 */
+  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-xl: 20px; --r-pill: 999px;
   /* 原生控件(勾选框、下拉弹层、日期选择、文本光标)默认按浅色渲染,在深色界面里
-     会是一块刺眼的白底。声明配色让浏览器用深色变体——这是全局一次性的解法,
-     逐个 input 去覆盖既漏且难维护(D-154)。 */
+     会是一块刺眼的白底。声明配色让浏览器用深色变体——这是全局一次性的解法(D-154)。 */
   color-scheme: dark;
-  /* R-189:暗色专属徽章/状态胶囊底色(b 类字面量 token 化,亮色组成对给值)。 */
-  --badge-err: #362a28; --badge-warn: #342b1b; --badge-info: #293330;
-  --badge-alert: #342b1b; --badge-ok: #293127;
-  --badge-err-soft: #dc7e6330; --badge-warn-soft: #dfb14f26; --badge-soft: #c2b89520;
-  /* 成功状态的浅底色；运行状态统一使用金色的 accent token。 */
-  --badge-ok-soft: #8fb87a33;
-  /* R-189:框架面未 token 化的字面量提升(b 类)——活动栏/滚动条/代码块等。 */
-  --activitybar: #181817; --sidebar-bg: #1d1d1b; --scrollbar: #414039; --scrollbar-hover: #5b594f;
-  --activity-fg: #96968a; --activity-active: #e4bb67;
+  /* R-189:徽章/状态胶囊底色,亮色组成对给值。 */
+  --badge-err: #3b2b2a; --badge-warn: #352f22; --badge-info: #283039;
+  --badge-alert: #352f22; --badge-ok: #263229;
+  --badge-err-soft: #f28b8230; --badge-warn-soft: #dcb45e26; --badge-soft: #ffffff14;
+  --badge-ok-soft: #7ec79a2e;
+  /* 活动栏与侧栏同色,左侧成为一整列(Codex 只有一条侧栏)。 */
+  --activitybar: #181818; --sidebar-bg: #181818; --scrollbar: #3a3a3a; --scrollbar-hover: #565656;
+  --activity-fg: #8f8f8f; --activity-active: #ececec;
 
-  --code-bg: #151513; --code-output-bg: #1b1b18; --danger-btn: #50332f;
-  --code-inline: #30302b;
+  --code-bg: #171717; --code-output-bg: #1a1a1a; --danger-btn: #4a2a28;
+  --code-inline: #2e2e2e; --bg-deep: #161616;
 
-  /* R-189:diff/语法着色(c 类)与 on-accent 强调前景。 */
-  --diff-add: #a5c98f; --diff-del: #dd8d72; --diff-repl: #f7768e; --diff-str: #e0af68;
-  /* 琥珀按钮配深色文字。 */
-  --on-accent: #242018;
-  /* R-189:语法着色/线路主题色/状态点色/杂项(d 类字面量 token 化)。 */
+  /* R-189:diff/语法着色(c 类)。diff 底色原先是逃逸在规则里的 rgba,现收进 token。 */
+  --diff-add: #7ec79a; --diff-del: #f28b82; --diff-repl: #f7768e; --diff-str: #e0af68;
+  --diff-add-bg: #2ea04326; --diff-del-bg: #f8514926; --diff-empty-bg: #ffffff06; --diff-hover: #ffffff0a;
+  --on-accent: #1a1a1a;
+  /* 主按钮单色:暗色下近白底黑字(Codex 黑色圆形发送键在暗色里的镜像)。 */
+  --primary-bg: #ececec; --primary-fg: #171717; --primary-hover: #ffffff;
+  /* 焦点环中性灰,与背景对比 ≥ 3:1(WCAG 2.2 非文本)。 */
+  --focus-ring: #a0a0a0;
   --syntax-comment: #6a9955; --syntax-string: #ce9178; --syntax-number: #b5cea8; --syntax-keyword: #569cd6;
   --line-1: #7ba7c4; --line-2: #d3a14a; --line-3: #8fb87a; --line-4: #aa83bd;
-  --dot-idle: #a8c887; --dot-run: #dfb14f;
-  --diff-line-number: #666; --arch-unindexed: #b45309; --log-gold: #e8b04b;
-  /* D-380:主题块之外**不允许**出现字面量颜色。以下是原先逃逸在交互态里的那批
-     ——它们最难被静态发现,也最容易在亮色下出错(拒绝键 hover 变深灰块、线路条
-     hover 完全没反馈、附件分隔线不可见)。 */
-  /* D-380 排版:字号先 1:1 token 化(零像素变化),让这道阶梯变成集中可改的一处。
-     现状不是音阶而是连续体——10 / 10.5 / 11 / 11.5 / 12 / 12.5 / 13 这 0.5px 一档的
-     七级里,半档三级(10.5/11.5/12.5)共 52 处。把它们并进相邻整档是**会改变用户
-     看到的像素**的决定,不在重构里顺手做;并档时只改这里的值,引用点一行不动。 */
+  --dot-idle: #7ec79a; --dot-run: #d97a48;
+  --diff-line-number: #7a7a7a; --arch-unindexed: #dcb45e; --log-gold: #dcb45e;
+  /* D-380 排版:字号 1:1 token 化(并档是改像素的决定,须用户拍板,不在配色里顺手做)。 */
   --fs-9: 9px; --fs-9-5: 9.5px; --fs-10: 10px; --fs-10-5: 10.5px; --fs-11: 11px; --fs-11-5: 11.5px; --fs-12: 12px; --fs-12-5: 12.5px; --fs-13: 13px; --fs-13-5: 13.5px; --fs-14: 14px;
-  /* 展示级(标题/水印/空状态),各自只用一两处。 */
   --fs-15: 15px; --fs-16: 16px; --fs-18: 18px; --fs-20: 20px; --fs-25: 25px; --fs-34: 34px;
-  /* D-380 层级:原先 11 个裸数字散落各处,叠加关系只能靠全文搜索复原。 */
+  /* D-380 层级。 */
   --z-base: 1; --z-raised: 2; --z-sticky: 3; --z-rail: 19; --z-panel: 20;
   --z-handle: 30; --z-float: 40; --z-drawer: 50; --z-overlay: 100;
   --z-dialog: 200; --z-toast: 210;
-  /* D-380 间距:定出 6 档目标音阶。**引用点尚未迁移**——现状 28 个不同 px 值散在
-     padding/gap/margin 里,统一到这 6 档同样是改像素的决定,须用户拍板;新代码用它。 */
+  /* D-380 间距:6 档目标音阶,新代码用它。 */
   --sp-1: 2px; --sp-2: 4px; --sp-3: 6px; --sp-4: 8px; --sp-5: 12px; --sp-6: 16px;
-  --shadow: #0008; --shadow-strong: #0009;
-  --sunken: #00000018; --sunken-mid: #0000001c; --sunken-strong: #00000024;
-  --hover-wash: #ffffff05; --on-ok: #0c0f12;
-  --danger-btn-hover: #6b3620; --deny-hover: #2a2a2a;
-  --border-on-accent: #ffffff24;
+  --shadow: #00000066; --shadow-strong: #00000080;
+  /* 阴影阶梯:1 = 贴面卡片,2 = 下拉/浮钮/toast,3 = 对话框/抽屉面板;composer 单独一档。 */
+  --elev-1: 0 1px 2px #00000040;
+  --elev-2: 0 6px 20px #00000059;
+  --elev-3: 0 16px 48px #00000073;
+  --elev-composer: 0 1px 2px #00000033, 0 8px 24px #00000040;
+  --scrim: #00000099;
+  --sunken: #0000001f; --sunken-mid: #00000026; --sunken-strong: #00000033;
+  --hover-wash: #ffffff0a; --on-ok: #0f1a12;
+  --danger-btn-hover: #5c322f; --deny-hover: #333333;
+  --danger-soft: #f28b8224; --alert-soft: #dcb45e1f;
+  --border-on-accent: #ffffff1f;
+  /* 组件层(弹层外观唯一真源,见 docs/design/ui_surface_stack.md):只引用上面的语义 token,
+     只准 surface.css 使用;不在亮色块里重定义——主题切换只发生在语义层。 */
+  --surface-bg: var(--surface-overlay); --surface-bg-raised: var(--panel2);
+  --surface-fg: var(--fg); --surface-fg-strong: var(--fg-strong); --surface-muted: var(--dim);
+  --surface-border: var(--border); --surface-divider: var(--border-soft);
+  --surface-attention: var(--accent);
+  --surface-item-hover: var(--surface-hover); --surface-item-active: var(--surface-selected);
+  --surface-radius-sm: var(--r-sm); --surface-radius-md: var(--r-lg); --surface-radius-lg: var(--r-lg);
+  --surface-shadow-1: var(--elev-1); --surface-shadow-2: var(--elev-2); --surface-shadow-3: var(--elev-3);
+  --surface-backdrop: var(--scrim); --surface-offset: 6px;
+  --surface-motion: var(--motion-fast) var(--ease-out);
+  /* 动效:时长/缓动 token。无限循环只准用 loop 档(均为 2400ms 的约数,motionSync 靠它对齐相位),
+     只挂在状态选择器上;窗口隐藏时 html[data-kz-motion="paused"] 统一暂停。 */
+  --motion-fast: 140ms; --motion-base: 240ms; --motion-slow: 420ms;
+  --motion-loop-fast: 600ms; --motion-spin: 800ms; --motion-loop: 1200ms; --motion-loop-slow: 2400ms;
+  --ease-out: cubic-bezier(.2, .8, .2, 1); --ease-in-out: cubic-bezier(.45, 0, .55, 1); --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --shimmer-base: var(--dim); --shimmer-hot: var(--fg-strong);
 }
 /* R-189:亮色主题——在默认 dark 之上覆盖 token 值,引用点零改动。 */
 [data-theme="light"] {
-  /* 浅色使用纸白与暖灰，和暗色共享相同的明度层级。 */
-  --bg: #f6f5f1; --panel: #fcfbf8; --panel2: #eeede7; --input: #f2f1ec;
-  --border: #d5d2c7; --border-soft: #e4e1d9;
-  --fg: #393831; --fg-strong: #25241f; --dim: #66645b;
-  --accent: #d9aa4e; --accent-hover: #e4bc70; --accent-soft: #f1e5c9;
-  /* 文字琥珀比按钮填充更深。 */
-  --accent-text: #815d16;
-  --memory-flow: #a17a28; --memory-flow-hot: #815d16; --memory-flow-dim: #bfac80;
-  --ok: #4e6d43; --err: #a84036; --warn: #855c10; --info: #426d64;
-  --alert: #c2410c;
+  /* 亮色:主区纯白,侧栏浅中性灰,卡片/浮层白底靠 1px 软边 + 柔阴影分层。 */
+  --bg: #ffffff; --panel: #ffffff; --panel2: #f2f2f2; --input: #ffffff;
+  --surface-raised: #ffffff; --surface-overlay: #ffffff;
+  --surface-hover: #00000009; --surface-selected: #0000000d;
+  --border: #dcdcdc; --border-soft: #ebebeb; --border-strong: #c7c7c7;
+  --fg: #2b2b2b; --fg-strong: #0d0d0d; --dim: #656565;
+  --accent: #c96a33; --accent-hover: #b45a26; --accent-soft: #c96a331a;
+  --accent-text: #a04b1a;
+  --memory-flow: #c98a66; --memory-flow-hot: #a04b1a; --memory-flow-dim: #d4d4d4;
+  --ok: #1d7a3c; --err: #c62b2b; --warn: #8a5b00; --info: #2b64a4;
+  --alert: #8a5b00;
   --danger: var(--err); --muted: var(--dim);
-  --statusbar: #f0efe9; --statusbar-run: #f1e5c9;
-  --statusbar-fg: #66645b; --statusbar-run-fg: #765010;
+  --statusbar: #f7f7f7; --statusbar-run: #f4efeb;
+  --statusbar-fg: #656565; --statusbar-run-fg: #a04b1a;
   color-scheme: light;
-  --chat-bg: #f6f5f1;
-  --user-bubble: #eeede7; --user-bubble-border: #d5d2c7;
-  --on-danger: #8c1d18;
-  --badge-err: #f4e6e0; --badge-warn: #f1e5c9; --badge-info: #e5ece6;
-  --badge-alert: #f1e5c9; --badge-ok: #e8ecdf;
-  --badge-err-soft: #b3261e26; --badge-warn-soft: #9a670026; --badge-soft: #8888881f;
-  --badge-ok-soft: #2f7d3226;
-  --activitybar: #eeede7; --sidebar-bg: #f0efe9; --scrollbar: #cfccc1; --scrollbar-hover: #afab9e;
-  --activity-fg: #777468; --activity-active: #815d16;
+  --chat-bg: #ffffff;
+  --user-bubble: #f2f2f2; --user-bubble-border: #f2f2f2;
+  --on-danger: #b42318;
+  --badge-err: #fcebea; --badge-warn: #f8f0dd; --badge-info: #eaf1f9;
+  --badge-alert: #f8f0dd; --badge-ok: #e8f4ec;
+  --badge-err-soft: #c62b2b1f; --badge-warn-soft: #8a5b001f; --badge-soft: #0000000d;
+  --badge-ok-soft: #1d7a3c1f;
+  --activitybar: #f7f7f7; --sidebar-bg: #f7f7f7; --scrollbar: #d4d4d4; --scrollbar-hover: #b0b0b0;
+  --activity-fg: #6b6b6b; --activity-active: #0d0d0d;
 
-  --code-bg: #eeede6; --code-output-bg: #e8e6dd; --danger-btn: #f0dcd4;
-  --code-inline: #e7e5dc;
+  --code-bg: #f7f7f7; --code-output-bg: #f7f7f7; --danger-btn: #fdeceb;
+  --code-inline: #efefef; --bg-deep: #f5f5f5;
 
   --diff-add: #1a7f37; --diff-del: #cf222e; --diff-repl: #8250df; --diff-str: #953800;
-  --on-accent: #242018;
+  --diff-add-bg: #1a7f371a; --diff-del-bg: #cf222e14; --diff-empty-bg: #00000005; --diff-hover: #00000009;
+  --on-accent: #ffffff;
+  --primary-bg: #0d0d0d; --primary-fg: #ffffff; --primary-hover: #2f2f2f;
+  --focus-ring: #7a7a7a;
   --syntax-comment: #6a737d; --syntax-string: #032f62; --syntax-number: #005cc5; --syntax-keyword: #d73a49;
   --line-1: #1f6b96; --line-2: #9a6700; --line-3: #1a7f37; --line-4: #8250df;
-  --dot-idle: #4e6d43; --dot-run: #855c10;
-  --diff-line-number: #8b949e; --arch-unindexed: #9a6700; --log-gold: #953800;
-  /* 亮色的阴影不能照抄 53% 纯黑:同样的值在浅底上是一块脏印子。 */
-  --shadow: #0000001f; --shadow-strong: #00000029;
-  --sunken: #0000000a; --sunken-mid: #0000000d; --sunken-strong: #00000012;
-  --hover-wash: #00000008; --on-ok: #ffffff;
-  --danger-btn-hover: #f6c9c1; --deny-hover: #dedcd7;
-  --border-on-accent: #0000001f;
+  --dot-idle: #1d7a3c; --dot-run: #c96a33;
+  --diff-line-number: #8c8c8c; --arch-unindexed: #8a5b00; --log-gold: #8a5b00;
+  /* 亮色的阴影不能照抄暗色的深黑:同样的值在浅底上是一块脏印子。 */
+  --shadow: #0000001a; --shadow-strong: #00000024;
+  --elev-1: 0 1px 2px #0000000d;
+  --elev-2: 0 4px 16px #00000014;
+  --elev-3: 0 12px 40px #0000001f;
+  --elev-composer: 0 1px 2px #0000000a, 0 6px 24px #0000000f;
+  --scrim: #00000047;
+  --sunken: #00000008; --sunken-mid: #0000000b; --sunken-strong: #0000000f;
+  --hover-wash: #00000009; --on-ok: #ffffff;
+  --danger-btn-hover: #f9d9d6; --deny-hover: #ebebeb;
+  --danger-soft: #c62b2b14; --alert-soft: #8a5b0014;
+  --border-on-accent: #0000001a;
 }
-/* 勾选/单选的选中色统一走强调色,不用系统蓝。 */
-input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+/* ===== 主题 token 块结束:D-380 判据以此行为界(scripts/ui-a11y-smoke.mjs),勿改此行 ===== */
+/* 勾选/单选的选中色走单色主色(与主按钮一致),不用系统蓝,也不占用强调色。 */
+input[type="checkbox"], input[type="radio"] { accent-color: var(--primary-bg); }
 html, body, #app { height: 100%; }
 body {
   background: var(--bg); color: var(--fg);
@@ -2742,3 +2778,19 @@ body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data
 .research-topic-links summary { cursor: pointer; }
 .research-topic-links label { display: flex; align-items: center; gap: 8px; margin: 12px 0; overflow-wrap: anywhere; }
 .research-topic-links p { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ===== 以下为 UI 审查(2026-09-26)各分区:新增规则写在所属分区标题之下,分区之间留空行 ===== */
+
+/* ===== 分区:会话生命周期 ===== */
+
+/* ===== 分区:模型选择 ===== */
+
+/* ===== 分区:弹层与外观 ===== */
+
+/* ===== 分区:工具行与结构化渲染 ===== */
+
+/* ===== 分区:需求卡片与单页 ===== */
+
+/* ===== 分区:动效 ===== */
+
+/* ===== 分区:子代理 ===== */

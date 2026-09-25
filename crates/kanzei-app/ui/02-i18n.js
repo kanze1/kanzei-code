@@ -999,6 +999,20 @@ export const I18N_EN = {
   "存储占用无法计量": "storage usage could not be measured",
   "存储锁通常只是被并行任务短暂占用,稍后重试即可;不需要清理历史对话": "The storage lock is usually held only briefly by a parallel task; just retry shortly. There is no need to clean up chat history",
   "读取工具结果存储目录(.kanzei/artifacts/tool-results)的占用失败,确认该目录可访问、且其中没有符号链接后重试;不需要清理历史对话": "Could not read the usage of the tool result storage directory (.kanzei/artifacts/tool-results); make sure it is accessible and contains no symbolic links, then retry. There is no need to clean up chat history",
+
+  // ---- 分区:会话生命周期 ----
+
+  // ---- 分区:模型选择 ----
+
+  // ---- 分区:弹层与外观 ----
+
+  // ---- 分区:工具行与结构化渲染 ----
+
+  // ---- 分区:需求卡片与单页 ----
+
+  // ---- 分区:动效 ----
+
+  // ---- 分区:子代理 ----
 };
 export const I18N_DYNAMIC_EN = {
   "完成提示音不可用": "Completion sound unavailable",
