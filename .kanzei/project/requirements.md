@@ -114,7 +114,8 @@
 - observed_head: 194b1eec3184e5290fe84f35d5f4dc8df879e61c
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1787607943733
-- 停车: B7 已提交,①～⑥⑧⑨已验证;剩余⑦真实桌面 E2 点击证据(kzapp 空闲时 agent 可用 UIA 基座自行执行)与⑩磁盘配额语义未定义(需用户拍板:配额上限是什么、超限时拒绝 spill 还是降级为 Inline 截断);拍板后 agent 一并收口;解除人:用户;解除条件:用户
+- 停车: 
+- 对账: 2026-09-25 用户拍板验收⑩磁盘配额:上限 2 GiB,超限时降级为 Inline 截断并注明(原话「2 GiB,超了退回截断。先这样」)。配额统计 .kanzei/artifacts/tool-results 总占用,与 R-376(外置阈值降到 32 KiB)同口径;停车前提已达成,剩余⑦真实桌面 E2 由 agent 在 kzapp 空闲时自行执行。
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
@@ -556,7 +557,7 @@
 - 优先级: P2
 
 ## R-376 工具结果外置阈值降到 32 KiB:头尾预览与绝对回取路径,read 与 task 结果豁免 [todo]
-- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.7;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §12。单批:外置阈值 1 MiB 改为 32 KiB,预览为头 8 KiB 加尾 4 KiB(按字符边界切),模型文本给出可直接 read 的绝对路径;read 与 task 结果豁免;外置时保留 terminal display;删除每次调用写文件的影子遥测。磁盘配额语义仍归 R-245,待用户拍板。
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.7;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §12。单批:外置阈值 1 MiB 改为 32 KiB,预览为头 8 KiB 加尾 4 KiB(按字符边界切),模型文本给出可直接 read 的绝对路径;read 与 task 结果豁免;外置时保留 terminal display;删除每次调用写文件的影子遥测。磁盘配额(用户 2026-09-25 拍板:上限 2 GiB,超限降级为 Inline 截断)的实现归 R-245。
 - 复杂度: 小
 - 批次: 0/1
 - 来源: 用户 2026-09-25 对 A 档回答「同意」;CC 约 3 万字符、Codex 约 1 万 tokens 即外置或截断
