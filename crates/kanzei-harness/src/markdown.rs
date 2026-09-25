@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::defs::{AgentDef, SkillDef, DEFAULT_AGENT_STEPS};
 use crate::harness::{Component, HarnessDraft, ResolveCtx};
+use crate::registry::Registry;
 
 pub struct MarkdownComponent;
 
@@ -22,16 +23,7 @@ impl Component for MarkdownComponent {
             scan_skills(&base.join("skills"), draft);
         }
         // 技能清单注入名称、描述与正文路径;技能正文仍由 agent 按需读取。
-        if !draft.skills.is_empty() {
-            let mut text = String::from("可用技能(skills):做相关任务时读取对应文件加载技能正文:\n");
-            for (name, skill) in draft.skills.iter() {
-                text.push_str(&format!(
-                    "- {name}: {} (正文: {})\n",
-                    skill.description,
-                    skill.path.display()
-                ));
-            }
-            let block = text.trim().to_string();
+        if let Some(block) = skills_block(&draft.skills) {
             draft.context.insert(
                 "core/skills",
                 crate::source("core/skills", move |_| Some(block.clone())),
@@ -39,6 +31,23 @@ impl Component for MarkdownComponent {
         }
         Ok(())
     }
+}
+
+/// 技能清单块:零技能不产生块(返回 None),否则逐条列出名称、描述与正文路径。
+/// 抽成纯函数便于不依赖 ~/.kanzei 单测空注册表分支。
+fn skills_block(skills: &Registry<SkillDef>) -> Option<String> {
+    if skills.is_empty() {
+        return None;
+    }
+    let mut text = String::from("可用技能(skills):做相关任务时读取对应文件加载技能正文:\n");
+    for (name, skill) in skills.iter() {
+        text.push_str(&format!(
+            "- {name}: {} (正文: {})\n",
+            skill.description,
+            skill.path.display()
+        ));
+    }
+    Some(text.trim().to_string())
 }
 
 pub struct Frontmatter {
@@ -240,6 +249,26 @@ mod tests {
                 "CRLF body 不得残留分隔符 keys={keys}"
             );
         }
+    }
+
+    /// 零技能不产生 core/skills 块(D-748 地图 §14 的 empty_skills_render_nothing;
+    /// 原用例依赖真实 ~/.kanzei 已删,改测纯函数,不碰进程全局的 KANZEI_HOME)。
+    #[test]
+    fn empty_skills_render_nothing() {
+        assert_eq!(skills_block(&Registry::default()), None);
+
+        let mut skills = Registry::default();
+        skills.insert(
+            "build",
+            SkillDef {
+                name: "build".into(),
+                description: "构建与格式检查".into(),
+                path: std::path::PathBuf::from("skills/build/SKILL.md"),
+            },
+        );
+        let block = skills_block(&skills).expect("非空注册表应产生技能块");
+        assert!(block.starts_with("可用技能(skills)"), "{block}");
+        assert!(block.contains("build: 构建与格式检查"), "{block}");
     }
 
     /// commands 目录即使存在也不扫描;skills 清单仍进入 system baseline。

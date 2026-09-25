@@ -5,8 +5,11 @@
 //! 模型转向 shell 旁路。本工具把那条路补上,并且比裸 write 多三层硬门禁:
 //!
 //! 1. CAS(expected_hash):基于**读到的那一版**才能写,并发手改不会被静默覆盖。
-//! 2. 写后即校验:链接目标必须存在、被索引的设计文档必须是 snake_case、
-//!    同一目标不得重复出现、磁盘上的设计文档不得漏索引——校验不过直接拒写。
+//! 2. 写前校验:链接目标必须存在、被索引的设计文档必须是 snake_case、
+//!    同一目标不得重复出现、磁盘上的设计文档不得漏索引。get/check 照常报出全部问题;
+//!    update 只拒绝**本次新引入**的问题(新旧两版的问题键逐一比对,不含行号,D-755),
+//!    存量问题不挡无关修改、写成功时作为警告回显;另外当前版里合规的条目不得删掉,
+//!    空索引一律拒写——免得放宽后的门禁被借来把索引删空。
 //! 3. 只认这一个文件:路径由引擎给定,输入里没有 path 参数可以指到别处。
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -51,9 +54,12 @@ impl Tool for ArchitectureTool {
              validation), check (validation only), regenerate (draft index rebuilt from the \
              files actually in {DESIGN_DIR}/, keeping existing descriptions — returned for you \
              to review, NOT written), update (content + expected_hash from the last get). \
-             update refuses if the hash is stale or if validation fails: every link target must \
-             exist, indexed design docs must be snake_case, no duplicate targets, and no design \
-             doc on disk may be missing from the index."
+             Validation rules: every link target must exist, indexed design docs must be \
+             snake_case, no duplicate targets, and no design doc on disk may be missing from the \
+             index. update refuses if the hash is stale, the content is empty, it drops an entry \
+             that was valid, or it introduces a validation issue the current index does not \
+             already have; pre-existing issues do not block an update (they are echoed back as \
+             warnings)."
         )
     }
 
@@ -94,7 +100,7 @@ impl Tool for ArchitectureTool {
         match input.action.as_str() {
             "get" => {
                 let current = read_index(&path);
-                let issues = validate(&root, &current);
+                let issues = validate(&root, &current).issues;
                 ToolOutput::ok(format!(
                     "path: {ARCHITECTURE_REL}\nhash: {}\n{}\n---\n{current}",
                     content_hash(&current),
@@ -103,7 +109,7 @@ impl Tool for ArchitectureTool {
             }
             "check" => {
                 let current = read_index(&path);
-                let issues = validate(&root, &current);
+                let issues = validate(&root, &current).issues;
                 let report = format!(
                     "path: {ARCHITECTURE_REL}\nhash: {}\n{}",
                     content_hash(&current),
@@ -150,12 +156,34 @@ impl Tool for ArchitectureTool {
                          resubmit the old text."
                     ));
                 }
-                let issues = validate(&root, &content);
-                if !issues.is_empty() {
+                // 空索引无条件拒写:当前版若本就为空,下面的逐键比对会把它当存量放过。
+                if content.trim().is_empty() {
                     return ToolOutput::error(format!(
-                        "REFUSING to write {ARCHITECTURE_REL}: the new content does not validate.\n{}\n\
-                         Nothing was written. Fix these and resubmit with the SAME expected_hash.",
-                        issues.join("\n"),
+                        "REFUSING to write {ARCHITECTURE_REL}: {EMPTY_INDEX_MSG}\nNothing was written."
+                    ));
+                }
+                // D-755:只拒绝本次新引入的问题。存量问题(如尚未改名的设计文档)不能把
+                // 专用写通道整个锁死——它们照常由 get/check 报出,写成功时回显为警告。
+                let before = validate(&root, &current);
+                let after = validate(&root, &content);
+                let introduced = introduced_issues(&before.issues, &after.issues);
+                let dropped = dropped_entries(&before, &content, &introduced);
+                if !introduced.is_empty() || !dropped.is_empty() {
+                    let mut reasons = issue_lines(&introduced);
+                    if !dropped.is_empty() {
+                        reasons.push(format!(
+                            "these entries are valid in the current index but gone from the new \
+                             content: {} — keep them (edit the description/identity instead); an \
+                             entry may only be removed once its target no longer exists",
+                            dropped.join(", ")
+                        ));
+                    }
+                    return ToolOutput::error(format!(
+                        "REFUSING to write {ARCHITECTURE_REL}: the new content introduces problems \
+                         the current index does not have.\n{}\n\
+                         Nothing was written. Fix these and resubmit with the SAME expected_hash \
+                         (pre-existing issues do not block and are not listed here; see `get`).",
+                        reasons.join("\n"),
                     ));
                 }
                 if let Err(e) =
@@ -166,12 +194,23 @@ impl Tool for ArchitectureTool {
                 // D-398:architecture 专用写者写盘后记写日志(围栏收口归因凭据,此前零接入)。
                 crate::record_write_log(ctx, ARCHITECTURE_REL, &path);
                 let diff_lines = content.lines().count() as i64 - current.lines().count() as i64;
+                let remaining = issue_lines(&after.issues);
+                let validation = if remaining.is_empty() {
+                    format!("validation: ok ({} indexed link(s))", links(&content).len())
+                } else {
+                    format!(
+                        "validation: {} indexed link(s); WARNING: {} pre-existing issue(s) remain \
+                         (already in the previous version, so they did not block this update):\n{}",
+                        links(&content).len(),
+                        remaining.len(),
+                        remaining.join("\n"),
+                    )
+                };
                 ToolOutput::ok(format!(
                     "updated {ARCHITECTURE_REL} ({} lines, {diff_lines:+} vs before)\nhash: {}\n\
-                     validation: ok ({} indexed link(s))",
+                     {validation}",
                     content.lines().count(),
                     content_hash(&content),
-                    links(&content).len(),
                 ))
                 .with_display(serde_json::json!({
                     "kind": "diff",
@@ -202,16 +241,107 @@ pub(crate) fn content_hash(content: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
-fn render_issues(issues: &[String]) -> String {
-    if issues.is_empty() {
+const EMPTY_INDEX_MSG: &str = "index is empty — an empty architecture index is never correct";
+
+/// 校验问题的比较键(D-755):只含种类与目标,不含行号——条目挪行不算新问题,
+/// update 靠它区分「存量问题」和「本次新引入的问题」。漏索引按文件逐条成键。
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum IssueKey {
+    Empty,
+    /// 链接目标(原样)指到项目根之外。
+    Escapes(String),
+    /// 链接目标(原样)不存在。
+    Dangling(String),
+    /// 重复索引的目标(去掉 #锚点)。
+    Duplicate(String),
+    /// 被索引但不是 snake_case 的设计文档文件名。
+    NotSnake(String),
+    /// 磁盘上存在却没入索引的设计文档(项目根相对路径)。
+    Missing(String),
+}
+
+#[derive(Debug, Clone)]
+struct Issue {
+    key: IssueKey,
+    /// 逐条说明(含行号,文案沿用改造前)。Missing 留空:渲染时按文件聚成一行,
+    /// 保持 get/check 的输出与改造前一致。
+    message: String,
+}
+
+struct Validation {
+    issues: Vec<Issue>,
+    /// 合规条目:没有任何问题的本地链接,规范化的项目根相对路径 → 索引里的原样目标。
+    compliant: BTreeMap<String, String>,
+}
+
+/// 问题渲染成行:逐条问题各占一行,漏索引的文档聚成末尾一行。
+fn issue_lines(issues: &[Issue]) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut missing: Vec<&str> = Vec::new();
+    for issue in issues {
+        match &issue.key {
+            IssueKey::Missing(doc) => missing.push(doc),
+            _ => lines.push(issue.message.clone()),
+        }
+    }
+    if !missing.is_empty() {
+        lines.push(format!(
+            "these design docs exist on disk but are NOT in the index: {} — every {DESIGN_DIR}/*.md \
+             must appear exactly once",
+            missing.join(", ")
+        ));
+    }
+    lines
+}
+
+fn render_issues(issues: &[Issue]) -> String {
+    let lines = issue_lines(issues);
+    if lines.is_empty() {
         "validation: ok".to_string()
     } else {
-        format!(
-            "validation: {} issue(s)\n{}",
-            issues.len(),
-            issues.join("\n")
-        )
+        format!("validation: {} issue(s)\n{}", lines.len(), lines.join("\n"))
     }
+}
+
+/// `after` 里有、`before` 里没有的问题(按键计数比较:同键在新版里多出来的那几条也算新问题)。
+fn introduced_issues(before: &[Issue], after: &[Issue]) -> Vec<Issue> {
+    let mut budget: BTreeMap<&IssueKey, usize> = BTreeMap::new();
+    for issue in before {
+        *budget.entry(&issue.key).or_default() += 1;
+    }
+    after
+        .iter()
+        .filter(|issue| match budget.get_mut(&issue.key) {
+            Some(left) if *left > 0 => {
+                *left -= 1;
+                false
+            }
+            _ => true,
+        })
+        .cloned()
+        .collect()
+}
+
+/// 当前版里合规、新内容里却不再链接的条目(原样目标)。已由新增 Missing 点名的不重复报。
+fn dropped_entries(before: &Validation, content: &str, introduced: &[Issue]) -> Vec<String> {
+    let linked: BTreeSet<String> = links(content)
+        .into_iter()
+        .filter(|(_, target)| !is_external(target))
+        .map(|(_, target)| project_rel(&target))
+        .collect();
+    let newly_missing: BTreeSet<String> = introduced
+        .iter()
+        .filter_map(|issue| match &issue.key {
+            IssueKey::Missing(doc) => Some(kanzei_harness::permission::normalize_resource(doc)),
+            _ => None,
+        })
+        .collect();
+    before
+        .compliant
+        .iter()
+        .filter(|(rel, _)| !linked.contains(*rel) && !newly_missing.contains(*rel))
+        .map(|(_, target)| target.clone())
+        .collect()
 }
 
 /// Markdown 行内链接 `[text](target)`,返回 (行号, 目标)。
@@ -289,15 +419,25 @@ fn escapes_project_root(target: &str) -> bool {
     if bare.starts_with('/') || bare.starts_with('\\') || bare.contains(':') {
         return true;
     }
-    let index_dir = ARCHITECTURE_REL.rsplit_once('/').map_or("", |(dir, _)| dir);
-    kanzei_harness::permission::normalize_resource(&format!("{index_dir}/{bare}")).starts_with("..")
+    project_rel(bare).starts_with("..")
 }
 
-fn validate(root: &Path, content: &str) -> Vec<String> {
+/// 索引里的相对链接 → 规范化的项目根相对路径(去掉 #锚点),用于跨版本比对同一条目。
+fn project_rel(target: &str) -> String {
+    let bare = target.split('#').next().unwrap_or(target);
+    let index_dir = ARCHITECTURE_REL.rsplit_once('/').map_or("", |(dir, _)| dir);
+    kanzei_harness::permission::normalize_resource(&format!("{index_dir}/{bare}"))
+}
+
+fn validate(root: &Path, content: &str) -> Validation {
     let mut issues = Vec::new();
+    let mut compliant = BTreeMap::new();
     if content.trim().is_empty() {
-        issues.push("index is empty — an empty architecture index is never correct".into());
-        return issues;
+        issues.push(Issue {
+            key: IssueKey::Empty,
+            message: EMPTY_INDEX_MSG.into(),
+        });
+        return Validation { issues, compliant };
     }
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     let mut indexed: BTreeSet<String> = BTreeSet::new();
@@ -313,22 +453,33 @@ fn validate(root: &Path, content: &str) -> Vec<String> {
         }
         let bare = target.split('#').next().unwrap_or(&target);
         if escapes_project_root(&target) {
-            issues.push(format!(
-                "line {line_no}: link `{target}` escapes the project root — index only project files"
-            ));
+            issues.push(Issue {
+                key: IssueKey::Escapes(target.clone()),
+                message: format!(
+                    "line {line_no}: link `{target}` escapes the project root — index only project files"
+                ),
+            });
             continue;
         }
         let absolute: PathBuf = base_dir.join(bare);
         if !absolute.exists() {
-            issues.push(format!(
-                "line {line_no}: link target does not exist: `{target}`"
-            ));
+            issues.push(Issue {
+                key: IssueKey::Dangling(target.clone()),
+                message: format!("line {line_no}: link target does not exist: `{target}`"),
+            });
             continue;
         }
+        let mut ok = true;
         match seen.get(bare) {
-            Some(first) => issues.push(format!(
-                "line {line_no}: duplicate index entry for `{bare}` (already at line {first})"
-            )),
+            Some(first) => {
+                ok = false;
+                issues.push(Issue {
+                    key: IssueKey::Duplicate(bare.to_string()),
+                    message: format!(
+                        "line {line_no}: duplicate index entry for `{bare}` (already at line {first})"
+                    ),
+                });
+            }
             None => {
                 seen.insert(bare.to_string(), line_no);
             }
@@ -339,30 +490,35 @@ fn validate(root: &Path, content: &str) -> Vec<String> {
             .unwrap_or_default();
         if bare.contains(DESIGN_DIR) {
             if !is_snake_case_file(&file_name) {
-                issues.push(format!(
-                    "line {line_no}: `{file_name}` is not snake_case — design docs use \
-                     lower_snake_case.md (rename the file, then index it)"
-                ));
+                ok = false;
+                issues.push(Issue {
+                    key: IssueKey::NotSnake(file_name.clone()),
+                    message: format!(
+                        "line {line_no}: `{file_name}` is not snake_case — design docs use \
+                         lower_snake_case.md (rename the file, then index it)"
+                    ),
+                });
             }
             indexed.insert(file_name);
         }
+        if ok {
+            compliant
+                .entry(project_rel(bare))
+                .or_insert_with(|| bare.to_string());
+        }
     }
 
-    let missing: Vec<String> = design_docs(root)
-        .into_iter()
-        .filter(|rel| {
-            let name = rel.rsplit('/').next().unwrap_or(rel);
-            !indexed.contains(name)
-        })
-        .collect();
-    if !missing.is_empty() {
-        issues.push(format!(
-            "these design docs exist on disk but are NOT in the index: {} — every {DESIGN_DIR}/*.md \
-             must appear exactly once",
-            missing.join(", ")
-        ));
+    // 漏索引逐个文件成键(D-755),渲染时再聚成一行。
+    for rel in design_docs(root) {
+        let name = rel.rsplit('/').next().unwrap_or(&rel);
+        if !indexed.contains(name) {
+            issues.push(Issue {
+                key: IssueKey::Missing(rel),
+                message: String::new(),
+            });
+        }
     }
-    issues
+    Validation { issues, compliant }
 }
 
 /// 按磁盘实况生成索引草稿:已有条目沿用原描述行,新文档留 TODO 待归类。
@@ -498,11 +654,14 @@ mod tests {
         let root = temp_project("validate");
         std::fs::write(root.join(DESIGN_DIR).join("harness_m1.md"), "# x").unwrap();
         std::fs::write(root.join(DESIGN_DIR).join("memory_system.md"), "# y").unwrap();
-        write_index(&root, "# 架构\n");
+        let original = "# 架构\n\n\
+                        - [`harness_m1.md`](../../../docs/design/harness_m1.md):a\n\
+                        - [`memory_system.md`](../../../docs/design/memory_system.md):b\n";
+        write_index(&root, original);
         let ctx = ToolCtx::new(root.clone(), root.clone());
-        let hash = content_hash("# 架构\n");
+        let hash = content_hash(original);
 
-        // 漏索引 + 死链 + 重复 + 非 snake_case,一次全部指出来。
+        // 新漏索引 + 死链 + 重复 + 非 snake_case,都是本次新引入的,一次全部指出来。
         std::fs::write(root.join(DESIGN_DIR).join("BadName.md"), "# z").unwrap();
         let bad = "# 架构\n\n\
                    - [`harness_m1.md`](../../../docs/design/harness_m1.md):a\n\
@@ -531,8 +690,218 @@ mod tests {
         // 拒写就是真的没写。
         assert_eq!(
             std::fs::read_to_string(root.join(ARCHITECTURE_REL)).unwrap(),
-            "# 架构\n"
+            original
         );
+
+        // 空索引无条件拒写。
+        let out = ArchitectureTool
+            .execute(
+                json!({"action": "update", "content": "  \n", "expected_hash": hash}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(out.content.contains("index is empty"), "{}", out.content);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    fn hash_of(out: &ToolOutput) -> String {
+        out.content
+            .lines()
+            .find_map(|l| l.strip_prefix("hash: "))
+            .unwrap()
+            .to_string()
+    }
+
+    /// D-755:存量的非 snake_case / 漏索引不挡无关修改,写后 get 照常报出;
+    /// 新引入的非 snake_case 链接或新漏索引仍然拒写,只点名新增的那几条。
+    #[tokio::test]
+    async fn update_blocks_only_newly_introduced_issues() {
+        let root = temp_project("baseline");
+        for name in [
+            "harness_m1.md",
+            "memory_system.md",
+            "oc-playback.md",
+            "oc-voice.md",
+            "orphan.md",
+        ] {
+            std::fs::write(root.join(DESIGN_DIR).join(name), "# x").unwrap();
+        }
+        let original = "# 架构\n\n\
+                        - [`harness_m1.md`](../../../docs/design/harness_m1.md):Harness 六注册表。\n\
+                        - [`memory_system.md`](../../../docs/design/memory_system.md):记忆。\n\
+                        - [`oc-playback.md`](../../../docs/design/oc-playback.md):存量连字符名。\n";
+        write_index(&root, original);
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+
+        let got = ArchitectureTool
+            .execute(json!({"action": "get"}), &ctx)
+            .await;
+        assert!(
+            got.content.contains("validation: 2 issue(s)"),
+            "{}",
+            got.content
+        );
+        assert!(
+            got.content.contains("`oc-playback.md` is not snake_case"),
+            "{}",
+            got.content
+        );
+        assert!(
+            got.content
+                .contains("NOT in the index: docs/design/oc-voice.md, docs/design/orphan.md"),
+            "漏索引仍聚成一行报出: {}",
+            got.content
+        );
+        let hash = hash_of(&got);
+
+        // 只改无关行:存量问题不挡,写成功并以警告回显。
+        let edited = original.replace("Harness 六注册表", "Harness 五注册表");
+        let out = ArchitectureTool
+            .execute(
+                json!({"action": "update", "content": edited, "expected_hash": hash}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("WARNING: 2 pre-existing issue(s)"),
+            "{}",
+            out.content
+        );
+        assert!(out.content.contains("oc-playback.md"), "{}", out.content);
+        assert_eq!(
+            std::fs::read_to_string(root.join(ARCHITECTURE_REL)).unwrap(),
+            edited
+        );
+        // 写后 get 仍报出全部存量问题。
+        let got = ArchitectureTool
+            .execute(json!({"action": "get"}), &ctx)
+            .await;
+        assert!(
+            got.content.contains("validation: 2 issue(s)"),
+            "{}",
+            got.content
+        );
+        assert!(got.content.contains("not snake_case"), "{}", got.content);
+        assert!(got.content.contains("orphan.md"), "{}", got.content);
+        let hash = hash_of(&got);
+
+        // 存量条目挪行不算新问题(键里不含行号)。
+        let moved = "# 架构\n\n\
+                     - [`oc-playback.md`](../../../docs/design/oc-playback.md):挪到最前。\n\
+                     - [`harness_m1.md`](../../../docs/design/harness_m1.md):Harness 五注册表。\n\
+                     - [`memory_system.md`](../../../docs/design/memory_system.md):记忆。\n";
+        let out = ArchitectureTool
+            .execute(
+                json!({"action": "update", "content": moved, "expected_hash": hash}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let hash = content_hash(moved);
+
+        // 新增一条非 snake_case 链接:拒写,只点名新增的那条。
+        let added_bad = format!(
+            "{moved}- [`oc-voice.md`](../../../docs/design/oc-voice.md):新加的连字符名。\n"
+        );
+        let out = ArchitectureTool
+            .execute(
+                json!({"action": "update", "content": added_bad, "expected_hash": hash}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("`oc-voice.md` is not snake_case"),
+            "{}",
+            out.content
+        );
+        assert!(
+            !out.content.contains("`oc-playback.md` is not snake_case"),
+            "存量问题不该被点名为拒写理由: {}",
+            out.content
+        );
+        assert!(!out.content.contains("orphan.md"), "{}", out.content);
+
+        // 新漏索引一份原本已入索引的文档:拒写。
+        let dropped_doc = moved.replace(
+            "- [`memory_system.md`](../../../docs/design/memory_system.md):记忆。\n",
+            "",
+        );
+        let out = ArchitectureTool
+            .execute(
+                json!({"action": "update", "content": dropped_doc, "expected_hash": hash}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(
+            out.content
+                .contains("NOT in the index: docs/design/memory_system.md —"),
+            "只点名新漏的那份: {}",
+            out.content
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(ARCHITECTURE_REL)).unwrap(),
+            moved
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 放宽门禁后,当前版里合规的条目仍不得删掉(非设计目录的链接没有漏索引兜底)。
+    #[tokio::test]
+    async fn update_refuses_dropping_a_compliant_entry() {
+        let root = temp_project("drop");
+        std::fs::write(root.join(DESIGN_DIR).join("harness_m1.md"), "# x").unwrap();
+        std::fs::write(root.join(DESIGN_DIR).join("Legacy-Doc.md"), "# y").unwrap();
+        std::fs::write(root.join("docs/overview.md"), "# o").unwrap();
+        let original = "# 架构\n\n\
+                        - [`harness_m1.md`](../../../docs/design/harness_m1.md):基线。\n\
+                        - [`overview.md`](../../../docs/overview.md):总览。\n\
+                        - [`Legacy-Doc.md`](../../../docs/design/Legacy-Doc.md):存量问题。\n\
+                        - [`gone.md`](../../../docs/design/gone.md):目标已删。\n";
+        write_index(&root, original);
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let hash = content_hash(original);
+
+        // 删掉合规条目 overview.md:拒写。
+        let without_overview =
+            original.replace("- [`overview.md`](../../../docs/overview.md):总览。\n", "");
+        let out = ArchitectureTool
+            .execute(
+                json!({"action": "update", "content": without_overview, "expected_hash": hash}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("valid in the current index but gone"),
+            "{}",
+            out.content
+        );
+        assert!(
+            out.content.contains("../../../docs/overview.md"),
+            "{}",
+            out.content
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(ARCHITECTURE_REL)).unwrap(),
+            original
+        );
+
+        // 目标已不存在的死链(本身不合规)可以删。
+        let without_dead = original.replace(
+            "- [`gone.md`](../../../docs/design/gone.md):目标已删。\n",
+            "",
+        );
+        let out = ArchitectureTool
+            .execute(
+                json!({"action": "update", "content": without_dead, "expected_hash": hash}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
         std::fs::remove_dir_all(&root).ok();
     }
 
