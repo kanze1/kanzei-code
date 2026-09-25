@@ -579,13 +579,15 @@ mod tests {
         );
     }
 
+    type FailureObservationLog = std::sync::Arc<std::sync::Mutex<Vec<(usize, Vec<String>)>>>;
+
     #[test]
     #[allow(non_snake_case)]
     fn 失败计数累加_供ReRetrieve判重() {
         // 同 (tool, kind) 第三次失败时 failure_count 应到 3——policy 据此决定
         // ReRetrieve 换 query。用 Arc 共享计数验证 retrieve 收到的 failure_count 递增。
         struct CountingPolicy {
-            seen: std::sync::Arc<std::sync::Mutex<Vec<(usize, Vec<String>)>>>,
+            seen: FailureObservationLog,
         }
         impl RecallPolicy for CountingPolicy {
             fn retrieve(&self, trigger: &RecallTrigger) -> Vec<RecallHit> {
