@@ -639,6 +639,7 @@ pub(crate) async fn run_subagent(
                 preview,
                 artifact,
                 display,
+                ..
             } => Some(TaskTrace {
                 child_id: id,
                 phase: "end".into(),

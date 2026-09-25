@@ -850,16 +850,7 @@ async fn run_subagent_calls(
                     "too many parallel subagent tasks; maximum per turn is {}",
                     max_tasks
                 ));
-                on_event(RunEvent::ToolEnd {
-                    id: id.clone(),
-                    name: "task".into(),
-                    ok: false,
-                    outcome: output.outcome.as_str().into(),
-                    code: output.code.map(str::to_owned),
-                    preview: preview(&output.content),
-                    display: output.display.clone(),
-                    artifact: output.artifact.clone(),
-                });
+                on_event(RunEvent::tool_end(id.clone(), "task".into(), &output));
                 task_results.insert(id.clone(), output);
             }
             // 进度通道:子代理内部事件(轮次/工具)转成 TaskProgress 实时上抛,
@@ -996,16 +987,11 @@ async fn run_subagent_calls(
                         next = jobs.next() => match next {
                             Some((id, mut output)) => {
                                 materialize_tool_output(&mut output, ctx, "task");
-                                on_event(RunEvent::ToolEnd {
-                                    id: id.clone(),
-                                    name: "task".into(),
-                                    ok: !output.is_error,
-                                    outcome: output.outcome.as_str().into(),
-                                    code: output.code.map(str::to_owned),
-                                    preview: preview(&output.content),
-                                    display: output.display.clone(),
-                                    artifact: output.artifact.clone(),
-                                });
+                                on_event(RunEvent::tool_end(
+                                    id.clone(),
+                                    "task".into(),
+                                    &output,
+                                ));
                                 task_results.insert(id, output);
                             }
                             None => {
