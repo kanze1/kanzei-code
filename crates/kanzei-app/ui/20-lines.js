@@ -24,6 +24,7 @@ import {
   switchProcess,
   worktreeLineCreateInFlight,
 } from "./09-sessions.js";
+import { jumpToEntry } from "./11-docs-list.js";
 import { latestDocsSnapshot, renderDocuments } from "./12-docs-pages.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import { refreshGit } from "./15-views-misc.js";
@@ -371,6 +372,18 @@ export function renderLines(lines) {
       const entry = entries.find(entry => entry.id === id);
       return entry ? `${id} · ${entry.title}` : id;
     };
+    // UI-0926 #4:快照里查得到的条目做成链接,一点直达单页里展开的详情;查不到(线路工作树里
+    // 刚登记、还没合并进主列表)就只写文字,不给一个点了落空的链接。
+    const claimNode = id => {
+      if (!entries.some(entry => entry.id === id)) return document.createTextNode(claimText(id));
+      const link = document.createElement("button");
+      link.type = "button";
+      link.className = "ref-link line-claim-link";
+      link.textContent = claimText(id);
+      link.title = t("点击查看详情");
+      link.addEventListener("click", () => void jumpToEntry(id, { expand: true }));
+      return link;
+    };
     if (claimedIds.length > 1) {
       const held = document.createElement("details");
       held.className = "line-held-items";
@@ -378,9 +391,10 @@ export function renderLines(lines) {
       const summary = document.createElement("summary");
       summary.textContent = `${t(line.worktree_path ? "工作树持有" : "共享工作区持有")} ${claimedIds.length} ${t("条")}`;
       const list = document.createElement("ul");
-      for (const id of claimedIds) { const item = document.createElement("li"); item.textContent = claimText(id); list.appendChild(item); }
+      for (const id of claimedIds) { const item = document.createElement("li"); item.appendChild(claimNode(id)); list.appendChild(item); }
       held.append(summary, list); claim.appendChild(held);
-    } else claim.textContent = claimedIds.length ? claimText(claimedIds[0]) : line.claim || t("未取得条目");
+    } else if (claimedIds.length) claim.appendChild(claimNode(claimedIds[0]));
+    else claim.textContent = line.claim || t("未取得条目");
     if (line.claim_error) {
       claim.classList.add("error");
       claim.title = line.claim_error;

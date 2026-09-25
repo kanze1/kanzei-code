@@ -492,11 +492,8 @@ body {
 .doc-item.pri-P3 .complexity-cell.filled, .focus-card.pri-P3 .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
 .doc-item:not(.pri-P0):not(.pri-P1):not(.pri-P2):not(.pri-P3) .complexity-cell.filled,
 .focus-card:not(.pri-P0):not(.pri-P1):not(.pri-P2):not(.pri-P3) .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
-.documents-toolbar {
-  display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 12px 0;
-  padding: 6px 8px; border: 1px solid var(--border-soft); border-radius: 5px; background: var(--panel2);
-}
-.documents-toolbar select:not(.doc-filter) { padding: 5px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; }
+/* UI-0926 #4:工具栏只剩「页签分段 + 筛选(n) + 更多」一行,不再是一块 17 个控件的底板。 */
+.documents-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 14px 0 10px; }
 .documents-list { max-width: 980px; border: 1px solid var(--border-soft); border-radius: 6px; padding: 6px 0; }
 .documents-list .doc-item { padding: 8px 14px; }
 /* 依赖视图(R-111):可做/被阻塞两层,点击条目高亮依赖链(向上依赖+向下被依赖)。 */
@@ -1665,14 +1662,15 @@ button.ghost.danger:hover { background: var(--danger-soft); }
 .reasoning-body { color: var(--dim); font-size: var(--fs-12); white-space: pre-wrap; margin-top: 4px; }
 
 .doc-row .id, .doc-row .pos { flex: 0 0 34px; }
-.doc-row .st { flex: 0 0 72px; white-space: nowrap; }
+/* 单页列表的状态列是固定宽的一列文字(颜色取 .st-* 的文字色):整列底色会被撑成一条 72px 的色带。 */
+.doc-row .st { flex: 0 0 72px; white-space: nowrap; padding: 0; background: transparent; font-size: var(--fs-11); }
 .doc-row .pri-badge { flex: 0 0 36px; text-align: center; }
 /* 批次进度格:格数随条目批次总数变(最多 12 格),固定总宽,格子自己压窄——
    宽度恒定,列表才不会因为条目批次多少而参差。 */
 .doc-row .complexity-meter { flex: 0 0 56px; width: 56px; }
 /* 未着色的默认填充:缺陷列表没有 pri-* 类,少这一条那边的已完成格就是透明的 */
 .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
-.doc-row .complexity-badge { flex: 0 0 68px; text-align: center; white-space: nowrap; }
+.doc-row .complexity-badge { flex: 0 0 22px; text-align: center; white-space: nowrap; }
 .doc-row .title { flex: 1 1 auto; min-width: 0; }
 /* D-362:文档页的可选徽标簇。挪到标题之后,优先级/复杂度/标题三列的起点就只由
    固定宽度的勾选框/优先级/复杂度决定,不再被「这一行有没有阻塞徽标」推歪。
@@ -1681,7 +1679,7 @@ button.ghost.danger:hover { background: var(--danger-soft); }
 /* 已关闭条目没有勾选框,留等宽占位,免得整行三列左移一个框宽。 */
 .documents-list .doc-row .doc-pick-space { flex: 0 0 13px; }
 .documents-list .doc-row .doc-pick { flex: 0 0 13px; }
-@media (max-width: 760px) { .documents-list .doc-row .complexity-badge { flex-basis: 58px; } .documents-list .doc-row .st { flex-basis: 60px; } }
+@media (max-width: 760px) { .documents-list .doc-row .st { flex-basis: 60px; } }
 .doc-row { display: flex; gap: 6px; align-items: baseline; cursor: pointer; min-width: 0; }
 .doc-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .doc-detail {
@@ -1743,11 +1741,10 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   #documents-scroll.compare {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-areas: "head head" "lead lead" "tools tools" "batch batch" "req defect";
+    grid-template-areas: "head head" "tools tools" "batch batch" "req defect";
     column-gap: 14px; align-content: start;
   }
-  #documents-scroll.compare > h1 { grid-area: head; }
-  #documents-scroll.compare > p { grid-area: lead; }
+  #documents-scroll.compare > .documents-head { grid-area: head; }
   #documents-scroll.compare > .documents-toolbar { grid-area: tools; }
   #documents-scroll.compare > #documents-batch-bar { grid-area: batch; }
   #documents-scroll.compare > #documents-req-list { grid-area: req; min-width: 0; }
@@ -2927,6 +2924,83 @@ a.md-path { cursor: pointer; color: var(--accent-text); text-decoration: underli
 .documents-list .doc-item { scroll-margin-top: 64px; }
 .filter-exempt-flag { color: var(--accent-text); font-size: var(--fs-10-5); white-space: nowrap; }
 .focus-claim-link { max-width: 100%; padding: 0; font: inherit; font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* UI-0926 #4 M7 单页头部与工具栏:标题旁就是项目下拉(不再单占工具栏一格);工具栏是页签分段 +
+   「筛选(n)」「更多」两个 data-kz-menu 弹层(外观归弹层层,这里只写尺寸与排布);生效的筛选在
+   工具栏下方用 chip 说破,× 单项复位。选中/悬停一律中性,强调色只给「生效筛选数」这个「看这里」。 */
+.documents-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+#view-documents .documents-head h1 { margin-bottom: 0; }
+.documents-tabs { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--border-soft); border-radius: var(--r-md); }
+.documents-tabs button, .documents-tabs button.ghost, .documents-tabs button.primary {
+  border: 0; border-radius: var(--r-sm); padding: 3px 10px; background: transparent; color: var(--dim); font-size: var(--fs-12);
+}
+.documents-tabs button:hover { background: var(--surface-hover); color: var(--fg-strong); }
+.documents-tabs button.primary, .documents-tabs button.primary:hover { background: var(--surface-selected); color: var(--fg-strong); }
+.documents-tabs button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.documents-tabs em { margin-left: 2px; font-style: normal; font-variant-numeric: tabular-nums; color: var(--dim); }
+.documents-menu-trigger { display: inline-flex; align-items: center; gap: 5px; }
+.documents-menu-trigger::after { content: "▾"; color: var(--dim); font-size: var(--fs-10); }
+.documents-menu-trigger[aria-expanded="true"] { background: var(--surface-selected); color: var(--fg-strong); }
+#documents-filter-count {
+  min-width: 16px; padding: 0 5px; border-radius: var(--r-pill); text-align: center;
+  font-style: normal; font-size: var(--fs-10-5); font-variant-numeric: tabular-nums;
+  background: var(--accent-soft); color: var(--accent-text);
+}
+#documents-filter-count:empty { display: none; }
+.documents-filter-panel { width: min(340px, calc(100vw - 32px)); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.documents-filter-panel .doc-filter { width: 100%; max-width: none; }
+.documents-filter-field { display: grid; gap: 3px; min-width: 0; color: var(--dim); font-size: var(--fs-11); }
+/* 「标签/排序」的英文词条是小写(它们也用在锁提示句中),做标签时首字母大写。 */
+.documents-filter-field > span, .documents-filter-chip-key { text-transform: capitalize; }
+.documents-filter-panel .group-toggle, .documents-filter-panel #documents-sort-note { grid-column: 1 / -1; }
+.documents-filter-panel .group-toggle { justify-self: start; }
+.documents-filter-panel .group-toggle[aria-pressed="true"] { background: var(--surface-selected); color: var(--fg-strong); border-color: transparent; }
+.documents-filter-panel #documents-sort-note { color: var(--dim); line-height: 1.5; }
+.documents-active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 10px; }
+.documents-filter-chip {
+  display: inline-flex; align-items: center; gap: 2px; padding: 1px 2px 1px 9px;
+  border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--surface-raised);
+  color: var(--fg); font-size: var(--fs-11-5); white-space: nowrap;
+}
+.documents-filter-chip-key { color: var(--dim); }
+.documents-filter-chip-clear { padding: 0 6px; border: 0; border-radius: var(--r-pill); background: transparent; color: var(--dim); font-size: var(--fs-12); line-height: 1.4; }
+.documents-filter-chip-clear:hover { background: var(--surface-hover); color: var(--fg-strong); }
+.documents-filter-chip-clear:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 0; }
+
+/* UI-0926 #4 M5 列表行:状态列恢复(固定宽,见 .doc-row .st),复杂度一列一个字。 */
+.documents-list .doc-row .complexity-badge { font-size: var(--fs-11); }
+/* 英文词(Small/Medium/Large)比一个汉字宽:列宽按最宽的词给足,标题起点才仍然行行对齐(D-362)。 */
+html[lang="en"] .documents-list .doc-row .complexity-badge { flex-basis: 46px; }
+
+/* UI-0926 #4 M6 + #10 条目详情:读起来像一页文档——头(编号 · 标题 + 状态流转 + 编辑)、阻塞说明、
+   字段只读视图(04-structured 的 .tf)、执行单元折叠;编辑表单只在「编辑」打开时替换只读视图
+   (显隐走 .hidden,编辑态记在 .doc-detail.editing 上并跨重绘恢复)。 */
+.documents-list .doc-detail { margin: 6px 0 10px 18px; padding: 10px 14px 12px; border-left-color: var(--border-soft); }
+.doc-detail-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 12px; margin-bottom: 10px; }
+.doc-detail-head .doc-full-title { flex: 1 1 260px; min-width: 0; margin: 0; color: var(--fg-strong); font-size: var(--fs-14); font-weight: 600; line-height: 1.45; }
+.doc-detail-actions { flex: 0 0 auto; margin-top: 0; }
+.doc-edit-toggle[aria-pressed="true"] { background: var(--surface-selected); color: var(--fg-strong); border-color: transparent; }
+.doc-pending-decision { margin: 0 0 10px; padding: 7px 10px; border-radius: var(--r-md); background: var(--alert-soft); color: var(--fg); line-height: 1.5; }
+.doc-decision-head { display: flex; align-items: center; gap: 8px; }
+.doc-decision-head strong { color: var(--alert); font-size: var(--fs-12); }
+.doc-decision-head button { margin-left: auto; }
+.doc-decision-reasons { margin: 4px 0 0; padding-left: 18px; }
+.doc-progress-older { margin-top: 4px; }
+.doc-progress-older > summary { width: fit-content; cursor: pointer; color: var(--dim); font-size: var(--fs-11-5); }
+.doc-progress-older > summary:hover { color: var(--fg-strong); }
+.doc-progress-older > ol { margin-top: 4px; color: var(--dim); }
+.work-unit-details { margin-top: 10px; }
+.work-unit-details > summary { width: fit-content; cursor: pointer; color: var(--dim); font-size: var(--fs-12); }
+.work-unit-details > summary:hover { color: var(--fg-strong); }
+.work-unit-details > .work-unit-list { margin-bottom: 0; }
+.doc-edit-actions { gap: 6px; }
+
+/* UI-0926 #4 M8:线路页的取得条目是直达详情的链接;活动面板每条的行操作只在悬停/聚焦/展开时出现。 */
+.line-claim-link { padding: 0; font: inherit; text-align: left; overflow-wrap: anywhere; }
+.line-claim-link:hover { text-decoration: underline; }
+.bg-entry .bg-actions { display: none; }
+.bg-entry:hover .bg-actions:not(:empty), .bg-entry:focus-within .bg-actions:not(:empty),
+.bg-entry .bg-title[aria-expanded="true"] ~ .bg-actions:not(:empty) { display: flex; }
 
 /* ===== 分区:动效 ===== */
 /* #7 动效系统:状态图标只在状态真的在进行时才动。纪律(由 ui-a11y-smoke「#7 动效纪律」机械校验):

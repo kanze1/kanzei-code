@@ -1071,6 +1071,9 @@ export const I18N_EN = {
   "更多操作": "More actions", "打开详情": "Open details", "点击查看详情": "Click to view details",
   "不在当前筛选内": "Outside current filters",
   "跳转目标被当前筛选隐藏,这里临时显示;改筛选或离开单页后恢复": "The jump target is hidden by the current filters and is shown here temporarily; it goes away when you change filters or leave this page",
+  "严重度": "Severity", "更早进展": "Earlier progress", "更早记录": "Earlier records",
+  "筛选": "Filter", "筛选、排序与分组": "Filter, sort and group", "清除全部": "Clear all",
+  "文档类型": "Document type", "生效的筛选": "Active filters", "执行状态": "Execution state",
 
   // ---- 分区:动效 ----
 

@@ -28,7 +28,7 @@ import {
 } from "./10-docs-core.js";
 import { consumePendingJump, jumpToEntry, renderDocList, syncBatchBar } from "./11-docs-list.js";
 import { renderIncidentMetrics } from "./13-memory.js";
-import { refreshDocs } from "./14-docs-actions.js";
+import { applyDocFilter, clearDocFilters, refreshDocs } from "./14-docs-actions.js";
 import { renderConventions } from "./15-views-misc.js";
 import { collaborationLines, renderLineWorkItemOptions } from "./20-lines.js";
 
@@ -236,6 +236,7 @@ export function syncDocumentFilters(snapshot) {
   if (blockedFilter) blockedFilter.disabled = isTests || priorityBlockedNeutral;
   if (isTests) {
     for (const el of [statusFilter, complexityFilter, sortSelect]) if (el) el.disabled = true;
+    renderActiveFilterChips();
     return;
   }
   const primary = docFilterTargets()[0];
@@ -302,6 +303,68 @@ export function syncDocumentFilters(snapshot) {
     filters.tag = tagValue;
     saveDocFilters();
   }
+  renderActiveFilterChips();
+}
+// 生效的筛选(UI-0926 #4):筛选控件收进「筛选」浮层后,列表上方用 chip 把当前生效的每一项说破,
+// × 单项复位、「清除全部」一键复位,触发器上带生效项数。筛选不在眼前时,被筛短的列表最容易被
+// 当成条目丢了(D-169)。对照页按中性口径显示、测试记录页没有筛选,两处都不出 chip。
+const FILTER_CHIP_FIELDS = [
+  ["status", "状态", "documents-status-filter"],
+  ["priority", "优先级", "documents-priority-filter"],
+  ["complexity", "复杂度", "documents-complexity-filter"],
+  ["tag", "标签", "documents-tag-filter"],
+  ["blocked", "执行状态", "documents-blocked-filter"],
+  ["sort", "排序", "documents-sort"],
+];
+export function activeDocFilters() {
+  if (documentsKind === "tests" || documentsKind === "both") return [];
+  const kind = docFilterTargets()[0];
+  const filters = documentFilters[kind];
+  const defaults = DOC_FILTER_DEFAULTS[kind];
+  if (!filters || !defaults) return [];
+  return FILTER_CHIP_FIELDS
+    .filter(([field]) => field in defaults && (filters[field] ?? defaults[field]) !== defaults[field])
+    .map(([field, labelKey, selectId]) => {
+      const value = filters[field];
+      // 显示值取控件里那一项的文字(已本地化,状态/标签/执行状态各有自己的叫法),取不到才用原值。
+      const option = [...($(selectId)?.options ?? [])].find((candidate) => candidate.value === value);
+      return { field, labelKey, value, shown: option?.textContent?.trim() || localizeDynamic(value), reset: defaults[field] };
+    });
+}
+export function renderActiveFilterChips() {
+  const active = activeDocFilters();
+  const count = $("documents-filter-count");
+  if (count) count.textContent = active.length ? String(active.length) : "";
+  const row = $("documents-active-filters");
+  if (!row) return;
+  row.replaceChildren();
+  row.classList.toggle("hidden", !active.length);
+  if (!active.length) return;
+  for (const item of active) {
+    const label = t(item.labelKey);
+    const chip = document.createElement("span");
+    chip.className = "documents-filter-chip";
+    chip.dataset.field = item.field;
+    const key = document.createElement("span");
+    key.className = "documents-filter-chip-key";
+    key.textContent = label;
+    const text = document.createElement("span");
+    text.append(key, document.createTextNode(`: ${item.shown}`));
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "documents-filter-chip-clear";
+    clear.textContent = "×";
+    clear.setAttribute("aria-label", `${t("清除筛选")} ${label}`);
+    clear.addEventListener("click", () => applyDocFilter(item.field, item.reset));
+    chip.append(text, clear);
+    row.appendChild(chip);
+  }
+  const clearAll = document.createElement("button");
+  clearAll.type = "button";
+  clearAll.className = "ghost mini documents-filter-clear-all";
+  clearAll.textContent = t("清除全部");
+  clearAll.addEventListener("click", clearDocFilters);
+  row.appendChild(clearAll);
 }
 export function renderDocuments(snapshot) {
   latestDocsSnapshot = snapshot;
@@ -335,12 +398,13 @@ export function renderDocuments(snapshot) {
   defectList.classList.toggle("hidden", isTests || depMode || (!both && documentsKind !== "defect"));
   $("documents-tests")?.classList.toggle("hidden", !isTests);
   $("documents-scroll")?.classList.toggle("compare", both);
-  $("documents-tab-req").className = documentsKind === "req" ? "primary" : "ghost";
-  $("documents-tab-defect").className = documentsKind === "defect" ? "primary" : "ghost";
-  const testsTab = $("documents-tab-tests");
-  if (testsTab) testsTab.className = isTests ? "primary" : "ghost";
-  const compareTab = $("documents-tab-both");
-  if (compareTab) compareTab.className = both ? "primary" : "ghost";
+  // 页签是一组分段按钮:当前页签 primary 类(样式在 .documents-tabs 下按中性选中态画)+ aria-pressed。
+  for (const [id, on] of [["documents-tab-req", documentsKind === "req"], ["documents-tab-defect", documentsKind === "defect"], ["documents-tab-tests", isTests], ["documents-tab-both", both]]) {
+    const tab = $(id);
+    if (!tab) continue;
+    tab.className = on ? "primary" : "ghost";
+    tab.setAttribute("aria-pressed", String(on));
+  }
   // 依赖视图对测试记录没有意义:禁用按钮(说破)并强制隐藏面板,但**不清 dependencyViewOpen**
   // ——切回需求页时用户原来的选择还在。
   const depToggle = $("documents-dep-toggle");
@@ -364,14 +428,12 @@ export function renderDependencyView(snapshot) {
   const depView = $("documents-dep-view");
   const toggle = $("documents-dep-toggle");
   if (!depView || !toggle) return;
+  // 开关收进「更多」菜单后是一个勾选型菜单项:状态写 aria-checked(菜单项的选中样式由弹层层画)。
+  toggle.setAttribute("aria-checked", String(dependencyViewOpen));
   if (!dependencyViewOpen) {
     depView.classList.add("hidden");
-    toggle.classList.remove("primary");
-    toggle.classList.add("ghost");
     return;
   }
-  toggle.classList.add("primary");
-  toggle.classList.remove("ghost");
   depView.classList.remove("hidden");
   const reqs = snapshot?.requirements ?? [];
   const defs = snapshot?.defects ?? [];

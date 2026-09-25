@@ -235,6 +235,23 @@ if (SMOKE_MUTATE) {
       pattern: /if \(signature !== lastFocusPanelSignature \|\| !body\.children\.length\) \{/,
       replace: "if (true) {",
     },
+    // UI-0926 #4 + #10:单页详情挂字段只读视图的那一行。删了它,详情里只剩头和编辑表单,
+    // ①②③ 列表/进展时间线/发现记录键值表/停车拆解等断言必须变红。
+    svTrackerFields: {
+      pattern: /[ \t]*read\.appendChild\(renderTrackerFields\(entry\.fields \?\? \[\]\)\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #4:重绘恢复未保存的编辑输入。删了它,agent 的一次刷新就冲掉正在写的字段。
+    docEditDraftKeep: {
+      pattern: /control\.value = prior\.drafts\.get\(key\);/,
+      replace: "void 0;",
+    },
+    // UI-0926 #4:refreshDocsSoon 见到单页里未保存的条目编辑先让路。删了它,agent 连续改台账时
+    // 整表重建会反复打断输入。
+    docsSoonYieldDirty: {
+      pattern: / \|\| editingDraft\) \{/,
+      replace: ") {",
+    },
 
     // ---- 分区:动效 ----
     // #7:setTurnPhase 首行的后台渲染守卫。删了它,后台线的思考/工具事件会把活动线
@@ -2845,15 +2862,21 @@ assert(
   "编辑表单存在没有可见字段名的输入框",
 );
 assert(reqEditor.querySelector("textarea"), "长字段未升级为多行文本域,值会被单行输入框截断");
-// D-165:编辑表单已连名带值列出每个字段,只读 .doc-field 列表若同时渲染就是同一份内容显示两遍。
-const duplicatedFields = document
-  .querySelector("#documents-req-list .doc-detail")
-  .querySelectorAll(".doc-field")
-  .filter((node) => !node.textContent.trim().toLowerCase().startsWith("refs"));
-assert(
-  duplicatedFields.length === 0,
-  `字段在编辑表单之外又渲染了一遍只读副本: ${duplicatedFields.map((n) => n.textContent.slice(0, 20)).join(" | ")}`,
-);
+// D-165:同一份字段不能在一个详情里显示两遍。UI-0926 #4 起详情只读优先:字段只读视图(.tf)与
+// 编辑表单(.doc-edit)同时存在于 DOM,但任何时刻恰好一个可见——默认只读,点「编辑」后互换。
+{
+  const reqDetail = document.querySelector("#documents-req-list .doc-detail");
+  const readView = reqDetail?.querySelector(".doc-fields-read");
+  const shownCount = () => [readView, reqEditor].filter((node) => node && !node.classList.contains("hidden")).length;
+  assert(readView?.querySelector(".tf") && !readView.classList.contains("hidden") && reqEditor.classList.contains("hidden"),
+    "详情默认应是字段只读视图(.tf 可见、编辑表单隐藏)");
+  assert(shownCount() === 1, `只读视图与编辑表单应恰好一个可见(D-165 同一份字段不显示两遍),实得 ${shownCount()}`);
+  reqDetail.querySelector(".doc-edit-toggle")?.click();
+  assert(!reqEditor.classList.contains("hidden") && readView.classList.contains("hidden") && shownCount() === 1,
+    "点「编辑」后应只剩编辑表单可见(只读视图同时藏起)");
+  reqDetail.querySelector(".doc-edit-toggle")?.click();
+  assert(shownCount() === 1 && reqEditor.classList.contains("hidden"), "取消编辑后应回到只读视图");
+}
 reqEditor.querySelector("button").click();
 await flush();
 assert(invokeLog.includes("docs_update"), "独立文档页编辑未调用 docs_update");
@@ -10942,6 +10965,255 @@ const docsB = {
     sandbox.renderProcesses(structuredClone(savedProcessList));
     await sandbox.refreshDocs();
     await showView(savedView);
+    if (priorLanguage === null) localStorageShim.removeItem?.("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+
+// ---------- UI-0926 #4(单页):列表行状态列 / 详情只读优先 + 字段结构化(#10 renderTrackerFields)/
+// 编辑态与草稿跨重绘 / 工具栏「筛选」「更多」弹层与生效 chip / 线路页取得条目直达 / 活动面板行操作。
+// 设计见 scratchpad density.md M5–M8 与 structured.md「tracker 字段」。
+{
+  const pagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  const listNs = esmModuleCache.get("11-docs-list.js")?.namespace;
+  const surfaceNs = esmModuleCache.get("00-surface.js")?.namespace;
+  assert(pagesNs && listNs && surfaceNs, "#4 单页前置:00/11/12 模块命名空间未加载");
+  const savedDocs = structuredClone(payloads.docs_snapshot);
+  const savedView = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
+  const showView = async (name) => {
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === name)?.click();
+    await flush();
+  };
+  const itemOf = (listId, id) => document.querySelector(`#${listId} .doc-item[data-doc-id="${id}"]`);
+  const detailOf = (id) => itemOf("documents-req-list", id)?.querySelector(".doc-detail");
+  const expandedDetail = (item) => Boolean(item) && !item.querySelector(".doc-detail")?.classList.contains("hidden");
+  const openDetail = (id) => {
+    const item = itemOf("documents-req-list", id);
+    if (item && !expandedDetail(item)) item.querySelector(".doc-row")?.click();
+    return detailOf(id);
+  };
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  const richEntry = docEntry("R-T01", "单页详情样例", "doing", {
+    complexity: "中", nextStatuses: ["done", "dropped"], execution_model: "work_units_v1",
+    work_units: [{ ...smokeWorkUnit, unit_id: "R-T01/W1", requirement_id: "R-T01" }],
+    fields: [
+      ["内容", "把详情做成只读优先的文档视图"],
+      ["验收", "①默认只读；②点编辑才出表单；③重绘不丢草稿"],
+      ["发现记录", JSON.stringify({ Intent: "像读文档", Explicit: "别一整墙输入框", Ambiguities: "无" })],
+      ["停车", "等上游评审;恢复人:agent;解除条件:R-002"],
+      ["进展", "2026-09-26 B2 进行中||2026-09-25 B1 合入||批0 勘察"],
+      ["refs", "R-002 docs/design/memory_control_plane.md"],
+      ["标签", "前端"],
+      ["observed_head", "0123456789abcdef0123"],
+      ["recorded_at", "1790386080000"],
+    ],
+  });
+  try {
+    // 前面分区可能留着应用内查看器(模态):模态开着时静态弹层是惰性的,先收掉再测工具栏弹层。
+    for (const id of ["viewer-overlay", "confirm-overlay", "input-overlay", "palette"]) surfaceNs.closeSurface(byId.get(id));
+    payloads.docs_snapshot = { ...structuredClone(savedDocs), requirements: [richEntry, ...structuredClone(savedDocs.requirements)] };
+    await showView("documents");
+    byId.get("documents-tab-req").click();
+    pagesNs.setDependencyViewOpen(false);
+    sandbox.clearDocFilters();
+    await sandbox.refreshDocs();
+    await flush();
+
+    // ① M5 列表行:状态列回来了且排在优先级之前(固定宽,D-362 三列对齐不破);行内仍不写 R- 编号(R-054);
+    //    复杂度一列一个字、说明进 tooltip;详情头统一「编号 · 标题」(缺陷原来不带编号)。
+    const docRows = document.querySelectorAll("#documents-req-list .doc-row, #documents-defect-list .doc-row");
+    assert(docRows.length > 0 && docRows.every((row) => {
+      const kids = [...row.children];
+      const st = kids.findIndex((node) => node.classList.contains("st"));
+      const pri = kids.findIndex((node) => node.classList.contains("pri-badge"));
+      return st >= 0 && pri > st;
+    }), "#4 单页列表行缺状态列,或状态列没排在优先级之前");
+    const r001Row = itemOf("documents-req-list", "R-001")?.querySelector(".doc-row");
+    assert(r001Row?.querySelector(".st")?.textContent === "doing", `#4 R-001 行状态列应为 doing:${r001Row?.querySelector(".st")?.textContent}`);
+    assert(!r001Row?.textContent.includes("R-001"), "#4 行内出现了 R- 编号(R-054:编号只在 tooltip 与详情头)");
+    const cxBadge = r001Row?.querySelector(".complexity-badge");
+    assert(cxBadge?.textContent === "中" && cxBadge.title.includes("复杂度"), `#4 复杂度列应只写一个字、说明进 tooltip:"${cxBadge?.textContent}" / "${cxBadge?.title}"`);
+    assert(itemOf("documents-defect-list", "D-001")?.querySelector(".doc-full-title")?.textContent.startsWith("D-001 · "), "#4 缺陷详情头缺编号");
+    assert(itemOf("documents-defect-list", "D-001")?.querySelector(".st")?.title.includes("medium"), "#4 缺陷严重度应进状态列 tooltip");
+
+    // ② M6 + #10 详情只读优先:头(编号 · 标题 + 状态流转 + 编辑)、字段按结构渲染、执行单元折叠、默认无输入框。
+    let detail = openDetail("R-T01");
+    assert(detail && !detail.classList.contains("hidden"), "#4 前置:R-T01 详情未展开");
+    const headEl = detail?.querySelector(".doc-detail-head");
+    assert(headEl?.querySelector(".doc-full-title")?.textContent === "R-T01 · 单页详情样例", "#4 详情头应为「编号 · 标题」");
+    const headButtons = headEl?.querySelectorAll(".doc-detail-actions button") ?? [];
+    assert(headButtons.some((node) => node.textContent.includes("done")) && headButtons.some((node) => node.classList.contains("doc-edit-toggle")),
+      "#4 状态流转与「编辑」开关应在详情头(不再沉到最底下)");
+    const read = detail?.querySelector(".doc-fields-read");
+    const fieldRow = (key) => read?.querySelectorAll(".tf-row").find((node) => node.dataset.field === key);
+    assert(read && !read.classList.contains("hidden") && !read.querySelector("input") && !read.querySelector("textarea"),
+      "#4 详情默认应是只读文档视图(不是一整墙输入框)");
+    assert(!detail?.classList.contains("editing") && detail?.querySelector(".doc-edit")?.classList.contains("hidden"), "#4 编辑表单默认应隐藏");
+    assert(fieldRow("验收")?.querySelectorAll("ol li").length === 3, "#4 验收的 ①②③ 未切成有序列表");
+    assert(fieldRow("发现记录")?.querySelectorAll(".sv-kv-row").length === 3, "#4 发现记录 JSON 未渲染成键值表");
+    assert(fieldRow("停车")?.querySelector(".tf-release .sv-ref")?.textContent === "R-002" && fieldRow("停车")?.querySelector(".tf-owner"),
+      "#4 停车字段未拆出恢复人与可点的解除条件");
+    assert(fieldRow("refs")?.querySelectorAll(".sv-ref").some((node) => node.dataset.ref === "R-002")
+      && fieldRow("refs")?.querySelectorAll(".sv-path").some((node) => node.dataset.path?.endsWith("docs/design/memory_control_plane.md")),
+    "#4 refs 应把条目编号渲染成可点 chip、文档路径渲染成路径 chip(不再当条目编号跳转落空)");
+    const progress = fieldRow("进展");
+    const latest = progress?.querySelector(".tf-timeline");
+    const older = progress?.querySelector(".doc-progress-older");
+    assert(latest?.children.length === 1 && latest.textContent.includes("B2 进行中"), `#4 进展只该露最新一段:${latest?.textContent}`);
+    assert(older && !older.open && older.querySelector("summary")?.textContent === "更早进展 2" && older.querySelectorAll("li").length === 2,
+      `#4 更早的进展应收进「更早进展 N」折叠区:${older?.querySelector("summary")?.textContent}`);
+    assert(read?.querySelector(".tf-engine") && !fieldRow("observed_head") && !fieldRow("recorded_at"), "#4 引擎字段应收进「引擎记录」折叠区,不单独成行");
+    const units = detail?.querySelector(".work-unit-details");
+    assert(units && !units.open && units.querySelector("summary")?.textContent.startsWith("执行单元 0/1") && units.querySelector(".work-unit-card"),
+      "#4 执行单元应默认折叠,summary 一行说清进度");
+
+    // ③ 详情头的状态流转仍走 docs_update(硬门禁同一套 nextStatuses)。
+    const beforeStatus = invokeArgs.length;
+    headButtons.find((node) => node.textContent.includes("done"))?.click();
+    await flush();
+    assert(invokeArgs.slice(beforeStatus).some(({ cmd, args }) => cmd === "docs_update" && args?.id === "R-T01" && args?.status === "done"),
+      "#4 详情头的状态流转按钮未发出 docs_update(status=done)");
+
+    // ④ 折叠区展开状态跨重绘保留(agent 一次刷新不把人刚展开的执行单元/更早进展弹回去)。
+    detailOf("R-T01").querySelector(".work-unit-details").open = true;
+    detailOf("R-T01").querySelector(".doc-progress-older").open = true;
+    await sandbox.refreshDocs();
+    assert(detailOf("R-T01")?.querySelector(".work-unit-details")?.open && detailOf("R-T01")?.querySelector(".doc-progress-older")?.open,
+      "#4 重绘把展开的执行单元/更早进展又收起来了");
+
+    // ⑤ 编辑:点「编辑」替换只读视图;输入后带 data-dirty;refreshDocsSoon 让路;显式重绘保留编辑态与草稿。
+    const control = (key) => detailOf("R-T01")?.querySelectorAll(".doc-edit [data-field]").find((node) => node.dataset.field === key);
+    detailOf("R-T01").querySelector(".doc-edit-toggle").click();
+    detail = detailOf("R-T01");
+    const toggle = detail.querySelector(".doc-edit-toggle");
+    assert(detail.classList.contains("editing") && !detail.querySelector(".doc-edit").classList.contains("hidden")
+      && detail.querySelector(".doc-fields-read").classList.contains("hidden"), "#4 点「编辑」后应换成编辑表单");
+    assert(toggle.getAttribute("aria-pressed") === "true" && toggle.textContent === "取消编辑", "#4 编辑开关未切到「取消编辑」");
+    assert(control("复杂度")?.tagName === "SELECT", "#4 复杂度应并进编辑表单(下拉)");
+    control("验收").value = "①改过的验收";
+    control("验收").dispatchEvent({ type: "input" });
+    assert(detail.querySelector(".doc-edit").dataset.dirty === "1" && document.querySelector(".doc-detail.editing .doc-edit[data-dirty]"),
+      "#4 输入后编辑区未标记 data-dirty");
+    const snapshotCalls = () => invokeLog.filter((cmd) => cmd === "docs_snapshot").length;
+    const snapshotsBefore = snapshotCalls();
+    sandbox.refreshDocsSoon();
+    await flush();
+    assert(snapshotCalls() === snapshotsBefore, "#4 有未保存的条目编辑时 refreshDocsSoon 没让路(agent 刷新会打断输入)");
+    await sandbox.refreshDocs();
+    assert(detailOf("R-T01") !== detail, "#4 前置:显式 refreshDocs 应重建详情节点");
+    assert(detailOf("R-T01")?.classList.contains("editing") && !detailOf("R-T01").querySelector(".doc-edit").classList.contains("hidden"),
+      "#4 重绘把编辑态弹回了只读视图");
+    assert(control("验收")?.value === "①改过的验收" && control("验收")?.dataset.dirty === "1", `#4 重绘冲掉了没保存的输入:${control("验收")?.value}`);
+    assert(control("内容")?.value === "把详情做成只读优先的文档视图" && !control("内容")?.dataset.dirty, "#4 没改过的字段应取新快照的值");
+    const beforeSave = invokeArgs.length;
+    detailOf("R-T01").querySelector(".doc-edit-actions button").click();
+    await flush();
+    const saveCall = invokeArgs.slice(beforeSave).find(({ cmd, args }) => cmd === "docs_update" && args?.id === "R-T01" && args?.fields);
+    assert(saveCall?.args.fields["验收"] === "①改过的验收" && saveCall.args.title === "单页详情样例", `#4 保存未提交草稿:${JSON.stringify(saveCall?.args)}`);
+    assert(saveCall && !("复杂度" in saveCall.args.fields), "#4 复杂度没改也写进了保存载荷(会凭空多出字段)");
+    assert(!detailOf("R-T01")?.classList.contains("editing") && detailOf("R-T01")?.querySelector(".doc-edit")?.classList.contains("hidden"),
+      "#4 保存后应回到只读视图");
+    // 取消编辑:输入复位、dirty 清掉。
+    detailOf("R-T01").querySelector(".doc-edit-toggle").click();
+    control("内容").value = "临时改动";
+    control("内容").dispatchEvent({ type: "input" });
+    detailOf("R-T01").querySelector(".doc-edit-toggle").click();
+    assert(control("内容")?.value === "把详情做成只读优先的文档视图" && !detailOf("R-T01").querySelector(".doc-edit").dataset.dirty
+      && !detailOf("R-T01").classList.contains("editing"), "#4 取消编辑没有复位输入");
+    await flush();
+
+    // ⑥ M7 工具栏:五个筛选 + 排序 + 分组 + 说明都收进「筛选」弹层;两个菜单是 data-kz-menu + popover(弹层唯一写法)。
+    const filterSrc = html.slice(html.indexOf('id="documents-filter-menu"'), html.indexOf('id="documents-more-toggle"'));
+    for (const id of ["documents-status-filter", "documents-complexity-filter", "documents-priority-filter", "documents-tag-filter", "documents-blocked-filter", "documents-sort", "documents-group-toggle", "documents-sort-note"]) {
+      assert(filterSrc.includes(`id="${id}"`), `#4 ${id} 不在「筛选」弹层里`);
+    }
+    const moreSrc = html.slice(html.indexOf('id="documents-more-menu"'), html.indexOf('id="documents-active-filters"'));
+    for (const id of ["documents-dep-toggle", "defect-review", "tests-refresh", "req-open", "defect-open"]) {
+      assert(moreSrc.includes(`id="${id}"`), `#4 ${id} 不在「更多」菜单里`);
+    }
+    assert(/id="documents-filter-toggle"[^>]*data-kz-menu="documents-filter-menu"/.test(html) && /id="documents-more-toggle"[^>]*data-kz-menu="documents-more-menu"/.test(html)
+      && /id="documents-filter-menu"[^>]*popover="manual"/.test(html) && /id="documents-more-menu"[^>]*popover="manual"/.test(html),
+    "#4 单页的「筛选」「更多」应是 data-kz-menu 触发器 + popover 弹层");
+    assert(!/<details[^>]*id="documents-/.test(html), "#4 单页工具栏不得用 <details> 做弹层");
+    assert(!html.includes("完整列表与深度管理都在这里"), "#4 单页顶部的长说明段应删掉");
+    const filterToggle = byId.get("documents-filter-toggle");
+    const filterMenu = byId.get("documents-filter-menu");
+    filterToggle.click();
+    assert(surfaceNs.isSurfaceOpen(filterMenu) && !filterMenu.classList.contains("hidden") && filterToggle.getAttribute("aria-expanded") === "true",
+      "#4 点「筛选」没有经弹层原语打开筛选弹层");
+    sandbox.applyDocFilter("status", "doing");
+    const chipsRow = byId.get("documents-active-filters");
+    const chips = () => chipsRow.querySelectorAll(".documents-filter-chip");
+    assert(!chipsRow.classList.contains("hidden") && chips().length === 1 && chips()[0].textContent.includes("状态: doing"),
+      `#4 生效的筛选没有以 chip 说破:${chipsRow.textContent}`);
+    assert(byId.get("documents-filter-count").textContent === "1", "#4 「筛选」触发器未显示生效项数");
+    assert(surfaceNs.isSurfaceOpen(filterMenu), "#4 改一个筛选就把弹层关了(连续调几个筛选要能一口气改完)");
+    chips()[0].querySelector(".documents-filter-chip-clear").click();
+    const savedFilters = () => JSON.parse(storage.get(`kz-filters:${PROJECT}`) ?? "{}").docReq ?? {};
+    assert(pagesNs.documentFilters.req.status === "all" && savedFilters().status === "all" && chipsRow.classList.contains("hidden")
+      && byId.get("documents-filter-count").textContent === "", "#4 chip 的 × 没把该筛选复位并落盘");
+    sandbox.applyDocFilter("priority", "P1");
+    sandbox.applyDocFilter("sort", "priority");
+    assert(chips().length === 2 && byId.get("documents-filter-count").textContent === "2", "#4 两项生效时 chip/计数不对");
+    chipsRow.querySelector(".documents-filter-clear-all")?.click();
+    assert(pagesNs.documentFilters.req.priority === "all" && pagesNs.documentFilters.req.sort === "manual" && savedFilters().sort === "manual"
+      && chipsRow.classList.contains("hidden"), "#4 「清除全部」没把筛选与排序一起复位并落盘");
+    sandbox.applyDocFilter("status", "doing");
+    byId.get("documents-tab-tests").click();
+    assert(chipsRow.classList.contains("hidden") && byId.get("documents-filter-count").textContent === "", "#4 测试记录页签不该显示需求筛选 chip");
+    byId.get("documents-tab-req").click();
+    assert(!chipsRow.classList.contains("hidden"), "#4 切回需求页签后 chip 行没回来");
+    sandbox.applyDocFilter("status", "all");
+    surfaceNs.closeSurface(filterMenu);
+    // 「更多」:依赖视图是勾选型菜单项;里面的动作点完就收起菜单。
+    const moreToggle = byId.get("documents-more-toggle");
+    const moreMenu = byId.get("documents-more-menu");
+    moreToggle.click();
+    assert(surfaceNs.isSurfaceOpen(moreMenu), "#4 点「更多」没有打开菜单");
+    byId.get("documents-dep-toggle").click();
+    assert(!surfaceNs.isSurfaceOpen(moreMenu), "#4 「更多」里点了动作,菜单没收起");
+    assert(byId.get("documents-dep-toggle").getAttribute("aria-checked") === "true" && !byId.get("documents-dep-view").classList.contains("hidden"),
+      "#4 依赖视图菜单项未切换(aria-checked / 面板)");
+    byId.get("documents-dep-toggle").click();
+    assert(byId.get("documents-dep-toggle").getAttribute("aria-checked") === "false", "#4 依赖视图菜单项未切回");
+    byId.get("documents-tab-req").click();
+    await flush();
+
+    // ⑦ M8 线路页:取得条目在快照里查得到就是直达展开详情的链接;查不到只写文字。
+    sandbox.renderLines([{ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", claim: "R-001 冒烟需求", phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, changed_files: [] }]);
+    const claimLink = document.querySelector("#lines-list .line-claim-link");
+    assert(claimLink?.textContent.startsWith("R-001 · ") && claimLink.title.includes("点击查看详情"), `#4 线路页取得条目应是可点链接:${document.querySelector("#lines-list .line-claim")?.textContent}`);
+    const r001 = itemOf("documents-req-list", "R-001");
+    if (expandedDetail(r001)) r001.querySelector(".doc-row")?.click();
+    await showView("chat");
+    claimLink?.click();
+    await flush();
+    assert(byId.get("view-documents").classList.contains("active") && expandedDetail(itemOf("documents-req-list", "R-001")),
+      "#4 点线路页取得条目没有直达 R-001 展开的详情");
+    sandbox.renderLines([{ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", claim: "R-9999 线路里新登记", phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, changed_files: [] }]);
+    assert(!document.querySelector("#lines-list .line-claim-link") && document.querySelector("#lines-list .line-claim")?.textContent.includes("R-9999"),
+      "#4 快照里查不到的取得条目不该渲染成点了落空的链接");
+
+    // ⑧ 静态:活动面板行操作悬停/聚焦/展开才出现;详情与工具栏 CSS 只用 token。
+    const css = style.replace(/\/\*[\s\S]*?\*\//g, "");
+    assert(/\.bg-entry \.bg-actions \{ display: none; \}/.test(css)
+      && /\.bg-entry:hover \.bg-actions:not\(:empty\), \.bg-entry:focus-within \.bg-actions:not\(:empty\),\s*\.bg-entry \.bg-title\[aria-expanded="true"\] ~ \.bg-actions:not\(:empty\) \{ display: flex; \}/.test(css),
+    "#4 活动面板行操作应只在悬停/聚焦/展开时出现");
+    const g5Css = style.split("/* ===== 分区:需求卡片与单页 ===== */")[1]?.split("/* ===== 分区:动效 ===== */")[0] ?? "";
+    assert(/\.documents-tabs button\.primary, \.documents-tabs button\.primary:hover \{[^}]*var\(--surface-selected\)/.test(g5Css), "#4 当前页签应是中性选中态");
+    assert(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(g5Css.replace(/\/\*[\s\S]*?\*\//g, "")), "#4 需求卡片与单页分区用了字面量颜色(只准用 token)");
+  } finally {
+    payloads.docs_snapshot = savedDocs;
+    pagesNs?.setDependencyViewOpen(false);
+    listNs?.clearJumpReveal();
+    sandbox.clearDocFilters?.();
+    for (const id of ["documents-filter-menu", "documents-more-menu"]) surfaceNs?.closeSurface(byId.get(id));
+    sandbox.renderLines(payloads.collaboration_snapshot);
+    byId.get("documents-tab-req").click();
+    await sandbox.refreshDocs();
+    await showView(savedView);
+    await flush();
     if (priorLanguage === null) localStorageShim.removeItem?.("kz-language");
     else localStorageShim.setItem("kz-language", priorLanguage);
   }
