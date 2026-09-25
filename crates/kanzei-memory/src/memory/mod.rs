@@ -31,9 +31,7 @@ pub use tools::{MemoryNoteTool, MemorySearchTool, MemoryStatsTool};
 
 use std::path::PathBuf;
 
-use crate::docstore::{
-    DocStore, DECISIONS, DEFECTS, FINDINGS, IDEAS, MEMORY, REQUIREMENTS, SOURCES,
-};
+use crate::docstore::{DocStore, DECISIONS, DEFECTS, FINDINGS, IDEAS, REQUIREMENTS, SOURCES};
 use crate::embed::Embedder;
 use kanzei_harness::ToolCtx;
 
@@ -304,9 +302,9 @@ pub fn render_entry(entry: &MemoryEntry) -> String {
 }
 
 /// R-070 来源 ID 契约(硬校验,先例:tracker.rs check_refs):
-/// 每个 ref 必须是项目内真实存在的引用——`[RDAISFM]-<数字>` 命中对应 doc 的
-/// 活跃或归档条目;否则按相对文件路径,须真实存在于项目根下。
-/// 任一 ref 非法即整体拒绝,不在提示词层面兜底。
+/// 每个 ref 必须是项目内真实存在的引用——`[RDAISF]-<数字>` 命中对应 doc 的
+/// 活跃或归档条目;`M-<数字>` 命中 `.kanzei/memory/` 或其 `archive/` 中的记忆;
+/// 否则按相对文件路径,须真实存在于项目根下。任一 ref 非法即整体拒绝。
 pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String> {
     let kind_of = |id: &str| match id.as_bytes().first() {
         Some(b'R') => Some(&REQUIREMENTS),
@@ -315,7 +313,6 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
         Some(b'I') => Some(&IDEAS),
         Some(b'S') => Some(&SOURCES),
         Some(b'F') => Some(&FINDINGS),
-        Some(b'M') => Some(&MEMORY),
         _ => None,
     };
     let mut bad: Vec<String> = Vec::new();
@@ -330,6 +327,18 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
             && bytes[1] == b'-'
             && id[2..].chars().all(|c| c.is_ascii_digit());
         if looks_like_id {
+            if id.starts_with("M-") {
+                let store = MemoryStore::open(
+                    MemoryScope::Project,
+                    ctx.project_root.join(".kanzei/memory"),
+                );
+                let exists = store.load_all().iter().any(|(_, entry)| entry.id == id)
+                    || store.has_archived_id(id);
+                if !exists {
+                    bad.push(format!("{id}: no such memory entry (active or archived)"));
+                }
+                continue;
+            }
             let Some(kind) = kind_of(id) else {
                 bad.push(format!("{id}: unknown doc kind"));
                 continue;
@@ -1709,7 +1718,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_source_refs_accepts_existing_doc_and_file_rejects_unknown() {
+    fn validate_source_refs_accepts_existing_doc_memory_and_file_rejects_unknown() {
         let dir = std::env::temp_dir().join(format!(
             "kz-refs-{}-{}",
             std::process::id(),
@@ -1719,8 +1728,9 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        // 造一个活跃需求 + 一个归档缺陷 + 一个真实文件。
+        // 造一个活跃需求 + 一个归档缺陷 + 活跃/归档记忆 + 一个真实文件。
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::create_dir_all(dir.join(".kanzei/memory/archive")).unwrap();
         std::fs::write(
             dir.join(".kanzei/project/requirements.md"),
             "# Requirements\n\n## R-001 示例 [todo]\n- 验收: 略\n",
@@ -1729,6 +1739,16 @@ mod tests {
         std::fs::write(
             dir.join(".kanzei/project/defects-archive.md"),
             "# Defects Archive\n\n## D-099 已修 [fixed]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".kanzei/memory/M-001-reference-test.md"),
+            "---\nid: M-001\nscope: project\ncategory: fact\ntitle: test\ndescription: test\nstatus: active\n---\nbody\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".kanzei/memory/archive/M-002-archived-test.md"),
+            "---\nid: M-002\nscope: project\ncategory: fact\ntitle: archived\ndescription: archived\nstatus: deprecated\n---\nbody\n",
         )
         .unwrap();
         std::fs::write(dir.join("notes.md"), "手工笔记").unwrap();
@@ -1740,6 +1760,8 @@ mod tests {
 
         assert!(validate_source_refs(&ctx, &["R-001".into()]).is_ok());
         assert!(validate_source_refs(&ctx, &["D-099".into()]).is_ok());
+        assert!(validate_source_refs(&ctx, &["M-001".into()]).is_ok());
+        assert!(validate_source_refs(&ctx, &["M-002".into()]).is_ok());
         assert!(validate_source_refs(&ctx, &["notes.md".into()]).is_ok());
         assert!(validate_source_refs(&ctx, &[]).is_ok());
         assert!(validate_source_refs(&ctx, &["R-999".into()]).is_err());
