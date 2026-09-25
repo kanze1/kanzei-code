@@ -71,6 +71,12 @@ if (SMOKE_MUTATE) {
       pattern: /const top = topEscapable\(\);/,
       replace: 'const top = stack.find((h) => h.type !== "tooltip");',
     },
+    // UI-0926 #5:发送键改成图标按钮后,读屏名称全靠 aria-label。把空闲态的 t("发送") 退回中文字面量,
+    // 英文界面下读屏就会念「发送」——正是这次修掉的漏翻。
+    ui5SendLabel: {
+      pattern: /(send\.setAttribute\("aria-label", value \? t\("运行中可插入或排队，按交付方式发送"\) : )t\("发送"\)\);/,
+      replace: '$1"发送");',
+    },
 
     // ---- 分区:工具行与结构化渲染 ----
 
@@ -9068,6 +9074,32 @@ const docsB = {
     const surfaceSource = sources[scriptSrcs.indexOf("00-surface.js")] ?? "";
     assert(surfaceSource.includes('document.addEventListener("keydown", onKeydown, true)'), "00-surface.js 的 Esc 唯一入口不在 document 捕获阶段");
   }
+}
+
+// UI-0926 #5 配色:发送键 = 单色圆形图标按钮。可见文字没了,名称只剩 sr-only 与 aria-label 两条来源,
+// 两条都必须跟着界面语言走(英文态念 "Send");图标是 aria-hidden 的 SVG,不能退回文字按钮。
+{
+  const send = sandbox.document.getElementById("send");
+  assert(send, "UI-0926 #5:找不到 #send");
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  sandbox.setRunning(false);
+  assert(send.getAttribute("aria-label") === "Send", `UI-0926 #5:英文态空闲的发送键读屏名称应为 "Send",实得 "${send.getAttribute("aria-label")}"`);
+  assert(send.getAttribute("title") === "Send", `UI-0926 #5:英文态空闲的发送键悬停提示应为 "Send",实得 "${send.getAttribute("title")}"`);
+  // 假 DOM 只按 id 建节点,按钮内部的 svg/span 看不见:标记本身静态核对。
+  const sendMarkup = html.match(/<button id="send"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "";
+  assert(/<svg aria-hidden="true"/.test(sendMarkup), `UI-0926 #5:发送键应为图标按钮(内含 aria-hidden 的 svg),实为 ${sendMarkup.slice(0, 120)}`);
+  assert(/<span class="sr-only" data-i18n-key="发送">发送<\/span>/.test(sendMarkup), "UI-0926 #5:发送键缺少随语言翻译的 sr-only 文字(data-i18n-key=\"发送\")");
+  assert(/data-i18n-title="发送"/.test(sendMarkup), "UI-0926 #5:发送键的静态悬停提示缺 data-i18n-title");
+  sandbox.setRunning(true);
+  assert(send.getAttribute("aria-label") === "While running, send to steer or queue according to Delivery", `UI-0926 #5:运行态发送键读屏名称未翻译,实得 "${send.getAttribute("aria-label")}"`);
+  sandbox.setRunning(false);
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(send.getAttribute("title") === "发送" && send.getAttribute("aria-label") === "发送", `UI-0926 #5:切回中文后发送键应为「发送」,实得 title="${send.getAttribute("title")}" aria-label="${send.getAttribute("aria-label")}"`);
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
 }
 
 // ===== 分区:工具行与结构化渲染 =====
