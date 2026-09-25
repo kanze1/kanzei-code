@@ -21,6 +21,8 @@ import {
 } from "./03-shell.js";
 import { renderMarkdown } from "./04-markdown.js";
 import { toolCallSummary } from "./05-chat-render.js";
+import { cleanInline, cleanPaths, formatDuration, looksLikeNoise, parseJsonish, stripAnsi } from "./04-structured-parse.js";
+import { toolArgSummary, toolResultSummary, toolRoots } from "./05-tool-summary.js";
 import { renderContextDetail } from "./07-events.js";
 import { autoStopReason, renderAutoStatus } from "./08-auto.js";
 import { state } from "./08-compose.js";
@@ -721,13 +723,14 @@ export function appendDisplayBlock(parent, display, { compact = false } = {}) {
     const block = document.createElement("div");
     block.className = "tool-display term";
     // D-237:活动面板展开区优先展示完整输出(full),而不是 4000 截断的 output。
-    const out = display.full ?? display.output ?? "";
+    // 彩色输出(cargo 等)的 ANSI 转义原样进 DOM 会显示成 `\u001b[32m` 乱码。
+    const out = stripAnsi(display.full ?? display.output ?? "");
     block.textContent = `$ ${display.command}\n${out}`;
     parent.appendChild(block);
   } else if (display.kind === "create") {
     const block = document.createElement("div");
     block.className = "tool-display term";
-    block.textContent = `${t("新建")} ${display.path}(${display.bytes} bytes)\n${display.preview}`;
+    block.textContent = `${t("新建")} ${display.path}(${display.bytes} bytes)\n${stripAnsi(display.preview)}`;
     parent.appendChild(block);
   } else if (display.kind === "file") {
     parent.appendChild(renderFileCard(display));
@@ -735,7 +738,7 @@ export function appendDisplayBlock(parent, display, { compact = false } = {}) {
     // 原工具没有 display 时后端才发 kind=truncated:没有终端块可保,预览单独成块。
     const block = document.createElement("div");
     block.className = "tool-display term";
-    block.textContent = String(display.preview);
+    block.textContent = stripAnsi(String(display.preview));
     parent.appendChild(block);
   }
   // 配额截断提示追加在原 display 之后:终端块照常保留,提示只补"为什么被截、去哪腾空间"。
@@ -882,11 +885,27 @@ export function bgStream(id, chunk) {
     entry.detail.appendChild(entry.live);
     entry.el.classList.add("has-detail");
   }
-  const text = (entry.live.textContent + chunk).slice(-BG_STREAM_MAX);
+  const text = (entry.live.textContent + stripAnsi(chunk)).slice(-BG_STREAM_MAX);
   entry.live.textContent = text;
   const lastLine = text.trimEnd().split("\n").pop() || "";
-  if (lastLine) entry.prog.textContent = lastLine.slice(0, 160);
+  // 进度行只是「跑到哪了」的提示:绝对路径相对化,展开区的实时流保留原文。
+  if (lastLine) entry.prog.textContent = cleanInline(lastLine, toolRoots()).slice(0, 160);
   if (!entry.detail.classList.contains("hidden")) entry.live.scrollTop = entry.live.scrollHeight;
+}
+
+/// 子代理内部调用行的参数摘要。有结构化入参就走 toolArgSummary;回放/旧事件只有后端
+/// summarize_input(整坨入参 JSON 截到 160 字)时,能解析就按工具挑字段,解析不了就只抽
+/// 路径/命令类的首个字段——绝不把 `{"command":…` 这种 JSON 片段贴进行里。
+export function traceArgText(name, input, summary) {
+  if (input && typeof input === "object") return toolArgSummary(name, input).text;
+  const raw = String(summary ?? "").trim();
+  if (!raw) return "";
+  const parsed = parseJsonish(raw);
+  if (parsed && typeof parsed === "object") return toolArgSummary(name, parsed).text;
+  const field = raw.match(/"(path|file_path|command|pattern|query|url|id|title|action)"\s*:\s*"((?:\\.|[^"\\])*)/);
+  if (field) return toolArgSummary(name, { [field[1]]: field[2].replace(/\\(.)/g, "$1") }).text;
+  const clean = cleanInline(raw, toolRoots());
+  return looksLikeNoise(clean) ? "" : clean;
 }
 
 export function bgProgress(id, text, trace) {
@@ -907,12 +926,13 @@ export function bgProgress(id, text, trace) {
       row.className = "bg-child running";
       const head = document.createElement("div");
       head.className = "bg-child-head";
-      head.textContent = `${trace.name} ${trace.summary || ""}`;
+      head.textContent = `${trace.name} ${traceArgText(trace.name, trace.input, trace.summary)}`.trim();
       const meta = document.createElement("div");
       meta.className = "bg-child-meta";
       row.append(head, meta);
       entry.detail.appendChild(row);
-      child = { row, head, meta };
+      // 入参随子行留存:收尾摘要要按它算(edit 的增删行、read 的 limit)。
+      child = { row, head, meta, name: trace.name, input: trace.input ?? null };
       entry.children.set(trace.child_id, child);
       entry.el.classList.add("has-detail");
     }
@@ -921,7 +941,10 @@ export function bgProgress(id, text, trace) {
     child.row.classList.remove("running");
     child.row.classList.add(view.cls);
     child.row.dataset.toolOutcome = view.state;
-    child.meta.textContent = trace.preview || (trace.ok ? t("完成") : t("失败"));
+    // 子代理轨迹不带正文(TaskTrace 只有 preview),摘要器走降级口径——仍然不回显源码/JSON。
+    child.meta.textContent = toolResultSummary(trace.name || child.name, {
+      ok: trace.ok, outcome: trace.outcome, code: trace.code, preview: trace.preview, display: trace.display, input: child.input ?? undefined,
+    }).text;
     appendDisplayBlock(child.row, trace.display);
   }
   // 调用数在 children 落定后再刷,先刷会永远少算一次。
@@ -935,7 +958,8 @@ export function activityOutcomeView(ok, outcome) {
   return state === "success" ? { state, cls: "ok" } : { state, cls: "err" };
 }
 
-export function bgEnd(id, ok, preview, display, outcome) {
+/// extra = {content, contentTruncated, contentBytes, code, durationMs}(kz:tool-end 携带,见 chatToolEnd)。
+export function bgEnd(id, ok, preview, display, outcome, extra = {}) {
   const entry = bgEntries.get(id);
   if (!entry) return;
   const view = activityOutcomeView(ok, outcome);
@@ -962,13 +986,28 @@ export function bgEnd(id, ok, preview, display, outcome) {
   // 截断时 preview 首行是 [tool_result_truncated …] 机器标记,换成按原因区分的人话;
   // 详情区另有提示块。
   const quota = quotaTruncation(display);
+  // 进度行与主对话 ⎿ 行同一个摘要器(耗时在元信息行里,这里不重复)。
   entry.prog.textContent = quota
     ? `⚠ ${quotaNoticeHeadline(quota)}`
-    : preview || (ok ? t("完成") : t("失败"));
+    : toolResultSummary(entry.name, {
+      content: extra.content,
+      contentTruncated: extra.contentTruncated,
+      contentBytes: extra.contentBytes,
+      code: extra.code,
+      preview,
+      display,
+      input: entry.input ?? undefined,
+      ok,
+      outcome,
+    }).text;
   // 元信息一行说清:成败、耗时、子代理内部调用数。此前只有一个秒数,
   // 看不出成没成,也看不出子代理到底干了多少活(R-095 验收 ⑤)。
-  const ms = Date.now() - entry.startedAt;
-  const elapsed = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+  // 耗时优先用后端量的 durationMs(不含前端事件排队延迟)。
+  const measured = Number(extra.durationMs);
+  const ms = extra.durationMs !== undefined && extra.durationMs !== null && Number.isFinite(measured)
+    ? measured
+    : Date.now() - entry.startedAt;
+  const elapsed = formatDuration(ms);
   const statusText = view.state === "noop"
     ? `↪ ${t("无需修改")}`
     : view.state === "needs_confirmation"
@@ -994,7 +1033,7 @@ export function bgEnd(id, ok, preview, display, outcome) {
   if (view.state === "failed" && preview) {
     const err = document.createElement("div");
     err.className = "tool-display term";
-    err.textContent = preview;
+    err.textContent = cleanPaths(preview, toolRoots());
     entry.detail.appendChild(err);
   }
   if (entry.detail.children.length) entry.el.classList.add("has-detail");
@@ -1028,7 +1067,12 @@ export function renderRecoveredTraces(payloads) {
         entry.el.classList.add(view.cls);
         entry.el.dataset.toolOutcome = view.state;
         entry.el.dataset.bgStatus = view.cls;
-        entry.prog.textContent = failed && event.error ? String(event.error) : t("历史轨迹");
+        // 轨迹只存了 preview(不存正文):成功按降级口径摘要,失败显示清洗过的错误首段。
+        entry.prog.textContent = failed && event.error
+          ? cleanInline(event.error, toolRoots())
+          : !failed && event.preview
+            ? toolResultSummary(entry.name, { ok: true, outcome: event.outcome, preview: event.preview, input: entry.input ?? undefined }).text
+            : t("历史轨迹");
         const seconds = Number(event.durationMs);
         entry.meta.textContent =
           Number.isFinite(seconds) && seconds >= 1000

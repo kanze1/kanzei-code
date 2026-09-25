@@ -366,7 +366,15 @@ defer(() => {
     if (p.ok && ["source", "finding"].includes(p.name)) refreshDocsSoon();
     // 改了文件或跑了命令,工作区状态徽章跟着变(提交后 +N 应当立刻归零)。
     if (p.ok && ["write", "edit", "multiedit", "bash"].includes(p.name)) refreshGitSoon();
-    chatToolEnd(p.id, p.ok, p.preview, p.display, outcome);
+    // UI-0926 #6:tool-end 带与历史同源的正文与耗时,⎿ 行与活动面板进度行按工具摘要。
+    const toolEndExtra = {
+      content: p.content,
+      contentTruncated: p.contentTruncated,
+      contentBytes: p.contentBytes,
+      code: p.code,
+      durationMs: p.durationMs,
+    };
+    chatToolEnd(p.id, p.ok, p.preview, p.display, outcome, toolEndExtra);
     recordDiffSummary(p.display);
     // R-174:子代理终态进子代理面板 finished 区(task 类顶层 tool-end 只来自父任务收尾,
     // 或被停后补发)。
@@ -374,7 +382,7 @@ defer(() => {
     // 活动栏统一保留工具轨迹；历史兼容待定路径仍由 bgFinishQuiet 收尾，
     // 随后由 bgEnd 更新完成态和错误详情。
     bgFinishQuiet(p.id, p.ok);
-    bgEnd(p.id, p.ok, p.preview, p.display, outcome);
+    bgEnd(p.id, p.ok, p.preview, p.display, outcome, toolEndExtra);
     setStatus("运行中", true);
   });
 });

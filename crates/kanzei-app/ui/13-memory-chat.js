@@ -2,6 +2,7 @@ import { $, defer, invoke } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { currentProject } from "./03-shell.js";
 import { renderMarkdown } from "./04-markdown.js";
+import { toolResultSummary } from "./05-tool-summary.js";
 
 // Project ownership is captured at send time. A late stream never writes into another project.
 const conversations = new Map();
@@ -59,7 +60,9 @@ defer(() => {
         for (const change of turn.changes) {
           const item = document.createElement("p");
           item.className = change.ok ? "memory-change-ok" : "memory-change-failed";
-          item.textContent = `${change.ok ? "✓" : "!"} ${change.tool} · ${change.summary}`;
+          // 后端只给 preview(首行 + 行数):与主对话同一个摘要器,记忆工具的回执说成人话。
+          const said = toolResultSummary(change.tool, { ok: change.ok, preview: change.summary }).text;
+          item.textContent = `${change.ok ? "✓" : "!"} ${change.tool} · ${said}`;
           changes.appendChild(item);
         }
         row.appendChild(changes);

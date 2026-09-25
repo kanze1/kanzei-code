@@ -2302,11 +2302,13 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .agent-fold-count { font-size: var(--fs-10-5); }
 .agent-fold-caret { margin-left: auto; color: var(--dim); }
 .agent-fold-body { padding-left: 2px; }
+/* UI-0926 #6:工具行整行改比例字体;只有工具名与代码记号(路径/命令/正则,.is-code 与
+   .tool-sum-code)用等宽——此前整行 mono,人话摘要读起来像日志。 */
 .tool-msg-head {
   display: flex; gap: 6px; align-items: baseline; width: 100%;
   background: transparent; border: none; color: var(--fg);
   font-size: var(--fs-13-5); padding: 1px 0 1px 2px; cursor: default; text-align: left;
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--sans);
 }
 .tool-msg.has-detail .tool-msg-head { cursor: pointer; }
 .tool-msg.has-detail .tool-msg-head:hover .tool-msg-name { text-decoration: underline; }
@@ -2317,14 +2319,15 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 .tool-msg.noop .tool-msg-status { color: var(--dim); }
 .tool-msg.warn .tool-msg-status { color: var(--warn); }
 .tool-msg.err .tool-msg-status { color: var(--err); }
-.tool-msg-name { font-weight: 600; flex: none; }
+.tool-msg-name { font-family: var(--mono); font-size: var(--fs-12-5); font-weight: 600; flex: none; }
 .tool-msg-arg {
-  color: var(--dim); overflow: hidden;
+  color: var(--dim); overflow: hidden; font-family: var(--sans);
   text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
 }
+.tool-msg-arg.is-code { font-family: var(--mono); font-size: var(--fs-12-5); }
 .tool-msg-result {
   flex: 0 1 42%; min-width: 0; margin: 0; font-size: var(--fs-13); color: var(--dim);
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--sans); font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tool-msg.err .tool-msg-result { color: var(--err); }
@@ -2788,6 +2791,13 @@ body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data
 /* ===== 分区:弹层与外观 ===== */
 
 /* ===== 分区:工具行与结构化渲染 ===== */
+/* UI-0926 #6:⎿ 摘要里的分段(05-tool-summary.js renderToolSummary)。只用 token,不用 opacity。 */
+.tool-sum-code { font-family: var(--mono); font-size: var(--fs-12-5); }
+.tool-sum-num { font-variant-numeric: tabular-nums; }
+.tool-sum-add { color: var(--ok); font-variant-numeric: tabular-nums; }
+.tool-sum-del { color: var(--err); font-variant-numeric: tabular-nums; }
+.tool-sum-dur { color: var(--dim); font-variant-numeric: tabular-nums; }
+.tool-msg-result.tool-sum-warn { color: var(--warn); }
 
 /* ===== 分区:需求卡片与单页 ===== */
 

@@ -67,6 +67,17 @@ if (SMOKE_MUTATE) {
     // ---- 分区:弹层与外观 ----
 
     // ---- 分区:工具行与结构化渲染 ----
+    // UI-0926 #6:结果摘要器查表。删了它,所有工具都掉进兜底(read 显示「输出 N 行」而不是
+    // 「全文 N 行」),逐工具的精确文本断言必须变红。
+    toolSummaryRegistry: {
+      pattern: /[ \t]*const summarizer = lookupSummarizer\(TOOL_RESULT_SUMMARIZERS, s\.name\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #6:兜底里的噪声判据。删了它,未知工具的源码行(`  1\t// 注释`)会被当人话显示。
+    toolSummaryNoise: {
+      pattern: /[ \t]*if \(looksLikeNoise\(cleanPaths\(line, s\.roots\)\) \|\| looksLikeNoise\(clean\)\) break;\r?\n/,
+      replace: "",
+    },
 
     // ---- 分区:需求卡片与单页 ----
 
@@ -3894,12 +3905,13 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
   assert(h2Rest.textContent.endsWith("…(已截断)"), `超长输出未截断:结尾为 "${h2Rest.textContent.slice(-20)}"`);
   assert(h2Rest.textContent.length < 8100, `截断上界失效,实得 ${h2Rest.textContent.length} 字`);
 
-  // ③ bash 的 "exit code: 0" 独占首行时顺延到下一行,被跳过的那行归入剩余而不是丢掉。
-  assert(resultOf(h3) === "⎿ 真正的输出行", `exit code 顺延语义变了:"${resultOf(h3)}"`);
-  assert(restOf(h3)?.textContent === "exit code: 0", `被跳过的 exit code 行被丢掉了:"${restOf(h3)?.textContent}"`);
+  // ③ UI-0926 #6:bash 成功行是「退出码 · 亮点行」的人话摘要,而不是原文首行;
+  // 摘要不再是原文的一段,展开区给完整原文(exit code 行不能丢)。
+  assert(resultOf(h3) === "⎿ 退出码 0 · 真正的输出行", `bash 成功摘要漂移:"${resultOf(h3)}"`);
+  assert(restOf(h3)?.textContent === "exit code: 0\n真正的输出行", `展开区不是完整原文(exit code 行被丢掉了?):"${restOf(h3)?.textContent}"`);
 
-  // ④ 全篇只有 "exit code: 0" 时仍显示它,不塌成「完成」(原实现 `|| lines[0]` 兜底的等价保留)。
-  assert(resultOf(h4) === "⎿ exit code: 0", `唯一的结果行被吞成兜底文案:"${resultOf(h4)}"`);
+  // ④ 全篇只有 "exit code: 0" 时仍给出退出码,不塌成「完成」(原实现 `|| lines[0]` 兜底的等价保留)。
+  assert(resultOf(h4) === "⎿ 退出码 0", `唯一的结果行被吞成兜底文案:"${resultOf(h4)}"`);
   assert(restOf(h4) === null, "只有一行结果时不该出展开区(展开了还是那一行 = 假承诺)");
 }
 
@@ -4290,13 +4302,13 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   );
   assert(x1Rest.endsWith("(+2 lines)"), `被截掉的尾巴读不到了:"${x1Rest.slice(-30)}"`);
 
-  // ② 成功的短结果:零退化——⎿ 行原样,不出展开区,不加 has-detail。
+  // ② 成功的短结果:⎿ 行是人话摘要(UI-0926 #6),仍不出展开区,不加 has-detail。
   index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
   toolStart({ payload: { id: "X2", name: "edit", summary: "ui/x.js", sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "X2", name: "edit", ok: true, preview: "replaced 1 occurrence", display: null, sessionId: "sess-smoke" } });
   await flush();
   const x2 = toolMsgAt(index);
-  assert(x2?.querySelector(".tool-msg-result")?.textContent === "⎿ replaced 1 occurrence", `成功短结果的 ⎿ 行变了:"${x2?.querySelector(".tool-msg-result")?.textContent}"`);
+  assert(x2?.querySelector(".tool-msg-result")?.textContent === "⎿ 已替换 1 处", `成功短结果的 ⎿ 行变了:"${x2?.querySelector(".tool-msg-result")?.textContent}"`);
   assert(x2.querySelector(".tool-msg-raw") === null, "成功短结果不该出展开区(展开了还是那一行 = 假承诺)");
   assert(!x2.classList.contains("has-detail"), "成功短结果不该标 has-detail");
 
@@ -4438,9 +4450,10 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   }
 
   // ③ ⎿ 行截断点与剩余部分的切分必须严丝合缝:一个字要么在摘要里、要么在详情里。
+  // UI-0926 #6:成功行改成人话摘要后,互斥切分只作用于失败行,预算用失败结果验。
   index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
   toolStart({ payload: { id: "X3", name: "edit", summary: "ui/y.js", sessionId: "sess-smoke" } });
-  toolEnd({ payload: { id: "X3", name: "edit", ok: true, preview: "x".repeat(200), display: null, sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "X3", name: "edit", ok: false, preview: "x".repeat(200), display: null, sessionId: "sess-smoke" } });
   await flush();
   const x3 = toolMsgAt(index);
   const x3Result = x3?.querySelector(".tool-msg-result")?.textContent ?? "";
@@ -8802,6 +8815,340 @@ const docsB = {
 // ===== 分区:弹层与外观 =====
 
 // ===== 分区:工具行与结构化渲染 =====
+// ---------- UI-0926 #6:工具行人话摘要(05-tool-summary.js) ----------
+// ⎿ 列此前是工具原文首行截 110 字:read 显示行号+源码、grep 显示 `path-450- }`、symbols 显示
+// `== \\?\C:\…`、JSON 工具显示 `{`。这里用**真实 Rust 输出格式**的夹具逐工具断言精确文本,
+// 再断言所有夹具的摘要都不含源码/路径/JSON/转义/乱码,并验证实时与历史同源、旧后端降级、
+// 活动面板同口径、正文不挂到块上(内存)。
+{
+  const summaryNs = esmModuleCache.get("05-tool-summary.js")?.namespace;
+  const parseNs = esmModuleCache.get("04-structured-parse.js")?.namespace;
+  const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  assert(summaryNs?.toolResultSummary && summaryNs?.toolArgSummary && summaryNs?.renderToolSummary, "05-tool-summary.js 未导出摘要器三件套");
+  assert(parseNs?.stripAnsi && parseNs?.displayPath && parseNs?.parseJsonish && parseNs?.stripToolOutcome, "04-structured-parse.js 未导出纯解析助手");
+  // 摘要器只从纯解析模块取助手(单一真源):不得自己再实现一份 stripAnsi/displayPath。
+  const summarySource = sources[scriptSrcs.indexOf("05-tool-summary.js")] ?? "";
+  const parseSource = sources[scriptSrcs.indexOf("04-structured-parse.js")] ?? "";
+  assert(/from "\.\/04-structured-parse\.js"/.test(summarySource), "05-tool-summary.js 未从 04-structured-parse.js 引入解析助手");
+  assert(!/function (?:stripAnsi|displayPath|normalizeRoot|looksLikeNoise)\b/.test(summarySource), "05-tool-summary.js 又自带了一份路径/ANSI/噪声助手(应只有 04-structured-parse.js 一处)");
+  assert(!/^\s*import\b/m.test(parseSource), "04-structured-parse.js 必须零 import(纯函数模块,Node 里可直接单测)");
+
+  if (summaryNs && parseNs && shellNs && chatNs && viewsNs) {
+    // 断言写在冒烟末尾:此前的用例可能把界面切到英文、把会话收敛成空闲(收敛后迟到的
+    // tool-start 会被丢弃)。这里固定中文文案,并给当前活动会话发一轮 kz:turn 让它回到运行态。
+    const priorLanguage = localStorageShim.getItem("kz-language");
+    localStorageShim.setItem("kz-language", "zh");
+    const SID = shellNs.activeSessionId || "sess-smoke";
+    if (!shellNs.activeSessionId) shellNs.setActiveSessionId?.(SID);
+    handlers.get("kz:turn")?.({ payload: { sessionId: SID, step: 2, maxSteps: 12 } });
+    await flush();
+    const { toolResultSummary, toolArgSummary } = summaryNs;
+    // 项目根带空格(用户真实目录形如 `Documents/kanzei code`)且以 verbatim 形态出现。
+    const ROOT = "C:\\Users\\kanzei\\Documents\\kanzei code";
+    const VROOT = `\\\\?\\${ROOT}`;
+    const roots = [VROOT];
+    const sum = (name, ctx) => toolResultSummary(name, { roots, ok: true, ...ctx });
+    const NOISE = [
+      [/\\\\\?\\|\/\/\?\//, "verbatim 前缀"],
+      [/(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/, "盘符绝对路径"],
+      [/^\s*\d+\t/m, "带行号的源码行"],
+      [/^[{[]|^==/, "JSON/表头开头"],
+      [/\x1b/, "ANSI 转义"],
+      [/\uFFFD/, "U+FFFD 乱码"],
+    ];
+    const noiseOf = (text) => NOISE.filter(([re]) => re.test(text)).map(([, label]) => label);
+    const readLines = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => `${String(from + i).padStart(6)}\tlet v${from + i} = ${from + i};`).join("\n");
+    const HASH = "1a2b3c4";
+    const cases = [
+      // read
+      ["read 全文", "read", { content: `${readLines(1, 3)}\n` }, "全文 3 行"],
+      ["read 区间", "read", { content: `${readLines(10, 12)}\n`, input: { path: "x.rs", offset: 10 } }, "第 10–12 行 · 共 12 行"],
+      ["read 带总数截断", "read", { content: `${readLines(1, 10)}\n... (truncated at line 11 of 5000; use offset to continue)\n`, input: { path: "x.rs", limit: 10 } }, "第 1–10 行 · 共 5,000 行"],
+      ["read 无总数截断", "read", { content: `${readLines(1, 10)}\n... (truncated at line 11; use offset to continue)\n` }, "第 1–10 行 · 未读完"],
+      ["read tail", "read", { content: `(last 3 lines of 12.0 KiB)\n${readLines(1, 3)}\n`, input: { path: "x.log", tail: 3 } }, "末尾 3 行 · 文件 12.0 KiB"],
+      ["read tail 到文件头", "read", { content: `${readLines(1, 2)}\n`, input: { path: "x.log", tail: 50 } }, "全文 2 行"],
+      ["read 图片", "read", { content: `[image] ${ROOT}\\shot.png (image/png, 20480 bytes) — attached to this tool result.` }, "图片 · 20.0 KB"],
+      ["read pdf", "read", { content: "pdf: 12 pages; showing 2-3\n--- page 2 ---\n正文" }, "PDF 第 2–3 页 · 共 12 页"],
+      ["read notebook", "read", { content: "notebook: 8 cells, kernel language python; showing 1-5\n[1] code\nprint(1)" }, "第 1–5 格 · 共 8 格"],
+      ["read 空范围", "read", { content: "(empty range: file has 3 lines, offset was 3)" }, "空范围 · 文件共 3 行"],
+      // grep
+      ["grep 普通", "grep", { content: "src/a.rs:3: fn one() {}\nsrc/a.rs:9: fn two() {}\nsrc/b.rs:1: fn three() {}" }, "3 处匹配 · 2 个文件"],
+      ["grep 单文件", "grep", { content: "src/a.rs:3: fn one() {}\nsrc/a.rs:4: fn two() {}" }, "2 处匹配"],
+      ["grep context", "grep", { content: "src/a.rs-2- // ctx\nsrc/a.rs:3: fn one() {}\nsrc/a.rs-4- }\nsrc/b.rs:7: fn two() {}", input: { pattern: "fn", context: 1 } }, "2 处匹配 · 2 个文件"],
+      ["grep files_only", "grep", { content: "src/a.rs\nsrc/b.rs\nsrc/c.rs", input: { pattern: "fn", files_only: true } }, "3 个文件"],
+      ["grep count", "grep", { content: "src/a.rs: 2\nsrc/b.rs: 1\n(total 3 matches in 2 files)", input: { pattern: "fn", count: true } }, "3 处匹配 · 2 个文件"],
+      ["grep 无匹配", "grep", { content: "(no matches for `zzz`)" }, "无匹配"],
+      ["grep 达上限", "grep", { content: "src/a.rs:1: x\nsrc/b.rs:2: y\n... (stopped at limit 2; narrow the pattern or raise limit)" }, "2+ 处匹配 · 2+ 个文件"],
+      // glob
+      ["glob 普通", "glob", { content: "src/a.rs\nsrc/b.rs" }, "2 个文件"],
+      ["glob more", "glob", { content: "src/a.rs\nsrc/b.rs\n... (8 more; raise limit or narrow pattern)" }, "10 个文件"],
+      ["glob 无", "glob", { content: "(no files match `*.zz`)" }, "无匹配文件"],
+      // symbols
+      ["symbols 多文件(旧 verbatim 路径)", "symbols", { content: `== ${VROOT}\\src\\a.rs\n  pub fn one:1\n     fn two:3\n== ${VROOT}\\src\\b.rs\n  pub struct S:2` }, "3 个符号 · 2 个文件"],
+      ["symbols 单文件", "symbols", { content: "== src/lib.rs\n  pub fn a:1\n  pub fn b:2" }, "2 个符号"],
+      ["symbols callers", "symbols", { content: "callers of `helper` (2 hits):\nsrc/lib.rs:2: fn caller() { helper(); }\nsrc/lib.rs:3: fn b() { helper(); }" }, "2 处调用"],
+      ["symbols define", "symbols", { content: "definition of `helper` (1 hit):\n  pub fn helper  src/lib.rs:1\n(no `pub use` re-export of this symbol found in tree)\n" }, "1 处定义"],
+      ["symbols 无", "symbols", { content: "(no symbols found)" }, "无符号"],
+      ["symbols 地图", "symbols", { content: "repo map (crates: 1, modules: 4, public_symbols: 37)\n== crate `kanzei_tools`\n  module `read` (crates/kanzei-tools/src/read.rs)" }, "4 个模块 · 37 个符号"],
+      // files
+      ["files", "files", { content: "crates/  (3 files, 12KB, 400 lines)\n  a.rs  1KB 40 行\n  b.rs  1KB 40 行\nREADME.md  2KB 800 字\n" }, "文件地图 · 3 项"],
+      // edit / insert / write
+      ["edit 有 display", "edit", { content: `replaced 1 occurrence(s) in ${ROOT}\\ui\\x.js\n局部结构校验通过: 1 个低成本检查\n局部校验明细:\n- node-check [passed] command: node --check ui/x.js`, display: { kind: "diff", path: "ui/x.js", additions: 3, deletions: 1, lines: [], local_validation: { counts: { passed: 1, failed: 0 } } } }, "+3 −1"],
+      ["edit 历史按 input 算 diff", "edit", { content: `replaced 1 occurrence(s) in ${ROOT}\\ui\\x.js`, input: { path: "ui/x.js", old_string: "a\nb", new_string: "a\nc\nd" } }, "+2 −1"],
+      ["edit replace_all 倍数", "edit", { content: `replaced 3 occurrence(s) in ${ROOT}\\ui\\x.js`, input: { path: "ui/x.js", old_string: "foo", new_string: "bar", replace_all: true } }, "+3 −3 · 替换 3 处"],
+      ["edit 校验失败", "edit", { content: `replaced 1 occurrence(s) in ${ROOT}\\ui\\x.js\n局部结构校验发现 2 个精确错误，请先修复后再扩大回归`, display: { kind: "diff", additions: 1, deletions: 0, lines: [], local_validation: { counts: { failed: 2 } } } }, "+1 −0 · 校验 2 个错误"],
+      ["insert", "insert", { content: `inserted content after unique anchor in ${ROOT}\\ui\\x.js`, input: { path: "ui/x.js", anchor: "x", content: "a\nb\n" } }, "+2 −0"],
+      ["write 新建", "write", { content: `wrote 9 bytes to ${ROOT}\\x.txt\n局部结构校验通过: 0 个低成本检查`, display: { kind: "create", path: "x.txt", bytes: 9, preview: "l1\nl2\nl3" }, input: { path: "x.txt", content: "l1\nl2\nl3\n" } }, "新建 · 3 行"],
+      ["write 覆写", "write", { content: `wrote 20 bytes to ${ROOT}\\x.txt`, display: { kind: "diff", additions: 5, deletions: 2, lines: [] } }, "+5 −2"],
+      ["write 历史", "write", { content: `wrote 3 bytes to ${ROOT}\\x.txt`, input: { path: "x.txt", content: "a\nb" } }, "写入 2 行"],
+      // bash
+      ["bash 多个 cargo test 二进制累加", "bash", { content: "exit code: 0\n   Compiling kanzei-app v0.1.0\nrunning 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured\nrunning 5 tests\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured", durationMs: 12300 }, "退出码 0 · 12.3s · 8 通过"],
+      ["bash E0425 编译失败(ANSI + GBK 误解码)", "bash", { ok: false, content: "exit code: 101\n\u001b[1m\u001b[91merror[E0425]\u001b[0m\u001b[1m: cannot find value `foo` in this scope\u001b[0m\n --> src/main.rs:3:5\n鍒嗘瀽瀹屾垚 \uFFFD\nerror: could not compile `x` (bin \"x\") due to 2 previous errors", durationMs: 41200 }, "退出码 101 · 41.2s · error[E0425]: cannot find value `foo` in this scope · 2 个编译错误"],
+      ["bash 超时", "bash", { ok: false, content: "timeout: true — command did not finish within 120000 ms and was killed. Retry with a larger timeout_ms if needed.\n[no output captured before timeout]", display: { kind: "terminal", command: "cargo build", exitCode: null, timeout: true, output: "", full: "" } }, "超时 · 已终止"],
+      ["bash 后台", "bash", { content: "background: true\nprocess_id: bg-3\npid: 1234\ncommand: npm run dev\nUse the `process` tool", display: { kind: "terminal", command: "npm run dev", background: true, processId: "bg-3", output: "(后台运行中,用 process 工具查看输出)" } }, "后台运行 · bg-3"],
+      ["bash 无输出", "bash", { content: "exit code: 0\n(no output)" }, "退出码 0 · 无输出"],
+      ["bash 内 git commit", "bash", { content: `exit code: 0\n[main ${HASH}] fix: 修复工具行\n 2 files changed, 10 insertions(+)` }, `退出码 0 · ${HASH} fix: 修复工具行`],
+      ["bash prose 末行", "bash", { content: "exit code: 0\nchecking...\n全部检查通过,没有发现问题" }, "退出码 0 · 全部检查通过,没有发现问题"],
+      ["bash 纯 JSON 输出", "bash", { content: "exit code: 0\n{\n  \"a\": 1,\n  \"b\": 2\n}" }, "退出码 0 · 输出 4 行"],
+      // process
+      ["process list", "process", { content: `bg-1 [running] pid=12 owner=r cwd=${ROOT} :: npm run dev\nbg-2 [exited(0)] pid=- owner=r cwd=${ROOT} :: cargo build\n`, input: { action: "list" } }, "2 个后台进程"],
+      ["process 无", "process", { content: "(no background processes)", input: { action: "list" } }, "无后台进程"],
+      ["process stop", "process", { content: "stopped bg-1", input: { action: "stop", id: "bg-1" } }, "已停止 bg-1"],
+      // git
+      ["git commit", "git", { content: `committed verified staged set (${HASH}9f0e)\n${HASH} fix: 工具行摘要\n\n crates/x.rs | 10 +++++-----\n 2 files changed, 12 insertions(+), 3 deletions(-)`, input: { action: "commit", message: "fix: 工具行摘要" } }, `${HASH} fix: 工具行摘要 · 2 个文件 +12 −3`],
+      ["git stage", "git", { content: "stage_request: t1\nstaged 3 file(s): a, b, c\nstaged_hash: h\nReview with `git diff`", input: { action: "stage", files: ["a", "b", "c"] } }, "已暂存 3 个文件"],
+      ["git status 干净", "git", { content: "## main...origin/main", input: { action: "status" } }, "工作区干净"],
+      ["git status 脏", "git", { content: "## main\n M crates/a.rs\n?? b.rs", input: { action: "status" } }, "2 处改动"],
+      ["git diff", "git", { content: "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1,2 @@\n-a\n+b\n+c", input: { action: "diff" } }, "1 个文件 +2 −1"],
+      ["git log", "git", { content: `${HASH} 09-26 10:00 kanzei | a\n5e6f7a8 09-26 09:00 kanzei | b`, input: { action: "log" } }, "2 条提交"],
+      ["git finalize", "git", { content: "[finalize] complete: cargo test passed in 12.0s → staged h → committed\nx", input: { action: "finalize" } }, "测试通过 · 已提交"],
+      ["git ff", "git", { content: "fast-forwarded main: 1111111 -> 2222222abc (worktree rel)\nsource: rel", input: { action: "merge_ff" } }, "main → 2222222a"],
+      // web
+      ["webfetch", "webfetch", { content: "HTTP 200 · https://x.com/a\n\nHello world content" }, "HTTP 200 · 19 字"],
+      ["webfetch 截断", "webfetch", { content: "HTTP 200 · https://x.com/a\n\nabc\n…(截断)" }, "HTTP 200 · 3 字 · 已截断"],
+      ["websearch", "websearch", { content: JSON.stringify({ query: "rust ansi", results: [{ title: "ANSI escape codes", url: "https://a" }, { title: "b", url: "https://b" }, { title: "c", url: "https://c" }], truncated: false, prior_art_budget: null }) }, "3 条结果 · ANSI escape codes"],
+      // task / question
+      ["task markdown 报告", "task", { content: "## 结论\n- 工具行已改为人话摘要\n" }, "结论"],
+      ["task 超时", "task", { ok: false, content: "(超时,未产出结果)" }, "超时 · 未产出结果"],
+      ["task 失败", "task", { ok: false, content: "子代理内部报错" }, "子代理内部报错"],
+      ["question", "question", { content: "User answer: 用本地" }, "用户回答: 用本地"],
+      // tracker
+      ["req add", "req", { content: "added R-365 [todo] 新需求标题", input: { action: "add", title: "新需求标题" } }, "新增 R-365"],
+      ["req 状态变化", "req", { content: "updated: R-364 [doing] 工具行摘要\n变更: 状态: todo → doing; 进展: ∅ → 开工", input: { action: "update", id: "R-364" } }, "R-364 → doing"],
+      ["req 字段变化", "req", { content: "updated: R-364 [doing] 工具行摘要\n变更: 进展: a → b; 验收: c → d", input: { action: "update", id: "R-364" } }, "R-364 已更新 进展、验收"],
+      ["req no-op", "req", { content: "no-op: R-364 字段已是该值,未写入(旧→新无差异)。" }, "无变化"],
+      ["req list JSON", "req", { content: JSON.stringify({ schema_version: 1, kind: "requirement", deadlocked: false, deadlock_guidance: null, entries: [{ id: "R-1", blocked: false, lifecycle_status: "todo" }, { id: "R-2", blocked: true, lifecycle_status: "todo" }, { id: "R-3", blocked: false, lifecycle_status: "doing" }] }, null, 2), input: { action: "list" } }, "3 条 · 2 条可执行"],
+      ["req get JSON", "req", { content: JSON.stringify({ id: "R-364", title: "工具行摘要", lifecycle_status: "doing", fields: [] }, null, 2), input: { action: "get", id: "R-364" } }, "R-364 doing · 工具行摘要"],
+      ["req reorder", "req", { content: "reordered 5 requirements: R-1 → R-2", input: { action: "reorder" } }, "已重排 5 条"],
+      ["defect add", "defect", { content: "added D-770 [open] 工具行乱码", input: { action: "add" } }, "新增 D-770"],
+      // work
+      ["work next resume", "work", { content: JSON.stringify({ schema_version: 1, decision: "resume", reason: "x", selected: { id: "R-364", title: "工具行摘要" } }, null, 2), input: { action: "next" } }, "继续 R-364 · 工具行摘要"],
+      ["work next empty", "work", { content: JSON.stringify({ decision: "empty", selected: null }, null, 2), input: { action: "next" } }, "无可执行条目"],
+      ["work claim", "work", { content: JSON.stringify({ claimed: "R-364", lifecycle_status: "doing" }), input: { action: "claim", id: "R-364" } }, "已认领 R-364"],
+      ["work handoff", "work", { content: "model completion declared: done\ncriterion: x\nevidence_refs: ", input: { action: "handoff" } }, "已声明完成"],
+      // test_record
+      ["test_record 通过带计数", "test_record", { content: `recorded T-1786922727068. active: 0, archived: 1 (path: ${ROOT}\\.kanzei\\tests.md, archive: x)`, input: { title: "cargo test", status: "passed", summary: "3 passed; 0 failed" } }, "已记录 T-…7068 · 3/3 通过"],
+      ["test_record 运行中", "test_record", { content: `recorded T-1786922727068. active: 1, archived: 0 (path: ${ROOT}\\.kanzei\\tests.md, archive: x)\n↳ 跑完请用 test_record 带 id=T-1786922727068 记终态`, input: { title: "cargo test", status: "running" } }, "已记录 T-…7068 · 运行中"],
+      ["test_record 失败", "test_record", { content: "recorded T-1786922727068. active: 0, archived: 1 (path: p, archive: a)", input: { title: "cargo test", status: "failed", summary: "2 passed; 1 failed" } }, "已记录 T-…7068 · 1 失败 · 2/3"],
+      // memory
+      ["memory_search 3 条", "memory_search", { content: `M-003 [project/sop] 发版 SOP 两条通道 — 发版必读\n  片段\n  file: ${ROOT}\\.kanzei\\memory\\M-003.md\nM-005 [project/lesson] 教训 — 描述\n  s\n  file: f\nM-009 [project/sop] 流程 — 描述\n  s\n  file: f` }, "3 条记忆 · 发版 SOP 两条通道"],
+      ["memory_search 无", "memory_search", { content: "(no memory matched `x` — if you learn something reusable here, record it with memory_note)" }, "无匹配记忆"],
+      ["memory_note 记入", "memory_note", { content: `noted → ${ROOT}\\.kanzei\\memory\\inbox.md (pending notes: 4)` }, "已记入收件箱 · 待整理 4 条"],
+      ["memory_note 重复", "memory_note", { content: "noted as duplicate (NOOP, 发版前先跑 verify…) — already an active memory covers it" }, "与已有记忆重复,未记录"],
+      ["memory_add", "memory_add", { content: "added M-012 [sop] 标题" }, "新增 M-012"],
+      ["memory_update", "memory_update", { content: "updated M-012 [active] 标题" }, "更新 M-012"],
+      ["memory_promote", "memory_promote", { content: "promoted M-003 [sop] 标题 → active (evidence: 2 source(s))" }, "晋升 M-003"],
+      ["memory_merge", "memory_merge", { content: "merged M-004 ← [M-005, M-006]" }, "合并入 M-004"],
+      // 资产 / 其它
+      ["architecture", "architecture", { content: "path: .kanzei/project/architecture/README.md\nhash: h\nvalidation: ok (12 indexed link(s))\n---\n# 架构" }, "校验通过"],
+      ["conventions", "conventions", { content: "path: x\nhash: h\nlines: 40\nheadings:\n  # A\n  ## B\n  ## C\n---\n# A" }, "3 节"],
+      ["browser 截图", "browser", { content: "浏览器已打开并截图:\ntitle: X\nurl: http://localhost:1420/\nviewport: desktop" }, "截图 · localhost:1420"],
+      ["frontend_locate", "frontend_locate", { content: "2 处定义:\n  ui/style.css:12 .x {\n  ui/style.css:40 .x {" }, "2 处定义"],
+      ["deliver", "deliver", { content: "[delivered] report.pdf (2048 bytes)", display: { kind: "file", name: "report.pdf", path: "out/report.pdf", bytes: 2048 } }, "已交付 report.pdf · 2.0 KB"],
+      ["collaboration_status", "collaboration_status", { content: "Live collaboration status\n- a\n- b", display: { lines: [{}, {}] } }, "2 条线路"],
+      // 兜底:tool_search 与未知 MCP 工具
+      ["tool_search 兜底", "tool_search", { content: "{\n  \"tools\": [\"a\", \"b\"]\n}" }, "输出 3 行"],
+      ["未知 MCP 工具兜底(源码行)", "mcp__x__y", { content: "     1\t// 这是一段中文源码注释说明" }, "完成"],
+      ["未知 MCP 工具兜底(人话)", "mcp__x__y", { content: "已同步 3 个日历事件到本地" }, "已同步 3 个日历事件到本地"],
+      // 存储标记
+      ["历史外置标记", "bash", { content: "[tool_result_externalized artifact_id=a1 bytes=2097152 sha256=ff]\nPreview: exit code: 0 (+9000 lines)\n完整原文已外置；请按 retrieval_hint 回读。" }, "输出较大 · 2.0 MB · 已外置"],
+      ["实时 artifact display", "bash", { content: "[tool_result_externalized artifact_id=a1 bytes=2097152 sha256=ff]\nPreview: x", display: { kind: "artifact", bytes: 2097152 } }, "输出较大 · 2.0 MB · 已外置"],
+      ["历史 noop 前缀", "edit", { ok: false, content: "[tool_outcome=noop code=EDIT_IDENTICAL_INPUT]\nold_string 与 new_string 相同" }, "无需修改"],
+    ];
+    for (const [label, name, ctx, expected] of cases) {
+      const got = sum(name, ctx);
+      assert(got.text === expected, `工具行摘要 ${label}:期望 "${expected}",实得 "${got.text}"(${got.key})`);
+      const noise = noiseOf(got.text);
+      assert(!noise.length, `工具行摘要 ${label} 仍含噪声(${noise.join("、")}):"${got.text}"`);
+    }
+    // 摘要的纯文本就是 parts 拼接:渲染后的 textContent 与 text 逐字一致,且代码记号进 span。
+    {
+      const el = document.createElement("span");
+      const got = sum("git", cases.find(([label]) => label === "git commit")[2]);
+      summaryNs.renderToolSummary(el, got);
+      assert(el.textContent === `⎿ ${got.text}`, `renderToolSummary 的 textContent 与摘要文本不一致:"${el.textContent}"`);
+      assert(el.querySelector(".tool-sum-code")?.textContent === HASH, "提交哈希未渲染成 .tool-sum-code");
+      assert(el.querySelector(".tool-sum-add")?.textContent === "+12" && el.querySelector(".tool-sum-del")?.textContent === "−3", "增删行数未按 add/del 分色");
+    }
+    // 失败行仍是互斥切分:cleanPaths 之后摘要 + 剩余逐字拼回,verbatim 路径显示成相对路径。
+    {
+      const failed = sum("edit", { ok: false, preview: `cannot write ${VROOT}\\crates\\x.rs: 拒绝访问。 (+2 lines)` });
+      assert(failed.mode === "split" && failed.text === "cannot write crates/x.rs: 拒绝访问。 (+2 lines)", `失败行没把 verbatim 路径相对化:"${failed.text}"`);
+    }
+
+    // ---------- 参数摘要 ----------
+    const savedProject = shellNs.currentProject;
+    const savedItems = shellNs.processItems;
+    shellNs.setCurrentProject(ROOT);
+    shellNs.setProcessItems([...(Array.isArray(savedItems) ? savedItems : []), { id: "w|g4", worktree_path: "D:\\wt\\line-a" }]);
+    try {
+      const readArg = toolArgSummary("read", { path: `${VROOT}\\crates\\x.rs` });
+      assert(readArg.text === "crates/x.rs" && readArg.code, `项目根下的 verbatim 绝对路径未相对化:"${readArg.text}"`);
+      const worktreeArg = toolArgSummary("edit", { path: "D:\\wt\\line-a\\src\\y.rs" });
+      assert(worktreeArg.text === "src/y.rs", `线路工作树下的路径未相对化:"${worktreeArg.text}"`);
+      const grepArg = toolArgSummary("grep", { pattern: "alpha|beta|gamma|delta|epsilon" });
+      assert(grepArg.text === "alpha 等 5 项" && grepArg.code, `多分支正则未折叠成首分支 + 等 N 项:"${grepArg.text}"`);
+      const bashArg = toolArgSummary("bash", { command: `cd "${ROOT}" && cargo test -p kanzei-app --lib -- tool_summary --nocapture --test-threads=1 and some more words here` });
+      assert(bashArg.text.startsWith("cargo test -p kanzei-app") && bashArg.text.length <= 64 && !bashArg.text.includes("cd "), `命令未剥掉 cd 项目根前缀或超过 64 字:"${bashArg.text}"`);
+      const fetchArg = toolArgSummary("webfetch", { url: "https://docs.rs/tokio/latest/tokio/?search=spawn#main" });
+      assert(fetchArg.text === "docs.rs/tokio/latest/tokio/", `webfetch 参数未只留 host+path:"${fetchArg.text}"`);
+      const taskArg = toolArgSummary("task", { prompt: "第一行任务说明\n第二行细节" });
+      assert(taskArg.text === "第一行任务说明", `task 参数未取 prompt 首行:"${taskArg.text}"`);
+      const questionArg = toolArgSummary("question", { question: "用哪个方案?" });
+      assert(!questionArg.code, "question 参数是自然语言,不该标成代码记号");
+
+      // ---------- 端到端(实时):tool-end 带 content/durationMs ----------
+      const live = [
+        ["G4L-READ", "read", { path: `${VROOT}\\crates\\x.rs` }, { content: `${readLines(1, 42)}\n` }, "全文 42 行"],
+        ["G4L-GREP", "grep", { pattern: "fn" }, { content: "src/a.rs:3: fn one() {}\nsrc/a.rs-4- }\nsrc/b.rs:1: fn two() {}" }, "2 处匹配 · 2 个文件"],
+        ["G4L-SYM", "symbols", { path: "src" }, { content: "== src/a.rs\n  pub fn one:1\n     fn two:3" }, "2 个符号"],
+        ["G4L-BASH", "bash", { command: "cargo test" }, {
+          content: "exit code: 0\nrunning 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored",
+          display: { kind: "terminal", command: "cargo test", exitCode: 0, output: "running 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored", full: "running 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored" },
+        }, "退出码 0 · 3 通过"],
+        ["G4L-REQ", "req", { action: "update", id: "R-364" }, { content: "updated: R-364 [doing] 工具行摘要\n变更: 状态: todo → doing" }, "R-364 → doing"],
+        ["G4L-TEST", "test_record", { title: "cargo test", status: "passed", summary: "3 passed; 0 failed" }, { content: "recorded T-1786922727068. active: 0, archived: 1 (path: p, archive: a)" }, "已记录 T-…7068 · 3/3 通过"],
+      ];
+      const liveText = new Map();
+      for (const [id, name, input, end, expected] of live) {
+        toolStart({ payload: { id, name, summary: name, input, sessionId: SID } });
+        const lines = end.content.split("\n");
+        const preview = `${lines[0]}${lines.length > 1 ? ` (+${lines.length - 1} lines)` : ""}`;
+        toolEnd({ payload: { id, name, ok: true, outcome: "success", preview, display: null, ...end, contentTruncated: false, contentBytes: end.content.length, sessionId: SID } });
+        await flush();
+        const block = chatNs.chatToolBlocks.get(id);
+        const text = block?.result.textContent ?? "";
+        liveText.set(id, text);
+        assert(text === `⎿ ${expected}`, `实时 ${name} 的 ⎿ 行不是人话摘要:期望 "⎿ ${expected}",实得 "${text}"`);
+        assert(!noiseOf(text).length, `实时 ${name} 的 ⎿ 行仍含噪声:"${text}"`);
+      }
+      assert(chatNs.chatToolBlocks.get("G4L-READ")?.head.querySelector(".tool-msg-arg")?.textContent === "(crates/x.rs)", "实时 read 的参数列未把 verbatim 路径相对化");
+      assert(chatNs.chatToolBlocks.get("G4L-READ")?.head.querySelector(".tool-msg-arg")?.classList.contains("is-code"), "路径参数未标 is-code(等宽只给代码记号)");
+      // 耗时:durationMs=12300 → 「· 12.3s」紧跟退出码。
+      toolStart({ payload: { id: "G4L-DUR", name: "bash", summary: "cargo test", input: { command: "cargo test" }, sessionId: SID } });
+      toolEnd({ payload: { id: "G4L-DUR", name: "bash", ok: true, outcome: "success", preview: "exit code: 0 (+2 lines)", content: "exit code: 0\nrunning 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored", durationMs: 12300, display: null, sessionId: SID } });
+      await flush();
+      assert(chatNs.chatToolBlocks.get("G4L-DUR")?.result.textContent === "⎿ 退出码 0 · 12.3s · 3 通过", `实时 bash 耗时未紧跟退出码:"${chatNs.chatToolBlocks.get("G4L-DUR")?.result.textContent}"`);
+      assert(chatNs.chatToolBlocks.get("G4L-DUR")?.result.querySelector(".tool-sum-dur")?.textContent === "12.3s", "耗时未渲染成 .tool-sum-dur");
+      // 活动面板进度行与主对话同一个摘要器(耗时在元信息行,不重复)。
+      const bgBash = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4L-BASH");
+      assert(bgBash?.querySelector(".bg-prog")?.textContent === "退出码 0 · 3 通过", `活动面板 bash 进度行不是摘要:"${bgBash?.querySelector(".bg-prog")?.textContent}"`);
+      const bgDur = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4L-DUR");
+      assert(bgDur?.querySelector(".bg-meta")?.textContent.includes("12.3s"), `活动面板耗时未优先用后端 durationMs:"${bgDur?.querySelector(".bg-meta")?.textContent}"`);
+
+      // ---------- 同源一致性:同一组夹具走历史回放,⎿ 行逐条相等 ----------
+      const historyItems = [{ role: "assistant", parts: live.flatMap(([id, name, input, end]) => [
+        { type: "tool_call", id: `H${id}`, name, input },
+        { type: "tool_result", call_id: `H${id}`, is_error: false, content: end.content },
+      ]) }];
+      historyItems[0].parts.push(
+        { type: "tool_call", id: "HG4-NOOP", name: "edit", input: { path: "ui/x.js", old_string: "a", new_string: "a" } },
+        { type: "tool_result", call_id: "HG4-NOOP", is_error: true, content: "[tool_outcome=noop code=EDIT_IDENTICAL_INPUT]\nold_string 与 new_string 相同,无需修改" },
+        { type: "tool_call", id: "HG4-QUOTA", name: "process", input: { action: "list" } },
+        { type: "tool_result", call_id: "HG4-QUOTA", is_error: false, content: `[tool_result_truncated reason=artifact_quota_exceeded bytes=3145728 storage_used_bytes=2040109466 quota_bytes=2147483648 sha256=${"b".repeat(64)}]\n工具结果存储已达配额。仅保留头 32 KiB 与尾 32 KiB。\nbg1 running` },
+      );
+      viewsNs.renderMessageParts(historyItems);
+      await flush();
+      const historyBlock = (id) => [...document.querySelectorAll("#messages [data-active] .tool-msg")].find((n) => n.dataset.toolCallId === id);
+      for (const [id] of live) {
+        const text = historyBlock(`H${id}`)?.querySelector(".tool-msg-result")?.textContent ?? "";
+        assert(text === liveText.get(id), `实时与历史回放的 ⎿ 行不一致(${id}):实时 "${liveText.get(id)}" vs 历史 "${text}"`);
+      }
+      const noopBlock = historyBlock("HG4-NOOP");
+      assert(noopBlock?.classList.contains("noop") && noopBlock?.querySelector(".tool-msg-status")?.textContent === "↪", "历史 [tool_outcome=noop] 前缀未恢复 noop 终态(仍画成失败)");
+      assert(noopBlock?.querySelector(".tool-msg-result")?.textContent === "⎿ 无需修改", `历史 noop 的 ⎿ 行漂移:"${noopBlock?.querySelector(".tool-msg-result")?.textContent}"`);
+      const quotaBlock = historyBlock("HG4-QUOTA");
+      assert(quotaBlock?.querySelector(".tool-msg-result")?.textContent.includes("工具结果存储已满"), `历史配额截断标记未合成与实时相同的人话 ⎿ 行:"${quotaBlock?.querySelector(".tool-msg-result")?.textContent}"`);
+      assert(quotaBlock?.querySelector(".quota-notice"), "历史配额截断标记未合成配额提示块");
+      // 轨迹里的耗时回填到历史 bash 行。
+      const applied = chatNs.applyRecoveredToolDurations([{ events: [{ id: "HG4L-BASH", kind: "tool.completed", ok: true, durationMs: 12300 }] }]);
+      assert(applied === 1 && historyBlock("HG4L-BASH")?.querySelector(".tool-msg-result")?.textContent === "⎿ 退出码 0 · 12.3s · 3 通过",
+        `applyRecoveredToolDurations 未给历史 bash 行补上耗时:"${historyBlock("HG4L-BASH")?.querySelector(".tool-msg-result")?.textContent}"`);
+      assert(/renderRecoveredTraces\(traces\);\r?\n\s*applyRecoveredToolDurations\(traces\);/.test(source), "loadConversation 未在轨迹回放后回填工具行耗时");
+
+      // ---------- 旧后端兼容:tool-end 只有 preview ----------
+      const legacy = [
+        ["G4O-READ", "read", { path: "x.rs" }, "     1\tuse std::io; (+41 lines)", "全文 42 行"],
+        ["G4O-GREP", "grep", { pattern: "x" }, "src/a.rs-450- } (+12 lines)", "13 条结果"],
+        ["G4O-SYM", "symbols", { path: "src" }, `== ${VROOT}\\src\\lib.rs (+20 lines)`, "21 行"],
+      ];
+      for (const [id, name, input, preview, expected] of legacy) {
+        toolStart({ payload: { id, name, summary: name, input, sessionId: SID } });
+        toolEnd({ payload: { id, name, ok: true, preview, display: null, sessionId: SID } });
+        await flush();
+        const text = chatNs.chatToolBlocks.get(id)?.result.textContent ?? "";
+        assert(text === `⎿ ${expected}`, `旧后端(只有 preview)的 ${name} 未走降级摘要:"${text}"`);
+        assert(!noiseOf(text).length && !text.includes("use std"), `旧后端 ${name} 仍回显首行源码/路径:"${text}"`);
+      }
+
+      // ---------- 子代理子行:参数与结果都不贴 JSON 片段 ----------
+      toolStart({ payload: { id: "G4_SCOUT", name: "task", summary: "G4_SCOUT · 勘察", input: { prompt: "x", phase: "scouting", role: "G4_SCOUT" }, sessionId: SID } });
+      taskProgress({ payload: { id: "G4_SCOUT", text: "第 1/3 轮", trace: { child_id: "g1", phase: "start", name: "bash", summary: '{"command":"cargo test -p kanzei-app --lib","workdir":"C:\\\\Users\\\\kanzei\\\\Documents\\\\kanzei cod' }, sessionId: SID } });
+      taskProgress({ payload: { id: "G4_SCOUT", text: "第 1/3 轮", trace: { child_id: "g1", phase: "end", name: "bash", ok: true, preview: "exit code: 0 (+5 lines)" }, sessionId: SID } });
+      taskProgress({ payload: { id: "G4_SCOUT", text: "第 2/3 轮", trace: { child_id: "g2", phase: "start", name: "read", summary: "{\"path\":\"crates/x.rs\"}" }, sessionId: SID } });
+      taskProgress({ payload: { id: "G4_SCOUT", text: "第 2/3 轮", trace: { child_id: "g2", phase: "end", name: "read", ok: true, preview: "     1\tuse std; (+9 lines)" }, sessionId: SID } });
+      await flush();
+      const scoutEntry = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4_SCOUT");
+      const childHeads = [...(scoutEntry?.querySelectorAll(".bg-child-head") ?? [])].map((n) => n.textContent);
+      const childMetas = [...(scoutEntry?.querySelectorAll(".bg-child-meta") ?? [])].map((n) => n.textContent);
+      assert(childHeads[0] === "bash cargo test -p kanzei-app --lib" && childHeads[1] === "read crates/x.rs", `子代理子行参数仍是后端入参 JSON:${JSON.stringify(childHeads)}`);
+      assert(childHeads.every((head) => !head.includes('{"')), `子代理子行 head 含 JSON 片段:${JSON.stringify(childHeads)}`);
+      assert(childMetas[0] === "退出码 0 · 输出 5 行" && childMetas[1] === "全文 10 行", `子代理子行结果未走摘要器降级口径:${JSON.stringify(childMetas)}`);
+      toolEnd({ payload: { id: "G4_SCOUT", name: "task", ok: true, preview: "勘察完成", display: null, sessionId: SID } });
+      await flush();
+
+      // ---------- 内存约束:正文不挂到块/DOM 上 ----------
+      const bigContent = readLines(1, 9000).slice(0, 256 * 1024);
+      toolStart({ payload: { id: "G4L-BIG", name: "read", summary: "big.rs", input: { path: "big.rs" }, sessionId: SID } });
+      toolEnd({ payload: { id: "G4L-BIG", name: "read", ok: true, preview: "     1\tlet v1 = 1; (+8999 lines)", content: bigContent, contentBytes: bigContent.length, contentTruncated: false, display: null, sessionId: SID } });
+      await flush();
+      const bigBlock = chatNs.chatToolBlocks.get("G4L-BIG");
+      assert(bigBlock && !("content" in bigBlock) && !("content" in bigBlock.wrap), "工具块或 DOM 节点上挂了 content(200 块 × 256 KiB 会吃掉 50 MB)");
+      const longProps = Object.entries(bigBlock ?? {}).filter(([, value]) => typeof value === "string" && value.length > 9000).map(([key]) => key);
+      assert(!longProps.length, `工具块上留了超长字符串属性:${longProps.join(", ")}`);
+      assert((bigBlock?.wrap.textContent.length ?? 0) < 9000, `256 KiB 正文进了 DOM(wrap 文本 ${bigBlock?.wrap.textContent.length} 字,上限 9000)`);
+    } finally {
+      shellNs.setCurrentProject(savedProject);
+      shellNs.setProcessItems(savedItems);
+    }
+
+    // ---------- CSS:摘要比例字体,代码记号等宽,只用 token ----------
+    const rootBlock = style.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    assert(/--sans:/.test(rootBlock), ":root 缺 --sans token");
+    assert(/\.tool-msg-head\s*\{[^}]*font-family:\s*var\(--sans\)/.test(style), ".tool-msg-head 仍用等宽(人话摘要读起来像日志)");
+    assert(/\.tool-msg-result\s*\{[^}]*font-family:\s*var\(--sans\)/.test(style), ".tool-msg-result 未改用比例字体");
+    assert(/\.tool-msg-arg\.is-code\s*\{[^}]*font-family:\s*var\(--mono\)/.test(style), ".tool-msg-arg.is-code 未用等宽");
+    for (const cls of ["code", "add", "del", "dur"]) {
+      const rule = style.match(new RegExp(`\\.tool-sum-${cls}\\s*\\{([^}]*)\\}`))?.[1];
+      assert(rule !== undefined, `缺少 .tool-sum-${cls} 样式`);
+      assert(rule === undefined || (!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule) && !/opacity/.test(rule)), `.tool-sum-${cls} 用了字面量颜色或 opacity(只准用 token)`);
+    }
+    if (priorLanguage === null) localStorageShim.removeItem?.("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
 
 // ===== 分区:需求卡片与单页 =====
 

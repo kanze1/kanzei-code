@@ -35,6 +35,7 @@ import {
 import { renderMarkdown } from "./04-markdown.js";
 import {
   addMessage,
+  applyRecoveredToolDurations,
   buildReasoningBlock,
   buildToolBlock,
   currentReasoningHead,
@@ -489,6 +490,8 @@ export function renderMessageParts(items) {
     for (const part of message.parts ?? []) {
       if (part.type === "tool_call") {
         const block = buildToolBlock(part.name || "tool", part.input);
+        // 轨迹里的耗时按调用 id 回填(applyRecoveredToolDurations)。
+        if (part.id) block.wrap.dataset.toolCallId = part.id;
         appendToPane(block.wrap);
         if (part.id) pending.set(part.id, { block, input: part.input });
         continue;
@@ -593,6 +596,7 @@ export async function loadConversation(sequence = null, switchGeneration = null)
     });
     if (!isCurrent()) return;
     renderRecoveredTraces(traces);
+    applyRecoveredToolDurations(traces);
     log(`${t("已恢复")} ${history.length} ${t("条")} ${t("历史消息")} ${traces.length} ${t("组工具轨迹")}`);
   } catch (err) {
     addMessage("error", `${t("历史消息恢复失败")}:${err}`);

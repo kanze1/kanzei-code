@@ -1007,6 +1007,36 @@ export const I18N_EN = {
   // ---- 分区:弹层与外观 ----
 
   // ---- 分区:工具行与结构化渲染 ----
+  // UI-0926 #6:工具行人话摘要(05-tool-summary.js)。带 {占位符} 的是模板,由 fillTemplate 填值。
+  "第 {from}–{to} 行": "lines {from}–{to}", "共 {total} 行": "{total} lines total", "全文 {total} 行": "all {total} lines",
+  "未读完": "more remaining", "末尾 {n} 行": "last {n} lines", "文件 {size}": "file {size}", "空范围": "empty range",
+  "文件共 {total} 行": "file has {total} lines", "PDF 第 {from}–{to} 页": "PDF pages {from}–{to}", "共 {total} 页": "{total} pages total",
+  "第 {from}–{to} 格": "cells {from}–{to}", "共 {total} 格": "{total} cells total",
+  "输出 {n} 行": "{n} lines of output", "输出 {size}": "{size} of output", "输出较大 · {size} · 已外置": "large output · {size} · stored externally",
+  "校验 {n} 个错误": "{n} validation errors", "无匹配": "no matches", "{n} 条结果": "{n} results", "{n} 处匹配": "{n} matches",
+  "{n} 个文件": "{n} files", "无匹配文件": "no matching files", "扫描已封顶": "scan capped", "无符号": "no symbols",
+  "无调用方": "no callers", "{n} 处调用": "{n} call sites", "{n} 处定义": "{n} definitions", "未找到定义": "definition not found",
+  "{n} 个模块": "{n} modules", "{n} 个符号": "{n} symbols", "{n} 行": "{n} lines", "无文件": "no files",
+  "文件地图 · {n} 项": "file map · {n} entries", "替换 {n} 处": "{n} replacements", "已替换 {n} 处": "replaced {n}",
+  "已插入": "inserted", "写入 {n} 行": "wrote {n} lines", "写入 {size}": "wrote {size}",
+  "{n} 通过": "{n} passed", "{n} 失败": "{n} failed", "{n} 个编译错误": "{n} compile errors", "{n} 个警告": "{n} warnings",
+  "已推送 {ref}": "pushed {ref}", "编译完成": "build finished", "后台运行": "running in background", "已终止": "killed",
+  "退出码 {code}": "exit {code}", "无输出": "no output", "无后台进程": "no background processes", "已结束": "already finished",
+  "{n} 个后台进程": "{n} background processes", "已暂存 {n} 个文件": "staged {n} files", "测试通过": "tests passed",
+  "已提交": "committed", "{n} 处改动": "{n} changes", "工作区干净": "clean worktree", "无差异": "no diff", "无提交": "no commits",
+  "{n} 条提交": "{n} commits", "{n} 字": "{n} chars", "无结果": "no results", "未产出结果": "no result produced",
+  "用户回答: {answer}": "user answered: {answer}", "新增": "Added", "无变化": "unchanged", "已更新": "updated", "已重开": "Reopened",
+  "已重排 {n} 条": "reordered {n}", "已归档 {n} 条": "archived {n}", "{n} 条": "{n} entries", "{n} 条可执行": "{n} actionable",
+  "全部阻塞": "all blocked", "已声明完成": "completion declared", "已认领": "Claimed", "开始": "Start", "WIP 冲突": "WIP conflict",
+  "无可执行条目": "nothing actionable", "通过": "passed", "无匹配记忆": "no matching memory", "{n} 条记忆": "{n} memories",
+  "已记入收件箱": "noted to inbox", "待整理 {n} 条": "{n} pending", "与已有记忆重复,未记录": "duplicate of an existing memory, not recorded",
+  "已更正": "Corrected", "合并入": "Merged into", "标记过时": "Marked stale", "收件箱已清空": "inbox cleared", "已丢弃笔记": "note discarded",
+  "草稿(未写入)": "draft (not written)", "已更新架构索引": "architecture index updated", "校验通过": "validation passed",
+  "{n} 个问题": "{n} issues", "已更新规范": "conventions updated", "{n} 节": "{n} sections", "截图": "screenshot", "已交付": "Delivered",
+  "{n} 条线路": "{n} lines", "无其他线路": "no other lines", "路径不存在": "path not found", "超出范围": "out of range",
+  "重开": "Reopen", "列表": "List", "查看": "View", "重排": "Reorder", "等 {n} 项": "+{n} alternatives",
+  "定义 {name}": "definition of {name}", "调用方 {name}": "callers of {name}", "取活": "Pick next", "认领": "Claim",
+  "声明完成": "Declare done", "对账": "Reconcile", "暂存 {n} 个文件": "stage {n} files",
 
   // ---- 分区:需求卡片与单页 ----
 
