@@ -390,8 +390,8 @@ fn consume_mobile_message(
     }
 }
 
-/// R-270 批3:approval pending 列表——遍历所有 runtime 的 asks,产出**脱敏摘要**
-/// (不暴露对话/资源全文,只给 id/kind/action/session;resource 截断到 80 字符)。
+/// R-270 批3:approval pending 列表——遍历所有 runtime 的 asks,产出脱敏摘要。
+/// permission resource 仍截断到 80 字符;question 为让配对设备提交答案,显式投影 question/options/default/multiple。
 fn approval_pending_list(
     runtimes: &Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
 ) -> serde_json::Value {
@@ -408,20 +408,33 @@ fn approval_pending_list(
                     ("question", "question".into(), question.clone())
                 }
             };
-            // 脱敏:resource 截断,避免把完整路径/敏感内容推给 LAN 设备。
+            // 权限资源与问题摘要仍脱敏截断;完整 question 只通过单独字段给已配对设备答题。
             let resource_truncated: String = resource.chars().take(80).collect();
             let truncated = if resource.chars().count() > 80 {
                 format!("{resource_truncated}…")
             } else {
                 resource_truncated
             };
-            items.push(json!({
+            let mut item = json!({
                 "id": id,
                 "kind": kind,
                 "action": action,
                 "resource": truncated,
                 "session_id": pending.session_id,
-            }));
+            });
+            if let kanzei_core::AskRequest::Question {
+                question,
+                options,
+                default,
+                multiple,
+            } = &pending.request
+            {
+                item["question"] = json!(question);
+                item["options"] = json!(options);
+                item["default"] = json!(default);
+                item["multiple"] = json!(multiple);
+            }
+            items.push(item);
         }
     }
     json!({ "pending": items, "count": items.len() })
@@ -1018,6 +1031,54 @@ mod tests {
             resource.chars().count() <= 81,
             "resource 必须截断: {resource}"
         );
+    }
+
+    /// D-751:question 桥接返回完整问题/选项契约,并原样投递真实答案文本。
+    #[test]
+    fn approval_pending_question_fields_and_answer_roundtrip() {
+        let runtime = Arc::new(SessionRuntime::default());
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        let question = "问题".repeat(50);
+        runtime.asks.lock_or_recover().insert(
+            8,
+            crate::PendingAsk {
+                sender: tx,
+                request: kanzei_core::AskRequest::Question {
+                    question: question.clone(),
+                    options: vec![kanzei_core::AskOption {
+                        label: "方案 A".into(),
+                        note: Some("适用于本次部署".into()),
+                    }],
+                    default: Some("方案 A".into()),
+                    multiple: true,
+                },
+                action: "question".into(),
+                resource: question.clone(),
+                project_root: PathBuf::from("."),
+                session_id: "ses-1".into(),
+            },
+        );
+        let mut runtime_map = HashMap::new();
+        runtime_map.insert("ses-1".to_string(), runtime);
+        let runtimes = Arc::new(Mutex::new(runtime_map));
+
+        let pending = approval_pending_list(&runtimes);
+        let ask = &pending["pending"][0];
+        assert_eq!(ask["kind"], "question");
+        assert_eq!(ask["question"], question);
+        assert_eq!(ask["options"][0]["label"], "方案 A");
+        assert_eq!(ask["options"][0]["note"], "适用于本次部署");
+        assert_eq!(ask["default"], "方案 A");
+        assert_eq!(ask["multiple"], true);
+        assert!(ask["resource"].as_str().unwrap().chars().count() <= 81);
+
+        let answer = "方案 A\n补充说明";
+        let response = approval_answer(&runtimes, &json!({"id": 8, "reply": answer})).unwrap();
+        assert_eq!(response["answered"], 8);
+        match rx.try_recv() {
+            Ok(kanzei_core::AskResponse::Answer(text)) => assert_eq!(text, answer),
+            other => panic!("question 应原样收到用户文本答案,实际: {other:?}"),
+        }
     }
 
     /// R-270 批3:approval answer——permission allow/deny 经 sender 送达 runner,

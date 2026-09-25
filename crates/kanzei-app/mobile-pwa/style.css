@@ -31,4 +31,20 @@ button.danger { background: #dc2626; margin-top: 12px; }
   font-size: 14px; word-break: break-all;
 }
 .notice:last-child { border-bottom: none; }
+.question-options { display: grid; gap: 8px; margin: 8px 0; }
+.question-option {
+  text-align: left; background: #fff; color: #1f2937;
+  border: 1px solid #d1d5db; padding: 10px 12px;
+}
+.question-option.selected, .question-option[aria-pressed="true"] {
+  background: #eff6ff; border-color: #2563eb; color: #1d4ed8;
+}
+.question-option-label { display: block; font-weight: 600; }
+.question-option-note { display: block; margin-top: 4px; font-size: 13px; color: #4b5563; }
+.question-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.question-actions button { margin-bottom: 0; }
+.question-cancel { background: #6b7280; }
+.question-submit:disabled { opacity: 0.55; cursor: not-allowed; }
+.question-status { margin-bottom: 0; }
+
 #notice-list { max-height: 50vh; overflow-y: auto; }

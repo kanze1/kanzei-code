@@ -46,6 +46,13 @@ const I18N_EN = {
   "发送中…": "Sending…",
   "已发送": "Sent",
   "请求": "request",
+  "输入你的回答": "Enter your answer",
+  "补充说明(可选)": "Optional details",
+  "提交答案": "Submit answer",
+  "取消问题": "Cancel question",
+  "提交中…": "Submitting…",
+  "答案已提交": "Answer submitted",
+  "问题已取消": "Question cancelled",
 };
 
 function uiLanguage() {
@@ -203,6 +210,10 @@ function startApprovalPolling(device) {
         return;
       }
       for (const ask of pending) {
+        if (ask.kind === "question") {
+          container.appendChild(renderQuestionCard(device, ask));
+          continue;
+        }
         const card = document.createElement("div");
         card.className = "card approval";
         const desc =
@@ -230,6 +241,124 @@ function startApprovalPolling(device) {
   };
   render();
   approvalTimer = setInterval(render, 3000);
+}
+
+function renderQuestionCard(device, ask) {
+  const card = document.createElement("div");
+  card.className = "card approval question";
+  card.dataset.askId = String(ask.id);
+
+  const question = document.createElement("p");
+  question.className = "approval-desc";
+  question.textContent = ask.question || "";
+  card.appendChild(question);
+
+  const meta = document.createElement("p");
+  meta.className = "muted";
+  meta.textContent = `${ask.session_id || ""} · ${t("请求")} #${ask.id}`;
+  card.appendChild(meta);
+
+  const multiple = ask.multiple === true;
+  const selected = new Set();
+  const options = document.createElement("div");
+  options.className = "question-options";
+  for (const raw of Array.isArray(ask.options) ? ask.options : []) {
+    const option = typeof raw === "string" ? { label: raw } : raw;
+    if (typeof option?.label !== "string" || !option.label) continue;
+    const button = document.createElement("button");
+    button.className = "question-option";
+    button.type = "button";
+    button.setAttribute("aria-pressed", "false");
+    const label = document.createElement("span");
+    label.className = "question-option-label";
+    label.textContent = option.label;
+    button.appendChild(label);
+    if (typeof option.note === "string" && option.note.trim()) {
+      const note = document.createElement("span");
+      note.className = "question-option-note";
+      note.textContent = option.note;
+      button.appendChild(note);
+    }
+    button.addEventListener("click", () => {
+      if (!multiple) {
+        submitQuestionAnswer(device, ask, option.label, card, status, t("答案已提交"));
+        return;
+      }
+      if (selected.has(option.label)) {
+        selected.delete(option.label);
+        button.setAttribute("aria-pressed", "false");
+        button.classList.remove("selected");
+      } else {
+        selected.add(option.label);
+        button.setAttribute("aria-pressed", "true");
+        button.classList.add("selected");
+      }
+      updateSubmitState();
+    });
+    options.appendChild(button);
+  }
+  card.appendChild(options);
+
+  const answer = document.createElement("input");
+  answer.className = "question-answer";
+  answer.type = "text";
+  answer.placeholder = t(multiple ? "补充说明(可选)" : "输入你的回答");
+  answer.value = typeof ask.default === "string" ? ask.default : "";
+  card.appendChild(answer);
+
+  const actions = document.createElement("div");
+  actions.className = "question-actions";
+  const submit = document.createElement("button");
+  submit.className = "question-submit";
+  submit.type = "button";
+  submit.textContent = t("提交答案");
+  const cancel = document.createElement("button");
+  cancel.className = "question-cancel";
+  cancel.type = "button";
+  cancel.textContent = t("取消问题");
+  actions.append(submit, cancel);
+  card.appendChild(actions);
+
+  const status = document.createElement("p");
+  status.className = "muted question-status";
+  card.appendChild(status);
+
+  function updateSubmitState() {
+    submit.disabled = multiple
+      ? selected.size === 0 && !answer.value.trim()
+      : !answer.value.trim();
+  }
+  function currentAnswer() {
+    const text = answer.value.trim();
+    return multiple ? [...selected, text].filter(Boolean).join("\n") : text;
+  }
+
+  answer.addEventListener("input", updateSubmitState);
+  submit.addEventListener("click", () => {
+    const reply = currentAnswer();
+    if (reply) submitQuestionAnswer(device, ask, reply, card, status, t("答案已提交"));
+  });
+  cancel.addEventListener("click", () => {
+    submitQuestionAnswer(device, ask, "cancel", card, status, t("问题已取消"));
+  });
+  updateSubmitState();
+  return card;
+}
+
+async function submitQuestionAnswer(device, ask, reply, card, status, successText) {
+  const controls = card.querySelectorAll("button");
+  controls.forEach((button) => { button.disabled = true; });
+  status.textContent = t("提交中…");
+  try {
+    await answerApproval(device, ask.id, reply);
+    const result = document.createElement("p");
+    result.className = "muted";
+    result.textContent = successText;
+    card.replaceChildren(result);
+  } catch (err) {
+    status.textContent = t("失败: {0}", err.message || err);
+    controls.forEach((button) => { button.disabled = false; });
+  }
 }
 
 async function submitAnswer(device, id, reply, card) {
