@@ -345,3 +345,299 @@ export function workFacts(value) {
     title: selected ? String(selected.title ?? selected.objective ?? "") : "",
   };
 }
+/// req audit_acceptance_scope:`{mismatch_count, mismatches:[…]}`。
+export function mismatchFacts(value) {
+  if (!value || typeof value !== "object" || !Number.isFinite(Number(value.mismatch_count))) return null;
+  return { count: Number(value.mismatch_count) };
+}
+
+// ======== UI-0926 #10:结构化文本渲染的纯解析 ========
+// 04-structured.js 的 DOM 渲染器与 ui-markdown-smoke 的夹具共用。全部是「文本 → 事实」,
+// 不产出界面文案;宁可返回 null 让调用方回落成原文,也不猜。
+
+// ---- 富文本实体:URL > 路径 > 条目编号,互不重叠 ----
+const RICH_URL_RE = /https?:\/\/[^\s<>"'`）)】」，。；]+/g;
+// 必须含 `/` 或 `\`、以 `.扩展名` 结尾,可带 `:行` / `:行-行`,允许盘符。`0.7em`、`B1/B2`、
+// 纯中文都不会命中(前者无分隔符,后者无扩展名)。
+const RICH_PATH_RE = /(?<![\w./\\@-])(?:[A-Za-z]:[\\/])?(?:[\w.@-]+[\\/])+[\w.@-]*\.[A-Za-z0-9]{1,8}(?::(\d+)(?:-(\d+))?)?(?![\w\\/-])/g;
+const RICH_REF_RE = /\b(?:[RDISF]-\d{1,4}|A-\d{3}|T-\d{6,}|[MU]-\d{3,})\b/g;
+
+function splitTextTokens(tokens, pattern, make) {
+  const out = [];
+  for (const token of tokens) {
+    if (token.type !== "text") {
+      out.push(token);
+      continue;
+    }
+    let cursor = 0;
+    for (const match of token.value.matchAll(new RegExp(pattern.source, pattern.flags))) {
+      const made = make(match);
+      if (!made) continue;
+      if (match.index > cursor) out.push({ type: "text", value: token.value.slice(cursor, match.index) });
+      out.push(made);
+      cursor = match.index + made.value.length;
+    }
+    if (cursor < token.value.length) out.push({ type: "text", value: token.value.slice(cursor) });
+  }
+  return out;
+}
+
+/// 文本 → `[{type:'text'|'url'|'ref'|'path', value, path?, line?, endLine?}]`。
+/// 各 token 的 value 按顺序拼回来就是输入原文(不丢字、不改字)。
+export function tokenizeRich(text) {
+  const source = String(text ?? "");
+  if (!source) return [];
+  let tokens = [{ type: "text", value: source }];
+  tokens = splitTextTokens(tokens, RICH_URL_RE, (match) => {
+    // 句末标点不属于 URL。
+    const value = match[0].replace(/[.,;:!?]+$/, "");
+    return value.length > 8 ? { type: "url", value } : null;
+  });
+  tokens = splitTextTokens(tokens, RICH_PATH_RE, (match) => ({
+    type: "path",
+    value: match[0],
+    path: match[0].replace(/:\d+(?:-\d+)?$/, ""),
+    line: match[1] ? Number(match[1]) : null,
+    endLine: match[2] ? Number(match[2]) : null,
+  }));
+  tokens = splitTextTokens(tokens, RICH_REF_RE, (match) => ({ type: "ref", value: match[0] }));
+  return tokens.filter((token) => token.value !== "");
+}
+
+// ---- 列表类切分(只对 list/timeline 类字段启用;切不出来就返回 null,调用方显示原文) ----
+const TRAILING_SEPARATORS = /[\s；;。,，]+$/;
+/// ①–⑳ 编号列表:至少 2 个标记才成立。intro 是第一个标记之前的引导语。
+export function splitCircledList(text) {
+  const source = String(text ?? "");
+  const marks = [...source.matchAll(/[①-⑳]/g)];
+  if (marks.length < 2) return null;
+  const items = marks.map((mark, index) => {
+    const end = index + 1 < marks.length ? marks[index + 1].index : source.length;
+    return source.slice(mark.index + 1, end).trim().replace(TRAILING_SEPARATORS, "");
+  }).filter(Boolean);
+  if (items.length < 2) return null;
+  return { intro: source.slice(0, marks[0].index).trim().replace(/[\s:：]+$/, ""), items };
+}
+
+/// 「批1 …;批2 …」「B1 …；B2 …」:标记前必须是行首或分隔符,标记后必须是冒号或空白
+/// (`B1-B4 已完成` 不算)。至少 2 个不同标记。
+export function splitMarkedList(text) {
+  const source = String(text ?? "");
+  const marks = [...source.matchAll(/(^|[；;。，,:：\s(（])(批\s*\d+|B\d+)(?=[:：\s])/g)]
+    .map((match) => ({ start: match.index + match[1].length, raw: match[2], label: match[2].replace(/\s+/g, "") }));
+  if (marks.length < 2) return null;
+  const items = marks.map((mark, index) => {
+    const end = index + 1 < marks.length ? marks[index + 1].start : source.length;
+    const body = source.slice(mark.start + mark.raw.length, end).replace(/^[\s:：]+/, "").replace(TRAILING_SEPARATORS, "");
+    return { label: mark.label, text: body };
+  });
+  if (new Set(items.map((item) => item.label)).size < 2) return null;
+  return { intro: source.slice(0, marks[0].start).trim().replace(/[\s:：]+$/, ""), items };
+}
+
+/// 全角「；」或 ASCII「; 」(后接空白)切段;至少 2 段且每段 ≥4 字,否则 null
+/// (普通句子里偶尔的分号不该被拆成列表)。
+export function splitSemicolonList(text) {
+  const parts = String(text ?? "").split(/；|;(?=\s)/).map((part) => part.trim().replace(/[。\s]+$/, "")).filter(Boolean);
+  if (parts.length < 2 || parts.some((part) => [...part].length < 4)) return null;
+  return parts;
+}
+
+/// 「||」分段的时间线;段首的 `YYYY-MM-DD[ HH:MM]` 抽成 date。
+export function splitTimeline(text) {
+  return String(text ?? "")
+    .split(/\s*\|\|\s*/)
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .map((segment) => {
+      const match = segment.match(/^(\d{4}-\d{2}-\d{2})(?:[ T]\d{2}:\d{2})?\s*/);
+      return match ? { date: match[1], text: segment.slice(match[0].length).trim() } : { date: null, text: segment };
+    });
+}
+
+/// 停车/阻塞字段:`原因;恢复人:X;解除条件:Y` → {reason, owner, release}。
+export function parseConditionField(text) {
+  const source = String(text ?? "");
+  const owner = source.match(/恢复人\s*[:：]\s*([^;；。]+)/);
+  const release = source.match(/解除条件\s*[:：]\s*([^;；。]+)/);
+  let rest = source;
+  for (const hit of [owner, release]) if (hit) rest = rest.replace(hit[0], "\u0000");
+  const reason = rest.split("\u0000")
+    .map((part) => part.trim().replace(/^[;；。,，\s]+|[;；。,，\s]+$/g, ""))
+    .filter(Boolean)
+    .join(";");
+  return { reason, owner: owner ? owner[1].trim() : null, release: release ? release[1].trim() : null };
+}
+
+// ---- 错误文本 ----
+/// provider 的 HTTP 错误体、reqwest 错误链 → {head, message, status, fields, json, chain, raw}。
+export function parseErrorText(text) {
+  const raw = String(text ?? "");
+  const status = raw.match(/HTTP (\d{3})\b/)?.[1] ?? null;
+  const open = raw.indexOf("{");
+  const close = raw.lastIndexOf("}");
+  let json = null;
+  if (open >= 0 && close > open) {
+    try { json = JSON.parse(raw.slice(open, close + 1)); } catch { json = null; }
+  }
+  if (!json || typeof json !== "object") json = null;
+  const error = json && json.error && typeof json.error === "object" ? json.error : null;
+  const scalar = (value) => (typeof value === "string" || typeof value === "number" ? String(value) : null);
+  const message = json
+    ? scalar(error?.message) ?? scalar(json.message) ?? scalar(json.error_description) ?? scalar(json.detail) ?? scalar(json.error)
+    : null;
+  const fields = {};
+  for (const key of ["type", "code", "param"]) {
+    const value = scalar(error?.[key]) ?? scalar(json?.[key]);
+    if (value) fields[key] = value;
+  }
+  let chain = [];
+  if (!json && /^(?:transport error|provider|protocol violation|invalid configuration|context overflow)/i.test(raw.trim())) {
+    const parts = raw.trim().split(": ");
+    chain = parts.length > 8 ? [...parts.slice(0, 7), parts.slice(7).join(": ")] : parts;
+    if (chain.length < 2) chain = [];
+  }
+  const head = json ? raw.slice(0, open).trim().replace(/[:：]\s*$/, "") : (chain[0] ?? raw.trim().split("\n")[0]);
+  return { head, message, status, fields, json, chain, raw };
+}
+
+// ---- 权限资源 ----
+/// bash 的资源是 `{"command","workdir"}` JSON;路径类工具是路径;其余原样。
+export function parsePermissionResource(action, resource) {
+  const raw = String(resource ?? "");
+  const trimmed = raw.trim();
+  const base = { action: String(action ?? ""), command: "", workdir: "", path: "", raw };
+  if (trimmed.startsWith("{")) {
+    const value = parseJsonish(trimmed);
+    if (value && typeof value.command === "string") {
+      return { ...base, kind: "command", command: value.command, workdir: typeof value.workdir === "string" ? value.workdir : "" };
+    }
+  }
+  if (trimmed && !/\s/.test(trimmed) && (/[\\/]/.test(trimmed) || /^[A-Za-z]:/.test(trimmed))) {
+    return { ...base, kind: "path", path: trimmed };
+  }
+  return { ...base, kind: "text" };
+}
+/// 队列预览/拦截通知用的一行短文本:「bash · cargo test …」,绝不贴 JSON。
+export function permissionResourceText(action, resource, max = 72) {
+  const parsed = parsePermissionResource(action, resource);
+  let body;
+  if (parsed.kind === "command") {
+    const lines = parsed.command.split(/\r?\n/).filter((line) => line.trim());
+    body = `${(lines[0] ?? "").trim()}${lines.length > 1 ? " …" : ""}`;
+  } else {
+    body = parsed.kind === "path" ? parsed.path : parsed.raw.replace(/\s+/g, " ").trim();
+  }
+  return [parsed.action, clipText(body, max)].filter(Boolean).join(" · ");
+}
+
+/// 相对路径按所在文档目录解析成项目相对路径(`../../docs/x.md` + `.kanzei/project/architecture/`
+/// → `.kanzei/docs/x.md`);越过项目根的 `..` 截在根上。绝对路径与盘符路径原样返回。
+export function resolveRelativePath(baseDir, target) {
+  const value = String(target ?? "").replace(/\\/g, "/");
+  if (!value || value.startsWith("/") || /^[A-Za-z]:\//.test(value)) return value;
+  const parts = String(baseDir ?? "").replace(/\\/g, "/").split("/").filter(Boolean);
+  for (const segment of value.split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") parts.pop();
+    else parts.push(segment);
+  }
+  return parts.join("/");
+}
+
+// ---- tracker 字段分类 ----
+const TRACKER_FIELD_CLASSES = [
+  ["engine", ["observed_head", "observed_worktree_hash", "recorded_at", "取活依据"]],
+  ["meta", ["优先级", "复杂度", "标签", "批次", "阶段", "取得线", "严重度"]],
+  ["refs", ["refs", "依赖", "前置", "关联", "关联缺陷", "设计文档"]],
+  ["condition", ["停车", "阻塞", "parked", "blocked"]],
+  ["list", ["验收", "边界", "批次表", "内容", "复现", "影响", "验收对账", "测试用例"]],
+  ["timeline", ["进展", "对账", "来源", "确认记录"]],
+];
+/// engine | meta | refs | condition | list | timeline | prose。
+export function classifyTrackerField(key) {
+  const name = String(key ?? "").trim();
+  for (const [kind, keys] of TRACKER_FIELD_CLASSES) if (keys.includes(name)) return kind;
+  if (name.startsWith("状态纠正")) return "timeline";
+  return "prose";
+}
+/// 发现记录的英文键 → 中文标签(中文键原样通过)。
+export const DISCOVERY_LABEL_KEYS = { Intent: "意图", Explicit: "用户原话", Assumptions: "假设", Ambiguities: "歧义" };
+
+// ---- 时间与指纹 ----
+/// 10 位按秒、13 位按毫秒,返回毫秒数;其余 null。
+export function formatEpoch(value) {
+  const text = String(value ?? "").trim();
+  if (/^\d{10}$/.test(text)) return Number(text) * 1000;
+  if (/^\d{13}$/.test(text)) return Number(text);
+  return null;
+}
+/// 测试记录的源码指纹:`v2 path@hash,path@hash` → 逐文件;旧格式只有一串 hash。
+export function parseSourceFingerprint(text) {
+  const value = String(text ?? "").trim();
+  if (!value) return null;
+  const match = value.match(/^(v\d+)\s+(.+)$/);
+  if (!match) return { version: null, hash: value, items: [] };
+  const items = match[2].split(",").map((item) => {
+    const at = item.lastIndexOf("@");
+    return at > 0 ? { path: item.slice(0, at).trim(), hash: item.slice(at + 1).trim() } : null;
+  }).filter(Boolean);
+  return { version: match[1], hash: "", items };
+}
+
+// ---- unified diff ----
+const DIFF_LANGUAGES = {
+  rs: "rust", js: "javascript", mjs: "javascript", ts: "typescript", py: "python", md: "markdown", json: "json",
+  css: "css", html: "html", toml: "toml", ps1: "powershell", sh: "bash", yml: "yaml", yaml: "yaml",
+};
+/// `git diff` 文本 → 按文件的增删计数与行(与 06-activity renderDiff 的 display.lines 同形)。
+export function parseUnifiedDiff(text) {
+  const files = [];
+  let file = null;
+  let oldLine = 0;
+  let newLine = 0;
+  const begin = (path) => {
+    const clean = String(path ?? "").replace(/^[ab]\//, "").trim();
+    const ext = clean.match(/\.([A-Za-z0-9]+)$/)?.[1]?.toLowerCase() ?? "";
+    file = { path: clean, additions: 0, deletions: 0, language: DIFF_LANGUAGES[ext] ?? "text", binary: false, lines: [] };
+    files.push(file);
+  };
+  for (const line of String(text ?? "").replace(/\r\n?/g, "\n").split("\n")) {
+    const header = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+    if (header) {
+      begin(header[2]);
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      const target = line.slice(4).trim();
+      if (!file) begin(target);
+      else if (target !== "/dev/null") file.path = target.replace(/^b\//, "");
+      continue;
+    }
+    if (line.startsWith("--- ")) {
+      if (!file) begin(line.slice(4).trim());
+      continue;
+    }
+    if (!file) continue;
+    const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk) {
+      oldLine = Number(hunk[1]);
+      newLine = Number(hunk[2]);
+      continue;
+    }
+    if (/^Binary files /.test(line)) {
+      file.binary = true;
+      continue;
+    }
+    if (line.startsWith("+")) {
+      file.additions += 1;
+      file.lines.push({ kind: "add", text: line.slice(1), old_line: null, new_line: newLine++ });
+    } else if (line.startsWith("-")) {
+      file.deletions += 1;
+      file.lines.push({ kind: "del", text: line.slice(1), old_line: oldLine++, new_line: null });
+    } else if (line.startsWith(" ")) {
+      file.lines.push({ kind: "ctx", text: line.slice(1), old_line: oldLine++, new_line: newLine++ });
+    }
+  }
+  return files;
+}

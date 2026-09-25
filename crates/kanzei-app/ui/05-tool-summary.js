@@ -22,6 +22,7 @@ import {
   isProse,
   lineDiffCounts,
   looksLikeNoise,
+  mismatchFacts,
   parseJsonish,
   parsePreview,
   parseStorageMarker,
@@ -547,6 +548,15 @@ function summarizeTracker(s) {
     return {
       groups: [[code(entry.id), txt(` ${localizedDocStatus(entry.status)}`)], clipText(cleanInline(entry.title, s.roots), 40)],
       key: "tracker.get",
+    };
+  }
+  // req audit_acceptance_scope:验收范围对账报告。
+  const mismatch = mismatchFacts(json);
+  if (mismatch) {
+    return {
+      groups: [mismatch.count ? fillTemplate(t("不一致 {n}"), { n: formatCount(mismatch.count) }) : t("无不一致")],
+      key: "tracker.audit",
+      tone: mismatch.count ? "warn" : undefined,
     };
   }
   if (action === "list" && /^\{/.test(head)) {

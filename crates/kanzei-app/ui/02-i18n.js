@@ -1037,6 +1037,14 @@ export const I18N_EN = {
   "重开": "Reopen", "列表": "List", "查看": "View", "重排": "Reorder", "等 {n} 项": "+{n} alternatives",
   "定义 {name}": "definition of {name}", "调用方 {name}": "callers of {name}", "取活": "Pick next", "认领": "Claim",
   "声明完成": "Declare done", "对账": "Reconcile", "暂存 {n} 个文件": "stage {n} files",
+  // UI-0926 #10:结构化渲染(04-structured.js)的界面标签。tracker 字段名与 JSON 键是数据,不翻译。
+  "不一致 {n}": "{n} mismatches", "无不一致": "no mismatches", "错误码": "Error code", "错误详情": "Error details",
+  "{n} 项": "{n} items", "{n} 个字段": "{n} fields", "还有 {n} 项": "{n} more", "节点过多,其余内容见原始 JSON": "Too many nodes; see the raw JSON for the rest",
+  "复制 JSON": "Copy JSON", "原始 JSON": "Raw JSON", "原始入参": "Raw arguments", "展开全部": "Show all",
+  "恢复人": "Resumed by", "引擎记录": "Engine record", "查询": "Query", "工作目录": "Working directory",
+  "原因链": "Cause chain", "原始错误": "Raw error", "局部校验": "Local checks", "首个错误": "First error",
+  "修复上下文": "Repair context", "意图": "Intent", "用户原话": "User's words", "歧义": "Ambiguities",
+  "同上": "same as above", "执行策略": "Execution policy",
 
   // ---- 分区:需求卡片与单页 ----
 
