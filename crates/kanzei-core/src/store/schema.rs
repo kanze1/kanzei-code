@@ -309,7 +309,26 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS research_run_events_result_created
                      ON research_run_events(result_id, created_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '23')
+                 -- v24(R-366 B1):回滚时恢复 migrate() 在迁移前创建的旧版整库备份。
+                 CREATE TABLE IF NOT EXISTS file_checkpoints (
+                     run_id TEXT NOT NULL,
+                     path_key TEXT NOT NULL,
+                     abs_path TEXT NOT NULL,
+                     rel_path TEXT NOT NULL,
+                     tree_root TEXT NOT NULL,
+                     process_id TEXT,
+                     pre_exists INTEGER NOT NULL,
+                     pre_blob TEXT,
+                     pre_bytes INTEGER NOT NULL DEFAULT 0,
+                     post_hash TEXT,
+                     restored INTEGER NOT NULL DEFAULT 0,
+                     captured_at INTEGER NOT NULL,
+                     updated_at INTEGER NOT NULL,
+                     PRIMARY KEY(run_id, path_key)
+                 );
+                 CREATE INDEX IF NOT EXISTS file_checkpoints_path
+                     ON file_checkpoints(path_key, updated_at);
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '24')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -472,6 +491,8 @@ mod tests {
         "delivery_cursors",
         "episodes",
         "episodes_session_created",
+        "file_checkpoints",
+        "file_checkpoints_path",
         "memory_eval",
         "memory_eval_agg",
         "memory_eval_memory",
@@ -535,6 +556,19 @@ mod tests {
         "episodes.session_id",
         "episodes.steps",
         "episodes.tools_json",
+        "file_checkpoints.abs_path",
+        "file_checkpoints.captured_at",
+        "file_checkpoints.path_key",
+        "file_checkpoints.post_hash",
+        "file_checkpoints.pre_blob",
+        "file_checkpoints.pre_bytes",
+        "file_checkpoints.pre_exists",
+        "file_checkpoints.process_id",
+        "file_checkpoints.rel_path",
+        "file_checkpoints.restored",
+        "file_checkpoints.run_id",
+        "file_checkpoints.tree_root",
+        "file_checkpoints.updated_at",
         "memory_eval.arm",
         "memory_eval.created_at",
         "memory_eval.first_divergence_step",
@@ -1119,6 +1153,60 @@ mod tests {
         assert_eq!(store.legacy_inputs_recovered(), Some(0));
         drop(store);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn v23升级创建文件检查点表与索引并留下可回退备份() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-file-checkpoint-v23-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store
+                .connection
+                .execute_batch(
+                    "DROP INDEX file_checkpoints_path;
+                     DROP TABLE file_checkpoints;
+                     UPDATE schema_meta SET value = '23' WHERE key = 'schema_version';",
+                )
+                .unwrap();
+        }
+
+        let store = SessionStore::open(&path).unwrap();
+        let table_exists: bool = store
+            .connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'file_checkpoints')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let index_exists: bool = store
+            .connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'file_checkpoints_path')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let version: String = store
+            .connection
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(table_exists, "v23 库升级后必须有检查点表");
+        assert!(index_exists, "v23 库升级后必须有检查点索引");
+        assert_eq!(version, "24");
+        assert!(store.backup_path(23).unwrap().is_file());
+        drop(store);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

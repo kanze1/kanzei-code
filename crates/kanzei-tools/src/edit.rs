@@ -544,7 +544,9 @@ impl Tool for EditTool {
         } else {
             updated
         };
-        if let Err(e) = tokio::fs::write(&path, updated.as_bytes()).await {
+        if let Err(e) =
+            crate::write::checkpointed_write(ctx, &path, &input.path, updated.as_bytes()).await
+        {
             return ToolOutput::failed(
                 "EDIT_WRITE_FAILED",
                 format!("cannot write {}: {e}", path.display()),
@@ -786,7 +788,9 @@ impl Tool for InsertTool {
         } else {
             updated
         };
-        if let Err(error) = tokio::fs::write(&path, updated.as_bytes()).await {
+        if let Err(error) =
+            crate::write::checkpointed_write(ctx, &path, &input.path, updated.as_bytes()).await
+        {
             return ToolOutput::failed(
                 "INSERT_WRITE_FAILED",
                 format!("cannot write {}: {error}", path.display()),
@@ -844,6 +848,131 @@ mod tests {
         std::fs::write(dir.join(file), content).unwrap();
         let ctx = ToolCtx::new(dir.clone(), dir.clone());
         (dir, ctx)
+    }
+
+    #[tokio::test]
+    async fn edit_edit_insert共享首次前像且无run_id不创建kanzei目录() {
+        let original = "alpha\nanchor\nomega\n";
+        let (dir, base_ctx) = setup("file-checkpoint-first-touch", original);
+        let ctx = base_ctx.with_identity(
+            "tree-key".into(),
+            "project-key".into(),
+            "run-edit-insert".into(),
+            "process-edit-insert".into(),
+        );
+        let path = dir.join("target.txt");
+
+        for (old_string, new_string) in [("alpha", "beta"), ("beta", "gamma")] {
+            let output = EditTool::default()
+                .execute(
+                    json!({
+                        "path": "target.txt",
+                        "old_string": old_string,
+                        "new_string": new_string
+                    }),
+                    &ctx,
+                )
+                .await;
+            assert!(!output.is_error, "{output:?}");
+        }
+        let output = InsertTool
+            .execute(
+                json!({
+                    "path": "target.txt",
+                    "anchor": "anchor\n",
+                    "content": "inserted\n",
+                    "position": "after"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!output.is_error, "{output:?}");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "gamma\nanchor\ninserted\nomega\n"
+        );
+        assert!(dir.join(".kanzei/.write-log").is_dir());
+        let logs = crate::write_log::entries_after(&dir, 0);
+        assert!(
+            logs.iter().any(|entry| {
+                entry.path == "target.txt"
+                    && entry.run_id.as_deref() == Some("run-edit-insert")
+                    && entry.process_id.as_deref() == Some("process-edit-insert")
+            }),
+            "identity edit/insert log entry should preserve path and identity: {logs:?}"
+        );
+
+        let db = rusqlite::Connection::open(kanzei_core::store::project_state_path(&dir)).unwrap();
+        let key = kanzei_core::store::checkpoint_path_key(&path);
+        let (count, pre_exists, blob, post_hash): (i64, i64, Option<String>, Option<String>) = db
+            .query_row(
+                "SELECT COUNT(*), MAX(pre_exists), MAX(pre_blob), MAX(post_hash)
+                   FROM file_checkpoints WHERE run_id = ?1 AND path_key = ?2",
+                rusqlite::params!["run-edit-insert", key],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!((count, pre_exists), (1, 1));
+        let blob = blob.expect("已有文件应保存首次前像 blob");
+        assert_eq!(
+            std::fs::read(kanzei_core::store::checkpoint_blob_path(&dir, &blob)).unwrap(),
+            original.as_bytes()
+        );
+        assert!(post_hash.is_some());
+        drop(db);
+        std::fs::remove_dir_all(&dir).ok();
+
+        let (dir, ctx_without_run) = setup("file-checkpoint-no-run", original);
+        let output = EditTool::default()
+            .execute(
+                json!({"path":"target.txt","old_string":"alpha","new_string":"beta"}),
+                &ctx_without_run,
+            )
+            .await;
+        assert!(!output.is_error, "{output:?}");
+        let output = InsertTool
+            .execute(
+                json!({
+                    "path":"target.txt",
+                    "anchor":"anchor\n",
+                    "content":"inserted\n",
+                    "position":"after"
+                }),
+                &ctx_without_run,
+            )
+            .await;
+        assert!(!output.is_error, "{output:?}");
+        assert!(!dir.join(".kanzei").exists());
+        std::fs::remove_dir_all(dir).ok();
+        let (dir, _) = setup("file-checkpoint-empty-project-root", original);
+        let ctx_without_project = ToolCtx::new(dir.clone(), std::path::PathBuf::new())
+            .with_identity(
+                "tree-key".into(),
+                "".into(),
+                "run-empty-project".into(),
+                "process-empty-project".into(),
+            );
+        let output = EditTool::default()
+            .execute(
+                json!({"path":"target.txt","old_string":"alpha","new_string":"beta"}),
+                &ctx_without_project,
+            )
+            .await;
+        assert!(!output.is_error, "{output:?}");
+        let output = InsertTool
+            .execute(
+                json!({
+                    "path":"target.txt",
+                    "anchor":"anchor\n",
+                    "content":"inserted\n",
+                    "position":"after"
+                }),
+                &ctx_without_project,
+            )
+            .await;
+        assert!(!output.is_error, "{output:?}");
+        assert!(!dir.join(".kanzei").exists());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     /// 验收①:锚点只差缩进时按文件实际缩进自动对齐,不再打回 old_string not found。

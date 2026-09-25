@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
+use std::path::Path;
 
 #[derive(Deserialize, JsonSchema)]
 struct WriteInput {
@@ -25,6 +26,9 @@ pub struct WriteTool;
 /// worktree 线的 cwd 就是树根,两端口径天然一致)。先写文档再记日志(「写后」
 /// 凭据,见 write_log 模块头契约)。
 pub(crate) fn record_worktree_write_log(ctx: &ToolCtx, rel_path: &str, content: &[u8]) {
+    if ctx.run_id.is_none() || ctx.project_root.as_os_str().is_empty() {
+        return;
+    }
     let key = rel_path.replace('\\', "/");
     let _ = crate::write_log::record(
         &ctx.project_root,
@@ -40,6 +44,45 @@ pub(crate) fn record_worktree_write_log(ctx: &ToolCtx, rel_path: &str, content: 
             process_id: ctx.process_id.clone(),
         },
     );
+}
+
+pub(crate) async fn checkpointed_write(
+    ctx: &ToolCtx,
+    path: &Path,
+    rel_path: &str,
+    bytes: &[u8],
+) -> std::io::Result<()> {
+    if ctx.run_id.is_none() || ctx.project_root.as_os_str().is_empty() {
+        return tokio::fs::write(path, bytes).await;
+    }
+
+    let target = kanzei_core::store::FileCheckpointTarget {
+        project_root: &ctx.project_root,
+        run_id: ctx.run_id.as_deref().expect("run_id checked above"),
+        process_id: ctx.process_id.as_deref(),
+        tree_root: &ctx.cwd,
+        abs_path: path,
+        rel_path,
+    };
+    if let Err(error) = kanzei_core::store::capture_file_preimage(&target) {
+        tracing::warn!(
+            error = %error,
+            run_id = %target.run_id,
+            path = %path.display(),
+            "file checkpoint preimage capture failed; write continues"
+        );
+    }
+
+    tokio::fs::write(path, bytes).await?;
+    if let Err(error) = kanzei_core::store::record_file_postimage(&target, bytes) {
+        tracing::warn!(
+            error = %error,
+            run_id = %target.run_id,
+            path = %path.display(),
+            "file checkpoint postimage record failed; write already succeeded"
+        );
+    }
+    Ok(())
 }
 
 #[async_trait]
@@ -79,7 +122,8 @@ impl Tool for WriteTool {
         }
         // 覆写前抓旧内容,给 UI 出 diff(看得见改了什么,R-015)。
         let previous = tokio::fs::read_to_string(&path).await.ok();
-        if let Err(e) = tokio::fs::write(&path, input.content.as_bytes()).await {
+        if let Err(e) = checkpointed_write(ctx, &path, &input.path, input.content.as_bytes()).await
+        {
             return ToolOutput::error(format!("cannot write {}: {e}", path.display()));
         }
         // D-395:写日志凭据——write 是专用写者,写后留痕供跨树围栏吸收。
@@ -283,6 +327,93 @@ mod tests {
         );
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[tokio::test]
+    async fn checkpointed_write_records_new_file_and_bypasses_unidentified_contexts() {
+        use kanzei_harness::Tool;
+        use std::path::PathBuf;
+
+        fn temp_root(label: &str) -> PathBuf {
+            let root = std::env::temp_dir().join(format!(
+                "kz-write-checkpoint-{label}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            root
+        }
+
+        let root = temp_root("identified");
+        let ctx = ToolCtx::new(root.clone(), root.clone()).with_identity(
+            "tree-key".into(),
+            "project-key".into(),
+            "run-new-file".into(),
+            "process-new-file".into(),
+        );
+        let output = WriteTool
+            .execute(
+                serde_json::json!({"path": "created.txt", "content": "created"}),
+                &ctx,
+            )
+            .await;
+        assert!(!output.is_error, "{output:?}");
+        let db = rusqlite::Connection::open(kanzei_core::store::project_state_path(&root)).unwrap();
+        let key = kanzei_core::store::checkpoint_path_key(&root.join("created.txt"));
+        let (pre_exists, blob, pre_bytes): (i64, Option<String>, i64) = db
+            .query_row(
+                "SELECT pre_exists, pre_blob, pre_bytes FROM file_checkpoints
+                  WHERE run_id = ?1 AND path_key = ?2",
+                rusqlite::params!["run-new-file", key],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!((pre_exists, blob, pre_bytes), (0, None, 0));
+        assert!(root.join(".kanzei/.write-log").is_dir());
+        let logs = crate::write_log::entries_after(&root, 0);
+        assert!(
+            logs.iter().any(|entry| {
+                entry.path == "created.txt"
+                    && entry.run_id.as_deref() == Some("run-new-file")
+                    && entry.process_id.as_deref() == Some("process-new-file")
+            }),
+            "identity write log entry should preserve path and identity: {logs:?}"
+        );
+        drop(db);
+        std::fs::remove_dir_all(&root).ok();
+
+        let root_without_run = temp_root("no-run");
+        let ctx_without_run = ToolCtx::new(root_without_run.clone(), root_without_run.clone());
+        let output = WriteTool
+            .execute(
+                serde_json::json!({"path": "plain.txt", "content": "plain"}),
+                &ctx_without_run,
+            )
+            .await;
+        assert!(!output.is_error, "{output:?}");
+        assert!(!root_without_run.join(".kanzei").exists());
+        std::fs::remove_dir_all(&root_without_run).ok();
+
+        let root_without_project = temp_root("empty-project-root");
+        let ctx_without_project = ToolCtx::new(root_without_project.clone(), PathBuf::new())
+            .with_identity(
+                "tree-key".into(),
+                "".into(),
+                "run-empty-project".into(),
+                "process-empty-project".into(),
+            );
+        let output = WriteTool
+            .execute(
+                serde_json::json!({"path": "plain.txt", "content": "plain"}),
+                &ctx_without_project,
+            )
+            .await;
+        assert!(!output.is_error, "{output:?}");
+        assert!(!root_without_project.join(".kanzei").exists());
+        std::fs::remove_dir_all(root_without_project).ok();
+    }
+
     #[tokio::test]
     async fn runner_hard_deny_blocks_real_write_tool_before_filesystem_side_effect() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};

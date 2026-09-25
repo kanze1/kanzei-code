@@ -37,7 +37,7 @@ const RENAME_BACKOFF_MS: u64 = 20;
 /// 里那句"Windows 不能原子覆盖已有目标"的注释是错的,别照抄)。
 ///
 /// 失败时**保留临时文件**,理由见 [`cleanup_hint`]。
-pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -55,10 +55,7 @@ pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
         .create_new(true)
         .write(true)
         .open(&tmp)?;
-    if let Err(error) = file
-        .write_all(text.as_bytes())
-        .and_then(|()| file.sync_all())
-    {
+    if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
         drop(file);
         // 这一步失败时临时文件里是半截内容,没有保留价值,删掉不丢任何东西。
         let _ = std::fs::remove_file(&tmp);
@@ -79,6 +76,11 @@ pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
         }
     }
     Err(std::io::Error::other(cleanup_hint(path, &tmp, last)))
+}
+
+/// 文本包装器,与字节变体共享唯一的原子写实现。
+pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+    write_atomic_bytes(path, text.as_bytes())
 }
 
 /// CAS 变体:内容指纹匹配才替换(D-261 并轨 architecture.rs 的 replace_recoverably)。
@@ -773,6 +775,18 @@ mod tests {
 
     fn 指纹(s: &str) -> String {
         format!("hash:{}", s.len())
+    }
+
+    #[test]
+    fn write_atomic_bytes_preserves_non_utf8_bytes() {
+        let dir = 临时目录("binary-write");
+        let path = dir.join("checkpoint.bin");
+        let bytes = [0x00, 0xff, 0x80, b'A'];
+
+        write_atomic_bytes(&path, &bytes).unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     // ---- D-382 共享档语义 ----
