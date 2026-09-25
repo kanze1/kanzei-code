@@ -73,10 +73,22 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*const summarizer = lookupSummarizer\(TOOL_RESULT_SUMMARIZERS, s\.name\);\r?\n/,
       replace: "",
     },
-    // UI-0926 #6:兜底里的噪声判据。删了它,未知工具的源码行(`  1\t// 注释`)会被当人话显示。
+    // UI-0926 #6:兜底里的噪声判据。删了它,未知工具的行号行(`  12\tlet total be …`,合并空白后
+    // 既不像源码也不符号密集)会被当人话显示。
     toolSummaryNoise: {
       pattern: /[ \t]*if \(looksLikeNoise\(cleanPaths\(line, s\.roots\)\) \|\| looksLikeNoise\(clean\)\) break;\r?\n/,
       replace: "",
+    },
+    // UI-0926 #6:「命令根本没跑」的失败(用户拒绝/规则集拒绝/自主运行跳过/入参修复/停止)先说原因。
+    // 删了它,用户拒绝的 bash ⎿ 行变成原文 `(user declined)`,write 被拒只剩「失败」。
+    toolSummaryGate: {
+      pattern: /[ \t]*const gate = toolGateFailure\(s\);\r?\n[ \t]*if \(gate\) return finish\(gate, "summary", \{ rest: fullRest \}\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #6:最终安全网的逐组「行号 + 源码」判据。删了它,夹在退出码后面的 `1 // 注释` 漏进 ⎿ 行。
+    toolSummarySafetyNet: {
+      pattern: / \|\| numberedSource\)\)/,
+      replace: "))",
     },
     // UI-0926 #10:工具块展开区挂入参键值表的那一行。删了它,历史/实时工具块再也看不到
     // 「拿什么参数调的」(路径 chip、命令、多行说明)。
@@ -202,10 +214,12 @@ if (!source.includes('const history = await invoke("conversation_get"') || !sour
 }
 // 历史回放必须保留完整调用与结果:调用与结果按 call_id 配对成一块(buildToolBlock/
 // fillToolBlock),详情里同时给出完整输出与完整入参。UI-0926 #10 起入参走 renderToolArgs
-// 键值表,完整入参 JSON 仍挂在其根节点 dataset.raw 上(04-structured.js)。
+// 键值表(逐键完整渲染),入参 JSON 另挂在其根节点 dataset.raw 上(04-structured.js,
+// 超过 8000 字截断——完整值已在键值表里,不在 DOM 属性里再存一整份)。
 if (
   !source.includes('part.type === "tool_result"') ||
-  !source.includes("box.dataset.raw = JSON.stringify(input, null, 2)") ||
+  !source.includes("const rawJson = JSON.stringify(input, null, 2)") ||
+  !source.includes("box.dataset.raw = rawJson") ||
   !source.includes("renderToolArgs(block.name, input") ||
   !source.includes("function fillToolBlock")
 ) {
@@ -8995,7 +9009,22 @@ const docsB = {
       // 兜底:tool_search 与未知 MCP 工具
       ["tool_search 兜底", "tool_search", { content: "{\n  \"tools\": [\"a\", \"b\"]\n}" }, "输出 3 行"],
       ["未知 MCP 工具兜底(源码行)", "mcp__x__y", { content: "     1\t// 这是一段中文源码注释说明" }, "完成"],
+      // 行号 + 英文句子:合并空白后既不像源码也不符号密集,只有兜底看「清洗前的行号 Tab」能拦下
+      // (toolSummaryNoise 变异守的就是这一条)。
+      ["未知 MCP 工具兜底(行号 + 英文行)", "mcp__x__y", { content: "    12\tlet total be the sum of all values" }, "完成"],
       ["未知 MCP 工具兜底(人话)", "mcp__x__y", { content: "已同步 3 个日历事件到本地" }, "已同步 3 个日历事件到本地"],
+      // 「命令根本没跑」的失败:⎿ 行必须说出原因,不能是空白、「输出 N 行」或光秃秃的「失败」。
+      ["bash 用户拒绝(实时:content 空串)", "bash", { ok: false, outcome: "failed", code: "USER_DECLINED", content: "", preview: "(user declined)" }, "已拒绝"],
+      ["bash 用户拒绝(旧后端只有 preview)", "bash", { ok: false, preview: "(user declined)" }, "已拒绝"],
+      ["write 用户拒绝", "write", { ok: false, outcome: "failed", code: "USER_DECLINED", content: "", preview: "(user declined)", input: { path: "x.txt", content: "a\nb" } }, "已拒绝"],
+      ["历史 用户拒绝", "bash", { ok: false, content: "permission request declined by user" }, "已拒绝"],
+      ["历史 拒绝后连带取消", "read", { ok: false, content: "tool call cancelled because a previous permission request was declined" }, "已取消 · 前一项权限被拒绝"],
+      ["bash 规则集拒绝", "bash", { ok: false, content: 'permission denied by ruleset: bash on `{"command":"rm -rf target","workdir":"C:/p"}`.\nThis action is denied by the project permission rules.' }, "被权限规则拒绝 bash"],
+      ["write 规则集拒绝", "write", { ok: false, content: "permission denied by ruleset: edit on `.kanzei/project/requirements.md`.\nUse the req tool." }, "被权限规则拒绝 edit"],
+      ["bash 自主运行跳过", "bash", { ok: false, content: 'permission requires user approval: bash on `{"command":"cargo publish"}`; autonomous/parallel run skipped it' }, "需要批准 · 自主运行已跳过"],
+      ["bash 入参修复提示", "bash", { ok: false, outcome: "needs_correction", code: "INVALID_TOOL_INPUT", content: "Invalid input for tool `bash`: missing field `command`\n缺少必填参数 `command`。\nExample (one line): {\"command\":\"ls\"}\nYour raw input was: {}\nRetry the tool call with corrected JSON." }, "入参无效 · 缺少参数 command"],
+      ["bash 执行中被停止", "bash", { ok: false, content: "cancelled: run stopped by user during execution" }, "已停止"],
+      ["bash 未执行的其它失败(无退出码)", "bash", { ok: false, content: "bash: command must not be empty\nprovide a command" }, "bash: command must not be empty"],
       // 存储标记
       ["历史外置标记", "bash", { content: "[tool_result_externalized artifact_id=a1 bytes=2097152 sha256=ff]\nPreview: exit code: 0 (+9000 lines)\n完整原文已外置；请按 retrieval_hint 回读。" }, "输出较大 · 2.0 MB · 已外置"],
       ["实时 artifact display", "bash", { content: "[tool_result_externalized artifact_id=a1 bytes=2097152 sha256=ff]\nPreview: x", display: { kind: "artifact", bytes: 2097152 } }, "输出较大 · 2.0 MB · 已外置"],
@@ -9020,6 +9049,38 @@ const docsB = {
     {
       const failed = sum("edit", { ok: false, preview: `cannot write ${VROOT}\\crates\\x.rs: 拒绝访问。 (+2 lines)` });
       assert(failed.mode === "split" && failed.text === "cannot write crates/x.rs: 拒绝访问。 (+2 lines)", `失败行没把 verbatim 路径相对化:"${failed.text}"`);
+      // 规则集拒绝的全文(含处理建议)留在展开区,⎿ 行只说原因。
+      const denied = sum("bash", cases.find(([label]) => label === "bash 规则集拒绝")[2]);
+      assert(denied.rest.includes("denied by the project permission rules"), `规则集拒绝的处理建议没进展开区:"${denied.rest}"`);
+    }
+    // 最终安全网:某个摘要器把「行号 + 源码」(合并空白后 `1 // 注释`)夹在别的组后面漏出来,
+    // 整行判据看不出,逐组判据必须拦下(toolSummarySafetyNet 变异守这一条)。
+    {
+      const table = summaryNs.TOOL_RESULT_SUMMARIZERS;
+      table.__g4probe = () => ({ groups: ["退出码 0", "1 // 这是一段中文源码注释说明"], key: "probe" });
+      try {
+        const got = sum("__g4probe", { content: "exit code: 0\n     1\t// 这是一段中文源码注释说明" });
+        assert(got.key === "fallback.noise" && got.text === "输出 2 行", `安全网没拦住夹在后面的行号源码:"${got.text}"(${got.key})`);
+      } finally {
+        delete table.__g4probe;
+      }
+    }
+    // 英文计数单复数、参数列动作标签与结果列分开、线路不与行数撞义。
+    {
+      localStorageShim.setItem("kz-language", "en");
+      try {
+        const oneFile = sum("glob", { content: "src/a.rs" }).text;
+        const oneLine = sum("bash", { content: "exit code: 0\n{x" }).text;
+        const lines = sum("collaboration_status", { content: "x", display: { lines: [{}, {}] } }).text;
+        const addArg = toolArgSummary("req", { action: "add", title: "T" }).text;
+        const updateArg = toolArgSummary("req", { action: "update", id: "R-364" }).text;
+        const added = sum("req", { content: "added R-365 [todo] T", input: { action: "add" } }).text;
+        assert(oneFile === "1 file" && oneLine === "exit 0 · 1 line of output", `英文单数仍是复数:"${oneFile}" / "${oneLine}"`);
+        assert(lines === "2 parallel lines", `英文线路计数与行数撞义:"${lines}"`);
+        assert(addArg === "Add · T" && updateArg === "Update R-364" && added === "Added R-365", `参数列动作与结果列共用一个英文词:"${addArg}" / "${updateArg}" / "${added}"`);
+      } finally {
+        localStorageShim.setItem("kz-language", "zh");
+      }
     }
 
     // ---------- 参数摘要 ----------
@@ -9127,6 +9188,28 @@ const docsB = {
         assert(!noiseOf(text).length && !text.includes("use std"), `旧后端 ${name} 仍回显首行源码/路径:"${text}"`);
       }
 
+      // ---------- 权限卡点「拒绝」:后端直发的 ToolEnd 带 content:"",⎿ 行与活动面板都要说出原因 ----------
+      toolStart({ payload: { id: "G4L-DECL", name: "bash", summary: "rm -rf target", input: { command: "rm -rf target" }, sessionId: SID } });
+      toolEnd({ payload: { id: "G4L-DECL", name: "bash", ok: false, outcome: "failed", code: "USER_DECLINED", preview: "(user declined)", content: "", contentBytes: 0, contentTruncated: false, display: null, sessionId: SID } });
+      await flush();
+      assert(chatNs.chatToolBlocks.get("G4L-DECL")?.result.textContent === "⎿ 已拒绝", `用户拒绝的 bash ⎿ 行没说出原因:"${chatNs.chatToolBlocks.get("G4L-DECL")?.result.textContent}"`);
+      const bgDecl = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4L-DECL");
+      assert(bgDecl?.querySelector(".bg-prog")?.textContent === "已拒绝", `活动面板里用户拒绝的 bash 进度行没说出原因:"${bgDecl?.querySelector(".bg-prog")?.textContent}"`);
+      // 历史轨迹回放的失败行与主对话同一个摘要器(不再是 `exit code: 101 (+42 lines)` 原文)。
+      const activityNs = esmModuleCache.get("06-activity.js")?.namespace;
+      activityNs?.renderRecoveredTraces([{ events: [
+        { id: "G4T-FAIL", kind: "tool.started", name: "bash", summary: "cargo test" },
+        { id: "G4T-FAIL", kind: "tool.completed", name: "bash", ok: false, outcome: "failed", preview: "exit code: 101 (+42 lines)", error: "exit code: 101 (+42 lines)" },
+        { id: "G4T-DECL", kind: "tool.started", name: "write", summary: "x.txt" },
+        { id: "G4T-DECL", kind: "tool.completed", name: "write", ok: false, outcome: "failed", code: "USER_DECLINED", preview: "(user declined)", error: "(user declined)" },
+        { id: "G4T-READ", kind: "tool.started", name: "read", summary: "crates/x.rs" },
+        { id: "G4T-READ", kind: "tool.completed", name: "read", ok: false, outcome: "failed", code: "READ_PATH_NOT_FOUND", preview: `path not found: ${ROOT}\\crates\\x.rs (+1 lines)`, error: `path not found: ${ROOT}\\crates\\x.rs (+1 lines)` },
+      ] }]);
+      const traceProg = (id) => [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === id)?.querySelector(".bg-prog")?.textContent;
+      assert(traceProg("G4T-FAIL") === "退出码 101 · 输出 42 行", `历史轨迹失败行仍贴 preview 原文:"${traceProg("G4T-FAIL")}"`);
+      assert(traceProg("G4T-DECL") === "已拒绝", `历史轨迹里用户拒绝的 write 没说出原因:"${traceProg("G4T-DECL")}"`);
+      assert(traceProg("G4T-READ") === "路径不存在 · crates/x.rs", `历史轨迹的 read 失败行未从报错首行取出相对路径:"${traceProg("G4T-READ")}"`);
+
       // ---------- 子代理子行:参数与结果都不贴 JSON 片段 ----------
       toolStart({ payload: { id: "G4_SCOUT", name: "task", summary: "G4_SCOUT · 勘察", input: { prompt: "x", phase: "scouting", role: "G4_SCOUT" }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 1/3 轮", trace: { child_id: "g1", phase: "start", name: "bash", summary: '{"command":"cargo test -p kanzei-app --lib","workdir":"C:\\\\Users\\\\kanzei\\\\Documents\\\\kanzei cod' }, sessionId: SID } });
@@ -9153,6 +9236,8 @@ const docsB = {
       const longProps = Object.entries(bigBlock ?? {}).filter(([, value]) => typeof value === "string" && value.length > 9000).map(([key]) => key);
       assert(!longProps.length, `工具块上留了超长字符串属性:${longProps.join(", ")}`);
       assert((bigBlock?.wrap.textContent.length ?? 0) < 9000, `256 KiB 正文进了 DOM(wrap 文本 ${bigBlock?.wrap.textContent.length} 字,上限 9000)`);
+      // 入参已渲染进展开区,收尾后块上不再留原始入参(块经 wrap._kzToolBlock 与 DOM 同寿命)。
+      assert(bigBlock?.input === null, "工具块收尾后仍持有原始入参(大 write/edit 的正文会跟着 DOM 活很久)");
     } finally {
       shellNs.setCurrentProject(savedProject);
       shellNs.setProcessItems(savedItems);
@@ -9317,6 +9402,38 @@ const docsB = {
         assert(editArgs.querySelector(".sv-path")?.textContent === "ui/x.js", "path 未做成路径 chip");
         assert(svNs.renderToolArgs("bash", { command: "cargo test", workdir: "." })?.querySelector(".sv-cmd")?.textContent === "cargo test", "command 未渲染成命令代码块");
         assert(svNs.renderToolArgs("read", {}) === null, "空入参应返回 null(不出空框)");
+        // 大入参(write 的整份正文)已逐键渲染,dataset.raw 不再在 DOM 属性里整份再存一遍。
+        const bigArgs = svNs.renderToolArgs("write", { path: "x.txt", content: "x".repeat(20000) });
+        assert(bigArgs && bigArgs.dataset.raw.length <= 8002, `大入参的 dataset.raw 未截断:${bigArgs?.dataset.raw.length} 字`);
+      }
+      // ---------- 单元:路径 chip——带空格的项目根、跳转目标只对当前项目相对化 ----------
+      {
+        const savedProject = shellNs.currentProject;
+        const savedItems = shellNs.processItems;
+        const ROOT = "C:\\Users\\kanzei\\Documents\\kanzei code";
+        shellNs.setCurrentProject(ROOT);
+        shellNs.setProcessItems([...(Array.isArray(savedItems) ? savedItems : []), { id: "w|g4p", worktree_path: "D:\\wt\\line-a" }]);
+        try {
+          // 根带空格:通用路径正则在空格处断开,会切出 `code\crates\a.rs:12` 这种错 chip。
+          const rich = svNs.richText(`见 ${ROOT}\\crates\\a.rs:12 与 R-12`);
+          const chip = rich.querySelector(".sv-path");
+          assert(chip?.dataset.path === "crates/a.rs" && chip.textContent === "crates/a.rs:12", `带空格项目根下的绝对路径被切成错 chip:${chip?.dataset.path} / ${chip?.textContent}`);
+          assert(rich.textContent === "见 crates/a.rs:12 与 R-12" && rich.querySelector(".sv-ref")?.textContent === "R-12", `富文本拼接走样:"${rich.textContent}"`);
+          chip?.click();
+          assert(lastNav()[0] === "path" && lastNav()[1] === "crates/a.rs" && lastNav()[2] === 12, `带空格根下的路径 chip 点击目标错误:${JSON.stringify(lastNav())}`);
+          const dirText = svNs.richText(`cwd ${ROOT}\\crates\\kanzei-app done`);
+          assert(!dirText.querySelector(".sv-path") && dirText.textContent.includes("kanzei code\\crates\\kanzei-app"), "项目根下的目录被切成了路径 chip");
+          // 显示可以相对化/`~/` 缩写,跳转目标只有当前项目下才相对化。
+          const outside = svNs.pathChip("C:\\Users\\kanzei\\Other\\x.rs");
+          assert(outside.textContent === "~/Other/x.rs" && outside.dataset.path === "C:/Users/kanzei/Other/x.rs", `项目外路径的跳转目标是缩写:${outside.dataset.path}`);
+          const worktree = svNs.pathChip("D:\\wt\\line-a\\src\\y.rs");
+          assert(worktree.textContent === "src/y.rs" && worktree.dataset.path === "D:/wt/line-a/src/y.rs", `线路工作树路径被相对化成主项目路径(会打开同名文件):${worktree.dataset.path}`);
+          const inProject = svNs.pathChip(`\\\\?\\${ROOT}\\ui\\x.js`);
+          assert(inProject.dataset.path === "ui/x.js" && inProject.textContent === "ui/x.js", `项目内 verbatim 路径的跳转目标未相对化:${inProject.dataset.path}`);
+        } finally {
+          shellNs.setCurrentProject(savedProject);
+          shellNs.setProcessItems(savedItems);
+        }
       }
       // ---------- 单元:权限资源 / 错误详情 / 局部校验 ----------
       {
@@ -9360,6 +9477,7 @@ const docsB = {
         assert(resultView?.querySelector(".sv-json-tools details.sv-raw"), "结构化视图之外缺少「原始 JSON」出口");
         const logLine = [...byId.get("log-lines").children].reverse().find((node) => node.textContent.includes("工具结果 req"));
         assert(logLine && !logLine.textContent.includes("{ (+") && logLine.textContent.includes("3 条"), `运行日志的工具结果行仍是 { (+N lines):${logLine?.textContent}`);
+        assert(!listText("live-focus").includes("{ (+"), `工作焦点行贴了 JSON 首行 preview:"${listText("live-focus")}"`);
       }
       // ---------- 端到端(实时):edit + 局部校验 ----------
       {
@@ -9432,6 +9550,17 @@ const docsB = {
         assert(rulesBody?.querySelector(".sv-cmd")?.textContent === "cargo test --workspace" && !rulesBody.textContent.includes('{"command"'), "设置页权限规则表仍显示原始 JSON 资源");
         assert(rulesBody?.querySelector(".icon-btn")?.getAttribute("aria-label") === "删除权限规则 bash · cargo test --workspace", "删除规则按钮的无障碍名称仍带原始 JSON");
         settingsNs.renderPermissionRules({ rules: [] });
+        // 覆盖提示:标题 + 三列表(字段 | 本页 | 实际生效),不再是「；」拼成的一长行。
+        settingsNs.renderEffectiveNotice({ primary: "deepseek:deepseek-chat", limits: { maxTokens: 8000 }, projectConfig: "C:/smoke/project/.kanzei/kanzei.toml",
+          effective: { primary: "anthropic:claude", limits: { maxTokens: 4000 } } });
+        const effectiveBox = byId.get("settings-effective");
+        const heads = [...(effectiveBox?.querySelectorAll("table.sv-table th") ?? [])].map((node) => node.textContent);
+        const cells = [...(effectiveBox?.querySelectorAll("table.sv-table tbody tr") ?? [])].map((row) => [...row.querySelectorAll("td")].map((node) => node.textContent).join("|"));
+        assert(effectiveBox?.tagName === "DIV" && heads.join("|") === "字段|本页|实际生效", `覆盖提示不是三列表:${heads.join("|")}`);
+        assert(cells.join(" / ") === "primary|deepseek:deepseek-chat|anthropic:claude / 运行上限|maxTokens 8000|maxTokens 4000", `覆盖提示的行内容不对:${cells.join(" / ")}`);
+        assert(!effectiveBox?.textContent.includes("；"), "覆盖提示仍是「；」拼接的长句");
+        settingsNs.renderEffectiveNotice({ effective: {} });
+        assert(effectiveBox?.classList.contains("hidden") && !effectiveBox.querySelector("table"), "没有覆盖时提示未收起/未清空");
       }
       // ---------- 错误卡 + 运行日志 ----------
       {

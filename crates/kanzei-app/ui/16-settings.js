@@ -274,8 +274,10 @@ export function markSettingsSaved() {
 export function renderEffectiveNotice(s) {
   const box = $("settings-effective");
   if (!box) return;
-  const diffs = [];
+  // UI-0926 #10:一行「；」拼接的长句改成 标题 + 三列表(字段 | 本页 | 实际生效)。
+  const diffs = []; // [字段, 本页, 实际生效]
   const effective = s.effective;
+  const unset = () => `(${t("未设")})`;
   // 只比 effective 里**确实带了的键**:后端没报的键(旧版本 / 新加的字段还没接线)
   // 一律跳过,否则 undefined 会被当成"实际生效是未设",提示条天天误报,
   // 用户很快就学会无视它,真被覆盖时反而看不见。
@@ -290,24 +292,47 @@ export function renderEffectiveNotice(s) {
     const global = key === "reasoning" ? (s.reasoning === "off" ? null : s.reasoning) : s[key];
     const eff = effective[key];
     if ((eff ?? null) !== (global ?? null)) {
-      diffs.push(`${label}:${t("本页")} ${global ?? `(${t("未设")})`} → ${t("实际生效")} ${eff ?? `(${t("未设")})`}`);
+      diffs.push([label, String(global ?? unset()), String(eff ?? unset())]);
     }
   }
-  // 运行上限十项合成一条:项目级只要覆盖了任意一个键就弹十条提示会把这条提示废掉。
+  // 运行上限十项合成一行:项目级只要覆盖了任意一个键就弹十行会把这张表废掉。
   if (has("limits")) {
     const overridden = LIMIT_FIELDS
       .map(([, key]) => key)
       .filter((key) => (s.limits?.[key] ?? null) !== (effective.limits?.[key] ?? null));
     if (overridden.length) {
-      diffs.push(`${t("运行上限")}:${overridden.join("、")}`);
+      const side = (limits) => overridden.map((key) => `${key} ${limits?.[key] ?? unset()}`).join("、");
+      diffs.push([t("运行上限"), side(s.limits), side(effective.limits)]);
     }
   }
+  box.replaceChildren();
   box.classList.toggle("hidden", diffs.length === 0);
-  if (diffs.length) {
-    box.textContent =
-      `${t("以下项被项目级配置覆盖,本页的改动不会生效")}:${diffs.join("；")}` +
-      (s.projectConfig ? `(${s.projectConfig})` : "");
+  if (!diffs.length) return;
+  const title = document.createElement("div");
+  title.textContent = `${t("以下项被项目级配置覆盖,本页的改动不会生效")}${s.projectConfig ? `(${s.projectConfig})` : ""}`;
+  const table = document.createElement("table");
+  table.className = "sv-table";
+  const head = document.createElement("tr");
+  for (const key of ["字段", "本页", "实际生效"]) {
+    const th = document.createElement("th");
+    th.textContent = t(key);
+    th.dataset.i18nKey = key;
+    head.appendChild(th);
   }
+  const thead = document.createElement("thead");
+  thead.appendChild(head);
+  const tbody = document.createElement("tbody");
+  for (const cells of diffs) {
+    const row = document.createElement("tr");
+    for (const value of cells) {
+      const td = document.createElement("td");
+      td.textContent = value;
+      row.appendChild(td);
+    }
+    tbody.appendChild(row);
+  }
+  table.append(thead, tbody);
+  box.append(title, table);
 }
 
 // R-305 B1:把 phase_pipeline 的 roster_cap 从日志事实投影到策略面板。

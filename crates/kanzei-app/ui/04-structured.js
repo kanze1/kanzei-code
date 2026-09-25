@@ -20,12 +20,14 @@ import {
   displayPath,
   fillTemplate,
   formatEpoch,
+  isAbsolutePath,
   normalizeRoot,
   parseConditionField,
   parseErrorText,
   parseJsonish,
   parsePermissionResource,
   parseSourceFingerprint,
+  relativeToRoot,
   splitCircledList,
   splitMarkedList,
   splitSemicolonList,
@@ -33,7 +35,7 @@ import {
   stripAnsi,
   tokenizeRich,
 } from "./04-structured-parse.js";
-import { toolRoots } from "./05-tool-summary.js";
+import { toolProjectRoot, toolRoots } from "./05-tool-summary.js";
 
 // ---------- 导航注入 ----------
 /// 默认 no-op;19-research.js 在 defer 里用 setStructuredNav 注册真实跳转。
@@ -66,6 +68,13 @@ function roots() {
     return toolRoots();
   } catch {
     return [];
+  }
+}
+function projectRoot() {
+  try {
+    return toolProjectRoot();
+  } catch {
+    return "";
   }
 }
 
@@ -105,6 +114,9 @@ export function refChip(id) {
 }
 /// 路径 chip:项目根/工作树下显示相对路径,过长只留末两段;悬浮看完整路径。
 /// absolute=true(工作目录):不相对化——项目根本身相对化后只剩「.」,读不出是哪个目录。
+/// 显示与跳转分开:显示可以相对化/`~/` 缩写,跳转目标只有落在**当前项目**下才用项目相对
+/// 路径(file_preview 以项目根为基准);线路工作树、项目外的路径一律给完整路径——相对化后
+/// 会在主项目里打开同名文件,`~/…` 则根本打不开。
 export function pathChip(raw, { line = null, endLine = null, absolute = false } = {}) {
   const full = normalizeRoot(raw);
   const rel = (absolute ? displayPath(full, [], { max: Infinity }) : displayPath(full, roots(), { max: Infinity })) || full;
@@ -113,8 +125,8 @@ export function pathChip(raw, { line = null, endLine = null, absolute = false } 
   const suffix = line ? `:${line}${endLine ? `-${endLine}` : ""}` : "";
   const button = el("button", "sv-chip sv-path", `${short}${suffix}`);
   button.type = "button";
-  const target = absolute ? full : rel;
-  button.title = `${absolute ? full : rel}${suffix}`;
+  const target = absolute || !isAbsolutePath(full) ? full : (relativeToRoot(full, projectRoot()) ?? full);
+  button.title = `${target}${suffix}`;
   button.dataset.path = target;
   if (line) button.dataset.line = String(line);
   button.addEventListener("click", (event) => {
@@ -140,9 +152,10 @@ export function urlChip(url) {
 }
 
 /// 富文本:编号/路径/URL 变成可点 chip,其余原样。
+/// 项目根/工作树根下的绝对路径按根整体认领(根可能带空格),再切通用实体。
 export function richText(text, { className = "" } = {}) {
   const span = el("span", `sv-rich${className ? ` ${className}` : ""}`);
-  for (const token of tokenizeRich(text)) {
+  for (const token of tokenizeRich(text, { roots: roots() })) {
     if (token.type === "ref") span.append(refChip(token.value));
     else if (token.type === "path") span.append(pathChip(token.path, token));
     else if (token.type === "url") span.append(urlChip(token.value));
@@ -384,13 +397,16 @@ function argRows(tool, pairs) {
 }
 /// 工具入参:按键值表渲染;路径成 chip、命令成代码块、多行说明折叠成 markdown;
 /// edit/write 已有 diff/新建展示时,正文类参数收进「原始入参」,外面只露 path 等。
-/// 根上 dataset.raw 是完整入参 JSON(复制/核对用)。空入参返回 null。
+/// 根上 dataset.raw 是入参 JSON(复制/核对用),超过 RAW_ARGS_MAX 字截断——完整入参已经
+/// 逐键渲染在键值表里,大 write/edit 的正文不该在 DOM 属性里再存一整份。空入参返回 null。
+const RAW_ARGS_MAX = 8000;
 export function renderToolArgs(name, input, { display = null, className = "" } = {}) {
   if (!isPlainObject(input) || !Object.keys(input).length) return null;
   const tool = String(name ?? "");
   const box = el("div", `${className ? `${className} ` : ""}sv-args`);
   box.setAttribute("data-i18n-raw", "");
-  box.dataset.raw = JSON.stringify(input, null, 2);
+  const rawJson = JSON.stringify(input, null, 2);
+  box.dataset.raw = rawJson.length > RAW_ARGS_MAX ? `${rawJson.slice(0, RAW_ARGS_MAX)}\n…` : rawJson;
   const foldBodies = EDIT_TOOLS.has(tool) && ["diff", "create"].includes(display?.kind);
   const shown = [];
   const folded = [];

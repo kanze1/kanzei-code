@@ -139,6 +139,14 @@ assert.match(unsafeHtml, /&lt;img/, "原始 HTML 未安全转义");
   const diff = parse.parseUnifiedDiff("diff --git a/src/a.rs b/src/a.rs\nindex 1..2 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1,3 +1,3 @@\n fn a() {}\n-let x = 1;\n+let x = 2;\n ctx\ndiff --git a/ui/b.js b/ui/b.js\nnew file mode 100644\n--- /dev/null\n+++ b/ui/b.js\n@@ -0,0 +1,2 @@\n+a\n+b\n");
   assert.deepEqual(diff.map((file) => [file.path, file.additions, file.deletions, file.language]), [["src/a.rs", 1, 1, "rust"], ["ui/b.js", 2, 0, "javascript"]], "unified diff 未按文件拆分计数");
   assert.deepEqual(diff[0].lines.map((line) => [line.kind, line.old_line, line.new_line]), [["ctx", 1, 1], ["del", 2, null], ["add", null, 2], ["ctx", 3, 3]], "diff 行号推进错误");
+  // hunk 内以 `---`/`+++` 开头的是被删/新增的内容行(SQL/Lua 注释 `-- x` 删掉后写成 `--- x`),不是文件头。
+  const sqlDiff = parse.parseUnifiedDiff("diff --git a/x.sql b/x.sql\n--- a/x.sql\n+++ b/x.sql\n@@ -1,2 +1,2 @@\n ctx\n--- old comment\n+-- new comment\n");
+  assert.deepEqual(sqlDiff.map((file) => [file.path, file.additions, file.deletions, file.lines.length]), [["x.sql", 1, 1, 3]], `hunk 内的 --- 行被当成文件头:${JSON.stringify(sqlDiff.map((file) => [file.path, file.additions, file.deletions]))}`);
+  // 带空格的项目根下的绝对路径按根整体认领,不在空格处被切断。
+  const spaced = parse.tokenizeRich("see C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\a.rs:12 now", { roots: ["C:\\Users\\kanzei\\Documents\\kanzei code"] });
+  assert.deepEqual(spaced.filter((token) => token.type === "path").map((token) => [token.path, token.line]), [["C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\a.rs", 12]], `带空格根下的路径被切断:${JSON.stringify(spaced)}`);
+  assert.equal(spaced.map((token) => token.value).join(""), "see C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\a.rs:12 now", "带根的富文本 token 拼不回原文");
+  assert.ok(parse.looksLikeNoise("1 // 这是一段中文源码注释说明") && !parse.looksLikeNoise("3 通过") && !parse.looksLikeNoise("12 files"), "合并空白后的「行号 + 源码」判据错误");
   assert.equal(parse.resolveRelativePath(".kanzei/project/architecture", "../../../docs/design/x.md"), "docs/design/x.md", "索引相对链接未解析成项目相对路径");
   assert.deepEqual(parse.mismatchFacts({ mismatch_count: 2, mismatches: [] }), { count: 2 }, "验收对账事实未解析");
 }

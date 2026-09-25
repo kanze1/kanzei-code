@@ -540,6 +540,9 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
   const args = renderToolArgs(block.name, input, { display, className: "tool-msg-raw args" });
   if (args) block.detail.appendChild(args);
   if (block.detail.children.length) block.wrap.classList.add("has-detail");
+  // 入参已渲染进展开区;块经 wrap._kzToolBlock 与 DOM 同寿命,收尾后不再留一份原始入参
+  // (补耗时只用 summaryBase)。
+  block.input = null;
 }
 
 export const chatToolBlocks = new Map();

@@ -390,7 +390,9 @@ defer(() => {
     log(`${t("工具结果")} ${p.name}: ${outcomeLabel} — ${logResult}`, outcome === "success" ? "" : "warn");
     // 工作焦点:req/defect/idea 的增改结果最能代表"它在干哪件事"。
     if (p.ok && ["req", "defect", "idea"].includes(p.name)) {
-      liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
+      // 只采增改结果(`updated: R-1 [doing] 标题` / `added R-2 …`):list/get 的 preview 是
+      // `{ (+30 lines)` 这种 JSON 首行,贴进焦点行就是乱码(UI-0926 #6)。
+      if (/^(?:updated|added)\b/.test(p.preview)) liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
       // 「在做」运行证据①:update 型 tracker 结果(取活时标 doing/fixing、批次进展
       // 都走这里)。add(快记新增)与 close(刚收尾)不指向正在做的条目,不采。
       if (["req", "defect"].includes(p.name) && /^updated:/.test(p.preview)) {

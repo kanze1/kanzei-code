@@ -62,6 +62,22 @@ export function displayPath(raw, roots = [], { max = 56 } = {}) {
   return short.length <= max ? short : `…/${tail}`.slice(-max);
 }
 
+/// 落在 root 下 → 相对 root 的路径(root 本身为 `.`);不在其下或任一方为空 → null。
+/// 与 displayPath 的区别:不做 `~/` 缩写、不省略——结果要当跳转目标用,必须可解析。
+export function relativeToRoot(raw, root) {
+  const value = normalizeRoot(raw);
+  const base = normalizeRoot(root);
+  if (!value || !base) return null;
+  const lower = value.toLowerCase();
+  const baseLower = base.toLowerCase();
+  if (lower === baseLower) return ".";
+  return lower.startsWith(`${baseLower}/`) ? value.slice(base.length + 1) : null;
+}
+/// 盘符 / `/` / UNC 开头(归一后)的绝对路径。
+export function isAbsolutePath(raw) {
+  return /^(?:[A-Za-z]:\/|\/)/.test(normalizeRoot(raw));
+}
+
 /// 结构化路径信息(04-structured.js 的路径 chip 用):相对根的 rel、末两段 short、
 /// 可选的 `:行` / `:行-行`。
 export function prettyPath(raw, projectRoot) {
@@ -142,7 +158,20 @@ export function looksLikeNoise(line) {
   if (text.includes("\uFFFD")) return true;
   if ((text.match(MOJIBAKE_RE) ?? []).length >= 2) return true;
   if (/[A-Za-z0-9+/=]{60,}/.test(text)) return true;
+  if (looksLikeNumberedSource(text)) return true;
   return symbolRatio(text) > 0.25;
+}
+/// 合并空白之后的「行号 + 源码」:`  12\t// 注释` 经 cleanInline 变成 `12 // 注释`,行号 Tab
+/// 特征没了,符号占比也不高。认的是「数字 + 空白 + 注释记号/括号/代码关键字」——
+/// 「3 通过」「12 files」这类计数人话不命中。
+export function looksLikeNumberedSource(line) {
+  const text = String(line ?? "").trim();
+  const match = text.match(/^\d+\s+(\S[\s\S]*)$/);
+  if (!match) return false;
+  const rest = match[1];
+  if (/^(?:\/\/|\/\*|\*\/|#[!\s[]|--\s|<!--|[{}()[\];])/.test(rest)) return true;
+  return /^(?:fn|let|const|var|pub|impl|struct|enum|use|mod|def|class|function|import|export|return|async|await|match)\b/.test(rest)
+    && /[(){};=<>:[\]]/.test(rest);
 }
 /// 像一句人话:≥2 个中日韩字符或 ≥3 个英文单词,且符号占比 ≤20%。
 export function isProse(line) {
@@ -365,7 +394,9 @@ const RICH_REF_RE = /\b(?:[RDISF]-\d{1,4}|A-\d{3}|T-\d{6,}|[MU]-\d{3,})\b/g;
 function splitTextTokens(tokens, pattern, make) {
   const out = [];
   for (const token of tokens) {
-    if (token.type !== "text") {
+    // locked:已被项目根认领、但不是文件路径的片段(根目录本身、根下目录)——后续通用
+    // 路径正则不许再从中间切。
+    if (token.type !== "text" || token.locked) {
       out.push(token);
       continue;
     }
@@ -382,9 +413,22 @@ function splitTextTokens(tokens, pattern, make) {
   return out;
 }
 
+/// 项目根下的绝对路径 → path token(句末 `.`/`:` 不算路径);不是文件(没有扩展名)→
+/// 锁定的文本 token。
+function rootPathToken(raw) {
+  const value = raw.replace(/[.:]+$/, "");
+  const line = value.match(/:(\d+)(?:-(\d+))?$/);
+  const bare = line ? value.slice(0, -line[0].length) : value;
+  if (!/\.[A-Za-z0-9]{1,8}$/.test(bare)) return value ? { type: "text", value, locked: true } : null;
+  return { type: "path", value, path: bare, line: line ? Number(line[1]) : null, endLine: line?.[2] ? Number(line[2]) : null };
+}
+
 /// 文本 → `[{type:'text'|'url'|'ref'|'path', value, path?, line?, endLine?}]`。
 /// 各 token 的 value 按顺序拼回来就是输入原文(不丢字、不改字)。
-export function tokenizeRich(text) {
+/// roots:项目根/工作树根。根下的绝对路径先按根整体认领——根里可能有空格
+/// (`Documents/kanzei code`),通用路径正则在空格处就断,会切出 `code\crates\a.rs` 这种
+/// 指向错误位置的 chip。
+export function tokenizeRich(text, { roots = [] } = {}) {
   const source = String(text ?? "");
   if (!source) return [];
   let tokens = [{ type: "text", value: source }];
@@ -393,6 +437,9 @@ export function tokenizeRich(text) {
     const value = match[0].replace(/[.,;:!?]+$/, "");
     return value.length > 8 ? { type: "url", value } : null;
   });
+  for (const pattern of rootPatterns(roots)) {
+    tokens = splitTextTokens(tokens, pattern, (match) => rootPathToken(match[0]));
+  }
   tokens = splitTextTokens(tokens, RICH_PATH_RE, (match) => ({
     type: "path",
     value: match[0],
@@ -591,11 +638,15 @@ const DIFF_LANGUAGES = {
   css: "css", html: "html", toml: "toml", ps1: "powershell", sh: "bash", yml: "yaml", yaml: "yaml",
 };
 /// `git diff` 文本 → 按文件的增删计数与行(与 06-activity renderDiff 的 display.lines 同形)。
+/// hunk 内按 `@@ -a,b +c,d @@` 头给出的剩余行数逐行计数:被删掉的 SQL/Lua 注释行
+/// `-- x` 在 diff 里写成 `--- x`,不能当成文件头吞掉;`---`/`+++` 只在 hunk 之外才是文件头。
 export function parseUnifiedDiff(text) {
   const files = [];
   let file = null;
   let oldLine = 0;
   let newLine = 0;
+  let oldLeft = 0;
+  let newLeft = 0;
   const begin = (path) => {
     const clean = String(path ?? "").replace(/^[ab]\//, "").trim();
     const ext = clean.match(/\.([A-Za-z0-9]+)$/)?.[1]?.toLowerCase() ?? "";
@@ -603,6 +654,31 @@ export function parseUnifiedDiff(text) {
     files.push(file);
   };
   for (const line of String(text ?? "").replace(/\r\n?/g, "\n").split("\n")) {
+    if (file && (oldLeft > 0 || newLeft > 0)) {
+      if (line.startsWith("\\")) continue; // `\ No newline at end of file`
+      if (line.startsWith("+")) {
+        newLeft -= 1;
+        file.additions += 1;
+        file.lines.push({ kind: "add", text: line.slice(1), old_line: null, new_line: newLine++ });
+        continue;
+      }
+      if (line.startsWith("-")) {
+        oldLeft -= 1;
+        file.deletions += 1;
+        file.lines.push({ kind: "del", text: line.slice(1), old_line: oldLine++, new_line: null });
+        continue;
+      }
+      if (line.startsWith(" ") || line === "") {
+        // 有的工具会剥掉空上下文行的前导空格:空行在 hunk 内按上下文计。
+        oldLeft -= 1;
+        newLeft -= 1;
+        file.lines.push({ kind: "ctx", text: line.slice(1), old_line: oldLine++, new_line: newLine++ });
+        continue;
+      }
+      // 行数对不上(被截断的 diff):退出 hunk,按头部规则重新识别这一行。
+      oldLeft = 0;
+      newLeft = 0;
+    }
     const header = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
     if (header) {
       begin(header[2]);
@@ -619,16 +695,19 @@ export function parseUnifiedDiff(text) {
       continue;
     }
     if (!file) continue;
-    const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
     if (hunk) {
       oldLine = Number(hunk[1]);
-      newLine = Number(hunk[2]);
+      newLine = Number(hunk[3]);
+      oldLeft = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      newLeft = hunk[4] === undefined ? 1 : Number(hunk[4]);
       continue;
     }
     if (/^Binary files /.test(line)) {
       file.binary = true;
       continue;
     }
+    // 没有 hunk 头的残缺 diff(截断或手写):宽松地按首字符计数,`---`/`+++` 已在上面当文件头。
     if (line.startsWith("+")) {
       file.additions += 1;
       file.lines.push({ kind: "add", text: line.slice(1), old_line: null, new_line: newLine++ });

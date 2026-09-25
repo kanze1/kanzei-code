@@ -22,6 +22,7 @@ import {
   isProse,
   lineDiffCounts,
   looksLikeNoise,
+  looksLikeNumberedSource,
   mismatchFacts,
   parseJsonish,
   parsePreview,
@@ -35,6 +36,10 @@ import {
   workFacts,
 } from "./04-structured-parse.js";
 
+/// 当前项目根(路径 chip 的跳转基准:file_preview 只认项目相对路径)。
+export function toolProjectRoot() {
+  return typeof currentProject === "string" ? currentProject : "";
+}
 /// 当前项目根 + 各线路工作树根:落在其中的绝对路径一律显示成相对路径。
 export function toolRoots() {
   const roots = [currentProject];
@@ -105,6 +110,14 @@ function assembleParts(groups, durationText, durAt) {
   return parts;
 }
 const partsText = (parts) => parts.map((part) => part.v).join("");
+/// 计数文案:n=1 用单数专用 key(英文 "1 line of output" 而不是 "1 lines of output";
+/// 中文 key 就是填好 1 的原文,中文态原样显示)。n 可带 `+` 后缀,那种一律按复数。
+function countText(n, many, one) {
+  return Number(n) === 1 && typeof n === "number" ? one : fillTemplate(many, { n: typeof n === "number" ? formatCount(n) : n });
+}
+const outputLines = (n) => countText(n, t("输出 {n} 行"), t("输出 1 行"));
+const filesCount = (n) => countText(n, t("{n} 个文件"), t("1 个文件"));
+const resultsCount = (n) => countText(n, t("{n} 条结果"), t("1 条结果"));
 
 // ---------- 通用 ----------
 const nonEmpty = (lines) => lines.filter((line) => line.trim());
@@ -117,7 +130,7 @@ function lineCountOf(s) {
 /// 计数兜底:绝不回显正文。
 function countFallback(s) {
   const lines = lineCountOf(s);
-  if (lines >= 2) return fillTemplate(t("输出 {n} 行"), { n: formatCount(lines) });
+  if (lines >= 2) return outputLines(lines);
   if (Number.isFinite(s.bytes) && s.bytes > 0) return fillTemplate(t("输出 {size}"), { size: formatByteSize(s.bytes) });
   return s.ok ? t("完成") : t("失败");
 }
@@ -139,7 +152,8 @@ function proseLine(lines, roots, { last = false, max = 80, test = null } = {}) {
   const ordered = last ? [...lines].reverse() : lines;
   for (const line of ordered) {
     const clean = cleanInline(line, roots);
-    if (!clean || looksLikeNoise(clean) || !isProse(clean) || clean.length > max) continue;
+    // 噪声判据同 genericSummary:清洗前(保留行号 Tab)与清洗后两份都看。
+    if (!clean || looksLikeNoise(cleanPaths(line, roots)) || looksLikeNoise(clean) || !isProse(clean) || clean.length > max) continue;
     if (test && !test.test(clean)) continue;
     return clean;
   }
@@ -208,9 +222,9 @@ function summarizeRead(s) {
 function summarizeGrep(s) {
   const head = firstLine(s.lines).trim();
   if (/^\(no matches/.test(head)) return { groups: [t("无匹配")], key: "grep.none" };
-  if (s.fromPreview) return { groups: [fillTemplate(t("{n} 条结果"), { n: formatCount(s.lineCount) })], key: "grep.degraded" };
-  const matchesText = (n, plus) => fillTemplate(t("{n} 处匹配"), { n: `${formatCount(n)}${plus ? "+" : ""}` });
-  const filesText = (n, plus) => fillTemplate(t("{n} 个文件"), { n: `${formatCount(n)}${plus ? "+" : ""}` });
+  if (s.fromPreview) return { groups: [resultsCount(s.lineCount)], key: "grep.degraded" };
+  const matchesText = (n, plus) => countText(plus ? `${formatCount(n)}+` : Number(n), t("{n} 处匹配"), t("1 处匹配"));
+  const filesText = (n, plus) => filesCount(plus ? `${formatCount(n)}+` : Number(n));
   const totals = s.text.match(/\(total (\d+) matches in (\d+) files\)/);
   if (totals) return { groups: [matchesText(totals[1]), filesText(totals[2])], key: "grep.count" };
   const stopped = /^\.\.\. \(stopped at limit/m.test(s.text) || s.truncated;
@@ -233,10 +247,10 @@ function summarizeGrep(s) {
 function summarizeGlob(s) {
   const head = firstLine(s.lines).trim();
   if (/^\(no files match/.test(head)) return { groups: [t("无匹配文件")], key: "glob.none" };
-  if (s.fromPreview) return { groups: [fillTemplate(t("{n} 个文件"), { n: formatCount(s.lineCount) })], key: "glob.degraded" };
+  if (s.fromPreview) return { groups: [filesCount(s.lineCount)], key: "glob.degraded" };
   const files = s.lines.filter((line) => line.trim() && !/^\.\.\. \(\d+ more;/.test(line) && !/^\(scan capped/.test(line)).length;
   const more = Number(s.text.match(/^\.\.\. \((\d+) more;/m)?.[1]) || 0;
-  const groups = [fillTemplate(t("{n} 个文件"), { n: formatCount(files + more) })];
+  const groups = [filesCount(files + more)];
   if (/^\(scan capped/m.test(s.text)) groups.push(t("扫描已封顶"));
   return { groups, key: "glob.files" };
 }
@@ -247,10 +261,10 @@ function summarizeSymbols(s) {
   if (/^\((?:no symbols|no public symbols|no \.rs files)/.test(head)) return { groups: [t("无符号")], key: "symbols.none" };
   if (/^\(no callers of/.test(head)) return { groups: [t("无调用方")], key: "symbols.none" };
   if ((m = head.match(/^callers of `[^`]*` \((\d+) hits?\)/))) {
-    return { groups: [fillTemplate(t("{n} 处调用"), { n: formatCount(m[1]) })], key: "symbols.callers" };
+    return { groups: [countText(Number(m[1]), t("{n} 处调用"), t("1 处调用"))], key: "symbols.callers" };
   }
   if ((m = s.text.match(/definition of `[^`]*` \((\d+) hits?\)/))) {
-    return { groups: [fillTemplate(t("{n} 处定义"), { n: formatCount(m[1]) })], key: "symbols.define" };
+    return { groups: [countText(Number(m[1]), t("{n} 处定义"), t("1 处定义"))], key: "symbols.define" };
   }
   if (/^\(no definition of/.test(head)) return { groups: [t("未找到定义")], key: "symbols.none" };
   if ((m = head.match(/^repo map \(crates: \d+, modules: (\d+), public_symbols: (\d+)\)/))) {
@@ -265,7 +279,7 @@ function summarizeSymbols(s) {
   const files = s.lines.filter((line) => line.startsWith("== ")).length;
   if (!symbols) return null;
   const groups = [fillTemplate(t("{n} 个符号"), { n: formatCount(symbols) })];
-  if (files > 1) groups.push(fillTemplate(t("{n} 个文件"), { n: formatCount(files) }));
+  if (files > 1) groups.push(filesCount(files));
   return { groups, key: "symbols.list" };
 }
 
@@ -278,7 +292,7 @@ function summarizeFiles(s) {
     && !/^files by line count/.test(line)
     && !/^\S.*\/ {2}\(\d+ files, /.test(line)).length;
   return {
-    groups: [top ? fillTemplate(t("{n} 个文件"), { n: formatCount(items) }) : fillTemplate(t("文件地图 · {n} 项"), { n: formatCount(items) })],
+    groups: [top ? filesCount(items) : fillTemplate(t("文件地图 · {n} 项"), { n: formatCount(items) })],
     key: "files",
   };
 }
@@ -370,7 +384,7 @@ function bashHighlight(s, bodyLines, failed) {
     if (last) return [last];
   }
   const count = nonEmpty(bodyLines).length;
-  return count ? [fillTemplate(t("输出 {n} 行"), { n: formatCount(count) })] : [];
+  return count ? [outputLines(count)] : [];
 }
 function summarizeBash(s) {
   const display = s.display?.kind === "terminal" ? s.display : null;
@@ -381,6 +395,9 @@ function summarizeBash(s) {
   const timedOut = Boolean(display?.timeout) || /^timeout: true\b/m.test(s.text);
   const exitLine = s.text.match(/^exit code: (\S+)/m)?.[1];
   const exit = display && display.exitCode !== undefined && display.exitCode !== null ? String(display.exitCode) : exitLine;
+  // 失败却既没退出码也没超时:命令根本没跑(工具自身报错、被拦下),交给失败切分显示原因首行,
+  // 不能在这里吞成空摘要或「输出 N 行」。
+  if (!s.ok && !timedOut && (exit === undefined || exit === null)) return null;
   const groups = [];
   if (timedOut) groups.push(t("超时"), t("已终止"));
   else if (exit !== undefined && exit !== null) groups.push(fillTemplate(t("退出码 {code}"), { code: exit }));
@@ -396,7 +413,7 @@ function summarizeBash(s) {
   if (!body && !s.fromPreview) return { groups, durAt, key: "bash" };
   if (s.fromPreview) {
     // 旧后端:首行多半是 exit code,正文只剩行数。
-    if (s.lineCount > 1) groups.push(fillTemplate(t("输出 {n} 行"), { n: formatCount(s.lineCount - 1) }));
+    if (s.lineCount > 1) groups.push(outputLines(s.lineCount - 1));
     return { groups, durAt, key: "bash.degraded" };
   }
   groups.push(...bashHighlight(s, bodyLines, !s.ok || timedOut));
@@ -420,7 +437,7 @@ function summarizeProcess(s) {
   if (state) groups.push(state === "running" ? t("运行中") : state);
   const last = proseLine(body, s.roots, { last: true, max: 80 });
   if (last) groups.push(last);
-  else if (nonEmpty(body).length && !/^\(no output yet\)$/.test(body.join("").trim())) groups.push(fillTemplate(t("输出 {n} 行"), { n: formatCount(nonEmpty(body).length) }));
+  else if (nonEmpty(body).length && !/^\(no output yet\)$/.test(body.join("").trim())) groups.push(outputLines(nonEmpty(body).length));
   return groups.length ? { groups, key: "process.output" } : null;
 }
 
@@ -436,7 +453,7 @@ function summarizeGit(s) {
     const groups = [[code(hash.slice(0, 8)), subject ? txt(` ${clipText(cleanInline(subject[2], s.roots), 50)}`) : null]];
     if (stat) {
       groups.push([
-        txt(`${fillTemplate(t("{n} 个文件"), { n: formatCount(stat[1]) })} `),
+        txt(`${filesCount(Number(stat[1]))} `),
         add(Number(stat[2]) || 0),
         txt(" "),
         del(Number(stat[3]) || 0),
@@ -459,7 +476,7 @@ function summarizeGit(s) {
     const additions = s.lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
     const deletions = s.lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
     return {
-      groups: [[txt(`${fillTemplate(t("{n} 个文件"), { n: formatCount(files) })} `), add(additions), txt(" "), del(deletions)]],
+      groups: [[txt(`${filesCount(files)} `), add(additions), txt(" "), del(deletions)]],
       key: "git.diff",
     };
   }
@@ -488,10 +505,10 @@ function summarizeWebsearch(s) {
   if (facts) {
     if (!facts.count) return { groups: [t("无结果")], key: "websearch" };
     const first = cleanInline(facts.firstTitle, s.roots);
-    return { groups: [fillTemplate(t("{n} 条结果"), { n: formatCount(facts.count) }), first ? clipText(first, 40) : null], key: "websearch" };
+    return { groups: [resultsCount(facts.count), first ? clipText(first, 40) : null], key: "websearch" };
   }
   const count = countOccurrences(s.text, '"url"');
-  return count ? { groups: [fillTemplate(t("{n} 条结果"), { n: formatCount(count) })], key: "websearch.partial" } : null;
+  return count ? { groups: [resultsCount(count)], key: "websearch.partial" } : null;
 }
 
 function summarizeTask(s) {
@@ -678,7 +695,7 @@ function summarizeBrowser(s) {
 function summarizeFrontend(s) {
   const head = firstLine(s.lines).trim();
   let m;
-  if ((m = head.match(/^(\d+) 处定义/))) return { groups: [fillTemplate(t("{n} 处定义"), { n: formatCount(m[1]) })], key: "frontend" };
+  if ((m = head.match(/^(\d+) 处定义/))) return { groups: [countText(Number(m[1]), t("{n} 处定义"), t("1 处定义"))], key: "frontend" };
   if (/结构完整/.test(head)) return { groups: [t("通过")], key: "frontend" };
   if ((m = s.text.match(/(\d+) 个问题/))) return { groups: [fillTemplate(t("{n} 个问题"), { n: formatCount(m[1]) })], key: "frontend", tone: "warn" };
   return null;
@@ -692,7 +709,7 @@ function summarizeDeliver(s) {
 }
 function summarizeCollaboration(s) {
   if (Array.isArray(s.display?.lines)) {
-    return { groups: [fillTemplate(t("{n} 条线路"), { n: formatCount(s.display.lines.length) })], key: "collaboration_status" };
+    return { groups: [countText(s.display.lines.length, t("{n} 条线路"), t("1 条线路"))], key: "collaboration_status" };
   }
   if (/^No other line is currently running/.test(firstLine(s.lines).trim())) return { groups: [t("无其他线路")], key: "collaboration_status" };
   return null;
@@ -741,6 +758,33 @@ export const TOOL_RESULT_SUMMARIZERS = {
   deliver: summarizeDeliver,
   collaboration_status: summarizeCollaboration,
 };
+/// 「根本没执行」的失败与工具无关:权限拒绝(用户/规则集/自主运行跳过)、入参修复提示、
+/// 停止取消。先于按工具的失败摘要器,说成人话;原文全文仍在展开区。
+/// 实时 USER_DECLINED 的 content 是空串、preview 是 "(user declined)";历史正文是
+/// "permission request declined by user"——两边同一句话。
+export function toolGateFailure(s) {
+  const head = firstLine(s.lines).trim();
+  let m;
+  if (s.code === "USER_DECLINED" || /^\(user declined\)$|^permission request declined by user\b/.test(head)) {
+    return { groups: [t("已拒绝")], key: "gate.declined" };
+  }
+  if (/^tool call cancelled because a previous permission request was declined/.test(head)) {
+    return { groups: [t("已取消"), t("前一项权限被拒绝")], key: "gate.declined-chain" };
+  }
+  if ((m = head.match(/^permission denied by ruleset: (\S+) on `/))) {
+    return { groups: [[txt(`${t("被权限规则拒绝")} `), code(m[1])]], key: "gate.ruleset" };
+  }
+  if (/^permission requires user approval: \S+ on `/.test(head)) {
+    return { groups: [t("需要批准"), t("自主运行已跳过")], key: "gate.noninteractive" };
+  }
+  if (s.code === "INVALID_TOOL_INPUT" || /^Invalid input for tool `/.test(head)) {
+    const field = s.text.match(/缺少必填参数 `([^`\n]+)`/)?.[1] ?? s.text.match(/missing field `([^`\n]+)`/)?.[1];
+    return { groups: [t("入参无效"), field ? [txt(`${t("缺少参数")} `), code(field)] : null], key: "gate.invalid-input" };
+  }
+  if (/^cancelled: run stopped by user/.test(head)) return { groups: [t("已停止")], key: "gate.cancelled" };
+  return null;
+}
+
 /// 失败态(failed / needs_*)的专用摘要器;没有登记的工具失败行走互斥切分。
 export const TOOL_FAIL_SUMMARIZERS = {
   bash: summarizeBash,
@@ -750,7 +794,10 @@ export const TOOL_FAIL_SUMMARIZERS = {
     : null),
   read(s) {
     if (s.code === "READ_PATH_NOT_FOUND" || /^path not found: /.test(firstLine(s.lines).trim())) {
-      const path = typeof s.input.path === "string" ? displayPath(s.input.path, s.roots) : "";
+      // 历史轨迹回放没有入参:路径从报错首行取(preview 首行被截到 120 字时以 … 结尾,不取)。
+      const fromText = firstLine(s.lines).trim().match(/^path not found: (.+[^…])$/)?.[1] ?? "";
+      const rawPath = typeof s.input.path === "string" ? s.input.path : fromText;
+      const path = rawPath ? displayPath(rawPath, s.roots) : "";
       return { groups: [t("路径不存在"), path ? [code(path)] : null], key: "read.missing" };
     }
     const lines = s.text.match(/the file has (\d+) lines/)?.[1];
@@ -776,7 +823,9 @@ export function toolResultSummary(name, ctx = {}) {
   const roots = Array.isArray(ctx.roots) ? ctx.roots : toolRoots();
   const input = ctx.input && typeof ctx.input === "object" && !Array.isArray(ctx.input) ? ctx.input : {};
   const display = ctx.display && typeof ctx.display === "object" ? ctx.display : null;
-  const hasContent = typeof ctx.content === "string";
+  // 空串 content + 非空 preview(实时 USER_DECLINED 等后端直发的 ToolEnd)按「没有正文」处理,
+  // 否则摘要器拿着空串,⎿ 行就成了空白。
+  const hasContent = typeof ctx.content === "string" && !(ctx.content === "" && String(ctx.preview ?? "").trim());
   let outcome = ctx.outcome || null;
   let errorCode = ctx.code || null;
   let raw = hasContent ? ctx.content : String(ctx.preview ?? "");
@@ -826,8 +875,11 @@ export function toolResultSummary(name, ctx = {}) {
     const durAt = normalized.durAt;
     let parts = assembleParts(groups, durationText, durAt);
     // 安全网:摘要器漏网的代码/路径/JSON 一律改走计数兜底(code part 是有意的代码记号,不查)。
+    // 整行看噪声;另逐组看「行号 + 源码」——合并空白后 `  1\t// 注释` 成了 `1 // 注释`,
+    // 夹在别的组后面时整行判据看不出来。
     const plain = parts.filter((part) => part.k === "text").map((part) => part.v).join("").replace(/ · /g, " ").trim();
-    if (mode !== "split" && plain && looksLikeNoise(plain)) {
+    const numberedSource = groups.some((group) => looksLikeNumberedSource(group.filter((part) => part.k === "text").map((part) => part.v).join("")));
+    if (mode !== "split" && plain && (looksLikeNoise(plain) || numberedSource)) {
       groups = [[txt(countFallback(s))]];
       key = "fallback.noise";
       parts = assembleParts(groups, durationText, undefined);
@@ -858,6 +910,8 @@ export function toolResultSummary(name, ctx = {}) {
   }
   if (state === "noop") return finish({ groups: [t("无需修改")], key: "noop" }, "summary", { rest: fullRest });
   if (state !== "success") {
+    const gate = toolGateFailure(s);
+    if (gate) return finish(gate, "summary", { rest: fullRest });
     const failSummarizer = lookupSummarizer(TOOL_FAIL_SUMMARIZERS, s.name);
     let failed = null;
     try { failed = failSummarizer ? normalizeResult(failSummarizer(s)) : null; } catch { failed = null; }
@@ -911,8 +965,9 @@ function pickString(input, ...keys) {
   return "";
 }
 const TRACKER_ACTION_LABELS = {
-  add: () => t("新增"),
-  update: () => t("更新"),
+  // 参数列是「要做的动作」,英文用祈使式 Add;结果列的「新增 R-1」是已发生,英文 Added。
+  add: () => t("新增条目"),
+  update: () => t("更新条目"),
   close: () => t("关闭"),
   reopen: () => t("重开"),
   list: () => t("列表"),

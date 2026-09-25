@@ -1033,10 +1033,17 @@ export const I18N_EN = {
   "已更正": "Corrected", "合并入": "Merged into", "标记过时": "Marked stale", "收件箱已清空": "inbox cleared", "已丢弃笔记": "note discarded",
   "草稿(未写入)": "draft (not written)", "已更新架构索引": "architecture index updated", "校验通过": "validation passed",
   "{n} 个问题": "{n} issues", "已更新规范": "conventions updated", "{n} 节": "{n} sections", "截图": "screenshot", "已交付": "Delivered",
-  "{n} 条线路": "{n} lines", "无其他线路": "no other lines", "路径不存在": "path not found", "超出范围": "out of range",
+  "{n} 条线路": "{n} parallel lines", "无其他线路": "no other parallel lines", "路径不存在": "path not found", "超出范围": "out of range",
   "重开": "Reopen", "列表": "List", "查看": "View", "重排": "Reorder", "等 {n} 项": "+{n} alternatives",
   "定义 {name}": "definition of {name}", "调用方 {name}": "callers of {name}", "取活": "Pick next", "认领": "Claim",
   "声明完成": "Declare done", "对账": "Reconcile", "暂存 {n} 个文件": "stage {n} files",
+  // 计数的单数形(中文 key 就是填好 1 的原文);参数列动作标签与结果列分开(Add / Added)。
+  "输出 1 行": "1 line of output", "1 个文件": "1 file", "1 条结果": "1 result", "1 处匹配": "1 match",
+  "1 处调用": "1 call site", "1 处定义": "1 definition", "1 条线路": "1 parallel line", "新增条目": "Add", "更新条目": "Update",
+  // 「根本没执行」的失败:权限拒绝、自主运行跳过、入参修复、停止。
+  "已拒绝": "declined", "前一项权限被拒绝": "an earlier permission request was declined",
+  "被权限规则拒绝": "denied by permission rule", "需要批准": "needs approval", "自主运行已跳过": "skipped in autonomous run",
+  "入参无效": "invalid input", "缺少参数": "missing", "字段": "Field",
   // UI-0926 #10:结构化渲染(04-structured.js)的界面标签。tracker 字段名与 JSON 键是数据,不翻译。
   "不一致 {n}": "{n} mismatches", "无不一致": "no mismatches", "错误码": "Error code", "错误详情": "Error details",
   "{n} 项": "{n} items", "{n} 个字段": "{n} fields", "还有 {n} 项": "{n} more", "节点过多,其余内容见原始 JSON": "Too many nodes; see the raw JSON for the rest",

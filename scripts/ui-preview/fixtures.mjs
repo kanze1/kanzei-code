@@ -351,14 +351,15 @@ function mainTraces() {
   return [{
     events: [
       { kind: "turn.started" },
-      // 真实轨迹(run/events tool.completed)只存 runner::preview:首行 120 字 + " (+N lines)"。
+      // 真实轨迹(run/events tool.completed)只存 runner::preview:首行 120 字 + " (+N lines)";
+      // 失败另带 error(= preview 前 400 字)与 outcome/code。
       ...tool("h-read-1", "read", "docs/design/cc_codex_alignment_impl_maps.md", true, 12, { preview: "     1\t# CC/Codex 对齐实施地图 (+13 lines)" }),
       ...tool("h-grep-1", "grep", "fn name\\(&self\\)", true, 88, { preview: "crates/kanzei-tools/src/read.rs:141:     fn name(&self) -> &'static str { \"read\" } (+6 lines)" }),
-      ...tool("h-bash-fail", "bash", "cargo test -p kanzei-tools registry::", false, 41200, { error: "exit code: 101 · error[E0425]: cannot find value `RESIDENT_DESKTOP`" }),
+      ...tool("h-bash-fail", "bash", "cargo test -p kanzei-tools registry::", false, 41200, { outcome: "failed", preview: "exit code: 101 (+42 lines)", error: "exit code: 101 (+42 lines)" }),
       ...tool("h-bash-ok", "bash", "cargo test -p kanzei-tools registry::", true, 39800, { preview: "exit code: 0 (+10 lines)" }),
       ...tool("h-bash-bill", "bash", "cargo run -q -p kanzei --bin kz -- tools bill --profile dev --json", true, 5300, { preview: "exit code: 0 (+1 lines)" }),
       ...tool("architecture_scout", "task", "审计常驻层 21 个工具近 30 天的调用频次", true, 73400, { preview: "## 常驻层审计结论 (+7 lines)" }),
-      ...tool("h-read-2", "read", "scripts/verify-policy.mjs", false, 3, { error: "path not found" }),
+      ...tool("h-read-2", "read", "scripts/verify-policy.mjs", false, 3, { outcome: "failed", code: "READ_PATH_NOT_FOUND", preview: "path not found: C:/Users/kanzei/Documents/kanzei code/scripts/verify-policy.mjs (+1 lines)", error: "path not found: C:/Users/kanzei/Documents/kanzei code/scripts/verify-policy.mjs (+1 lines)" }),
     ],
   }];
 }

@@ -1075,12 +1075,14 @@ export function renderRecoveredTraces(payloads) {
         entry.el.classList.add(view.cls);
         entry.el.dataset.toolOutcome = view.state;
         entry.el.dataset.bgStatus = view.cls;
-        // 轨迹只存了 preview(不存正文):成功按降级口径摘要,失败显示清洗过的错误首段。
-        entry.prog.textContent = failed && event.error
-          ? cleanInline(event.error, toolRoots())
-          : !failed && event.preview
-            ? toolResultSummary(entry.name, { ok: true, outcome: event.outcome, preview: event.preview, input: entry.input ?? undefined }).text
-            : t("历史轨迹");
+        // 轨迹只存了 preview(不存正文):成败都按同一个摘要器的降级口径(与主对话同源,
+        // 「退出码 101 · …」「路径不存在 · …」而不是 `exit code: 101 (+42 lines)`);失败摘要
+        // 为空时才退回清洗过的错误首段。
+        const traceSummary = event.preview || event.code
+          ? toolResultSummary(entry.name, { ok: !failed, outcome: event.outcome, code: event.code, preview: event.preview ?? "", input: entry.input ?? undefined }).text
+          : "";
+        entry.prog.textContent = traceSummary
+          || (failed && event.error ? cleanInline(event.error, toolRoots()) : t("历史轨迹"));
         const seconds = Number(event.durationMs);
         entry.meta.textContent =
           Number.isFinite(seconds) && seconds >= 1000
