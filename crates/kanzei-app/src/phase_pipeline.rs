@@ -367,6 +367,7 @@ impl PhasePipeline {
                         ),
                     };
                     let preview = text.clone();
+                    let (content, content_bytes) = kanzei_core::ui_tool_content(&preview);
                     reports.lock().unwrap().push(RoleReport { role, text, ok });
                     // 角色自己的 future 一返回就发 ToolEnd。TaskCancellationGuard 也在
                     // 此刻释放,因此终态事件必须先于屏障收尾,否则 UI 会把已不可取消的
@@ -378,6 +379,8 @@ impl PhasePipeline {
                         outcome: if ok { "success" } else { "failed" }.into(),
                         code: None,
                         preview,
+                        content,
+                        content_bytes,
                         display: None,
                         artifact: None,
                     };
@@ -431,6 +434,7 @@ impl PhasePipeline {
             let preview = report
                 .map(|r| r.text.clone())
                 .unwrap_or_else(|| "(超时,未产出结果)".into());
+            let (content, content_bytes) = kanzei_core::ui_tool_content(&preview);
             on_event(RunEvent::ToolEnd {
                 id: role.to_string(),
                 name: "task".into(),
@@ -438,6 +442,8 @@ impl PhasePipeline {
                 outcome: if ok { "success" } else { "failed" }.into(),
                 code: None,
                 preview,
+                content,
+                content_bytes,
                 display: None,
                 artifact: None,
             });

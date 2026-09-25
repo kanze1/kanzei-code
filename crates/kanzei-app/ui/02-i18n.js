@@ -1007,6 +1007,51 @@ export const I18N_EN = {
   // ---- 分区:弹层与外观 ----
 
   // ---- 分区:工具行与结构化渲染 ----
+  // UI-0926 #6:工具行人话摘要(05-tool-summary.js)。带 {占位符} 的是模板,由 fillTemplate 填值。
+  "第 {from}–{to} 行": "lines {from}–{to}", "共 {total} 行": "{total} lines total", "全文 {total} 行": "all {total} lines",
+  "未读完": "more remaining", "末尾 {n} 行": "last {n} lines", "文件 {size}": "file {size}", "空范围": "empty range",
+  "文件共 {total} 行": "file has {total} lines", "PDF 第 {from}–{to} 页": "PDF pages {from}–{to}", "共 {total} 页": "{total} pages total",
+  "第 {from}–{to} 格": "cells {from}–{to}", "共 {total} 格": "{total} cells total",
+  "输出 {n} 行": "{n} lines of output", "输出 {size}": "{size} of output", "输出较大 · {size} · 已外置": "large output · {size} · stored externally",
+  "校验 {n} 个错误": "{n} validation errors", "无匹配": "no matches", "{n} 条结果": "{n} results", "{n} 处匹配": "{n} matches",
+  "{n} 个文件": "{n} files", "无匹配文件": "no matching files", "扫描已封顶": "scan capped", "无符号": "no symbols",
+  "无调用方": "no callers", "{n} 处调用": "{n} call sites", "{n} 处定义": "{n} definitions", "未找到定义": "definition not found",
+  "{n} 个模块": "{n} modules", "{n} 个符号": "{n} symbols", "{n} 行": "{n} lines", "无文件": "no files",
+  "文件地图 · {n} 项": "file map · {n} entries", "替换 {n} 处": "{n} replacements", "已替换 {n} 处": "replaced {n}",
+  "已插入": "inserted", "写入 {n} 行": "wrote {n} lines", "写入 {size}": "wrote {size}",
+  "{n} 通过": "{n} passed", "{n} 失败": "{n} failed", "{n} 个编译错误": "{n} compile errors", "{n} 个警告": "{n} warnings",
+  "已推送 {ref}": "pushed {ref}", "编译完成": "build finished", "后台运行": "running in background", "已终止": "killed",
+  "退出码 {code}": "exit {code}", "无输出": "no output", "无后台进程": "no background processes", "已结束": "already finished",
+  "{n} 个后台进程": "{n} background processes", "已暂存 {n} 个文件": "staged {n} files", "测试通过": "tests passed",
+  "已提交": "committed", "{n} 处改动": "{n} changes", "工作区干净": "clean worktree", "无差异": "no diff", "无提交": "no commits",
+  "{n} 条提交": "{n} commits", "{n} 字": "{n} chars", "无结果": "no results", "未产出结果": "no result produced",
+  "用户回答: {answer}": "user answered: {answer}", "新增": "Added", "无变化": "unchanged", "已更新": "updated", "已重开": "Reopened",
+  "已重排 {n} 条": "reordered {n}", "已归档 {n} 条": "archived {n}", "{n} 条": "{n} entries", "{n} 条可执行": "{n} actionable",
+  "全部阻塞": "all blocked", "已声明完成": "completion declared", "已认领": "Claimed", "开始": "Start", "WIP 冲突": "WIP conflict",
+  "无可执行条目": "nothing actionable", "通过": "passed", "无匹配记忆": "no matching memory", "{n} 条记忆": "{n} memories",
+  "已记入收件箱": "noted to inbox", "待整理 {n} 条": "{n} pending", "与已有记忆重复,未记录": "duplicate of an existing memory, not recorded",
+  "已更正": "Corrected", "合并入": "Merged into", "标记过时": "Marked stale", "收件箱已清空": "inbox cleared", "已丢弃笔记": "note discarded",
+  "草稿(未写入)": "draft (not written)", "已更新架构索引": "architecture index updated", "校验通过": "validation passed",
+  "{n} 个问题": "{n} issues", "已更新规范": "conventions updated", "{n} 节": "{n} sections", "截图": "screenshot", "已交付": "Delivered",
+  "{n} 条线路": "{n} parallel lines", "无其他线路": "no other parallel lines", "路径不存在": "path not found", "超出范围": "out of range",
+  "重开": "Reopen", "列表": "List", "查看": "View", "重排": "Reorder", "等 {n} 项": "+{n} alternatives",
+  "定义 {name}": "definition of {name}", "调用方 {name}": "callers of {name}", "取活": "Pick next", "认领": "Claim",
+  "声明完成": "Declare done", "对账": "Reconcile", "暂存 {n} 个文件": "stage {n} files",
+  // 计数的单数形(中文 key 就是填好 1 的原文);参数列动作标签与结果列分开(Add / Added)。
+  "输出 1 行": "1 line of output", "1 个文件": "1 file", "1 条结果": "1 result", "1 处匹配": "1 match",
+  "1 处调用": "1 call site", "1 处定义": "1 definition", "1 条线路": "1 parallel line", "新增条目": "Add", "更新条目": "Update",
+  // 「根本没执行」的失败:权限拒绝、自主运行跳过、入参修复、停止。
+  "已拒绝": "declined", "前一项权限被拒绝": "an earlier permission request was declined",
+  "被权限规则拒绝": "denied by permission rule", "需要批准": "needs approval", "自主运行已跳过": "skipped in autonomous run",
+  "入参无效": "invalid input", "缺少参数": "missing", "字段": "Field",
+  // UI-0926 #10:结构化渲染(04-structured.js)的界面标签。tracker 字段名与 JSON 键是数据,不翻译。
+  "不一致 {n}": "{n} mismatches", "无不一致": "no mismatches", "错误码": "Error code", "错误详情": "Error details",
+  "{n} 项": "{n} items", "{n} 个字段": "{n} fields", "还有 {n} 项": "{n} more", "节点过多,其余内容见原始 JSON": "Too many nodes; see the raw JSON for the rest",
+  "复制 JSON": "Copy JSON", "原始 JSON": "Raw JSON", "原始入参": "Raw arguments", "展开全部": "Show all",
+  "恢复人": "Resumed by", "引擎记录": "Engine record", "查询": "Query", "工作目录": "Working directory",
+  "原因链": "Cause chain", "原始错误": "Raw error", "局部校验": "Local checks", "首个错误": "First error",
+  "修复上下文": "Repair context", "意图": "Intent", "用户原话": "User's words", "歧义": "Ambiguities",
+  "同上": "same as above", "执行策略": "Execution policy",
 
   // ---- 分区:需求卡片与单页 ----
 

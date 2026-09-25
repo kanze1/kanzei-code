@@ -125,7 +125,10 @@ impl Tool for SymbolsTool {
             collect_rs_files(&target)
         };
         if files.is_empty() {
-            return ToolOutput::ok(format!("(no .rs files under {})", target.display()));
+            return ToolOutput::ok(format!(
+                "(no .rs files under {})",
+                shown_path(&target, &ctx.cwd)
+            ));
         }
         if input.crate_name.is_some() || input.module.is_some() {
             return ToolOutput::ok(render_repo_map(
@@ -174,7 +177,12 @@ impl Tool for SymbolsTool {
                                 .unwrap_or(false)
                     };
                     if line.contains(callers.as_str()) && !is_definition {
-                        hits.push(format!("{}:{}: {}", file.display(), idx + 1, line.trim()));
+                        hits.push(format!(
+                            "{}:{}: {}",
+                            shown_path(file, &ctx.cwd),
+                            idx + 1,
+                            line.trim()
+                        ));
                     }
                 }
             }
@@ -199,7 +207,7 @@ impl Tool for SymbolsTool {
         for file in files {
             let symbols = scan_symbols(&file);
             if !symbols.is_empty() {
-                all.push((file.display().to_string(), symbols));
+                all.push((shown_path(&file, &ctx.cwd), symbols));
             }
         }
         if all.is_empty() {
@@ -238,6 +246,16 @@ impl Tool for SymbolsTool {
         }
         ToolOutput::ok(lines.join("\n"))
     }
+}
+
+/// UI-0926 #6:输出里的路径一律相对 `root`(cwd 或项目根)、`/` 分隔、不带 verbatim
+/// 前缀。项目根经 canonicalize,Windows 上是 `\\?\C:\…` 形态;两边先剥前缀再求
+/// 相对,输入是普通绝对路径而根是 verbatim(或反之)时同样能相对化。此前模型与
+/// 界面看到的都是 `== \\?\C:\Users\…` 这种整串绝对路径。
+fn shown_path(path: &Path, root: &Path) -> String {
+    let path = std::path::PathBuf::from(crate::worktree::git_arg_path(path));
+    let root = std::path::PathBuf::from(crate::worktree::git_arg_path(root));
+    crate::grep::display_path(&path, &root)
 }
 
 /// 递归收集目录下 .rs 文件;单文件直接返回。跳过 .kanzei 与 target。
@@ -346,8 +364,10 @@ fn render_repo_map(
             report.push_str(&format!("== crate `{crate_name}`\n"));
             previous_crate = Some(crate_name.clone());
         }
-        let relative = file.strip_prefix(project_root).unwrap_or(&file);
-        report.push_str(&format!("  module `{module}` ({})\n", relative.display()));
+        report.push_str(&format!(
+            "  module `{module}` ({})\n",
+            shown_path(&file, project_root)
+        ));
         for symbol in symbols {
             report.push_str(&format!(
                 "    pub {} {}:{}\n",
@@ -416,7 +436,7 @@ fn resolve_define(
             if re.exported == symbol {
                 fallback_chain.push(format!(
                     "  {}:{}  {}",
-                    re.file.display(),
+                    shown_path(&re.file, project_root),
                     re.line,
                     re.source_line.trim()
                 ));
@@ -465,7 +485,7 @@ fn resolve_define(
                 if ident == prefix {
                     out.push_str(&format!(
                         "crate `{prefix}` 源码目录: {}\n",
-                        dir.strip_prefix(project_root).unwrap_or(dir).display()
+                        shown_path(dir, project_root)
                     ));
                     break;
                 }
@@ -475,10 +495,9 @@ fn resolve_define(
     out.push_str(&format!("definition of `{symbol}` ({} hit):\n", hits.len()));
     for (file, line, kind, public) in &hits {
         let vis = if *public { "pub" } else { "  " };
-        let rel = file.strip_prefix(project_root).unwrap_or(file);
         out.push_str(&format!(
             "  {vis} {kind} {symbol}  {}:{line}\n",
-            rel.display()
+            shown_path(file, project_root)
         ));
     }
     // 再导出链:两型都算——①符号直连(exported == symbol:as 新名/花括号列表项);
@@ -488,7 +507,7 @@ fn resolve_define(
         if re.exported == symbol {
             chain.push(format!(
                 "  {}:{}  {}",
-                re.file.display(),
+                shown_path(&re.file, project_root),
                 re.line,
                 re.source_line.trim()
             ));
@@ -500,7 +519,7 @@ fn resolve_define(
             if stem.as_deref() == Some(re.exported.as_str()) {
                 chain.push(format!(
                     "  {}:{}  {}",
-                    re.file.display(),
+                    shown_path(&re.file, project_root),
                     re.line,
                     re.source_line.trim()
                 ));
@@ -1215,6 +1234,55 @@ mod tests {
         assert!(out.is_error, "互斥必须显式报错, {}", out.content);
         assert!(out.content.contains("互斥"), "{}", out.content);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// UI-0926 #6:项目根经 canonicalize(Windows 上是 `\\?\C:\…`)时,列表与
+    /// callers 输出仍是项目相对路径,不把 verbatim 绝对路径喂给模型和界面。
+    #[tokio::test]
+    async fn 输出路径相对项目根且不带verbatim前缀() {
+        let raw = std::env::temp_dir().join(format!(
+            "kz-symbols-relpath-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(raw.join("src")).unwrap();
+        std::fs::write(
+            raw.join("src").join("lib.rs"),
+            "pub fn helper() {}\nfn caller() { helper(); }\n",
+        )
+        .unwrap();
+        let root = std::fs::canonicalize(&raw).unwrap();
+        let ctx = kanzei_harness::ToolCtx::new(root.clone(), root.clone());
+        let plain_root = crate::worktree::git_arg_path(&root).replace('\\', "/");
+        let list = SymbolsTool
+            .execute(serde_json::json!({"path": "src"}), &ctx)
+            .await;
+        assert!(!list.is_error, "{}", list.content);
+        assert!(list.content.contains("== src/lib.rs"), "{}", list.content);
+        let callers = SymbolsTool
+            .execute(serde_json::json!({"callers": "helper"}), &ctx)
+            .await;
+        assert!(
+            callers.content.contains("src/lib.rs:2: fn caller()"),
+            "{}",
+            callers.content
+        );
+        let define = SymbolsTool
+            .execute(serde_json::json!({"define": "helper"}), &ctx)
+            .await;
+        assert!(
+            define.content.contains("src/lib.rs:1"),
+            "{}",
+            define.content
+        );
+        for out in [&list.content, &callers.content, &define.content] {
+            assert!(!out.contains(r"\\?\"), "{out}");
+            assert!(!out.contains(&plain_root), "{out}");
+        }
+        std::fs::remove_dir_all(&raw).ok();
     }
 
     /// R-265 验收①/②/③:resolve_define 按名命中定义,三型 re-export 都进链

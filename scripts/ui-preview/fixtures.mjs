@@ -189,26 +189,30 @@ const READ_OUTPUT = [
   "    11\t|---|---|---|",
   "    12\t| B1 | 账单 + 常驻名单 | research_* 在研究档是常驻 |",
   "    13\t| B2 | tool_search + 门禁 | 压缩后已加载集要重放 |",
-  "... (truncated at line 120; use offset to continue)",
+  // 真实格式(read.rs):截断标记带总行数。
+  "... (truncated at line 14 of 842; use offset to continue)",
 ].join("\n");
 
+// 真实格式(grep.rs):路径相对 cwd,匹配行 `path:行: 文本`,上下文行 `path-行- 文本`。
 const GREP_OUTPUT = [
-  "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-tools\\src\\read.rs:141:    fn name(&self) -> &'static str { \"read\" }",
-  "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-tools\\src\\grep.rs:58:    fn name(&self) -> &'static str { \"grep\" }",
-  "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-tools\\src\\symbols.rs:36:    fn name(&self) -> &'static str { \"symbols\" }",
-  "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-tools\\src\\bash.rs:212:    fn name(&self) -> &'static str { \"bash\" }",
-  "C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-tools\\src\\research_plan.rs:77:    fn name(&self) -> &'static str { \"research_plan\" }",
-  "(38 matches in 38 files)",
+  "crates/kanzei-tools/src/read.rs:141:     fn name(&self) -> &'static str { \"read\" }",
+  "crates/kanzei-tools/src/grep.rs:58:     fn name(&self) -> &'static str { \"grep\" }",
+  "crates/kanzei-tools/src/symbols.rs:36:     fn name(&self) -> &'static str { \"symbols\" }",
+  "crates/kanzei-tools/src/bash.rs-211-     #[allow(clippy::too_many_lines)]",
+  "crates/kanzei-tools/src/bash.rs:212:     fn name(&self) -> &'static str { \"bash\" }",
+  "crates/kanzei-tools/src/research_plan.rs:77:     fn name(&self) -> &'static str { \"research_plan\" }",
+  "... (stopped at limit 6; narrow the pattern or raise limit)",
 ].join("\n");
 
+// 真实格式(symbols.rs):`== 相对路径` 表头 + `  {pub|  } {kind} {name}:{line}`。
 const SYMBOLS_OUTPUT = [
   "== crates/kanzei-tools/src/registry.rs",
   "  pub fn register_tools:41",
-  "  pub(crate) fn schema_bill:88",
+  "     fn schema_bill:88",
   "  pub struct ToolBill:166",
-  "  impl Display for ToolBill:181",
-  "  fn resident_set:203",
-  "  const RESIDENT_CLI: [&str; 20]:219",
+  "     impl ToolBill:181",
+  "     fn resident_set:203",
+  "     const RESIDENT_CLI:219",
 ].join("\n");
 
 const BILL_JSON = JSON.stringify({
@@ -259,9 +263,19 @@ const TASK_RESULT = [
   "```",
 ].join("\n");
 
-const REQ_UPDATE_RESULT = "updated: R-364 工具延迟加载:常驻层约 20 个工具,其余经 tool_search 按需加载 [doing]\n变更: 进展 +312 字(412→724);批次 0/4 不变\n⚠ close_telemetry: {\"evidence_refs\":2,\"acceptance_covered\":\"1/5\",\"observed_head\":\"2009581f\"}";
+// 真实格式(tracker/actions.rs update_close):`updated: {id} [{status}] {title}` + `变更: 键: 旧 → 新; …`。
+const REQ_UPDATE_RESULT = "updated: R-364 [doing] 工具延迟加载:常驻层约 20 个工具,其余经 tool_search 按需加载\n变更: 进展: B1 待开工 → B1 进行中:逐工具 schema 字符账单已跑通…";
 
-const TEST_RECORD_RESULT = "recorded T-412 [passed] cargo test -p kanzei-tools registry::\nrefs: R-364\nfile: C:\\Users\\kanzei\\Documents\\kanzei code\\.kanzei\\project\\tests.md";
+// 真实格式(test_record.rs render_snapshot)。
+const TEST_RECORD_RESULT = "recorded T-1786922727068. active: 0, archived: 1 (path: C:\\Users\\kanzei\\Documents\\kanzei code\\.kanzei\\project\\tests.md, archive: C:\\Users\\kanzei\\Documents\\kanzei code\\.kanzei\\project\\tests-archive.md)";
+
+// 真实格式(edit.rs + local_validation.rs):替换回执 + 局部结构校验摘要与明细。
+const editResult = (file) => [
+  `replaced 1 occurrence(s) in C:\\Users\\kanzei\\Documents\\kanzei code\\${file.replace(/\//g, "\\")}`,
+  "局部结构校验通过: 1 个低成本检查",
+  "局部校验明细:",
+  `- rustfmt-check [passed] command: rustfmt --check --edition 2021 ${file}`,
+].join("\n");
 
 function mainConversation() {
   return [
@@ -271,18 +285,18 @@ function mainConversation() {
       parts: [
         { type: "reasoning", text: "**确认口径**\n先读实施地图 §1 看账单口径,再从注册表拿全部工具名。常驻名单要按调用频次和必要性两条筛。\n研究档的 research_* 在 dev 档可以全部延迟。" },
         { type: "text", text: "我先读实施地图和现有工具注册表,确认账单口径后再动代码。" },
-        { type: "tool_call", id: "h-read-1", name: "read", input: { path: "docs/design/cc_codex_alignment_impl_maps.md", offset: 1, limit: 120 } },
+        { type: "tool_call", id: "h-read-1", name: "read", input: { path: "docs/design/cc_codex_alignment_impl_maps.md", offset: 1, limit: 13 } },
         { type: "tool_result", call_id: "h-read-1", is_error: false, content: READ_OUTPUT },
-        { type: "tool_call", id: "h-grep-1", name: "grep", input: { pattern: "fn name\\(&self\\) -> &'static str", path: "crates/kanzei-tools/src", output_mode: "content" } },
+        { type: "tool_call", id: "h-grep-1", name: "grep", input: { pattern: "fn name\\(&self\\) -> &'static str", path: "crates/kanzei-tools/src", limit: 6, context: 1 } },
         { type: "tool_result", call_id: "h-grep-1", is_error: false, content: GREP_OUTPUT },
         { type: "tool_call", id: "h-symbols-1", name: "symbols", input: { path: "crates/kanzei-tools/src/registry.rs" } },
         { type: "tool_result", call_id: "h-symbols-1", is_error: false, content: SYMBOLS_OUTPUT },
         { type: "tool_call", id: "h-edit-1", name: "edit", input: { path: "crates/kanzei-tools/src/registry.rs", old_string: "pub fn register_tools(", new_string: "pub(crate) fn schema_bill(tools: &[Box<dyn Tool>]) -> ToolBill {\n    // …\n}\n\npub fn register_tools(" } },
-        { type: "tool_result", call_id: "h-edit-1", is_error: false, content: "edited C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-tools\\src\\registry.rs (+78 −0)" },
+        { type: "tool_result", call_id: "h-edit-1", is_error: false, content: editResult("crates/kanzei-tools/src/registry.rs") },
         { type: "tool_call", id: "h-bash-fail", name: "bash", input: { command: "cargo test -p kanzei-tools registry::", timeout_ms: 600000 } },
         { type: "tool_result", call_id: "h-bash-fail", is_error: true, content: BASH_FAIL },
         { type: "tool_call", id: "h-edit-2", name: "edit", input: { path: "crates/kanzei-tools/src/registry.rs", old_string: "RESIDENT_DESKTOP.iter()", new_string: "RESIDENT_CLI.iter().chain([\"browser\"].iter())" } },
-        { type: "tool_result", call_id: "h-edit-2", is_error: false, content: "edited C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-tools\\src\\registry.rs (+1 −1)" },
+        { type: "tool_result", call_id: "h-edit-2", is_error: false, content: editResult("crates/kanzei-tools/src/registry.rs") },
         { type: "tool_call", id: "h-bash-ok", name: "bash", input: { command: "cargo test -p kanzei-tools registry::" } },
         { type: "tool_result", call_id: "h-bash-ok", is_error: false, content: `exit code: 0\n${BASH_OK}` },
         { type: "tool_call", id: "h-bash-bill", name: "bash", input: { command: "cargo run -q -p kanzei --bin kz -- tools bill --profile dev --json" } },
@@ -337,13 +351,15 @@ function mainTraces() {
   return [{
     events: [
       { kind: "turn.started" },
-      ...tool("h-read-1", "read", "docs/design/cc_codex_alignment_impl_maps.md", true, 12),
-      ...tool("h-grep-1", "grep", "fn name\\(&self\\)", true, 88),
-      ...tool("h-bash-fail", "bash", "cargo test -p kanzei-tools registry::", false, 41200, { error: "exit code: 101 · error[E0425]: cannot find value `RESIDENT_DESKTOP`" }),
-      ...tool("h-bash-ok", "bash", "cargo test -p kanzei-tools registry::", true, 39800),
-      ...tool("h-bash-bill", "bash", "cargo run -q -p kanzei --bin kz -- tools bill --profile dev --json", true, 5300),
-      ...tool("architecture_scout", "task", "审计常驻层 21 个工具近 30 天的调用频次", true, 73400),
-      ...tool("h-read-2", "read", "scripts/verify-policy.mjs", false, 3, { error: "path not found" }),
+      // 真实轨迹(run/events tool.completed)只存 runner::preview:首行 120 字 + " (+N lines)";
+      // 失败另带 error(= preview 前 400 字)与 outcome/code。
+      ...tool("h-read-1", "read", "docs/design/cc_codex_alignment_impl_maps.md", true, 12, { preview: "     1\t# CC/Codex 对齐实施地图 (+13 lines)" }),
+      ...tool("h-grep-1", "grep", "fn name\\(&self\\)", true, 88, { preview: "crates/kanzei-tools/src/read.rs:141:     fn name(&self) -> &'static str { \"read\" } (+6 lines)" }),
+      ...tool("h-bash-fail", "bash", "cargo test -p kanzei-tools registry::", false, 41200, { outcome: "failed", preview: "exit code: 101 (+42 lines)", error: "exit code: 101 (+42 lines)" }),
+      ...tool("h-bash-ok", "bash", "cargo test -p kanzei-tools registry::", true, 39800, { preview: "exit code: 0 (+10 lines)" }),
+      ...tool("h-bash-bill", "bash", "cargo run -q -p kanzei --bin kz -- tools bill --profile dev --json", true, 5300, { preview: "exit code: 0 (+1 lines)" }),
+      ...tool("architecture_scout", "task", "审计常驻层 21 个工具近 30 天的调用频次", true, 73400, { preview: "## 常驻层审计结论 (+7 lines)" }),
+      ...tool("h-read-2", "read", "scripts/verify-policy.mjs", false, 3, { outcome: "failed", code: "READ_PATH_NOT_FOUND", preview: "path not found: C:/Users/kanzei/Documents/kanzei code/scripts/verify-policy.mjs (+1 lines)", error: "path not found: C:/Users/kanzei/Documents/kanzei code/scripts/verify-policy.mjs (+1 lines)" }),
     ],
   }];
 }
@@ -376,9 +392,9 @@ export function liveEvents(ids = IDS) {
     },
     scoutProgress: [
       { sessionId, id: "review_gate", text: "读取 scripts/verify-policy.mjs", trace: { phase: "start", child_id: "rg-1", name: "read", summary: "scripts/verify-policy.mjs", input: { path: "scripts/verify-policy.mjs" } } },
-      { sessionId, id: "review_gate", text: "读取完成", trace: { phase: "end", child_id: "rg-1", name: "read", ok: true, preview: "412 lines" } },
+      { sessionId, id: "review_gate", text: "读取完成", trace: { phase: "end", child_id: "rg-1", name: "read", ok: true, preview: "     1\t// R-354 验证门禁的档位策略:按改动面挑命令集。 (+411 lines)" } },
       { sessionId, id: "review_gate", text: "检索 schema_budget 调用方", trace: { phase: "start", child_id: "rg-2", name: "grep", summary: "schema_budget", input: { pattern: "schema_budget", path: "scripts" } } },
-      { sessionId, id: "review_gate", text: "检索完成", trace: { phase: "end", child_id: "rg-2", name: "grep", ok: true, preview: "3 matches" } },
+      { sessionId, id: "review_gate", text: "检索完成", trace: { phase: "end", child_id: "rg-2", name: "grep", ok: true, preview: "scripts/verify-policy.mjs:88:   schema_budget: 24000, (+2 lines)" } },
       { sessionId, id: "review_gate", text: "", trace: { phase: "text", text: "旧的 `schema_budget` 仍被 verify.ps1 第 214 行引用,拆分后要同步改名,否则门禁会读到 undefined 而放行。" } },
       { sessionId, id: "review_gate", text: "", trace: { phase: "usage", name: "", usage: { input: 18400, output: 620, cache_read: 12000 } } },
       { sessionId, id: "review_gate", text: "运行 node scripts/verify-policy-smoke.mjs", trace: { phase: "start", child_id: "rg-3", name: "bash", summary: "node scripts/verify-policy-smoke.mjs", input: { command: "node scripts/verify-policy-smoke.mjs" } } },
@@ -390,12 +406,14 @@ export function liveEvents(ids = IDS) {
     },
     selfTaskProgress: [
       { sessionId, id: "call_task_7Hq2", text: "检索 denial_hint", trace: { phase: "start", child_id: "t7-1", name: "grep", summary: "denial_hint", input: { pattern: "denial_hint", path: "crates" } } },
-      { sessionId, id: "call_task_7Hq2", text: "检索完成", trace: { phase: "end", child_id: "t7-1", name: "grep", ok: true, preview: "14 matches in 6 files" } },
+      { sessionId, id: "call_task_7Hq2", text: "检索完成", trace: { phase: "end", child_id: "t7-1", name: "grep", ok: true, preview: "crates/kanzei-core/src/runner/drive/permissions.rs:41:         snapshot.denial_hint(action, &resource), (+13 lines)" } },
       { sessionId, id: "call_task_7Hq2", text: "", trace: { phase: "text", text: "14 处 denial_hint 中 **9 处**仍写「该工具在当前档位不可用」,没有提示 `tool_search`。" } },
     ],
     selfTaskEnd: {
       sessionId, id: "call_task_7Hq2", name: "task", ok: true, outcome: "success",
-      preview: "14 处 denial_hint,9 处未指向 tool_search(清单见详情)",
+      preview: "14 处 denial_hint,9 处未指向 tool_search(清单见详情) (+3 lines)",
+      content: "14 处 denial_hint,9 处未指向 tool_search(清单见详情)\n\n- permissions.rs:41\n- serial_tools.rs:131",
+      contentBytes: 120, contentTruncated: false, durationMs: 48200,
       display: null,
     },
   };
@@ -403,10 +421,12 @@ export function liveEvents(ids = IDS) {
 
 function asks(ids = IDS) {
   return {
+    // 真实形态:bash 的资源是 {command, workdir} JSON(bash.rs resources_with_ctx),
+    // 「记住为」经 generalize_resource 原样返回。
     permission: {
       id: "ask-01J8QB3", kind: "permission", sessionId: ids.mainSession,
-      action: "bash", resource: "git push origin release/2026-09-26-ui --force-with-lease",
-      remember: "git push *",
+      action: "bash", resource: JSON.stringify({ command: "git push origin release/2026-09-26-ui --force-with-lease", workdir: PROJECT }),
+      remember: JSON.stringify({ command: "git push origin release/2026-09-26-ui --force-with-lease", workdir: PROJECT }),
     },
     question: {
       id: "ask-01J8QB4", kind: "question", sessionId: ids.mainSession,
@@ -531,7 +551,11 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       ["kz:status", { sessionId, stage: "思考", detail: "预览模拟回复" }],
       ["kz:reasoning", { sessionId, text: "**预览模式**\n这是 scripts/ui-preview 的模拟回复,不连接模型。" }],
       ["kz:tool-start", { sessionId, id: `sim-${now}`, name: "read", summary: "README.md", input: { path: "README.md" } }],
-      ["kz:tool-end", { sessionId, id: `sim-${now}`, name: "read", ok: true, outcome: "success", preview: "     1\t# kanzei (+212 lines)" }],
+      // UI-0926 #6:tool-end 带与历史同源的 content、contentBytes/contentTruncated 与 durationMs。
+      ["kz:tool-end", {
+        sessionId, id: `sim-${now}`, name: "read", ok: true, outcome: "success", preview: "     1\t# kanzei (+2 lines)",
+        content: "     1\t# kanzei\n     2\t\n     3\t文件优先的日常开发工具。\n", contentBytes: 72, contentTruncated: false, durationMs: 14,
+      }],
       ["kz:text", { sessionId, text: `收到:「${text}」。\n\n这是**预览模式**的模拟回复——` }],
       ["kz:text", { sessionId, text: "真实运行请在桌面端里发送。" }],
       ["kz:step", { sessionId, input: 1200, output: 80, cacheRead: 0, cacheWrite: 0 }],
@@ -719,10 +743,14 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       ],
     },
     agent_directory_open: null,
-    permission_rules_get: [
-      { index: 0, action: "bash", resource: "cargo *", decision: "allow", source: "project" },
-      { index: 1, action: "bash", resource: "git push *", decision: "ask", source: "global" },
-    ],
+    // 真实形态(settings.rs permission_rules_get):{path, rules:[{index, action, resource, effect}]},只列 allow。
+    permission_rules_get: {
+      path: PROJECT_CONFIG,
+      rules: [
+        { index: 0, action: "bash", resource: JSON.stringify({ command: "cargo test --workspace", workdir: PROJECT }), effect: "allow" },
+        { index: 1, action: "edit", resource: "crates/kanzei-tools/src/registry.rs", effect: "allow" },
+      ],
+    },
     permission_rule_delete: null,
     provider_test: { ok: true, latencyMs: 412, message: "连接正常" },
     mobile_device_list: [],

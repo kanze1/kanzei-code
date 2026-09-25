@@ -61,6 +61,8 @@ import { sync_composer_scope } from "./03-workspaces.js";
 import { reset_research_project } from "./19-research.js";
 import { remember_development_project, switch_workspace } from "./03-workspaces.js";
 import { reset_files_scope } from "./17-files.js";
+// UI-0926 #10:测试记录行展开后的结构化字段。
+import { normalizeTrackerFields, renderTestRecordFields } from "./04-structured.js";
 
 export let worktreeItems = [];
 export let worktreeLineCreateInFlight = false;
@@ -1096,8 +1098,23 @@ export function renderTestRuns(snapshot) {
   for (const record of records.slice().reverse()) {
     const row = document.createElement("div");
     row.className = `test-entry test-${record.status}`;
-    row.textContent = `${record.status === "passed" ? "✓" : record.status === "failed" ? "×" : record.status === "running" ? "●" : "○"} ${record.id} ${record.title}`;
-    row.title = (record.fields ?? []).map((field) => `${field.key}: ${field.value}`).join("\n");
+    // UI-0926 #10:行头可点,展开后是结构化字段(命令列表、收尾时间、源码指纹路径…);
+    // 字段只在首次展开时构建。字段同时接受 {key,value}(真实 IPC)与 [k,v] 两种形状。
+    row.dataset.docId = record.id;
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "sv-test-head";
+    head.setAttribute("aria-expanded", "false");
+    head.textContent = `${record.status === "passed" ? "✓" : record.status === "failed" ? "×" : record.status === "running" ? "●" : "○"} ${record.id} ${record.title}`;
+    head.title = normalizeTrackerFields(record.fields ?? []).map((field) => `${field.key}: ${field.value}`).join("\n");
+    const detail = document.createElement("div");
+    detail.className = "sv-test-detail hidden";
+    head.addEventListener("click", () => {
+      if (!detail.children.length) detail.appendChild(renderTestRecordFields(record.fields ?? []));
+      const closed = detail.classList.toggle("hidden");
+      head.setAttribute("aria-expanded", String(!closed));
+    });
+    row.appendChild(head);
     // R-130:测试→条目映射可见——关联的 R-/D- 条目号渲染成可点跳转的徽标,
     // 让「这条测试为哪个条目背书」一眼可见,点一下直接跳到该条目。
     const refs = record.refs ?? [];
@@ -1115,6 +1132,7 @@ export function renderTestRuns(snapshot) {
       }
       row.appendChild(refRow);
     }
+    row.appendChild(detail);
     list.appendChild(row);
   }
 }

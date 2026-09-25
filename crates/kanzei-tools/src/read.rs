@@ -226,9 +226,14 @@ fn read_pdf(path: &std::path::Path, input: &ReadInput) -> Result<String, String>
     if let Some(spec) = input.pages.as_deref() {
         return render_pdf_pages(&text, spec);
     }
-    let lines: Vec<&str> = text.lines().collect();
     let offset = input.offset.unwrap_or(1).max(1);
     let limit = input.limit.unwrap_or(DEFAULT_LIMIT);
+    render_pdf_lines(&text, offset, limit)
+}
+
+/// PDF 抽出文本后的行窗口。整份文本已在内存里,截断标记直接带总行数。
+fn render_pdf_lines(text: &str, offset: usize, limit: usize) -> Result<String, String> {
+    let lines: Vec<&str> = text.lines().collect();
     if offset > lines.len().max(1) {
         return Err(range_error(lines.len(), offset));
     }
@@ -237,8 +242,9 @@ fn read_pdf(path: &std::path::Path, input: &ReadInput) -> Result<String, String>
     for (index, line) in lines.iter().enumerate().skip(offset.saturating_sub(1)) {
         if shown >= limit || out.len() >= MAX_OUTPUT_BYTES {
             out.push_str(&format!(
-                "... (truncated at line {}; use offset to continue)\n",
-                index + 1
+                "... (truncated at line {} of {}; use offset to continue)\n",
+                index + 1,
+                lines.len()
             ));
             break;
         }
@@ -322,24 +328,53 @@ fn read_sync_from(
 
     let offset = input.offset.unwrap_or(1).max(1);
     let limit = input.limit.unwrap_or(DEFAULT_LIMIT);
-    let reader = BufReader::new(file);
+    read_line_range(BufReader::new(file), offset, limit, TOTAL_COUNT_SCAN_CAP)
+}
+
+/// 截断后为给出「共 N 行」继续数剩余行时,最多再扫这么多字节;超过就不给总数。
+const TOTAL_COUNT_SCAN_CAP: u64 = 32 * 1024 * 1024;
+
+/// 行区间读取。手写 `read_line` 循环(而非 `lines()`)是为了截断 break 之后
+/// reader 还能接着用:数出剩余行数,截断标记才能带上总行数——模型和界面都
+/// 需要知道「读了 2000 行之后还有多少」,而不是只知道「没读完」。
+fn read_line_range<R: BufRead>(
+    mut reader: R,
+    offset: usize,
+    limit: usize,
+    count_scan_cap: u64,
+) -> Result<String, String> {
     let mut out = String::new();
     let mut total_bytes = 0usize;
     let mut shown = 0usize;
     let mut line_no = 0usize;
-    for line in reader.lines() {
-        let line = line.map_err(|e| e.to_string())?;
+    let mut buf = String::new();
+    loop {
+        buf.clear();
+        if reader.read_line(&mut buf).map_err(|e| e.to_string())? == 0 {
+            break;
+        }
         line_no += 1;
         if line_no < offset {
             continue;
         }
         if shown >= limit || total_bytes >= MAX_OUTPUT_BYTES {
-            out.push_str(&format!(
-                "... (truncated at line {line_no}; use offset to continue)\n"
-            ));
+            match count_remaining_lines(&mut reader, count_scan_cap) {
+                Some(rest) => out.push_str(&format!(
+                    "... (truncated at line {line_no} of {}; use offset to continue)\n",
+                    line_no + rest
+                )),
+                None => out.push_str(&format!(
+                    "... (truncated at line {line_no}; use offset to continue)\n"
+                )),
+            }
             break;
         }
-        let rendered = render_line(line_no, &line);
+        // 与 `BufRead::lines` 同口径:只有带 `\n` 时才顺带剥 `\r`。
+        let line = match buf.strip_suffix('\n') {
+            Some(line) => line.strip_suffix('\r').unwrap_or(line),
+            None => buf.as_str(),
+        };
+        let rendered = render_line(line_no, line);
         total_bytes += rendered.len();
         out.push_str(&rendered);
         shown += 1;
@@ -353,6 +388,32 @@ fn read_sync_from(
         ));
     }
     Ok(out)
+}
+
+/// 从 reader 当前位置数到文件尾还剩几行(末行无换行也算一行)。
+/// 只按字节找 `\n`,不做 UTF-8 解码;扫过 `cap` 字节仍未到尾则返回 None。
+fn count_remaining_lines<R: BufRead>(reader: &mut R, cap: u64) -> Option<usize> {
+    let mut lines = 0usize;
+    let mut scanned = 0u64;
+    let mut last_byte = b'\n';
+    loop {
+        let chunk = reader.fill_buf().ok()?;
+        if chunk.is_empty() {
+            break;
+        }
+        let taken = chunk.len();
+        scanned += taken as u64;
+        if scanned > cap {
+            return None;
+        }
+        lines += chunk.iter().filter(|&&b| b == b'\n').count();
+        last_byte = chunk[taken - 1];
+        reader.consume(taken);
+    }
+    if last_byte != b'\n' {
+        lines += 1;
+    }
+    Some(lines)
 }
 
 /// 反向分块 seek:凑够 n+1 个换行或到文件头即停,内存上界 = 收集的字节数。
@@ -560,6 +621,69 @@ mod tests {
         );
         assert!(out.content.len() < 1_000, "offset/limit 结果不应复制整文件");
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// UI-0926 #6:截断标记带总行数,界面才能说「第 1–10 行 · 共 5000 行」。
+    #[tokio::test]
+    async fn truncation_marker_reports_total_lines() {
+        let (dir, ctx) = temp_project();
+        let contents = (1..=5000)
+            .map(|line| format!("row {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(dir.join("big.txt"), contents).unwrap();
+        let out = ReadTool
+            .execute(json!({"path": "big.txt", "limit": 10}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content
+                .ends_with("... (truncated at line 11 of 5000; use offset to continue)\n"),
+            "{}",
+            out.content
+        );
+        // 末行带换行时同样按 5000 计,不多数一行。
+        std::fs::write(dir.join("big-nl.txt"), "a\nb\nc\n").unwrap();
+        let out = ReadTool
+            .execute(json!({"path": "big-nl.txt", "limit": 1}), &ctx)
+            .await;
+        assert!(
+            out.content.contains("truncated at line 2 of 3;"),
+            "{}",
+            out.content
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// 剩余部分超过扫描上限时不给总数,保持原文案(不为数行扫穿超大日志)。
+    #[test]
+    fn truncation_marker_without_total_past_scan_cap() {
+        let text = (1..=100)
+            .map(|line| format!("row {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let out = read_line_range(std::io::Cursor::new(text.as_bytes()), 1, 10, 16).unwrap();
+        assert!(
+            out.ends_with("... (truncated at line 11; use offset to continue)\n"),
+            "{out}"
+        );
+        // CRLF 与 lines() 同口径剥掉,不把 \r 渲进行里。
+        let out =
+            read_line_range(std::io::Cursor::new(b"x\r\ny\r\n".as_slice()), 1, 5, 16).unwrap();
+        assert_eq!(out, "     1\tx\n     2\ty\n");
+    }
+
+    #[test]
+    fn pdf_line_window_reports_total_lines() {
+        let text = (1..=30)
+            .map(|line| format!("pdf line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let out = render_pdf_lines(&text, 1, 5).unwrap();
+        assert!(
+            out.ends_with("... (truncated at line 6 of 30; use offset to continue)\n"),
+            "{out}"
+        );
     }
 
     #[tokio::test]

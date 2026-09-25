@@ -5,6 +5,9 @@ import { $, activePane, promptBox, agentRoleAccent, appendToPane, messages, trim
 import { t } from "./02-i18n.js";
 import { attachments, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
 import { renderMarkdown } from "./04-markdown.js";
+import { parseJsonish, stripToolOutcome } from "./04-structured-parse.js";
+import { flushLazy, lazyMount, renderErrorDetail, renderToolArgs, renderToolResult } from "./04-structured.js";
+import { renderToolSummary, toolArgSummary, toolResultSummary, withToolDuration } from "./05-tool-summary.js";
 import { liveSet } from "./06-activity.js";
 import { sendText } from "./08-compose-runtime.js";
 import { loadEarlierMessages } from "./15-views-misc.js";
@@ -154,9 +157,10 @@ export function addErrorMessage(message, { retryable = false } = {}) {
   level.textContent = t(levelKey);
   // R-140 批1:记录级别 key,语言切换时由渲染点重算(同 copy-btn)。
   level.dataset.i18nKey = levelKey;
-  const text = document.createElement("div");
-  text.textContent = message;
-  body.append(level, text);
+  // UI-0926 #10:provider 的 HTTP 错误体/错误链拆成人话消息 + chips + 原因链,原文留在
+  // dataset.raw(复制走原文)。
+  body.append(level, renderErrorDetail(message));
+  el.dataset.raw = String(message ?? "");
   if (retryable && lastRequest) {
     const actions = el.querySelector(".msg-actions");
     const retry = document.createElement("button");
@@ -338,63 +342,15 @@ export function toolIconNode(name) {
 }
 
 /// 工具调用的人类摘要:取该工具最有信息量的那个参数,而不是整坨 JSON。
+/// 真源是 05-tool-summary.js 的 toolArgSummary(路径相对化、长正则/长命令智能截断);
+/// 这里保留旧名供活动面板/事件日志调用。
 export function toolCallSummary(name, input) {
-  const source = input && typeof input === "object" ? input : {};
-  const pick = (...keys) => {
-    for (const key of keys) {
-      const value = source[key];
-      if (typeof value === "string" && value.trim()) return value.trim();
-      if (typeof value === "number") return String(value);
-    }
-    return "";
-  };
-  let arg;
-  switch (name) {
-    case "read": case "write": case "edit": arg = pick("path", "file_path", "file"); break;
-    case "bash": case "process": arg = pick("command", "action"); break;
-    case "grep": arg = pick("pattern"); break;
-    case "glob": arg = pick("pattern", "path"); break;
-    case "task": arg = pick("prompt"); break;
-    case "memory_search": arg = pick("query"); break;
-    case "memory_note": arg = pick("summary"); break;
-    case "webfetch": arg = pick("url"); break;
-    case "question": arg = pick("question"); break;
-    case "req": case "defect": case "idea": case "decision": case "memory": case "source": case "finding":
-      arg = [pick("action"), pick("id", "title")].filter(Boolean).join(" ");
-      break;
-    default:
-      arg = pick("path", "command", "query", "pattern", "url", "id", "title", "action", "summary");
-  }
-  arg = String(arg).replace(/\s+/g, " ").trim();
-  return arg.length > 76 ? `${arg.slice(0, 75)}…` : arg;
+  return toolArgSummary(name, input).text;
 }
 
-/// ⎿ 行的字数预算。摘要在这里切断,剩余原文从同一个位置接着给——
-/// 一个字要么在摘要里、要么在详情里,不会两边都有。
-export const TOOL_PREVIEW_MAX = 110;
-
-/// 把工具结果切成互不重叠的两段:
-/// - `text`:⎿ 行的摘要,取第一行有信息量的内容(bash 的 "exit code: 0" 独占首行时顺延到下一行),
-///   超过预算就截断;
-/// - `rest`:摘要没覆盖到的剩余原文(被顺延跳过的行、被截断的首行尾巴、以及后续所有行)。
-/// 从"取摘要"改成"切两段",是因为原先摘要与详情各自独立地从同一份 content 取一遍,
-/// 详情那边靠 `full !== preview` 去重——只挡得住单行短结果,首行超长或多行一律双写。
-export function toolResultSplit(content, isError) {
-  const lines = String(content ?? "").split("\n");
-  const informative = (line) => line.trim() && !/^exit code:\s*0$/i.test(line.trim());
-  let idx = lines.findIndex(informative);
-  // 全篇只有 "exit code: 0" 时仍然显示它,别把唯一的结果吞成"完成"。
-  if (idx < 0) idx = lines.findIndex((line) => line.trim());
-  if (idx < 0) return { text: isError ? t("失败") : t("完成"), rest: "" };
-  const head = lines[idx].trim();
-  const cut = head.length > TOOL_PREVIEW_MAX;
-  const text = cut ? `${head.slice(0, TOOL_PREVIEW_MAX - 1)}…` : head;
-  // 被顺延跳过的行没在 ⎿ 露过面,归入剩余部分而不是丢掉;首行被截时把没显示完的尾巴接上,
-  // 前置的 … 与 ⎿ 行结尾的 … 呼应,读起来是明确的续接关系。
-  const skipped = lines.slice(0, idx).filter((line) => line.trim());
-  const tail = cut ? [`…${head.slice(TOOL_PREVIEW_MAX - 1)}`] : [];
-  return { text, rest: [...skipped, ...tail, ...lines.slice(idx + 1)].join("\n") };
-}
+// 失败行的互斥切分(toolResultSplit)与 ⎿ 行预算搬进了 05-tool-summary.js(摘要器唯一真源),
+// 这里原名转出,旧调用方与冒烟不必改。
+export { TOOL_PREVIEW_MAX, toolResultSplit } from "./05-tool-summary.js";
 
 export function displayNeedsActivityNotice(display) {
   if (!display) return false;
@@ -442,8 +398,13 @@ export function buildToolBlock(name, input) {
   label.textContent = name;
   const arg = document.createElement("span");
   arg.className = "tool-msg-arg";
-  const summary = toolCallSummary(name, input);
+  // 参数列:路径/命令/正则这类代码记号标 is-code 用等宽,自然语言(问题、标题)用比例字体;
+  // 悬浮看清洗后的完整值。
+  const argSummary = toolArgSummary(name, input);
+  const summary = argSummary.text;
   arg.textContent = summary ? `(${summary})` : "";
+  if (argSummary.code) arg.classList.add("is-code");
+  if (argSummary.title) arg.title = argSummary.title;
   // 类型图标与成败字形**并存**:.tool-msg-status 承载的是「形状 + 颜色双重区分」的
   // 无障碍承诺(D-105),不能被类型图标顶掉。成败在前,类型在后,再是工具名。
   const result = document.createElement("span");
@@ -455,11 +416,17 @@ export function buildToolBlock(name, input) {
   detail.className = "tool-msg-detail hidden";
   head.addEventListener("click", () => {
     if (!detail.children.length) return;
+    // 结构化结果(JSON 树等)延迟到首次展开才构建。
+    flushLazy(detail);
     const open = detail.classList.toggle("hidden");
     head.setAttribute("aria-expanded", String(!open));
   });
   wrap.append(head, detail);
-  return { wrap, head, icon, result, detail };
+  // name/input 随块走:收尾时按工具摘要(实时 tool-end 不再带入参)。
+  const block = { wrap, head, icon, result, detail, name, input };
+  // 历史回放补耗时要从 DOM 找回块(applyRecoveredToolDurations)。
+  wrap._kzToolBlock = block;
+  return block;
 }
 
 /// 收尾:状态图标 + 结果摘要行 + 折叠详情(摘要之外的剩余输出 + 完整入参)。
@@ -475,7 +442,12 @@ export function toolOutcomeView(ok, outcome) {
     : { state, cls: "err", icon: "✗" };
 }
 
-export function fillToolBlock(block, { ok, outcome, content, display, input }) {
+/// ctx = {ok, outcome, code, content, preview, contentTruncated, contentBytes, display, input, durationMs}。
+/// 实时路径给 content(与历史同源的正文)+ preview,历史回放只给 content(带 outcome 机器头);
+/// 旧后端只有 preview 时摘要器走降级口径。正文只在这一次调用里用,**不挂到块或 DOM 上**
+/// (200 个块 × 256 KiB 会把内存吃到 50 MB)。
+export function fillToolBlock(block, { ok, outcome, code, content, preview, contentTruncated, contentBytes, display, input, durationMs } = {}) {
+  input ??= block.input ?? undefined;
   // 历史 ToolResult 保存模型内容；从稳定结果码恢复和实时事件相同的等待视图。
   if (!display && String(content).startsWith("[tool_outcome=needs_confirmation code=QUESTION_PENDING]\n")) {
     try {
@@ -483,25 +455,59 @@ export function fillToolBlock(block, { ok, outcome, content, display, input }) {
       if (pending.kind === "pending_question") { display = pending; outcome = "needs_confirmation"; }
     } catch { /* 损坏历史仍以原始输出展示。 */ }
   }
-  const view = toolOutcomeView(ok, outcome);
+  // ⎿ 行 = 按工具的人话摘要(05-tool-summary.js,实时与历史同一个摘要器);失败行仍是
+  // 摘要 + 剩余互斥切分。历史正文的 [tool_outcome=…] 头在摘要器里剥掉并恢复终态。
+  const summary = toolResultSummary(block.name, {
+    ok, outcome, code, content, preview, contentTruncated, contentBytes, display, input, durationMs,
+  });
+  // 历史没有 display:从配额截断标记合成与实时相同的 display,提示块与 ⎿ 人话一致。
+  if (!display && summary.storage?.kind === "truncated") {
+    const { reason, bytes, storage_used_bytes, quota_bytes } = summary.storage;
+    display = { kind: "truncated", reason, bytes, storage_used_bytes, quota_bytes };
+  }
+  const view = toolOutcomeView(ok, outcome || summary.outcome);
   block.wrap.classList.remove("running");
   block.wrap.classList.add(view.cls);
   block.wrap.dataset.toolOutcome = view.state;
   // 形状与颜色双重区分:只靠颜色对色盲不可辨(D-105 无障碍口径)。
   block.icon.textContent = view.icon;
-  const { text: summary, rest } = toolResultSplit(content, !ok);
-  block.result.textContent = `⎿ ${summary}`;
+  block.wrap.dataset.toolSummary = summary.key;
+  renderToolSummary(block.result, summary);
+  block.result.classList.toggle("tool-sum-warn", summary.tone === "warn");
+  // 只留补耗时要用的摘要骨架(短字符串),不留正文。
+  block.summaryBase = Number(durationMs) >= 1000 ? null : { groups: summary.groups, durAt: summary.durAt, text: summary.text, title: summary.title };
+  let rest = summary.rest;
   // 截断时 ⎿ 行原本是 [tool_result_truncated …] 机器标记;换成按原因区分的人话,
   // 已用/配额、原因与处理建议见展开区提示块。
   const quota = quotaTruncation(display);
+  // UI-0926 #10:JSON 结果(tracker/work/websearch…)的展开区是结构化视图,不再贴整坨 JSON
+  // 原文。值直接从正文解析(后端不另发 json display);超过 64 KiB、被截断或非成功的正文
+  // 不解析,照旧给原文。
+  const body = typeof content === "string" ? stripToolOutcome(content).body : "";
+  const jsonValue = !quota && !contentTruncated && body.length <= 65536 && summary.outcome === "success" ? parseJsonish(body) : null;
+  if (jsonValue && typeof jsonValue === "object") rest = "";
+  // 局部校验:display 带结构化结果时由 chips 渲染(appendDisplayBlock),正文里同一份
+  // 「局部校验明细」文本不再重复。
+  if (display?.local_validation && rest) rest = rest.replace(/\n?局部校验明细:[\s\S]*$/, "");
   if (quota) {
     block.result.textContent = `⎿ ⚠ ${quotaNoticeHeadline(quota)}`;
+    block.summaryBase = null;
     block.result.classList.add("quota-truncated");
   }
   block.result.classList.remove("hidden");
+  // 稳定错误码(EDIT_ANCHOR_NOT_FOUND 等)是定位问题的抓手:需要修正/确认/失败时放在展开区首部。
+  if (summary.code && !["success", "noop"].includes(view.state) && display?.kind !== "pending_question") {
+    const chip = document.createElement("span");
+    chip.className = "sv-chip sv-code";
+    chip.textContent = summary.code;
+    chip.title = t("错误码");
+    block.detail.appendChild(chip);
+  }
   appendDisplayBlock(block.detail, display, { compact: true });
+  if (jsonValue && typeof jsonValue === "object") lazyMount(block.detail, () => renderToolResult(block.name, jsonValue));
   if (display?.kind === "pending_question" && typeof display.question === "string") {
     block.icon.textContent = "⏸";
+    block.summaryBase = null;
     block.result.textContent = `${t("待用户回答")}: ${display.question}`;
     const reply = document.createElement("button");
     reply.type = "button";
@@ -519,22 +525,24 @@ export function fillToolBlock(block, { ok, outcome, content, display, input }) {
   }
 
   if (displayNeedsActivityNotice(display)) appendActivityNotice(block.detail);
-  // 详情只放摘要没覆盖到的部分:`rest` 非空本身就是"还有没显示完的内容"这个判据,
-  // 单行短结果照旧不出框(不给"展开了还是那一行"的假承诺),多行/长首行也不再重复正文。
-  // 截断时 ⎿ 行已换成人话,`rest` 只剩机器标记的孤立尾巴,内容由终端/预览块与提示块承载。
-  if (rest.trim() && !quota) {
+  // 详情里的原文:失败行放摘要没覆盖到的剩余(一个字只出现一次);成功多行放完整原文
+  // (⎿ 行已是人话,不再是原文的一段);单行短结果照旧不出框(不给"展开了还是那一行"
+  // 的假承诺)。截断时 ⎿ 行已换成人话,`rest` 只剩机器标记的孤立尾巴,内容由终端/预览块
+  // 与提示块承载;终端块本身就是完整输出,不再贴第二份。
+  const terminalShown = display?.kind === "terminal" && Boolean(display.full ?? display.output);
+  if (rest.trim() && !quota && !terminalShown) {
     const pre = document.createElement("pre");
     pre.className = "tool-msg-raw";
     pre.textContent = rest.length > 8000 ? `${rest.slice(0, 8000)}\n…(${t("已截断")})` : rest;
     block.detail.appendChild(pre);
   }
-  if (input && Object.keys(input).length) {
-    const pre = document.createElement("pre");
-    pre.className = "tool-msg-raw args";
-    pre.textContent = JSON.stringify(input, null, 2);
-    block.detail.appendChild(pre);
-  }
+  // 完整入参:键值表(路径成 chip、命令成代码块、多行说明折叠),原始 JSON 在 dataset.raw。
+  const args = renderToolArgs(block.name, input, { display, className: "tool-msg-raw args" });
+  if (args) block.detail.appendChild(args);
   if (block.detail.children.length) block.wrap.classList.add("has-detail");
+  // 入参已渲染进展开区;块经 wrap._kzToolBlock 与 DOM 同寿命,收尾后不再留一份原始入参
+  // (补耗时只用 summaryBase)。
+  block.input = null;
 }
 
 export const chatToolBlocks = new Map();
@@ -602,8 +610,10 @@ export function chatToolStart(id, name, summary, input) {
   // 因而后续同 id 的 ToolEnd 不会覆写上一轮已结束的块。
   if (!id || (existing && !existing.finished)) return;
   clearEmptyState();
-  // 实时路径拿不到结构化 input(事件里只有 summary 文本),退化为把 summary 当参数展示。
+  // 事件不带结构化 input 时(旧后端/编排补发)退化为把 summary 当参数展示;但这份
+  // 替身不能当入参存下——否则收尾时会被当成「完整入参」贴进展开区。
   const block = buildToolBlock(name, input ?? { command: summary });
+  block.input = input ?? null;
   block.finished = false;
   if (name === "task") {
     // task 工具的 id 就是角色名(编排派发)或调用 id(模型自派);折叠组按它归并,
@@ -621,15 +631,40 @@ export function chatToolStart(id, name, summary, input) {
   }
   scrollBottom();
 }
-export function chatToolEnd(id, ok, preview, display, outcome) {
+/// extra = {content, contentTruncated, contentBytes, code, durationMs}(UI-0926 起 kz:tool-end 携带)。
+/// content 是与历史同源的结果正文(≤256 KiB),摘要器据此按工具解析,实时与历史显示一致;
+/// 旧后端没有 content 时摘要器只拿到 preview(首行 120 字 + " (+N lines)"),走降级口径。
+export function chatToolEnd(id, ok, preview, display, outcome, extra = {}) {
   const block = chatToolBlocks.get(id);
   if (!block) return;
   block.finished = true;
-  // 注意语义:实时事件里的 preview 是后端 runner::preview 的单行摘要(首行 120 字 +
-  // " (+N lines)"),不是完整输出。展开区因此只会拿到这一行的尾巴——这是事实,别为了
-  // "聊天里也想看全输出"再往 detail 里塞一份 preview,那正是双写的来路。完整输出看
-  // 活动面板的 terminal display(走 display.full)或历史回放。
-  fillToolBlock(block, { ok, outcome, content: preview, display });
+  fillToolBlock(block, { ok, outcome, preview, display, input: block.input ?? undefined, ...extra });
+}
+
+/// 历史回放:工具块先按正文渲染,轨迹(conversation_trace_get)里的耗时后到。按
+/// tool.completed 的 durationMs(≥1s)给对应块补上「· 12.3s」——只用块上留的摘要骨架
+/// 重排 ⎿ 行,不重新解析正文(正文不在块上)。
+export function applyRecoveredToolDurations(traces, pane = activePane) {
+  if (!pane) return 0;
+  const blocks = new Map();
+  for (const el of pane.querySelectorAll(".tool-msg")) {
+    const id = el.dataset?.toolCallId;
+    if (id && el._kzToolBlock) blocks.set(id, el._kzToolBlock);
+  }
+  if (!blocks.size) return 0;
+  let applied = 0;
+  for (const payload of traces || []) {
+    for (const event of payload?.events || []) {
+      if (event?.kind !== "tool.completed" || !(Number(event.durationMs) >= 1000)) continue;
+      const block = blocks.get(event.id);
+      if (!block?.summaryBase || block.result.classList.contains("quota-truncated")) continue;
+      const timed = withToolDuration(block.summaryBase, event.durationMs);
+      renderToolSummary(block.result, timed);
+      block.summaryBase = null;
+      applied += 1;
+    }
+  }
+  return applied;
 }
 
 export let currentReasoningHead = null;

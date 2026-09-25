@@ -53,6 +53,7 @@ const I18N_EN = {
   "提交中…": "Submitting…",
   "答案已提交": "Answer submitted",
   "问题已取消": "Question cancelled",
+  "工作目录": "Working directory",
 };
 
 function uiLanguage() {
@@ -268,13 +269,43 @@ function reconcileApprovalCards(device, container, pending) {
   setApprovalStatus(container, pending.length === 0 ? t("当前无待批准请求") : "");
 }
 
+// UI-0926 #10:bash 的权限资源是 `{"command","workdir"}` JSON。PWA 与桌面端 ui/ 是不同的
+// 服务根(mobile.rs 只 serve mobile-pwa/),不能共享 04-structured-parse.js,这里是同一
+// 判据的本地小实现:能解析出 command 就拆成「动作 + 命令块 + 工作目录」,否则原样。
+function describeAskResource(ask) {
+  const raw = String(ask.resource ?? "");
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const value = JSON.parse(trimmed);
+      if (value && typeof value.command === "string") {
+        return { command: value.command, workdir: typeof value.workdir === "string" ? value.workdir : "" };
+      }
+    } catch {
+      // 不是合法 JSON:按原文显示。
+    }
+  }
+  return { text: raw };
+}
+
+function permissionDescHtml(ask) {
+  const resource = describeAskResource(ask);
+  if (resource.command === undefined) {
+    return `<p class="approval-desc">${escapeHtml(`${ask.action}: ${resource.text}`)}</p>`;
+  }
+  const workdir = resource.workdir
+    ? `<p class="muted approval-workdir">${escapeHtml(t("工作目录"))}: ${escapeHtml(resource.workdir)}</p>`
+    : "";
+  return `<div class="approval-desc"><span class="approval-action">${escapeHtml(ask.action)}</span>`
+    + `<pre class="approval-cmd">${escapeHtml(resource.command)}</pre></div>${workdir}`;
+}
+
 function renderPermissionCard(device, ask) {
   const card = document.createElement("div");
   card.className = "card approval";
   card.dataset.askId = String(ask.id);
-  const desc = `${ask.action}: ${ask.resource}`;
   card.innerHTML = `
-    <p class="approval-desc">${escapeHtml(desc)}</p>
+    ${permissionDescHtml(ask)}
     <p class="muted">${escapeHtml(ask.session_id || "")} · ${t("请求")} #${ask.id}</p>
     <div class="approval-actions">
       <button class="approve" data-id="${ask.id}">${t("批准")}</button>

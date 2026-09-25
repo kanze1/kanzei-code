@@ -1,6 +1,8 @@
 import { defer } from "./01-core.js";
 import { $, invoke } from "./01-core.js";
 import { t } from "./02-i18n.js";
+import { renderMarkdown } from "./04-markdown.js";
+import { resolveRelativePath } from "./04-structured-parse.js";
 import { currentProject, toastError } from "./03-shell.js";
 import { openDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
 
@@ -111,9 +113,14 @@ export function renderArch(snap) {
     tree.appendChild(empty);
   }
 
-  // 索引原文:右侧固定区展示,只读。
+  // 索引:右侧固定区按 markdown 渲染(标题/列表/表格/路径链接可点),只读。
   const body = $("arch-index-body");
-  body.textContent = snap.index ?? "";
+  body.innerHTML = renderMarkdown(snap.index ?? "");
+  // 索引里的链接相对 README 所在目录(`../../../docs/design/x.md`):解析成项目相对路径,
+  // 点击才能落到真实文件(a.md-path 的点击委托在 19-research.js)。
+  for (const link of body.querySelectorAll?.("a.md-path") ?? []) {
+    link.dataset.path = resolveRelativePath(".kanzei/project/architecture", link.dataset.path);
+  }
   body.scrollTop = 0;
 }
 

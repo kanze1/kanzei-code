@@ -782,7 +782,7 @@
                   <button id="arch-refresh" class="icon-btn" title="重新扫描" data-i18n-title="重新扫描" aria-label="重新扫描架构索引" data-i18n-aria-label="重新扫描架构索引">⟳</button>
                 </span>
               </div>
-              <pre id="arch-index-body"></pre>
+              <div id="arch-index-body" class="md sv-md" data-i18n-raw></div>
             </div>
           </div>
         </div>
@@ -816,7 +816,7 @@
 
           <details class="settings-group" open>
             <summary data-i18n-key="模型配置">模型配置</summary>
-          <p id="settings-effective" class="settings-effective hidden" role="status"></p>
+          <div id="settings-effective" class="settings-effective hidden" role="status"></div>
           <div class="form-row">
             <label><span data-i18n-key="保存到">保存到</span> <span class="dim" id="settings-scope-hint"></span></label>
             <select id="set-save-scope" title="作用域选择器只覆盖模型配置;Provider 与 API Key 始终写全局配置" data-i18n-title="作用域选择器只覆盖模型配置;Provider 与 API Key 始终写全局配置">
@@ -1234,8 +1234,8 @@
       <div class="ask-body">
         <div id="permission-fields">
           <div class="ask-line"><span class="dim" data-i18n-key="操作">操作</span><code id="ask-action" data-i18n-raw></code></div>
-          <div class="ask-line"><span class="dim" data-i18n-key="资源">资源</span><code id="ask-resource" data-i18n-raw></code></div>
-          <div class="ask-line"><span class="dim" data-i18n-key="记住为">记住为</span><code id="ask-remember" data-i18n-raw></code></div>
+          <div class="ask-line"><span class="dim" data-i18n-key="资源">资源</span><div id="ask-resource" class="ask-value" data-i18n-raw></div></div>
+          <div class="ask-line"><span class="dim" data-i18n-key="记住为">记住为</span><div id="ask-remember" class="ask-value" data-i18n-raw></div></div>
         </div>
         <div id="question-fields" class="hidden">
           <div id="ask-question" data-i18n-raw></div>
@@ -1314,6 +1314,8 @@
   <script type="module" src="03-workspaces.js"></script>
   <script type="module" src="04-markdown.js"></script>
   <!-- 分区脚本:工具行与结构化渲染 -->
+  <script type="module" src="04-structured-parse.js"></script>
+  <script type="module" src="04-structured.js"></script>
   <script type="module" src="05-chat-render.js"></script>
   <!-- 分区脚本:子代理 -->
   <script type="module" src="06-activity.js"></script>

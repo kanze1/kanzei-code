@@ -5,6 +5,7 @@ import { t } from "./02-i18n.js";
 import { currentProject, toast, toastError } from "./03-shell.js";
 import { latestDocsSnapshot } from "./12-docs-pages.js";
 import { neuralFlowEmit } from "./22-neural-flow.js";
+import { richText } from "./04-structured.js";
 
 // ---------- 记忆页(R-107/R-332):管理工作区 + 透明化诊断 ----------
 export let memorySelection = { scope: "project", category: "all" };
@@ -578,9 +579,10 @@ export function renderMemoryCandidates(list) {
     head.innerHTML =
       `<span class="memory-candidate-hint">${escapeHtml(item.hint || "note")}</span>` +
       `<span class="memory-candidate-summary">${escapeHtml(item.summary || "")}</span>`;
-    const detail = document.createElement("pre");
-    detail.className = "memory-candidate-detail dim";
-    detail.textContent = item.detail || "";
+    // UI-0926 #10:候选正文是 markdown(列表/代码/路径),按 markdown 渲染而不是原文堆字。
+    const detail = document.createElement("div");
+    detail.className = "memory-candidate-detail dim md sv-md";
+    detail.innerHTML = renderMarkdown(item.detail || "");
     const actions = document.createElement("div");
     actions.className = "memory-candidate-actions";
     const adopt = document.createElement("button");
@@ -911,8 +913,12 @@ export function showMemoryDetail(scope, entry, { reveal = true } = {}) {
   heading.append(headingTitle, close);
   const meta = document.createElement("div");
   meta.className = "memory-detail-meta";
-  const refsText = (entry.refs && entry.refs.length) ? ` · ${t("引用来源")} ${entry.refs.join(" ")}` : "";
-  meta.textContent = `${entry.id} · ${entry.scope || scope} / ${entry.category || ""} · ${entry.status} · ${t("来源")} ${entry.source || t("未知")}${refsText}`;
+  // 来源与引用里的条目编号/路径做成可点 chip(R-/D- 跳条目,路径开文件)。
+  meta.replaceChildren(
+    document.createTextNode(`${entry.id} · ${entry.scope || scope} / ${entry.category || ""} · ${entry.status} · ${t("来源")} `),
+    richText(entry.source || t("未知")),
+  );
+  if (entry.refs && entry.refs.length) meta.append(document.createTextNode(` · ${t("引用来源")} `), richText(entry.refs.join(" ")));
   const profile = document.createElement("p");
   profile.className = "dim memory-profile";
   const lastHit = entry.last_hit_at ? new Date(entry.last_hit_at).toLocaleString() : t("从未命中");

@@ -684,16 +684,7 @@ pub(crate) async fn execute_prepared_tools(
                     while let Ok((pid, chunk)) = progress_rx.try_recv() {
                         on_event(RunEvent::ToolProgress { id: pid, chunk });
                     }
-                    on_event(RunEvent::ToolEnd {
-                        id: id.clone(),
-                        name,
-                        ok: !output.is_error,
-                        outcome: output.outcome.as_str().into(),
-                        code: output.code.map(str::to_owned),
-                        preview: preview(&output.content),
-                        display: output.display.clone(),
-                        artifact: output.artifact.clone(),
-                    });
+                    on_event(RunEvent::tool_end(id.clone(), name, &output));
                     let mut model_content = output.model_content();
                     let (images, dropped_note) =
                         tool_images_to_parts(&output, images_supported);
@@ -821,9 +812,17 @@ mod tests {
         ];
         let ctx = ToolCtx::new(std::env::temp_dir(), std::env::temp_dir());
         let mut completed = Vec::new();
+        let mut contents = Vec::new();
         let mut on_event = |event| {
-            if let RunEvent::ToolEnd { id, .. } = event {
+            if let RunEvent::ToolEnd {
+                id,
+                content,
+                content_bytes,
+                ..
+            } = event
+            {
                 completed.push(id);
+                contents.push((content, content_bytes));
             }
         };
         let results = execute_prepared_tools(
@@ -840,6 +839,11 @@ mod tests {
             "只读调用没有重叠执行"
         );
         assert_eq!(completed, vec!["call_fast_fail", "call_slow"]);
+        // UI-0926 #6:ToolEnd 带与历史同源的正文(不含 outcome 机器头)。
+        assert_eq!(
+            contents,
+            vec![("fast failed".to_string(), 11), ("slow ok".to_string(), 7)]
+        );
         assert!(matches!(
             &results[0].1,
             Part::ToolResult { call_id, is_error: false, content } if call_id == "call_slow" && content.contains("slow ok")
@@ -1397,6 +1401,21 @@ mod tests {
         assert!(artifact.retrieval_hint.contains(&artifact.relative_path));
         assert_eq!(output.display.as_ref().unwrap()["kind"], "artifact");
         assert!(output.display.as_ref().unwrap().get("full").is_none());
+        // UI-0926 #6:外置后发给 UI 的正文是外置标记文本,不是 1 MB 原文。
+        let RunEvent::ToolEnd {
+            content,
+            content_bytes,
+            ..
+        } = RunEvent::tool_end("c1".into(), "git".into(), &output)
+        else {
+            panic!("tool_end 必须构造 ToolEnd");
+        };
+        assert!(
+            content.starts_with("[tool_result_externalized"),
+            "{content}"
+        );
+        assert_eq!(content, output.content);
+        assert_eq!(content_bytes, output.content.len());
         let _ = std::fs::remove_dir_all(root);
     }
 
