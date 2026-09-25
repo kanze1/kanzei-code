@@ -3,7 +3,8 @@
 use super::{prompt_attachment_parts, with_session_id, PromptAttachment};
 // R-153 批10:会话恢复相关已迁到 conversation 模块。
 use crate::conversation::{
-    conversation_prior, recover_messages_at, recover_messages_raw, reset_auto_run_state,
+    clear_conversation, conversation_prior, recover_messages_at, recover_messages_raw,
+    reset_auto_run_state,
 };
 use crate::AppState;
 use std::collections::HashMap;
@@ -122,6 +123,48 @@ fn 新对话在从未鞭挞过的会话上安全跳过() {
         controllers.get("ses_never_ran").map(|c| c.state.rounds),
         Some(0)
     );
+}
+
+/// UI-0926 #2:运行中的会话不能在 runner 脚下开新段——runner 握着旧段 prior,
+/// 轮末写回会把整轮落进新段。拒绝时不得写 conversation.reset;停下后照常开新段。
+#[test]
+fn 新对话在运行中的会话上拒绝开新段且不写reset() {
+    use std::sync::atomic::Ordering;
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-app-clear-running-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    // 建好 .kanzei 让取根就停在这里,不向上发现到别的项目。
+    std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+    let state = AppState::default();
+    let project_dir = root.display().to_string();
+    let project_root = crate::normalized_project_root(&root);
+    let session_id = crate::process_session_id(&project_root, None);
+    let running = crate::runtime_for(&state, &session_id).running.clone();
+    let resets = || {
+        let store =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))
+                .unwrap();
+        store
+            .list_events_by_type(&session_id, 0, "conversation.reset")
+            .unwrap()
+            .len()
+    };
+
+    running.store(true, Ordering::SeqCst);
+    let err = clear_conversation(&state, &project_dir, None).unwrap_err();
+    assert!(err.contains("运行中"), "拒绝理由应说明会话运行中:{err}");
+    assert_eq!(resets(), 0, "运行中被拒绝时不得写 conversation.reset");
+
+    running.store(false, Ordering::SeqCst);
+    clear_conversation(&state, &project_dir, None).expect("空闲会话应能开新段");
+    assert_eq!(resets(), 1, "空闲时开新段应恰好写一条 conversation.reset");
+
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]

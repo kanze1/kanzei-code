@@ -1,6 +1,7 @@
 //! 对话历史命令与会话快照访问。
 
 use std::path::Path;
+use std::sync::atomic::Ordering;
 
 use serde_json::json;
 use tauri::State;
@@ -13,8 +14,27 @@ pub(crate) fn conversation_clear(
     project_dir: String,
     process_id: Option<String>,
 ) -> Result<(), String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    let session_id = process_session_id(&root, process_id.as_deref());
+    clear_conversation(&state, &project_dir, process_id.as_deref())
+}
+
+/// 「新对话」的内核:给该线开一个新段(conversation.reset)。
+///
+/// 运行中的会话一律拒绝。runner 手里握着的是旧段的 prior,轮末写回会把整轮对话
+/// 落进刚开的新段——新对话名存实亡,旧段也缺了这一轮。前端遇到忙碌线会另开一条
+/// 线路,这里是它漏判时(kz:turn 还没到)的兜底。持 lifecycle 锁判定,与
+/// run_prompt 的「置 running」互斥:不会出现判定为空闲、写 reset 的同时一轮刚开跑。
+pub(crate) fn clear_conversation(
+    state: &AppState,
+    project_dir: &str,
+    process_id: Option<&str>,
+) -> Result<(), String> {
+    let root = normalized_project_root(Path::new(project_dir));
+    let session_id = process_session_id(&root, process_id);
+    let runtime = runtime_for(state, &session_id);
+    let _lifecycle = runtime.lifecycle.lock().unwrap();
+    if runtime.running.load(Ordering::SeqCst) {
+        return Err("会话运行中,不能在它脚下开新段;请在新线路开启新对话".into());
+    }
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
     store
@@ -30,12 +50,12 @@ pub(crate) fn conversation_clear(
             &json!({ "cleared": true }),
         )
         .map_err(|e| e.to_string())?;
-    runtime_for(&state, &session_id)
+    runtime
         .conversation
         .lock()
         .unwrap()
         .insert(session_id.clone(), Vec::new());
-    reset_auto_run_state(&state, &session_id);
+    reset_auto_run_state(state, &session_id);
     Ok(())
 }
 
