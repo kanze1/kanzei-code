@@ -84,15 +84,27 @@ fn recover_cli_legacy_segment(
     Ok(serde_json::from_value(messages)?)
 }
 
+/// `kz run --new`:开一个新段,只追加 `conversation.reset`,什么都不删。
+///
+/// CLI 与桌面主线共用同一个 session(D-176)。这里原先先 `clear_conversation` 硬删该会话
+/// 全部 `conversation.updated`:自举 Agent 在主仓每跑一次 `kz run --new`,桌面主线的
+/// legacy 历史快照就被静默抹掉,已有 seed 的回读也跟着变空。而 prior 恢复本来就按 reset
+/// 截断([`recover_cli_prior`]),硬删是多余的破坏。
+fn begin_new_segment(store: &kanzei_core::SessionStore, session_id: &str) -> anyhow::Result<()> {
+    store.append_event(
+        session_id,
+        "conversation.reset",
+        &serde_json::json!({ "cleared": true, "source": "cli" }),
+    )?;
+    Ok(())
+}
+
 fn recover_cli_prior(
     store: &kanzei_core::SessionStore,
     session_id: &str,
 ) -> anyhow::Result<Vec<kanzei_llm::Message>> {
-    let boundary = store
-        .list_events_by_type(session_id, 0, "conversation.reset")?
-        .into_iter()
-        .map(|event| event.sequence)
-        .next_back();
+    // 当前对话的地板:最后一个 reset,或桌面端最后一次「删掉当前段」(与桌面 prior 同口径)。
+    let boundary = store.conversation_floor(session_id)?;
     if !cli_projection_gate_enabled("runner_prior") {
         return Ok(kanzei_core::filter_message_history(
             &recover_cli_legacy_segment(store, session_id, boundary)?,
@@ -232,12 +244,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let store = kanzei_core::SessionStore::open(&state_path)?;
     store.create_session(&session_id, &ctx.project_root.display().to_string(), None)?;
     if new_session {
-        let cleared = store.clear_conversation(&session_id)?;
-        store.append_event(
-            &session_id,
-            "conversation.reset",
-            &serde_json::json!({ "cleared": cleared }),
-        )?;
+        begin_new_segment(&store, &session_id)?;
     }
     let input_id = format!(
         "input_{}",
@@ -415,7 +422,41 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_cli_input;
+    use super::{begin_new_segment, recover_cli_prior, resolve_cli_input};
+
+    #[test]
+    fn begin_new_segment只加reset不删快照() {
+        let store = kanzei_core::SessionStore::open_in_memory().unwrap();
+        store.create_session("ses_cli", "C:/project", None).unwrap();
+        store
+            .append_event(
+                "ses_cli",
+                "conversation.updated",
+                &serde_json::json!({ "messages": [kanzei_llm::Message::user_text("桌面主线旧历史")] }),
+            )
+            .unwrap();
+        assert_eq!(recover_cli_prior(&store, "ses_cli").unwrap().len(), 1);
+
+        begin_new_segment(&store, "ses_cli").unwrap();
+
+        assert_eq!(
+            store
+                .list_events_by_type("ses_cli", 0, "conversation.updated")
+                .unwrap()
+                .len(),
+            1,
+            "--new 不得硬删桌面主线共用会话的 legacy 快照"
+        );
+        let resets = store
+            .list_events_by_type("ses_cli", 0, "conversation.reset")
+            .unwrap();
+        assert_eq!(resets.len(), 1);
+        assert_eq!(resets[0].payload["source"], "cli");
+        assert!(
+            recover_cli_prior(&store, "ses_cli").unwrap().is_empty(),
+            "新段 prior 仍按 reset 截断为空"
+        );
+    }
 
     #[test]
     fn resolve_cli_input_preserves_parsed_flags_and_prompt() {

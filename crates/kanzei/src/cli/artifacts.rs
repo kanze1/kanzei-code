@@ -145,9 +145,10 @@ pub(crate) async fn artifacts_cli(args: &[String]) -> anyhow::Result<()> {
                     plan.event_count, plan.input_count, plan.episode_count
                 );
                 println!(
-                    "recall events: {} | memory sources: {}",
-                    plan.recall_event_count, plan.memory_source_count
+                    "recall events: {} | memory sources: {} | memory recoveries: {}",
+                    plan.recall_event_count, plan.memory_source_count, plan.memory_recovery_count
                 );
+                println!("notifications: {}", plan.notification_count);
                 println!(
                     "target artifacts: {} | deletable artifacts: {}",
                     plan.target_artifacts.len(),
@@ -176,9 +177,12 @@ pub(crate) async fn artifacts_cli(args: &[String]) -> anyhow::Result<()> {
                 result.deleted_events, result.deleted_inputs, result.deleted_episodes
             );
             println!(
-                "recall events: {} | memory sources: {}",
-                result.deleted_recall_events, result.deleted_memory_sources
+                "recall events: {} | memory sources: {} | memory recoveries: {}",
+                result.deleted_recall_events,
+                result.deleted_memory_sources,
+                result.deleted_memory_recoveries
             );
+            println!("notifications: {}", result.deleted_notifications);
             println!("artifacts deleted: {}", result.deleted_artifacts.len());
             for error in &result.artifact_cleanup_errors {
                 println!("artifact cleanup pending: {error}");

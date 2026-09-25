@@ -628,6 +628,19 @@ impl SessionStore {
             params![session_id],
             |row| row.get(0),
         )?;
+        let memory_recovery_count: u64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM memory_recoveries
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        // agent_notifications / delivery_cursors 按 thread_id 归属;桌面与手机线程的
+        // thread_id 就是 session_id。
+        let notification_count: u64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM agent_notifications WHERE thread_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
 
         let session_references = collect_event_references(&self.connection, Some(session_id))?;
         let all_references = collect_event_references(&self.connection, None)?;
@@ -682,6 +695,8 @@ impl SessionStore {
             episode_count,
             recall_event_count,
             memory_source_count,
+            memory_recovery_count,
+            notification_count,
             target_artifacts,
             deletable_artifacts,
             missing_artifacts,
@@ -728,6 +743,14 @@ impl SessionStore {
                  WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
             params![session_id],
         )? as u64;
+        // memory_recoveries.episode_id REFERENCES episodes 且无级联,连接上开着外键:
+        // 漏删它,只要会话有过一次「失败后恢复」证据,删 episodes 就报 FOREIGN KEY
+        // constraint failed,整个事务回滚。
+        let deleted_memory_recoveries = tx.execute(
+            "DELETE FROM memory_recoveries
+                 WHERE episode_id IN (SELECT episode_id FROM episodes WHERE session_id = ?1)",
+            params![session_id],
+        )? as u64;
         let deleted_episodes = tx.execute(
             "DELETE FROM episodes WHERE session_id = ?1",
             params![session_id],
@@ -740,6 +763,14 @@ impl SessionStore {
             "DELETE FROM session_inputs WHERE session_id = ?1",
             params![session_id],
         )? as u64;
+        let deleted_notifications = tx.execute(
+            "DELETE FROM agent_notifications WHERE thread_id = ?1",
+            params![session_id],
+        )? as u64;
+        tx.execute(
+            "DELETE FROM delivery_cursors WHERE thread_id = ?1",
+            params![session_id],
+        )?;
         let deleted_sessions = tx.execute(
             "DELETE FROM sessions WHERE session_id = ?1",
             params![session_id],
@@ -775,6 +806,8 @@ impl SessionStore {
             deleted_episodes,
             deleted_recall_events,
             deleted_memory_sources,
+            deleted_memory_recoveries,
+            deleted_notifications,
             deleted_artifacts,
             artifact_cleanup_errors,
         })
@@ -1269,6 +1302,86 @@ mod tests {
             vec![".kanzei/artifacts/tool-results/shared.bin"]
         );
         assert!(!artifact_path.exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// UI-0926 #1:memory_recoveries.episode_id 引用 episodes 且无级联,连接开着外键。
+    /// 漏删它时,会话只要有过一次「失败后恢复」证据,整会话删除就 FOREIGN KEY
+    /// constraint failed 整体回滚;通知与投递游标同属该会话,一并删除。
+    #[test]
+    fn 会话删除连带清理恢复证据与通知() {
+        use kanzei_llm::{Message, Part};
+        let root = std::env::temp_dir().join(format!(
+            "kz-ui0926-session-delete-recoveries-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let store = SessionStore::open(&project_state_path(&root)).unwrap();
+        store
+            .create_session("ses-recover", &root.display().to_string(), None)
+            .unwrap();
+        let episode = store
+            .append_episode(&EpisodeRecord {
+                session_id: "ses-recover",
+                run_id: "run-recover",
+                ..Default::default()
+            })
+            .unwrap();
+        let edit = |id: &str, error: bool| {
+            vec![
+                Message::assistant(vec![Part::ToolCall {
+                    id: id.into(),
+                    name: "edit".into(),
+                    input: serde_json::json!({"path": "src/lib.rs"}),
+                }]),
+                Message::tool_results(vec![Part::ToolResult {
+                    call_id: id.into(),
+                    is_error: error,
+                    content: if error { "old_string not found" } else { "ok" }.into(),
+                }]),
+            ]
+        };
+        let mut messages = edit("failure", true);
+        messages.extend(edit("fixed", false));
+        store.record_episode_recoveries(episode, &messages).unwrap();
+        assert!(store
+            .has_memory_recovery(episode, "[fp:edit|old_string not found]")
+            .unwrap());
+        store
+            .append_notification_atomic("ses-recover", "completed", "完成", false)
+            .unwrap();
+        store
+            .set_delivery_cursor("phone-1", "ses-recover", 1)
+            .unwrap();
+
+        let plan = store.session_deletion_plan("ses-recover", &root).unwrap();
+        assert!(plan.eligible);
+        assert_eq!(plan.memory_recovery_count, 1);
+        assert_eq!(plan.notification_count, 1);
+
+        let result = store
+            .delete_session("ses-recover", &root)
+            .expect("有恢复证据的会话也必须能整会话删除");
+        assert_eq!(result.deleted_episodes, 1);
+        assert_eq!(result.deleted_memory_recoveries, 1);
+        assert_eq!(result.deleted_notifications, 1);
+        let remaining = |sql: &str| -> i64 {
+            store
+                .connection
+                .query_row(sql, [], |row| row.get(0))
+                .unwrap()
+        };
+        assert_eq!(remaining("SELECT COUNT(*) FROM memory_recoveries"), 0);
+        assert_eq!(
+            remaining("SELECT COUNT(*) FROM agent_notifications WHERE thread_id = 'ses-recover'"),
+            0
+        );
+        assert_eq!(
+            remaining("SELECT COUNT(*) FROM delivery_cursors WHERE thread_id = 'ses-recover'"),
+            0
+        );
         std::fs::remove_dir_all(root).ok();
     }
 

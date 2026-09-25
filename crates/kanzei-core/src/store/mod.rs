@@ -145,6 +145,8 @@ pub struct SessionDeletionPlan {
     pub episode_count: u64,
     pub recall_event_count: u64,
     pub memory_source_count: u64,
+    pub memory_recovery_count: u64,
+    pub notification_count: u64,
     pub target_artifacts: Vec<SessionArtifactReport>,
     pub deletable_artifacts: Vec<SessionArtifactReport>,
     pub missing_artifacts: Vec<String>,
@@ -169,8 +171,19 @@ pub struct SessionDeletionResult {
     pub deleted_episodes: u64,
     pub deleted_recall_events: u64,
     pub deleted_memory_sources: u64,
+    pub deleted_memory_recoveries: u64,
+    pub deleted_notifications: u64,
     pub deleted_artifacts: Vec<String>,
     pub artifact_cleanup_errors: Vec<String>,
+}
+
+/// 删除一段历史对话的结果(`delete_conversation_segment`)。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SegmentDeletion {
+    /// 删掉的事件条数(typed facts 与内容型事件)。
+    pub events: usize,
+    /// 就地清空原文的已结束输入条数。
+    pub redacted_inputs: usize,
 }
 
 /// D-374:`SessionStore::open` 的累计次数,**按库路径分桶**。

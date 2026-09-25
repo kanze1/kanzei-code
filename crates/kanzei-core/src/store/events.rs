@@ -11,6 +11,29 @@ use serde_json::Value;
 
 use super::{now_ms, SessionStore, StoreError, StoredEvent};
 
+/// 段删除的审计事件:记下删了哪个区间、多少条,并占住一个 sequence 防止复用。
+pub const SEGMENT_DELETED: &str = "conversation.segment_deleted";
+
+/// 随段删除的内容型事件(typed facts 之外)。凡是承载「这段对话说了什么、做了什么」
+/// 的事件都在内:快照、轨迹(预览/报错/artifact 引用)、子代理完整对话、压缩事务四件套
+/// (surface_replaced 是整份消息副本)、手机消息、轮次结局。
+///
+/// 元数据骨架显式保留,不在此列:conversation.reset(段界)、conversation.segment_deleted
+/// (审计)、session.*、orchestration.*、prompt.*、experience.fact、task.*、
+/// permission.resolved、run.transaction_budget_*、worktree.orphaned。
+pub(crate) const SEGMENT_CONTENT_TYPES: [&str; 10] = [
+    "conversation.updated",
+    "run.trace",
+    super::typed::SUBAGENT_TRANSCRIPT,
+    "compaction_started",
+    "compaction_summary",
+    "surface_replaced",
+    "compaction_ended",
+    "mobile.message",
+    "run.completed",
+    "run.failed",
+];
+
 impl SessionStore {
     pub fn append_event(
         &self,
@@ -254,42 +277,125 @@ impl SessionStore {
             .map_err(Into::into)
     }
 
-    /// 删除 (start, end] 范围内的一段历史对话数据:D-421 修复——投影模式下
-    /// 勾选的是投影段(段 = typed facts + conversation.updated 快照),只删快照
-    /// 会「删不掉」。只删 typed facts(FACT_TYPES)与对话快照,保留调度/审计
-    /// 事件(session.status_changed、session.shadow_compared、run.trace 等)。
+    /// 删除 (start, end] 范围内的一段历史对话(「历史对话」勾选删除的落库入口)。
+    ///
+    /// 删除集合 = typed facts([`FACT_TYPES`](super::typed::FACT_TYPES))∪
+    /// [`SEGMENT_CONTENT_TYPES`]。D-421 只删前者与快照,同段的压缩摘要、轨迹、子代理
+    /// 对话都留着:删掉最新段后压缩 surface 顶上来成为 prior(被删对话以压缩版复活),
+    /// 重新载入时轨迹又画回活动面板,轨迹里的 artifact 引用让安全整理永远释放不掉原文。
+    ///
+    /// 同一事务内依次:收集段内 `prompt.admitted` 指向的输入 → 清空其中**已结束**
+    /// (completed/failed/cancelled)输入的原文(行、状态与统计口径保留;未结束的输入
+    /// 还要执行,不动)→ 先追加一条 `conversation.segment_deleted` 审计事件 → 再 DELETE。
+    /// 审计事件在 DELETE 之前拿到旧 MAX(sequence)+1:删掉尾部后 MAX 不会回退,被删的
+    /// sequence 与 event_id 永不复用。`end == i64::MAX`(删的是当前段)时审计事件的
+    /// `end` 记为 null——[`conversation_floor`](Self::conversation_floor) 据此把它当作
+    /// 当前对话的新地板。区间内既无可删事件也无输入时什么都不写,返回零。
     pub fn delete_conversation_segment(
         &self,
         session_id: &str,
         start: i64,
         end: i64,
-    ) -> Result<usize, StoreError> {
+    ) -> Result<super::SegmentDeletion, StoreError> {
         let tx = self.connection.unchecked_transaction()?;
-        let mut deleted = 0usize;
+        let input_ids: Vec<String> = {
+            let mut statement = tx.prepare(
+                "SELECT json_extract(payload_json, '$.input_id') FROM session_events
+                     WHERE session_id = ?1 AND sequence > ?2 AND sequence <= ?3
+                       AND event_type = 'prompt.admitted'",
+            )?;
+            let rows = statement.query_map(params![session_id, start, end], |row| {
+                row.get::<_, Option<String>>(0)
+            })?;
+            rows.filter_map(|row| row.transpose())
+                .collect::<Result<_, _>>()?
+        };
+        // rusqlite 无数组参数,删除集合展开为 IN 占位符链(?4 起)。
+        let content_types: Vec<&str> = super::typed::FACT_TYPES
+            .iter()
+            .chain(SEGMENT_CONTENT_TYPES.iter())
+            .copied()
+            .collect();
+        let placeholders = (0..content_types.len())
+            .map(|index| format!("?{}", index + 4))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut range_params: Vec<&dyn rusqlite::types::ToSql> = vec![&session_id, &start, &end];
+        for event_type in &content_types {
+            range_params.push(event_type);
+        }
+        let count: i64 = tx.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM session_events
+                     WHERE session_id = ?1 AND sequence > ?2 AND sequence <= ?3
+                       AND event_type IN ({placeholders})"
+            ),
+            rusqlite::params_from_iter(range_params.iter()),
+            |row| row.get(0),
+        )?;
+        if count == 0 && input_ids.is_empty() {
+            tx.commit()?;
+            return Ok(super::SegmentDeletion::default());
+        }
+        let mut redacted_inputs = 0usize;
         {
-            // rusqlite 无数组参数,展开 FACT_TYPES 为 IN 占位符链。
-            let mut statement = tx.prepare(&format!(
+            let mut statement = tx.prepare(
+                "UPDATE session_inputs SET prompt = ''
+                     WHERE session_id = ?1 AND input_id = ?2
+                       AND status IN ('completed', 'failed', 'cancelled')",
+            )?;
+            for input_id in &input_ids {
+                redacted_inputs += statement.execute(params![session_id, input_id])?;
+            }
+        }
+        append_event_tx(
+            &tx,
+            session_id,
+            SEGMENT_DELETED,
+            &serde_json::json!({
+                "start": start,
+                "end": (end != i64::MAX).then_some(end),
+                "events": count,
+                "redacted_inputs": redacted_inputs,
+            }),
+        )?;
+        let events = tx.execute(
+            &format!(
                 "DELETE FROM session_events
                      WHERE session_id = ?1 AND sequence > ?2 AND sequence <= ?3
-                       AND (event_type IN ({}) OR event_type = 'conversation.updated')",
-                super::typed::FACT_TYPES
-                    .iter()
-                    .map(|_| "?")
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ))?;
-            let mut params_vec: Vec<&dyn rusqlite::types::ToSql> = vec![&session_id, &start, &end];
-            for fact in super::typed::FACT_TYPES.iter() {
-                params_vec.push(fact);
-            }
-            deleted += statement.execute(rusqlite::params_from_iter(params_vec))?;
-        }
+                       AND event_type IN ({placeholders})"
+            ),
+            rusqlite::params_from_iter(range_params.iter()),
+        )?;
         tx.commit()?;
-        Ok(deleted)
+        Ok(super::SegmentDeletion {
+            events,
+            redacted_inputs,
+        })
     }
 
-    /// 清理当前会话的对话快照，保留 session、调度和权限事件。
-    /// CLI 的 `kz run --new` 使用此入口开始新上下文，避免手动删除整个 state.db。
+    /// 当前对话的「地板」:最后一个 `conversation.reset`,与最后一次删掉当前段的
+    /// `conversation.segment_deleted`(payload.end 为 null)两者中较大的 sequence。
+    ///
+    /// 地板之前的 legacy 快照不属于当前对话:不得被播种进当前段,也不得被 legacy 回退
+    /// 读回 prior(D-427 同一语义)。只删旧段的审计事件(end 为数值)不抬地板——当前段
+    /// 里尚未播种的旧快照仍是当前对话的一部分。
+    pub fn conversation_floor(&self, session_id: &str) -> Result<Option<i64>, StoreError> {
+        self.connection
+            .query_row(
+                "SELECT MAX(sequence) FROM session_events
+                     WHERE session_id = ?1
+                       AND (event_type = 'conversation.reset'
+                            OR (event_type = ?2 AND json_extract(payload_json, '$.end') IS NULL))",
+                params![session_id, SEGMENT_DELETED],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+    }
+
+    /// 遗留/测试用:硬删会话的全部 `conversation.updated` 快照。CLI 不再调用——
+    /// `kz run --new` 与桌面主线共用同一 session,它曾把桌面端全部 legacy 历史静默抹掉;
+    /// 现在 `--new` 只追加 `conversation.reset`。
     pub fn clear_conversation(&self, session_id: &str) -> Result<usize, StoreError> {
         self.connection
                 .execute(
@@ -821,6 +927,196 @@ mod tests {
             .latest_event("ses_test", "session.status_changed")
             .unwrap()
             .is_some());
+    }
+
+    /// UI-0926 #1:段删除连带删除内容型事件(压缩摘要、轨迹、子代理对话……会让被删
+    /// 对话「复活」或永远占着 artifact),清空已结束输入的原文,保留元数据骨架;
+    /// 审计事件先于 DELETE 拿序号,被删的 sequence 永不复用。
+    #[test]
+    fn 删除对话段连带删除内容型事件并保留骨架() {
+        let store = store();
+        use serde_json::json;
+        let reset = store
+            .append_event("ses_test", "conversation.reset", &json!({"cleared": true}))
+            .unwrap();
+        store
+            .admit_input(
+                "ses_test",
+                "in-done",
+                "已结束输入的原文",
+                super::super::Delivery::Queue,
+            )
+            .unwrap();
+        store
+            .admit_input(
+                "ses_test",
+                "in-pending",
+                "还没执行的输入",
+                super::super::Delivery::Queue,
+            )
+            .unwrap();
+        store
+            .connection
+            .execute(
+                "UPDATE session_inputs SET status = 'completed' WHERE input_id = 'in-done'",
+                [],
+            )
+            .unwrap();
+        for input_id in ["in-done", "in-pending"] {
+            store
+                .append_event(
+                    "ses_test",
+                    "prompt.admitted",
+                    &json!({"input_id": input_id, "delivery": "queue"}),
+                )
+                .unwrap();
+        }
+        let skeleton = [
+            "session.status_changed",
+            "orchestration.writer.acquired",
+            "experience.fact",
+            "permission.resolved",
+        ];
+        for event_type in skeleton {
+            store
+                .append_event("ses_test", event_type, &json!({}))
+                .unwrap();
+        }
+        for event_type in super::super::typed::FACT_TYPES {
+            store
+                .append_event("ses_test", event_type, &json!({}))
+                .unwrap();
+        }
+        for event_type in SEGMENT_CONTENT_TYPES {
+            store
+                .append_event(
+                    "ses_test",
+                    event_type,
+                    &json!({"transaction_id": "cmp", "artifact": {"artifact_id": "tool-x"}}),
+                )
+                .unwrap();
+        }
+        let max_before = store
+            .list_events("ses_test", 0)
+            .unwrap()
+            .last()
+            .unwrap()
+            .sequence;
+        let content_count = super::super::typed::FACT_TYPES.len() + SEGMENT_CONTENT_TYPES.len();
+
+        let deletion = store
+            .delete_conversation_segment("ses_test", reset.sequence, i64::MAX)
+            .unwrap();
+        assert_eq!(deletion.events, content_count);
+        assert_eq!(deletion.redacted_inputs, 1, "只清空已结束输入的原文");
+
+        let remaining = store.list_events("ses_test", 0).unwrap();
+        let kinds: Vec<&str> = remaining.iter().map(|e| e.event_type.as_str()).collect();
+        for event_type in super::super::typed::FACT_TYPES
+            .iter()
+            .chain(SEGMENT_CONTENT_TYPES.iter())
+        {
+            assert!(!kinds.contains(event_type), "{event_type} 应随段删除");
+        }
+        for event_type in skeleton
+            .iter()
+            .chain(["conversation.reset", "prompt.admitted"].iter())
+        {
+            assert!(kinds.contains(event_type), "元数据骨架 {event_type} 应保留");
+        }
+        let prompt = |input_id: &str| -> String {
+            store
+                .connection
+                .query_row(
+                    "SELECT prompt FROM session_inputs WHERE input_id = ?1",
+                    [input_id],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(prompt("in-done"), "", "已结束输入的原文应就地清空");
+        assert_eq!(
+            prompt("in-pending"),
+            "还没执行的输入",
+            "未结束输入还要执行,不得清空"
+        );
+        assert_eq!(
+            store.input_status("in-done").unwrap().as_deref(),
+            Some("completed"),
+            "输入行与状态保留(任务统计口径)"
+        );
+
+        let audits = store
+            .list_events_by_type("ses_test", 0, SEGMENT_DELETED)
+            .unwrap();
+        assert_eq!(audits.len(), 1, "恰好一条审计事件");
+        assert!(
+            audits[0].sequence > max_before,
+            "审计事件在删除前占住新序号"
+        );
+        assert_eq!(audits[0].payload["start"], reset.sequence);
+        assert!(
+            audits[0].payload["end"].is_null(),
+            "删当前段时 end 记为 null"
+        );
+        assert_eq!(audits[0].payload["events"], content_count as i64);
+        assert_eq!(
+            store.conversation_floor("ses_test").unwrap(),
+            Some(audits[0].sequence),
+            "删掉当前段抬高当前对话地板"
+        );
+        let next = store
+            .append_event("ses_test", "session.status_changed", &json!({}))
+            .unwrap();
+        assert!(
+            next.sequence > audits[0].sequence,
+            "被删的 sequence 不得复用"
+        );
+    }
+
+    #[test]
+    fn 空区间删除不写审计事件() {
+        let store = store();
+        store
+            .append_event("ses_test", "session.status_changed", &serde_json::json!({}))
+            .unwrap();
+        let before = store.list_events("ses_test", 0).unwrap().len();
+        let deletion = store
+            .delete_conversation_segment("ses_test", 0, i64::MAX)
+            .unwrap();
+        assert_eq!(deletion, crate::store::SegmentDeletion::default());
+        assert_eq!(store.list_events("ses_test", 0).unwrap().len(), before);
+        assert!(store.conversation_floor("ses_test").unwrap().is_none());
+    }
+
+    /// 只删旧段(end 为数值)不抬当前对话地板;地板取 reset 与「删当前段」中较大者。
+    #[test]
+    fn 删旧段不抬当前对话地板() {
+        let store = store();
+        use serde_json::json;
+        store
+            .append_event("ses_test", "run.trace", &json!({"run_id": "old"}))
+            .unwrap();
+        let reset = store
+            .append_event("ses_test", "conversation.reset", &json!({"cleared": true}))
+            .unwrap();
+        store
+            .append_event("ses_test", "run.trace", &json!({"run_id": "cur"}))
+            .unwrap();
+        let deletion = store
+            .delete_conversation_segment("ses_test", 0, reset.sequence)
+            .unwrap();
+        assert_eq!(deletion.events, 1);
+        let audit = store
+            .latest_event("ses_test", SEGMENT_DELETED)
+            .unwrap()
+            .unwrap();
+        assert_eq!(audit.payload["end"], reset.sequence);
+        assert_eq!(
+            store.conversation_floor("ses_test").unwrap(),
+            Some(reset.sequence),
+            "只删旧段时地板仍是最后一个 reset"
+        );
     }
 
     #[test]

@@ -1001,6 +1001,20 @@ export const I18N_EN = {
   "读取工具结果存储目录(.kanzei/artifacts/tool-results)的占用失败,确认该目录可访问、且其中没有符号链接后重试;不需要清理历史对话": "Could not read the usage of the tool result storage directory (.kanzei/artifacts/tool-results); make sure it is accessible and contains no symbolic links, then retry. There is no need to clean up chat history",
 
   // ---- 分区:会话生命周期 ----
+  "已开启新对话 · 之前的对话在侧栏「历史对话」里": "New conversation started · the previous one is under History in the sidebar",
+  "当前线路仍在运行,已在新线路开启新对话": "The current line is still running, so the new conversation opened on a new line",
+  "当前线路运行中:点击将另开一条线路开启新对话": "The current line is running: click to open the new conversation on a new line",
+  "开一段新对话(旧对话保留在「历史对话」)": "Start a new conversation (the previous one stays in History)",
+  "运行中请先完成或停止当前任务，再删除历史对话": "Finish or stop the current task before deleting conversation history",
+  "段历史对话": "conversation(s) from history",
+  "，此操作不可撤销": " — this cannot be undone.",
+  "段对话": "conversation(s)",
+  "当前对话已删除": "the current conversation was deleted",
+  "对话消息、工具调用与结果": "Conversation messages, tool calls and results",
+  "运行轨迹、子代理记录与压缩摘要": "Run traces, subagent transcripts and compaction summaries",
+  "这段对话里已结束输入的原文": "Original text of finished inputs in these conversations",
+  "保留:用量统计、已提炼的记忆与需求记录、迁移备份 state.db.v*.bak": "Kept: usage statistics, distilled memories and tracker records, migration backups state.db.v*.bak",
+  "这条线的对话历史仍保留在本地数据库，关闭后界面不再显示；要删除请先在它的「历史对话」里勾选删除。": "This line's conversation history stays in the local database and will no longer be shown after closing; to delete it, select it under the line's History first.",
 
   // ---- 分区:模型选择 ----
 

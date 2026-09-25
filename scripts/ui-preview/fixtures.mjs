@@ -693,11 +693,16 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     conversation_trace_get: ({ processId, sequence }) => (state.cleared.has(processId) && sequence == null) ? []
       : processId === IDS.mainProcess ? mainTraces() : [],
     conversation_list: ({ processId }) => state.conversations.get(processId) ?? [],
+    // 与后端 ConversationDeleteOutcome 同形;清单里序号最大的一段是当前段,删了它当前段即为空。
     conversation_delete: ({ processId, sequences }) => {
       const list = state.conversations.get(processId) ?? [];
       const drop = new Set((sequences ?? []).flat());
-      state.conversations.set(processId, list.filter((item) => !item.sequences.some((seq) => drop.has(seq))));
-      return drop.size;
+      const dropped = list.filter((item) => item.sequences.some((seq) => drop.has(seq)));
+      const latest = Math.max(0, ...list.flatMap((item) => item.sequences));
+      const clearedCurrent = dropped.some((item) => item.sequences.includes(latest));
+      if (clearedCurrent) state.cleared.add(processId);
+      state.conversations.set(processId, list.filter((item) => !dropped.includes(item)));
+      return { deleted: dropped.length, redacted_inputs: 0, segments: dropped.length, cleared_current: clearedCurrent };
     },
     conversation_clear: ({ processId }) => {
       if (!processId) return null;

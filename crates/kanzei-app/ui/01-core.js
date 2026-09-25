@@ -569,15 +569,22 @@ export const MESSAGE_PANE_MAX = 4;
 export let activePane = messages.querySelector(".msg-pane");
 export function setActivePane(value) { activePane = value; }
 
-export function paneFor(sessionId) {
+/// 取(必要时新建)某个会话的 pane。新建的 pane **默认隐藏**:只有 showPane 能让
+/// 一个 pane 可见。后台会话(典型是开着鞭挞的自主推进线)第一次渲染、或它的 pane
+/// 被淘汰后重建时走的是 withSessionRender → paneFor,原先新建即可见,于是它的输出
+/// 和活动会话叠在同一个视图里,新对话也清不掉(清的只是 activePane)。
+/// `forDisplay` 只给 showPane 用:只有「要显示它」时才认领启动期的占位 pane,
+/// 后台渲染不得抢走首屏那一块。
+export function paneFor(sessionId, { forDisplay = false } = {}) {
   const key = sessionId || "";
   let pane = messagePanes.get(key);
   if (!pane) {
-    // 启动期那个 data-session-id="" 的占位 pane 直接认领给第一个真实会话,
+    // 启动期那个 data-session-id="" 的占位 pane 直接认领给第一个要显示的会话,
     // 免得首屏白闪一下再换。
-    const placeholder = messages.querySelector('.msg-pane[data-session-id=""]');
+    const placeholder = forDisplay ? messages.querySelector('.msg-pane[data-session-id=""]') : null;
     pane = placeholder && !messagePanes.has("") ? placeholder : document.createElement("div");
     pane.className = "msg-pane";
+    if (!forDisplay) pane.classList.add("hidden");
     pane.dataset.sessionId = key;
     if (!pane.parentNode) messages.appendChild(pane);
     messagePanes.set(key, pane);
@@ -586,13 +593,16 @@ export function paneFor(sessionId) {
   return pane;
 }
 
-/// 切到某个会话的 pane:隐藏旧的、显示新的。**不重建 DOM**。
+/// 切到某个会话的 pane:隐藏其余全部、显示这一个。**不重建 DOM**。
+/// 不变式:同一时刻 #messages 下只有一个 pane 可见。只隐藏「上一个 activePane」不够——
+/// 越界可见的后台 pane、没被认领的占位 pane 都不是上一个 activePane。
 /// 返回 true = 该 pane 已有内容(切回来即见),false = 新建的空 pane(调用方需要装历史)。
 export function showPane(sessionId) {
-  const pane = paneFor(sessionId);
-  if (activePane && activePane !== pane) {
-    activePane.classList.add("hidden");
-    delete activePane.dataset.active;
+  const pane = paneFor(sessionId, { forDisplay: true });
+  for (const other of [...messages.children]) {
+    if (other === pane || !other.classList.contains("msg-pane")) continue;
+    other.classList.add("hidden");
+    delete other.dataset.active;
   }
   pane.classList.remove("hidden");
   // 当前显示的 pane 打属性标记:隐藏的 pane 仍在 DOM 里,断言/查询要能只看这一个。
@@ -600,6 +610,18 @@ export function showPane(sessionId) {
   activePane = pane;
   evictStalePanes();
   return pane.dataset.hasContent === "1";
+}
+
+/// 丢弃某个**非活动**会话的 pane 与流式装配状态,下次进来按 loadConversation 重建。
+/// 用于「那条线的内容已作废」(新对话开了新段、段被删除)而它此刻不在前台的情形。
+export function discardSessionPane(sessionId) {
+  const key = sessionId || "";
+  const pane = messagePanes.get(key);
+  if (pane && pane !== activePane) {
+    pane.remove();
+    messagePanes.delete(key);
+  }
+  dropSessionStream(key);
 }
 
 /// D-202 家族的真正机制:恢复历史走 PANE_WINDOW_SIZE 窗口化,但**实时追加从不裁剪**。
