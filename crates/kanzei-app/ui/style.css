@@ -1491,9 +1491,9 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
 .settings-dirty.hidden { display: none; }
 /* D-168:被项目级配置覆盖的提示。不说破的话,用户会一直改一个不生效的值 */
 .settings-effective {
-  color: var(--warn); font-size: var(--fs-11-5); line-height: 1.5;
-  background: color-mix(in srgb, var(--warn) 8%, transparent); border-left: 2px solid var(--warn);
-  padding: 6px 10px; margin: 6px 0 10px; border-radius: 0 4px 4px 0;
+  color: var(--fg); font-size: var(--fs-11-5); line-height: 1.5;
+  background: var(--alert-soft); border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
+  padding: 8px 12px; margin: 6px 0 10px; border-radius: var(--r-md);
 }
 .settings-effective.hidden { display: none; }
 /* R-136:fast 子代理就绪状态。缺哪一环要显眼——子代理杂活静默失效最难察觉 */
