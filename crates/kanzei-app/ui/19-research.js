@@ -1511,7 +1511,7 @@ export function openStructuredRef(id) {
     return;
   }
   if (!ref || /^A-/.test(ref)) return;
-  void jumpToEntry(ref);
+  void jumpToEntry(ref, { expand: true });
 }
 defer(() => {
   setStructuredNav({

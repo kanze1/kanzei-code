@@ -9,7 +9,6 @@ import { renderMarkdown } from "./04-markdown.js";
 import { parseJsonish, stripToolOutcome } from "./04-structured-parse.js";
 import { flushLazy, lazyMount, renderErrorDetail, renderToolArgs, renderToolResult } from "./04-structured.js";
 import { renderToolSummary, toolArgSummary, toolResultSummary, withToolDuration } from "./05-tool-summary.js";
-import { liveSet } from "./06-activity.js";
 import { sendText } from "./08-compose-runtime.js";
 import { loadEarlierMessages } from "./15-views-misc.js";
 
@@ -214,7 +213,8 @@ export function scheduleStreamRender() {
 }
 /// 把累计到的流式文本一次性渲染出去。目标元素可能已被收尾逻辑摘掉引用(甚至已从
 /// DOM 摘除,如 stream-restart),照渲染即可——写进游离节点无害,少写一次分支。
-/// D-728:传入 pane 固定本次 flush 的归属;切换线路后不向新 pane 滚动,也不污染其 live-note。
+/// D-728:传入 pane 固定本次 flush 的归属;切换线路后不向新 pane 滚动。
+/// (侧栏「最近在说」#live-note 与对话流本身重复,UI-0926 #4 删掉。)
 export function flushStreamRender(pane = activePane) {
   if (!pane) return;
   const assistant = pendingAssistantRender.get(pane);
@@ -225,29 +225,10 @@ export function flushStreamRender(pane = activePane) {
   const started = Date.now();
   if (assistant) {
     assistant.querySelector(".message-body").innerHTML = renderMarkdown(assistant.dataset.raw);
-    // 侧边栏"最近在说":assistant 输出的最新一行。只看尾部窗口——扫整条 raw
-    // 是纯浪费,而这里只需要最后那一行。
-    if (pane === activePane) {
-      const line = lastNonEmptyLine(assistant.dataset.raw);
-      if (line) liveSet("live-note", `💬 ${line.slice(0, 60)}`);
-    }
   }
   if (reasoning) renderReasoningBlock(reasoning);
   streamRenderCost.set(pane, Date.now() - started);
   if (pane === activePane) scrollBottom();
-}
-/// 取最后一个非空行。只在尾部窗口里找,并丢掉被窗口截断的首行,避免预览从半个词开始。
-export function lastNonEmptyLine(raw, window = 2000) {
-  let tail = raw.length > window ? raw.slice(-window) : raw;
-  if (raw.length > window) {
-    const cut = tail.indexOf("\n");
-    if (cut >= 0) tail = tail.slice(cut + 1);
-  }
-  const lines = tail
-    .split("\n")
-    .map((l) => l.replace(/[#*`]/g, "").trim())
-    .filter(Boolean);
-  return lines[lines.length - 1] || "";
 }
 export function appendAssistant(text) {
   if (!currentAssistant) {

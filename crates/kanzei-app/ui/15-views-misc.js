@@ -785,16 +785,22 @@ export function renderLineConversationHistory(processId) {
   const el = lineHistoryElement(processId);
   if (!el) return;
   el.replaceChildren();
+  el.removeAttribute("title");
   const error = conversationErrorsByProcess.get(processId);
   if (error) {
-    el.textContent = `${t("历史对话加载失败")}:${error}`;
+    // 一行说清失败,原始错误进 tooltip(长错误不在侧栏铺开)。
+    el.classList.remove("empty");
+    el.textContent = t("历史对话加载失败");
+    el.title = String(error);
     return;
   }
   const items = conversationItemsByProcess.get(processId);
-  if (!items) {
-    el.textContent = t("加载中…");
+  // 加载中与「一条历史都没有」都不占行:每条线路下一行「加载中…」/「历史对话 (0)」只是噪音。
+  if (!items || !items.length) {
+    el.classList.add("empty");
     return;
   }
+  el.classList.remove("empty");
   const open = lineHistoryOpen.has(processId);
   el.classList.toggle("open", open);
   const head = document.createElement("button");
@@ -808,7 +814,7 @@ export function renderLineConversationHistory(processId) {
   caret.textContent = "▸";
   const label = document.createElement("span");
   label.className = "parallel-history-label";
-  label.textContent = `${t("历史对话")} (${items.length})`;
+  label.textContent = `${t("历史对话")} ${items.length}`;
   head.append(caret, label);
   head.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -833,14 +839,6 @@ export function renderLineConversationHistory(processId) {
       .flatMap((check) => JSON.parse(check.dataset.seqs));
     void deleteConversationsForProcess(processId, sequences);
   });
-  if (!items.length) {
-    const empty = document.createElement("div");
-    empty.className = "parallel-history-empty";
-    empty.textContent = t("暂无历史对话");
-    body.appendChild(empty);
-    el.appendChild(body);
-    return;
-  }
   const list = document.createElement("div");
   list.className = "parallel-history-list";
   for (const item of [...items].reverse()) {
@@ -865,7 +863,9 @@ export function renderLineConversationHistory(processId) {
     });
     const title = document.createElement("span");
     title.className = "title";
-    title.textContent = `${item.title || t("新对话")} (${item.message_count} ${t("条")})`;
+    // 条数缺失(旧后端/桩)时不写「(undefined 条)」。
+    const count = Number.isFinite(item.message_count) ? ` (${item.message_count} ${t("条")})` : "";
+    title.textContent = `${item.title || t("新对话")}${count}`;
     row.append(check, title);
     row.addEventListener("click", () => void openConversationForProcess(processId, item.sequence));
     list.appendChild(row);

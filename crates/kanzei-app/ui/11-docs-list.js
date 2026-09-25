@@ -15,7 +15,18 @@ import {
   saveDocFilters,
   syncDocFilterControls,
 } from "./10-docs-core.js";
-import { agentFocus, documentFilters, documentStatusOptions, focusForProcess } from "./12-docs-pages.js";
+import {
+  agentFocus,
+  dependencyViewOpen,
+  documentFilters,
+  documentStatusOptions,
+  documentsKind,
+  focusForProcess,
+  latestDocsSnapshot,
+  renderDocuments,
+  setDependencyViewOpen,
+  setDocumentsKind,
+} from "./12-docs-pages.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import { openDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
 import { openFilePreview } from "./17-files.js";
@@ -136,13 +147,13 @@ export async function commitDocOrder(listEl, kind) {
 // 引用跳转。目标可能被筛选藏起来、在折叠分区里、在收起的侧栏里,或者已经归档——
 // 旧实现只认当前可见节点(offsetParent !== null),这四种情况一律静默失败:点了没反应,
 // 也没有任何提示,看起来就是"引用是死链"(D-166)。
-export function revealEntryNode(target) {
+export function revealEntryNode(target, { block = "center" } = {}) {
   // 只掀开确实会藏住条目的两类容器,不对任意祖先去 hidden——那会顺手展开整个视图。
   for (let node = target; node; node = node.parentElement) {
     if (node.classList?.contains("doc-archive-list")) node.classList.remove("hidden");
     if (node.classList?.contains("sidebar-section")) node.classList.remove("collapsed");
   }
-  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  target.scrollIntoView({ behavior: "smooth", block });
   target.classList.add("ref-highlight");
   setTimeout(() => target.classList.remove("ref-highlight"), 1200);
 }
@@ -159,23 +170,45 @@ export const inDocumentsPage = (item) => DOCUMENTS_ENTRY_CONTAINERS.some((id) =>
 // 所以不猜时机:把待高亮 id 存起来,由重绘收尾(renderDocsSnapshot)消费。
 export let pendingJumpId = null;
 export function setPendingJumpId(value) { pendingJumpId = value; }
+// UI-0926 #4:跳转要落在**展开的详情**上(侧栏焦点卡、refs 链接、测试关联徽标、线路取得声明
+// 都是「我要看这一条」),而不是一条收起的行——那样用户点完还得再点一次。
+let pendingJumpExpand = false;
+export function expandEntryDetail(item) {
+  const detail = item?.querySelector?.(".doc-detail");
+  if (!detail) return;
+  detail.classList.remove("hidden");
+  item.querySelector(".doc-row")?.setAttribute("aria-expanded", "true");
+}
 export function consumePendingJump() {
   if (!pendingJumpId) return;
   const ref = pendingJumpId;
+  const expand = pendingJumpExpand;
   // 只给一次机会:目标此刻若被筛掉或已不在列表里就作罢,不留一个会在将来某次
   // 无关刷新上突然亮起来的悬挂高亮。
   pendingJumpId = null;
-  const target = [...document.querySelectorAll("[data-doc-id]")]
+  pendingJumpExpand = false;
+  const candidates = [...document.querySelectorAll("[data-doc-id]")]
     .filter((item) => item.dataset.docId === ref)
-    .find(inDocumentsPage);
-  if (target) revealEntryNode(target);
+    .filter(inDocumentsPage);
+  // 依赖视图关掉后它的旧节点还在(只是隐藏),要展开的是列表里那一行。
+  const target = candidates.find((item) => item.classList.contains("doc-item")) ?? candidates[0];
+  if (!target) return;
+  if (expand) expandEntryDetail(target);
+  revealEntryNode(target, { block: expand ? "start" : "center" });
 }
+// 筛选放行:跳转目标被当前筛选藏住时,只在这次浏览里把它临时插回列表(带「不在当前筛选内」
+// 标记),**不改**用户的筛选状态、不落盘(R-115)。离开单页、改筛选、清除/解锁、切项目即作废,
+// 否则筛选外的条目会一直赖在列表里。
+export let jumpRevealId = null;
+export function setJumpRevealId(value) { jumpRevealId = value; }
+export function clearJumpReveal() { jumpRevealId = null; }
 // 刷新失败(目录被删、文件被锁、解析失败)时 renderDocsSnapshot 根本不会跑,上面那次
 // 消费就永远不会发生。留着这个 id 正是上面「不留悬挂高亮」的反面:之后任意一次无关刷新
 // ——agent 触发的 refreshDocsSoon、或用户下次再进文档页——都会把它兑现,用户没点跳转
 // 条目却自己亮了。所以跳转的失败路径必须显式作废(D-211:承诺与实现不能脱节)。
 export function clearPendingJump() {
   pendingJumpId = null;
+  pendingJumpExpand = false;
 }
 // D-413:研究工件里两类「本该可点」的字段——文献 URL 与代码域证据锚(file:line)。
 // 判据放这里单点定义,渲染侧只问「这个字段是不是可打开的」,不各自认字符串。
@@ -240,7 +273,29 @@ export function researchOpenLink(key, value, topic = "") {
   return btn;
 }
 
-export async function jumpToEntry(ref) {
+export async function jumpToEntry(ref, { expand = false } = {}) {
+  // 直达详情(UI-0926 #4):目标是快照里的活动需求/缺陷时,把挡路的东西一次清掉——
+  // 切到它所属的页签(非当前页签的列表是 hidden 的,scrollIntoView 无效)、关依赖视图
+  // (两张列表都被它藏着)、被筛选挡住就临时放行——再落到展开的那一行上。
+  const docKind = ref.startsWith("R-") ? "req" : ref.startsWith("D-") ? "defect" : null;
+  const live = expand && docKind
+    ? (docKind === "req" ? latestDocsSnapshot?.requirements : latestDocsSnapshot?.defects)?.find((entry) => entry.id === ref)
+    : null;
+  if (live) {
+    jumpRevealId = ref;
+    if (documentsKind !== "both" && documentsKind !== docKind) setDocumentsKind(docKind);
+    if (dependencyViewOpen) setDependencyViewOpen(false);
+    pendingJumpId = ref;
+    pendingJumpExpand = true;
+    if (!$("view-documents")?.classList.contains("active")) {
+      openDocumentsView();
+      // 切视图会走 refreshDocs → renderDocsSnapshot 收尾时消费;没有项目就没有那次刷新,就地画。
+      if (currentProject) return;
+    }
+    renderDocuments(latestDocsSnapshot);
+    consumePendingJump();
+    return;
+  }
   const findAll = () =>
     [...document.querySelectorAll("[data-doc-id]")].filter((item) => item.dataset.docId === ref);
   let matches = findAll();
@@ -331,6 +386,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
   // 筛掉了多少条:用于"被筛空"时说清原因。列表凭空变空是最容易被当成数据丢失的
   // 一类现象,必须给出条数与一键清除,而不是留一片空白(D-169)。
   const totalBeforeFilter = entries.length;
+  const allEntries = entries;
   // 筛选一律在这里做,调用方不得再预筛一遍——两处口径必须同源,否则侧栏与文档页
   // 会在同一筛选条件下给出不同的条目集合(R-123 验收 ④)。
   if (kind === "req") entries = filterRequirements(entries, reqFilterState);
@@ -340,6 +396,16 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       .filter((entry) => reqFilterState.priority === "all" || entry.priority === reqFilterState.priority)
       .filter((entry) => reqFilterState.tag === "all" || entryTags(entry).includes(reqFilterState.tag))
       .filter((entry) => matchesBlockedFilter(entry, reqFilterState.blocked ?? "all"));
+  }
+  // 跳转目标被筛选挡住:临时插回最前(分组视图下归入它自己的组),只影响这次渲染。
+  let exemptId = null;
+  if (surface === "documents" && (kind === "req" || kind === "defect") && jumpRevealId
+    && !entries.some((entry) => entry.id === jumpRevealId)) {
+    const hidden = allEntries.find((entry) => entry.id === jumpRevealId);
+    if (hidden) {
+      entries = [hidden, ...entries];
+      exemptId = hidden.id;
+    }
   }
   // 分组视图(用户定调):按受控词表分组展示;组内保持文件顺序。
   // 分组改变了视觉顺序≠文件顺序,拖拽在分组视图下必须禁用(否则会提交错乱顺序)。
@@ -393,6 +459,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       // 踩到冻结的 NEUTRAL_DOC_FILTERS 上抛异常。
       const filterState = documentFilters[kind];
       if (!filterState) return;
+      clearJumpReveal();
       for (const key of ["status", "priority", "complexity", "tag", "blocked"]) {
         if (key in filterState) filterState[key] = "all";
       }
@@ -439,6 +506,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       unlock.textContent = t("解锁");
       unlock.title = t("关闭分组、切回手动排序并清除全部筛选,恢复拖拽调序");
       unlock.addEventListener("click", () => {
+        clearJumpReveal();
         if (isGrouped) {
           // 走现有开关按钮:持久化、按钮 active 态、重渲染全在它的 handler 里。
           $("documents-group-toggle")?.click();
@@ -487,6 +555,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     item.className = `doc-item${entry.closed ? " closed" : ""}${blocked ? " blocked" : ""}${externalBlocked ? " external-blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}${isAgentActive ? " agent-active" : ""}`;
     if (isAgentActive) item.title = t("agent 正在做这一条");
     item.dataset.docId = entry.id;
+    if (entry.id === exemptId) item.classList.add("filter-exempt");
 
     const row = document.createElement("div");
     row.className = "doc-row";
@@ -554,6 +623,13 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
         });
         placeFlag(open);
       }
+    }
+    if (entry.id === exemptId) {
+      const exemptFlag = document.createElement("span");
+      exemptFlag.className = "filter-exempt-flag";
+      exemptFlag.textContent = t("不在当前筛选内");
+      exemptFlag.title = t("跳转目标被当前筛选隐藏,这里临时显示;改筛选或离开单页后恢复");
+      placeFlag(exemptFlag);
     }
     const claimed = claimedCollaborationLineFor(entry);
     if (claimed) {
@@ -903,7 +979,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
           link.textContent = ref;
           link.addEventListener("click", (event) => {
             event.stopPropagation();
-            jumpToEntry(ref);
+            jumpToEntry(ref, { expand: true });
           });
           f.appendChild(link);
           f.append(" ");

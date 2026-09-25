@@ -5,7 +5,7 @@ import { currentProject, processItems, running, toast, toastError } from "./03-s
 import { applyBgFilters, bgDoneOpen, bgEntries, bgFilters, bgSync, renderBgSections, setBgDoneOpen } from "./06-activity.js";
 import { refreshTests, refreshWorktrees } from "./09-sessions.js";
 import { openDocumentsView, saveDocFilters } from "./10-docs-core.js";
-import { applyBatch, batchSelection, clearPendingJump } from "./11-docs-list.js";
+import { applyBatch, batchSelection, clearJumpReveal, clearPendingJump } from "./11-docs-list.js";
 import {
   dependencyViewOpen,
   setDependencyViewOpen,
@@ -217,6 +217,8 @@ defer(() => {
 // 「复杂度=大」,而 docDragEnabled 的缺陷分支只看 status/priority/tag/blocked——
 // 提示说锁了、实际仍可拖,是 D-211 的反向脱节。
 export function applyDocFilter(field, value) {
+  // 用户动了筛选 = 回到「按筛选看」:跳转时的临时放行就此作废。
+  clearJumpReveal();
   for (const kind of docFilterTargets()) {
     if (!(field in documentFilters[kind])) continue;
     documentFilters[kind][field] = value;

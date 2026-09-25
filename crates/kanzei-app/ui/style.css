@@ -262,16 +262,18 @@ body {
 .sidebar-section.collapsed > *:not(.section-title) { display: none; }
 .sidebar-section.collapsed .section-title > span:first-child::after { content: " ▸"; }
 
-/* 当前进展:运行状态实时卡片 */
-#live-status { padding: 0 14px 4px; display: flex; flex-direction: column; gap: 3px; }
+/* 当前进展:任务卡列表占满一行,下面只剩一行实时状态「轮次 · 当前工具」(UI-0926 #4:
+   原先四行实时文字分别与任务卡阶段、对话流、焦点卡重复,删掉两行、剩下两段并成一行)。 */
+#live-status { padding: 0 14px 4px; display: flex; flex-flow: row wrap; align-items: baseline; column-gap: 6px; row-gap: 3px; }
+#live-status > .parallel-task-status { flex: 1 1 100%; min-width: 0; }
 .live-row {
   font-size: var(--fs-11-5); font-family: var(--sans); color: var(--fg);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+#live-turn { flex: none; max-width: 55%; }
+#live-action { flex: 1 1 0; min-width: 0; color: var(--dim); }
 .live-row.dim { color: var(--dim); }
 .live-row.hidden { display: none; }
-#live-focus { color: var(--warn); }
-#live-note { color: var(--dim); }
 .queue-list { display: flex; flex-direction: column; gap: 5px; padding: 0 10px 6px; }
 .queue-empty { color: var(--dim); font-size: var(--fs-11); padding: 2px 4px; }
 .queue-entry { background: var(--panel2); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 6px 7px; display: flex; gap: 6px; align-items: flex-start; }
@@ -330,21 +332,42 @@ body {
   background: color-mix(in srgb, var(--ok) 9%, transparent);
 }
 .doc-claim-fact { color: var(--ok); font-size: var(--fs-11); white-space: nowrap; }
-/* 「各线当前在做」焦点卡片:每条在线路独立显示,但要比列表行完整。
-   D-105:状态、阻塞、焦点依据一律用文字 + 边框表达,绿色只是装饰性冗余,
-   把颜色全部去掉后信息量不减。 */
-#focus-body { padding: 0 14px 4px; display: flex; flex-direction: column; gap: 12px; }
-.line-focus { display: flex; flex-direction: column; gap: 5px; }
+/* 「各线当前在做」焦点卡片(UI-0926 #4 精简):卡面只留编号/状态/阻塞/优先级/⋯ + 两行标题
+   (+ 多批次时的批次格、阻塞时一行原因);整卡可点直达详情,其余信息在标题的 tooltip 里。
+   D-105:状态、阻塞用文字表达;焦点依据用左边框线型表达(实线 = 运行证据/取得线,虚线 = 推断),
+   文字版在 tooltip 第二行——把颜色全部去掉后信息量不减。悬停/聚焦一律中性,强调色只给「线真在跑」。 */
+#focus-body { padding: 0 14px 4px; display: flex; flex-direction: column; gap: 10px; }
+.line-focus { display: flex; flex-direction: column; gap: 4px; }
 .line-focus-head { color: var(--dim); font-size: var(--fs-11); padding: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #focus-section > .section-title > span:last-child { display: flex; align-items: center; gap: 6px; flex-basis: 100%; }
 .focus-card {
-  border: 1px solid var(--border); border-left: 3px solid var(--ok);
+  position: relative; cursor: pointer;
+  border: 1px solid var(--border); border-left: 2px solid var(--border-strong);
   border-radius: var(--radius); background: var(--panel2);
-  padding: 7px 9px; display: flex; flex-direction: column; gap: 5px;
+  padding: 6px 8px 7px 9px; display: flex; flex-direction: column; gap: 4px;
+  transition: border-color var(--motion-fast) var(--ease-out);
 }
-.focus-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.focus-card:hover, .focus-card:focus-within {
+  border-color: var(--border-strong);
+  background-image: linear-gradient(var(--surface-hover), var(--surface-hover));
+}
+.focus-card:has(.focus-open:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.line-focus.is-live .focus-card { border-left-color: var(--accent); }
+.focus-card.src-order, .focus-card.src-runtime-stale { border-left-style: dashed; }
+.focus-card.blocked { border-left-color: var(--warn); }
+.focus-head { display: flex; align-items: center; gap: 6px; min-height: 20px; }
 .focus-id { font-family: var(--mono); font-size: var(--fs-11); color: var(--dim); }
-.focus-title { font-size: var(--fs-12-5); color: var(--fg-strong); line-height: 1.45; white-space: normal; word-break: break-word; }
+.focus-head-spacer { flex: 1 1 auto; }
+.focus-card .pri-badge.static { cursor: default; }
+.focus-card .pri-badge.static:hover { box-shadow: none; }
+/* ⋯ 叠在标题的撑满覆盖层之上;平时隐形,悬停/聚焦这张卡或菜单开着时出现。 */
+.focus-more { position: relative; z-index: var(--z-raised); width: 20px; height: 20px; font-size: var(--fs-13); opacity: 0; transition: opacity var(--motion-fast) var(--ease-out); }
+.focus-card:hover .focus-more, .focus-card:focus-within .focus-more, .focus-more[aria-expanded="true"] { opacity: 1; }
+.focus-open {
+  all: unset; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  font-size: var(--fs-12-5); line-height: 1.45; color: var(--fg-strong); word-break: break-word; cursor: pointer;
+}
+.focus-open::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
 .focus-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .focus-chip { font-size: var(--fs-11); color: var(--dim); padding: 1px 0; white-space: nowrap; }
 .focus-chip + .focus-chip { border-left: 1px solid var(--border); padding-left: 6px; }
@@ -352,12 +375,11 @@ body {
   display: grid; grid-template-columns: repeat(var(--cells, 3), 1fr); gap: 1px;
   align-items: center; height: 12px; width: 64px; flex-shrink: 0;
 }
-.focus-source { font-size: var(--fs-10-5); color: var(--dim); }
-.focus-card .doc-field { font-size: var(--fs-11); line-height: 1.6; }
-.focus-card .doc-actions { margin-top: 2px; }
-.focus-card.blocked { border-left-color: var(--warn); }
-.focus-empty { padding: 4px 2px 6px; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; font-size: var(--fs-12); line-height: 1.5; }
-.focus-empty .dim { font-size: var(--fs-11); }
+.focus-block-reason { font-size: var(--fs-11); color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-empty { padding: 2px; font-size: var(--fs-12); line-height: 1.5; color: var(--dim); }
+.line-focus-empty { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-empty-global { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--fg); }
+@media (prefers-reduced-motion: reduce) { .focus-card, .focus-more { transition: none; } }
 /* 侧栏待办计数:总数一行 + 需求/缺陷各一行。三个数字构成加法树
    (总数 = Σ(可执行+阻塞)),口径与引擎 backlog_status 一致。
    可执行/阻塞靠**文字**区分,颜色只做冗余强化——去掉颜色信息量不减。 */
@@ -1398,23 +1420,30 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
 #agent-panel .bg-entry { flex-shrink: 0; }
 #agent-panel .bg-entry.timeout { border-left-color: var(--warn); }
 #agent-panel .bg-entry[data-bg-status="stopped"] .bg-title::before { content: "⏹ "; color: var(--warn); }
-.parallel-task-status { display: flex; flex-direction: column; gap: 8px; margin-top: 0; }
-.parallel-line { position: relative; display: flex; flex-direction: column; gap: 2px; }
-.parallel-line-close { position: absolute; right: 5px; top: 5px; opacity: .72; }
-.parallel-line:hover .parallel-line-close, .parallel-line-close:focus-visible { opacity: 1; }
-.parallel-task-row { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 10px 40px 10px 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; font: inherit; }
-.parallel-task-row:hover { background: var(--panel2); }
+/* 侧栏任务卡(UI-0926 #4):一行「字形 + 身份 · 名称 + 分支 + 状态词」。运行/等待靠字形
+   (.kz-glyph 的形状 + 颜色 + 呼吸)表达,不再额外画左竖条;关闭是图标按钮,悬停/聚焦这条线路才出现。 */
+.parallel-task-status { display: flex; flex-direction: column; gap: 2px; margin-top: 0; }
+.parallel-line { position: relative; display: flex; flex-direction: column; }
+.parallel-line-close { position: absolute; right: 4px; top: 5px; width: 20px; height: 20px; opacity: 0; transition: opacity var(--motion-fast) var(--ease-out); }
+.parallel-line:hover .parallel-line-close, .parallel-line:focus-within .parallel-line-close { opacity: 1; }
+.parallel-line-close:hover { color: var(--err); background: var(--danger-soft); }
+.parallel-task-row { width: 100%; display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 5px 28px 5px 8px; border: 1px solid transparent; border-radius: var(--r-md); background: transparent; color: var(--fg); text-align: left; cursor: pointer; font: inherit; }
+.parallel-task-row:hover { background: var(--surface-hover); }
 .parallel-task-row.active { border-color: transparent; background: var(--surface-selected); }
-.parallel-task-row.running { border-left: 2px solid var(--ok); }
-.parallel-task-row.auto-pending { border-left: 2px solid var(--warn); }
-.parallel-task-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-size: var(--fs-12); font-weight: 500; }
-.parallel-task-state { color: var(--dim); font-size: var(--fs-11); }
-.parallel-line-history { margin: 0 3px 2px 10px; padding: 0 0 2px; border-left: 1px solid var(--border-soft); color: var(--dim); font-size: var(--fs-10); }
+.parallel-task-glyph { flex: none; width: 10px; font-size: var(--fs-10); line-height: 1; text-align: center; }
+.parallel-task-head { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-12); font-weight: 500; }
+.parallel-task-branch { color: var(--dim); font-family: var(--mono); font-size: var(--fs-10-5); font-weight: 400; }
+.parallel-task-state { flex: 0 0 auto; max-width: 45%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-size: var(--fs-11); }
+.parallel-task-row.running .parallel-task-state { color: var(--fg); }
+/* 历史对话折叠头与名称左缘对齐(行内边距 8 + 字形 10 + 间距 6);0 条与加载中整行不占位。 */
+.parallel-line-history { margin: 0 3px 2px 20px; padding: 0; color: var(--dim); font-size: var(--fs-10); }
+.parallel-line-history.empty { display: none; }
+@media (prefers-reduced-motion: reduce) { .parallel-line-close { transition: none; } }
 /* 历史对话折叠头。默认收起——每条线路一份完整快照列表,三四条线同时铺开时
    侧栏前两屏全是历史标题,「各线当前在做」反而被挤下去。 */
 .parallel-history-head {
   display: flex; align-items: center; gap: 5px; width: 100%; min-height: 19px;
-  padding: 2px 6px; border: 0; border-radius: 3px; background: transparent;
+  padding: 2px 4px; border: 0; border-radius: 3px; background: transparent;
   color: var(--dim); font: inherit; font-size: var(--fs-10); text-align: left; cursor: pointer;
 }
 .parallel-history-head:hover { background: var(--panel2); color: var(--fg-strong); }
@@ -2891,6 +2920,13 @@ a.md-path { cursor: pointer; color: var(--accent-text); text-decoration: underli
 .sv-diff-files > details > summary { cursor: pointer; font-family: var(--mono); font-size: var(--fs-12); }
 
 /* ===== 分区:需求卡片与单页 ===== */
+/* UI-0926 #4 跳转放行:被当前筛选挡住的跳转目标临时插回列表——虚线描边 + 文字标记说破
+   「不在当前筛选内」(这是「看这里」,用强调色);改筛选、离开单页、切项目即恢复。 */
+.doc-item.filter-exempt { outline: 1px dashed var(--accent); outline-offset: -1px; }
+/* 直达详情滚到行首时,给吸顶的分组标题留出位置,别让它盖住那一行。 */
+.documents-list .doc-item { scroll-margin-top: 64px; }
+.filter-exempt-flag { color: var(--accent-text); font-size: var(--fs-10-5); white-space: nowrap; }
+.focus-claim-link { max-width: 100%; padding: 0; font: inherit; font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ===== 分区:动效 ===== */
 /* #7 动效系统:状态图标只在状态真的在进行时才动。纪律(由 ui-a11y-smoke「#7 动效纪律」机械校验):

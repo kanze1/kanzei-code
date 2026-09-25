@@ -196,6 +196,12 @@ assert.match(css, /\.doc-row \.complexity-meter \{ flex: 0 0 \d+px; width: \d+px
 assert.doesNotMatch(css, /#req-list \.doc-item/, "批次格/条目样式仍按已删除的 #req-list 容器限定");
 assert.match(css, /\.doc-item\.pri-P1 \.complexity-cell\.filled, \.focus-card\.pri-P1 \.complexity-cell\.filled/);
 assert.match(css, /\.focus-card \{/, "缺少侧栏焦点卡片样式");
+// UI-0926 #4 精简焦点卡:整卡的点击目标是真按钮(键盘可达)并带读屏名称;「⋯」声明自己弹菜单;
+// 撑满覆盖层让整卡可点;任务卡关闭按钮是带线路名的图标按钮。
+assert.match(js, /open\.setAttribute\("aria-label", `\$\{entry\.id\} \$\{entry\.title\} · \$\{t\("打开详情"\)\}`\)/, "焦点卡 .focus-open 缺读屏名称");
+assert.match(js, /more\.setAttribute\("aria-haspopup", "menu"\)/, "焦点卡「⋯」缺 aria-haspopup=menu");
+assert.match(css, /\.focus-open::after \{[^}]*inset: 0/, "焦点卡缺撑满整卡的点击覆盖层");
+assert.match(js, /close\.setAttribute\("aria-label", `\$\{t\("关闭线路"\)\} \$\{item\.label\}`\)/, "任务卡关闭图标按钮缺带线路名的读屏名称");
 assert.match(js, /window\.addEventListener\("focus", resetTitleOnFocus\)/);
 assert.match(js, /if \(running\) \{[\s\S]*运行中请先完成或停止当前任务，再打开历史对话/);
 assert.match(js, /document\.querySelectorAll\("\[data-doc-id\]"\)[\s\S]*item\.dataset\.docId === ref[\s\S]*offsetParent/);

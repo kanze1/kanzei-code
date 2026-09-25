@@ -1068,6 +1068,9 @@ export const I18N_EN = {
   "同上": "same as above", "执行策略": "Execution policy",
 
   // ---- 分区:需求卡片与单页 ----
+  "更多操作": "More actions", "打开详情": "Open details", "点击查看详情": "Click to view details",
+  "不在当前筛选内": "Outside current filters",
+  "跳转目标被当前筛选隐藏,这里临时显示;改筛选或离开单页后恢复": "The jump target is hidden by the current filters and is shown here temporarily; it goes away when you change filters or leave this page",
 
   // ---- 分区:动效 ----
 
