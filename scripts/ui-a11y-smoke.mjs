@@ -29,6 +29,11 @@ for (const id of ["viewer-overlay", "confirm-overlay", "input-overlay", "palette
   assert.match(html, new RegExp(`<dialog id="${id}"[^>]*class="[^"]*\\bk-surface k-dialog\\b`), `${id} 必须是 <dialog class="k-surface k-dialog">`);
 }
 assert.match(html, /<dialog id="viewer-overlay"[^>]*aria-labelledby="viewer-title"/);
+// UI-0926 #3:项目模型配置同为 <dialog class="k-surface k-dialog">(openDialog),标题可读;输入框上方的模型/思考芯片是菜单按钮。
+assert.match(html, /<dialog id="project-models-overlay"[^>]*class="[^"]*\bk-surface k-dialog\b[^"]*"[^>]*aria-labelledby="project-models-title"/, "项目模型配置必须是带 aria-labelledby 的 <dialog class=\"k-surface k-dialog\">");
+for (const id of ["model-picker", "reasoning-picker"]) {
+  assert.match(html, new RegExp(`<button type="button" id="${id}"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"`), `${id} 必须是带 aria-haspopup/aria-expanded 的菜单按钮(不再是原生 select)`);
+}
 // Esc 只有一个入口:00-surface.js 在 document 捕获阶段只关栈顶;权限卡的 Esc 经 onEscape 拒绝/取消。
 assert.match(js, /if \(event\.key !== "Escape" \|\| event\.isComposing\) return;/);
 assert.match(js, /document\.addEventListener\("keydown", onKeydown, true\)/);

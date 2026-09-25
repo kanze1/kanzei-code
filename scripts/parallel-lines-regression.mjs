@@ -96,6 +96,11 @@ assert(composeSources.includes("function syncModelSelectToActiveLine()"), "缺�
 assert(sessions.includes("syncModelSelectToActiveLine();"), "renderProcesses/switchProcess 未按线回显模型");
 assert(compose.includes("function lineModelFor(processId)"), "发送用模型未统一取自线路存档");
 assert(!/model: \$\("model-select"\)\.value \|\| null/.test(compose), "发送又回到读下拉显示值(与鞭挞续跑不同源)");
+// UI-0926 #3:输入框上方的模型/思考芯片只认后端 model_effective(与运行路径同一组解析函数);
+// 思考强度不得再以 localStorage 的 kz-reasoning:<项目> 为显示真源(它从不跟线同步)。
+assert(allUiSources.includes('invoke("model_effective"'), "顶栏芯片必须以 model_effective 为唯一真源");
+assert(!allUiSources.includes('getItem(prefKey("reasoning"))'), "思考强度不得再以 localStorage 为真源");
+assert(!allUiSources.includes('$("model-select")') && !allUiSources.includes('$("reasoning-select")'), "原生模型/思考下拉已换成芯片,不得再按 id 读它们");
 assert(compose.includes("async function setLineAutoState(processId, patch)"), "缺少按线鞭挞写入口(线路页要能操控任意线)");
 assert(compose.includes("function lineAutoConfig(processId)"), "缺少按线鞭挞读入口");
 assert(lines.includes("buildLineAutoControls(line)"), "线路页每条线缺少鞭挞控件");

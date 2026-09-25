@@ -1,114 +1,175 @@
 import { defer } from "./01-core.js";
-import { $, inputDialog, invoke, readJson, writeJson } from "./01-core.js";
+import { $, invoke, readJson, writeJson } from "./01-core.js";
 import { t } from "./02-i18n.js";
-import { activeProcessId, currentProject, log, processItems, reportPersistentError, toast } from "./03-shell.js";
+import { activeProcessId, currentProject, log, processItems, reportPersistentError, toast, toastError } from "./03-shell.js";
+import { selectedAgent } from "./08-auto.js";
 import { queueProcessUpdate, updateLocalProcessItem } from "./08-compose-runtime.js";
 import { refreshProcesses } from "./09-sessions.js";
 import { restoreDocFilters } from "./10-docs-core.js";
 
-// ---------- 模型直选 ----------
-export const SHOW_ALL_MODELS_SENTINEL = "__show_all_models__";
-export let showAllModels = false;
-export async function loadModels({ showAll = false } = {}) {
-  showAllModels = showAll;
-  const select = $("model-select");
+// ---------- 模型选择:数据层(UI-0926 #3) ----------
+// 输入框上方芯片、菜单高亮、tooltip、线路页「跟随默认 · X」的**唯一真源**是后端
+// model_effective:它与运行路径复用同一组解析函数,回答「下一轮真正会用哪个模型 /
+// 哪一档思考 / Fast mode 开没开,各来自哪一层」。这里只负责按时去问、丢弃迟到的回答、
+// 把结果广播给渲染层(08-model-picker.js)。不再从 localStorage 或下拉 DOM 猜。
+//
+// 三个编辑面各写一层:芯片只写本线(process_update);「项目模型配置」弹窗只写项目文件;
+// 设置页只写全局。「设为本项目默认」= 把本线值提升到项目层并清掉本线。
+
+// models_list 探测结果(按项目缓存:同项目内切线不再重复探测,每个 provider 最多 6 秒)。
+export let modelCatalog = [];
+export let modelCatalogProject = null;
+// 当前活动线的 model_effective 结果;null = 还没问到或解析失败(见 effectiveError)。
+export let effectiveModel = null;
+export let effectiveError = null;
+export let effectivePending = false;
+// 当前项目下「跟随默认」解析出的模型(线路页空选项显示它)。
+export let projectDefaultModel = null;
+let effectiveGeneration = 0;
+let effectiveProject = null;
+
+function announce(type, detail = null) {
+  document.dispatchEvent(new CustomEvent(type, { detail }));
+}
+
+// 问一次后端。generation 令牌 + 在途时的项目/线路快照:切线、切项目之后迟到的回答直接丢弃,
+// 不会把上一条线的模型画到这一条线上。
+export async function refreshEffectiveModel() {
+  const generation = ++effectiveGeneration;
+  const forProject = currentProject;
+  const forProcess = activeProcessId;
+  if (!forProject) return null;
+  if (effectiveProject !== forProject) projectDefaultModel = null;
+  const { profile, agent } = selectedAgent();
+  const stale = () => generation !== effectiveGeneration || currentProject !== forProject || activeProcessId !== forProcess;
+  try {
+    const view = await invoke("model_effective", { projectDir: forProject, processId: forProcess, profile, agent });
+    if (stale()) return null;
+    effectiveModel = view;
+    effectiveError = null;
+    effectivePending = false;
+    effectiveProject = forProject;
+    projectDefaultModel = view?.defaultModel?.resolved ?? null;
+    announce("kz-effective-model", view);
+    return view;
+  } catch (error) {
+    if (stale()) return null;
+    effectiveModel = null;
+    effectiveError = String(error);
+    effectivePending = false;
+    announce("kz-effective-model", null);
+    log(`${t("模型解析失败")}:${error}`, "warn");
+    return null;
+  }
+}
+
+// 芯片 ← 活动线。名字保留(切线/兜底选线/冷启动都调它,parallel-lines-regression 按名字守)。
+// 先广播 pending:回答到来之前芯片不能继续把上一条线的值当作「本线临时」显示。
+export function syncModelSelectToActiveLine() {
+  effectivePending = true;
+  announce("kz-effective-model-pending");
+  return refreshEffectiveModel();
+}
+
+// 只拉目录(失败走持久错误出口,探测不到不等于用不了),再问一次下一轮视图。
+export async function loadModels() {
   // R-178 批3:首次进入项目时把 localStorage 旧键上迁后端(幂等,成功后不再执行)。
   void migrateLegacyModelPrefs();
-  // 顶栏回显的**唯一**来源是活动线自己存的模型。原来是 `activeModel || 旧全局键`:
-  // 一条没设过模型的线(model=null,即 agent 默认)会回落到 localStorage 的项目级/全局
-  // 旧键,于是每条这样的线都显示同一个模型——用户看到的就是「切线路模型不变」。更糟的是
-  // 发送读的是这个下拉(见 sendText),而鞭挞续跑读的是 item.model:同一条线上手动发和自动
-  // 轮能用两个不同的模型。旧键只在**还不知道活动线是谁**(进程列表未到/迁移前)时才作数。
-  const activeItem = processItems.find((item) => item.id === activeProcessId);
-  const saved = activeItem ? activeItem.model || "" : legacyModelPrefValue();
-  const selectedIds = new Set([saved, ...manualModels()].filter(Boolean));
-  select.innerHTML = "";
-  const def = document.createElement("option");
-  def.value = "";
-  def.textContent = t("模型:agent 默认");
-  select.appendChild(def);
+  const forProject = currentProject;
   try {
-    const models = await invoke("models_list", { projectDir: currentProject });
-    const ids = new Set(models.map((m) => m.id));
-    // 顶栏默认只展示已选/已记住的模型和两个角色入口；完整探测清单仍可按需展开。
-    const visibleModels = showAll
-      ? models
-      : models.filter((m) => ["primary", "fast"].includes(m.id) || selectedIds.has(m.id));
-    for (const m of visibleModels) {
-      const opt = document.createElement("option");
-      opt.value = m.id;
-      opt.textContent = m.label;
-      if (m.id === saved) opt.selected = true;
-      select.appendChild(opt);
+    const models = await invoke("models_list", { projectDir: forProject });
+    if (currentProject === forProject) {
+      modelCatalog = Array.isArray(models) ? models : [];
+      modelCatalogProject = forProject;
+      announce("kz-model-catalog", modelCatalog);
     }
-    // 当前线路/项目记住的直指模型即使未被 /models 返回，也必须保留为可见选项。
-    // 这是 DeepSeek 等端点探测失败时仍能继续使用的关键兜底。
-    for (const id of selectedIds) {
-      if (ids.has(id)) continue;
-      const opt = document.createElement("option");
-      opt.value = id;
-      opt.textContent = `${id}(${t("已记住")})`;
-      if (id === saved) opt.selected = true;
-      select.appendChild(opt);
-    }
-    if (!showAll && models.some((m) => !visibleModels.includes(m))) {
-      const all = document.createElement("option");
-      all.value = SHOW_ALL_MODELS_SENTINEL;
-      all.textContent = t("显示全部探测模型…");
-      select.appendChild(all);
-    }
-    // D-167:探测不到不等于用不了——端点可能没实现 /models,key 也可能还没配好。
-    // 手填过的模型要留在列表里,否则下次重开又得再填一遍。
-    for (const id of manualModels()) {
-      if (ids.has(id) || selectedIds.has(id)) continue;
-      const opt = document.createElement("option");
-      opt.value = id;
-      opt.textContent = `${id}(${t("手填")})`;
-      if (id === saved) opt.selected = true;
-      select.appendChild(opt);
-    }
-    const custom = document.createElement("option");
-    custom.value = MANUAL_MODEL_SENTINEL;
-    custom.textContent = t("＋ 手填模型…");
-    select.appendChild(custom);
-    log(`${t("模型列表已刷新")}(${models.length} 个可选)`);
+    log(`${t("模型列表已刷新")}(${modelCatalog.length} 个可选)`);
   } catch (err) {
     reportPersistentError(`${t("模型列表获取失败")}:${err}`);
   }
-  // 显式落值,不靠上面那些 opt.selected:选项是整棵重建的(innerHTML=""),探测失败时
-  // try 块中途退出,回显就停在上一条线的值。这一行保证「列表画成什么样,值都是本线的」。
-  select.value = saved;
+  await refreshEffectiveModel();
 }
 
-// 顶栏模型下拉 ← 活动线。原来只有 switchProcess 尾巴上那一句在做这件事,于是冷启动、
-// 切项目、以及 renderProcesses 兜底选中活动线(线路被回收后)这三条路径全都不回显——
-// 下拉停在上一条线的值,而用户以为那就是当前线的模型。
-export function syncModelSelectToActiveLine() {
-  const select = $("model-select");
-  if (!select) return;
-  const item = processItems.find((candidate) => candidate.id === activeProcessId);
-  if (!item) return;
-  const value = item.model || "";
-  if (select.value === value) return;
-  // 该线的直指模型可能不在当前选项里(探测清单变了/刚换项目):补一个再选,
-  // 否则赋值会被浏览器静默丢弃、回落成空(D-167 同源)。
-  if (value && ![...select.options].some((option) => option.value === value)) {
-    select.appendChild(new Option(`${value}(${t("已记住")})`, value));
+function optimistic(patch) {
+  announce("kz-effective-model-optimistic", patch);
+}
+
+// 本线临时覆盖:空串 = 清除(跟随默认)。**必须 await 写入**再问后端——否则后端读到的还是
+// 旧的本线值,芯片会闪回上一个模型(冒烟变异 pickerAwaitsUpdate 守这一行)。
+export async function setLineModel(value) {
+  const processId = activeProcessId;
+  if (!processId) return;
+  updateLocalProcessItem(processId, { model: value || null });
+  optimistic({ model: value || "" });
+  try {
+    await queueProcessUpdate(processId, { model: value });
+  } catch (error) {
+    reportPersistentError(`${t("进程模型保存失败")}:${error}`);
   }
-  select.value = value;
+  if (activeProcessId === processId) await refreshEffectiveModel();
+}
+
+export async function setLineReasoning(value) {
+  const processId = activeProcessId;
+  if (!processId) return;
+  updateLocalProcessItem(processId, { reasoning: value || null });
+  optimistic({ reasoning: value || "" });
+  try {
+    await queueProcessUpdate(processId, { reasoning: value });
+  } catch (error) {
+    reportPersistentError(`${t("进程思考强度保存失败")}:${error}`);
+  }
+  if (activeProcessId === processId) await refreshEffectiveModel();
+}
+
+// 「设为本项目默认」写哪个键:默认那一项按哪个角色解析就写哪个角色。agent 直指模型时
+// 项目层写什么都不影响这条线,不提供这个动作。
+export function promotableRole(view = effectiveModel) {
+  const role = view?.defaultModel?.role;
+  return ["primary", "fast", "compact"].includes(role) ? role : null;
+}
+
+export async function promoteLineModelToProject() {
+  const view = effectiveModel;
+  const role = promotableRole(view);
+  const resolved = view?.model?.resolved;
+  if (!currentProject || !role || !resolved || view?.model?.source !== "line") return false;
+  try {
+    await invoke("project_models_save", { projectDir: currentProject, set: { [role]: resolved }, unset: [] });
+  } catch (error) {
+    toastError(`${t("保存失败")}: ${error}`);
+    return false;
+  }
+  toast(t("已保存到本项目"));
+  await setLineModel("");
+  announce("kz-model-config-changed", { scope: "project", projectDir: currentProject, silent: true });
+  return true;
+}
+
+export async function promoteLineReasoningToProject() {
+  const view = effectiveModel;
+  const value = view?.reasoning?.value;
+  if (!currentProject || !value || view?.reasoning?.source !== "line") return false;
+  try {
+    await invoke("project_models_save", { projectDir: currentProject, set: { reasoning: value }, unset: [] });
+  } catch (error) {
+    toastError(`${t("保存失败")}: ${error}`);
+    return false;
+  }
+  toast(t("已保存到本项目"));
+  await setLineReasoning("");
+  announce("kz-model-config-changed", { scope: "project", projectDir: currentProject, silent: true });
+  return true;
 }
 
 // 手填模型:provider:model 直指。有些 OpenAI 兼容端点不提供 /models,
 // 或者 key 尚未配好导致探测为空,这条通道保证配了 provider 就一定能用。
 export const MANUAL_MODEL_SENTINEL = "__manual__";
+export const MANUAL_MODEL_PATTERN = /^[\w.-]+:.+$/;
 // R-178 批3:localStorage 旧键一次性上迁后端(②层),前端不再以 localStorage 为真源。
 // 旧键形态:`kz-model`(更早的全局键)、`kz-model:<project>`(R-115 项目级)、
-// `kz-manual-models:<project>`(手填候选)。保留旧键 fallback 一个版本——迁移执行前
-// 旧值仍可读(legacyModelPrefValue/legacyManualModels),迁移成功后旧键即清除。
-// 首次进入项目时把 localStorage 旧键上迁到默认进程(②层持久选择)并清除旧键。
-// 幂等:旧键不存在时直接返回;迁移失败保留旧键,下次 loadModels 再试。不设一次性
-// 标志——「旧键清除后自然不再迁移」就是幂等,也让失败可重试(保留旧键 fallback
-// 一个版本:迁移函数保留到下一大版本再删)。
+// `kz-manual-models:<project>`(手填候选)。迁移成功后旧键即清除;失败保留旧键,下次重试。
+// UI-0926 #3:`kz-reasoning:<project>` 曾是思考强度的显示真源(从不跟线同步),一并清掉。
 export function legacyModelPrefValue() {
   return localStorage.getItem(prefKey("model")) ?? localStorage.getItem("kz-model") ?? "";
 }
@@ -118,6 +179,7 @@ export function legacyManualModels() {
 }
 export async function migrateLegacyModelPrefs() {
   if (!currentProject) return;
+  localStorage.removeItem(prefKey("reasoning"));
   const legacyModel = legacyModelPrefValue();
   const legacyManual = legacyManualModels();
   if (!legacyModel && legacyManual.length === 0) return;
@@ -146,6 +208,7 @@ export function addManualModel(id) {
   if (!list.includes(id)) list.push(id);
   const defaultProcess = processItems.find((item) => item.id.startsWith("d|"));
   if (defaultProcess) {
+    updateLocalProcessItem(defaultProcess.id, { manual_models: list });
     return queueProcessUpdate(defaultProcess.id, { manualModels: list })
       .then(() => refreshProcesses())
       .catch((error) => reportPersistentError(`${t("手填模型保存失败")}:${error}`));
@@ -154,18 +217,11 @@ export function addManualModel(id) {
   writeJson(prefKey("manual-models"), list);
   return Promise.resolve();
 }
-// R-115:模型与思考强度按项目记——不同项目常配不同模型,共用一个全局键会互相打架。
-// 思考强度此前只写不读(kz-reasoning 全仓零处 getItem),等于每次重启都回默认档。
+// R-115:按项目记的界面偏好(筛选、交付方式)。模型与思考强度已经是按线存在后端的状态。
 export function prefKey(name) {
   return `kz-${name}:${currentProject || "default"}`;
 }
 export function restoreProjectPrefs() {
-  const reasoning = localStorage.getItem(prefKey("reasoning"));
-  const select = $("reasoning-select");
-  // 选项不存在时不要硬塞:赋一个无效值会让 select 落到空串,反而清掉配置默认档。
-  if (reasoning !== null && [...select.options].some((o) => o.value === reasoning)) {
-    select.value = reasoning;
-  }
   const delivery = localStorage.getItem("kz-delivery");
   const deliverySelect = $("delivery-select");
   if (delivery && [...deliverySelect.options].some((o) => o.value === delivery)) {
@@ -174,55 +230,25 @@ export function restoreProjectPrefs() {
   restoreDocFilters();
 }
 
-// 思考强度:空值=用配置默认档,其余为本进程覆盖。
+// ---------- 刷新触发点(只由事件触发,不轮询) ----------
+// 模式芯片换人格 = 换 agent,agent 定义里的模型可能不同。
 defer(() => {
-  $("reasoning-select").addEventListener("change", () => {
-    const value = $("reasoning-select").value;
-    localStorage.setItem(prefKey("reasoning"), value);
-    if (activeProcessId) {
-      updateLocalProcessItem(activeProcessId, { reasoning: value });
-      queueProcessUpdate(activeProcessId, { reasoning: value })
-        .catch((error) => reportPersistentError(`${t("进程思考强度保存失败")}:${error}`));
-    }
+  $("profile-select")?.addEventListener("change", () => void syncModelSelectToActiveLine());
+});
+// 项目模型配置弹窗 / 设置页保存之后:项目层只影响解析,重问一次;全局保存可能改了 provider,目录也重拉。
+defer(() => {
+  document.addEventListener("kz-model-config-changed", (event) => {
+    if (event?.detail?.scope === "global") void loadModels();
+    else void refreshEffectiveModel();
   });
 });
-
+// 配置文件可能在外部编辑器里改过:窗口回到前台时重问一次(2 秒节流)。
+let lastFocusRefresh = 0;
 defer(() => {
-  $("model-select").addEventListener("change", async () => {
-    const select = $("model-select");
-    if (select.value === SHOW_ALL_MODELS_SENTINEL) {
-      const selected = processItems.find((item) => item.id === activeProcessId)?.model ||
-        legacyModelPrefValue();
-      loadModels({ showAll: true }).then(() => {
-        select.value = selected;
-      });
-      return;
-    }
-    if (select.value === MANUAL_MODEL_SENTINEL) {
-      const input = ((await inputDialog({
-        title: t("填 provider:model,例如 deepseek:deepseek-chat"),
-      })) || "").trim();
-      // provider 名必须对得上配置里的键,否则后端 resolve_model 会直接失败。
-      if (!/^[\w.-]+:.+$/.test(input)) {
-        if (input) toast(t("格式应为 provider:model"));
-        select.value = processItems.find((item) => item.id === activeProcessId)?.model || "";
-        return;
-      }
-      addManualModel(input).then(() => loadModels()).then(() => {
-        $("model-select").value = input;
-      });
-      if (activeProcessId) {
-        updateLocalProcessItem(activeProcessId, { model: input });
-        queueProcessUpdate(activeProcessId, { model: input })
-          .catch((error) => reportPersistentError(`${t("进程模型保存失败")}:${error}`));
-      }
-      return;
-    }
-    if (activeProcessId) {
-      // 空串=清除本进程的模型覆盖(回落 agent 默认);传 null 会被后端当作"不修改"。
-      updateLocalProcessItem(activeProcessId, { model: select.value || null });
-      queueProcessUpdate(activeProcessId, { model: select.value })
-        .catch((error) => reportPersistentError(`${t("进程模型保存失败")}:${error}`));
-    }
+  window.addEventListener("focus", () => {
+    const now = Date.now();
+    if (now - lastFocusRefresh < 2000 || !currentProject) return;
+    lastFocusRefresh = now;
+    void refreshEffectiveModel();
   });
 });

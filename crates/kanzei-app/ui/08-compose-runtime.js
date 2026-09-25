@@ -321,11 +321,12 @@ defer(() => {
 
 // 发送用的模型 = **该线存的模型**,不是下拉的显示值。下拉是回显,而回显曾经会回落到旧全局
 // 键(见 loadModels 的注释);鞭挞续跑读的一直是 item.model。两条路不同源的后果是:同一条线
-// 手动发一句和自动轮跑在两个不同的模型上,而界面上只有一个下拉,看不出来。用户改下拉时
-// change 处理器已经先 updateLocalProcessItem,所以这里读到的就是刚选的那个值。
+// 手动发一句和自动轮跑在两个不同的模型上,而界面上只有一个下拉,看不出来。用户在芯片菜单里
+// 选模型时 setLineModel 已经先 updateLocalProcessItem,所以这里读到的就是刚选的那个值。
+// UI-0926 #3:不再有任何 DOM 兜底——线路未知时交给后端按本线存档/agent 默认解析。
 export function lineModelFor(processId) {
   const item = processItems.find((candidate) => candidate.id === processId);
-  return item ? item.model || null : $("model-select").value || null;
+  return item ? item.model || null : null;
 }
 
 export async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
