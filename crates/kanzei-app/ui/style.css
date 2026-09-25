@@ -775,14 +775,11 @@ body {
 }
 /* 项目胶囊常态只显示项目名,完整路径放 title/aria-label。旧版用 direction:rtl
    保留路径尾部,但 inline-flex 的匿名文本节点不会画省略号,会直接吞掉 C:\Users 前缀。
-   改为正常左到右文本溢出,状态点绝对定位在右端,窄窗口也不会再伪造残缺路径。 */
+   改为正常左到右文本溢出,窄窗口也不会再伪造残缺路径。
+   UI-0926 #5:右端那颗纯装饰的强调色圆点去掉(强调色只用于运行中/链接/品牌/看这里)。 */
 .ctx-project {
-  display: block; position: relative; min-width: 0; padding-right: 22px;
+  display: block; position: relative; min-width: 0; padding-right: 10px;
   direction: ltr; text-align: left; color: var(--fg);
-}
-.ctx-project::after {
-  content: ""; position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
-  width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
 }
 .ctx-select {
   max-width: 220px; min-width: 84px; height: 30px; padding: 0 8px;
