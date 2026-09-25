@@ -411,3 +411,170 @@
 - observed_head: 6d1b5de05fa79b5c165769e72fe045a7e26a75e4
 - observed_worktree_hash: fnv1a64:7d45c8bf3eea681c
 - recorded_at: 1789980409036
+
+## R-364 工具延迟加载:常驻层约 20 个工具,其余经 tool_search 按需加载 [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.1/§5.2;实施地图(行号、批次、陷阱、裁决)见 docs/design/cc_codex_alignment_impl_maps.md §1。B1 逐工具 schema 字符账单并定稿常驻名单;B2 tool_search 与通用追加路径、预算门禁拆成常驻面与延迟目录两个数、denial_hint 指向 tool_search 与提示词改写(与 B4 同版发布);B3 Anthropic/Responses 原生延迟加载(先研究后编码);B4 同源测试与硬拒覆盖扩到延迟层。
+- 发现记录: {"Intent":"降低每步工具 schema 注入成本","Explicit":"A 档全收;常驻约 20 个,其余按需加载","Assumptions":"低频工具靠名称目录与 denial_hint 仍可被发现","Ambiguities":"原生 defer_loading 的字段名与载体待探针核对","领域对象":"常驻层、延迟目录、tool_search、已加载集","最小成功闭环":"首个请求只含常驻层,select 加载后下一步可调用","延后决策":"研究档是否分层;已加载集跨重启持久化"}
+- 复杂度: 大
+- 批次: 0/4
+- 来源: 2026-09-25 用户审阅 CC/Codex 三方对照,A 档回答「同意」并要求「直接登记就行」;R-312 B1 实测工具 schema 占每步系统注入 48.6%
+- 标签: 核心
+- 边界: 不做 MCP/skills/hooks;不改 Part::ToolResult 与 LlmRequest 结构;research/readonly/子代理不分层;已加载集不跨重启持久化
+- 验收: ①dev 档主代理首个请求的 tools 只含常驻层(CLI 20、桌面 21),延迟工具以「名称 — 一句话」进 system,账单有 tools/catalog;②tool_search 支持 select 精确加载与关键词检索,加载后下一步起可调用,压缩与溢出恢复后仍可用;③直接调用未加载的延迟工具时自动加载并执行;④预算门禁拆为常驻面与延迟目录两个数,research/readonly/子代理工具面不变;⑤对延迟托管工具的硬拒提示指向 tool_search select;⑥Anthropic/Responses 原生延迟加载经探针核对后启用且加载不改变 tools 前缀,其余协议走追加路径并在账单可见
+- refs: D-662 R-312 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P1
+
+## R-365 网页搜索与抓取升级:模型自带搜索、webfetch 按问题提取与翻页查找、websearch 批量与过滤 [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.5;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §2。B1 订阅通道探针(codex 托管 web_search、codex /alpha/search、claude 服务端搜索、回放与边界行为);B2a 协议层托管搜索的声明、解析、原样回放与计费(Part::Hosted 带通道标识);B2b runner、[web] 配置与桌面渲染(pause_turn 续跑、编号来源列表);B3 webfetch 重做(url|ref、带行号 markdown、落盘、15 分钟缓存、from_line/find/links、跨域重定向不跟、PDF 落盘、web_extract 按问题提取);B4 websearch 批量化与 recency/domains、codex 搜索后端失效自动退 DuckDuckGo、research 档 add_finding 存证门禁。
+- 发现记录: {"Intent":"提高联网检索质量与抓取的上下文效率","Explicit":"结合 CC 的按问题提取与域名过滤、Codex 的批量查询/翻页/查找/引用编号;搜索源用模型自带搜索,探针失败退 Codex 搜索接口,最后 DuckDuckGo 兜底","Assumptions":"订阅后端对托管搜索的接受度以探针为准","Ambiguities":"codex 订阅后端是否接受 gpt-5.6 的托管 web_search","领域对象":"托管搜索条目、引用来源、web ref、web artifact、提取模型","最小成功闭环":"codex 通道主对话可搜索并带来源,webfetch 可按问题提取","延后决策":"L0 清理对托管条目的裁剪;设置页 [web] 表单"}
+- 复杂度: 大
+- 批次: 0/5
+- 来源: 用户 2026-09-25 原话「网页搜索这个很重要,我建议结合两者优点,我的体感是会严重影响工作质量,所以这个我很看重」;搜索源选「模型自带搜索」,探针失败退路选「复用 Codex 搜索接口」
+- 标签: 核心
+- 边界: 不做 web.run 的 click/screenshot/finance 等命令;不声明 Anthropic web_fetch 服务端工具;不给 DeepSeek/本地模型原生搜索;不改 html_to_text 与 fetch_bytes 共享函数
+- 验收: ①B1 的探针结论与脱敏样例写入设计文档,通道开关可追溯到探针证据;②探针通过的订阅通道上主对话可用模型自带搜索,条目持久化后下一轮原样回放不报错,异通道条目不进请求体;③webfetch 支持 url|ref、行号翻页、页内查找、链接清单与按问题提取(失败回落原文分页),同 URL 15 分钟内不重复联网,预览路径格式不变;④websearch 支持 1-4 个查询与时间/域名过滤,结果带 ref,codex 后端失效时自动退回 DuckDuckGo 并注明;⑤research 档默认不开原生搜索,引用未经 webfetch 存证的来源在 add_finding 被拒;⑥桌面显示搜索工具块与编号来源列表,重开会话后一致
+- refs: R-023 R-217 R-248 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P1
+
+## R-366 回退:每条用户消息一个检查点,可选对话+代码/只回退对话/只回退代码 [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.9;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §3。B1 检查点存储(编辑前像按内容寻址存 .kanzei/artifacts/checkpoints,索引 file_checkpoints 表);B2 conversation.rewind 事件与历史重建(桌面、CLI、shadow 同口径);B3 代码还原、外部改动默认跳过、覆盖前留证、预览不会还原的内容;B4 桌面 UI(悬停回退按钮、三选项、预览确认、回填输入框、历史列表可查看已回退段)。
+- 发现记录: {"Intent":"像 CC 一样可回退到任一用户消息","Explicit":"默认对话+代码,可选只对话或只代码,外部改动默认跳过","Assumptions":"只还原编辑工具改过的文件,与 CC 行为契约一致","Ambiguities":"无阻塞项","领域对象":"文件检查点、前像 blob、隐藏区间、回退点","最小成功闭环":"一轮 edit 后回退,文件与对话同时回到该消息之前","延后决策":"检查点 blob 清理策略;冲突文件 diff 展示"}
+- 复杂度: 大
+- 批次: 0/4
+- 来源: 用户 2026-09-25 原话「回退我很常用很重要」,回退范围选「对话+代码」
+- 标签: 核心
+- 边界: 不做模型回退工具与 CLI 回退命令;不还原 bash、git、追踪文档、记忆与附件;检查点 blob 的清理随 R-245 配额机制处理
+- 验收: ①edit/write/insert 首次触碰文件时保存前像,新建文件记为原本不存在,无 run_id 的调用无副作用;②回退对话后桌面、下一轮 prior 与 kz run 都看不到被回退段,历史列表可只读打开回退前原貌;③回退代码恢复前像并删除检查点后新建的文件,外部改动过的文件默认跳过并列出,确认后才覆盖且覆盖前留证;④预览列出将恢复与删除的文件,以及不会还原的 bash、提交、追踪文档与记忆写入;⑤运行中或有排队输入时拒绝回退;⑥不新增模型工具
+- refs: R-242 R-245 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P1
+
+## R-367 先读后写:edit/write/insert 对未读或读后被改的文件返回纠错码 [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.6;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §4。B1 ReadLedger 与 ToolCtx 接线(含与 content_hash 格式一致的流式 hash);B2 read 记账与三个写工具的门禁;B3 桌面与 CLI 生产接线,子代理使用独立账本。
+- 发现记录: {"Intent":"防止按过期内容改文件","Explicit":"复刻 CC 的先读后写契约","Assumptions":"hash 一致加锚点精确匹配足以判定新鲜","Ambiguities":"无阻塞项","领域对象":"读取账本、内容 hash","最小成功闭环":"未读先改被拦,读后放行,外部改动后再改被拦","延后决策":"账本跨重启持久化"}
+- 复杂度: 中
+- 批次: 0/3
+- 来源: 用户 2026-09-25 对 A 档回答「同意」;并行线、codex 共用主工作树与自举并发下,读与写之间文件被改是真实风险
+- 标签: 后端
+- 边界: 不改 bash;账本不持久化;不改模糊回退;不新增工具
+- 验收: ①带账本时对已存在文件未 read 就写返回 READ_BEFORE_WRITE 且文件不变;②部分读取也算读过;③读后被外部改动时 edit/insert 返回 FILE_CHANGED_SINCE_READ 并附目标附近实际内容,write 必须重新 read;④新建文件不受限,写后账本刷新,连续 edit 无需重读;⑤子代理读取不计入主代理账本,新对话清空账本;⑥无账本的 ctx 行为与现状逐字节一致
+- refs: D-395 R-268 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P1
+
+## R-368 文档引用标记、引用历史与引用图:统一抽取、写入校验、git 推导历史、前端侧栏与邻域图 [todo]
+- 内容: 设计见 docs/design/doc_reference_graph.md。B1 refgraph 抽取内核与统一分词(节点模型、强/弱引用、关系类型前缀、区间展开、脏 token 上报、设计文档身份与改名别名);B2 tracker refs 写入校验(只校验本次传入)与 update 删除显式回显、kz refs check/show、req/defect get 附被引用、architecture 工具 refs 动作、引用约定写入 conventions 与设计模板;B3 git 推导引用历史(归档搬运折叠、改号、改名、未提交标记,缓存于 .kanzei/artifacts/refgraph);B4 前端统一跳转(A/M/T 与设计文档路径、Markdown 编号链接)、引用侧栏与历史时间线;B5 邻域关系图与体检面板(与 R-307 B3 共用渲染器)。
+- 发现记录: {"Intent":"让文档之间的引用可标记、可查询、可追溯、可视化管理","Explicit":"引用标记约定、引用历史、前端展示与管理","Assumptions":"Markdown 为唯一真源,引用历史由 git 推导","Ambiguities":"关系类型词表(依据/实现/取代/来源)待用户审阅","领域对象":"文档节点、引用边、关系类型、引用事件、体检问题","最小成功闭环":"打开一份设计文档能看到被哪些条目引用、何时建立,并能跳转","延后决策":"新增违规是否接入 verify;项目根外研究工作区是否纳入"}
+- 复杂度: 大
+- 批次: 0/5
+- 来源: 用户 2026-09-25 原话「我还需要你登记一个功能就是关于kanzei内部注册的文档的引用历史,因为我们不是有设计文档,需求会参考对吧,我想弄一套引用的标记和管理,然后前端做出来显示方便我们管理文档之间的引用关系」
+- 标签: 核心
+- 边界: 不另建链接库作为真源;不新增工具;不引入图库;不覆盖项目根之外的研究工作区;存量违规只报告不阻断
+- 验收: ①抽取覆盖 refs、依赖、设计文档关联头、测试关联、记忆 refs/supersedes 与行内弱引用,每条边带锚点行号;②tracker 写入 refs 时不存在的 ID 或路径返回纠错并列出 token,存量不阻断;③kz refs check 报告悬空引用、设计与决策单向、缺关联头、改名残留路径、从未存在的 T 与脏 token;④任一文档可查看出入边与引用历史,事件区分建立、删除、搬运、改号并带提交号;⑤前端可从任意编号或设计文档路径跳转,邻域图与依赖图共用渲染器;⑥不新增 agent 工具,索引与历史缓存可删可重建
+- refs: R-307 R-353 R-358 docs/design/doc_reference_graph.md
+- 优先级: P2
+
+## R-369 子代理补齐:自定义 agent 进 task、后台运行与完成通知、worktree 可写、续聊 [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.3;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §5。B1 自定义 agent(description)进 task 名册,task 支持 background:true,完成时以 task-notification 注入主对话;B2 isolation:"worktree" 可写子代理(引擎快照提交,主 agent 经 git merge_task squash 合并并走常规 commit 门禁);B3 resume 续聊(按 task_id 恢复 transcript,worktree 任务在原树续)。
+- 发现记录: {"Intent":"让委派更灵活并支持隔离写入","Explicit":"后台、worktree 可写、自定义 agent、续聊四项","Assumptions":"隔离 worktree 是结果侧防线,合并是决策点","Ambiguities":"运行中任务的 resume 在 v1 返回稳定 code,待运行中插话落地后再改","领域对象":"task 名册、后台通知、任务 worktree、transcript、task_id","最小成功闭环":"派出后台可写 task,完成通知到达后主 agent 合并其分支","延后决策":"运行中续聊;任务 worktree 保留策略可配置"}
+- 复杂度: 大
+- 批次: 0/3
+- 来源: 用户 2026-09-25 在筛选问卷中勾选「后台运行,worktree 可写,自定义 agent,续聊」
+- 标签: 核心
+- 边界: 不新增工具(只在 task 与 git 上加参数和动作);不做运行中子代理插话;不给编排角色开后台或可写;重启后不自动恢复后台子代理执行
+- 验收: ①.kanzei/agents/*.md 中 mode: subagent 的 agent 出现在 task 枚举,人格缺省模型生效;②background:true 只后台化该次调用,完成通知进入主对话(运行中排队、空闲开新一轮),可单条停止;③isolation:"worktree" 时主树零改动,子代理内 git 写动作与 .kanzei 托管写入被硬拒,合并经 merge_task 与常规 commit 门禁;④resume 可续已结束的任务且跨重启可用,未知或运行中的 id 返回稳定 code;⑤子代理仍不能嵌套,CLI 与 readonly 档的 schema 不出现 background/isolation
+- refs: R-175 R-176 R-281 R-327 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P2
+
+## R-370 定时任务:一个概念一个面板,触发器到固定流程到可选回写,触发位置可选 app/system/server [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.10;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §6。B1 定义格式(.kanzei/schedules/*.md,人话频率)、应用内调度器、独立会话执行;B2 回写通道(notify、memory_inbox、file、idea);B3 任务面板与表单;B4 错过补跑、历史、连续失败自动停用;B5 host=system(kz schedule run 与 Windows 任务计划程序);B6 host=server(登记服务器上的 cron、SSH 拉回、本地补做回写)。
+- 发现记录: {"Intent":"用简单直观的定时任务承接触发器与固定流程","Explicit":"一个面板、人话频率、回写可选、三种触发位置","Assumptions":"server 档指托管到已登记的自有服务器","Ambiguities":"server 档的理解待用户审阅设计文档时确认","领域对象":"定时任务定义、运行记录、回写通道、触发位置","最小成功闭环":"每 5 分钟的任务在应用内到点运行并回写文件与通知","延后决策":"事件触发;全局任务归属;远端完整对话拉回"}
+- 复杂度: 大
+- 批次: 0/6
+- 来源: 用户 2026-09-25 原话「比起MCP我更想定义触发器和固定pipline的回写」「倾向于定时任务那样子,但是我认为CC的定时任务偏复杂不好用,并且前端呈现不直观」「这个做成可选比较合适吧」「提供几个选项,一直开着APP的时候触发,关闭触发,服务器自定义托管触发」
+- 标签: 核心
+- 边界: 不给模型定时任务工具;不做事件触发(留 v2);v1 只做项目级任务;不引入 YAML/cron crate
+- 验收: ①§5.10 示例定义能被识别,解析失败带行号显示在面板;②每次运行是独立会话,主对话零污染,需要询问的动作被拒并列出,运行继续到结束;③四种回写可多选且逐项记录成败;④面板用频率选择器,不出现 cron,开发与研究空间都可见;⑤catch_up 行为正确,新建或刚启用的任务不补跑;⑥host=system 在应用关闭时照常运行,host=server 在远端运行并拉回,回写只做一次
+- refs: A-016 A-018 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P2
+
+## R-371 运行中插话:steer 在工具边界注入当前 run,界面标记已送达 [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.8;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §7。B1 core 注入点、SteerCommitted 事件与 SteerMessageCommitted typed 事实;B2 桌面 inbox 取件、落库、kz:steer-delivered 事件;B3 界面已送达标记。RunnerConfig 新字段与手动压缩、缓存测量两条共享,最先落地的条目一次性加齐三个字段。
+- 发现记录: {"Intent":"插话不必等整个 run 结束","Explicit":"steer 在工具边界注入,UI 标记已送达","Assumptions":"插话作为独立 typed 事实持久化","Ambiguities":"无阻塞项","领域对象":"steer 输入、插话事实、送达事件","最小成功闭环":"运行中插一句,下一步请求里模型就看到","延后决策":"手机端插话;子代理插话"}
+- 复杂度: 大
+- 批次: 0/3
+- 来源: 用户 2026-09-25 对 A 档回答「同意」;用户「好用」五条标准中的「快和流畅」「少打断」
+- 标签: 核心
+- 边界: 不改 queue 语义与 run 边界循环;不做手机端插话;不给子代理转发插话
+- 验收: ①run 进行中发送的 steer 在下一次 provider 请求前以一条 user 消息进入上下文,同一 run 内模型可见;②queue 仍在 run 边界处理,最后一步才到达的 steer 留到 run 边界开新 run;③插话被持久化,重启后对话与下一轮 prior 中仍在;④送达后输入状态为 completed,之后停止不改写;⑤界面气泡显示已送达,排队条同步消失;⑥子代理与 CLI 不消费 steer
+- refs: R-241 R-242 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P2
+
+## R-372 手动压缩:桌面 /compact [焦点] 与 kz compact,纪要不再依赖子代理运行时 [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.8;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §8。B1 core 的 DigestModel 与子代理解耦并支持焦点(焦点写进 system 段);B2 桌面与 CLI 装配 DigestModel,轮末压缩改用它;B3 入口:桌面输入框 /compact 与 kz compact 子命令。
+- 发现记录: {"Intent":"可手动压缩并指定保留重点","Explicit":"桌面 /compact 与 kz compact,纪要不依赖子代理","Assumptions":"沿用现有 compaction 事务与投影","Ambiguities":"无阻塞项","领域对象":"DigestModel、焦点、compaction 事务","最小成功闭环":"输入 /compact 某主题后下一轮 prior 为纪要加近期原文","延后决策":"CLI 压缩并行线会话"}
+- 复杂度: 中
+- 批次: 0/3
+- 来源: 用户 2026-09-25 对 A 档回答「同意」;CC 与 Codex 都提供手动压缩并可指定焦点
+- 标签: 后端
+- 边界: 不动 summarize_chat;不改 L0 prune 与应急压缩;不改自动压缩触发线
+- 验收: ①桌面输入 /compact [焦点] 与 kz compact [--focus 文本] 都能手动触发压缩,焦点进入 L1 纪要指令;②压缩结果以 compaction 事务持久化,下一轮 prior 与重启后都是压缩后的 surface;③关闭子代理时轮内、轮末与手动压缩都能产出纪要;④运行中手动压缩被拒,压缩进行中的新发送被拒;⑤无可压缩内容时给出说明且不写事务
+- refs: R-236 D-181 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P2
+
+## R-373 缓存测量:按步落盘 cache_read/cache_write,Responses 带 prompt_cache_key,看数据决定是否挪动每步刷新段 [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.8;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §9。B1a 每步用量进 RunSummary 并落 episodes.metrics_json(不加列、不升 schema);B1b Responses 请求带 prompt_cache_key=会话 id,codex 路由 session_id 头稳定化并真跑验证;B2(有条件)仅当数据显示刷新段变化明显拉低命中率时,把每步刷新段从 system 末尾挪到临时尾消息并同步调整 Anthropic 第二断点。
+- 发现记录: {"Intent":"量化并改善提示词缓存命中","Explicit":"先测量,再决定是否挪动每步刷新段","Assumptions":"metrics_json 为自由 JSON,加键零迁移","Ambiguities":"codex 订阅后端是否接受 prompt_cache_key 待真跑","领域对象":"step_usage、cache_read、cache_write、prompt_cache_key","最小成功闭环":"真跑一轮后 episodes 可查到逐步缓存数据","延后决策":"挪动注入位置;命中率看板"}
+- 复杂度: 中
+- 批次: 0/3
+- 来源: 用户 2026-09-25 对 A 档回答「同意」(A7 先测量再动注入位置)
+- 标签: 模型
+- 边界: B1 不改 system 拼装与缓存断点;不改 Chat Completions/DeepSeek 请求;不做 UI 看板
+- 验收: ①主代理每个 run 的 episodes.metrics_json 含 cache.read/cache.write 总量与逐步 step_usage,数组长度等于步数;②每步记录 refreshable_changed,可分组比较命中率,口径统一为 cache_read/(input+cache_read+cache_write);③Responses 请求带 prompt_cache_key,其他协议请求体不变;④有一份基于真实数据的结论决定 B2 做或不做,写回设计文档
+- refs: R-106 R-184 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P2
+
+## R-374 question 批量化:一次问 1-4 个问题,单弹窗展示后一次提交 [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.4;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §10(以其中「裁决」的单弹窗形态为准)。B1 后端:questions 数组与旧单问归一、多题 AskRequest 与 Answers 响应、answer_ask 支持答案数组、CLI 逐题 stdin、非交互登记全部问题;B2 桌面单弹窗纵向展示全部问题(各题选项与「其他」输入)、工具块摘要与 QUESTION_PENDING 回放支持多题。
+- 发现记录: {"Intent":"一次把问题问完,减少打断","Explicit":"一次 1-4 个问题,选项带说明","Assumptions":"单弹窗一次提交比逐题弹窗更少打断","Ambiguities":"无阻塞项","领域对象":"多题提问、答案数组、延迟提问","最小成功闭环":"模型一次调用问两题,用户在一个弹窗里答完","延后决策":"手机端多题作答"}
+- 复杂度: 中
+- 批次: 0/2
+- 来源: 用户 2026-09-25 选择「question 一次问多个」;用户「好用」五条标准中的「少打断」
+- 标签: 前端
+- 边界: 不修手机端 question 只能批准/拒绝的缺口(另登缺陷);运行时不强制选项数量;不改 question 的权限规则
+- 验收: ①旧形态 {question, options, default, multiple} 不报错,等价于一个元素的 questions,单题结果逐字保持「User answer: …」;②交互运行中 1-4 个问题在一个弹窗内展示并一次提交,结果按顺序列出每题问题与答案,「其他」原样返回;③questions 为空、超过 4 个或某题为空时返回纠错且不打扰用户;④非交互运行返回 QUESTION_PENDING,display 含各题且不带 default;⑤中途取消返回错误并附已答题;⑥模型可见 schema 只推新形态且不含 $ref
+- refs: D-337 D-745 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P2
+
+## R-375 项目指令文件:注入仓库根到 cwd 各层的 AGENTS.md(缺省取 CLAUDE.md) [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.8;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §11。单批:新建 project_instructions 纯函数模块,在 BaseComponent 注册 stable source「project/instructions」,dev/research/readonly 三档注入,task 子代理不注入;32 KiB 预算,超出显式注明;段首说明指令里点名的工具在 kanzei 不存在时按意图用等价工具。
+- 复杂度: 小
+- 批次: 0/1
+- 来源: 用户 2026-09-25 对 A 档回答「同意」;kanzei 在其他项目中运行时会漏掉该项目已有的 AGENTS.md/CLAUDE.md 约定
+- 标签: 后端
+- 边界: 不读全局 AGENTS.md;不支持 AGENTS.override.md、.claude/CLAUDE.md 与 @import;不改 dev/conventions 注入
+- 验收: ①从仓库根到 cwd 逐层,每层优先 AGENTS.md,不存在才取 CLAUDE.md,根到叶顺序拼接并标出相对路径;②worktree 线读 worktree 里的文件;③总预算 32 KiB,超出时显式注明原大小与截掉字节数,截断落在字符边界;④没有指令文件时不产生段落与账单项;⑤task 子代理不注入,且该段不随每步刷新
+- refs: D-201 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P2
+
+## R-376 工具结果外置阈值降到 32 KiB:头尾预览与绝对回取路径,read 与 task 结果豁免 [todo]
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.7;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §12。单批:外置阈值 1 MiB 改为 32 KiB,预览为头 8 KiB 加尾 4 KiB(按字符边界切),模型文本给出可直接 read 的绝对路径;read 与 task 结果豁免;外置时保留 terminal display;删除每次调用写文件的影子遥测。磁盘配额语义仍归 R-245,待用户拍板。
+- 复杂度: 小
+- 批次: 0/1
+- 来源: 用户 2026-09-25 对 A 档回答「同意」;CC 约 3 万字符、Codex 约 1 万 tokens 即外置或截断
+- 标签: 后端
+- 边界: 不改 bash 1 MiB 捕获;不改 read 自身分页上限;不做自动过期;配额实现留在 R-245
+- 验收: ①超过 32 KiB 的非 read、非 task 工具结果外置,模型看到头尾预览、原始字节数与绝对回取路径;②不超过 32 KiB 的结果与现状逐字节一致;③多字节内容预览不 panic 且为合法 UTF-8;④活动面板对外置的 bash/git 长输出仍显示终端块;⑤artifact 引用图与清理计划照常识别被引用文件
+- refs: R-245 D-349 D-237 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P2
+
+## R-377 会话分叉:从某条用户消息分叉出新线,原线不动 [todo]
+- 依赖: R-366
+- 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.11;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §13。单批:复用回退条目 B2 的 validate_rewind_target 与 project_visible_surface_before,以 fork: 伪 id 的 LegacySeeded 事实为新线种子历史,回退菜单加「从这里分叉」。
+- 发现记录: {"Intent":"从某条消息另起一条线尝试别的方向","Explicit":"分叉可以要,优先级低于回退","Assumptions":"复用回退条目的可见历史投影","Ambiguities":"无阻塞项","领域对象":"分叉种子、新线","最小成功闭环":"从中间消息分叉后新线能引用分叉前的上下文","延后决策":"分支树视图;CLI 分叉"}
+- 复杂度: 中
+- 批次: 0/1
+- 来源: 用户 2026-09-25 原话「分叉可以要,但是用的情况相对少,因为有良好的上下文管理其实我不怎么用到分叉」
+- 标签: 前端
+- 边界: 只分叉对话历史;不复制 worktree、run.trace、episodes 与子代理 transcript;不做分支树视图与 CLI 入口
+- 验收: ①分叉新建一条线,历史截止到被点中消息之前,原文回填新线输入框,原线事件不变;②分叉不带代码状态,从 worktree 线分叉时明确提示;③新线首轮 prior 即种子历史,conversation_list 中显示为一段;④种子只写一条 LegacySeeded 事实
+- refs: R-242 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P3

@@ -11,6 +11,9 @@
 
 ## live_design
 
+- [identity: live_design; last_verified_commit: 250fb219] [`cc_codex_alignment_20260925.md`](../../../docs/design/cc_codex_alignment_20260925.md)：Claude Code / Codex 能力对照与对齐清单(复刻清单 v1;接口定义与用户筛选结论,R-364~R-367、R-369~R-377、D-748、D-751 承接)。
+- [identity: live_design; last_verified_commit: 250fb219] [`cc_codex_alignment_impl_maps.md`](../../../docs/design/cc_codex_alignment_impl_maps.md)：CC/Codex 对齐条目实施地图(行号、批次、陷阱与裁决;勘察加对抗核对产出)。
+- [identity: live_design; last_verified_commit: 250fb219] [`doc_reference_graph.md`](../../../docs/design/doc_reference_graph.md)：文档引用标记、引用历史与引用图(R-368;D-749、D-750)。
 - [identity: live_design; last_verified_commit: 788dc43e] [`voice_interaction.md`](../../../docs/design/voice_interaction.md)：本机语音识别、流式播报、插话打断、人物嘴型与安装验证边界。
 - [identity: live_design; last_verified_commit: 568adcc8] [`memory_feedback_reliability.md`](../../../docs/design/memory_feedback_reliability.md)：记忆观测、恢复证据与信息呈现改造(R-361；568adcc8 为审计基线，首批代码在工作树完成定向验证，收益对照与任务上下文改造待推进)。
 

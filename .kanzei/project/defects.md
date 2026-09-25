@@ -89,3 +89,43 @@
 - observed_worktree_hash: fnv1a64:43a1d1024625f1f8
 - recorded_at: 1788803219458
 - 阻塞: 用户：在 kzapp 安装位空闲后允许 agent 执行一次修复版本安装/启动，并用 UIA 点击长历史项目的运行画像验证窗口仍可响应；解除条件:用户
+
+## D-748 commands 注册表只进提示词、从不展开参数,按「接线或删」原则删除 [open] (low)
+- 复杂度: 小
+- 复现: crates/kanzei-harness/src/markdown.rs:30-41 与 152-173 扫描 commands/*.md 并把「可用命令」清单拼进 core/commands_skills;全仓除测试 markdown.rs:322 外没有任何消费方,UI 与 CLI 也没有 /命令 入口,$ARGUMENTS 从不展开
+- 影响: 提示词里列出实际不可用的能力(D-173 失效模式);direction_taste.md v0 已判定「接线或删,不许半吊」,用户 2026-09-25 明确不要 skills/commands 接线
+- 来源: 2026-09-25 CC/Codex 对照筛选(§5.12);实施地图见 docs/design/cc_codex_alignment_impl_maps.md §14
+- 标签: 核心
+- 验收: ①commands 目录不再被扫描,也不出现在 system baseline;②skills 清单照旧注入;③CommandDef、HarnessDraft.commands、HarnessSnapshot::commands() 从代码中移除且编译通过;④账单 key 改为 core/skills;⑤harness_m1.md、架构索引与代码注释同步为五类注册表
+- refs: D-184 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- 优先级: P3
+
+## D-749 记忆 refs 引用 M-* 永远校验失败:MEMORY 文档种类指向不存在的 .kanzei/project/memory.md [open] (medium)
+- 复杂度: 小
+- 复现: crates/kanzei-memory/src/memory/mod.rs:310-361 的 validate_source_refs 把 M- 前缀映射到 MEMORY 文档种类(crates/kanzei-memory/src/docstore/model.rs:108-120,路径 .kanzei/project/memory.md);该文件在本仓不存在,DocStore::load 遇 NotFound 返回空列表,任何 M- 编号都查不到;真实记忆文件在 .kanzei/memory/ 与 archive/
+- 影响: 记忆条目之间无法互相引用(memory_note 与 memory-manager 写入 M-* refs 必被拒);文档引用图无法正确识别记忆节点
+- 来源: 2026-09-25 文档引用勘察(只读);mod.rs:1746 的测试断言 M-042 报错,未覆盖真实存在的记忆编号
+- 标签: 后端
+- 验收: ①M-* 引用按 .kanzei/memory/ 与 archive/ 的真实文件校验,存在即通过;②不存在的 M 编号仍被拒;③补测试:临时项目放置 M-001 文件后 validate_source_refs 通过
+- refs: R-070 docs/design/doc_reference_graph.md
+- 优先级: P2
+
+## D-750 依赖视图把依赖已归档终态条目的需求误判为被阻塞,与引擎 block_reasons 不一致 [open] (low)
+- 复杂度: 小
+- 复现: crates/kanzei-app/ui/12-docs-pages.js:374 的已完成集合只取快照中的活跃条目;依赖已归档(终态)条目的需求会被放进「被阻塞」层,而引擎 crates/kanzei-tools/src/tracker/scheduling.rs:424-425 认为不阻塞
+- 影响: 依赖视图显示的阻塞状态与取活引擎不一致,误导人工排期
+- 来源: 2026-09-25 文档引用勘察(只读)
+- 标签: 前端
+- 验收: ①依赖指向归档终态条目时,视图判为可做;②与引擎 block_reasons 对同一快照的判定一致;③ui-runtime-smoke 补一个依赖归档条目的夹具
+- refs: R-307 R-111 docs/design/doc_reference_graph.md
+- 优先级: P3
+
+## D-751 手机端 question 卡片只有批准/拒绝,并把 allow/deny 当作答案文本回给模型 [open] (medium)
+- 复杂度: 小
+- 复现: crates/kanzei-app/mobile-pwa/app.js:205-224 对 kind=question 的卡片也只渲染「批准/拒绝」按钮并提交 allow/deny;crates/kanzei-app/src/mobile.rs:463-468 对 AskRequest::Question 把回复原样作为 AskResponse::Answer 返回,模型收到「User answer: allow」
+- 影响: 在手机上回答模型提问会给出无意义答案并污染对话;question 批量化后同一批问题会被塞入多个 allow
+- 来源: 2026-09-25 CC/Codex 对齐勘察(question 批量化条目核对时发现)
+- 标签: 前端
+- 验收: ①手机端 question 卡片显示问题、选项与文本输入,提交真实答案;②不再把 allow/deny 作为 question 的答案;③选项为空时可输入自由文本;④补手机桥的回归测试
+- refs: R-270 R-059
+- 优先级: P2
