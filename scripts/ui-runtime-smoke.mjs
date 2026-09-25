@@ -9096,6 +9096,83 @@ const docsB = {
   await flush();
 }
 
+// ---------- UI-0926 ESM 回归:这些调用曾经在真机上从未执行(globalThis 上根本没有它们) ----------
+// 冒烟 sandbox 把全部 ESM 导出复制成全局,`typeof globalThis.X === "function"` 的死调用在这里
+// 一直是绿的。这一段先把这些名字从 sandbox 全局摘掉(= 真机浏览器的样子),再走真实事件路径,
+// 用它们的**副作用**证明调用确实发生了。ui-lint 的静态守卫拦写法,这里拦行为。
+{
+  const DEAD_NAMES = [
+    "refreshParallelTaskProjection", "refreshConversationLists", "handleBackgroundSessionDone",
+    "cancelAutoContinueTimer", "focusForProcess", "fastStatusText", "markLanguagePreferenceDirty",
+  ];
+  const stash = new Map(DEAD_NAMES.map((name) => [name, sandbox[name]]));
+  const esmLines = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+    { id: "p|esm-bg", label: "ESM 后台线", session_id: "sess-esm-bg", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+  ];
+  const savedEsmProcessList = payloads.process_list;
+  payloads.process_list = structuredClone(esmLines);
+  sandbox.renderProcesses(structuredClone(esmLines));
+  await flush();
+  for (const name of DEAD_NAMES) delete sandbox[name];
+  try {
+    assert(DEAD_NAMES.every((name) => vm.runInContext(`typeof globalThis.${name}`, sandbox) === "undefined"), "ESM 回归前置:sandbox 全局未摘干净");
+    kzTest.setAutoState("p|esm-bg", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+    const esmGlyph = () => [...document.querySelectorAll("#parallel-task-status .parallel-task-row")]
+      .find((row) => row.dataset.processId === "p|esm-bg")?.querySelector(".kz-glyph");
+    assert(esmGlyph()?.dataset.state === "idle", `ESM 回归前置:后台线应为空闲,实为 ${esmGlyph()?.dataset.state}`);
+    // ① 逐事件线路投影:后台线的 kz:turn 只进路由层(不进 handler、不整表重绘),线路行只能靠它点亮。
+    handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: "sess-esm-bg" } });
+    assert(esmGlyph()?.dataset.state === "running", "ESM 回归:后台线 kz:turn 后线路行没亮——逐事件投影(refreshParallelTaskProjection)没执行");
+    // ② 后台线轮末续跑:kz:done 在路由层转给 handleBackgroundSessionDone,由它排下一轮。
+    const conversationListsBefore = invokeArgs.length;
+    handlers.get("kz:done")({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-esm-bg" } });
+    assert(kzTest.timerSessions().includes("sess-esm-bg"), "ESM 回归:后台线 kz:done 没有排续跑——handleBackgroundSessionDone 没执行");
+    assert(sandbox.sessionState("sess-esm-bg").phase === "auto_pending", "ESM 回归:后台线 kz:done 后没进入等待下一轮");
+    await settle();
+    assert(
+      invokeArgs.slice(conversationListsBefore).some(({ cmd }) => cmd === "conversation_list"),
+      "ESM 回归:后台线控制事件没有刷新会话列表——refreshConversationLists 没执行",
+    );
+    // ③ 后台线停止必须取消已排的续跑定时器,否则停下的线过 2 秒又自己跑起来。
+    if (!kzTest.timerSessions().includes("sess-esm-bg")) sandbox.armAutoContinue(sandbox.continuePrompt(), "sess-esm-bg");
+    assert(kzTest.timerSessions().includes("sess-esm-bg"), "ESM 回归前置:续跑定时器应已排上");
+    handlers.get("kz:stopped")({ payload: { sessionId: "sess-esm-bg" } });
+    assert(!kzTest.timerSessions().includes("sess-esm-bg"), "ESM 回归:后台线停止后续跑定时器还在——cancelAutoContinueTimer 没执行");
+    await flush();
+    // ④ 状态栏 fast 模型:托管但服务未起时必须说出缺哪一环(死调用时这一格是空的)。
+    await sandbox.refreshFastStatusBar();
+    const fastText = byId.get("status-fast").textContent;
+    assert(fastText.includes("⚠") && !byId.get("status-fast").classList.contains("hidden"), `ESM 回归:状态栏 fast 状态为空——fastStatusText 没执行(实得「${fastText}」)`);
+    // ⑤ 设置页语言偏好:改了语言要标脏,否则保存设置时把旧语言写回去。
+    await sandbox.loadSettings({ force: true });
+    await flush();
+    const settingsNs = esmModuleCache.get("16-settings.js")?.namespace;
+    assert(settingsNs?.languagePreferenceDirty === false, "ESM 回归前置:载入设置后语言偏好不应是脏的");
+    const languageSelect = byId.get("language-select");
+    languageSelect.dispatchEvent({ type: "change" });
+    assert(settingsNs.languagePreferenceDirty === true, "ESM 回归:改语言没有标脏——markLanguagePreferenceDirty 没执行,保存设置会写回旧语言");
+    await sandbox.loadSettings({ force: true });
+    await flush();
+    // ⑥ 默认线「被取得」:无 claimed_by 的 doing 条目由默认线持有的判据读主线焦点(focusForProcess)。
+    sandbox.renderProcesses(structuredClone(savedEsmProcessList));
+    await flush();
+    sandbox.renderDocuments(savedDocsPayload);
+    sandbox.renderLines(payloads.collaboration_snapshot);
+    assert(
+      document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .doc-claim-fact'),
+      "ESM 回归:默认线占着 R-001 却没有被取得标记——focusForProcess 没执行",
+    );
+  } finally {
+    for (const [name, value] of stash) sandbox[name] = value;
+    kzTest.cancelTimers();
+    vm.runInContext('transitionSession("sess-esm-bg", "idle")', sandbox);
+    payloads.process_list = savedEsmProcessList;
+    sandbox.renderProcesses(structuredClone(savedEsmProcessList));
+    await flush();
+  }
+}
+
 // ===== 分区:子代理 =====
 
 if (issues.length) {

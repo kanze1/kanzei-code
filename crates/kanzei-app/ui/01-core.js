@@ -307,9 +307,8 @@ export function on(event, handler) {
     }
     // 事件流是线路状态的实时投影入口。不能等 kz:done/kz:idle 或下一次
     // process_list 轮询，否则工具执行期间线路按钮和 stop 会按轮次滞后。
-    if (sessionId && typeof globalThis.refreshParallelTaskProjection === "function") {
-      globalThis.refreshParallelTaskProjection(sessionId);
-    }
+    // 直接调 ESM import:它从未挂到 globalThis,旧写法的 typeof 在真机上恒为 undefined(死调用)。
+    if (sessionId) refreshParallelTaskProjection(sessionId);
     const controlEvent =
       event === "kz:ask" ||
       event === "kz:status" ||
@@ -368,13 +367,11 @@ export function on(event, handler) {
           stage: "空闲",
           detail: "",
         });
-        if (typeof globalThis.refreshParallelTaskProjection === "function") {
-          globalThis.refreshParallelTaskProjection(sessionId);
-        }
+        refreshParallelTaskProjection(sessionId);
       }
       // D-387:手机消息注入桌面——刷新会话列表(消息已由后端持久化,打开会话可见)。
       if (event === "kz:mobile-message") {
-        if (typeof globalThis.refreshConversationLists === "function") void globalThis.refreshConversationLists();
+        void refreshConversationLists();
         if (typeof refreshProcesses === "function") refreshProcesses();
         if (typeof handleMobileMessage === "function") handleMobileMessage(eventPayload.payload);
         return;
@@ -382,19 +379,17 @@ export function on(event, handler) {
       // kz:ask 不走路由分支:它必须始终进 handler,按 sessionId 入队
       // (handler 内只在活动会话时弹窗),否则后台 ask 会被丢弃挂死(D-055 根因)。
       if (event !== "kz:ask" && sessionId !== activeSessionId) {        // 控制事件的 UI 副作用不能串到活动线路，但所属线路的历史与自主推进必须执行。
-        if (event === "kz:done" && typeof globalThis.handleBackgroundSessionDone === "function") {
-          globalThis.handleBackgroundSessionDone(eventPayload.payload);
-        }
+        if (event === "kz:done") handleBackgroundSessionDone(eventPayload.payload);
         if (event === "kz:stopped" || terminalError) {
           // 后台线路的终态错误同样不得掐掉在途的失败退避重试(上面 retryPending 同源):
           // 后台线更没人看着,一次断网就永久停摆。in-flight 标记照旧释放——重试那一枪
           // 到点后才发得出去。
-          if (!retryPending && typeof globalThis.cancelAutoContinueTimer === "function") globalThis.cancelAutoContinueTimer(sessionId);
+          if (!retryPending) cancelAutoContinueTimer(sessionId);
           if (typeof releaseAutoContinue === "function") releaseAutoContinue(sessionId);
           // #7:该线 pane 里还在转圈的工具行随终态收尾(标「中断」),否则切回去永远在转。
           chatAbortRunningFor(sessionId);
         }
-        if (typeof globalThis.refreshConversationLists === "function") void globalThis.refreshConversationLists();
+        void refreshConversationLists();
         refreshProcesses();
         log(`${t("后台会话控制事件已路由")}:${event} ${sessionId}`);
         return;

@@ -353,6 +353,7 @@ defer(() => {
 });
 
 export let sidebarCollapsed = localStorage.getItem("kz-sidebar-collapsed") === "1";
+export function setSidebarCollapsed(value) { sidebarCollapsed = Boolean(value); }
 export function syncSidebar() {
   const sidebar = $("sidebar");
   sidebar.classList.toggle("collapsed", sidebarCollapsed);
@@ -798,7 +799,7 @@ export async function refreshFastStatusBar() {
     el.textContent = "";
     return;
   }
-  const st = typeof globalThis.fastStatusText === "function" ? globalThis.fastStatusText(s) : null;
+  const st = fastStatusText(s);
   const short = st
     ? s.ready
       ? `✓ ${t("子代理就绪")}`

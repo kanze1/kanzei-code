@@ -2,7 +2,7 @@ import { defer } from "./01-core.js";
 import { localizeDynamic } from "./02-i18n.js";
 import { $, invoke, promptBox } from "./01-core.js";
 import { localizedDocStatus, t } from "./02-i18n.js";
-import { currentProject, log, navigate_view, sidebarCollapsed, syncSidebar, toast, toastError } from "./03-shell.js";
+import { currentProject, log, navigate_view, setSidebarCollapsed, sidebarCollapsed, syncSidebar, toast, toastError } from "./03-shell.js";
 import {
   DOC_TAG_ORDER,
   NEUTRAL_DOC_FILTERS,
@@ -275,7 +275,8 @@ export async function jumpToEntry(ref) {
   // 没有就取当前可见的,再没有就取第一个并把挡住它的容器逐层打开。
   const target = inDocuments ?? matches.find((item) => item.offsetParent) ?? matches[0];
   if (sidebarCollapsed && target.closest("#sidebar")) {
-    sidebarCollapsed = false;
+    // 不能直接给 import 绑定赋值:ESM 里那是只读的,旧写法一执行就抛 TypeError。
+    setSidebarCollapsed(false);
     localStorage.setItem("kz-sidebar-collapsed", "0");
     syncSidebar();
   }
@@ -315,9 +316,7 @@ export function claimedCollaborationLineFor(entry) {
   // 「谁是当前 WIP」的推断。即使用户当前查看并行线,主线的标记也不能跟着漂移。
   const primary = lines.find((candidate) => !candidate?.worktree_path);
   if (!primary) return null;
-  const primaryFocus = typeof globalThis.focusForProcess === "function"
-    ? globalThis.focusForProcess(primary.process_id)
-    : null;
+  const primaryFocus = focusForProcess(primary.process_id);
   const focused = primaryFocus?.active === entry.id;
   if (!focused) return null;
   return {
