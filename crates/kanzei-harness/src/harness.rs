@@ -1,11 +1,11 @@
-//! Harness 装配:组件 → 草稿(六注册表)→ 不可变快照。
+//! Harness 装配:组件 → 草稿(五注册表)→ 不可变快照。
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::KanzeiConfig;
 use crate::context::ContextSource;
-use crate::defs::{AgentDef, CommandDef, ProfileKind, SkillDef};
+use crate::defs::{AgentDef, ProfileKind, SkillDef};
 use crate::permission::{Effect, Rule, Ruleset};
 use crate::registry::Registry;
 use crate::tool::Tool;
@@ -28,7 +28,6 @@ pub trait Component: Send + Sync {
 pub struct HarnessDraft {
     pub agents: Registry<AgentDef>,
     pub tools: Registry<Arc<dyn Tool>>,
-    pub commands: Registry<CommandDef>,
     pub skills: Registry<SkillDef>,
     pub context: Registry<Arc<dyn ContextSource>>,
     pub permissions: Ruleset,
@@ -98,10 +97,6 @@ impl HarnessSnapshot {
 
     pub fn agents(&self) -> &Registry<AgentDef> {
         &self.draft.agents
-    }
-
-    pub fn commands(&self) -> &Registry<CommandDef> {
-        &self.draft.commands
     }
 
     pub fn skills(&self) -> &Registry<SkillDef> {

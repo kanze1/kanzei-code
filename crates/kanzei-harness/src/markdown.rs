@@ -1,10 +1,10 @@
-//! markdown 组件源:扫描 ~/.kanzei/ 与项目 .kanzei/ 下的 agents/commands/skills 目录。
-//! frontmatter 为 `---` 包围的扁平 `key: value`;正文即 system/template。
+//! markdown 组件源:扫描 ~/.kanzei/ 与项目 .kanzei/ 下的 agents/skills 目录。
+//! frontmatter 为 `---` 包围的扁平 `key: value`;agent 正文成为 system prompt,技能正文仅按需读取。
 //! 解析失败跳过并 warn,不炸整个 resolve(单个坏文件不应瘫痪 harness)。
 
 use std::path::Path;
 
-use crate::defs::{AgentDef, CommandDef, SkillDef, DEFAULT_AGENT_STEPS};
+use crate::defs::{AgentDef, SkillDef, DEFAULT_AGENT_STEPS};
 use crate::harness::{Component, HarnessDraft, ResolveCtx};
 
 pub struct MarkdownComponent;
@@ -19,26 +19,9 @@ impl Component for MarkdownComponent {
 
         for base in bases {
             scan_agents(&base.join("agents"), draft);
-            scan_commands(&base.join("commands"), draft);
             scan_skills(&base.join("skills"), draft);
         }
-        // D-184:commands/skills 消费端——渲染进 system baseline。
-        // 扫描结果即 final(contribute 内已填充),渲染成静态文本克隆进闭包
-        // (ContextSource 闭包只拿 ResolveCtx,不持有 draft)。
-        // commands → 可调用清单;skills → 加载提示(正文留在文件,按需 read)。
-        let mut blocks = Vec::new();
-        if !draft.commands.is_empty() {
-            let mut text = String::from(
-                "可用命令(commands):按名调用,模板正文在对应 md 文件,参数用 $ARGUMENTS / $1..$N:\n",
-            );
-            for (name, cmd) in draft.commands.iter() {
-                text.push_str(&format!("- {name}: {}\n", cmd.description));
-                if let Some(agent) = &cmd.agent {
-                    text.push_str(&format!("  (限定 agent: {agent})\n"));
-                }
-            }
-            blocks.push(text.trim().to_string());
-        }
+        // 技能清单注入名称、描述与正文路径;技能正文仍由 agent 按需读取。
         if !draft.skills.is_empty() {
             let mut text = String::from("可用技能(skills):做相关任务时读取对应文件加载技能正文:\n");
             for (name, skill) in draft.skills.iter() {
@@ -48,13 +31,10 @@ impl Component for MarkdownComponent {
                     skill.path.display()
                 ));
             }
-            blocks.push(text.trim().to_string());
-        }
-        if !blocks.is_empty() {
-            let block = blocks.join("\n\n");
+            let block = text.trim().to_string();
             draft.context.insert(
-                "core/commands_skills",
-                crate::source("core/commands_skills", move |_| Some(block.clone())),
+                "core/skills",
+                crate::source("core/skills", move |_| Some(block.clone())),
             );
         }
         Ok(())
@@ -146,29 +126,6 @@ fn scan_agents(dir: &Path, draft: &mut HarnessDraft) {
             system: fm.body,
         };
         draft.agents.insert(name, agent);
-    }
-}
-
-fn scan_commands(dir: &Path, draft: &mut HarnessDraft) {
-    for path in md_files(dir) {
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        let fm = parse_frontmatter(&text);
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("command");
-        let name = fm.get("name").unwrap_or(stem).to_string();
-        draft.commands.insert(
-            name.clone(),
-            CommandDef {
-                name,
-                description: fm.get("description").unwrap_or("").to_string(),
-                agent: fm.get("agent").map(str::to_string),
-                template: fm.body,
-            },
-        );
     }
 }
 
@@ -285,13 +242,11 @@ mod tests {
         }
     }
 
-    /// D-184:commands/skills 解析后必须被消费——渲染进 system baseline。
-    /// 放命令与技能文件,resolve 后 stable baseline 含命令名/描述与技能名/加载提示,
-    /// 不再是「解析了但没人读」的注册表。
+    /// commands 目录即使存在也不扫描;skills 清单仍进入 system baseline。
     #[test]
-    fn commands_and_skills_render_into_system_baseline() {
+    fn commands_are_ignored_while_skills_render_into_system_baseline() {
         let dir =
-            std::env::temp_dir().join(format!("kanzei-markdown-consume-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kanzei-markdown-skills-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".kanzei/commands")).unwrap();
         std::fs::create_dir_all(dir.join(".kanzei/skills/build/SKILL.md").parent().unwrap())
@@ -318,49 +273,19 @@ mod tests {
             })
             .unwrap();
 
-        // commands/skills 文件存在 → 注册表有货,且进了 stable baseline。
-        assert_eq!(snapshot.commands().len(), 1);
-        assert_eq!(snapshot.skills().len(), 1);
+        assert!(snapshot.skills().get("build").is_some());
         let baseline = snapshot.system_baseline();
+        assert!(!baseline.contains("可用命令") && !baseline.contains("release: 发布双通道"));
         assert!(
-            baseline.contains("可用命令(commands)"),
-            "commands 应进提示词: {baseline}"
+            baseline.contains("可用技能(skills)"),
+            "skills 应继续进入提示词"
         );
-        assert!(baseline.contains("release: 发布双通道"), "命令清单含描述");
-        assert!(baseline.contains("可用技能(skills)"), "skills 应进提示词");
         assert!(
             baseline.contains("build: 构建与格式检查"),
             "技能清单含描述: {baseline}"
         );
+
         assert!(baseline.contains("SKILL.md"), "加载提示指向技能正文文件");
-
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    /// D-184:无命令/技能文件时 baseline 不产生空块(零内容不占上下文)。
-    #[test]
-    fn empty_commands_skills_render_nothing() {
-        let dir =
-            std::env::temp_dir().join(format!("kanzei-markdown-empty-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let mut harness = Harness::default();
-        harness.add(MarkdownComponent);
-        let snapshot = harness
-            .resolve(&crate::harness::ResolveCtx {
-                profile: crate::defs::ProfileKind::Dev,
-                cwd: dir.clone(),
-                project_root: dir.clone(),
-                config: Arc::new(crate::config::KanzeiConfig::default()),
-            })
-            .unwrap();
-
-        let baseline = snapshot.system_baseline();
-        assert!(
-            !baseline.contains("可用命令") && !baseline.contains("可用技能"),
-            "空注册表不应渲染: {baseline:?}"
-        );
 
         std::fs::remove_dir_all(dir).unwrap();
     }

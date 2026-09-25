@@ -112,19 +112,6 @@ mod tests {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CommandDef {
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    /// 限定执行 agent(缺省=当前)。
-    #[serde(default)]
-    pub agent: Option<String>,
-    /// 模板正文,支持 $ARGUMENTS / $1..$N / @file。
-    #[serde(default)]
-    pub template: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillDef {
     pub name: String,
     pub description: String,

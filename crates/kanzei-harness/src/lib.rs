@@ -1,5 +1,5 @@
 //! kanzei-harness: 统一扩展层。
-//! 一切喂给模型的东西都是组件 → 六注册表 → 每轮不可变快照;
+//! 一切喂给模型的东西都是组件 → 五注册表 → 每轮不可变快照;
 //! 规则全走代码硬门禁(权限 Ruleset + 拦截器),不靠提示词恳求。
 
 pub mod auto_run;
@@ -29,7 +29,7 @@ pub use config::{KanzeiConfig, ResolvedModel};
 pub use context::{refreshing_source, source, ContextSource};
 pub use conventions::DEFAULT_CONVENTIONS;
 pub use defs::{
-    effective_agent_steps, AgentDef, AgentMode, CommandDef, ProfileKind, ProfileScope, SkillDef,
+    effective_agent_steps, AgentDef, AgentMode, ProfileKind, ProfileScope, SkillDef,
     DEFAULT_AGENT_STEPS,
 };
 pub use harness::{

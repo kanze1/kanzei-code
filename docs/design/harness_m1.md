@@ -8,7 +8,7 @@
 
 > 状态:已评审通过(2026-08-06)。Q1=纯 markdown;Q2=硬 deny;Q3=强制引用。本文档随实现演进。
 
-> **文档状态(2026-08-08 整理):现行架构基线。** 六注册表 + 拦截器链 + dev/research 双 profile 已实现;文中 R-023/R-028 注记对应条目均已 done,实现现状以 `.kanzei/project/architecture/` 索引与代码为准。
+> **文档状态(2026-09-25 修订,D-748):现行架构基线。** 五类注册表（agents/tools/skills/context/permissions；commands 已移除）+ 拦截器链 + dev/research 双 profile 已实现;文中 R-023/R-028 注记对应条目均已 done,实现现状以 `.kanzei/project/architecture/` 索引与代码为准。
 
 > **2026-08-21 修订(R-322)**:本文「所有规则走代码硬门禁」需加一条限定——**硬门禁的
 > 强度不是常量**。权限 Ruleset、托管围栏与事件真源(约束副作用边界的部分)在所有档位恒定;
@@ -18,7 +18,7 @@
 
 ## 0. 一句话
 
-一切喂给模型的东西都是 **Harness 组件**,汇入六个注册表;每轮对话解析成不可变快照;所有规则走**代码硬门禁**(拦截器链),不靠提示词恳求;其上提供两套**模式(Profile)**:软件开发模式(dev)和研究模式(research)。
+一切喂给模型的东西都是 **Harness 组件**,汇入五类注册表;每轮对话解析成不可变快照;所有规则走**代码硬门禁**(拦截器链),不靠提示词恳求;其上提供两套**模式(Profile)**:软件开发模式(dev)和研究模式(research)。
 
 ## 1. 配置:kanzei.toml
 
@@ -70,7 +70,6 @@ effect = "deny"    # dev 模式项目文档只能走专用工具(见 §4)
 struct HarnessDraft {
     agents:      Registry<AgentDef>,
     tools:       Registry<Arc<dyn Tool>>,
-    commands:    Registry<CommandDef>,      // slash 命令模板
     skills:      Registry<SkillDef>,        // 索引进提示词,正文走 skill 工具
     context:     Registry<ContextSource>,   // baseline/update/removal 三段式渲染
     permissions: RulesetBuilder,            // 有序规则
@@ -79,7 +78,7 @@ struct HarnessDraft {
 trait Component { fn contribute(&self, draft: &mut HarnessDraft) -> Result<()>; }
 ```
 
-- **组件源**:内置 → kanzei.toml → markdown 目录(`.kanzei/{agents,commands,skills}/`)→(M4)MCP。配置本身就是组件,没有第二条 config→runtime 路径。
+- **组件源**:内置 → kanzei.toml → markdown 目录(`.kanzei/{agents,skills}/`)→(M4)MCP。配置本身就是组件,没有第二条 config→runtime 路径。
 - **快照**:轮次边界 `resolve(profile) -> Arc<HarnessSnapshot>`;确定性排序、同名 last-wins;Arc 共享零复制。
 - **拦截器链(硬门禁落点)**:
   - `before_request`:注入 Context Source、系统提示词预算检查(baseline >2k token 报警);
@@ -128,7 +127,7 @@ Profile = 一组组件的成套启用:agents + tools + context sources + 权限�
 - `Requirement`/`Defect` 工具仍用于维护项目结果、来源和兼容性元数据；它们不是当前 Work Unit 的执行历史真源。
 - R-317 的 Outcome 描述用户可验收结果，Work Unit 描述一次可执行 scope，并由 claim、checkpoint、block/unblock、verify、evidence、complete 事件投影形成可恢复历史。
 - Harness 在每轮消费的是有界 Work Unit context 与事件投影；Requirement 正文中的旧 todo/doing/done、轮内 `todowrite` 和历史计划只作为 legacy 展示，不得覆盖 Work Unit 终态。
-- 该执行层与六注册表、Profile、权限拦截器链正交：R-317 提供执行事实，Harness 继续负责组件解析、上下文装配和硬门禁。
+- 该执行层与五类注册表、Profile、权限拦截器链正交：R-317 提供执行事实，Harness 继续负责组件解析、上下文装配和硬门禁。
 
 
 ## 5. 研究模式(research)
@@ -164,19 +163,19 @@ steps: 40
 ```
 
 `.kanzei/skills/<name>/SKILL.md`:frontmatter `{name, description}`,索引进提示词,正文走 skill 工具按需加载。
-`.kanzei/commands/*.md`:frontmatter `{name, description, agent?}`,正文模板支持 `$ARGUMENTS`/`$1..$N`/`@file`。
+`.kanzei/commands/*.md` 不再由 MarkdownComponent 扫描或注入(D-748);这些文件目前不具备运行效果。
 
 内置 agent:`dev`(dev 模式主力)、`research`(研究模式主力)、`explore`(subagent,默认 model: fast,只读工具)。
 
 ## 7. 实现顺序(M1 内)
 
-1. 核心类型:六注册表 + Snapshot + Component trait + resolve
+1. 核心类型:五类注册表 + Snapshot + Component trait + resolve
 2. kanzei.toml 解析(toml crate)+ 层叠合并 + providers/models 角色
 3. 权限 Ruleset(last-match-wins + wildcard)+ 拦截器链框架
 4. 工具修复回路完整版(宽容 JSON 解析:尾逗号/单引号/裸键)
 5. dev profile:req/defect 工具 + 文档序列化 + Context Source
 6. research profile:source/finding 工具 + 引用校验
-7. markdown 组件源(agents/skills/commands 目录扫描)
+7. markdown 组件源(agents/skills 目录扫描)
 8. CLI 接线:`kz run` 走 harness resolve;`kz req list` 等人用入口
 
 ## 8. 已决事项
