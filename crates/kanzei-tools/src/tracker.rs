@@ -179,6 +179,7 @@ impl Tool for TrackerTool {
         if self.kind.prefix == "R" {
             d.push_str(" R-313: medium/large requirement add requires `fields.发现记录` as a one-line JSON object with Intent/Explicit/Assumptions/Ambiguities/领域对象/最小成功闭环/延后决策, and `来源` must contain a quoted user utterance. Before doing/design freeze, unresolved core semantics require `question` evidence in `确认记录` or an auditable user waiver; qualifier terms absent from the quote must be confirmed, marked assumption, or removed.");
         }
+        d.push_str(" 更新时，目标编号必须作为顶层 `id` 字段传入，不能放在 `fields` 内。");
         d
     }
 
@@ -287,13 +288,25 @@ impl Tool for TrackerTool {
         if self.requires_refs.is_some() {
             then_schema["properties"] = serde_json::json!({ "refs": { "minItems": 1 } });
         }
-        schema["allOf"] = serde_json::json!([{
-            "if": {
-                "properties": { "action": { "const": "add" } },
-                "required": ["action"]
+        schema["allOf"] = serde_json::json!([
+            {
+                "if": {
+                    "properties": { "action": { "const": "add" } },
+                    "required": ["action"]
+                },
+                "then": then_schema
             },
-            "then": then_schema
-        }]);
+            {
+                "if": {
+                    "properties": { "action": { "const": "update" } },
+                    "required": ["action"]
+                },
+                "then": {
+                    "required": ["id"],
+                    "properties": { "id": { "type": "string", "minLength": 1 } }
+                }
+            }
+        ]);
         schema
     }
 
@@ -3612,6 +3625,20 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    fn assert_update_requires_top_level_id(schema: &serde_json::Value) {
+        let update_condition = schema["allOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|condition| condition["if"]["properties"]["action"]["const"] == "update")
+            .expect("update action must have a conditional schema");
+        assert_eq!(update_condition["then"]["required"], json!(["id"]));
+        assert_eq!(
+            update_condition["then"]["properties"]["id"],
+            json!({"type": "string", "minLength": 1})
+        );
+    }
+
     /// priority 与 severity 是两个维度,合法取值必须进 schema 而不是只写在描述里。
     #[test]
     fn schema_gives_real_enums_for_each_document_kind() {
@@ -3623,6 +3650,7 @@ mod tests {
             requires_refs: None,
         };
         let schema = defects.input_schema();
+        assert_update_requires_top_level_id(&schema);
         assert_eq!(
             schema["properties"]["severity"]["enum"],
             json!(["high", "medium", "low"])
@@ -3653,6 +3681,11 @@ mod tests {
             "{description}"
         );
         assert!(description.contains("P0 | P1 | P2 | P3"), "{description}");
+        assert!(
+            description
+                .contains("更新时，目标编号必须作为顶层 `id` 字段传入，不能放在 `fields` 内"),
+            "{description}"
+        );
 
         // 需求没有 severity 维度:schema 里根本不该出现这个字段。
         let requirements = TrackerTool {
@@ -3662,6 +3695,7 @@ mod tests {
             requires_refs: None,
         };
         let schema = requirements.input_schema();
+        assert_update_requires_top_level_id(&schema);
         assert!(schema["properties"].get("severity").is_none(), "{schema}");
         assert_eq!(
             schema["properties"]["priority"]["enum"],
