@@ -2794,7 +2794,6 @@ body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data
       运行态用更高特异性的 !important 退化为慢呼吸——「运行中」是信息,不是装饰。
    全局相位只投影到 html[data-kz-activity](running|pending|stopping|idle),只由 03-shell.js 写入。 */
 @keyframes kz-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .32; } }
-@keyframes kz-glow { 0%, 100% { opacity: 0; } 50% { opacity: .85; } }
 @keyframes kz-ring { 0% { transform: scale(1); opacity: .55; } 70%, 100% { transform: scale(2.6); opacity: 0; } }
 @keyframes kz-spin { to { transform: rotate(360deg); } }
 @keyframes kz-sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
@@ -2880,9 +2879,10 @@ html[data-kz-activity="running"] .ctx-project::after { animation: kz-breathe var
 .autorun-bar[data-phase="running"] .auto-progress::after { width: 40%; background: linear-gradient(90deg, transparent, var(--warn), transparent); animation: kz-sweep var(--motion-loop) var(--ease-in-out) infinite; }
 .autorun-bar[data-phase="running"] #auto-continue-wrap::before { animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
 .autorun-bar[data-phase="pending"] .auto-phase { display: inline-block; animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; }
-/* 等用户:收起的提问 / 研究待选方向 —— 慢呼吸。 */
-#ask-reopen::after { content: ""; position: absolute; inset: -4px; border-radius: inherit; border: 1px solid var(--accent); opacity: 0; pointer-events: none; }
-#ask-reopen:not(.hidden)::after { animation: kz-glow var(--motion-loop-slow) var(--ease-in-out) infinite; }
+/* 等用户:收起的提问 / 研究待选方向 —— 慢呼吸。收起的提问胶囊是弹层宿主,外观(边框/圆角/定位)归弹层组
+   的 surface.css;这里只用文本字形(.kz-glyph 同款:字形 + 颜色 + 呼吸),不碰宿主外观。读屏读 aria-label,不读它。 */
+#ask-reopen::before { content: "●"; display: inline-block; margin-right: 6px; color: var(--accent); font-size: var(--fs-10); vertical-align: 1px; }
+#ask-reopen:not(.hidden)::before { animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; }
 .research-auto-stages:is([data-live="true"], [data-waiting="true"]) [aria-current="step"]::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; vertical-align: 1px; }
 html[data-kz-activity="running"] .research-auto-stages[data-live="true"] [aria-current="step"]::before { background: var(--dot-run); animation: kz-breathe var(--motion-loop) var(--ease-in-out) infinite; }
 .research-auto-stages[data-waiting="true"] [aria-current="step"]::before { background: var(--warn); animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; }
