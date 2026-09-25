@@ -126,6 +126,7 @@
 
 - **分组规则**:同一批 task 的 tool-start 是连续到达的(drive.rs 的 `run_subagent_calls` 先循环发出全部 ToolStart 再并发执行;phase_pipeline.rs 的 `dispatch_roles` 也是这样)。新卡挂进 pane 的**最后一个子节点**,前提是它是一个仍 open(`data-open="1"`)的 `.sa-group`;否则新建一个组。
 - **封口**:组内任一成员收到第一条 task-progress 或 tool-end 时,置 `data-open="0"`。任何其它内容追加进 pane 后,这个组自然不再是最后一个子节点,也就不会再被并入。
+  - 例外:超额派发(`subagent_limit`)在后端是逐个「ToolStart、ToolEnd」紧跟在同批 ToolStart 之后发出的。没跑起来(无任何进度)的「未启动」卡收到 tool-end 时**不封口**,否则同一批从第 2 张超额卡起每张都单独成组。
 - 只有 1 个成员时不显示组头,看起来就是单卡(`.solo`)。第 2 个成员加入时组头出现,成员切换为 member 变体。
 - **组头**:
   - 聚合字形:只要有成员在运行就是 running;否则有失败则 failed;否则 done(同样是 `.kz-glyph`)。
@@ -154,9 +155,9 @@
 
 - **外观与位置**:`#agent-panel` 保持 `class="k-surface k-panel"`(第一波 #9),底色/边框/圆角/阴影全部来自 surface.css;style.css 只写位置与尺寸——全高(从顶部 `--sp-4` 到状态栏上方),宽度 `min(480px, 100vw − 32px)`,`position:absolute`。它是常驻侧面板,不是弹层:不用 `<details>`、不自写 `position:fixed`、不直接切弹层的 hidden(ui_surface_stack §5)。继续与活动面板互斥。
 - **列表模式**:
-  - 列出当前线路的全部子代理,按批次分组,最新的批次在上面。
-  - 每行是 member 变体:点行进入详情;行尾 ⌖ 表示「定位到对话」。
-  - 底部是运行审计摘要,默认一行、可展开(沿用 `#agent-audit`)。
+  - 列出当前线路的全部子代理,按批次分组,最新的批次在上面。「载入更早的消息」补出的卡片比已有的都旧:那一窗里的组按出现顺序排到已有最小批次之下、run 插到列表前部(`subagentPrependBegin/End`),不会被当成最新一批顶到最上面。
+  - 每行是 member 变体:点行进入详情;行尾 ⌖ 表示「定位到对话」。行的可访问名与卡片同一口径:只随状态/身份变化重写,运行中不带逐秒变化的耗时;1 秒刷新只改计数文本。
+  - 底部是运行审计摘要,默认一行、可展开(沿用 `#agent-audit`)。用户主动停止的子代理(`subagent_cancelled`,旧数据按文案兜底)记为 stopped,不进「失败与超时」清单,与卡片的「已停止」同一口径。
   - fast 模型就绪提示行只在未就绪时出现。
 - **详情模式**:
   - 顶部 ‹ 返回。
@@ -207,7 +208,7 @@
 - ↗ 与 ■ 是带 `aria-label` 的 icon-btn;■ 在 `:hover` 或 `:focus-within` 时出现,键盘用户 Tab 进卡片就能看到。
 - **播报**:在 `#view-chat` 里放一个 `.sr-only role=status aria-live=polite` 的 `#sa-announcer`。它只播报活动线路的终态(如「子代理 explore 完成」);尾迹行不进入 live region。
 - **侧栏焦点**:进入详情时焦点落在「‹ 返回」;Esc 在详情模式回到列表,在列表模式关闭侧栏,并把焦点还给打开它的元素。Esc 监听挂在 `#agent-panel` 自身,不挂 document/window(ui_surface_stack §5 禁令)。
-- **`prefers-reduced-motion`**:第一波的动效纪律块已统一关掉 `.kz-glyph`/`.kz-dot` 的循环动画与一次性动效;本组新增的尾迹淡入与 `.sa-flash` 同样在该媒体查询下关闭。字形字符本身(◌/✓/✕/⏱…)不依赖动画即可区分。
+- **`prefers-reduced-motion`**:第一波的动效纪律块已统一关掉 `.kz-glyph`/`.kz-dot` 的循环动画与一次性动效;本组新增的尾迹淡入(声明按契约 §1 写在 style.css「分区:动效」,与 rail 徽标让位规则放在 rail 点旁边)由全局 `.01ms` 规则关掉,`.sa-flash` 只是描边、无动画。字形字符本身(◌/✓/✕/⏱…)不依赖动画即可区分。
 
 ## 9. 移动端 PWA
 
@@ -285,7 +286,8 @@ PWA 是审批与通知的遥控器,不渲染对话,所以卡片不搬过去,只�
 - 把 task-progress 条目按 id 写进回放缓存;卡片建立时(包括「载入更早的消息」时)消费缓存。
 - `input` 是截断的字符串,能 `JSON.parse` 成功才当对象用,否则只用 `trace.summary`。
 - 编排角色不在消息历史里,所以回放时没有它们的卡片(与现状一致)。
-- 同一批并行的 task 在历史里也是「连续的 tool_call、随后才是各自的 tool_result」:卡片按实时同一条挂组规则成组,收到结果即封口。
+- 同一批并行的 task 在历史里也是「连续的 tool_call、随后才是各自的 tool_result」:卡片按实时同一条挂组规则成组,收到结果即封口;每条带调用的消息开头还会封住 pane 末尾仍开着的组(同一批 = 同一条助手消息里的调用)。
+- **窗口边界**:历史按 120 条一窗渲染,边界可能把 task 的调用切到更早的窗口、结果留在已渲染的这一窗。这时结果配不上调用:沿完整历史往回找发出这批调用的那条消息,是 task 就在结果的位置用那次调用的入参建卡并直接收成终态(`subagentHistoryOrphan`,不再落成「tool result」通用块);之后「载入更早的消息」补出这次调用时按 part 对象认领,不建第二张、也不标「中断」。找不到调用(历史被压缩过)的仍按通用孤儿块显示。
 
 ### 11.3 前端落点
 
@@ -296,7 +298,7 @@ PWA 是审批与通知的遥控器,不渲染对话,所以卡片不搬过去,只�
 | 事件分流:task 的 tool-start/tool-end → `subagentStart`/`subagentEnd`,task-progress → `subagentProgress`;复制上下文按卡导出 | `ui/07-events.js` |
 | 后台线路推进(`kz:task-progress` 入 `BACKGROUND_RENDER_EVENTS`)、整轮停止/终态出错/轮末收尾 `subagentSettle` | `ui/01-core.js` 路由层 |
 | 历史回放:消息历史建卡 `subagentHistoryCall/Result`;run.trace 回放 `subagentReplayTrace/Duration` | `ui/15-views-misc.js`、`ui/06-activity.js renderRecoveredTraces` |
-| 冒烟:单卡生命周期、尾迹、token 替换、终态分类、并行组与封口、后台推进、历史回放同形、切语言、停止收尾;变异 `saUsageAccumulate`/`saSettle` | `scripts/ui-runtime-smoke.mjs`「分区:子代理」 |
+| 冒烟:单卡生命周期、尾迹、token 替换、终态分类、并行组与封口(含超额不拆组)、后台推进、历史回放同形、窗口边界孤儿结果与补更早一窗的批次顺序、切语言、停止收尾、侧栏行可访问名、审计「已停止」;变异 `saUsageAccumulate`/`saSettle`/`saPrependBatch`/`saOrphanTask` | `scripts/ui-runtime-smoke.mjs`「分区:子代理」 |
 
 实现取舍(与上文示意的差异):运行中字形用 `●`(`.kz-glyph[data-state=running]` 呼吸,比 `◌` 在各字体下都清楚);■ 的位置常驻(不跑时禁用且隐形),组内各行的计数列对得齐;组成员的 ↗ 只在悬停/键盘焦点时出现(一列箭头太吵),单卡的 ↗ 常驻低对比;rail 徽标是计数胶囊,取代 #7 在同一位置的呼吸点(`#agent-toggle[data-running]` 仍是布尔,#7 的冒烟与样式共用);卡片里的 markdown 复用 `.sv-md`,标题压到正文字号附近。
 

@@ -20,7 +20,7 @@ import {
   toastError,
 } from "./03-shell.js";
 import { toolCallSummary } from "./05-chat-render.js";
-import { subagentDescription, subagentRelocalize, subagentReplayDuration, subagentReplayTrace } from "./05-subagents.js";
+import { classifySubagentEnd, subagentDescription, subagentRelocalize, subagentReplayDuration, subagentReplayTrace } from "./05-subagents.js";
 import { cleanInline, cleanPaths, formatDuration, looksLikeNoise, parseJsonish, stripAnsi } from "./04-structured-parse.js";
 import { toolArgSummary, toolResultSummary, toolRoots } from "./05-tool-summary.js";
 import { highlightLine, renderLocalValidation, renderToolArgs, renderToolResult, structuredNav } from "./04-structured.js";
@@ -1317,9 +1317,13 @@ export function agentAuditTaskEnd(sessionId, payload) {
   const id = String(payload.id);
   const task = audit.tasks.get(id) || { id, model: "fast", usage: null };
   const preview = String(payload.preview || "");
+  // UI-0926 #8:用户主动停止的(code=subagent_cancelled,旧数据按文案兜底)记为 stopped,不进「失败与超时」
+  // 清单——与卡片的 classifySubagentEnd 同一口径(卡片显示「已停止」,审计不该写「失败」)。
+  const stopped = !payload.ok && classifySubagentEnd({ ok: false, code: payload.code, preview }) === "cancelled";
   task.status = payload.ok
     ? "succeeded"
-    : payload.code === "subagent_timeout" || /超时|timeout|wall-clock|timed out/i.test(preview) ? "timeout" : "failed";
+    : stopped ? "stopped"
+      : payload.code === "subagent_timeout" || /超时|timeout|wall-clock|timed out/i.test(preview) ? "timeout" : "failed";
   task.preview = preview;
   audit.tasks.set(id, task);
 }

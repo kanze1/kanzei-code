@@ -27,6 +27,7 @@ import {
   subagentStateWord,
   subagentStop,
   updateSubagentRow,
+  updateSubagentRowMeta,
 } from "./05-subagents.js";
 import { fastStatusText, orchPhaseLabel } from "./06-activity.js";
 
@@ -277,7 +278,9 @@ onSubagentTick(() => {
     if (detailRun && SA_ACTIVE.has(detailRun.state)) renderDetailMeta(detailRun);
     return;
   }
-  for (const [run, row] of rowEls) if (SA_ACTIVE.has(run.state)) updateSubagentRow(row, run);
+  // 只刷计数文本;可访问名只随状态变化重写(updateSubagentRow),不每秒重写。
+  const now = Date.now();
+  for (const [run, row] of rowEls) if (SA_ACTIVE.has(run.state)) updateSubagentRowMeta(row, run, now);
 });
 
 // D-278:面板头部就绪状态行。只在 fast 模型**未就绪**时出现(就绪时不占一行);

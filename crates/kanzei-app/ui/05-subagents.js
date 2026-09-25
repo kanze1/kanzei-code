@@ -64,6 +64,9 @@ const changeListeners = new Set();
 const tickListeners = new Set();
 let batchSeq = 0;
 let bodySeq = 0;
+// 「载入更早的消息」渲染那一窗期间:{ sessionId, runs, groups }。窗里建出的 run 与组都比已有的旧,
+// 结束时统一排到已有最小批次之下、插到列表前部(subagentPrependEnd)。
+let prepending = null;
 
 export function subagentKey(sessionId, id) {
   return `${sessionId || ""}|${id}`;
@@ -86,6 +89,8 @@ export function onSubagentTick(fn) {
   return () => tickListeners.delete(fn);
 }
 function notify(run) {
+  // 补更早的一窗期间不逐条通知(侧栏会整表重建 N 次),结束时统一通知一次。
+  if (prepending) return;
   for (const fn of changeListeners) {
     try { fn(run); } catch (error) { console.warn(error); }
   }
@@ -240,13 +245,25 @@ function newRun({ sessionId, id, input, summary, replay }) {
     groupEl: null,
   };
 }
-function remember(run) {
-  let list = subagentRunsBySession.get(run.sessionId);
+function sessionRuns(sessionId) {
+  let list = subagentRunsBySession.get(sessionId);
   if (!list) {
     list = [];
-    subagentRunsBySession.set(run.sessionId, list);
+    subagentRunsBySession.set(sessionId, list);
   }
+  return list;
+}
+function remember(run) {
+  // 补更早的一窗:先记下,结束时插到列表前部(列表按开始顺序,它们比已有的都早)。
+  if (prepending && run.replay && prepending.sessionId === run.sessionId) {
+    prepending.runs.push(run);
+    return;
+  }
+  const list = sessionRuns(run.sessionId);
   list.push(run);
+  trimRuns(list);
+}
+function trimRuns(list) {
   // 每会话上限:超出丢最早的终态 run(运行中的永远保留)。
   while (list.length > SA_SESSION_MAX) {
     const index = list.findIndex((item) => !SA_ACTIVE.has(item.state));
@@ -381,7 +398,10 @@ export function subagentEnd({ sessionId, id, ok, outcome, code, preview, display
   const measured = Number(durationMs);
   if (durationMs !== undefined && durationMs !== null && Number.isFinite(measured)) run.durationMs = measured;
   else if (!Number.isFinite(run.durationMs)) run.durationMs = run.endedAt - run.startedAt;
-  sealGroup(run);
+  // 超额派发(subagent_limit)在后端是逐个「start、end」紧跟在同批 ToolStart 之后发出的:没跑起来的卡
+  // 不封口,同批其余超额卡照常并进这一组(组内成员收到第一条进度时照常封口)。
+  const neverRan = run.state === "rejected" && !run.toolOrder.length && !run.timeline.length;
+  if (!neverRan) sealGroup(run);
   renderSubagentCard(run, { motion: !settledBefore });
   // 播报只给活动线路的真实终态(停止收尾之后补发的 ToolEnd 不再播一遍)。
   if (!settledBefore && !renderingBackground && run.sessionId === activeSessionId) announce(run);
@@ -463,13 +483,60 @@ export function subagentHistoryResult(sessionId, callId, { ok, content, interrup
       run.settled = true;
     }
   } else {
-    const parsed = stripToolOutcome(content);
-    run.result = { ok: Boolean(ok), outcome: parsed.outcome, code: parsed.code, preview: firstLine(parsed.body), display: null, content: parsed.body };
-    run.state = classifySubagentEnd({ ok, outcome: parsed.outcome, code: parsed.code, preview: parsed.body.slice(0, 600) });
-    run.ended = true;
+    applyHistoryResult(run, { ok, content });
   }
   renderSubagentCard(run);
   notify(run);
+}
+function applyHistoryResult(run, { ok, content }) {
+  const parsed = stripToolOutcome(content);
+  run.result = { ok: Boolean(ok), outcome: parsed.outcome, code: parsed.code, preview: firstLine(parsed.body), display: null, content: parsed.body };
+  run.state = classifySubagentEnd({ ok, outcome: parsed.outcome, code: parsed.code, preview: parsed.body.slice(0, 600) });
+  run.ended = true;
+}
+
+/// 窗口边界把 task 的调用与结果切开(调用在更早的窗口里、结果在已渲染的这一窗):在结果的位置用历史里
+/// 那次调用的入参建卡,直接收成终态——不再落成一个「tool result」通用块,补齐更早的窗口时也不会被标成
+/// 「中断」(15-views-misc.js 认领那次调用,不建第二张)。不封口:同批其余孤儿结果照常并进这一组。
+export function subagentHistoryOrphan(sessionId, callId, input, { ok, content } = {}) {
+  const run = subagentHistoryCall(sessionId, callId, input);
+  if (!run?.replay) return run;
+  applyHistoryResult(run, { ok, content });
+  renderSubagentCard(run);
+  notify(run);
+  return run;
+}
+
+/// 历史回放:同一批 = 同一条助手消息里的调用。每条带调用的消息开头封住 pane 末尾仍 open 的组,
+/// 孤儿结果建出的组(不自己封口)才不会把下一批并进来。
+export function subagentSealPaneTail() {
+  const kids = activePane?.children;
+  const last = kids?.length ? kids[kids.length - 1] : null;
+  if (last?.classList?.contains("sa-group") && last.dataset?.open === "1") last.dataset.open = "0";
+}
+
+/// 「载入更早的消息」前后调用(15-views-misc.js loadEarlierMessages)。这一窗里建出的组比已有的都旧:
+/// 按出现顺序排到已有最小批次之下,run 插到列表前部——侧栏列表按批次降序,最新一批仍在最上面。
+export function subagentPrependBegin(sessionId) {
+  prepending = { sessionId: sessionId || "", runs: [], groups: [] };
+}
+export function subagentPrependEnd() {
+  const pending = prepending;
+  prepending = null;
+  if (!pending || (!pending.runs.length && !pending.groups.length)) return;
+  const list = sessionRuns(pending.sessionId);
+  const fresh = new Set(pending.groups);
+  let floor = batchSeq + 1;
+  for (const run of list) if (!fresh.has(run.groupEl)) floor = Math.min(floor, run.batch);
+  pending.groups.forEach((group, index) => {
+    group.dataset.batch = String(floor - pending.groups.length + index);
+  });
+  for (const run of [...pending.runs, ...list]) {
+    if (run.groupEl && fresh.has(run.groupEl)) run.batch = Number(run.groupEl.dataset.batch);
+  }
+  list.unshift(...pending.runs);
+  trimRuns(list);
+  notify(null);
 }
 
 function normalizeReplayTrace(trace) {
@@ -528,6 +595,7 @@ function buildGroup(run) {
   group.className = "sa-group solo";
   batchSeq += 1;
   group.dataset.batch = String(batchSeq);
+  if (prepending) prepending.groups.push(group);
   group.dataset.open = "1";
   group.dataset.saPhase = run.phase || "";
   group.dataset.saCount = "0";
@@ -1098,7 +1166,7 @@ export function buildSubagentRow(run, { onOpen, onLocate } = {}) {
   main.append(glyph, agent, desc, meta);
   const locate = iconButton("sa-locate", "⌖", "定位到对话");
   row.append(main, locate);
-  row._sa = { glyph, agent, desc, meta, main };
+  row._sa = { glyph, agent, desc, meta, main, aria: null };
   main.addEventListener("click", () => onOpen?.(run, main));
   locate.addEventListener("click", (event) => {
     event?.stopPropagation?.();
@@ -1122,9 +1190,22 @@ export function updateSubagentRow(row, run) {
   ui.agent.className = `sa-agent line-accent-${agentRoleAccent(label)}${label ? "" : " hidden"}`;
   ui.desc.textContent = run.description || t("子代理");
   ui.desc.title = run.description;
-  const meta = subagentMetaText(run);
-  if (ui.meta.textContent !== meta) ui.meta.textContent = meta;
-  ui.main.setAttribute("aria-label", [[label, run.description].filter(Boolean).join(" "), subagentStateWord(run.state) || t("运行中"), meta].filter(Boolean).join(" — "));
+  updateSubagentRowMeta(row, run);
+  // 可访问名与卡片同一口径:只随状态/身份变化重写,不带逐秒变化的耗时(焦点停在行上时读屏不反复播报);
+  // 终态的计数不再变化,带上。
+  const aria = [[label, run.description].filter(Boolean).join(" "), subagentStateWord(run.state) || t("运行中"), SA_ACTIVE.has(run.state) ? "" : ui.meta.textContent]
+    .filter(Boolean).join(" — ");
+  if (ui.aria !== aria) {
+    ui.aria = aria;
+    ui.main.setAttribute("aria-label", aria);
+  }
+}
+/// 侧栏行的 1 秒刷新:只动计数文本(耗时),不碰可访问名。
+export function updateSubagentRowMeta(row, run, now = Date.now()) {
+  const meta = row?._sa?.meta;
+  if (!meta) return;
+  const text = subagentMetaText(run, now);
+  if (meta.textContent !== text) meta.textContent = text;
 }
 
 /// 侧栏详情头部用:字形字符与 data-state。

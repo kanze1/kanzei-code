@@ -270,6 +270,18 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*subagentSettle\(sessionId, event === "kz:stopped" \? "cancelled" : "interrupted"\);\r?\n/,
       replace: "",
     },
+    // UI-0926 #8:「载入更早的消息」补出的组排到已有最小批次之下。删了重编号,旧批次拿着更大的批次号
+    // 顶到侧栏列表最上面(被当成最新一批)。
+    saPrependBatch: {
+      pattern: /group\.dataset\.batch = String\(floor - pending\.groups\.length \+ index\);/,
+      replace: "",
+    },
+    // UI-0926 #8:窗口边界把 task 的调用与结果切开时,结果就地建卡并收成终态。去掉它,尾窗里落成「tool result」
+    // 通用块,补齐更早的窗口后已完成的子代理又被标成「中断」。
+    saOrphanTask: {
+      pattern: /const taskCall = entry \? null : orphanTaskCall\(message, part\.call_id\);/,
+      replace: "const taskCall = null;",
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -11046,7 +11058,9 @@ const docsB = {
 // UI-0926 #8 子代理卡片(docs/design/subagent_presentation.md):一次委派 = 主对话里的一张卡。
 // 单卡生命周期(启动中→运行中→一行终态)、≤3 行尾迹与「+N」、token 累计值只替换不累加、终态按 code
 // 分类(旧文案兜底)、并行成组与封口、后台线路推进、历史回放与实时同形、切语言重画、整轮停止收尾
-// (活动线与后台线)、停止补发的 ToolEnd 不复活运行态。两条变异守卫:saUsageAccumulate / saSettle。
+// (活动线与后台线)、停止补发的 ToolEnd 不复活运行态、超额派发不拆组、侧栏行可访问名不逐秒重写、审计「已停止」
+// 不算失败、窗口边界孤儿结果与「载入更早的消息」后的批次顺序。
+// 四条变异守卫:saUsageAccumulate / saSettle / saPrependBatch / saOrphanTask。
 {
   const coreNs = esmModuleCache.get("01-core.js")?.namespace;
   const saNs = esmModuleCache.get("05-subagents.js")?.namespace;
@@ -11259,6 +11273,105 @@ const docsB = {
   await flush();
   assert(document.documentElement.dataset.kzActivity !== "running", "停止补发的 ToolEnd 把全局相位翻回了运行中");
   assert(sandbox.subagentRunningCount("sess-smoke") === 0 && byId.get("agent-toggle").dataset.running === "false", "停止后 rail 徽标仍显示有子代理在跑");
+
+  // ⑬ 超额派发:后端逐个「start、end(subagent_limit)」紧跟在同批 ToolStart 之后发出。没跑起来的卡不封口,
+  //    同一批 2 张在跑 + 2 张超额仍是一组;组内有进度之后照常封口。
+  handlers.get("kz:turn")({ payload: { step: 2, maxSteps: 0, sessionId: "sess-smoke" } });
+  await flush();
+  toolStart({ payload: { id: "call_q1", name: "task", summary: "", input: { prompt: "q1", description: "Quota one" }, sessionId: "sess-smoke" } });
+  toolStart({ payload: { id: "call_q2", name: "task", summary: "", input: { prompt: "q2", description: "Quota two" }, sessionId: "sess-smoke" } });
+  for (const id of ["call_qx1", "call_qx2"]) {
+    toolStart({ payload: { id, name: "task", summary: "", input: { prompt: id, description: "Over quota" }, sessionId: "sess-smoke" } });
+    toolEnd({ payload: { id, name: "task", ok: false, outcome: "failed", code: "subagent_limit", preview: "[tool_outcome=failed code=subagent_limit]\ntoo many parallel subagent tasks; maximum per turn is 2", display: null, sessionId: "sess-smoke" } });
+  }
+  await flush();
+  const qGroup = cardOf("call_q1")?.closest(".sa-group");
+  assert(
+    qGroup?.dataset.saCount === "4" && ["call_q2", "call_qx1", "call_qx2"].every((id) => cardOf(id)?.closest(".sa-group") === qGroup),
+    `超额派发把同一批拆成了多组(第一组 ${qGroup?.dataset.saCount} 张)`,
+  );
+  assert(cardOf("call_qx1")?.dataset.saState === "rejected" && cardOf("call_qx2")?.dataset.saState === "rejected", "超额的卡应为「未启动」");
+  taskProgress({ payload: { id: "call_q1", text: "", trace: { child_id: "q1-1", phase: "start", name: "read", input: { path: "a.rs" } }, sessionId: "sess-smoke" } });
+  toolStart({ payload: { id: "call_q3", name: "task", summary: "", input: { prompt: "q3", description: "Next batch" }, sessionId: "sess-smoke" } });
+  await flush();
+  assert(cardOf("call_q3")?.closest(".sa-group") !== qGroup, "组内有进度之后的新派发仍并进了超额那一组");
+
+  // ⑭ 侧栏行的可访问名与卡片同一口径:运行中不带逐秒变化的耗时,时间流逝只改计数文本;终态才带计数。
+  const panelNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
+  panelNs.openSubagentPanel(null);
+  const q1Run = saNs.subagentByKey("sess-smoke|call_q1");
+  const q1Row = [...byId.get("agent-list").querySelectorAll(".sa-panel-row")].find((r) => r.dataset.saKey === "sess-smoke|call_q1");
+  const q1Main = q1Row?.querySelector(".sa-panel-main");
+  const q1Aria = q1Main?.getAttribute("aria-label") ?? "";
+  assert(/Quota one/.test(q1Aria) && /运行中/.test(q1Aria) && !/\d+s\b/.test(q1Aria), `运行中侧栏行的可访问名不对(不该带耗时):"${q1Aria}"`);
+  q1Run.startedAt -= 7000;
+  saNs.updateSubagentRowMeta(q1Row, q1Run);
+  saNs.updateSubagentRow(q1Row, q1Run);
+  assert(/7s/.test(q1Row?.querySelector(".sa-meta")?.textContent ?? "") && q1Main?.getAttribute("aria-label") === q1Aria, "时间流逝后侧栏行的可访问名被重写了(读屏会反复播报)");
+  for (const id of ["call_q1", "call_q2", "call_q3"]) toolEnd({ payload: { id, name: "task", ok: true, outcome: "success", preview: "done", content: "done", durationMs: 9000, display: null, sessionId: "sess-smoke" } });
+  await flush();
+  const q1Done = [...byId.get("agent-list").querySelectorAll(".sa-panel-row")].find((r) => r.dataset.saKey === "sess-smoke|call_q1")?.querySelector(".sa-panel-main")?.getAttribute("aria-label") ?? "";
+  assert(/完成/.test(q1Done) && /9s/.test(q1Done), `终态侧栏行的可访问名应带状态词与计数:"${q1Done}"`);
+  panelNs.agentClosePanel();
+
+  // ⑮ 运行审计:用户主动停止的子代理(subagent_cancelled)记为已停止,不进「失败与超时」清单;超时照常列出。
+  activityNs.agentAuditBegin("sess-sa-audit");
+  for (const [id, description, code, preview] of [
+    ["au1", "Stopped by user", "subagent_cancelled", "cancelled: run stopped by user"],
+    ["au2", "Ran too long", "subagent_timeout", "subagent hit the 600s wall-clock safety limit"],
+  ]) {
+    activityNs.agentAuditTaskStart("sess-sa-audit", { name: "task", id, input: { prompt: description, description } });
+    activityNs.agentAuditTaskEnd("sess-sa-audit", { name: "task", id, ok: false, code, preview });
+  }
+  const auditTasks = activityNs.agentAudits.get("sess-sa-audit")?.tasks;
+  assert(auditTasks?.get("au1")?.status === "stopped" && auditTasks?.get("au2")?.status === "timeout", `审计把用户停止的子代理记成了 ${auditTasks?.get("au1")?.status}`);
+  activityNs.agentAuditFinish("sess-sa-audit", "stopped");
+  const failureText = byId.get("agent-audit-failures")?.textContent ?? "";
+  assert(failureText.includes("Ran too long") && !failureText.includes("Stopped by user"), `「失败与超时」清单口径不对:"${failureText}"`);
+  activityNs.agentAudits.delete("sess-sa-audit");
+  activityNs.agentAuditFor("sess-smoke");
+
+  // ⑯ 窗口边界:task 的调用在更早的窗口、结果在尾窗——尾窗里就地建卡并收成终态(不落成「tool result」通用块,
+  //    同批两张仍一组,下一条消息的新一批另起一组);「载入更早的消息」认领那次调用(不建第二张、不标中断),
+  //    补出的更早一批在侧栏里排在最后,第一组仍是最新一批。变异 saOrphanTask / saPrependBatch 必须把这里打红。
+  const windowSize = viewsNs.PANE_WINDOW_SIZE;
+  const earlier = [
+    { role: "user", parts: [{ type: "text", text: "早先的请求" }] },
+    { role: "assistant", parts: [{ type: "tool_call", id: "E1", name: "task", input: { prompt: "e1", description: "Earliest batch" } }] },
+    { role: "user", parts: [{ type: "tool_result", call_id: "E1", is_error: false, content: "e1 answer" }] },
+    { role: "user", parts: [{ type: "text", text: "再派一批" }] },
+    { role: "assistant", parts: [
+      { type: "tool_call", id: "O1", name: "task", input: { prompt: "o1", description: "Orphan one" } },
+      { type: "tool_call", id: "O2", name: "task", input: { prompt: "o2", description: "Orphan two" } },
+    ] },
+  ];
+  const tailWindow = [
+    { role: "user", parts: [{ type: "tool_result", call_id: "O1", is_error: false, content: "o1 answer" }] },
+    { role: "user", parts: [{ type: "tool_result", call_id: "O2", is_error: false, content: "o2 answer" }] },
+    { role: "assistant", parts: [{ type: "tool_call", id: "N1", name: "task", input: { prompt: "n1", description: "Newest batch" } }] },
+    { role: "user", parts: [{ type: "tool_result", call_id: "N1", is_error: false, content: "n1 answer" }] },
+  ];
+  while (tailWindow.length < windowSize) tailWindow.push({ role: "assistant", parts: [{ type: "text", text: `填充 ${tailWindow.length}` }] });
+  viewsNs.renderRecoveredMessages([...earlier, ...tailWindow]);
+  await flush();
+  const saCards = (id) => [...pane().querySelectorAll(".sa-card")].filter((c) => c.dataset.saKey === `sess-smoke|${id}`);
+  const o1 = saCards("O1")[0];
+  const oGroup = o1?.closest(".sa-group");
+  assert(o1?.dataset.saState === "done" && saCards("O2")[0]?.dataset.saState === "done", `窗口边界切开的 task 结果没有收成终态:${o1?.dataset.saState}`);
+  assert(o1?.querySelector(".sa-desc")?.textContent === "Orphan one", "孤儿结果建卡没有用历史里那次调用的描述");
+  assert(oGroup?.dataset.saCount === "2" && saCards("O2")[0]?.closest(".sa-group") === oGroup, "孤儿结果建出的同批两张卡没有合成一组");
+  assert(![...pane().querySelectorAll(".tool-msg-name")].some((n) => n.textContent === "tool result"), "窗口边界切开的 task 结果仍落成了「tool result」通用块");
+  assert(saCards("N1")[0]?.closest(".sa-group") !== oGroup, "下一条消息的新一批并进了孤儿结果那一组");
+  const grewEarlier = vm.runInContext("loadEarlierMessages()", sandbox);
+  await flush();
+  assert(grewEarlier === true, "⑯ 前置:loadEarlierMessages 没有补齐更早的一窗");
+  assert(saCards("O1").length === 1 && saCards("O2").length === 1, `补更早的一窗后孤儿结果的卡出现了第二张(O1×${saCards("O1").length})`);
+  assert([...saCards("O1"), ...saCards("O2")].every((c) => c.dataset.saState === "done"), "补更早的一窗后已完成的子代理被标成了中断");
+  assert(saCards("E1")[0]?.dataset.saState === "done", "补出的更早一批没有建卡");
+  panelNs.openSubagentPanel(null);
+  const panelBatches = [...byId.get("agent-list").querySelectorAll(".sa-panel-batch")].map((section) => [...section.querySelectorAll(".sa-panel-row")].map((r) => r.dataset.saKey.split("|")[1]).join(","));
+  assert(panelBatches.join(" / ") === "N1 / O1,O2 / E1", `载入更早的消息后侧栏批次顺序不对(应最新在上):${panelBatches.join(" / ")}`);
+  panelNs.agentClosePanel();
 
   sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
   vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
