@@ -2,7 +2,7 @@ import { defer } from "./01-core.js";
 import { motionCount } from "./01-core.js";
 import { agentRoleAccent } from "./01-core.js";
 import { escapeHtml } from "./04-markdown.js";
-import { $, invoke, messages, on } from "./01-core.js";
+import { $, invoke, messages } from "./01-core.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
@@ -10,7 +10,6 @@ import {
   activityPanelOpen,
   setActivityPanelOpen,
   currentProject,
-  log,
   processItems,
   running,
   setStatus,
@@ -20,8 +19,8 @@ import {
   toast,
   toastError,
 } from "./03-shell.js";
-import { renderMarkdown } from "./04-markdown.js";
 import { toolCallSummary } from "./05-chat-render.js";
+import { subagentDescription, subagentRelocalize, subagentReplayDuration, subagentReplayTrace } from "./05-subagents.js";
 import { cleanInline, cleanPaths, formatDuration, looksLikeNoise, parseJsonish, stripAnsi } from "./04-structured-parse.js";
 import { toolArgSummary, toolResultSummary, toolRoots } from "./05-tool-summary.js";
 import { highlightLine, renderLocalValidation, renderToolArgs, renderToolResult, structuredNav } from "./04-structured.js";
@@ -932,6 +931,12 @@ export function bgProgress(id, text, trace) {
     if (!entry.done) bgTick(entry);
     return;
   }
+  // UI-0926 #8:只有子工具的 start/end 改「当前工具」与子行。usage/text/meta 的 trace 没有工具名
+  // (或 name 是占位),此前照样走下去,把「⚙ assistant」之类写进当前工具行。
+  if (trace.phase !== "start" && trace.phase !== "end") {
+    if (!entry.done) bgTick(entry);
+    return;
+  }
   entry.detail.classList.add("trace-detail");
   bgSetCurrentTool(entry, trace.name, trace.phase === "start");
   let child = entry.children.get(trace.child_id);
@@ -1063,6 +1068,15 @@ export function renderRecoveredTraces(payloads) {
   for (const payload of payloads || []) {
     for (const event of payload.events || []) {
       if (!event.id) continue; // turn.started / context.compacted 等无 id 事件不进列表
+      // UI-0926 #8:落库的 task-progress(无 kind 字段)回放进子代理卡片——计数、工具列表、
+      // 自述与实时同形;task 的耗时取 tool.completed.durationMs。
+      if (!event.kind && event.trace !== undefined) {
+        subagentReplayTrace(activeSessionId, event);
+        continue;
+      }
+      if (event.kind === "tool.completed" && (event.name === "task" || !event.name)) {
+        subagentReplayDuration(activeSessionId, event.id, event.durationMs, { isTask: event.name === "task" });
+      }
       if (event.kind === "tool.started") {
         if (!event.name) continue;
         // 回放与实时路径一致:完整工具调用都进入活动面板。
@@ -1164,6 +1178,8 @@ export function syncDynamicUiLanguage() {
   }
   if (!$("context-detail")?.classList.contains("hidden")) renderContextDetail();
   renderAutoStatus(autoStopReason);
+  // UI-0926 #8:子代理卡片与侧栏的计数/状态词在渲染点经 t() 产出,切语言时重画。
+  subagentRelocalize();
 }
 export function liveSet(id, text) {
   const el = $(id);
@@ -1201,10 +1217,10 @@ export function liveTurn(text) {
   }
 }
 
-// ---------- 子代理面板(R-174):与活动面板共用本文件的事件/渲染基础 ----------
-// 子代理面板仍是独立 DOM 视图,但其状态、transcript、usage 与活动轨迹由同一脚本维护,
-// 避免 06-agent-panel.js 与 06-activity.js 之间复制调用器和渲染辅助函数。
-export const agentEntries = new Map(); // id -> {el, head, meta, detail, calls, tokens, startedAt, state}
+// ---------- 运行审计摘要(侧栏 #agent-audit)----------
+// UI-0926 #8:子代理的数据模型与卡片归 05-subagents.js,侧栏归 06-agent-panel.js;这里只留
+// 按会话累计的运行审计(主代理调用/子代理派发/权限询问与拒绝/失败与超时),16-settings 与
+// 03-shell 共用的 fastStatusText 也留在这里。
 export const agentAudits = new Map(); // session_id -> latest run audit projection
 export let agentAuditSession = null;
 
@@ -1275,6 +1291,8 @@ export function agentAuditTaskStart(sessionId, payload) {
   const existing = audit.tasks.get(String(payload.id));
   audit.tasks.set(String(payload.id), {
     id: String(payload.id),
+    // 失败清单显示身份与描述,不显示 call_… 调用 id(UI-0926 #8)。
+    label: [typeof input.role === "string" ? input.role : "", subagentDescription(input, payload.summary)].filter(Boolean).join(" · "),
     model,
     usage: existing?.usage || null,
     status: "running",
@@ -1289,6 +1307,8 @@ export function agentAuditTaskProgress(sessionId, payload) {
   const task = audit.tasks.get(String(payload.id));
   if (!task) return;
   if (trace.phase === "usage") task.usage = trace.usage || null;
+  // UI-0926 #8:meta trace 上报实际模型 id,取代 input.model 的 fast/primary 档位。
+  if (trace.phase === "meta" && trace.model) task.model = String(trace.model);
 }
 
 export function agentAuditTaskEnd(sessionId, payload) {
@@ -1297,7 +1317,9 @@ export function agentAuditTaskEnd(sessionId, payload) {
   const id = String(payload.id);
   const task = audit.tasks.get(id) || { id, model: "fast", usage: null };
   const preview = String(payload.preview || "");
-  task.status = payload.ok ? "succeeded" : /超时|timeout|wall-clock|timed out/i.test(preview) ? "timeout" : "failed";
+  task.status = payload.ok
+    ? "succeeded"
+    : payload.code === "subagent_timeout" || /超时|timeout|wall-clock|timed out/i.test(preview) ? "timeout" : "failed";
   task.preview = preview;
   audit.tasks.set(id, task);
 }
@@ -1379,7 +1401,7 @@ export function renderAgentAudit(sessionId = agentAuditSession || activeSessionI
     for (const task of failures) {
       const row = document.createElement("div");
       row.className = `agent-audit-failure ${task.status}`;
-      row.textContent = `${task.id} · ${task.status === "timeout" ? t("超时") : t("失败")}${task.preview ? ` · ${task.preview}` : ""}`;
+      row.textContent = `${task.label || task.id} · ${task.status === "timeout" ? t("超时") : t("失败")}${task.preview ? ` · ${task.preview}` : ""}`;
       failureBox.appendChild(row);
     }
   } else {
@@ -1399,8 +1421,6 @@ export function agentAuditFinish(sessionId, state = "completed") {
   renderAgentAudit(sessionId);
 }
 
-export let agentPanelOpen = false;
-
 // D-278:子代理就绪文案——设置页 fast 行与侧边栏子代理面板共用同一计算,避免两处漂移。
 // s 来自 fast_model_status 的载荷:managed/ready/model/installed/serviceUp。
 export function fastStatusText(s) {
@@ -1413,373 +1433,3 @@ export function fastStatusText(s) {
       : `${t("模型未拉取")}(${s.model})`;
   return { text: `⚠ ${missing} — ${t("子代理杂活(记忆整理/快速记录)暂不可用")}`, warn: true };
 }
-
-// D-278:面板头部就绪状态行。打开面板时查询 fast_model_status,与设置页同源文案;
-// 查询失败(命令不可用/旧引擎)时保持隐藏,不遮挡面板其余内容。
-export async function refreshAgentPanelStatus() {
-  const line = $("agent-panel-status");
-  if (!line) return;
-  let s;
-  try {
-    s = await invoke("fast_model_status");
-  } catch {
-    line.classList.add("hidden");
-    return;
-  }
-  const st = fastStatusText(s);
-  line.textContent = st.text;
-  line.classList.remove("hidden");
-  line.classList.toggle("warn-text", st.warn);
-}
-
-export function agentPhaseLabel(phase) {
-  const labels = { scouting: t("勘察"), review: t("复核"), fixup: t("修复") };
-  return labels[phase] || phase || t("子代理");
-}
-
-export function agentTick(entry) {
-  const seconds = Math.round((Date.now() - entry.startedAt) / 1000);
-  entry.el.dataset.agentElapsed = String(seconds);
-  const bits = [`${seconds}s`, `${t("工具调用")} ${entry.calls.size}`, `${t("token")} ${entry.tokens}`];
-  if (entry.currentTool) bits.push(`⚙ ${entry.currentTool}`);
-  entry.meta.textContent = bits.join(" · ");
-}
-
-export function agentSetCurrentTool(entry, name, running) {
-  entry.currentTool = name ? String(name) : "";
-  entry.el.dataset.agentCurrentTool = entry.currentTool;
-  agentTick(entry);
-}
-
-// 统计 token:task-progress 的 trace 在 phase=="usage" 时携带累计 usage(StepEnd 逐轮累计)。
-export function agentAddUsage(entry, usage) {
-  if (!usage) return;
-  const input = Number(usage.input) || 0;
-  const output = Number(usage.output) || 0;
-  const cacheRead = Number(usage.cache_read) || Number(usage.cacheRead) || 0;
-  const cacheWrite = Number(usage.cache_write) || Number(usage.cacheWrite) || 0;
-  // StepEnd 是"本轮新增"还是"累计"由后端定;这里按增量累计到面板条目,字段名与
-  // 主对话 runTokens 口径一致,且与 usage 结构无关,新旧字段都吸收。
-  entry.tokens += input + output + cacheRead + cacheWrite;
-}
-
-export function agentCountsSync() {
-  let running = 0;
-  let finished = 0;
-  let closed = 0;
-  for (const entry of agentEntries.values()) {
-    if (entry.state === "running") running += 1;
-    else if (entry.state === "finished") finished += 1;
-    else if (entry.state === "closed") closed += 1;
-  }
-  $("agent-running-count").textContent = running ? `${t("运行中")} ${running}` : "";
-  $("agent-finished-count").textContent = finished ? `${t("已完成")} ${finished}` : "";
-  motionCount($("agent-running-count2"), running ? String(running) : "");
-  // #7:子代理面板收起时 rail 开关的运行徽标。
-  $("agent-toggle").dataset.running = String(running > 0);
-  $("agent-finished-count2").textContent = finished ? String(finished) : "";
-  $("agent-closed-count2").textContent = closed ? String(closed) : "";
-  $("agent-clear").classList.toggle("hidden", finished === 0 && closed === 0);
-}
-
-// 打开/收起面板。与活动面板互斥:一个开着时另一个收起,避免右侧两栏叠在一起。
-export function agentTogglePanel() {
-  agentPanelOpen = !agentPanelOpen;
-  if (agentPanelOpen) {
-    // 临时浮层只保留一个当前上下文,不要让隐藏的活动状态在关闭子代理后突然弹回。
-    setActivityPanelOpen(false);
-    localStorage.setItem("kz-activity-panel", "0");
-    syncActivityPanel();
-  }
-  $("agent-panel").classList.toggle("hidden", !agentPanelOpen);
-  $("agent-toggle").classList.toggle("active", agentPanelOpen);
-  $("agent-toggle").setAttribute("aria-expanded", String(agentPanelOpen));
-  $("agent-toggle").title = agentPanelOpen ? t("收起子代理面板") : t("打开子代理面板");
-  if (agentPanelOpen) refreshAgentPanelStatus(); // D-278:每次打开都刷新就绪状态
-}
-
-// D-350:面板头部 ✕ 关闭。与 agentTogglePanel 的互斥切换不同,这里只关子代理面板,
-// 活动面板是否显示由当前 activityPanelOpen 状态决定(打开子代理时已清零)。
-export function agentClosePanel() {
-  agentPanelOpen = false;
-  $("agent-panel").classList.add("hidden");
-  syncActivityPanel(); // bg-panel 回到 activityPanelOpen 决定的状态
-  $("agent-toggle").classList.remove("active");
-  $("agent-toggle").setAttribute("aria-expanded", "false");
-  $("agent-toggle").title = t("打开子代理面板");
-}
-
-export function agentStart(id, name, summary, input, sessionId = activeSessionId) {
-  if (!id) return;
-  const phase = name === "task" ? orchPhaseOf(input) : null;
-  const existing = agentEntries.get(id);
-  if (existing && existing.state === "running") return; // 同 id 仍在跑,原地更新
-  if (existing) {
-    // 角色跨轮复用(architecture_scout 每轮都派):旧条目进 finished 后同名再次派发,
-    // 直接原地复位成新 running 条目,避免面板越积越长。
-    agentEntries.delete(id);
-    existing.el.remove();
-  }
-  const el = document.createElement("div");
-  el.className = "bg-entry running";
-  el.dataset.agentId = id;
-  el.dataset.bgStatus = "running";
-  el.dataset.agentState = "running";
-  const title = document.createElement("button");
-  title.type = "button";
-  title.className = "bg-title";
-  title.setAttribute("aria-label", t("展开或收起子代理详情"));
-  title.setAttribute("aria-expanded", "false");
-  const toolName = document.createElement("span");
-  toolName.className = "bg-tool";
-  // 名称:编排派发的角色以角色名(id)为身份,模型自派的一律叫 task。
-  toolName.textContent = phase ? id : name;
-  const target = document.createElement("span");
-  target.className = "bg-target";
-  const shown = toolCallSummary(name, input) || String(summary ?? "");
-  target.textContent = shown;
-  title.append(toolName, target);
-  if (phase) {
-    const badge = document.createElement("span");
-    badge.className = "bg-phase-badge";
-    badge.textContent = agentPhaseLabel(phase);
-    title.append(badge);
-  }
-  title.title = shown;
-  const prog = document.createElement("div");
-  prog.className = "bg-prog";
-  prog.textContent = `… ${t("子代理启动中")}`;
-  const meta = document.createElement("div");
-  meta.className = "bg-meta";
-  const actions = document.createElement("div");
-  actions.className = "bg-actions";
-  const detail = document.createElement("div");
-  detail.className = "bg-detail hidden";
-  title.addEventListener("click", () => {
-    if (detail.children.length) {
-      detail.classList.toggle("hidden");
-      title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
-    }
-  });
-  el.append(title, prog, meta, actions, detail);
-  const entry = {
-    el, title, target, prog, meta, actions, detail, phase, name,
-    calls: new Map(), messages: [], tokens: 0, currentTool: "", startedAt: Date.now(), state: "running", sessionId,
-  };
-  agentEntries.set(id, entry);
-  $("agent-running").appendChild(el);
-  // transcript 数据:tool-start 的 input 就是该子代理的初始指令(toolCallSummary 挑字段
-  // 挑不出时 target 回落 summary),完整入参进 detail 可展开。
-  if (input && Object.keys(input).length) {
-    const args = document.createElement("pre");
-    args.className = "tool-display term bg-args";
-    args.textContent = JSON.stringify(input, null, 2);
-    detail.appendChild(args);
-    el.classList.add("has-detail");
-  }
-  agentTick(entry);
-  agentRenderActions(id, entry);
-  agentCountsSync();
-}
-
-export function agentProgress(id, text, trace) {
-  const entry = agentEntries.get(id);
-  if (!entry || entry.state !== "running") return;
-  if (text) entry.prog.textContent = text;
-  if (!trace) {
-    if (entry.state === "running") agentTick(entry);
-    return;
-  }
-  if (trace.phase === "usage") {
-    // usage 的 trace 里 name 是空串(后端构造),不覆盖当前工具名。
-    agentAddUsage(entry, trace.usage);
-    agentTick(entry);
-    return;
-  }
-  if (trace.phase === "text") {
-    const text = String(trace.text ?? "");
-    if (text.trim()) {
-      entry.messages.push(text);
-      renderAgentTranscript(entry);
-    }
-    if (entry.state === "running") agentTick(entry);
-    return;
-  }
-  agentSetCurrentTool(entry, trace.name, trace.phase === "start");
-  let call = entry.calls.get(trace.child_id);
-  if (trace.phase === "start") {
-    if (!call) {
-      call = { name: trace.name, summary: trace.summary || "", input: trace.input || null, ok: null, preview: null, display: null };
-      entry.calls.set(trace.child_id, call);
-    }
-  } else if (call) {
-    call.ok = trace.ok;
-    call.preview = trace.preview || "";
-    call.display = trace.display || null;
-  }
-  // 调用的入参与输出都收进 detail,这就是 transcript 的原始数据源。
-  renderAgentTranscript(entry);
-  if (entry.state === "running") agentTick(entry);
-}
-
-// transcript:子代理自己的文字消息 + 每次工具调用,按各自数据源可回看。
-export function renderAgentTranscript(entry) {
-  const detail = entry.detail;
-  // 重建:调用序列或正文有新增时整体重画(频率低,一次 task-progress 一批)。
-  detail.querySelectorAll(".agent-message, .agent-call").forEach((node) => node.remove());
-  for (const text of entry.messages) {
-    const message = document.createElement("div");
-    message.className = "agent-message md";
-    message.innerHTML = renderMarkdown(text);
-    detail.appendChild(message);
-  }
-  for (const call of entry.calls.values()) {
-    const row = document.createElement("div");
-    row.className = "agent-call";
-    row.dataset.agentCall = call.name;
-    const head = document.createElement("div");
-    head.className = "agent-call-head";
-    head.textContent = call.ok === false ? `✕ ${call.name} ${call.preview || ""}` : `✓ ${call.name} ${call.summary}`;
-    row.appendChild(head);
-    if (call.input && Object.keys(call.input).length) {
-      const pre = document.createElement("pre");
-      pre.className = "tool-display term";
-      pre.textContent = JSON.stringify(call.input, null, 2);
-      row.appendChild(pre);
-    }
-    detail.appendChild(row);
-  }
-  // 工具和正文都默认折叠；用户点标题或「打开」才展开。
-  if (detail.children.length) entry.el.classList.add("has-detail");
-  if (detail.children.length) entry.title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
-}
-
-export function agentEnd(id, ok, preview, display) {
-  const entry = agentEntries.get(id);
-  if (!entry) return;
-  entry.state = "finished";
-  entry.el.dataset.agentState = "finished";
-  entry.el.classList.remove("running");
-  const stopped = !ok && /被停|停止|stopped|cancelled/.test(String(preview ?? ""));
-  entry.el.classList.add(ok ? "ok" : stopped ? "timeout" : "err");
-  entry.el.dataset.bgStatus = ok ? "ok" : stopped ? "stopped" : "err";
-  agentSetCurrentTool(entry, null, false);
-  entry.prog.textContent = preview || (ok ? t("完成") : t("失败"));
-  const ms = Date.now() - entry.startedAt;
-  const elapsed = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
-  const bits = [ok ? `✓ ${t("成功")}` : stopped ? `⏹ ${t("已停止")}` : `✕ ${t("失败")}`, elapsed];
-  if (entry.calls.size) bits.push(`${t("工具调用")} ${entry.calls.size}`);
-  if (entry.tokens) bits.push(`${t("token")} ${entry.tokens}`);
-  entry.meta.textContent = bits.join(" · ");
-  if (display) appendDisplayBlock(entry.detail, display);
-  renderAgentTranscript(entry);
-  // 从 running 区挪到 finished 区:移动节点即可,entry 引用不变。
-  $("agent-finished").appendChild(entry.el);
-  agentRenderActions(id, entry);
-  agentCountsSync();
-}
-
-export function agentClose(id) {
-  const entry = agentEntries.get(id);
-  if (!entry || entry.state !== "finished") return;
-  entry.state = "closed";
-  entry.el.dataset.agentState = "closed";
-  $("agent-closed").appendChild(entry.el);
-  agentRenderActions(id, entry);
-  agentCountsSync();
-}
-
-export function agentDelete(id) {
-  const entry = agentEntries.get(id);
-  if (!entry || entry.state !== "closed") return;
-  entry.el.remove();
-  agentEntries.delete(id);
-  agentCountsSync();
-}
-
-// 每条的操作项:运行中的能单条停止;结束后能查看/关闭;关闭后才能删除本地条目。
-export function agentRenderActions(id, entry) {
-  entry.actions.innerHTML = "";
-  const add = (label, title, handler) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "ghost mini";
-    btn.textContent = label;
-    btn.title = title;
-    btn.addEventListener("click", (event) => {
-      event.stopPropagation();
-      handler();
-    });
-    entry.actions.appendChild(btn);
-    return btn;
-  };
-  if (entry.state === "running") {
-    // R-174:子代理单条停止通道——不再只能停整轮。
-    add(t("停止"), t("只停这一条子代理,不影响本轮其它工具"), async () => {
-      try {
-        const processId = processItems.find((item) => item.session_id === entry.sessionId)?.id
-          || (entry.sessionId === activeSessionId ? activeProcessId : null);
-        await invoke("stop_task", { projectDir: currentProject, processId, taskId: String(id) });
-        toast(t("已请求停止该子代理"));
-      } catch (error) {
-        toastError(`${t("停止失败")}:${error}`);
-      }
-    });
-  }
-  if (entry.state === "finished") {
-    add(t("打开"), t("查看完整 transcript(工具调用序列 + 每次入参与输出)"), () => {
-      const detail = entry.detail;
-      detail.classList.toggle("hidden");
-      entry.title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
-    });
-    add(t("关闭"), t("关闭该条目但保留后端历史与审计记录"), () => agentClose(id));
-  }
-  if (entry.state === "closed") {
-    add(t("打开"), t("重新打开该条目"), () => {
-      entry.state = "finished";
-      entry.el.dataset.agentState = "finished";
-      $("agent-finished").appendChild(entry.el);
-      agentRenderActions(id, entry);
-      agentCountsSync();
-    });
-    add(t("删除"), t("从当前面板删除该条目,不删除后端历史"), () => agentDelete(id));
-  }
-}
-
-// Clear:清空 Finished/Closed 区,保留运行中的;真正删除前必须先关闭。
-export function agentClearFinished() {
-  for (const [id, entry] of agentEntries) {
-    if (entry.state === "finished" || entry.state === "closed") {
-      entry.el.remove();
-      agentEntries.delete(id);
-    }
-  }
-  agentCountsSync();
-}
-
-export function agentPanelSetup() {
-  const toggle = $("agent-toggle");
-  toggle.addEventListener("click", agentTogglePanel);
-  $("agent-close").addEventListener("click", agentClosePanel);
-  $("agent-clear").addEventListener("click", agentClearFinished);
-  $("agent-audit-trace").addEventListener("click", () => {
-    agentClosePanel();
-    setActivityPanelOpen(true);
-    localStorage.setItem("kz-activity-panel", "1");
-    syncActivityPanel();
-  });
-  // D-278:一键就绪进度事件也同步刷新面板状态行(面板开着时在设置页操作,回到面板即最新)。
-  on("kz:fast-setup", (event) => {
-    if (agentPanelOpen) refreshAgentPanelStatus();
-    const text = event.payload?.text;
-    if (text) {
-      $("fast-status").textContent = text;
-      log(`${t("子代理安装")}:${text}`);
-    }
-  });
-}
-// 06-activity.js 是唯一的活动/子代理脚本,加载时 DOM 已解析完毕。
-defer(() => {
-  agentPanelSetup();
-});
-

@@ -67,9 +67,6 @@ import {
   agentAuditTaskEnd,
   agentAuditTaskProgress,
   agentAuditTaskStart,
-  agentEnd,
-  agentProgress,
-  agentStart,
   bgAbortRunning,
   bgAdd,
   bgEnd,
@@ -114,6 +111,8 @@ import { renderMarkdown } from "./04-markdown.js";
 import { permissionResourceText } from "./04-structured-parse.js";
 import { pathChip, renderPermissionResource, richText } from "./04-structured.js";
 import { toolResultSummary } from "./05-tool-summary.js";
+// UI-0926 #8:task 不再走主对话工具块,改由子代理卡片承载(05-subagents.js)。
+import { subagentCopyText, subagentEnd, subagentProgress, subagentRunningCount, subagentStart } from "./05-subagents.js";
 
 // ---------- 事件订阅 ----------
 defer(() => {
@@ -326,13 +325,16 @@ on("kz:tool-start", (e) => {
   setTurnPhase("tool");
   setCurrentAssistant(null);
   setCurrentReasoning(null);
-  chatToolStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  // UI-0926 #8:task(模型自派与编排派发)在主对话里是一张子代理卡片,同批并行的合成一组;
+  // 其余工具照旧是内联工具行。
+  if (e.payload.name === "task") {
+    subagentStart({ sessionId: e.payload.sessionId, id: e.payload.id, input: e.payload.input, summary: e.payload.summary });
+  } else {
+    chatToolStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  }
   // 活动面板保留完整工具轨迹,入参一并传下去以支持编排阶段、角色和完整详情。
   if (bgQuiet(e.payload.name, e.payload.input)) bgStartQuiet(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
   else if (isActivityTool(e.payload.name, e.payload.input)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input, e.payload.sessionId);
-  // R-174:子代理面板独立于活动面板,task 类一律进子代理面板(编排派发带 phase,
-  // 模型自派 name=task)。其余工具不进子代理面板。
-  if (e.payload.name === "task") agentStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input, e.payload.sessionId);
   liveSet("live-action", `⚙ ${e.payload.name} ${shown.slice(0, 60)}`);
   setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
 });
@@ -358,8 +360,9 @@ defer(() => {
     const payload = e.payload;
     agentAuditTaskProgress(payload.sessionId, payload);
     bgProgress(payload.id, payload.text, payload.trace);
-    // R-174:子代理面板同一数据流。trace 里带 input/usage 时是 transcript 与 token 数据源。
-    agentProgress(payload.id, payload.text, payload.trace);
+    // UI-0926 #8:子代理卡片(与侧栏)同一数据流:meta 给人格与模型,start/end 给尾迹与过程,
+    // usage 是累计值(替换),text 是子代理自述。后台线路也推进(BACKGROUND_RENDER_EVENTS)。
+    subagentProgress({ sessionId: payload.sessionId, id: payload.id, text: payload.text, trace: payload.trace });
     // 子代理不会单独发顶层 tool-end；它每提交一个批次时由 task-progress 带回。
     // 这里马上重新取 Git 推导的进度，不等 parent task 或整轮结束。
     // 「在做」运行证据③:子代理的批次提交同样指认实际在推的条目。
@@ -420,13 +423,16 @@ defer(() => {
       code: p.code,
       durationMs: p.durationMs,
     };
-    chatToolEnd(p.id, p.ok, p.preview, p.display, outcome, toolEndExtra);
+    // UI-0926 #8:task 的终态收进子代理卡片(code 优先分类;停止补发的 ToolEnd 只校准终态,
+    // 不复活运行态),其余工具照旧填主对话工具行。
+    if (p.name === "task") {
+      subagentEnd({ sessionId: p.sessionId, id: p.id, ok: p.ok, outcome, code: p.code, preview: p.preview, display: p.display, content: p.content, durationMs: p.durationMs });
+    } else {
+      chatToolEnd(p.id, p.ok, p.preview, p.display, outcome, toolEndExtra);
+    }
     recordDiffSummary(p.display);
     // #7:实时收尾的一次性反馈(成功弹一下/失败抖一下);停止收尾之后才到的只撤「中断」标记。
     playToolOutcomeMotion(p.id);
-    // R-174:子代理终态进子代理面板 finished 区(task 类顶层 tool-end 只来自父任务收尾,
-    // 或被停后补发)。
-    if (p.name === "task") agentEnd(p.id, p.ok, p.preview, p.display);
     // 活动栏统一保留工具轨迹；历史兼容待定路径仍由 bgFinishQuiet 收尾，
     // 随后由 bgEnd 更新完成态和错误详情。
     bgFinishQuiet(p.id, p.ok);
@@ -434,7 +440,7 @@ defer(() => {
     // #7:停止发出后/已停止之后才到的 ToolEnd(停止补发)只收尾工具行,不得把相位与状态栏
     // 翻回「运行中」——否则活动行在已停止后重新扫光,直到下一次 setRunning(false)。
     if (running && turnPhase !== "stopping") {
-      setTurnPhase(paneHasRunningTool() ? "tool" : "waiting");
+      setTurnPhase(paneHasRunningTool() || subagentRunningCount(activeSessionId) > 0 ? "tool" : "waiting");
       setStatus("运行中", true);
     }
   });
@@ -1138,20 +1144,11 @@ defer(() => {
         const head = el.querySelector(".head")?.textContent?.trim();
         const result = el.querySelector(".result")?.textContent?.trim();
         if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
-      } else if (el.classList.contains("agent-fold")) {
-        // 子代理组头是当前 pane 的顶层节点,工具块在 agent-fold-body 内。
-        // 这里沿用普通工具 chip 的摘要口径,逐块下钻但不把隐藏详情重复贴进上下文。
-        const role = el.querySelector(".agent-fold-role")?.textContent?.trim();
-        for (const tool of el.querySelectorAll(".tool-msg")) {
-          const name = tool.querySelector(".tool-msg-name")?.textContent?.trim();
-          const arg = tool.querySelector(".tool-msg-arg")?.textContent?.trim();
-          const result = tool.querySelector(".tool-msg-result")?.textContent?.trim();
-          const label = [name, arg].filter(Boolean).join(" ");
-          if (label) {
-            const owner = role ? `${t("子代理")}:${role}\n> ` : "";
-            parts.push(`> ${owner}${t("工具")}:${label.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
-          }
-        }
+      } else if (el.classList.contains("sa-group")) {
+        // D-727:子代理以卡片为单位导出(身份 · 描述 / 计数 / 结果前 400 字),同批并行的逐张导出;
+        // 展开区里的子工具行不重复贴进上下文。
+        const text = subagentCopyText(el);
+        if (text) parts.push(text);
       } else if (el.classList.contains("turn-divider")) {
         parts.push(`---\n${el.textContent}`);
       } else if (el.classList.contains("pane-trimmed-hint") || el.classList.contains("earlier-hint")) {

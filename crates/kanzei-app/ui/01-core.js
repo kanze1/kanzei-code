@@ -2,7 +2,6 @@ import { confirmDialog as surfaceConfirmDialog, inputDialog as surfaceInputDialo
 import { t } from "./02-i18n.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
-import { setChatAgentFolds } from "./05-chat-render.js";
 import { chatAbortRunningFor } from "./05-chat-render.js";
 import {
   activeSessionId,
@@ -15,7 +14,6 @@ import {
   transitionSession,
 } from "./03-shell.js";
 import {
-  chatAgentFolds,
   currentReasoningHead,
   followLatest,
   noteProgrammaticScroll,
@@ -29,6 +27,7 @@ import { refreshMemory } from "./13-memory.js";
 import { refreshConversationLists, renderTrimmedHint, sessionLiveNow } from "./15-views-misc.js";
 import { refreshResearch } from "./19-research.js";
 import { neuralFlowEmit } from "./22-neural-flow.js";
+import { subagentSettle } from "./05-subagents.js";
 
 // kanzei 桌面端前端逻辑(静态,无构建步骤)。
 export const { invoke } = window.__TAURI__.core;
@@ -71,14 +70,17 @@ export const SESSION_PROGRESS_EVENTS = new Set([
 // 它此前用裸 listen 绕过本函数,于是「没有 sessionId 就丢弃」这条纪律只覆盖了一半的
 // 订阅——规则写在代码里,但只写在一条路径上。
 // R-267:后台会话也要渲染的事件——它们往消息流里写东西,必须进所属会话的 pane。
-// 刻意**不含** kz:status/kz:step/kz:meta/kz:task-progress/kz:tool-progress:
-// 那几条改的是状态栏、轮次显示、活动面板与工具进度条,都是**全局 UI**,
+// 刻意**不含** kz:status/kz:step/kz:meta/kz:tool-progress:
+// 那几条改的是状态栏、轮次显示与工具进度条,都是**全局 UI**,
 // 后台会话触发它们才是串线(用户会看到别的线的状态盖在当前线上)。
+// UI-0926 #8:kz:task-progress 改为入列——它推进的是所属会话 pane 里的子代理卡片(按
+// sessionId|id 找卡,不碰全局状态栏);此前非活动线路的子代理进度整条丢弃,切回去卡片一动不动。
 export const BACKGROUND_RENDER_EVENTS = new Set([
   "kz:text",
   "kz:reasoning",
   "kz:tool-start",
   "kz:tool-end",
+  "kz:task-progress",
   "kz:permission-resolved",
   "kz:compacted",
   "kz:experience",
@@ -369,6 +371,11 @@ export function on(event, handler) {
           detail: "",
         });
         refreshParallelTaskProjection(sessionId);
+      }
+      // UI-0926 #8:整轮停止 / 终态出错 / 轮末仍没收到终态的子代理卡片收尾。活动线与后台线都走
+      // 这里(后台线的控制事件下面就被路由走、不进 handler),停止后卡片不会一直停在「运行中」。
+      if (sessionId && (event === "kz:stopped" || event === "kz:done" || terminalError)) {
+        subagentSettle(sessionId, event === "kz:stopped" ? "cancelled" : "interrupted");
       }
       // D-387:手机消息注入桌面——刷新会话列表(消息已由后端持久化,打开会话可见)。
       if (event === "kz:mobile-message") {
@@ -710,24 +717,12 @@ export function trimLivePane(pane) {
     // 跟随态下用户要的是「一直贴着底」,不是保住某个位置:交给 scrollBottom 重新钉底。
     if (!reading && typeof scrollBottom === "function") scrollBottom(true);
   }
-  // 折叠组的组头可能刚被裁掉;留着失效引用会让后续子代理工具块写进游离节点、
-  // 界面上凭空少一批轨迹。清掉引用,下一次 chatAgentFold 会重建组头。
-  if (typeof chatAgentFolds !== "undefined") {
-    for (const [role, group] of chatAgentFolds) {
-      // 只认**明确的** false:冒烟的假 DOM 没有 isConnected(undefined),
-      // 写成 `!isConnected` 会在那里每次裁剪都清空全部折叠组。
-      if (group?.body?.isConnected === false) chatAgentFolds.delete(role);
-    }
-  }
   if (typeof renderTrimmedHint === "function") renderTrimmedHint(pane);
 }
 /// 清空当前 pane 并复位「有内容」标志。
 export function resetPane() {
   activePane.replaceChildren();
   delete activePane.dataset.hasContent;
-  // 清 pane 就等于把折叠组的 DOM 一起清了;缓存里的引用不清,后续子代理工具块
-  // 会写进已经不在页面上的组头,轨迹静默消失。
-  if (typeof chatAgentFolds !== "undefined") chatAgentFolds.clear();
   delete activePane.dataset.droppedLive;
   if (typeof renderTrimmedHint === "function") renderTrimmedHint(activePane);
 }
@@ -762,7 +757,7 @@ export function streamStateFor(sessionId) {
   const key = sessionId || "";
   let state = sessionStreams.get(key);
   if (!state) {
-    state = { assistant: null, reasoning: null, reasoningHead: null, folds: new Map() };
+    state = { assistant: null, reasoning: null, reasoningHead: null };
     sessionStreams.set(key, state);
   }
   return state;
@@ -785,23 +780,17 @@ export function withSessionRender(sessionId, fn) {
   const savedReasoning = currentReasoning;
   const savedHead = currentReasoningHead;
   const savedBackground = renderingBackground;
-  const savedFolds = chatAgentFolds;
   renderingBackground = true;
   activePane = paneFor(sessionId);
   setCurrentAssistant(state.assistant);
   setCurrentReasoning(state.reasoning);
   setCurrentReasoningHead(state.reasoningHead);
-  // 子代理折叠组表也必须跟着换会话。不换的话,后台线的 task 工具块会被
-  // appendChild 进前台线对话里的同名组头——用户在 A 线看见自己没派过的调用。
-  setChatAgentFolds(state.folds);
   try {
     return fn();
   } finally {
     state.assistant = currentAssistant;
     state.reasoning = currentReasoning;
     state.reasoningHead = currentReasoningHead;
-    state.folds = chatAgentFolds;
-    setChatAgentFolds(savedFolds);
     renderingBackground = savedBackground;
     activePane = savedPane;
     setCurrentAssistant(savedAssistant);

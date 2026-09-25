@@ -88,7 +88,7 @@
 3. **描述** `.sa-desc`:单行,超长省略,`title` 给出全文。
 4. **修饰签** `.sa-chip`(可选):「续聊」「后台运行」,R-369 落地前不会出现。
 5. **计数** `.sa-meta`:形如 `7 次工具 · 18.2k token · 41s`,值为 0 的项不显示;启动中显示「启动中」;终态前面加状态词。数字等宽;工具次数用 `motionCount` 写入(上升时 tick 一次)。
-6. **动作**:■ 单条停止(仅运行中出现,悬停或 `:focus-within` 时显示);↗ 在侧栏查看完整过程(常驻,低对比)。
+6. **动作**:■ 单条停止(位置常驻;仅运行中可用,悬停或 `:focus-within` 时显示);↗ 在侧栏查看完整过程(单卡常驻低对比,组成员悬停/焦点时出现)。
 
 ### 5.2 实时尾迹 `.sa-live`
 
@@ -163,7 +163,7 @@
   - 头部:字形、人格、描述、状态词。次行:模型 id · 工具次数 · token · 耗时。
   - 动作:停止 / 复制结果 / 定位到对话。「复制结果」的反馈用 00-surface.js 的 `toast`。
   - 正文是指令/过程/结果三节,与内联展开用同一个渲染器,不设高度上限(侧栏自身滚动);运行中实时追加。
-- **rail 开关 `#agent-toggle`**:右上角加徽标 `.rail-badge`,显示当前线路运行中的子代理数;数量大于 0 时徽标旁放一个 `.kz-dot[data-state=running]`(第一波原语,不另写呼吸动画)。
+- **rail 开关 `#agent-toggle`**:右上角加徽标 `#agent-badge.rail-badge`,显示当前线路运行中的子代理数;它取代 #7 在同一位置的呼吸点(同一位置不叠两个信号),`data-running` 仍是布尔。
 - **取消**旧面板的「运行中/已完成/已关闭」三段,以及「关闭/删除/清空」三个动作。它们只改本地视图、不碰后端,用户还得理解「关闭≠停止≠删除」;列表按线路自动生成就够了。
 
 ## 6. 状态
@@ -172,9 +172,9 @@
 
 | 状态 | 判定来源 | 字符 · glyph data-state | 状态词 | 动效 | 尾迹 | 可用动作 |
 |---|---|---|---|---|---|---|
-| starting 启动中 | 已收到 tool-start,尚无任何 task-progress | ◌ · running | 启动中 | 呼吸(原语) | 显示「启动中」 | 停止、侧栏 |
-| running 运行中 | 收到任一 task-progress(包括 meta 与 trace=null 的轮次文本) | ◌ · running | 无(计数本身就是状态) | 呼吸(原语);新尾迹行淡入 | 3 行 | 停止、侧栏 |
-| stopping 停止中 | 用户点了 ■,尚未收到终态 | ◌ · stopping | 停止中 | 快呼吸(原语) | 冻结 | 侧栏 |
+| starting 启动中 | 已收到 tool-start,尚无任何 task-progress | ● · running | 启动中 | 呼吸(原语) | 显示「启动中」 | 停止、侧栏 |
+| running 运行中 | 收到任一 task-progress(包括 meta 与 trace=null 的轮次文本) | ● · running | 无(计数本身就是状态) | 呼吸(原语);新尾迹行淡入 | 3 行 | 停止、侧栏 |
+| stopping 停止中 | 用户点了 ■,或收到 phase=cancelled 的 trace,尚未收到终态 | ● · stopping | 停止中 | 快呼吸(原语) | 冻结 | 侧栏 |
 | waiting 等待批准(预留) | 带 taskId 的 kz:ask(R-369 B2 之后) | ⏸ · waiting | 等待批准 | 呼吸(原语) | 冻结不动 | 去批准、停止 |
 | done 完成 | tool-end ok 且 outcome=success | ✓ · done | 完成 | `motionOnce(glyph, "kz-pop")` 一次 | 收起 | 侧栏、复制 |
 | empty 无回答 | code=subagent_empty_answer 或 outcome=noop | ○ · idle | 无回答 | kz-pop 一次 | 收起 | 侧栏 |
@@ -285,6 +285,20 @@ PWA 是审批与通知的遥控器,不渲染对话,所以卡片不搬过去,只�
 - 把 task-progress 条目按 id 写进回放缓存;卡片建立时(包括「载入更早的消息」时)消费缓存。
 - `input` 是截断的字符串,能 `JSON.parse` 成功才当对象用,否则只用 `trace.summary`。
 - 编排角色不在消息历史里,所以回放时没有它们的卡片(与现状一致)。
+- 同一批并行的 task 在历史里也是「连续的 tool_call、随后才是各自的 tool_result」:卡片按实时同一条挂组规则成组,收到结果即封口。
+
+### 11.3 前端落点
+
+| 职责 | 位置 |
+|---|---|
+| 数据模型(runsBySession / liveIndex / 回放缓存)、卡片与组视图、「指令/过程/结果」共用渲染器、停止/复制/定位动作 | `ui/05-subagents.js` |
+| 侧栏(列表/详情、Esc、rail 徽标、fast 就绪行、审计卡入口) | `ui/06-agent-panel.js` |
+| 事件分流:task 的 tool-start/tool-end → `subagentStart`/`subagentEnd`,task-progress → `subagentProgress`;复制上下文按卡导出 | `ui/07-events.js` |
+| 后台线路推进(`kz:task-progress` 入 `BACKGROUND_RENDER_EVENTS`)、整轮停止/终态出错/轮末收尾 `subagentSettle` | `ui/01-core.js` 路由层 |
+| 历史回放:消息历史建卡 `subagentHistoryCall/Result`;run.trace 回放 `subagentReplayTrace/Duration` | `ui/15-views-misc.js`、`ui/06-activity.js renderRecoveredTraces` |
+| 冒烟:单卡生命周期、尾迹、token 替换、终态分类、并行组与封口、后台推进、历史回放同形、切语言、停止收尾;变异 `saUsageAccumulate`/`saSettle` | `scripts/ui-runtime-smoke.mjs`「分区:子代理」 |
+
+实现取舍(与上文示意的差异):运行中字形用 `●`(`.kz-glyph[data-state=running]` 呼吸,比 `◌` 在各字体下都清楚);■ 的位置常驻(不跑时禁用且隐形),组内各行的计数列对得齐;组成员的 ↗ 只在悬停/键盘焦点时出现(一列箭头太吵),单卡的 ↗ 常驻低对比;rail 徽标是计数胶囊,取代 #7 在同一位置的呼吸点(`#agent-toggle[data-running]` 仍是布尔,#7 的冒烟与样式共用);卡片里的 markdown 复用 `.sv-md`,标题压到正文字号附近。
 
 ## 12. 最小后端增补(不新增事件名、不新增 IPC 命令)
 

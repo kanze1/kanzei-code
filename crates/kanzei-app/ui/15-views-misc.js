@@ -51,6 +51,7 @@ import {
   scrollBottom,
   updateLatestButton,
 } from "./05-chat-render.js";
+import { subagentHistoryCall, subagentHistoryResult, subagentResetSession } from "./05-subagents.js";
 import { bgClear, renderRecoveredTraces } from "./06-activity.js";
 import { addSummaryEntry } from "./07-events.js";
 import { cancelAutoContinueTimer } from "./08-auto.js";
@@ -484,6 +485,8 @@ export function emptyStateMarkup() {
 
 export function renderRecoveredMessages(items) {
   setFollowLatest(true);
+  // UI-0926 #8:重载历史前丢掉该会话已结束的子代理 run(卡片随 pane 一起重建),运行中的保留。
+  subagentResetSession(activeSessionId);
   resetPane();
   setCurrentAssistant(null);
   setCurrentReasoning(null);
@@ -509,6 +512,12 @@ export function renderMessageParts(items) {
   const pending = new Map();
   for (const message of items ?? []) {
     for (const part of message.parts ?? []) {
+      // UI-0926 #8:task 回放成与实时同形的子代理卡片(过程与计数随后由 run.trace 回放补齐)。
+      if (part.type === "tool_call" && part.name === "task" && part.id) {
+        subagentHistoryCall(activeSessionId, part.id, part.input);
+        pending.set(part.id, { subagent: true });
+        continue;
+      }
       if (part.type === "tool_call") {
         const block = buildToolBlock(part.name || "tool", part.input);
         // 轨迹里的耗时按调用 id 回填(applyRecoveredToolDurations)。
@@ -519,7 +528,10 @@ export function renderMessageParts(items) {
       }
       if (part.type === "tool_result") {
         const entry = pending.get(part.call_id);
-        if (entry) {
+        if (entry?.subagent) {
+          pending.delete(part.call_id);
+          subagentHistoryResult(activeSessionId, part.call_id, { ok: !part.is_error, content: part.content });
+        } else if (entry) {
           pending.delete(part.call_id);
           fillToolBlock(entry.block, {
             ok: !part.is_error,
@@ -556,7 +568,11 @@ export function renderMessageParts(items) {
   }
   // 没等到结果的调用(轮次被中断,或**窗口边界**把调用与结果切开了):标出来,
   // 不要停在"运行中"的假象上。窗口边界这一侧补齐后会重新配上,不影响最终形态。
-  for (const { block } of pending.values()) {
+  for (const [callId, { block, subagent }] of pending) {
+    if (subagent) {
+      subagentHistoryResult(activeSessionId, callId, { interrupted: true });
+      continue;
+    }
     block.wrap.classList.remove("running");
     block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
     block.result.classList.remove("hidden");
@@ -950,6 +966,8 @@ export function showFreshConversation() {
   updateLatestButton();
   // 活动面板随对话走,与切线一致。
   bgClear();
+  // UI-0926 #8:子代理侧栏同理——新段里没有旧段的委派(运行中的保留)。
+  subagentResetSession(activeSessionId);
   promptBox.focus();
 }
 
