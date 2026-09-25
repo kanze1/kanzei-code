@@ -467,11 +467,20 @@ export function splitCircledList(text) {
 }
 
 /// 「批1 …;批2 …」「B1 …；B2 …」:标记前必须是行首或分隔符,标记后必须是冒号或空白
-/// (`B1-B4 已完成` 不算)。至少 2 个不同标记。
+/// (`B1-B4 已完成` 不算)。括号里的标记(「(与 B4 同版发布)」)和已出现过的标记只是正文里的引用,
+/// 不切新项。至少 2 个不同标记。
 export function splitMarkedList(text) {
   const source = String(text ?? "");
-  const marks = [...source.matchAll(/(^|[；;。，,:：\s(（])(批\s*\d+|B\d+)(?=[:：\s])/g)]
-    .map((match) => ({ start: match.index + match[1].length, raw: match[2], label: match[2].replace(/\s+/g, "") }));
+  const seen = new Set();
+  const marks = [...source.matchAll(/(^|[；;。，,:：\s])(批\s*\d+|B\d+)(?=[:：\s])/g)]
+    .map((match) => ({ start: match.index + match[1].length, raw: match[2], label: match[2].replace(/\s+/g, "") }))
+    .filter((mark) => {
+      const before = source.slice(0, mark.start);
+      const depth = (before.match(/[(（]/g) ?? []).length - (before.match(/[)）]/g) ?? []).length;
+      if (depth > 0 || seen.has(mark.label)) return false;
+      seen.add(mark.label);
+      return true;
+    });
   if (marks.length < 2) return null;
   const items = marks.map((mark, index) => {
     const end = index + 1 < marks.length ? marks[index + 1].start : source.length;

@@ -89,6 +89,11 @@ assert.match(unsafeHtml, /&lt;img/, "原始 HTML 未安全转义");
   assert.equal(marked.intro, "以 docs/design/phase2_system_upgrade.md 为二期真源维护五批", "批N 列表的引导语丢失");
   assert.deepEqual(parse.splitMarkedList("B1 基座；B2 事件；B3 回归")?.items.map((item) => item.label), ["B1", "B2", "B3"], "B1/B2 列表未切分");
   assert.equal(parse.splitMarkedList("B1-B4 已完成并通过验证"), null, "B1-B4 区间不是列表标记");
+  // 括号里的「与 B4 同版发布」是引用不是新批次;B4 在后文真正出现时才切(R-364 内容字段的真实写法)。
+  const nested = parse.splitMarkedList("B1 字符账单;B2 tool_search、提示词改写(与 B4 同版发布);B3 原生 defer_loading 探针;B4 CLI/桌面同口径回归");
+  assert.deepEqual(nested?.items.map((item) => item.label), ["B1", "B2", "B3", "B4"], `括号内的 B4 被错切成新项:${JSON.stringify(nested?.items)}`);
+  assert.equal(nested.items[1].text, "tool_search、提示词改写(与 B4 同版发布)", "B2 正文不该在括号处断开");
+  assert.deepEqual(parse.splitMarkedList("B1 基座;B2 事件,回归见 B1 说明;B3 收尾")?.items.map((item) => item.label), ["B1", "B2", "B3"], "重复出现的标记不该切新项");
   assert.deepEqual(parse.splitSemicolonList("第一段内容比较长；第二段也比较长"), ["第一段内容比较长", "第二段也比较长"], "全角分号列表未切分");
   assert.equal(parse.splitSemicolonList("短；段"), null, "过短的分号段不该成列表");
   assert.equal(parse.splitSemicolonList("单段没有分隔"), null, "单段不该成列表");

@@ -475,13 +475,13 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     ],
     conversations: new Map([
       [IDS.mainProcess, [
-        { sequence: 14, sequences: [14], title: "R-364 B1 账单与常驻名单", preview: "继续 R-364:先把 B1 的逐工具 schema 字符账单跑出来…", updated_at: "2026-09-26 14:18" },
-        { sequence: 13, sequences: [13], title: "build-2009581f 发版", preview: "发版前先跑 verify 全量…", updated_at: "2026-09-26 11:02" },
-        { sequence: 12, sequences: [11, 12], title: "D-759 D-760 D-761 前端修复", preview: "手机提问卡片按 id 对账…", updated_at: "2026-09-25 22:40" },
-        { sequence: 10, sequences: [10], title: "CC/Codex 三方对照登记", preview: "把 A 档全部登记成需求…", updated_at: "2026-09-25 17:15" },
+        { sequence: 14, sequences: [14], title: "R-364 B1 账单与常驻名单", preview: "继续 R-364:先把 B1 的逐工具 schema 字符账单跑出来…", message_count: 46, updated_at: "2026-09-26 14:18" },
+        { sequence: 13, sequences: [13], title: "build-2009581f 发版", preview: "发版前先跑 verify 全量…", message_count: 18, updated_at: "2026-09-26 11:02" },
+        { sequence: 12, sequences: [11, 12], title: "D-759 D-760 D-761 前端修复", preview: "手机提问卡片按 id 对账…", message_count: 31, updated_at: "2026-09-25 22:40" },
+        { sequence: 10, sequences: [10], title: "CC/Codex 三方对照登记", preview: "把 A 档全部登记成需求…", message_count: 12, updated_at: "2026-09-25 17:15" },
       ]],
       [IDS.lineProcess, [
-        { sequence: 3, sequences: [3], title: "R-366 B2 conversation.rewind", preview: "在分支线上推进 B2…", updated_at: "2026-09-26 14:05" },
+        { sequence: 3, sequences: [3], title: "R-366 B2 conversation.rewind", preview: "在分支线上推进 B2…", message_count: 22, updated_at: "2026-09-26 14:05" },
       ]],
       [IDS.idleProcess, []],
     ]),
@@ -710,7 +710,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       const list = state.conversations.get(processId) ?? [];
       const next = Math.max(0, ...list.flatMap((item) => item.sequences)) + 1;
       state.conversations.set(processId, [
-        { sequence: next, sequences: [next], title: "新对话", preview: "", updated_at: "2026-09-26 14:20" },
+        { sequence: next, sequences: [next], title: "新对话", preview: "", message_count: 0, updated_at: "2026-09-26 14:20" },
         ...list,
       ]);
       return null;

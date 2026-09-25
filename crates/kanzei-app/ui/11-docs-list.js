@@ -3,6 +3,7 @@ import { localizeDynamic } from "./02-i18n.js";
 import { $, invoke, promptBox } from "./01-core.js";
 import { localizedDocStatus, t } from "./02-i18n.js";
 import { currentProject, log, navigate_view, setSidebarCollapsed, sidebarCollapsed, syncSidebar, toast, toastError } from "./03-shell.js";
+import { renderTrackerFields, richText } from "./04-structured.js";
 import {
   DOC_TAG_ORDER,
   NEUTRAL_DOC_FILTERS,
@@ -15,7 +16,19 @@ import {
   saveDocFilters,
   syncDocFilterControls,
 } from "./10-docs-core.js";
-import { agentFocus, documentFilters, documentStatusOptions, focusForProcess } from "./12-docs-pages.js";
+import {
+  agentFocus,
+  dependencyViewOpen,
+  documentFilters,
+  documentStatusOptions,
+  documentsKind,
+  focusForProcess,
+  latestDocsSnapshot,
+  neutralizedDocFilters,
+  renderDocuments,
+  setDependencyViewOpen,
+  setDocumentsKind,
+} from "./12-docs-pages.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import { openDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
 import { openFilePreview } from "./17-files.js";
@@ -136,13 +149,13 @@ export async function commitDocOrder(listEl, kind) {
 // 引用跳转。目标可能被筛选藏起来、在折叠分区里、在收起的侧栏里,或者已经归档——
 // 旧实现只认当前可见节点(offsetParent !== null),这四种情况一律静默失败:点了没反应,
 // 也没有任何提示,看起来就是"引用是死链"(D-166)。
-export function revealEntryNode(target) {
+export function revealEntryNode(target, { block = "center" } = {}) {
   // 只掀开确实会藏住条目的两类容器,不对任意祖先去 hidden——那会顺手展开整个视图。
   for (let node = target; node; node = node.parentElement) {
     if (node.classList?.contains("doc-archive-list")) node.classList.remove("hidden");
     if (node.classList?.contains("sidebar-section")) node.classList.remove("collapsed");
   }
-  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  target.scrollIntoView({ behavior: "smooth", block });
   target.classList.add("ref-highlight");
   setTimeout(() => target.classList.remove("ref-highlight"), 1200);
 }
@@ -159,23 +172,45 @@ export const inDocumentsPage = (item) => DOCUMENTS_ENTRY_CONTAINERS.some((id) =>
 // 所以不猜时机:把待高亮 id 存起来,由重绘收尾(renderDocsSnapshot)消费。
 export let pendingJumpId = null;
 export function setPendingJumpId(value) { pendingJumpId = value; }
+// UI-0926 #4:跳转要落在**展开的详情**上(侧栏焦点卡、refs 链接、测试关联徽标、线路取得声明
+// 都是「我要看这一条」),而不是一条收起的行——那样用户点完还得再点一次。
+let pendingJumpExpand = false;
+export function expandEntryDetail(item) {
+  const detail = item?.querySelector?.(".doc-detail");
+  if (!detail) return;
+  detail.classList.remove("hidden");
+  item.querySelector(".doc-row")?.setAttribute("aria-expanded", "true");
+}
 export function consumePendingJump() {
   if (!pendingJumpId) return;
   const ref = pendingJumpId;
+  const expand = pendingJumpExpand;
   // 只给一次机会:目标此刻若被筛掉或已不在列表里就作罢,不留一个会在将来某次
   // 无关刷新上突然亮起来的悬挂高亮。
   pendingJumpId = null;
-  const target = [...document.querySelectorAll("[data-doc-id]")]
+  pendingJumpExpand = false;
+  const candidates = [...document.querySelectorAll("[data-doc-id]")]
     .filter((item) => item.dataset.docId === ref)
-    .find(inDocumentsPage);
-  if (target) revealEntryNode(target);
+    .filter(inDocumentsPage);
+  // 依赖视图关掉后它的旧节点还在(只是隐藏),要展开的是列表里那一行。
+  const target = candidates.find((item) => item.classList.contains("doc-item")) ?? candidates[0];
+  if (!target) return;
+  if (expand) expandEntryDetail(target);
+  revealEntryNode(target, { block: expand ? "start" : "center" });
 }
+// 筛选放行:跳转目标被当前筛选藏住时,只在这次浏览里把它临时插回列表(带「不在当前筛选内」
+// 标记),**不改**用户的筛选状态、不落盘(R-115)。离开单页、改筛选、清除/解锁、切项目即作废,
+// 否则筛选外的条目会一直赖在列表里。
+export let jumpRevealId = null;
+export function setJumpRevealId(value) { jumpRevealId = value; }
+export function clearJumpReveal() { jumpRevealId = null; }
 // 刷新失败(目录被删、文件被锁、解析失败)时 renderDocsSnapshot 根本不会跑,上面那次
 // 消费就永远不会发生。留着这个 id 正是上面「不留悬挂高亮」的反面:之后任意一次无关刷新
 // ——agent 触发的 refreshDocsSoon、或用户下次再进文档页——都会把它兑现,用户没点跳转
 // 条目却自己亮了。所以跳转的失败路径必须显式作废(D-211:承诺与实现不能脱节)。
 export function clearPendingJump() {
   pendingJumpId = null;
+  pendingJumpExpand = false;
 }
 // D-413:研究工件里两类「本该可点」的字段——文献 URL 与代码域证据锚(file:line)。
 // 判据放这里单点定义,渲染侧只问「这个字段是不是可打开的」,不各自认字符串。
@@ -240,7 +275,33 @@ export function researchOpenLink(key, value, topic = "") {
   return btn;
 }
 
-export async function jumpToEntry(ref) {
+export async function jumpToEntry(ref, { expand = false } = {}) {
+  // 直达详情(UI-0926 #4):目标是快照里的活动需求/缺陷时,把挡路的东西一次清掉——
+  // 切到它所属的页签(非当前页签的列表是 hidden 的,scrollIntoView 无效)、关依赖视图
+  // (两张列表都被它藏着)、被筛选挡住就临时放行——再落到展开的那一行上。
+  const docKind = ref.startsWith("R-") ? "req" : ref.startsWith("D-") ? "defect" : null;
+  const live = expand && docKind
+    ? (docKind === "req" ? latestDocsSnapshot?.requirements : latestDocsSnapshot?.defects)?.find((entry) => entry.id === ref)
+    : null;
+  if (live) {
+    if (documentsKind !== "both" && documentsKind !== docKind) setDocumentsKind(docKind);
+    if (dependencyViewOpen) setDependencyViewOpen(false);
+    // 放行只给**确实被当前筛选挡住**的目标(与 renderDocList 同一口径 filterDocEntries,页签切完
+    // 再判,对照页的中性副本才对得上)。筛选内的目标也设的话,它之后因改状态落到筛选外(详情头
+    // 「→ 转 done」而筛选是 doing)会一直挂着「不在当前筛选内」。
+    const hidden = !filterDocEntries([live], docKind, neutralizedDocFilters(documentFilters[docKind])).length;
+    jumpRevealId = hidden ? ref : null;
+    pendingJumpId = ref;
+    pendingJumpExpand = true;
+    if (!$("view-documents")?.classList.contains("active")) {
+      openDocumentsView();
+      // 切视图会走 refreshDocs → renderDocsSnapshot 收尾时消费;没有项目就没有那次刷新,就地画。
+      if (currentProject) return;
+    }
+    renderDocuments(latestDocsSnapshot);
+    consumePendingJump();
+    return;
+  }
   const findAll = () =>
     [...document.querySelectorAll("[data-doc-id]")].filter((item) => item.dataset.docId === ref);
   let matches = findAll();
@@ -326,20 +387,428 @@ export function claimedCollaborationLineFor(entry) {
   };
 }
 
+// ---------- 条目详情(UI-0926 #4 + #10):只读优先,读起来像一页文档 ----------
+// 原来可编辑的条目一展开就是一整墙输入框(只读字段被压掉),状态按钮沉在最底下,|| 分段的进展
+// 整段塞进一个 textarea——跳转直达详情后落到的就是这面墙。现在:
+//   头   「编号 · 标题」+ 状态流转 + 「编辑」开关;
+//   身   字段只读视图(04-structured renderTrackerFields:①②③ 成列表、|| 成时间线且只露最新一段、
+//        发现记录 JSON 成键值表、停车/阻塞拆出恢复人与解除条件、refs 可点、引擎字段收进折叠区);
+//   其后 执行单元折叠;编辑表单只在点「编辑」后替换只读视图出现。
+// 编辑态、未保存的输入与光标跨重绘保留(captureDetailState):agent 的一次刷新、别处点一下
+// 状态按钮都会整表重绘,不留的话正在写的字段就被冲掉;refreshDocsSoon 见到未保存输入会让路。
+const DOC_EDIT_TITLE_KEY = ":title";
+const COMPLEXITY_LEVELS = ["小", "中", "大"];
+
+export function captureDetailState(el) {
+  const states = new Map();
+  const active = document.activeElement ?? null;
+  for (const item of [...el.querySelectorAll(".doc-item[data-doc-id]")]) {
+    const detail = item.querySelector(".doc-detail");
+    if (!detail) continue;
+    const state = {
+      editing: detail.classList.contains("editing"),
+      drafts: new Map(),
+      focus: null,
+      unitsOpen: Boolean(detail.querySelector(".work-unit-details")?.open),
+      olderOpen: new Set([...detail.querySelectorAll(".doc-progress-older")].filter((node) => node.open).map((node) => node.dataset.field ?? "")),
+    };
+    if (state.editing) {
+      for (const control of [...detail.querySelectorAll(".doc-edit [data-field]")]) {
+        if (control.dataset.dirty) state.drafts.set(control.dataset.field, control.value);
+        if (active && control === active) {
+          let start = null;
+          let end = null;
+          try {
+            start = control.selectionStart ?? null;
+            end = control.selectionEnd ?? null;
+          } catch { /* select 没有选区 */ }
+          state.focus = { field: control.dataset.field, start, end };
+        }
+      }
+    }
+    if (state.editing || state.unitsOpen || state.olderOpen.size) states.set(item.dataset.docId, state);
+  }
+  return states;
+}
+
+/// 时间线只露最新一段(R-282:|| 切段的首段是最新),更早的收进「更早进展 N」折叠区。
+/// 进展之外的时间线字段(来源/对账/确认记录)同样折叠,summary 写「更早记录 N」。
+export function foldOlderSegments(root, prior = null) {
+  for (const list of [...root.querySelectorAll(".tf-timeline")]) {
+    const items = [...list.children];
+    if (items.length <= 1) continue;
+    const field = list.closest(".tf-row")?.dataset.field ?? "";
+    const older = document.createElement("details");
+    older.className = "doc-progress-older";
+    older.dataset.field = field;
+    older.open = Boolean(prior?.olderOpen?.has(field));
+    const summary = document.createElement("summary");
+    summary.textContent = `${t(field === "进展" ? "更早进展" : "更早记录")} ${items.length - 1}`;
+    const rest = document.createElement("ol");
+    rest.className = "tf-timeline";
+    rest.setAttribute("start", "2");
+    for (const node of items.slice(1)) rest.appendChild(node);
+    older.append(summary, rest);
+    list.parentNode.insertBefore(older, list.nextSibling);
+  }
+}
+
+function complexitySelect() {
+  const select = document.createElement("select");
+  select.appendChild(new Option(t("未评估"), ""));
+  for (const level of COMPLEXITY_LEVELS) select.appendChild(new Option(t(level), level));
+  return select;
+}
+
+function workUnitCard(unit) {
+  const card = document.createElement("div");
+  card.className = `work-unit-card ${unit.status}`;
+  const head = document.createElement("div");
+  head.className = "work-unit-head";
+  const identity = document.createElement("code");
+  identity.textContent = unit.unit_id;
+  const status = document.createElement("span");
+  status.className = "work-unit-status";
+  status.textContent = unit.status;
+  head.append(identity, status);
+  const objective = document.createElement("div");
+  objective.className = "work-unit-objective";
+  objective.textContent = unit.objective;
+  card.append(head, objective);
+  const meta = (text, extra = "") => {
+    const line = document.createElement("div");
+    line.className = `work-unit-meta${extra ? ` ${extra}` : ""}`;
+    line.textContent = text;
+    card.appendChild(line);
+  };
+  const checkpoint = unit.last_checkpoint ?? {};
+  if (checkpoint.summary) meta(`${t("实质进展")}: ${checkpoint.summary}`);
+  if (Array.isArray(checkpoint.decisions) && checkpoint.decisions.length) meta(`${t("决策记录")}: ${checkpoint.decisions.join("；")}`);
+  if (Array.isArray(checkpoint.retrieval_refs) && checkpoint.retrieval_refs.length) meta(`${t("记忆来源")}: ${checkpoint.retrieval_refs.join(", ")}`);
+  else meta(`${t("记忆来源")}: ${t("未记录")}`, "muted");
+  const declared = Array.isArray(unit.verification) ? unit.verification : [];
+  meta(`${t("验证结果")}: ${declared.length ? declared.join("；") : t("未声明")}`);
+  if (unit.blocked_reason) meta(`${t("阻塞原因")}: ${unit.blocked_reason}`, "blocked");
+  if (checkpoint.next_action) meta(`${t("下一步")}: ${checkpoint.next_action}`);
+  const evidenceCount = Array.isArray(unit.evidence) ? unit.evidence.length : 0;
+  const acceptanceCount = Array.isArray(unit.acceptance) ? unit.acceptance.length : 0;
+  meta(`${t("验收证据")}: ${evidenceCount}/${acceptanceCount}`);
+  return card;
+}
+
+function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blockedReasons, workUnits, cx, expanded, prior }) {
+  const detail = document.createElement("div");
+  detail.className = expanded ? "doc-detail" : "doc-detail hidden";
+
+  // ① 头:「编号 · 标题」(行内不显示编号,R-054,所以这里必须给全)+ 状态流转 + 编辑开关。
+  const head = document.createElement("div");
+  head.className = "doc-detail-head";
+  const full = document.createElement("div");
+  full.className = "doc-full-title";
+  full.textContent = `${entry.id} · ${entry.title}`;
+  head.appendChild(full);
+  const actions = document.createElement("div");
+  actions.className = "doc-actions doc-detail-actions";
+  // 合法的状态流转(与硬门禁同一套规则,来自快照的 nextStatuses)。
+  for (const next of entry.nextStatuses ?? []) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ghost mini";
+    btn.textContent = `→ ${t("转")} ${localizedDocStatus(next)}`;
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        const msg = await invoke("docs_update", {
+          projectDir: currentProject,
+          kind,
+          action: "update",
+          id: entry.id,
+          status: next,
+        });
+        log(msg);
+        refreshDocs();
+      } catch (err) {
+        toastError(String(err));
+        log(`${t("状态流转失败")}:${err}`, "warn");
+      }
+    });
+    actions.appendChild(btn);
+  }
+  head.appendChild(actions);
+  detail.appendChild(head);
+
+  // ② 阻塞:调度器推导的理由(依赖/阶段/环)+ 回复入口。「阻塞字段: X」是阻塞字段的原文,
+  // 下面的字段视图里已经有(拆好了恢复人/解除条件),这里不再重复一遍(D-165)。
+  if (blocked || externalBlocked) {
+    const reasons = blockedReasons.filter((reason) => !String(reason).startsWith("阻塞字段:"));
+    const shown = reasons.length ? reasons : blocked && !blockedReasons.length ? [t("缺少阻塞原因")] : [];
+    const canReply = blocked && blockedReasons.length > 0;
+    if (shown.length || canReply) {
+      const box = document.createElement("div");
+      box.className = "doc-pending-decision";
+      const boxHead = document.createElement("div");
+      boxHead.className = "doc-decision-head";
+      const label = document.createElement("strong");
+      label.textContent = t("阻塞原因");
+      boxHead.appendChild(label);
+      if (canReply) {
+        const reply = document.createElement("button");
+        reply.type = "button";
+        reply.className = "ghost mini";
+        reply.textContent = t("回复此事项");
+        reply.addEventListener("click", () => {
+          const context = `${entry.id} · ${entry.title}\n${blockedReasons.join("；")}\n${t("我的补充")}: `;
+          promptBox.value = [promptBox.value.trim(), context].filter(Boolean).join("\n\n");
+          navigate_view("chat");
+          promptBox.dispatchEvent(new Event("input", { bubbles: true }));
+          promptBox.focus();
+        });
+        boxHead.appendChild(reply);
+      }
+      box.appendChild(boxHead);
+      if (shown.length) {
+        const list = document.createElement("ul");
+        list.className = "doc-decision-reasons";
+        for (const reason of shown) {
+          const li = document.createElement("li");
+          li.appendChild(richText(reason));
+          list.appendChild(li);
+        }
+        box.appendChild(list);
+      }
+      detail.appendChild(box);
+    }
+  }
+
+  // ③ 字段只读视图。svTrackerFields 变异守卫按下面挂载 renderTrackerFields 的那一行定位。
+  const read = document.createElement("div");
+  read.className = "doc-fields-read";
+  read.appendChild(renderTrackerFields(entry.fields ?? []));
+  foldOlderSegments(read, prior);
+  detail.appendChild(read);
+
+  // ④ 编辑表单:只在「编辑」开关打开时替换只读视图。R-123 的「字段编辑只在独立文档页」说的是
+  // req/defect(它们有文档页);source/finding 没有文档页,就地可编辑(D-413)。
+  // 实际渲染面:renderDocList 只被需求/缺陷(单页)与想法(侧栏)调用;研究工件走 19-research.js 的
+  // researchCard(自带「编辑」,本组未改),下面的 researchKind 分支是防御性保留。想法没有编辑器,
+  // 展开即只读视图(与改版前一样只读,只是换成了 renderTrackerFields 的结构化呈现)。
+  const researchKind = kind === "source" || kind === "finding";
+  const deepManage = !entry.closed && (researchKind || (surface === "documents" && (kind === "req" || kind === "defect")));
+  if (deepManage) {
+    const editBox = document.createElement("div");
+    editBox.className = "doc-edit hidden";
+    const controls = [];
+    const markDirty = (control) => {
+      control.dataset.dirty = "1";
+      editBox.dataset.dirty = "1";
+    };
+    // 每格都带可见字段名(D-164):字段集是自由的,只靠顺序或 tooltip 认不出改的是哪一条。
+    // 段落型字段按值长度自动升级为 textarea,不硬编码字段名。
+    const addRow = (labelText, key, value, hint, control = null) => {
+      const row = document.createElement("label");
+      row.className = "doc-edit-row";
+      const name = document.createElement("span");
+      name.className = "doc-edit-key";
+      name.textContent = labelText;
+      let input = control;
+      if (!input) {
+        const multiline = value.length > 60 || value.includes("\n");
+        input = document.createElement(multiline ? "textarea" : "input");
+        if (multiline) input.rows = Math.min(10, Math.max(3, Math.ceil(value.length / 42)));
+      }
+      input.value = value;
+      input.title = hint;
+      input.dataset.field = key;
+      for (const type of ["input", "change"]) input.addEventListener(type, () => markDirty(input));
+      row.append(name, input);
+      editBox.appendChild(row);
+      controls.push([key, input, value]);
+      return input;
+    };
+    const titleInput = addRow(t("标题"), DOC_EDIT_TITLE_KEY, entry.title, t("编辑标题"));
+    const complexityHint = kind === "defect" ? t("设置缺陷复杂度") : t("设置需求复杂度");
+    const fieldInputs = [];
+    let complexityField = false;
+    for (const [key, value] of entry.fields ?? []) {
+      const text = String(value ?? "");
+      // 复杂度是受控词表:值在词表里就给下拉(原来单独一行、即改即存,与表单两套保存口径)。
+      if (key === "复杂度" && ["", ...COMPLEXITY_LEVELS].includes(text.trim())) {
+        complexityField = true;
+        fieldInputs.push([key, addRow(key, key, text.trim(), complexityHint, complexitySelect())]);
+        continue;
+      }
+      fieldInputs.push([key, addRow(key, key, text, `${t("编辑字段")}: ${key}`)]);
+    }
+    // 字段里没有「复杂度」时补一格,只在改过时提交——免得每次保存都凭空写一个空的复杂度字段。
+    const currentComplexity = COMPLEXITY_LEVELS.includes(cx) ? cx : "";
+    const extraComplexity = complexityField ? null : addRow(t("复杂度"), "复杂度", currentComplexity, complexityHint, complexitySelect());
+    const toggle = document.createElement("button");
+    const setEditing = (on, { reset = true } = {}) => {
+      detail.classList.toggle("editing", on);
+      editBox.classList.toggle("hidden", !on);
+      read.classList.toggle("hidden", on);
+      toggle.textContent = t(on ? "取消编辑" : "编辑");
+      toggle.setAttribute("aria-pressed", String(on));
+      if (on) return;
+      for (const [, control, original] of controls) {
+        if (reset) control.value = original;
+        delete control.dataset.dirty;
+      }
+      delete editBox.dataset.dirty;
+    };
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "primary mini";
+    save.textContent = t("保存修改");
+    save.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const fields = Object.fromEntries(fieldInputs.map(([key, input]) => [key, input.value]));
+      if (extraComplexity && extraComplexity.value !== currentComplexity) fields["复杂度"] = extraComplexity.value;
+      try {
+        await invoke("docs_update", {
+          projectDir: currentProject,
+          kind,
+          action: "update",
+          id: entry.id,
+          title: titleInput.value,
+          fields,
+        });
+        toast(t("已保存"));
+        // 先退出编辑态再刷新:重绘按「编辑中」恢复,不先退出的话表单又弹回来。
+        setEditing(false, { reset: false });
+        refreshDocs();
+      } catch (error) {
+        toastError(`${t("记录保存失败")}:${error}`);
+      }
+    });
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "ghost mini";
+    cancel.textContent = t("取消");
+    cancel.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setEditing(false);
+    });
+    const editActions = document.createElement("div");
+    editActions.className = "doc-edit-actions";
+    editActions.append(save, cancel);
+    editBox.appendChild(editActions);
+    editBox.addEventListener("click", (event) => event.stopPropagation());
+    detail.appendChild(editBox);
+
+    toggle.type = "button";
+    toggle.className = "ghost mini doc-edit-toggle";
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const on = !detail.classList.contains("editing");
+      setEditing(on);
+      if (on) titleInput.focus();
+    });
+    actions.appendChild(toggle);
+    setEditing(false, { reset: false });
+    if (prior?.editing) {
+      setEditing(true);
+      for (const [key, control] of controls) {
+        if (!prior.drafts.has(key)) continue;
+        control.value = prior.drafts.get(key);
+        markDirty(control);
+      }
+      const focused = prior.focus && controls.find(([key]) => key === prior.focus.field)?.[1];
+      if (focused) {
+        focused.focus();
+        try {
+          if (prior.focus.start !== null) focused.setSelectionRange(prior.focus.start, prior.focus.end ?? prior.focus.start);
+        } catch { /* select 没有选区 */ }
+      }
+    }
+  }
+  if (!actions.children.length) actions.remove();
+
+  // ⑤ 执行单元:默认折叠,summary 一行说清进度与当前单元。
+  if (workUnits.length) {
+    const terminal = workUnits.filter((unit) => unit.status === "done" || unit.status === "superseded").length;
+    const current = workUnits.find((unit) => ["active", "blocked", "verifying"].includes(unit.status));
+    const units = document.createElement("details");
+    units.className = "work-unit-details";
+    units.open = Boolean(prior?.unitsOpen);
+    const summary = document.createElement("summary");
+    summary.textContent = `${t("执行单元")} ${terminal}/${workUnits.length}${current ? ` · ${current.unit_id} · ${current.status}` : ""}`;
+    const section = document.createElement("section");
+    section.className = "work-unit-list";
+    for (const unit of workUnits) section.appendChild(workUnitCard(unit));
+    units.append(summary, section);
+    detail.appendChild(units);
+  }
+
+  // ⑥ 想法专属(R-252):inbox 显示「拆解」按钮(派 idea_split 子代理产出 R/D),
+  // 已拆解(split)显示产出的 refs 编号。拆解由人点按钮触发,不做自动拆解。
+  if (kind === "idea" && !entry.closed) {
+    if (entry.status === "inbox") {
+      const splitRow = document.createElement("div");
+      splitRow.className = "doc-progress";
+      const btn = document.createElement("button");
+      btn.className = "ghost mini";
+      btn.textContent = t("拆解成需求/缺陷");
+      btn.title = t("派子代理把这条想法拆成 R-/D- 条目,拆解后显示产出编号");
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        btn.disabled = true;
+        try {
+          const msg = await invoke("idea_split", { projectDir: currentProject, id: entry.id });
+          log(msg);
+          toast(msg);
+          refreshDocs();
+        } catch (err) {
+          toastError(String(err));
+          btn.disabled = false;
+        }
+      });
+      splitRow.appendChild(btn);
+      detail.appendChild(splitRow);
+    } else {
+      const refs = entry.fields?.find(([k]) => k === "refs")?.[1];
+      if (refs) {
+        const refsRow = document.createElement("div");
+        refsRow.className = "doc-progress";
+        refsRow.textContent = `${t("已拆解产出")}: ${refs}`;
+        refsRow.title = t("这些 R-/D- 条目由本想法拆解而来");
+        detail.appendChild(refsRow);
+      }
+    }
+  }
+  return detail;
+}
+
+/// 列表筛选的唯一口径:需求走 filterRequirements(含复杂度与排序),缺陷只有状态/优先级/标签/阻塞,
+/// 其余类型不筛。renderDocList 与 jumpToEntry 的「是否被筛选挡住」预判共用它。
+export function filterDocEntries(entries, kind, filters = NEUTRAL_DOC_FILTERS) {
+  if (kind === "req") return filterRequirements(entries, filters);
+  if (kind !== "defect") return entries;
+  return entries
+    .filter((entry) => filters.status === "all" || entry.status === filters.status)
+    .filter((entry) => filters.priority === "all" || entry.priority === filters.priority)
+    .filter((entry) => filters.tag === "all" || entryTags(entry).includes(filters.tag))
+    .filter((entry) => matchesBlockedFilter(entry, filters.blocked ?? "all"));
+}
+
 export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NEUTRAL_DOC_FILTERS, archivedEntries = []) {
   const surface = docSurface(el);
   // 筛掉了多少条:用于"被筛空"时说清原因。列表凭空变空是最容易被当成数据丢失的
   // 一类现象,必须给出条数与一键清除,而不是留一片空白(D-169)。
   const totalBeforeFilter = entries.length;
+  const allEntries = entries;
   // 筛选一律在这里做,调用方不得再预筛一遍——两处口径必须同源,否则侧栏与文档页
   // 会在同一筛选条件下给出不同的条目集合(R-123 验收 ④)。
-  if (kind === "req") entries = filterRequirements(entries, reqFilterState);
-  if (kind === "defect") {
-    entries = entries
-      .filter((entry) => reqFilterState.status === "all" || entry.status === reqFilterState.status)
-      .filter((entry) => reqFilterState.priority === "all" || entry.priority === reqFilterState.priority)
-      .filter((entry) => reqFilterState.tag === "all" || entryTags(entry).includes(reqFilterState.tag))
-      .filter((entry) => matchesBlockedFilter(entry, reqFilterState.blocked ?? "all"));
+  entries = filterDocEntries(entries, kind, reqFilterState);
+  // 跳转目标被筛选挡住:临时插回最前(分组视图下归入它自己的组),只影响这次渲染。
+  let exemptId = null;
+  if (surface === "documents" && (kind === "req" || kind === "defect") && jumpRevealId
+    && !entries.some((entry) => entry.id === jumpRevealId)) {
+    const hidden = allEntries.find((entry) => entry.id === jumpRevealId);
+    if (hidden) {
+      entries = [hidden, ...entries];
+      exemptId = hidden.id;
+    }
   }
   // 分组视图(用户定调):按受控词表分组展示;组内保持文件顺序。
   // 分组改变了视觉顺序≠文件顺序,拖拽在分组视图下必须禁用(否则会提交错乱顺序)。
@@ -374,6 +843,8 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       })
       .map((item) => item.dataset.docId)
   );
+  // 编辑态/未保存的输入/展开的折叠区同理(见 buildDocDetail)。
+  const priorDetails = captureDetailState(el);
   el.innerHTML = "";
   // 被筛空:必须说清"有多少条被藏起来了"并给一键清除。此前这种情况下如果还有
   // 归档条目,连"(空)"都不显示——纯一片空白,看起来就是需求全没了。
@@ -393,6 +864,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       // 踩到冻结的 NEUTRAL_DOC_FILTERS 上抛异常。
       const filterState = documentFilters[kind];
       if (!filterState) return;
+      clearJumpReveal();
       for (const key of ["status", "priority", "complexity", "tag", "blocked"]) {
         if (key in filterState) filterState[key] = "all";
       }
@@ -439,6 +911,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       unlock.textContent = t("解锁");
       unlock.title = t("关闭分组、切回手动排序并清除全部筛选,恢复拖拽调序");
       unlock.addEventListener("click", () => {
+        clearJumpReveal();
         if (isGrouped) {
           // 走现有开关按钮:持久化、按钮 active 态、重渲染全在它的 handler 里。
           $("documents-group-toggle")?.click();
@@ -487,6 +960,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     item.className = `doc-item${entry.closed ? " closed" : ""}${blocked ? " blocked" : ""}${externalBlocked ? " external-blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}${isAgentActive ? " agent-active" : ""}`;
     if (isAgentActive) item.title = t("agent 正在做这一条");
     item.dataset.docId = entry.id;
+    if (entry.id === exemptId) item.classList.add("filter-exempt");
 
     const row = document.createElement("div");
     row.className = "doc-row";
@@ -523,22 +997,17 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     }
     row.setAttribute("aria-label", `${entry.id} ${entry.title}，${t("按 Enter 展开详情")}`);
     row.title = `${entry.id} ${entry.title}(${t("点击展开")})`;
-    const id = document.createElement("span");
-    id.className = "id";
-    // R-054(用户拍板):需求行内不显示 R-xxx(乱序观感),只显示位置序号;身份收进展开详情。
-    if (kind === "req") {
-      id.className = "pos";
-      id.textContent = `#${position}`;
-    } else {
-      id.textContent = entry.id;
-    }
+    // R-054(用户拍板):行内不显示 R-xxx(乱序观感),身份在行 tooltip 与展开详情头里。
+    // 状态列(UI-0926 #4 恢复):79e532bb 起它只建不挂,跳进列表后看不出每行是 doing 还是 todo。
+    // 固定宽度的一列,排在优先级之前不破坏 D-362 的三列对齐;缺陷严重度进 tooltip,列宽不被它撑开。
     const st = document.createElement("span");
     st.className = `st st-${entry.status || "todo"}`;
-    st.textContent = localizedDocStatus(entry.status || "todo") + (entry.severity ? `/${entry.severity}` : "");
+    st.textContent = localizedDocStatus(entry.status || "todo");
+    st.title = entry.severity ? `${localizedDocStatus(entry.status || "todo")} · ${t("严重度")}: ${entry.severity}` : st.textContent;
+    if (onDocsPage && (kind === "req" || kind === "defect")) row.appendChild(st);
     // D-413 续:研究来源要**一键直达正文**,不该先展开再在字段里找链接。
-    // (且展开后若开着编辑器,字段走的是编辑输入而非只读链接——两个改动会互相抵消,
-    //  见下方 researchLinkField 的 hasEditor 豁免。)行内 ↗ 是最短路径:点一下就
-    //  在应用内看到这篇文献/这段代码。
+    // (展开后若开着编辑器,只读视图——连同其中可点的 URL/路径 chip——是隐藏的。)
+    //  行内 ↗ 是最短路径:点一下就在应用内看到这篇文献/这段代码。
     if (kind === "source" || kind === "finding") {
       const openable = (entry.fields ?? []).find(([k, v]) => researchLinkField(k, v));
       if (openable) {
@@ -554,6 +1023,13 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
         });
         placeFlag(open);
       }
+    }
+    if (entry.id === exemptId) {
+      const exemptFlag = document.createElement("span");
+      exemptFlag.className = "filter-exempt-flag";
+      exemptFlag.textContent = t("不在当前筛选内");
+      exemptFlag.title = t("跳转目标被当前筛选隐藏,这里临时显示;改筛选或离开单页后恢复");
+      placeFlag(exemptFlag);
     }
     const claimed = claimedCollaborationLineFor(entry);
     if (claimed) {
@@ -681,9 +1157,12 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       row.appendChild(badge);
     }
     if (kind === "req" && surface === "documents") {
+      // 一列只放一个字(大/中/小,未评估是「—」):每行都写「复杂度:」是纯重复,说明进 tooltip。
+      const assessed = cx === "小" || cx === "中" || cx === "大";
       const complexityBadge = document.createElement("span");
       complexityBadge.className = "complexity-badge";
-      complexityBadge.textContent = cx === "小" || cx === "中" || cx === "大" ? `${t("复杂度")}:${t(cx)}` : t("未评估");
+      complexityBadge.textContent = assessed ? t(cx) : "—";
+      complexityBadge.title = `${t("复杂度")}:${assessed ? t(cx) : t("未评估")}`;
       row.appendChild(complexityBadge);
     }
     const title = document.createElement("span");
@@ -700,311 +1179,12 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     }
     item.appendChild(row);
 
-    // 展开面板:完整标题、字段、合法的状态流转按钮(与硬门禁同一套规则)。
-    const detail = document.createElement("div");
-    detail.className = expandedIds.has(entry.id) ? "doc-detail" : "doc-detail hidden";
-    const full = document.createElement("div");
-    full.className = "doc-full-title";
-    // 行内不显示需求 ID(R-054),身份收进展开详情——这里必须给全。
-    full.textContent = kind === "req" ? `${entry.id} · ${entry.title}` : entry.title;
-    detail.appendChild(full);
-    if (blocked && blockedReasons.length) {
-      const pending = document.createElement("div");
-      pending.className = "doc-pending-decision";
-      const reason = document.createElement("p");
-      reason.textContent = `${t("待解除条件")}: ${blockedReasons.join("；")}`;
-      const reply = document.createElement("button");
-      reply.type = "button";
-      reply.textContent = t("回复此事项");
-      reply.addEventListener("click", () => {
-        const context = `${entry.id} · ${entry.title}\n${blockedReasons.join("；")}\n${t("我的补充")}: `;
-        promptBox.value = [promptBox.value.trim(), context].filter(Boolean).join("\n\n");
-        navigate_view("chat");
-        promptBox.dispatchEvent(new Event("input", { bubbles: true }));
-        promptBox.focus();
-      });
-      pending.append(reason, reply);
-      detail.appendChild(pending);
-    }
-
-    if (workUnits.length) {
-      const section = document.createElement("section");
-      section.className = "work-unit-list";
-      const heading = document.createElement("strong");
-      heading.textContent = t("执行单元");
-      section.appendChild(heading);
-      for (const unit of workUnits) {
-        const card = document.createElement("div");
-        card.className = `work-unit-card ${unit.status}`;
-        const head = document.createElement("div");
-        head.className = "work-unit-head";
-        const identity = document.createElement("code");
-        identity.textContent = unit.unit_id;
-        const status = document.createElement("span");
-        status.className = "work-unit-status";
-        status.textContent = unit.status;
-        head.append(identity, status);
-        const objective = document.createElement("div");
-        objective.className = "work-unit-objective";
-        objective.textContent = unit.objective;
-        card.append(head, objective);
-        const checkpoint = unit.last_checkpoint ?? {};
-        if (checkpoint.summary) {
-          const progress = document.createElement("div");
-          progress.className = "work-unit-meta";
-          progress.textContent = `${t("实质进展")}: ${checkpoint.summary}`;
-          card.appendChild(progress);
-        }
-        if (Array.isArray(checkpoint.decisions) && checkpoint.decisions.length) {
-          const decisions = document.createElement("div");
-          decisions.className = "work-unit-meta";
-          decisions.textContent = `${t("决策记录")}: ${checkpoint.decisions.join("；")}`;
-          card.appendChild(decisions);
-        }
-        if (Array.isArray(checkpoint.retrieval_refs) && checkpoint.retrieval_refs.length) {
-          const sources = document.createElement("div");
-          sources.className = "work-unit-meta";
-          sources.textContent = `${t("记忆来源")}: ${checkpoint.retrieval_refs.join(", ")}`;
-          card.appendChild(sources);
-        } else {
-          const sources = document.createElement("div");
-          sources.className = "work-unit-meta muted";
-          sources.textContent = `${t("记忆来源")}: ${t("未记录")}`;
-          card.appendChild(sources);
-        }
-        const verification = document.createElement("div");
-        verification.className = "work-unit-meta";
-        const declared = Array.isArray(unit.verification) ? unit.verification : [];
-        verification.textContent = `${t("验证结果")}: ${declared.length ? declared.join("；") : t("未声明")}`;
-        card.appendChild(verification);
-        if (unit.blocked_reason) {
-          const blockedLine = document.createElement("div");
-          blockedLine.className = "work-unit-meta blocked";
-          blockedLine.textContent = `${t("阻塞原因")}: ${unit.blocked_reason}`;
-          card.appendChild(blockedLine);
-        }
-        if (unit.last_checkpoint?.next_action) {
-          const next = document.createElement("div");
-          next.className = "work-unit-meta";
-          next.textContent = `${t("下一步")}: ${unit.last_checkpoint.next_action}`;
-          card.appendChild(next);
-        }
-        const evidenceCount = Array.isArray(unit.evidence) ? unit.evidence.length : 0;
-        const acceptanceCount = Array.isArray(unit.acceptance) ? unit.acceptance.length : 0;
-        const evidence = document.createElement("div");
-        evidence.className = "work-unit-meta";
-        evidence.textContent = `${t("验收证据")}: ${evidenceCount}/${acceptanceCount}`;
-        card.appendChild(evidence);
-        section.appendChild(card);
-      }
-      detail.appendChild(section);
-    }
-    // R-123:字段编辑只在独立文档页。侧栏展开详情因此退回只读呈现,高度显著下降,
-    // 回到"浏览与取活"的本职;编辑能力没有丢,在文档页有完整入口。
-    // R-123 的「字段编辑只在独立文档页」是针对 req/defect 说的——它们**有**文档页。
-    // source/finding 压根没有文档页(index.html 无 view-sources/view-findings),
-    // 沿用同一句话等于把研究工件的编辑入口锁死在一个不存在的地方:用户实测
-    // 「打开也没法编辑」正是这么来的(D-413)。故按「有没有页」分流:有页的去页里改,
-    // 没页的就在侧栏详情里改。研究工件是研究模式的核心资产,不能只读。
-    const kindHasDocPage = kind === "req" || kind === "defect";
-    const researchKind = kind === "source" || kind === "finding";
-    const deepManage =
-      !entry.closed && (researchKind || (surface === "documents" && kindHasDocPage));
-    if (deepManage) {
-      const editBox = document.createElement("div");
-      editBox.className = "doc-edit";
-      // 每格都带可见字段名:字段集是自由的,只靠顺序或 tooltip 认不出改的是哪一条。
-      // 段落型字段(内容/验收/复现/进展)按值长度自动升级为 textarea——不硬编码字段名。
-      const addRow = (label, value, hint) => {
-        const row = document.createElement("label");
-        row.className = "doc-edit-row";
-        const name = document.createElement("span");
-        name.className = "doc-edit-key";
-        name.textContent = label;
-        const multiline = value.length > 60 || value.includes("\n");
-        const control = document.createElement(multiline ? "textarea" : "input");
-        control.value = value;
-        control.title = hint;
-        if (multiline) control.rows = Math.min(10, Math.max(3, Math.ceil(value.length / 42)));
-        row.append(name, control);
-        editBox.appendChild(row);
-        return control;
-      };
-      const titleInput = addRow(t("标题"), entry.title, t("编辑标题"));
-      const fieldInputs = [];
-      for (const [key, value] of entry.fields ?? []) {
-        fieldInputs.push([key, addRow(key, value, `${t("编辑字段")}: ${key}`)]);
-      }
-      const save = document.createElement("button");
-      save.type = "button";
-      save.className = "primary mini";
-      save.textContent = t("保存修改");
-      save.addEventListener("click", async (event) => {
-        event.stopPropagation();
-        try {
-          await invoke("docs_update", {
-            projectDir: currentProject,
-            kind,
-            action: "update",
-            id: entry.id,
-            title: titleInput.value,
-            fields: Object.fromEntries(fieldInputs.map(([key, input]) => [key, input.value])),
-          });
-          toast(t("已保存"));
-          refreshDocs();
-        } catch (error) {
-          toastError(`${t("记录保存失败")}:${error}`);
-        }
-      });
-      const editActions = document.createElement("div");
-      editActions.className = "doc-edit-actions";
-      editActions.appendChild(save);
-      editBox.appendChild(editActions);
-      editBox.addEventListener("click", (event) => event.stopPropagation());
-      detail.appendChild(editBox);
-    }
-    // 编辑表单已经把每个字段连名带值摆出来了,再渲染一遍只读列表就是同一份内容显示两遍;
-    // 「阻塞字段: X」这条理由更是直接重复 阻塞 字段的原文(D-165)。有编辑表单时:
-    // 阻塞原因只留调度器推导出来的理由(依赖/阶段/循环),只读列表只留 refs(它是可跳转的链接)。
-    const hasEditor = deepManage;
-    if (blocked || externalBlocked) {
-      const reasons = hasEditor
-        ? blockedReasons.filter((reason) => !String(reason).startsWith("阻塞字段:"))
-        : blockedReasons;
-      const shown = reasons.length ? reasons : hasEditor ? [] : [t("缺少阻塞原因")];
-      if (shown.length) {
-        const blockBox = document.createElement("div");
-        blockBox.className = "doc-blocked-detail";
-        const blockTitle = document.createElement("strong");
-        blockTitle.textContent = t("阻塞原因");
-        blockBox.appendChild(blockTitle);
-        for (const reason of shown) {
-          const line = document.createElement("div");
-          line.textContent = `• ${reason}`;
-          blockBox.appendChild(line);
-        }
-        detail.appendChild(blockBox);
-      }
-    }
-    for (const [key, value] of entry.fields ?? []) {
-      const isRefs = key.toLowerCase() === "refs";
-      // D-413:可打开字段(URL / 证据锚)与 refs 一样,即使开着编辑器也要再给一份
-      // **只读链接**。否则 deepManage 一开,这些字段只剩编辑输入框,「点开文献」
-      // 的入口凭空消失——本轮实测就是这么栽的:两个改动各自正确,合起来互相抵消。
-      const isOpenable = researchLinkField(key, value);
-      if (hasEditor && !isRefs && !isOpenable) continue;
-      const f = document.createElement("div");
-      f.className = "doc-field";
-      if (isRefs) {
-        f.append(`${key}: `);
-        for (const ref of String(value).split(/[\s,]+/).filter(Boolean)) {
-          const link = document.createElement("button");
-          link.className = "ref-link";
-          link.textContent = ref;
-          link.addEventListener("click", (event) => {
-            event.stopPropagation();
-            jumpToEntry(ref);
-          });
-          f.appendChild(link);
-          f.append(" ");
-        }
-      } else if (researchLinkField(key, value)) {
-        // D-413:研究工件的 `URL:`(文献)与 `证据锚:`(代码域)在数据里是结构化的,
-        // 渲染成纯文本等于「看得见打不开」——用户实测的头号痛点。这里与 refs 同
-        // 手法给一个真入口:文献进内置 viewer(用户定调,不跳出应用),代码域按
-        // file:line 打开文件并定位行。
-        f.append(`${key}: `);
-        f.appendChild(researchOpenLink(key, String(value)));
-      } else {
-        f.textContent = `${key}: ${value}`;
-      }
-      detail.appendChild(f);
-    }
-    // 复杂度是元数据编辑,同样归文档页;侧栏保留三格电量图标做只读呈现。
-    if (deepManage) {
-      const complexityRow = document.createElement("div");
-      complexityRow.className = "doc-progress";
-      const complexitySelect = document.createElement("select");
-      complexitySelect.innerHTML = `<option value="">${t("未评估")}</option><option>小</option><option>中</option><option>大</option>`;
-      complexitySelect.value = cx;
-      complexitySelect.title = kind === "defect" ? t("设置缺陷复杂度") : t("设置需求复杂度");
-      complexitySelect.addEventListener("click", (event) => event.stopPropagation());
-      complexitySelect.addEventListener("change", async () => {
-        try {
-          await invoke("docs_update", { projectDir: currentProject, kind, action: "update", id: entry.id, fields: { "复杂度": complexitySelect.value } });
-          toast(t("复杂度已保存"));
-          refreshDocs();
-        } catch (error) {
-          toastError(`${t("复杂度保存失败")}:${error}`);
-        }
-      });
-      complexityRow.append(`${t("复杂度")}: `, complexitySelect);
-      detail.appendChild(complexityRow);
-    }
-    // 想法专属(R-252):inbox 显示「拆解」按钮(派 idea_split 子代理产出 R/D),
-    // 已拆解(split)显示产出的 refs 编号。拆解由人点按钮触发,不做自动拆解。
-    if (kind === "idea" && !entry.closed) {
-      if (entry.status === "inbox") {
-        const splitRow = document.createElement("div");
-        splitRow.className = "doc-progress";
-        const btn = document.createElement("button");
-        btn.className = "ghost mini";
-        btn.textContent = t("拆解成需求/缺陷");
-        btn.title = t("派子代理把这条想法拆成 R-/D- 条目,拆解后显示产出编号");
-        btn.addEventListener("click", async (e) => {
-          e.stopPropagation();
-          btn.disabled = true;
-          try {
-            const msg = await invoke("idea_split", { projectDir: currentProject, id: entry.id });
-            log(msg);
-            toast(msg);
-            refreshDocs();
-          } catch (err) {
-            toastError(String(err));
-            btn.disabled = false;
-          }
-        });
-        splitRow.appendChild(btn);
-        detail.appendChild(splitRow);
-      } else {
-        const refs = entry.fields?.find(([k]) => k === "refs")?.[1];
-        if (refs) {
-          const refsRow = document.createElement("div");
-          refsRow.className = "doc-progress";
-          refsRow.textContent = `${t("已拆解产出")}: ${refs}`;
-          refsRow.title = t("这些 R-/D- 条目由本想法拆解而来");
-          detail.appendChild(refsRow);
-        }
-      }
-    }
-    if ((entry.nextStatuses ?? []).length > 0) {
-      const actions = document.createElement("div");
-      actions.className = "doc-actions";
-      for (const next of entry.nextStatuses) {
-        const btn = document.createElement("button");
-        btn.className = "ghost mini";
-        btn.textContent = `→ ${t("转")} ${localizedDocStatus(next)}`;
-        btn.addEventListener("click", async (e) => {
-          e.stopPropagation();
-          try {
-            const msg = await invoke("docs_update", {
-              projectDir: currentProject,
-              kind,
-              action: "update",
-              id: entry.id,
-              status: next,
-            });
-            log(msg);
-            refreshDocs();
-          } catch (err) {
-            toastError(String(err));
-            log(`${t("状态流转失败")}:${err}`, "warn");
-          }
-        });
-        actions.appendChild(btn);
-      }
-      detail.appendChild(actions);
-    }
+    // 展开面板见 buildDocDetail:读起来是一页文档(只读优先),编辑收进头部的「编辑」开关。
+    const detail = buildDocDetail(entry, kind, {
+      surface, blocked, externalBlocked, blockedReasons, workUnits, cx,
+      expanded: expandedIds.has(entry.id),
+      prior: priorDetails.get(entry.id),
+    });
     item.appendChild(detail);
     row.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;

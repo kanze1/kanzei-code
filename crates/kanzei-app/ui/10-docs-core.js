@@ -3,6 +3,7 @@ import { $, readJson, writeJson } from "./01-core.js";
 import { localizeDynamic } from "./02-i18n.js";
 import { state } from "./08-compose.js";
 import { prefKey } from "./08-models.js";
+import { clearJumpReveal } from "./11-docs-list.js";
 import { DOC_FILTER_DEFAULTS, docFilterTargets, documentFilters } from "./12-docs-pages.js";
 
 // ---------- 文档条目(可展开 + 状态流转) ----------
@@ -29,6 +30,8 @@ export function saveDocFilters() {
   });
 }
 export function restoreDocFilters() {
+  // 切项目:上个项目的跳转放行不跟过来。
+  clearJumpReveal();
   const saved = readJson(prefKey("filters"), {});
   // 先复位再叠加,顺序不能反:documentFilters 是模块级状态,换项目不会重建它。只叠加
   // "保存里存在的字段"的话,新项目没保存过的字段仍挂着上一个项目的值;而 syncDocumentFilters

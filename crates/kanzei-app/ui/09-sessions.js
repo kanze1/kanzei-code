@@ -47,7 +47,7 @@ import {
 import { state } from "./08-compose.js";
 import { loadModels, restoreProjectPrefs, syncModelSelectToActiveLine } from "./08-models.js";
 import { jumpToEntry } from "./11-docs-list.js";
-import { latestDocsSnapshot, renderFocusPanel } from "./12-docs-pages.js";
+import { latestDocsSnapshot, lineAuthorityLabel, renderFocusPanel } from "./12-docs-pages.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import {
   loadConversation,
@@ -359,6 +359,28 @@ export async function closeParallelProcess(processId) {
     toastError(`${t("关闭线路失败")}:${error}`);
   }
 }
+/// 任务卡的一行状态:字形 + 单个状态词。整表重绘(renderParallelTaskStatus)与逐事件投影
+/// (refreshParallelTaskProjection)共用这一份,两处不再各拼一遍文案(原来空闲时拼成
+/// 「○ 空闲 · 空闲」,且两处写法随时会漂)。运行中的状态词就是当前阶段(取不到才写「运行中」);
+/// 阶段细节(正在跑的命令等)只进这一行的 tooltip——侧栏一行放不下,下面的实时行也已经在说它。
+export function parallelTaskView(item) {
+  const state = sessionState(item.session_id);
+  const runningNow = processRunning(item);
+  const pendingNow = state.phase === "auto_pending" || (state.auto_pending === true && !runningNow);
+  const stoppingNow = state.phase === "stopping";
+  const stage = [state.stage, item.stage].find((value) => value && value !== "空闲") || "";
+  const label = stoppingNow ? t("停止中…")
+    : runningNow ? stage || t("运行中")
+      : pendingNow ? t("鞭挞等待")
+        : t("空闲");
+  const name = `${lineAuthorityLabel(item)} · ${item.label}${item.branch ? ` · ${item.branch}` : ""}`;
+  const title = runningNow
+    ? `${name}\n${[stage || t("运行中"), state.detail].filter(Boolean).join(" · ")}`
+    : pendingNow
+      ? `${name}\n${t("等待下一轮")}`
+      : `${name}\n${t("点击切换到此线路")}`;
+  return { runningNow, pendingNow, stoppingNow, label, title };
+}
 export function renderParallelTaskStatus(items) {
   const target = $("parallel-task-status");
   const count = $("parallel-task-count");
@@ -378,42 +400,38 @@ export function renderParallelTaskStatus(items) {
   for (const item of processes) {
     const state = sessionState(item.session_id);
     if (item.running && item.stage && (!state.stage || state.stage === "空闲")) state.stage = item.stage;
-    const runningNow = processRunning(item);
-    const pendingNow = state.phase === "auto_pending" || (state.auto_pending === true && !runningNow);
-    const stoppingNow = state.phase === "stopping";
+    const view = parallelTaskView(item);
     const line = document.createElement("div");
     line.className = "parallel-line";
     line.dataset.processId = item.id;
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `parallel-task-row${item.id === activeProcessId ? " active" : ""}${runningNow ? " running" : ""}${pendingNow ? " auto-pending" : ""}`;
+    row.className = `parallel-task-row${item.id === activeProcessId ? " active" : ""}${view.runningNow ? " running" : ""}${view.pendingNow ? " auto-pending" : ""}`;
     row.dataset.processId = item.id;
     row.setAttribute("role", "listitem");
-    const authority = item.profile === "research" ? t("研究对话") : item.authority === "primary" || item.id.startsWith("d|") ? t("主代理") : t("并行线");
+    // 一行:字形 +「身份 · 名称」(分支名暗色跟在后面、可省略号截断)+ 靠右的单个状态词。
     const head = document.createElement("span");
     head.className = "parallel-task-head";
-    head.textContent = `${authority} · ${item.label}${item.branch ? ` · ${item.branch}` : ""}`;
-    const status = document.createElement("span");
-    status.className = "parallel-task-state";
-    const stage = runningNow
-      ? [state.stage, item.stage].find((value) => value && value !== "空闲") || t("运行中")
-      : pendingNow ? t("等待下一轮") : t("空闲");
-    const detail = runningNow && state.detail ? ` · ${state.detail}` : "";
-    renderParallelTaskState(status, { runningNow, pendingNow, stoppingNow, stage, detail });
-    row.append(head, status);
-    row.title = runningNow
-      ? `${authority}: ${state.detail || stage}`
-      : pendingNow
-        ? `${authority}: ${t("等待下一轮")}`
-      : `${authority}: ${t("点击切换到此线路")}`;
+    head.append(`${lineAuthorityLabel(item)} · ${item.label}`);
+    if (item.branch) {
+      const branch = document.createElement("span");
+      branch.className = "parallel-task-branch";
+      branch.textContent = item.branch;
+      head.append(" ", branch);
+    }
+    row.appendChild(head);
+    renderParallelTaskState(row, view);
+    row.title = view.title;
     row.addEventListener("click", () => void switchProcess(item.id));
     line.appendChild(row);
     if (!item.id.startsWith("d|")) {
+      // 关闭是低频的危险动作:图标按钮,悬停/聚焦这一条线路时才出现(CSS),读屏名称带线路名。
       const close = document.createElement("button");
       close.type = "button";
-      close.className = "ghost mini danger parallel-line-close";
-      close.textContent = t("关闭");
+      close.className = "icon-btn parallel-line-close";
+      close.textContent = "×";
       close.title = t("关闭线路");
+      close.setAttribute("aria-label", `${t("关闭线路")} ${item.label}`);
       close.addEventListener("click", (event) => {
         event.stopPropagation();
         void closeParallelProcess(item.id);
@@ -426,7 +444,7 @@ export function renderParallelTaskStatus(items) {
     line.appendChild(history);
     target.appendChild(line);
     if (typeof renderLineConversationHistory === "function") renderLineConversationHistory(item.id);
-    if (item.id === activeProcessId && pendingNow) {
+    if (item.id === activeProcessId && view.pendingNow) {
       setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
     }
   }
@@ -439,24 +457,12 @@ export function refreshParallelTaskProjection(sessionId) {
   const row = [...document.querySelectorAll(".parallel-task-row")]
     .find((candidate) => candidate.dataset.processId === item.id);
   if (!row) return;
-  const state = sessionState(item.session_id);
-  const runningNow = processRunning(item);
-  const pendingNow = state.phase === "auto_pending" || (state.auto_pending === true && !runningNow);
-  const stoppingNow = state.phase === "stopping";
-  const authority = item.profile === "research" ? t("研究对话") : item.authority === "primary" || item.id.startsWith("d|") ? t("主代理") : t("并行线");
-  const stage = runningNow
-    ? [state.stage, item.stage].find((value) => value && value !== "空闲") || t("运行中")
-    : pendingNow ? t("等待下一轮") : t("空闲");
-  const detail = runningNow && state.detail ? ` · ${state.detail}` : "";
+  const view = parallelTaskView(item);
+  const { runningNow, pendingNow, stoppingNow } = view;
   row.classList.toggle("running", runningNow);
   row.classList.toggle("auto-pending", pendingNow);
-  const status = row.querySelector(".parallel-task-state");
-  if (status) renderParallelTaskState(status, { runningNow, pendingNow, stoppingNow, stage, detail });
-  row.title = runningNow
-    ? `${authority}: ${state.detail || stage}`
-    : pendingNow
-      ? `${authority}: ${t("等待下一轮")}`
-    : `${authority}: ${t("点击切换到此线路")}`;
+  renderParallelTaskState(row, view);
+  row.title = view.title;
   if (item.id === activeProcessId && pendingNow) {
     setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
   } else if (item.id === activeProcessId && stoppingNow) {
@@ -468,30 +474,31 @@ export function refreshParallelTaskProjection(sessionId) {
   }
   syncLineFocusLive();
 }
-/// #7:线路行状态 = 独立的字形节点(.kz-glyph,只呼吸)+ 文案。字形文本 ●/◐/○ 原样保留
-/// (读屏与既有断言都读它),整行 textContent 与改前逐字一致。节点**原地更新**:
-/// 逐事件投影不再重建它,呼吸动画不会每个 kz:status 都从第 0 帧重来;
+/// #7:线路行状态 = 行首独立的字形节点(.kz-glyph,只呼吸)+ 行尾的状态词(.parallel-task-state)。
+/// 字形文本 ●/◐/○ 原样保留(读屏读状态词,字形 aria-hidden;既有断言读字形)。两个节点
+/// **原地更新**:逐事件投影不再重建它们,呼吸动画不会每个 kz:status 都从第 0 帧重来;
 /// 整表重绘新建的节点由 motionSync 对齐到全局相位。
-export function renderParallelTaskState(status, { runningNow, pendingNow, stoppingNow, stage, detail }) {
+export function renderParallelTaskState(row, { runningNow, pendingNow, stoppingNow, label }) {
   const state = stoppingNow ? "stopping" : runningNow ? "running" : pendingNow ? "pending" : "idle";
   const mark = runningNow ? "●" : pendingNow ? "◐" : "○";
-  const label = `${stoppingNow ? t("停止中…") : runningNow ? t("运行中") : pendingNow ? t("鞭挞等待") : t("空闲")} · ${stage}${detail}`;
-  let glyph = status.querySelector(".kz-glyph");
-  let text = status.querySelector(".parallel-task-state-text");
+  const words = String(label ?? "");
+  let glyph = row.querySelector(".kz-glyph");
+  let text = row.querySelector(".parallel-task-state");
   if (!glyph || !text) {
     glyph = document.createElement("span");
-    glyph.className = "kz-glyph";
+    glyph.className = "kz-glyph parallel-task-glyph";
     glyph.setAttribute("aria-hidden", "true");
     text = document.createElement("span");
-    text.className = "parallel-task-state-text";
-    status.replaceChildren(glyph, " ", text);
+    text.className = "parallel-task-state";
+    row.prepend(glyph);
+    row.appendChild(text);
   }
   if (glyph.dataset.state !== state) {
     glyph.dataset.state = state;
     motionSync(glyph);
   }
   if (glyph.textContent !== mark) glyph.textContent = mark;
-  if (text.textContent !== label) text.textContent = label;
+  if (text.textContent !== words) text.textContent = words;
 }
 /// #7:侧栏「各线当前在做」卡片——线路进程真在跑才标 is-live(标题前呼吸点 + 批次格扫光)。
 /// 运行态只认 processRunning(状态机优先),与线路行同一判据。
@@ -1170,7 +1177,7 @@ export function renderTestRuns(snapshot) {
         chip.className = "test-ref-chip";
         chip.textContent = refId;
         chip.title = `${t("跳转到")} ${refId}`;
-        chip.addEventListener("click", () => jumpToEntry(refId));
+        chip.addEventListener("click", () => jumpToEntry(refId, { expand: true }));
         refRow.appendChild(chip);
       }
       row.appendChild(refRow);

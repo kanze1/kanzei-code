@@ -9,7 +9,7 @@ import { autoContinueTimers, clearStoppingWatchdog } from "./08-auto.js";
 import { send } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
 import { refreshWorktrees } from "./09-sessions.js";
-import { clearPendingJump } from "./11-docs-list.js";
+import { clearJumpReveal, clearPendingJump } from "./11-docs-list.js";
 import { refreshWorkspace } from "./12-docs-pages.js";
 import { refreshMemory, refreshMetrics } from "./13-memory.js";
 import { refreshDocs } from "./14-docs-actions.js";
@@ -160,7 +160,10 @@ export function navigate_view(view) {
   if (previousView === `view-${view}`) return;
   clearTimeout(viewLoadTimer);
   const generation = ++viewLoadGeneration;
-  if (view !== "documents") clearPendingJump();
+  if (view !== "documents") {
+    clearPendingJump();
+    clearJumpReveal();
+  }
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
   $(`view-${view}`).classList.add("active");
   if (view !== "files") filesViewLeft();
@@ -613,6 +616,8 @@ export function setStatus(text, isRunning) {
   statusRunning = !!isRunning;
   $("status-text").textContent = localizeDynamic(statusTextSource);
   $("status-mode").textContent = statusRunning ? t("运行中") : t("空闲");
+  // 去重:空闲时两格都是「空闲」、刚开跑时都是「运行中」——同一个词不在状态栏并排写两遍。
+  $("status-text").classList.toggle("hidden", $("status-text").textContent === $("status-mode").textContent);
   $("statusbar").classList.toggle("running", statusRunning);
   renderTurnActivity();
 }
