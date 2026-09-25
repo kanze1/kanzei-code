@@ -443,7 +443,10 @@ fn approval_pending_list(
 /// R-270 批3:回答一个 pending ask。`reply` 取值:
 /// - permission: "allow" | "deny"(always 与 once 的持久化/会话语义由桌面端处理,
 ///   移动端只做放行/拒绝二选一——approval 门禁仍在 harness 侧);
-/// - question: 任意文本(answer)或 "cancel"。
+/// - question: 任意文本原样作为答案(包括字面量 "cancel")。
+///
+/// 取消走显式字段 `cancel: true`(D-751 跟进):question 回 Cancelled,
+/// permission 按拒绝处理;不再与答案文本共用带内 "cancel" 字符串。
 ///
 /// 回答走 runner 既有 ask 流:找到 PendingAsk 后通过 sender 发送 AskResponse,
 /// runner 的权限门禁按回复放行/拒绝——本通道不新增能力面,只回答既有询问。
@@ -455,13 +458,15 @@ fn approval_answer(
         .get("id")
         .and_then(|v| v.as_u64())
         .ok_or_else(|| "answer 需要 id(数字)".to_string())?;
+    let cancel = payload.get("cancel").and_then(|v| v.as_bool()) == Some(true);
     let reply = payload
         .get("reply")
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
-    if reply.is_empty() {
-        return Err("answer 需要 reply(allow|deny 或回答文本)".to_string());
+    // 校验在摘除 pending 之前:格式错误的请求不消耗 ask。
+    if !cancel && reply.is_empty() {
+        return Err("answer 需要 reply(allow|deny 或回答文本)或 cancel: true".to_string());
     }
     let runtimes = runtimes.lock_or_recover();
     let mut found = None;
@@ -473,16 +478,12 @@ fn approval_answer(
     }
     let pending = found.ok_or_else(|| format!("ask {id} 不存在或已回答"))?;
     let response = match &pending.request {
-        kanzei_core::AskRequest::Question { .. } => {
-            if reply == "cancel" {
-                kanzei_core::AskResponse::Cancelled
-            } else {
-                kanzei_core::AskResponse::Answer(reply.clone())
-            }
-        }
+        kanzei_core::AskRequest::Question { .. } if cancel => kanzei_core::AskResponse::Cancelled,
+        kanzei_core::AskRequest::Question { .. } => kanzei_core::AskResponse::Answer(reply),
         kanzei_core::AskRequest::Permission { .. } => {
+            // 兼容既有协议:reply=allow 放行,其余(含 deny、cancel: true)一律拒绝。
             let decision = match reply.as_str() {
-                "allow" => kanzei_core::AskReply::AllowOnce,
+                "allow" if !cancel => kanzei_core::AskReply::AllowOnce,
                 _ => kanzei_core::AskReply::Deny,
             };
             kanzei_core::AskResponse::Permission(decision)
@@ -1169,6 +1170,79 @@ mod tests {
         match rx2.try_recv() {
             Ok(kanzei_core::AskResponse::Answer(text)) => assert_eq!(text, "是"),
             other => panic!("question 回答应送达 Answer,实得: {other:?}"),
+        }
+    }
+
+    /// D-751 跟进:取消走显式 `cancel: true`;字面量 "cancel" 是合法答案文本;
+    /// permission 收到 cancel 按拒绝处理;缺 reply 又未取消的请求不消耗 ask。
+    #[test]
+    fn approval_answer_显式取消与字面量cancel答案() {
+        let runtime = Arc::new(SessionRuntime::default());
+        let mut receivers = Vec::new();
+        for id in [9u64, 10] {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            runtime.asks.lock_or_recover().insert(
+                id,
+                crate::PendingAsk {
+                    sender: tx,
+                    request: kanzei_core::AskRequest::Question {
+                        question: "是否继续?".into(),
+                        options: vec!["cancel".into(), "继续".into()],
+                        default: None,
+                        multiple: false,
+                    },
+                    action: "question".into(),
+                    resource: "是否继续?".into(),
+                    project_root: PathBuf::from("."),
+                    session_id: "ses-1".into(),
+                },
+            );
+            receivers.push(rx);
+        }
+        let (tx, mut permission_rx) = tokio::sync::oneshot::channel();
+        runtime.asks.lock_or_recover().insert(
+            11,
+            crate::PendingAsk {
+                sender: tx,
+                request: kanzei_core::AskRequest::Permission {
+                    action: "bash".into(),
+                    resource: "cargo test".into(),
+                },
+                action: "bash".into(),
+                resource: "cargo test".into(),
+                project_root: PathBuf::from("."),
+                session_id: "ses-1".into(),
+            },
+        );
+        let mut runtime_map = HashMap::new();
+        runtime_map.insert("ses-1".to_string(), runtime.clone());
+        let runtimes = Arc::new(Mutex::new(runtime_map));
+
+        // 既无 reply 也未取消:报错且 ask 仍在 pending。
+        let err = approval_answer(&runtimes, &json!({"id": 9})).unwrap_err();
+        assert!(err.contains("cancel: true"), "{err}");
+        assert!(runtime.asks.lock_or_recover().contains_key(&9));
+
+        approval_answer(&runtimes, &json!({"id": 9, "cancel": true})).unwrap();
+        match receivers[0].try_recv() {
+            Ok(kanzei_core::AskResponse::Cancelled) => {}
+            other => panic!("cancel: true 应送达 Cancelled,实得: {other:?}"),
+        }
+
+        approval_answer(&runtimes, &json!({"id": 10, "reply": "cancel"})).unwrap();
+        match receivers[1].try_recv() {
+            Ok(kanzei_core::AskResponse::Answer(text)) => assert_eq!(text, "cancel"),
+            other => panic!("字面量 cancel 应作为答案送达,实得: {other:?}"),
+        }
+
+        approval_answer(
+            &runtimes,
+            &json!({"id": 11, "reply": "allow", "cancel": true}),
+        )
+        .unwrap();
+        match permission_rx.try_recv() {
+            Ok(kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny)) => {}
+            other => panic!("permission 收到 cancel 应按拒绝送达,实得: {other:?}"),
         }
     }
 

@@ -1251,6 +1251,12 @@ button:disabled { opacity: .45; cursor: default; }
 .file-card-size { color: var(--dim); font-size: var(--fs-10-5); flex-shrink: 0; margin-left: auto; }
 .file-card-caption { color: var(--dim); font-size: var(--fs-11); line-height: 1.4; }
 .file-card-actions { display: flex; gap: 6px; }
+/* 工具结果存储配额截断提示:和交付卡片一样是给人看的说明,不是终端回显,用正文字体;
+   左侧警示色边框与 .doc-item.external-blocked 同一视觉语义。 */
+.tool-display.quota-notice { display: flex; flex-direction: column; gap: 3px; padding: 7px 10px; background: var(--panel2); border: 1px solid var(--border-soft); border-left: 2px solid var(--warn); font-family: inherit; font-size: var(--fs-12); white-space: normal; }
+.quota-notice-head { color: var(--warn); }
+.quota-notice-usage { color: var(--fg); font-family: var(--mono); font-size: var(--fs-11); word-break: break-all; }
+.quota-notice-hint { color: var(--dim); font-size: var(--fs-11); line-height: 1.4; }
 /* R-328:带注解的选项。有注解就换成竖排两行(标签 + 灰色说明)并占满整行——
    注解是一句话,挤在按钮里横排会被 flex-wrap 撕成难读的碎块。 */
 .ask-option.has-note { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex: 1 1 100%; text-align: left; }
@@ -2287,6 +2293,7 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
 }
 .tool-msg.err .tool-msg-result { color: var(--err); }
 .tool-msg.warn .tool-msg-result { color: var(--warn); }
+.tool-msg-result.quota-truncated { color: var(--warn); }
 .tool-msg-detail { margin: 2px 0 6px 18px; }
 .tool-msg-detail > .tool-display {
   max-height: 420px;

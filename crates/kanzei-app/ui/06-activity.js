@@ -731,7 +731,93 @@ export function appendDisplayBlock(parent, display, { compact = false } = {}) {
     parent.appendChild(block);
   } else if (display.kind === "file") {
     parent.appendChild(renderFileCard(display));
+  } else if (display.kind === "truncated" && display.preview) {
+    // 原工具没有 display 时后端才发 kind=truncated:没有终端块可保,预览单独成块。
+    const block = document.createElement("div");
+    block.className = "tool-display term";
+    block.textContent = String(display.preview);
+    parent.appendChild(block);
   }
+  // 配额截断提示追加在原 display 之后:终端块照常保留,提示只补"为什么被截、去哪腾空间"。
+  const quota = quotaTruncation(display);
+  if (quota) parent.appendChild(renderQuotaNotice(quota));
+}
+
+// 工具结果无法外置时的 Inline 截断(R-245 路径)。后端保留工具原 display 并附 quota_truncated;
+// 原来没有 display 时发 kind=truncated。对话工具块与活动面板都经 appendDisplayBlock 消费。
+export function quotaTruncation(display) {
+  if (!display || typeof display !== "object") return null;
+  const nested = display.quota_truncated;
+  if (nested && typeof nested === "object") return nested;
+  return display.kind === "truncated" ? display : null;
+}
+
+// 截断原因决定说什么:只有真超配额(artifact_quota_exceeded)才说"已满"、给删除整理建议。
+// 锁繁忙(quota_lock_unavailable)与无法计量(quota_unmeasurable)是暂态或环境问题,
+// 删历史对话修不好,只给重试方向。⎿ 行、活动面板进度行、提示块标题共用这一句。
+export function quotaNoticeHeadline(info) {
+  switch (String(info?.reason ?? "")) {
+    case "artifact_quota_exceeded":
+      return t("工具结果存储已满,本次输出已截断");
+    case "quota_lock_unavailable":
+      return t("工具结果暂时无法外置(存储锁繁忙),本次输出已截断");
+    case "quota_unmeasurable":
+      return t("无法计量工具结果存储,本次输出已截断");
+    default:
+      return t("工具结果无法外置,本次输出已截断");
+  }
+}
+
+function quotaReasonLabel(code) {
+  if (code === "artifact_quota_exceeded") return t("工具结果存储达到配额");
+  if (code === "quota_lock_unavailable") return t("存储锁繁忙");
+  if (code === "quota_unmeasurable") return t("存储占用无法计量");
+  return "";
+}
+
+function quotaNoticeHint(code) {
+  if (code === "artifact_quota_exceeded") {
+    return t("释放空间:在侧栏当前线路的「历史对话」里勾选不再需要的对话,点「删除」并选「删除并安全整理」(只清理无引用 artifact),然后重试");
+  }
+  if (code === "quota_lock_unavailable") {
+    return t("存储锁通常只是被并行任务短暂占用,稍后重试即可;不需要清理历史对话");
+  }
+  if (code === "quota_unmeasurable") {
+    return t("读取工具结果存储目录(.kanzei/artifacts/tool-results)的占用失败,确认该目录可访问、且其中没有符号链接后重试;不需要清理历史对话");
+  }
+  return "";
+}
+
+// 计量失败时后端给 null:显示「未知」,不能让 formatBytes 把它画成 "0 B"。
+function quotaBytesText(bytes) {
+  return typeof bytes === "number" && Number.isFinite(bytes) ? formatBytes(bytes) : t("未知");
+}
+
+export function renderQuotaNotice(info) {
+  const code = String(info.reason ?? "");
+  const box = document.createElement("div");
+  box.className = "tool-display quota-notice";
+  box.setAttribute("role", "note");
+  box.dataset.reason = code;
+  const head = document.createElement("div");
+  head.className = "quota-notice-head";
+  head.textContent = `⚠ ${quotaNoticeHeadline(info)}`;
+  const usage = document.createElement("div");
+  usage.className = "quota-notice-usage";
+  const label = quotaReasonLabel(code);
+  const reason = label ? `${label} (${code})` : code;
+  const bits = [`${t("已用")} ${quotaBytesText(info.storage_used_bytes)} / ${t("配额")} ${quotaBytesText(info.quota_bytes)}`];
+  if (reason) bits.push(`${t("原因")}: ${reason}`);
+  usage.textContent = bits.join(" · ");
+  box.append(head, usage);
+  const hintText = quotaNoticeHint(code);
+  if (hintText) {
+    const hint = document.createElement("div");
+    hint.className = "quota-notice-hint";
+    hint.textContent = hintText;
+    box.appendChild(hint);
+  }
+  return box;
 }
 
 // R-329:deliver 的交付卡片。与 create 块的区别是「给谁看」——create 是模型刚写了
@@ -779,7 +865,9 @@ export function formatBytes(bytes) {
   const n = Number(bytes) || 0;
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  // 工具结果存储配额是 2 GiB,按 MB 显示成 2048.0 MB 不直观。
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 // 工具执行中的增量输出(kz:tool-progress,bash 等长任务):展开区里逐段追加,
 // 收起状态下进度行显示最后一行——装依赖/发版这类长命令"跑到哪了"一眼可见。
@@ -871,7 +959,12 @@ export function bgEnd(id, ok, preview, display, outcome) {
   // 超时归「需要关注」:cls 已是 err,bgSectionFor 自然把它留在可见处。
   bgPlace(entry);
   bgSetCurrentTool(entry, null, false);
-  entry.prog.textContent = preview || (ok ? t("完成") : t("失败"));
+  // 截断时 preview 首行是 [tool_result_truncated …] 机器标记,换成按原因区分的人话;
+  // 详情区另有提示块。
+  const quota = quotaTruncation(display);
+  entry.prog.textContent = quota
+    ? `⚠ ${quotaNoticeHeadline(quota)}`
+    : preview || (ok ? t("完成") : t("失败"));
   // 元信息一行说清:成败、耗时、子代理内部调用数。此前只有一个秒数,
   // 看不出成没成,也看不出子代理到底干了多少活(R-095 验收 ⑤)。
   const ms = Date.now() - entry.startedAt;

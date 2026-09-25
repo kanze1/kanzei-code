@@ -46,5 +46,8 @@ button.danger { background: #dc2626; margin-top: 12px; }
 .question-cancel { background: #6b7280; }
 .question-submit:disabled { opacity: 0.55; cursor: not-allowed; }
 .question-status { margin-bottom: 0; }
+/* 列表状态行(加载中/空/查询失败)独立于卡片;卡片内失败提示为空时不占位。 */
+.approval-status[hidden], .approval-card-status:empty { display: none; }
+.approval-card-status { margin-bottom: 0; }
 
 #notice-list { max-height: 50vh; overflow-y: auto; }

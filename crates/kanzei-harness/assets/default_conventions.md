@@ -72,10 +72,11 @@
 ## 1.4 验证与提交节奏参数
 
 - **定向测试**:每次提交前必跑——改动哪个模块跑哪个模块的测试;改动被广泛依赖的模块时,另加依赖方编译检查;纯前端改动 = 语法检查 + 冒烟(秒级,不降频)。
-- **提交前代码门禁(D-264)**:提交 Rust 源码前,`compile_gate` / `fmt_gate` / `clippy_gate`(kanzei-tools/src/git.rs)会由结构化 git 工具**代码强制**跑一遍 `cargo check --workspace --all-targets`、`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`,任一不过即拦下提交并点名违规文件。这条规则在 2026-08-11/12 被自举漏掉三次才确认必须强制,不要再尝试用 bash 绕开;CI 与 verify.ps1 与门禁命令逐项对齐,改动任一处必须同步另两处(守护测试 `stage_fmt_clippy_gates_align_with_ci_and_verify`)。
+- **提交前代码门禁(D-264)**:提交 Rust 源码前,`compile_gate` / `fmt_gate` / `clippy_gate`(kanzei-tools/src/git.rs)会由结构化 git 工具**代码强制**跑一遍 `cargo check --workspace --all-targets`、`cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`,任一不过即拦下提交并点名违规文件。这条规则在 2026-08-11/12 被自举漏掉三次才确认必须强制,不要再尝试用 bash 绕开。注意 clippy 这步**不含测试目标**:测试代码能否编译由 `check --all-targets` 兜住,测试代码的 lint(`#[cfg(test)]` 模块、`tests/` 集成测试)提交门禁看不到。
+- **clippy 四处分工是刻意的,不是逐项对齐**:提交门禁与 `scripts/verify.ps1` 跑轻量 `cargo clippy --workspace -- -D warnings`(不含测试目标);`.github/workflows/ci.yml` 跑全量 `cargo clippy --workspace --all-targets -- -D warnings`,但只手动触发(workflow_dispatch),不随 push 自动跑;并行线收活门禁与合并后门禁(kanzei-app)跑 `cargo clippy --workspace --all-targets --quiet`,不带 `-D warnings`,只有 deny 级 lint 会失败。因此测试代码的 warn 级 lint 本地提交与 verify 都拦不住——**改到测试代码时自跑 `cargo clippy -p <crate> --all-targets -- -D warnings`**,不要把「提交成功」当成测试代码 lint 已过(D-758)。改任一处 clippy 命令须同步守护测试 `gate_checklists_align_across_git_verify_and_ci`(kanzei-tools/src/git.rs)。
 - **全量测试**:默认只有两个触发点——①**复杂度中/大**的条目关闭前一次(复杂度小的条目关闭**不跑**全量,定向测试照常;未评估复杂度的先补字段再判定,不默认免测);②发版前。
 - **提交频率**:默认一条目一提交;多批次大条目(拆解/迁移类)每批一提交作为回滚锚点——提交本身不再附带全量成本。
-- **push 频率**:条目完成后 push;多批次条目建议每批提交后顺手 push,让 CI 对每次 push 异步跑全量兜底——CI 红了先修再开下一批,不阻塞本地节奏。
+- **push 频率**:条目完成后 push;多批次条目建议每批提交后顺手 push。CI 目前只手动触发,push 不会自动跑全量兜底;手动跑的 CI 红了先修再开下一批,不阻塞本地节奏。
 - 不可调降的底线:发版门禁全量与 CI 独立全量;任何全量红灯(本地或 CI)当场修复,不得带红推进。
 
 ## 2. 代码修改原则

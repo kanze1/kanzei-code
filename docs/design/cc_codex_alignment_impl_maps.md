@@ -852,8 +852,8 @@ P4:①把 P3 的助手内容块原样回放续问,记录是否 200;②同一历�
   - SCHEMA_OBJECTS 加 file_checkpoints 和 file_checkpoints_path;SCHEMA_COLUMNS 按字母序补 13 列。restored 列在本批一起建,B3 就不用再升版本。
 3) 新文件 crates/kanzei-core/src/store/file_checkpoints.rs。在 store/mod.rs:330-344 加 mod,在 356 附近加 pub use。命名一律用 file_checkpoint 前缀,不要用裸词 checkpoint(已有 WorkCheckpoint 和 WAL checkpoint)。内容如下:
   - 常量 `pub const FILE_CHECKPOINT_MAX_BYTES:u64 = 10*1024*1024`,与 edit.rs:16 同口径。
-  - `pub fn checkpoint_blob_path(project_root,&sha)` = project_root/.kanzei/artifacts/checkpoints/<sha256hex>。
-  - `pub fn checkpoint_path_key(abs:&Path)->String`:canonicalize 父目录再拼文件名;反斜杠统一成 '/';cfg!(windows) 下再 to_lowercase。
+  - `pub fn file_checkpoint_blob_path(project_root,&sha)` = project_root/.kanzei/artifacts/checkpoints/<sha256hex>。(2026-09-26 D-762 已按裁决改名)
+  - `pub fn file_checkpoint_path_key(abs:&Path)->String`:canonicalize 父目录再拼文件名;反斜杠统一成 '/';cfg!(windows) 下再 to_lowercase。(D-762 已改名)
   - `pub struct FileCheckpointTarget<'a>{project_root, run_id, process_id:Option<&str>, tree_root, abs_path, rel_path}`。
   - `pub fn capture_file_preimage(t)->Result<(),StoreError>`,步骤:
     a. 打开 project_state_path(project_root)。
@@ -862,7 +862,7 @@ P4:①把 P3 的助手内容块原样回放续问,记录是否 200;②同一历�
     d. INSERT OR IGNORE。
   - `pub fn record_file_postimage(t, written:&[u8])`:UPDATE post_hash 和 updated_at。
   - sha256 hex 照 tool_exec.rs:209-216 的写法。
-4) kanzei-tools 的 write.rs:新增 `pub(crate) async fn checkpointed_write(ctx:&ToolCtx, path:&Path, rel_path:&str, bytes:&[u8]) -> std::io::Result<()>`。
+4) kanzei-tools 的 write.rs:新增 `pub(crate) async fn file_checkpointed_write(ctx:&ToolCtx, path:&Path, bytes:&[u8]) -> std::io::Result<()>`(D-762 落地形态:rel_path 不再由调用方传入,而在函数内按「abs_path 相对代码树根」计算;树根 = 从 ctx.cwd 向上最近的 .git,以 project_root 封顶;capture、写盘、postimage 在同一个 spawn_blocking 闭包内只开一次库)。**捕获失败必须留哨兵行**(pre_exists=1、pre_blob=NULL、pre_bytes=-1),同 run 后续触碰不得补采前像。
   - ctx.run_id 为 None,或 ctx.project_root 为空路径时,直接 tokio::fs::write。这是为了不在测试或 crate 目录下建出 .kanzei。
   - 否则:先 capture(失败只 tracing::warn,不阻断写入);再写;写成功后 record_file_postimage。
   - 替换三处落盘:edit.rs:547(EditTool)、edit.rs:789(InsertTool)、write.rs:82(WriteTool)。write.rs:82 在 create_dir_all(75-79)之后,父目录已存在。
@@ -947,8 +947,8 @@ P4:①把 P3 的助手内容块原样回放续问,记录是否 200;②同一历�
   - `SessionStore::runs_from(session_id, to_sequence)->Result<Vec<String>, _>`:用 list_session_facts(不做隐藏过滤)取 sequence>=to_sequence 的 UserMessageCommitted,按 sequence 升序返回其 turn_id。之前只回退过对话的轮次也要算进去,它们改过的文件同样在检查点之后。
   - `SessionStore::plan_file_restore(project_root, runs:&[String], tree_root:&Path, force:&HashSet<String>)->Result<FileRestorePlan{restore, delete, conflicts, unrestorable, unchanged}, _>`,规则:
     a. 取 runs 内 restored=0 的行,按 path_key 分组。最早一轮的行给出还原目标(pre_exists / pre_blob);post_hash 非空的最新一行给出「kanzei 最后写入」。
-    b. tree_root 两边都规范化后不相等 → unrestorable('不属于本线工作树')。
-    c. pre_exists=1 但 pre_blob 为 NULL,或 blob 文件缺失 → unrestorable。
+    b. 「属于本线」按 abs_path 是否落在本线代码树根之下判定,不用 tree_root 相等(D-762 裁决)。注意 Windows 上 abs_path 列已被 normalize_resource 转成小写,前缀判断必须大小写不敏感;rel_path 等于 abs_path 表示在树外;B1 期间(D-762 修复前)写入的旧行 rel_path 以 abs_path 现场重算。不在树下 → unrestorable('不属于本线工作树')。
+    c. pre_exists=1 但 pre_blob 为 NULL,或 blob 文件缺失 → unrestorable。reason 区分:pre_bytes=-1 为「前像捕获失败」,pre_bytes 超过上限为「文件超过 10 MiB 未存前像」,blob 缺失为「前像文件丢失」。
     d. 当前磁盘 hash 等于目标 → unchanged。
     e. 当前 hash 不等于最后写入的 hash,且 path_key 不在 force 里 → conflicts('kanzei 最后一次写入后被外部修改')。这里包括文件被外部删除、以及所有写都失败导致没有 post_hash 的情况。
     f. 其余:有前像 → restore;原本不存在 → delete。
@@ -2792,6 +2792,7 @@ commands 注册表只进提示词,没有任何执行消费方。MarkdownComponen
 ## 变更记录
 
 - 2026-09-25:建档。7 组勘察与对抗核对共 14 个代理,另加 2 路文档引用勘察;条目登记见索引表。
+- 2026-09-26:波次审计后同步 §3 回退 B1 的落地形态(D-762):函数改名、rel_path 由函数内计算、哨兵行要求;B3 规则 b/c 的判定口径与 reason 区分。
 
 ## 验证证据
 

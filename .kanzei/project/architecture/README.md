@@ -32,7 +32,7 @@
 - [identity: live_design; last_verified_commit: d374cb9f] [`deepseek_harness_upgrade.md`](../../../docs/design/deepseek_harness_upgrade.md)：Typed Session Events、Surface Projection、Tool Pipeline/Spill 与 LineRuntime 的升级草案(R-241～R-246,A-012 待转 accepted)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`design_freshness_audit_20260820.md`](../../../docs/design/design_freshness_audit_20260820.md)：设计文档时效审计与 R-318 治理基线；审计结论和四类身份契约仍约束本轮治理。
 - [identity: live_design; last_verified_commit: d374cb9f] [`direction_taste.md`](../../../docs/design/direction_taste.md)：方向基线——可替代区复刻优先、创新只投护城河；取活与验收判据。
-- [identity: live_design; last_verified_commit: d374cb9f] [`harness_m1.md`](../../../docs/design/harness_m1.md)：Harness 六注册表 + 拦截器链 + dev/research 双 profile 架构基线，并接入 R-317 执行层权威。
+- [identity: live_design; last_verified_commit: d374cb9f] [`harness_m1.md`](../../../docs/design/harness_m1.md)：Harness 五注册表(commands 已按 D-748 删除) + 拦截器链 + dev/research 双 profile 架构基线，并接入 R-317 执行层权威。
 - [identity: live_design; last_verified_commit: d374cb9f] [`memory_control_plane.md`](../../../docs/design/memory_control_plane.md)：Memory 控制平面——证据账本/编译器/召回控制器/反事实评估四模块(R-161~R-167,D-229~D-231)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`memory_system.md`](../../../docs/design/memory_system.md)：Memory 系统设计基线(R-103~R-107,现行实施依据)。
 - [identity: live_design; last_verified_commit: d374cb9f] [`model_autonomy_and_harness_intensity.md`](../../../docs/design/model_autonomy_and_harness_intensity.md)：模型自治与门禁强度——结伴/自主两档门禁、模型停机权与编排抽象层(R-322/R-323,D-661/D-662;2026-08-21 外部七点评估的逐点定调)。

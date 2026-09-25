@@ -1,6 +1,6 @@
 import { defer } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
-import { appendDisplayBlock, compactDiffLines } from "./06-activity.js";
+import { appendDisplayBlock, compactDiffLines, quotaNoticeHeadline, quotaTruncation } from "./06-activity.js";
 import { $, activePane, promptBox, agentRoleAccent, appendToPane, messages, trimLivePane } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { attachments, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
@@ -491,6 +491,13 @@ export function fillToolBlock(block, { ok, outcome, content, display, input }) {
   block.icon.textContent = view.icon;
   const { text: summary, rest } = toolResultSplit(content, !ok);
   block.result.textContent = `⎿ ${summary}`;
+  // 截断时 ⎿ 行原本是 [tool_result_truncated …] 机器标记;换成按原因区分的人话,
+  // 已用/配额、原因与处理建议见展开区提示块。
+  const quota = quotaTruncation(display);
+  if (quota) {
+    block.result.textContent = `⎿ ⚠ ${quotaNoticeHeadline(quota)}`;
+    block.result.classList.add("quota-truncated");
+  }
   block.result.classList.remove("hidden");
   appendDisplayBlock(block.detail, display, { compact: true });
   if (display?.kind === "pending_question" && typeof display.question === "string") {
@@ -514,7 +521,8 @@ export function fillToolBlock(block, { ok, outcome, content, display, input }) {
   if (displayNeedsActivityNotice(display)) appendActivityNotice(block.detail);
   // 详情只放摘要没覆盖到的部分:`rest` 非空本身就是"还有没显示完的内容"这个判据,
   // 单行短结果照旧不出框(不给"展开了还是那一行"的假承诺),多行/长首行也不再重复正文。
-  if (rest.trim()) {
+  // 截断时 ⎿ 行已换成人话,`rest` 只剩机器标记的孤立尾巴,内容由终端/预览块与提示块承载。
+  if (rest.trim() && !quota) {
     const pre = document.createElement("pre");
     pre.className = "tool-msg-raw";
     pre.textContent = rest.length > 8000 ? `${rest.slice(0, 8000)}\n…(${t("已截断")})` : rest;

@@ -8,7 +8,7 @@
 
 > 状态:已评审通过(2026-08-06)。Q1=纯 markdown;Q2=硬 deny;Q3=强制引用。本文档随实现演进。
 
-> **文档状态(2026-09-25 修订,D-748):现行架构基线。** 五类注册表（agents/tools/skills/context/permissions；commands 已移除）+ 拦截器链 + dev/research 双 profile 已实现;文中 R-023/R-028 注记对应条目均已 done,实现现状以 `.kanzei/project/architecture/` 索引与代码为准。
+> **文档状态(2026-09-25 修订,D-748):现行架构基线。** 五类注册表（agents/tools/skills/context/permissions；commands 已移除）+ 拦截器链 + dev/research 双 profile 已实现;文中 R-023/R-028 注记对应条目均已 done,实现现状以 `.kanzei/project/architecture/` 索引与代码为准。skill 工具未实现,技能正文走 read。
 
 > **2026-08-21 修订(R-322)**:本文「所有规则走代码硬门禁」需加一条限定——**硬门禁的
 > 强度不是常量**。权限 Ruleset、托管围栏与事件真源(约束副作用边界的部分)在所有档位恒定;
@@ -70,7 +70,7 @@ effect = "deny"    # dev 模式项目文档只能走专用工具(见 §4)
 struct HarnessDraft {
     agents:      Registry<AgentDef>,
     tools:       Registry<Arc<dyn Tool>>,
-    skills:      Registry<SkillDef>,        // 索引进提示词,正文走 skill 工具
+    skills:      Registry<SkillDef>,        // 名称/描述/SKILL.md 路径索引进提示词,正文由模型按路径 read(无 skill 工具)
     context:     Registry<ContextSource>,   // baseline/update/removal 三段式渲染
     permissions: RulesetBuilder,            // 有序规则
 }
@@ -162,7 +162,7 @@ steps: 40
 你是构建 agent,……(正文)
 ```
 
-`.kanzei/skills/<name>/SKILL.md`:frontmatter `{name, description}`,索引进提示词,正文走 skill 工具按需加载。
+`.kanzei/skills/<name>/SKILL.md`:frontmatter `{name, description}`,名称、描述与路径索引进提示词,正文由模型按需用 read 读取;不提供 skill 工具(见 `cc_codex_alignment_impl_maps.md` §14 边界)。
 `.kanzei/commands/*.md` 不再由 MarkdownComponent 扫描或注入(D-748);这些文件目前不具备运行效果。
 
 内置 agent:`dev`(dev 模式主力)、`research`(研究模式主力)、`explore`(subagent,默认 model: fast,只读工具)。
