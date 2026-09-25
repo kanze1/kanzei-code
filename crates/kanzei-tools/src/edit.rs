@@ -544,8 +544,7 @@ impl Tool for EditTool {
         } else {
             updated
         };
-        if let Err(e) =
-            crate::write::checkpointed_write(ctx, &path, &input.path, updated.as_bytes()).await
+        if let Err(e) = crate::write::file_checkpointed_write(ctx, &path, updated.as_bytes()).await
         {
             return ToolOutput::failed(
                 "EDIT_WRITE_FAILED",
@@ -789,7 +788,7 @@ impl Tool for InsertTool {
             updated
         };
         if let Err(error) =
-            crate::write::checkpointed_write(ctx, &path, &input.path, updated.as_bytes()).await
+            crate::write::file_checkpointed_write(ctx, &path, updated.as_bytes()).await
         {
             return ToolOutput::failed(
                 "INSERT_WRITE_FAILED",
@@ -902,8 +901,13 @@ mod tests {
             "identity edit/insert log entry should preserve path and identity: {logs:?}"
         );
 
+        // 审计 18:每次写入前像与后像共用一次 open(edit、edit、insert 共三次)。
+        assert_eq!(
+            kanzei_core::store::store_open_count(&kanzei_core::store::project_state_path(&dir)),
+            3
+        );
         let db = rusqlite::Connection::open(kanzei_core::store::project_state_path(&dir)).unwrap();
-        let key = kanzei_core::store::checkpoint_path_key(&path);
+        let key = kanzei_core::store::file_checkpoint_path_key(&path);
         let (count, pre_exists, blob, post_hash): (i64, i64, Option<String>, Option<String>) = db
             .query_row(
                 "SELECT COUNT(*), MAX(pre_exists), MAX(pre_blob), MAX(post_hash)
@@ -915,7 +919,7 @@ mod tests {
         assert_eq!((count, pre_exists), (1, 1));
         let blob = blob.expect("已有文件应保存首次前像 blob");
         assert_eq!(
-            std::fs::read(kanzei_core::store::checkpoint_blob_path(&dir, &blob)).unwrap(),
+            std::fs::read(kanzei_core::store::file_checkpoint_blob_path(&dir, &blob)).unwrap(),
             original.as_bytes()
         );
         assert!(post_hash.is_some());

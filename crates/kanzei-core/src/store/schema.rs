@@ -309,7 +309,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS research_run_events_result_created
                      ON research_run_events(result_id, created_at);
-                 -- v24(R-366 B1):回滚时恢复 migrate() 在迁移前创建的旧版整库备份。
+                 -- v24(R-366 B1):编辑类工具每 run/path 首触前像登记(blob 按 SHA256 存 .kanzei/artifacts/checkpoints)、后像哈希与 restored 审计列。
                  CREATE TABLE IF NOT EXISTS file_checkpoints (
                      run_id TEXT NOT NULL,
                      path_key TEXT NOT NULL,

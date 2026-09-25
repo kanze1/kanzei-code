@@ -47,6 +47,8 @@ use serde_json::Value;
 // **改建表批 = 同时 +1 本常量并更新 SCHEMA_OBJECTS/SCHEMA_COLUMNS**(schema.rs 的机械
 // 判据会拦):早退分支让「代码里有、存量库里没有」不产生任何编译或测试信号,只能靠判据站岗。
 // v23:召回运行归属、正文读取观测与可验证的失败恢复证据。旧观测保留未知。
+// v24:R-366 B1——file_checkpoints 表(编辑类工具每 run/path 首触前像、SHA256 blob、
+//     后像哈希、restored 列;前像采不到时留 pre_bytes=-1 哨兵行)。
 const SCHEMA_VERSION: i64 = 24;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
@@ -208,7 +210,7 @@ pub enum StoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("file checkpoint I/O error: {0}")]
+    #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     /// 库比本二进制新。文案必须给出出路:光说"不兼容"会让人以为库坏了而去删库,
     /// 而删库丢的是全部会话历史——正确动作是把这个二进制升到同一版本。
@@ -348,8 +350,10 @@ mod work;
 
 pub use eval::{EffectEstimate, EvalCaseSet};
 pub use file_checkpoints::{
-    capture_file_preimage, checkpoint_blob_path, checkpoint_path_key, record_file_postimage,
-    FileCheckpointTarget, FILE_CHECKPOINT_MAX_BYTES,
+    capture_file_preimage, capture_file_preimage_in, file_checkpoint_blob_path,
+    file_checkpoint_path_key, file_checkpoint_rel_path, file_checkpoint_tree_root,
+    record_file_postimage, record_file_postimage_in, FileCheckpointTarget,
+    FILE_CHECKPOINT_MAX_BYTES, FILE_CHECKPOINT_UNKNOWN_PRE_BYTES,
 };
 
 pub use memory_observations::{MemoryRecallObservation, MemoryUsageCounts};
