@@ -628,9 +628,10 @@ export function syncNewChatEnabled() {
     : "开一段新对话(旧对话保留在「历史对话」)";
   // 动态 title 必须同步写回 data-i18n-title:语言重应用(applyDataI18nKeys)按它重算,
   // 不写的话会被 index.html 的静态键冲回空闲文案,忙碌时的说明就看不到了。
-  if (fresh.dataset.i18nTitle !== titleKey) fresh.dataset.i18nTitle = titleKey;
-  const title = t(titleKey);
-  if (fresh.title !== title) fresh.title = title;
+  // 只在键变了时写:title 可能已被悬停提示层接管(移走),每个进度事件都写回会冒出原生提示。
+  if (fresh.dataset.i18nTitle === titleKey) return;
+  fresh.dataset.i18nTitle = titleKey;
+  fresh.title = t(titleKey);
 }
 
 /// 活动线是否「还没停」:运行中、停止中、鞭挞轮间等待,或续跑定时器已排上。
