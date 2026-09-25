@@ -837,9 +837,12 @@ button.mini { padding: 2px 10px; font-size: var(--fs-11-5); }
 }
 .crumb { font-size: var(--fs-12); color: var(--dim); font-family: var(--mono); }
 .spacer { flex: 1; min-width: 6px; }
+/* 下拉按钮态(列表外观归 surface.css,appearance: base-select)。base-select 的按钮会像普通盒子
+   一样折行,窄列里「deepseek-responses」会被撑成两行:按钮文字一律单行、超出截断。 */
 select {
   background: var(--input); color: var(--fg); border: 1px solid var(--border);
   border-radius: 4px; padding: 3px 8px; font: inherit; font-size: var(--fs-12);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* D-280:「回到最新」必须浮在消息区右下角,既不能被输入区遮挡(旧版按 #main
