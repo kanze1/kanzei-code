@@ -597,8 +597,11 @@ export function setRunning(value, statusText) {
   runControlPending = false;
   const send = $("send");
   send.disabled = false;
-  send.title = value ? t("运行中可插入或排队，按交付方式发送") : "";
-  send.setAttribute("aria-label", value ? t("运行中可插入或排队，按交付方式发送") : "发送");
+  // #send 是图标按钮:空闲态的悬停提示与读屏名称同样走 t()(英文界面念 "Send",不念中文字面量)。
+  // 动态值写回 data-i18n-*,切语言时由 applyDataI18nKeys 按它重算,不会被 index.html 的静态「发送」冲掉。
+  send.dataset.i18nTitle = send.dataset.i18nAriaLabel = value ? "运行中可插入或排队，按交付方式发送" : "发送";
+  send.title = value ? t("运行中可插入或排队，按交付方式发送") : t("发送");
+  send.setAttribute("aria-label", value ? t("运行中可插入或排队，按交付方式发送") : t("发送"));
   const stop = $("stop");
   stop.disabled = false;
   stop.classList.toggle("hidden", !value);

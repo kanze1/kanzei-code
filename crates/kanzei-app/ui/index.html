@@ -187,7 +187,7 @@
            对话区因此直接顶到窗口边,主区高度多出 38px。 -->
       <div id="view-chat" class="view active">
         <div id="chat-area">
-          <!-- R-285 金色神经流:纯表现层,不接管指针也不成为运行真源。
+          <!-- R-285 神经流(颜色取 --memory-flow,随主题与强调色变化):纯表现层,不接管指针也不成为运行真源。
                动画由 22-neural-flow.js 消费真实 kz:* / memory 操作事件。 -->
           <canvas id="neural-flow-chat" class="neural-flow-canvas neural-flow-chat" aria-hidden="true"></canvas>
           <!-- R-267:#messages 是**滚动容器**,消息本体挂在它下面的 per-session
@@ -439,7 +439,7 @@
               </div>
               <button id="stop" class="danger hidden"><span data-i18n-key="停止">停止</span></button>
               <button id="voice-toggle" class="ghost" type="button" aria-pressed="false" data-i18n-key="语音">语音</button>
-              <button id="send" class="primary"><span data-i18n-key="发送">发送</span></button>
+              <button id="send" class="primary" title="发送" data-i18n-title="发送"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="sr-only" data-i18n-key="发送">发送</span></button>
             </div>
           </div>
         </footer>
