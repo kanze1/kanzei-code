@@ -510,11 +510,17 @@ export let statusRunning = false;
 // CSS 只读它(思考块扫光、文档页在做条目等都按它门控)。turnPhase 是本轮细分相位,
 // 由 07-events 的事件写入点推进:等首 token / 思考 / 生成 / 工具。
 export let turnPhase = "idle";
+// 细分相位属于哪条线:setRunning 据此区分「同一条线的运行态纠偏(保留相位)」与「换线(重置)」。
+export let turnPhaseSession = null;
 export const TURN_DETAIL_PHASES = new Set(["waiting", "thinking", "generating", "tool"]);
 export function setTurnPhase(phase) {
   // 后台会话的渲染不得改写活动行——它和状态栏一样只属于活动会话(R-267 同一守卫)。
   if (typeof renderingBackground !== "undefined" && renderingBackground) return;
+  // 「停止中」粘滞:停止发出后迟到的文本/思考/工具事件不得把活动行翻回运行态(停止按钮还写着
+  // 「停止中…」)。退出 stopping 只经 setRunning / setRunPending / clearRunPending。
+  if (turnPhase === "stopping") return;
   turnPhase = phase;
+  turnPhaseSession = activeSessionId;
   renderTurnActivity();
 }
 export function activityKey() {
@@ -672,6 +678,7 @@ export function renderTokens() {
 }
 
 export function setRunning(value, statusText) {
+  const wasRunning = running;
   running = value;
   runControlPending = false;
   const send = $("send");
@@ -683,7 +690,11 @@ export function setRunning(value, statusText) {
   stop.classList.toggle("hidden", !value);
   stop.textContent = t("停止");
   syncNewChatEnabled();
-  turnPhase = value ? "waiting" : "idle";
+  // 同一条线已在运行时的纠偏(process_list 轮询、逐事件投影)保留本轮细分相位;
+  // 新开跑、换线、从停止中/等下一轮回到运行才重置为等首 token。
+  const keepPhase = value && wasRunning && TURN_DETAIL_PHASES.has(turnPhase) && turnPhaseSession === activeSessionId;
+  if (!keepPhase) turnPhase = value ? "waiting" : "idle";
+  turnPhaseSession = activeSessionId;
   setStatus(statusText ?? (value ? t("运行中") : t("空闲")), value);
 }
 

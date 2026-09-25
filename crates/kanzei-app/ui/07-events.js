@@ -1,9 +1,9 @@
 import { defer } from "./01-core.js";
 import { motionOnce } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
-import { setTurnPhase } from "./03-shell.js";
+import { setTurnPhase, turnPhase } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
-import { chatAbortRunning, endReasoningLive, paneHasRunningTool } from "./05-chat-render.js";
+import { chatAbortRunning, endReasoningLive, paneHasRunningTool, playToolOutcomeMotion } from "./05-chat-render.js";
 import { setCtxPending, setCtxTokens } from "./03-shell.js";
 import { setCtxLimit } from "./03-shell.js";
 import { autoRounds } from "./08-auto.js";
@@ -378,6 +378,8 @@ defer(() => {
     if (p.ok && ["write", "edit", "multiedit", "bash"].includes(p.name)) refreshGitSoon();
     chatToolEnd(p.id, p.ok, p.preview, p.display, outcome);
     recordDiffSummary(p.display);
+    // #7:实时收尾的一次性反馈(成功弹一下/失败抖一下);停止收尾之后才到的只撤「中断」标记。
+    playToolOutcomeMotion(p.id);
     // R-174:子代理终态进子代理面板 finished 区(task 类顶层 tool-end 只来自父任务收尾,
     // 或被停后补发)。
     if (p.name === "task") agentEnd(p.id, p.ok, p.preview, p.display);
@@ -385,8 +387,12 @@ defer(() => {
     // 随后由 bgEnd 更新完成态和错误详情。
     bgFinishQuiet(p.id, p.ok);
     bgEnd(p.id, p.ok, p.preview, p.display, outcome);
-    setTurnPhase(paneHasRunningTool() ? "tool" : "waiting");
-    setStatus("运行中", true);
+    // #7:停止发出后/已停止之后才到的 ToolEnd(停止补发)只收尾工具行,不得把相位与状态栏
+    // 翻回「运行中」——否则活动行在已停止后重新扫光,直到下一次 setRunning(false)。
+    if (running && turnPhase !== "stopping") {
+      setTurnPhase(paneHasRunningTool() ? "tool" : "waiting");
+      setStatus("运行中", true);
+    }
   });
 });
 defer(() => {

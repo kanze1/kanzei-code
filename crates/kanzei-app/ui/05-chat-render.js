@@ -631,7 +631,6 @@ export function chatToolEnd(id, ok, preview, display, outcome) {
   // "聊天里也想看全输出"再往 detail 里塞一份 preview,那正是双写的来路。完整输出看
   // 活动面板的 terminal display(走 display.full)或历史回放。
   fillToolBlock(block, { ok, outcome, content: preview, display });
-  playToolOutcomeMotion(block);
 }
 
 export let currentReasoningHead = null;
@@ -699,11 +698,18 @@ export function renderReasoningBlock(body) {
 }
 
 // ---------- #7 动效:工具行实时收尾反馈 / 停止收尾 / 思考块在流 ----------
-/// 实时收尾的一次性反馈:成功/待确认弹一下,失败抖一下,noop 不播。只由 chatToolEnd
-/// 调用——历史回放直接走 fillToolBlock,不经过这里,重开对话不会满屏乱跳。
-export function playToolOutcomeMotion(block) {
+/// 实时收尾的一次性反馈:成功/待确认弹一下,失败抖一下,noop 不播。只由 kz:tool-end 的实时
+/// 处理在 chatToolEnd 之后调用——历史回放直接走 fillToolBlock,不经过这里,重开对话不会满屏乱跳。
+/// 停止收尾(chatAbortRunning)之后才到的 ToolEnd(停止补发):chatToolEnd 已写上真结果,
+/// 这里只撤掉「中断」标记、不播——停止是用户自己按的。
+export function playToolOutcomeMotion(id) {
+  const block = chatToolBlocks.get(id);
   const wrap = block?.wrap;
   if (!wrap?.classList || !block.icon) return;
+  if (wrap.classList.contains("interrupted")) {
+    wrap.classList.remove("interrupted");
+    return;
+  }
   if (wrap.classList.contains("err")) motionOnce(block.icon, "kz-shake", 520);
   else if (wrap.classList.contains("ok") || wrap.classList.contains("warn")) motionOnce(block.icon, "kz-pop", 360);
 }

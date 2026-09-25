@@ -281,6 +281,10 @@ assert.match(js, /t\("实际差异"\)/);
   }
   assert.match(html, /id="turn-activity-label"[^>]*data-i18n-raw/, "#7 活动行文案由 JS 本地化后写入,必须挡住 i18n 观察者二次翻译");
   assert.match(html, /<span id="status-dot" class="[^"]*\bkz-dot\b[^"]*"[^>]*aria-hidden="true"/, "#7 状态栏点未改用 .kz-dot 原语(或未对读屏隐藏)");
+  // 状态点的扩散环画在 ::after 上。基线 `.status-left > span { overflow: hidden }`(防长文案撑破)同样命中
+  // 这个点,会把环整个裁掉,运行中看起来仍是静止的点。冒烟的假 DOM 算不出 computed overflow,只能静态查覆盖规则
+  // (特异性 1,1,0 高于 0,1,1)。
+  assert.match(motionCss, /(?:^|\})\s*\.status-left > #status-dot\s*\{[^}]*overflow:\s*visible/, "#7 状态点没有放开 overflow(基线 .status-left > span 会裁掉扩散环)");
   // ⑧ 钩子接线:隐藏暂停监听、相位投影入口、停止收尾与后台守卫。
   assert.match(js, /document\.addEventListener\("visibilitychange", syncMotionVisibility\)/, "#7 窗口可见性变化未接 syncMotionVisibility");
   assert.match(js, /function setTurnPhase\(phase\) \{[\s\S]{0,200}?if \(typeof renderingBackground !== "undefined" && renderingBackground\) return;/, "#7 setTurnPhase 缺后台渲染守卫(后台线会改写活动线相位)");

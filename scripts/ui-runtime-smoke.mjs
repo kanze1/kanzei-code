@@ -87,6 +87,22 @@ if (SMOKE_MUTATE) {
       pattern: /if \(!glyph \|\| !text\) \{/,
       replace: "if (true) {",
     },
+    // #7:kz:tool-end 只在本轮真在跑(且不在停止中)时推进相位与状态栏。删了它,已停止之后
+    // 迟到的 ToolEnd(停止补发)会让活动行重新扫光、状态栏翻回「运行中」,一直挂到下一次 setRunning(false)。
+    toolEndRunningGuard: {
+      pattern: /if \(running && turnPhase !== "stopping"\) \{/,
+      replace: "if (true) {",
+    },
+    // #7:「停止中」相位粘滞。删了它,停止发出后迟到的思考/工具事件把活动行翻回运行态,停止按钮却写着「停止中…」。
+    turnPhaseStoppingSticky: {
+      pattern: /[ \t]*if \(turnPhase === "stopping"\) return;\r?\n/,
+      replace: "",
+    },
+    // #7:同一条线运行中的纠偏 setRunning(true) 保留本轮细分相位。删了它,轮询/逐事件投影一纠偏就把相位打回 waiting。
+    setRunningKeepPhase: {
+      pattern: /const keepPhase = value && wasRunning/,
+      replace: "const keepPhase = false && value && wasRunning",
+    },
 
     // ---- 分区:子代理 ----
   };
@@ -8875,6 +8891,9 @@ const docsB = {
   assert(/思考中|Thinking/.test(label.textContent), `#7 思考中活动行文案不对:${label.textContent}`);
   const liveHead = chatNs.currentReasoningHead;
   assert(liveHead?.classList.contains("is-live"), "#7 正在流的思考块头没有 is-live(扫光挂不上)");
+  // 同一条线运行中的纠偏(process_list 轮询/逐事件投影的 setRunning(true))保留本轮细分相位,不把「思考中」打回等首 token。
+  sandbox.setRunning(true, "运行中");
+  assert(phase() === "thinking", `#7 运行中纠偏 setRunning(true) 把本轮相位重置成了 ${phase()}`);
   toolStartEv({ payload: { id: "MOT-T1", name: "bash", summary: "sleep 1", input: { command: "sleep 1" }, sessionId: "sess-smoke" } });
   assert(phase() === "tool", `#7 kz:tool-start 后应为 tool,实为 ${phase()}`);
   assert(!liveHead.classList.contains("is-live"), "#7 工具开始后上一段思考块仍标 is-live(会一直扫光)");
@@ -8930,6 +8949,13 @@ const docsB = {
   assert(stopBlock.icon.textContent === "⏹", `#7 被停止的工具行字形应为 ⏹,实为 ${stopBlock.icon.textContent}`);
   assert(row.classList.contains("hidden") && html.dataset.kzActivity === "idle", "#7 停止后运行活动行未收起");
   assert(dot.dataset.flash === undefined, "#7 用户自己按的停止不该播轮末反馈");
+  // 已停止之后才到的 ToolEnd(停止补发):只收尾工具行——真结果替换「中断」、不播一次性动效——
+  // 不得让活动行/状态点/状态栏翻回运行中(否则一直扫光到下一次 setRunning(false))。
+  toolEndEv({ payload: { id: "MOT-T3", name: "bash", ok: false, preview: "killed", display: null, sessionId: "sess-smoke" } });
+  assert(row.classList.contains("hidden") && html.dataset.kzActivity === "idle" && dot.dataset.state === "idle", `#7 已停止后迟到的 kz:tool-end 让运行活动复活:${phase()} / ${html.dataset.kzActivity} / ${dot.dataset.state}`);
+  assert(!byId.get("statusbar").classList.contains("running"), "#7 已停止后迟到的 kz:tool-end 把状态栏翻回了运行中");
+  assert(!stopBlock.wrap.classList.contains("interrupted") && stopBlock.wrap.classList.contains("err"), `#7 迟到的真结果没有替换「中断」标记:${stopBlock.wrap.className}`);
+  assert(!stopBlock.icon.classList.contains("kz-shake") && !stopBlock.icon.classList.contains("kz-pop"), "#7 停止之后迟到的收尾播了一次性动效(停止是用户自己按的)");
   await flush();
   vm.runInContext('transitionSession("sess-smoke", "running")', sandbox);
   sandbox.setRunning(true, "运行中");
@@ -8964,6 +8990,12 @@ const docsB = {
   assert(dot.dataset.state === "pending", `#7 等下一轮时状态点应为 pending,实为 ${dot.dataset.state}`);
   sandbox.setStopping("停止中…");
   assert(phase() === "stopping" && dot.dataset.state === "stopping", `#7 停止中相位不对:${phase()} / ${dot.dataset.state}`);
+  // 「停止中」粘滞:停止发出后迟到的思考/工具收尾不得把活动行翻回运行态,文案仍是「停止中…」(与停止按钮一致)。
+  sandbox.setTurnPhase("thinking");
+  assert(phase() === "stopping", `#7 停止中被 setTurnPhase 覆盖成了 ${phase()}`);
+  toolEndEv({ payload: { id: "MOT-T-STOPPING", name: "bash", ok: true, preview: "ok", display: null, sessionId: "sess-smoke" } });
+  assert(phase() === "stopping" && dot.dataset.state === "stopping" && html.dataset.kzActivity === "stopping", `#7 停止中迟到的 kz:tool-end 把相位翻回了 ${phase()} / ${html.dataset.kzActivity}`);
+  assert(/停止中|Stopping/.test(label.textContent), `#7 停止中迟到的 kz:tool-end 把活动行文案改成了「${label.textContent}」`);
   sandbox.setRunning(false, "空闲");
   assert(row.classList.contains("hidden") && html.dataset.kzActivity === "idle" && dot.dataset.state === "idle", "#7 回到空闲后活动行/状态点未复位");
   await flush();

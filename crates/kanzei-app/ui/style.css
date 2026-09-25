@@ -2802,8 +2802,9 @@ body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data
 @keyframes kz-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.2); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes kz-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-2px); } 40% { transform: translateX(2px); } 60% { transform: translateX(-1.5px); } 80% { transform: translateX(1px); } }
 @keyframes kz-tick { from { transform: translateY(45%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-/* 原语:CSS 画的点(可带扩散环) / 文本字形(只呼吸;字形文本保留给读屏与冒烟)。
-   data-state = idle | running | waiting | pending | stopping | done | failed。第二波的运行态字形复用它们。 */
+/* 原语:CSS 画的点(可带扩散环) / 文本字形(只呼吸;字形文本保留给冒烟与视觉,对读屏隐藏——状态由相邻文案表达)。
+   data-state = idle | running | waiting | pending | stopping | done | failed。第二波的运行态字形复用它们:
+   .kz-glyph 要 aria-hidden 且旁边配一段可读文案;.kz-dot 的扩散环画在 ::after 上,自身与祖先都不能 overflow:hidden。 */
 .kz-dot { position: relative; display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
 .kz-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit; opacity: 0; pointer-events: none; }
 .kz-dot[data-state="idle"], .kz-dot[data-state="done"] { background: var(--dot-idle); }
@@ -2826,8 +2827,11 @@ body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data
 .kz-pop { animation: kz-pop var(--motion-base) var(--ease-spring) 1; }
 .kz-shake { animation: kz-shake var(--motion-slow) var(--ease-out) 1; }
 .kz-tick { display: inline-block; animation: kz-tick var(--motion-base) var(--ease-out) 1; }
-/* 状态栏:点的扩散环要有地方画,不能被 overflow 裁掉;轮末一次性反馈;上下文条等本轮 usage 时慢呼吸。 */
+/* 状态栏:点的扩散环要有地方画,不能被 overflow 裁掉;轮末一次性反馈;上下文条等本轮 usage 时慢呼吸。
+   父容器靠 stretch + padding 让出画环的余量;基线 `.status-left > span { overflow: hidden }`(防长文案撑破)
+   同样命中这个点、会把 ::after 的环整个裁掉,用更高特异性单独放开它自己。 */
 .status-left { align-self: stretch; padding-left: 7px; margin-left: -7px; }
+.status-left > #status-dot { overflow: visible; }
 #status-dot[data-flash="completed"] { animation: kz-pop var(--motion-slow) var(--ease-spring) 1; }
 #status-dot[data-flash="completed"]::after { background: var(--ok); animation: kz-ring var(--motion-slow) var(--ease-out) 1; }
 #status-dot[data-flash="failed"] { animation: kz-shake var(--motion-slow) var(--ease-out) 1; }
