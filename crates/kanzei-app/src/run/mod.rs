@@ -450,6 +450,71 @@ mod assembly_tests {
         }
     }
 
+    #[test]
+    fn 桌面工具schema字符账单增量() {
+        let root = PathBuf::from("C:/kanzei-r364-b1-desktop-schema-bill");
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness
+            .add(BaseComponent)
+            .add(DevProfile)
+            .add(ResearchProfile)
+            .add(crate::harness_ext::FrontendToolsComponent)
+            .add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let all_specs: Vec<kanzei_llm::ToolSpec> = snapshot
+            .materialize_tools()
+            .iter()
+            .map(|tool| kanzei_llm::ToolSpec {
+                name: tool.name().to_string(),
+                description: tool.description(),
+                input_schema: tool.input_schema(),
+            })
+            .collect();
+        let ui_tools = [
+            "ui_dom",
+            "ui_console",
+            "ui_style",
+            "ui_screenshot",
+            "frontend_locate",
+            "frontend_check",
+            "deliver",
+        ];
+        let specs: Vec<_> = all_specs
+            .into_iter()
+            .filter(|spec| ui_tools.contains(&spec.name.as_str()))
+            .collect();
+        for expected in ui_tools {
+            assert!(
+                specs.iter().any(|spec| spec.name.as_str() == expected),
+                "桌面增量工具缺失: {expected}"
+            );
+        }
+
+        let mut rows: Vec<(&str, usize, usize)> = specs
+            .iter()
+            .map(|spec| {
+                let bytes =
+                    spec.name.len() + spec.description.len() + spec.input_schema.to_string().len();
+                (spec.name.as_str(), spec.char_len(), bytes / 4)
+            })
+            .collect();
+        rows.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
+        eprintln!("Desktop Dev UI 增量 schema 字符账单:工具\t字符\tbytes/4 估算 tokens");
+        for (name, chars, token_estimate) in &rows {
+            eprintln!("{name}\t{chars}\t{token_estimate}");
+        }
+        let row_sum: usize = rows.iter().map(|row| row.1).sum();
+        let spec_sum: usize = specs.iter().map(kanzei_llm::ToolSpec::char_len).sum();
+        assert_eq!(row_sum, spec_sum, "桌面增量账单总数必须等于逐项之和");
+        eprintln!("Desktop UI increment total={spec_sum}; collaboration_status 单独 probe");
+    }
+
     // ══ R-240:按需求类型/复杂度聚合运行指标 ══
 
     #[test]

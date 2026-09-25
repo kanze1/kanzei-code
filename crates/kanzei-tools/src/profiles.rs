@@ -1501,6 +1501,130 @@ mod tool_surface_budget {
         names
     }
 
+    fn materialized_tool_specs(profile: ProfileKind) -> Vec<kanzei_llm::ToolSpec> {
+        let root = PathBuf::from("C:/kanzei-r364-b1-schema-bill");
+        let ctx = ResolveCtx {
+            profile,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = crate::run::build_harness(
+            |h| {
+                h.add(crate::ReadonlyProfile);
+            },
+            |_| {},
+        );
+        harness.add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        snapshot
+            .materialize_tools()
+            .iter()
+            .map(|tool| kanzei_llm::ToolSpec {
+                name: tool.name().to_string(),
+                description: tool.description(),
+                input_schema: tool.input_schema(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn 逐工具schema字符账单() {
+        let resident = [
+            "read",
+            "write",
+            "edit",
+            "insert",
+            "bash",
+            "glob",
+            "grep",
+            "symbols",
+            "git",
+            "req",
+            "defect",
+            "work",
+            "test_record",
+            "memory_search",
+            "memory_note",
+            "question",
+            "task",
+            "websearch",
+            "webfetch",
+            "tool_search",
+        ];
+        let deferred = [
+            "process",
+            "files",
+            "incident",
+            "conventions",
+            "architecture",
+            "prior_art",
+            "browser",
+            "latex",
+            "plot",
+            "idea",
+            "decision",
+            "memory_stats",
+        ];
+        let specs = materialized_tool_specs(ProfileKind::Dev);
+        let expected_materialized: Vec<&str> = resident
+            .iter()
+            .copied()
+            .chain(deferred.iter().copied())
+            .filter(|name| *name != "task" && *name != "tool_search")
+            .collect();
+        for expected in expected_materialized {
+            assert!(
+                specs.iter().any(|spec| spec.name.as_str() == expected),
+                "§5.1 当前应物化工具缺失: {expected}"
+            );
+        }
+
+        let mut rows: Vec<(&str, usize, usize, &str)> = specs
+            .iter()
+            .map(|spec| {
+                let chars = spec.char_len();
+                let bytes =
+                    spec.name.len() + spec.description.len() + spec.input_schema.to_string().len();
+                let layer = if resident.contains(&spec.name.as_str()) {
+                    "常驻"
+                } else if deferred.contains(&spec.name.as_str()) {
+                    "延迟"
+                } else {
+                    "未分类"
+                };
+                (spec.name.as_str(), chars, bytes / 4, layer)
+            })
+            .collect();
+        rows.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
+        eprintln!("CLI Dev schema 字符账单:工具\t字符\tbytes/4 估算 tokens\t分层");
+        for (name, chars, token_estimate, layer) in &rows {
+            eprintln!("{name}\t{chars}\t{token_estimate}\t{layer}");
+        }
+        let resident_chars: usize = rows
+            .iter()
+            .filter(|row| row.3 == "常驻")
+            .map(|row| row.1)
+            .sum();
+        let deferred_chars: usize = rows
+            .iter()
+            .filter(|row| row.3 == "延迟")
+            .map(|row| row.1)
+            .sum();
+        let unclassified_chars: usize = rows
+            .iter()
+            .filter(|row| row.3 == "未分类")
+            .map(|row| row.1)
+            .sum();
+        let row_sum: usize = rows.iter().map(|row| row.1).sum();
+        let spec_sum: usize = specs.iter().map(kanzei_llm::ToolSpec::char_len).sum();
+        assert_eq!(row_sum, spec_sum, "账单总数必须等于逐项之和");
+        let deferred_ratio = deferred_chars as f64 / spec_sum as f64 * 100.0;
+        eprintln!(
+            "CLI Dev totals: resident={resident_chars}, deferred={deferred_chars} ({deferred_ratio:.2}%), unclassified={unclassified_chars}, all={spec_sum}; tool_search(B2 待接入)、core task_spec(未计入)"
+        );
+    }
+
     #[test]
     fn dev档工具面不超预算() {
         let names = visible_tools(ProfileKind::Dev);

@@ -137,6 +137,62 @@
 | 常驻(桌面另加) | collaboration_status | 出现率 42% |
 | 延迟(只常驻「名称 + 一句话」) | process、files、incident、conventions、architecture、prior_art、browser、latex、plot、idea、decision、memory_stats;桌面另有 ui_dom、ui_console、ui_style、ui_screenshot、frontend_locate、frontend_check、deliver | 出现率都 <5%;latex 与 plot 在 dev 档 30 天调用为 0 |
 
+#### B1 实测账单
+
+口径：`ToolSpec::char_len()` = name 字符数 + description 字符数 + `input_schema.to_string()` 字符数；每项 token 估算为 UTF-8 bytes/4 向下取整，仅作量级估算，不等于 provider tokenizer 结果。数据由 CLI Dev `HarnessSnapshot::materialize_tools()` 的真实 ToolSpec 生成，并按本节名单分层。
+
+CLI Dev 当前实际物化 30 项；表中 `task` 是 core 单独追加的私有 `task_spec`，`tool_search` 尚待 B2 注册，二者均不在此账单中。目标名单仍为 20 个常驻项；本次实测的 30 项由 18 个已物化常驻工具和 12 个延迟工具组成。
+
+| 工具 | schema 字符 | bytes/4 估算 tokens | 层 |
+| --- | ---: | ---: | --- |
+| req | 4198 | 1217 | 常驻 |
+| defect | 3291 | 947 | 常驻 |
+| plot | 3052 | 927 | 延迟 |
+| decision | 2783 | 787 | 延迟 |
+| idea | 2741 | 776 | 延迟 |
+| work | 2656 | 695 | 常驻 |
+| symbols | 2081 | 611 | 常驻 |
+| git | 1969 | 582 | 常驻 |
+| grep | 1852 | 548 | 常驻 |
+| incident | 1735 | 498 | 延迟 |
+| process | 1689 | 444 | 延迟 |
+| memory_note | 1567 | 455 | 常驻 |
+| browser | 1531 | 449 | 延迟 |
+| bash | 1488 | 432 | 常驻 |
+| test_record | 1468 | 461 | 常驻 |
+| read | 1387 | 390 | 常驻 |
+| question | 1185 | 332 | 常驻 |
+| architecture | 1124 | 302 | 延迟 |
+| conventions | 1004 | 280 | 延迟 |
+| edit | 951 | 277 | 常驻 |
+| memory_search | 834 | 218 | 常驻 |
+| latex | 790 | 219 | 延迟 |
+| insert | 693 | 201 | 常驻 |
+| files | 659 | 183 | 延迟 |
+| websearch | 643 | 181 | 常驻 |
+| prior_art | 555 | 174 | 延迟 |
+| glob | 514 | 137 | 常驻 |
+| webfetch | 400 | 106 | 常驻 |
+| write | 297 | 81 | 常驻 |
+| memory_stats | 214 | 53 | 延迟 |
+
+CLI Dev 合计：常驻 27,474 字符；延迟 17,877 字符（当前已物化 schema 字符的 39.42%）；未分类 0；总计 45,351 字符。
+
+桌面额外 UI 工具来自真实 `FrontendToolsComponent` 装配；自动账单只测这 7 项增量，`collaboration_status` 另做源码字面量 probe，不混入该测试：
+
+| 桌面 UI 增量工具 | schema 字符 | bytes/4 估算 tokens |
+| --- | ---: | ---: |
+| deliver | 812 | 223 |
+| frontend_locate | 489 | 180 |
+| frontend_check | 359 | 136 |
+| ui_screenshot | 270 | 162 |
+| ui_console | 256 | 93 |
+| ui_dom | 253 | 93 |
+| ui_style | 245 | 90 |
+
+桌面 UI 增量合计 2,684 字符。`collaboration_status` 的源码定义在 `crates/kanzei-app/src/collaboration.rs:471,475,480`：name 20 + description 191 + compact schema 62 = 273 字符，另加约 68 bytes/4 估算 tokens；它是桌面额外常驻项。B1 仅抽出原有字符公式并测量，不改变 provider 请求中的 tools/schema 内容。
+
+
 几个常驻项的理由:
 
 - `question`、`task`:模型得知道自己能问、能派。CC 同样常驻 `AskUserQuestion` 和 `Agent`。
@@ -449,6 +505,8 @@ writeback:                   # 可选,可多选;不写就只在任务面板里�
 
 ## 变更记录
 
+- 2026-09-25 (R-364 B1):抽出 `ToolSpec::char_len()` 并以真实 Harness 账单校准 §5.1：CLI Dev 30 项、桌面 UI 七项增量、`collaboration_status` 单独 probe；明确 B2 `tool_search` 与 core `task_spec` 不计入当前账单。
+
 - 2026-09-25:建档。三路只读调研(CC 文档与本会话实载工具定义、Codex `rust-v0.157.0` 源码、kanzei 全仓勘察)+ state.db 实测(30 天工具频次、按模型的 edit 未命中率)。
 - 2026-09-25:两轮用户筛选,落成 §五 接口定义。用户定调:「第一性原理」按实际使用取舍。
   - 保留:A 档全收、子代理四项、question 批量。
@@ -466,6 +524,7 @@ writeback:                   # 可选,可多选;不写就只在任务面板里�
 
 ## 验证证据
 
+- R-364 B1 自动验证：T-1786922727065（kanzei-llm 全套 53 passed）、T-1786922727064（kanzei-core 全套 298 passed）、T-1786922727063（CLI schema 账单 4 passed）、T-1786922727062（桌面 UI 增量账单 1 passed）；`cargo fmt --all -- --check` 通过。
 - 工具频次:对 `episodes.tools_json` 做 30 天聚合,共 1230 个 episode。
 - edit 未命中率与被拒率:对 `episodes.metrics_json` 按 provider:model 聚合。
 - 缓存:主代理每步的 `cache_read` 未落盘,只有子代理的 trace 带 usage,所以 §5.8 缓存第 3 步是假设。

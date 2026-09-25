@@ -9,6 +9,15 @@ pub struct ToolSpec {
     pub input_schema: Value,
 }
 
+impl ToolSpec {
+    /// 按 provider 请求账单口径计算工具 schema 字符数。
+    pub fn char_len(&self) -> usize {
+        self.name.chars().count()
+            + self.description.chars().count()
+            + self.input_schema.to_string().chars().count()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -215,6 +224,23 @@ pub struct LlmRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_spec_char_len_uses_unicode_character_counts() {
+        let spec = ToolSpec {
+            name: "工具".into(),
+            description: "读取文件".into(),
+            input_schema: serde_json::json!({"路径": "src/lib.rs"}),
+        };
+        let expected = spec.name.chars().count()
+            + spec.description.chars().count()
+            + spec.input_schema.to_string().chars().count();
+        assert_eq!(spec.char_len(), expected);
+        assert!(
+            spec.char_len()
+                < spec.name.len() + spec.description.len() + spec.input_schema.to_string().len()
+        );
+    }
 
     /// 配置里写错档位不该让请求带上意外参数:未知值一律回落 Off。
     #[test]

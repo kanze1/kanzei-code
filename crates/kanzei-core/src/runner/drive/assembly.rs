@@ -94,14 +94,7 @@ pub(super) fn assemble_run_once<'a>(
     // 工具 schema 是每轮上下文里最大的一块之一(桌面 dev 档 26 个工具的完整 JSON
     // Schema),estimate_prompt_tokens 也把它算进 prompt。账单要回答"本轮上下文里
     // 有什么、各占多少",漏掉它等于漏掉最大的那一项(R-106)。
-    let spec_chars: usize = specs
-        .iter()
-        .map(|spec| {
-            spec.name.chars().count()
-                + spec.description.chars().count()
-                + spec.input_schema.to_string().chars().count()
-        })
-        .sum();
+    let spec_chars: usize = specs.iter().map(ToolSpec::char_len).sum();
     if spec_chars > 0 {
         context_report.push(("tools/schema".into(), spec_chars));
     }
