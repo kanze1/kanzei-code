@@ -1,3 +1,4 @@
+import { closeSurface, openDialog } from "./00-surface.js";
 import { defer } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
@@ -202,8 +203,8 @@ export function openRuntimeMarkdown(title, content) {
   body.innerHTML = renderMarkdown(content ?? "");
   body.scrollTop = 0;
   $("viewer-external").classList.add("hidden");
-  $("viewer-overlay").classList.remove("hidden");
-  $("viewer-close").focus();
+  // <dialog> 模态经原语打开:原生惰性化背景、Esc/点外关闭、关闭后焦点归还;已开着则只换内容。
+  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
 }
 export async function openDocViewer(kind) {
   try {
@@ -220,19 +221,13 @@ export async function openDocViewer(kind) {
       body.innerHTML = `<pre class="code">${escapeHtml(doc.content)}</pre>`;
     }
     body.scrollTop = 0;
-    $("viewer-overlay").classList.remove("hidden");
-    $("viewer-close").focus();
+    openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
   } catch (err) {
     toastError(String(err), { retry: () => openDocViewer(kind) });
   }
 }
 defer(() => {
-  $("viewer-close").addEventListener("click", () => $("viewer-overlay").classList.add("hidden"));
-});
-defer(() => {
-  $("viewer-overlay").addEventListener("click", (e) => {
-    if (e.target === $("viewer-overlay")) $("viewer-overlay").classList.add("hidden");
-  });
+  $("viewer-close").addEventListener("click", () => closeSurface($("viewer-overlay")));
 });
 defer(() => {
   $("viewer-external").addEventListener("click", () => {

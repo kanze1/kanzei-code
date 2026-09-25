@@ -1,3 +1,4 @@
+import { toast as surfaceToast } from "./00-surface.js";
 import { defer } from "./01-core.js";
 import { $, invoke, renderingBackground, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
 import { I18N_EN, localizeDynamic, t } from "./02-i18n.js";
@@ -182,16 +183,13 @@ defer(() => {
 });
 
 // ---------- toast ----------
-export let toastTimer = null;
+// 一句话反馈。本地化在这里做,显示交给 00-surface.js 的 toast 区域(最多 3 条、err 用 role=alert);
+// 长错误走 toastError → 日志面板,不交给会自动消失的 toast。kind: info|ok|warn|err。
 export let errorRetry = null;
-export function toast(text) {
-  const el = $("toast");
+export function toast(text, { kind = "info" } = {}) {
   const source = String(text);
   const translated = Object.prototype.hasOwnProperty.call(I18N_EN, source) ? t(source) : source;
-  el.textContent = localizeDynamic(translated);
-  el.classList.remove("hidden");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
+  return surfaceToast(localizeDynamic(translated), { kind });
 }
 export function reportPersistentError(text, { retry = null } = {}) {
   log(text, "err");
@@ -599,8 +597,11 @@ export function setRunning(value, statusText) {
   runControlPending = false;
   const send = $("send");
   send.disabled = false;
-  send.title = value ? t("运行中可插入或排队，按交付方式发送") : "";
-  send.setAttribute("aria-label", value ? t("运行中可插入或排队，按交付方式发送") : "发送");
+  // #send 是图标按钮:空闲态的悬停提示与读屏名称同样走 t()(英文界面念 "Send",不念中文字面量)。
+  // 动态值写回 data-i18n-*,切语言时由 applyDataI18nKeys 按它重算,不会被 index.html 的静态「发送」冲掉。
+  send.dataset.i18nTitle = send.dataset.i18nAriaLabel = value ? "运行中可插入或排队，按交付方式发送" : "发送";
+  send.title = value ? t("运行中可插入或排队，按交付方式发送") : t("发送");
+  send.setAttribute("aria-label", value ? t("运行中可插入或排队，按交付方式发送") : t("发送"));
   const stop = $("stop");
   stop.disabled = false;
   stop.classList.toggle("hidden", !value);

@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>kanzei</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta name="color-scheme" content="dark light" />
+  <link rel="stylesheet" href="app.css" />
 </head>
 <body>
   <div id="app">
@@ -186,7 +187,7 @@
            对话区因此直接顶到窗口边,主区高度多出 38px。 -->
       <div id="view-chat" class="view active">
         <div id="chat-area">
-          <!-- R-285 金色神经流:纯表现层,不接管指针也不成为运行真源。
+          <!-- R-285 神经流(颜色取 --memory-flow,随主题与强调色变化):纯表现层,不接管指针也不成为运行真源。
                动画由 22-neural-flow.js 消费真实 kz:* / memory 操作事件。 -->
           <canvas id="neural-flow-chat" class="neural-flow-canvas neural-flow-chat" aria-hidden="true"></canvas>
           <!-- R-267:#messages 是**滚动容器**,消息本体挂在它下面的 per-session
@@ -259,9 +260,9 @@
               <option value="max"><span data-i18n-key="思考:最大">思考:最大</span></option>
             </select>
             <span class="spacer"></span>
-            <details id="task-options" class="task-options">
-              <summary class="ghost" data-i18n-key="任务设置">任务设置</summary>
-              <div class="task-options-panel">                  <div class="menu-section">
+            <button type="button" id="task-options" class="ghost task-options" data-kz-menu="task-options-menu" data-i18n-key="任务设置">任务设置</button>
+            <div id="task-options-menu" class="k-surface k-menu task-options-panel hidden" popover="manual" data-placement="top-end" role="group" aria-label="任务设置" data-i18n-aria-label="任务设置">
+                  <div class="menu-section">
                     <span class="menu-section-label" data-i18n-key="权限策略">权限策略</span>
                     <label id="auto-allow-wrap" class="menu-row" data-shortcut="3" title="自动放行:所有权限询问直接通过;此选择会被记住,跨重启仍生效(相当于 yolo)" data-i18n-title="自动放行:所有权限询问直接通过;此选择会被记住,跨重启仍生效(相当于 yolo)">
                       <span class="menu-row-main">
@@ -298,11 +299,9 @@
                     </label>
                     </div>
                   </div>
-              </div>
-            </details>
-            <details id="composer-more">
-              <summary class="ghost" title="打开低频操作菜单" data-i18n-title="打开低频操作菜单"><span data-i18n-key="更多">更多</span></summary>
-              <div class="composer-menu-panel">
+            </div>
+            <button type="button" id="composer-more" class="ghost" data-kz-menu="composer-more-menu" title="打开低频操作菜单" data-i18n-title="打开低频操作菜单"><span data-i18n-key="更多">更多</span></button>
+            <div id="composer-more-menu" class="k-surface k-menu composer-menu-panel hidden" popover="manual" data-placement="top-end" role="group" aria-label="更多" data-i18n-aria-label="更多">
                 <button data-space-only="dev" id="worktree-add" class="icon-btn" title="创建隔离 Git 工作树线程" data-i18n-title="创建隔离 Git 工作树线程" aria-label="创建隔离 Git 工作树线程">⑂</button>
                 <button id="summarize-btn" class="ghost" title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/" data-i18n-title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/"><span data-i18n-key="总结">总结</span></button>
                 <button id="copy-context" class="ghost" title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI" data-i18n-title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI"><span data-i18n-key="复制上下文">复制上下文</span></button>
@@ -313,8 +312,7 @@
                   <button id="chat-search-prev" class="ghost" title="上一个匹配" data-i18n-title="上一个匹配">↑</button>
                   <button id="chat-search-next" class="ghost" title="下一个匹配" data-i18n-title="下一个匹配">↓</button>
                 </span>
-              </div>
-            </details>
+            </div>
           </div>
           <div id="attachments" class="attachments hidden"></div>
           <textarea id="prompt" rows="3" placeholder="想做什么?可粘贴/拖拽图片或 PDF" data-i18n-placeholder="想做什么?可粘贴/拖拽图片或 PDF"></textarea>
@@ -322,11 +320,11 @@
             <label for="continue-prompt" data-i18n-key="继续文案">继续文案</label>
             <textarea id="continue-prompt" rows="6" spellcheck="false"></textarea>
           </div>
-          <div id="sop-picker-panel" class="sop-picker-panel hidden" role="dialog" aria-label="选择 SOP" data-i18n-aria-label="选择 SOP">
+          <div id="sop-picker-panel" class="k-surface k-popover sop-picker-panel hidden" popover="manual" data-placement="top-end" role="dialog" aria-label="选择 SOP" data-i18n-aria-label="选择 SOP">
             <div class="sop-picker-head"><strong data-i18n-key="选择 SOP">选择 SOP</strong><button id="sop-picker-close" class="icon-btn" type="button" aria-label="关闭 SOP 列表" data-i18n-title="关闭 SOP 列表">×</button></div>
             <div id="sop-list" class="sop-list"></div>
           </div>
-          <div id="file-suggestions" class="file-suggestions hidden" role="listbox"></div>
+          <div id="file-suggestions" class="k-surface k-popover file-suggestions hidden" popover="manual" data-placement="top-start" role="listbox"></div>
           <div id="composer-queue" class="composer-queue hidden">
             <span class="dim"><span data-i18n-key="排队输入">排队输入</span> <em id="queue-count"></em></span>
             <div id="queue-list" class="queue-list"></div>
@@ -352,7 +350,7 @@
           <section id="voice-panel" class="voice-panel hidden" aria-label="语音对话" data-i18n-aria-label="语音对话">
             <div class="voice-line"><span class="voice-dot" aria-hidden="true"></span><span id="voice-status" role="status" aria-live="polite" data-i18n-raw></span><meter id="voice-level" min="0" max="1" value="0" aria-label="麦克风音量" data-i18n-aria-label="麦克风音量"></meter><button id="voice-interrupt" class="ghost mini" type="button" data-i18n-key="打断">打断</button></div>
             <p id="voice-caption" data-i18n-raw></p>
-            <details class="voice-settings"><summary data-i18n-key="语音设置">语音设置</summary><div class="voice-settings-fields"><label><span data-i18n-key="本机服务端口">本机服务端口</span><input id="voice-port" type="number" min="1024" max="65535" value="7388" /></label><label><span data-i18n-key="识别语言">识别语言</span><select id="voice-language"><option value="auto" data-i18n-key="自动识别">自动识别</option><option value="zh">简体中文</option><option value="en">English</option><option value="ja" data-i18n-key="日语">日语</option></select></label><button id="voice-check" type="button" class="ghost mini" data-i18n-key="保存并启动">保存并启动</button></div></details>
+            <button type="button" id="voice-settings-toggle" class="ghost mini voice-settings" data-kz-menu="voice-settings-panel" data-i18n-key="语音设置">语音设置</button><div id="voice-settings-panel" class="k-surface k-popover voice-settings-panel hidden" popover="manual" data-placement="top-start" role="group" aria-label="语音设置" data-i18n-aria-label="语音设置"><div class="voice-settings-fields"><label><span data-i18n-key="本机服务端口">本机服务端口</span><input id="voice-port" type="number" min="1024" max="65535" value="7388" /></label><label><span data-i18n-key="识别语言">识别语言</span><select id="voice-language"><option value="auto" data-i18n-key="自动识别">自动识别</option><option value="zh">简体中文</option><option value="en">English</option><option value="ja" data-i18n-key="日语">日语</option></select></label><button id="voice-check" type="button" class="ghost mini" data-i18n-key="保存并启动">保存并启动</button></div></div>
           </section>
           <div id="composer-bar">
             <span id="hint" class="dim"></span>
@@ -360,9 +358,8 @@
               <label id="auto-continue-wrap" title="每轮跑完自动发「继续推进目标」" data-i18n-title="每轮跑完自动发「继续推进目标」">
                 <input type="checkbox" id="auto-continue" /> <span data-i18n-key="鞭挞">鞭挞</span>
               </label>
-              <details id="autorun-more">
-                <summary class="autorun-trigger" title="鞭挞设置" data-i18n-title="鞭挞设置"><span data-i18n-key="设置">设置</span></summary>
-                <div class="autorun-menu" role="group" aria-label="鞭挞设置" data-i18n-aria-label="鞭挞设置">
+              <button type="button" id="autorun-more" class="autorun-trigger" data-kz-menu="autorun-menu" title="鞭挞设置" data-i18n-title="鞭挞设置"><span data-i18n-key="设置">设置</span></button>
+                <div id="autorun-menu" class="k-surface k-menu autorun-menu hidden" popover="manual" data-placement="top-start" role="group" aria-label="鞭挞设置" data-i18n-aria-label="鞭挞设置">
                   <div class="menu-section">
                     <span class="menu-section-label" data-i18n-key="模式">模式</span>
                     <!-- R-322:门禁强度是模式的**后果**,不是第二个开关。做成只读回显
@@ -420,7 +417,6 @@
                   </div>
 
                 </div>
-              </details>
               <span id="auto-progress" class="auto-progress" role="img" aria-label="鞭挞轮次" data-i18n-aria-label="鞭挞轮次"><b id="auto-round-now">0</b></span>
               <span id="auto-phase" class="auto-phase"></span>
               <span id="auto-status" class="auto-reason hidden" role="status" aria-live="polite"></span>
@@ -443,7 +439,7 @@
               </div>
               <button id="stop" class="danger hidden"><span data-i18n-key="停止">停止</span></button>
               <button id="voice-toggle" class="ghost" type="button" aria-pressed="false" data-i18n-key="语音">语音</button>
-              <button id="send" class="primary"><span data-i18n-key="发送">发送</span></button>
+              <button id="send" class="primary" title="发送" data-i18n-title="发送"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="sr-only" data-i18n-key="发送">发送</span></button>
             </div>
           </div>
         </footer>
@@ -1138,7 +1134,7 @@
         <div class="status-right">
           <span id="ctx-bar" class="hidden" title="上下文占用" data-i18n-title="上下文占用"><i id="ctx-bar-fill"></i></span>
           <button id="status-tokens" type="button" class="context-status" aria-label="查看上下文成分" data-i18n-aria-label="查看上下文成分" aria-expanded="false"></button>
-          <div id="context-detail" class="context-detail hidden"></div>
+          <div id="context-detail" class="k-surface k-popover context-detail hidden" popover="manual" data-placement="top-end"></div>
           <span id="status-model"></span>
           <button id="log-toggle" class="statusbar-btn" title="显示/隐藏运行日志" data-i18n-title="显示/隐藏运行日志" data-i18n-key="日志">日志</button>
           <span id="status-version"></span>
@@ -1147,7 +1143,7 @@
     </main>
 
 
-    <aside id="bg-panel" class="hidden" role="dialog" aria-modal="false" aria-labelledby="bg-panel-title">
+    <aside id="bg-panel" class="k-surface k-panel hidden" role="dialog" aria-modal="false" aria-labelledby="bg-panel-title">
       <div class="bg-head"><span id="bg-panel-title" data-i18n-key="活动">活动</span> <span id="bg-count" class="dim"></span> <span id="diff-summary-toggle" class="diff-summary-label"></span><span class="spacer"></span><button type="button" id="bg-clear-done" class="ghost mini hidden" title="清空已完成的活动条目" data-i18n-title="清空已完成的活动条目"><span data-i18n-key="清空">清空</span></button><button type="button" id="bg-close" class="icon-btn" title="关闭活动面板" data-i18n-title="关闭活动面板" aria-label="关闭活动面板" data-i18n-aria-label="关闭活动面板">✕</button></div>
       <div class="bg-filters">
         <select id="bg-type-filter" class="doc-filter" title="按工具类型筛选" data-i18n-title="按工具类型筛选">
@@ -1192,7 +1188,7 @@
       </div>
     </aside>
 
-    <aside id="agent-panel" class="hidden" role="dialog" aria-modal="false" aria-labelledby="agent-panel-title">
+    <aside id="agent-panel" class="k-surface k-panel hidden" role="dialog" aria-modal="false" aria-labelledby="agent-panel-title">
       <div class="bg-head"><span id="agent-panel-title" data-i18n-key="子代理">子代理</span>
         <span id="agent-running-count" class="dim"></span>
         <span id="agent-finished-count" class="dim"></span>
@@ -1227,7 +1223,7 @@
     </aside>
   </div>
 
-  <div id="ask-overlay" class="hidden" role="dialog" aria-modal="false" aria-labelledby="ask-title">
+  <div id="ask-overlay" class="k-surface k-card hidden" popover="manual" data-tone="attention" role="dialog" aria-modal="false" aria-labelledby="ask-title">
     <div id="ask-dialog">
       <div class="ask-head">
         <div class="ask-title" id="ask-title" data-i18n-key="权限请求">权限请求</div>
@@ -1258,9 +1254,9 @@
       </div>
     </div>
   </div>
-  <button id="ask-reopen" class="ask-reopen hidden" type="button" title="重新打开询问" data-i18n-title="重新打开询问" aria-label="重新打开询问" data-i18n-aria-label="重新打开询问" data-i18n-key="重新打开询问">重新打开询问</button>
+  <button id="ask-reopen" class="k-surface k-chip-float ask-reopen hidden" popover="manual" type="button" title="重新打开询问" data-i18n-title="重新打开询问" aria-label="重新打开询问" data-i18n-aria-label="重新打开询问" data-i18n-key="重新打开询问">重新打开询问</button>
 
-  <div id="viewer-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
+  <dialog id="viewer-overlay" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="viewer-title">
     <div id="viewer-dialog">
       <div class="viewer-head">
         <span id="viewer-title"></span>
@@ -1271,9 +1267,9 @@
       </div>
       <div id="viewer-body"></div>
     </div>
-  </div>
+  </dialog>
 
-  <div id="input-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="input-title">
+  <dialog id="input-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="input-title">
     <div id="input-dialog">
       <div class="confirm-title" id="input-title" data-i18n-raw></div>
       <div id="input-message" class="input-message hidden" data-i18n-raw></div>
@@ -1283,9 +1279,9 @@
         <button id="input-ok" data-i18n-key="确认">确认</button>
       </div>
     </div>
-  </div>
+  </dialog>
 
-  <div id="confirm-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  <dialog id="confirm-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="confirm-title">
     <div id="confirm-dialog">
       <div class="confirm-title" id="confirm-title" data-i18n-raw></div>
       <div id="confirm-message" data-i18n-raw></div>
@@ -1296,21 +1292,22 @@
         <button id="confirm-ok" data-i18n-key="确认">确认</button>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- 命令面板(Ctrl/Cmd+P):视图 / 项目 / 线路 / 动作 四类目标的键盘检索入口。
        候选项行为一律委托给既有控件的 click,见 21-palette.js 顶部说明。 -->
-  <div id="palette" class="palette hidden" role="dialog" aria-modal="true" aria-label="命令面板" data-i18n-aria-label="命令面板">
+  <dialog id="palette" class="k-surface k-dialog palette hidden" data-size="palette" closedby="any" aria-label="命令面板" data-i18n-aria-label="命令面板">
     <div class="palette-box">
       <input id="palette-input" type="text" role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="跳转到视图、项目、线路，或执行动作" data-i18n-placeholder="跳转到视图、项目、线路，或执行动作" aria-label="命令面板检索" data-i18n-aria-label="命令面板检索" />
       <div id="palette-list" class="palette-list" tabindex="-1" role="listbox" aria-label="命令面板候选" data-i18n-aria-label="命令面板候选"></div>
       <div class="palette-foot"><span data-i18n-key="↑↓ 选择 · Enter 执行 · Esc 关闭">↑↓ 选择 · Enter 执行 · Esc 关闭</span></div>
     </div>
-  </div>
+  </dialog>
 
-  <div id="toast" class="hidden"></div>
+  <div id="toast" class="k-surface k-toast-region hidden" popover="manual"></div>
 
   <!-- 分区脚本:弹层与外观 -->
+  <script type="module" src="00-surface.js"></script>
   <script type="module" src="01-core.js"></script>
   <script type="module" src="02-i18n.js"></script>
   <script type="module" src="03-shell.js"></script>

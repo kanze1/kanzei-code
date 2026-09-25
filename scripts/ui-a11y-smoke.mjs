@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadUiSources } from "./ui-sources.mjs";
+import { checkSurfaceRules, formatViolations, selfTestSurfaceRules } from "./ui-surface-rules.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const { html, joined: js } = loadUiSources();
+const { html, joined: js, scriptSrcs, sources } = loadUiSources();
+const uiSources = scriptSrcs.map((name, index) => ({ name, text: sources[index] }));
 const css = await readFile(resolve(root, "crates/kanzei-app/ui/style.css"), "utf8");
 
 const static_icon_buttons = [...html.matchAll(/<button[^>]*class="icon-btn"[^>]*>/g)];
@@ -20,10 +22,19 @@ assert.equal(
 // 必须如实为 false——宣称 true 会让读屏软件把背景内容整块隐藏,与实际可读可交互
 // 的事实相反,那才是真的无障碍缺陷。role/aria-labelledby 仍是硬要求。
 assert.match(html, /id="ask-overlay"[^>]*role="dialog"[^>]*aria-modal="false"[^>]*aria-labelledby="ask-title"/);
-assert.match(html, /id="viewer-overlay"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="viewer-title"/);
-assert.match(js, /if \(event\.key !== "Escape"\) return/);
+// UI-0926 #9 弹层技术栈:权限卡是 popover="manual" 的停靠卡片(showCard/hideCard),
+// 查看器/确认/输入/命令面板是 <dialog>(openDialog → showModal,原生模态语义,不再手写 aria-modal)。
+assert.match(html, /id="ask-overlay"[^>]*popover="manual"/, "权限卡必须是 popover=manual 的停靠卡片");
+for (const id of ["viewer-overlay", "confirm-overlay", "input-overlay", "palette"]) {
+  assert.match(html, new RegExp(`<dialog id="${id}"[^>]*class="[^"]*\\bk-surface k-dialog\\b`), `${id} 必须是 <dialog class="k-surface k-dialog">`);
+}
+assert.match(html, /<dialog id="viewer-overlay"[^>]*aria-labelledby="viewer-title"/);
+// Esc 只有一个入口:00-surface.js 在 document 捕获阶段只关栈顶;权限卡的 Esc 经 onEscape 拒绝/取消。
+assert.match(js, /if \(event\.key !== "Escape" \|\| event\.isComposing\) return;/);
+assert.match(js, /document\.addEventListener\("keydown", onKeydown, true\)/);
+assert.match(js, /onEscape: \(\) => \{\s*if \(askActive\) answerAsk\(askActive\.kind === "question" \? "cancel" : "deny"\)/);
 assert.match(js, /answerAsk\(askActive\.kind === "question" \? "cancel" : "deny"\)/);
-assert.match(js, /\$\("viewer-close"\)\.focus\(\)/);
+assert.match(js, /openDialog\(\$\("viewer-overlay"\), \{ initialFocus: "#viewer-close" \}\)/);
 assert.match(js, /if \(event\.key !== "Enter" && event\.key !== " "\) return/);
 for (const selector of ["activity-item", "rail-sidebar-toggle", "auto-continue", "auto-allow"]) {
   assert.ok(html.includes(`id="${selector}"`) || html.includes(`class="${selector}`), `缺少核心控件 ${selector}`);
@@ -147,7 +158,10 @@ assert.ok(html.includes('id="send"'), "缺少发送按钮");
 assert.ok(html.includes('id="stop"'), "缺少停止按钮");
 assert.match(html, /id="composer-more"[\s\S]*id="summarize-btn"/);
 assert.match(html, /id="composer-more"[\s\S]*id="worktree-add"/);
-assert.match(html, /id="task-options"[\s\S]*id="auto-allow"[\s\S]*id="process-phase-pipeline-wrap"[\s\S]*id="process-tracker-writes-wrap"[\s\S]*<\/details>/);
+// 任务设置是 data-kz-menu 触发器 + popover 弹层菜单(UI-0926 #9),开关都在弹层里。
+assert.match(html, /id="task-options"[^>]*data-kz-menu="task-options-menu"/);
+assert.match(html, /id="task-options-menu"[^>]*popover="manual"[\s\S]*id="auto-allow"[\s\S]*id="process-phase-pipeline-wrap"[\s\S]*id="process-tracker-writes-wrap"[\s\S]*id="composer-more"/);
+assert.doesNotMatch(html, /<details[^>]*id="(?:composer-more|task-options|autorun-more)"/, "输入区菜单不得再用 <details> 做弹层");
 assert.match(js, /function syncSidebar\(\)/);
 assert.match(js, /function syncActivityPanel\(\)/);
 assert.match(js, /localStorage\.setItem\("kz-activity-panel"/);
@@ -195,20 +209,22 @@ assert.match(js, /t\("实际差异"\)/);
 // hover 完全没有反馈、消息附件分隔线在浅底上不可见。靠人眼复查抓不住,故立此判据。
 //
 // 白名单只有 mask-image:遮罩取的是 alpha 通道,写什么颜色都一样,不是主题的一部分。
+//
+// UI-0926 #9:旧判据只认 #hex,放过了 25 处 rgba()(其中 10 处在弹层上)。现在交给
+// ui-surface-rules.mjs:C1 连颜色函数与颜色名一起查,另有 T1 token 分层、S1 弹层外观归属、
+// H 页面结构、J 脚本四组判据;模块自带反例自测,任何一条判据恒绿都会先在这里红。
 {
   const themeBlockEnd = css.indexOf("/* ===== 主题 token 块结束");
   assert.ok(themeBlockEnd > 0, "找不到主题 token 块的结束标记,判据无法定位");
-  const offenders = [];
-  css.slice(themeBlockEnd).split("\n").forEach((line, index) => {
-    if (/mask-image/.test(line)) return;
-    if (/#[0-9a-fA-F]{3,8}\b/.test(line)) offenders.push(`+${index}: ${line.trim()}`);
-  });
+  const silentRules = selfTestSurfaceRules();
+  assert.deepEqual(silentRules, [], `ui-surface-rules 判据没能命中自己的反例(恒绿):${silentRules.join(", ")}`);
+  const surfaceCss = await readFile(resolve(root, "crates/kanzei-app/ui/surface.css"), "utf8");
+  const pwaCss = await readFile(resolve(root, "crates/kanzei-app/mobile-pwa/style.css"), "utf8");
+  const violations = checkSurfaceRules({ css, surfaceCss, pwaCss, html, sources: uiSources });
   assert.deepEqual(
-    offenders,
+    violations.map((v) => `${v.rule} ${v.file}:${v.line}`),
     [],
-    ["style.css 主题块之外出现字面量颜色(亮色主题下会照旧渲染暗色)。",
-     '改法:在 :root 与 [data-theme="light"] 两组各给一个语义 token,引用点写 var(--x)。',
-     ...offenders].join("\n"),
+    ["弹层与外观静态门禁(ui-surface-rules)未通过:", formatViolations(violations)].join("\n"),
   );
   // var(--x, #fallback) 的回退分支同样绕过主题:token 都存在时它是死代码,
   // 一旦 token 改名它就会静默把暗色值顶上来。
@@ -272,6 +288,128 @@ assert.match(js, /t\("实际差异"\)/);
       `引用了未定义的设计 token:${used}`,
     );
   }
+}
+
+// ---------- UI-0926 #5 配色:token 齐全、两套主题对齐、对比度下限、选中/焦点中性 ----------
+// 配色改成「中性灰阶 + 单一陶土橙」后,光换 token 值守不住:引用一个没定义的 token 浏览器会静默
+// 取 initial(--fg-dim/--sans/--bg-deep 曾各吃了一年回退);暗色块加了颜色、亮色块忘了跟,亮色下
+// 照旧渲染暗色值;对比度靠目测;强调色又被顺手用回选中/焦点——满屏橙色就是这样回来的。
+// 以下每条都是机械判据,报错写全判据与改法。
+{
+  const surfaceCss = await readFile(resolve(root, "crates/kanzei-app/ui/surface.css"), "utf8");
+  const strip = (text) => text.replace(/\/\*[\s\S]*?\*\//g, "");
+  const cssClean = strip(css);
+  const allClean = `${cssClean}\n${strip(surfaceCss)}`;
+
+  // ① 未定义 token:style.css/surface.css 里每个 var(--x) 都必须有 "--x:" 定义(带回退值的也算——
+  //    回退值只在 token 缺失时生效,token 被删/改名时它会静默顶替主题值)。白名单只放运行时由脚本写入的。
+  const RUNTIME_TOKENS = new Set([
+    "--cells", // 11-docs-list.js / 12-docs-pages.js 按批次数写入
+    "--auto-progress", // 08-auto.js 写鞭挞进度
+    "--voice-level", // 23-voice.js 写音量
+    "--kz-sync", // 01-core.js motionSync 写动画相位(动效分区)
+  ]);
+  const definedTokens = new Set([...allClean.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+  const undefinedTokens = [...new Set([...allClean.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1]))]
+    .filter((name) => !definedTokens.has(name) && !RUNTIME_TOKENS.has(name));
+  assert.deepEqual(
+    undefinedTokens,
+    [],
+    `引用了未定义的 token(浏览器静默取 initial):${undefinedTokens.join(", ")}。改法:换成已定义的语义 token,或在 :root 与 [data-theme="light"] 里补定义;运行时由脚本写入的才进白名单。`,
+  );
+
+  // ② 两套主题对齐::root 里值含十六进制颜色的 token,亮色块必须重新给值(否则亮色下照旧渲染暗色)。
+  //    豁免:排版/尺寸类(--fs/--z/--sp/--r-/--radius/--mono/--sans)与 var() 别名(随被引用者自动换色)。
+  const tokenBlock = (pattern) => Object.fromEntries(
+    [...(strip(css).match(pattern)?.[1] ?? "").matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]),
+  );
+  const darkTokens = tokenBlock(/:root\s*\{([^}]*)\}/);
+  const lightOverrides = tokenBlock(/\[data-theme="light"\]\s*\{([^}]*)\}/);
+  assert.ok(Object.keys(darkTokens).length > 50 && Object.keys(lightOverrides).length > 50, "主题 token 块解析失败(:root 或 [data-theme=\"light\"] 找不到),判据无法定位");
+  const THEME_EXEMPT = /^--(?:fs|z|sp|r)-|^--(?:radius|mono|sans)$/;
+  const unaligned = Object.entries(darkTokens)
+    .filter(([name, value]) => /#[0-9a-fA-F]{3,8}\b/.test(value) && !THEME_EXEMPT.test(name) && !(name in lightOverrides))
+    .map(([name]) => name);
+  assert.deepEqual(unaligned, [], `暗色块定义了颜色、亮色块没有跟上:${unaligned.join(", ")}。改法:在 [data-theme="light"] 里给同名 token 一个亮色值。`);
+
+  // ③ WCAG 2.x 对比度下限:文字 ≥ 4.5,焦点环(非文本)≥ 3。亮色 = :root 与亮色块合并后的结果;
+  //    半透明前景先按下层表面合成再算。
+  const lightTokens = { ...darkTokens, ...lightOverrides };
+  const resolveColor = (tokens, name, seen = new Set()) => {
+    const value = tokens[name];
+    assert.ok(value, `对比度判据:token ${name} 未定义`);
+    const alias = value.match(/^var\((--[a-z0-9-]+)\)$/);
+    if (alias && !seen.has(alias[1])) return resolveColor(tokens, alias[1], seen.add(name));
+    const hex = value.match(/^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/);
+    assert.ok(hex, `对比度判据:${name} 的值 "${value}" 不是 6/8 位十六进制,无法计算`);
+    const channel = (i) => parseInt(hex[1].slice(i * 2, i * 2 + 2), 16);
+    return { rgb: [channel(0), channel(1), channel(2)], alpha: hex[2] ? parseInt(hex[2], 16) / 255 : 1 };
+  };
+  const luminance = ([r, g, b]) => {
+    const lin = (c) => {
+      const v = c / 255;
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  };
+  const contrast = (tokens, fgName, bgName) => {
+    const bg = resolveColor(tokens, bgName);
+    assert.equal(bg.alpha, 1, `对比度判据:底色 ${bgName} 必须不透明`);
+    const fg = resolveColor(tokens, fgName);
+    const rgb = fg.rgb.map((c, i) => c * fg.alpha + bg.rgb[i] * (1 - fg.alpha));
+    const [hi, lo] = [luminance(rgb), luminance(bg.rgb)].sort((a, b) => b - a);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const pairs = [];
+  for (const fg of ["--fg", "--fg-strong", "--dim", "--accent-text", "--ok", "--err", "--warn", "--info"]) {
+    for (const bg of ["--bg", "--sidebar-bg", "--panel", "--panel2", "--surface-overlay"]) pairs.push([fg, bg, 4.5]);
+  }
+  pairs.push(
+    ["--statusbar-fg", "--statusbar", 4.5],
+    ["--statusbar-run-fg", "--statusbar-run", 4.5],
+    ["--primary-fg", "--primary-bg", 4.5],
+    ["--on-danger", "--danger-btn", 4.5],
+  );
+  for (const bg of ["--bg", "--panel", "--sidebar-bg"]) pairs.push(["--focus-ring", bg, 3]);
+  const lowContrast = [];
+  for (const [theme, tokens] of [["暗色", darkTokens], ["亮色", lightTokens]]) {
+    for (const [fg, bg, floor] of pairs) {
+      const ratio = contrast(tokens, fg, bg);
+      if (ratio < floor) lowContrast.push(`${theme} ${fg} 在 ${bg} 上 ${ratio.toFixed(2)} < ${floor}`);
+    }
+  }
+  assert.deepEqual(lowContrast, [], `对比度低于 WCAG 下限(文字 4.5、焦点环 3):\n${lowContrast.join("\n")}`);
+
+  // ④ 选中/焦点一律中性:强调色只承载「运行中 / 链接 / 品牌 / 看这里」。
+  const rulesOf = (text) => [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map((m) => ({ branches: m[1].split(/,(?![^(]*\))/).map((b) => b.trim().replace(/\s+/g, " ")), body: m[2] }))
+    .filter((rule) => rule.branches[0] && !rule.branches[0].startsWith("@"));
+  const rules = rulesOf(cssClean);
+  const bodiesFor = (selector) => rules.filter((rule) => rule.branches.includes(selector)).map((rule) => rule.body);
+  for (const selector of [
+    ".project-item.active", ".parallel-task-row.active", ".workspace-switcher button.active",
+    ".research-page-nav button.active", ".palette-row.active", ".files-row.active", ".arch-entry.active",
+    ".activity-item.active", ".memory-row.selected",
+  ]) {
+    const bodies = bodiesFor(selector);
+    assert.ok(bodies.length, `找不到选中态规则 ${selector}(判据定位失效)`);
+    assert.ok(!bodies.some((body) => /var\(--accent/.test(body)), `选中态 ${selector} 不得使用强调色(--accent*):选中/激活一律中性,用 var(--surface-selected) + var(--fg-strong)`);
+    assert.ok(bodies.some((body) => body.includes("var(--surface-selected)")), `选中态 ${selector} 必须用 var(--surface-selected) 表达(柔灰圆角块)`);
+  }
+  const accentFocus = rulesOf(allClean)
+    .filter((rule) => rule.branches.some((branch) => /:focus(?:-visible|-within)?\b/.test(branch)))
+    .filter((rule) => /var\(--accent(?:-soft|-hover)?\)/.test(rule.body))
+    .map((rule) => rule.branches.join(", "));
+  assert.deepEqual(accentFocus, [], `焦点态不得使用强调色(轮廓/边框/底色一律 var(--focus-ring) 或中性表面;链接文字色 --accent-text 不在此列):\n${accentFocus.join("\n")}`);
+
+  // ⑤ 主按钮单色、输入区大圆角 + 柔阴影、用户气泡无竖条。
+  const primary = bodiesFor("button.primary").join(";");
+  assert.ok(primary.includes("var(--primary-bg)") && primary.includes("var(--primary-fg)"), "button.primary 必须用单色主按钮 token --primary-bg/--primary-fg(不用强调色填充)");
+  const composer = bodiesFor("#composer").join(";");
+  assert.ok(composer.includes("var(--r-xl)") && composer.includes("var(--elev-composer)"), "#composer 必须用 var(--r-xl) 圆角与 var(--elev-composer) 阴影");
+  const userBubble = bodiesFor(".msg.user");
+  assert.ok(userBubble.length, "找不到 .msg.user 规则(判据定位失效)");
+  assert.ok(!userBubble.some((body) => /border-left/.test(body)), ".msg.user 不得再有左竖条(border-left):用户消息是圆角灰气泡");
 }
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);

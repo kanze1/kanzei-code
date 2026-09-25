@@ -65,6 +65,30 @@ if (SMOKE_MUTATE) {
     // ---- 分区:模型选择 ----
 
     // ---- 分区:弹层与外观 ----
+    // UI-0926 #9:Esc 只关栈顶。把「取栈顶第一个可 Esc 的句柄」换成「取栈底第一个」,
+    // 权限卡在场时在确认框里按 Esc 就会先拒掉权限请求——正是这次修掉的串台。
+    surfaceEscTop: {
+      pattern: /const top = topEscapable\(event\.target \?\? activeElement\(\)\);/,
+      replace: 'const top = stack.find((h) => h.type !== "tooltip");',
+    },
+    // UI-0926 #9:停靠卡片不抢别处输入框的局部 Esc。删掉让位判断,焦点在输入框里按 Esc
+    // 就会先拒掉权限请求、速记表单也收不到 Esc——正是评审指出的回归。
+    surfaceCardYield: {
+      pattern: /\n\s*if \(cardYields\(handle, target\)\) continue;/,
+      replace: "",
+    },
+    // UI-0926 #9:弹窗里的 JS 菜单挂进锚点所在的 <dialog>。退回一律挂 body 末尾,
+    // 模态开着时菜单是惰性的(点不动)——正是评审实测的问题。
+    surfaceMenuInDialog: {
+      pattern: /\(anchorEl\?\.closest\?\.\("dialog\[open\]"\) \?\? surfaceRoot\(\)\)\?\.appendChild\(menu\);/,
+      replace: "surfaceRoot()?.appendChild(menu);",
+    },
+    // UI-0926 #5:发送键改成图标按钮后,读屏名称全靠 aria-label。把空闲态的 t("发送") 退回中文字面量,
+    // 英文界面下读屏就会念「发送」——正是这次修掉的漏翻。
+    ui5SendLabel: {
+      pattern: /(send\.setAttribute\("aria-label", value \? t\("运行中可插入或排队，按交付方式发送"\) : )t\("发送"\)\);/,
+      replace: '$1"发送");',
+    },
 
     // ---- 分区:工具行与结构化渲染 ----
 
@@ -460,6 +484,34 @@ class Element {
   removeEventListener() {}
   dispatchEvent(event) { event.target ??= this; (this._listeners[event.type] ?? []).forEach((fn) => fn(event)); }
   click() { this.dispatchEvent({ type: "click", preventDefault() {}, stopPropagation() {} }); }
+  // 顶层原语(UI-0926 #9 弹层技术栈):<dialog> 的 showModal/show/close 与 Popover API。
+  // 假 DOM 没有顶层/样式,只维护 open/_modal/_popoverOpen 状态并派发 close/toggle 事件——
+  // 00-surface.js 同时镜像 .hidden,旧断言照读 classList;真实行为由浏览器样例冒烟兜底。
+  showModal() { this.open = true; this._modal = true; this._attributes.open = ""; }
+  show() { this.open = true; this._modal = false; this._attributes.open = ""; }
+  close(returnValue) {
+    if (!this.open) return;
+    this.open = false;
+    this._modal = false;
+    delete this._attributes.open;
+    if (returnValue !== undefined) this.returnValue = String(returnValue);
+    this.dispatchEvent({ type: "close", target: this });
+  }
+  showPopover() {
+    if (this._popoverOpen) return;
+    this._popoverOpen = true;
+    this.dispatchEvent({ type: "toggle", target: this, oldState: "closed", newState: "open" });
+  }
+  hidePopover() {
+    if (!this._popoverOpen) return;
+    this._popoverOpen = false;
+    this.dispatchEvent({ type: "toggle", target: this, oldState: "open", newState: "closed" });
+  }
+  togglePopover(force) {
+    const next = force === undefined ? !this._popoverOpen : Boolean(force);
+    if (next) this.showPopover(); else this.hidePopover();
+    return next;
+  }
   focus() {}
   querySelector(selector) { return queryAllFrom(this, selector)[0] ?? null; }
   querySelectorAll(selector) { return queryAllFrom(this, selector); }
@@ -529,6 +581,7 @@ const byId = new Map();
 // R-264 ESM:DOMContentLoaded 回调收集(冒烟手动触发,见 runUiSources 末尾)。
 const domReadyCallbacks = [];
 const documentListeners = new Map();
+const documentCaptureListeners = new Map();
 const document = {
   documentElement,
   body,
@@ -576,12 +629,25 @@ const document = {
   readyState: "loading",
   // R-264 ESM:收集 DOMContentLoaded 回调,evaluate 完所有模块后由冒烟手动触发
   // (模拟浏览器 `<script type="module">` 的 deferred 语义——模块求值完后 DOM 就绪)。
-  addEventListener: (type, fn) => {
+  // 捕获阶段监听单列(UI-0926 #9):00-surface.js 的 Esc 入口挂在 document 捕获阶段,必须先于
+  // 冒泡监听执行,且 stopImmediatePropagation 之后一个都不能再跑——「Esc 只关栈顶」验的就是这条。
+  addEventListener: (type, fn, options) => {
+    const capture = options === true || Boolean(options?.capture);
     if (type === "DOMContentLoaded") domReadyCallbacks.push(fn);
+    else if (capture) documentCaptureListeners.set(type, [...(documentCaptureListeners.get(type) || []), fn]);
     else documentListeners.set(type, [...(documentListeners.get(type) || []), fn]);
   },
-  removeEventListener: (type, fn) => documentListeners.set(type, (documentListeners.get(type) || []).filter((item) => item !== fn)),
-  dispatchEvent: (event) => { for (const fn of documentListeners.get(event.type) || []) fn(event); return true; },
+  removeEventListener: (type, fn) => {
+    documentListeners.set(type, (documentListeners.get(type) || []).filter((item) => item !== fn));
+    documentCaptureListeners.set(type, (documentCaptureListeners.get(type) || []).filter((item) => item !== fn));
+  },
+  dispatchEvent: (event) => {
+    for (const fn of [...(documentCaptureListeners.get(event.type) || []), ...(documentListeners.get(event.type) || [])]) {
+      if (event._stopImmediate) break;
+      fn(event);
+    }
+    return !event.defaultPrevented;
+  },
   hasFocus: () => true,
 };
 
@@ -609,6 +675,14 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
   }
   if (/\bdata-i18n-raw\b/.test(attributes)) el.setAttribute("data-i18n-raw", "");
   for (const attribute of ["data-i18n-key", "data-i18n-title", "data-i18n-aria-label", "data-i18n-placeholder"]) {
+    const value = attributes.match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
+    if (value !== undefined) el.setAttribute(attribute, value);
+  }
+  // 弹层宿主(UI-0926 #9):popover 属性、data-kz-menu 触发器与定位提示也要建到桩上,
+  // 否则 bindMenus 在冒烟里扫不到任何触发器,菜单接线恒为空转。
+  const popoverAttr = attributes.match(/(?:^|\s)popover(?:="([^"]*)")?(?=[\s/>]|$)/);
+  if (popoverAttr) el.setAttribute("popover", popoverAttr[1] ?? "");
+  for (const attribute of ["data-kz-menu", "data-placement", "data-size", "data-tone"]) {
     const value = attributes.match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
     if (value !== undefined) el.setAttribute(attribute, value);
   }
@@ -2058,22 +2132,26 @@ assert(
 // 命令面板:开面板必须让背景**整体**惰性化,否则 aria-modal 只是一句声明——
 // Tab 两下就走到背后的 rail,回车能在遮罩下真的切视图、点「新对话」(清空历史)。
 // 关面板必须摘干净,否则界面整个点不动。
+// UI-0926 #9:宿主改为 <dialog>,惰性化由 showModal 原生承担(背景整体 inert、焦点关在面板里),
+// 于是护栏改成「必须以模态打开」:open 且 _modal;关闭后 open 为 false 且镜像回 .hidden。
+// 另加一条反证:任何代码都不得再手写 inert(那说明有人又绕开了 showModal)。
 {
   vm.runInContext("openPalette()", sandbox);
-  const appInert = byId.get("app")?.getAttribute("inert");
-  const paletteInert = byId.get("palette")?.getAttribute("inert");
-  assert(appInert !== null && appInert !== undefined, "开命令面板未给背景加 inert（焦点会跑到遮罩背后）");
-  assert(!paletteInert && paletteInert !== "", "面板自己不得被 inert（否则自己也点不动）");
+  const palette = byId.get("palette");
+  assert(palette?.tagName === "DIALOG", `命令面板宿主必须是 <dialog>(实得 ${palette?.tagName})`);
+  assert(palette?.open && palette?._modal, "开命令面板未以 showModal 打开（背景不会被原生惰性化，焦点会跑到遮罩背后）");
+  assert(!palette.classList.contains("hidden"), "命令面板打开后仍带 .hidden");
   vm.runInContext("closePalette()", sandbox);
+  assert(!palette.open && palette.classList.contains("hidden"), "关命令面板后仍是打开态或未镜像回 .hidden");
   assert(
-    !byId.get("app")?.getAttribute("inert"),
-    "关命令面板后 inert 残留，整个界面会点不动",
+    !sources.some((source) => /setAttribute\("inert"/.test(source)),
+    "又出现了手写 inert:模态的背景惰性化只归 <dialog>.showModal(经 00-surface openDialog)",
   );
 }
-// 搜索开关住在收起的 <details id="composer-more"> 里。命令面板会绕过菜单直接
+// 搜索开关住在收起的「更多」弹层菜单(#composer-more-menu,popover)里。命令面板会绕过菜单直接
 // .click() 它——宿主不展开的话,摘掉 hidden 也没人看得见,接着敲的关键词会掉进
 // #prompt,裸 Enter 就把它当任务发给了 agent。
-// 假 DOM 的 HTML 解析把 #chat-search 拍平到 body 下,closest("details") 在这里
+// 假 DOM 的 HTML 解析把 #chat-search 拍平到 body 下,closest("[popover]") 在这里
 // 天然拿不到宿主,所以**展开宿主**这一条只能静态锁(真实浏览器行为由 playwright
 // 核验);能在假 DOM 里验的是"点了确实把搜索条摘出 hidden"。
 {
@@ -2086,8 +2164,8 @@ assert(
   const handler = sources[scriptSrcs.indexOf("07-events.js")] ?? "";
   const guard = handler.slice(handler.indexOf('$("chat-search-toggle").addEventListener')).slice(0, 1600);
   assert(
-    /closest\("details"\)/.test(guard) && /\.open = true/.test(guard),
-    "chat-search-toggle 处理器不再展开它所在的 details：命令面板触发时搜索框看不见，击键会掉进待发消息",
+    /closest\("\[popover\]"\)/.test(guard) && /openPopover\(/.test(guard) && /isSurfaceOpen\(host\)/.test(guard),
+    "chat-search-toggle 处理器不再经原语展开它所在的弹层菜单：命令面板触发时搜索框看不见，击键会掉进待发消息",
   );
   // 判据必须是「实际看得见吗」而不是裸 toggle：搜索条无 hidden 类但宿主菜单收起时，
   // toggle 会把它“关掉”，然后击键照旧掉进 #prompt、裸 Enter 发给 agent。
@@ -6177,7 +6255,8 @@ assert(
   // (按 id 造节点直接挂 body),祖先链走不通,所以判定落在源码文本上。
   assert(
     (() => {
-      const open = html.indexOf('<div class="task-options-panel"');
+      // UI-0926 #9:任务设置由 details 改为 data-kz-menu 弹层菜单,面板开标签带 id。
+      const open = html.indexOf('<div id="task-options-menu"');
       if (open < 0) return false;
       let depth = 0;
       const tag = /<\/?div\b/g;
@@ -8800,6 +8879,310 @@ const docsB = {
 // ===== 分区:模型选择 =====
 
 // ===== 分区:弹层与外观 =====
+// UI-0926 #9 弹层技术栈:00-surface.js 的唯一栈、Esc 唯一入口(捕获阶段只关栈顶)、
+// 模态/菜单/停靠卡片/toast/tooltip 原语。设计见 docs/design/ui_surface_stack.md §9。
+{
+  const surface = esmModuleCache.get("00-surface.js")?.namespace;
+  const events = esmModuleCache.get("07-events.js")?.namespace;
+  const shell = esmModuleCache.get("03-shell.js")?.namespace;
+  assert(surface && typeof surface.confirmDialog === "function", "00-surface.js 未按 ESM 加载或缺 confirmDialog");
+  assert(!/^\s*import\b/m.test(sources[scriptSrcs.indexOf("00-surface.js")] ?? "import"), "00-surface.js 必须零 import");
+  const keyEvent = (key, extra = {}) => ({
+    type: "keydown",
+    key,
+    isComposing: false,
+    defaultPrevented: false,
+    preventDefault() { this.defaultPrevented = true; },
+    stopPropagation() { this._stopped = true; },
+    stopImmediatePropagation() { this._stopImmediate = true; this._stopped = true; },
+    ...extra,
+  });
+  const pressEscape = () => document.dispatchEvent(keyEvent("Escape"));
+  const compose = sources[scriptSrcs.indexOf("08-compose-runtime.js")] ?? "";
+  if (surface && events) {
+    // 起点:把前面用例留下的弹层全部收掉,深度断言才有意义。
+    events.hideAsk();
+    for (const id of ["viewer-overlay", "confirm-overlay", "input-overlay", "palette", "context-detail", "sop-picker-panel", "file-suggestions", "task-options-menu", "composer-more-menu", "autorun-menu", "voice-settings-panel"]) {
+      surface.closeSurface(byId.get(id));
+    }
+    assert(surface.stackDepth() === 0, `弹层用例起点栈不为空(深度 ${surface.stackDepth()}):有弹层绕过原语打开或没关`);
+
+    // ① 确认框:<dialog>.showModal、镜像 .hidden、结果值、栈清空;并发调用排队不互相覆盖。
+    const confirmHost = byId.get("confirm-overlay");
+    const p1 = surface.confirmDialog({ title: "弹层冒烟", message: "确认?" });
+    assert(confirmHost.tagName === "DIALOG" && confirmHost.open && confirmHost._modal, "confirmDialog 未以 <dialog>.showModal 打开");
+    assert(!confirmHost.classList.contains("hidden"), "confirmDialog 打开后仍带 .hidden");
+    assert(byId.get("confirm-title").textContent === "弹层冒烟", "confirmDialog 标题未写入");
+    assert(surface.isModalOpen() && surface.stackDepth() === 1, "confirmDialog 打开后 isModalOpen/stackDepth 不对");
+    byId.get("confirm-ok").click();
+    assert(await p1 === true, "点确认未得到 true");
+    assert(!confirmHost.open && confirmHost.classList.contains("hidden"), "确认后弹窗未关闭或未镜像回 .hidden");
+    assert(surface.stackDepth() === 0 && !surface.isModalOpen(), `确认后弹层栈未清空(深度 ${surface.stackDepth()})`);
+    const p2 = surface.confirmDialog({ title: "安全整理", safeText: "删除并安全整理" });
+    assert(!byId.get("confirm-safe").classList.contains("hidden"), "safeText 按钮未显示");
+    byId.get("confirm-safe").click();
+    assert(await p2 === "safe", "点 safe 按钮未得到 \"safe\"");
+    const pa = surface.confirmDialog({ title: "第一问" });
+    const pb = surface.confirmDialog({ title: "第二问" });
+    assert(byId.get("confirm-title").textContent === "第一问", "并发的第二个确认框覆盖了第一个的文案(应排队)");
+    byId.get("confirm-ok").click();
+    assert(await pa === true, "排队:第一个确认框结果不对");
+    assert(confirmHost.open && byId.get("confirm-title").textContent === "第二问", "排队:第一个关闭后第二个未接着打开");
+    byId.get("confirm-cancel").click();
+    assert(await pb === false, "排队:第二个确认框取消未得到 false");
+    assert(surface.stackDepth() === 0, "排队用例后弹层栈未清空");
+
+    // ② Esc 只关栈顶(回归「确认框里按 Esc 先拒掉权限请求」的串台)。
+    vm.runInContext('activeSessionId = "sess-smoke"', sandbox);
+    byId.get("auto-allow").checked = false;
+    const answerCalls = () => invokeArgs.filter(({ cmd }) => cmd === "answer_ask");
+    handlers.get("kz:ask")({ payload: { id: 9901, sessionId: "sess-smoke", kind: "permission", action: "bash", resource: "cargo test" } });
+    await flush();
+    const askCard = byId.get("ask-overlay");
+    assert(askCard._popoverOpen && !askCard.classList.contains("hidden"), "权限卡未经 showCard 以 popover 显示");
+    assert(events.askActive?.id === 9901, "权限卡未成为当前请求");
+    const answersBefore = answerCalls().length;
+    const pending = surface.confirmDialog({ title: "Esc 栈顶" });
+    const esc = keyEvent("Escape");
+    document.dispatchEvent(esc);
+    assert(esc.defaultPrevented && esc._stopImmediate, "Esc 入口未 preventDefault + stopImmediatePropagation(后面的监听还会再处理一遍)");
+    // 先同步判「确认框关没关」:关错了对象时 pending 永不落定,直接 await 会把冒烟挂死而不是判红。
+    const confirmClosedByEsc = !confirmHost.open;
+    if (!confirmClosedByEsc) byId.get("confirm-cancel").click();
+    assert(confirmClosedByEsc, "第一次 Esc 没有关掉栈顶的确认框(关到别的弹层上去了)");
+    assert(await pending === false, "第一次 Esc 应只关确认框(得到 false)");
+    await flush();
+    assert(answerCalls().length === answersBefore, "Esc 串台:确认框开着时按 Esc 把权限请求拒掉了");
+    assert(events.askActive?.id === 9901 && !askCard.classList.contains("hidden"), "第一次 Esc 后权限卡应仍在");
+    pressEscape();
+    await flush();
+    assert(
+      answerCalls().length === answersBefore + 1 && answerCalls().at(-1)?.args?.reply === "deny",
+      `第二次 Esc 应拒绝权限请求:${JSON.stringify(answerCalls().at(-1)?.args)}`,
+    );
+    assert(askCard.classList.contains("hidden") && !events.askActive, "拒绝后权限卡未收起");
+    // 收起后的「重新打开」芯片不响应 Esc(按一下 Esc 不能把唯一的回答入口弄丢)。
+    handlers.get("kz:ask")({ payload: { id: 9902, sessionId: "sess-smoke", kind: "permission", action: "read", resource: "a.txt" } });
+    await flush();
+    byId.get("ask-collapse").click();
+    assert(!byId.get("ask-reopen").classList.contains("hidden") && askCard.classList.contains("hidden"), "收起后未显示重新打开芯片");
+    const answersBeforeChip = answerCalls().length;
+    pressEscape();
+    await flush();
+    assert(!byId.get("ask-reopen").classList.contains("hidden") && answerCalls().length === answersBeforeChip, "重新打开芯片被 Esc 关掉了或 Esc 误答了请求");
+    byId.get("ask-reopen").click();
+    byId.get("ask-allow").click();
+    await flush();
+    assert(surface.stackDepth() === 0, `权限卡用例后弹层栈未清空(深度 ${surface.stackDepth()})`);
+
+    // ②b 卡片不抢别处的局部 Esc:焦点在卡片外的文字输入框(#prompt、想法/缺陷速记表单)或 Monaco 里时,
+    //     Esc 不拒权限请求、不 preventDefault、不截断传播(输入框自己的 Esc 照常取消输入);
+    //     焦点在勾选框这类没有局部 Esc 含义的元素上时,仍按卡片的 onEscape 拒绝。
+    handlers.get("kz:ask")({ payload: { id: 9903, sessionId: "sess-smoke", kind: "permission", action: "bash", resource: "ls" } });
+    await flush();
+    assert(events.askActive?.id === 9903 && !askCard.classList.contains("hidden"), "②b 前置:权限卡未显示");
+    const answersBeforeYield = answerCalls().length;
+    const quickInput = document.createElement("input");
+    const monacoHost = document.createElement("div");
+    monacoHost.className = "monaco-editor";
+    const monacoWidget = document.createElement("span");
+    monacoHost.appendChild(monacoWidget);
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    body.append(quickInput, monacoHost, checkbox);
+    for (const [label, target] of [["#prompt", byId.get("prompt")], ["卡片外的速记输入框", quickInput], ["Monaco 编辑器内", monacoWidget]]) {
+      const ev = keyEvent("Escape", { target });
+      document.dispatchEvent(ev);
+      await flush();
+      assert(!ev.defaultPrevented && !ev._stopped, `焦点在${label}时按 Esc 被弹层栈截走了(局部 Esc 收不到)`);
+      assert(answerCalls().length === answersBeforeYield && events.askActive?.id === 9903, `焦点在${label}时按 Esc 把权限请求拒掉了`);
+    }
+    const escOnCheckbox = keyEvent("Escape", { target: checkbox });
+    document.dispatchEvent(escOnCheckbox);
+    await flush();
+    assert(
+      escOnCheckbox.defaultPrevented && answerCalls().length === answersBeforeYield + 1 && answerCalls().at(-1)?.args?.reply === "deny",
+      "焦点在卡片外的勾选框上时 Esc 仍应拒绝权限请求(只有文字输入框与 Monaco 让位)",
+    );
+    quickInput.remove();
+    monacoHost.remove();
+    checkbox.remove();
+    assert(surface.stackDepth() === 0, `②b 用例后弹层栈未清空(深度 ${surface.stackDepth()})`);
+
+    // ③ 输入框:组合中的 Enter 不提交;普通 Enter 返回输入值;Esc 返回 null。
+    const inputHost = byId.get("input-overlay");
+    const pi = surface.inputDialog({ title: "输入冒烟", value: "初值" });
+    assert(inputHost.tagName === "DIALOG" && inputHost.open && inputHost._modal, "inputDialog 未以 <dialog>.showModal 打开");
+    assert(byId.get("input-value").value === "初值", "inputDialog 未回填默认值");
+    byId.get("input-value").value = "组合中";
+    byId.get("input-value").dispatchEvent(keyEvent("Enter", { isComposing: true }));
+    assert(inputHost.open, "输入法组合中的 Enter 不应提交");
+    byId.get("input-value").value = "最终值";
+    byId.get("input-value").dispatchEvent(keyEvent("Enter"));
+    assert(await pi === "最终值", "普通 Enter 应返回输入值");
+    const pn = surface.inputDialog({ title: "Esc 取消" });
+    pressEscape();
+    assert(await pn === null && !inputHost.open, "Esc 应关闭输入框并返回 null");
+
+    // ④ openMenu:role、禁用项、点击先关再 onSelect 且恰好一次、同时只开一个、同锚点再调 = 收起。
+    const anchorA = document.createElement("button");
+    const anchorB = document.createElement("button");
+    body.append(anchorA, anchorB);
+    let picked = 0;
+    let disabledHit = 0;
+    const menuA = surface.openMenu(anchorA, [
+      { label: "甲", onSelect: () => { picked += 1; } },
+      "separator",
+      { label: "乙(禁用)", disabled: true, onSelect: () => { disabledHit += 1; } },
+    ], { label: "冒烟菜单" });
+    const itemsA = menuA.el.querySelectorAll(".k-menu-item");
+    assert(menuA.el.getAttribute("role") === "menu" && itemsA.length === 2, "openMenu 菜单 role 或项数不对");
+    assert(itemsA.every((item) => item.getAttribute("role") === "menuitem"), "openMenu 菜单项必须带 role=menuitem");
+    assert(menuA.el._popoverOpen && menuA.el.classList.contains("k-surface") && surface.stackDepth() === 1, "openMenu 未以 k-surface popover 打开或未入栈");
+    itemsA[1].click();
+    assert(disabledHit === 0 && !menuA.closed, "禁用项被触发或点禁用项关掉了菜单");
+    const menuB = surface.openMenu(anchorB, [{ label: "丙", onSelect: () => { picked += 10; } }]);
+    assert(menuA.closed && !menuA.el.parentNode, "打开第二个菜单时第一个未自动关闭");
+    assert(menuB.el._popoverOpen && surface.stackDepth() === 1, "第二个菜单未打开或栈深度不为 1");
+    menuB.el.querySelector(".k-menu-item").click();
+    assert(picked === 10, `菜单项 onSelect 应恰好调用一次(picked=${picked})`);
+    assert(menuB.closed && !menuB.el.parentNode && surface.stackDepth() === 0, "点菜单项后菜单未关闭或未移除");
+    const menuC = surface.openMenu(anchorA, [{ label: "丁", onSelect() {} }]);
+    surface.openMenu(anchorA, [{ label: "丁", onSelect() {} }]);
+    assert(menuC.closed && surface.stackDepth() === 0, "同一锚点再次 openMenu 应收起已开的菜单(切换语义)");
+    anchorA.remove();
+    anchorB.remove();
+
+    // ④b 弹窗里的菜单:模态开着时 dialog 子树之外全是惰性的,openMenu 必须挂进锚点所在的 <dialog>;
+    //     点菜单项不关弹窗;关弹窗时菜单作为嵌套弹层一起关;打开 dialog 外的静态弹层要告警(不静默点不动)。
+    const viewerHost = byId.get("viewer-overlay");
+    const viewerHandle = surface.openDialog(viewerHost);
+    const inDialogAnchor = document.createElement("button");
+    viewerHost.appendChild(inDialogAnchor);
+    let pickedInDialog = 0;
+    const dialogMenu = surface.openMenu(inDialogAnchor, [{ label: "戊", onSelect: () => { pickedInDialog += 1; } }]);
+    assert(dialogMenu.el.parentNode === viewerHost, "弹窗里的 openMenu 未挂进锚点所在的 <dialog>(挂在 body 下时模态开着点不动)");
+    assert(surface.stackDepth() === 2 && dialogMenu.el._popoverOpen, "弹窗里的菜单未打开或未入栈");
+    dialogMenu.el.querySelector(".k-menu-item").click();
+    assert(pickedInDialog === 1 && viewerHost.open && surface.stackDepth() === 1, "弹窗里点菜单项应调 onSelect 一次、只关菜单不关弹窗");
+    const dialogMenu2 = surface.openMenu(inDialogAnchor, [{ label: "己", onSelect() {} }]);
+    pressEscape();
+    assert(dialogMenu2.closed && viewerHost.open, "弹窗里开着菜单时,第一次 Esc 应只关菜单");
+    const dialogMenu3 = surface.openMenu(inDialogAnchor, [{ label: "庚", onSelect() {} }]);
+    surface.closeSurface(viewerHandle);
+    assert(dialogMenu3.closed && !dialogMenu3.el.parentNode && !viewerHost.open, "关弹窗时里面的菜单未一起关掉并移除");
+    const warns = [];
+    const priorWarn = sandbox.console.warn;
+    sandbox.console.warn = (...args) => warns.push(args.map(String).join(" "));
+    try {
+      const warnHandle = surface.openDialog(viewerHost);
+      surface.openPopover(byId.get("status-tokens"), byId.get("context-detail"));
+      surface.closeSurface(byId.get("context-detail"));
+      surface.closeSurface(warnHandle);
+    } finally {
+      sandbox.console.warn = priorWarn;
+    }
+    assert(warns.some((text) => text.includes("context-detail") && text.includes("惰性")), `模态开着时打开 dialog 外的静态弹层应告警:${JSON.stringify(warns)}`);
+    inDialogAnchor.remove();
+    assert(surface.stackDepth() === 0, `④b 用例后弹层栈未清空(深度 ${surface.stackDepth()})`);
+
+    // ⑤ bindMenus:四个静态菜单触发器接线;点开 aria-expanded=true,Esc 关闭后复位;
+    //    点外关闭;按下触发器本身不算「点外」(否则随后的 click 会把刚关的菜单重新打开)。
+    for (const id of ["task-options", "composer-more", "autorun-more", "voice-settings-toggle"]) {
+      const trigger = byId.get(id);
+      assert(trigger?.getAttribute("aria-controls") && trigger.getAttribute("aria-haspopup"), `bindMenus 未给 #${id} 接线`);
+    }
+    const moreTrigger = byId.get("composer-more");
+    const moreMenu = byId.get("composer-more-menu");
+    assert(moreTrigger.getAttribute("aria-expanded") === "false", "菜单触发器初始 aria-expanded 应为 false");
+    moreTrigger.click();
+    assert(moreTrigger.getAttribute("aria-expanded") === "true" && moreMenu._popoverOpen && !moreMenu.classList.contains("hidden"), "点 data-kz-menu 触发器未打开弹层菜单");
+    pressEscape();
+    assert(moreTrigger.getAttribute("aria-expanded") === "false" && !moreMenu._popoverOpen && moreMenu.classList.contains("hidden"), "Esc 未关闭菜单或 aria-expanded 未复位");
+    moreTrigger.click();
+    document.dispatchEvent({ type: "pointerdown", target: body });
+    assert(!moreMenu._popoverOpen && moreTrigger.getAttribute("aria-expanded") === "false", "点外未关闭菜单");
+    moreTrigger.click();
+    document.dispatchEvent({ type: "pointerdown", target: moreTrigger });
+    assert(moreMenu._popoverOpen, "按下触发器不应触发点外关闭");
+    moreTrigger.click();
+    assert(!moreMenu._popoverOpen && surface.stackDepth() === 0, "再点触发器应收起菜单");
+    // 鞭挞菜单的数字快捷键改挂在触发器与菜单元素上、以「菜单开着」为前提(假 DOM 拍平了菜单行,
+    // 行内命中只能由浏览器样例冒烟验;这里锁住接线点,防止退回 details[open] 判据)。
+    assert(
+      /\$\("autorun-menu"\)\.addEventListener\("keydown", autorunMenuShortcut\)/.test(compose) && /isSurfaceOpen\(menu\)/.test(compose),
+      "鞭挞菜单数字快捷键未挂到 #autorun-menu 或不再以弹层开着为前提",
+    );
+
+    // ⑥ toast:err 用 role=alert,默认 role=status;最多 3 条;过期只隐藏、文案留到下一条。
+    await flush();
+    const region = byId.get("toast");
+    surface.toast("错误冒烟", { kind: "err" });
+    const errItem = region.children.at(-1);
+    assert(errItem?.getAttribute("role") === "alert" && errItem.dataset.kind === "err", "err toast 应为 role=alert、data-kind=err");
+    shell.toast("普通冒烟");
+    assert(region.children.at(-1)?.getAttribute("role") === "status" && region.children.at(-1).dataset.kind === "info", "默认 toast 应为 role=status、kind=info");
+    surface.toast("第三条");
+    surface.toast("第四条");
+    const liveToasts = region.children.filter((node) => node.dataset.kzExpired !== "1");
+    assert(liveToasts.length === 3, `连发 4 条后区域内应只剩 3 条(实得 ${liveToasts.length})`);
+    assert(region._popoverOpen && !region.classList.contains("hidden"), "toast 区域未以 popover 显示");
+    await flush();
+    assert(region.classList.contains("hidden") && !region._popoverOpen, "toast 全部过期后区域未收起");
+    assert(listText("toast").includes("第四条"), "过期的 toast 文案应留到下一条到来(读的人与冒烟都要拿得到最近一条)");
+
+    // ⑦ tooltip:悬停把 title 挪进 data-kz-tip 并显示 #kz-tip;移开后 title 还回去。
+    const tipTarget = byId.get("log-toggle");
+    const tipText = tipTarget.getAttribute("title");
+    assert(tipText, "冒烟前置:#log-toggle 应带 title");
+    document.dispatchEvent({ type: "pointerover", target: tipTarget });
+    await flush();
+    const tipEl = document.querySelector("#kz-tip");
+    assert(tipTarget.getAttribute("title") === null && tipTarget.dataset.kzTip === tipText, "悬停后 title 未挪进 data-kz-tip(系统提示会与自绘提示叠成两个)");
+    assert(tipEl?._popoverOpen && tipEl.textContent === tipText && tipEl.getAttribute("role") === "tooltip", "悬停后 #kz-tip 未显示或文本不一致");
+    assert(tipTarget.getAttribute("aria-describedby") === "kz-tip", "显示提示期间目标应 aria-describedby=kz-tip");
+    document.dispatchEvent({ type: "pointerout", target: tipTarget, relatedTarget: body });
+    assert(tipTarget.getAttribute("title") === tipText && tipTarget.dataset.kzTip === undefined, "移开后 title 未恢复");
+    assert(!tipEl._popoverOpen && tipTarget.getAttribute("aria-describedby") === null, "移开后提示未隐藏或 aria-describedby 未复位");
+
+    // ⑧ 静态护栏:模态期间全局快捷键让路;手算定位的 placeAutorunMenu 不得复活;
+    //    document/window 级 Esc 监听只剩 00-surface 一处。
+    const globalShortcut = compose.slice(compose.indexOf('window.addEventListener("keydown"')).slice(0, 400);
+    assert(globalShortcut.includes("if (isModalOpen()) return;"), "08-compose-runtime 的全局快捷键处理函数开头缺 isModalOpen() 守卫(确认框背后会真的点「新对话」)");
+    assert(!sources.some((source) => source.includes("placeAutorunMenu")), "placeAutorunMenu 复活了:弹层位置归 CSS 锚点定位");
+    // 权限卡弹出时的焦点只归 showCard 的 focus:"auto"(用户在别处打字时不抢)。旧实现 pumpAsk 里
+    // setTimeout 把焦点抢到「允许一次」,下一个空格就放行;合并时最容易被当成上下文行留回来。
+    assert(!sources.some((source) => /\$\(\s*["']ask-allow["']\s*\)\.focus\(/.test(source)), "有代码把焦点直接抢到 #ask-allow(正在打字时一个空格就放行):权限卡焦点只归 showCard focus:\"auto\"");
+    const surfaceSource = sources[scriptSrcs.indexOf("00-surface.js")] ?? "";
+    assert(surfaceSource.includes('document.addEventListener("keydown", onKeydown, true)'), "00-surface.js 的 Esc 唯一入口不在 document 捕获阶段");
+  }
+}
+
+// UI-0926 #5 配色:发送键 = 单色圆形图标按钮。可见文字没了,名称只剩 sr-only 与 aria-label 两条来源,
+// 两条都必须跟着界面语言走(英文态念 "Send");图标是 aria-hidden 的 SVG,不能退回文字按钮。
+{
+  const send = sandbox.document.getElementById("send");
+  assert(send, "UI-0926 #5:找不到 #send");
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  sandbox.setRunning(false);
+  assert(send.getAttribute("aria-label") === "Send", `UI-0926 #5:英文态空闲的发送键读屏名称应为 "Send",实得 "${send.getAttribute("aria-label")}"`);
+  assert(send.getAttribute("title") === "Send", `UI-0926 #5:英文态空闲的发送键悬停提示应为 "Send",实得 "${send.getAttribute("title")}"`);
+  // 假 DOM 只按 id 建节点,按钮内部的 svg/span 看不见:标记本身静态核对。
+  const sendMarkup = html.match(/<button id="send"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "";
+  assert(/<svg aria-hidden="true"/.test(sendMarkup), `UI-0926 #5:发送键应为图标按钮(内含 aria-hidden 的 svg),实为 ${sendMarkup.slice(0, 120)}`);
+  assert(/<span class="sr-only" data-i18n-key="发送">发送<\/span>/.test(sendMarkup), "UI-0926 #5:发送键缺少随语言翻译的 sr-only 文字(data-i18n-key=\"发送\")");
+  assert(/data-i18n-title="发送"/.test(sendMarkup), "UI-0926 #5:发送键的静态悬停提示缺 data-i18n-title");
+  sandbox.setRunning(true);
+  assert(send.getAttribute("aria-label") === "While running, send to steer or queue according to Delivery", `UI-0926 #5:运行态发送键读屏名称未翻译,实得 "${send.getAttribute("aria-label")}"`);
+  sandbox.setRunning(false);
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(send.getAttribute("title") === "发送" && send.getAttribute("aria-label") === "发送", `UI-0926 #5:切回中文后发送键应为「发送」,实得 title="${send.getAttribute("title")}" aria-label="${send.getAttribute("aria-label")}"`);
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
+}
 
 // ===== 分区:工具行与结构化渲染 =====
 

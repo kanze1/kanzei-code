@@ -1,3 +1,4 @@
+import { closeSurface, isModalOpen, openDialog } from "./00-surface.js";
 import { defer } from "./01-core.js";
 import { $, on, promptBox } from "./01-core.js";
 import { localizeDynamic, t } from "./02-i18n.js";
@@ -16,7 +17,6 @@ import { state } from "./08-compose.js";
 export const PALETTE_LIMIT = 40;
 export let paletteEntries = [];
 export let paletteIndex = 0;
-export let paletteRestoreFocus = null;
 
 export function paletteEl() {
   return $("palette");
@@ -145,49 +145,25 @@ export function runPaletteEntry(entry) {
   }
 }
 
-/// aria-modal="true" 只是**声明**,浏览器不会因此把焦点关在里面。实测不加处理时
-/// Tab 两下就走到了背后的 rail,回车能在半透明遮罩下真的把视图切走、甚至点到
-/// 「新对话」(会清空多轮历史)——而屏幕上什么都看不见。
-///
-/// 用 inert 把**除面板以外的所有顶层兄弟**整体惰性化:比手写 Tab 循环可靠(不用维护
-/// 「哪些算可聚焦」这张永远会漏的表),而且顺带堵住语义泄漏——屏幕阅读器不会在一个
-/// 模态对话框里继续读整个应用。按兄弟遍历而不是写死 #app,是因为权限询问弹窗、文档
-/// 查看器也在 #app 外面,写死一个 id 就会漏掉它们。
-export function setBackgroundInert(on) {
-  const panel = paletteEl();
-  const siblings = document.body?.children;
-  if (!panel || !siblings) return;
-  for (const node of siblings) {
-    if (node === panel) continue;
-    if (typeof node.setAttribute !== "function") continue;
-    if (on) node.setAttribute("inert", "");
-    else node.removeAttribute("inert");
-  }
-}
-
+/// aria-modal="true" 只是**声明**,浏览器不会因此把焦点关在里面:旧实现不加处理时
+/// Tab 两下就走到背后的 rail,回车能在半透明遮罩下真的把视图切走、甚至点到「新对话」。
+/// 现在宿主是 <dialog>,经 00-surface 的 openDialog 用 showModal 打开:背景由浏览器原生
+/// 惰性化(焦点与读屏都关在面板里),Esc/点外关闭走弹层栈,关闭后焦点还回打开前的位置。
 export function openPalette() {
   const panel = paletteEl();
   const input = $("palette-input");
   if (!panel || !input) return;
-  paletteRestoreFocus = document.activeElement;
   paletteEntries = collectPaletteEntries();
   paletteIndex = 0;
   input.value = "";
-  panel.classList.remove("hidden");
-  setBackgroundInert(true);
+  openDialog(panel, { initialFocus: "#palette-input" });
   renderPaletteList();
-  input.focus();
 }
 
 export function closePalette() {
   const panel = paletteEl();
-  if (!panel || panel.classList.contains("hidden")) return;
-  panel.classList.add("hidden");
-  // inert 必须先摘:还留着的话下面这次 focus() 会落在惰性子树上而静默失败。
-  setBackgroundInert(false);
-  // 焦点回到打开面板前的位置:不还回去的话 Tab 序列会从文档开头重新开始。
-  if (paletteRestoreFocus && typeof paletteRestoreFocus.focus === "function") paletteRestoreFocus.focus();
-  paletteRestoreFocus = null;
+  if (!panel || !paletteIsOpen()) return;
+  closeSurface(panel);
 }
 
 export function movePaletteSelection(delta) {
@@ -214,35 +190,21 @@ defer(() => {
     } else if (event.key === "Enter") {
       event.preventDefault();
       if (paletteEntries.active) runPaletteEntry(paletteEntries.active);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      closePalette();
     }
-  });
-});
-// 点遮罩(不是面板本体)关闭。
-defer(() => {
-  paletteEl()?.addEventListener("mousedown", (event) => {
-    if (event.target === paletteEl()) closePalette();
   });
 });
 
 defer(() => {
+  // Esc 归 00-surface 的弹层栈(document 捕获阶段,焦点在面板哪里都收得到),这里只管 Ctrl/Cmd+P。
   window.addEventListener("keydown", (event) => {
-    // Esc 必须挂在**窗口**上,不能只挂输入框:焦点一旦离开输入框(Tab 一下、
-    // 或点了一下列表),输入框级的 Escape 就再也收不到,面板看起来关不掉了。
-    if (event.key === "Escape" && paletteIsOpen()) {
-      event.preventDefault();
-      closePalette();
-      return;
-    }
     const modifier = event.ctrlKey || event.metaKey;
     if (!modifier || event.altKey) return;
     if (event.key.toLowerCase() !== "p") return;
     // WebView 里 Ctrl+P 默认是打印,必须拦下。
     event.preventDefault();
     if (paletteIsOpen()) closePalette();
-    else openPalette();
+    // 别的模态(确认框、输入框、查看器)开着时不叠一个命令面板上去。
+    else if (!isModalOpen()) openPalette();
   });
 });
 
