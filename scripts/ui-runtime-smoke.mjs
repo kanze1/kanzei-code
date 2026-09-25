@@ -2668,6 +2668,29 @@ assert(
     && document.querySelector("#documents-dep-view .dep-layer-head.blocked")?.textContent.includes("(0)"),
   "依赖 R-111 已归档且引擎 block_reasons 为空时,R-900 应在可做层而非被阻塞层",
 );
+// D-750 环例外:引擎对环上条目只报「循环依赖: …」、不报「未完成依赖」,
+// 依赖视图仍必须把两条互相依赖的条目都放进被阻塞层,与引擎 blocked=true 同判。
+const cycleReason = (path) => `循环依赖: ${path} —— 环上没有条目能先完成,必须断掉其中一条边(把不成立的依赖移入 refs)`;
+payloads.docs_snapshot = {
+  ...savedArchiveDependencyDocs,
+  requirements: [
+    docEntry("R-910", "环成员 A", "todo", {
+      dependencies: ["R-911"], dependents: ["R-911"],
+      blocked: true, block_reasons: [cycleReason("R-910 → R-911 → R-910")],
+    }),
+    docEntry("R-911", "环成员 B", "todo", {
+      dependencies: ["R-910"], dependents: ["R-910"],
+      blocked: true, block_reasons: [cycleReason("R-911 → R-910 → R-911")],
+    }),
+  ],
+  defects: [],
+};
+sandbox.renderDocsSnapshot(payloads.docs_snapshot);
+assert(
+  document.querySelector("#documents-dep-view .dep-layer-head.blocked")?.textContent.includes("(2)")
+    && document.querySelector("#documents-dep-view .dep-layer-head.ready")?.textContent.includes("(0)"),
+  "互相依赖的 R-910/R-911 只带循环依赖理由时应都在被阻塞层(与引擎 blocked=true 一致),不能判为可做",
+);
 payloads.docs_snapshot = savedArchiveDependencyDocs;
 sandbox.renderDocsSnapshot(savedArchiveDependencyDocs);
 depToggle.click();
@@ -4289,6 +4312,116 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   const xFail = toolMsgAt(index);
   assert(xFail.classList.contains("err"), "真实执行故障没有保留失败态");
   assert(xFail.querySelector(".tool-msg-status")?.textContent === "✗", "真实执行故障图标漂移");
+
+  // 工具结果存储配额截断(审计发现 12):后端保留 bash 的 terminal display 并附 quota_truncated。
+  // 对话工具块与活动面板都必须同时有终端块和配额提示块(已用/配额、原因、整理入口),
+  // ⎿ 行/进度行换成按原因区分的人话,不再是 [tool_result_truncated …] 机器标记;
+  // ⎿ 行已换掉时,对话详情也不能再挂机器标记被切剩的孤立尾巴(非入参的 .tool-msg-raw)。
+  const quotaLinesOk = (id, chatBlock, headline, where) => {
+    const result = chatBlock?.querySelector(".tool-msg-result")?.textContent ?? "";
+    assert(result.includes(headline) && !result.includes("tool_result_truncated"), `${where}对话 ⎿ 行不是按原因的人话:"${result}"`);
+    const orphan = [...(chatBlock?.querySelectorAll(".tool-msg-raw") ?? [])].filter((n) => !n.classList.contains("args"));
+    assert(orphan.length === 0, `${where}对话详情仍挂着机器标记的孤立尾巴:"${orphan[0]?.textContent}"`);
+    const activity = document.querySelector(`#bg-list .bg-entry[data-bg-id=${id}]`);
+    assert(activity, `${where}未进活动面板`);
+    const prog = activity.querySelector(".bg-prog")?.textContent ?? "";
+    assert(prog.includes(headline) && !prog.includes("tool_result_truncated"), `${where}活动面板进度行不是按原因的人话:"${prog}"`);
+    return activity;
+  };
+  index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
+  const quotaMarker = `[tool_result_truncated reason=artifact_quota_exceeded bytes=1048700 storage_used_bytes=1932735283 quota_bytes=2147483648 sha256=${"a".repeat(64)}]`;
+  toolStart({ payload: { id: "XQUOTA", name: "bash", summary: "cargo test -p kanzei-core", input: { command: "cargo test -p kanzei-core" }, sessionId: "sess-smoke" } });
+  toolEnd({ payload: {
+    id: "XQUOTA", name: "bash", ok: true, preview: `${quotaMarker.slice(0, 120)} (+3 lines)`,
+    display: {
+      kind: "terminal", command: "cargo test -p kanzei-core", exitCode: 0,
+      output: "running 12 tests\ntest result: ok. 12 passed", full: "running 12 tests\ntest result: ok. 12 passed",
+      quota_truncated: { reason: "artifact_quota_exceeded", storage_used_bytes: 1932735283, quota_bytes: 2147483648 },
+    },
+    sessionId: "sess-smoke",
+  } });
+  await flush();
+  const xQuota = toolMsgAt(index);
+  const quotaNoticeOk = (root, where) => {
+    // 活动面板展开区还有入参块(.bg-args 同为 .tool-display.term),按 "$ 命令" 头认终端块。
+    const term = [...(root?.querySelectorAll(".tool-display.term") ?? [])].find((n) => n.textContent.startsWith("$ cargo test -p kanzei-core"));
+    assert(term?.textContent.includes("12 passed"), `${where}配额截断后终端块丢失(原 terminal display 被覆盖)`);
+    const notice = root?.querySelector(".quota-notice")?.textContent ?? "";
+    assert(notice.includes("1.80 GB") && notice.includes("2.00 GB"), `${where}配额提示缺少已用/配额:"${notice}"`);
+    assert(notice.includes("artifact_quota_exceeded"), `${where}配额提示缺少截断原因:"${notice}"`);
+    assert(notice.includes("删除并安全整理"), `${where}配额提示没有指向存储整理入口:"${notice}"`);
+  };
+  quotaNoticeOk(xQuota?.querySelector(".tool-msg-detail"), "对话工具块:");
+  const quotaActivity = quotaLinesOk("XQUOTA", xQuota, "工具结果存储已满", "配额截断的 bash:");
+  quotaNoticeOk(quotaActivity.querySelector(".bg-detail"), "活动面板:");
+
+  // 原工具没有 display 时后端发 kind=truncated:preview 单独成终端样式块,后面紧跟配额提示。
+  index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
+  const truncMarker = `[tool_result_truncated reason=artifact_quota_exceeded bytes=3145728 storage_used_bytes=2040109466 quota_bytes=2147483648 sha256=${"b".repeat(64)}]`;
+  toolStart({ payload: { id: "XQTRUNC", name: "process", summary: "list", input: { action: "list" }, sessionId: "sess-smoke" } });
+  toolEnd({ payload: {
+    id: "XQTRUNC", name: "process", ok: true, preview: `${truncMarker.slice(0, 120)} (+40 lines)`,
+    display: {
+      kind: "truncated", reason: "artifact_quota_exceeded", bytes: 3145728,
+      storage_used_bytes: 2040109466, quota_bytes: 2147483648, sha256: "b".repeat(64),
+      preview: "bg1 running cargo watch\nbg2 exited npm run dev",
+    },
+    sessionId: "sess-smoke",
+  } });
+  await flush();
+  const xTrunc = toolMsgAt(index);
+  const truncNoticeOk = (root, where) => {
+    const previewBlock = [...(root?.querySelectorAll(".tool-display.term") ?? [])].find((n) => n.textContent.startsWith("bg1 running cargo watch"));
+    assert(previewBlock?.textContent.includes("bg2 exited npm run dev"), `${where}kind=truncated 的 preview 没有单独成块`);
+    const notice = root?.querySelector(".quota-notice")?.textContent ?? "";
+    assert(notice.includes("工具结果存储已满"), `${where}kind=truncated 缺少配额提示:"${notice}"`);
+    assert(notice.includes("1.90 GB") && notice.includes("2.00 GB"), `${where}kind=truncated 配额提示缺少已用/配额:"${notice}"`);
+    assert(notice.includes("删除并安全整理"), `${where}kind=truncated 配额提示没有指向存储整理入口:"${notice}"`);
+  };
+  truncNoticeOk(xTrunc?.querySelector(".tool-msg-detail"), "对话工具块:");
+  const truncActivity = quotaLinesOk("XQTRUNC", xTrunc, "工具结果存储已满", "kind=truncated 的 process:");
+  truncNoticeOk(truncActivity.querySelector(".bg-detail"), "活动面板:");
+
+  // 锁繁忙/无法计量不是"存储已满":不许说已满、不许把未计量的占用画成 "0 B"、
+  // 更不许把用户往不可逆的删除历史上推(审计 F5 复审 major)。
+  const transientQuotaCases = [
+    {
+      id: "XQLOCK", name: "bash", input: { command: "cargo build" },
+      preview: `[tool_result_truncated reason=quota_lock_unavailable bytes=2097152 storage_used_bytes=unknown quota_bytes=2147483648 sha256=${"c".repeat(64)}] (+5 lines)`,
+      display: {
+        kind: "terminal", command: "cargo build", exitCode: 0, output: "Compiling kanzei-core\nFinished dev", full: "Compiling kanzei-core\nFinished dev",
+        quota_truncated: { reason: "quota_lock_unavailable", storage_used_bytes: null, quota_bytes: 2147483648 },
+      },
+      headline: "存储锁繁忙", reason: "quota_lock_unavailable", hint: "稍后重试",
+    },
+    {
+      id: "XQMEASURE", name: "process", input: { action: "discover" },
+      preview: `[tool_result_truncated reason=quota_unmeasurable bytes=2097152 storage_used_bytes=unknown quota_bytes=2147483648 sha256=${"d".repeat(64)}] (+9 lines)`,
+      // storage_used_bytes 缺省(undefined)与 null 同样要显示「未知」。
+      display: { kind: "truncated", reason: "quota_unmeasurable", bytes: 2097152, quota_bytes: 2147483648, preview: "pid 42 node dev-server" },
+      headline: "无法计量工具结果存储", reason: "quota_unmeasurable", hint: "且其中没有符号链接后重试",
+    },
+  ];
+  for (const c of transientQuotaCases) {
+    index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
+    toolStart({ payload: { id: c.id, name: c.name, summary: c.id, input: c.input, sessionId: "sess-smoke" } });
+    toolEnd({ payload: { id: c.id, name: c.name, ok: true, preview: c.preview, display: c.display, sessionId: "sess-smoke" } });
+    await flush();
+    const chatBlock = toolMsgAt(index);
+    const activity = quotaLinesOk(c.id, chatBlock, c.headline, `${c.reason}:`);
+    for (const [root, where] of [[chatBlock?.querySelector(".tool-msg-detail"), "对话工具块"], [activity.querySelector(".bg-detail"), "活动面板"]]) {
+      const notice = root?.querySelector(".quota-notice")?.textContent ?? "";
+      const tag = `${c.reason} ${where}:`;
+      assert(notice.includes(c.headline) && notice.includes(c.reason), `${tag}提示块缺少按原因的标题/原因码:"${notice}"`);
+      assert(notice.includes("未知") && !notice.includes("0 B"), `${tag}未计量的已用空间必须显示「未知」,不能画成 0 B:"${notice}"`);
+      assert(notice.includes("2.00 GB"), `${tag}配额丢失:"${notice}"`);
+      assert(notice.includes(c.hint), `${tag}缺少重试方向:"${notice}"`);
+      assert(!notice.includes("存储已满") && !notice.includes("删除并安全整理"), `${tag}暂态截断被说成存储已满/给了删除建议:"${notice}"`);
+    }
+    for (const line of [chatBlock?.querySelector(".tool-msg-result")?.textContent ?? "", activity.querySelector(".bg-prog")?.textContent ?? ""]) {
+      assert(!line.includes("存储已满"), `${c.reason}:⎿/进度行被说成存储已满:"${line}"`);
+    }
+  }
 
   // ③ ⎿ 行截断点与剩余部分的切分必须严丝合缝:一个字要么在摘要里、要么在详情里。
   index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
@@ -8656,6 +8789,7 @@ if (issues.length) {
 // Keep streaming/cancellation regressions in the existing frontend runtime gate.
 await import("./ui-oc-companion-smoke.mjs");
 await import("./ui-voice-smoke.mjs");
+await import("./ui-mobile-approval-smoke.mjs");
 console.log(
   `UI 运行时冒烟通过:${sources.length} 个 ui/*.js 按序执行 + 初始化序列(${invokeLog.length} 次 invoke) + ` +
   `需求/缺陷/目标/测试/历史列表渲染 + ${document.querySelectorAll(".activity-item[data-view]").length} 个主视图切换,0 运行时错误`

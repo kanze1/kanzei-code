@@ -22,7 +22,7 @@ const I18N_EN = {
   "批准": "Approve",
   "拒绝": "Reject",
   "approval 查询失败: {0}": "approval query failed: {0}",
-  "已{0} #{1}": "{0} #1", // 占位符 {1} 由 id 填充,文案顺序交给英文表
+  "已{0} #{1}": "{0} #{1}", // 占位符 {1} 由 id 填充,文案顺序交给英文表
   "失败: {0}": "Failed: {0}",
   "发送失败({0})": "Send failed ({0})",
   "配对": "Pair",
@@ -179,14 +179,15 @@ async function fetchPendingApprovals(device) {
   return res.json();
 }
 
-async function answerApproval(device, id, reply) {
+// answer 为 { reply } 或 { cancel: true }:取消走显式字段,不与答案文本共用带内 "cancel"。
+async function answerApproval(device, id, answer) {
   const res = await fetch("/v1/approval/answer", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${device.token}`,
     },
-    body: JSON.stringify({ id, reply }),
+    body: JSON.stringify({ id, ...answer }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -195,52 +196,98 @@ async function answerApproval(device, id, reply) {
   return res.json();
 }
 
+// 已提交/已取消的回执卡片在 ask 离开 pending 后再保留这么久,让用户看清结果。
+const APPROVAL_RESULT_LINGER_MS = 5000;
+
 // 轮询 pending approval 并渲染卡片。3s 间隔(轻交互遥控器,不频繁打桥接)。
+// D-751 跟进:按 ask id 增量对账,不再整表清空重建——已有卡片原样保留
+// (输入值、多选状态、焦点与软键盘都不丢),提交中的卡片不会被重建成可再点的新卡片。
 function startApprovalPolling(device) {
   if (approvalTimer) clearInterval(approvalTimer);
+  // 桥接慢时响应可能乱序到达:只丢比「最近一次已采纳」更旧的响应,旧响应不回滚卡片列表。
+  // 不能按「最后发起的一轮」取舍——响应持续 >3s 时每个响应落地前都已发出更新一轮,
+  // 会被全部丢弃,卡片永远不出现、状态行卡在「加载中」。
+  let issuedPoll = 0;
+  let appliedPoll = 0;
   const render = async () => {
     const container = document.getElementById("approval-list");
     if (!container) return;
+    const poll = ++issuedPoll;
     try {
       const data = await fetchPendingApprovals(device);
-      container.innerHTML = "";
-      const pending = data.pending || [];
-      if (pending.length === 0) {
-        container.innerHTML = `<p class="muted">${t("当前无待批准请求")}</p>`;
-        return;
-      }
-      for (const ask of pending) {
-        if (ask.kind === "question") {
-          container.appendChild(renderQuestionCard(device, ask));
-          continue;
-        }
-        const card = document.createElement("div");
-        card.className = "card approval";
-        const desc =
-          ask.kind === "question"
-            ? `${ask.resource}`
-            : `${ask.action}: ${ask.resource}`;
-        card.innerHTML = `
-          <p class="approval-desc">${escapeHtml(desc)}</p>
-          <p class="muted">${escapeHtml(ask.session_id || "")} · ${t("请求")} #${ask.id}</p>
-          <div class="approval-actions">
-            <button class="approve" data-id="${ask.id}">${t("批准")}</button>
-            <button class="reject" data-id="${ask.id}">${t("拒绝")}</button>
-          </div>`;
-        card.querySelector(".approve").addEventListener("click", async () => {
-          await submitAnswer(device, ask.id, "allow", card);
-        });
-        card.querySelector(".reject").addEventListener("click", async () => {
-          await submitAnswer(device, ask.id, "deny", card);
-        });
-        container.appendChild(card);
-      }
+      if (poll < appliedPoll) return;
+      appliedPoll = poll;
+      reconcileApprovalCards(device, container, data.pending || []);
     } catch (err) {
-      container.innerHTML = `<p class="muted">${escapeHtml(t("approval 查询失败: {0}", err.message || err))}</p>`;
+      if (poll < appliedPoll) return;
+      appliedPoll = poll;
+      // 查询失败只更新状态行,保留已有卡片与用户正在填写的内容。
+      setApprovalStatus(container, t("approval 查询失败: {0}", err.message || err));
     }
   };
   render();
   approvalTimer = setInterval(render, 3000);
+}
+
+// 状态行(加载中/空列表/查询失败)是独立节点,改它不触碰任何卡片。
+function setApprovalStatus(container, text) {
+  let status = container.querySelector(":scope > .approval-status");
+  if (!status) {
+    status = document.createElement("p");
+    status.className = "muted approval-status";
+    container.prepend(status);
+  }
+  status.textContent = text;
+  status.hidden = !text;
+}
+
+function reconcileApprovalCards(device, container, pending) {
+  const existing = new Map();
+  for (const card of container.querySelectorAll(":scope > [data-ask-id]")) {
+    existing.set(card.dataset.askId, card);
+  }
+  const live = new Set();
+  for (const ask of pending) {
+    const key = String(ask.id);
+    live.add(key);
+    if (existing.has(key)) continue; // 仍在 pending:保留原 DOM,不重建。
+    container.appendChild(
+      ask.kind === "question" ? renderQuestionCard(device, ask) : renderPermissionCard(device, ask),
+    );
+  }
+  const now = Date.now();
+  for (const [key, card] of existing) {
+    if (live.has(key)) continue;
+    // 提交中的卡片等 POST 返回;刚出结果的回执短暂保留,其余已离开 pending 的卡片移除。
+    if (card.dataset.state === "submitting") continue;
+    if (card.dataset.state === "done" && now - Number(card.dataset.doneAt || 0) < APPROVAL_RESULT_LINGER_MS) {
+      continue;
+    }
+    card.remove();
+  }
+  setApprovalStatus(container, pending.length === 0 ? t("当前无待批准请求") : "");
+}
+
+function renderPermissionCard(device, ask) {
+  const card = document.createElement("div");
+  card.className = "card approval";
+  card.dataset.askId = String(ask.id);
+  const desc = `${ask.action}: ${ask.resource}`;
+  card.innerHTML = `
+    <p class="approval-desc">${escapeHtml(desc)}</p>
+    <p class="muted">${escapeHtml(ask.session_id || "")} · ${t("请求")} #${ask.id}</p>
+    <div class="approval-actions">
+      <button class="approve" data-id="${ask.id}">${t("批准")}</button>
+      <button class="reject" data-id="${ask.id}">${t("拒绝")}</button>
+    </div>
+    <p class="muted approval-card-status"></p>`;
+  card.querySelector(".approve").addEventListener("click", async () => {
+    await submitAnswer(device, ask.id, "allow", card);
+  });
+  card.querySelector(".reject").addEventListener("click", async () => {
+    await submitAnswer(device, ask.id, "deny", card);
+  });
+  return card;
 }
 
 function renderQuestionCard(device, ask) {
@@ -281,7 +328,7 @@ function renderQuestionCard(device, ask) {
     }
     button.addEventListener("click", () => {
       if (!multiple) {
-        submitQuestionAnswer(device, ask, option.label, card, status, t("答案已提交"));
+        submitQuestionAnswer(device, ask, { reply: option.label }, card, status, t("答案已提交"));
         return;
       }
       if (selected.has(option.label)) {
@@ -336,37 +383,57 @@ function renderQuestionCard(device, ask) {
   answer.addEventListener("input", updateSubmitState);
   submit.addEventListener("click", () => {
     const reply = currentAnswer();
-    if (reply) submitQuestionAnswer(device, ask, reply, card, status, t("答案已提交"));
+    if (reply) submitQuestionAnswer(device, ask, { reply }, card, status, t("答案已提交"));
   });
   cancel.addEventListener("click", () => {
-    submitQuestionAnswer(device, ask, "cancel", card, status, t("问题已取消"));
+    // 显式取消字段:用户答案恰好是 "cancel" 时仍按答案投递。
+    submitQuestionAnswer(device, ask, { cancel: true }, card, status, t("问题已取消"));
   });
   updateSubmitState();
   return card;
 }
 
-async function submitQuestionAnswer(device, ask, reply, card, status, successText) {
+// 卡片状态:submitting(POST 在途,拒绝再次提交,轮询不移除)/ done(回执,短暂保留)。
+function markApprovalDone(card) {
+  card.dataset.state = "done";
+  card.dataset.doneAt = String(Date.now());
+}
+
+async function submitQuestionAnswer(device, ask, answer, card, status, successText) {
+  if (card.dataset.state) return; // 在途或已完成:不重复提交。
+  card.dataset.state = "submitting";
   const controls = card.querySelectorAll("button");
   controls.forEach((button) => { button.disabled = true; });
   status.textContent = t("提交中…");
   try {
-    await answerApproval(device, ask.id, reply);
+    await answerApproval(device, ask.id, answer);
     const result = document.createElement("p");
     result.className = "muted";
     result.textContent = successText;
     card.replaceChildren(result);
+    markApprovalDone(card);
   } catch (err) {
+    delete card.dataset.state;
     status.textContent = t("失败: {0}", err.message || err);
     controls.forEach((button) => { button.disabled = false; });
   }
 }
 
 async function submitAnswer(device, id, reply, card) {
+  if (card.dataset.state) return; // 在途或已完成:不重复提交。
+  card.dataset.state = "submitting";
+  const controls = card.querySelectorAll("button");
+  const status = card.querySelector(".approval-card-status");
+  controls.forEach((button) => { button.disabled = true; });
   try {
-    await answerApproval(device, id, reply);
+    await answerApproval(device, id, { reply });
     card.innerHTML = `<p class="muted">${escapeHtml(t("已{0} #{1}", reply === "allow" ? t("批准") : t("拒绝"), id))}</p>`;
+    markApprovalDone(card);
   } catch (err) {
-    card.innerHTML = `<p class="muted">${escapeHtml(t("失败: {0}", err.message || err))}</p>`;
+    // 卡片按 id 保留不再被轮询重建,失败时恢复按钮供重试;ask 已不存在时下一轮轮询会移除卡片。
+    delete card.dataset.state;
+    if (status) status.textContent = t("失败: {0}", err.message || err);
+    controls.forEach((button) => { button.disabled = false; });
   }
 }
 
@@ -436,7 +503,7 @@ function renderNotifications(device) {
     </div>
     <div class="card">
       <h2>${t("待批准请求")}</h2>
-      <div id="approval-list"><p class="muted">${t("加载中…")}</p></div>
+      <div id="approval-list"><p class="muted approval-status">${t("加载中…")}</p></div>
     </div>
     <div class="card"><div id="notice-list"></div></div>
     <button id="unpair-btn" class="danger">${t("解除配对")}</button>`;

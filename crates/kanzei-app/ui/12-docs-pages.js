@@ -373,12 +373,17 @@ export function renderDependencyView(snapshot) {
   const byId = new Map(entries.map((e) => [e.id, e]));
   const hasDeps = (e) => Array.isArray(e.dependencies) && e.dependencies.length > 0;
   // 各依赖是否阻塞由 docs_snapshot 与调度器基于 active+archive 同算,不要从 UI 的 active-only entries 重建 done 集合。
-  const depsDone = (e) =>
-    (e.dependencies ?? []).every((id) =>
-      !(e.block_reasons ?? []).some(
+  // 环上条目引擎只报一条「循环依赖: …」、不再逐个报「未完成依赖」(scheduling.rs block_reasons),
+  // 环上永远等不到依赖完成,所以有环理由即整体判未满足,与引擎同判(D-750 环例外)。
+  const depsDone = (e) => {
+    const reasons = e.block_reasons ?? [];
+    if (reasons.some((reason) => String(reason).startsWith("循环依赖:"))) return false;
+    return (e.dependencies ?? []).every((id) =>
+      !reasons.some(
         (reason) => reason === `未完成依赖: ${id}` || reason === `依赖不存在: ${id}`,
       ),
     );
+  };
   const layers = { ready: [], blocked: [] };
   for (const e of entries) {
     if (!hasDeps(e) || depsDone(e)) layers.ready.push(e);
