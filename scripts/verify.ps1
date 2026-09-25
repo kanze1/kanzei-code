@@ -135,7 +135,9 @@ if ($policy.run_rust) {
     Step-With-Timing "clippy" "clippy(轻量:不含测试目标)" {
         # 刻意不带 --all-targets：实测碰底层 crate 后 37.9s → 4.9s，省 33 秒。
         # 编译覆盖不靠它——紧接着的 test 步骤会把全部测试代码编一遍；这里丢掉的只有
-        # **测试代码的 lint**，那份由 ci.yml 每次 push 的 --all-targets 全量形态兜住。
+        # **测试代码的 lint**，那份由 ci.yml 的 --all-targets 全量形态兜住——但 ci.yml
+        # 目前只手动触发(workflow_dispatch)，push 不会自动跑；改测试代码须自跑
+        # cargo clippy -p <crate> --all-targets -- -D warnings。
         # 三处分工(提交门禁 git.rs / 本文件 / ci.yml)由守护测试
         # gate_checklists_align_across_git_verify_and_ci 显式断言，改任一处都要同步。
         cargo clippy --workspace --manifest-path "$root\Cargo.toml" -- -D warnings
