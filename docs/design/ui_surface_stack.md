@@ -72,7 +72,7 @@ ui/app.css(index.html 与 gallery.html 唯一引用的样式入口)
 
 ### 4.3 surface.css(@layer surface)
 
-`.k-surface` 共同外观(底色/文字/边框/圆角/阴影);`.k-dialog`(+ `data-size="lg"|"palette"`,`::backdrop`);`.k-menu`/`.k-popover`(锚点定位,`data-placement="top-end|top-start|bottom-end|bottom-start"` 映射到 `position-area`,`position-try-fallbacks: flip-block, flip-inline`);`.k-menu-item`/`-sep`/`-heading`,`.k-menu .menu-row:hover`;`.k-card`(停靠右下,`data-tone="attention"` 描边)与 `.k-chip-float`;`.k-toast-region` 与 `.k-toast[data-kind=ok|warn|err]`(info 为中性边);`.k-tooltip`;`select, ::picker(select) { appearance: base-select }` 与 `::picker(select)`/`option`/`option::checkmark`;`.k-panel`;`@starting-style` 入场动效(减少动效的全局 `!important` 自动压平);`.k-static`(样例页把顶层弹层按普通块画出来)。
+`.k-surface` 共同外观(底色/文字/边框/圆角/阴影);`.k-dialog`(+ `data-size="lg"|"palette"`,`::backdrop`);`.k-menu`/`.k-popover`(锚点定位,默认宽 ≤420px、高 ≤min(65vh, 480px);补全列表 `.k-popover[role="listbox"]` 放开宽度上限、高 220px、左右不留偏移,宽度由 style.css 的 `anchor-size(width)` 跟输入框走;`data-placement="top-end|top-start|bottom-end|bottom-start"` 映射到 `position-area`,`position-try-fallbacks: flip-block, flip-inline`);`.k-menu-item`/`-sep`/`-heading`,`.k-menu .menu-row:hover`;`.k-card`(停靠右下,`data-tone="attention"` 描边)与 `.k-chip-float`;`.k-toast-region` 与 `.k-toast[data-kind=ok|warn|err]`(按 kind 浅底 + 1px 软边,不用彩色左竖条;info 中性);`.k-tooltip`;`select, ::picker(select) { appearance: base-select }` 与 `::picker(select)`/`option`/`option::checkmark`;`.k-panel`;`@starting-style` 入场动效(减少动效的全局 `!important` 自动压平);`.k-static`(样例页把顶层弹层按普通块画出来)。
 
 - 悬停/选中只叠半透明层(`background-image: linear-gradient(…)`),不换掉不透明底色:浮在内容上的芯片、下拉选项若底色变半透明就看不清。
 - `option` 的 `background-color` 是兜底:即使 base-select 不可用,Blink 也会把 option 的底色抄进经典弹出页,列表仍跟主题。
@@ -87,7 +87,7 @@ ui/app.css(index.html 与 gallery.html 唯一引用的样式入口)
 function onKeydown(event) {
   if (event.key !== "Escape" || event.isComposing) return;
   if (nativePickerOpen(event)) return;   // 页面内下拉列表开着:Esc 归浏览器关列表
-  const top = topEscapable();
+  const top = topEscapable(event.target ?? activeElement());
   if (!top) return;
   event.preventDefault();
   event.stopImmediatePropagation();
@@ -96,13 +96,15 @@ function onKeydown(event) {
 document.addEventListener("keydown", onKeydown, true);
 ```
 
-  `topEscapable()` 返回栈顶第一个可 Esc 的句柄;模态开着时,之后才弹出的停靠卡片在模态背后是惰性的,不参与。弹层内输入框自己的 Esc(如「更多」菜单里的搜索框)因此改为关闭弹层,这是有意的行为变化。
+  `topEscapable(target)` 返回栈顶第一个可 Esc 的句柄;模态开着时,之后才弹出的停靠卡片在模态背后是惰性的,不参与。弹层内输入框自己的 Esc(如「更多」菜单里的搜索框)因此改为关闭弹层,这是有意的行为变化。
+  **停靠卡片让位局部 Esc**:按键目标是卡片外的文字输入框(text 类 input、textarea、contenteditable)或位于 `.monaco-editor` 内时跳过卡片,不 `preventDefault`、不截断传播——#prompt、想法/缺陷速记表单的 Esc 照常取消输入,Monaco 查找/补全小部件照常收起,权限请求不被顺手拒掉(与卡片 `focus: "auto"`「用户在别处打字时不打扰」同一条理由)。勾选框/按钮/下拉上没有局部 Esc 含义,仍按卡片的 `onEscape` 处理。
 - **点外关闭由模块做,不交给 `popover="auto"`**:所有菜单/浮层都是 `popover="manual"`,模块在 document 捕获阶段的 `pointerdown` 里自顶向下关掉不含点击目标的轻关闭弹层,**锚点(触发器)除外**。原因:浏览器的 auto 轻关闭发生在 pointerdown 分发之前,「点触发器收起菜单」会先被轻关闭、再被触发器的 click 重新打开,触发器永远关不掉它;自己做还让假 DOM 能测。打开一个轻关闭弹层时,不以它为祖先的其它轻关闭弹层先关(与 auto 语义一致);打开模态时轻关闭弹层全部先关。
 - **模态**:`openDialog` 用 `showModal`(原生惰性化背景、焦点关在里面);记住并归还焦点;聚焦 `initialFocus`(或 `[autofocus]`/第一个可聚焦元素);`closedby="any"` 点外关闭,不支持时退化为「点在 dialog 自身且坐标在内容框外」。同一个 dialog 被并发打开时排队(`queue: true`,确认框/输入框用),内容在轮到它时才写入(`prepare`),不再互相覆盖。
 - **原生事件是异步的**:`close`/`toggle` 在任务里派发。排队的第二个确认框在同一任务里已经 `showModal`,迟到的 `close` 不能把它当成被关掉——只在元素确实已关闭时才同步栈(浏览器冒烟有专门用例)。
 - **卡片焦点**:`showCard(el, { focus: "auto" })` 在焦点位于别处的可编辑元素(用户正在打字)时不抢焦点,否则聚焦 `initialFocus`/第一个按钮;抢过焦点的卡片关闭时把焦点还回去。修掉「正在打字时焦点被抢到『允许一次』,下一个空格就放行」。`onEscape` 缺省 = 不响应 Esc(收起后的「重新打开」芯片不能被 Esc 弄丢)。
 - **锚点**:`anchorTo(el, anchor)` 分配 `--kz-anchor-N`,写 `anchor-name` 与 `position-anchor`。
-- **挂载点**:JS 现造的弹层(openMenu 菜单、tooltip)放进 `<div id="kz-surface-root">`,首次使用时追加到 body 末尾(另存引用,不依赖 getElementById 查后加的节点)。
+- **挂载点**:JS 现造的弹层(openMenu 菜单、tooltip)放进 `<div id="kz-surface-root">`,首次使用时追加到 body 末尾(另存引用,不依赖 getElementById 查后加的节点)。**例外:锚点在开着的 `<dialog>` 里时,openMenu 把菜单挂进这个 dialog**——模态打开期间浏览器把 dialog 子树之外的一切(包括之后才弹出的顶层 popover)设为惰性,挂在 body 下的菜单弹得出来却点不动、拿不到焦点(无头 Edge 153 实测)。菜单显示后照样进顶层,不受 dialog 的 overflow 裁剪;关 dialog 时它作为嵌套弹层一起关。静态弹层同理必须写在 dialog 内(门禁 H 组查 index.html);模态开着时对 dialog 外的元素调 `openPopover` 会 `console.warn`。
+- **程序化聚焦不弹提示**:模态初始焦点(含 `showModal` 自己的聚焦步骤)、卡片抢焦点、菜单首项、关闭后归还焦点都在 `quietly()` 里执行,tooltip 的 focusin 看到标记就跳过——否则键盘打开查看器时「关闭」提示立刻盖住弹窗角。菜单内方向键移动是用户的键盘导航,提示照常。
 
 对外 API:
 
@@ -136,6 +138,7 @@ installTooltips(root)    // 接管全局 title:悬停 450ms/键盘聚焦立即�
 | 展示长文或报告 | `openRuntimeMarkdown(title, md)` / `openDocViewer(kind)` | ./15-views-misc.js |
 | 静态按钮弹出一组开关或动作 | HTML:`<button data-kz-menu="x-menu">…</button>` + `<div id="x-menu" popover="manual" class="k-surface k-menu hidden" data-placement="top-end">…</div>` | 不需要 JS,启动时 bindMenus 自动接线 |
 | JS 里临时弹出动作列表 | `openMenu(anchorEl, items, { placement })` | ./00-surface.js |
+| 弹窗(`<dialog>`)里的菜单 | JS 菜单照用 `openMenu(anchorEl, …)`(自动挂进锚点所在的 dialog);静态菜单把 `data-kz-menu` 触发器和它的 popover 弹层**都写在同一个 `<dialog>` 里** | ./00-surface.js |
 | 锚定在某元素旁的信息浮层 | `openPopover(anchorEl, el, { placement })` / `closeSurface(el)` | ./00-surface.js |
 | 需要持续引起注意的停靠卡片 | `showCard(el, { onEscape })` / `hideCard(el)` | ./00-surface.js |
 | 一句话反馈 | `toast(t("…"), { kind })`;长错误用 `toastError` | ./03-shell.js |
@@ -180,8 +183,8 @@ installTooltips(root)    // 接管全局 title:悬停 450ms/键盘聚焦立即�
 - **C1 字面量色**:style.css 主题块结束标记之后、surface.css 全文(PWA 样式表有了自己的 token 块之后才查)的声明值里不得出现 hex、颜色函数(`rgba/rgb/hsla/hsl/hwb/lab/lch/oklab/oklch/color(`,`color-mix(` 不算)、CSS 颜色名;`mask-image` 豁免。
 - **T1 token 分层**:组件层名字只准 surface.css 使用;不在 `[data-theme="light"]` 里重定义;surface.css 引用的每个 token 在 style.css 或 surface.css 里有定义;不出现 `--c-*`。
 - **S1 外观归属**(style.css):选择器含 `dialog`/`::backdrop`/`::picker(`/`:popover-open`/`[popover`/`.k-*`/`option` 即违例;主体是弹层宿主(`#confirm-overlay`、`.autorun-menu` 等)时不得声明底色/边框/圆角/阴影/backdrop-filter/z-index/position/inset;`#bg-panel`/`#agent-panel` 不得声明底色/边框/阴影;`position: fixed` 只许 `.resize-handle`;不得引用已删的高位 z;模糊 ≥16px 的大阴影只许 `#composer`、`#composer:focus-within`、`#sidebar:not(.collapsed)`;外观属性不得 `!important`;index.html 里 `<details>` 的 id/class 作主体时不得 `position: absolute|fixed`。
-- **H 页面结构**(index.html):`role="dialog|alertdialog|menu|tooltip"` 的宿主须是 `<dialog>`、带 `popover`,或是 `#bg-panel`/`#agent-panel`;每个 `<dialog>` 与 `[popover]` 必带 `k-surface`;输入区菜单不得再是 `<details>`;`<select>` 不带 `multiple`/`size`;不写内联颜色样式。
-- **J 脚本**:J1 除 00-surface.js 外不得 `$("<弹层 id>").classList.add|remove|toggle("hidden")`;J2 `ui/[0-9]*.js`(22-neural-flow 与 22-oc-* 除外)不得给 `.style.background/color/…` 赋字面量;J3 00-surface.js 零 import。
+- **H 页面结构**(index.html):`role="dialog|alertdialog|menu|tooltip"` 的宿主须是 `<dialog>`、带 `popover`,或是 `#bg-panel`/`#agent-panel`;每个 `<dialog>` 与 `[popover]` 必带 `k-surface`;`<dialog>` 里的 `data-kz-menu` 触发器,对应弹层必须写在同一个 dialog 内;输入区菜单不得再是 `<details>`;`<select>` 不带 `multiple`/`size`;不写内联颜色样式。
+- **J 脚本**:J1 除 00-surface.js 外不得 `$("<弹层 id>").classList.add|remove|toggle("hidden")`,也不得先取进局部变量再切(`const detail = $("context-detail"); … detail.classList.remove("hidden")`,同一顶层函数体内配对);J2 `ui/[0-9]*.js`(22-neural-flow 与 22-oc-* 除外)不得给 `.style.background/color/…` 赋字面量;J3 00-surface.js 零 import。
 
 每条违例输出「文件:行、原文、改用什么」,同一改法只说一遍。模块自带反例自测(`selfTestSurfaceRules`),每条规则喂一条必须命中的样本,任何判据恒绿先在 a11y 冒烟里红。
 
@@ -193,6 +196,7 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
 2. gallery.html 暗/亮两套主题,1280×840,逐个演示:计算底色/圆角/阴影等于探针解析出的对应 token(模态 lg + shadow-3,卡片 md + shadow-3,tooltip bg-raised + sm + shadow-1,芯片 pill,其余 md + shadow-2);正文对比度 ≥ 7,`--surface-muted` 对底色 ≥ 4.5;包围盒在视口内(容差 1px);另在 800×500 只查几何。
 3. 下拉:点开普通、透明芯片、30 项长列表与菜单内嵌的下拉,确认 `select:open`,截取列表内部一块求平均相对亮度:暗色 < 0.2、亮色 > 0.6。列表下面垫着一块反色「金丝雀」底块,列表没画进页面(base-select 失效)或画成白底都会红。
 4. Esc 与叠放:卡片上再开确认框,一次 Esc 只关确认框、卡片仍在、栈深恰好减 1;菜单里开着下拉列表时一次 Esc 只关列表(菜单仍在、栈深不变),第二次才关菜单;同一确认框并发两次,确认第一个后第二个接着打开且保持打开。
+   弹窗里的菜单:JS 菜单挂在 dialog 内,真实鼠标点击菜单项走到 onSelect 且只关菜单;静态 data-kz-menu 菜单里的勾选框勾得上;Esc 先关菜单再关弹窗。补全列表与宽锚点同宽且左缘对齐(锚点 >420px)。键盘打开查看器同构弹窗时初始焦点不弹 tooltip(新开一个鼠标没进过的页面测,另有键盘聚焦出提示的对照)。
 5. index.html 运行时对照(预览服务注入模拟 IPC):所有 select 计算为 `base-select`;所有 `dialog, [popover]` 带 `k-surface`;除 `.resize-handle` 外没有顶层以外、正在显示的 `position: fixed` 元素。
 6. 截图写入 `dist/ui-gallery/<theme>-<demo>.png`、`matrix.png`、`<theme>-index.png`(dist 已在 .gitignore)。
 
@@ -200,14 +204,14 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
 
 ## 8. 样例页
 
-`ui/gallery.html` + `ui/gallery.js`:只引入 app.css 与 00-surface.js,不依赖应用其它模块与 Tauri。顶部主题切换、「逐个打开」「全部关闭」;演示:确认/危险/三键确认、输入框、大尺寸查看器、命令面板尺寸、静态 data-kz-menu 菜单(行式 + 数字快捷键)、JS 菜单(分隔线/选中/禁用/危险/快捷键)、**container-type: inline-size 容器里向上弹出的菜单**(复刻输入区环境)、菜单内嵌下拉、锚定浮层、停靠卡片 + 浮动芯片、四种 toast、短/多行长提示、普通/透明芯片/30 项(含禁用项)下拉、`.k-panel`;底部暗/亮两套 `.k-static` 静态矩阵同屏。暴露 `window.__gallery = { demos(), open(id), measure(id), tokens(), stackDepth(), closeAll(), setTheme(theme) }`。演示文案经恒等的 `t("…")`,复用应用已有词条(i18n 冒烟据此校验词条仍在资源表里)。
+`ui/gallery.html` + `ui/gallery.js`:只引入 app.css 与 00-surface.js,不依赖应用其它模块与 Tauri。顶部主题切换、「逐个打开」「全部关闭」;演示:确认/危险/三键确认、输入框、大尺寸查看器、命令面板尺寸、静态 data-kz-menu 菜单(行式 + 数字快捷键)、JS 菜单(分隔线/选中/禁用/危险/快捷键)、**container-type: inline-size 容器里向上弹出的菜单**(复刻输入区环境)、菜单内嵌下拉、**弹窗内 JS/静态菜单**、**宽锚点补全列表**、锚定浮层、停靠卡片 + 浮动芯片、四种 toast、短/多行长提示、普通/透明芯片/30 项(含禁用项)下拉、`.k-panel`;底部暗/亮两套 `.k-static` 静态矩阵同屏。暴露 `window.__gallery = { demos(), open(id), measure(id), tokens(), stackDepth(), closeAll(), setTheme(theme), picks() }`。演示文案经恒等的 `t("…")`,复用应用已有词条(i18n 冒烟据此校验词条仍在资源表里)。
 
 ## 9. 运行时冒烟(假 DOM)
 
 - 基础设施:`Element` 增加 `showModal/show/close/showPopover/hidePopover/togglePopover`(维护 `open/_modal/_popoverOpen`,派发 close/toggle);document 的 `addEventListener` 识别捕获阶段且先于冒泡执行,`dispatchEvent` 遵守 `stopImmediatePropagation`;HTML 解析把 `popover`、`data-kz-menu`、`data-placement` 等属性建到桩上。
-- 用例(`// ===== 分区:弹层与外观 =====`):确认框(showModal、镜像、结果、栈清空、safe、并发排队);Esc 只关栈顶(权限卡 + 确认框:第一次 Esc 只关确认框、`answer_ask` 不变、权限卡仍在;第二次拒绝;收起后的芯片不响应 Esc);输入框(组合中的 Enter 不提交、Enter 返回值、Esc 返回 null);openMenu(role、禁用项、先关再 onSelect 且恰好一次、同时只开一个、同锚点再调收起);bindMenus(四个触发器接线、aria-expanded、Esc、点外关闭、按下触发器不算点外);toast(role、kind、最多 3 条、过期后收起但文案留存);tooltip(title 挪进 data-kz-tip、#kz-tip、aria-describedby、移开恢复);静态护栏(全局快捷键的 isModalOpen 守卫、placeAutorunMenu 不得复活、Esc 唯一入口在捕获阶段)。
+- 用例(`// ===== 分区:弹层与外观 =====`):确认框(showModal、镜像、结果、栈清空、safe、并发排队);Esc 只关栈顶(权限卡 + 确认框:第一次 Esc 只关确认框、`answer_ask` 不变、权限卡仍在;第二次拒绝;收起后的芯片不响应 Esc);卡片让位局部 Esc(焦点在 #prompt、卡片外输入框、Monaco 内时不拒权限、不截断传播;勾选框上仍拒绝);输入框(组合中的 Enter 不提交、Enter 返回值、Esc 返回 null);openMenu(role、禁用项、先关再 onSelect 且恰好一次、同时只开一个、同锚点再调收起);弹窗里的菜单(挂进 dialog、点项不关弹窗、Esc 先关菜单、关弹窗连带关菜单、模态外静态弹层告警);bindMenus(四个触发器接线、aria-expanded、Esc、点外关闭、按下触发器不算点外);toast(role、kind、最多 3 条、过期后收起但文案留存);tooltip(title 挪进 data-kz-tip、#kz-tip、aria-describedby、移开恢复);静态护栏(全局快捷键的 isModalOpen 守卫、placeAutorunMenu 不得复活、Esc 唯一入口在捕获阶段、不得直接把焦点抢到 `#ask-allow`)。
 - 改写的旧断言保留原意图:命令面板的 inert 断言改为「必须以模态打开」(`open && _modal`,关闭后镜像 `.hidden`)并加「不得再手写 inert」反证;搜索框宿主静态锁改为 `closest("[popover]")` + `openPopover`;任务设置结构断言改按 `#task-options-menu` 定位。
-- 变异守卫 `KZ_SMOKE_MUTATE=surfaceEscTop`:把 `const top = topEscapable();` 换成取栈底,冒烟必须红(已实跑:第一次 Esc 没关确认框、权限请求被拒)。
+- 变异守卫 `KZ_SMOKE_MUTATE=surfaceEscTop`:把 `const top = topEscapable(…);` 换成取栈底,冒烟必须红(已实跑:第一次 Esc 没关确认框、权限请求被拒)。`surfaceCardYield`:删掉卡片让位判断(已实跑:焦点在 #prompt/输入框/Monaco 时权限请求被拒)。`surfaceMenuInDialog`:openMenu 退回一律挂 body(已实跑:弹窗里的菜单未挂进 dialog)。
 
 ## 10. 风险与回退
 
@@ -221,6 +225,7 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
 ## 变更记录
 
 - 2026-09-26:起草并实施(release/2026-09-26-ui 分支,G3「弹层与外观」)。相对最初方案的调整:不引入 `--c-*` 原始层(组件层直接引用语义层);菜单/浮层用 `popover="manual"` + 模块统一点外关闭(替代 `popover="auto"`,理由见 §4.4);保留 `#viewer-dialog`/`#confirm-dialog`/`#input-dialog`/`#ask-dialog` 为纯排版容器以保住全部元素 id;浏览器冒烟新增「确认框排队」用例并据此修掉迟到 close 事件关掉排队弹窗的时序缺陷。
+- 2026-09-26(评审修正):弹窗里的菜单挂进锚点所在的 dialog(原先挂 body,模态开着时惰性、点不动)+ 门禁 H 组与模态外弹层告警;停靠卡片让位卡片外输入框/Monaco 的局部 Esc;程序化聚焦不弹 tooltip;补全列表放开 420px 宽度上限;toast 改浅底 + 软边;J1 覆盖局部变量写法。样例页与两份冒烟各补对应用例,手工变异均已实跑变红。
 
 ## 验证证据
 
