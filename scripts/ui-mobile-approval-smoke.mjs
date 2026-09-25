@@ -53,7 +53,8 @@ let pending = [
     id: 24,
     kind: "permission",
     action: "bash",
-    resource: "cargo test",
+    // UI-0926 #10:bash 的真实资源形态是 {command, workdir} JSON。
+    resource: JSON.stringify({ command: "cargo test --workspace", workdir: "C:/smoke/project" }),
     session_id: "session-smoke",
   },
   {
@@ -314,6 +315,11 @@ try {
   heldAnswer = null;
 
   const permission = page.locator('#approval-list .card.approval[data-ask-id="24"]');
+  // UI-0926 #10:bash 资源 JSON 拆成「动作 + 命令块 + 工作目录」,卡片上不出现原始 JSON。
+  assert.equal(await permission.locator(".approval-action").textContent(), "bash", "权限卡片未单列动作");
+  assert.equal(await permission.locator(".approval-cmd").textContent(), "cargo test --workspace", "权限卡片未把 bash 资源拆成命令块");
+  assert.match(await permission.locator(".approval-workdir").textContent(), /C:\/smoke\/project/, "权限卡片缺少工作目录");
+  assert.doesNotMatch(await permission.textContent(), /\{"command"/, "权限卡片仍贴出原始 JSON 资源");
   assert.equal(await permission.locator(".approve").count(), 1, "permission 卡片保留批准按钮");
   assert.equal(await permission.locator(".reject").count(), 1, "permission 卡片保留拒绝按钮");
   const permissionResponse = page.waitForResponse((res) => res.url().endsWith("/v1/approval/answer"));

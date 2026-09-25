@@ -5,6 +5,8 @@ import { $, activePane, promptBox, agentRoleAccent, appendToPane, messages, trim
 import { t } from "./02-i18n.js";
 import { attachments, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
 import { renderMarkdown } from "./04-markdown.js";
+import { parseJsonish, stripToolOutcome } from "./04-structured-parse.js";
+import { flushLazy, lazyMount, renderErrorDetail, renderToolArgs, renderToolResult } from "./04-structured.js";
 import { renderToolSummary, toolArgSummary, toolResultSummary, withToolDuration } from "./05-tool-summary.js";
 import { liveSet } from "./06-activity.js";
 import { sendText } from "./08-compose-runtime.js";
@@ -155,9 +157,10 @@ export function addErrorMessage(message, { retryable = false } = {}) {
   level.textContent = t(levelKey);
   // R-140 批1:记录级别 key,语言切换时由渲染点重算(同 copy-btn)。
   level.dataset.i18nKey = levelKey;
-  const text = document.createElement("div");
-  text.textContent = message;
-  body.append(level, text);
+  // UI-0926 #10:provider 的 HTTP 错误体/错误链拆成人话消息 + chips + 原因链,原文留在
+  // dataset.raw(复制走原文)。
+  body.append(level, renderErrorDetail(message));
+  el.dataset.raw = String(message ?? "");
   if (retryable && lastRequest) {
     const actions = el.querySelector(".msg-actions");
     const retry = document.createElement("button");
@@ -413,6 +416,8 @@ export function buildToolBlock(name, input) {
   detail.className = "tool-msg-detail hidden";
   head.addEventListener("click", () => {
     if (!detail.children.length) return;
+    // 结构化结果(JSON 树等)延迟到首次展开才构建。
+    flushLazy(detail);
     const open = detail.classList.toggle("hidden");
     head.setAttribute("aria-expanded", String(!open));
   });
@@ -471,17 +476,35 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
   block.result.classList.toggle("tool-sum-warn", summary.tone === "warn");
   // 只留补耗时要用的摘要骨架(短字符串),不留正文。
   block.summaryBase = Number(durationMs) >= 1000 ? null : { groups: summary.groups, durAt: summary.durAt, text: summary.text, title: summary.title };
-  const rest = summary.rest;
+  let rest = summary.rest;
   // 截断时 ⎿ 行原本是 [tool_result_truncated …] 机器标记;换成按原因区分的人话,
   // 已用/配额、原因与处理建议见展开区提示块。
   const quota = quotaTruncation(display);
+  // UI-0926 #10:JSON 结果(tracker/work/websearch…)的展开区是结构化视图,不再贴整坨 JSON
+  // 原文。值直接从正文解析(后端不另发 json display);超过 64 KiB、被截断或非成功的正文
+  // 不解析,照旧给原文。
+  const body = typeof content === "string" ? stripToolOutcome(content).body : "";
+  const jsonValue = !quota && !contentTruncated && body.length <= 65536 && summary.outcome === "success" ? parseJsonish(body) : null;
+  if (jsonValue && typeof jsonValue === "object") rest = "";
+  // 局部校验:display 带结构化结果时由 chips 渲染(appendDisplayBlock),正文里同一份
+  // 「局部校验明细」文本不再重复。
+  if (display?.local_validation && rest) rest = rest.replace(/\n?局部校验明细:[\s\S]*$/, "");
   if (quota) {
     block.result.textContent = `⎿ ⚠ ${quotaNoticeHeadline(quota)}`;
     block.summaryBase = null;
     block.result.classList.add("quota-truncated");
   }
   block.result.classList.remove("hidden");
+  // 稳定错误码(EDIT_ANCHOR_NOT_FOUND 等)是定位问题的抓手:需要修正/确认/失败时放在展开区首部。
+  if (summary.code && !["success", "noop"].includes(view.state) && display?.kind !== "pending_question") {
+    const chip = document.createElement("span");
+    chip.className = "sv-chip sv-code";
+    chip.textContent = summary.code;
+    chip.title = t("错误码");
+    block.detail.appendChild(chip);
+  }
   appendDisplayBlock(block.detail, display, { compact: true });
+  if (jsonValue && typeof jsonValue === "object") lazyMount(block.detail, () => renderToolResult(block.name, jsonValue));
   if (display?.kind === "pending_question" && typeof display.question === "string") {
     block.icon.textContent = "⏸";
     block.summaryBase = null;
@@ -513,12 +536,9 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
     pre.textContent = rest.length > 8000 ? `${rest.slice(0, 8000)}\n…(${t("已截断")})` : rest;
     block.detail.appendChild(pre);
   }
-  if (input && Object.keys(input).length) {
-    const pre = document.createElement("pre");
-    pre.className = "tool-msg-raw args";
-    pre.textContent = JSON.stringify(input, null, 2);
-    block.detail.appendChild(pre);
-  }
+  // 完整入参:键值表(路径成 chip、命令成代码块、多行说明折叠),原始 JSON 在 dataset.raw。
+  const args = renderToolArgs(block.name, input, { display, className: "tool-msg-raw args" });
+  if (args) block.detail.appendChild(args);
   if (block.detail.children.length) block.wrap.classList.add("has-detail");
 }
 

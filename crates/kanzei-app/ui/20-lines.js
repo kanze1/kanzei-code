@@ -10,7 +10,8 @@ import {
   sessionState,
   toastError,
 } from "./03-shell.js";
-import { buildDiffTree } from "./06-activity.js";
+import { buildDiffTree, renderDiff } from "./06-activity.js";
+import { parseUnifiedDiff } from "./04-structured-parse.js";
 import { lineAutoConfig, queueProcessUpdate, setLineAutoState, updateLocalProcessItem } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
 import { loadModels, syncModelSelectToActiveLine } from "./08-models.js";
@@ -555,13 +556,29 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
       // 不新造查看器。porcelain 行形如 ` M src/foo.rs`(状态列 + 空格)——剥掉
       // 状态列取路径;增删计数从 diff 文本按文件统计(简化:该文件块内 + 开头
       // 行数 / - 开头行数)。
+      // UI-0926 #10:增删计数与逐文件差异从 unified diff 解析(parseUnifiedDiff),
+      // 不再全是 +0/−0;每个文件一个可折叠的着色 diff,原始文本仍保留在最后。
+      const parsedDiff = parseUnifiedDiff(info.diff ?? "");
+      const countsByPath = new Map(parsedDiff.map((file) => [file.path, file]));
       const treeFiles = (info.files ?? []).map((raw) => {
         const path = raw.replace(/^[MADRCU?! ]{2} /, "").trim();
-        return { path, additions: 0, deletions: 0 };
+        const counts = countsByPath.get(path);
+        return { path, additions: counts?.additions ?? 0, deletions: counts?.deletions ?? 0 };
       });
       const diffPanel = document.createElement("div");
       diffPanel.className = "harvest-diff-tree";
       diffPanel.replaceChildren(typeof buildDiffTree === "function" ? buildDiffTree(treeFiles) : document.createTextNode(treeFiles.map((f) => f.path).join("\n")));
+      const fileDiffs = document.createElement("div");
+      fileDiffs.className = "sv-diff-files";
+      for (const file of parsedDiff) {
+        if (!file.lines.length) continue;
+        const item = document.createElement("details");
+        item.dataset.path = file.path;
+        const head = document.createElement("summary");
+        head.textContent = `${file.path}  +${file.additions} −${file.deletions}`;
+        item.append(head, renderDiff(file, { compact: true }));
+        fileDiffs.appendChild(item);
+      }
       const rawDiff = info.diff ? `${t("差异")}:\n${info.diff}` : t("工作树干净,没有未提交差异");
       const rawPre = document.createElement("details");
       rawPre.className = "harvest-diff-raw";
@@ -571,7 +588,7 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
       rawBody.className = "harvest-diff";
       rawBody.textContent = rawDiff;
       rawPre.append(rawSummary, rawBody);
-      diffOutput.replaceChildren(diffPanel, rawPre);
+      diffOutput.replaceChildren(diffPanel, ...(fileDiffs.children.length ? [fileDiffs] : []), rawPre);
       diffOutput.hidden = false;
       readConfirm.disabled = false;
       diffLoad.textContent = t("重新加载");

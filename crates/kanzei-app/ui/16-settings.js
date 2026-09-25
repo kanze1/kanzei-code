@@ -13,6 +13,9 @@ import { fastStatusText } from "./06-activity.js";
 import { state } from "./08-compose.js";
 import { MANUAL_MODEL_SENTINEL } from "./08-models.js";
 import { syncProjectSwitchExpanded } from "./09-sessions.js";
+// UI-0926 #10:权限规则表的资源列按结构渲染(bash 规则是 {command, workdir} JSON)。
+import { permissionResourceText } from "./04-structured-parse.js";
+import { renderPermissionResource } from "./04-structured.js";
 
 // ---------- 设置 ----------
 export let settingsProviders = [];
@@ -194,15 +197,16 @@ export function renderPermissionRules(data) {
     const action = document.createElement("td");
     action.textContent = rule.action;
     const resource = document.createElement("td");
-    resource.textContent = rule.resource;
+    resource.appendChild(renderPermissionResource(rule.action, rule.resource));
     const controls = document.createElement("td");
     const remove = document.createElement("button");
+    const ruleText = permissionResourceText(rule.action, rule.resource);
     remove.className = "icon-btn";
     remove.title = t("删除规则");
-    remove.setAttribute("aria-label", `${t("删除权限规则")} ${rule.action} ${rule.resource}`);
+    remove.setAttribute("aria-label", `${t("删除权限规则")} ${ruleText}`);
     remove.textContent = "×";
     remove.addEventListener("click", async () => {
-      if (!(await confirmDialog({ title: t("删除权限规则"), message: `${rule.action} / ${rule.resource}？`, okText: t("删除"), danger: true }))) return;
+      if (!(await confirmDialog({ title: t("删除权限规则"), message: `${ruleText}？`, okText: t("删除"), danger: true }))) return;
       await deletePermissionRule(rule);
     });
     controls.appendChild(remove);

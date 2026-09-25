@@ -105,6 +105,11 @@ import { markRuntimeFocusStale, setRuntimeFocus } from "./12-docs-pages.js";
 import { refreshDocs, refreshDocsSoon } from "./14-docs-actions.js";
 import { refreshConversationList, refreshGit, refreshGitSoon } from "./15-views-misc.js";
 import { neuralFlowEmit } from "./22-neural-flow.js";
+// UI-0926 #10:权限卡资源、压缩纪要、上下文详情的结构化渲染。
+import { renderMarkdown } from "./04-markdown.js";
+import { permissionResourceText } from "./04-structured-parse.js";
+import { pathChip, renderPermissionResource, richText } from "./04-structured.js";
+import { toolResultSummary } from "./05-tool-summary.js";
 
 // ---------- 事件订阅 ----------
 defer(() => {
@@ -187,9 +192,10 @@ export function addCompactionEntry(summary) {
   title.setAttribute("aria-label", t("展开或收起上下文压缩纪要"));
   title.setAttribute("aria-expanded", "true");
   title.textContent = t("上下文压缩 · 点击查看纪要");
+  // UI-0926 #10:纪要本身是 markdown(标题/列表),按 markdown 渲染而不是原文堆字。
   const detail = document.createElement("div");
-  detail.className = "bg-detail";
-  detail.textContent = summary;
+  detail.className = "bg-detail md sv-md";
+  detail.innerHTML = renderMarkdown(String(summary ?? ""));
   el.append(title, detail);
   title.addEventListener("click", () => {
     detail.classList.toggle("hidden");
@@ -213,8 +219,14 @@ export function addSummaryEntry(summary, path = "") {
   title.setAttribute("aria-expanded", "true");
   title.textContent = t("对话小总结 · 点击查看");
   const detail = document.createElement("div");
-  detail.className = "bg-detail";
-  detail.textContent = path ? `${summary}\n\n${t("已存档")}: ${path}` : summary;
+  detail.className = "bg-detail md sv-md";
+  detail.innerHTML = renderMarkdown(String(summary ?? ""));
+  if (path) {
+    const archived = document.createElement("div");
+    archived.className = "sv-archived";
+    archived.append(document.createTextNode(`${t("已存档")}: `), pathChip(path));
+    detail.append(archived);
+  }
   el.append(title, detail);
   title.addEventListener("click", () => {
     detail.classList.toggle("hidden");
@@ -229,9 +241,36 @@ export function addSummaryEntry(summary, path = "") {
 }
 export function renderContextDetail() {
   const detail = $("context-detail");
-  const t = runTokens;
-  const total = t.input + t.cacheRead + t.output;
-  detail.innerHTML = `<strong>${localizeDynamic("上下文成分")}</strong><br>${localizeDynamic("输入上下文(系统/历史/工具结果)")}: ${t.input.toLocaleString()} tokens<br>${localizeDynamic("缓存读取(已复用上下文)")}: ${t.cacheRead.toLocaleString()} tokens<br>${localizeDynamic("本轮输出")}: ${t.output.toLocaleString()} tokens${lastCompactionSummary ? `<br>${localizeDynamic("最近一次压缩纪要已收进活动面板")}` : ""}<br>${localizeDynamic("合计")}: ${total.toLocaleString()} tokens`;
+  const tokens = runTokens;
+  const total = tokens.input + tokens.cacheRead + tokens.output;
+  // UI-0926 #10:键值两列(标签 | 数值),不再用 innerHTML 拼 <br>。
+  const title = document.createElement("strong");
+  title.textContent = localizeDynamic("上下文成分");
+  const table = document.createElement("div");
+  table.className = "sv-kv sv-context";
+  const row = (labelText, value) => {
+    const line = document.createElement("div");
+    line.className = "sv-kv-row";
+    const key = document.createElement("span");
+    key.className = "sv-k";
+    key.textContent = localizeDynamic(labelText);
+    const cell = document.createElement("span");
+    cell.className = "sv-v sv-num";
+    cell.textContent = `${value.toLocaleString()} tokens`;
+    line.append(key, cell);
+    table.append(line);
+  };
+  row("输入上下文(系统/历史/工具结果)", tokens.input);
+  row("缓存读取(已复用上下文)", tokens.cacheRead);
+  row("本轮输出", tokens.output);
+  row("合计", total);
+  detail.replaceChildren(title, table);
+  if (lastCompactionSummary) {
+    const note = document.createElement("div");
+    note.className = "sv-note";
+    note.textContent = localizeDynamic("最近一次压缩纪要已收进活动面板");
+    detail.append(note);
+  }
   detail.classList.remove("hidden");
   $("status-tokens").setAttribute("aria-expanded", "true");
   if (lastCompactionEntry) {
@@ -344,7 +383,11 @@ defer(() => {
       : outcome === "needs_confirmation" ? t("需要确认")
         : outcome === "needs_correction" ? t("需要修正")
           : p.ok ? t("成功") : t("失败");
-    log(`${t("工具结果")} ${p.name}: ${outcomeLabel} — ${p.preview}`, outcome === "success" ? "" : "warn");
+    // JSON 结果的 preview 只是 `{ (+40 lines)`:日志行改用同一个摘要器的人话。
+    const logResult = /^[{[]/.test(String(p.preview ?? "").trim())
+      ? toolResultSummary(p.name, { ok: p.ok, outcome, code: p.code, content: p.content, preview: p.preview, contentTruncated: p.contentTruncated, contentBytes: p.contentBytes, display: p.display }).text
+      : p.preview;
+    log(`${t("工具结果")} ${p.name}: ${outcomeLabel} — ${logResult}`, outcome === "success" ? "" : "warn");
     // 工作焦点:req/defect/idea 的增改结果最能代表"它在干哪件事"。
     if (p.ok && ["req", "defect", "idea"].includes(p.name)) {
       liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
@@ -775,9 +818,8 @@ export function recordBlockedAsk(payload) {
   };
   blockedAsks.push(item);
   blockedAskSummaryShown = false;
-  const label = payload.action
-    ? `${payload.action}${payload.resource ? ` · ${payload.resource}` : ""}`
-    : payload.question;
+  // bash 的资源是 {command, workdir} JSON:通知里只说「bash · cargo test」,不贴 JSON。
+  const label = payload.action ? permissionResourceText(payload.action, payload.resource) : payload.question;
   addMessage("notice", `⚠️ ${t("权限被拦已跳过")}: ${label}`);
   return item;
 }
@@ -786,7 +828,7 @@ export function summaryBlockedAsks() {
   if (!blockedAsks.length || blockedAskSummaryShown) return;
   blockedAskSummaryShown = true;
   const items = blockedAsks
-    .map((item) => (item.resource ? `${item.what} · ${item.resource}` : item.what))
+    .map((item) => (item.resource ? permissionResourceText(item.what, item.resource) : item.what))
     .join("; ");
   addMessage(
     "notice",
@@ -808,7 +850,7 @@ defer(() => {
     }
     // 自动放行(yolo):后台会话也必须直接得到答复,不能因不在当前页签而挂起。
     if (e.payload.kind !== "question" && $("auto-allow").checked) {
-      log(`${t("自动放行")}:${e.payload.action} ${e.payload.resource}`);
+      log(`${t("自动放行")}:${permissionResourceText(e.payload.action, e.payload.resource)}`);
       invoke("answer_ask", { id: e.payload.id, reply: "once" }).catch((err) =>
         reportPersistentError(`${t("自动放行失败")}:${err}`)
       );
@@ -848,7 +890,7 @@ export function updateAskQueueStatus() {
     ? `${t("当前请求")} 1/${total} · ${languageIsEnglish() ? `${total - 1} ${t("条待处理")}` : `${t("还有")} ${total - 1} ${t("条待处理")}`}`
     : t("当前无其他待处理请求");
   const lines = queue.slice(0, 4).map((item, index) => {
-    const text = item.kind === "question" ? item.question : `${item.action} · ${item.resource}`;
+    const text = item.kind === "question" ? item.question : permissionResourceText(item.action, item.resource);
     return `${index + 2}. ${text}`;
   });
   preview.textContent = lines.join("\n");
@@ -873,7 +915,10 @@ export function pumpAsk() {
   $("question-fields").classList.toggle("hidden", !question);
   $("question-buttons").classList.toggle("hidden", !question);
   if (question) {
-    $("ask-question").textContent = askActive.question;
+    // UI-0926 #10:问题正文按 markdown 渲染(列表/代码/路径链接);注解里的编号/路径可点。
+    const questionHost = $("ask-question");
+    questionHost.classList.add("md", "sv-md");
+    questionHost.innerHTML = renderMarkdown(String(askActive.question ?? ""));
     const multi = isMultiSelectAsk(askActive);
     askSelectedOptions.length = 0;
     const options = $("ask-options");
@@ -896,7 +941,7 @@ export function pumpAsk() {
         // 而后果恰恰是提问的原因。
         const note = document.createElement("span");
         note.className = "ask-option-note";
-        note.textContent = option.note;
+        note.append(richText(String(option.note)));
         button.appendChild(note);
         button.classList.add("has-note");
       }
@@ -925,8 +970,15 @@ export function pumpAsk() {
     updateAskSubmitState();
   } else {
     $("ask-action").textContent = askActive.action;
-    $("ask-resource").textContent = askActive.resource;
-    $("ask-remember").textContent = `${askActive.action} ${askActive.remember ?? askActive.resource}`;
+    // UI-0926 #10:bash 资源是 {command, workdir} JSON——拆成命令代码块 + 工作目录 chip;
+    // 「记住为」与资源相同时不再重复一遍。
+    $("ask-resource").replaceChildren(renderPermissionResource(askActive.action, askActive.resource));
+    const remember = askActive.remember ?? askActive.resource;
+    if (remember === askActive.resource) {
+      $("ask-remember").textContent = `${askActive.action} · ${t("同上")}`;
+    } else {
+      $("ask-remember").replaceChildren(document.createTextNode(`${askActive.action} `), renderPermissionResource(askActive.action, remember));
+    }
     setTimeout(() => $("ask-allow").focus(), 0);
   }
   askCollapsed = false;
@@ -971,7 +1023,7 @@ export async function answerAsk(reply) {
   if (!askActive) return;
   const id = askActive.id;
   const question = askActive.kind === "question";
-  const summary = question ? askActive.question : `${askActive.action}: ${askActive.resource}`;
+  const summary = question ? askActive.question : permissionResourceText(askActive.action, askActive.resource);
   askActive = null;
   askCollapsed = false;
   $("ask-overlay").classList.add("hidden");
@@ -1091,7 +1143,8 @@ defer(() => {
         if (hint) parts.push(`> ⚠ ${hint}`);
       } else if (el.classList.contains("msg")) {
         // 其余消息形态(error 等)不再被静默跳过:主对话缺失错误上下文,导出就失真。
-        const text = el.textContent?.trim();
+        // 错误卡的展开区是结构化视图,导出取级别 + dataset.raw 原文。
+        const text = (el.dataset?.raw ? `${el.querySelector(".error-level")?.textContent ?? ""} ${el.dataset.raw}` : el.textContent)?.trim();
         if (text) parts.push(`> ${text.slice(0, 500)}`);
       }
     }

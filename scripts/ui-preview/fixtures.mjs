@@ -420,10 +420,12 @@ export function liveEvents(ids = IDS) {
 
 function asks(ids = IDS) {
   return {
+    // 真实形态:bash 的资源是 {command, workdir} JSON(bash.rs resources_with_ctx),
+    // 「记住为」经 generalize_resource 原样返回。
     permission: {
       id: "ask-01J8QB3", kind: "permission", sessionId: ids.mainSession,
-      action: "bash", resource: "git push origin release/2026-09-26-ui --force-with-lease",
-      remember: "git push *",
+      action: "bash", resource: JSON.stringify({ command: "git push origin release/2026-09-26-ui --force-with-lease", workdir: PROJECT }),
+      remember: JSON.stringify({ command: "git push origin release/2026-09-26-ui --force-with-lease", workdir: PROJECT }),
     },
     question: {
       id: "ask-01J8QB4", kind: "question", sessionId: ids.mainSession,
@@ -740,10 +742,14 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       ],
     },
     agent_directory_open: null,
-    permission_rules_get: [
-      { index: 0, action: "bash", resource: "cargo *", decision: "allow", source: "project" },
-      { index: 1, action: "bash", resource: "git push *", decision: "ask", source: "global" },
-    ],
+    // 真实形态(settings.rs permission_rules_get):{path, rules:[{index, action, resource, effect}]},只列 allow。
+    permission_rules_get: {
+      path: PROJECT_CONFIG,
+      rules: [
+        { index: 0, action: "bash", resource: JSON.stringify({ command: "cargo test --workspace", workdir: PROJECT }), effect: "allow" },
+        { index: 1, action: "edit", resource: "crates/kanzei-tools/src/registry.rs", effect: "allow" },
+      ],
+    },
     permission_rule_delete: null,
     provider_test: { ok: true, latencyMs: 412, message: "连接正常" },
     mobile_device_list: [],

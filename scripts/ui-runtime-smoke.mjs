@@ -78,6 +78,24 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*if \(looksLikeNoise\(cleanPaths\(line, s\.roots\)\) \|\| looksLikeNoise\(clean\)\) break;\r?\n/,
       replace: "",
     },
+    // UI-0926 #10:工具块展开区挂入参键值表的那一行。删了它,历史/实时工具块再也看不到
+    // 「拿什么参数调的」(路径 chip、命令、多行说明)。
+    svArgs: {
+      pattern: /[ \t]*if \(args\) block\.detail\.appendChild\(args\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #10:JSON 工具结果的结构化视图(延迟挂载)。删了它,tracker list 的展开区又
+    // 什么都没有(原文已不再贴出),条目行/阻塞原因断言必须变红。
+    svJsonResult: {
+      pattern: /[ \t]*if \(jsonValue && typeof jsonValue === "object"\) lazyMount\(block\.detail, \(\) => renderToolResult\(block\.name, jsonValue\)\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #10:权限卡资源的结构化渲染。删了它,bash 权限卡的「资源」一栏空着(或残留上一条),
+    // 命令代码块/工作目录断言必须变红。
+    svAskResource: {
+      pattern: /[ \t]*\$\("ask-resource"\)\.replaceChildren\(renderPermissionResource\(askActive\.action, askActive\.resource\)\);\r?\n/,
+      replace: "",
+    },
 
     // ---- 分区:需求卡片与单页 ----
 
@@ -183,10 +201,12 @@ if (!source.includes('const history = await invoke("conversation_get"') || !sour
   fail("历史消息未通过只读恢复渲染链路");
 }
 // 历史回放必须保留完整调用与结果:调用与结果按 call_id 配对成一块(buildToolBlock/
-// fillToolBlock),详情里同时给出完整输出与完整入参 JSON。
+// fillToolBlock),详情里同时给出完整输出与完整入参。UI-0926 #10 起入参走 renderToolArgs
+// 键值表,完整入参 JSON 仍挂在其根节点 dataset.raw 上(04-structured.js)。
 if (
   !source.includes('part.type === "tool_result"') ||
-  !source.includes("JSON.stringify(input, null, 2)") ||
+  !source.includes("box.dataset.raw = JSON.stringify(input, null, 2)") ||
+  !source.includes("renderToolArgs(block.name, input") ||
   !source.includes("function fillToolBlock")
 ) {
   fail("历史工具会话未保留完整调用与结果详情");
@@ -1004,7 +1024,8 @@ const payloads = {
   ],
   git_status: { branch: "main", changes: 2 },
   list_pending_inputs: [],
-  test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [["命令", "cargo test"]], refs: ["R-001", "D-001"] }], archived: [] },
+  // UI-0926 #10:字段是真实 IPC 形状 [{key,value}](ipc-contract.json test_runs_snapshot),不是 [[k,v]]。
+  test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [{ key: "命令", value: "cargo test" }], refs: ["R-001", "D-001"] }], archived: [] },
   test_runs_init_refs: { backfilled: 0 },
   process_list: [
     { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main", model: "deepseek:deepseek-chat", authority: "primary", stage: "复核" },
@@ -3283,6 +3304,8 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"]')?.classList.contains("is-selected"), "结果行未定位并高亮对应 run");
   assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-chart polyline'), "run 指标事件未渲染曲线");
   assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-terminal')?.textContent.includes("训练完成"), "run 终端 message 未进入回放");
+  // UI-0926 #10:执行配置 JSON 拆成策略/类型 chip,不再原样拼进 meta 行。
+  assert(!document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-meta')?.textContent.includes('{"kind"') && document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-meta .sv-chip')?.textContent === "managed", "研究运行卡仍拼接 execution_json 原文");
   const artifactLink = document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-artifact-link');
   assert(artifactLink, "run 未展示产物入口");
   artifactLink.click();
@@ -4192,8 +4215,9 @@ editEnd({ payload: { id: "T6", name: "bash", ok: true, preview: "exit code: 0", 
 await flush();
 const diffRow = document.querySelector("#diff-summary");
 assert(diffRow && diffRow.textContent.includes("+3") && diffRow.textContent.includes("−1"), "diff 汇总未收录文件的增删计数");
+// UI-0926 #10:目录已在上层行里,文件行只显示文件名;全路径在 dataset.path 与 title。
 assert(
-  diffRow.textContent.includes("ui/main.js"),
+  [...diffRow.querySelectorAll(".diff-summary-row")].some((r) => r.dataset.path === "ui/main.js" && r.textContent.includes("main.js") && r.querySelector(".diff-summary-name")?.title === "ui/main.js"),
   "diff 汇总未显示文件路径",
 );
 // 冒烟的 innerHTML 是去标签近似(不建真实子节点),着色 span 的选择器断言不可用;
@@ -4223,7 +4247,7 @@ assert(
   assert(head.getAttribute("aria-expanded") === "true", "diff 目录初始应展开");
   const fileRows = tree.querySelectorAll(".diff-summary-row");
   assert(
-    [...fileRows].some((r) => r.textContent.includes("crates/kanzei-app/src/docs.rs")),
+    [...fileRows].some((r) => r.dataset.path === "crates/kanzei-app/src/docs.rs" && r.textContent.startsWith("docs.rs") && r.closest(".diff-dir-body")),
     "diff 树文件行未归入目录下",
   );
   // 折叠交互:点目录头,子文件应隐藏。
@@ -9145,6 +9169,343 @@ const docsB = {
       assert(rule !== undefined, `缺少 .tool-sum-${cls} 样式`);
       assert(rule === undefined || (!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule) && !/opacity/.test(rule)), `.tool-sum-${cls} 用了字面量颜色或 opacity(只准用 token)`);
     }
+    if (priorLanguage === null) localStorageShim.removeItem?.("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+
+// ---------- UI-0926 #10:结构化渲染(04-structured.js)与各调用点 ----------
+// 机器格式(工具 JSON 结果、bash 权限资源 JSON、tracker 字段里的①②③/||/JSON、provider 错误体、
+// 局部校验明细)此前原样贴给人看。这里先对渲染器做 DOM 单元断言,再走真实事件/回放路径断言
+// 各调用点。harness 的 innerHTML 只做去标签近似,所以渲染器必须纯 DOM(下面也机械检查)。
+{
+  const svNs = esmModuleCache.get("04-structured.js")?.namespace;
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const eventsNs = esmModuleCache.get("07-events.js")?.namespace;
+  const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
+  const settingsNs = esmModuleCache.get("16-settings.js")?.namespace;
+  const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+  const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  const activityNs = esmModuleCache.get("06-activity.js")?.namespace;
+  const svExports = ["richText", "renderKV", "renderJsonTree", "renderValue", "renderToolArgs", "renderToolResult", "renderTrackerFields", "renderSearchResults", "renderPermissionResource", "renderErrorDetail", "renderLocalValidation", "lazyMount", "flushLazy", "structuredNav", "setStructuredNav"];
+  const missingSv = svExports.filter((name) => !svNs?.[name]);
+  assert(!missingSv.length, `04-structured.js 缺少导出:${missingSv.join(", ")}`);
+  const svSource = sources[scriptSrcs.indexOf("04-structured.js")] ?? "";
+  const innerHtmlWrites = svSource.match(/\.innerHTML\s*=/g) ?? [];
+  assert(innerHtmlWrites.length === 1 && /box\.innerHTML = renderMarkdown\(/.test(svSource), `04-structured.js 只准把 renderMarkdown 的输出写进 innerHTML,实得 ${innerHtmlWrites.length} 处写入`);
+  assert(!/createDocumentFragment/.test(svSource), "04-structured.js 不得用 DocumentFragment(冒烟 harness 没有,真机与冒烟会分叉)");
+  assert(activityNs?.highlightLine === svNs?.highlightLine, "06-activity.js 的 highlightLine 应转出 04-structured.js 的同一实现(唯一真源)");
+  const summarySource = sources[scriptSrcs.indexOf("05-tool-summary.js")] ?? "";
+  assert(/mismatchFacts/.test(summarySource) && !/function summarizeJsonResult/.test(svSource), "JSON 工具的 ⎿ 摘要只能在 05-tool-summary.js 一处(04-structured.js 不得另写一套)");
+
+  if (svNs && chatNs && eventsNs && sessionsNs && settingsNs && shellNs && viewsNs && !missingSv.length) {
+    const priorLanguage = localStorageShim.getItem("kz-language");
+    localStorageShim.setItem("kz-language", "zh");
+    const SID = shellNs.activeSessionId || "sess-smoke";
+    handlers.get("kz:turn")?.({ payload: { sessionId: SID, step: 3, maxSteps: 12 } });
+    await flush();
+    const toolStart = handlers.get("kz:tool-start");
+    const toolEnd = handlers.get("kz:tool-end");
+
+    // ---------- 真实导航注册(19-research.js):docs 下的 markdown 进应用内查看器 ----------
+    assert(svNs.structuredNav.openRef.name === "openStructuredRef" && svNs.structuredNav.openPath.name === "openStructuredPath",
+      "structuredNav 未注册真实跳转(chip 点了没反应)");
+    {
+      const before = invokeArgs.length;
+      await svNs.structuredNav.openPath("docs/design/memory_system.md", null);
+      await flush();
+      const call = invokeArgs.slice(before).find((entry) => entry.cmd === "docs_read_custom");
+      assert(call?.args?.relPath === "docs/design/memory_system.md", `路径 chip 打开 docs 下的设计文档未走 docs_read_custom:${JSON.stringify(call)}`);
+      assert(!byId.get("viewer-overlay")?.classList.contains("hidden") && listText("viewer-title") === "memory_system.md", "设计文档未在应用内查看器打开");
+      byId.get("viewer-overlay")?.classList.add("hidden");
+    }
+
+    const navCalls = [];
+    const savedNav = { ...svNs.structuredNav };
+    svNs.setStructuredNav({
+      openRef: (id) => navCalls.push(["ref", id]),
+      openPath: (path, line) => navCalls.push(["path", path, line]),
+      openUrl: (url) => navCalls.push(["url", url]),
+      openMemory: (scope, id) => navCalls.push(["memory", scope, id]),
+    });
+    const lastNav = () => navCalls[navCalls.length - 1] ?? [];
+    try {
+      // ---------- 单元:JSON 树 ----------
+      {
+        const tree = svNs.renderJsonTree({ a: { b: "x\ny" } });
+        const block = tree.querySelector(".sv-json-row pre.sv-str-block");
+        assert(block?.textContent === "x\ny", `多行字符串未显示真实换行:${JSON.stringify(block?.textContent)}`);
+        assert(!tree.querySelector(".sv-json-row")?.textContent.includes("\\n"), "JSON 树里的字符串又被转义成字面的 \\n");
+        assert(tree.querySelector(".sv-copy-json") && tree.querySelector("details.sv-raw"), "JSON 树缺少「复制 JSON / 原始 JSON」工具条");
+        const long = svNs.renderJsonTree(Array.from({ length: 130 }, (_, i) => i), { maxItems: 100 });
+        const more = long.querySelector(".sv-more");
+        assert(more?.textContent === "还有 30 项", `数组超过 maxItems 未给「还有 N 项」:${more?.textContent}`);
+        more?.click();
+        assert(long.querySelectorAll(".sv-num").length === 130 && !long.querySelector(".sv-more"), "点「还有 N 项」后未补齐剩余项");
+      }
+      // ---------- 单元:tracker 字段只读视图(G5 接进单页详情前的单测) ----------
+      {
+        const discovery = JSON.stringify({ Intent: "编辑后先做局部结构校验", Explicit: "按文件类型选择 check", Assumptions: "复用已有 parser", Ambiguities: "验证器矩阵待勘察", 领域对象: "changed region", 最小成功闭环: "三类 edit 路径", 延后决策: "完整语言矩阵" });
+        const fields = [
+          ["优先级", "P1"], ["复杂度", "大"], ["标签", "架构 流程 自举"], ["批次", "3/5"],
+          ["来源", "2026-08-17 用户确认「自举一期应该差不多可以算结束」"],
+          ["refs", "R-221 R-276 docs/design/phase2_system_upgrade.md"],
+          ["内容", "以 docs/design/phase2_system_upgrade.md 为二期真源维护五批:批1 设计/依赖/需求映射;批2 P0 事实恢复(D-409 与 memory backlog);批3 research+memory 引擎 E2"],
+          ["验收", "①所有二期子条目有明确依赖;②Wave 0～4 各有 Go/No-Go 记录;③联合闭环按 session/topic/memory id 可回溯;④二期结项时无相互矛盾状态。"],
+          ["进展", "R-101 B3 已提交 d1cc0006 || 2026-08-20 B3 收口:真实执行 -RunStopTest 通过"],
+          ["停车", "排队:排在 R-340 之后;恢复人:agent;解除条件:R-340"],
+          ["发现记录", discovery],
+          ["observed_head", "148386f3d467b701f334932b2bfc85bbcfcea475"],
+          ["observed_worktree_hash", "fnv1a64:cbf29ce484222325"],
+          ["recorded_at", "1786925390809"],
+        ];
+        const tf = svNs.renderTrackerFields(fields);
+        const row = (key) => [...tf.querySelectorAll(".tf-row")].find((node) => node.dataset.field === key);
+        assert(row("验收")?.querySelectorAll("ol li").length === 4, "验收 ①②③④ 未渲染成 4 项有序列表");
+        assert(row("发现记录")?.querySelectorAll(".sv-kv-row").length === 7, "发现记录 JSON 未渲染成 7 行键值表");
+        assert([...(row("发现记录")?.querySelectorAll(".sv-kv-row") ?? [])].find((node) => node.dataset.key === "Explicit")?.querySelector(".sv-k")?.textContent === "用户原话",
+          "发现记录英文键未映射成中文标签");
+        const release = row("停车")?.querySelector(".tf-release .sv-ref");
+        assert(release?.textContent === "R-340", "停车的解除条件未做成可点的条目 chip");
+        release?.click();
+        assert(lastNav()[0] === "ref" && lastNav()[1] === "R-340", `点解除条件 chip 未跳转条目:${JSON.stringify(lastNav())}`);
+        assert(row("停车")?.querySelector(".tf-owner")?.textContent === "恢复人: agent", "停车的恢复人未单列成 chip");
+        assert(!row("停车")?.querySelector(".tf-cond-reason")?.textContent.includes("恢复人"), "停车原因里仍混着恢复人/解除条件");
+        const docChip = [...(row("refs")?.querySelectorAll(".sv-path") ?? [])].find((node) => node.dataset.path === "docs/design/phase2_system_upgrade.md");
+        assert(docChip && row("refs")?.querySelectorAll(".sv-ref").length === 2, "refs 里的条目编号/设计文档路径未分别做成 chip");
+        docChip?.click();
+        assert(lastNav()[0] === "path" && lastNav()[1] === "docs/design/phase2_system_upgrade.md", `refs 里的文档路径被当成条目跳转(死链):${JSON.stringify(lastNav())}`);
+        assert(!row("observed_head") && !row("recorded_at"), "引擎字段不该作为普通字段行出现");
+        const engine = tf.querySelector(".tf-engine");
+        assert(engine && [...engine.querySelectorAll(".tf-engine-item")].find((node) => node.dataset.field === "observed_head")?.textContent === "148386f3", "引擎字段未收进「引擎记录」折叠区(head 取前 8 位)");
+        const progress = row("进展")?.querySelector(".tf-timeline");
+        assert(progress?.children.length === 2 && progress.children[1].querySelector(".tf-date")?.textContent === "2026-08-20", "进展的 || 分段未渲染成两段时间线");
+        const content = row("内容");
+        assert(content?.querySelectorAll(".tf-marked li").length === 3 && content.querySelector(".tf-mark")?.textContent === "批1", "内容的「批N」未切成带标签的列表");
+        const meta = tf.querySelector(".tf-meta");
+        assert(meta && [...meta.querySelectorAll(".tf-meta-item")].find((node) => node.dataset.field === "标签")?.querySelectorAll(".tf-tag").length === 3, "标签未按空白拆成 chip");
+        assert(meta?.querySelector(".tf-progress-fill")?.style.getPropertyValue("--tf-progress") === "60%", "批次 3/5 未带进度条");
+        assert(!row("优先级"), "元数据字段不该再占一行");
+        // 卡片紧凑态:只渲染进展/验收/复现/内容/影响的前 3 个,行带 doc-field,列表只露前 3 项。
+        const compact = svNs.renderTrackerFields(fields, { compact: true });
+        const compactRows = [...compact.querySelectorAll(".tf-row")];
+        assert(compactRows.map((node) => node.dataset.field).join(",") === "进展,验收,内容" && compactRows.every((node) => node.classList.contains("doc-field")),
+          `紧凑态字段选择错误:${compactRows.map((node) => node.dataset.field).join(",")}`);
+        const compactAccept = compactRows.find((node) => node.dataset.field === "验收");
+        assert(compactAccept?.querySelectorAll("li").length === 3 && compactAccept.querySelector(".tf-more")?.textContent === "+1", "紧凑态列表未截到 3 项 +N");
+        assert(!compact.querySelector(".tf-engine") && !compact.querySelector(".tf-meta"), "紧凑态不该渲染引擎记录/元数据");
+        // 四种字段形状都吃;unknown 字段标灰;数据里的 HTML 只当文本。
+        for (const shape of [[{ key: "验收", value: "①第一项内容;②第二项内容" }], { 验收: "①第一项内容;②第二项内容" }, [{ name: "验收", value: "①第一项内容;②第二项内容", known: true }]]) {
+          assert(svNs.renderTrackerFields(shape).querySelectorAll("ol li").length === 2, `字段形状 ${JSON.stringify(shape).slice(0, 40)} 未被识别`);
+        }
+        assert(svNs.renderTrackerFields([{ name: "历史自定义", value: "x", known: false }]).querySelector(".tf-row.tf-unknown"), "未知字段未标灰");
+        const xss = svNs.renderTrackerFields([["内容", '<img src=x onerror=alert(1)> [x](javascript:alert(1))']]);
+        assert(!xss.querySelectorAll("img").length && xss.textContent.includes("<img src=x"), "tracker 字段里的 HTML 被当成标记渲染(XSS)");
+      }
+      // ---------- 单元:工具入参键值表 ----------
+      {
+        const args = svNs.renderToolArgs("task", { prompt: "## 任务\n- 第一步\n- 第二步", role: "scout" }, { className: "tool-msg-raw args" });
+        assert(args?.classList.contains("sv-args") && args.classList.contains("tool-msg-raw"), "入参键值表未带 sv-args/调用方类名");
+        const prompt = [...args.querySelectorAll(".sv-kv-row")].find((node) => node.dataset.key === "prompt");
+        assert(prompt?.querySelector("details.sv-prose .sv-md"), "多行 prompt 未折叠成 markdown");
+        assert(!args.textContent.includes("\\n"), "入参里仍有字面的 \\n");
+        assert(JSON.parse(args.dataset.raw).prompt === "## 任务\n- 第一步\n- 第二步", "入参根节点未保留完整 JSON(dataset.raw)");
+        const editArgs = svNs.renderToolArgs("edit", { path: "ui/x.js", old_string: "a\nb", new_string: "c", replace_all: false }, { display: { kind: "diff" } });
+        const shownKeys = [...editArgs.querySelectorAll(".sv-kv-row")].filter((node) => !node.closest(".sv-raw-args")).map((node) => node.dataset.key);
+        assert(shownKeys.join(",") === "path,replace_all", `edit 已有 diff 时外面只该露 path 等:${shownKeys.join(",")}`);
+        assert([...editArgs.querySelectorAll(".sv-raw-args .sv-kv-row")].some((node) => node.dataset.key === "old_string"), "old_string 未收进「原始入参」");
+        assert(editArgs.querySelector(".sv-path")?.textContent === "ui/x.js", "path 未做成路径 chip");
+        assert(svNs.renderToolArgs("bash", { command: "cargo test", workdir: "." })?.querySelector(".sv-cmd")?.textContent === "cargo test", "command 未渲染成命令代码块");
+        assert(svNs.renderToolArgs("read", {}) === null, "空入参应返回 null(不出空框)");
+      }
+      // ---------- 单元:权限资源 / 错误详情 / 局部校验 ----------
+      {
+        const perm = svNs.renderPermissionResource("bash", JSON.stringify({ command: "cargo test --workspace", workdir: "C:/smoke/project" }));
+        assert(perm.querySelector(".sv-cmd")?.textContent === "cargo test --workspace", "bash 资源未拆成命令代码块");
+        assert(perm.querySelector(".sv-perm-workdir .sv-path")?.dataset.path === "C:/smoke/project", "bash 资源缺少工作目录 chip");
+        assert(!perm.textContent.includes('{"command"'), "权限资源仍显示原始 JSON");
+        const error = svNs.renderErrorDetail('provider returned HTTP 400: {"error":{"message":"bad param","type":"invalid_request_error"}}');
+        assert(error.querySelector(".sv-error-message")?.textContent === "bad param", "provider 错误体未提取人话消息");
+        assert(error.querySelector(".sv-error-status")?.textContent === "HTTP 400", "错误详情缺少 HTTP 状态 chip");
+        assert(error.dataset.raw.startsWith("provider returned HTTP 400"), "错误详情未保留原文");
+        const checks = svNs.renderLocalValidation({ checks: [{ kind: "node-check", status: "failed", command: "node --check ui/x.js", first_error: "ui/x.js:3 Unexpected token", repair_context: "> 3 | }" }, { kind: "eslint", status: "passed", command: "eslint ui/x.js" }] });
+        assert(checks.querySelector(".sv-check.is-failed")?.textContent === "✗ node-check" && checks.querySelector(".sv-check.is-passed")?.textContent === "✓ eslint", "局部校验 chip 未按状态区分");
+        const errorPath = checks.querySelector(".sv-check-error .sv-path");
+        assert(errorPath?.textContent === "ui/x.js:3", `首个错误里的路径未做成可点 chip:${errorPath?.textContent}`);
+        errorPath?.click();
+        assert(lastNav()[0] === "path" && lastNav()[1] === "ui/x.js" && lastNav()[2] === 3, `首个错误路径点击未带行号打开:${JSON.stringify(lastNav())}`);
+      }
+
+      // ---------- 端到端(实时):tracker list JSON 结果 ----------
+      {
+        const listJson = JSON.stringify({ schema_version: 1, kind: "requirement", deadlocked: false, deadlock_guidance: null, entries: [
+          { id: "R-1", title: "甲", lifecycle_status: "todo", blocked: false, block_reasons: [] },
+          { id: "R-2", title: "乙", lifecycle_status: "todo", blocked: true, block_reasons: ["依赖 R-1 未完成"] },
+          { id: "R-3", title: "丙", lifecycle_status: "doing", blocked: false, block_reasons: [] },
+        ] }, null, 2);
+        toolStart({ payload: { id: "G4S-LIST", name: "req", summary: "list", input: { action: "list" }, sessionId: SID } });
+        toolEnd({ payload: { id: "G4S-LIST", name: "req", ok: true, outcome: "success", preview: `{ (+${listJson.split("\n").length - 1} lines)`, content: listJson, contentBytes: listJson.length, contentTruncated: false, display: null, sessionId: SID } });
+        await flush();
+        const block = chatNs.chatToolBlocks.get("G4S-LIST");
+        assert(block?.result.textContent === "⎿ 3 条 · 2 条可执行", `tracker list 的 ⎿ 行不是摘要:"${block?.result.textContent}"`);
+        assert(block?.detail.querySelector(".sv-lazy") && !block.detail.querySelector(".sv-result"), "JSON 结果应延迟到首次展开才构建");
+        block?.head.click();
+        assert(block?.detail.querySelector(".sv-result") && !block.detail.classList.contains("hidden"), "展开后没有 JSON 结果的结构化视图");
+        assert(block?.detail.querySelectorAll(".sv-tl-row").length === 3, `tracker list 结果未渲染成条目行:${block?.detail.querySelectorAll(".sv-tl-row").length}`);
+        assert(block?.detail.querySelector(".sv-tl-row.is-blocked .sv-tl-reason .sv-ref")?.textContent === "R-1", "阻塞原因里的条目编号未做成 chip");
+        assert(![...(block?.detail.querySelectorAll(".tool-msg-raw") ?? [])].some((node) => !node.classList.contains("args")), "JSON 结果仍在展开区贴了一份原文");
+        const resultView = block?.detail.querySelector(".sv-result");
+        const visibleText = [...(resultView?.children ?? [])].filter((node) => !node.classList.contains("sv-json-tools")).map((node) => node.textContent).join("");
+        assert(visibleText && !visibleText.includes('"lifecycle_status"'), "展开区的可见视图仍出现原始 JSON 键");
+        assert(resultView?.querySelector(".sv-json-tools details.sv-raw"), "结构化视图之外缺少「原始 JSON」出口");
+        const logLine = [...byId.get("log-lines").children].reverse().find((node) => node.textContent.includes("工具结果 req"));
+        assert(logLine && !logLine.textContent.includes("{ (+") && logLine.textContent.includes("3 条"), `运行日志的工具结果行仍是 { (+N lines):${logLine?.textContent}`);
+      }
+      // ---------- 端到端(实时):edit + 局部校验 ----------
+      {
+        const content = "replaced 1 occurrence(s) in C:/smoke/project/ui/x.js\n局部结构校验发现 1 个精确错误，请先修复后再扩大回归\n局部校验明细:\n- node-check [failed] command: node --check ui/x.js\n  首个错误: ui/x.js:3 Unexpected token";
+        toolStart({ payload: { id: "G4S-LV", name: "edit", summary: "ui/x.js", input: { path: "ui/x.js", old_string: "let a = 1;", new_string: "let a = ;" }, sessionId: SID } });
+        toolEnd({ payload: { id: "G4S-LV", name: "edit", ok: true, outcome: "success", preview: "replaced 1 occurrence(s) in C:/smoke/project/ui/x.js (+4 lines)", content, contentBytes: content.length, contentTruncated: false, display: {
+          kind: "diff", path: "ui/x.js", additions: 1, deletions: 1, language: "js",
+          lines: [{ kind: "del", text: "let a = 1;", old_line: 3 }, { kind: "add", text: "let a = ;", new_line: 3 }],
+          local_validation: { kind: "local_validation", checks: [{ kind: "node-check", status: "failed", command: "node --check ui/x.js", first_error: "ui/x.js:3 Unexpected token", repair_context: "> 3 | let a = ;" }], counts: { failed: 1, passed: 0 } },
+        }, sessionId: SID } });
+        await flush();
+        const block = chatNs.chatToolBlocks.get("G4S-LV");
+        assert(block?.result.textContent === "⎿ +1 −1 · 校验 1 个错误", `edit 校验失败的 ⎿ 行漂移:"${block?.result.textContent}"`);
+        assert(block?.detail.querySelector(".sv-checks .sv-check.is-failed")?.textContent === "✗ node-check", "展开区缺少局部校验失败 chip");
+        assert(block?.detail.querySelector(".sv-check-error .sv-path")?.textContent === "ui/x.js:3", "首个错误的路径未做成 chip");
+        const rest = [...(block?.detail.querySelectorAll(".tool-msg-raw") ?? [])].find((node) => !node.classList.contains("args"));
+        assert(!rest || !rest.textContent.includes("局部校验明细"), "局部校验明细在 chips 之外又贴了一遍原文");
+        const args = block?.detail.querySelector(".tool-msg-raw.args.sv-args");
+        assert(args && [...args.querySelectorAll(".sv-raw-args .sv-kv-row")].some((node) => node.dataset.key === "old_string"), "edit 带 diff 时 old_string 未收进「原始入参」");
+        assert(args?.querySelector(".sv-kv-row")?.dataset.key === "path" && args.querySelector(".sv-path")?.textContent === "ui/x.js", "edit 入参的 path 未直接可见");
+      }
+      // ---------- 端到端(历史回放):websearch 紧凑 JSON、needs_correction 前缀、多行 prompt ----------
+      {
+        const webJson = JSON.stringify({ query: "rust ansi", results: [
+          { title: "ANSI escape code", url: "https://en.wikipedia.org/wiki/ANSI_escape_code", snippet: "ANSI escape sequences are a standard for in-band signaling" },
+          { title: "anstyle", url: "https://docs.rs/anstyle", snippet: "ANSI text styling" },
+        ], truncated: false, prior_art_budget: null });
+        viewsNs.renderMessageParts([{ role: "assistant", parts: [
+          { type: "tool_call", id: "HG4S-WEB", name: "websearch", input: { query: "rust ansi" } },
+          { type: "tool_result", call_id: "HG4S-WEB", is_error: false, content: webJson },
+          { type: "tool_call", id: "HG4S-FIX", name: "edit", input: { path: "ui/x.js", old_string: "a", new_string: "b" } },
+          { type: "tool_result", call_id: "HG4S-FIX", is_error: true, content: "[tool_outcome=needs_correction code=EDIT_ANCHOR_NOT_FOUND]\n请重读锚点" },
+          { type: "tool_call", id: "HG4S-TASK", name: "task", input: { prompt: "第一行任务说明\n第二行细节\n- 列表项", role: "scout" } },
+          { type: "tool_result", call_id: "HG4S-TASK", is_error: false, content: "## 结论\n- 完成" },
+        ] }]);
+        await flush();
+        const historyBlock = (id) => [...document.querySelectorAll("#messages [data-active] .tool-msg")].find((node) => node.dataset.toolCallId === id);
+        const web = historyBlock("HG4S-WEB");
+        assert(web?.querySelector(".tool-msg-result")?.textContent === "⎿ 2 条结果 · ANSI escape code", `历史 websearch 的 ⎿ 行漂移:"${web?.querySelector(".tool-msg-result")?.textContent}"`);
+        web?.querySelector(".tool-msg-head")?.click();
+        assert(web?.querySelectorAll(".sv-search-result").length === 2, "历史 websearch 展开后未渲染成搜索结果列表");
+        const title = web?.querySelector(".sv-search-title");
+        title?.click();
+        assert(lastNav()[0] === "url" && lastNav()[1] === "https://en.wikipedia.org/wiki/ANSI_escape_code", "搜索结果标题点击未走应用内打开");
+        const fix = historyBlock("HG4S-FIX");
+        assert(fix?.classList.contains("warn") && fix.querySelector(".tool-msg-result")?.textContent === "⎿ 请重读锚点", `历史 needs_correction 未恢复终态或 ⎿ 行带了机器头:"${fix?.querySelector(".tool-msg-result")?.textContent}"`);
+        assert(fix?.querySelector(".tool-msg-detail .sv-code")?.textContent === "EDIT_ANCHOR_NOT_FOUND", "需要修正的块未在展开区给出稳定错误码 chip");
+        const taskArgs = historyBlock("HG4S-TASK")?.querySelector(".tool-msg-raw.args.sv-args");
+        assert(taskArgs?.querySelector("details.sv-prose"), "历史 task 的多行 prompt 未折叠");
+        assert(taskArgs && !taskArgs.textContent.includes("\\n"), "历史入参里仍有字面的 \\n");
+      }
+
+      // ---------- 权限卡:bash 资源 JSON → 命令代码块 + 工作目录;队列预览不贴 JSON ----------
+      {
+        eventsNs.hideAsk();
+        const askHandler = handlers.get("kz:ask");
+        const resourceA = JSON.stringify({ command: "cargo test --workspace", workdir: "C:/smoke/project" });
+        const resourceB = JSON.stringify({ command: "cargo fmt --all", workdir: "C:/smoke/project" });
+        askHandler?.({ payload: { id: 9401, sessionId: SID, kind: "permission", action: "bash", resource: resourceA, remember: resourceA } });
+        askHandler?.({ payload: { id: 9402, sessionId: SID, kind: "permission", action: "bash", resource: resourceB, remember: resourceB } });
+        await flush();
+        assert(byId.get("ask-resource")?.querySelector(".sv-cmd")?.textContent === "cargo test --workspace", `权限卡资源未拆成命令代码块:"${listText("ask-resource")}"`);
+        assert(byId.get("ask-resource")?.querySelector(".sv-perm-workdir .sv-path"), "权限卡缺少工作目录 chip");
+        assert(listText("ask-action") === "bash", "权限卡的操作一栏被改写");
+        assert(listText("ask-remember") === "bash · 同上", `「记住为」与资源相同时应写「同上」:"${listText("ask-remember")}"`);
+        assert(!listText("ask-queue-preview").includes('{"command"') && listText("ask-queue-preview").includes("bash · cargo fmt --all"), `队列预览仍贴原始 JSON:"${listText("ask-queue-preview")}"`);
+        eventsNs.hideAsk();
+        settingsNs.renderPermissionRules({ path: "C:/smoke/project/.kanzei/kanzei.toml", rules: [{ index: 0, action: "bash", resource: resourceA }] });
+        const rulesBody = byId.get("permission-rules-table")?.querySelector("tbody");
+        assert(rulesBody?.querySelector(".sv-cmd")?.textContent === "cargo test --workspace" && !rulesBody.textContent.includes('{"command"'), "设置页权限规则表仍显示原始 JSON 资源");
+        assert(rulesBody?.querySelector(".icon-btn")?.getAttribute("aria-label") === "删除权限规则 bash · cargo test --workspace", "删除规则按钮的无障碍名称仍带原始 JSON");
+        settingsNs.renderPermissionRules({ rules: [] });
+      }
+      // ---------- 错误卡 + 运行日志 ----------
+      {
+        const message = 'provider returned HTTP 400: {"error":{"message":"bad param","type":"invalid_request_error"}}';
+        chatNs.reportError(message);
+        await flush();
+        const cards = [...document.querySelectorAll("#messages .msg.error")];
+        const card = cards[cards.length - 1];
+        assert(card?.querySelector(".sv-error-message")?.textContent === "bad param", "错误卡未显示提取出的人话消息");
+        assert(card?.querySelector(".sv-error-status")?.textContent === "HTTP 400", "错误卡缺少 HTTP 状态 chip");
+        assert(card?.dataset.raw === message, "错误卡未保留原文(复制要原文)");
+        assert(card?.querySelector(".error-level"), "错误卡的等级标签丢了");
+        const logLine = byId.get("log-lines")?.children.at(-1);
+        assert(logLine?.querySelector(".sv-log-error .sv-error-message")?.textContent === "bad param", "运行日志的错误行未附结构化详情");
+      }
+      // ---------- 测试记录:真实 {key,value} 字段,点开看结构化详情 ----------
+      {
+        sessionsNs.renderTestRuns({ active: [{ id: "T-1788804121000", title: "cargo 回归", status: "passed", refs: ["R-001"], fields: [
+          { key: "命令", value: "cargo fmt --all -- --check; cargo test -p kanzei-tools" },
+          { key: "收尾", value: "1788804121" },
+          { key: "源码指纹", value: "v2 crates/kanzei-core/src/a.rs@63ae5885281c" },
+        ] }], archived: [] });
+        const entry = document.querySelector("#test-list .test-entry");
+        assert(entry?.dataset.docId === "T-1788804121000", "测试记录行未挂 data-doc-id(T- 编号 chip 跳不过来)");
+        assert(entry?.querySelector(".sv-test-head")?.title.includes("命令: cargo fmt"), "测试记录行的字段 tooltip 读错了字段形状");
+        entry?.querySelector(".sv-test-head")?.click();
+        const detail = entry?.querySelector(".sv-test-detail");
+        assert(detail && !detail.classList.contains("hidden"), "点测试记录行头未展开详情");
+        assert(detail?.querySelectorAll(".sv-cmd-list li").length === 2, "测试命令未按「; 」拆成 2 条");
+        const finished = [...(detail?.querySelectorAll(".sv-kv-row") ?? [])].find((node) => node.dataset.key === "收尾")?.querySelector(".sv-num");
+        assert(finished && finished.textContent !== "1788804121" && finished.title === "1788804121", "收尾时间戳未转成本地时间");
+        assert(detail?.querySelector(".sv-path")?.dataset.path === "crates/kanzei-core/src/a.rs", "源码指纹未拆成路径 chip");
+        assert(entry?.querySelector(".test-ref-chip")?.textContent === "R-001", "测试记录的关联徽标丢了");
+        sessionsNs.renderTestRuns(payloads.test_runs_snapshot);
+      }
+      // ---------- 压缩纪要 / 对话总结 / 架构索引 / 研究运行卡 ----------
+      {
+        eventsNs.addCompactionEntry("## 压缩纪要\n- 保留了目标\n- 丢弃了噪声");
+        const compaction = [...document.querySelectorAll(".compaction-entry")].at(-1);
+        assert(compaction?.querySelector(".bg-detail.md")?.innerHTML.includes("<ul>"), "压缩纪要未按 markdown 渲染");
+        compaction?.remove();
+        const summary = eventsNs.addSummaryEntry("- 做了甲\n- 做了乙", "C:/smoke/project/.kanzei/summaries/s1.md");
+        assert(summary?.querySelector(".bg-detail.md") && summary.querySelector(".sv-archived .sv-path"), "对话总结未按 markdown 渲染或存档路径不是 chip");
+        summary?.remove();
+        const archBody = byId.get("arch-index-body");
+        assert(archBody?.classList.contains("md") && archBody.innerHTML.includes("<h3") && archBody.innerHTML.includes('class="md-path"') && !archBody.textContent.includes("### "),
+          "架构索引仍以 markdown 原文显示(或文档链接不可点)");
+        // 研究运行卡的 execution_json 断言在研究视图用例里(卡片只在选中研究主题时存在)。
+      }
+      // ---------- markdown 路径链接的点击委托 ----------
+      {
+        const link = document.createElement("a");
+        link.className = "md-path";
+        link.dataset.path = "crates/x.rs";
+        link.dataset.line = "7";
+        document.body.appendChild(link);
+        document.dispatchEvent({ type: "click", target: link, preventDefault() {}, stopPropagation() {} });
+        assert(lastNav()[0] === "path" && lastNav()[1] === "crates/x.rs" && lastNav()[2] === 7, `a.md-path 点击未委托到 structuredNav.openPath:${JSON.stringify(lastNav())}`);
+        link.remove();
+      }
+      // ---------- 收活 diff:按文件计数 + 逐文件着色 diff ----------
+      {
+        const harvestRow = [...document.querySelectorAll(".harvest-diff-tree .diff-summary-row")].find((node) => node.dataset.path === "crates/branch.rs");
+        assert(harvestRow?.textContent.includes("+1"), `收活 diff 树的增删计数仍是 +0/−0:"${harvestRow?.textContent}"`);
+        assert([...document.querySelectorAll(".sv-diff-files details")].some((node) => node.dataset.path === "crates/branch.rs" && node.querySelector(".tool-display.diff")), "收活 diff 未按文件渲染着色差异");
+      }
+    } finally {
+      svNs.setStructuredNav(savedNav);
+    }
+
+    // ---------- CSS:结构化渲染只用 token ----------
+    const g4Css = style.split("/* ===== 分区:工具行与结构化渲染 ===== */")[1]?.split("/* ===== 分区:需求卡片与单页 ===== */")[0] ?? "";
+    assert(/\.sv-kv\s*\{/.test(g4Css) && /\.tf-row\s*\{/.test(g4Css) && /a\.md-path\s*\{/.test(g4Css) && /\.ask-value\s*\{/.test(g4Css), "结构化渲染样式不在本组分区里");
+    assert(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(g4Css.replace(/\/\*[\s\S]*?\*\//g, "")), "工具行与结构化渲染分区用了字面量颜色(只准用 token)");
     if (priorLanguage === null) localStorageShim.removeItem?.("kz-language");
     else localStorageShim.setItem("kz-language", priorLanguage);
   }

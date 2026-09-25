@@ -23,6 +23,7 @@ import { renderMarkdown } from "./04-markdown.js";
 import { toolCallSummary } from "./05-chat-render.js";
 import { cleanInline, cleanPaths, formatDuration, looksLikeNoise, parseJsonish, stripAnsi } from "./04-structured-parse.js";
 import { toolArgSummary, toolResultSummary, toolRoots } from "./05-tool-summary.js";
+import { highlightLine, renderLocalValidation, renderToolArgs, renderToolResult, structuredNav } from "./04-structured.js";
 import { renderContextDetail } from "./07-events.js";
 import { autoStopReason, renderAutoStatus } from "./08-auto.js";
 import { state } from "./08-compose.js";
@@ -89,9 +90,18 @@ export function appendDiffNode(container, node, depth) {
     const row = document.createElement("div");
     row.className = "diff-summary-row";
     row.style.paddingLeft = `${8 + depth * 14}px`;
-    const name = document.createElement("span");
-    name.textContent = item.path;
+    // UI-0926 #10:目录已经在上层行里,文件行只显示文件名(全路径在 title 与 dataset.path),
+    // 点击在文件导览里打开。
+    row.dataset.path = item.path;
+    const name = document.createElement("button");
+    name.type = "button";
+    name.className = "sv-linklike diff-summary-name";
+    name.textContent = item.path.split("/").filter(Boolean).pop() || item.path;
     name.title = item.path;
+    name.addEventListener("click", (event) => {
+      event?.stopPropagation?.();
+      structuredNav.openPath(item.path, null);
+    });
     const counts = document.createElement("span");
     counts.className = "diff-summary-counts";
     const add = document.createElement("span");
@@ -341,10 +351,9 @@ export function recordDiffSummary(display) {
 // 完整入参永远可展开:summary 是一行摘要,复核"到底拿什么参数调的"要看原文。
 // 编排派发的子代理尤其需要——input.prompt 就是派给该角色的完整指令。
 export function bgAppendArgs(entry, input) {
-  if (!input || !Object.keys(input).length) return;
-  const args = document.createElement("pre");
-  args.className = "tool-display term bg-args";
-  args.textContent = JSON.stringify(input, null, 2);
+  // UI-0926 #10:键值表(路径 chip、命令代码块、多行说明折叠),不再 dump 转义后的 JSON。
+  const args = renderToolArgs(entry.name, input, { className: "tool-display bg-args" });
+  if (!args) return;
   entry.detail.appendChild(args);
   entry.el.classList.add("has-detail");
 }
@@ -577,19 +586,8 @@ export function bgPlainText(entry) {
     `\n## 输出\n${entry.detail.textContent || entry.prog.textContent || ""}`,
   ].join("\n");
 }
-export function highlightLine(container, text, language) {
-  const pattern = /("(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\/\/.*|#.*|\b\d+(?:\.\d+)?\b|\b(?:fn|let|const|function|class|return|if|else|for|while|pub|struct|use|import|from|true|false|null|None|async|await)\b)/g;
-  let cursor = 0;
-  for (const match of text.matchAll(pattern)) {
-    if (match.index > cursor) container.appendChild(document.createTextNode(text.slice(cursor, match.index)));
-    const token = document.createElement("span");
-    token.className = match[0].startsWith("//") || match[0].startsWith("#") ? "syntax-comment" : /^['"]/.test(match[0]) ? "syntax-string" : /^\d/.test(match[0]) ? "syntax-number" : "syntax-keyword";
-    token.textContent = match[0];
-    container.appendChild(token);
-    cursor = match.index + match[0].length;
-  }
-  if (cursor < text.length) container.appendChild(document.createTextNode(text.slice(cursor)));
-}
+// 语法着色搬进 04-structured.js(结构化渲染的唯一真源),这里原名转出,旧调用方不必改。
+export { highlightLine };
 
 export const DIFF_CONTEXT_LINES = 3;
 
@@ -715,9 +713,14 @@ export function renderDiff(display, { compact = false } = {}) {
   render();
   return block;
 }
-export function appendDisplayBlock(parent, display, { compact = false } = {}) {
+export function appendDisplayBlock(parent, display, { compact = false, name = "" } = {}) {
   if (!display) return;
-  if (display.kind === "diff") {
+  if (display.kind === "json" && display.value && typeof display.value === "object") {
+    parent.appendChild(renderToolResult(name, display.value));
+  } else if (display.kind === "local_validation") {
+    const checks = renderLocalValidation(display);
+    if (checks) parent.appendChild(checks);
+  } else if (display.kind === "diff") {
     parent.appendChild(renderDiff(display, { compact }));
   } else if (display.kind === "terminal") {
     const block = document.createElement("div");
@@ -740,6 +743,11 @@ export function appendDisplayBlock(parent, display, { compact = false } = {}) {
     block.className = "tool-display term";
     block.textContent = stripAnsi(String(display.preview));
     parent.appendChild(block);
+  }
+  // UI-0926 #10:edit/write 的 display 挂着局部校验结果——逐项 chip,失败项带首个错误与修复上下文。
+  if (display.local_validation && display.kind !== "local_validation") {
+    const checks = renderLocalValidation(display.local_validation);
+    if (checks) parent.appendChild(checks);
   }
   // 配额截断提示追加在原 display 之后:终端块照常保留,提示只补"为什么被截、去哪腾空间"。
   const quota = quotaTruncation(display);

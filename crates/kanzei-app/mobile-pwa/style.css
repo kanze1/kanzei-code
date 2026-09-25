@@ -49,5 +49,10 @@ button.danger { background: #dc2626; margin-top: 12px; }
 /* 列表状态行(加载中/空/查询失败)独立于卡片;卡片内失败提示为空时不占位。 */
 .approval-status[hidden], .approval-card-status:empty { display: none; }
 .approval-card-status { margin-bottom: 0; }
+/* UI-0926 #10:bash 权限资源拆成动作 + 命令块 + 工作目录;命令保留真实换行。 */
+.approval-desc { white-space: pre-wrap; word-break: break-word; }
+.approval-action { display: block; font-weight: 600; margin-bottom: 4px; }
+.approval-cmd { margin: 0; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; background: #f3f4f6; border-radius: 6px; }
+.approval-workdir { margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; word-break: break-all; }
 
 #notice-list { max-height: 50vh; overflow-y: auto; }

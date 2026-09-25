@@ -1,6 +1,8 @@
 import { defer } from "./01-core.js";
 import { $, invoke, renderingBackground, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
 import { I18N_EN, localizeDynamic, t } from "./02-i18n.js";
+import { parseErrorText } from "./04-structured-parse.js";
+import { renderErrorDetail } from "./04-structured.js";
 import { agentClosePanel, fastStatusText } from "./06-activity.js";
 import { clearStoppingWatchdog } from "./08-auto.js";
 import { send } from "./08-compose-runtime.js";
@@ -462,9 +464,31 @@ export function log(text, cls = "") {
   line.className = `log-line ${cls}`;
   const time = new Date().toTimeString().slice(0, 8);
   line.textContent = `${time}  ${localizeDynamic(text)}`;
+  if (cls === "err") {
+    const detail = logErrorDetail(text);
+    if (detail) line.append(detail);
+  }
   lines.appendChild(line);
   while (lines.childElementCount > LOG_MAX) lines.firstElementChild.remove();
   lines.scrollTop = lines.scrollHeight;
+}
+/// UI-0926 #10:错误日志里的 provider JSON 错误体 / 错误链折叠成结构化详情,原文仍在行内。
+/// 日志文案常带「自动放行失败:」这类短前缀,前缀后的部分也试一次。
+function logErrorDetail(text) {
+  const raw = String(text ?? "");
+  const cut = raw.search(/[:：]/);
+  const candidates = cut > 0 && cut <= 24 ? [raw, raw.slice(cut + 1).trim()] : [raw];
+  for (const candidate of candidates) {
+    const info = parseErrorText(candidate);
+    if (!info.json && !info.chain.length) continue;
+    const details = document.createElement("details");
+    details.className = "sv-log-error";
+    const summary = document.createElement("summary");
+    summary.textContent = t("错误详情");
+    details.append(summary, renderErrorDetail(candidate));
+    return details;
+  }
+  return null;
 }
 defer(() => {
   $("log-toggle").addEventListener("click", () => $("log-panel").classList.toggle("hidden"));
