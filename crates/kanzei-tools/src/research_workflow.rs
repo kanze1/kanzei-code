@@ -8,7 +8,13 @@ use crate::research_plan::{
     load_plan, save_plan, PlanBudget, PlanNode, PlanNodeStatus, PlanStatus, ResearchPlan,
 };
 
+pub mod compute;
+mod lifecycle;
+pub mod paper;
+mod rounds;
 mod tool;
+pub use lifecycle::{ExperimentSpec, FullPlan, FullResult};
+pub use rounds::FullRound;
 pub use tool::{ResearchWorkflowContext, ResearchWorkflowTool};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +27,12 @@ pub enum Stage {
     Prepare,
     RunMvp,
     Interpret,
+    PlanFull,
+    RunFull,
+    Analyze,
+    WritePaper,
+    ReviewPaper,
+    CompilePaper,
     Completed,
 }
 
@@ -34,7 +46,13 @@ impl Stage {
             Self::Prepare => "实验准备",
             Self::RunMvp => "MVP 实验",
             Self::Interpret => "结果解读",
-            Self::Completed => "MVP 已完成",
+            Self::PlanFull => "完整实验方案",
+            Self::RunFull => "完整实验",
+            Self::Analyze => "综合分析",
+            Self::WritePaper => "论文写作",
+            Self::ReviewPaper => "论文检查",
+            Self::CompilePaper => "论文编译",
+            Self::Completed => "研究已完成",
         }
     }
 }
@@ -60,7 +78,10 @@ pub struct Mvp {
     pub metric: String,
     pub success: String,
     pub failure: String,
+    /// Existing exploration frontmatter ID, e.g. E-001; not a file path.
+    /// Write .kanzei/research/<topic>/explorations/E-001.md using the template in get guidance first.
     pub exploration_id: String,
+    /// Existing protocol path relative to the topic directory, e.g. mvp-protocol.md.
     pub protocol: String,
 }
 
@@ -85,6 +106,18 @@ pub struct Workflow {
     pub interpretation: Option<String>,
     pub verdict: Option<String>,
     pub history: Vec<Value>,
+    #[serde(default)]
+    pub compute: Option<compute::PreparedCompute>,
+    #[serde(default)]
+    pub full_plan: Option<FullPlan>,
+    #[serde(default)]
+    pub full_results: Vec<FullResult>,
+    #[serde(default)]
+    pub full_rounds: Vec<FullRound>,
+    #[serde(default)]
+    pub analysis: Option<String>,
+    #[serde(default)]
+    pub paper: Option<paper::PaperRecord>,
 }
 
 impl Workflow {
@@ -100,18 +133,40 @@ impl Workflow {
             Stage::Map => "综合已有证据，写研究地图，候选方向逐项填写价值、未知、成本、最小验证与 source_ids，调用 publish_map 后等待用户选择。",
             Stage::ChooseDirection => "等待用户在课题概览选择方向；不得自行选择或启动实验。",
             Stage::DesignMvp => "围绕 selected_direction 定义可证伪问题、基线、指标和成功/失败判据，先写协议和 exploration Markdown，再调用 define_mvp。",
-            Stage::Prepare => "编写课题内实验代码并准备依赖和数据，复用现有环境，使用 research_runner 跑基线。成功后 environment_ready 绑定基线 result_id 和准备记录。缺资源用 request_input 写明缺口。",
+            Stage::Prepare => "编写课题内实验代码和 requirements 文件，调用 prepare_compute 自动准备本机或已登记 SSH 环境，检查 CUDA、显存、依赖；然后 research_runner 使用返回的 python/workdir 跑基线。成功后 environment_ready 绑定基线和准备记录。缺资源用 request_input。",
             Stage::RunMvp => "读取基线和协议，用 research_runner 执行 MVP，保留日志、环境和指标。完成后 record_mvp 绑定实际 result_ids；先回读已存在的运行，不能因恢复而重复启动。",
-            Stage::Interpret => "检查结果和失败原因，写明观察、支持范围、其他解释和下一步。interpret 的 verdict 为 supported/rejected/inconclusive，next 为 complete/iterate/pivot；complete 只表示本次 MVP 研究收敛，不宣称论文或完整实验完成。",
-            Stage::Completed => "本次 MVP 研究已收敛。向用户交付结论、证据和后续完整实验建议。",
+            Stage::Interpret => "写 MVP 解读并调用 interpret，verdict 为 supported/rejected/inconclusive；next=complete 进入完整实验方案，iterate 修改方案，pivot 返回用户选题。不得把程序失败当作假设被否定。",
+            Stage::PlanFull => "提交 define_full：协议和实验矩阵，覆盖 baseline/main/ablation/robustness，baseline/main 使用相同的至少两个随机种子。返工时查看 full_rounds，可用 reuse_results 显式复用定义和环境未变的成功项，只为新增项预留预算；至少安排一个新实验。预算不足明确 request_input。旧 MVP 完成流程先 prepare_compute。",
+            Stage::RunFull => "先 research_workflow get 查看 recovery：先用 record_full 登记 pending_full_results；active_runs 非空时回读运行，不重复启动。按 full_plan 和剩余 experiment_budget 逐项 research_runner run；params_text 为含 experiment_id、role、seed 的 JSON，失败或缺指标项用新 result_id 重试。所有计划项成功后进入综合分析。",
+            Stage::Analyze => "综合全部指标、种子波动、消融与鲁棒性，写 analysis.md，区分观察、因果解释和局限；submit_analysis 绑定报告和 verdict。next=complete 进入写作（默认）；next=iterate 加 reason 保存本轮快照并返回完整实验方案补跑；next=pivot 加 reason 保存快照并等待用户重新选题。",
+            Stage::WritePaper => "调用 paper_init 生成通用模板，或给出课题内的外部模板 template_path；返工后会保留现有正文并刷新结果表与参考文献。用 write/edit 写完整 LaTeX，引用 sources 和真实实验，不虚构结果；submit_paper 提交 paper/claim 证据表（数值主张绑定 result_id/metric/value）。",
+            Stage::ReviewPaper => "调用 review_paper 检查正文完整性、引用、数值与证据；失败后修正并重新 submit_paper，成功进入编译。",
+            Stage::CompilePaper => "调用 compile_paper 实际编译 PDF 并校验引用/编译日志；失败时读取诊断修改 LaTeX 后重新 submit_paper/review_paper，再编译。",
+            Stage::Completed => "交付已编译 PDF、LaTeX 源码、综合分析和可复现实验记录。旧版仅完成 MVP 的工作流需用户点击扩展到论文。",
         };
-        format!("AUTO research 当前阶段：{}，revision={}。{}\n{}\n恢复前先调用 research_workflow get；每次状态变更传当前 revision。不要操作 dev backlog。工作流数据：{}",
+        let authoring = if self.stage == Stage::DesignMvp {
+            exploration_guidance(&self.topic)
+        } else {
+            String::new()
+        };
+        format!("AUTO research 当前阶段：{}，revision={}。{}\n{}\n{}\n恢复前先调用 research_workflow get；每次状态变更传当前 revision。不要操作 dev backlog。工作流数据：{}",
             self.stage.label(), self.revision,
             if self.runnable() { "按已授权范围继续。" } else { "当前应停止自动推进，等待用户。" },
-            next, serde_json::to_string(&json!({"topic": self.topic, "selected_direction": self.selected_direction,
+            next, authoring, serde_json::to_string(&json!({"topic": self.topic, "selected_direction": self.selected_direction,
                 "directions": self.directions, "mvp": self.mvp, "baseline_result": self.baseline_result,
-                "result_ids": self.result_ids, "waiting_reason": self.waiting_reason, "max_mvp_runs": self.max_mvp_runs})).unwrap_or_default())
+                "result_ids": self.result_ids, "waiting_reason": self.waiting_reason, "max_mvp_runs": self.max_mvp_runs,
+                "compute":self.compute.as_ref().map(|c| json!({"kind":c.kind,"host":c.host,"workdir":c.workdir,"python":c.python,"environment_id":c.spec.environment_id,"gpus":c.snapshot["gpus"]})),
+                "full_plan":self.full_plan, "full_results":self.full_results, "full_rounds":self.full_rounds.iter().map(|round| json!({"round":round.round,"artifact_root":round.artifact_root,"reason":round.reason,"results":round.results,"analysis":round.analysis})).collect::<Vec<_>>(), "analysis":self.analysis,"paper":self.paper})).unwrap_or_default())
     }
+}
+
+fn exploration_template(topic: &str) -> String {
+    let timestamp = now_ms();
+    format!("---\nkind: exploration\nid: E-001\ntopic: {topic}\ntitle: Replace with the research question\nstatus: running\nhypothesis: Replace with the falsifiable hypothesis\ncreated_at: {timestamp}\nupdated_at: {timestamp}\n---\n\n## 假设\nDescribe the hypothesis and link to the protocol.\n\n## 实验结果\n| 实验 | 参数 | 状态 | 关键指标 | 产物 | 结论 |\n| --- | --- | --- | --- | --- | --- |\n\n## 结论\nPending experiments.\n\n## 后续\nRun the registered baseline and MVP.\n")
+}
+
+fn exploration_guidance(topic: &str) -> String {
+    format!("探索记录用 write 创建于 .kanzei/research/{topic}/explorations/E-001.md（直接位于 explorations 下），exploration_id 传 E-001；已有记录请复用，新增记录使用未占用编号，不覆盖旧实验。以下为文件格式，替换标题、假设和正文，保留固定章节标题与结果表头：\n```markdown\n{}```", exploration_template(topic))
 }
 
 fn now_ms() -> i64 {
@@ -148,7 +203,7 @@ pub fn load(root: &Path, topic: &str) -> Result<Option<Workflow>, String> {
         Ok(text) => {
             let state: Workflow =
                 serde_json::from_str(&text).map_err(|e| format!("研究流程损坏: {e}"))?;
-            if state.version != 1 || state.topic != topic {
+            if !matches!(state.version, 1 | 2) || state.topic != topic {
                 return Err("研究流程版本或课题不匹配".into());
             }
             Ok(Some(state))
@@ -200,7 +255,7 @@ pub fn start(
         })?;
     }
     let state = Workflow {
-        version: 1,
+        version: 2,
         topic: topic.into(),
         revision: 1,
         stage: Stage::Survey,
@@ -219,6 +274,12 @@ pub fn start(
         interpretation: None,
         verdict: None,
         history: vec![json!({"action": "start", "actor": "user", "at": now_ms()})],
+        compute: None,
+        full_plan: None,
+        full_results: vec![],
+        full_rounds: vec![],
+        analysis: None,
+        paper: None,
     };
     save(root, &state)?;
     Ok(state)
@@ -240,7 +301,8 @@ fn update(
     }
     let previous = json!({"stage": state.stage, "selected_direction": state.selected_direction,
         "mvp": state.mvp, "baseline_result": state.baseline_result, "result_ids": state.result_ids,
-        "interpretation": state.interpretation, "verdict": state.verdict});
+        "interpretation": state.interpretation, "verdict": state.verdict,
+        "full_plan":state.full_plan,"full_results":state.full_results,"analysis":state.analysis,"paper":state.paper});
     change(&mut state)?;
     state.revision += 1;
     state.history.push(
@@ -261,6 +323,20 @@ pub fn user_action(
 ) -> Result<Workflow, String> {
     update(root, topic, revision, action, "user", |state| {
         match action {
+            "revise_full" => {
+                rounds::reopen(root, state, "用户要求补充完整实验", false)?;
+                state.paused = false;
+                state.waiting_reason = None;
+            }
+            "extend" => {
+                if state.stage != Stage::Completed || state.paper.is_some() || state.mvp.is_none() {
+                    return Err("只有旧版已完成 MVP 可扩展到论文".into());
+                }
+                state.version = 2;
+                state.stage = Stage::PlanFull;
+                state.paused = false;
+                state.waiting_reason = None;
+            }
             "select" => {
                 if state.stage != Stage::ChooseDirection {
                     return Err("当前不在选题阶段".into());
@@ -356,6 +432,7 @@ fn run_fact(
     if run.topic != state.topic || run.exploration_id != mvp.exploration_id {
         return Err("实验不属于当前课题和 MVP 探索".into());
     }
+    lifecycle::validate_run_environment(state, &run)?;
     if !matches!(run.status.as_str(), "succeeded" | "failed" | "cancelled")
         || run.finished_at.is_none()
     {
@@ -456,12 +533,33 @@ pub fn advance(
                 artifact(root, topic, &mvp.protocol)?;
                 let model =
                     kanzei_core::load_research_topic(root, topic).map_err(|e| e.to_string())?;
-                if !model
+                let exploration = model
                     .explorations
                     .iter()
-                    .any(|e| e.frontmatter.id == mvp.exploration_id)
-                {
-                    return Err("请先创建有效的 exploration Markdown".into());
+                    .find(|e| e.frontmatter.id == mvp.exploration_id)
+                    .ok_or_else(|| {
+                        format!(
+                            "请先创建有效的 exploration Markdown。\n{}",
+                            exploration_guidance(topic)
+                        )
+                    })?;
+                let diagnostics: Vec<_> = model
+                    .diagnostics
+                    .iter()
+                    .filter(|diagnostic| diagnostic.path == exploration.source_path)
+                    .map(|diagnostic| {
+                        format!(
+                            "{}:{} {}",
+                            diagnostic.path, diagnostic.line, diagnostic.message
+                        )
+                    })
+                    .collect();
+                if !diagnostics.is_empty() {
+                    return Err(format!(
+                        "探索记录格式不正确：\n{}\n{}",
+                        diagnostics.join("\n"),
+                        exploration_guidance(topic)
+                    ));
                 }
                 state.mvp = Some(mvp);
                 state.baseline_result = None;
@@ -470,6 +568,9 @@ pub fn advance(
             }
             "environment_ready" => {
                 expect(state, Stage::Prepare)?;
+                if state.version >= 2 && state.compute.is_none() {
+                    return Err("请先 prepare_compute 验证实验环境".into());
+                }
                 artifact(root, topic, &required(input, "artifact")?)?;
                 let id = required(input, "baseline_result")?;
                 let baseline = run_fact(root, state, &id)?;
@@ -477,7 +578,7 @@ pub fn advance(
                     return Err("基线必须成功运行".into());
                 }
                 if !has_metric(state, &baseline) {
-                    return Err("基线缺少 MVP 约定的指标回调，请核对 metric 名称".into());
+                    return Err(format!("基线缺少 MVP 指标，请让程序逐行输出 @@kanzei {{\"t\":\"metric\",\"name\":\"{}\",\"value\":0.5}}（value 使用真实测量值并刷新 stdout），再以新 result_id 运行。", state.mvp.as_ref().unwrap().metric));
                 }
                 state.baseline_result = Some(id);
                 state.stage = Stage::RunMvp;
@@ -489,7 +590,11 @@ pub fn advance(
                 if ids.is_empty() {
                     return Err("至少绑定一条实际 MVP 实验结果".into());
                 }
+                let mut unique = std::collections::HashSet::new();
                 for id in &ids {
+                    if !unique.insert(id) {
+                        return Err("MVP result_id 不能重复计入".into());
+                    }
                     if state.baseline_result.as_ref() == Some(id) {
                         return Err("基线不能同时作为 MVP 结果".into());
                     }
@@ -519,6 +624,7 @@ pub fn advance(
                 state.interpretation = Some(file);
                 state.verdict = Some(verdict);
                 state.stage = match required(input, "next")?.as_str() {
+                    "complete" if state.version >= 2 => Stage::PlanFull,
                     "complete" => Stage::Completed,
                     "iterate" => Stage::DesignMvp,
                     "pivot" => Stage::ChooseDirection,
@@ -526,7 +632,7 @@ pub fn advance(
                 };
             }
             "request_input" => state.waiting_reason = Some(required(input, "reason")?),
-            _ => return Err("未知或非 agent 操作".into()),
+            _ => lifecycle::advance(root, state, action, input)?,
         }
         Ok(())
     })
@@ -546,7 +652,8 @@ pub fn check_run(root: &Path, topic: &str, exploration_id: &str) -> Result<(), S
     let Some(state) = load(root, topic)? else {
         return Ok(());
     };
-    if !state.runnable() || !matches!(state.stage, Stage::Prepare | Stage::RunMvp) {
+    if !state.runnable() || !matches!(state.stage, Stage::Prepare | Stage::RunMvp | Stage::RunFull)
+    {
         return Err("当前研究阶段不能启动实验".into());
     }
     if state.mvp.as_ref().map(|m| m.exploration_id.as_str()) != Some(exploration_id) {
@@ -590,8 +697,8 @@ pub fn validate_run_id(
     let suffix = result
         .strip_prefix(&format!("{exploration}-"))
         .ok_or("实验编号必须为 E-<n>-<nn>，例如 E-001-01")?;
-    if suffix.is_empty() || !suffix.bytes().all(|c| c.is_ascii_digit()) {
-        return Err("实验编号后缀必须为数字，不能包含路径".into());
+    if suffix.len() != 2 || !suffix.bytes().all(|c| c.is_ascii_digit()) {
+        return Err("实验编号后缀必须为两位数字（例如 E-001-01），与探索结果表一致".into());
     }
     Ok(())
 }
@@ -610,6 +717,11 @@ pub fn record_run_start(root: &Path, run: &kanzei_core::ResearchRunRecord) -> Re
         .map_err(|e| e.to_string())?;
     if guard.is_some() {
         check_run(root, &run.topic, &run.exploration_id)?;
+        let state = load(root, &run.topic)?.ok_or("研究流程不存在")?;
+        let runs = store
+            .list_research_runs(&run.topic)
+            .map_err(|e| e.to_string())?;
+        lifecycle::validate_run(&state, run, &runs)?;
         if store
             .get_research_run(&run.result_id)
             .map_err(|e| e.to_string())?
@@ -621,5 +733,7 @@ pub fn record_run_start(root: &Path, run: &kanzei_core::ResearchRunRecord) -> Re
     store.upsert_research_run(run).map_err(|e| e.to_string())
 }
 
+#[cfg(test)]
+mod full_tests;
 #[cfg(test)]
 mod tests;

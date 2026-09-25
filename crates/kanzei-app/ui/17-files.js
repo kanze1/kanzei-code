@@ -10,11 +10,26 @@ export const filesExpanded = new Set([""]);
 export let filesActivePath = null;
 export let monacoLoadPromise = null;
 export let filesEditor = null;
+let file_preview_generation = 0;
+
+export function reset_files_scope() {
+  file_preview_generation += 1;
+  filesViewLeft();
+  filesSnapshotData = null;
+  filesActivePath = null;
+  if (filesEditor) filesEditor.setValue("");
+  $("files-tree")?.replaceChildren();
+  $("files-preview-head")?.classList.add("hidden");
+  $("files-editor")?.classList.add("hidden");
+}
 
 export async function refreshFiles() {
   if (!currentProject) return;
+  const root = currentProject;
   try {
-    filesSnapshotData = await invoke("files_snapshot", { projectDir: currentProject });
+    const snapshot = await invoke("files_snapshot", { projectDir: root });
+    if (root !== currentProject) return;
+    filesSnapshotData = snapshot;
     renderFilesTree();
   } catch (err) {
     toastError(`${t("文件树加载失败")}:${err}`);
@@ -178,31 +193,39 @@ export function renderFilesDir(container, node, depth, snapshot) {
 export function loadMonaco() {
   if (monacoLoadPromise) return monacoLoadPromise;
   monacoLoadPromise = new Promise((resolve, reject) => {
-    const boot = () => {
-      const script = document.createElement("script");
-      script.src = "vendor/monaco/loader.js";
-      script.onload = () => {
-        window.require.config({ paths: { vs: "vendor/monaco" } });
+    const script = document.createElement("script");
+    script.src = "vendor/monaco/loader.js";
+    script.onload = () => {
+      const base = new URL("vendor/monaco/", document.baseURI).href;
+      const paths = { vs: base.replace(/\/$/, "") };
+      window.require.config({ paths });
+      const boot = () => {
+        // Monaco's default worker assumes a directory named vs. Keep our vendor path mapping in workers too.
+        const worker = new Blob([
+          `self.MonacoEnvironment = ${JSON.stringify({ baseUrl: base })};`,
+          `self.require = ${JSON.stringify({ paths })};`,
+          `self._VSCODE_NLS_MESSAGES = ${JSON.stringify(globalThis._VSCODE_NLS_MESSAGES)};`,
+          `self._VSCODE_NLS_LANGUAGE = ${JSON.stringify(globalThis._VSCODE_NLS_LANGUAGE)};`,
+          `importScripts(${JSON.stringify(`${base}base/worker/workerMain.js`)});`,
+        ], { type: "application/javascript" });
+        const workerUrl = URL.createObjectURL(worker);
+        globalThis.MonacoEnvironment = { ...globalThis.MonacoEnvironment, getWorkerUrl: () => workerUrl };
         window.require(["vs/editor/editor.main"], () => resolve(window.monaco), reject);
       };
-      script.onerror = () => reject(new Error("monaco loader load failed"));
-      document.head.appendChild(script);
+      // The bundled translation is an AMD module: load it after the loader, before the editor.
+      if (languageIsEnglish()) boot();
+      else window.require(["vs/nls.messages.zh-cn"], boot, boot);
     };
-    if (!languageIsEnglish()) {
-      // nls 必须先于 loader 注入,Monaco 启动时读全局翻译表。
-      const nls = document.createElement("script");
-      nls.src = "vendor/monaco/nls.messages.zh-cn.js";
-      nls.onload = boot;
-      nls.onerror = boot; // 翻译丢了退回英文界面,不挡功能
-      document.head.appendChild(nls);
-    } else {
-      boot();
-    }
+    script.onerror = () => reject(new Error("monaco loader load failed"));
+    document.head.appendChild(script);
   });
   return monacoLoadPromise;
 }
 
 export async function openFilePreview(file) {
+  const root = currentProject;
+  const generation = ++file_preview_generation;
+  const is_current = () => root === currentProject && generation === file_preview_generation;
   filesActivePath = file.path;
   renderFilesTree();
   const head = $("files-preview-head");
@@ -211,7 +234,8 @@ export async function openFilePreview(file) {
   $("files-preview-meta").textContent = "";
   const placeholder = $("files-placeholder");
   try {
-    const preview = await invoke("file_preview", { projectDir: currentProject, path: file.path });
+    const preview = await invoke("file_preview", { projectDir: root, path: file.path });
+    if (!is_current()) return;
     if (preview.binary) {
       placeholder.textContent = `${t("二进制文件")} · ${humanSize(preview.size)}`;
       placeholder.classList.remove("hidden");
@@ -221,6 +245,7 @@ export async function openFilePreview(file) {
     placeholder.classList.add("hidden");
     $("files-editor").classList.remove("hidden");
     const monaco = await loadMonaco();
+    if (!is_current()) return;
     if (!filesEditor) {
       // R-189:Monaco 主题跟随全局(暗=vs-dark/亮=vs);CSS 变量到不了 Monaco,
       // 用与 03-shell.js 相同的主题源,初始即正确。
@@ -246,6 +271,7 @@ export async function openFilePreview(file) {
     if (old && old !== model) old.dispose();
     $("files-preview-meta").textContent = `${humanSize(preview.size)}${preview.truncated ? ` · ${t("已截断预览前 4MB")}` : ""}`;
   } catch (err) {
+    if (!is_current()) return;
     placeholder.textContent = `${t("预览失败")}:${err}`;
     placeholder.classList.remove("hidden");
   }

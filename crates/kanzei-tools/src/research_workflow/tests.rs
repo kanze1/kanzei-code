@@ -1,7 +1,7 @@
 use super::*;
 use kanzei_harness::{Tool, ToolCtx};
 
-fn root() -> PathBuf {
+pub(super) fn root() -> PathBuf {
     let id = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -31,7 +31,7 @@ fn root() -> PathBuf {
     root
 }
 
-fn advance_ok(root: &Path, action: &str, input: Value) -> Workflow {
+pub(super) fn advance_ok(root: &Path, action: &str, input: Value) -> Workflow {
     let revision = load(root, "demo").unwrap().unwrap().revision;
     advance(root, "demo", revision, action, &input).unwrap()
 }
@@ -42,17 +42,75 @@ fn candidates() -> Value {
         "source_ids":["S-001"]}]})
 }
 
-fn through_selection(root: &Path) -> Workflow {
+pub(super) fn through_selection(root: &Path) -> Workflow {
     start(root, "demo", PlanBudget::default(), 4).unwrap();
+    // Preserve the original MVP-only project contract while new v2 cases cover paper delivery.
+    let mut legacy = load(root, "demo").unwrap().unwrap();
+    legacy.version = 1;
+    save(root, &legacy).unwrap();
     advance_ok(root, "survey_complete", json!({"artifact":"survey.md"}));
     let map = advance_ok(root, "publish_map", candidates());
     assert!(!map.runnable());
     user_action(root, "demo", map.revision, "select", Some("staleness")).unwrap()
 }
 
-fn mvp() -> Value {
+pub(super) fn mvp() -> Value {
     json!({"mvp":{"question":"Does stale memory hurt?", "hypothesis":"Removing stale items improves score", "baseline":"Unfiltered memory",
         "metric":"score", "success":"score improves at fixed budget", "failure":"no improvement", "exploration_id":"E-001", "protocol":"protocol.md"}})
+}
+
+#[test]
+fn workflow_tool_schema_resolves_every_local_reference() {
+    fn check(value: &Value, root: &Value) {
+        match value {
+            Value::Object(object) => {
+                if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
+                    if let Some(pointer) = reference.strip_prefix('#') {
+                        assert!(
+                            root.pointer(pointer).is_some(),
+                            "unresolved schema reference: {reference}"
+                        );
+                    }
+                }
+                for nested in object.values() {
+                    check(nested, root);
+                }
+            }
+            Value::Array(array) => {
+                for nested in array {
+                    check(nested, root);
+                }
+            }
+            _ => {}
+        }
+    }
+    let schema = ResearchWorkflowTool::default().input_schema();
+    check(&schema, &schema);
+}
+
+#[test]
+fn exploration_authoring_template_and_diagnostics_support_mvp_recovery() {
+    let root = root();
+    let state = through_selection(&root);
+    let path = topic_dir(&root, "demo")
+        .unwrap()
+        .join("explorations/E-001.md");
+    let template = exploration_template("demo");
+    let parsed = kanzei_core::parse_exploration_markdown(&path, &template);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert!(state.guidance().contains("explorations/E-001.md"));
+    std::fs::write(&path, "# Missing frontmatter").unwrap();
+    let missing = advance(&root, "demo", state.revision, "define_mvp", &mvp()).unwrap_err();
+    assert!(missing.contains("kind: exploration"));
+    std::fs::write(&path, template.replace("## 后续", "## Next steps")).unwrap();
+    let invalid = advance(&root, "demo", state.revision, "define_mvp", &mvp()).unwrap_err();
+    assert!(invalid.contains("后续"));
+    assert_eq!(
+        load(&root, "demo").unwrap().unwrap().revision,
+        state.revision
+    );
+    std::fs::write(&path, template).unwrap();
+    assert_eq!(advance_ok(&root, "define_mvp", mvp()).stage, Stage::Prepare);
 }
 
 #[test]
@@ -269,6 +327,11 @@ async fn runner_budget_counts_failed_runs_and_rejects_another_exploration() {
     assert!(check_run(&root, "demo", "E-002").is_err());
     assert!(
         real_run(&root, "../bad", "echo must-not-run")
+            .await
+            .is_error
+    );
+    assert!(
+        real_run(&root, "E-001-1234567890", "echo must-not-run")
             .await
             .is_error
     );

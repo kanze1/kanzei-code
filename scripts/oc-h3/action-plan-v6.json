@@ -1,0 +1,69 @@
+{
+  "profile": "profile-soft-v5.json",
+  "mode": "larry",
+  "jobs": [
+    {
+      "name": "oc-idle-breath-v8",
+      "image": "master-soft-v5.png",
+      "last_image": "master-soft-v5.png",
+      "seconds": 10,
+      "prompt": "idle-breath-v8.txt"
+    },
+    {
+      "name": "oc-listening-v6",
+      "image": "master-soft-v5.png",
+      "last_image": "master-soft-v5.png",
+      "seconds": 4,
+      "prompt": "listening-v6.txt"
+    },
+    {
+      "name": "oc-thinking-v6",
+      "image": "master-soft-v5.png",
+      "last_image": "master-soft-v5.png",
+      "seconds": 6,
+      "prompt": "thinking-v6.txt"
+    },
+    {
+      "name": "oc-executing-v6",
+      "image": "master-soft-v5.png",
+      "last_image": "master-soft-v5.png",
+      "seconds": 6,
+      "prompt": "executing-v6.txt"
+    },
+    {
+      "name": "oc-blocked-v6",
+      "image": "master-soft-v5.png",
+      "last_image": "master-soft-v5.png",
+      "seconds": 4,
+      "prompt": "blocked-v6.txt"
+    },
+    {
+      "name": "oc-aside-v6",
+      "image": "master-soft-v5.png",
+      "last_image": "master-soft-v5.png",
+      "seconds": 4,
+      "prompt": "aside-v6.txt"
+    },
+    {
+      "name": "oc-warm-v6",
+      "image": "master-soft-v5.png",
+      "last_image": "master-soft-v5.png",
+      "seconds": 4,
+      "prompt": "warm-v6.txt"
+    },
+    {
+      "name": "oc-complete-v6",
+      "image": "master-soft-v5.png",
+      "last_image": "master-soft-v5.png",
+      "seconds": 4,
+      "prompt": "complete-v6.txt"
+    },
+    {
+      "name": "oc-reply-hold-v6",
+      "image": "gesture-soft-v5.png",
+      "last_image": "gesture-soft-v5.png",
+      "seconds": 6,
+      "prompt": "reply-hold-v6.txt"
+    }
+  ]
+}

@@ -16,11 +16,14 @@ export async function refreshArch() {
     $("arch-tree").textContent = t("先选择一个项目");
     return;
   }
+  const project = currentProject;
   try {
-    const snap = await invoke("architecture_snapshot", { projectDir: currentProject });
+    const snap = await invoke("architecture_snapshot", { projectDir: project });
+    if (project !== currentProject) return;
     latestArchSnapshot = snap;
     renderArch(snap);
   } catch (err) {
+    if (project !== currentProject) return;
     $("arch-tree").textContent = "";
     toastError(`${t("架构索引读取失败")}:${err}`);
   }

@@ -28,12 +28,11 @@ pub async fn build_route(resolved: &ResolvedModel, proxy: &ProxyConfig) -> anyho
         ));
     }
 
-    if resolved.provider.auth.as_deref() == Some("claude") {
-        let headers = kanzei_llm::auth::claude::claude_headers(proxy).await?;
-        return Ok(Route::anthropic_with_headers_at(
-            &resolved.provider.base_url,
-            headers,
-        ));
+    if resolved.provider.auth.as_deref() == Some("claude") && api_key.is_none() {
+        anyhow::bail!(
+            "Claude subscription login has been disabled. Configure an Anthropic API key for provider `{}`.",
+            resolved.provider_name
+        );
     }
 
     match resolved

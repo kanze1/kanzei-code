@@ -305,6 +305,10 @@ export function renderLines(lines) {
       .filter((lane) => lane.querySelector(".line-changed-files")?.open)
       .map((lane) => lane.dataset.processId),
   );
+  const expandedDetails = new Set([...target.querySelectorAll(".line-runtime-details[open]")]
+    .map(panel => panel.closest(".line-lane")?.dataset.processId));
+  const expandedClaims = new Set([...target.querySelectorAll(".line-held-items[open]")]
+    .map(panel => panel.closest(".line-lane")?.dataset.processId));
   target.replaceChildren();
   const lineIsRunning = (line) => {
     const item = processItems.find((process) => process.id === line.process_id);
@@ -345,7 +349,8 @@ export function renderLines(lines) {
     const title = document.createElement("h3");
     title.textContent = line.label;
     const processId = document.createElement("code");
-    processId.textContent = line.process_id;
+    processId.textContent = line.worktree_path ? t("独立工作树") : t("主工作区");
+    processId.title = line.process_id;
     titleWrap.append(title, processId);
     identity.append(badge, titleWrap);
     const state = document.createElement("span");
@@ -354,9 +359,24 @@ export function renderLines(lines) {
     state.textContent = lineStatusLabel(statusKey);
     head.append(identity, state);
 
-    const claim = document.createElement("p");
+    const claim = document.createElement("div");
     claim.className = "line-claim";
-    claim.textContent = line.claim || t("未取得条目");
+    const claimedIds = String(line.claim || "").match(/\b[RD]-[\w-]+\b/g) || [];
+    const entries = [...(latestDocsSnapshot?.requirements || []), ...(latestDocsSnapshot?.defects || [])];
+    const claimText = id => {
+      const entry = entries.find(entry => entry.id === id);
+      return entry ? `${id} · ${entry.title}` : id;
+    };
+    if (claimedIds.length > 1) {
+      const held = document.createElement("details");
+      held.className = "line-held-items";
+      held.open = expandedClaims.has(line.process_id);
+      const summary = document.createElement("summary");
+      summary.textContent = `${t(line.worktree_path ? "工作树持有" : "共享工作区持有")} ${claimedIds.length} ${t("条")}`;
+      const list = document.createElement("ul");
+      for (const id of claimedIds) { const item = document.createElement("li"); item.textContent = claimText(id); list.appendChild(item); }
+      held.append(summary, list); claim.appendChild(held);
+    } else claim.textContent = claimedIds.length ? claimText(claimedIds[0]) : line.claim || t("未取得条目");
     if (line.claim_error) {
       claim.classList.add("error");
       claim.title = line.claim_error;
@@ -367,11 +387,18 @@ export function renderLines(lines) {
     facts.append(
       lineFact(t("阶段"), line.phase || t("空闲")),
       lineFact(t("当前工具"), line.current_tool || "—"),
-      lineFact(t("分支"), line.branch || "—", "mono"),
-      lineFact(t("工作树"), line.worktree_path || t("主工作区"), "mono"),
       lineFact(t("步数"), String(line.steps || 0)),
       lineFact(t("令牌"), `${formatLineTokens(line.input_tokens)} ↓ / ${formatLineTokens(line.output_tokens)} ↑`),
     );
+    const runtimeDetails = document.createElement("details");
+    runtimeDetails.className = "line-runtime-details";
+    runtimeDetails.open = expandedDetails.has(line.process_id);
+    const runtimeSummary = document.createElement("summary");
+    runtimeSummary.textContent = `${line.branch || t("主工作区")} · ${t("线路详情")}`;
+    runtimeDetails.append(runtimeSummary,
+      lineFact(t("分支"), line.branch || "—", "mono"),
+      lineFact(t("工作树"), line.worktree_path || t("主工作区"), "mono"),
+      lineFact(t("线路标识"), line.process_id, "mono"), buildLineAutoControls(line));
 
     const changed = document.createElement("details");
     changed.className = "line-changed-files";
@@ -434,14 +461,17 @@ export function renderLines(lines) {
       close.addEventListener("click", () => void closeParallelProcess(line.process_id));
       actions.appendChild(close);
     }
-    lane.append(head, claim, facts, buildLineAutoControls(line), changed, actions);
+    const footer = document.createElement("div");
+    footer.className = "line-lane-footer";
+    footer.append(changed, actions);
+    lane.append(head, claim, facts, runtimeDetails, footer);
     const preservedPanel = preservedHarvestPanels.get(line.process_id);
     if (preservedPanel) lane.appendChild(preservedPanel);
     target.appendChild(lane);
   }
   renderLineConflicts(collaborationLines);
   // R-247:协作快照与文档快照都来自同一 tracker 取得线；线路代号变化后同步重绘 badge。
-  if (typeof latestDocsSnapshot !== "undefined" && latestDocsSnapshot && typeof renderDocuments === "function") {
+  if ($("view-documents")?.classList.contains("active") && latestDocsSnapshot && typeof renderDocuments === "function") {
     renderDocuments(latestDocsSnapshot);
   }
 }
@@ -898,11 +928,20 @@ export async function refreshLines() {
   try {
     // 模型目录按项目缓存,不随每次线路刷新重探(8 秒一轮的探测既慢又白费);
     // 目录空也照画——每线下拉至少有「agent 默认」与该线已记住的模型。
-    await loadLinesModelCatalog();
+    const catalog = loadLinesModelCatalog();
     if (currentProject !== forProject) return;
     const lines = await invoke("collaboration_snapshot", { projectDir: forProject });
     if (currentProject !== forProject) return;
     renderLines(lines);
+    void catalog.then(() => {
+      if (currentProject === forProject && $("view-lines")?.classList.contains("active")) {
+        for (const lane of $("lines-list").querySelectorAll(".line-lane")) {
+          const line = collaborationLines.find(item => item.process_id === lane.dataset.processId);
+          const controls = lane.querySelector(".line-autorun");
+          if (line && controls && controls !== document.activeElement?.closest(".line-autorun")) controls.replaceWith(buildLineAutoControls(line));
+        }
+      }
+    });
   } catch (error) {
     if (currentProject === forProject) {
       log(`${t("并行线路读取失败")}:${error}`, "warn");

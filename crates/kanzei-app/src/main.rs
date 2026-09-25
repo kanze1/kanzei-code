@@ -27,6 +27,7 @@ mod harness_ext;
 #[cfg(test)]
 mod ipc_contract;
 mod memory;
+mod memory_chat;
 mod mobile;
 mod mobile_notify;
 mod orchestration_trace;
@@ -37,6 +38,7 @@ mod projection_gate;
 mod projects;
 mod research_auto;
 mod research_latex;
+mod research_library;
 mod research_topics;
 mod run;
 mod screenshot;
@@ -46,6 +48,7 @@ mod subagents;
 mod typed_events;
 mod update;
 mod voice;
+mod voice_service;
 
 #[cfg(test)]
 pub(crate) use projects::{export_project_data, ExportOptions};
@@ -106,6 +109,7 @@ fn main() {
     tauri::Builder::default()
         .manage(AppState::default())
         .manage(voice::VoiceState::default())
+        .manage(memory_chat::MemoryChatState::default())
         // UI 探针的出口:装一次,之后工具侧只认 UI_PROBE_EMIT。
         .setup(|app| {
             let handle = app.handle().clone();
@@ -166,6 +170,7 @@ fn main() {
             voice::voice_settings_get,
             voice::voice_settings_set,
             voice::voice_status,
+            voice::voice_start,
             voice::voice_speak,
             voice::voice_transcribe,
             voice::voice_cancel,
@@ -183,6 +188,9 @@ fn main() {
             projects::workspace_snapshot,
             docs::docs_snapshot,
             research_topics::research_topic_create,
+            research_library::research_library_list,
+            research_library::research_library_create,
+            research_library::research_library_link_projects,
             research_auto::research_workflow_get,
             research_auto::research_workflow_start,
             research_auto::research_workflow_update,
@@ -232,6 +240,9 @@ fn main() {
             memory::memory_search_page,
             memory::memory_context_bill,
             memory::memory_consolidate,
+            memory_chat::memory_chat_history,
+            memory_chat::memory_chat_send,
+            memory_chat::memory_chat_stop,
             run::app_info,
             commands::models::models_list,
             docs::docs_update,

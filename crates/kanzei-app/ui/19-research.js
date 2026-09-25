@@ -8,6 +8,7 @@ import { openFilePreview } from "./17-files.js";
 import { active_space, project_workspace, save_research_workspace } from "./03-workspaces.js";
 import { research_category, research_status_label, render_research_navigation, render_research_overview, show_research_page, sync_research_page } from "./19-research-navigation.js";
 import { refreshResearchWorkflow, resetResearchWorkflow } from "./19-research-auto.js";
+import { load_research_library, research_library, selected_library_entry, select_library_entry } from "./03-research-library.js";
 
 // 研究工作台(R-276 批3)。
 //
@@ -375,8 +376,10 @@ export function researchTopicLabel(topic) {
 export function selectedResearchTopicData() {
   const category = project_workspace().research.category;
   const topics = researchSnapshot.research_topics ?? [];
-  return topics.find((topic) => researchTopicKey(topic) === selectedResearchTopic && research_category(topic) === category)
+  const entry = active_space === "research" ? selected_library_entry() : null;
+  const data = topics.find((topic) => researchTopicKey(topic) === selectedResearchTopic && research_category(topic) === category)
     ?? { topic: null, legacy: false, label: "", sources: [], findings: [], runs: [] };
+  return entry ? { ...data, ...entry } : data;
 }
 
 export function sync_research_process_context(item) {
@@ -391,17 +394,27 @@ export function sync_research_process_context(item) {
 export function renderResearchTopicPicker() {
   const select = $("research-topic-select");
   if (!select) return;
+  const diagnostic = $("research-library-error");
+  if (diagnostic) {
+    diagnostic.textContent = (research_library?.diagnostics || []).join("\n");
+    diagnostic.classList.toggle("hidden", !diagnostic.textContent);
+  }
   const saved = project_workspace().research;
-  const topics = (researchSnapshot.research_topics ?? []).filter((topic) => research_category(topic) === saved.category);
+  const topics = (active_space === "research" && research_library ? research_library.entries : researchSnapshot.research_topics ?? []).filter((topic) => research_category(topic) === saved.category);
+  if (active_space === "research" && research_library) {
+    selectedResearchTopic = selected_library_entry()?.topic || "";
+  } else {
   selectedResearchTopic = topics.some((topic) => researchTopicKey(topic) === saved.topic)
     ? saved.topic : topics.length ? researchTopicKey(topics[0]) : "";
   if (saved.topic !== selectedResearchTopic) save_research_workspace({ topic: selectedResearchTopic });
+  }
   select.replaceChildren();
   select.disabled = !topics.length;
   for (const topic of topics) {
     const option = document.createElement("option");
-    option.value = researchTopicKey(topic);
-    option.textContent = researchTopicLabel(topic);
+    option.value = topic.id || researchTopicKey(topic);
+    const duplicate = topics.filter((entry) => researchTopicLabel(entry) === researchTopicLabel(topic)).length > 1;
+    option.textContent = `${researchTopicLabel(topic)}${duplicate ? ` · ${topic.id}` : ""}${topic.available === false ? ` · ${t("目录不可用")}` : ""}`;
     select.appendChild(option);
   }
   if (!topics.length) {
@@ -410,11 +423,16 @@ export function renderResearchTopicPicker() {
     option.textContent = t("暂无研究课题");
     select.appendChild(option);
   }
-  select.value = selectedResearchTopic;
+  select.value = selected_library_entry()?.id || selectedResearchTopic;
   render_research_navigation();
 }
 
 export async function select_research_topic(topic) {
+  if (active_space === "research" && research_library) {
+    const entry = research_library.entries.find((entry) => entry.id === topic)
+      ?? research_library.entries.find((entry) => entry.topic === topic && entry.storage_root === currentProject && entry.kind === project_workspace().research.category);
+    return select_library_entry(entry?.id || "");
+  }
   resetResearchWorkflow();
   research_context_generation += 1;
   selectedResearchTopic = topic;
@@ -1299,7 +1317,16 @@ export function startResearchPolling() {
 
 const research_refresh_inflight = new Map();
 export async function refreshResearch() {
-  if (!currentProject) return;
+  if (active_space === "research") {
+    try { await load_research_library(); }
+    catch (error) { toastError(`${t("研究课题库读取失败")}: ${error}`); return; }
+  }
+  if (!currentProject) {
+    renderResearchTopicPicker();
+    render_research_overview();
+    sync_research_page();
+    return;
+  }
   const project = currentProject;
   if (research_refresh_inflight.has(project)) return research_refresh_inflight.get(project);
   const request = (async () => {

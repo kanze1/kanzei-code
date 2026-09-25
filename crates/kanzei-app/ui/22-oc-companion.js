@@ -1,8 +1,4 @@
-import { initOcPerformance, ocPerformanceMarkup, sampleOcPerformance } from "./22-oc-performance.js";
-
-export function ocAnimationFrame(state, elapsed) {
-  return sampleOcPerformance(state, elapsed).pose;
-}
+import { initOcPerformance, ocPerformanceMarkup } from "./22-oc-performance.js";
 
 export function initOcSpriteMotion(root) {
   return initOcPerformance(root);
@@ -74,29 +70,40 @@ export function initOcCompanion(root, options) {
   if (!root) return null;
   const store = createOcStateStore(options);
   // 初始 HTML 与动态空态复用同一份人物/光纹结构。
-  root.querySelectorAll(".empty-art, #oc-companion").forEach((host) => {
+  root.querySelectorAll(".empty-art, #oc-companion, .voice-art").forEach((host) => {
     if (!host.querySelector(".oc-figure")) host.innerHTML = ocCompanionMarkup();
   });
   const motion = initOcSpriteMotion(root);
   let voice = null;
+  let lastSessionId = options.getSessionId();
+  function preferenceChanged() {
+    motion.setEnabled(document.documentElement.dataset.ocEnabled !== "false");
+    sync();
+  }
   function sync() {
+    const sessionId = options.getSessionId();
+    if (sessionId !== lastSessionId) { motion.reset(); lastSessionId = sessionId; }
     const paused = document.hidden || !root.closest(".view")?.classList.contains("active");
-    const currentVoice = voice?.sessionId === options.getSessionId() ? voice : null;
-    motion.setState(currentVoice?.phase === "speaking" ? "replying" : currentVoice?.phase || store.current(), paused);
+    const currentVoice = voice?.sessionId === sessionId ? voice : null;
+    const stopping = ["stopping", "stopped"].includes(options.getRuntime(sessionId)?.phase);
+    motion.setState(stopping ? "interrupted" : currentVoice?.phase === "speaking" ? "replying" : currentVoice?.phase || store.current(), paused);
     motion.setSpeaking(currentVoice?.phase === "speaking");
     motion.setMouthLevel(currentVoice?.level || 0);
   }
-  sync();
+  preferenceChanged();
   // 状态投影只做低频只读同步，覆盖切会话、后台终态和轮询恢复。
   const timer = setInterval(sync, 250);
   document.addEventListener("visibilitychange", sync);
+  document.addEventListener("kz:oc-preference", preferenceChanged);
   return {
     emit(type, detail) { store.emit(type, detail); sync(); },
     voice(sessionId, phase, level = 0) { voice = phase ? { sessionId, phase, level } : null; sync(); },
+    snapshot: () => motion.snapshot(),
     destroy() {
       clearInterval(timer);
       motion.destroy();
       document.removeEventListener("visibilitychange", sync);
+      document.removeEventListener("kz:oc-preference", preferenceChanged);
     },
   };
 }

@@ -1,0 +1,64 @@
+{
+  "audio": "demo-speech-c-v7.wav",
+  "duration": 30,
+  "fps": 24,
+  "voice": "Kanzei OC CN C",
+  "referenceSha256": "d514364ac6d714134b9d26b6428784b7905e78ec7f3337e2c4853287b3ec1cc4",
+  "audioSha256": "8b84d343bf1cfeee13134e4b89677996c463f3c362723a328eb33469c3085d29",
+  "events": [
+    [
+      0,
+      "idle"
+    ],
+    [
+      2.4,
+      "listening"
+    ],
+    [
+      6.5,
+      "thinking"
+    ],
+    [
+      13.2,
+      "replying"
+    ],
+    [
+      21.5,
+      "aside"
+    ],
+    [
+      26.2,
+      "complete"
+    ],
+    [
+      29.6,
+      "idle"
+    ]
+  ],
+  "cues": [
+    {
+      "at": 3.1,
+      "state": "listening",
+      "text": "说吧，今天折腾什么。",
+      "duration": 2.08
+    },
+    {
+      "at": 15.7,
+      "state": "replying",
+      "text": "找到毛病了。这个地方接错了，改一下就好。",
+      "duration": 3.36
+    },
+    {
+      "at": 22.3,
+      "state": "aside",
+      "text": "这弯绕得，还挺有创意。",
+      "duration": 2.72
+    },
+    {
+      "at": 26.8,
+      "state": "complete",
+      "text": "好了，试试。",
+      "duration": 1.84
+    }
+  ]
+}

@@ -1,191 +1,210 @@
-// 身体姿态、眨眼与语音嘴型各自采样；文本流不会自行触发说话嘴型。
-const POSES = {
-  idle: [[0, 5200], [1, 1200], [0, 6400], [2, 900], [0, 4100]],
-  listening: [[0, 900], [1, 650], [0, 6200]],
-  thinking: [[1, 380], [3, 2400], [1, 350], [0, 6200]],
-  executing: [[1, 520], [3, 1900], [0, 6800]],
-  interested: [[0, 320], [4, 1850], [0, 4800]],
-  skeptical: [[0, 250], [2, 2300], [0, 5500]],
-  replying: [[0, 600], [4, 1400], [0, 5400], [1, 800], [0, 3600]],
-  complete: [[0, 220], [5, 1150], [0, 430]],
-  interrupted: [[0, 500], [1, 700], [0, 5200]],
-  blocked: [[2, 1800], [0, 7400]],
-};
-const BLINKS = [[0, 3300], [1, 130], [0, 4900], [1, 150], [0, 6400], [1, 110], [0, 160], [1, 100]];
+import { createOcDirector, ocMouthFrame } from "./22-oc-director.js";
+import { loadOcResources, createOcRenderer } from "./22-oc-renderer.js";
+import { OC_REFERENCE_SRC, OC_CHARACTER_PACK_SRC } from "./22-oc-config.js";
+import { readOcSettings } from "./22-oc-preference.js";
+import { initOcLayout } from "./22-oc-layout.js";
 
-function sampleClip(clip, elapsed, once = false) {
-  const time = Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0;
-  const duration = clip.reduce((sum, [, ms]) => sum + ms, 0);
-  if (once && time >= duration) return { value: 0, wait: Infinity };
-  let remaining = time % duration;
-  for (const [value, ms] of clip) {
-    if (remaining < ms) return { value, wait: ms - remaining };
-    remaining -= ms;
-  }
-  return { value: 0, wait: Infinity };
-}
-
-export function ocMouthFrame(level) {
-  const value = Number.isFinite(level) ? Math.max(0, Math.min(1, level)) : 0;
-  return value < .12 ? 0 : value < .48 ? 2 : 3;
-}
-
-export function sampleOcPerformance(state, elapsed, blinkElapsed = elapsed, mouthLevel = 0) {
-  const clip = Object.hasOwn(POSES, state) ? POSES[state] : POSES.idle;
-  const pose = sampleClip(clip, elapsed, state === "complete");
-  const eyes = sampleClip(BLINKS, blinkElapsed);
-  return { pose: pose.value, blink: eyes.value, mouth: ocMouthFrame(mouthLevel), wait: Math.min(pose.wait, eyes.wait) };
-}
-
-// 这里的定位以单格百分比表示；它们只决定现有图层的展示位置。
-const FACE = [
-  { eyes: [[27, 36, 45, 44], [50, 33, 69, 41]], mouth: [43, 46, 55, 52], cheek: [643, 657] },
-  { eyes: [[27, 35, 43, 44], [50, 32, 68, 41]], mouth: [41, 44, 54, 52], cheek: [635, 657] },
-  { eyes: [[51, 28, 66, 37], [71, 33, 83, 41]], mouth: [62, 42, 73, 49], cheek: [558, 608] },
-  { eyes: [[24, 38, 41, 47], [45, 35, 64, 45]], mouth: [40, 50, 53, 56], cheek: [628, 710] },
-  { eyes: [[31, 33, 46, 42], [56, 32, 72, 42]], mouth: [48, 46, 60, 53], cheek: [689, 657] },
-  { eyes: [[27, 39, 44, 48], [50, 36, 69, 45]], mouth: [44, 47, 57, 55], cheek: [670, 689] },
-];
-
-function inset([left, top, right, bottom]) {
-  return `inset(${top}% ${100 - right}% ${100 - bottom}% ${left}%)`;
-}
-
-function eyeClip(eyes) {
-  const points = eyes.flatMap(([left, top, right, bottom]) => [
-    `${left}% ${top}%`, `${right}% ${top}%`, `${right}% ${bottom}%`, `${left}% ${bottom}%`, `${left}% ${top}%`,
-  ]);
-  points.push(points[0]);
-  return `polygon(${points.join(", ")})`;
-}
+export { ocMouthFrame };
 
 export function ocPerformanceMarkup() {
-  const source = "./assets/oc-pixel-cold-v1.png";
-  const picture = (extra = "") => `<img class="oc-portrait ${extra}" src="${source}" alt="" decoding="async" draggable="false"/>`;
-  return `<div class="oc-figure"><div class="oc-body">`
-    + `<svg class="oc-network" viewBox="0 0 1024 1536" fill="none" aria-hidden="true">`
-    + ["M80 576H192V416H384V576H584", "M944 432H880V576H584", "M944 1088H848V976H664V872"]
-      .map(path => `<path class="oc-route" d="${path}"/><path class="oc-signal" pathLength="100" d="${path}"/>`).join("")
-    + `</svg>`
-    + `<div class="oc-sprite">${picture()}`
-    + `<div class="oc-face-layer oc-eyes">${picture("oc-eye-portrait")}</div>`
-    + `<div class="oc-face-layer oc-mouth">${picture("oc-mouth-portrait")}</div></div>`
-    + `<svg class="oc-mark" viewBox="0 0 1024 1536" fill="none" aria-hidden="true">`
-    + `<g class="oc-cheek"><path d="M0 -10V10M-9 0H9"/></g></svg>`
-    + `</div></div>`;
+  return `<div class="oc-figure"><div class="oc-stage"><img class="oc-poster" data-oc-poster="${OC_REFERENCE_SRC}" alt="" aria-hidden="true" /></div></div>`;
 }
 
 export function initOcPerformance(root) {
   if (!root) return null;
   const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-  let state = "idle";
-  let paused = false;
-  let destroyed = false;
-  let poseElapsed = 0;
-  let blinkElapsed = 0;
-  let startedAt = null;
-  let timer = null;
-  let painted = "";
-  let speaking = false;
-  let mouthLevel = 0;
+  let state = "idle"; let speaking = false; let mouthLevel = 0;
+  let paused = false; let destroyed = false; let frame = null;
+  let director = null; let renderer = null; let loading = null;
+  let activeHost = null; let lastTime = null; let lastPaint = 0;
+  let smoothMouth = 0; let renderedFrames = 0; let failure = null;
+  let enabled = document.documentElement.dataset.ocEnabled !== "false";
+  let generation = 0;
+  let motionMode = readOcSettings().motion;
+  const reduced = () => media.matches || motionMode === "still";
+  const bodyState = () => motionMode === "idle" ? "idle" : state;
+  const layout = initOcLayout(root, () => {
+    motionMode = readOcSettings().motion;
+    director?.setState(bodyState());
+    refresh();
+    if (renderer && !paused && !document.hidden) paint();
+  });
+
+  function visibleHost() {
+    return Array.from(root.querySelectorAll(".oc-stage")).find(host => {
+      if (!host.isConnected || !host.getClientRects().length) return false;
+      const rect = host.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }) || null;
+  }
 
   function stopClock() {
-    if (timer !== null) clearTimeout(timer);
-    timer = null;
-    if (startedAt !== null) {
-      const delta = performance.now() - startedAt;
-      poseElapsed += delta;
-      blinkElapsed += delta;
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = null; lastTime = null;
+    renderer?.pause?.();
+  }
+
+  function paint() {
+    if (!renderer || !director || !activeHost || destroyed || !enabled) return;
+    const sample = director.sample();
+    const painted = renderer.render(sample, { speaking, level: smoothMouth, reduced: reduced() });
+    if (painted === false) return;
+    root.dataset.ocPhase = sample.phase;
+    root.dataset.ocFrame = sample.to[0] + ":" + sample.to[1];
+    root.dataset.ocMouth = String(speaking ? ocMouthFrame(smoothMouth) : 0);
+    renderedFrames += 1;
+  }
+
+  function fail(error) {
+    failure = error instanceof Error ? error.message : String(error);
+    stopClock();
+    renderer?.destroy(); renderer = null;
+    root.dataset.ocRenderer = "poster";
+    root.dataset.ocError = failure;
+    console.warn("OC renderer unavailable; keeping the character poster:", failure);
+  }
+
+  function tick(time) {
+    frame = null;
+    if (destroyed || !enabled || paused || document.hidden || !activeHost?.isConnected) return;
+    if (!activeHost.getClientRects().length) { refresh(); return; }
+    const delta = lastTime === null ? 0 : Math.min(100, Math.max(0, time - lastTime));
+    lastTime = time;
+    if (!renderer.isBuffering?.()) director.advance(delta);
+    smoothMouth = speaking ? smoothMouth + (mouthLevel - smoothMouth) * (1 - Math.exp(-delta / 28)) : 0;
+    if (time - lastPaint >= 1000 / director.pack.fps - 1) {
+      const interval = 1000 / director.pack.fps;
+      lastPaint = time - ((time - lastPaint) % interval);
+      try { paint(); } catch (error) { fail(error); return; }
     }
-    startedAt = null;
+    frame = requestAnimationFrame(tick);
   }
 
-  function paint(sample) {
-    const key = `${sample.pose}/${sample.blink}/${sample.mouth}`;
-    if (key === painted) return;
-    painted = key;
-    const face = FACE[sample.pose];
-    root.dataset.ocFrame = String(sample.pose);
-    root.dataset.ocBlink = String(sample.blink);
-    root.dataset.ocMouth = String(sample.mouth);
-    root.style.setProperty("--oc-sprite-col", String(sample.pose));
-    root.style.setProperty("--oc-mouth-row", String(sample.mouth));
-    root.style.setProperty("--oc-eye-clip", eyeClip(face.eyes));
-    root.style.setProperty("--oc-mouth-clip", inset(face.mouth));
-    root.style.setProperty("--oc-cheek-x", `${face.cheek[0]}px`);
-    root.style.setProperty("--oc-cheek-y", `${face.cheek[1]}px`);
+  function resumeClock() {
+    if (!renderer || !enabled || paused || document.hidden || !activeHost || destroyed) { stopClock(); return; }
+    if (reduced() && !speaking) { stopClock(); smoothMouth = 0; paint(); return; }
+    renderer?.resume?.();
+    if (frame === null) frame = requestAnimationFrame(tick);
   }
 
-  function sample() {
-    if (media.matches) return { pose: 0, blink: 0, mouth: 0, wait: Infinity };
-    const delta = startedAt === null ? 0 : performance.now() - startedAt;
-    return sampleOcPerformance(state, poseElapsed + delta, blinkElapsed + delta, speaking ? mouthLevel : 0);
-  }
-
-  function tick() {
-    timer = null;
-    if (destroyed || startedAt === null) return;
-    const value = sample();
-    paint(value);
-    if (Number.isFinite(value.wait)) timer = setTimeout(tick, Math.max(16, value.wait));
+  async function prepare() {
+    if (!OC_CHARACTER_PACK_SRC || !enabled) return null;
+    if (loading || renderer || destroyed || failure || typeof HTMLCanvasElement === "undefined") return loading;
+    if (!visibleHost()) return null;
+    const requestGeneration = generation;
+    loading = loadOcResources(OC_CHARACTER_PACK_SRC).then(resources => {
+      if (destroyed || !enabled || requestGeneration !== generation) return;
+      director = createOcDirector(resources.pack);
+      director.setState(bodyState());
+      activeHost = visibleHost();
+      if (!activeHost) return;
+      layout.refresh(activeHost);
+      const poster = activeHost.querySelector(".oc-poster");
+      if (poster && !poster.src) poster.src = OC_REFERENCE_SRC;
+      renderer = createOcRenderer(activeHost, resources);
+      renderer.onFrame?.(() => {
+        if (enabled && !paused && !document.hidden) {
+          try { paint(); } catch (error) { fail(error); }
+        }
+      });
+      root.dataset.ocRenderer = "pixi";
+      delete root.dataset.ocError;
+      paint(); resumeClock();
+    }).catch(fail).finally(() => {
+      loading = null;
+      if (enabled && !destroyed && !renderer && !failure && visibleHost()) refresh();
+    });
+    return loading;
   }
 
   function refresh() {
-    stopClock();
     if (destroyed) return;
-    const hidden = paused || document.hidden;
-    root.dataset.ocPaused = String(hidden);
-    if (hidden) { mouthLevel = 0; paint(sample()); return; }
-    if (media.matches) { paint(sample()); return; }
-    startedAt = performance.now();
-    tick();
-  }
-
-  function setSpeaking(value) {
-    if (destroyed) return;
-    speaking = Boolean(value);
-    if (!speaking) mouthLevel = 0;
-    root.dataset.ocSpeaking = String(speaking);
-    paint(sample());
-  }
-
-  function setState(next, hidden = false) {
-    if (destroyed) return;
-    const normalized = Object.hasOwn(POSES, next) ? next : "idle";
-    if (state === normalized && paused === hidden) return;
-    stopClock();
-    if (state !== normalized) poseElapsed = 0;
-    state = normalized;
-    paused = hidden;
-    root.dataset.ocState = state;
-    if (state === "interrupted") setSpeaking(false);
-    refresh();
+    const nextHost = !enabled || paused || document.hidden ? null : visibleHost();
+    layout.refresh(nextHost);
+    root.dataset.ocPaused = String(!nextHost);
+    if (!nextHost) { activeHost = null; stopClock(); return; }
+    if (nextHost !== activeHost) {
+      activeHost = nextHost;
+      renderer?.moveTo(nextHost);
+      if (renderer) paint();
+    }
+    if (!renderer) void prepare();
+    else resumeClock();
   }
 
   document.addEventListener("visibilitychange", refresh);
   media.addEventListener("change", refresh);
+  window.addEventListener("resize", refresh);
   root.dataset.ocState = state;
   root.dataset.ocSpeaking = "false";
+  root.dataset.ocMouth = "0";
+  root.dataset.ocRenderer = "poster";
   refresh();
   return {
-    setState,
-    setSpeaking,
+    ready: () => prepare(),
+    setEnabled(value) {
+      const next = Boolean(value);
+      if (enabled === next) return;
+      enabled = next; generation += 1;
+      if (!enabled) {
+        stopClock(); renderer?.destroy(); renderer = null; activeHost = null;
+        root.dataset.ocRenderer = "off";
+      } else { failure = null; refresh(); }
+    },
+    setState(next, hidden = false) {
+      if (destroyed) return;
+      state = next || "idle";
+      paused = hidden;
+      root.dataset.ocState = state;
+      director?.setState(bodyState());
+      if (state === "interrupted") {
+        speaking = false; mouthLevel = 0; smoothMouth = 0;
+        root.dataset.ocSpeaking = "false";
+        root.dataset.ocMouth = "0";
+        if (renderer && !paused && !document.hidden) paint();
+      }
+      refresh();
+    },
+    setSpeaking(value) {
+      if (destroyed) return;
+      const wasSpeaking = speaking;
+      speaking = Boolean(value);
+      root.dataset.ocSpeaking = String(speaking);
+      if (!speaking) {
+        mouthLevel = 0; smoothMouth = 0;
+        // Physical playback completion/interrupt closes the mouth immediately.
+        if (wasSpeaking && renderer && !paused && !document.hidden) paint();
+      }
+      resumeClock();
+    },
     setMouthLevel(value) {
       if (destroyed || paused || document.hidden) return;
       mouthLevel = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
-      paint(sample());
+    },
+    snapshot() {
+      return { state, speaking, paused: paused || !enabled, enabled, motionMode, renderedFrames, error: failure, renderer: !enabled ? "off" : renderer ? "pixi" : "poster", sample: director?.sample() || null, media: renderer?.snapshot?.() || null };
+    },
+    redraw() { paint(); },
+    reset() {
+      state = "idle"; speaking = false; mouthLevel = 0; smoothMouth = 0; paused = false;
+      if (director) director = createOcDirector(director.pack);
+      renderer?.reset?.();
+      lastTime = null;
+      root.dataset.ocState = state;
+      root.dataset.ocSpeaking = "false";
+      refresh();
+      if (renderer) paint();
     },
     destroy() {
       if (destroyed) return;
-      stopClock();
-      speaking = false;
-      mouthLevel = 0;
-      paint({ pose: 0, blink: 0, mouth: 0 });
-      root.dataset.ocSpeaking = "false";
-      root.dataset.ocPaused = "true";
-      destroyed = true;
+      destroyed = true; stopClock();
+      layout.destroy();
+      renderer?.destroy(); renderer = null;
       document.removeEventListener("visibilitychange", refresh);
       media.removeEventListener("change", refresh);
+      window.removeEventListener("resize", refresh);
+      root.dataset.ocSpeaking = "false";
+      root.dataset.ocPaused = "true";
     },
   };
 }

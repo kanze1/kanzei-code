@@ -18,6 +18,7 @@ const calls = [];
 let next_process = 0;
 let workspace_state = {};
 let fail_create = false;
+let fail_library = false;
 payloads.project_root_info = { selected: project, resolved: project, shared: false };
 payloads.conversation_get = ({ processId }) => [{ role: "user", parts: [{ type: "text", text: `历史对话 ${processId}` }] }];
 payloads.process_list[0].running = true;
@@ -29,10 +30,21 @@ source_topics.push(
   { topic: "unknown-old", label: "待分类报告", kind: "unclassified", sources: [], findings: [], runs: [] },
   { topic: null, legacy: true, kind: "legacy", label: "旧版平铺", sources: [], findings: [], runs: [] },
 );
+const project_b = "C:/project-b";
+const library_entries = source_topics.map((entry) => ({ ...entry, id: entry.topic || "legacy", storage_root: project, linked_projects: [project], available: true }));
+library_entries.push({ id: "other-alpha", topic: "alpha-study", label: "另一个 Alpha", kind: "research", storage_root: project_b, linked_projects: [project_b], available: true });
+payloads.research_library_list = () => {
+  if (fail_library) throw new Error("课题登记表读取失败");
+  return { entries: library_entries, diagnostics: [] };
+};
 let delayed_plan = null;
 let delayed_snapshot = null;
 const workflows = new Map();
 payloads.research_workflow_get = ({ topic }) => workflows.get(topic) ?? null;
+payloads.file_preview = ({ path: file }) => {
+  assert.ok(file?.startsWith(".kanzei/research/new-topic/"), "研究产物必须传递当前课题的真实文件路径");
+  return { binary: false, size: 24, content: `Artifact ${file}`, truncated: false };
+};
 payloads.research_workflow_start = ({ topic, budget, maxMvpRuns }) => {
   assert.ok(budget.max_rounds > 0 && maxMvpRuns >= 2);
   const state = { topic, revision: 1, stage: "survey", paused: false, waiting_reason: null,
@@ -47,6 +59,14 @@ payloads.research_workflow_update = ({ topic, revision, action, direction, maxMv
   if (action === "pause") state.paused = true;
   if (action === "resume") { state.paused = false; state.waiting_reason = null; }
   if (action === "budget") state.max_mvp_runs = maxMvpRuns;
+  if (action === "revise_full") {
+    state.full_rounds = [...(state.full_rounds || []), { round: 1, artifact_root: "rounds/full-001-r20", reason: "用户要求补充完整实验", plan: state.full_plan, results: state.full_results, analysis: state.analysis, paper: state.paper }];
+    state.stage = "plan_full";
+    state.full_plan = null;
+    state.full_results = [];
+    state.analysis = null;
+    state.paper = null;
+  }
   state.revision += 1;
   return state;
 };
@@ -65,10 +85,16 @@ const server = http.createServer(async (request, response) => {
       if (cmd === "process_create") {
         value = { id: `p|workspace-${++next_process}`, session_id: `session-workspace-${next_process}`, label: args.researchTopic || "研究对话", profile: args.profile, research_topic: args.researchTopic || null, running: false, project_dir: args.projectDir };
         payloads.process_list.push(value);
-      } else if (cmd === "research_topic_create") {
+      } else if (cmd === "research_library_create") {
         if (fail_create) throw new Error("课题标识已存在");
-        value = { topic: args.topic, label: args.title, kind: "research", sources: [], findings: [], runs: [], report: false };
+        value = { id: args.topic, topic: args.topic, label: args.title, kind: "research", storage_root: `C:/research-workspaces/${args.topic}`, linked_projects: [], standalone: true, available: true, sources: [], findings: [], runs: [], report: false };
         source_topics.push(value);
+        library_entries.push(value);
+      } else if (cmd === "research_library_link_projects") {
+        value = library_entries.find((entry) => entry.id === args.id);
+        value.linked_projects = args.projects;
+      } else if (cmd === "process_list") {
+        value = payloads.process_list.filter((item) => (item.origin_project || item.project_dir || project) === args.projectDir);
       } else if (cmd === "ui_prefs_set") {
         if (args.workspace_state) workspace_state = args.workspace_state;
       } else if (cmd === "ui_prefs_get") {
@@ -79,8 +105,10 @@ const server = http.createServer(async (request, response) => {
         const captured = structuredClone(payloads.docs_snapshot);
         await pending.promise;
         value = captured;
-      } else if (cmd === "docs_snapshot" && args.projectDir !== project) {
-        value = { ...payloads.docs_snapshot, sources: [], findings: [], research_topics: [{ topic: "project-b-topic", label: "项目 B 课题", kind: "research", sources: [], findings: [], runs: [], report: false }] };
+      } else if (cmd === "docs_snapshot") {
+        value = { ...payloads.docs_snapshot, research_topics: args.projectDir === project_b
+          ? [{ topic: "alpha-study", label: "另一个 Alpha", kind: "research", sources: [], findings: [], runs: [], report: false }]
+          : source_topics.filter((entry) => (entry.storage_root || project) === args.projectDir) };
       } else if (cmd === "research_plan_get" && delayed_plan) {
         await delayed_plan.promise;
         throw new Error("旧课题请求失败");
@@ -110,7 +138,10 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 const errors = [];
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
-  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("pageerror", (error) => errors.push(error.stack || error.message));
+  page.on("response", (response) => {
+    if (response.status() >= 400 && response.url().includes("/vendor/monaco/")) errors.push(`HTTP ${response.status()} ${response.url()}`);
+  });
   await page.addInitScript(() => {
     globalThis.__TAURI__ = {
       core: { invoke: async (cmd, args) => {
@@ -142,8 +173,15 @@ try {
   await page.locator("#prompt").fill("开发任务草稿");
   await page.evaluate(async () => { const s = await import("./03-shell.js"); s.setAttachments([{ name: "dev.png", media_type: "image/png", data: "dev-attachment" }]); });
   const original_dev = JSON.stringify(payloads.process_list.slice(0, 2));
+  fail_library = true;
+  await page.locator('[data-workspace="research"]').click();
+  await page.waitForFunction(() => document.querySelector("#log-panel").textContent.includes("课题登记表读取失败"));
+  assert.equal(await page.locator("body").getAttribute("data-space"), "dev");
+  fail_library = false;
   await space("research");
-  await page.waitForFunction(() => document.querySelector("#research-topic-select").options.length === 2);
+  await page.waitForFunction(() => document.querySelector("#research-topic-select").options.length === 3);
+  assert.equal(await page.locator("#project-switch").isVisible(), false);
+  assert.equal(await page.locator("#projects-section").isVisible(), false);
   assert.equal(await page.locator('#profile-select').isVisible(), false);
   assert.equal(await page.locator('#focus-section').isVisible(), false);
   assert.equal(await page.locator('.activity-item[data-view="lines"]').isVisible(), false);
@@ -192,7 +230,7 @@ try {
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForFunction(() => document.body.dataset.space === "research" && document.querySelector(".research-workspace").dataset.page === "writing");
   assert.equal(await page.locator("#research-topic-select").inputValue(), "alpha-study");
-  for (const [category, expected] of [["dev_recon", "dev-survey"], ["unclassified", "unknown-old"], ["legacy", ""], ["research", "alpha-study"]]) {
+  for (const [category, expected] of [["dev_recon", "dev-survey"], ["unclassified", "unknown-old"], ["legacy", "legacy"], ["research", "alpha-study"]]) {
     await page.locator("#research-category-select").selectOption(category);
     await page.waitForFunction((expected) => document.querySelector("#research-topic-select").value === expected, expected);
   }
@@ -217,6 +255,15 @@ try {
   fail_create = false;
   await page.locator("#research-topic-submit").click();
   await page.waitForFunction(() => document.querySelector("#research-topic-select").value === "new-topic" && document.querySelector("#research-topic-form").classList.contains("hidden"));
+  assert.equal(await page.evaluate(async () => (await import("./03-shell.js")).currentProject), "C:/research-workspaces/new-topic");
+  assert.equal(calls.filter(({ cmd }) => ["projects_add", "projects_init", "projects_select"].includes(cmd)).length, 0);
+  await page.locator(".research-topic-links summary").click();
+  await page.locator(".research-topic-links input[type=checkbox]").check();
+  await page.waitForTimeout(1100);
+  assert.equal(await page.locator(".research-topic-links input[type=checkbox]").isChecked(), true);
+  await page.getByRole("button", { name: "保存关联", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector(".research-topic-links p")?.textContent.includes("smoke"));
+  assert.equal(await page.evaluate(async () => (await import("./03-shell.js")).currentProject), "C:/research-workspaces/new-topic");
   await research_page("plan");
   assert.equal(await page.locator("#research-plan-panel").isVisible(), true);
   await research_page("report");
@@ -266,6 +313,47 @@ try {
   await page.getByRole("button", { name: "继续研究", exact: true }).click();
   await page.waitForTimeout(100);
   assert.equal(workflows.get("new-topic").paused, false);
+  // Full workflow: later phases, experiment progress and delivery entry points stay visible.
+  Object.assign(auto_state, { stage: "run_full", revision: 12, compute: { kind: "local", snapshot: { gpus: [{ name: "RTX test GPU" }] } }, full_plan: { protocol: "full-protocol.md", experiments: [{ id: "b0" }, { id: "m0" }] }, full_results: [{ experiment_id: "b0", result_id: "E-001-03" }] });
+  await research_page("overview");
+  await page.waitForFunction(() => document.querySelector("#research-auto-panel")?.textContent.includes("1 / 2"));
+  assert.match(await page.locator("#research-auto-panel").textContent(), /RTX test GPU/);
+  Object.assign(auto_state, { stage: "completed", revision: 20, verdict: "rejected", full_results: [{ experiment_id: "b0", result_id: "E-001-03" }, { experiment_id: "m0", result_id: "E-001-04" }], analysis: "analysis.md", paper: { tex: "latex/paper.tex", pdf: "latex/paper.pdf", manifest: "delivery.json" } });
+  await page.reload({ waitUntil: "networkidle" });
+  await research_page("overview");
+  await page.getByRole("button", { name: "打开论文 PDF", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "论文源码", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "交付清单", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "继续研究", exact: true }).count(), 0);
+  await page.screenshot({ path: path.join(artifact_root, "auto-research-completed.png") });
+  await page.getByRole("button", { name: "打开论文 PDF", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector(".research-workspace").dataset.page === "writing" && !document.querySelector("#research-latex-pdf").hidden);
+  assert.equal(calls.filter(({ cmd }) => cmd === "research_latex_pdf").at(-1).args.pdfPath, ".kanzei/research/new-topic/latex/paper.pdf");
+  for (const [label, file] of [["阅读调研", "survey.md"], ["论文源码", "latex/paper.tex"], ["交付清单", "delivery.json"]]) {
+    await research_page("overview");
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await page.waitForFunction((path) => document.body.dataset.view === "files" && document.querySelector("#files-preview-path").textContent === path, `.kanzei/research/new-topic/${file}`);
+    await page.waitForFunction(() => document.querySelector("#files-editor .monaco-editor"));
+    await page.waitForFunction((content) => globalThis.monaco.editor.getModels().some((model) => model.getValue() === content), `Artifact .kanzei/research/new-topic/${file}`);
+    assert.equal(calls.filter(({ cmd }) => cmd === "file_preview").at(-1).args.path, `.kanzei/research/new-topic/${file}`);
+  }
+  await research_page("overview");
+  await page.getByRole("button", { name: "补充实验", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("#view-chat").classList.contains("active"));
+  assert.equal(workflows.get("new-topic").stage, "plan_full");
+  assert.equal(workflows.get("new-topic").full_rounds[0].results.length, 2);
+  await research_page("overview");
+  await page.getByText("历次完整实验", { exact: true }).click();
+  assert.match(await page.locator("#research-auto-panel").textContent(), /完整实验轮次: 2/);
+  await page.locator(".research-auto-history").getByRole("button", { name: "综合分析", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("#files-preview-path").textContent.endsWith("rounds/full-001-r20/analysis.md"));
+  await research_page("overview");
+  const history = page.locator(".research-auto-history");
+  if (!(await history.evaluate((element) => element.open))) await history.locator("summary").click();
+  await history.getByRole("button", { name: "打开论文 PDF", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector(".research-workspace").dataset.page === "writing" && !document.querySelector("#research-latex-pdf").hidden);
+  assert.equal(calls.filter(({ cmd }) => cmd === "research_latex_pdf").at(-1).args.pdfPath, ".kanzei/research/new-topic/rounds/full-001-r20/latex/paper.pdf");
+  await research_page("overview");
   await topic("alpha-study");
   // 旧项目完整快照迟到时，不得覆盖新项目的材料、标题或报告。
   await page.evaluate(async () => (await import("./03-shell.js")).navigate_view("memory"));
@@ -273,22 +361,19 @@ try {
   delayed_snapshot = { promise: new Promise((resolve) => { release_snapshot = resolve; }) };
   const stale_snapshot = page.evaluate(async () => (await import("./19-research.js")).refreshResearch());
   await page.waitForTimeout(80);
-  await page.evaluate(async () => {
-    const sessions = await import("./09-sessions.js");
-    sessions.renderProjects({ current: "C:/project-b", projects: ["C:/project-b"], names: {} });
-    await (await import("./19-research.js")).refreshResearch();
-  });
-  assert.equal(await page.locator("#research-topic-select").inputValue(), "project-b-topic");
+  await topic("other-alpha");
+  assert.equal(await page.evaluate(async () => (await import("./03-shell.js")).currentProject), project_b);
   release_snapshot();
   await stale_snapshot;
-  assert.equal(await page.locator("#research-topic-select").inputValue(), "project-b-topic");
-  assert.equal(await page.locator("#research-report").textContent().then((text) => text.includes("Alpha report")), false);
-  await page.evaluate(async (project) => {
-    const sessions = await import("./09-sessions.js");
-    sessions.renderProjects({ current: project, projects: [project], names: { [project]: "smoke" } });
-    await sessions.refreshProcesses();
-    await (await import("./19-research.js")).refreshResearch();
-  }, project);
+  assert.equal(await page.locator("#research-topic-select").inputValue(), "other-alpha");
+  assert.equal(await page.locator("#research-cards .research-card").count(), 0);
+  await research_page("chat");
+  assert.equal(calls.filter(({ cmd }) => cmd === "process_create").at(-1).args.projectDir, project_b);
+  await space("dev");
+  assert.equal(await page.evaluate(async () => (await import("./03-shell.js")).currentProject), project);
+  await space("research");
+  assert.equal(await page.locator("#research-topic-select").inputValue(), "other-alpha");
+  await topic("alpha-study");
   for (const viewport of [{ width: 800, height: 600 }, { width: 1024, height: 720 }, { width: 1440, height: 960 }, { width: 800, height: 600 }, { width: 1440, height: 960 }]) {
     const was_overlay = await page.evaluate(() => globalThis.matchMedia("(max-width: 900px)").matches);
     await page.setViewportSize(viewport);
@@ -312,8 +397,42 @@ try {
     }
     await page.screenshot({ path: path.join(artifact_root, `writing-${viewport.width}.png`) });
   }
+  // 没有开发项目也能进入研究并创建独立课题。
+  payloads.projects_get = { current: null, projects: [], names: {} };
+  library_entries.length = 0;
+  workspace_state = {};
+  const empty_page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  empty_page.on("pageerror", (error) => errors.push(error.stack || error.message));
+  await empty_page.addInitScript(() => {
+    globalThis.__TAURI__ = { core: { invoke: async (cmd, args) => {
+      const result = await (await fetch("/ipc", { method: "POST", body: JSON.stringify({ cmd, args }) })).json();
+      if (result.error) throw new Error(result.error);
+      return result.value;
+    } }, event: { listen: async () => () => {} } };
+  });
+  await empty_page.goto(origin, { waitUntil: "networkidle" });
+  await empty_page.locator('[data-workspace="research"]').click();
+  await empty_page.waitForFunction(() => document.body.dataset.space === "research" && document.querySelector("#research-overview").textContent.includes("开始一个研究课题"));
+  const processes_before_empty = calls.filter(({ cmd }) => cmd === "process_create").length;
+  await empty_page.locator("#new-chat").click();
+  assert.equal(calls.filter(({ cmd }) => cmd === "process_create").length, processes_before_empty);
+  await empty_page.locator("#research-topic-title").fill("无需项目的课题");
+  await empty_page.locator("#research-topic-slug").fill("standalone-case");
+  await empty_page.locator("#research-topic-submit").click();
+  await empty_page.waitForFunction(() => document.querySelector("#research-topic-select").value === "standalone-case");
+  await empty_page.locator('[data-research-page="chat"]').click();
+  await empty_page.waitForFunction(() => document.querySelector("#view-chat").classList.contains("active"));
+  assert.equal(calls.filter(({ cmd }) => cmd === "process_create").at(-1).args.projectDir, "C:/research-workspaces/standalone-case");
+  assert.equal(calls.filter(({ cmd }) => ["projects_add", "projects_init", "projects_select"].includes(cmd)).length, 0);
+  await empty_page.reload({ waitUntil: "networkidle" });
+  await empty_page.waitForFunction(() => document.body.dataset.space === "research" && document.querySelector("#research-topic-select").value === "standalone-case");
+  await empty_page.waitForFunction(() => document.querySelector("#view-chat").classList.contains("active"));
+  await empty_page.locator('[data-research-page="overview"]').click();
+  await empty_page.waitForFunction(() => document.querySelector("#view-research").classList.contains("active"));
+  await empty_page.screenshot({ path: path.join(artifact_root, "independent-topic.png") });
+  await empty_page.close();
   assert.deepEqual(errors, [], "浏览器未捕获错误");
-  console.log("工作空间浏览器回归通过：AUTO research 启动/选题/暂停/恢复/课题隔离，开发运行保持、会话草稿恢复、内容分类、延迟响应及 3 视口 × 6 页面布局。");
+  console.log("工作空间浏览器回归通过：无项目独立课题创建/重载、同名课题跨根隔离、可选关联、失败回退、AUTO research 与交付预览、开发会话恢复、迟到响应及 3 视口 × 6 页面布局。");
 } finally {
   await browser.close();
   server.closeAllConnections();

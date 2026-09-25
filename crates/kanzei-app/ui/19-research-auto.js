@@ -1,11 +1,11 @@
 import { $, invoke } from "./01-core.js";
 import { t } from "./02-i18n.js";
-import { activeProcessId, activeSessionId, currentProject, processItems, running, toast, toastError } from "./03-shell.js";
+import { activeProcessId, activeSessionId, currentProject, navigate_view, processItems, running, toast, toastError } from "./03-shell.js";
 import { cancelAutoContinueTimer, setAutoPaused, setAutoStopAfterRound, syncAutoRunState } from "./08-auto.js";
 import { applyAutoStopToSession, rememberAutoUiState, sendText } from "./08-compose-runtime.js";
 import { openFilePreview } from "./17-files.js";
-import { research_context_guard, selectedResearchTopicData } from "./19-research.js";
-import { open_research_chat } from "./19-research-navigation.js";
+import { previewResearchLatexPdf, research_context_guard, selectedResearchTopicData } from "./19-research.js";
+import { open_research_chat, show_research_page } from "./19-research-navigation.js";
 
 export let researchWorkflow = null;
 let workflow_error = "";
@@ -14,7 +14,8 @@ let panel_key = "";
 let action_pending = false;
 const stages = {
   survey: "文献调研", map: "研究地图", choose_direction: "等待选题", design_mvp: "MVP 方案",
-  prepare: "实验准备", run_mvp: "MVP 实验", interpret: "结果解读", completed: "MVP 已完成",
+  prepare: "实验准备", run_mvp: "MVP 实验", interpret: "结果解读", plan_full: "完整实验方案",
+  run_full: "完整实验", analyze: "综合分析", write_paper: "论文写作", review_paper: "论文检查", compile_paper: "论文编译", completed: "研究已完成",
 };
 
 export function resetResearchWorkflow() {
@@ -58,7 +59,16 @@ function button(label, callback, primary = false) {
 
 function artifact_link(host, label, file, topic) {
   if (!file) return;
-  host.appendChild(button(label, () => openFilePreview(`.kanzei/research/${topic}/${file}`)));
+  host.appendChild(button(label, () => {
+    const path = `.kanzei/research/${topic}/${file}`;
+    if (/\.pdf$/i.test(file)) {
+      show_research_page("writing");
+      void previewResearchLatexPdf(path);
+    } else {
+      navigate_view("files");
+      void openFilePreview({ path });
+    }
+  }));
 }
 
 async function continue_research(project, topic) {
@@ -129,11 +139,11 @@ export function renderResearchWorkflow(host) {
   }
   const state = researchWorkflow;
   if (!state) {
-    panel.appendChild(element("p", t("自动调研并绘制研究地图，等待你选方向，再推进到 MVP 结果解读。")));
+    panel.appendChild(element("p", t("自动调研并绘制研究地图，等待你选方向，再完成实验、分析和论文 PDF。")));
     const form = element("form", undefined, "research-auto-budget");
     const inputs = {};
     for (const [name, label, value, min, max] of [
-      ["rounds", "检索轮次", 3, 1, 20], ["tokens", "检索证据预算", 16000, 1000, 1000000], ["runs", "实验次数预算（含基线）", 4, 2, 100],
+      ["rounds", "检索轮次", 3, 1, 20], ["tokens", "检索证据预算", 16000, 1000, 1000000], ["runs", "实验次数预算（含基线）", 20, 2, 100],
     ]) {
       const wrap = element("label", t(label));
       const input = document.createElement("input");
@@ -167,7 +177,35 @@ export function renderResearchWorkflow(host) {
     artifact_link(artifacts, "打开研究地图", state.map, topic.topic);
     artifact_link(artifacts, "查看 MVP 方案", state.mvp?.protocol, topic.topic);
     artifact_link(artifacts, "阅读结果解读", state.interpretation, topic.topic);
+    artifact_link(artifacts, "完整实验方案", state.full_plan?.protocol, topic.topic);
+    artifact_link(artifacts, "综合分析", state.analysis, topic.topic);
+    artifact_link(artifacts, "论文源码", state.paper?.tex, topic.topic);
+    artifact_link(artifacts, "打开论文 PDF", state.paper?.pdf, topic.topic);
+    artifact_link(artifacts, "交付清单", state.paper?.manifest, topic.topic);
     panel.appendChild(artifacts);
+    if (state.full_rounds?.length) {
+      panel.appendChild(element("p", `${t("完整实验轮次")}: ${state.full_rounds.length + 1}`));
+      const history = element("details", undefined, "research-auto-history");
+      history.appendChild(element("summary", t("历次完整实验")));
+      for (const round of state.full_rounds) {
+        const row = element("article");
+        row.append(element("h4", `${t("完整实验")} ${round.round}`), element("p", round.reason));
+        const links = element("div", undefined, "research-auto-actions");
+        const archived = (file) => file ? `${round.artifact_root}/${file}` : null;
+        artifact_link(links, "完整实验方案", archived(round.plan?.protocol), topic.topic);
+        artifact_link(links, "综合分析", archived(round.analysis), topic.topic);
+        artifact_link(links, "实验结果", archived("results.json"), topic.topic);
+        artifact_link(links, "打开论文 PDF", archived(round.paper?.pdf), topic.topic);
+        row.appendChild(links);
+        history.appendChild(row);
+      }
+      panel.appendChild(history);
+    }
+    if (state.compute) {
+      const gpu = state.compute.snapshot?.gpus?.map((item) => item.name).join(", ") || "CPU";
+      panel.appendChild(element("p", `${t("实验环境")}: ${state.compute.kind} · ${gpu}`));
+    }
+    if (state.full_plan) panel.appendChild(element("p", `${t("完整实验")}: ${state.full_results?.length || 0} / ${state.full_plan.experiments.length}`));
     if (state.stage === "choose_direction") {
       panel.appendChild(element("p", t("选择一个方向后继续；研究价值、疑点与成本都列在下方。")));
       panel.appendChild(element("p", topic.label || topic.topic, "research-auto-map-root"));
@@ -187,7 +225,11 @@ export function renderResearchWorkflow(host) {
     } else if (state.stage === "completed") {
       const verdicts = { supported: "支持假设", rejected: "否定假设", inconclusive: "证据不足" };
       panel.appendChild(element("p", t(verdicts[state.verdict] || "MVP 已完成")));
-      panel.appendChild(element("p", t("本次 MVP 已收敛。下一步可根据结论规划完整实验。"), "dim"));
+      if (state.paper?.pdf) panel.appendChild(element("p", t("论文已编译，源码、分析与实验记录可从上方打开。"), "dim"));
+      else {
+        panel.appendChild(element("p", t("本次 MVP 已收敛。下一步可根据结论规划完整实验。"), "dim"));
+        panel.appendChild(button("扩展到完整实验与论文", () => void update_workflow("extend"), true));
+      }
     } else {
       if (state.mvp) panel.appendChild(element("p", state.mvp.question));
       if (state.baseline_result) panel.appendChild(element("p", `${t("基线记录")}: ${state.baseline_result}`));
@@ -196,6 +238,9 @@ export function renderResearchWorkflow(host) {
       actions.appendChild(button("继续研究", () => void update_workflow("resume"), true));
       if (!state.paused) actions.appendChild(button("本轮后暂停研究", () => void update_workflow("pause")));
       panel.appendChild(actions);
+    }
+    if (["write_paper", "review_paper", "compile_paper", "completed"].includes(state.stage) && state.full_plan && state.analysis) {
+      panel.appendChild(button("补充实验", () => void update_workflow("revise_full")));
     }
     if (state.stage !== "completed") {
       const details = element("details");

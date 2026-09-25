@@ -31,6 +31,10 @@ crates/kanzei-app/binaries/
 crates/kanzei-app/icons/android/
 crates/kanzei-app/icons/ios/
 
+# Local H3 deployment profiles contain machine-specific GPU UUIDs.
+scripts/oc-h3/profile.json.local
+scripts/oc-h3/profile-soft-v5.json.local
+
 # 并行线的私有 target(每树一个,避免共享 target 让 cargo 把别树产物判 Fresh 复用)
 .target-private/
 .target-merge/

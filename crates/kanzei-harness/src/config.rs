@@ -209,26 +209,6 @@ impl KanzeiConfig {
 
     // 权限相关方法(legacy bash 规则/非交互策略/启动告警)已迁至 `config/permissions.rs`。
     pub fn fill_defaults(&mut self) {
-        self.providers
-            .entry("anthropic".into())
-            .or_insert(ProviderConfig {
-                protocol: "anthropic".into(),
-                base_url: "https://api.anthropic.com".into(),
-                api_key_env: Some("ANTHROPIC_API_KEY".into()),
-                api_key: None,
-                auth: None,
-                context_limit: Some(200_000),
-            });
-        self.providers
-            .entry("ollama".into())
-            .or_insert(ProviderConfig {
-                protocol: "openai".into(),
-                base_url: "http://127.0.0.1:11434/v1".into(),
-                api_key_env: None,
-                api_key: None,
-                auth: None,
-                context_limit: Some(32_000),
-            });
         // Codex 订阅通道:复用 Codex CLI 登录态,零配置可用。
         self.providers
             .entry("codex".into())
@@ -239,28 +219,6 @@ impl KanzeiConfig {
                 api_key: None,
                 auth: Some("codex".into()),
                 context_limit: Some(272_000),
-            });
-        // Claude Code 订阅通道:复用 Claude Code 登录态,零配置可用。
-        self.providers
-            .entry("claude".into())
-            .or_insert(ProviderConfig {
-                protocol: "anthropic".into(),
-                base_url: "https://api.anthropic.com".into(),
-                api_key_env: None,
-                api_key: None,
-                auth: Some("claude".into()),
-                context_limit: Some(200_000),
-            });
-        // DeepSeek 原生 Responses API。
-        self.providers
-            .entry("deepseek".into())
-            .or_insert(ProviderConfig {
-                protocol: "deepseek-responses".into(),
-                base_url: "https://api.deepseek.com".into(),
-                api_key_env: Some("DEEPSEEK_API_KEY".into()),
-                api_key: None,
-                auth: None,
-                context_limit: Some(1_000_000),
             });
         // context_limit 逐字段兜底(D-173)。
         //
@@ -278,9 +236,6 @@ impl KanzeiConfig {
         }
         if self.models.primary.is_none() {
             self.models.primary = Some("codex:gpt-5.6-luna".into());
-        }
-        if self.models.fast.is_none() {
-            self.models.fast = Some("ollama:qwen3.5:4b".into());
         }
         if self.models.codex_fast_mode.is_none()
             && self.models.primary.as_deref() == Some("codex:gpt-5.6-luna")
@@ -303,7 +258,13 @@ impl KanzeiConfig {
     pub fn resolve_model(&self, reference: &str) -> anyhow::Result<ResolvedModel> {
         let spec = match reference {
             "primary" => self.models.primary.as_deref().unwrap_or_default(),
-            "fast" => self.models.fast.as_deref().unwrap_or_default(),
+            "fast" => self
+                .models
+                .fast
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .or(self.models.primary.as_deref())
+                .unwrap_or_default(),
             // R-236 B3:compact 未配置回落 primary(纪要默认跟随主模型)。
             "compact" => self
                 .models
@@ -482,10 +443,12 @@ pub fn config_reference() -> String {
     let models_desc = |key: &str| -> &str {
         match key {
             "primary" => " = <角色名或 provider:model>  主对话模型(默认 unset,回退内置)",
-            "fast" => " = <角色名或 provider:model>  快速子代理/机械检索(默认 unset)",
+            "fast" => " = <角色名或 provider:model>  快速子代理/机械检索(默认 unset,跟随 primary)",
             "scout" => " = <角色名或 provider:model>  勘察/复核只读代理(默认跟随 fast)",
             "compact" => " = <角色名或 provider:model>  上下文压缩纪要(默认跟随 primary)",
-            "reasoning" => " = off | low | medium | high  思考强度(默认 off)",
+            "reasoning" => {
+                " = off | none | low | medium | high | xhigh | max  思考强度(off=服务商默认)"
+            }
             "codex_fast_mode" => " = true | false  同模型走高消耗 priority 档(默认未设)",
             _ => "",
         }
@@ -496,7 +459,7 @@ pub fn config_reference() -> String {
             "base_url" => " = https://...  端点地址(必填)",
             "api_key_env" => " = <环境变量名>  从环境变量取密钥(推荐)",
             "api_key" => " = <明文>  直填密钥,明文存盘自担风险",
-            "auth" => " = codex | claude  复用 CLI 登录态(可选)",
+            "auth" => " = codex  复用 Codex CLI 登录态(可选)",
             "context_limit" => " = <u64>  上下文窗口 token 数(默认由 builtin_context_limit 决定)",
             _ => "",
         }
@@ -718,11 +681,22 @@ mod tests {
         assert_eq!(m.model, "gpt-5.6-luna");
         // 默认 primary 是 Luna 时,Codex Fast mode 默认开启(R-158)。
         assert_eq!(c.models.codex_fast_mode, Some(true));
-        let claude = c.resolve_model("claude:claude-sonnet-4-6").unwrap();
-        assert_eq!(claude.provider.protocol, "anthropic");
-        assert_eq!(claude.provider.auth.as_deref(), Some("claude"));
+        assert!(!c.providers.contains_key("claude"));
+        // fast 未设时跟随主模型,不再隐式依赖本机 Ollama。
         let m = c.resolve_model("fast").unwrap();
-        assert_eq!(m.provider_name, "ollama");
+        assert_eq!(m.provider_name, "codex");
+        assert_eq!(m.model, "gpt-5.6-luna");
+        c.providers.insert(
+            "ollama".into(),
+            ProviderConfig {
+                protocol: "openai".into(),
+                base_url: "http://127.0.0.1:11434/v1".into(),
+                api_key_env: None,
+                api_key: None,
+                auth: None,
+                context_limit: Some(32_000),
+            },
+        );
         let m = c.resolve_model("ollama:llama3.3").unwrap();
         assert_eq!(m.model, "llama3.3");
         assert!(c.resolve_model("nope").is_err());
@@ -764,6 +738,17 @@ mod tests {
         // 显式配置能解析成真实模型(与 primary/fast 同一套解析,没有第二套)。
         let mut c: KanzeiConfig =
             toml::from_str("[models]\nscout = \"claude:claude-sonnet-4-6\"\n").unwrap();
+        c.providers.insert(
+            "claude".into(),
+            ProviderConfig {
+                protocol: "anthropic".into(),
+                base_url: "https://api.anthropic.com".into(),
+                api_key_env: Some("ANTHROPIC_API_KEY".into()),
+                api_key: None,
+                auth: None,
+                context_limit: Some(200_000),
+            },
+        );
         c.fill_defaults();
         let resolved = c
             .resolve_model(c.models.scout.as_deref().unwrap())
@@ -800,9 +785,34 @@ mod tests {
     /// -8pp 实测消融),显式配置走独立解析;层叠与未知键体检同 scout 一套规矩。
     #[test]
     fn compact_角色_缺省回落primary_显式配置与层叠生效() {
+        fn add_custom_providers(c: &mut KanzeiConfig) {
+            c.providers.insert(
+                "deepseek".into(),
+                ProviderConfig {
+                    protocol: "deepseek-responses".into(),
+                    base_url: "https://api.deepseek.com".into(),
+                    api_key_env: Some("DEEPSEEK_API_KEY".into()),
+                    api_key: None,
+                    auth: None,
+                    context_limit: Some(1_000_000),
+                },
+            );
+            c.providers.insert(
+                "claude".into(),
+                ProviderConfig {
+                    protocol: "anthropic".into(),
+                    base_url: "https://api.anthropic.com".into(),
+                    api_key_env: Some("ANTHROPIC_API_KEY".into()),
+                    api_key: None,
+                    auth: None,
+                    context_limit: Some(200_000),
+                },
+            );
+        }
         // 缺省:resolve_model("compact") 必须解析到 primary 指向的模型。
         let mut c: KanzeiConfig =
             toml::from_str("[models]\nprimary = \"deepseek:dsv4\"\n").unwrap();
+        add_custom_providers(&mut c);
         c.fill_defaults();
         let resolved = c.resolve_model("compact").expect("缺省必须回落 primary");
         assert_eq!(resolved.model, "dsv4");
@@ -810,6 +820,7 @@ mod tests {
         // 空串视同未设,同样回落。
         let mut blank: KanzeiConfig =
             toml::from_str("[models]\nprimary = \"deepseek:dsv4\"\ncompact = \"  \"\n").unwrap();
+        add_custom_providers(&mut blank);
         blank.fill_defaults();
         assert_eq!(blank.resolve_model("compact").unwrap().model, "dsv4");
         // 显式配置:走自己的指向,不再跟随 primary。
@@ -817,6 +828,7 @@ mod tests {
             "[models]\nprimary = \"deepseek:dsv4\"\ncompact = \"claude:claude-sonnet-4-6\"\n",
         )
         .unwrap();
+        add_custom_providers(&mut explicit);
         explicit.fill_defaults();
         assert_eq!(
             explicit.resolve_model("compact").unwrap().model,

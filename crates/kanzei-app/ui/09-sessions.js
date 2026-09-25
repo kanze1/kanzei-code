@@ -59,6 +59,8 @@ import { active_space, adopt_process_workspace, create_workspace_process, prefer
 
 import { sync_composer_scope } from "./03-workspaces.js";
 import { reset_research_project } from "./19-research.js";
+import { remember_development_project, switch_workspace } from "./03-workspaces.js";
+import { reset_files_scope } from "./17-files.js";
 
 export let worktreeItems = [];
 export let worktreeLineCreateInFlight = false;
@@ -499,8 +501,8 @@ export function renderProcesses(items) {
       transitionSession(item.session_id, "idle");
     }
   }
-  if (!activeProcessId || !processItems.some((item) => item.id === activeProcessId)) {
-    const preferred = preferred_workspace_process(processItems) || processItems.find((item) => item.id.startsWith("d|")) || processItems[0];
+  if (!activeProcessId || !workspace_processes(processItems).some((item) => item.id === activeProcessId)) {
+    const preferred = preferred_workspace_process(processItems);
     setActiveProcessId(preferred?.id ?? null);
   }
   const active = processItems.find((item) => item.id === activeProcessId);
@@ -615,7 +617,7 @@ export async function switchProcess(processId, forceReload = false) {
   const switchGeneration = ++processSwitchGeneration;
   const forProject = currentProject;
   const isCurrentSwitch = () =>
-    switchGeneration === processSwitchGeneration && currentProject === forProject;
+    switchGeneration === processSwitchGeneration && currentProject === forProject && activeProcessId === processId;
   // 后端只保存 dev/research;前端的 dev-auto 档位由 profile-select 的 change 事件
   // 在**用户改动时**绑定到当时的进程,这里不再重复写一次。
   //
@@ -811,9 +813,9 @@ export async function checkProjectIsolation() {
   box.append(text, act);
 }
 
-export function renderProjects(prefs) {
+export function activate_execution_root(root) {
   const previousProject = currentProject;
-  setCurrentProject(prefs.current);
+  setCurrentProject(root);
   syncWorkPriorityControl();
   // R-115:按项目记的偏好(模型/思考强度/筛选)要跟着项目切换回填,
   // 也覆盖了启动这一次——currentProject 在这里才第一次确定。
@@ -822,9 +824,18 @@ export function renderProjects(prefs) {
   if (previousProject !== currentProject) {
     setActiveProcessId(null);
     setActiveSessionId(null);
+    setProcessItems([]);
+    setRunning(false, t("空闲"));
+    clearAutoNotices();
     sync_composer_scope();
+    reset_files_scope();
     reset_research_project();
   }
+}
+
+export function renderProjects(prefs) {
+  remember_development_project(prefs.current);
+  if (active_space === "dev") activate_execution_root(prefs.current);
   const list = $("project-list");
   list.innerHTML = "";
   for (const path of prefs.projects) {
@@ -945,6 +956,7 @@ defer(() => {
 //  - 迟到的旧项目响应由各自的 project/generation 守卫丢弃,不能覆盖新目标。
 // 没切换项目(点当前项/重命名)时只刷周边,不重载对话。
 export async function enterProject(prefs, options = {}) {
+  if (active_space === "research") await switch_workspace("dev");
   const previous = currentProject;
   renderProjects(prefs);
   if (previous !== currentProject) {

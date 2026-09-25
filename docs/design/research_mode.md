@@ -137,7 +137,7 @@ research 模式与 dev 侧代码勘察保持能力边界独立，但两者复用
 ## 8. 与既有系统的关系
 
 - **[research_experiment_runner.md](research_experiment_runner.md)**:实验运行与路线图那半条链路(Experiment/Run/Result/Environment 字段、@@kanzei 回调协议、本机+SSH 执行、只读路线图投影、付费资源预算)由它承接,本文只管文献与仓库研究到论文级工件;两者共用 topic 目录与 V 等级,互不改对方已验收的范围。
-- **AUTO research（2026-09-21 用户确认，R-363）**：[auto_research.md](auto_research.md) 承接课题级自动推进。手动研究保留原有计划审批；用户在课题概览启动 AUTO 后，限定预算内完成调研与地图、等待用户选题，再推进 MVP 与结果解读。此增量替代原来的 research 全面禁用连跑约定。
+- **AUTO research（2026-09-21 用户确认，R-363）**：[auto_research.md](auto_research.md) 承接课题级自动推进。手动研究保留原有计划审批；用户启动 AUTO 后，限定预算内完成调研与地图，等待选题，再推进 MVP、环境配置、完整实验、综合分析、论文检查与实际 PDF 编译。此增量替代原来的 research 全面禁用连跑约定；旧版 MVP 课题可保留结果并扩展到完整流程。
 - **memory_control_plane.md**:研究结论进记忆走统一管线;S-/F- 引用是记忆 provenance 的合法来源类型;refs.bib 与记忆无关。
 - **D-276/R-201(游离文本)**:report.md/paper.tex 是多行内容的合法落点,tracker 字段回归单行摘要。
 - **R-248(先行调研内建)**:prior-art 工件落点复用本设计的 topic 目录;该条整体排在 R-221 之后不变。

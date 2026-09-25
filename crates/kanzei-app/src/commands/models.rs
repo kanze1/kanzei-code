@@ -5,11 +5,11 @@
 //! 是供独立启动路径复用的 route 包装。它们既不经 `run_task` 也不碰事件循环,
 //! 留在 run.rs 里只会让「运行主链路」文件继续膨胀(照 files_view.rs 模式)。
 
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 
 use serde_json::json;
 
-use kanzei_harness::config::KanzeiConfig;
+use kanzei_harness::config::{KanzeiConfig, ProviderConfig};
 
 /// 探测 provider 的 /models 或 Ollama /api/tags 并收集模型清单(原 run.rs 1863)。
 pub(crate) async fn push_ollama_models(
@@ -69,64 +69,121 @@ pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_jso
     }
     for (name, provider) in &config.providers {
         if provider.auth.as_deref() == Some("codex") {
-            for model in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
-                items.push(
-                    json!({ "id": format!("{name}:{model}"), "label": format!("{name}:{model}") }),
-                );
-            }
-        } else if provider.auth.as_deref() == Some("claude") {
             for model in [
-                "claude-opus-5",
-                "claude-sonnet-5",
-                "claude-haiku-4-5-20251001",
+                "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
             ] {
                 items.push(
                     json!({ "id": format!("{name}:{model}"), "label": format!("{name}:{model}") }),
                 );
             }
-        } else if matches!(
-            provider.protocol.as_str(),
-            "openai" | "openai-responses" | "deepseek-responses"
-        ) {
-            if provider.base_url.contains("11434") {
-                push_ollama_models(&mut items, name, &provider.base_url).await;
-                continue;
-            }
-            let key = provider
-                .api_key
-                .clone()
-                .filter(|key| !key.trim().is_empty())
-                .or_else(|| {
-                    provider
-                        .api_key_env
-                        .as_deref()
-                        .and_then(|env| std::env::var(env).ok())
-                });
-            let url = format!("{}/models", provider.base_url.trim_end_matches('/'));
-            let proxy = match config.proxy.as_deref() {
-                Some("off") => kanzei_llm::ProxyConfig::Disabled,
-                Some("env") | None => kanzei_llm::ProxyConfig::Env,
-                Some(custom) => kanzei_llm::ProxyConfig::Explicit(custom.to_string()),
-            };
-            let Ok(client) = kanzei_llm::proxy::build_http_client(&proxy) else {
-                continue;
-            };
-            let mut request = client.get(&url).timeout(std::time::Duration::from_secs(6));
-            if let Some(key) = &key {
-                request = request.bearer_auth(key);
-            }
-            if let Ok(response) = request.send().await {
-                if let Ok(value) = response.json::<serde_json::Value>().await {
-                    for model in value["data"].as_array().unwrap_or(&Vec::new()) {
-                        if let Some(id) = model["id"].as_str() {
-                            items.push(json!({ "id": format!("{name}:{id}"), "label": format!("{name}:{id}") }));
-                        }
-                    }
-                }
-            }
-        } else if provider.base_url.contains("11434") {
-            push_ollama_models(&mut items, name, &provider.base_url).await;
         }
     }
+
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => kanzei_llm::ProxyConfig::Disabled,
+        Some("env") | None => kanzei_llm::ProxyConfig::Env,
+        Some(custom) => kanzei_llm::ProxyConfig::Explicit(custom.to_string()),
+    };
+    // Provider endpoints are independent. Probe them concurrently so several slow/offline
+    // providers do not add their six-second timeouts one after another.
+    let probes = config.providers.iter().map(|(name, provider)| {
+        probe_provider_models(name.clone(), provider.clone(), proxy.clone())
+    });
+    for discovered in futures::future::join_all(probes).await {
+        items.extend(discovered);
+    }
+
+    let mut seen = HashSet::new();
+    items.retain(|item| {
+        item["id"]
+            .as_str()
+            .is_some_and(|id| seen.insert(id.to_string()))
+    });
     Ok(json!(items))
+}
+
+async fn probe_provider_models(
+    name: String,
+    provider: ProviderConfig,
+    proxy: kanzei_llm::ProxyConfig,
+) -> Vec<serde_json::Value> {
+    // Codex subscription uses its authentication-specific model catalog.
+    if provider.auth.as_deref() == Some("codex") {
+        return Vec::new();
+    }
+
+    if provider.base_url.contains("11434") {
+        let mut items = Vec::new();
+        push_ollama_models(&mut items, &name, &provider.base_url).await;
+        return items;
+    }
+
+    let protocol = provider.effective_protocol(&name);
+    let is_anthropic = protocol == "anthropic";
+    if !is_anthropic
+        && !matches!(
+            protocol,
+            "openai" | "openai-responses" | "deepseek-responses"
+        )
+    {
+        return Vec::new();
+    }
+
+    let key = provider
+        .api_key
+        .clone()
+        .filter(|key| !key.trim().is_empty())
+        .or_else(|| {
+            provider
+                .api_key_env
+                .as_deref()
+                .and_then(|env| std::env::var(env).ok())
+        });
+    if is_anthropic && key.is_none() {
+        return Vec::new();
+    }
+
+    let base = provider.base_url.trim_end_matches('/');
+    let url = if is_anthropic && !base.ends_with("/v1") {
+        format!("{base}/v1/models")
+    } else {
+        format!("{base}/models")
+    };
+    let Ok(client) = kanzei_llm::proxy::build_http_client(&proxy) else {
+        return Vec::new();
+    };
+    let mut request = client.get(&url).timeout(std::time::Duration::from_secs(6));
+    if is_anthropic {
+        if let Some(key) = &key {
+            request = request
+                .header("x-api-key", key)
+                .header("anthropic-version", "2023-06-01");
+        }
+    } else if let Some(key) = &key {
+        request = request.bearer_auth(key);
+    }
+
+    let Ok(response) = request.send().await else {
+        return Vec::new();
+    };
+    let Ok(response) = response.error_for_status() else {
+        return Vec::new();
+    };
+    let Ok(value) = response.json::<serde_json::Value>().await else {
+        return Vec::new();
+    };
+    let models = value["data"]
+        .as_array()
+        .or_else(|| value["models"].as_array());
+    models
+        .into_iter()
+        .flatten()
+        .filter_map(|model| model["id"].as_str())
+        .map(|id| json!({ "id": format!("{name}:{id}"), "label": format!("{name}:{id}") }))
+        .collect()
 }

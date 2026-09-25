@@ -1,0 +1,32 @@
+{
+  "base": {
+    "repo": "MiniMaxAI/MiniMax-H3",
+    "revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+    "allow_patterns": [
+      "model_index.json",
+      "FL2VA/*"
+    ]
+  },
+  "larry": {
+    "repo": "larryvrh/MiniMax-H3-Turbo-Lora",
+    "revision": "43a74557ac3f6539db8e0f2a959d03feb7a81480",
+    "filename": "minimax_h3_turbo_v4_step600_ema.safetensors"
+  },
+  "lightx2v": {
+    "repo": "lightx2v/Minimax-h3-Turbo",
+    "revision": "3ec17a324ced54151364f24f8b5fb6bf7e26414f",
+    "filename": "minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors"
+  },
+  "gpu_uuids": [
+    "GPU-REPLACE-WITH-LOCAL-UUID-1",
+    "GPU-REPLACE-WITH-LOCAL-UUID-2"
+  ],
+  "numa_node": 1,
+  "nccl_p2p_disable": true,
+  "server_port": 30010,
+  "num_gpus": 2,
+  "tp_size": 2,
+  "ulysses_degree": 1,
+  "dit_resident_layers": 20,
+  "seed": 240924
+}

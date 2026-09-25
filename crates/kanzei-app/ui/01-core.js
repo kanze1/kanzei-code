@@ -206,7 +206,8 @@ export function refreshExperienceWorkbench(event) {
     pendingExperienceRefreshes.delete(refreshKey);
     return;
   }
-  Promise.resolve(refresh()).finally(() => pendingExperienceRefreshes.delete(refreshKey));
+  Promise.resolve(event.event_type.startsWith("memory_") ? refresh({ force: true }) : refresh())
+    .finally(() => pendingExperienceRefreshes.delete(refreshKey));
 }
 export function handleExperienceEvent(payload) {
   const event = payload && typeof payload === "object" ? payload : null;

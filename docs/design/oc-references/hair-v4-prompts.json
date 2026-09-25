@@ -1,0 +1,46 @@
+{
+  "tool": "builtin image_gen",
+  "native_size": [
+    1024,
+    1536
+  ],
+  "assets": [
+    {
+      "id": "body-clean-v4",
+      "refs": [
+        "body-clean-v3.png"
+      ],
+      "prompt": "Use case: precise-object-edit. Image 1 is the exact approved character BODY animation layer. Perform a focused, substantial redraw of the HAIR ONLY. Keep every facial feature, amber eyes, face shape, cyan cheek fracture, gray neck mark, flat slender body, shirt, pose, missing viewer-left arm, and exact 1024x1536 canvas placement unchanged. The present hair tips contain too much scratch-like strand detail: replace that area with clearly designed production-animation locks. HAIR CONSTRUCTION: keep the recognizable chin-length charcoal-navy bob and original overall volume, fringe part and face framing. Each side ends in approximately SIX broad, elegant tapered locks. Each lock has a smooth fully opaque charcoal fill continuing cleanly to the very tip, a precise solid dark outline, and at most one broad navy shadow plane. The tips read as solid sculpted shapes against transparency. Interior strand lines are sparse, intentional and dark, each following a complete lock. LIGHT: keep a slim smooth warm-gold edge ribbon on the outer viewer-left silhouette, with two small coherent warm reflection shapes near the top; the lower ends are predominantly dark. The blue reflected light is organized into two coherent curved shapes on the upper-right hair. Clear linework and restrained two-tone cel shading across the entire bob. The overall hair rendering must look visibly cleaner and more graphic at 40 percent display scale. Maintain the original face identity and proportions exactly. Use genuinely transparent alpha outside the character, with a crisp antialiased silhouette. One 1024x1536 RGBA image.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-777a582a-660e-48ad-b5af-1bb8940597ad.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/body-clean-v4.png"
+    },
+    {
+      "id": "master-clean-v4",
+      "refs": [
+        "master-clean-v3.png",
+        "body-clean-v4.png"
+      ],
+      "prompt": "Use case: precise-object-edit. Image 1 is the exact full character master edit target. Image 2 supplies the newly approved crisp HAIR DESIGN. Replace only Image 1's hair with the exact clean hair design in Image 2: identical broad opaque charcoal-navy locks, sparse intentional dark outlines, roughly six coherent tapered tips on each side, smooth warm outer edge and coherent blue reflections. Match Image 2's hair shape and rendering precisely. Preserve Image 1's face identity, eyes, neutral mouth, neck and cheek marks, slim flat-chested androgynous body, loose matte V-neck shirt, BOTH complete sleeves and resting arms, all geometry, framing and canvas placement. Final result is the complete two-arm resting character with Image 2's new clean bob. Genuine transparent alpha. 1024x1536 RGBA.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-19bf17ee-8374-45ca-98b6-1a6726008f8a.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/master-clean-v4.png"
+    },
+    {
+      "id": "face-clean-v4",
+      "refs": [
+        "body-clean-v4.png"
+      ],
+      "prompt": "Use case: precise-object-edit. This image is the exact edit target for an aligned facial animation texture. On this identical 1024x1536 canvas, change only the eyelids and mouth: both eyes gently closed in a natural blink following their exact original eye contours, and a small relaxed conversational open mouth at the original mouth center, with a dark mouth cavity and soft pink lower tongue. Keep every other pixel as close to the input as possible: crisp opaque grouped hair locks, entire head shape, face identity, cheeks, blue fracture, neck marking, flat slim torso, shirt, remaining arm and removed arm area, lighting and position. The clean dark tapered hair tips and solid cel-shaded hair are essential and stay exactly as in the input. Truly transparent alpha outside the character. Output one 1024x1536 RGBA image.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-bcaa231e-25ef-4f85-93cb-394269948e7e.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/face-clean-v4.png"
+    },
+    {
+      "id": "face-aside-v4",
+      "refs": [
+        "body-clean-v4.png"
+      ],
+      "prompt": "Use case: precise-object-edit. This is the exact edit target for an aligned facial expression texture. Keep the complete input image and its exact 1024x1536 composition. Make tiny localized changes only to the eyes, eyebrows and mouth: slightly lower relaxed eyelids, a subtle glance toward viewer-left, and a small restrained half-smile from a calm young adult making a dry remark. All facial features remain in their exact positions. Preserve the character's identity, proportions, crisp broad opaque charcoal hair locks and their clean tapered tips, cheek fracture, neck marking, body, shirt, remaining arm and removed arm area, lighting and framing exactly. Fine anime linework and clean two-tone cel shading. Transparent alpha outside the character. Output 1024x1536 RGBA.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-b16fc45d-4b8c-471d-9cc6-145a631c133d.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/face-aside-v4.png"
+    }
+  ]
+}

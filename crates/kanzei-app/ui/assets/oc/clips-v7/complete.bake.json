@@ -1,0 +1,21 @@
+{
+  "format": "rgb-alpha-vertical",
+  "frames": 107,
+  "fps": 24,
+  "size": [
+    576,
+    864
+  ],
+  "encoded_size": [
+    576,
+    1728
+  ],
+  "bytes": 890170,
+  "sha256": "3c46ba0fd198dab1b83f337decbea4f2e83b3503d19c5da37701631c895d631a",
+  "closed_mouth": "clean-plate",
+  "tattoo": "clean-plate",
+  "source_sha256": "330c8212716ccf8964ac012c3d238cce27841c1a5d198a960720a016e11fae7d",
+  "raw_sha256": "1a26eed48ea664f01c333c23b75afd346ea85daa6abacd070ceb453bac745218",
+  "pipeline_sha256": "73f2aaaa658691e7e2f44468786677e6cd433f56ea1dbd3114842e7d5e1b0a31",
+  "tattoo_track_min_confidence": 0.378378
+}

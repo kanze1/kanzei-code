@@ -3,6 +3,7 @@ import { $ } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { activeSessionId, sessionStates } from "./03-shell.js";
 import { initOcCompanion } from "./22-oc-companion.js";
+import { initOcPreference } from "./22-oc-preference.js";
 
 // R-285 事件神经流。OC 与画布共享真实事件，视觉层不接管运行状态。
 // 顶层声明作为所有 classic script 的统一事件入口；初始化前保持可安全调用。
@@ -11,6 +12,7 @@ export let ocVoiceSignal = null;
 export function setNeuralFlowEmit(value) { neuralFlowEmit = value; }
 // 视觉层只消费真实运行事件；Canvas 丢帧、隐藏或关闭不会反向改变任何业务状态。
 defer(() => {
+  initOcPreference($("oc-toggle"));
   const chatCanvas = $("neural-flow-chat");
   const memoryCanvas = $("neural-flow-memory");
   const stateLabel = $("memory-flow-state");
@@ -18,7 +20,15 @@ defer(() => {
     getSessionId: () => activeSessionId,
     getRuntime: (id) => sessionStates.get(id),
   });
-  ocVoiceSignal = (sessionId, phase, level) => companion?.voice(sessionId, phase, level);
+  let lastVoicePulseAt = 0;
+  ocVoiceSignal = (sessionId, phase, level) => {
+    companion?.voice(sessionId, phase, level);
+    if (sessionId !== activeSessionId || !["speaking", "listening", "thinking"].includes(phase)) return;
+    const now = flowNow();
+    if (now - lastVoicePulseAt < (phase === "speaking" ? 220 : 1100)) return;
+    lastVoicePulseAt = now;
+    fields.filter(field => field.variant === "chat").forEach(field => field.trigger(phase === "listening" ? "recall" : "stream", .35 + Math.min(.5, level || 0)));
+  };
   const reducedMotion = typeof window.matchMedia === "function"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const fields = [];
@@ -76,6 +86,7 @@ defer(() => {
       this.bursts = [];
       this.energy = variant === "memory" ? 0.22 : 0.12;
       this.lastFrameAt = 0;
+      this.colors = [themeColor("--memory-flow", "#c9962e"), themeColor("--memory-flow-hot", "#f0d58c"), themeColor("--err", "#d0684e")];
       if (!this.context) return;
       this.resize();
       if (typeof ResizeObserver === "function") {
@@ -103,16 +114,43 @@ defer(() => {
       this.width = width;
       this.height = height;
       if (changed || !this.nodes.length) this.buildTopology();
+      this.connectPortrait();
+    }
+
+    connectPortrait() {
+      if (this.variant !== "chat" || !this.nodes.length) return;
+      const host = $("view-chat")?.classList.contains("voice-mode") ? $("voice-stage")?.querySelector(".oc-figure")
+        : $("chat-area")?.querySelector('.msg-pane[data-active="1"] .empty-art .oc-figure') || $("oc-companion")?.querySelector(".oc-figure");
+      const rect = host?.getBoundingClientRect();
+      const canvasRect = this.canvas.getBoundingClientRect();
+      if (!rect?.width || !rect.height) return;
+      const signature = [rect.left, rect.top, rect.width, rect.height, this.width, this.height].map(Math.round).join(":");
+      if (signature === this.portraitSignature) return;
+      this.portraitSignature = signature;
+      // 光路的汇聚点随人物所在位置变化，落在面部光纹附近。
+      this.nodes[0].x = rect.left - canvasRect.left + rect.width * .66;
+      this.nodes[0].y = rect.top - canvasRect.top + rect.height * .42;
+      this.nodes[0].weight = 1;
+      this.nodes[0].radius = 2.2;
+      this.edges = this.edges.filter(edge => edge.from !== 0 && edge.to !== 0);
+      const anchor = this.nodes[0];
+      const nearest = this.nodes.map((node, index) => ({ index, distance: Math.hypot(node.x - anchor.x, node.y - anchor.y) }))
+        .filter(item => item.index && item.distance > rect.width * .35).sort((a, b) => a.distance - b.distance).slice(0, 3);
+      for (const { index } of nearest) this.edges.push({ from: 0, to: index, bend: 24, weight: .85, phase: this.random(), speed: .00007, signal: true, portrait: true });
+      this.pulses = [];
     }
 
     buildTopology() {
+      this.portraitSignature = null;
       const count = this.variant === "memory" ? 46 : 38;
       this.nodes = [];
+      const voiceLayout = this.variant === "chat" && $("view-chat")?.classList.contains("voice-mode");
       for (let index = 0; index < count; index += 1) {
         const focus = this.variant === "chat" && index < 29;
         const x = this.variant === "memory"
           ? 0.05 + this.random() * 0.9
-          : focus ? 0.48 + this.random() * 0.56 : 0.12 + this.random() * 0.46;
+          : voiceLayout ? (focus ? 0.08 + this.random() * 0.5 : 0.58 + this.random() * .38)
+            : focus ? 0.48 + this.random() * 0.5 : 0.12 + this.random() * 0.46;
         const y = this.variant === "memory"
           ? 0.16 + this.random() * 0.7
           : 0.06 + this.random() * 0.88;
@@ -160,11 +198,13 @@ defer(() => {
 
     activeInView() {
       const view = this.canvas.closest?.(".view");
-      return !view || view.classList.contains("active");
+      const disclosure = this.canvas.closest?.("details");
+      return (!view || view.classList.contains("active")) && !this.canvas.closest?.(".hidden") && (!disclosure || disclosure.open);
     }
 
     trigger(kind, intensity = 0.7) {
       if (!this.context) return;
+      if (this.activeInView()) this.connectPortrait();
       const now = flowNow();
       const strength = Math.max(0.15, Math.min(1, intensity));
       this.energy = Math.max(this.energy, strength);
@@ -184,6 +224,8 @@ defer(() => {
         const nodeIndex = this.pickAnchor(kind);
         this.bursts.push({ nodeIndex, startedAt: now + (kind === "crystal" ? 260 : 80), kind, strength });
       }
+      this.pulses = this.pulses.slice(-48);
+      this.bursts = this.bursts.slice(-12);
       if (reducedMotion) this.draw(now);
     }
 
@@ -199,6 +241,7 @@ defer(() => {
         else if (kind === "write" || kind === "crystal") score += centerX * 0.55 + centerY * 0.25;
         else if (kind === "run") score += (1 - centerX) * 0.45 + centerY * 0.2;
         else score += edge.weight * 0.45;
+        if (edge.portrait) score += .65;
         return { index, score };
       }).sort((a, b) => b.score - a.score);
       return ranked[offset % Math.min(ranked.length, 12)].index;
@@ -220,11 +263,9 @@ defer(() => {
       if (!this.context || !this.width || !this.height) return;
       const ctx = this.context;
       ctx.clearRect(0, 0, this.width, this.height);
-      const base = themeColor("--memory-flow", "#c9962e");
-      const hot = themeColor("--memory-flow-hot", "#f0d58c");
-      const error = themeColor("--err", "#d0684e");
+      const [base, hot, error] = this.colors;
       const isMemory = this.variant === "memory";
-      const idleAlpha = isMemory ? 0.22 : 0.075;
+      const idleAlpha = isMemory ? 0.22 : 0.19;
       const breathing = reducedMotion ? 0.72 : 0.74 + Math.sin(now / 1500) * 0.14;
       const energy = Math.max(this.variant === "memory" ? 0.18 : 0.08, this.energy);
 
@@ -438,16 +479,28 @@ defer(() => {
       for (const field of fields) {
         if (!field.activeInView()) continue;
         const active = field.pulses.length || field.bursts.length || field.energy > 0.24;
-        const interval = active ? 16 : 42;
+        const interval = active ? 32 : 80;
         if (now - field.lastFrameAt >= interval) {
           field.lastFrameAt = now;
           field.draw(now);
         }
       }
     }
-    frameHandle = requestAnimationFrame(renderFrame);
+    frameHandle = !document.hidden && fields.some(field => field.activeInView()) ? requestAnimationFrame(renderFrame) : 0;
   }
 
+  function resumeFields() {
+    if (document.hidden) { if (frameHandle) cancelAnimationFrame(frameHandle); frameHandle = 0; return; }
+    for (const field of fields) if (field.activeInView()) { field.resize(); if (reducedMotion) field.draw(flowNow()); }
+    if (!reducedMotion && !frameHandle && fields.some(field => field.activeInView())) frameHandle = requestAnimationFrame(renderFrame);
+  }
+  for (const event of ["kz:view-changed", "kz:voice-layout", "kz:oc-preference", "kz:memory-tab", "visibilitychange"]) document.addEventListener(event, resumeFields);
+  document.addEventListener("toggle", resumeFields, true);
+  const themeObserver = new MutationObserver(() => {
+    for (const field of fields) field.colors = [themeColor("--memory-flow", "#c9962e"), themeColor("--memory-flow-hot", "#f0d58c"), themeColor("--err", "#d0684e")];
+    resumeFields();
+  });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   if (fields.length) {
     if (reducedMotion) fields.forEach((field) => field.draw(flowNow()));
     else frameHandle = requestAnimationFrame(renderFrame);
@@ -456,6 +509,7 @@ defer(() => {
   window.addEventListener?.("beforeunload", () => {
     if (frameHandle) cancelAnimationFrame(frameHandle);
     companion?.destroy();
+    themeObserver.disconnect();
     fields.forEach((field) => field.resizeObserver?.disconnect());
   });
 });

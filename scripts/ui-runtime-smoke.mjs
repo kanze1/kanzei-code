@@ -337,6 +337,7 @@ class Element {
     return node;
   }
   replaceChildren(...nodes) { for (const c of [...this.childNodes]) c.parentNode = null; this.childNodes = []; this._innerHTML = ""; this.append(...nodes); resetSelectedness(this); }
+  replaceWith(node) { if (this.parentNode) { this.parentNode.insertBefore(node, this); this.remove(); } }
   remove() {
     if (this.parentNode) {
       const siblings = this.parentNode.childNodes;
@@ -513,6 +514,7 @@ const body = new Element("body");
 const byId = new Map();
 // R-264 ESM:DOMContentLoaded 回调收集(冒烟手动触发,见 runUiSources 末尾)。
 const domReadyCallbacks = [];
+const documentListeners = new Map();
 const document = {
   documentElement,
   body,
@@ -562,8 +564,10 @@ const document = {
   // (模拟浏览器 `<script type="module">` 的 deferred 语义——模块求值完后 DOM 就绪)。
   addEventListener: (type, fn) => {
     if (type === "DOMContentLoaded") domReadyCallbacks.push(fn);
+    else documentListeners.set(type, [...(documentListeners.get(type) || []), fn]);
   },
-  removeEventListener: () => {},
+  removeEventListener: (type, fn) => documentListeners.set(type, (documentListeners.get(type) || []).filter((item) => item !== fn)),
+  dispatchEvent: (event) => { for (const fn of documentListeners.get(event.type) || []) fn(event); return true; },
   hasFocus: () => true,
 };
 
@@ -1101,6 +1105,7 @@ const payloads = {
 
   workspace_snapshot: {},
 };
+payloads.research_library_list = () => ({ entries: payloads.docs_snapshot.research_topics.map((entry) => ({ ...entry, id: entry.topic || "legacy", storage_root: PROJECT, linked_projects: [PROJECT], available: true, kind: entry.kind || (entry.legacy ? "legacy" : "research") })), diagnostics: [] });
 const invokeLog = [];
 const invokeArgs = [];
 const savedPayloads = new Map();
@@ -1216,6 +1221,7 @@ let expectedConsoleHits = 0;
 let copiedResearchCitation = "";
 const sandbox = {
   Event: class Event { constructor(type, init = {}) { this.type = type; Object.assign(this, init); } },
+  CustomEvent: class CustomEvent { constructor(type, init = {}) { this.type = type; Object.assign(this, init); } },
   __reportInitError: (label, err) => fail(`初始化步骤 ${label} 抛异常(已被 main.js 吞掉): ${err?.stack ?? err}`),
   __reportPersistentError: (text) => {
     if (expectedPersistentError && String(text).includes(expectedPersistentError)) {
@@ -1518,7 +1524,7 @@ await runUiSources();
   const neuralFlowEmit = neuralFlowModule?.namespace?.neuralFlowEmit;
   assert(typeof neuralFlowEmit === "function", "R-285 neuralFlowEmit ESM 入口未注册");
   assert(
-    source.includes("const idleAlpha = isMemory ? 0.22 : 0.075") && source.includes("const ambientProgress ="),
+    /const idleAlpha = isMemory \? 0\.22 : 0\.(?:19|075)/.test(source) && source.includes("const ambientProgress ="),
     "R-285 记忆流静息轨迹必须保持清晰亮度与定向流光",
   );
   assert(source.includes("const trailSteps = 5"), "R-285 业务事件脉冲必须带可辨识的流动尾迹");
@@ -1547,7 +1553,7 @@ await runUiSources();
     experienceProbe.animation.push(type);
     experienceProbe.payloads.push(payload);
   });
-  const memoryRefreshBefore = invokeLog.filter((cmd) => cmd === "memory_overview").length;
+  const memoryRefreshBefore = invokeLog.filter((cmd) => cmd === "memory_entries").length;
   const projectFact = {
     schema_version: 1,
     event_id: "experience-smoke-memory-1",
@@ -1563,7 +1569,7 @@ await runUiSources();
   };
   handlers.get("kz:experience")({ payload: projectFact });
   await flush();
-  experienceProbe.memory_refreshes = invokeLog.filter((cmd) => cmd === "memory_overview").length;
+  experienceProbe.memory_refreshes = invokeLog.filter((cmd) => cmd === "memory_entries").length;
   assert(
     vm.runInContext('experienceProjectionBySession.get("project-session-smoke").topics.has("memory-topic")', sandbox),
     "R-284 B3 体验事件未按 topic_id 进入 session store",
@@ -3367,6 +3373,7 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   // 排空带超时(drainTimersOnce):闸门段前若有人排了一次 refreshDocsSoon,它内部的
   // docs_snapshot 会撞上这道还没放开的闸门,无超时的 await 会让整个冒烟挂死而不是判红。
   await settle();
+  for (const frame of rafQueue.splice(0)) frame();
   await drainTimersOnce("跨视图跳转闸门段");
   openDocsSnapshot();
   invokeGates.delete("docs_snapshot");
@@ -3400,6 +3407,8 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   sandbox.jumpToEntry("R-002");
   // 只推进微任务、不跑定时器:失败注入期间不能让 refreshDocsSoon 之类的定时器也撞上去
   // (它的 catch 走 console.error,会以另一种形态判红,掩盖真正要看的那条)。
+  for (const frame of rafQueue.splice(0)) frame();
+  await drainTimersOnce("切页失败注入的延迟加载");
   for (let i = 0; i < 12; i += 1) await settle();
   invokeFailures.delete("docs_snapshot");
   assert(expectedPersistentHits > hitsBefore, "前置失败:注入的 docs_snapshot 失败没有触发 refreshDocs 的 catch");
@@ -3488,6 +3497,12 @@ const memoryTab = document.querySelectorAll(".activity-item").find((n) => n.data
 assert(memoryTab, "活动栏缺少记忆入口");
 memoryTab.click();
 await flush();
+const diagnosticsBefore = invokeLog.filter(cmd => cmd === "memory_recalls").length;
+await sandbox.refreshMemory();
+await flush();
+assert(invokeLog.filter(cmd => cmd === "memory_recalls").length === diagnosticsBefore, "阅读记忆不应重复加载隐藏的诊断");
+byId.get("memory-insights-tab").click();
+await flush();
 assert(invokeLog.includes("memory_recalls"), "记忆页未拉取召回明细(没有召回明细就没有评估手段)");
 assert(invokeLog.includes("memory_control_plane"), "记忆页未拉取控制面投影");
 assert(listText("memory-control-plane").includes("3"), "记忆控制面未展示 inbox backlog");
@@ -3566,40 +3581,27 @@ assert(listText("memory-detail").includes("冒烟 SOP"), "搜索结果点击后�
 assert(document.querySelector("#memory-list .memory-row.selected")?.dataset.memoryId === "M-SOP-001", "搜索打开详情后选中态错误");
 assert(document.querySelector("#memory-search-clear") && !document.querySelector("#memory-search-clear").hidden, "搜索后缺少清除搜索入口");
 
-// ---------- R-129 正文分段阅读:摘要行 + 段落块 + 超长折叠 + 编辑切换 ----------
-// 用长多段正文替换载荷,走真实渲染路径(loadMemoryList → 点击条目 → showMemoryDetail),
-// 验证:摘要行取首段、分段列表按空行拆、超长段折叠可展开、编辑按钮切回 textarea。
+// 全文默认可读：刷新后保留完整长文，编辑与保存不能丢内容。
 {
   const savedEntries = structuredClone(payloads.memory_entries);
+  memoryCategoryFilter.value = "all";
+  memoryCategoryFilter.dispatchEvent({ type: "change" });
+  await flush();
   payloads.memory_entries = [
     { id: "M-LONG-001", category: "fact", title: "长正文记忆", description: "钩子", status: "active", body: "第一段要点：这是正文摘要应展示的首段内容。\n\n第二段：拆出来的第二个段落块。\n\n第三段超长：\n" + "很长的段落文本，需要折叠。".repeat(30), hits: 0, last_hit_at: 0, recalled: 0, injected: 0, read: 0, read_observed: 0, updated: "2026-08-01" },
     { id: "M-DEAD-001", category: "fact", title: "从没被用到的记忆", description: "冒烟用:零命中条目", status: "active", body: "陈旧结论", hits: 0, last_hit_at: 0, recalled: 0, injected: 0, read: 0, read_observed: 0, updated: "2026-01-01" },
   ];
-  await sandbox.loadMemoryList("project", null);
+  await sandbox.refreshMemory({ force: true });
   await flush();
   const longRow = [...document.querySelectorAll("#memory-list .memory-row")].find((r) => r.dataset.memoryId === "M-LONG-001");
   assert(longRow, "前置失败:长正文记忆条目未渲染");
   longRow.click();
   await flush();
-  const summary = document.querySelector("#memory-detail .memory-body-summary");
-  assert(summary, "记忆详情未渲染正文摘要行(R-129)");
-  assert(
-    listText("memory-detail").includes("正文摘要") && listText("memory-detail").includes("第一段要点"),
-    `摘要行未展示首段要点: "${listText("memory-detail").slice(0, 80)}"`,
-  );
-  const paras = document.querySelectorAll("#memory-detail .memory-body-para");
-  assert(paras.length === 3, `正文未按空行拆成 3 段,实得 ${paras.length}`);
-  const collapsed = document.querySelector("#memory-detail .memory-body-para.collapsed");
-  assert(collapsed, "超长段未折叠(长文仍整块糊在详情里)");
-  const toggle = collapsed.querySelector(".memory-body-toggle");
-  assert(toggle, "折叠段缺少展开按钮");
-  assert(toggle.textContent.includes("展开"), `展开按钮文案不对: "${toggle.textContent}"`);
-  toggle.click();
-  assert(
-    !collapsed.classList.contains("collapsed"),
-    "点展开后折叠类未移除(点了不展开)",
-  );
-  assert(toggle.textContent.includes("收起"), "展开后按钮未切换为「收起」");
+  const fullDocument = document.querySelector("#memory-detail .memory-body-document");
+  assert(fullDocument, "记忆详情未提供完整文档");
+  assert(fullDocument.textContent.includes("第一段要点") && fullDocument.textContent.includes("第二段"), "正文丢失段落");
+  assert((fullDocument.textContent.match(/很长的段落文本/g) || []).length === 30, "长正文被截断");
+  assert(!fullDocument.querySelector(".collapsed"), "正文不应要求逐段展开");
   const editBtn = [...document.querySelectorAll("#memory-detail .memory-body-edit-row button")].find((b) => b.textContent.includes("编辑正文"));
   assert(editBtn, "阅读视图缺少「编辑正文」入口");
   editBtn.click();
@@ -3616,7 +3618,7 @@ assert(document.querySelector("#memory-search-clear") && !document.querySelector
   assert(savedCall, "保存修改未提交 memory_entry_save");
   assert(savedCall.args.body === "改过的正文\n\n新段落", `保存载荷正文不对: "${savedCall.args.body}"`);
   payloads.memory_entries = savedEntries;
-  await sandbox.loadMemoryList("project", null);
+  await sandbox.refreshMemory({ force: true });
   await flush();
 }
 
@@ -3661,22 +3663,28 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
 // 跨项目迟到响应不得覆盖当前项目；失败后可重新加载。
 {
   const previousProject = sandbox.currentProject;
+  sandbox.showMemoryTab("insights");
+  await flush();
   let release;
   invokeGates.set("memory_recalls", new Promise((resolve) => { release = resolve; }));
-  const pending = sandbox.refreshMemory();
+  const pending = sandbox.refreshMemory({ force: true });
+  await settle();
   invokeGates.delete("memory_recalls");
   sandbox.currentProject = "C:/memory-other-project";
-  await sandbox.refreshMemory();
+  await sandbox.refreshMemory({ force: true });
+  await flush();
   byId.get("memory-recalls").textContent = "当前项目的记录";
   release();
   await pending;
   assert(listText("memory-recalls") === "当前项目的记录", "旧项目迟到响应覆盖了当前项目");
   expectedPersistentError = "记忆页加载失败";
   invokeFailures.set("memory_recalls", "memory read unavailable");
-  await sandbox.refreshMemory();
+  await sandbox.refreshMemory({ force: true });
+  await flush();
   invokeFailures.delete("memory_recalls");
   expectedPersistentError = null;
-  await sandbox.refreshMemory();
+  await sandbox.refreshMemory({ force: true });
+  await flush();
   assert(listText("memory-recalls").includes("run-7"), "读取失败后重试未恢复");
   sandbox.currentProject = previousProject;
   await sandbox.refreshMemory();
@@ -6058,7 +6066,7 @@ if (activityItems.length < expectedViews.size) {
       `index.html 声明 ${expectedViews.size} 个(${[...expectedViews].join(",")})`
   );
 }
-for (const item of activityItems) item.click();
+for (const item of activityItems) { item.click(); await flush(); }
 await flush();
 // 每个视图都必须真的被激活过,否则等于没切。
 for (const view of expectedViews) {
@@ -6450,14 +6458,14 @@ assert(
   localStorageShim.setItem("kz-language", "zh");
   sandbox.applyLanguage();
   assert(b8Key("设置") === "设置", "中文态设置页标题应保持原文(前置失效)");
-  assert(b8Key("模型角色") === "模型角色", "中文态「模型角色」应保持原文(前置失效)");
+  assert(b8Key("模型配置") === "模型配置", "中文态「模型配置」应保持原文(前置失效)");
   assert(attrOf("export-output-dir", "placeholder") === "选择导出目录", "中文态导出目录 placeholder 应保持原文(前置失效)");
 
   localStorageShim.setItem("kz-language", "en");
   sandbox.applyLanguage();
   assert(b8Key("设置") === "Settings", `英文态「设置」未翻译,实际 "${b8Key("设置")}"`);
   assert(b8Key("关于 kanzei") === "About kanzei", `英文态「关于 kanzei」未翻译,实际 "${b8Key("关于 kanzei")}"`);
-  assert(b8Key("模型角色") === "Model roles", `英文态「模型角色」未翻译,实际 "${b8Key("模型角色")}"`);
+  assert(b8Key("模型配置") === "Model configuration", `英文态「模型配置」未翻译,实际 "${b8Key("模型配置")}"`);
   assert(b8Key("保存到") === "Save to", `英文态「保存到」未翻译(span 包裹保留 hint),实际 "${b8Key("保存到")}"`);
   assert(b8Key("全局配置") === "Global config", `英文态「全局配置」未翻译(option 渲染点),实际 "${b8Key("全局配置")}"`);
   assert(b8Key("主循环") === "Main loop", `英文态「主循环」未翻译(span 包裹),实际 "${b8Key("主循环")}"`);
@@ -6473,7 +6481,7 @@ assert(
   assert(b8Key("工作资料导出") === "Export work materials", `英文态「工作资料导出」未翻译,实际 "${b8Key("工作资料导出")}"`);
   assert(b8Key("检查更新") === "Check for updates", `英文态「检查更新」未翻译,实际 "${b8Key("检查更新")}"`);
   assert(b8Key("保存") === "Save", `英文态「保存」未翻译,实际 "${b8Key("保存")}"`);
-  assert(attrOf("set-save-scope", "title") === "Scope selector (v1) covers model roles only; Providers and API keys always go to the global config", `英文态作用域 title 未翻译,实际 "${attrOf("set-save-scope", "title")}"`);
+  assert(attrOf("set-save-scope", "title") === "This scope selector only applies to model settings; providers and API keys always use the global config.", `英文态作用域 title 未翻译,实际 "${attrOf("set-save-scope", "title")}"`);
   assert(attrOf("export-output-dir", "placeholder") === "Choose an export directory", `英文态导出目录 placeholder 未翻译,实际 "${attrOf("export-output-dir", "placeholder")}"`);
   assert(attrOf("set-cadence-full-test-batches", "title") === "Interval in batches for every-N-batches", `英文态每 N 批 title 未翻译,实际 "${attrOf("set-cadence-full-test-batches", "title")}"`);
 
@@ -6996,6 +7004,8 @@ const docsB = {
   let releaseJumpB;
   invokeGates.set("docs_snapshot", new Promise((resolve) => { releaseJumpB = resolve; }));
   sandbox.jumpToEntry("R-900");
+  for (const frame of rafQueue.splice(0)) frame();
+  await drainTimersOnce("新项目跳转等待刷新");
   // 只推微任务:这一步要的是「乙那次刷新卡住、pendingJumpId 挂着」,不能让定时器插进来。
   for (let i = 0; i < 12; i += 1) await settle();
   invokeGates.delete("docs_snapshot");
@@ -7056,6 +7066,8 @@ const docsB = {
   invokeGates.set("docs_snapshot", new Promise((resolve) => { releaseJumpB = resolve; }));
   sandbox.jumpToEntry("R-900");
   for (let i = 0; i < 12; i += 1) await settle();
+  for (const frame of rafQueue.splice(0)) frame();
+  await drainTimersOnce("新项目跳转等待刷新 soon");
   invokeGates.delete("docs_snapshot");
   assert(
     vm.runInContext("pendingJumpId", sandbox) === "R-900",
@@ -7236,7 +7248,7 @@ const docsB = {
   const linesText = lanes.map((lane) => lane.textContent).join("\n");
   const claims = document.querySelectorAll("#lines-list .line-claim").map((node) => node.textContent);
   assert(
-    claims.length === 2 && claims.includes("R-001") && claims.some((claim) => /未取得条目|No claimed item/.test(claim)),
+    claims.length === 2 && claims.some(claim => claim.startsWith("R-001")) && claims.some((claim) => /未取得条目|No claimed item/.test(claim)),
     `并列视图没有按 tracker 取得线分别显示 claim(${JSON.stringify(claims)})`,
   );
   // 冒烟前半段已切到英文；固定标签和恰好命中词典的中文值会被本地化，下面只断言
@@ -7274,6 +7286,8 @@ const docsB = {
   // R-247 验收②:badge 只读 docs_snapshot 的 claimed_by；线即使空闲也仍是持有者。
   const claimedDocs = structuredClone(savedDocsPayload);
   claimedDocs.requirements[0].claimed_by = "claim-a1";
+  sandbox.navigate_view("documents");
+  await flush();
   sandbox.renderDocuments(claimedDocs);
   const claimedSnapshot = [
     ...payloads.collaboration_snapshot,

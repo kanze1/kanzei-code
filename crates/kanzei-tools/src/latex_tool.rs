@@ -135,12 +135,12 @@ fn lookup_path() -> String {
 /// 在 PATH 里找可执行文件(Windows 下补 .exe)。
 fn which_in_path(name: &str) -> Option<String> {
     let path = lookup_path();
-    for dir in path.split(';') {
-        if dir.is_empty() {
+    for dir in std::env::split_paths(&path) {
+        if dir.as_os_str().is_empty() {
             continue;
         }
         for candidate_name in [name, &format!("{name}.exe")] {
-            let candidate = Path::new(dir).join(candidate_name);
+            let candidate = dir.join(candidate_name);
             if candidate.is_file() {
                 return Some(candidate.display().to_string());
             }
@@ -219,7 +219,8 @@ fn compile_system(workdir: &Path, stem: &str, tex_path: &Path) -> (bool, String)
     }
     // bibtex 中间趟(有 .aux 且引用了 \cite 才需要;无 .aux 或空 bib 会报错,忽略)。
     let aux = workdir.join(format!("{stem}.aux"));
-    if ok && aux.is_file() {
+    let aux_text = std::fs::read_to_string(&aux).unwrap_or_default();
+    if ok && aux_text.contains("\\bibdata{") && aux_text.contains("\\citation{") {
         let bib = run_in_dir(workdir, "bibtex", &[stem]);
         let bib_text = bib.1.clone();
         diagnostics.push(format!("[bibtex] {}", summarize(bib_text.clone())));

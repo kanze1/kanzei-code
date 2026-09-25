@@ -1,0 +1,83 @@
+{
+  "profile": "profile-soft-v5.json",
+  "mode": "larry",
+  "jobs": [
+    {
+      "name": "oc-idle-breath-workwear-v7",
+      "image": "master-workwear-v7.png",
+      "last_image": "master-workwear-v7.png",
+      "seconds": 8,
+      "prompt": "idle-breath-workwear-v7.txt"
+    },
+    {
+      "name": "oc-listening-workwear-v7",
+      "image": "master-workwear-v7.png",
+      "last_image": "master-workwear-v7.png",
+      "seconds": 4,
+      "prompt": "listening-workwear-v7.txt"
+    },
+    {
+      "name": "oc-thinking-workwear-v7",
+      "image": "master-workwear-v7.png",
+      "last_image": "master-workwear-v7.png",
+      "seconds": 6,
+      "prompt": "thinking-workwear-v7.txt"
+    },
+    {
+      "name": "oc-replying-workwear-v7",
+      "image": "master-workwear-v7.png",
+      "last_image": "master-workwear-v7.png",
+      "seconds": 6,
+      "prompt": "replying-workwear-v7.txt"
+    },
+    {
+      "name": "oc-executing-workwear-v7",
+      "image": "master-workwear-v7.png",
+      "last_image": "master-workwear-v7.png",
+      "seconds": 6,
+      "prompt": "executing-workwear-v7.txt"
+    },
+    {
+      "name": "oc-blocked-workwear-v7",
+      "image": "master-workwear-v7.png",
+      "last_image": "master-workwear-v7.png",
+      "seconds": 4,
+      "prompt": "blocked-workwear-v7.txt"
+    },
+    {
+      "name": "oc-aside-workwear-v7",
+      "image": "master-workwear-v7.png",
+      "last_image": "master-workwear-v7.png",
+      "seconds": 4,
+      "prompt": "aside-workwear-v7.txt"
+    },
+    {
+      "name": "oc-warm-workwear-v7",
+      "image": "master-workwear-v7.png",
+      "last_image": "master-workwear-v7.png",
+      "seconds": 4,
+      "prompt": "warm-workwear-v7.txt"
+    },
+    {
+      "name": "oc-complete-workwear-v7",
+      "image": "master-workwear-v7.png",
+      "last_image": "master-workwear-v7.png",
+      "seconds": 4,
+      "prompt": "complete-workwear-v7.txt"
+    },
+    {
+      "name": "oc-idle-observe-workwear-v7",
+      "image": "master-workwear-v7.png",
+      "last_image": "master-workwear-v7.png",
+      "seconds": 8,
+      "prompt": "idle-observe-workwear-v7.txt"
+    },
+    {
+      "name": "oc-idle-quiet-workwear-v7",
+      "image": "master-workwear-v7.png",
+      "last_image": "master-workwear-v7.png",
+      "seconds": 8,
+      "prompt": "idle-quiet-workwear-v7.txt"
+    }
+  ]
+}

@@ -319,7 +319,7 @@ impl Tool for ResearchRunnerTool {
     }
 
     fn description(&self) -> String {
-        "研究实验专用执行器：run 通过 local 或系统 ssh 客户端执行人工准备好的命令，逐行解析 @@kanzei callback，普通 stdout/stderr 原样写入终端日志；事件、callback_stats、终态、环境快照、参数和产物引用写入 state.db 与 explorations/<E-id>/<result-id>/；get 从持久事实回读。research 档 bash 仍不可用。".into()
+        r#"研究实验专用执行器：run 通过 local 或系统 ssh 客户端执行命令。指标须逐行输出 @@kanzei {"t":"metric","name":"score","value":0.5}（Python print(..., flush=True)），name 必须与 MVP metric 完全一致，value 为有限数值；同名指标保留最后值，各方法宜分开运行或使用不同 name。heartbeat 输出 @@kanzei {"t":"heartbeat"}。普通 stdout/stderr 和格式错误的回调保留在 terminal_log；get 回读 metrics_last/callback_stats。事件、环境、参数和产物写入 state.db 与 explorations/<E-id>/<result-id>/。AUTO 使用 prepare_compute 返回的 Python 和工作目录。Windows local 命令使用 cmd，带空格的程序/参数用双引号，不用 PowerShell 的 &。research 档 bash 不可用。"#.into()
     }
 
     fn input_schema(&self) -> Value {
@@ -328,9 +328,9 @@ impl Tool for ResearchRunnerTool {
             "properties": {
                 "action": { "type": "string", "enum": ["run", "get", "cancel"] },
                 "topic": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-                "environment_id": { "type": "string", "pattern": "^ENV-.+" },
-                "exploration_id": { "type": "string" },
-                "result_id": { "type": "string" },
+                "environment_id": { "type": "string", "pattern": "^ENV-.+", "description":"已有环境登记 ID；未登记的本机环境省略，AUTO 自动继承准备阶段绑定的 ID。" },
+                "exploration_id": { "type": "string", "description":"有效探索记录的 E-001 这样的编号。" },
+                "result_id": { "type": "string", "description":"未占用的结果编号，如 E-001-01；省略时按已有 Markdown 和运行记录分配下一编号。失败重试使用新编号。" },
                 "execution": {
                     "type": "object",
                     "properties": {
@@ -344,7 +344,7 @@ impl Tool for ResearchRunnerTool {
                 },
                 "params_text": { "type": "string" },
                 "code_ref": { "type": "object" },
-                "policy": { "type": "string" },
+                "policy": { "type": "string", "enum":["relaxed", "managed", "approval", "strict"], "description":"未登记本机环境默认 relaxed；有环境 ID 时使用登记策略。" },
                 "lease_id": { "type": "string" },
                 "max_duration_ms": { "type": "integer", "minimum": 1 },
                 "heartbeat_timeout_ms": { "type": "integer", "minimum": 1 },
@@ -487,7 +487,7 @@ async fn cancel_run(input: &RunnerInput, ctx: &ToolCtx) -> ToolOutput {
     ToolOutput::ok(json!({ "result_id": result_id, "status": run.status, "pid": pid }).to_string())
 }
 
-async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
+async fn run_experiment(mut input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
     if let Err(error) = crate::research_workflow::check_run(
         &ctx.project_root,
         &input.topic,
@@ -501,6 +501,27 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             "run 必须提供 execution.kind 与 execution.command",
         );
     };
+    if ctx
+        .project_root
+        .join(".kanzei/research")
+        .join(&input.topic)
+        .join("workflow.json")
+        .exists()
+    {
+        if let Ok(Some(state)) = crate::research_workflow::load(&ctx.project_root, &input.topic) {
+            if let Some(compute) = state.compute {
+                if input.environment_id.is_none() {
+                    input.environment_id = compute.spec.environment_id;
+                }
+                if execution.workdir.is_none() {
+                    execution.workdir = Some(compute.workdir);
+                }
+                if execution.host.is_none() {
+                    execution.host = compute.host;
+                }
+            }
+        }
+    }
     let declared_environment = match input.environment_id.as_deref() {
         Some(environment_id) => match load_environment(&ctx.project_root, environment_id) {
             Ok(environment) if environment.status == "active" => Some(environment),
@@ -568,10 +589,13 @@ async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         .exploration_id
         .clone()
         .unwrap_or_else(|| "E-unknown".into());
-    let result_id = input
-        .result_id
-        .clone()
-        .unwrap_or_else(|| format!("{exploration_id}-{}", unix_ms()));
+    let result_id = match input.result_id.clone() {
+        Some(id) => id,
+        None => match next_result_id(&ctx.project_root, &input.topic, &exploration_id) {
+            Ok(id) => id,
+            Err(error) => return ToolOutput::needs_correction("INVALID_RESEARCH_RESULT_ID", error),
+        },
+    };
     if let Err(error) = crate::research_workflow::validate_run_id(
         &ctx.project_root,
         &input.topic,
@@ -1039,6 +1063,38 @@ fn append_result_table_row(root: &Path, run: &ResearchRunRecord) -> Result<Strin
     Ok(path.to_string_lossy().to_string())
 }
 
+fn next_result_id(root: &Path, topic: &str, exploration: &str) -> Result<String, String> {
+    let model = kanzei_core::load_research_topic(root, topic).map_err(|error| error.to_string())?;
+    let document = model
+        .explorations
+        .iter()
+        .find(|document| document.frontmatter.id == exploration)
+        .ok_or_else(|| format!("缺少探索记录 explorations/{exploration}.md"))?;
+    let store = SessionStore::open(&kanzei_core::project_state_path(root))
+        .map_err(|error| error.to_string())?;
+    let runs = store
+        .list_research_runs(topic)
+        .map_err(|error| error.to_string())?;
+    let used: std::collections::HashSet<_> = document
+        .results
+        .iter()
+        .map(|result| result.result_id.as_str())
+        .chain(runs.iter().map(|run| run.result_id.as_str()))
+        .collect();
+    for number in 1..=99 {
+        let id = format!("{exploration}-{number:02}");
+        if !used.contains(id.as_str())
+            && store
+                .get_research_run(&id)
+                .map_err(|error| error.to_string())?
+                .is_none()
+        {
+            return Ok(id);
+        }
+    }
+    Err("当前探索的 99 个结果编号已用完，请新建探索".into())
+}
+
 fn command_for(execution: &ExecutionSpec, ctx: &ToolCtx) -> Result<Command, String> {
     if execution.kind == "ssh" {
         let target = match execution.user.as_deref() {
@@ -1048,7 +1104,15 @@ fn command_for(execution: &ExecutionSpec, ctx: &ToolCtx) -> Result<Command, Stri
             _ => execution.host.clone().unwrap_or_default(),
         };
         let mut command = Command::new("ssh");
-        command.args(["-o", "BatchMode=yes", &target, &execution.command]);
+        let remote_command = match execution.workdir.as_deref() {
+            Some(dir) => format!(
+                "cd '{}' && {}",
+                dir.replace('\'', "'\\''"),
+                execution.command
+            ),
+            None => execution.command.clone(),
+        };
+        command.args(["-o", "BatchMode=yes", "--", &target, &remote_command]);
         return Ok(command);
     }
     let workdir = execution
@@ -1056,11 +1120,20 @@ fn command_for(execution: &ExecutionSpec, ctx: &ToolCtx) -> Result<Command, Stri
         .as_deref()
         .map(PathBuf::from)
         .unwrap_or_else(|| ctx.cwd.clone());
-    let mut command = if cfg!(windows) {
+    #[cfg(windows)]
+    let mut command = {
+        use std::os::windows::process::CommandExt;
         let mut command = Command::new("cmd");
-        command.args(["/D", "/C", &execution.command]);
+        // cmd parses its tail as shell text, not a C argv string. /S removes only
+        // the added outer quotes, preserving quoted executable paths and args.
+        command.args(["/D", "/S", "/C"]);
         command
-    } else {
+            .as_std_mut()
+            .raw_arg(format!("\"{}\"", execution.command));
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = {
         let mut command = Command::new("sh");
         command.args(["-c", &execution.command]);
         command
@@ -1228,6 +1301,44 @@ mod tests {
     use super::*;
     use kanzei_harness::ToolOutcome;
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn local_windows_command_preserves_quoted_program_and_arguments() {
+        let root = std::env::temp_dir().join(format!("kz-research quoted path-{}", unix_ms()));
+        std::fs::create_dir_all(&root).unwrap();
+        let program = root.join("quoted program.exe");
+        std::fs::copy(
+            Path::new(&std::env::var("SystemRoot").unwrap()).join("System32/cmd.exe"),
+            &program,
+        )
+        .unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let mut command = command_for(
+            &ExecutionSpec {
+                kind: "local".into(),
+                command: format!(
+                    "\"{}\" /D /C echo \"argument with spaces\" && echo done",
+                    program.display()
+                ),
+                host: None,
+                user: None,
+                workdir: None,
+            },
+            &ctx,
+        )
+        .unwrap();
+        let output = command.output().await.unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("\"argument with spaces\""), "{stdout}");
+        assert!(stdout.lines().any(|line| line == "done"), "{stdout}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn local_command_uses_explicit_workdir_and_ssh_uses_batch_mode() {
         let ctx = ToolCtx::new(PathBuf::from("C:/work"), PathBuf::from("C:/project"));
@@ -1249,13 +1360,17 @@ mod tests {
                 command: "python train.py".into(),
                 host: Some("gpu.example".into()),
                 user: Some("alice".into()),
-                workdir: None,
+                workdir: Some("/research/alice's experiments".into()),
             },
             &ctx,
         )
         .unwrap();
         assert_eq!(remote.as_std().get_program(), "ssh");
         assert!(remote.as_std().get_args().any(|arg| arg == "BatchMode=yes"));
+        assert_eq!(
+            remote.as_std().get_args().last().unwrap(),
+            "cd '/research/alice'\\''s experiments' && python train.py"
+        );
     }
 
     #[tokio::test]
@@ -1282,7 +1397,7 @@ mod tests {
                 topic: "nas-search".into(),
                 environment_id: Some("ENV-test".into()),
                 exploration_id: Some("E-001".into()),
-                result_id: Some("E-001-01".into()),
+                result_id: None,
                 execution: Some(ExecutionSpec {
                     kind: "local".into(),
                     command: "echo ordinary".into(),
@@ -1322,6 +1437,27 @@ mod tests {
         let execution: Value = serde_json::from_str(&run.execution_json).unwrap();
         assert_eq!(execution["environment_id"], "ENV-test");
         assert_eq!(run.policy, "relaxed");
+        assert_eq!(
+            next_result_id(&root, "nas-search", "E-001").unwrap(),
+            "E-001-02"
+        );
+        // A run admitted before its Markdown callback must also reserve its ID.
+        let mut pending = run.clone();
+        pending.result_id = "E-001-02".into();
+        pending.status = "running".into();
+        store.upsert_research_run(&pending).unwrap();
+        assert_eq!(
+            next_result_id(&root, "nas-search", "E-001").unwrap(),
+            "E-001-03"
+        );
+        // state.db keys runs globally, so another topic's run must not be overwritten.
+        pending.result_id = "E-001-03".into();
+        pending.topic = "another-topic".into();
+        store.upsert_research_run(&pending).unwrap();
+        assert_eq!(
+            next_result_id(&root, "nas-search", "E-001").unwrap(),
+            "E-001-04"
+        );
         assert!(std::fs::read_to_string(root.join(&run.terminal_log_path))
             .unwrap()
             .contains("ordinary"));

@@ -79,7 +79,7 @@ export function renderProviders() {
 
     const tdKey = document.createElement("td");
     if (p.auth) {
-      // 特殊认证(codex 订阅登录态):只展示,不可编辑成 key。
+      // Codex 订阅登录态只展示,不可编辑成 API key。
       const badge = document.createElement("span");
       badge.className = "key-state key-ok";
       badge.textContent = `${t("订阅登录态")}(${p.auth})`;
@@ -97,6 +97,14 @@ export function renderProviders() {
       keyInput.title = t("直填优先于环境变量;明文存 kanzei.toml");
       keyInput.addEventListener("input", () => (p.apiKey = keyInput.value));
       tdKey.append(envInput, keyInput);
+      if (p.legacyClaudeSubscription) {
+        const warning = document.createElement("span");
+        warning.className = "key-state key-missing";
+        warning.textContent = p.keyPresent
+          ? t("旧版 Claude 订阅已停用；保存后会使用这里配置的 API Key。")
+          : t("Claude 订阅登录已停用，请改用 Anthropic API Key。");
+        tdKey.appendChild(warning);
+      }
       if (p.keyPresent !== null && p.keyPresent !== undefined) {
         const state = document.createElement("span");
         state.className = `key-state ${p.keyPresent ? "key-ok" : "key-missing"}`;
@@ -447,7 +455,9 @@ export function applyModelOptions(desired, ids) {
     select.innerHTML = "";
     const none = document.createElement("option");
     none.value = "";
-    none.textContent = t("(未设 · 用内置默认)");
+    none.textContent = role === "fast" || role === "compact"
+      ? t("(未设 · 跟随主模型)")
+      : t("(未设 · 用内置默认)");
     select.appendChild(none);
     for (const id of knownModelIds) {
       const opt = document.createElement("option");

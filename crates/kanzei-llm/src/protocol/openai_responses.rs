@@ -10,7 +10,9 @@ use serde_json::{json, Value};
 
 use crate::error::LlmError;
 use crate::event::{FinishReason, LlmEvent, Usage};
-use crate::request::{LlmRequest, Part, Role};
+use crate::request::{
+    openai_reasoning_effort, supports_openai_reasoning_effort, LlmRequest, Part, Role,
+};
 use crate::sse::SseEvent;
 
 use super::ProtocolState;
@@ -115,9 +117,13 @@ pub fn build_body(request: &LlmRequest) -> Value {
             .collect();
         body["tools"] = Value::Array(tools);
     }
-    // reasoning 对象本来就在(summary=auto),按档位补 effort;关闭时保持原样不带 effort。
-    if request.reasoning.enabled() {
-        body["reasoning"]["effort"] = json!(request.reasoning.as_str());
+    let reasoning_supported = supports_openai_reasoning_effort(&request.model);
+    if !reasoning_supported {
+        // A global preference must not send reasoning fields to ordinary Responses models.
+        body.as_object_mut().unwrap().remove("reasoning");
+        body.as_object_mut().unwrap().remove("include");
+    } else if let Some(effort) = openai_reasoning_effort(&request.model, request.reasoning) {
+        body["reasoning"]["effort"] = json!(effort);
     }
     // Codex Fast mode:同一模型走 priority 服务档位,未开启时不带该字段。
     if let Some(service_tier) = request.service_tier.as_deref() {

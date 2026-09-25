@@ -1,19 +1,27 @@
 import { $, defer, invoke, readJson, uiPrefsLoad, uiPrefsSave, writeJson } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { activeProcessId, currentProject, navigate_view, processItems, toastError } from "./03-shell.js";
-import { refreshProcesses, renderParallelTaskStatus, switchProcess } from "./09-sessions.js";
+import { activate_execution_root, refreshProcesses, renderParallelTaskStatus, switchProcess } from "./09-sessions.js";
 import { attachments, setAttachments } from "./03-shell.js";
 import { renderAttachments } from "./08-compose-runtime.js";
 import { sync_research_process_context } from "./19-research.js";
+import { enter_research_library } from "./03-research-library.js";
 
 // 导航偏好不承担运行配置；任务的 profile 与课题绑定来自 process_list。
 export let active_space = "dev";
+export let development_project = null;
 export let workspace_switch_pending = false;
 export let workspace_preferences = readJson("kz-workspaces", {});
 let workspace_save = Promise.resolve();
-const dev_views = new Set(["documents", "lines", "arch", "metrics"]);
+const dev_views = new Set(["workspace", "documents", "lines", "arch", "metrics"]);
 const composer_drafts = new Map();
 let composer_scope = "";
+let startup_space;
+const library_preferences_key = "@research-library";
+
+export function remember_development_project(project) {
+  development_project = project;
+}
 
 export function sync_composer_scope() {
   const scope = currentProject && activeProcessId ? JSON.stringify([currentProject, activeProcessId]) : "";
@@ -28,25 +36,38 @@ export function sync_composer_scope() {
 }
 
 export function project_workspace(project = currentProject) {
-  const saved = workspace_preferences[project] ?? {};
+  const saved = workspace_preferences[project || development_project] ?? {};
+  const library = workspace_preferences[library_preferences_key];
   return {
     ...saved,
-    space: saved.space === "research" ? "research" : "dev",
+    space: active_space,
     dev: { view: "chat", ...saved.dev },
-    research: { view: "research", page: "overview", topic: "", category: "research", ...saved.research },
+    research: { view: "research", page: "overview", topic: "", category: "research", ...(library?.research ?? saved.research) },
   };
 }
 
 export function save_workspace(patch, project = currentProject) {
-  if (!project) return;
-  workspace_preferences[project] = { ...project_workspace(project), ...patch };
+  if (project && patch.dev) workspace_preferences[project] = { ...workspace_preferences[project], dev: patch.dev };
+  workspace_preferences[library_preferences_key] = {
+    ...workspace_preferences[library_preferences_key],
+    ...(patch.space ? { space: patch.space } : {}),
+    ...(patch.research ? { research: patch.research } : {}),
+  };
+  if (patch.research?.topic_id) {
+    const library = workspace_preferences[library_preferences_key];
+    library.topic_states = { ...library.topic_states, [patch.research.topic_id]: patch.research };
+  }
   writeJson("kz-workspaces", workspace_preferences);
-  workspace_save = workspace_save.then(() => uiPrefsSave({ workspace_state: { ...workspace_preferences } }));
+  workspace_save = workspace_save.catch(() => {}).then(() => uiPrefsSave({ workspace_state: { ...workspace_preferences } }));
 }
 
 export function save_research_workspace(patch) {
   const saved = project_workspace();
-  save_workspace({ research: { ...saved.research, ...patch } });
+  const changed = Object.hasOwn(patch, "topic_id") && patch.topic_id !== saved.research.topic_id;
+  const previous = changed
+    ? { view: "research", page: "overview", process_id: null, ...workspace_preferences[library_preferences_key]?.topic_states?.[patch.topic_id] }
+    : saved.research;
+  save_workspace({ research: { ...previous, ...patch } });
 }
 
 export async function restore_workspace_preferences() {
@@ -54,6 +75,13 @@ export async function restore_workspace_preferences() {
   if (saved.workspace_state && typeof saved.workspace_state === "object") {
     workspace_preferences = { ...workspace_preferences, ...saved.workspace_state };
   }
+  startup_space = workspace_preferences[library_preferences_key]?.space;
+}
+
+export async function restore_active_workspace() {
+  const space = startup_space ?? workspace_preferences[development_project]?.space;
+  if (space === "research") await switch_workspace("research");
+  else sync_workspace_visibility();
 }
 
 export function process_space(item) {
@@ -62,7 +90,8 @@ export function process_space(item) {
 
 export function preferred_workspace_process(items, space = project_workspace().space) {
   const saved = project_workspace()[space];
-  const candidates = items.filter((item) => process_space(item) === space);
+  const candidates = items.filter((item) => process_space(item) === space
+    && (space !== "research" || (item.research_topic || "") === saved.topic));
   return candidates.find((item) => item.id === saved.process_id)
     ?? (space === "research" ? candidates.find((item) => item.research_topic === saved.topic) : candidates.find((item) => item.id.startsWith("d|")))
     ?? candidates[0];
@@ -124,6 +153,11 @@ export function sync_workspace_visibility() {
 }
 
 export async function create_workspace_process(topic = null, is_current = () => true) {
+  if (active_space === "research" && !topic) {
+    $("research-topic-form")?.classList.remove("hidden");
+    $("research-topic-title")?.focus();
+    return;
+  }
   if (!currentProject) return;
   const project = currentProject;
   const space = active_space;
@@ -138,7 +172,7 @@ export async function create_workspace_process(topic = null, is_current = () => 
   if (!same_context()) return;
   await refreshProcesses();
   if (!same_context()) return;
-  await switchProcess(item.id);
+  await switchProcess(item.id, true);
   if (!same_context() || activeProcessId !== item.id) return;
   if (active_space === "research") {
     save_research_workspace({ page: "chat" });
@@ -148,29 +182,32 @@ export async function create_workspace_process(topic = null, is_current = () => 
 }
 
 export async function switch_workspace(space) {
-  if (!currentProject || workspace_switch_pending || !["dev", "research"].includes(space)) return;
+  if (workspace_switch_pending || !["dev", "research"].includes(space)) return;
   if (space === active_space) return;
-  const project = currentProject;
-  const saved = project_workspace();
+  const previous_space = active_space;
+  const previous_root = currentProject;
+  if (active_space === "dev") development_project = currentProject;
+  // 一次性接入旧的按项目保存的研究偏好。
+  const saved_research = project_workspace().research;
   workspace_switch_pending = true;
   sync_workspace_visibility();
   try {
-    await refreshProcesses();
-    if (currentProject !== project) return;
-    let target = preferred_workspace_process(processItems, space);
-    if (!target) {
-      target = await invoke("process_create", { projectDir: project, profile: space, phasePipeline: false });
-      if (currentProject !== project) return;
-      await refreshProcesses();
+    active_space = space;
+    save_workspace({ space, research: saved_research });
+    if (space === "research") await enter_research_library(development_project);
+    else { activate_execution_root(development_project); await refreshProcesses(); }
+    const target = preferred_workspace_process(processItems, space);
+    if (target) await switchProcess(target.id, true);
+    if (space === "research" && !target && project_workspace().research.page === "chat") {
+      save_research_workspace({ page: "overview", view: "research" });
     }
-    if (currentProject !== project) return;
-    await switchProcess(target.id, target.id === activeProcessId);
-    if (currentProject !== project) return;
-    if (space === "research" && saved.research.view !== "chat") {
-      save_research_workspace({ topic: saved.research.topic, category: saved.research.category });
-    }
-    navigate_view(view_allowed(saved[space].view) ? saved[space].view : space === "research" ? "research" : "chat");
+    const saved = project_workspace()[space];
+    navigate_view(space === "dev" && !currentProject ? "workspace" : space === "research" && !target ? "research" : view_allowed(saved.view) ? saved.view : "chat");
   } catch (error) {
+    active_space = previous_space;
+    save_workspace({ space: previous_space });
+    activate_execution_root(previous_root);
+    await refreshProcesses();
     toastError(`${t("切换工作空间失败")}: ${error}`);
   } finally {
     workspace_switch_pending = false;

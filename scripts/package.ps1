@@ -1,10 +1,11 @@
 ﻿# kanzei 安装包构建:cargo tauri build → NSIS setup.exe → dist/
 # 该脚本必须以 UTF-8 BOM 保存,以兼容 Windows PowerShell 5.1 对中文字符串的解析。
-# 用法: .\scripts\package.ps1 -Ack <本次要发的提交数> [-Publish]
+# 用法: .\scripts\package.ps1 -Ack <本次要发的提交数> [-Publish] [-SkipInstall]
 #       -Publish = 同时发到 GitHub Releases,应用内"检查更新"即以此为源
 #       -Ack     = 你认为自上个 build-* 标签以来应当发出去的提交条数。
 #                  实际条数不符就中止(D-183)。
-param([switch]$Publish, [int]$Ack = -1, [string]$VerificationPath)
+#       -SkipInstall = 只生成安装包,不在当前机器自动安装。
+param([switch]$Publish, [switch]$SkipInstall, [int]$Ack = -1, [string]$VerificationPath)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
@@ -13,6 +14,7 @@ if (-not $env:HTTPS_PROXY) { $env:HTTPS_PROXY = "http://127.0.0.1:12000" }
 # 步进标注:发版全程非 Publish 8 步、Publish 10 步,每步一行 [N/M],配合活动面板的实时输出流,
 # 长静默段(tauri build 数分钟)之前先说清"现在在哪一步、一共几步"。
 $script:stepTotal = if ($Publish) { 10 } else { 8 }
+if ($SkipInstall) { $script:stepTotal-- }
 $script:stepIndex = 0
 function Step([string]$label) {
     $script:stepIndex += 1
@@ -196,13 +198,17 @@ if ($old_installers.Count -gt 0) {
 # 打包链不再止于拷进 dist:产物一出来就自动走 install-setup.ps1(静默装 + 安装位变更/
 # 构建标识双重校验),证明安装器真实可装。kzapp 运行中时静默安装必然无效(D-266),
 # 此时不中断发布(目标在远端),只明确提示人工补验——绝不把"没装上"说成"装好了"。
-Step "自动安装验证(装后自校验)"
-try {
-    & "$root\scripts\install-setup.ps1" -Setup $out -ExpectedHash $hash
-    Write-Host "==> 装后自校验通过:安装器可装且安装位含构建标识 $hash" -ForegroundColor Green
-} catch {
-    Write-Host "⚠ 自动安装未完成(通常因 kzapp 正在运行):$($_.Exception.Message)" -ForegroundColor Yellow
-    Write-Host "  可关闭 kzapp 后手动补验: .\scripts\install-setup.ps1 -Setup $out -ExpectedHash $hash" -ForegroundColor Yellow
+if ($SkipInstall) {
+    Write-Host "==> 按请求跳过自动安装;安装包已保留给用户手动安装" -ForegroundColor Yellow
+} else {
+    Step "自动安装验证(装后自校验)"
+    try {
+        & "$root\scripts\install-setup.ps1" -Setup $out -ExpectedHash $hash
+        Write-Host "==> 装后自校验通过:安装器可装且安装位含构建标识 $hash" -ForegroundColor Green
+    } catch {
+        Write-Host "⚠ 自动安装未完成(通常因 kzapp 正在运行):$($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "  可关闭 kzapp 后手动补验: .\scripts\install-setup.ps1 -Setup $out -ExpectedHash $hash" -ForegroundColor Yellow
+    }
 }
 
 if ($Publish) {

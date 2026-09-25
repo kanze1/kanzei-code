@@ -94,9 +94,17 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
         "survey_complete",
         "publish_map",
         "define_mvp",
+        "prepare_compute",
         "environment_ready",
         "record_mvp",
         "interpret",
+        "define_full",
+        "record_full",
+        "submit_analysis",
+        "paper_init",
+        "submit_paper",
+        "review_paper",
+        "compile_paper",
         "request_input",
     ] {
         let resource = format!(

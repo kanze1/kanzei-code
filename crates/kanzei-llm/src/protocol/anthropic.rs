@@ -64,18 +64,126 @@ pub fn build_body(request: &LlmRequest) -> Value {
             .collect();
         body["tools"] = Value::Array(tools);
     }
-    // thinking 开启时:①budget 必须小于 max_tokens,不够就把上限抬到 budget 之上;
-    // ②API 要求 temperature 保持默认,显式带上会被拒。
-    if let Some(budget) = request.reasoning.budget_tokens() {
+    let adaptive_thinking = supports_adaptive_thinking(&request.model);
+    let effort_level = anthropic_effort_level(&request.model, request.reasoning);
+    if let Some(level) = effort_level {
+        body["output_config"]["effort"] = json!(level);
+    }
+
+    // Claude 4.6+ uses adaptive thinking with effort. Older models use a fixed budget;
+    // Opus 4.5 supports both controls, so it receives effort plus the legacy budget.
+    let thinking_enabled = if request.reasoning.enabled() && adaptive_thinking {
+        body["thinking"] = json!({"type": "adaptive"});
+        if matches!(effort_level, Some("xhigh" | "max")) {
+            body["max_tokens"] = json!(request.max_tokens.max(65_536));
+        }
+        true
+    } else if let Some(budget) = request.reasoning.budget_tokens() {
+        // Fixed thinking budget must fit inside max_tokens. Thinking requests omit temperature.
         let min_output = budget.saturating_add(4096);
         if request.max_tokens < min_output {
             body["max_tokens"] = json!(min_output);
         }
         body["thinking"] = json!({"type": "enabled", "budget_tokens": budget});
-    } else if let Some(t) = request.temperature {
-        body["temperature"] = json!(t);
+        true
+    } else {
+        false
+    };
+    if !thinking_enabled {
+        if let Some(t) = request.temperature {
+            body["temperature"] = json!(t);
+        }
     }
     body
+}
+
+fn model_has(model: &str, fragments: &[&str]) -> bool {
+    let model = model.to_ascii_lowercase();
+    fragments.iter().any(|fragment| model.contains(fragment))
+}
+
+fn supports_adaptive_thinking(model: &str) -> bool {
+    model_has(
+        model,
+        &[
+            "opus-4-6",
+            "sonnet-4-6",
+            "opus-4-7",
+            "opus-4-8",
+            "opus-5",
+            "opus-5-5",
+            "sonnet-5",
+            "fable-5",
+            "fable-5-1",
+            "mythos-5",
+            "mythos-5-1",
+            "mythos-preview",
+        ],
+    )
+}
+
+fn supports_anthropic_effort(model: &str) -> bool {
+    supports_adaptive_thinking(model) || model_has(model, &["opus-4-5"])
+}
+
+fn supports_xhigh_effort(model: &str) -> bool {
+    model_has(
+        model,
+        &[
+            "opus-4-7",
+            "opus-4-8",
+            "opus-5",
+            "opus-5-5",
+            "sonnet-5",
+            "fable-5",
+            "fable-5-1",
+            "mythos-5",
+            "mythos-5-1",
+            "mythos-preview",
+        ],
+    )
+}
+
+fn anthropic_effort_level(
+    model: &str,
+    effort: crate::request::ReasoningEffort,
+) -> Option<&'static str> {
+    use crate::request::ReasoningEffort as E;
+
+    if !supports_anthropic_effort(model) {
+        return None;
+    }
+    match effort {
+        E::Off => None,
+        E::None => None,
+        E::Low => Some("low"),
+        E::Medium => Some("medium"),
+        E::High => Some("high"),
+        E::XHigh if supports_xhigh_effort(model) => Some("xhigh"),
+        E::XHigh => Some("high"),
+        E::Max if supports_max_effort(model) => Some("max"),
+        E::Max => Some("high"),
+    }
+}
+
+fn supports_max_effort(model: &str) -> bool {
+    model_has(
+        model,
+        &[
+            "opus-4-6",
+            "sonnet-4-6",
+            "opus-4-7",
+            "opus-4-8",
+            "opus-5",
+            "opus-5-5",
+            "sonnet-5",
+            "fable-5",
+            "fable-5-1",
+            "mythos-5",
+            "mythos-5-1",
+            "mythos-preview",
+        ],
+    )
 }
 
 fn message_to_value(message: &crate::request::Message) -> Value {
@@ -604,7 +712,7 @@ mod tests {
     #[test]
     fn thinking_budget_and_max_tokens_follow_effort() {
         let base = |effort, max_tokens, temperature| LlmRequest {
-            model: "claude-sonnet-5".into(),
+            model: "claude-3-7-sonnet".into(),
             system: vec!["s".into()],
             messages: vec![Message::user_text("hi")],
             tools: vec![],

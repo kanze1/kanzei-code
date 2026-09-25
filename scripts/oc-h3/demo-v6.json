@@ -1,0 +1,63 @@
+{
+  "audio": "demo-speech-c-v3.wav",
+  "duration": 30,
+  "fps": 24,
+  "voice": "Kanzei OC CN C",
+  "referenceSha256": "d514364ac6d714134b9d26b6428784b7905e78ec7f3337e2c4853287b3ec1cc4",
+  "events": [
+    [
+      0,
+      "idle"
+    ],
+    [
+      2.4,
+      "listening"
+    ],
+    [
+      6.5,
+      "thinking"
+    ],
+    [
+      13.2,
+      "replying"
+    ],
+    [
+      21.5,
+      "aside"
+    ],
+    [
+      26.2,
+      "complete"
+    ],
+    [
+      29.6,
+      "idle"
+    ]
+  ],
+  "cues": [
+    {
+      "at": 3.1,
+      "state": "listening",
+      "text": "嗯，我在。你继续说。",
+      "duration": 3.12
+    },
+    {
+      "at": 15.7,
+      "state": "replying",
+      "text": "问题在这里。先确认目标，再检查证据。先改这一处。",
+      "duration": 5.6
+    },
+    {
+      "at": 22.3,
+      "state": "aside",
+      "text": "流程挺完整。连多做一遍都安排好了。",
+      "duration": 3.92
+    },
+    {
+      "at": 26.8,
+      "state": "complete",
+      "text": "已经处理好了，剩下的我再检查一遍。",
+      "duration": 3.04
+    }
+  ]
+}

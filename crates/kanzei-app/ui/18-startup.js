@@ -8,7 +8,7 @@ import { refreshPendingInputs, refreshProcesses, renderProjects } from "./09-ses
 import { refreshDocs } from "./14-docs-actions.js";
 import { loadConversation, refreshGit } from "./15-views-misc.js";
 import { updateResultText } from "./16-settings.js";
-import { project_workspace, restore_workspace_preferences } from "./03-workspaces.js";
+import { project_workspace, restore_active_workspace, restore_workspace_preferences } from "./03-workspaces.js";
 
 // ---------- 启动 ----------
 defer(() => {
@@ -53,6 +53,7 @@ defer(() => {
     // 这一条是真依赖,串行。
     await restore_workspace_preferences();
     await runStep(["项目列表", async () => renderProjects(await invoke("projects_get"))]);
+    await runStep(["研究课题", restore_active_workspace]);
     // 线路列表是「历史对话」与「模型列表」的**共同前置**:前者要它选出主会话才知道
     // conversation_get 带哪个 processId,后者要按当前线路已选模型收敛紧凑列表。
     // 原实现靠"历史对话排在模型列表前面"隐式满足,并发后必须显式提出来——否则

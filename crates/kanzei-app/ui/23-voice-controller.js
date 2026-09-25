@@ -21,7 +21,7 @@ export class VoiceConversation {
     const life = ++this.life; this.starting = true; this.onState("connecting");
     this.wireSession = `${this.target.sessionId}::voice::${crypto.randomUUID()}`;
     try {
-      const status = await this.invoke("voice_status");
+      const status = await this.invoke("voice_start");
       if (life !== this.life) return;
       if (!status?.ready) throw new Error(status?.detail || "voice_service_unavailable");
       const context = this.createContext(); this.context = context; await context.resume();

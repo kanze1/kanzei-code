@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 pub struct ModelRoles {
     pub primary: Option<String>,
     pub fast: Option<String>,
-    /// 思考强度默认档:"off"(默认)| "low" | "medium" | "high"。
-    /// 运行时可被桌面端的每进程选择覆盖;未配置时保持 off,行为与既有一致。
+    /// 思考强度默认档:"off"(省略参数)| "none" | "low" | "medium" | "high" | "xhigh" | "max"。
+    /// 运行时可被桌面端的每进程选择覆盖;off 表示使用服务商默认。
     #[serde(default)]
     pub reasoning: Option<String>,
     /// Codex Fast mode:同一模型使用更高消耗的 priority 服务档位。
@@ -46,7 +46,7 @@ pub struct ProviderConfig {
     /// 直填 API key(个人工具的便利通道,优先于 api_key_env;明文存 toml,自担风险)。
     #[serde(default)]
     pub api_key: Option<String>,
-    /// 特殊认证:"codex" = 复用 Codex CLI 登录态,"claude" = 复用 Claude Code 登录态。
+    /// 特殊认证:"codex" = 复用 Codex CLI 登录态。旧配置中的 "claude" 在路由层明确拒绝。
     #[serde(default)]
     pub auth: Option<String>,
     /// 上下文窗口(token)。用于界面占用比例显示与(M2)压缩预检。
@@ -121,22 +121,18 @@ pub(crate) const PROVIDER_KEYS: &[&str] = &[
     "context_limit",
 ];
 
-/// fill_defaults 无条件回填的内置 provider 名单(R-184 P6 / D-246)。
-/// 与 fill_defaults 中的五个 `entry().or_insert()` 保持同步;UI 据此把内置
+/// fill_defaults 无条件回填的内置订阅 provider 名单(R-184 P6 / D-246)。
+/// 与 fill_defaults 中的 `entry().or_insert()` 保持同步;UI 据此把内置
 /// provider 的删除入口换成「内置」标记,避免「删了重开又回来」的误导。
 /// 这是只读元数据,不参与配置解析。
 pub fn builtin_provider_names() -> &'static [&'static str] {
-    &["anthropic", "ollama", "codex", "claude", "deepseek"]
+    &["codex"]
 }
 
 /// 内置 provider 的出厂 `context_limit`(取自 fill_defaults 本身,不另立名单——
 /// 名单漂移比没有名单更糟,见 D-246)。
 ///
-/// D-288:设置页保存时把**每个** provider 的 context_limit 都写进用户 toml,于是
-/// 一次「保存」就把当时的出厂默认冻成了用户配置。deepseek 的出厂值后来从 128k
-/// 改成 1M,用户那份 toml 却永远停在 128000——`fill_defaults` 只补 `None`,不会
-/// 覆盖已有值,所以内置默认再怎么改都追不上。设置页据此判断「这个数只是出厂默认」,
-/// 相同就不落盘,留空即跟随内置。
+/// 设置页据此判断「这个数只是出厂默认」,相同就不落盘,留空即跟随内置。
 pub fn builtin_context_limit(name: &str) -> Option<u64> {
     let mut config = crate::config::KanzeiConfig::default();
     config.providers.clear();

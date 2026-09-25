@@ -1,8 +1,8 @@
-//! 共享凭证文件的安全写回(D-061)。
+//! Codex CLI 登录凭证的安全写回(D-061)。
 //!
-//! ~/.claude/.credentials.json 与 ~/.codex/auth.json 同时被官方 CLI 读写,而对方
-//! 不参与任何锁协议——加跨进程锁只能拦住 kanzei 自己的多进程,拦不住真正的并发方,
-//! 还多一份卡死风险。因此这里用两条不依赖对方配合的手段:
+//! ~/.codex/auth.json 同时被官方 CLI 读写,而对方不参与任何锁协议——加跨进程锁只能
+//! 拦住 kanzei 自己的多进程,拦不住真正的并发方,还多一份卡死风险。因此这里用两条
+//! 不依赖对方配合的手段:
 //!
 //! 1. **原子替换**:写临时文件再 rename 覆盖。truncate-then-write 中途崩溃会留下
 //!    半截 JSON,下次解析直接报"请重新登录";rename 是原子的,读者要么看到旧的完整
@@ -46,15 +46,6 @@ fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&text).ok()
 }
 
-/// 按毫秒时间戳字段比较新旧(Claude 的 claudeAiOauth.expiresAt)。
-pub fn newer_by_millis(disk: &Value, mine: &Value, pointer: &str) -> bool {
-    let at = |v: &Value| v.pointer(pointer).and_then(Value::as_i64);
-    match (at(disk), at(mine)) {
-        (Some(disk_at), Some(my_at)) => disk_at >= my_at,
-        _ => false,
-    }
-}
-
 /// 按 RFC3339 字段比较新旧(Codex 的 last_refresh)。
 pub fn newer_by_rfc3339(disk: &Value, mine: &Value, pointer: &str) -> bool {
     let at = |v: &Value| {
@@ -88,52 +79,17 @@ mod tests {
     }
 
     #[test]
-    fn 并发刷新不会用旧令牌覆盖对方的新令牌() {
-        let path = temp_file("concurrent");
-        // 官方 CLI 抢先刷新并写盘。
-        std::fs::write(
-            &path,
-            json!({ "claudeAiOauth": { "accessToken": "theirs", "expiresAt": 3_000i64 } })
-                .to_string(),
-        )
-        .unwrap();
-        // 我们手里这份是同一轮开始前读到的,刷完只到更早的过期时间。
-        let mine = json!({ "claudeAiOauth": { "accessToken": "mine", "expiresAt": 2_000i64 } });
-
-        let adopted = commit(&path, &mine, |disk, mine| {
-            newer_by_millis(disk, mine, "/claudeAiOauth/expiresAt")
-        })
-        .unwrap();
-
-        assert_eq!(adopted["claudeAiOauth"]["accessToken"], "theirs");
-        let on_disk: Value =
-            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(
-            on_disk["claudeAiOauth"]["accessToken"], "theirs",
-            "不该把对方的新令牌覆盖回旧的"
-        );
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
-    }
-
-    #[test]
     fn 自己更新时正常落盘且不留临时文件() {
         let path = temp_file("write");
-        std::fs::write(
-            &path,
-            json!({ "claudeAiOauth": { "accessToken": "old", "expiresAt": 1_000i64 } }).to_string(),
-        )
-        .unwrap();
-        let mine = json!({ "claudeAiOauth": { "accessToken": "new", "expiresAt": 9_000i64 } });
+        std::fs::write(&path, json!({ "access_token": "old" }).to_string()).unwrap();
+        let mine = json!({ "access_token": "new" });
 
-        let written = commit(&path, &mine, |disk, mine| {
-            newer_by_millis(disk, mine, "/claudeAiOauth/expiresAt")
-        })
-        .unwrap();
+        let written = commit(&path, &mine, |_, _| false).unwrap();
 
-        assert_eq!(written["claudeAiOauth"]["accessToken"], "new");
+        assert_eq!(written["access_token"], "new");
         let on_disk: Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(on_disk["claudeAiOauth"]["accessToken"], "new");
+        assert_eq!(on_disk["access_token"], "new");
         let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
             .unwrap()
             .filter_map(|e| e.ok())
@@ -147,19 +103,15 @@ mod tests {
     fn 磁盘上是半截_json_时照常写入不被卡住() {
         // 旧版 truncate-then-write 崩溃留下的残骸:读不出来就当没有,直接以我们这份为准。
         let path = temp_file("corrupt");
-        std::fs::write(&path, "{\"claudeAiOauth\": {\"accessTok").unwrap();
-        let mine =
-            json!({ "claudeAiOauth": { "accessToken": "recovered", "expiresAt": 5_000i64 } });
+        std::fs::write(&path, "{\"access_tok").unwrap();
+        let mine = json!({ "access_token": "recovered" });
 
-        let written = commit(&path, &mine, |disk, mine| {
-            newer_by_millis(disk, mine, "/claudeAiOauth/expiresAt")
-        })
-        .unwrap();
+        let written = commit(&path, &mine, |_, _| false).unwrap();
 
-        assert_eq!(written["claudeAiOauth"]["accessToken"], "recovered");
+        assert_eq!(written["access_token"], "recovered");
         let on_disk: Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(on_disk["claudeAiOauth"]["accessToken"], "recovered");
+        assert_eq!(on_disk["access_token"], "recovered");
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 

@@ -9,7 +9,9 @@ use serde_json::{json, Value};
 
 use crate::error::LlmError;
 use crate::event::{FinishReason, LlmEvent, Usage};
-use crate::request::{LlmRequest, Part, Role};
+use crate::request::{
+    openai_reasoning_effort, supports_openai_reasoning_effort, LlmRequest, Part, Role,
+};
 use crate::sse::SseEvent;
 
 use super::ProtocolState;
@@ -127,12 +129,16 @@ pub fn build_body(request: &LlmRequest) -> Value {
             .collect();
         body["tools"] = Value::Array(tools);
     }
-    if let Some(t) = request.temperature {
-        body["temperature"] = json!(t);
+    let reasoning_model = supports_openai_reasoning_effort(&request.model);
+    if !reasoning_model {
+        if let Some(t) = request.temperature {
+            body["temperature"] = json!(t);
+        }
     }
-    // 推理模型(o 系/gpt-5 等)用 reasoning_effort 档位;关闭时不发,兼容不认该字段的 provider。
-    if request.reasoning.enabled() {
-        body["reasoning_effort"] = json!(request.reasoning.as_str());
+    // Only reasoning-capable model families accept this parameter. In particular, a global
+    // reasoning preference must not break ordinary chat models behind OpenAI-compatible APIs.
+    if let Some(effort) = openai_reasoning_effort(&request.model, request.reasoning) {
+        body["reasoning_effort"] = json!(effort);
     }
     body
 }

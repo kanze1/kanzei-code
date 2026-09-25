@@ -436,7 +436,7 @@ mod prior_art_init_tests {
 /// 原来这里只给「项目 + 当前对话 + 最近活动」——那些侧栏和文档页里全都有,
 /// 等于把别处的信息又摆了一遍。真正只有这里能回答的是「另外那个项目现在怎么样」,
 /// 所以补 lines:每条线的运行态、阶段、正在用的工具、归属分支。
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn workspace_snapshot(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<serde_json::Value, String> {

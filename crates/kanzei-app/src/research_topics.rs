@@ -79,7 +79,11 @@ pub(crate) fn research_topic_create(
     create_topic(Path::new(&project_dir), &topic, &title)
 }
 
-fn create_topic(root: &Path, topic: &str, title: &str) -> Result<serde_json::Value, String> {
+pub(crate) fn create_topic(
+    root: &Path,
+    topic: &str,
+    title: &str,
+) -> Result<serde_json::Value, String> {
     kanzei_tools::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
     let title = title.trim();
     if title.is_empty() || title.chars().count() > 200 {

@@ -1,0 +1,28 @@
+{
+  "tool": "builtin image_gen",
+  "native_size": [
+    1024,
+    1536
+  ],
+  "assets": [
+    {
+      "id": "face-skin-v4",
+      "refs": [
+        "body-clean-v4.png"
+      ],
+      "prompt": "Use case: precise-object-edit. Image 1 is the exact animation body-layer target. Make ONE tiny change: paint over the existing closed mouth line with seamless smooth surrounding skin color, leaving a clean featureless skin patch at that location. The lower face shape, nose, chin, cheek shading, eyes, hair and absolutely all other elements keep their exact current placement, colors and shapes. This is a technical mouth-underlay texture for animation: the mouth will be drawn by a separate layer later. Preserve the complete 1024x1536 canvas and character cutout alpha, including the missing sleeve on viewer-left. One matching RGBA PNG.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-3ac1dc1a-e7f6-4199-83c3-1e74384a6f20.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/face-skin-v4.png"
+    },
+    {
+      "id": "sleeve-bent-v4",
+      "refs": [
+        "arm-layer.png",
+        "body-clean-v4.png"
+      ],
+      "prompt": "Use case: background-extraction. Asset: the articulated upper sleeve for a 2D character rig. Image 1 is the exact geometry and placement target. Image 2 defines the clean charcoal-navy matte cotton material. Extract ONLY the clothing sleeve from Image 1 on the identical 1024x1536 canvas; the bare forearm and hand are removed to transparency. Preserve Image 1's shoulder cap, bent sleeve shape, cuff opening, seams, dimensions and pixel positions exactly. Keep the shoulder crest around x300 y530 and the cuff beside the elbow around x290 y1130. Fill a small continuation of dark fabric beneath the removed forearm so the sleeve is a complete coherent cloth cutout with a natural cuff opening. Match Image 2's smooth dry cotton with even continuous charcoal-navy color planes, crisp dark folds and a slim warm outer rim. This sleeve is worn with a bent elbow and gathered near the elbow, so preserve those bent folds from Image 1. All surrounding canvas, the forearm and hand are genuine transparent alpha. Output 1024x1536 RGBA.",
+      "generated": "C:\\Users\\kanzei\\.codex\\generated_images\\01a0c8d9-1c54-7e61-9df4-9637d3338bbe\\exec-4bd6594a-222f-4018-9d68-0d6f33f7dc0d.png",
+      "workspace": "crates/kanzei-app/ui/assets/oc/sleeve-bent-v4.png"
+    }
+  ]
+}

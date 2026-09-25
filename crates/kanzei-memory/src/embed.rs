@@ -249,6 +249,17 @@ mod tests {
         let mut full: KanzeiConfig =
             toml::from_str("[embeddings]\nprovider = \"ollama\"\nmodel = \"nomic-embed-text\"\n")
                 .unwrap();
+        full.providers.insert(
+            "ollama".into(),
+            kanzei_harness::config::ProviderConfig {
+                protocol: "openai".into(),
+                base_url: "http://127.0.0.1:11434/v1".into(),
+                api_key_env: None,
+                api_key: None,
+                auth: None,
+                context_limit: Some(32_000),
+            },
+        );
         full.fill_defaults();
         let got = embedder_from_config(&full).unwrap();
         assert!(got.is_some());

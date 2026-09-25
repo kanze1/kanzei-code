@@ -506,16 +506,18 @@ fn resolve_pdf_path(
         return Err("PDF 路径不允许包含 ..".into());
     }
     let root = project_root(project_dir);
-    let latex_root = topic_dir(project_dir, topic)?.join("latex");
+    let topic_root = std::fs::canonicalize(topic_dir(project_dir, topic)?)
+        .map_err(|error| format!("topic 不存在: {error}"))?;
     let candidate = root.join(relative_path);
-    let canonical_latex =
-        std::fs::canonicalize(&latex_root).map_err(|error| format!("latex/ 不存在: {error}"))?;
     let canonical_candidate =
         std::fs::canonicalize(&candidate).map_err(|error| format!("PDF 不存在: {error}"))?;
-    if !canonical_candidate.starts_with(&canonical_latex)
-        || canonical_candidate.extension().and_then(|ext| ext.to_str()) != Some("pdf")
-    {
-        return Err("PDF 预览路径必须位于当前 topic 的 latex/ 下".into());
+    let allowed = ["latex", "rounds"].iter().any(|directory| {
+        std::fs::canonicalize(topic_root.join(directory)).is_ok_and(|path| {
+            path.starts_with(&topic_root) && canonical_candidate.starts_with(path)
+        })
+    });
+    if !allowed || canonical_candidate.extension().and_then(|ext| ext.to_str()) != Some("pdf") {
+        return Err("PDF 预览路径必须位于当前 topic 的 latex/ 或 rounds/ 下".into());
     }
     Ok(canonical_candidate)
 }
@@ -652,6 +654,29 @@ mod tests {
             "../manual.pdf".into(),
         )
         .is_err());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn pdf_preview_reads_archived_rounds_and_rejects_other_topic_files() {
+        let root = temp_project();
+        let archived = ".kanzei/research/demo/rounds/full-001-r20/latex/paper.pdf";
+        let other = ".kanzei/research/other/rounds/full-001-r20/latex/paper.pdf";
+        let outside = ".kanzei/research/demo/notes/paper.pdf";
+        for relative in [archived, other, outside] {
+            let file = root.join(relative);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, b"%PDF-archived-round").unwrap();
+        }
+        let preview =
+            research_latex_pdf(root.display().to_string(), "demo".into(), archived.into()).unwrap();
+        assert_eq!(preview["data"], "JVBERi1hcmNoaXZlZC1yb3VuZA==");
+        for relative in [other, outside] {
+            assert!(
+                research_latex_pdf(root.display().to_string(), "demo".into(), relative.into(),)
+                    .is_err()
+            );
+        }
         std::fs::remove_dir_all(root).ok();
     }
 

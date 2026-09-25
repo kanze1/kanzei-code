@@ -332,7 +332,7 @@ pub(crate) fn settings_apply_model_fields(
         "fast",
         Some(payload.fast.trim().to_string()).filter(|s| !s.is_empty()),
     );
-    // R-236 B3:compact 留空 = 键移除(跟随主模型),不把回落值冻进配置。
+    // fast/compact 留空都移除键并跟随主模型,不把回落值冻进配置。
     settings_set_or_remove(
         models,
         "compact",
@@ -345,7 +345,7 @@ pub(crate) fn settings_apply_model_fields(
             .reasoning
             .as_ref()
             .map(|v| v.trim().to_ascii_lowercase())
-            .filter(|v| ["low", "medium", "high"].contains(&v.as_str())),
+            .filter(|v| ["none", "low", "medium", "high", "xhigh", "max"].contains(&v.as_str())),
         "off",
     );
     settings_set_value(models, "codex_fast_mode", payload.codex_fast_mode);
@@ -524,10 +524,9 @@ pub(crate) fn settings_apply_providers(
             "auth",
             p.auth.as_ref().filter(|s| !s.is_empty()).cloned(),
         );
-        // D-288:与出厂默认相同的 context_limit **不落盘**。写进去等于把「今天的
+        // 与出厂默认相同的 context_limit **不落盘**。写进去等于把「今天的
         // 默认」冻成用户配置——`settings_get` 发的是 fill_defaults 之后的值,用户
-        // 一次没碰过这个格子的「保存」就足以固化它;此后内置默认再改也追不上
-        // (实测用户的 deepseek 冻在 128000,内置早已是 1_000_000)。留空 = 跟随内置,
+        // 一次没碰过这个格子的「保存」就足以固化它;留空 = 跟随内置,
         // 每次加载由 fill_defaults 补齐;真正手填的非默认值照旧原样写入。
         match p.context_limit {
             Some(limit) if kanzei_harness::config::builtin_context_limit(&name) == Some(limit) => {
@@ -554,6 +553,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         .providers
         .iter()
         .map(|(name, p)| {
+            let legacy_claude_subscription = p.auth.as_deref() == Some("claude");
             let key_present = if p.api_key.as_deref().is_some_and(|k| !k.trim().is_empty()) {
                 Some(true)
             } else {
@@ -566,8 +566,10 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
                 // 保存时会自然落成 deepseek-responses，不再永久显示旧值。
                 "name": name, "protocol": p.effective_protocol(name), "baseUrl": p.base_url,
                 "apiKeyEnv": p.api_key_env, "apiKey": p.api_key, "keyPresent": key_present,
-                "auth": p.auth, "contextLimit": p.context_limit,
-                // R-184 P6(D-246):内置 provider 由 fill_defaults 无条件回填,
+                "auth": if legacy_claude_subscription { None } else { p.auth.clone() },
+                "legacyClaudeSubscription": legacy_claude_subscription,
+                "contextLimit": p.context_limit,
+                // R-184 P6(D-246):Codex 订阅态由 fill_defaults 无条件回填,
                 // 删了重开会回来——前端据此把删除入口换成「内置」标记,不误导。
                 "builtin": kanzei_harness::config::builtin_provider_names().contains(&name.as_str()),
                 "source": sources.get(name).copied().unwrap_or("builtin"),
@@ -726,10 +728,10 @@ pub(crate) fn settings_bootstrap_file(path: &Path) -> Result<(), String> {
 #\n\
 # [models]\n\
 #   primary = \"角色名或 provider:model\"        # 主对话模型\n\
-#   fast = \"角色名或 provider:model\"           # 快速子代理/机械检索\n\
+#   fast = \"角色名或 provider:model\"           # 快速子代理/机械检索;留空跟随 primary\n\
 #   scout = \"角色名或 provider:model\"          # 勘察/复核只读代理(默认跟随 fast)\n\
 #   compact = \"角色名或 provider:model\"        # 上下文压缩纪要(默认跟随 primary)\n\
-#   reasoning = \"off\" | \"low\" | \"medium\" | \"high\"\n\
+#   reasoning = \"off\" | \"none\" | \"low\" | \"medium\" | \"high\" | \"xhigh\" | \"max\"\n\
 #   codex_fast_mode = true | false              # 同模型走高消耗 priority 档\n\
 #\n\
 # [providers.<名字>]                            # 名字自取,models 里按名字引用\n\
@@ -737,7 +739,7 @@ pub(crate) fn settings_bootstrap_file(path: &Path) -> Result<(), String> {
 #   base_url = \"https://...\"                   # 端点地址\n\
 #   api_key_env = \"环境变量名\"                  # 从环境变量取密钥(推荐)\n\
 #   api_key = \"明文密钥\"                        # 直填密钥(明文存盘,自担风险)\n\
-#   auth = \"codex\" | \"claude\"                 # 复用 CLI 登录态(可选)\n\
+#   auth = \"codex\"                              # 复用 Codex CLI 登录态(可选)\n\
 #   context_limit = 200000                      # 上下文窗口 token 数(可选)\n\
 #\n\
 # [limits]\n\
@@ -840,13 +842,19 @@ pub async fn provider_test(
     auth: Option<String>,
     proxy: Option<String>,
 ) -> Result<String, String> {
-    if matches!(auth.as_deref(), Some("codex") | Some("claude")) {
+    if auth.as_deref() == Some("codex") {
         return Ok("订阅登录态通道,无需 key 测试".into());
     }
     let key = api_key
         .filter(|k| !k.trim().is_empty())
         .or_else(|| api_key_env.as_deref().and_then(|e| std::env::var(e).ok()))
         .filter(|k| !k.trim().is_empty());
+    if auth.as_deref() == Some("claude") && key.is_none() {
+        return Err("Claude 订阅登录已停用，请改用 Anthropic API Key。".into());
+    }
+    if protocol == "anthropic" && key.is_none() {
+        return Ok("✗ 缺少 Anthropic API Key——请直填 key 或配置 API Key 环境变量".into());
+    }
     let config = kanzei_harness::KanzeiConfig::load(Path::new(".")).unwrap_or_default();
     let proxy_value = proxy.or(config.proxy);
     let proxy = match proxy_value.as_deref() {
@@ -859,7 +867,11 @@ pub async fn provider_test(
     let request = match protocol.as_str() {
         "anthropic" => {
             let mut request = client
-                .get(format!("{base}/v1/models"))
+                .get(if base.ends_with("/v1") {
+                    format!("{base}/models")
+                } else {
+                    format!("{base}/v1/models")
+                })
                 .header("anthropic-version", "2023-06-01");
             if let Some(key) = &key {
                 request = request.header("x-api-key", key);
@@ -1056,7 +1068,7 @@ mod tests {
         settings_save_at_path(
             SettingsPayload {
                 language: None,
-                primary: "anthropic:claude-sonnet-5".into(),
+                primary: "codex:gpt-5.6-luna".into(),
                 fast: String::new(),
                 compact: String::new(),
                 proxy: "env".into(),
@@ -1075,10 +1087,7 @@ mod tests {
             toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(config.permissions.rules.len(), 1);
         assert_eq!(config.permissions.rules[0].action, "bash");
-        assert_eq!(
-            config.models.primary.as_deref(),
-            Some("anthropic:claude-sonnet-5")
-        );
+        assert_eq!(config.models.primary.as_deref(), Some("codex:gpt-5.6-luna"));
         let _ = std::fs::remove_file(path);
     }
 
@@ -1289,7 +1298,9 @@ mod tests {
         };
         assert_eq!(source("global-only"), Some("global"));
         assert_eq!(source("llama-local"), Some("project"));
-        assert_eq!(source("anthropic"), Some("builtin"));
+        assert_eq!(source("codex"), Some("builtin"));
+        assert_eq!(source("claude"), None);
+        assert_eq!(source("anthropic"), None);
         std::fs::remove_dir_all(home).ok();
     }
 
@@ -1367,27 +1378,26 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
-    /// D-288:设置页保存不得把出厂 context_limit 冻进用户 toml。冻住的后果是
-    /// 内置默认改了(deepseek 128k → 1M)用户永远追不上——`fill_defaults` 只补
-    /// `None`。这里同时钉住反面:用户手填的非默认值必须原样保留。
+    /// 设置页保存不得把用户的 context_limit 值静默改掉。
+    /// 这里同时钉住反面:用户手填的非默认值必须原样保留。
     #[test]
     fn 出厂上下文上限不落盘_手填值原样保留() {
         let path = 临时配置("providers-context-limit");
         std::fs::write(&path, "").unwrap();
-        let deepseek_default = kanzei_harness::config::builtin_context_limit("deepseek")
-            .expect("deepseek 是内置 provider,必须有出厂上限");
+        let default_limit = kanzei_harness::config::builtin_context_limit("codex")
+            .expect("codex 是内置订阅 provider,必须有出厂上限");
         let provider = |limit: Option<u64>| ProviderPayload {
-            name: "deepseek".into(),
-            protocol: "openai".into(),
-            base_url: "https://api.deepseek.com".into(),
+            name: "codex".into(),
+            protocol: "openai-responses".into(),
+            base_url: "https://chatgpt.com/backend-api/codex".into(),
             api_key_env: None,
             api_key: None,
-            auth: None,
+            auth: Some("codex".into()),
             context_limit: limit,
         };
 
         // ①设置页回填的就是出厂值 → 不写进文件,加载时由 fill_defaults 补齐。
-        settings_save_at_path(空载荷(vec![provider(Some(deepseek_default))]), &path).unwrap();
+        settings_save_at_path(空载荷(vec![provider(Some(default_limit))]), &path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(
             !text.contains("context_limit"),
@@ -1395,18 +1405,14 @@ mod tests {
         );
         let mut saved: KanzeiConfig = toml::from_str(&text).unwrap();
         saved.fill_defaults();
-        assert_eq!(
-            saved.providers["deepseek"].context_limit,
-            Some(deepseek_default),
-            "留空必须跟随内置默认"
-        );
+        assert_eq!(saved.providers["codex"].context_limit, Some(default_limit));
 
         // ②用户真手填了别的数 → 原样落盘,不许被"这是默认"的判断吞掉。
         settings_save_at_path(空载荷(vec![provider(Some(64_000))]), &path).unwrap();
         let mut saved: KanzeiConfig =
             toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         saved.fill_defaults();
-        assert_eq!(saved.providers["deepseek"].context_limit, Some(64_000));
+        assert_eq!(saved.providers["codex"].context_limit, Some(64_000));
         let _ = std::fs::remove_file(path);
     }
 

@@ -81,13 +81,13 @@ R-115 把模型偏好按项目隔离——方向对,落点错(落在了前端)�
 ② 线/进程持久选择(后端持久化)          —— 新增:替代内存 + localStorage
 ③ 项目 [models](.kanzei/kanzei.toml)   —— 机制已有,补 UI
 ④ 全局 [models](~/.kanzei/kanzei.toml) —— 已有
-⑤ 内置默认(anthropic:claude-sonnet-5 / ollama:qwen3.5:4b)
+⑤ 内置主模型默认(codex:gpt-5.6-luna); fast 未单独设置时跟随主模型
 ```
 
 隔离语义:
 - **项目间隔离**:A 项目 primary 指 claude、B 项目指 codex,互不影响(③ 层,git 可见可迁移)。
 - **线间隔离**:同一项目内两条线各选各的模型,重启后各自恢复(② 层)。
-- fast 角色同样分层:R-136 的 Ollama 一键安装写全局 ④,某项目要更大的本地模型时在 ③ 覆盖。
+- fast 角色默认跟随 primary;需要本地模型时先添加 Ollama provider,再在全局 ④ 设置 fast,项目可在 ③ 覆盖。
 
 ### 2.3 明确不做的
 

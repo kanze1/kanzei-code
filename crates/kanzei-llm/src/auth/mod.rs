@@ -1,5 +1,4 @@
-//! 订阅凭证加载(复用既有 CLI 的登录态,不自己发起 OAuth 流程)。
+//! Codex subscription credentials (reuses the official CLI login).
 
-pub mod claude;
 pub mod codex;
 pub mod store;
