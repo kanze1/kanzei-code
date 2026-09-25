@@ -662,34 +662,74 @@ export async function openConversationForProcess(processId, sequence) {
   addMessage("notice", `${t("已打开历史对话")} #${sequence}`);
 }
 
+/// 删除落地后按线路收拾主区。被删的段可能正显示在某个 pane 里(当前段,或用户打开过的
+/// 那段历史):pane 与窗口化缓存都得作废,否则删掉的对话还留在屏幕上,触顶还会从缓存补回来。
+async function settleDeletedConversationView(processId, target, clearedCurrent) {
+  const isActive = processId === activeProcessId;
+  const sessionId = isActive ? activeSessionId : target?.session_id;
+  if (!sessionId) return;
+  // 删掉了当前段:排上的续跑那一轮会带着「继续」指令落进空段,撤掉。
+  if (clearedCurrent) cancelAutoContinueTimer(sessionId);
+  // 作废删除前发出、还没落地的装载:迟到的结果不得把删掉的内容画回来。
+  bumpConversationEpoch(sessionId);
+  if (!isActive) {
+    // 后台线:丢掉它的 pane 与缓存,下次进来按剩余历史重建。
+    paneHistory.delete(sessionId);
+    discardSessionPane(sessionId);
+    return;
+  }
+  if (clearedCurrent) {
+    // 当前段已空:给与新对话同构的欢迎页(清 pane、窗口化缓存与活动面板)。
+    showFreshConversation();
+    return;
+  }
+  // 删的是旧段:主区可能正显示着被删的那段历史,按当前段重新装载。
+  resetPane();
+  forgetPaneHistory(sessionId);
+  await loadConversation();
+}
+
 export async function deleteConversationsForProcess(processId, sequences) {
   if (!sequences.length) {
     toast(t("先勾选要删除的历史对话"));
     return;
   }
+  // 运行中拦截(与打开历史同口径):runner 正往这条线写对话,删掉当前段会与写入交错留下
+  // 半截轮次。后端持 lifecycle 锁再判一次;这里先挡住,不白弹一次确认框。
+  const target = historyProcessItem(processId);
+  if (target && processRunning(target)) {
+    toast(t("运行中请先完成或停止当前任务，再删除历史对话"));
+    return;
+  }
   // D-418:R-245 设计——删除弹窗列清单,取消不产生任何写入；safe 分支另行调用
-  // 显式 storage cleanup，失败时保留可重试的清理入口。
+  // 显式 storage cleanup，失败时保留可重试的清理入口。清单如实写删什么、留什么。
   const mode = await confirmDialog({
     title: t("确认删除"),
-    message: `${t("将删除勾选的")} ${sequences.length} ${t("份历史对话快照")}${t("此操作不可撤销")}`,
+    message: `${t("将删除勾选的")} ${sequences.length} ${t("段历史对话")}${t("，此操作不可撤销")}`,
     list: [
-      t("会话事件与投影"),
-      t("运行轨迹与工具结果"),
-      t("草稿与未完成输入"),
+      t("对话消息、工具调用与结果"),
+      t("运行轨迹、子代理记录与压缩摘要"),
+      t("这段对话里已结束输入的原文"),
       t("引用中的 artifact 保留,无引用 artifact 才可整理"),
+      t("保留:用量统计、已提炼的记忆与需求记录、迁移备份 state.db.v*.bak"),
     ],
     okText: t("仅删除"),
     safeText: t("删除并安全整理"),
     danger: true,
   });
   if (!mode) return;
-  let n;
+  let result;
   try {
-    n = await invoke("conversation_delete", { projectDir: currentProject, processId, sequences });
+    result = await invoke("conversation_delete", { projectDir: currentProject, processId, sequences });
   } catch (err) {
     toastError(String(err), { retry: () => deleteConversationsForProcess(processId, sequences) });
     return;
   }
+  // 旧后端只回删除条数:按勾选段数提示,主区照旧段处理(重载)。
+  const outcome = typeof result === "number" ? { segments: sequences.length } : (result ?? {});
+  const clearedCurrent = Boolean(outcome.cleared_current);
+  await settleDeletedConversationView(processId, target, clearedCurrent);
+  const n = `${outcome.segments ?? sequences.length} ${t("段对话")}${clearedCurrent ? ` · ${t("当前对话已删除")}` : ""}`;
   if (mode === "safe") {
     const retryCleanup = async () => {
       try {
@@ -702,14 +742,14 @@ export async function deleteConversationsForProcess(processId, sequences) {
           toastError(`${t("安全整理部分失败")}\n${failures.join("\n")}`, { retry: retryCleanup });
           return;
         }
-        toast(`${t("已删除")} ${n}${t("份对话快照")}; ${t("安全整理释放")} ${cleanup.actual_freed_bytes ?? 0} bytes`);
+        toast(`${t("已删除")} ${n}; ${t("安全整理释放")} ${cleanup.actual_freed_bytes ?? 0} bytes`);
       } catch (err) {
         toastError(`${t("安全整理失败")}: ${String(err)}`, { retry: retryCleanup });
       }
     };
     await retryCleanup();
   } else {
-    toast(`${t("已删除")} ${n}${t("份对话快照")}`);
+    toast(`${t("已删除")} ${n}`);
   }
   conversationChecked.delete(processId);
   await refreshConversationLists();

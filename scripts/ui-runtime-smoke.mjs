@@ -97,6 +97,37 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*if \(refusedAsRunning\) return await startConversationOnNewLine\(\);\r?\n/,
       replace: "",
     },
+    // UI-0926 #1:运行中的线点删除,前端先挡下(不弹确认、不发删除)。删了它,删除会在
+    // runner 脚下进行(后端虽再挡一次,用户已经白确认了一遍并吃到报错)。
+    deleteRunningGuard: {
+      pattern: /[ \t]*if \(target && processRunning\(target\)\) \{\r?\n[^\n]*\r?\n[ \t]*return;\r?\n[ \t]*\}\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #1:删掉活动线的当前段后换成新对话欢迎页。删了它,被删的对话继续留在主区。
+    deleteClearedFresh: {
+      pattern: /[ \t]*showFreshConversation\(\);\r?\n(?=[ \t]*return;)/,
+      replace: "",
+    },
+    // UI-0926 #1:删掉当前段时撤掉排上的续跑。删了它,续跑那一轮带着「继续」落进空段。
+    deleteCancelTimer: {
+      pattern: /[ \t]*if \(clearedCurrent\) cancelAutoContinueTimer\(sessionId\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #1:删除后递增会话纪元。删了它,删除前发出的装载迟到时把被删内容整页画回来。
+    deleteEpoch: {
+      pattern: /[ \t]*bumpConversationEpoch\(sessionId\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #1:删旧段后按当前段重载主区。删了它,正在看的那段被删历史留在屏幕上。
+    deleteReloadPane: {
+      pattern: /[ \t]*resetPane\(\);\r?\n[ \t]*forgetPaneHistory\(sessionId\);\r?\n[ \t]*await loadConversation\(\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #1:删后台线的历史后丢掉它的 pane。删了它,切过去看到的还是被删内容。
+    deleteDiscardBgPane: {
+      pattern: /[ \t]*discardSessionPane\(sessionId\);\r?\n/,
+      replace: "",
+    },
 
     // ---- 分区:模型选择 ----
 
@@ -8762,9 +8793,13 @@ const docsB = {
   const shell = esmModuleCache.get("03-shell.js")?.namespace;
   assert(typeof deleteConversation === "function", "D-716 删除入口未注册为真实 UI 消费方");
   assert(shell && typeof shell.errorRetry === "function", "D-716 错误面板 retry 入口未注册");
+  // UI-0926 #1:运行中的线拒绝删除(前后端双拦截)。这里验的是安全整理重试,不是运行态,
+  // 先让 p|bg 收敛为空闲再删,结束后恢复原相位。
+  const savedBgPhase = vm.runInContext('sessionState("sess-bg").phase', sandbox);
+  vm.runInContext('transitionSession("sess-bg", "idle")', sandbox);
   const before = invokeArgs.length;
   let cleanupCalls = 0;
-  payloads.conversation_delete = () => 1;
+  payloads.conversation_delete = () => ({ deleted: 1, redacted_inputs: 0, segments: 1, cleared_current: false });
   payloads.conversation_cleanup = () => {
     cleanupCalls += 1;
     return cleanupCalls === 1
@@ -8784,6 +8819,7 @@ const docsB = {
   assert(retriedCalls.filter((cmd) => cmd === "conversation_delete").length === 1, "D-716 cleanup retry 重复删除会话");
   assert(retriedCalls.filter((cmd) => cmd === "conversation_cleanup").length === 2, "D-716 cleanup retry 未只重试安全整理");
   expectedPersistentError = null;
+  vm.runInContext(`transitionSession("sess-bg", ${JSON.stringify(savedBgPhase)})`, sandbox);
 }
 
 // ---------- D-381 IPC 形状契约:fixture 必须与后端真实形状一致 ----------
@@ -9038,6 +9074,200 @@ const docsB = {
   payloads.conversation_get = savedNcConversationGet;
   if (hadNcProcessCreate) payloads.process_create = savedNcProcessCreate;
   else delete payloads.process_create;
+  await gotoProject(PROJECT, savedDocsPayload);
+  await flush();
+}
+
+// ---------- UI-0926 #1:删除历史对话分层 ----------
+// 删掉当前段后主区、窗口化缓存与续跑都得清:否则被删对话留在屏幕上、触顶从缓存补回、
+// 在途装载迟到画回、排上的续跑那一轮落进空段。删旧段时主区可能正显示着那段历史,要按
+// 当前段重载;后台线的 pane 直接作废;运行中的线前端先挡(后端持锁再挡);删除与关闭两处
+// 弹窗如实说明删什么、留什么。场景 G-K,变异守卫 deleteRunningGuard / deleteClearedFresh /
+// deleteCancelTimer / deleteEpoch / deleteReloadPane / deleteDiscardBgPane。
+{
+  vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
+  const saved = {
+    process_list: payloads.process_list,
+    conversation_get: payloads.conversation_get,
+    conversation_list: payloads.conversation_list,
+    conversation_delete: payloads.conversation_delete,
+    confirmDialog: sandbox.confirmDialog,
+  };
+  const deleteConversation = esmModuleCache.get("15-views-misc.js")?.namespace?.deleteConversationsForProcess;
+  assert(typeof deleteConversation === "function", "UI-0926 #1:删除入口未注册");
+  const MAIN = { id: "d|del", label: "主会话", session_id: "sess-del-main", running: false, branch: "main", authority: "primary" };
+  const LINE = { id: "p31|del", label: "p31", session_id: "sess-del", running: false, authority: "parallel" };
+  const DELETED = Array.from({ length: 300 }, (_, i) => ({
+    role: i % 2 === 0 ? "user" : "assistant",
+    parts: [{ type: "text", text: `R1被删对话${i}` }],
+  }));
+  const CURRENT = [{ role: "user", parts: [{ type: "text", text: "R1当前段" }] }];
+  let currentDeleted = false;
+  payloads.process_list = [MAIN, LINE];
+  payloads.conversation_list = () => [];
+  // sequence 非空 = 打开某段历史;为空 = 当前段(删掉前就是那段被删的长对话)。
+  payloads.conversation_get = ({ processId, sequence } = {}) => {
+    if (processId !== LINE.id) return [{ role: "user", parts: [{ type: "text", text: "R1主线内容" }] }];
+    if (sequence != null) return DELETED;
+    return currentDeleted ? [] : DELETED;
+  };
+  let confirmCalls = 0;
+  let confirmOptions = null;
+  sandbox.confirmDialog = (options) => {
+    confirmCalls += 1;
+    confirmOptions = options;
+    return Promise.resolve(true);
+  };
+  await gotoProject(PROJECT, savedDocsPayload);
+  await sandbox.switchProcess(LINE.id);
+  await flush();
+  vm.runInContext(
+    'for (const [id, pane] of [...messagePanes]) { pane.remove(); messagePanes.delete(id); }; activePane = paneFor(activeSessionId || "");',
+    sandbox,
+  );
+  await sandbox.loadConversation();
+  await flush();
+  const paneNow = () => vm.runInContext("activePane.textContent", sandbox);
+  const calls = (cmd) => invokeArgs.filter((entry) => entry.cmd === cmd);
+  const messagesEl = byId.get("messages");
+  const touchTop = async () => {
+    messagesEl.scrollTop = 0;
+    messagesEl.dispatchEvent({ type: "wheel" });
+    messagesEl.dispatchEvent({ type: "scroll" });
+    await flush();
+  };
+  assert(
+    vm.runInContext("activeSessionId", sandbox) === LINE.session_id && paneNow().includes("R1被删对话299"),
+    "UI-0926 #1 前置失败:p31 的当前段没有装进主区",
+  );
+
+  // ---- 场景 G:运行中的线点删除 → 前端直接挡下,不弹确认、不发 conversation_delete ----
+  vm.runInContext(`transitionSession(${JSON.stringify(LINE.session_id)}, "running")`, sandbox);
+  const deletesBeforeG = calls("conversation_delete").length;
+  const confirmsBeforeG = confirmCalls;
+  await deleteConversation(LINE.id, [42]);
+  await flush();
+  vm.runInContext(`transitionSession(${JSON.stringify(LINE.session_id)}, "idle")`, sandbox);
+  assert(calls("conversation_delete").length === deletesBeforeG, "场景 G:运行中的线路点删除仍发出了 conversation_delete");
+  assert(confirmCalls === confirmsBeforeG, "场景 G:运行中应直接拦下,不该先弹删除确认框");
+  assert(
+    listText("toast").includes(sandbox.t("运行中请先完成或停止当前任务，再删除历史对话")),
+    `场景 G:运行中拦截没有给出提示(${listText("toast")})`,
+  );
+
+  // ---- 场景 H:删掉活动线的当前段 → 欢迎页、缓存清空、续跑撤掉、在途装载作废 ----
+  vm.runInContext(
+    `autoContinueTimers.set(${JSON.stringify(LINE.session_id)}, { timer: setTimeout(() => {}, 600000) })`,
+    sandbox,
+  );
+  payloads.conversation_delete = () => {
+    currentDeleted = true;
+    return { deleted: 3, redacted_inputs: 1, segments: 1, cleared_current: true };
+  };
+  // 删除前用户点开过一段历史,那次装载还在途:删完它才落地,不得把被删内容画回来。
+  let releaseLoad;
+  invokeGates.set("conversation_get", new Promise((resolve) => { releaseLoad = resolve; }));
+  const inflightLoad = sandbox.loadConversation(7);
+  await settle();
+  invokeGates.delete("conversation_get");
+  confirmOptions = null;
+  await deleteConversation(LINE.id, [42]);
+  releaseLoad();
+  await inflightLoad;
+  await flush();
+  await touchTop();
+  assert(calls("conversation_delete").length === deletesBeforeG + 1, "场景 H 前置失败:空闲线删除没有发出 conversation_delete");
+  assert(!paneNow().includes("R1被删对话"), "场景 H:删掉当前段后主区仍显示被删对话(或迟到装载/触顶补齐把它画了回来)");
+  assert(paneNow().includes(sandbox.t("开始一段新对话")), "场景 H:删掉当前段后主区没有换成与新对话同构的欢迎页");
+  assert(!vm.runInContext('!!activePane.querySelector(".earlier-hint")', sandbox), "场景 H:删掉当前段后还挂着「载入更早的消息」入口");
+  assert(
+    !vm.runInContext(`autoContinueTimers.has(${JSON.stringify(LINE.session_id)})`, sandbox),
+    "场景 H:删掉当前段后排上的续跑没撤——那一轮会带着「继续」落进空段",
+  );
+  assert(listText("toast").includes(sandbox.t("当前对话已删除")), `场景 H:删掉当前段没有告知用户(${listText("toast")})`);
+  const confirmList = confirmOptions?.list ?? [];
+  assert(
+    confirmList.includes(sandbox.t("运行轨迹、子代理记录与压缩摘要"))
+      && confirmList.includes(sandbox.t("保留:用量统计、已提炼的记忆与需求记录、迁移备份 state.db.v*.bak")),
+    `场景 H:删除确认清单没有如实写明删除范围与保留项(${JSON.stringify(confirmList)})`,
+  );
+  assert(
+    !confirmList.includes(sandbox.t("草稿与未完成输入")),
+    "场景 H:删除确认清单仍承诺删除「草稿与未完成输入」——未结束的输入并不会删",
+  );
+
+  // ---- 场景 I:删掉正在看的那段旧历史 → 按当前段重载主区 ----
+  currentDeleted = false;
+  payloads.conversation_get = ({ processId, sequence } = {}) => {
+    if (processId !== LINE.id) return [{ role: "user", parts: [{ type: "text", text: "R1主线内容" }] }];
+    return sequence != null ? DELETED : CURRENT;
+  };
+  await sandbox.loadConversation(7);
+  await flush();
+  assert(paneNow().includes("R1被删对话299"), "场景 I 前置失败:打开的历史段没有装进主区");
+  payloads.conversation_delete = () => ({ deleted: 5, redacted_inputs: 0, segments: 1, cleared_current: false });
+  const getsBeforeI = calls("conversation_get").length;
+  await deleteConversation(LINE.id, [7]);
+  await flush();
+  await touchTop();
+  assert(
+    calls("conversation_get").slice(getsBeforeI).some(({ args }) => args?.processId === LINE.id && args?.sequence == null),
+    "场景 I:删掉正在看的那段历史后没有按当前段重新装载主区",
+  );
+  assert(
+    !paneNow().includes("R1被删对话") && paneNow().includes("R1当前段"),
+    "场景 I:删掉正在看的那段历史后主区仍显示它(或触顶从缓存补回)",
+  );
+
+  // ---- 场景 J:删后台线的历史 → 它的 pane 与窗口化缓存作废,活动线不受影响 ----
+  // 后台线已有 pane(之前切过去看过,或它在后台渲染过)。
+  vm.runInContext(`paneFor(${JSON.stringify(MAIN.session_id)}).dataset.hasContent = "1"`, sandbox);
+  vm.runInContext(
+    `paneHistory.set(${JSON.stringify(MAIN.session_id)}, { items: [{ role: "user", parts: [{ type: "text", text: "R1后台缓存" }] }], rendered: 0 })`,
+    sandbox,
+  );
+  assert(vm.runInContext(`messagePanes.has(${JSON.stringify(MAIN.session_id)})`, sandbox), "场景 J 前置失败:后台线没有自己的 pane");
+  payloads.conversation_delete = () => ({ deleted: 4, redacted_inputs: 0, segments: 1, cleared_current: true });
+  await deleteConversation(MAIN.id, [3]);
+  await flush();
+  assert(
+    !vm.runInContext(`messagePanes.has(${JSON.stringify(MAIN.session_id)})`, sandbox),
+    "场景 J:删了后台线的历史,它的 pane 还在——切过去会看到被删内容",
+  );
+  assert(
+    !vm.runInContext(`paneHistory.has(${JSON.stringify(MAIN.session_id)})`, sandbox),
+    "场景 J:删了后台线的历史,它的窗口化缓存还在——切过去触顶会补回被删内容",
+  );
+  assert(
+    vm.runInContext("activeProcessId", sandbox) === LINE.id && paneNow().includes("R1当前段"),
+    "场景 J:删后台线的历史波及了活动线的视图",
+  );
+
+  // ---- 场景 K:关闭线路弹窗说明对话去向 ----
+  let closeMessage = "";
+  sandbox.confirmDialog = (options) => {
+    closeMessage = String(options?.message ?? "");
+    return Promise.resolve(false);
+  };
+  const closesBeforeK = calls("process_close").length;
+  await sandbox.closeParallelProcess(LINE.id);
+  await flush();
+  assert(calls("process_close").length === closesBeforeK, "场景 K 前置失败:取消关闭仍发出了 process_close");
+  assert(
+    closeMessage.includes(sandbox.t("这条线的对话历史仍保留在本地数据库，关闭后界面不再显示；要删除请先在它的「历史对话」里勾选删除。")),
+    `场景 K:关闭线路弹窗没说明对话仍留在库里、关闭后界面不再可删(${closeMessage})`,
+  );
+
+  // 收尾:还原桩与定时器,丢掉本段建的 pane,回到项目 A 的干净状态。
+  sandbox.confirmDialog = saved.confirmDialog;
+  payloads.process_list = saved.process_list;
+  payloads.conversation_get = saved.conversation_get;
+  payloads.conversation_list = saved.conversation_list;
+  payloads.conversation_delete = saved.conversation_delete;
+  for (const sessionId of [MAIN.session_id, LINE.session_id]) {
+    vm.runInContext(`transitionSession(${JSON.stringify(sessionId)}, "idle"); paneHistory.delete(${JSON.stringify(sessionId)})`, sandbox);
+  }
+  vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
   await gotoProject(PROJECT, savedDocsPayload);
   await flush();
 }
