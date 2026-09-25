@@ -1,11 +1,11 @@
 {
-  "batch_id": "inbox-1787316605729",
+  "batch_id": "inbox-1790355992080",
   "status": "completed",
   "input_notes": 1,
-  "input_bytes": 1365,
+  "input_bytes": 1173,
   "success_notes": 1,
   "pending_after": 0,
   "failure_reason": null,
   "consecutive_failures": 0,
-  "updated_at_ms": 1787316631751
+  "updated_at_ms": 1790356047104
 }

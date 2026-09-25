@@ -74,7 +74,7 @@ pub use base::BaseComponent;
 pub use git::{parse_worktree_list, WorktreeEntry};
 pub use profiles::{
     frontend_inspection_guidance, prompt_tool_mentions, DevProfile, ReadonlyProfile,
-    ResearchProfile,
+    ResearchProfile, DEV_DEFERRED_TOOLS,
 };
 pub use shell::detected_shell;
 pub use subagent::{explore_agent, plan_agent, writer_agent, SubagentBase, WritableSubagentBase};

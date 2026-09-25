@@ -21,6 +21,7 @@ pub mod project_root;
 pub mod registry;
 pub mod repair;
 pub mod tool;
+pub mod tool_search;
 pub mod tool_pipeline;
 
 /// R-322:门禁强度是一等维度,调用方(桌面端/CLI)按模式取默认值后显式传入。
@@ -45,4 +46,4 @@ pub use orchestration::{
 pub use permission::{Effect, ManagedResource, Rule, Ruleset};
 pub use registry::Registry;
 pub use repair::tolerant_parse;
-pub use tool::{Tool, ToolArtifact, ToolConcurrency, ToolCtx, ToolImage, ToolOutcome, ToolOutput};
+pub use tool::{Tool, ToolArtifact, ToolConcurrency, ToolCtx, ToolImage, ToolOutcome, ToolOutput};pub use tool_search::{ToolSearchTool, TOOL_SEARCH};

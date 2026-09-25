@@ -1,0 +1,243 @@
+{
+  "blocked_items": [],
+  "decision": "resume",
+  "decision_locked": true,
+  "details": "work next detail=true 查看完整状态；work reconcile 查看对账；req/defect get 查看指定条目",
+  "executable_wip": [
+    {
+      "block_reasons": [],
+      "id": "D-742",
+      "kind": "defect",
+      "lifecycle_status": "fixing",
+      "title": "研究侧栏报告入口未传课题且模式切换混合导航与进程配置"
+    }
+  ],
+  "integrity_errors": [],
+  "parked_items": [
+    {
+      "block_reasons": [
+        "停车: B1-B4 已完成并通过验证;剩余验收②的 voice state 生产者属于 R-287 的真实 ASR/TTS/VAD 范围,本条让位 R-287,待其落地后回来补验收②;恢复人:agent;解除条件:R-287"
+      ],
+      "id": "R-284",
+      "kind": "requirement",
+      "lifecycle_status": "doing",
+      "title": "运行体验事件契约:统一 session/tool/memory/research/voice 的事实投影和瞬时表现事件"
+    },
+    {
+      "block_reasons": [
+        "停车: 排队:原排队对象 R-242/R-296 已 done、D-504 已恢复为 WIP;排在 R-249 之后恢复 B4 桌面 E2(UIA 基座 scripts/ui-desktop-uia.ps1 可冷启动自拉起 kzapp);恢复人:agent;解除条件:R-249"
+      ],
+      "id": "R-101",
+      "kind": "requirement",
+      "lifecycle_status": "doing",
+      "title": "桌面端/前端 E2 测试 harness 与延期 E2 清单"
+    },
+    {
+      "block_reasons": [
+        "停车: B7 已提交,①～⑥⑧⑨已验证;剩余⑦真实桌面 E2 点击证据(kzapp 空闲时 agent 可用 UIA 基座自行执行)与⑩磁盘配额语义未定义(需用户拍板:配额上限是什么、超限时拒绝 spill 还是降级为 Inline 截断);拍板后 agent 一并收口;解除人:用户;解除条件:用户"
+      ],
+      "id": "R-245",
+      "kind": "requirement",
+      "lifecycle_status": "doing",
+      "title": "Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期"
+    },
+    {
+      "block_reasons": [
+        "停车: 排队:R-244 已 done、R-245 spill 落点已交付,依赖改为前置;排在 R-299 之后恢复批3;恢复人:agent;解除条件:R-299"
+      ],
+      "id": "R-249",
+      "kind": "requirement",
+      "lifecycle_status": "doing",
+      "title": "工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图"
+    },
+    {
+      "block_reasons": [
+        "停车: 排队:前置 R-221 已 done;排在 R-340 之后恢复批2 transcript Tauri 读取通道;恢复人:agent;解除条件:R-340"
+      ],
+      "id": "R-281",
+      "kind": "requirement",
+      "lifecycle_status": "doing",
+      "title": "子代理面板重做成完整对话读取器:看到子代理自己说的话,而不只是工具轨迹"
+    },
+    {
+      "block_reasons": [
+        "停车: 原停车前提 R-333 已 done;本条验收全部需要同一 LAN 下的 Android 真机(打开 PWA、bearer 配对、收通知、发消息),agent 无设备可用;需用户提供真机并预留一次配对窗口;解除人:用户;解除条件:用户"
+      ],
+      "id": "R-288",
+      "kind": "requirement",
+      "lifecycle_status": "todo",
+      "title": "Android 真机 E3 验收:移动端 PWA 通知与双向消息真实链路"
+    },
+    {
+      "block_reasons": [
+        "停车: 排队:前置 R-296 已 done,B1 已入 dev(7188ba76);排在 R-323 之后恢复后续批次;恢复人:agent;解除条件:R-323"
+      ],
+      "id": "R-299",
+      "kind": "requirement",
+      "lifecycle_status": "doing",
+      "title": "IPC 与事件契约机械比对扩面"
+    },
+    {
+      "block_reasons": [
+        "停车: B1/B2 已合入 dev 并随 build-39cd402f 进入运行态;剩余 B3 前端依赖拓扑图与 B4 验收由主会话执行(执行者字段:循环勿取),需用户开一次主会话安排,或明确放行给自举循环;解除人:用户;解除条件:用户"
+      ],
+      "id": "R-307",
+      "kind": "requirement",
+      "lifecycle_status": "todo",
+      "title": "停车/依赖解锁机械化与依赖关系可视化:解除条件可判定、达成自动恢复、关键路径可见"
+    }
+  ],
+  "queue_counts": {
+    "blocked": 6,
+    "foreign_wip": 0,
+    "parked": 21,
+    "queued_wip": 3,
+    "reconciliation": {}
+  },
+  "queued_wip": [
+    {
+      "block_reasons": [],
+      "id": "D-745",
+      "kind": "defect",
+      "lifecycle_status": "fixing",
+      "title": "自主运行调度、证据与检索状态失真导致重复验收及假阻塞"
+    },
+    {
+      "block_reasons": [],
+      "id": "R-360",
+      "kind": "requirement",
+      "lifecycle_status": "doing",
+      "title": "开发与研究信息架构分离：独立空间、课题会话与研究工作页面"
+    },
+    {
+      "block_reasons": [],
+      "id": "R-361",
+      "kind": "requirement",
+      "lifecycle_status": "doing",
+      "title": "记忆收益闭环与任务信息呈现改进"
+    }
+  ],
+  "reason": "当前执行 D-742；其余在途任务由引擎排队，完成或阻塞后重新选择，无需写停车字段",
+  "recent_completed": [
+    {
+      "block_reasons": [],
+      "id": "R-264",
+      "kind": "requirement",
+      "lifecycle_status": "done",
+      "title": "前端迁移原生 ESM(勘察已完成,方案见 docs/design/ui_esm_migration.md)"
+    },
+    {
+      "block_reasons": [],
+      "id": "R-359",
+      "kind": "requirement",
+      "lifecycle_status": "done",
+      "title": "取消鞭挞连续次数上限但保留轮次、上下文预算与停机条件"
+    },
+    {
+      "block_reasons": [],
+      "id": "R-356",
+      "kind": "requirement",
+      "lifecycle_status": "done",
+      "title": "字段三类与词表:引擎/调度/叙事分层,清理零消费者字段并删不变式执行器"
+    },
+    {
+      "block_reasons": [],
+      "id": "R-355",
+      "kind": "requirement",
+      "lifecycle_status": "done",
+      "title": "对账结果可见:prompt 裁剪与结构化输出分家"
+    },
+    {
+      "block_reasons": [],
+      "id": "D-744",
+      "kind": "defect",
+      "lifecycle_status": "fixed",
+      "title": "记忆自动晋升缺少对应恢复证据且在线结束被当成结果改善"
+    },
+    {
+      "block_reasons": [],
+      "id": "D-743",
+      "kind": "defect",
+      "lifecycle_status": "fixed",
+      "title": "记忆召回明细仍读旧表且注入次数被当成采纳参与展示和排序"
+    },
+    {
+      "block_reasons": [],
+      "id": "D-566",
+      "kind": "defect",
+      "lifecycle_status": "fixed",
+      "title": "cross-tree 隔离快照无回收且构建产物误报,121 目录 143MB 纯堆积"
+    },
+    {
+      "block_reasons": [],
+      "id": "D-741",
+      "kind": "defect",
+      "lifecycle_status": "fixed",
+      "title": "R-356 删除不变式门禁后遗留测试仍断言旧行为"
+    }
+  ],
+  "reconciliation": {
+    "counts": {},
+    "items": []
+  },
+  "resume_reconcile": "恢复 D-742 的第一步是复核已落地范围,不是接着写:observed_head differs from current HEAD;observed_worktree_hash differs from current worktree。进展字段可能落后于代码——先用 git log / git log -S <符号> 与实际文件确认哪些批次已经实现并提交,把真实进度写回条目,再决定还剩什么要做。D-368 实测:条目写着批次 0/1、改动面三处待做,而三处代码早已整块落在一个提交里。",
+  "resume_worktree": {
+    "branch": "kanzei/control-reliability",
+    "head": "4a85596c 修复记忆观测与恢复证据并改进使用明细 (R-361/B1)",
+    "uncommitted": [
+      "crates/kanzei-app/src/run/assembly.rs +6/-10",
+      "crates/kanzei-app/src/run/execution.rs +12/-2",
+      "crates/kanzei-app/ui/02-i18n.js +7/-0",
+      "crates/kanzei-app/ui/05-chat-render.js +26/-1",
+      "crates/kanzei-app/ui/07-events.js +6/-6",
+      "crates/kanzei-app/ui/08-auto.js +5/-2",
+      "crates/kanzei-app/ui/11-docs-list.js +21/-2",
+      "crates/kanzei-core/src/runner/drive/question.rs +66/-7",
+      "crates/kanzei-core/src/runner/drive/serial_tools.rs +1/-1",
+      "crates/kanzei-harness/assets/default_conventions.md +2/-2",
+      "crates/kanzei-memory/src/memory/index.rs +92/-5",
+      "crates/kanzei-memory/src/memory/mod.rs +1/-0"
+    ],
+    "uncommitted_files": 27
+  },
+  "schema_version": 2,
+  "selected": {
+    "block_reasons": [],
+    "blocked": false,
+    "fields": [
+      {
+        "name": "验收",
+        "value": "仅保留按课题定位的报告入口；切换工作领域恢复相应会话而不改写旧会话配置。"
+      },
+      {
+        "name": "进展",
+        "value": "已移除侧栏无 topic 报告入口，来源状态带 topic；空间切换恢复各自任务，不改旧任务 profile 或停止运行。9d784f21 干净发布树完整 verify 14 项全过。浏览器验证补齐窄屏自动收栏状态等待与宽窄屏往返，连续 5 次验证开发运行保持、课题隔离及发送参数通过。发布结果以 GitHub Release 为准；原生桌面关键交互仍待安装后验收，保留 fixing。"
+      },
+      {
+        "name": "复现",
+        "value": "研究工作台选择课题后，侧栏报告按钮调用 docs_read 不带 topic；profile-select 同时切换界面并更新当前进程 profile。"
+      }
+    ],
+    "id": "D-742",
+    "kind": "defect",
+    "lifecycle_status": "fixing",
+    "omitted_fields": 7,
+    "parked": false,
+    "prerequisites": [],
+    "priority": "P1",
+    "progress_provenance": {
+      "observed_head": "9d784f21e39db69e56a934e398540a2e19acdfe6",
+      "observed_worktree_hash": "fnv1a64:c20dc36842c96a1b",
+      "reasons": [
+        "observed_head differs from current HEAD",
+        "observed_worktree_hash differs from current worktree"
+      ],
+      "recorded_at": "1788638068169",
+      "status": "stale"
+    },
+    "references": [],
+    "severity": "medium",
+    "title": "研究侧栏报告入口未传课题且模式切换混合导航与进程配置"
+  },
+  "work_priority": "defect-first"
+}

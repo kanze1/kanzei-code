@@ -2,12 +2,15 @@
 id: M-023
 scope: project
 category: fact
-title: edit 报 cannot read 拒绝访问与 grep invalid regex 的判别及处理
-description: 处理 edit 报 cannot read/拒绝访问或同时出现 grep 正则解析错误时必读：先 read 重读目标；grep 遇未闭合正则立即停止并修正/改用固定字符串，随后再重试 edit，不要把正则语法错误当权限问题或反复重试。
+title: edit cannot read 与 grep invalid regex：先验证正则再判权限
+description: 处理 grep 报 invalid regex/regex parse error，尤其查询含未转义括号、花括号或管道，或同时出现 edit cannot read/拒绝访问时必读：先将查询改为固定字符串或合法正则，并单独验证无 parse error；验证成功前不得判断路径/权限、重复 edit 或重试。
 status: active
 created: 2026-08-09
-updated: 2026-08-21
+updated: 2026-09-02
 source: inbox 2026-08-09
 ---
 
-处理 edit 报 "cannot read ... 拒绝访问 (os error 5)" 时，先 read 重读目标，再重试 edit；将其判断为 Windows 瞬态访问拒绝，不是真实权限/路径问题，不要改用 bash 绕过或放弃。若 grep 报 invalid regex，错误原文示例：invalid regex `action == "claim"|legacy|claim(`: regex parse error: (?:action == "claim"|legacy|claim() ^ error: unclosed group；先停止使用未闭合的正则，改用 read 或修正正则，再继续定位。复发标记：[fp:grep|invalid regex : regex parse error:]；原有复发标记：[fp:edit|cannot read 拒绝访问。 (os error )]
+[fp:grep|invalid regex : regex parse error:]
+[fp:edit|cannot read 拒绝访问。 (os error )]
+错误原文：invalid regex `TrackerTool {`: regex parse error: (?:TrackerTool {) error: repetition quantifier expects a valid decimal。
+行动判据：grep 查询包含未转义的 `{`、括号、管道等正则元字符时，先按固定字符串搜索或转义/改写为合法正则并单独验证；只有验证通过后，才判断 edit cannot read、路径或权限问题，不得重复 edit 或重试。

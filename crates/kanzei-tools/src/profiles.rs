@@ -15,7 +15,7 @@ use crate::work::WorkTool;
 mod dev;
 mod readonly;
 mod research;
-pub use dev::DevProfile;
+pub use dev::{DevProfile, DEV_DEFERRED_TOOLS};
 pub use readonly::ReadonlyProfile;
 
 /// dev agent 的前端自查段。**不写进 dev 的基础提示词**:这段点名的 5 个工具
@@ -1450,24 +1450,10 @@ mod tool_surface_budget {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    /// dev 档模型可见工具数上限(CLI/桌面共用装配;桌面另有 frontend_locate/
-    /// frontend_check/ui_dom/ui_console/ui_style/collaboration_status 六个)。
-    ///
-    /// **取值 = 当前实测值,不留余量**。留了余量就等于允许它悄悄涨到余量用尽,
-    /// 而这个面「没人盯着只会涨」正是 D-662 的机制。
-    ///
-    /// 当前 30 个按族拆:文件读写 5(read/write/edit/insert/files)、检索 3
-    /// (glob/grep/symbols)、托管文档 7(req/defect/idea/decision/architecture/
-    /// conventions/test_record)、记忆 3、执行 3(bash/git/process)、外部 4(webfetch/websearch/browser/
-    /// prior_art)、产出 2(plot/latex)、其余 3(question/work/incident)。`todowrite` 已于 2026-08-21 摘除:
-    /// 它与 tracker 的 `批次`/`进展` 是同一件事的两个真源,而后者是持久的(过夜断了也接得上),
-    /// 且 dev 提示词本就写着「批次单元格是进度从外部唯一可见的地方」。
-    ///
-    /// **抬这个数之前先回答:新工具能不能做成已有工具的一个 action?**
-    /// 记忆写路径是正面例子——memory_add/promote/update/merge/stale/inbox_clear 等
-    /// 写工具只挂在 memory-manager 子代理的迷你 run 上,主 agent 只看得见
-    /// memory_note/search/stats 三个;写读分离顺带把主面压掉了 7 个。
-    const DEV_TOOL_BUDGET: usize = 30;
+    /// D-662/R-364 双门禁按工具数计,不是 schema 字符数。
+    /// CLI resident=19 个注册工具 + core 单独追加的 task; desktop 再加 collaboration_status。
+    const DEV_RESIDENT_TOOL_BUDGET: usize = 20;
+    const DEV_DEFERRED_TOOL_BUDGET: usize = 12;
 
     /// readonly 档:只读分析,面应当明显更小。
     ///
@@ -1499,6 +1485,25 @@ mod tool_surface_budget {
             .collect();
         names.sort_unstable();
         names
+    }
+
+    fn visible_layer_counts(profile: ProfileKind) -> (usize, usize) {
+        let root = PathBuf::from("C:/kanzei-d662-budget");
+        let ctx = ResolveCtx {
+            profile,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = crate::run::build_harness(
+            |h| {
+                h.add(crate::ReadonlyProfile);
+            },
+            |_| {},
+        );
+        harness.add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        (snapshot.resident_tools().len(), snapshot.deferred_tools().len())
     }
 
     fn materialized_tool_specs(profile: ProfileKind) -> Vec<kanzei_llm::ToolSpec> {
@@ -1571,7 +1576,7 @@ mod tool_surface_budget {
             .iter()
             .copied()
             .chain(deferred.iter().copied())
-            .filter(|name| *name != "task" && *name != "tool_search")
+            .filter(|name| *name != "task")
             .collect();
         for expected in expected_materialized {
             assert!(
@@ -1621,21 +1626,21 @@ mod tool_surface_budget {
         assert_eq!(row_sum, spec_sum, "账单总数必须等于逐项之和");
         let deferred_ratio = deferred_chars as f64 / spec_sum as f64 * 100.0;
         eprintln!(
-            "CLI Dev totals: resident={resident_chars}, deferred={deferred_chars} ({deferred_ratio:.2}%), unclassified={unclassified_chars}, all={spec_sum}; tool_search(B2 待接入)、core task_spec(未计入)"
+            "CLI Dev totals: resident={resident_chars}, deferred={deferred_chars} ({deferred_ratio:.2}%), unclassified={unclassified_chars}, all={spec_sum}; core task_spec(未计入)"
         );
     }
 
     #[test]
-    fn dev档工具面不超预算() {
+    fn dev档常驻与延迟目录分别符合预算() {
         let names = visible_tools(ProfileKind::Dev);
-        assert!(
-            names.len() <= DEV_TOOL_BUDGET,
-            "dev 档可见工具 {} 个,超出预算 {DEV_TOOL_BUDGET}。\n\
-             加工具前先问:能不能做成已有工具的一个 action?\n\
-             确实要加就显式抬预算,让它在 review 时被看见一次(D-662)。\n\
-             当前清单: {names:?}",
-            names.len()
+        let (resident, deferred) = visible_layer_counts(ProfileKind::Dev);
+        assert!(names.contains(&"tool_search"), "tool_search 必须在 Dev 常驻表中");
+        assert_eq!(
+            resident + 1,
+            DEV_RESIDENT_TOOL_BUDGET,
+            "resident_tools 的 19 项之外由 core 追加 task_spec"
         );
+        assert_eq!(deferred, DEV_DEFERRED_TOOL_BUDGET);
     }
 
     #[test]

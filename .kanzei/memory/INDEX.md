@@ -1,36 +1,35 @@
 # Memory Index (project)
 
 - M-001 [fact] 前端动态 i18n 必须保存源文案并在语言切换时重算 — 处理前端动态 i18n 中文内容无法回译/切换失效故障时必读
-- M-003 [fact] tracker 状态机只进不退,doing→todo 会被直接拒绝 — req/defect/goal 的 update 反复报 cannot move backward 时必读:状态只能沿列表顺序前进
+- M-003 [fact] tracker 状态机只进不退：cannot move backward 时核对状态与当前提交证据 — 处理 req/defect/goal 的 update 报 cannot move backward，或 defect 关闭缺当前 HEAD 的 verify 证据时必读：不要回退到更早状态；核对允许的单向迁移，并让 verification.json 绑定要关闭的这次提交后重跑 verify。
 - M-004 [fact] TrackerTool req/defect list 阻塞感知稳定后置，不改写 Markdown 顺序 — 处理 TrackerTool req/defect list 输出、阻塞条目排序或相关回归测试时必读:list 具备阻塞感知稳定后置能力
-- M-005 [sop] .kanzei/project 托管文件禁止 edit,须用专用工具 — 处理 .kanzei/memory 或其他 policy-managed 文件写入时必读：不要调用 edit，改用 memory_note/记忆管理工具提交变更；遇 permission denied by ruleset 立即切换合法写入通道。
-- M-006 [fact] 前端需求/缺陷显示阻塞原因与筛选,独立文档页顺序与调度一致 — 处理需求/缺陷 UI 阻塞显示与筛选、独立文档页排序、docs_snapshot 或 renderDocList 相关改动/回归时必读
+- M-005 [sop] .kanzei/project 托管文件禁止 edit,须用专用工具 — 处理 .kanzei/project/defects.md 或其他 policy-managed 文件写入时必读：先不要调用 edit；若出现 tracker integrity broken 或 permission denied by ruleset，立即改用允许的专用写入/grep 通道并先修复报告的完整性门禁，避免重复 edit。
+- M-006 [fact] 前端需求/缺陷显示阻塞原因与筛选,独立文档页顺序与调度一致 — 处理需求/缺陷 UI 阻塞显示与筛选、独立文档页排序、docs_snapshot 或 renderDocList 改动/回归时必读：把有效阻塞与显式停车分开显示和筛选，停车项须先复核前提或恢复后再取活，不能当失效阻塞清除。
 - M-007 [fact] 设置页工作资料导出功能(export_project_data) — 需要了解/修改设置页导出记忆、需求、缺陷、项目配置功能(实现位置、目录约束、返回值)时必读
 - M-008 [fact] runner 首次请求统一清洗 prior 历史(filter_message_history) — 调试 runner 首请求消息构造、prior 历史孤儿 ToolCall/ToolResult、上下文压缩相关问题时必读
-- M-009 [sop] edit 报 old_string not found + must match exactly:先重读再精确构造含 whitespace 与缩进—非唯一匹配勿设 replace_all — 处理 edit old_string not found 时必读:先 read 重读文件排版再精确构造—match exactly including whitespace;多处匹配勿用 replace_all 盲改，并识别换行缩进陷阱
-- M-010 [sop] edit 报 old/new 相同是 no-op 拒绝而非失败 — 处理 edit 报 "old_string and new_string are identical — nothing to do" 时必读:这是 no-op 拒绝(提交的 new==old 无改动),停止重试,先 read 确认目标是否已达成,未达成则让 new_string 与 old_string 不同,勿用 bash 绕过。
-- M-012 [fact] ID 同现于活动与归档时改用 terminal 专用操作 — 处理 goal/defect/req 报 is archived、尤其需要把已归档条目改为 fixed/wontfix 等终态时必读：先停止普通 update，确认条目已进入 terminal，再执行 defect fix_terminal id=<id> status=<fixed|wontfix> reason=<why>；不要对 archived 条目重试普通写操作。
-- M-013 [fact] 处理 edit 替换失败/换行符问题：先 read 重读再改 — 处理 edit 替换失败/换行符问题时必读:先 read 重读再改
+- M-009 [sop] edit 报 old_string not found + must match exactly:先重读再精确构造含 whitespace 与缩进—非唯一匹配勿设 replace_all — 处理 edit 报 old_string not found、尤其 bash/cargo 修改失败时必读：先 read 重读目标文件并核对实际换行、缩进和空白，再构造与原文逐字符匹配的 old_string；多处匹配时不要盲用 replace_all。
+- M-010 [sop] edit identical 是 no-op；缺 HEAD verify 证据不得关闭 defect — 处理 edit 报 old_string 与 new_string identical，或 defect 关闭被拒且缺当前 HEAD verify 全绿证据时必读：停止重复 edit，先 read 确认是否已无改动；再运行 .\scripts\verify.ps1，并用 test_record 记录 status=passed、命令含 verify.ps1 且关联当前 defect（本轮为 D-688），未通过先修复门禁欠账。
+- M-012 [fact] ID 同现于活动与归档时改用 terminal 专用操作 — 处理 goal/defect/req 报 `id` is required、is archived、ID 同现于活动与归档，或 policy-managed 文件写入触发 tracker integrity/permission 门禁时必读：先判定条目是否为 terminal；terminal 不要调用普通 edit/update，归档终态改用 req fix_terminal 并提供合法 status 与 reason，文件写入改走专用通道。
+- M-013 [fact] 处理 edit 替换失败/换行符问题：先 read 重读再改 — 处理 edit/req 的 unknown id、替换失败、换行符不匹配，或 browser/read 报本地文件不存在/无法解析时必读：不要重复提交失效 id 或原路径；先 read 重读当前内容、目录和可用标识，核对文件是否真实存在，再按实际文本、合法 id 与已确认路径精确构造修改。
 - M-014 [fact] HTML 静态文案必须登记进资源表,否则断言测试失败 — 处理 edit 报 old_string not found 时必读:先 read 重读文件排排版再精确构造——match exactly including whitespace;多处匹配勿用 replace_all 盲改，保留 [fp:edit|old_string not found...]指纹
 - M-015 [fact] SSE 流内 context overflow 恢复须重建请求,OpenAI 错误分类须同查 type/code — 处理 bash git 拦截时必读:改用结构化工具显式 stage+核对 hash;保留所有 [fp:bash|...]指纹
 - M-022 [sop] [git commit] bash 拦截时须 check staged add 再提交 — [fp:bash|> action: git commit 失败...] — 处理 git commit 被 bash 拦截须先 check add — [fp:bash|git commit 失败]必查前置 add/确认 staging 状态，否则强制 stage再 commit
-- M-023 [fact] edit 报 cannot read 拒绝访问与 grep invalid regex 的判别及处理 — 处理 edit 报 cannot read/拒绝访问或同时出现 grep 正则解析错误时必读：先 read 重读目标；grep 遇未闭合正则立即停止并修正/改用固定字符串，随后再重试 edit，不要把正则语法错误当权限问题或反复重试。
+- M-023 [fact] edit cannot read 与 grep invalid regex：先验证正则再判权限 — 处理 grep 报 invalid regex/regex parse error，尤其查询含未转义括号、花括号或管道，或同时出现 edit cannot read/拒绝访问时必读：先将查询改为固定字符串或合法正则，并单独验证无 parse error；验证成功前不得判断路径/权限、重复 edit 或重试。
 - M-029 [fact] 所有 git mutation 在 bash 都被拦截,必须走结构化 git 工具 — 处理任何 Git 分支/索引变更(merge/restore/rebase/add/commit/reset)在 bash 报 "is blocked in bash: git mutations must use the structured git tool" 时必读:不要换别的 git 子命令重试,改用结构化 git 工具——显式 stage 指定文件、核对 staged_hash/diff,再用该 hash commit;快进合并走 git merge_ff。
 - M-030 [fact] 鞭挞与 backlog 判定集中在引擎，前端只执行 autoAction — 处理自动运行鞭挞、backlog 或继续文案改动时必读：判定逻辑只改 harness/kanzei-tools 单源，桌面端转发，前端仅执行 autoAction；不要在前端重复判定或维护旧继续文案。
 - M-041 [sop] autonomous 会话报 permission requires user approval 是档位限制,不是死路 — 处理 autonomous(自动推进)会话里 edit/bash/git/cargo/conventions_patch 被拒并报 "permission requires user approval" 时必读:这是权限档位而非工具故障——把该动作留给交互轮或先在 .kanzei/kanzei.toml 加白名单;不要反复重试、不要换等价命令绕道、也不要判定为死路而放弃整条任务。
 - M-059 [sop] 记忆清理 SOP:归档不裸删,动全局先确认恢复源,清后三处一致 — 手动清理 .kanzei/memory 或 ~/.kanzei/memory 前必读:防数据永久丢失与索引悬空
-- M-062 [fact] 环境约束:本机 WebView2 151 DevTools 端口从不绑定,e2e CDP 路线不可用 — 想走 e2e-smoke / connectOverCDP / WebView2 DevTools 端口路线前必读:当前机器已 9 轮实验证实不可用,不要重推
+- M-062 [fact] 环境约束:本机 WebView2 151 DevTools 端口从不绑定,e2e CDP 路线不可用 — 处理 browser 报“需要 url 或 path 参数”或准备 e2e-smoke / connectOverCDP / WebView2 DevTools 端口路线时必读：先补齐合法 url/path；若目标是本机 WebView2 CDP，则停止该不可用路线，不要重推或反复调用 browser。
 - M-070 [preference] 开发重心:需求优先 — 取活/排优先级时必读:当前项目该先做什么
-- M-112 [fact] Git tests 跨轮复发：先核对前置条件、环境与批次字段一致性 — 处理 failures: git::tests 跨轮复发或关闭前出现手写批次与 Git 提交历史标记不一致时必读：先核对测试前置条件、环境一致性及完整批次字段，再更新错误批次并确认失败测试/结束标记后关闭；不要把重试成功或单个 exit code 当作根因。
+- M-112 [fact] Git tests 跨轮复发与前端标签关闭前必须有 UI smoke 证据 — 处理 failures: git::tests 跨轮复发或关闭带“前端”标签的需求/缺陷时必读：先核对真实失败行、完整批次字段和前置条件；关闭前必须附 T-测试记录、file:line 或提交号，并至少跑过本项目 UI smoke（ui-runtime-smoke、ui-lint-smoke、parallel-lines-regression 或 ui-a11y/ui-i18n smoke）；证据不足就显式记录降级或用户执行，禁止沉默跳过或把重试成功当根因。
 - M-113 [sop] git commit staged 缺失 SOP — 处理 git commit 失败时必读:Changes not staged for commit 必须先执行 git add 同批文件;4+ 次复发并有修复经验,确认为环境契约问题
-- M-202 [fact] bash timeout导致命令终止并改用test_record成功 — 处理 bash/timeout类任务时必读——识别可复用错误模式与一次性噪声的关键标准
+- M-202 [fact] bash 环境契约失败时改用 test_record 记录验证 — 处理 bash/cargo 验证因运行环境契约失败、尤其报 not a git repository 而 test_record 可成功记录时必读：不要继续重试 bash；改用 test_record，并保留完整错误文本判断是否为环境问题。
 - M-205 [fact] bash 命令超时被 kill 后的正确重试策略 — 何时遇到 bash 命令超时/被 kill — 先查历史 timeout 失败记录再重试
 - M-227 [fact] bash 测试证据失败不激活 — bash测试证据不激活时必读：第3次+修复成功才建candidate,否则是单轮噪声
 - M-247 [sop] bash guard全文件改写拦截SOP — 识别whole-file rewrites via shell bypass并使用edit/memory writer完成写入【新版】 — M-247 bash guard全文件改写拦截 — 遇[fp:bash|...]必read再update：whole-file rewrites→ident→用edit/memwriter
-- M-258 [fact] bash/cargo失败模式：先核对结束标记与目标配置再定位根因 — 处理 bash/cargo 测试或编译输出异常、尤其 exit code=0 但测试结果与 stderr 混排或输出被截断时必读：先读取完整 `test result:` 结束行，按 `failed` 计数和失败测试名判定是否真的失败；本例 `1 passed; 0 failed` 应判为通过/输出截断，不因首个 exit code、`ok` 或 shell 重试继续排查。确认真实失败后，再核对 stderr 原文、Cargo target 与命令配置，read/grep 上下文后定向修复。
-- M-268 [fact] bash 批量测试输出含多行时优先定位 pathspec 根因 — 处理 bash/test runner 批量测试输出混杂多行、看到 exit code: 1 与大量 running/ok 行时必读：先截取并核对完整 stderr/pathspec 根因行及测试结束标记，再决定修复；不要把首个 exit code、进度中的 ok 或截断片段当作 pathspec 根因，也不要在未定位根因前重跑。
+- M-258 [fact] bash/cargo失败模式：先核对完整结束标记与实际失败行再定位根因 — 处理 bash/cargo 测试输出出现 exit code 1、末尾有局部 ok 或同类失败复发时必读：先完整读取 stdout/stderr，确认是否缺少 `finished in ...s` 等最终结束标记；再以明确 failed/断言行和退出码共同判定。输出截断或局部 ok 时按失败处理，先定位真实失败，不直接改代码或重试。
+- M-268 [fact] bash runner 混排输出且 exit code=1 时先核对完整块并改用 test_record — 处理 bash 测试输出出现 exit code: 1 且 running/ok 结果混排、尤其无法确认失败是否来自测试断言时必读：先读取并核对完整 stdout/stderr 与完整测试块；若只见截断/混排而缺少可归因失败证据，停止重试 bash，改用 test_record 记录验证结果并保留原始错误文本。
 - M-269 [fact] UI lint 全局变量探针需由生成脚本同步 — 处理 UI 运行时冒烟提示 smoke probe marker 与源码不同步时必读：先运行 `node scripts/gen-ui-lint-glob` 重新生成标记文件，再重跑冒烟检查；不要把已通过的运行时错误数误判为失败根因。
 - M-270 [fact] refresh_derived 写 INDEX 前必须逐行核对 active 描述 — 处理 MemoryStore 刷新 INDEX.md、或发现 INDEX 与 active M-*.md 描述可能串号时必读：写入前逐行核对 id 与源文件 description；有任何不一致就失败并先修复源数据，禁止生成不一致索引。
-- M-271 [sop] read 报 path not found 时先核对路径再读取 — 处理 read 报 path not found 且同类错误复发时必读：先核对项目 memory 根目录和目标文件实际存在性，再读取确认存在的候选路径；禁止对失效原路径盲目重试，并记录路径映射以避免再次误读。
-
-(5 candidate 条待验证晋升)
+- M-271 [sop] read 报 path not found 时先核对项目 memory 根路径与目标文件 — 处理 read 或 grep 报 `path not found`、候选目录缺少目标文件或同类错误复发时必读：停止原路径重试，先核对项目实际 memory 根路径并用目录列表/glob 找到真实文件；未获路径证据前不得继续调用，找到多个候选先选定唯一目标。
+- M-272 [sop] ESM imported binding setter 缺口按 umbrella 迁移族统一修复 — 处理 classic global→ESM 迁移中消费者写入 imported binding、或 runtime 逐步暴露多个同类 setter 缺口时必读：按一个 umbrella defect 管理，先枚举全部跨模块 export let 写入并一次性修复验证，不按每个首个 symbol 重复登记 D 条目。

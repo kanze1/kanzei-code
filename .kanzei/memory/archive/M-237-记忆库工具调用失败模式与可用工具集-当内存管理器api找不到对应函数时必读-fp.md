@@ -4,9 +4,9 @@ scope: project
 category: fact
 title: 记忆库工具调用失败模式与可用工具集 — 当内存管理器API找不到对应函数时必读 [fp:memory_get|unknown tool ; available: read, write, edit, insert, bash, process, glob, grep, files, symbols, git, question, todowrite, webfetch, websearch, browser, latex, plot, idea, req, defect, work, decision, memory_search; fp:memory_archive|unknown tool ; available: ... memory_no]
 description: 内存工具调用失败与可用集更新 — 处理 memory_get/memory_archive不存在时的替代方案 [fp:memory_get|unknown tool ; available:..., fp:memory_archive|unknown tool ; available:...]
-status: candidate
+status: deprecated
 created: 2026-08-17
-updated: 2026-08-20
+updated: 2026-09-03
 source: memory-manager
 ---
 
@@ -33,3 +33,5 @@ source: memory-manager
 [fp:memory_archive|unknown tool ; available: read, write, edit, insert, bash, process, glob, grep, files, symbols, git, question, todowrite, webfetch, websearch, browser, latex, plot, idea, req, defect, work, decision, memory_search, memory_no]
 
 **引用来源**: 工具可用集信息来自episode_id=775验证
+
+(auto-deprecated: candidate 超过 14 个日历日未完成晋升，无满足条件的 recurrence/provenance；原路径 \\?\C:\Users\kanzei\Documents\kanzei code\.kanzei\memory\M-237-记忆库工具调用失败模式与可用工具集-当内存管理器api找不到对应函数时必读-fp.md)

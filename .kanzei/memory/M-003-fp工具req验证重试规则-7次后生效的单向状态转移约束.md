@@ -2,21 +2,17 @@
 id: M-003
 scope: project
 category: fact
-title: tracker 状态机只进不退,doing→todo 会被直接拒绝
-description: req/defect/goal 的 update 反复报 cannot move backward 时必读:状态只能沿列表顺序前进
+title: tracker 状态机只进不退：cannot move backward 时核对状态与当前提交证据
+description: 处理 req/defect/goal 的 update 报 cannot move backward，或 defect 关闭缺当前 HEAD 的 verify 证据时必读：不要回退到更早状态；核对允许的单向迁移，并让 verification.json 绑定要关闭的这次提交后重跑 verify。
 status: active
 created: 2026-08-07
-updated: 2026-08-08
+updated: 2026-09-02
 source: run(失败信号自动采集) + 人工校正
 ---
 
-docstore 的 `transition_allowed` 是单向的:状态只能沿该文档类型的 statuses 列表向前走
-(req: todo→doing→done/dropped;defect: open→fixing→fixed/wontfix),或直接进终态。
-往回退会被拒绝,错误原文是 ``cannot move backward `doing` → `todo`; forward only``。
-双向类型(goal/memory,bidirectional=true)不受此限,非终态之间可自由往返。
+tracker 状态机只进不退。处理 req/defect/goal 的 update 报“cannot move backward”时，不要把状态改回列表中的更早状态；先核对当前状态与允许的单向迁移，改用合法后继状态或相应终态操作。关闭 defect 前，verify 证据必须绑定要关闭的这次提交，而不是仅看仓库最近一次提交；若 dist/verification.json 仍绑定旧提交，提交后以当前目标提交重跑 verify，并用 test_record 记录通过证据。
 
-真要把已关闭的条目重新打开,只能手改 markdown——引擎不提供 reopen 动作。
+本次证据：D-738 缺 verify，dist/verification.json 绑定 1b3115ea，而当前 HEAD 为 13154063c90d8960e6957d5f2bd27bc3115ed9d1；应将证据绑定要关闭的这次提交后重跑 verify。
 
-校正记录(2026-08-08):本条由失败信号自动采集生成,fast 档蒸馏时把"同一错误重复出现 7 次"
-误写成了"需要约 7 次重试才能成功",那是错的——重试多少次都不会成功,因为该转换本身非法。
-教训见 [[记忆蒸馏改用 primary]]:失败**次数**是信号强度,不是被记忆的事实内容。
+[fp:defect|行动: 的 update 反复报 cannot move backward 时必读:状态只能沿列表顺序前进]
+[fp:defect|行动: 处理 的 update 反复报 cannot move backward 时必读：不要把状态改回列表中的更早状态；先核对当前状态与允许的单向迁移，改用合]

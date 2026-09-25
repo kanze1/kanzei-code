@@ -4,6 +4,22 @@
 
 use super::*;
 
+/// B1 定稿:CLI Dev 延迟层名单,只在 DevProfile 已注册全部工具后加入草稿。
+pub const DEV_DEFERRED_TOOLS: &[&str] = &[
+    "process",
+    "files",
+    "incident",
+    "conventions",
+    "architecture",
+    "prior_art",
+    "browser",
+    "latex",
+    "plot",
+    "idea",
+    "decision",
+    "memory_stats",
+];
+
 pub struct DevProfile;
 
 impl Component for DevProfile {
@@ -11,6 +27,14 @@ impl Component for DevProfile {
         if ctx.profile != ProfileKind::Dev {
             return Ok(());
         }
+        draft.tools.insert(
+            kanzei_harness::TOOL_SEARCH,
+            Arc::new(kanzei_harness::ToolSearchTool),
+        );
+        draft
+            .permissions
+            .push(rule(kanzei_harness::TOOL_SEARCH, "*", Effect::Allow));
+
         draft.tools.insert(
             "idea",
             Arc::new(TrackerTool {
@@ -529,6 +553,9 @@ impl Component for DevProfile {
                     .into(),
             },
         );
+        draft
+            .deferred_tools
+            .extend(DEV_DEFERRED_TOOLS.iter().map(|name| (*name).to_owned()));
         Ok(())
     }
 }

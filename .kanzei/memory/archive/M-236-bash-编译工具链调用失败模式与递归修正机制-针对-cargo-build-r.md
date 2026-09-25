@@ -4,9 +4,9 @@ scope: project
 category: fact
 title: bash 编译工具链调用失败模式与递归修正机制 — 针对 cargo build/run error: expected one of `!` . `::` ? found 及 unknown memory id 的通用处置流程 [fp:bash|error: expected one of , , , , , or an operator, found; fp:M-: ERROR unknown memory id]
 description: bash 编译错误复发检测与修复 — 当 bash 执行 cargo/rustc 命令报错时必读
-status: candidate
+status: deprecated
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-31
 source: memory-manager
 ---
 
@@ -35,3 +35,5 @@ D-495(fixed)根因与复发模式总结（合并自M-165与本次失败链）
 **晋升路径**: 
 - 第1次record → candidate状态
 - 第2次仍复发 → 补充证据后memory_promote(episode_id=775)升active
+
+(auto-deprecated: candidate 超过 14 个日历日未完成晋升，无满足条件的 recurrence/provenance；原路径 C:\Users\kanzei\Documents\kanzei code\.kanzei\memory\M-236-bash-编译工具链调用失败模式与递归修正机制-针对-cargo-build-r.md)

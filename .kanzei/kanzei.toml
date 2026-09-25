@@ -1,8 +1,8 @@
 [models]
-primary = "codex:gpt-5.6-luna"
-fast = "codex:gpt-5.6-luna"
-compact = "codex:gpt-5.6-luna"
-reasoning = "high"
+primary = "codex:gpt-6-luna"
+fast = "codex:gpt-6-luna"
+compact = "codex:gpt-6-luna"
+reasoning = "xhigh"
 codex_fast_mode = true
 
 # 2026-08-20:provider 定义已迁到全局 ~/.kanzei/kanzei.toml(桌面端设置页
@@ -190,4 +190,29 @@ effect = "allow"
 [[permissions.rules]]
 action = "insert"
 resource = "crates/kanzei-app/ui/index.html"
+effect = "allow"
+
+[[permissions.rules]]
+action = "idea"
+resource = "read:list"
+effect = "allow"
+
+[[permissions.rules]]
+action = "work"
+resource = "read:get_unit"
+effect = "allow"
+
+[[permissions.rules]]
+action = "insert"
+resource = "crates/kanzei-app/ui/style.css"
+effect = "allow"
+
+[[permissions.rules]]
+action = "work"
+resource = "read:list_units"
+effect = "allow"
+
+[[permissions.rules]]
+action = "decision"
+resource = "write:add"
 effect = "allow"

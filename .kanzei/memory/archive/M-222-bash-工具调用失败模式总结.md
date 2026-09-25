@@ -4,9 +4,9 @@ scope: project
 category: habit
 title: bash 工具调用失败模式总结
 description: 何时遇到工具调用失败：读取可用工具列表确认参数格式;用 memory_search 取代 unknown 工具;保留指纹作为复发检测
-status: candidate
+status: deprecated
 created: 2026-08-17
-updated: 2026-08-20
+updated: 2026-09-03
 source: run:753
 ---
 
@@ -14,3 +14,5 @@ source: run:753
 - [fp:memory_get|unknown tool ; available: read, write, edit, insert, bash, process, glob, grep, ] → 用可用工具替换（见可用列表）
 - [fp:memory_archive|unknown tool ; available: read, write, edit, insert, bash, process, glob, grep, ] → 用 memory_search 取代
 晋升规则：第1次建 candidate，第2次后内存证promote
+
+(auto-deprecated: candidate 超过 14 个日历日未完成晋升，无满足条件的 recurrence/provenance；原路径 \\?\C:\Users\kanzei\Documents\kanzei code\.kanzei\memory\M-222-bash-工具调用失败模式总结.md)

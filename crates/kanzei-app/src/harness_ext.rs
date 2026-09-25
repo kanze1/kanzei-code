@@ -317,12 +317,22 @@ fn deliver_target(
     Ok((path, meta))
 }
 
+pub(crate) const DESKTOP_DEFERRED_TOOLS: &[&str] = &[
+    "ui_dom",
+    "ui_console",
+    "ui_style",
+    "ui_screenshot",
+    "frontend_locate",
+    "frontend_check",
+    "deliver",
+];
+
 pub(crate) struct FrontendToolsComponent;
 impl kanzei_harness::Component for FrontendToolsComponent {
     fn contribute(
         &self,
         draft: &mut kanzei_harness::HarnessDraft,
-        _ctx: &ResolveCtx,
+        ctx: &ResolveCtx,
     ) -> anyhow::Result<()> {
         draft.tools.insert("deliver", Arc::new(DeliverTool));
         draft.tools.insert("ui_dom", Arc::new(UiDomTool));
@@ -355,6 +365,11 @@ impl kanzei_harness::Component for FrontendToolsComponent {
                 "*",
                 kanzei_harness::Effect::Allow,
             ));
+        }
+        if ctx.profile == kanzei_harness::ProfileKind::Dev {
+            draft
+                .deferred_tools
+                .extend(DESKTOP_DEFERRED_TOOLS.iter().map(|name| (*name).to_owned()));
         }
         Ok(())
     }
