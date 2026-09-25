@@ -15,7 +15,7 @@ import { buildDiffTree, renderDiff } from "./06-activity.js";
 import { parseUnifiedDiff } from "./04-structured-parse.js";
 import { lineAutoConfig, queueProcessUpdate, setLineAutoState, updateLocalProcessItem } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
-import { loadModels, syncModelSelectToActiveLine } from "./08-models.js";
+import { projectDefaultModel, syncModelSelectToActiveLine } from "./08-models.js";
 import {
   closeParallelProcess,
   createWorktreeLine,
@@ -165,8 +165,14 @@ export function buildLineModelSelect(item) {
     seen.add(value);
     select.appendChild(new Option(label, value));
   };
-  add("", t("模型:agent 默认"));
-  for (const model of linesModelCatalog ?? []) add(model.id, model.label);
+  // UI-0926 #3:空选项写明「跟随默认」解析到哪个模型(与输入框芯片同源:model_effective)。
+  add("", `${t("跟随默认")} · ${projectDefaultModel ?? ""}`.replace(/ · $/, ""));
+  // 角色项(primary/fast/compact)不再列出:它们的去向由项目/全局配置决定,「跟随默认」已经说清;
+  // 只有这条线当前存的就是某个角色(旧版遗留)时才列出,方便看见并清掉。
+  for (const model of linesModelCatalog ?? []) {
+    if (["primary", "fast", "compact"].includes(model.id) && model.id !== current) continue;
+    add(model.id, model.label);
+  }
   // 该线记住的直指模型即使不在探测清单里也必须可见,否则一次刷新就把它从下拉里抹掉,
   // 用户以为自己没设过(D-167 同源)。
   if (current) add(current, `${current}(${t("已记住")})`);
@@ -176,12 +182,10 @@ export function buildLineModelSelect(item) {
     updateLocalProcessItem(item.id, { model: value || null });
     try {
       await queueProcessUpdate(item.id, { model: value });
-      log(`${item.label} ${t("该线模型已切换")}:${value || t("模型:agent 默认")}`);
-      // 改的若是当前线,顶栏那一份要跟着走——两处显示同一条线却不一致最难查。
-      if (item.id === activeProcessId && typeof loadModels === "function") {
-        await loadModels();
-        syncModelSelectToActiveLine();
-      }
+      log(`${item.label} ${t("该线模型已切换")}:${value || t("跟随默认")}`);
+      // 改的若是当前线,输入框上方的芯片要跟着走——两处显示同一条线却不一致最难查。
+      // 目录没变,只重问一次「下一轮将使用」。
+      if (item.id === activeProcessId) await syncModelSelectToActiveLine();
     } catch (error) {
       toastError(`${t("模型切换失败")}:${error}`);
     }

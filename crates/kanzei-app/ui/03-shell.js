@@ -668,9 +668,43 @@ export function setCtxLimit(value) { ctxLimit = value; }
 export const sessionMetaCache = new Map();
 export function applySessionMeta(sessionId) {
   const meta = sessionId ? sessionMetaCache.get(sessionId) : null;
-  if (!meta) return;
-  $("status-model").textContent = `${meta.model} · ${meta.profile}`;
+  if (!meta) {
+    // UI-0926 #3:这条线本次还没跑过:状态栏不能继续挂着别的线「上一轮实际使用」的模型。
+    // 上下文上限同理:拿别的线的上限算这条线的占比是错的基准。先清空,等 model_effective
+    // 回来按下一轮会用的模型补上(08-models.js refreshEffectiveModel)。
+    const status = $("status-model");
+    if (status) {
+      status.textContent = "";
+      status.title = "";
+    }
+    ctxLimit = null;
+    return;
+  }
+  showRunMeta(meta);
   ctxLimit = meta.contextLimit ?? null;
+}
+// UI-0926 #3:思考档的显示名(输入框芯片、菜单、状态栏共用一份)。off = 不发档位,交给服务商。
+export function reasoningLabel(value) {
+  return {
+    off: t("服务商默认"), none: t("无"), low: t("低"), medium: t("中"),
+    high: t("高"), xhigh: t("超高"), max: t("最大"),
+  }[value] ?? String(value ?? "");
+}
+// 状态栏 = 上一轮**实际**使用的「模型 · 思考档 · ⚡ · profile」(kz:meta 取自真正发出去的请求参数)。
+// 输入框上方的芯片说的是「下一轮将使用」,两处口径不同,所以状态栏带 title 说明。
+export function formatRunMeta(meta) {
+  if (!meta) return "";
+  const parts = [meta.model];
+  if (meta.reasoning && meta.reasoning !== "off") parts.push(reasoningLabel(meta.reasoning));
+  if (meta.codexFastMode) parts.push("⚡");
+  if (meta.profile) parts.push(meta.profile);
+  return parts.filter(Boolean).join(" · ");
+}
+export function showRunMeta(meta) {
+  const status = $("status-model");
+  if (!status) return;
+  status.textContent = formatRunMeta(meta);
+  status.title = t("上一轮实际使用");
 }
 export let ctxTokens = 0;
 export let ctxPending = false;

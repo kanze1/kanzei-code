@@ -152,6 +152,28 @@ if (SMOKE_MUTATE) {
     },
 
     // ---- 分区:模型选择 ----
+    // UI-0926 #3:芯片选模型后必须**等本线写入落地**再问 model_effective。改成不等,后端读到的还是
+    // 旧的本线值:芯片闪回上一个模型,process_update 也排到了 model_effective 之后。
+    pickerAwaitsUpdate: {
+      pattern: /await queueProcessUpdate\(processId, \{ model: value \}\);/,
+      replace: "void queueProcessUpdate(processId, { model: value });",
+    },
+    // UI-0926 #3:切线那一刻芯片就跟到目标线。删了它,对话还在装载的这几秒里思考芯片仍显示上一条线的
+    // 「超高 · 临时」,而同项目内切线已不再重拉目录,之后也没有别的回显路径把它纠正过来。
+    reasoningFollowsLine: {
+      pattern: /[ \t]*syncModelSelectToActiveLine\(\);\r?\n(?=[ \t]*\/\/ 状态栏模型\/上下文上限回放)/,
+      replace: "",
+    },
+    // UI-0926 #3 复核:芯片菜单的 ✓ 只标当前生效项。改成不打 ✓,生效项与悬停项又只剩底色差几个百分点。
+    pickerCheckMark: {
+      pattern: /check\.textContent = button\.getAttribute\("aria-checked"\) === "true" \? "✓" : "";/,
+      replace: 'check.textContent = "";',
+    },
+    // UI-0926 #3 复核:切线时作废在途的乐观值。删了它,A 线刚选、还没写完的「X · 临时」会挂到 B 线芯片上。
+    optimisticDropsOnSwitch: {
+      pattern: /[ \t]*optimisticPatch = null;\r?\n(?=[ \t]*renderModelPicker\(\);\r?\n[ \t]*\}\);\r?\n[ \t]*document\.addEventListener\("kz-effective-model-optimistic")/,
+      replace: "",
+    },
 
     // ---- 分区:弹层与外观 ----
     // UI-0926 #9:Esc 只关栈顶。把「取栈顶第一个可 Esc 的句柄」换成「取栈底第一个」,
@@ -1335,17 +1357,18 @@ const payloads = {
     ],
     permissions: [],
     // 项目级覆盖:D-168 当年只堵了模型角色,limits/proxy 被覆盖时页面一声不吭。
-    // 这里让 primary/proxy/limits.maxTokens 各不相同(必须提示)、profileDefault 与
-    // codexFastMode 相同(不得误报)、fast 整条缺失(has() 守卫必须整条跳过)。
+    // 这里让 proxy/limits.maxTokens 各不相同(必须提示)、profileDefault 相同(不得误报)。
+    // UI-0926 #3:后端 effective 不再带模型五键(项目的模型覆盖由 projectModelOverrides 列出、
+    // 在「项目模型配置」里看;下一轮用什么由 model_effective 回答),fixture 与后端同形。
     effective: {
-      primary: "anthropic:claude-sonnet-5",
-      reasoning: null,
       proxy: "http://127.0.0.1:7890",
       profileDefault: "readonly",
-      codexFastMode: true,
       limits: { maxTokens: 8192, subagentTimeoutSecs: null },
     },
     projectConfig: "C:/smoke/project/.kanzei/kanzei.toml",
+    projectModelOverrides: [
+      { project: "C:/smoke/project", name: "smoke", configPath: "C:/smoke/project/.kanzei/kanzei.toml", keys: ["primary", "reasoning", "codexFastMode"], current: true },
+    ],
   },
   permission_rules_get: [],
   memory_overview: { scopes: [{ scope: "project", root: PROJECT, total: 0, hitsTotal: 0, categories: {}, integrity: [], inboxPending: 0 }] },
@@ -1396,6 +1419,61 @@ const payloads = {
   workspace_snapshot: {},
 };
 payloads.research_library_list = () => ({ entries: payloads.docs_snapshot.research_topics.map((entry) => ({ ...entry, id: entry.topic || "legacy", storage_root: PROJECT, linked_projects: [PROJECT], available: true, kind: entry.kind || (entry.legacy ? "legacy" : "research") })), diagnostics: [] });
+// ---- 分区:模型选择(桩)UI-0926 #3 ----
+// 本线存档 = 后端 processes 表:process_update 写、model_effective 读。写入**晚一个微任务**才生效——
+// 真机上写入要过一次 IPC,调用方若不 await 写入就去问 model_effective,读到的是旧值(变异 pickerAwaitsUpdate 靠这个现形)。
+// 默认层照用户现场:项目 primary=codex:gpt-5.6-luna、思考 high、Fast mode 开;全局 gpt-6-luna/xhigh。
+const smokeLineState = new Map();
+const SMOKE_DEFAULT_MODEL = "codex:gpt-5.6-luna";
+const smokeProcessList = () => (Array.isArray(payloads.process_list) ? payloads.process_list : []);
+const smokeLineOf = (processId) => {
+  if (smokeLineState.has(processId)) return smokeLineState.get(processId);
+  const item = smokeProcessList().find((candidate) => candidate.id === processId);
+  return { model: item?.model || null, reasoning: item?.reasoning || null };
+};
+payloads.model_effective = (args) => {
+  const line = smokeLineOf(args?.processId);
+  const role = ["primary", "fast", "compact"].includes(line.model) ? line.model : null;
+  const resolved = line.model ? (role ? SMOKE_DEFAULT_MODEL : line.model) : SMOKE_DEFAULT_MODEL;
+  const defaultModel = { ref: "primary", resolved: SMOKE_DEFAULT_MODEL, source: "project", role: "primary", followsPrimary: false, error: null };
+  const codex = resolved.startsWith("codex:");
+  return {
+    agent: args?.agent ?? "dev-pair",
+    agentError: null,
+    model: line.model ? { ref: line.model, resolved, source: "line", role, followsPrimary: false, error: null } : { ...defaultModel },
+    defaultModel,
+    reasoning: line.reasoning ? { value: line.reasoning, source: "line" } : { value: "high", source: "project" },
+    defaultReasoning: { value: "high", source: "project" },
+    codexFastMode: { enabled: true, applies: codex, active: codex, source: "project" },
+    contextLimit: 272000,
+  };
+};
+payloads.process_update = (args) => {
+  const processId = args?.processId;
+  const patch = {};
+  if (args && Object.hasOwn(args, "model")) patch.model = args.model || null;
+  if (args && Object.hasOwn(args, "reasoning")) patch.reasoning = args.reasoning || null;
+  if (Object.keys(patch).length) queueMicrotask(() => smokeLineState.set(processId, { ...smokeLineOf(processId), ...patch }));
+  return null;
+};
+const smokeProjectModelSaves = [];
+payloads.project_models_get = (args) => ({
+  projectDir: args?.projectDir ?? PROJECT,
+  configPath: `${args?.projectDir ?? PROJECT}/.kanzei/kanzei.toml`,
+  exists: true,
+  fields: {
+    primary: { project: SMOKE_DEFAULT_MODEL, global: "codex:gpt-6-luna", inherited: "codex:gpt-6-luna", inheritedSource: "global", inheritedFollowsPrimary: false, effective: SMOKE_DEFAULT_MODEL, source: "project", followsPrimary: false },
+    fast: { project: null, global: "ollama:qwen3", inherited: "ollama:qwen3", inheritedSource: "global", inheritedFollowsPrimary: false, effective: "ollama:qwen3", source: "global", followsPrimary: false },
+    compact: { project: null, global: null, inherited: SMOKE_DEFAULT_MODEL, inheritedSource: "project", inheritedFollowsPrimary: true, effective: SMOKE_DEFAULT_MODEL, source: "project", followsPrimary: true },
+    reasoning: { project: "high", global: "xhigh", inherited: "xhigh", inheritedSource: "global", inheritedFollowsPrimary: false, effective: "high", source: "project", followsPrimary: false },
+    codexFastMode: { project: true, global: null, inherited: true, inheritedSource: "builtin", inheritedFollowsPrimary: false, effective: true, source: "project", followsPrimary: false },
+  },
+});
+payloads.project_models_save = (args) => {
+  smokeProjectModelSaves.push(structuredClone(args));
+  return payloads.project_models_get(args);
+};
+payloads.project_config_open = null;
 const invokeLog = [];
 const invokeArgs = [];
 const savedPayloads = new Map();
@@ -1462,9 +1540,14 @@ const localStorageShim = {
   removeItem: (k) => storage.delete(k),
 };
 
+// window 级监听只登记不派发(用例要测「回到前台重取」之类时自己按类型取出来调)。
+const windowListeners = new Map();
 const windowShim = {
   __TAURI__: { core: { invoke }, event: { listen } },
-  addEventListener: () => {},
+  addEventListener: (type, listener) => {
+    if (!windowListeners.has(type)) windowListeners.set(type, []);
+    windowListeners.get(type).push(listener);
+  },
   matchMedia: (media) => ({ media, matches: false, addEventListener() {}, removeEventListener() {} }),
   confirm: () => true,
   // D-418:业务确认弹窗从 window.confirm 迁移到 confirmDialog(01-core.js),
@@ -5053,12 +5136,17 @@ assert(
   primaryValues.includes("deepseek:deepseek-chat"),
   "探测不到的已存值未补进选项列表",
 );
-// 项目级覆盖必须明说。
+// 项目级覆盖必须明说(UI-0926 #3 起这张表只报代理/默认模式/运行上限;模型的项目覆盖见
+// #settings-project-overrides 那行中性说明,由下面「分区:模型选择」的设置页用例守)。
 assert(
   !byId.get("settings-effective").classList.contains("hidden"),
-  "项目级覆盖了 primary,但设置页没有任何提示",
+  "项目级覆盖了 proxy/limits,但设置页没有任何提示",
 );
 assert(listText("settings-effective").includes("实际生效"), "覆盖提示未说明实际生效值");
+assert(
+  listText("settings-effective").includes("当前项目的配置覆盖了这些全局值") && !listText("settings-effective").includes("本页的改动不会生效"),
+  `覆盖提示的标题应是中性说明,不再是「改动不会生效」的警告:${listText("settings-effective")}`,
+);
 // D-503:设置页后端失败不能再静默停留旧值或让用户误以为刷新成功。
 {
   invokeFailures.set("models_list", "模拟模型列表失败");
@@ -5340,47 +5428,41 @@ assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "�
   assert(proxyHint.classList.contains("hidden"), "切回 env 后提示应消失");
 }
 
-// ---------- R-178 批4 D7:设置页作用域选择器 ----------
-// 第一版只覆盖 [models]:scope=project 时后端只写模型角色进主根 .kanzei/kanzei.toml,
-// proxy/provider/limits/cadence 一律仍走全局(后端 settings.rs 按 scope 拦截)。
-// 前端职责:默认全局、有项目上下文时 project 选项可用、无项目时禁用并回退 global、
-// 保存时透传 scope+projectDir。
+// ---------- UI-0926 #3(取代 R-178 批4 D7 作用域选择器):设置页只写全局 ----------
+// D7 当年守的是「选本项目保存时 provider/密钥不许串写进项目 toml」。现在设置页根本不再写项目文件:
+// 作用域选择器整个删除,settings_save 不再带 scope/projectDir(后端签名也去掉了,只写全局);
+// 项目级模型覆盖改走「项目模型配置」弹窗,后端只接受 [models] 五个键(model_config.rs 的
+// project_models_save_rejects_invalid 钉住「proxy 这类键一律拒绝」)。这里钉前端这一半。
 {
-  const scopeSelect = byId.get("set-save-scope");
-  assert(scopeSelect, "设置页缺少作用域选择器 #set-save-scope");
-  const projectOption = scopeSelect.querySelector('option[value="project"]');
-  assert(projectOption, "作用域选择器缺少「本项目」选项");
-  // 冒烟 settings_get 桩自带 projectConfig(有项目)→ 选项可用、默认值 global。
-  assert(projectOption.disabled === false, "有项目上下文时「本项目」选项未启用");
-  assert(scopeSelect.value === "global", "默认作用域应为 global");
-
+  assert(!byId.get("set-save-scope"), "设置页不应再有作用域选择器 #set-save-scope(全局值会被整块拷进项目文件)");
+  assert(!byId.get("settings-scope-note") && !byId.get("settings-scope-hint"), "作用域说明残留(含内部编号 D7)");
+  assert(!html.includes("D7"), "index.html 仍把内部编号 D7 漏给用户");
   byId.get("settings-save").click();
   await flush();
   const saveArgs = savedPayloads.get("settings_save");
-  assert(saveArgs?.scope === "global", `默认作用域应为 global: ${JSON.stringify(saveArgs?.scope)}`);
-  assert(saveArgs?.projectDir === null || saveArgs?.projectDir === undefined, "global 作用域不应携带 projectDir");
-
-  // 无项目上下文:settings_get 不带 projectConfig → 选项禁用且当前值回退 global。
+  assert(saveArgs && !Object.hasOwn(saveArgs, "scope") && !Object.hasOwn(saveArgs, "projectDir"),
+    `settings_save 不应再带 scope/projectDir(本页只写全局):${JSON.stringify(Object.keys(saveArgs ?? {}))}`);
+  // 项目没有覆盖模型时这一行收起;有覆盖时列出项目名与键(中性说明,不是琥珀警告)。
+  const overrides = byId.get("settings-project-overrides");
+  assert(overrides && !overrides.classList.contains("hidden"), "有项目自带模型配置时设置页没有说明");
+  assert(overrides.classList.contains("settings-note") && !overrides.classList.contains("settings-effective"), "项目模型覆盖说明应是中性样式,不是警告条");
+  const overrideText = overrides.textContent;
+  assert(overrideText.includes("smoke") && overrideText.includes("primary") && overrideText.includes("思考强度"),
+    `项目模型覆盖说明未列出项目名与键:${overrideText}`);
   const originalSettingsGet = payloads.settings_get;
-  payloads.settings_get = { ...originalSettingsGet, projectConfig: undefined };
+  payloads.settings_get = { ...originalSettingsGet, projectModelOverrides: [] };
   try {
-    const loadSettingsInSandbox = vm.runInContext("loadSettings", sandbox);
-    await loadSettingsInSandbox();
-    assert(projectOption.disabled === true, "无项目上下文时「本项目」选项未被禁用");
-    assert(scopeSelect.value === "global", "无项目上下文时作用域未回退到 global");
+    await vm.runInContext("loadSettings", sandbox)({ force: true });
+    assert(overrides.classList.contains("hidden"), "没有项目覆盖模型时说明行应收起");
   } finally {
     payloads.settings_get = originalSettingsGet;
   }
-
-  // 有项目上下文:选中「本项目」保存 → scope+projectDir 一起透传。
-  await vm.runInContext("loadSettings", sandbox)();
-  scopeSelect.value = "project";
-  byId.get("settings-save").click();
-  await flush();
-  const projectArgs = savedPayloads.get("settings_save");
-  assert(projectArgs?.scope === "project", `选了「本项目」保存却没带 scope=project: ${JSON.stringify(projectArgs?.scope)}`);
-  const currentProjectInSandbox = vm.runInContext("currentProject", sandbox);
-  assert(projectArgs?.projectDir === currentProjectInSandbox, "scope=project 未携带当前项目目录");
+  await vm.runInContext("loadSettings", sandbox)({ force: true });
+  // 只有模型被项目覆盖(代理/默认模式/上限都与全局相同)时,覆盖提示表不出现。
+  const settingsNsForNotice = esmModuleCache.get("16-settings.js")?.namespace;
+  settingsNsForNotice.renderEffectiveNotice({ proxy: "env", profileDefault: "dev", limits: { maxTokens: 4096 }, effective: { proxy: "env", profileDefault: "dev", limits: { maxTokens: 4096 } } });
+  assert(byId.get("settings-effective").classList.contains("hidden"), "只有模型被项目覆盖时不该出现覆盖提示表");
+  await vm.runInContext("loadSettings", sandbox)({ force: true });
 }
 
 // ---------- R-136 子代理模型一键就绪 ----------
@@ -5403,21 +5485,36 @@ handlers.get("kz:fast-setup")?.({ payload: { text: "pulling 50%(1500/3000 MB)" }
 assert(listText("fast-status").includes("50%"), "安装进度未反映到界面");
 
 // ---------- D-167 手填模型：探测不到不等于用不了 ----------
-const modelSelect = byId.get("model-select");
-const compactModelValues = [...modelSelect.options].map((o) => o.value);
-assert(compactModelValues.includes("deepseek:deepseek-chat"), "当前线路已选的 DeepSeek 未保留在紧凑模型列表");
-assert(!compactModelValues.includes("ollama:qwen3"), "紧凑模型列表仍把未选模型全部灌入顶栏");
-const showAllOption = [...modelSelect.options].find((o) => o.value === "__show_all_models__");
-assert(showAllOption, "紧凑模型列表缺少展开完整探测清单入口");
-modelSelect.value = "__show_all_models__";
-modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
+// UI-0926 #3:入口从原生下拉挪进输入框上方模型芯片的菜单(openMenu 现造,弹层唯一写法)。
+// 断言形态不变:紧凑列表只列本线已选/默认解析/手填过的模型,「显示全部」就地展开完整目录,
+// 「＋ 手填模型…」写后端 manualModels,格式不对挡住。
+const pickerNs = esmModuleCache.get("08-model-picker.js")?.namespace;
+const pickerMenu = () => document.querySelector(".picker-menu");
+const pickerButtons = () => [...(pickerMenu()?.querySelectorAll(".k-menu-item") ?? [])];
+const pickerValues = () => pickerButtons().filter((b) => b.dataset.value !== undefined).map((b) => b.dataset.value);
+const pickerAction = (action) => pickerButtons().find((b) => b.dataset.action === action);
+const openChipMenu = async (kind = "model") => {
+  pickerNs?.closePicker?.();
+  byId.get(kind === "reasoning" ? "reasoning-picker" : "model-picker").click();
+  await flush();
+  return pickerMenu();
+};
+assert(pickerNs && typeof pickerNs.openPicker === "function", "08-model-picker.js 未加载(输入框上方没有模型芯片)");
+// 前面缺陷审查报告用例留下的查看器模态还开着:收掉,芯片菜单才是在正常界面上打开的(模态开着时菜单是惰性的)。
+esmModuleCache.get("00-surface.js")?.namespace?.closeSurface(byId.get("viewer-overlay"));
+await openChipMenu("model");
+assert(pickerMenu()?.classList.contains("k-menu"), "模型芯片菜单不是 openMenu 现造的 .k-menu(弹层唯一写法)");
+const compactModelValues = pickerValues();
+assert(compactModelValues.includes("deepseek:deepseek-chat"), `当前线路已选的 DeepSeek 未保留在紧凑模型列表:${compactModelValues.join(",")}`);
+assert(!compactModelValues.includes("ollama:qwen3"), "紧凑模型列表仍把未选模型全部灌入");
+assert(!compactModelValues.includes("primary") && !compactModelValues.includes("fast"), "模型菜单不应再列 primary/fast 角色项(它们的去向由「跟随默认」说清)");
+assert(pickerAction("show-all"), "紧凑模型列表缺少展开完整探测清单入口");
+pickerAction("show-all").click();
 await flush();
-assert([...modelSelect.options].some((o) => o.value === "ollama:qwen3"), "展开完整模型清单后仍缺少探测模型");
-const manualOption = [...modelSelect.options].find((o) => o.value === "__manual__");
-assert(manualOption, "模型下拉缺少手填入口(端点不实现 /models 时就彻底没法选)");
+assert(pickerValues().includes("ollama:qwen3"), "展开完整模型清单后仍缺少探测模型");
+assert(pickerAction("manual"), "模型菜单缺少手填入口(端点不实现 /models 时就彻底没法选)");
 sandbox.__inputDialogResponses.push("deepseek:deepseek-chat");
-modelSelect.value = "__manual__";
-modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
+pickerAction("manual").click();
 await flush();
 // R-178 批3:手填模型写后端(process_update 携带 manualModels),不再落 localStorage。
 const manualUpdate = invokeArgs.findLast(({ cmd, args }) =>
@@ -5427,14 +5524,13 @@ assert(
   manualUpdate.args.manualModels.includes("deepseek:deepseek-chat"),
   `手填模型落盘值不对:${JSON.stringify(manualUpdate.args.manualModels)}`,
 );
-assert(
-  [...byId.get("model-select").options].some((o) => o.value === "deepseek:deepseek-chat"),
-  "手填后模型未回到下拉列表里",
-);
+await openChipMenu("model");
+assert(pickerValues().includes("deepseek:deepseek-chat"), "手填后模型未回到菜单里");
+pickerNs?.closePicker?.();
 // 格式不对要挡住:provider 名对不上配置键时后端 resolve_model 会直接失败。
 sandbox.__inputDialogResponses.push("随便写的");
-modelSelect.value = "__manual__";
-modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
+await openChipMenu("model");
+pickerAction("manual").click();
 await flush();
 const badUpdate = invokeArgs.findLast(({ cmd, args }) =>
   cmd === "process_update" && Array.isArray(args?.manualModels));
@@ -5442,6 +5538,7 @@ assert(
   !badUpdate || !badUpdate.args.manualModels.includes("随便写的"),
   "非 provider:model 格式不应被接受",
 );
+assert(!invokeArgs.some(({ cmd, args }) => cmd === "process_update" && args?.model === "随便写的"), "非法手填值不应写进本线模型");
 
 // ---------- R-178 批3:localStorage 旧模型偏好一次性上迁后端并清除 ----------
 // 预置旧版键(模型选择 + 手填候选),迁移后必须写入默认进程且旧键消失,否则下次
@@ -5471,27 +5568,40 @@ expectedPersistentError = null;
 assert(storage.has(`kz-model:${PROJECT}`), "迁移失败时旧键不应被清除(可重试)");
 assert(invokeArgs.length > migrationArgs, "迁移失败重试路径未调用后端");
 
-// 后端回显整链:默认进程的 manual_models(②层)必须驱动下拉回显,而不是 localStorage。
+// 后端回显整链:默认进程的 manual_models(②层)必须驱动芯片菜单,而不是 localStorage。
 payloads.process_list[0].manual_models = ["ollama:qwen3"];
 await sandbox.refreshProcesses();
 await sandbox.loadModels();
 await flush();
+await openChipMenu("model");
 assert(
-  [...byId.get("model-select").options].some((o) => o.value === "ollama:qwen3"),
-  "后端 manual_models 未回显到下拉(前端仍以 localStorage 为真源?)",
+  pickerValues().includes("ollama:qwen3"),
+  "后端 manual_models 未回显到模型菜单(前端仍以 localStorage 为真源?)",
 );
+pickerNs?.closePicker?.();
 delete payloads.process_list[0].manual_models;
 
 // ---------- R-115 偏好持久化：写了必须能读回 ----------
 // 「写了却从不读回」是这块最容易出的问题:kz-reasoning 曾经全仓零处 getItem,
 // 看起来存了,重启后照样回默认档。这里逐项验"改一次 → 落盘 → 能回填"。
-const reasoningSelect = byId.get("reasoning-select");
-reasoningSelect.value = "high";
-reasoningSelect._listeners.change?.forEach((fn) => fn({ target: reasoningSelect }));
-const reasoningKey = [...storage.keys()].find((k) => k.startsWith("kz-reasoning"));
-assert(reasoningKey, "思考强度未落盘");
-assert(storage.get(reasoningKey) === "high", `思考强度落盘值不对: ${storage.get(reasoningKey)}`);
-assert(reasoningKey.includes(":"), "思考强度应按项目分键,不同项目常配不同模型");
+// UI-0926 #3:思考强度的落盘处改为**本线**(process_update → state.db),回填由 model_effective 负责;
+// localStorage 的 kz-reasoning:<项目> 从不跟线同步,是这次要去掉的假真源——改一次不得再写它。
+{
+  for (const key of [...storage.keys()].filter((k) => k.startsWith("kz-reasoning"))) storage.delete(key);
+  await openChipMenu("reasoning");
+  const high = pickerButtons().find((b) => b.dataset.value === "high");
+  assert(high, `思考菜单缺少「高」档:${pickerValues().join(",")}`);
+  high.click();
+  await flush();
+  const reasoningUpdate = invokeArgs.findLast(({ cmd, args }) => cmd === "process_update" && Object.hasOwn(args ?? {}, "reasoning"));
+  assert(reasoningUpdate?.args?.reasoning === "high", `思考强度未写进本线存档:${JSON.stringify(reasoningUpdate?.args)}`);
+  assert(![...storage.keys()].some((k) => k.startsWith("kz-reasoning")), "思考强度不得再写 localStorage 的 kz-reasoning:*(它从不跟线同步)");
+  assert(byId.get("reasoning-picker").textContent.includes("高"), `选完后思考芯片未显示新档位:${byId.get("reasoning-picker").textContent}`);
+  // 旧版留下的 kz-reasoning:<项目> 在进项目时顺手清掉,不再回填任何控件。
+  storage.set(`kz-reasoning:${PROJECT}`, "max");
+  await sandbox.migrateLegacyModelPrefs();
+  assert(!storage.has(`kz-reasoning:${PROJECT}`), "旧的 kz-reasoning:<项目> 键未清除");
+}
 
 const deliverySelect = byId.get("delivery-select");
 deliverySelect.value = "steer";
@@ -6356,12 +6466,13 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   sandbox.renderProcesses(savedLoopList);
 }
 
-// ---------- 顶栏模型下拉必须跟着线路走 ----------
+// ---------- 顶栏模型下拉必须跟着线路走(UI-0926 #3 起是输入框上方的模型芯片) ----------
 // 用户 2026-08-18 报告「切换线路模型不变,选的都是同一个」。两个病根:
 // ① loadModels 的回显是 `本线模型 || 旧全局 localStorage 键`——一条没设过模型的线(agent
 //    默认)会显示旧键里的模型,于是每条这样的线都显示同一个;
 // ② 只有 switchProcess 尾巴上那一句在回显,冷启动/兜底选中活动线都不回显,下拉停在上一条线。
 // 附带的隐患更深:发送读下拉、鞭挞续跑读 item.model,同一条线能跑在两个模型上。
+// 现在芯片只认 model_effective(按 processId 读本线存档),断言芯片文字与来源标签。
 {
   const modelLines = [
     { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, model: "primary", project_dir: "C:/smoke", origin_project: "C:/smoke" },
@@ -6369,7 +6480,12 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
     { id: "p|model-c", label: "线路丙", session_id: "sess-model-c", running: false, model: null, project_dir: "C:/smoke", origin_project: "C:/smoke" },
   ];
   const savedModelList = payloads.process_list;
+  const savedLineState = new Map(smokeLineState);
+  smokeLineState.clear();
   payloads.process_list = modelLines;
+  const chip = () => byId.get("model-picker");
+  const chipSource = () => chip()?.querySelector(".picker-source")?.dataset.source;
+  const effective = () => esmModuleCache.get("08-models.js")?.namespace?.effectiveModel;
   // 旧全局键存在(迁移前的老用户就是这个状态):它绝不能顶替任何一条线自己的值。
   storage.set("kz-model:C:/smoke", "OPEN-code:deepseek-v4-flash");
   storage.set("kz-model", "OPEN-code:deepseek-v4-flash");
@@ -6377,26 +6493,26 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   await sandbox.switchProcess("p|model-b");
   await flush();
   assert(
-    byId.get("model-select").value === "OPEN-code:deepseek-v4-flash",
-    `切到乙线未回显该线模型,实得 ${byId.get("model-select").value}`,
+    chip().textContent.includes("OPEN-code:deepseek-v4-flash") && chipSource() === "line",
+    `切到乙线未回显该线模型,实得 "${chip().textContent}" / ${chipSource()}`,
   );
   await sandbox.switchProcess("d|smoke");
   await flush();
   assert(
-    byId.get("model-select").value === "primary",
-    `切回主线时模型下拉没跟着变(用户报告的正是这一条),实得 ${byId.get("model-select").value}`,
+    effective()?.model?.ref === "primary" && chip().textContent.includes("codex:gpt-5.6-luna") && !chip().textContent.includes("OPEN-code"),
+    `切回主线时模型芯片没跟着变(用户报告的正是这一条),实得 "${chip().textContent}"`,
   );
-  // 没设过模型的线 = agent 默认。旧全局键在这里最容易顶上来。
+  // 没设过模型的线 = 跟随默认。旧全局键在这里最容易顶上来。
   await sandbox.switchProcess("p|model-c");
   await flush();
   assert(
-    byId.get("model-select").value === "",
-    `未设模型的线必须回显 agent 默认,不得回落旧全局键,实得 ${byId.get("model-select").value}`,
+    chipSource() === "project" && chip().textContent.includes("codex:gpt-5.6-luna") && !chip().textContent.includes("OPEN-code"),
+    `未设模型的线必须回显跟随默认(来源=项目级),不得回落旧全局键,实得 "${chip().textContent}" / ${chipSource()}`,
   );
-  // 发送用的模型必须是该线存的那个,不能是下拉的显示值(鞭挞续跑读的就是前者)。
+  // 发送用的模型必须是该线存的那个,不能是芯片的显示值(鞭挞续跑读的就是前者)。
   await sandbox.switchProcess("p|model-b");
   await flush();
-  byId.get("model-select").value = "primary"; // 模拟回显被任何路径写歪
+  chip().querySelector(".picker-label").textContent = "primary"; // 模拟回显被任何路径写歪
   await sandbox.sendText("模型同源冒烟");
   await flush();
   const sentRun = invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === "p|model-b");
@@ -6405,20 +6521,26 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
     `发送用的模型必须取自该线存档(与鞭挞续跑同源),实得 ${sentRun?.args?.model}`,
   );
   // 冷启动/兜底选中这条路径:用户报告的现场只有一条线,永远不触发 switchProcess,
-  // 于是下拉一直钉在 loadModels 早期算出来的值(进程列表未到时回落旧全局键)。
-  // renderProcesses 选中活动线时必须自己回显一次。这里让活动线(乙)从列表里消失、
-  // 兜底改选主线,复现那一刻。
+  // 于是芯片一直钉在早期算出来的值。renderProcesses 选中活动线时必须自己回显一次。
+  // 这里让活动线(乙)从列表里消失、兜底改选主线,复现那一刻。
   await sandbox.switchProcess("p|model-b");
   await flush();
-  byId.get("model-select").value = "OPEN-code:deepseek-v4-flash";
   sandbox.renderProcesses([modelLines[0], modelLines[2]]); // 乙线没了 → 兜底选主线
   assert(
-    byId.get("model-select").value === "primary",
-    `兜底选中活动线时模型下拉没跟着回显(冷启动同源),实得 ${byId.get("model-select").value}`,
+    chipSource() !== "line" || !chip().textContent.includes("OPEN-code"),
+    `兜底改选的回答到来之前,芯片仍把乙线的临时值当成本线显示:"${chip().textContent}"`,
+  );
+  await flush();
+  const fallbackQuery = invokeArgs.findLast(({ cmd }) => cmd === "model_effective");
+  assert(
+    fallbackQuery?.args?.processId === "d|smoke" && effective()?.model?.ref === "primary" && !chip().textContent.includes("OPEN-code"),
+    `兜底选中活动线时模型芯片没跟着回显(冷启动同源),实得 "${chip().textContent}" / ${fallbackQuery?.args?.processId}`,
   );
   storage.delete("kz-model:C:/smoke");
   storage.delete("kz-model");
   payloads.process_list = savedModelList;
+  smokeLineState.clear();
+  for (const [key, value] of savedLineState) smokeLineState.set(key, value);
   sandbox.renderProcesses(savedModelList);
   kzTest.cancelTimers();
 }
@@ -7013,8 +7135,9 @@ assert(
   assert(b8Key("设置") === "Settings", `英文态「设置」未翻译,实际 "${b8Key("设置")}"`);
   assert(b8Key("关于 kanzei") === "About kanzei", `英文态「关于 kanzei」未翻译,实际 "${b8Key("关于 kanzei")}"`);
   assert(b8Key("模型配置") === "Model configuration", `英文态「模型配置」未翻译,实际 "${b8Key("模型配置")}"`);
-  assert(b8Key("保存到") === "Save to", `英文态「保存到」未翻译(span 包裹保留 hint),实际 "${b8Key("保存到")}"`);
-  assert(b8Key("全局配置") === "Global config", `英文态「全局配置」未翻译(option 渲染点),实际 "${b8Key("全局配置")}"`);
+  // UI-0926 #3:「保存到·作用域」一行已删除(设置页只写全局),改验模型组那行说明与项目模型配置弹窗标题。
+  assert(b8Key("这里是所有项目的默认模型;各项目可单独覆盖。") === "These are the default models for all projects; each project can override them.", `英文态模型组说明未翻译,实际 "${b8Key("这里是所有项目的默认模型;各项目可单独覆盖。")}"`);
+  assert(b8Key("项目模型配置") === "Project model config", `英文态「项目模型配置」未翻译,实际 "${b8Key("项目模型配置")}"`);
   assert(b8Key("主循环") === "Main loop", `英文态「主循环」未翻译(span 包裹),实际 "${b8Key("主循环")}"`);
   assert(b8Key("重新探测模型") === "Re-detect models", `英文态「重新探测模型」未翻译,实际 "${b8Key("重新探测模型")}"`);
   assert(b8Key("测试全部连通性") === "Test connectivity", `英文态「测试全部连通性」未翻译,实际 "${b8Key("测试全部连通性")}"`);
@@ -7028,14 +7151,14 @@ assert(
   assert(b8Key("工作资料导出") === "Export work materials", `英文态「工作资料导出」未翻译,实际 "${b8Key("工作资料导出")}"`);
   assert(b8Key("检查更新") === "Check for updates", `英文态「检查更新」未翻译,实际 "${b8Key("检查更新")}"`);
   assert(b8Key("保存") === "Save", `英文态「保存」未翻译,实际 "${b8Key("保存")}"`);
-  assert(attrOf("set-save-scope", "title") === "This scope selector only applies to model settings; providers and API keys always use the global config.", `英文态作用域 title 未翻译,实际 "${attrOf("set-save-scope", "title")}"`);
+  assert(attrOf("model-picker-group", "aria-label") === "Model and reasoning effort", `英文态模型芯片组 aria-label 未翻译,实际 "${attrOf("model-picker-group", "aria-label")}"`);
   assert(attrOf("export-output-dir", "placeholder") === "Choose an export directory", `英文态导出目录 placeholder 未翻译,实际 "${attrOf("export-output-dir", "placeholder")}"`);
   assert(attrOf("set-cadence-full-test-batches", "title") === "Interval in batches for every-N-batches", `英文态每 N 批 title 未翻译,实际 "${attrOf("set-cadence-full-test-batches", "title")}"`);
 
   localStorageShim.setItem("kz-language", "zh");
   sandbox.applyLanguage();
   assert(b8Key("设置") === "设置", `切回中文后「设置」未回原文,实际 "${b8Key("设置")}"`);
-  assert(b8Key("保存到") === "保存到", `切回中文后「保存到」未回原文,实际 "${b8Key("保存到")}"`);
+  assert(b8Key("项目模型配置") === "项目模型配置", `切回中文后「项目模型配置」未回原文,实际 "${b8Key("项目模型配置")}"`);
   assert(attrOf("export-output-dir", "placeholder") === "选择导出目录", `切回中文后导出目录 placeholder 未回原文,实际 "${attrOf("export-output-dir", "placeholder")}"`);
 
   localStorageShim.setItem("kz-language", priorLanguage);
@@ -7899,6 +8022,12 @@ const docsB = {
     mainLaneModel?.value === "deepseek:deepseek-chat",
     `线道模型下拉未回显该线自己的模型,实得 ${mainLaneModel?.value}`,
   );
+  // UI-0926 #3:空选项写明「跟随默认 · 解析到的模型」,角色项(primary/fast)不再列出(除非该线存的就是角色)。
+  const laneOptions = [...(mainLaneModel?.options ?? [])];
+  assert(laneOptions[0]?.value === "" && /^(跟随默认|Follow default) · /.test(laneOptions[0]?.textContent ?? ""),
+    `线道模型下拉的空选项应写「跟随默认 · X」,实得 "${laneOptions[0]?.textContent}"`);
+  assert(!laneOptions.some((option) => ["primary", "fast", "compact"].includes(option.value)),
+    `线道模型下拉不应再列角色项:${laneOptions.map((option) => option.value).join(",")}`);
   // R-184 验收⑩:800/1024/1280 三档宽度下并列视图不崩——线道、冲突预警、语义提示仍渲染。
   for (const width of [800, 1024, 1280]) {
     windowShim.innerWidth = width;
@@ -9651,6 +9780,392 @@ const docsB = {
 }
 
 // ===== 分区:模型选择 =====
+// ---------- UI-0926 #3:设置页只设全局默认、各项目独立、芯片显示下一轮真实会用的模型 ----------
+// 用户现场:设置页说「实际生效 gpt-5.6-luna」,输入框上方显示 gpt-6-luna,菜单里还有「primary → gpt-5.6-luna」,
+// 思考下拉读的是 localStorage。现在三处只认一个对象(model_effective),三个编辑面各写一层。
+// 用例:①芯片真源 ②选择后等待写入(变异 pickerAwaitsUpdate)③思考档跟线(变异 reasoningFollowsLine)
+// ④切线即时回显、同项目不重探目录 ⑤设为本项目默认 ⑥kz:meta 状态栏与失配重取 ⑦项目模型配置弹窗 ⑧IPC 形状契约。
+{
+  const models = esmModuleCache.get("08-models.js")?.namespace;
+  const picker = esmModuleCache.get("08-model-picker.js")?.namespace;
+  const projectModels = esmModuleCache.get("08-project-models.js")?.namespace;
+  const surface = esmModuleCache.get("00-surface.js")?.namespace;
+  assert(models && picker && projectModels && surface, "UI-0926 #3 模块未按 ESM 加载(08-models/08-model-picker/08-project-models)");
+  surface.closeSurface(byId.get("viewer-overlay")); // 前面用例留下的模态:芯片菜单要在正常界面上打开
+  const chip = byId.get("model-picker");
+  const rchip = byId.get("reasoning-picker");
+  const sourceOf = (el) => el?.querySelector(".picker-source")?.dataset.source;
+  const menu = () => document.querySelector(".picker-menu");
+  const menuButtons = () => [...(menu()?.querySelectorAll(".k-menu-item") ?? [])];
+  const menuValue = (value) => menuButtons().find((button) => button.dataset.value === value);
+  const menuAction = (action) => menuButtons().find((button) => button.dataset.action === action);
+  const openMenuOf = async (kind) => {
+    picker.closePicker();
+    (kind === "reasoning" ? rchip : chip).click();
+    await flush();
+    return menu();
+  };
+  const settleOnly = async (rounds = 6) => {
+    for (let i = 0; i < rounds; i += 1) await settle();
+  };
+  // 本组断言按中文文案写:前面的英文态用例可能没把语言切回来,这里显式钉成中文、结束时还原。
+  const g2PriorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage?.();
+  picker.renderModelPicker();
+  const g2Lines = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, model: "codex:gpt-6-luna", reasoning: "xhigh", project_dir: "C:/smoke", origin_project: "C:/smoke" },
+    { id: "p|g2-b", label: "线路 B", session_id: "sess-g2-b", running: false, model: null, reasoning: null, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+  ];
+  const savedList = payloads.process_list;
+  const savedLineState = new Map(smokeLineState);
+  smokeLineState.clear();
+  payloads.process_list = g2Lines;
+  sandbox.renderProcesses(g2Lines);
+  await sandbox.switchProcess("d|smoke", true);
+  await flush();
+
+  // ① 芯片真源:活动线存了 codex:gpt-6-luna → 芯片显示它、来源「临时」;菜单恰好一项被选中且就是它。
+  assert(chip.textContent.includes("codex:gpt-6-luna") && sourceOf(chip) === "line",
+    `① 芯片应显示本线临时覆盖 codex:gpt-6-luna:"${chip.textContent}" / ${sourceOf(chip)}`);
+  assert(chip.querySelector(".picker-fast"), "① Codex Fast mode 生效时芯片应带 ⚡");
+  assert(chip.tagName === "BUTTON" && chip.getAttribute("aria-haspopup") === "menu", "① 模型芯片应是带 aria-haspopup 的按钮(不再是原生 select)");
+  assert(rchip.textContent.includes("超高") && sourceOf(rchip) === "line", `① 思考芯片应显示本线的超高/临时:"${rchip.textContent}"`);
+  await openMenuOf("model");
+  const checkedItems = menuButtons().filter((button) => button.getAttribute("aria-checked") === "true");
+  assert(checkedItems.length === 1 && checkedItems[0].dataset.value === "codex:gpt-6-luna",
+    `① 菜单应恰好一项高亮且等于芯片那一项:${checkedItems.map((button) => button.dataset.value).join(",")}`);
+  // 复核:生效项与悬停项光靠底色分不出(实测只差几个百分点透明度)——生效项必须带 ✓,且只有它带(变异 pickerCheckMark)。
+  const checkMarks = menuButtons().filter((button) => button.querySelector(".picker-check")?.textContent === "✓");
+  assert(checkMarks.length === 1 && checkMarks[0] === checkedItems[0],
+    `① 菜单应恰好生效项带 ✓:${checkMarks.map((button) => button.dataset.value ?? button.dataset.action).join(",") || "(无)"}`);
+  assert(menuButtons().every((button) => button.querySelector(".picker-check")?.getAttribute("aria-hidden") === "true"),
+    "① 勾选列应对读屏隐藏(状态已由 aria-checked 表达)");
+  assert(chip.getAttribute("aria-expanded") === "true", "① 菜单打开时芯片 aria-expanded 未置 true");
+  assert(menuValue("")?.textContent.includes("跟随默认") && menuValue("")?.textContent.includes("codex:gpt-5.6-luna"),
+    `① 「跟随默认」一项应写明默认解析到的模型:"${menuValue("")?.textContent}"`);
+  assert(menu()?.textContent.includes("Codex Fast mode"), "① 菜单缺少只读的 Fast mode 状态行");
+  assert(menuAction("promote") && menuAction("project") && menuAction("global"), "① 菜单页脚缺少 设为本项目默认/项目模型配置…/全局默认…");
+  picker.closePicker();
+  assert(chip.getAttribute("aria-expanded") === "false", "① 菜单收起后 aria-expanded 未复位");
+
+  // ② 选择后等待写入:process_update{model} 必须排在下一次 model_effective 之前(变异 pickerAwaitsUpdate)。
+  {
+    await openMenuOf("model");
+    const pick = menuValue("codex:gpt-5.6-luna");
+    assert(pick, `② 紧凑列表应含默认解析出的模型:${menuButtons().map((button) => button.dataset.value).join(",")}`);
+    const before = invokeArgs.length;
+    pick?.click();
+    await flush();
+    const tail = invokeArgs.slice(before);
+    const updateAt = tail.findIndex(({ cmd, args }) => cmd === "process_update" && args?.model === "codex:gpt-5.6-luna");
+    const effectiveAt = tail.findIndex(({ cmd }) => cmd === "model_effective");
+    assert(updateAt >= 0 && effectiveAt > updateAt,
+      `② 必须先写本线再问 model_effective(否则后端读到旧值):${tail.map(({ cmd }) => cmd).join(" → ")}`);
+    assert(chip.textContent.includes("codex:gpt-5.6-luna") && sourceOf(chip) === "line",
+      `② 选完后芯片应显示新选的模型、来源临时:"${chip.textContent}" / ${sourceOf(chip)}`);
+    await openMenuOf("model");
+    menuValue("")?.click();
+    await flush();
+    const cleared = invokeArgs.findLast(({ cmd, args }) => cmd === "process_update" && Object.hasOwn(args ?? {}, "model"));
+    assert(cleared?.args?.model === "", `② 「跟随默认」应发 process_update{model:""}:${JSON.stringify(cleared?.args)}`);
+    assert(sourceOf(chip) === "project" && chip.textContent.includes("codex:gpt-5.6-luna"),
+      `② 跟随默认后芯片应显示默认解析值与「项目级」:"${chip.textContent}" / ${sourceOf(chip)}`);
+    await openMenuOf("model");
+    assert(!menuAction("promote"), "② 没有本线覆盖时不应出现「设为本项目默认」");
+    picker.closePicker();
+  }
+
+  // ③ 思考档跟线:A 线 xhigh(本线)、B 线未设。对话装载还在路上时,思考芯片就得换成 B 的默认档
+  //    high/项目级(变异 reasoningFollowsLine:删掉切线那一刻的回显就红);全程不写 kz-reasoning:*。
+  {
+    for (const key of [...storage.keys()].filter((k) => k.startsWith("kz-reasoning"))) storage.delete(key);
+    assert(rchip.textContent.includes("超高") && sourceOf(rchip) === "line", `③ 前置:A 线思考芯片应为超高/临时:"${rchip.textContent}"`);
+    let release = null;
+    invokeGates.set("conversation_get", new Promise((resolve) => { release = resolve; }));
+    const switching = sandbox.switchProcess("p|g2-b");
+    await settleOnly();
+    assert(!rchip.textContent.includes("超高") && rchip.textContent.includes("高") && sourceOf(rchip) === "project",
+      `③ 切到 B 线(对话仍在装载)思考芯片应已是 B 的默认档 高/项目级:"${rchip.textContent}" / ${sourceOf(rchip)}`);
+    assert(invokeArgs.findLast(({ cmd }) => cmd === "model_effective")?.args?.processId === "p|g2-b", "③ model_effective 未按目标线查询");
+    release?.();
+    invokeGates.delete("conversation_get");
+    await switching;
+    await flush();
+    assert(!rchip.textContent.includes("超高") && sourceOf(rchip) === "project", `③ 切线完成后思考芯片被改回了上一条线的值:"${rchip.textContent}"`);
+    assert(![...storage.keys()].some((k) => k.startsWith("kz-reasoning")), "③ 切线过程写了 kz-reasoning:*(思考强度不得再以 localStorage 为真源)");
+  }
+
+  // ④ 切线即时回显:model_effective 回答之前芯片标「在途」,不把上一条线的临时值当本线;同项目内切线不重探 models_list。
+  {
+    await openMenuOf("model");
+    menuAction("show-all")?.click();
+    await flush();
+    menuValue("ollama:qwen3")?.click();
+    await flush();
+    assert(sourceOf(chip) === "line" && chip.textContent.includes("ollama:qwen3"), `④ 前置:B 线应有临时覆盖 ollama:qwen3:"${chip.textContent}"`);
+    const catalogBefore = invokeLog.filter((cmd) => cmd === "models_list").length;
+    let release = null;
+    invokeGates.set("model_effective", new Promise((resolve) => { release = resolve; }));
+    const switching = sandbox.switchProcess("d|smoke");
+    await settleOnly();
+    assert(chip.classList.contains("is-pending") && sourceOf(chip) !== "line",
+      `④ 回答到来前芯片应标在途、不再声称「临时」:"${chip.textContent}" / ${sourceOf(chip)} / ${chip.className}`);
+    release?.();
+    invokeGates.delete("model_effective");
+    await switching;
+    await flush();
+    assert(!chip.classList.contains("is-pending") && sourceOf(chip) === "project" && !chip.textContent.includes("ollama:qwen3"),
+      `④ 切换完成后芯片应是 A 线的默认值:"${chip.textContent}" / ${sourceOf(chip)}`);
+    assert(invokeArgs.findLast(({ cmd }) => cmd === "model_effective")?.args?.processId === "d|smoke", "④ model_effective 的 processId 不是目标线");
+    assert(invokeLog.filter((cmd) => cmd === "models_list").length === catalogBefore, "④ 同项目内切线不应再探测 models_list");
+  }
+
+  // ④b 在途的乐观值不串线(复核):A 线选了 X、本线写入还没落地就切到 B——B 线芯片在 B 的回答到来前
+  //     只能标在途,不能显示「X · 临时」(变异 optimisticDropsOnSwitch)。
+  {
+    const picked = "anthropic:claude-sonnet-5";
+    await openMenuOf("model");
+    menuAction("show-all")?.click();
+    await flush();
+    let releaseUpdate = null;
+    invokeGates.set("process_update", new Promise((resolve) => { releaseUpdate = resolve; }));
+    menuValue(picked)?.click();
+    await settleOnly();
+    assert(chip.textContent.includes(picked) && sourceOf(chip) === "line",
+      `④b 前置:写入在途时 A 线芯片应乐观显示新选的模型:"${chip.textContent}" / ${sourceOf(chip)}`);
+    let releaseEffective = null;
+    invokeGates.set("model_effective", new Promise((resolve) => { releaseEffective = resolve; }));
+    const switching = sandbox.switchProcess("p|g2-b");
+    await settleOnly();
+    assert(!chip.textContent.includes(picked) && sourceOf(chip) !== "line" && chip.classList.contains("is-pending"),
+      `④b 切到 B 线后芯片不应沿用 A 线在途的「${picked} · 临时」:"${chip.textContent}" / ${sourceOf(chip)} / ${chip.className}`);
+    releaseUpdate?.();
+    invokeGates.delete("process_update");
+    releaseEffective?.();
+    invokeGates.delete("model_effective");
+    await switching;
+    await flush();
+    assert(chip.textContent.includes("ollama:qwen3") && sourceOf(chip) === "line" && !chip.textContent.includes(picked),
+      `④b 切换完成后芯片应是 B 线自己的临时覆盖 ollama:qwen3:"${chip.textContent}" / ${sourceOf(chip)}`);
+    // 收尾:回 A 线(写入已落地,A 线确有 X 的覆盖),清掉它,⑤ 从跟随默认的 A 线开始。
+    await sandbox.switchProcess("d|smoke");
+    await flush();
+    assert(chip.textContent.includes(picked) && sourceOf(chip) === "line", `④b 回到 A 线应看到落地的临时覆盖:"${chip.textContent}"`);
+    await openMenuOf("model");
+    menuValue("")?.click();
+    await flush();
+    assert(sourceOf(chip) === "project", `④b 收尾:A 线应回到跟随默认:${sourceOf(chip)}`);
+  }
+
+  // ⑤ 设为本项目默认:有本线覆盖时,依次 project_models_save{set:{primary}} → process_update{model:""},之后芯片来源回到项目级。
+  {
+    await openMenuOf("model");
+    menuAction("show-all")?.click();
+    await flush();
+    menuValue("anthropic:claude-sonnet-5")?.click();
+    await flush();
+    assert(sourceOf(chip) === "line", `⑤ 前置:A 线应有临时覆盖:"${chip.textContent}"`);
+    const before = invokeArgs.length;
+    await openMenuOf("model");
+    assert(menuAction("promote")?.textContent.includes("primary = anthropic:claude-sonnet-5"), `⑤ 「设为本项目默认」应写明要写的键与值:"${menuAction("promote")?.textContent}"`);
+    menuAction("promote")?.click();
+    await flush();
+    const tail = invokeArgs.slice(before);
+    const saveAt = tail.findIndex(({ cmd, args }) => cmd === "project_models_save" && args?.set?.primary === "anthropic:claude-sonnet-5" && args?.projectDir === PROJECT);
+    const clearAt = tail.findIndex(({ cmd, args }) => cmd === "process_update" && args?.model === "");
+    assert(saveAt >= 0 && clearAt > saveAt, `⑤ 应先写项目层再清本线:${tail.map(({ cmd }) => cmd).join(" → ")}`);
+    assert(sourceOf(chip) === "project", `⑤ 提升后芯片来源应为项目级:${sourceOf(chip)}`);
+    // 思考档同理:本线 xhigh → 项目 reasoning。
+    await openMenuOf("reasoning");
+    menuValue("xhigh")?.click();
+    await flush();
+    await openMenuOf("reasoning");
+    menuAction("promote")?.click();
+    await flush();
+    const reasoningSave = invokeArgs.findLast(({ cmd }) => cmd === "project_models_save");
+    assert(reasoningSave?.args?.set?.reasoning === "xhigh", `⑤ 思考档「设为本项目默认」应写 reasoning:${JSON.stringify(reasoningSave?.args)}`);
+    assert(sourceOf(rchip) === "project", `⑤ 提升后思考芯片来源应为项目级:${sourceOf(rchip)}`);
+  }
+
+  // ⑥ kz:meta:状态栏显示上一轮**实际**使用的「模型 · 档位 · ⚡ · profile」;与芯片解析不一致时重取一次。
+  //    真机上 kz:meta 在本地发送把会话拨回运行之后到达(已收敛的会话会丢弃迟到进度),这里同样先解除收敛。
+  {
+    const metaState = sandbox.sessionState("sess-smoke");
+    const savedPhase = metaState.phase;
+    const savedConverged = metaState.converged;
+    metaState.converged = false;
+    const status = byId.get("status-model");
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
+    assert(status.textContent === "codex:gpt-5.6-luna · 高 · ⚡ · dev", `⑥ 状态栏格式不对:"${status.textContent}"`);
+    assert(status.title === "上一轮实际使用", `⑥ 状态栏应说明是上一轮实际使用:"${status.title}"`);
+    const before = invokeLog.filter((cmd) => cmd === "model_effective").length;
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
+    await flush();
+    assert(invokeLog.filter((cmd) => cmd === "model_effective").length === before + 1, "⑥ kz:meta 与芯片解析不一致时应重取一次 model_effective");
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "off", codexFastMode: false, contextLimit: 272000, sessionId: "sess-smoke" } });
+    assert(status.textContent === "codex:gpt-5.6-luna · dev", `⑥ 服务商默认档与 Fast mode 关时不应显示:"${status.textContent}"`);
+    vm.runInContext(`transitionSession("sess-smoke", ${JSON.stringify(savedPhase)})`, sandbox);
+    sandbox.sessionState("sess-smoke").converged = savedConverged;
+  }
+
+  // ⑦ 项目模型配置弹窗:设置页那行说明点进去;逐字段「继承全局 · X」/「项目覆盖」;只发变动的键;Esc 不保存。
+  {
+    const diff = projectModels.diffProjectModels(
+      { primary: "codex:gpt-5.6-luna", fast: null, reasoning: "high", codexFastMode: true },
+      { primary: "__inherit__", fast: "__inherit__", reasoning: "high", codexFastMode: "off" },
+    );
+    assert(JSON.stringify(diff) === JSON.stringify({ set: { codexFastMode: false }, unset: ["primary"] }), `⑦ diffProjectModels 只应带变动的键:${JSON.stringify(diff)}`);
+    const overlay = byId.get("project-models-overlay");
+    const link = byId.get("settings-project-overrides")?.querySelector(".link-btn");
+    assert(link, "⑦ 设置页的项目模型覆盖说明里没有可点的项目链接");
+    const getsBefore = invokeArgs.filter(({ cmd }) => cmd === "project_models_get").length;
+    link?.click();
+    await flush();
+    const getCall = invokeArgs.filter(({ cmd }) => cmd === "project_models_get");
+    assert(getCall.length === getsBefore + 1 && getCall.at(-1)?.args?.projectDir === PROJECT, `⑦ 点项目链接应按该项目调 project_models_get:${JSON.stringify(getCall.at(-1)?.args)}`);
+    assert(overlay.open && !overlay.classList.contains("hidden"), "⑦ 项目模型配置弹窗未打开");
+    const row = (key) => document.querySelector(`#project-models-rows .pm-row[data-key="${key}"]`);
+    assert(row("primary")?.dataset.state === "override" && !row("primary")?.querySelector(".pm-reset")?.hidden,
+      "⑦ primary 行应是「项目覆盖」且带「恢复继承」");
+    assert(row("fast")?.dataset.state === "inherit" && row("fast")?.querySelector(".pm-reset")?.hidden === true,
+      "⑦ fast 行应是「继承」且不显示「恢复继承」");
+    const firstOption = (key) => row(key)?.querySelector("select")?.options?.[0]?.textContent ?? "";
+    assert(firstOption("fast") === "继承全局 · ollama:qwen3", `⑦ fast 行应显示「继承全局 · X」:"${firstOption("fast")}"`);
+    assert(firstOption("compact") === "跟随 primary · codex:gpt-5.6-luna", `⑦ compact 行两层都没写时应写「跟随 primary · X」:"${firstOption("compact")}"`);
+    row("primary")?.querySelector(".pm-reset")?.click();
+    assert(row("primary")?.dataset.state === "inherit", "⑦ 点「恢复继承」后 primary 行未回到继承");
+    const effectiveBefore = invokeLog.filter((cmd) => cmd === "model_effective").length;
+    byId.get("project-models-save").click();
+    await flush();
+    const saved = smokeProjectModelSaves.at(-1);
+    assert(saved && JSON.stringify(saved.set) === "{}" && JSON.stringify(saved.unset) === JSON.stringify(["primary"]) && saved.projectDir === PROJECT,
+      `⑦ 保存应只发 {set:{}, unset:["primary"]}:${JSON.stringify(saved)}`);
+    assert(!overlay.open && overlay.classList.contains("hidden"), "⑦ 保存后弹窗未关闭");
+    assert(invokeLog.filter((cmd) => cmd === "model_effective").length > effectiveBefore, "⑦ 保存后应派发 kz-model-config-changed 并重取 model_effective");
+    // Esc 关闭 = 取消,不保存。
+    const savesBefore = smokeProjectModelSaves.length;
+    await projectModels.openProjectModelsDialog(PROJECT);
+    await flush();
+    const reasoningSelect = row("reasoning")?.querySelector("select");
+    if (reasoningSelect) {
+      reasoningSelect.value = "low";
+      reasoningSelect.dispatchEvent({ type: "change" });
+    }
+    await flush();
+    assert(row("reasoning")?.dataset.state === "override", "⑦ 改了思考行后状态应为项目覆盖");
+    document.dispatchEvent({
+      type: "keydown", key: "Escape", isComposing: false, defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, stopImmediatePropagation() { this._stopImmediate = true; },
+    });
+    await flush();
+    assert(!overlay.open && smokeProjectModelSaves.length === savesBefore, "⑦ Esc 应关闭弹窗且不保存");
+  }
+
+  // ⑧ IPC 形状契约:model_effective 桩与后端真实形状一致(契约由 model_config.rs 的测试从真实结构体抽出)。
+  {
+    const contract = JSON.parse(await readFile(resolve(root, "scripts/ipc-contract.json"), "utf8"));
+    const shapeOf = (value) => {
+      if (Array.isArray(value)) return value.length ? [shapeOf(value[0])] : "array";
+      if (value === null || value === undefined) return "nullable";
+      if (typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, shapeOf(value[key])]));
+      return { string: "string", number: "number", boolean: "bool" }[typeof value] ?? typeof value;
+    };
+    const problems = [];
+    const walk = (expected, actual, path) => {
+      if (expected === "nullable" || actual === "nullable") return;
+      if (typeof expected === "object" && typeof actual === "object") {
+        for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
+          if (!(key in actual)) problems.push(`${path}.${key}:后端会发,桩里没有`);
+          else if (!(key in expected)) problems.push(`${path}.${key}:桩独有,后端不发`);
+          else walk(expected[key], actual[key], `${path}.${key}`);
+        }
+        return;
+      }
+      if (expected !== actual) problems.push(`${path}: 契约 ${JSON.stringify(expected)} vs 桩 ${JSON.stringify(actual)}`);
+    };
+    assert(contract.model_effective, "⑧ ipc-contract.json 缺 model_effective 条目");
+    walk(contract.model_effective, shapeOf(payloads.model_effective({ processId: "d|smoke", agent: "dev-pair" })), "model_effective");
+    for (const problem of problems) fail(`UI-0926 #3 IPC 契约:${problem}`);
+  }
+
+  // ⑨ 窗口回到前台重取(配置可能在外部编辑器里改过):第一次 focus 问一次 model_effective,2 秒内再来不重复问。
+  {
+    const focusListeners = windowListeners.get("focus") ?? [];
+    assert(focusListeners.length > 0, "⑨ 没有任何 window focus 监听(08-models.js 的回到前台重取没接上)");
+    const effectiveCalls = () => invokeLog.filter((cmd) => cmd === "model_effective").length;
+    const before = effectiveCalls();
+    for (const listener of focusListeners) listener({ type: "focus" });
+    await flush();
+    assert(effectiveCalls() === before + 1, `⑨ 回到前台应重取一次 model_effective:${effectiveCalls() - before} 次`);
+    for (const listener of focusListeners) listener({ type: "focus" });
+    await flush();
+    assert(effectiveCalls() === before + 1, `⑨ 2 秒内再次回到前台不应重复重取:${effectiveCalls() - before} 次`);
+  }
+
+  // ⑩ 没有项目:芯片收成中性占位,不能停在「…」在途态(refreshEffectiveModel 在无项目时也要广播)。
+  {
+    const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+    const savedProject = shellNs.currentProject;
+    shellNs.setCurrentProject(null);
+    await models.syncModelSelectToActiveLine();
+    await flush();
+    assert(!chip.classList.contains("is-pending") && chip.getAttribute("aria-busy") === "false" && !sourceOf(chip),
+      `⑩ 没有项目时模型芯片不应停在在途态:"${chip.textContent}" / ${chip.className} / ${sourceOf(chip)}`);
+    assert(!rchip.classList.contains("is-pending") && !sourceOf(rchip), `⑩ 没有项目时思考芯片不应停在在途态:"${rchip.textContent}"`);
+    assert(models.effectiveModel === null && models.effectivePending === false, "⑩ 没有项目时应清掉上一个项目的视图与在途标记");
+    shellNs.setCurrentProject(savedProject);
+    await models.syncModelSelectToActiveLine();
+    await flush();
+    assert(sourceOf(chip) === "project" && !chip.classList.contains("is-pending"), `⑩ 恢复项目后芯片应回到项目默认:"${chip.textContent}"`);
+  }
+
+  // ⑪ 上下文上限跟线:A 线 kz:meta 报 128k;切到本次没跑过的 B 线,上限不能沿用 A 的 128k——
+  //    回答到来前清空,回答后取 B 线下一轮模型的 contextLimit;切回 A 回放 A 的 kz:meta。
+  {
+    const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+    const savedMeta = shellNs.sessionMetaCache.get("sess-smoke");
+    const metaState = sandbox.sessionState("sess-smoke");
+    const savedPhase = metaState.phase;
+    const savedConverged = metaState.converged;
+    metaState.converged = false;
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 128000, sessionId: "sess-smoke" } });
+    vm.runInContext(`transitionSession("sess-smoke", ${JSON.stringify(savedPhase)})`, sandbox);
+    sandbox.sessionState("sess-smoke").converged = savedConverged;
+    await flush();
+    assert(shellNs.ctxLimit === 128000, `⑪ 前置:A 线 kz:meta 后上限应为 128k:${shellNs.ctxLimit}`);
+    let release = null;
+    invokeGates.set("model_effective", new Promise((resolve) => { release = resolve; }));
+    const switching = sandbox.switchProcess("p|g2-b");
+    await settleOnly();
+    assert(shellNs.ctxLimit === null && byId.get("status-model").textContent === "",
+      `⑪ 切到没跑过的 B 线,回答到来前上限应清空、状态栏不挂 A 的模型:${shellNs.ctxLimit} / "${byId.get("status-model").textContent}"`);
+    release?.();
+    invokeGates.delete("model_effective");
+    await switching;
+    await flush();
+    assert(shellNs.ctxLimit === 272000, `⑪ B 线的上限应取下一轮模型的 contextLimit(272k):${shellNs.ctxLimit}`);
+    await sandbox.switchProcess("d|smoke");
+    await flush();
+    assert(shellNs.ctxLimit === 128000, `⑪ 切回 A 线应回放 A 线 kz:meta 的上限:${shellNs.ctxLimit}`);
+    if (savedMeta) shellNs.sessionMetaCache.set("sess-smoke", savedMeta);
+    else shellNs.sessionMetaCache.delete("sess-smoke");
+    shellNs.applySessionMeta("sess-smoke");
+  }
+
+  picker.closePicker();
+  surface.closeSurface(byId.get("project-models-overlay"));
+  payloads.process_list = savedList;
+  smokeLineState.clear();
+  for (const [key, value] of savedLineState) smokeLineState.set(key, value);
+  sandbox.renderProcesses(savedList);
+  await sandbox.switchProcess("d|smoke", true);
+  await flush();
+  kzTest.cancelTimers();
+  if (g2PriorLanguage === null) localStorageShim.removeItem("kz-language");
+  else localStorageShim.setItem("kz-language", g2PriorLanguage);
+  sandbox.applyLanguage?.();
+}
 
 // ===== 分区:弹层与外观 =====
 // UI-0926 #9 弹层技术栈:00-surface.js 的唯一栈、Esc 唯一入口(捕获阶段只关栈顶)、
@@ -10658,13 +11173,14 @@ const docsB = {
         assert(rulesBody?.querySelector(".icon-btn")?.getAttribute("aria-label") === "删除权限规则 bash · cargo test --workspace", "删除规则按钮的无障碍名称仍带原始 JSON");
         settingsNs.renderPermissionRules({ rules: [] });
         // 覆盖提示:标题 + 三列表(字段 | 本页 | 实际生效),不再是「；」拼成的一长行。
-        settingsNs.renderEffectiveNotice({ primary: "deepseek:deepseek-chat", limits: { maxTokens: 8000 }, projectConfig: "C:/smoke/project/.kanzei/kanzei.toml",
-          effective: { primary: "anthropic:claude", limits: { maxTokens: 4000 } } });
+        // UI-0926 #3:模型五键不再进这张表(见项目模型配置),用代理演示「本页 vs 实际生效」。
+        settingsNs.renderEffectiveNotice({ proxy: "env", limits: { maxTokens: 8000 }, projectConfig: "C:/smoke/project/.kanzei/kanzei.toml",
+          effective: { proxy: "http://127.0.0.1:7890", limits: { maxTokens: 4000 } } });
         const effectiveBox = byId.get("settings-effective");
         const heads = [...(effectiveBox?.querySelectorAll("table.sv-table th") ?? [])].map((node) => node.textContent);
         const cells = [...(effectiveBox?.querySelectorAll("table.sv-table tbody tr") ?? [])].map((row) => [...row.querySelectorAll("td")].map((node) => node.textContent).join("|"));
         assert(effectiveBox?.tagName === "DIV" && heads.join("|") === "字段|本页|实际生效", `覆盖提示不是三列表:${heads.join("|")}`);
-        assert(cells.join(" / ") === "primary|deepseek:deepseek-chat|anthropic:claude / 运行上限|maxTokens 8000|maxTokens 4000", `覆盖提示的行内容不对:${cells.join(" / ")}`);
+        assert(cells.join(" / ") === "代理|env|http://127.0.0.1:7890 / 运行上限|maxTokens 8000|maxTokens 4000", `覆盖提示的行内容不对:${cells.join(" / ")}`);
         assert(!effectiveBox?.textContent.includes("；"), "覆盖提示仍是「；」拼接的长句");
         settingsNs.renderEffectiveNotice({ effective: {} });
         assert(effectiveBox?.classList.contains("hidden") && !effectiveBox.querySelector("table"), "没有覆盖时提示未收起/未清空");

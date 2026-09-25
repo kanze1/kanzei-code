@@ -73,8 +73,12 @@ pub fn build_runner_config(
     }
 }
 
-/// 推理档位覆盖:override 优先,其次配置默认,最后 Off(桌面 assembly.rs 同款私有函数)。
-fn resolve_reasoning_override(
+/// 推理档位覆盖:override 优先,其次配置默认,最后 Off。
+///
+/// UI-0926 #3:这是「这一轮用哪一档思考」的**唯一判据**——运行路径(build_runner_config)
+/// 与桌面端开跑前的展示查询(kanzei-app model_config::model_effective)都调它,
+/// 输入框上方的思考芯片因此与真正发出去的档位同源。不要在别处就地抄 `or().map(parse)`。
+pub fn resolve_reasoning_override(
     override_value: Option<&str>,
     configured_value: Option<&str>,
 ) -> kanzei_llm::ReasoningEffort {

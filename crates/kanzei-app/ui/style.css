@@ -2722,6 +2722,55 @@ body[data-view]:not([data-view="chat"]) #agent-toggle, body[data-view]:not([data
 /* ===== 分区:会话生命周期 ===== */
 
 /* ===== 分区:模型选择 ===== */
+/* UI-0926 #3 输入框上方的模型/思考芯片(08-model-picker.js)。按钮沿用 .ctx-select 的尺寸、圆角与悬停;
+   展开态与悬停同为中性。来源标签:临时(本线覆盖)是「看这里」——这条线偏离了默认,用强调色;
+   项目级用信息色;全局/内置/Agent 中性。菜单本体是 openMenu 现造的 .k-menu(外观归 surface.css)。 */
+.model-picker { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.picker-btn {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 280px;
+  font: inherit; font-size: var(--fs-12); cursor: pointer;
+}
+#reasoning-picker { max-width: 180px; }
+.picker-btn[aria-expanded="true"] { background: var(--surface-selected); color: var(--fg-strong); }
+.picker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-source, .pm-state {
+  flex: 0 0 auto; padding: 0 6px; border-radius: var(--r-pill);
+  font-size: var(--fs-10-5); line-height: 16px; background: var(--panel2); color: var(--dim);
+}
+.picker-source[data-source="line"] { background: var(--accent-soft); color: var(--accent-text); }
+.picker-source[data-source="project"], .pm-state[data-state="override"] { background: var(--badge-info); color: var(--info); }
+.picker-fast { flex: 0 0 auto; color: var(--warn); font-size: var(--fs-11); }
+.picker-btn.is-pending .picker-label { color: var(--dim); }
+.picker-btn.is-error, .picker-btn.is-error .picker-label { color: var(--err); }
+@media (max-width: 1024px) { .picker-btn { max-width: 170px; } #reasoning-picker { max-width: 120px; } }
+/* 芯片菜单左侧的勾选列(08-model-picker.js openPicker 注入):✓ 只标当前生效项,中性色。
+   悬停/焦点与生效项的底色(surface.css)只差几个百分点,靠 ✓ 把「鼠标在哪」和「哪项生效」分开。
+   14px 列宽 + 菜单项 10px 间距 = 分组标题前的 24px 占位,两者文字左缘对齐。 */
+.picker-check { flex: 0 0 14px; width: 14px; text-align: center; color: var(--fg-strong); font-size: var(--fs-12); line-height: 1; }
+.picker-indent { display: inline-block; width: 24px; }
+/* 设置页:哪些项目有自己的模型配置。中性说明,不是警告(项目覆盖是正常用法)。 */
+.settings-note-intro { margin: 2px 0 6px; }
+.settings-note { color: var(--dim); font-size: var(--fs-12); line-height: 1.7; margin: 0 0 10px; }
+.settings-note.hidden { display: none; }
+.link-btn {
+  display: inline; padding: 0; border: 0; background: none; font: inherit; cursor: pointer;
+  color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+.link-btn:hover { text-decoration-color: currentColor; }
+/* 项目模型配置弹窗(08-project-models.js):宽度沿用 .k-dialog 默认,每个字段两行——标题行 + 控件。 */
+.pm-title { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.pm-intro { margin: 2px 0 8px; }
+.pm-path { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; min-width: 0; }
+.pm-path code { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-size: var(--fs-11-5); }
+.pm-rows { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
+.pm-row { display: flex; flex-direction: column; gap: 4px; }
+.pm-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pm-label { flex: 1 1 auto; min-width: 0; color: var(--fg); font-size: var(--fs-12-5); }
+.pm-path button { flex: 0 0 auto; white-space: nowrap; }
+.pm-reset { font-size: var(--fs-11-5); }
+.pm-reset[hidden] { display: none; }
+.pm-control { width: 100%; }
 
 /* ===== 分区:弹层与外观 ===== */
 /* UI-0926 #5 配色:发送键 = 32px 单色圆形图标按钮(Codex 式);停止/语音与它同高,收成胶囊。

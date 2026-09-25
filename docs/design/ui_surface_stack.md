@@ -13,7 +13,7 @@
 
 截图 6:输入区的模型下拉在暗色界面里弹出一块白底菜单。成因链路:
 
-1. `#model-select` 是原生 `<select class="ctx-select">`。
+1. `#model-select` 当时是原生 `<select class="ctx-select">`(UI-0926 #3 起,输入框上方的模型与思考强度已换成自绘芯片 `#model-picker`/`#reasoning-picker`,菜单走 00-surface 的 `openMenu`,不再是原生 select;其余原生 select 按 §5 用 `appearance: base-select`)。
 2. `.ctx-select` 写了 `background: transparent`,只有 `:hover` 时才给 `var(--panel2)`。
 3. Chromium(WebView2)在 Windows 上画经典下拉用的是一张内部弹出页:Blink 把 select 的计算背景色与文字色序列化进去,弹出页 `body` 固定 `background-color: white`。背景透明时透出来的就是这块白。
 4. 弹出期间 select 样式一变就重新序列化:鼠标从 select 移进列表后 `:hover` 消失,背景回到透明,文字回到 `--dim`,于是成了白底浅灰字。

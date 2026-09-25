@@ -376,7 +376,7 @@ function lineConversation() {
 export function liveEvents(ids = IDS) {
   const sessionId = ids.mainSession;
   return {
-    meta: { sessionId, model: PROJECT_PRIMARY, agent: "dev", profile: "dev", contextLimit: 400000 },
+    meta: { sessionId, model: PROJECT_PRIMARY, agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 400000 },
     turn: { sessionId, step: 3, maxSteps: 0 },
     status: { sessionId, stage: "实现", detail: "R-364 B1 · 账单接入预算门禁" },
     reasoning: { sessionId, text: "**接预算门禁**\n先在 verify-policy.mjs 里加 resident_chars 与 catalog_chars 两个预算,再让 schema_bill 输出这两个数。" },
@@ -531,11 +531,36 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       cadenceDefaults: { full_test: "entry_close", full_test_batches: null, targeted_test: "every_commit", commit: "per_batch", push: "per_entry" },
       profiles: {},
       permissions: [],
-      effective: withProject ? {
-        primary: PROJECT_PRIMARY, fast: FAST_MODEL, compact: null, reasoning: "medium", codexFastMode: false,
-        proxy: "env", profileDefault: "dev", limits: { ...limits, maxTasksPerTurn: 8 },
-      } : null,
+      // UI-0926 #3:effective 只剩本页其余会被项目覆盖的标量;模型的项目覆盖见 projectModelOverrides。
+      effective: withProject ? { proxy: "env", profileDefault: "dev", limits: { ...limits, maxTasksPerTurn: 8 } } : null,
       projectConfig: withProject ? PROJECT_CONFIG : null,
+      projectModelOverrides: [
+        { project: PROJECT, name: "kanzei code", configPath: PROJECT_CONFIG, keys: ["primary", "fast", "compact", "reasoning", "codexFastMode"], current: projectDir === PROJECT },
+      ],
+    };
+  };
+
+  // UI-0926 #3 项目模型配置弹窗:用户现场——项目把五个键全固定成 gpt-5.6-luna/high/Fast 开
+  // (与 settings_get.projectModelOverrides 列的五个键一致)。「全局」一列取自上面 settings_get 用的
+  // 同一份 state.settings,设置页与弹窗两处说法一致;全局没写的角色键继承时跟随(项目的)primary。
+  const previewProjectModels = (projectDir = PROJECT) => {
+    const global = state.settings;
+    const role = (globalValue) => ({
+      project: PROJECT_PRIMARY, global: globalValue ?? null,
+      inherited: globalValue || PROJECT_PRIMARY, inheritedSource: globalValue ? "global" : "project", inheritedFollowsPrimary: !globalValue,
+      effective: PROJECT_PRIMARY, source: "project", followsPrimary: false,
+    });
+    return {
+      projectDir,
+      configPath: PROJECT_CONFIG,
+      exists: true,
+      fields: {
+        primary: { project: PROJECT_PRIMARY, global: global.primary, inherited: global.primary, inheritedSource: "global", inheritedFollowsPrimary: false, effective: PROJECT_PRIMARY, source: "project", followsPrimary: false },
+        fast: role(global.fast),
+        compact: role(global.compact),
+        reasoning: { project: "high", global: global.reasoning, inherited: global.reasoning, inheritedSource: "global", inheritedFollowsPrimary: false, effective: "high", source: "project", followsPrimary: false },
+        codexFastMode: { project: true, global: global.codexFastMode, inherited: global.codexFastMode, inheritedSource: "global", inheritedFollowsPrimary: false, effective: true, source: "project", followsPrimary: false },
+      },
     };
   };
 
@@ -546,7 +571,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     process.running = true;
     const text = String(args?.prompt ?? args?.text ?? "").slice(0, 80);
     const steps = [
-      ["kz:meta", { sessionId, model: PROJECT_PRIMARY, agent: "dev", profile: "dev", contextLimit: 400000 }],
+      ["kz:meta", { sessionId, model: PROJECT_PRIMARY, agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 400000 }],
       ["kz:turn", { sessionId, step: 1, maxSteps: 0 }],
       ["kz:status", { sessionId, stage: "思考", detail: "预览模拟回复" }],
       ["kz:reasoning", { sessionId, text: "**预览模式**\n这是 scripts/ui-preview 的模拟回复,不连接模型。" }],
@@ -603,6 +628,27 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     projects_isolation_report: { autoRepaired: [], shared: [] },
     project_root_info: ({ projectDir }) => ({ selected: projectDir || PROJECT, resolved: projectDir || PROJECT, shared: false }),
     fast_model_status: { managed: true, model: "qwen3.5:4b", installed: true, serviceUp: true, modelPresent: true, ready: true },
+    // UI-0926 #3:下一轮视图(形状对照 crates/kanzei-app/src/model_config.rs 的 TurnView / FieldView)。
+    model_effective: ({ processId, agent } = {}) => {
+      const item = processById(processId);
+      const line = item?.model || null;
+      const resolved = line && !["primary", "fast", "compact"].includes(line) ? line : PROJECT_PRIMARY;
+      const codex = resolved.startsWith("codex:");
+      const defaultModel = { ref: "primary", resolved: PROJECT_PRIMARY, source: "project", role: "primary", followsPrimary: false, error: null };
+      return {
+        agent: agent ?? "dev-pair",
+        agentError: null,
+        model: line ? { ref: line, resolved, source: "line", role: null, followsPrimary: false, error: null } : defaultModel,
+        defaultModel,
+        reasoning: item?.reasoning ? { value: item.reasoning, source: "line" } : { value: "high", source: "project" },
+        defaultReasoning: { value: "high", source: "project" },
+        codexFastMode: { enabled: true, applies: codex, active: codex, source: "project" },
+        contextLimit: 400000,
+      };
+    },
+    project_models_get: ({ projectDir } = {}) => previewProjectModels(projectDir),
+    project_models_save: ({ projectDir } = {}) => previewProjectModels(projectDir),
+    project_config_open: null,
     models_list: () => [
       { id: "primary", label: `primary → ${PROJECT_PRIMARY}` },
       { id: PROJECT_PRIMARY, label: PROJECT_PRIMARY },

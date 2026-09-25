@@ -7,6 +7,8 @@ import { setCurrentReasoningHead } from "./05-chat-render.js";
 import { chatAbortRunning, endReasoningLive, paneHasRunningTool, playToolOutcomeMotion } from "./05-chat-render.js";
 import { setCtxPending, setCtxTokens } from "./03-shell.js";
 import { setCtxLimit } from "./03-shell.js";
+import { showRunMeta } from "./03-shell.js";
+import { effectiveModel, refreshEffectiveModel } from "./08-models.js";
 import { autoRounds } from "./08-auto.js";
 import { $, activePane, invoke, messages, on, trimLivePane } from "./01-core.js";
 import { languageIsEnglish, localizeDynamic, t } from "./02-i18n.js";
@@ -133,8 +135,14 @@ defer(() => {
     // 一开轮就把主线的模型/上下文上限顶掉,界面看起来像模型切换没生效。
     if (p.sessionId) sessionMetaCache.set(p.sessionId, p);
     if (!p.sessionId || p.sessionId === activeSessionId) {
-      $("status-model").textContent = `${p.model} · ${p.profile}`;
+      showRunMeta(p);
       setCtxLimit(p.contextLimit ?? null);
+      // UI-0926 #3:这一轮实际用的与输入框上方「下一轮将使用」对不上(配置刚在别处改过、
+      // agent 换了),说明芯片那份已过期:重取一次,两处重新对齐。
+      const next = effectiveModel;
+      if (next?.model?.resolved && (next.model.resolved !== p.model || (p.reasoning && next.reasoning?.value !== p.reasoning))) {
+        void refreshEffectiveModel();
+      }
     }
     log(`${t("模型")} ${p.model} · agent ${p.agent} · profile ${p.profile}${p.contextLimit ? ` · ${t("上下文上限")} ${Math.round(p.contextLimit / 1000)}k` : ""}`);
   });

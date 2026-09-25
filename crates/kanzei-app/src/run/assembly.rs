@@ -502,12 +502,7 @@ pub(crate) async fn assemble_run(
     let _ = window.emit(
         "kz:meta",
         with_session_id(
-            json!({
-                "profile": format!("{profile:?}").to_lowercase(),
-                "agent": agent.name,
-                "model": format!("{}:{}", resolved.provider_name, resolved.model),
-                "contextLimit": resolved.provider.context_limit,
-            }),
+            run_meta_payload(profile, &agent.name, &resolved, &runner_config),
             &request.session_id,
         ),
     );
@@ -648,6 +643,27 @@ pub(crate) fn append_dev_guidance(
     system.push_str(
         "\n\nAuthority boundary: you are the primary agent. Own file edits, diff review, commits, merges, and release/package actions. Any `task` subagent is read-only reconnaissance and must never write/edit, run bash, change git state, merge, or publish. Collaboration commit discipline: stage ONLY the explicit files you changed; never use `git add .` or another directory-wide stage. Immediately before every commit, call `collaboration_status`, re-run `git status`, and inspect the staged diff/hash so another line's unfinished work cannot be swept into your commit.",
     );
+}
+
+/// kz:meta 载荷:本轮**实际**使用的模型、思考档与 Fast mode(UI-0926 #3)。
+///
+/// 状态栏据此显示「上一轮实际使用」;reasoning/codexFastMode 直接取自已构造好的
+/// RunnerConfig(即真正发出去的请求参数),不再只报模型——此前开跑后也看不到思考档,
+/// 与输入框上方「下一轮将使用」不一致时前端会据此重取 model_effective。
+pub(crate) fn run_meta_payload(
+    profile: kanzei_harness::ProfileKind,
+    agent_name: &str,
+    resolved: &kanzei_harness::config::ResolvedModel,
+    runner_config: &kanzei_core::RunnerConfig,
+) -> serde_json::Value {
+    json!({
+        "profile": format!("{profile:?}").to_lowercase(),
+        "agent": agent_name,
+        "model": format!("{}:{}", resolved.provider_name, resolved.model),
+        "contextLimit": resolved.provider.context_limit,
+        "reasoning": runner_config.reasoning.as_str(),
+        "codexFastMode": runner_config.service_tier.is_some(),
+    })
 }
 
 pub(crate) fn build_run_harness(
@@ -847,6 +863,40 @@ mod tests {
             &config,
         );
         assert!(research.is_empty(), "提交纪律只属于开发档位");
+    }
+
+    /// UI-0926 #3:kz:meta 带上本轮实际的思考档与 Fast mode,取自真正发出去的 RunnerConfig。
+    #[test]
+    fn run_meta_payload_reports_reasoning_and_fast_mode() {
+        let mut config = kanzei_harness::KanzeiConfig::default();
+        config.models.reasoning = Some("high".into());
+        config.fill_defaults(); // primary=codex:gpt-5.6-luna → Fast mode 内置开启
+        let resolved = config.resolve_model("primary").unwrap();
+        let runner = kanzei_tools::run::build_runner_config(
+            &resolved,
+            &config,
+            None,
+            std::path::Path::new("C:/kanzei-run-meta"),
+            kanzei_core::AskPolicy::Interactive,
+            None,
+        );
+        let payload = super::run_meta_payload(ProfileKind::Dev, "dev", &resolved, &runner);
+        assert_eq!(payload["model"], "codex:gpt-5.6-luna");
+        assert_eq!(payload["reasoning"], "high");
+        assert_eq!(payload["codexFastMode"], true);
+        assert_eq!(payload["profile"], "dev");
+        assert_eq!(payload["agent"], "dev");
+        // 本线覆盖成 xhigh:载荷报的是覆盖后的实际档位,不是配置默认档。
+        let runner = kanzei_tools::run::build_runner_config(
+            &resolved,
+            &config,
+            Some("xhigh"),
+            std::path::Path::new("C:/kanzei-run-meta"),
+            kanzei_core::AskPolicy::Interactive,
+            None,
+        );
+        let payload = super::run_meta_payload(ProfileKind::Dev, "dev", &resolved, &runner);
+        assert_eq!(payload["reasoning"], "xhigh");
     }
 
     // D-245 验收①通路:cadence_guidance 只注入与 §1.4 默认不同的档位;全默认时

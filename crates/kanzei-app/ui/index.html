@@ -249,17 +249,12 @@
               <option value="dev-pair"><span data-i18n-key="结伴开发">结伴开发</span></option>
               <option value="dev-auto"><span data-i18n-key="自主推进">自主推进</span></option>
             </select>
-            <select id="model-select" class="ctx-select" title="模型(agent 默认或直选)" data-i18n-title="模型(agent 默认或直选)"></select>
-            <select id="reasoning-select" class="ctx-select" title="思考强度(仅推理模型有效;越高越慢越贵)" data-i18n-title="思考强度(仅推理模型有效;越高越慢越贵)">
-              <option value=""><span data-i18n-key="思考:默认">思考:默认</span></option>
-              <option value="off"><span data-i18n-key="思考:服务商默认">思考:服务商默认</span></option>
-              <option value="none"><span data-i18n-key="思考:无">思考:无</span></option>
-              <option value="low"><span data-i18n-key="思考:低">思考:低</span></option>
-              <option value="medium"><span data-i18n-key="思考:中">思考:中</span></option>
-              <option value="high"><span data-i18n-key="思考:高">思考:高</span></option>
-              <option value="xhigh"><span data-i18n-key="思考:超高">思考:超高</span></option>
-              <option value="max"><span data-i18n-key="思考:最大">思考:最大</span></option>
-            </select>
+            <!-- UI-0926 #3:模型 / 思考两个芯片显示**下一轮真正会用的**值与来源(临时/项目/全局/内置/Agent),
+                 数据只来自 model_effective;菜单由 08-model-picker.js 经 openMenu 现造(弹层唯一写法)。 -->
+            <div id="model-picker-group" class="model-picker" role="group" aria-label="模型与思考强度" data-i18n-aria-label="模型与思考强度">
+              <button type="button" id="model-picker" class="ctx-select picker-btn" aria-haspopup="menu" aria-expanded="false"></button>
+              <button type="button" id="reasoning-picker" class="ctx-select picker-btn" aria-haspopup="menu" aria-expanded="false"></button>
+            </div>
             <span class="spacer"></span>
             <button type="button" id="task-options" class="ghost task-options" data-kz-menu="task-options-menu" data-i18n-key="任务设置">任务设置</button>
             <div id="task-options-menu" class="k-surface k-menu task-options-panel hidden" popover="manual" data-placement="top-end" role="group" aria-label="任务设置" data-i18n-aria-label="任务设置">
@@ -816,7 +811,7 @@
       <div id="view-settings" class="view">
         <div id="settings-scroll">
           <h1 data-i18n-key="设置">设置</h1>
-          <p class="dim"><span data-i18n-key="写入全局">写入全局 </span><code id="settings-path"></code><span data-i18n-key=",项目级 .kanzei/kanzei.toml 会覆盖全局。">,项目级 .kanzei/kanzei.toml 会覆盖全局。</span></p>
+          <p class="dim"><span data-i18n-key="写入全局">写入全局 </span><code id="settings-path"></code><span data-i18n-key=",各项目可单独覆盖。">,各项目可单独覆盖。</span></p>
           <!-- 表单有未保存改动时,磁盘值不覆盖它——但必须把「为什么这次没刷新」说出来,
                否则用户以为界面卡了。默认隐藏,只在真拦下一次回填时出现。 -->
           <div id="settings-stale" class="settings-stale hidden" role="status" aria-live="polite">
@@ -838,18 +833,14 @@
               <option value="en" data-i18n-key="English">English</option>
             </select>
           </div>
-
-          <details class="settings-group" open>
-            <summary data-i18n-key="模型配置">模型配置</summary>
+          <!-- 当前项目的 .kanzei/kanzei.toml 覆盖了本页的哪些全局值(代理/默认模式/运行上限)。
+               模型的项目级覆盖不在这里报:见模型组里那行中性说明与「项目模型配置」。 -->
           <div id="settings-effective" class="settings-effective hidden" role="status"></div>
-          <div class="form-row">
-            <label><span data-i18n-key="保存到">保存到</span> <span class="dim" id="settings-scope-hint"></span></label>
-            <select id="set-save-scope" title="作用域选择器只覆盖模型配置;Provider 与 API Key 始终写全局配置" data-i18n-title="作用域选择器只覆盖模型配置;Provider 与 API Key 始终写全局配置">
-              <option value="global" data-i18n-key="全局配置">全局配置</option>
-              <option value="project" data-i18n-key="本项目配置">本项目配置</option>
-            </select>
-          </div>
-          <p class="dim" id="settings-scope-note"></p>
+
+          <details id="settings-models-group" class="settings-group" open>
+            <summary data-i18n-key="模型配置">模型配置</summary>
+          <p class="dim settings-note-intro" data-i18n-key="这里是所有项目的默认模型;各项目可单独覆盖。">这里是所有项目的默认模型;各项目可单独覆盖。</p>
+          <p id="settings-project-overrides" class="settings-note hidden" role="note"></p>
           <div class="form-row">
             <label>primary <span class="dim" data-i18n-key="主循环">主循环</span></label>
             <select id="set-primary" title="从已探测到的模型中选择;端点不提供列表时可手填" data-i18n-title="从已探测到的模型中选择;端点不提供列表时可手填"></select>
@@ -878,7 +869,7 @@
               <option value="max" data-i18n-key="最大">最大</option>
             </select>
           </div>
-          <p class="dim" data-i18n-key="顶栏可按进程临时覆盖。默认不发送档位，让模型或服务商决定；无思考仅对支持它的模型生效，超高和最大也按各模型支持范围处理。">顶栏可按进程临时覆盖。默认不发送档位，让模型或服务商决定；无思考仅对支持它的模型生效，超高和最大也按各模型支持范围处理。</p>
+          <p class="dim" data-i18n-key="输入框上方可按线临时覆盖。默认不发送档位，让模型或服务商决定；无思考仅对支持它的模型生效，超高和最大也按各模型支持范围处理。">输入框上方可按线临时覆盖。默认不发送档位，让模型或服务商决定；无思考仅对支持它的模型生效，超高和最大也按各模型支持范围处理。</p>
           <div class="form-row">
             <label></label>
             <button id="models-refresh" class="ghost" type="button" title="重新向各 provider 探测可用模型" data-i18n-title="重新向各 provider 探测可用模型"><span data-i18n-key="重新探测模型">重新探测模型</span></button>
@@ -1306,6 +1297,20 @@
     </div>
   </dialog>
 
+  <!-- UI-0926 #3 项目模型配置:只写本项目 .kanzei/kanzei.toml 的 [models] 五个键(08-project-models.js)。 -->
+  <dialog id="project-models-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="project-models-title">
+    <div id="project-models-dialog">
+      <div class="confirm-title pm-title"><span id="project-models-title" data-i18n-key="项目模型配置">项目模型配置</span> <span id="project-models-name" class="dim" data-i18n-raw></span></div>
+      <p class="dim pm-intro" data-i18n-key="只写本项目的配置文件;未覆盖的项继承全局默认。">只写本项目的配置文件;未覆盖的项继承全局默认。</p>
+      <div class="pm-path"><code id="project-models-path" data-i18n-raw></code><button type="button" id="project-models-open" class="ghost mini" data-i18n-key="打开配置文件">打开配置文件</button></div>
+      <div id="project-models-rows" class="pm-rows"></div>
+      <div class="confirm-buttons">
+        <button type="button" id="project-models-cancel" data-i18n-key="取消">取消</button>
+        <button type="button" id="project-models-save" class="primary" data-i18n-key="保存">保存</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="confirm-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="confirm-title">
     <div id="confirm-dialog">
       <div class="confirm-title" id="confirm-title" data-i18n-raw></div>
@@ -1350,6 +1355,8 @@
   <script type="module" src="08-compose.js"></script>
   <script type="module" src="08-models.js"></script>
   <!-- 分区脚本:模型选择 -->
+  <script type="module" src="08-project-models.js"></script>
+  <script type="module" src="08-model-picker.js"></script>
   <script type="module" src="09-sessions.js"></script>
   <script type="module" src="10-docs-core.js"></script>
   <script type="module" src="11-docs-list.js"></script>

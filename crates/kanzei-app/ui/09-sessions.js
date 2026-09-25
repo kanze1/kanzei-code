@@ -45,7 +45,7 @@ import {
   updateLocalProcessItem,
 } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
-import { loadModels, restoreProjectPrefs, syncModelSelectToActiveLine } from "./08-models.js";
+import { loadModels, modelCatalogProject, restoreProjectPrefs, syncModelSelectToActiveLine } from "./08-models.js";
 import { jumpToEntry } from "./11-docs-list.js";
 import { latestDocsSnapshot, lineAuthorityLabel, renderFocusPanel } from "./12-docs-pages.js";
 import { refreshDocs } from "./14-docs-actions.js";
@@ -687,6 +687,9 @@ export async function switchProcess(processId, forceReload = false) {
   adopt_process_workspace(target);
   applyAutoUiState(activeProcessId);
   applyProfileValue(target.profile);
+  // UI-0926 #3:输入框上方的模型/思考芯片立刻跟到目标线(先标在途,再问 model_effective),
+  // 不等下面那一串 loadConversation/refreshDocs——否则切线后好几秒还显示上一条线的临时值。
+  syncModelSelectToActiveLine();
   // 状态栏模型/上下文上限回放该线最近一次 kz:meta,不再停留在上一条线的值。
   applySessionMeta(activeSessionId);
   void syncAutoRunState();
@@ -709,11 +712,10 @@ export async function switchProcess(processId, forceReload = false) {
   if (!isCurrentSwitch()) return;
   await refreshDocs();
   if (!isCurrentSwitch()) return;
-  await loadModels();
+  // 模型目录按项目缓存:同项目内切线不再重复探测 models_list(每个 provider 最多 6 秒);
+  // 芯片回显已在上面切线那一刻发出,这里只在目录属于别的项目时补拉一次(loadModels 会顺带重问)。
+  if (modelCatalogProject !== currentProject) await loadModels();
   if (!isCurrentSwitch()) return;
-  // 模型下拉按进程回显:未设置覆盖时回到 agent 默认(空值),不保留上一个进程的选择。
-  // 走同一个同步函数,避免这里和 renderProcesses 各写一套回显规则。
-  syncModelSelectToActiveLine();
   void refreshGit(activeProcessId);
   refreshPendingInputs();
   void refreshProcesses();
