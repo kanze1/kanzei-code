@@ -25,7 +25,6 @@ if (errors.length) {
   for (const e of errors) console.error(` - ${e}`);
   process.exit(1);
 }
-
 // ② ESM 回归守卫(UI-0926):ui/*.js 之间只准走 import/export。读 globalThis.X / window.X 时,
 // 若 X 是某个 ui 模块的 ESM 导出、却从没被挂到 globalThis 上,它在真机浏览器里恒为 undefined——
 // `typeof globalThis.X === "function"` 的兜底把调用静默吞掉,一个报错都没有。ui-runtime 冒烟的
@@ -125,8 +124,6 @@ if (importAssignErrors.length) {
   for (const e of importAssignErrors) console.error(` - ${e}`);
   process.exit(1);
 }
+console.log(`UI ESM 回归守卫通过:${allExported.size} 个导出无 globalThis 死调用(兼容桥 ${allPublished.size} 个),import 绑定无赋值`);
 
-console.log(
-  `UI ESLint 冒烟通过:${results.length} 个文件 no-undef 零错误,模块 import/export 解析正常;` +
-  `ESM 回归守卫:${allExported.size} 个导出无 globalThis 死调用(兼容桥 ${allPublished.size} 个),import 绑定无赋值`,
-);
+console.log(`UI ESLint 冒烟通过:${results.length} 个文件 no-undef 零错误,模块 import/export 解析正常`);
