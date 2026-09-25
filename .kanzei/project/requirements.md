@@ -115,7 +115,7 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1790338268439
 - 停车: 排队:B8 配额的性能与截断问题见 D-760(已在发版分支修复,待核验);⑦真实桌面删除弹窗 E2 按 A-002 转入 R-101 延期清单后即可关闭(自举循环运行在安装位 kzapp 中,无法自测该弹窗);解除条件:D-748
-- 对账: 2026-09-25 用户拍板验收⑩磁盘配额:上限 2 GiB,超限时降级为 Inline 截断并注明(原话「2 GiB,超了退回截断。先这样」)。配额统计 .kanzei/artifacts/tool-results 总占用,与 R-376(外置阈值降到 32 KiB)同口径;停车前提已达成,剩余⑦真实桌面 E2 由 agent 在 kzapp 空闲时自行执行。
+- 对账: 2026-09-25 用户拍板验收⑩磁盘配额:上限 2 GiB,超限时降级为 Inline 截断并注明(原话「2 GiB,超了退回截断。先这样」)。配额统计 .kanzei/artifacts/tool-results 总占用,与 R-376(外置阈值降到 32 KiB)同口径;停车前提已达成,剩余⑦真实桌面 E2 由 agent 在 kzapp 空闲时自行执行。 2026-09-26 审计:B8 配额实现的性能与截断问题登记为 D-760 并已修复(发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5));超限截断保留头 8 KiB+尾 4 KiB、原文不可回取;锁超时/计量失败同样降级为截断而不判失败——这是对用户「超了退回截断」裁决的延伸,不是用户原话。
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
@@ -410,11 +410,11 @@
 - 验收: ①dev 档主代理首个请求的 tools 只含常驻层(CLI 20、桌面 21),延迟工具以「名称 — 一句话」进 system,账单有 tools/catalog;②tool_search 支持 select 精确加载与关键词检索,加载后下一步起可调用,压缩与溢出恢复后仍可用;③直接调用未加载的延迟工具时自动加载并执行;④预算门禁拆为常驻面与延迟目录两个数,research/readonly/子代理工具面不变;⑤对延迟托管工具的硬拒提示指向 tool_search select;⑥Anthropic/Responses 原生延迟加载经探针核对后启用且加载不改变 tools 前缀,其余协议走追加路径并在账单可见
 - refs: D-662 R-312 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P1
-- 进展: B1 已提交 811497b8（批次 1/4），账单/测试见前述进展。B2 只读复核 §5.2 与实施地图：tool_search 未实现，现有 DEV_TOOL_BUDGET=30 只有单一工具数；地图裁决包括直接调用延迟工具自动加载、deny tool_search 回退全常驻、已加载集合从 prior 播种。地图同时指出 resident/catalog 双预算计入目录文本、搜索结果 schema、task_spec 与 tool_search 的公式未定。此处为核心门禁语义，已用 question 询问用户 A/B/自定义，当前 pending；没有改 B2 代码，收到答复后再设计冻结。
+- 进展: 恢复对账(2026-09-26)：仅 B1 提交 811497b8；B2 源码改动未提交。已落地 Harness tool_search/deferred registry、resolve 名称校验、CLI 12 项 deferred、desktop 7 项 deferred；预算改为 CLI resident+task=20/deferred=12、desktop resident+task=21/deferred=19，T-1786922727067 与 T-1786922727068 通过。core assembly 已改为首轮 resident specs、全量执行表不变，deferred catalog 进稳定 system 与 tools/catalog；drive 主循环贯穿 mutable specs/context_report，tool_search 串行拦截并加载 schema，直接调用 deferred 前自动加载，加载项记 tools/loaded:<name>；Harness search 已排除已加载项，catalog prompt 与 deferred managed denial_hint 已接入。局部 cargo check 通过；Harness 新 search 测试、denial_hint 测试、core runner 测试及 CLI SSE/overflow 集成仍未运行/补齐。cross-tree 告警只记录在 T-1786922727067，目标外部文件未改写，归因未知。下一步补 Harness denial/catalog、core loader 与真实 CLI search/overflow/直接调用回归，然后审阅文档可用性、跑定向测试并更新进展；批次仍 1/4。
 - observed_head: 811497b8ac6db8734d9ba9060e79af178af353f0
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1790356949944
-- 确认记录: 2026-09-25 B2 双预算计费语义已用 question 工具询问，当前 pending。问题：resident budget 是否统计本次请求全部完整 ToolSpec（初始常驻含 tool_search/task_spec + 已加载延迟项），catalog budget 是否只统计未加载延迟项的名称+一句话并在加载后移除；tool_search 返回 schema 是否仅走通用上下文预算。选项 A 为按实际集合计费并加载后移出目录；B 为始终保留全部目录项、加载后双计；另可自定义。未收到答复前不实现此门禁。
+- observed_worktree_hash: fnv1a64:2a8a81c465fc342d
+- recorded_at: 1790361108805
+- 确认记录: 已核对同条“对账”字段与 docs/design/cc_codex_alignment_impl_maps.md §1 B2 第9条、docs/design/cc_codex_alignment_20260925.md §5.1：预算门禁按数量，resident = resident_tools 名称数 + core 手工追加 task（tool_search 属 resident）；deferred = deferred_tools 数量；已加载 schema 与 catalog 文本只入上下文账单。此前 question 的 pending 口径由该现存审计裁决取代，不再等待用户选择。
 - 阻塞: 
 - 对账: 2026-09-26 波次审计答复 B2 计费口径(无需用户确认,实施地图已规定):按 docs/design/cc_codex_alignment_impl_maps.md §1 B2 第 9 条与设计 §5.1——预算门禁数的是工具个数不是字符:常驻面预算 = resident_tools 名称数 + 手工补上的 task(dev 20 / 桌面 21,tool_search 计入常驻);延迟目录预算 = deferred_tools 个数(dev 12 / 桌面 19)。已加载工具的 schema 字符与 catalog 文本只进上下文账单(tools/catalog、tools/loaded:<name>),不计入预算门禁;core 私有的 task_spec 在账单表注明「未计入」。据此继续 B2。
 
@@ -448,6 +448,7 @@
 - 确认记录: 2026-09-26 波次审计更正:用户未对单个批次作答;09-25 23:17 B1 冻结方案发出后只收到自动续跑提示「继续推进,规则按系统提示执行。」,不构成授权,也不存在「仅授权 B1」的限定(见 D-764)。R-366 整体方案经用户 2026-09-25「直接登记就行」批准,B2-B4 按 docs/design/cc_codex_alignment_impl_maps.md §3 实施,无需逐批授权;09-26 00:38 的 question(seq 12791)作废。
 - 阻塞: 
 - 停车: 排队:R-245 收尾后按实施地图 §3 继续 B2;B1 记录口径偏离见 D-762(已在发版分支修复,待核验);解除条件:R-245
+- 对账: 2026-09-26 审计:B1(ef114f4c,挂在 D-757 标题下)偏离实施地图裁决的部分登记为 D-762 并已修复(提交 2d3eaef9,发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5));实际规则:树根取最近 .git 并以 project_root 封顶、不认 .kanzei。B1 完成判据中的桌面安装版实跑尚未补做,需在装上 build-2009581f 后执行。检查点 blob 的清理归属改由 R-378 承接,不在 R-245 配额内。
 
 ## R-367 先读后写:edit/write/insert 对未读或读后被改的文件返回纠错码 [todo]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.6;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §4。B1 ReadLedger 与 ToolCtx 接线(含与 content_hash 格式一致的流式 hash);B2 read 记账与三个写工具的门禁;B3 桌面与 CLI 生产接线,子代理使用独立账本。

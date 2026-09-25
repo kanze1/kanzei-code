@@ -104,7 +104,7 @@
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1790341135374
 - 阻塞: 
-- 停车: 排队:README.md、docs/目录.md 与架构索引 harness_m1 描述已同步,architecture 工具已按 D-755 修复(均在 release/2026-09-26 发版分支);待核验后关闭;解除条件:D-755
+- 停车: 排队:README.md、docs/目录.md、harness_m1.md 与架构索引描述已同步为五类注册表,空技能测试已恢复(提交 ae1370ff,发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5));待核验后关闭;解除条件:D-755
 
 ## D-755 架构索引的既有五个非 snake_case 文档名使专用更新通道拒绝所有修改 [fixing] (medium)
 - 复现: architecture.get 在 HEAD eab92725 返回 5 个 validation issue：oc-playback.md、oc-production.md、oc-idle-direction.md、oc-h3-deployment.md、oc-voice-direction.md 均被判为非 snake_case；architecture.update 因索引整体校验失败而拒绝写入，因此无法更新 D-748 要求同步的 harness_m1.md 索引描述。
@@ -118,7 +118,7 @@
 - observed_head: 4ddea60c4c646e370f621276244be9d97690c829
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1790347530848
-- 停车: 排队:architecture.update 已改为只拒绝本次新增的校验问题,oc-*.md 存量命名不再阻塞写入(release/2026-09-26 发版分支);复现中「HEAD eab92725」的归因应为 d4e230d8 提交的 oc-*.md;待核验后关闭;解除条件:R-364
+- 停车: 排队:architecture.update 已改为只拒绝本次新增的校验问题(提交 ae1370ff,发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5));复现中「HEAD eab92725」的归因应为 d4e230d8 提交的 oc-*.md;待核验后关闭;解除条件:R-364
 
 ## D-759 手机 question 卡片被 3 秒整表重绘抹掉输入,冒烟桩掉轮询造成假绿 [fixing] (high)
 - 复杂度: 小
@@ -126,11 +126,14 @@
 - 影响: 真机上文本作答与多选最多 3 秒就被清空,D-751 验收①③在真实使用中不可用;冒烟属证据替身(假绿),D-751 关闭叙述未披露
 - 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
 - 标签: 前端
-- 进展: 已在 release/2026-09-26 分支的发版提交中修复(提交号见该分支日志);待自举循环按验收逐条核验、补测试记录后关闭。
+- 进展: 审计会话已修复:提交 12bb0543(PWA 按 ask id 对账、慢响应不丢、显式 cancel、冒烟去掉 setInterval 桩并接入 ui-runtime-smoke),发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5);verify -Full 在 2009581f 全绿。待核验:按验收①~④逐条复核并补测试记录后关闭。
 - 验收: ①轮询按 ask id 对账,已存在卡片的输入、多选状态与焦点跨轮询保留;②提交中不产生二次提交;③冒烟去掉 setInterval 桩,等待超过 3 秒后断言输入保留,并接入 ui-runtime-smoke;④取消改为显式 cancel 字段,答案文本 cancel 不再被当成取消
 - refs: D-751 docs/design/bootstrap_quality_audit.md
 - 优先级: P1
-- 停车: 暂挂:修复已在 release/2026-09-26 发版分支完成,合入本分支前请勿另行实现(避免同一缺陷两套实现);合入后由审计会话清除本停车再核验关闭;解除条件:用户
+- 停车: 排队:修复已合入,核验关闭排在当前 WIP R-364 之后;解除条件:R-364
+- observed_head: 5e576fd54775a919193b282faa3dcbac8e4d795d
+- observed_worktree_hash: fnv1a64:2a8a81c465fc342d
+- recorded_at: 1790361938517
 
 ## D-760 R-245 B8 配额:每次工具调用加锁全扫目录、超限只剩 120 字、锁超时判失败 [open] (medium)
 - 复杂度: 中
@@ -138,11 +141,14 @@
 - 影响: 几乎每次工具调用增加数十毫秒到秒级阻塞且随调用次数线性恶化;配额满后模型拿不到结果正文;有副作用的命令被误报失败可能被重跑;用户「超了退回截断」的裁决被弱化且进展未披露
 - 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
 - 标签: 后端
-- 进展: 已在 release/2026-09-26 分支的发版提交中修复(提交号见该分支日志);待自举循环按验收逐条核验、补测试记录后关闭。
+- 进展: 审计会话已修复:提交 df6f0324(tool_exec.rs:小结果不取锁不扫描、计量排除 shadow、超限头 8 KiB+尾 4 KiB 截断、锁超时与计量失败降级截断不改工具成败、保留原 display 附 quota_truncated、同 sha 复用先于配额)与 12bb0543(前端按原因区分提示),发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5)。待核验后关闭。
 - 验收: ①不超过外置阈值的结果不取锁、不扫描;②外置路径的计量排除 shadow 子目录;③超限时保留头 8 KiB 加尾 4 KiB 并注明省略字节与不可回取;④锁超时与计量失败降级为同样的截断且不改变工具的成败;⑤保留工具原有 display 并附配额信息,前端显示配额提示;⑥复用已存在的同 sha 外置文件不受配额阻挡
 - refs: R-245 docs/design/bootstrap_quality_audit.md
 - 优先级: P1
-- 停车: 暂挂:修复已在 release/2026-09-26 发版分支完成,合入本分支前请勿另行实现(避免同一缺陷两套实现);合入后由审计会话清除本停车再核验关闭;解除条件:用户
+- 停车: 
+- observed_head: 5e576fd54775a919193b282faa3dcbac8e4d795d
+- observed_worktree_hash: fnv1a64:2a8a81c465fc342d
+- recorded_at: 1790361938830
 
 ## D-761 D-750 回归:依赖视图把依赖环上的条目显示为可做 [open] (medium)
 - 复杂度: 小
@@ -150,11 +156,14 @@
 - 影响: 与 D-750 验收②「与引擎判定一致」相反,重新误导人工排期
 - 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
 - 标签: 前端
-- 进展: 已在 release/2026-09-26 分支的发版提交中修复(提交号见该分支日志);待自举循环按验收逐条核验、补测试记录后关闭。
+- 进展: 审计会话已修复:提交 12bb0543(12-docs-pages.js 含「循环依赖:」理由的条目进被阻塞层,ui-runtime-smoke 增加互依环夹具),发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5)。根治(docs_snapshot 投影结构化字段)未做。待核验后关闭。
 - 验收: ①block_reasons 含「循环依赖:」的条目进被阻塞层;②ui-runtime-smoke 增加互相依赖的环夹具并断言两条均为被阻塞
 - refs: D-750 docs/design/bootstrap_quality_audit.md
 - 优先级: P2
-- 停车: 暂挂:修复已在 release/2026-09-26 发版分支完成,合入本分支前请勿另行实现(避免同一缺陷两套实现);合入后由审计会话清除本停车再核验关闭;解除条件:用户
+- 停车: 
+- observed_head: 5e576fd54775a919193b282faa3dcbac8e4d795d
+- observed_worktree_hash: fnv1a64:2a8a81c465fc342d
+- recorded_at: 1790361939139
 
 ## D-762 R-366 B1 偏离实施地图裁决:树根与相对路径口径错误、每次写开两次库、捕获失败记错前像 [open] (medium)
 - 复杂度: 中
@@ -162,11 +171,14 @@
 - 影响: 检查点记录口径是 B3 还原的数据基础,错误行随本次发版开始落库;每次编辑多两次 SQLite 连接并阻塞运行时;回退可能静默还原到中间态
 - 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
 - 标签: 后端
-- 进展: 已在 release/2026-09-26 分支的发版提交中修复(提交号见该分支日志);待自举循环按验收逐条核验、补测试记录后关闭。
+- 进展: 审计会话已修复:提交 2d3eaef9(树根=最近 .git 以项目根封顶且写法无关比较、rel_path 函数内计算与 path_key 同口径、单次开库并移入 spawn_blocking、写前开库失败时落盘后重开占哨兵、超 10 MiB 不整读、file_checkpoint_ 改名、Io 文案中性、v24 注释、实施地图 §3 同步),发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5)。已知边界:落盘后那次开库或后像记录也失败时不留行。待核验后关闭。
 - 验收: ①tree_root 为代码树根,rel_path 由绝对路径相对树根计算;②每次写入只开一次库且在 spawn_blocking 中完成;③捕获失败留哨兵行,后续触碰不补采前像;④超过 10 MiB 的文件不整读;⑤命名改为 file_checkpoint_ 前缀,Io 文案中性,补 v24 注释
 - refs: R-366 D-757 docs/design/cc_codex_alignment_impl_maps.md docs/design/bootstrap_quality_audit.md
 - 优先级: P2
-- 停车: 暂挂:修复已在 release/2026-09-26 发版分支完成,合入本分支前请勿另行实现(避免同一缺陷两套实现);合入后由审计会话清除本停车再核验关闭;解除条件:用户
+- 停车: 
+- observed_head: 5e576fd54775a919193b282faa3dcbac8e4d795d
+- observed_worktree_hash: fnv1a64:2a8a81c465fc342d
+- recorded_at: 1790361939446
 
 ## D-763 引擎注入规范把提交门禁写成 all-targets clippy,导致 D-754/D-758 叙述失实 [open] (low)
 - 复杂度: 小
@@ -174,11 +186,14 @@
 - 影响: 模型按错误门禁描述判断风险,测试代码 lint 只在 CI 红而本地一直绿;D-754 严重度被高估,D-758 时间线叙述与事实矛盾
 - 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
 - 标签: 流程
-- 进展: 已在 release/2026-09-26 分支的发版提交中修复(提交号见该分支日志);待自举循环按验收逐条核验、补测试记录后关闭。
+- 进展: 审计会话已修复:提交 2009581f(default_conventions.md 如实写明提交门禁/verify/CI 的 clippy 口径与 CI 仅手动触发,git.rs 守护测试双向检查,verify.ps1 与 git.rs 注释同步),发版 build-2009581f(release/2026-09-26,已合入本分支 5e576fd5)。待核验后关闭。
 - 验收: ①规范写明提交门禁、verify、CI 各自的 clippy 口径;②写明改测试代码时需自跑 --all-targets clippy;③守护测试保持通过
 - refs: D-754 D-758 docs/design/bootstrap_quality_audit.md
 - 优先级: P2
-- 停车: 暂挂:修复已在 release/2026-09-26 发版分支完成,合入本分支前请勿另行实现(避免同一缺陷两套实现);合入后由审计会话清除本停车再核验关闭;解除条件:用户
+- 停车: 
+- observed_head: 5e576fd54775a919193b282faa3dcbac8e4d795d
+- observed_worktree_hash: fnv1a64:2a8a81c465fc342d
+- recorded_at: 1790361939776
 
 ## D-764 自动续跑提示被当成用户授权:R-366 写入不存在的确认记录并挂用户阻塞 [open] (medium)
 - 复杂度: 中
@@ -239,3 +254,11 @@
 - 验收: ①二选一:给 ci.yml 加 push 触发,或改正注释并让 package/full verify 跑一次 all-targets clippy;②规范与注释口径一致
 - refs: docs/design/bootstrap_quality_audit.md
 - 优先级: P3
+
+## D-770 连续两次 insert 锚点误复制导致源码重复 [open] (low)
+- 复现: R-364 期间两次 insert 边界误用：第一次新增内容重复包含既有 `mod question;`，导致模块重复定义；第二次在 before 操作中复制函数签名尾部，实际接到了前一条注释上。局部结构检查分别发现，第一处 Cargo check 失败、第二处 Cargo check 通过但注释内容错误。
+- 影响: 第一次误插造成临时重复模块并由 Cargo check 捕获；第二次仅把签名尾部文本接到注释上，未造成语法错误。两处均在预提交阶段清理，未提交、未逃逸；共同风险是未清楚区分 insert 保留锚点与插入内容边界。
+- 来源: self-found；相关执行事件 I-1790359944182-110、I-1790360271460-111，发生于用户要求继续 R-364 的实现中。
+- 标签: 流程
+- refs: R-364
+- 优先级: P2

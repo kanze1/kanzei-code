@@ -12483,3 +12483,27 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 关联: R-364
 - 收尾: 1790356496
 - 源码指纹: v2 crates/kanzei-app/src/run/mod.rs@3aeaf3faeaba,crates/kanzei-core/src/runner/drive/assembly.rs@a639938ed66a,crates/kanzei-llm/src/request.rs@d696228472ac,crates/kanzei-tools/src/profiles.rs@0e7fb3703cd8
+
+## T-1786922727066 R-364 B2 Harness tool_search 单元测试 [passed]
+- 命令: cargo test -p kanzei-harness tool_search::tests
+- 时长: 4.0s
+- 摘要: tool_search 新增单元测试 5 项通过：目录一行/截断、select 分类与去重、关键词排序/limit、unknown 修复码。此为 B2 中间证据，跨层完整回归仍待跑。
+- 关联: R-364
+- 收尾: 1790358164
+- 源码指纹: v2 crates/kanzei-harness/src/harness.rs@712deb5c71a7,crates/kanzei-harness/src/lib.rs@6dd476565201,crates/kanzei-harness/src/tool_search.rs@6816e9ede9b6
+
+## T-1786922727067 R-364 CLI resident/deferred 工具预算 [passed]
+- 命令: cargo test -p kanzei-tools tool_surface_budget -- --nocapture
+- 时长: 27.0s
+- 摘要: 4/4 通过，验证 Dev resident=19 个已注册工具（含 tool_search）+ core task_spec=20，deferred=12；只读/记忆工具面回归亦通过。命令结束时 cross-tree 监测报告 kanzei-rel-0926 的 default_conventions.md 变化；目标与隔离副本一致、与本工作树副本不同，来源未明，本记录不把该异常归因于测试代码。
+- 关联: R-364
+- 收尾: 1790359378
+- 源码指纹: v2 crates/kanzei-app/src/harness_ext.rs@e652cb95119d,crates/kanzei-app/src/run/mod.rs@75813d108a55,crates/kanzei-harness/src/harness.rs@712deb5c71a7,crates/kanzei-harness/src/lib.rs@6dd476565201,crates/kanzei-harness/src/tool_search.rs@6816e9ede9b6,crates/kanzei-tools/src/lib.rs@d0dd01696662,crates/kanzei-tools/src/profiles.rs@b8cf1eb90fd3,crates/kanzei-tools/src/profiles/dev.rs@9477350c6cae
+
+## T-1786922727068 R-364 desktop resident/deferred 工具预算 [passed]
+- 命令: cargo test -p kanzei-app 桌面工具schema字符账单增量 -- --nocapture
+- 时长: 41.0s
+- 摘要: 1/1 通过；真实 CollaborationComponent 提供 collaboration_status，resident 中含 tool_search 与 collaboration_status，resident_tools+core task_spec=21、deferred_tools=19；保留桌面 UI schema 字符增量账单。未触发 cross-tree 告警。
+- 关联: R-364 D-662
+- 收尾: 1790359499
+- 源码指纹: v2 crates/kanzei-app/src/harness_ext.rs@e652cb95119d,crates/kanzei-app/src/run/mod.rs@75813d108a55,crates/kanzei-harness/src/harness.rs@712deb5c71a7,crates/kanzei-harness/src/lib.rs@6dd476565201,crates/kanzei-harness/src/tool_search.rs@6816e9ede9b6,crates/kanzei-tools/src/lib.rs@d0dd01696662,crates/kanzei-tools/src/profiles.rs@b8cf1eb90fd3,crates/kanzei-tools/src/profiles/dev.rs@9477350c6cae
