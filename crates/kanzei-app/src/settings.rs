@@ -918,6 +918,23 @@ pub async fn provider_test(
 #[allow(dead_code)]
 fn _state_type_marker(_: Option<State<'_, AppState>>) {}
 
+/// 测试里临时把 `KANZEI_HOME` 指到临时目录(全局配置与 `~/.kanzei/agents` 都跟它走)。
+/// 环境变量是进程级的,cargo test 又并行跑:改它的测试一律经这里串行,否则两个测试
+/// 会互相把对方的 home 换掉,或把 KANZEI_HOME 恢复成对方已删掉的临时目录。
+#[cfg(test)]
+pub(crate) fn with_kanzei_home<R>(home: &Path, f: impl FnOnce() -> R) -> R {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let old_home = std::env::var_os("KANZEI_HOME");
+    std::env::set_var("KANZEI_HOME", home);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    match old_home {
+        Some(value) => std::env::set_var("KANZEI_HOME", value),
+        None => std::env::remove_var("KANZEI_HOME"),
+    }
+    result.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1279,14 +1296,7 @@ mod tests {
         )
         .unwrap();
 
-        let old_home = std::env::var_os("KANZEI_HOME");
-        std::env::set_var("KANZEI_HOME", &home);
-        let result = std::panic::catch_unwind(|| settings_get(Some(project.display().to_string())));
-        match old_home {
-            Some(value) => std::env::set_var("KANZEI_HOME", value),
-            None => std::env::remove_var("KANZEI_HOME"),
-        }
-        let value = result.unwrap();
+        let value = with_kanzei_home(&home, || settings_get(Some(project.display().to_string())));
         let providers = value["providers"].as_array().unwrap();
         let source = |name: &str| {
             providers
@@ -1328,9 +1338,7 @@ mod tests {
         )
         .unwrap();
 
-        let old_home = std::env::var_os("KANZEI_HOME");
-        std::env::set_var("KANZEI_HOME", &home);
-        let result = std::panic::catch_unwind(|| {
+        let (global_result, project_result) = with_kanzei_home(&home, || {
             let mut global_provider = 空载荷(vec![]);
             global_provider.primary = "global-only:7b".into();
             let mut project_provider = 空载荷(vec![]);
@@ -1340,11 +1348,6 @@ mod tests {
                 validate_model_roles(&project_provider),
             )
         });
-        match old_home {
-            Some(value) => std::env::set_var("KANZEI_HOME", value),
-            None => std::env::remove_var("KANZEI_HOME"),
-        }
-        let (global_result, project_result) = result.unwrap();
         global_result.expect("全局文件里配了的 provider,表单清单没带也必须能通过");
         let error =
             project_result.expect_err("只在项目文件里定义的 provider 不能让全局 primary 通过");

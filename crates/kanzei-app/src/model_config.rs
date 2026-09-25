@@ -473,22 +473,30 @@ pub(crate) fn turn_view(
 
 /// 桌面端按 agent 名取 agent 定义里的模型引用——与 run_task 同一套 harness 装配
 /// (agent_directory_get 也是这么取的)。失败回落 "primary" 并把原因交给前端显示。
+///
+/// 取根口径与 assemble_run 一致:`project_root` 恒为主根,`cwd` 是本线的代码树
+/// (绑了 worktree 的线就是那棵树,见 run/input.rs `code_root_for`)。今天 agent 定义只从
+/// 主根与 `~/.kanzei` 读,cwd 不影响结果;对齐是为了将来哪个组件改看 cwd 时芯片不和运行分叉。
 fn agent_model_for(
     root: Option<&Path>,
+    code_root: Option<&Path>,
     merged: &KanzeiConfig,
     profile: Option<&str>,
     agent: Option<&str>,
 ) -> (Option<String>, String, Option<String>) {
     let resolve = || -> anyhow::Result<(String, String)> {
         let profile = crate::run::assembly::resolve_profile(profile, merged)?;
-        let cwd = root
+        let project_root = root
             .map(Path::to_path_buf)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
+        let cwd = code_root
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| project_root.clone());
         let ctx = kanzei_harness::ResolveCtx {
             profile,
-            cwd: cwd.clone(),
-            project_root: cwd,
+            cwd,
+            project_root,
             config: std::sync::Arc::new(merged.clone()),
         };
         let snapshot = crate::run::assembly::build_run_harness(false, None).resolve(&ctx)?;
@@ -522,34 +530,58 @@ pub(crate) fn model_effective(
         .map(str::trim)
         .filter(|dir| !dir.is_empty())
         .map(main_root);
-    let merged = load_merged(root.as_deref())?;
-    let layers = read_model_layers(root.as_deref())?;
-    let (agent_name, agent_model, agent_error) = agent_model_for(
-        root.as_deref(),
-        &merged,
-        profile.as_deref(),
-        agent.as_deref(),
-    );
-    let (line_model, line_reasoning) = process_id
+    let process = process_id
         .as_deref()
-        .and_then(|id| state.processes.lock_or_recover().get(id).cloned())
-        .map(|process| {
-            (
-                process.model.lock_or_recover().clone(),
-                process.reasoning.lock_or_recover().clone(),
-            )
-        })
-        .unwrap_or((None, None));
+        .and_then(|id| state.processes.lock_or_recover().get(id).cloned());
+    let line = LineState {
+        model: process
+            .as_ref()
+            .and_then(|process| process.model.lock_or_recover().clone()),
+        reasoning: process
+            .as_ref()
+            .and_then(|process| process.reasoning.lock_or_recover().clone()),
+        // 与 run_prompt 同口径:绑了 worktree 的线在那棵树上跑(目录已不在时运行会拒绝,这里退回主根)。
+        code_root: process
+            .as_ref()
+            .and_then(|process| process.worktree_path.as_ref())
+            .map(|worktree| worktree.0.clone())
+            .filter(|path| path.is_dir()),
+    };
+    let view = turn_view_at(root.as_deref(), &line, profile.as_deref(), agent.as_deref())?;
+    serde_json::to_value(view).map_err(|e| e.to_string())
+}
+
+/// 本线存档里与模型相关的三样:临时模型、临时思考档、代码树(worktree)。
+#[derive(Debug, Clone, Default)]
+pub(crate) struct LineState {
+    pub(crate) model: Option<String>,
+    pub(crate) reasoning: Option<String>,
+    pub(crate) code_root: Option<PathBuf>,
+}
+
+/// model_effective 去掉 Tauri State 之后的全部:按运行路径同一个加载器读两层配置
+/// (`KanzeiConfig::load_at_root`),同一套 harness 取 agent,再算下一轮视图。
+/// 测试直接调它,守「芯片走的是运行路径真实合并」这一条。
+pub(crate) fn turn_view_at(
+    root: Option<&Path>,
+    line: &LineState,
+    profile: Option<&str>,
+    agent: Option<&str>,
+) -> Result<TurnView, String> {
+    let merged = load_merged(root)?;
+    let layers = read_model_layers(root)?;
+    let (agent_name, agent_model, agent_error) =
+        agent_model_for(root, line.code_root.as_deref(), &merged, profile, agent);
     let mut view = turn_view(
         &merged,
         &layers,
         &agent_model,
-        line_model.as_deref(),
-        line_reasoning.as_deref(),
+        line.model.as_deref(),
+        line.reasoning.as_deref(),
     );
     view.agent = agent_name;
     view.agent_error = agent_error;
-    serde_json::to_value(view).map_err(|e| e.to_string())
+    Ok(view)
 }
 
 // ---------- 项目模型配置(弹窗) ----------
@@ -1122,6 +1154,128 @@ mod tests {
             assert_eq!(view.codex_fast_mode.active, runner.service_tier.is_some());
             assert_eq!(view.context_limit, runner.context_limit, "case {index}");
         }
+    }
+
+    /// 同源守护(真实加载):上一条用的是手写合并;这里在临时 home 与项目里写两层 toml,
+    /// 让 model_effective 的核心 `turn_view_at` 与运行路径各自走真实的 `load_at_root` 合并,
+    /// agent 也按 assemble_run 的取根口径(project_root=主根、cwd=本线代码树)从同一套 harness 取,
+    /// 逐项比对模型、思考档、Fast mode 与上下文上限;来源标签也要与真实合并后的值对得上。
+    #[test]
+    fn turn_view_at_matches_runner_on_real_two_layer_load() {
+        let home = temp_dir("real-load");
+        let project = home.join("project");
+        let worktree = home.join("worktree");
+        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(
+            home.join("kanzei.toml"),
+            "[models]\nprimary = \"codex:gpt-6-luna\"\nfast = \"local:small\"\nreasoning = \"xhigh\"\n\n\
+             [providers.local]\nprotocol = \"openai\"\nbase_url = \"http://127.0.0.1:1/v1\"\ncontext_limit = 64000\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project.join(".kanzei/kanzei.toml"),
+            "[models]\nprimary = \"codex:gpt-5.6-luna\"\nreasoning = \"high\"\ncodex_fast_mode = true\n",
+        )
+        .unwrap();
+        let lines = [
+            LineState::default(),
+            LineState {
+                model: Some("local:llama".into()),
+                reasoning: Some("low".into()),
+                code_root: Some(worktree.clone()),
+            },
+            LineState {
+                model: Some("fast".into()),
+                reasoning: None,
+                code_root: None,
+            },
+        ];
+        let checks = crate::settings::with_kanzei_home(&home, || {
+            let config = KanzeiConfig::load_at_root(&project).unwrap();
+            lines
+                .iter()
+                .map(|line| {
+                    let view = turn_view_at(Some(&project), line, None, None).unwrap();
+                    // 运行路径:assemble_run 的 ResolveCtx → select_agent → resolve_model_chain
+                    // → resolve_model → build_runner_config。
+                    let ctx = kanzei_harness::ResolveCtx {
+                        profile: config.default_profile(),
+                        cwd: line.code_root.clone().unwrap_or_else(|| project.clone()),
+                        project_root: project.clone(),
+                        config: std::sync::Arc::new(config.clone()),
+                    };
+                    let snapshot = crate::run::assembly::build_run_harness(false, None)
+                        .resolve(&ctx)
+                        .unwrap();
+                    let agent = snapshot.select_agent(None).unwrap().clone();
+                    let reference = kanzei_harness::config::resolve_model_chain(
+                        line.model.as_deref(),
+                        None,
+                        &agent.model,
+                    );
+                    let resolved = config.resolve_model(&reference).unwrap();
+                    let runner = kanzei_tools::run::build_runner_config(
+                        &resolved,
+                        &config,
+                        line.reasoning.as_deref(),
+                        &project,
+                        kanzei_core::AskPolicy::Interactive,
+                        None,
+                    );
+                    (view, agent.name, resolved, runner)
+                })
+                .collect::<Vec<_>>()
+        });
+        for (index, (view, agent, resolved, runner)) in checks.iter().enumerate() {
+            assert_eq!(
+                view.agent.as_deref(),
+                Some(agent.as_str()),
+                "case {index}: agent"
+            );
+            assert_eq!(view.agent_error, None, "case {index}: agent 解析不该失败");
+            assert_eq!(
+                view.model.resolved.as_deref(),
+                Some(format!("{}:{}", resolved.provider_name, resolved.model).as_str()),
+                "case {index}: 模型与运行路径不一致"
+            );
+            assert_eq!(
+                view.reasoning.value,
+                runner.reasoning.as_str(),
+                "case {index}: 思考档"
+            );
+            assert_eq!(
+                view.codex_fast_mode.active,
+                runner.service_tier.is_some(),
+                "case {index}: Fast mode"
+            );
+            assert_eq!(
+                view.context_limit, runner.context_limit,
+                "case {index}: 上下文上限"
+            );
+        }
+        // 来源与真实合并对得上:项目写了 primary/reasoning/codex_fast_mode,全局写了 fast。
+        let (plain, _, _, _) = &checks[0];
+        assert_eq!(plain.model.resolved.as_deref(), Some("codex:gpt-5.6-luna"));
+        assert_eq!(plain.model.source, Source::Project);
+        assert_eq!(plain.reasoning.value, "high");
+        assert_eq!(plain.reasoning.source, Source::Project);
+        assert!(plain.codex_fast_mode.active);
+        assert_eq!(plain.codex_fast_mode.source, Source::Project);
+        let (direct, _, _, _) = &checks[1];
+        assert_eq!(direct.model.resolved.as_deref(), Some("local:llama"));
+        assert_eq!(direct.model.source, Source::Line);
+        assert_eq!(direct.reasoning.source, Source::Line);
+        assert_eq!(direct.context_limit, Some(64_000));
+        assert!(!direct.codex_fast_mode.applies);
+        let (role, _, _, _) = &checks[2];
+        assert_eq!(role.model.resolved.as_deref(), Some("local:small"));
+        assert_eq!(role.model.source, Source::Line);
+        assert_eq!(
+            role.default_model.resolved.as_deref(),
+            Some("codex:gpt-5.6-luna")
+        );
+        std::fs::remove_dir_all(home).ok();
     }
 
     #[test]
