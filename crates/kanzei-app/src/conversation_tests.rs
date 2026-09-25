@@ -800,13 +800,18 @@ fn conversation_delete_removes_projected_segment() {
     // 新段最后 typed fact 的 sequence(UI 勾选传的就是它)。
     let new_segment_seq = before[1]["sequence"].as_i64().expect("新段应有 sequence");
 
-    let deleted = crate::conversation::conversation_delete(
-        canonical.display().to_string(),
-        vec![new_segment_seq],
+    let outcome = crate::conversation::delete_conversation_segments(
+        &AppState::default(),
+        &canonical.display().to_string(),
+        &[new_segment_seq],
         None,
     )
     .unwrap();
-    assert!(deleted > 0, "投影段删除应删多于 0 条,实得 {deleted}");
+    assert!(
+        outcome.deleted > 0,
+        "投影段删除应删多于 0 条,实得 {}",
+        outcome.deleted
+    );
 
     let after =
         crate::conversation::conversation_list(canonical.display().to_string(), None).unwrap();
@@ -896,8 +901,13 @@ fn conversation_delete_also_removes_trailing_round_snapshot() {
     assert_eq!(before.len(), 1, "只有一段");
     let seq = before[0]["sequence"].as_i64().expect("段应有 sequence");
 
-    crate::conversation::conversation_delete(canonical.display().to_string(), vec![seq], None)
-        .unwrap();
+    crate::conversation::delete_conversation_segments(
+        &AppState::default(),
+        &canonical.display().to_string(),
+        &[seq],
+        None,
+    )
+    .unwrap();
 
     // ①一次删除就要干净:不能因为幸存快照回退 legacy 又列出一条。
     let after =
@@ -973,4 +983,402 @@ fn user_message_survives_kill_without_terminal() {
     drop(store);
 
     std::fs::remove_dir_all(root).unwrap();
+}
+
+// ---------- UI-0926 #1:删除历史对话分层 ----------
+
+/// 临时项目根 + 主线 session。建好 .kanzei 让取根就停在这里,不向上发现到别的项目。
+fn delete_fixture(label: &str) -> (std::path::PathBuf, std::path::PathBuf, String) {
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-app-{label}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+    let canonical = crate::normalized_project_root(&root);
+    let session_id = crate::process_session_id(&canonical, None);
+    let store =
+        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+    store
+        .create_session(&session_id, &canonical.display().to_string(), None)
+        .unwrap();
+    (root, canonical, session_id)
+}
+
+fn open_fixture_store(canonical: &std::path::Path) -> kanzei_core::SessionStore {
+    kanzei_core::SessionStore::open(&kanzei_core::project_state_path(canonical)).unwrap()
+}
+
+/// 一轮完整的 typed 对话(提问 → 回答 → 轮次完成)。
+fn write_typed_turn(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    invariant: &mut kanzei_core::SessionInvariant,
+    turn: &str,
+    question: &str,
+    answer: &str,
+) {
+    use kanzei_core::{SessionFact, SessionFactEnvelope};
+    use kanzei_llm::{Message, Part};
+    let assistant = Message::assistant(vec![Part::Text {
+        text: answer.into(),
+    }]);
+    let facts = [
+        SessionFactEnvelope::new(
+            turn,
+            None,
+            SessionFact::UserMessageCommitted {
+                input_id: format!("i-{turn}"),
+                message: Message::user_text(question),
+            },
+        ),
+        SessionFactEnvelope::new(turn, Some(1), SessionFact::TurnStarted { max_steps: 1 }),
+        SessionFactEnvelope::new(
+            turn,
+            Some(1),
+            SessionFact::AssistantMessageCommitted {
+                message_id: format!("m-{turn}"),
+                content_hash: kanzei_core::store::stable_message_hash(&assistant),
+                message: assistant,
+            },
+        ),
+        SessionFactEnvelope::new(turn, None, SessionFact::TurnCompleted),
+    ];
+    store
+        .append_session_facts_checked(session_id, invariant, &facts)
+        .unwrap();
+}
+
+fn append_reset(store: &kanzei_core::SessionStore, session_id: &str) {
+    store
+        .append_event(
+            session_id,
+            "conversation.reset",
+            &serde_json::json!({ "cleared": true }),
+        )
+        .unwrap();
+}
+
+/// 删掉当前段必须同时清掉内存 prior 缓存:conversation_prior 在持久事实为空时
+/// 有意回退缓存,不清的话下一轮 runner 仍把被删的整段对话发给模型。只删旧段不动缓存。
+#[test]
+fn 删除当前段清空内存缓存() {
+    let _gate_guard = GATE_ENV_LOCK.lock().unwrap();
+    use kanzei_llm::Message;
+    let (root, canonical, session_id) = delete_fixture("del-current-cache");
+    let project_dir = canonical.display().to_string();
+    {
+        let store = open_fixture_store(&canonical);
+        let mut invariant = kanzei_core::SessionInvariant::default();
+        write_typed_turn(
+            &store,
+            &session_id,
+            &mut invariant,
+            "run-a",
+            "第一段问题",
+            "第一段回答",
+        );
+        append_reset(&store, &session_id);
+        write_typed_turn(
+            &store,
+            &session_id,
+            &mut invariant,
+            "run-b",
+            "第二段问题",
+            "第二段回答",
+        );
+        append_reset(&store, &session_id);
+        write_typed_turn(
+            &store,
+            &session_id,
+            &mut invariant,
+            "run-c",
+            "当前段问题",
+            "当前段回答",
+        );
+    }
+    let state = AppState::default();
+    let runtime = crate::runtime_for(&state, &session_id);
+    let cached = vec![Message::user_text("当前段问题")];
+    runtime
+        .conversation
+        .lock()
+        .unwrap()
+        .insert(session_id.clone(), cached.clone());
+    state
+        .auto_runs
+        .lock()
+        .unwrap()
+        .entry(session_id.clone())
+        .or_default()
+        .state
+        .rounds = 3;
+    let listed = crate::conversation::conversation_list(project_dir.clone(), None).unwrap();
+    assert_eq!(listed.len(), 3, "两次 reset 划出三段");
+    let seq = |index: usize| listed[index]["sequence"].as_i64().unwrap();
+
+    // 只删旧段:当前段的缓存与鞭挞计数原样保留。
+    let old =
+        crate::conversation::delete_conversation_segments(&state, &project_dir, &[seq(0)], None)
+            .unwrap();
+    assert!(!old.cleared_current, "删旧段不应报告清了当前段");
+    assert_eq!(old.segments, 1);
+    assert_eq!(
+        runtime.conversation.lock().unwrap().get(&session_id),
+        Some(&cached),
+        "删旧段不得动当前段的 prior 缓存"
+    );
+
+    let current =
+        crate::conversation::delete_conversation_segments(&state, &project_dir, &[seq(2)], None)
+            .unwrap();
+    assert!(current.cleared_current, "删最新段应报告清了当前段");
+    assert!(current.deleted > 0);
+    assert!(
+        runtime
+            .conversation
+            .lock()
+            .unwrap()
+            .get(&session_id)
+            .is_some_and(Vec::is_empty),
+        "删当前段后内存 prior 缓存必须清空"
+    );
+    assert!(
+        conversation_prior(&runtime.conversation, &session_id, Vec::new()).is_empty(),
+        "持久事实为空时不得回退出被删的缓存"
+    );
+    assert_eq!(
+        state.auto_runs.lock().unwrap()[&session_id].state.rounds,
+        0,
+        "删当前段应与新对话一样复位鞭挞计数"
+    );
+    let after = crate::conversation::conversation_list(project_dir, None).unwrap();
+    assert_eq!(after.len(), 1, "只剩中间那段");
+    assert_eq!(after[0]["title"], "第二段问题");
+    std::fs::remove_dir_all(root).ok();
+}
+
+/// 当前段里的压缩事务与轨迹要随段删除:压缩 surface 会在 typed facts 清空后顶上来
+/// 成为 prior(被删对话以压缩版复活),轨迹会在重新载入时画回活动面板。旧段的轨迹不动。
+#[test]
+fn 删除含压缩与轨迹的当前段后不复活() {
+    let _gate_guard = GATE_ENV_LOCK.lock().unwrap();
+    use kanzei_llm::Message;
+    let (root, canonical, session_id) = delete_fixture("del-compaction");
+    let project_dir = canonical.display().to_string();
+    {
+        let store = open_fixture_store(&canonical);
+        let mut invariant = kanzei_core::SessionInvariant::default();
+        write_typed_turn(
+            &store,
+            &session_id,
+            &mut invariant,
+            "run-old",
+            "旧段问题",
+            "旧段回答",
+        );
+        store
+            .append_event(
+                &session_id,
+                "run.trace",
+                &serde_json::json!({"run_id": "run-old", "events": [{"kind": "tool.started"}]}),
+            )
+            .unwrap();
+        append_reset(&store, &session_id);
+        write_typed_turn(
+            &store,
+            &session_id,
+            &mut invariant,
+            "run-cur",
+            "当前段问题",
+            "当前段回答",
+        );
+        store
+            .append_compaction_transaction(
+                &session_id,
+                "cmp-current",
+                &serde_json::json!({"digest": "当前段摘要"}),
+                &serde_json::to_value(vec![Message::user_text("压缩后的当前段")]).unwrap(),
+            )
+            .unwrap();
+        store
+            .append_event(
+                &session_id,
+                "run.trace",
+                &serde_json::json!({
+                    "run_id": "run-cur",
+                    "events": [{"kind": "tool.completed", "artifact": {"artifact_id": "tool-cur"}}],
+                }),
+            )
+            .unwrap();
+    }
+    let store = open_fixture_store(&canonical);
+    assert!(
+        !crate::conversation::project_latest_segment(&store, &session_id)
+            .unwrap()
+            .is_empty(),
+        "前置:删除前当前段有 prior"
+    );
+    drop(store);
+    let listed = crate::conversation::conversation_list(project_dir.clone(), None).unwrap();
+    assert_eq!(listed.len(), 2);
+    let current_seq = listed[1]["sequence"].as_i64().unwrap();
+
+    crate::conversation::delete_conversation_segments(
+        &AppState::default(),
+        &project_dir,
+        &[current_seq],
+        None,
+    )
+    .unwrap();
+
+    let store = open_fixture_store(&canonical);
+    assert!(
+        crate::conversation::project_latest_segment(&store, &session_id)
+            .unwrap()
+            .is_empty(),
+        "压缩 surface 不得在删除后顶上来成为 prior"
+    );
+    assert!(
+        store
+            .latest_completed_compaction_surface(&session_id, 0)
+            .unwrap()
+            .is_none(),
+        "当前段的压缩事务应随段删除"
+    );
+    drop(store);
+    assert!(
+        crate::conversation::conversation_trace_get(project_dir.clone(), None, None)
+            .unwrap()
+            .is_empty(),
+        "当前段的轨迹不得在重新载入时画回活动面板"
+    );
+    let traces = open_fixture_store(&canonical)
+        .list_events_by_type(&session_id, 0, "run.trace")
+        .unwrap();
+    assert_eq!(traces.len(), 1, "旧段的轨迹不受影响");
+    assert_eq!(traces[0].payload["run_id"], "run-old");
+    assert!(
+        traces[0].sequence < current_seq,
+        "幸存的轨迹应属于旧段(序号 {} 早于当前段)",
+        traces[0].sequence
+    );
+    std::fs::remove_dir_all(root).ok();
+}
+
+/// legacy 清单每段只列最新非空快照。删除要一次删掉整段对话(同一对话的更早快照
+/// 不得顶上来),且删掉的是当前对话时,不得在下一轮把更早的旧快照重新播种进来。
+#[test]
+fn legacy快照删除一次删净且不重新播种() {
+    let _gate_guard = GATE_ENV_LOCK.lock().unwrap();
+    use kanzei_llm::Message;
+    let (root, canonical, session_id) = delete_fixture("del-legacy");
+    let project_dir = canonical.display().to_string();
+    let snapshot = |store: &kanzei_core::SessionStore, texts: &[&str]| {
+        let messages: Vec<Message> = texts.iter().map(|text| Message::user_text(*text)).collect();
+        store
+            .append_event(
+                &session_id,
+                "conversation.updated",
+                &serde_json::json!({ "messages": messages }),
+            )
+            .unwrap();
+    };
+    {
+        let store = open_fixture_store(&canonical);
+        snapshot(&store, &["A 对话"]);
+        snapshot(&store, &["A 对话", "A 回答"]);
+        snapshot(&store, &[]); // 旧式清空标记
+        snapshot(&store, &["B 对话"]);
+        snapshot(&store, &["B 对话", "B 回答"]);
+    }
+    let listed = crate::conversation::conversation_list(project_dir.clone(), None).unwrap();
+    assert_eq!(listed.len(), 1, "legacy 清单每段只列最新快照");
+    assert_eq!(listed[0]["title"], "B 对话");
+    assert_eq!(listed[0]["message_count"], 2);
+
+    let outcome = crate::conversation::delete_conversation_segments(
+        &AppState::default(),
+        &project_dir,
+        &[listed[0]["sequence"].as_i64().unwrap()],
+        None,
+    )
+    .unwrap();
+    assert_eq!(outcome.deleted, 2, "B 对话的两份快照一次删净");
+    assert!(outcome.cleared_current);
+
+    let after = crate::conversation::conversation_list(project_dir, None).unwrap();
+    assert_eq!(after.len(), 1);
+    assert_eq!(
+        after[0]["title"], "A 对话",
+        "顶上来的应是清空标记之前的 A 对话,不是 B 对话更早的快照"
+    );
+    assert_eq!(after[0]["message_count"], 2);
+    let store = open_fixture_store(&canonical);
+    assert_eq!(
+        store
+            .list_events_by_type(&session_id, 0, "conversation.updated")
+            .unwrap()
+            .len(),
+        3,
+        "A 的两份快照与旧式清空标记原样保留"
+    );
+    kanzei_core::prepare_typed_session(&store, &session_id).unwrap();
+    assert!(
+        store.list_session_facts(&session_id).unwrap().is_empty(),
+        "删掉当前对话后不得把更早的旧快照重新播种进当前段"
+    );
+    assert!(
+        crate::conversation::project_latest_segment(&store, &session_id)
+            .unwrap()
+            .is_empty(),
+        "删掉当前对话后 prior 必须为空"
+    );
+    drop(store);
+    std::fs::remove_dir_all(root).ok();
+}
+
+/// 运行中的线拒绝删除:runner 正往当前段写 typed facts,删掉它会与写入交错留下半截轮次。
+#[test]
+fn 运行中拒绝删除历史对话() {
+    let _gate_guard = GATE_ENV_LOCK.lock().unwrap();
+    use std::sync::atomic::Ordering;
+    let (root, canonical, session_id) = delete_fixture("del-running");
+    let project_dir = canonical.display().to_string();
+    {
+        let store = open_fixture_store(&canonical);
+        let mut invariant = kanzei_core::SessionInvariant::default();
+        write_typed_turn(&store, &session_id, &mut invariant, "run-a", "问题", "回答");
+    }
+    let event_count = || {
+        open_fixture_store(&canonical)
+            .list_events(&session_id, 0)
+            .unwrap()
+            .len()
+    };
+    let before = event_count();
+    let listed = crate::conversation::conversation_list(project_dir.clone(), None).unwrap();
+    let seq = listed[0]["sequence"].as_i64().unwrap();
+    let state = AppState::default();
+    let running = crate::runtime_for(&state, &session_id).running.clone();
+
+    running.store(true, Ordering::SeqCst);
+    let err = crate::conversation::delete_conversation_segments(&state, &project_dir, &[seq], None)
+        .unwrap_err();
+    assert!(err.contains("运行中"), "拒绝理由应说明线路运行中:{err}");
+    assert_eq!(
+        event_count(),
+        before,
+        "运行中被拒绝时不得写入或删除任何事件"
+    );
+
+    running.store(false, Ordering::SeqCst);
+    let outcome =
+        crate::conversation::delete_conversation_segments(&state, &project_dir, &[seq], None)
+            .expect("停下后应能删除");
+    assert!(outcome.deleted > 0);
+    std::fs::remove_dir_all(root).ok();
 }

@@ -92,6 +92,18 @@ fn segment_boundaries(
         .collect())
 }
 
+/// 当前对话的地板:最后一个 reset,或最后一次删掉当前段的审计事件(见
+/// `SessionStore::conversation_floor`)。legacy 回退只读地板之后的快照——删掉当前段后,
+/// 同一 reset 段里更早的旧快照不得被当成当前对话读回 prior。
+fn current_segment_floor(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+) -> Result<Option<i64>, String> {
+    store
+        .conversation_floor(session_id)
+        .map_err(|e| e.to_string())
+}
+
 /// R-242 批7:最新 segment 的投影 surface(新段 prior 为空的真源)。
 ///
 /// 段边界 = 最新 conversation.reset;reset 之后的事实投影为新段消息(旧段事实
@@ -120,7 +132,9 @@ pub(crate) fn project_latest_segment(
         }
         // legacy/mobile 会话没有 typed facts 时也必须尊重 reset;否则新对话会
         // 回退到 reset 之前最后一条 conversation.updated,把旧历史重新喂给 runner。
-        return recover_latest_legacy_segment_raw(store, session_id, boundary)
+        // 删掉当前段同理(地板含「删掉当前段」的审计事件)。
+        let floor = current_segment_floor(store, session_id)?;
+        return recover_latest_legacy_segment_raw(store, session_id, floor)
             .map_err(|e| e.to_string());
     }
     let projection = match compacted_surface {
@@ -158,7 +172,7 @@ pub(crate) fn conversation_get(
         recover_latest_legacy_segment_raw(
             &store,
             &session_id,
-            segment_boundaries(&store, &session_id)?.pop(),
+            current_segment_floor(&store, &session_id)?,
         )
         .map_err(|e| e.to_string())
     } else {
@@ -231,7 +245,7 @@ pub(crate) fn conversation_shadow_get(
     let compaction_diagnostics = store
         .incomplete_compaction_diagnostics(&session_id)
         .map_err(|e| e.to_string())?;
-    let boundary = segment_boundaries(&store, &session_id)?.pop();
+    let boundary = current_segment_floor(&store, &session_id)?;
     let projection = kanzei_core::project_session_facts(&facts);
     let legacy = recover_latest_legacy_segment_raw(&store, &session_id, boundary)
         .map_err(|e| e.to_string())?;
@@ -419,58 +433,160 @@ fn conversation_list_legacy(
     Ok(segments)
 }
 
+/// 「历史对话」勾选删除的结果,前端据此提示与处理主区。
+#[derive(Debug, Default, serde::Serialize)]
+pub(crate) struct ConversationDeleteOutcome {
+    /// 删掉的事件条数(typed facts 与内容型事件)。
+    pub(crate) deleted: usize,
+    /// 就地清空原文的已结束输入条数。
+    pub(crate) redacted_inputs: usize,
+    /// 实际删掉内容的对话段数(去重后的区间)。
+    pub(crate) segments: usize,
+    /// 删除范围含当前段:内存 prior 缓存已清空,前端要把主区换成新对话视图。
+    pub(crate) cleared_current: bool,
+}
+
 #[tauri::command]
 pub(crate) fn conversation_delete(
+    state: State<'_, AppState>,
     project_dir: String,
     sequences: Vec<i64>,
     process_id: Option<String>,
-) -> Result<usize, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    let session_id = process_session_id(&root, process_id.as_deref());
+) -> Result<ConversationDeleteOutcome, String> {
+    delete_conversation_segments(&state, &project_dir, &sequences, process_id.as_deref())
+}
+
+/// 删除勾选的历史对话段。
+///
+/// 运行中的线一律拒绝(持 lifecycle 锁判定,与 run_prompt 的「置 running」互斥):
+/// runner 正往当前段写 typed facts,删掉它会与写入交错留下半截轮次。
+///
+/// 删掉当前段(区间 end 为 +∞)时同步清空内存 prior 缓存并复位鞭挞计数——与新对话
+/// 对齐。`conversation_prior` 在持久事实为空时有意回退到缓存,不清缓存的话下一轮
+/// runner 仍拿被删的整段对话当 prior 发给模型。
+pub(crate) fn delete_conversation_segments(
+    state: &AppState,
+    project_dir: &str,
+    sequences: &[i64],
+    process_id: Option<&str>,
+) -> Result<ConversationDeleteOutcome, String> {
+    let root = normalized_project_root(Path::new(project_dir));
+    let session_id = process_session_id(&root, process_id);
+    let runtime = runtime_for(state, &session_id);
+    let _lifecycle = runtime.lifecycle.lock().unwrap();
+    if runtime.running.load(Ordering::SeqCst) {
+        return Err("线路运行中,先停止再删除历史对话".into());
+    }
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
-    // D-421 修复:投影模式下列表返回的是投影段(sequence = 段内最后 typed fact 的
-    // sequence),只删 conversation.updated 快照会「删不掉」(类型不匹配删 0 条)。
-    // 按 sequence 指向的事件类型分派:快照(legacy 列表)→ 删单条快照;typed fact
-    // (投影列表)→ 删该段(段边界 = conversation.reset,见 segment_boundaries)。
-    let mut deleted = 0usize;
-    for sequence in &sequences {
+    // 先把全部区间算完再删:删一段会改动快照与序号,边做边算会让后面的区间漂移。
+    let ranges = deletion_ranges(&store, &session_id, sequences)?;
+    let mut outcome = ConversationDeleteOutcome::default();
+    for &(start, end) in &ranges {
+        let deletion = store
+            .delete_conversation_segment(&session_id, start, end)
+            .map_err(|e| e.to_string())?;
+        outcome.deleted += deletion.events;
+        outcome.redacted_inputs += deletion.redacted_inputs;
+        if deletion.events > 0 || deletion.redacted_inputs > 0 {
+            outcome.segments += 1;
+        }
+        outcome.cleared_current |= end == i64::MAX;
+    }
+    if outcome.cleared_current {
+        runtime
+            .conversation
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), Vec::new());
+        reset_auto_run_state(state, &session_id);
+    }
+    Ok(outcome)
+}
+
+/// 勾选的 sequence → 去重后的删除区间 (start, end]。
+///
+/// 按 sequence 指向的事件分派(D-421):typed fact(投影列表回报段内最后一条 fact)→
+/// 该 reset 段;conversation.updated(legacy 列表)→ 该快照所在的整段对话,见
+/// [`legacy_segment_range`]。指向其它事件(清单过期)的一律跳过,不猜。
+fn deletion_ranges(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    sequences: &[i64],
+) -> Result<std::collections::BTreeSet<(i64, i64)>, String> {
+    let boundaries = segment_boundaries(store, session_id)?;
+    let snapshots = store
+        .list_events_by_type(session_id, 0, "conversation.updated")
+        .map_err(|e| e.to_string())?;
+    let mut ranges = std::collections::BTreeSet::new();
+    for &sequence in sequences {
         let Some(event) = store
-            .event_by_sequence(&session_id, *sequence)
+            .event_by_sequence(session_id, sequence)
             .map_err(|e| e.to_string())?
         else {
             continue;
         };
         if event.event_type == "conversation.updated" {
-            deleted += store
-                .delete_events_by_sequence(&session_id, "conversation.updated", &[*sequence])
-                .map_err(|e| e.to_string())?;
-        } else {
-            let boundaries = segment_boundaries(&store, &session_id)?;
-            let start = boundaries
-                .iter()
-                .rfind(|boundary| **boundary < *sequence)
-                .copied()
-                .unwrap_or(0);
-            // 段的终点是**下一个 reset 边界**(末段为 +∞),不是列表回报的
-            // sequence——那只是段内最后一条 typed fact。轮末 legacy 快照
-            // conversation.updated 写在所有 typed fact 之后(persist_round_outcome),
-            // sequence 更大;按 fact 收口就把它留在库里,两处后果都是真缺陷:
-            // ①facts 清空后 conversation_list_projected 回退 legacy,那条幸存快照
-            //   又冒出来成为一条「历史对话」——删除要点两次;
-            // ②project_latest_segment 同样回退 legacy,把整段旧历史读回 runner
-            //   prior——用户以为删掉了,下一轮其实还带着。
-            let end = boundaries
-                .iter()
-                .find(|boundary| **boundary >= *sequence)
-                .copied()
-                .unwrap_or(i64::MAX);
-            deleted += store
-                .delete_conversation_segment(&session_id, start, end)
-                .map_err(|e| e.to_string())?;
+            ranges.insert(legacy_segment_range(&boundaries, &snapshots, sequence));
+            continue;
         }
+        if kanzei_core::store::decode_session_fact(&event)
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            continue;
+        }
+        let start = boundaries
+            .iter()
+            .rfind(|boundary| **boundary < sequence)
+            .copied()
+            .unwrap_or(0);
+        // 段的终点是**下一个 reset 边界**(末段为 +∞),不是列表回报的 sequence——
+        // 那只是段内最后一条 typed fact,同段的轮末快照、轨迹、压缩事务都在它之后。
+        let end = boundaries
+            .iter()
+            .find(|boundary| **boundary >= sequence)
+            .copied()
+            .unwrap_or(i64::MAX);
+        ranges.insert((start, end));
     }
-    Ok(deleted)
+    Ok(ranges)
+}
+
+/// legacy 快照所在那段对话的区间 (start, end]。
+///
+/// legacy 清单每段只列「段内最新的非空快照」,同一对话更早的快照就在它前面:只删勾选
+/// 那一条,更早的快照立刻冒出来顶替(要连点多次),还会成为「未播种的最新」被塞回当前段。
+/// 段界取 legacy 时代的两种标记:conversation.reset 与旧式清空标记(messages 为空的
+/// conversation.updated)。终点停在下一个空快照**之前**,旧段界原样保留。
+fn legacy_segment_range(
+    resets: &[i64],
+    snapshots: &[kanzei_core::StoredEvent],
+    sequence: i64,
+) -> (i64, i64) {
+    let is_clear_marker = |event: &kanzei_core::StoredEvent| {
+        event.payload["messages"]
+            .as_array()
+            .is_some_and(|messages| messages.is_empty())
+    };
+    let reset_before = resets.iter().copied().filter(|seq| *seq < sequence).max();
+    let marker_before = snapshots
+        .iter()
+        .filter(|event| event.sequence < sequence && is_clear_marker(event))
+        .map(|event| event.sequence)
+        .max();
+    let start = reset_before.max(marker_before).unwrap_or(0);
+    let reset_after = resets.iter().copied().find(|seq| *seq >= sequence);
+    let marker_after = snapshots
+        .iter()
+        .find(|event| event.sequence > sequence && is_clear_marker(event))
+        .map(|event| event.sequence - 1);
+    let end = [reset_after, marker_after]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or(i64::MAX);
+    (start, end)
 }
 
 /// R-245 B6:删除弹窗选择“安全整理”后的真实 storage cleanup 消费方。
@@ -514,9 +630,7 @@ pub(crate) fn recover_messages(
     store: &kanzei_core::SessionStore,
     session_id: &str,
 ) -> anyhow::Result<Vec<kanzei_llm::Message>> {
-    let boundary = segment_boundaries(store, session_id)
-        .map_err(anyhow::Error::msg)?
-        .pop();
+    let boundary = current_segment_floor(store, session_id).map_err(anyhow::Error::msg)?;
     if boundary.is_none() {
         return recover_messages_at(store, session_id, None);
     }
