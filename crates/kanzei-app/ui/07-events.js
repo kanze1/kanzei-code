@@ -1,6 +1,9 @@
 import { defer } from "./01-core.js";
+import { motionOnce } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
+import { setTurnPhase } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
+import { chatAbortRunning, endReasoningLive, paneHasRunningTool } from "./05-chat-render.js";
 import { setCtxPending, setCtxTokens } from "./03-shell.js";
 import { setCtxLimit } from "./03-shell.js";
 import { autoRounds } from "./08-auto.js";
@@ -147,6 +150,8 @@ defer(() => {
       // 轮次分隔不再进主对话区(用户定调:对话为主);轮次在侧边栏"当前进展"实时可见。
     }
     // 活动面板跨轮保留历史,由用户主动清空/切换项目时清理。
+    endReasoningLive();
+    setTurnPhase("waiting");
     setCurrentAssistant(null);
     setCurrentReasoning(null);
     setCurrentReasoningHead(null);
@@ -160,6 +165,8 @@ defer(() => {
     markFirstSignal();
     neuralFlowEmit?.("assistant_streaming", { session_id: e.payload.sessionId, text_length: e.payload.text?.length ?? 0 });
     // 文本开始后,后续思考属于新的思考段。
+    endReasoningLive();
+    setTurnPhase("generating");
     setCurrentReasoning(null);
     setCurrentReasoningHead(null);
     if (running) setStatus("生成中" + ` · ${(outputChars / 1000).toFixed(1)}k`, true);
@@ -170,6 +177,7 @@ defer(() => {
   on("kz:reasoning", (e) => {
     markFirstSignal();
     neuralFlowEmit?.("reasoning_active", { session_id: e.payload.sessionId });
+    setTurnPhase("thinking");
     if (running) setStatus("思考中", true);
     appendReasoning(e.payload.text);
   });
@@ -284,6 +292,8 @@ on("kz:tool-start", (e) => {
   const shown = toolCallSummary(e.payload.name, e.payload.input) || String(e.payload.summary ?? "");
   agentAuditTaskStart(e.payload.sessionId, e.payload);
   log(`${t("工具")} ${e.payload.name} ${shown}`);
+  endReasoningLive();
+  setTurnPhase("tool");
   setCurrentAssistant(null);
   setCurrentReasoning(null);
   chatToolStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
@@ -375,6 +385,7 @@ defer(() => {
     // 随后由 bgEnd 更新完成态和错误详情。
     bgFinishQuiet(p.id, p.ok);
     bgEnd(p.id, p.ok, p.preview, p.display, outcome);
+    setTurnPhase(paneHasRunningTool() ? "tool" : "waiting");
     setStatus("运行中", true);
   });
 });
@@ -442,6 +453,8 @@ defer(() => {
       setRunning(false, "出错");
       if (retryLabel && (!payload.sessionId || payload.sessionId === activeSessionId)) setRunPending(retryLabel);
       bgAbortRunning(`(${localizeDynamic("出错中止")})`);
+      chatAbortRunning();
+      endReasoningLive();
       liveIdle("出错");
       notifyRunState("failed", message);
     }
@@ -458,6 +471,8 @@ defer(() => {
       currentAssistant.remove();
       setCurrentAssistant(null);
     }
+    endReasoningLive();
+    setTurnPhase("waiting");
     setCurrentReasoning(null);
     setCurrentReasoningHead(null);
     setOutputChars(0);
@@ -493,6 +508,8 @@ defer(() => {
     stopElapsed();
     setRunning(false, "已停止");
     bgAbortRunning(`(${t("已停止")})`);
+    chatAbortRunning();
+    endReasoningLive();
     liveIdle("已停止");
     notifyRunState("stopped", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
     refreshPendingInputs();
@@ -824,6 +841,8 @@ defer(() => {
   $("auto-allow").addEventListener("change", () => {
     localStorage.setItem("kz-auto-allow", $("auto-allow").checked ? "1" : "0");
     syncAutoAllowBadge();
+    // 由关变开的那一下弹一次(启动时的同步不播);常驻警示不做循环,避免一直唠叨。
+    if ($("auto-allow").checked) motionOnce($("status-auto-allow"), "kz-pop", 500);
     log($("auto-allow").checked ? t("已开启自动放行(所有权限询问直接通过;此选择会被记住,跨重启仍生效)") : t("已关闭自动放行"));
   });
 });

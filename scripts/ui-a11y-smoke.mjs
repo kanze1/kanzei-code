@@ -188,6 +188,106 @@ assert.match(js, /document\.querySelectorAll\("\[data-doc-id\]"\)[\s\S]*item\.da
 assert.match(js, /item\.diff\?\.trim\(\)/);
 assert.match(js, /t\("实际差异"\)/);
 
+// ---------- #7 动效纪律:状态图标只在状态真的在进行时才动 ----------
+// 纪律写在 style.css「分区:动效」头注释里;这里把它变成机械判据。去注释后再查,
+// 注释里提到的选择器/属性名不算数。
+{
+  const motionCss = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  // ① token 齐全:循环时长全是 2400ms 的约数(motionSync 靠它对齐相位),缺一个引用点就静默取 initial。
+  for (const token of [
+    "--motion-fast", "--motion-base", "--motion-slow",
+    "--motion-loop-fast", "--motion-spin", "--motion-loop", "--motion-loop-slow",
+    "--ease-out", "--ease-in-out", "--ease-spring", "--shimmer-base", "--shimmer-hot",
+  ]) {
+    assert.match(motionCss, new RegExp(`${token}:\\s*[^;]+;`), `#7 动效 token 未定义:${token}`);
+  }
+  for (const [token, ms] of [["--motion-loop-fast", 600], ["--motion-spin", 800], ["--motion-loop", 1200], ["--motion-loop-slow", 2400]]) {
+    const value = Number(motionCss.match(new RegExp(`${token}:\\s*(\\d+)ms`))?.[1]);
+    assert.ok(value === ms && 2400 % value === 0, `#7 循环档 ${token} 必须是 2400ms 的约数(实为 ${value}ms)`);
+  }
+  // ② 关键帧只动 opacity/transform(合成层);唯一例外 kz-shimmer 只动 background-position。
+  const keyframes = [...motionCss.matchAll(/@keyframes\s+([\w-]+)\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g)];
+  assert.ok(keyframes.some(([, name]) => name === "kz-breathe") && keyframes.some(([, name]) => name === "kz-spin"), "#7 动效关键帧缺失(kz-breathe/kz-spin)");
+  for (const [, name, body] of keyframes) {
+    const props = new Set([...body.matchAll(/([\w-]+)\s*:/g)].map(([, prop]) => prop));
+    const allowed = name === "kz-shimmer" ? ["background-position"] : ["opacity", "transform"];
+    const extra = [...props].filter((prop) => !allowed.includes(prop));
+    assert.deepEqual(extra, [], `#7 @keyframes ${name} 动了 ${extra.join(", ")}(只准 ${allowed.join("/")},其余每帧重排/重绘)`);
+  }
+  // ③ 无限循环只挂在状态选择器上,且时长走 token。选择器按顶层逗号切(:is(...) 里的逗号不算),
+  // 每一段都必须带状态门,否则基类一匹配就永远在跑——空闲时也在耗电,就是 agent-pulse 的老毛病。
+  const STATE_GATE = /\.running|\.pending|\.is-live|\.suspected-stuck|\[data-state=|\[data-phase=|\[data-kz-activity=|\[data-running=|\[data-voice-state=|\[data-live=|\[data-waiting=|\[aria-busy=|:not\(\.hidden\)/;
+  const splitSelectors = (selector) => {
+    const parts = [];
+    let depth = 0;
+    let current = "";
+    for (const ch of selector) {
+      if (ch === "(" || ch === "[") depth += 1;
+      else if (ch === ")" || ch === "]") depth -= 1;
+      if (ch === "," && depth === 0) {
+        parts.push(current.trim());
+        current = "";
+      } else current += ch;
+    }
+    if (current.trim()) parts.push(current.trim());
+    return parts;
+  };
+  const rulesCss = motionCss.replace(/@keyframes\s+[\w-]+\s*\{(?:[^{}]*\{[^{}]*\})*\s*\}/g, "");
+  let infiniteRules = 0;
+  for (const [, selector, body] of rulesCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (!/\binfinite\b/.test(body)) continue;
+    infiniteRules += 1;
+    for (const part of splitSelectors(selector.trim())) {
+      assert.match(part, STATE_GATE, `#7 无限动效挂在了非状态选择器上(基类永远在跑):${part}`);
+    }
+    for (const [, value] of body.matchAll(/(?:^|;)\s*animation(?:-duration)?\s*:\s*([^;]+)/g)) {
+      assert.doesNotMatch(value, /(?:^|[\s,])\.?\d+(?:\.\d+)?m?s\b/, `#7 无限动效用了裸时长(必须走 --motion-loop* token):${selector.trim()} → ${value.trim()}`);
+    }
+  }
+  assert.ok(infiniteRules >= 10, `#7 只解析到 ${infiniteRules} 条无限动效规则,判据可能已与样式表脱节`);
+  // ④ 窗口隐藏即暂停。
+  assert.match(motionCss, /html\[data-kz-motion="paused"\] \*[^{]*\{[^}]*animation-play-state:\s*paused/, "#7 缺少窗口隐藏时统一暂停动画的规则");
+  // ⑤ 减少动效:运行态退化为慢呼吸(运行中是信息不是装饰),工具行转圈也在其中。
+  const reduceBlocks = [];
+  for (const match of motionCss.matchAll(/@media \(prefers-reduced-motion: reduce\) \{/g)) {
+    let depth = 1;
+    let index = match.index + match[0].length;
+    const start = index;
+    while (depth > 0 && index < motionCss.length) {
+      if (motionCss[index] === "{") depth += 1;
+      else if (motionCss[index] === "}") depth -= 1;
+      index += 1;
+    }
+    reduceBlocks.push(motionCss.slice(start, index - 1));
+  }
+  assert.ok(
+    reduceBlocks.some((block) => /\.tool-msg\.running \.tool-msg-status::before[^{]*\{[^}]*kz-breathe/.test(block)),
+    "#7 减少动效时工具行转圈没有退化为慢呼吸(运行态信息被全局 .01ms 规则抹掉)",
+  );
+  assert.ok(
+    reduceBlocks.some((block) => /\.kz-dot:is\([^)]*\[data-state="running"\][^{]*\{[^}]*kz-breathe[^}]*!important/.test(block)),
+    "#7 减少动效时运行点没有用 !important 退化为慢呼吸",
+  );
+  // ⑥ 旧的无纪律动画已删:常驻 border 呼吸、裸 1.7s/1s 脉冲。
+  for (const gone of ["agent-pulse", "line-running-pulse", "pulse 1s"]) {
+    assert.ok(!motionCss.includes(gone), `#7 旧动画 ${gone} 仍在样式表里`);
+  }
+  // 工具行运行中必须真的在转(不是只换颜色):转圈挂在 .running 上、时长走 --motion-spin。
+  assert.match(motionCss, /\.tool-msg\.running \.tool-msg-status::before\s*\{[^}]*animation:\s*kz-spin var\(--motion-spin\)/, "#7 主对话工具行运行中没有转圈");
+  // ⑦ 标记:运行活动行(读屏可达但不每秒播报)与状态点原语。
+  assert.match(html, /<div id="turn-activity" class="[^"]*\bhidden\b[^"]*"[^>]*role="status"[^>]*aria-live="off"[^>]*data-i18n-aria-label="运行状态"/, "#7 运行活动行缺失或无障碍属性不全(role=status / aria-live=off / 默认隐藏)");
+  for (const id of ["turn-activity-glyph", "turn-activity-label", "turn-activity-elapsed"]) {
+    assert.ok(html.includes(`id="${id}"`), `#7 运行活动行缺子节点 ${id}`);
+  }
+  assert.match(html, /id="turn-activity-label"[^>]*data-i18n-raw/, "#7 活动行文案由 JS 本地化后写入,必须挡住 i18n 观察者二次翻译");
+  assert.match(html, /<span id="status-dot" class="[^"]*\bkz-dot\b[^"]*"[^>]*aria-hidden="true"/, "#7 状态栏点未改用 .kz-dot 原语(或未对读屏隐藏)");
+  // ⑧ 钩子接线:隐藏暂停监听、相位投影入口、停止收尾与后台守卫。
+  assert.match(js, /document\.addEventListener\("visibilitychange", syncMotionVisibility\)/, "#7 窗口可见性变化未接 syncMotionVisibility");
+  assert.match(js, /function setTurnPhase\(phase\) \{[\s\S]{0,200}?if \(typeof renderingBackground !== "undefined" && renderingBackground\) return;/, "#7 setTurnPhase 缺后台渲染守卫(后台线会改写活动线相位)");
+  assert.match(js, /setDataIfChanged\(document\.documentElement, "kzActivity", activity\)/, "#7 全局相位未投影到 html[data-kz-activity]");
+  assert.match(js, /\$\("update-check"\)\.setAttribute\("aria-busy", "true"\)/, "#7 检查更新进行中未标 aria-busy");
+}
+
 // ---------- D-380 设计语言:主题块之外不得出现字面量颜色 ----------
 // 亮色主题(R-189)是在暗色之上「把 token 覆盖一遍」做出来的,于是任何漏掉 token 的
 // 字面量都会在亮色下**照旧渲染暗色**。危险的是这类逃逸集中在 hover/active 这些

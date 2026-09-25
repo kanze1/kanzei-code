@@ -293,6 +293,7 @@ export async function ensureNotificationPermission() {
 }
 
 export function notifyRunState(kind, text) {
+  flashStatusDot(kind);
   const labels = { completed: t("运行完成"), failed: t("运行失败"), stopped: t("运行已停止") };
   const label = labels[kind] || t("运行状态");
   toast(`${label}: ${text}`);
@@ -503,6 +504,77 @@ defer(() => {
 // ---------- 状态栏 ----------
 export let statusTextSource = "";
 export let statusRunning = false;
+// ---------- #7 运行活动投影:状态栏点 + 输入框上方的「思考中… 12s」活动行 ----------
+// 全局相位只投影到 html[data-kz-activity](running|pending|stopping|idle),只由这里写,
+// CSS 只读它(思考块扫光、文档页在做条目等都按它门控)。turnPhase 是本轮细分相位,
+// 由 07-events 的事件写入点推进:等首 token / 思考 / 生成 / 工具。
+export let turnPhase = "idle";
+export const TURN_DETAIL_PHASES = new Set(["waiting", "thinking", "generating", "tool"]);
+export function setTurnPhase(phase) {
+  // 后台会话的渲染不得改写活动行——它和状态栏一样只属于活动会话(R-267 同一守卫)。
+  if (typeof renderingBackground !== "undefined" && renderingBackground) return;
+  turnPhase = phase;
+  renderTurnActivity();
+}
+export function activityKey() {
+  if (statusRunning) return turnPhase === "stopping" ? "stopping" : "running";
+  return runControlPending ? "pending" : "idle";
+}
+// kz:text 逐 delta 都会走到这里:只在值真的变了才写,不给样式重算与 MutationObserver 添无用功。
+function setDataIfChanged(el, key, value) {
+  if (el && el.dataset[key] !== value) el.dataset[key] = value;
+}
+export function renderTurnActivity() {
+  const activity = activityKey();
+  setDataIfChanged(document.documentElement, "kzActivity", activity);
+  const dot = $("status-dot");
+  if (dot) {
+    const dotClass = `dot kz-dot ${statusRunning ? "run" : "idle"}`;
+    if (dot.className !== dotClass) dot.className = dotClass;
+    setDataIfChanged(dot, "state", activity);
+  }
+  const row = $("turn-activity");
+  if (!row) return;
+  const phase = activity !== "running" ? activity : TURN_DETAIL_PHASES.has(turnPhase) ? turnPhase : "working";
+  setDataIfChanged(row, "phase", phase);
+  row.classList.toggle("hidden", activity === "idle");
+  setDataIfChanged($("turn-activity-glyph"), "state", phase === "waiting" ? "waiting" : activity);
+  // 文案复用状态栏的存源(不新增文案),切语言时照样经 localizeDynamic 重算。
+  const label = $("turn-activity-label");
+  const text = localizeDynamic(statusTextSource) || t("运行中");
+  if (label && label.textContent !== text) label.textContent = text;
+  renderTurnElapsed();
+}
+export function renderTurnElapsed() {
+  const el = $("turn-activity-elapsed");
+  if (!el) return;
+  const text = elapsedTimer && runStart > 0 ? `${Math.floor((Date.now() - runStart) / 1000)}s` : "";
+  if (el.textContent !== text) el.textContent = text;
+}
+// 轮末一次性反馈:完成弹一下出绿环,失败抖一下出红环。停止是用户自己按的,不播。
+export let statusDotFlashTimer = null;
+export function flashStatusDot(kind) {
+  if (typeof renderingBackground !== "undefined" && renderingBackground) return;
+  if (kind !== "completed" && kind !== "failed") return;
+  const dot = $("status-dot");
+  if (!dot) return;
+  clearTimeout(statusDotFlashTimer);
+  delete dot.dataset.flash;
+  void dot.offsetWidth;
+  dot.dataset.flash = kind;
+  statusDotFlashTimer = setTimeout(() => {
+    delete dot.dataset.flash;
+    statusDotFlashTimer = null;
+  }, 700);
+}
+// 窗口隐藏(最小化/切走)时全部动画暂停:html[data-kz-motion="paused"] 统一 animation-play-state。
+export function syncMotionVisibility() {
+  document.documentElement.dataset.kzMotion = document.hidden ? "paused" : "live";
+}
+defer(() => {
+  syncMotionVisibility();
+  document.addEventListener("visibilitychange", syncMotionVisibility);
+});
 export function setStatus(text, isRunning) {
   // R-267:后台会话的渲染不得改写状态栏——那是活动会话的位置。
   if (typeof renderingBackground !== "undefined" && renderingBackground) return;
@@ -510,8 +582,8 @@ export function setStatus(text, isRunning) {
   statusRunning = !!isRunning;
   $("status-text").textContent = localizeDynamic(statusTextSource);
   $("status-mode").textContent = statusRunning ? t("运行中") : t("空闲");
-  $("status-dot").className = `dot ${statusRunning ? "run" : "idle"}`;
   $("statusbar").classList.toggle("running", statusRunning);
+  renderTurnActivity();
 }
 
 // 运行计时 + 首响应看门狗:等太久时把"卡在哪"讲清楚。
@@ -531,15 +603,18 @@ export function startElapsed() {
   elapsedTimer = setInterval(() => {
     const secs = Math.floor((Date.now() - runStart) / 1000);
     $("status-elapsed").textContent = `· ${secs}s`;
+    renderTurnElapsed();
     if (!firstSignal && secs > 0 && secs % 15 === 0) {
       log(`${t("仍在等待模型首个响应")}(${t("已")} ${secs}s)——${t("订阅高峰或网络较慢时属正常")};${t("超时上限")} 15s ${t("连接")} / 180s ${t("读")}`, "warn");
     }
   }, 1000);
+  renderTurnElapsed();
 }
 export function stopElapsed() {
   clearInterval(elapsedTimer);
   elapsedTimer = null;
   $("status-elapsed").textContent = "";
+  renderTurnElapsed();
 }
 export function markFirstSignal() {
   // R-267:首响应计时属于活动会话的这一轮,后台会话的事件不参与。
@@ -581,6 +656,7 @@ export function renderTokens() {
       // 进度条:容量占用一眼可见,≥70% 变警示色(自动压缩阈值同源)。
       bar.classList.remove("hidden");
       bar.classList.toggle("warn", pct >= 70);
+      bar.classList.toggle("pending", ctxPending);
       $("ctx-bar-fill").style.width = `${Math.min(pct, 100)}%`;
       bar.title = `${t("上下文")} ${k}k / ${Math.round(ctxLimit / 1000)}k(${pct}%,≥70% ${t("自动压缩")})`;
     } else {
@@ -606,6 +682,7 @@ export function setRunning(value, statusText) {
   stop.classList.toggle("hidden", !value);
   stop.textContent = t("停止");
   syncNewChatEnabled();
+  turnPhase = value ? "waiting" : "idle";
   setStatus(statusText ?? (value ? t("运行中") : t("空闲")), value);
 }
 
@@ -632,6 +709,7 @@ export function setStopping(statusText) {
   stop.disabled = true;
   stop.textContent = t("停止中…");
   syncNewChatEnabled();
+  turnPhase = "stopping";
   setStatus(statusText ?? t("停止中…"), true);
 }
 
@@ -644,6 +722,7 @@ export function setRunPending(statusText) {
   stop.classList.remove("hidden");
   stop.textContent = t("停止鞭挞");
   syncNewChatEnabled();
+  turnPhase = "pending";
   setStatus(statusText ?? t("等待下一轮"), false);
 }
 
@@ -653,6 +732,8 @@ export function clearRunPending() {
   stop.classList.toggle("hidden", !running);
   stop.textContent = t("停止");
   syncNewChatEnabled();
+  if (!running) turnPhase = "idle";
+  renderTurnActivity();
 }
 
 // ---------- R-189 主题切换:暗/亮持久化 ----------

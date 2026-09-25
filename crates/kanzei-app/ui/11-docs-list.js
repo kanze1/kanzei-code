@@ -592,6 +592,8 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
         // 精确数字放进 title/aria——图形给概览,文字给准数。
         const cells = Math.min(total, 12);
         const filled = total <= cells ? done : Math.round((done / total) * cells);
+        // #7:正在推的那一格;动效只在 html[data-kz-activity=running] 且条目在做时由 CSS 打开。
+        const current = done < total && filled < cells ? filled + 1 : 0;
         const meter = document.createElement("span");
         meter.className = "complexity-meter batch-meter";
         // 轨道等分成几格由这里决定,CSS 只管固定总长(见 style.css 的 --cells)。
@@ -602,7 +604,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
         meter.title = label;
         for (let i = 1; i <= cells; i += 1) {
           const cell = document.createElement("span");
-          cell.className = `complexity-cell${i <= filled ? " filled" : ""}`;
+          cell.className = `complexity-cell${i <= filled ? " filled" : i === current ? " current" : ""}`;
           cell.setAttribute("aria-hidden", "true");
           meter.appendChild(cell);
         }

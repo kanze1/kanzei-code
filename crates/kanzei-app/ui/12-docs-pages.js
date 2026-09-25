@@ -1,4 +1,5 @@
 import { defer } from "./01-core.js";
+import { motionSync } from "./01-core.js";
 import { localizeDynamic } from "./02-i18n.js";
 import { $, invoke } from "./01-core.js";
 import { applyLanguage, localizedDocStatus, t } from "./02-i18n.js";
@@ -14,6 +15,7 @@ import {
 import { selectedWorkPriority } from "./08-auto.js";
 import { state } from "./08-compose.js";
 import { enterProject } from "./09-sessions.js";
+import { syncLineFocusLive } from "./09-sessions.js";
 import {
   NEUTRAL_DOC_FILTERS,
   entryBlocked,
@@ -101,6 +103,7 @@ export function renderWorkspace(snapshot) {
         dot.className = "workspace-line-dot";
         dot.setAttribute("aria-hidden", "true");
         dot.textContent = line.running ? "●" : "○";
+        if (line.running) motionSync(dot);
         const name = document.createElement("span");
         name.className = "workspace-line-name";
         name.textContent = line.label || line.id;
@@ -628,6 +631,8 @@ export function buildFocusCard(entry, kind, focusSource = agentFocus.activeSourc
   if (total > 1) {
     const cells = Math.min(total, 12);
     const filled = total <= cells ? done : Math.round((done / total) * cells);
+    // #7:正在推的那一格(线真在跑时扫光);全部完成或格子已满时没有。
+    const current = done < total && filled < cells ? filled + 1 : 0;
     const meter = document.createElement("span");
     meter.className = "complexity-meter batch-meter";
     meter.style.setProperty("--cells", String(cells));
@@ -637,7 +642,7 @@ export function buildFocusCard(entry, kind, focusSource = agentFocus.activeSourc
     meter.title = label;
     for (let i = 1; i <= cells; i += 1) {
       const cell = document.createElement("span");
-      cell.className = `complexity-cell${i <= filled ? " filled" : ""}`;
+      cell.className = `complexity-cell${i <= filled ? " filled" : i === current ? " current" : ""}`;
       cell.setAttribute("aria-hidden", "true");
       meter.appendChild(cell);
     }
@@ -809,7 +814,10 @@ export function renderFocusPanel(snapshot) {
   for (const { line, focus } of lineFocuses) {
     const section = document.createElement("section");
     section.className = "line-focus";
-    if (line?.id) section.dataset.processId = line.id;
+    if (line?.id) {
+      section.dataset.processId = line.id;
+      motionSync(section);
+    }
     const heading = document.createElement("div");
     heading.className = "line-focus-head";
     const authority = line && processIsPrimary(line)
@@ -849,6 +857,8 @@ export function renderFocusPanel(snapshot) {
     }
     body.appendChild(section);
   }
+  // #7:线真在跑才标 is-live(整块重绘不丢相位:section 已 motionSync)。
+  syncLineFocusLive();
   if (!hasAnyActive) {
     const empty = document.createElement("div");
     empty.className = "focus-empty";

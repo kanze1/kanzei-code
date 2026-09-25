@@ -1,4 +1,5 @@
 import { defer } from "./01-core.js";
+import { messagePanes, motionOnce } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { appendDisplayBlock, compactDiffLines, quotaNoticeHeadline, quotaTruncation } from "./06-activity.js";
 import { $, activePane, promptBox, agentRoleAccent, appendToPane, messages, trimLivePane } from "./01-core.js";
@@ -630,6 +631,7 @@ export function chatToolEnd(id, ok, preview, display, outcome) {
   // "聊天里也想看全输出"再往 detail 里塞一份 preview,那正是双写的来路。完整输出看
   // 活动面板的 terminal display(走 display.full)或历史回放。
   fillToolBlock(block, { ok, outcome, content: preview, display });
+  playToolOutcomeMotion(block);
 }
 
 export let currentReasoningHead = null;
@@ -668,6 +670,8 @@ export function appendReasoning(text) {
     appendToPane(block.wrap);
     setCurrentReasoning(block.body);
     setCurrentReasoningHead(block.head);
+    // #7:正在流的思考块(全局运行中时扫光);下一段文本/工具/新一轮开始时 endReasoningLive 摘掉。
+    block.head.classList.add("is-live");
   }
   currentReasoning.dataset.raw += text;
   // D-202:与 assistant 同样合帧,头部摘要跟着渲染一起更新(见 flushStreamRender)。
@@ -694,3 +698,52 @@ export function renderReasoningBlock(body) {
   if (!expandable) head.setAttribute("aria-expanded", "false");
 }
 
+// ---------- #7 动效:工具行实时收尾反馈 / 停止收尾 / 思考块在流 ----------
+/// 实时收尾的一次性反馈:成功/待确认弹一下,失败抖一下,noop 不播。只由 chatToolEnd
+/// 调用——历史回放直接走 fillToolBlock,不经过这里,重开对话不会满屏乱跳。
+export function playToolOutcomeMotion(block) {
+  const wrap = block?.wrap;
+  if (!wrap?.classList || !block.icon) return;
+  if (wrap.classList.contains("err")) motionOnce(block.icon, "kz-shake", 520);
+  else if (wrap.classList.contains("ok") || wrap.classList.contains("warn")) motionOnce(block.icon, "kz-pop", 360);
+}
+/// 某个 pane 里仍在「运行中」的工具块。chatToolBlocks 跨会话共用一张表,按块所在 pane 筛;
+/// 已被裁掉/清空的块 closest 取不到 pane,自然不算。
+function runningToolBlocksIn(pane) {
+  const found = [];
+  if (!pane) return found;
+  for (const block of chatToolBlocks.values()) {
+    if (block.finished || !block.wrap) continue;
+    if (block.wrap.closest?.(".msg-pane") !== pane) continue;
+    found.push(block);
+  }
+  return found;
+}
+export function paneHasRunningTool(pane = activePane) {
+  return runningToolBlocksIn(pane).length > 0;
+}
+/// 停止/终态出错时收尾:运行中的块不会再等到 ToolEnd(停止就是不等它),转圈要停在「中断」,
+/// 否则它会在对话里转到天荒地老。活动面板那边由 bgAbortRunning 收尾,这里只管主对话。
+export function chatAbortRunning(pane = activePane) {
+  const blocks = runningToolBlocksIn(pane);
+  for (const block of blocks) {
+    block.finished = true;
+    block.wrap.classList.remove("running");
+    block.wrap.classList.add("interrupted");
+    block.wrap.dataset.toolOutcome = "interrupted";
+    block.icon.textContent = "⏹";
+    block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
+    block.result.classList.remove("hidden");
+  }
+  return blocks.length;
+}
+/// 后台线的终态由 01-core 的路由分支处理(不进 handler),按会话找它自己的 pane。
+export function chatAbortRunningFor(sessionId) {
+  const pane = messagePanes.get(sessionId || "");
+  return pane ? chatAbortRunning(pane) : 0;
+}
+/// 思考段结束(文本/工具/新一轮/停止):摘掉 is-live。不放进 setCurrentReasoningHead——
+/// withSessionRender 借它切换渲染上下文,放进去会把后台线正在流的思考块也一起熄掉。
+export function endReasoningLive() {
+  currentReasoningHead?.classList?.remove("is-live");
+}

@@ -1,4 +1,5 @@
 import { defer } from "./01-core.js";
+import { motionSync } from "./01-core.js";
 import { $, confirmDialog, invoke } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import {
@@ -357,6 +358,8 @@ export function renderLines(lines) {
     const statusKey = lineStatusKey(line, lineRunning);
     state.className = `line-running-state ${statusKey.replace("_", "-")}`;
     state.textContent = lineStatusLabel(statusKey);
+    // #7:线路页按快照整块重绘,新节点对齐全局相位,扩散环不会每次重绘都从头来。
+    motionSync(state);
     head.append(identity, state);
 
     const claim = document.createElement("div");

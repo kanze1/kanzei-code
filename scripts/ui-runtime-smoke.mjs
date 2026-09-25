@@ -71,6 +71,22 @@ if (SMOKE_MUTATE) {
     // ---- 分区:需求卡片与单页 ----
 
     // ---- 分区:动效 ----
+    // #7:setTurnPhase 首行的后台渲染守卫。删了它,后台线的思考/工具事件会把活动线
+    // 输入框上方的「思考中…」改写成别人的相位(串线)。
+    turnPhaseBgGuard: {
+      pattern: /(export function setTurnPhase\(phase\) \{\r?\n(?:[ \t]*\/\/[^\n]*\r?\n)*)[ \t]*if \(typeof renderingBackground !== "undefined" && renderingBackground\) return;\r?\n/,
+      replace: "$1",
+    },
+    // #7:kz:stopped 里主对话工具块的收尾。删了它,停止后运行中的工具行永远在转圈。
+    chatAbortOnStop: {
+      pattern: /(bgAbortRunning\(`\(\$\{t\("已停止"\)\}\)`\);\r?\n)[ \t]*chatAbortRunning\(\);\r?\n/,
+      replace: "$1",
+    },
+    // #7:线路行状态字形原地更新。改成每次重建,逐事件投影会让呼吸动画每个事件都从第 0 帧重来。
+    parallelGlyphInPlace: {
+      pattern: /if \(!glyph \|\| !text\) \{/,
+      replace: "if (true) {",
+    },
 
     // ---- 分区:子代理 ----
   };
@@ -8806,6 +8822,279 @@ const docsB = {
 // ===== 分区:需求卡片与单页 =====
 
 // ===== 分区:动效 =====
+// ---------- #7 动效:运行相位投影 / 工具行收尾 / 线路字形 / 在做 / 轮末 / 隐藏暂停 / 徽标 / 计数 ----------
+// 一次性动效类靠 setTimeout 摘除,而 flush 会立刻清空全部定时器:「挂上」必须在同步调用
+// 之后、flush 之前断言,「摘除」在 flush 之后断言。
+{
+  const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const activeSid = () => vm.runInContext("activeSessionId", sandbox);
+  const html = document.documentElement;
+  const row = byId.get("turn-activity");
+  const dot = byId.get("status-dot");
+  const glyph = byId.get("turn-activity-glyph");
+  const label = byId.get("turn-activity-label");
+  assert(row && dot && glyph && label, "#7 运行活动行或状态点节点缺失");
+  assert(shellNs && chatNs, "#7 03-shell / 05-chat-render 命名空间未加载");
+  const phase = () => row.dataset.phase;
+  const toolStartEv = handlers.get("kz:tool-start");
+  const toolEndEv = handlers.get("kz:tool-end");
+  const reasoningEv = handlers.get("kz:reasoning");
+  // 前置:主线活动、清掉前面用例留下的在跑工具块(chatAbortRunning 本身就是被测能力之一)。
+  const savedProcessList = structuredClone(payloads.process_list);
+  const savedCtx = { limit: shellNs.ctxLimit, tokens: shellNs.ctxTokens, pending: shellNs.ctxPending };
+  const motionLines = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main", authority: "primary", stage: "复核" },
+    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: false, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", authority: "parallel", stage: "实现" },
+  ];
+  vm.runInContext('autoContinueTimers.clear()', sandbox);
+  vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
+  // refreshProcesses(kz:error/kz:stopped 的路由分支会调)拉回的也必须是这份清单。
+  payloads.process_list = structuredClone(motionLines);
+  sandbox.renderProcesses(structuredClone(motionLines));
+  if (activeSid() !== "sess-smoke") await sandbox.switchProcess("d|smoke");
+  await flush();
+  assert(activeSid() === "sess-smoke", `#7 前置:主线应为活动线,实为 ${activeSid()}`);
+  vm.runInContext("chatAbortRunning()", sandbox);
+  sandbox.setRunning(false, "空闲");
+  await flush();
+  assert(row.classList.contains("hidden"), "#7 空闲时运行活动行应隐藏");
+  assert(html.dataset.kzActivity === "idle", `#7 空闲时 html[data-kz-activity] 应为 idle,实为 ${html.dataset.kzActivity}`);
+
+  // ① 运行相位投影:等首 token → 思考 → 工具;后台线事件不得改写活动线相位。
+  vm.runInContext('transitionSession("sess-smoke", "running")', sandbox);
+  sandbox.setRunning(true, "运行中");
+  assert(!row.classList.contains("hidden"), "#7 setRunning(true) 后运行活动行未出现");
+  assert(phase() === "waiting", `#7 刚开跑应为 waiting(等首 token),实为 ${phase()}`);
+  assert(html.dataset.kzActivity === "running", `#7 运行中 html[data-kz-activity] 应为 running,实为 ${html.dataset.kzActivity}`);
+  assert(dot.dataset.state === "running" && dot.classList.contains("kz-dot") && dot.classList.contains("run"), `#7 状态点未投影运行态:${dot.className} / ${dot.dataset.state}`);
+  assert(glyph.dataset.state === "waiting", `#7 等首 token 时活动行点应呼吸(waiting),实为 ${glyph.dataset.state}`);
+  assert(label.textContent.includes("运行中") || label.textContent.includes("Running"), `#7 活动行文案未复用状态栏存源:${label.textContent}`);
+  reasoningEv({ payload: { sessionId: "sess-smoke", text: "先想一想\n再想一想" } });
+  assert(phase() === "thinking", `#7 kz:reasoning 后应为 thinking,实为 ${phase()}`);
+  assert(/思考中|Thinking/.test(label.textContent), `#7 思考中活动行文案不对:${label.textContent}`);
+  const liveHead = chatNs.currentReasoningHead;
+  assert(liveHead?.classList.contains("is-live"), "#7 正在流的思考块头没有 is-live(扫光挂不上)");
+  toolStartEv({ payload: { id: "MOT-T1", name: "bash", summary: "sleep 1", input: { command: "sleep 1" }, sessionId: "sess-smoke" } });
+  assert(phase() === "tool", `#7 kz:tool-start 后应为 tool,实为 ${phase()}`);
+  assert(!liveHead.classList.contains("is-live"), "#7 工具开始后上一段思考块仍标 is-live(会一直扫光)");
+  const runningBlock = chatNs.chatToolBlocks.get("MOT-T1");
+  assert(runningBlock?.wrap.classList.contains("running"), "#7 实时工具块未进入运行态(转圈挂不上)");
+  // 后台线的思考事件走 withSessionRender,渲染进它自己的 pane,但不得改写活动线相位。
+  // 先让后台线处于未收敛的运行态:已收敛会话的迟到进度事件会在路由层整条丢弃,守卫就测不到了。
+  vm.runInContext('transitionSession("sess-bg", "running")', sandbox);
+  reasoningEv({ payload: { sessionId: "sess-bg", text: "后台线在想" } });
+  assert(phase() === "tool", `#7 后台线的 kz:reasoning 把活动线相位改成了 ${phase()}(串线)`);
+  vm.runInContext('transitionSession("sess-bg", "idle")', sandbox);
+
+  // ② 工具行实时收尾:成功弹一下、失败抖一下;flush 后摘除。
+  toolEndEv({ payload: { id: "MOT-T1", name: "bash", ok: true, preview: "done", display: null, sessionId: "sess-smoke" } });
+  assert(runningBlock.icon.classList.contains("kz-pop"), "#7 实时成功收尾的工具行没有播 kz-pop");
+  assert(phase() === "waiting", `#7 最后一个工具结束后应回到 waiting,实为 ${phase()}`);
+  await flush();
+  assert(!runningBlock.icon.classList.contains("kz-pop"), "#7 kz-pop 一次性类没有被摘除");
+  toolStartEv({ payload: { id: "MOT-T2", name: "bash", summary: "false", input: { command: "false" }, sessionId: "sess-smoke" } });
+  const failBlock = chatNs.chatToolBlocks.get("MOT-T2");
+  toolEndEv({ payload: { id: "MOT-T2", name: "bash", ok: false, preview: "exit code: 1", display: null, sessionId: "sess-smoke" } });
+  assert(failBlock?.icon.classList.contains("kz-shake"), "#7 实时失败收尾的工具行没有播 kz-shake");
+  await flush();
+  assert(!failBlock.icon.classList.contains("kz-shake"), "#7 kz-shake 一次性类没有被摘除");
+  // 历史回放走 renderMessageParts → fillToolBlock,不经过 chatToolEnd:重开对话不能满屏乱跳。
+  vm.runInContext(`withSessionRender("sess-motion-history", () => renderMessageParts([
+    { role: "assistant", parts: [
+      { type: "reasoning", text: "历史思考第一行\\n历史思考第二行" },
+      { type: "tool_call", id: "MH1", name: "read", input: { path: "a.rs" } },
+      { type: "tool_result", call_id: "MH1", is_error: false, content: "ok" },
+      { type: "tool_call", id: "MH2", name: "bash", input: { command: "false" } },
+      { type: "tool_result", call_id: "MH2", is_error: true, content: "exit code: 1" },
+    ] },
+  ]))`, sandbox);
+  const historyPane = vm.runInContext('messagePanes.get("sess-motion-history")', sandbox);
+  const historyIcons = historyPane?.querySelectorAll(".tool-msg-status") ?? [];
+  assert(historyIcons.length === 2, `#7 历史回放夹具应渲染 2 个工具块,实得 ${historyIcons.length}`);
+  assert(
+    historyIcons.every((icon) => !icon.classList.contains("kz-pop") && !icon.classList.contains("kz-shake")),
+    "#7 历史回放的工具行播了一次性动效(只该在实时收尾时播)",
+  );
+  assert(!historyPane.querySelector(".reasoning-head.is-live"), "#7 历史思考块被标成 is-live(重开对话会一直扫光)");
+  vm.runInContext('messagePanes.get("sess-motion-history")?.remove(); messagePanes.delete("sess-motion-history"); dropSessionStream("sess-motion-history")', sandbox);
+
+  // ③ 停止收尾:运行中的块不会再等到 ToolEnd,必须停在「中断」;后台线终态由路由分支收尾它自己的 pane。
+  toolStartEv({ payload: { id: "MOT-T3", name: "bash", summary: "sleep 60", input: { command: "sleep 60" }, sessionId: "sess-smoke" } });
+  const stopBlock = chatNs.chatToolBlocks.get("MOT-T3");
+  assert(stopBlock?.wrap.classList.contains("running"), "#7 前置:MOT-T3 应在运行");
+  handlers.get("kz:stopped")({ payload: { sessionId: "sess-smoke", cancelled_queue: 0 } });
+  assert(!stopBlock.wrap.classList.contains("running"), "#7 kz:stopped 后主对话工具行仍在转圈");
+  assert(stopBlock.wrap.classList.contains("interrupted"), "#7 被停止的工具行没有标 interrupted");
+  assert(/无结果\(轮次中断\)|No result \(round interrupted\)/.test(stopBlock.result.textContent) && !stopBlock.result.classList.contains("hidden"), `#7 被停止的工具行 ⎿ 行不对:${stopBlock.result.textContent}`);
+  assert(stopBlock.icon.textContent === "⏹", `#7 被停止的工具行字形应为 ⏹,实为 ${stopBlock.icon.textContent}`);
+  assert(row.classList.contains("hidden") && html.dataset.kzActivity === "idle", "#7 停止后运行活动行未收起");
+  assert(dot.dataset.flash === undefined, "#7 用户自己按的停止不该播轮末反馈");
+  await flush();
+  vm.runInContext('transitionSession("sess-smoke", "running")', sandbox);
+  sandbox.setRunning(true, "运行中");
+  vm.runInContext('withSessionRender("sess-bg", () => chatToolStart("MOT-BG1", "bash", "sleep 60", { command: "sleep 60" }))', sandbox);
+  toolStartEv({ payload: { id: "MOT-T4", name: "bash", summary: "sleep 5", input: { command: "sleep 5" }, sessionId: "sess-smoke" } });
+  const bgBlock = chatNs.chatToolBlocks.get("MOT-BG1");
+  const fgBlock = chatNs.chatToolBlocks.get("MOT-T4");
+  assert(bgBlock?.wrap.classList.contains("running") && fgBlock?.wrap.classList.contains("running"), "#7 前置:前后台两个工具块都应在运行");
+  assert(chatNs.paneHasRunningTool() === true, "#7 paneHasRunningTool 没认出活动 pane 里在跑的块");
+  handlers.get("kz:error")({ payload: { sessionId: "sess-bg", message: "后台线出错", terminal: true } });
+  await flush();
+  assert(bgBlock.wrap.classList.contains("interrupted") && !bgBlock.wrap.classList.contains("running"), "#7 后台线终态出错后,它 pane 里的工具行仍在转圈");
+  assert(fgBlock.wrap.classList.contains("running"), "#7 后台线的终态把活动线还在跑的工具行也收尾了(串线)");
+  toolEndEv({ payload: { id: "MOT-T4", name: "bash", ok: true, preview: "ok", display: null, sessionId: "sess-smoke" } });
+  await flush();
+  vm.runInContext('transitionSession("sess-bg", "idle")', sandbox);
+
+  // ④ 状态点轮末反馈:完成/失败一次性,停止不播。
+  sandbox.notifyRunState("completed", "动效冒烟");
+  assert(dot.dataset.flash === "completed", `#7 轮末完成未挂一次性反馈,flash=${dot.dataset.flash}`);
+  await flush();
+  assert(dot.dataset.flash === undefined, "#7 轮末完成反馈没有被摘除");
+  sandbox.notifyRunState("failed", "动效冒烟");
+  assert(dot.dataset.flash === "failed", "#7 轮末失败未挂一次性反馈");
+  await flush();
+  sandbox.notifyRunState("stopped", "动效冒烟");
+  assert(dot.dataset.flash === undefined, "#7 停止不该播轮末反馈");
+
+  // ⑤ 等下一轮 / 停止中:活动行保留、警示色;回到空闲收起。
+  sandbox.setRunPending("鞭挞 · 等待下一轮");
+  assert(phase() === "pending" && html.dataset.kzActivity === "pending" && !row.classList.contains("hidden"), `#7 等下一轮时活动行应为 pending,实为 ${phase()} / ${html.dataset.kzActivity}`);
+  assert(dot.dataset.state === "pending", `#7 等下一轮时状态点应为 pending,实为 ${dot.dataset.state}`);
+  sandbox.setStopping("停止中…");
+  assert(phase() === "stopping" && dot.dataset.state === "stopping", `#7 停止中相位不对:${phase()} / ${dot.dataset.state}`);
+  sandbox.setRunning(false, "空闲");
+  assert(row.classList.contains("hidden") && html.dataset.kzActivity === "idle" && dot.dataset.state === "idle", "#7 回到空闲后活动行/状态点未复位");
+  await flush();
+
+  // ⑥ 侧栏线路字形:独立 .kz-glyph,逐事件投影原地更新(同一节点),整行文案逐字不变。
+  vm.runInContext('transitionSession("sess-bg", "running")', sandbox);
+  sandbox.renderParallelTaskStatus(shellNs.processItems);
+  const bgRow = () => [...document.querySelectorAll("#parallel-task-status .parallel-task-row")].find((r) => r.dataset.processId === "p|bg");
+  const glyphOf = () => bgRow()?.querySelector(".parallel-task-state .kz-glyph");
+  const g1 = glyphOf();
+  assert(g1?.dataset.state === "running" && g1.textContent === "●", `#7 运行中线路的字形不对:${g1?.dataset.state} ${g1?.textContent}`);
+  assert(/^-?\d+ms$/.test(g1.style.getPropertyValue("--kz-sync")), `#7 线路字形没有对齐全局相位(--kz-sync=${g1.style.getPropertyValue("--kz-sync")})`);
+  assert(g1.getAttribute("aria-hidden") === "true", "#7 线路字形应对读屏隐藏(文案已说明状态)");
+  assert(bgRow().textContent.includes("● 运行中") || bgRow().textContent.includes("● Running"), `#7 线路行文案形态变了:${bgRow().textContent}`);
+  sandbox.refreshParallelTaskProjection("sess-bg");
+  sandbox.refreshParallelTaskProjection("sess-bg");
+  assert(glyphOf() === g1, "#7 逐事件投影重建了线路字形节点(呼吸动画每个事件都从第 0 帧重来)");
+  vm.runInContext('transitionSession("sess-bg", "idle")', sandbox);
+  sandbox.refreshParallelTaskProjection("sess-bg");
+  assert(glyphOf() === g1 && g1.dataset.state === "idle" && g1.textContent === "○", `#7 转空闲后字形未原地更新:${g1.dataset.state} ${g1.textContent}`);
+  assert(!bgRow().textContent.includes("●"), "#7 空闲线路仍带运行标记");
+
+  // ⑦ 各线在做:线真在跑才 is-live;kz:idle 收敛后摘除。批次格给「正在推的那一格」。
+  sandbox.renderFocusPanel(payloads.docs_snapshot);
+  const bgFocus = () => [...document.querySelectorAll("#focus-body .line-focus")].find((node) => node.dataset.processId === "p|bg");
+  assert(bgFocus(), "#7 前置:焦点区缺后台线路分组");
+  assert(!bgFocus().classList.contains("is-live"), "#7 空闲线路的焦点分组不该 is-live");
+  vm.runInContext('transitionSession("sess-bg", "running")', sandbox);
+  sandbox.renderParallelTaskStatus(shellNs.processItems);
+  assert(bgFocus()?.classList.contains("is-live"), "#7 后台线运行中,焦点分组没有 is-live");
+  handlers.get("kz:idle")({ payload: { reason: "completed", sessionId: "sess-bg" } });
+  await flush();
+  assert(!bgFocus()?.classList.contains("is-live"), "#7 kz:idle 收敛后焦点分组仍 is-live");
+  const cellsOf = (host) => host.querySelectorAll(".complexity-cell");
+  const midCard = sandbox.buildFocusCard(docEntry("R-M01", "动效批次", "doing", { batches: { done: 3, total: 11 } }), "req");
+  const midCells = cellsOf(midCard);
+  const midCurrent = midCells.map((cell, index) => (cell.classList.contains("current") ? index : -1)).filter((index) => index >= 0);
+  assert(midCurrent.length === 1 && midCurrent[0] === 3, `#7 3/11 批的卡片应恰有第 4 格为 current,实为 ${JSON.stringify(midCurrent)}`);
+  const doneCard = sandbox.buildFocusCard(docEntry("R-M02", "动效批次完成", "doing", { batches: { done: 11, total: 11 } }), "req");
+  assert(!cellsOf(doneCard).some((cell) => cell.classList.contains("current")), "#7 批次已全部完成还标了 current 格");
+  const listHost = document.createElement("div");
+  sandbox.renderDocList(listHost, [docEntry("R-M03", "动效列表批次", "doing", { batches: { done: 2, total: 5 } })], "req");
+  const listCurrent = cellsOf(listHost).map((cell, index) => (cell.classList.contains("current") ? index : -1)).filter((index) => index >= 0);
+  assert(listCurrent.length === 1 && listCurrent[0] === 2, `#7 列表 2/5 批应恰有第 3 格为 current,实为 ${JSON.stringify(listCurrent)}`);
+
+  // ⑧ 窗口隐藏即暂停(直接调函数,不派发 visibilitychange,免得触发语音/OC 的副作用)。
+  assert(html.dataset.kzMotion === "live", `#7 启动后 html[data-kz-motion] 应为 live,实为 ${html.dataset.kzMotion}`);
+  document.hidden = true;
+  sandbox.syncMotionVisibility();
+  assert(html.dataset.kzMotion === "paused", "#7 窗口隐藏后动画没有暂停");
+  document.hidden = false;
+  sandbox.syncMotionVisibility();
+  assert(html.dataset.kzMotion === "live", "#7 窗口恢复后动画没有恢复");
+
+  // ⑨ rail 徽标:面板收起时右上角提示「有东西在跑」。
+  sandbox.bgAbortRunning("(动效冒烟前置)");
+  const activityToggle = byId.get("activity-toggle");
+  assert(activityToggle.dataset.running === "false", `#7 活动面板无运行项时徽标应熄灭,实为 ${activityToggle.dataset.running}`);
+  sandbox.bgAdd("MOT-BG-RAIL", "bash", "sleep 3", { command: "sleep 3" }, "sess-smoke");
+  assert(activityToggle.dataset.running === "true", "#7 活动面板有运行项时 rail 徽标未点亮");
+  sandbox.bgEnd("MOT-BG-RAIL", true, "ok", null, "success");
+  assert(activityToggle.dataset.running === "false", "#7 运行项结束后 rail 徽标未熄灭");
+  const agentToggle = byId.get("agent-toggle");
+  sandbox.agentStart("AG-MOTION", "task", "动效徽标", { prompt: "motion" }, "sess-smoke");
+  assert(agentToggle.dataset.running === "true", "#7 子代理运行时 rail 徽标未点亮");
+  sandbox.agentEnd("AG-MOTION", true, "done", null);
+  const stillRunningAgents = [...sandbox.agentEntries.values()].some((entry) => entry.state === "running");
+  assert(agentToggle.dataset.running === String(stillRunningAgents), `#7 子代理结束后 rail 徽标与实际运行数不符:${agentToggle.dataset.running}`);
+
+  // ⑩ 计数 tick:鞭挞轮次上升时 tick 一次,值不变的无参重绘不 tick。
+  const roundNow = byId.get("auto-round-now");
+  const savedRounds = vm.runInContext("currentAutoRounds()", sandbox);
+  sandbox.setAutoRounds("sess-smoke", 2);
+  sandbox.renderAutoRun();
+  await flush();
+  sandbox.setAutoRounds("sess-smoke", 3);
+  sandbox.renderAutoRun();
+  assert(roundNow.textContent === "3" && roundNow.classList.contains("kz-tick"), `#7 鞭挞轮次上升未 tick:${roundNow.textContent} ${roundNow.className}`);
+  await flush();
+  assert(!roundNow.classList.contains("kz-tick"), "#7 kz-tick 一次性类没有被摘除");
+  sandbox.renderAutoRun();
+  assert(!roundNow.classList.contains("kz-tick"), "#7 轮次没变的无参重绘也 tick 了");
+  sandbox.setAutoRounds("sess-smoke", savedRounds);
+  sandbox.renderAutoRun();
+  await flush();
+
+  // ⑪ 上下文条等本轮 usage 时慢呼吸(与 kz:step 同一条 setCtxPending(false) + renderTokens 路径)。
+  sandbox.setCtxLimit(100000);
+  sandbox.setCtxTokens(5000);
+  sandbox.setCtxPending(true);
+  sandbox.renderTokens();
+  assert(byId.get("ctx-bar").classList.contains("pending"), "#7 等本轮 usage 时上下文条没有 pending");
+  sandbox.setCtxPending(false);
+  sandbox.renderTokens();
+  assert(!byId.get("ctx-bar").classList.contains("pending"), "#7 usage 到达后上下文条仍 pending");
+  sandbox.setCtxLimit(savedCtx.limit);
+  sandbox.setCtxTokens(savedCtx.tokens);
+  sandbox.setCtxPending(savedCtx.pending);
+  sandbox.renderTokens();
+
+  // ⑫ 自动放行由关变开弹一次;进行中的按钮 aria-busy(统一转圈)。
+  const autoAllow = byId.get("auto-allow");
+  const badge = byId.get("status-auto-allow");
+  const savedAllow = autoAllow.checked;
+  autoAllow.checked = true;
+  autoAllow.dispatchEvent({ type: "change" });
+  assert(badge.classList.contains("kz-pop"), "#7 自动放行开启时徽标没有弹一下");
+  await flush();
+  autoAllow.checked = savedAllow;
+  autoAllow.dispatchEvent({ type: "change" });
+  await flush();
+  const savedUpdateCheck = payloads.update_check;
+  payloads.update_check = { current: "0.0.0", newer: false };
+  let releaseUpdate;
+  invokeGates.set("update_check", new Promise((resolve) => { releaseUpdate = resolve; }));
+  byId.get("update-check").click();
+  assert(byId.get("update-check").getAttribute("aria-busy") === "true", "#7 检查更新进行中按钮没有 aria-busy(不转圈)");
+  invokeGates.delete("update_check");
+  releaseUpdate();
+  await flush();
+  assert(byId.get("update-check").getAttribute("aria-busy") === null, "#7 检查更新结束后 aria-busy 没有撤掉(会一直转)");
+  if (savedUpdateCheck === undefined) delete payloads.update_check;
+  else payloads.update_check = savedUpdateCheck;
+
+  // 收尾:恢复进程列表与会话状态,后续分区不继承本组的运行态。
+  vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
+  sandbox.setRunning(false, "空闲");
+  payloads.process_list = savedProcessList;
+  sandbox.renderProcesses(structuredClone(savedProcessList));
+  await flush();
+}
 
 // ===== 分区:子代理 =====
 
