@@ -201,6 +201,7 @@ function onPointerDown(event) {
   const target = event.target;
   for (let i = stack.length - 1; i >= 0; i -= 1) {
     const handle = stack[i];
+    if (!handle) continue; // finish 会连带关掉嵌套在它上面的弹层,下标可能越过新的栈顶
     if (!handle.lightDismiss) {
       if (handle.type === "modal") break;
       continue;
