@@ -8862,7 +8862,7 @@ const docsB = {
 
 // ===== 分区:弹层与外观 =====
 // UI-0926 #9 弹层技术栈:00-surface.js 的唯一栈、Esc 唯一入口(捕获阶段只关栈顶)、
-// 模态/菜单/停靠卡片/toast/tooltip 原语。设计见 docs/design/ui_surface_stack.md §10。
+// 模态/菜单/停靠卡片/toast/tooltip 原语。设计见 docs/design/ui_surface_stack.md §9。
 {
   const surface = esmModuleCache.get("00-surface.js")?.namespace;
   const events = esmModuleCache.get("07-events.js")?.namespace;
