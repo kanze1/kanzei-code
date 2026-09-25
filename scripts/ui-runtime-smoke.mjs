@@ -128,6 +128,28 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*discardSessionPane\(sessionId\);\r?\n/,
       replace: "",
     },
+    // UI-0926 #2 复核:按钮 title 与点击分流共用 activeLineBusy。退回只看 running/runControlPending,
+    // 启动中/轮间等待时 title 写着空闲文案,点下去却另开线路——说的和做的不一致。
+    newChatTitleSharedBusy: {
+      pattern: /const busy = active_space === "dev" && activeLineBusy\(\);/,
+      replace: 'const busy = active_space === "dev" && (running || runControlPending);',
+    },
+    // UI-0926 #2 复核:活动线相位一变 title 就跟上。删了它,title 停在上一次 setRunning 时的忙闲。
+    newChatTitleFollowsPhase: {
+      pattern: /[ \t]*if \(sessionId === activeSessionId\) syncNewChatEnabled\(\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #2 复核:clear 成功后才撤续跑。删了它,clear 在途时轮末新排的那一枪带着「继续」落进新段。
+    newChatCancelAfterClear: {
+      pattern: /[ \t]*cancelAutoContinueTimer\(forSessionId\);\r?\n(?=[ \t]*\/\/ 作废此前发出)/,
+      replace: "",
+    },
+    // UI-0926 #1 复核:后端持锁拒删(前端预检时 kz:turn 未到)走已翻译的提示。删了它,
+    // 后端的中文原文经 toastError 甩进英文界面,还挂一个停下之前必然再被拒的「重试」。
+    deleteRefusedToast: {
+      pattern: /[ \t]*if \(String\(err\)\.includes\("线路运行中"\)\) \{\r?\n[^\n]*\r?\n[ \t]*return;\r?\n[ \t]*\}\r?\n/,
+      replace: "",
+    },
 
     // ---- 分区:模型选择 ----
 
@@ -8874,7 +8896,9 @@ const docsB = {
 // 「触顶」自动 loadEarlierMessages,把旧对话一窗一窗补回提示上方。放大因素四处:
 // 在途装载迟到、后台 pane 默认可见、忙碌时按钮被禁用吞掉点击、兜底改选不换 pane。
 // 场景 A-F 各钉一处,各带一个 KZ_SMOKE_MUTATE 变异守卫(newChatForgetHistory / newChatEpoch /
-// bgPaneHidden / newChatBusyNewLine / fallbackPaneSwitch / newChatRefusedNewLine)。
+// bgPaneHidden / newChatBusyNewLine / fallbackPaneSwitch / newChatRefusedNewLine)。复核补:
+// 场景 A2(clear 成功后才撤续跑,newChatCancelAfterClear)、D0(按钮 title 与点击分流同一判据、
+// 相位一变就跟上,newChatTitleSharedBusy / newChatTitleFollowsPhase)。
 {
   vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
   const savedNcProcessList = payloads.process_list;
@@ -8950,6 +8974,40 @@ const docsB = {
   await touchTop();
   freshView("场景 A 再点一次");
 
+  // ---- 场景 A2:续跑只在新段建成后才撤;clear 因其它原因失败时鞭挞照旧 ----
+  // 空闲判定已排除排着的续跑;clear 在途时轮末事件新排的那一枪,要在新段建成后撤掉
+  // (否则它带着「继续」落进新段)。clear 失败(打不开库、IO)时什么都不撤,只报错。
+  const armNcTimer = () => vm.runInContext('autoContinueTimers.set("sess-nc", { timer: setTimeout(() => {}, 600000) })', sandbox);
+  const ncTimerArmed = () => vm.runInContext('autoContinueTimers.has("sess-nc")', sandbox);
+  let releaseClear;
+  invokeGates.set("conversation_clear", new Promise((resolve) => { releaseClear = resolve; }));
+  const clearsBeforeA2 = clearCalls().length;
+  byId.get("new-chat").click();
+  await settle();
+  invokeGates.delete("conversation_clear");
+  assert(clearCalls().length === clearsBeforeA2 + 1, "场景 A2 前置失败:空闲线点新对话没有发出 conversation_clear");
+  armNcTimer();
+  releaseClear();
+  await flush();
+  assert(!ncTimerArmed(), "场景 A2:clear 在途时新排的续跑在新段建成后没撤——那一枪会带着「继续」落进新段");
+  freshView("场景 A2");
+  invokeGates.set("conversation_clear", new Promise((resolve) => { releaseClear = resolve; }));
+  invokeFailures.set("conversation_clear", "R2打不开数据库");
+  expectedPersistentError = "R2打不开数据库";
+  const persistentBeforeA2 = expectedPersistentHits;
+  byId.get("new-chat").click();
+  await settle();
+  invokeGates.delete("conversation_clear");
+  armNcTimer();
+  releaseClear();
+  await flush();
+  invokeFailures.delete("conversation_clear");
+  expectedPersistentError = null;
+  assert(expectedPersistentHits === persistentBeforeA2 + 1, "场景 A2 前置失败:clear 失败没有走持久错误出口");
+  assert(ncTimerArmed(), "场景 A2:clear 失败时把排着的续跑也撤了——开着鞭挞的线会静默停摆");
+  vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
+  assert(!byId.get("new-chat").disabled && byId.get("new-chat").getAttribute("aria-busy") !== "true", "场景 A2:失败后按钮仍处于禁用/忙碌态");
+
   // ---- 场景 B:新对话作废在途的旧段装载 ----
   dropAllPanes();
   let releaseLoad;
@@ -8986,6 +9044,24 @@ const docsB = {
   assert(
     vm.runInContext('messagePanes.get("sess-autoloop")?.textContent ?? ""', sandbox).includes(BG_TEXT),
     "场景 C:后台线的输出丢了(应渲染进它自己的隐藏 pane)",
+  );
+
+  // ---- 场景 D0:按钮 title 与点击分流同一判据,相位一变就跟上 ----
+  // running/runControlPending 都为假、但活动线在启动中或鞭挞轮间等待:点下去会另开线路,
+  // title 必须已经这么说;回到空闲再说回空闲文案。
+  sandbox.setRunning(false, "空闲");
+  const BUSY_TITLE = sandbox.t("当前线路运行中:点击将另开一条线路开启新对话");
+  for (const phase of ["starting", "auto_pending"]) {
+    vm.runInContext(`transitionSession("sess-nc", ${JSON.stringify(phase)})`, sandbox);
+    assert(
+      byId.get("new-chat").title === BUSY_TITLE,
+      `场景 D0:活动线 ${phase} 时 title 仍是空闲文案(${byId.get("new-chat").title}),点下去却会另开线路`,
+    );
+  }
+  vm.runInContext('transitionSession("sess-nc", "idle")', sandbox);
+  assert(
+    byId.get("new-chat").title === sandbox.t("开一段新对话(旧对话保留在「历史对话」)"),
+    `场景 D0:回到空闲后 title 没有说回空闲文案(${byId.get("new-chat").title})`,
   );
 
   // ---- 场景 D:运行中的线点新对话 → 另开无工作树线路,原线在自己的 pane 里继续跑 ----
@@ -9082,8 +9158,8 @@ const docsB = {
 // 删掉当前段后主区、窗口化缓存与续跑都得清:否则被删对话留在屏幕上、触顶从缓存补回、
 // 在途装载迟到画回、排上的续跑那一轮落进空段。删旧段时主区可能正显示着那段历史,要按
 // 当前段重载;后台线的 pane 直接作废;运行中的线前端先挡(后端持锁再挡);删除与关闭两处
-// 弹窗如实说明删什么、留什么。场景 G-K,变异守卫 deleteRunningGuard / deleteClearedFresh /
-// deleteCancelTimer / deleteEpoch / deleteReloadPane / deleteDiscardBgPane。
+// 弹窗如实说明删什么、留什么。场景 G-L,变异守卫 deleteRunningGuard / deleteClearedFresh /
+// deleteCancelTimer / deleteEpoch / deleteReloadPane / deleteDiscardBgPane / deleteRefusedToast。
 {
   vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
   const saved = {
@@ -9242,6 +9318,22 @@ const docsB = {
     vm.runInContext("activeProcessId", sandbox) === LINE.id && paneNow().includes("R1当前段"),
     "场景 J:删后台线的历史波及了活动线的视图",
   );
+
+  // ---- 场景 L:前端预检以为空闲、后端持锁判定在跑 → 与预检同一句已翻译的提示 ----
+  // 后端原文是中文;经 toastError 原样显示会把中文甩进英文界面(还挂一个必然再被拒的重试)。
+  // 走了 toastError 的话,harness 的持久错误探针也会判红。
+  esmModuleCache.get("03-shell.js")?.namespace?.toast("R1哨兵");
+  invokeFailures.set("conversation_delete", "线路运行中,先停止再删除历史对话");
+  const deletesBeforeL = calls("conversation_delete").length;
+  await deleteConversation(LINE.id, [42]);
+  await flush();
+  invokeFailures.delete("conversation_delete");
+  assert(calls("conversation_delete").length === deletesBeforeL + 1, "场景 L 前置失败:没有发出 conversation_delete");
+  assert(
+    (listText("toast").split("R1哨兵").at(-1) ?? "").includes(sandbox.t("运行中请先完成或停止当前任务，再删除历史对话")),
+    `场景 L:后端拒删(线路运行中)没有给出已翻译的提示(${listText("toast")})`,
+  );
+  assert(paneNow().includes("R1当前段"), "场景 L:被拒绝的删除动了主区");
 
   // ---- 场景 K:关闭线路弹窗说明对话去向 ----
   let closeMessage = "";

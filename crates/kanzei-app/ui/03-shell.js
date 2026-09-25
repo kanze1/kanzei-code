@@ -2,7 +2,7 @@ import { defer } from "./01-core.js";
 import { $, invoke, renderingBackground, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
 import { I18N_EN, localizeDynamic, t } from "./02-i18n.js";
 import { agentClosePanel, fastStatusText } from "./06-activity.js";
-import { clearStoppingWatchdog } from "./08-auto.js";
+import { autoContinueTimers, clearStoppingWatchdog } from "./08-auto.js";
 import { send } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
 import { refreshWorktrees } from "./09-sessions.js";
@@ -407,6 +407,8 @@ export function transitionSession(sessionId, phase, detail = {}) {
     state.terminal_status = phase === "stopped" ? "已停止" : phase === "failed" ? "出错" : "";
   }
   Object.assign(state, detail);
+  // 「新对话」按钮 title 按活动线忙闲说明点下去会怎样:相位一变就跟上(只在值变时写)。
+  if (sessionId === activeSessionId) syncNewChatEnabled();
   return state;
 }
 export function toggleSidebar() {
@@ -613,18 +615,32 @@ export function setRunning(value, statusText) {
 /// 吞掉,只有落进空闲空隙的那一下生效——「要点好几次」的来源之一。现在忙碌线点它
 /// 会另开一条线路(15-views-misc.js startNewConversation),按钮只在本次新对话在途时
 /// 禁用(aria-busy),防双击重复建线;title 按忙闲说清点下去会发生什么。
+/// transitionSession 每个进度事件都会调到这里,所以只在值真变了时才写。
 export function syncNewChatEnabled() {
   const fresh = $("new-chat");
   if (!fresh) return;
-  fresh.disabled = fresh.getAttribute("aria-busy") === "true";
-  const busy = active_space === "dev" && (running || runControlPending);
+  const disabled = fresh.getAttribute("aria-busy") === "true";
+  if (fresh.disabled !== disabled) fresh.disabled = disabled;
+  // 与 startNewConversation 的分流同一判据:title 说「另开线路」时点下去必定另开线路。
+  const busy = active_space === "dev" && activeLineBusy();
   const titleKey = active_space === "research" ? "新建课题会话，保留已有对话"
     : busy ? "当前线路运行中:点击将另开一条线路开启新对话"
     : "开一段新对话(旧对话保留在「历史对话」)";
   // 动态 title 必须同步写回 data-i18n-title:语言重应用(applyDataI18nKeys)按它重算,
   // 不写的话会被 index.html 的静态键冲回空闲文案,忙碌时的说明就看不到了。
-  fresh.dataset.i18nTitle = titleKey;
-  fresh.title = t(titleKey);
+  if (fresh.dataset.i18nTitle !== titleKey) fresh.dataset.i18nTitle = titleKey;
+  const title = t(titleKey);
+  if (fresh.title !== title) fresh.title = title;
+}
+
+/// 活动线是否「还没停」:运行中、停止中、鞭挞轮间等待,或续跑定时器已排上。
+/// 这些状态下 runner(或马上要开跑的那一轮)握着旧段,新对话不能在它脚下开新段,
+/// 要另开线路。按钮 title(syncNewChatEnabled)与点击分流(startNewConversation)共用它。
+export function activeLineBusy() {
+  if (running || runControlPending) return true;
+  const phase = activeSessionId ? sessionState(activeSessionId).phase : "idle";
+  return ["starting", "running", "stopping", "auto_pending"].includes(phase)
+    || Boolean(activeSessionId && autoContinueTimers.has(activeSessionId));
 }
 
 export function setStopping(statusText) {

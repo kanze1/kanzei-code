@@ -18,6 +18,7 @@ import {
 } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import {
+  activeLineBusy,
   activeProcessId,
   activeSessionId,
   ctxTokens,
@@ -27,7 +28,6 @@ import {
   log,
   processItems,
   renderTokens,
-  runControlPending,
   running,
   sessionState,
   setStatus,
@@ -51,7 +51,7 @@ import {
 } from "./05-chat-render.js";
 import { bgClear, renderRecoveredTraces } from "./06-activity.js";
 import { addSummaryEntry } from "./07-events.js";
-import { autoContinueTimers, cancelAutoContinueTimer } from "./08-auto.js";
+import { cancelAutoContinueTimer } from "./08-auto.js";
 import { processRunning, processSwitchGeneration, refreshProcesses, switchProcess } from "./09-sessions.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import { forProject } from "./20-lines.js";
@@ -722,6 +722,12 @@ export async function deleteConversationsForProcess(processId, sequences) {
   try {
     result = await invoke("conversation_delete", { projectDir: currentProject, processId, sequences });
   } catch (err) {
+    // 后端持 lifecycle 锁判定该线在跑(前端预检时 kz:turn 还没到):给与预检同一句已翻译的
+    // 提示,不把后端的中文原文甩进英文界面,也不给「重试」——停下之前重试只会再被拒。
+    if (String(err).includes("线路运行中")) {
+      toast(t("运行中请先完成或停止当前任务，再删除历史对话"));
+      return;
+    }
     toastError(String(err), { retry: () => deleteConversationsForProcess(processId, sequences) });
     return;
   }
@@ -948,15 +954,6 @@ export function showFreshConversation() {
   promptBox.focus();
 }
 
-/// 活动线是否「还没停」:运行中、停止中、鞭挞轮间等待,或续跑定时器已排上。
-/// 这些状态下 runner(或马上要开跑的那一轮)握着旧段,不能在它脚下开新段。
-function activeLineBusy() {
-  if (running || runControlPending) return true;
-  const phase = activeSessionId ? sessionState(activeSessionId).phase : "idle";
-  return ["starting", "running", "stopping", "auto_pending"].includes(phase)
-    || Boolean(activeSessionId && autoContinueTimers.has(activeSessionId));
-}
-
 /// 忙碌线点新对话:另开一条无工作树线路并切过去(继承模型与思考强度),原线在它
 /// 自己的(已隐藏)pane 里继续跑。不逼用户先停鞭挞,也不在 runner 脚下清历史。
 /// 新线鞭挞默认关;在新线上再点新对话走空闲分支,不会滚雪球式建线。
@@ -991,13 +988,12 @@ export async function startNewConversation() {
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
   try {
+    // 忙碌判据含「续跑定时器已排上」:走到下面的空闲分支时这条线没有排着的续跑。
     if (activeLineBusy()) return await startConversationOnNewLine();
     const forProject = currentProject;
     const forProcessId = activeProcessId;
     const forSessionId = activeSessionId;
     if (!forProcessId) return await startConversationOnNewLine();
-    // 先撤续跑再清:否则 await 期间开火的那一轮直接写进新段,新对话名存实亡。
-    cancelAutoContinueTimer(forSessionId);
     try {
       await invoke("conversation_clear", { projectDir: forProject, processId: forProcessId });
     } catch (err) {
@@ -1005,8 +1001,12 @@ export async function startNewConversation() {
       // 不让用户吃一个报错再点第二次。
       const refusedAsRunning = String(err).includes("会话运行中") && activeProcessId === forProcessId;
       if (refusedAsRunning) return await startConversationOnNewLine();
+      // 其它失败(打不开库、IO):什么都没撤,排着的鞭挞照旧,只报错。
       throw err;
     }
+    // 新段已建:await 期间轮末事件若新排了一枪续跑,它会带着「继续」落进新段,撤掉。
+    // 放在 clear 成功之后——clear 失败时不能顺手把鞭挞静默停掉。
+    cancelAutoContinueTimer(forSessionId);
     // 作废此前发出、还没落地的 conversation_get / conversation_trace_get。
     bumpConversationEpoch(forSessionId);
     if (currentProject !== forProject || activeProcessId !== forProcessId) {
