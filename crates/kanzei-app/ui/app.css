@@ -1,0 +1,7 @@
+/* 样式唯一入口(index.html 与 gallery.html 只引用这一个文件)。
+   层序:tokens < base < app < surface。app 是现有 style.css 全文(含主题 token 块);
+   surface 是弹层外观(surface.css),排在 app 之后——层序优先于选择器特异性,
+   视图规则写得再「重」也压不过弹层外观。见 docs/design/ui_surface_stack.md。 */
+@layer tokens, base, app, surface;
+@import url("style.css") layer(app);
+@import url("surface.css") layer(surface);

@@ -31,11 +31,12 @@ pub use runner::{
     compact_conversation, compaction_budget, completed_entry, estimate_conversation_tokens,
     is_usable_failure_kind, mask_volatile_payload, normalize_fp_marker,
     pending_background_subagents, prune_conversation, run_once, run_once_with_parts,
-    run_read_agent, summarize_failures, summarize_metrics, summarize_tools, AskFuture, AskOption,
-    AskPolicy, AskReply, AskRequest, AskResponse, BackgroundEventSink, CancellationToken,
-    CompletedEntry, FailureSignal, RecallHit, RecallOutcome, RecallPolicy, RecallRunOutcome,
-    RecallTrigger, RecallWatch, RunEvent, RunMetrics, RunSummary, RunnerConfig, SubagentRuntime,
-    SubagentTranscriptProvider, TaskCancellationGuard, TaskCancellations, TaskTrace,
+    run_read_agent, summarize_failures, summarize_metrics, summarize_tools, ui_tool_content,
+    AskFuture, AskOption, AskPolicy, AskReply, AskRequest, AskResponse, BackgroundEventSink,
+    CancellationToken, CompletedEntry, FailureSignal, RecallHit, RecallOutcome, RecallPolicy,
+    RecallRunOutcome, RecallTrigger, RecallWatch, RunEvent, RunMetrics, RunSummary, RunnerConfig,
+    SubagentRuntime, SubagentTranscriptProvider, TaskCancellationGuard, TaskCancellations,
+    TaskTrace, TOOL_END_UI_CONTENT_MAX,
 };
 pub use store::{
     compare_shadow, prepare_typed_session, project_session_facts,

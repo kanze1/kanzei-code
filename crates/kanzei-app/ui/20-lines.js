@@ -1,4 +1,5 @@
 import { defer } from "./01-core.js";
+import { motionSync } from "./01-core.js";
 import { $, confirmDialog, invoke } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import {
@@ -10,10 +11,11 @@ import {
   sessionState,
   toastError,
 } from "./03-shell.js";
-import { buildDiffTree } from "./06-activity.js";
+import { buildDiffTree, renderDiff } from "./06-activity.js";
+import { parseUnifiedDiff } from "./04-structured-parse.js";
 import { lineAutoConfig, queueProcessUpdate, setLineAutoState, updateLocalProcessItem } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
-import { loadModels, syncModelSelectToActiveLine } from "./08-models.js";
+import { projectDefaultModel, syncModelSelectToActiveLine } from "./08-models.js";
 import {
   closeParallelProcess,
   createWorktreeLine,
@@ -22,6 +24,7 @@ import {
   switchProcess,
   worktreeLineCreateInFlight,
 } from "./09-sessions.js";
+import { jumpToEntry } from "./11-docs-list.js";
 import { latestDocsSnapshot, renderDocuments } from "./12-docs-pages.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import { refreshGit } from "./15-views-misc.js";
@@ -162,8 +165,14 @@ export function buildLineModelSelect(item) {
     seen.add(value);
     select.appendChild(new Option(label, value));
   };
-  add("", t("模型:agent 默认"));
-  for (const model of linesModelCatalog ?? []) add(model.id, model.label);
+  // UI-0926 #3:空选项写明「跟随默认」解析到哪个模型(与输入框芯片同源:model_effective)。
+  add("", `${t("跟随默认")} · ${projectDefaultModel ?? ""}`.replace(/ · $/, ""));
+  // 角色项(primary/fast/compact)不再列出:它们的去向由项目/全局配置决定,「跟随默认」已经说清;
+  // 只有这条线当前存的就是某个角色(旧版遗留)时才列出,方便看见并清掉。
+  for (const model of linesModelCatalog ?? []) {
+    if (["primary", "fast", "compact"].includes(model.id) && model.id !== current) continue;
+    add(model.id, model.label);
+  }
   // 该线记住的直指模型即使不在探测清单里也必须可见,否则一次刷新就把它从下拉里抹掉,
   // 用户以为自己没设过(D-167 同源)。
   if (current) add(current, `${current}(${t("已记住")})`);
@@ -173,12 +182,10 @@ export function buildLineModelSelect(item) {
     updateLocalProcessItem(item.id, { model: value || null });
     try {
       await queueProcessUpdate(item.id, { model: value });
-      log(`${item.label} ${t("该线模型已切换")}:${value || t("模型:agent 默认")}`);
-      // 改的若是当前线,顶栏那一份要跟着走——两处显示同一条线却不一致最难查。
-      if (item.id === activeProcessId && typeof loadModels === "function") {
-        await loadModels();
-        syncModelSelectToActiveLine();
-      }
+      log(`${item.label} ${t("该线模型已切换")}:${value || t("跟随默认")}`);
+      // 改的若是当前线,输入框上方的芯片要跟着走——两处显示同一条线却不一致最难查。
+      // 目录没变,只重问一次「下一轮将使用」。
+      if (item.id === activeProcessId) await syncModelSelectToActiveLine();
     } catch (error) {
       toastError(`${t("模型切换失败")}:${error}`);
     }
@@ -357,6 +364,8 @@ export function renderLines(lines) {
     const statusKey = lineStatusKey(line, lineRunning);
     state.className = `line-running-state ${statusKey.replace("_", "-")}`;
     state.textContent = lineStatusLabel(statusKey);
+    // #7:线路页按快照整块重绘,新节点对齐全局相位,扩散环不会每次重绘都从头来。
+    motionSync(state);
     head.append(identity, state);
 
     const claim = document.createElement("div");
@@ -367,6 +376,18 @@ export function renderLines(lines) {
       const entry = entries.find(entry => entry.id === id);
       return entry ? `${id} · ${entry.title}` : id;
     };
+    // UI-0926 #4:快照里查得到的条目做成链接,一点直达单页里展开的详情;查不到(线路工作树里
+    // 刚登记、还没合并进主列表)就只写文字,不给一个点了落空的链接。
+    const claimNode = id => {
+      if (!entries.some(entry => entry.id === id)) return document.createTextNode(claimText(id));
+      const link = document.createElement("button");
+      link.type = "button";
+      link.className = "ref-link line-claim-link";
+      link.textContent = claimText(id);
+      link.title = t("点击查看详情");
+      link.addEventListener("click", () => void jumpToEntry(id, { expand: true }));
+      return link;
+    };
     if (claimedIds.length > 1) {
       const held = document.createElement("details");
       held.className = "line-held-items";
@@ -374,9 +395,10 @@ export function renderLines(lines) {
       const summary = document.createElement("summary");
       summary.textContent = `${t(line.worktree_path ? "工作树持有" : "共享工作区持有")} ${claimedIds.length} ${t("条")}`;
       const list = document.createElement("ul");
-      for (const id of claimedIds) { const item = document.createElement("li"); item.textContent = claimText(id); list.appendChild(item); }
+      for (const id of claimedIds) { const item = document.createElement("li"); item.appendChild(claimNode(id)); list.appendChild(item); }
       held.append(summary, list); claim.appendChild(held);
-    } else claim.textContent = claimedIds.length ? claimText(claimedIds[0]) : line.claim || t("未取得条目");
+    } else if (claimedIds.length) claim.appendChild(claimNode(claimedIds[0]));
+    else claim.textContent = line.claim || t("未取得条目");
     if (line.claim_error) {
       claim.classList.add("error");
       claim.title = line.claim_error;
@@ -555,13 +577,29 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
       // 不新造查看器。porcelain 行形如 ` M src/foo.rs`(状态列 + 空格)——剥掉
       // 状态列取路径;增删计数从 diff 文本按文件统计(简化:该文件块内 + 开头
       // 行数 / - 开头行数)。
+      // UI-0926 #10:增删计数与逐文件差异从 unified diff 解析(parseUnifiedDiff),
+      // 不再全是 +0/−0;每个文件一个可折叠的着色 diff,原始文本仍保留在最后。
+      const parsedDiff = parseUnifiedDiff(info.diff ?? "");
+      const countsByPath = new Map(parsedDiff.map((file) => [file.path, file]));
       const treeFiles = (info.files ?? []).map((raw) => {
         const path = raw.replace(/^[MADRCU?! ]{2} /, "").trim();
-        return { path, additions: 0, deletions: 0 };
+        const counts = countsByPath.get(path);
+        return { path, additions: counts?.additions ?? 0, deletions: counts?.deletions ?? 0 };
       });
       const diffPanel = document.createElement("div");
       diffPanel.className = "harvest-diff-tree";
       diffPanel.replaceChildren(typeof buildDiffTree === "function" ? buildDiffTree(treeFiles) : document.createTextNode(treeFiles.map((f) => f.path).join("\n")));
+      const fileDiffs = document.createElement("div");
+      fileDiffs.className = "sv-diff-files";
+      for (const file of parsedDiff) {
+        if (!file.lines.length) continue;
+        const item = document.createElement("details");
+        item.dataset.path = file.path;
+        const head = document.createElement("summary");
+        head.textContent = `${file.path}  +${file.additions} −${file.deletions}`;
+        item.append(head, renderDiff(file, { compact: true }));
+        fileDiffs.appendChild(item);
+      }
       const rawDiff = info.diff ? `${t("差异")}:\n${info.diff}` : t("工作树干净,没有未提交差异");
       const rawPre = document.createElement("details");
       rawPre.className = "harvest-diff-raw";
@@ -571,7 +609,7 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
       rawBody.className = "harvest-diff";
       rawBody.textContent = rawDiff;
       rawPre.append(rawSummary, rawBody);
-      diffOutput.replaceChildren(diffPanel, rawPre);
+      diffOutput.replaceChildren(diffPanel, ...(fileDiffs.children.length ? [fileDiffs] : []), rawPre);
       diffOutput.hidden = false;
       readConfirm.disabled = false;
       diffLoad.textContent = t("重新加载");

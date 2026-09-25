@@ -1,0 +1,196 @@
+<!doctype html>
+<!-- 弹层样例页(UI-0926 #9,docs/design/ui_surface_stack.md §8)。
+     只引入 app.css 与 gallery.js(gallery.js 只从 00-surface.js 引入),不依赖应用其它模块与 Tauri。
+     用途:①人工对照每种弹层在暗/亮两套主题下的外观;②ui-surface-gallery-smoke 在无头 Edge 里
+     逐个打开、比对 token、量对比度与包围盒、截图。页面 id 与 index.html 同名的只有确认框/输入框
+     (confirmDialog/inputDialog 按 id 取宿主),其余一律 demo- 前缀。 -->
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="color-scheme" content="dark light" />
+  <title>kanzei 弹层样例</title>
+  <link rel="stylesheet" href="app.css" />
+  <style>
+    /* 样例页自身的排版(不是弹层外观):只引用 token。 */
+    body { overflow: auto; user-select: text; }
+    .g-page { padding: 14px 20px 48px; display: flex; flex-direction: column; gap: 14px; max-width: 1240px; }
+    .g-bar, .g-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .g-title { font-size: var(--fs-16); font-weight: 600; color: var(--fg-strong); margin-right: auto; }
+    .g-label { color: var(--dim); font-size: var(--fs-11); letter-spacing: .04em; min-width: 72px; }
+    .g-canary { position: relative; padding-bottom: 120px; }
+    /* 「金丝雀」底块:下拉列表若没被画进页面(base-select 失效)或画成白底,截图亮度都会露馅。 */
+    .g-canary::after { content: ""; position: absolute; left: 0; right: 0; top: 40px; height: 110px; background: var(--fg); border-radius: var(--r-sm); z-index: var(--z-base); pointer-events: none; }
+    .g-canary > :not([popover]) { position: relative; z-index: var(--z-raised); }
+    .g-composer { container-type: inline-size; display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--panel); }
+    .g-matrix-wrap { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .g-matrix { display: flex; flex-direction: column; gap: 10px; padding: 14px; background: var(--bg); color: var(--fg); border: 1px solid var(--border-soft); border-radius: var(--r-lg); }
+    .g-matrix .k-static { max-width: 100%; }
+    .g-matrix .k-static:not(.k-dialog, .k-card, .k-menu, .k-panel) { width: fit-content; }
+    .g-matrix .k-card { min-width: 0; }
+    .g-panel { width: 320px; height: 140px; padding: 10px 12px; }
+    .g-completion { flex-wrap: nowrap; }
+    #demo-completion-anchor { flex: 1 1 auto; min-width: 0; resize: none; font: var(--fs-12) var(--mono); }
+    .g-long { max-height: none; }
+  </style>
+</head>
+<body>
+  <main class="g-page">
+    <div class="g-bar">
+      <span class="g-title">kanzei 弹层样例</span>
+      <button type="button" class="ghost" data-theme-set="dark">暗色</button>
+      <button type="button" class="ghost" data-theme-set="light">亮色</button>
+      <button type="button" class="ghost" id="demo-open-each">逐个打开</button>
+      <button type="button" class="ghost" id="demo-close-all">全部关闭</button>
+    </div>
+
+    <!-- 下拉:放在页面最上方,列表向下弹时正好盖住金丝雀底块。 -->
+    <div class="g-row g-canary" id="demo-select-row">
+      <span class="g-label">下拉</span>
+      <select id="demo-select" title="普通下拉">
+        <option value="a">思考:默认</option>
+        <option value="b">思考:高</option>
+        <option value="c" disabled>禁用项</option>
+        <option value="d">缺陷优先</option>
+      </select>
+      <select id="demo-select-chip" class="ctx-select" title="透明芯片下拉(.ctx-select)">
+        <option>模型:agent 默认</option>
+        <option>primary → codex</option>
+        <option>fast → ollama</option>
+      </select>
+      <select id="demo-select-long" title="30 项长列表"></select>
+      <button type="button" class="ghost" id="demo-menu-select-trigger" data-kz-menu="demo-menu-select">菜单内嵌下拉</button>
+      <div id="demo-menu-select" class="k-surface k-menu hidden" popover="manual" data-placement="bottom-start" role="group" aria-label="菜单内嵌下拉">
+        <label class="menu-row" for="demo-select-in-menu">
+          <span class="menu-row-main"><span class="menu-row-title">取活顺序</span><span class="menu-row-desc">菜单里的下拉:Esc 先关列表,再关菜单</span></span>
+          <select id="demo-select-in-menu">
+            <option>缺陷优先</option>
+            <option>需求优先</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="g-row">
+      <span class="g-label">模态</span>
+      <button type="button" class="ghost" data-demo="confirm">确认框</button>
+      <button type="button" class="ghost" data-demo="confirm-danger">危险确认</button>
+      <button type="button" class="ghost" data-demo="confirm-safe">三键确认</button>
+      <button type="button" class="ghost" data-demo="input">输入框</button>
+      <button type="button" class="ghost" data-demo="dialog-lg">大尺寸查看器</button>
+      <button type="button" class="ghost" data-demo="dialog-palette">命令面板尺寸</button>
+      <button type="button" class="ghost" data-demo="dialog-menu">弹窗内菜单</button>
+    </div>
+
+    <!-- 文件补全:宽锚点(复刻输入框),列表须与锚点同宽,不被菜单/浮层的 420px 上限截窄。 -->
+    <div class="g-row g-completion">
+      <span class="g-label">补全</span>
+      <textarea id="demo-completion-anchor" rows="2" aria-label="补全锚点" placeholder="@src/">@src/</textarea>
+      <button type="button" class="ghost" data-demo="completion">打开补全</button>
+      <div id="demo-completion" class="k-surface k-popover file-suggestions hidden" popover="manual" data-placement="top-start" role="listbox">
+        <button type="button" class="file-suggestion active">@src/main.rs</button>
+        <button type="button" class="file-suggestion">@src/lib.rs</button>
+        <button type="button" class="file-suggestion">@crates/kanzei-app/ui/00-surface.js</button>
+      </div>
+    </div>
+
+    <div class="g-row">
+      <span class="g-label">菜单与浮层</span>
+      <button type="button" class="ghost" id="demo-menu-static-trigger" data-kz-menu="demo-menu-static">静态菜单</button>
+      <div id="demo-menu-static" class="k-surface k-menu hidden" popover="manual" data-placement="bottom-start" role="group" aria-label="静态菜单">
+        <div class="menu-section">
+          <span class="menu-section-label">刹车</span>
+          <label class="menu-row" data-shortcut="1"><span class="menu-row-main"><span class="menu-row-title">本轮后停</span><span class="menu-row-desc">让当前这一轮跑完,之后不再自动继续</span></span><kbd class="menu-key">1</kbd><input type="checkbox" /></label>
+          <label class="menu-row" data-shortcut="2"><span class="menu-row-main"><span class="menu-row-title">自动放行</span><span class="menu-row-desc">权限询问全部直接通过</span></span><kbd class="menu-key">2</kbd><input type="checkbox" /></label>
+        </div>
+      </div>
+      <button type="button" class="ghost" id="demo-menu-js-anchor" data-demo="menu-js">JS 菜单</button>
+      <button type="button" class="ghost" id="demo-popover-anchor" data-demo="popover">锚定浮层</button>
+      <div id="demo-popover" class="k-surface k-popover hidden" popover="manual" data-placement="bottom-start">
+        <strong>上下文成分</strong><br />输入上下文: 148,200 tokens<br />缓存读取: 131,000 tokens<br />本轮输出: 2,310 tokens
+      </div>
+      <button type="button" class="ghost" data-demo="card">停靠卡片</button>
+      <button type="button" class="ghost" data-demo="chip">浮动芯片</button>
+      <button type="button" class="ghost" data-demo="toast">四种 toast</button>
+      <button type="button" class="ghost" id="demo-tip-short" title="短提示" data-demo="tooltip">短提示</button>
+      <button type="button" class="ghost" id="demo-tip-long" data-demo="tooltip-long" title="开启后本进程每个任务强制走:并行勘察 → 实现 → 并行复核 →(有发现时)修正。
+关闭时是一问一答,模型仍可自己派子代理。
+成本:每轮多 5 个勘察 + 3 个复核子代理。">长提示</button>
+    </div>
+
+    <!-- 复刻输入区环境:container-type: inline-size 容器里、向上弹出的菜单。 -->
+    <div class="g-composer" id="demo-composer">
+      <button type="button" class="ghost" id="demo-menu-container-trigger" data-kz-menu="demo-menu-container">更多</button>
+      <div id="demo-menu-container" class="k-surface k-menu composer-menu-panel hidden" popover="manual" data-placement="top-end" role="group" aria-label="更多">
+        <button type="button" class="ghost">总结</button>
+        <button type="button" class="ghost">复制上下文</button>
+        <button type="button" class="ghost">搜索</button>
+      </div>
+    </div>
+
+    <div class="g-row">
+      <span class="g-label">侧面板</span>
+      <aside id="demo-panel" class="k-surface k-panel g-panel" aria-label="活动"><strong>活动</strong><p class="dim">常驻工具窗:不进顶层,只共享外观。</p></aside>
+    </div>
+
+    <div class="g-label">静态矩阵(暗色页面下同屏对比两套主题)</div>
+    <div class="g-matrix-wrap" id="demo-matrix">
+      <section class="g-matrix" data-matrix="dark"></section>
+      <section class="g-matrix" data-matrix="light" data-theme="light"></section>
+    </div>
+  </main>
+
+  <dialog id="demo-dialog-lg" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="demo-dialog-lg-title">
+    <div id="viewer-dialog">
+      <div class="viewer-head"><span id="demo-dialog-lg-title">R-364 发现记录</span><span><button type="button" id="demo-dialog-lg-external" class="icon-btn" title="在外部编辑器打开" aria-label="在外部编辑器打开">↗</button><button type="button" id="demo-dialog-lg-close" class="icon-btn" title="关闭" aria-label="关闭查看器">✕</button></span></div>
+      <div id="viewer-body" class="md g-long"></div>
+    </div>
+  </dialog>
+  <dialog id="demo-dialog-palette" class="k-surface k-dialog palette hidden" data-size="palette" closedby="any" aria-label="命令面板">
+    <div class="palette-box">
+      <input id="palette-input" type="text" placeholder="跳转到视图、项目、线路，或执行动作" aria-label="命令面板检索" />
+      <div class="palette-list" role="listbox"><div class="palette-row active" role="option"><span class="palette-group">视图</span><span class="palette-label">对话</span></div><div class="palette-row" role="option"><span class="palette-group">动作</span><span class="palette-label">新对话</span></div></div>
+      <div class="palette-foot">↑↓ 选择 · Enter 执行 · Esc 关闭</div>
+    </div>
+  </dialog>
+  <!-- 弹窗内菜单:模态开着时 dialog 子树之外是惰性的。JS 菜单由 openMenu 挂进这个 dialog;
+       静态 data-kz-menu 弹层必须写在 dialog 里面(ui-surface-rules H 组)。 -->
+  <dialog id="demo-dialog-menu" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="demo-dialog-menu-title">
+    <div class="confirm-title" id="demo-dialog-menu-title">项目模型</div>
+    <div class="g-row">
+      <button type="button" class="ghost" id="demo-dialog-menu-js" aria-haspopup="menu" aria-expanded="false">JS 菜单</button>
+      <button type="button" class="ghost" id="demo-dialog-menu-static-trigger" data-kz-menu="demo-dialog-menu-static">静态菜单</button>
+      <div id="demo-dialog-menu-static" class="k-surface k-menu hidden" popover="manual" data-placement="bottom-start" role="group" aria-label="静态菜单">
+        <label class="menu-row" for="demo-dialog-menu-check"><span class="menu-row-main"><span class="menu-row-title">自动放行</span><span class="menu-row-desc">弹窗里的静态菜单:点得到、勾得上</span></span><input id="demo-dialog-menu-check" type="checkbox" /></label>
+      </div>
+    </div>
+    <div class="confirm-buttons"><button type="button" id="demo-dialog-menu-close">关闭</button></div>
+  </dialog>
+  <!-- 确认框/输入框与 index.html 同构同 id:confirmDialog/inputDialog 按 id 取宿主。 -->
+  <dialog id="input-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="input-title">
+    <div id="input-dialog">
+      <div class="confirm-title" id="input-title"></div>
+      <div id="input-message" class="input-message hidden"></div>
+      <input id="input-value" type="text" autocomplete="off" spellcheck="false" />
+      <div class="confirm-buttons"><button id="input-cancel">取消</button><button id="input-ok">确认</button></div>
+    </div>
+  </dialog>
+  <dialog id="confirm-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="confirm-title">
+    <div id="confirm-dialog">
+      <div class="confirm-title" id="confirm-title"></div>
+      <div id="confirm-message"></div>
+      <ul id="confirm-list" class="confirm-list hidden"></ul>
+      <div class="confirm-buttons"><button id="confirm-cancel">取消</button><button id="confirm-safe" class="hidden">删除并安全整理</button><button id="confirm-ok">确认</button></div>
+    </div>
+  </dialog>
+  <div id="demo-card" class="k-surface k-card hidden" popover="manual" data-tone="attention" role="dialog" aria-modal="false" aria-labelledby="demo-card-title">
+    <div class="ask-head"><div class="ask-title" id="demo-card-title">权限请求</div></div>
+    <div class="ask-line"><span class="dim">操作</span><code>bash</code></div>
+    <div class="ask-line"><span class="dim">资源</span><code>git push origin release/2026-09-26-ui</code></div>
+    <div class="ask-buttons"><button type="button" id="demo-card-deny">拒绝</button><button type="button" class="primary" id="demo-card-allow">允许一次</button></div>
+  </div>
+  <button type="button" id="demo-chip" class="k-surface k-chip-float hidden" popover="manual">重新打开询问</button>
+  <div id="toast" class="k-surface k-toast-region hidden" popover="manual"></div>
+
+  <script type="module" src="gallery.js"></script>
+</body>
+</html>

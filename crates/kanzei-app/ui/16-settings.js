@@ -12,7 +12,11 @@ import {
 import { fastStatusText } from "./06-activity.js";
 import { state } from "./08-compose.js";
 import { MANUAL_MODEL_SENTINEL } from "./08-models.js";
+import { openProjectModelsDialog } from "./08-project-models.js";
 import { syncProjectSwitchExpanded } from "./09-sessions.js";
+// UI-0926 #10:权限规则表的资源列按结构渲染(bash 规则是 {command, workdir} JSON)。
+import { permissionResourceText } from "./04-structured-parse.js";
+import { renderPermissionResource } from "./04-structured.js";
 
 // ---------- 设置 ----------
 export let settingsProviders = [];
@@ -194,15 +198,16 @@ export function renderPermissionRules(data) {
     const action = document.createElement("td");
     action.textContent = rule.action;
     const resource = document.createElement("td");
-    resource.textContent = rule.resource;
+    resource.appendChild(renderPermissionResource(rule.action, rule.resource));
     const controls = document.createElement("td");
     const remove = document.createElement("button");
+    const ruleText = permissionResourceText(rule.action, rule.resource);
     remove.className = "icon-btn";
     remove.title = t("删除规则");
-    remove.setAttribute("aria-label", `${t("删除权限规则")} ${rule.action} ${rule.resource}`);
+    remove.setAttribute("aria-label", `${t("删除权限规则")} ${ruleText}`);
     remove.textContent = "×";
     remove.addEventListener("click", async () => {
-      if (!(await confirmDialog({ title: t("删除权限规则"), message: `${rule.action} / ${rule.resource}？`, okText: t("删除"), danger: true }))) return;
+      if (!(await confirmDialog({ title: t("删除权限规则"), message: `${ruleText}？`, okText: t("删除"), danger: true }))) return;
       await deletePermissionRule(rule);
     });
     controls.appendChild(remove);
@@ -267,43 +272,107 @@ export function markSettingsSaved() {
 
 // 生效值与全局值不一致 = 项目级 kanzei.toml 覆盖了。必须明说,否则用户会
 // 一直在改一个不生效的值(D-168)。
+// UI-0926 #3:模型五键不在这里报——设置页只编辑全局默认,各项目的模型覆盖由
+// renderProjectModelOverrides 一行中性说明列出,点进「项目模型配置」逐键看/改。
+// 这里只剩本页其余会被项目文件覆盖的标量:代理、默认模式、运行上限。
 export function renderEffectiveNotice(s) {
   const box = $("settings-effective");
   if (!box) return;
-  const diffs = [];
+  // UI-0926 #10:一行「；」拼接的长句改成 标题 + 三列表(字段 | 本页 | 实际生效)。
+  const diffs = []; // [字段, 本页, 实际生效]
   const effective = s.effective;
+  const unset = () => `(${t("未设")})`;
   // 只比 effective 里**确实带了的键**:后端没报的键(旧版本 / 新加的字段还没接线)
   // 一律跳过,否则 undefined 会被当成"实际生效是未设",提示条天天误报,
   // 用户很快就学会无视它,真被覆盖时反而看不见。
   const has = (key) => effective && Object.prototype.hasOwnProperty.call(effective, key);
-  // 模型角色之外的标量也会被项目级 kanzei.toml 覆盖(D-168 当年只堵了模型角色这一个口):
-  // 用户改全局值、页面显示「已保存」、运行永远用项目值,又是一次"保存没生效"。
-  for (const [key, label] of [
-    ["primary", "primary"], ["fast", "fast"], ["reasoning", t("思考强度")],
-    ["proxy", t("代理")], ["profileDefault", t("默认模式")], ["codexFastMode", "Codex Fast mode"],
-  ]) {
+  for (const [key, label] of [["proxy", t("代理")], ["profileDefault", t("默认模式")]]) {
     if (!has(key)) continue;
-    const global = key === "reasoning" ? (s.reasoning === "off" ? null : s.reasoning) : s[key];
+    const global = s[key];
     const eff = effective[key];
     if ((eff ?? null) !== (global ?? null)) {
-      diffs.push(`${label}:${t("本页")} ${global ?? `(${t("未设")})`} → ${t("实际生效")} ${eff ?? `(${t("未设")})`}`);
+      diffs.push([label, String(global ?? unset()), String(eff ?? unset())]);
     }
   }
-  // 运行上限十项合成一条:项目级只要覆盖了任意一个键就弹十条提示会把这条提示废掉。
+  // 运行上限十项合成一行:项目级只要覆盖了任意一个键就弹十行会把这张表废掉。
   if (has("limits")) {
     const overridden = LIMIT_FIELDS
       .map(([, key]) => key)
       .filter((key) => (s.limits?.[key] ?? null) !== (effective.limits?.[key] ?? null));
     if (overridden.length) {
-      diffs.push(`${t("运行上限")}:${overridden.join("、")}`);
+      const side = (limits) => overridden.map((key) => `${key} ${limits?.[key] ?? unset()}`).join("、");
+      diffs.push([t("运行上限"), side(s.limits), side(effective.limits)]);
     }
   }
+  box.replaceChildren();
   box.classList.toggle("hidden", diffs.length === 0);
-  if (diffs.length) {
-    box.textContent =
-      `${t("以下项被项目级配置覆盖,本页的改动不会生效")}:${diffs.join("；")}` +
-      (s.projectConfig ? `(${s.projectConfig})` : "");
+  if (!diffs.length) return;
+  const title = document.createElement("div");
+  title.textContent = `${t("当前项目的配置覆盖了这些全局值")}${s.projectConfig ? `(${s.projectConfig})` : ""}`;
+  const table = document.createElement("table");
+  table.className = "sv-table";
+  const head = document.createElement("tr");
+  for (const key of ["字段", "本页", "实际生效"]) {
+    const th = document.createElement("th");
+    th.textContent = t(key);
+    th.dataset.i18nKey = key;
+    head.appendChild(th);
   }
+  const thead = document.createElement("thead");
+  thead.appendChild(head);
+  const tbody = document.createElement("tbody");
+  for (const cells of diffs) {
+    const row = document.createElement("tr");
+    for (const value of cells) {
+      const td = document.createElement("td");
+      td.textContent = value;
+      row.appendChild(td);
+    }
+    tbody.appendChild(row);
+  }
+  table.append(thead, tbody);
+  box.append(title, table);
+}
+
+// UI-0926 #3:哪些项目有自己的模型配置、不用这里的默认值。中性说明(不是警告):项目覆盖
+// 是正常用法,需要的是「看得见、点得进去」。每个项目一个链接,打开它的「项目模型配置」。
+function projectOverrideKeyLabel(key) {
+  return { reasoning: t("思考强度"), codexFastMode: "Codex Fast mode" }[key] ?? key;
+}
+// 项目模型配置弹窗保存后,这一行要跟着变(可能刚把最后一个键恢复成继承)。只刷只读区,不碰表单。
+defer(() => {
+  document.addEventListener("kz-model-config-changed", async (event) => {
+    if (event?.detail?.scope !== "project" || !settingsHydrated) return;
+    try {
+      renderProjectModelOverrides(await invoke("settings_get", { projectDir: currentProject }));
+    } catch {
+      // 读失败不打扰:下次进设置页 loadSettings 会重读并走它自己的错误出口。
+    }
+  });
+});
+export function renderProjectModelOverrides(s) {
+  const box = $("settings-project-overrides");
+  if (!box) return;
+  const list = Array.isArray(s?.projectModelOverrides) ? s.projectModelOverrides : [];
+  box.replaceChildren();
+  box.classList.toggle("hidden", list.length === 0);
+  if (!list.length) return;
+  const lead = document.createElement("span");
+  lead.textContent = t("这些项目有自己的模型配置,不使用这里的默认值:");
+  box.appendChild(lead);
+  list.forEach((entry, index) => {
+    if (index > 0) box.appendChild(document.createTextNode("、"));
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "link-btn";
+    link.dataset.project = entry.project;
+    const keys = (entry.keys ?? []).map(projectOverrideKeyLabel).join("、");
+    link.textContent = `${entry.name}(${keys})`;
+    link.title = entry.configPath ?? entry.project;
+    if (entry.current) link.dataset.current = "true";
+    link.addEventListener("click", () => void openProjectModelsDialog(entry.project, { name: entry.name }));
+    box.appendChild(link);
+  });
 }
 
 // R-305 B1:把 phase_pipeline 的 roster_cap 从日志事实投影到策略面板。
@@ -570,15 +639,19 @@ export async function refreshFastStatus() {
     s = await invoke("fast_model_status");
   } catch (error) {
     status.textContent = `${t("快速模型状态获取失败")}:${error}`;
+    status.classList.remove("hidden");
     status.classList.add("warn-text");
     btn.classList.add("hidden");
     return;
   }
+  // UI-0926 #3:fast 指向外部 provider(不由本机托管)时这一行对用户没有信息量,整行收起。
   if (!s.managed) {
-    status.textContent = fastStatusText(s).text;
+    status.textContent = "";
+    status.classList.add("hidden");
     btn.classList.add("hidden");
     return;
   }
+  status.classList.remove("hidden");
   if (s.ready) {
     status.textContent = fastStatusText(s).text;
     status.classList.remove("warn-text");
@@ -692,6 +765,7 @@ export async function loadSettings({ force = false } = {}) {
   settingsEffectiveSnapshot = s;
   renderRosterCapNotice(s);
   renderEffectiveNotice(s);
+  renderProjectModelOverrides(s);
   loadPermissionRules();
   refreshFastStatus();
   if (!force && settingsHydrated && settingsFingerprint() !== settingsSnapshot) {
@@ -715,20 +789,7 @@ export function hydrateSettingsForm(s) {
   // 侧栏 + 工作区 + refreshWorktrees + refreshConversationList + 多画一遍 provider 表)
   // 是纯白干,还让整个界面在进设置页时抖一下。
   setLanguagePreference(storedLanguage, { persist: false, rerender: false });
-  // R-178 批4 D7 作用域选择器:settings_get 返回 projectConfig 时才允许选「本项目」。
-  // 无项目上下文(未选中项目)时 project 选项禁用,避免把"全局"意图落进一个偶然的
-  // 工作目录。
-  const projectConfig = s.projectConfig;
-  const scopeSelect = $("set-save-scope");
-  const projectOption = scopeSelect.querySelector('option[value="project"]');
-  projectOption.disabled = !projectConfig;
-  if (!projectConfig && scopeSelect.value === "project") scopeSelect.value = "global";
-  $("settings-scope-hint").textContent = projectConfig
-    ? t("D7 只覆盖模型角色;Provider 与密钥始终写全局")
-    : t("未选中项目,仅可保存到全局");
-  $("settings-scope-note").textContent = projectConfig
-    ? t("本项目将写入") + " " + projectConfig
-    : "";
+  // UI-0926 #3:不再有「保存到」作用域——本页只编辑全局默认,项目级模型覆盖走「项目模型配置」。
   // 已存值必须**显式传给** fillKnownModels 当基准。此前是"先 select.value = 已存值,
   // 建完选项再塞一次",两次都是空操作:首次进设置页时下拉里一个 option 都没有,给
   // select 赋没有匹配项的值按规范只会把它打到空串。基准一空,探测不到的已存模型就被
@@ -1008,13 +1069,9 @@ defer(() => {
   $("settings-save").addEventListener("click", async () => {
     const mode = $("set-proxy-mode").value;
     const proxy = mode === "custom" ? $("set-proxy-url").value.trim() : mode;
-    const scope = $("set-save-scope").value;
     try {
+      // UI-0926 #3:本页只写全局 ~/.kanzei/kanzei.toml(不再带 scope/projectDir)。
       await invoke("settings_save", {
-        // R-178 批4 D7:scope=project 只把模型角色写进主根 .kanzei/kanzei.toml;
-        // 其余字段(proxy/limits/cadence/providers)始终走全局,后端按 scope 拦截。
-        scope,
-        projectDir: scope === "project" ? currentProject : null,
         payload: {
           // 未显式改过且后端返回 null 时继续传 null,不要因为表单默认中文就把默认键写入配置。
           language: languagePreferenceDirty ? $("language-select").value : languagePreferenceLoaded,
@@ -1045,6 +1102,8 @@ defer(() => {
       // force:刚存完就是干净态,但指纹要等 markSettingsSaved 才更新,不 force 会被
       // 脏值守卫挡住,用户看到一个莫名其妙的「磁盘上的配置已更新」。
       loadSettings({ force: true });
+      // 全局默认变了:输入框上方的「下一轮将使用」重新解析(provider 可能也改了,目录一并重拉)。
+      document.dispatchEvent(new CustomEvent("kz-model-config-changed", { detail: { scope: "global" } }));
     } catch (err) {
       toastError(`${t("保存失败")}: ${err}`, { retry: () => $("settings-save").click() });
     }
@@ -1122,6 +1181,8 @@ defer(() => {
   $("update-check").addEventListener("click", async () => {
     $("update-result").textContent = t("检查中…");
     $("update-install").classList.add("hidden");
+    // #7:进行中的按钮统一由 button[aria-busy="true"] 转圈(读屏也能读到「忙」)。
+    $("update-check").setAttribute("aria-busy", "true");
     updateUrl = null;
     try {
       const r = await invoke("update_check");
@@ -1133,6 +1194,8 @@ defer(() => {
       }
     } catch (err) {
       $("update-result").textContent = `${t("检查失败")}:${err}`;
+    } finally {
+      $("update-check").removeAttribute("aria-busy");
     }
   });
 });
@@ -1141,12 +1204,14 @@ defer(() => {
     if (!updateUrl) return;
     $("update-result").textContent = t("下载中…(应用将退出,安装完成后请手动启动)");
     $("update-install").disabled = true;
+    $("update-install").setAttribute("aria-busy", "true");
     try {
       $("update-result").textContent = await invoke("update_install", { url: updateUrl });
     } catch (err) {
       $("update-result").textContent = String(err);
     } finally {
       $("update-install").disabled = false;
+      $("update-install").removeAttribute("aria-busy");
     }
   });
 });

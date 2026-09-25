@@ -1,3 +1,4 @@
+import { closeSurface } from "./00-surface.js";
 import { defer } from "./01-core.js";
 import { $, invoke, on } from "./01-core.js";
 import { t } from "./02-i18n.js";
@@ -5,8 +6,9 @@ import { currentProject, processItems, running, toast, toastError } from "./03-s
 import { applyBgFilters, bgDoneOpen, bgEntries, bgFilters, bgSync, renderBgSections, setBgDoneOpen } from "./06-activity.js";
 import { refreshTests, refreshWorktrees } from "./09-sessions.js";
 import { openDocumentsView, saveDocFilters } from "./10-docs-core.js";
-import { applyBatch, batchSelection, clearPendingJump } from "./11-docs-list.js";
+import { applyBatch, batchSelection, clearJumpReveal, clearPendingJump } from "./11-docs-list.js";
 import {
+  DOC_FILTER_DEFAULTS,
   dependencyViewOpen,
   setDependencyViewOpen,
   docFilterTargets,
@@ -56,8 +58,12 @@ export function refreshDocsSoon() {
   clearTimeout(docsLiveTimer);
   docsLiveTimer = setTimeout(async () => {
     docsLiveTimer = null;
-    // 重绘会清空列表容器:用户正在写快记或正在拖拽排序时先让路,稍后再刷。
-    if (document.querySelector(".quickreq-form") || document.querySelector(".doc-item.dragging")) {
+    // 重绘会清空列表容器:用户正在写快记、正在拖拽排序、或单页里有没保存的条目编辑时先让路,
+    // 稍后再刷(编辑态与草稿虽然跨重绘保留,agent 连续改台账时整表重建仍会打断输入法组字)。
+    // 只在单页开着时让:人已经离开单页,草稿照样跨重绘保留,侧栏焦点卡不能因此停更。
+    const editingDraft = $("view-documents")?.classList.contains("active")
+      && document.querySelector(".doc-detail.editing .doc-edit[data-dirty]");
+    if (document.querySelector(".quickreq-form") || document.querySelector(".doc-item.dragging") || editingDraft) {
       refreshDocsSoon();
       return;
     }
@@ -217,6 +223,8 @@ defer(() => {
 // 「复杂度=大」,而 docDragEnabled 的缺陷分支只看 status/priority/tag/blocked——
 // 提示说锁了、实际仍可拖,是 D-211 的反向脱节。
 export function applyDocFilter(field, value) {
+  // 用户动了筛选 = 回到「按筛选看」:跳转时的临时放行就此作废。
+  clearJumpReveal();
   for (const kind of docFilterTargets()) {
     if (!(field in documentFilters[kind])) continue;
     documentFilters[kind][field] = value;
@@ -224,6 +232,23 @@ export function applyDocFilter(field, value) {
   saveDocFilters();
   if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
 }
+// 「清除全部」(生效筛选 chip 行):当前队列按项目持久化的筛选与排序全部回默认值并落盘。
+// 默认值只取 DOC_FILTER_DEFAULTS 一份;分组开关不在其中(全局记,见 bindGroupToggle)。
+export function clearDocFilters() {
+  clearJumpReveal();
+  for (const kind of docFilterTargets()) Object.assign(documentFilters[kind], DOC_FILTER_DEFAULTS[kind]);
+  saveDocFilters();
+  if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
+}
+// 「更多」菜单里全是一次性动作(依赖视图开关、审查、刷新、打开原文):点完就收起菜单。
+// 菜单宿主是 data-kz-menu 静态弹层,开关一律经 00-surface(不直接切 .hidden)。
+defer(() => {
+  const menu = $("documents-more-menu");
+  if (!menu) return;
+  for (const id of ["documents-dep-toggle", "defect-review", "tests-refresh", "req-open", "defect-open"]) {
+    $(id)?.addEventListener("click", () => closeSurface(menu));
+  }
+});
 // 交付方式(插入/排队)是个人习惯,全局记一份即可,不按项目分。
 defer(() => {
   $("delivery-select").addEventListener("change", (event) => {

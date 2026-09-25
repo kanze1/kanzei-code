@@ -1,7 +1,8 @@
+import { confirmDialog as surfaceConfirmDialog, inputDialog as surfaceInputDialog, setSurfaceTranslator } from "./00-surface.js";
 import { t } from "./02-i18n.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
-import { setChatAgentFolds } from "./05-chat-render.js";
+import { chatAbortRunningFor } from "./05-chat-render.js";
 import {
   activeSessionId,
   currentAssistant,
@@ -13,7 +14,6 @@ import {
   transitionSession,
 } from "./03-shell.js";
 import {
-  chatAgentFolds,
   currentReasoningHead,
   followLatest,
   noteProgrammaticScroll,
@@ -27,6 +27,7 @@ import { refreshMemory } from "./13-memory.js";
 import { refreshConversationLists, renderTrimmedHint, sessionLiveNow } from "./15-views-misc.js";
 import { refreshResearch } from "./19-research.js";
 import { neuralFlowEmit } from "./22-neural-flow.js";
+import { subagentSettle } from "./05-subagents.js";
 
 // kanzei 桌面端前端逻辑(静态,无构建步骤)。
 export const { invoke } = window.__TAURI__.core;
@@ -69,14 +70,17 @@ export const SESSION_PROGRESS_EVENTS = new Set([
 // 它此前用裸 listen 绕过本函数,于是「没有 sessionId 就丢弃」这条纪律只覆盖了一半的
 // 订阅——规则写在代码里,但只写在一条路径上。
 // R-267:后台会话也要渲染的事件——它们往消息流里写东西,必须进所属会话的 pane。
-// 刻意**不含** kz:status/kz:step/kz:meta/kz:task-progress/kz:tool-progress:
-// 那几条改的是状态栏、轮次显示、活动面板与工具进度条,都是**全局 UI**,
+// 刻意**不含** kz:status/kz:step/kz:meta/kz:tool-progress:
+// 那几条改的是状态栏、轮次显示与工具进度条,都是**全局 UI**,
 // 后台会话触发它们才是串线(用户会看到别的线的状态盖在当前线上)。
+// UI-0926 #8:kz:task-progress 改为入列——它推进的是所属会话 pane 里的子代理卡片(按
+// sessionId|id 找卡,不碰全局状态栏);此前非活动线路的子代理进度整条丢弃,切回去卡片一动不动。
 export const BACKGROUND_RENDER_EVENTS = new Set([
   "kz:text",
   "kz:reasoning",
   "kz:tool-start",
   "kz:tool-end",
+  "kz:task-progress",
   "kz:permission-resolved",
   "kz:compacted",
   "kz:experience",
@@ -306,9 +310,8 @@ export function on(event, handler) {
     }
     // 事件流是线路状态的实时投影入口。不能等 kz:done/kz:idle 或下一次
     // process_list 轮询，否则工具执行期间线路按钮和 stop 会按轮次滞后。
-    if (sessionId && typeof globalThis.refreshParallelTaskProjection === "function") {
-      globalThis.refreshParallelTaskProjection(sessionId);
-    }
+    // 直接调 ESM import:它从未挂到 globalThis,旧写法的 typeof 在真机上恒为 undefined(死调用)。
+    if (sessionId) refreshParallelTaskProjection(sessionId);
     const controlEvent =
       event === "kz:ask" ||
       event === "kz:status" ||
@@ -367,13 +370,16 @@ export function on(event, handler) {
           stage: "空闲",
           detail: "",
         });
-        if (typeof globalThis.refreshParallelTaskProjection === "function") {
-          globalThis.refreshParallelTaskProjection(sessionId);
-        }
+        refreshParallelTaskProjection(sessionId);
+      }
+      // UI-0926 #8:整轮停止 / 终态出错 / 轮末仍没收到终态的子代理卡片收尾。活动线与后台线都走
+      // 这里(后台线的控制事件下面就被路由走、不进 handler),停止后卡片不会一直停在「运行中」。
+      if (sessionId && (event === "kz:stopped" || event === "kz:done" || terminalError)) {
+        subagentSettle(sessionId, event === "kz:stopped" ? "cancelled" : "interrupted");
       }
       // D-387:手机消息注入桌面——刷新会话列表(消息已由后端持久化,打开会话可见)。
       if (event === "kz:mobile-message") {
-        if (typeof globalThis.refreshConversationLists === "function") void globalThis.refreshConversationLists();
+        void refreshConversationLists();
         if (typeof refreshProcesses === "function") refreshProcesses();
         if (typeof handleMobileMessage === "function") handleMobileMessage(eventPayload.payload);
         return;
@@ -381,17 +387,17 @@ export function on(event, handler) {
       // kz:ask 不走路由分支:它必须始终进 handler,按 sessionId 入队
       // (handler 内只在活动会话时弹窗),否则后台 ask 会被丢弃挂死(D-055 根因)。
       if (event !== "kz:ask" && sessionId !== activeSessionId) {        // 控制事件的 UI 副作用不能串到活动线路，但所属线路的历史与自主推进必须执行。
-        if (event === "kz:done" && typeof globalThis.handleBackgroundSessionDone === "function") {
-          globalThis.handleBackgroundSessionDone(eventPayload.payload);
-        }
+        if (event === "kz:done") handleBackgroundSessionDone(eventPayload.payload);
         if (event === "kz:stopped" || terminalError) {
           // 后台线路的终态错误同样不得掐掉在途的失败退避重试(上面 retryPending 同源):
           // 后台线更没人看着,一次断网就永久停摆。in-flight 标记照旧释放——重试那一枪
           // 到点后才发得出去。
-          if (!retryPending && typeof globalThis.cancelAutoContinueTimer === "function") globalThis.cancelAutoContinueTimer(sessionId);
+          if (!retryPending) cancelAutoContinueTimer(sessionId);
           if (typeof releaseAutoContinue === "function") releaseAutoContinue(sessionId);
+          // #7:该线 pane 里还在转圈的工具行随终态收尾(标「中断」),否则切回去永远在转。
+          chatAbortRunningFor(sessionId);
         }
-        if (typeof globalThis.refreshConversationLists === "function") void globalThis.refreshConversationLists();
+        void refreshConversationLists();
         refreshProcesses();
         log(`${t("后台会话控制事件已路由")}:${event} ${sessionId}`);
         return;
@@ -424,6 +430,47 @@ on("kz:experience", (eventPayload) => {
 });
 
 export const $ = (id) => document.getElementById(id);
+// ---------- #7 动效原语(纪律见 style.css「分区:动效」与 ui-a11y-smoke「#7 动效纪律」) ----------
+// 循环档时长全是 2400ms 的约数。频繁重建的节点(侧栏线路行每个 kz:status 整行重画)
+// 若不对齐,每次重建都从第 0 帧重来,呼吸点看起来一直在「抽」。motionSync 把节点的
+// animation-delay 写成「全局时钟在 2400ms 周期里的负偏移」,新节点与旧节点同相。
+export const MOTION_EPOCH_MS = 2400;
+export function motionSync(el) {
+  if (typeof el?.style?.setProperty !== "function") return el;
+  const now = typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+  el.style.setProperty("--kz-sync", `${-Math.round(now % MOTION_EPOCH_MS)}ms`);
+  return el;
+}
+/// 一次性动效:只在状态**真正跳变**的调用点挂上(历史回放不经过这些点),定时摘除。
+/// 不依赖 animationend——窗口隐藏/减少动效时它可能不来,类会一直挂着,下次就不再重播。
+export function motionOnce(el, cls, ms = 600) {
+  if (!el?.classList) return el;
+  const timers = (el._kzMotionTimers ??= {});
+  clearTimeout(timers[cls]);
+  el.classList.remove(cls);
+  // 强制一次重排:同一元素连续触发时让浏览器看见「摘掉再挂上」,动画才会重播。
+  void el.offsetWidth;
+  el.classList.add(cls);
+  timers[cls] = setTimeout(() => {
+    el.classList.remove(cls);
+    delete timers[cls];
+  }, ms);
+  return el;
+}
+/// 计数写入:文本不变不动;数值上升时 tick 一次(下降/清空不播,那不是「又多了一个」)。
+export function motionCount(el, text) {
+  if (!el) return el;
+  const next = String(text ?? "");
+  const previous = el.textContent ?? "";
+  if (previous === next) return el;
+  el.textContent = next;
+  const before = Number.parseInt(previous, 10);
+  const after = Number.parseInt(next, 10);
+  if (previous && Number.isFinite(before) && Number.isFinite(after) && after > before) motionOnce(el, "kz-tick", 320);
+  return el;
+}
 // R-264 ESM:延迟执行——把「模块求值期跨模块顶层调用」推迟到全部模块求值完成
 // (DOMContentLoaded)。classic 下 DOM 已就绪(readyState 非 loading)立即执行,no-op;
 // ESM 下循环依赖的求值顺序不保证提供方先就绪,直接顶层调用会 TDZ。与浏览器
@@ -440,106 +487,19 @@ export function defer(fn) {
 // D-418:统一确认弹窗(替代浏览器原生 window.confirm)。
 // options: { title, message, list?: string[], okText?, safeText?, danger?: boolean }
 // 返回 Promise<boolean|string>;确认 resolve(true),safeText 按钮 resolve("safe"),
-// 取消/Esc/遮罩 resolve(false)。
-// 与应用自定义弹窗体系(ask/viewer)同构,可承载清单与风险分级(R-245 删除弹窗规范)。
-export let confirmDialog = function confirmDialog(options) {
-  return new Promise((resolve) => {
-    const overlay = $("confirm-overlay");
-    const ok = $("confirm-ok");
-    const safe = $("confirm-safe");
-    const cancel = $("confirm-cancel");
-    $("confirm-title").textContent = options.title ?? t("确认");
-    $("confirm-message").textContent = options.message ?? "";
-    const listEl = $("confirm-list");
-    if (options.list && options.list.length) {
-      listEl.textContent = "";
-      for (const item of options.list) {
-        const li = document.createElement("li");
-        li.textContent = item;
-        listEl.appendChild(li);
-      }
-      listEl.classList.remove("hidden");
-    } else {
-      listEl.classList.add("hidden");
-    }
-    ok.textContent = options.okText ?? t("确认");
-    ok.classList.toggle("danger", !!options.danger);
-    safe.textContent = options.safeText ?? t("删除并安全整理");
-    safe.classList.toggle("hidden", !options.safeText);
-    safe.classList.toggle("danger", !!options.danger);
-    overlay.classList.remove("hidden");
-    const done = (value) => {
-      overlay.classList.add("hidden");
-      ok.removeEventListener("click", onOk);
-      safe.removeEventListener("click", onSafe);
-      cancel.removeEventListener("click", onCancel);
-      document.removeEventListener("keydown", onKey);
-      overlay.removeEventListener("click", onBackdrop);
-      resolve(value);
-    };
-    const onOk = () => done(true);
-    const onSafe = () => done("safe");
-    const onCancel = () => done(false);
-    const onKey = (e) => {
-      if (e.key === "Escape") done(false);
-    };
-    const onBackdrop = (e) => {
-      if (e.target === overlay) done(false);
-    };
-    ok.addEventListener("click", onOk);
-    safe.addEventListener("click", onSafe);
-    cancel.addEventListener("click", onCancel);
-    document.addEventListener("keydown", onKey);
-    overlay.addEventListener("click", onBackdrop);
-    ok.focus();
-  });
-}
-// D-420:WebView2 不提供 window.prompt,统一使用应用内输入弹窗。
+// 取消/Esc/点外 resolve(false)。可承载清单与风险分级(R-245 删除弹窗规范)。
+// 实现归 00-surface.js(<dialog> 模态:原生惰性化背景、Esc 只关栈顶、并发调用排队不互相覆盖);
+// 这里保留导出与冒烟接缝 setConfirmDialog,全部调用点零改动。
+export let confirmDialog = (options) => surfaceConfirmDialog(options);
 export function setConfirmDialog(value) { confirmDialog = value; }
-// D-420:WebView2 不提供 window.prompt,统一使用应用内输入弹窗。
+// D-420:WebView2 不提供 window.prompt,统一使用应用内输入弹窗(实现同样归 00-surface.js)。
 // options: { title, message?, value?, placeholder?, okText? }
-// 返回 Promise<string|null>;确认返回输入值,取消/Esc/遮罩返回 null。
-export let inputDialog = function inputDialog(options) {
-  return new Promise((resolve) => {
-    const overlay = $("input-overlay");
-    const ok = $("input-ok");
-    const cancel = $("input-cancel");
-    const input = $("input-value");
-    $("input-title").textContent = options.title ?? "";
-    const message = $("input-message");
-    message.textContent = options.message ?? "";
-    message.classList.toggle("hidden", !options.message);
-    input.value = options.value ?? "";
-    input.placeholder = options.placeholder ?? "";
-    input.setAttribute("aria-label", options.title ?? "");
-    ok.textContent = options.okText ?? t("确认");
-    overlay.classList.remove("hidden");
-    const done = (value) => {
-      overlay.classList.add("hidden");
-      ok.removeEventListener("click", onOk);
-      cancel.removeEventListener("click", onCancel);
-      document.removeEventListener("keydown", onKey);
-      overlay.removeEventListener("click", onBackdrop);
-      resolve(value);
-    };
-    const onOk = () => done(input.value);
-    const onCancel = () => done(null);
-    const onKey = (e) => {
-      if (e.key === "Escape") done(null);
-      else if (e.key === "Enter" && !e.isComposing) done(input.value);
-    };
-    const onBackdrop = (e) => {
-      if (e.target === overlay) done(null);
-    };
-    ok.addEventListener("click", onOk);
-    cancel.addEventListener("click", onCancel);
-    document.addEventListener("keydown", onKey);
-    overlay.addEventListener("click", onBackdrop);
-    input.focus();
-  });
-}
-// localStorage 里的 JSON 可能被手改坏;读不出来就当没有,绝不让偏好读取抛异常
+// 返回 Promise<string|null>;确认返回输入值,取消/Esc/点外返回 null。
+export let inputDialog = (options) => surfaceInputDialog(options);
 export function setInputDialog(value) { inputDialog = value; }
+// 弹层模块零 import,翻译函数从这里注入(包一层:02-i18n 在循环依赖里可能尚未求值完)。
+setSurfaceTranslator((key) => t(key));
+// localStorage 里的 JSON 可能被手改坏;读不出来就当没有,绝不让偏好读取抛异常
 // localStorage 里的 JSON 可能被手改坏;读不出来就当没有,绝不让偏好读取抛异常
 // 把整个初始化带崩。
 export function readJson(key, fallback) {
@@ -616,15 +576,22 @@ export const MESSAGE_PANE_MAX = 4;
 export let activePane = messages.querySelector(".msg-pane");
 export function setActivePane(value) { activePane = value; }
 
-export function paneFor(sessionId) {
+/// 取(必要时新建)某个会话的 pane。新建的 pane **默认隐藏**:只有 showPane 能让
+/// 一个 pane 可见。后台会话(典型是开着鞭挞的自主推进线)第一次渲染、或它的 pane
+/// 被淘汰后重建时走的是 withSessionRender → paneFor,原先新建即可见,于是它的输出
+/// 和活动会话叠在同一个视图里,新对话也清不掉(清的只是 activePane)。
+/// `forDisplay` 只给 showPane 用:只有「要显示它」时才认领启动期的占位 pane,
+/// 后台渲染不得抢走首屏那一块。
+export function paneFor(sessionId, { forDisplay = false } = {}) {
   const key = sessionId || "";
   let pane = messagePanes.get(key);
   if (!pane) {
-    // 启动期那个 data-session-id="" 的占位 pane 直接认领给第一个真实会话,
+    // 启动期那个 data-session-id="" 的占位 pane 直接认领给第一个要显示的会话,
     // 免得首屏白闪一下再换。
-    const placeholder = messages.querySelector('.msg-pane[data-session-id=""]');
+    const placeholder = forDisplay ? messages.querySelector('.msg-pane[data-session-id=""]') : null;
     pane = placeholder && !messagePanes.has("") ? placeholder : document.createElement("div");
     pane.className = "msg-pane";
+    if (!forDisplay) pane.classList.add("hidden");
     pane.dataset.sessionId = key;
     if (!pane.parentNode) messages.appendChild(pane);
     messagePanes.set(key, pane);
@@ -633,13 +600,16 @@ export function paneFor(sessionId) {
   return pane;
 }
 
-/// 切到某个会话的 pane:隐藏旧的、显示新的。**不重建 DOM**。
+/// 切到某个会话的 pane:隐藏其余全部、显示这一个。**不重建 DOM**。
+/// 不变式:同一时刻 #messages 下只有一个 pane 可见。只隐藏「上一个 activePane」不够——
+/// 越界可见的后台 pane、没被认领的占位 pane 都不是上一个 activePane。
 /// 返回 true = 该 pane 已有内容(切回来即见),false = 新建的空 pane(调用方需要装历史)。
 export function showPane(sessionId) {
-  const pane = paneFor(sessionId);
-  if (activePane && activePane !== pane) {
-    activePane.classList.add("hidden");
-    delete activePane.dataset.active;
+  const pane = paneFor(sessionId, { forDisplay: true });
+  for (const other of [...messages.children]) {
+    if (other === pane || !other.classList.contains("msg-pane")) continue;
+    other.classList.add("hidden");
+    delete other.dataset.active;
   }
   pane.classList.remove("hidden");
   // 当前显示的 pane 打属性标记:隐藏的 pane 仍在 DOM 里,断言/查询要能只看这一个。
@@ -647,6 +617,18 @@ export function showPane(sessionId) {
   activePane = pane;
   evictStalePanes();
   return pane.dataset.hasContent === "1";
+}
+
+/// 丢弃某个**非活动**会话的 pane 与流式装配状态,下次进来按 loadConversation 重建。
+/// 用于「那条线的内容已作废」(新对话开了新段、段被删除)而它此刻不在前台的情形。
+export function discardSessionPane(sessionId) {
+  const key = sessionId || "";
+  const pane = messagePanes.get(key);
+  if (pane && pane !== activePane) {
+    pane.remove();
+    messagePanes.delete(key);
+  }
+  dropSessionStream(key);
 }
 
 /// D-202 家族的真正机制:恢复历史走 PANE_WINDOW_SIZE 窗口化,但**实时追加从不裁剪**。
@@ -735,24 +717,12 @@ export function trimLivePane(pane) {
     // 跟随态下用户要的是「一直贴着底」,不是保住某个位置:交给 scrollBottom 重新钉底。
     if (!reading && typeof scrollBottom === "function") scrollBottom(true);
   }
-  // 折叠组的组头可能刚被裁掉;留着失效引用会让后续子代理工具块写进游离节点、
-  // 界面上凭空少一批轨迹。清掉引用,下一次 chatAgentFold 会重建组头。
-  if (typeof chatAgentFolds !== "undefined") {
-    for (const [role, group] of chatAgentFolds) {
-      // 只认**明确的** false:冒烟的假 DOM 没有 isConnected(undefined),
-      // 写成 `!isConnected` 会在那里每次裁剪都清空全部折叠组。
-      if (group?.body?.isConnected === false) chatAgentFolds.delete(role);
-    }
-  }
   if (typeof renderTrimmedHint === "function") renderTrimmedHint(pane);
 }
 /// 清空当前 pane 并复位「有内容」标志。
 export function resetPane() {
   activePane.replaceChildren();
   delete activePane.dataset.hasContent;
-  // 清 pane 就等于把折叠组的 DOM 一起清了;缓存里的引用不清,后续子代理工具块
-  // 会写进已经不在页面上的组头,轨迹静默消失。
-  if (typeof chatAgentFolds !== "undefined") chatAgentFolds.clear();
   delete activePane.dataset.droppedLive;
   if (typeof renderTrimmedHint === "function") renderTrimmedHint(activePane);
 }
@@ -787,7 +757,7 @@ export function streamStateFor(sessionId) {
   const key = sessionId || "";
   let state = sessionStreams.get(key);
   if (!state) {
-    state = { assistant: null, reasoning: null, reasoningHead: null, folds: new Map() };
+    state = { assistant: null, reasoning: null, reasoningHead: null };
     sessionStreams.set(key, state);
   }
   return state;
@@ -810,23 +780,17 @@ export function withSessionRender(sessionId, fn) {
   const savedReasoning = currentReasoning;
   const savedHead = currentReasoningHead;
   const savedBackground = renderingBackground;
-  const savedFolds = chatAgentFolds;
   renderingBackground = true;
   activePane = paneFor(sessionId);
   setCurrentAssistant(state.assistant);
   setCurrentReasoning(state.reasoning);
   setCurrentReasoningHead(state.reasoningHead);
-  // 子代理折叠组表也必须跟着换会话。不换的话,后台线的 task 工具块会被
-  // appendChild 进前台线对话里的同名组头——用户在 A 线看见自己没派过的调用。
-  setChatAgentFolds(state.folds);
   try {
     return fn();
   } finally {
     state.assistant = currentAssistant;
     state.reasoning = currentReasoning;
     state.reasoningHead = currentReasoningHead;
-    state.folds = chatAgentFolds;
-    setChatAgentFolds(savedFolds);
     renderingBackground = savedBackground;
     activePane = savedPane;
     setCurrentAssistant(savedAssistant);

@@ -53,7 +53,8 @@ let pending = [
     id: 24,
     kind: "permission",
     action: "bash",
-    resource: "cargo test",
+    // UI-0926 #10:bash 的真实资源形态是 {command, workdir} JSON。
+    resource: JSON.stringify({ command: "cargo test --workspace", workdir: "C:/smoke/project" }),
     session_id: "session-smoke",
   },
   {
@@ -224,6 +225,17 @@ try {
   page.on("pageerror", (error) => pageErrors.push(String(error)));
   await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
   await page.locator('#approval-list .question[data-ask-id="21"]').waitFor();
+  // UI-0926 #8:通知行「字形 · 身份 · 摘要 · 时间」,不再是 `[序号] agent_status_changed — 摘要`;子代理行缩进。
+  const notice = await page.evaluate(() => {
+    const view = globalThis.formatNotice({ agent_id: "primary", kind: "agent_status_changed", status: "succeeded", summary: "运行完成", sequence: 7, created_at: new Date(2026, 8, 26, 9, 5).getTime() });
+    const item = globalThis.buildNoticeItem({ agent_id: "task:call_1", kind: "agent_status_changed", status: "running", summary: "explore · 找出 token 校验点", sequence: 8, created_at: Date.now() });
+    return { view, text: item.textContent, sub: item.classList.contains("notice-sub"), glyph: item.querySelector(".notice-glyph")?.dataset.status };
+  });
+  assert.equal(notice.view.glyph, "✓", "succeeded 通知应渲染 ✓");
+  assert.equal(notice.view.who, "主代理", "primary 通知的身份应为「主代理」");
+  assert.equal(notice.view.time, "09:05", "通知时间应格式化为 HH:MM");
+  assert.ok(!JSON.stringify(notice.view).includes("agent_status_changed"), "通知行不应再显示原始 kind");
+  assert.ok(notice.sub && notice.text.includes("子代理") && notice.glyph === "running" && !notice.text.includes("[8]"), `子代理通知行不对:${JSON.stringify(notice)}`);
   const cardCount = (id) => page.locator(`#approval-list [data-ask-id="${id}"]`).count();
 
   const single = page.locator('#approval-list .question[data-ask-id="21"]');
@@ -314,6 +326,11 @@ try {
   heldAnswer = null;
 
   const permission = page.locator('#approval-list .card.approval[data-ask-id="24"]');
+  // UI-0926 #10:bash 资源 JSON 拆成「动作 + 命令块 + 工作目录」,卡片上不出现原始 JSON。
+  assert.equal(await permission.locator(".approval-action").textContent(), "bash", "权限卡片未单列动作");
+  assert.equal(await permission.locator(".approval-cmd").textContent(), "cargo test --workspace", "权限卡片未把 bash 资源拆成命令块");
+  assert.match(await permission.locator(".approval-workdir").textContent(), /C:\/smoke\/project/, "权限卡片缺少工作目录");
+  assert.doesNotMatch(await permission.textContent(), /\{"command"/, "权限卡片仍贴出原始 JSON 资源");
   assert.equal(await permission.locator(".approve").count(), 1, "permission 卡片保留批准按钮");
   assert.equal(await permission.locator(".reject").count(), 1, "permission 卡片保留拒绝按钮");
   const permissionResponse = page.waitForResponse((res) => res.url().endsWith("/v1/approval/answer"));

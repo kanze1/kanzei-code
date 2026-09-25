@@ -10,7 +10,11 @@ use std::sync::{
 use kanzei_harness::ToolArtifact;
 use kanzei_llm::{FinishReason, Message, Usage};
 
-#[derive(Clone, Debug)]
+/// 子代理内部事件折叠出的一条轨迹(TaskProgress 的 trace)。
+///
+/// derive Default:各 phase 只填自己那几项,其余靠 `..Default::default()` 补齐,
+/// 加字段时不必逐个改全部字面量。
+#[derive(Clone, Debug, Default)]
 pub struct TaskTrace {
     pub child_id: String,
     pub phase: String,
@@ -33,6 +37,12 @@ pub struct TaskTrace {
     /// R-281:子代理 assistant 自己说的话。phase == "text" 时为完整文本，
     /// 供运行中阅读器实时追加，也让结束态不依赖被截断的 ToolEnd preview。
     pub text: Option<String>,
+    /// UI-0926 #8:phase == "meta" 时携带**实际选中**的人格名。`task` 入参里的
+    /// `agent` 只是请求,选不中会静默回落默认人格(resolve_agent),卡片要显示真值。
+    pub agent: Option<String>,
+    /// UI-0926 #8:phase == "meta" 时携带实际模型 id。`input.model` 只有
+    /// fast/primary 档位,用户看不出档位背后到底是哪个模型。
+    pub model: Option<String>,
 }
 
 /// 面向 UI 的运行事件(CLI/桌面端都消费这一层,不直接碰 LlmEvent)。
@@ -83,6 +93,13 @@ pub enum RunEvent {
         /// 稳定错误码；文案变化不应影响恢复策略、指标或 UI 分类。
         code: Option<String>,
         preview: String,
+        /// UI-0926 #6:给界面的结果正文,与写进历史的 `output.content` 同源
+        /// (不含 `[tool_outcome=…]` 机器头)。上限 [`TOOL_END_UI_CONTENT_MAX`],
+        /// 按字符边界截断——工具行摘要器要按工具解析正文,只有首行的 preview
+        /// 做不到,实时与历史回放因此天然不一致。trace/typed 事件不存它。
+        content: String,
+        /// 截断前的正文字节数;`content.len() < content_bytes` 即被截断。
+        content_bytes: usize,
         /// 结构化展示(diff/终端块),见 ToolOutput::display。
         display: Option<serde_json::Value>,
         /// D-349:大结果写入 durable artifact 后的可恢复引用。
@@ -148,6 +165,44 @@ pub enum RunEvent {
         usage: Usage,
         reason: FinishReason,
     },
+}
+
+/// `RunEvent::ToolEnd::content` 的上限(256 KiB)。bash 的 display.full 本就有
+/// 200k,这里取同量级;IPC 每条最多多出这么多,前端不在 DOM 上保留正文。
+pub const TOOL_END_UI_CONTENT_MAX: usize = 256 * 1024;
+
+/// 给 UI 的工具结果正文:超过 [`TOOL_END_UI_CONTENT_MAX`] 时按字符边界截断。
+/// 返回 (正文, 截断前字节数)。
+pub fn ui_tool_content(text: &str) -> (String, usize) {
+    let bytes = text.len();
+    if bytes <= TOOL_END_UI_CONTENT_MAX {
+        return (text.to_string(), bytes);
+    }
+    let mut cut = TOOL_END_UI_CONTENT_MAX;
+    while !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    (text[..cut].to_string(), bytes)
+}
+
+impl RunEvent {
+    /// 从工具输出一次性构造 ToolEnd:ok/outcome/code/preview/content/display/artifact
+    /// 全部取自同一个 `ToolOutput`,避免各构造点漏填或各填一套。
+    pub fn tool_end(id: String, name: String, output: &kanzei_harness::ToolOutput) -> Self {
+        let (content, content_bytes) = ui_tool_content(&output.content);
+        RunEvent::ToolEnd {
+            id,
+            name,
+            ok: !output.is_error,
+            outcome: output.outcome.as_str().into(),
+            code: output.code.map(str::to_owned),
+            preview: preview(&output.content),
+            content,
+            content_bytes,
+            display: output.display.clone(),
+            artifact: output.artifact.clone(),
+        }
+    }
 }
 
 pub(super) fn drain_task_events(
@@ -347,5 +402,70 @@ mod ask_option_tests {
         let from_string: AskOption = String::from("否").into();
         assert_eq!(from_str, AskOption::plain("是"));
         assert_eq!(from_string, AskOption::plain("否"));
+    }
+}
+
+#[cfg(test)]
+mod tool_end_content_tests {
+    use super::{ui_tool_content, RunEvent, TOOL_END_UI_CONTENT_MAX};
+    use kanzei_harness::{ToolArtifact, ToolOutput};
+    use serde_json::json;
+
+    /// 多字节正文按字符边界截断:切在「汉」(3 字节)中间会 panic 或产出乱码。
+    #[test]
+    fn 超限正文按字符边界截断并保留原字节数() {
+        let text = "汉".repeat(300 * 1024 / 3);
+        let (content, bytes) = ui_tool_content(&text);
+        assert_eq!(bytes, text.len());
+        assert!(content.len() <= TOOL_END_UI_CONTENT_MAX);
+        assert!(content.len() > TOOL_END_UI_CONTENT_MAX - 3);
+        assert!(content.chars().all(|c| c == '汉'));
+    }
+
+    #[test]
+    fn 小正文原样透传() {
+        let text = "exit code: 0\nok";
+        let (content, bytes) = ui_tool_content(text);
+        assert_eq!(content, text);
+        assert_eq!(bytes, text.len());
+    }
+
+    /// 构造器把 ToolOutput 的各字段原样搬进事件,preview 仍是首行 + 行数。
+    #[test]
+    fn tool_end_从工具输出填齐字段() {
+        let artifact = ToolArtifact {
+            artifact_id: "a1".into(),
+            relative_path: "artifacts/a1.txt".into(),
+            bytes: 9,
+            sha256: "00".into(),
+            retrieval_hint: "read it".into(),
+        };
+        let mut output = ToolOutput::noop("EDIT_NOOP", "same\nsecond line")
+            .with_display(json!({"kind": "diff", "additions": 1}));
+        output.artifact = Some(artifact.clone());
+        let RunEvent::ToolEnd {
+            id,
+            name,
+            ok,
+            outcome,
+            code,
+            preview,
+            content,
+            content_bytes,
+            display,
+            artifact: got_artifact,
+        } = RunEvent::tool_end("c1".into(), "edit".into(), &output)
+        else {
+            panic!("tool_end 必须构造 ToolEnd");
+        };
+        assert_eq!((id.as_str(), name.as_str()), ("c1", "edit"));
+        assert!(!ok);
+        assert_eq!(outcome, "noop");
+        assert_eq!(code.as_deref(), Some("EDIT_NOOP"));
+        assert_eq!(preview, "same (+1 lines)");
+        assert_eq!(content, "same\nsecond line");
+        assert_eq!(content_bytes, content.len());
+        assert_eq!(display, Some(json!({"kind": "diff", "additions": 1})));
+        assert_eq!(got_artifact, Some(artifact));
     }
 }

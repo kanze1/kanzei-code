@@ -5,7 +5,8 @@
 //! 模型请求)**挂起不回应**——子代理因此一直持着读槽「运行中」。服务器 accept 到
 //! 子代理连接后经 oneshot 通知主测试体,此时才调用注册表 cancel(task_id),时序确定:
 //!   ① run_subagent 的取消分支触发:TaskProgress 抛 phase="cancelled" trace;
-//!   ② ToolEnd 以「被停」终态(ok=false + "was stopped by the user")收尾;
+//!   ② ToolEnd 以「被停」终态(ok=false + "was stopped by the user"
+//!      + code=subagent_cancelled)收尾;此前子代理先报 phase="meta" 的人格与模型;
 //!   ③ 协调器读槽 agent_completed 出现(RAII 释放,不是悬空);
 //!   ④ 主轮继续完成(整轮未被中止)。
 
@@ -78,7 +79,13 @@ struct Recorder {
     run: Mutex<Vec<(String, String, bool, String)>>, // (id, name, ok, preview)
     usage_traces: Mutex<Vec<(String, u64)>>,         // (task_id, total_input_tokens)
     cancelled_traces: Mutex<Vec<String>>,            // phase == "cancelled" 的 id
+    /// UI-0926 #8:按到达顺序记录全部 trace 的 (task_id, phase, agent, model)。
+    traces: Mutex<Vec<TraceRecord>>,
+    /// UI-0926 #8:ToolEnd 的 (id, name, code)。
+    end_codes: Mutex<Vec<(String, String, Option<String>)>>,
 }
+
+type TraceRecord = (String, String, Option<String>, Option<String>);
 
 impl PhaseObserver for Recorder {
     fn observe(&self, event: &OrchestrationEvent) {
@@ -218,9 +225,15 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
             id,
             name,
             ok,
+            code,
             preview,
             ..
         } => {
+            event_recorder
+                .end_codes
+                .lock()
+                .unwrap()
+                .push((id.clone(), name.clone(), code));
             event_recorder
                 .run
                 .lock()
@@ -231,25 +244,33 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
             id,
             trace: Some(trace),
             ..
-        } => match trace.phase.as_str() {
-            "usage" => {
-                if let Some(usage) = trace.usage {
+        } => {
+            event_recorder.traces.lock().unwrap().push((
+                id.clone(),
+                trace.phase.clone(),
+                trace.agent.clone(),
+                trace.model.clone(),
+            ));
+            match trace.phase.as_str() {
+                "usage" => {
+                    if let Some(usage) = trace.usage {
+                        event_recorder
+                            .usage_traces
+                            .lock()
+                            .unwrap()
+                            .push((id.clone(), usage.input));
+                    }
+                }
+                "cancelled" => {
                     event_recorder
-                        .usage_traces
+                        .cancelled_traces
                         .lock()
                         .unwrap()
-                        .push((id.clone(), usage.input));
+                        .push(id.clone());
                 }
+                _ => {}
             }
-            "cancelled" => {
-                event_recorder
-                    .cancelled_traces
-                    .lock()
-                    .unwrap()
-                    .push(id.clone());
-            }
-            _ => {}
-        },
+        }
         _ => {}
     };
     let mut ask = |_request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
@@ -319,6 +340,38 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         preview.contains("was stopped by the user"),
         "被停终态的 preview 必须带 run_subagent 取消分支文案,实际: {preview}"
     );
+    // UI-0926 #8:被停带稳定码,UI 不必按文案猜。
+    let end_codes = recorder.end_codes.lock().unwrap().clone();
+    assert!(
+        end_codes.iter().any(|(id, name, code)| id == &task_id
+            && name == "task"
+            && code.as_deref() == Some("subagent_cancelled")),
+        "被停的 task ToolEnd 必须带 code=subagent_cancelled,实际: {end_codes:?}"
+    );
+    // UI-0926 #8:子代理先报实际人格与模型(meta),再有任何工具进度。
+    let traces: Vec<TraceRecord> = recorder
+        .traces
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(id, ..)| id == &task_id)
+        .cloned()
+        .collect();
+    let meta_at = traces
+        .iter()
+        .position(|(_, phase, ..)| phase == "meta")
+        .unwrap_or_else(|| panic!("子代理必须先发 phase=meta 的 trace,实际: {traces:?}"));
+    let (_, _, agent, model) = &traces[meta_at];
+    assert_eq!(agent.as_deref(), Some("explore"), "meta 报实际选中的人格");
+    assert_eq!(model.as_deref(), Some("mock"), "meta 报 fast 档位的模型 id");
+    assert!(
+        traces
+            .iter()
+            .position(|(_, phase, ..)| phase == "start")
+            .is_none_or(|start_at| meta_at < start_at),
+        "meta 必须早于任何 start trace: {traces:?}"
+    );
+    assert_eq!(meta_at, 0, "meta 是该子代理的第一条 trace: {traces:?}");
     // ③ 读槽被释放:agent_completed 出现(RAII 在 future drop 时回收)。
     let orch = recorder.orchestration.lock().unwrap().clone();
     let completed: Vec<&str> = orch

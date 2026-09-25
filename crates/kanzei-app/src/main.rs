@@ -30,6 +30,8 @@ mod memory;
 mod memory_chat;
 mod mobile;
 mod mobile_notify;
+/// UI-0926 #3:模型配置的展示真源(model_effective)与项目级模型覆盖的逐键编辑。
+mod model_config;
 mod orchestration_trace;
 mod phase_pipeline;
 mod prefs;
@@ -208,6 +210,10 @@ fn main() {
             settings::settings_get,
             settings::settings_save,
             settings::settings_open,
+            model_config::model_effective,
+            model_config::project_models_get,
+            model_config::project_models_save,
+            model_config::project_config_open,
             prefs::ui_prefs_get,
             prefs::ui_prefs_set,
             projects::export_pick_dir,

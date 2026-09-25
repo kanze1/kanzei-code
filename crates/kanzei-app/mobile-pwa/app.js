@@ -53,6 +53,10 @@ const I18N_EN = {
   "提交中…": "Submitting…",
   "答案已提交": "Answer submitted",
   "问题已取消": "Question cancelled",
+  "工作目录": "Working directory",
+  // UI-0926 #8:通知行的身份词。
+  "主代理": "Primary agent",
+  "子代理": "Subagent",
 };
 
 function uiLanguage() {
@@ -268,13 +272,43 @@ function reconcileApprovalCards(device, container, pending) {
   setApprovalStatus(container, pending.length === 0 ? t("当前无待批准请求") : "");
 }
 
+// UI-0926 #10:bash 的权限资源是 `{"command","workdir"}` JSON。PWA 与桌面端 ui/ 是不同的
+// 服务根(mobile.rs 只 serve mobile-pwa/),不能共享 04-structured-parse.js,这里是同一
+// 判据的本地小实现:能解析出 command 就拆成「动作 + 命令块 + 工作目录」,否则原样。
+function describeAskResource(ask) {
+  const raw = String(ask.resource ?? "");
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const value = JSON.parse(trimmed);
+      if (value && typeof value.command === "string") {
+        return { command: value.command, workdir: typeof value.workdir === "string" ? value.workdir : "" };
+      }
+    } catch {
+      // 不是合法 JSON:按原文显示。
+    }
+  }
+  return { text: raw };
+}
+
+function permissionDescHtml(ask) {
+  const resource = describeAskResource(ask);
+  if (resource.command === undefined) {
+    return `<p class="approval-desc">${escapeHtml(`${ask.action}: ${resource.text}`)}</p>`;
+  }
+  const workdir = resource.workdir
+    ? `<p class="muted approval-workdir">${escapeHtml(t("工作目录"))}: ${escapeHtml(resource.workdir)}</p>`
+    : "";
+  return `<div class="approval-desc"><span class="approval-action">${escapeHtml(ask.action)}</span>`
+    + `<pre class="approval-cmd">${escapeHtml(resource.command)}</pre></div>${workdir}`;
+}
+
 function renderPermissionCard(device, ask) {
   const card = document.createElement("div");
   card.className = "card approval";
   card.dataset.askId = String(ask.id);
-  const desc = `${ask.action}: ${ask.resource}`;
   card.innerHTML = `
-    <p class="approval-desc">${escapeHtml(desc)}</p>
+    ${permissionDescHtml(ask)}
     <p class="muted">${escapeHtml(ask.session_id || "")} · ${t("请求")} #${ask.id}</p>
     <div class="approval-actions">
       <button class="approve" data-id="${ask.id}">${t("批准")}</button>
@@ -552,6 +586,48 @@ function renderNotifications(device) {
   if (lastThreadId) subscribe(device, lastThreadId);
 }
 
+// UI-0926 #8:通知行「字形 · 身份 · 摘要 · 时间」。旧行是 `[序号] agent_status_changed — 摘要`,
+// 序号与恒定的 kind 对用户没有信息量,status 与 agent_id 反而没用上(分不出主/子代理与成败)。
+// 纯函数:冒烟直接在页面里调它。
+const NOTICE_GLYPHS = { running: "●", succeeded: "✓", failed: "✕", stopped: "■", requires_action: "⚠" };
+function formatNotice(event) {
+  const status = String(event?.status || "");
+  const agentId = String(event?.agent_id || "");
+  const sub = agentId.startsWith("task:");
+  const who = agentId === "primary" ? t("主代理") : sub ? t("子代理") : agentId;
+  let time = "";
+  const created = event?.created_at;
+  if (created !== undefined && created !== null && created !== "") {
+    const date = new Date(typeof created === "number" ? created : String(created));
+    if (!Number.isNaN(date.getTime())) {
+      time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+    }
+  }
+  return { glyph: NOTICE_GLYPHS[status] || "·", status, who, summary: String(event?.summary || ""), time, sub };
+}
+
+function buildNoticeItem(event) {
+  const view = formatNotice(event);
+  const item = document.createElement("div");
+  item.className = view.sub ? "notice notice-sub" : "notice";
+  const glyph = document.createElement("span");
+  glyph.className = "notice-glyph";
+  glyph.dataset.status = view.status;
+  glyph.setAttribute("aria-hidden", "true");
+  glyph.textContent = view.glyph;
+  const who = document.createElement("span");
+  who.className = "notice-who";
+  who.textContent = view.who;
+  const summary = document.createElement("span");
+  summary.className = "notice-summary";
+  summary.textContent = view.summary;
+  const time = document.createElement("span");
+  time.className = "notice-time";
+  time.textContent = view.time;
+  item.append(glyph, who, summary, time);
+  return item;
+}
+
 function subscribe(device, threadId) {
   if (sseController) sseController.abort();
   const statusEl = document.getElementById("conn-status");
@@ -561,9 +637,7 @@ function subscribe(device, threadId) {
     device,
     threadId,
     (event) => {
-      const item = document.createElement("div");
-      item.className = "notice";
-      item.textContent = `[${event.sequence}] ${event.kind || "event"} — ${event.summary || ""}`;
+      const item = buildNoticeItem(event);
       listEl.prepend(item);
       // 长列表窗口化:最多保留 100 条(轻交互遥控器,不无限堆积)。
       while (listEl.children.length > 100) listEl.removeChild(listEl.lastChild);

@@ -1,8 +1,14 @@
+import { closeSurface, hideCard, isSurfaceOpen, openPopover, showCard } from "./00-surface.js";
 import { defer } from "./01-core.js";
+import { motionOnce } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
+import { setTurnPhase, turnPhase } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
+import { chatAbortRunning, endReasoningLive, paneHasRunningTool, playToolOutcomeMotion } from "./05-chat-render.js";
 import { setCtxPending, setCtxTokens } from "./03-shell.js";
 import { setCtxLimit } from "./03-shell.js";
+import { showRunMeta } from "./03-shell.js";
+import { effectiveModel, refreshEffectiveModel } from "./08-models.js";
 import { autoRounds } from "./08-auto.js";
 import { $, activePane, invoke, messages, on, trimLivePane } from "./01-core.js";
 import { languageIsEnglish, localizeDynamic, t } from "./02-i18n.js";
@@ -63,9 +69,6 @@ import {
   agentAuditTaskEnd,
   agentAuditTaskProgress,
   agentAuditTaskStart,
-  agentEnd,
-  agentProgress,
-  agentStart,
   bgAbortRunning,
   bgAdd,
   bgEnd,
@@ -105,6 +108,13 @@ import { markRuntimeFocusStale, setRuntimeFocus } from "./12-docs-pages.js";
 import { refreshDocs, refreshDocsSoon } from "./14-docs-actions.js";
 import { refreshConversationList, refreshGit, refreshGitSoon } from "./15-views-misc.js";
 import { neuralFlowEmit } from "./22-neural-flow.js";
+// UI-0926 #10:权限卡资源、压缩纪要、上下文详情的结构化渲染。
+import { renderMarkdown } from "./04-markdown.js";
+import { permissionResourceText } from "./04-structured-parse.js";
+import { pathChip, renderPermissionResource, richText } from "./04-structured.js";
+import { toolResultSummary } from "./05-tool-summary.js";
+// UI-0926 #8:task 不再走主对话工具块,改由子代理卡片承载(05-subagents.js)。
+import { subagentCopyText, subagentEnd, subagentProgress, subagentRunningCount, subagentStart } from "./05-subagents.js";
 
 // ---------- 事件订阅 ----------
 defer(() => {
@@ -124,8 +134,14 @@ defer(() => {
     // 一开轮就把主线的模型/上下文上限顶掉,界面看起来像模型切换没生效。
     if (p.sessionId) sessionMetaCache.set(p.sessionId, p);
     if (!p.sessionId || p.sessionId === activeSessionId) {
-      $("status-model").textContent = `${p.model} · ${p.profile}`;
+      showRunMeta(p);
       setCtxLimit(p.contextLimit ?? null);
+      // UI-0926 #3:这一轮实际用的与输入框上方「下一轮将使用」对不上(配置刚在别处改过、
+      // agent 换了),说明芯片那份已过期:重取一次,两处重新对齐。
+      const next = effectiveModel;
+      if (next?.model?.resolved && (next.model.resolved !== p.model || (p.reasoning && next.reasoning?.value !== p.reasoning))) {
+        void refreshEffectiveModel();
+      }
     }
     log(`${t("模型")} ${p.model} · agent ${p.agent} · profile ${p.profile}${p.contextLimit ? ` · ${t("上下文上限")} ${Math.round(p.contextLimit / 1000)}k` : ""}`);
   });
@@ -147,6 +163,8 @@ defer(() => {
       // 轮次分隔不再进主对话区(用户定调:对话为主);轮次在侧边栏"当前进展"实时可见。
     }
     // 活动面板跨轮保留历史,由用户主动清空/切换项目时清理。
+    endReasoningLive();
+    setTurnPhase("waiting");
     setCurrentAssistant(null);
     setCurrentReasoning(null);
     setCurrentReasoningHead(null);
@@ -160,6 +178,8 @@ defer(() => {
     markFirstSignal();
     neuralFlowEmit?.("assistant_streaming", { session_id: e.payload.sessionId, text_length: e.payload.text?.length ?? 0 });
     // 文本开始后,后续思考属于新的思考段。
+    endReasoningLive();
+    setTurnPhase("generating");
     setCurrentReasoning(null);
     setCurrentReasoningHead(null);
     if (running) setStatus("生成中" + ` · ${(outputChars / 1000).toFixed(1)}k`, true);
@@ -170,6 +190,7 @@ defer(() => {
   on("kz:reasoning", (e) => {
     markFirstSignal();
     neuralFlowEmit?.("reasoning_active", { session_id: e.payload.sessionId });
+    setTurnPhase("thinking");
     if (running) setStatus("思考中", true);
     appendReasoning(e.payload.text);
   });
@@ -187,9 +208,10 @@ export function addCompactionEntry(summary) {
   title.setAttribute("aria-label", t("展开或收起上下文压缩纪要"));
   title.setAttribute("aria-expanded", "true");
   title.textContent = t("上下文压缩 · 点击查看纪要");
+  // UI-0926 #10:纪要本身是 markdown(标题/列表),按 markdown 渲染而不是原文堆字。
   const detail = document.createElement("div");
-  detail.className = "bg-detail";
-  detail.textContent = summary;
+  detail.className = "bg-detail md sv-md";
+  detail.innerHTML = renderMarkdown(String(summary ?? ""));
   el.append(title, detail);
   title.addEventListener("click", () => {
     detail.classList.toggle("hidden");
@@ -213,8 +235,14 @@ export function addSummaryEntry(summary, path = "") {
   title.setAttribute("aria-expanded", "true");
   title.textContent = t("对话小总结 · 点击查看");
   const detail = document.createElement("div");
-  detail.className = "bg-detail";
-  detail.textContent = path ? `${summary}\n\n${t("已存档")}: ${path}` : summary;
+  detail.className = "bg-detail md sv-md";
+  detail.innerHTML = renderMarkdown(String(summary ?? ""));
+  if (path) {
+    const archived = document.createElement("div");
+    archived.className = "sv-archived";
+    archived.append(document.createTextNode(`${t("已存档")}: `), pathChip(path));
+    detail.append(archived);
+  }
   el.append(title, detail);
   title.addEventListener("click", () => {
     detail.classList.toggle("hidden");
@@ -229,10 +257,37 @@ export function addSummaryEntry(summary, path = "") {
 }
 export function renderContextDetail() {
   const detail = $("context-detail");
-  const t = runTokens;
-  const total = t.input + t.cacheRead + t.output;
-  detail.innerHTML = `<strong>${localizeDynamic("上下文成分")}</strong><br>${localizeDynamic("输入上下文(系统/历史/工具结果)")}: ${t.input.toLocaleString()} tokens<br>${localizeDynamic("缓存读取(已复用上下文)")}: ${t.cacheRead.toLocaleString()} tokens<br>${localizeDynamic("本轮输出")}: ${t.output.toLocaleString()} tokens${lastCompactionSummary ? `<br>${localizeDynamic("最近一次压缩纪要已收进活动面板")}` : ""}<br>${localizeDynamic("合计")}: ${total.toLocaleString()} tokens`;
-  detail.classList.remove("hidden");
+  const tokens = runTokens;
+  const total = tokens.input + tokens.cacheRead + tokens.output;
+  // UI-0926 #10:键值两列(标签 | 数值),不再用 innerHTML 拼 <br>。
+  const title = document.createElement("strong");
+  title.textContent = localizeDynamic("上下文成分");
+  const table = document.createElement("div");
+  table.className = "sv-kv sv-context";
+  const row = (labelText, value) => {
+    const line = document.createElement("div");
+    line.className = "sv-kv-row";
+    const key = document.createElement("span");
+    key.className = "sv-k";
+    key.textContent = localizeDynamic(labelText);
+    const cell = document.createElement("span");
+    cell.className = "sv-v sv-num";
+    cell.textContent = `${value.toLocaleString()} tokens`;
+    line.append(key, cell);
+    table.append(line);
+  };
+  row("输入上下文(系统/历史/工具结果)", tokens.input);
+  row("缓存读取(已复用上下文)", tokens.cacheRead);
+  row("本轮输出", tokens.output);
+  row("合计", total);
+  detail.replaceChildren(title, table);
+  if (lastCompactionSummary) {
+    const note = document.createElement("div");
+    note.className = "sv-note";
+    note.textContent = localizeDynamic("最近一次压缩纪要已收进活动面板");
+    detail.append(note);
+  }
+  openPopover($("status-tokens"), detail, { placement: "top-end" });
   $("status-tokens").setAttribute("aria-expanded", "true");
   if (lastCompactionEntry) {
   setActivityPanelOpen(true);
@@ -242,7 +297,7 @@ export function renderContextDetail() {
 }
 
 export function hideContextDetail() {
-  $("context-detail").classList.add("hidden");
+  closeSurface($("context-detail"));
   $("status-tokens").setAttribute("aria-expanded", "false");
 }
 export function toggleContextDetail() {
@@ -256,19 +311,9 @@ defer(() => {
 defer(() => {
   $("status-tokens").classList.add("context-clickable");
 });
+// Esc 与点外关闭由 00-surface 的弹层栈统一处理(锚点按钮自身除外,点它是切换)。
 defer(() => {
   $("status-tokens").addEventListener("click", toggleContextDetail);
-});
-defer(() => {
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hideContextDetail();
-  });
-});
-defer(() => {
-  document.addEventListener("click", (event) => {
-    if (event.target.closest("#status-tokens, #context-detail")) return;
-    hideContextDetail();
-  });
 });
 on("kz:tool-start", (e) => {
   markFirstSignal();
@@ -284,15 +329,20 @@ on("kz:tool-start", (e) => {
   const shown = toolCallSummary(e.payload.name, e.payload.input) || String(e.payload.summary ?? "");
   agentAuditTaskStart(e.payload.sessionId, e.payload);
   log(`${t("工具")} ${e.payload.name} ${shown}`);
+  endReasoningLive();
+  setTurnPhase("tool");
   setCurrentAssistant(null);
   setCurrentReasoning(null);
-  chatToolStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  // UI-0926 #8:task(模型自派与编排派发)在主对话里是一张子代理卡片,同批并行的合成一组;
+  // 其余工具照旧是内联工具行。
+  if (e.payload.name === "task") {
+    subagentStart({ sessionId: e.payload.sessionId, id: e.payload.id, input: e.payload.input, summary: e.payload.summary });
+  } else {
+    chatToolStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  }
   // 活动面板保留完整工具轨迹,入参一并传下去以支持编排阶段、角色和完整详情。
   if (bgQuiet(e.payload.name, e.payload.input)) bgStartQuiet(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
   else if (isActivityTool(e.payload.name, e.payload.input)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input, e.payload.sessionId);
-  // R-174:子代理面板独立于活动面板,task 类一律进子代理面板(编排派发带 phase,
-  // 模型自派 name=task)。其余工具不进子代理面板。
-  if (e.payload.name === "task") agentStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input, e.payload.sessionId);
   liveSet("live-action", `⚙ ${e.payload.name} ${shown.slice(0, 60)}`);
   setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
 });
@@ -318,8 +368,9 @@ defer(() => {
     const payload = e.payload;
     agentAuditTaskProgress(payload.sessionId, payload);
     bgProgress(payload.id, payload.text, payload.trace);
-    // R-174:子代理面板同一数据流。trace 里带 input/usage 时是 transcript 与 token 数据源。
-    agentProgress(payload.id, payload.text, payload.trace);
+    // UI-0926 #8:子代理卡片(与侧栏)同一数据流:meta 给人格与模型,start/end 给尾迹与过程,
+    // usage 是累计值(替换),text 是子代理自述。后台线路也推进(BACKGROUND_RENDER_EVENTS)。
+    subagentProgress({ sessionId: payload.sessionId, id: payload.id, text: payload.text, trace: payload.trace });
     // 子代理不会单独发顶层 tool-end；它每提交一个批次时由 task-progress 带回。
     // 这里马上重新取 Git 推导的进度，不等 parent task 或整轮结束。
     // 「在做」运行证据③:子代理的批次提交同样指认实际在推的条目。
@@ -344,10 +395,14 @@ defer(() => {
       : outcome === "needs_confirmation" ? t("需要确认")
         : outcome === "needs_correction" ? t("需要修正")
           : p.ok ? t("成功") : t("失败");
-    log(`${t("工具结果")} ${p.name}: ${outcomeLabel} — ${p.preview}`, outcome === "success" ? "" : "warn");
-    // 工作焦点:req/defect/idea 的增改结果最能代表"它在干哪件事"。
+    // JSON 结果的 preview 只是 `{ (+40 lines)`:日志行改用同一个摘要器的人话。
+    const logResult = /^[{[]/.test(String(p.preview ?? "").trim())
+      ? toolResultSummary(p.name, { ok: p.ok, outcome, code: p.code, content: p.content, preview: p.preview, contentTruncated: p.contentTruncated, contentBytes: p.contentBytes, display: p.display }).text
+      : p.preview;
+    log(`${t("工具结果")} ${p.name}: ${outcomeLabel} — ${logResult}`, outcome === "success" ? "" : "warn");
+    // 工作焦点:req/defect/idea 的增改结果最能代表"它在干哪件事"。侧栏原来另有一行
+    // #live-focus 抄一遍这条结果,与「各线当前在做」焦点卡重复,UI-0926 #4 删掉;焦点卡靠下面的运行证据。
     if (p.ok && ["req", "defect", "idea"].includes(p.name)) {
-      liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
       // 「在做」运行证据①:update 型 tracker 结果(取活时标 doing/fixing、批次进展
       // 都走这里)。add(快记新增)与 close(刚收尾)不指向正在做的条目,不采。
       if (["req", "defect"].includes(p.name) && /^updated:/.test(p.preview)) {
@@ -366,16 +421,34 @@ defer(() => {
     if (p.ok && ["source", "finding"].includes(p.name)) refreshDocsSoon();
     // 改了文件或跑了命令,工作区状态徽章跟着变(提交后 +N 应当立刻归零)。
     if (p.ok && ["write", "edit", "multiedit", "bash"].includes(p.name)) refreshGitSoon();
-    chatToolEnd(p.id, p.ok, p.preview, p.display, outcome);
+    // UI-0926 #6:tool-end 带与历史同源的正文与耗时,⎿ 行与活动面板进度行按工具摘要。
+    const toolEndExtra = {
+      content: p.content,
+      contentTruncated: p.contentTruncated,
+      contentBytes: p.contentBytes,
+      code: p.code,
+      durationMs: p.durationMs,
+    };
+    // UI-0926 #8:task 的终态收进子代理卡片(code 优先分类;停止补发的 ToolEnd 只校准终态,
+    // 不复活运行态),其余工具照旧填主对话工具行。
+    if (p.name === "task") {
+      subagentEnd({ sessionId: p.sessionId, id: p.id, ok: p.ok, outcome, code: p.code, preview: p.preview, display: p.display, content: p.content, durationMs: p.durationMs });
+    } else {
+      chatToolEnd(p.id, p.ok, p.preview, p.display, outcome, toolEndExtra);
+    }
     recordDiffSummary(p.display);
-    // R-174:子代理终态进子代理面板 finished 区(task 类顶层 tool-end 只来自父任务收尾,
-    // 或被停后补发)。
-    if (p.name === "task") agentEnd(p.id, p.ok, p.preview, p.display);
+    // #7:实时收尾的一次性反馈(成功弹一下/失败抖一下);停止收尾之后才到的只撤「中断」标记。
+    playToolOutcomeMotion(p.id);
     // 活动栏统一保留工具轨迹；历史兼容待定路径仍由 bgFinishQuiet 收尾，
     // 随后由 bgEnd 更新完成态和错误详情。
     bgFinishQuiet(p.id, p.ok);
-    bgEnd(p.id, p.ok, p.preview, p.display, outcome);
-    setStatus("运行中", true);
+    bgEnd(p.id, p.ok, p.preview, p.display, outcome, toolEndExtra);
+    // #7:停止发出后/已停止之后才到的 ToolEnd(停止补发)只收尾工具行,不得把相位与状态栏
+    // 翻回「运行中」——否则活动行在已停止后重新扫光,直到下一次 setRunning(false)。
+    if (running && turnPhase !== "stopping") {
+      setTurnPhase(paneHasRunningTool() || subagentRunningCount(activeSessionId) > 0 ? "tool" : "waiting");
+      setStatus("运行中", true);
+    }
   });
 });
 defer(() => {
@@ -442,6 +515,8 @@ defer(() => {
       setRunning(false, "出错");
       if (retryLabel && (!payload.sessionId || payload.sessionId === activeSessionId)) setRunPending(retryLabel);
       bgAbortRunning(`(${localizeDynamic("出错中止")})`);
+      chatAbortRunning();
+      endReasoningLive();
       liveIdle("出错");
       notifyRunState("failed", message);
     }
@@ -458,6 +533,8 @@ defer(() => {
       currentAssistant.remove();
       setCurrentAssistant(null);
     }
+    endReasoningLive();
+    setTurnPhase("waiting");
     setCurrentReasoning(null);
     setCurrentReasoningHead(null);
     setOutputChars(0);
@@ -493,6 +570,8 @@ defer(() => {
     stopElapsed();
     setRunning(false, "已停止");
     bgAbortRunning(`(${t("已停止")})`);
+    chatAbortRunning();
+    endReasoningLive();
     liveIdle("已停止");
     notifyRunState("stopped", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
     refreshPendingInputs();
@@ -767,9 +846,8 @@ export function recordBlockedAsk(payload) {
   };
   blockedAsks.push(item);
   blockedAskSummaryShown = false;
-  const label = payload.action
-    ? `${payload.action}${payload.resource ? ` · ${payload.resource}` : ""}`
-    : payload.question;
+  // bash 的资源是 {command, workdir} JSON:通知里只说「bash · cargo test」,不贴 JSON。
+  const label = payload.action ? permissionResourceText(payload.action, payload.resource) : payload.question;
   addMessage("notice", `⚠️ ${t("权限被拦已跳过")}: ${label}`);
   return item;
 }
@@ -778,7 +856,7 @@ export function summaryBlockedAsks() {
   if (!blockedAsks.length || blockedAskSummaryShown) return;
   blockedAskSummaryShown = true;
   const items = blockedAsks
-    .map((item) => (item.resource ? `${item.what} · ${item.resource}` : item.what))
+    .map((item) => (item.resource ? permissionResourceText(item.what, item.resource) : item.what))
     .join("; ");
   addMessage(
     "notice",
@@ -800,7 +878,7 @@ defer(() => {
     }
     // 自动放行(yolo):后台会话也必须直接得到答复,不能因不在当前页签而挂起。
     if (e.payload.kind !== "question" && $("auto-allow").checked) {
-      log(`${t("自动放行")}:${e.payload.action} ${e.payload.resource}`);
+      log(`${t("自动放行")}:${permissionResourceText(e.payload.action, e.payload.resource)}`);
       invoke("answer_ask", { id: e.payload.id, reply: "once" }).catch((err) =>
         reportPersistentError(`${t("自动放行失败")}:${err}`)
       );
@@ -824,6 +902,8 @@ defer(() => {
   $("auto-allow").addEventListener("change", () => {
     localStorage.setItem("kz-auto-allow", $("auto-allow").checked ? "1" : "0");
     syncAutoAllowBadge();
+    // 由关变开的那一下弹一次(启动时的同步不播);常驻警示不做循环,避免一直唠叨。
+    if ($("auto-allow").checked) motionOnce($("status-auto-allow"), "kz-pop", 500);
     log($("auto-allow").checked ? t("已开启自动放行(所有权限询问直接通过;此选择会被记住,跨重启仍生效)") : t("已关闭自动放行"));
   });
 });
@@ -840,7 +920,7 @@ export function updateAskQueueStatus() {
     ? `${t("当前请求")} 1/${total} · ${languageIsEnglish() ? `${total - 1} ${t("条待处理")}` : `${t("还有")} ${total - 1} ${t("条待处理")}`}`
     : t("当前无其他待处理请求");
   const lines = queue.slice(0, 4).map((item, index) => {
-    const text = item.kind === "question" ? item.question : `${item.action} · ${item.resource}`;
+    const text = item.kind === "question" ? item.question : permissionResourceText(item.action, item.resource);
     return `${index + 2}. ${text}`;
   });
   preview.textContent = lines.join("\n");
@@ -865,7 +945,10 @@ export function pumpAsk() {
   $("question-fields").classList.toggle("hidden", !question);
   $("question-buttons").classList.toggle("hidden", !question);
   if (question) {
-    $("ask-question").textContent = askActive.question;
+    // UI-0926 #10:问题正文按 markdown 渲染(列表/代码/路径链接);注解里的编号/路径可点。
+    const questionHost = $("ask-question");
+    questionHost.classList.add("md", "sv-md");
+    questionHost.innerHTML = renderMarkdown(String(askActive.question ?? ""));
     const multi = isMultiSelectAsk(askActive);
     askSelectedOptions.length = 0;
     const options = $("ask-options");
@@ -888,7 +971,7 @@ export function pumpAsk() {
         // 而后果恰恰是提问的原因。
         const note = document.createElement("span");
         note.className = "ask-option-note";
-        note.textContent = option.note;
+        note.append(richText(String(option.note)));
         button.appendChild(note);
         button.classList.add("has-note");
       }
@@ -913,37 +996,54 @@ export function pumpAsk() {
     }
     $("ask-answer").value = askActive.default || "";
     $("ask-answer").placeholder = multi ? t("补充说明(可选)") : t("输入你的回答");
-    setTimeout(() => $("ask-answer").focus(), 0);
     updateAskSubmitState();
   } else {
     $("ask-action").textContent = askActive.action;
-    $("ask-resource").textContent = askActive.resource;
-    $("ask-remember").textContent = `${askActive.action} ${askActive.remember ?? askActive.resource}`;
-    setTimeout(() => $("ask-allow").focus(), 0);
+    // UI-0926 #10:bash 资源是 {command, workdir} JSON——拆成命令代码块 + 工作目录 chip;
+    // 「记住为」与资源相同时不再重复一遍。
+    $("ask-resource").replaceChildren(renderPermissionResource(askActive.action, askActive.resource));
+    const remember = askActive.remember ?? askActive.resource;
+    if (remember === askActive.resource) {
+      $("ask-remember").textContent = `${askActive.action} · ${t("同上")}`;
+    } else {
+      $("ask-remember").replaceChildren(document.createTextNode(`${askActive.action} `), renderPermissionResource(askActive.action, remember));
+    }
   }
   askCollapsed = false;
-  $("ask-overlay").classList.remove("hidden");
-  $("ask-reopen").classList.add("hidden");
+  showAskCard();
   updateAskQueueStatus();
+}
+
+// 权限/提问卡是停靠卡片(00-surface showCard):不轻关闭、不参与模态。
+// Esc 经弹层栈只作用于栈顶——确认框/命令面板开着时按 Esc 关的是它们,不会顺手拒掉这条请求。
+// 焦点 "auto":用户正在别处打字时不抢焦点(旧实现一弹出就把焦点抢到「允许一次」,下一个空格就放行)。
+export function showAskCard() {
+  showCard($("ask-overlay"), {
+    onEscape: () => {
+      if (askActive) answerAsk(askActive.kind === "question" ? "cancel" : "deny");
+    },
+    focus: "auto",
+    initialFocus: askActive?.kind === "question" ? "#ask-answer" : "#ask-allow",
+  });
+  hideCard($("ask-reopen"));
 }
 
 export function collapseAsk() {
   if (!askActive) return;
   askCollapsed = true;
-  $("ask-overlay").classList.add("hidden");
-  $("ask-reopen").classList.remove("hidden");
+  hideCard($("ask-overlay"));
+  showCard($("ask-reopen"), { focus: "none" });
   updateAskQueueStatus();
 }
 
 export function reopenAsk() {
   if (!askActive) {
-    $("ask-reopen").classList.add("hidden");
+    hideCard($("ask-reopen"));
     pumpAsk();
     return;
   }
   askCollapsed = false;
-  $("ask-overlay").classList.remove("hidden");
-  $("ask-reopen").classList.add("hidden");
+  showAskCard();
   updateAskQueueStatus();
 }
 
@@ -955,19 +1055,19 @@ export function hideAsk(preserveActive = false) {
   }
   askActive = null;
   askCollapsed = false;
-  $("ask-overlay").classList.add("hidden");
-  $("ask-reopen").classList.add("hidden");
+  hideCard($("ask-overlay"));
+  hideCard($("ask-reopen"));
   updateAskQueueStatus();
 }
 export async function answerAsk(reply) {
   if (!askActive) return;
   const id = askActive.id;
   const question = askActive.kind === "question";
-  const summary = question ? askActive.question : `${askActive.action}: ${askActive.resource}`;
+  const summary = question ? askActive.question : permissionResourceText(askActive.action, askActive.resource);
   askActive = null;
   askCollapsed = false;
-  $("ask-overlay").classList.add("hidden");
-  $("ask-reopen").classList.add("hidden");
+  hideCard($("ask-overlay"));
+  hideCard($("ask-reopen"));
   updateAskQueueStatus();
   const replyLabel = reply === "deny" ? t("拒绝") : reply === "always" ? t("总是允许") : reply;
   log(`${question ? t("回答") : t("权限")} ${replyLabel} — ${summary}`);
@@ -1008,17 +1108,6 @@ defer(() => {
 defer(() => {
   $("ask-answer").addEventListener("input", updateAskSubmitState);
 });
-defer(() => {
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    if (!$('ask-overlay').classList.contains("hidden") && askActive) {
-      answerAsk(askActive.kind === "question" ? "cancel" : "deny");
-      return;
-    }
-    if (!$('viewer-overlay').classList.contains("hidden")) $("viewer-close").click();
-  });
-});
-
 // ---------- 阅读辅助 ----------
 export async function copyReadable(el) {
   const text = el.dataset.raw || [...el.childNodes]
@@ -1061,20 +1150,11 @@ defer(() => {
         const head = el.querySelector(".head")?.textContent?.trim();
         const result = el.querySelector(".result")?.textContent?.trim();
         if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
-      } else if (el.classList.contains("agent-fold")) {
-        // 子代理组头是当前 pane 的顶层节点,工具块在 agent-fold-body 内。
-        // 这里沿用普通工具 chip 的摘要口径,逐块下钻但不把隐藏详情重复贴进上下文。
-        const role = el.querySelector(".agent-fold-role")?.textContent?.trim();
-        for (const tool of el.querySelectorAll(".tool-msg")) {
-          const name = tool.querySelector(".tool-msg-name")?.textContent?.trim();
-          const arg = tool.querySelector(".tool-msg-arg")?.textContent?.trim();
-          const result = tool.querySelector(".tool-msg-result")?.textContent?.trim();
-          const label = [name, arg].filter(Boolean).join(" ");
-          if (label) {
-            const owner = role ? `${t("子代理")}:${role}\n> ` : "";
-            parts.push(`> ${owner}${t("工具")}:${label.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
-          }
-        }
+      } else if (el.classList.contains("sa-group")) {
+        // D-727:子代理以卡片为单位导出(身份 · 描述 / 计数 / 结果前 400 字),同批并行的逐张导出;
+        // 展开区里的子工具行不重复贴进上下文。
+        const text = subagentCopyText(el);
+        if (text) parts.push(text);
       } else if (el.classList.contains("turn-divider")) {
         parts.push(`---\n${el.textContent}`);
       } else if (el.classList.contains("pane-trimmed-hint") || el.classList.contains("earlier-hint")) {
@@ -1083,7 +1163,8 @@ defer(() => {
         if (hint) parts.push(`> ⚠ ${hint}`);
       } else if (el.classList.contains("msg")) {
         // 其余消息形态(error 等)不再被静默跳过:主对话缺失错误上下文,导出就失真。
-        const text = el.textContent?.trim();
+        // 错误卡的展开区是结构化视图,导出取级别 + dataset.raw 原文。
+        const text = (el.dataset?.raw ? `${el.querySelector(".error-level")?.textContent ?? ""} ${el.dataset.raw}` : el.textContent)?.trim();
         if (text) parts.push(`> ${text.slice(0, 500)}`);
       }
     }
@@ -1128,21 +1209,22 @@ export function moveSearch(delta) {
 defer(() => {
   $("chat-search-toggle").addEventListener("click", () => {
     const bar = $("chat-search");
-    // 搜索框和这个按钮一起住在 <details id="composer-more"> 里。从菜单点进来时宿主
-    // 当然是开的,但命令面板(21-palette.js)会绕过菜单直接 .click() 这个按钮——那时
-    // 宿主是关着的,摘掉 hidden 也没人看得见:屏幕零变化、焦点落进 content-visibility
-    // 隐藏子树、接着敲的关键词全丢进 #prompt,裸 Enter 就把它当任务发给了 agent。
+    // 搜索框和这个按钮一起住在「更多」弹层菜单(#composer-more-menu,popover)里。从菜单点进来时
+    // 宿主当然是开的,但命令面板(21-palette.js)会绕过菜单直接 .click() 这个按钮——那时
+    // 宿主是关着的,摘掉 hidden 也没人看得见:屏幕零变化、焦点落进隐藏子树、
+    // 接着敲的关键词全丢进 #prompt,裸 Enter 就把它当任务发给了 agent。
     // 宿主的展开责任放在这里而不是调用方:凡是点这个按钮,行为就该一致。
     // 判据必须是「**实际看得见吗**」,不能只看自己的 hidden 类。
     // 可达状态:用户点开更多 → 点搜索(搜索条 hidden 摘掉)→ 再点更多把菜单收起。
-    // 此时搜索条没有 hidden 类,但整块在收起的 details 里,一个像素都看不见。
+    // 此时搜索条没有 hidden 类,但整块在收起的弹层里,一个像素都看不见。
     // 旧写法把它当"开着"于是执行关闭:菜单弹开、搜索条被藏掉、焦点原地不动,
     // 用户接着敲的关键词全落进 #prompt,裸 Enter 直接把它当任务发给了 agent。
-    const host = bar.closest("details");
-    const hiddenByAncestor = Boolean(host && !host.open);
+    const host = bar.closest("[popover]");
+    const hiddenByAncestor = Boolean(host && !isSurfaceOpen(host));
     const effectivelyHidden = bar.classList.contains("hidden") || hiddenByAncestor;
     if (effectivelyHidden) {
-      if (host) host.open = true;
+      // 经原语打开宿主(锚点取 bindMenus 登记的触发器),不直接改 popover 状态。
+      if (hiddenByAncestor) openPopover(null, host, { type: "menu" });
       bar.classList.remove("hidden");
       $("chat-search-input").focus();
     } else {

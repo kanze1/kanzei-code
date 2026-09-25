@@ -676,6 +676,11 @@ impl SessionStore {
 
     /// 从最新 legacy conversation.updated 生成带 provenance 的 seed。同一 source event
     /// 重复调用为 no-op；新快照出现时追加新的 seed，投影器以最新 seed 为基线。
+    ///
+    /// 只播种当前对话地板([`conversation_floor`](Self::conversation_floor))之后的
+    /// 快照。每次开跑都会走到这里,而投影器把段内最新的 seed 当基线:不设地板时,
+    /// 「新对话」之前的旧快照会被播种进新段(违背 D-427「reset 后 prior 必须为空」),
+    /// 删掉当前段后更早的旧快照又成了「未播种的最新」,下一轮被整段塞回当前对话。
     pub fn seed_latest_legacy_snapshot(
         &self,
         session_id: &str,
@@ -683,6 +688,12 @@ impl SessionStore {
         let Some(source) = self.latest_event(session_id, "conversation.updated")? else {
             return Ok(None);
         };
+        if self
+            .conversation_floor(session_id)?
+            .is_some_and(|floor| source.sequence <= floor)
+        {
+            return Ok(None);
+        }
         let messages: Vec<Message> = serde_json::from_value(
             source
                 .payload
@@ -1943,6 +1954,52 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    /// UI-0926 #1:播种尊重当前对话地板。reset 之前、或「删掉当前段」之前的旧快照
+    /// 不得被播种进当前段(D-427);只删旧段不影响当前段快照的播种。
+    #[test]
+    fn reset与删除之后不再播种旧快照() {
+        let seeded_after = |barrier: Option<(&str, serde_json::Value)>| {
+            let store = store();
+            store
+                .append_event(
+                    "ses_test",
+                    "conversation.updated",
+                    &json!({"messages": [Message::user_text("旧对话")]}),
+                )
+                .unwrap();
+            if let Some((event_type, payload)) = barrier {
+                store
+                    .append_event("ses_test", event_type, &payload)
+                    .unwrap();
+            }
+            let seeded = store.seed_latest_legacy_snapshot("ses_test").unwrap();
+            let facts = store.list_latest_segment_facts("ses_test").unwrap();
+            (seeded.is_some(), facts.len())
+        };
+        assert_eq!(
+            seeded_after(Some(("conversation.reset", json!({"cleared": true})))),
+            (false, 0),
+            "新对话之后不得把 reset 前的旧快照播种进新段"
+        );
+        assert_eq!(
+            seeded_after(Some((
+                super::super::events::SEGMENT_DELETED,
+                json!({"start": 0, "end": null, "events": 3}),
+            ))),
+            (false, 0),
+            "删掉当前段之后不得把更早的旧快照播种回来"
+        );
+        assert_eq!(
+            seeded_after(Some((
+                super::super::events::SEGMENT_DELETED,
+                json!({"start": 0, "end": 0, "events": 1}),
+            ))),
+            (true, 1),
+            "只删旧段时当前段的快照照常播种"
+        );
+        assert_eq!(seeded_after(None), (true, 1), "无地板时照常播种");
     }
 
     #[test]

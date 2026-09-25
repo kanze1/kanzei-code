@@ -60,6 +60,30 @@ export default [
     },
   },
   {
+    // UI-0926 #9 弹层技术栈(docs/design/ui_surface_stack.md §7.1):弹层只有一种写法。
+    // 模态/菜单/浮层/卡片/toast/tooltip 一律经 00-surface.js 的原语开关,Esc 只有它一个入口;
+    // 写错时报错信息直接给出应该改用的写法。00-surface.js 本身、样例页与 oc-studio 不在此列。
+    files: ["crates/kanzei-app/ui/*.js"],
+    ignores: [
+      "crates/kanzei-app/ui/00-surface.js",
+      "crates/kanzei-app/ui/gallery.js",
+      "crates/kanzei-app/ui/oc-studio.js",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        { selector: "CallExpression[callee.name=/^(alert|confirm|prompt)$/]", message: "用 01-core.js 的 confirmDialog/inputDialog 或 03-shell.js 的 toast(WebView2 下原生对话框不可用)" },
+        { selector: "CallExpression[callee.object.name=/^(window|globalThis)$/][callee.property.name=/^(alert|confirm|prompt)$/]", message: "用 01-core.js 的 confirmDialog/inputDialog 或 03-shell.js 的 toast" },
+        { selector: "CallExpression[callee.property.name='createElement'][arguments.0.value='dialog']", message: "模态只在 index.html 里声明 <dialog class=\"k-surface k-dialog\">,由 00-surface.js 的 openDialog 打开" },
+        { selector: "CallExpression[callee.property.name=/^(showModal|showPopover|hidePopover|togglePopover)$/]", message: "只有 00-surface.js 能开关顶层弹层:用 openDialog/closeSurface、openPopover/openMenu、showCard/hideCard" },
+        { selector: "CallExpression[callee.property.name='setAttribute'][arguments.0.value=/^(popover|popovertarget)$/]", message: "弹层用 00-surface.js 的 openMenu/openPopover,或在 index.html 写 data-kz-menu 触发器 + popover 弹层" },
+        { selector: "AssignmentExpression[left.property.name=/^(popover|popoverTargetElement)$/]", message: "弹层用 00-surface.js 的 openMenu/openPopover,或在 index.html 写 data-kz-menu 触发器 + popover 弹层" },
+        { selector: "AssignmentExpression[left.object.property.name='style'][left.property.name='position'][right.value='fixed']", message: "不要新造 position:fixed 浮层:用 00-surface.js 的 openPopover/openMenu/showCard(顶层元素 + CSS 锚点定位)" },
+        { selector: "CallExpression[callee.object.name=/^(document|window)$/][callee.property.name='addEventListener'][arguments.0.value='keydown'] BinaryExpression[right.value='Escape']", message: "全局 Esc 归 00-surface.js 的弹层栈(捕获阶段只关栈顶):弹层传 onEscape;局部输入框的 Esc 挂在元素自己身上" },
+      ],
+    },
+  },
+  {
     // R-292:mobile-pwa(PWA 页面脚本 + service worker)独立覆盖——不在 ui/*.js 的
     // 经典 script 共享作用域内,也不与 scripts/*.mjs 的 node 环境混。app.js 走
     // 浏览器全局;sw.js 额外需要 service worker 宿主(self/caches/clients 等)。

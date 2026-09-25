@@ -59,6 +59,286 @@ if (SMOKE_MUTATE) {
       pattern: /dropSessionDomCache\(p\.sessionId\);\r?\n(\s*)await loadConversation\(\);\r?\n(\s*)cacheSessionDom\(p\.sessionId\);/,
       replace: "dropSessionDomCache(p.sessionId);\n$2cacheSessionDom(p.sessionId);",
     },
+
+    // ---- 分区:会话生命周期 ----
+    // UI-0926 #2:新对话清 DOM 必须连窗口化历史缓存一起清。删了它,清空后「触顶」
+    // 自动补齐会把旧对话一窗一窗 prepend 回新对话上方——「要点好几次」的主因。
+    newChatForgetHistory: {
+      pattern: /[ \t]*paneHistory\.set\(sessionId \|\| "", \{ items: \[\], rendered: 0 \}\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #2:loadConversation 的会话纪元守卫。删了它,新对话之前发出的
+    // conversation_get 迟到落地,把旧段整页画回刚开的新对话。
+    newChatEpoch: {
+      pattern: / &&\r?\n\s*conversationEpoch\(forSessionId\) === forEpoch(?=;)/,
+      replace: "",
+    },
+    // UI-0926 #2:paneFor 新建的 pane 默认隐藏。删了它,后台线首次渲染时新建的 pane
+    // 与活动 pane 同时可见,自主推进线的输出叠进当前视图,新对话也清不掉。
+    bgPaneHidden: {
+      pattern: /[ \t]*if \(!forDisplay\) pane\.classList\.add\("hidden"\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #2:忙碌线点新对话另开线路。删了它,新对话会在 runner 脚下清历史
+    // (后端现在会拒绝,用户看到的就是「点了报错」)。
+    newChatBusyNewLine: {
+      pattern: /[ \t]*if \(activeLineBusy\(\)\) return await startConversationOnNewLine\(\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #2:兜底改选活动线时视图跟着换。删了它,活动线消失后 activeSessionId 换人、
+    // 可见的却还是旧线的 pane:新活动线的实时事件写进旧 pane,新对话清的也是错的那块。
+    fallbackPaneSwitch: {
+      pattern: /[ \t]*if \(previousProcessId && !workspace_switch_pending\) void loadConversation\(\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #2:后端判定「会话运行中」拒绝开新段时,同一次点击改走另开线路。删了它,
+    // 用户先吃一个报错、得再点一次——又回到「新对话要点好几次」。
+    newChatRefusedNewLine: {
+      pattern: /[ \t]*if \(refusedAsRunning\) return await startConversationOnNewLine\(\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #1:运行中的线点删除,前端先挡下(不弹确认、不发删除)。删了它,删除会在
+    // runner 脚下进行(后端虽再挡一次,用户已经白确认了一遍并吃到报错)。
+    deleteRunningGuard: {
+      pattern: /[ \t]*if \(target && processRunning\(target\)\) \{\r?\n[^\n]*\r?\n[ \t]*return;\r?\n[ \t]*\}\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #1:删掉活动线的当前段后换成新对话欢迎页。删了它,被删的对话继续留在主区。
+    deleteClearedFresh: {
+      pattern: /[ \t]*showFreshConversation\(\);\r?\n(?=[ \t]*return;)/,
+      replace: "",
+    },
+    // UI-0926 #1:删掉当前段时撤掉排上的续跑。删了它,续跑那一轮带着「继续」落进空段。
+    deleteCancelTimer: {
+      pattern: /[ \t]*if \(clearedCurrent\) cancelAutoContinueTimer\(sessionId\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #1:删除后递增会话纪元。删了它,删除前发出的装载迟到时把被删内容整页画回来。
+    deleteEpoch: {
+      pattern: /[ \t]*bumpConversationEpoch\(sessionId\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #1:删旧段后按当前段重载主区。删了它,正在看的那段被删历史留在屏幕上。
+    deleteReloadPane: {
+      pattern: /[ \t]*resetPane\(\);\r?\n[ \t]*forgetPaneHistory\(sessionId\);\r?\n[ \t]*await loadConversation\(\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #1:删后台线的历史后丢掉它的 pane。删了它,切过去看到的还是被删内容。
+    deleteDiscardBgPane: {
+      pattern: /[ \t]*discardSessionPane\(sessionId\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #2 复核:按钮 title 与点击分流共用 activeLineBusy。退回只看 running/runControlPending,
+    // 启动中/轮间等待时 title 写着空闲文案,点下去却另开线路——说的和做的不一致。
+    newChatTitleSharedBusy: {
+      pattern: /const busy = active_space === "dev" && activeLineBusy\(\);/,
+      replace: 'const busy = active_space === "dev" && (running || runControlPending);',
+    },
+    // UI-0926 #2 复核:活动线相位一变 title 就跟上。删了它,title 停在上一次 setRunning 时的忙闲。
+    newChatTitleFollowsPhase: {
+      pattern: /[ \t]*if \(sessionId === activeSessionId\) syncNewChatEnabled\(\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #2 复核:clear 成功后才撤续跑。删了它,clear 在途时轮末新排的那一枪带着「继续」落进新段。
+    newChatCancelAfterClear: {
+      pattern: /[ \t]*cancelAutoContinueTimer\(forSessionId\);\r?\n(?=[ \t]*\/\/ 作废此前发出)/,
+      replace: "",
+    },
+    // UI-0926 #1 复核:后端持锁拒删(前端预检时 kz:turn 未到)走已翻译的提示。删了它,
+    // 后端的中文原文经 toastError 甩进英文界面,还挂一个停下之前必然再被拒的「重试」。
+    deleteRefusedToast: {
+      pattern: /[ \t]*if \(String\(err\)\.includes\("线路运行中"\)\) \{\r?\n[^\n]*\r?\n[ \t]*return;\r?\n[ \t]*\}\r?\n/,
+      replace: "",
+    },
+
+    // ---- 分区:模型选择 ----
+    // UI-0926 #3:芯片选模型后必须**等本线写入落地**再问 model_effective。改成不等,后端读到的还是
+    // 旧的本线值:芯片闪回上一个模型,process_update 也排到了 model_effective 之后。
+    pickerAwaitsUpdate: {
+      pattern: /await queueProcessUpdate\(processId, \{ model: value \}\);/,
+      replace: "void queueProcessUpdate(processId, { model: value });",
+    },
+    // UI-0926 #3:切线那一刻芯片就跟到目标线。删了它,对话还在装载的这几秒里思考芯片仍显示上一条线的
+    // 「超高 · 临时」,而同项目内切线已不再重拉目录,之后也没有别的回显路径把它纠正过来。
+    reasoningFollowsLine: {
+      pattern: /[ \t]*syncModelSelectToActiveLine\(\);\r?\n(?=[ \t]*\/\/ 状态栏模型\/上下文上限回放)/,
+      replace: "",
+    },
+    // UI-0926 #3 复核:芯片菜单的 ✓ 只标当前生效项。改成不打 ✓,生效项与悬停项又只剩底色差几个百分点。
+    pickerCheckMark: {
+      pattern: /check\.textContent = button\.getAttribute\("aria-checked"\) === "true" \? "✓" : "";/,
+      replace: 'check.textContent = "";',
+    },
+    // UI-0926 #3 复核:切线时作废在途的乐观值。删了它,A 线刚选、还没写完的「X · 临时」会挂到 B 线芯片上。
+    optimisticDropsOnSwitch: {
+      pattern: /[ \t]*optimisticPatch = null;\r?\n(?=[ \t]*renderModelPicker\(\);\r?\n[ \t]*\}\);\r?\n[ \t]*document\.addEventListener\("kz-effective-model-optimistic")/,
+      replace: "",
+    },
+
+    // ---- 分区:弹层与外观 ----
+    // UI-0926 #9:Esc 只关栈顶。把「取栈顶第一个可 Esc 的句柄」换成「取栈底第一个」,
+    // 权限卡在场时在确认框里按 Esc 就会先拒掉权限请求——正是这次修掉的串台。
+    surfaceEscTop: {
+      pattern: /const top = topEscapable\(event\.target \?\? activeElement\(\)\);/,
+      replace: 'const top = stack.find((h) => h.type !== "tooltip");',
+    },
+    // UI-0926 #9:停靠卡片不抢别处输入框的局部 Esc。删掉让位判断,焦点在输入框里按 Esc
+    // 就会先拒掉权限请求、速记表单也收不到 Esc——正是评审指出的回归。
+    surfaceCardYield: {
+      pattern: /\n\s*if \(cardYields\(handle, target\)\) continue;/,
+      replace: "",
+    },
+    // UI-0926 #9:弹窗里的 JS 菜单挂进锚点所在的 <dialog>。退回一律挂 body 末尾,
+    // 模态开着时菜单是惰性的(点不动)——正是评审实测的问题。
+    surfaceMenuInDialog: {
+      pattern: /\(anchorEl\?\.closest\?\.\("dialog\[open\]"\) \?\? surfaceRoot\(\)\)\?\.appendChild\(menu\);/,
+      replace: "surfaceRoot()?.appendChild(menu);",
+    },
+    // UI-0926 #5:发送键改成图标按钮后,读屏名称全靠 aria-label。把空闲态的 t("发送") 退回中文字面量,
+    // 英文界面下读屏就会念「发送」——正是这次修掉的漏翻。
+    ui5SendLabel: {
+      pattern: /(send\.setAttribute\("aria-label", value \? t\("运行中可插入或排队，按交付方式发送"\) : )t\("发送"\)\);/,
+      replace: '$1"发送");',
+    },
+
+    // ---- 分区:工具行与结构化渲染 ----
+    // UI-0926 #6:结果摘要器查表。删了它,所有工具都掉进兜底(read 显示「输出 N 行」而不是
+    // 「全文 N 行」),逐工具的精确文本断言必须变红。
+    toolSummaryRegistry: {
+      pattern: /[ \t]*const summarizer = lookupSummarizer\(TOOL_RESULT_SUMMARIZERS, s\.name\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #6:兜底里的噪声判据。删了它,未知工具的行号行(`  12\tlet total be …`,合并空白后
+    // 既不像源码也不符号密集)会被当人话显示。
+    toolSummaryNoise: {
+      pattern: /[ \t]*if \(looksLikeNoise\(cleanPaths\(line, s\.roots\)\) \|\| looksLikeNoise\(clean\)\) break;\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #6:「命令根本没跑」的失败(用户拒绝/规则集拒绝/自主运行跳过/入参修复/停止)先说原因。
+    // 删了它,用户拒绝的 bash ⎿ 行变成原文 `(user declined)`,write 被拒只剩「失败」。
+    toolSummaryGate: {
+      pattern: /[ \t]*const gate = toolGateFailure\(s\);\r?\n[ \t]*if \(gate\) return finish\(gate, "summary", \{ rest: fullRest \}\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #6:最终安全网的逐组「行号 + 源码」判据。删了它,夹在退出码后面的 `1 // 注释` 漏进 ⎿ 行。
+    toolSummarySafetyNet: {
+      pattern: / \|\| numberedSource\)\)/,
+      replace: "))",
+    },
+    // UI-0926 #10:工具块展开区挂入参键值表的那一行。删了它,历史/实时工具块再也看不到
+    // 「拿什么参数调的」(路径 chip、命令、多行说明)。
+    svArgs: {
+      pattern: /[ \t]*if \(args\) block\.detail\.appendChild\(args\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #10:JSON 工具结果的结构化视图(延迟挂载)。删了它,tracker list 的展开区又
+    // 什么都没有(原文已不再贴出),条目行/阻塞原因断言必须变红。
+    svJsonResult: {
+      pattern: /[ \t]*if \(jsonValue && typeof jsonValue === "object"\) lazyMount\(block\.detail, \(\) => renderToolResult\(block\.name, jsonValue\)\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #10:权限卡资源的结构化渲染。删了它,bash 权限卡的「资源」一栏空着(或残留上一条),
+    // 命令代码块/工作目录断言必须变红。
+    svAskResource: {
+      pattern: /[ \t]*\$\("ask-resource"\)\.replaceChildren\(renderPermissionResource\(askActive\.action, askActive\.resource\)\);\r?\n/,
+      replace: "",
+    },
+
+    // ---- 分区:需求卡片与单页 ----
+    // UI-0926 #4:跳转直达详情——落点那一行必须是展开的。删了它,点焦点卡/refs/测试徽标
+    // 又落到一条收起的行上,用户还得再点一次(本次修掉的主诉)。
+    jumpExpand: {
+      pattern: /[ \t]*if \(expand\) expandEntryDetail\(target\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #4:焦点区签名跳过重建。改成每次都重建,3 秒一次的 process_list 轮询会冲掉
+    // 正悬停的 tooltip 与开着的「⋯」菜单(锚点被换掉)。
+    focusSignatureSkip: {
+      pattern: /if \(signature !== lastFocusPanelSignature \|\| !body\.children\.length\) \{/,
+      replace: "if (true) {",
+    },
+    // UI-0926 #4 + #10:单页详情挂字段只读视图的那一行。删了它,详情里只剩头和编辑表单,
+    // ①②③ 列表/进展时间线/发现记录键值表/停车拆解等断言必须变红。
+    svTrackerFields: {
+      pattern: /[ \t]*read\.appendChild\(renderTrackerFields\(entry\.fields \?\? \[\]\)\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #4:重绘恢复未保存的编辑输入。删了它,agent 的一次刷新就冲掉正在写的字段。
+    docEditDraftKeep: {
+      pattern: /control\.value = prior\.drafts\.get\(key\);/,
+      replace: "void 0;",
+    },
+    // UI-0926 #4:refreshDocsSoon 见到单页里未保存的条目编辑先让路。删了它,agent 连续改台账时
+    // 整表重建会反复打断输入。
+    docsSoonYieldDirty: {
+      pattern: / \|\| editingDraft\) \{/,
+      replace: ") {",
+    },
+    // UI-0926 #4:跳转放行只给被筛选挡住的目标。改成无条件放行,筛选内的目标之后改状态落到
+    // 筛选外时会一直挂着「不在当前筛选内」赖在列表里。
+    jumpRevealHiddenOnly: {
+      pattern: /jumpRevealId = hidden \? ref : null;/,
+      replace: "jumpRevealId = ref;",
+    },
+
+    // ---- 分区:动效 ----
+    // #7:setTurnPhase 首行的后台渲染守卫。删了它,后台线的思考/工具事件会把活动线
+    // 输入框上方的「思考中…」改写成别人的相位(串线)。
+    turnPhaseBgGuard: {
+      pattern: /(export function setTurnPhase\(phase\) \{\r?\n(?:[ \t]*\/\/[^\n]*\r?\n)*)[ \t]*if \(typeof renderingBackground !== "undefined" && renderingBackground\) return;\r?\n/,
+      replace: "$1",
+    },
+    // #7:kz:stopped 里主对话工具块的收尾。删了它,停止后运行中的工具行永远在转圈。
+    chatAbortOnStop: {
+      pattern: /(bgAbortRunning\(`\(\$\{t\("已停止"\)\}\)`\);\r?\n)[ \t]*chatAbortRunning\(\);\r?\n/,
+      replace: "$1",
+    },
+    // #7:线路行状态字形原地更新。改成每次重建,逐事件投影会让呼吸动画每个事件都从第 0 帧重来。
+    parallelGlyphInPlace: {
+      pattern: /if \(!glyph \|\| !text\) \{/,
+      replace: "if (true) {",
+    },
+    // #7:kz:tool-end 只在本轮真在跑(且不在停止中)时推进相位与状态栏。删了它,已停止之后
+    // 迟到的 ToolEnd(停止补发)会让活动行重新扫光、状态栏翻回「运行中」,一直挂到下一次 setRunning(false)。
+    toolEndRunningGuard: {
+      pattern: /if \(running && turnPhase !== "stopping"\) \{/,
+      replace: "if (true) {",
+    },
+    // #7:「停止中」相位粘滞。删了它,停止发出后迟到的思考/工具事件把活动行翻回运行态,停止按钮却写着「停止中…」。
+    turnPhaseStoppingSticky: {
+      pattern: /[ \t]*if \(turnPhase === "stopping"\) return;\r?\n/,
+      replace: "",
+    },
+    // #7:同一条线运行中的纠偏 setRunning(true) 保留本轮细分相位。删了它,轮询/逐事件投影一纠偏就把相位打回 waiting。
+    setRunningKeepPhase: {
+      pattern: /const keepPhase = value && wasRunning/,
+      replace: "const keepPhase = false && value && wasRunning",
+    },
+
+    // ---- 分区:子代理 ----
+    // UI-0926 #8:子代理 usage 是**累计值**,只能替换。改回逐次累加(旧实现的三角数式重复计数),
+    // 「两条累计 usage 之后显示 3.0k 而不是 4.2k」必须变红。
+    saUsageAccumulate: {
+      pattern: /run\.usage = trace\.usage;/,
+      replace: "run.usage = { input: (Number(run.usage?.input) || 0) + (Number(trace.usage?.input) || 0), output: (Number(run.usage?.output) || 0) + (Number(trace.usage?.output) || 0) };",
+    },
+    // UI-0926 #8:路由层的整轮停止收尾。删了它,停止后活动线与后台线的子代理卡片一直停在「运行中」。
+    saSettle: {
+      pattern: /[ \t]*subagentSettle\(sessionId, event === "kz:stopped" \? "cancelled" : "interrupted"\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #8:「载入更早的消息」补出的组排到已有最小批次之下。删了重编号,旧批次拿着更大的批次号
+    // 顶到侧栏列表最上面(被当成最新一批)。
+    saPrependBatch: {
+      pattern: /group\.dataset\.batch = String\(floor - pending\.groups\.length \+ index\);/,
+      replace: "",
+    },
+    // UI-0926 #8:窗口边界把 task 的调用与结果切开时,结果就地建卡并收成终态。去掉它,尾窗里落成「tool result」
+    // 通用块,补齐更早的窗口后已完成的子代理又被标成「中断」。
+    saOrphanTask: {
+      pattern: /const taskCall = entry \? null : orphanTaskCall\(message, part\.call_id\);/,
+      replace: "const taskCall = null;",
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -158,10 +438,14 @@ if (!source.includes('const history = await invoke("conversation_get"') || !sour
   fail("历史消息未通过只读恢复渲染链路");
 }
 // 历史回放必须保留完整调用与结果:调用与结果按 call_id 配对成一块(buildToolBlock/
-// fillToolBlock),详情里同时给出完整输出与完整入参 JSON。
+// fillToolBlock),详情里同时给出完整输出与完整入参。UI-0926 #10 起入参走 renderToolArgs
+// 键值表(逐键完整渲染),入参 JSON 另挂在其根节点 dataset.raw 上(04-structured.js,
+// 超过 8000 字截断——完整值已在键值表里,不在 DOM 属性里再存一整份)。
 if (
   !source.includes('part.type === "tool_result"') ||
-  !source.includes("JSON.stringify(input, null, 2)") ||
+  !source.includes("const rawJson = JSON.stringify(input, null, 2)") ||
+  !source.includes("box.dataset.raw = rawJson") ||
+  !source.includes("renderToolArgs(block.name, input") ||
   !source.includes("function fillToolBlock")
 ) {
   fail("历史工具会话未保留完整调用与结果详情");
@@ -446,6 +730,34 @@ class Element {
   removeEventListener() {}
   dispatchEvent(event) { event.target ??= this; (this._listeners[event.type] ?? []).forEach((fn) => fn(event)); }
   click() { this.dispatchEvent({ type: "click", preventDefault() {}, stopPropagation() {} }); }
+  // 顶层原语(UI-0926 #9 弹层技术栈):<dialog> 的 showModal/show/close 与 Popover API。
+  // 假 DOM 没有顶层/样式,只维护 open/_modal/_popoverOpen 状态并派发 close/toggle 事件——
+  // 00-surface.js 同时镜像 .hidden,旧断言照读 classList;真实行为由浏览器样例冒烟兜底。
+  showModal() { this.open = true; this._modal = true; this._attributes.open = ""; }
+  show() { this.open = true; this._modal = false; this._attributes.open = ""; }
+  close(returnValue) {
+    if (!this.open) return;
+    this.open = false;
+    this._modal = false;
+    delete this._attributes.open;
+    if (returnValue !== undefined) this.returnValue = String(returnValue);
+    this.dispatchEvent({ type: "close", target: this });
+  }
+  showPopover() {
+    if (this._popoverOpen) return;
+    this._popoverOpen = true;
+    this.dispatchEvent({ type: "toggle", target: this, oldState: "closed", newState: "open" });
+  }
+  hidePopover() {
+    if (!this._popoverOpen) return;
+    this._popoverOpen = false;
+    this.dispatchEvent({ type: "toggle", target: this, oldState: "open", newState: "closed" });
+  }
+  togglePopover(force) {
+    const next = force === undefined ? !this._popoverOpen : Boolean(force);
+    if (next) this.showPopover(); else this.hidePopover();
+    return next;
+  }
   focus() {}
   querySelector(selector) { return queryAllFrom(this, selector)[0] ?? null; }
   querySelectorAll(selector) { return queryAllFrom(this, selector); }
@@ -515,6 +827,7 @@ const byId = new Map();
 // R-264 ESM:DOMContentLoaded 回调收集(冒烟手动触发,见 runUiSources 末尾)。
 const domReadyCallbacks = [];
 const documentListeners = new Map();
+const documentCaptureListeners = new Map();
 const document = {
   documentElement,
   body,
@@ -562,12 +875,25 @@ const document = {
   readyState: "loading",
   // R-264 ESM:收集 DOMContentLoaded 回调,evaluate 完所有模块后由冒烟手动触发
   // (模拟浏览器 `<script type="module">` 的 deferred 语义——模块求值完后 DOM 就绪)。
-  addEventListener: (type, fn) => {
+  // 捕获阶段监听单列(UI-0926 #9):00-surface.js 的 Esc 入口挂在 document 捕获阶段,必须先于
+  // 冒泡监听执行,且 stopImmediatePropagation 之后一个都不能再跑——「Esc 只关栈顶」验的就是这条。
+  addEventListener: (type, fn, options) => {
+    const capture = options === true || Boolean(options?.capture);
     if (type === "DOMContentLoaded") domReadyCallbacks.push(fn);
+    else if (capture) documentCaptureListeners.set(type, [...(documentCaptureListeners.get(type) || []), fn]);
     else documentListeners.set(type, [...(documentListeners.get(type) || []), fn]);
   },
-  removeEventListener: (type, fn) => documentListeners.set(type, (documentListeners.get(type) || []).filter((item) => item !== fn)),
-  dispatchEvent: (event) => { for (const fn of documentListeners.get(event.type) || []) fn(event); return true; },
+  removeEventListener: (type, fn) => {
+    documentListeners.set(type, (documentListeners.get(type) || []).filter((item) => item !== fn));
+    documentCaptureListeners.set(type, (documentCaptureListeners.get(type) || []).filter((item) => item !== fn));
+  },
+  dispatchEvent: (event) => {
+    for (const fn of [...(documentCaptureListeners.get(event.type) || []), ...(documentListeners.get(event.type) || [])]) {
+      if (event._stopImmediate) break;
+      fn(event);
+    }
+    return !event.defaultPrevented;
+  },
   hasFocus: () => true,
 };
 
@@ -595,6 +921,14 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
   }
   if (/\bdata-i18n-raw\b/.test(attributes)) el.setAttribute("data-i18n-raw", "");
   for (const attribute of ["data-i18n-key", "data-i18n-title", "data-i18n-aria-label", "data-i18n-placeholder"]) {
+    const value = attributes.match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
+    if (value !== undefined) el.setAttribute(attribute, value);
+  }
+  // 弹层宿主(UI-0926 #9):popover 属性、data-kz-menu 触发器与定位提示也要建到桩上,
+  // 否则 bindMenus 在冒烟里扫不到任何触发器,菜单接线恒为空转。
+  const popoverAttr = attributes.match(/(?:^|\s)popover(?:="([^"]*)")?(?=[\s/>]|$)/);
+  if (popoverAttr) el.setAttribute("popover", popoverAttr[1] ?? "");
+  for (const attribute of ["data-kz-menu", "data-placement", "data-size", "data-tone"]) {
     const value = attributes.match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
     if (value !== undefined) el.setAttribute(attribute, value);
   }
@@ -979,7 +1313,8 @@ const payloads = {
   ],
   git_status: { branch: "main", changes: 2 },
   list_pending_inputs: [],
-  test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [["命令", "cargo test"]], refs: ["R-001", "D-001"] }], archived: [] },
+  // UI-0926 #10:字段是真实 IPC 形状 [{key,value}](ipc-contract.json test_runs_snapshot),不是 [[k,v]]。
+  test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [{ key: "命令", value: "cargo test" }], refs: ["R-001", "D-001"] }], archived: [] },
   test_runs_init_refs: { backfilled: 0 },
   process_list: [
     { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main", model: "deepseek:deepseek-chat", authority: "primary", stage: "复核" },
@@ -1045,17 +1380,18 @@ const payloads = {
     ],
     permissions: [],
     // 项目级覆盖:D-168 当年只堵了模型角色,limits/proxy 被覆盖时页面一声不吭。
-    // 这里让 primary/proxy/limits.maxTokens 各不相同(必须提示)、profileDefault 与
-    // codexFastMode 相同(不得误报)、fast 整条缺失(has() 守卫必须整条跳过)。
+    // 这里让 proxy/limits.maxTokens 各不相同(必须提示)、profileDefault 相同(不得误报)。
+    // UI-0926 #3:后端 effective 不再带模型五键(项目的模型覆盖由 projectModelOverrides 列出、
+    // 在「项目模型配置」里看;下一轮用什么由 model_effective 回答),fixture 与后端同形。
     effective: {
-      primary: "anthropic:claude-sonnet-5",
-      reasoning: null,
       proxy: "http://127.0.0.1:7890",
       profileDefault: "readonly",
-      codexFastMode: true,
       limits: { maxTokens: 8192, subagentTimeoutSecs: null },
     },
     projectConfig: "C:/smoke/project/.kanzei/kanzei.toml",
+    projectModelOverrides: [
+      { project: "C:/smoke/project", name: "smoke", configPath: "C:/smoke/project/.kanzei/kanzei.toml", keys: ["primary", "reasoning", "codexFastMode"], current: true },
+    ],
   },
   permission_rules_get: [],
   memory_overview: { scopes: [{ scope: "project", root: PROJECT, total: 0, hitsTotal: 0, categories: {}, integrity: [], inboxPending: 0 }] },
@@ -1106,6 +1442,61 @@ const payloads = {
   workspace_snapshot: {},
 };
 payloads.research_library_list = () => ({ entries: payloads.docs_snapshot.research_topics.map((entry) => ({ ...entry, id: entry.topic || "legacy", storage_root: PROJECT, linked_projects: [PROJECT], available: true, kind: entry.kind || (entry.legacy ? "legacy" : "research") })), diagnostics: [] });
+// ---- 分区:模型选择(桩)UI-0926 #3 ----
+// 本线存档 = 后端 processes 表:process_update 写、model_effective 读。写入**晚一个微任务**才生效——
+// 真机上写入要过一次 IPC,调用方若不 await 写入就去问 model_effective,读到的是旧值(变异 pickerAwaitsUpdate 靠这个现形)。
+// 默认层照用户现场:项目 primary=codex:gpt-5.6-luna、思考 high、Fast mode 开;全局 gpt-6-luna/xhigh。
+const smokeLineState = new Map();
+const SMOKE_DEFAULT_MODEL = "codex:gpt-5.6-luna";
+const smokeProcessList = () => (Array.isArray(payloads.process_list) ? payloads.process_list : []);
+const smokeLineOf = (processId) => {
+  if (smokeLineState.has(processId)) return smokeLineState.get(processId);
+  const item = smokeProcessList().find((candidate) => candidate.id === processId);
+  return { model: item?.model || null, reasoning: item?.reasoning || null };
+};
+payloads.model_effective = (args) => {
+  const line = smokeLineOf(args?.processId);
+  const role = ["primary", "fast", "compact"].includes(line.model) ? line.model : null;
+  const resolved = line.model ? (role ? SMOKE_DEFAULT_MODEL : line.model) : SMOKE_DEFAULT_MODEL;
+  const defaultModel = { ref: "primary", resolved: SMOKE_DEFAULT_MODEL, source: "project", role: "primary", followsPrimary: false, error: null };
+  const codex = resolved.startsWith("codex:");
+  return {
+    agent: args?.agent ?? "dev-pair",
+    agentError: null,
+    model: line.model ? { ref: line.model, resolved, source: "line", role, followsPrimary: false, error: null } : { ...defaultModel },
+    defaultModel,
+    reasoning: line.reasoning ? { value: line.reasoning, source: "line" } : { value: "high", source: "project" },
+    defaultReasoning: { value: "high", source: "project" },
+    codexFastMode: { enabled: true, applies: codex, active: codex, source: "project" },
+    contextLimit: 272000,
+  };
+};
+payloads.process_update = (args) => {
+  const processId = args?.processId;
+  const patch = {};
+  if (args && Object.hasOwn(args, "model")) patch.model = args.model || null;
+  if (args && Object.hasOwn(args, "reasoning")) patch.reasoning = args.reasoning || null;
+  if (Object.keys(patch).length) queueMicrotask(() => smokeLineState.set(processId, { ...smokeLineOf(processId), ...patch }));
+  return null;
+};
+const smokeProjectModelSaves = [];
+payloads.project_models_get = (args) => ({
+  projectDir: args?.projectDir ?? PROJECT,
+  configPath: `${args?.projectDir ?? PROJECT}/.kanzei/kanzei.toml`,
+  exists: true,
+  fields: {
+    primary: { project: SMOKE_DEFAULT_MODEL, global: "codex:gpt-6-luna", inherited: "codex:gpt-6-luna", inheritedSource: "global", inheritedFollowsPrimary: false, effective: SMOKE_DEFAULT_MODEL, source: "project", followsPrimary: false },
+    fast: { project: null, global: "ollama:qwen3", inherited: "ollama:qwen3", inheritedSource: "global", inheritedFollowsPrimary: false, effective: "ollama:qwen3", source: "global", followsPrimary: false },
+    compact: { project: null, global: null, inherited: SMOKE_DEFAULT_MODEL, inheritedSource: "project", inheritedFollowsPrimary: true, effective: SMOKE_DEFAULT_MODEL, source: "project", followsPrimary: true },
+    reasoning: { project: "high", global: "xhigh", inherited: "xhigh", inheritedSource: "global", inheritedFollowsPrimary: false, effective: "high", source: "project", followsPrimary: false },
+    codexFastMode: { project: true, global: null, inherited: true, inheritedSource: "builtin", inheritedFollowsPrimary: false, effective: true, source: "project", followsPrimary: false },
+  },
+});
+payloads.project_models_save = (args) => {
+  smokeProjectModelSaves.push(structuredClone(args));
+  return payloads.project_models_get(args);
+};
+payloads.project_config_open = null;
 const invokeLog = [];
 const invokeArgs = [];
 const savedPayloads = new Map();
@@ -1172,9 +1563,14 @@ const localStorageShim = {
   removeItem: (k) => storage.delete(k),
 };
 
+// window 级监听只登记不派发(用例要测「回到前台重取」之类时自己按类型取出来调)。
+const windowListeners = new Map();
 const windowShim = {
   __TAURI__: { core: { invoke }, event: { listen } },
-  addEventListener: () => {},
+  addEventListener: (type, listener) => {
+    if (!windowListeners.has(type)) windowListeners.set(type, []);
+    windowListeners.get(type).push(listener);
+  },
   matchMedia: (media) => ({ media, matches: false, addEventListener() {}, removeEventListener() {} }),
   confirm: () => true,
   // D-418:业务确认弹窗从 window.confirm 迁移到 confirmDialog(01-core.js),
@@ -2044,22 +2440,26 @@ assert(
 // 命令面板:开面板必须让背景**整体**惰性化,否则 aria-modal 只是一句声明——
 // Tab 两下就走到背后的 rail,回车能在遮罩下真的切视图、点「新对话」(清空历史)。
 // 关面板必须摘干净,否则界面整个点不动。
+// UI-0926 #9:宿主改为 <dialog>,惰性化由 showModal 原生承担(背景整体 inert、焦点关在面板里),
+// 于是护栏改成「必须以模态打开」:open 且 _modal;关闭后 open 为 false 且镜像回 .hidden。
+// 另加一条反证:任何代码都不得再手写 inert(那说明有人又绕开了 showModal)。
 {
   vm.runInContext("openPalette()", sandbox);
-  const appInert = byId.get("app")?.getAttribute("inert");
-  const paletteInert = byId.get("palette")?.getAttribute("inert");
-  assert(appInert !== null && appInert !== undefined, "开命令面板未给背景加 inert（焦点会跑到遮罩背后）");
-  assert(!paletteInert && paletteInert !== "", "面板自己不得被 inert（否则自己也点不动）");
+  const palette = byId.get("palette");
+  assert(palette?.tagName === "DIALOG", `命令面板宿主必须是 <dialog>(实得 ${palette?.tagName})`);
+  assert(palette?.open && palette?._modal, "开命令面板未以 showModal 打开（背景不会被原生惰性化，焦点会跑到遮罩背后）");
+  assert(!palette.classList.contains("hidden"), "命令面板打开后仍带 .hidden");
   vm.runInContext("closePalette()", sandbox);
+  assert(!palette.open && palette.classList.contains("hidden"), "关命令面板后仍是打开态或未镜像回 .hidden");
   assert(
-    !byId.get("app")?.getAttribute("inert"),
-    "关命令面板后 inert 残留，整个界面会点不动",
+    !sources.some((source) => /setAttribute\("inert"/.test(source)),
+    "又出现了手写 inert:模态的背景惰性化只归 <dialog>.showModal(经 00-surface openDialog)",
   );
 }
-// 搜索开关住在收起的 <details id="composer-more"> 里。命令面板会绕过菜单直接
+// 搜索开关住在收起的「更多」弹层菜单(#composer-more-menu,popover)里。命令面板会绕过菜单直接
 // .click() 它——宿主不展开的话,摘掉 hidden 也没人看得见,接着敲的关键词会掉进
 // #prompt,裸 Enter 就把它当任务发给了 agent。
-// 假 DOM 的 HTML 解析把 #chat-search 拍平到 body 下,closest("details") 在这里
+// 假 DOM 的 HTML 解析把 #chat-search 拍平到 body 下,closest("[popover]") 在这里
 // 天然拿不到宿主,所以**展开宿主**这一条只能静态锁(真实浏览器行为由 playwright
 // 核验);能在假 DOM 里验的是"点了确实把搜索条摘出 hidden"。
 {
@@ -2072,8 +2472,8 @@ assert(
   const handler = sources[scriptSrcs.indexOf("07-events.js")] ?? "";
   const guard = handler.slice(handler.indexOf('$("chat-search-toggle").addEventListener')).slice(0, 1600);
   assert(
-    /closest\("details"\)/.test(guard) && /\.open = true/.test(guard),
-    "chat-search-toggle 处理器不再展开它所在的 details：命令面板触发时搜索框看不见，击键会掉进待发消息",
+    /closest\("\[popover\]"\)/.test(guard) && /openPopover\(/.test(guard) && /isSurfaceOpen\(host\)/.test(guard),
+    "chat-search-toggle 处理器不再经原语展开它所在的弹层菜单：命令面板触发时搜索框看不见，击键会掉进待发消息",
   );
   // 判据必须是「实际看得见吗」而不是裸 toggle：搜索条无 hidden 类但宿主菜单收起时，
   // toggle 会把它“关掉”，然后击键照旧掉进 #prompt、裸 Enter 发给 agent。
@@ -2135,13 +2535,32 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   assert(backgroundFocus?.querySelector(".line-focus-empty"), "没有 claimed_by 的后台线路必须显示自己的空态,不能借用主线焦点");
   assert(listText("focus-body").includes("后台会话"), "焦点区没有显示后台线路身份");
   const focusText = listText("focus-body");
-  for (const needle of ["R-001", "冒烟需求", "doing", "3/11", "P1", "复杂度"]) {
-    assert(focusText.includes(needle), `焦点卡片缺少「${needle}」(侧栏要显示得完整一点):${focusText.slice(0, 160)}`);
+  // UI-0926 #4 精简卡:卡面只留编号/状态/标题/批次/优先级。
+  for (const needle of ["R-001", "冒烟需求", "doing", "批次 3/11", "P1"]) {
+    assert(focusText.includes(needle), `焦点卡片缺少「${needle}」:${focusText.slice(0, 160)}`);
   }
   assert(document.querySelector("#focus-body .batch-meter"), "焦点卡片缺批次进度格");
-  assert(document.querySelectorAll("#focus-body .doc-field").length > 0, "焦点卡片没有只读字段(取活时看不到进展/验收)");
-  // 焦点依据(D-207 三修的对外可见面):凭运行证据还是凭取活序,必须说出来。
-  assert(focusText.includes("取活顺序推断"), `无运行证据时焦点依据应说明是推断:${focusText.slice(0, 160)}`);
+  const card = cards[0];
+  for (const gone of [".doc-field", ".doc-actions", ".focus-source"]) {
+    assert(!card?.querySelector(gone), `精简焦点卡不该再常驻 ${gone}(字段段落/底部按钮/依据行已收进 tooltip 与 ⋯ 菜单)`);
+  }
+  assert(
+    !card?.querySelectorAll("button").some((button) => button.textContent.includes("在完整列表中查看")),
+    "精简焦点卡不该再有「在完整列表中查看」按钮(整卡就是入口)",
+  );
+  // 原护栏「没有只读字段 = 取活时看不到信息」换判据:信息没删,挪进了标题按钮的 tooltip。
+  const open = card?.querySelector(".focus-open");
+  assert(open, "焦点卡缺少整卡点击目标 .focus-open");
+  assert(
+    open?.getAttribute("aria-label")?.includes("R-001") && open.getAttribute("aria-label").includes("打开详情"),
+    `.focus-open 的读屏名称应含编号与「打开详情」:${open?.getAttribute("aria-label")}`,
+  );
+  for (const needle of ["复杂度", "被依赖 1", "点击查看详情"]) {
+    assert(open?.title.includes(needle), `焦点卡 tooltip 缺少「${needle}」(信息被一起删掉了):${open?.title}`);
+  }
+  // 焦点依据(D-207 三修的对外可见面):凭运行证据还是凭取活序,必须说出来——tooltip 写字 + 边框线型。
+  assert(open?.title.includes("取活顺序推断"), `无运行证据时焦点依据应说明是推断:${open?.title}`);
+  assert(card?.classList.contains("src-order"), `无运行证据时焦点卡应标 src-order(虚线=推断):${card?.className}`);
   // 侧栏不再承载完整列表 / 筛选 / 排序 / 分组 / 测试记录 —— 这些 id 从 index.html 里整体消失。
   for (const gone of ["req-list", "defect-list", "tests-section", "req-filter-row", "defect-filter-row",
     "req-sort", "req-group-toggle", "req-priority-filter", "req-status-filter", "req-tag-filter"]) {
@@ -2174,7 +2593,11 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   const backgroundBlock = focusBlocks.find((node) => node.dataset.processId === "p|bg");
   assert(mainBlock?.querySelector('[data-doc-id="R-MAIN"]'), "主线焦点没有从未取得条目中选出主线条目");
   assert(backgroundBlock?.querySelector('[data-doc-id="R-BG"]'), "后台线路没有按 claimed_by 选出自己的条目");
-  assert(backgroundBlock?.textContent.includes("取得线"), "后台线路焦点没有说明它来自线路取得事实");
+  assert(
+    backgroundBlock?.querySelector(".focus-open")?.title.includes("取得线")
+      && backgroundBlock.querySelector(".focus-card")?.classList.contains("src-claim"),
+    "后台线路焦点没有说明它来自线路取得事实(tooltip「依据: 取得线」+ src-claim)",
+  );
   assert(!mainBlock?.querySelector('[data-doc-id="R-BG"]'), "后台线路条目串到了主线焦点卡片");
   payloads.docs_snapshot = savedFocusDocs;
   await sandbox.refreshDocs();
@@ -2229,17 +2652,52 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   payloads.docs_snapshot = savedBacklogDocs;
   sandbox.renderDocsSnapshot(savedBacklogDocs);
 }
-// 焦点卡片的状态流转按钮:取活时要能直接切状态,这条链路不能因为列表搬家而断掉。
+// 焦点卡片的状态流转:取活时要能直接切状态,这条链路不能因为卡片精简而断掉。
+// UI-0926 #4 起状态流转从常驻按钮挪进「⋯」菜单(00-surface openMenu,弹层唯一写法)——
+// 行为变化:切状态多点一次。菜单要经得住 3 秒一次的 process_list 轮询(内容没变就不重建焦点区)。
 {
-  const actionButton = document.querySelector("#focus-body .doc-actions button");
-  assert(actionButton, "焦点卡片缺少状态流转按钮(取活链路断了)");
-  const before = invokeLog.filter((cmd) => cmd === "docs_update").length;
-  actionButton?.click();
+  const pagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+  const focusCardOf = (id) => document.querySelector(`#focus-body .focus-card[data-doc-id="${id}"]`);
+  const card = focusCardOf("R-001");
+  const more = card?.querySelector(".focus-more");
+  assert(more, "焦点卡片缺少「⋯」状态流转入口(取活链路断了)");
+  assert(more?.getAttribute("aria-haspopup") === "menu" && more.getAttribute("aria-label")?.includes("更多操作"), "「⋯」缺 aria-haspopup=menu 或读屏名称");
+  more?.click();
+  const handle = pagesNs?.focusMenuHandle;
+  assert(handle && !handle.closed && handle.el?._popoverOpen && handle.el.classList.contains("k-menu"), "点「⋯」没有经 openMenu 打开状态菜单");
+  assert(more?.getAttribute("aria-expanded") === "true", "状态菜单打开后「⋯」的 aria-expanded 未置 true");
+  const items = handle?.el?.querySelectorAll('[role="menuitem"]') ?? [];
+  assert(items.length === 1 && items[0].textContent.includes("done"), `状态菜单项应与 nextStatuses 一一对应:${items.map((item) => item.textContent).join(",")}`);
+  // 轮询重绘:同一份内容不重建焦点区——卡片节点不换,菜单不被冲掉。
+  sandbox.renderProcesses(structuredClone(shellNs.processItems));
   await flush();
+  assert(focusCardOf("R-001") === card, "内容没变的 process_list 轮询重建了焦点卡(tooltip/菜单会被冲掉)");
+  assert(!handle?.closed, "process_list 轮询把开着的状态菜单冲掉了");
+  const before = invokeArgs.filter(({ cmd }) => cmd === "docs_update").length;
+  items[0]?.click();
+  await flush();
+  const updates = invokeArgs.filter(({ cmd }) => cmd === "docs_update");
   assert(
-    invokeLog.filter((cmd) => cmd === "docs_update").length > before,
-    "焦点卡片的状态流转按钮没有真正提交 docs_update",
+    updates.length > before && updates.at(-1)?.args?.status === "done" && updates.at(-1)?.args?.id === "R-001",
+    `状态菜单项没有提交对应的 docs_update:${JSON.stringify(updates.at(-1)?.args)}`,
   );
+  assert(handle?.closed, "选中状态菜单项后菜单未收起");
+  // 点菜单外(pointerdown 捕获阶段)收起。
+  focusCardOf("R-001")?.querySelector(".focus-more")?.click();
+  const again = pagesNs?.focusMenuHandle;
+  assert(again && !again.closed, "再次点「⋯」未重新打开状态菜单");
+  document.dispatchEvent({ type: "pointerdown", target: byId.get("prompt"), preventDefault() {}, stopPropagation() {} });
+  assert(again?.closed, "点状态菜单外没有收起菜单");
+  // 内容真的变了(标题改了)才重建;重建前先收起锚在旧卡片上的菜单。
+  focusCardOf("R-001")?.querySelector(".focus-more")?.click();
+  const stale = pagesNs?.focusMenuHandle;
+  const renamed = structuredClone(payloads.docs_snapshot);
+  renamed.requirements[0].title = "冒烟需求(改名)";
+  sandbox.renderFocusPanel(renamed);
+  assert(focusCardOf("R-001") && focusCardOf("R-001") !== card, "条目标题变了焦点卡却没重建(签名漏了字段)");
+  assert(stale?.closed, "焦点区重建时没有收起锚在旧卡片上的状态菜单");
+  sandbox.renderFocusPanel(payloads.docs_snapshot);
 }
 // 焦点空态:队列清空时说破,并给出去完整列表的入口(不留空壳、不编)。
 {
@@ -2253,7 +2711,14 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   assert(!document.querySelector("#focus-body .focus-card"), "全部关闭时不该还有焦点卡片");
   assert(listText("focus-body").includes("当前没有在做的条目"), `焦点空态未说破:${listText("focus-body")}`);
   assert(!document.querySelector("#focus-body .focus-next"), "焦点区不应保留下一个推断空壳");
-  const emptyButton = document.querySelector("#focus-body .focus-empty button");
+  // UI-0926 #4:全局空态只说一次(末尾一行),每条线路下只剩一行,不再各自重复全局原因。
+  const globalEmpty = document.querySelectorAll("#focus-body .focus-empty-global");
+  assert(globalEmpty.length === 1 && globalEmpty[0].textContent.includes("当前没有在做的条目"), `全局空态应恰好一行:${globalEmpty.length}`);
+  for (const lineEmpty of document.querySelectorAll("#focus-body .line-focus-empty")) {
+    assert(!lineEmpty.textContent.includes("条可执行待取活") && !lineEmpty.textContent.includes("队列已清空"), `线路空态重复了全局原因:${lineEmpty.textContent}`);
+    assert(!lineEmpty.querySelector(".dim"), "线路空态应只占一行(不再有第二行原因)");
+  }
+  const emptyButton = document.querySelector("#focus-body .focus-empty-global button");
   assert(emptyButton, "焦点空态缺少「查看完整列表」入口");
   emptyButton.click();
   await flush();
@@ -2382,10 +2847,12 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
     document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]')?.classList.contains("agent-active"),
     "运行证据(updated: R-001)未覆盖状态推断——「在做」指针仍指错条目",
   );
-  // 焦点卡片必须同步说出依据变了:D-207 三修的对外可见面就在这句话上。
+  // 焦点卡片必须同步说出依据变了:D-207 三修的对外可见面就在这句话上(UI-0926 #4 起写在
+  // 标题 tooltip 里,边框线型同步:runtime 实线)。
+  const evidenceCard = () => document.querySelector('#focus-body .focus-card[data-doc-id="R-001"]');
   assert(
-    listText("focus-body").includes("本轮运行证据"),
-    `运行证据命中后焦点卡片仍说是推断:${listText("focus-body").slice(0, 160)}`,
+    evidenceCard()?.querySelector(".focus-open")?.title.includes("本轮运行证据") && evidenceCard().classList.contains("src-runtime"),
+    `运行证据命中后焦点卡片仍说是推断:${evidenceCard()?.className} / ${evidenceCard()?.querySelector(".focus-open")?.title}`,
   );
   assert(
     !document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
@@ -2401,8 +2868,8 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
     "新 run 开跑后上轮证据应保留(降级),「在做」指针不该跳回推断",
   );
   assert(
-    listText("focus-body").includes("上轮运行证据"),
-    `轮开始后焦点依据应标注为上轮遗留:${listText("focus-body").slice(0, 160)}`,
+    evidenceCard()?.querySelector(".focus-open")?.title.includes("上轮运行证据") && evidenceCard().classList.contains("src-runtime-stale"),
+    `轮开始后焦点依据应标注为上轮遗留:${evidenceCard()?.className} / ${evidenceCard()?.querySelector(".focus-open")?.title}`,
   );
   payloads.docs_snapshot = savedFocusDocs;
   await sandbox.refreshDocs();
@@ -2480,12 +2947,22 @@ assert(
   assert(clarifyBadge.title.includes("待澄清"), `待澄清徽标未带具体问题提示: "${clarifyBadge.title}"`);
   assert(!document.querySelector("#documents-req-list .clarify-badge"), "需求列表误渲染待澄清徽标(仅缺陷快记有此形态)");
 }
-// 列表搬走之后,取活时要看的只读字段落到了侧栏焦点卡片上——断言跟着搬,不能删:
-// 「信息被一起删掉」这条护栏必须留着。
-const sidebarFields = document.querySelectorAll("#focus-body .doc-field");
-assert(sidebarFields.length > 0, "侧栏焦点卡片既无编辑表单也无只读字段,信息被一起删掉了");
-// 状态流转留在侧栏:取活时要能直接切。
-assert(document.querySelector("#focus-body .doc-actions button"), "侧栏焦点卡片缺少状态流转按钮(取活链路断了)");
+// 列表搬走之后,取活时要看的信息落到了侧栏焦点卡片上——断言跟着搬,不能删:
+// 「信息被一起删掉」这条护栏必须留着。UI-0926 #4 起卡面不再铺字段段落,信息在标题 tooltip 里
+// (依据/复杂度/依赖/最新进展/阻塞),点一下直达展开的详情。
+{
+  const sidebarOpen = document.querySelector("#focus-body .focus-card .focus-open");
+  assert(
+    sidebarOpen?.title.includes("依据") && sidebarOpen.title.includes("复杂度"),
+    `侧栏焦点卡片既无编辑表单也无只读信息,信息被一起删掉了:${sidebarOpen?.title}`,
+  );
+  // 最新一段进展(R-282:|| 切段只露首段)进 tooltip,不整段倒出来。
+  const progressCard = sandbox.buildFocusCard(docEntry("R-P01", "进展样例", "doing", { fields: [["进展", "2026-09-20 批3 合入||2026-09-18 批2 合入||批1 合入"]] }), "req", "order");
+  const progressTip = progressCard.querySelector(".focus-open")?.title ?? "";
+  assert(progressTip.includes("进展: 2026-09-20 批3 合入") && !progressTip.includes("批2"), `焦点卡 tooltip 的进展应只取最新一段:${progressTip}`);
+}
+// 状态流转留在侧栏:取活时要能直接切(⋯ 菜单,见上面的菜单用例)。
+assert(document.querySelector("#focus-body .focus-card .focus-more"), "侧栏焦点卡片缺少状态流转入口(取活链路断了)");
 
 const reqEditor = document.querySelector("#documents-req-list .doc-edit");
 assert(reqEditor?.querySelector("input") && reqEditor?.querySelector("button"), "独立文档页未提供标题/字段编辑控件");
@@ -2497,15 +2974,21 @@ assert(
   "编辑表单存在没有可见字段名的输入框",
 );
 assert(reqEditor.querySelector("textarea"), "长字段未升级为多行文本域,值会被单行输入框截断");
-// D-165:编辑表单已连名带值列出每个字段,只读 .doc-field 列表若同时渲染就是同一份内容显示两遍。
-const duplicatedFields = document
-  .querySelector("#documents-req-list .doc-detail")
-  .querySelectorAll(".doc-field")
-  .filter((node) => !node.textContent.trim().toLowerCase().startsWith("refs"));
-assert(
-  duplicatedFields.length === 0,
-  `字段在编辑表单之外又渲染了一遍只读副本: ${duplicatedFields.map((n) => n.textContent.slice(0, 20)).join(" | ")}`,
-);
+// D-165:同一份字段不能在一个详情里显示两遍。UI-0926 #4 起详情只读优先:字段只读视图(.tf)与
+// 编辑表单(.doc-edit)同时存在于 DOM,但任何时刻恰好一个可见——默认只读,点「编辑」后互换。
+{
+  const reqDetail = document.querySelector("#documents-req-list .doc-detail");
+  const readView = reqDetail?.querySelector(".doc-fields-read");
+  const shownCount = () => [readView, reqEditor].filter((node) => node && !node.classList.contains("hidden")).length;
+  assert(readView?.querySelector(".tf") && !readView.classList.contains("hidden") && reqEditor.classList.contains("hidden"),
+    "详情默认应是字段只读视图(.tf 可见、编辑表单隐藏)");
+  assert(shownCount() === 1, `只读视图与编辑表单应恰好一个可见(D-165 同一份字段不显示两遍),实得 ${shownCount()}`);
+  reqDetail.querySelector(".doc-edit-toggle")?.click();
+  assert(!reqEditor.classList.contains("hidden") && readView.classList.contains("hidden") && shownCount() === 1,
+    "点「编辑」后应只剩编辑表单可见(只读视图同时藏起)");
+  reqDetail.querySelector(".doc-edit-toggle")?.click();
+  assert(shownCount() === 1 && reqEditor.classList.contains("hidden"), "取消编辑后应回到只读视图");
+}
 reqEditor.querySelector("button").click();
 await flush();
 assert(invokeLog.includes("docs_update"), "独立文档页编辑未调用 docs_update");
@@ -3258,6 +3741,8 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"]')?.classList.contains("is-selected"), "结果行未定位并高亮对应 run");
   assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-chart polyline'), "run 指标事件未渲染曲线");
   assert(document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-terminal')?.textContent.includes("训练完成"), "run 终端 message 未进入回放");
+  // UI-0926 #10:执行配置 JSON 拆成策略/类型 chip,不再原样拼进 meta 行。
+  assert(!document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-meta')?.textContent.includes('{"kind"') && document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-run-meta .sv-chip')?.textContent === "managed", "研究运行卡仍拼接 execution_json 原文");
   const artifactLink = document.querySelector('#research-run-cards .research-run-card[data-result-id="E-101-01"] .research-artifact-link');
   assert(artifactLink, "run 未展示产物入口");
   artifactLink.click();
@@ -3880,12 +4365,13 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
   assert(h2Rest.textContent.endsWith("…(已截断)"), `超长输出未截断:结尾为 "${h2Rest.textContent.slice(-20)}"`);
   assert(h2Rest.textContent.length < 8100, `截断上界失效,实得 ${h2Rest.textContent.length} 字`);
 
-  // ③ bash 的 "exit code: 0" 独占首行时顺延到下一行,被跳过的那行归入剩余而不是丢掉。
-  assert(resultOf(h3) === "⎿ 真正的输出行", `exit code 顺延语义变了:"${resultOf(h3)}"`);
-  assert(restOf(h3)?.textContent === "exit code: 0", `被跳过的 exit code 行被丢掉了:"${restOf(h3)?.textContent}"`);
+  // ③ UI-0926 #6:bash 成功行是「退出码 · 亮点行」的人话摘要,而不是原文首行;
+  // 摘要不再是原文的一段,展开区给完整原文(exit code 行不能丢)。
+  assert(resultOf(h3) === "⎿ 退出码 0 · 真正的输出行", `bash 成功摘要漂移:"${resultOf(h3)}"`);
+  assert(restOf(h3)?.textContent === "exit code: 0\n真正的输出行", `展开区不是完整原文(exit code 行被丢掉了?):"${restOf(h3)?.textContent}"`);
 
-  // ④ 全篇只有 "exit code: 0" 时仍显示它,不塌成「完成」(原实现 `|| lines[0]` 兜底的等价保留)。
-  assert(resultOf(h4) === "⎿ exit code: 0", `唯一的结果行被吞成兜底文案:"${resultOf(h4)}"`);
+  // ④ 全篇只有 "exit code: 0" 时仍给出退出码,不塌成「完成」(原实现 `|| lines[0]` 兜底的等价保留)。
+  assert(resultOf(h4) === "⎿ 退出码 0", `唯一的结果行被吞成兜底文案:"${resultOf(h4)}"`);
   assert(restOf(h4) === null, "只有一行结果时不该出展开区(展开了还是那一行 = 假承诺)");
 }
 
@@ -3897,8 +4383,14 @@ assert(toolStart && toolEnd, "工具事件未订阅");
 assert(taskProgress, "子代理进度事件未订阅");
 toolStart({ payload: { id: "T1", name: "bash", summary: "cargo test --workspace", input: { command: "cargo test --workspace", workdir: "." }, sessionId: "sess-smoke" } });
 // D-491:轮次与当前工具状态必须由真实事件更新到实际 DOM，不允许 live-* 静默 no-op。
-for (const id of ["live-turn", "live-action", "live-note", "live-focus"]) {
+for (const id of ["live-turn", "live-action"]) {
   assert(byId.get(id), `${id} 动态状态节点缺失，live-* 写入会静默 no-op`);
+}
+// UI-0926 #4:#live-note(与对话流重复)、#live-focus(与焦点卡重复)已删,写入点一并删除——
+// 节点删了而写入还在,就是 D-491 那种静默 no-op。
+for (const id of ["live-note", "live-focus"]) {
+  assert(!byId.has(id), `#${id} 应已删除(与对话流/焦点卡重复)`);
+  assert(!source.includes(`"${id}"`), `源码仍在写已删除的 #${id}(静默 no-op)`);
 }
 assert(byId.get("live-turn").textContent.includes("第") || byId.get("live-turn").textContent.includes("Round"), "kz:turn 未更新当前轮次显示");
 assert(!byId.get("live-action").classList.contains("hidden"), "kz:tool-start 未显示当前工具状态");
@@ -4121,40 +4613,55 @@ assert(
 roleFilter.value = "all";
 roleFilter._listeners.change?.forEach((fn) => fn({ target: roleFilter }));
 await flush();
-// ④ 主对话里同一角色的 task 工具块折叠成一组(默认收起,组头带块数)。
-const fold = document.querySelector('.agent-fold[data-agent-role="architecture_scout"]');
-assert(fold, "主对话缺角色折叠组");
-const foldHead = fold.querySelector(".agent-fold-head");
-const foldBody = fold.querySelector(".agent-fold-body");
-assert(foldHead && foldBody, "折叠组缺头部或主体");
-assert(foldBody.classList.contains("hidden"), "折叠组默认应收起");
-assert(foldHead.getAttribute("aria-expanded") === "false", "折叠组头 aria-expanded 初始应为 false");
-// 编排角色固定调用 id,第二轮 start 应按 restart 语义保留第一轮块并追加第二轮块。
-// 活跃索引只指向当前轮,所以两次 ToolEnd 各自填充对应的当前块。
-const inFold = foldBody.querySelectorAll(".tool-msg").length;
-assert(inFold === 2, `architecture_scout 折叠组内应有 2 个工具块,实得 ${inFold}`);
-assert(fold.querySelector(".agent-fold-count")?.textContent.includes("2"), "折叠组头未显示累计块数");
-assert(foldBody.textContent.includes("勘察简报首行") && foldBody.textContent.includes("第二轮简报"),
-  "跨轮同名调用的两次结果没有分别保留");
-foldHead.click();
-await flush();
-assert(!foldBody.classList.contains("hidden"), "点击折叠组头未展开");
-assert(foldHead.getAttribute("aria-expanded") === "true", "展开后 aria-expanded 应为 true");
-assert(fold.querySelector(".agent-fold-caret")?.textContent === "▾", "展开后 caret 未变为 ▾");
-// ⑤ 不同角色各自独立成组,不互相吞并。
-for (const role of scoutRoles.slice(1)) {
-  assert(document.querySelector(`.agent-fold[data-agent-role=${role}]`), `角色 ${role} 没有自己的折叠组`);
+// ④ UI-0926 #8(R-184 折叠组退役):主对话里的子代理按**派发批次**成组,不再按角色跨轮折叠。
+// 同一批勘察是一个组(组头带阶段名与人数),每个角色一张卡;同名角色第二轮重派是新的一批、新的卡,
+// 上一轮的结果留在上一轮那张卡里(D-725「同名重派不覆写」的语义由「每次派发一张新卡」继续满足)。
+const saPane = () => document;
+const saGroupsOf = (phase) => [...saPane().querySelectorAll(".sa-group")].filter((g) => (g.dataset.saPhase || "") === phase);
+const saCardsOf = (id) => [...saPane().querySelectorAll(".sa-card")].filter((c) => c.dataset.saKey === `sess-smoke|${id}`);
+const scoutBatch = saGroupsOf("scouting").find((g) => g.dataset.saCount === "3");
+assert(scoutBatch, `同一批 3 个勘察子代理没有合成一个组,实得 ${saGroupsOf("scouting").map((g) => g.dataset.saCount).join(",")}`);
+const scoutHead = scoutBatch?.querySelector(".sa-group-head");
+assert(scoutHead && !scoutHead.classList.contains("hidden"), "≥2 个成员的组头应可见");
+assert(scoutHead?.textContent.includes("勘察") && scoutHead?.textContent.includes("3 个子代理"), `编排批次组头缺阶段名或人数,实得 "${scoutHead?.textContent}"`);
+// ⑤ 不同角色各自一张卡,不互相吞并;成员是一行的 member 变体。
+for (const role of scoutRoles) {
+  const inBatch = [...(scoutBatch?.querySelectorAll(".sa-card") ?? [])].filter((c) => c.dataset.saKey === `sess-smoke|${role}`);
+  assert(inBatch.length === 1, `角色 ${role} 在勘察批次里应恰有一张卡,实得 ${inBatch.length}`);
+  assert(inBatch[0]?.dataset.saVariant === "member", `组成员 ${role} 应为 member 变体`);
+  assert(inBatch[0]?.querySelector(".sa-agent")?.textContent === role, `卡片身份签不是角色名:"${inBatch[0]?.querySelector(".sa-agent")?.textContent}"`);
 }
+assert(saCardsOf("runtime_scout")[0]?.dataset.saState === "timeout", `超时角色的卡没有分类成 timeout,实得 ${saCardsOf("runtime_scout")[0]?.dataset.saState}`);
+assert(saCardsOf("test_scout")[0]?.dataset.saState === "failed", `失败角色的卡没有分类成 failed,实得 ${saCardsOf("test_scout")[0]?.dataset.saState}`);
+assert(saGroupsOf("review").some((g) => g.dataset.saCount === "2"), "复核批次没有单独成组");
+assert(saCardsOf("MODEL_TASK").length === 1 && !scoutBatch?.querySelector('.sa-card[data-sa-key="sess-smoke|MODEL_TASK"]'),
+  "模型自派的 task 串进了编排批次组");
+// ⑥ 跨轮重派:同名角色两张卡,两轮结果分别保留;默认收起,点卡头就地展开。
+const scoutCards = saCardsOf("architecture_scout");
+assert(scoutCards.length === 2, `architecture_scout 跨轮重派应有 2 张卡,实得 ${scoutCards.length}`);
+assert(scoutCards.every((c) => c.dataset.saState === "done"), `两轮都应是完成态,实得 ${scoutCards.map((c) => c.dataset.saState).join(",")}`);
+for (const card of scoutCards) {
+  const head = card.querySelector(".sa-head");
+  assert(card.querySelector(".sa-body")?.classList.contains("hidden") && head?.getAttribute("aria-expanded") === "false", "子代理卡默认应收起");
+  head?.click();
+  assert(!card.querySelector(".sa-body")?.classList.contains("hidden") && head?.getAttribute("aria-expanded") === "true", "点击卡头未展开");
+}
+await flush();
+assert(scoutCards[0]?.querySelector(".sa-result")?.textContent.includes("勘察简报首行") && !scoutCards[0]?.textContent.includes("第二轮简报"),
+  "第一轮的结果被第二轮覆写(或没留在第一轮的卡里)");
+assert(scoutCards[1]?.querySelector(".sa-result")?.textContent.includes("第二轮简报"), "第二轮的结果没有落在第二轮的卡里");
+for (const card of scoutCards) card.querySelector(".sa-head")?.click();
 
-// ---------- D-727:复制上下文包含子代理折叠组 ----------
+// ---------- D-727:复制上下文包含子代理卡片(身份 · 描述 / 计数 / 结果)----------
 byId.get("copy-context").click();
 await flush();
 assert(
   copiedResearchCitation.includes("architecture_scout") &&
     copiedResearchCitation.includes("勘察简报首行") &&
     copiedResearchCitation.includes("第二轮简报"),
-  "复制上下文漏掉子代理折叠组内的工具调用结果",
+  "复制上下文漏掉子代理卡片的结果",
 );
+assert(/子代理|Subagent/.test(copiedResearchCitation), "复制上下文里的子代理段没有标明是子代理");
 
 // ---------- D-237 活动面板:diff 汇总着色 + bash 完整输出可展开 ----------
 const d237ToolStart = handlers.get("kz:tool-start");
@@ -4166,8 +4673,9 @@ editEnd({ payload: { id: "T6", name: "bash", ok: true, preview: "exit code: 0", 
 await flush();
 const diffRow = document.querySelector("#diff-summary");
 assert(diffRow && diffRow.textContent.includes("+3") && diffRow.textContent.includes("−1"), "diff 汇总未收录文件的增删计数");
+// UI-0926 #10:目录已在上层行里,文件行只显示文件名;全路径在 dataset.path 与 title。
 assert(
-  diffRow.textContent.includes("ui/main.js"),
+  [...diffRow.querySelectorAll(".diff-summary-row")].some((r) => r.dataset.path === "ui/main.js" && r.textContent.includes("main.js") && r.querySelector(".diff-summary-name")?.title === "ui/main.js"),
   "diff 汇总未显示文件路径",
 );
 // 冒烟的 innerHTML 是去标签近似(不建真实子节点),着色 span 的选择器断言不可用;
@@ -4197,7 +4705,7 @@ assert(
   assert(head.getAttribute("aria-expanded") === "true", "diff 目录初始应展开");
   const fileRows = tree.querySelectorAll(".diff-summary-row");
   assert(
-    [...fileRows].some((r) => r.textContent.includes("crates/kanzei-app/src/docs.rs")),
+    [...fileRows].some((r) => r.dataset.path === "crates/kanzei-app/src/docs.rs" && r.textContent.startsWith("docs.rs") && r.closest(".diff-dir-body")),
     "diff 树文件行未归入目录下",
   );
   // 折叠交互:点目录头,子文件应隐藏。
@@ -4276,13 +4784,13 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   );
   assert(x1Rest.endsWith("(+2 lines)"), `被截掉的尾巴读不到了:"${x1Rest.slice(-30)}"`);
 
-  // ② 成功的短结果:零退化——⎿ 行原样,不出展开区,不加 has-detail。
+  // ② 成功的短结果:⎿ 行是人话摘要(UI-0926 #6),仍不出展开区,不加 has-detail。
   index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
   toolStart({ payload: { id: "X2", name: "edit", summary: "ui/x.js", sessionId: "sess-smoke" } });
   toolEnd({ payload: { id: "X2", name: "edit", ok: true, preview: "replaced 1 occurrence", display: null, sessionId: "sess-smoke" } });
   await flush();
   const x2 = toolMsgAt(index);
-  assert(x2?.querySelector(".tool-msg-result")?.textContent === "⎿ replaced 1 occurrence", `成功短结果的 ⎿ 行变了:"${x2?.querySelector(".tool-msg-result")?.textContent}"`);
+  assert(x2?.querySelector(".tool-msg-result")?.textContent === "⎿ 已替换 1 处", `成功短结果的 ⎿ 行变了:"${x2?.querySelector(".tool-msg-result")?.textContent}"`);
   assert(x2.querySelector(".tool-msg-raw") === null, "成功短结果不该出展开区(展开了还是那一行 = 假承诺)");
   assert(!x2.classList.contains("has-detail"), "成功短结果不该标 has-detail");
 
@@ -4424,9 +4932,10 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   }
 
   // ③ ⎿ 行截断点与剩余部分的切分必须严丝合缝:一个字要么在摘要里、要么在详情里。
+  // UI-0926 #6:成功行改成人话摘要后,互斥切分只作用于失败行,预算用失败结果验。
   index = document.querySelectorAll("#messages [data-active] .tool-msg").length;
   toolStart({ payload: { id: "X3", name: "edit", summary: "ui/y.js", sessionId: "sess-smoke" } });
-  toolEnd({ payload: { id: "X3", name: "edit", ok: true, preview: "x".repeat(200), display: null, sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "X3", name: "edit", ok: false, preview: "x".repeat(200), display: null, sessionId: "sess-smoke" } });
   await flush();
   const x3 = toolMsgAt(index);
   const x3Result = x3?.querySelector(".tool-msg-result")?.textContent ?? "";
@@ -4665,12 +5174,17 @@ assert(
   primaryValues.includes("deepseek:deepseek-chat"),
   "探测不到的已存值未补进选项列表",
 );
-// 项目级覆盖必须明说。
+// 项目级覆盖必须明说(UI-0926 #3 起这张表只报代理/默认模式/运行上限;模型的项目覆盖见
+// #settings-project-overrides 那行中性说明,由下面「分区:模型选择」的设置页用例守)。
 assert(
   !byId.get("settings-effective").classList.contains("hidden"),
-  "项目级覆盖了 primary,但设置页没有任何提示",
+  "项目级覆盖了 proxy/limits,但设置页没有任何提示",
 );
 assert(listText("settings-effective").includes("实际生效"), "覆盖提示未说明实际生效值");
+assert(
+  listText("settings-effective").includes("当前项目的配置覆盖了这些全局值") && !listText("settings-effective").includes("本页的改动不会生效"),
+  `覆盖提示的标题应是中性说明,不再是「改动不会生效」的警告:${listText("settings-effective")}`,
+);
 // D-503:设置页后端失败不能再静默停留旧值或让用户误以为刷新成功。
 {
   invokeFailures.set("models_list", "模拟模型列表失败");
@@ -4952,47 +5466,41 @@ assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "�
   assert(proxyHint.classList.contains("hidden"), "切回 env 后提示应消失");
 }
 
-// ---------- R-178 批4 D7:设置页作用域选择器 ----------
-// 第一版只覆盖 [models]:scope=project 时后端只写模型角色进主根 .kanzei/kanzei.toml,
-// proxy/provider/limits/cadence 一律仍走全局(后端 settings.rs 按 scope 拦截)。
-// 前端职责:默认全局、有项目上下文时 project 选项可用、无项目时禁用并回退 global、
-// 保存时透传 scope+projectDir。
+// ---------- UI-0926 #3(取代 R-178 批4 D7 作用域选择器):设置页只写全局 ----------
+// D7 当年守的是「选本项目保存时 provider/密钥不许串写进项目 toml」。现在设置页根本不再写项目文件:
+// 作用域选择器整个删除,settings_save 不再带 scope/projectDir(后端签名也去掉了,只写全局);
+// 项目级模型覆盖改走「项目模型配置」弹窗,后端只接受 [models] 五个键(model_config.rs 的
+// project_models_save_rejects_invalid 钉住「proxy 这类键一律拒绝」)。这里钉前端这一半。
 {
-  const scopeSelect = byId.get("set-save-scope");
-  assert(scopeSelect, "设置页缺少作用域选择器 #set-save-scope");
-  const projectOption = scopeSelect.querySelector('option[value="project"]');
-  assert(projectOption, "作用域选择器缺少「本项目」选项");
-  // 冒烟 settings_get 桩自带 projectConfig(有项目)→ 选项可用、默认值 global。
-  assert(projectOption.disabled === false, "有项目上下文时「本项目」选项未启用");
-  assert(scopeSelect.value === "global", "默认作用域应为 global");
-
+  assert(!byId.get("set-save-scope"), "设置页不应再有作用域选择器 #set-save-scope(全局值会被整块拷进项目文件)");
+  assert(!byId.get("settings-scope-note") && !byId.get("settings-scope-hint"), "作用域说明残留(含内部编号 D7)");
+  assert(!html.includes("D7"), "index.html 仍把内部编号 D7 漏给用户");
   byId.get("settings-save").click();
   await flush();
   const saveArgs = savedPayloads.get("settings_save");
-  assert(saveArgs?.scope === "global", `默认作用域应为 global: ${JSON.stringify(saveArgs?.scope)}`);
-  assert(saveArgs?.projectDir === null || saveArgs?.projectDir === undefined, "global 作用域不应携带 projectDir");
-
-  // 无项目上下文:settings_get 不带 projectConfig → 选项禁用且当前值回退 global。
+  assert(saveArgs && !Object.hasOwn(saveArgs, "scope") && !Object.hasOwn(saveArgs, "projectDir"),
+    `settings_save 不应再带 scope/projectDir(本页只写全局):${JSON.stringify(Object.keys(saveArgs ?? {}))}`);
+  // 项目没有覆盖模型时这一行收起;有覆盖时列出项目名与键(中性说明,不是琥珀警告)。
+  const overrides = byId.get("settings-project-overrides");
+  assert(overrides && !overrides.classList.contains("hidden"), "有项目自带模型配置时设置页没有说明");
+  assert(overrides.classList.contains("settings-note") && !overrides.classList.contains("settings-effective"), "项目模型覆盖说明应是中性样式,不是警告条");
+  const overrideText = overrides.textContent;
+  assert(overrideText.includes("smoke") && overrideText.includes("primary") && overrideText.includes("思考强度"),
+    `项目模型覆盖说明未列出项目名与键:${overrideText}`);
   const originalSettingsGet = payloads.settings_get;
-  payloads.settings_get = { ...originalSettingsGet, projectConfig: undefined };
+  payloads.settings_get = { ...originalSettingsGet, projectModelOverrides: [] };
   try {
-    const loadSettingsInSandbox = vm.runInContext("loadSettings", sandbox);
-    await loadSettingsInSandbox();
-    assert(projectOption.disabled === true, "无项目上下文时「本项目」选项未被禁用");
-    assert(scopeSelect.value === "global", "无项目上下文时作用域未回退到 global");
+    await vm.runInContext("loadSettings", sandbox)({ force: true });
+    assert(overrides.classList.contains("hidden"), "没有项目覆盖模型时说明行应收起");
   } finally {
     payloads.settings_get = originalSettingsGet;
   }
-
-  // 有项目上下文:选中「本项目」保存 → scope+projectDir 一起透传。
-  await vm.runInContext("loadSettings", sandbox)();
-  scopeSelect.value = "project";
-  byId.get("settings-save").click();
-  await flush();
-  const projectArgs = savedPayloads.get("settings_save");
-  assert(projectArgs?.scope === "project", `选了「本项目」保存却没带 scope=project: ${JSON.stringify(projectArgs?.scope)}`);
-  const currentProjectInSandbox = vm.runInContext("currentProject", sandbox);
-  assert(projectArgs?.projectDir === currentProjectInSandbox, "scope=project 未携带当前项目目录");
+  await vm.runInContext("loadSettings", sandbox)({ force: true });
+  // 只有模型被项目覆盖(代理/默认模式/上限都与全局相同)时,覆盖提示表不出现。
+  const settingsNsForNotice = esmModuleCache.get("16-settings.js")?.namespace;
+  settingsNsForNotice.renderEffectiveNotice({ proxy: "env", profileDefault: "dev", limits: { maxTokens: 4096 }, effective: { proxy: "env", profileDefault: "dev", limits: { maxTokens: 4096 } } });
+  assert(byId.get("settings-effective").classList.contains("hidden"), "只有模型被项目覆盖时不该出现覆盖提示表");
+  await vm.runInContext("loadSettings", sandbox)({ force: true });
 }
 
 // ---------- R-136 子代理模型一键就绪 ----------
@@ -5015,21 +5523,36 @@ handlers.get("kz:fast-setup")?.({ payload: { text: "pulling 50%(1500/3000 MB)" }
 assert(listText("fast-status").includes("50%"), "安装进度未反映到界面");
 
 // ---------- D-167 手填模型：探测不到不等于用不了 ----------
-const modelSelect = byId.get("model-select");
-const compactModelValues = [...modelSelect.options].map((o) => o.value);
-assert(compactModelValues.includes("deepseek:deepseek-chat"), "当前线路已选的 DeepSeek 未保留在紧凑模型列表");
-assert(!compactModelValues.includes("ollama:qwen3"), "紧凑模型列表仍把未选模型全部灌入顶栏");
-const showAllOption = [...modelSelect.options].find((o) => o.value === "__show_all_models__");
-assert(showAllOption, "紧凑模型列表缺少展开完整探测清单入口");
-modelSelect.value = "__show_all_models__";
-modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
+// UI-0926 #3:入口从原生下拉挪进输入框上方模型芯片的菜单(openMenu 现造,弹层唯一写法)。
+// 断言形态不变:紧凑列表只列本线已选/默认解析/手填过的模型,「显示全部」就地展开完整目录,
+// 「＋ 手填模型…」写后端 manualModels,格式不对挡住。
+const pickerNs = esmModuleCache.get("08-model-picker.js")?.namespace;
+const pickerMenu = () => document.querySelector(".picker-menu");
+const pickerButtons = () => [...(pickerMenu()?.querySelectorAll(".k-menu-item") ?? [])];
+const pickerValues = () => pickerButtons().filter((b) => b.dataset.value !== undefined).map((b) => b.dataset.value);
+const pickerAction = (action) => pickerButtons().find((b) => b.dataset.action === action);
+const openChipMenu = async (kind = "model") => {
+  pickerNs?.closePicker?.();
+  byId.get(kind === "reasoning" ? "reasoning-picker" : "model-picker").click();
+  await flush();
+  return pickerMenu();
+};
+assert(pickerNs && typeof pickerNs.openPicker === "function", "08-model-picker.js 未加载(输入框上方没有模型芯片)");
+// 前面缺陷审查报告用例留下的查看器模态还开着:收掉,芯片菜单才是在正常界面上打开的(模态开着时菜单是惰性的)。
+esmModuleCache.get("00-surface.js")?.namespace?.closeSurface(byId.get("viewer-overlay"));
+await openChipMenu("model");
+assert(pickerMenu()?.classList.contains("k-menu"), "模型芯片菜单不是 openMenu 现造的 .k-menu(弹层唯一写法)");
+const compactModelValues = pickerValues();
+assert(compactModelValues.includes("deepseek:deepseek-chat"), `当前线路已选的 DeepSeek 未保留在紧凑模型列表:${compactModelValues.join(",")}`);
+assert(!compactModelValues.includes("ollama:qwen3"), "紧凑模型列表仍把未选模型全部灌入");
+assert(!compactModelValues.includes("primary") && !compactModelValues.includes("fast"), "模型菜单不应再列 primary/fast 角色项(它们的去向由「跟随默认」说清)");
+assert(pickerAction("show-all"), "紧凑模型列表缺少展开完整探测清单入口");
+pickerAction("show-all").click();
 await flush();
-assert([...modelSelect.options].some((o) => o.value === "ollama:qwen3"), "展开完整模型清单后仍缺少探测模型");
-const manualOption = [...modelSelect.options].find((o) => o.value === "__manual__");
-assert(manualOption, "模型下拉缺少手填入口(端点不实现 /models 时就彻底没法选)");
+assert(pickerValues().includes("ollama:qwen3"), "展开完整模型清单后仍缺少探测模型");
+assert(pickerAction("manual"), "模型菜单缺少手填入口(端点不实现 /models 时就彻底没法选)");
 sandbox.__inputDialogResponses.push("deepseek:deepseek-chat");
-modelSelect.value = "__manual__";
-modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
+pickerAction("manual").click();
 await flush();
 // R-178 批3:手填模型写后端(process_update 携带 manualModels),不再落 localStorage。
 const manualUpdate = invokeArgs.findLast(({ cmd, args }) =>
@@ -5039,14 +5562,13 @@ assert(
   manualUpdate.args.manualModels.includes("deepseek:deepseek-chat"),
   `手填模型落盘值不对:${JSON.stringify(manualUpdate.args.manualModels)}`,
 );
-assert(
-  [...byId.get("model-select").options].some((o) => o.value === "deepseek:deepseek-chat"),
-  "手填后模型未回到下拉列表里",
-);
+await openChipMenu("model");
+assert(pickerValues().includes("deepseek:deepseek-chat"), "手填后模型未回到菜单里");
+pickerNs?.closePicker?.();
 // 格式不对要挡住:provider 名对不上配置键时后端 resolve_model 会直接失败。
 sandbox.__inputDialogResponses.push("随便写的");
-modelSelect.value = "__manual__";
-modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
+await openChipMenu("model");
+pickerAction("manual").click();
 await flush();
 const badUpdate = invokeArgs.findLast(({ cmd, args }) =>
   cmd === "process_update" && Array.isArray(args?.manualModels));
@@ -5054,6 +5576,7 @@ assert(
   !badUpdate || !badUpdate.args.manualModels.includes("随便写的"),
   "非 provider:model 格式不应被接受",
 );
+assert(!invokeArgs.some(({ cmd, args }) => cmd === "process_update" && args?.model === "随便写的"), "非法手填值不应写进本线模型");
 
 // ---------- R-178 批3:localStorage 旧模型偏好一次性上迁后端并清除 ----------
 // 预置旧版键(模型选择 + 手填候选),迁移后必须写入默认进程且旧键消失,否则下次
@@ -5083,27 +5606,40 @@ expectedPersistentError = null;
 assert(storage.has(`kz-model:${PROJECT}`), "迁移失败时旧键不应被清除(可重试)");
 assert(invokeArgs.length > migrationArgs, "迁移失败重试路径未调用后端");
 
-// 后端回显整链:默认进程的 manual_models(②层)必须驱动下拉回显,而不是 localStorage。
+// 后端回显整链:默认进程的 manual_models(②层)必须驱动芯片菜单,而不是 localStorage。
 payloads.process_list[0].manual_models = ["ollama:qwen3"];
 await sandbox.refreshProcesses();
 await sandbox.loadModels();
 await flush();
+await openChipMenu("model");
 assert(
-  [...byId.get("model-select").options].some((o) => o.value === "ollama:qwen3"),
-  "后端 manual_models 未回显到下拉(前端仍以 localStorage 为真源?)",
+  pickerValues().includes("ollama:qwen3"),
+  "后端 manual_models 未回显到模型菜单(前端仍以 localStorage 为真源?)",
 );
+pickerNs?.closePicker?.();
 delete payloads.process_list[0].manual_models;
 
 // ---------- R-115 偏好持久化：写了必须能读回 ----------
 // 「写了却从不读回」是这块最容易出的问题:kz-reasoning 曾经全仓零处 getItem,
 // 看起来存了,重启后照样回默认档。这里逐项验"改一次 → 落盘 → 能回填"。
-const reasoningSelect = byId.get("reasoning-select");
-reasoningSelect.value = "high";
-reasoningSelect._listeners.change?.forEach((fn) => fn({ target: reasoningSelect }));
-const reasoningKey = [...storage.keys()].find((k) => k.startsWith("kz-reasoning"));
-assert(reasoningKey, "思考强度未落盘");
-assert(storage.get(reasoningKey) === "high", `思考强度落盘值不对: ${storage.get(reasoningKey)}`);
-assert(reasoningKey.includes(":"), "思考强度应按项目分键,不同项目常配不同模型");
+// UI-0926 #3:思考强度的落盘处改为**本线**(process_update → state.db),回填由 model_effective 负责;
+// localStorage 的 kz-reasoning:<项目> 从不跟线同步,是这次要去掉的假真源——改一次不得再写它。
+{
+  for (const key of [...storage.keys()].filter((k) => k.startsWith("kz-reasoning"))) storage.delete(key);
+  await openChipMenu("reasoning");
+  const high = pickerButtons().find((b) => b.dataset.value === "high");
+  assert(high, `思考菜单缺少「高」档:${pickerValues().join(",")}`);
+  high.click();
+  await flush();
+  const reasoningUpdate = invokeArgs.findLast(({ cmd, args }) => cmd === "process_update" && Object.hasOwn(args ?? {}, "reasoning"));
+  assert(reasoningUpdate?.args?.reasoning === "high", `思考强度未写进本线存档:${JSON.stringify(reasoningUpdate?.args)}`);
+  assert(![...storage.keys()].some((k) => k.startsWith("kz-reasoning")), "思考强度不得再写 localStorage 的 kz-reasoning:*(它从不跟线同步)");
+  assert(byId.get("reasoning-picker").textContent.includes("高"), `选完后思考芯片未显示新档位:${byId.get("reasoning-picker").textContent}`);
+  // 旧版留下的 kz-reasoning:<项目> 在进项目时顺手清掉,不再回填任何控件。
+  storage.set(`kz-reasoning:${PROJECT}`, "max");
+  await sandbox.migrateLegacyModelPrefs();
+  assert(!storage.has(`kz-reasoning:${PROJECT}`), "旧的 kz-reasoning:<项目> 键未清除");
+}
 
 const deliverySelect = byId.get("delivery-select");
 deliverySelect.value = "steer";
@@ -5968,12 +6504,13 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   sandbox.renderProcesses(savedLoopList);
 }
 
-// ---------- 顶栏模型下拉必须跟着线路走 ----------
+// ---------- 顶栏模型下拉必须跟着线路走(UI-0926 #3 起是输入框上方的模型芯片) ----------
 // 用户 2026-08-18 报告「切换线路模型不变,选的都是同一个」。两个病根:
 // ① loadModels 的回显是 `本线模型 || 旧全局 localStorage 键`——一条没设过模型的线(agent
 //    默认)会显示旧键里的模型,于是每条这样的线都显示同一个;
 // ② 只有 switchProcess 尾巴上那一句在回显,冷启动/兜底选中活动线都不回显,下拉停在上一条线。
 // 附带的隐患更深:发送读下拉、鞭挞续跑读 item.model,同一条线能跑在两个模型上。
+// 现在芯片只认 model_effective(按 processId 读本线存档),断言芯片文字与来源标签。
 {
   const modelLines = [
     { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, model: "primary", project_dir: "C:/smoke", origin_project: "C:/smoke" },
@@ -5981,7 +6518,12 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
     { id: "p|model-c", label: "线路丙", session_id: "sess-model-c", running: false, model: null, project_dir: "C:/smoke", origin_project: "C:/smoke" },
   ];
   const savedModelList = payloads.process_list;
+  const savedLineState = new Map(smokeLineState);
+  smokeLineState.clear();
   payloads.process_list = modelLines;
+  const chip = () => byId.get("model-picker");
+  const chipSource = () => chip()?.querySelector(".picker-source")?.dataset.source;
+  const effective = () => esmModuleCache.get("08-models.js")?.namespace?.effectiveModel;
   // 旧全局键存在(迁移前的老用户就是这个状态):它绝不能顶替任何一条线自己的值。
   storage.set("kz-model:C:/smoke", "OPEN-code:deepseek-v4-flash");
   storage.set("kz-model", "OPEN-code:deepseek-v4-flash");
@@ -5989,26 +6531,26 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   await sandbox.switchProcess("p|model-b");
   await flush();
   assert(
-    byId.get("model-select").value === "OPEN-code:deepseek-v4-flash",
-    `切到乙线未回显该线模型,实得 ${byId.get("model-select").value}`,
+    chip().textContent.includes("OPEN-code:deepseek-v4-flash") && chipSource() === "line",
+    `切到乙线未回显该线模型,实得 "${chip().textContent}" / ${chipSource()}`,
   );
   await sandbox.switchProcess("d|smoke");
   await flush();
   assert(
-    byId.get("model-select").value === "primary",
-    `切回主线时模型下拉没跟着变(用户报告的正是这一条),实得 ${byId.get("model-select").value}`,
+    effective()?.model?.ref === "primary" && chip().textContent.includes("codex:gpt-5.6-luna") && !chip().textContent.includes("OPEN-code"),
+    `切回主线时模型芯片没跟着变(用户报告的正是这一条),实得 "${chip().textContent}"`,
   );
-  // 没设过模型的线 = agent 默认。旧全局键在这里最容易顶上来。
+  // 没设过模型的线 = 跟随默认。旧全局键在这里最容易顶上来。
   await sandbox.switchProcess("p|model-c");
   await flush();
   assert(
-    byId.get("model-select").value === "",
-    `未设模型的线必须回显 agent 默认,不得回落旧全局键,实得 ${byId.get("model-select").value}`,
+    chipSource() === "project" && chip().textContent.includes("codex:gpt-5.6-luna") && !chip().textContent.includes("OPEN-code"),
+    `未设模型的线必须回显跟随默认(来源=项目级),不得回落旧全局键,实得 "${chip().textContent}" / ${chipSource()}`,
   );
-  // 发送用的模型必须是该线存的那个,不能是下拉的显示值(鞭挞续跑读的就是前者)。
+  // 发送用的模型必须是该线存的那个,不能是芯片的显示值(鞭挞续跑读的就是前者)。
   await sandbox.switchProcess("p|model-b");
   await flush();
-  byId.get("model-select").value = "primary"; // 模拟回显被任何路径写歪
+  chip().querySelector(".picker-label").textContent = "primary"; // 模拟回显被任何路径写歪
   await sandbox.sendText("模型同源冒烟");
   await flush();
   const sentRun = invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === "p|model-b");
@@ -6017,20 +6559,26 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
     `发送用的模型必须取自该线存档(与鞭挞续跑同源),实得 ${sentRun?.args?.model}`,
   );
   // 冷启动/兜底选中这条路径:用户报告的现场只有一条线,永远不触发 switchProcess,
-  // 于是下拉一直钉在 loadModels 早期算出来的值(进程列表未到时回落旧全局键)。
-  // renderProcesses 选中活动线时必须自己回显一次。这里让活动线(乙)从列表里消失、
-  // 兜底改选主线,复现那一刻。
+  // 于是芯片一直钉在早期算出来的值。renderProcesses 选中活动线时必须自己回显一次。
+  // 这里让活动线(乙)从列表里消失、兜底改选主线,复现那一刻。
   await sandbox.switchProcess("p|model-b");
   await flush();
-  byId.get("model-select").value = "OPEN-code:deepseek-v4-flash";
   sandbox.renderProcesses([modelLines[0], modelLines[2]]); // 乙线没了 → 兜底选主线
   assert(
-    byId.get("model-select").value === "primary",
-    `兜底选中活动线时模型下拉没跟着回显(冷启动同源),实得 ${byId.get("model-select").value}`,
+    chipSource() !== "line" || !chip().textContent.includes("OPEN-code"),
+    `兜底改选的回答到来之前,芯片仍把乙线的临时值当成本线显示:"${chip().textContent}"`,
+  );
+  await flush();
+  const fallbackQuery = invokeArgs.findLast(({ cmd }) => cmd === "model_effective");
+  assert(
+    fallbackQuery?.args?.processId === "d|smoke" && effective()?.model?.ref === "primary" && !chip().textContent.includes("OPEN-code"),
+    `兜底选中活动线时模型芯片没跟着回显(冷启动同源),实得 "${chip().textContent}" / ${fallbackQuery?.args?.processId}`,
   );
   storage.delete("kz-model:C:/smoke");
   storage.delete("kz-model");
   payloads.process_list = savedModelList;
+  smokeLineState.clear();
+  for (const [key, value] of savedLineState) smokeLineState.set(key, value);
   sandbox.renderProcesses(savedModelList);
   kzTest.cancelTimers();
 }
@@ -6163,7 +6711,8 @@ assert(
   // (按 id 造节点直接挂 body),祖先链走不通,所以判定落在源码文本上。
   assert(
     (() => {
-      const open = html.indexOf('<div class="task-options-panel"');
+      // UI-0926 #9:任务设置由 details 改为 data-kz-menu 弹层菜单,面板开标签带 id。
+      const open = html.indexOf('<div id="task-options-menu"');
       if (open < 0) return false;
       let depth = 0;
       const tag = /<\/?div\b/g;
@@ -6624,8 +7173,9 @@ assert(
   assert(b8Key("设置") === "Settings", `英文态「设置」未翻译,实际 "${b8Key("设置")}"`);
   assert(b8Key("关于 kanzei") === "About kanzei", `英文态「关于 kanzei」未翻译,实际 "${b8Key("关于 kanzei")}"`);
   assert(b8Key("模型配置") === "Model configuration", `英文态「模型配置」未翻译,实际 "${b8Key("模型配置")}"`);
-  assert(b8Key("保存到") === "Save to", `英文态「保存到」未翻译(span 包裹保留 hint),实际 "${b8Key("保存到")}"`);
-  assert(b8Key("全局配置") === "Global config", `英文态「全局配置」未翻译(option 渲染点),实际 "${b8Key("全局配置")}"`);
+  // UI-0926 #3:「保存到·作用域」一行已删除(设置页只写全局),改验模型组那行说明与项目模型配置弹窗标题。
+  assert(b8Key("这里是所有项目的默认模型;各项目可单独覆盖。") === "These are the default models for all projects; each project can override them.", `英文态模型组说明未翻译,实际 "${b8Key("这里是所有项目的默认模型;各项目可单独覆盖。")}"`);
+  assert(b8Key("项目模型配置") === "Project model config", `英文态「项目模型配置」未翻译,实际 "${b8Key("项目模型配置")}"`);
   assert(b8Key("主循环") === "Main loop", `英文态「主循环」未翻译(span 包裹),实际 "${b8Key("主循环")}"`);
   assert(b8Key("重新探测模型") === "Re-detect models", `英文态「重新探测模型」未翻译,实际 "${b8Key("重新探测模型")}"`);
   assert(b8Key("测试全部连通性") === "Test connectivity", `英文态「测试全部连通性」未翻译,实际 "${b8Key("测试全部连通性")}"`);
@@ -6639,14 +7189,14 @@ assert(
   assert(b8Key("工作资料导出") === "Export work materials", `英文态「工作资料导出」未翻译,实际 "${b8Key("工作资料导出")}"`);
   assert(b8Key("检查更新") === "Check for updates", `英文态「检查更新」未翻译,实际 "${b8Key("检查更新")}"`);
   assert(b8Key("保存") === "Save", `英文态「保存」未翻译,实际 "${b8Key("保存")}"`);
-  assert(attrOf("set-save-scope", "title") === "This scope selector only applies to model settings; providers and API keys always use the global config.", `英文态作用域 title 未翻译,实际 "${attrOf("set-save-scope", "title")}"`);
+  assert(attrOf("model-picker-group", "aria-label") === "Model and reasoning effort", `英文态模型芯片组 aria-label 未翻译,实际 "${attrOf("model-picker-group", "aria-label")}"`);
   assert(attrOf("export-output-dir", "placeholder") === "Choose an export directory", `英文态导出目录 placeholder 未翻译,实际 "${attrOf("export-output-dir", "placeholder")}"`);
   assert(attrOf("set-cadence-full-test-batches", "title") === "Interval in batches for every-N-batches", `英文态每 N 批 title 未翻译,实际 "${attrOf("set-cadence-full-test-batches", "title")}"`);
 
   localStorageShim.setItem("kz-language", "zh");
   sandbox.applyLanguage();
   assert(b8Key("设置") === "设置", `切回中文后「设置」未回原文,实际 "${b8Key("设置")}"`);
-  assert(b8Key("保存到") === "保存到", `切回中文后「保存到」未回原文,实际 "${b8Key("保存到")}"`);
+  assert(b8Key("项目模型配置") === "项目模型配置", `切回中文后「项目模型配置」未回原文,实际 "${b8Key("项目模型配置")}"`);
   assert(attrOf("export-output-dir", "placeholder") === "选择导出目录", `切回中文后导出目录 placeholder 未回原文,实际 "${attrOf("export-output-dir", "placeholder")}"`);
 
   localStorageShim.setItem("kz-language", priorLanguage);
@@ -6688,7 +7238,8 @@ assert(
   assert(b9Key("回到最新") === "Jump to latest", `英文态「回到最新」未翻译,实际 "${b9Key("回到最新")}"`);
   assert(b9Key("全部类型") === "All types", `英文态「全部类型」未翻译(option 渲染点),实际 "${b9Key("全部类型")}"`);
   assert(b9Key("终端") === "terminal", `英文态「终端」未翻译(option 渲染点),实际 "${b9Key("终端")}"`);
-  assert(b9Key("已关闭") === "Closed", `英文态「已关闭」未翻译,实际 "${b9Key("已关闭")}"`);
+  // UI-0926 #8:子代理侧栏的「运行中/已完成/已关闭」三段已取消;侧栏静态文案改守「‹ 返回全部子代理」。
+  assert(attrOf("agent-back", "aria-label") === "Back to all subagents", `英文态子代理侧栏返回按钮 aria-label 未翻译,实际 "${attrOf("agent-back", "aria-label")}"`);
   assert(b9Key("清空") === "Clear", `英文态「清空」未翻译,实际 "${b9Key("清空")}"`);
   assert(b9Key("权限请求") === "Permission request", `英文态「权限请求」未翻译,实际 "${b9Key("权限请求")}"`);
   assert(b9Key("拒绝") === "Deny", `英文态「拒绝」未翻译,实际 "${b9Key("拒绝")}"`);
@@ -7256,20 +7807,25 @@ const docsB = {
   await flush();
 }
 
-// ---------- R-174 子代理面板:独立分区、六字段真实数据、单条停止、transcript ----------
+// ---------- R-174 → UI-0926 #8 子代理侧栏:列表/详情、六字段真实数据、单条停止、审计卡、与活动面板互斥 ----------
+// R-174 的名称/类型/时长/工具次数/token/当前工具、单条停止与 transcript 全部保留,只是搬到主对话卡片与侧栏;
+// 旧面板的「运行中/已完成/已关闭」三段与「关闭/删除/清空」按 subagent_presentation.md §5.6 有意取消
+// (它们只改本地视图、不碰后端)。本段守的护栏不变:面板互斥、单条停止走 stop_task(带 taskId)且不误调
+// stop_run、运行审计摘要卡、「打开运行轨迹」回到活动面板。
 {
-  // 打开面板:agent-toggle 应切出 #agent-panel 并收起 #bg-panel(互斥)。
   const agentToggle = byId.get("agent-toggle");
   assert(agentToggle, "子代理面板缺少 rail 开关");
   const agentPanel = byId.get("agent-panel");
   const bgPanel = byId.get("bg-panel");
+  const agentBadge = byId.get("agent-badge");
+  const agentDetail = byId.get("agent-detail");
+  const agentList = byId.get("agent-list");
   agentToggle.click();
   assert(!agentPanel.classList.contains("hidden"), "点击 agent-toggle 后 #agent-panel 未展开");
   assert(bgPanel.classList.contains("hidden"), "子代理面板打开时活动面板未收起(互斥切换失败)");
+  assert(agentPanel.dataset.mode === "list", `从 rail 打开应是列表模式,实为 ${agentPanel.dataset.mode}`);
   agentToggle.click(); // 收起
   assert(agentPanel.classList.contains("hidden"), "再次点击 agent-toggle 后 #agent-panel 未收起");
-  agentToggle.click(); // 再展开,后续断言用
-  // 建条:task 的 tool-start 进子代理面板(编排派发带 phase,模型自派 name=task)。
   const sA = handlers.get("kz:tool-start");
   const pA = handlers.get("kz:task-progress");
   const eA = handlers.get("kz:tool-end");
@@ -7281,48 +7837,76 @@ const docsB = {
   assert(byId.get("status-tokens").textContent.includes("ctx 0.2k/66k (0%)"), "真实 usage 后 context_limit 百分比展示不准确");
   handlers.get("kz:ask")({ payload: { id: 991, kind: "permission", action: "read", resource: "src/main.rs", source: "parallel", sessionId: "sess-smoke" } });
   handlers.get("kz:permission-resolved")({ payload: { tool_call_id: "ask-991", action: "read", resource: "src/main.rs", decision: "deny", source: "user", sessionId: "sess-smoke" } });
-  sA({ payload: { id: "my_scout", name: "task", summary: "勘察文件结构", input: { prompt: "review the repo", phase: "scouting", role: "my_scout" }, sessionId: "sess-smoke" } });
+  sA({ payload: { id: "my_scout", name: "task", summary: "勘察文件结构", input: { prompt: "review the repo", phase: "scouting", role: "my_scout", description: "勘察文件结构" }, sessionId: "sess-smoke" } });
   await flush();
-  const a1 = document.querySelector('#agent-running .bg-entry[data-agent-id="my_scout"]');
-  assert(a1, "运行中的子代理未进入 Running 区");
-  assert(a1.querySelector(".bg-tool")?.textContent.includes("my_scout"), "编排派发的子代理未以角色名作名称");
-  assert(a1.querySelector(".bg-phase-badge")?.textContent.includes("Scouting"), "子代理缺少类型(阶段)徽章");
-  assert(a1.dataset.agentElapsed === "0", "子代理缺少已运行时长字段");
-  // 六字段中的 token/工具调用数/当前工具名必须来自真实 trace(usage/start 事件)。
+  const card = [...document.querySelectorAll(".sa-card")].find((c) => c.dataset.saKey === "sess-smoke|my_scout");
+  assert(card, "运行中的子代理没有卡片");
+  assert(card?.querySelector(".sa-agent")?.textContent === "my_scout", "编排派发的子代理未以角色名作身份签");
+  assert(card?.dataset.saState === "starting", `刚派发的子代理应是启动中,实为 ${card?.dataset.saState}`);
+  // rail 徽标 = 当前线路运行中的子代理数(data-running 仍是 #7 rail 点共用的布尔)。
+  const runningNow = sandbox.subagentRunningCount("sess-smoke");
+  assert(runningNow >= 1 && agentToggle.dataset.running === "true", `子代理运行时 rail 开关没有点亮,运行数 ${runningNow}`);
+  assert(agentBadge.textContent === String(runningNow) && !agentBadge.classList.contains("hidden"), `rail 徽标应显示运行数 ${runningNow},实为 "${agentBadge.textContent}"`);
+  // 字段来自真实 trace:meta 给实际人格与模型,start/end 给工具次数与当前工具,usage 是累计值。
+  pA({ payload: { id: "my_scout", text: "explore · qwen3:8b", trace: { child_id: "my_scout", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
   pA({ payload: { id: "my_scout", text: "读取中", trace: { child_id: "c1", phase: "start", name: "read", summary: "src/main.rs", input: { path: "src/main.rs" } }, sessionId: "sess-smoke" } });
   await flush();
-  assert(a1.dataset.agentCurrentTool === "read", "子代理未显示当前正在用的工具名(trace 数据源)");
+  assert(card?.dataset.saState === "running", `收到进度后应转为运行中,实为 ${card?.dataset.saState}`);
+  assert(card?.querySelector(".sa-live .sa-line.is-current")?.textContent.includes("read"), "子代理尾迹没有显示当前正在用的工具");
   pA({ payload: { id: "my_scout", text: "读取中", trace: { child_id: "c1", phase: "end", name: "read", ok: true, preview: "ok" }, sessionId: "sess-smoke" } });
   pA({ payload: { id: "my_scout", text: "统计", trace: { child_id: "c1", phase: "usage", usage: { input: 100, output: 50, cache_read: 10, cache_write: 5 } }, sessionId: "sess-smoke" } });
   await flush();
-  assert(a1.dataset.agentCurrentTool === "read", "工具结束后当前工具名应保留(idle 态)");
-  assert(a1.querySelector(".bg-meta")?.textContent.includes("tokens"), "子代理元信息未显示累计 token");
-  assert(a1.querySelector(".bg-meta")?.textContent.includes("tool calls"), "子代理元信息未显示工具调用次数");
-  // transcript:展开 detail 应有完整调用序列(名称 + 入参)。
-  a1.querySelector(".bg-title").click();
-  assert(a1.querySelector(".agent-call"), "子代理缺少 transcript 调用序列");
-  assert(a1.querySelector(".agent-call pre")?.textContent.includes("src/main.rs"), "transcript 未包含调用的完整入参");
-  // 单条停止:运行中的子代理有停止按钮,点击走 stop_task 而非 stop_run。
-  const stopBtn = [...a1.querySelectorAll(".bg-actions button")].find((b) => b.textContent === "Stop");
-  assert(stopBtn, "运行中的子代理缺少单条停止按钮");
+  const cardMeta = card?.querySelector(".sa-meta")?.textContent ?? "";
+  assert(/1 (tool uses?|次工具)/.test(cardMeta), `卡片计数未显示工具次数,实得 "${cardMeta}"`);
+  assert(/165 (tokens|token)/.test(cardMeta), `卡片计数未显示 token,实得 "${cardMeta}"`);
+  // ↗ 打开侧栏详情:与活动面板互斥;详情含描述、实际模型与 transcript(子工具行,不贴裸 JSON)。
+  bgPanel.classList.remove("hidden");
+  card?.querySelector(".sa-open")?.click();
+  assert(!agentPanel.classList.contains("hidden") && agentPanel.dataset.mode === "detail", `↗ 未打开侧栏详情(mode=${agentPanel.dataset.mode})`);
+  assert(bgPanel.classList.contains("hidden"), "打开子代理侧栏时活动面板未收起");
+  assert(!agentDetail.classList.contains("hidden") && agentList.classList.contains("hidden"), "详情模式下列表/详情显隐不对");
+  assert(agentDetail.textContent.includes("勘察文件结构") && agentDetail.textContent.includes("qwen3:8b"), "侧栏详情缺描述或实际模型");
+  const detailTool = agentDetail.querySelector(".tool-msg");
+  assert(detailTool?.querySelector(".tool-msg-name")?.textContent === "read" && detailTool?.textContent.includes("src/main.rs"), "侧栏详情缺子工具调用(transcript)");
+  assert(!agentDetail.textContent.includes('"path"'), "侧栏详情里出现了裸 JSON 入参");
+  assert(!byId.get("agent-back").classList.contains("hidden"), "详情模式缺「‹ 返回」");
+  // 单条停止:走 stop_task(带 taskId),不调 stop_run(整轮停止)。
+  const stopBtn = agentDetail.querySelector(".sa-detail-stop");
+  assert(stopBtn && !stopBtn.classList.contains("hidden"), "运行中的子代理详情缺少单条停止按钮");
   const beforeStop = invokeLog.filter((cmd) => cmd === "stop_run").length;
-  stopBtn.click();
+  stopBtn?.click();
   await flush();
   assert(
     invokeArgs.some((a) => a.cmd === "stop_task" && a.args?.taskId === "my_scout"),
     "单条停止未调用 stop_task(或参数缺少 taskId)",
   );
   assert(invokeLog.filter((cmd) => cmd === "stop_run").length === beforeStop, "单条停止误调用了 stop_run(整轮停止)");
-  // 被停终态:tool-end ok=false +「被停」文案 → 移到 Finished 区、标 stopped、读槽释放由后端负责。
-  eA({ payload: { id: "my_scout", name: "task", ok: false, preview: "子代理已被停止", display: null, sessionId: "sess-smoke" } });
+  assert(card?.dataset.saState === "stopping", `点停止后卡片没有转为停止中,实为 ${card?.dataset.saState}`);
+  // 被停终态:code 优先分类;结束后不残留停止按钮,徽标熄灭。
+  eA({ payload: { id: "my_scout", name: "task", ok: false, code: "subagent_cancelled", preview: "subagent my_scout was stopped by the user", display: null, sessionId: "sess-smoke" } });
   await flush();
-  const a1f = document.querySelector('#agent-finished .bg-entry[data-agent-id="my_scout"]');
-  assert(a1f, "被停的子代理未移入 Finished 区");
-  assert(a1f.dataset.bgStatus === "stopped", "被停的子代理未标记 stopped 终态");
-  assert(a1f.querySelector(".bg-meta")?.textContent.includes("Stopped"), "被停的子代理终态元信息未显示「已停止」");
-  assert(!a1f.querySelectorAll(".bg-actions button").some((b) => b.textContent === "Stop"), "结束的子代理不应残留停止按钮");
+  assert(card?.dataset.saState === "cancelled", `被停的子代理未收成已停止,实为 ${card?.dataset.saState}`);
+  assert(/Stopped|已停止/.test(card?.querySelector(".sa-meta")?.textContent ?? ""), "被停的子代理计数行未写明已停止");
+  assert(card?.querySelector(".sa-stop")?.disabled && agentDetail.querySelector(".sa-detail-stop")?.classList.contains("hidden"), "结束的子代理不应残留停止按钮");
+  const runningAfter = sandbox.subagentRunningCount("sess-smoke");
+  assert(agentBadge.textContent === (runningAfter ? String(runningAfter) : "") && agentBadge.classList.contains("hidden") === (runningAfter === 0), "子代理结束后 rail 徽标与实际运行数不符");
+  // Esc:详情回列表;列表里有当前线路的行;⌖ 定位回对话(卡片闪一下);点行再进详情;两次 Esc 关面板。
+  const escape = () => agentPanel.dispatchEvent({ type: "keydown", key: "Escape", preventDefault() {}, stopPropagation() {} });
+  escape();
+  assert(agentPanel.dataset.mode === "list" && !agentPanel.classList.contains("hidden"), "详情模式按 Esc 应回到列表而不是关面板");
+  const row = [...agentList.querySelectorAll(".sa-panel-row")].find((r) => r.dataset.saKey === "sess-smoke|my_scout");
+  assert(row, "列表模式缺当前线路的子代理行");
+  row?.querySelector(".sa-locate")?.click();
+  assert(card?.classList.contains("sa-flash"), "⌖ 定位到对话没有让卡片闪一下");
+  row?.querySelector(".sa-panel-main")?.click();
+  assert(agentPanel.dataset.mode === "detail", "点列表行没有进入详情");
+  escape();
+  escape();
+  assert(agentPanel.classList.contains("hidden"), "列表模式按 Esc 应关闭侧栏");
+  await flush();
   handlers.get("kz:done")({ payload: { sessionId: "sess-smoke", steps: 1, history: 1, halted: false, autoAction: { type: "NoContinue" } } });
   await flush();
+  agentToggle.click();
   const auditCard = byId.get("agent-audit");
   assert(auditCard && !auditCard.classList.contains("hidden"), "运行结束后未显示运行审计摘要卡片");
   const auditText = byId.get("agent-audit-facts")?.textContent || "";
@@ -7331,33 +7915,17 @@ const docsB = {
   assert(auditText.includes("子代理派发") || auditText.includes("Subagent dispatches"), "审计摘要缺少子代理派发统计");
   assert(auditText.includes("权限拒绝") || auditText.includes("Permission denials"), "审计摘要缺少权限拒绝统计");
   assert(modelText.includes("smoke-provider:main"), "审计摘要缺少主代理模型调用统计");
-  assert(modelText.includes("fast"), "审计摘要缺少子代理模型调用统计");
+  assert(modelText.includes("qwen3:8b"), "审计摘要缺少子代理(实际模型)调用统计");
   const traceButton = byId.get("agent-audit-trace");
   traceButton.click();
   assert(!bgPanel.classList.contains("hidden"), "运行审计摘要的运行轨迹入口未打开活动面板");
+  assert(agentPanel.classList.contains("hidden"), "打开运行轨迹后子代理侧栏未收起");
   agentToggle.click();
   assert(!agentPanel.classList.contains("hidden"), "打开运行轨迹后无法返回子代理面板");
   byId.get("activity-toggle").click(); // 切换到活动面板时应立即收起子代理面板
   assert(agentPanel.classList.contains("hidden"), "切换到活动面板后 #agent-panel 未自动收起");
-  // Finished 区的条目有「打开」(transcript 视图入口)。
-  assert(a1f.querySelectorAll(".bg-actions button").some((b) => b.textContent === "Open"), "Finished 区子代理缺少打开 transcript 入口");
-  // 关闭只收起条目,后端历史仍保留;重新打开可恢复到 Finished,再删除才移除本次 UI 条目。
-  a1f.querySelectorAll(".bg-actions button").find((b) => b.textContent === "Close")?.click();
-  const a1c = document.querySelector('#agent-closed .bg-entry[data-agent-id="my_scout"]');
-  assert(a1c, "关闭后的子代理未移入 Closed 区");
-  assert(a1c.querySelectorAll(".bg-actions button").some((b) => b.textContent === "Open"), "Closed 条目缺少重新打开入口");
-  a1c.querySelectorAll(".bg-actions button").find((b) => b.textContent === "Open")?.click();
-  const a1reopened = document.querySelector('#agent-finished .bg-entry[data-agent-id="my_scout"]');
-  assert(a1reopened, "Closed 条目点击 Open 后未回到 Finished 区");
-  a1reopened.querySelectorAll(".bg-actions button").find((b) => b.textContent === "Close")?.click();
-  document.querySelector('#agent-closed .bg-entry[data-agent-id="my_scout"]')?.querySelectorAll(".bg-actions button").find((b) => b.textContent === "Delete")?.click();
-  assert(!document.querySelector('#agent-closed .bg-entry[data-agent-id="my_scout"]'), "删除已关闭子代理后 UI 条目仍存在");
-  // Clear 清空 Finished/Closed 区,但不会影响 Running。
-  byId.get("agent-clear").click();
-  await flush();
-  assert(!document.querySelector('#agent-finished .bg-entry[data-agent-id="my_scout"]'), "Clear 未清空 Finished 区");
-  // 面板已在切换到活动视图时收起,这里确认测试结束状态。
-  assert(agentPanel.classList.contains("hidden"), "断言结束后 #agent-panel 未收起");
+  byId.get("activity-toggle").click(); // 复位:活动面板收起
+  assert(bgPanel.classList.contains("hidden"), "断言结束后活动面板未收起");
 }
 // ---------- D-350 面板 ✕ 关闭按钮:子代理面板头部的显式关闭入口 ----------
 {
@@ -7510,6 +8078,12 @@ const docsB = {
     mainLaneModel?.value === "deepseek:deepseek-chat",
     `线道模型下拉未回显该线自己的模型,实得 ${mainLaneModel?.value}`,
   );
+  // UI-0926 #3:空选项写明「跟随默认 · 解析到的模型」,角色项(primary/fast)不再列出(除非该线存的就是角色)。
+  const laneOptions = [...(mainLaneModel?.options ?? [])];
+  assert(laneOptions[0]?.value === "" && /^(跟随默认|Follow default) · /.test(laneOptions[0]?.textContent ?? ""),
+    `线道模型下拉的空选项应写「跟随默认 · X」,实得 "${laneOptions[0]?.textContent}"`);
+  assert(!laneOptions.some((option) => ["primary", "fast", "compact"].includes(option.value)),
+    `线道模型下拉不应再列角色项:${laneOptions.map((option) => option.value).join(",")}`);
   // R-184 验收⑩:800/1024/1280 三档宽度下并列视图不崩——线道、冲突预警、语义提示仍渲染。
   for (const width of [800, 1024, 1280]) {
     windowShim.innerWidth = width;
@@ -8712,9 +9286,13 @@ const docsB = {
   const shell = esmModuleCache.get("03-shell.js")?.namespace;
   assert(typeof deleteConversation === "function", "D-716 删除入口未注册为真实 UI 消费方");
   assert(shell && typeof shell.errorRetry === "function", "D-716 错误面板 retry 入口未注册");
+  // UI-0926 #1:运行中的线拒绝删除(前后端双拦截)。这里验的是安全整理重试,不是运行态,
+  // 先让 p|bg 收敛为空闲再删,结束后恢复原相位。
+  const savedBgPhase = vm.runInContext('sessionState("sess-bg").phase', sandbox);
+  vm.runInContext('transitionSession("sess-bg", "idle")', sandbox);
   const before = invokeArgs.length;
   let cleanupCalls = 0;
-  payloads.conversation_delete = () => 1;
+  payloads.conversation_delete = () => ({ deleted: 1, redacted_inputs: 0, segments: 1, cleared_current: false });
   payloads.conversation_cleanup = () => {
     cleanupCalls += 1;
     return cleanupCalls === 1
@@ -8734,6 +9312,7 @@ const docsB = {
   assert(retriedCalls.filter((cmd) => cmd === "conversation_delete").length === 1, "D-716 cleanup retry 重复删除会话");
   assert(retriedCalls.filter((cmd) => cmd === "conversation_cleanup").length === 2, "D-716 cleanup retry 未只重试安全整理");
   expectedPersistentError = null;
+  vm.runInContext(`transitionSession("sess-bg", ${JSON.stringify(savedBgPhase)})`, sandbox);
 }
 
 // ---------- D-381 IPC 形状契约:fixture 必须与后端真实形状一致 ----------
@@ -8778,6 +9357,3162 @@ const docsB = {
   const problems = [];
   compatible(contract.docs_snapshot, shapeOf(payloads.docs_snapshot), "docs_snapshot", problems);
   for (const problem of problems) issues.push(`D-381 IPC 契约:${problem}`);
+}
+
+
+// ===== 分区:会话生命周期 =====
+// ---------- UI-0926 #2:新对话一次到位 ----------
+// 用户现场:新对话要点好几次,旧对话残留在「已开启新对话」上方。主因是新对话只清 DOM、
+// 不清窗口化历史缓存 paneHistory:清空后 pane 变短、scrollTop 被夹到 0,滚动监听当成
+// 「触顶」自动 loadEarlierMessages,把旧对话一窗一窗补回提示上方。放大因素四处:
+// 在途装载迟到、后台 pane 默认可见、忙碌时按钮被禁用吞掉点击、兜底改选不换 pane。
+// 场景 A-F 各钉一处,各带一个 KZ_SMOKE_MUTATE 变异守卫(newChatForgetHistory / newChatEpoch /
+// bgPaneHidden / newChatBusyNewLine / fallbackPaneSwitch / newChatRefusedNewLine)。复核补:
+// 场景 A2(clear 成功后才撤续跑,newChatCancelAfterClear)、D0(按钮 title 与点击分流同一判据、
+// 相位一变就跟上,newChatTitleSharedBusy / newChatTitleFollowsPhase)。
+{
+  vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
+  const savedNcProcessList = payloads.process_list;
+  const savedNcConversationGet = payloads.conversation_get;
+  const hadNcProcessCreate = Object.hasOwn(payloads, "process_create");
+  const savedNcProcessCreate = payloads.process_create;
+  const prompt = byId.get("prompt");
+  let promptFocuses = 0;
+  prompt.focus = () => { promptFocuses += 1; };
+  const OLD = Array.from({ length: 300 }, (_, i) => ({
+    role: i % 2 === 0 ? "user" : "assistant",
+    parts: [{ type: "text", text: `R2旧对话${i}` }],
+  }));
+  const MAIN_LINE = { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main", authority: "primary" };
+  const NC_LINE = { id: "p20|smoke", label: "p20", session_id: "sess-nc", running: false, authority: "parallel" };
+  const NEW_LINE = { id: "p26|smoke", label: "p26", session_id: "sess-new", running: false, authority: "parallel", profile: "dev" };
+  payloads.process_list = [MAIN_LINE, NC_LINE];
+  payloads.conversation_get = ({ processId } = {}) => (processId === NEW_LINE.id ? [] : OLD);
+  await gotoProject(PROJECT, savedDocsPayload);
+  await sandbox.switchProcess(NC_LINE.id);
+  await flush();
+  // 逼出真装载:pane 已有内容时按设计不重拉。
+  const dropAllPanes = () => vm.runInContext(
+    'for (const [id, pane] of [...messagePanes]) { pane.remove(); messagePanes.delete(id); }; activePane = paneFor(activeSessionId || "");',
+    sandbox,
+  );
+  dropAllPanes();
+  await sandbox.loadConversation();
+  await flush();
+  const paneNow = () => vm.runInContext("activePane.textContent", sandbox);
+  assert(
+    vm.runInContext("activeSessionId", sandbox) === "sess-nc" && paneNow().includes("R2旧对话299") && !paneNow().includes("R2旧对话0"),
+    `前置失败:p20 的长对话没有按窗口化装载(activeSessionId=${vm.runInContext("activeSessionId", sandbox)})`,
+  );
+
+  const messagesEl = byId.get("messages");
+  // 冒烟测不到真实浏览器「清空后把 scrollTop 夹到 0 并派发 scroll」,这里手工补上,
+  // 再加一个滚轮手势作废程序滚动窗口——等价于用户在空视图上往上滚了一下。
+  const touchTop = async () => {
+    messagesEl.scrollTop = 0;
+    messagesEl.dispatchEvent({ type: "wheel" });
+    messagesEl.dispatchEvent({ type: "scroll" });
+    await flush();
+  };
+  const clearCalls = () => invokeArgs.filter((entry) => entry.cmd === "conversation_clear");
+  const freshView = (label) => {
+    const text = paneNow();
+    assert(!text.includes("R2旧对话"), `${label}:新对话视图里冒出了旧对话内容(触顶补齐/迟到装载把旧段补了回来)`);
+    assert(!vm.runInContext('!!activePane.querySelector(".earlier-hint")', sandbox), `${label}:新对话视图还挂着「载入更早的消息」入口`);
+    assert(text.includes(sandbox.t("开始一段新对话")), `${label}:新对话没有给出与空历史同构的欢迎页`);
+    assert(!text.includes(sandbox.t("已开启新对话(历史保留可审计)")), `${label}:新对话仍往转录区插旧式 notice`);
+  };
+
+  // ---- 场景 A:空闲线点一次就干净,触顶不再补回旧窗 ----
+  sandbox.setRunning(false, "空闲");
+  vm.runInContext('transitionSession("sess-nc", "idle")', sandbox);
+  const clearsBeforeA = clearCalls().length;
+  const focusBeforeA = promptFocuses;
+  byId.get("new-chat").click();
+  await flush();
+  await touchTop();
+  assert(
+    clearCalls().length === clearsBeforeA + 1 && clearCalls().at(-1)?.args?.processId === NC_LINE.id,
+    `场景 A:点一次新对话应对 p20 发恰好一次 conversation_clear(${JSON.stringify(clearCalls().slice(clearsBeforeA))})`,
+  );
+  freshView("场景 A");
+  assert(promptFocuses > focusBeforeA, "场景 A:新对话之后输入框没有拿到焦点");
+  assert(listText("toast").includes(sandbox.t("已开启新对话 · 之前的对话在侧栏「历史对话」里")), `场景 A:新对话没有 toast 告知旧对话去了哪里(${listText("toast")})`);
+  assert(!byId.get("new-chat").disabled && byId.get("new-chat").getAttribute("aria-busy") !== "true", "场景 A:新对话结束后按钮仍处于禁用/忙碌态");
+  // 幂等:再点一次仍是干净的欢迎页。
+  byId.get("new-chat").click();
+  await flush();
+  await touchTop();
+  freshView("场景 A 再点一次");
+
+  // ---- 场景 A2:续跑只在新段建成后才撤;clear 因其它原因失败时鞭挞照旧 ----
+  // 空闲判定已排除排着的续跑;clear 在途时轮末事件新排的那一枪,要在新段建成后撤掉
+  // (否则它带着「继续」落进新段)。clear 失败(打不开库、IO)时什么都不撤,只报错。
+  const armNcTimer = () => vm.runInContext('autoContinueTimers.set("sess-nc", { timer: setTimeout(() => {}, 600000) })', sandbox);
+  const ncTimerArmed = () => vm.runInContext('autoContinueTimers.has("sess-nc")', sandbox);
+  let releaseClear;
+  invokeGates.set("conversation_clear", new Promise((resolve) => { releaseClear = resolve; }));
+  const clearsBeforeA2 = clearCalls().length;
+  byId.get("new-chat").click();
+  await settle();
+  invokeGates.delete("conversation_clear");
+  assert(clearCalls().length === clearsBeforeA2 + 1, "场景 A2 前置失败:空闲线点新对话没有发出 conversation_clear");
+  armNcTimer();
+  releaseClear();
+  await flush();
+  assert(!ncTimerArmed(), "场景 A2:clear 在途时新排的续跑在新段建成后没撤——那一枪会带着「继续」落进新段");
+  freshView("场景 A2");
+  invokeGates.set("conversation_clear", new Promise((resolve) => { releaseClear = resolve; }));
+  invokeFailures.set("conversation_clear", "R2打不开数据库");
+  expectedPersistentError = "R2打不开数据库";
+  const persistentBeforeA2 = expectedPersistentHits;
+  byId.get("new-chat").click();
+  await settle();
+  invokeGates.delete("conversation_clear");
+  armNcTimer();
+  releaseClear();
+  await flush();
+  invokeFailures.delete("conversation_clear");
+  expectedPersistentError = null;
+  assert(expectedPersistentHits === persistentBeforeA2 + 1, "场景 A2 前置失败:clear 失败没有走持久错误出口");
+  assert(ncTimerArmed(), "场景 A2:clear 失败时把排着的续跑也撤了——开着鞭挞的线会静默停摆");
+  vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
+  assert(!byId.get("new-chat").disabled && byId.get("new-chat").getAttribute("aria-busy") !== "true", "场景 A2:失败后按钮仍处于禁用/忙碌态");
+
+  // ---- 场景 B:新对话作废在途的旧段装载 ----
+  dropAllPanes();
+  let releaseLoad;
+  invokeGates.set("conversation_get", new Promise((resolve) => { releaseLoad = resolve; }));
+  const getsBeforeB = invokeArgs.filter((entry) => entry.cmd === "conversation_get").length;
+  const inflightLoad = sandbox.loadConversation();
+  await settle();
+  assert(
+    invokeArgs.filter((entry) => entry.cmd === "conversation_get").length === getsBeforeB + 1,
+    "场景 B 前置失败:旧段的 conversation_get 没有在途",
+  );
+  invokeGates.delete("conversation_get"); // 只卡住在途那一次
+  byId.get("new-chat").click();
+  await flush();
+  releaseLoad(); // 旧段结果现在才落地:无纪元守卫时它会整页画回新对话
+  await inflightLoad;
+  await flush();
+  freshView("场景 B");
+
+  // ---- 场景 C:后台线首次渲染建的 pane 默认隐藏,不串进当前视图 ----
+  const BG_TEXT = "R2自主推进线输出";
+  handlers.get("kz:text")({ payload: { sessionId: "sess-autoloop", text: BG_TEXT } });
+  await flush();
+  const onlyActiveVisible = () => vm.runInContext(
+    '(() => { const shown = [...messages.children].filter((el) => el.classList.contains("msg-pane") && !el.classList.contains("hidden")); return shown.length === 1 && shown[0] === activePane; })()',
+    sandbox,
+  );
+  assert(
+    vm.runInContext('messagePanes.get("sess-autoloop")?.classList.contains("hidden") === true', sandbox),
+    "场景 C:后台线第一次渲染新建的 pane 是可见的——它的输出会叠进用户眼前的视图",
+  );
+  assert(onlyActiveVisible(), "场景 C:#messages 下可见的 pane 不止活动那一个");
+  assert(!paneNow().includes(BG_TEXT), "场景 C:后台线的输出串进了当前视图");
+  assert(
+    vm.runInContext('messagePanes.get("sess-autoloop")?.textContent ?? ""', sandbox).includes(BG_TEXT),
+    "场景 C:后台线的输出丢了(应渲染进它自己的隐藏 pane)",
+  );
+
+  // ---- 场景 D0:按钮 title 与点击分流同一判据,相位一变就跟上 ----
+  // running/runControlPending 都为假、但活动线在启动中或鞭挞轮间等待:点下去会另开线路,
+  // title 必须已经这么说;回到空闲再说回空闲文案。
+  sandbox.setRunning(false, "空闲");
+  const BUSY_TITLE = sandbox.t("当前线路运行中:点击将另开一条线路开启新对话");
+  for (const phase of ["starting", "auto_pending"]) {
+    vm.runInContext(`transitionSession("sess-nc", ${JSON.stringify(phase)})`, sandbox);
+    assert(
+      byId.get("new-chat").title === BUSY_TITLE,
+      `场景 D0:活动线 ${phase} 时 title 仍是空闲文案(${byId.get("new-chat").title}),点下去却会另开线路`,
+    );
+  }
+  vm.runInContext('transitionSession("sess-nc", "idle")', sandbox);
+  assert(
+    byId.get("new-chat").title === sandbox.t("开一段新对话(旧对话保留在「历史对话」)"),
+    `场景 D0:回到空闲后 title 没有说回空闲文案(${byId.get("new-chat").title})`,
+  );
+
+  // ---- 场景 D:运行中的线点新对话 → 另开无工作树线路,原线在自己的 pane 里继续跑 ----
+  let createdNewLine = false;
+  payloads.process_create = () => { createdNewLine = true; return NEW_LINE; };
+  payloads.process_list = () => [MAIN_LINE, { ...NC_LINE, running: true }, ...(createdNewLine ? [NEW_LINE] : [])];
+  vm.runInContext('transitionSession("sess-nc", "running")', sandbox);
+  sandbox.setRunning(true, "运行中");
+  assert(!byId.get("new-chat").disabled, "场景 D:运行中新对话按钮仍被禁用——点击会被浏览器静默吞掉");
+  // 语言重应用(data-i18n-title)不得把忙碌说明冲回静态的空闲文案。假 DOM 不把 title
+  // property 反射成属性,这里手工补上浏览器的反射,applyDataI18nKeys 才比得出差异。
+  byId.get("new-chat").setAttribute("title", byId.get("new-chat").title);
+  sandbox.applyLanguage();
+  assert(
+    byId.get("new-chat").title === sandbox.t("当前线路运行中:点击将另开一条线路开启新对话"),
+    `场景 D:运行中按钮 title 没说清点下去会另开线路(${byId.get("new-chat").title})`,
+  );
+  const clearsBeforeD = clearCalls().length;
+  const createsBeforeD = invokeArgs.filter((entry) => entry.cmd === "process_create").length;
+  const focusBeforeD = promptFocuses;
+  byId.get("new-chat").click();
+  await flush();
+  const createCalls = invokeArgs.filter((entry) => entry.cmd === "process_create");
+  assert(
+    createCalls.length === createsBeforeD + 1 && createCalls.at(-1)?.args?.profile === "dev" && !createCalls.at(-1)?.args?.worktreeName,
+    `场景 D:运行中点新对话应另开一条无工作树的 dev 线路(${JSON.stringify(createCalls.slice(createsBeforeD))})`,
+  );
+  assert(clearCalls().length === clearsBeforeD, "场景 D:运行中的线被 conversation_clear 了——不能在 runner 脚下开新段");
+  assert(
+    vm.runInContext("activeProcessId", sandbox) === NEW_LINE.id,
+    `场景 D:没有切到新开的线路(activeProcessId=${vm.runInContext("activeProcessId", sandbox)})`,
+  );
+  freshView("场景 D");
+  assert(promptFocuses > focusBeforeD, "场景 D:另开线路后输入框没有拿到焦点");
+  const RUN_TEXT = "R2运行线继续输出";
+  handlers.get("kz:text")({ payload: { sessionId: "sess-nc", text: RUN_TEXT } });
+  await flush();
+  assert(!paneNow().includes(RUN_TEXT), "场景 D:原线继续运行的输出串进了新线的视图");
+  assert(
+    vm.runInContext('messagePanes.get("sess-nc")?.classList.contains("hidden") === true', sandbox)
+      && vm.runInContext('messagePanes.get("sess-nc")?.textContent ?? ""', sandbox).includes(RUN_TEXT),
+    "场景 D:原线的输出没有留在它自己的隐藏 pane 里(切回去会缺这一段)",
+  );
+  assert(onlyActiveVisible(), "场景 D:另开线路后可见的 pane 不止一个");
+
+  // ---- 场景 E:活动线消失,兜底改选时视图跟着换 ----
+  payloads.process_list = [MAIN_LINE, NC_LINE];
+  await sandbox.refreshProcesses();
+  await flush();
+  assert(
+    vm.runInContext("activeProcessId", sandbox) !== NEW_LINE.id,
+    "场景 E 前置失败:活动线从列表消失后没有兜底改选",
+  );
+  assert(
+    vm.runInContext("activePane === messagePanes.get(activeSessionId)", sandbox),
+    `场景 E:兜底改选到 ${vm.runInContext("activeSessionId", sandbox)} 后视图还停在旧线的 pane 上`,
+  );
+  assert(onlyActiveVisible(), "场景 E:兜底改选后可见的 pane 不止一个");
+
+  // ---- 场景 F:前端以为空闲、后端持锁判定在跑(kz:turn 还没到)→ 同一次点击改走另开线路 ----
+  // 不该让用户先吃一个报错再点第二次;若这里走了 toastError,harness 的持久错误探针也会判红。
+  createdNewLine = false;
+  payloads.process_list = () => [MAIN_LINE, NC_LINE, ...(createdNewLine ? [NEW_LINE] : [])];
+  invokeFailures.set("conversation_clear", "会话运行中,不能在它脚下开新段;请在新线路开启新对话");
+  const clearsBeforeF = clearCalls().length;
+  const createsBeforeF = invokeArgs.filter((entry) => entry.cmd === "process_create").length;
+  byId.get("new-chat").click();
+  await flush();
+  invokeFailures.delete("conversation_clear");
+  assert(clearCalls().length === clearsBeforeF + 1, "场景 F 前置失败:空闲判定下没有先尝试 conversation_clear");
+  assert(
+    invokeArgs.filter((entry) => entry.cmd === "process_create").length === createsBeforeF + 1
+      && vm.runInContext("activeProcessId", sandbox) === NEW_LINE.id,
+    "场景 F:后端拒绝(会话运行中)后没有在同一次点击里改走另开线路",
+  );
+  freshView("场景 F");
+
+  // 收尾:还原桩、焦点、运行态与续跑定时器,回到项目 A 的干净状态。
+  delete prompt.focus;
+  sandbox.setRunning(false, "空闲");
+  for (const sessionId of ["sess-nc", "sess-new", "sess-autoloop"]) {
+    vm.runInContext(`transitionSession(${JSON.stringify(sessionId)}, "idle")`, sandbox);
+  }
+  vm.runInContext('discardSessionPane("sess-autoloop"); __kzAutoTestState.cancelTimers(); autoContinueTimers.clear()', sandbox);
+  payloads.process_list = savedNcProcessList;
+  payloads.conversation_get = savedNcConversationGet;
+  if (hadNcProcessCreate) payloads.process_create = savedNcProcessCreate;
+  else delete payloads.process_create;
+  await gotoProject(PROJECT, savedDocsPayload);
+  await flush();
+}
+
+// ---------- UI-0926 #1:删除历史对话分层 ----------
+// 删掉当前段后主区、窗口化缓存与续跑都得清:否则被删对话留在屏幕上、触顶从缓存补回、
+// 在途装载迟到画回、排上的续跑那一轮落进空段。删旧段时主区可能正显示着那段历史,要按
+// 当前段重载;后台线的 pane 直接作废;运行中的线前端先挡(后端持锁再挡);删除与关闭两处
+// 弹窗如实说明删什么、留什么。场景 G-L,变异守卫 deleteRunningGuard / deleteClearedFresh /
+// deleteCancelTimer / deleteEpoch / deleteReloadPane / deleteDiscardBgPane / deleteRefusedToast。
+{
+  vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
+  const saved = {
+    process_list: payloads.process_list,
+    conversation_get: payloads.conversation_get,
+    conversation_list: payloads.conversation_list,
+    conversation_delete: payloads.conversation_delete,
+    confirmDialog: sandbox.confirmDialog,
+  };
+  const deleteConversation = esmModuleCache.get("15-views-misc.js")?.namespace?.deleteConversationsForProcess;
+  assert(typeof deleteConversation === "function", "UI-0926 #1:删除入口未注册");
+  const MAIN = { id: "d|del", label: "主会话", session_id: "sess-del-main", running: false, branch: "main", authority: "primary" };
+  const LINE = { id: "p31|del", label: "p31", session_id: "sess-del", running: false, authority: "parallel" };
+  const DELETED = Array.from({ length: 300 }, (_, i) => ({
+    role: i % 2 === 0 ? "user" : "assistant",
+    parts: [{ type: "text", text: `R1被删对话${i}` }],
+  }));
+  const CURRENT = [{ role: "user", parts: [{ type: "text", text: "R1当前段" }] }];
+  let currentDeleted = false;
+  payloads.process_list = [MAIN, LINE];
+  payloads.conversation_list = () => [];
+  // sequence 非空 = 打开某段历史;为空 = 当前段(删掉前就是那段被删的长对话)。
+  payloads.conversation_get = ({ processId, sequence } = {}) => {
+    if (processId !== LINE.id) return [{ role: "user", parts: [{ type: "text", text: "R1主线内容" }] }];
+    if (sequence != null) return DELETED;
+    return currentDeleted ? [] : DELETED;
+  };
+  let confirmCalls = 0;
+  let confirmOptions = null;
+  sandbox.confirmDialog = (options) => {
+    confirmCalls += 1;
+    confirmOptions = options;
+    return Promise.resolve(true);
+  };
+  await gotoProject(PROJECT, savedDocsPayload);
+  await sandbox.switchProcess(LINE.id);
+  await flush();
+  vm.runInContext(
+    'for (const [id, pane] of [...messagePanes]) { pane.remove(); messagePanes.delete(id); }; activePane = paneFor(activeSessionId || "");',
+    sandbox,
+  );
+  await sandbox.loadConversation();
+  await flush();
+  const paneNow = () => vm.runInContext("activePane.textContent", sandbox);
+  const calls = (cmd) => invokeArgs.filter((entry) => entry.cmd === cmd);
+  const messagesEl = byId.get("messages");
+  const touchTop = async () => {
+    messagesEl.scrollTop = 0;
+    messagesEl.dispatchEvent({ type: "wheel" });
+    messagesEl.dispatchEvent({ type: "scroll" });
+    await flush();
+  };
+  assert(
+    vm.runInContext("activeSessionId", sandbox) === LINE.session_id && paneNow().includes("R1被删对话299"),
+    "UI-0926 #1 前置失败:p31 的当前段没有装进主区",
+  );
+
+  // ---- 场景 G:运行中的线点删除 → 前端直接挡下,不弹确认、不发 conversation_delete ----
+  vm.runInContext(`transitionSession(${JSON.stringify(LINE.session_id)}, "running")`, sandbox);
+  const deletesBeforeG = calls("conversation_delete").length;
+  const confirmsBeforeG = confirmCalls;
+  await deleteConversation(LINE.id, [42]);
+  await flush();
+  vm.runInContext(`transitionSession(${JSON.stringify(LINE.session_id)}, "idle")`, sandbox);
+  assert(calls("conversation_delete").length === deletesBeforeG, "场景 G:运行中的线路点删除仍发出了 conversation_delete");
+  assert(confirmCalls === confirmsBeforeG, "场景 G:运行中应直接拦下,不该先弹删除确认框");
+  assert(
+    listText("toast").includes(sandbox.t("运行中请先完成或停止当前任务，再删除历史对话")),
+    `场景 G:运行中拦截没有给出提示(${listText("toast")})`,
+  );
+
+  // ---- 场景 H:删掉活动线的当前段 → 欢迎页、缓存清空、续跑撤掉、在途装载作废 ----
+  vm.runInContext(
+    `autoContinueTimers.set(${JSON.stringify(LINE.session_id)}, { timer: setTimeout(() => {}, 600000) })`,
+    sandbox,
+  );
+  payloads.conversation_delete = () => {
+    currentDeleted = true;
+    return { deleted: 3, redacted_inputs: 1, segments: 1, cleared_current: true };
+  };
+  // 删除前用户点开过一段历史,那次装载还在途:删完它才落地,不得把被删内容画回来。
+  let releaseLoad;
+  invokeGates.set("conversation_get", new Promise((resolve) => { releaseLoad = resolve; }));
+  const inflightLoad = sandbox.loadConversation(7);
+  await settle();
+  invokeGates.delete("conversation_get");
+  confirmOptions = null;
+  await deleteConversation(LINE.id, [42]);
+  releaseLoad();
+  await inflightLoad;
+  await flush();
+  await touchTop();
+  assert(calls("conversation_delete").length === deletesBeforeG + 1, "场景 H 前置失败:空闲线删除没有发出 conversation_delete");
+  assert(!paneNow().includes("R1被删对话"), "场景 H:删掉当前段后主区仍显示被删对话(或迟到装载/触顶补齐把它画了回来)");
+  assert(paneNow().includes(sandbox.t("开始一段新对话")), "场景 H:删掉当前段后主区没有换成与新对话同构的欢迎页");
+  assert(!vm.runInContext('!!activePane.querySelector(".earlier-hint")', sandbox), "场景 H:删掉当前段后还挂着「载入更早的消息」入口");
+  assert(
+    !vm.runInContext(`autoContinueTimers.has(${JSON.stringify(LINE.session_id)})`, sandbox),
+    "场景 H:删掉当前段后排上的续跑没撤——那一轮会带着「继续」落进空段",
+  );
+  assert(listText("toast").includes(sandbox.t("当前对话已删除")), `场景 H:删掉当前段没有告知用户(${listText("toast")})`);
+  const confirmList = confirmOptions?.list ?? [];
+  assert(
+    confirmList.includes(sandbox.t("运行轨迹、子代理记录与压缩摘要"))
+      && confirmList.includes(sandbox.t("保留:用量统计、已提炼的记忆与需求记录、迁移备份 state.db.v*.bak")),
+    `场景 H:删除确认清单没有如实写明删除范围与保留项(${JSON.stringify(confirmList)})`,
+  );
+  assert(
+    !confirmList.includes(sandbox.t("草稿与未完成输入")),
+    "场景 H:删除确认清单仍承诺删除「草稿与未完成输入」——未结束的输入并不会删",
+  );
+
+  // ---- 场景 I:删掉正在看的那段旧历史 → 按当前段重载主区 ----
+  currentDeleted = false;
+  payloads.conversation_get = ({ processId, sequence } = {}) => {
+    if (processId !== LINE.id) return [{ role: "user", parts: [{ type: "text", text: "R1主线内容" }] }];
+    return sequence != null ? DELETED : CURRENT;
+  };
+  await sandbox.loadConversation(7);
+  await flush();
+  assert(paneNow().includes("R1被删对话299"), "场景 I 前置失败:打开的历史段没有装进主区");
+  payloads.conversation_delete = () => ({ deleted: 5, redacted_inputs: 0, segments: 1, cleared_current: false });
+  const getsBeforeI = calls("conversation_get").length;
+  await deleteConversation(LINE.id, [7]);
+  await flush();
+  await touchTop();
+  assert(
+    calls("conversation_get").slice(getsBeforeI).some(({ args }) => args?.processId === LINE.id && args?.sequence == null),
+    "场景 I:删掉正在看的那段历史后没有按当前段重新装载主区",
+  );
+  assert(
+    !paneNow().includes("R1被删对话") && paneNow().includes("R1当前段"),
+    "场景 I:删掉正在看的那段历史后主区仍显示它(或触顶从缓存补回)",
+  );
+
+  // ---- 场景 J:删后台线的历史 → 它的 pane 与窗口化缓存作废,活动线不受影响 ----
+  // 后台线已有 pane(之前切过去看过,或它在后台渲染过)。
+  vm.runInContext(`paneFor(${JSON.stringify(MAIN.session_id)}).dataset.hasContent = "1"`, sandbox);
+  vm.runInContext(
+    `paneHistory.set(${JSON.stringify(MAIN.session_id)}, { items: [{ role: "user", parts: [{ type: "text", text: "R1后台缓存" }] }], rendered: 0 })`,
+    sandbox,
+  );
+  assert(vm.runInContext(`messagePanes.has(${JSON.stringify(MAIN.session_id)})`, sandbox), "场景 J 前置失败:后台线没有自己的 pane");
+  payloads.conversation_delete = () => ({ deleted: 4, redacted_inputs: 0, segments: 1, cleared_current: true });
+  await deleteConversation(MAIN.id, [3]);
+  await flush();
+  assert(
+    !vm.runInContext(`messagePanes.has(${JSON.stringify(MAIN.session_id)})`, sandbox),
+    "场景 J:删了后台线的历史,它的 pane 还在——切过去会看到被删内容",
+  );
+  assert(
+    !vm.runInContext(`paneHistory.has(${JSON.stringify(MAIN.session_id)})`, sandbox),
+    "场景 J:删了后台线的历史,它的窗口化缓存还在——切过去触顶会补回被删内容",
+  );
+  assert(
+    vm.runInContext("activeProcessId", sandbox) === LINE.id && paneNow().includes("R1当前段"),
+    "场景 J:删后台线的历史波及了活动线的视图",
+  );
+
+  // ---- 场景 L:前端预检以为空闲、后端持锁判定在跑 → 与预检同一句已翻译的提示 ----
+  // 后端原文是中文;经 toastError 原样显示会把中文甩进英文界面(还挂一个必然再被拒的重试)。
+  // 走了 toastError 的话,harness 的持久错误探针也会判红。
+  esmModuleCache.get("03-shell.js")?.namespace?.toast("R1哨兵");
+  invokeFailures.set("conversation_delete", "线路运行中,先停止再删除历史对话");
+  const deletesBeforeL = calls("conversation_delete").length;
+  await deleteConversation(LINE.id, [42]);
+  await flush();
+  invokeFailures.delete("conversation_delete");
+  assert(calls("conversation_delete").length === deletesBeforeL + 1, "场景 L 前置失败:没有发出 conversation_delete");
+  assert(
+    (listText("toast").split("R1哨兵").at(-1) ?? "").includes(sandbox.t("运行中请先完成或停止当前任务，再删除历史对话")),
+    `场景 L:后端拒删(线路运行中)没有给出已翻译的提示(${listText("toast")})`,
+  );
+  assert(paneNow().includes("R1当前段"), "场景 L:被拒绝的删除动了主区");
+
+  // ---- 场景 K:关闭线路弹窗说明对话去向 ----
+  let closeMessage = "";
+  sandbox.confirmDialog = (options) => {
+    closeMessage = String(options?.message ?? "");
+    return Promise.resolve(false);
+  };
+  const closesBeforeK = calls("process_close").length;
+  await sandbox.closeParallelProcess(LINE.id);
+  await flush();
+  assert(calls("process_close").length === closesBeforeK, "场景 K 前置失败:取消关闭仍发出了 process_close");
+  assert(
+    closeMessage.includes(sandbox.t("这条线的对话历史仍保留在本地数据库，关闭后界面不再显示；要删除请先在它的「历史对话」里勾选删除。")),
+    `场景 K:关闭线路弹窗没说明对话仍留在库里、关闭后界面不再可删(${closeMessage})`,
+  );
+
+  // 收尾:还原桩与定时器,丢掉本段建的 pane,回到项目 A 的干净状态。
+  sandbox.confirmDialog = saved.confirmDialog;
+  payloads.process_list = saved.process_list;
+  payloads.conversation_get = saved.conversation_get;
+  payloads.conversation_list = saved.conversation_list;
+  payloads.conversation_delete = saved.conversation_delete;
+  for (const sessionId of [MAIN.session_id, LINE.session_id]) {
+    vm.runInContext(`transitionSession(${JSON.stringify(sessionId)}, "idle"); paneHistory.delete(${JSON.stringify(sessionId)})`, sandbox);
+  }
+  vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
+  await gotoProject(PROJECT, savedDocsPayload);
+  await flush();
+}
+
+// ===== 分区:模型选择 =====
+// ---------- UI-0926 #3:设置页只设全局默认、各项目独立、芯片显示下一轮真实会用的模型 ----------
+// 用户现场:设置页说「实际生效 gpt-5.6-luna」,输入框上方显示 gpt-6-luna,菜单里还有「primary → gpt-5.6-luna」,
+// 思考下拉读的是 localStorage。现在三处只认一个对象(model_effective),三个编辑面各写一层。
+// 用例:①芯片真源 ②选择后等待写入(变异 pickerAwaitsUpdate)③思考档跟线(变异 reasoningFollowsLine)
+// ④切线即时回显、同项目不重探目录 ⑤设为本项目默认 ⑥kz:meta 状态栏与失配重取 ⑦项目模型配置弹窗 ⑧IPC 形状契约。
+{
+  const models = esmModuleCache.get("08-models.js")?.namespace;
+  const picker = esmModuleCache.get("08-model-picker.js")?.namespace;
+  const projectModels = esmModuleCache.get("08-project-models.js")?.namespace;
+  const surface = esmModuleCache.get("00-surface.js")?.namespace;
+  assert(models && picker && projectModels && surface, "UI-0926 #3 模块未按 ESM 加载(08-models/08-model-picker/08-project-models)");
+  surface.closeSurface(byId.get("viewer-overlay")); // 前面用例留下的模态:芯片菜单要在正常界面上打开
+  const chip = byId.get("model-picker");
+  const rchip = byId.get("reasoning-picker");
+  const sourceOf = (el) => el?.querySelector(".picker-source")?.dataset.source;
+  const menu = () => document.querySelector(".picker-menu");
+  const menuButtons = () => [...(menu()?.querySelectorAll(".k-menu-item") ?? [])];
+  const menuValue = (value) => menuButtons().find((button) => button.dataset.value === value);
+  const menuAction = (action) => menuButtons().find((button) => button.dataset.action === action);
+  const openMenuOf = async (kind) => {
+    picker.closePicker();
+    (kind === "reasoning" ? rchip : chip).click();
+    await flush();
+    return menu();
+  };
+  const settleOnly = async (rounds = 6) => {
+    for (let i = 0; i < rounds; i += 1) await settle();
+  };
+  // 本组断言按中文文案写:前面的英文态用例可能没把语言切回来,这里显式钉成中文、结束时还原。
+  const g2PriorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage?.();
+  picker.renderModelPicker();
+  const g2Lines = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, model: "codex:gpt-6-luna", reasoning: "xhigh", project_dir: "C:/smoke", origin_project: "C:/smoke" },
+    { id: "p|g2-b", label: "线路 B", session_id: "sess-g2-b", running: false, model: null, reasoning: null, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+  ];
+  const savedList = payloads.process_list;
+  const savedLineState = new Map(smokeLineState);
+  smokeLineState.clear();
+  payloads.process_list = g2Lines;
+  sandbox.renderProcesses(g2Lines);
+  await sandbox.switchProcess("d|smoke", true);
+  await flush();
+
+  // ① 芯片真源:活动线存了 codex:gpt-6-luna → 芯片显示它、来源「临时」;菜单恰好一项被选中且就是它。
+  assert(chip.textContent.includes("codex:gpt-6-luna") && sourceOf(chip) === "line",
+    `① 芯片应显示本线临时覆盖 codex:gpt-6-luna:"${chip.textContent}" / ${sourceOf(chip)}`);
+  assert(chip.querySelector(".picker-fast"), "① Codex Fast mode 生效时芯片应带 ⚡");
+  assert(chip.tagName === "BUTTON" && chip.getAttribute("aria-haspopup") === "menu", "① 模型芯片应是带 aria-haspopup 的按钮(不再是原生 select)");
+  assert(rchip.textContent.includes("超高") && sourceOf(rchip) === "line", `① 思考芯片应显示本线的超高/临时:"${rchip.textContent}"`);
+  await openMenuOf("model");
+  const checkedItems = menuButtons().filter((button) => button.getAttribute("aria-checked") === "true");
+  assert(checkedItems.length === 1 && checkedItems[0].dataset.value === "codex:gpt-6-luna",
+    `① 菜单应恰好一项高亮且等于芯片那一项:${checkedItems.map((button) => button.dataset.value).join(",")}`);
+  // 复核:生效项与悬停项光靠底色分不出(实测只差几个百分点透明度)——生效项必须带 ✓,且只有它带(变异 pickerCheckMark)。
+  const checkMarks = menuButtons().filter((button) => button.querySelector(".picker-check")?.textContent === "✓");
+  assert(checkMarks.length === 1 && checkMarks[0] === checkedItems[0],
+    `① 菜单应恰好生效项带 ✓:${checkMarks.map((button) => button.dataset.value ?? button.dataset.action).join(",") || "(无)"}`);
+  assert(menuButtons().every((button) => button.querySelector(".picker-check")?.getAttribute("aria-hidden") === "true"),
+    "① 勾选列应对读屏隐藏(状态已由 aria-checked 表达)");
+  assert(chip.getAttribute("aria-expanded") === "true", "① 菜单打开时芯片 aria-expanded 未置 true");
+  assert(menuValue("")?.textContent.includes("跟随默认") && menuValue("")?.textContent.includes("codex:gpt-5.6-luna"),
+    `① 「跟随默认」一项应写明默认解析到的模型:"${menuValue("")?.textContent}"`);
+  assert(menu()?.textContent.includes("Codex Fast mode"), "① 菜单缺少只读的 Fast mode 状态行");
+  assert(menuAction("promote") && menuAction("project") && menuAction("global"), "① 菜单页脚缺少 设为本项目默认/项目模型配置…/全局默认…");
+  picker.closePicker();
+  assert(chip.getAttribute("aria-expanded") === "false", "① 菜单收起后 aria-expanded 未复位");
+
+  // ② 选择后等待写入:process_update{model} 必须排在下一次 model_effective 之前(变异 pickerAwaitsUpdate)。
+  {
+    await openMenuOf("model");
+    const pick = menuValue("codex:gpt-5.6-luna");
+    assert(pick, `② 紧凑列表应含默认解析出的模型:${menuButtons().map((button) => button.dataset.value).join(",")}`);
+    const before = invokeArgs.length;
+    pick?.click();
+    await flush();
+    const tail = invokeArgs.slice(before);
+    const updateAt = tail.findIndex(({ cmd, args }) => cmd === "process_update" && args?.model === "codex:gpt-5.6-luna");
+    const effectiveAt = tail.findIndex(({ cmd }) => cmd === "model_effective");
+    assert(updateAt >= 0 && effectiveAt > updateAt,
+      `② 必须先写本线再问 model_effective(否则后端读到旧值):${tail.map(({ cmd }) => cmd).join(" → ")}`);
+    assert(chip.textContent.includes("codex:gpt-5.6-luna") && sourceOf(chip) === "line",
+      `② 选完后芯片应显示新选的模型、来源临时:"${chip.textContent}" / ${sourceOf(chip)}`);
+    await openMenuOf("model");
+    menuValue("")?.click();
+    await flush();
+    const cleared = invokeArgs.findLast(({ cmd, args }) => cmd === "process_update" && Object.hasOwn(args ?? {}, "model"));
+    assert(cleared?.args?.model === "", `② 「跟随默认」应发 process_update{model:""}:${JSON.stringify(cleared?.args)}`);
+    assert(sourceOf(chip) === "project" && chip.textContent.includes("codex:gpt-5.6-luna"),
+      `② 跟随默认后芯片应显示默认解析值与「项目级」:"${chip.textContent}" / ${sourceOf(chip)}`);
+    await openMenuOf("model");
+    assert(!menuAction("promote"), "② 没有本线覆盖时不应出现「设为本项目默认」");
+    picker.closePicker();
+  }
+
+  // ③ 思考档跟线:A 线 xhigh(本线)、B 线未设。对话装载还在路上时,思考芯片就得换成 B 的默认档
+  //    high/项目级(变异 reasoningFollowsLine:删掉切线那一刻的回显就红);全程不写 kz-reasoning:*。
+  {
+    for (const key of [...storage.keys()].filter((k) => k.startsWith("kz-reasoning"))) storage.delete(key);
+    assert(rchip.textContent.includes("超高") && sourceOf(rchip) === "line", `③ 前置:A 线思考芯片应为超高/临时:"${rchip.textContent}"`);
+    let release = null;
+    invokeGates.set("conversation_get", new Promise((resolve) => { release = resolve; }));
+    const switching = sandbox.switchProcess("p|g2-b");
+    await settleOnly();
+    assert(!rchip.textContent.includes("超高") && rchip.textContent.includes("高") && sourceOf(rchip) === "project",
+      `③ 切到 B 线(对话仍在装载)思考芯片应已是 B 的默认档 高/项目级:"${rchip.textContent}" / ${sourceOf(rchip)}`);
+    assert(invokeArgs.findLast(({ cmd }) => cmd === "model_effective")?.args?.processId === "p|g2-b", "③ model_effective 未按目标线查询");
+    release?.();
+    invokeGates.delete("conversation_get");
+    await switching;
+    await flush();
+    assert(!rchip.textContent.includes("超高") && sourceOf(rchip) === "project", `③ 切线完成后思考芯片被改回了上一条线的值:"${rchip.textContent}"`);
+    assert(![...storage.keys()].some((k) => k.startsWith("kz-reasoning")), "③ 切线过程写了 kz-reasoning:*(思考强度不得再以 localStorage 为真源)");
+  }
+
+  // ④ 切线即时回显:model_effective 回答之前芯片标「在途」,不把上一条线的临时值当本线;同项目内切线不重探 models_list。
+  {
+    await openMenuOf("model");
+    menuAction("show-all")?.click();
+    await flush();
+    menuValue("ollama:qwen3")?.click();
+    await flush();
+    assert(sourceOf(chip) === "line" && chip.textContent.includes("ollama:qwen3"), `④ 前置:B 线应有临时覆盖 ollama:qwen3:"${chip.textContent}"`);
+    const catalogBefore = invokeLog.filter((cmd) => cmd === "models_list").length;
+    let release = null;
+    invokeGates.set("model_effective", new Promise((resolve) => { release = resolve; }));
+    const switching = sandbox.switchProcess("d|smoke");
+    await settleOnly();
+    assert(chip.classList.contains("is-pending") && sourceOf(chip) !== "line",
+      `④ 回答到来前芯片应标在途、不再声称「临时」:"${chip.textContent}" / ${sourceOf(chip)} / ${chip.className}`);
+    release?.();
+    invokeGates.delete("model_effective");
+    await switching;
+    await flush();
+    assert(!chip.classList.contains("is-pending") && sourceOf(chip) === "project" && !chip.textContent.includes("ollama:qwen3"),
+      `④ 切换完成后芯片应是 A 线的默认值:"${chip.textContent}" / ${sourceOf(chip)}`);
+    assert(invokeArgs.findLast(({ cmd }) => cmd === "model_effective")?.args?.processId === "d|smoke", "④ model_effective 的 processId 不是目标线");
+    assert(invokeLog.filter((cmd) => cmd === "models_list").length === catalogBefore, "④ 同项目内切线不应再探测 models_list");
+  }
+
+  // ④b 在途的乐观值不串线(复核):A 线选了 X、本线写入还没落地就切到 B——B 线芯片在 B 的回答到来前
+  //     只能标在途,不能显示「X · 临时」(变异 optimisticDropsOnSwitch)。
+  {
+    const picked = "anthropic:claude-sonnet-5";
+    await openMenuOf("model");
+    menuAction("show-all")?.click();
+    await flush();
+    let releaseUpdate = null;
+    invokeGates.set("process_update", new Promise((resolve) => { releaseUpdate = resolve; }));
+    menuValue(picked)?.click();
+    await settleOnly();
+    assert(chip.textContent.includes(picked) && sourceOf(chip) === "line",
+      `④b 前置:写入在途时 A 线芯片应乐观显示新选的模型:"${chip.textContent}" / ${sourceOf(chip)}`);
+    let releaseEffective = null;
+    invokeGates.set("model_effective", new Promise((resolve) => { releaseEffective = resolve; }));
+    const switching = sandbox.switchProcess("p|g2-b");
+    await settleOnly();
+    assert(!chip.textContent.includes(picked) && sourceOf(chip) !== "line" && chip.classList.contains("is-pending"),
+      `④b 切到 B 线后芯片不应沿用 A 线在途的「${picked} · 临时」:"${chip.textContent}" / ${sourceOf(chip)} / ${chip.className}`);
+    releaseUpdate?.();
+    invokeGates.delete("process_update");
+    releaseEffective?.();
+    invokeGates.delete("model_effective");
+    await switching;
+    await flush();
+    assert(chip.textContent.includes("ollama:qwen3") && sourceOf(chip) === "line" && !chip.textContent.includes(picked),
+      `④b 切换完成后芯片应是 B 线自己的临时覆盖 ollama:qwen3:"${chip.textContent}" / ${sourceOf(chip)}`);
+    // 收尾:回 A 线(写入已落地,A 线确有 X 的覆盖),清掉它,⑤ 从跟随默认的 A 线开始。
+    await sandbox.switchProcess("d|smoke");
+    await flush();
+    assert(chip.textContent.includes(picked) && sourceOf(chip) === "line", `④b 回到 A 线应看到落地的临时覆盖:"${chip.textContent}"`);
+    await openMenuOf("model");
+    menuValue("")?.click();
+    await flush();
+    assert(sourceOf(chip) === "project", `④b 收尾:A 线应回到跟随默认:${sourceOf(chip)}`);
+  }
+
+  // ⑤ 设为本项目默认:有本线覆盖时,依次 project_models_save{set:{primary}} → process_update{model:""},之后芯片来源回到项目级。
+  {
+    await openMenuOf("model");
+    menuAction("show-all")?.click();
+    await flush();
+    menuValue("anthropic:claude-sonnet-5")?.click();
+    await flush();
+    assert(sourceOf(chip) === "line", `⑤ 前置:A 线应有临时覆盖:"${chip.textContent}"`);
+    const before = invokeArgs.length;
+    await openMenuOf("model");
+    assert(menuAction("promote")?.textContent.includes("primary = anthropic:claude-sonnet-5"), `⑤ 「设为本项目默认」应写明要写的键与值:"${menuAction("promote")?.textContent}"`);
+    menuAction("promote")?.click();
+    await flush();
+    const tail = invokeArgs.slice(before);
+    const saveAt = tail.findIndex(({ cmd, args }) => cmd === "project_models_save" && args?.set?.primary === "anthropic:claude-sonnet-5" && args?.projectDir === PROJECT);
+    const clearAt = tail.findIndex(({ cmd, args }) => cmd === "process_update" && args?.model === "");
+    assert(saveAt >= 0 && clearAt > saveAt, `⑤ 应先写项目层再清本线:${tail.map(({ cmd }) => cmd).join(" → ")}`);
+    assert(sourceOf(chip) === "project", `⑤ 提升后芯片来源应为项目级:${sourceOf(chip)}`);
+    // 思考档同理:本线 xhigh → 项目 reasoning。
+    await openMenuOf("reasoning");
+    menuValue("xhigh")?.click();
+    await flush();
+    await openMenuOf("reasoning");
+    menuAction("promote")?.click();
+    await flush();
+    const reasoningSave = invokeArgs.findLast(({ cmd }) => cmd === "project_models_save");
+    assert(reasoningSave?.args?.set?.reasoning === "xhigh", `⑤ 思考档「设为本项目默认」应写 reasoning:${JSON.stringify(reasoningSave?.args)}`);
+    assert(sourceOf(rchip) === "project", `⑤ 提升后思考芯片来源应为项目级:${sourceOf(rchip)}`);
+  }
+
+  // ⑥ kz:meta:状态栏显示上一轮**实际**使用的「模型 · 档位 · ⚡ · profile」;与芯片解析不一致时重取一次。
+  //    真机上 kz:meta 在本地发送把会话拨回运行之后到达(已收敛的会话会丢弃迟到进度),这里同样先解除收敛。
+  {
+    const metaState = sandbox.sessionState("sess-smoke");
+    const savedPhase = metaState.phase;
+    const savedConverged = metaState.converged;
+    metaState.converged = false;
+    const status = byId.get("status-model");
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
+    assert(status.textContent === "codex:gpt-5.6-luna · 高 · ⚡ · dev", `⑥ 状态栏格式不对:"${status.textContent}"`);
+    assert(status.title === "上一轮实际使用", `⑥ 状态栏应说明是上一轮实际使用:"${status.title}"`);
+    const before = invokeLog.filter((cmd) => cmd === "model_effective").length;
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
+    await flush();
+    assert(invokeLog.filter((cmd) => cmd === "model_effective").length === before + 1, "⑥ kz:meta 与芯片解析不一致时应重取一次 model_effective");
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "off", codexFastMode: false, contextLimit: 272000, sessionId: "sess-smoke" } });
+    assert(status.textContent === "codex:gpt-5.6-luna · dev", `⑥ 服务商默认档与 Fast mode 关时不应显示:"${status.textContent}"`);
+    vm.runInContext(`transitionSession("sess-smoke", ${JSON.stringify(savedPhase)})`, sandbox);
+    sandbox.sessionState("sess-smoke").converged = savedConverged;
+  }
+
+  // ⑦ 项目模型配置弹窗:设置页那行说明点进去;逐字段「继承全局 · X」/「项目覆盖」;只发变动的键;Esc 不保存。
+  {
+    const diff = projectModels.diffProjectModels(
+      { primary: "codex:gpt-5.6-luna", fast: null, reasoning: "high", codexFastMode: true },
+      { primary: "__inherit__", fast: "__inherit__", reasoning: "high", codexFastMode: "off" },
+    );
+    assert(JSON.stringify(diff) === JSON.stringify({ set: { codexFastMode: false }, unset: ["primary"] }), `⑦ diffProjectModels 只应带变动的键:${JSON.stringify(diff)}`);
+    const overlay = byId.get("project-models-overlay");
+    const link = byId.get("settings-project-overrides")?.querySelector(".link-btn");
+    assert(link, "⑦ 设置页的项目模型覆盖说明里没有可点的项目链接");
+    const getsBefore = invokeArgs.filter(({ cmd }) => cmd === "project_models_get").length;
+    link?.click();
+    await flush();
+    const getCall = invokeArgs.filter(({ cmd }) => cmd === "project_models_get");
+    assert(getCall.length === getsBefore + 1 && getCall.at(-1)?.args?.projectDir === PROJECT, `⑦ 点项目链接应按该项目调 project_models_get:${JSON.stringify(getCall.at(-1)?.args)}`);
+    assert(overlay.open && !overlay.classList.contains("hidden"), "⑦ 项目模型配置弹窗未打开");
+    const row = (key) => document.querySelector(`#project-models-rows .pm-row[data-key="${key}"]`);
+    assert(row("primary")?.dataset.state === "override" && !row("primary")?.querySelector(".pm-reset")?.hidden,
+      "⑦ primary 行应是「项目覆盖」且带「恢复继承」");
+    assert(row("fast")?.dataset.state === "inherit" && row("fast")?.querySelector(".pm-reset")?.hidden === true,
+      "⑦ fast 行应是「继承」且不显示「恢复继承」");
+    const firstOption = (key) => row(key)?.querySelector("select")?.options?.[0]?.textContent ?? "";
+    assert(firstOption("fast") === "继承全局 · ollama:qwen3", `⑦ fast 行应显示「继承全局 · X」:"${firstOption("fast")}"`);
+    assert(firstOption("compact") === "跟随 primary · codex:gpt-5.6-luna", `⑦ compact 行两层都没写时应写「跟随 primary · X」:"${firstOption("compact")}"`);
+    row("primary")?.querySelector(".pm-reset")?.click();
+    assert(row("primary")?.dataset.state === "inherit", "⑦ 点「恢复继承」后 primary 行未回到继承");
+    const effectiveBefore = invokeLog.filter((cmd) => cmd === "model_effective").length;
+    byId.get("project-models-save").click();
+    await flush();
+    const saved = smokeProjectModelSaves.at(-1);
+    assert(saved && JSON.stringify(saved.set) === "{}" && JSON.stringify(saved.unset) === JSON.stringify(["primary"]) && saved.projectDir === PROJECT,
+      `⑦ 保存应只发 {set:{}, unset:["primary"]}:${JSON.stringify(saved)}`);
+    assert(!overlay.open && overlay.classList.contains("hidden"), "⑦ 保存后弹窗未关闭");
+    assert(invokeLog.filter((cmd) => cmd === "model_effective").length > effectiveBefore, "⑦ 保存后应派发 kz-model-config-changed 并重取 model_effective");
+    // Esc 关闭 = 取消,不保存。
+    const savesBefore = smokeProjectModelSaves.length;
+    await projectModels.openProjectModelsDialog(PROJECT);
+    await flush();
+    const reasoningSelect = row("reasoning")?.querySelector("select");
+    if (reasoningSelect) {
+      reasoningSelect.value = "low";
+      reasoningSelect.dispatchEvent({ type: "change" });
+    }
+    await flush();
+    assert(row("reasoning")?.dataset.state === "override", "⑦ 改了思考行后状态应为项目覆盖");
+    document.dispatchEvent({
+      type: "keydown", key: "Escape", isComposing: false, defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, stopImmediatePropagation() { this._stopImmediate = true; },
+    });
+    await flush();
+    assert(!overlay.open && smokeProjectModelSaves.length === savesBefore, "⑦ Esc 应关闭弹窗且不保存");
+  }
+
+  // ⑧ IPC 形状契约:model_effective 桩与后端真实形状一致(契约由 model_config.rs 的测试从真实结构体抽出)。
+  {
+    const contract = JSON.parse(await readFile(resolve(root, "scripts/ipc-contract.json"), "utf8"));
+    const shapeOf = (value) => {
+      if (Array.isArray(value)) return value.length ? [shapeOf(value[0])] : "array";
+      if (value === null || value === undefined) return "nullable";
+      if (typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, shapeOf(value[key])]));
+      return { string: "string", number: "number", boolean: "bool" }[typeof value] ?? typeof value;
+    };
+    const problems = [];
+    const walk = (expected, actual, path) => {
+      if (expected === "nullable" || actual === "nullable") return;
+      if (typeof expected === "object" && typeof actual === "object") {
+        for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
+          if (!(key in actual)) problems.push(`${path}.${key}:后端会发,桩里没有`);
+          else if (!(key in expected)) problems.push(`${path}.${key}:桩独有,后端不发`);
+          else walk(expected[key], actual[key], `${path}.${key}`);
+        }
+        return;
+      }
+      if (expected !== actual) problems.push(`${path}: 契约 ${JSON.stringify(expected)} vs 桩 ${JSON.stringify(actual)}`);
+    };
+    assert(contract.model_effective, "⑧ ipc-contract.json 缺 model_effective 条目");
+    walk(contract.model_effective, shapeOf(payloads.model_effective({ processId: "d|smoke", agent: "dev-pair" })), "model_effective");
+    for (const problem of problems) fail(`UI-0926 #3 IPC 契约:${problem}`);
+  }
+
+  // ⑨ 窗口回到前台重取(配置可能在外部编辑器里改过):第一次 focus 问一次 model_effective,2 秒内再来不重复问。
+  {
+    const focusListeners = windowListeners.get("focus") ?? [];
+    assert(focusListeners.length > 0, "⑨ 没有任何 window focus 监听(08-models.js 的回到前台重取没接上)");
+    const effectiveCalls = () => invokeLog.filter((cmd) => cmd === "model_effective").length;
+    const before = effectiveCalls();
+    for (const listener of focusListeners) listener({ type: "focus" });
+    await flush();
+    assert(effectiveCalls() === before + 1, `⑨ 回到前台应重取一次 model_effective:${effectiveCalls() - before} 次`);
+    for (const listener of focusListeners) listener({ type: "focus" });
+    await flush();
+    assert(effectiveCalls() === before + 1, `⑨ 2 秒内再次回到前台不应重复重取:${effectiveCalls() - before} 次`);
+  }
+
+  // ⑩ 没有项目:芯片收成中性占位,不能停在「…」在途态(refreshEffectiveModel 在无项目时也要广播)。
+  {
+    const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+    const savedProject = shellNs.currentProject;
+    shellNs.setCurrentProject(null);
+    await models.syncModelSelectToActiveLine();
+    await flush();
+    assert(!chip.classList.contains("is-pending") && chip.getAttribute("aria-busy") === "false" && !sourceOf(chip),
+      `⑩ 没有项目时模型芯片不应停在在途态:"${chip.textContent}" / ${chip.className} / ${sourceOf(chip)}`);
+    assert(!rchip.classList.contains("is-pending") && !sourceOf(rchip), `⑩ 没有项目时思考芯片不应停在在途态:"${rchip.textContent}"`);
+    assert(models.effectiveModel === null && models.effectivePending === false, "⑩ 没有项目时应清掉上一个项目的视图与在途标记");
+    shellNs.setCurrentProject(savedProject);
+    await models.syncModelSelectToActiveLine();
+    await flush();
+    assert(sourceOf(chip) === "project" && !chip.classList.contains("is-pending"), `⑩ 恢复项目后芯片应回到项目默认:"${chip.textContent}"`);
+  }
+
+  // ⑪ 上下文上限跟线:A 线 kz:meta 报 128k;切到本次没跑过的 B 线,上限不能沿用 A 的 128k——
+  //    回答到来前清空,回答后取 B 线下一轮模型的 contextLimit;切回 A 回放 A 的 kz:meta。
+  {
+    const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+    const savedMeta = shellNs.sessionMetaCache.get("sess-smoke");
+    const metaState = sandbox.sessionState("sess-smoke");
+    const savedPhase = metaState.phase;
+    const savedConverged = metaState.converged;
+    metaState.converged = false;
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 128000, sessionId: "sess-smoke" } });
+    vm.runInContext(`transitionSession("sess-smoke", ${JSON.stringify(savedPhase)})`, sandbox);
+    sandbox.sessionState("sess-smoke").converged = savedConverged;
+    await flush();
+    assert(shellNs.ctxLimit === 128000, `⑪ 前置:A 线 kz:meta 后上限应为 128k:${shellNs.ctxLimit}`);
+    let release = null;
+    invokeGates.set("model_effective", new Promise((resolve) => { release = resolve; }));
+    const switching = sandbox.switchProcess("p|g2-b");
+    await settleOnly();
+    assert(shellNs.ctxLimit === null && byId.get("status-model").textContent === "",
+      `⑪ 切到没跑过的 B 线,回答到来前上限应清空、状态栏不挂 A 的模型:${shellNs.ctxLimit} / "${byId.get("status-model").textContent}"`);
+    release?.();
+    invokeGates.delete("model_effective");
+    await switching;
+    await flush();
+    assert(shellNs.ctxLimit === 272000, `⑪ B 线的上限应取下一轮模型的 contextLimit(272k):${shellNs.ctxLimit}`);
+    await sandbox.switchProcess("d|smoke");
+    await flush();
+    assert(shellNs.ctxLimit === 128000, `⑪ 切回 A 线应回放 A 线 kz:meta 的上限:${shellNs.ctxLimit}`);
+    if (savedMeta) shellNs.sessionMetaCache.set("sess-smoke", savedMeta);
+    else shellNs.sessionMetaCache.delete("sess-smoke");
+    shellNs.applySessionMeta("sess-smoke");
+  }
+
+  picker.closePicker();
+  surface.closeSurface(byId.get("project-models-overlay"));
+  payloads.process_list = savedList;
+  smokeLineState.clear();
+  for (const [key, value] of savedLineState) smokeLineState.set(key, value);
+  sandbox.renderProcesses(savedList);
+  await sandbox.switchProcess("d|smoke", true);
+  await flush();
+  kzTest.cancelTimers();
+  if (g2PriorLanguage === null) localStorageShim.removeItem("kz-language");
+  else localStorageShim.setItem("kz-language", g2PriorLanguage);
+  sandbox.applyLanguage?.();
+}
+
+// ===== 分区:弹层与外观 =====
+// UI-0926 #9 弹层技术栈:00-surface.js 的唯一栈、Esc 唯一入口(捕获阶段只关栈顶)、
+// 模态/菜单/停靠卡片/toast/tooltip 原语。设计见 docs/design/ui_surface_stack.md §9。
+{
+  const surface = esmModuleCache.get("00-surface.js")?.namespace;
+  const events = esmModuleCache.get("07-events.js")?.namespace;
+  const shell = esmModuleCache.get("03-shell.js")?.namespace;
+  assert(surface && typeof surface.confirmDialog === "function", "00-surface.js 未按 ESM 加载或缺 confirmDialog");
+  assert(!/^\s*import\b/m.test(sources[scriptSrcs.indexOf("00-surface.js")] ?? "import"), "00-surface.js 必须零 import");
+  const keyEvent = (key, extra = {}) => ({
+    type: "keydown",
+    key,
+    isComposing: false,
+    defaultPrevented: false,
+    preventDefault() { this.defaultPrevented = true; },
+    stopPropagation() { this._stopped = true; },
+    stopImmediatePropagation() { this._stopImmediate = true; this._stopped = true; },
+    ...extra,
+  });
+  const pressEscape = () => document.dispatchEvent(keyEvent("Escape"));
+  const compose = sources[scriptSrcs.indexOf("08-compose-runtime.js")] ?? "";
+  if (surface && events) {
+    // 起点:把前面用例留下的弹层全部收掉,深度断言才有意义。
+    events.hideAsk();
+    for (const id of ["viewer-overlay", "confirm-overlay", "input-overlay", "palette", "context-detail", "sop-picker-panel", "file-suggestions", "task-options-menu", "composer-more-menu", "autorun-menu", "voice-settings-panel"]) {
+      surface.closeSurface(byId.get(id));
+    }
+    assert(surface.stackDepth() === 0, `弹层用例起点栈不为空(深度 ${surface.stackDepth()}):有弹层绕过原语打开或没关`);
+
+    // ① 确认框:<dialog>.showModal、镜像 .hidden、结果值、栈清空;并发调用排队不互相覆盖。
+    const confirmHost = byId.get("confirm-overlay");
+    const p1 = surface.confirmDialog({ title: "弹层冒烟", message: "确认?" });
+    assert(confirmHost.tagName === "DIALOG" && confirmHost.open && confirmHost._modal, "confirmDialog 未以 <dialog>.showModal 打开");
+    assert(!confirmHost.classList.contains("hidden"), "confirmDialog 打开后仍带 .hidden");
+    assert(byId.get("confirm-title").textContent === "弹层冒烟", "confirmDialog 标题未写入");
+    assert(surface.isModalOpen() && surface.stackDepth() === 1, "confirmDialog 打开后 isModalOpen/stackDepth 不对");
+    byId.get("confirm-ok").click();
+    assert(await p1 === true, "点确认未得到 true");
+    assert(!confirmHost.open && confirmHost.classList.contains("hidden"), "确认后弹窗未关闭或未镜像回 .hidden");
+    assert(surface.stackDepth() === 0 && !surface.isModalOpen(), `确认后弹层栈未清空(深度 ${surface.stackDepth()})`);
+    const p2 = surface.confirmDialog({ title: "安全整理", safeText: "删除并安全整理" });
+    assert(!byId.get("confirm-safe").classList.contains("hidden"), "safeText 按钮未显示");
+    byId.get("confirm-safe").click();
+    assert(await p2 === "safe", "点 safe 按钮未得到 \"safe\"");
+    const pa = surface.confirmDialog({ title: "第一问" });
+    const pb = surface.confirmDialog({ title: "第二问" });
+    assert(byId.get("confirm-title").textContent === "第一问", "并发的第二个确认框覆盖了第一个的文案(应排队)");
+    byId.get("confirm-ok").click();
+    assert(await pa === true, "排队:第一个确认框结果不对");
+    assert(confirmHost.open && byId.get("confirm-title").textContent === "第二问", "排队:第一个关闭后第二个未接着打开");
+    byId.get("confirm-cancel").click();
+    assert(await pb === false, "排队:第二个确认框取消未得到 false");
+    assert(surface.stackDepth() === 0, "排队用例后弹层栈未清空");
+
+    // ② Esc 只关栈顶(回归「确认框里按 Esc 先拒掉权限请求」的串台)。
+    vm.runInContext('activeSessionId = "sess-smoke"', sandbox);
+    byId.get("auto-allow").checked = false;
+    const answerCalls = () => invokeArgs.filter(({ cmd }) => cmd === "answer_ask");
+    handlers.get("kz:ask")({ payload: { id: 9901, sessionId: "sess-smoke", kind: "permission", action: "bash", resource: "cargo test" } });
+    await flush();
+    const askCard = byId.get("ask-overlay");
+    assert(askCard._popoverOpen && !askCard.classList.contains("hidden"), "权限卡未经 showCard 以 popover 显示");
+    assert(events.askActive?.id === 9901, "权限卡未成为当前请求");
+    const answersBefore = answerCalls().length;
+    const pending = surface.confirmDialog({ title: "Esc 栈顶" });
+    const esc = keyEvent("Escape");
+    document.dispatchEvent(esc);
+    assert(esc.defaultPrevented && esc._stopImmediate, "Esc 入口未 preventDefault + stopImmediatePropagation(后面的监听还会再处理一遍)");
+    // 先同步判「确认框关没关」:关错了对象时 pending 永不落定,直接 await 会把冒烟挂死而不是判红。
+    const confirmClosedByEsc = !confirmHost.open;
+    if (!confirmClosedByEsc) byId.get("confirm-cancel").click();
+    assert(confirmClosedByEsc, "第一次 Esc 没有关掉栈顶的确认框(关到别的弹层上去了)");
+    assert(await pending === false, "第一次 Esc 应只关确认框(得到 false)");
+    await flush();
+    assert(answerCalls().length === answersBefore, "Esc 串台:确认框开着时按 Esc 把权限请求拒掉了");
+    assert(events.askActive?.id === 9901 && !askCard.classList.contains("hidden"), "第一次 Esc 后权限卡应仍在");
+    pressEscape();
+    await flush();
+    assert(
+      answerCalls().length === answersBefore + 1 && answerCalls().at(-1)?.args?.reply === "deny",
+      `第二次 Esc 应拒绝权限请求:${JSON.stringify(answerCalls().at(-1)?.args)}`,
+    );
+    assert(askCard.classList.contains("hidden") && !events.askActive, "拒绝后权限卡未收起");
+    // 收起后的「重新打开」芯片不响应 Esc(按一下 Esc 不能把唯一的回答入口弄丢)。
+    handlers.get("kz:ask")({ payload: { id: 9902, sessionId: "sess-smoke", kind: "permission", action: "read", resource: "a.txt" } });
+    await flush();
+    byId.get("ask-collapse").click();
+    assert(!byId.get("ask-reopen").classList.contains("hidden") && askCard.classList.contains("hidden"), "收起后未显示重新打开芯片");
+    const answersBeforeChip = answerCalls().length;
+    pressEscape();
+    await flush();
+    assert(!byId.get("ask-reopen").classList.contains("hidden") && answerCalls().length === answersBeforeChip, "重新打开芯片被 Esc 关掉了或 Esc 误答了请求");
+    byId.get("ask-reopen").click();
+    byId.get("ask-allow").click();
+    await flush();
+    assert(surface.stackDepth() === 0, `权限卡用例后弹层栈未清空(深度 ${surface.stackDepth()})`);
+
+    // ②b 卡片不抢别处的局部 Esc:焦点在卡片外的文字输入框(#prompt、想法/缺陷速记表单)或 Monaco 里时,
+    //     Esc 不拒权限请求、不 preventDefault、不截断传播(输入框自己的 Esc 照常取消输入);
+    //     焦点在勾选框这类没有局部 Esc 含义的元素上时,仍按卡片的 onEscape 拒绝。
+    handlers.get("kz:ask")({ payload: { id: 9903, sessionId: "sess-smoke", kind: "permission", action: "bash", resource: "ls" } });
+    await flush();
+    assert(events.askActive?.id === 9903 && !askCard.classList.contains("hidden"), "②b 前置:权限卡未显示");
+    const answersBeforeYield = answerCalls().length;
+    const quickInput = document.createElement("input");
+    const monacoHost = document.createElement("div");
+    monacoHost.className = "monaco-editor";
+    const monacoWidget = document.createElement("span");
+    monacoHost.appendChild(monacoWidget);
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    body.append(quickInput, monacoHost, checkbox);
+    for (const [label, target] of [["#prompt", byId.get("prompt")], ["卡片外的速记输入框", quickInput], ["Monaco 编辑器内", monacoWidget]]) {
+      const ev = keyEvent("Escape", { target });
+      document.dispatchEvent(ev);
+      await flush();
+      assert(!ev.defaultPrevented && !ev._stopped, `焦点在${label}时按 Esc 被弹层栈截走了(局部 Esc 收不到)`);
+      assert(answerCalls().length === answersBeforeYield && events.askActive?.id === 9903, `焦点在${label}时按 Esc 把权限请求拒掉了`);
+    }
+    const escOnCheckbox = keyEvent("Escape", { target: checkbox });
+    document.dispatchEvent(escOnCheckbox);
+    await flush();
+    assert(
+      escOnCheckbox.defaultPrevented && answerCalls().length === answersBeforeYield + 1 && answerCalls().at(-1)?.args?.reply === "deny",
+      "焦点在卡片外的勾选框上时 Esc 仍应拒绝权限请求(只有文字输入框与 Monaco 让位)",
+    );
+    quickInput.remove();
+    monacoHost.remove();
+    checkbox.remove();
+    assert(surface.stackDepth() === 0, `②b 用例后弹层栈未清空(深度 ${surface.stackDepth()})`);
+
+    // ③ 输入框:组合中的 Enter 不提交;普通 Enter 返回输入值;Esc 返回 null。
+    const inputHost = byId.get("input-overlay");
+    const pi = surface.inputDialog({ title: "输入冒烟", value: "初值" });
+    assert(inputHost.tagName === "DIALOG" && inputHost.open && inputHost._modal, "inputDialog 未以 <dialog>.showModal 打开");
+    assert(byId.get("input-value").value === "初值", "inputDialog 未回填默认值");
+    byId.get("input-value").value = "组合中";
+    byId.get("input-value").dispatchEvent(keyEvent("Enter", { isComposing: true }));
+    assert(inputHost.open, "输入法组合中的 Enter 不应提交");
+    byId.get("input-value").value = "最终值";
+    byId.get("input-value").dispatchEvent(keyEvent("Enter"));
+    assert(await pi === "最终值", "普通 Enter 应返回输入值");
+    const pn = surface.inputDialog({ title: "Esc 取消" });
+    pressEscape();
+    assert(await pn === null && !inputHost.open, "Esc 应关闭输入框并返回 null");
+
+    // ④ openMenu:role、禁用项、点击先关再 onSelect 且恰好一次、同时只开一个、同锚点再调 = 收起。
+    const anchorA = document.createElement("button");
+    const anchorB = document.createElement("button");
+    body.append(anchorA, anchorB);
+    let picked = 0;
+    let disabledHit = 0;
+    const menuA = surface.openMenu(anchorA, [
+      { label: "甲", onSelect: () => { picked += 1; } },
+      "separator",
+      { label: "乙(禁用)", disabled: true, onSelect: () => { disabledHit += 1; } },
+    ], { label: "冒烟菜单" });
+    const itemsA = menuA.el.querySelectorAll(".k-menu-item");
+    assert(menuA.el.getAttribute("role") === "menu" && itemsA.length === 2, "openMenu 菜单 role 或项数不对");
+    assert(itemsA.every((item) => item.getAttribute("role") === "menuitem"), "openMenu 菜单项必须带 role=menuitem");
+    assert(menuA.el._popoverOpen && menuA.el.classList.contains("k-surface") && surface.stackDepth() === 1, "openMenu 未以 k-surface popover 打开或未入栈");
+    itemsA[1].click();
+    assert(disabledHit === 0 && !menuA.closed, "禁用项被触发或点禁用项关掉了菜单");
+    const menuB = surface.openMenu(anchorB, [{ label: "丙", onSelect: () => { picked += 10; } }]);
+    assert(menuA.closed && !menuA.el.parentNode, "打开第二个菜单时第一个未自动关闭");
+    assert(menuB.el._popoverOpen && surface.stackDepth() === 1, "第二个菜单未打开或栈深度不为 1");
+    menuB.el.querySelector(".k-menu-item").click();
+    assert(picked === 10, `菜单项 onSelect 应恰好调用一次(picked=${picked})`);
+    assert(menuB.closed && !menuB.el.parentNode && surface.stackDepth() === 0, "点菜单项后菜单未关闭或未移除");
+    const menuC = surface.openMenu(anchorA, [{ label: "丁", onSelect() {} }]);
+    surface.openMenu(anchorA, [{ label: "丁", onSelect() {} }]);
+    assert(menuC.closed && surface.stackDepth() === 0, "同一锚点再次 openMenu 应收起已开的菜单(切换语义)");
+    anchorA.remove();
+    anchorB.remove();
+
+    // ④b 弹窗里的菜单:模态开着时 dialog 子树之外全是惰性的,openMenu 必须挂进锚点所在的 <dialog>;
+    //     点菜单项不关弹窗;关弹窗时菜单作为嵌套弹层一起关;打开 dialog 外的静态弹层要告警(不静默点不动)。
+    const viewerHost = byId.get("viewer-overlay");
+    const viewerHandle = surface.openDialog(viewerHost);
+    const inDialogAnchor = document.createElement("button");
+    viewerHost.appendChild(inDialogAnchor);
+    let pickedInDialog = 0;
+    const dialogMenu = surface.openMenu(inDialogAnchor, [{ label: "戊", onSelect: () => { pickedInDialog += 1; } }]);
+    assert(dialogMenu.el.parentNode === viewerHost, "弹窗里的 openMenu 未挂进锚点所在的 <dialog>(挂在 body 下时模态开着点不动)");
+    assert(surface.stackDepth() === 2 && dialogMenu.el._popoverOpen, "弹窗里的菜单未打开或未入栈");
+    dialogMenu.el.querySelector(".k-menu-item").click();
+    assert(pickedInDialog === 1 && viewerHost.open && surface.stackDepth() === 1, "弹窗里点菜单项应调 onSelect 一次、只关菜单不关弹窗");
+    const dialogMenu2 = surface.openMenu(inDialogAnchor, [{ label: "己", onSelect() {} }]);
+    pressEscape();
+    assert(dialogMenu2.closed && viewerHost.open, "弹窗里开着菜单时,第一次 Esc 应只关菜单");
+    const dialogMenu3 = surface.openMenu(inDialogAnchor, [{ label: "庚", onSelect() {} }]);
+    surface.closeSurface(viewerHandle);
+    assert(dialogMenu3.closed && !dialogMenu3.el.parentNode && !viewerHost.open, "关弹窗时里面的菜单未一起关掉并移除");
+    const warns = [];
+    const priorWarn = sandbox.console.warn;
+    sandbox.console.warn = (...args) => warns.push(args.map(String).join(" "));
+    try {
+      const warnHandle = surface.openDialog(viewerHost);
+      surface.openPopover(byId.get("status-tokens"), byId.get("context-detail"));
+      surface.closeSurface(byId.get("context-detail"));
+      surface.closeSurface(warnHandle);
+    } finally {
+      sandbox.console.warn = priorWarn;
+    }
+    assert(warns.some((text) => text.includes("context-detail") && text.includes("惰性")), `模态开着时打开 dialog 外的静态弹层应告警:${JSON.stringify(warns)}`);
+    inDialogAnchor.remove();
+    assert(surface.stackDepth() === 0, `④b 用例后弹层栈未清空(深度 ${surface.stackDepth()})`);
+
+    // ⑤ bindMenus:四个静态菜单触发器接线;点开 aria-expanded=true,Esc 关闭后复位;
+    //    点外关闭;按下触发器本身不算「点外」(否则随后的 click 会把刚关的菜单重新打开)。
+    for (const id of ["task-options", "composer-more", "autorun-more", "voice-settings-toggle"]) {
+      const trigger = byId.get(id);
+      assert(trigger?.getAttribute("aria-controls") && trigger.getAttribute("aria-haspopup"), `bindMenus 未给 #${id} 接线`);
+    }
+    const moreTrigger = byId.get("composer-more");
+    const moreMenu = byId.get("composer-more-menu");
+    assert(moreTrigger.getAttribute("aria-expanded") === "false", "菜单触发器初始 aria-expanded 应为 false");
+    moreTrigger.click();
+    assert(moreTrigger.getAttribute("aria-expanded") === "true" && moreMenu._popoverOpen && !moreMenu.classList.contains("hidden"), "点 data-kz-menu 触发器未打开弹层菜单");
+    pressEscape();
+    assert(moreTrigger.getAttribute("aria-expanded") === "false" && !moreMenu._popoverOpen && moreMenu.classList.contains("hidden"), "Esc 未关闭菜单或 aria-expanded 未复位");
+    moreTrigger.click();
+    document.dispatchEvent({ type: "pointerdown", target: body });
+    assert(!moreMenu._popoverOpen && moreTrigger.getAttribute("aria-expanded") === "false", "点外未关闭菜单");
+    moreTrigger.click();
+    document.dispatchEvent({ type: "pointerdown", target: moreTrigger });
+    assert(moreMenu._popoverOpen, "按下触发器不应触发点外关闭");
+    moreTrigger.click();
+    assert(!moreMenu._popoverOpen && surface.stackDepth() === 0, "再点触发器应收起菜单");
+    // 鞭挞菜单的数字快捷键改挂在触发器与菜单元素上、以「菜单开着」为前提(假 DOM 拍平了菜单行,
+    // 行内命中只能由浏览器样例冒烟验;这里锁住接线点,防止退回 details[open] 判据)。
+    assert(
+      /\$\("autorun-menu"\)\.addEventListener\("keydown", autorunMenuShortcut\)/.test(compose) && /isSurfaceOpen\(menu\)/.test(compose),
+      "鞭挞菜单数字快捷键未挂到 #autorun-menu 或不再以弹层开着为前提",
+    );
+
+    // ⑥ toast:err 用 role=alert,默认 role=status;最多 3 条;过期只隐藏、文案留到下一条。
+    await flush();
+    const region = byId.get("toast");
+    surface.toast("错误冒烟", { kind: "err" });
+    const errItem = region.children.at(-1);
+    assert(errItem?.getAttribute("role") === "alert" && errItem.dataset.kind === "err", "err toast 应为 role=alert、data-kind=err");
+    shell.toast("普通冒烟");
+    assert(region.children.at(-1)?.getAttribute("role") === "status" && region.children.at(-1).dataset.kind === "info", "默认 toast 应为 role=status、kind=info");
+    surface.toast("第三条");
+    surface.toast("第四条");
+    const liveToasts = region.children.filter((node) => node.dataset.kzExpired !== "1");
+    assert(liveToasts.length === 3, `连发 4 条后区域内应只剩 3 条(实得 ${liveToasts.length})`);
+    assert(region._popoverOpen && !region.classList.contains("hidden"), "toast 区域未以 popover 显示");
+    await flush();
+    assert(region.classList.contains("hidden") && !region._popoverOpen, "toast 全部过期后区域未收起");
+    assert(listText("toast").includes("第四条"), "过期的 toast 文案应留到下一条到来(读的人与冒烟都要拿得到最近一条)");
+
+    // ⑦ tooltip:悬停把 title 挪进 data-kz-tip 并显示 #kz-tip;移开后 title 还回去。
+    const tipTarget = byId.get("log-toggle");
+    const tipText = tipTarget.getAttribute("title");
+    assert(tipText, "冒烟前置:#log-toggle 应带 title");
+    document.dispatchEvent({ type: "pointerover", target: tipTarget });
+    await flush();
+    const tipEl = document.querySelector("#kz-tip");
+    assert(tipTarget.getAttribute("title") === null && tipTarget.dataset.kzTip === tipText, "悬停后 title 未挪进 data-kz-tip(系统提示会与自绘提示叠成两个)");
+    assert(tipEl?._popoverOpen && tipEl.textContent === tipText && tipEl.getAttribute("role") === "tooltip", "悬停后 #kz-tip 未显示或文本不一致");
+    assert(tipTarget.getAttribute("aria-describedby") === "kz-tip", "显示提示期间目标应 aria-describedby=kz-tip");
+    document.dispatchEvent({ type: "pointerout", target: tipTarget, relatedTarget: body });
+    assert(tipTarget.getAttribute("title") === tipText && tipTarget.dataset.kzTip === undefined, "移开后 title 未恢复");
+    assert(!tipEl._popoverOpen && tipTarget.getAttribute("aria-describedby") === null, "移开后提示未隐藏或 aria-describedby 未复位");
+
+    // ⑧ 静态护栏:模态期间全局快捷键让路;手算定位的 placeAutorunMenu 不得复活;
+    //    document/window 级 Esc 监听只剩 00-surface 一处。
+    const globalShortcut = compose.slice(compose.indexOf('window.addEventListener("keydown"')).slice(0, 400);
+    assert(globalShortcut.includes("if (isModalOpen()) return;"), "08-compose-runtime 的全局快捷键处理函数开头缺 isModalOpen() 守卫(确认框背后会真的点「新对话」)");
+    assert(!sources.some((source) => source.includes("placeAutorunMenu")), "placeAutorunMenu 复活了:弹层位置归 CSS 锚点定位");
+    // 权限卡弹出时的焦点只归 showCard 的 focus:"auto"(用户在别处打字时不抢)。旧实现 pumpAsk 里
+    // setTimeout 把焦点抢到「允许一次」,下一个空格就放行;合并时最容易被当成上下文行留回来。
+    assert(!sources.some((source) => /\$\(\s*["']ask-allow["']\s*\)\.focus\(/.test(source)), "有代码把焦点直接抢到 #ask-allow(正在打字时一个空格就放行):权限卡焦点只归 showCard focus:\"auto\"");
+    const surfaceSource = sources[scriptSrcs.indexOf("00-surface.js")] ?? "";
+    assert(surfaceSource.includes('document.addEventListener("keydown", onKeydown, true)'), "00-surface.js 的 Esc 唯一入口不在 document 捕获阶段");
+  }
+}
+
+// UI-0926 #5 配色:发送键 = 单色圆形图标按钮。可见文字没了,名称只剩 sr-only 与 aria-label 两条来源,
+// 两条都必须跟着界面语言走(英文态念 "Send");图标是 aria-hidden 的 SVG,不能退回文字按钮。
+{
+  const send = sandbox.document.getElementById("send");
+  assert(send, "UI-0926 #5:找不到 #send");
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  sandbox.setRunning(false);
+  assert(send.getAttribute("aria-label") === "Send", `UI-0926 #5:英文态空闲的发送键读屏名称应为 "Send",实得 "${send.getAttribute("aria-label")}"`);
+  assert(send.getAttribute("title") === "Send", `UI-0926 #5:英文态空闲的发送键悬停提示应为 "Send",实得 "${send.getAttribute("title")}"`);
+  // 假 DOM 只按 id 建节点,按钮内部的 svg/span 看不见:标记本身静态核对。
+  const sendMarkup = html.match(/<button id="send"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "";
+  assert(/<svg aria-hidden="true"/.test(sendMarkup), `UI-0926 #5:发送键应为图标按钮(内含 aria-hidden 的 svg),实为 ${sendMarkup.slice(0, 120)}`);
+  assert(/<span class="sr-only" data-i18n-key="发送">发送<\/span>/.test(sendMarkup), "UI-0926 #5:发送键缺少随语言翻译的 sr-only 文字(data-i18n-key=\"发送\")");
+  assert(/data-i18n-title="发送"/.test(sendMarkup), "UI-0926 #5:发送键的静态悬停提示缺 data-i18n-title");
+  sandbox.setRunning(true);
+  assert(send.getAttribute("aria-label") === "While running, send to steer or queue according to Delivery", `UI-0926 #5:运行态发送键读屏名称未翻译,实得 "${send.getAttribute("aria-label")}"`);
+  sandbox.setRunning(false);
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(send.getAttribute("title") === "发送" && send.getAttribute("aria-label") === "发送", `UI-0926 #5:切回中文后发送键应为「发送」,实得 title="${send.getAttribute("title")}" aria-label="${send.getAttribute("aria-label")}"`);
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
+}
+
+// ===== 分区:工具行与结构化渲染 =====
+// ---------- UI-0926 #6:工具行人话摘要(05-tool-summary.js) ----------
+// ⎿ 列此前是工具原文首行截 110 字:read 显示行号+源码、grep 显示 `path-450- }`、symbols 显示
+// `== \\?\C:\…`、JSON 工具显示 `{`。这里用**真实 Rust 输出格式**的夹具逐工具断言精确文本,
+// 再断言所有夹具的摘要都不含源码/路径/JSON/转义/乱码,并验证实时与历史同源、旧后端降级、
+// 活动面板同口径、正文不挂到块上(内存)。
+{
+  const summaryNs = esmModuleCache.get("05-tool-summary.js")?.namespace;
+  const parseNs = esmModuleCache.get("04-structured-parse.js")?.namespace;
+  const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  assert(summaryNs?.toolResultSummary && summaryNs?.toolArgSummary && summaryNs?.renderToolSummary, "05-tool-summary.js 未导出摘要器三件套");
+  assert(parseNs?.stripAnsi && parseNs?.displayPath && parseNs?.parseJsonish && parseNs?.stripToolOutcome, "04-structured-parse.js 未导出纯解析助手");
+  // 摘要器只从纯解析模块取助手(单一真源):不得自己再实现一份 stripAnsi/displayPath。
+  const summarySource = sources[scriptSrcs.indexOf("05-tool-summary.js")] ?? "";
+  const parseSource = sources[scriptSrcs.indexOf("04-structured-parse.js")] ?? "";
+  assert(/from "\.\/04-structured-parse\.js"/.test(summarySource), "05-tool-summary.js 未从 04-structured-parse.js 引入解析助手");
+  assert(!/function (?:stripAnsi|displayPath|normalizeRoot|looksLikeNoise)\b/.test(summarySource), "05-tool-summary.js 又自带了一份路径/ANSI/噪声助手(应只有 04-structured-parse.js 一处)");
+  assert(!/^\s*import\b/m.test(parseSource), "04-structured-parse.js 必须零 import(纯函数模块,Node 里可直接单测)");
+
+  if (summaryNs && parseNs && shellNs && chatNs && viewsNs) {
+    // 断言写在冒烟末尾:此前的用例可能把界面切到英文、把会话收敛成空闲(收敛后迟到的
+    // tool-start 会被丢弃)。这里固定中文文案,并给当前活动会话发一轮 kz:turn 让它回到运行态。
+    const priorLanguage = localStorageShim.getItem("kz-language");
+    localStorageShim.setItem("kz-language", "zh");
+    const SID = shellNs.activeSessionId || "sess-smoke";
+    if (!shellNs.activeSessionId) shellNs.setActiveSessionId?.(SID);
+    handlers.get("kz:turn")?.({ payload: { sessionId: SID, step: 2, maxSteps: 12 } });
+    await flush();
+    const { toolResultSummary, toolArgSummary } = summaryNs;
+    // 项目根带空格(用户真实目录形如 `Documents/kanzei code`)且以 verbatim 形态出现。
+    const ROOT = "C:\\Users\\kanzei\\Documents\\kanzei code";
+    const VROOT = `\\\\?\\${ROOT}`;
+    const roots = [VROOT];
+    const sum = (name, ctx) => toolResultSummary(name, { roots, ok: true, ...ctx });
+    const NOISE = [
+      [/\\\\\?\\|\/\/\?\//, "verbatim 前缀"],
+      [/(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/, "盘符绝对路径"],
+      [/^\s*\d+\t/m, "带行号的源码行"],
+      [/^[{[]|^==/, "JSON/表头开头"],
+      [/\x1b/, "ANSI 转义"],
+      [/\uFFFD/, "U+FFFD 乱码"],
+    ];
+    const noiseOf = (text) => NOISE.filter(([re]) => re.test(text)).map(([, label]) => label);
+    const readLines = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => `${String(from + i).padStart(6)}\tlet v${from + i} = ${from + i};`).join("\n");
+    const HASH = "1a2b3c4";
+    const cases = [
+      // read
+      ["read 全文", "read", { content: `${readLines(1, 3)}\n` }, "全文 3 行"],
+      ["read 区间", "read", { content: `${readLines(10, 12)}\n`, input: { path: "x.rs", offset: 10 } }, "第 10–12 行 · 共 12 行"],
+      ["read 带总数截断", "read", { content: `${readLines(1, 10)}\n... (truncated at line 11 of 5000; use offset to continue)\n`, input: { path: "x.rs", limit: 10 } }, "第 1–10 行 · 共 5,000 行"],
+      ["read 无总数截断", "read", { content: `${readLines(1, 10)}\n... (truncated at line 11; use offset to continue)\n` }, "第 1–10 行 · 未读完"],
+      ["read tail", "read", { content: `(last 3 lines of 12.0 KiB)\n${readLines(1, 3)}\n`, input: { path: "x.log", tail: 3 } }, "末尾 3 行 · 文件 12.0 KiB"],
+      ["read tail 到文件头", "read", { content: `${readLines(1, 2)}\n`, input: { path: "x.log", tail: 50 } }, "全文 2 行"],
+      ["read 图片", "read", { content: `[image] ${ROOT}\\shot.png (image/png, 20480 bytes) — attached to this tool result.` }, "图片 · 20.0 KB"],
+      ["read pdf", "read", { content: "pdf: 12 pages; showing 2-3\n--- page 2 ---\n正文" }, "PDF 第 2–3 页 · 共 12 页"],
+      ["read notebook", "read", { content: "notebook: 8 cells, kernel language python; showing 1-5\n[1] code\nprint(1)" }, "第 1–5 格 · 共 8 格"],
+      ["read 空范围", "read", { content: "(empty range: file has 3 lines, offset was 3)" }, "空范围 · 文件共 3 行"],
+      // grep
+      ["grep 普通", "grep", { content: "src/a.rs:3: fn one() {}\nsrc/a.rs:9: fn two() {}\nsrc/b.rs:1: fn three() {}" }, "3 处匹配 · 2 个文件"],
+      ["grep 单文件", "grep", { content: "src/a.rs:3: fn one() {}\nsrc/a.rs:4: fn two() {}" }, "2 处匹配"],
+      ["grep context", "grep", { content: "src/a.rs-2- // ctx\nsrc/a.rs:3: fn one() {}\nsrc/a.rs-4- }\nsrc/b.rs:7: fn two() {}", input: { pattern: "fn", context: 1 } }, "2 处匹配 · 2 个文件"],
+      ["grep files_only", "grep", { content: "src/a.rs\nsrc/b.rs\nsrc/c.rs", input: { pattern: "fn", files_only: true } }, "3 个文件"],
+      ["grep count", "grep", { content: "src/a.rs: 2\nsrc/b.rs: 1\n(total 3 matches in 2 files)", input: { pattern: "fn", count: true } }, "3 处匹配 · 2 个文件"],
+      ["grep 无匹配", "grep", { content: "(no matches for `zzz`)" }, "无匹配"],
+      ["grep 达上限", "grep", { content: "src/a.rs:1: x\nsrc/b.rs:2: y\n... (stopped at limit 2; narrow the pattern or raise limit)" }, "2+ 处匹配 · 2+ 个文件"],
+      // glob
+      ["glob 普通", "glob", { content: "src/a.rs\nsrc/b.rs" }, "2 个文件"],
+      ["glob more", "glob", { content: "src/a.rs\nsrc/b.rs\n... (8 more; raise limit or narrow pattern)" }, "10 个文件"],
+      ["glob 无", "glob", { content: "(no files match `*.zz`)" }, "无匹配文件"],
+      // symbols
+      ["symbols 多文件(旧 verbatim 路径)", "symbols", { content: `== ${VROOT}\\src\\a.rs\n  pub fn one:1\n     fn two:3\n== ${VROOT}\\src\\b.rs\n  pub struct S:2` }, "3 个符号 · 2 个文件"],
+      ["symbols 单文件", "symbols", { content: "== src/lib.rs\n  pub fn a:1\n  pub fn b:2" }, "2 个符号"],
+      ["symbols callers", "symbols", { content: "callers of `helper` (2 hits):\nsrc/lib.rs:2: fn caller() { helper(); }\nsrc/lib.rs:3: fn b() { helper(); }" }, "2 处调用"],
+      ["symbols define", "symbols", { content: "definition of `helper` (1 hit):\n  pub fn helper  src/lib.rs:1\n(no `pub use` re-export of this symbol found in tree)\n" }, "1 处定义"],
+      ["symbols 无", "symbols", { content: "(no symbols found)" }, "无符号"],
+      ["symbols 地图", "symbols", { content: "repo map (crates: 1, modules: 4, public_symbols: 37)\n== crate `kanzei_tools`\n  module `read` (crates/kanzei-tools/src/read.rs)" }, "4 个模块 · 37 个符号"],
+      // files
+      ["files", "files", { content: "crates/  (3 files, 12KB, 400 lines)\n  a.rs  1KB 40 行\n  b.rs  1KB 40 行\nREADME.md  2KB 800 字\n" }, "文件地图 · 3 项"],
+      // edit / insert / write
+      ["edit 有 display", "edit", { content: `replaced 1 occurrence(s) in ${ROOT}\\ui\\x.js\n局部结构校验通过: 1 个低成本检查\n局部校验明细:\n- node-check [passed] command: node --check ui/x.js`, display: { kind: "diff", path: "ui/x.js", additions: 3, deletions: 1, lines: [], local_validation: { counts: { passed: 1, failed: 0 } } } }, "+3 −1"],
+      ["edit 历史按 input 算 diff", "edit", { content: `replaced 1 occurrence(s) in ${ROOT}\\ui\\x.js`, input: { path: "ui/x.js", old_string: "a\nb", new_string: "a\nc\nd" } }, "+2 −1"],
+      ["edit replace_all 倍数", "edit", { content: `replaced 3 occurrence(s) in ${ROOT}\\ui\\x.js`, input: { path: "ui/x.js", old_string: "foo", new_string: "bar", replace_all: true } }, "+3 −3 · 替换 3 处"],
+      ["edit 校验失败", "edit", { content: `replaced 1 occurrence(s) in ${ROOT}\\ui\\x.js\n局部结构校验发现 2 个精确错误，请先修复后再扩大回归`, display: { kind: "diff", additions: 1, deletions: 0, lines: [], local_validation: { counts: { failed: 2 } } } }, "+1 −0 · 校验 2 个错误"],
+      ["insert", "insert", { content: `inserted content after unique anchor in ${ROOT}\\ui\\x.js`, input: { path: "ui/x.js", anchor: "x", content: "a\nb\n" } }, "+2 −0"],
+      ["write 新建", "write", { content: `wrote 9 bytes to ${ROOT}\\x.txt\n局部结构校验通过: 0 个低成本检查`, display: { kind: "create", path: "x.txt", bytes: 9, preview: "l1\nl2\nl3" }, input: { path: "x.txt", content: "l1\nl2\nl3\n" } }, "新建 · 3 行"],
+      ["write 覆写", "write", { content: `wrote 20 bytes to ${ROOT}\\x.txt`, display: { kind: "diff", additions: 5, deletions: 2, lines: [] } }, "+5 −2"],
+      ["write 历史", "write", { content: `wrote 3 bytes to ${ROOT}\\x.txt`, input: { path: "x.txt", content: "a\nb" } }, "写入 2 行"],
+      // bash
+      ["bash 多个 cargo test 二进制累加", "bash", { content: "exit code: 0\n   Compiling kanzei-app v0.1.0\nrunning 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured\nrunning 5 tests\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured", durationMs: 12300 }, "退出码 0 · 12.3s · 8 通过"],
+      ["bash E0425 编译失败(ANSI + GBK 误解码)", "bash", { ok: false, content: "exit code: 101\n\u001b[1m\u001b[91merror[E0425]\u001b[0m\u001b[1m: cannot find value `foo` in this scope\u001b[0m\n --> src/main.rs:3:5\n鍒嗘瀽瀹屾垚 \uFFFD\nerror: could not compile `x` (bin \"x\") due to 2 previous errors", durationMs: 41200 }, "退出码 101 · 41.2s · error[E0425]: cannot find value `foo` in this scope · 2 个编译错误"],
+      ["bash 超时", "bash", { ok: false, content: "timeout: true — command did not finish within 120000 ms and was killed. Retry with a larger timeout_ms if needed.\n[no output captured before timeout]", display: { kind: "terminal", command: "cargo build", exitCode: null, timeout: true, output: "", full: "" } }, "超时 · 已终止"],
+      ["bash 后台", "bash", { content: "background: true\nprocess_id: bg-3\npid: 1234\ncommand: npm run dev\nUse the `process` tool", display: { kind: "terminal", command: "npm run dev", background: true, processId: "bg-3", output: "(后台运行中,用 process 工具查看输出)" } }, "后台运行 · bg-3"],
+      ["bash 无输出", "bash", { content: "exit code: 0\n(no output)" }, "退出码 0 · 无输出"],
+      ["bash 内 git commit", "bash", { content: `exit code: 0\n[main ${HASH}] fix: 修复工具行\n 2 files changed, 10 insertions(+)` }, `退出码 0 · ${HASH} fix: 修复工具行`],
+      ["bash prose 末行", "bash", { content: "exit code: 0\nchecking...\n全部检查通过,没有发现问题" }, "退出码 0 · 全部检查通过,没有发现问题"],
+      ["bash 纯 JSON 输出", "bash", { content: "exit code: 0\n{\n  \"a\": 1,\n  \"b\": 2\n}" }, "退出码 0 · 输出 4 行"],
+      // process
+      ["process list", "process", { content: `bg-1 [running] pid=12 owner=r cwd=${ROOT} :: npm run dev\nbg-2 [exited(0)] pid=- owner=r cwd=${ROOT} :: cargo build\n`, input: { action: "list" } }, "2 个后台进程"],
+      ["process 无", "process", { content: "(no background processes)", input: { action: "list" } }, "无后台进程"],
+      ["process stop", "process", { content: "stopped bg-1", input: { action: "stop", id: "bg-1" } }, "已停止 bg-1"],
+      // git
+      ["git commit", "git", { content: `committed verified staged set (${HASH}9f0e)\n${HASH} fix: 工具行摘要\n\n crates/x.rs | 10 +++++-----\n 2 files changed, 12 insertions(+), 3 deletions(-)`, input: { action: "commit", message: "fix: 工具行摘要" } }, `${HASH} fix: 工具行摘要 · 2 个文件 +12 −3`],
+      ["git stage", "git", { content: "stage_request: t1\nstaged 3 file(s): a, b, c\nstaged_hash: h\nReview with `git diff`", input: { action: "stage", files: ["a", "b", "c"] } }, "已暂存 3 个文件"],
+      ["git status 干净", "git", { content: "## main...origin/main", input: { action: "status" } }, "工作区干净"],
+      ["git status 脏", "git", { content: "## main\n M crates/a.rs\n?? b.rs", input: { action: "status" } }, "2 处改动"],
+      ["git diff", "git", { content: "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1,2 @@\n-a\n+b\n+c", input: { action: "diff" } }, "1 个文件 +2 −1"],
+      ["git log", "git", { content: `${HASH} 09-26 10:00 kanzei | a\n5e6f7a8 09-26 09:00 kanzei | b`, input: { action: "log" } }, "2 条提交"],
+      ["git finalize", "git", { content: "[finalize] complete: cargo test passed in 12.0s → staged h → committed\nx", input: { action: "finalize" } }, "测试通过 · 已提交"],
+      ["git ff", "git", { content: "fast-forwarded main: 1111111 -> 2222222abc (worktree rel)\nsource: rel", input: { action: "merge_ff" } }, "main → 2222222a"],
+      // web
+      ["webfetch", "webfetch", { content: "HTTP 200 · https://x.com/a\n\nHello world content" }, "HTTP 200 · 19 字"],
+      ["webfetch 截断", "webfetch", { content: "HTTP 200 · https://x.com/a\n\nabc\n…(截断)" }, "HTTP 200 · 3 字 · 已截断"],
+      ["websearch", "websearch", { content: JSON.stringify({ query: "rust ansi", results: [{ title: "ANSI escape codes", url: "https://a" }, { title: "b", url: "https://b" }, { title: "c", url: "https://c" }], truncated: false, prior_art_budget: null }) }, "3 条结果 · ANSI escape codes"],
+      // task / question
+      ["task markdown 报告", "task", { content: "## 结论\n- 工具行已改为人话摘要\n" }, "结论"],
+      ["task 超时", "task", { ok: false, content: "(超时,未产出结果)" }, "超时 · 未产出结果"],
+      ["task 失败", "task", { ok: false, content: "子代理内部报错" }, "子代理内部报错"],
+      ["question", "question", { content: "User answer: 用本地" }, "用户回答: 用本地"],
+      // tracker
+      ["req add", "req", { content: "added R-365 [todo] 新需求标题", input: { action: "add", title: "新需求标题" } }, "新增 R-365"],
+      ["req 状态变化", "req", { content: "updated: R-364 [doing] 工具行摘要\n变更: 状态: todo → doing; 进展: ∅ → 开工", input: { action: "update", id: "R-364" } }, "R-364 → doing"],
+      ["req 字段变化", "req", { content: "updated: R-364 [doing] 工具行摘要\n变更: 进展: a → b; 验收: c → d", input: { action: "update", id: "R-364" } }, "R-364 已更新 进展、验收"],
+      ["req no-op", "req", { content: "no-op: R-364 字段已是该值,未写入(旧→新无差异)。" }, "无变化"],
+      ["req list JSON", "req", { content: JSON.stringify({ schema_version: 1, kind: "requirement", deadlocked: false, deadlock_guidance: null, entries: [{ id: "R-1", blocked: false, lifecycle_status: "todo" }, { id: "R-2", blocked: true, lifecycle_status: "todo" }, { id: "R-3", blocked: false, lifecycle_status: "doing" }] }, null, 2), input: { action: "list" } }, "3 条 · 2 条可执行"],
+      ["req get JSON", "req", { content: JSON.stringify({ id: "R-364", title: "工具行摘要", lifecycle_status: "doing", fields: [] }, null, 2), input: { action: "get", id: "R-364" } }, "R-364 doing · 工具行摘要"],
+      ["req reorder", "req", { content: "reordered 5 requirements: R-1 → R-2", input: { action: "reorder" } }, "已重排 5 条"],
+      ["defect add", "defect", { content: "added D-770 [open] 工具行乱码", input: { action: "add" } }, "新增 D-770"],
+      // work
+      ["work next resume", "work", { content: JSON.stringify({ schema_version: 1, decision: "resume", reason: "x", selected: { id: "R-364", title: "工具行摘要" } }, null, 2), input: { action: "next" } }, "继续 R-364 · 工具行摘要"],
+      ["work next empty", "work", { content: JSON.stringify({ decision: "empty", selected: null }, null, 2), input: { action: "next" } }, "无可执行条目"],
+      ["work claim", "work", { content: JSON.stringify({ claimed: "R-364", lifecycle_status: "doing" }), input: { action: "claim", id: "R-364" } }, "已认领 R-364"],
+      ["work handoff", "work", { content: "model completion declared: done\ncriterion: x\nevidence_refs: ", input: { action: "handoff" } }, "已声明完成"],
+      // test_record
+      ["test_record 通过带计数", "test_record", { content: `recorded T-1786922727068. active: 0, archived: 1 (path: ${ROOT}\\.kanzei\\tests.md, archive: x)`, input: { title: "cargo test", status: "passed", summary: "3 passed; 0 failed" } }, "已记录 T-…7068 · 3/3 通过"],
+      ["test_record 运行中", "test_record", { content: `recorded T-1786922727068. active: 1, archived: 0 (path: ${ROOT}\\.kanzei\\tests.md, archive: x)\n↳ 跑完请用 test_record 带 id=T-1786922727068 记终态`, input: { title: "cargo test", status: "running" } }, "已记录 T-…7068 · 运行中"],
+      ["test_record 失败", "test_record", { content: "recorded T-1786922727068. active: 0, archived: 1 (path: p, archive: a)", input: { title: "cargo test", status: "failed", summary: "2 passed; 1 failed" } }, "已记录 T-…7068 · 1 失败 · 2/3"],
+      // memory
+      ["memory_search 3 条", "memory_search", { content: `M-003 [project/sop] 发版 SOP 两条通道 — 发版必读\n  片段\n  file: ${ROOT}\\.kanzei\\memory\\M-003.md\nM-005 [project/lesson] 教训 — 描述\n  s\n  file: f\nM-009 [project/sop] 流程 — 描述\n  s\n  file: f` }, "3 条记忆 · 发版 SOP 两条通道"],
+      ["memory_search 无", "memory_search", { content: "(no memory matched `x` — if you learn something reusable here, record it with memory_note)" }, "无匹配记忆"],
+      ["memory_note 记入", "memory_note", { content: `noted → ${ROOT}\\.kanzei\\memory\\inbox.md (pending notes: 4)` }, "已记入收件箱 · 待整理 4 条"],
+      ["memory_note 重复", "memory_note", { content: "noted as duplicate (NOOP, 发版前先跑 verify…) — already an active memory covers it" }, "与已有记忆重复,未记录"],
+      ["memory_add", "memory_add", { content: "added M-012 [sop] 标题" }, "新增 M-012"],
+      ["memory_update", "memory_update", { content: "updated M-012 [active] 标题" }, "更新 M-012"],
+      ["memory_promote", "memory_promote", { content: "promoted M-003 [sop] 标题 → active (evidence: 2 source(s))" }, "晋升 M-003"],
+      ["memory_merge", "memory_merge", { content: "merged M-004 ← [M-005, M-006]" }, "合并入 M-004"],
+      // 资产 / 其它
+      ["architecture", "architecture", { content: "path: .kanzei/project/architecture/README.md\nhash: h\nvalidation: ok (12 indexed link(s))\n---\n# 架构" }, "校验通过"],
+      ["conventions", "conventions", { content: "path: x\nhash: h\nlines: 40\nheadings:\n  # A\n  ## B\n  ## C\n---\n# A" }, "3 节"],
+      ["browser 截图", "browser", { content: "浏览器已打开并截图:\ntitle: X\nurl: http://localhost:1420/\nviewport: desktop" }, "截图 · localhost:1420"],
+      ["frontend_locate", "frontend_locate", { content: "2 处定义:\n  ui/style.css:12 .x {\n  ui/style.css:40 .x {" }, "2 处定义"],
+      ["deliver", "deliver", { content: "[delivered] report.pdf (2048 bytes)", display: { kind: "file", name: "report.pdf", path: "out/report.pdf", bytes: 2048 } }, "已交付 report.pdf · 2.0 KB"],
+      ["collaboration_status", "collaboration_status", { content: "Live collaboration status\n- a\n- b", display: { lines: [{}, {}] } }, "2 条线路"],
+      // 兜底:tool_search 与未知 MCP 工具
+      ["tool_search 兜底", "tool_search", { content: "{\n  \"tools\": [\"a\", \"b\"]\n}" }, "输出 3 行"],
+      ["未知 MCP 工具兜底(源码行)", "mcp__x__y", { content: "     1\t// 这是一段中文源码注释说明" }, "完成"],
+      // 行号 + 英文句子:合并空白后既不像源码也不符号密集,只有兜底看「清洗前的行号 Tab」能拦下
+      // (toolSummaryNoise 变异守的就是这一条)。
+      ["未知 MCP 工具兜底(行号 + 英文行)", "mcp__x__y", { content: "    12\tlet total be the sum of all values" }, "完成"],
+      ["未知 MCP 工具兜底(人话)", "mcp__x__y", { content: "已同步 3 个日历事件到本地" }, "已同步 3 个日历事件到本地"],
+      // 「命令根本没跑」的失败:⎿ 行必须说出原因,不能是空白、「输出 N 行」或光秃秃的「失败」。
+      ["bash 用户拒绝(实时:content 空串)", "bash", { ok: false, outcome: "failed", code: "USER_DECLINED", content: "", preview: "(user declined)" }, "已拒绝"],
+      ["bash 用户拒绝(旧后端只有 preview)", "bash", { ok: false, preview: "(user declined)" }, "已拒绝"],
+      ["write 用户拒绝", "write", { ok: false, outcome: "failed", code: "USER_DECLINED", content: "", preview: "(user declined)", input: { path: "x.txt", content: "a\nb" } }, "已拒绝"],
+      ["历史 用户拒绝", "bash", { ok: false, content: "permission request declined by user" }, "已拒绝"],
+      ["历史 拒绝后连带取消", "read", { ok: false, content: "tool call cancelled because a previous permission request was declined" }, "已取消 · 前一项权限被拒绝"],
+      ["bash 规则集拒绝", "bash", { ok: false, content: 'permission denied by ruleset: bash on `{"command":"rm -rf target","workdir":"C:/p"}`.\nThis action is denied by the project permission rules.' }, "被权限规则拒绝 bash"],
+      ["write 规则集拒绝", "write", { ok: false, content: "permission denied by ruleset: edit on `.kanzei/project/requirements.md`.\nUse the req tool." }, "被权限规则拒绝 edit"],
+      ["bash 自主运行跳过", "bash", { ok: false, content: 'permission requires user approval: bash on `{"command":"cargo publish"}`; autonomous/parallel run skipped it' }, "需要批准 · 自主运行已跳过"],
+      ["bash 入参修复提示", "bash", { ok: false, outcome: "needs_correction", code: "INVALID_TOOL_INPUT", content: "Invalid input for tool `bash`: missing field `command`\n缺少必填参数 `command`。\nExample (one line): {\"command\":\"ls\"}\nYour raw input was: {}\nRetry the tool call with corrected JSON." }, "入参无效 · 缺少参数 command"],
+      ["bash 执行中被停止", "bash", { ok: false, content: "cancelled: run stopped by user during execution" }, "已停止"],
+      ["bash 未执行的其它失败(无退出码)", "bash", { ok: false, content: "bash: command must not be empty\nprovide a command" }, "bash: command must not be empty"],
+      // 存储标记
+      ["历史外置标记", "bash", { content: "[tool_result_externalized artifact_id=a1 bytes=2097152 sha256=ff]\nPreview: exit code: 0 (+9000 lines)\n完整原文已外置；请按 retrieval_hint 回读。" }, "输出较大 · 2.0 MB · 已外置"],
+      ["实时 artifact display", "bash", { content: "[tool_result_externalized artifact_id=a1 bytes=2097152 sha256=ff]\nPreview: x", display: { kind: "artifact", bytes: 2097152 } }, "输出较大 · 2.0 MB · 已外置"],
+      ["历史 noop 前缀", "edit", { ok: false, content: "[tool_outcome=noop code=EDIT_IDENTICAL_INPUT]\nold_string 与 new_string 相同" }, "无需修改"],
+    ];
+    for (const [label, name, ctx, expected] of cases) {
+      const got = sum(name, ctx);
+      assert(got.text === expected, `工具行摘要 ${label}:期望 "${expected}",实得 "${got.text}"(${got.key})`);
+      const noise = noiseOf(got.text);
+      assert(!noise.length, `工具行摘要 ${label} 仍含噪声(${noise.join("、")}):"${got.text}"`);
+    }
+    // 摘要的纯文本就是 parts 拼接:渲染后的 textContent 与 text 逐字一致,且代码记号进 span。
+    {
+      const el = document.createElement("span");
+      const got = sum("git", cases.find(([label]) => label === "git commit")[2]);
+      summaryNs.renderToolSummary(el, got);
+      assert(el.textContent === `⎿ ${got.text}`, `renderToolSummary 的 textContent 与摘要文本不一致:"${el.textContent}"`);
+      assert(el.querySelector(".tool-sum-code")?.textContent === HASH, "提交哈希未渲染成 .tool-sum-code");
+      assert(el.querySelector(".tool-sum-add")?.textContent === "+12" && el.querySelector(".tool-sum-del")?.textContent === "−3", "增删行数未按 add/del 分色");
+    }
+    // 失败行仍是互斥切分:cleanPaths 之后摘要 + 剩余逐字拼回,verbatim 路径显示成相对路径。
+    {
+      const failed = sum("edit", { ok: false, preview: `cannot write ${VROOT}\\crates\\x.rs: 拒绝访问。 (+2 lines)` });
+      assert(failed.mode === "split" && failed.text === "cannot write crates/x.rs: 拒绝访问。 (+2 lines)", `失败行没把 verbatim 路径相对化:"${failed.text}"`);
+      // 规则集拒绝的全文(含处理建议)留在展开区,⎿ 行只说原因。
+      const denied = sum("bash", cases.find(([label]) => label === "bash 规则集拒绝")[2]);
+      assert(denied.rest.includes("denied by the project permission rules"), `规则集拒绝的处理建议没进展开区:"${denied.rest}"`);
+    }
+    // 最终安全网:某个摘要器把「行号 + 源码」(合并空白后 `1 // 注释`)夹在别的组后面漏出来,
+    // 整行判据看不出,逐组判据必须拦下(toolSummarySafetyNet 变异守这一条)。
+    {
+      const table = summaryNs.TOOL_RESULT_SUMMARIZERS;
+      table.__g4probe = () => ({ groups: ["退出码 0", "1 // 这是一段中文源码注释说明"], key: "probe" });
+      try {
+        const got = sum("__g4probe", { content: "exit code: 0\n     1\t// 这是一段中文源码注释说明" });
+        assert(got.key === "fallback.noise" && got.text === "输出 2 行", `安全网没拦住夹在后面的行号源码:"${got.text}"(${got.key})`);
+      } finally {
+        delete table.__g4probe;
+      }
+    }
+    // 英文计数单复数、参数列动作标签与结果列分开、线路不与行数撞义。
+    {
+      localStorageShim.setItem("kz-language", "en");
+      try {
+        const oneFile = sum("glob", { content: "src/a.rs" }).text;
+        const oneLine = sum("bash", { content: "exit code: 0\n{x" }).text;
+        const lines = sum("collaboration_status", { content: "x", display: { lines: [{}, {}] } }).text;
+        const addArg = toolArgSummary("req", { action: "add", title: "T" }).text;
+        const updateArg = toolArgSummary("req", { action: "update", id: "R-364" }).text;
+        const added = sum("req", { content: "added R-365 [todo] T", input: { action: "add" } }).text;
+        assert(oneFile === "1 file" && oneLine === "exit 0 · 1 line of output", `英文单数仍是复数:"${oneFile}" / "${oneLine}"`);
+        assert(lines === "2 parallel lines", `英文线路计数与行数撞义:"${lines}"`);
+        assert(addArg === "Add · T" && updateArg === "Update R-364" && added === "Added R-365", `参数列动作与结果列共用一个英文词:"${addArg}" / "${updateArg}" / "${added}"`);
+      } finally {
+        localStorageShim.setItem("kz-language", "zh");
+      }
+    }
+
+    // ---------- 参数摘要 ----------
+    const savedProject = shellNs.currentProject;
+    const savedItems = shellNs.processItems;
+    shellNs.setCurrentProject(ROOT);
+    shellNs.setProcessItems([...(Array.isArray(savedItems) ? savedItems : []), { id: "w|g4", worktree_path: "D:\\wt\\line-a" }]);
+    try {
+      const readArg = toolArgSummary("read", { path: `${VROOT}\\crates\\x.rs` });
+      assert(readArg.text === "crates/x.rs" && readArg.code, `项目根下的 verbatim 绝对路径未相对化:"${readArg.text}"`);
+      const worktreeArg = toolArgSummary("edit", { path: "D:\\wt\\line-a\\src\\y.rs" });
+      assert(worktreeArg.text === "src/y.rs", `线路工作树下的路径未相对化:"${worktreeArg.text}"`);
+      const grepArg = toolArgSummary("grep", { pattern: "alpha|beta|gamma|delta|epsilon" });
+      assert(grepArg.text === "alpha 等 5 项" && grepArg.code, `多分支正则未折叠成首分支 + 等 N 项:"${grepArg.text}"`);
+      const bashArg = toolArgSummary("bash", { command: `cd "${ROOT}" && cargo test -p kanzei-app --lib -- tool_summary --nocapture --test-threads=1 and some more words here` });
+      assert(bashArg.text.startsWith("cargo test -p kanzei-app") && bashArg.text.length <= 64 && !bashArg.text.includes("cd "), `命令未剥掉 cd 项目根前缀或超过 64 字:"${bashArg.text}"`);
+      const fetchArg = toolArgSummary("webfetch", { url: "https://docs.rs/tokio/latest/tokio/?search=spawn#main" });
+      assert(fetchArg.text === "docs.rs/tokio/latest/tokio/", `webfetch 参数未只留 host+path:"${fetchArg.text}"`);
+      const taskArg = toolArgSummary("task", { prompt: "第一行任务说明\n第二行细节" });
+      assert(taskArg.text === "第一行任务说明", `task 参数未取 prompt 首行:"${taskArg.text}"`);
+      const questionArg = toolArgSummary("question", { question: "用哪个方案?" });
+      assert(!questionArg.code, "question 参数是自然语言,不该标成代码记号");
+
+      // ---------- 端到端(实时):tool-end 带 content/durationMs ----------
+      const live = [
+        ["G4L-READ", "read", { path: `${VROOT}\\crates\\x.rs` }, { content: `${readLines(1, 42)}\n` }, "全文 42 行"],
+        ["G4L-GREP", "grep", { pattern: "fn" }, { content: "src/a.rs:3: fn one() {}\nsrc/a.rs-4- }\nsrc/b.rs:1: fn two() {}" }, "2 处匹配 · 2 个文件"],
+        ["G4L-SYM", "symbols", { path: "src" }, { content: "== src/a.rs\n  pub fn one:1\n     fn two:3" }, "2 个符号"],
+        ["G4L-BASH", "bash", { command: "cargo test" }, {
+          content: "exit code: 0\nrunning 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored",
+          display: { kind: "terminal", command: "cargo test", exitCode: 0, output: "running 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored", full: "running 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored" },
+        }, "退出码 0 · 3 通过"],
+        ["G4L-REQ", "req", { action: "update", id: "R-364" }, { content: "updated: R-364 [doing] 工具行摘要\n变更: 状态: todo → doing" }, "R-364 → doing"],
+        ["G4L-TEST", "test_record", { title: "cargo test", status: "passed", summary: "3 passed; 0 failed" }, { content: "recorded T-1786922727068. active: 0, archived: 1 (path: p, archive: a)" }, "已记录 T-…7068 · 3/3 通过"],
+      ];
+      const liveText = new Map();
+      for (const [id, name, input, end, expected] of live) {
+        toolStart({ payload: { id, name, summary: name, input, sessionId: SID } });
+        const lines = end.content.split("\n");
+        const preview = `${lines[0]}${lines.length > 1 ? ` (+${lines.length - 1} lines)` : ""}`;
+        toolEnd({ payload: { id, name, ok: true, outcome: "success", preview, display: null, ...end, contentTruncated: false, contentBytes: end.content.length, sessionId: SID } });
+        await flush();
+        const block = chatNs.chatToolBlocks.get(id);
+        const text = block?.result.textContent ?? "";
+        liveText.set(id, text);
+        assert(text === `⎿ ${expected}`, `实时 ${name} 的 ⎿ 行不是人话摘要:期望 "⎿ ${expected}",实得 "${text}"`);
+        assert(!noiseOf(text).length, `实时 ${name} 的 ⎿ 行仍含噪声:"${text}"`);
+      }
+      assert(chatNs.chatToolBlocks.get("G4L-READ")?.head.querySelector(".tool-msg-arg")?.textContent === "(crates/x.rs)", "实时 read 的参数列未把 verbatim 路径相对化");
+      assert(chatNs.chatToolBlocks.get("G4L-READ")?.head.querySelector(".tool-msg-arg")?.classList.contains("is-code"), "路径参数未标 is-code(等宽只给代码记号)");
+      // 耗时:durationMs=12300 → 「· 12.3s」紧跟退出码。
+      toolStart({ payload: { id: "G4L-DUR", name: "bash", summary: "cargo test", input: { command: "cargo test" }, sessionId: SID } });
+      toolEnd({ payload: { id: "G4L-DUR", name: "bash", ok: true, outcome: "success", preview: "exit code: 0 (+2 lines)", content: "exit code: 0\nrunning 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored", durationMs: 12300, display: null, sessionId: SID } });
+      await flush();
+      assert(chatNs.chatToolBlocks.get("G4L-DUR")?.result.textContent === "⎿ 退出码 0 · 12.3s · 3 通过", `实时 bash 耗时未紧跟退出码:"${chatNs.chatToolBlocks.get("G4L-DUR")?.result.textContent}"`);
+      assert(chatNs.chatToolBlocks.get("G4L-DUR")?.result.querySelector(".tool-sum-dur")?.textContent === "12.3s", "耗时未渲染成 .tool-sum-dur");
+      // 活动面板进度行与主对话同一个摘要器(耗时在元信息行,不重复)。
+      const bgBash = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4L-BASH");
+      assert(bgBash?.querySelector(".bg-prog")?.textContent === "退出码 0 · 3 通过", `活动面板 bash 进度行不是摘要:"${bgBash?.querySelector(".bg-prog")?.textContent}"`);
+      const bgDur = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4L-DUR");
+      assert(bgDur?.querySelector(".bg-meta")?.textContent.includes("12.3s"), `活动面板耗时未优先用后端 durationMs:"${bgDur?.querySelector(".bg-meta")?.textContent}"`);
+
+      // ---------- 同源一致性:同一组夹具走历史回放,⎿ 行逐条相等 ----------
+      const historyItems = [{ role: "assistant", parts: live.flatMap(([id, name, input, end]) => [
+        { type: "tool_call", id: `H${id}`, name, input },
+        { type: "tool_result", call_id: `H${id}`, is_error: false, content: end.content },
+      ]) }];
+      historyItems[0].parts.push(
+        { type: "tool_call", id: "HG4-NOOP", name: "edit", input: { path: "ui/x.js", old_string: "a", new_string: "a" } },
+        { type: "tool_result", call_id: "HG4-NOOP", is_error: true, content: "[tool_outcome=noop code=EDIT_IDENTICAL_INPUT]\nold_string 与 new_string 相同,无需修改" },
+        { type: "tool_call", id: "HG4-QUOTA", name: "process", input: { action: "list" } },
+        { type: "tool_result", call_id: "HG4-QUOTA", is_error: false, content: `[tool_result_truncated reason=artifact_quota_exceeded bytes=3145728 storage_used_bytes=2040109466 quota_bytes=2147483648 sha256=${"b".repeat(64)}]\n工具结果存储已达配额。仅保留头 32 KiB 与尾 32 KiB。\nbg1 running` },
+      );
+      viewsNs.renderMessageParts(historyItems);
+      await flush();
+      const historyBlock = (id) => [...document.querySelectorAll("#messages [data-active] .tool-msg")].find((n) => n.dataset.toolCallId === id);
+      for (const [id] of live) {
+        const text = historyBlock(`H${id}`)?.querySelector(".tool-msg-result")?.textContent ?? "";
+        assert(text === liveText.get(id), `实时与历史回放的 ⎿ 行不一致(${id}):实时 "${liveText.get(id)}" vs 历史 "${text}"`);
+      }
+      const noopBlock = historyBlock("HG4-NOOP");
+      assert(noopBlock?.classList.contains("noop") && noopBlock?.querySelector(".tool-msg-status")?.textContent === "↪", "历史 [tool_outcome=noop] 前缀未恢复 noop 终态(仍画成失败)");
+      assert(noopBlock?.querySelector(".tool-msg-result")?.textContent === "⎿ 无需修改", `历史 noop 的 ⎿ 行漂移:"${noopBlock?.querySelector(".tool-msg-result")?.textContent}"`);
+      const quotaBlock = historyBlock("HG4-QUOTA");
+      assert(quotaBlock?.querySelector(".tool-msg-result")?.textContent.includes("工具结果存储已满"), `历史配额截断标记未合成与实时相同的人话 ⎿ 行:"${quotaBlock?.querySelector(".tool-msg-result")?.textContent}"`);
+      assert(quotaBlock?.querySelector(".quota-notice"), "历史配额截断标记未合成配额提示块");
+      // 轨迹里的耗时回填到历史 bash 行。
+      const applied = chatNs.applyRecoveredToolDurations([{ events: [{ id: "HG4L-BASH", kind: "tool.completed", ok: true, durationMs: 12300 }] }]);
+      assert(applied === 1 && historyBlock("HG4L-BASH")?.querySelector(".tool-msg-result")?.textContent === "⎿ 退出码 0 · 12.3s · 3 通过",
+        `applyRecoveredToolDurations 未给历史 bash 行补上耗时:"${historyBlock("HG4L-BASH")?.querySelector(".tool-msg-result")?.textContent}"`);
+      assert(/renderRecoveredTraces\(traces\);\r?\n\s*applyRecoveredToolDurations\(traces\);/.test(source), "loadConversation 未在轨迹回放后回填工具行耗时");
+
+      // ---------- 旧后端兼容:tool-end 只有 preview ----------
+      const legacy = [
+        ["G4O-READ", "read", { path: "x.rs" }, "     1\tuse std::io; (+41 lines)", "全文 42 行"],
+        ["G4O-GREP", "grep", { pattern: "x" }, "src/a.rs-450- } (+12 lines)", "13 条结果"],
+        ["G4O-SYM", "symbols", { path: "src" }, `== ${VROOT}\\src\\lib.rs (+20 lines)`, "21 行"],
+      ];
+      for (const [id, name, input, preview, expected] of legacy) {
+        toolStart({ payload: { id, name, summary: name, input, sessionId: SID } });
+        toolEnd({ payload: { id, name, ok: true, preview, display: null, sessionId: SID } });
+        await flush();
+        const text = chatNs.chatToolBlocks.get(id)?.result.textContent ?? "";
+        assert(text === `⎿ ${expected}`, `旧后端(只有 preview)的 ${name} 未走降级摘要:"${text}"`);
+        assert(!noiseOf(text).length && !text.includes("use std"), `旧后端 ${name} 仍回显首行源码/路径:"${text}"`);
+      }
+
+      // ---------- 权限卡点「拒绝」:后端直发的 ToolEnd 带 content:"",⎿ 行与活动面板都要说出原因 ----------
+      toolStart({ payload: { id: "G4L-DECL", name: "bash", summary: "rm -rf target", input: { command: "rm -rf target" }, sessionId: SID } });
+      toolEnd({ payload: { id: "G4L-DECL", name: "bash", ok: false, outcome: "failed", code: "USER_DECLINED", preview: "(user declined)", content: "", contentBytes: 0, contentTruncated: false, display: null, sessionId: SID } });
+      await flush();
+      assert(chatNs.chatToolBlocks.get("G4L-DECL")?.result.textContent === "⎿ 已拒绝", `用户拒绝的 bash ⎿ 行没说出原因:"${chatNs.chatToolBlocks.get("G4L-DECL")?.result.textContent}"`);
+      const bgDecl = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4L-DECL");
+      assert(bgDecl?.querySelector(".bg-prog")?.textContent === "已拒绝", `活动面板里用户拒绝的 bash 进度行没说出原因:"${bgDecl?.querySelector(".bg-prog")?.textContent}"`);
+      // 历史轨迹回放的失败行与主对话同一个摘要器(不再是 `exit code: 101 (+42 lines)` 原文)。
+      const activityNs = esmModuleCache.get("06-activity.js")?.namespace;
+      activityNs?.renderRecoveredTraces([{ events: [
+        { id: "G4T-FAIL", kind: "tool.started", name: "bash", summary: "cargo test" },
+        { id: "G4T-FAIL", kind: "tool.completed", name: "bash", ok: false, outcome: "failed", preview: "exit code: 101 (+42 lines)", error: "exit code: 101 (+42 lines)" },
+        { id: "G4T-DECL", kind: "tool.started", name: "write", summary: "x.txt" },
+        { id: "G4T-DECL", kind: "tool.completed", name: "write", ok: false, outcome: "failed", code: "USER_DECLINED", preview: "(user declined)", error: "(user declined)" },
+        { id: "G4T-READ", kind: "tool.started", name: "read", summary: "crates/x.rs" },
+        { id: "G4T-READ", kind: "tool.completed", name: "read", ok: false, outcome: "failed", code: "READ_PATH_NOT_FOUND", preview: `path not found: ${ROOT}\\crates\\x.rs (+1 lines)`, error: `path not found: ${ROOT}\\crates\\x.rs (+1 lines)` },
+      ] }]);
+      const traceProg = (id) => [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === id)?.querySelector(".bg-prog")?.textContent;
+      assert(traceProg("G4T-FAIL") === "退出码 101 · 输出 42 行", `历史轨迹失败行仍贴 preview 原文:"${traceProg("G4T-FAIL")}"`);
+      assert(traceProg("G4T-DECL") === "已拒绝", `历史轨迹里用户拒绝的 write 没说出原因:"${traceProg("G4T-DECL")}"`);
+      assert(traceProg("G4T-READ") === "路径不存在 · crates/x.rs", `历史轨迹的 read 失败行未从报错首行取出相对路径:"${traceProg("G4T-READ")}"`);
+
+      // ---------- 子代理子行:参数与结果都不贴 JSON 片段 ----------
+      toolStart({ payload: { id: "G4_SCOUT", name: "task", summary: "G4_SCOUT · 勘察", input: { prompt: "x", phase: "scouting", role: "G4_SCOUT" }, sessionId: SID } });
+      taskProgress({ payload: { id: "G4_SCOUT", text: "第 1/3 轮", trace: { child_id: "g1", phase: "start", name: "bash", summary: '{"command":"cargo test -p kanzei-app --lib","workdir":"C:\\\\Users\\\\kanzei\\\\Documents\\\\kanzei cod' }, sessionId: SID } });
+      taskProgress({ payload: { id: "G4_SCOUT", text: "第 1/3 轮", trace: { child_id: "g1", phase: "end", name: "bash", ok: true, preview: "exit code: 0 (+5 lines)" }, sessionId: SID } });
+      taskProgress({ payload: { id: "G4_SCOUT", text: "第 2/3 轮", trace: { child_id: "g2", phase: "start", name: "read", summary: "{\"path\":\"crates/x.rs\"}" }, sessionId: SID } });
+      taskProgress({ payload: { id: "G4_SCOUT", text: "第 2/3 轮", trace: { child_id: "g2", phase: "end", name: "read", ok: true, preview: "     1\tuse std; (+9 lines)" }, sessionId: SID } });
+      await flush();
+      const scoutEntry = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4_SCOUT");
+      const childHeads = [...(scoutEntry?.querySelectorAll(".bg-child-head") ?? [])].map((n) => n.textContent);
+      const childMetas = [...(scoutEntry?.querySelectorAll(".bg-child-meta") ?? [])].map((n) => n.textContent);
+      assert(childHeads[0] === "bash cargo test -p kanzei-app --lib" && childHeads[1] === "read crates/x.rs", `子代理子行参数仍是后端入参 JSON:${JSON.stringify(childHeads)}`);
+      assert(childHeads.every((head) => !head.includes('{"')), `子代理子行 head 含 JSON 片段:${JSON.stringify(childHeads)}`);
+      assert(childMetas[0] === "退出码 0 · 输出 5 行" && childMetas[1] === "全文 10 行", `子代理子行结果未走摘要器降级口径:${JSON.stringify(childMetas)}`);
+      toolEnd({ payload: { id: "G4_SCOUT", name: "task", ok: true, preview: "勘察完成", display: null, sessionId: SID } });
+      await flush();
+
+      // ---------- 内存约束:正文不挂到块/DOM 上 ----------
+      const bigContent = readLines(1, 9000).slice(0, 256 * 1024);
+      toolStart({ payload: { id: "G4L-BIG", name: "read", summary: "big.rs", input: { path: "big.rs" }, sessionId: SID } });
+      toolEnd({ payload: { id: "G4L-BIG", name: "read", ok: true, preview: "     1\tlet v1 = 1; (+8999 lines)", content: bigContent, contentBytes: bigContent.length, contentTruncated: false, display: null, sessionId: SID } });
+      await flush();
+      const bigBlock = chatNs.chatToolBlocks.get("G4L-BIG");
+      assert(bigBlock && !("content" in bigBlock) && !("content" in bigBlock.wrap), "工具块或 DOM 节点上挂了 content(200 块 × 256 KiB 会吃掉 50 MB)");
+      const longProps = Object.entries(bigBlock ?? {}).filter(([, value]) => typeof value === "string" && value.length > 9000).map(([key]) => key);
+      assert(!longProps.length, `工具块上留了超长字符串属性:${longProps.join(", ")}`);
+      assert((bigBlock?.wrap.textContent.length ?? 0) < 9000, `256 KiB 正文进了 DOM(wrap 文本 ${bigBlock?.wrap.textContent.length} 字,上限 9000)`);
+      // 入参已渲染进展开区,收尾后块上不再留原始入参(块经 wrap._kzToolBlock 与 DOM 同寿命)。
+      assert(bigBlock?.input === null, "工具块收尾后仍持有原始入参(大 write/edit 的正文会跟着 DOM 活很久)");
+    } finally {
+      shellNs.setCurrentProject(savedProject);
+      shellNs.setProcessItems(savedItems);
+    }
+
+    // ---------- CSS:摘要比例字体,代码记号等宽,只用 token ----------
+    const rootBlock = style.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    assert(/--sans:/.test(rootBlock), ":root 缺 --sans token");
+    assert(/\.tool-msg-head\s*\{[^}]*font-family:\s*var\(--sans\)/.test(style), ".tool-msg-head 仍用等宽(人话摘要读起来像日志)");
+    assert(/\.tool-msg-result\s*\{[^}]*font-family:\s*var\(--sans\)/.test(style), ".tool-msg-result 未改用比例字体");
+    assert(/\.tool-msg-arg\.is-code\s*\{[^}]*font-family:\s*var\(--mono\)/.test(style), ".tool-msg-arg.is-code 未用等宽");
+    for (const cls of ["code", "add", "del", "dur"]) {
+      const rule = style.match(new RegExp(`\\.tool-sum-${cls}\\s*\\{([^}]*)\\}`))?.[1];
+      assert(rule !== undefined, `缺少 .tool-sum-${cls} 样式`);
+      assert(rule === undefined || (!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule) && !/opacity/.test(rule)), `.tool-sum-${cls} 用了字面量颜色或 opacity(只准用 token)`);
+    }
+    if (priorLanguage === null) localStorageShim.removeItem?.("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+
+// ---------- UI-0926 #10:结构化渲染(04-structured.js)与各调用点 ----------
+// 机器格式(工具 JSON 结果、bash 权限资源 JSON、tracker 字段里的①②③/||/JSON、provider 错误体、
+// 局部校验明细)此前原样贴给人看。这里先对渲染器做 DOM 单元断言,再走真实事件/回放路径断言
+// 各调用点。harness 的 innerHTML 只做去标签近似,所以渲染器必须纯 DOM(下面也机械检查)。
+{
+  const svNs = esmModuleCache.get("04-structured.js")?.namespace;
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const eventsNs = esmModuleCache.get("07-events.js")?.namespace;
+  const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
+  const settingsNs = esmModuleCache.get("16-settings.js")?.namespace;
+  const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+  const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  const activityNs = esmModuleCache.get("06-activity.js")?.namespace;
+  const svExports = ["richText", "renderKV", "renderJsonTree", "renderValue", "renderToolArgs", "renderToolResult", "renderTrackerFields", "renderSearchResults", "renderPermissionResource", "renderErrorDetail", "renderLocalValidation", "lazyMount", "flushLazy", "structuredNav", "setStructuredNav"];
+  const missingSv = svExports.filter((name) => !svNs?.[name]);
+  assert(!missingSv.length, `04-structured.js 缺少导出:${missingSv.join(", ")}`);
+  const svSource = sources[scriptSrcs.indexOf("04-structured.js")] ?? "";
+  const innerHtmlWrites = svSource.match(/\.innerHTML\s*=/g) ?? [];
+  assert(innerHtmlWrites.length === 1 && /box\.innerHTML = renderMarkdown\(/.test(svSource), `04-structured.js 只准把 renderMarkdown 的输出写进 innerHTML,实得 ${innerHtmlWrites.length} 处写入`);
+  assert(!/createDocumentFragment/.test(svSource), "04-structured.js 不得用 DocumentFragment(冒烟 harness 没有,真机与冒烟会分叉)");
+  assert(activityNs?.highlightLine === svNs?.highlightLine, "06-activity.js 的 highlightLine 应转出 04-structured.js 的同一实现(唯一真源)");
+  const summarySource = sources[scriptSrcs.indexOf("05-tool-summary.js")] ?? "";
+  assert(/mismatchFacts/.test(summarySource) && !/function summarizeJsonResult/.test(svSource), "JSON 工具的 ⎿ 摘要只能在 05-tool-summary.js 一处(04-structured.js 不得另写一套)");
+
+  if (svNs && chatNs && eventsNs && sessionsNs && settingsNs && shellNs && viewsNs && !missingSv.length) {
+    const priorLanguage = localStorageShim.getItem("kz-language");
+    localStorageShim.setItem("kz-language", "zh");
+    const SID = shellNs.activeSessionId || "sess-smoke";
+    handlers.get("kz:turn")?.({ payload: { sessionId: SID, step: 3, maxSteps: 12 } });
+    await flush();
+    const toolStart = handlers.get("kz:tool-start");
+    const toolEnd = handlers.get("kz:tool-end");
+
+    // ---------- 真实导航注册(19-research.js):docs 下的 markdown 进应用内查看器 ----------
+    assert(svNs.structuredNav.openRef.name === "openStructuredRef" && svNs.structuredNav.openPath.name === "openStructuredPath",
+      "structuredNav 未注册真实跳转(chip 点了没反应)");
+    {
+      const before = invokeArgs.length;
+      await svNs.structuredNav.openPath("docs/design/memory_system.md", null);
+      await flush();
+      const call = invokeArgs.slice(before).find((entry) => entry.cmd === "docs_read_custom");
+      assert(call?.args?.relPath === "docs/design/memory_system.md", `路径 chip 打开 docs 下的设计文档未走 docs_read_custom:${JSON.stringify(call)}`);
+      assert(!byId.get("viewer-overlay")?.classList.contains("hidden") && listText("viewer-title") === "memory_system.md", "设计文档未在应用内查看器打开");
+      byId.get("viewer-overlay")?.classList.add("hidden");
+    }
+
+    const navCalls = [];
+    const savedNav = { ...svNs.structuredNav };
+    svNs.setStructuredNav({
+      openRef: (id) => navCalls.push(["ref", id]),
+      openPath: (path, line) => navCalls.push(["path", path, line]),
+      openUrl: (url) => navCalls.push(["url", url]),
+      openMemory: (scope, id) => navCalls.push(["memory", scope, id]),
+    });
+    const lastNav = () => navCalls[navCalls.length - 1] ?? [];
+    try {
+      // ---------- 单元:JSON 树 ----------
+      {
+        const tree = svNs.renderJsonTree({ a: { b: "x\ny" } });
+        const block = tree.querySelector(".sv-json-row pre.sv-str-block");
+        assert(block?.textContent === "x\ny", `多行字符串未显示真实换行:${JSON.stringify(block?.textContent)}`);
+        assert(!tree.querySelector(".sv-json-row")?.textContent.includes("\\n"), "JSON 树里的字符串又被转义成字面的 \\n");
+        assert(tree.querySelector(".sv-copy-json") && tree.querySelector("details.sv-raw"), "JSON 树缺少「复制 JSON / 原始 JSON」工具条");
+        const long = svNs.renderJsonTree(Array.from({ length: 130 }, (_, i) => i), { maxItems: 100 });
+        const more = long.querySelector(".sv-more");
+        assert(more?.textContent === "还有 30 项", `数组超过 maxItems 未给「还有 N 项」:${more?.textContent}`);
+        more?.click();
+        assert(long.querySelectorAll(".sv-num").length === 130 && !long.querySelector(".sv-more"), "点「还有 N 项」后未补齐剩余项");
+      }
+      // ---------- 单元:tracker 字段只读视图(G5 接进单页详情前的单测) ----------
+      {
+        const discovery = JSON.stringify({ Intent: "编辑后先做局部结构校验", Explicit: "按文件类型选择 check", Assumptions: "复用已有 parser", Ambiguities: "验证器矩阵待勘察", 领域对象: "changed region", 最小成功闭环: "三类 edit 路径", 延后决策: "完整语言矩阵" });
+        const fields = [
+          ["优先级", "P1"], ["复杂度", "大"], ["标签", "架构 流程 自举"], ["批次", "3/5"],
+          ["来源", "2026-08-17 用户确认「自举一期应该差不多可以算结束」"],
+          ["refs", "R-221 R-276 docs/design/phase2_system_upgrade.md"],
+          ["内容", "以 docs/design/phase2_system_upgrade.md 为二期真源维护五批:批1 设计/依赖/需求映射;批2 P0 事实恢复(D-409 与 memory backlog);批3 research+memory 引擎 E2"],
+          ["验收", "①所有二期子条目有明确依赖;②Wave 0～4 各有 Go/No-Go 记录;③联合闭环按 session/topic/memory id 可回溯;④二期结项时无相互矛盾状态。"],
+          ["进展", "R-101 B3 已提交 d1cc0006 || 2026-08-20 B3 收口:真实执行 -RunStopTest 通过"],
+          ["停车", "排队:排在 R-340 之后;恢复人:agent;解除条件:R-340"],
+          ["发现记录", discovery],
+          ["observed_head", "148386f3d467b701f334932b2bfc85bbcfcea475"],
+          ["observed_worktree_hash", "fnv1a64:cbf29ce484222325"],
+          ["recorded_at", "1786925390809"],
+        ];
+        const tf = svNs.renderTrackerFields(fields);
+        const row = (key) => [...tf.querySelectorAll(".tf-row")].find((node) => node.dataset.field === key);
+        assert(row("验收")?.querySelectorAll("ol li").length === 4, "验收 ①②③④ 未渲染成 4 项有序列表");
+        assert(row("发现记录")?.querySelectorAll(".sv-kv-row").length === 7, "发现记录 JSON 未渲染成 7 行键值表");
+        assert([...(row("发现记录")?.querySelectorAll(".sv-kv-row") ?? [])].find((node) => node.dataset.key === "Explicit")?.querySelector(".sv-k")?.textContent === "用户原话",
+          "发现记录英文键未映射成中文标签");
+        const release = row("停车")?.querySelector(".tf-release .sv-ref");
+        assert(release?.textContent === "R-340", "停车的解除条件未做成可点的条目 chip");
+        release?.click();
+        assert(lastNav()[0] === "ref" && lastNav()[1] === "R-340", `点解除条件 chip 未跳转条目:${JSON.stringify(lastNav())}`);
+        assert(row("停车")?.querySelector(".tf-owner")?.textContent === "恢复人: agent", "停车的恢复人未单列成 chip");
+        assert(!row("停车")?.querySelector(".tf-cond-reason")?.textContent.includes("恢复人"), "停车原因里仍混着恢复人/解除条件");
+        const docChip = [...(row("refs")?.querySelectorAll(".sv-path") ?? [])].find((node) => node.dataset.path === "docs/design/phase2_system_upgrade.md");
+        assert(docChip && row("refs")?.querySelectorAll(".sv-ref").length === 2, "refs 里的条目编号/设计文档路径未分别做成 chip");
+        docChip?.click();
+        assert(lastNav()[0] === "path" && lastNav()[1] === "docs/design/phase2_system_upgrade.md", `refs 里的文档路径被当成条目跳转(死链):${JSON.stringify(lastNav())}`);
+        assert(!row("observed_head") && !row("recorded_at"), "引擎字段不该作为普通字段行出现");
+        const engine = tf.querySelector(".tf-engine");
+        assert(engine && [...engine.querySelectorAll(".tf-engine-item")].find((node) => node.dataset.field === "observed_head")?.textContent === "148386f3", "引擎字段未收进「引擎记录」折叠区(head 取前 8 位)");
+        const progress = row("进展")?.querySelector(".tf-timeline");
+        assert(progress?.children.length === 2 && progress.children[1].querySelector(".tf-date")?.textContent === "2026-08-20", "进展的 || 分段未渲染成两段时间线");
+        const content = row("内容");
+        assert(content?.querySelectorAll(".tf-marked li").length === 3 && content.querySelector(".tf-mark")?.textContent === "批1", "内容的「批N」未切成带标签的列表");
+        const meta = tf.querySelector(".tf-meta");
+        assert(meta && [...meta.querySelectorAll(".tf-meta-item")].find((node) => node.dataset.field === "标签")?.querySelectorAll(".tf-tag").length === 3, "标签未按空白拆成 chip");
+        assert(meta?.querySelector(".tf-progress-fill")?.style.getPropertyValue("--tf-progress") === "60%", "批次 3/5 未带进度条");
+        assert(!row("优先级"), "元数据字段不该再占一行");
+        // 卡片紧凑态:只渲染进展/验收/复现/内容/影响的前 3 个,行带 doc-field,列表只露前 3 项。
+        const compact = svNs.renderTrackerFields(fields, { compact: true });
+        const compactRows = [...compact.querySelectorAll(".tf-row")];
+        assert(compactRows.map((node) => node.dataset.field).join(",") === "进展,验收,内容" && compactRows.every((node) => node.classList.contains("doc-field")),
+          `紧凑态字段选择错误:${compactRows.map((node) => node.dataset.field).join(",")}`);
+        const compactAccept = compactRows.find((node) => node.dataset.field === "验收");
+        assert(compactAccept?.querySelectorAll("li").length === 3 && compactAccept.querySelector(".tf-more")?.textContent === "+1", "紧凑态列表未截到 3 项 +N");
+        assert(!compact.querySelector(".tf-engine") && !compact.querySelector(".tf-meta"), "紧凑态不该渲染引擎记录/元数据");
+        // 四种字段形状都吃;unknown 字段标灰;数据里的 HTML 只当文本。
+        for (const shape of [[{ key: "验收", value: "①第一项内容;②第二项内容" }], { 验收: "①第一项内容;②第二项内容" }, [{ name: "验收", value: "①第一项内容;②第二项内容", known: true }]]) {
+          assert(svNs.renderTrackerFields(shape).querySelectorAll("ol li").length === 2, `字段形状 ${JSON.stringify(shape).slice(0, 40)} 未被识别`);
+        }
+        assert(svNs.renderTrackerFields([{ name: "历史自定义", value: "x", known: false }]).querySelector(".tf-row.tf-unknown"), "未知字段未标灰");
+        const xss = svNs.renderTrackerFields([["内容", '<img src=x onerror=alert(1)> [x](javascript:alert(1))']]);
+        assert(!xss.querySelectorAll("img").length && xss.textContent.includes("<img src=x"), "tracker 字段里的 HTML 被当成标记渲染(XSS)");
+      }
+      // ---------- 单元:工具入参键值表 ----------
+      {
+        const args = svNs.renderToolArgs("task", { prompt: "## 任务\n- 第一步\n- 第二步", role: "scout" }, { className: "tool-msg-raw args" });
+        assert(args?.classList.contains("sv-args") && args.classList.contains("tool-msg-raw"), "入参键值表未带 sv-args/调用方类名");
+        const prompt = [...args.querySelectorAll(".sv-kv-row")].find((node) => node.dataset.key === "prompt");
+        assert(prompt?.querySelector("details.sv-prose .sv-md"), "多行 prompt 未折叠成 markdown");
+        assert(!args.textContent.includes("\\n"), "入参里仍有字面的 \\n");
+        assert(JSON.parse(args.dataset.raw).prompt === "## 任务\n- 第一步\n- 第二步", "入参根节点未保留完整 JSON(dataset.raw)");
+        const editArgs = svNs.renderToolArgs("edit", { path: "ui/x.js", old_string: "a\nb", new_string: "c", replace_all: false }, { display: { kind: "diff" } });
+        const shownKeys = [...editArgs.querySelectorAll(".sv-kv-row")].filter((node) => !node.closest(".sv-raw-args")).map((node) => node.dataset.key);
+        assert(shownKeys.join(",") === "path,replace_all", `edit 已有 diff 时外面只该露 path 等:${shownKeys.join(",")}`);
+        assert([...editArgs.querySelectorAll(".sv-raw-args .sv-kv-row")].some((node) => node.dataset.key === "old_string"), "old_string 未收进「原始入参」");
+        assert(editArgs.querySelector(".sv-path")?.textContent === "ui/x.js", "path 未做成路径 chip");
+        assert(svNs.renderToolArgs("bash", { command: "cargo test", workdir: "." })?.querySelector(".sv-cmd")?.textContent === "cargo test", "command 未渲染成命令代码块");
+        assert(svNs.renderToolArgs("read", {}) === null, "空入参应返回 null(不出空框)");
+        // 大入参(write 的整份正文)已逐键渲染,dataset.raw 不再在 DOM 属性里整份再存一遍。
+        const bigArgs = svNs.renderToolArgs("write", { path: "x.txt", content: "x".repeat(20000) });
+        assert(bigArgs && bigArgs.dataset.raw.length <= 8002, `大入参的 dataset.raw 未截断:${bigArgs?.dataset.raw.length} 字`);
+      }
+      // ---------- 单元:路径 chip——带空格的项目根、跳转目标只对当前项目相对化 ----------
+      {
+        const savedProject = shellNs.currentProject;
+        const savedItems = shellNs.processItems;
+        const ROOT = "C:\\Users\\kanzei\\Documents\\kanzei code";
+        shellNs.setCurrentProject(ROOT);
+        shellNs.setProcessItems([...(Array.isArray(savedItems) ? savedItems : []), { id: "w|g4p", worktree_path: "D:\\wt\\line-a" }]);
+        try {
+          // 根带空格:通用路径正则在空格处断开,会切出 `code\crates\a.rs:12` 这种错 chip。
+          const rich = svNs.richText(`见 ${ROOT}\\crates\\a.rs:12 与 R-12`);
+          const chip = rich.querySelector(".sv-path");
+          assert(chip?.dataset.path === "crates/a.rs" && chip.textContent === "crates/a.rs:12", `带空格项目根下的绝对路径被切成错 chip:${chip?.dataset.path} / ${chip?.textContent}`);
+          assert(rich.textContent === "见 crates/a.rs:12 与 R-12" && rich.querySelector(".sv-ref")?.textContent === "R-12", `富文本拼接走样:"${rich.textContent}"`);
+          chip?.click();
+          assert(lastNav()[0] === "path" && lastNav()[1] === "crates/a.rs" && lastNav()[2] === 12, `带空格根下的路径 chip 点击目标错误:${JSON.stringify(lastNav())}`);
+          const dirText = svNs.richText(`cwd ${ROOT}\\crates\\kanzei-app done`);
+          assert(!dirText.querySelector(".sv-path") && dirText.textContent.includes("kanzei code\\crates\\kanzei-app"), "项目根下的目录被切成了路径 chip");
+          // 显示可以相对化/`~/` 缩写,跳转目标只有当前项目下才相对化。
+          const outside = svNs.pathChip("C:\\Users\\kanzei\\Other\\x.rs");
+          assert(outside.textContent === "~/Other/x.rs" && outside.dataset.path === "C:/Users/kanzei/Other/x.rs", `项目外路径的跳转目标是缩写:${outside.dataset.path}`);
+          const worktree = svNs.pathChip("D:\\wt\\line-a\\src\\y.rs");
+          assert(worktree.textContent === "src/y.rs" && worktree.dataset.path === "D:/wt/line-a/src/y.rs", `线路工作树路径被相对化成主项目路径(会打开同名文件):${worktree.dataset.path}`);
+          const inProject = svNs.pathChip(`\\\\?\\${ROOT}\\ui\\x.js`);
+          assert(inProject.dataset.path === "ui/x.js" && inProject.textContent === "ui/x.js", `项目内 verbatim 路径的跳转目标未相对化:${inProject.dataset.path}`);
+        } finally {
+          shellNs.setCurrentProject(savedProject);
+          shellNs.setProcessItems(savedItems);
+        }
+      }
+      // ---------- 单元:权限资源 / 错误详情 / 局部校验 ----------
+      {
+        const perm = svNs.renderPermissionResource("bash", JSON.stringify({ command: "cargo test --workspace", workdir: "C:/smoke/project" }));
+        assert(perm.querySelector(".sv-cmd")?.textContent === "cargo test --workspace", "bash 资源未拆成命令代码块");
+        assert(perm.querySelector(".sv-perm-workdir .sv-path")?.dataset.path === "C:/smoke/project", "bash 资源缺少工作目录 chip");
+        assert(!perm.textContent.includes('{"command"'), "权限资源仍显示原始 JSON");
+        const error = svNs.renderErrorDetail('provider returned HTTP 400: {"error":{"message":"bad param","type":"invalid_request_error"}}');
+        assert(error.querySelector(".sv-error-message")?.textContent === "bad param", "provider 错误体未提取人话消息");
+        assert(error.querySelector(".sv-error-status")?.textContent === "HTTP 400", "错误详情缺少 HTTP 状态 chip");
+        assert(error.dataset.raw.startsWith("provider returned HTTP 400"), "错误详情未保留原文");
+        const checks = svNs.renderLocalValidation({ checks: [{ kind: "node-check", status: "failed", command: "node --check ui/x.js", first_error: "ui/x.js:3 Unexpected token", repair_context: "> 3 | }" }, { kind: "eslint", status: "passed", command: "eslint ui/x.js" }] });
+        assert(checks.querySelector(".sv-check.is-failed")?.textContent === "✗ node-check" && checks.querySelector(".sv-check.is-passed")?.textContent === "✓ eslint", "局部校验 chip 未按状态区分");
+        const errorPath = checks.querySelector(".sv-check-error .sv-path");
+        assert(errorPath?.textContent === "ui/x.js:3", `首个错误里的路径未做成可点 chip:${errorPath?.textContent}`);
+        errorPath?.click();
+        assert(lastNav()[0] === "path" && lastNav()[1] === "ui/x.js" && lastNav()[2] === 3, `首个错误路径点击未带行号打开:${JSON.stringify(lastNav())}`);
+      }
+
+      // ---------- 端到端(实时):tracker list JSON 结果 ----------
+      {
+        const listJson = JSON.stringify({ schema_version: 1, kind: "requirement", deadlocked: false, deadlock_guidance: null, entries: [
+          { id: "R-1", title: "甲", lifecycle_status: "todo", blocked: false, block_reasons: [] },
+          { id: "R-2", title: "乙", lifecycle_status: "todo", blocked: true, block_reasons: ["依赖 R-1 未完成"] },
+          { id: "R-3", title: "丙", lifecycle_status: "doing", blocked: false, block_reasons: [] },
+        ] }, null, 2);
+        toolStart({ payload: { id: "G4S-LIST", name: "req", summary: "list", input: { action: "list" }, sessionId: SID } });
+        toolEnd({ payload: { id: "G4S-LIST", name: "req", ok: true, outcome: "success", preview: `{ (+${listJson.split("\n").length - 1} lines)`, content: listJson, contentBytes: listJson.length, contentTruncated: false, display: null, sessionId: SID } });
+        await flush();
+        const block = chatNs.chatToolBlocks.get("G4S-LIST");
+        assert(block?.result.textContent === "⎿ 3 条 · 2 条可执行", `tracker list 的 ⎿ 行不是摘要:"${block?.result.textContent}"`);
+        assert(block?.detail.querySelector(".sv-lazy") && !block.detail.querySelector(".sv-result"), "JSON 结果应延迟到首次展开才构建");
+        block?.head.click();
+        assert(block?.detail.querySelector(".sv-result") && !block.detail.classList.contains("hidden"), "展开后没有 JSON 结果的结构化视图");
+        assert(block?.detail.querySelectorAll(".sv-tl-row").length === 3, `tracker list 结果未渲染成条目行:${block?.detail.querySelectorAll(".sv-tl-row").length}`);
+        assert(block?.detail.querySelector(".sv-tl-row.is-blocked .sv-tl-reason .sv-ref")?.textContent === "R-1", "阻塞原因里的条目编号未做成 chip");
+        assert(![...(block?.detail.querySelectorAll(".tool-msg-raw") ?? [])].some((node) => !node.classList.contains("args")), "JSON 结果仍在展开区贴了一份原文");
+        const resultView = block?.detail.querySelector(".sv-result");
+        const visibleText = [...(resultView?.children ?? [])].filter((node) => !node.classList.contains("sv-json-tools")).map((node) => node.textContent).join("");
+        assert(visibleText && !visibleText.includes('"lifecycle_status"'), "展开区的可见视图仍出现原始 JSON 键");
+        assert(resultView?.querySelector(".sv-json-tools details.sv-raw"), "结构化视图之外缺少「原始 JSON」出口");
+        const logLine = [...byId.get("log-lines").children].reverse().find((node) => node.textContent.includes("工具结果 req"));
+        assert(logLine && !logLine.textContent.includes("{ (+") && logLine.textContent.includes("3 条"), `运行日志的工具结果行仍是 { (+N lines):${logLine?.textContent}`);
+        // 原 #live-focus 工作焦点行已删(UI-0926 #4,与焦点卡重复);护栏意图不变:侧栏实时区不贴 JSON 首行。
+        assert(!byId.has("live-focus") && !listText("live-status").includes("{ (+"), `侧栏实时区贴了 JSON 首行 preview:"${listText("live-status")}"`);
+      }
+      // ---------- 端到端(实时):edit + 局部校验 ----------
+      {
+        const content = "replaced 1 occurrence(s) in C:/smoke/project/ui/x.js\n局部结构校验发现 1 个精确错误，请先修复后再扩大回归\n局部校验明细:\n- node-check [failed] command: node --check ui/x.js\n  首个错误: ui/x.js:3 Unexpected token";
+        toolStart({ payload: { id: "G4S-LV", name: "edit", summary: "ui/x.js", input: { path: "ui/x.js", old_string: "let a = 1;", new_string: "let a = ;" }, sessionId: SID } });
+        toolEnd({ payload: { id: "G4S-LV", name: "edit", ok: true, outcome: "success", preview: "replaced 1 occurrence(s) in C:/smoke/project/ui/x.js (+4 lines)", content, contentBytes: content.length, contentTruncated: false, display: {
+          kind: "diff", path: "ui/x.js", additions: 1, deletions: 1, language: "js",
+          lines: [{ kind: "del", text: "let a = 1;", old_line: 3 }, { kind: "add", text: "let a = ;", new_line: 3 }],
+          local_validation: { kind: "local_validation", checks: [{ kind: "node-check", status: "failed", command: "node --check ui/x.js", first_error: "ui/x.js:3 Unexpected token", repair_context: "> 3 | let a = ;" }], counts: { failed: 1, passed: 0 } },
+        }, sessionId: SID } });
+        await flush();
+        const block = chatNs.chatToolBlocks.get("G4S-LV");
+        assert(block?.result.textContent === "⎿ +1 −1 · 校验 1 个错误", `edit 校验失败的 ⎿ 行漂移:"${block?.result.textContent}"`);
+        assert(block?.detail.querySelector(".sv-checks .sv-check.is-failed")?.textContent === "✗ node-check", "展开区缺少局部校验失败 chip");
+        assert(block?.detail.querySelector(".sv-check-error .sv-path")?.textContent === "ui/x.js:3", "首个错误的路径未做成 chip");
+        const rest = [...(block?.detail.querySelectorAll(".tool-msg-raw") ?? [])].find((node) => !node.classList.contains("args"));
+        assert(!rest || !rest.textContent.includes("局部校验明细"), "局部校验明细在 chips 之外又贴了一遍原文");
+        const args = block?.detail.querySelector(".tool-msg-raw.args.sv-args");
+        assert(args && [...args.querySelectorAll(".sv-raw-args .sv-kv-row")].some((node) => node.dataset.key === "old_string"), "edit 带 diff 时 old_string 未收进「原始入参」");
+        assert(args?.querySelector(".sv-kv-row")?.dataset.key === "path" && args.querySelector(".sv-path")?.textContent === "ui/x.js", "edit 入参的 path 未直接可见");
+      }
+      // ---------- 端到端(历史回放):websearch 紧凑 JSON、needs_correction 前缀、多行 prompt ----------
+      {
+        const webJson = JSON.stringify({ query: "rust ansi", results: [
+          { title: "ANSI escape code", url: "https://en.wikipedia.org/wiki/ANSI_escape_code", snippet: "ANSI escape sequences are a standard for in-band signaling" },
+          { title: "anstyle", url: "https://docs.rs/anstyle", snippet: "ANSI text styling" },
+        ], truncated: false, prior_art_budget: null });
+        viewsNs.renderMessageParts([{ role: "assistant", parts: [
+          { type: "tool_call", id: "HG4S-WEB", name: "websearch", input: { query: "rust ansi" } },
+          { type: "tool_result", call_id: "HG4S-WEB", is_error: false, content: webJson },
+          { type: "tool_call", id: "HG4S-FIX", name: "edit", input: { path: "ui/x.js", old_string: "a", new_string: "b" } },
+          { type: "tool_result", call_id: "HG4S-FIX", is_error: true, content: "[tool_outcome=needs_correction code=EDIT_ANCHOR_NOT_FOUND]\n请重读锚点" },
+          { type: "tool_call", id: "HG4S-TASK", name: "task", input: { prompt: "第一行任务说明\n第二行细节\n- 列表项", role: "scout" } },
+          { type: "tool_result", call_id: "HG4S-TASK", is_error: false, content: "## 结论\n- 完成" },
+        ] }]);
+        await flush();
+        const historyBlock = (id) => [...document.querySelectorAll("#messages [data-active] .tool-msg")].find((node) => node.dataset.toolCallId === id);
+        const web = historyBlock("HG4S-WEB");
+        assert(web?.querySelector(".tool-msg-result")?.textContent === "⎿ 2 条结果 · ANSI escape code", `历史 websearch 的 ⎿ 行漂移:"${web?.querySelector(".tool-msg-result")?.textContent}"`);
+        web?.querySelector(".tool-msg-head")?.click();
+        assert(web?.querySelectorAll(".sv-search-result").length === 2, "历史 websearch 展开后未渲染成搜索结果列表");
+        const title = web?.querySelector(".sv-search-title");
+        title?.click();
+        assert(lastNav()[0] === "url" && lastNav()[1] === "https://en.wikipedia.org/wiki/ANSI_escape_code", "搜索结果标题点击未走应用内打开");
+        const fix = historyBlock("HG4S-FIX");
+        assert(fix?.classList.contains("warn") && fix.querySelector(".tool-msg-result")?.textContent === "⎿ 请重读锚点", `历史 needs_correction 未恢复终态或 ⎿ 行带了机器头:"${fix?.querySelector(".tool-msg-result")?.textContent}"`);
+        assert(fix?.querySelector(".tool-msg-detail .sv-code")?.textContent === "EDIT_ANCHOR_NOT_FOUND", "需要修正的块未在展开区给出稳定错误码 chip");
+        // UI-0926 #8:task 回放成子代理卡片(不再是工具块):多行 prompt 默认收在卡里,展开后按 markdown
+        // 渲染进「指令」节——同样不整坨铺开、不带字面的 \n。
+        const taskCard = [...document.querySelectorAll("#messages [data-active] .sa-card")].find((node) => node.dataset.saKey?.endsWith("|HG4S-TASK"));
+        assert(taskCard?.querySelector(".sa-body")?.classList.contains("hidden"), "历史 task 的多行 prompt 未折叠");
+        taskCard?.querySelector(".sa-head")?.click();
+        const taskPrompt = taskCard?.querySelector(".sa-prompt");
+        assert(taskPrompt?.textContent.includes("第二行细节") && !taskPrompt.textContent.includes("\\n"), "历史入参里仍有字面的 \\n");
+        taskCard?.querySelector(".sa-head")?.click();
+      }
+
+      // ---------- 权限卡:bash 资源 JSON → 命令代码块 + 工作目录;队列预览不贴 JSON ----------
+      {
+        eventsNs.hideAsk();
+        const askHandler = handlers.get("kz:ask");
+        const resourceA = JSON.stringify({ command: "cargo test --workspace", workdir: "C:/smoke/project" });
+        const resourceB = JSON.stringify({ command: "cargo fmt --all", workdir: "C:/smoke/project" });
+        askHandler?.({ payload: { id: 9401, sessionId: SID, kind: "permission", action: "bash", resource: resourceA, remember: resourceA } });
+        askHandler?.({ payload: { id: 9402, sessionId: SID, kind: "permission", action: "bash", resource: resourceB, remember: resourceB } });
+        await flush();
+        assert(byId.get("ask-resource")?.querySelector(".sv-cmd")?.textContent === "cargo test --workspace", `权限卡资源未拆成命令代码块:"${listText("ask-resource")}"`);
+        assert(byId.get("ask-resource")?.querySelector(".sv-perm-workdir .sv-path"), "权限卡缺少工作目录 chip");
+        assert(listText("ask-action") === "bash", "权限卡的操作一栏被改写");
+        assert(listText("ask-remember") === "bash · 同上", `「记住为」与资源相同时应写「同上」:"${listText("ask-remember")}"`);
+        assert(!listText("ask-queue-preview").includes('{"command"') && listText("ask-queue-preview").includes("bash · cargo fmt --all"), `队列预览仍贴原始 JSON:"${listText("ask-queue-preview")}"`);
+        eventsNs.hideAsk();
+        settingsNs.renderPermissionRules({ path: "C:/smoke/project/.kanzei/kanzei.toml", rules: [{ index: 0, action: "bash", resource: resourceA }] });
+        const rulesBody = byId.get("permission-rules-table")?.querySelector("tbody");
+        assert(rulesBody?.querySelector(".sv-cmd")?.textContent === "cargo test --workspace" && !rulesBody.textContent.includes('{"command"'), "设置页权限规则表仍显示原始 JSON 资源");
+        assert(rulesBody?.querySelector(".icon-btn")?.getAttribute("aria-label") === "删除权限规则 bash · cargo test --workspace", "删除规则按钮的无障碍名称仍带原始 JSON");
+        settingsNs.renderPermissionRules({ rules: [] });
+        // 覆盖提示:标题 + 三列表(字段 | 本页 | 实际生效),不再是「；」拼成的一长行。
+        // UI-0926 #3:模型五键不再进这张表(见项目模型配置),用代理演示「本页 vs 实际生效」。
+        settingsNs.renderEffectiveNotice({ proxy: "env", limits: { maxTokens: 8000 }, projectConfig: "C:/smoke/project/.kanzei/kanzei.toml",
+          effective: { proxy: "http://127.0.0.1:7890", limits: { maxTokens: 4000 } } });
+        const effectiveBox = byId.get("settings-effective");
+        const heads = [...(effectiveBox?.querySelectorAll("table.sv-table th") ?? [])].map((node) => node.textContent);
+        const cells = [...(effectiveBox?.querySelectorAll("table.sv-table tbody tr") ?? [])].map((row) => [...row.querySelectorAll("td")].map((node) => node.textContent).join("|"));
+        assert(effectiveBox?.tagName === "DIV" && heads.join("|") === "字段|本页|实际生效", `覆盖提示不是三列表:${heads.join("|")}`);
+        assert(cells.join(" / ") === "代理|env|http://127.0.0.1:7890 / 运行上限|maxTokens 8000|maxTokens 4000", `覆盖提示的行内容不对:${cells.join(" / ")}`);
+        assert(!effectiveBox?.textContent.includes("；"), "覆盖提示仍是「；」拼接的长句");
+        settingsNs.renderEffectiveNotice({ effective: {} });
+        assert(effectiveBox?.classList.contains("hidden") && !effectiveBox.querySelector("table"), "没有覆盖时提示未收起/未清空");
+      }
+      // ---------- 错误卡 + 运行日志 ----------
+      {
+        const message = 'provider returned HTTP 400: {"error":{"message":"bad param","type":"invalid_request_error"}}';
+        chatNs.reportError(message);
+        await flush();
+        const cards = [...document.querySelectorAll("#messages .msg.error")];
+        const card = cards[cards.length - 1];
+        assert(card?.querySelector(".sv-error-message")?.textContent === "bad param", "错误卡未显示提取出的人话消息");
+        assert(card?.querySelector(".sv-error-status")?.textContent === "HTTP 400", "错误卡缺少 HTTP 状态 chip");
+        assert(card?.dataset.raw === message, "错误卡未保留原文(复制要原文)");
+        assert(card?.querySelector(".error-level"), "错误卡的等级标签丢了");
+        const logLine = byId.get("log-lines")?.children.at(-1);
+        assert(logLine?.querySelector(".sv-log-error .sv-error-message")?.textContent === "bad param", "运行日志的错误行未附结构化详情");
+      }
+      // ---------- 测试记录:真实 {key,value} 字段,点开看结构化详情 ----------
+      {
+        sessionsNs.renderTestRuns({ active: [{ id: "T-1788804121000", title: "cargo 回归", status: "passed", refs: ["R-001"], fields: [
+          { key: "命令", value: "cargo fmt --all -- --check; cargo test -p kanzei-tools" },
+          { key: "收尾", value: "1788804121" },
+          { key: "源码指纹", value: "v2 crates/kanzei-core/src/a.rs@63ae5885281c" },
+        ] }], archived: [] });
+        const entry = document.querySelector("#test-list .test-entry");
+        assert(entry?.dataset.docId === "T-1788804121000", "测试记录行未挂 data-doc-id(T- 编号 chip 跳不过来)");
+        assert(entry?.querySelector(".sv-test-head")?.title.includes("命令: cargo fmt"), "测试记录行的字段 tooltip 读错了字段形状");
+        entry?.querySelector(".sv-test-head")?.click();
+        const detail = entry?.querySelector(".sv-test-detail");
+        assert(detail && !detail.classList.contains("hidden"), "点测试记录行头未展开详情");
+        assert(detail?.querySelectorAll(".sv-cmd-list li").length === 2, "测试命令未按「; 」拆成 2 条");
+        const finished = [...(detail?.querySelectorAll(".sv-kv-row") ?? [])].find((node) => node.dataset.key === "收尾")?.querySelector(".sv-num");
+        assert(finished && finished.textContent !== "1788804121" && finished.title === "1788804121", "收尾时间戳未转成本地时间");
+        assert(detail?.querySelector(".sv-path")?.dataset.path === "crates/kanzei-core/src/a.rs", "源码指纹未拆成路径 chip");
+        assert(entry?.querySelector(".test-ref-chip")?.textContent === "R-001", "测试记录的关联徽标丢了");
+        sessionsNs.renderTestRuns(payloads.test_runs_snapshot);
+      }
+      // ---------- 压缩纪要 / 对话总结 / 架构索引 / 研究运行卡 ----------
+      {
+        eventsNs.addCompactionEntry("## 压缩纪要\n- 保留了目标\n- 丢弃了噪声");
+        const compaction = [...document.querySelectorAll(".compaction-entry")].at(-1);
+        assert(compaction?.querySelector(".bg-detail.md")?.innerHTML.includes("<ul>"), "压缩纪要未按 markdown 渲染");
+        compaction?.remove();
+        const summary = eventsNs.addSummaryEntry("- 做了甲\n- 做了乙", "C:/smoke/project/.kanzei/summaries/s1.md");
+        assert(summary?.querySelector(".bg-detail.md") && summary.querySelector(".sv-archived .sv-path"), "对话总结未按 markdown 渲染或存档路径不是 chip");
+        summary?.remove();
+        const archBody = byId.get("arch-index-body");
+        assert(archBody?.classList.contains("md") && archBody.innerHTML.includes("<h3") && archBody.innerHTML.includes('class="md-path"') && !archBody.textContent.includes("### "),
+          "架构索引仍以 markdown 原文显示(或文档链接不可点)");
+        // 研究运行卡的 execution_json 断言在研究视图用例里(卡片只在选中研究主题时存在)。
+      }
+      // ---------- markdown 路径链接的点击委托 ----------
+      {
+        const link = document.createElement("a");
+        link.className = "md-path";
+        link.dataset.path = "crates/x.rs";
+        link.dataset.line = "7";
+        document.body.appendChild(link);
+        document.dispatchEvent({ type: "click", target: link, preventDefault() {}, stopPropagation() {} });
+        assert(lastNav()[0] === "path" && lastNav()[1] === "crates/x.rs" && lastNav()[2] === 7, `a.md-path 点击未委托到 structuredNav.openPath:${JSON.stringify(lastNav())}`);
+        link.remove();
+      }
+      // ---------- 收活 diff:按文件计数 + 逐文件着色 diff ----------
+      {
+        const harvestRow = [...document.querySelectorAll(".harvest-diff-tree .diff-summary-row")].find((node) => node.dataset.path === "crates/branch.rs");
+        assert(harvestRow?.textContent.includes("+1"), `收活 diff 树的增删计数仍是 +0/−0:"${harvestRow?.textContent}"`);
+        assert([...document.querySelectorAll(".sv-diff-files details")].some((node) => node.dataset.path === "crates/branch.rs" && node.querySelector(".tool-display.diff")), "收活 diff 未按文件渲染着色差异");
+      }
+    } finally {
+      svNs.setStructuredNav(savedNav);
+    }
+
+    // ---------- CSS:结构化渲染只用 token ----------
+    const g4Css = style.split("/* ===== 分区:工具行与结构化渲染 ===== */")[1]?.split("/* ===== 分区:需求卡片与单页 ===== */")[0] ?? "";
+    assert(/\.sv-kv\s*\{/.test(g4Css) && /\.tf-row\s*\{/.test(g4Css) && /a\.md-path\s*\{/.test(g4Css) && /\.ask-value\s*\{/.test(g4Css), "结构化渲染样式不在本组分区里");
+    assert(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(g4Css.replace(/\/\*[\s\S]*?\*\//g, "")), "工具行与结构化渲染分区用了字面量颜色(只准用 token)");
+    if (priorLanguage === null) localStorageShim.removeItem?.("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+
+// ===== 分区:需求卡片与单页 =====
+// ---------- UI-0926 #4(侧栏):焦点卡直达详情 / 页签与依赖视图 / 筛选放行 / 焦点区空态与线路头 /
+// 签名跳过 / 任务卡一行 / 历史行 / 实时行 / 状态栏去重。设计见 scratchpad density.md M1–M4。
+{
+  const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+  const pagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  const listNs = esmModuleCache.get("11-docs-list.js")?.namespace;
+  const miscNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  assert(shellNs && pagesNs && listNs && miscNs, "#4 前置:03/11/12/15 模块命名空间未加载");
+  const savedProcessList = structuredClone(payloads.process_list);
+  const savedDocs = structuredClone(payloads.docs_snapshot);
+  const savedConversationList = payloads.conversation_list;
+  const prioritySelect = byId.get("work-priority-select");
+  const savedPriority = prioritySelect.value;
+  const savedView = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
+  const g5Lines = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main", authority: "primary", stage: "复核" },
+    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: false, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", authority: "parallel", stage: "实现" },
+  ];
+  const showView = async (name) => {
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === name)?.click();
+    await flush();
+  };
+  const itemOf = (listId, id) => document.querySelector(`#${listId} .doc-item[data-doc-id="${id}"]`);
+  const expanded = (item) => Boolean(item)
+    && !item.querySelector(".doc-detail")?.classList.contains("hidden")
+    && item.querySelector(".doc-row")?.getAttribute("aria-expanded") === "true";
+  const collapse = (item) => {
+    if (item && !item.querySelector(".doc-detail")?.classList.contains("hidden")) item.querySelector(".doc-row")?.click();
+  };
+  const focusOpenOf = (id) => document.querySelector(`#focus-body .focus-card[data-doc-id="${id}"] .focus-open`);
+  const lineFocusOf = (processId) => [...document.querySelectorAll("#focus-body .line-focus")].find((node) => node.dataset.processId === processId);
+  const taskRowOf = (processId) => [...document.querySelectorAll("#parallel-task-status .parallel-task-row")].find((node) => node.dataset.processId === processId);
+  // 本段断言中文文案;前面的分区可能把界面留在英文,先切回中文、收尾还原。
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  try {
+    vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
+    payloads.process_list = structuredClone(g5Lines);
+    sandbox.renderProcesses(structuredClone(g5Lines));
+    prioritySelect.value = "requirement-first";
+    payloads.docs_snapshot = structuredClone(savedDocs);
+    sandbox.renderLines(payloads.collaboration_snapshot);
+    await sandbox.refreshDocs();
+    await flush();
+    byId.get("documents-tab-req").click();
+    pagesNs.setDependencyViewOpen(false);
+
+    // ① 整卡直达展开的详情(跨视图:经 refreshDocs 收尾消费)。
+    collapse(itemOf("documents-req-list", "R-001"));
+    await showView("chat");
+    assert(!byId.get("view-documents").classList.contains("active"), "#4 前置:应在对话视图");
+    const open = focusOpenOf("R-001");
+    assert(open, "#4 焦点卡缺少 .focus-open");
+    open?.click();
+    await flush();
+    assert(byId.get("view-documents").classList.contains("active"), "#4 点焦点卡没有切到单页视图");
+    assert(expanded(itemOf("documents-req-list", "R-001")), "#4 点焦点卡落到了收起的行上(应直达展开的详情,还得再点一次正是主诉)");
+
+    // ② 已在单页:同步重绘路径,当场展开并高亮(flush 会冲掉 1.2s 的高亮定时器,所以不 flush 就断言)。
+    collapse(itemOf("documents-req-list", "R-001"));
+    void listNs.jumpToEntry("R-001", { expand: true });
+    const syncTarget = itemOf("documents-req-list", "R-001");
+    assert(expanded(syncTarget), "#4 单页内跳转(同步重绘路径)没有展开目标详情");
+    assert(syncTarget?.classList.contains("ref-highlight"), "#4 单页内跳转后目标行未高亮");
+    await flush();
+
+    // ③ refs 链接、测试关联徽标同样直达展开的详情。
+    collapse(itemOf("documents-req-list", "R-001"));
+    const testChip = [...document.querySelectorAll("#test-list .test-ref-chip")].find((chip) => chip.textContent === "R-001");
+    assert(testChip, "#4 前置:测试记录关联徽标未渲染");
+    testChip?.click();
+    await flush();
+    assert(expanded(itemOf("documents-req-list", "R-001")), "#4 测试关联徽标跳转没有展开目标详情");
+
+    // ④ 跨页签:当前在需求页,焦点指向缺陷 → 自动切到缺陷页签并展开。
+    payloads.docs_snapshot = { ...structuredClone(savedDocs), requirements: [docEntry("R-A", "需求侧 doing", "doing")], defects: [docEntry("D-A", "缺陷侧 fixing", "fixing")] };
+    prioritySelect.value = "defect-first";
+    await sandbox.refreshDocs();
+    byId.get("documents-tab-req").click();
+    assert(pagesNs.documentsKind === "req", "#4 前置:应在需求页签");
+    await showView("chat");
+    focusOpenOf("D-A")?.click();
+    await flush();
+    assert(pagesNs.documentsKind === "defect", `#4 跳转缺陷没有切到缺陷页签(仍是 ${pagesNs.documentsKind})`);
+    assert(!byId.get("documents-defect-list").classList.contains("hidden"), "#4 切到缺陷页签后缺陷列表仍隐藏");
+    assert(expanded(itemOf("documents-defect-list", "D-A")), "#4 跨页签跳转没有展开缺陷详情");
+    payloads.docs_snapshot = structuredClone(savedDocs);
+    prioritySelect.value = "requirement-first";
+    await sandbox.refreshDocs();
+    byId.get("documents-tab-req").click();
+
+    // ⑤ 依赖视图开着(两张列表都被它藏着):跳转先关掉它。
+    pagesNs.setDependencyViewOpen(true);
+    sandbox.renderDocuments(pagesNs.latestDocsSnapshot);
+    assert(!byId.get("documents-dep-view").classList.contains("hidden") && byId.get("documents-req-list").classList.contains("hidden"), "#4 前置:依赖视图应开着且列表隐藏");
+    collapse(itemOf("documents-req-list", "R-001"));
+    await listNs.jumpToEntry("R-001", { expand: true });
+    assert(pagesNs.dependencyViewOpen === false, "#4 跳转没有关掉依赖视图");
+    assert(byId.get("documents-dep-view").classList.contains("hidden") && !byId.get("documents-req-list").classList.contains("hidden"), "#4 关掉依赖视图后列表仍不可见");
+    assert(expanded(itemOf("documents-req-list", "R-001")), "#4 依赖视图场景下跳转没有展开目标详情");
+    await flush();
+
+    // ⑥ 筛选放行:目标被筛选挡住时临时插回、标记说破;不改筛选状态、不落盘;改筛选/离开单页即作废。
+    sandbox.applyDocFilter("status", "todo");
+    assert(!itemOf("documents-req-list", "R-001"), "#4 前置:status=todo 应藏住 doing 的 R-001");
+    const filtersKey = `kz-filters:${shellNs.currentProject}`;
+    const storedBefore = storage.get(filtersKey);
+    await listNs.jumpToEntry("R-001", { expand: true });
+    const exempt = itemOf("documents-req-list", "R-001");
+    assert(exempt?.classList.contains("filter-exempt") && expanded(exempt), "#4 被筛选挡住的跳转目标没有临时放行并展开");
+    assert(exempt?.querySelector(".filter-exempt-flag")?.textContent.includes("不在当前筛选内"), "#4 放行的条目没有说破「不在当前筛选内」");
+    assert(pagesNs.documentFilters.req.status === "todo" && storage.get(filtersKey) === storedBefore, "#4 跳转放行改了筛选状态或落盘值(R-115)");
+    await sandbox.refreshDocs();
+    assert(itemOf("documents-req-list", "R-001")?.classList.contains("filter-exempt"), "#4 一次无关重绘就把放行冲掉了");
+    sandbox.applyDocFilter("status", "todo");
+    assert(!itemOf("documents-req-list", "R-001") && listNs.jumpRevealId === null, "#4 改筛选后放行未作废(筛选外条目会一直赖在列表里)");
+    await listNs.jumpToEntry("R-001", { expand: true });
+    assert(itemOf("documents-req-list", "R-001"), "#4 前置:再次放行");
+    await showView("chat");
+    assert(listNs.jumpRevealId === null, "#4 离开单页后放行未作废");
+    // ⑥b 筛选内的目标不放行:否则它之后因改状态落到筛选外(筛选 doing 时在详情头点「→ 转 done」),
+    //    会一直挂着「不在当前筛选内」赖在列表里,直到用户改筛选或离开单页。
+    sandbox.applyDocFilter("status", "doing");
+    await listNs.jumpToEntry("R-001", { expand: true });
+    await flush();
+    const inFilter = itemOf("documents-req-list", "R-001");
+    assert(listNs.jumpRevealId === null, `#4 筛选内的跳转目标也被设了放行(jumpRevealId=${listNs.jumpRevealId})`);
+    assert(inFilter && expanded(inFilter) && !inFilter.classList.contains("filter-exempt"), "#4 筛选内的跳转目标应正常展开且不带放行标记");
+    const doneDocs = structuredClone(savedDocs);
+    doneDocs.requirements.find((entry) => entry.id === "R-001").status = "done";
+    payloads.docs_snapshot = doneDocs;
+    await sandbox.refreshDocs();
+    assert(!itemOf("documents-req-list", "R-001"), "#4 筛选内跳转的目标转状态落到筛选外后仍赖在列表里");
+    payloads.docs_snapshot = structuredClone(savedDocs);
+    await showView("chat");
+    sandbox.applyDocFilter("status", "all");
+    await sandbox.refreshDocs();
+    await flush();
+
+    // ⑦ 焦点区:线路头「身份 · 名称」与任务卡同一口径(lineAuthorityLabel),分支进 tooltip;
+    //    空线路一行;取得声明带编号时可点直达。
+    sandbox.renderLines([]);
+    sandbox.renderFocusPanel(pagesNs.latestDocsSnapshot);
+    const bgFocus = lineFocusOf("p|bg");
+    const bgHead = bgFocus?.querySelector(".line-focus-head");
+    assert(bgHead?.textContent === "并行线 · 后台会话" && bgHead.title === "kanzei/thread-smoke", `#4 线路头应为「身份 · 名称」且分支进 tooltip:${bgHead?.textContent} / ${bgHead?.title}`);
+    assert(taskRowOf("p|bg")?.querySelector(".parallel-task-head")?.textContent.startsWith("并行线 · 后台会话"), "#4 任务卡与焦点区线路叫法不一致");
+    assert(lineFocusOf("d|smoke")?.querySelector(".line-focus-head")?.textContent === "主代理 · 主会话", "#4 主线线路头叫法不对");
+    const bgEmpty = bgFocus?.querySelectorAll(".line-focus-empty") ?? [];
+    assert(bgEmpty.length === 1 && bgEmpty[0].textContent === "未取得条目" && bgEmpty[0].title.includes("条可执行待取活"), `#4 空线路应只占一行「未取得条目」,原因进 tooltip:${bgFocus?.textContent}`);
+    assert(!bgFocus?.textContent.includes("条可执行待取活"), "#4 空线路仍在卡面重复全局原因");
+    sandbox.renderLines([{ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", claim: "R-002 冒烟需求二", phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, changed_files: [] }]);
+    sandbox.renderFocusPanel(pagesNs.latestDocsSnapshot);
+    const claimLink = lineFocusOf("p|bg")?.querySelector(".focus-claim-link");
+    assert(claimLink?.textContent.includes("R-002"), `#4 取得声明带编号时应渲染成可点链接:${lineFocusOf("p|bg")?.textContent}`);
+    collapse(itemOf("documents-req-list", "R-002"));
+    claimLink?.click();
+    await flush();
+    assert(byId.get("view-documents").classList.contains("active") && expanded(itemOf("documents-req-list", "R-002")), "#4 点取得声明没有直达 R-002 展开的详情");
+    sandbox.renderLines(payloads.collaboration_snapshot);
+    await showView("chat");
+
+    // ⑧ 签名跳过:同一份快照连续渲染,焦点卡节点身份不变(轮询不冲掉 tooltip/菜单)。
+    sandbox.renderFocusPanel(pagesNs.latestDocsSnapshot);
+    const firstCard = document.querySelector('#focus-body .focus-card[data-doc-id="R-001"]');
+    sandbox.renderFocusPanel(structuredClone(pagesNs.latestDocsSnapshot));
+    assert(firstCard && document.querySelector('#focus-body .focus-card[data-doc-id="R-001"]') === firstCard, "#4 内容没变也重建了焦点区(签名跳过失效)");
+
+    // ⑨ 任务卡:一行「字形 + 身份 · 名称 + 分支 + 单个状态词」,不再「空闲 · 空闲」;关闭是悬停出现的图标按钮。
+    const bgRow = taskRowOf("p|bg");
+    assert(bgRow?.children[0]?.classList.contains("kz-glyph") && bgRow.children[0].textContent === "○", `#4 任务卡行首应是字形:${bgRow?.children[0]?.className}`);
+    assert(bgRow?.querySelector(".parallel-task-branch")?.textContent === "kanzei/thread-smoke", "#4 任务卡分支名不可见");
+    assert(bgRow?.querySelector(".parallel-task-state")?.textContent === "空闲", `#4 空闲线路状态应是单个词「空闲」:${bgRow?.querySelector(".parallel-task-state")?.textContent}`);
+    assert(!bgRow?.textContent.includes("空闲 · 空闲"), "#4 任务卡仍显示「空闲 · 空闲」");
+    const bgLine = [...document.querySelectorAll("#parallel-task-status .parallel-line")].find((node) => node.dataset.processId === "p|bg");
+    const closeBtn = bgLine?.querySelector(".parallel-line-close");
+    assert(closeBtn?.classList.contains("icon-btn") && closeBtn.textContent === "×", "#4 关闭线路应是图标按钮");
+    assert(closeBtn?.getAttribute("aria-label") === "关闭线路 后台会话", `#4 关闭按钮的读屏名称应带线路名:${closeBtn?.getAttribute("aria-label")}`);
+    assert(!taskRowOf("d|smoke")?.parentElement?.querySelector(".parallel-line-close"), "#4 默认线不该有关闭按钮");
+    // 运行中:状态词就是阶段(取不到才写「运行中」),不再「运行中 · 实现」两段。
+    vm.runInContext('transitionSession("sess-bg", "running")', sandbox);
+    sandbox.refreshParallelTaskProjection("sess-bg");
+    const runningWord = taskRowOf("p|bg")?.querySelector(".parallel-task-state")?.textContent ?? "";
+    assert(taskRowOf("p|bg")?.children[0]?.textContent === "●" && runningWord && !runningWord.includes("空闲"), `#4 运行中任务卡状态不对:${taskRowOf("p|bg")?.textContent}`);
+    vm.runInContext('transitionSession("sess-bg", "idle")', sandbox);
+    sandbox.refreshParallelTaskProjection("sess-bg");
+
+    // ⑩ 历史行:0 条与加载中都不占行;有历史时折叠头写「历史对话 N」。
+    payloads.conversation_list = () => [];
+    await sandbox.refreshConversationLists();
+    await flush();
+    const histories = document.querySelectorAll("#parallel-task-status .parallel-line-history");
+    assert(histories.length === 2 && histories.every((node) => node.classList.contains("empty") && !node.querySelector(".parallel-history-head")), "#4 0 条历史的线路仍渲染了历史行");
+    miscNs.conversationItemsByProcess.delete("p|bg");
+    miscNs.renderLineConversationHistory("p|bg");
+    const loadingHistory = histories.find((node) => node.dataset.processId === "p|bg");
+    assert(loadingHistory?.classList.contains("empty") && !loadingHistory.textContent.includes("加载中"), "#4 历史加载中不该占一行「加载中…」");
+    payloads.conversation_list = savedConversationList;
+    await sandbox.refreshConversationLists();
+    await flush();
+    const bgHistory = document.querySelectorAll("#parallel-task-status .parallel-line-history").find((node) => node.dataset.processId === "p|bg");
+    assert(!bgHistory?.classList.contains("empty") && bgHistory?.querySelector(".parallel-history-label")?.textContent === "历史对话 1", `#4 历史折叠头应为「历史对话 N」:${bgHistory?.textContent}`);
+    // 桩里的条目没有 message_count(旧后端同形):展开后不得写出「(undefined 条)」。
+    if (!bgHistory?.classList.contains("open")) bgHistory?.querySelector(".parallel-history-head")?.click();
+    assert(bgHistory?.textContent.includes("后台线路历史") && !bgHistory.textContent.includes("undefined"), `#4 历史行缺条数时写出了 undefined:${bgHistory?.textContent}`);
+
+    // ⑪ 状态栏去重:两格同词时只留一格。
+    sandbox.setStatus("空闲", false);
+    assert(byId.get("status-text").classList.contains("hidden"), "#4 状态栏空闲时仍并排「空闲 空闲」");
+    sandbox.setStatus("第 1 轮 · 等待模型", true);
+    assert(!byId.get("status-text").classList.contains("hidden") && byId.get("status-text").textContent.includes("等待模型"), "#4 状态栏有具体状态时不该隐藏");
+    sandbox.setStatus("运行中", true);
+    assert(byId.get("status-text").classList.contains("hidden"), "#4 状态栏运行中时仍并排「运行中 运行中」");
+    sandbox.setRunning(false, "空闲");
+
+    // ⑫ 静态结构:焦点卡 CSS 的撑满点击层、悬停中性、⋯ 悬停出现;任务卡关闭按钮悬停出现;实时行一行。
+    const g5Css = style.replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const [re, label] of [
+      [/\.focus-open::after\s*\{[^}]*inset:\s*0/, ".focus-open::after 撑满整卡"],
+      [/\.focus-card:hover, \.focus-card:focus-within\s*\{[^}]*var\(--surface-hover\)/, "焦点卡悬停/聚焦用中性 --surface-hover"],
+      [/\.focus-card:hover \.focus-more, \.focus-card:focus-within \.focus-more, \.focus-more\[aria-expanded="true"\]\s*\{\s*opacity:\s*1/, "⋯ 悬停/聚焦/菜单开着时出现"],
+      [/\.parallel-line:hover \.parallel-line-close, \.parallel-line:focus-within \.parallel-line-close\s*\{\s*opacity:\s*1/, "关闭按钮悬停/聚焦时出现"],
+      [/\.parallel-line-history\.empty\s*\{\s*display:\s*none/, "0 条/加载中的历史行不占位"],
+      [/#live-status\s*\{[^}]*flex-flow:\s*row wrap/, "#live-status 实时状态并成一行"],
+      // 英文「defect」词条是小写(也用在句中),页签上要首字母大写,别出现「Work items | defect」。
+      [/\.documents-tabs button::first-letter\s*\{\s*text-transform:\s*uppercase/, "页签文字首字母大写"],
+    ]) {
+      assert(re.test(g5Css), `#4 CSS 缺少:${label}`);
+    }
+    assert(!/#live-(?:note|focus)\b/.test(g5Css), "#4 已删除的 #live-note/#live-focus 仍有样式规则");
+  } finally {
+    payloads.process_list = savedProcessList;
+    payloads.docs_snapshot = savedDocs;
+    payloads.conversation_list = savedConversationList;
+    prioritySelect.value = savedPriority;
+    pagesNs?.setDependencyViewOpen(false);
+    listNs?.clearJumpReveal();
+    sandbox.renderLines(payloads.collaboration_snapshot);
+    sandbox.renderProcesses(structuredClone(savedProcessList));
+    await sandbox.refreshDocs();
+    await showView(savedView);
+    if (priorLanguage === null) localStorageShim.removeItem?.("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+
+// ---------- UI-0926 #4(单页):列表行状态列 / 详情只读优先 + 字段结构化(#10 renderTrackerFields)/
+// 编辑态与草稿跨重绘 / 工具栏「筛选」「更多」弹层与生效 chip / 线路页取得条目直达 / 活动面板行操作。
+// 设计见 scratchpad density.md M5–M8 与 structured.md「tracker 字段」。
+{
+  const pagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  const listNs = esmModuleCache.get("11-docs-list.js")?.namespace;
+  const surfaceNs = esmModuleCache.get("00-surface.js")?.namespace;
+  assert(pagesNs && listNs && surfaceNs, "#4 单页前置:00/11/12 模块命名空间未加载");
+  const savedDocs = structuredClone(payloads.docs_snapshot);
+  const savedView = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
+  const showView = async (name) => {
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === name)?.click();
+    await flush();
+  };
+  const itemOf = (listId, id) => document.querySelector(`#${listId} .doc-item[data-doc-id="${id}"]`);
+  const detailOf = (id) => itemOf("documents-req-list", id)?.querySelector(".doc-detail");
+  const expandedDetail = (item) => Boolean(item) && !item.querySelector(".doc-detail")?.classList.contains("hidden");
+  const openDetail = (id) => {
+    const item = itemOf("documents-req-list", id);
+    if (item && !expandedDetail(item)) item.querySelector(".doc-row")?.click();
+    return detailOf(id);
+  };
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  const richEntry = docEntry("R-T01", "单页详情样例", "doing", {
+    complexity: "中", nextStatuses: ["done", "dropped"], execution_model: "work_units_v1",
+    work_units: [{ ...smokeWorkUnit, unit_id: "R-T01/W1", requirement_id: "R-T01" }],
+    fields: [
+      ["内容", "把详情做成只读优先的文档视图"],
+      ["验收", "①默认只读；②点编辑才出表单；③重绘不丢草稿"],
+      ["发现记录", JSON.stringify({ Intent: "像读文档", Explicit: "别一整墙输入框", Ambiguities: "无" })],
+      ["停车", "等上游评审;恢复人:agent;解除条件:R-002"],
+      ["进展", "2026-09-26 B2 进行中||2026-09-25 B1 合入||批0 勘察"],
+      ["refs", "R-002 docs/design/memory_control_plane.md"],
+      ["标签", "前端"],
+      ["observed_head", "0123456789abcdef0123"],
+      ["recorded_at", "1790386080000"],
+    ],
+  });
+  try {
+    // 前面分区可能留着应用内查看器(模态):模态开着时静态弹层是惰性的,先收掉再测工具栏弹层。
+    for (const id of ["viewer-overlay", "confirm-overlay", "input-overlay", "palette"]) surfaceNs.closeSurface(byId.get(id));
+    payloads.docs_snapshot = { ...structuredClone(savedDocs), requirements: [richEntry, ...structuredClone(savedDocs.requirements)] };
+    await showView("documents");
+    byId.get("documents-tab-req").click();
+    pagesNs.setDependencyViewOpen(false);
+    sandbox.clearDocFilters();
+    await sandbox.refreshDocs();
+    await flush();
+
+    // ① M5 列表行:状态列回来了且排在优先级之前(固定宽,D-362 三列对齐不破);行内仍不写 R- 编号(R-054);
+    //    复杂度一列一个字、说明进 tooltip;详情头统一「编号 · 标题」(缺陷原来不带编号)。
+    const docRows = document.querySelectorAll("#documents-req-list .doc-row, #documents-defect-list .doc-row");
+    assert(docRows.length > 0 && docRows.every((row) => {
+      const kids = [...row.children];
+      const st = kids.findIndex((node) => node.classList.contains("st"));
+      const pri = kids.findIndex((node) => node.classList.contains("pri-badge"));
+      return st >= 0 && pri > st;
+    }), "#4 单页列表行缺状态列,或状态列没排在优先级之前");
+    const r001Row = itemOf("documents-req-list", "R-001")?.querySelector(".doc-row");
+    assert(r001Row?.querySelector(".st")?.textContent === "doing", `#4 R-001 行状态列应为 doing:${r001Row?.querySelector(".st")?.textContent}`);
+    assert(!r001Row?.textContent.includes("R-001"), "#4 行内出现了 R- 编号(R-054:编号只在 tooltip 与详情头)");
+    const cxBadge = r001Row?.querySelector(".complexity-badge");
+    assert(cxBadge?.textContent === "中" && cxBadge.title.includes("复杂度"), `#4 复杂度列应只写一个字、说明进 tooltip:"${cxBadge?.textContent}" / "${cxBadge?.title}"`);
+    assert(itemOf("documents-defect-list", "D-001")?.querySelector(".doc-full-title")?.textContent.startsWith("D-001 · "), "#4 缺陷详情头缺编号");
+    assert(itemOf("documents-defect-list", "D-001")?.querySelector(".st")?.title.includes("medium"), "#4 缺陷严重度应进状态列 tooltip");
+
+    // ② M6 + #10 详情只读优先:头(编号 · 标题 + 状态流转 + 编辑)、字段按结构渲染、执行单元折叠、默认无输入框。
+    let detail = openDetail("R-T01");
+    assert(detail && !detail.classList.contains("hidden"), "#4 前置:R-T01 详情未展开");
+    const headEl = detail?.querySelector(".doc-detail-head");
+    assert(headEl?.querySelector(".doc-full-title")?.textContent === "R-T01 · 单页详情样例", "#4 详情头应为「编号 · 标题」");
+    const headButtons = headEl?.querySelectorAll(".doc-detail-actions button") ?? [];
+    assert(headButtons.some((node) => node.textContent.includes("done")) && headButtons.some((node) => node.classList.contains("doc-edit-toggle")),
+      "#4 状态流转与「编辑」开关应在详情头(不再沉到最底下)");
+    const read = detail?.querySelector(".doc-fields-read");
+    const fieldRow = (key) => read?.querySelectorAll(".tf-row").find((node) => node.dataset.field === key);
+    assert(read && !read.classList.contains("hidden") && !read.querySelector("input") && !read.querySelector("textarea"),
+      "#4 详情默认应是只读文档视图(不是一整墙输入框)");
+    assert(!detail?.classList.contains("editing") && detail?.querySelector(".doc-edit")?.classList.contains("hidden"), "#4 编辑表单默认应隐藏");
+    assert(fieldRow("验收")?.querySelectorAll("ol li").length === 3, "#4 验收的 ①②③ 未切成有序列表");
+    assert(fieldRow("发现记录")?.querySelectorAll(".sv-kv-row").length === 3, "#4 发现记录 JSON 未渲染成键值表");
+    assert(fieldRow("停车")?.querySelector(".tf-release .sv-ref")?.textContent === "R-002" && fieldRow("停车")?.querySelector(".tf-owner"),
+      "#4 停车字段未拆出恢复人与可点的解除条件");
+    assert(fieldRow("refs")?.querySelectorAll(".sv-ref").some((node) => node.dataset.ref === "R-002")
+      && fieldRow("refs")?.querySelectorAll(".sv-path").some((node) => node.dataset.path?.endsWith("docs/design/memory_control_plane.md")),
+    "#4 refs 应把条目编号渲染成可点 chip、文档路径渲染成路径 chip(不再当条目编号跳转落空)");
+    const progress = fieldRow("进展");
+    const latest = progress?.querySelector(".tf-timeline");
+    const older = progress?.querySelector(".doc-progress-older");
+    assert(latest?.children.length === 1 && latest.textContent.includes("B2 进行中"), `#4 进展只该露最新一段:${latest?.textContent}`);
+    assert(older && !older.open && older.querySelector("summary")?.textContent === "更早进展 2" && older.querySelectorAll("li").length === 2,
+      `#4 更早的进展应收进「更早进展 N」折叠区:${older?.querySelector("summary")?.textContent}`);
+    assert(read?.querySelector(".tf-engine") && !fieldRow("observed_head") && !fieldRow("recorded_at"), "#4 引擎字段应收进「引擎记录」折叠区,不单独成行");
+    const units = detail?.querySelector(".work-unit-details");
+    assert(units && !units.open && units.querySelector("summary")?.textContent.startsWith("执行单元 0/1") && units.querySelector(".work-unit-card"),
+      "#4 执行单元应默认折叠,summary 一行说清进度");
+
+    // ③ 详情头的状态流转仍走 docs_update(硬门禁同一套 nextStatuses)。
+    const beforeStatus = invokeArgs.length;
+    headButtons.find((node) => node.textContent.includes("done"))?.click();
+    await flush();
+    assert(invokeArgs.slice(beforeStatus).some(({ cmd, args }) => cmd === "docs_update" && args?.id === "R-T01" && args?.status === "done"),
+      "#4 详情头的状态流转按钮未发出 docs_update(status=done)");
+
+    // ④ 折叠区展开状态跨重绘保留(agent 一次刷新不把人刚展开的执行单元/更早进展弹回去)。
+    detailOf("R-T01").querySelector(".work-unit-details").open = true;
+    detailOf("R-T01").querySelector(".doc-progress-older").open = true;
+    await sandbox.refreshDocs();
+    assert(detailOf("R-T01")?.querySelector(".work-unit-details")?.open && detailOf("R-T01")?.querySelector(".doc-progress-older")?.open,
+      "#4 重绘把展开的执行单元/更早进展又收起来了");
+
+    // ⑤ 编辑:点「编辑」替换只读视图;输入后带 data-dirty;refreshDocsSoon 让路;显式重绘保留编辑态与草稿。
+    const control = (key) => detailOf("R-T01")?.querySelectorAll(".doc-edit [data-field]").find((node) => node.dataset.field === key);
+    detailOf("R-T01").querySelector(".doc-edit-toggle").click();
+    detail = detailOf("R-T01");
+    const toggle = detail.querySelector(".doc-edit-toggle");
+    assert(detail.classList.contains("editing") && !detail.querySelector(".doc-edit").classList.contains("hidden")
+      && detail.querySelector(".doc-fields-read").classList.contains("hidden"), "#4 点「编辑」后应换成编辑表单");
+    assert(toggle.getAttribute("aria-pressed") === "true" && toggle.textContent === "取消编辑", "#4 编辑开关未切到「取消编辑」");
+    assert(control("复杂度")?.tagName === "SELECT", "#4 复杂度应并进编辑表单(下拉)");
+    control("验收").value = "①改过的验收";
+    control("验收").dispatchEvent({ type: "input" });
+    assert(detail.querySelector(".doc-edit").dataset.dirty === "1" && document.querySelector(".doc-detail.editing .doc-edit[data-dirty]"),
+      "#4 输入后编辑区未标记 data-dirty");
+    const snapshotCalls = () => invokeLog.filter((cmd) => cmd === "docs_snapshot").length;
+    const snapshotsBefore = snapshotCalls();
+    sandbox.refreshDocsSoon();
+    await flush();
+    assert(snapshotCalls() === snapshotsBefore, "#4 有未保存的条目编辑时 refreshDocsSoon 没让路(agent 刷新会打断输入)");
+    await sandbox.refreshDocs();
+    assert(detailOf("R-T01") !== detail, "#4 前置:显式 refreshDocs 应重建详情节点");
+    assert(detailOf("R-T01")?.classList.contains("editing") && !detailOf("R-T01").querySelector(".doc-edit").classList.contains("hidden"),
+      "#4 重绘把编辑态弹回了只读视图");
+    assert(control("验收")?.value === "①改过的验收" && control("验收")?.dataset.dirty === "1", `#4 重绘冲掉了没保存的输入:${control("验收")?.value}`);
+    assert(control("内容")?.value === "把详情做成只读优先的文档视图" && !control("内容")?.dataset.dirty, "#4 没改过的字段应取新快照的值");
+    const beforeSave = invokeArgs.length;
+    detailOf("R-T01").querySelector(".doc-edit-actions button").click();
+    await flush();
+    const saveCall = invokeArgs.slice(beforeSave).find(({ cmd, args }) => cmd === "docs_update" && args?.id === "R-T01" && args?.fields);
+    assert(saveCall?.args.fields["验收"] === "①改过的验收" && saveCall.args.title === "单页详情样例", `#4 保存未提交草稿:${JSON.stringify(saveCall?.args)}`);
+    assert(saveCall && !("复杂度" in saveCall.args.fields), "#4 复杂度没改也写进了保存载荷(会凭空多出字段)");
+    assert(!detailOf("R-T01")?.classList.contains("editing") && detailOf("R-T01")?.querySelector(".doc-edit")?.classList.contains("hidden"),
+      "#4 保存后应回到只读视图");
+    // 取消编辑:输入复位、dirty 清掉。
+    detailOf("R-T01").querySelector(".doc-edit-toggle").click();
+    control("内容").value = "临时改动";
+    control("内容").dispatchEvent({ type: "input" });
+    detailOf("R-T01").querySelector(".doc-edit-toggle").click();
+    assert(control("内容")?.value === "把详情做成只读优先的文档视图" && !detailOf("R-T01").querySelector(".doc-edit").dataset.dirty
+      && !detailOf("R-T01").classList.contains("editing"), "#4 取消编辑没有复位输入");
+    await flush();
+
+    // ⑥ M7 工具栏:五个筛选 + 排序 + 分组 + 说明都收进「筛选」弹层;两个菜单是 data-kz-menu + popover(弹层唯一写法)。
+    const filterSrc = html.slice(html.indexOf('id="documents-filter-menu"'), html.indexOf('id="documents-more-toggle"'));
+    for (const id of ["documents-status-filter", "documents-complexity-filter", "documents-priority-filter", "documents-tag-filter", "documents-blocked-filter", "documents-sort", "documents-group-toggle", "documents-sort-note"]) {
+      assert(filterSrc.includes(`id="${id}"`), `#4 ${id} 不在「筛选」弹层里`);
+    }
+    const moreSrc = html.slice(html.indexOf('id="documents-more-menu"'), html.indexOf('id="documents-active-filters"'));
+    for (const id of ["documents-dep-toggle", "defect-review", "tests-refresh", "req-open", "defect-open"]) {
+      assert(moreSrc.includes(`id="${id}"`), `#4 ${id} 不在「更多」菜单里`);
+    }
+    assert(/id="documents-filter-toggle"[^>]*data-kz-menu="documents-filter-menu"/.test(html) && /id="documents-more-toggle"[^>]*data-kz-menu="documents-more-menu"/.test(html)
+      && /id="documents-filter-menu"[^>]*popover="manual"/.test(html) && /id="documents-more-menu"[^>]*popover="manual"/.test(html),
+    "#4 单页的「筛选」「更多」应是 data-kz-menu 触发器 + popover 弹层");
+    assert(!/<details[^>]*id="documents-/.test(html), "#4 单页工具栏不得用 <details> 做弹层");
+    assert(!html.includes("完整列表与深度管理都在这里"), "#4 单页顶部的长说明段应删掉");
+    const filterToggle = byId.get("documents-filter-toggle");
+    const filterMenu = byId.get("documents-filter-menu");
+    filterToggle.click();
+    assert(surfaceNs.isSurfaceOpen(filterMenu) && !filterMenu.classList.contains("hidden") && filterToggle.getAttribute("aria-expanded") === "true",
+      "#4 点「筛选」没有经弹层原语打开筛选弹层");
+    sandbox.applyDocFilter("status", "doing");
+    const chipsRow = byId.get("documents-active-filters");
+    const chips = () => chipsRow.querySelectorAll(".documents-filter-chip");
+    assert(!chipsRow.classList.contains("hidden") && chips().length === 1 && chips()[0].textContent.includes("状态: doing"),
+      `#4 生效的筛选没有以 chip 说破:${chipsRow.textContent}`);
+    assert(byId.get("documents-filter-count").textContent === "1", "#4 「筛选」触发器未显示生效项数");
+    assert(surfaceNs.isSurfaceOpen(filterMenu), "#4 改一个筛选就把弹层关了(连续调几个筛选要能一口气改完)");
+    chips()[0].querySelector(".documents-filter-chip-clear").click();
+    const savedFilters = () => JSON.parse(storage.get(`kz-filters:${PROJECT}`) ?? "{}").docReq ?? {};
+    assert(pagesNs.documentFilters.req.status === "all" && savedFilters().status === "all" && chipsRow.classList.contains("hidden")
+      && byId.get("documents-filter-count").textContent === "", "#4 chip 的 × 没把该筛选复位并落盘");
+    sandbox.applyDocFilter("priority", "P1");
+    sandbox.applyDocFilter("sort", "priority");
+    assert(chips().length === 2 && byId.get("documents-filter-count").textContent === "2", "#4 两项生效时 chip/计数不对");
+    chipsRow.querySelector(".documents-filter-clear-all")?.click();
+    assert(pagesNs.documentFilters.req.priority === "all" && pagesNs.documentFilters.req.sort === "manual" && savedFilters().sort === "manual"
+      && chipsRow.classList.contains("hidden"), "#4 「清除全部」没把筛选与排序一起复位并落盘");
+    sandbox.applyDocFilter("status", "doing");
+    byId.get("documents-tab-tests").click();
+    assert(chipsRow.classList.contains("hidden") && byId.get("documents-filter-count").textContent === "", "#4 测试记录页签不该显示需求筛选 chip");
+    byId.get("documents-tab-req").click();
+    assert(!chipsRow.classList.contains("hidden"), "#4 切回需求页签后 chip 行没回来");
+    sandbox.applyDocFilter("status", "all");
+    surfaceNs.closeSurface(filterMenu);
+    // 「更多」:依赖视图是勾选型菜单项;里面的动作点完就收起菜单。
+    const moreToggle = byId.get("documents-more-toggle");
+    const moreMenu = byId.get("documents-more-menu");
+    moreToggle.click();
+    assert(surfaceNs.isSurfaceOpen(moreMenu), "#4 点「更多」没有打开菜单");
+    byId.get("documents-dep-toggle").click();
+    assert(!surfaceNs.isSurfaceOpen(moreMenu), "#4 「更多」里点了动作,菜单没收起");
+    assert(byId.get("documents-dep-toggle").getAttribute("aria-checked") === "true" && !byId.get("documents-dep-view").classList.contains("hidden"),
+      "#4 依赖视图菜单项未切换(aria-checked / 面板)");
+    byId.get("documents-dep-toggle").click();
+    assert(byId.get("documents-dep-toggle").getAttribute("aria-checked") === "false", "#4 依赖视图菜单项未切回");
+    byId.get("documents-tab-req").click();
+    await flush();
+
+    // ⑦ M8 线路页:取得条目在快照里查得到就是直达展开详情的链接;查不到只写文字。
+    sandbox.renderLines([{ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", claim: "R-001 冒烟需求", phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, changed_files: [] }]);
+    const claimLink = document.querySelector("#lines-list .line-claim-link");
+    assert(claimLink?.textContent.startsWith("R-001 · ") && claimLink.title.includes("点击查看详情"), `#4 线路页取得条目应是可点链接:${document.querySelector("#lines-list .line-claim")?.textContent}`);
+    const r001 = itemOf("documents-req-list", "R-001");
+    if (expandedDetail(r001)) r001.querySelector(".doc-row")?.click();
+    await showView("chat");
+    claimLink?.click();
+    await flush();
+    assert(byId.get("view-documents").classList.contains("active") && expandedDetail(itemOf("documents-req-list", "R-001")),
+      "#4 点线路页取得条目没有直达 R-001 展开的详情");
+    sandbox.renderLines([{ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", claim: "R-9999 线路里新登记", phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, changed_files: [] }]);
+    assert(!document.querySelector("#lines-list .line-claim-link") && document.querySelector("#lines-list .line-claim")?.textContent.includes("R-9999"),
+      "#4 快照里查不到的取得条目不该渲染成点了落空的链接");
+
+    // ⑧ 静态:活动面板行操作悬停/聚焦/展开才出现;详情与工具栏 CSS 只用 token。
+    const css = style.replace(/\/\*[\s\S]*?\*\//g, "");
+    assert(/\.bg-entry \.bg-actions \{ display: none; \}/.test(css)
+      && /\.bg-entry:hover \.bg-actions:not\(:empty\), \.bg-entry:focus-within \.bg-actions:not\(:empty\),\s*\.bg-entry \.bg-title\[aria-expanded="true"\] ~ \.bg-actions:not\(:empty\) \{ display: flex; \}/.test(css),
+    "#4 活动面板行操作应只在悬停/聚焦/展开时出现");
+    const g5Css = style.split("/* ===== 分区:需求卡片与单页 ===== */")[1]?.split("/* ===== 分区:动效 ===== */")[0] ?? "";
+    assert(/\.documents-tabs button\.primary, \.documents-tabs button\.primary:hover \{[^}]*var\(--surface-selected\)/.test(g5Css), "#4 当前页签应是中性选中态");
+    assert(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(g5Css.replace(/\/\*[\s\S]*?\*\//g, "")), "#4 需求卡片与单页分区用了字面量颜色(只准用 token)");
+  } finally {
+    payloads.docs_snapshot = savedDocs;
+    pagesNs?.setDependencyViewOpen(false);
+    listNs?.clearJumpReveal();
+    sandbox.clearDocFilters?.();
+    for (const id of ["documents-filter-menu", "documents-more-menu"]) surfaceNs?.closeSurface(byId.get(id));
+    sandbox.renderLines(payloads.collaboration_snapshot);
+    byId.get("documents-tab-req").click();
+    await sandbox.refreshDocs();
+    await showView(savedView);
+    await flush();
+    if (priorLanguage === null) localStorageShim.removeItem?.("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+
+// ===== 分区:动效 =====
+// ---------- #7 动效:运行相位投影 / 工具行收尾 / 线路字形 / 在做 / 轮末 / 隐藏暂停 / 徽标 / 计数 ----------
+// 一次性动效类靠 setTimeout 摘除,而 flush 会立刻清空全部定时器:「挂上」必须在同步调用
+// 之后、flush 之前断言,「摘除」在 flush 之后断言。
+{
+  const shellNs = esmModuleCache.get("03-shell.js")?.namespace;
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const activeSid = () => vm.runInContext("activeSessionId", sandbox);
+  const html = document.documentElement;
+  const row = byId.get("turn-activity");
+  const dot = byId.get("status-dot");
+  const glyph = byId.get("turn-activity-glyph");
+  const label = byId.get("turn-activity-label");
+  assert(row && dot && glyph && label, "#7 运行活动行或状态点节点缺失");
+  assert(shellNs && chatNs, "#7 03-shell / 05-chat-render 命名空间未加载");
+  const phase = () => row.dataset.phase;
+  const toolStartEv = handlers.get("kz:tool-start");
+  const toolEndEv = handlers.get("kz:tool-end");
+  const reasoningEv = handlers.get("kz:reasoning");
+  // 前置:主线活动、清掉前面用例留下的在跑工具块(chatAbortRunning 本身就是被测能力之一)。
+  const savedProcessList = structuredClone(payloads.process_list);
+  const savedCtx = { limit: shellNs.ctxLimit, tokens: shellNs.ctxTokens, pending: shellNs.ctxPending };
+  const motionLines = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main", authority: "primary", stage: "复核" },
+    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: false, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", authority: "parallel", stage: "实现" },
+  ];
+  vm.runInContext('autoContinueTimers.clear()', sandbox);
+  vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
+  // refreshProcesses(kz:error/kz:stopped 的路由分支会调)拉回的也必须是这份清单。
+  payloads.process_list = structuredClone(motionLines);
+  sandbox.renderProcesses(structuredClone(motionLines));
+  if (activeSid() !== "sess-smoke") await sandbox.switchProcess("d|smoke");
+  await flush();
+  assert(activeSid() === "sess-smoke", `#7 前置:主线应为活动线,实为 ${activeSid()}`);
+  vm.runInContext("chatAbortRunning()", sandbox);
+  sandbox.setRunning(false, "空闲");
+  await flush();
+  assert(row.classList.contains("hidden"), "#7 空闲时运行活动行应隐藏");
+  assert(html.dataset.kzActivity === "idle", `#7 空闲时 html[data-kz-activity] 应为 idle,实为 ${html.dataset.kzActivity}`);
+
+  // ① 运行相位投影:等首 token → 思考 → 工具;后台线事件不得改写活动线相位。
+  vm.runInContext('transitionSession("sess-smoke", "running")', sandbox);
+  sandbox.setRunning(true, "运行中");
+  assert(!row.classList.contains("hidden"), "#7 setRunning(true) 后运行活动行未出现");
+  assert(phase() === "waiting", `#7 刚开跑应为 waiting(等首 token),实为 ${phase()}`);
+  assert(html.dataset.kzActivity === "running", `#7 运行中 html[data-kz-activity] 应为 running,实为 ${html.dataset.kzActivity}`);
+  assert(dot.dataset.state === "running" && dot.classList.contains("kz-dot") && dot.classList.contains("run"), `#7 状态点未投影运行态:${dot.className} / ${dot.dataset.state}`);
+  assert(glyph.dataset.state === "waiting", `#7 等首 token 时活动行点应呼吸(waiting),实为 ${glyph.dataset.state}`);
+  assert(label.textContent.includes("运行中") || label.textContent.includes("Running"), `#7 活动行文案未复用状态栏存源:${label.textContent}`);
+  reasoningEv({ payload: { sessionId: "sess-smoke", text: "先想一想\n再想一想" } });
+  assert(phase() === "thinking", `#7 kz:reasoning 后应为 thinking,实为 ${phase()}`);
+  assert(/思考中|Thinking/.test(label.textContent), `#7 思考中活动行文案不对:${label.textContent}`);
+  const liveHead = chatNs.currentReasoningHead;
+  assert(liveHead?.classList.contains("is-live"), "#7 正在流的思考块头没有 is-live(扫光挂不上)");
+  // 同一条线运行中的纠偏(process_list 轮询/逐事件投影的 setRunning(true))保留本轮细分相位,不把「思考中」打回等首 token。
+  sandbox.setRunning(true, "运行中");
+  assert(phase() === "thinking", `#7 运行中纠偏 setRunning(true) 把本轮相位重置成了 ${phase()}`);
+  toolStartEv({ payload: { id: "MOT-T1", name: "bash", summary: "sleep 1", input: { command: "sleep 1" }, sessionId: "sess-smoke" } });
+  assert(phase() === "tool", `#7 kz:tool-start 后应为 tool,实为 ${phase()}`);
+  assert(!liveHead.classList.contains("is-live"), "#7 工具开始后上一段思考块仍标 is-live(会一直扫光)");
+  const runningBlock = chatNs.chatToolBlocks.get("MOT-T1");
+  assert(runningBlock?.wrap.classList.contains("running"), "#7 实时工具块未进入运行态(转圈挂不上)");
+  // 后台线的思考事件走 withSessionRender,渲染进它自己的 pane,但不得改写活动线相位。
+  // 先让后台线处于未收敛的运行态:已收敛会话的迟到进度事件会在路由层整条丢弃,守卫就测不到了。
+  vm.runInContext('transitionSession("sess-bg", "running")', sandbox);
+  reasoningEv({ payload: { sessionId: "sess-bg", text: "后台线在想" } });
+  assert(phase() === "tool", `#7 后台线的 kz:reasoning 把活动线相位改成了 ${phase()}(串线)`);
+  vm.runInContext('transitionSession("sess-bg", "idle")', sandbox);
+
+  // ② 工具行实时收尾:成功弹一下、失败抖一下;flush 后摘除。
+  toolEndEv({ payload: { id: "MOT-T1", name: "bash", ok: true, preview: "done", display: null, sessionId: "sess-smoke" } });
+  assert(runningBlock.icon.classList.contains("kz-pop"), "#7 实时成功收尾的工具行没有播 kz-pop");
+  assert(phase() === "waiting", `#7 最后一个工具结束后应回到 waiting,实为 ${phase()}`);
+  await flush();
+  assert(!runningBlock.icon.classList.contains("kz-pop"), "#7 kz-pop 一次性类没有被摘除");
+  toolStartEv({ payload: { id: "MOT-T2", name: "bash", summary: "false", input: { command: "false" }, sessionId: "sess-smoke" } });
+  const failBlock = chatNs.chatToolBlocks.get("MOT-T2");
+  toolEndEv({ payload: { id: "MOT-T2", name: "bash", ok: false, preview: "exit code: 1", display: null, sessionId: "sess-smoke" } });
+  assert(failBlock?.icon.classList.contains("kz-shake"), "#7 实时失败收尾的工具行没有播 kz-shake");
+  await flush();
+  assert(!failBlock.icon.classList.contains("kz-shake"), "#7 kz-shake 一次性类没有被摘除");
+  // 历史回放走 renderMessageParts → fillToolBlock,不经过 chatToolEnd:重开对话不能满屏乱跳。
+  vm.runInContext(`withSessionRender("sess-motion-history", () => renderMessageParts([
+    { role: "assistant", parts: [
+      { type: "reasoning", text: "历史思考第一行\\n历史思考第二行" },
+      { type: "tool_call", id: "MH1", name: "read", input: { path: "a.rs" } },
+      { type: "tool_result", call_id: "MH1", is_error: false, content: "ok" },
+      { type: "tool_call", id: "MH2", name: "bash", input: { command: "false" } },
+      { type: "tool_result", call_id: "MH2", is_error: true, content: "exit code: 1" },
+    ] },
+  ]))`, sandbox);
+  const historyPane = vm.runInContext('messagePanes.get("sess-motion-history")', sandbox);
+  const historyIcons = historyPane?.querySelectorAll(".tool-msg-status") ?? [];
+  assert(historyIcons.length === 2, `#7 历史回放夹具应渲染 2 个工具块,实得 ${historyIcons.length}`);
+  assert(
+    historyIcons.every((icon) => !icon.classList.contains("kz-pop") && !icon.classList.contains("kz-shake")),
+    "#7 历史回放的工具行播了一次性动效(只该在实时收尾时播)",
+  );
+  assert(!historyPane.querySelector(".reasoning-head.is-live"), "#7 历史思考块被标成 is-live(重开对话会一直扫光)");
+  vm.runInContext('messagePanes.get("sess-motion-history")?.remove(); messagePanes.delete("sess-motion-history"); dropSessionStream("sess-motion-history")', sandbox);
+
+  // ③ 停止收尾:运行中的块不会再等到 ToolEnd,必须停在「中断」;后台线终态由路由分支收尾它自己的 pane。
+  toolStartEv({ payload: { id: "MOT-T3", name: "bash", summary: "sleep 60", input: { command: "sleep 60" }, sessionId: "sess-smoke" } });
+  const stopBlock = chatNs.chatToolBlocks.get("MOT-T3");
+  assert(stopBlock?.wrap.classList.contains("running"), "#7 前置:MOT-T3 应在运行");
+  handlers.get("kz:stopped")({ payload: { sessionId: "sess-smoke", cancelled_queue: 0 } });
+  assert(!stopBlock.wrap.classList.contains("running"), "#7 kz:stopped 后主对话工具行仍在转圈");
+  assert(stopBlock.wrap.classList.contains("interrupted"), "#7 被停止的工具行没有标 interrupted");
+  assert(/无结果\(轮次中断\)|No result \(round interrupted\)/.test(stopBlock.result.textContent) && !stopBlock.result.classList.contains("hidden"), `#7 被停止的工具行 ⎿ 行不对:${stopBlock.result.textContent}`);
+  assert(stopBlock.icon.textContent === "⏹", `#7 被停止的工具行字形应为 ⏹,实为 ${stopBlock.icon.textContent}`);
+  assert(row.classList.contains("hidden") && html.dataset.kzActivity === "idle", "#7 停止后运行活动行未收起");
+  assert(dot.dataset.flash === undefined, "#7 用户自己按的停止不该播轮末反馈");
+  // 已停止之后才到的 ToolEnd(停止补发):只收尾工具行——真结果替换「中断」、不播一次性动效——
+  // 不得让活动行/状态点/状态栏翻回运行中(否则一直扫光到下一次 setRunning(false))。
+  toolEndEv({ payload: { id: "MOT-T3", name: "bash", ok: false, preview: "killed", display: null, sessionId: "sess-smoke" } });
+  assert(row.classList.contains("hidden") && html.dataset.kzActivity === "idle" && dot.dataset.state === "idle", `#7 已停止后迟到的 kz:tool-end 让运行活动复活:${phase()} / ${html.dataset.kzActivity} / ${dot.dataset.state}`);
+  assert(!byId.get("statusbar").classList.contains("running"), "#7 已停止后迟到的 kz:tool-end 把状态栏翻回了运行中");
+  assert(!stopBlock.wrap.classList.contains("interrupted") && stopBlock.wrap.classList.contains("err"), `#7 迟到的真结果没有替换「中断」标记:${stopBlock.wrap.className}`);
+  assert(!stopBlock.icon.classList.contains("kz-shake") && !stopBlock.icon.classList.contains("kz-pop"), "#7 停止之后迟到的收尾播了一次性动效(停止是用户自己按的)");
+  await flush();
+  vm.runInContext('transitionSession("sess-smoke", "running")', sandbox);
+  sandbox.setRunning(true, "运行中");
+  vm.runInContext('withSessionRender("sess-bg", () => chatToolStart("MOT-BG1", "bash", "sleep 60", { command: "sleep 60" }))', sandbox);
+  toolStartEv({ payload: { id: "MOT-T4", name: "bash", summary: "sleep 5", input: { command: "sleep 5" }, sessionId: "sess-smoke" } });
+  const bgBlock = chatNs.chatToolBlocks.get("MOT-BG1");
+  const fgBlock = chatNs.chatToolBlocks.get("MOT-T4");
+  assert(bgBlock?.wrap.classList.contains("running") && fgBlock?.wrap.classList.contains("running"), "#7 前置:前后台两个工具块都应在运行");
+  assert(chatNs.paneHasRunningTool() === true, "#7 paneHasRunningTool 没认出活动 pane 里在跑的块");
+  handlers.get("kz:error")({ payload: { sessionId: "sess-bg", message: "后台线出错", terminal: true } });
+  await flush();
+  assert(bgBlock.wrap.classList.contains("interrupted") && !bgBlock.wrap.classList.contains("running"), "#7 后台线终态出错后,它 pane 里的工具行仍在转圈");
+  assert(fgBlock.wrap.classList.contains("running"), "#7 后台线的终态把活动线还在跑的工具行也收尾了(串线)");
+  toolEndEv({ payload: { id: "MOT-T4", name: "bash", ok: true, preview: "ok", display: null, sessionId: "sess-smoke" } });
+  await flush();
+  vm.runInContext('transitionSession("sess-bg", "idle")', sandbox);
+
+  // ④ 状态点轮末反馈:完成/失败一次性,停止不播。
+  sandbox.notifyRunState("completed", "动效冒烟");
+  assert(dot.dataset.flash === "completed", `#7 轮末完成未挂一次性反馈,flash=${dot.dataset.flash}`);
+  await flush();
+  assert(dot.dataset.flash === undefined, "#7 轮末完成反馈没有被摘除");
+  sandbox.notifyRunState("failed", "动效冒烟");
+  assert(dot.dataset.flash === "failed", "#7 轮末失败未挂一次性反馈");
+  await flush();
+  sandbox.notifyRunState("stopped", "动效冒烟");
+  assert(dot.dataset.flash === undefined, "#7 停止不该播轮末反馈");
+
+  // ⑤ 等下一轮 / 停止中:活动行保留、警示色;回到空闲收起。
+  sandbox.setRunPending("鞭挞 · 等待下一轮");
+  assert(phase() === "pending" && html.dataset.kzActivity === "pending" && !row.classList.contains("hidden"), `#7 等下一轮时活动行应为 pending,实为 ${phase()} / ${html.dataset.kzActivity}`);
+  assert(dot.dataset.state === "pending", `#7 等下一轮时状态点应为 pending,实为 ${dot.dataset.state}`);
+  sandbox.setStopping("停止中…");
+  assert(phase() === "stopping" && dot.dataset.state === "stopping", `#7 停止中相位不对:${phase()} / ${dot.dataset.state}`);
+  // 「停止中」粘滞:停止发出后迟到的思考/工具收尾不得把活动行翻回运行态,文案仍是「停止中…」(与停止按钮一致)。
+  sandbox.setTurnPhase("thinking");
+  assert(phase() === "stopping", `#7 停止中被 setTurnPhase 覆盖成了 ${phase()}`);
+  toolEndEv({ payload: { id: "MOT-T-STOPPING", name: "bash", ok: true, preview: "ok", display: null, sessionId: "sess-smoke" } });
+  assert(phase() === "stopping" && dot.dataset.state === "stopping" && html.dataset.kzActivity === "stopping", `#7 停止中迟到的 kz:tool-end 把相位翻回了 ${phase()} / ${html.dataset.kzActivity}`);
+  assert(/停止中|Stopping/.test(label.textContent), `#7 停止中迟到的 kz:tool-end 把活动行文案改成了「${label.textContent}」`);
+  sandbox.setRunning(false, "空闲");
+  assert(row.classList.contains("hidden") && html.dataset.kzActivity === "idle" && dot.dataset.state === "idle", "#7 回到空闲后活动行/状态点未复位");
+  await flush();
+
+  // ⑥ 侧栏线路字形:独立 .kz-glyph,逐事件投影原地更新(同一节点),整行文案逐字不变。
+  vm.runInContext('transitionSession("sess-bg", "running")', sandbox);
+  sandbox.renderParallelTaskStatus(shellNs.processItems);
+  const bgRow = () => [...document.querySelectorAll("#parallel-task-status .parallel-task-row")].find((r) => r.dataset.processId === "p|bg");
+  // UI-0926 #4 起字形是行首独立节点(行 = 字形 + 身份·名称 + 分支 + 行尾单个状态词)。
+  const glyphOf = () => bgRow()?.querySelector(".kz-glyph");
+  const g1 = glyphOf();
+  assert(g1?.dataset.state === "running" && g1.textContent === "●", `#7 运行中线路的字形不对:${g1?.dataset.state} ${g1?.textContent}`);
+  assert(/^-?\d+ms$/.test(g1.style.getPropertyValue("--kz-sync")), `#7 线路字形没有对齐全局相位(--kz-sync=${g1.style.getPropertyValue("--kz-sync")})`);
+  assert(g1.getAttribute("aria-hidden") === "true", "#7 线路字形应对读屏隐藏(文案已说明状态)");
+  const runningWord = bgRow()?.querySelector(".parallel-task-state")?.textContent ?? "";
+  assert(bgRow().children[0] === g1 && runningWord && !/空闲|Idle/.test(runningWord), `#7 运行中线路应是「● … 状态词」且状态词不是空闲:${bgRow().textContent}`);
+  sandbox.refreshParallelTaskProjection("sess-bg");
+  sandbox.refreshParallelTaskProjection("sess-bg");
+  assert(glyphOf() === g1, "#7 逐事件投影重建了线路字形节点(呼吸动画每个事件都从第 0 帧重来)");
+  vm.runInContext('transitionSession("sess-bg", "idle")', sandbox);
+  sandbox.refreshParallelTaskProjection("sess-bg");
+  assert(glyphOf() === g1 && g1.dataset.state === "idle" && g1.textContent === "○", `#7 转空闲后字形未原地更新:${g1.dataset.state} ${g1.textContent}`);
+  assert(!bgRow().textContent.includes("●"), "#7 空闲线路仍带运行标记");
+
+  // ⑦ 各线在做:线真在跑才 is-live;kz:idle 收敛后摘除。批次格给「正在推的那一格」。
+  sandbox.renderFocusPanel(payloads.docs_snapshot);
+  const bgFocus = () => [...document.querySelectorAll("#focus-body .line-focus")].find((node) => node.dataset.processId === "p|bg");
+  assert(bgFocus(), "#7 前置:焦点区缺后台线路分组");
+  assert(!bgFocus().classList.contains("is-live"), "#7 空闲线路的焦点分组不该 is-live");
+  vm.runInContext('transitionSession("sess-bg", "running")', sandbox);
+  sandbox.renderParallelTaskStatus(shellNs.processItems);
+  assert(bgFocus()?.classList.contains("is-live"), "#7 后台线运行中,焦点分组没有 is-live");
+  handlers.get("kz:idle")({ payload: { reason: "completed", sessionId: "sess-bg" } });
+  await flush();
+  assert(!bgFocus()?.classList.contains("is-live"), "#7 kz:idle 收敛后焦点分组仍 is-live");
+  const cellsOf = (host) => host.querySelectorAll(".complexity-cell");
+  const midCard = sandbox.buildFocusCard(docEntry("R-M01", "动效批次", "doing", { batches: { done: 3, total: 11 } }), "req");
+  const midCells = cellsOf(midCard);
+  const midCurrent = midCells.map((cell, index) => (cell.classList.contains("current") ? index : -1)).filter((index) => index >= 0);
+  assert(midCurrent.length === 1 && midCurrent[0] === 3, `#7 3/11 批的卡片应恰有第 4 格为 current,实为 ${JSON.stringify(midCurrent)}`);
+  const doneCard = sandbox.buildFocusCard(docEntry("R-M02", "动效批次完成", "doing", { batches: { done: 11, total: 11 } }), "req");
+  assert(!cellsOf(doneCard).some((cell) => cell.classList.contains("current")), "#7 批次已全部完成还标了 current 格");
+  const listHost = document.createElement("div");
+  sandbox.renderDocList(listHost, [docEntry("R-M03", "动效列表批次", "doing", { batches: { done: 2, total: 5 } })], "req");
+  const listCurrent = cellsOf(listHost).map((cell, index) => (cell.classList.contains("current") ? index : -1)).filter((index) => index >= 0);
+  assert(listCurrent.length === 1 && listCurrent[0] === 2, `#7 列表 2/5 批应恰有第 3 格为 current,实为 ${JSON.stringify(listCurrent)}`);
+
+  // ⑧ 窗口隐藏即暂停(直接调函数,不派发 visibilitychange,免得触发语音/OC 的副作用)。
+  assert(html.dataset.kzMotion === "live", `#7 启动后 html[data-kz-motion] 应为 live,实为 ${html.dataset.kzMotion}`);
+  document.hidden = true;
+  sandbox.syncMotionVisibility();
+  assert(html.dataset.kzMotion === "paused", "#7 窗口隐藏后动画没有暂停");
+  document.hidden = false;
+  sandbox.syncMotionVisibility();
+  assert(html.dataset.kzMotion === "live", "#7 窗口恢复后动画没有恢复");
+
+  // ⑨ rail 徽标:面板收起时右上角提示「有东西在跑」。
+  sandbox.bgAbortRunning("(动效冒烟前置)");
+  const activityToggle = byId.get("activity-toggle");
+  assert(activityToggle.dataset.running === "false", `#7 活动面板无运行项时徽标应熄灭,实为 ${activityToggle.dataset.running}`);
+  sandbox.bgAdd("MOT-BG-RAIL", "bash", "sleep 3", { command: "sleep 3" }, "sess-smoke");
+  assert(activityToggle.dataset.running === "true", "#7 活动面板有运行项时 rail 徽标未点亮");
+  sandbox.bgEnd("MOT-BG-RAIL", true, "ok", null, "success");
+  assert(activityToggle.dataset.running === "false", "#7 运行项结束后 rail 徽标未熄灭");
+  const agentToggle = byId.get("agent-toggle");
+  // UI-0926 #8:子代理数据模型改归 05-subagents.js(旧 agentStart/agentEnd/agentEntries 已退役)。
+  sandbox.subagentStart({ sessionId: "sess-smoke", id: "AG-MOTION", input: { prompt: "motion", description: "动效徽标" } });
+  assert(agentToggle.dataset.running === "true", "#7 子代理运行时 rail 徽标未点亮");
+  sandbox.subagentEnd({ sessionId: "sess-smoke", id: "AG-MOTION", ok: true, outcome: "success", preview: "done" });
+  const stillRunningAgents = sandbox.subagentRunningCount("sess-smoke") > 0;
+  assert(agentToggle.dataset.running === String(stillRunningAgents), `#7 子代理结束后 rail 徽标与实际运行数不符:${agentToggle.dataset.running}`);
+
+  // ⑩ 计数 tick:鞭挞轮次上升时 tick 一次,值不变的无参重绘不 tick。
+  const roundNow = byId.get("auto-round-now");
+  const savedRounds = vm.runInContext("currentAutoRounds()", sandbox);
+  sandbox.setAutoRounds("sess-smoke", 2);
+  sandbox.renderAutoRun();
+  await flush();
+  sandbox.setAutoRounds("sess-smoke", 3);
+  sandbox.renderAutoRun();
+  assert(roundNow.textContent === "3" && roundNow.classList.contains("kz-tick"), `#7 鞭挞轮次上升未 tick:${roundNow.textContent} ${roundNow.className}`);
+  await flush();
+  assert(!roundNow.classList.contains("kz-tick"), "#7 kz-tick 一次性类没有被摘除");
+  sandbox.renderAutoRun();
+  assert(!roundNow.classList.contains("kz-tick"), "#7 轮次没变的无参重绘也 tick 了");
+  sandbox.setAutoRounds("sess-smoke", savedRounds);
+  sandbox.renderAutoRun();
+  await flush();
+
+  // ⑪ 上下文条等本轮 usage 时慢呼吸(与 kz:step 同一条 setCtxPending(false) + renderTokens 路径)。
+  sandbox.setCtxLimit(100000);
+  sandbox.setCtxTokens(5000);
+  sandbox.setCtxPending(true);
+  sandbox.renderTokens();
+  assert(byId.get("ctx-bar").classList.contains("pending"), "#7 等本轮 usage 时上下文条没有 pending");
+  sandbox.setCtxPending(false);
+  sandbox.renderTokens();
+  assert(!byId.get("ctx-bar").classList.contains("pending"), "#7 usage 到达后上下文条仍 pending");
+  sandbox.setCtxLimit(savedCtx.limit);
+  sandbox.setCtxTokens(savedCtx.tokens);
+  sandbox.setCtxPending(savedCtx.pending);
+  sandbox.renderTokens();
+
+  // ⑫ 自动放行由关变开弹一次;进行中的按钮 aria-busy(统一转圈)。
+  const autoAllow = byId.get("auto-allow");
+  const badge = byId.get("status-auto-allow");
+  const savedAllow = autoAllow.checked;
+  autoAllow.checked = true;
+  autoAllow.dispatchEvent({ type: "change" });
+  assert(badge.classList.contains("kz-pop"), "#7 自动放行开启时徽标没有弹一下");
+  await flush();
+  autoAllow.checked = savedAllow;
+  autoAllow.dispatchEvent({ type: "change" });
+  await flush();
+  const savedUpdateCheck = payloads.update_check;
+  payloads.update_check = { current: "0.0.0", newer: false };
+  let releaseUpdate;
+  invokeGates.set("update_check", new Promise((resolve) => { releaseUpdate = resolve; }));
+  byId.get("update-check").click();
+  assert(byId.get("update-check").getAttribute("aria-busy") === "true", "#7 检查更新进行中按钮没有 aria-busy(不转圈)");
+  invokeGates.delete("update_check");
+  releaseUpdate();
+  await flush();
+  assert(byId.get("update-check").getAttribute("aria-busy") === null, "#7 检查更新结束后 aria-busy 没有撤掉(会一直转)");
+  if (savedUpdateCheck === undefined) delete payloads.update_check;
+  else payloads.update_check = savedUpdateCheck;
+
+  // 收尾:恢复进程列表与会话状态,后续分区不继承本组的运行态。
+  vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
+  sandbox.setRunning(false, "空闲");
+  payloads.process_list = savedProcessList;
+  sandbox.renderProcesses(structuredClone(savedProcessList));
+  await flush();
+}
+
+// ---------- UI-0926 ESM 回归:这些调用曾经在真机上从未执行(globalThis 上根本没有它们) ----------
+// 冒烟 sandbox 把全部 ESM 导出复制成全局,`typeof globalThis.X === "function"` 的死调用在这里
+// 一直是绿的。这一段先把这些名字从 sandbox 全局摘掉(= 真机浏览器的样子),再走真实事件路径,
+// 用它们的**副作用**证明调用确实发生了。ui-lint 的静态守卫拦写法,这里拦行为。
+{
+  const DEAD_NAMES = [
+    "refreshParallelTaskProjection", "refreshConversationLists", "handleBackgroundSessionDone",
+    "cancelAutoContinueTimer", "focusForProcess", "fastStatusText", "markLanguagePreferenceDirty",
+  ];
+  const stash = new Map(DEAD_NAMES.map((name) => [name, sandbox[name]]));
+  const esmLines = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+    { id: "p|esm-bg", label: "ESM 后台线", session_id: "sess-esm-bg", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+  ];
+  const savedEsmProcessList = payloads.process_list;
+  payloads.process_list = structuredClone(esmLines);
+  sandbox.renderProcesses(structuredClone(esmLines));
+  await flush();
+  for (const name of DEAD_NAMES) delete sandbox[name];
+  try {
+    assert(DEAD_NAMES.every((name) => vm.runInContext(`typeof globalThis.${name}`, sandbox) === "undefined"), "ESM 回归前置:sandbox 全局未摘干净");
+    kzTest.setAutoState("p|esm-bg", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+    const esmGlyph = () => [...document.querySelectorAll("#parallel-task-status .parallel-task-row")]
+      .find((row) => row.dataset.processId === "p|esm-bg")?.querySelector(".kz-glyph");
+    assert(esmGlyph()?.dataset.state === "idle", `ESM 回归前置:后台线应为空闲,实为 ${esmGlyph()?.dataset.state}`);
+    // ① 逐事件线路投影:后台线的 kz:turn 只进路由层(不进 handler、不整表重绘),线路行只能靠它点亮。
+    handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: "sess-esm-bg" } });
+    assert(esmGlyph()?.dataset.state === "running", "ESM 回归:后台线 kz:turn 后线路行没亮——逐事件投影(refreshParallelTaskProjection)没执行");
+    // ② 后台线轮末续跑:kz:done 在路由层转给 handleBackgroundSessionDone,由它排下一轮。
+    const conversationListsBefore = invokeArgs.length;
+    handlers.get("kz:done")({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-esm-bg" } });
+    assert(kzTest.timerSessions().includes("sess-esm-bg"), "ESM 回归:后台线 kz:done 没有排续跑——handleBackgroundSessionDone 没执行");
+    assert(sandbox.sessionState("sess-esm-bg").phase === "auto_pending", "ESM 回归:后台线 kz:done 后没进入等待下一轮");
+    await settle();
+    assert(
+      invokeArgs.slice(conversationListsBefore).some(({ cmd }) => cmd === "conversation_list"),
+      "ESM 回归:后台线控制事件没有刷新会话列表——refreshConversationLists 没执行",
+    );
+    // ③ 后台线停止必须取消已排的续跑定时器,否则停下的线过 2 秒又自己跑起来。
+    if (!kzTest.timerSessions().includes("sess-esm-bg")) sandbox.armAutoContinue(sandbox.continuePrompt(), "sess-esm-bg");
+    assert(kzTest.timerSessions().includes("sess-esm-bg"), "ESM 回归前置:续跑定时器应已排上");
+    handlers.get("kz:stopped")({ payload: { sessionId: "sess-esm-bg" } });
+    assert(!kzTest.timerSessions().includes("sess-esm-bg"), "ESM 回归:后台线停止后续跑定时器还在——cancelAutoContinueTimer 没执行");
+    await flush();
+    // ④ 状态栏 fast 模型:托管但服务未起时必须说出缺哪一环(死调用时这一格是空的)。
+    await sandbox.refreshFastStatusBar();
+    const fastText = byId.get("status-fast").textContent;
+    assert(fastText.includes("⚠") && !byId.get("status-fast").classList.contains("hidden"), `ESM 回归:状态栏 fast 状态为空——fastStatusText 没执行(实得「${fastText}」)`);
+    // ⑤ 设置页语言偏好:改了语言要标脏,否则保存设置时把旧语言写回去。
+    await sandbox.loadSettings({ force: true });
+    await flush();
+    const settingsNs = esmModuleCache.get("16-settings.js")?.namespace;
+    assert(settingsNs?.languagePreferenceDirty === false, "ESM 回归前置:载入设置后语言偏好不应是脏的");
+    const languageSelect = byId.get("language-select");
+    languageSelect.dispatchEvent({ type: "change" });
+    assert(settingsNs.languagePreferenceDirty === true, "ESM 回归:改语言没有标脏——markLanguagePreferenceDirty 没执行,保存设置会写回旧语言");
+    await sandbox.loadSettings({ force: true });
+    await flush();
+    // ⑥ 默认线「被取得」:无 claimed_by 的 doing 条目由默认线持有的判据读主线焦点(focusForProcess)。
+    sandbox.renderProcesses(structuredClone(savedEsmProcessList));
+    await flush();
+    sandbox.renderDocuments(savedDocsPayload);
+    sandbox.renderLines(payloads.collaboration_snapshot);
+    assert(
+      document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .doc-claim-fact'),
+      "ESM 回归:默认线占着 R-001 却没有被取得标记——focusForProcess 没执行",
+    );
+  } finally {
+    for (const [name, value] of stash) sandbox[name] = value;
+    kzTest.cancelTimers();
+    vm.runInContext('transitionSession("sess-esm-bg", "idle")', sandbox);
+    payloads.process_list = savedEsmProcessList;
+    sandbox.renderProcesses(structuredClone(savedEsmProcessList));
+    await flush();
+  }
+}
+
+// ===== 分区:子代理 =====
+// UI-0926 #8 子代理卡片(docs/design/subagent_presentation.md):一次委派 = 主对话里的一张卡。
+// 单卡生命周期(启动中→运行中→一行终态)、≤3 行尾迹与「+N」、token 累计值只替换不累加、终态按 code
+// 分类(旧文案兜底)、并行成组与封口、后台线路推进、历史回放与实时同形、切语言重画、整轮停止收尾
+// (活动线与后台线)、停止补发的 ToolEnd 不复活运行态、超额派发不拆组、侧栏行可访问名不逐秒重写、审计「已停止」
+// 不算失败、窗口边界孤儿结果与「载入更早的消息」后的批次顺序。
+// 四条变异守卫:saUsageAccumulate / saSettle / saPrependBatch / saOrphanTask。
+{
+  const coreNs = esmModuleCache.get("01-core.js")?.namespace;
+  const saNs = esmModuleCache.get("05-subagents.js")?.namespace;
+  const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  const activityNs = esmModuleCache.get("06-activity.js")?.namespace;
+  assert(saNs && typeof saNs.subagentStart === "function", "05-subagents.js 未加载或未导出 subagentStart");
+  const toolStart = handlers.get("kz:tool-start");
+  const toolEnd = handlers.get("kz:tool-end");
+  const taskProgress = handlers.get("kz:task-progress");
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+  await flush();
+  assert(sandbox.activeSessionId === "sess-smoke", `子代理分区前置:活动线应为 sess-smoke,实为 ${sandbox.activeSessionId}`);
+  // 新一轮开跑:解除前面分区留下的收敛态(收敛后的进度事件按设计会被丢弃)。
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: "sess-smoke" } });
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: "sess-bg" } });
+  await flush();
+  const pane = () => sandbox.activePane;
+  const cardOf = (id, root = pane()) => [...root.querySelectorAll(".sa-card")].find((c) => c.dataset.saKey === `sess-smoke|${id}` || c.dataset.saKey?.endsWith(`|${id}`));
+  const liveLines = (card) => [...(card?.querySelectorAll(".sa-live .sa-line") ?? [])];
+
+  // ① 静态:字形复用第一波 .kz-glyph 原语,本组不另写 keyframes / 无限动画;侧栏仍是 absolute 抽屉。
+  const saCss = style.split("/* ===== 分区:子代理 ===== */")[1] ?? "";
+  assert(saCss.includes(".sa-card") && saCss.includes(".sa-live"), "style.css 子代理分区缺卡片/尾迹样式");
+  assert(!/@keyframes/.test(saCss) && !/\binfinite\b/.test(saCss), "子代理分区不得另写 keyframes 或无限动画(复用 .kz-glyph 原语)");
+  assert(/className = "kz-glyph sa-glyph"/.test(source), "子代理字形没有复用 .kz-glyph 原语");
+  assert(/#agent-panel\s*\{[^}]*position: absolute/.test(style), "#agent-panel 必须仍是 position:absolute 的抽屉");
+  assert(coreNs?.BACKGROUND_RENDER_EVENTS?.has("kz:task-progress"), "kz:task-progress 不在后台渲染事件集合里:非活动线路的子代理卡片不会推进");
+
+  // ② 单卡生命周期:卡片出现、描述是 description、永不显示调用 id;meta trace 带来实际人格。
+  toolStart({ payload: { id: "call_00_ab12cd", name: "task", summary: "{\"prompt\":\"Find where\"}", input: { prompt: "Find where tokens are verified\nthen report", description: "Find token checks" }, sessionId: "sess-smoke" } });
+  await flush();
+  const card = cardOf("call_00_ab12cd");
+  assert(card?.dataset.saState === "starting", `task 的 tool-start 后应出现启动中的卡片,实为 ${card?.dataset.saState}`);
+  assert(card?.querySelector(".sa-desc")?.textContent === "Find token checks", `卡片描述应取 input.description,实为 "${card?.querySelector(".sa-desc")?.textContent}"`);
+  assert(!card?.textContent.includes("call_00_ab12cd"), "卡片里出现了调用 id(乱码)");
+  assert(!pane().querySelector(".agent-fold") && !pane().querySelector(".tool-msg[data-tool-call-id=call_00_ab12cd]"), "task 仍在生成旧的折叠组/工具块");
+  assert(/启动中/.test(card?.querySelector(".sa-meta")?.textContent ?? ""), "启动中的卡片计数行应写「启动中」");
+  // D-725:同一调用仍在跑时重复的 tool-start 不另开一张卡。
+  toolStart({ payload: { id: "call_00_ab12cd", name: "task", summary: "", input: { prompt: "dup" }, sessionId: "sess-smoke" } });
+  assert([...pane().querySelectorAll(".sa-card")].filter((c) => c.dataset.saKey === "sess-smoke|call_00_ab12cd").length === 1, "同一调用重复 tool-start 生成了第二张卡");
+  taskProgress({ payload: { id: "call_00_ab12cd", text: "explore · qwen3:8b", trace: { child_id: "call_00_ab12cd", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
+  await flush();
+  assert(card?.querySelector(".sa-agent")?.textContent === "explore", `meta trace 后人格签应为 explore,实为 "${card?.querySelector(".sa-agent")?.textContent}"`);
+  assert(card?.dataset.saState === "running", `首条进度后应转为运行中,实为 ${card?.dataset.saState}`);
+  assert(saNs.subagentDescription({ prompt: "Find where tokens are verified\nthen report" }) === "Find where tokens are verified", "没有 description 时应取 prompt 首句");
+  assert(saNs.subagentDescription({ prompt: "复核 verify-policy.mjs 的门禁。再改代码" }) === "复核 verify-policy.mjs 的门禁", "描述切句把文件名里的点当成了句号");
+  assert(saNs.subagentDescription({ prompt: "列出所有 **denial_hint** 文案" }) === "列出所有 denial_hint 文案", "去 markdown 时把标识符里的下划线也删了");
+  assert(saNs.subagentDescription({}, "{\"prompt\":\"Scan the repo\\nfor tokens\",\"mod") === "Scan the repo", "只有后端 summary(截断的入参 JSON)时描述里出现了 JSON");
+
+  // ③ 尾迹:5 次子工具只显示最近 3 行 + 「+2」,摘要与工具行同源(路径,不是 JSON);失败行标出。
+  const children = [
+    ["c1", "read", { path: "crates/kanzei-app/src/auth/session.rs" }],
+    ["c2", "grep", { pattern: "verify_token", path: "crates" }],
+    ["c3", "read", { path: "crates/kanzei-app/src/auth/middleware.rs" }],
+    ["c4", "glob", { pattern: "**/*.rs" }],
+    ["c5", "read", { path: "src/lib.rs" }],
+  ];
+  for (const [child_id, name, input] of children) {
+    taskProgress({ payload: { id: "call_00_ab12cd", text: `${name}`, trace: { child_id, phase: "start", name, summary: JSON.stringify(input).slice(0, 160), input }, sessionId: "sess-smoke" } });
+  }
+  await flush();
+  const lines = liveLines(card);
+  assert(lines.length === 3, `尾迹应恰好 3 行,实得 ${lines.length}`);
+  assert(/\+2/.test(card?.querySelector(".sa-live .sa-more")?.textContent ?? ""), `更早的调用应折成「+2」,实得 "${card?.querySelector(".sa-live .sa-more")?.textContent}"`);
+  assert(lines[0]?.textContent.includes("middleware.rs") && lines[2]?.textContent.includes("lib.rs"), `尾迹不是最近 3 次调用的路径摘要:${lines.map((l) => l.textContent).join(" | ")}`);
+  assert(!card?.querySelector(".sa-live")?.textContent.includes("{"), "尾迹里出现了 JSON");
+  assert(lines[2]?.classList.contains("is-current"), "最新一行应标为当前(前景色)");
+  taskProgress({ payload: { id: "call_00_ab12cd", text: "", trace: { child_id: "c3", phase: "end", name: "read", ok: false, outcome: "failed", preview: "path not found" }, sessionId: "sess-smoke" } });
+  for (const child_id of ["c1", "c2", "c4", "c5"]) taskProgress({ payload: { id: "call_00_ab12cd", text: "", trace: { child_id, phase: "end", ok: true, preview: "ok" }, sessionId: "sess-smoke" } });
+  await flush();
+  assert(liveLines(card)[0]?.classList.contains("is-failed"), "失败的子工具在尾迹里没有失败标记");
+  taskProgress({ payload: { id: "call_00_ab12cd", text: "", trace: { phase: "text", text: "先看中间件,再看会话层。" }, sessionId: "sess-smoke" } });
+
+  // ④ token 是累计值:两条 usage 之后显示最新值 3.0k,而不是相加的 4.2k(变异 saUsageAccumulate 必须把这里打红)。
+  taskProgress({ payload: { id: "call_00_ab12cd", text: "", trace: { phase: "usage", name: "", usage: { input: 1000, output: 200 } }, sessionId: "sess-smoke" } });
+  taskProgress({ payload: { id: "call_00_ab12cd", text: "", trace: { phase: "usage", name: "", usage: { input: 2500, output: 500 } }, sessionId: "sess-smoke" } });
+  await flush();
+  const tokenMeta = card?.querySelector(".sa-meta")?.textContent ?? "";
+  assert(tokenMeta.includes("3.0k") && !tokenMeta.includes("4.2k"), `token 计数把累计 usage 又累加了一遍:"${tokenMeta}"`);
+  assert(tokenMeta.includes("5 次工具"), `计数行缺工具次数:"${tokenMeta}"`);
+
+  // ⑤ 终态收成一行:done、尾迹收起、无错误行;计数带状态词、耗时 1m 3s(ToolEnd.durationMs 校准)。
+  toolEnd({ payload: { id: "call_00_ab12cd", name: "task", ok: true, outcome: "success", preview: "## 结论 (+1 lines)", content: "## 结论\n- token 在 middleware 校验", contentBytes: 40, contentTruncated: false, durationMs: 63000, display: null, sessionId: "sess-smoke" } });
+  // 一次性反馈由 motionOnce 定时摘除:flush 会跑掉定时器,所以在 flush 之前看。
+  assert(card?.querySelector(".sa-glyph")?.classList.contains("kz-pop"), "实时终态没有一次性弹出反馈");
+  await flush();
+  assert(card?.dataset.saState === "done", `ToolEnd 成功后应为 done,实为 ${card?.dataset.saState}`);
+  assert(card?.querySelector(".sa-live")?.classList.contains("hidden") && liveLines(card).length === 0, "终态后尾迹没有收起(一行原则)");
+  assert(card?.querySelector(".sa-error")?.classList.contains("hidden"), "成功的卡不该有错误行");
+  const doneMeta = card?.querySelector(".sa-meta")?.textContent ?? "";
+  assert(/^完成 · 5 次工具 · 3\.0k token · 1m 3s$/.test(doneMeta), `终态计数行漂移:"${doneMeta}"`);
+  // 终态之后迟到的进度不复活卡片。
+  taskProgress({ payload: { id: "call_00_ab12cd", text: "", trace: { child_id: "c9", phase: "start", name: "read", input: { path: "late.rs" } }, sessionId: "sess-smoke" } });
+  await flush();
+  assert(card?.dataset.saState === "done" && !(card?.querySelector(".sa-meta")?.textContent ?? "").includes("6 次工具"), "终态之后迟到的进度把卡片改回了运行态");
+
+  // ⑥ 内联展开:指令 / 过程(5 个子工具行 + 1 段自述,与主对话工具行同一构造器)/ 结果;不贴裸 JSON。
+  card?.querySelector(".sa-head")?.click();
+  await flush();
+  const body = card?.querySelector(".sa-body");
+  assert(card?.querySelector(".sa-head")?.getAttribute("aria-expanded") === "true" && !body?.classList.contains("hidden"), "点卡头没有就地展开");
+  assert(body?.querySelector(".sa-prompt")?.textContent.includes("Find where tokens are verified"), "展开区缺指令");
+  const steps = [...(body?.querySelectorAll(".sa-steps .tool-msg") ?? [])];
+  assert(steps.length === 5 && steps.map((s) => s.querySelector(".tool-msg-name")?.textContent).join(",") === "read,grep,read,glob,read", `过程节的子工具行不对:${steps.map((s) => s.querySelector(".tool-msg-name")?.textContent).join(",")}`);
+  assert(steps[2]?.classList.contains("err"), "失败的子工具行没有失败态");
+  assert(body?.querySelectorAll(".sa-msg").length === 1, "过程节缺子代理自述");
+  assert(body?.querySelector(".sa-result")?.textContent.includes("token 在 middleware 校验"), "结果节没有用 ToolEnd 的正文");
+  assert([...(body?.querySelectorAll("pre") ?? [])].every((pre) => !/^\s*\{\s*"/.test(pre.textContent)), "展开区出现了 JSON.stringify 形态的入参");
+  card?.querySelector(".sa-head")?.click();
+
+  // ⑦ 终态分类:code 优先,旧文案兜底;失败类有错误行且剥掉机器头。
+  const classify = saNs.classifySubagentEnd;
+  for (const [code, want] of [["subagent_timeout", "timeout"], ["subagent_cancelled", "cancelled"], ["subagent_limit", "rejected"], ["subagent_empty_answer", "empty"]]) {
+    assert(classify({ ok: false, code, preview: "x" }) === want, `code=${code} 应分类为 ${want},实为 ${classify({ ok: false, code, preview: "x" })}`);
+  }
+  assert(classify({ ok: false, preview: "subagent hit the 600s wall-clock safety limit" }) === "timeout", "旧文案 wall-clock 未兜底成超时");
+  assert(classify({ ok: false, preview: "subagent x was stopped by the user" }) === "cancelled", "旧文案 stopped by the user 未兜底成已停止");
+  assert(classify({ ok: false, preview: "too many parallel subagent tasks (max 4)" }) === "rejected", "旧文案 too many parallel 未兜底成未启动");
+  assert(classify({ ok: true, outcome: "noop" }) === "empty" && classify({ ok: false, preview: "boom" }) === "failed", "noop/普通失败的分类不对");
+  toolStart({ payload: { id: "call_fail", name: "task", summary: "", input: { prompt: "Try something", description: "Try something" }, sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "call_fail", name: "task", ok: false, outcome: "failed", code: "subagent_timeout", preview: "[tool_outcome=failed code=subagent_timeout]\nsubagent hit the 600s wall-clock safety limit", display: null, sessionId: "sess-smoke" } });
+  await flush();
+  const failCard = cardOf("call_fail");
+  assert(failCard?.dataset.saState === "timeout", `超时码的卡应为 timeout,实为 ${failCard?.dataset.saState}`);
+  const errorLine = failCard?.querySelector(".sa-error");
+  assert(errorLine && !errorLine.classList.contains("hidden") && errorLine.textContent.includes("wall-clock") && !errorLine.textContent.includes("[tool_outcome="), `失败类错误行不对:"${errorLine?.textContent}"`);
+
+  // ⑧ 并行成组与封口:连续两个 tool-start 进同一组(组头可见、成员一行);组内有进度后再来的进新组。
+  toolStart({ payload: { id: "call_p1", name: "task", summary: "", input: { prompt: "p1", description: "Scan auth" }, sessionId: "sess-smoke" } });
+  toolStart({ payload: { id: "call_p2", name: "task", summary: "", input: { prompt: "p2", description: "Scan tests" }, sessionId: "sess-smoke" } });
+  await flush();
+  const p1 = cardOf("call_p1");
+  const group = p1?.closest(".sa-group");
+  assert(group && group.dataset.saCount === "2" && cardOf("call_p2")?.closest(".sa-group") === group, `并行的两个子代理没有合成一组(count=${group?.dataset.saCount})`);
+  assert(!group?.querySelector(".sa-group-head")?.classList.contains("hidden") && /2 个子代理/.test(group?.querySelector(".sa-group-label")?.textContent ?? ""), `组头不可见或人数不对:"${group?.querySelector(".sa-group-label")?.textContent}"`);
+  assert(p1?.dataset.saVariant === "member" && liveLines(p1).length === 0, "组成员应是一行的 member 变体(不出三行尾迹)");
+  taskProgress({ payload: { id: "call_p1", text: "", trace: { child_id: "p1-1", phase: "start", name: "grep", input: { pattern: "auth" } }, sessionId: "sess-smoke" } });
+  await flush();
+  assert(p1?.querySelector(".sa-now")?.textContent.includes("grep"), "member 变体运行中没有显示最新工具摘要");
+  toolStart({ payload: { id: "call_p3", name: "task", summary: "", input: { prompt: "p3", description: "Later one" }, sessionId: "sess-smoke" } });
+  await flush();
+  assert(cardOf("call_p3")?.closest(".sa-group") !== group && cardOf("call_p3")?.closest(".sa-group")?.classList.contains("solo"), "组封口失效:有进度之后的新派发并进了旧组");
+
+  // ⑨ 后台线路推进:sess-bg 的卡片在它自己的 pane 里随 task-progress 推进,活动 pane 不受影响。
+  const activeCardCount = pane().querySelectorAll(".sa-card").length;
+  toolStart({ payload: { id: "call_bg1", name: "task", summary: "", input: { prompt: "bg", description: "Background scan" }, sessionId: "sess-bg" } });
+  await flush();
+  const bgPane = vm.runInContext('messagePanes.get("sess-bg")', sandbox);
+  const bgCard = bgPane ? cardOf("call_bg1", bgPane) : null;
+  assert(bgCard && pane().querySelectorAll(".sa-card").length === activeCardCount, "后台线路的子代理卡片没有进它自己的 pane(或串进了活动 pane)");
+  taskProgress({ payload: { id: "call_bg1", text: "", trace: { child_id: "bg-1", phase: "start", name: "read", input: { path: "bg.rs" } }, sessionId: "sess-bg" } });
+  await flush();
+  assert(bgCard?.dataset.saState === "running" && (bgCard?.querySelector(".sa-meta")?.textContent ?? "").includes("1 次工具"), `后台线路的 task-progress 没有推进卡片:"${bgCard?.querySelector(".sa-meta")?.textContent}"`);
+
+  // ⑩ 历史回放与实时同形:消息历史建卡 + run.trace 里的 task-progress 补过程/计数 + tool.completed 补耗时;
+  //    只有调用没有结果的回放成「中断」。
+  viewsNs.renderMessageParts([{ role: "assistant", parts: [
+    { type: "tool_call", id: "H1", name: "task", input: { prompt: "x", description: "History run" } },
+    { type: "tool_result", call_id: "H1", is_error: false, content: "final answer" },
+    { type: "tool_call", id: "H2", name: "task", input: { prompt: "never finished", description: "Cut off run" } },
+  ] }]);
+  activityNs.renderRecoveredTraces([{ run_id: "r-h1", events: [
+    { kind: "tool.started", id: "H1", name: "task", summary: "History run" },
+    { id: "H1", text: "explore · qwen3:8b", trace: { child_id: "H1", phase: "meta", agent: "explore", model: "qwen3:8b" } },
+    { id: "H1", text: "read", trace: { child_id: "h1-1", phase: "start", name: "read", summary: "src/a.rs", input: "{\"path\":\"src/a.rs\"}" } },
+    { id: "H1", text: "", trace: { child_id: "h1-1", phase: "end", name: "read", ok: true, preview: "12 lines" } },
+    { id: "H1", text: "grep", trace: { child_id: "h1-2", phase: "start", name: "grep", summary: "{\"pattern\":\"tok", input: "{\"pattern\":\"tok" } },
+    { id: "H1", text: "", trace: { child_id: "h1-2", phase: "end", name: "grep", ok: true, preview: "3 matches" } },
+    { id: "H1", text: "", trace: { phase: "usage", usage: { input: 1500, output: 300 } } },
+    { kind: "tool.completed", id: "H1", name: "task", ok: true, outcome: "success", durationMs: 63000, preview: "final answer" },
+  ] }]);
+  await flush();
+  const h1 = cardOf("H1");
+  const h1Meta = h1?.querySelector(".sa-meta")?.textContent ?? "";
+  assert(h1?.dataset.saState === "done" && /^完成 · 2 次工具 · 1\.8k token · 1m 3s$/.test(h1Meta), `历史回放的卡与实时不同形:${h1?.dataset.saState} "${h1Meta}"`);
+  assert(h1?.querySelector(".sa-agent")?.textContent === "explore", "历史回放没有用落库 meta 的人格");
+  h1?.querySelector(".sa-head")?.click();
+  await flush();
+  assert(h1?.querySelector(".sa-result")?.textContent.includes("final answer"), "历史回放的结果不是 tool_result 正文");
+  assert(h1?.querySelectorAll(".sa-steps .tool-msg").length === 2, "历史回放的过程节缺子工具行");
+  assert(!h1?.querySelector(".sa-steps")?.textContent.includes("{\"pattern\""), "截断的回放入参字符串被当成 JSON 贴出来了");
+  h1?.querySelector(".sa-head")?.click();
+  assert(cardOf("H2")?.dataset.saState === "interrupted", `只有调用没有结果的历史卡应为中断,实为 ${cardOf("H2")?.dataset.saState}`);
+
+  // ⑪ 切语言:卡片计数与组头按当前语言重画。
+  sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+  await flush();
+  const enMeta = card?.querySelector(".sa-meta")?.textContent ?? "";
+  assert(enMeta.includes("tool uses") && enMeta.includes("tokens") && enMeta.startsWith("Completed"), `英文界面计数行未翻译:"${enMeta}"`);
+  assert(/subagents/.test(group?.querySelector(".sa-group-label")?.textContent ?? ""), `英文界面组头未翻译:"${group?.querySelector(".sa-group-label")?.textContent}"`);
+  sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+  await flush();
+
+  // ⑫ 整轮停止收尾:活动线与后台线还在跑的卡都收成「已停止」,停止按钮消失(变异 saSettle 必须把这里打红);
+  //    之后到达的停止补发 ToolEnd 只校准终态,不复活运行态、不再弹一次。
+  toolStart({ payload: { id: "call_p4", name: "task", summary: "", input: { prompt: "p4", description: "Will be stopped" }, sessionId: "sess-smoke" } });
+  await flush();
+  const p4 = cardOf("call_p4");
+  assert(p4?.dataset.saState === "starting" && p4?.querySelector(".sa-stop")?.disabled === false, "停止前置:P4 应在跑且有停止按钮");
+  handlers.get("kz:stopped")({ payload: { sessionId: "sess-smoke" } });
+  handlers.get("kz:stopped")({ payload: { sessionId: "sess-bg" } });
+  await flush();
+  assert(p4?.dataset.saState === "cancelled", `整轮停止后活动线的子代理仍停在 ${p4?.dataset.saState}`);
+  assert(p4?.querySelector(".sa-stop")?.disabled === true, "停止收尾后卡片仍有停止按钮");
+  assert(cardOf("call_p2")?.dataset.saState === "cancelled", "整轮停止没有收尾同组里还在跑的成员");
+  assert(bgCard?.dataset.saState === "cancelled", `后台线路停止后子代理仍停在 ${bgCard?.dataset.saState}`);
+  toolEnd({ payload: { id: "call_p4", name: "task", ok: false, outcome: "failed", code: "subagent_cancelled", preview: "cancelled: run stopped by user", display: null, sessionId: "sess-smoke" } });
+  assert(p4?.dataset.saState === "cancelled" && !p4?.querySelector(".sa-glyph")?.classList.contains("kz-pop"), "停止补发的 ToolEnd 改写了终态或又弹了一次");
+  await flush();
+  assert(document.documentElement.dataset.kzActivity !== "running", "停止补发的 ToolEnd 把全局相位翻回了运行中");
+  assert(sandbox.subagentRunningCount("sess-smoke") === 0 && byId.get("agent-toggle").dataset.running === "false", "停止后 rail 徽标仍显示有子代理在跑");
+
+  // ⑬ 超额派发:后端逐个「start、end(subagent_limit)」紧跟在同批 ToolStart 之后发出。没跑起来的卡不封口,
+  //    同一批 2 张在跑 + 2 张超额仍是一组;组内有进度之后照常封口。
+  handlers.get("kz:turn")({ payload: { step: 2, maxSteps: 0, sessionId: "sess-smoke" } });
+  await flush();
+  toolStart({ payload: { id: "call_q1", name: "task", summary: "", input: { prompt: "q1", description: "Quota one" }, sessionId: "sess-smoke" } });
+  toolStart({ payload: { id: "call_q2", name: "task", summary: "", input: { prompt: "q2", description: "Quota two" }, sessionId: "sess-smoke" } });
+  for (const id of ["call_qx1", "call_qx2"]) {
+    toolStart({ payload: { id, name: "task", summary: "", input: { prompt: id, description: "Over quota" }, sessionId: "sess-smoke" } });
+    toolEnd({ payload: { id, name: "task", ok: false, outcome: "failed", code: "subagent_limit", preview: "[tool_outcome=failed code=subagent_limit]\ntoo many parallel subagent tasks; maximum per turn is 2", display: null, sessionId: "sess-smoke" } });
+  }
+  await flush();
+  const qGroup = cardOf("call_q1")?.closest(".sa-group");
+  assert(
+    qGroup?.dataset.saCount === "4" && ["call_q2", "call_qx1", "call_qx2"].every((id) => cardOf(id)?.closest(".sa-group") === qGroup),
+    `超额派发把同一批拆成了多组(第一组 ${qGroup?.dataset.saCount} 张)`,
+  );
+  assert(cardOf("call_qx1")?.dataset.saState === "rejected" && cardOf("call_qx2")?.dataset.saState === "rejected", "超额的卡应为「未启动」");
+  taskProgress({ payload: { id: "call_q1", text: "", trace: { child_id: "q1-1", phase: "start", name: "read", input: { path: "a.rs" } }, sessionId: "sess-smoke" } });
+  toolStart({ payload: { id: "call_q3", name: "task", summary: "", input: { prompt: "q3", description: "Next batch" }, sessionId: "sess-smoke" } });
+  await flush();
+  assert(cardOf("call_q3")?.closest(".sa-group") !== qGroup, "组内有进度之后的新派发仍并进了超额那一组");
+
+  // ⑭ 侧栏行的可访问名与卡片同一口径:运行中不带逐秒变化的耗时,时间流逝只改计数文本;终态才带计数。
+  const panelNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
+  panelNs.openSubagentPanel(null);
+  const q1Run = saNs.subagentByKey("sess-smoke|call_q1");
+  const q1Row = [...byId.get("agent-list").querySelectorAll(".sa-panel-row")].find((r) => r.dataset.saKey === "sess-smoke|call_q1");
+  const q1Main = q1Row?.querySelector(".sa-panel-main");
+  const q1Aria = q1Main?.getAttribute("aria-label") ?? "";
+  assert(/Quota one/.test(q1Aria) && /运行中/.test(q1Aria) && !/\d+s\b/.test(q1Aria), `运行中侧栏行的可访问名不对(不该带耗时):"${q1Aria}"`);
+  q1Run.startedAt -= 7000;
+  saNs.updateSubagentRowMeta(q1Row, q1Run);
+  saNs.updateSubagentRow(q1Row, q1Run);
+  assert(/7s/.test(q1Row?.querySelector(".sa-meta")?.textContent ?? "") && q1Main?.getAttribute("aria-label") === q1Aria, "时间流逝后侧栏行的可访问名被重写了(读屏会反复播报)");
+  for (const id of ["call_q1", "call_q2", "call_q3"]) toolEnd({ payload: { id, name: "task", ok: true, outcome: "success", preview: "done", content: "done", durationMs: 9000, display: null, sessionId: "sess-smoke" } });
+  await flush();
+  const q1Done = [...byId.get("agent-list").querySelectorAll(".sa-panel-row")].find((r) => r.dataset.saKey === "sess-smoke|call_q1")?.querySelector(".sa-panel-main")?.getAttribute("aria-label") ?? "";
+  assert(/完成/.test(q1Done) && /9s/.test(q1Done), `终态侧栏行的可访问名应带状态词与计数:"${q1Done}"`);
+  panelNs.agentClosePanel();
+
+  // ⑮ 运行审计:用户主动停止的子代理(subagent_cancelled)记为已停止,不进「失败与超时」清单;超时照常列出。
+  activityNs.agentAuditBegin("sess-sa-audit");
+  for (const [id, description, code, preview] of [
+    ["au1", "Stopped by user", "subagent_cancelled", "cancelled: run stopped by user"],
+    ["au2", "Ran too long", "subagent_timeout", "subagent hit the 600s wall-clock safety limit"],
+  ]) {
+    activityNs.agentAuditTaskStart("sess-sa-audit", { name: "task", id, input: { prompt: description, description } });
+    activityNs.agentAuditTaskEnd("sess-sa-audit", { name: "task", id, ok: false, code, preview });
+  }
+  const auditTasks = activityNs.agentAudits.get("sess-sa-audit")?.tasks;
+  assert(auditTasks?.get("au1")?.status === "stopped" && auditTasks?.get("au2")?.status === "timeout", `审计把用户停止的子代理记成了 ${auditTasks?.get("au1")?.status}`);
+  activityNs.agentAuditFinish("sess-sa-audit", "stopped");
+  const failureText = byId.get("agent-audit-failures")?.textContent ?? "";
+  assert(failureText.includes("Ran too long") && !failureText.includes("Stopped by user"), `「失败与超时」清单口径不对:"${failureText}"`);
+  activityNs.agentAudits.delete("sess-sa-audit");
+  activityNs.agentAuditFor("sess-smoke");
+
+  // ⑯ 窗口边界:task 的调用在更早的窗口、结果在尾窗——尾窗里就地建卡并收成终态(不落成「tool result」通用块,
+  //    同批两张仍一组,下一条消息的新一批另起一组);「载入更早的消息」认领那次调用(不建第二张、不标中断),
+  //    补出的更早一批在侧栏里排在最后,第一组仍是最新一批。变异 saOrphanTask / saPrependBatch 必须把这里打红。
+  const windowSize = viewsNs.PANE_WINDOW_SIZE;
+  const earlier = [
+    { role: "user", parts: [{ type: "text", text: "早先的请求" }] },
+    { role: "assistant", parts: [{ type: "tool_call", id: "E1", name: "task", input: { prompt: "e1", description: "Earliest batch" } }] },
+    { role: "user", parts: [{ type: "tool_result", call_id: "E1", is_error: false, content: "e1 answer" }] },
+    { role: "user", parts: [{ type: "text", text: "再派一批" }] },
+    { role: "assistant", parts: [
+      { type: "tool_call", id: "O1", name: "task", input: { prompt: "o1", description: "Orphan one" } },
+      { type: "tool_call", id: "O2", name: "task", input: { prompt: "o2", description: "Orphan two" } },
+    ] },
+  ];
+  const tailWindow = [
+    { role: "user", parts: [{ type: "tool_result", call_id: "O1", is_error: false, content: "o1 answer" }] },
+    { role: "user", parts: [{ type: "tool_result", call_id: "O2", is_error: false, content: "o2 answer" }] },
+    { role: "assistant", parts: [{ type: "tool_call", id: "N1", name: "task", input: { prompt: "n1", description: "Newest batch" } }] },
+    { role: "user", parts: [{ type: "tool_result", call_id: "N1", is_error: false, content: "n1 answer" }] },
+  ];
+  while (tailWindow.length < windowSize) tailWindow.push({ role: "assistant", parts: [{ type: "text", text: `填充 ${tailWindow.length}` }] });
+  viewsNs.renderRecoveredMessages([...earlier, ...tailWindow]);
+  await flush();
+  const saCards = (id) => [...pane().querySelectorAll(".sa-card")].filter((c) => c.dataset.saKey === `sess-smoke|${id}`);
+  const o1 = saCards("O1")[0];
+  const oGroup = o1?.closest(".sa-group");
+  assert(o1?.dataset.saState === "done" && saCards("O2")[0]?.dataset.saState === "done", `窗口边界切开的 task 结果没有收成终态:${o1?.dataset.saState}`);
+  assert(o1?.querySelector(".sa-desc")?.textContent === "Orphan one", "孤儿结果建卡没有用历史里那次调用的描述");
+  assert(oGroup?.dataset.saCount === "2" && saCards("O2")[0]?.closest(".sa-group") === oGroup, "孤儿结果建出的同批两张卡没有合成一组");
+  assert(![...pane().querySelectorAll(".tool-msg-name")].some((n) => n.textContent === "tool result"), "窗口边界切开的 task 结果仍落成了「tool result」通用块");
+  assert(saCards("N1")[0]?.closest(".sa-group") !== oGroup, "下一条消息的新一批并进了孤儿结果那一组");
+  const grewEarlier = vm.runInContext("loadEarlierMessages()", sandbox);
+  await flush();
+  assert(grewEarlier === true, "⑯ 前置:loadEarlierMessages 没有补齐更早的一窗");
+  assert(saCards("O1").length === 1 && saCards("O2").length === 1, `补更早的一窗后孤儿结果的卡出现了第二张(O1×${saCards("O1").length})`);
+  assert([...saCards("O1"), ...saCards("O2")].every((c) => c.dataset.saState === "done"), "补更早的一窗后已完成的子代理被标成了中断");
+  assert(saCards("E1")[0]?.dataset.saState === "done", "补出的更早一批没有建卡");
+  panelNs.openSubagentPanel(null);
+  const panelBatches = [...byId.get("agent-list").querySelectorAll(".sa-panel-batch")].map((section) => [...section.querySelectorAll(".sa-panel-row")].map((r) => r.dataset.saKey.split("|")[1]).join(","));
+  assert(panelBatches.join(" / ") === "N1 / O1,O2 / E1", `载入更早的消息后侧栏批次顺序不对(应最新在上):${panelBatches.join(" / ")}`);
+  panelNs.agentClosePanel();
+
+  sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
+  vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
+  await flush();
 }
 
 if (issues.length) {

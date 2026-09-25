@@ -80,16 +80,7 @@ pub(super) async fn execute_parallel_tool_calls(
                 "permission denied by ruleset: {action} on `{resource}`.\n{}",
                 snapshot.denial_hint(action, &resource),
             ));
-            on_event(RunEvent::ToolEnd {
-                id: id.clone(),
-                name,
-                ok: false,
-                outcome: output.outcome.as_str().into(),
-                code: output.code.map(str::to_owned),
-                preview: preview(&output.content),
-                display: None,
-                artifact: None,
-            });
+            on_event(RunEvent::tool_end(id.clone(), name, &output));
             slots[index] = Some(tool_result_part(id, output));
             continue;
         }

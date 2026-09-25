@@ -795,6 +795,17 @@ async fn stream_request_step(
     }
 }
 
+/// 子代理撞墙钟上限的终态。前台与后台两条派发路径共用,文案与稳定码只此一处。
+/// UI-0926 #8:code=subagent_timeout,UI 不必按文案正则猜「超时」。
+fn subagent_timeout_output(timeout_secs: u64) -> kanzei_harness::ToolOutput {
+    kanzei_harness::ToolOutput::failed(
+        "subagent_timeout",
+        format!(
+            "subagent hit the {timeout_secs}s wall-clock safety limit — split the task into narrower pieces"
+        ),
+    )
+}
+
 /// R-202 批4:task 子代理段——同轮多个 task 的并行/后台两种派发、每轮数量上限、
 /// 进度通道事件转发与 D-342 停止时的取消占位补齐。
 ///
@@ -803,7 +814,8 @@ async fn stream_request_step(
 ///   drain 进度通道;halt 提前退出时缺席结果以取消占位补齐配对。
 /// - 后台模式:立即 spawn 每个 task,本轮 ToolResult 填「已后台派发」占位,
 ///   生命周期事件与终态通知按 R-175 落 session_events / background_results。
-/// - 溢出数量上限(max_tasks_per_turn)的调用以 ToolOutput::error 即时回喂。
+/// - 溢出数量上限(max_tasks_per_turn)的调用以 failed(subagent_limit) 即时回喂。
+/// - 前台模式被整轮停止时,缺席的 task 补取消占位并补发 ToolEnd(subagent_cancelled)。
 #[allow(clippy::too_many_arguments)] // 内部段函数,不对外暴露签名(R-202);R-246 增 line_runtime。
 async fn run_subagent_calls(
     subagent: Option<&SubagentRuntime>,
@@ -846,20 +858,15 @@ async fn run_subagent_calls(
                     summary: summarize_input(input, raw),
                     input: input.clone(),
                 });
-                let output = kanzei_harness::ToolOutput::error(format!(
-                    "too many parallel subagent tasks; maximum per turn is {}",
-                    max_tasks
-                ));
-                on_event(RunEvent::ToolEnd {
-                    id: id.clone(),
-                    name: "task".into(),
-                    ok: false,
-                    outcome: output.outcome.as_str().into(),
-                    code: output.code.map(str::to_owned),
-                    preview: preview(&output.content),
-                    display: output.display.clone(),
-                    artifact: output.artifact.clone(),
-                });
+                // UI-0926 #8:稳定码 subagent_limit(UI 判「未启动」),文案不变。
+                let output = kanzei_harness::ToolOutput::failed(
+                    "subagent_limit",
+                    format!(
+                        "too many parallel subagent tasks; maximum per turn is {}",
+                        max_tasks
+                    ),
+                );
+                on_event(RunEvent::tool_end(id.clone(), "task".into(), &output));
                 task_results.insert(id.clone(), output);
             }
             // 进度通道:子代理内部事件(轮次/工具)转成 TaskProgress 实时上抛,
@@ -917,10 +924,7 @@ async fn run_subagent_calls(
                         .await
                         {
                             Ok(output) => output,
-                            Err(_) => kanzei_harness::ToolOutput::error(format!(
-                                "subagent hit the {}s wall-clock safety limit — split the task into narrower pieces",
-                                timeout_secs
-                            )),
+                            Err(_) => subagent_timeout_output(timeout_secs),
                         };
                         materialize_tool_output(&mut output, &ctx, "task");
                         if let Some(results) = results {
@@ -981,10 +985,7 @@ async fn run_subagent_calls(
                             {
                                 Ok(output) => output,
                                 // 纯兜底(默认 15 分钟):防失控,不是性能预算。
-                                Err(_) => kanzei_harness::ToolOutput::error(format!(
-                                    "subagent hit the {}s wall-clock safety limit — split the task into narrower pieces",
-                                    rt.timeout_secs
-                                )),
+                                Err(_) => subagent_timeout_output(rt.timeout_secs),
                             };
                             (id.clone(), output)
                         }
@@ -996,16 +997,11 @@ async fn run_subagent_calls(
                         next = jobs.next() => match next {
                             Some((id, mut output)) => {
                                 materialize_tool_output(&mut output, ctx, "task");
-                                on_event(RunEvent::ToolEnd {
-                                    id: id.clone(),
-                                    name: "task".into(),
-                                    ok: !output.is_error,
-                                    outcome: output.outcome.as_str().into(),
-                                    code: output.code.map(str::to_owned),
-                                    preview: preview(&output.content),
-                                    display: output.display.clone(),
-                                    artifact: output.artifact.clone(),
-                                });
+                                on_event(RunEvent::tool_end(
+                                    id.clone(),
+                                    "task".into(),
+                                    &output,
+                                ));
                                 task_results.insert(id, output);
                             }
                             None => {
@@ -1024,11 +1020,20 @@ async fn run_subagent_calls(
                     }
                 }
                 // D-342:halt 提前退出时补齐缺席的 task 结果;正常路径全员
-                // 已有终态,entry 不命中,零行为差异。
+                // 已有终态,不命中,零行为差异。
+                // UI-0926 #8:补占位的同时补发 ToolEnd(code=subagent_cancelled)。
+                // 原先只补历史不发事件,界面上这些子代理永远停在「运行中」;
+                // 事件经 on_event 走与真实终态同一条投影链(UI/轨迹/指标)。
                 for (id, _, _) in &task_calls {
-                    task_results.entry(id.clone()).or_insert_with(|| {
-                        kanzei_harness::ToolOutput::error("cancelled: run stopped by user")
-                    });
+                    if task_results.contains_key(id) {
+                        continue;
+                    }
+                    let output = kanzei_harness::ToolOutput::failed(
+                        "subagent_cancelled",
+                        "cancelled: run stopped by user",
+                    );
+                    on_event(RunEvent::tool_end(id.clone(), "task".into(), &output));
+                    task_results.insert(id.clone(), output);
                 }
             }
         }

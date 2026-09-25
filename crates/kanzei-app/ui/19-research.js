@@ -1,10 +1,15 @@
 import { defer } from "./01-core.js";
-import { renderMarkdown } from "./04-markdown.js";
+import { renderInlineMarkdown, renderMarkdown } from "./04-markdown.js";
 import { $, invoke } from "./01-core.js";
 import { localizedDocStatus, t } from "./02-i18n.js";
 import { currentProject, log, toast, toastError } from "./03-shell.js";
-import { researchLinkField, researchOpenLink } from "./11-docs-list.js";
+import { jumpToEntry, researchLinkField, researchOpenLink } from "./11-docs-list.js";
 import { openFilePreview } from "./17-files.js";
+// UI-0926 #10:结构化实体导航(见文件末尾的注册)与运行卡的执行配置解析。
+import { parseJsonish } from "./04-structured-parse.js";
+import { setStructuredNav, structuredNav } from "./04-structured.js";
+import { openMemoryDetailById } from "./13-memory.js";
+import { openRuntimeMarkdown } from "./15-views-misc.js";
 import { active_space, project_workspace, save_research_workspace } from "./03-workspaces.js";
 import { research_category, research_status_label, render_research_navigation, render_research_overview, show_research_page, sync_research_page } from "./19-research-navigation.js";
 import { refreshResearchWorkflow, resetResearchWorkflow } from "./19-research-auto.js";
@@ -579,9 +584,10 @@ export function researchCard(entry, kind) {
   // 正文摘要:来源看「要点」,发现看「结论」——这是人扫一眼要读的东西。
   const gist = researchField(entry, "要点", "结论", "说明");
   if (gist) {
+    // 要点/结论常带行内 markdown(粗体/代码/链接):按行内语法渲染(先转义再构造)。
     const body = document.createElement("div");
     body.className = "research-card-gist";
-    body.textContent = gist;
+    body.innerHTML = renderInlineMarkdown(gist);
     card.appendChild(body);
   }
 
@@ -924,8 +930,11 @@ function appendResearchDetailSection(body, title, text) {
   const heading = document.createElement("h3");
   heading.textContent = title;
   section.appendChild(heading);
-  const content = document.createElement("p");
-  content.textContent = text || t("暂无");
+  // 假设/结论/后续是模型写的 markdown(列表、代码、路径链接)。
+  const content = document.createElement("div");
+  content.className = "md sv-md";
+  if (text) content.innerHTML = renderMarkdown(text);
+  else content.textContent = t("暂无");
   section.appendChild(content);
   body.appendChild(section);
 }
@@ -1257,9 +1266,32 @@ export function renderResearchRuns() {
       : t("环境声明一致");
     driftBadge.title = drift.length ? drift.join(", ") : t("登记环境与运行配置一致");
     card.appendChild(driftBadge);
+    // UI-0926 #10:执行配置是 {kind, command, host…} JSON——拆成策略/类型 chip + 命令,
+    // 不再原样拼进 meta 行。
     const meta = document.createElement("span");
-    meta.className = "research-run-meta";
-    meta.textContent = `${run.policy || "relaxed"} · ${run.execution_json || ""}`;
+    meta.className = "research-run-meta sv-run-meta";
+    const metaChip = (text, title = "") => {
+      const chip = document.createElement("span");
+      chip.className = "sv-chip";
+      chip.textContent = text;
+      if (title) chip.title = title;
+      meta.appendChild(chip);
+    };
+    metaChip(run.policy || "relaxed", t("执行策略"));
+    const execution = parseJsonish(run.execution_json || "");
+    if (execution && typeof execution === "object" && !Array.isArray(execution)) {
+      if (execution.kind) metaChip(String(execution.kind));
+      if (typeof execution.host === "string" && execution.host) metaChip(execution.host);
+      if (typeof execution.command === "string" && execution.command.trim()) {
+        const command = document.createElement("code");
+        command.className = "sv-cmd";
+        command.textContent = execution.command.split(/\r?\n/)[0];
+        command.title = execution.command;
+        meta.appendChild(command);
+      }
+    } else if (run.execution_json) {
+      meta.appendChild(document.createTextNode(String(run.execution_json)));
+    }
     card.appendChild(meta);
 
     let progress = {};
@@ -1432,3 +1464,67 @@ export const DEV_ONLY_VIEWS = ["documents", "metrics", "arch", "lines"];
 export function syncResearchWorkspaceVisibility() {
   if (active_space === "research") startResearchPolling();
 }
+
+// ---------- 结构化实体导航(UI-0926 #10) ----------
+// 04-structured.js 的 chip(条目编号/路径/URL)与 markdown 路径链接只调 structuredNav;
+// 真实跳转在这里注册——本模块本来就依赖文档列表、文件预览与应用内查看器,04 不必在
+// 求值期反向依赖它们。
+export async function openUrlInApp(url, topic = "") {
+  const target = String(url ?? "");
+  if (!target) return;
+  try {
+    const isArxiv = Boolean(topic) && /^https?:\/\/(?:export\.)?arxiv\.org\//i.test(target);
+    const page = isArxiv
+      ? await invoke("research_arxiv_preview", { projectDir: currentProject, topic, url: target })
+      : await invoke("webfetch_preview", { url: target });
+    const depth = page.depth ? `[${page.depth}]\n` : "";
+    openRuntimeMarkdown(page.title || target, `${depth}${page.text || ""}`);
+  } catch (error) {
+    toastError(`${t("打开失败")}:${error}`);
+  }
+}
+/// docs/ 下的 markdown 进应用内查看器;其余文件切到文件导览打开预览。
+export async function openStructuredPath(path, line = null) {
+  const rel = String(path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!rel) return;
+  if (/^docs\/.+\.md$/i.test(rel) && currentProject) {
+    try {
+      const file = await invoke("docs_read_custom", { projectDir: currentProject, relPath: rel });
+      openRuntimeMarkdown(file.name || rel, file.content);
+      return;
+    } catch {
+      /* 读不到(不在 docs 白名单/已删除)就退回文件预览,由预览如实报错。 */
+    }
+  }
+  document.querySelector('.activity-item[data-view="files"]')?.click();
+  void openFilePreview({ path: rel, line });
+}
+export function openStructuredMemory(scope, id) {
+  document.querySelector('.activity-item[data-view="memory"]')?.click();
+  void openMemoryDetailById(scope, id);
+}
+/// R/D/I/S/F/T 走条目跳转;M-(项目)/U-(全局)进记忆详情;A- 没有对应视图,不跳。
+export function openStructuredRef(id) {
+  const ref = String(id ?? "");
+  if (/^[MU]-\d/.test(ref)) {
+    openStructuredMemory(ref.startsWith("U-") ? "global" : "project", ref);
+    return;
+  }
+  if (!ref || /^A-/.test(ref)) return;
+  void jumpToEntry(ref, { expand: true });
+}
+defer(() => {
+  setStructuredNav({
+    openRef: openStructuredRef,
+    openPath: openStructuredPath,
+    openUrl: (url) => openUrlInApp(url),
+    openMemory: openStructuredMemory,
+  });
+  // markdown 路径链接没有 href(不让 WebView 自己导航),点击统一委托到这里。
+  document.addEventListener("click", (event) => {
+    const link = event.target?.closest?.("a.md-path");
+    if (!link) return;
+    event.preventDefault?.();
+    structuredNav.openPath(link.dataset.path, Number(link.dataset.line) || null);
+  });
+});

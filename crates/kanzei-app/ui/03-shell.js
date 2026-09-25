@@ -1,12 +1,16 @@
+import { toast as surfaceToast } from "./00-surface.js";
 import { defer } from "./01-core.js";
 import { $, invoke, renderingBackground, uiPrefsLoad, uiPrefsSave } from "./01-core.js";
 import { I18N_EN, localizeDynamic, t } from "./02-i18n.js";
-import { agentClosePanel, fastStatusText } from "./06-activity.js";
-import { clearStoppingWatchdog } from "./08-auto.js";
+import { parseErrorText } from "./04-structured-parse.js";
+import { renderErrorDetail } from "./04-structured.js";
+import { fastStatusText } from "./06-activity.js";
+import { agentClosePanel } from "./06-agent-panel.js";
+import { autoContinueTimers, clearStoppingWatchdog } from "./08-auto.js";
 import { send } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
 import { refreshWorktrees } from "./09-sessions.js";
-import { clearPendingJump } from "./11-docs-list.js";
+import { clearJumpReveal, clearPendingJump } from "./11-docs-list.js";
 import { refreshWorkspace } from "./12-docs-pages.js";
 import { refreshMemory, refreshMetrics } from "./13-memory.js";
 import { refreshDocs } from "./14-docs-actions.js";
@@ -140,8 +144,10 @@ export function navigate_view(view) {
   if (!item || !$(`view-${view}`)) return;
   document.body.dataset.view = view;
   if (view !== "chat") {
+    // UI-0926 #8:经 agentClosePanel 收起,agentPanelOpen 与 DOM 保持一致(先关子代理面板,
+    // 它会按 activityPanelOpen 同步活动面板;随后照旧把活动面板也收起)。
+    agentClosePanel();
     $("bg-panel")?.classList.add("hidden");
-    $("agent-panel")?.classList.add("hidden");
   }
   remember_workspace_view(view);
   document.querySelectorAll(".activity-item[data-view]").forEach((i) => {
@@ -157,7 +163,10 @@ export function navigate_view(view) {
   if (previousView === `view-${view}`) return;
   clearTimeout(viewLoadTimer);
   const generation = ++viewLoadGeneration;
-  if (view !== "documents") clearPendingJump();
+  if (view !== "documents") {
+    clearPendingJump();
+    clearJumpReveal();
+  }
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
   $(`view-${view}`).classList.add("active");
   if (view !== "files") filesViewLeft();
@@ -182,16 +191,13 @@ defer(() => {
 });
 
 // ---------- toast ----------
-export let toastTimer = null;
+// 一句话反馈。本地化在这里做,显示交给 00-surface.js 的 toast 区域(最多 3 条、err 用 role=alert);
+// 长错误走 toastError → 日志面板,不交给会自动消失的 toast。kind: info|ok|warn|err。
 export let errorRetry = null;
-export function toast(text) {
-  const el = $("toast");
+export function toast(text, { kind = "info" } = {}) {
   const source = String(text);
   const translated = Object.prototype.hasOwnProperty.call(I18N_EN, source) ? t(source) : source;
-  el.textContent = localizeDynamic(translated);
-  el.classList.remove("hidden");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
+  return surfaceToast(localizeDynamic(translated), { kind });
 }
 export function reportPersistentError(text, { retry = null } = {}) {
   log(text, "err");
@@ -293,6 +299,7 @@ export async function ensureNotificationPermission() {
 }
 
 export function notifyRunState(kind, text) {
+  flashStatusDot(kind);
   const labels = { completed: t("运行完成"), failed: t("运行失败"), stopped: t("运行已停止") };
   const label = labels[kind] || t("运行状态");
   toast(`${label}: ${text}`);
@@ -352,6 +359,7 @@ defer(() => {
 });
 
 export let sidebarCollapsed = localStorage.getItem("kz-sidebar-collapsed") === "1";
+export function setSidebarCollapsed(value) { sidebarCollapsed = Boolean(value); }
 export function syncSidebar() {
   const sidebar = $("sidebar");
   sidebar.classList.toggle("collapsed", sidebarCollapsed);
@@ -407,6 +415,8 @@ export function transitionSession(sessionId, phase, detail = {}) {
     state.terminal_status = phase === "stopped" ? "已停止" : phase === "failed" ? "出错" : "";
   }
   Object.assign(state, detail);
+  // 「新对话」按钮 title 按活动线忙闲说明点下去会怎样:相位一变就跟上(只在值变时写)。
+  if (sessionId === activeSessionId) syncNewChatEnabled();
   return state;
 }
 export function toggleSidebar() {
@@ -462,9 +472,31 @@ export function log(text, cls = "") {
   line.className = `log-line ${cls}`;
   const time = new Date().toTimeString().slice(0, 8);
   line.textContent = `${time}  ${localizeDynamic(text)}`;
+  if (cls === "err") {
+    const detail = logErrorDetail(text);
+    if (detail) line.append(detail);
+  }
   lines.appendChild(line);
   while (lines.childElementCount > LOG_MAX) lines.firstElementChild.remove();
   lines.scrollTop = lines.scrollHeight;
+}
+/// UI-0926 #10:错误日志里的 provider JSON 错误体 / 错误链折叠成结构化详情,原文仍在行内。
+/// 日志文案常带「自动放行失败:」这类短前缀,前缀后的部分也试一次。
+function logErrorDetail(text) {
+  const raw = String(text ?? "");
+  const cut = raw.search(/[:：]/);
+  const candidates = cut > 0 && cut <= 24 ? [raw, raw.slice(cut + 1).trim()] : [raw];
+  for (const candidate of candidates) {
+    const info = parseErrorText(candidate);
+    if (!info.json && !info.chain.length) continue;
+    const details = document.createElement("details");
+    details.className = "sv-log-error";
+    const summary = document.createElement("summary");
+    summary.textContent = t("错误详情");
+    details.append(summary, renderErrorDetail(candidate));
+    return details;
+  }
+  return null;
 }
 defer(() => {
   $("log-toggle").addEventListener("click", () => $("log-panel").classList.toggle("hidden"));
@@ -503,6 +535,83 @@ defer(() => {
 // ---------- 状态栏 ----------
 export let statusTextSource = "";
 export let statusRunning = false;
+// ---------- #7 运行活动投影:状态栏点 + 输入框上方的「思考中… 12s」活动行 ----------
+// 全局相位只投影到 html[data-kz-activity](running|pending|stopping|idle),只由这里写,
+// CSS 只读它(思考块扫光、文档页在做条目等都按它门控)。turnPhase 是本轮细分相位,
+// 由 07-events 的事件写入点推进:等首 token / 思考 / 生成 / 工具。
+export let turnPhase = "idle";
+// 细分相位属于哪条线:setRunning 据此区分「同一条线的运行态纠偏(保留相位)」与「换线(重置)」。
+export let turnPhaseSession = null;
+export const TURN_DETAIL_PHASES = new Set(["waiting", "thinking", "generating", "tool"]);
+export function setTurnPhase(phase) {
+  // 后台会话的渲染不得改写活动行——它和状态栏一样只属于活动会话(R-267 同一守卫)。
+  if (typeof renderingBackground !== "undefined" && renderingBackground) return;
+  // 「停止中」粘滞:停止发出后迟到的文本/思考/工具事件不得把活动行翻回运行态(停止按钮还写着
+  // 「停止中…」)。退出 stopping 只经 setRunning / setRunPending / clearRunPending。
+  if (turnPhase === "stopping") return;
+  turnPhase = phase;
+  turnPhaseSession = activeSessionId;
+  renderTurnActivity();
+}
+export function activityKey() {
+  if (statusRunning) return turnPhase === "stopping" ? "stopping" : "running";
+  return runControlPending ? "pending" : "idle";
+}
+// kz:text 逐 delta 都会走到这里:只在值真的变了才写,不给样式重算与 MutationObserver 添无用功。
+function setDataIfChanged(el, key, value) {
+  if (el && el.dataset[key] !== value) el.dataset[key] = value;
+}
+export function renderTurnActivity() {
+  const activity = activityKey();
+  setDataIfChanged(document.documentElement, "kzActivity", activity);
+  const dot = $("status-dot");
+  if (dot) {
+    const dotClass = `dot kz-dot ${statusRunning ? "run" : "idle"}`;
+    if (dot.className !== dotClass) dot.className = dotClass;
+    setDataIfChanged(dot, "state", activity);
+  }
+  const row = $("turn-activity");
+  if (!row) return;
+  const phase = activity !== "running" ? activity : TURN_DETAIL_PHASES.has(turnPhase) ? turnPhase : "working";
+  setDataIfChanged(row, "phase", phase);
+  row.classList.toggle("hidden", activity === "idle");
+  setDataIfChanged($("turn-activity-glyph"), "state", phase === "waiting" ? "waiting" : activity);
+  // 文案复用状态栏的存源(不新增文案),切语言时照样经 localizeDynamic 重算。
+  const label = $("turn-activity-label");
+  const text = localizeDynamic(statusTextSource) || t("运行中");
+  if (label && label.textContent !== text) label.textContent = text;
+  renderTurnElapsed();
+}
+export function renderTurnElapsed() {
+  const el = $("turn-activity-elapsed");
+  if (!el) return;
+  const text = elapsedTimer && runStart > 0 ? `${Math.floor((Date.now() - runStart) / 1000)}s` : "";
+  if (el.textContent !== text) el.textContent = text;
+}
+// 轮末一次性反馈:完成弹一下出绿环,失败抖一下出红环。停止是用户自己按的,不播。
+export let statusDotFlashTimer = null;
+export function flashStatusDot(kind) {
+  if (typeof renderingBackground !== "undefined" && renderingBackground) return;
+  if (kind !== "completed" && kind !== "failed") return;
+  const dot = $("status-dot");
+  if (!dot) return;
+  clearTimeout(statusDotFlashTimer);
+  delete dot.dataset.flash;
+  void dot.offsetWidth;
+  dot.dataset.flash = kind;
+  statusDotFlashTimer = setTimeout(() => {
+    delete dot.dataset.flash;
+    statusDotFlashTimer = null;
+  }, 700);
+}
+// 窗口隐藏(最小化/切走)时全部动画暂停:html[data-kz-motion="paused"] 统一 animation-play-state。
+export function syncMotionVisibility() {
+  document.documentElement.dataset.kzMotion = document.hidden ? "paused" : "live";
+}
+defer(() => {
+  syncMotionVisibility();
+  document.addEventListener("visibilitychange", syncMotionVisibility);
+});
 export function setStatus(text, isRunning) {
   // R-267:后台会话的渲染不得改写状态栏——那是活动会话的位置。
   if (typeof renderingBackground !== "undefined" && renderingBackground) return;
@@ -510,8 +619,10 @@ export function setStatus(text, isRunning) {
   statusRunning = !!isRunning;
   $("status-text").textContent = localizeDynamic(statusTextSource);
   $("status-mode").textContent = statusRunning ? t("运行中") : t("空闲");
-  $("status-dot").className = `dot ${statusRunning ? "run" : "idle"}`;
+  // 去重:空闲时两格都是「空闲」、刚开跑时都是「运行中」——同一个词不在状态栏并排写两遍。
+  $("status-text").classList.toggle("hidden", $("status-text").textContent === $("status-mode").textContent);
   $("statusbar").classList.toggle("running", statusRunning);
+  renderTurnActivity();
 }
 
 // 运行计时 + 首响应看门狗:等太久时把"卡在哪"讲清楚。
@@ -531,15 +642,18 @@ export function startElapsed() {
   elapsedTimer = setInterval(() => {
     const secs = Math.floor((Date.now() - runStart) / 1000);
     $("status-elapsed").textContent = `· ${secs}s`;
+    renderTurnElapsed();
     if (!firstSignal && secs > 0 && secs % 15 === 0) {
       log(`${t("仍在等待模型首个响应")}(${t("已")} ${secs}s)——${t("订阅高峰或网络较慢时属正常")};${t("超时上限")} 15s ${t("连接")} / 180s ${t("读")}`, "warn");
     }
   }, 1000);
+  renderTurnElapsed();
 }
 export function stopElapsed() {
   clearInterval(elapsedTimer);
   elapsedTimer = null;
   $("status-elapsed").textContent = "";
+  renderTurnElapsed();
 }
 export function markFirstSignal() {
   // R-267:首响应计时属于活动会话的这一轮,后台会话的事件不参与。
@@ -557,9 +671,43 @@ export function setCtxLimit(value) { ctxLimit = value; }
 export const sessionMetaCache = new Map();
 export function applySessionMeta(sessionId) {
   const meta = sessionId ? sessionMetaCache.get(sessionId) : null;
-  if (!meta) return;
-  $("status-model").textContent = `${meta.model} · ${meta.profile}`;
+  if (!meta) {
+    // UI-0926 #3:这条线本次还没跑过:状态栏不能继续挂着别的线「上一轮实际使用」的模型。
+    // 上下文上限同理:拿别的线的上限算这条线的占比是错的基准。先清空,等 model_effective
+    // 回来按下一轮会用的模型补上(08-models.js refreshEffectiveModel)。
+    const status = $("status-model");
+    if (status) {
+      status.textContent = "";
+      status.title = "";
+    }
+    ctxLimit = null;
+    return;
+  }
+  showRunMeta(meta);
   ctxLimit = meta.contextLimit ?? null;
+}
+// UI-0926 #3:思考档的显示名(输入框芯片、菜单、状态栏共用一份)。off = 不发档位,交给服务商。
+export function reasoningLabel(value) {
+  return {
+    off: t("服务商默认"), none: t("无"), low: t("低"), medium: t("中"),
+    high: t("高"), xhigh: t("超高"), max: t("最大"),
+  }[value] ?? String(value ?? "");
+}
+// 状态栏 = 上一轮**实际**使用的「模型 · 思考档 · ⚡ · profile」(kz:meta 取自真正发出去的请求参数)。
+// 输入框上方的芯片说的是「下一轮将使用」,两处口径不同,所以状态栏带 title 说明。
+export function formatRunMeta(meta) {
+  if (!meta) return "";
+  const parts = [meta.model];
+  if (meta.reasoning && meta.reasoning !== "off") parts.push(reasoningLabel(meta.reasoning));
+  if (meta.codexFastMode) parts.push("⚡");
+  if (meta.profile) parts.push(meta.profile);
+  return parts.filter(Boolean).join(" · ");
+}
+export function showRunMeta(meta) {
+  const status = $("status-model");
+  if (!status) return;
+  status.textContent = formatRunMeta(meta);
+  status.title = t("上一轮实际使用");
 }
 export let ctxTokens = 0;
 export let ctxPending = false;
@@ -581,6 +729,7 @@ export function renderTokens() {
       // 进度条:容量占用一眼可见,≥70% 变警示色(自动压缩阈值同源)。
       bar.classList.remove("hidden");
       bar.classList.toggle("warn", pct >= 70);
+      bar.classList.toggle("pending", ctxPending);
       $("ctx-bar-fill").style.width = `${Math.min(pct, 100)}%`;
       bar.title = `${t("上下文")} ${k}k / ${Math.round(ctxLimit / 1000)}k(${pct}%,≥70% ${t("自动压缩")})`;
     } else {
@@ -595,31 +744,60 @@ export function renderTokens() {
 }
 
 export function setRunning(value, statusText) {
+  const wasRunning = running;
   running = value;
   runControlPending = false;
   const send = $("send");
   send.disabled = false;
-  send.title = value ? t("运行中可插入或排队，按交付方式发送") : "";
-  send.setAttribute("aria-label", value ? t("运行中可插入或排队，按交付方式发送") : "发送");
+  // #send 是图标按钮:空闲态的悬停提示与读屏名称同样走 t()(英文界面念 "Send",不念中文字面量)。
+  // 动态值写回 data-i18n-*,切语言时由 applyDataI18nKeys 按它重算,不会被 index.html 的静态「发送」冲掉。
+  send.dataset.i18nTitle = send.dataset.i18nAriaLabel = value ? "运行中可插入或排队，按交付方式发送" : "发送";
+  send.title = value ? t("运行中可插入或排队，按交付方式发送") : t("发送");
+  send.setAttribute("aria-label", value ? t("运行中可插入或排队，按交付方式发送") : t("发送"));
   const stop = $("stop");
   stop.disabled = false;
   stop.classList.toggle("hidden", !value);
   stop.textContent = t("停止");
   syncNewChatEnabled();
+  // 同一条线已在运行时的纠偏(process_list 轮询、逐事件投影)保留本轮细分相位;
+  // 新开跑、换线、从停止中/等下一轮回到运行才重置为等首 token。
+  const keepPhase = value && wasRunning && TURN_DETAIL_PHASES.has(turnPhase) && turnPhaseSession === activeSessionId;
+  if (!keepPhase) turnPhase = value ? "waiting" : "idle";
+  turnPhaseSession = activeSessionId;
   setStatus(statusText ?? (value ? t("运行中") : t("空闲")), value);
 }
 
-/// 「新对话」的守卫(running || runControlPending)必须**看得见**。
-/// 按钮长得能点、点下去只弹一句一闪而过的 toast,用户的读数就是「点了没反应」,
-/// 于是连点几次直到某一下落进空隙——这正是"要点好几次才是真的新对话"的成因。
+/// 「新对话」按钮不再因运行而禁用。原先运行中/鞭挞轮间整段禁用,点击被浏览器静默
+/// 吞掉,只有落进空闲空隙的那一下生效——「要点好几次」的来源之一。现在忙碌线点它
+/// 会另开一条线路(15-views-misc.js startNewConversation),按钮只在本次新对话在途时
+/// 禁用(aria-busy),防双击重复建线;title 按忙闲说清点下去会发生什么。
+/// transitionSession 每个进度事件都会调到这里,所以只在值真变了时才写。
 export function syncNewChatEnabled() {
   const fresh = $("new-chat");
   if (!fresh) return;
-  const blocked = active_space === "dev" && (running || runControlPending);
-  fresh.disabled = blocked;
-  fresh.title = active_space === "research" ? t("新建课题会话，保留已有对话") : blocked
-    ? t("任务运行中,先停止再开新对话")
-    : t("清空多轮对话历史,开一段新会话");
+  const disabled = fresh.getAttribute("aria-busy") === "true";
+  if (fresh.disabled !== disabled) fresh.disabled = disabled;
+  // 与 startNewConversation 的分流同一判据:title 说「另开线路」时点下去必定另开线路。
+  const busy = active_space === "dev" && activeLineBusy();
+  const titleKey = active_space === "research" ? "新建课题会话，保留已有对话"
+    : busy ? "当前线路运行中:点击将另开一条线路开启新对话"
+    : "开一段新对话(旧对话保留在「历史对话」)";
+  // 动态 title 必须同步写回 data-i18n-title:语言重应用(applyDataI18nKeys)按它重算,
+  // 不写的话会被 index.html 的静态键冲回空闲文案,忙碌时的说明就看不到了。
+  // 只在键变了时写:title 可能已被悬停提示层接管(移走),每个进度事件都写回会冒出原生提示。
+  if (fresh.dataset.i18nTitle === titleKey) return;
+  fresh.dataset.i18nTitle = titleKey;
+  fresh.title = t(titleKey);
+}
+
+/// 活动线是否「还没停」:运行中、停止中、鞭挞轮间等待,或续跑定时器已排上。
+/// 这些状态下 runner(或马上要开跑的那一轮)握着旧段,新对话不能在它脚下开新段,
+/// 要另开线路。按钮 title(syncNewChatEnabled)与点击分流(startNewConversation)共用它。
+export function activeLineBusy() {
+  if (running || runControlPending) return true;
+  const phase = activeSessionId ? sessionState(activeSessionId).phase : "idle";
+  return ["starting", "running", "stopping", "auto_pending"].includes(phase)
+    || Boolean(activeSessionId && autoContinueTimers.has(activeSessionId));
 }
 
 export function setStopping(statusText) {
@@ -632,6 +810,7 @@ export function setStopping(statusText) {
   stop.disabled = true;
   stop.textContent = t("停止中…");
   syncNewChatEnabled();
+  turnPhase = "stopping";
   setStatus(statusText ?? t("停止中…"), true);
 }
 
@@ -644,6 +823,7 @@ export function setRunPending(statusText) {
   stop.classList.remove("hidden");
   stop.textContent = t("停止鞭挞");
   syncNewChatEnabled();
+  turnPhase = "pending";
   setStatus(statusText ?? t("等待下一轮"), false);
 }
 
@@ -653,6 +833,8 @@ export function clearRunPending() {
   stop.classList.toggle("hidden", !running);
   stop.textContent = t("停止");
   syncNewChatEnabled();
+  if (!running) turnPhase = "idle";
+  renderTurnActivity();
 }
 
 // ---------- R-189 主题切换:暗/亮持久化 ----------
@@ -717,7 +899,7 @@ export async function refreshFastStatusBar() {
     el.textContent = "";
     return;
   }
-  const st = typeof globalThis.fastStatusText === "function" ? globalThis.fastStatusText(s) : null;
+  const st = fastStatusText(s);
   const short = st
     ? s.ready
       ? `✓ ${t("子代理就绪")}`

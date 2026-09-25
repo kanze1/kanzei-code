@@ -1,4 +1,5 @@
 import { defer } from "./01-core.js";
+import { motionCount } from "./01-core.js";
 import { $, invoke, uiPrefsLoad } from "./01-core.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
@@ -176,7 +177,8 @@ export function renderAutoRun() {
   const armed = $("auto-continue")?.checked === true;
   bar.dataset.phase = phase;
   bar.classList.toggle("armed", armed);
-  $("auto-round-now").textContent = String(autoRounds);
+  // #7:轮次上升时 tick 一次;无参重绘值不变,不会重复触发。
+  motionCount($("auto-round-now"), String(autoRounds));
   const progress = $("auto-progress");
   progress.style.removeProperty("--auto-progress");
   progress.setAttribute("aria-label", `${t("鞭挞轮次")} ${autoRounds}`);

@@ -1,3 +1,4 @@
+import { closeSurface, isModalOpen, isSurfaceOpen, openPopover } from "./00-surface.js";
 import { defer } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCtxTokens, setRunTokens } from "./03-shell.js";
@@ -320,11 +321,12 @@ defer(() => {
 
 // 发送用的模型 = **该线存的模型**,不是下拉的显示值。下拉是回显,而回显曾经会回落到旧全局
 // 键(见 loadModels 的注释);鞭挞续跑读的一直是 item.model。两条路不同源的后果是:同一条线
-// 手动发一句和自动轮跑在两个不同的模型上,而界面上只有一个下拉,看不出来。用户改下拉时
-// change 处理器已经先 updateLocalProcessItem,所以这里读到的就是刚选的那个值。
+// 手动发一句和自动轮跑在两个不同的模型上,而界面上只有一个下拉,看不出来。用户在芯片菜单里
+// 选模型时 setLineModel 已经先 updateLocalProcessItem,所以这里读到的就是刚选的那个值。
+// UI-0926 #3:不再有任何 DOM 兜底——线路未知时交给后端按本线存档/agent 默认解析。
 export function lineModelFor(processId) {
   const item = processItems.find((candidate) => candidate.id === processId);
-  return item ? item.model || null : $("model-select").value || null;
+  return item ? item.model || null : null;
 }
 
 export async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
@@ -482,7 +484,7 @@ export function hideFileSuggestions() {
   fileSuggestions = [];
   fileSuggestionIndex = -1;
   fileSuggestionToken = null;
-  $("file-suggestions").classList.add("hidden");
+  closeSurface($("file-suggestions"));
   $("file-suggestions").replaceChildren();
 }
 
@@ -500,7 +502,9 @@ export function renderFileSuggestions() {
     });
     box.appendChild(button);
   });
-  box.classList.toggle("hidden", fileSuggestions.length === 0);
+  // 锚在输入框上沿的手动弹层:不点外关闭(焦点一直在输入框里),Esc 经弹层栈收起并清空候选。
+  if (fileSuggestions.length) openPopover(promptBox, box, { manual: true, placement: "top-start", onEscape: hideFileSuggestions });
+  else closeSurface(box);
 }
 
 export function chooseFileSuggestion(index = fileSuggestionIndex) {
@@ -596,7 +600,12 @@ export async function openSopPicker() {
   }
   const panel = $("sop-picker-panel");
   const list = $("sop-list");
-  panel.classList.remove("hidden");
+  // 再点一次「SOP」= 收起(锚点按钮不触发点外关闭,切换语义在这里)。
+  if (isSurfaceOpen(panel)) {
+    closeSurface(panel);
+    return;
+  }
+  openPopover($("sop-picker"), panel, { placement: "top-end" });
   list.replaceChildren();
   const loading = document.createElement("p");
   loading.className = "dim";
@@ -628,7 +637,7 @@ export async function openSopPicker() {
       button.addEventListener("click", () => {
         const content = String(entry.body || "").trim();
         promptBox.value = content;
-        panel.classList.add("hidden");
+        closeSurface(panel);
         stopAutoForManualInput();
         promptBox.focus();
         if (!content) {
@@ -656,7 +665,7 @@ defer(() => {
   $("sop-picker").addEventListener("click", openSopPicker);
 });
 defer(() => {
-  $("sop-picker-close").addEventListener("click", () => $("sop-picker-panel").classList.add("hidden"));
+  $("sop-picker-close").addEventListener("click", () => closeSurface($("sop-picker-panel")));
 });
 
 defer(() => {
@@ -740,47 +749,29 @@ defer(() => {
     scheduleAutoContinue();
   });
 });
-// 面板开着时数字键直接命中对应行(参照 Claude 的 Mode 菜单)。只在 details[open]
+// 面板开着时数字键直接命中对应行(参照 Claude 的 Mode 菜单)。只在菜单开着
 // 且焦点不在输入框里时生效——否则会把用户在上限框里敲的数字吞掉。
-/// 把鞭挞设置面板夹在视口里。它原先靠 CSS 锚一条固定边(right:0 / left:0),
-/// 而触发器的横坐标随 #composer-bar 换行与侧栏宽度(可拖 220~460)大幅漂移——
-/// 锚哪边都会在某一段窗口宽度下把 420px 宽的面板整个顶出视口,那一片里
-/// 「自动放行」这类开关看得见也点不到。改成以触发器为原点算 left,再夹进
-/// [8, innerWidth-width-8];position:fixed 让它不受祖先裁剪影响。
-export function placeAutorunMenu() {
-  const host = $("autorun-more");
-  const menu = host?.querySelector(".autorun-menu");
-  if (!host || !menu || !host.open) return;
-  if (typeof host.getBoundingClientRect !== "function") return;
-  const anchor = host.getBoundingClientRect();
-  const width = menu.offsetWidth || Math.min(420, window.innerWidth - 16);
-  const left = Math.min(Math.max(8, anchor.left), Math.max(8, window.innerWidth - width - 8));
-  menu.style.left = `${Math.round(left)}px`;
-  menu.style.bottom = `${Math.round(Math.max(8, window.innerHeight - anchor.top + 6))}px`;
+// 菜单是 data-kz-menu 弹层(位置由 CSS 锚点定位保证在视口内,不再手算 left/bottom);
+// 鼠标点开后焦点留在触发器上,所以触发器与菜单本体都要接这组快捷键。
+export function autorunMenuShortcut(event) {
+  const menu = $("autorun-menu");
+  if (!isSurfaceOpen(menu)) return;
+  const tag = String(event.target?.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "select" || tag === "textarea") return;
+  const row = menu.querySelector(`.menu-row[data-shortcut="${event.key}"]`);
+  if (!row) return;
+  event.preventDefault();
+  const control = row.querySelector('input[type="checkbox"]') || row.querySelector("button");
+  if (!control) return;
+  if (control.tagName.toLowerCase() === "button") control.click();
+  else {
+    control.checked = !control.checked;
+    control.dispatchEvent(new Event("change"));
+  }
 }
 defer(() => {
-  $("autorun-more").addEventListener("toggle", placeAutorunMenu);
-});
-defer(() => {
-  window.addEventListener("resize", placeAutorunMenu);
-});
-
-defer(() => {
-  $("autorun-more").addEventListener("keydown", (event) => {
-    if (!$("autorun-more").open) return;
-    const tag = String(event.target?.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "select" || tag === "textarea") return;
-    const row = $("autorun-more").querySelector(`.menu-row[data-shortcut="${event.key}"]`);
-    if (!row) return;
-    event.preventDefault();
-    const control = row.querySelector('input[type="checkbox"]') || row.querySelector("button");
-    if (!control) return;
-    if (control.tagName.toLowerCase() === "button") control.click();
-    else {
-      control.checked = !control.checked;
-      control.dispatchEvent(new Event("change"));
-    }
-  });
+  $("autorun-more").addEventListener("keydown", autorunMenuShortcut);
+  $("autorun-menu").addEventListener("keydown", autorunMenuShortcut);
 });
 defer(() => {
   $("auto-pause").addEventListener("click", () => {
@@ -1166,12 +1157,8 @@ defer(() => {
   });
 });
 defer(() => {
+  // 补全列表开着时的 Esc 由弹层栈接走(renderFileSuggestions 注册的 onEscape),这里不再单独处理。
   promptBox.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !$("file-suggestions").classList.contains("hidden")) {
-      e.preventDefault();
-      hideFileSuggestions();
-      return;
-    }
     if ((e.key === "Tab" || e.key === "Enter") && fileSuggestions.length > 0 && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       chooseFileSuggestion();
@@ -1205,6 +1192,8 @@ defer(() => {
 
 defer(() => {
   window.addEventListener("keydown", (e) => {
+    // 模态开着时全局快捷键一律让路:确认框背后按 Ctrl+Shift+N 不该真的去点「新对话」。
+    if (isModalOpen()) return;
     const modifier = e.ctrlKey || e.metaKey;
     if (!modifier || e.altKey) return;
     if (e.key.toLowerCase() === "k") {

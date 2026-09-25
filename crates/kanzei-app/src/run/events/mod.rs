@@ -59,7 +59,7 @@ impl UiEventSink {
             name,
             &self.session_id,
             Some(self.run_id.clone()),
-            payload,
+            experience_payload(name, payload),
             now_ms().max(0) as u64,
         ) {
             Ok(event) => {
@@ -80,6 +80,106 @@ impl UiEventSink {
         };
         legacy_result.and(structured_result)
     }
+}
+
+/// kz:tool-end 载荷所需字段(借自 `RunEvent::ToolEnd` + 指标算出的耗时)。
+struct ToolEndView<'a> {
+    id: &'a str,
+    name: &'a str,
+    ok: bool,
+    outcome: &'a str,
+    code: Option<&'a str>,
+    preview: &'a str,
+    content: &'a str,
+    content_bytes: usize,
+    display: Option<&'a serde_json::Value>,
+    artifact: Option<&'a kanzei_harness::ToolArtifact>,
+    duration_ms: Option<u128>,
+}
+
+/// UI-0926 #6:kz:tool-end 载荷。`content` 与历史同源(≤256 KiB),
+/// `contentTruncated` 让前端知道正文不完整、摘要器改走降级口径;
+/// `durationMs` 复用指标侧已算好的耗时,实时工具行才能显示「12.3s」。
+fn tool_end_ui_payload(view: &ToolEndView<'_>) -> serde_json::Value {
+    json!({
+        "id": view.id,
+        "name": view.name,
+        "ok": view.ok,
+        "outcome": view.outcome,
+        "code": view.code,
+        "preview": view.preview,
+        "content": view.content,
+        "contentBytes": view.content_bytes,
+        "contentTruncated": view.content.len() < view.content_bytes,
+        "durationMs": view.duration_ms,
+        "display": view.display,
+        "artifact": view.artifact,
+    })
+}
+
+/// kz:task-progress 的两份负载:(UI 实时事件, run.trace 落库副本)。
+///
+/// UI 实时事件保留完整入参(transcript 数据源,R-174);落库副本把入参序列化后
+/// 截断到 [`TRACE_INPUT_KEEP_CHARS`],避免大入参撑爆 run.trace(D-297 验收③)。
+/// UI-0926 #8:两份都带 `agent`/`model`(phase=="meta" 时有值)——历史回放直接
+/// 消费落库副本,少一份卡片就显示不出实际人格与模型。
+pub(crate) fn task_progress_payloads(
+    id: &str,
+    text: &str,
+    trace: Option<&kanzei_core::TaskTrace>,
+) -> (serde_json::Value, serde_json::Value) {
+    let trace_json = |item: &kanzei_core::TaskTrace, input: serde_json::Value| {
+        json!({
+            "child_id": item.child_id,
+            "phase": item.phase,
+            "name": item.name,
+            "summary": item.summary,
+            "ok": item.ok,
+            "outcome": item.outcome,
+            "code": item.code,
+            "preview": item.preview,
+            "artifact": item.artifact,
+            "display": item.display,
+            "input": input,
+            "usage": item.usage,
+            "text": item.text,
+            "agent": item.agent,
+            "model": item.model,
+        })
+    };
+    let ui_payload = json!({
+        "id": id,
+        "text": text,
+        "trace": trace.map(|item| trace_json(item, json!(item.input))),
+    });
+    let stored_payload = match trace {
+        Some(item) => {
+            let kept_input = item.input.as_ref().map(|input| {
+                let text = serde_json::to_string(input).unwrap_or_default();
+                text.chars()
+                    .take(TRACE_INPUT_KEEP_CHARS)
+                    .collect::<String>()
+            });
+            json!({
+                "id": id,
+                "text": text,
+                "trace": trace_json(item, json!(kept_input)),
+            })
+        }
+        None => ui_payload.clone(),
+    };
+    (ui_payload, stored_payload)
+}
+
+/// 喂给 kz:experience 的副本:kz:tool-end 去掉 `content`,同一份正文不在
+/// 结构化通道里再发一遍(最多 256 KiB);其余事件原样。
+fn experience_payload(name: &str, mut payload: serde_json::Value) -> serde_json::Value {
+    if name == "kz:tool-end" {
+        if let Some(object) = payload.as_object_mut() {
+            object.remove("content");
+        }
+    }
+    payload
 }
 
 /// R-253 批8:typed 事件 sink——把 RunEvent 投影为 typed_events(TypedEventWriter)。
@@ -622,6 +722,8 @@ pub(crate) fn build_event_handler(
                 outcome,
                 code,
                 preview,
+                content,
+                content_bytes,
                 display,
                 artifact,
             } => {
@@ -637,7 +739,19 @@ pub(crate) fn build_event_handler(
                 }));
                 ui.emit(
                     "kz:tool-end",
-                    json!({ "id": id, "name": name, "ok": ok, "outcome": outcome, "code": code, "preview": preview, "display": display, "artifact": artifact }),
+                    tool_end_ui_payload(&ToolEndView {
+                        id: &id,
+                        name: &name,
+                        ok,
+                        outcome: &outcome,
+                        code: code.as_deref(),
+                        preview: &preview,
+                        content: &content,
+                        content_bytes,
+                        display: display.as_ref(),
+                        artifact: artifact.as_ref(),
+                        duration_ms,
+                    }),
                 )
             }
             RunEvent::ToolResultsCommitted { step, message } => {
@@ -731,54 +845,8 @@ pub(crate) fn build_event_handler(
                 if let Some(name) = task_trace.as_ref().and_then(subagent_round_tool) {
                     metrics.note_subagent_tool(name);
                 }
-                // UI 实时事件保留完整入参(transcript 数据源,R-174);
-                // 落库副本把入参截断到上限,避免大入参撑爆 run.trace(D-297 验收③)。
-                let ui_payload = json!({
-                    "id": id,
-                    "text": text,
-                    "trace": task_trace.as_ref().map(|item| json!({
-                        "child_id": item.child_id,
-                        "phase": item.phase,
-                        "name": item.name,
-                        "summary": item.summary,
-                        "ok": item.ok,
-                        "outcome": item.outcome,
-                        "code": item.code,
-                        "preview": item.preview,
-                        "artifact": item.artifact,
-                        "display": item.display,
-                        "input": item.input,
-                        "usage": item.usage,
-                        "text": item.text,
-                    })),
-                });
-                let stored_payload = match &task_trace {
-                    Some(item) => json!({
-                        "id": id,
-                        "text": text,
-                        "trace": json!({
-                            "child_id": item.child_id,
-                            "phase": item.phase,
-                            "name": item.name,
-                            "summary": item.summary,
-                            "ok": item.ok,
-                            "outcome": item.outcome,
-                            "code": item.code,
-                            "preview": item.preview,
-                            "artifact": item.artifact,
-                            "display": item.display,
-                            "input": item.input.as_ref().map(|input| {
-                                let text = serde_json::to_string(input).unwrap_or_default();
-                                let kept: String =
-                                    text.chars().take(TRACE_INPUT_KEEP_CHARS).collect();
-                                json!(kept)
-                            }),
-                            "usage": item.usage,
-                            "text": item.text,
-                        }),
-                    }),
-                    None => ui_payload.clone(),
-                };
+                let (ui_payload, stored_payload) =
+                    task_progress_payloads(&id, &text, task_trace.as_ref());
                 trace.record(stored_payload);
                 ui.emit("kz:task-progress", ui_payload)
             }
@@ -900,6 +968,95 @@ pub(crate) fn build_ask_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// UI-0926 #6:实时工具行靠 kz:tool-end 的正文与耗时做按工具摘要。
+    #[test]
+    fn tool_end载荷带正文字节数截断标记与耗时() {
+        let display = json!({"kind": "terminal", "exitCode": 0});
+        let text = "exit code: 0\nok";
+        let view = ToolEndView {
+            id: "c1",
+            name: "bash",
+            ok: true,
+            outcome: "success",
+            code: None,
+            preview: "exit code: 0 (+1 lines)",
+            content: text,
+            content_bytes: 300_000,
+            display: Some(&display),
+            artifact: None,
+            duration_ms: Some(12_300),
+        };
+        let payload = tool_end_ui_payload(&view);
+        assert_eq!(payload["content"], text);
+        assert_eq!(payload["contentBytes"], 300_000);
+        assert_eq!(payload["contentTruncated"], true);
+        assert_eq!(payload["durationMs"], 12_300);
+        assert_eq!(payload["preview"], "exit code: 0 (+1 lines)");
+        assert_eq!(payload["display"], display);
+        let whole = tool_end_ui_payload(&ToolEndView {
+            content_bytes: text.len(),
+            duration_ms: None,
+            ..view
+        });
+        assert_eq!(whole["contentTruncated"], false);
+        assert!(whole["durationMs"].is_null());
+    }
+
+    /// 结构化副本不重复携带正文;其余事件原样透传。
+    #[test]
+    fn experience副本去掉tool_end正文() {
+        let payload = json!({"id": "c1", "content": "big", "preview": "p"});
+        let stripped = experience_payload("kz:tool-end", payload.clone());
+        assert!(stripped.get("content").is_none());
+        assert_eq!(stripped["preview"], "p");
+        assert_eq!(
+            experience_payload("kz:tool-start", payload.clone()),
+            payload
+        );
+    }
+
+    /// UI-0926 #8:meta trace 的实际人格与模型两份负载都带;UI 负载的入参是
+    /// 原对象,落库负载的入参是截断到上限的字符串(D-297 验收③不回退)。
+    #[test]
+    fn task_progress两份负载都带人格模型_落库入参截断() {
+        let meta = kanzei_core::TaskTrace {
+            child_id: "call_1".into(),
+            phase: "meta".into(),
+            summary: Some("fast".into()),
+            agent: Some("explore".into()),
+            model: Some("qwen3:8b".into()),
+            ..Default::default()
+        };
+        let (ui, stored) = task_progress_payloads("call_1", "explore · qwen3:8b", Some(&meta));
+        for payload in [&ui, &stored] {
+            assert_eq!(payload["id"], "call_1");
+            assert_eq!(payload["text"], "explore · qwen3:8b");
+            assert_eq!(payload["trace"]["phase"], "meta");
+            assert_eq!(payload["trace"]["agent"], "explore");
+            assert_eq!(payload["trace"]["model"], "qwen3:8b");
+            assert_eq!(payload["trace"]["summary"], "fast");
+        }
+
+        let big = "x".repeat(TRACE_INPUT_KEEP_CHARS * 2);
+        let start = kanzei_core::TaskTrace {
+            child_id: "child-1".into(),
+            phase: "start".into(),
+            name: "read".into(),
+            input: Some(json!({"path": "src/lib.rs", "blob": big})),
+            ..Default::default()
+        };
+        let (ui, stored) = task_progress_payloads("call_1", "read src/lib.rs", Some(&start));
+        assert_eq!(ui["trace"]["input"]["path"], "src/lib.rs", "UI 保留原对象");
+        let kept = stored["trace"]["input"].as_str().expect("落库入参是字符串");
+        assert_eq!(kept.chars().count(), TRACE_INPUT_KEEP_CHARS);
+        assert!(kept.starts_with("{\""));
+        assert!(ui["trace"]["agent"].is_null(), "非 meta trace 不带人格");
+
+        let (ui, stored) = task_progress_payloads("call_1", "第 1/12 轮", None);
+        assert!(ui["trace"].is_null());
+        assert_eq!(ui, stored, "无 trace 时两份一致");
+    }
 
     /// D-374 机械判据:轨迹落库在一次 run 里**只开一条连接**。
     ///

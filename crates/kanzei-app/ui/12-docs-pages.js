@@ -1,7 +1,9 @@
+import { closeSurface, openMenu } from "./00-surface.js";
 import { defer } from "./01-core.js";
+import { motionSync } from "./01-core.js";
 import { localizeDynamic } from "./02-i18n.js";
 import { $, invoke } from "./01-core.js";
-import { applyLanguage, localizedDocStatus, t } from "./02-i18n.js";
+import { applyLanguage, localizedDocStatus, resolveUiLanguage, t } from "./02-i18n.js";
 import {
   activeProcessId,
   activeSessionId,
@@ -11,9 +13,12 @@ import {
   running,
   toastError,
 } from "./03-shell.js";
+import { splitTimeline } from "./04-structured-parse.js";
+import { normalizeTrackerFields } from "./04-structured.js";
 import { selectedWorkPriority } from "./08-auto.js";
 import { state } from "./08-compose.js";
 import { enterProject } from "./09-sessions.js";
+import { syncLineFocusLive } from "./09-sessions.js";
 import {
   NEUTRAL_DOC_FILTERS,
   entryBlocked,
@@ -23,7 +28,7 @@ import {
 } from "./10-docs-core.js";
 import { consumePendingJump, jumpToEntry, renderDocList, syncBatchBar } from "./11-docs-list.js";
 import { renderIncidentMetrics } from "./13-memory.js";
-import { refreshDocs } from "./14-docs-actions.js";
+import { applyDocFilter, clearDocFilters, refreshDocs } from "./14-docs-actions.js";
 import { renderConventions } from "./15-views-misc.js";
 import { collaborationLines, renderLineWorkItemOptions } from "./20-lines.js";
 
@@ -101,6 +106,7 @@ export function renderWorkspace(snapshot) {
         dot.className = "workspace-line-dot";
         dot.setAttribute("aria-hidden", "true");
         dot.textContent = line.running ? "●" : "○";
+        if (line.running) motionSync(dot);
         const name = document.createElement("span");
         name.className = "workspace-line-name";
         name.textContent = line.label || line.id;
@@ -230,6 +236,7 @@ export function syncDocumentFilters(snapshot) {
   if (blockedFilter) blockedFilter.disabled = isTests || priorityBlockedNeutral;
   if (isTests) {
     for (const el of [statusFilter, complexityFilter, sortSelect]) if (el) el.disabled = true;
+    renderActiveFilterChips();
     return;
   }
   const primary = docFilterTargets()[0];
@@ -296,6 +303,68 @@ export function syncDocumentFilters(snapshot) {
     filters.tag = tagValue;
     saveDocFilters();
   }
+  renderActiveFilterChips();
+}
+// 生效的筛选(UI-0926 #4):筛选控件收进「筛选」浮层后,列表上方用 chip 把当前生效的每一项说破,
+// × 单项复位、「清除全部」一键复位,触发器上带生效项数。筛选不在眼前时,被筛短的列表最容易被
+// 当成条目丢了(D-169)。对照页按中性口径显示、测试记录页没有筛选,两处都不出 chip。
+const FILTER_CHIP_FIELDS = [
+  ["status", "状态", "documents-status-filter"],
+  ["priority", "优先级", "documents-priority-filter"],
+  ["complexity", "复杂度", "documents-complexity-filter"],
+  ["tag", "标签", "documents-tag-filter"],
+  ["blocked", "执行状态", "documents-blocked-filter"],
+  ["sort", "排序", "documents-sort"],
+];
+export function activeDocFilters() {
+  if (documentsKind === "tests" || documentsKind === "both") return [];
+  const kind = docFilterTargets()[0];
+  const filters = documentFilters[kind];
+  const defaults = DOC_FILTER_DEFAULTS[kind];
+  if (!filters || !defaults) return [];
+  return FILTER_CHIP_FIELDS
+    .filter(([field]) => field in defaults && (filters[field] ?? defaults[field]) !== defaults[field])
+    .map(([field, labelKey, selectId]) => {
+      const value = filters[field];
+      // 显示值取控件里那一项的文字(已本地化,状态/标签/执行状态各有自己的叫法),取不到才用原值。
+      const option = [...($(selectId)?.options ?? [])].find((candidate) => candidate.value === value);
+      return { field, labelKey, value, shown: option?.textContent?.trim() || localizeDynamic(value), reset: defaults[field] };
+    });
+}
+export function renderActiveFilterChips() {
+  const active = activeDocFilters();
+  const count = $("documents-filter-count");
+  if (count) count.textContent = active.length ? String(active.length) : "";
+  const row = $("documents-active-filters");
+  if (!row) return;
+  row.replaceChildren();
+  row.classList.toggle("hidden", !active.length);
+  if (!active.length) return;
+  for (const item of active) {
+    const label = t(item.labelKey);
+    const chip = document.createElement("span");
+    chip.className = "documents-filter-chip";
+    chip.dataset.field = item.field;
+    const key = document.createElement("span");
+    key.className = "documents-filter-chip-key";
+    key.textContent = label;
+    const text = document.createElement("span");
+    text.append(key, document.createTextNode(`: ${item.shown}`));
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "documents-filter-chip-clear";
+    clear.textContent = "×";
+    clear.setAttribute("aria-label", `${t("清除筛选")} ${label}`);
+    clear.addEventListener("click", () => applyDocFilter(item.field, item.reset));
+    chip.append(text, clear);
+    row.appendChild(chip);
+  }
+  const clearAll = document.createElement("button");
+  clearAll.type = "button";
+  clearAll.className = "ghost mini documents-filter-clear-all";
+  clearAll.textContent = t("清除全部");
+  clearAll.addEventListener("click", clearDocFilters);
+  row.appendChild(clearAll);
 }
 export function renderDocuments(snapshot) {
   latestDocsSnapshot = snapshot;
@@ -329,12 +398,13 @@ export function renderDocuments(snapshot) {
   defectList.classList.toggle("hidden", isTests || depMode || (!both && documentsKind !== "defect"));
   $("documents-tests")?.classList.toggle("hidden", !isTests);
   $("documents-scroll")?.classList.toggle("compare", both);
-  $("documents-tab-req").className = documentsKind === "req" ? "primary" : "ghost";
-  $("documents-tab-defect").className = documentsKind === "defect" ? "primary" : "ghost";
-  const testsTab = $("documents-tab-tests");
-  if (testsTab) testsTab.className = isTests ? "primary" : "ghost";
-  const compareTab = $("documents-tab-both");
-  if (compareTab) compareTab.className = both ? "primary" : "ghost";
+  // 页签是一组分段按钮:当前页签 primary 类(样式在 .documents-tabs 下按中性选中态画)+ aria-pressed。
+  for (const [id, on] of [["documents-tab-req", documentsKind === "req"], ["documents-tab-defect", documentsKind === "defect"], ["documents-tab-tests", isTests], ["documents-tab-both", both]]) {
+    const tab = $(id);
+    if (!tab) continue;
+    tab.className = on ? "primary" : "ghost";
+    tab.setAttribute("aria-pressed", String(on));
+  }
   // 依赖视图对测试记录没有意义:禁用按钮(说破)并强制隐藏面板,但**不清 dependencyViewOpen**
   // ——切回需求页时用户原来的选择还在。
   const depToggle = $("documents-dep-toggle");
@@ -358,14 +428,12 @@ export function renderDependencyView(snapshot) {
   const depView = $("documents-dep-view");
   const toggle = $("documents-dep-toggle");
   if (!depView || !toggle) return;
+  // 开关收进「更多」菜单后是一个勾选型菜单项:状态写 aria-checked(菜单项的选中样式由弹层层画)。
+  toggle.setAttribute("aria-checked", String(dependencyViewOpen));
   if (!dependencyViewOpen) {
     depView.classList.add("hidden");
-    toggle.classList.remove("primary");
-    toggle.classList.add("ghost");
     return;
   }
-  toggle.classList.add("primary");
-  toggle.classList.remove("ghost");
   depView.classList.remove("hidden");
   const reqs = snapshot?.requirements ?? [];
   const defs = snapshot?.defects ?? [];
@@ -585,18 +653,78 @@ export function focusMetaChip(text, title) {
   if (title) chip.title = title;
   return chip;
 }
+// 焦点依据(D-207 三修的对外可见面):凭运行证据还是凭取活序,必须说得出来。卡片上用
+// 左边框线型区分(实线 = 实证,虚线 = 推断,见 .focus-card.src-*),文字进 tooltip 第二行。
+export const FOCUS_SOURCES = new Set(["runtime", "runtime-stale", "order", "claim"]);
+export function focusSourceLabel(focusSource) {
+  return focusSource === "runtime" ? t("本轮运行证据")
+    : focusSource === "runtime-stale" ? t("上轮运行证据")
+      : focusSource === "claim" ? t("取得线")
+        : t("取活顺序推断");
+}
+/// 焦点卡 tooltip:卡面只留编号/状态/标题/批次/优先级,其余按行收进这里——依据、复杂度、
+/// 依赖、最新一段进展(R-282:|| 切段只取首段,限 160 字)、阻塞原因,末行提示点击直达详情。
+/// 字段按 04-structured 的口径解析(与单页详情同源),不在这里另认一套字段形状。
+export function focusCardTooltip(entry, focusSource) {
+  const lines = [`${entry.id} ${entry.title}`, `${t("依据")}: ${focusSourceLabel(focusSource)}`];
+  const cx = (entry.complexity || "").trim();
+  lines.push(`${t("复杂度")}: ${["小", "中", "大"].includes(cx) ? t(cx) : t("未评估")}`);
+  const deps = Array.isArray(entry.dependencies) ? entry.dependencies.length : 0;
+  const dependents = Array.isArray(entry.dependents) ? entry.dependents.length : 0;
+  if (deps || dependents) {
+    lines.push([deps ? `${t("依赖")} ${deps}` : "", dependents ? `${t("被依赖")} ${dependents}` : ""].filter(Boolean).join(" · "));
+  }
+  const progress = normalizeTrackerFields(entry.fields ?? []).find((field) => field.key === "进展")?.value ?? "";
+  const latest = splitTimeline(progress)[0];
+  if (latest) {
+    const chars = [...`${latest.date ? `${latest.date} ` : ""}${latest.text}`];
+    lines.push(`${t("进展")}: ${chars.length > 160 ? `${chars.slice(0, 160).join("")}…` : chars.join("")}`);
+  }
+  if (entryBlocked(entry)) {
+    const reasons = Array.isArray(entry.block_reasons) ? entry.block_reasons : [];
+    lines.push(`${t("阻塞原因")}: ${reasons.length ? reasons.join("；") : t("缺少阻塞原因")}`);
+  }
+  lines.push(t("点击查看详情"));
+  return lines.join("\n");
+}
+// 「⋯」状态流转菜单(00-surface openMenu,唯一写法)。句柄留着:焦点区真的重建时先收起它。
+export let focusMenuHandle = null;
+export function closeFocusMenu() {
+  const handle = focusMenuHandle;
+  focusMenuHandle = null;
+  if (handle && !handle.closed) closeSurface(handle);
+}
+export async function updateFocusStatus(entry, kind, next) {
+  try {
+    log(await invoke("docs_update", {
+      projectDir: currentProject,
+      kind,
+      action: "update",
+      id: entry.id,
+      status: next,
+    }));
+    refreshDocs();
+  } catch (err) {
+    toastError(String(err));
+    log(`${t("状态流转失败")}:${err}`, "warn");
+  }
+}
+/// 侧栏「各线当前在做」卡片。整卡就是一个点击目标(标题按钮 .focus-open 用 ::after 撑满
+/// 卡片),点了直达单页里**已展开**的详情;字段原文、类型/复杂度/依赖 chip、底部状态按钮与
+/// 「在完整列表中查看」都不再常驻——信息进 tooltip,状态流转进「⋯」菜单(取活时切状态
+/// 多点一次,这是 UI-0926 #4 按「简洁」诉求做的取舍)。
 export function buildFocusCard(entry, kind, focusSource = agentFocus.activeSource) {
   const card = document.createElement("div");
   const pri = (entry.priority || "").toUpperCase();
+  const hasPri = /^P[0-3]$/.test(pri);
   const blocked = entryBlocked(entry);
-  card.className = `focus-card${blocked ? " blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}`;
+  const source = FOCUS_SOURCES.has(focusSource) ? focusSource : "order";
+  card.className = `focus-card src-${source}${blocked ? " blocked" : ""}${hasPri ? ` pri-${pri}` : ""}`;
   card.dataset.docId = entry.id;
-  card.title = t("agent 正在做这一条");
 
-  // 头部:类型、编号、状态。状态一律用文字表达,颜色只做冗余强化(D-105:不能只靠颜色)。
+  // 头部:编号、状态、阻塞、优先级、⋯。状态一律用文字表达,颜色只做冗余强化(D-105)。
   const head = document.createElement("div");
   head.className = "focus-head";
-  head.append(focusMetaChip(kind === "defect" ? t("缺陷") : t("需求与工作")));
   const idEl = document.createElement("span");
   idEl.className = "focus-id";
   idEl.setAttribute("data-i18n-raw", "");
@@ -611,132 +739,92 @@ export function buildFocusCard(entry, kind, focusSource = agentFocus.activeSourc
     badge.textContent = t("阻塞");
     head.appendChild(badge);
   }
+  const spacer = document.createElement("span");
+  spacer.className = "focus-head-spacer";
+  // 优先级在这里只读(静态 span):循环调整留给单页列表行,侧栏误点一下就改掉优先级不划算。
+  const priBadge = document.createElement("span");
+  priBadge.className = `pri-badge ${hasPri ? pri : "unset"} static`;
+  priBadge.textContent = hasPri ? pri : t("未设");
+  priBadge.title = t("优先级仅参考,不影响取活顺序");
+  head.append(spacer, priBadge);
+  const nextStatuses = entry.nextStatuses ?? [];
+  if (nextStatuses.length) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "icon-btn focus-more";
+    more.textContent = "⋯";
+    more.setAttribute("aria-label", `${t("更多操作")} ${entry.id}`);
+    more.setAttribute("aria-haspopup", "menu");
+    more.setAttribute("aria-expanded", "false");
+    more.title = t("更多操作");
+    more.addEventListener("click", (event) => {
+      event?.stopPropagation?.();
+      const handle = openMenu(more, nextStatuses.map((next) => ({
+        label: `${t("转")} ${localizedDocStatus(next)}`,
+        onSelect: () => void updateFocusStatus(entry, kind, next),
+      })), {
+        placement: "bottom-end",
+        label: `${entry.id} ${t("更多操作")}`,
+        onClose: () => {
+          if (focusMenuHandle === handle) focusMenuHandle = null;
+        },
+      });
+      // 同一锚点再点一次 = 收起(openMenu 的切换语义),收起后返回的是已关闭的句柄。
+      focusMenuHandle = handle && !handle.closed ? handle : null;
+      if (focusMenuHandle) more.setAttribute("aria-controls", focusMenuHandle.el.id);
+    });
+    head.appendChild(more);
+  }
   card.appendChild(head);
 
-  // 完整标题:侧栏列表行当年只能截断显示,焦点卡片没有这个约束,给全。
-  const title = document.createElement("div");
-  title.className = "focus-title";
-  title.setAttribute("data-i18n-raw", "");
-  title.textContent = entry.title;
-  card.appendChild(title);
+  // 标题 = 整卡的点击目标(两行截断,完整标题在 aria-label 与 tooltip 首行)。
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "focus-open";
+  open.setAttribute("data-i18n-raw", "");
+  open.textContent = entry.title;
+  open.setAttribute("aria-label", `${entry.id} ${entry.title} · ${t("打开详情")}`);
+  open.title = focusCardTooltip(entry, source);
+  open.addEventListener("click", () => void jumpToEntry(entry.id, { expand: true }));
+  card.appendChild(open);
 
-  // 批次进度:图形给概览,「批次 3/11」文字给准数(D-105 同理,不能只靠格子)。
+  // 批次进度:只在多批次时占一行。图形给概览,「批次 3/11」文字给准数(D-105 同理)。
   const total = entry.batches?.total ?? 1;
   const done = Math.min(entry.batches?.done ?? 0, total);
-  const meterRow = document.createElement("div");
-  meterRow.className = "focus-meta";
   if (total > 1) {
+    const meterRow = document.createElement("div");
+    meterRow.className = "focus-meta";
     const cells = Math.min(total, 12);
     const filled = total <= cells ? done : Math.round((done / total) * cells);
+    // #7:正在推的那一格(线真在跑时扫光);全部完成或格子已满时没有。
+    const current = done < total && filled < cells ? filled + 1 : 0;
     const meter = document.createElement("span");
     meter.className = "complexity-meter batch-meter";
     meter.style.setProperty("--cells", String(cells));
     meter.setAttribute("role", "img");
     const label = `${t("批次")} ${done}/${total}`;
+    // 不挂 title:.focus-open::after 覆盖整卡,子元素的 tooltip 永远悬停不到(卡面已有批次文字)。
     meter.setAttribute("aria-label", label);
-    meter.title = label;
     for (let i = 1; i <= cells; i += 1) {
       const cell = document.createElement("span");
-      cell.className = `complexity-cell${i <= filled ? " filled" : ""}`;
+      cell.className = `complexity-cell${i <= filled ? " filled" : i === current ? " current" : ""}`;
       cell.setAttribute("aria-hidden", "true");
       meter.appendChild(cell);
     }
     meterRow.append(meter, focusMetaChip(`${t("批次")} ${done}/${total}`));
+    card.appendChild(meterRow);
   }
-  const cx = (entry.complexity || "").trim();
-  meterRow.append(
-    focusMetaChip(
-      /^P[0-3]$/.test(pri) ? pri : t("未设"),
-      t("优先级仅参考,不影响取活顺序"),
-    ),
-    focusMetaChip(["小", "中", "大"].includes(cx) ? `${t("复杂度")}:${t(cx)}` : t("未评估")),
-  );
-  const deps = Array.isArray(entry.dependencies) ? entry.dependencies.length : 0;
-  const dependents = Array.isArray(entry.dependents) ? entry.dependents.length : 0;
-  if (deps) meterRow.append(focusMetaChip(`${t("依赖")} ${deps}`));
-  if (dependents) meterRow.append(focusMetaChip(`${t("被依赖")} ${dependents}`));
-  card.appendChild(meterRow);
 
-  // 焦点依据:D-207 三修的对外可见面——凭运行证据还是凭取活序,必须说出来,不让人猜。
-  const source = document.createElement("div");
-  source.className = "focus-source";
-  source.textContent = `${t("依据")}: ${
-    focusSource === "runtime" ? t("本轮运行证据")
-      : focusSource === "runtime-stale" ? t("上轮运行证据")
-        : focusSource === "claim" ? t("取得线")
-          : t("取活顺序推断")
-  }`;
-  card.appendChild(source);
-
-  // 阻塞原因逐条列出:阻塞是「推不动」的唯一合法解释,理由必须可读。
-  const blockReasons = Array.isArray(entry.block_reasons) ? entry.block_reasons : [];
+  // 阻塞是「推不动」的唯一合法解释:卡面给一行首条原因,全部原因在整卡 tooltip(focusCardTooltip)
+  // 里——这一行被 .focus-open::after 覆盖,自己挂 title 悬停不到。
   if (blocked) {
-    const box = document.createElement("div");
-    box.className = "doc-blocked-detail";
-    const heading = document.createElement("strong");
-    heading.textContent = t("阻塞原因");
-    box.appendChild(heading);
-    for (const reason of blockReasons.length ? blockReasons : [t("缺少阻塞原因")]) {
-      const line = document.createElement("div");
-      line.setAttribute("data-i18n-raw", "");
-      line.textContent = `• ${reason}`;
-      box.appendChild(line);
-    }
-    card.appendChild(box);
+    const reasons = Array.isArray(entry.block_reasons) ? entry.block_reasons : [];
+    const reason = document.createElement("div");
+    reason.className = "focus-block-reason";
+    reason.setAttribute("data-i18n-raw", "");
+    reason.textContent = `${t("阻塞")}: ${reasons[0] ?? t("缺少阻塞原因")}`;
+    card.appendChild(reason);
   }
-
-  // R-282:焦点卡片概览字段固定化——按 key 优先显示 进展/验收/复现/内容/影响
-  // (固定顺序,缺失隐藏,最多 3 条),不再 slice(0,3) 依赖字段顺序(不同条目字段
-  // 顺序不同导致头部块参差)。进展折叠:卡片只显示最新一段(|| 分隔首段),全文
-  // 走详情查看器。
-  const FOCUS_FIELD_KEYS = ["进展", "验收", "复现", "内容", "影响"];
-  const fieldMap = new Map(entry.fields ?? []);
-  let shownFields = 0;
-  for (const key of FOCUS_FIELD_KEYS) {
-    if (!fieldMap.has(key) || shownFields >= 3) continue;
-    let text = String(fieldMap.get(key) ?? "");
-    if (key === "进展") text = text.split("||")[0].trim();
-    if (text.length > 160) text = `${text.slice(0, 160)}…`;
-    const field = document.createElement("div");
-    field.className = "doc-field";
-    field.setAttribute("data-i18n-raw", "");
-    field.textContent = `${key}: ${text}`;
-    card.appendChild(field);
-    shownFields += 1;
-  }
-
-  // 状态流转留在侧栏:取活时要能直接切,这条链路不能因为列表搬家而断掉。
-  const actions = document.createElement("div");
-  actions.className = "doc-actions";
-  for (const next of entry.nextStatuses ?? []) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "ghost mini";
-    button.textContent = `→ ${t("转")} ${localizedDocStatus(next)}`;
-    button.addEventListener("click", async () => {
-      try {
-        log(await invoke("docs_update", {
-          projectDir: currentProject,
-          kind,
-          action: "update",
-          id: entry.id,
-          status: next,
-        }));
-        refreshDocs();
-      } catch (err) {
-        toastError(String(err));
-        log(`${t("状态流转失败")}:${err}`, "warn");
-      }
-    });
-    actions.appendChild(button);
-  }
-  const openInList = document.createElement("button");
-  openInList.type = "button";
-  openInList.className = "ghost mini";
-  openInList.textContent = t("在完整列表中查看");
-  openInList.addEventListener("click", () => jumpToEntry(entry.id));
-  actions.appendChild(openInList);
-  card.appendChild(actions);
   return card;
 }
 // 侧栏待办计数:三个数字必须构成一棵加法树——总数 = Σ(可执行 + 阻塞)。
@@ -788,11 +876,20 @@ export function backlogRow(kindKey, kind, tally) {
   );
   return row;
 }
+// 线路身份的叫法与判据全仓只此一处:侧栏任务卡(09-sessions.js)与焦点区线路头共用,
+// 同一条线路在两个区的叫法不再各说各的(原来一边「并行线」、一边「并行线路」,且主代理的判据也不同)。
+export function lineAuthorityLabel(process) {
+  if (process?.profile === "research") return t("研究对话");
+  return processIsPrimary(process) ? t("主代理") : t("并行线");
+}
+// 焦点区签名:renderProcesses 随 process_list 每 3 秒轮询一次都会走到这里。内容没变就不重建——
+// 整块重建会冲掉正悬停的 tooltip,也会换掉「⋯」菜单的锚点。签名直接取渲染用到的全部输入
+// (线路身份、焦点与依据、整条条目、取得声明、空态原因、界面语言),漏一项就是「不刷新」。
+export let lastFocusPanelSignature = "";
 export function renderFocusPanel(snapshot) {
   const body = $("focus-body");
   if (!body) return;
   agentFocus = computeAgentFocus(snapshot, activeSessionId, activeProcessItem());
-  body.replaceChildren();
   const lineFocuses = computeLineAgentFocuses(snapshot);
   // 空态文案必须与待办统计同源:此前固定写「队列已清空或全部被阻塞」,和两行外的
   // 「可执行 14」直接自相矛盾——没有 doing 条目 ≠ 队列空 ≠ 全阻塞,三种情况分开说。
@@ -800,71 +897,102 @@ export function renderFocusPanel(snapshot) {
   const defectTally = backlogTally(snapshot?.defects ?? [], "defect");
   const workableTotal = reqTally.workable + defectTally.workable;
   const blockedTotal = reqTally.blocked + defectTally.blocked;
-  const emptyReason = workableTotal > 0
-    ? `${t("暂无进行中条目")} · ${workableTotal} ${t("条可执行待取活")}`
+  const queueNote = workableTotal > 0
+    ? `${workableTotal} ${t("条可执行待取活")}`
     : blockedTotal > 0
       ? t("可执行队列全部被阻塞")
       : t("队列已清空");
-  let hasAnyActive = false;
-  for (const { line, focus } of lineFocuses) {
-    const section = document.createElement("section");
-    section.className = "line-focus";
-    if (line?.id) section.dataset.processId = line.id;
-    const heading = document.createElement("div");
-    heading.className = "line-focus-head";
-    const authority = line && processIsPrimary(line)
-      ? t("主代理") : t("并行线路");
-    heading.textContent = line
-      ? `${authority} · ${line.label}${line.branch ? ` · ${line.branch}` : ""}`
-      : t("主代理");
-    section.appendChild(heading);
+  const emptyReason = workableTotal > 0 ? `${t("暂无进行中条目")} · ${queueNote}` : queueNote;
+  const collabs = typeof collaborationLines !== "undefined" && Array.isArray(collaborationLines) ? collaborationLines : [];
+  const models = lineFocuses.map(({ line, focus }) => {
     const active = focusEntryOf(snapshot, focus.active);
-    if (active) {
-      hasAnyActive = true;
-      section.appendChild(buildFocusCard(active.entry, active.kind, focus.activeSource));
-    } else {
-      const empty = document.createElement("div");
-      empty.className = "focus-empty line-focus-empty";
-      const head = document.createElement("div");
-      const why = document.createElement("div");
-      why.className = "dim";
-      // 绑工作树的并行线:取活事实写在它自己树的台账里,主树快照到 merge 前都看
-      // 不见——不能因此显示"未取得条目"误导成没在干活。collaboration_snapshot
-      // 的 claim 就是该线自己声明的条目,优先用它。
-      const collab = line && !processIsPrimary(line)
-        ? (typeof collaborationLines !== "undefined" ? collaborationLines : []).find(
-            (item) => item.branch && item.branch === line.branch,
-          )
-        : null;
-      if (collab?.claim) {
-        head.setAttribute("data-i18n-raw", "");
-        head.textContent = collab.claim;
-        why.textContent = t("取活事实在线路工作树内,合并后进入主列表");
-      } else {
-        head.textContent = t("未取得条目");
-        why.textContent = emptyReason;
+    // 绑工作树的并行线:取活事实写在它自己树的台账里,主树快照到 merge 前都看不见——
+    // 不能因此显示「未取得条目」误导成没在干活。collaboration_snapshot 的 claim 就是该线
+    // 自己声明的条目,优先用它;声明里的编号在主快照里查得到就做成可点的链接。
+    const collab = !active && line && !processIsPrimary(line)
+      ? collabs.find((item) => item.branch && item.branch === line.branch)
+      : null;
+    const claim = collab?.claim ? String(collab.claim) : "";
+    const claimId = claim.match(/\b[RD]-\d+\b/)?.[0] ?? "";
+    return { line, focus, active, claim, claimRef: claimId && focusEntryOf(snapshot, claimId) ? claimId : "" };
+  });
+  const hasAnyActive = models.some((model) => model.active);
+  const signature = JSON.stringify([
+    resolveUiLanguage(),
+    emptyReason,
+    queueNote,
+    models.map(({ line, focus, active, claim, claimRef }) => [
+      line ? [line.id, line.label, line.branch ?? "", lineAuthorityLabel(line)] : null,
+      focus.activeSource,
+      active ? [active.kind, active.entry] : null,
+      claim,
+      claimRef,
+    ]),
+  ]);
+  if (signature !== lastFocusPanelSignature || !body.children.length) {
+    lastFocusPanelSignature = signature;
+    // 卡片节点要换了:开着的「⋯」菜单锚在旧节点上,先收起,免得悬在一个已摘除的锚点旁边。
+    closeFocusMenu();
+    body.replaceChildren();
+    for (const { line, focus, active, claim, claimRef } of models) {
+      const section = document.createElement("section");
+      section.className = "line-focus";
+      if (line?.id) {
+        section.dataset.processId = line.id;
+        motionSync(section);
       }
-      empty.append(head, why);
-      section.appendChild(empty);
+      // 线路头只写「身份 · 名称」;分支名是次要信息,进 tooltip。
+      const heading = document.createElement("div");
+      heading.className = "line-focus-head";
+      heading.textContent = line ? `${lineAuthorityLabel(line)} · ${line.label}` : t("主代理");
+      if (line?.branch) heading.title = line.branch;
+      section.appendChild(heading);
+      if (active) {
+        section.appendChild(buildFocusCard(active.entry, active.kind, focus.activeSource));
+      } else {
+        // 空线路只占一行:全局的「为什么没在做」只在末尾说一次,不在每条线路下重复。
+        const empty = document.createElement("div");
+        empty.className = "focus-empty line-focus-empty";
+        if (claim) {
+          const claimTitle = t("取活事实在线路工作树内,合并后进入主列表");
+          if (claimRef) {
+            const link = document.createElement("button");
+            link.type = "button";
+            link.className = "ref-link focus-claim-link";
+            link.setAttribute("data-i18n-raw", "");
+            link.textContent = claim;
+            link.title = `${claimTitle}\n${t("点击查看详情")}`;
+            link.addEventListener("click", () => void jumpToEntry(claimRef, { expand: true }));
+            empty.appendChild(link);
+          } else {
+            empty.setAttribute("data-i18n-raw", "");
+            empty.textContent = claim;
+            empty.title = claimTitle;
+          }
+        } else {
+          empty.textContent = t("未取得条目");
+          empty.title = emptyReason;
+        }
+        section.appendChild(empty);
+      }
+      body.appendChild(section);
     }
-    body.appendChild(section);
+    if (!hasAnyActive) {
+      const empty = document.createElement("div");
+      empty.className = "focus-empty focus-empty-global";
+      const text = document.createElement("span");
+      text.textContent = `${t("当前没有在做的条目")} · ${queueNote}`;
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "ghost mini";
+      open.textContent = t("查看完整列表");
+      open.addEventListener("click", openDocumentsView);
+      empty.append(text, open);
+      body.appendChild(empty);
+    }
   }
-  if (!hasAnyActive) {
-    const empty = document.createElement("div");
-    empty.className = "focus-empty";
-    const line = document.createElement("div");
-    line.textContent = t("当前没有在做的条目");
-    const why = document.createElement("div");
-    why.className = "dim";
-    why.textContent = emptyReason;
-    const open = document.createElement("button");
-    open.type = "button";
-    open.className = "ghost mini";
-    open.textContent = t("查看完整列表");
-    open.addEventListener("click", openDocumentsView);
-    empty.append(line, why, open);
-    body.appendChild(empty);
-  }
+  // #7:线真在跑才标 is-live(整块重绘不丢相位:section 已 motionSync;跳过重建时照样同步)。
+  syncLineFocusLive();
   const backlog = $("focus-backlog");
   if (!backlog) return;
   // 原来这里是一行三个数字:`待办 22 需求 · 6 缺陷 · 22 阻塞`。三个数字是三种分母
