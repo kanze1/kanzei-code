@@ -9,6 +9,8 @@
 //   3. 下拉专项(截图 6 回归):点开下拉后截取列表区域求平均相对亮度,暗色 <0.2、亮色 >0.6——
 //      列表下面垫着一块反色「金丝雀」,列表没画进页面或画成白底都会露馅;菜单里嵌的下拉也跑一遍;
 //   4. Esc 与叠放:卡片上再开确认框,一次 Esc 只关确认框;菜单里开着下拉列表时 Esc 只关列表;
+//      弹窗里的 JS/静态菜单真实点击得到(模态外的节点是惰性的)、Esc 先关菜单;补全列表与锚点同宽;
+//      键盘打开弹窗时初始焦点不弹 tooltip(另有键盘聚焦出提示的对照);
 //   5. index.html 运行时对照:全部 select 为 base-select,全部 dialog/[popover] 带 .k-surface,
 //      除 .resize-handle 外没有顶层以外、正在显示的 fixed 元素;
 //   6. 截图写入 dist/ui-gallery/(已在 .gitignore)。
@@ -288,6 +290,101 @@ export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path
       await page.keyboard.press("Escape");
       await page.waitForTimeout(80);
       await page.evaluate(() => window.__gallery.closeAll());
+
+      if (theme === "dark") {
+        // 4d 弹窗里的菜单:模态开着时 dialog 子树之外全是惰性的(点不到、拿不到焦点)。
+        //    真实鼠标点击菜单项必须走到 onSelect;静态 data-kz-menu 菜单里的勾选框必须勾得上;Esc 先关菜单再关弹窗。
+        await page.mouse.move(2, 2);
+        await page.click('[data-demo="dialog-menu"]');
+        await page.waitForTimeout(150);
+        const mount = await page.evaluate(() => {
+          const menu = document.querySelector(".k-menu[id^='kz-menu-']");
+          return { inDialog: Boolean(menu?.closest("#demo-dialog-menu")), open: Boolean(menu?.matches(":popover-open")) };
+        });
+        if (!mount.open || !mount.inDialog) fail(`dark/弹窗内菜单:openMenu 的菜单${mount.open ? "" : "没打开、"}${mount.inDialog ? "" : "没挂进锚点所在的 <dialog>(模态开着时 body 下的节点是惰性的)"}`);
+        const picksBefore = (await page.evaluate(() => window.__gallery.picks())).length;
+        try {
+          await page.locator(".k-menu[id^='kz-menu-'] .k-menu-item").first().click({ timeout: 3000 });
+        } catch (error) {
+          fail(`dark/弹窗内菜单:真实点击菜单项失败(惰性节点收不到指针事件):${String(error).split("\n")[0]}`);
+        }
+        await page.waitForTimeout(120);
+        const afterPick = await page.evaluate(() => ({
+          picks: window.__gallery.picks(),
+          dialogOpen: document.querySelector("#demo-dialog-menu").open,
+          depth: window.__gallery.stackDepth(),
+        }));
+        if (afterPick.picks.length !== picksBefore + 1 || !afterPick.dialogOpen || afterPick.depth !== 1) {
+          fail(`dark/弹窗内菜单:点菜单项应恰好调一次 onSelect、只关菜单不关弹窗 ${JSON.stringify(afterPick)}`);
+        }
+        try {
+          await page.click("#demo-dialog-menu-static-trigger", { timeout: 3000 });
+          await page.waitForTimeout(100);
+          await page.click("#demo-dialog-menu-check", { timeout: 3000 });
+        } catch (error) {
+          fail(`dark/弹窗内静态菜单:真实点击失败:${String(error).split("\n")[0]}`);
+        }
+        await page.waitForTimeout(100);
+        const staticState = await page.evaluate(() => ({
+          checked: document.querySelector("#demo-dialog-menu-check").checked,
+          menuOpen: document.querySelector("#demo-dialog-menu-static").matches(":popover-open"),
+          depth: window.__gallery.stackDepth(),
+        }));
+        if (!staticState.checked || !staticState.menuOpen || staticState.depth !== 2) {
+          fail(`dark/弹窗内静态菜单:勾选框应勾上且菜单仍开(栈深 2)${JSON.stringify(staticState)}`);
+        }
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(100);
+        const escOnce = await page.evaluate(() => ({
+          menuOpen: document.querySelector("#demo-dialog-menu-static").matches(":popover-open"),
+          dialogOpen: document.querySelector("#demo-dialog-menu").open,
+        }));
+        if (escOnce.menuOpen || !escOnce.dialogOpen) fail(`dark/弹窗内菜单:第一次 Esc 应只关菜单 ${JSON.stringify(escOnce)}`);
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(100);
+        if (await page.evaluate(() => document.querySelector("#demo-dialog-menu").open)) fail("dark/弹窗内菜单:第二次 Esc 应关弹窗");
+        await page.evaluate(() => window.__gallery.closeAll());
+
+        // 4e 补全列表与锚点同宽(不被菜单/浮层的 420px 上限截窄)。锚点在 1280 宽下远超 420px。
+        await page.evaluate(() => window.__gallery.open("completion"));
+        await page.waitForTimeout(120);
+        const widths = await page.evaluate(() => {
+          const list = document.querySelector("#demo-completion").getBoundingClientRect();
+          const anchor = document.querySelector("#demo-completion-anchor").getBoundingClientRect();
+          return { list: list.width, anchor: anchor.width, listLeft: list.left, anchorLeft: anchor.left };
+        });
+        if (widths.anchor <= 420 || Math.abs(widths.list - widths.anchor) > 1 || Math.abs(widths.listLeft - widths.anchorLeft) > 1) {
+          fail(`dark/补全列表:应与输入框同宽且左缘对齐,实为宽 ${widths.list.toFixed(1)}/${widths.anchor.toFixed(1)}、左缘 ${widths.listLeft.toFixed(1)}/${widths.anchorLeft.toFixed(1)}(前置:锚点须宽于 420px)`);
+        }
+        await page.evaluate(() => window.__gallery.closeAll());
+
+        // 4f 键盘打开弹窗:初始焦点是程序化聚焦,不弹提示(否则「关闭」提示立刻盖住弹窗角);
+        //    对照:随后键盘态下聚焦带 title 的按钮,提示照常立即出现(证明本用例看得见提示)。
+        //    样例里的弹窗与应用查看器同构:第一个可聚焦元素不是 initialFocus,焦点会被程序化地挪一次。
+        //    用一个鼠标从没进过的新页面:鼠标停在页面上时,弹窗的遮罩一出现就会派发 pointerover 把提示收掉,
+        //    用例会恒绿(纯键盘用户、鼠标在窗口外时,问题才露出来)。
+        const kbd = await context.newPage();
+        kbd.on("pageerror", (error) => pageErrors.push(String(error)));
+        await kbd.goto(`${origin}/gallery.html`, { waitUntil: "load" });
+        await kbd.waitForFunction(() => window.__gallery?.ready === true, null, { timeout: 15000 });
+        await kbd.focus('[data-demo="dialog-lg"]');
+        await kbd.waitForTimeout(250); // 聚焦触发器会滚动页面,滚动事件异步派发且会收起提示:先让它落定
+        await kbd.keyboard.press("Enter");
+        await kbd.waitForTimeout(150);
+        const quiet = await kbd.evaluate(() => ({
+          focused: document.activeElement?.id ?? "",
+          tip: Boolean(document.getElementById("kz-tip")?.matches(":popover-open")),
+        }));
+        if (quiet.focused !== "demo-dialog-lg-close") fail(`dark/键盘打开弹窗:前置失败,初始焦点应在 #demo-dialog-lg-close,实为 #${quiet.focused}`);
+        if (quiet.tip) fail("dark/键盘打开弹窗:初始焦点按钮上立刻弹出了 tooltip(程序化聚焦不该触发提示)");
+        await kbd.keyboard.press("Escape");
+        await kbd.waitForTimeout(100);
+        await kbd.focus("#demo-tip-short");
+        await kbd.waitForTimeout(250);
+        const control = await kbd.evaluate(() => Boolean(document.getElementById("kz-tip")?.matches(":popover-open")));
+        if (!control) fail("dark/键盘打开弹窗:对照失败——键盘态聚焦带 title 的按钮也没出提示,本用例看不见 tooltip");
+        await kbd.close();
+      }
 
       // 静态矩阵(暗色页面下两套主题同屏)
       if (theme === "dark") {

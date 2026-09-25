@@ -5,8 +5,10 @@
 //   C1 字面量色      主题 token 块之外不得出现 hex / 颜色函数(rgba、hsla、oklch…)/ 颜色名
 //   T1 token 分层    组件层 --surface-* 只准 surface.css 用、不在亮色块重定义、引用的 token 必须有定义
 //   S1 外观归属      弹层外观(底色/边框/圆角/阴影/层级/定位)只写在 surface.css
-//   H  页面结构      role=dialog/menu/tooltip 的宿主必须是 <dialog> 或 popover,弹层必带 .k-surface
-//   J  脚本          只有 00-surface.js 能切换弹层的 .hidden;不写字面量颜色;00-surface.js 零 import
+//   H  页面结构      role=dialog/menu/tooltip 的宿主必须是 <dialog> 或 popover,弹层必带 .k-surface;
+//                    <dialog> 里的 data-kz-menu 触发器,弹层必须写在同一个 dialog 内(模态外的节点是惰性的)
+//   J  脚本          只有 00-surface.js 能切换弹层的 .hidden(含先取进局部变量再切的写法);不写字面量颜色;
+//                    00-surface.js 零 import
 // 每条违例都给出「文件:行、原文、改用什么」,报错写全判据,保证门禁可以被满足。
 //
 // 用法:checkSurfaceRules({ css, surfaceCss, pwaCss, html, sources: [{ name, text }] }) → 违例数组;
@@ -33,6 +35,9 @@ const DETAILS_POSITION = /position:\s*(?:absolute|fixed)/;
 
 const SURFACE_IDS = "ask-overlay|ask-reopen|viewer-overlay|confirm-overlay|input-overlay|palette|toast|sop-picker-panel|context-detail|file-suggestions";
 const J1 = new RegExp(`\\$\\(\\s*["'](?:${SURFACE_IDS})["']\\s*\\)\\.classList\\.(?:add|remove|toggle)\\(\\s*["']hidden["']`);
+// J1 的局部变量形态:`const detail = $("context-detail"); … detail.classList.remove("hidden")`。
+// 只在同一个顶层函数体里配对(取值行到下一个行首 `}` 为止),同名变量在别的函数里指向别的元素不算。
+const J1_BIND = new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:\\$|document\\.getElementById)\\(\\s*["'](?:${SURFACE_IDS})["']\\s*\\)`, "g");
 const J2 = /\.style\.(?:background|backgroundColor|color|borderColor|boxShadow|outlineColor)\s*=\s*["'`](?!var\(|transparent|currentColor|inherit|["'`])/;
 const J3 = /^\s*import\b/m;
 
@@ -234,6 +239,15 @@ function checkHtml(html, violations) {
   for (const m of text.matchAll(/<details\b[^>]*\bid="(?:composer-more|task-options|autorun-more)"|<details\b[^>]*class="[^"]*\bvoice-settings\b/g)) {
     violations.push({ rule: "H", ...at(m.index), fix: "输入区的菜单不得再用 <details>:改成 <button data-kz-menu=\"x-menu\"> + <div id=\"x-menu\" popover class=\"k-surface k-menu\">。" });
   }
+  // 模态开着时 dialog 子树之外的一切都是惰性的(含之后才弹出的顶层 popover):dialog 里的菜单触发器,
+  // 它的弹层必须写在同一个 dialog 里,否则菜单弹得出来却点不动、拿不到焦点。
+  for (const m of text.matchAll(/<dialog\b[\s\S]*?<\/dialog>/g)) {
+    for (const trigger of m[0].matchAll(/\bdata-kz-menu="([^"]+)"/g)) {
+      const id = trigger[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`\\bid="${id}"`).test(m[0])) continue;
+      violations.push({ rule: "H", ...at(m.index + trigger.index), fix: `<dialog> 里的触发器 data-kz-menu="${trigger[1]}" 对应的弹层必须写在同一个 <dialog> 内:模态开着时 dialog 之外的节点是惰性的,菜单点不动。JS 菜单用 openMenu(自动挂进锚点所在的 dialog)。` });
+    }
+  }
   for (const m of text.matchAll(/<select\b[^>]*\b(?:multiple|size=)/g)) {
     violations.push({ rule: "H", ...at(m.index), fix: "select 不带 multiple/size(列表框模式的外观规则不同,base-select 不覆盖);要多选就换成勾选框组。" });
   }
@@ -255,6 +269,19 @@ function checkScripts(sources, violations) {
         violations.push({ rule: "J2", file: name, line: index + 1, text: raw.trim(), fix: "脚本里不写字面量颜色:写 var(--token) 或切换类名。" });
       }
     });
+    if (!isSurface) {
+      const body = lines.map((raw) => raw.replace(/\/\/.*$/, ""));
+      for (let start = 0; start < body.length; start += 1) {
+        for (const m of body[start].matchAll(J1_BIND)) {
+          const toggle = new RegExp(`(?<![\\w$.])${m[1].replace(/\$/g, "\\$")}\\.classList\\.(?:add|remove|toggle)\\(\\s*["']hidden["']`);
+          for (let i = start; i < body.length; i += 1) {
+            if (i > start && /^\}/.test(body[i])) break;
+            if (!toggle.test(body[i])) continue;
+            violations.push({ rule: "J1", file: name, line: i + 1, text: lines[i].trim(), fix: `${m[1]} 取的是弹层宿主(第 ${start + 1} 行):除 00-surface.js 外不得直接切换弹层的 .hidden,用 openDialog/closeSurface、openPopover、showCard/hideCard、toast(模块会镜像 .hidden)。` });
+          }
+        }
+      }
+    }
     if (isSurface && J3.test(text)) {
       const line = lines.findIndex((l) => /^\s*import\b/.test(l)) + 1;
       violations.push({ rule: "J3", file: name, line, text: lines[line - 1]?.trim() ?? "", fix: "00-surface.js 必须零 import(样例页与假 DOM 冒烟要能单独加载;翻译函数经 setSurfaceTranslator 注入)。" });
@@ -308,7 +335,9 @@ export function selfTestSurfaceRules() {
     "S1 details 下拉": { css: `${root}.dd { position: absolute; }`, html: '<details class="dd"></details>' },
     "H popover 缺 k-surface": { html: '<div id="m" popover class="menu"></div>' },
     "H role=dialog 宿主": { html: '<div id="d" role="dialog"></div>' },
+    "H dialog 内菜单写在外面": { html: '<dialog class="k-surface k-dialog"><button data-kz-menu="m">⋯</button></dialog><div id="m" popover class="k-surface k-menu"></div>' },
     "J1 直接切 hidden": { sources: [{ name: "07-events.js", text: '$("toast").classList.add("hidden");' }] },
+    "J1 局部变量切 hidden": { sources: [{ name: "07-events.js", text: 'function f() {\n  const detail = $("context-detail");\n  detail.classList.remove("hidden");\n}' }] },
     "J3 surface import": { sources: [{ name: "00-surface.js", text: 'import { x } from "./01-core.js";' }] },
   };
   const expectRule = (label) => label.split(" ")[0];

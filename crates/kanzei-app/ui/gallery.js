@@ -1,7 +1,7 @@
 // 弹层样例页脚本(UI-0926 #9,docs/design/ui_surface_stack.md §8)。
 // 只从 00-surface.js 引入,不依赖应用其它模块与 Tauri。暴露 window.__gallery 供
 // scripts/ui-surface-gallery-smoke.mjs 调用:demos() / open(id) / measure(id) / tokens() /
-// stackDepth() / closeAll() / setTheme(theme)。
+// stackDepth() / closeAll() / setTheme(theme) / picks()(菜单项 onSelect 调用记录)。
 import {
   bindMenus,
   closeSurface,
@@ -23,6 +23,16 @@ const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let lastMenu = null;
+// 菜单项 onSelect 的调用记录:冒烟据此确认「弹窗里的菜单点得到」(惰性节点上的点击不会走到 onSelect)。
+const picks = [];
+
+function openDialogMenu() {
+  lastMenu = openMenu($("demo-dialog-menu-js"), [
+    { label: t("复制"), onSelect: () => picks.push("复制") },
+    { label: t("总结"), desc: t("复制上下文"), onSelect: () => picks.push("总结") },
+  ], { label: t("动作") });
+  return lastMenu;
+}
 
 function hoverTip(id) {
   const el = $(id);
@@ -91,6 +101,23 @@ const DEMOS = {
         { label: t("删除"), danger: true, onSelect() {} },
       ], { label: t("动作") });
     },
+  },
+  // 弹窗里的 JS 菜单:openMenu 把它挂进锚点所在的 <dialog>(模态之外的节点是惰性的)。
+  "dialog-menu": {
+    kind: "menu",
+    anchor: "demo-dialog-menu-js",
+    target: () => (lastMenu && !lastMenu.closed ? lastMenu.el : null),
+    open: () => {
+      openDialog($("demo-dialog-menu"), { initialFocus: "#demo-dialog-menu-js" });
+      openDialogMenu();
+    },
+  },
+  // 文件补全:锚在宽输入框上,列表与锚点同宽(style.css 的 .file-suggestions 用 anchor-size(width))。
+  completion: {
+    kind: "popover",
+    anchor: "demo-completion-anchor",
+    target: () => $("demo-completion"),
+    open: () => openPopover($("demo-completion-anchor"), $("demo-completion"), { manual: true, placement: "top-start" }),
   },
   "menu-container": {
     kind: "menu",
@@ -296,6 +323,8 @@ function init() {
   }
   $("viewer-body").textContent = Array.from({ length: 40 }, (_, i) => `${i + 1}. ${t("此操作不可撤销")}`).join("\n");
   $("demo-dialog-lg-close").addEventListener("click", () => closeSurface($("demo-dialog-lg")));
+  $("demo-dialog-menu-js").addEventListener("click", () => void openDialogMenu());
+  $("demo-dialog-menu-close").addEventListener("click", () => closeSurface($("demo-dialog-menu")));
   $("demo-card-deny").addEventListener("click", () => hideCard($("demo-card")));
   $("demo-card-allow").addEventListener("click", () => hideCard($("demo-card")));
   $("demo-chip").addEventListener("click", () => hideCard($("demo-chip")));
@@ -321,6 +350,7 @@ function init() {
     stackDepth,
     closeAll,
     setTheme,
+    picks: () => [...picks],
     ready: true,
   };
 }

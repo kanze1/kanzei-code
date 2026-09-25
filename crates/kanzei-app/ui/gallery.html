@@ -28,6 +28,8 @@
     .g-matrix .k-static:not(.k-dialog, .k-card, .k-menu, .k-panel) { width: fit-content; }
     .g-matrix .k-card { min-width: 0; }
     .g-panel { width: 320px; height: 140px; padding: 10px 12px; }
+    .g-completion { flex-wrap: nowrap; }
+    #demo-completion-anchor { flex: 1 1 auto; min-width: 0; resize: none; font: var(--fs-12) var(--mono); }
     .g-long { max-height: none; }
   </style>
 </head>
@@ -76,6 +78,19 @@
       <button type="button" class="ghost" data-demo="input">输入框</button>
       <button type="button" class="ghost" data-demo="dialog-lg">大尺寸查看器</button>
       <button type="button" class="ghost" data-demo="dialog-palette">命令面板尺寸</button>
+      <button type="button" class="ghost" data-demo="dialog-menu">弹窗内菜单</button>
+    </div>
+
+    <!-- 文件补全:宽锚点(复刻输入框),列表须与锚点同宽,不被菜单/浮层的 420px 上限截窄。 -->
+    <div class="g-row g-completion">
+      <span class="g-label">补全</span>
+      <textarea id="demo-completion-anchor" rows="2" aria-label="补全锚点" placeholder="@src/">@src/</textarea>
+      <button type="button" class="ghost" data-demo="completion">打开补全</button>
+      <div id="demo-completion" class="k-surface k-popover file-suggestions hidden" popover="manual" data-placement="top-start" role="listbox">
+        <button type="button" class="file-suggestion active">@src/main.rs</button>
+        <button type="button" class="file-suggestion">@src/lib.rs</button>
+        <button type="button" class="file-suggestion">@crates/kanzei-app/ui/00-surface.js</button>
+      </div>
     </div>
 
     <div class="g-row">
@@ -126,7 +141,7 @@
 
   <dialog id="demo-dialog-lg" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="demo-dialog-lg-title">
     <div id="viewer-dialog">
-      <div class="viewer-head"><span id="demo-dialog-lg-title">R-364 发现记录</span><button type="button" id="demo-dialog-lg-close" class="icon-btn" aria-label="关闭">✕</button></div>
+      <div class="viewer-head"><span id="demo-dialog-lg-title">R-364 发现记录</span><span><button type="button" id="demo-dialog-lg-external" class="icon-btn" title="在外部编辑器打开" aria-label="在外部编辑器打开">↗</button><button type="button" id="demo-dialog-lg-close" class="icon-btn" title="关闭" aria-label="关闭查看器">✕</button></span></div>
       <div id="viewer-body" class="md g-long"></div>
     </div>
   </dialog>
@@ -136,6 +151,19 @@
       <div class="palette-list" role="listbox"><div class="palette-row active" role="option"><span class="palette-group">视图</span><span class="palette-label">对话</span></div><div class="palette-row" role="option"><span class="palette-group">动作</span><span class="palette-label">新对话</span></div></div>
       <div class="palette-foot">↑↓ 选择 · Enter 执行 · Esc 关闭</div>
     </div>
+  </dialog>
+  <!-- 弹窗内菜单:模态开着时 dialog 子树之外是惰性的。JS 菜单由 openMenu 挂进这个 dialog;
+       静态 data-kz-menu 弹层必须写在 dialog 里面(ui-surface-rules H 组)。 -->
+  <dialog id="demo-dialog-menu" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="demo-dialog-menu-title">
+    <div class="confirm-title" id="demo-dialog-menu-title">项目模型</div>
+    <div class="g-row">
+      <button type="button" class="ghost" id="demo-dialog-menu-js" aria-haspopup="menu" aria-expanded="false">JS 菜单</button>
+      <button type="button" class="ghost" id="demo-dialog-menu-static-trigger" data-kz-menu="demo-dialog-menu-static">静态菜单</button>
+      <div id="demo-dialog-menu-static" class="k-surface k-menu hidden" popover="manual" data-placement="bottom-start" role="group" aria-label="静态菜单">
+        <label class="menu-row" for="demo-dialog-menu-check"><span class="menu-row-main"><span class="menu-row-title">自动放行</span><span class="menu-row-desc">弹窗里的静态菜单:点得到、勾得上</span></span><input id="demo-dialog-menu-check" type="checkbox" /></label>
+      </div>
+    </div>
+    <div class="confirm-buttons"><button type="button" id="demo-dialog-menu-close">关闭</button></div>
   </dialog>
   <!-- 确认框/输入框与 index.html 同构同 id:confirmDialog/inputDialog 按 id 取宿主。 -->
   <dialog id="input-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="input-title">

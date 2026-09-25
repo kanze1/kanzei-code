@@ -44,7 +44,10 @@ dialog.k-dialog[data-size="palette"]::backdrop { background: var(--surface-backd
 }
 .k-menu { padding: 4px; min-width: 200px; font-size: var(--fs-13); }
 .k-popover { padding: 10px 12px; }
-.k-popover[role="listbox"] { padding: 4px; }
+/* 补全列表(#file-suggestions)宽度跟输入框走(style.css 的 width: anchor-size(width)):
+   这里放开菜单/浮层的 420px 宽度上限、高度回到原先的 220px、左右不留偏移(与输入框两边对齐)。
+   本层写了的属性视图改不动,所以在这里写。 */
+.k-popover[role="listbox"] { padding: 4px; margin-inline: 0; max-width: calc(100vw - 16px); max-height: 220px; }
 .k-surface[data-placement="top-end"] { position-area: block-start span-inline-start; }
 .k-surface[data-placement="top-start"] { position-area: block-start span-inline-end; }
 .k-surface[data-placement="bottom-end"] { position-area: block-end span-inline-start; }

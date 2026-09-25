@@ -68,8 +68,20 @@ if (SMOKE_MUTATE) {
     // UI-0926 #9:Esc 只关栈顶。把「取栈顶第一个可 Esc 的句柄」换成「取栈底第一个」,
     // 权限卡在场时在确认框里按 Esc 就会先拒掉权限请求——正是这次修掉的串台。
     surfaceEscTop: {
-      pattern: /const top = topEscapable\(\);/,
+      pattern: /const top = topEscapable\(event\.target \?\? activeElement\(\)\);/,
       replace: 'const top = stack.find((h) => h.type !== "tooltip");',
+    },
+    // UI-0926 #9:停靠卡片不抢别处输入框的局部 Esc。删掉让位判断,焦点在输入框里按 Esc
+    // 就会先拒掉权限请求、速记表单也收不到 Esc——正是评审指出的回归。
+    surfaceCardYield: {
+      pattern: /\n\s*if \(cardYields\(handle, target\)\) continue;/,
+      replace: "",
+    },
+    // UI-0926 #9:弹窗里的 JS 菜单挂进锚点所在的 <dialog>。退回一律挂 body 末尾,
+    // 模态开着时菜单是惰性的(点不动)——正是评审实测的问题。
+    surfaceMenuInDialog: {
+      pattern: /\(anchorEl\?\.closest\?\.\("dialog\[open\]"\) \?\? surfaceRoot\(\)\)\?\.appendChild\(menu\);/,
+      replace: "surfaceRoot()?.appendChild(menu);",
     },
     // UI-0926 #5:发送键改成图标按钮后,读屏名称全靠 aria-label。把空闲态的 t("发送") 退回中文字面量,
     // 英文界面下读屏就会念「发送」——正是这次修掉的漏翻。
@@ -8963,6 +8975,40 @@ const docsB = {
     await flush();
     assert(surface.stackDepth() === 0, `权限卡用例后弹层栈未清空(深度 ${surface.stackDepth()})`);
 
+    // ②b 卡片不抢别处的局部 Esc:焦点在卡片外的文字输入框(#prompt、想法/缺陷速记表单)或 Monaco 里时,
+    //     Esc 不拒权限请求、不 preventDefault、不截断传播(输入框自己的 Esc 照常取消输入);
+    //     焦点在勾选框这类没有局部 Esc 含义的元素上时,仍按卡片的 onEscape 拒绝。
+    handlers.get("kz:ask")({ payload: { id: 9903, sessionId: "sess-smoke", kind: "permission", action: "bash", resource: "ls" } });
+    await flush();
+    assert(events.askActive?.id === 9903 && !askCard.classList.contains("hidden"), "②b 前置:权限卡未显示");
+    const answersBeforeYield = answerCalls().length;
+    const quickInput = document.createElement("input");
+    const monacoHost = document.createElement("div");
+    monacoHost.className = "monaco-editor";
+    const monacoWidget = document.createElement("span");
+    monacoHost.appendChild(monacoWidget);
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    body.append(quickInput, monacoHost, checkbox);
+    for (const [label, target] of [["#prompt", byId.get("prompt")], ["卡片外的速记输入框", quickInput], ["Monaco 编辑器内", monacoWidget]]) {
+      const ev = keyEvent("Escape", { target });
+      document.dispatchEvent(ev);
+      await flush();
+      assert(!ev.defaultPrevented && !ev._stopped, `焦点在${label}时按 Esc 被弹层栈截走了(局部 Esc 收不到)`);
+      assert(answerCalls().length === answersBeforeYield && events.askActive?.id === 9903, `焦点在${label}时按 Esc 把权限请求拒掉了`);
+    }
+    const escOnCheckbox = keyEvent("Escape", { target: checkbox });
+    document.dispatchEvent(escOnCheckbox);
+    await flush();
+    assert(
+      escOnCheckbox.defaultPrevented && answerCalls().length === answersBeforeYield + 1 && answerCalls().at(-1)?.args?.reply === "deny",
+      "焦点在卡片外的勾选框上时 Esc 仍应拒绝权限请求(只有文字输入框与 Monaco 让位)",
+    );
+    quickInput.remove();
+    monacoHost.remove();
+    checkbox.remove();
+    assert(surface.stackDepth() === 0, `②b 用例后弹层栈未清空(深度 ${surface.stackDepth()})`);
+
     // ③ 输入框:组合中的 Enter 不提交;普通 Enter 返回输入值;Esc 返回 null。
     const inputHost = byId.get("input-overlay");
     const pi = surface.inputDialog({ title: "输入冒烟", value: "初值" });
@@ -9006,6 +9052,39 @@ const docsB = {
     assert(menuC.closed && surface.stackDepth() === 0, "同一锚点再次 openMenu 应收起已开的菜单(切换语义)");
     anchorA.remove();
     anchorB.remove();
+
+    // ④b 弹窗里的菜单:模态开着时 dialog 子树之外全是惰性的,openMenu 必须挂进锚点所在的 <dialog>;
+    //     点菜单项不关弹窗;关弹窗时菜单作为嵌套弹层一起关;打开 dialog 外的静态弹层要告警(不静默点不动)。
+    const viewerHost = byId.get("viewer-overlay");
+    const viewerHandle = surface.openDialog(viewerHost);
+    const inDialogAnchor = document.createElement("button");
+    viewerHost.appendChild(inDialogAnchor);
+    let pickedInDialog = 0;
+    const dialogMenu = surface.openMenu(inDialogAnchor, [{ label: "戊", onSelect: () => { pickedInDialog += 1; } }]);
+    assert(dialogMenu.el.parentNode === viewerHost, "弹窗里的 openMenu 未挂进锚点所在的 <dialog>(挂在 body 下时模态开着点不动)");
+    assert(surface.stackDepth() === 2 && dialogMenu.el._popoverOpen, "弹窗里的菜单未打开或未入栈");
+    dialogMenu.el.querySelector(".k-menu-item").click();
+    assert(pickedInDialog === 1 && viewerHost.open && surface.stackDepth() === 1, "弹窗里点菜单项应调 onSelect 一次、只关菜单不关弹窗");
+    const dialogMenu2 = surface.openMenu(inDialogAnchor, [{ label: "己", onSelect() {} }]);
+    pressEscape();
+    assert(dialogMenu2.closed && viewerHost.open, "弹窗里开着菜单时,第一次 Esc 应只关菜单");
+    const dialogMenu3 = surface.openMenu(inDialogAnchor, [{ label: "庚", onSelect() {} }]);
+    surface.closeSurface(viewerHandle);
+    assert(dialogMenu3.closed && !dialogMenu3.el.parentNode && !viewerHost.open, "关弹窗时里面的菜单未一起关掉并移除");
+    const warns = [];
+    const priorWarn = sandbox.console.warn;
+    sandbox.console.warn = (...args) => warns.push(args.map(String).join(" "));
+    try {
+      const warnHandle = surface.openDialog(viewerHost);
+      surface.openPopover(byId.get("status-tokens"), byId.get("context-detail"));
+      surface.closeSurface(byId.get("context-detail"));
+      surface.closeSurface(warnHandle);
+    } finally {
+      sandbox.console.warn = priorWarn;
+    }
+    assert(warns.some((text) => text.includes("context-detail") && text.includes("惰性")), `模态开着时打开 dialog 外的静态弹层应告警:${JSON.stringify(warns)}`);
+    inDialogAnchor.remove();
+    assert(surface.stackDepth() === 0, `④b 用例后弹层栈未清空(深度 ${surface.stackDepth()})`);
 
     // ⑤ bindMenus:四个静态菜单触发器接线;点开 aria-expanded=true,Esc 关闭后复位;
     //    点外关闭;按下触发器本身不算「点外」(否则随后的 click 会把刚关的菜单重新打开)。
@@ -9071,6 +9150,9 @@ const docsB = {
     const globalShortcut = compose.slice(compose.indexOf('window.addEventListener("keydown"')).slice(0, 400);
     assert(globalShortcut.includes("if (isModalOpen()) return;"), "08-compose-runtime 的全局快捷键处理函数开头缺 isModalOpen() 守卫(确认框背后会真的点「新对话」)");
     assert(!sources.some((source) => source.includes("placeAutorunMenu")), "placeAutorunMenu 复活了:弹层位置归 CSS 锚点定位");
+    // 权限卡弹出时的焦点只归 showCard 的 focus:"auto"(用户在别处打字时不抢)。旧实现 pumpAsk 里
+    // setTimeout 把焦点抢到「允许一次」,下一个空格就放行;合并时最容易被当成上下文行留回来。
+    assert(!sources.some((source) => /\$\(\s*["']ask-allow["']\s*\)\.focus\(/.test(source)), "有代码把焦点直接抢到 #ask-allow(正在打字时一个空格就放行):权限卡焦点只归 showCard focus:\"auto\"");
     const surfaceSource = sources[scriptSrcs.indexOf("00-surface.js")] ?? "";
     assert(surfaceSource.includes('document.addEventListener("keydown", onKeydown, true)'), "00-surface.js 的 Esc 唯一入口不在 document 捕获阶段");
   }

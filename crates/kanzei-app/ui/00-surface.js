@@ -38,9 +38,28 @@ function isEditable(node) {
   const tag = String(node.tagName || "").toLowerCase();
   return tag === "input" || tag === "textarea" || tag === "select" || node.isContentEditable === true;
 }
-function focusEl(node) {
+// 文字输入类元素:在它里面按 Esc 有局部含义(取消输入、收起查找框)。勾选框/按钮/下拉不算。
+function isTextEntry(node) {
+  if (!node) return false;
+  const tag = String(node.tagName || "").toLowerCase();
+  if (tag === "textarea" || node.isContentEditable === true) return true;
+  return tag === "input" && !/^(checkbox|radio|button|submit|reset|range|color|file|image)$/i.test(String(node.type || ""));
+}
+// 程序化聚焦(模态初始焦点、卡片抢焦点、菜单首项、关闭后归还焦点)期间为真:
+// tooltip 的 focusin 看到它就不弹提示——否则键盘打开弹窗时,初始焦点按钮上会立刻冒出提示盖住弹窗角。
+let quietFocus = false;
+function quietly(fn) {
+  const prior = quietFocus;
+  quietFocus = true;
+  try { return fn(); } finally { quietFocus = prior; }
+}
+function focusEl(node, { quiet = true } = {}) {
   if (node && typeof node.focus === "function") {
-    try { node.focus(); } catch { /* 已离开文档的节点 */ }
+    const run = () => {
+      try { node.focus(); } catch { /* 已离开文档的节点 */ }
+    };
+    if (quiet) quietly(run);
+    else run();
   }
 }
 function resolveTarget(ref, scope) {
@@ -86,6 +105,10 @@ function surfaceRoot() {
 export function isModalOpen() {
   return stack.some((h) => h.type === "modal");
 }
+function topModal() {
+  for (let i = stack.length - 1; i >= 0; i -= 1) if (stack[i].type === "modal") return stack[i];
+  return null;
+}
 export function stackDepth() {
   return stack.length;
 }
@@ -109,10 +132,13 @@ function finish(handle, value, { nativeClosed = false } = {}) {
   const el = handle.el;
   const focusWasInside = isInside(activeElement(), el);
   if (!nativeClosed) {
-    try {
-      if (handle.native === "modal" && el.open && typeof el.close === "function") el.close();
-      else if (handle.native === "popover" && typeof el.hidePopover === "function" && popoverShowing(el)) el.hidePopover();
-    } catch { /* 元素已被移除或状态已变:镜像仍要落地 */ }
+    // 浏览器关 dialog/popover 时会自己把焦点还给之前的元素:同属程序化聚焦,不弹提示。
+    quietly(() => {
+      try {
+        if (handle.native === "modal" && el.open && typeof el.close === "function") el.close();
+        else if (handle.native === "popover" && typeof el.hidePopover === "function" && popoverShowing(el)) el.hidePopover();
+      } catch { /* 元素已被移除或状态已变:镜像仍要落地 */ }
+    });
   }
   mirrorHidden(el, true);
   syncExpanded(handle, false);
@@ -157,8 +183,15 @@ function makeHandle(el, type, extra = {}) {
 }
 
 // ---------- Esc:唯一入口 ----------
+// 停靠卡片不抢别处的局部 Esc:焦点在卡片外的文字输入框里、或在 Monaco 编辑器里(查找/补全小部件
+// 靠自己的 Esc 收起)时,这一下 Esc 归那个元素——权限卡在场不等于用户想拒绝它,
+// 想法/缺陷速记表单的 Esc 照常取消输入。与卡片 focus:"auto"「用户在别处打字时不打扰」同一条理由。
+function cardYields(handle, target) {
+  if (handle.type !== "card" || !target || isInside(target, handle.el)) return false;
+  return isTextEntry(target) || Boolean(target.closest?.(".monaco-editor"));
+}
 // 栈顶第一个可 Esc 的句柄。模态开着时,之后才弹出的停靠卡片在模态背后是惰性的,不参与。
-function topEscapable() {
+function topEscapable(target) {
   let modalIndex = -1;
   for (let i = stack.length - 1; i >= 0; i -= 1) {
     if (stack[i].type === "modal") { modalIndex = i; break; }
@@ -167,6 +200,7 @@ function topEscapable() {
     const handle = stack[i];
     if (handle.type === "tooltip" || typeof handle.escape !== "function") continue;
     if (modalIndex >= 0 && i > modalIndex && handle.type === "card") continue;
+    if (cardYields(handle, target)) continue;
     return handle;
   }
   return null;
@@ -185,7 +219,7 @@ function nativePickerOpen(event) {
 function onKeydown(event) {
   if (event.key !== "Escape" || event.isComposing) return;
   if (nativePickerOpen(event)) return;
-  const top = topEscapable();
+  const top = topEscapable(event.target ?? activeElement());
   if (!top) return;
   event.preventDefault();
   event.stopImmediatePropagation();
@@ -300,11 +334,14 @@ function activate(handle) {
   stack.push(handle);
   mirrorHidden(el, false);
   wireDialog(el);
-  try {
-    if (typeof el.showModal === "function" && !el.open) el.showModal();
-  } catch (err) {
-    console.warn(`showModal failed: ${err}`);
-  }
+  // showModal 自己就会同步聚焦(dialog 聚焦步骤),同样算程序化聚焦。
+  quietly(() => {
+    try {
+      if (typeof el.showModal === "function" && !el.open) el.showModal();
+    } catch (err) {
+      console.warn(`showModal failed: ${err}`);
+    }
+  });
   focusEl(resolveTarget(handle.initialFocus, el) ?? firstFocusable(el));
 }
 function activateQueued(el) {
@@ -424,6 +461,18 @@ export function inputDialog(options = {}) {
 // ---------- ② 锚定弹层:菜单与信息浮层 ----------
 // 已有的静态面板(#sop-picker-panel、#context-detail、#file-suggestions、各 data-kz-menu 菜单)。
 // anchorEl 为空时取 bindMenus 登记的触发器。已开着就返回原句柄(幂等)。
+//
+// 模态开着时,浏览器把 dialog 子树之外的一切(包括之后才弹出的顶层 popover)设为惰性:点不到、拿不到焦点。
+// 所以弹窗里的菜单/浮层必须是该 <dialog> 的后代——openMenu 自动挂进锚点所在的 dialog;
+// 静态弹层要写在 dialog 里面(ui-surface-rules H 组查 index.html)。写错了在这里告警,而不是静默点不动。
+function warnIfOutsideModal(el) {
+  const modal = topModal();
+  if (!modal || isInside(el, modal.el)) return;
+  console.warn(
+    `openPopover: #${el.id || "?"} 不在当前模态 #${modal.el.id || "?"} 里,模态开着时它是惰性的(点不到、拿不到焦点)。`
+    + "静态弹层写进该 <dialog> 内;JS 菜单用 openMenu(自动挂进锚点所在的 dialog)。",
+  );
+}
 export function openPopover(anchorEl, el, options = {}) {
   if (!el) return null;
   const anchor = anchorEl ?? el._kzTrigger ?? null;
@@ -435,6 +484,7 @@ export function openPopover(anchorEl, el, options = {}) {
     }
     return existing;
   }
+  warnIfOutsideModal(el);
   const manual = Boolean(options.manual);
   if (!manual) closeUnrelatedLightDismiss(anchor);
   const handle = makeHandle(el, options.type ?? "popover", {
@@ -473,7 +523,7 @@ function moveMenuFocus(menu, event) {
   if (event.key === "End") next = items.length - 1;
   else if (event.key === "ArrowDown") next = current < 0 ? 0 : (current + 1) % items.length;
   else if (event.key === "ArrowUp") next = current <= 0 ? items.length - 1 : current - 1;
-  focusEl(items[next]);
+  focusEl(items[next], { quiet: false }); // 用户在用方向键走菜单:这是键盘导航,提示照常
 }
 
 // items:{ label, desc?, kbd?, checked?, disabled?, danger?, onSelect } | "separator" | { heading }
@@ -543,7 +593,9 @@ export function openMenu(anchorEl, items, { placement = "bottom-start", label, o
     menu.appendChild(button);
   }
   menu.addEventListener("keydown", (event) => moveMenuFocus(menu, event));
-  surfaceRoot()?.appendChild(menu);
+  // 锚点在开着的 <dialog> 里:菜单挂进这个 dialog(模态之外的节点是惰性的,挂到 body 下就点不动);
+  // 显示后它照样进顶层,不受 dialog 的 overflow 裁剪。关 dialog 时它作为嵌套弹层一并关掉。
+  (anchorEl?.closest?.("dialog[open]") ?? surfaceRoot())?.appendChild(menu);
   handle = openPopover(anchorEl, menu, { type: "menu", placement, onClose, generated: true });
   focusEl(menuItems(menu)[0]);
   return handle;
@@ -763,6 +815,7 @@ export function installTooltips(root = hasDocument ? document : null) {
     if (isInside(event.target, tip.target) || event.target === tip.target) hideTip();
   }, true);
   root.addEventListener("focusin", (event) => {
+    if (quietFocus) return; // 程序化聚焦(见 quietly)不弹提示
     const el = tipTargetOf(event.target);
     if (!el) return;
     let keyboard = true;
