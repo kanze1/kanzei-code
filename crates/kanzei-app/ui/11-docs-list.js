@@ -24,6 +24,7 @@ import {
   documentsKind,
   focusForProcess,
   latestDocsSnapshot,
+  neutralizedDocFilters,
   renderDocuments,
   setDependencyViewOpen,
   setDocumentsKind,
@@ -283,9 +284,13 @@ export async function jumpToEntry(ref, { expand = false } = {}) {
     ? (docKind === "req" ? latestDocsSnapshot?.requirements : latestDocsSnapshot?.defects)?.find((entry) => entry.id === ref)
     : null;
   if (live) {
-    jumpRevealId = ref;
     if (documentsKind !== "both" && documentsKind !== docKind) setDocumentsKind(docKind);
     if (dependencyViewOpen) setDependencyViewOpen(false);
+    // 放行只给**确实被当前筛选挡住**的目标(与 renderDocList 同一口径 filterDocEntries,页签切完
+    // 再判,对照页的中性副本才对得上)。筛选内的目标也设的话,它之后因改状态落到筛选外(详情头
+    // 「→ 转 done」而筛选是 doing)会一直挂着「不在当前筛选内」。
+    const hidden = !filterDocEntries([live], docKind, neutralizedDocFilters(documentFilters[docKind])).length;
+    jumpRevealId = hidden ? ref : null;
     pendingJumpId = ref;
     pendingJumpExpand = true;
     if (!$("view-documents")?.classList.contains("active")) {
@@ -584,6 +589,9 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
 
   // ④ 编辑表单:只在「编辑」开关打开时替换只读视图。R-123 的「字段编辑只在独立文档页」说的是
   // req/defect(它们有文档页);source/finding 没有文档页,就地可编辑(D-413)。
+  // 实际渲染面:renderDocList 只被需求/缺陷(单页)与想法(侧栏)调用;研究工件走 19-research.js 的
+  // researchCard(自带「编辑」,本组未改),下面的 researchKind 分支是防御性保留。想法没有编辑器,
+  // 展开即只读视图(与改版前一样只读,只是换成了 renderTrackerFields 的结构化呈现)。
   const researchKind = kind === "source" || kind === "finding";
   const deepManage = !entry.closed && (researchKind || (surface === "documents" && (kind === "req" || kind === "defect")));
   if (deepManage) {
@@ -771,6 +779,18 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
   return detail;
 }
 
+/// 列表筛选的唯一口径:需求走 filterRequirements(含复杂度与排序),缺陷只有状态/优先级/标签/阻塞,
+/// 其余类型不筛。renderDocList 与 jumpToEntry 的「是否被筛选挡住」预判共用它。
+export function filterDocEntries(entries, kind, filters = NEUTRAL_DOC_FILTERS) {
+  if (kind === "req") return filterRequirements(entries, filters);
+  if (kind !== "defect") return entries;
+  return entries
+    .filter((entry) => filters.status === "all" || entry.status === filters.status)
+    .filter((entry) => filters.priority === "all" || entry.priority === filters.priority)
+    .filter((entry) => filters.tag === "all" || entryTags(entry).includes(filters.tag))
+    .filter((entry) => matchesBlockedFilter(entry, filters.blocked ?? "all"));
+}
+
 export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NEUTRAL_DOC_FILTERS, archivedEntries = []) {
   const surface = docSurface(el);
   // 筛掉了多少条:用于"被筛空"时说清原因。列表凭空变空是最容易被当成数据丢失的
@@ -779,14 +799,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
   const allEntries = entries;
   // 筛选一律在这里做,调用方不得再预筛一遍——两处口径必须同源,否则侧栏与文档页
   // 会在同一筛选条件下给出不同的条目集合(R-123 验收 ④)。
-  if (kind === "req") entries = filterRequirements(entries, reqFilterState);
-  if (kind === "defect") {
-    entries = entries
-      .filter((entry) => reqFilterState.status === "all" || entry.status === reqFilterState.status)
-      .filter((entry) => reqFilterState.priority === "all" || entry.priority === reqFilterState.priority)
-      .filter((entry) => reqFilterState.tag === "all" || entryTags(entry).includes(reqFilterState.tag))
-      .filter((entry) => matchesBlockedFilter(entry, reqFilterState.blocked ?? "all"));
-  }
+  entries = filterDocEntries(entries, kind, reqFilterState);
   // 跳转目标被筛选挡住:临时插回最前(分组视图下归入它自己的组),只影响这次渲染。
   let exemptId = null;
   if (surface === "documents" && (kind === "req" || kind === "defect") && jumpRevealId
@@ -993,9 +1006,8 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     st.title = entry.severity ? `${localizedDocStatus(entry.status || "todo")} · ${t("严重度")}: ${entry.severity}` : st.textContent;
     if (onDocsPage && (kind === "req" || kind === "defect")) row.appendChild(st);
     // D-413 续:研究来源要**一键直达正文**,不该先展开再在字段里找链接。
-    // (且展开后若开着编辑器,字段走的是编辑输入而非只读链接——两个改动会互相抵消,
-    //  见下方 researchLinkField 的 hasEditor 豁免。)行内 ↗ 是最短路径:点一下就
-    //  在应用内看到这篇文献/这段代码。
+    // (展开后若开着编辑器,只读视图——连同其中可点的 URL/路径 chip——是隐藏的。)
+    //  行内 ↗ 是最短路径:点一下就在应用内看到这篇文献/这段代码。
     if (kind === "source" || kind === "finding") {
       const openable = (entry.fields ?? []).find(([k, v]) => researchLinkField(k, v));
       if (openable) {

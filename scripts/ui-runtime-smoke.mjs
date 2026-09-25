@@ -252,6 +252,12 @@ if (SMOKE_MUTATE) {
       pattern: / \|\| editingDraft\) \{/,
       replace: ") {",
     },
+    // UI-0926 #4:跳转放行只给被筛选挡住的目标。改成无条件放行,筛选内的目标之后改状态落到
+    // 筛选外时会一直挂着「不在当前筛选内」赖在列表里。
+    jumpRevealHiddenOnly: {
+      pattern: /jumpRevealId = hidden \? ref : null;/,
+      replace: "jumpRevealId = ref;",
+    },
 
     // ---- 分区:动效 ----
     // #7:setTurnPhase 首行的后台渲染守卫。删了它,后台线的思考/工具事件会把活动线
@@ -10862,7 +10868,23 @@ const docsB = {
     assert(itemOf("documents-req-list", "R-001"), "#4 前置:再次放行");
     await showView("chat");
     assert(listNs.jumpRevealId === null, "#4 离开单页后放行未作废");
+    // ⑥b 筛选内的目标不放行:否则它之后因改状态落到筛选外(筛选 doing 时在详情头点「→ 转 done」),
+    //    会一直挂着「不在当前筛选内」赖在列表里,直到用户改筛选或离开单页。
+    sandbox.applyDocFilter("status", "doing");
+    await listNs.jumpToEntry("R-001", { expand: true });
+    await flush();
+    const inFilter = itemOf("documents-req-list", "R-001");
+    assert(listNs.jumpRevealId === null, `#4 筛选内的跳转目标也被设了放行(jumpRevealId=${listNs.jumpRevealId})`);
+    assert(inFilter && expanded(inFilter) && !inFilter.classList.contains("filter-exempt"), "#4 筛选内的跳转目标应正常展开且不带放行标记");
+    const doneDocs = structuredClone(savedDocs);
+    doneDocs.requirements.find((entry) => entry.id === "R-001").status = "done";
+    payloads.docs_snapshot = doneDocs;
+    await sandbox.refreshDocs();
+    assert(!itemOf("documents-req-list", "R-001"), "#4 筛选内跳转的目标转状态落到筛选外后仍赖在列表里");
+    payloads.docs_snapshot = structuredClone(savedDocs);
+    await showView("chat");
     sandbox.applyDocFilter("status", "all");
+    await sandbox.refreshDocs();
     await flush();
 
     // ⑦ 焦点区:线路头「身份 · 名称」与任务卡同一口径(lineAuthorityLabel),分支进 tooltip;
@@ -10950,6 +10972,8 @@ const docsB = {
       [/\.parallel-line:hover \.parallel-line-close, \.parallel-line:focus-within \.parallel-line-close\s*\{\s*opacity:\s*1/, "关闭按钮悬停/聚焦时出现"],
       [/\.parallel-line-history\.empty\s*\{\s*display:\s*none/, "0 条/加载中的历史行不占位"],
       [/#live-status\s*\{[^}]*flex-flow:\s*row wrap/, "#live-status 实时状态并成一行"],
+      // 英文「defect」词条是小写(也用在句中),页签上要首字母大写,别出现「Work items | defect」。
+      [/\.documents-tabs button::first-letter\s*\{\s*text-transform:\s*uppercase/, "页签文字首字母大写"],
     ]) {
       assert(re.test(g5Css), `#4 CSS 缺少:${label}`);
     }

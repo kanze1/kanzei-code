@@ -803,8 +803,8 @@ export function buildFocusCard(entry, kind, focusSource = agentFocus.activeSourc
     meter.style.setProperty("--cells", String(cells));
     meter.setAttribute("role", "img");
     const label = `${t("批次")} ${done}/${total}`;
+    // 不挂 title:.focus-open::after 覆盖整卡,子元素的 tooltip 永远悬停不到(卡面已有批次文字)。
     meter.setAttribute("aria-label", label);
-    meter.title = label;
     for (let i = 1; i <= cells; i += 1) {
       const cell = document.createElement("span");
       cell.className = `complexity-cell${i <= filled ? " filled" : i === current ? " current" : ""}`;
@@ -815,14 +815,14 @@ export function buildFocusCard(entry, kind, focusSource = agentFocus.activeSourc
     card.appendChild(meterRow);
   }
 
-  // 阻塞是「推不动」的唯一合法解释:卡面给一行首条原因,全部原因在这一行的 tooltip 里。
+  // 阻塞是「推不动」的唯一合法解释:卡面给一行首条原因,全部原因在整卡 tooltip(focusCardTooltip)
+  // 里——这一行被 .focus-open::after 覆盖,自己挂 title 悬停不到。
   if (blocked) {
     const reasons = Array.isArray(entry.block_reasons) ? entry.block_reasons : [];
     const reason = document.createElement("div");
     reason.className = "focus-block-reason";
     reason.setAttribute("data-i18n-raw", "");
     reason.textContent = `${t("阻塞")}: ${reasons[0] ?? t("缺少阻塞原因")}`;
-    reason.title = reasons.length ? reasons.join("\n") : t("缺少阻塞原因");
     card.appendChild(reason);
   }
   return card;

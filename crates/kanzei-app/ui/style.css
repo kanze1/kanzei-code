@@ -1454,7 +1454,6 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
 .parallel-history-row:hover { background: var(--panel2); color: var(--fg-strong); }
 .parallel-history-row .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .parallel-history-check { width: 12px; height: 12px; flex-shrink: 0; accent-color: var(--primary-bg); }
-.parallel-history-empty { padding: 2px; }
 .bg-entry {
   background: var(--panel2); border: 1px solid var(--border-soft); border-radius: var(--r-md);
   padding: 8px 10px; font-family: var(--sans); font-size: var(--fs-12);
@@ -2950,8 +2949,10 @@ a.md-path { cursor: pointer; color: var(--accent-text); text-decoration: underli
 .documents-filter-panel { width: min(340px, calc(100vw - 32px)); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .documents-filter-panel .doc-filter { width: 100%; max-width: none; }
 .documents-filter-field { display: grid; gap: 3px; min-width: 0; color: var(--dim); font-size: var(--fs-11); }
-/* 「标签/排序」的英文词条是小写(它们也用在锁提示句中),做标签时首字母大写。 */
+/* 「标签/排序/缺陷」的英文词条是小写(它们也用在锁提示等句中),做标签/页签时首字母大写。
+   页签只大写首字母(与标题「Work items / …」同为句首大写,不做成 Work Items/Test Runs)。 */
 .documents-filter-field > span, .documents-filter-chip-key { text-transform: capitalize; }
+.documents-tabs button::first-letter { text-transform: uppercase; }
 .documents-filter-panel .group-toggle, .documents-filter-panel #documents-sort-note { grid-column: 1 / -1; }
 .documents-filter-panel .group-toggle { justify-self: start; }
 .documents-filter-panel .group-toggle[aria-pressed="true"] { background: var(--surface-selected); color: var(--fg-strong); border-color: transparent; }
