@@ -61,6 +61,42 @@ if (SMOKE_MUTATE) {
     },
 
     // ---- 分区:会话生命周期 ----
+    // UI-0926 #2:新对话清 DOM 必须连窗口化历史缓存一起清。删了它,清空后「触顶」
+    // 自动补齐会把旧对话一窗一窗 prepend 回新对话上方——「要点好几次」的主因。
+    newChatForgetHistory: {
+      pattern: /[ \t]*paneHistory\.set\(sessionId \|\| "", \{ items: \[\], rendered: 0 \}\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #2:loadConversation 的会话纪元守卫。删了它,新对话之前发出的
+    // conversation_get 迟到落地,把旧段整页画回刚开的新对话。
+    newChatEpoch: {
+      pattern: / &&\r?\n\s*conversationEpoch\(forSessionId\) === forEpoch(?=;)/,
+      replace: "",
+    },
+    // UI-0926 #2:paneFor 新建的 pane 默认隐藏。删了它,后台线首次渲染时新建的 pane
+    // 与活动 pane 同时可见,自主推进线的输出叠进当前视图,新对话也清不掉。
+    bgPaneHidden: {
+      pattern: /[ \t]*if \(!forDisplay\) pane\.classList\.add\("hidden"\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #2:忙碌线点新对话另开线路。删了它,新对话会在 runner 脚下清历史
+    // (后端现在会拒绝,用户看到的就是「点了报错」)。
+    newChatBusyNewLine: {
+      pattern: /[ \t]*if \(activeLineBusy\(\)\) return await startConversationOnNewLine\(\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #2:兜底改选活动线时视图跟着换。删了它,活动线消失后 activeSessionId 换人、
+    // 可见的却还是旧线的 pane:新活动线的实时事件写进旧 pane,新对话清的也是错的那块。
+    fallbackPaneSwitch: {
+      pattern: /[ \t]*if \(previousProcessId && !workspace_switch_pending\) void loadConversation\(\);\r?\n/,
+      replace: "",
+    },
+    // UI-0926 #2:后端判定「会话运行中」拒绝开新段时,同一次点击改走另开线路。删了它,
+    // 用户先吃一个报错、得再点一次——又回到「新对话要点好几次」。
+    newChatRefusedNewLine: {
+      pattern: /[ \t]*if \(refusedAsRunning\) return await startConversationOnNewLine\(\);\r?\n/,
+      replace: "",
+    },
 
     // ---- 分区:模型选择 ----
 
@@ -8796,6 +8832,215 @@ const docsB = {
 
 
 // ===== 分区:会话生命周期 =====
+// ---------- UI-0926 #2:新对话一次到位 ----------
+// 用户现场:新对话要点好几次,旧对话残留在「已开启新对话」上方。主因是新对话只清 DOM、
+// 不清窗口化历史缓存 paneHistory:清空后 pane 变短、scrollTop 被夹到 0,滚动监听当成
+// 「触顶」自动 loadEarlierMessages,把旧对话一窗一窗补回提示上方。放大因素四处:
+// 在途装载迟到、后台 pane 默认可见、忙碌时按钮被禁用吞掉点击、兜底改选不换 pane。
+// 场景 A-F 各钉一处,各带一个 KZ_SMOKE_MUTATE 变异守卫(newChatForgetHistory / newChatEpoch /
+// bgPaneHidden / newChatBusyNewLine / fallbackPaneSwitch / newChatRefusedNewLine)。
+{
+  vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
+  const savedNcProcessList = payloads.process_list;
+  const savedNcConversationGet = payloads.conversation_get;
+  const hadNcProcessCreate = Object.hasOwn(payloads, "process_create");
+  const savedNcProcessCreate = payloads.process_create;
+  const prompt = byId.get("prompt");
+  let promptFocuses = 0;
+  prompt.focus = () => { promptFocuses += 1; };
+  const OLD = Array.from({ length: 300 }, (_, i) => ({
+    role: i % 2 === 0 ? "user" : "assistant",
+    parts: [{ type: "text", text: `R2旧对话${i}` }],
+  }));
+  const MAIN_LINE = { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main", authority: "primary" };
+  const NC_LINE = { id: "p20|smoke", label: "p20", session_id: "sess-nc", running: false, authority: "parallel" };
+  const NEW_LINE = { id: "p26|smoke", label: "p26", session_id: "sess-new", running: false, authority: "parallel", profile: "dev" };
+  payloads.process_list = [MAIN_LINE, NC_LINE];
+  payloads.conversation_get = ({ processId } = {}) => (processId === NEW_LINE.id ? [] : OLD);
+  await gotoProject(PROJECT, savedDocsPayload);
+  await sandbox.switchProcess(NC_LINE.id);
+  await flush();
+  // 逼出真装载:pane 已有内容时按设计不重拉。
+  const dropAllPanes = () => vm.runInContext(
+    'for (const [id, pane] of [...messagePanes]) { pane.remove(); messagePanes.delete(id); }; activePane = paneFor(activeSessionId || "");',
+    sandbox,
+  );
+  dropAllPanes();
+  await sandbox.loadConversation();
+  await flush();
+  const paneNow = () => vm.runInContext("activePane.textContent", sandbox);
+  assert(
+    vm.runInContext("activeSessionId", sandbox) === "sess-nc" && paneNow().includes("R2旧对话299") && !paneNow().includes("R2旧对话0"),
+    `前置失败:p20 的长对话没有按窗口化装载(activeSessionId=${vm.runInContext("activeSessionId", sandbox)})`,
+  );
+
+  const messagesEl = byId.get("messages");
+  // 冒烟测不到真实浏览器「清空后把 scrollTop 夹到 0 并派发 scroll」,这里手工补上,
+  // 再加一个滚轮手势作废程序滚动窗口——等价于用户在空视图上往上滚了一下。
+  const touchTop = async () => {
+    messagesEl.scrollTop = 0;
+    messagesEl.dispatchEvent({ type: "wheel" });
+    messagesEl.dispatchEvent({ type: "scroll" });
+    await flush();
+  };
+  const clearCalls = () => invokeArgs.filter((entry) => entry.cmd === "conversation_clear");
+  const freshView = (label) => {
+    const text = paneNow();
+    assert(!text.includes("R2旧对话"), `${label}:新对话视图里冒出了旧对话内容(触顶补齐/迟到装载把旧段补了回来)`);
+    assert(!vm.runInContext('!!activePane.querySelector(".earlier-hint")', sandbox), `${label}:新对话视图还挂着「载入更早的消息」入口`);
+    assert(text.includes(sandbox.t("开始一段新对话")), `${label}:新对话没有给出与空历史同构的欢迎页`);
+    assert(!text.includes(sandbox.t("已开启新对话(历史保留可审计)")), `${label}:新对话仍往转录区插旧式 notice`);
+  };
+
+  // ---- 场景 A:空闲线点一次就干净,触顶不再补回旧窗 ----
+  sandbox.setRunning(false, "空闲");
+  vm.runInContext('transitionSession("sess-nc", "idle")', sandbox);
+  const clearsBeforeA = clearCalls().length;
+  const focusBeforeA = promptFocuses;
+  byId.get("new-chat").click();
+  await flush();
+  await touchTop();
+  assert(
+    clearCalls().length === clearsBeforeA + 1 && clearCalls().at(-1)?.args?.processId === NC_LINE.id,
+    `场景 A:点一次新对话应对 p20 发恰好一次 conversation_clear(${JSON.stringify(clearCalls().slice(clearsBeforeA))})`,
+  );
+  freshView("场景 A");
+  assert(promptFocuses > focusBeforeA, "场景 A:新对话之后输入框没有拿到焦点");
+  assert(listText("toast").includes(sandbox.t("已开启新对话 · 之前的对话在侧栏「历史对话」里")), `场景 A:新对话没有 toast 告知旧对话去了哪里(${listText("toast")})`);
+  assert(!byId.get("new-chat").disabled && byId.get("new-chat").getAttribute("aria-busy") !== "true", "场景 A:新对话结束后按钮仍处于禁用/忙碌态");
+  // 幂等:再点一次仍是干净的欢迎页。
+  byId.get("new-chat").click();
+  await flush();
+  await touchTop();
+  freshView("场景 A 再点一次");
+
+  // ---- 场景 B:新对话作废在途的旧段装载 ----
+  dropAllPanes();
+  let releaseLoad;
+  invokeGates.set("conversation_get", new Promise((resolve) => { releaseLoad = resolve; }));
+  const getsBeforeB = invokeArgs.filter((entry) => entry.cmd === "conversation_get").length;
+  const inflightLoad = sandbox.loadConversation();
+  await settle();
+  assert(
+    invokeArgs.filter((entry) => entry.cmd === "conversation_get").length === getsBeforeB + 1,
+    "场景 B 前置失败:旧段的 conversation_get 没有在途",
+  );
+  invokeGates.delete("conversation_get"); // 只卡住在途那一次
+  byId.get("new-chat").click();
+  await flush();
+  releaseLoad(); // 旧段结果现在才落地:无纪元守卫时它会整页画回新对话
+  await inflightLoad;
+  await flush();
+  freshView("场景 B");
+
+  // ---- 场景 C:后台线首次渲染建的 pane 默认隐藏,不串进当前视图 ----
+  const BG_TEXT = "R2自主推进线输出";
+  handlers.get("kz:text")({ payload: { sessionId: "sess-autoloop", text: BG_TEXT } });
+  await flush();
+  const onlyActiveVisible = () => vm.runInContext(
+    '(() => { const shown = [...messages.children].filter((el) => el.classList.contains("msg-pane") && !el.classList.contains("hidden")); return shown.length === 1 && shown[0] === activePane; })()',
+    sandbox,
+  );
+  assert(
+    vm.runInContext('messagePanes.get("sess-autoloop")?.classList.contains("hidden") === true', sandbox),
+    "场景 C:后台线第一次渲染新建的 pane 是可见的——它的输出会叠进用户眼前的视图",
+  );
+  assert(onlyActiveVisible(), "场景 C:#messages 下可见的 pane 不止活动那一个");
+  assert(!paneNow().includes(BG_TEXT), "场景 C:后台线的输出串进了当前视图");
+  assert(
+    vm.runInContext('messagePanes.get("sess-autoloop")?.textContent ?? ""', sandbox).includes(BG_TEXT),
+    "场景 C:后台线的输出丢了(应渲染进它自己的隐藏 pane)",
+  );
+
+  // ---- 场景 D:运行中的线点新对话 → 另开无工作树线路,原线在自己的 pane 里继续跑 ----
+  let createdNewLine = false;
+  payloads.process_create = () => { createdNewLine = true; return NEW_LINE; };
+  payloads.process_list = () => [MAIN_LINE, { ...NC_LINE, running: true }, ...(createdNewLine ? [NEW_LINE] : [])];
+  vm.runInContext('transitionSession("sess-nc", "running")', sandbox);
+  sandbox.setRunning(true, "运行中");
+  assert(!byId.get("new-chat").disabled, "场景 D:运行中新对话按钮仍被禁用——点击会被浏览器静默吞掉");
+  // 语言重应用(data-i18n-title)不得把忙碌说明冲回静态的空闲文案。假 DOM 不把 title
+  // property 反射成属性,这里手工补上浏览器的反射,applyDataI18nKeys 才比得出差异。
+  byId.get("new-chat").setAttribute("title", byId.get("new-chat").title);
+  sandbox.applyLanguage();
+  assert(
+    byId.get("new-chat").title === sandbox.t("当前线路运行中:点击将另开一条线路开启新对话"),
+    `场景 D:运行中按钮 title 没说清点下去会另开线路(${byId.get("new-chat").title})`,
+  );
+  const clearsBeforeD = clearCalls().length;
+  const createsBeforeD = invokeArgs.filter((entry) => entry.cmd === "process_create").length;
+  const focusBeforeD = promptFocuses;
+  byId.get("new-chat").click();
+  await flush();
+  const createCalls = invokeArgs.filter((entry) => entry.cmd === "process_create");
+  assert(
+    createCalls.length === createsBeforeD + 1 && createCalls.at(-1)?.args?.profile === "dev" && !createCalls.at(-1)?.args?.worktreeName,
+    `场景 D:运行中点新对话应另开一条无工作树的 dev 线路(${JSON.stringify(createCalls.slice(createsBeforeD))})`,
+  );
+  assert(clearCalls().length === clearsBeforeD, "场景 D:运行中的线被 conversation_clear 了——不能在 runner 脚下开新段");
+  assert(
+    vm.runInContext("activeProcessId", sandbox) === NEW_LINE.id,
+    `场景 D:没有切到新开的线路(activeProcessId=${vm.runInContext("activeProcessId", sandbox)})`,
+  );
+  freshView("场景 D");
+  assert(promptFocuses > focusBeforeD, "场景 D:另开线路后输入框没有拿到焦点");
+  const RUN_TEXT = "R2运行线继续输出";
+  handlers.get("kz:text")({ payload: { sessionId: "sess-nc", text: RUN_TEXT } });
+  await flush();
+  assert(!paneNow().includes(RUN_TEXT), "场景 D:原线继续运行的输出串进了新线的视图");
+  assert(
+    vm.runInContext('messagePanes.get("sess-nc")?.classList.contains("hidden") === true', sandbox)
+      && vm.runInContext('messagePanes.get("sess-nc")?.textContent ?? ""', sandbox).includes(RUN_TEXT),
+    "场景 D:原线的输出没有留在它自己的隐藏 pane 里(切回去会缺这一段)",
+  );
+  assert(onlyActiveVisible(), "场景 D:另开线路后可见的 pane 不止一个");
+
+  // ---- 场景 E:活动线消失,兜底改选时视图跟着换 ----
+  payloads.process_list = [MAIN_LINE, NC_LINE];
+  await sandbox.refreshProcesses();
+  await flush();
+  assert(
+    vm.runInContext("activeProcessId", sandbox) !== NEW_LINE.id,
+    "场景 E 前置失败:活动线从列表消失后没有兜底改选",
+  );
+  assert(
+    vm.runInContext("activePane === messagePanes.get(activeSessionId)", sandbox),
+    `场景 E:兜底改选到 ${vm.runInContext("activeSessionId", sandbox)} 后视图还停在旧线的 pane 上`,
+  );
+  assert(onlyActiveVisible(), "场景 E:兜底改选后可见的 pane 不止一个");
+
+  // ---- 场景 F:前端以为空闲、后端持锁判定在跑(kz:turn 还没到)→ 同一次点击改走另开线路 ----
+  // 不该让用户先吃一个报错再点第二次;若这里走了 toastError,harness 的持久错误探针也会判红。
+  createdNewLine = false;
+  payloads.process_list = () => [MAIN_LINE, NC_LINE, ...(createdNewLine ? [NEW_LINE] : [])];
+  invokeFailures.set("conversation_clear", "会话运行中,不能在它脚下开新段;请在新线路开启新对话");
+  const clearsBeforeF = clearCalls().length;
+  const createsBeforeF = invokeArgs.filter((entry) => entry.cmd === "process_create").length;
+  byId.get("new-chat").click();
+  await flush();
+  invokeFailures.delete("conversation_clear");
+  assert(clearCalls().length === clearsBeforeF + 1, "场景 F 前置失败:空闲判定下没有先尝试 conversation_clear");
+  assert(
+    invokeArgs.filter((entry) => entry.cmd === "process_create").length === createsBeforeF + 1
+      && vm.runInContext("activeProcessId", sandbox) === NEW_LINE.id,
+    "场景 F:后端拒绝(会话运行中)后没有在同一次点击里改走另开线路",
+  );
+  freshView("场景 F");
+
+  // 收尾:还原桩、焦点、运行态与续跑定时器,回到项目 A 的干净状态。
+  delete prompt.focus;
+  sandbox.setRunning(false, "空闲");
+  for (const sessionId of ["sess-nc", "sess-new", "sess-autoloop"]) {
+    vm.runInContext(`transitionSession(${JSON.stringify(sessionId)}, "idle")`, sandbox);
+  }
+  vm.runInContext('discardSessionPane("sess-autoloop"); __kzAutoTestState.cancelTimers(); autoContinueTimers.clear()', sandbox);
+  payloads.process_list = savedNcProcessList;
+  payloads.conversation_get = savedNcConversationGet;
+  if (hadNcProcessCreate) payloads.process_create = savedNcProcessCreate;
+  else delete payloads.process_create;
+  await gotoProject(PROJECT, savedDocsPayload);
+  await flush();
+}
 
 // ===== 分区:模型选择 =====
 

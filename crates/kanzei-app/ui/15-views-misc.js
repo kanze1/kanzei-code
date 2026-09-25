@@ -9,8 +9,10 @@ import {
   activePane,
   appendToPane,
   confirmDialog,
+  discardSessionPane,
   invoke,
   messages,
+  promptBox,
   resetPane,
   showPane,
 } from "./01-core.js";
@@ -29,6 +31,7 @@ import {
   running,
   sessionState,
   setStatus,
+  syncNewChatEnabled,
   toast,
   toastError,
 } from "./03-shell.js";
@@ -40,13 +43,15 @@ import {
   currentReasoningHead,
   fillToolBlock,
   followLatest,
+  noteProgrammaticScroll,
   renderReasoningBlock,
   setFollowLatest,
   scrollBottom,
+  updateLatestButton,
 } from "./05-chat-render.js";
 import { bgClear, renderRecoveredTraces } from "./06-activity.js";
 import { addSummaryEntry } from "./07-events.js";
-import { cancelAutoContinueTimer } from "./08-auto.js";
+import { autoContinueTimers, cancelAutoContinueTimer } from "./08-auto.js";
 import { processRunning, processSwitchGeneration, refreshProcesses, switchProcess } from "./09-sessions.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import { forProject } from "./20-lines.js";
@@ -363,6 +368,27 @@ export const PANE_WINDOW_SIZE = 120;
 /// 存的是数据不是 DOM,长会话的未渲染部分只占它自己那点 JSON。
 export const paneHistory = new Map();
 
+/// 清空某会话的窗口化历史缓存。**清 DOM 必须连它一起清**:只清 pane 的话,pane 变短、
+/// #messages 的 scrollTop 被浏览器夹到 0,滚动监听把这当成「触顶」,loadEarlierMessages
+/// 就从这份缓存里把旧对话一窗一窗补回到新对话上方——「新对话要点好几次才干净」的主因。
+export function forgetPaneHistory(sessionId) {
+  paneHistory.set(sessionId || "", { items: [], rendered: 0 });
+}
+
+/// 会话纪元:每开一次新段(新对话)就 +1。loadConversation 在发请求前记下纪元,
+/// 结果落地时纪元变了就丢弃——早于 conversation_clear 发出的 conversation_get /
+/// conversation_trace_get 迟到时,不得把旧段整页画回刚开的新对话。
+export const conversationEpochs = new Map();
+export function conversationEpoch(sessionId) {
+  return conversationEpochs.get(sessionId || "") || 0;
+}
+export function bumpConversationEpoch(sessionId) {
+  const key = sessionId || "";
+  const next = conversationEpoch(key) + 1;
+  conversationEpochs.set(key, next);
+  return next;
+}
+
 /// 把 `items` 渲染进 `container`。复用同一套配对/思考块/markdown 逻辑——
 /// 窗口化不能有第二份渲染实现,否则「首屏」与「补齐」两段迟早长歪。
 export function renderMessagesInto(container, items) {
@@ -573,10 +599,14 @@ export async function loadConversation(sequence = null, switchGeneration = null)
   // 两个 IPC 必须锁定同一项目/同一进程,且晚返回的旧请求不能覆盖当前线程。
   const forProject = currentProject;
   const forProcessId = activeProcessId;
+  // 新对话会递增该会话的纪元:在途的旧段装载迟到时不得覆盖新段的欢迎页。
+  const forSessionId = activeSessionId;
+  const forEpoch = conversationEpoch(forSessionId);
   const isCurrent = () =>
     (switchGeneration === null || switchGeneration === processSwitchGeneration) &&
     currentProject === forProject &&
-    activeProcessId === forProcessId;
+    activeProcessId === forProcessId &&
+    conversationEpoch(forSessionId) === forEpoch;
   try {
     bgClear();
     const history = await invoke("conversation_get", {
@@ -853,6 +883,7 @@ export function sessionLiveNow(sessionId) {
 }
 export function clearChat(noticeText) {
   resetPane();
+  forgetPaneHistory(activeSessionId);
   setCurrentAssistant(null);
   setCurrentReasoning(null);
   setCurrentReasoningHead(null);
@@ -861,33 +892,104 @@ export function clearChat(noticeText) {
   if (noticeText) addMessage("notice", noticeText);
 }
 
-defer(() => {
-  $("new-chat").addEventListener("click", async () => {
-    if (active_space === "research") {
-      try { await create_workspace_process(project_workspace().research.topic); }
-      catch (error) { toastError(String(error)); }
-      return;
-    }
-    // 鞭挞的轮间等待(runControlPending)后端已收尾、running 为假,但下一轮定时器还挂着:
-    // 这个窗口里清空会被随即开跑的那一轮立刻灌满,用户看到的是「点了没用」。它和运行中
-    // 一样属于"这条线还没停",一并挡住,并由 setRunning/setRunPending 把按钮真的禁掉——
-    // 按钮看着能点、点了只弹一句 toast,正是"要点好几次才生效"的来源。
-    if (running || runControlPending) {
-      toast(t("任务运行中,先停止再开新对话"));
-      return;
-    }
-    try {
-      await invoke("conversation_clear", { projectDir: currentProject, processId: activeProcessId });
-      // 开新段是明确的人为介入:armed 的自动续跑必须一起撤掉,否则新段刚建立就被
-      // 上一轮排好的续跑写满,新对话名存实亡。
-      if (typeof cancelAutoContinueTimer === "function") cancelAutoContinueTimer();
-      clearChat(t("已开启新对话(历史保留可审计)"));
-      await refreshConversationList();
-      log(t("新对话:历史保留,开启新段"));
-    } catch (err) {
-      toastError(String(err), { retry: () => $("new-chat").click() });
-    }
+/// 新段的视图:与「空历史恢复」同构的欢迎页,输入框聚焦。不往转录区插 notice——
+/// 那句提示夹在旧内容与新内容之间,正是「旧对话残留在『已开启新对话』上方」的样子。
+export function showFreshConversation() {
+  // 顺手把越界可见的 pane 收起来(同一时刻只显示一个)。
+  if (activeSessionId) showPane(activeSessionId);
+  clearChat();
+  activePane.innerHTML = emptyStateMarkup();
+  setFollowLatest(true);
+  noteProgrammaticScroll();
+  messages.scrollTop = 0;
+  updateLatestButton();
+  // 活动面板随对话走,与切线一致。
+  bgClear();
+  promptBox.focus();
+}
+
+/// 活动线是否「还没停」:运行中、停止中、鞭挞轮间等待,或续跑定时器已排上。
+/// 这些状态下 runner(或马上要开跑的那一轮)握着旧段,不能在它脚下开新段。
+function activeLineBusy() {
+  if (running || runControlPending) return true;
+  const phase = activeSessionId ? sessionState(activeSessionId).phase : "idle";
+  return ["starting", "running", "stopping", "auto_pending"].includes(phase)
+    || Boolean(activeSessionId && autoContinueTimers.has(activeSessionId));
+}
+
+/// 忙碌线点新对话:另开一条无工作树线路并切过去(继承模型与思考强度),原线在它
+/// 自己的(已隐藏)pane 里继续跑。不逼用户先停鞭挞,也不在 runner 脚下清历史。
+/// 新线鞭挞默认关;在新线上再点新对话走空闲分支,不会滚雪球式建线。
+async function startConversationOnNewLine() {
+  const from = processItems.find((item) => item.id === activeProcessId);
+  const item = await create_workspace_process(null, () => true, {
+    ...(from?.model ? { model: from.model } : {}),
+    ...(from?.reasoning ? { reasoning: from.reasoning } : {}),
   });
+  if (!item || activeProcessId !== item.id) return;
+  showFreshConversation();
+  toast(t("当前线路仍在运行,已在新线路开启新对话"));
+}
+
+/// 「新对话」唯一入口:侧栏按钮、命令面板、Ctrl/Cmd+Shift+N 都汇到 #new-chat 的 click。
+/// 一次点击一次到位:空闲线开新段并立即给欢迎页;忙碌线另开线路。在途期间按钮禁用
+/// 并标 aria-busy,防双击重复建线;运行中不再禁用按钮(禁用会把点击静默吞掉)。
+let newChatInFlight = false;
+export async function startNewConversation() {
+  if (active_space === "research") {
+    try { await create_workspace_process(project_workspace().research.topic); }
+    catch (error) { toastError(String(error)); }
+    return;
+  }
+  if (!currentProject) {
+    toast(t("先选择一个项目"));
+    return;
+  }
+  if (newChatInFlight) return;
+  newChatInFlight = true;
+  const button = $("new-chat");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    if (activeLineBusy()) return await startConversationOnNewLine();
+    const forProject = currentProject;
+    const forProcessId = activeProcessId;
+    const forSessionId = activeSessionId;
+    if (!forProcessId) return await startConversationOnNewLine();
+    // 先撤续跑再清:否则 await 期间开火的那一轮直接写进新段,新对话名存实亡。
+    cancelAutoContinueTimer(forSessionId);
+    try {
+      await invoke("conversation_clear", { projectDir: forProject, processId: forProcessId });
+    } catch (err) {
+      // 后端持 lifecycle 锁判定该线在跑(前端还没收到 kz:turn):同一次点击改走另开线路,
+      // 不让用户吃一个报错再点第二次。
+      const refusedAsRunning = String(err).includes("会话运行中") && activeProcessId === forProcessId;
+      if (refusedAsRunning) return await startConversationOnNewLine();
+      throw err;
+    }
+    // 作废此前发出、还没落地的 conversation_get / conversation_trace_get。
+    bumpConversationEpoch(forSessionId);
+    if (currentProject !== forProject || activeProcessId !== forProcessId) {
+      // 用户已经切走:那条线下次进来按空段重建,不留旧段的 pane 与窗口缓存。
+      paneHistory.delete(forSessionId || "");
+      discardSessionPane(forSessionId);
+    } else {
+      showFreshConversation();
+      toast(t("已开启新对话 · 之前的对话在侧栏「历史对话」里"));
+    }
+    await refreshConversationList();
+    log(t("新对话:历史保留,开启新段"));
+  } catch (err) {
+    toastError(String(err), { retry: () => void startNewConversation() });
+  } finally {
+    newChatInFlight = false;
+    button.removeAttribute("aria-busy");
+    syncNewChatEnabled();
+  }
+}
+
+defer(() => {
+  $("new-chat").addEventListener("click", () => void startNewConversation());
 });
 
 // ---------- 对话总结 ----------

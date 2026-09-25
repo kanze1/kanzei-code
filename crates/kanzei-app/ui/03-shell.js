@@ -609,17 +609,22 @@ export function setRunning(value, statusText) {
   setStatus(statusText ?? (value ? t("运行中") : t("空闲")), value);
 }
 
-/// 「新对话」的守卫(running || runControlPending)必须**看得见**。
-/// 按钮长得能点、点下去只弹一句一闪而过的 toast,用户的读数就是「点了没反应」,
-/// 于是连点几次直到某一下落进空隙——这正是"要点好几次才是真的新对话"的成因。
+/// 「新对话」按钮不再因运行而禁用。原先运行中/鞭挞轮间整段禁用,点击被浏览器静默
+/// 吞掉,只有落进空闲空隙的那一下生效——「要点好几次」的来源之一。现在忙碌线点它
+/// 会另开一条线路(15-views-misc.js startNewConversation),按钮只在本次新对话在途时
+/// 禁用(aria-busy),防双击重复建线;title 按忙闲说清点下去会发生什么。
 export function syncNewChatEnabled() {
   const fresh = $("new-chat");
   if (!fresh) return;
-  const blocked = active_space === "dev" && (running || runControlPending);
-  fresh.disabled = blocked;
-  fresh.title = active_space === "research" ? t("新建课题会话，保留已有对话") : blocked
-    ? t("任务运行中,先停止再开新对话")
-    : t("清空多轮对话历史,开一段新会话");
+  fresh.disabled = fresh.getAttribute("aria-busy") === "true";
+  const busy = active_space === "dev" && (running || runControlPending);
+  const titleKey = active_space === "research" ? "新建课题会话，保留已有对话"
+    : busy ? "当前线路运行中:点击将另开一条线路开启新对话"
+    : "开一段新对话(旧对话保留在「历史对话」)";
+  // 动态 title 必须同步写回 data-i18n-title:语言重应用(applyDataI18nKeys)按它重算,
+  // 不写的话会被 index.html 的静态键冲回空闲文案,忙碌时的说明就看不到了。
+  fresh.dataset.i18nTitle = titleKey;
+  fresh.title = t(titleKey);
 }
 
 export function setStopping(statusText) {

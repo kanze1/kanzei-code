@@ -58,6 +58,7 @@ import { forProject, refreshLines } from "./20-lines.js";
 import { active_space, adopt_process_workspace, create_workspace_process, preferred_workspace_process, project_workspace, workspace_processes } from "./03-workspaces.js";
 
 import { sync_composer_scope } from "./03-workspaces.js";
+import { workspace_switch_pending } from "./03-workspaces.js";
 import { reset_research_project } from "./19-research.js";
 import { remember_development_project, switch_workspace } from "./03-workspaces.js";
 import { reset_files_scope } from "./17-files.js";
@@ -517,6 +518,10 @@ export function renderProcesses(items) {
     // 模型下拉同属「该线的完整设置」:冷启动与兜底选中都走这里,不能只靠 switchProcess。
     syncModelSelectToActiveLine();
     applySessionMeta(activeSessionId);
+    // 兜底改选(活动线被注销/被工作空间过滤)时视图必须跟着换:只改 activeSessionId 不换
+    // pane,新活动线的实时事件会走快路径写进旧线的 pane,新对话清的也是错的那块。
+    // 首次选中、切项目(previousProcessId 为空)与切工作空间期间由调用方自己装载。
+    if (previousProcessId && !workspace_switch_pending) void loadConversation();
   }
   if (activeSessionId && activeSessionId !== previousSessionId) void syncAutoRunState();
   // R-086:活动会话换人(含首次拿到进程列表——界面重载后就是这条路)时向后端

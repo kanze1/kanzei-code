@@ -152,7 +152,8 @@ export function sync_workspace_visibility() {
   if ($("parallel-task-status")) renderParallelTaskStatus(processItems);
 }
 
-export async function create_workspace_process(topic = null, is_current = () => true) {
+// overrides 只收 model/reasoning:忙碌线点「新对话」另开线路时,新线继承原线的模型与思考强度。
+export async function create_workspace_process(topic = null, is_current = () => true, overrides = {}) {
   if (active_space === "research" && !topic) {
     $("research-topic-form")?.classList.remove("hidden");
     $("research-topic-title")?.focus();
@@ -168,6 +169,8 @@ export async function create_workspace_process(topic = null, is_current = () => 
     profile: active_space === "research" ? "research" : "dev",
     researchTopic: active_space === "research" ? topic || undefined : undefined,
     phasePipeline: false,
+    ...(overrides.model ? { model: overrides.model } : {}),
+    ...(overrides.reasoning ? { reasoning: overrides.reasoning } : {}),
   });
   if (!same_context()) return;
   await refreshProcesses();
