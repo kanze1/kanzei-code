@@ -149,16 +149,28 @@ pub(crate) fn tool_images_to_parts(
 const TOOL_RESULT_SPILL_THRESHOLD: usize = 1024 * 1024;
 const TOOL_RESULT_SHADOW_THRESHOLD: usize = 32 * 1024;
 const TOOL_RESULT_STORAGE_QUOTA_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// 配额锁的等待预算。拿不到锁只降级为 Inline 截断,不判工具失败。
+const TOOL_RESULT_QUOTA_LOCK_BUDGET: std::time::Duration =
+    kanzei_base::atomic_file::DEFAULT_LOCK_BUDGET;
+/// 无法外置时 Inline 截断保留的头/尾字节数(与 R-376 外置预览同口径)。
+const TOOL_RESULT_TRUNCATE_HEAD_BYTES: usize = 8 * 1024;
+const TOOL_RESULT_TRUNCATE_TAIL_BYTES: usize = 4 * 1024;
+/// 影子遥测子目录。它不是外置原文,不计入配额:计入会让配额扫描的基数随调用
+/// 次数只增不减,而清理计划又看不到它(F1/#8、#30)。
+const TOOL_RESULT_SHADOW_DIR: &str = "shadow";
 
 fn lock_tool_result_storage(
     project_root: &Path,
-) -> std::io::Result<kanzei_base::atomic_file::FileLock> {
+    budget: std::time::Duration,
+) -> std::io::Result<Option<kanzei_base::atomic_file::FileLock>> {
     let target = project_root.join(".kanzei/artifacts/tool-results-quota");
     let parent = target.parent().expect("quota lock has parent directory");
     std::fs::create_dir_all(parent)?;
-    kanzei_base::atomic_file::lock_exclusive(&target)
+    kanzei_base::atomic_file::try_lock_exclusive(&target, budget)
 }
 
+/// 统计 tool-results 下外置 artifact 的总字节数。`shadow` 子目录(影子遥测)
+/// 不计入,口径与 store/session.rs 存储报告的 artifact_bytes 一致。
 fn tool_result_storage_bytes(root: &Path) -> std::io::Result<u64> {
     fn visit(directory: &Path, total: &mut u64) -> std::io::Result<()> {
         for entry in std::fs::read_dir(directory)? {
@@ -171,6 +183,9 @@ fn tool_result_storage_bytes(root: &Path) -> std::io::Result<u64> {
                 ));
             }
             if file_type.is_dir() {
+                if entry.file_name() == TOOL_RESULT_SHADOW_DIR {
+                    continue;
+                }
                 visit(&entry.path(), total)?;
             } else if file_type.is_file() {
                 *total = total.saturating_add(entry.metadata()?.len());
@@ -201,9 +216,7 @@ fn record_tool_result_shadow_telemetry(
     bytes: usize,
     sha256: Option<&str>,
     actual_spilled: bool,
-    used_bytes: u64,
-    quota_bytes: u64,
-) -> u64 {
+) {
     let safe_tool_name: String = tool_name
         .chars()
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
@@ -221,7 +234,8 @@ fn record_tool_result_shadow_telemetry(
         .unwrap_or_default();
     let dir = ctx
         .project_root
-        .join(".kanzei/artifacts/tool-results/shadow");
+        .join(".kanzei/artifacts/tool-results")
+        .join(TOOL_RESULT_SHADOW_DIR);
     let path = dir.join(format!(
         "{safe_tool_name}-{run_id}-{}-{stamp}.json",
         std::process::id()
@@ -235,56 +249,54 @@ fn record_tool_result_shadow_telemetry(
         "actual_spilled": actual_spilled,
         "sha256": sha256,
     });
-    let Ok(encoded) = serde_json::to_string(&payload) else {
-        return used_bytes;
-    };
-    let next_usage = used_bytes.saturating_add(encoded.len() as u64);
-    if next_usage > quota_bytes {
-        return used_bytes;
-    }
-    if kanzei_base::atomic_file::write_atomic(&path, &encoded).is_ok() {
-        next_usage
-    } else {
-        used_bytes
+    if let Ok(encoded) = serde_json::to_string(&payload) {
+        let _ = kanzei_base::atomic_file::write_atomic(&path, &encoded);
     }
 }
 
-/// 把超限工具结果先写入 durable artifact，再把紧凑引用回喂给模型/UI。
+/// 把超过 1 MiB 的工具结果写入 durable artifact,再把紧凑引用回喂给模型/UI。
 ///
-/// 该函数位于所有工具的统一消费出口：工具权限、错误码和小结果路径不变；只有
-/// 大结果在事件提交前被替换为 artifact 引用。目录用共享独占锁串行计量与写入，
-/// 超过 2 GiB 时返回有界截断预览，不生成 artifact 引用。
+/// 该函数位于所有工具的统一消费出口,工具权限与错误码不变。各分支实际保留的内容:
+/// - ≤ 1 MiB:content 原样保留,只写一条影子遥测;不取配额锁、不扫描目录。
+/// - 超过 1 MiB 且同名(同 sha256)、同长度的 artifact 已存在:直接复用,
+///   不取锁、不计配额。
+/// - 否则在跨进程配额锁内计量 tool-results(不含 shadow 子目录),写入后总占用
+///   不超过 2 GiB 才写 artifact;content 换成外置引用 + 首行预览,原文可按
+///   retrieval_hint 回读。
+/// - 超过 2 GiB(artifact_quota_exceeded)、配额锁拿不到(quota_lock_unavailable)
+///   或占用无法计量(quota_unmeasurable)时降级为 Inline 截断:首行
+///   `[tool_result_truncated reason=.. ..]` 标记,正文只保留头 8 KiB + 尾 4 KiB
+///   (按字符边界切),中间一行写明省略字节数;不创建 artifact,**原文不可回取**。
+///   工具自己的 is_error/outcome/code 不变;display 为对象时原样保留并追加
+///   `quota_truncated`,为空时才写 `{"kind":"truncated",..}`。
+/// - 只有 artifact 路径被非普通文件占用或写入失败时,结果转为
+///   TOOL_RESULT_SPILL_FAILED,避免事件看起来像一次成功的外置。
 pub(crate) fn materialize_tool_output(
     output: &mut kanzei_harness::ToolOutput,
     ctx: &ToolCtx,
     tool_name: &str,
 ) {
-    materialize_tool_output_with_quota(output, ctx, tool_name, TOOL_RESULT_STORAGE_QUOTA_BYTES);
+    materialize_tool_output_with_quota(
+        output,
+        ctx,
+        tool_name,
+        TOOL_RESULT_STORAGE_QUOTA_BYTES,
+        TOOL_RESULT_QUOTA_LOCK_BUDGET,
+    );
 }
 
+/// `materialize_tool_output` 的可注入版本:配额与锁等待预算由调用方给(测试用),
+/// 各分支保留的内容与上面的说明完全一致。
 fn materialize_tool_output_with_quota(
     output: &mut kanzei_harness::ToolOutput,
     ctx: &ToolCtx,
     tool_name: &str,
     quota_bytes: u64,
+    lock_budget: std::time::Duration,
 ) {
-    let artifact_root = ctx.project_root.join(".kanzei/artifacts/tool-results");
+    // F1/#8:小结果只写遥测,不取锁、不扫描(遥测存废归 R-376)。
     if output.content.len() <= TOOL_RESULT_SPILL_THRESHOLD {
-        let Ok(_quota_guard) = lock_tool_result_storage(&ctx.project_root) else {
-            return;
-        };
-        let Ok(used_bytes) = tool_result_storage_bytes(&artifact_root) else {
-            return;
-        };
-        record_tool_result_shadow_telemetry(
-            ctx,
-            tool_name,
-            output.content.len(),
-            None,
-            false,
-            used_bytes,
-            quota_bytes,
-        );
+        record_tool_result_shadow_telemetry(ctx, tool_name, output.content.len(), None, false);
         return;
     }
 
@@ -303,112 +315,188 @@ fn materialize_tool_output_with_quota(
     let artifact_id = format!("tool-{safe_tool_name}-{sha256}");
     let relative_path = format!(".kanzei/artifacts/tool-results/{artifact_id}.txt");
     let path = ctx.project_root.join(&relative_path);
-    let _quota_guard = match lock_tool_result_storage(&ctx.project_root) {
-        Ok(guard) => guard,
-        Err(error) => {
-            fail_tool_result_spill(output, original.len(), &sha256, &error.to_string());
-            return;
-        }
-    };
-    let used_bytes = match tool_result_storage_bytes(&artifact_root) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            fail_tool_result_spill(output, original.len(), &sha256, &error.to_string());
-            return;
-        }
-    };
-    let existing_bytes = match std::fs::symlink_metadata(&path) {
-        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata.len(),
-        Ok(_) => {
-            fail_tool_result_spill(
-                output,
-                original.len(),
-                &sha256,
-                "artifact path is not a regular file",
-            );
-            return;
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(error) => {
-            fail_tool_result_spill(output, original.len(), &sha256, &error.to_string());
-            return;
-        }
-    };
-    let original_bytes = original.len() as u64;
-    let projected_bytes = used_bytes
-        .saturating_sub(existing_bytes)
-        .saturating_add(original_bytes);
-    if projected_bytes > quota_bytes {
-        let preview_text = preview(&original);
-        output.content = format!(
-            "[tool_result_truncated reason=artifact_quota_exceeded bytes={} storage_used_bytes={} quota_bytes={} sha256={sha256}]\nPreview: {preview_text}\n结果因工具结果存储达到配额而截断；未创建 artifact。",
-            original.len(),
-            used_bytes,
-            quota_bytes,
-        );
-        output.display = Some(serde_json::json!({
-            "kind": "truncated",
-            "reason": "artifact_quota_exceeded",
-            "bytes": original.len(),
-            "storage_used_bytes": used_bytes,
-            "quota_bytes": quota_bytes,
-            "sha256": sha256,
-            "preview": preview_text,
-        }));
-        output.artifact = None;
-        record_tool_result_shadow_telemetry(
-            ctx,
-            tool_name,
-            original.len(),
-            Some(&sha256),
-            false,
-            used_bytes,
-            quota_bytes,
-        );
-        return;
-    }
 
-    let already_stored = existing_bytes == original_bytes
-        && std::fs::read(&path)
-            .map(|stored| stored.as_slice() == original.as_bytes())
-            .unwrap_or(false);
-    if !already_stored {
-        if let Err(error) = kanzei_base::atomic_file::write_atomic(&path, &original) {
-            fail_tool_result_spill(output, original.len(), &sha256, &error.to_string());
+    match store_tool_result_artifact(
+        &ctx.project_root,
+        &path,
+        &original,
+        quota_bytes,
+        lock_budget,
+        tool_name,
+    ) {
+        SpillDecision::Stored => {
+            record_tool_result_shadow_telemetry(
+                ctx,
+                tool_name,
+                original.len(),
+                Some(&sha256),
+                true,
+            );
+            externalize_tool_output(output, &original, artifact_id, relative_path, sha256);
+        }
+        SpillDecision::Truncate {
+            reason,
+            storage_used_bytes,
+        } => {
             record_tool_result_shadow_telemetry(
                 ctx,
                 tool_name,
                 original.len(),
                 Some(&sha256),
                 false,
-                used_bytes,
+            );
+            truncate_tool_output(
+                output,
+                &original,
+                &sha256,
+                reason,
+                storage_used_bytes,
                 quota_bytes,
             );
-            return;
+        }
+        SpillDecision::Failed(reason) => {
+            record_tool_result_shadow_telemetry(
+                ctx,
+                tool_name,
+                original.len(),
+                Some(&sha256),
+                false,
+            );
+            fail_tool_result_spill(output, original.len(), &sha256, &reason);
         }
     }
+}
 
-    record_tool_result_shadow_telemetry(
-        ctx,
-        tool_name,
-        original.len(),
-        Some(&sha256),
-        true,
-        projected_bytes,
-        quota_bytes,
-    );
+/// 外置存储的决定。
+enum SpillDecision {
+    /// artifact 已完整在盘上(新写入,或复用同内容的既有文件)。
+    Stored,
+    /// 无法外置,降级为 Inline 截断;`storage_used_bytes` 仅在计量成功时有值。
+    Truncate {
+        reason: TruncateReason,
+        storage_used_bytes: Option<u64>,
+    },
+    /// artifact 路径被非普通文件占用,或写入失败。
+    Failed(String),
+}
 
+/// 在配额约束下把原文落到 `path`,只做存储决定,不改 ToolOutput。
+fn store_tool_result_artifact(
+    project_root: &Path,
+    path: &Path,
+    original: &str,
+    quota_bytes: u64,
+    lock_budget: std::time::Duration,
+    tool_name: &str,
+) -> SpillDecision {
+    let original_bytes = original.len() as u64;
+    // F1/#13:文件名即内容哈希,已完整存在就先于取锁与配额判断直接复用(不新增字节)。
+    // 这里的错误与非普通文件留到锁内再定性。
+    if let Ok(StoredArtifact::Complete) = inspect_stored_artifact(path, original_bytes) {
+        return SpillDecision::Stored;
+    }
+
+    let _quota_guard = match lock_tool_result_storage(project_root, lock_budget) {
+        Ok(Some(guard)) => guard,
+        other => {
+            // F1/#10:锁错误文本("稍后重试/删锁文件")只进日志,不回喂模型。
+            let error = other
+                .err()
+                .map_or_else(|| "等待超时".to_string(), |error| error.to_string());
+            tracing::warn!(tool = tool_name, %error, "工具结果配额锁不可用,结果降级为 Inline 截断");
+            return SpillDecision::Truncate {
+                reason: TruncateReason::LockUnavailable,
+                storage_used_bytes: None,
+            };
+        }
+    };
+    let existing_bytes = match inspect_stored_artifact(path, original_bytes) {
+        // 等锁期间别的进程可能已写入同一内容。
+        Ok(StoredArtifact::Complete) => return SpillDecision::Stored,
+        Ok(StoredArtifact::Missing) => 0,
+        Ok(StoredArtifact::Mismatched(bytes)) => bytes,
+        Ok(StoredArtifact::NotRegular) => {
+            return SpillDecision::Failed("artifact path is not a regular file".into());
+        }
+        Err(error) => {
+            tracing::warn!(tool = tool_name, %error, "无法读取 artifact 元数据,结果降级为 Inline 截断");
+            return SpillDecision::Truncate {
+                reason: TruncateReason::Unmeasurable,
+                storage_used_bytes: None,
+            };
+        }
+    };
+    let artifact_root = project_root.join(".kanzei/artifacts/tool-results");
+    let used_bytes = match tool_result_storage_bytes(&artifact_root) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::warn!(tool = tool_name, %error, "无法计量工具结果存储占用,结果降级为 Inline 截断");
+            return SpillDecision::Truncate {
+                reason: TruncateReason::Unmeasurable,
+                storage_used_bytes: None,
+            };
+        }
+    };
+    let projected_bytes = used_bytes
+        .saturating_sub(existing_bytes)
+        .saturating_add(original_bytes);
+    if projected_bytes > quota_bytes {
+        return SpillDecision::Truncate {
+            reason: TruncateReason::QuotaExceeded,
+            storage_used_bytes: Some(used_bytes),
+        };
+    }
+    match kanzei_base::atomic_file::write_atomic(path, original) {
+        Ok(()) => SpillDecision::Stored,
+        Err(error) => SpillDecision::Failed(error.to_string()),
+    }
+}
+
+/// artifact 路径的现状。文件名含 sha256(内容寻址),同名且长度一致即视为已存储,
+/// 不整读比对(F1/#13)。
+enum StoredArtifact {
+    Missing,
+    Complete,
+    /// 同名但长度不符(写入中断等),需要覆盖;带既有字节数供配额扣减。
+    Mismatched(u64),
+    NotRegular,
+}
+
+fn inspect_stored_artifact(path: &Path, expected_bytes: u64) -> std::io::Result<StoredArtifact> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            if metadata.len() == expected_bytes {
+                Ok(StoredArtifact::Complete)
+            } else {
+                Ok(StoredArtifact::Mismatched(metadata.len()))
+            }
+        }
+        Ok(_) => Ok(StoredArtifact::NotRegular),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(StoredArtifact::Missing),
+        Err(error) => Err(error),
+    }
+}
+
+fn externalize_tool_output(
+    output: &mut kanzei_harness::ToolOutput,
+    original: &str,
+    artifact_id: String,
+    relative_path: String,
+    sha256: String,
+) {
     let artifact = kanzei_harness::ToolArtifact {
-        artifact_id: artifact_id.clone(),
-        relative_path: relative_path.clone(),
-        bytes: original.len() as u64,
-        sha256: sha256.clone(),
         retrieval_hint: format!("read path={relative_path}"),
+        artifact_id,
+        relative_path,
+        bytes: original.len() as u64,
+        sha256,
     };
     output.content = format!(
-        "[tool_result_externalized artifact_id={artifact_id} bytes={} sha256={sha256}]\nPreview: {}\n完整原文已外置；请按 retrieval_hint 回读。",
+        "[tool_result_externalized artifact_id={} bytes={} sha256={}]\nPreview: {}\n完整原文已外置；请按 retrieval_hint 回读。",
+        artifact.artifact_id,
         original.len(),
-        preview(&original),
+        artifact.sha256,
+        preview(original),
     );
     output.display = Some(serde_json::json!({
         "kind": "artifact",
@@ -418,6 +506,105 @@ fn materialize_tool_output_with_quota(
         "retrieval_hint": artifact.retrieval_hint,
     }));
     output.artifact = Some(artifact);
+}
+
+/// 无法外置时的降级原因(写入 marker 与 display)。
+#[derive(Clone, Copy)]
+enum TruncateReason {
+    QuotaExceeded,
+    LockUnavailable,
+    Unmeasurable,
+}
+
+impl TruncateReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::QuotaExceeded => "artifact_quota_exceeded",
+            Self::LockUnavailable => "quota_lock_unavailable",
+            Self::Unmeasurable => "quota_unmeasurable",
+        }
+    }
+
+    fn explanation(self) -> &'static str {
+        match self {
+            Self::QuotaExceeded => {
+                "结果因工具结果存储达到配额而截断；未创建 artifact。清理无引用 artifact 后才会恢复外置。"
+            }
+            Self::LockUnavailable => "结果因暂时拿不到工具结果存储锁而截断；未创建 artifact。",
+            Self::Unmeasurable => "结果因无法计量工具结果存储占用而截断；未创建 artifact。",
+        }
+    }
+}
+
+/// 头 8 KiB + 尾 4 KiB 的有界正文,切点落在字符边界;中间一行写明省略字节数、
+/// 原文不可回取,并建议用更窄的输出重跑。原文不超过头尾之和时原样返回。
+fn inline_truncate(original: &str) -> String {
+    let len = original.len();
+    if len <= TOOL_RESULT_TRUNCATE_HEAD_BYTES + TOOL_RESULT_TRUNCATE_TAIL_BYTES {
+        return original.to_string();
+    }
+    let mut head_end = TOOL_RESULT_TRUNCATE_HEAD_BYTES;
+    while !original.is_char_boundary(head_end) {
+        head_end -= 1;
+    }
+    let mut tail_start = len - TOOL_RESULT_TRUNCATE_TAIL_BYTES;
+    while !original.is_char_boundary(tail_start) {
+        tail_start += 1;
+    }
+    let omitted = tail_start - head_end;
+    format!(
+        "{}\n…(中间省略 {omitted} 字节;原文未保存,无法回取。需要这部分时请用更窄的输出重跑,如 | tail、grep 或 offset/limit)…\n{}",
+        &original[..head_end],
+        &original[tail_start..],
+    )
+}
+
+/// F1(#9/#10/#12):无法外置时的 Inline 截断降级。只改 content、补 display 标注、
+/// 清 artifact;is_error/outcome/code 保持工具自己的结果——截断的是回喂量,
+/// 不是工具的执行结果。
+fn truncate_tool_output(
+    output: &mut kanzei_harness::ToolOutput,
+    original: &str,
+    sha256: &str,
+    reason: TruncateReason,
+    storage_used_bytes: Option<u64>,
+    quota_bytes: u64,
+) {
+    let used_text =
+        storage_used_bytes.map_or_else(|| "unknown".to_string(), |bytes| bytes.to_string());
+    output.content = format!(
+        "[tool_result_truncated reason={} bytes={} storage_used_bytes={used_text} quota_bytes={quota_bytes} sha256={sha256}]\n{}仅保留头 {} KiB 与尾 {} KiB。\n{}",
+        reason.as_str(),
+        original.len(),
+        reason.explanation(),
+        TOOL_RESULT_TRUNCATE_HEAD_BYTES / 1024,
+        TOOL_RESULT_TRUNCATE_TAIL_BYTES / 1024,
+        inline_truncate(original),
+    );
+    let annotation = serde_json::json!({
+        "reason": reason.as_str(),
+        "storage_used_bytes": storage_used_bytes,
+        "quota_bytes": quota_bytes,
+    });
+    match output.display.as_mut() {
+        Some(serde_json::Value::Object(display)) => {
+            display.insert("quota_truncated".into(), annotation);
+        }
+        // 非对象 display 无处挂标注,原样保留。
+        Some(_) => {}
+        None => {
+            output.display = Some(serde_json::json!({
+                "kind": "truncated",
+                "reason": reason.as_str(),
+                "bytes": original.len(),
+                "storage_used_bytes": storage_used_bytes,
+                "quota_bytes": quota_bytes,
+                "sha256": sha256,
+                "preview": preview(original),
+            }));
+        }
+    }
+    output.artifact = None;
 }
 
 fn fail_tool_result_spill(
@@ -713,74 +900,400 @@ mod tests {
         );
     }
 
-    #[test]
-    fn tool_result_quota_is_two_gib_and_counts_nested_shadow_files() {
-        assert_eq!(
-            super::TOOL_RESULT_STORAGE_QUOTA_BYTES,
-            2 * 1024 * 1024 * 1024
-        );
+    fn quota_test_root(label: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "kz-r245-quota-scan-{}",
+            "kz-r245-{label}-{}-{}",
+            std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
+        let _ = std::fs::remove_dir_all(&root);
+        root
+    }
+
+    /// 首尾可区分、含多字节字符的超阈值原文:头尾切点都落在中文字符中间。
+    fn head_tail_fixture() -> String {
+        let mut original = String::from("HEAD-MARK");
+        while original.len() <= super::TOOL_RESULT_SPILL_THRESHOLD {
+            original.push_str("中文填充");
+        }
+        original.push_str("TAIL-MARK");
+        original
+    }
+
+    fn sha256_hex(text: &str) -> String {
+        sha2::Sha256::digest(text.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    fn has_spilled_txt(artifact_root: &std::path::Path) -> bool {
+        std::fs::read_dir(artifact_root)
+            .map(|entries| {
+                entries.filter_map(Result::ok).any(|entry| {
+                    entry
+                        .path()
+                        .extension()
+                        .is_some_and(|extension| extension == "txt")
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    /// 在另一个线程持有配额锁(FileLock 是 !Send,只能在持有线程上获取与释放)。
+    /// 向返回的 Sender 发一次消息即释放。
+    fn hold_quota_lock(
+        root: &std::path::Path,
+    ) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let holder_root = root.to_path_buf();
+        let holder = std::thread::spawn(move || {
+            let guard =
+                super::lock_tool_result_storage(&holder_root, super::TOOL_RESULT_QUOTA_LOCK_BUDGET)
+                    .unwrap()
+                    .expect("持锁线程应拿到配额锁");
+            locked_tx.send(()).unwrap();
+            let _ = release_rx.recv();
+            drop(guard);
+        });
+        locked_rx.recv().unwrap();
+        (release_tx, holder)
+    }
+
+    const SHORT_LOCK_BUDGET: std::time::Duration = std::time::Duration::from_millis(50);
+
+    #[test]
+    fn tool_result_quota_is_two_gib_and_excludes_shadow_telemetry() {
+        assert_eq!(
+            super::TOOL_RESULT_STORAGE_QUOTA_BYTES,
+            2 * 1024 * 1024 * 1024
+        );
+        let root = quota_test_root("quota-scan");
         let artifact_root = root.join(".kanzei/artifacts/tool-results");
         std::fs::create_dir_all(artifact_root.join("shadow/nested")).unwrap();
+        std::fs::create_dir_all(artifact_root.join("nested")).unwrap();
         std::fs::write(artifact_root.join("artifact.bin"), b"12345").unwrap();
+        std::fs::write(artifact_root.join("nested/other.bin"), b"678").unwrap();
+        std::fs::write(artifact_root.join("shadow/top.json"), b"xx").unwrap();
         std::fs::write(artifact_root.join("shadow/nested/telemetry.json"), b"6789").unwrap();
 
-        assert_eq!(super::tool_result_storage_bytes(&artifact_root).unwrap(), 9);
+        // F1/#8:影子遥测不计入配额,扫描基数只剩真实外置 artifact。
+        assert_eq!(super::tool_result_storage_bytes(&artifact_root).unwrap(), 8);
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn tool_result_over_quota_is_truncated_without_spill_artifact() {
-        let root = std::env::temp_dir().join(format!(
-            "kz-r245-quota-truncate-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let root = quota_test_root("quota-truncate");
         let artifact_root = root.join(".kanzei/artifacts/tool-results");
         std::fs::create_dir_all(&artifact_root).unwrap();
         std::fs::write(artifact_root.join("existing.data"), b"seed").unwrap();
         let ctx = ToolCtx::new(root.clone(), root.clone());
-        let original = "x".repeat(super::TOOL_RESULT_SPILL_THRESHOLD + 17);
+        let original = head_tail_fixture();
         let quota = 4 + original.len() as u64 - 1;
         let mut output = ToolOutput::ok(original.clone());
 
-        super::materialize_tool_output_with_quota(&mut output, &ctx, "bash", quota);
+        super::materialize_tool_output_with_quota(
+            &mut output,
+            &ctx,
+            "bash",
+            quota,
+            super::TOOL_RESULT_QUOTA_LOCK_BUDGET,
+        );
 
         assert!(!output.is_error);
-        assert!(output.content.contains("tool_result_truncated"));
-        assert!(output.content.contains("artifact_quota_exceeded"));
-        assert!(output.content.contains(&format!("quota_bytes={quota}")));
-        assert!(output.content.len() < original.len());
+        assert_eq!(output.outcome, kanzei_harness::ToolOutcome::Success);
+        assert_eq!(output.code, None);
+        let first_line = output.content.lines().next().unwrap();
+        assert!(
+            first_line.starts_with("[tool_result_truncated reason=artifact_quota_exceeded bytes=")
+        );
+        assert!(first_line.contains("storage_used_bytes=4 "));
+        assert!(first_line.contains(&format!("quota_bytes={quota} ")));
+        // F1/#9:头 8 KiB + 尾 4 KiB,切点按字符边界回退/前进。
+        let head_end = (0..=super::TOOL_RESULT_TRUNCATE_HEAD_BYTES)
+            .rev()
+            .find(|&index| original.is_char_boundary(index))
+            .unwrap();
+        let tail_start = (original.len() - super::TOOL_RESULT_TRUNCATE_TAIL_BYTES..=original.len())
+            .find(|&index| original.is_char_boundary(index))
+            .unwrap();
+        assert_ne!(
+            head_end,
+            super::TOOL_RESULT_TRUNCATE_HEAD_BYTES,
+            "夹具应让头部切点落在字符中间"
+        );
+        assert_ne!(
+            tail_start,
+            original.len() - super::TOOL_RESULT_TRUNCATE_TAIL_BYTES,
+            "夹具应让尾部切点落在字符中间"
+        );
+        assert!(output.content.contains(&original[..head_end]));
+        assert!(output.content.ends_with(&original[tail_start..]));
+        assert!(output.content.contains("HEAD-MARK"));
+        assert!(output.content.contains("TAIL-MARK"));
+        assert!(output
+            .content
+            .contains(&format!("中间省略 {} 字节", tail_start - head_end)));
+        assert!(output.content.contains("无法回取"));
+        assert!(
+            output.content.len()
+                <= super::TOOL_RESULT_TRUNCATE_HEAD_BYTES
+                    + super::TOOL_RESULT_TRUNCATE_TAIL_BYTES
+                    + 1024
+        );
         assert!(output.artifact.is_none());
-        assert_eq!(output.display.as_ref().unwrap()["kind"], "truncated");
-        assert!(!std::fs::read_dir(&artifact_root)
+        let display = output.display.as_ref().unwrap();
+        assert_eq!(display["kind"], "truncated");
+        assert_eq!(display["reason"], "artifact_quota_exceeded");
+        assert_eq!(display["storage_used_bytes"], 4);
+        assert_eq!(display["quota_bytes"], quota);
+        assert!(display["preview"]
+            .as_str()
             .unwrap()
-            .filter_map(Result::ok)
-            .any(|entry| entry
-                .path()
-                .extension()
-                .is_some_and(|extension| extension == "txt")));
+            .starts_with("HEAD-MARK"));
+        assert!(!has_spilled_txt(&artifact_root));
         assert!(super::tool_result_storage_bytes(&artifact_root).unwrap() <= quota);
+        assert_eq!(super::inline_truncate("短结果"), "短结果");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn over_quota_truncation_keeps_tool_display_and_outcome() {
+        let root = quota_test_root("quota-display");
+        let artifact_root = root.join(".kanzei/artifacts/tool-results");
+        std::fs::create_dir_all(&artifact_root).unwrap();
+        std::fs::write(artifact_root.join("existing.data"), b"seed").unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let original = head_tail_fixture();
+        let quota = 4 + original.len() as u64 - 1;
+        let mut output =
+            ToolOutput::failed("PROBE_EXIT_NONZERO", original).with_display(serde_json::json!({
+                "kind": "terminal",
+                "command": "cargo test",
+                "exitCode": 1,
+                "full": "terminal full output",
+            }));
+
+        super::materialize_tool_output_with_quota(
+            &mut output,
+            &ctx,
+            "bash",
+            quota,
+            super::TOOL_RESULT_QUOTA_LOCK_BUDGET,
+        );
+
+        // F1/#12:工具自己的终态与 terminal display 原样保留,只追加配额标注。
+        assert!(output.is_error);
+        assert_eq!(output.outcome, kanzei_harness::ToolOutcome::Failed);
+        assert_eq!(output.code, Some("PROBE_EXIT_NONZERO"));
+        let display = output.display.as_ref().unwrap();
+        assert_eq!(display["kind"], "terminal");
+        assert_eq!(display["command"], "cargo test");
+        assert_eq!(display["exitCode"], 1);
+        assert_eq!(display["full"], "terminal full output");
+        assert_eq!(
+            display["quota_truncated"],
+            serde_json::json!({
+                "reason": "artifact_quota_exceeded",
+                "storage_used_bytes": 4,
+                "quota_bytes": quota,
+            })
+        );
+        assert!(output
+            .content
+            .starts_with("[tool_result_truncated reason=artifact_quota_exceeded"));
+        assert!(output.artifact.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn quota_lock_unavailable_degrades_to_truncation_without_failing_tool() {
+        let root = quota_test_root("quota-lock");
+        let artifact_root = root.join(".kanzei/artifacts/tool-results");
+        std::fs::create_dir_all(&artifact_root).unwrap();
+        let (release, holder) = hold_quota_lock(&root);
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let mut output = ToolOutput::ok(head_tail_fixture());
+
+        super::materialize_tool_output_with_quota(
+            &mut output,
+            &ctx,
+            "bash",
+            super::TOOL_RESULT_STORAGE_QUOTA_BYTES,
+            SHORT_LOCK_BUDGET,
+        );
+        release.send(()).unwrap();
+        holder.join().unwrap();
+
+        // F1/#10:拿不到锁只降级截断,不把已成功的工具判为失败。
+        assert!(!output.is_error);
+        assert_eq!(output.outcome, kanzei_harness::ToolOutcome::Success);
+        assert_eq!(output.code, None);
+        assert!(output
+            .content
+            .starts_with("[tool_result_truncated reason=quota_lock_unavailable"));
+        assert!(output.content.contains("storage_used_bytes=unknown"));
+        assert!(output.content.contains("HEAD-MARK"));
+        assert!(output.content.contains("TAIL-MARK"));
+        assert!(
+            !output.content.contains("稍后重试"),
+            "锁错误文本不应回喂模型"
+        );
+        assert!(output.artifact.is_none());
+        let display = output.display.as_ref().unwrap();
+        assert_eq!(display["kind"], "truncated");
+        assert_eq!(display["reason"], "quota_lock_unavailable");
+        assert!(display["storage_used_bytes"].is_null());
+        assert!(!has_spilled_txt(&artifact_root));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn small_tool_result_never_waits_for_quota_lock() {
+        let root = quota_test_root("quota-small");
+        let (release, holder) = hold_quota_lock(&root);
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let mut output = ToolOutput::ok("small result");
+
+        // 生产入口:锁预算 3 s;小结果若仍取锁,这里至少要等满预算。
+        let started = std::time::Instant::now();
+        super::materialize_tool_output(&mut output, &ctx, "bash");
+        let elapsed = started.elapsed();
+        release.send(()).unwrap();
+        holder.join().unwrap();
+
+        assert!(
+            elapsed < std::time::Duration::from_millis(1500),
+            "小结果不应取配额锁: {elapsed:?}"
+        );
+        assert_eq!(output.content, "small result");
+        assert!(output.artifact.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn unmeasurable_storage_degrades_to_truncation_without_failing_tool() {
+        let root = quota_test_root("quota-unmeasurable");
+        std::fs::create_dir_all(root.join(".kanzei/artifacts")).unwrap();
+        std::fs::write(
+            root.join(".kanzei/artifacts/tool-results"),
+            "not a directory",
+        )
+        .unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let mut output = ToolOutput::ok(head_tail_fixture());
+
+        super::materialize_tool_output(&mut output, &ctx, "bash");
+
+        assert!(!output.is_error);
+        assert_eq!(output.outcome, kanzei_harness::ToolOutcome::Success);
+        assert_eq!(output.code, None);
+        assert!(output
+            .content
+            .starts_with("[tool_result_truncated reason=quota_unmeasurable"));
+        assert!(output.content.contains("TAIL-MARK"));
+        assert!(output.artifact.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn identical_artifact_is_reused_before_quota_and_lock() {
+        let root = quota_test_root("quota-reuse");
+        let artifact_root = root.join(".kanzei/artifacts/tool-results");
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let original = head_tail_fixture();
+        let mut first = ToolOutput::ok(original.clone());
+        super::materialize_tool_output(&mut first, &ctx, "git");
+        let artifact = first.artifact.clone().expect("首次应正常外置");
+        let used = super::tool_result_storage_bytes(&artifact_root).unwrap();
+
+        // F1/#13:配额已低于占用、配额锁也被别人持有,同内容 artifact 仍直接复用。
+        let (release, holder) = hold_quota_lock(&root);
+        let mut second = ToolOutput::ok(original.clone());
+        super::materialize_tool_output_with_quota(
+            &mut second,
+            &ctx,
+            "git",
+            used - 1,
+            SHORT_LOCK_BUDGET,
+        );
+        release.send(()).unwrap();
+        holder.join().unwrap();
+
+        assert_eq!(second.artifact.as_ref(), Some(&artifact));
+        assert!(!second.is_error);
+        assert!(second.content.starts_with("[tool_result_externalized"));
+        assert_eq!(
+            super::tool_result_storage_bytes(&artifact_root).unwrap(),
+            used
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn same_name_artifact_with_wrong_length_is_rewritten() {
+        let root = quota_test_root("quota-rewrite");
+        let artifact_root = root.join(".kanzei/artifacts/tool-results");
+        std::fs::create_dir_all(&artifact_root).unwrap();
+        let original = head_tail_fixture();
+        let path = artifact_root.join(format!("tool-git-{}.txt", sha256_hex(&original)));
+        std::fs::write(&path, &original.as_bytes()[..100]).unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let mut output = ToolOutput::ok(original.clone());
+
+        super::materialize_tool_output(&mut output, &ctx, "git");
+
+        assert!(output.artifact.is_some());
+        assert_eq!(std::fs::read(&path).unwrap(), original.as_bytes());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn same_name_artifact_rewrite_deducts_existing_bytes_from_quota() {
+        let root = quota_test_root("quota-rewrite-boundary");
+        let artifact_root = root.join(".kanzei/artifacts/tool-results");
+        std::fs::create_dir_all(&artifact_root).unwrap();
+        std::fs::write(artifact_root.join("existing.data"), b"seed").unwrap();
+        let original = head_tail_fixture();
+        let path = artifact_root.join(format!("tool-git-{}.txt", sha256_hex(&original)));
+        std::fs::write(&path, &original.as_bytes()[..100]).unwrap();
+        let used = super::tool_result_storage_bytes(&artifact_root).unwrap();
+        assert_eq!(used, 4 + 100);
+        // 恰好容纳「重写后」的占用:既有的 100 字节会被覆盖,必须先扣掉再算;
+        // 不扣除时 used + original 超出配额,会被误判为超配额而截断。
+        let quota = used - 100 + original.len() as u64;
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let mut output = ToolOutput::ok(original.clone());
+
+        super::materialize_tool_output_with_quota(
+            &mut output,
+            &ctx,
+            "git",
+            quota,
+            super::TOOL_RESULT_QUOTA_LOCK_BUDGET,
+        );
+
+        assert!(
+            output.artifact.is_some(),
+            "扣除既有字节后恰好容纳,应重写外置: {}",
+            output.content.lines().next().unwrap_or_default()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), original.as_bytes());
+        assert_eq!(
+            super::tool_result_storage_bytes(&artifact_root).unwrap(),
+            quota
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn tool_result_at_quota_boundary_can_still_be_externalized() {
-        let root = std::env::temp_dir().join(format!(
-            "kz-r245-quota-boundary-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let root = quota_test_root("quota-boundary");
         let artifact_root = root.join(".kanzei/artifacts/tool-results");
         std::fs::create_dir_all(&artifact_root).unwrap();
         std::fs::write(artifact_root.join("existing.data"), b"seed").unwrap();
@@ -789,7 +1302,13 @@ mod tests {
         let quota = 4 + original.len() as u64;
         let mut output = ToolOutput::ok(original.clone());
 
-        super::materialize_tool_output_with_quota(&mut output, &ctx, "git", quota);
+        super::materialize_tool_output_with_quota(
+            &mut output,
+            &ctx,
+            "git",
+            quota,
+            super::TOOL_RESULT_QUOTA_LOCK_BUDGET,
+        );
 
         let artifact = output.artifact.expect("配额恰好容纳时应正常 spill");
         assert_eq!(
@@ -883,22 +1402,18 @@ mod tests {
 
     #[test]
     fn artifact_write_failure_is_visible_without_success_reference() {
-        let root = std::env::temp_dir().join(format!(
-            "kz-d349-spill-failure-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join(".kanzei/artifacts")).unwrap();
-        std::fs::write(
-            root.join(".kanzei/artifacts/tool-results"),
-            "not a directory",
-        )
+        let root = quota_test_root("spill-failure");
+        let original = "x".repeat(super::TOOL_RESULT_SPILL_THRESHOLD + 1);
+        // artifact 路径被目录(非普通文件)占用:走 inspect_stored_artifact 的 NotRegular
+        // 分支,根本不会调用 write_atomic;这不属于配额计量问题,仍按失败处理。
+        // write_atomic 真正失败的分支见 artifact_rename_failure_is_visible_without_success_reference。
+        std::fs::create_dir_all(root.join(format!(
+            ".kanzei/artifacts/tool-results/tool-bash-{}.txt",
+            sha256_hex(&original)
+        )))
         .unwrap();
         let ctx = ToolCtx::new(root.clone(), root.clone());
-        let mut output = ToolOutput::ok("x".repeat(super::TOOL_RESULT_SPILL_THRESHOLD + 1));
+        let mut output = ToolOutput::ok(original);
 
         super::materialize_tool_output(&mut output, &ctx, "bash");
 
@@ -906,6 +1421,43 @@ mod tests {
         assert_eq!(output.code, Some("TOOL_RESULT_SPILL_FAILED"));
         assert!(output.artifact.is_none());
         assert!(output.content.contains("tool_result_spill_failed"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// write_atomic 本身失败(Err → SpillDecision::Failed):同名、长度不符的 artifact
+    /// 被 share_mode(0) 独占句柄占住,重写时 rename 替换不了目标(与 atomic_file 自己
+    /// 模拟 rename 失败的办法相同)。
+    #[cfg(windows)]
+    #[test]
+    fn artifact_rename_failure_is_visible_without_success_reference() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let root = quota_test_root("spill-rename-failure");
+        let artifact_root = root.join(".kanzei/artifacts/tool-results");
+        std::fs::create_dir_all(&artifact_root).unwrap();
+        let original = "x".repeat(super::TOOL_RESULT_SPILL_THRESHOLD + 1);
+        let path = artifact_root.join(format!("tool-bash-{}.txt", sha256_hex(&original)));
+        std::fs::write(&path, b"stale partial artifact").unwrap();
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let mut output = ToolOutput::ok(original);
+
+        super::materialize_tool_output(&mut output, &ctx, "bash");
+        drop(lock);
+
+        assert!(output.is_error);
+        assert_eq!(output.code, Some("TOOL_RESULT_SPILL_FAILED"));
+        assert!(output.artifact.is_none());
+        assert!(output.content.contains("tool_result_spill_failed"));
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"stale partial artifact",
+            "rename 失败时目标原样未动"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
