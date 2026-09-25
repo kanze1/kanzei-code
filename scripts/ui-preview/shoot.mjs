@@ -24,7 +24,7 @@ const opt = (flag, fallback) => {
 const list = (value) => value.split(",").map((item) => item.trim()).filter(Boolean);
 
 const outDir = path.resolve(opt("--out", path.join(REPO, "output/ui-preview")));
-const scenes = list(opt("--scenes", "chat,agents,settings,docs,overlays,lines,empty"));
+const scenes = list(opt("--scenes", "chat,agents,parallel,settings,docs,overlays,lines,empty"));
 const themes = list(opt("--themes", "dark,light"));
 const dialogs = list(opt("--dialogs", "ask,question,confirm,input,viewer,palette"));
 const width = Number(opt("--width", "1440"));

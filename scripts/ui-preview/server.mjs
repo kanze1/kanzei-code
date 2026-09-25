@@ -7,7 +7,7 @@
 //
 // URL 参数(由 mock-ipc.js / scenes.mjs 解释):
 //   theme=dark|light                 主题(默认 dark)
-//   scene=chat|agents|settings|docs|overlays|lines|empty   打开哪个视图/弹窗(默认 chat)
+//   scene=chat|agents|parallel|settings|docs|overlays|lines|empty   打开哪个视图/弹窗(默认 chat)
 //   dialog=ask|question|confirm|input|viewer|palette        overlays 场景里显示哪个弹窗(默认 ask)
 //   lang=zh|en                       界面语言(默认 zh)
 //   anchor=<CSS 选择器>              场景就绪后把该元素滚进视口
