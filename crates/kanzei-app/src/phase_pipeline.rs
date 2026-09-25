@@ -93,6 +93,16 @@ const REVIEW_ROLES: &[(&str, &str)] = &[
 /// 复核代理在"没发现问题"时被要求回的哨兵串。
 const NO_ISSUES: &str = "NO_ISSUES";
 
+/// UI-0926 #8:编排角色的卡片短描述——角色简介冒号(全角或半角)之前那段,
+/// 如「契约复核」「crate、模块、入口与依赖方向」。没有冒号时取整段。
+fn role_description(brief: &str) -> &str {
+    brief
+        .split([':', '\u{ff1a}'])
+        .next()
+        .unwrap_or(brief)
+        .trim()
+}
+
 fn bounded_roster(
     phase: &'static str,
     roster: &'static [(&'static str, &'static str)],
@@ -325,6 +335,8 @@ impl PhasePipeline {
                     "prompt": prompt,
                     "phase": phase,
                     "role": role,
+                    // UI-0926 #8:卡片短描述,与模型派 task 时的 description 同一字段。
+                    "description": role_description(brief),
                 }),
             });
         }
@@ -341,7 +353,10 @@ impl PhasePipeline {
                 let tx = tx.clone();
                 let task: ScoutTask<'_> = Box::pin(async move {
                     let bound = std::time::Duration::from_secs(rt.timeout_secs);
-                    let (outcome, text, ok) = match tokio::time::timeout(
+                    // UI-0926 #8:终态码随 ToolEnd 上抛(空答 subagent_empty_answer、
+                    // 被停 subagent_cancelled 等沿用子代理自己的码,墙钟超时补
+                    // subagent_timeout),UI 按码分类,不再按文案猜。文案不变。
+                    let (outcome, text, ok, code) = match tokio::time::timeout(
                         bound,
                         kanzei_core::run_read_agent(client, rt, ctx, role, prompt, tx.clone()),
                     )
@@ -350,20 +365,22 @@ impl PhasePipeline {
                         // 顺序要紧:空结果走 ToolOutput::noop(is_error=true),
                         // 放在下面的 is_error 分支之后会被吞进 Failed。
                         Ok(output) if output.code == Some("subagent_empty_answer") => {
-                            (ScoutOutcome::Empty, output.content, false)
+                            (ScoutOutcome::Empty, output.content, false, output.code)
                         }
                         Ok(output) if output.is_error => (
                             ScoutOutcome::Failed(output.content.chars().take(200).collect()),
                             output.content,
                             false,
+                            output.code,
                         ),
-                        Ok(output) => (ScoutOutcome::Completed, output.content, true),
+                        Ok(output) => (ScoutOutcome::Completed, output.content, true, None),
                         Err(_) => (
                             ScoutOutcome::TimedOut {
                                 after_secs: rt.timeout_secs,
                             },
                             format!("超时({}s 未返回)", rt.timeout_secs),
                             false,
+                            Some("subagent_timeout"),
                         ),
                     };
                     let preview = text.clone();
@@ -377,7 +394,7 @@ impl PhasePipeline {
                         name: "task".into(),
                         ok,
                         outcome: if ok { "success" } else { "failed" }.into(),
-                        code: None,
+                        code: code.map(str::to_owned),
                         preview,
                         content,
                         content_bytes,
@@ -440,7 +457,8 @@ impl PhasePipeline {
                 name: "task".into(),
                 ok,
                 outcome: if ok { "success" } else { "failed" }.into(),
-                code: None,
+                // UI-0926 #8:报告缺失 = 屏障触顶时角色仍未返回,按超时收尾。
+                code: report.is_none().then(|| "subagent_timeout".to_string()),
                 preview,
                 content,
                 content_bytes,
@@ -853,6 +871,22 @@ mod tests {
             role,
             text: text.into(),
             ok,
+        }
+    }
+
+    /// UI-0926 #8:卡片短描述取简介冒号前那段,全角/半角冒号都认。
+    #[test]
+    fn 角色短描述取冒号前一段() {
+        assert_eq!(role_description("契约复核:改动是否符合契约"), "契约复核");
+        assert_eq!(role_description(" 测试复核\u{ff1a}有没有测试"), "测试复核");
+        assert_eq!(role_description("没有冒号的简介"), "没有冒号的简介");
+        for (role, brief) in SCOUT_ROLES.iter().chain(REVIEW_ROLES) {
+            let description = role_description(brief);
+            assert!(
+                // 60 = 前端描述截断上限,超了就会在卡片上被省略号截掉。
+                !description.is_empty() && description.chars().count() <= 60,
+                "{role} 的短描述应当非空且不超过卡片截断上限: {description}"
+            );
         }
     }
 

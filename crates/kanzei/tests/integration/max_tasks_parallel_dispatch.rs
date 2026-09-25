@@ -7,6 +7,7 @@
 //!   ① 20 个 task 的 ToolEnd 全部 ok(子代理真实执行完一轮,不是被静默跳过);
 //!   ② 第 21 个 task 的 ToolEnd 是失败,错误文本就是 drive.rs 的
 //!      「too many parallel subagent tasks; maximum per turn is 20」——溢出分支唯一;
+//!      且带稳定码 subagent_limit(UI-0926 #8,UI 判「未启动」);
 //!   ③ 协调器读槽 20 登记 / 20 回收(每个子代理都持过读槽,是"执行"的硬证据,
 //!      而非只发了 ToolStart 事件)。
 
@@ -77,6 +78,7 @@ fn text_response(text: &str) -> serde_json::Value {
 struct Recorder {
     orchestration: Mutex<Vec<(String, String)>>,
     run: Mutex<Vec<(String, String, bool, String)>>, // (id, name, ok, preview)
+    end_codes: Mutex<Vec<(String, Option<String>)>>, // UI-0926 #8:(id, code)
 }
 
 impl PhaseObserver for Recorder {
@@ -226,10 +228,16 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
             id,
             name,
             ok,
+            code,
             preview,
             ..
         } = event
         {
+            event_recorder
+                .end_codes
+                .lock()
+                .unwrap()
+                .push((id.clone(), code));
             event_recorder
                 .run
                 .lock()
@@ -295,6 +303,22 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         )),
         "溢出 ToolEnd 的 preview 必须带 drive.rs 的溢出文案,实际: {}",
         overflow_events[0].1
+    );
+    // UI-0926 #8:溢出带稳定码 subagent_limit;额度内成功的 20 个不带码。
+    let end_codes = recorder.end_codes.lock().unwrap().clone();
+    let overflow_code = end_codes
+        .iter()
+        .find(|(id, _)| id == "call_task_20")
+        .and_then(|(_, code)| code.as_deref());
+    assert_eq!(
+        overflow_code,
+        Some("subagent_limit"),
+        "溢出 ToolEnd 必须带 code=subagent_limit,实际: {end_codes:?}"
+    );
+    assert_eq!(
+        end_codes.iter().filter(|(_, code)| code.is_none()).count(),
+        MAX_TASKS,
+        "额度内成功的 task 不带错误码: {end_codes:?}"
     );
     assert!(summary.text.contains("done"), "主轮应正常收尾");
 

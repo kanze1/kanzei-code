@@ -389,7 +389,8 @@ pub(crate) fn task_spec() -> ToolSpec {
                       stage/commit/merge git changes, or publish/release; those \
                       authority-bearing actions belong to the primary agent. Params: \
                       prompt (self-contained instruction saying exactly what to find and \
-                      what to report back); optional model: \"fast\" (default, local model, \
+                      what to report back); optional description: a short 3-8 word label \
+                      the user sees for this delegation; optional model: \"fast\" (default, local model, \
                       mechanical searches) | \"primary\" (tasks needing code comprehension); \
                       optional schema: a JSON Schema — when given, the subagent must answer \
                       with JSON matching it and you receive the validated object instead of \
@@ -406,6 +407,10 @@ pub(crate) fn task_spec() -> ToolSpec {
                 "prompt": {
                     "type": "string",
                     "description": "Self-contained task: what to find and exactly what to report back"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Short 3-8 word label shown to the user for this delegation, e.g. \"Find auth call sites\"."
                 },
                 "model": {
                     "type": "string",
@@ -553,10 +558,30 @@ pub(crate) async fn run_subagent(
         .get("schema")
         .filter(|v| v.is_object() && !v.as_object().is_some_and(|o| o.is_empty()))
         .cloned();
-    let (route, model, service_tier) = match input.get("model").and_then(|v| v.as_str()) {
-        Some("primary") => (&rt.primary.0, &rt.primary.1, &rt.primary_service_tier),
-        _ => (&rt.fast.0, &rt.fast.1, &rt.fast_service_tier),
+    let (tier, route, model, service_tier) = match input.get("model").and_then(|v| v.as_str()) {
+        Some("primary") => (
+            "primary",
+            &rt.primary.0,
+            &rt.primary.1,
+            &rt.primary_service_tier,
+        ),
+        _ => ("fast", &rt.fast.0, &rt.fast.1, &rt.fast_service_tier),
     };
+    // UI-0926 #8:先报「实际是谁、用哪个模型」,再有任何工具进度。入参里的
+    // agent/model 只是请求与档位,卡片要显示解析后的真值;发在权限询问与租约
+    // 之前,排队等租约时用户也看得见它是谁。
+    let _ = progress.send(RunEvent::TaskProgress {
+        id: parent_call_id.to_string(),
+        text: format!("{} · {model}", selected_agent.name),
+        trace: Some(TaskTrace {
+            child_id: parent_call_id.to_string(),
+            phase: "meta".into(),
+            summary: Some(tier.into()),
+            agent: Some(selected_agent.name.clone()),
+            model: Some(model.clone()),
+            ..Default::default()
+        }),
+    });
     let config = RunnerConfig {
         intensity: kanzei_harness::HarnessIntensity::Autonomous,
         model: model.clone(),
@@ -619,16 +644,9 @@ pub(crate) async fn run_subagent(
                 phase: "start".into(),
                 name,
                 summary: Some(summary),
-                ok: None,
-                outcome: None,
-                code: None,
-                preview: None,
-                artifact: None,
-                display: None,
                 // R-174:完整入参原文进 trace,面板/transcript 可展开复核「到底拿什么调的」。
                 input: Some(input),
-                usage: None,
-                text: None,
+                ..Default::default()
             }),
             RunEvent::ToolEnd {
                 id,
@@ -644,16 +662,13 @@ pub(crate) async fn run_subagent(
                 child_id: id,
                 phase: "end".into(),
                 name,
-                summary: None,
                 ok: Some(ok),
                 outcome: Some(outcome),
                 code,
                 preview: Some(preview),
                 artifact,
                 display,
-                input: None,
-                usage: None,
-                text: None,
+                ..Default::default()
             }),
             // R-174:子代理每轮 StepEnd 累计 token,以 phase="usage" 的 trace 上抛,
             // 前端据此刷新「累计 token」字段(transcript/面板共用同一数据源)。
@@ -666,17 +681,8 @@ pub(crate) async fn run_subagent(
                 Some(TaskTrace {
                     child_id: parent_call_id.to_string(),
                     phase: "usage".into(),
-                    name: String::new(),
-                    summary: None,
-                    ok: None,
-                    outcome: None,
-                    code: None,
-                    preview: None,
-                    artifact: None,
-                    display: None,
-                    input: None,
                     usage: Some(total_usage),
-                    text: None,
+                    ..Default::default()
                 })
             }
             RunEvent::AssistantMessageCommitted { message, .. } => assistant_message_text(&message)
@@ -684,16 +690,8 @@ pub(crate) async fn run_subagent(
                     child_id: parent_call_id.to_string(),
                     phase: "text".into(),
                     name: "assistant".into(),
-                    summary: None,
-                    ok: None,
-                    outcome: None,
-                    code: None,
-                    preview: None,
-                    artifact: None,
-                    display: None,
-                    input: None,
-                    usage: None,
                     text: Some(text),
+                    ..Default::default()
                 }),
             RunEvent::ToolResultsCommitted { .. } => None,
             _ => None,
@@ -823,22 +821,14 @@ pub(crate) async fn run_subagent(
                         trace: Some(TaskTrace {
                             child_id: parent_call_id.to_string(),
                             phase: "cancelled".into(),
-                            name: String::new(),
-                            summary: None,
-                            ok: None,
-                            outcome: None,
-                            code: None,
-                            preview: None,
-                            artifact: None,
-                            display: None,
-                            input: None,
-                            usage: None,
-                            text: None,
+                            ..Default::default()
                         }),
                     });
-                    Attempt::Fatal(kanzei_harness::ToolOutput::error(format!(
-                        "subagent {parent_call_id} was stopped by the user"
-                    )))
+                    // UI-0926 #8:稳定码让 UI 不必按文案正则猜「被停」;文案不变。
+                    Attempt::Fatal(kanzei_harness::ToolOutput::failed(
+                        "subagent_cancelled",
+                        format!("subagent {parent_call_id} was stopped by the user"),
+                    ))
                 }
                 result = &mut fut => match result {
                     Ok(summary) => Attempt::Finished(summary),
@@ -1199,6 +1189,37 @@ mod tests {
         assert!(
             spec.description.contains("schema"),
             "工具描述里没提 schema,模型不会主动使用"
+        );
+    }
+
+    /// UI-0926 #8:description 是给用户看的短标签——可选,老调用方式不变;
+    /// 名册只有默认人格时 task_spec_for 仍与 task_spec 逐字节一致。
+    #[test]
+    fn task_spec_exposes_optional_description() {
+        let spec = super::task_spec();
+        let description = &spec.input_schema["properties"]["description"];
+        assert_eq!(
+            description["type"], "string",
+            "task 未暴露 description 入参"
+        );
+        assert!(
+            description["description"]
+                .as_str()
+                .is_some_and(|text| text.contains("3-8 word")),
+            "入参说明要写清是短标签,否则弱模型会把整段指令抄进来"
+        );
+        assert_eq!(
+            spec.input_schema["required"],
+            json!(["prompt"]),
+            "description 不得变成必填"
+        );
+        assert!(
+            spec.description.contains("description"),
+            "工具描述的 Params 段要提到 description"
+        );
+        assert_eq!(
+            super::task_spec_for(&["explore".to_string()]).input_schema,
+            spec.input_schema
         );
     }
 

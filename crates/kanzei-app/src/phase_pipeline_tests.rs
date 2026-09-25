@@ -734,7 +734,20 @@ async fn 编排派发的子代理上抛既有形状的进度事件() {
                 .is_some_and(|p| p.contains("修 R-173")),
             "input.prompt 要能展开看到派给这个角色的完整指令(R-095)"
         );
+        // UI-0926 #8:卡片短描述 = 角色简介冒号前那段,不能是整段简介或角色名。
+        let description = input["description"]
+            .as_str()
+            .expect("编排 ToolStart 必须带 description");
+        assert!(
+            !description.is_empty() && !description.contains(':'),
+            "description 应是简介冒号前的短标签: {description}"
+        );
     }
+    let architecture = starts
+        .iter()
+        .find(|(id, _)| id.as_str() == "architecture_scout")
+        .unwrap();
+    assert_eq!(architecture.1["description"], "crate、模块、入口与依赖方向");
 
     // ② TaskProgress:子代理内部轮次/工具进度按 id 挂回对应角色。
     let progress: Vec<&String> = events
@@ -922,6 +935,15 @@ async fn 编排单角色超时在内层收敛且不触发屏障超时() {
                 if id == "architecture_scout"
         )),
         "角色超时必须以失败 ToolEnd 终态上抛"
+    );
+    // UI-0926 #8:超时带稳定码,UI 按码判「超时」而不是按文案猜。
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            kanzei_core::RunEvent::ToolEnd { id, code: Some(code), .. }
+                if id == "architecture_scout" && code == "subagent_timeout"
+        )),
+        "角色超时的 ToolEnd 必须带 code=subagent_timeout"
     );
     assert!(
         !fx.events()

@@ -246,11 +246,13 @@ async fn 执行中停止_取消占位配对_历史无孤儿() {
     let halt = kanzei_core::CancellationToken::new();
     let runner_config = runner_config(&config, halt.clone());
     let ctx = ToolCtx::new(project.clone(), project.clone());
-    let tool_ends: Arc<Mutex<Vec<(String, bool)>>> = Arc::new(Mutex::new(Vec::new()));
+    // (id, ok, code)
+    type ToolEndRecord = (String, bool, Option<String>);
+    let tool_ends: Arc<Mutex<Vec<ToolEndRecord>>> = Arc::new(Mutex::new(Vec::new()));
     let ends = tool_ends.clone();
     let mut on_event = move |event: kanzei_core::RunEvent| {
-        if let kanzei_core::RunEvent::ToolEnd { id, ok, .. } = event {
-            ends.lock().unwrap().push((id, ok));
+        if let kanzei_core::RunEvent::ToolEnd { id, ok, code, .. } = event {
+            ends.lock().unwrap().push((id, ok, code));
         }
     };
     let mut ask = |_request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
@@ -312,5 +314,17 @@ async fn 执行中停止_取消占位配对_历史无孤儿() {
         results.iter().any(|c| c.contains("cancelled")),
         "被打断的调用要以取消占位收尾,实际: {results:?}"
     );
+    // UI-0926 #8:整轮停止时未结束的子代理补发 ToolEnd——否则界面上它永远停在
+    // 「运行中」。恰好一条,失败终态,带稳定码 subagent_cancelled。
+    let ends = tool_ends.lock().unwrap().clone();
+    let task_ends: Vec<&ToolEndRecord> = ends.iter().filter(|(id, ..)| id == &task_id).collect();
+    assert_eq!(
+        task_ends.len(),
+        1,
+        "整轮停止后被打断的 task 恰好补发一条 ToolEnd,实际: {ends:?}"
+    );
+    let (_, ok, code) = task_ends[0];
+    assert!(!ok, "被打断的 task 是失败终态");
+    assert_eq!(code.as_deref(), Some("subagent_cancelled"));
     std::fs::remove_dir_all(&project).ok();
 }
