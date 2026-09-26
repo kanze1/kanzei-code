@@ -381,7 +381,8 @@ Object.assign(SCENES, {
 // ── 分区:文件编辑 ──
 // UI2-0926 #6:文件页(可编辑、可拖拽伸缩)。只走应用入口:点 rail「文件」、点树行展开/打开、在 Monaco 里打字、点保存与横幅按钮;
 // 「代理改了磁盘」= 直接改夹具的内存磁盘(真机上是另一个进程写文件)。
-// 参数 state=open|dirty|conflict|compare|readonly|new(默认 dirty),file=<相对路径>,tree=<px>(文件树宽度)。
+// 参数 state=open|dirty|conflict|compare|readonly|blocked|new(默认 dirty),file=<相对路径>,tree=<px>(文件树宽度)。
+// blocked = 有未保存修改时保存被后端以 READONLY 拒绝(打开之后文件被转成非 UTF-8 等):仍是未保存,原因写在只读原因条。
 async function openFilesPath(ctx, path) {
   const parts = path.split("/");
   for (let i = 1; i < parts.length; i += 1) {
@@ -444,6 +445,13 @@ Object.assign(SCENES, {
       document.querySelector("#files-compare")?.click();
       await waitFor(() => !isHidden("#files-diff"), 4000);
       await ctx.sleep(600);
+    }
+    if (state === "blocked") {
+      // 保存被拒:打开之后磁盘上的文件被转成了 GBK(真机上后端回 READONLY:encoding)。修改仍是未保存、编辑器仍可编辑。
+      window.__kzPreview.setCommand("file_write", () => { throw "READONLY:encoding"; });
+      document.querySelector("#files-save")?.click();
+      await waitFor(() => !isHidden("#files-readonly"), 4000);
+      await ctx.settle();
     }
     filesMonaco()?.focus?.();
     if (state === "readonly" || state === "open") document.activeElement?.blur?.();

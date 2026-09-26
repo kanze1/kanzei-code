@@ -19,7 +19,7 @@ export function humanSize(bytes) {
 export const READONLY_TEXT = {
   binary: "二进制文件,不能在这里编辑",
   truncated: "文件超过 4MB,只预览前 4MB,不能在这里编辑",
-  encoding: "不是 UTF-8 编码(如 GBK),在这里保存会写坏原字节,只读",
+  encoding: "不是 UTF-8 编码(如 GBK),在这里保存会写坏原字节",
   managed: "托管文档(需求/缺陷/记忆等)只能经专用工具修改:直接改会被托管围栏隔离并回滚。请到对应页面编辑",
   git: "Git 内部文件,只读",
   internal: "kanzei 内部状态文件,只读",
@@ -33,6 +33,10 @@ export function readonlyText(code) {
 function readonlyCodeOf(error) {
   const match = /READONLY:([a-z]+)/.exec(String(error ?? ""));
   return match ? match[1] : null;
+}
+// 「标签:内容」:中文紧贴全角习惯的半角冒号,英文冒号后留一个空格("Save refused: …")。
+function labelled(key, text) {
+  return `${t(key)}${languageIsEnglish() ? ": " : ":"}${text}`;
 }
 function errorText(error) {
   const code = readonlyCodeOf(error);
@@ -108,6 +112,9 @@ export function initFilesEditor(next = {}) {
   for (const key of Object.keys(hooks)) if (typeof next[key] === "function") hooks[key] = next[key];
 }
 
+// 脏 = model 离开了干净点。只有「打开时即只读」(doc.readonly)的文件永远不脏;保存被后端拒(doc.blocked:
+// 打开之后磁盘上的文件变成只读属性/非 UTF-8/超 4MB/二进制)不算只读——修改还在编辑器里,切文件照样要确认,
+// 切项目照样存草稿。
 export function isFilesDirty() {
   const model = filesEditor?.getModel?.();
   return Boolean(filesDoc && !filesDoc.readonly && model && model.getAlternativeVersionId() !== filesDoc.savedVersion);
@@ -138,6 +145,11 @@ export function toProjectRel(path, root = currentProject) {
 function show(el, visible) {
   el?.classList.toggle("hidden", !visible);
 }
+// 头部每次内容变化都会重画:文字没变就不碰节点。role=alert / role=status 的容器里换一次文本节点,
+// 读屏就重读一遍——冲突横幅不能每敲一个键被念一次。
+function setText(el, text) {
+  if (el && el.textContent !== text) el.textContent = text;
+}
 function metaText(doc) {
   if (!doc) return "";
   if (doc.binary) return `${t("二进制文件")} · ${humanSize(doc.size)}`;
@@ -160,10 +172,11 @@ export function renderFilesHead() {
     }
     return;
   }
-  $("files-preview-path").textContent = doc.path;
-  $("files-preview-path").title = doc.path;
-  $("files-preview-meta").textContent = metaText(doc);
-  $("files-sync").textContent = syncNote;
+  const pathEl = $("files-preview-path");
+  setText(pathEl, doc.path);
+  if (pathEl && pathEl.title !== doc.path) pathEl.title = doc.path;
+  setText($("files-preview-meta"), metaText(doc));
+  setText($("files-sync"), syncNote);
   show($("files-dirty"), dirty);
   const save = $("files-save");
   const discard = $("files-discard");
@@ -171,29 +184,31 @@ export function renderFilesHead() {
   show(discard, dirty && !doc.readonly);
   save.disabled = !dirty || doc.saving || Boolean(doc.readonly);
   save.setAttribute("aria-busy", doc.saving ? "true" : "false");
-  // 只读原因条:为什么只读、去哪改(托管文档给跳转)。
-  // 二进制文件的原因占位里已经写了,不再重复一条。
-  const readonly = $("files-readonly");
-  show(readonly, Boolean(doc.readonly) && !doc.binary);
-  if (doc.readonly) {
-    $("files-readonly-text").textContent = `${t("只读")}:${readonlyText(doc.readonly)}`;
+  // 只读原因条:为什么只读、去哪改(托管文档给跳转);保存被拒(doc.blocked)也在这里说明,编辑器照样可编辑、可复制。
+  // 打开即只读的二进制文件,原因占位里已经写了,不再重复一条。
+  const reason = doc.readonly || doc.blocked;
+  show($("files-readonly"), Boolean(reason) && !(doc.readonly && doc.binary));
+  if (reason) {
+    setText($("files-readonly-text"), doc.readonly
+      ? labelled("只读", readonlyText(doc.readonly))
+      : `${labelled("保存被拒", readonlyText(doc.blocked))} · ${t("你的修改还在编辑器里,可以复制出来;处理好之后再保存,或放弃修改")}`);
     const goto = $("files-readonly-goto");
     const memory = /^\.kanzei\/memory\//i.test(doc.path);
-    show(goto, doc.readonly === "managed");
+    show(goto, reason === "managed");
     goto.dataset.view = memory ? "memory" : "documents";
-    goto.textContent = memory ? t("打开记忆页") : t("打开需求页");
+    setText(goto, memory ? t("打开记忆页") : t("打开需求页"));
   }
   // 冲突横幅。
   const conflict = doc.conflict;
   show($("files-conflict"), Boolean(conflict));
   if (conflict) {
-    $("files-conflict-text").textContent = conflict.exists
+    setText($("files-conflict-text"), conflict.exists
       ? t("磁盘上的文件在你打开之后被改动过(可能是代理或其它程序)。你的修改还在编辑器里,选一个处理方式:")
-      : t("这个文件已在磁盘上被删除。你的修改还在编辑器里:");
+      : t("这个文件已在磁盘上被删除。你的修改还在编辑器里:"));
     show($("files-compare"), conflict.exists);
     $("files-compare").setAttribute("aria-pressed", compare ? "true" : "false");
-    $("files-use-disk").textContent = conflict.exists ? t("用磁盘版本") : t("放弃修改");
-    $("files-overwrite").textContent = conflict.exists ? t("覆盖磁盘版本") : t("重新创建");
+    setText($("files-use-disk"), conflict.exists ? t("用磁盘版本") : t("放弃修改"));
+    setText($("files-overwrite"), conflict.exists ? t("覆盖磁盘版本") : t("重新创建"));
     for (const id of ["files-compare", "files-use-disk", "files-overwrite"]) $(id).disabled = Boolean(doc.saving);
   }
   show($("files-compare-head"), Boolean(compare));
@@ -204,7 +219,7 @@ export function renderFilesHead() {
 }
 function showPlaceholder(text) {
   const placeholder = $("files-placeholder");
-  placeholder.textContent = text;
+  setText(placeholder, text);
   show(placeholder, true);
   show($("files-editor"), false);
   show($("files-diff"), false);
@@ -245,15 +260,35 @@ function watchModel(model) {
 function disposeModel(model) {
   try { model?.dispose?.(); } catch { /* 已释放 */ }
 }
-// 整体替换内容但保留撤销:「用磁盘版本」之后 Ctrl+Z 还能回到自己的修改。
+// 把 model 换成 text,但只改变化的那一段,并保留撤销:「用磁盘版本」之后 Ctrl+Z 还能回到自己的修改;
+// 代理改了别处时光标、选区随编辑平移而不是跳走(整篇替换会把光标挤到替换区的边上)。
+// 先把 text 的换行统一成 model 当前的换行(Monaco 插入时本来也会这么做),两边同一种换行、不含孤立 CR,
+// 公共前后缀的边界就不会落在 CRLF 中间;再退开代理对(UTF-16 高/低位),不把一个字符劈成两半。
+// 换行本身的变化(LF ↔ CRLF)由调用方随后 setEOL。
 function replaceContent(model, text) {
-  if (typeof model.pushEditOperations === "function" && typeof model.getFullModelRange === "function") {
-    model.pushStackElement?.();
-    model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null);
-    model.pushStackElement?.();
-  } else {
+  if (typeof model.pushEditOperations !== "function" || typeof model.getPositionAt !== "function") {
     model.setValue(text);
+    return;
   }
+  const eol = model.getEOL?.() === "\r\n" ? "\r\n" : "\n";
+  const before = model.getValue();
+  const after = String(text ?? "").split(/\r\n|\r|\n/).join(eol);
+  if (before === after) return;
+  const limit = Math.min(before.length, after.length);
+  let start = 0;
+  while (start < limit && before.charCodeAt(start) === after.charCodeAt(start)) start += 1;
+  if (start > 0 && /[\uD800-\uDBFF]/.test(before[start - 1])) start -= 1;
+  let tail = 0;
+  while (tail < limit - start && before.charCodeAt(before.length - 1 - tail) === after.charCodeAt(after.length - 1 - tail)) tail += 1;
+  if (tail > 0 && /[\uDC00-\uDFFF]/.test(before[before.length - tail])) tail -= 1;
+  const from = model.getPositionAt(start);
+  const to = model.getPositionAt(before.length - tail);
+  model.pushStackElement?.();
+  model.pushEditOperations([], [{
+    range: { startLineNumber: from.lineNumber, startColumn: from.column, endLineNumber: to.lineNumber, endColumn: to.column },
+    text: after.slice(start, after.length - tail),
+  }], () => null);
+  model.pushStackElement?.();
 }
 function applyReadonly(doc) {
   filesEditor?.updateOptions({
@@ -287,19 +322,22 @@ function docFromPreview(root, path, preview) {
     savedVersion: null,
     saving: false,
     conflict: null,
+    blocked: null, // 保存被后端以 READONLY:<code> 拒绝(打开之后磁盘上的文件变了性质);不同于打开即只读的 readonly
   };
 }
 
-// 读盘并装进编辑器。keep = 同一文件重载(外部改动/用磁盘版本/放弃修改):复用 model,保留撤销与光标。
-async function loadDoc(root, path, { line = 0, keep = false, note = "" } = {}) {
+// 读盘并装进编辑器。keep = 同一文件重载(外部改动/用磁盘版本/放弃修改):复用 model,保留撤销,只改变化的区间
+// (光标与选区随编辑平移)。preview = 调用方刚读到的磁盘版本(轮询已经读过一次,不再读第二次);
+// ifClean = 只在编辑器仍干净时替换(轮询的静默重载):等待途中用户开始打字了,就改进冲突态,不盖掉。
+async function loadDoc(root, path, { line = 0, keep = false, note = "", preview: given = null, ifClean = false } = {}) {
   const generation = ++openGeneration;
   const isCurrent = () => generation === openGeneration && root === currentProject;
   closeCompare();
   if (!keep) hooks.onActiveChange(path);
   syncNote = "";
-  let preview;
+  let preview = given;
   try {
-    preview = await invoke("file_preview", { projectDir: root, path });
+    if (!preview) preview = await invoke("file_preview", { projectDir: root, path });
     if (!isCurrent()) return false;
     if (!preview || typeof preview !== "object") throw new Error(t("后端没有返回文件内容"));
   } catch (error) {
@@ -308,7 +346,7 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "" } = {}) {
     if (keep && isFilesDirty()) {
       filesDoc.conflict = { hash: null, exists: false };
       renderFilesHead();
-      toast(`${t("读取磁盘版本失败")}:${error}`, { kind: "warn" });
+      toast(labelled("读取磁盘版本失败", error), { kind: "warn" });
       return false;
     }
     const detached = filesEditor?.getModel?.();
@@ -316,11 +354,19 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "" } = {}) {
     disposeModel(detached);
     filesDoc = null;
     renderFilesHead();
-    showPlaceholder(`${t("预览失败")}:${error}`);
+    showPlaceholder(labelled("预览失败", error));
     return false;
   }
   const doc = docFromPreview(root, path, preview);
-  if (doc.binary) {
+  const key = draftKey(root, path);
+  const draft = drafts.get(key) ?? null;
+  // 有草稿、但磁盘上的文件在这期间变得不能保存了(只读属性/非 UTF-8/超限/二进制):草稿照样恢复进编辑器
+  // (能看、能复制),按「保存被拒」处理而不是只读——否则草稿既恢复不出来,也永远不会被清掉。
+  if (draft && doc.readonly) {
+    doc.blocked = doc.readonly;
+    doc.readonly = null;
+  }
+  if (doc.binary && !draft) {
     const detached = filesEditor?.getModel?.();
     filesEditor?.setModel?.(null);
     disposeModel(detached);
@@ -336,16 +382,20 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "" } = {}) {
     monaco = await loadMonaco();
   } catch (error) {
     if (!isCurrent()) return false;
-    showPlaceholder(`${t("预览失败")}:${error}`);
+    showPlaceholder(labelled("预览失败", error));
     return false;
   }
   if (!isCurrent()) return false;
+  // 轮询的静默重载:脏检查与替换之间隔着 await,这期间用户开始打字了——不替换,改进冲突态(编辑器内容不动)。
+  if (ifClean && isFilesDirty()) {
+    filesDoc.conflict = { hash: doc.hash, exists: true };
+    renderFilesHead();
+    return false;
+  }
   const editor = ensureEditor(monaco);
   const uri = monaco.Uri.file(path);
   const previous = editor.getModel();
   let model = keep && previous ? previous : monaco.editor.getModel(uri);
-  const key = draftKey(root, path);
-  const draft = doc.readonly ? null : drafts.get(key);
   applyingDisk = true;
   try {
     if (model) {
@@ -393,14 +443,22 @@ export async function openFileDoc(file) {
     return true;
   }
   if (isFilesDirty()) {
-    const choice = await confirmDialog({
+    // 保存已被后端拒过(磁盘上的文件变得不能写):不给「保存」,只给 不保存 / 取消,并说明切走会丢。
+    const blocked = filesDoc.blocked;
+    const choice = await confirmDialog(blocked ? {
+      title: t("未保存的修改"),
+      message: `${filesDoc.path} ${t("有未保存的修改,但保存被拒")}`,
+      list: [readonlyText(blocked), t("切换会丢掉这些修改;要留着就先取消,把内容复制出来。")],
+      okText: t("不保存"),
+      danger: true,
+    } : {
       title: t("未保存的修改"),
       message: `${filesDoc.path} ${t("有未保存的修改。切换前要保存吗?")}`,
       okText: t("保存"),
       safeText: t("不保存"),
     });
     if (choice === false) return false; // 取消:留在原文件,树高亮不动
-    if (choice === true && !(await saveFilesDoc())) return false; // 保存没成功(冲突/出错)就不走
+    if (choice === true && !blocked && !(await saveFilesDoc())) return false; // 保存没成功(冲突/出错)就不走
     if (root !== currentProject) return false;
   }
   return loadDoc(root, path, { line });
@@ -444,20 +502,23 @@ export async function saveFilesDoc({ overwrite = false } = {}) {
     doc.mtimeMs = result.mtimeMs ?? null;
     doc.savedVersion = version; // 保存期间继续输入的部分仍算未保存
     doc.conflict = null;
+    doc.blocked = null;
     closeCompare();
     drafts.delete(draftKey(doc.root, doc.path));
     syncNote = "";
-    toast(result.evidence ? `${t("已保存")} · ${t("被覆盖的磁盘版本已留证")}:${result.evidence}` : t("已保存"), { kind: "ok" });
+    toast(result.evidence ? `${t("已保存")} · ${labelled("被覆盖的磁盘版本已留证", result.evidence)}` : t("已保存"), { kind: "ok" });
     hooks.onSaved(doc.path);
     return true;
   } catch (error) {
     if (filesDoc !== doc) return false;
-    if (readonlyCodeOf(error)) {
-      doc.readonly = readonlyCodeOf(error);
-      applyReadonly(doc);
-      toast(readonlyText(doc.readonly), { kind: "warn" });
+    const code = readonlyCodeOf(error);
+    if (code) {
+      // 打开之后磁盘上的文件变了性质(只读属性/非 UTF-8/超 4MB/二进制):记成「保存被拒」,不改 doc.readonly——
+      // 修改仍算未保存、编辑器仍可编辑可复制,切文件照样确认、切项目照样存草稿;原因写进只读原因条。
+      doc.blocked = code;
+      toast(labelled("保存被拒", readonlyText(code)), { kind: "warn" });
     } else {
-      toastError(`${t("保存失败")}:${errorText(error)}`);
+      toastError(labelled("保存失败", errorText(error)));
     }
     return false;
   } finally {
@@ -496,7 +557,7 @@ function closeDeletedDoc() {
   openGeneration += 1;
   renderFilesHead();
   hooks.onActiveChange(null);
-  showPlaceholder(`${t("文件已在磁盘上被删除")}:${doc.path}`);
+  showPlaceholder(labelled("文件已在磁盘上被删除", doc.path));
 }
 
 // ---------- 比较(冲突时:原始侧 = 磁盘版本,修改侧 = 你的 model,可继续编辑;窄时 Monaco 自动改为上下内联) ----------
@@ -508,7 +569,7 @@ export async function openFilesCompare() {
   try {
     preview = await invoke("file_preview", { projectDir: doc.root, path: doc.path });
   } catch (error) {
-    toastError(`${t("读取磁盘版本失败")}:${error}`);
+    toastError(labelled("读取磁盘版本失败", error));
     return false;
   }
   if (filesDoc !== doc || compare) return false;
@@ -582,7 +643,9 @@ export async function filesWatchTick() {
       renderFilesHead();
       return true;
     }
-    await loadDoc(doc.root, doc.path, { keep: true, note: t("已从磁盘更新") });
+    // 刚读到的就是新版本:交给 loadDoc 直接用,不再读第二次(第二次读盘途中打的字会被盖掉);
+    // ifClean 兜住余下的 await——那期间变脏就进冲突态。
+    await loadDoc(doc.root, doc.path, { keep: true, note: t("已从磁盘更新"), preview, ifClean: true });
     return true;
   } catch {
     return false; // 轮询失败不打扰;下一拍再试
@@ -608,7 +671,7 @@ export function stashFilesDraft() {
   drafts.set(draftKey(doc.root, doc.path), {
     content: filesEditor.getModel().getValue(), hash: doc.hash, bom: doc.bom, eol: doc.eol,
   });
-  toast(`${t("未保存的修改已暂存,回到该文件时恢复")}:${doc.path}`, { kind: "info" });
+  toast(labelled("未保存的修改已暂存,回到该文件时恢复", doc.path), { kind: "info" });
   return true;
 }
 export function resetFilesDoc() {
@@ -651,10 +714,10 @@ export async function createNewFile() {
     const result = await invoke("file_write", { projectDir: root, path, content: "", expectedHash: null, bom: false, evidence: false });
     if (root !== currentProject) return false;
     if (result?.status === "conflict") toast(t("文件已存在,已直接打开"), { kind: "info" });
-    else toast(`${t("已创建")}:${path}`, { kind: "ok" });
+    else toast(labelled("已创建", path), { kind: "ok" });
     hooks.onCreated(path);
   } catch (error) {
-    toast(`${t("新建失败")}:${errorText(error)}`, { kind: "warn" });
+    toast(labelled("新建失败", errorText(error)), { kind: "warn" });
     return false;
   }
   const opened = await openFileDoc({ path });
@@ -694,4 +757,9 @@ defer(() => {
     void saveFilesDoc();
   });
   window.addEventListener("focus", () => void filesWatchTick());
+  // 切语言:头部、横幅按钮、只读原因条的文字都是渲染点 t() 写的(没有 data-i18n-key),Monaco 的只读提示也是。
+  document.addEventListener("kz:language", () => {
+    if (filesDoc) applyReadonly(filesDoc);
+    renderFilesHead();
+  });
 });

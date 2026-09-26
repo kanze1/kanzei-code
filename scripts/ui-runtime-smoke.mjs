@@ -800,8 +800,8 @@ if (SMOKE_MUTATE) {
     },
     // 切文件前的未保存确认。删了它,切换文件会静默丢掉修改。
     filesDirtyGuard: {
-      pattern: /if \(isFilesDirty\(\)\) \{(\r?\n\s*)const choice = await confirmDialog\(/,
-      replace: "if (false) {$1const choice = await confirmDialog(",
+      pattern: /if \(isFilesDirty\(\)\) \{(\r?\n\s*\/\/ 保存已被后端拒过)/,
+      replace: "if (false) {$1",
     },
     // 只读原因落到 Monaco 的 readOnly。写死 false,托管文档又能在编辑器里改(保存虽被后端拒,体验是假的)。
     filesReadonlyApply: {
@@ -842,6 +842,63 @@ if (SMOKE_MUTATE) {
     filesReloadKeepsDirty: {
       pattern: /if \(keep && isFilesDirty\(\)\) \{/,
       replace: "if (false) {",
+    },
+    // 复核修复(以下 11 条):
+    // 保存被后端以 READONLY 拒绝时记成 blocked。改回记成 readonly,isFilesDirty() 立刻为假:未保存标记消失、
+    // 切文件不再确认、切项目不存草稿——修改随 model 一起被释放(无头 Edge 实测复现过)。
+    filesSaveRejectBlocked: {
+      pattern: /doc\.blocked = code;/,
+      replace: "doc.readonly = code;",
+    },
+    // 草稿恢复时文件已不能写:草稿照样恢复,按保存被拒处理。删了它,草稿进了只读编辑器且不算未保存。
+    filesDraftIntoBlocked: {
+      pattern: /if \(draft && doc\.readonly\) \{/,
+      replace: "if (false) {",
+    },
+    // 轮询把刚读到的磁盘版本交给重载。去掉它,重载再读一次盘,那次读盘途中打的字会被盖掉。
+    filesWatchReuseRead: {
+      pattern: /\{ keep: true, note: t\("已从磁盘更新"\), preview, ifClean: true \}/,
+      replace: '{ keep: true, note: t("已从磁盘更新"), ifClean: true }',
+    },
+    // 静默重载在替换前复查脏状态。删了它,等 Monaco/读盘期间打的字被磁盘版本盖掉且标成干净。
+    filesReloadRecheckDirty: {
+      pattern: /if \(ifClean && isFilesDirty\(\)\) \{/,
+      replace: "if (false) {",
+    },
+    // 只替换变化的区间。去掉公共前缀,编辑退化成从第 1 行起替换,光标被挤走。
+    filesMinimalReload: {
+      pattern: /while \(start < limit && before\.charCodeAt\(start\) === after\.charCodeAt\(start\)\) start \+= 1;/,
+      replace: "",
+    },
+    // 重载时按后端探测设 EOL。删了它,磁盘从 LF 改成 CRLF 后 model 仍是 LF,下次保存把 CRLF 写回 LF。
+    filesEolReload: {
+      pattern: /model\.setEOL\(eolSequence\(monaco, doc\.eol\)\);/,
+      replace: "",
+    },
+    // 草稿按文件所属项目(doc.root)记。改成切换后的 currentProject,项目 A 的草稿会注入项目 B 的同名文件。
+    filesDraftKeyRoot: {
+      pattern: /drafts\.set\(draftKey\(doc\.root, doc\.path\), \{/,
+      replace: "drafts.set(draftKey(currentProject, doc.path), {",
+    },
+    // 模态打开时 Ctrl+S 兜底让路。删了它,确认框开着时按 Ctrl+S 会在背后保存文件。
+    filesCtrlSModal: {
+      pattern: /classList\.contains\("active"\) \|\| isModalOpen\(\)\) return;/,
+      replace: 'classList.contains("active")) return;',
+    },
+    // 保存成功后关掉比较视图。删了它,冲突已了结,左侧过时的磁盘版本还摆着。
+    filesSaveClosesCompare: {
+      pattern: /doc\.blocked = null;\r?\n\s*closeCompare\(\);/,
+      replace: "doc.blocked = null;",
+    },
+    // 头部文字没变就不碰节点。去掉比较,冲突横幅(role=alert)每敲一个键被读屏重读一遍。
+    filesHeadSetText: {
+      pattern: /if \(el && el\.textContent !== text\) el\.textContent = text;/,
+      replace: "if (el) el.textContent = text;",
+    },
+    // 切语言重画头部与横幅。删了它,英文界面的横幅按钮要等下一次渲染才变。
+    filesLanguageRerender: {
+      pattern: /[ \t]*document\.addEventListener\("kz:language", \(\) => \{\r?\n\s*if \(filesDoc\) applyReadonly\(filesDoc\);\r?\n\s*renderFilesHead\(\);\r?\n\s*\}\);\r?\n/,
+      replace: "",
     },
     // ── 分区:文件编辑(完) ──
   };
@@ -14958,10 +15015,13 @@ const docsB = {
 // 假 DOM 里没有 Monaco:经 17-files-editor.js 的 setMonacoLoader 接缝换成桩(model 的 alternativeVersionId、
 // EOL、撤销栈、命令表按 Monaco 语义近似),后端三条命令用一块内存「磁盘」模拟(指纹、冲突、只读、留证)。
 // 场景:S0 夹具与 IPC 契约 / S1 编辑保存(Ctrl+S、BOM、CRLF、保存期间继续输入)/ S2 冲突横幅(覆盖留证、用磁盘版本、比较)/
-// S3 切文件的未保存确认 / S4 只读原因 / S5 外部改动轮询 / S6 切项目草稿 / S7 行定位 / S8 分隔条 / S9 Ctrl+S 兜底 / S10 新建。
+// S3 切文件的未保存确认 / S4 只读原因 / S5 外部改动轮询 / S5b 静默重载(只读一次盘、最小编辑、途中打字进冲突、LF→CRLF)/
+// S6 切项目草稿(真实调用顺序)/ S7 行定位 / S8 分隔条 / S9 Ctrl+S 兜底(含模态让路)/ S11 保存被拒 ≠ 只读 / S10 新建。
 // 变异守卫:filesSaveCas / filesBomRoundtrip / filesTypingDuringSave / filesConflictBanner / filesOverwriteEvidence /
 // filesDirtyGuard / filesReadonlyApply / filesExternalReloadDirty / filesDraftStash / filesLineReveal / filesCtrlSFallback /
-// filesSplitMax / filesSplitControls / filesReloadKeepsDirty(各自恰好命中一处被守护的源码,删掉后这里必须变红)。
+// filesSplitMax / filesSplitControls / filesReloadKeepsDirty;复核修复:filesSaveRejectBlocked / filesDraftIntoBlocked /
+// filesWatchReuseRead / filesReloadRecheckDirty / filesMinimalReload / filesEolReload / filesDraftKeyRoot / filesCtrlSModal /
+// filesSaveClosesCompare / filesHeadSetText / filesLanguageRerender(各自恰好命中一处被守护的源码,删掉后这里必须变红)。
 {
   const editorNs = esmModuleCache.get("17-files-editor.js")?.namespace;
   const filesNs = esmModuleCache.get("17-files.js")?.namespace;
@@ -14998,12 +15058,35 @@ const docsB = {
     _changed() { for (const fn of this.listeners) fn({}); }
     getValue() { return this.lines.join(this.eol); }
     setValue(text) { this.lines = splitLines(text); this.undoStack = []; this.alt = ++versionSeq; this._changed(); }
+    // 按范围应用编辑(从后往前,偏移互不影响);插入文本里的换行归一成 model 的换行(Monaco 同样如此)。
+    // lastEdits 记下最近一次编辑的范围:静默重载要只替换变化的区间(光标与选区随编辑平移)。
     pushEditOperations(_selections, ops) {
       this.undoStack.push({ lines: this.lines.slice(), alt: this.alt });
-      this.lines = splitLines(ops.at(-1)?.text ?? "");
+      let text = this.getValue();
+      const sorted = [...ops].sort((a, b) => this._offsetAt(b.range.startLineNumber, b.range.startColumn) - this._offsetAt(a.range.startLineNumber, a.range.startColumn));
+      for (const op of sorted) {
+        const from = this._offsetAt(op.range.startLineNumber, op.range.startColumn);
+        const to = this._offsetAt(op.range.endLineNumber, op.range.endColumn);
+        text = text.slice(0, from) + String(op.text ?? "") + text.slice(to);
+      }
+      this.lines = splitLines(text);
+      this.lastEdits = ops.map((op) => ({ ...op.range }));
       this.alt = ++versionSeq;
       this._changed();
       return null;
+    }
+    _offsetAt(line, column) {
+      let offset = 0;
+      for (let i = 0; i < line - 1 && i < this.lines.length; i += 1) offset += this.lines[i].length + this.eol.length;
+      return offset + column - 1;
+    }
+    getPositionAt(offset) {
+      let rest = Math.max(0, offset);
+      for (let i = 0; i < this.lines.length; i += 1) {
+        if (rest <= this.lines[i].length) return { lineNumber: i + 1, column: rest + 1 };
+        rest -= this.lines[i].length + this.eol.length;
+      }
+      return { lineNumber: this.lines.length, column: this.lines.at(-1).length + 1 };
     }
     pushStackElement() {}
     getFullModelRange() { return { startLineNumber: 1, startColumn: 1, endLineNumber: this.lines.length, endColumn: this.lines.at(-1).length + 1 }; }
@@ -15058,8 +15141,10 @@ const docsB = {
   const fingerprint = (file) => `fnv-${djb2(`${file.bom ? "\uFEFF" : ""}${file.text}`)}`;
   const disk = new Map();
   let clock = 1000;
-  const putDisk = (path, text, { bom = false } = {}) => disk.set(path, { text, bom, mtime: (clock += 10) });
-  const readonlyOf = (path) => (/^\.kanzei\/(project|memory)\//i.test(path) ? "managed" : /(^|\/)\.git\//i.test(path) ? "git" : null);
+  const putDisk = (path, text, { bom = false, binary = false } = {}) => disk.set(path, { text, bom, binary, mtime: (clock += 10) });
+  // forcedReadonly:模拟「打开之后磁盘上的文件变了性质」(被转成 GBK、加了只读属性……):预览报只读、写入被拒。
+  const forcedReadonly = new Map();
+  const readonlyOf = (path) => forcedReadonly.get(path) ?? (/^\.kanzei\/(project|memory)\//i.test(path) ? "managed" : /(^|\/)\.git\//i.test(path) ? "git" : null);
   const eolOf = (text) => { const crlf = (text.match(/\r\n/g) ?? []).length; const total = (text.match(/\r\n|\r|\n/g) ?? []).length; return total && crlf * 2 > total ? "crlf" : "lf"; };
   const writes = [];
   const smokeFileSnapshot = {
@@ -15078,6 +15163,9 @@ const docsB = {
     const file = disk.get(path);
     if (!file) throw new Error(`无法打开 ${path}: 文件不存在`);
     const size = file.text.length + (file.bom ? 3 : 0);
+    if (file.binary) {
+      return { content: "", binary: true, truncated: false, size, hash: fingerprint(file), bom: false, eol: "lf", mixedEol: false, encoding: "unknown", mtimeMs: file.mtime, readonly: "binary" };
+    }
     return {
       content: file.text, binary: false, truncated: false, size, hash: fingerprint(file), bom: file.bom,
       eol: eolOf(file.text), mixedEol: /\r\n/.test(file.text) && /(^|[^\r])\n/.test(file.text), encoding: "utf-8", mtimeMs: file.mtime, readonly: readonlyOf(path),
@@ -15092,6 +15180,7 @@ const docsB = {
     const code = readonlyOf(path);
     if (code) throw new Error(`READONLY:${code}`);
     const file = disk.get(path);
+    if (file?.binary) throw new Error("READONLY:binary"); // 与 files_edit.rs 一致:磁盘上已是二进制就拒写
     if (file) {
       const current = fingerprint(file);
       if (expectedHash !== current) return { status: "conflict", hash: current, size: file.text.length, mtimeMs: file.mtime, exists: true, evidence: null };
@@ -15153,6 +15242,11 @@ const docsB = {
       for (const code of Object.keys(editorNs.READONLY_TEXT)) {
         assert(i18nNs.I18N_EN[editorNs.READONLY_TEXT[code]], `只读原因 ${code} 缺英文词条(READONLY_TEXT 经 t() 间接取值,i18n 静态冒烟看不见)`);
       }
+      // labelled("标签", 内容) 同理:标签经 t() 间接取值。
+      const editorSource = sources[scriptSrcs.indexOf("17-files-editor.js")] ?? "";
+      const labels = [...editorSource.matchAll(/labelled\("([^"]+)"/g)].map((match) => match[1]);
+      assert(labels.length >= 10, `前置:17-files-editor.js 里应能找到 labelled("…") 调用,实得 ${labels.length} 处`);
+      for (const label of labels) assert(i18nNs.I18N_EN[label] || i18nNs.I18N_DYNAMIC_EN?.[label], `labelled 标签「${label}」缺英文词条`);
       assert(editorNs.toProjectRel("C:\\smoke\\project\\src\\lib.rs", PROJECT) === "src/lib.rs" && editorNs.toProjectRel("./src/lib.rs", PROJECT) === "src/lib.rs",
         "工具结果里项目根下的绝对路径 / ./ 前缀应转成相对根的路径");
     }
@@ -15220,6 +15314,42 @@ const docsB = {
       await saveCommand()();
       await flush();
       assert(writes.length === writesBefore, "冲突未决时 Ctrl+S 不应再发普通保存(提示去横幅里选)");
+      // 读屏:横幅文字没变时,敲键不得重写 role=alert 容器与 role=status 的同步提示(换一次文本节点读屏就重读一遍)。
+      {
+        const spied = ["files-conflict-text", "files-sync"].map((id) => byId.get(id));
+        let rewrites = 0;
+        for (const el of spied) {
+          let proto = Object.getPrototypeOf(el);
+          let descriptor = null;
+          while (proto && !(descriptor = Object.getOwnPropertyDescriptor(proto, "textContent"))) proto = Object.getPrototypeOf(proto);
+          Object.defineProperty(el, "textContent", {
+            configurable: true,
+            get() { return descriptor.get.call(this); },
+            set(value) { rewrites += 1; descriptor.set.call(this, value); },
+          });
+        }
+        model().type("x");
+        model().type("y");
+        for (const el of spied) delete el.textContent;
+        model().undo();
+        model().undo();
+        assert(rewrites === 0, `冲突横幅/同步提示文字没变时,每次按键不得重写文本(读屏会重读),实际重写 ${rewrites} 次`);
+      }
+      // 切语言:横幅按钮(渲染点 t() 写的,没有 data-i18n-key)随语言重写。
+      {
+        const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+        sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+        await flush();
+        const useDiskEn = byId.get("files-use-disk")?.textContent;
+        const overwriteEn = byId.get("files-overwrite")?.textContent;
+        sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+        await flush();
+        const useDiskZh = byId.get("files-use-disk")?.textContent;
+        sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
+        await flush();
+        assert(useDiskEn === i18nNs.I18N_EN["用磁盘版本"] && overwriteEn === i18nNs.I18N_EN["覆盖磁盘版本"], `切到英文后冲突横幅按钮应立即变英文,实为 ${JSON.stringify([useDiskEn, overwriteEn])}`);
+        assert(useDiskZh === "用磁盘版本", `切回中文后冲突横幅按钮应回到中文,实为 ${JSON.stringify(useDiskZh)}`);
+      }
       // 比较:打开 diff(左 = 磁盘版本,右 = 当前 model),再点关闭并释放磁盘 model。
       byId.get("files-compare").click();
       await flush();
@@ -15231,12 +15361,17 @@ const docsB = {
       byId.get("files-diff").dispatchEvent({ type: "keydown", key: "Escape", defaultPrevented: false, preventDefault() {} });
       await flush();
       assert(diff.disposed && original.disposed && hidden("files-diff") && !hidden("files-editor"), "Esc 应关闭比较并释放 diff 与磁盘 model");
-      // 覆盖磁盘版本:按冲突指纹交换、要求留证。
+      // 覆盖磁盘版本(在比较视图里点):按冲突指纹交换、要求留证;成功后比较视图收起(冲突已了结,左侧的磁盘版本已过时)。
+      byId.get("files-compare").click();
+      await flush();
+      const reopened = stubDiffs.at(-1);
+      assert(editorNs.isFilesComparing() && reopened && !reopened.disposed, "前置:比较视图应已重新打开");
       byId.get("files-overwrite").click();
       await flush();
       const overwrite = lastWrite();
       assert(overwrite?.expectedHash === fingerprint({ text: "agent changed\n", bom: false }) && overwrite.evidence === true, `覆盖磁盘版本应带冲突指纹并要求留证,实为 ${JSON.stringify(overwrite)}`);
       assert(disk.get("src/lib.rs").text === "base\nmine" && !doc()?.conflict && hidden("files-conflict"), "覆盖后应写盘并收起横幅");
+      assert(!editorNs.isFilesComparing() && reopened.disposed && hidden("files-diff") && !hidden("files-editor") && hidden("files-compare-head"), "保存成功后应关掉比较视图、回到单编辑器");
       // 用磁盘版本:重新读盘,干净,Ctrl+Z 还能回到刚才的修改。
       model().type(" again");
       putDisk("src/lib.rs", "agent v2\n");
@@ -15334,22 +15469,84 @@ const docsB = {
       assert(!doc() && /已在磁盘上被删除/.test(byId.get("files-placeholder")?.textContent ?? ""), "干净的文件被删后应关掉并说明");
     }
 
-    // S6 切项目:未保存修改暂存为草稿,回到该文件恢复(变脏);草稿之后磁盘又变 → 直接冲突。
+    // S5b 静默重载:只读一次盘(轮询刚读到的版本直接交给重载);只替换变化的行区间(光标/选区随编辑平移);
+    // 重载途中(还在等 Monaco / 读盘)用户开始打字 → 进冲突态、不盖掉;磁盘从 LF 改成 CRLF → model 换行跟上。
+    {
+      const previews = () => invokeArgs.filter((call) => call.cmd === "file_preview").length;
+      putDisk("docs/note.md", "l1\nl2\nl3\nl4\nl5\n");
+      await open("docs/note.md");
+      putDisk("docs/note.md", "l1\nl2\nL3 by agent\nl4\nl5\n");
+      const readsBefore = previews();
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(previews() === readsBefore + 1, `轮询发现外部改动后只应读一次盘(读到的版本直接交给重载,第二次读盘途中打的字会被盖掉),实为 ${previews() - readsBefore} 次`);
+      assert(model()?.getValue() === "l1\nl2\nL3 by agent\nl4\nl5\n" && !editorNs.isFilesDirty(), "干净文件应静默重载为磁盘内容");
+      const edit = model()?.lastEdits?.at(-1);
+      assert(edit && edit.startLineNumber === 3 && edit.endLineNumber === 3, `静默重载应只替换变化的那一行(整篇替换会让光标跳位),实为 ${JSON.stringify(edit)}`);
+      // 重载途中打字:把 Monaco 加载挂住(脏检查之后、替换之前的那段 await),期间打字。
+      let releaseMonaco;
+      const monacoGate = new Promise((resolveGate) => { releaseMonaco = resolveGate; });
+      editorNs.setMonacoLoader(() => monacoGate.then(() => monacoStub));
+      putDisk("docs/note.md", "l1\nl2\nL3 v2\nl4\nl5\n");
+      const tick = editorNs.filesWatchTick();
+      await flush();
+      model().type("typed");
+      releaseMonaco();
+      await tick;
+      await flush();
+      editorNs.setMonacoLoader(async () => monacoStub);
+      assert(model()?.getValue() === "l1\nl2\nL3 by agent\nl4\nl5\ntyped" && editorNs.isFilesDirty(), `重载途中打的字不能被磁盘版本盖掉,实为 ${JSON.stringify(model()?.getValue())}`);
+      assert(doc()?.conflict?.exists === true && doc().conflict.hash === fingerprint(disk.get("docs/note.md")) && !hidden("files-conflict"), "重载途中变脏应改进冲突态(带磁盘现状指纹)");
+      byId.get("files-use-disk").click();
+      await flush();
+      assert(model()?.getValue() === "l1\nl2\nL3 v2\nl4\nl5\n" && !editorNs.isFilesDirty(), "前置:用磁盘版本后应干净");
+      // 干净文件在磁盘上从 LF 改成 CRLF(行内容不变):重载后 model 的换行要跟着变,下次保存才仍是 CRLF。
+      putDisk("docs/note.md", "l1\r\nl2\r\nL3 v2\r\nl4\r\nl5\r\n");
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(model()?.getEOL() === "\r\n" && !editorNs.isFilesDirty(), `磁盘从 LF 改成 CRLF 后重载,model 换行应为 CRLF,实为 ${JSON.stringify(model()?.getEOL())}`);
+      // 有未保存修改时磁盘上的文件被换成二进制(代理生成了图片之类):轮询在进 loadDoc 之前就判脏进冲突——
+      // loadDoc 的二进制分支会释放 model,重载里的复查排在它后面兜不住这一支。
+      model().type("mine");
+      const kept = model();
+      putDisk("docs/note.md", "PNG\0data", { binary: true });
+      await editorNs.filesWatchTick();
+      await flush();
+      assert(doc()?.conflict?.exists === true && model() === kept && !kept.disposed && kept.getValue().endsWith("mine"), "有未保存修改时磁盘被换成二进制,应进冲突态且保住带修改的 model");
+      // 覆盖一个已变成二进制的文件:后端拒(READONLY:binary)→ 记成保存被拒,修改仍在、仍是未保存。
+      byId.get("files-overwrite").click();
+      await flush();
+      assert(doc()?.blocked === "binary" && editorNs.isFilesDirty() && model() === kept && disk.get("docs/note.md").binary, "覆盖已变成二进制的文件被拒时应记成保存被拒,修改仍在");
+      byId.get("files-use-disk").click();
+      await flush();
+      assert(doc()?.binary && !model() && !hidden("files-placeholder"), "选「用磁盘版本」后显示二进制占位");
+    }
+
+    // S6 切项目:按真实顺序(activate_execution_root 先 setCurrentProject 再 reset_files_scope)。
+    // 草稿按文件所属项目记(doc.root),不按切换后的当前项目:另一个项目里的同名文件不得被注入草稿;
+    // 回到原项目的该文件恢复(变脏);草稿之后磁盘又变 → 直接冲突。
+    const OTHER_PROJECT = "C:/smoke/files-other-project";
+    const switchProject = async (next) => {
+      sandbox.currentProject = next;
+      filesNs.reset_files_scope();
+      filesNs.showFilesView();
+      await flush();
+    };
     {
       putDisk("src/main.rs", "fn main() {}\n");
       await open("src/main.rs");
       model().type("draft");
-      filesNs.reset_files_scope();
-      await flush();
+      await switchProject(OTHER_PROJECT);
       assert(editorNs.filesDraftCount() === 1 && !doc(), "切项目时未保存修改应暂存为草稿并清空编辑器");
-      filesNs.showFilesView();
-      await flush();
       await open("src/main.rs");
-      assert(model()?.getValue() === "fn main() {}\ndraft" && editorNs.isFilesDirty() && editorNs.filesDraftCount() === 0, "回到该文件应恢复草稿且是未保存状态");
-      filesNs.reset_files_scope();
+      assert(doc()?.root === OTHER_PROJECT && model()?.getValue() === "fn main() {}\n" && !editorNs.isFilesDirty() && editorNs.filesDraftCount() === 1,
+        `另一个项目里的同名文件不得被注入草稿(草稿按文件所属项目记),实为 ${JSON.stringify(model()?.getValue())}`);
+      await switchProject(PROJECT);
+      await open("src/main.rs");
+      assert(model()?.getValue() === "fn main() {}\ndraft" && editorNs.isFilesDirty() && editorNs.filesDraftCount() === 0, "回到原项目的该文件应恢复草稿且是未保存状态");
+      await switchProject(OTHER_PROJECT);
       putDisk("src/main.rs", "changed meanwhile\n");
-      filesNs.showFilesView();
-      await flush();
+      await switchProject(PROJECT);
       await open("src/main.rs");
       assert(doc()?.conflict?.exists === true && model()?.getValue() === "fn main() {}\ndraft", "草稿之后磁盘又变了应直接进冲突态");
       byId.get("files-use-disk").click();
@@ -15405,6 +15602,58 @@ const docsB = {
       fallback?.({ key: "s", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, defaultPrevented: false, preventDefault() { prevented = true; } });
       assert(!prevented, "离开文件页后 Ctrl+S 兜底不应生效");
       view.classList.add("active");
+      // 模态(确认框、命令面板……)打开时 Ctrl+S 不归文件页:不保存、不拦默认行为(焦点在模态里,用户没在看编辑器)。
+      const surfaceNs = esmModuleCache.get("00-surface.js")?.namespace;
+      model().type("?");
+      const pendingConfirm = surfaceNs.confirmDialog({ title: "smoke", message: "modal" });
+      await flush();
+      assert(surfaceNs.isModalOpen(), "前置:确认框应已作为模态打开");
+      const writesBeforeModal = writes.length;
+      prevented = false;
+      fallback?.({ key: "s", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, defaultPrevented: false, preventDefault() { prevented = true; } });
+      await flush();
+      surfaceNs.closeSurface(byId.get("confirm-overlay"), false);
+      await pendingConfirm;
+      await flush();
+      assert(writes.length === writesBeforeModal && !prevented && editorNs.isFilesDirty(), "模态打开时 Ctrl+S 兜底不应保存,也不应拦默认行为");
+      await saveCommand()();
+      await flush();
+    }
+
+    // S11 保存被拒(打开之后磁盘上的文件变了性质:被转成 GBK / 加了只读属性 / 超 4MB / 变二进制)≠ 打开即只读。
+    // 未保存修改必须仍受保护:头部与树上的琥珀点在、编辑器可编辑、切文件照样确认(只给 不保存 / 取消)、切项目照样存草稿;
+    // 原因写在只读原因条里。草稿恢复时文件已不能写:草稿照样恢复(能看、能复制),按保存被拒处理。
+    {
+      putDisk("src/lib.rs", "one\n");
+      putDisk("src/main.rs", "fn main() {}\n");
+      editorNs.resetFilesDoc();
+      await open("src/lib.rs");
+      model().type("mine");
+      forcedReadonly.set("src/lib.rs", "encoding");
+      await saveCommand()();
+      await flush();
+      assert(doc()?.blocked === "encoding" && !doc()?.readonly, `保存被拒应记成 blocked 而不是 readonly,实为 blocked=${doc()?.blocked} readonly=${doc()?.readonly}`);
+      assert(editorNs.isFilesDirty() && !hidden("files-dirty") && treeRow("lib.rs")?.classList.contains("dirty"), "保存被拒后修改仍是未保存(头部「未保存」与树上的琥珀点都在)");
+      assert(editor()?.options.readOnly === false && model()?.getValue() === "one\nmine", "保存被拒不应把编辑器变成只读,修改应还在");
+      assert(!hidden("files-readonly") && /保存被拒/.test(byId.get("files-readonly-text")?.textContent ?? "") && /UTF-8/.test(byId.get("files-readonly-text")?.textContent ?? ""), `只读原因条应说明保存被拒及原因,实为 "${byId.get("files-readonly-text")?.textContent}"`);
+      let asked = null;
+      sandbox.confirmDialog = (options) => { asked = options; return Promise.resolve(false); };
+      const switched = await open("src/main.rs");
+      sandbox.confirmDialog = priorConfirm;
+      assert(asked && !switched && doc()?.path === "src/lib.rs" && model()?.getValue() === "one\nmine", "保存被拒后切文件仍要弹未保存确认,取消则留在原文件");
+      assert(asked?.okText === i18nNs.t("不保存") && !asked?.safeText && asked?.danger === true, `保存被拒时切文件的确认只给「不保存 / 取消」,实为 ${JSON.stringify(asked)}`);
+      // 切项目仍存草稿;回来时文件还是不能写 → 草稿照样恢复,按保存被拒处理(可编辑、未保存)。
+      await switchProject(OTHER_PROJECT);
+      assert(editorNs.filesDraftCount() === 1, "保存被拒后切项目仍应把修改暂存成草稿");
+      await switchProject(PROJECT);
+      await open("src/lib.rs");
+      assert(model()?.getValue() === "one\nmine" && doc()?.blocked === "encoding" && !doc()?.readonly && editorNs.isFilesDirty() && editor()?.options.readOnly === false && editorNs.filesDraftCount() === 0,
+        `草稿恢复时文件已不能写:草稿应照样恢复为未保存、按保存被拒处理,实为 ${JSON.stringify({ value: model()?.getValue(), blocked: doc()?.blocked, readonly: doc()?.readonly })}`);
+      // 原因解除(转回 UTF-8)后可以正常保存,保存被拒的提示随之消失。
+      forcedReadonly.delete("src/lib.rs");
+      await saveCommand()();
+      await flush();
+      assert(disk.get("src/lib.rs").text === "one\nmine" && !doc()?.blocked && hidden("files-readonly") && !editorNs.isFilesDirty(), "原因解除后应能保存并收起保存被拒的说明");
     }
 
     // S10 新建文件:输入相对路径 → 不带指纹写空文件(已存在即冲突不覆盖)→ 展开祖先目录并打开。
