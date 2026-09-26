@@ -622,7 +622,9 @@ export async function createGraphView(host, opts = {}) {
     },
     fit(ms = 400) {
       const filter = layout === "clusters" ? (node) => node.kind === "memory" || node.kind === "crate" || node.kind === "module" : undefined;
-      fg.zoomToFit(motionMs(ms), 36, filter);
+      // 邻域只有十几个节点,适配后缩放常到 2.4 以上,记忆标签带上标题(约 140px 宽、以节点为中心):
+      // 留白按半个标题宽给,否则贴边节点的标签被画布左右边裁掉(宽画布下实测)。
+      fg.zoomToFit(motionMs(ms), layout === "ego" ? 96 : 36, filter);
     },
     /** 建视图时读到的减少动效设置(冒烟与调试用)。 */
     reducedMotion,
