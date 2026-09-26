@@ -159,7 +159,7 @@ const TOOL_RESULT_TRUNCATE_TAIL_BYTES: usize = 4 * 1024;
 /// 次数只增不减,而清理计划又看不到它(F1/#8、#30)。
 const TOOL_RESULT_SHADOW_DIR: &str = "shadow";
 
-fn lock_tool_result_storage(
+pub(super) fn lock_tool_result_storage(
     project_root: &Path,
     budget: std::time::Duration,
 ) -> std::io::Result<Option<kanzei_base::atomic_file::FileLock>> {
@@ -208,6 +208,13 @@ fn tool_result_storage_bytes(root: &Path) -> std::io::Result<u64> {
     let mut total = 0;
     visit(root, &mut total)?;
     Ok(total)
+}
+
+/// D-349 配额的计量口径:tool-results(不含 shadow)+ tool-images(UI2-0926 #8 截图回显)。
+/// 两类工具产物共用同一个 2 GiB 配额与同一把配额锁。
+pub(super) fn artifact_storage_bytes(project_root: &Path) -> std::io::Result<u64> {
+    let results = tool_result_storage_bytes(&project_root.join(".kanzei/artifacts/tool-results"))?;
+    Ok(results.saturating_add(super::tool_images::tool_images_bytes(project_root)?))
 }
 
 fn record_tool_result_shadow_telemetry(
@@ -271,11 +278,21 @@ fn record_tool_result_shadow_telemetry(
 ///   `quota_truncated`,为空时才写 `{"kind":"truncated",..}`。
 /// - 只有 artifact 路径被非普通文件占用或写入失败时,结果转为
 ///   TOOL_RESULT_SPILL_FAILED,避免事件看起来像一次成功的外置。
+///
+/// UI2-0926 #8:带图片的结果先把图片落到 tool-images(同一配额),外置/截断**之后**再把
+/// `[tool-image] <相对路径>` 标记追加到 content 末尾——对话实时显示与历史回放都靠它回显。
 pub(crate) fn materialize_tool_output(
     output: &mut kanzei_harness::ToolOutput,
     ctx: &ToolCtx,
     tool_name: &str,
 ) {
+    let markers = super::tool_images::persist_tool_images(
+        output,
+        tool_name,
+        &ctx.project_root,
+        TOOL_RESULT_STORAGE_QUOTA_BYTES,
+        TOOL_RESULT_QUOTA_LOCK_BUDGET,
+    );
     materialize_tool_output_with_quota(
         output,
         ctx,
@@ -283,6 +300,7 @@ pub(crate) fn materialize_tool_output(
         TOOL_RESULT_STORAGE_QUOTA_BYTES,
         TOOL_RESULT_QUOTA_LOCK_BUDGET,
     );
+    super::tool_images::append_markers(output, &markers);
 }
 
 /// `materialize_tool_output` 的可注入版本:配额与锁等待预算由调用方给(测试用),
@@ -426,8 +444,7 @@ fn store_tool_result_artifact(
             };
         }
     };
-    let artifact_root = project_root.join(".kanzei/artifacts/tool-results");
-    let used_bytes = match tool_result_storage_bytes(&artifact_root) {
+    let used_bytes = match artifact_storage_bytes(project_root) {
         Ok(bytes) => bytes,
         Err(error) => {
             tracing::warn!(tool = tool_name, %error, "无法计量工具结果存储占用,结果降级为 Inline 截断");

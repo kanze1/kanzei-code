@@ -1,4 +1,7 @@
 {
+  "delivered_image": {
+    "png": "string"
+  },
   "docs_snapshot": {
     "archived": {
       "defect": "number",
@@ -232,6 +235,46 @@
     "reused": "number",
     "unannotated": "number"
   },
+  "kz:preview-console": {
+    "entries": [
+      {
+        "col": "number",
+        "level": "string",
+        "line": "number",
+        "seq": "number",
+        "text": "string",
+        "ts": "number",
+        "url": "string"
+      }
+    ]
+  },
+  "kz:preview-pick": {
+    "png": "string",
+    "rect": {
+      "h": "number",
+      "w": "number",
+      "x": "number",
+      "y": "number"
+    },
+    "selector": "string",
+    "tag": "string",
+    "text": "string"
+  },
+  "kz:preview-state": {
+    "boundProcessId": "string",
+    "canBack": "bool",
+    "canForward": "bool",
+    "device": "string",
+    "error": {
+      "kind": "string",
+      "text": "string"
+    },
+    "loading": "bool",
+    "scheme": "string",
+    "title": "string",
+    "url": "string",
+    "visible": "bool"
+  },
   "memory_graph": {
     "areas": [
       {
@@ -333,6 +376,36 @@
       "value": "string"
     }
   },
+  "preview_capture": {
+    "height": "number",
+    "png": "string",
+    "width": "number"
+  },
+  "preview_console": {
+    "entries": [
+      {
+        "col": "number",
+        "level": "string",
+        "line": "number",
+        "seq": "number",
+        "text": "string",
+        "ts": "number",
+        "url": "string"
+      }
+    ]
+  },
+  "preview_dev_urls": {
+    "urls": [
+      {
+        "command": "string",
+        "pid": "number",
+        "url": "string"
+      }
+    ]
+  },
+  "preview_snippet": {
+    "url": "string"
+  },
   "project_root_info": {
     "autoRepaired": "bool",
     "resolved": "string",
@@ -357,5 +430,8 @@
       }
     ],
     "path": "string"
+  },
+  "tool_image": {
+    "png": "string"
   }
 }

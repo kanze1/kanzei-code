@@ -19,10 +19,25 @@ mod background;
 mod base;
 pub mod bash;
 mod browser_tool;
+/// UI2-0926 #8:browser 工具对桌面端面板后端开放的共用面(输入、schema、目标解析、权限资源、
+/// 输出格式、无头执行)。两个后端的输出格式只在 browser_tool 里写一份。
+pub mod browser {
+    pub use crate::browser_tool::{
+        browser_error, current_url, description, dom_walker_expression, execute_headless,
+        format_console_item, input_schema, out_click, out_console, out_dom, out_eval, out_open,
+        out_press, out_screenshot, out_scroll, out_type, out_wait, parse_browser_input,
+        parse_viewport, resolve_nav_target, resources_for, screenshot_scope, scroll_scope,
+        set_current_url, url_resource, validate, viewport_label, wait_scope, Backend,
+        BrowserAction, BrowserInput, ConsoleItem, NavTarget, CONSOLE_ALL_LIMIT, HEADLESS_PANE_HINT,
+        MAX_EVAL_CHARS, MAX_SCREENSHOT_BYTES, MAX_WAIT_MS,
+    };
+}
 /// R-311:条目关闭收尾链遥测与滚动汇总，供 tracker 写入与 `kz metrics` 消费。
 pub mod close_telemetry;
 pub mod conventions;
 mod cross_tree;
+/// UI2-0926 #8:本地开发服务地址发现(后台进程输出 → 预览面板空态列表)。
+pub mod dev_urls;
 mod edit;
 pub mod files;
 pub mod frontend;
@@ -38,6 +53,8 @@ mod managed;
 pub use managed::MANAGED_ROOTS;
 pub mod palette;
 mod plot_tool;
+/// UI2-0926 #8:网页预览静态服务(127.0.0.1 随机端口 + token,登记根与内存片段)。
+pub mod preview_server;
 pub mod prior_art;
 mod process;
 /// UI2-0926 #13:项目状态事实(空项目/Git 三态/技术栈/工具链),agent 上下文与桌面端共用。

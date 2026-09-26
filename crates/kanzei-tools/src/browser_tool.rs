@@ -1,35 +1,65 @@
-//! 浏览器工具(R-269):playwright-core 辅进程 headless 自检通道。
+//! 浏览器工具(R-269;UI2-0926 #8 扩展):一个工具名,两个后端。
 //!
-//! Rust 侧经 stdio 起 `scripts/browser-helper.mjs`(Node 辅进程),playwright-core
-//! 以 channel 模式自 launch 本机 Edge/Chrome headless(不下载浏览器二进制)。
-//! 自 launch 实例不碰 WebView2,天然绕开 D-319(WebView2 DevTools 端口不监听)。
+//! - **无头后端**(本 crate,CLI 与桌面兜底):Rust 经 stdio 起 `scripts/browser-helper.mjs`
+//!   (Node 辅进程),playwright-core 以 channel 模式自 launch 本机 Edge/Chrome headless,不碰
+//!   WebView2,天然绕开 D-319。机制见 [`headless`]。
+//! - **面板后端**(kanzei-app `preview::agent`):桌面端「网页预览」面板开着、又正显示这条线时,
+//!   同名动作经进程内 CDP 驱动用户眼前的面板。走哪边由引擎路由(`preview::route`),模型不选。
 //!
-//! 协议:JSON-RPC over stdio,单行 JSON 请求/响应,id 配对。Node 侧是权威数据源
-//! (browser/page 实例),Rust 侧是客户端 + 生命周期管理。
-//!
-//! # 生命周期(不变式:不留僵尸 headless)
-//! - 辅进程单例:同一 project 的多次调用复用同一个 Node 进程与 browser;
-//! - 空闲超时回收:每次调用后刷新 last_used,后台线程在空闲超过预算时发
-//!   `shutdown` 并等进程退出(reaper 常驻,shutdown 后继续监控);
-//! - 工具关闭即收尾:Drop 时 kill + wait(兜底),保证不留进程。
-//!
-//! # 缺依赖诊断
-//! 无 Node / 无 Edge/Chrome / playwright-core 未装:明确报错并给出修复指引,
-//! 不静默降级。
+//! 两个后端共用这里的输入结构、schema、目标解析(本地路径与 HTML 片段一律走
+//! [`crate::preview_server`] 的 127.0.0.1 静态服务)、权限资源与**全部输出格式**——
+//! 结果首行写明 `backend: pane（用户可见）` 或 `backend: headless`,其余逐字同形。
 
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
 use kanzei_harness::ToolOutput;
 use serde::Deserialize;
+use sha2::Digest;
 
-/// R-269 浏览器工具:playwright-core 辅进程 headless 自检通道。
-///
-/// 能力(按批次):批1 open(URL/本地文件)+ screenshot(含移动 viewport,图片经
-/// ToolOutput.images 回模型);批2 dom/console;批3 click/type。
+mod headless;
+pub use headless::execute_headless;
+
+/// DOM walker 唯一源:无头侧 helper `import`,面板侧经 [`dom_walker_expression`] 包进 CDP 表达式。
+const DOM_WALKER_SOURCE: &str = include_str!("../../../scripts/browser-dom-walker.mjs");
+
+/// 单次截图体积上限(与 R-249 截图口径一致,防超大 base64 打爆上下文)。
+pub const MAX_SCREENSHOT_BYTES: usize = 4 * 1024 * 1024;
+/// eval 结果回喂上限(字符)。
+pub const MAX_EVAL_CHARS: usize = 8_000;
+/// wait 的等待上限。
+pub const MAX_WAIT_MS: u64 = 10_000;
+/// console all=true 时回喂的条数上限。
+pub const CONSOLE_ALL_LIMIT: usize = 200;
+
+/// 结果走了哪个后端。首行必须写明——弱模型分不清两个后端时,至少知道用户看没看见。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Backend {
+    Pane,
+    Headless,
+}
+
+impl Backend {
+    pub fn line(self) -> &'static str {
+        match self {
+            Backend::Pane => "backend: pane（用户可见）",
+            Backend::Headless => "backend: headless",
+        }
+    }
+
+    fn slot(self) -> usize {
+        match self {
+            Backend::Pane => 0,
+            Backend::Headless => 1,
+        }
+    }
+}
+
+/// 桌面端走无头时追加的一行:用户看不到无头画面,卡片上有「在预览中打开」。
+pub const HEADLESS_PANE_HINT: &str = "提示: 用户看不到无头浏览器的画面;需要用户一起看时,请用户点卡片上的「在预览中打开」把它显示在网页预览面板里。";
+
+/// R-269 浏览器工具(无头后端)。CLI 与桌面兜底都注册它;桌面端由 kanzei-app 的
+/// DesktopBrowserTool 以同名覆盖、按面板状态路由。
 pub(crate) struct BrowserTool;
 
 #[async_trait::async_trait]
@@ -39,15 +69,7 @@ impl kanzei_harness::Tool for BrowserTool {
     }
 
     fn description(&self) -> String {
-        "Open a URL or local HTML file in a headless browser (playwright-core channel mode, \
-         uses your installed Edge/Chrome — never WebView2, so it sidesteps D-319) and return \
-         a screenshot through the image channel. Params: url or path; optional viewport \
-         (mobile-375x667 | mobile-390x844 | mobile-412x915 | mobile-360x800) for mobile UI \
-         self-checks; optional channel (msedge default | chrome). The screenshot is delivered \
-         as an image the model can actually see. Stateful flow: call open with url/path once, \
-         then call dom/console/click/type without url/path to keep the current page state. \
-         Supplying url/path to an action explicitly reloads that target before the action."
-            .into()
+        description()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -55,12 +77,19 @@ impl kanzei_harness::Tool for BrowserTool {
     }
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        let target = input["path"]
-            .as_str()
-            .map(|p| format!("path:{p}"))
-            .or_else(|| input["url"].as_str().map(|u| format!("url:{u}")))
-            .unwrap_or_else(|| "*".into());
-        vec![target]
+        resources_for(input, None, current_url(Backend::Headless).as_deref())
+    }
+
+    fn resources_with_ctx(
+        &self,
+        input: &serde_json::Value,
+        ctx: &kanzei_harness::ToolCtx,
+    ) -> Vec<String> {
+        resources_for(
+            input,
+            Some(&ctx.cwd),
+            current_url(Backend::Headless).as_deref(),
+        )
     }
 
     fn concurrency(
@@ -73,46 +102,74 @@ impl kanzei_harness::Tool for BrowserTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &kanzei_harness::ToolCtx) -> ToolOutput {
-        let _ = ctx; // 辅进程按单例管理,不依赖 cwd/project_root 分区(仓库级浏览器)。
-        let parsed: BrowserInput = match serde_json::from_value(input) {
-            Ok(v) => v,
-            Err(e) => {
-                return ToolOutput::error(format!(
-                    "browser 参数解析失败: {e}。需要 url 或 path;可选 viewport/channel"
-                ))
-            }
-        };
-        start_idle_reaper();
-        execute_browser(parsed).await
+        match parse_browser_input(input) {
+            Ok(parsed) => execute_headless(parsed, ctx, false).await,
+            Err(output) => *output,
+        }
     }
 }
 
-/// 辅进程空闲回收预算:超过这个时间没有调用就 shutdown。
-const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
-/// RPC 调用超时(含 browser launch 首次冷启动)。
-const RPC_TIMEOUT: Duration = Duration::from_secs(60);
-/// 单次截图体积上限(与 R-249 截图口径一致,防超大 base64 打爆上下文)。
-const MAX_SCREENSHOT_BYTES: usize = 4 * 1024 * 1024;
+/// 两个后端共用的工具说明。
+pub fn description() -> String {
+    "Drive a browser page and see it. Actions: open (navigate to url/path/html, return a \
+     screenshot), screenshot (current page, no reload; full_page or selector), dom, console \
+     (errors/warnings; all=true for every level), click, type, press (key), scroll, wait \
+     (selector/text/ms ≤10000), eval (JS expression → JSON). Targets: url (http/https), path \
+     (local HTML, served from a 127.0.0.1 static server so ES modules work) or html (inline \
+     snippet). Stateful: open once, then omit url/path/html to keep the current page. Optional \
+     viewport (mobile/tablet/desktop presets) and color_scheme (light|dark). In the desktop \
+     app, when the user has the web preview pane open on this conversation, actions drive that \
+     visible pane; otherwise a headless Edge/Chrome. Result line 1 names the backend."
+        .into()
+}
 
-#[derive(Deserialize)]
-pub(crate) struct BrowserInput {
-    /// open: 目标 URL 或本地文件路径。
-    url: Option<String>,
-    /// open: 本地文件路径(file:// 自动转换)。
-    path: Option<String>,
-    /// 动作:open(默认,打开并截图)| dom(读可读结构)| console(读页面错误)
-    /// | click(点元素)| type(填输入框)。
+/// 工具输入。字段与 [`input_schema`] 对齐;面板后端直接读这些字段。
+#[derive(Deserialize, Debug, Clone)]
+pub struct BrowserInput {
+    /// 目标 http(s) URL(也接受 file:// 与 about:blank)。
+    pub url: Option<String>,
+    /// 本地 HTML 文件路径(相对代码树或绝对),经静态服务打开。
+    pub path: Option<String>,
+    /// 内联 HTML 片段,经静态服务 /s/ 打开。
+    pub html: Option<String>,
     #[serde(default = "default_action")]
-    action: String,
-    /// dom / click / type: CSS selector。
-    selector: Option<String>,
-    /// type: 要填入的文本。
-    text: Option<String>,
-    /// screenshot / open: 移动 viewport 预设(mobile-375x667 等)。
-    viewport: Option<String>,
-    /// 浏览器 channel:msedge(默认) | chrome。
+    pub action: String,
+    pub selector: Option<String>,
+    pub text: Option<String>,
+    pub key: Option<String>,
+    pub expression: Option<String>,
+    pub dy: Option<f64>,
+    pub ms: Option<u64>,
+    #[serde(default)]
+    pub full_page: bool,
+    #[serde(default)]
+    pub all: bool,
+    pub viewport: Option<String>,
+    pub color_scheme: Option<String>,
     #[serde(default = "default_channel")]
-    channel: String,
+    pub channel: String,
+}
+
+impl Default for BrowserInput {
+    fn default() -> Self {
+        BrowserInput {
+            url: None,
+            path: None,
+            html: None,
+            action: default_action(),
+            selector: None,
+            text: None,
+            key: None,
+            expression: None,
+            dy: None,
+            ms: None,
+            full_page: false,
+            all: false,
+            viewport: None,
+            color_scheme: None,
+            channel: default_channel(),
+        }
+    }
 }
 
 fn default_channel() -> String {
@@ -123,488 +180,493 @@ fn default_action() -> String {
     "open".into()
 }
 
-/// 辅进程句柄:子进程 + 写请求的 stdin + reader 线程推入的响应行。
-/// D-400:stdout 由独立 reader 线程持续读(挂死时 recv_timeout 兜底,
-/// 此前 read_line 阻塞使 60s 超时失效)。
-struct HelperProcess {
-    child: Child,
-    stdin: ChildStdin,
-    rx: std::sync::mpsc::Receiver<String>,
-    next_id: u64,
+/// 解析工具输入;失败时给出带格式说明的纠错输出。
+pub fn parse_browser_input(input: serde_json::Value) -> Result<BrowserInput, Box<ToolOutput>> {
+    serde_json::from_value(input).map_err(|e| {
+        Box::new(ToolOutput::error(format!(
+            "browser 参数解析失败: {e}。open 需要 url、path 或 html 之一;其余动作可省略目标复用当前页面"
+        )))
+    })
 }
 
-impl Drop for HelperProcess {
-    fn drop(&mut self) {
-        // D-400:模块头注释声称「Drop 收尾」但此前无实现——补上 kill + wait 兜底,
-        // 不留僵尸 headless(注释已与实现对齐)。
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrowserAction {
+    Open,
+    Screenshot,
+    Dom,
+    Console,
+    Click,
+    Type,
+    Press,
+    Scroll,
+    Wait,
+    Eval,
+}
+
+impl BrowserAction {
+    /// 动作名解析。弱模型常写的近义词直接映射,其余报错并列出合法值——
+    /// 旧实现把未知动作一律当 open,会悄悄重新导航、丢掉页面状态。
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        Ok(match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "open" | "navigate" | "goto" | "visit" => BrowserAction::Open,
+            "screenshot" | "capture" | "snapshot" => BrowserAction::Screenshot,
+            "dom" => BrowserAction::Dom,
+            "console" | "logs" => BrowserAction::Console,
+            "click" => BrowserAction::Click,
+            "type" | "fill" => BrowserAction::Type,
+            "press" | "key" | "keypress" => BrowserAction::Press,
+            "scroll" => BrowserAction::Scroll,
+            "wait" => BrowserAction::Wait,
+            "eval" | "evaluate" | "js" => BrowserAction::Eval,
+            other => {
+                return Err(format!(
+                    "未知 browser 动作 {other:?}。可用:open | screenshot | dom | console | click | type | press | scroll | wait | eval"
+                ))
+            }
+        })
     }
 }
 
-impl HelperProcess {
-    fn rpc(
-        &mut self,
-        method: &str,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, String> {
-        self.next_id += 1;
-        let id = self.next_id;
-        let req = serde_json::json!({ "id": id, "method": method, "params": params });
-        let mut line = serde_json::to_string(&req).map_err(|e| e.to_string())?;
-        line.push('\n');
-        self.stdin
-            .write_all(line.as_bytes())
-            .map_err(|e| format!("写入辅进程失败: {e}"))?;
-        self.stdin.flush().map_err(|e| format!("flush 失败: {e}"))?;
-
-        // 逐行读响应,直到 id 配对。reader 线程持续读 stdout 推入 channel,
-        // recv_timeout 兜底挂死辅进程(D-400:此前 read_line 阻塞使超时失效)。
-        let deadline = Instant::now() + RPC_TIMEOUT;
-        loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err("RPC 超时:辅进程未在预算内响应".into());
-            }
-            let line = match self.rx.recv_timeout(remaining) {
-                Ok(line) => line,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    return Err("RPC 超时:辅进程未在预算内响应".into());
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err("辅进程已退出(可能浏览器启动失败或 Node 缺失)".into());
-                }
-            };
-            let parsed: serde_json::Value =
-                serde_json::from_str(line.trim()).map_err(|e| format!("响应不是 JSON: {e}"))?;
-            if parsed["id"].as_u64() != Some(id) {
-                continue; // 其他请求的响应(不应发生,单请求串行)
-            }
-            // D-400:辅进程把所有错误(含 catch)写进 result.error(嵌套于 result),
-            // 顶层 error 与嵌套 result.error 统查——click/type/open 失败必须透传为工具错误,
-            // 不得报成功(此前只查顶层 parsed["error"],永远查不到,交互断言全面假绿)。
-            if let Some(err) = parsed["error"]
-                .as_str()
-                .or_else(|| parsed["result"]["error"].as_str())
-            {
-                return Err(err.to_string());
-            }
-            return Ok(parsed["result"].clone());
+/// 动作参数的机械校验(两个后端执行前都先过这一道,错误文本一致)。
+pub fn validate(input: &BrowserInput, action: BrowserAction) -> Result<(), String> {
+    let targets = [&input.url, &input.path, &input.html]
+        .iter()
+        .filter(|value| value.is_some())
+        .count();
+    if targets > 1 {
+        return Err("url、path、html 只能给一个".into());
+    }
+    let non_empty = |value: &Option<String>| value.as_deref().is_some_and(|v| !v.trim().is_empty());
+    match action {
+        BrowserAction::Open if targets == 0 => {
+            Err("open 需要 url、path 或 html 之一;其余动作省略目标即复用当前页面".into())
         }
-    }
-}
-
-/// 全局辅进程注册表(单例,按 project_root 键控)。
-struct HelperRegistry {
-    process: Mutex<Option<HelperProcess>>,
-    last_used: AtomicU64,
-    shutting_down: AtomicBool,
-}
-
-impl HelperRegistry {
-    fn new() -> Self {
-        HelperRegistry {
-            process: Mutex::new(None),
-            last_used: AtomicU64::new(0),
-            shutting_down: AtomicBool::new(false),
+        BrowserAction::Click if !non_empty(&input.selector) => {
+            Err("click 需要 selector 参数".into())
         }
+        BrowserAction::Type if !non_empty(&input.selector) => Err("type 需要 selector 参数".into()),
+        BrowserAction::Type if input.text.is_none() => Err("type 需要 text 参数".into()),
+        BrowserAction::Press if !non_empty(&input.key) => {
+            Err("press 需要 key 参数(如 Enter、Tab、Escape、Control+A)".into())
+        }
+        BrowserAction::Eval if !non_empty(&input.expression) => {
+            Err("eval 需要 expression 参数".into())
+        }
+        BrowserAction::Wait
+            if !non_empty(&input.selector) && !non_empty(&input.text) && input.ms.is_none() =>
+        {
+            Err("wait 需要 selector、text 或 ms 之一(ms ≤ 10000)".into())
+        }
+        _ => Ok(()),
     }
+}
 
-    fn touch(&self) {
-        self.last_used.store(now_ms() as u64, Ordering::SeqCst);
+/// 解析后的导航目标。`note` 是需要如实告诉模型的降级说明(静态服务不可用回落 file:// 等)。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavTarget {
+    pub url: String,
+    pub note: Option<String>,
+}
+
+/// 把 url/path/html 换成可导航的 URL。本地路径与 HTML 片段走 127.0.0.1 静态服务
+/// (file:// 下 ES module 与 fetch 相对资源会失败);相对路径以代码树 `cwd` 为基准。
+pub fn resolve_nav_target(
+    input: &BrowserInput,
+    cwd: &Path,
+    project_root: &Path,
+) -> Result<Option<NavTarget>, String> {
+    if let Some(html) = &input.html {
+        let server = crate::preview_server::global()
+            .map_err(|e| format!("html 片段需要预览静态服务: {e}"))?;
+        return Ok(Some(NavTarget {
+            url: server.add_snippet(html)?,
+            note: None,
+        }));
     }
-}
-
-// 用 SystemTime 记 last_used(ms)。
-fn now_ms() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or_default()
-}
-
-/// 空闲回收线程:每次调用后刷新 last_used;后台线程在空闲超过 IDLE_TIMEOUT 时
-/// 发 shutdown 并等进程退出,然后清空注册表——不留僵尸 headless。
-pub(crate) fn start_idle_reaper() {
-    static STARTED: std::sync::Once = std::sync::Once::new();
-    STARTED.call_once(|| {
-        std::thread::spawn(|| loop {
-            std::thread::sleep(IDLE_TIMEOUT / 2);
-            let reg = registry();
-            if reg.shutting_down.load(Ordering::SeqCst) {
-                // D-400:shutdown 期间跳过即可,不 break——Once 只执行一次,
-                // break 后 reaper 永久死亡,后续空闲进程不再被回收。
-                continue;
-            }
-            let last = reg.last_used.load(Ordering::SeqCst) as u128;
-            if last > 0 && now_ms().saturating_sub(last) > IDLE_TIMEOUT.as_millis() {
-                shutdown_helper();
-            }
-        });
-    });
-}
-
-/// 关闭辅进程(发 shutdown + 兜底 kill)。幂等。
-pub(crate) fn shutdown_helper() {
-    let reg = registry();
-    reg.shutting_down.store(true, Ordering::SeqCst);
-    let mut guard = match reg.process.lock() {
-        Ok(g) => g,
-        Err(_) => return,
+    if let Some(path) = &input.path {
+        return local_target(&absolute(cwd, Path::new(path)), cwd, project_root).map(Some);
+    }
+    let Some(url) = input.url.as_deref().map(str::trim) else {
+        return Ok(None);
     };
-    if let Some(helper) = guard.as_mut() {
-        let _ = helper.rpc("shutdown", serde_json::json!({}));
-        let _ = helper.child.kill();
-        let _ = helper.child.wait();
+    if url.starts_with("file:") {
+        let parsed = reqwest::Url::parse(url).map_err(|e| format!("file URL 无法解析: {e}"))?;
+        let path = parsed
+            .to_file_path()
+            .map_err(|_| format!("file URL 不是本地路径: {url}"))?;
+        return local_target(&path, cwd, project_root).map(Some);
     }
-    *guard = None;
-    reg.shutting_down.store(false, Ordering::SeqCst);
-}
-
-static REGISTRY: std::sync::OnceLock<HelperRegistry> = std::sync::OnceLock::new();
-
-fn registry() -> &'static HelperRegistry {
-    REGISTRY.get_or_init(HelperRegistry::new)
-}
-
-/// 找 Node 可执行文件:环境变量或 PATH。
-fn find_node() -> Option<String> {
-    find_node_in(
-        std::env::var("KANZEI_NODE").ok(),
-        &std::env::var("PATH").unwrap_or_default(),
-    )
-}
-
-/// 纯函数内核:显式路径(KANZEI_NODE)优先,否则按给定 PATH 探测。
-/// D-584:测试模拟"无 node"必须走这条注入缝,不得清进程级 PATH——
-/// cargo test 同进程多线程,清 PATH 会让并行测试按名拉起 git/node 时误报 not found。
-fn find_node_in(explicit: Option<String>, path: &str) -> Option<String> {
-    if let Some(explicit) = explicit {
-        if !explicit.is_empty() {
-            return Some(explicit);
-        }
+    if url.starts_with("http://") || url.starts_with("https://") || url == "about:blank" {
+        return Ok(Some(NavTarget {
+            url: url.to_string(),
+            note: None,
+        }));
     }
-    // PATH 探测 node.exe / node.cmd(pwsh 下 .cmd 也要试)。
-    for name in ["node", "node.exe"] {
-        if let Ok(found) = which_in(path, name) {
-            return Some(found);
-        }
-    }
-    None
+    Err(format!(
+        "url 必须是 http(s)://、file:// 或 about:blank,实得: {url}"
+    ))
 }
 
-fn which_in(path: &str, name: &str) -> Result<String, String> {
-    for dir in path.split(';') {
-        if dir.is_empty() {
-            continue;
-        }
-        let candidate = std::path::Path::new(dir).join(name);
-        if candidate.is_file() {
-            return Ok(candidate.display().to_string());
-        }
-    }
-    Err(format!("{name} 不在 PATH"))
-}
-
-/// 获取(必要时启动)辅进程,返回可变句柄。上锁期间做 RPC,保证单请求串行。
-fn with_helper<T>(f: impl FnOnce(&mut HelperProcess) -> Result<T, String>) -> Result<T, String> {
-    let reg = registry();
-    let mut guard = reg.process.lock().map_err(|_| "辅进程锁中毒".to_string())?;
-    let node = find_node().ok_or_else(|| {
-        "未找到 Node.js:浏览器工具需要 Node 运行 playwright-core 辅进程。\
-         请安装 Node.js 并确保 `node` 在 PATH 中,或设置 KANZEI_NODE 指向 node 可执行文件。"
-            .to_string()
-    })?;
-
-    // 已有进程:检查是否还活着(读 0 字节 = 退出)。
-    if guard.is_none() {
-        let helper_script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(|p| p.parent())
-            .map(|p| p.join("scripts/browser-helper.mjs"))
-            .ok_or_else(|| "无法定位 scripts/browser-helper.mjs".to_string())?;
-        if !helper_script.is_file() {
-            return Err(format!(
-                "辅进程脚本缺失: {}。仓库结构异常或未拉取 scripts/。",
-                helper_script.display()
-            ));
-        }
-        let mut child = std::process::Command::new(&node)
-            .arg(&helper_script)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| format!("启动 Node 辅进程失败: {e}"))?;
-        let stdin = child.stdin.take().ok_or("辅进程 stdin 不可用")?;
-        // D-400:reader 线程持续读 stdout 推入 channel(挂死兜底;stdout 所有权移入线程)。
-        let stdout = child.stdout.take().ok_or("辅进程 stdout 不可用")?;
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                match line {
-                    Ok(l) => {
-                        if tx.send(l).is_err() {
-                            break; // rpc 侧已丢弃(进程被回收)。
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-        *guard = Some(HelperProcess {
-            child,
-            stdin,
-            rx,
-            next_id: 0,
-        });
-    }
-    reg.touch();
-    let result = f(guard.as_mut().expect("刚确保 Some"));
-    reg.touch();
-    result
-}
-
-/// 浏览器工具的 execute 入口(供 Tool trait 调用)。
-pub(crate) async fn execute_browser(input: BrowserInput) -> ToolOutput {
-    match input.action.as_str() {
-        "dom" => execute_dom(&input).await,
-        "console" => execute_console(&input).await,
-        "click" => execute_click(&input).await,
-        "type" => execute_type(&input).await,
-        _ => execute_open(&input).await,
+fn absolute(cwd: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
     }
 }
 
-/// open(默认):打开目标并截图,图片经 ToolOutput.images 回模型。
-async fn execute_open(input: &BrowserInput) -> ToolOutput {
-    let url = match resolve_target(input) {
-        Ok(u) => u,
-        Err(e) => return ToolOutput::error(e),
+fn local_target(path: &Path, cwd: &Path, project_root: &Path) -> Result<NavTarget, String> {
+    if !path.exists() {
+        return Err(format!("本地文件不存在: {}", path.display()));
+    }
+    let roots: Vec<PathBuf> = [cwd, project_root]
+        .iter()
+        .filter(|root| !root.as_os_str().is_empty())
+        .map(|root| root.to_path_buf())
+        .collect();
+    match crate::preview_server::global() {
+        Ok(server) => Ok(NavTarget {
+            url: server.url_for_path(path, &roots)?,
+            note: None,
+        }),
+        Err(error) => Ok(NavTarget {
+            url: file_url(path)?,
+            note: Some(format!(
+                "预览静态服务不可用({error}),已回落 file:// 打开;ES module 与 fetch 相对资源在 file:// 下可能失败"
+            )),
+        }),
+    }
+}
+
+fn file_url(path: &Path) -> Result<String, String> {
+    let abs = std::fs::canonicalize(path)
+        .map_err(|e| format!("本地文件不存在或无法解析: {} ({e})", path.display()))?;
+    let raw = crate::path_form::strip_verbatim(&abs.to_string_lossy()).into_owned();
+    Ok(format!("file:///{}", raw.replace('\\', "/")))
+}
+
+/// 权限资源:`url:<host[:port]/path>` / `path:<abs>` / `html:<sha8>`;不带目标的动作取
+/// 当前页(`current`),没有当前页记 `page:none`。
+///
+/// URL 按解析后的 host 取,不按字符串前缀——`http://localhost:80@evil.com/` 的 host 是
+/// evil.com,不能被 `url:localhost:*` 放行。
+pub fn resources_for(
+    input: &serde_json::Value,
+    cwd: Option<&Path>,
+    current: Option<&str>,
+) -> Vec<String> {
+    if let Some(html) = input["html"].as_str() {
+        let digest = sha2::Sha256::digest(html.as_bytes());
+        let short: String = digest.iter().take(4).map(|b| format!("{b:02x}")).collect();
+        return vec![format!("html:{short}")];
+    }
+    if let Some(path) = input["path"].as_str() {
+        let abs = match cwd {
+            Some(cwd) => absolute(cwd, Path::new(path)),
+            None => PathBuf::from(path),
+        };
+        return vec![format!("path:{}", abs.display())];
+    }
+    if let Some(url) = input["url"].as_str() {
+        return vec![url_resource(url)];
+    }
+    match current {
+        Some(url) => vec![url_resource(url)],
+        None => vec!["page:none".into()],
+    }
+}
+
+/// 单个 URL 的权限资源形态。
+pub fn url_resource(url: &str) -> String {
+    let url = url.trim();
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return format!("url:{url}");
     };
-    let viewport = parse_viewport(input.viewport.as_deref());
-
-    match with_helper(|helper| {
-        let open_result = helper.rpc(
-            "open",
-            serde_json::json!({
-                "url": url,
-                "channel": input.channel,
-                "viewport": viewport,
-            }),
-        )?;
-        // 同一批调用里连带截图(open 即出图,自检通道的主消费形态)。
-        let screenshot = helper.rpc("screenshot", serde_json::json!({ "viewport": viewport }))?;
-        let title = open_result["title"].as_str().unwrap_or("").to_string();
-        let page_url = open_result["url"].as_str().unwrap_or(&url).to_string();
-        let png_b64 = screenshot["png"]
-            .as_str()
-            .ok_or("截图响应缺 png 字段")?
-            .to_string();
-        Ok((title, page_url, png_b64))
-    }) {
-        Ok((title, page_url, png_b64)) => {
-            if png_b64.len() > MAX_SCREENSHOT_BYTES {
-                return ToolOutput::error(format!(
-                    "截图过大({} base64 字节 > {} 上限),未回喂模型",
-                    png_b64.len(),
-                    MAX_SCREENSHOT_BYTES
-                ));
-            }
-            let mut output = ToolOutput::ok(format!(
-                "浏览器已打开并截图:\ntitle: {title}\nurl: {page_url}\nviewport: {}",
-                viewport_label(input.viewport.as_deref())
-            ));
-            output = output.with_images(vec![kanzei_harness::ToolImage {
-                media_type: "image/png".into(),
-                data: png_b64,
-            }]);
-            output
+    match parsed.scheme() {
+        "http" | "https" => {
+            let host = parsed.host_str().unwrap_or("");
+            let port = parsed.port().map(|p| format!(":{p}")).unwrap_or_default();
+            let path = parsed.path().trim_end_matches('/');
+            format!("url:{host}{port}{path}")
         }
-        Err(e) => browser_error(e),
+        "file" => match parsed.to_file_path() {
+            Ok(path) => format!("path:{}", path.display()),
+            Err(_) => format!("url:{url}"),
+        },
+        _ => format!("url:{url}"),
     }
 }
 
-/// dom:读页面可读结构(可选 selector,默认 body 整树)。
-async fn execute_dom(input: &BrowserInput) -> ToolOutput {
-    let target = match resolve_optional_target(input) {
-        Ok(target) => target,
-        Err(e) => return ToolOutput::error(e),
-    };
-    let viewport = parse_viewport(input.viewport.as_deref());
-    let selector = input.selector.clone().unwrap_or_default();
+static CURRENT_URLS: Mutex<[Option<String>; 2]> = Mutex::new([None, None]);
 
-    match with_helper(|helper| {
-        let opened = open_if_target(helper, target.as_deref(), input, viewport.as_ref())?;
-        let dom = helper.rpc("dom", serde_json::json!({ "selector": selector }))?;
-        let structure = dom["dom"].as_str().unwrap_or("").to_string();
-        let page_url = dom["url"]
-            .as_str()
-            .or(opened.as_deref())
-            .unwrap_or("(current page)")
-            .to_string();
-        Ok((page_url, structure))
-    }) {
-        Ok((url, structure)) => {
-            if structure.is_empty() {
-                return ToolOutput::error(format!("dom 读取为空(selector: {selector:?})"));
-            }
-            ToolOutput::ok(format!("页面 DOM 结构(url: {url}):\n{structure}"))
-        }
-        Err(e) => browser_error(e),
+/// 记录某后端的当前页 URL(权限判定里不带目标的动作取它)。
+pub fn set_current_url(backend: Backend, url: Option<String>) {
+    if let Ok(mut slots) = CURRENT_URLS.lock() {
+        slots[backend.slot()] = url;
     }
 }
 
-/// console:读页面累积的 console 错误/警告。
-async fn execute_console(input: &BrowserInput) -> ToolOutput {
-    let target = match resolve_optional_target(input) {
-        Ok(target) => target,
-        Err(e) => return ToolOutput::error(e),
-    };
-    let viewport = parse_viewport(input.viewport.as_deref());
+pub fn current_url(backend: Backend) -> Option<String> {
+    CURRENT_URLS
+        .lock()
+        .ok()
+        .and_then(|slots| slots[backend.slot()].clone())
+}
 
-    match with_helper(|helper| {
-        let opened = open_if_target(helper, target.as_deref(), input, viewport.as_ref())?;
-        let console = helper.rpc("console", serde_json::json!({}))?;
-        let errors = console["errors"].as_array().cloned().unwrap_or_default();
-        let page_url = console["url"]
-            .as_str()
-            .or(opened.as_deref())
-            .unwrap_or("(current page)")
-            .to_string();
-        Ok((page_url, errors))
-    }) {
-        Ok((url, errors)) => {
-            if errors.is_empty() {
-                return ToolOutput::ok(format!("页面 console 无错误/警告(url: {url})"));
-            }
-            let lines = errors
-                .iter()
-                .map(format_console_error)
-                .collect::<Vec<_>>()
-                .join("\n");
-            ToolOutput::error(format!(
-                "页面 console 错误/警告 {} 条(url: {url}):\n{lines}",
-                errors.len()
-            ))
-        }
-        Err(e) => browser_error(e),
+/// 面板后端用:把 walker 源码包成一条 `Runtime.evaluate` 表达式,返回 JSON 字符串。
+pub fn dom_walker_expression(selector: Option<&str>) -> String {
+    let body = DOM_WALKER_SOURCE.replacen("export function domWalker", "function domWalker", 1);
+    let selector = serde_json::to_string(&selector).unwrap_or_else(|_| "null".into());
+    format!("(() => {{\n{body}\nreturn domWalker({selector});\n}})()")
+}
+
+/// 视口预设;未知名返回 None(无头用默认 1280x720)。
+pub fn parse_viewport(name: Option<&str>) -> Option<(u32, u32)> {
+    Some(match name? {
+        "mobile-375x667" => (375, 667), // iPhone SE 2 代
+        "mobile-390x844" => (390, 844), // iPhone 12/13/14
+        "mobile-412x915" => (412, 915), // Android Pixel 系
+        "mobile-360x800" => (360, 800), // 小屏 Android
+        "tablet-768x1024" => (768, 1024),
+        "desktop-1280x800" => (1280, 800),
+        _ => return None,
+    })
+}
+
+pub fn viewport_label(name: Option<&str>) -> String {
+    match name {
+        Some(n) => n.to_string(),
+        None => "desktop-1280x720".into(),
+    }
+}
+
+/// console 条目(两个后端同一形态)。行列 1 起算。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ConsoleItem {
+    pub level: String,
+    pub text: String,
+    pub url: Option<String>,
+    pub line: Option<u64>,
+    pub col: Option<u64>,
+}
+
+impl ConsoleItem {
+    /// 错误一类:error / warning / 未捕获异常 / 资源加载失败。
+    pub fn is_problem(&self) -> bool {
+        matches!(
+            self.level.as_str(),
+            "error" | "warning" | "pageerror" | "network" | "assert"
+        )
     }
 }
 
 /// 将 console 条目格式化为面向模型的诊断文本。浏览器提供资源 URL 时必须保留，
 /// 否则诸如 favicon 404 只剩一条无来源的通用错误，无法区分页面脚本与静态资源。
-fn format_console_error(error: &serde_json::Value) -> String {
-    let ty = error["type"].as_str().unwrap_or("?");
-    let text = error["text"].as_str().unwrap_or("?");
-    let Some(url) = error["url"].as_str().filter(|url| !url.is_empty()) else {
-        return format!("[{ty}] {text}");
+pub fn format_console_item(item: &ConsoleItem) -> String {
+    let Some(url) = item.url.as_deref().filter(|url| !url.is_empty()) else {
+        return format!("[{}] {}", item.level, item.text);
     };
-    let line = error["line"].as_u64();
-    let column = error["column"].as_u64();
-    match (line, column) {
-        (Some(line), Some(column)) => format!("[{ty}] {text} ({url}:{line}:{column})"),
-        _ => format!("[{ty}] {text} ({url})"),
+    match (item.line, item.col) {
+        (Some(line), Some(col)) => format!("[{}] {} ({url}:{line}:{col})", item.level, item.text),
+        (Some(line), None) => format!("[{}] {} ({url}:{line})", item.level, item.text),
+        _ => format!("[{}] {} ({url})", item.level, item.text),
     }
 }
 
-/// click:点击页面元素(selector 必填)。
-async fn execute_click(input: &BrowserInput) -> ToolOutput {
-    let target = match resolve_optional_target(input) {
-        Ok(target) => target,
-        Err(e) => return ToolOutput::error(e),
-    };
-    let selector = match input.selector.as_deref() {
-        Some(s) if !s.is_empty() => s.to_string(),
-        _ => return ToolOutput::error("click 需要 selector 参数".to_string()),
-    };
-    let viewport = parse_viewport(input.viewport.as_deref());
+fn with_backend(backend: Backend, body: String) -> String {
+    format!("{}\n{body}", backend.line())
+}
 
-    match with_helper(|helper| {
-        let opened = open_if_target(helper, target.as_deref(), input, viewport.as_ref())?;
-        let result = helper.rpc("click", serde_json::json!({ "selector": selector }))?;
-        let page_url = result["url"]
-            .as_str()
-            .or(opened.as_deref())
-            .unwrap_or("(current page)")
-            .to_string();
-        Ok(page_url)
-    }) {
-        Ok(page_url) => ToolOutput::ok(format!("已点击 {selector:?};当前 url: {page_url}")),
-        Err(e) => browser_error(e),
+fn with_png(output: ToolOutput, backend: Backend, png_b64: String) -> ToolOutput {
+    if png_b64.len() > MAX_SCREENSHOT_BYTES {
+        return ToolOutput::error(with_backend(
+            backend,
+            format!(
+                "截图过大({} base64 字节 > {} 上限),未回喂模型;改用 selector 截元素或去掉 full_page",
+                png_b64.len(),
+                MAX_SCREENSHOT_BYTES
+            ),
+        ));
+    }
+    output.with_images(vec![kanzei_harness::ToolImage {
+        media_type: "image/png".into(),
+        data: png_b64,
+    }])
+}
+
+/// open 的结果:打开并截图。
+pub fn out_open(
+    backend: Backend,
+    title: &str,
+    url: &str,
+    viewport: &str,
+    notes: &[String],
+    png_b64: String,
+) -> ToolOutput {
+    let mut body = format!("浏览器已打开并截图:\ntitle: {title}\nurl: {url}\nviewport: {viewport}");
+    for note in notes {
+        body.push('\n');
+        body.push_str(note);
+    }
+    with_png(
+        ToolOutput::ok(with_backend(backend, body)),
+        backend,
+        png_b64,
+    )
+}
+
+/// screenshot 的结果:当前页截图,不重新导航。
+pub fn out_screenshot(
+    backend: Backend,
+    url: &str,
+    viewport: &str,
+    scope: &str,
+    notes: &[String],
+    png_b64: String,
+) -> ToolOutput {
+    let mut body = format!("已截图(未重新导航,{scope}):\nurl: {url}\nviewport: {viewport}");
+    for note in notes {
+        body.push('\n');
+        body.push_str(note);
+    }
+    with_png(
+        ToolOutput::ok(with_backend(backend, body)),
+        backend,
+        png_b64,
+    )
+}
+
+pub fn out_dom(backend: Backend, url: &str, selector: &str, structure: &str) -> ToolOutput {
+    if structure.is_empty() {
+        return ToolOutput::error(with_backend(
+            backend,
+            format!("dom 读取为空(selector: {selector:?})"),
+        ));
+    }
+    ToolOutput::ok(with_backend(
+        backend,
+        format!("页面 DOM 结构(url: {url}):\n{structure}"),
+    ))
+}
+
+/// console:默认只报错误/警告(有即判工具错误);all=true 回最近 200 条全部级别。
+pub fn out_console(backend: Backend, url: &str, entries: &[ConsoleItem], all: bool) -> ToolOutput {
+    let shown: Vec<&ConsoleItem> = if all {
+        let skip = entries.len().saturating_sub(CONSOLE_ALL_LIMIT);
+        entries.iter().skip(skip).collect()
+    } else {
+        entries.iter().filter(|item| item.is_problem()).collect()
+    };
+    if shown.is_empty() {
+        let text = if all {
+            format!("页面 console 为空(url: {url})")
+        } else {
+            format!("页面 console 无错误/警告(url: {url})")
+        };
+        return ToolOutput::ok(with_backend(backend, text));
+    }
+    let lines = shown
+        .iter()
+        .map(|item| format_console_item(item))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let problems = shown.iter().filter(|item| item.is_problem()).count();
+    let header = if all {
+        format!(
+            "页面 console 最近 {} 条(其中错误/警告 {problems} 条,url: {url}):",
+            shown.len()
+        )
+    } else {
+        format!("页面 console 错误/警告 {} 条(url: {url}):", shown.len())
+    };
+    let text = with_backend(backend, format!("{header}\n{lines}"));
+    if problems > 0 {
+        ToolOutput::error(text)
+    } else {
+        ToolOutput::ok(text)
     }
 }
 
-/// type:向输入框填入文本(selector + text 必填)。
-async fn execute_type(input: &BrowserInput) -> ToolOutput {
-    let target = match resolve_optional_target(input) {
-        Ok(target) => target,
-        Err(e) => return ToolOutput::error(e),
-    };
-    let selector = match input.selector.as_deref() {
-        Some(s) if !s.is_empty() => s.to_string(),
-        _ => return ToolOutput::error("type 需要 selector 参数".to_string()),
-    };
-    let text = match input.text.as_deref() {
-        Some(t) => t.to_string(),
-        None => return ToolOutput::error("type 需要 text 参数".to_string()),
-    };
-    let viewport = parse_viewport(input.viewport.as_deref());
+pub fn out_click(backend: Backend, selector: &str, url: &str) -> ToolOutput {
+    ToolOutput::ok(with_backend(
+        backend,
+        format!("已点击 {selector:?};当前 url: {url}"),
+    ))
+}
 
-    match with_helper(|helper| {
-        let opened = open_if_target(helper, target.as_deref(), input, viewport.as_ref())?;
-        let result = helper.rpc(
-            "type",
-            serde_json::json!({ "selector": selector, "text": text }),
-        )?;
-        let page_url = result["url"]
-            .as_str()
-            .or(opened.as_deref())
-            .unwrap_or("(current page)")
-            .to_string();
-        Ok(page_url)
-    }) {
-        Ok(page_url) => ToolOutput::ok(format!(
-            "已向 {selector:?} 填入文本({} 字符);当前 url: {page_url}",
-            text.chars().count(),
-        )),
-        Err(e) => browser_error(e),
+pub fn out_type(backend: Backend, selector: &str, chars: usize, url: &str) -> ToolOutput {
+    ToolOutput::ok(with_backend(
+        backend,
+        format!("已向 {selector:?} 填入文本({chars} 字符);当前 url: {url}"),
+    ))
+}
+
+pub fn out_press(backend: Backend, key: &str, url: &str) -> ToolOutput {
+    ToolOutput::ok(with_backend(
+        backend,
+        format!("已按键 {key};当前 url: {url}"),
+    ))
+}
+
+pub fn out_scroll(backend: Backend, what: &str, scroll_y: Option<f64>, url: &str) -> ToolOutput {
+    let position = scroll_y
+        .map(|y| format!(";scrollY={}", y.round()))
+        .unwrap_or_default();
+    ToolOutput::ok(with_backend(
+        backend,
+        format!("已滚动({what}){position};当前 url: {url}"),
+    ))
+}
+
+pub fn out_wait(backend: Backend, what: &str, elapsed_ms: u64, url: &str) -> ToolOutput {
+    ToolOutput::ok(with_backend(
+        backend,
+        format!("等待完成({what},{elapsed_ms} ms);当前 url: {url}"),
+    ))
+}
+
+pub fn out_eval(backend: Backend, json: &str, url: &str) -> ToolOutput {
+    let mut shown: String = json.chars().take(MAX_EVAL_CHARS).collect();
+    if shown.len() < json.len() {
+        shown.push_str(&format!(
+            "\n…(已截断,原长 {} 字符;请缩小表达式的返回值)",
+            json.chars().count()
+        ));
+    }
+    ToolOutput::ok(with_backend(
+        backend,
+        format!("eval 结果(JSON,url: {url}):\n{shown}"),
+    ))
+}
+
+/// 截图范围说明(两个后端同一措辞)。
+pub fn screenshot_scope(input: &BrowserInput) -> String {
+    match (&input.selector, input.full_page) {
+        (Some(selector), _) => format!("元素 {selector:?}"),
+        (None, true) => "整页".into(),
+        (None, false) => "当前视口".into(),
     }
 }
 
-/// url/path 是可选导航目标。open 必须提供目标；其它动作省略目标时复用当前页，
-/// 这是表单连续交互不丢状态的关键语义。
-fn resolve_optional_target(input: &BrowserInput) -> Result<Option<String>, String> {
-    if input.path.is_none() && input.url.is_none() {
-        return Ok(None);
+pub fn scroll_scope(input: &BrowserInput) -> String {
+    match &input.selector {
+        Some(selector) => format!("滚到 {selector:?}"),
+        None => format!("dy={}", input.dy.unwrap_or(600.0)),
     }
-    resolve_target(input).map(Some)
 }
 
-fn open_if_target(
-    helper: &mut HelperProcess,
-    target: Option<&str>,
-    input: &BrowserInput,
-    viewport: Option<&serde_json::Value>,
-) -> Result<Option<String>, String> {
-    let Some(url) = target else {
-        return Ok(None);
-    };
-    let opened = helper.rpc(
-        "open",
-        serde_json::json!({
-            "url": url,
-            "channel": input.channel,
-            "viewport": viewport,
-        }),
-    )?;
-    Ok(Some(opened["url"].as_str().unwrap_or(url).to_string()))
+pub fn wait_scope(input: &BrowserInput) -> String {
+    match (&input.selector, &input.text) {
+        (Some(selector), _) => format!("出现 {selector:?}"),
+        (None, Some(text)) => format!("出现文字 {text:?}"),
+        (None, None) => format!("{} ms", input.ms.unwrap_or(0).min(MAX_WAIT_MS)),
+    }
 }
 
-fn browser_error(error: String) -> ToolOutput {
-    let hint = if error.contains("no browser: call open first") {
-        "先调用 browser open 并提供 url/path；后续 click/type/dom/console 可省略目标以复用当前页面。"
+/// 失败输出:带后端首行与处理建议。
+pub fn browser_error(backend: Backend, error: &str) -> ToolOutput {
+    let hint = if error.contains("no browser: call open first") || error.contains("尚未打开") {
+        "先调用 browser open 并提供 url/path/html；后续 click/type/dom/console 可省略目标以复用当前页面。"
     } else if error.contains("ERR_CONNECTION_REFUSED")
         || error.contains("ERR_HTTP_RESPONSE_CODE_FAILURE")
         || error.contains("net::ERR_")
@@ -613,78 +675,43 @@ fn browser_error(error: String) -> ToolOutput {
     } else {
         "可先用 browser console 和 process output 获取页面与服务端诊断。"
     };
-    ToolOutput::error(format!("浏览器工具失败: {error}\n处理建议: {hint}"))
+    ToolOutput::error(with_backend(
+        backend,
+        format!("浏览器工具失败: {error}\n处理建议: {hint}"),
+    ))
 }
 
-/// 解析目标:path(本地文件)转 file:// URL;url 原样。
-fn resolve_target(input: &BrowserInput) -> Result<String, String> {
-    if let Some(path) = &input.path {
-        let abs = std::fs::canonicalize(path)
-            .map_err(|e| format!("本地文件不存在或无法解析: {path} ({e})"))?;
-        // canonicalize 在 Windows 返回 `\\?\C:\...`(扩展长度前缀),file:// URL
-        // 不能带它——剥离后转 `/` 分隔。
-        let raw = abs.display().to_string();
-        let stripped = raw
-            .strip_prefix(r"\\?\UNC\")
-            .map(|rest| format!(r"\\{rest}"))
-            .unwrap_or_else(|| raw.strip_prefix(r"\\?\").unwrap_or(&raw).to_string());
-        return Ok(format!("file:///{}", stripped.replace('\\', "/")));
-    }
-    if let Some(url) = &input.url {
-        if !(url.starts_with("http://")
-            || url.starts_with("https://")
-            || url.starts_with("file://"))
-        {
-            return Err(format!("url 必须 http(s):// 或 file://,实得: {url}"));
-        }
-        return Ok(url.clone());
-    }
-    Err("browser 需要 url 或 path 参数".into())
-}
-
-/// 内置移动 viewport 预设;未知名返回 None(用默认 1280x720)。
-fn parse_viewport(name: Option<&str>) -> Option<serde_json::Value> {
-    let (w, h) = match name {
-        Some("mobile-375x667") => (375, 667), // iPhone SE 2 代
-        Some("mobile-390x844") => (390, 844), // iPhone 12/13/14
-        Some("mobile-412x915") => (412, 915), // Android Pixel 系
-        Some("mobile-360x800") => (360, 800), // 小屏 Android
-        _ => return None,
-    };
-    Some(serde_json::json!({ "width": w, "height": h }))
-}
-
-fn viewport_label(name: Option<&str>) -> String {
-    match name {
-        Some(n) => n.to_string(),
-        None => "desktop-1280x720".into(),
-    }
-}
-
-/// 工具输入 schema(与 Tool::input_schema 对接,手写 JSON Schema 避免 schemars
-/// 依赖;字段与 BrowserInput 对齐)。
-pub(crate) fn input_schema() -> serde_json::Value {
+/// 工具输入 schema(与 Tool::input_schema 对接,手写 JSON Schema;字段与 BrowserInput 对齐)。
+pub fn input_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "object",
         "properties": {
-            "url": { "type": "string", "description": "目标 http(s) URL；open 必填，其他动作省略时复用当前页面，提供时先重新导航" },
-            "path": { "type": "string", "description": "本地 HTML 文件路径(file:// 自动转换)；open 必填，其他动作省略时复用当前页面" },
+            "url": { "type": "string", "description": "目标 http(s) URL；open 必填其一(url/path/html)，其他动作省略时复用当前页面，提供时先重新导航" },
+            "path": { "type": "string", "description": "本地 HTML 文件路径(相对代码树或绝对)，经 127.0.0.1 静态服务打开(ES module 可用)" },
+            "html": { "type": "string", "description": "内联 HTML 片段(≤2MB)，经静态服务打开" },
             "action": {
                 "type": "string",
-                "enum": ["open", "dom", "console", "click", "type"],
-                "description": "动作:open(默认,打开并截图回模型)| dom(读可读 DOM 结构,可选 selector)| console(读当前导航后的 console 错误/警告)| click(点击 selector 元素)| type(向 selector 输入框填入 text)。连续动作省略 url/path 即复用当前页"
+                "enum": ["open", "screenshot", "dom", "console", "click", "type", "press", "scroll", "wait", "eval"],
+                "description": "open(默认,打开并截图)| screenshot(当前页截图不重新导航,可 full_page/selector)| dom(可读 DOM,可选 selector)| console(错误/警告;all=true 返回全部级别最近 200 条)| click | type(selector+text)| press(key)| scroll(selector 或 dy)| wait(selector/text/ms≤10000)| eval(expression→JSON)"
             },
-            "selector": { "type": "string", "description": "dom/click/type 用:CSS selector" },
-            "text": { "type": "string", "description": "type 用:要填入输入框的文本" },
+            "selector": { "type": "string", "description": "dom/click/type/scroll/wait/screenshot 用:CSS selector" },
+            "text": { "type": "string", "description": "type:要填入的文本;wait:等待页面出现的文字" },
+            "key": { "type": "string", "description": "press 用:按键名,如 Enter、Tab、Escape、ArrowDown、Control+A" },
+            "expression": { "type": "string", "description": "eval 用:JS 表达式(可返回 Promise),结果按 JSON 回显(≤8000 字符)" },
+            "dy": { "type": "number", "description": "scroll 用:纵向滚动像素(默认 600,负数向上)" },
+            "ms": { "type": "integer", "description": "wait 用:等待上限或纯等待时长(毫秒,≤10000)" },
+            "full_page": { "type": "boolean", "description": "screenshot 用:截整页" },
+            "all": { "type": "boolean", "description": "console 用:返回全部级别" },
             "viewport": {
                 "type": "string",
-                "enum": ["mobile-375x667", "mobile-390x844", "mobile-412x915", "mobile-360x800"],
-                "description": "移动 viewport 预设(默认桌面 1280x720)"
+                "enum": ["mobile-375x667", "mobile-390x844", "mobile-412x915", "mobile-360x800", "tablet-768x1024", "desktop-1280x800"],
+                "description": "视口预设(默认桌面 1280x720;面板后端映射为面板的手机/平板/桌面设备)"
             },
+            "color_scheme": { "type": "string", "enum": ["light", "dark"], "description": "模拟 prefers-color-scheme" },
             "channel": {
                 "type": "string",
                 "enum": ["msedge", "chrome"],
-                "description": "浏览器 channel(默认 msedge)"
+                "description": "无头后端的浏览器 channel(默认 msedge)"
             }
         },
         "additionalProperties": false
@@ -695,289 +722,290 @@ pub(crate) fn input_schema() -> serde_json::Value {
 mod tests {
     use super::*;
 
-    /// 工具 schema 与输入结构对齐:url/path 至少其一、viewport/channel 枚举合法。
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-browser-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// 工具 schema 与输入结构对齐:新动作、平板/桌面视口、color_scheme、html 都在。
     #[test]
-    fn schema_含url与path与viewport枚举() {
+    fn schema_含新动作_视口_color_scheme与html() {
         let schema = input_schema();
         let props = &schema["properties"];
-        assert!(props["url"].is_object(), "schema 必须有 url");
-        assert!(props["path"].is_object(), "schema 必须有 path");
+        for field in [
+            "url",
+            "path",
+            "html",
+            "key",
+            "expression",
+            "dy",
+            "ms",
+            "full_page",
+            "all",
+        ] {
+            assert!(props[field].is_object(), "schema 必须有 {field}");
+        }
+        let actions = props["action"]["enum"].as_array().unwrap();
+        for action in [
+            "open",
+            "screenshot",
+            "dom",
+            "console",
+            "click",
+            "type",
+            "press",
+            "scroll",
+            "wait",
+            "eval",
+        ] {
+            assert!(actions.iter().any(|a| a == action), "缺动作 {action}");
+            assert!(BrowserAction::parse(action).is_ok(), "{action} 必须可解析");
+        }
         let viewport_enum = props["viewport"]["enum"].as_array().unwrap();
-        assert!(viewport_enum.iter().any(|v| v == "mobile-375x667"));
-        assert!(viewport_enum.iter().any(|v| v == "mobile-412x915"));
+        for preset in [
+            "mobile-375x667",
+            "mobile-412x915",
+            "tablet-768x1024",
+            "desktop-1280x800",
+        ] {
+            assert!(viewport_enum.iter().any(|v| v == preset), "缺视口 {preset}");
+            assert!(
+                parse_viewport(Some(preset)).is_some(),
+                "{preset} 必须可解析"
+            );
+        }
+        let schemes = props["color_scheme"]["enum"].as_array().unwrap();
+        assert!(schemes.iter().any(|v| v == "dark") && schemes.iter().any(|v| v == "light"));
         let channel_enum = props["channel"]["enum"].as_array().unwrap();
         assert!(channel_enum.iter().any(|v| v == "msedge"));
         assert!(channel_enum.iter().any(|v| v == "chrome"));
     }
 
-    /// 目标解析:path 转 file:// URL,非法 url 被拒,缺参数报错。
     #[test]
-    fn resolve_target_本地文件与url与缺参() {
-        // 缺参报错。
-        let err = resolve_target(&BrowserInput {
-            url: None,
-            path: None,
-            viewport: None,
-            channel: "msedge".into(),
-            action: "open".into(),
-            selector: None,
-            text: None,
-        })
-        .unwrap_err();
-        assert!(err.contains("url 或 path"), "{err}");
+    fn 动作近义词映射_未知动作报错而不是悄悄重新导航() {
+        assert_eq!(BrowserAction::parse("goto").unwrap(), BrowserAction::Open);
+        assert_eq!(
+            BrowserAction::parse("Evaluate").unwrap(),
+            BrowserAction::Eval
+        );
+        assert_eq!(BrowserAction::parse("fill").unwrap(), BrowserAction::Type);
+        let err = BrowserAction::parse("hover").unwrap_err();
+        assert!(err.contains("screenshot") && err.contains("eval"), "{err}");
+    }
 
-        // 非法 url 被拒。
-        let err = resolve_target(&BrowserInput {
+    #[test]
+    fn 参数校验逐动作给出可行动错误() {
+        let input = |action: &str| BrowserInput {
+            action: action.into(),
+            ..BrowserInput::default()
+        };
+        let check = |i: &BrowserInput| validate(i, BrowserAction::parse(&i.action).unwrap());
+        assert!(check(&input("open"))
+            .unwrap_err()
+            .contains("url、path 或 html"));
+        assert!(check(&input("click")).unwrap_err().contains("selector"));
+        assert!(check(&input("press")).unwrap_err().contains("key"));
+        assert!(check(&input("eval")).unwrap_err().contains("expression"));
+        assert!(check(&input("wait")).unwrap_err().contains("ms"));
+        assert!(check(&input("screenshot")).is_ok(), "screenshot 可省略目标");
+        let both = BrowserInput {
+            url: Some("http://localhost:1/".into()),
+            html: Some("<p>x</p>".into()),
+            ..BrowserInput::default()
+        };
+        assert!(check(&both).unwrap_err().contains("只能给一个"));
+    }
+
+    /// 目标解析:path/html 走静态服务,非法 url 被拒,缺参返回 None(由 validate 报错)。
+    #[test]
+    fn 目标解析_本地路径与片段走静态服务() {
+        let dir = temp_dir("target");
+        std::fs::write(dir.join("page one.html"), "<p>ok</p>").unwrap();
+        let resolve = |input: BrowserInput| resolve_nav_target(&input, &dir, &dir);
+
+        assert_eq!(resolve(BrowserInput::default()).unwrap(), None);
+        let err = resolve(BrowserInput {
             url: Some("ftp://x".into()),
-            path: None,
-            viewport: None,
-            channel: "msedge".into(),
-            action: "open".into(),
-            selector: None,
-            text: None,
+            ..BrowserInput::default()
         })
         .unwrap_err();
         assert!(err.contains("http(s)"), "{err}");
 
-        // path 转 file://(用本 crate 的 src/browser_tool.rs 做存在性验证)。
-        let this_file =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/browser_tool.rs");
-        let abs = std::fs::canonicalize(&this_file)
-            .unwrap_or_else(|e| panic!("canonicalize {}: {e}", this_file.display()));
-        let url = resolve_target(&BrowserInput {
-            url: None,
-            path: Some(abs.display().to_string()),
-            viewport: None,
-            channel: "msedge".into(),
-            action: "open".into(),
-            selector: None,
-            text: None,
+        let by_path = resolve(BrowserInput {
+            path: Some("page one.html".into()),
+            ..BrowserInput::default()
         })
+        .unwrap()
         .unwrap();
-        assert!(url.starts_with("file:///"), "本地文件应转 file://: {url}");
-        assert!(url.contains("browser_tool.rs"), "{url}");
+        assert!(by_path.url.starts_with("http://127.0.0.1:"), "{by_path:?}");
+        assert!(by_path.url.ends_with("/page%20one.html"), "{by_path:?}");
+        assert!(by_path.note.is_none());
+
+        // file:// URL 与 path 同一条路。
+        let file_url = file_url(&dir.join("page one.html")).unwrap();
+        let by_file = resolve(BrowserInput {
+            url: Some(file_url),
+            ..BrowserInput::default()
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(by_file.url, by_path.url);
+
+        let snippet = resolve(BrowserInput {
+            html: Some("<h1>片段</h1>".into()),
+            ..BrowserInput::default()
+        })
+        .unwrap()
+        .unwrap();
+        assert!(snippet.url.contains("/s/") && snippet.url.ends_with(".html"));
+
+        let missing = resolve(BrowserInput {
+            path: Some("nope.html".into()),
+            ..BrowserInput::default()
+        })
+        .unwrap_err();
+        assert!(missing.contains("不存在"), "{missing}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// 缺 Node 诊断:无 KANZEI_NODE 且 PATH 为空时 find_node 必须返回 None
-    /// (→ with_helper 报缺 Node)。D-584:走注入缝,不改进程级 PATH。
     #[test]
-    fn 缺node诊断明确() {
-        let found = find_node_in(None, "");
-        assert!(
-            found.is_none(),
-            "空 PATH 下 find_node 应返回 None,实得 {found:?}"
-        );
-        // KANZEI_NODE 显式为空串时同样落回 PATH 探测。
-        assert!(find_node_in(Some(String::new()), "").is_none());
-    }
-
-    /// 移动 viewport 预设解析:命中返回宽高,未知名返回 None(默认桌面)。
-    #[test]
-    fn viewport预设解析() {
+    fn 权限资源按解析后的host规范化() {
+        let res = |v: serde_json::Value| resources_for(&v, None, None);
         assert_eq!(
-            parse_viewport(Some("mobile-390x844")),
-            Some(serde_json::json!({ "width": 390, "height": 844 }))
+            res(serde_json::json!({"url": "http://localhost:5173/app/"})),
+            vec!["url:localhost:5173/app"]
         );
-        assert_eq!(parse_viewport(Some("unknown")), None);
-        assert_eq!(parse_viewport(None), None);
+        assert_eq!(
+            res(serde_json::json!({"url": "http://127.0.0.1:4173"})),
+            vec!["url:127.0.0.1:4173"]
+        );
+        assert_eq!(
+            res(serde_json::json!({"url": "http://[::1]:8080/x"})),
+            vec!["url:[::1]:8080/x"]
+        );
+        assert_eq!(
+            res(serde_json::json!({"url": "https://example.com/"})),
+            vec!["url:example.com"]
+        );
+        // userinfo 伪装:真正的 host 是 evil.com。
+        assert_eq!(
+            res(serde_json::json!({"url": "http://localhost:80@evil.com/x"})),
+            vec!["url:evil.com/x"]
+        );
+        assert!(res(serde_json::json!({"html": "<p>x</p>"}))[0].starts_with("html:"));
+        assert_eq!(res(serde_json::json!({"html": "<p>x</p>"}))[0].len(), 13);
+        let with_cwd = resources_for(
+            &serde_json::json!({"path": "a.html"}),
+            Some(Path::new("C:/proj")),
+            None,
+        );
+        assert!(with_cwd[0].starts_with("path:C:/proj"), "{with_cwd:?}");
+        // 不带目标:取当前页;没有当前页记 page:none。
+        assert_eq!(
+            resources_for(
+                &serde_json::json!({"action": "click"}),
+                None,
+                Some("http://localhost:3000/login")
+            ),
+            vec!["url:localhost:3000/login"]
+        );
+        assert_eq!(
+            res(serde_json::json!({"action": "click"})),
+            vec!["page:none"]
+        );
     }
 
     #[test]
-    fn 非open动作允许省略目标且网络错误给前端服务诊断() {
-        let input = BrowserInput {
-            url: None,
-            path: None,
-            viewport: None,
-            channel: "msedge".into(),
-            action: "click".into(),
-            selector: Some("#submit".into()),
-            text: None,
-        };
-        assert_eq!(resolve_optional_target(&input).unwrap(), None);
+    fn 当前页按后端分别记录() {
+        set_current_url(Backend::Pane, Some("http://localhost:1/p".into()));
+        set_current_url(Backend::Headless, Some("http://localhost:2/h".into()));
+        assert_eq!(
+            current_url(Backend::Pane).as_deref(),
+            Some("http://localhost:1/p")
+        );
+        assert_eq!(
+            current_url(Backend::Headless).as_deref(),
+            Some("http://localhost:2/h")
+        );
+        set_current_url(Backend::Pane, None);
+        assert_eq!(current_url(Backend::Pane), None);
+    }
 
-        let no_open = browser_error("no browser: call open first".into());
+    #[test]
+    fn walker表达式由共用源生成() {
+        let expression = dom_walker_expression(Some("#app"));
+        assert!(expression.contains("function domWalker(sel)"));
+        assert!(!expression.contains("export function"), "export 必须去掉");
+        assert!(expression.ends_with("return domWalker(\"#app\");\n})()"));
+        assert!(dom_walker_expression(None).contains("return domWalker(null);"));
+    }
+
+    #[test]
+    fn 输出首行标明后端且格式两端同形() {
+        let pane = out_click(Backend::Pane, "#go", "http://localhost/");
+        let headless = out_click(Backend::Headless, "#go", "http://localhost/");
+        assert!(pane.content.starts_with("backend: pane（用户可见）\n"));
+        assert!(headless.content.starts_with("backend: headless\n"));
+        assert_eq!(
+            pane.content.lines().nth(1),
+            headless.content.lines().nth(1),
+            "除首行外逐字同形"
+        );
+        let big = out_open(
+            Backend::Pane,
+            "t",
+            "u",
+            "v",
+            &[],
+            "x".repeat(MAX_SCREENSHOT_BYTES + 1),
+        );
+        assert!(big.is_error && big.images.is_empty());
+        let eval = out_eval(Backend::Headless, &"a".repeat(MAX_EVAL_CHARS + 10), "u");
+        assert!(eval.content.contains("已截断"));
+    }
+
+    #[test]
+    fn console错误保留来源url与行列_all模式含普通日志() {
+        let error = ConsoleItem {
+            level: "error".into(),
+            text: "Failed to load resource: 404".into(),
+            url: Some("http://127.0.0.1:4173/favicon.ico".into()),
+            line: Some(1),
+            col: Some(1),
+        };
+        assert!(format_console_item(&error).contains("favicon.ico:1:1"));
+        let log = ConsoleItem {
+            level: "log".into(),
+            text: "hello".into(),
+            ..ConsoleItem::default()
+        };
+        assert_eq!(format_console_item(&log), "[log] hello");
+
+        let only_log = out_console(Backend::Headless, "u", std::slice::from_ref(&log), false);
+        assert!(!only_log.is_error && only_log.content.contains("无错误/警告"));
+        let all_logs = out_console(Backend::Headless, "u", std::slice::from_ref(&log), true);
+        assert!(!all_logs.is_error && all_logs.content.contains("[log] hello"));
+        let mixed = out_console(Backend::Pane, "u", &[log, error], true);
+        assert!(mixed.is_error, "含错误即判工具错误");
+        assert!(mixed.content.contains("错误/警告 1 条"));
+    }
+
+    #[test]
+    fn 失败输出给出前端服务诊断() {
+        let no_open = browser_error(Backend::Headless, "no browser: call open first");
         assert!(no_open.is_error);
         assert!(no_open.content.contains("先调用 browser open"));
-
-        let refused = browser_error("page.goto: net::ERR_CONNECTION_REFUSED".into());
-        assert!(refused.is_error);
+        let refused = browser_error(Backend::Pane, "page.goto: net::ERR_CONNECTION_REFUSED");
+        assert!(refused.content.starts_with("backend: pane"));
         assert!(refused.content.contains("process list/output/wait"));
         assert!(refused.content.contains("Local URL"));
-    }
-
-    #[test]
-    fn console错误保留来源url与行列() {
-        let formatted = format_console_error(&serde_json::json!({
-            "type": "error",
-            "text": "Failed to load resource: 404",
-            "url": "http://127.0.0.1:4173/favicon.ico",
-            "line": 0,
-            "column": 0
-        }));
-        assert!(formatted.contains("favicon.ico:0:0"), "{formatted}");
-
-        let without_location = format_console_error(&serde_json::json!({
-            "type": "pageerror",
-            "text": "boom"
-        }));
-        assert_eq!(without_location, "[pageerror] boom");
-    }
-
-    /// D-718:真实 Edge 走完整包装层。旧实现会在 type/click/dom 前强制要求
-    /// url/path 并重新导航，输入值在点击前已经丢失；该测试必须覆盖省略目标的连续动作。
-    #[cfg(target_os = "windows")]
-    #[tokio::test]
-    async fn 连续open_type_click_dom复用当前页面状态() {
-        let html = r#"<!doctype html><html><head><title>stateful-browser</title></head><body>
-<input id="value"><button id="commit" onclick="document.getElementById('result').textContent=document.getElementById('value').value">commit</button>
-<div id="result">empty</div><script>console.error('stateful diagnostic')</script></body></html>"#;
-        let path = std::env::temp_dir().join(format!(
-            "kz-browser-stateful-{}-{}.html",
-            std::process::id(),
-            now_ms()
-        ));
-        std::fs::write(&path, html).unwrap();
-
-        shutdown_helper();
-        let before_open = execute_browser(BrowserInput {
-            url: None,
-            path: None,
-            viewport: None,
-            channel: "msedge".into(),
-            action: "dom".into(),
-            selector: Some("#result".into()),
-            text: None,
-        })
-        .await;
-        let opened = execute_browser(BrowserInput {
-            url: None,
-            path: Some(path.display().to_string()),
-            viewport: None,
-            channel: "msedge".into(),
-            action: "open".into(),
-            selector: None,
-            text: None,
-        })
-        .await;
-        let typed = execute_browser(BrowserInput {
-            url: None,
-            path: None,
-            viewport: None,
-            channel: "msedge".into(),
-            action: "type".into(),
-            selector: Some("#value".into()),
-            text: Some("kept-state".into()),
-        })
-        .await;
-        let clicked = execute_browser(BrowserInput {
-            url: None,
-            path: None,
-            viewport: None,
-            channel: "msedge".into(),
-            action: "click".into(),
-            selector: Some("#commit".into()),
-            text: None,
-        })
-        .await;
-        let dom = execute_browser(BrowserInput {
-            url: None,
-            path: None,
-            viewport: None,
-            channel: "msedge".into(),
-            action: "dom".into(),
-            selector: Some("#result".into()),
-            text: None,
-        })
-        .await;
-        let console = execute_browser(BrowserInput {
-            url: None,
-            path: None,
-            viewport: None,
-            channel: "msedge".into(),
-            action: "console".into(),
-            selector: None,
-            text: None,
-        })
-        .await;
-        shutdown_helper();
-        std::fs::remove_file(&path).ok();
-
-        assert!(before_open.is_error, "未 open 不得假成功");
-        assert!(before_open.content.contains("先调用 browser open"));
-        assert!(!opened.is_error, "{}", opened.content);
-        assert!(!typed.is_error, "{}", typed.content);
-        assert!(!clicked.is_error, "{}", clicked.content);
-        assert!(!dom.is_error, "{}", dom.content);
-        assert!(dom.content.contains("kept-state"), "{}", dom.content);
-        assert!(console.is_error, "console.error 必须作为工具错误返回");
-        assert!(
-            console.content.contains("stateful diagnostic"),
-            "{}",
-            console.content
-        );
-        assert!(
-            console.content.contains("kz-browser-stateful-"),
-            "{}",
-            console.content
-        );
-    }
-
-    /// D-400:rpc 统查 result.error(嵌套)——辅进程把所有错误(含 catch)写进
-    /// result.error,click/type/open 失败必须透传为工具错误,不得报成功
-    /// (此前只查顶层 parsed["error"],永远查不到,交互断言全面假绿)。
-    #[test]
-    fn rpc_嵌套result_error透传为工具错误() {
-        let Some(node) = find_node() else {
-            eprintln!("跳过:本机无 node");
-            return;
-        };
-        // 假 helper:读一行请求,回带嵌套 error 的响应(模拟 helper.mjs 的 catch 路径)。
-        let script = r#"
-            process.stdin.setEncoding("utf8");
-            process.stdin.on("data", (chunk) => {
-              for (const line of chunk.split("\n")) {
-                const t = line.trim();
-                if (!t) continue;
-                const req = JSON.parse(t);
-                process.stdout.write(JSON.stringify({ id: req.id, result: { error: "click failed: element not found" } }) + "\n");
-              }
-            });
-        "#;
-        let dir = std::env::temp_dir().join(format!("kz-browser-helper-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let script_path = dir.join("fake-helper.mjs");
-        std::fs::write(&script_path, script).unwrap();
-        let mut child = std::process::Command::new(&node)
-            .arg(&script_path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("node 假 helper 启动");
-        let stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                if tx.send(line.unwrap_or_default()).is_err() {
-                    break;
-                }
-            }
-        });
-        let mut helper = HelperProcess {
-            child,
-            stdin,
-            rx,
-            next_id: 0,
-        };
-        let err = helper
-            .rpc("click", serde_json::json!({ "selector": "#x" }))
-            .unwrap_err();
-        assert!(
-            err.contains("click failed"),
-            "嵌套 result.error 必须透传为工具错误: {err}"
-        );
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

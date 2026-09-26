@@ -193,7 +193,7 @@ impl kanzei_harness::Tool for DeliverTool {
     }
 
     fn description(&self) -> String {
-        "Hand an existing file to the USER as a card in the conversation (name, size, open /          reveal-in-explorer, inline preview for images). Params: path; optional caption saying          what it is and why now. Use it for artifacts the user should look at or keep —          a generated report, chart, export. This is NOT for reading a file into your own          context: that is `read`. Deliver a finished deliverable when it is ready rather than          only mentioning its path in prose."
+        "Hand an existing file to the USER as a card in the conversation (name, size, open / \n         reveal-in-explorer; images show a thumbnail, .html files get a Preview button that \n         opens them in the web preview pane). Params: path; optional caption saying what it is \n         and why now. Use it for artifacts the user should look at or keep — a generated \n         report, chart, export. This is NOT for reading a file into your own context: that is \n         `read`. Deliver a finished deliverable when it is ready rather than only mentioning \n         its path in prose."
             .into()
     }
 
@@ -317,6 +317,71 @@ fn deliver_target(
     Ok((path, meta))
 }
 
+/// UI2-0926 #8:桌面端的 `browser`。与 kanzei-tools 的无头版同名、同 schema、同输出格式,
+/// 按 `preview::route` 分流:网页预览面板开着、正显示、且绑定的就是这条线 → 驱动面板
+/// (用户看得见);其余一律无头。注册在 FrontendToolsComponent(装配线 middle 段),
+/// 同名 insert 后注册者胜,覆盖 BaseComponent 里的无头版;CLI 装配线不经过这里。
+struct DesktopBrowserTool;
+
+#[async_trait::async_trait]
+impl kanzei_harness::Tool for DesktopBrowserTool {
+    fn name(&self) -> &'static str {
+        "browser"
+    }
+
+    fn description(&self) -> String {
+        kanzei_tools::browser::description()
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        kanzei_tools::browser::input_schema()
+    }
+
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        let current = kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless);
+        kanzei_tools::browser::resources_for(input, None, current.as_deref())
+    }
+
+    /// 不带目标的动作按「将要执行它的那个后端」的当前页判权限(刚被遮住、执行时会等它露出来的
+    /// 面板按面板算,与 execute 的 route_waiting 同一结论)。
+    fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
+        let current = match crate::preview::route_hint_for(ctx.process_id.as_deref()) {
+            crate::preview::Backend::Pane => crate::preview::current_meta()
+                .map(|meta| meta.url)
+                .filter(|url| !url.is_empty() && url != "about:blank"),
+            crate::preview::Backend::Headless => {
+                kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless)
+            }
+        };
+        kanzei_tools::browser::resources_for(input, Some(&ctx.cwd), current.as_deref())
+    }
+
+    fn concurrency(
+        &self,
+        _input: &serde_json::Value,
+        ctx: &ToolCtx,
+    ) -> kanzei_harness::ToolConcurrency {
+        kanzei_harness::ToolConcurrency::shared_worktree(ctx)
+    }
+
+    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> kanzei_harness::ToolOutput {
+        let input = match kanzei_tools::browser::parse_browser_input(input) {
+            Ok(input) => input,
+            Err(output) => return *output,
+        };
+        // 面板只是被菜单 / 弹窗暂时遮住(前端冻结)时先等它露出来,免得一串动作中途换后端。
+        if crate::preview::route_waiting(ctx.process_id.as_deref()).await
+            == crate::preview::Backend::Pane
+        {
+            if let Some(output) = crate::preview::agent::execute(&input, ctx).await {
+                return output;
+            }
+            // 路由之后面板被关掉 / 长时间隐藏:回落无头,结果首行如实写 backend: headless。
+        }
+        kanzei_tools::browser::execute_headless(input, ctx, true).await
+    }
+}
+
 pub(crate) struct FrontendToolsComponent;
 impl kanzei_harness::Component for FrontendToolsComponent {
     fn contribute(
@@ -324,6 +389,7 @@ impl kanzei_harness::Component for FrontendToolsComponent {
         draft: &mut kanzei_harness::HarnessDraft,
         _ctx: &ResolveCtx,
     ) -> anyhow::Result<()> {
+        draft.tools.insert("browser", Arc::new(DesktopBrowserTool));
         draft.tools.insert("deliver", Arc::new(DeliverTool));
         draft.tools.insert("ui_dom", Arc::new(UiDomTool));
         draft.tools.insert("ui_console", Arc::new(UiConsoleTool));
@@ -435,6 +501,67 @@ impl kanzei_harness::Component for IdeaSplitComponent {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod browser_registration_tests {
+    use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ProfileKind, ResolveCtx};
+
+    fn ctx() -> ResolveCtx {
+        let root = std::path::PathBuf::from("C:/kanzei-browser-registration");
+        ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: std::sync::Arc::new(KanzeiConfig::default()),
+        }
+    }
+
+    fn browser_count(harness: Harness) -> usize {
+        harness
+            .resolve(&ctx())
+            .unwrap()
+            .materialize_tools()
+            .iter()
+            .filter(|tool| tool.name() == "browser")
+            .count()
+    }
+
+    // ── 分区:网页预览后端 ──
+    /// UI2-0926 #8:桌面装配线的 browser 由 FrontendToolsComponent 同名覆盖(只一个),
+    /// CLI 装配线(没有 FrontendTools)仍是 kanzei-tools 的无头版。
+    #[test]
+    fn 桌面装配线的browser由前端组件覆盖_cli仍是无头版() {
+        let mut only_frontend = Harness::default();
+        only_frontend.add(super::FrontendToolsComponent);
+        assert_eq!(
+            browser_count(only_frontend),
+            1,
+            "FrontendToolsComponent 自己注册 browser"
+        );
+
+        let desktop = crate::run::assembly::build_run_harness(false, None);
+        assert_eq!(browser_count(desktop), 1, "同名覆盖,不重复");
+
+        let cli = kanzei_tools::run::build_harness(|_| {}, |_| {});
+        assert_eq!(browser_count(cli), 1, "CLI 仍有无头 browser");
+
+        // 权限分级对桌面版同样生效(规则挂在 BaseComponent,按 action 名匹配)。
+        let mut harness = Harness::default();
+        harness
+            .add(kanzei_tools::BaseComponent)
+            .add(super::FrontendToolsComponent)
+            .add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx()).unwrap();
+        assert_eq!(
+            snapshot.evaluate("browser", "url:localhost:5173"),
+            kanzei_harness::Effect::Allow
+        );
+        assert_eq!(
+            snapshot.evaluate("browser", "url:example.com"),
+            kanzei_harness::Effect::Ask
+        );
     }
 }
 
