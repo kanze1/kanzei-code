@@ -213,6 +213,14 @@ impl Component for DevProfile {
                 // R-191:通用规则单源进引擎,所有项目默认注入;项目文件只追加项目特有规则。
                 // 通用部分永远在(无项目文件的项目也拿到完整约束),项目文件在其后拼接。
                 let mut text = String::from(kanzei_harness::DEFAULT_CONVENTIONS);
+                if ctx.project_root.join("Cargo.toml").is_file() {
+                    text.push_str(
+                        "
+
+",
+                    );
+                    text.push_str(kanzei_harness::CARGO_CONVENTIONS);
+                }
                 let path = ctx.project_root.join(".kanzei/project/conventions.md");
                 if let Ok(project_rules) = std::fs::read_to_string(&path) {
                     let project_rules = project_rules.trim();

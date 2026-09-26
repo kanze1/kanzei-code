@@ -2078,10 +2078,10 @@ prunable gitdir file points to non-existent location
              测试代码的 lint 覆盖只由 CI 承担"
         );
 
-        // ⑥ 注入 dev 提示词的通用规范(DEFAULT_CONVENTIONS §1.4)必须如实描述上面的分工:
+        // ⑥ 注入 dev 提示词的 Cargo 工程规范(CARGO_CONVENTIONS §1.4a)必须如实描述上面的分工:
         //    旧文案把提交门禁写成 all-targets clippy,弱模型据此误判「提交成功=测试代码
         //    lint 已过」(D-758 叙述失实)。门禁再改,规范文本也跟着变红。
-        let conventions = kanzei_harness::DEFAULT_CONVENTIONS;
+        let conventions = kanzei_harness::CARGO_CONVENTIONS;
         assert!(
             conventions.contains("cargo clippy --workspace -- -D warnings"),
             "规范 §1.4 必须写出提交门禁的真实 clippy 命令(不含测试目标)"

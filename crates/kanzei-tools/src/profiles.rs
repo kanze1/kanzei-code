@@ -172,6 +172,45 @@ mod tests {
         }
     }
 
+    /// UI2-0926 #13:cargo 专属条款(提交前 cargo 门禁、clippy 分工、CI 触发)只进 Cargo 工程。
+    /// 用户在空目录新建的 Flutter 项目里收到「提交 Rust 源码前跑 cargo …」只会误导模型。
+    #[test]
+    fn dev_conventions_cargo_条款只注入_cargo_工程() {
+        let dir = std::env::temp_dir().join(format!("kz-conv-cargo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let render = |root: &std::path::Path| {
+            let ctx = ResolveCtx {
+                profile: ProfileKind::Dev,
+                cwd: root.to_path_buf(),
+                project_root: root.to_path_buf(),
+                config: Arc::new(KanzeiConfig::default()),
+            };
+            let mut harness = Harness::default();
+            harness.add(DevProfile).add(ConfigComponent);
+            // system baseline 含全部上下文源,dev/conventions 在其中。
+            harness.resolve(&ctx).unwrap().system_baseline()
+        };
+        let plain = render(&dir);
+        assert!(plain.contains("## 1.4 "), "通用规范照常注入");
+        assert!(
+            !plain.contains("clippy 四处分工") && !plain.contains("提交前代码门禁"),
+            "非 Cargo 项目不该收到 cargo 条款"
+        );
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[workspace]
+",
+        )
+        .unwrap();
+        let cargo = render(&dir);
+        assert!(
+            cargo.contains("clippy 四处分工") && cargo.contains("提交前代码门禁"),
+            "Cargo 工程应收到 cargo 条款"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// 取 dev 档 system prompt 的公共装配(与上面那条同一条装配线)。
     fn dev_system_prompt(tag: &str) -> String {
         let root = PathBuf::from(format!("C:/kanzei-{tag}-test"));
