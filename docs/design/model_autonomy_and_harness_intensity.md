@@ -134,9 +134,14 @@ pub struct IntensityPolicy {
 
 ```
 backlog → auto_allowed → halted → paused → stop_after_round → max_rounds
-  → round_failure → 【model_declared_done】→ no_action/Nudge → zero_output
+  → round_failure → 【model_declared_done】→【awaiting_user】→ no_action/Nudge → zero_output
   → verify_round → Continue
 ```
+
+UI2-0926 #13 补了停机权的第二种形态 `AutoStopReason::AwaitingUser`:本轮 `question` 以
+`pending_question` 挂起,或最终回复明显以向用户提问收尾(保守散文判据)时,两档都停,
+鞭挞保持开着、用户回复后照常续跑;挂着的目标不清除。详见
+[project_workspace.md](project_workspace.md) §6。
 
 模型的声明通道:`work` 工具新增 `handoff` 动作。选 `work` 而不是新工具,是因为
 D-662 已经把「工具膨胀」判成缺陷——`work` 本就是取活/工作编排的抽象面,
@@ -235,7 +240,9 @@ Claude Code 的 `/goal` 作为参照,定调把停止规则本身也交出去。
   或**资源兜底**才停。
 
 与 `Nudge` 的分水岭是**文案来源,不是行为**:`nudge_prompt()` 的内容是引擎发明的
-(「从 defects.md 最上面一条开始找活干」),`GoalPending` 复述的是用户原话。
+(原为「从 defects.md 最上面一条开始找活干」;UI2-0926 #13 起改由项目状态派生——引擎当前选中项、
+实际存在的 tracker 文件、等用户的条目,见 [project_workspace.md](project_workspace.md) §6),
+`GoalPending` 复述的是用户原话。
 前者是引擎替模型决定该干什么——正是 #7 双控制器问题的来源;后者用户给了目标、
 模型自己判断,控制权仍在模型手里。
 
@@ -280,6 +287,10 @@ Claude Code 的 `/goal` 作为参照,定调把停止规则本身也交出去。
 
 ## 变更记录
 
+- 2026-09-26(UI2-0926 #13):判定顺序在 `model_declared_done` 之后加 `awaiting_user`
+  (`Stop(AwaitingUser)`,两档一致);`nudge_prompt` 改收 `NudgeFacts`(按项目状态生成,
+  不写死队列文件名);dev 提示「纯文本回复即停止信号」改成与引擎行为一致的契约;
+  结伴线的鞭挞续跑轮按结伴档发(此前前端写死 agent `dev`)。见 project_workspace.md。
 - 2026-08-21:建档。依据 2026-08-21 外部七点评估与用户逐点定调。
   登记 R-322/R-323/D-661/D-662,先行方案对照见
   `.kanzei/research/r322-prior-art/prior-art.md` 与 `r323-prior-art/prior-art.md`。
