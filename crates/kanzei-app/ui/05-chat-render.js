@@ -12,6 +12,7 @@ import { flushLazy, lazyMount, renderErrorDetail, renderToolArgs, renderToolResu
 import { renderToolSummary, toolArgSummary, toolResultSummary, withToolDuration } from "./05-tool-summary.js";
 import { sendText } from "./08-compose-runtime.js";
 import { loadEarlierMessages } from "./15-views-misc.js";
+import { browserPreviewTarget, extractToolImages, mountToolShots } from "./24-preview.js";
 
 // ---------- 消息渲染 ----------
 export function clearEmptyState() {
@@ -444,6 +445,11 @@ export function toolOutcomeView(ok, outcome) {
 /// (200 个块 × 256 KiB 会把内存吃到 50 MB)。
 export function fillToolBlock(block, { ok, outcome, code, content, preview, contentTruncated, contentBytes, display, input, durationMs } = {}) {
   input ??= block.input ?? undefined;
+  // UI2-0926 #8:截图标记行([tool-image] .kanzei/artifacts/tool-images/<sha>.png,后端落盘时追加在正文末尾)
+  // 摘下来画成缩略图;摘要器与展开区只看去掉标记的正文。browser 走无头时另给「在预览中打开」。
+  const shots = extractToolImages(content);
+  if (shots.images.length) content = shots.content;
+  const previewTarget = block.name === "browser" ? browserPreviewTarget(input, content) : null;
   // 历史 ToolResult 保存模型内容；从稳定结果码恢复和实时事件相同的等待视图。
   if (!display && String(content).startsWith("[tool_outcome=needs_confirmation code=QUESTION_PENDING]\n")) {
     try {
@@ -501,6 +507,8 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
   }
   appendDisplayBlock(block.detail, display, { compact: true });
   if (jsonValue && typeof jsonValue === "object") lazyMount(block.detail, () => renderToolResult(block.name, jsonValue));
+  // 「在预览中打开」只给成功的结果:等待批准(needs_confirmation)、失败的 browser 块没有可预览的页面。
+  mountToolShots(block, shots.images, { action: view.state === "success" ? previewTarget : null });
   if (display?.kind === "pending_question" && typeof display.question === "string") {
     block.icon.textContent = "⏸";
     block.summaryBase = null;

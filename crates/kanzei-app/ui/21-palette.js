@@ -74,6 +74,9 @@ export function collectPaletteEntries() {
   action(t("复制上下文"), "copy-context");
   action(t("搜索"), "chat-search-toggle");
   action(t("后台任务"), "tasks-toggle");
+  // UI2-0926 #8:网页预览(rail 开关同一实现:关着就打开,开着就收起)与文件页「在预览中打开」。
+  action(t("网页预览"), "preview-toggle");
+  action(t("在预览中打开当前文件"), "files-open-preview");
   action(t("切换主题"), "theme-toggle");
   action(t("创建隔离 Git 工作树线程"), "worktree-add");
   action(t("记需求"), "req-quick");

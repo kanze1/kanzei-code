@@ -25,6 +25,8 @@ anyhow.workspace = true
 tracing.workspace = true
 rusqlite.workspace = true
 async-trait.workspace = true
+# UI2-0926 #8:工具截图落盘要把 ToolImage 的 base64 解回字节(0.22 已在 Cargo.lock)。
+base64.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true

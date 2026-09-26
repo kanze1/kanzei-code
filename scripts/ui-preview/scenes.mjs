@@ -578,6 +578,102 @@ Object.assign(SCENES, {
 });
 // ── 分区:文件编辑(完) ──
 
+// ── 分区:网页预览前端 ── UI2-0926 #8(24-preview.js)。只走应用入口:回放 kz:* 事件、点 rail 开关、在地址栏回车、
+// 回放 kz:preview-console、点控制台按钮。参数 state=page|empty|error(默认 page):
+//   page  = 对话里一组 browser 调用(无头 + 面板,带截图缩略图)+ 交付的图片 + html 代码块;面板打开 localhost:5173、控制台展开;
+//   empty = 面板刚打开的起始页(本地开发服务 + 最近打开);error = 连接被拒的「服务没在跑？」错误页。
+// 浏览器预览里没有原生子 webview:#preview-host 用棋盘格占位——样式只注入到预览页,应用自己的 CSS 不给它背景(ui-surface-rules P 组)。
+async function replayPreviewTurn(ctx) {
+  const { emit, fixtures, sleep } = ctx;
+  const sessionId = fixtures.ids.mainSession;
+  emit("kz:meta", fixtures.events.meta);
+  emit("kz:turn", fixtures.events.turn);
+  emit("kz:text", { sessionId, text: "先起开发服务看一眼首页,再点登录按钮确认跳转。" });
+  await sleep(30);
+  const shot = (name) => `[tool-image] .kanzei/artifacts/tool-images/${name}.png`;
+  emit("kz:tool-start", { sessionId, id: "pv-b1", name: "browser", summary: "open localhost:5173", input: { action: "open", url: "http://localhost:5173/", viewport: "desktop-1280x800" } });
+  emit("kz:tool-end", {
+    sessionId, id: "pv-b1", name: "browser", ok: true, outcome: "success", preview: "backend: headless (+5 lines)", durationMs: 2300, display: null,
+    content: ["backend: headless", "浏览器已打开并截图:", "title: Acme Dashboard", "url: http://localhost:5173/", "viewport: 1280x800",
+      "用户可点卡片上的「在预览中打开」把它显示在面板里", shot("9f2c4e1a")].join("\n"),
+  });
+  emit("kz:tool-start", { sessionId, id: "pv-b2", name: "browser", summary: "click", input: { action: "click", selector: "#login" } });
+  emit("kz:tool-end", {
+    sessionId, id: "pv-b2", name: "browser", ok: true, outcome: "success", preview: "backend: pane（用户可见） (+2 lines)", durationMs: 640, display: null,
+    content: ["backend: pane（用户可见）", "已点击 \"#login\";当前 url: http://localhost:5173/login"].join("\n"),
+  });
+  emit("kz:tool-start", { sessionId, id: "pv-b3", name: "browser", summary: "screenshot", input: { action: "screenshot" } });
+  emit("kz:tool-end", {
+    sessionId, id: "pv-b3", name: "browser", ok: true, outcome: "success", preview: "backend: pane（用户可见） (+3 lines)", durationMs: 180, display: null,
+    content: ["backend: pane（用户可见）", "已截图(不刷新页面)", "url: http://localhost:5173/login", shot("login-3b1d")].join("\n"),
+  });
+  emit("kz:tool-start", { sessionId, id: "pv-d1", name: "deliver", summary: "out/dashboard.png", input: { path: "out/dashboard.png", caption: "首页截图(1280×800)" } });
+  emit("kz:tool-end", {
+    sessionId, id: "pv-d1", name: "deliver", ok: true, outcome: "success", preview: "[delivered] out/dashboard.png (48213 bytes)", durationMs: 12,
+    content: "[delivered] out/dashboard.png (48213 bytes)",
+    display: { kind: "file", path: "out/dashboard.png", name: "dashboard.png", bytes: 48213, caption: "首页截图(1280×800)" },
+  });
+  await sleep(30);
+  emit("kz:text", {
+    sessionId,
+    text: "\n\n登录跳转正常。顺手写了一个静态原型,可以直接预览:\n\n```html\n<!doctype html>\n<main class=\"card\">\n  <h1>Acme</h1>\n  <button id=\"login\">登录</button>\n</main>\n```\n\n开发服务在 http://localhost:5173/ 。",
+  });
+  emit("kz:step", fixtures.events.step);
+  emit("kz:done", { sessionId, steps: 5, halted: false, history: 14, elapsedMs: 9100, input: 52000, output: 900, cacheRead: 40000, cacheWrite: 0, tools: { browser: 3, deliver: 1 } });
+  emit("kz:idle", { sessionId, reason: "completed" });
+  await sleep(60);
+  await ctx.settle();
+}
+Object.assign(SCENES, {
+  async preview(ctx) {
+    const mode = ctx.params.get("state") || "page";
+    const style = document.createElement("style");
+    style.dataset.kzPreviewPlaceholder = "1";
+    style.textContent = [
+      "#preview-host { background: repeating-conic-gradient(#8881 0 25%, #8882 0 50%) 0 0 / 24px 24px; }",
+      "#preview-host::after { content: '原生网页面板(Tauri 子 webview)占位'; position: absolute; inset: auto 12px 12px auto;",
+      "  padding: 4px 8px; border-radius: 6px; background: #0008; color: #fff; font: 12px 'Segoe UI', sans-serif; }",
+    ].join("\n");
+    document.head.append(style);
+    await replayPreviewTurn(ctx);
+    // 展开工具组与交付行:截图缩略图、「在预览中打开」、交付卡片的缩略图都在里面。
+    const group = [...document.querySelectorAll("#messages .tool-group")].at(-1);
+    if (group && group.dataset.expanded !== "1") group.querySelector(".tool-group-head")?.click();
+    const deliverRow = [...document.querySelectorAll("#messages .tool-msg")].find((row) => row.querySelector(".tool-msg-name")?.textContent === "deliver");
+    deliverRow?.querySelector(".tool-msg-head")?.click();
+    $("#preview-toggle")?.click();
+    await waitFor(() => $("#view-chat")?.dataset.preview === "open");
+    await ctx.settle();
+    if (mode !== "empty") {
+      const address = $("#preview-address");
+      address.value = "5173";
+      address.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      await waitFor(() => $("#preview-address")?.value === "http://localhost:5173/" && $("#preview-empty")?.classList.contains("hidden"));
+      await ctx.sleep(80);
+    }
+    if (mode === "page") {
+      ctx.emit("kz:preview-console", {
+        entries: [
+          { seq: 1, ts: Date.now(), level: "info", text: "[vite] connected.", url: "http://localhost:5173/@vite/client", line: 865, col: 10 },
+          { seq: 2, ts: Date.now(), level: "warning", text: "React Router Future Flag Warning: v7_startTransition", url: "http://localhost:5173/node_modules/.vite/deps/react-router-dom.js", line: 4394, col: 13 },
+          { seq: 3, ts: Date.now(), level: "error", text: "Failed to load resource: the server responded with a status of 404 (Not Found)", url: "http://localhost:5173/api/me", line: 0, col: 0 },
+          { seq: 4, ts: Date.now(), level: "error", text: "Uncaught TypeError: Cannot read properties of undefined (reading 'name')\n    at Header (Header.tsx:18:31)", url: "http://localhost:5173/src/components/Header.tsx", line: 18, col: 31 },
+          { seq: 5, ts: Date.now(), level: "log", text: "user: { id: 7, plan: \"pro\" }", url: "http://localhost:5173/src/main.tsx", line: 12, col: 9 },
+        ],
+      });
+      await ctx.sleep(40);
+      $("#preview-console-toggle")?.click();
+      await ctx.sleep(80);
+    }
+    const chat = await import("/05-chat-render.js");
+    chat.scrollBottom(true);
+    document.activeElement?.blur?.();
+    await ctx.settle();
+    await ctx.sleep(120);
+  },
+});
+// ── 分区:网页预览前端(完) ──
+
 export const SCENE_NAMES = Object.keys(SCENES);
 
 export async function runScene(name, ctx) {

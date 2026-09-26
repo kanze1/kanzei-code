@@ -1,9 +1,11 @@
 //! R-249 批2:抓取真实运行窗口的像素,让 UI 自查从「读结构数值」变成「看得见」。
 //!
-//! **为什么不走 CDP**:仓里确实有 WebView2 的 DevTools 协议通道(R-101 E2 harness
-//! 的 `KANZEI_E2E_CDP`),`Page.captureScreenshot` 也确实更准。但那条要开远程调试
-//! 端口,生产运行常开一个调试口不值当——自查是日常动作,不该以「一直开着调试」
-//! 为代价。
+//! **为什么不走 CDP**:当初的理由是「CDP 要开远程调试端口(R-101 E2 harness 的
+//! `KANZEI_E2E_CDP`),生产运行常开一个调试口不值当」。UI2-0926 #8 的 B0 实测推翻了这个
+//! 前提:WebView2 可以经 webview2-com 在**进程内**调 `CallDevToolsProtocolMethod`,不开
+//! 任何端口(网页预览面板 src/preview/cdp.rs 就这么做)。所以本工具以后可以改走进程内
+//! CDP 的 `Page.captureScreenshot`,或 B0 验证过的 `PrintWindow(PW_CLIENTONLY |
+//! PW_RENDERFULLCONTENT)`(子 webview 也能像素级抓到、免疫遮挡);本次不改实现。
 //!
 //! **为什么不走 html2canvas 一类**:那是拿 DOM 重画一遍,不是窗口真实的渲染结果。
 //! 而 UI 自查要查的恰恰是「渲染出来跟我想的不一样」——重画一遍只会把 bug 一起

@@ -102,6 +102,33 @@ function surfaceRoot() {
   return rootNode;
 }
 
+// ---------- 栈变化钩子(UI2-0926 #8 网页预览遮挡) ----------
+// 原生子 webview(网页预览面板)永远画在 HTML 之上:弹层压到它上面时,订阅方(24-preview.js)要先换上静止截图、
+// 把原生面板藏起来,弹层关掉再恢复。这里只负责「栈变了」这一件事:模态激活、任何关闭(finish)、锚定弹层/卡片打开、
+// toast 区域显隐、提示显隐都通知一次。参数是此刻浮着的元素快照 [{ el, type }](type:modal|menu|popover|card|toast|tooltip)。
+// 零依赖:不知道订阅方是谁,也不管几何——相交判定归订阅方。回调抛错只告警,不打断弹层本身。
+const surfaceListeners = new Set();
+export function onSurfaceChange(fn) {
+  if (typeof fn !== "function") return () => {};
+  surfaceListeners.add(fn);
+  return () => surfaceListeners.delete(fn);
+}
+/// 此刻浮着的全部弹层(栈 + 显示中的提示 + 有条目的 toast 区域)。订阅方随时可以主动取一次(布局变化后重判)。
+export function surfaceElements() {
+  const out = stack.filter((h) => !h.closed).map((h) => ({ el: h.el, type: h.type }));
+  if (tip.shown && tipNode) out.push({ el: tipNode, type: "tooltip" });
+  const region = byId("toast");
+  if (region && Array.from(region.children ?? []).some((node) => node.dataset?.kzExpired !== "1")) out.push({ el: region, type: "toast" });
+  return out;
+}
+function notifySurfaceChange() {
+  if (!surfaceListeners.size) return;
+  const snapshot = surfaceElements();
+  for (const fn of [...surfaceListeners]) {
+    try { fn(snapshot); } catch (err) { console.warn(`onSurfaceChange 回调失败: ${err}`); }
+  }
+}
+
 export function isModalOpen() {
   return stack.some((h) => h.type === "modal");
 }
@@ -153,6 +180,7 @@ function finish(handle, value, { nativeClosed = false } = {}) {
     focusEl(handle.anchor);
   }
   if (handle.type === "modal") activateQueued(el);
+  notifySurfaceChange();
 }
 
 export function closeSurface(handleOrEl, value) {
@@ -343,6 +371,7 @@ function activate(handle) {
     }
   });
   focusEl(resolveTarget(handle.initialFocus, el) ?? firstFocusable(el));
+  notifySurfaceChange();
 }
 function activateQueued(el) {
   const queue = el._kzQueue;
@@ -503,6 +532,7 @@ export function openPopover(anchorEl, el, options = {}) {
   wirePopover(el);
   showNative(el);
   syncExpanded(handle, true);
+  notifySurfaceChange();
   return handle;
 }
 
@@ -641,6 +671,7 @@ export function showCard(el, { onEscape, focus = "auto", initialFocus } = {}) {
     mirrorHidden(el, false);
     wirePopover(el);
     showNative(el);
+    notifySurfaceChange();
   }
   handle.escape = typeof onEscape === "function" ? () => onEscape(handle) : null;
   if (focus === "auto") {
@@ -678,12 +709,13 @@ function syncToastRegion(region) {
   try {
     if (!live) {
       if (typeof region.hidePopover === "function" && popoverShowing(region)) region.hidePopover();
-      return;
+    } else {
+      // 模态开着时重新置顶一次:toast 要浮在遮罩之上,而顶层顺序只由「最后一次 show」决定。
+      if (isModalOpen() && popoverShowing(region)) region.hidePopover();
+      showNative(region);
     }
-    // 模态开着时重新置顶一次:toast 要浮在遮罩之上,而顶层顺序只由「最后一次 show」决定。
-    if (isModalOpen() && popoverShowing(region)) region.hidePopover();
-    showNative(region);
   } catch { /* 区域未挂进文档 */ }
+  notifySurfaceChange();
 }
 function expireToast(item) {
   if (item.dataset.kzExpired === "1") return;
@@ -749,6 +781,7 @@ function hideTip() {
       try { if (typeof el.hidePopover === "function" && popoverShowing(el)) el.hidePopover(); } catch { /* 忽略 */ }
       mirrorHidden(el, true);
     }
+    notifySurfaceChange();
   }
   if (!target) return;
   if (tip.describedBy === null) target.removeAttribute?.("aria-describedby");
@@ -768,12 +801,18 @@ function showTipNow() {
   if (!target || !text) return;
   const el = tipElement();
   el.textContent = text;
+  // 摆位方向:锚点或其祖先的 data-kz-tip-side(目前只有 inline-start)。网页预览面板里的提示走侧向:
+  // 默认的上方/翻到下方会落进原生子 webview 的占位框,被原生面板盖住(UI2-0926 #8)。
+  const side = target.closest?.("[data-kz-tip-side]")?.dataset?.kzTipSide ?? "";
+  if (side) el.dataset.side = side;
+  else delete el.dataset.side;
   anchorTo(el, target);
   mirrorHidden(el, false);
   showNative(el);
   tip.shown = true;
   tip.describedBy = target.getAttribute?.("aria-describedby") ?? null;
   target.setAttribute?.("aria-describedby", "kz-tip");
+  notifySurfaceChange();
 }
 function tipTargetOf(node) {
   let el = null;
