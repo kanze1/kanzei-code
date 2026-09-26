@@ -115,6 +115,24 @@ const SCENES = {
     await openView(ctx, "lines");
   },
 
+  // ── 分区:侧栏与需求页 ──
+  /// UI2-0926 #1:项目总览页(rail ⌂)。卡片数据来自 workspace_snapshot 夹具(三个项目,形状对照后端)。
+  async workspace(ctx) {
+    await openView(ctx, "workspace");
+    await waitFor(() => document.querySelectorAll("#workspace-projects .workspace-card").length > 0);
+    document.activeElement?.blur?.();
+    await ctx.sleep(60);
+  },
+  /// UI2-0926 #5:需求页列表本身(不展开详情),看行的字阶与明暗层级。docs 场景展开了 R-364 的详情,
+  /// 详情占满一屏,列表行反而看不全。
+  async doclist(ctx) {
+    await openView(ctx, "documents");
+    await waitFor(() => document.querySelector("#documents-req-list .doc-item[data-doc-id]"));
+    document.activeElement?.blur?.();
+    await ctx.sleep(60);
+  },
+  // ── 分区:侧栏与需求页(完) ──
+
   async empty(ctx) {
     // 走真实的「新对话」入口:它同时是缺陷 #2(旧内容残留)的复现路径。
     $("#new-chat")?.click();
