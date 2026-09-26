@@ -11,6 +11,8 @@
 
 ## live_design
 
+- [identity: live_design; last_verified_commit: 23fbbcb5] [`brand_refresh.md`](../../../docs/design/brand_refresh.md)：三模块并行 agent SVG、亮橙/墨蓝/电光青提示色、侧栏与输入框静态暖灰质感；消息对话移除背景装饰并停止动画，欢迎页与语音舞台保留可关闭装饰。
+
 - [identity: live_design; last_verified_commit: 250fb219] [`cc_codex_alignment_20260925.md`](../../../docs/design/cc_codex_alignment_20260925.md)：Claude Code / Codex 能力对照与对齐清单(复刻清单 v1;接口定义与用户筛选结论,R-364~R-367、R-369~R-377、D-748、D-751 承接)。
 - [identity: live_design; last_verified_commit: 250fb219] [`cc_codex_alignment_impl_maps.md`](../../../docs/design/cc_codex_alignment_impl_maps.md)：CC/Codex 对齐条目实施地图(行号、批次、陷阱与裁决;勘察加对抗核对产出)。
 - [identity: live_design; last_verified_commit: 250fb219] [`doc_reference_graph.md`](../../../docs/design/doc_reference_graph.md)：文档引用标记、引用历史与引用图(R-368;D-749、D-750)。
@@ -20,11 +22,11 @@
 - [identity: live_design; last_verified_commit: aa9c924a] [`oc-idle-direction.md`](../../../docs/design/oc-idle-direction.md)：呼吸、眨眼、视线变化与待机循环的制作和检查。
 - [identity: live_design; last_verified_commit: aa9c924a] [`oc-h3-deployment.md`](../../../docs/design/oc-h3-deployment.md)：H3 固定版本、同区双卡部署与素材生成记录。
 - [identity: live_design; last_verified_commit: aa9c924a] [`oc-voice-direction.md`](../../../docs/design/oc-voice-direction.md)：角色音色方向、C 配音选择及交接约定。
-- [identity: live_design; last_verified_commit: 860f7ff7] [`ui_chat_backdrop.md`](../../../docs/design/ui_chat_backdrop.md)：对话背景星座渲染器——kanzei 标志笔画转星座(主干 / 记忆 / 行动三种边,光点按事件语义流动)、北斗 / 猎户 / 仙后真实星表投影、上传图片只存导出的点集;画在正文两侧沟槽(768 列两侧只剩约 120px 时缩成窄沟小徽记,正文列 evenodd 剪掉),连窄沟都放不下才退水印——水印整张画进离屏层后以单一不透明度合成,正文对比度与叠几层无关;空闲 ≤8 帧/秒、流式事件不饿死、失败会话静止、隐藏零定时器;设置页「对话背景」与 app.json backdrop 字段;浏览器冒烟实测帧预算与正文下像素(UI2-0926 #10)。
+- [identity: live_design; last_verified_commit: 23fbbcb5] [`ui_chat_backdrop.md`](../../../docs/design/ui_chat_backdrop.md)：背景渲染器历史与通用星座算法；旧 K、沟槽和消息水印布局已由 brand_refresh.md 替代。当前仅欢迎页与语音舞台绘制，保留真实活动信号、文案避让、对比度保护与动态效果设置。
 - [identity: live_design; last_verified_commit: 250fb219] [`research_library.md`](../../../docs/design/research_library.md)：独立课题身份、存储及开发项目可选关联(R-363；该提交为变更前基线，工作树增量已验证，待提交验收)。
 - [identity: live_design; last_verified_commit: 3ce8805b] [`ui_surface_stack.md`](../../../docs/design/ui_surface_stack.md)：弹层技术栈——dialog/popover/锚点定位/base-select 顶层原语、组件层 --surface-* token、唯一的 00-surface.js(一个栈、Esc 只关栈顶、点外关闭、焦点规则)、ESLint + ui-surface-rules 静态门禁与样例页浏览器冒烟(UI-0926 #9;截图 6 白色下拉的根因与修复);§4.6 可调框与分隔条唯一入口 00-frame.js(data-kz-frame*、installSplit,几何经 ui_prefs.ui_layout 持久化)与停靠侧栏 .k-panel[data-dock]/.k-scrim(UI2-0926 #4/#14)。
 - [identity: live_design; last_verified_commit: ee1d9492] [`subagent_presentation.md`](../../../docs/design/subagent_presentation.md)：子代理呈现——主对话单卡(字形/人格/描述/实时计数/≤3 行尾迹)、并行成组、侧栏总览与详情、状态与数据契约;复用第一波 .kz-glyph/.k-panel/05-tool-summary 原语,后端 meta trace、稳定终态码与整轮停止补发 ToolEnd(UI-0926 #8);§5.6/§7.1 活动与子代理合成停靠的「后台任务」侧栏(三段、Claude 式委派卡、纯策略模块 06-side-policy.js 自动开合,UI2-0926 #14)。
-- [identity: live_design; last_verified_commit: 3ce8805b] [`ui_color_semantics.md`](../../../docs/design/ui_color_semantics.md)：界面配色——深色表面按 Codex 实测分层(主区最深、侧栏亮一档、输入区浮起、标题纯白)与语义色表(橙=进行中、琥珀=需要注意、绿=成功收尾、红=失败与 P0、灰=其余、蓝只给代码),ui-a11y-smoke ③b 叠色对比度(胶囊底 ∘ 卡底 ∘ 悬停合成后算)、⑥ 颜色语义门禁与运行时守卫(UI2-0926 #2#3,含复核修复;⑥w 输入区鞭挞组圆点与阶段字,UI2-0926 #11 复核)。
+- [identity: live_design; last_verified_commit: 23fbbcb5] [`ui_color_semantics.md`](../../../docs/design/ui_color_semantics.md)：中性表面层级、状态文字、焦点与优先级表达、叠色对比度门禁。原绿/红/琥珀色值保留为历史；当前三色提示及质感 token 见 brand_refresh.md。
 - [identity: live_design; last_verified_commit: ab34592f] [`architecture_diagrams.md`](../../../docs/design/architecture_diagrams.md)：架构图——Mermaid 12(ESM 分块版懒加载,ELK 分层布局,配色只由 --diagram-* token 注入,strict)为架构图与全站 markdown 图的唯一渲染器(04-diagram.js,renderMarkdownInto 唯一入口、未闭合围栏不渲染);crate 依赖图由 arch_diagram.rs 从 Cargo 清单实时生成(传递约简、分组、节点点击),手写图是 docs/architecture/*.md、agent 用 architecture diagrams 动作自查(D1–D9 lint);架构页标签页/适应缩放/错误卡;verify 新步 ui_diagram(无头 Edge 真渲染 + 自检反例)(UI2-0926 #7)。
 - [identity: live_design; last_verified_commit: 8f632702] [`memory_knowledge_graph.md`](../../../docs/design/memory_knowledge_graph.md)：记忆知识图谱——记忆页「列表 | 图谱」,按架构(AreaRegistry 层带)渲染记忆、条目、代码区域与共享失败指纹的力导向图;refgraph 投影 + stat 缓存 + 可选 area 字段;图可视化统一走 vendored force-graph 共享渲染器 24-graph-view.js(取代 doc_reference_graph 的「不引入图库/手写 SVG」);配色、降级与门禁(UI2-0926 #9,含复核修复:区域行随改动重取、减少动效、确定性布局、竖排页签栏)。
 - [identity: live_design; last_verified_commit: ced41f3c] [`project_workspace.md`](../../../docs/design/project_workspace.md)：工作目录管理——新建项目对话框(名称/位置/默认建 Git 库、有身份时首提交、.kanzei/.gitignore 运行时忽略规则、描述进草稿)、项目状态事实 core/project-state(空项目/Git 三态/技术栈/工具链,与桌面端 project_facts 同源)与事实横幅/「无 Git」芯片/并行线入口、路径形态唯一实现 path_form 与 schema v25 去 `\\?\` 前缀迁移、git 工具只操作自己的仓库与 init 动作、bash UTF-8 与新鲜 PATH、鞭挞 Stop(AwaitingUser)与按项目状态生成的 Nudge、结伴线续跑按结伴档(UI2-0926 #13)。
@@ -35,7 +37,7 @@
 - [identity: live_design; last_verified_commit: 568adcc8] [`memory_feedback_reliability.md`](../../../docs/design/memory_feedback_reliability.md)：记忆观测、恢复证据与信息呈现改造(R-361；568adcc8 为审计基线，首批代码在工作树完成定向验证，收益对照与任务上下文改造待推进)。
 
 - [identity: live_design; last_verified_commit: 02342e17] [`agent_visualization_tools.md`](../../../docs/design/agent_visualization_tools.md)：Agent 绘图工具统一设计草案(R-335；架构图与 research 科学图表 API、验证、产物和迁移边界；架构图一侧 2026-09-26 已定为 Mermaid 默认、节点可点击,见 architecture_diagrams.md,科学图表的引擎组合仍待用户评审)。
-- [identity: live_design; last_verified_commit: d374cb9f] [`app_icon.md`](../../../docs/design/app_icon.md)：图标设计规范与资产清单(R-061 done,规范仍有效)。
+- [identity: superseded; as_of_commit: d374cb9f; superseded_by: brand_refresh.md] [`app_icon.md`](../../../docs/design/app_icon.md)：R-061 旧 K / Memory Layers 图标历史；当前三模块 SVG 与平台资产生成方式见 brand_refresh.md。
 - [identity: live_design; last_verified_commit: d374cb9f] [`bootstrap_quality_audit.md`](../../../docs/design/bootstrap_quality_audit.md)：自举质量波次审计 SOP，规定只读审计、证据替身、最后一公里接线与注释承诺检查。
 - [identity: live_design; last_verified_commit: d374cb9f] [`context_supply_bill_20260821.md`](../../../docs/design/context_supply_bill_20260821.md)：R-312 B1 真实 session 上下文注入账单；记录块级字符占比、粗 token 估算及当前测量缺口。
 - [identity: live_design; last_verified_commit: d374cb9f] [`deepseek_harness_upgrade.md`](../../../docs/design/deepseek_harness_upgrade.md)：Typed Session Events、Surface Projection、Tool Pipeline/Spill 与 LineRuntime 的升级草案(R-241～R-246,A-012 待转 accepted)。

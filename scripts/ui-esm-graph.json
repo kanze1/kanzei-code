@@ -1,5 +1,18 @@
 {
   "graph": {
+    "00-brand.js": {
+      "provides": [
+        "AGENT_MODULE_PATH",
+        "AGENT_ROTATIONS",
+        "AGENT_SIGNAL_PATH",
+        "agentModuleTransform",
+        "brandSvg",
+        "rotateAgentPoint"
+      ],
+      "imports": {
+        "round": "22-constellation-core.js"
+      }
+    },
     "00-frame.js": {
       "provides": [
         "EDGES_ALL",
@@ -504,6 +517,7 @@
         "tokens": "gallery.js",
         "uiPrefsLoad": "01-core.js",
         "uiPrefsSave": "01-core.js",
+        "view": "15-conventions.js",
         "view_allowed": "03-workspaces.js",
         "warn": "24-preview.js"
       }
@@ -562,6 +576,7 @@
         "toastError": "03-shell.js",
         "uiPrefsLoad": "01-core.js",
         "uiPrefsSave": "01-core.js",
+        "view": "15-conventions.js",
         "writeJson": "01-core.js"
       }
     },
@@ -649,6 +664,7 @@
         "tip": "00-surface.js",
         "toast": "00-surface.js",
         "tokens": "gallery.js",
+        "view": "15-conventions.js",
         "viewport": "00-frame.js"
       }
     },
@@ -982,6 +998,7 @@
         "toolResultSplit": "05-tool-summary.js",
         "toolResultSummary": "05-tool-summary.js",
         "trimLivePane": "01-core.js",
+        "view": "15-conventions.js",
         "warn": "24-preview.js",
         "withToolDuration": "05-tool-summary.js"
       }
@@ -1113,6 +1130,7 @@
         "toolRoots": "05-tool-summary.js",
         "traceArgText": "06-activity.js",
         "updateLatestButton": "05-chat-render.js",
+        "view": "15-conventions.js",
         "warn": "24-preview.js"
       }
     },
@@ -1387,6 +1405,7 @@
         "toolGroupRelocalize": "05-chat-render.js",
         "toolResultSummary": "05-tool-summary.js",
         "toolRoots": "05-tool-summary.js",
+        "view": "15-conventions.js",
         "warn": "24-preview.js"
       }
     },
@@ -1414,7 +1433,8 @@
         "add": "05-tool-summary.js",
         "now": "00-surface.js",
         "on": "01-core.js",
-        "round": "22-constellation-core.js"
+        "round": "22-constellation-core.js",
+        "view": "15-conventions.js"
       }
     },
     "07-events.js": {
@@ -1943,7 +1963,8 @@
         "setLineReasoning": "08-models.js",
         "state": "08-compose.js",
         "t": "00-surface.js",
-        "toast": "00-surface.js"
+        "toast": "00-surface.js",
+        "view": "15-conventions.js"
       }
     },
     "08-models.js": {
@@ -2001,6 +2022,7 @@
         "toast": "00-surface.js",
         "toastError": "03-shell.js",
         "updateLocalProcessItem": "08-compose-runtime.js",
+        "view": "15-conventions.js",
         "writeJson": "01-core.js"
       }
     },
@@ -2051,7 +2073,8 @@
         "state": "08-compose.js",
         "t": "00-surface.js",
         "toast": "00-surface.js",
-        "toastError": "03-shell.js"
+        "toastError": "03-shell.js",
+        "view": "15-conventions.js"
       }
     },
     "09-sessions.js": {
@@ -2228,6 +2251,7 @@
         "toastError": "03-shell.js",
         "transitionSession": "03-shell.js",
         "updateLocalProcessItem": "08-compose-runtime.js",
+        "view": "15-conventions.js",
         "workspace_processes": "03-workspaces.js",
         "workspace_switch_pending": "03-workspaces.js"
       }
@@ -2268,6 +2292,7 @@
         "prefKey": "08-models.js",
         "readJson": "01-core.js",
         "state": "08-compose.js",
+        "view": "15-conventions.js",
         "writeJson": "01-core.js"
       }
     },
@@ -2504,8 +2529,10 @@
         "messages": "01-core.js",
         "render": "24-memory-graph.js",
         "renderMarkdownInto": "04-markdown.js",
+        "request": "15-conventions.js",
         "t": "00-surface.js",
-        "toolResultSummary": "05-tool-summary.js"
+        "toolResultSummary": "05-tool-summary.js",
+        "view": "15-conventions.js"
       }
     },
     "13-memory.js": {
@@ -2592,6 +2619,7 @@
         "render": "24-memory-graph.js",
         "renderMarkdownInto": "04-markdown.js",
         "replayExperienceFacts": "01-core.js",
+        "request": "15-conventions.js",
         "richText": "04-structured.js",
         "roots": "04-structured.js",
         "round": "22-constellation-core.js",
@@ -2654,6 +2682,34 @@
         "setBgDoneOpen": "06-activity.js",
         "setDependencyViewOpen": "12-docs-pages.js",
         "setDocumentsKind": "12-docs-pages.js",
+        "t": "00-surface.js",
+        "toast": "00-surface.js",
+        "toastError": "03-shell.js"
+      }
+    },
+    "15-conventions.js": {
+      "provides": [
+        "conventionsPrompt",
+        "generateConventions",
+        "openConventions",
+        "paint",
+        "request",
+        "view"
+      ],
+      "imports": {
+        "$": "01-core.js",
+        "add": "05-tool-summary.js",
+        "button": "04-diagram.js",
+        "closeSurface": "00-surface.js",
+        "current": "22-oc-preference.js",
+        "currentProject": "03-shell.js",
+        "defer": "01-core.js",
+        "invoke": "01-core.js",
+        "openDialog": "00-surface.js",
+        "pending": "03-layout.js",
+        "refreshDocs": "14-docs-actions.js",
+        "renderMarkdownInto": "04-markdown.js",
+        "sendText": "08-compose-runtime.js",
         "t": "00-surface.js",
         "toast": "00-surface.js",
         "toastError": "03-shell.js"
@@ -2756,6 +2812,7 @@
         "fillToolBlock": "05-chat-render.js",
         "followLatest": "05-chat-render.js",
         "forProject": "20-lines.js",
+        "generateConventions": "15-conventions.js",
         "initProjectGit": "09-sessions.js",
         "invoke": "01-core.js",
         "label": "04-structured.js",
@@ -2767,6 +2824,7 @@
         "noteProgrammaticScroll": "05-chat-render.js",
         "ocCompanionMarkup": "22-oc-companion.js",
         "open": "gallery.js",
+        "openConventions": "15-conventions.js",
         "openDialog": "00-surface.js",
         "openMenu": "00-surface.js",
         "pending": "03-layout.js",
@@ -2976,7 +3034,8 @@
         "languageIsEnglish": "02-i18n.js",
         "t": "00-surface.js",
         "toast": "00-surface.js",
-        "toastError": "03-shell.js"
+        "toastError": "03-shell.js",
+        "view": "15-conventions.js"
       }
     },
     "17-files.js": {
@@ -3016,7 +3075,8 @@
         "stopFilesWatch": "17-files-editor.js",
         "t": "00-surface.js",
         "toast": "00-surface.js",
-        "toastError": "03-shell.js"
+        "toastError": "03-shell.js",
+        "view": "15-conventions.js"
       }
     },
     "18-startup.js": {
@@ -3046,7 +3106,8 @@
         "t": "00-surface.js",
         "toast": "00-surface.js",
         "toastError": "03-shell.js",
-        "updateResultText": "16-settings.js"
+        "updateResultText": "16-settings.js",
+        "view": "15-conventions.js"
       }
     },
     "19-arch.js": {
@@ -3100,7 +3161,8 @@
         "setLayoutPref": "03-layout.js",
         "store": "00-frame.js",
         "t": "00-surface.js",
-        "toastError": "03-shell.js"
+        "toastError": "03-shell.js",
+        "view": "15-conventions.js"
       }
     },
     "19-research-auto.js": {
@@ -3459,7 +3521,29 @@
         "promptBox": "01-core.js",
         "state": "08-compose.js",
         "switchProject": "09-sessions.js",
-        "t": "00-surface.js"
+        "t": "00-surface.js",
+        "view": "15-conventions.js"
+      }
+    },
+    "22-brand-backdrop.js": {
+      "provides": [
+        "NS",
+        "clamp",
+        "createBrandBackdrop",
+        "element",
+        "nextClip",
+        "rgb"
+      ],
+      "imports": {
+        "activityBusy": "22-constellation-core.js",
+        "AGENT_MODULE_PATH": "00-brand.js",
+        "AGENT_ROTATIONS": "00-brand.js",
+        "AGENT_SIGNAL_PATH": "00-brand.js",
+        "agentModuleTransform": "00-brand.js",
+        "clip": "05-subagents.js",
+        "fill": "04-diagram.js",
+        "round": "22-constellation-core.js",
+        "watermarkAlpha": "22-constellation-core.js"
       }
     },
     "22-constellation-core.js": {
@@ -3472,8 +3556,6 @@
         "GAIN",
         "GUTTER_MIN_H",
         "GUTTER_MIN_W",
-        "GUTTER_NARROW_MARGIN",
-        "GUTTER_NARROW_W",
         "IDLE_FRAME_MS",
         "IMAGE_MAX_SIDE",
         "IMAGE_STAR_COUNT",
@@ -3555,9 +3637,13 @@
       "provides": [
         "KANZEI_LOGO_STROKES",
         "POLARIS",
-        "STAR_PRESETS"
+        "STAR_PRESETS",
+        "agentOutline"
       ],
-      "imports": {}
+      "imports": {
+        "AGENT_ROTATIONS": "00-brand.js",
+        "rotateAgentPoint": "00-brand.js"
+      }
     },
     "22-constellation-prefs.js": {
       "provides": [
@@ -3638,9 +3724,9 @@
         "box": "gallery.js",
         "clip": "05-subagents.js",
         "code": "05-tool-summary.js",
-        "columnFromRects": "22-constellation-core.js",
         "cometRoute": "22-constellation-core.js",
         "copy": "oc-studio.js",
+        "createBrandBackdrop": "22-brand-backdrop.js",
         "createOcStateStore": "22-oc-companion.js",
         "current": "22-oc-preference.js",
         "delay": "23-voice-controller.js",
@@ -3657,13 +3743,15 @@
         "layout": "03-layout.js",
         "layoutBackdrop": "22-constellation-core.js",
         "measure": "gallery.js",
+        "messages": "01-core.js",
         "normalizeBackdropPrefs": "22-constellation-core.js",
         "now": "00-surface.js",
-        "paint": "oc-studio.js",
+        "paint": "15-conventions.js",
         "panel": "19-research-auto.js",
         "poissonSelect": "22-constellation-core.js",
         "reduced": "oc-studio.js",
         "resolveBackdropModel": "22-constellation-core.js",
+        "rgb": "22-brand-backdrop.js",
         "round": "22-constellation-core.js",
         "sanitizeModel": "22-constellation-core.js",
         "seededRandom": "22-constellation-core.js",
@@ -3672,6 +3760,7 @@
         "store": "00-frame.js",
         "t": "00-surface.js",
         "themeObserver": "04-diagram.js",
+        "view": "15-conventions.js",
         "WAKE_THROTTLE_MS": "22-constellation-core.js",
         "watchDelay": "22-constellation-core.js",
         "watchTimer": "17-files-editor.js",
@@ -3707,7 +3796,8 @@
         "seededRandom": "22-constellation-core.js",
         "sessionStates": "03-shell.js",
         "t": "00-surface.js",
-        "themeObserver": "04-diagram.js"
+        "themeObserver": "04-diagram.js",
+        "view": "15-conventions.js"
       }
     },
     "22-oc-clip-director.js": {
@@ -3745,7 +3835,8 @@
         "resources": "oc-studio.js",
         "round": "22-constellation-core.js",
         "seek": "oc-studio.js",
-        "state": "08-compose.js"
+        "state": "08-compose.js",
+        "view": "15-conventions.js"
       }
     },
     "22-oc-companion.js": {
@@ -3807,6 +3898,7 @@
         "node": "gallery.js",
         "pending": "03-layout.js",
         "readOcSettings": "22-oc-preference.js",
+        "request": "15-conventions.js",
         "round": "22-constellation-core.js",
         "updateOcSettings": "22-oc-preference.js"
       }
@@ -3826,7 +3918,7 @@
         "OC_CHARACTER_PACK_SRC": "22-oc-config.js",
         "OC_REFERENCE_SRC": "22-oc-config.js",
         "ocMouthFrame": "22-oc-director.js",
-        "paint": "oc-studio.js",
+        "paint": "15-conventions.js",
         "pause": "oc-studio.js",
         "readOcSettings": "22-oc-preference.js",
         "ready": "oc-studio.js",
@@ -3942,7 +4034,8 @@
         "frames": "00-frame.js",
         "label": "04-structured.js",
         "pending": "03-layout.js",
-        "round": "22-constellation-core.js"
+        "round": "22-constellation-core.js",
+        "view": "15-conventions.js"
       }
     },
     "23-voice.js": {
@@ -3969,6 +4062,7 @@
         "sessionStates": "03-shell.js",
         "state": "08-compose.js",
         "t": "00-surface.js",
+        "view": "15-conventions.js",
         "VOICE_STATUS": "23-voice-copy.js",
         "VoiceConversation": "23-voice-controller.js",
         "voicePresenceLine": "23-voice-copy.js"
@@ -4001,7 +4095,8 @@
         "pause": "oc-studio.js",
         "placeLabels": "24-memory-graph-model.js",
         "round": "22-constellation-core.js",
-        "seededJitter": "24-memory-graph-model.js"
+        "seededJitter": "24-memory-graph-model.js",
+        "view": "15-conventions.js"
       }
     },
     "24-memory-graph-model.js": {
@@ -4132,6 +4227,7 @@
         "ready": "oc-studio.js",
         "REL_KEYS": "24-memory-graph-model.js",
         "releaseMemoryDetail": "13-memory.js",
+        "request": "15-conventions.js",
         "setMemoryAreaProvider": "13-memory.js",
         "showMemoryDetail": "13-memory.js",
         "showMemoryTab": "13-memory.js",
@@ -4140,6 +4236,7 @@
         "toastError": "03-shell.js",
         "uiPrefsLoad": "01-core.js",
         "uiPrefsSave": "01-core.js",
+        "view": "15-conventions.js",
         "visibleGraph": "24-memory-graph-model.js",
         "warn": "24-preview.js"
       }
@@ -4482,11 +4579,16 @@
     ],
     "clamp": [
       "00-frame.js",
+      "22-brand-backdrop.js",
       "22-constellation-core.js",
       "22-constellation.js",
       "22-oc-clip-director.js",
       "22-oc-layout.js",
       "22-oc-preference.js"
+    ],
+    "element": [
+      "19-research-auto.js",
+      "22-brand-backdrop.js"
     ],
     "store": [
       "00-frame.js",
@@ -4518,6 +4620,10 @@
     ],
     "host": [
       "04-diagram.js",
+      "oc-studio.js"
+    ],
+    "paint": [
+      "15-conventions.js",
       "oc-studio.js"
     ]
   }
