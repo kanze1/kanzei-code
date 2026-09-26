@@ -1,5 +1,5 @@
 import { defer } from "./01-core.js";
-import { escapeHtml, renderMarkdown } from "./04-markdown.js";
+import { escapeHtml, renderMarkdownInto } from "./04-markdown.js";
 import { $, confirmDialog, invoke, on, replayExperienceFacts, uiConsoleLog } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { currentProject, toast, toastError } from "./03-shell.js";
@@ -604,7 +604,7 @@ export function renderMemoryCandidates(list) {
     // UI-0926 #10:候选正文是 markdown(列表/代码/路径),按 markdown 渲染而不是原文堆字。
     const detail = document.createElement("div");
     detail.className = "memory-candidate-detail dim md sv-md";
-    detail.innerHTML = renderMarkdown(item.detail || "");
+    renderMarkdownInto(detail, item.detail || "");
     const actions = document.createElement("div");
     actions.className = "memory-candidate-actions";
     const adopt = document.createElement("button");
@@ -1181,7 +1181,7 @@ export function renderMemoryBodyRead(container, bodyText) {
   const text = String(bodyText ?? "");
   const article = document.createElement("article");
   article.className = "memory-body-document markdown";
-  article.innerHTML = renderMarkdown(text || t("无正文"));
+  renderMarkdownInto(article, text || t("无正文"));
   container.appendChild(article);
   // 编辑入口:阅读视图是默认态,编辑时提供取消,避免误入 textarea 后只能刷新页面恢复阅读。
   const editRow = document.createElement("div");

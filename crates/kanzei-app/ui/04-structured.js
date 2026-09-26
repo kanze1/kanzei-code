@@ -6,13 +6,14 @@
 //
 // 纪律:
 // - 只用 createElement / createTextNode / append / textContent / dataset / setAttribute;
-//   绝不用 innerHTML 写数据(XSS)。唯一例外是把 renderMarkdown 的输出写进 div.md——
-//   它先整体转义再构造。
+//   绝不用 innerHTML 写数据(XSS)。markdown 一律经 renderMarkdownInto 写进 div.md——
+//   它先整体转义再构造,闭合的 mermaid 围栏换成图。
 // - 不用 DocumentFragment(冒烟的假 DOM 没有);模块顶层不碰 document。
 // - 跳转不直接依赖 11/13/17/19:点击走 structuredNav,真实实现由 19-research.js 注册,
 //   冒烟可以换成 spy。
 import { t } from "./02-i18n.js";
-import { renderMarkdown } from "./04-markdown.js";
+import { setDiagramHost } from "./04-diagram.js";
+import { renderMarkdownInto } from "./04-markdown.js";
 import {
   DISCOVERY_LABEL_KEYS,
   classifyTrackerField,
@@ -50,6 +51,12 @@ export function setStructuredNav(partial) {
     if (typeof fn === "function") structuredNav[key] = fn;
   }
 }
+// 图节点点击(04-diagram.js,零 import)走同一套导航:调用时才取 structuredNav,冒烟换成 spy 照样命中。
+setDiagramHost({
+  t: (key) => t(key),
+  openPath: (path, line) => structuredNav.openPath(path, line),
+  openRef: (id) => structuredNav.openRef(id),
+});
 
 function el(tag, className = "", text = null) {
   const node = document.createElement(tag);
@@ -171,7 +178,7 @@ const MARKDOWN_HINT = /^\s{0,3}#{1,6}\s|^\s*[-*+]\s|^\s*\d+[.)]\s|```|^\s*\|.*\|
 
 function markdownBlock(text) {
   const box = el("div", "md sv-md");
-  box.innerHTML = renderMarkdown(String(text ?? ""));
+  renderMarkdownInto(box, String(text ?? ""));
   return box;
 }
 /// 多行字符串原样显示真实换行,绝不再 JSON 转义成字面的 `\n`。

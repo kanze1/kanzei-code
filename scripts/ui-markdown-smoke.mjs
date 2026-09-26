@@ -156,4 +156,41 @@ assert.match(unsafeHtml, /&lt;img/, "原始 HTML 未安全转义");
   assert.deepEqual(parse.mismatchFacts({ mismatch_count: 2, mismatches: [] }), { count: 2 }, "验收对账事实未解析");
 }
 
+// ── 分区:架构图 ──(UI2-0926 #7:词内下划线、未闭合围栏标记、renderMarkdownInto 唯一入口)
+{
+  // 词内下划线不是强调(CommonMark):记忆详情与聊天里的 old_string、索引里的 live_design; last_verified_commit
+  // 曾被渲染成「old + 斜体 string」。
+  for (const [raw, why] of [
+    ["[identity: live_design; last_verified_commit: 1234abcd]", "索引身份行"],
+    ["edit 报 old_string not found", "工具参数名"],
+    ["snake_case_name 与 a_b_c", "多段蛇形名"],
+    ["中文_强调_中文", "CJK 词内"],
+  ]) {
+    const out = renderMarkdown(raw);
+    assert.ok(!out.includes("<em>"), `${why}:词内下划线被当成强调:${out}`);
+    assert.ok(out.includes(raw), `${why}:原文里的下划线应原样保留:${out}`);
+  }
+  assert.match(renderMarkdown("强调 _整词_ 与 (_括号内_)"), /<em>整词<\/em>[\s\S]*\(<em>括号内<\/em>\)/, "词边界上的下划线强调应保留");
+  // 未闭合围栏(流式写到一半)打 data-open;闭合的不带。hydrateDiagrams 据此不渲染半截图。
+  assert.match(renderMarkdown("```mermaid\nflowchart LR\n  a --> b"), /<pre class="code" data-open="true"><code class="language-mermaid">/, "未闭合的围栏应带 data-open");
+  assert.match(renderMarkdown("```mermaid\nflowchart LR\n  a --> b\n```"), /<pre class="code"><code class="language-mermaid">/, "闭合的围栏不该带 data-open");
+  // renderMarkdownInto 是唯一写入口:写 innerHTML,再交给 hydrateDiagrams(Node 下没有节点可换,返回 el)。
+  const { renderMarkdownInto } = await import("../crates/kanzei-app/ui/04-markdown.js");
+  const el = { innerHTML: "", querySelectorAll: () => [] };
+  assert.equal(renderMarkdownInto(el, "**x**"), el, "renderMarkdownInto 应返回宿主");
+  assert.equal(el.innerHTML, "<p><strong>x</strong></p>", "renderMarkdownInto 没写进宿主");
+  // 静态门禁:04-markdown.js 以外不得再写 `x.innerHTML = renderMarkdown(…)`——那样 mermaid 围栏永远是代码块。
+  const { readdir } = await import("node:fs/promises");
+  const uiDir = new URL("../crates/kanzei-app/ui/", import.meta.url);
+  const offenders = [];
+  for (const name of (await readdir(uiDir)).filter((file) => file.endsWith(".js") && file !== "04-markdown.js")) {
+    const text = await readFile(new URL(name, uiDir), "utf8");
+    text.split(/\r?\n/).forEach((line, index) => {
+      if (/\.innerHTML\s*=\s*renderMarkdown\(/.test(line)) offenders.push(`${name}:${index + 1}`);
+    });
+  }
+  assert.deepEqual(offenders, [], `这些地方绕开了 renderMarkdownInto(图不会渲染),改成 renderMarkdownInto(el, raw[, { streaming }]):${offenders.join(", ")}`);
+}
+// ── 分区:架构图 结束 ──
+
 console.log("UI Markdown 冒烟通过：列表、表格、代码语言、安全外链与 XSS 用例已覆盖;markdown 补语法与结构化纯解析夹具已覆盖");

@@ -820,14 +820,22 @@
       <div id="view-arch" class="view">
         <div id="arch-scroll">
           <h1 data-i18n-key="架构浏览">架构浏览</h1>
-          <p class="dim" data-i18n-key="设计文档与架构索引的可视化浏览:左侧为 docs/design 文档树(按索引状态分层),右侧为架构索引原文;点击文档在应用内 Markdown 查看器打开。">设计文档与架构索引的可视化浏览:左侧为 docs/design 文档树(按索引状态分层),右侧为架构索引原文;点击文档在应用内 Markdown 查看器打开。</p>
+          <p class="dim" data-i18n-key="上方是架构图:第一张 crate 依赖图由 Cargo 清单实时生成,其余是 docs/architecture/ 下的手写图,点节点打开实现或文档。下方左侧是 docs/design 文档树(按索引状态分层),右侧是架构索引原文。">上方是架构图:第一张 crate 依赖图由 Cargo 清单实时生成,其余是 docs/architecture/ 下的手写图,点节点打开实现或文档。下方左侧是 docs/design 文档树(按索引状态分层),右侧是架构索引原文。</p>
           <div class="arch-quick-actions">
             <button id="arch-goto-memory" class="ghost" title="跳转到记忆页维护记忆条目(编辑/整理/重心设置走既有 memory 命令)" data-i18n-title="跳转到记忆页维护记忆条目(编辑/整理/重心设置走既有 memory 命令)"><span data-i18n-key="记忆管理">记忆管理</span></button>
           </div>
+          <section id="arch-diagram-card" aria-label="架构图" data-i18n-aria-label="架构图">
+            <div id="arch-diagram-head">
+              <div id="arch-diagram-tabs" role="tablist" aria-label="选择架构图" data-i18n-aria-label="选择架构图"></div>
+              <div id="arch-diagram-tools"></div>
+            </div>
+            <div id="arch-diagram-canvas" role="tabpanel"></div>
+            <div id="arch-diagram-foot"></div>
+            <div id="arch-diagram-issues" class="hidden" aria-label="图检查提示" data-i18n-aria-label="图检查提示"></div>
+          </section>
           <div id="arch-layout">
             <div id="arch-tree-wrap">
               <div id="arch-summary" class="dim"></div>
-              <div id="arch-graph" class="arch-graph" aria-label="架构图" data-i18n-aria-label="架构图"></div>
               <div id="arch-tree" role="tree" aria-label="设计文档树" data-i18n-aria-label="设计文档树" data-i18n-raw></div>
             </div>
             <div id="arch-index">
@@ -1402,6 +1410,7 @@
   <script type="module" src="03-shell.js"></script>
   <script type="module" src="03-layout.js"></script>
   <script type="module" src="03-workspaces.js"></script>
+  <script type="module" src="04-diagram.js"></script>
   <script type="module" src="04-markdown.js"></script>
   <!-- 分区脚本:工具行与结构化渲染 -->
   <script type="module" src="04-structured-parse.js"></script>

@@ -1,5 +1,5 @@
 import { defer } from "./01-core.js";
-import { renderInlineMarkdown, renderMarkdown } from "./04-markdown.js";
+import { renderInlineMarkdown, renderMarkdownInto } from "./04-markdown.js";
 import { $, invoke } from "./01-core.js";
 import { localizedDocStatus, t } from "./02-i18n.js";
 import { currentProject, log, toast, toastError } from "./03-shell.js";
@@ -933,7 +933,7 @@ function appendResearchDetailSection(body, title, text) {
   // 假设/结论/后续是模型写的 markdown(列表、代码、路径链接)。
   const content = document.createElement("div");
   content.className = "md sv-md";
-  if (text) content.innerHTML = renderMarkdown(text);
+  if (text) renderMarkdownInto(content, text);
   else content.textContent = t("暂无");
   section.appendChild(content);
   body.appendChild(section);
@@ -1105,7 +1105,7 @@ export function renderResearchReportWindow() {
   if (visible) {
     const body = document.createElement("div");
     body.className = "research-report-window";
-    body.innerHTML = renderMarkdown(visible);
+    renderMarkdownInto(body, visible);
     host.appendChild(body);
     decorateResearchReportReferences(body);
   }

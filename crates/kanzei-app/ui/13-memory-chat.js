@@ -1,7 +1,7 @@
 import { $, defer, invoke } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { currentProject } from "./03-shell.js";
-import { renderMarkdown } from "./04-markdown.js";
+import { renderMarkdownInto } from "./04-markdown.js";
 import { toolResultSummary } from "./05-tool-summary.js";
 
 // Project ownership is captured at send time. A late stream never writes into another project.
@@ -47,7 +47,7 @@ defer(() => {
       const { row, body } = cached;
       if (cached.text !== turn.text) {
         if (turn.role === "user") body.textContent = turn.text;
-        else body.innerHTML = renderMarkdown(turn.text || t("正在处理…"));
+        else renderMarkdownInto(body, turn.text || t("正在处理…"));
         cached.text = turn.text;
       }
       if (turn.changes?.length && cached.changes !== turn.changes) {

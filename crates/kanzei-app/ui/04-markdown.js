@@ -1,4 +1,8 @@
 // ---------- markdown-lite(安全子集:代码围栏/语言标识/行内码/加粗/删除线/标题/列表/任务列表/引用/分隔线/表格/安全外链/路径链接) ----------
+// 写进 DOM 的唯一入口是 renderMarkdownInto(el, raw, { streaming }):它在写完 HTML 后把闭合的 ```mermaid 围栏
+// 换成图(04-diagram.js)。别处不得再写 `x.innerHTML = renderMarkdown(…)`(ui-markdown-smoke 静态门禁)。
+import { hydrateDiagrams } from "./04-diagram.js";
+
 export function escapeHtml(s) {
   return String(s)
     .replace(/&/g, "&amp;")
@@ -74,7 +78,9 @@ export function renderInlineMarkdown(raw) {
   html = html.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
   html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
-  html = html.replace(/_([^_\n]+)_/g, "<em>$1</em>");
+  // 下划线强调只在词边界成立(CommonMark:词内的 _ 不开闭强调)。`live_design; last_verified_commit`、
+  // `old_string` 这类标识符里的下划线原样保留;CJK 也算「词」,`中_文_字` 不斜体。
+  html = html.replace(/(^|[^\p{L}\p{N}_])_([^_\n]+)_(?![\p{L}\p{N}_])/gu, "$1<em>$2</em>");
   // 占位符可以嵌套(链接文字里有行内码:`[`x.md`](path)`):链接的占位内容里还有码的占位符,
   // 单趟替换会把 `md-0` 原样漏到界面上。按引用逐层展开(只会引用更早的占位,不会成环)。
   const restore = (text) => text.replace(/\u0000md-(\d+)\u0000/g, (_, index) => restore(placeholders[Number(index)]));
@@ -113,11 +119,12 @@ export let renderMarkdown = function renderMarkdown(raw) {
     list = null;
     listStack = [];
   };
-  const flushCode = () => {
+  // open:到文末还没闭合的围栏(流式输出写到一半)打 data-open,hydrateDiagrams 据此不渲染半截图。
+  const flushCode = ({ open = false } = {}) => {
     if (!code) return;
     const language = code.language ? code.language.replace(/[^a-zA-Z0-9_+-]/g, "") : "";
     const className = language ? ` class="language-${language}"` : "";
-    html += `<pre class="code"><code${className}>${escapeHtml(code.lines.join("\n"))}</code></pre>`;
+    html += `<pre class="code"${open ? ' data-open="true"' : ""}><code${className}>${escapeHtml(code.lines.join("\n"))}</code></pre>`;
     code = null;
   };
   const renderTable = (header, separator, rows) => {
@@ -218,7 +225,7 @@ export let renderMarkdown = function renderMarkdown(raw) {
     flushList();
     paragraph.push(line);
   }
-  if (code) flushCode();
+  if (code) flushCode({ open: true });
   flushQuote();
   flushParagraph();
   flushList();
@@ -230,3 +237,13 @@ export function isTableSeparator(line) {
 }
 
 export function setRenderMarkdown(value) { renderMarkdown = value; }
+
+/// 把 markdown 渲染进 el(唯一入口):写 HTML,再把闭合的 ```mermaid 围栏换成图。
+/// streaming:流式每帧重渲的调用方(聊天正文/思考块)——未闭合的围栏本来就带 data-open 不渲染,
+/// 已闭合的缓存命中同步替换,不闪。
+export function renderMarkdownInto(el, raw, { streaming = false } = {}) {
+  if (!el) return el;
+  el.innerHTML = renderMarkdown(String(raw ?? ""));
+  hydrateDiagrams(el, { streaming });
+  return el;
+}

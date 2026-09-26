@@ -6,7 +6,7 @@ import { openTasksPanel } from "./06-agent-panel.js";
 import { $, activePane, promptBox, appendToPane, messages, trimLivePane } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { attachments, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
-import { renderMarkdown } from "./04-markdown.js";
+import { renderMarkdownInto } from "./04-markdown.js";
 import { fillTemplate, parseJsonish, stripToolOutcome } from "./04-structured-parse.js";
 import { flushLazy, lazyMount, renderErrorDetail, renderToolArgs, renderToolResult } from "./04-structured.js";
 import { renderToolSummary, toolArgSummary, toolResultSummary, withToolDuration } from "./05-tool-summary.js";
@@ -237,7 +237,7 @@ export function flushStreamRender(pane = activePane) {
   if (!assistant && !reasoning) return;
   const started = Date.now();
   if (assistant) {
-    assistant.querySelector(".message-body").innerHTML = renderMarkdown(assistant.dataset.raw);
+    renderMarkdownInto(assistant.querySelector(".message-body"), assistant.dataset.raw, { streaming: true });
   }
   if (reasoning) renderReasoningBlock(reasoning);
   streamRenderCost.set(pane, Date.now() - started);
@@ -646,7 +646,7 @@ export function appendReasoning(text) {
   scheduleStreamRender();
 }
 export function renderReasoningBlock(body) {
-  body.innerHTML = renderMarkdown(body.dataset.raw);
+  renderMarkdownInto(body, body.dataset.raw, { streaming: true });
   const head = body._head;
   if (!head) return;
   // 预览取最新的非空行:思考推进时头部跟着走,不再冻结在第一行。

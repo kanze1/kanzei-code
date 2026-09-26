@@ -452,6 +452,8 @@ assert.match(js, /t\("实际差异"\)/);
     "--tf-progress", // 04-structured.js renderTrackerFields 写批次进度条宽度
     // ── 分区:后台任务侧栏与可调框 ── 00-frame.js 按用户拖出的几何写可调框的摆放变量(surface.css §10)。
     "--kz-frame-l", "--kz-frame-r", "--kz-frame-t", "--kz-frame-b", "--kz-frame-w", "--kz-frame-h",
+    // ── 分区:架构图 ── 04-diagram.js 按「适应」后的图高写画布高度(clamp 在脚本里算)。
+    "--kz-diagram-h",
   ]);
   const definedTokens = new Set([...allClean.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
   const undefinedTokens = [...new Set([...allClean.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1]))]

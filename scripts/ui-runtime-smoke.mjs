@@ -771,6 +771,29 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*if \(\$\("memory-graph-legend"\)\?\.children\.length\) renderLegend\(\{ rebuild: true \}\);\r?\n/,
       replace: "",
     },
+
+    // ── 分区:架构图 ──(UI2-0926 #7)
+    // 索引按行切之前的 CRLF 归一化。删了它,磁盘上 CRLF 的 README 章节标题一个都匹配不上,60 篇已入册文档全丢。
+    archCrlf: {
+      pattern: /return String\(index \?\? ""\)\.replace\(\/\\r\\n\?\/g, "\\n"\)\.split\("\\n"\);/,
+      replace: 'return String(index ?? "").split("\\n");',
+    },
+    // 入册判定的文件名正则认 kebab 名。改回只认 snake_case,oc-*.md 这类在索引里的文档又被误报成「未入册」。
+    archKebab: {
+      pattern: /\[a-z0-9_-\]\*\\\.md\)`\?\\\]\/;/,
+      replace: "[a-z0-9_]*\\.md)`?\\]/;",
+    },
+    // hydrateDiagrams 跳过未闭合围栏。删了它,流式输出写到一半的 mermaid 也会被渲染(半截图、每帧报错)。
+    diagramOpenFence: {
+      pattern: /[ \t]*if \(pre\.dataset\?\.open === "true" \|\| pre\.getAttribute\?\.\("data-open"\) === "true"\) continue;\r?\n/,
+      replace: "",
+    },
+    // bindDiagram 的节点点击。删了它,图节点有链接样式却点了没反应(strict 下 mermaid 自己不绑 click)。
+    diagramClickMap: {
+      pattern: /[ \t]*g\.addEventListener\("click", \(event\) => \{\r?\n[ \t]*event\.preventDefault\?\.\(\);\r?\n[ \t]*event\.stopPropagation\?\.\(\);\r?\n[ \t]*activate\(\);\r?\n[ \t]*\}\);\r?\n/,
+      replace: "",
+    },
+    // ── 分区:架构图 结束 ──
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -1634,14 +1657,35 @@ const payloads = {
   research_arxiv_preview: (args) => ({ title: `arXiv ${args?.url ?? ""}`, text: "# arXiv 正文\n\n正文级抽取内容…", depth: "正文级", source_url: args?.url, path: `C:/smoke/project/.kanzei/research/${args?.topic}/fulltext/2301.12345.html` }),
   docs_archive_entries: (args) => args?.kind === "req" ? [docEntry("R-000", "已归档需求", "done")] : [docEntry("D-000", "已归档缺陷", "fixed")],
   // R-122:架构浏览。含一篇未入册文档,验证"未入册"分组可见。
+  // ── 分区:架构图 ── 索引是 CRLF(磁盘上的 README 就是 CRLF;LF 桩曾让章节正则的失配一直绿着)、
+  // 含一篇 kebab 名文档(命名不合规,不是未入册)、两张手写图(一张故意写坏)与 crate 图两份源码。
   architecture_snapshot: {
     index_path: "C:/smoke/parent/.kanzei/project/architecture/README.md",
-    index: "# 架构索引\n\n### 现行基线\n\n- [`direction_taste.md`](../../../docs/design/direction_taste.md)：方向基线。\n",
+    index: "# 架构索引\r\n\r\n### 现行基线\r\n\r\n- [`direction_taste.md`](../../../docs/design/direction_taste.md)：方向基线。\r\n\r\n### 历史快照\r\n\r\n- [`oc-playback.md`](../../../docs/design/oc-playback.md):角色动画(kebab 名)。\r\n",
     design_docs: [
       { name: "direction_taste.md", title: "方向基线", bytes: 512 },
       { name: "memory_system.md", title: "Memory 系统设计基线", bytes: 2048 },
+      { name: "oc-playback.md", title: "角色动画播放", bytes: 256 },
     ],
-    // R-188:workspace crate 依赖边(代码生成架构图数据源)。
+    diagrams: [
+      {
+        id: "01_runtime_loop", path: "docs/architecture/01_runtime_loop.md", title: "运行时主循环", summary: "一轮任务怎么跑。", source_line: 5, issues: [],
+        source: 'flowchart LR\n  compose["输入区"]:::entry\n  drive["主循环"]:::focus\n  adr["决策"]\n  compose --> drive\n  drive --> adr\n  click compose "crates/kanzei-app/ui/08-compose.js" "输入区"\n  click drive "crates/kanzei-core/src/runner/drive.rs:140" "主循环"\n  click adr "D-100" "决策条目"',
+      },
+      {
+        id: "02_broken", path: "docs/architecture/02_broken.md", title: "写坏的图", summary: "", source_line: 7,
+        source: 'flowchart LR\n  a["甲"] --> b["乙"]\n  c[BROKEN(]',
+        issues: [{ line: 9, severity: "error", code: "D6", message: "标签 `BROKEN(` 含括号却没加引号", hint: "写成 id[\"…\"]" }],
+      },
+    ],
+    crates: {
+      members: [], edges: [], hidden_transitive: 1,
+      mermaid: {
+        reduced: 'flowchart LR\n  subgraph grp_1["入口"]\n    kanzei_app["kanzei-app<br/>Tauri 桌面端"]:::entry\n  end\n  kanzei_tools["kanzei-tools<br/>内置工具"]\n  kanzei_core["kanzei-core<br/>主循环"]\n  kanzei_app --> kanzei_tools\n  kanzei_tools --> kanzei_core\n  click kanzei_app "crates/kanzei-app/src/main.rs" "kanzei-app · Tauri 桌面端"\n  click kanzei_tools "crates/kanzei-tools/src/lib.rs" "kanzei-tools · 内置工具"',
+        full: 'flowchart LR\n  subgraph grp_1["入口"]\n    kanzei_app["kanzei-app<br/>Tauri 桌面端"]:::entry\n  end\n  kanzei_tools["kanzei-tools<br/>内置工具"]\n  kanzei_core["kanzei-core<br/>主循环"]\n  kanzei_app --> kanzei_tools\n  kanzei_app -.-> kanzei_core\n  kanzei_tools --> kanzei_core\n  click kanzei_app "crates/kanzei-app/src/main.rs" "kanzei-app · Tauri 桌面端"\n  click kanzei_tools "crates/kanzei-tools/src/lib.rs" "kanzei-tools · 内置工具"',
+      },
+    },
+    // R-188 兼容字段(新前端不再读,后端保留一个版本)。
     graph: [
       ["kanzei-app", "kanzei-core"],
       ["kanzei-app", "kanzei-tools"],
@@ -7383,7 +7427,7 @@ assert(
   assert(treeText.includes("未入册") || treeText.includes("not indexed"), "索引外的文档未进「未入册」分组");
   assert(treeText.includes("现行基线") || treeText.includes("基线"), "索引章节分组未渲染");
   assert((byId.get("arch-index-body")?.textContent ?? "").includes("方向基线"), "右侧索引原文未渲染");
-  assert((byId.get("arch-summary")?.textContent ?? "").includes("2"), "架构汇总缺文档计数");
+  assert(/^3\D/.test(byId.get("arch-summary")?.textContent ?? ""), `架构汇总缺文档计数:${byId.get("arch-summary")?.textContent}`);
   // 点击文档行应经 docs_read_custom 打开应用内查看器。
   const row = [...tree.querySelectorAll(".arch-entry")].find((r) => r.textContent.includes("memory_system.md"));
   assert(row, "架构树缺少可点击的文档行");
@@ -9382,37 +9426,17 @@ const docsB = {
   vm.runInContext('saveSoundSettings({enabled:true, volume:0.12, completed:true, failed:true, stopped:true})', sandbox);
 }
 
-// ---------- R-188 架构图:代码生成的 SVG 依赖图 ----------
-// 架构浏览页在文字树之外渲染依赖图 SVG;图数据为空时隐藏降级文字树。
+// ---------- R-188 架构图 → UI2-0926 #7 ----------
+// 自绘 SVG 依赖图已由 Mermaid 渲染的架构图卡取代(docs/design/architecture_diagrams.md),
+// 用例在文件末尾「分区:架构图」:桩图引擎下断言标签页、节点点击走 structuredNav、错误卡、流式不渲染。
 {
-  // 先切到架构视图触发 refreshArch。
   document.querySelector('.activity-item[data-view="arch"]')?.click();
   await flush();
-  const graphHost = byId.get("arch-graph");
-  assert(graphHost, "R-188:架构浏览页缺少 #arch-graph 图容器");
-  const svg = graphHost.querySelector("svg.arch-svg");
-  assert(svg, "R-188:架构图未渲染为 SVG(应代码生成,非文生图/预置图)");
-  assert(
-    svg.querySelectorAll("g.arch-node").length >= 6,
-    `R-188:SVG 节点数不足(桩 graph 有 6 crate),实得 ${svg.querySelectorAll("g.arch-node").length}`,
-  );
-  assert(
-    svg.querySelectorAll("line").length >= 6,
-    `R-188:SVG 依赖边数不足(桩 graph 有 6 边),实得 ${svg.querySelectorAll("line").length}`,
-  );
-  // 图渲染不替换文字树(降级视图仍在)。
+  assert(!byId.get("arch-graph"), "旧的自绘 SVG 容器 #arch-graph 不该复活(架构图只走 04-diagram.js)");
+  assert(byId.get("arch-diagram-card") && byId.get("arch-diagram-tabs") && byId.get("arch-diagram-canvas"), "架构页缺少图卡(#arch-diagram-card / tabs / canvas)");
   assert(
     (byId.get("arch-tree")?.childNodes?.length ?? byId.get("arch-tree")?.childElementCount ?? 0) > 0,
-    "R-188:架构图渲染后文字树被清空(降级视图必须保留)",
-  );
-  // 节点可点击定位(点击 app 节点应尝试打开 crate Cargo.toml)。
-  const appNode = [...svg.querySelectorAll("g.arch-node")].find((g) => g.getAttribute("aria-label") === "kanzei-app");
-  assert(appNode, "R-188:SVG 缺少 kanzei-app 节点");
-  appNode.dispatchEvent({ type: "click", preventDefault() {}, stopPropagation() {} });
-  await flush();
-  assert(
-    invokeLog.some((cmd) => cmd === "docs_read_custom"),
-    "R-188:点击图节点未触发文档/Cargo 定位读取",
+    "架构图渲染后文字树被清空(文档树必须保留)",
   );
 }
 
@@ -11893,7 +11917,8 @@ const docsB = {
   assert(!missingSv.length, `04-structured.js 缺少导出:${missingSv.join(", ")}`);
   const svSource = sources[scriptSrcs.indexOf("04-structured.js")] ?? "";
   const innerHtmlWrites = svSource.match(/\.innerHTML\s*=/g) ?? [];
-  assert(innerHtmlWrites.length === 1 && /box\.innerHTML = renderMarkdown\(/.test(svSource), `04-structured.js 只准把 renderMarkdown 的输出写进 innerHTML,实得 ${innerHtmlWrites.length} 处写入`);
+  // UI2-0926 #7:markdown 一律经 renderMarkdownInto 写入(它顺带把闭合的 mermaid 围栏换成图),本文件零 innerHTML。
+  assert(innerHtmlWrites.length === 0 && /renderMarkdownInto\(box, /.test(svSource), `04-structured.js 不得写 innerHTML(markdown 走 renderMarkdownInto),实得 ${innerHtmlWrites.length} 处写入`);
   assert(!/createDocumentFragment/.test(svSource), "04-structured.js 不得用 DocumentFragment(冒烟 harness 没有,真机与冒烟会分叉)");
   assert(activityNs?.highlightLine === svNs?.highlightLine, "06-activity.js 的 highlightLine 应转出 04-structured.js 的同一实现(唯一真源)");
   const summarySource = sources[scriptSrcs.indexOf("05-tool-summary.js")] ?? "";
@@ -14879,6 +14904,190 @@ const docsB = {
   await sandbox.refreshMemory({ force: true });
   await flush();
 }
+
+// ── 分区:架构图 ── UI2-0926 #7(docs/design/architecture_diagrams.md)。
+// 假 DOM 跑不了真 mermaid:注入桩引擎(04-diagram.js 的 setDiagramEngine,同 setRenderMarkdown 的接缝),
+// 只验接线——标签页、直接/全部依赖切换、节点点击走 structuredNav、错误卡行号换算、CRLF 索引分组、
+// kebab 名不算未入册、未闭合围栏不渲染。真实渲染质量由 scripts/ui-diagram-smoke.mjs(无头 Edge)兜底。
+// 变异守卫:archCrlf / archKebab / diagramOpenFence / diagramClickMap。
+{
+  const diagramNs = esmModuleCache.get("04-diagram.js")?.namespace;
+  const archNs = esmModuleCache.get("19-arch.js")?.namespace;
+  const svNs = esmModuleCache.get("04-structured.js")?.namespace;
+  const markdownNs = esmModuleCache.get("04-markdown.js")?.namespace;
+  assert(diagramNs?.setDiagramEngine && diagramNs?.hydrateDiagrams && archNs?.renderArch && svNs?.setStructuredNav && markdownNs?.renderMarkdownInto,
+    "架构图:04-diagram.js / 19-arch.js / renderMarkdownInto 导出缺失");
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const rendered = [];
+  // 桩引擎:parse 遇到 BROKEN 按 mermaid 的形状抛错(hash.loc.first_line);render 把声明的节点与 --> 边编码进
+  // SVG 字符串,mount 再按 mermaid 12 的 DOM 形状(g.node#<渲染 id>-flowchart-<节点>-<n>、path[data-id=L_a_b_0])建出假节点。
+  const stubEngine = {
+    initialize() {},
+    async parse(text) {
+      if (!text.includes("BROKEN")) return;
+      const error = new Error("Parse error on line 3:\n  c[BROKEN(]\n--------^\nExpecting 'SQE', got 'PS'");
+      error.hash = { loc: { first_line: 3 } };
+      throw error;
+    },
+    async render(id, text) {
+      rendered.push(text);
+      const nodes = [...new Set([...text.matchAll(/^\s*([A-Za-z_]\w*)\s*\[/gm)].map((m) => m[1]))];
+      const edges = [...text.matchAll(/^\s*([A-Za-z_]\w*)\s*-(?:->|\.->)\s*([A-Za-z_]\w*)/gm)].map((m) => [m[1], m[2]]);
+      const body = nodes.map((node, index) => `<g class="node" id="${id}-flowchart-${node}-${index}"></g>`).join("")
+        + edges.map(([a, b]) => `<path data-id="L_${a}_${b}_0"></path>`).join("");
+      return { svg: `<svg id="${id}" width="640" height="240">${body}</svg>` };
+    },
+    mount(stage, svg) {
+      const root = document.createElementNS(SVG_NS, "svg");
+      const head = svg.match(/<svg id="([^"]+)" width="(\d+)" height="(\d+)"/);
+      root.setAttribute("id", head[1]);
+      root.setAttribute("width", head[2]);
+      root.setAttribute("height", head[3]);
+      for (const [, nodeId] of svg.matchAll(/<g class="node" id="([^"]+)">/g)) {
+        const g = document.createElementNS(SVG_NS, "g");
+        g.setAttribute("class", "node");
+        g.setAttribute("id", nodeId);
+        root.appendChild(g);
+      }
+      for (const [, edgeId] of svg.matchAll(/<path data-id="([^"]+)">/g)) {
+        const path = document.createElementNS(SVG_NS, "path");
+        path.setAttribute("data-id", edgeId);
+        root.appendChild(path);
+      }
+      stage.replaceChildren(root);
+      return root;
+    },
+  };
+  diagramNs.setDiagramEngine(stubEngine);
+  // 假 DOM 没有 getComputedStyle:给一份 --diagram-* 的 hex 值,语义类才会追加(真值由 ui-diagram-smoke 在浏览器里查)。
+  const hadGcs = Object.prototype.hasOwnProperty.call(sandbox, "getComputedStyle");
+  const savedGcs = sandbox.getComputedStyle;
+  const DIAGRAM_TOKENS = {
+    "--diagram-canvas": "#232323", "--diagram-cluster": "#181818", "--diagram-cluster-border": "#282828",
+    "--diagram-node": "#2a2a2a", "--diagram-node-border": "#464646", "--diagram-text": "#ffffff",
+    "--diagram-muted": "#9e9e9e", "--diagram-edge": "#9e9e9e", "--diagram-accent": "#d25e28", "--diagram-accent-soft": "#d25e2829",
+  };
+  sandbox.getComputedStyle = () => ({ getPropertyValue: (name) => DIAGRAM_TOKENS[name] ?? "" });
+  const navCalls = [];
+  const savedNav = { ...svNs.structuredNav };
+  svNs.setStructuredNav({
+    openRef: (id) => navCalls.push(["ref", id]),
+    openPath: (path, line) => navCalls.push(["path", path, line]),
+  });
+  const click = (el) => el?.dispatchEvent({ type: "click", preventDefault() {}, stopPropagation() {} });
+  const figure = () => byId.get("arch-diagram-canvas")?.querySelector(".kz-diagram");
+  const nodeOf = (id) => figure()?.querySelectorAll("g.node").find((g) => new RegExp(`-flowchart-${id}-\\d+$`).test(g.id));
+  const tabs = () => byId.get("arch-diagram-tabs")?.querySelectorAll(".arch-diagram-tab") ?? [];
+  try {
+    const snap = payloads.architecture_snapshot;
+    archNs.renderArch(snap);
+    await flush();
+
+    // ① CRLF 索引:两个章节分组都在(archCrlf 删掉换行归一化 → 章节正则全落空 → 这里红)。
+    const heads = byId.get("arch-tree").querySelectorAll(".arch-group-head").map((h) => h.textContent);
+    assert(heads.some((h) => h.startsWith("现行基线(")) && heads.some((h) => h.startsWith("历史快照(")),
+      `CRLF 索引下章节分组丢失(磁盘上的 README 是 CRLF):${JSON.stringify(heads)}`);
+    // ② kebab 名文档在它的章节里、标「命名不合规」,未入册只有真没入册的那一篇(archKebab → 这里红)。
+    const unindexedHead = heads.find((h) => h.includes("未入册"));
+    assert(unindexedHead === "未入册(1)", `kebab 名文档被误判成未入册:${unindexedHead}`);
+    const kebabRow = byId.get("arch-tree").querySelectorAll(".arch-entry").find((row) => row.textContent.includes("oc-playback.md"));
+    assert(kebabRow?.textContent.includes("命名不合规") && !kebabRow.textContent.includes("未入册"), `kebab 名文档应标「命名不合规」:${kebabRow?.textContent}`);
+
+    // ③ 标签页:crate 图固定第一个并选中,其后是手写图;role=tab + aria-selected。
+    const tabTitles = tabs().map((tab) => tab.textContent);
+    assert(tabTitles.length === 3 && tabTitles[0].startsWith("Crate 依赖") && tabTitles[1].startsWith("运行时主循环") && tabTitles[2].startsWith("写坏的图"),
+      `架构图标签页不对:${JSON.stringify(tabTitles)}`);
+    assert(tabs().every((tab) => tab.getAttribute("role") === "tab") && tabs()[0].getAttribute("aria-selected") === "true", "标签页缺 role=tab / 选中态");
+    assert(tabs()[2].querySelector(".arch-tab-count")?.textContent === "1", "有 lint 问题的图标签上应带问题数");
+    assert(figure()?.dataset.state === "ready" && figure()?.dataset.nodes === "3" && figure()?.dataset.edges === "2",
+      `crate 图没渲染或节点/边映射不对:${figure()?.dataset.state} ${figure()?.dataset.nodes}/${figure()?.dataset.edges}`);
+    assert(rendered.at(-1)?.includes("classDef entry ") && rendered.at(-1)?.includes("%% ·") && !/^\s*click /m.test(rendered.at(-1)),
+      "送进引擎的源码应抹掉 click 行(strict 下 mermaid 会包 <a> 导航)、末尾追加语义类");
+    assert(byId.get("arch-diagram-foot")?.textContent.includes("已隐藏 1 条可由传递得到的依赖"), "直接依赖模式的脚注缺「已隐藏 N 条」");
+
+    // ④ 节点点击 → structuredNav.openPath(入口文件);可点节点有 role=link / tabindex / 提示(diagramClickMap → 这里红)。
+    const appNode = nodeOf("kanzei_app");
+    assert(appNode?.classList.contains("is-link") && appNode.getAttribute("role") === "link" && appNode.getAttribute("tabindex") === "0",
+      "可点击的图节点缺 is-link / role=link / tabindex");
+    assert(appNode?.getAttribute("title") === "kanzei-app · Tauri 桌面端", `图节点提示应取 click 行的第三段:${appNode?.getAttribute("title")}`);
+    click(appNode);
+    assert(JSON.stringify(navCalls.at(-1)) === JSON.stringify(["path", "crates/kanzei-app/src/main.rs", null]),
+      `crate 节点点击应经 structuredNav.openPath 打开入口文件:${JSON.stringify(navCalls.at(-1))}`);
+    const coreNode = nodeOf("kanzei_core");
+    assert(coreNode && !coreNode.classList.contains("is-link"), "没有 click 行的节点不该变成链接");
+
+    // ⑤ 直接依赖 / 全部依赖:只换源码,不重取快照。
+    const beforeInvokes = invokeLog.length;
+    click(byId.get("arch-diagram-tools")?.querySelectorAll(".arch-seg button").find((b) => b.dataset.full === "true"));
+    await flush();
+    assert(rendered.at(-1)?.includes("-.->") && figure()?.dataset.edges === "3", "切到「全部依赖」应渲染带虚线传递边的那份源码");
+    assert(!invokeLog.slice(beforeInvokes).includes("architecture_snapshot"), "切依赖范围不该重取快照");
+    click(byId.get("arch-diagram-tools")?.querySelectorAll(".arch-seg button").find((b) => b.dataset.full === "false"));
+    await flush();
+
+    // ⑥ 手写图:路径带行号、条目号走 openRef。
+    click(tabs()[1]);
+    await flush();
+    assert(tabs()[1].getAttribute("aria-selected") === "true" && byId.get("arch-diagram-foot")?.textContent.includes("docs/architecture/01_runtime_loop.md"),
+      "切到手写图后脚注应显示源文件路径");
+    click(nodeOf("drive"));
+    assert(JSON.stringify(navCalls.at(-1)) === JSON.stringify(["path", "crates/kanzei-core/src/runner/drive.rs", 140]), `带行号的 click 目标:${JSON.stringify(navCalls.at(-1))}`);
+    click(nodeOf("adr"));
+    assert(JSON.stringify(navCalls.at(-1)) === JSON.stringify(["ref", "D-100"]), `条目号 click 目标应走 openRef:${JSON.stringify(navCalls.at(-1))}`);
+    assert(byId.get("arch-diagram-foot")?.querySelectorAll(".arch-legend-swatch").map((s) => s.dataset.kind).join(",") === "entry,focus",
+      "图例应只列本图用到的语义类");
+
+    // ⑦ 写坏的图:错误卡给文件行号(围栏起始行 7 + 第 3 行 - 1 = 第 9 行)、查看源码、复制修复提示;lint 问题列在图下。
+    click(tabs()[2]);
+    await flush();
+    const errorBox = figure()?.querySelector(".kz-diagram-error");
+    assert(figure()?.dataset.state === "error" && errorBox?.textContent.includes("第 9 行") && errorBox.textContent.includes("Expecting 'SQE', got 'PS'"),
+      `错误卡没给出文件行号与 mermaid 报错:${errorBox?.textContent}`);
+    assert(errorBox?.querySelectorAll("button").map((b) => b.dataset.act).join(",") === "source,copy-hint", "错误卡缺「查看源码 / 复制修复提示」");
+    const hint = diagramNs.fixHint({ path: "docs/architecture/02_broken.md", fileLine: 9, message: "Expecting 'SQE', got 'PS'", lineText: "c[BROKEN(]" });
+    assert(hint.includes("docs/architecture/02_broken.md 第 9 行") && hint.includes("c[BROKEN(]"), `修复提示应带文件、行号与该行原文:${hint}`);
+    assert(!byId.get("arch-diagram-issues")?.classList.contains("hidden") && byId.get("arch-diagram-issues")?.textContent.includes("D6 · 第 9 行"),
+      "lint 问题应列在图下(代码 + 文件行号)");
+    click(tabs()[0]);
+    await flush();
+
+    // ⑧ markdown 里的图:闭合围栏渲染,未闭合(流式写到一半,<pre data-open>)不渲染(diagramOpenFence → 这里红)。
+    assert(markdownNs.renderMarkdown("```mermaid\nflowchart LR\n  a --> b\n").includes('<pre class="code" data-open="true">'),
+      "未闭合的围栏应带 data-open");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const fence = (text, open) => {
+      const pre = document.createElement("pre");
+      pre.className = "code";
+      if (open) pre.setAttribute("data-open", "true");
+      const code = document.createElement("code");
+      code.className = "language-mermaid";
+      code.textContent = text;
+      pre.appendChild(code);
+      host.appendChild(pre);
+      return pre;
+    };
+    fence('flowchart LR\n  x["甲"] --> y["乙"]', false);
+    const openPre = fence('flowchart LR\n  p["写到一半', true);
+    diagramNs.hydrateDiagrams(host, { streaming: true });
+    await flush();
+    assert(host.querySelectorAll(".kz-diagram-host").length === 1 && host.querySelector(".kz-diagram")?.dataset.state === "ready",
+      "闭合的 mermaid 围栏应换成图");
+    assert(openPre.parentNode === host && !rendered.some((text) => text.includes("写到一半")), "未闭合的围栏在流式中不得渲染(半截图)");
+    host.remove();
+
+    // ⑨ 静态接线:聊天流式与思考块传 streaming:true;全站没有绕开 renderMarkdownInto 的 innerHTML 写法。
+    const chatSource = sources[scriptSrcs.indexOf("05-chat-render.js")] ?? "";
+    assert((chatSource.match(/renderMarkdownInto\([^\n]*\{ streaming: true \}\);/g) ?? []).length === 2, "聊天正文与思考块的流式渲染应传 { streaming: true }");
+    const bypass = scriptSrcs.filter((name, index) => name !== "04-markdown.js" && /\.innerHTML\s*=\s*renderMarkdown\(/.test(sources[index]));
+    assert(!bypass.length, `这些文件绕开了 renderMarkdownInto(图不会渲染):${bypass.join(", ")}`);
+  } finally {
+    svNs.setStructuredNav(savedNav);
+    if (hadGcs) sandbox.getComputedStyle = savedGcs;
+    else delete sandbox.getComputedStyle;
+  }
+}
+// ── 分区:架构图 结束 ──
 
 if (issues.length) {
   reportedIssues = true;
