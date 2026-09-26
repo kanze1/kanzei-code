@@ -148,7 +148,8 @@
 - crate 用 fx/fy 钉在层带锚点(列宽 360、带高 240,入口层在上);空 crate 不出现,所以层带只排有内容的 crate,缩放后能看清。未归类记忆的锚点在右上角。
 - 自定义聚类力:模块被拉向所属 crate 锚点(0.06)、记忆拉向主区域的 crate(0.035),其余节点 0.02 弱向心;邻域模式换成径向力(每跳 130 单位),中心钉在原点。
 - 斥力 crate −300、模块 −140、记忆 −28、其它 −24;连线距离 contains 70、about→模块 34、about→crate 48(弱 60)、其余 55;强度 提及/引用 0.08、contains 0.7、弱 about 0.3、其余 0.45。模块像花瓣围着 crate,记忆再围着模块。
-- warmupTicks = min(120, 60000/节点数),cooldownTicks 200,alphaDecay 0.035;适配视图只看记忆、模块与 crate,只在换了一批数据、进出邻域、换区域后自动适配(开关图层与筛选保持用户的缩放)。
+- warmupTicks = min(120, 80000/节点数),alphaDecay 0.04,**d3AlphaMin 0.002**(force-graph 默认 0,只靠 cooldownTicks 200 收工,再小的图也要跑满 200 帧);力的参数在 graphData 之前设好(换数据会立刻用当前的力跑 warmup,之后再改再 reheat 等于白跑);适配视图只看记忆、模块与 crate,只在换了一批数据、进出邻域、换区域后自动适配(开关图层与筛选保持用户的缩放)。
+- 库的坑:`dagMode` 每次设置都会把**当前** graphData 全部节点的 fx/fy 清掉,而节点对象在两次 setData 之间是复用的(位置保持),所以只在布局真的变了时才设 dagMode、且先设再钉 crate;否则第二次重排后整张架构骨架会散掉(浏览器冒烟用「同带 crate 的 y 完全相同」盯住)。
 
 ## 12. 降级与无障碍
 
@@ -164,7 +165,7 @@
 | kanzei-tools refgraph | 提及 ASCII 边界、[[标题]];区域优先级 field>path>tool>via>keyword 与 4 个上限;scripts 降权、via 只来自结构化 refs、隐藏目录不算区域;supersedes 双向去重;概念保留/丢弃;活动优先与归档标记;悬空进 warnings;未用模块不出节点;节点同形;collect_inputs 与指纹稳定/失效;注册工具全有区域或豁免;词表区域在本仓都解析得到 |
 | kanzei-memory | load_archived、set_area(去重/清除/拒绝);memory_add 的 area 归一落盘、未知区域整体拒绝并给候选、memory_update 替换与清除 |
 | kanzei-app | memory_graph 缓存命中/改文件后重建;memory_entry_get 读归档;memory_entry_save 的 area 归一与报错;memory_graph 形状契约;memory_view 偏好;build_workspace_graph 原单测 |
-| ui-memory-graph-smoke.mjs | 纯模型 10 组;vendor SHA-256(换行按 LF 归一)/长度/README/LICENSE/加载方式;变异自检 anchor_finite、ego_contains、default_mentions(`KZ_GRAPH_MUTATE=<id>` 可单独复核,期望非零退出);`--browser`:vendor 请求 200、零 pageerror/console.error、布局 < 3 秒、画布非空白、程序化悬停写状态栏、切主题像素变化、文本视图条目数 = 可见记忆数、677 节点 / 1866 边稳定 < 3 秒 |
+| ui-memory-graph-smoke.mjs | 纯模型 10 组;vendor SHA-256(换行按 LF 归一)/长度/README/LICENSE/加载方式;变异自检 anchor_finite、ego_contains、default_mentions(`KZ_GRAPH_MUTATE=<id>` 可单独复核,期望非零退出);`--browser`:vendor 请求 200、零 pageerror/console.error、布局 < 3 秒、画布非空白、程序化悬停写状态栏、切主题像素变化、重排后 crate 仍钉在层带上、文本视图条目数 = 可见记忆数、677 节点 / 1866 边稳定 < 3 秒 |
 | ui-a11y-smoke 分区:记忆图谱 | 节点与强边对 --bg/--panel ≥ 3、标签 ≥ 4.5、选中/命中环 ≥ 3(两套主题);类别色只准出现在图谱选择器、必须是自己的 hex;--graph-* 别名不得指向状态色(--graph-hit 例外);画布/状态栏/树/开关的标记;4 个反例自测 |
 | ui-runtime-smoke 分区:记忆图谱 | 点「图谱」调 memory_graph、假 DOM 降级文本视图、条目数、点条目开详情、切项目竞态、切回列表;夹具按契约校验;变异 memgraphToggle、memgraphProjectGuard |
 | verify / CI | `ui-memory-graph-smoke --browser` 挂在 verify.ps1 的 ui_a11y 步(检查键集合不变,git.rs 的对齐守卫不用改),ci.yml 同步 |
@@ -197,8 +198,8 @@
 
 ## 17. 验证证据
 
-- 本仓真实数据(调试构建):收集 94–220 ms、构建 150–170 ms;537 节点 / 1595 边;默认视图(项目库、active)在夹具上 65 节点 / 89 边、25 条记忆,布局 870–900 ms 稳定。
-- 规模:无头 Edge 153 上 677 节点 / 1866 边稳定 2.0–2.3 秒(`ui-memory-graph-smoke --browser`)。
+- 本仓真实数据(调试构建):收集 94–220 ms、构建 150–170 ms;537 节点 / 1595 边;默认视图(项目库、active)在夹具上 65 节点 / 89 边、25 条记忆,布局约 0.2 秒稳定。
+- 规模:无头 Edge 153 上 677 节点 / 1866 边约 0.94 秒稳定(39 帧,中位帧 11.6 ms;`ui-memory-graph-smoke --browser` 的上限是 3 秒)。设 d3AlphaMin 之前要跑满 200 帧、约 2.6–3.1 秒。
 - 截图:1600×960@1.25 与 1280×690@1.5,暗/亮两套主题;图谱默认视图、悬停模块、选中记忆、邻域、文本视图、指纹节点详情、列表模式的区域行都看过(截图在会话 scratchpad,不入库)。
 
 ## 18. TODO 与风险
