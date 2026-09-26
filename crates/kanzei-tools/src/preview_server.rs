@@ -12,6 +12,11 @@
 //! - 只绑 127.0.0.1:0,进程内单例,桌面与 CLI 共用;
 //! - 每次运行生成 128 位随机 token 作为路径前缀:`/t/{token}/r/{root_id}/{rel}`(登记过的根)、
 //!   `/t/{token}/s/{id}.html`(内存片段,LRU 32 个、单个 ≤ 2 MB);
+//! - 所有根与片段同源、共用 token,所以 root_id 是**随机**的(登记表里存路径 → id),
+//!   不能从路径推算:经本服务打开的页面(项目里的第三方 HTML、聊天里的片段)拿不到别的根的 id,
+//!   也就读不到别的根下的文件;
+//! - 兜底根(文件不在任何候选根里时取所在目录)不能太宽:盘符根、用户主目录及其上级只登记
+//!   **单文件根**(只提供这一个文件),免得打开桌面上一个 HTML 就把整个用户目录端出去;
 //! - 只接受 GET/HEAD;百分号解码(中文路径、含空格的 `kanzei code`);逐段拒绝 `..`/`.`/`\`/`:`;
 //!   canonicalize 之后必须仍在根内(符号链接越界同样 404);
 //! - 目录没有 index.html 就 404,不列目录;`Cache-Control: no-store`;不加 CORS 头。
@@ -49,9 +54,12 @@ struct Registry {
 
 #[derive(Clone)]
 struct Root {
+    /// 随机 id(登记时生成,同一登记重复登记得到同一 id)。
     id: String,
     /// `std::fs::canonicalize` 的结果(Windows 上是 `\\?\` 形态),与请求侧同一口径比较。
     dir: PathBuf,
+    /// 单文件根:只提供这一个文件(canonical)。目录太宽(盘符根、用户主目录及其上级)时用。
+    only: Option<PathBuf>,
 }
 
 static SERVER: Mutex<Option<&'static PreviewServer>> = Mutex::new(None);
@@ -120,25 +128,26 @@ impl PreviewServer {
         if !canonical.is_dir() {
             return Err(format!("不是目录: {}", dir.display()));
         }
-        let id = root_id(&canonical);
-        let mut registry = self
-            .registry
-            .lock()
-            .map_err(|_| "预览静态服务锁中毒".to_string())?;
-        if !registry.roots.iter().any(|root| root.id == id) {
-            registry.roots.push(Root {
-                id: id.clone(),
-                dir: canonical,
-            });
-        }
-        Ok(id)
+        register_in(&self.registry, canonical, None)
     }
 
     /// 把本地文件(或含 index.html 的目录)换成静态服务 URL。
     ///
     /// `roots` 按优先级给出候选根(通常是代码树 cwd、项目主根):文件落在哪个根里就以它为根,
-    /// 这样页面里的 `../` 相对引用还能在根内解析;都不在时以文件所在目录为根。
+    /// 这样页面里的 `../` 相对引用还能在根内解析;都不在时以文件所在目录为根。太宽的目录
+    /// (盘符根、用户主目录及其上级)不当目录根,只登记这一个文件。
     pub fn url_for_path(&self, target: &Path, roots: &[PathBuf]) -> Result<String, String> {
+        let home = dirs::home_dir().and_then(|home| std::fs::canonicalize(home).ok());
+        self.url_for_path_with_home(target, roots, home.as_deref())
+    }
+
+    /// [`Self::url_for_path`] 的可注入版本(`home` = 规范化后的用户主目录,测试用)。
+    fn url_for_path_with_home(
+        &self,
+        target: &Path,
+        roots: &[PathBuf],
+        home: Option<&Path>,
+    ) -> Result<String, String> {
         let canonical = std::fs::canonicalize(target)
             .map_err(|e| format!("本地文件不存在或无法解析: {} ({e})", target.display()))?;
         let is_dir = canonical.is_dir();
@@ -151,7 +160,7 @@ impl PreviewServer {
         let root = roots
             .iter()
             .filter_map(|root| std::fs::canonicalize(root).ok())
-            .find(|root| root.is_dir() && canonical.starts_with(root))
+            .find(|root| root.is_dir() && canonical.starts_with(root) && !too_broad(root, home))
             .or_else(|| {
                 if is_dir {
                     Some(canonical.clone())
@@ -160,7 +169,18 @@ impl PreviewServer {
                 }
             })
             .ok_or_else(|| format!("无法确定 {} 的根目录", target.display()))?;
-        let id = self.register_root(&root)?;
+        let only = if too_broad(&root, home) {
+            let file = if is_dir {
+                std::fs::canonicalize(canonical.join("index.html"))
+                    .map_err(|e| format!("index.html 无法解析: {e}"))?
+            } else {
+                canonical.clone()
+            };
+            Some(file)
+        } else {
+            None
+        };
+        let id = register_in(&self.registry, root.clone(), only)?;
         let rel = canonical.strip_prefix(&root).unwrap_or(Path::new(""));
         let mut encoded: Vec<String> = rel
             .components()
@@ -203,9 +223,34 @@ fn add_snippet_to(registry: &Mutex<Registry>, html: &str) -> Result<String, Stri
     Ok(id)
 }
 
-fn root_id(canonical: &Path) -> String {
-    let key = canonical.to_string_lossy().to_lowercase();
-    hex(&sha2::Sha256::digest(key.as_bytes()))[..12].to_string()
+/// 登记(或取回)一个根。id 随机生成、存在登记表里,不能从路径推算。
+fn register_in(
+    registry: &Mutex<Registry>,
+    dir: PathBuf,
+    only: Option<PathBuf>,
+) -> Result<String, String> {
+    let mut registry = registry
+        .lock()
+        .map_err(|_| "预览静态服务锁中毒".to_string())?;
+    if let Some(root) = registry
+        .roots
+        .iter()
+        .find(|root| root.dir == dir && root.only == only)
+    {
+        return Ok(root.id.clone());
+    }
+    let id = random_token()[..16].to_string();
+    registry.roots.push(Root {
+        id: id.clone(),
+        dir,
+        only,
+    });
+    Ok(id)
+}
+
+/// 目录太宽、不能整个当根:盘符根(没有上级)、用户主目录本身及其上级(`C:\Users`)。
+fn too_broad(dir: &Path, home: Option<&Path>) -> bool {
+    dir.parent().is_none() || home.is_some_and(|home| home.starts_with(dir))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -469,6 +514,10 @@ fn serve_file(root: &Root, segments: &[&str], wants_dir: bool, raw_path: &str) -
     } else {
         canonical
     };
+    if root.only.as_ref().is_some_and(|only| *only != file) {
+        // 单文件根:同目录的其它文件一律不给。
+        return Response::status(404);
+    }
     match std::fs::metadata(&file) {
         Ok(meta) if meta.is_file() => Response {
             status: 200,
@@ -630,15 +679,8 @@ mod tests {
     }
 
     fn registry_with(dir: &Path) -> (Mutex<Registry>, String) {
-        let canonical = std::fs::canonicalize(dir).unwrap();
-        let id = root_id(&canonical);
-        let registry = Mutex::new(Registry {
-            roots: vec![Root {
-                id: id.clone(),
-                dir: canonical,
-            }],
-            snippets: VecDeque::new(),
-        });
+        let registry = Mutex::new(Registry::default());
+        let id = register_in(&registry, std::fs::canonicalize(dir).unwrap(), None).unwrap();
         (registry, id)
     }
 
@@ -914,6 +956,123 @@ mod tests {
             .unwrap_err()
             .contains("index.html"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 复核修复:所有根同源、共用 token,root_id 必须随机(不能从路径推算),
+    /// 否则经本服务打开的任意页面都能拼出别的根的 URL 去读 .env 之类的文件。
+    #[test]
+    fn root_id随机_不可由路径推算_同一登记复用() {
+        let dir = fixture("rootid");
+        let canonical = std::fs::canonicalize(&dir).unwrap();
+        let first = Mutex::new(Registry::default());
+        let id = register_in(&first, canonical.clone(), None).unwrap();
+        assert_eq!(id.len(), 16);
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(
+            register_in(&first, canonical.clone(), None).unwrap(),
+            id,
+            "同一根重复登记得到同一 id"
+        );
+        let path_hash = hex(&sha2::Sha256::digest(
+            canonical.to_string_lossy().to_lowercase().as_bytes(),
+        ));
+        assert!(!path_hash.starts_with(&id), "id 不能是路径哈希");
+        let second = Mutex::new(Registry::default());
+        assert_ne!(
+            register_in(&second, canonical.clone(), None).unwrap(),
+            id,
+            "另一次运行(另一张登记表)得到另一个 id"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 复核修复:兜底根不能是盘符根或用户主目录(及其上级),否则打开那里的一个 HTML 就把整个
+    /// 目录端出去;这时只登记单文件根。
+    #[test]
+    fn 太宽的目录只登记单文件根() {
+        let dir = fixture("broad");
+        let canonical = std::fs::canonicalize(&dir).unwrap();
+        // 判定:盘符根、主目录本身与其上级算太宽;主目录下的子目录不算。
+        let drive_root = canonical.ancestors().last().unwrap().to_path_buf();
+        assert!(too_broad(&drive_root, None), "{}", drive_root.display());
+        assert!(too_broad(&canonical, Some(&canonical)), "主目录本身");
+        assert!(
+            too_broad(canonical.parent().unwrap(), Some(&canonical)),
+            "主目录的上级"
+        );
+        assert!(!too_broad(&canonical.join("site"), Some(&canonical)));
+        assert!(!too_broad(&canonical, None));
+
+        // 单文件根:只给那一个文件,同目录的秘密文件与 Referer 逐级查找都拿不到。
+        let page = std::fs::canonicalize(dir.join("site/index.html")).unwrap();
+        let registry = Mutex::new(Registry::default());
+        let id = register_in(&registry, canonical.clone(), Some(page)).unwrap();
+        assert_eq!(
+            get(&registry, &format!("/t/{TOKEN}/r/{id}/site/index.html")).status,
+            200
+        );
+        for leak in ["secret.txt", "site/app.mjs", "site/assets/x.js"] {
+            assert_eq!(
+                get(&registry, &format!("/t/{TOKEN}/r/{id}/{leak}")).status,
+                404,
+                "{leak} 不得经单文件根读出"
+            );
+        }
+        let referred = respond(
+            &registry,
+            TOKEN,
+            &Request {
+                method: "GET".into(),
+                target: "/secret.txt".into(),
+                referer: Some(format!(
+                    "http://127.0.0.1:1/t/{TOKEN}/r/{id}/site/index.html"
+                )),
+            },
+        );
+        assert_eq!(referred.status, 404);
+        // 同一目录作普通根登记是另一条记录、另一个 id。
+        let full = register_in(&registry, canonical, None).unwrap();
+        assert_ne!(full, id);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// url_for_path 的整条链:主目录下直接放着的 HTML 只登记单文件根;
+    /// 候选根本身太宽时跳过它;主目录下的子目录照常当目录根。
+    #[test]
+    fn 主目录里的文件经url_for_path只端出它自己() {
+        let home = std::fs::canonicalize(fixture("home")).unwrap();
+        std::fs::write(home.join("note.html"), "<p>note</p>").unwrap();
+        let server = PreviewServer::start().unwrap();
+        let status = |url: &str| {
+            let path = url.trim_start_matches(&server.origin()).to_string();
+            let mut stream = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+            write!(stream, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
+            let mut text = String::new();
+            stream.read_to_string(&mut text).unwrap();
+            text.split_whitespace().nth(1).unwrap_or("").to_string()
+        };
+        // 候选根就是主目录:太宽,被跳过,落到兜底根(还是主目录)→ 单文件根。
+        let note = server
+            .url_for_path_with_home(
+                &home.join("note.html"),
+                std::slice::from_ref(&home),
+                Some(&home),
+            )
+            .unwrap();
+        assert_eq!(status(&note), "200", "{note}");
+        let sibling = note.replace("note.html", "secret.txt");
+        assert_eq!(
+            status(&sibling),
+            "404",
+            "同目录的其它文件不得读出: {sibling}"
+        );
+        // 主目录下的子目录不算太宽:照常当目录根,页面的相对资源能取到。
+        let site = server
+            .url_for_path_with_home(&home.join("site/index.html"), &[], Some(&home))
+            .unwrap();
+        assert_eq!(status(&site), "200");
+        assert_eq!(status(&site.replace("index.html", "app.mjs")), "200");
+        std::fs::remove_dir_all(&home).ok();
     }
 
     #[test]
