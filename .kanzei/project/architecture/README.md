@@ -23,6 +23,7 @@
 - [identity: live_design; last_verified_commit: 250fb219] [`research_library.md`](../../../docs/design/research_library.md)：独立课题身份、存储及开发项目可选关联(R-363；该提交为变更前基线，工作树增量已验证，待提交验收)。
 - [identity: live_design; last_verified_commit: 00ec3a59] [`ui_surface_stack.md`](../../../docs/design/ui_surface_stack.md)：弹层技术栈——dialog/popover/锚点定位/base-select 顶层原语、组件层 --surface-* token、唯一的 00-surface.js(一个栈、Esc 只关栈顶、点外关闭、焦点规则)、ESLint + ui-surface-rules 静态门禁与样例页浏览器冒烟(UI-0926 #9;截图 6 白色下拉的根因与修复)。
 - [identity: live_design; last_verified_commit: 29047b2d] [`subagent_presentation.md`](../../../docs/design/subagent_presentation.md)：子代理呈现——主对话单卡(字形/人格/描述/实时计数/≤3 行尾迹)、并行成组、侧栏总览与详情、状态与数据契约;复用第一波 .kz-glyph/.k-panel/05-tool-summary 原语,后端 meta trace、稳定终态码与整轮停止补发 ToolEnd(UI-0926 #8)。
+- [identity: live_design; last_verified_commit: 0270de05] [`ui_color_semantics.md`](../../../docs/design/ui_color_semantics.md)：界面配色——深色表面按 Codex 实测分层(主区最深、侧栏亮一档、输入区浮起、标题纯白)与语义色表(橙=进行中、琥珀=需要注意、绿=成功收尾、红=失败与 P0、灰=其余、蓝只给代码),ui-a11y-smoke ⑥ 颜色语义门禁与运行时守卫(UI2-0926 #2#3)。
 
 - [identity: live_design; last_verified_commit: 788dc43e] [`voice_interaction.md`](../../../docs/design/voice_interaction.md)：本机语音识别、流式播报、插话打断、人物嘴型与安装验证边界。
 - [identity: live_design; last_verified_commit: 568adcc8] [`memory_feedback_reliability.md`](../../../docs/design/memory_feedback_reliability.md)：记忆观测、恢复证据与信息呈现改造(R-361；568adcc8 为审计基线，首批代码在工作树完成定向验证，收益对照与任务上下文改造待推进)。

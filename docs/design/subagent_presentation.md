@@ -84,7 +84,7 @@
 从左到右依次是:
 
 1. **状态字形**:`<span class="kz-glyph sa-glyph" data-state="…" aria-hidden="true">字符</span>`。动画与基础配色全部来自第一波的 `.kz-glyph[data-state]`,本组**不另写 keyframes**;字符与 data-state 的映射见 §6。形状和颜色双重编码(D-105)。卡片重建时调 `motionSync(glyph)` 与既有呼吸点同相。
-2. **人格签** `.sa-agent`:explore / plan / 编排角色名。加粗,颜色由 `agentRoleAccent` 取 `line-accent-1..4`。还不知道人格时显示「子代理」。
+2. **人格签** `.sa-agent`:explore / plan / 编排角色名。加粗,中性 `var(--fg-strong)`:身份靠角色名文本本身,不用色(原先按 `agentRoleAccent` 哈希取 `line-accent-1..4`,4 种身份色撞上琥珀/绿这些状态色,已随 [ui_color_semantics.md](ui_color_semantics.md) 去掉)。还不知道人格时显示「子代理」。
 3. **描述** `.sa-desc`:单行,超长省略,`title` 给出全文。
 4. **修饰签** `.sa-chip`(可选):「续聊」「后台运行」,R-369 落地前不会出现。
 5. **计数** `.sa-meta`:形如 `7 次工具 · 18.2k token · 41s`,值为 0 的项不显示;启动中显示「启动中」;终态前面加状态词。数字等宽;工具次数用 `motionCount` 写入(上升时 tick 一次)。
@@ -169,14 +169,14 @@
 
 ## 6. 状态
 
-字形一列的 data-state 取第一波 `.kz-glyph` 的词表(idle|running|waiting|pending|stopping|done|failed),动画随之而来;warn 色的终态(超时/未启动/中断)在 `.sa-card[data-sa-state]` 上只覆盖**静态颜色**为 `var(--warn)`,不加动画。
+字形一列的 data-state 取第一波 `.kz-glyph` 的词表(idle|running|waiting|pending|stopping|attention|done|failed;attention 是配色语义新增的「需要你」,琥珀慢呼吸),动画随之而来;warn 色的终态(超时/未启动/中断)在 `.sa-card[data-sa-state]` 上只覆盖**静态颜色**为 `var(--warn)`,不加动画。
 
 | 状态 | 判定来源 | 字符 · glyph data-state | 状态词 | 动效 | 尾迹 | 可用动作 |
 |---|---|---|---|---|---|---|
 | starting 启动中 | 已收到 tool-start,尚无任何 task-progress | ● · running | 启动中 | 呼吸(原语) | 显示「启动中」 | 停止、侧栏 |
 | running 运行中 | 收到任一 task-progress(包括 meta 与 trace=null 的轮次文本) | ● · running | 无(计数本身就是状态) | 呼吸(原语);新尾迹行淡入 | 3 行 | 停止、侧栏 |
 | stopping 停止中 | 用户点了 ■,或收到 phase=cancelled 的 trace,尚未收到终态 | ● · stopping | 停止中 | 快呼吸(原语) | 冻结 | 侧栏 |
-| waiting 等待批准(预留) | 带 taskId 的 kz:ask(R-369 B2 之后) | ⏸ · waiting | 等待批准 | 呼吸(原语) | 冻结不动 | 去批准、停止 |
+| waiting 等待批准(预留) | 带 taskId 的 kz:ask(R-369 B2 之后) | ⏸ · attention | 等待批准 | 慢呼吸(原语,琥珀:属于「需要你」,与主线等首个 token 的 waiting 区分) | 冻结不动 | 去批准、停止 |
 | done 完成 | tool-end ok 且 outcome=success | ✓ · done | 完成 | `motionOnce(glyph, "kz-pop")` 一次 | 收起 | 侧栏、复制 |
 | empty 无回答 | code=subagent_empty_answer 或 outcome=noop | ○ · idle | 无回答 | kz-pop 一次 | 收起 | 侧栏 |
 | failed 失败 | 其余 ok=false 的情况 | ✕ · failed | 失败 | kz-pop 一次 | 收起 + 错误行 | 侧栏、复制 |
@@ -224,9 +224,9 @@ PWA 是审批与通知的遥控器,不渲染对话,所以卡片不搬过去,只�
 
 **颜色**
 - 卡片底:`color-mix(in srgb, var(--panel) 60%, transparent)`;边框 `var(--border-soft)`;运行中边框 `color-mix(in srgb, var(--accent) 30%, var(--border-soft))`(强调色只用于「运行中」,契约 §2.9)。选中/悬停/焦点一律中性(`--surface-hover`/`--surface-selected`/`--focus-ring`)。
-- 文字:人格签 `var(--line-color)`(未知时 `var(--fg-strong)`);描述 `var(--fg)`;计数与尾迹 `var(--dim)`;最新一行尾迹 `var(--fg)`。
+- 文字:人格签 `var(--fg-strong)`(身份不用色);描述 `var(--fg)`;计数与尾迹 `var(--dim)`;最新一行尾迹 `var(--fg)`。
 - 字形:基础色由 `.kz-glyph[data-state]` 给出;超时/未启动/中断覆盖为 `var(--warn)`。
-- 徽标:`var(--accent)` 底、`var(--on-accent)` 字;定位闪烁:`outline 2px var(--accent)`。
+- 徽标:`var(--accent-text)` 底、`var(--bg)` 字(文字放在强调色上要 ≥ 4.5,白字在 `--accent` 填充上只有 3.9);定位闪烁:`outline 2px var(--accent)`。
 - 不新增颜色 token;D-380 的字面量颜色判据照常生效。
 
 **间距**
