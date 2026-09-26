@@ -10,7 +10,9 @@
 // - 颜色只从 --graph-* token 读(getComputedStyle),主题切换(kz:theme)重读后重画;脚本里不写字面量颜色。
 // - 关闭库自带的浮动提示(nodeLabel 返回空串):悬停信息写进页面状态栏,不另起浮层(弹层只走 00-surface.js)。
 // - 任何锚点先做有限值校验:d3 四叉树遇到 Infinity/NaN 会死循环、界面卡死。
-import { convexHull, neighborsOf, placeLabels } from "./24-memory-graph-model.js";
+// - 减少动效(prefers-reduced-motion: reduce):适配/聚焦不做动画,布局在首帧之前跑到收敛。
+// - 同一份数据每次打开排出同一张图:初始抖动按节点 id 哈希(seededJitter),不用随机数。
+import { convexHull, neighborsOf, placeLabels, seededJitter } from "./24-memory-graph-model.js";
 
 export const FORCE_GRAPH_URL = "vendor/force-graph/force-graph-1.51.4.min.js";
 
@@ -131,10 +133,16 @@ function radialForce(hopOf, step) {
  *   relLabel(rel) → 边标签文字
  *   clusterOf(n) → crate 级分组 id(null = 未归类锚点;undefined = 不受聚类力,只受弱向心力)
  *   hullGroup(n) → 外壳分组 id 或 null
- *   onHover(n|null) / onClick(n) / onDblClick(n) / onBackgroundClick() / onSettled({ settleMs, nodes, links })
+ *   onHover(n|null) / onClick(n) / onDblClick(n) / onBackgroundClick() / onSettled({ settleMs, ticks, nodes, links })
+ *   (ticks = 首帧之后又跑了几帧模拟;减少动效时为 0——布局全在 warmup 里跑完)
  */
 export async function createGraphView(host, opts = {}) {
   const ForceGraph = await loadForceGraph();
+  // 减少动效只在建视图时读一次(与 22-neural-flow.js 等画布同口径):适配与聚焦 0ms;setData 把 warmup
+  // 放到收敛(库的 warmup 循环在 alpha < d3AlphaMin 时自己停,alphaDecay 0.04 → 约 152 帧)、cooldownTicks 0,
+  // 第一眼看到的就是最终布局。拖拽照常:被拖的节点跟手,邻居不再被带着动。
+  const reducedMotion = typeof matchMedia === "function" && Boolean(matchMedia("(prefers-reduced-motion: reduce)")?.matches);
+  const motionMs = (ms) => (reducedMotion ? 0 : ms);
   let palette = readGraphPalette();
   let data = { nodes: [], links: [] };
   let neighbors = new Map();
@@ -147,18 +155,36 @@ export async function createGraphView(host, opts = {}) {
   let hopOf = new Map();
   let labelSet = new Set();
   let labelText = new Map();
+  let edgeLabels = new Map();
   let settleStarted = 0;
+  let settleTicks = 0;
   let settledOnce = false;
   let destroyed = false;
   let lastClick = { id: null, at: 0 };
   let redrawTimer = 0;
   let currentDag = null;
+  let lastSize = { width: 0, height: 0 };
+  let dragging = false;
+  const ALPHA_MIN = 0.002;
 
   const fg = ForceGraph()(host);
+  // 画布尺寸跟着宿主走(选中节点时右侧详情栏展开、画布变窄):保持视图中心不动,选中的节点被挤出可视区
+  // 就平移过去——否则点了靠右的节点,详情栏一展开它就被盖住。
   const size = () => {
     const width = Math.max(1, Math.floor(host.clientWidth));
     const height = Math.max(1, Math.floor(host.clientHeight));
+    if (width === lastSize.width && height === lastSize.height) return;
+    const resized = lastSize.width > 1 && lastSize.height > 1 && width > 1 && height > 1;
+    const center = resized ? fg.centerAt() : null;
     fg.width(width).height(height);
+    lastSize = { width, height };
+    if (!center || !Number.isFinite(center.x) || !Number.isFinite(center.y)) return;
+    fg.centerAt(center.x, center.y);
+    const node = selectedId ? data.nodes.find((n) => n.id === selectedId) : null;
+    if (!node || !Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
+    const screen = fg.graph2ScreenCoords(node.x, node.y);
+    const margin = 40;
+    if (screen.x < margin || screen.y < margin || screen.x > width - margin || screen.y > height - margin) fg.centerAt(node.x, node.y, motionMs(300));
   };
   size();
 
@@ -269,21 +295,45 @@ export async function createGraphView(host, opts = {}) {
     ctx.restore();
   }
 
-  function paintLink(link, ctx, scale) {
+  /** 连线两端(扣掉节点半径)的世界坐标;端点不是有限值返回 null。 */
+  function linkGeometry(link) {
     const source = endOf(link.source);
     const target = endOf(link.target);
-    if (!source || !target || !Number.isFinite(source.x) || !Number.isFinite(target.x)) return;
-    const style = opts.linkStyle?.(link) ?? { dashed: link.strength === "weak", arrow: link.strength === "strong" };
-    const on = incident(link, hoverId) || incident(link, selectedId);
+    if (!source || !target || !Number.isFinite(source.x) || !Number.isFinite(target.x) || !Number.isFinite(source.y) || !Number.isFinite(target.y)) return null;
     const dx = target.x - source.x;
     const dy = target.y - source.y;
     const length = Math.hypot(dx, dy) || 1;
     const ux = dx / length;
     const uy = dy / length;
-    const x0 = source.x + ux * radius(source);
-    const y0 = source.y + uy * radius(source);
-    const x1 = target.x - ux * radius(target);
-    const y1 = target.y - uy * radius(target);
+    return {
+      length,
+      ux,
+      uy,
+      x0: source.x + ux * radius(source),
+      y0: source.y + uy * radius(source),
+      x1: target.x - ux * radius(target),
+      y1: target.y - uy * radius(target),
+    };
+  }
+
+  // 边标签只给度数不大的悬停/选中节点画;模块、crate 这类枢纽的边几乎全是同一种「关于/包含」,
+  // 一悬停就是一圈重复的字,叠在记忆标签上反而读不出——它们的关系由状态栏与详情栏说明。
+  function edgeLabelText(link) {
+    if (!opts.relLabel) return "";
+    if (!(incident(link, hoverId) || incident(link, selectedId))) return "";
+    const labelOwner = incident(link, hoverId) ? hoverId : selectedId;
+    const owner = labelOwner === endOf(link.source)?.id ? endOf(link.source) : endOf(link.target);
+    if (owner?.kind === "crate" || owner?.kind === "module") return "";
+    if ((neighbors.get(labelOwner)?.size ?? 0) > 8) return "";
+    return opts.relLabel(link.rel) || "";
+  }
+
+  function paintLink(link, ctx, scale) {
+    const geometry = linkGeometry(link);
+    if (!geometry) return;
+    const style = opts.linkStyle?.(link) ?? { dashed: link.strength === "weak", arrow: link.strength === "strong" };
+    const on = incident(link, hoverId) || incident(link, selectedId);
+    const { length, ux, uy, x0, y0, x1, y1 } = geometry;
     ctx.save();
     ctx.globalAlpha = hoverId && !on ? 0.08 : on ? 1 : 0.75;
     ctx.strokeStyle = link.strength === "weak" && !on ? palette.edgeWeak : palette.edge;
@@ -304,27 +354,21 @@ export async function createGraphView(host, opts = {}) {
       ctx.closePath();
       ctx.fill();
     }
-    // 边标签只给度数不大的悬停/选中节点画;模块、crate 这类枢纽的边几乎全是同一种「关于/包含」,
-    // 一悬停就是一圈重复的字,叠在记忆标签上反而读不出——它们的关系由状态栏与详情栏说明。
-    const labelOwner = incident(link, hoverId) ? hoverId : selectedId;
-    const owner = labelOwner === endOf(link.source)?.id ? endOf(link.source) : endOf(link.target);
-    const hub = owner?.kind === "crate" || owner?.kind === "module";
-    if (on && opts.relLabel && !hub && (neighbors.get(labelOwner)?.size ?? 0) <= 8) {
-      const label = opts.relLabel(link.rel);
-      if (label) {
-        const fontPx = 10 / scale;
-        ctx.font = `${fontPx}px ${fontFamily()}`;
-        const mx = (x0 + x1) / 2;
-        const my = (y0 + y1) / 2;
-        const width = ctx.measureText(label).width;
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = palette.bg;
-        ctx.fillRect(mx - width / 2 - 2 / scale, my - fontPx * 0.65, width + 4 / scale, fontPx * 1.3);
-        ctx.fillStyle = palette.labelDim;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(label, mx, my);
-      }
+    // 边标签参与帧首的标签抢位(framePre):优先级低于所有节点标签,没抢到位置的不画,不压节点标签。
+    const label = edgeLabels.get(link);
+    if (label) {
+      const fontPx = 10 / scale;
+      ctx.font = `${fontPx}px ${fontFamily()}`;
+      const mx = (x0 + x1) / 2;
+      const my = (y0 + y1) / 2;
+      const width = ctx.measureText(label).width;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = palette.bg;
+      ctx.fillRect(mx - width / 2 - 2 / scale, my - fontPx * 0.65, width + 4 / scale, fontPx * 1.3);
+      ctx.fillStyle = palette.labelDim;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, mx, my);
     }
     ctx.restore();
   }
@@ -350,7 +394,30 @@ export async function createGraphView(host, opts = {}) {
       const sy = transform.d * (node.y + radius(node)) + transform.f + (2 * pixelRatio) + height / 2;
       cands.push({ id: node.id, x: sx, y: sy, w: width, h: height, priority: opts.labelPriority?.(node, state) ?? 0 });
     }
+    // 悬停/选中节点入射边的关系标签也进抢位,优先级 -1(低于任何节点标签):放不下就不画。
+    const edgeCands = new Map();
+    if (hoverId || selectedId) {
+      ctx.font = `${10 * pixelRatio}px ${fontFamily()}`;
+      data.links.forEach((link, index) => {
+        const text = edgeLabelText(link);
+        if (!text) return;
+        const geometry = linkGeometry(link);
+        if (!geometry) return;
+        const key = `\u0000edge:${index}`;
+        edgeCands.set(key, { link, text });
+        cands.push({
+          id: key,
+          x: transform.a * ((geometry.x0 + geometry.x1) / 2) + transform.e,
+          y: transform.d * ((geometry.y0 + geometry.y1) / 2) + transform.f,
+          w: ctx.measureText(text).width + 4 * pixelRatio,
+          h: 13 * pixelRatio,
+          priority: -1,
+        });
+      });
+    }
     labelSet = placeLabels(cands, 64 * pixelRatio);
+    edgeLabels = new Map();
+    for (const [key, { link, text }] of edgeCands) if (labelSet.has(key)) edgeLabels.set(link, text);
     // ② 区域外壳:同一 crate 的节点画一圈淡色圆角凸包;放大或邻域模式下隐藏。
     if (layout !== "clusters" || scale > 2 || !opts.hullGroup) return;
     const groups = new Map();
@@ -404,8 +471,28 @@ export async function createGraphView(host, opts = {}) {
     .enableNodeDrag(true)
     .d3AlphaDecay(0.04)
     // force-graph 默认 d3AlphaMin=0,只靠 cooldownTicks 收工:没有这条,再小的图也要跑满 200 帧。
-    .d3AlphaMin(0.002)
-    .cooldownTicks(200)
+    .d3AlphaMin(ALPHA_MIN)
+    // 减少动效:warmup 已跑到收敛,首帧就被 alphaMin 判据停下;cooldownTicks 0 是兜底(warmup 万一没收敛也不逐帧动)。
+    .cooldownTicks(reducedMotion ? 0 : 200)
+    // dag-lr(R-368 B5 / R-307 B3 预留):库默认遇环直接 throw「Invalid DAG structure」,而引用图天然有环
+    // (互相 refs)。环上的回边不参与分层、照常画出来,不抛错(ui-memory-graph-smoke --browser 盯住)。
+    .onDagError(() => {})
+    .onEngineTick(() => {
+      settleTicks += 1;
+    })
+    // 拖拽时邻居跟着动(选 force-graph 的理由):库的拖拽只把 alphaTarget 提到 0.3 并重置倒计时,但每帧先判
+    // alpha < d3AlphaMin——布局稳定后 alpha 早已低于门槛,引擎当帧就停,邻居纹丝不动。拖拽期间把门槛放到 0,
+    // 松手后恢复(库把 alphaTarget 放回 0,alpha 衰减到门槛以下自然收工)。减少动效时不放开:邻居不被带着动。
+    .onNodeDrag(() => {
+      if (reducedMotion || dragging) return;
+      dragging = true;
+      fg.d3AlphaMin(0);
+    })
+    .onNodeDragEnd(() => {
+      if (!dragging) return;
+      dragging = false;
+      fg.d3AlphaMin(ALPHA_MIN);
+    })
     .onNodeHover((node) => {
       hoverId = node ? node.id : null;
       host.style.cursor = node ? "pointer" : "";
@@ -425,7 +512,7 @@ export async function createGraphView(host, opts = {}) {
     .onEngineStop(() => {
       if (settledOnce || destroyed) return;
       settledOnce = true;
-      opts.onSettled?.({ settleMs: Math.round(performance.now() - settleStarted), nodes: data.nodes.length, links: data.links.length });
+      opts.onSettled?.({ settleMs: Math.round(performance.now() - settleStarted), ticks: settleTicks, nodes: data.nodes.length, links: data.links.length });
     });
   fg.d3Force("center", null);
 
@@ -484,8 +571,10 @@ export async function createGraphView(host, opts = {}) {
         if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
           const group = opts.clusterOf?.(node);
           const anchor = (layout === "clusters" && group && anchors.get(group)) || (layout === "clusters" ? unassigned : { x: 0, y: 0 });
-          node.x = finite(anchor.x) + (Math.random() - 0.5) * 80;
-          node.y = finite(anchor.y) + (Math.random() - 0.5) * 80;
+          // 确定性抖动(节点 id 的哈希):同一份数据每次打开都是同一张图,用户记得住「edit 那团在 tools 左上」。
+          const [jx, jy] = seededJitter(node.id);
+          node.x = finite(anchor.x) + jx * 80;
+          node.y = finite(anchor.y) + jy * 80;
         }
       }
       fg.d3Force("cluster", layout === "ego" ? radialForce(hopOf, 130) : layout === "clusters" ? clusterForce((n) => opts.clusterOf?.(n), anchors, unassigned, (n) => (n.kind === "module" ? 0.06 : 0.035)) : null);
@@ -506,8 +595,10 @@ export async function createGraphView(host, opts = {}) {
           if (link.rel === "about" && link.strength === "weak") return 0.3;
           return 0.45;
         });
-      fg.warmupTicks(Math.min(120, Math.floor(80000 / Math.max(1, data.nodes.length))));
+      // 减少动效:warmup 给足(库在 alpha < d3AlphaMin 时自己提前停),首帧就是收敛后的布局。
+      fg.warmupTicks(reducedMotion ? 400 : Math.min(120, Math.floor(80000 / Math.max(1, data.nodes.length))));
       settleStarted = performance.now();
+      settleTicks = 0;
       settledOnce = false;
       fg.graphData(data);
     },
@@ -526,13 +617,15 @@ export async function createGraphView(host, opts = {}) {
     focus(id, zoom = 2, ms = 500) {
       const node = data.nodes.find((n) => n.id === id);
       if (!node || !Number.isFinite(node.x)) return;
-      fg.centerAt(node.x, node.y, ms);
-      fg.zoom(zoom, ms);
+      fg.centerAt(node.x, node.y, motionMs(ms));
+      fg.zoom(zoom, motionMs(ms));
     },
     fit(ms = 400) {
       const filter = layout === "clusters" ? (node) => node.kind === "memory" || node.kind === "crate" || node.kind === "module" : undefined;
-      fg.zoomToFit(ms, 36, filter);
+      fg.zoomToFit(motionMs(ms), 36, filter);
     },
+    /** 建视图时读到的减少动效设置(冒烟与调试用)。 */
+    reducedMotion,
     reheat() {
       fg.d3ReheatSimulation();
     },
@@ -551,6 +644,19 @@ export async function createGraphView(host, opts = {}) {
     /** 画布上的节点位置(冒烟与调试用)。 */
     positions() {
       return data.nodes.map((n) => ({ id: n.id, x: n.x, y: n.y }));
+    },
+    /** 本次 setData 以来首帧之后跑过的模拟帧数(拖拽也会让它涨;冒烟与调试用)。 */
+    ticks() {
+      return settleTicks;
+    },
+    /** 节点在画布上的屏幕坐标(CSS 像素,相对画布左上角;冒烟与调试用)。 */
+    screenOf(id) {
+      const node = data.nodes.find((n) => n.id === id);
+      return node && Number.isFinite(node.x) ? fg.graph2ScreenCoords(node.x, node.y) : null;
+    },
+    /** 上一帧抢到位置的标签:节点 id 与边标签文字(冒烟与调试用)。 */
+    labels() {
+      return { nodes: [...labelSet].filter((id) => !String(id).startsWith("\u0000")), edges: [...edgeLabels.values()] };
     },
     destroy() {
       destroyed = true;

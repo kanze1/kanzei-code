@@ -402,6 +402,31 @@ export function groupForTextView(visibleNodes, payload) {
     .sort((a, b) => (a.id === "" ? 1 : b.id === "" ? -1 : a.id.localeCompare(b.id)));
 }
 
+/**
+ * 确定性抖动:节点 id → [dx, dy],各在 [-0.5, 0.5)。渲染器给新节点定初始位置用它代替 Math.random,
+ * 同一份数据每次打开都排出同一张图(d3-force 自己的随机源是固定种子的 LCG,初始位置定了结果就定了)。
+ * FNV-1a 32 位哈希后过 murmur3 的 fmix32 雪崩(裸 FNV-1a 对 M-001/M-002 这类只差末位的 id 高位几乎不变,
+ * 连号记忆会排成一条斜线),x、y 用两个不同的种子各混一次。
+ */
+export function seededJitter(id) {
+  const text = String(id ?? "");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  const fmix = (value) => {
+    let k = value >>> 0;
+    k ^= k >>> 16;
+    k = Math.imul(k, 0x85ebca6b) >>> 0;
+    k ^= k >>> 13;
+    k = Math.imul(k, 0xc2b2ae35) >>> 0;
+    k ^= k >>> 16;
+    return k >>> 0;
+  };
+  return [fmix(h) / 4294967296 - 0.5, fmix(h ^ 0x9e3779b9) / 4294967296 - 0.5];
+}
+
 /** 邻居表:id → Set(相邻 id)(悬停高亮用)。 */
 export function neighborsOf(links) {
   const map = new Map();

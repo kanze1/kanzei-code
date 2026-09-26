@@ -3,9 +3,10 @@
 //
 // 用法:
 //   node scripts/ui-preview/shoot.mjs [--out <dir>] [--scenes chat,settings] [--themes dark,light]
-//                                     [--dialogs ask,confirm] [--width 1440] [--height 900] [--scale 1] [--json]
+//                                     [--dialogs ask,confirm] [--width 1440] [--height 900] [--dpr 1] [--json]
 //                                     [--query k=v&k2=v2](场景参数,如 memory-graph 的 hover/select/ego)
 // 默认输出 output/ui-preview/<scene>-<theme>.png;overlays 的非默认弹窗另存 overlays-<dialog>-<theme>.png。
+// --width/--height 是 CSS 像素,--dpr 是设备像素比(用户的三档:1280@1.5、1600@1.25、2000@1)。
 // 任一页面出现 console.error / 未捕获异常 / 静态资源 4xx-5xx 即退出码 1。
 // 服务在脚本内以随机端口启动,结束时关闭(不影响手动开着的 5178)。
 import { mkdir } from "node:fs/promises";
@@ -30,9 +31,9 @@ const themes = list(opt("--themes", "dark,light"));
 const dialogs = list(opt("--dialogs", "ask,question,confirm,input,viewer,palette"));
 const width = Number(opt("--width", "1440"));
 const height = Number(opt("--height", "900"));
-// 设备像素比:用户屏幕是 1600@1.25 与 1280@1.5 两档,按真机缩放截图才看得出字号与细线是否发虚。
-const scale = Number(opt("--scale", "1"));
-const extraQuery = new URLSearchParams(opt("--query", ""));
+// --dpr 1.25 / 1.5:按真机缩放比截图(1600@1.25 = 2000px 物理宽的 125% 缩放);--query 追加 URL 参数(如 backdrop=orion)。
+const dpr = Number(opt("--dpr", "1"));
+const extraQuery = Object.fromEntries(new URLSearchParams(opt("--query", "")));
 const wantJson = args.includes("--json");
 
 const shots = [];
@@ -54,7 +55,7 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 const results = [];
 try {
   for (const shot of shots) {
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: scale, colorScheme: shot.theme });
+    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, colorScheme: shot.theme });
     const page = await context.newPage();
     const errors = [];
     const infos = [];
@@ -68,7 +69,7 @@ try {
       if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`);
     });
     page.on("requestfailed", (request) => errors.push(`requestfailed: ${request.url()} ${request.failure()?.errorText ?? ""}`));
-    const query = new URLSearchParams({ theme: shot.theme, scene: shot.scene, ...(shot.dialog ? { dialog: shot.dialog } : {}), ...Object.fromEntries(extraQuery) });
+    const query = new URLSearchParams({ ...extraQuery, theme: shot.theme, scene: shot.scene, ...(shot.dialog ? { dialog: shot.dialog } : {}) });
     const url = `${origin}/?${query}`;
     const started = Date.now();
     let ready = false;

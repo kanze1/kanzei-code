@@ -71,6 +71,7 @@ export function hideMemoryDetail() {
   if (box) {
     box.classList.add("hidden");
     box.replaceChildren();
+    delete box.dataset.graphNode;
   }
   $("memory-reader-empty")?.classList.remove("hidden");
   $("memory-scroll")?.classList.remove("has-memory-selection");
@@ -908,6 +909,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   $("memory-reader-empty")?.classList.add("hidden");
   $("memory-scroll")?.classList.add("has-memory-selection");
   delete box.dataset.dirty;
+  delete box.dataset.graphNode;
   box.oninput = () => { box.dataset.dirty = "true"; };
   document.dispatchEvent(new CustomEvent("kz:memory-selected", { detail: { project, scope, id: entry.id, title: entry.title } }));
   memoryCurrentEntryId = entry.id;
@@ -1074,12 +1076,16 @@ function renderMemoryAreaRow(project, scope, entry) {
   const list = document.createElement("span");
   list.className = "memory-area-list";
   const fieldAreas = (entry.areas ?? []).map((area) => ({ area: `area:${area}`, provenance: "field", via: null }));
-  const renderChips = (shown, { pending = false } = {}) => {
+  // 字段(entry.areas,刚从磁盘读的真源)总排最前;推断区域来自图谱载荷,去掉与字段重复的和载荷里的字段边
+  // ——载荷可能比条目旧一拍,字段以条目为准。inferred 为 null = 载荷还没取到(或刚被改动作废),末尾显示「…」。
+  const renderChips = (inferred, { pending = false } = {}) => {
+    const fieldSet = new Set(fieldAreas.map((item) => item.area));
+    const shown = [...fieldAreas, ...(inferred ?? []).filter((item) => item.provenance !== "field" && !fieldSet.has(item.area))];
     list.replaceChildren();
-    if (!shown.length) {
+    if (!shown.length && !pending) {
       const none = document.createElement("span");
       none.className = "dim";
-      none.textContent = pending ? "…" : t("未归类");
+      none.textContent = t("未归类");
       list.append(none);
     }
     for (const item of shown) {
@@ -1095,10 +1101,16 @@ function renderMemoryAreaRow(project, scope, entry) {
       chip.append(name, why);
       list.append(chip);
     }
+    if (pending) {
+      const more = document.createElement("span");
+      more.className = "dim memory-area-pending";
+      more.textContent = "…";
+      list.append(more);
+    }
   };
-  // 推断出的区域来自图谱载荷;列表模式下还没取过就先显示字段,取到后再补上推断(带依据)。
+  // 推断出的区域来自图谱载荷;列表模式下还没取过(或刚改过区域、载荷作废)就先显示字段 +「…」,取到后补上推断。
   const inferred = memoryAreaProvider?.areasFor?.(scope, entry.id) ?? null;
-  renderChips(inferred ?? fieldAreas, { pending: !inferred && Boolean(memoryAreaProvider) });
+  renderChips(inferred, { pending: !inferred && Boolean(memoryAreaProvider) });
   const select = document.createElement("select");
   select.id = "memory-area-select";
   select.setAttribute("aria-label", t("选择代码区域"));
@@ -1153,8 +1165,8 @@ function renderMemoryAreaRow(project, scope, entry) {
   void memoryAreaProvider?.ensureAreaOptions?.().then((options) => {
     if (row.isConnected === false) return;
     fill(options);
-    renderChips(memoryAreaProvider?.areasFor?.(scope, entry.id) ?? fieldAreas);
-  }).catch(() => renderChips(fieldAreas));
+    renderChips(memoryAreaProvider?.areasFor?.(scope, entry.id) ?? null);
+  }).catch(() => renderChips(null));
   const controls = document.createElement("span");
   controls.className = "memory-area-controls";
   controls.append(select, setBtn, clearBtn);

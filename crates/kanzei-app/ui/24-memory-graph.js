@@ -44,6 +44,8 @@ const graphState = {
   view: "list",
   project: null,
   generation: 0,
+  // 数据代次:每次 kz:memory-changed 加一。取数前记下,落地时不等就丢掉——那是改动之前发出的请求。
+  epoch: 0,
   payload: null,
   payloadAt: 0,
   payloadProject: null,
@@ -62,6 +64,7 @@ const graphState = {
   fitPending: true,
   shown: { nodes: [], links: [] },
   settleMs: null,
+  settleTicks: null,
 };
 
 // 调试与冒烟钩子(scripts/ui-memory-graph-smoke.mjs --browser、ui-preview 的 memory-graph 场景读它)。
@@ -72,20 +75,42 @@ const debugHook = {
   links: 0,
   memories: 0,
   settleMs: null,
+  settleTicks: null,
+  reducedMotion: null,
   hover: (id) => hoverNode(id),
   select: (id) => clickNode(id),
   ego: (id, hops) => enterEgo(id, hops),
   positions: () => (graphState.graph?.positions() ?? []).map((p) => ({ ...p, kind: nodeById(p.id)?.kind ?? null })),
+  labels: () => {
+    const placed = graphState.graph?.labels() ?? { nodes: [], edges: [] };
+    return { ...placed, zoom: graphState.graph?.zoom() ?? null, kinds: placed.nodes.map((id) => nodeById(id)?.kind ?? null) };
+  },
+  ticks: () => graphState.graph?.ticks() ?? null,
+  screenOf: (id) => graphState.graph?.screenOf(id) ?? null,
 };
 window.__kzMemoryGraph = debugHook;
 
-const areasById = () => new Map((graphState.payload?.areas ?? []).map((area) => [area.id, area]));
+// 区域表按载荷缓存:聚类力每个 tick、外壳每帧都要查节点的 crate,每次新建 200 个区域的 Map 是白花的预算
+// (复核基准:700 节点 × 150 tick 从 509ms 降到 3ms)。
+let areasCache = { payload: undefined, map: new Map() };
+function areasById() {
+  const payload = graphState.payload;
+  if (areasCache.payload !== payload) areasCache = { payload, map: new Map((payload?.areas ?? []).map((area) => [area.id, area])) };
+  return areasCache.map;
+}
 const nodeById = (id) => graphState.payload?.nodes?.find((node) => node.id === id) ?? null;
 const areaName = (id) => String(id ?? "").replace(/^area:/, "");
+const memoryPageActive = () => Boolean(document.querySelector("#view-memory.active"));
 
 function statusLine(text) {
   const status = $("memory-graph-status");
   if (status) status.textContent = text;
+}
+
+/** 没有悬停时状态栏该显示的话:图形渲染不可用时带上原因。 */
+function restingStatus() {
+  const unavailable = graphState.graphFailed && !graphState.textView;
+  return unavailable ? `${t("图形渲染不可用,已显示文本视图")} · ${summaryText()}` : summaryText();
 }
 
 function currentFilters() {
@@ -126,9 +151,13 @@ export function setMemoryView(view, { persist = true } = {}) {
 
 // ---------- 数据 ----------
 
+// 载荷新鲜:同一项目、15 秒内、之后没有 kz:memory-changed(它把 payloadAt 置 0)。取数与详情栏区域行共用。
+function payloadFresh(project) {
+  return Boolean(graphState.payload) && graphState.payloadProject === project && Date.now() - graphState.payloadAt < PAYLOAD_TTL_MS;
+}
+
 async function loadPayload(project, { force = false } = {}) {
-  const fresh = graphState.payload && graphState.payloadProject === project && Date.now() - graphState.payloadAt < PAYLOAD_TTL_MS;
-  if (fresh && !force) return graphState.payload;
+  if (payloadFresh(project) && !force) return graphState.payload;
   if (graphState.loading?.project === project && !force) return graphState.loading.promise;
   const request = { project };
   request.promise = invoke("memory_graph", { projectDir: project }).finally(() => {
@@ -136,6 +165,23 @@ async function loadPayload(project, { force = false } = {}) {
   });
   graphState.loading = request;
   return request.promise;
+}
+
+/**
+ * 写回取到的载荷。epoch 是发请求前记下的数据代次:期间又有 kz:memory-changed 就丢掉(改动之前的旧图),
+ * 返回 false。同一个对象(15 秒缓存命中)不刷新时间戳。
+ */
+function storePayload(project, payload, epoch) {
+  if (epoch !== graphState.epoch) return false; // 项目竞态由调用方在 await 之后复查(loadAndRender 的竞态守卫)
+  if (payload === graphState.payload && graphState.payloadProject === project) return true;
+  if (graphState.payloadProject !== project) {
+    graphState.nodeObjects.clear();
+    graphState.fitPending = true;
+  }
+  graphState.payload = payload;
+  graphState.payloadProject = project;
+  graphState.payloadAt = Date.now();
+  return true;
 }
 
 async function loadAndRender({ force = false } = {}) {
@@ -146,16 +192,11 @@ async function loadAndRender({ force = false } = {}) {
     return;
   }
   if (graphState.payloadProject !== project) statusLine(t("正在构建记忆图谱…"));
+  const epoch = graphState.epoch;
   try {
     const payload = await loadPayload(project, { force });
     if (project !== currentProject || generation !== graphState.generation) return; // 竞态守卫:项目 A 的图谱不得画进项目 B
-    if (graphState.payloadProject !== project) {
-      graphState.nodeObjects.clear();
-      graphState.fitPending = true;
-    }
-    graphState.payload = payload;
-    graphState.payloadProject = project;
-    graphState.payloadAt = Date.now();
+    if (!storePayload(project, payload, epoch)) return;
     fillAreaSelect();
     await render();
   } catch (err) {
@@ -167,11 +208,13 @@ async function loadAndRender({ force = false } = {}) {
 
 // ---------- 画布 ----------
 
+// 标签阈值:适配视图的缩放在 1600×960 约 0.9、1280×690 约 0.45(画布只有 420px 高),记忆编号从 0.35、模块从 0.3
+// 起显示,默认画面就能读出是哪几条;叠字由 placeLabels 的屏幕空间抢位剔除(优先级 crate > 模块 > 记忆按度数)。
 function nodeLabelFor(node, scale, state) {
   if (state.hovered || state.selected || state.hit || state.lit) return labelText(node, Math.max(scale, 3));
   if (node.kind === "crate") return node.label;
-  if (node.kind === "module") return scale >= 0.55 ? node.label : "";
-  if (node.kind === "memory") return scale >= 0.85 ? labelText(node, scale) : "";
+  if (node.kind === "module") return scale >= 0.3 ? node.label : "";
+  if (node.kind === "memory") return scale >= 0.35 ? labelText(node, scale) : "";
   return scale >= 1.8 ? labelText(node, scale) : "";
 }
 
@@ -208,7 +251,6 @@ async function ensureGraphView() {
   }
   if (!graphState.graphPending) {
     const host = $("memory-graph-canvas");
-    const map = () => areasById();
     graphState.graphPending = createGraphView(host, {
       nodeStyle,
       nodeRadius,
@@ -216,8 +258,9 @@ async function ensureGraphView() {
       labelPriority,
       linkStyle,
       relLabel: (rel) => t(REL_KEYS[rel] ?? "关联"),
-      clusterOf: (node) => (node.kind === "memory" || node.kind === "module" ? crateOfNode(node, map()) : undefined),
-      hullGroup: (node) => (node.kind === "memory" || node.kind === "module" || node.kind === "crate" ? crateOfNode(node, map()) : null),
+      // crate 分组在 cloneForRender 里按载荷算好挂在节点上(clusterId):这两个回调每 tick / 每帧对每个节点调一次。
+      clusterOf: (node) => (node.kind === "memory" || node.kind === "module" ? node.clusterId ?? null : undefined),
+      hullGroup: (node) => (node.kind === "memory" || node.kind === "module" || node.kind === "crate" ? node.clusterId ?? null : null),
       onHover: (node) => describeHover(node),
       onClick: (node) => void clickNode(node.id),
       onDblClick: (node) => enterEgo(node.id, 2),
@@ -225,9 +268,11 @@ async function ensureGraphView() {
         graphState.selectedId = null;
         graphState.graph?.select(null);
       },
-      onSettled: ({ settleMs }) => {
+      onSettled: ({ settleMs, ticks }) => {
         graphState.settleMs = settleMs;
+        graphState.settleTicks = ticks;
         debugHook.settleMs = settleMs;
+        debugHook.settleTicks = ticks;
         debugHook.ready = true;
         // 只在换了一批「看的东西」(新数据、进出邻域、换区域)后适配视图;开关图层/筛选保持用户的缩放。
         if (graphState.fitPending) graphState.graph?.fit(0);
@@ -237,6 +282,7 @@ async function ensureGraphView() {
     })
       .then((view) => {
         graphState.graph = view;
+        debugHook.reducedMotion = view.reducedMotion;
         return view;
       })
       .catch((err) => {
@@ -260,15 +306,14 @@ function summaryText() {
 
 function cloneForRender(subgraph) {
   const objects = graphState.nodeObjects;
+  const map = areasById();
   const nodes = subgraph.nodes.map((node) => {
     const existing = objects.get(node.id);
-    if (existing) {
-      Object.assign(existing, node);
-      return existing;
-    }
-    const created = { ...node };
-    objects.set(node.id, created);
-    return created;
+    const target = existing ?? { ...node };
+    if (existing) Object.assign(existing, node);
+    else objects.set(node.id, target);
+    target.clusterId = crateOfNode(node, map);
+    return target;
   });
   const links = subgraph.links.map((edge) => ({
     ...edge,
@@ -281,6 +326,9 @@ function cloneForRender(subgraph) {
 async function render() {
   const payload = graphState.payload;
   if (!payload) return;
+  // 记忆页不在前台不画:隐藏的画布只有 1×1,在上面跑完整布局还会把 force-graph 的 RAF 循环留在后台转
+  // (复核实测每秒回调翻倍)。回到记忆页时 kz:view-changed → loadAndRender 会重画;fitPending 原样留着。
+  if (!memoryPageActive()) return;
   const ego = graphState.ego && nodeById(graphState.ego.center) ? graphState.ego : null;
   graphState.ego = ego;
   const subgraph = ego ? egoSubgraph(payload, ego.center, ego.hops, graphState.layers) : visibleGraph(payload, currentFilters());
@@ -303,12 +351,13 @@ async function render() {
     debugHook.mode = "text";
     renderTextView(subgraph);
     debugHook.ready = true;
-    statusLine(graphState.graphFailed && !graphState.textView ? `${t("图形渲染不可用,已显示文本视图")} · ${summaryText()}` : summaryText());
+    statusLine(restingStatus());
     return;
   }
   debugHook.mode = "canvas";
   debugHook.ready = false;
   graphState.settleMs = null;
+  graphState.settleTicks = null;
   view.resume();
   const shownCrates = new Set(subgraph.nodes.filter((n) => n.kind === "crate").map((n) => n.id));
   const { anchors, unassigned } = bandAnchors((payload.areas ?? []).filter((area) => shownCrates.has(area.id)));
@@ -343,7 +392,7 @@ function aboutLine(node) {
 
 function describeHover(node) {
   if (!node) {
-    statusLine(summaryText());
+    statusLine(restingStatus());
     return;
   }
   const parts = [node.kind === "crate" || node.kind === "module" ? areaName(node.id) : node.id];
@@ -458,6 +507,9 @@ function prefillMergeChat(node, members) {
 
 export function renderGraphNodeDetail(node) {
   releaseMemoryDetail();
+  // releaseMemoryDetail 会派发 kz:memory-selection-cleared(清掉图上的选中环):放掉记忆之后再把这个节点选回来。
+  graphState.selectedId = node.id;
+  graphState.graph?.select(node.id);
   const box = $("memory-detail");
   if (!box) return;
   showMemoryTab("read");
@@ -579,9 +631,10 @@ function setAreaFilter(areaId) {
   void render();
 }
 
-function renderLegend() {
+function renderLegend({ rebuild = false } = {}) {
   const legend = $("memory-graph-legend");
-  if (!legend || legend.childElementCount) return;
+  if (!legend || (legend.children.length && !rebuild)) return;
+  legend.replaceChildren();
   const items = [
     ["fact", "fact"],
     ["sop", "sop"],
@@ -685,9 +738,14 @@ function onTreeKeydown(event) {
 
 // ---------- 区域提供者(详情页「区域」行) ----------
 
+// 复核:点「设为区域 / 清除区域」后区域行曾一直显示旧的推断区域(areasFor 不看载荷是否过期,
+// ensureAreaOptions 有载荷就复用、从不重取)。现在两处共用 payloadFresh:
+// - areasFor:载荷被 kz:memory-changed 作废(payloadAt = 0)就返回 null,区域行先只显示字段与「…」;
+//   仅仅过了 15 秒的旧载荷照常返回(没有已知改动,先显示、取到新的再换,免得每次点开都闪一下)。
+// - ensureAreaOptions:载荷不新鲜就重取并写回,13-memory.js 取到后用 areasFor 重画区域片。
 setMemoryAreaProvider({
   areasFor(scope, id) {
-    if (graphState.payloadProject !== currentProject) return null;
+    if (graphState.payloadProject !== currentProject || !graphState.payloadAt) return null;
     const node = nodeById(id);
     if (!node || node.scope !== scope) return null;
     return (graphState.payload?.edges ?? [])
@@ -697,15 +755,13 @@ setMemoryAreaProvider({
   async ensureAreaOptions() {
     const project = currentProject;
     if (!project) return [];
-    let payload = graphState.payloadProject === project && graphState.payload ? graphState.payload : null;
+    let payload = payloadFresh(project) ? graphState.payload : null;
     if (!payload) {
+      const epoch = graphState.epoch;
       payload = await loadPayload(project);
       if (project !== currentProject) return [];
       // 列表模式下取到的载荷也存下来:详情栏的推断区域(areasFor)与之后切到图谱都用它。
-      if (graphState.payloadProject !== project) graphState.nodeObjects.clear();
-      graphState.payload = payload;
-      graphState.payloadProject = project;
-      graphState.payloadAt = Date.now();
+      storePayload(project, payload, epoch);
     }
     if (project !== currentProject) return [];
     const map = new Map((payload?.areas ?? []).map((area) => [area.id, area]));
@@ -806,8 +862,25 @@ defer(() => {
   });
   document.addEventListener("kz:memory-changed", (event) => {
     if (event.detail?.project !== currentProject) return;
+    // 改动之后旧载荷作废(区域行不再拿它当推断区域),在途的旧请求也不再复用、落地时丢弃(epoch)。
+    graphState.epoch += 1;
     graphState.payloadAt = 0;
-    if (graphState.view === "graph") void loadAndRender({ force: true });
+    graphState.loading = null;
+    // 记忆页不在前台(管理对话结束时用户可能已经切走)只作废,回到记忆页时 kz:view-changed 再取、再画。
+    if (graphState.view === "graph" && memoryPageActive()) void loadAndRender({ force: true });
+  });
+  // 切换语言:画布标签由渲染器重画(kz:language),这里重建 DOM 里的文案——图例、区域下拉、状态栏、
+  // 文本视图分组名、画布读屏名称、非记忆节点详情(带 data-i18n-key 的按钮由 02-i18n.js 自己切)。
+  document.addEventListener("kz:language", () => {
+    if ($("memory-graph-legend")?.children.length) renderLegend({ rebuild: true });
+    if (!graphState.payload || graphState.payloadProject !== currentProject) return;
+    fillAreaSelect();
+    syncCanvasLabel(graphState.shown);
+    statusLine(restingStatus());
+    if (!$("memory-graph-list")?.classList.contains("hidden")) renderTextView(graphState.shown);
+    const box = $("memory-detail");
+    const shownNode = box && !box.classList.contains("hidden") && box.dataset.graphNode ? nodeById(box.dataset.graphNode) : null;
+    if (shownNode) renderGraphNodeDetail(shownNode);
   });
   document.addEventListener("kz:view-changed", (event) => {
     if (event.detail?.view !== "memory") {

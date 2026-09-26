@@ -2074,6 +2074,15 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .memory-manager-workspace.graph-mode .memory-list-pane { display: none; }
 #memory-scroll[data-view="graph"] .memory-manager-toolbar label:has(#memory-sort-filter) { display: none; }
 .graph-mode #memory-side { position: sticky; top: 0; align-self: start; max-height: calc(100vh - 96px); overflow-y: auto; }
+/* 图谱模式下没选中任何东西、停在「阅读」页签时,详情栏收成一条竖排页签栏,画布拿到整行宽度(复核:空详情栏
+   只写着「选择一条记忆」却占掉约 30% 宽度);选中节点(has-memory-selection)或点「管理对话 / 使用记录」再展开。 */
+#memory-scroll:not(.has-memory-selection, [data-tab="chat"], [data-tab="insights"]) .memory-manager-workspace.graph-mode { grid-template-columns: minmax(0, 1fr) auto; }
+#memory-scroll:not(.has-memory-selection, [data-tab="chat"], [data-tab="insights"]) .graph-mode #memory-side > .memory-tab-panel { display: none; }
+#memory-scroll:not(.has-memory-selection, [data-tab="chat"], [data-tab="insights"]) .graph-mode .memory-tabs { flex-direction: column; gap: 4px; padding: 6px 0 0; border-bottom: 0; }
+#memory-scroll:not(.has-memory-selection, [data-tab="chat"], [data-tab="insights"]) .graph-mode .memory-tabs button {
+  writing-mode: vertical-rl; padding: 10px 7px; border-bottom: 0; border-radius: var(--r-sm); color: var(--dim); letter-spacing: 1px;
+}
+#memory-scroll:not(.has-memory-selection, [data-tab="chat"], [data-tab="insights"]) .graph-mode .memory-tabs button:hover { color: var(--fg-strong); background: var(--surface-hover); }
 .memory-graph-pane { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
 .memory-graph-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: var(--fs-12); }
 .memory-graph-toolbar-gap { flex: 1; }
@@ -2117,7 +2126,12 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .memory-graph-legend { display: flex; gap: 4px 12px; flex-wrap: wrap; color: var(--dim); font-size: var(--fs-11); }
 .memory-graph-legend-item { display: inline-flex; align-items: center; white-space: nowrap; }
 .memory-graph-legend-note { white-space: nowrap; }
-.memory-graph-status { color: var(--dim); font-size: var(--fs-11); font-variant-numeric: tabular-nums; min-height: 1.4em; }
+/* 状态栏独占一行、不折行:悬停文字长短不能改变页脚高度——否则画布(弹性收缩)跟着变高变矮,尺寸一变库就清掉
+   悬停,状态栏缩回、画布又长回去,宽屏下悬停在记忆上会一直闪(复核修复时实测 1600 宽:649 ↔ 628px 来回跳)。 */
+.memory-graph-status {
+  flex: 1 0 100%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--dim); font-size: var(--fs-11); font-variant-numeric: tabular-nums; line-height: 1.4; height: 1.4em;
+}
 .kz-graph-swatch { display: inline-block; width: 9px; height: 9px; margin-right: 5px; border-radius: 50%; flex-shrink: 0; }
 .kz-graph-swatch[data-kind="fact"] { background: var(--graph-fact); }
 .kz-graph-swatch[data-kind="sop"] { background: var(--graph-sop); }
@@ -2156,9 +2170,9 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .memory-detail-head > button { flex-shrink: 0; white-space: nowrap; }
 .memory-detail-title { min-width: 0; overflow-wrap: anywhere; }
 @container (max-width: 760px) {
+  /* 窄屏:展开的详情栏排到画布下面;没选中时仍是右侧那条竖排页签栏(上面的规则选择器更具体,照样生效)。 */
   .memory-manager-workspace.graph-mode { grid-template-columns: 1fr; }
-  .graph-mode #memory-side { display: none; position: static; max-height: none; }
-  #memory-scroll.has-memory-selection .graph-mode #memory-side { display: flex; }
+  .graph-mode #memory-side { position: static; max-height: none; }
   .memory-view-switch { margin-left: 0; }
 }
 @media (max-width: 900px) {
