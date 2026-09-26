@@ -1094,6 +1094,22 @@ export const I18N_EN = {
   "返回全部子代理": "Back to all subagents", "当前线路还没有子代理": "No subagents on this line yet",
   "停止这个子代理": "Stop this subagent", "子代理未给出回答": "The subagent returned no answer",
   "该子代理已滚出当前视图": "This subagent is no longer in the chat view", "要求结构化返回": "Structured answer required",
+  // ---- 分区:对话单列与输入区 ----
+  // UI2-0926 #11 #12:本轮结束 notice 的计数模板(07-events.js kz:done)。
+  "{n} 步": "{n} steps", "会话 {n} 条": "{n} messages in session",
+  // 工具组(05-chat-render.js toolGroupSummary):每族单复数两个 key,中文单数 key 即填好 1 的原文。
+  "读取 {n} 个文件": "Read {n} files", "读取 1 个文件": "Read 1 file",
+  "修改 {n} 个文件": "Edited {n} files", "修改 1 个文件": "Edited 1 file",
+  "运行 {n} 条命令": "Ran {n} commands", "运行 1 条命令": "Ran 1 command",
+  "搜索 {n} 次": "Searched {n} times", "搜索 1 次": "Searched once",
+  "Git 操作 {n} 次": "{n} Git operations", "Git 操作 1 次": "1 Git operation",
+  "联网 {n} 次": "{n} web requests", "联网 1 次": "1 web request",
+  "条目操作 {n} 次": "{n} tracker operations", "条目操作 1 次": "1 tracker operation",
+  "工作队列 {n} 次": "{n} work-queue calls", "工作队列 1 次": "1 work-queue call",
+  "记忆操作 {n} 次": "{n} memory operations", "记忆操作 1 次": "1 memory operation",
+  "调用工具 {n} 次": "{n} tool calls", "调用工具 1 次": "1 tool call",
+  "等 {n} 次调用": "{n} calls in total", "{n} 待修正": "{n} need correction", "{n} 中断": "{n} interrupted",
+  "{n} 个工具运行中": "{n} tools running", "已完成 {n}": "{n} done", "展开或收起工具组": "Expand or collapse tool group",
 };
 export const I18N_DYNAMIC_EN = {
   "完成提示音不可用": "Completion sound unavailable",

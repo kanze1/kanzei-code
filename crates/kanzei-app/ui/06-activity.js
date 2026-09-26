@@ -18,7 +18,7 @@ import {
   toast,
   toastError,
 } from "./03-shell.js";
-import { toolCallSummary } from "./05-chat-render.js";
+import { toolCallSummary, toolGroupRelocalize } from "./05-chat-render.js";
 import { classifySubagentEnd, subagentDescription, subagentRelocalize, subagentReplayDuration, subagentReplayTrace } from "./05-subagents.js";
 import { cleanInline, cleanPaths, formatDuration, looksLikeNoise, parseJsonish, stripAnsi } from "./04-structured-parse.js";
 import { toolArgSummary, toolResultSummary, toolRoots } from "./05-tool-summary.js";
@@ -1174,6 +1174,8 @@ export function syncDynamicUiLanguage() {
   renderAutoStatus(autoStopReason);
   // UI-0926 #8:子代理卡片与侧栏的计数/状态词在渲染点经 t() 产出,切语言时重画。
   subagentRelocalize();
+  // UI2-0926 #12:工具组标签(「读取 2 个文件 · 1 失败」)在渲染点经 t() 产出,切语言时重算。
+  toolGroupRelocalize();
 }
 export function liveSet(id, text) {
   const el = $(id);

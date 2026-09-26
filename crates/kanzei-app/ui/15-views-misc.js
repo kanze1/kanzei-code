@@ -45,10 +45,13 @@ import {
   currentReasoningHead,
   fillToolBlock,
   followLatest,
+  mergeAdjacentToolGroups,
+  mountToolBlock,
   noteProgrammaticScroll,
   renderReasoningBlock,
   setFollowLatest,
   scrollBottom,
+  syncToolGroupOf,
   updateLatestButton,
 } from "./05-chat-render.js";
 import {
@@ -424,7 +427,18 @@ export function loadEarlierMessages() {
     subagentPrependEnd();
   }
   const before = messages.scrollHeight;
+  // UI2-0926 #12:窗口边界会把同一段工具活动切成两组。记下旧内容的第一个节点(跳过顶部提示条)
+  // 与新一窗的最后一个节点,前插之后两者相邻就合并(合计不超过上限),与实时渲染同构。
+  const isHint = (el) => el?.classList?.contains("earlier-hint") || el?.classList?.contains("pane-trimmed-hint");
+  const oldFirst = [...activePane.children].find((el) => !isHint(el)) ?? null;
+  const newKids = holder.children;
+  const lastNew = newKids[newKids.length - 1] ?? null;
   activePane.prepend(...[...holder.childNodes]);
+  // 中间只隔着「载入更早的消息」入口(下面 renderEarlierHint 会把它挪回顶部)才算相邻;隔着实时裁剪
+  // 说明条就是真断层(那段被裁掉了),不合并。
+  const kids = [...activePane.children];
+  const between = lastNew && oldFirst ? kids.slice(kids.indexOf(lastNew) + 1, kids.indexOf(oldFirst)) : [];
+  if (between.every((el) => el.classList?.contains("earlier-hint"))) mergeAdjacentToolGroups(lastNew, oldFirst);
   history.rendered += chunk.length;
   messages.scrollTop += messages.scrollHeight - before;
   // 这里**不能**去冲抵 droppedLive。补进来的 chunk 取自 history.items 里
@@ -472,6 +486,8 @@ export function renderEarlierHint() {
   const label = `${t("载入更早的消息")} · ${t("还有")} ${remaining} ${t("条")}`;
   if (existing) {
     existing.textContent = label;
+    // 补齐一窗是前插:已有的提示条会被新内容压到中间。挪回顶部(它是入口,必须在最上面)。
+    activePane.prepend(existing);
     return;
   }
   const hint = document.createElement("button");
@@ -561,7 +577,7 @@ export function renderMessageParts(items) {
         const block = buildToolBlock(part.name || "tool", part.input);
         // 轨迹里的耗时按调用 id 回填(applyRecoveredToolDurations)。
         if (part.id) block.wrap.dataset.toolCallId = part.id;
-        appendToPane(block.wrap);
+        mountToolBlock(block);
         if (part.id) pending.set(part.id, { block, input: part.input });
         continue;
       }
@@ -585,7 +601,7 @@ export function renderMessageParts(items) {
         } else {
           // 配对不上(历史被压缩过):独立成块,总比丢掉强。
           const orphan = buildToolBlock("tool result", {});
-          appendToPane(orphan.wrap);
+          mountToolBlock(orphan);
           fillToolBlock(orphan, { ok: !part.is_error, content: part.content });
         }
         continue;
@@ -618,8 +634,11 @@ export function renderMessageParts(items) {
       continue;
     }
     block.wrap.classList.remove("running");
+    // 与实时停止收尾(chatAbortRunning)同形:标 interrupted,工具组标签据此计「N 中断」。
+    block.wrap.classList.add("interrupted");
     block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
     block.result.classList.remove("hidden");
+    syncToolGroupOf(block);
   }
 }
 

@@ -180,6 +180,75 @@ const SCENES = {
   },
 };
 
+// ── 分区:对话单列与输入区 ──
+// UI2-0926 #11 #12:复现用户截图 13 的现场(对话列对齐、工具组、⎿ 行内代码、本轮结束、用户气泡、输入区)。
+// 仍只走应用入口:回放 kz:* 事件、在输入框里打字点发送(预览的 run_prompt 回放一轮假回复)、点 rail 开关。
+async function closeActivityPanel(ctx) {
+  if (!isHidden("#bg-panel")) $("#activity-toggle")?.click();
+  await ctx.sleep(60);
+}
+/// 一轮已结束的回合:正文(列表 + 行内代码)、两次成功的条目/工作队列调用、一次带反引号的失败调用、本轮结束。
+async function replayFinishedTurn(ctx) {
+  const { emit, fixtures, sleep } = ctx;
+  const e = fixtures.events;
+  const sessionId = e.meta.sessionId;
+  emit("kz:meta", e.meta);
+  emit("kz:turn", { sessionId, step: 1, maxSteps: 0 });
+  emit("kz:reasoning", e.reasoning);
+  emit("kz:tool-start", { sessionId, id: "col-req-1", name: "req", summary: "update R-001", input: { action: "update", id: "R-001" } });
+  emit("kz:tool-end", { sessionId, id: "col-req-1", name: "req", ok: true, outcome: "success", preview: "updated: R-001", content: "updated: R-001 (发现记录, 来源, 确认记录)", contentBytes: 40, contentTruncated: false, durationMs: 300 });
+  emit("kz:tool-start", { sessionId, id: "col-work-1", name: "work", summary: "claim", input: { action: "claim", id: "R-001" } });
+  emit("kz:tool-end", { sessionId, id: "col-work-1", name: "work", ok: true, outcome: "success", preview: "claimed R-001", content: "claimed R-001 · 移动端多模态 Markdown 上下文库与 API Agent", contentBytes: 60, contentTruncated: false, durationMs: 200 });
+  await sleep(30);
+  emit("kz:text", { sessionId, text: "已更新 **R-001「移动端多模态 Markdown 上下文库与 API Agent」**,并记下你刚确认的范围:\n\n- PDF、图片保留原件,作为本地附件由 Markdown 关联;尽可能提取 PDF 文字和图片 OCR 内容用于搜索,解析失败时仍可访问原件。\n- Agent 通过 API 对**你选定的内容**进行基础问答/检索,不默认上传全库;优先保持轻便、快速。\n- 当前工作队列仍选中 R-001,需求保持 `todo`,没有开始实现。" });
+  await sleep(30);
+  emit("kz:tool-start", { sessionId, id: "col-req-2", name: "req", summary: "update R-001", input: { action: "update", id: "R-001" } });
+  const bad = "批次字段要写成 `k/N`(如 `0/3`),实际收到 `批次: 0/5`;B1 核心模型、快速捕获与多模态附件";
+  emit("kz:tool-end", { sessionId, id: "col-req-2", name: "req", ok: false, outcome: "failed", preview: bad, content: `${bad}\n请只写进度计数`, contentBytes: 120, contentTruncated: false, durationMs: 100 });
+  emit("kz:step", e.step);
+  emit("kz:done", { sessionId, steps: 6, halted: false, history: 23, elapsedMs: 9400, input: 148200, output: 2310, cacheRead: 131000, cacheWrite: 0, tools: { req: 2, work: 1 }, autoAction: { type: "NoContinue" } });
+  emit("kz:idle", { sessionId, reason: "completed" });
+  await sleep(60);
+  await ctx.settle();
+}
+Object.assign(SCENES, {
+  /// 空闲态的对话列:历史 + 一轮已结束的回合 + 用户发一条消息后的假回复(预览 run_prompt 回放)。
+  async column(ctx) {
+    await replayFinishedTurn(ctx);
+    await closeActivityPanel(ctx);
+    const prompt = $("#prompt");
+    if (prompt && $("#send")) {
+      prompt.value = "API 暂时只适配 deepseek 的就行,深度适配然后就可以开始了,直到交付";
+      prompt.dispatchEvent(new Event("input", { bubbles: true }));
+      $("#send").click();
+      // 假回复约 1.8s 回放完(run_prompt 每步 140ms),等到 kz:idle 落地。
+      await waitFor(() => document.documentElement.dataset.kzActivity === "idle" && $('.msg-pane[data-active="1"]')?.querySelectorAll(".msg.notice").length >= 2, 6000);
+    }
+    // 预览没有系统通知权限,轮末提示(异步)会把运行日志面板顶出来;截图只要对话列,等它出来再经状态栏开关收起。
+    await waitFor(() => !isHidden("#log-panel"), 800);
+    if (!isHidden("#log-panel")) $("#log-toggle")?.click();
+    await ctx.settle();
+    const chat = await import("/05-chat-render.js");
+    chat.scrollBottom(true);
+    await ctx.sleep(60);
+    document.activeElement?.blur?.();
+  },
+  /// 运行态的输入区(用户截图 13 的底部):一轮正在跑、活动面板关、自主推进、鞭挞开着。
+  async composer(ctx) {
+    await replayRunningTurn(ctx);
+    await closeActivityPanel(ctx);
+    const mode = $("#profile-select");
+    if (mode && mode.value !== "dev-auto") {
+      mode.value = "dev-auto";
+      mode.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    const whip = $("#auto-continue");
+    if (whip && !whip.checked) whip.click();
+    await ctx.sleep(80);
+    document.activeElement?.blur?.();
+  },
+});
+
 export const SCENE_NAMES = Object.keys(SCENES);
 
 export async function runScene(name, ctx) {

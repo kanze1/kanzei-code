@@ -850,7 +850,13 @@ select {
    `messages.innerHTML = ""`,一清就把按钮删了,之后 updateLatestButton 拿到
    null 直接抛 TypeError(2026-08-12 实测:恢复历史与新建并行线路全崩)。 */
 /* OC 在空态完整展示，对话时收进独立留白，不盖住消息。 */
-#view-chat { background: var(--chat-bg); }
+/* UI2-0926 #12 对话单列(参照 Claude):整个对话区只有一条列宽真源 --chat-col,两侧至少 --chat-gutter。
+   消息 pane、运行活动行、输入区三处宽度都是同一个表达式 min(var(--chat-col), 100cqi - 2 * var(--chat-gutter)):
+   pane 的 cqi 取 #chat-area、活动行与输入区取 #view-chat,两者同宽,所以同宽同中轴(左右边逐像素重合)。
+   变量刻意不放 :root(运行时冒烟用第一个 :root 块校验 color-scheme);改列宽只动 --chat-col 一处。
+   #view-chat / #chat-area 都是 inline-size 容器:侧面板停靠让出宽度时,列自动重排。 */
+#view-chat { background: var(--chat-bg); --chat-col: 768px; --chat-gutter: 24px; container-type: inline-size; }
+@media (max-width: 1024px) { #view-chat { --chat-gutter: 12px; } }
 #chat-area {
   flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative;
   background: var(--chat-bg); container-type: inline-size;
@@ -863,20 +869,38 @@ select {
   mask-image: radial-gradient(92% 88% at 86% 36%, #000 0 26%, rgba(0,0,0,.72) 49%, transparent 82%);
 }
 #messages { position: relative; z-index: var(--z-raised); }
-/* 顶栏删除后对话直接顶到窗口边,首条消息需要自己的呼吸位;限宽与输入区同一档
-   (1080px)让两块视觉上是同一列,宽屏下不再一条到底。 */
-#messages { flex: 1; overflow-y: auto; padding: 26px 22px 18px; display: flex; flex-direction: column; gap: 12px; }
+/* 顶栏删除后对话直接顶到窗口边,首条消息需要自己的呼吸位。左右不留内边距:列宽由 pane 自己的
+   列宽表达式决定;scrollbar-gutter 两侧对称预留,滚动条仍贴在对话区右缘,内容盒左右对称,
+   pane 的中轴与输入区的中轴重合(否则 8px 滚动条会让 pane 比输入区偏左 4px)。
+   UI2-0926 #12 根因 A:旧版在 ≥900px 时给 #messages 右侧留 222px(给 OC 立绘让位),特异性 (1,3,0)
+   压过了「OC 关闭时只留 24px」,OC 关着也整列左移 100px——两条规则一并删除,OC 改为右沟放得下时才出现。 */
+#messages {
+  flex: 1; overflow-y: auto; padding: 28px 0 24px; scrollbar-gutter: stable both-edges;
+  display: flex; flex-direction: column;
+}
 /* flex:1 0 auto —— 空态要靠 .empty-state 的 flex:1 在整片高度里居中,pane 必须先把
    #messages 的高度占满;有消息时 basis:auto + 不收缩,内容照常撑高并滚动。 */
-#messages > .msg-pane { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 1080px; margin: 0 auto; flex: 1 0 auto; }
-/* 浮在消息上的按钮必须用不透明底(ghost 是透明的,会透出底下的正文)。 */
-#jump-latest { position: absolute; right: 22px; bottom: 14px; z-index: var(--z-raised); background: var(--surface-overlay); border-radius: var(--r-pill); box-shadow: var(--elev-2); }
+#messages > .msg-pane {
+  display: flex; flex-direction: column; flex: 1 0 auto;
+  width: min(var(--chat-col), 100cqi - 2 * var(--chat-gutter)); margin: 0 auto;
+}
+/* 「回到最新」在列底居中(旧版钉在窗口最右,宽屏下离正文很远)。浮在消息上必须用不透明底。 */
+#jump-latest { position: absolute; left: 50%; right: auto; translate: -50% 0; bottom: 12px; z-index: var(--z-raised); background: var(--surface-overlay); border-radius: var(--r-pill); box-shadow: var(--elev-2); }
 #messages .message-body { min-width: 0; }
 .msg { position: relative; }
-.msg-actions { position: absolute; right: 4px; top: 2px; opacity: 0; transition: opacity .12s; }
-.msg:hover .msg-actions, .tool-chip:hover .msg-actions { opacity: 1; }
-.copy-btn { background: var(--surface-overlay); color: var(--dim); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 2px 6px; font-size: var(--fs-11); }
-.copy-btn:hover { color: var(--fg-strong); }
+/* 复制:悬停(或键盘聚焦)时出现在块**下方**——助手消息靠左、用户消息靠右;不再漂在段落右上角
+   (旧版贴在 92% 宽盒子的右缘,离正文末尾很远,还压住首行最后几个字)。notice 不挂复制。
+   错误卡的「重试」常驻在流内(原先要悬停才看得见)。 */
+.msg-actions { position: absolute; top: calc(100% + 1px); left: -6px; display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+.msg.user > .msg-actions { left: auto; right: 0; }
+.msg:is(:hover, :focus-within) > .msg-actions, .tool-chip:hover .msg-actions { opacity: 1; }
+.msg.error > .msg-actions { position: static; opacity: 1; margin-top: 8px; }
+.copy-btn {
+  width: 24px; height: 22px; padding: 0; display: inline-grid; place-items: center;
+  background: transparent; color: var(--dim); border: 0; border-radius: var(--r-sm);
+}
+.copy-btn:hover { background: var(--surface-hover); color: var(--fg-strong); }
+.copy-btn svg { width: 14px; height: 14px; display: block; }
 #chat-search { display: inline-flex; align-items: center; gap: 3px; }
 #chat-search input { width: 130px; padding: 3px 6px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-sm); font: inherit; font-size: var(--fs-11); }
 #chat-search-count { color: var(--dim); font-size: var(--fs-11); min-width: 34px; text-align: center; }
@@ -887,7 +911,8 @@ select {
   flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center;
   color: var(--dim); padding: 24px 0;
 }
-.empty-welcome { width: 100%; max-width: 880px; display: grid; grid-template-columns: 1fr 1.1fr; align-items: center; gap: 24px; }
+/* UI2-0926 #12:空态与列同宽同轴(OC 开时两栏,宽度即列宽;OC 关时单栏整体居中,与输入区同一条中线)。 */
+.empty-welcome { width: 100%; max-width: none; display: grid; grid-template-columns: 1fr 1.1fr; align-items: center; gap: 24px; }
 .empty-copy { min-width: 0; padding-left: 24px; animation: fadein .35s ease; }
 .empty-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; color: var(--fg-strong); font-size: var(--fs-15); font-weight: 600; letter-spacing: .12em; }
 .logo-mark {
@@ -922,10 +947,11 @@ select {
 .oc-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .oc-stage[data-oc-ready="true"] > .oc-poster { visibility: hidden; }
 #oc-companion { display: none; position: absolute; right: 24px; bottom: 34px; height: 246px; width: 164px; z-index: var(--z-raised); pointer-events: none; }
-@container (min-width: 900px) {
+/* OC 立绘只在右沟放得下时才在对话态出现:列 768 + 两侧各 ≥212 ⇒ 对话区 ≥1200。不再给 #messages 预留右沟
+   (旧版在 OC 关闭时也生效,整列左移 100px,UI2-0926 #12 根因 A)。空态仍按下面的规则显示立绘。 */
+@container (min-width: 1200px) {
   #oc-companion { display: block; }
   #chat-area:has(.msg-pane[data-active="1"] .empty-state) #oc-companion { display: none; }
-  #messages:not(:has(.msg-pane[data-active="1"] .empty-state)) { padding-right: 222px; }
 }
 @container (max-width: 760px) {
   .empty-welcome { grid-template-columns: 1fr; max-width: 440px; }
@@ -949,8 +975,9 @@ select {
 .oc-toggle > span { font-size: var(--fs-10); line-height: 1; }
 .oc-toggle[aria-pressed="true"] { color: var(--fg-strong); background: var(--surface-selected); }
 html[data-oc-enabled="false"] :is(.empty-art, .voice-art, #oc-companion) { display: none !important; }
-html[data-oc-enabled="false"] .empty-welcome { grid-template-columns: 1fr; max-width: 540px; }
-html[data-oc-enabled="false"] #messages { padding-right: 24px; }
+html[data-oc-enabled="false"] .empty-welcome { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+html[data-oc-enabled="false"] .empty-copy { padding-left: 0; }
+html[data-oc-enabled="false"] :is(.empty-brand, .empty-shortcuts) { justify-content: center; }
 html[data-oc-enabled="false"] .voice-stage { grid-template-columns: minmax(0, 640px); justify-content: center; }
 html[data-oc-enabled="false"] .voice-stage-copy { padding-right: 0; }
 html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68px max(24px, 9%) 20px; }
@@ -981,6 +1008,8 @@ html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68
 .voice-mode .voice-settings { position: absolute; left: 16px; bottom: 12px; }
 .voice-mode .neural-flow-chat { opacity: .9; }
 .voice-mode.voice-transcript #messages { display: flex; position: absolute; inset: 68px 24px 20px 53%; padding: 20px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--r-lg); z-index: var(--z-panel); }
+/* 转写面板本身已限宽:列宽表达式在这里让位给面板宽度,否则 768 宽的 pane 会溢出面板。 */
+.voice-mode.voice-transcript #messages > .msg-pane { width: 100%; }
 .voice-mode.voice-transcript .voice-stage-copy { visibility: hidden; }
 .voice-mode.voice-transcript #messages .empty-art { display: none; }
 .voice-mode.voice-transcript #messages .empty-welcome { display: block; }
@@ -1018,26 +1047,29 @@ html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68
 #voice-toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
 .msg { line-height: 1.68; animation: fadein var(--motion-fast) var(--ease-out); }
 @keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
-/* 用户消息 = Codex 式圆角灰气泡:中性表面、无边框、无竖条,强调色不进正文。 */
+/* 用户消息 = Codex 式圆角灰气泡:中性表面、无边框、无竖条,强调色不进正文。
+   UI2-0926 #12:列内只有两种右缘——列右缘(正文、工具组、子代理卡、notice 占满列宽)与用户气泡(右对齐,
+   最宽 80%,右缘就是列右缘);原先 92%/78%/100% 四种右缘各占一条线。 */
 .msg.user {
   align-self: flex-end; background: var(--user-bubble); color: var(--fg-strong);
-  border: 0; border-radius: var(--r-xl); padding: 10px 16px; max-width: 78%;
+  border: 0; border-radius: var(--r-xl); padding: 10px 16px; max-width: 80%;
   white-space: pre-wrap; word-break: break-word;
 }
 .message-attachments { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--border-on-accent); font-size: var(--fs-11); }
 .message-attachment { opacity: .92; overflow-wrap: anywhere; }
 .msg.assistant {
-  white-space: pre-wrap; word-break: break-word; max-width: 92%;
-  color: var(--fg-strong); font-size: var(--fs-15); line-height: 1.72;
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--fg-strong); font-size: var(--fs-15); line-height: 1.7;
 }
+/* 思考块与工具组头同形:一行灰字,不再画左竖线(列内只有一条左边)。 */
 .msg.reasoning {
-  color: var(--dim); white-space: pre-wrap; font-size: var(--fs-13); max-width: 92%;
-  border-left: 2px solid var(--border-soft); padding-left: 10px;
+  color: var(--dim); white-space: pre-wrap; font-size: var(--fs-13);
+  border-left: 0; padding-left: 0;
 }
 .tool-chip {
   background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--radius);
   padding: 7px 11px; font-family: var(--mono); font-size: var(--fs-13);
-  display: flex; flex-direction: column; gap: 3px; max-width: 92%;
+  display: flex; flex-direction: column; gap: 3px;
 }
 .tool-chip .head { color: var(--fg); word-break: break-all; }
 .tool-chip .result { color: var(--dim); white-space: pre-wrap; word-break: break-all; }
@@ -1046,17 +1078,25 @@ html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68
 .tool-chip.running .head::before { content: "● "; color: var(--accent); }
 .msg.error {
   color: var(--err); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--err) 30%, transparent);
-  border-radius: var(--r-lg); padding: 10px 14px; max-width: 92%; white-space: pre-wrap; word-break: break-word;
+  border-radius: var(--r-lg); padding: 10px 14px; white-space: pre-wrap; word-break: break-word;
 }
 .msg.error .error-level { display: block; margin-bottom: 4px; font-size: var(--fs-11); letter-spacing: .04em; }
 .msg.error .retry-btn { margin-top: 8px; padding: 4px 9px; color: var(--fg-strong); background: var(--panel); border: 1px solid var(--border); }
 .msg.error .retry-btn:hover { border-color: var(--border-strong); color: var(--fg-strong); }
 .msg.error .retry-btn:disabled { opacity: .6; cursor: wait; }
-.msg.notice { color: var(--dim); font-size: var(--fs-11-5); text-align: center; }
+/* notice(含本轮结束 .turn-end)是列左缘的一行小字,不再居中自成第四条轴线;契约 §4.2「轮次边界不画线」,不加分隔线。 */
+.msg.notice { color: var(--dim); font-size: var(--fs-12); text-align: left; }
+/* 列内节奏(owl):块间 16px;正文/用户消息之后 24px(给悬停出现的复制行留位);轮间 36px(契约 §4.2
+   「轮间留白是轮内四到五倍」);相邻工具组/思考 6px;notice 12px。带 ID 是为了压过各块自带的外边距。 */
+#messages > .msg-pane > * + * { margin-top: 16px; }
+#messages > .msg-pane > :is(.msg.assistant, .msg.user) + * { margin-top: 24px; }
+#messages > .msg-pane > .msg.user:not(:first-child) { margin-top: 36px; }
+#messages > .msg-pane > :is(.tool-group, .msg.reasoning) + :is(.tool-group, .msg.reasoning) { margin-top: 6px; }
+#messages > .msg-pane > .msg.notice { margin-top: 12px; }
 
 /* 输入区 = 大圆角抬升卡片 + 柔阴影(Codex 式);获得焦点只加深边框,不染强调色。 */
 #composer {
-  width: calc(100% - 48px); max-width: 1080px; margin: 0 auto 20px; padding: 10px 14px;
+  width: min(var(--chat-col), 100cqi - 2 * var(--chat-gutter)); margin: 0 auto 16px; padding: 10px 14px;
   border: 1px solid var(--border); border-radius: var(--r-xl); background: var(--surface-raised);
   box-shadow: var(--elev-composer); flex-shrink: 0; position: relative;
   transition: border-color .18s ease, box-shadow .18s ease;
@@ -1072,7 +1112,7 @@ html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68
    `#composer > #id { display: flex }` 只有 (2,0,0),永远赢不了它,flex 行会被
    悄悄压成 block(上下文胶囊竖着叠、composer-bar 靠 inline 流「看起来像」一行)。 */
 #composer > *:where(:not(#file-suggestions):not(#sop-picker-panel):not(#attachment-input)) {
-  max-width: 1080px;
+  max-width: 100%;
   margin-left: auto;
   margin-right: auto;
   /* textarea 默认是 **inline-block**,`margin: auto` 对非 block 盒不居中(计算成 0)。
@@ -1111,7 +1151,7 @@ html[data-oc-enabled="false"] .voice-mode.voice-transcript #messages { inset: 68
 .seg-select { padding-right: 6px; }
 /* 窄窗口:分段组自己换行,而不是把发送挤出去。 */
 @media (max-width: 1024px) {
-  #composer { width: calc(100% - 24px); padding: 10px 12px; margin-bottom: 12px; }
+  #composer { padding: 10px 12px; margin-bottom: 12px; }
   .composer-actions { flex-wrap: wrap; row-gap: 6px; max-width: 100%; }
   .seg-btn, .seg-select { padding: 5px 8px; }
 }
@@ -1580,7 +1620,6 @@ button.ghost.danger:hover { background: var(--danger-soft); }
    乘一次透明度后,亮色主题会接近白色。层级只用语义前景色表达。 */
 .tool-chip.replay { padding: 4px 10px; opacity: 1; font-size: var(--fs-13); }
 .tool-chip.replay .result { color: var(--fg); }
-.tool-chip.replay-tool { max-width: 92%; }
 .tool-chip.replay-tool .head { cursor: pointer; }
 .replay-tool-body {
   margin: 4px 0 0; padding: 8px; max-height: 320px; overflow: auto;
@@ -1621,7 +1660,7 @@ button.ghost.danger:hover { background: var(--danger-soft); }
   font-family: inherit; font-size: var(--fs-13);
 }
 #input-value:focus { outline: none; border-color: var(--focus-ring); }
-.reasoning-head { color: var(--dim); font-size: var(--fs-12); cursor: pointer; border: 0; padding: 0; background: transparent; text-align: left; font: inherit; }
+.reasoning-head { color: var(--dim); cursor: pointer; border: 0; padding: 0; background: transparent; text-align: left; font: inherit; font-size: var(--fs-13-5); line-height: 1.6; }
 .reasoning-head:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .reasoning-head:hover { color: var(--fg); }
 .reasoning-body { color: var(--dim); font-size: var(--fs-12); white-space: pre-wrap; margin-top: 4px; }
@@ -1757,6 +1796,8 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   font-family: var(--mono); font-size: var(--fs-13);
 }
 .msg.md p { margin: .7em 0; }
+.msg.md .message-body > :first-child { margin-top: 0; }
+.msg.md .message-body > :last-child { margin-bottom: 0; }
 .msg.md ul, .msg.md ol { margin: 6px 0; padding-left: 24px; }
 .msg.md li { margin: 2px 0; }
 .msg.md table { display: block; width: max-content; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 8px 0; }
@@ -2195,10 +2236,10 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .menu-row > input[type="checkbox"] { flex: 0 0 auto; }
 
 /* ---------- 主对话内联工具块(R-090):形态对齐 Claude Code ---------- */
-/* 无边框无底色,工具调用与结果摘要共用同一行;轮次边界由下一条用户消息的留白表达。 */
-.msg.tool-msg { padding: 0; margin: -4px 0; background: transparent; border: none; }
-/* 同一轮内部的轨迹压紧;下一轮用户消息再恢复明确的呼吸区。 */
-.msg.user:not(:first-child) { margin-top: 36px; }
+/* 无边框无底色,工具调用与结果摘要共用同一行;轮次边界由下一条用户消息的留白表达。
+   UI2-0926 #12:行间距统一交给列内节奏(#messages > .msg-pane 的 owl 规则)与工具组 body,行自身不带外边距;
+   轮间 36px 同在列节奏里。 */
+.msg.tool-msg { padding: 0; margin: 0; background: transparent; border: none; }
 
 /* UI-0926 #6:工具行整行改比例字体;只有工具名与代码记号(路径/命令/正则,.is-code 与
    .tool-sum-code)用等宽——此前整行 mono,人话摘要读起来像日志。 */
@@ -2218,13 +2259,15 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .tool-msg.warn .tool-msg-status { color: var(--warn); }
 .tool-msg.err .tool-msg-status { color: var(--err); }
 .tool-msg-name { font-family: var(--mono); font-size: var(--fs-12-5); font-weight: 600; flex: none; }
+/* UI2-0926 #12 根因 D:参数列 flex:1 吃掉剩余宽度,⎿ 摘要被推到行宽 58% 处的远右栏(列越宽越远)。
+   改为参数按内容取宽(上限 55%),⎿ 摘要紧跟其后占剩余宽度。子代理侧栏的时间线行同样受益。 */
 .tool-msg-arg {
   color: var(--dim); overflow: hidden; font-family: var(--sans);
-  text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
+  text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; max-width: 55%; min-width: 0;
 }
 .tool-msg-arg.is-code { font-family: var(--mono); font-size: var(--fs-12-5); }
 .tool-msg-result {
-  flex: 0 1 42%; min-width: 0; margin: 0; font-size: var(--fs-13); color: var(--dim);
+  flex: 1 1 0; min-width: 6ch; margin: 0 0 0 4px; font-size: var(--fs-13); color: var(--dim);
   font-family: var(--sans); font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -2252,6 +2295,38 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
   max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
 .tool-msg-raw.args { color: var(--dim); opacity: 1; }
+
+/* ---------- 工具组(UI2-0926 #12,05-chat-render.js mountToolBlock;参照 Claude「Ran 4 commands ›」) ----------
+   连续工具调用合成一行灰字组头,点开是逐条的工具行;只有 1 行时不显示组头。默认折叠,失败行在折叠态常驻可见
+   (契约 §4.1)。组头与思考块头同形(灰字、无底无框);运行中组头字亮一档 + 转圈(转圈规则在动效分区)。 */
+.tool-group { display: flex; flex-direction: column; min-width: 0; }
+.tool-group-head {
+  display: inline-flex; align-self: flex-start; align-items: center; gap: 6px; max-width: 100%;
+  padding: 2px 0; border: 0; border-radius: var(--r-xs); background: transparent; color: var(--dim);
+  font: inherit; font-family: var(--sans); font-size: var(--fs-13-5); font-weight: 400; line-height: 1.6;
+  text-align: left; cursor: pointer;
+}
+.tool-group-head:hover { color: var(--fg-strong); }
+.tool-group-head:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 2px; }
+.tool-group-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-group-fail { flex: none; color: var(--err); }
+.tool-group-warn { flex: none; color: var(--warn); }
+.tool-group-chev { flex: none; display: inline-flex; width: 10px; height: 10px; transition: rotate var(--motion-fast) var(--ease-out); }
+.tool-group-chev svg { width: 10px; height: 10px; display: block; }
+.tool-group[data-expanded="1"] .tool-group-chev { rotate: 90deg; }
+.tool-group[data-running="1"] .tool-group-label { color: var(--fg); }
+.tool-group-body {
+  display: none; flex-direction: column; min-width: 0;
+  margin: 2px 0 2px 5px; padding-left: 12px; border-left: 1px solid var(--border-soft);
+}
+.tool-group[data-expanded="1"] > .tool-group-body { display: flex; }
+.tool-group[data-count="1"] > .tool-group-head { display: none; }
+.tool-group[data-count="1"] > .tool-group-body { display: flex; margin: 0; padding: 0; border: 0; }
+/* 折叠态:失败行常驻(Claude 的红色 Failed 行),其余行与思考收起。 */
+.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err) { display: flex; }
+.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body > :not(.tool-msg.err) { display: none; }
+.tool-group-body > .msg.reasoning, .tool-group-body > .msg.reasoning .reasoning-head { font-size: var(--fs-12-5); }
+.tool-group-body > * + * { margin-top: 1px; }
 
 /* ---------- 文件导览(R-148) ---------- */
 /* D-212:不得写 `#view-files { display:flex }`——ID 特异性会无条件压过 `.view` 的
@@ -3053,8 +3128,9 @@ html[lang="en"] .documents-list .doc-row .complexity-badge { flex-basis: 46px; }
 #status-dot[data-flash="failed"] { animation: kz-shake var(--motion-slow) var(--ease-out) 1; }
 #status-dot[data-flash="failed"]::after { background: var(--err); animation: kz-ring var(--motion-slow) var(--ease-out) 1; }
 #ctx-bar.pending #ctx-bar-fill { animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite; }
-/* 输入框上方的运行活动行(Claude 式「思考中… 12s」):与输入框同一列,文字与输入框正文左缘对齐。 */
-#turn-activity { flex: none; display: flex; align-items: center; gap: 8px; width: calc(100% - 48px); max-width: 1080px; min-height: 20px; margin: 0 auto 6px; padding: 0 22px; color: var(--dim); font-size: var(--fs-12); }
+/* 输入框上方的运行活动行(Claude 式「思考中… 12s」):与消息列、输入框同一个列宽表达式,字形落在列左缘
+   (与正文、工具组、输入区外框同一条边;Claude 的 ✳ 同样如此)。 */
+#turn-activity { flex: none; display: flex; align-items: center; gap: 8px; width: min(var(--chat-col), 100cqi - 2 * var(--chat-gutter)); min-height: 20px; margin: 0 auto 8px; padding: 0; color: var(--dim); font-size: var(--fs-12); }
 .turn-activity-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .turn-activity-elapsed { flex: none; font-family: var(--mono); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 #turn-activity:is([data-phase="waiting"], [data-phase="thinking"], [data-phase="generating"], [data-phase="tool"], [data-phase="working"]) .turn-activity-label,
@@ -3064,7 +3140,9 @@ html[data-kz-activity="running"] .reasoning-head.is-live {
   animation: kz-shimmer var(--motion-loop-slow) linear infinite;
 }
 .voice-mode #turn-activity { display: none; }
-@media (max-width: 1024px) { #turn-activity { width: calc(100% - 24px); padding: 0 18px; } }
+/* 工具组头(UI2-0926 #12):组里有调用在跑时,标签前 9px 圆弧转圈,与工具行转圈同形。 */
+.tool-group-spin { display: none; flex: none; width: 9px; height: 9px; border: 1.5px solid var(--accent-text); border-right-color: transparent; border-radius: 50%; }
+.tool-group[data-running="1"] .tool-group-spin { display: inline-block; animation: kz-spin var(--motion-spin) linear infinite; }
 /* 主对话工具行:运行中 9px 圆弧转圈(字形透明占位,行不跳);被中断的灰掉。 */
 .tool-msg-status { display: inline-block; position: relative; text-align: center; }
 .tool-msg.running .tool-msg-status { color: transparent; }
@@ -3119,7 +3197,7 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 @media (prefers-reduced-motion: reduce) {
   .kz-dot:is([data-state="running"], [data-state="waiting"], [data-state="pending"], [data-state="stopping"], [data-state="attention"]),
   .kz-glyph:is([data-state="running"], [data-state="waiting"], [data-state="pending"], [data-state="stopping"], [data-state="attention"]),
-  .tool-msg.running .tool-msg-status::before, .line-running-state.running::before,
+  .tool-msg.running .tool-msg-status::before, .tool-group[data-running="1"] .tool-group-spin, .line-running-state.running::before,
   .rail-toggle[data-running="true"]:not(.active)::after, button[aria-busy="true"]::after {
     animation: kz-breathe var(--motion-loop-slow) var(--ease-in-out) infinite !important;
   }
@@ -3135,7 +3213,7 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
    字形动效全部来自 .kz-glyph 原语(动效分区),本分区不写 keyframes、不写无限动画;强调色只给「运行中」的
    组边框、rail 徽标与定位闪烁,悬停/焦点一律中性。 */
 .sa-group {
-  display: flex; flex-direction: column; min-width: 0; margin: var(--sp-1) 0;
+  display: flex; flex-direction: column; min-width: 0; margin: 0;
   border: 1px solid var(--border-soft); border-radius: var(--radius);
   background: color-mix(in srgb, var(--panel) 60%, transparent);
 }

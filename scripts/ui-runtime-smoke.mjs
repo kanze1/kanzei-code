@@ -339,6 +339,67 @@ if (SMOKE_MUTATE) {
       pattern: /const taskCall = entry \? null : orphanTaskCall\(message, part\.call_id\);/,
       replace: "const taskCall = null;",
     },
+    // ── 分区:对话单列与输入区 ──
+    // UI2-0926 #12 工具组:实时入口退回逐行追加,连续调用不再成组。
+    toolGroupLive: {
+      pattern: /mountToolBlock\(block\);(\r?\n\s*chatToolBlocks\.set\(id, block\);)/,
+      replace: "appendToPane(block.wrap);$1",
+    },
+    // 历史回放入口退回逐行追加:实时与历史不再同构。
+    toolGroupHistory: {
+      pattern: /(block\.wrap\.dataset\.toolCallId = part\.id;\r?\n\s*)mountToolBlock\(block\);/,
+      replace: "$1appendToPane(block.wrap);",
+    },
+    // 思考块不再并入工具组:Codex 每步先给思考摘要,几乎每次调用各成一组。
+    toolGroupReasoning: {
+      pattern: /while \(tail\?\.classList\?\.contains\("reasoning"\)\)[^\n]*\n/,
+      replace: "",
+    },
+    // 收尾不同步组:组头停在运行中,失败数不出现。
+    toolGroupSync: {
+      pattern: /(block\.input = null;\r?\n)\s*syncToolGroupOf\(block\);/,
+      replace: "$1",
+    },
+    // 裁剪按子节点计数:鞭挞长跑几百次调用只有十几个组,永远裁不掉。
+    paneUnits: {
+      pattern: /const unitsOf = [^\n]*\n/,
+      replace: "const unitsOf = () => 1;\n",
+    },
+    // 复制上下文漏掉工具组分支:整段工具轨迹静默丢失。
+    ctxToolGroup: {
+      pattern: /\} else if \(el\.classList\.contains\("tool-group"\)\) \{/,
+      replace: "} else if (false) {",
+    },
+    // 搜索命中折叠组里的行时不展开:scrollIntoView 对 display:none 无效,看起来「搜到了但没跳」。
+    searchExpandGroup: {
+      pattern: /if \(group && group\.dataset\.expanded !== "1"[^\n]*\n/,
+      replace: "",
+    },
+    // notice 又挂复制按钮(系统提示不该有复制)。
+    noticeNoActions: {
+      pattern: /if \(!String\(cls\)\.split\(\/\\s\+\/\)\.includes\("notice"\)\) \{/,
+      replace: "if (true) {",
+    },
+    // 本轮结束丢 turn-end 类(列左缘小字的样式钩子)。
+    turnEndClass: {
+      pattern: /"notice turn-end",/,
+      replace: '"notice",',
+    },
+    // 窗口边界不合并工具组:同一段工具活动在「载入更早的消息」后被切成两组。
+    earlierMerge: {
+      pattern: /if \(between\.every\(\(el\) => el\.classList\?\.contains\("earlier-hint"\)\)\) mergeAdjacentToolGroups\(lastNew, oldFirst\);/,
+      replace: "",
+    },
+    // 已有的「载入更早的消息」不挪回顶部:两窗以上时夹在中间。
+    earlierHintTop: {
+      pattern: /[ \t]*activePane\.prepend\(existing\);\r?\n/,
+      replace: "",
+    },
+    // 切语言不重算工具组标签:英文界面里组头还是中文。
+    toolGroupI18n: {
+      pattern: /[ \t]*toolGroupRelocalize\(\);\r?\n/,
+      replace: "",
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -4295,7 +4356,8 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
   h2Head.click();
   assert(h2Detail.classList.contains("hidden") && h2Head.getAttribute("aria-expanded") === "false", "再次点击工具行未收起详情");
   assert(!style.includes(".turn-divider"), "样式表仍残留无创建点的 .turn-divider");
-  assert(/\.msg\.tool-msg\s*\{[^}]*margin:\s*-4px\s+0/.test(style), "工具行间距未收紧");
+  // UI2-0926 #12:轨迹压紧改由列内节奏承担——相邻工具组/思考 6px(轮内),轮间 36px(下一条)。
+  assert(/#messages > \.msg-pane > :is\(\.tool-group, \.msg\.reasoning\) \+ :is\(\.tool-group, \.msg\.reasoning\)\s*\{[^}]*margin-top:\s*6px/.test(style), "工具行间距未收紧");
   assert(/\.msg\.user:not\(:first-child\)\s*\{[^}]*margin-top:\s*36px/.test(style), "轮间留白未显著拉开");
   const chatRenderer = esmModuleCache.get("05-chat-render.js")?.namespace;
   const activityRenderer = esmModuleCache.get("06-activity.js")?.namespace;
@@ -12541,6 +12603,198 @@ const docsB = {
 
   sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
   vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
+  await flush();
+}
+
+// ── 分区:对话单列与输入区 ──
+// UI2-0926 #12(docs/design/chat_presentation_contract.md §4.4):连续工具调用合成一行工具组(实时/历史同一入口
+// mountToolBlock、思考并入、正文/子代理断组、失败常驻、运行中组头、上限 30、停止收尾、裁剪按行计权、复制上下文与
+// 搜索展开、窗口边界合并、切语言重算)、notice 不挂复制、本轮结束 turn-end 模板。
+// 变异守卫:toolGroupLive / toolGroupHistory / toolGroupReasoning / toolGroupSync / paneUnits /
+// ctxToolGroup / searchExpandGroup / noticeNoActions / turnEndClass / earlierMerge / earlierHintTop / toolGroupI18n。
+{
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  assert(chatNs && typeof chatNs.mountToolBlock === "function" && typeof chatNs.toolGroupSummary === "function", "05-chat-render.js 未导出工具组入口 mountToolBlock/toolGroupSummary");
+  const toolStart = handlers.get("kz:tool-start");
+  const toolEnd = handlers.get("kz:tool-end");
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+  const SID = sandbox.activeSessionId;
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: SID } });
+  await flush();
+  chatNs.setFollowLatest(true);
+  let paneSeq = 0;
+  // 每个用例一块挂在 #messages 下的临时 pane(切语言重算按 #messages 找组;不污染真实会话 pane)。
+  const withPane = async (fn) => {
+    paneSeq += 1;
+    vm.runInContext(`globalThis.__colSave = activePane; activePane = document.createElement("div"); activePane.className = "msg-pane"; activePane.dataset.colCase = "${paneSeq}";`, sandbox);
+    const pane = sandbox.activePane;
+    byId.get("messages").appendChild(pane);
+    try {
+      await fn(pane);
+    } finally {
+      pane.remove();
+      vm.runInContext("activePane = globalThis.__colSave; delete globalThis.__colSave;", sandbox);
+    }
+  };
+  const top = (pane) => pane.children.filter((el) => !el.classList.contains("earlier-hint") && !el.classList.contains("pane-trimmed-hint"));
+  const kind = (el) => (el.classList.contains("tool-group") ? "group" : el.classList.contains("sa-group") ? "sa" : el.classList.contains("user") ? "user" : el.classList.contains("assistant") ? "assistant" : el.classList.contains("notice") ? "notice" : el.className);
+  const labelOf = (group) => group?.querySelector(".tool-group-label")?.textContent ?? "";
+  const failOf = (group) => group?.querySelector(".tool-group-fail");
+  let seq = 0;
+  const live = async (name, input, end) => {
+    seq += 1;
+    const id = `col-${seq}`;
+    toolStart({ payload: { sessionId: SID, id, name, summary: "", input } });
+    if (end) toolEnd({ payload: { sessionId: SID, id, name, ok: end.ok !== false, outcome: end.ok === false ? "failed" : "success", preview: end.content, content: end.content, contentBytes: end.content.length, contentTruncated: false, durationMs: 20 } });
+    await flush();
+    return id;
+  };
+  const READ = ["read", { path: "src/a.rs" }, { content: "     1\tfn a() {}\n     2\t" }];
+  const GLOB = ["glob", { pattern: "src/**/*.rs" }, { content: "src/a.rs\nsrc/b.rs" }];
+  const BASH_FAIL = ["bash", { command: "cargo test" }, { ok: false, content: "exit code: 101\nerror[E0425]: cannot find value" }];
+  const sig = (pane) => top(pane).map((el) => kind(el) === "group"
+    ? ["group", el.dataset.count, labelOf(el), failOf(el)?.textContent ?? "", [...el.querySelectorAll(".tool-msg")].map((row) => [row.querySelector(".tool-msg-name")?.textContent, row.querySelector(".tool-msg-result")?.textContent])]
+    : [kind(el)]);
+
+  // ① 实时:read → 思考(多行,可见)→ glob → bash(失败)合成一组;思考在组内;失败常驻、默认折叠。
+  let liveSig = null;
+  await withPane(async (pane) => {
+    await live(...READ);
+    handlers.get("kz:reasoning")({ payload: { sessionId: SID, text: "先看测试怎么挂的\n再决定改哪" } });
+    await flush();
+    await live(...GLOB);
+    await live(...BASH_FAIL);
+    const groups = top(pane).filter((el) => el.classList.contains("tool-group"));
+    assert(top(pane).length === 1 && groups.length === 1, `连续工具调用没有合成一个工具组:顶层 ${top(pane).map(kind).join(",")}`);
+    const group = groups[0];
+    assert(group?.dataset.count === "3", `工具组计数应为 3,实为 ${group?.dataset.count}`);
+    assert(group?.querySelector(".tool-group-body .reasoning"), "夹在两次调用之间的思考块没有并入工具组");
+    const label = labelOf(group);
+    assert(["读取 1 个文件", "搜索 1 次", "运行 1 条命令"].every((word) => label.includes(word)), `工具组标签不对:${label}`);
+    assert(failOf(group)?.textContent === "· 1 失败" && !failOf(group).classList.contains("hidden"), `工具组失败数不对:${failOf(group)?.textContent}`);
+    assert(group?.querySelector(".tool-group-head")?.getAttribute("aria-expanded") === "false" && group.dataset.expanded !== "1", "工具组应默认折叠");
+    assert(!group.dataset.running, "全部收尾后工具组仍标着运行中");
+    group.querySelector(".tool-group-head").click();
+    assert(group.dataset.expanded === "1" && group.querySelector(".tool-group-head").getAttribute("aria-expanded") === "true", "点组头没有展开工具组");
+    group.querySelector(".tool-group-head").click();
+    assert(group.dataset.expanded !== "1", "再点组头没有收起工具组");
+    liveSig = sig(pane);
+    // ② 断组:正文与子代理卡把组断开(组不再是 pane 末尾)。
+    handlers.get("kz:text")({ payload: { sessionId: SID, text: "测试挂在 registry。" } });
+    await flush();
+    await live(...READ);
+    toolStart({ payload: { sessionId: SID, id: "col-task-1", name: "task", summary: "复核", input: { description: "复核", prompt: "复核改动" } } });
+    await flush();
+    await live(...GLOB);
+    assert(top(pane).map(kind).join(",") === "group,assistant,group,sa,group", `正文/子代理卡没有断开工具组:${top(pane).map(kind).join(",")}`);
+    // ③ 复制上下文:组逐项导出(工具名、⎿ 摘要、组内思考),折叠态也不丢。
+    copiedResearchCitation = "";
+    byId.get("copy-context").click();
+    await flush();
+    assert(["read", "glob", "bash", "⎿", "> 先看测试怎么挂的"].every((part) => copiedResearchCitation.includes(part)), `复制上下文丢了工具组里的行或思考:${copiedResearchCitation.slice(0, 200)}`);
+    // ④ 搜索:命中只在折叠组的某一行时先展开那一组。
+    const firstGroup = top(pane)[0];
+    byId.get("chat-search-input").value = "cargo test";
+    vm.runInContext("searchIndex = 0; updateSearch()", sandbox);
+    const hit = firstGroup.querySelectorAll(".tool-msg").find((row) => row.classList.contains("search-current"));
+    assert(hit && firstGroup.dataset.expanded === "1", "搜索命中折叠工具组里的行时没有先展开该组");
+    byId.get("chat-search-input").value = "";
+    vm.runInContext("updateSearch()", sandbox);
+    chatNs.setFollowLatest(true);
+    // ⑤ 切语言:组标签在渲染点重算。
+    sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+    await flush();
+    assert(labelOf(firstGroup) === "Read 1 file · Searched once · Ran 1 command" && failOf(firstGroup)?.textContent === "· 1 failed", `切到英文后工具组标签未重算:${labelOf(firstGroup)} ${failOf(firstGroup)?.textContent}`);
+    sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+    await flush();
+  });
+
+  // ⑥ 实时与历史同构:同一序列经 renderMessagesInto 渲染,逐组签名(计数/标签/失败数/每行工具名与 ⎿)相等。
+  await withPane(async (pane) => {
+    const call = (id, [name, input]) => ({ type: "tool_call", id, name, input });
+    const result = (id, [, , end]) => ({ type: "tool_result", call_id: id, is_error: end.ok === false, content: end.content });
+    const items = [{ role: "assistant", parts: [
+      call("h1", READ), result("h1", READ),
+      { type: "reasoning", text: "先看测试怎么挂的\n再决定改哪" },
+      call("h2", GLOB), result("h2", GLOB),
+      call("h3", BASH_FAIL), result("h3", BASH_FAIL),
+    ] }];
+    viewsNs.renderMessagesInto(pane, items);
+    await flush();
+    assert(JSON.stringify(sig(pane)) === JSON.stringify(liveSig), `实时与历史回放的工具组不一致:\n实时 ${JSON.stringify(liveSig)}\n历史 ${JSON.stringify(sig(pane))}`);
+  });
+
+  // ⑦ 运行中组头:当前调用 + 已完成数;多个在跑时计数;30 行封顶另起一组;停止收尾标中断。
+  await withPane(async (pane) => {
+    for (let i = 0; i < 3; i += 1) await live(...READ);
+    await live("bash", { command: "node scripts/x.mjs" }, null);
+    const group = top(pane)[0];
+    assert(group?.dataset.running === "1", "有调用在跑时工具组没有标运行中");
+    assert(labelOf(group) === "bash node scripts/x.mjs · 已完成 3", `运行中组头应显示当前调用与已完成数,实为「${labelOf(group)}」`);
+    await live("bash", { command: "node scripts/y.mjs" }, null);
+    assert(labelOf(group) === "2 个工具运行中 · 已完成 3", `两个调用在跑时组头应计数,实为「${labelOf(group)}」`);
+    for (let i = 0; i < 25; i += 1) await live(...READ);
+    await live("bash", { command: "node scripts/z.mjs" }, null);
+    const groups = top(pane);
+    assert(groups.length === 2 && groups[0].dataset.count === "30" && groups[1].dataset.count === "1", `工具组应 30 行封顶另起一组:${groups.map((g) => g.dataset.count).join("+")}`);
+    chatNs.chatAbortRunning(pane);
+    assert(!groups[0].dataset.running && !groups[1].dataset.running, "停止收尾后工具组仍标着运行中");
+    assert(labelOf(groups[0]).includes("2 中断") && labelOf(groups[1]).includes("1 中断"), `停止收尾后组标签缺「N 中断」:${labelOf(groups[0])} / ${labelOf(groups[1])}`);
+  });
+
+  // ⑧ 裁剪按行计权:700 次调用(没有正文)也必须裁,裁剪计数按行,说明条只有一条。
+  await withPane(async (pane) => {
+    for (let i = 0; i < 700; i += 1) {
+      chatNs.chatToolStart(`trim-${i}`, "read", "", { path: `src/f${i % 7}.rs` });
+      chatNs.chatToolEnd(`trim-${i}`, true, "ok", null, "success", { content: "     1\tx", contentBytes: 8 });
+    }
+    const rows = top(pane).reduce((sum, el) => sum + Number(el.dataset.count || 0), 0);
+    assert(rows <= 601 && rows >= 400, `工具组裁剪没有按行计权:剩 ${rows} 行(应在 400~601)`);
+    assert(Number(pane.dataset.droppedLive || 0) > 0 && pane.querySelectorAll(".pane-trimmed-hint").length === 1, `工具组长跑没有裁剪或说明条不唯一(dropped=${pane.dataset.droppedLive})`);
+  });
+
+  // ⑨ 窗口化历史:窗口边界切开的同一段工具活动在补齐后合并成一组;「载入更早的消息」回到顶部。
+  {
+    const savedHistory = viewsNs.paneHistory.get(SID || "");
+    await withPane(async (pane) => {
+      const W = viewsNs.PANE_WINDOW_SIZE;
+      const total = 2 * W + 10;
+      const boundary = total - W; // 首屏渲染 items[boundary..],第一次补齐渲染 items[boundary-W..boundary)
+      const items = Array.from({ length: total }, (_, i) => (i >= boundary - 3 && i < boundary + 3)
+        ? { role: "assistant", parts: [{ type: "tool_call", id: `w${i}`, name: "read", input: { path: `src/w${i}.rs` } }, { type: "tool_result", call_id: `w${i}`, content: "     1\tx" }] }
+        : { role: i % 2 ? "user" : "assistant", parts: [{ type: "text", text: `m${i}` }] });
+      viewsNs.renderRecoveredMessages(items);
+      await flush();
+      const firstGroup = top(pane)[0];
+      assert(firstGroup?.classList.contains("tool-group") && firstGroup.dataset.count === "3", `窗口化首屏应以边界后的 3 行工具组开头:${kind(firstGroup ?? { classList: { contains: () => false } })}`);
+      vm.runInContext("loadEarlierMessages()", sandbox);
+      await flush();
+      const merged = [...pane.querySelectorAll(".tool-group")].find((group) => group.querySelectorAll(".tool-msg").some((row) => row.dataset.toolCallId === `w${boundary - 1}`));
+      assert(merged && merged.dataset.count === "6" && merged.querySelectorAll(".tool-msg").some((row) => row.dataset.toolCallId === `w${boundary}`), `窗口边界两侧的工具组没有合并:count=${merged?.dataset.count}`);
+      assert(pane.children[0]?.classList.contains("earlier-hint"), `补齐后「载入更早的消息」没有回到顶部:${pane.children[0]?.className}`);
+    });
+    if (savedHistory) viewsNs.paneHistory.set(SID || "", savedHistory);
+    else viewsNs.paneHistory.delete(SID || "");
+  }
+
+  // ⑪ notice 不挂复制;消息的复制按钮是图标 + 读屏名;本轮结束 = notice turn-end + 模板文案。
+  await withPane(async (pane) => {
+    const notice = chatNs.addMessage("notice", "x");
+    const reply = chatNs.addMessage("assistant md", "y");
+    assert(!notice.querySelector(".msg-actions"), "notice 不应挂复制按钮");
+    const copy = reply.querySelector(".msg-actions .copy-btn");
+    assert(copy && copy.querySelector(".sr-only")?.dataset.i18nKey === "复制" && copy.dataset.i18nTitle === "复制消息" && !copy.dataset.i18nKey, "复制按钮应是图标 + sr-only 读屏名(i18n key 挂在 span 上,切语言不冲掉图标)");
+    handlers.get("kz:done")({ payload: { sessionId: SID, steps: 2, halted: false, history: 5, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
+    await flush();
+    const turnEnd = pane.querySelectorAll(".msg.notice").find((el) => el.classList.contains("turn-end"));
+    assert(turnEnd && turnEnd.textContent.includes("本轮结束 · 2 步 · 会话 5 条"), `本轮结束 notice 缺 turn-end 类或模板文案:${turnEnd?.textContent ?? "(无)"}`);
+  });
+
+  sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
+  vm.runInContext(`transitionSession(${JSON.stringify(SID)}, "idle")`, sandbox);
+  chatNs.setFollowLatest(true);
   await flush();
 }
 

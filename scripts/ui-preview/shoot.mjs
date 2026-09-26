@@ -3,7 +3,8 @@
 //
 // 用法:
 //   node scripts/ui-preview/shoot.mjs [--out <dir>] [--scenes chat,settings] [--themes dark,light]
-//                                     [--dialogs ask,confirm] [--width 1440] [--height 900] [--json]
+//                                     [--dialogs ask,confirm] [--width 1440] [--height 900] [--dpr 1.5] [--json]
+// --dpr 是设备像素比(用户机器 1280@1.5、1600@1.25、2000@1 这类缩放档);非 1 时文件名追加 @<dpr>。
 // 默认输出 output/ui-preview/<scene>-<theme>.png;overlays 的非默认弹窗另存 overlays-<dialog>-<theme>.png。
 // 任一页面出现 console.error / 未捕获异常 / 静态资源 4xx-5xx 即退出码 1。
 // 服务在脚本内以随机端口启动,结束时关闭(不影响手动开着的 5178)。
@@ -29,6 +30,8 @@ const themes = list(opt("--themes", "dark,light"));
 const dialogs = list(opt("--dialogs", "ask,question,confirm,input,viewer,palette"));
 const width = Number(opt("--width", "1440"));
 const height = Number(opt("--height", "900"));
+const dpr = Number(opt("--dpr", "1")) || 1;
+const dprTag = dpr === 1 ? "" : `@${dpr}`;
 const wantJson = args.includes("--json");
 
 const shots = [];
@@ -36,10 +39,10 @@ for (const scene of scenes) {
   for (const theme of themes) {
     if (scene === "overlays") {
       for (const dialog of dialogs) {
-        shots.push({ scene, theme, dialog, file: dialog === "ask" ? `overlays-${theme}.png` : `overlays-${dialog}-${theme}.png` });
+        shots.push({ scene, theme, dialog, file: dialog === "ask" ? `overlays-${theme}${dprTag}.png` : `overlays-${dialog}-${theme}${dprTag}.png` });
       }
     } else {
-      shots.push({ scene, theme, file: `${scene}-${theme}.png` });
+      shots.push({ scene, theme, file: `${scene}-${theme}${dprTag}.png` });
     }
   }
 }
@@ -50,7 +53,7 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 const results = [];
 try {
   for (const shot of shots) {
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, colorScheme: shot.theme });
+    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, colorScheme: shot.theme });
     const page = await context.newPage();
     const errors = [];
     const infos = [];

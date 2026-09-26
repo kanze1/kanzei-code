@@ -659,11 +659,19 @@ export function trimLivePane(pane) {
   // 裁剪等于把还没 prepend 进页面的消息直接删掉,而调用方随后只搬 childNodes,
   // 被删的那批再也回不来。没挂进文档的容器一律不裁。
   if (pane.isConnected === false) return;
-  if (pane.children.length <= PANE_LIVE_MAX) return;
+  // UI2-0926 #12:连续工具调用合成一个 .tool-group 顶层节点(最多 30 行),按子节点数已不代表行数——
+  // 鞭挞长跑几百次调用、没有正文时只有十几个子节点,永远裁不掉。按「单位」计权:工具组按行数计,
+  // 其余节点各计 1;阈值、裁剪循环与 droppedLive 都用单位。
+  const unitsOf = (el) => el?.classList?.contains("tool-group") ? Math.max(1, Number(el.dataset?.count) || 1) : 1;
+  // 快路:子节点全是满组也超不过上限时不必逐个数。
+  if (pane.children.length * 30 <= PANE_LIVE_MAX) return;
+  let units = 0;
+  for (const el of pane.children) units += unitsOf(el);
+  if (units <= PANE_LIVE_MAX) return;
   // 看得见的那个 pane 才有「阅读位置」可言;后台 pane 随便裁。
   const visible = pane === activePane;
   const reading = visible && typeof followLatest !== "undefined" && !followLatest;
-  if (reading && pane.children.length <= PANE_LIVE_HARD_MAX) return;
+  if (reading && units <= PANE_LIVE_HARD_MAX) return;
   // 从**头部**删节点会把视口下的内容整体前移。浏览器的 scroll anchoring 只在锚点
   // 节点自己没被删时才兜得住,而「翻上去读刚才那段」恰好落在删除区里:实测 scrollTop
   // 数值一动不动,画面却无声跳过 200 条,正在读的那条已从 DOM 消失。
@@ -680,7 +688,7 @@ export function trimLivePane(pane) {
     el?.classList?.contains("earlier-hint") || el?.classList?.contains("pane-trimmed-hint");
   // 只用 children 索引寻址:firstElementChild/nextElementSibling 在冒烟的假 DOM 里
   // 不存在,用它们这段逻辑在测试里会静默变成空操作(改了但没人验)。
-  while (pane.children.length > PANE_LIVE_KEEP) {
+  while (units > PANE_LIVE_KEEP) {
     // 两条顶部提示条自己不算消息,跳过它们再取受害者(否则每次裁剪都把提示删掉再建一个,
     // 或者把「载入更早的消息」那个真入口误删)。它们只会被 prepend,所以至多在最前两位。
     const kids = pane.children;
@@ -688,8 +696,10 @@ export function trimLivePane(pane) {
     while (index < kids.length && index < 3 && isHint(kids[index])) index += 1;
     const victim = kids[index];
     if (!victim) break;
+    const weight = unitsOf(victim);
     victim.remove();
-    dropped += 1;
+    units -= weight;
+    dropped += weight;
   }
   pane.dataset.droppedLive = String(dropped);
   // 回补只在**用户正在读历史**时才是对的语义(硬顶强裁那一支)。跟随态下用户要的

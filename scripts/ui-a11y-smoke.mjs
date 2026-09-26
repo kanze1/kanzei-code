@@ -881,4 +881,65 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
   assert.equal(bareBolts, 0, `index.html 里有 ${bareBolts} 处不带 U+FE0E 的 ⚡:彩色 emoji 不受 CSS color 控制,写成 ⚡&#xFE0E;`);
 }
 
+// ── 分区:对话单列与输入区 ──
+// UI2-0926 #12(docs/design/chat_presentation_contract.md §4.4):对话区只有一条列宽真源。消息 pane、运行活动行、
+// 输入区三处宽度必须是同一个表达式;#messages 左右对称(不得再给 OC 立绘留右沟,旧版 222px 让整列左移 100px);
+// 工具组折叠态失败行常驻、单行组不显示组头;组头转圈守 #7 动效纪律。判据自带反例自测(每条喂一条必须命中的样本)。
+{
+  const COLUMN_EXPR = "min(var(--chat-col), 100cqi - 2 * var(--chat-gutter))";
+  const cssText = css.replace(/\r\n/g, "\n");
+  const strip = (text) => text.replace(/\/\*[\s\S]*?\*\//g, "");
+  const bodiesOf = (text, selector) => {
+    const out = [];
+    for (const match of strip(text).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selectors = match[1].split(/,(?![^(]*\))/).map((part) => part.trim().replace(/\s+/g, " "));
+      if (selectors.includes(selector)) out.push(match[2].replace(/\s+/g, " "));
+    }
+    return out;
+  };
+  const columnViolations = (text) => {
+    const out = [];
+    const clean = strip(text);
+    if (/padding-right:\s*222px/.test(clean)) out.push("#messages 仍给 OC 立绘预留 222px 右沟(OC 关着也整列左移)");
+    const view = bodiesOf(text, "#view-chat").join(";");
+    if (!/--chat-col:\s*768px/.test(view) || !/--chat-gutter:\s*\d+px/.test(view) || !/container-type:\s*inline-size/.test(view)) {
+      out.push("#view-chat 必须定义 --chat-col / --chat-gutter 并是 inline-size 容器(列宽唯一真源)");
+    }
+    for (const selector of ["#messages > .msg-pane", "#turn-activity", "#composer"]) {
+      const bodies = bodiesOf(text, selector);
+      if (!bodies.some((body) => body.includes(`width: ${COLUMN_EXPR}`))) out.push(`${selector} 的宽度不是列宽表达式 ${COLUMN_EXPR}`);
+      if (bodies.some((body) => /max-width:\s*1080px/.test(body))) out.push(`${selector} 仍自带 1080px 上限(第二个列宽真源)`);
+    }
+    const messages = bodiesOf(text, "#messages").join(";");
+    if (!/scrollbar-gutter:\s*stable both-edges/.test(messages)) out.push("#messages 缺 scrollbar-gutter: stable both-edges(滚动条让 pane 比输入区偏 4px)");
+    if (!/padding:\s*\d+px 0 \d+px/.test(messages)) out.push("#messages 左右内边距必须为 0(列宽由 pane 自己决定)");
+    if (!bodiesOf(text, '.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err)').some((body) => /display:\s*flex/.test(body))) {
+      out.push("工具组折叠态失败行不再常驻可见(契约 §4.1「错了不该藏起来」)");
+    }
+    if (!bodiesOf(text, '.tool-group[data-count="1"] > .tool-group-head').some((body) => /display:\s*none/.test(body))) out.push("单行工具组仍显示组头(1 次调用就是那一行)");
+    const motion = clean.slice(clean.indexOf("#turn-activity {"));
+    if (!/\.tool-group\[data-running="1"\] \.tool-group-spin\s*\{[^}]*animation:\s*kz-spin var\(--motion-spin\)/.test(motion)) out.push("工具组运行中转圈缺失、没走 --motion-spin 或不在动效分区");
+    if (!/prefers-reduced-motion[\s\S]*\.tool-group\[data-running="1"\] \.tool-group-spin[^{]*\{[^}]*kz-breathe/.test(clean)) out.push("减少动效时工具组转圈没有退化为慢呼吸");
+    return out;
+  };
+  const found = columnViolations(cssText);
+  assert.deepEqual(found, [], `对话单列静态门禁未通过:\n - ${found.join("\n - ")}`);
+  const swap = (from, to) => {
+    assert.ok(cssText.includes(from), `对话单列自测:样式表里找不到 ${from}`);
+    return cssText.replace(from, to);
+  };
+  const counterexamples = [
+    ["222px", `${cssText}\n#messages:not(:has(.empty-state)) { padding-right: 222px; }`],
+    ["列宽真源", swap("--chat-col: 768px;", "--chat-width: 768px;")],
+    ["pane 宽度", swap(`width: ${COLUMN_EXPR}; margin: 0 auto;\n}`, "width: 100%; max-width: 1080px; margin: 0 auto;\n}")],
+    ["活动行宽度", swap(`gap: 8px; width: ${COLUMN_EXPR};`, "gap: 8px; width: calc(100% - 48px); max-width: 1080px;")],
+    ["滚动条对称", swap("scrollbar-gutter: stable both-edges;", "")],
+    ["失败常驻", swap('.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err) { display: flex; }', "")],
+    ["单行组头", swap('.tool-group[data-count="1"] > .tool-group-head { display: none; }', "")],
+    ["组转圈", swap('.tool-group[data-running="1"] .tool-group-spin { display: inline-block; animation: kz-spin var(--motion-spin) linear infinite; }', '.tool-group[data-running="1"] .tool-group-spin { display: inline-block; }')],
+  ];
+  const silent = counterexamples.filter(([, text]) => columnViolations(text).length === 0).map(([label]) => label);
+  assert.deepEqual(silent, [], `对话单列判据没能命中自己的反例(恒绿):${silent.join(", ")}`);
+}
+
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);
