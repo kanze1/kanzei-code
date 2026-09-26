@@ -3,6 +3,11 @@ name = "kanzei-memory"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "记忆与文档存储"
+
+[package.metadata.kanzei]
+# 架构图 crate 依赖图的分组(docs/design/architecture_diagrams.md)
+group = "能力"
 
 [dependencies]
 async-trait.workspace = true

@@ -92,7 +92,7 @@ impl Component for DevProfile {
             "architecture",
             Arc::new(crate::architecture::ArchitectureTool),
         );
-        for read_only in ["get", "check", "regenerate"] {
+        for read_only in ["get", "check", "regenerate", "diagrams"] {
             draft
                 .permissions
                 .push(rule("architecture", read_only, Effect::Allow));

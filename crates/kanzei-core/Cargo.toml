@@ -3,6 +3,11 @@ name = "kanzei-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "会话主循环与事件"
+
+[package.metadata.kanzei]
+# 架构图 crate 依赖图的分组(docs/design/architecture_diagrams.md)
+group = "运行时"
 
 [dependencies]
 kanzei-llm.workspace = true

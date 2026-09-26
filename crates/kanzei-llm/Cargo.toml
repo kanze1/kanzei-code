@@ -3,6 +3,11 @@ name = "kanzei-llm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "多协议模型适配"
+
+[package.metadata.kanzei]
+# 架构图 crate 依赖图的分组(docs/design/architecture_diagrams.md)
+group = "运行时"
 
 [dependencies]
 kanzei-base.workspace = true

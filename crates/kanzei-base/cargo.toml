@@ -3,5 +3,10 @@ name = "kanzei-base"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "原子写与文件锁"
+
+[package.metadata.kanzei]
+# 架构图 crate 依赖图的分组(docs/design/architecture_diagrams.md)
+group = "基础"
 
 [dependencies]

@@ -1,5 +1,6 @@
 //! kanzei-tools: 内置工具 + 双模式 profile 组件。
 
+pub mod arch_diagram;
 pub mod architecture;
 pub mod memory_consolidation;
 /// 原子写原语下沉到 kanzei-llm(依赖图最底层,D-261):llm 的 auth/store 与

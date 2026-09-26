@@ -1,0 +1,26 @@
+flowchart LR
+  %% 由 Cargo 清单生成(不落盘):实线 = 直接依赖,虚线 = 可由传递得到的依赖;dev/build 依赖不画
+  subgraph grp_1["入口"]
+    fx_app["fx-app<br/>桌面应用"]:::entry
+  end
+  subgraph grp_2["未分组"]
+    fx_extra["fx-extra"]:::entry
+  end
+  subgraph grp_3["运行时"]
+    fx_core["fx-core<br/>运行时主循环"]
+  end
+  subgraph grp_4["基础"]
+    fx_util["fx-util<br/>工具函数集合,这一句描述故意写得很长很长很长很长很长很长很长很长很长很长以触发截…"]
+    fx_base["fx-base<br/>基础原语,含 #quot;引号#quot; 与 #96;反引号#96;"]
+  end
+  fx_app -.-> fx_base
+  fx_app --> fx_core
+  fx_app -.-> fx_util
+  fx_core -.-> fx_base
+  fx_core --> fx_util
+  fx_util --> fx_base
+  click fx_app "crates/app/src/main.rs" "fx-app · 桌面应用"
+  click fx_base "crates/base/src/lib.rs" "fx-base · 基础原语,含 '引号' 与 `反引号`"
+  click fx_core "crates/core/src/lib.rs" "fx-core · 运行时主循环"
+  click fx_util "crates/util/src/lib.rs" "fx-util · 工具函数集合,这一句描述故意写得很长很长很长很长很长很长很长很长很长很长以触发截断"
+  click fx_extra "extra/lib/extra.rs" "fx-extra"
