@@ -378,6 +378,94 @@ Object.assign(SCENES, {
   },
 });
 
+// ── 分区:工作目录管理 ──
+// UI2-0926 #13:新建项目对话框、非 Git 项目的事实横幅与「无 Git」芯片、上级仓库横幅、
+// 「模型在等你回答」(question 挂起 + Stop/AwaitingUser)与截图同款 bash 摘要(输出 N 行)。
+// 只走应用入口:setCommand 换后端事实、调导出的刷新函数、回放 kz:* 事件。
+const WORKDIR_ROOT = "C:\\Users\\kanzei\\Desktop\\MD文件保存";
+async function useWorkdirFacts(ctx, git, layout = "greenfield") {
+  const preview = window.__kzPreview;
+  preview.setCommand("project_facts", () => ({
+    root: WORKDIR_ROOT, layout, files: layout === "greenfield" ? 0 : 7, git, stacks: [],
+    planned: [{ stack: "flutter", from: "R-001" }],
+    toolchains: [{ name: "git", found: "C:\\Program Files\\Git\\cmd\\git.exe" }, { name: "flutter", found: null }, { name: "dart", found: null }],
+    installers: ["winget"],
+  }));
+  preview.setCommand("git_status", () => git.state === "repo"
+    ? { repo: "own", branch: git.branch ?? "main", changes: 0, last: null, additions: 0, deletions: 0, files: [] }
+    : { repo: git.state === "parent" ? "parent" : "none", toplevel: git.toplevel ?? null, branch: null, changes: 0, last: null, additions: 0, deletions: 0, files: [] });
+  const sessions = await import("/09-sessions.js");
+  const views = await import("/15-views-misc.js");
+  await sessions.refreshProjectFacts();
+  await views.refreshGit();
+  await ctx.settle();
+}
+/// 模型在等你回答:bash(截图同款表格 + 名称列表)→ 散文 → question 挂起 → Stop/AwaitingUser。
+async function replayAwaitingUser(ctx) {
+  const { emit, fixtures, sleep } = ctx;
+  const sessionId = fixtures.events.meta.sessionId;
+  const whip = $("#auto-continue");
+  if (whip && !whip.checked) whip.click();
+  emit("kz:meta", fixtures.events.meta);
+  emit("kz:turn", { sessionId, step: 1, maxSteps: 0 });
+  const bashOut = "exit code: 0\n\nCommandType     Name       Version    Source\n-----------     ----       -------    ------\nApplication     git.exe    2.47.0.0   C:\\Program Files\\Git\\cmd\\git.exe\n\nC:\\Users\\kanzei\\Desktop\\MD文件保存\n.kanzei\nkanzei.toml\nstate.db\nstate.db-shm\nstate.db-wal";
+  emit("kz:tool-start", { sessionId, id: "wd-bash", name: "bash", summary: "Get-Command flutter,dart,git", input: { command: "Get-Command flutter,dart,git -ErrorAction SilentlyContinue | Format-Table; Get-ChildItem -Force -Name" } });
+  emit("kz:tool-end", { sessionId, id: "wd-bash", name: "bash", ok: true, outcome: "success", preview: bashOut.slice(0, 80), content: bashOut, contentBytes: bashOut.length, contentTruncated: false, durationMs: 1200, display: { kind: "terminal", command: "Get-Command flutter,dart,git", exitCode: 0, output: bashOut.slice(14), full: bashOut.slice(14) } });
+  await sleep(30);
+  emit("kz:text", { sessionId, text: "这是一个空项目(只有 `.kanzei`),我会直接在这个目录里搭 Flutter 工程。本机 PATH 上没有 Flutter/Dart,需要先定下怎么装。" });
+  await sleep(30);
+  const pending = { kind: "pending_question", question: "本机没有 Flutter SDK,怎么处理?", options: [
+    { label: "授权我做用户级安装", note: "官方 zip 解压到 %LOCALAPPDATA%\\flutter,不需要管理员" },
+    { label: "我自己装好后告诉你" },
+    { label: "换技术栈" },
+  ] };
+  emit("kz:tool-start", { sessionId, id: "wd-q", name: "question", summary: "question", input: { question: pending.question } });
+  emit("kz:tool-end", { sessionId, id: "wd-q", name: "question", ok: false, outcome: "needs_confirmation", code: "QUESTION_PENDING", preview: "QUESTION_PENDING", content: JSON.stringify(pending), contentBytes: 200, contentTruncated: false, durationMs: 5, display: pending });
+  emit("kz:step", fixtures.events.step);
+  emit("kz:done", { sessionId, steps: 4, halted: false, history: 12, elapsedMs: 8200, input: 52000, output: 900, cacheRead: 40000, cacheWrite: 0, tools: { bash: 1, question: 1 }, autoAction: { type: "Stop", reason: "AwaitingUser" } });
+  emit("kz:idle", { sessionId, reason: "completed" });
+  await sleep(80);
+  await ctx.settle();
+}
+Object.assign(SCENES, {
+  /// 新建项目对话框(项目卡菜单「新建项目…」的真实入口)。
+  async "workdir-new"(ctx) {
+    await useWorkdirFacts(ctx, { state: "repo", branch: "main", has_commits: true }, "existing");
+    const sessions = await import("/09-sessions.js");
+    sessions.openNewProjectDialog();
+    await waitFor(() => !isHidden("#new-project-overlay"));
+    const set = (id, value) => {
+      const el = $(id);
+      if (!el) return;
+      el.value = value;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    set("#new-project-name", "MD文件保存");
+    set("#new-project-parent", "C:\\Users\\kanzei\\Desktop");
+    set("#new-project-desc", "手机上用的 Markdown 上下文库:阅读渲染清晰、顺手");
+    await ctx.sleep(80);
+    document.activeElement?.blur?.();
+  },
+  /// 非 Git 的空项目:侧栏事实横幅 [初始化 Git][不再提示] + 上下文带「无 Git」芯片 + 模型在等你回答。
+  async "workdir-nogit"(ctx) {
+    await useWorkdirFacts(ctx, { state: "none" });
+    await closeActivityPanel(ctx);
+    await replayAwaitingUser(ctx);
+    const chat = await import("/05-chat-render.js");
+    chat.scrollBottom(true);
+    await ctx.sleep(60);
+    document.activeElement?.blur?.();
+  },
+  /// 位于上级仓库内:横幅点名上级仓库(需要注意,琥珀)+ 芯片菜单。
+  async "workdir-parent"(ctx) {
+    await useWorkdirFacts(ctx, { state: "parent", toplevel: "C:\\Users\\kanzei" }, "existing");
+    await closeActivityPanel(ctx);
+    const views = await import("/15-views-misc.js");
+    views.openGitChipMenu();
+    await ctx.sleep(80);
+  },
+});
+
 export const SCENE_NAMES = Object.keys(SCENES);
 
 export async function runScene(name, ctx) {

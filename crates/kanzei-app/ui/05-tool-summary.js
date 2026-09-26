@@ -20,8 +20,10 @@ import {
   formatCount,
   formatDuration,
   isProse,
+  isSentence,
   lineDiffCounts,
   looksLikeNoise,
+  looksLikeTableOutput,
   looksLikeNumberedSource,
   mismatchFacts,
   parseJsonish,
@@ -396,9 +398,10 @@ function bashHighlight(s, bodyLines, failed) {
     const reason = proseLine(bodyLines, s.roots, { max: 80, test: /error|failed|panicked|exception|错误|失败/i })
       || bodyLines.map((line) => cleanInline(line, s.roots)).find((line) => line && !looksLikeNoise(line) && /error|failed|panicked|exception|错误|失败/i.test(line) && line.length <= 80);
     if (reason) return [reason];
-  } else {
+  } else if (!looksLikeTableOutput(bodyLines)) {
+    // UI2-0926 #13:成功兜底只收真正的句子;表格/名称列表/单个文件名一律「输出 N 行」。
     const last = proseLine(bodyLines, s.roots, { last: true, max: 80 });
-    if (last) return [last];
+    if (last && isSentence(last)) return [last];
   }
   const count = nonEmpty(bodyLines).length;
   return count ? [outputLines(count)] : [];

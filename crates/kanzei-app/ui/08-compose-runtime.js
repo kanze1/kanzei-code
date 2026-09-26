@@ -56,6 +56,8 @@ import {
   continuePrompt,
   currentAutoRounds,
   currentGoalText,
+  lineAgent,
+  markAwaitingUser,
   noActionRounds,
   releaseAutoContinue,
   renderAutoStatus,
@@ -71,6 +73,8 @@ import {
   setAutoStopReason,
   setNoActionRounds,
   syncAutoRunState,
+  takeAwaitingUser,
+  workPriorityKeyFor,
   workPriorityStorageKey,
 } from "./08-auto.js";
 import { state } from "./08-compose.js";
@@ -171,14 +175,18 @@ export async function sendAutoToSession(prompt, sessionId) {
     setRunning(true, t("准备中"));
   }
   try {
+    // UI2-0926 #13:① 按本线实际档位发(结伴线的续跑轮真按结伴档跑);② 项目根用 origin_project
+    // (主根身份,后端已给 simplify 形态,这里再防一道旧形态);③ 取活顺序键与写入键同一个函数。
+    const mode = lineAgent(item);
+    const projectDir = String(item.origin_project || item.project_dir || currentProject).replace(/^\\\\\?\\(?!UNC\\)/, "");
     await invoke("run_prompt", {
       prompt,
-      projectDir: item.project_dir,
-      profile: research ? "research" : "dev",
-      agent: research ? "research" : "dev",
+      projectDir,
+      profile: mode.profile,
+      agent: mode.agent,
       researchTopic: research ? item.research_topic : undefined,
       model: item.model || null,
-      workPriority: localStorage.getItem(`kz-work-priority:${item.origin_project}`) === "requirement-first" ? "requirement-first" : "defect-first",
+      workPriority: localStorage.getItem(workPriorityKeyFor(projectDir)) === "requirement-first" ? "requirement-first" : "defect-first",
       delivery: "queue",
       attachments: [],
       processId: item.id,
@@ -217,6 +225,8 @@ export function handleBackgroundSessionDone(payload) {
   } else if (action.type === "Stop") {
     transitionSession(sessionId, "idle");
     cancelAutoContinueTimer(sessionId);
+    // UI2-0926 #13:后台线的模型在等你回答——鞭挞保持开着,切过去回复后照常续跑。
+    if (action.reason === "AwaitingUser") markAwaitingUser(sessionId);
     // 引擎判定该线不能再续跑(全阻塞/清空/档位不符)时,后台线自己的鞭挞存档
     // 也要置关——否则切回该线时勾选框回显"开着",与引擎的实际停机对不上;
     // 本轮后停是一次性意图,同样要在所属线上落地取消,不能等用户切回来。
@@ -560,6 +570,12 @@ defer(() => {
 });
 export function stopAutoForManualInput() {
   if (!$('auto-continue').checked) return false;
+  // UI2-0926 #13:模型在等你回答时,手动发的这一条就是回答——鞭挞保持开着,回答那一轮结束后照常续跑。
+  if (takeAwaitingUser(activeSessionId)) {
+    setAutoStopReason("");
+    log(t("已回复模型的提问,鞭挞在这一轮结束后继续"));
+    return false;
+  }
   $('auto-continue').checked = false;
   rememberAutoUiState();
   setAutoRounds(activeSessionId, 0);
@@ -888,10 +904,11 @@ defer(() => {
 // R-115:这份映射必须落盘。早期只放在内存里,重启后它是空的,回退分支就把模式
 // 降级成结伴开发——哪怕 kz-profile 里明明存着自主推进(D-155)。
 export const PROCESS_PROFILE_KEY = "kz-process-profile";
+// UI2-0926 #13:进程 id 去掉了 `\\?\` 前缀(schema v25),本地存的旧键同样归一(`d|\\?\C:\x` → `d|C:\x`)。
 export const processProfileUi = new Map(
-  Object.entries(readJson(PROCESS_PROFILE_KEY, {})).filter(([, v]) =>
-    ["dev-pair", "dev-auto", "research"].includes(v),
-  ),
+  Object.entries(readJson(PROCESS_PROFILE_KEY, {}))
+    .filter(([, v]) => ["dev-pair", "dev-auto", "research"].includes(v))
+    .map(([k, v]) => [k.replace(/\|\\\\\?\\(?!UNC\\)/, "|"), v]),
 );
 export function persistProcessProfiles() {
   writeJson(PROCESS_PROFILE_KEY, Object.fromEntries(processProfileUi));

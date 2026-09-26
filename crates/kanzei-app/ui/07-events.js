@@ -85,6 +85,8 @@ import {
   clearGoalInput,
   continuePrompt,
   currentAutoRounds,
+  focusPendingQuestion,
+  markAwaitingUser,
   noActionRounds,
   setNoActionRounds,
   releaseAutoContinue,
@@ -742,6 +744,16 @@ defer(() => {
         addMessage("notice", `${t("目标推不动")}:${t("连续多轮无实质进展,目标已清除,请改写条件后重试")} (${action.max ?? ""})`);
         log(t("目标连续推不动,已停止并清除"));
         setAutoStopReason(t("目标推不动,已清除"));
+      } else if (reason === "AwaitingUser") {
+        // UI2-0926 #13:模型在等你回答(question 挂起,或最后一句明显在问你)。鞭挞保持勾选、不挂续跑;
+        // 你回复的那一条不会被当成「手动接管」关掉鞭挞,回答那一轮结束后引擎照常续跑。
+        markAwaitingUser(p.sessionId || activeSessionId);
+        const msg = t("模型在等你回答(回复后自动继续)");
+        // 输入区的停机原因槽只放短句(长句会把工具行挤成两行);完整说法进对话 notice。
+        setAutoStopReason(t("模型在等你回答"), "waiting");
+        addMessage("notice", `⏸ ${msg}`);
+        log(`${t("鞭挞暂停")}:${t("模型在等你回答")}`);
+        if (!p.sessionId || p.sessionId === activeSessionId) focusPendingQuestion();
       } else if (reason === "ModelDeclaredDone") {
         // R-322(#7):模型自己交还了控制权。措辞必须与其余原因区分——这不是引擎
         // 判定它该停,是它说做完了。写成「引擎停止了它」会让人误以为被打断。

@@ -3708,3 +3708,41 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 .tp-flash { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* rail 徽标:在跑 = 强调色(同 .rail-badge);没在跑但有未确认的失败 = 红(失败的语义色),--bg 字在两者上都 ≥ 4.5。 */
 #tasks-badge[data-tone="err"] { background: var(--err); }
+/* ===== 分区:工作目录管理 ===== */
+/* UI2-0926 #13(docs/design/project_workspace.md):项目事实横幅、上下文带的「无 Git」芯片、新建项目对话框。
+   只用语义 token:横幅默认中性(空项目 / 无 Git 是事实不是故障),位于上级仓库时是「需要注意」(琥珀,与 D-170 隔离告警同族);
+   芯片是中性 .kz-ctl(灰),不染色。 */
+.project-warn-slot:has(> .project-shared-warn.hidden):has(> .project-facts:not(.hidden)) { display: block; }
+.project-facts {
+  margin: 0; padding: 8px 10px; font-size: var(--fs-11); line-height: 1.5;
+  color: var(--fg); background: var(--panel2);
+  border: 1px solid var(--border-soft); border-radius: var(--r-md);
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+  word-break: break-word;
+}
+.project-facts.hidden { display: none; }
+.project-facts[data-kind="parent"] {
+  color: var(--alert); background: var(--alert-soft);
+  border-color: color-mix(in srgb, var(--alert) 28%, transparent);
+}
+.project-facts-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.project-facts-actions button { font-size: var(--fs-11); padding: 2px 8px; }
+.ctx-git { color: var(--dim); font-size: var(--fs-11-5); flex: none; }
+.ctx-git.hidden { display: none; }
+#new-project-dialog { display: flex; flex-direction: column; gap: 6px; }
+#new-project-dialog .np-field { margin-top: 6px; color: var(--fg-strong); font-size: var(--fs-12-5); }
+#new-project-dialog :is(input[type="text"], textarea) {
+  width: 100%; box-sizing: border-box; background: var(--input); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--r-md); padding: 7px 8px;
+  font-family: inherit; font-size: var(--fs-13);
+}
+#new-project-dialog textarea { resize: vertical; min-height: 48px; line-height: 1.5; }
+#new-project-dialog :is(input[type="text"], textarea):focus { outline: none; border-color: var(--focus-ring); }
+#new-project-dialog .np-row { display: flex; gap: 6px; align-items: center; }
+#new-project-dialog .np-row input { flex: 1 1 auto; min-width: 0; }
+#new-project-dialog .np-row button { flex: none; }
+.np-preview { color: var(--dim); font-size: var(--fs-11-5); font-family: var(--mono); word-break: break-all; min-height: 1.5em; }
+.np-check { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--fg-strong); cursor: pointer; }
+.np-hint { color: var(--dim); font-size: var(--fs-11-5); line-height: 1.5; }
+.np-error { color: var(--err); font-size: var(--fs-12); line-height: 1.5; word-break: break-word; }
+.np-error.hidden { display: none; }
