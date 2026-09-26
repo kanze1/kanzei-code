@@ -658,12 +658,15 @@ export function resolveBackdropModel(prefs, data) {
 // 输入都是相对画布的矩形 {x, y, w, h}。返回 {box, alpha, placement, avoid, capped}:
 //   box      模型映射到的目标框(按模型 aspect 取);
 //   avoid    正文所在的矩形(已外扩):渲染器把它们从绘制区里剪掉(evenodd),正文底下一个像素都不画;
-//   capped   星座框本身压在正文上(只剩右上角水印可放)——此时不剪,改由 layerAlpha 把每一层的
-//            不透明度夹到 textSafeLayerAlpha 算出的上限,保证正文压在最亮星点上仍 ≥ 4.5:1。
-// 规则:空态(welcome)画进 art 槽(OC 开时在人物身后、稍淡);槽不可见就放文案右侧空白;
-// 对话态(conversation)右沟槽够宽就放右沟槽,其次左沟槽;都不够才退右上角水印。
+//   capped   星座框本身压在正文上(只剩右上角水印可放)——此时不剪,渲染器把整张星座先画进离屏层,
+//            再以 watermarkAlpha 单一不透明度合成(见下方「水印」),正文压在任何像素上仍 ≥ 4.5:1。
+// 规则:空态(welcome)/ 语音(voice)画进 art 槽(OC 开时在人物身后、稍淡);槽不可见就放文案右侧空白;
+// 对话态(conversation)右沟槽够宽就放右沟槽,其次左沟槽;沟槽只够窄条(768 列两侧各约 120px,
+// 用户日常的 1333×695@1.5 就是这样)就画缩小版进窄沟;都不够才退右上角水印。
 export const GUTTER_MIN_W = 160;
 export const GUTTER_MIN_H = 160;
+export const GUTTER_NARROW_W = 56;
+export const GUTTER_NARROW_MARGIN = 16;
 export const BOX_MAX = 360;
 const inflate = (r, by) => ({ x: r.x - by, y: r.y - by, w: r.w + 2 * by, h: r.h + 2 * by });
 export function rectsIntersect(a, b) {
@@ -693,7 +696,7 @@ export function layoutBackdrop({ area, mode, slot = null, ocInSlot = false, copy
     const inset = { x: slot.x + slot.w * 0.06, y: slot.y + slot.h * 0.04, w: slot.w * 0.88, h: slot.h * 0.92 };
     return done(fit(inset, Math.min(inset.w, BOX_MAX * 1.3), Math.min(inset.h, BOX_MAX * 1.3)), 1, "slot");
   }
-  if (mode === "welcome" && copy) {
+  if ((mode === "welcome" || mode === "voice") && copy) {
     const x = copy.x + copy.w + 32;
     const side = { x, y: area.y + 24, w: area.x + area.w - 24 - x, h: area.h - 48 };
     if (side.w >= GUTTER_MIN_W && side.h >= GUTTER_MIN_H) return done(fit(side, Math.min(side.w, BOX_MAX), Math.min(side.h, BOX_MAX)), 0.9, "side");
@@ -701,12 +704,23 @@ export function layoutBackdrop({ area, mode, slot = null, ocInSlot = false, copy
   if (mode === "conversation" && column) {
     const top = area.y + 24;
     const upper = area.y + area.h * 0.62;
+    const rightTop = (reserve ? Math.min(upper, reserve.y - 24) : upper) - top;
     const rightX = column.x + column.w + 24;
-    const right = { x: rightX, y: top, w: area.x + area.w - 24 - rightX, h: (reserve ? Math.min(upper, reserve.y - 24) : upper) - top };
+    const right = { x: rightX, y: top, w: area.x + area.w - 24 - rightX, h: rightTop };
     const left = { x: area.x + 24, y: top, w: column.x - 24 - (area.x + 24), h: upper - top };
     for (const [gutter, placement] of [[right, "gutter"], [left, "gutter-left"]]) {
       if (gutter.w >= GUTTER_MIN_W && gutter.h >= GUTTER_MIN_H) {
         return done(fit(gutter, Math.min(gutter.w, BOX_MAX), Math.min(gutter.h, BOX_MAX)), 0.85, placement);
+      }
+    }
+    // 窄沟:边距收到 16,星座缩成一枚小徽记贴着列外侧;正文列照旧 evenodd 剪掉,不需要夹 alpha。
+    const m = GUTTER_NARROW_MARGIN;
+    const narrowRightX = column.x + column.w + m;
+    const narrowRight = { x: narrowRightX, y: top, w: area.x + area.w - m - narrowRightX, h: rightTop };
+    const narrowLeft = { x: area.x + m, y: top, w: column.x - m - (area.x + m), h: upper - top };
+    for (const [gutter, placement] of [[narrowRight, "gutter-narrow"], [narrowLeft, "gutter-narrow-left"]]) {
+      if (gutter.w >= GUTTER_NARROW_W && gutter.h >= GUTTER_NARROW_W * 1.5) {
+        return done(fit(gutter, gutter.w, Math.min(gutter.h, gutter.w * 2.2)), 0.85, placement);
       }
     }
   }
@@ -716,26 +730,20 @@ export function layoutBackdrop({ area, mode, slot = null, ocInSlot = false, copy
 }
 
 // ---------- 不透明度与正文对比度 ----------
-// 渲染器每一笔的 alpha 都经 layerAlpha:水印压在正文上(layout.capped)时逐层夹到 caps[kind]。
-// kind:star(星与星尘,--backdrop-star)、line(连线,--backdrop-line)、pulse(光点/波,--accent)、error(失败涟漪,--err)。
+// 每一笔 alpha 都经 layerAlpha 夹到 [0,1]。水印(layout.capped)不再逐层夹:同一像素上星尘、星、连线、光点头、
+// 尾迹、点亮的边能叠 4 层以上(复核实测 1280@1.5 光点压星处合成 .376,--dim 跌到 3.91),逐层上限挡不住。
+// 改为「离屏层 + 单一不透明度」:整张星座先画进离屏层(层内再怎么叠,alpha 也 ≤ 1、颜色是若干 token 色的
+// 凸组合),再以 watermarkAlpha(≤ watermarkCap)合成到画布——正文底下任一像素 = chat-bg 与某个混色按 ≤ cap
+// 混合,和叠了几层无关。kind:star(星与星尘)、line(连线)、pulse(光点 / 波,--accent)、error(失败,--err)。
 export const TEXT_CONTRAST_FLOOR = 4.5;
-export const OVERLAP_LAYERS = 2; // 同一像素最多两层叠加(星叠星尘、光点叠尾迹)
-export function layerAlpha(value, kind, layout, caps) {
-  const v = clamp(Number.isFinite(value) ? value : 0, 0, 1);
-  if (layout?.capped) return Math.min(v, caps?.[kind] ?? 0);
-  return v;
+export const WATERMARK_KINDS = ["star", "line", "pulse", "error"];
+export const WATERMARK_MARGIN = 0.01; // 8 位量化与离屏重采样的余量(≈ 2.5/255)
+export const WATERMARK_LINE_BOOST = 2; // 水印层里连线相对星点提亮,星座骨架在很低的总不透明度下仍读得出来
+export function layerAlpha(value) {
+  return clamp(Number.isFinite(value) ? value : 0, 0, 1);
 }
-// 各层的增益上限:渲染器与冒烟共用,冒烟据此算「最亮一个像素」。
-export const GAIN = { star: 1.2, voice: 1.5, line: 1.25, dust: 1, comet: 0.95, lit: 0.55, ripple: 0.8 };
-export function peakAlphas(palette, layout, prefs, caps) {
-  const base = (layout?.alpha ?? 1) * (prefs?.opacity ?? 1);
-  return {
-    star: layerAlpha(Math.max(palette.starAlpha * GAIN.star * GAIN.voice, palette.dustAlpha * GAIN.dust) * base, "star", layout, caps),
-    line: layerAlpha(palette.lineAlpha * GAIN.line * base, "line", layout, caps),
-    pulse: layerAlpha(Math.max(GAIN.comet, GAIN.lit) * base, "pulse", layout, caps),
-    error: layerAlpha(GAIN.ripple * base, "error", layout, caps),
-  };
-}
+// 各层的增益上限:渲染器与冒烟共用。hubError 是失败会话 hub 的静态淡 --err。
+export const GAIN = { star: 1.2, voice: 1.5, line: 1.25, dust: 1, comet: 0.95, lit: 0.55, ripple: 0.8, hubError: 0.5 };
 // WCAG 2.x 相对亮度与对比度;颜色是 [r, g, b](0-255)。
 export function relativeLuminance([r, g, b]) {
   const lin = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
@@ -758,14 +766,54 @@ export function maxOverlayAlpha(texts, bg, overlay, floor = TEXT_CONTRAST_FLOOR)
   for (let i = 0; i < 24; i += 1) { const mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
   return lo;
 }
-// 每一层可用的上限:layers 层同色叠加的合成不透明度 1-(1-a)^layers 仍不超过 maxOverlayAlpha。
-export function textSafeLayerAlpha({ texts, bg, overlay, floor = TEXT_CONTRAST_FLOOR, layers = OVERLAP_LAYERS }) {
-  const safe = maxOverlayAlpha(texts, bg, overlay, floor);
-  return 1 - (1 - safe) ** (1 / layers);
+// n 种颜色的混合权重网格(单纯形上步长 1/steps 的全部格点)。
+export function simplexWeights(n, steps) {
+  const out = [];
+  const walk = (prefix, left) => {
+    if (prefix.length === n - 1) { out.push([...prefix, left].map((w) => w / steps)); return; }
+    for (let k = 0; k <= left; k += 1) walk([...prefix, k], left - k);
+  };
+  walk([], steps);
+  return out;
 }
-export function textSafeCaps(palette, floor = TEXT_CONTRAST_FLOOR) {
-  const cap = (overlay) => textSafeLayerAlpha({ texts: palette.texts, bg: palette.chatBg, overlay, floor });
-  return { star: cap(palette.star), line: cap(palette.line), pulse: cap(palette.pulse), error: cap(palette.error) };
+export function mixColors(colors, weights) {
+  return [0, 1, 2].map((c) => colors.reduce((sum, color, i) => sum + color[c] * weights[i], 0));
+}
+// 水印合成不透明度的上限:先取各色单独叠加时的安全上限的最小值;亮色主题里「亮度 ≥ 下限」对混色不是凸的,
+// 再在 4 色单纯形网格上逐个混色复核,不够就二分收紧;最后扣量化余量。
+export function watermarkCap(palette, floor = TEXT_CONTRAST_FLOOR, steps = 6) {
+  const colors = WATERMARK_KINDS.map((kind) => palette[kind]);
+  const judged = palette.texts.filter((t) => contrastRatio(t, palette.chatBg) >= floor);
+  const mixes = simplexWeights(colors.length, steps).map((w) => mixColors(colors, w));
+  const ok = (a) => mixes.every((color) => {
+    const pixel = composite(color, a, palette.chatBg);
+    return judged.every((t) => contrastRatio(t, pixel) >= floor);
+  });
+  let hi = Math.min(...colors.map((color) => maxOverlayAlpha(palette.texts, palette.chatBg, color, floor)));
+  if (!ok(hi)) {
+    let lo = 0;
+    for (let i = 0; i < 24; i += 1) { const mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
+    hi = lo;
+  }
+  return Math.max(0, hi - WATERMARK_MARGIN);
+}
+// 水印最终的合成不透明度:不透明度偏好只能往下调,开到 150% 也不越过上限。
+export function watermarkAlpha(cap, opacity = 1) {
+  return clamp(cap, 0, 1) * clamp(Number.isFinite(opacity) ? opacity : 1, 0.2, 1);
+}
+
+// ---------- 活动态 ----------
+// 只有 thinking / executing / replying 有常驻光点,才算「忙」(≤ 30 帧/秒);blocked(本轮失败,停在失败会话上)
+// 与 complete 没有常驻动画——复核实测失败会话曾一直按 26 帧/秒重画。
+export const BUSY_ACTIVITIES = ["thinking", "executing", "replying"];
+export function activityBusy(activity) {
+  return BUSY_ACTIVITIES.includes(activity);
+}
+// hub 的静态着色:运行中且画静帧(减少动态效果)时着 --accent 表达「在跑」;本轮失败着淡 --err;其余不着色。
+// 动画模式下运行态由光点表达,hub 不着色。强调色只表示运行中(ui_color_semantics),失败不能画成强调色。
+export function hubTone(activity, { still = false } = {}) {
+  if (activityBusy(activity)) return still ? "pulse" : null;
+  return activity === "blocked" ? "error" : null;
 }
 
 // ---------- 调度 ----------
@@ -783,3 +831,11 @@ export function frameDelay({ hidden, viewActive, enabled, reduced, busy }) {
 export function watchDelay({ hidden, viewActive, enabled }) {
   return hidden || !viewActive || !enabled ? null : LAYOUT_WATCH_MS;
 }
+// 有新东西要画时要不要把待发的那一帧提前:只有「还在等定时器、且离触发还比忙帧间隔更久、且现在忙」才提前。
+// 已排好的 rAF 永不取消;离触发不到一个忙帧间隔的也不动——否则每 16ms 一次的流式事件会反复取消重排,
+// 渲染器被饿死(复核实测 16ms / 25ms 连发时 0 帧/秒),拖动改窗口尺寸时画布也一直空白。
+export function shouldHurry({ timer, raf, busy, dueIn }) {
+  return Boolean(timer && !raf && busy && dueIn > BUSY_FRAME_MS);
+}
+// 流式分片(assistant_streaming / reasoning_active 每个分片一次,约 16ms)只写活动态;唤醒渲染器每 33ms 至多一次。
+export const WAKE_THROTTLE_MS = BUSY_FRAME_MS;

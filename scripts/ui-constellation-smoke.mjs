@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // UI2-0926 #10 对话背景(星座背景)冒烟:纯函数 + 静态契约。设计见 docs/design/ui_chat_backdrop.md。
 // 单独跑:node scripts/ui-constellation-smoke.mjs;ui-runtime-smoke.mjs 末尾也会链式 import 它。
+// 渲染器层面的承诺(帧预算、暂停、流式事件下不饿死、正文下像素、水印合成)在真浏览器里另由
+// scripts/ui-constellation-browser-smoke.mjs 逐项实测(ui-lint-smoke 末尾调用)。
 //
 // 变异守卫:KZ_SMOKE_MUTATE=<下表 id> 时读 22-constellation-core.js 源码、删改被守护的那一处(必须恰好命中
 // 一处,否则退出码 2),再以 data: URL 导入改过的模块跑同一套断言——期望本次运行失败。core 零 import,
@@ -35,10 +37,30 @@ const MUTATIONS = {
     pattern: / && e\[0\] < points\.length && e\[1\] < points\.length/,
     replace: "",
   },
-  // 水印压在正文上时逐层夹 alpha。删了它,正文压在最亮星点上跌破 4.5:1(⑬)。
+  // 水印合成不透明度:不透明度偏好只能往下调。放开到 150%,正文压在水印最亮处跌破 4.5:1(⑬)。
   bgTextCap: {
-    pattern: /\n[ \t]*if \(layout\?\.capped\) return Math\.min\(v, caps\?\.\[kind\] \?\? 0\);/,
-    replace: "",
+    pattern: /clamp\(Number\.isFinite\(opacity\) \? opacity : 1, 0\.2, 1\)/,
+    replace: "clamp(Number.isFinite(opacity) ? opacity : 1, 0.2, 1.5)",
+  },
+  // 水印上限扣掉量化余量(8 位 alpha 与离屏重采样)。改成加上余量,星核压在正文上跌破 4.5:1(⑬)。
+  bgWatermarkMargin: {
+    pattern: /return Math\.max\(0, hi - WATERMARK_MARGIN\);/,
+    replace: "return Math.max(0, hi + WATERMARK_MARGIN);",
+  },
+  // 只有 thinking / executing / replying 算忙。改回「非 idle 都算忙」,失败会话一直 30 帧/秒重画(⑯)。
+  bgBusyActivity: {
+    pattern: /return BUSY_ACTIVITIES\.includes\(activity\);/,
+    replace: 'return activity !== "idle";',
+  },
+  // 失败会话的 hub 着 --err。改回「非 idle / complete 都着强调色」,失败被画成「在跑」(⑯)。
+  bgHubTone: {
+    pattern: /if \(activityBusy\(activity\)\) return still \? "pulse" : null;/,
+    replace: 'if (activity !== "idle" && activity !== "complete") return still ? "pulse" : null;',
+  },
+  // 已排好的 rAF / 快到点的定时器不被新事件取消。删了判据,16ms 连发的流式事件把渲染器饿死(⑰)。
+  bgHurryRaf: {
+    pattern: /return Boolean\(timer && !raf && busy && dueIn > BUSY_FRAME_MS\);/,
+    replace: "return Boolean(timer && busy);",
   },
   // 对话态把正文列登记为避让区。删了它,沟槽 / 星尘的剪裁不再挖掉正文列(⑨)。
   bgColumnAvoid: {
@@ -65,8 +87,9 @@ const data = await import(pathToFileURL(resolve(UI, "22-constellation-data.js"))
 const {
   cometRoute, euclideanMst, components, augmentEdges, segmentsCross, projectStars, starPresetModel, strokesToConstellation,
   imageToConstellation, poissonSelect, sanitizeModel, normalizeBackdropPrefs, serializeBackdropPrefs, layoutBackdrop, bfsOrder,
-  seededRandom, frameDelay, watchDelay, resolveBackdropModel, peakAlphas, textSafeCaps, rectsIntersect, columnFromRects,
-  edgeDepthsFrom, IDLE_FRAME_MS, BUSY_FRAME_MS, TEXT_CONTRAST_FLOOR, OVERLAP_LAYERS,
+  seededRandom, frameDelay, watchDelay, resolveBackdropModel, watermarkCap, watermarkAlpha, rectsIntersect, columnFromRects,
+  edgeDepthsFrom, activityBusy, hubTone, shouldHurry, IDLE_FRAME_MS, BUSY_FRAME_MS, TEXT_CONTRAST_FLOOR, WATERMARK_KINDS,
+  WAKE_THROTTLE_MS,
 } = core;
 const { STAR_PRESETS, KANZEI_LOGO_STROKES, POLARIS } = data;
 
@@ -265,10 +288,16 @@ check("⑨ 构图", () => {
   assert.ok(!rectsIntersect(g.box, column), "沟槽星座压到了正文列");
   assert.ok(g.avoid.some((r) => r.x <= column.x && r.x + r.w >= column.x + column.w), "正文列没有登记为避让区(星尘会画进正文)");
   assert.equal(g.capped, false);
-  // 1280@1.5:对话区约 928 宽,沟槽 80 → 右上角水印,压在正文上 → capped
+  // 1280@1.5:对话区约 928 宽,沟槽 80 → 连窄沟都放不下 → 右上角水印,压在正文上 → capped
   const narrow = layoutBackdrop({ area: { x: 0, y: 0, w: 928, h: 560 }, mode: "conversation", column: { x: 80, y: 0, w: 768, h: 560 }, aspect: 1 });
   assert.equal(narrow.placement, "corner");
   assert.ok(narrow.alpha <= 0.5 && narrow.capped, "窄屏水印必须低透明度且标记 capped");
+  // 用户日常几何 1333×695@1.5:对话区约 1005 宽,768 列两侧各约 118 → 窄沟小徽记,不压正文、不走水印
+  const daily = { x: 118, y: 0, w: 768, h: 560 };
+  const slim = layoutBackdrop({ area: { x: 0, y: 0, w: 1005, h: 560 }, mode: "conversation", column: daily, aspect: 0.9 });
+  assert.equal(slim.placement, "gutter-narrow", `用户日常宽度应放窄沟,实际 ${slim.placement}`);
+  assert.ok(!slim.capped && !rectsIntersect(slim.box, daily), "窄沟星座压到了正文列");
+  assert.ok(slim.box.w >= 56 && slim.box.x + slim.box.w <= 1005 - 16 + 1e-6, `窄沟框 ${JSON.stringify(slim.box)}`);
   // OC 伴侣占着右下:沟槽高度止于人物上方
   const withOc = layoutBackdrop({ area, mode: "conversation", column, reserve: { x: 1060, y: 480, w: 164, h: 246 }, aspect: 1 });
   assert.ok(withOc.box.y + withOc.box.h <= 480 - 24 + 1e-6, "沟槽星座压到了 OC 伴侣");
@@ -278,10 +307,12 @@ check("⑨ 构图", () => {
   assert.equal(slot.placement, "slot");
   assert.ok(slot.box.x >= 620 && slot.box.x + slot.box.w <= 1060 && slot.box.y >= 180 && slot.box.y + slot.box.h <= 560);
   assert.ok(slot.avoid.length === 1 && !slot.capped);
-  // 槽不可见(窄容器):文案右侧空白够就放那里
+  // 槽不可见(OC 关 / 窄容器):文案右侧空白够就放那里;语音模式同理
   const side = layoutBackdrop({ area, mode: "welcome", copy: { x: 354, y: 260, w: 540, h: 220 }, aspect: 1 });
   assert.equal(side.placement, "side");
   assert.ok(!rectsIntersect(side.box, { x: 354, y: 260, w: 540, h: 220 }));
+  const voiceSide = layoutBackdrop({ area, mode: "voice", copy: { x: 304, y: 200, w: 640, h: 300 }, aspect: 1 });
+  assert.equal(voiceSide.placement, "side", `语音模式 OC 关时应放文案右侧,实际 ${voiceSide.placement}`);
   // 正文列 = 最近几条消息的横向并集
   const col = columnFromRects([{ x: 300, y: 10, w: 500, h: 40 }, { x: 240, y: 60, w: 768, h: 90 }, null], area);
   assert.deepEqual(col, { x: 240, y: 0, w: 768, h: 760 });
@@ -338,9 +369,12 @@ check("⑫ token", () => {
   }
 });
 
-// ⑬ 正文对比度:水印压在正文上时,正文压在「最亮一个像素」(两层叠加、不透明度偏好开到 150%)上仍 ≥ 4.5:1;
-//    上限本身不能小到看不见(≥ .04);不夹时同样的像素会跌破 4.5(证明这道夹子是承重的)。
-//    亮度 / 对比度用本文件自己的实现独立复算,不借 core 的函数。
+// ⑬ 正文对比度:水印压在正文上时,整张星座画进离屏层再以 watermarkAlpha 单一不透明度合成。这里按真实的
+//    合成过程逐层复算:离屏层里任意叠放(星尘、连线、星、尾迹、光点头、失败 hub……每层 alpha ∈ (0,1]),
+//    得到预乘色 Cp 与层 alpha A,再以 g 合成到 chat-bg:pixel = Cp·g + bg·(1 − g·A)。所有原本 ≥ 4.5 的字色
+//    压在任何这样的像素上仍 ≥ 4.5(不透明度偏好开到 150%);上限本身不能小到看不见(≥ .06);
+//    不走离屏、每层都按上限直接叠 5 层时必须有像素跌破 4.5(证明离屏合成是承重的)。
+//    亮度 / 对比度 / 合成用本文件自己的实现独立复算,不借 core 的函数。
 const hexRgb = (value) => { const m = String(value).match(/^#([0-9a-fA-F]{6})$/); assert.ok(m, `不是 6 位十六进制:${value}`); return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)); };
 const resolveHex = (tokens, name, seen = new Set()) => {
   const value = tokens[name];
@@ -350,12 +384,17 @@ const resolveHex = (tokens, name, seen = new Set()) => {
 const lum = ([r, g, b]) => [r, g, b].reduce((s, c, i) => { const v = c / 255; return s + [0.2126, 0.7152, 0.0722][i] * (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4); }, 0);
 const ratio = (a, b) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
 const TEXT_TOKENS = ["--fg", "--fg-strong", "--dim", "--accent-text", "--ok", "--err", "--warn"];
+// 离屏层内 source-over 逐层叠(预乘):layers = [[rgb, alpha], …] → { cp: 预乘色, a: 层 alpha }
+const stack = (layers) => layers.reduce(({ cp, a }, [rgb, alpha]) => ({
+  cp: cp.map((c, i) => rgb[i] * alpha + c * (1 - alpha)),
+  a: alpha + a * (1 - alpha),
+}), { cp: [0, 0, 0], a: 0 });
+const onBg = ({ cp, a }, g, bg) => bg.map((c, i) => cp[i] * g + c * (1 - g * a));
 check("⑬ 正文对比度", () => {
   const watermark = layoutBackdrop({ area: { x: 0, y: 0, w: 928, h: 560 }, mode: "conversation", column: { x: 80, y: 0, w: 768, h: 560 }, aspect: 1 });
   assert.ok(watermark.capped, "判据前提:窄屏水印应为 capped");
-  const loud = { opacity: 1.5 };
   const violations = [];
-  let uncappedBreaks = 0;
+  let directBreaks = 0;
   for (const [theme, tokens] of [["暗色", darkTokens], ["亮色", lightTokens]]) {
     const palette = {
       star: resolveHex(tokens, "--backdrop-star"), line: resolveHex(tokens, "--backdrop-line"),
@@ -363,30 +402,43 @@ check("⑬ 正文对比度", () => {
       starAlpha: Number(tokens["--backdrop-star-alpha"]), lineAlpha: Number(tokens["--backdrop-line-alpha"]), dustAlpha: Number(tokens["--backdrop-dust-alpha"]),
       chatBg: resolveHex(tokens, "--chat-bg"), texts: TEXT_TOKENS.map((name) => resolveHex(tokens, name)),
     };
-    const caps = textSafeCaps(palette, TEXT_CONTRAST_FLOOR);
-    // 下限 .04:亮色 --ok(白底 5.38:1)把星点单层上限压到约 .047——窄窗口的水印在亮色下本就是若有若无,
-    // 这是「不压正文」换来的;再低就等于没画,说明 token 或增益被改坏了。
-    for (const kind of ["star", "line"]) {
-      if (!(caps[kind] >= 0.04)) violations.push(`${theme} ${kind} 的上限 ${caps[kind].toFixed(3)} < .04,水印看不见`);
+    const cap = watermarkCap(palette, TEXT_CONTRAST_FLOOR);
+    if (!(cap >= 0.06)) violations.push(`${theme} 水印上限 ${cap.toFixed(3)} < .06,水印看不见`);
+    const g = watermarkAlpha(cap, 1.5);
+    if (g > cap + 1e-12) violations.push(`${theme} 不透明度偏好 150% 时水印合成 ${g.toFixed(3)} 越过了上限 ${cap.toFixed(3)}`);
+    const color = Object.fromEntries(WATERMARK_KINDS.map((kind) => [kind, palette[kind]]));
+    // 具名的最坏叠放:光点压在星上(星尘 + 连线 + 星 + 尾迹 + 光点头)、失败 hub 叠在星上、点亮的边叠在底线上
+    const named = {
+      "光点压在星上": [[color.star, 1], [color.line, 1], [color.star, 1], [color.pulse, 1], [color.pulse, 1]],
+      "失败 hub 叠星": [[color.star, 1], [color.line, 1], [color.error, 1], [color.error, 1]],
+      "点亮的边叠底线": [[color.line, 1], [color.pulse, 0.74]],
+      "只有星尘与星": [[color.star, 0.43], [color.star, 1]],
+    };
+    // 随机叠放:1~7 层,颜色任取,alpha 任取(种子固定,可复现)
+    const rand = seededRandom(2026);
+    const stacks = Object.entries(named);
+    for (let k = 0; k < 4000; k += 1) {
+      const depth = 1 + Math.floor(rand() * 7);
+      stacks.push([`随机#${k}`, Array.from({ length: depth }, () => [color[WATERMARK_KINDS[Math.floor(rand() * WATERMARK_KINDS.length)]], 0.05 + rand() * 0.95])]);
     }
-    const peaks = peakAlphas(palette, watermark, loud, caps);
-    const free = peakAlphas(palette, { ...watermark, capped: false }, loud, caps);
-    for (const kind of ["star", "line", "pulse", "error"]) {
-      const combined = 1 - (1 - peaks[kind]) ** OVERLAP_LAYERS;
-      const under = palette.chatBg.map((c, i) => palette[kind][i] * combined + c * (1 - combined));
-      const freeCombined = 1 - (1 - free[kind]) ** OVERLAP_LAYERS;
-      const freeUnder = palette.chatBg.map((c, i) => palette[kind][i] * freeCombined + c * (1 - freeCombined));
+    for (const [label, layers] of stacks) {
+      const pixel = onBg(stack(layers), g, palette.chatBg);
       TEXT_TOKENS.forEach((name, index) => {
         const text = palette.texts[index];
         if (ratio(text, palette.chatBg) < TEXT_CONTRAST_FLOOR) return;
-        const got = ratio(text, under);
-        if (got < TEXT_CONTRAST_FLOOR - 1e-9) violations.push(`${theme} ${name} 压在最亮的 ${kind} 像素(${combined.toFixed(3)})上 ${got.toFixed(2)} < 4.5`);
-        if (ratio(text, freeUnder) < TEXT_CONTRAST_FLOOR) uncappedBreaks += 1;
+        const got = ratio(text, pixel);
+        if (got < TEXT_CONTRAST_FLOOR - 1e-9 && violations.length < 12) violations.push(`${theme} ${name} 压在水印「${label}」像素上 ${got.toFixed(2)} < 4.5`);
       });
     }
+    // 判据自检:不走离屏,每层按上限直接叠到画布上(光点压在星上那 5 层)
+    const direct = named["光点压在星上"].reduce((bg, [rgb]) => bg.map((c, i) => rgb[i] * cap + c * (1 - cap)), palette.chatBg);
+    TEXT_TOKENS.forEach((name, index) => {
+      const text = palette.texts[index];
+      if (ratio(text, palette.chatBg) >= TEXT_CONTRAST_FLOOR && ratio(text, direct) < TEXT_CONTRAST_FLOOR) directBreaks += 1;
+    });
   }
   assert.deepEqual(violations, [], `正文对比度判据未通过:\n${violations.join("\n")}`);
-  assert.ok(uncappedBreaks > 0, "判据自检:不夹 alpha 时也没有任何像素跌破 4.5——判据失去意义(token 或增益被改得太淡?)");
+  assert.ok(directBreaks > 0, "判据自检:逐层直接叠也没有任何像素跌破 4.5——判据失去意义(token 被改得太淡?)");
 });
 
 // ⑭ 预设解析:每个预设都给出合法模型;custom 缺点集回落标志
@@ -400,19 +452,55 @@ check("⑭ 预设解析", () => {
   assert.ok(dense.points.length > sparse.points.length, "星点密度应影响标志笔画内的暗星数");
 });
 
-// ⑮ 静态契约:渲染器每一笔 alpha 都经 layerAlpha(水印时才夹得住);剪裁挖掉避让区;旧神经场的对话变体已删除
+// ⑮ 静态契约:渲染器每一笔 alpha 都经 layerAlpha;水印走离屏层 + watermarkAlpha 单一合成;剪裁挖掉避让区;
+//    旧神经场的对话变体已删除
 check("⑮ 静态契约", () => {
   const renderer = readFileSync(resolve(UI, "22-constellation.js"), "utf8").replace(/\/\/[^\n]*/g, "");
   const assigns = [...renderer.matchAll(/globalAlpha\s*=\s*([^;]+);/g)].map((m) => m[1].trim());
   assert.ok(assigns.length >= 6, "渲染器里找不到 globalAlpha 赋值(判据定位失效)");
-  const raw = assigns.filter((expr) => expr !== "1" && !/^this\.a\(/.test(expr) && !/^layerAlpha\(/.test(expr));
-  assert.deepEqual(raw, [], "globalAlpha 必须经 this.a(…)/layerAlpha(…) 赋值(否则水印时不受正文对比度上限约束)");
+  const raw = assigns.filter((expr) => expr !== "1" && !/^this\.a\(/.test(expr) && !/^layerAlpha\(/.test(expr) && !/^watermarkAlpha\(/.test(expr));
+  assert.deepEqual(raw, [], "globalAlpha 必须经 this.a(…)/layerAlpha(…)/watermarkAlpha(…) 赋值");
+  assert.equal(assigns.filter((expr) => /^watermarkAlpha\(/.test(expr)).length, 1, "水印只能在一处以 watermarkAlpha 合成");
+  assert.match(renderer, /if \(shown\.capped\) paintWatermark\(frame\);/, "capped 构图必须走离屏水印");
+  assert.match(renderer, /painter\.paint\(lctx, frame\);\s*ctx\.globalAlpha = watermarkAlpha\([^;]+;\s*ctx\.drawImage\(layer,/, "水印必须先画进离屏层、再以 watermarkAlpha 一次合成");
   assert.match(renderer, /clip\("evenodd"\)/, "渲染器必须用 evenodd 剪裁挖掉正文避让区");
   assert.match(renderer, /layout\.avoid/, "剪裁必须来自 layout.avoid");
   assert.doesNotMatch(renderer, /shadowBlur/, "星座背景不用 shadowBlur(每笔 Skia 模糊,改用预渲染星光小图)");
   const flow = readFileSync(resolve(UI, "22-neural-flow.js"), "utf8");
   assert.doesNotMatch(flow, /connectPortrait|addField\(chatCanvas|variant === "chat"/, "22-neural-flow.js 仍残留对话区神经场变体");
   assert.match(flow, /addField\(memoryCanvas, "memory"/, "记忆页神经场必须保留");
+});
+
+// ⑯ 活动态:只有 thinking / executing / replying 算忙;blocked(失败)与 complete 不算;
+//    hub 静帧着色:运行中且静帧 → 强调色;失败 → --err(任何模式);失败绝不着强调色
+check("⑯ 活动态", () => {
+  for (const busy of ["thinking", "executing", "replying"]) assert.equal(activityBusy(busy), true, `${busy} 应算忙`);
+  for (const calm of ["idle", "blocked", "complete", undefined]) assert.equal(activityBusy(calm), false, `${calm} 不应算忙(失败会话停在那里会一直 30 帧/秒)`);
+  assert.equal(hubTone("executing", { still: true }), "pulse");
+  assert.equal(hubTone("executing", { still: false }), null, "动画模式下运行态由光点表达");
+  for (const still of [true, false]) {
+    assert.equal(hubTone("blocked", { still }), "error", "失败会话 hub 应着淡 --err");
+    assert.equal(hubTone("complete", { still }), null);
+    assert.equal(hubTone("idle", { still }), null);
+  }
+});
+
+// ⑰ 帧调度:新事件只把「还在等、离触发还比忙帧更久」的定时器提前;已排好的 rAF、快到点的定时器不动;
+//    流式唤醒节流 = 一个忙帧
+check("⑰ 帧不被饿死", () => {
+  assert.equal(shouldHurry({ timer: 7, raf: 0, busy: true, dueIn: IDLE_FRAME_MS }), true, "空闲等待中来了忙事件应提前");
+  assert.equal(shouldHurry({ timer: 7, raf: 0, busy: true, dueIn: BUSY_FRAME_MS - 16 }), false, "一个忙帧内就会触发的定时器不能取消重排");
+  assert.equal(shouldHurry({ timer: 0, raf: 9, busy: true, dueIn: 0 }), false, "已排好的 rAF 永不取消");
+  assert.equal(shouldHurry({ timer: 7, raf: 9, busy: true, dueIn: IDLE_FRAME_MS }), false, "已排好的 rAF 永不取消");
+  assert.equal(shouldHurry({ timer: 7, raf: 0, busy: false, dueIn: IDLE_FRAME_MS }), false, "不忙就按空闲节奏");
+  assert.ok(WAKE_THROTTLE_MS >= BUSY_FRAME_MS, "流式唤醒节流不能比忙帧更密");
+  // 16ms 一次的流式事件连发 1 秒:按 shouldHurry 模拟「定时器待发时每个事件问一次要不要提前」,帧数应接近 1000/33
+  let due = IDLE_FRAME_MS, frames = 0;
+  for (let now = 0; now < 1000; now += 1) {
+    if (now % 16 === 0 && shouldHurry({ timer: 1, raf: 0, busy: true, dueIn: due - now })) due = now + BUSY_FRAME_MS;
+    if (now >= due) { frames += 1; due = now + BUSY_FRAME_MS; }
+  }
+  assert.ok(frames >= 20, `16ms 连发流式事件时 1 秒只画了 ${frames} 帧(渲染器被饿死)`);
 });
 
 // 被 ui-runtime-smoke.mjs 链式 import 时,失败必须让 import 本身 reject(否则宿主照打「通过」);单独跑时只设退出码。

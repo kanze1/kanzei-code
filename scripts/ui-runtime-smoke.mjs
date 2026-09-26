@@ -349,17 +349,27 @@ if (SMOKE_MUTATE) {
     },
     // 设置改动即时落到后端(D-404:本机 localStorage 重启即丢)。删了它,重启后背景偏好回到默认。
     bgPrefsPersist: {
-      pattern: /[ \t]*void uiPrefsSave\(\{ backdrop: serializeBackdropPrefs\(current\) \}\);\r?\n/,
+      pattern: /[ \t]*void save\(\{ backdrop: serializeBackdropPrefs\(current\) \}\);\r?\n/,
       replace: "",
+    },
+    // 启动时等后端值(≤ 250ms)再第一次发布。删了这道等待,关掉背景的用户每次启动先按默认值画一帧星座。
+    bgBootWait: {
+      pattern: /[ \t]*await Promise\.race\(\[loading, new Promise\(\(resolve\) => \{ timer = setTimeout\(resolve, timeoutMs\); \}\)\]\);\r?\n/,
+      replace: "",
+    },
+    // 滑杆拖动中(input)只改内存与画面,松手(change)才落盘。改成拖动中也落盘,拖一下写十几次 app.json。
+    bgSliderPersist: {
+      pattern: /updateBackdropPrefs\(value\(\), \{ persist: false \}\)/,
+      replace: "updateBackdropPrefs(value())",
     },
     // 图案单选组的方向键。删了它,键盘用户只能 Tab 到当前项、换不了图案。
     bgRadioKeys: {
       pattern: /[ \t]*button\.addEventListener\("keydown", onKey\);\r?\n/,
       replace: "",
     },
-    // html[data-backdrop] 跟随开关(空态两栏与画布显隐都挂在它上面)。删了它,关掉背景后空态仍是两栏。
+    // html[data-backdrop] 跟随开关(画布显隐挂在它上面)。删了它,关掉背景后画布仍占着对话区。
     bgDatasetSync: {
-      pattern: /[ \t]*document\.documentElement\.dataset\.backdrop = current\.enabled \? "on" : "off";\r?\n/,
+      pattern: /[ \t]*document\.documentElement\.dataset\.backdrop = prefs\.enabled \? "on" : "off";\r?\n/,
       replace: "",
     },
   };
@@ -1971,7 +1981,7 @@ await runUiSources();
   const backdrop = flowNs?.chatBackdrop;
   assert(backdrop && backdrop.degraded === true, "星座背景:假 DOM 下必须降级为 degraded 空实现(不抛、不排定时器)");
   assert(/id="neural-flow-chat"[^>]*\bkz-backdrop\b/.test(html), "星座背景画布缺 kz-backdrop 类");
-  assert(/<html[^>]*data-backdrop="on"/.test(html), "html 必须静态带 data-backdrop=\"on\"(默认开启,首帧就是两栏空态,不闪)");
+  assert(/<html[^>]*data-backdrop="on"/.test(html), "html 必须静态带 data-backdrop=\"on\"(默认开启;关闭由偏好模块在第一次发布时改成 off)");
   const sessionId = vm.runInContext("activeSessionId", sandbox);
   const states = esmModuleCache.get("03-shell.js")?.namespace?.sessionStates;
   assert(sessionId && states, "星座背景:拿不到活动会话或 sessionStates,判据无法定位");
@@ -2024,6 +2034,71 @@ await runUiSources();
   kanzeiCard?.click();
   await flush();
   assert(documentElement.dataset.backdrop === "on", "重新打开「显示背景」后 html[data-backdrop] 应回到 on");
+
+  // 滑杆(复核 minor):拖动中(input)只改内存与画面,松手(change)落盘一次。变异 bgSliderPersist。
+  const densitySlider = byId.get("set-bg-density");
+  const backdropSaves = () => invokeArgs.filter(({ cmd, args }) => cmd === "ui_prefs_set" && args?.backdrop);
+  const savesBeforeDrag = backdropSaves().length;
+  for (const value of ["120", "140", "150"]) {
+    densitySlider.value = value;
+    densitySlider.dispatchEvent({ type: "input" });
+  }
+  await flush();
+  assert(backdropSaves().length === savesBeforeDrag, `拖动星点密度滑杆(input)不应落盘,实际多写了 ${backdropSaves().length - savesBeforeDrag} 次`);
+  assert(byId.get("set-bg-density-value")?.textContent === "150%", "拖动中滑杆读数应即时跟随");
+  densitySlider.dispatchEvent({ type: "change" });
+  await flush();
+  assert(
+    backdropSaves().length === savesBeforeDrag + 1 && backdropSaves().at(-1).args.backdrop.density === 1.5,
+    `松手(change)应落盘一次且带最终值,实际 ${backdropSaves().length - savesBeforeDrag} 次 / ${JSON.stringify(backdropSaves().at(-1)?.args?.backdrop?.density)}`,
+  );
+  densitySlider.value = "100";
+  densitySlider.dispatchEvent({ type: "change" });
+  await flush();
+
+  // 启动时序(复核 minor):偏好模块等后端值(≤ 250ms)再第一次发布——后端存的是「关闭」时,第一次发布就是关闭,
+  // 不先按默认值发布一次「开启 + kanzei」(渲染器 waitForPrefs 等这次发布才开始画)。后端迟迟不回:超时后先按本地 /
+  // 默认值发布,后端值晚到再覆盖。变异 bgBootWait。
+  const prefsNs = esmModuleCache.get("22-constellation-prefs.js")?.namespace;
+  assert(typeof prefsNs?.createBackdropPrefsStore === "function", "星座背景:22-constellation-prefs.js 应导出 createBackdropPrefsStore");
+  if (typeof prefsNs?.createBackdropPrefsStore === "function") {
+    const published = [];
+    const bootSaves = [];
+    let releaseBackend = null;
+    const bootStore = prefsNs.createBackdropPrefsStore({
+      load: () => new Promise((resolve) => { releaseBackend = resolve; }),
+      save: async (patch) => { bootSaves.push(patch); },
+      storage: () => null,
+      publish: (prefs) => published.push({ ...prefs }),
+      timeoutMs: 250,
+    });
+    const booting = bootStore.boot();
+    await settle();
+    assert(published.length === 0, `后端偏好回来之前不应发布(否则先按默认值画一帧星座):${JSON.stringify(published)}`);
+    releaseBackend?.({ backdrop: { enabled: false, preset: "orion" } });
+    await booting;
+    assert(
+      published.length === 1 && published[0].enabled === false && published[0].preset === "orion",
+      `后端存「关闭 + 猎户座」时第一次发布就应是它:${JSON.stringify(published)}`,
+    );
+    const late = [];
+    let releaseSlow = null;
+    const slowStore = prefsNs.createBackdropPrefsStore({
+      load: () => new Promise((resolve) => { releaseSlow = resolve; }),
+      save: async (patch) => { bootSaves.push(patch); },
+      storage: () => null,
+      publish: (prefs) => late.push({ ...prefs }),
+      timeoutMs: 30,
+    });
+    const slowBoot = slowStore.boot();
+    await flush();
+    await slowBoot;
+    assert(late.length === 1 && late[0].enabled === true, `后端超时后应先按默认值发布一次:${JSON.stringify(late)}`);
+    releaseSlow?.({ backdrop: { enabled: false } });
+    await flush();
+    assert(late.length === 2 && late[1].enabled === false, `后端值晚到应覆盖并再发布一次:${JSON.stringify(late)}`);
+    assert(bootSaves.length === 0, "启动读后端值不应回写 app.json");
+  }
 }
 // ── 分区:星座背景 结束 ──
 

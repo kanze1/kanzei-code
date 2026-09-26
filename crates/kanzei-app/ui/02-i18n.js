@@ -45,7 +45,7 @@ export const I18N_EN = {
   // ---- 分区:星座背景 ----
   // UI2-0926 #10 对话背景(22-constellation-prefs.js、设置页 #backdrop-settings)。
   "对话背景": "Chat backdrop",
-  "调整立即保存到本机。星座只画在空白处，不压正文；运行时光点沿连线流动，空闲时只缓慢闪烁。": "Changes are saved on this device immediately. The constellation only uses empty space and never sits under text; while a run is active, light travels along its lines, and when idle it only twinkles slowly.",
+  "调整立即保存到本机。星座画在正文两侧的空白处，窄窗口时退成不影响阅读的淡水印；运行时光点沿连线流动，空闲时只缓慢闪烁。": "Changes are saved on this device immediately. The constellation sits in the empty space beside the text; in narrow windows it becomes a faint watermark that never hurts readability. While a run is active, light travels along its lines; when idle it only twinkles slowly.",
   "显示背景": "Show backdrop",
   "背景图案": "Pattern",
   "北斗七星": "Big Dipper",
@@ -60,6 +60,7 @@ export const I18N_EN = {
   "图片里没有足够清晰的轮廓，换一张试试": "The image has no clear outline; try another one",
   "已生成星座，原图未保存": "Constellation created; the image itself was not saved",
   "图片超过 20MB，换一张小一点的": "The image is larger than 20 MB; try a smaller one",
+  "图片分辨率过高，换一张小一点的": "The image resolution is too high; try a smaller one",
   "图片读取失败": "Could not read the image",
   "连接中": "Connecting",
   "聆听": "Listening",

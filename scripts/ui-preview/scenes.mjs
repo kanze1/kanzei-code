@@ -125,6 +125,16 @@ const SCENES = {
     group?.scrollIntoView({ block: "start" });
   },
 
+  // ── 分区:星座背景 ── 语音布局:走语音控制器自己的状态入口(onState,与真实开麦后同一条布局路径),
+  // 不开麦克风、不连语音服务。OC 关时星座放文案右侧,OC 开时进人物身后的 art 槽。
+  async voice(ctx) {
+    const voice = await import("/23-voice.js");
+    voice.voiceConversation?.onState?.("listening");
+    await waitFor(() => $("#view-chat")?.classList.contains("voice-mode"));
+    await ctx.sleep(160);
+    await ctx.settle();
+  },
+
   async empty(ctx) {
     // 走真实的「新对话」入口:它同时是缺陷 #2(旧内容残留)的复现路径。
     $("#new-chat")?.click();

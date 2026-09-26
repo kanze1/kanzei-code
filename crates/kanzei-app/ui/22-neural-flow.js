@@ -26,7 +26,8 @@ defer(() => {
     getRuntime: (id) => sessionStates.get(id),
   };
   const companion = initOcCompanion($("chat-area"), runtimeSource);
-  chatBackdrop = createConstellationBackdrop($("neural-flow-chat"), { ...runtimeSource, prefs: readBackdropPrefs() });
+  // 偏好模块启动时等后端值(≤ 250ms)再第一次发布;渲染器等这次发布才开始画,关掉背景的用户启动时不闪。
+  chatBackdrop = createConstellationBackdrop($("neural-flow-chat"), { ...runtimeSource, prefs: readBackdropPrefs(), waitForPrefs: true });
   ocVoiceSignal = (sessionId, phase, level) => {
     companion?.voice(sessionId, phase, level);
     chatBackdrop?.voice(sessionId, phase, level);

@@ -969,12 +969,8 @@ html[data-backdrop="off"] .neural-flow-chat { display: none; }
 .oc-toggle { flex-direction: column; gap: 3px; height: 46px; }
 .oc-toggle > span { font-size: var(--fs-10); line-height: 1; }
 .oc-toggle[aria-pressed="true"] { color: var(--fg-strong); background: var(--surface-selected); }
-html[data-oc-enabled="false"] :is(.voice-art, #oc-companion) { display: none !important; }
-/* 星座背景开着时,OC 关闭也保留空态的 art 槽(左文案、右星座两栏);槽里的人物照旧隐藏。
-   关掉背景即回到单列居中。三条分开写::is() 会取其中 #id 的特异度,合写会误伤下面的覆盖。 */
-html[data-oc-enabled="false"]:not([data-backdrop="on"]) .empty-art { display: none !important; }
-html[data-oc-enabled="false"] .empty-art .oc-figure { display: none !important; }
-html[data-oc-enabled="false"]:not([data-backdrop="on"]) .empty-welcome { grid-template-columns: 1fr; max-width: 540px; }
+html[data-oc-enabled="false"] :is(.empty-art, .voice-art, #oc-companion) { display: none !important; }
+html[data-oc-enabled="false"] .empty-welcome { grid-template-columns: 1fr; max-width: 540px; }
 html[data-oc-enabled="false"] #messages { padding-right: 24px; }
 html[data-oc-enabled="false"] .voice-stage { grid-template-columns: minmax(0, 640px); justify-content: center; }
 html[data-oc-enabled="false"] .voice-stage-copy { padding-right: 0; }
