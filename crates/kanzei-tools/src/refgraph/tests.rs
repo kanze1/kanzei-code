@@ -213,6 +213,14 @@ fn scripts_demoted_and_via_only_from_structured_refs() {
         m.areas
     );
     assert_eq!(
+        path_areas(
+            &inputs.registry,
+            "改 .kanzei/memory/INDEX.md 与 ./crates/kanzei-tools/src/edit.rs。"
+        ),
+        vec!["kanzei-tools/edit".to_string()],
+        "隐藏目录路径不是代码区域,./ 前缀与句末标点要剥掉"
+    );
+    assert_eq!(
         edges(&graph, "M-002", "mentions").len(),
         1,
         "D-011 记为提及弱边"

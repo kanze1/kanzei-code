@@ -183,8 +183,15 @@ pub fn path_areas(registry: &AreaRegistry, text: &str) -> Vec<String> {
     let is_path_char =
         |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '\\' | ':' | '-');
     for raw in text.split(|c: char| !is_path_char(c)) {
-        let token = raw.trim_matches(|c: char| matches!(c, '.' | ':' | '-'));
-        if token.len() < 4 || token.contains("://") {
+        let token = raw
+            .trim_end_matches(['.', ':', '-'])
+            .trim_start_matches("./");
+        // `.kanzei/memory/…` 这类隐藏目录路径不是代码区域:去掉前导点会被当成 `kanzei` crate 的模块。
+        if token.len() < 4
+            || token.contains("://")
+            || token.starts_with('.')
+            || token.starts_with('-')
+        {
             continue;
         }
         let script =
