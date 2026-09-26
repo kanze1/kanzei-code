@@ -148,7 +148,7 @@ installTooltips(root)    // 接管全局 title:悬停 450ms/键盘聚焦立即�
   现有的框:查看器 `viewer`(八向)、项目模型 `project-models`(八向)、权限卡 `ask`(标题栏移动、左右调宽,锚在输入区上方,见 §4.3)、确认框 `confirm` 与输入框 `input`(整框可拖、不记几何)。**菜单、浮层、提示、toast、芯片不是框**——它们跟着锚点走(门禁 H)。
 - **交互**:按下后移动超过 3px 才算拖动(之前不捕获指针,普通点击与双击的目标不变);手势监听挂在 document 捕获阶段,甩得再快也跟得上;拖边时对边不动;双击拖动区复位(清掉偏好,回到默认居中/停靠);框内 Alt+Shift+方向键每次调 24px,Alt+Shift+Home 复位;窗口缩小时整框夹进视口(留 8px),窗口恢复后回到用户摆的几何(存的是意图,落地值按当前视口夹紧,不改写存储)。拖动中 `<html data-kz-frame-drag>` 统一光标并禁止选中文字。
 - **几何只写成变量与令牌**:`--kz-frame-l/r/t/b/w/h` 写在框自身,`data-kz-placed="pos w h"` 标出哪几项由用户定;落位规则只在 surface.css §10(选择器 `(0,3,0)` 排在文件最后,压过 `.k-dialog[data-size="lg"]` 与权限卡的锚定摆放)。不写内联 `width/left`:内联尺寸会压过 `.collapsed` 这类状态规则。可调尺寸的框本体 `overflow: visible`(手柄骑在边上、外露 6px),裁剪与滚动下放到唯一的内层容器(`#viewer-dialog`/`#project-models-dialog`/`#ask-dialog`,浏览器冒烟检查「只有一个内层容器」)。
-- **分隔条(split)**:`installSplit(pane, { id, side, min, max, key, title, ariaLabel, onChange })` → `{ set, reset, sync, reapply, value, cssVar, pane, handle }`。宽度/高度写成 `<html>` 上的 `--kz-split-<id>`,style.css 用 `var(--kz-split-<id>, 默认值)`。手柄是 `role="separator"` 的 `.resize-handle`(可 Tab,方向键 ±8px,Home/双击复位,带 `aria-valuenow/min/max`)。现有:左侧栏 `sidebar`(220~460,沿用旧键 `kz-sidebar-width`)、运行日志高度 `log`、文件树 `files`、记忆列表 `memory`、后台任务侧栏 `tasks`(左缘,`[320, min(760, 主区宽 − 600)]`,subagent_presentation §5.6)。
+- **分隔条(split)**:`installSplit(pane, { id, side, min, max, key, title, ariaLabel, titleKey, ariaKey, onChange })` → `{ set, reset, sync, reapply, value, cssVar, pane, handle }`。宽度/高度写成 `<html>` 上的 `--kz-split-<id>`,style.css 用 `var(--kz-split-<id>, 默认值)`。手柄是 `role="separator"` 的 `.resize-handle`(可 Tab,方向键 ±8px,Home/双击复位,带 `aria-valuenow/min/max`)。`title`/`ariaLabel` 是调用方按当前语言译好的文案,`titleKey`/`ariaKey` 是词条键,记到手柄的 `data-i18n-title`/`data-i18n-aria-label` 上,运行中切语言由 `applyLanguage` 重译(只传译文的话,切到英文后读屏名还是中文)。`max` 可以是函数,每次夹紧与同步 `aria-valuemax` 时重算。现有:左侧栏 `sidebar`(220~460,沿用旧键 `kz-sidebar-width`)、运行日志高度 `log`、文件树 `files`、记忆列表 `memory`、后台任务侧栏 `tasks`(左缘;停靠时 `[320, min(760, 主区宽 − 600)]`,抽屉时 `[320, 主区宽 − 96]`,subagent_presentation §5.6)。
 - **持久化**:`setFrameStore(store)` 注入存储,接口 `get(kind, id, hint)` / `set(kind, id, value|null, hint)`,`kind` 为 `frames` 或 `splits`,读写一律吞异常。应用里由 `ui/03-layout.js` 接到 `ui_prefs` 的 `ui_layout`(`crates/kanzei-app/src/prefs.rs`:任意 JSON,两级合并写入——按分区、再按键整体替换,`null` 删除,单次负载超过 64 KiB 整次丢弃;本机 WebView2 的 localStorage 重启即丢,D-404):启动时读一次,改动 400ms 去抖后只写变化的键,页面隐藏时立即写;localStorage 只作 try/catch 包着的缓存。样例页与冒烟用默认的 localStorage 存储。`ui_layout` 形如 `{ frames: { <框 id>: {v,l|r,t|b,w?,h?,kw,kh} }, splits: { <id>: px }, side_panel: { auto_open, auto_close } }`,后者是后台任务侧栏的两个设置开关。
 - **零 import**:样例页与假 DOM 冒烟要能单独加载;需要翻译的文案(手柄提示)由调用方传入。
 
@@ -226,6 +226,7 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
    弹窗里的菜单:JS 菜单挂在 dialog 内,真实鼠标点击菜单项走到 onSelect 且只关菜单;静态 data-kz-menu 菜单里的勾选框勾得上;Esc 先关菜单再关弹窗。补全列表与宽锚点同宽且左缘对齐(锚点 >420px)。键盘打开查看器同构弹窗时初始焦点不弹 tooltip(新开一个鼠标没进过的页面测,另有键盘聚焦出提示的对照)。
 5. index.html 运行时对照(预览服务注入模拟 IPC):所有 select 计算为 `base-select`;所有 `dialog, [popover]` 带 `k-surface`;除 `.resize-handle` 外没有顶层以外、正在显示的 `position: fixed` 元素。
 6. 可调框(暗色一轮,`// ── 分区:后台任务侧栏与可调框 ──`):真实鼠标从右边框外 3px 拖 +100 只加宽、左缘不动、弹窗不被轻关闭;拖标题栏只移动;一步甩动到位;上边拖出窗外夹在 8px;关掉再开保留几何并写进存储;窗口缩到 800×500 夹进视口、恢复后回到原几何;双击标题复位并清存储;Alt+Shift+→ 加宽 24;点遮罩照常关闭;卡片拖标题移动、左缘加宽右缘不动、标题上的普通点击目标不变;菜单/浮层/提示/toast 里没有手柄。index.html 对照:框清单恰为 `ask,confirm,input,project-models,viewer`,可调尺寸的框只有一个内层容器。
+   后台任务侧栏(同一分区,步骤 8,1600×900 暗色):侧栏停靠时权限卡左右边与 `#composer` 重合(±1px)、在输入区上方、不压侧栏;收起成「重新打开询问」芯片后芯片右缘 ≤ 侧栏左缘;「筛选与清理」菜单里原生下拉的列表开着时,第一次 Esc 只收列表(侧栏与菜单都在)、第二次只收菜单;2000 宽(侧栏 520)小表保留模型列,1280 宽(侧栏 352)隐去模型列、子代理列占行宽 ≥ 55%(容器查询阈值 440)。`KZ_SMOKE_MUTATE=askComposerAnchor|chipDockRight|escPopoverBrowser|tasksNarrowModel` 经 `page.route` 把被守护的源码改坏后再跑,四条均已实跑变红(变异没恰好命中一处直接报错)。
 7. 截图写入 `dist/ui-gallery/<theme>-<demo>.png`、`matrix.png`、`<theme>-index.png`、`dark-frame-dialog.png`、`dark-frame-card.png`(dist 已在 .gitignore)。
 
 已实测:删掉 base-select 那一行,或去掉 §4.4 的迟到 close 守卫,这份冒烟都会红。ui_lint 步骤因此增加约 20 秒并依赖本机 Edge(本机与 windows-latest 都有)。
@@ -260,6 +261,7 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
 - 2026-09-26(评审修正):弹窗里的菜单挂进锚点所在的 dialog(原先挂 body,模态开着时惰性、点不动)+ 门禁 H 组与模态外弹层告警;停靠卡片让位卡片外输入框/Monaco 的局部 Esc;程序化聚焦不弹 tooltip;补全列表放开 420px 宽度上限;toast 改浅底 + 软边;J1 覆盖局部变量写法。样例页与两份冒烟各补对应用例,手工变异均已实跑变红。
 
 - 2026-09-26(UI2-0926 #4/#14):新增 §4.6 00-frame.js(框与分隔条唯一入口,几何经 `ui_prefs.ui_layout` 持久化)、surface.css §10 可调框落位;`#bg-panel`/`#agent-panel` 合成停靠的 `#tasks-panel`(`.k-panel[data-dock]`、`.k-scrim`、`--surface-panel-docked`、运行时变量 `--kz-dock-right`),H 组删掉 role=dialog 的侧面板白名单;权限卡锚在输入区上方。门禁新增 H 组可调框规则、S1 侧栏外观与框落位、T1 运行时变量豁免、J3 覆盖 00-frame.js、J4 几何手势唯一入口,均带反例自测。
+- 2026-09-26(UI2-0926 #14#4 复核修复):`installSplit` 增加 `titleKey`/`ariaKey`(切语言重译);后台任务侧栏的分隔条上限按形态分开(抽屉 `主区宽 − 96`);侧栏自己的 Esc 监听跳过弹层内的按键(`[popover]` 里、或原生下拉列表开着),交给本模块与浏览器——此前「筛选与清理」菜单里下拉列表开着时按 Esc,00-surface 按设计放行,冒泡到侧栏被当成用户关闭。浏览器冒烟步骤 6 增补侧栏几何、芯片让位、弹层 Esc 与窄侧栏小表,并引入 `page.route` 变异守卫。
 
 ## 验证证据
 
