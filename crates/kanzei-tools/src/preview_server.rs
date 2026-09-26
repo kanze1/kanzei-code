@@ -22,6 +22,9 @@
 //! - 目录没有 index.html 就 404,不列目录;`Cache-Control: no-store`;不加 CORS 头。
 //! - 根路径引用(Vite 构建产物的 `/assets/x.js`)按 Referer 从引用页所在目录逐级向上找,
 //!   仍限定在同一个根内。
+//! - 片段(`/s/`)的响应带 [`SNIPPET_CSP`](`sandbox` 且不给 `allow-same-origin`):片段落到不透明源,
+//!   里面的脚本即使从自己的 URL 拿到 token,也读不了同源的 `/r/` 项目文件、碰不到本源的存储;
+//!   项目文件(`/r/`)不加——那是用户自己的页面,ES module、fetch 相对资源、localStorage 都要同源。
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -38,6 +41,14 @@ pub const SNIPPET_CAPACITY: usize = 32;
 pub const SNIPPET_MAX_BYTES: usize = 2 * 1024 * 1024;
 /// 请求头(含请求行)读取上限。
 const MAX_HEADER_BYTES: usize = 16 * 1024;
+/// 内存片段的 CSP:沙箱化、**不给** `allow-same-origin`,片段落到不透明源(docs/design/preview_pane.md §3)。
+///
+/// 片段与项目文件(`/t/{token}/r/…`)同源(127.0.0.1:port)、共用 token,片段里的脚本从自己的 URL
+/// 就能拿到 token;而片段来自聊天里的代码块(文档页、研究页里可能是抓来的网页内容)或模型的
+/// `browser html`,信任度低于用户自己的项目页面。不透明源下它的 fetch / XHR 读同主机资源一律按
+/// 跨源处理(本服务不发 CORS 头 → 读不到),也没有本源的 localStorage / Cookie / Service Worker。
+/// 只放行脚本、表单与 alert/confirm(片段本来就是拿来跑的演示页);弹窗、顶层导航不放行。
+pub const SNIPPET_CSP: &str = "sandbox allow-scripts allow-forms allow-modals";
 
 /// 进程内单例的静态服务。
 pub struct PreviewServer {
@@ -383,6 +394,8 @@ struct Response {
     status: u16,
     content_type: &'static str,
     location: Option<String>,
+    /// `Content-Security-Policy` 头(只有片段带,见 [`SNIPPET_CSP`])。
+    csp: Option<&'static str>,
     body: Body,
 }
 
@@ -392,6 +405,7 @@ impl Response {
             status,
             content_type: "text/plain; charset=utf-8",
             location: None,
+            csp: None,
             body: Body::Empty,
         }
     }
@@ -426,6 +440,9 @@ impl Response {
         if let Some(location) = &self.location {
             head.push_str(&format!("Location: {location}\r\n"));
         }
+        if let Some(csp) = self.csp {
+            head.push_str(&format!("Content-Security-Policy: {csp}\r\n"));
+        }
         head.push_str("\r\n");
         head
     }
@@ -447,19 +464,10 @@ fn respond(registry: &Mutex<Registry>, token: &str, request: &Request) -> Respon
         return respond_rooted(registry, token, &raw_path, request.referer.as_deref());
     };
     if let Some(name) = rest.strip_prefix("s/") {
-        let id = name.strip_suffix(".html").unwrap_or(name);
-        let Ok(registry) = registry.lock() else {
-            return Response::status(404);
-        };
-        return match registry.snippets.iter().find(|(key, _)| key == id) {
-            Some((_, body)) => Response {
-                status: 200,
-                content_type: "text/html; charset=utf-8",
-                location: None,
-                body: Body::Bytes(body.clone()),
-            },
-            None => Response::status(404),
-        };
+        // 片段一律沙箱化(含 404):不透明源,读不到同源的 /r/ 项目文件(见 SNIPPET_CSP)。
+        let mut response = snippet_response(registry, name);
+        response.csp = Some(SNIPPET_CSP);
+        return response;
     }
     let Some(rooted) = rest.strip_prefix("r/") else {
         return Response::status(404);
@@ -476,6 +484,24 @@ fn respond(registry: &Mutex<Registry>, token: &str, request: &Request) -> Respon
     };
     let wants_dir = rel.is_empty() || rel.ends_with('/');
     serve_file(&root, &segments, wants_dir, &raw_path)
+}
+
+/// `/t/{token}/s/{id}.html`:内存片段(CSP 由调用方统一加)。
+fn snippet_response(registry: &Mutex<Registry>, name: &str) -> Response {
+    let id = name.strip_suffix(".html").unwrap_or(name);
+    let Ok(registry) = registry.lock() else {
+        return Response::status(404);
+    };
+    match registry.snippets.iter().find(|(key, _)| key == id) {
+        Some((_, body)) => Response {
+            status: 200,
+            content_type: "text/html; charset=utf-8",
+            location: None,
+            csp: None,
+            body: Body::Bytes(body.clone()),
+        },
+        None => Response::status(404),
+    }
 }
 
 fn find_root(registry: &Mutex<Registry>, id: &str) -> Option<Root> {
@@ -519,10 +545,12 @@ fn serve_file(root: &Root, segments: &[&str], wants_dir: bool, raw_path: &str) -
         return Response::status(404);
     }
     match std::fs::metadata(&file) {
+        // 项目文件不加 CSP:用户自己的页面,多文件页面要同源(ES module、fetch 相对资源、存储)。
         Ok(meta) if meta.is_file() => Response {
             status: 200,
             content_type: mime_for(&file),
             location: None,
+            csp: None,
             body: Body::File(file, meta.len()),
         },
         _ => Response::status(404),
@@ -912,6 +940,103 @@ mod tests {
         assert!(add_snippet_to(&registry, &huge)
             .unwrap_err()
             .contains("过大"));
+    }
+
+    /// 集成收尾(前端接缝 §10-1):片段与 /r/ 项目文件同源、共用 token,片段里的脚本能从自己的 URL
+    /// 拿到 token。片段响应必须带 `sandbox`(且**不**带 allow-same-origin)落到不透明源;
+    /// 项目文件与根路径引用不带(用户自己的页面要同源才能跑 ES module / fetch 相对资源)。
+    #[test]
+    fn 片段带沙箱csp落到不透明源_项目文件不带() {
+        const HEADER: &str =
+            "Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals\r\n";
+        let dir = fixture("csp");
+        let (registry, id) = registry_with(&dir);
+        let snippet =
+            add_snippet_to(&registry, "<script>fetch('/t/x/r/y/secret.txt')</script>").unwrap();
+        let served = get(&registry, &format!("/t/{TOKEN}/s/{snippet}.html"));
+        assert_eq!(served.status, 200);
+        let head = served.head();
+        assert!(head.contains(HEADER), "片段必须沙箱化: {head}");
+        for forbidden in ["allow-same-origin", "allow-top-navigation", "allow-popups"] {
+            assert!(
+                !SNIPPET_CSP.contains(forbidden),
+                "片段 CSP 不得放行 {forbidden}"
+            );
+        }
+        // HEAD 与 GET 同一个头;查无此片段的 404 同样沙箱化(整条 /s/ 分支统一加)。
+        let head_only = respond(
+            &registry,
+            TOKEN,
+            &Request {
+                method: "HEAD".into(),
+                target: format!("/t/{TOKEN}/s/{snippet}.html"),
+                referer: None,
+            },
+        );
+        assert!(head_only.head().contains(HEADER));
+        let missing = get(&registry, &format!("/t/{TOKEN}/s/0000000000000000.html"));
+        assert_eq!(missing.status, 404);
+        assert!(missing.head().contains(HEADER));
+
+        // 项目文件(页面与它的 module 资源)、根路径引用:不带 CSP。
+        for target in [
+            format!("/t/{TOKEN}/r/{id}/site/index.html"),
+            format!("/t/{TOKEN}/r/{id}/site/app.mjs"),
+            format!("/t/{TOKEN}/r/{id}/site/"),
+        ] {
+            let response = get(&registry, &target);
+            assert_eq!(response.status, 200, "{target}");
+            assert!(
+                !response.head().contains("Content-Security-Policy"),
+                "{target} 是用户自己的页面,不能沙箱化"
+            );
+        }
+        let rooted = respond(
+            &registry,
+            TOKEN,
+            &Request {
+                method: "GET".into(),
+                target: "/assets/x.js".into(),
+                referer: Some(format!(
+                    "http://127.0.0.1:1/t/{TOKEN}/r/{id}/site/index.html"
+                )),
+            },
+        );
+        assert_eq!(rooted.status, 200);
+        assert!(!rooted.head().contains("Content-Security-Policy"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 真 socket:片段的 CSP 头真的写到了线上;同一服务上的项目文件没有。
+    #[test]
+    fn 真实连接_片段响应头带沙箱_项目页面不带() {
+        let dir = fixture("csp-socket");
+        let server = PreviewServer::start().unwrap();
+        let fetch = |url: &str| {
+            let path = url.trim_start_matches(&server.origin()).to_string();
+            let mut stream = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+            write!(stream, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
+            let mut text = String::new();
+            stream.read_to_string(&mut text).unwrap();
+            text
+        };
+        let snippet = server.add_snippet("<p>片段</p>").unwrap();
+        let got = fetch(&snippet);
+        let (head, body) = got.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("HTTP/1.1 200 OK"), "{head}");
+        assert!(
+            head.lines()
+                .any(|line| line == format!("Content-Security-Policy: {SNIPPET_CSP}")),
+            "{head}"
+        );
+        assert_eq!(body, "<p>片段</p>");
+        let page = server
+            .url_for_path(&dir.join("site/index.html"), std::slice::from_ref(&dir))
+            .unwrap();
+        let got = fetch(&page);
+        assert!(got.starts_with("HTTP/1.1 200 OK"), "{got}");
+        assert!(!got.contains("Content-Security-Policy"), "{got}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// 真 socket:HEAD 只回头不回体;GET 回体;URL 由 url_for_path 生成。
