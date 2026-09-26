@@ -326,9 +326,12 @@ function scheduleEvaluate() {
 function evaluate() {
   if (holdFreeze) return;
   if (!baseVisible()) {
-    cancelFreeze();
-    showFreeze(false);
-    frozen = false;
+    // 面板关着时每次提示显隐也会走到这里:没有冻结在身就不碰 DOM。
+    if (freezePending) cancelFreeze();
+    if (frozen) {
+      frozen = false;
+      showFreeze(false);
+    }
     if (state.alive) sendVisible(false);
     return;
   }
