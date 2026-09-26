@@ -326,39 +326,51 @@ pub(crate) async fn run_task(
                         }),
                     };
                     if deps.profile == kanzei_harness::ProfileKind::Research {
-                        Some(crate::research_auto::decide(
+                        Some(Err(crate::research_auto::decide(
                             ctrl,
                             ctx,
                             &deps.project_root,
                             deps.research_topic.as_deref(),
-                        ))
+                        )))
                     } else {
                         let action = crate::auto_run::decide_auto_run(ctrl, ctx);
-                        if let kanzei_harness::auto_run::AutoRunAction::Stop(
-                            kanzei_harness::auto_run::AutoStopReason::RepeatedFailure(n),
-                        ) = action
-                        {
-                            // 过夜停摆必须让人知道:经 LAN 推送桥发手机通知(尽力而为)。
-                            if let Ok(message) = crate::mobile_notify::notify_mobile(
-                                "kanzei 自动运行停摆",
-                                &format!("连续 {n} 轮运行失败,自动推进已停止。最后错误: {error}"),
-                            ) {
-                                tracing::debug!("{message}");
-                            }
-                        }
-                        let mut payload = crate::auto_run::serialize_action(action, || {
-                            crate::auto_run::nudge_facts(
-                                &ctx_cwd,
-                                &deps.project_root,
-                                crate::auto_run::work_priority_enum(deps.work_priority),
-                            )
-                        });
-                        payload["rounds"] = json!(ctrl.state.rounds);
-                        payload["max"] = json!(ctrl.state.max_rounds);
-                        Some(payload)
+                        Some(Ok((
+                            action,
+                            json!(ctrl.state.rounds),
+                            json!(ctrl.state.max_rounds),
+                        )))
                     }
                 }
             };
+            // UI2-0926 #13 复核:手机通知(网络)与 Nudge 事实(tracker + git)在锁外做。
+            // Err = 研究档已序列化好的载荷;Ok = 开发档的判定与锁内取的计数镜像。
+            let auto_payload = auto_payload.map(|decided| match decided {
+                Err(research_payload) => research_payload,
+                Ok((action, rounds, max)) => {
+                    if let kanzei_harness::auto_run::AutoRunAction::Stop(
+                        kanzei_harness::auto_run::AutoStopReason::RepeatedFailure(n),
+                    ) = action
+                    {
+                        // 过夜停摆必须让人知道:经 LAN 推送桥发手机通知(尽力而为)。
+                        if let Ok(message) = crate::mobile_notify::notify_mobile(
+                            "kanzei 自动运行停摆",
+                            &format!("连续 {n} 轮运行失败,自动推进已停止。最后错误: {error}"),
+                        ) {
+                            tracing::debug!("{message}");
+                        }
+                    }
+                    let mut payload = crate::auto_run::serialize_action(action, || {
+                        crate::auto_run::nudge_facts(
+                            &ctx_cwd,
+                            &deps.project_root,
+                            crate::auto_run::work_priority_enum(deps.work_priority),
+                        )
+                    });
+                    payload["rounds"] = rounds;
+                    payload["max"] = max;
+                    payload
+                }
+            });
             if let Some(auto) = auto_payload {
                 let _ = window.emit(
                     "kz:auto-fail",
@@ -402,7 +414,20 @@ pub(crate) async fn run_task(
     } else {
         crate::auto_run::progress_signature(&deps.project_root)
     };
-    let auto_action_json = {
+    // UI2-0926 #13 复核:锁内只做判定、取计数镜像与目标;Nudge 事实(tracker 读取 + git 观测)
+    // 放到锁外算——auto_runs 是全会话共享的 std Mutex,同步命令 auto_state_update 在主线程上等它
+    // (D-583 同一原则:持锁期间不做文件 IO 与 git 子进程)。
+    enum Decided {
+        Research(serde_json::Value),
+        Dev {
+            action: kanzei_harness::auto_run::AutoRunAction,
+            goal_prompt: Option<String>,
+            goal_active: bool,
+            rounds: serde_json::Value,
+            max: serde_json::Value,
+        },
+    }
+    let decided = {
         let mut controllers = handles.auto_runs.lock_or_recover();
         let ctrl = controllers.entry(session_id.clone()).or_default();
         let ctx = kanzei_harness::auto_run::AutoRunCtx {
@@ -443,16 +468,50 @@ pub(crate) async fn run_task(
             round_failure: None,
         };
         if deps.profile == kanzei_harness::ProfileKind::Research {
-            let payload = crate::research_auto::decide(
+            Decided::Research(crate::research_auto::decide(
                 ctrl,
                 ctx,
                 &deps.project_root,
                 deps.research_topic.as_deref(),
-            );
+            ))
+        } else {
+            use kanzei_harness::auto_run::{AutoRunAction, AutoStopReason};
+            let action = crate::auto_run::decide_auto_run(ctrl, ctx);
+            // R-322 B3:目标原文由 controller 填入(引擎不持有用户数据),
+            // 前端按 Nudge 同款机制把它作为下一轮输入发回。
+            let goal_prompt = matches!(action, AutoRunAction::GoalPending)
+                .then(|| ctrl.goal.clone().unwrap_or_default());
+            // 达成或判定不可达 → 目标是一次性意图,就地清除(D-111 同型:一次性
+            // 意图留着会在下一段无关对话里继续生效)。前端收到 reason 后同步清输入框。
+            if matches!(
+                action,
+                AutoRunAction::Stop(AutoStopReason::GoalMet | AutoStopReason::GoalUnreachable(_))
+            ) {
+                ctrl.goal = None;
+            }
+            // 判定和镜像值必须在同一把锁内取，避免后台会话完成时覆盖本会话的计数。
+            Decided::Dev {
+                action,
+                goal_prompt,
+                goal_active: ctrl.goal.is_some(),
+                rounds: json!(ctrl.state.rounds),
+                max: json!(ctrl.state.max_rounds),
+            }
+        }
+    };
+    let auto_action_json = match decided {
+        Decided::Research(payload) => {
             let zero_output = payload["reason"] == "ZeroOutput";
             (payload, zero_output)
-        } else {
-            let action = crate::auto_run::decide_auto_run(ctrl, ctx);
+        }
+        Decided::Dev {
+            action,
+            goal_prompt,
+            goal_active,
+            rounds,
+            max,
+        } => {
+            // 锁已释放:Nudge 事实只在真的要发 Nudge 时才算(惰性)。
             let mut payload = crate::auto_run::serialize_action(action, || {
                 crate::auto_run::nudge_facts(
                     &ctx_cwd,
@@ -460,23 +519,12 @@ pub(crate) async fn run_task(
                     crate::auto_run::work_priority_enum(deps.work_priority),
                 )
             });
-            // R-322 B3:目标原文由 controller 填入(引擎不持有用户数据),
-            // 前端按 Nudge 同款机制把它作为下一轮输入发回。
-            if payload["type"] == json!("GoalPending") {
-                payload["prompt"] = json!(ctrl.goal.clone().unwrap_or_default());
+            if let Some(goal) = goal_prompt {
+                payload["prompt"] = json!(goal);
             }
-            // 达成或判定不可达 → 目标是一次性意图,就地清除(D-111 同型:一次性
-            // 意图留着会在下一段无关对话里继续生效)。前端收到 reason 后同步清输入框。
-            if matches!(
-                payload["reason"].as_str(),
-                Some("GoalMet" | "GoalUnreachable")
-            ) {
-                ctrl.goal = None;
-            }
-            payload["goalActive"] = json!(ctrl.goal.is_some());
-            // 判定和镜像值必须在同一把锁内取，避免后台会话完成时覆盖本会话的计数。
-            payload["rounds"] = json!(ctrl.state.rounds);
-            payload["max"] = json!(ctrl.state.max_rounds);
+            payload["goalActive"] = json!(goal_active);
+            payload["rounds"] = rounds;
+            payload["max"] = max;
             (
                 payload,
                 matches!(

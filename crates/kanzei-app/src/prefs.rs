@@ -59,8 +59,10 @@ pub(crate) fn load_prefs() -> AppPrefs {
 
 /// UI2-0926 #13:按进程 id / 项目路径作键的偏好,键里的 `\\?\` 前缀去掉(与 schema v25 同一条
 /// path_form 规则)。进程 id 形如 `d|\\?\C:\…` —— 身份根改成 simplify 形态之后,不迁移的话
-/// 每条线的鞭挞开关与停机设置都会在升级后「丢失」。两种写法并存时保留带前缀的那条:
-/// 升级前它才是在用的键。
+/// 每条线的鞭挞开关与停机设置都会在升级后「丢失」。两种写法并存时保留**去前缀**的那条、丢掉
+/// 带前缀的:只有本版本才写去前缀的键,所以它一定是较新的写入;带前缀的只可能是升级前的存档,
+/// 或别处(本地 localStorage 的旧映射)回灌的陈值——让它赢,用户升级后的设置(比如关掉的鞭挞)
+/// 会在下次启动时被旧值改回去(复核 minor)。
 pub(crate) fn simplify_pref_keys(prefs: &mut AppPrefs) {
     fn simplify_key(key: &str) -> Option<String> {
         let (prefix, path) = match key.split_once('|') {
@@ -83,7 +85,7 @@ pub(crate) fn simplify_pref_keys(prefs: &mut AppPrefs) {
             .collect();
         for (from, to) in renames {
             if let Some(value) = map.remove(&from) {
-                map.insert(to, value);
+                map.entry(to).or_insert(value);
             }
         }
     }
@@ -306,7 +308,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 偏好键去掉_verbatim_前缀_并存时保留带前缀的值() {
+    fn 偏好键去掉_verbatim_前缀_并存时保留去前缀的值() {
         let mut prefs = AppPrefs::default();
         prefs
             .process_auto_state
@@ -328,9 +330,10 @@ mod tests {
             prefs.process_auto_state[r"d|C:\proj"]["enabled"],
             json!(true)
         );
+        // 并存:去前缀的键是本版本写的(较新),带前缀的是旧存档/回灌的陈值,丢掉。
         assert_eq!(
-            prefs.process_auto_state[r"p2|C:\proj"]["paused"],
-            json!(true)
+            prefs.process_auto_state[r"p2|C:\proj"],
+            json!({ "enabled": false })
         );
         assert!(!prefs.process_auto_state.contains_key(r"p2|\\?\C:\proj"));
         assert!(

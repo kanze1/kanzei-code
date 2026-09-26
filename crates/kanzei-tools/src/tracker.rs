@@ -3190,6 +3190,16 @@ mod tests {
         };
         assert_eq!(field("批次").as_deref(), Some("0/5"));
         assert_eq!(field("批次计划").as_deref(), Some("B1 核心模型、快速笔记"));
+        // 复核:归一写出的「批次计划」是登记过的叙事字段,结构化读取不标灰、不计入未知字段。
+        let structured = super::scheduling::structured_entry(&saved[0], &[], false);
+        let plan = structured["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["name"] == "批次计划")
+            .expect("结构化读取应含批次计划");
+        assert_eq!(plan["known"], true, "{plan}");
+        assert_eq!(plan["category"], "narrative", "{plan}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

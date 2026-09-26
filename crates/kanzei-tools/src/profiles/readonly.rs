@@ -24,6 +24,12 @@ impl Component for ReadonlyProfile {
                 .permissions
                 .push(rule("git", subcommand, Effect::Allow));
         }
+        // UI2-0926 #13 复核:git 工具新增的 `init`(建库)是写操作,只读档位硬拒绝——不落到默认 Ask。
+        draft.permissions.push_managed_hard_deny(
+            rule("git", "init", Effect::Deny),
+            None,
+            Some("只读档位不建仓库:需要版本管理请切到开发档,或告诉用户手动 git init"),
+        );
         // 只读档位下联网抓取放行(分析"外部事实"时的主要只读通道)。
         draft.permissions.push(rule("webfetch", "*", Effect::Allow));
         // 写入、命令与专用副作用工具:硬 deny 且带合法替代指引——硬 deny 只说"不准走这条路",

@@ -157,7 +157,8 @@ pub async fn git_status(
     tokio::task::spawn_blocking(move || {
         // UI2-0926 #13:先看代码树自己是不是仓库。不是的话给出「无 Git / 位于上级仓库」的事实,
         // 绝不把上级仓库的分支与改动当成本项目的显示出来(原先 rev-parse 在上级仓库里照样成功)。
-        match kanzei_tools::project_state::probe_cached(&root).git {
+        // 只读 .git/HEAD/refs(git_state_of),不跑整套项目探测——bash 每跑完一条就作废探测缓存。
+        match kanzei_tools::project_state::git_state_of(&root) {
             kanzei_tools::project_state::GitState::Repo { .. } => {}
             kanzei_tools::project_state::GitState::None => {
                 return json!({

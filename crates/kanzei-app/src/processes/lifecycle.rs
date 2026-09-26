@@ -241,7 +241,7 @@ pub(crate) async fn create_process_with_tracker(
     // UI2-0926 #13:工作树线需要一个**有提交的独立仓库**。原先要一路跑到 `git worktree add`
     // 才失败(无 Git / 上级仓库 / 没有 HEAD 三种都是),报出来的是 git 的原话;这里先说清原因。
     if worktree_name.is_some() {
-        match kanzei_tools::project_state::probe_cached(&root).git {
+        match kanzei_tools::project_state::git_state_of(&root) {
             kanzei_tools::project_state::GitState::Repo {
                 has_commits: true, ..
             } => {}

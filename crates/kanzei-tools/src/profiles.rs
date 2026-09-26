@@ -1227,7 +1227,8 @@ mod tests {
         for subcommand in ["status", "diff", "log"] {
             assert_eq!(snapshot.evaluate("git", subcommand), Effect::Allow);
         }
-        for subcommand in ["stage", "commit", "merge_ff", "finalize"] {
+        // UI2-0926 #13 复核:git 工具新增的 init(建库)同样硬拒绝。
+        for subcommand in ["stage", "commit", "merge_ff", "finalize", "init"] {
             assert_eq!(
                 snapshot.evaluate("git", subcommand),
                 Effect::Deny,
@@ -1330,6 +1331,9 @@ mod tests {
                 "git {subcommand} 应放行"
             );
         }
+        // UI2-0926 #13 复核:建库(git init)不落到默认 ask,只读档位硬拒绝。
+        assert_eq!(snapshot.evaluate("git", "init"), Effect::Deny);
+        assert!(snapshot.denial_hint("git", "init").contains("不建仓库"));
         // 工具物化:所有写入、命令与专用副作用工具从工具表摘除,模型根本拿不到。
         let names: Vec<&str> = snapshot
             .materialize_tools()

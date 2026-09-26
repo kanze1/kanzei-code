@@ -143,51 +143,71 @@ pub(crate) fn create_project_dir(
     }
 }
 
+/// 阻塞工作(git 子进程、目录遍历、PATH × PATHEXT 扫描、注册表)放到阻塞线程池:同步的
+/// `#[tauri::command]` 跑在主线程上,对话框会让整个 WebView 卡住几百毫秒(复核 minor,
+/// 与 `git_status` 同一做法)。
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("后台任务失败: {error}"))?
+}
+
 #[tauri::command]
-pub fn projects_create(
+pub async fn projects_create(
     parent: String,
     name: String,
     git_init: bool,
     description: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let (dir, git, git_error) = create_project_dir(&parent, &name, git_init)?;
-    let prefs = register_project(&dir, Some(name.trim()));
-    let root = crate::normalized_project_root(&dir);
-    Ok(json!({
-        "prefs": prefs,
-        "path": root.display().to_string(),
-        "facts": kanzei_tools::project_state::probe(&root),
-        "git": git,
-        "gitError": git_error,
-        "description": description.map(|text| text.trim().to_string()).filter(|text| !text.is_empty()),
-    }))
+    blocking(move || {
+        let (dir, git, git_error) = create_project_dir(&parent, &name, git_init)?;
+        let prefs = register_project(&dir, Some(name.trim()));
+        let root = crate::normalized_project_root(&dir);
+        Ok(json!({
+            "prefs": prefs,
+            "path": root.display().to_string(),
+            "facts": kanzei_tools::project_state::probe(&root),
+            "git": git,
+            "gitError": git_error,
+            "description": description.map(|text| text.trim().to_string()).filter(|text| !text.is_empty()),
+        }))
+    })
+    .await
 }
 
 /// UI2-0926 #13:给已有的非 Git 项目建独立仓库(横幅/芯片的「初始化 Git」)。只 init + 补
 /// `.kanzei/.gitignore`,不自动提交——已有文件里可能有不该进库的东西,首提交交给用户或 agent。
 /// 项目位于上级仓库内时也在项目根建嵌套仓库(前端先确认过)。
 #[tauri::command]
-pub fn project_git_init(project_dir: String) -> Result<serde_json::Value, String> {
-    let root = crate::normalized_project_root(Path::new(&project_dir));
-    if !root.is_dir() {
-        return Err(format!("项目目录不存在: {}", root.display()));
-    }
-    let outcome = kanzei_tools::project_state::git_init(&root, false)?;
-    Ok(json!({
-        "git": outcome,
-        "facts": kanzei_tools::project_state::probe(&root),
-    }))
+pub async fn project_git_init(project_dir: String) -> Result<serde_json::Value, String> {
+    blocking(move || {
+        let root = crate::normalized_project_root(Path::new(&project_dir));
+        if !root.is_dir() {
+            return Err(format!("项目目录不存在: {}", root.display()));
+        }
+        let outcome = kanzei_tools::project_state::git_init(&root, false)?;
+        Ok(json!({
+            "git": outcome,
+            "facts": kanzei_tools::project_state::probe(&root),
+        }))
+    })
+    .await
 }
 
 /// UI2-0926 #13:项目状态事实(与 agent 上下文里的 `<project-state>` 同源)。
 #[tauri::command]
-pub fn project_facts(project_dir: String) -> Result<serde_json::Value, String> {
-    let root = crate::normalized_project_root(Path::new(&project_dir));
-    if !root.is_dir() {
-        return Err(format!("项目目录不存在: {}", root.display()));
-    }
-    serde_json::to_value(kanzei_tools::project_state::probe_cached(&root))
-        .map_err(|e| e.to_string())
+pub async fn project_facts(project_dir: String) -> Result<serde_json::Value, String> {
+    blocking(move || {
+        let root = crate::normalized_project_root(Path::new(&project_dir));
+        if !root.is_dir() {
+            return Err(format!("项目目录不存在: {}", root.display()));
+        }
+        serde_json::to_value(kanzei_tools::project_state::probe_cached(&root))
+            .map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]

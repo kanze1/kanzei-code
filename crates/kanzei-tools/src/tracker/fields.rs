@@ -123,6 +123,12 @@ pub(crate) const FIELD_REGISTRY: &[FieldDefinition] = &[
         category: FieldCategory::Narrative,
         has_consumer: false,
     },
+    // UI2-0926 #13:`批次: 0/5; B1 …` 归一时,k/N 之后的说明落在这里(tracker normalize_batch_field)。
+    FieldDefinition {
+        key: "批次计划",
+        category: FieldCategory::Narrative,
+        has_consumer: false,
+    },
     FieldDefinition {
         key: "背景",
         category: FieldCategory::Narrative,
@@ -212,7 +218,7 @@ mod tests {
 
     #[test]
     fn field_registry_lists_categories_and_consumers() {
-        assert_eq!(FIELD_REGISTRY.len(), 26);
+        assert_eq!(FIELD_REGISTRY.len(), 27);
         let engine = definition("observed_head").expect("引擎字段应登记");
         assert_eq!(engine.category, FieldCategory::Engine);
         assert!(engine.has_consumer);

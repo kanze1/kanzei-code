@@ -232,10 +232,7 @@ pub fn progress_signature(project_root: &Path) -> String {
     // UI2-0926 #13:非 Git 项目的 git 观测全部失败,HEAD 与工作树哈希是常量,签名只剩
     // tracker 字节会变——连续三轮只写代码不动 tracker 就被零产出熔断误停。没有独立仓库时
     // 并入项目树指纹(`.kanzei` 与构建目录之外文件的路径/大小/修改时间,遍历有上限)。
-    if !kanzei_tools::project_state::probe_cached(project_root)
-        .git
-        .is_repo()
-    {
+    if !kanzei_tools::project_state::git_state_of(project_root).is_repo() {
         kanzei_tools::project_state::tree_fingerprint(project_root).hash(&mut hasher);
     }
     for rel in [
@@ -261,7 +258,8 @@ pub fn nudge_facts(cwd: &Path, project_root: &Path, work_priority: WorkPriority)
         .filter(|name| project_root.join(".kanzei/project").join(name).is_file())
         .map(|name| (*name).to_string())
         .collect();
-    let decision = kanzei_tools::resolve_work_decision(cwd, project_root, work_priority).ok();
+    // 不做全量交付对账(include_reconciliation = false):Nudge 只要选中项与阻塞原因。
+    let decision = kanzei_tools::resolve_work_selection(cwd, project_root, work_priority).ok();
     let selected = decision
         .as_ref()
         .and_then(|state| state.selected.as_ref())
@@ -388,25 +386,30 @@ pub fn ends_with_user_question(text: &str) -> bool {
         || (REQUESTS.iter().any(|request| lower.contains(request)) && tail.lines().count() <= 3)
 }
 
-/// 本轮消息里最后一条助手消息的正文(多段文本拼接;没有正文时 None)。
+/// 本轮**最后一条**助手消息的正文(多段文本拼接)。那条消息带工具调用(轮中旁白,如「先确认 X
+/// 是否存在?」+ 调工具)或没有正文(只有推理)时返回 None——不往前找更早的旁白:那不是收尾的话,
+/// 拿来判「在问用户」会误停(复核 minor)。
 pub fn last_assistant_text(messages: &[kanzei_llm::Message]) -> Option<String> {
-    messages
+    let message = messages
         .iter()
         .rev()
-        .filter(|message| message.role == kanzei_llm::Role::Assistant)
-        .find_map(|message| {
-            let text: Vec<&str> = message
-                .parts
-                .iter()
-                .filter_map(|part| match part {
-                    kanzei_llm::Part::Text { text } if !text.trim().is_empty() => {
-                        Some(text.as_str())
-                    }
-                    _ => None,
-                })
-                .collect();
-            (!text.is_empty()).then(|| text.join("\n\n"))
+        .find(|message| message.role == kanzei_llm::Role::Assistant)?;
+    if message
+        .parts
+        .iter()
+        .any(|part| matches!(part, kanzei_llm::Part::ToolCall { .. }))
+    {
+        return None;
+    }
+    let text: Vec<&str> = message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            kanzei_llm::Part::Text { text } if !text.trim().is_empty() => Some(text.as_str()),
+            _ => None,
         })
+        .collect();
+    (!text.is_empty()).then(|| text.join("\n\n"))
 }
 
 fn strip_fenced_code(text: &str) -> String {
@@ -862,6 +865,61 @@ mod tests {
         assert!(!asks("示例:\n\n```\nwhat is this?\n```"));
         assert!(!asks("我确认了是否存在冲突:没有冲突,已提交。"));
         assert!(!asks(""));
+    }
+
+    /// 复核 minor:只看本轮最后一条助手消息,且它不能带工具调用。最后一条只有推理时,不得回头
+    /// 拿更早的轮中旁白(「要先确认 X 吗?」+ 工具调用)去判「在问用户」。
+    #[test]
+    fn 最后一条助手消息才算收尾_带工具调用或只有推理都不算() {
+        use kanzei_llm::{Message, Part, Role};
+        let narration = Message {
+            role: Role::Assistant,
+            parts: vec![
+                Part::Text {
+                    text: "要先确认 X 吗？".into(),
+                },
+                Part::ToolCall {
+                    id: "c1".into(),
+                    name: "glob".into(),
+                    input: serde_json::json!({ "pattern": "X*" }),
+                },
+            ],
+        };
+        let result = Message {
+            role: Role::User,
+            parts: vec![Part::ToolResult {
+                call_id: "c1".into(),
+                content: "X.md".into(),
+                is_error: false,
+            }],
+        };
+        let reasoning_only = Message {
+            role: Role::Assistant,
+            parts: vec![Part::Reasoning {
+                text: "done".into(),
+                signature: None,
+            }],
+        };
+        assert_eq!(
+            super::last_assistant_text(&[narration.clone(), result.clone(), reasoning_only]),
+            None,
+            "最后一条只有推理:不回头读旁白"
+        );
+        assert_eq!(
+            super::last_assistant_text(std::slice::from_ref(&narration)),
+            None,
+            "带工具调用的旁白不是收尾"
+        );
+        let closing = Message {
+            role: Role::Assistant,
+            parts: vec![Part::Text {
+                text: "接下来用 Riverpod 还是 Bloc？".into(),
+            }],
+        };
+        assert_eq!(
+            super::last_assistant_text(&[narration, result, closing]).as_deref(),
+            Some("接下来用 Riverpod 还是 Bloc？")
+        );
     }
 
     #[test]

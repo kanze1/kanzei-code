@@ -166,6 +166,12 @@ pub fn probe_cached(root: &Path) -> ProjectFacts {
     facts
 }
 
+/// 只看 Git 三态(读 `.git`/HEAD/refs,不遍历目录、不找工具链、不 spawn git)。
+/// `git_status`、并行线入口这类只关心仓库状态的调用方用它,不必跑整套探测。
+pub fn git_state_of(root: &Path) -> GitState {
+    git_state(&crate::path_form::simplify(root))
+}
+
 /// 不带缓存的探测。
 pub fn probe(root: &Path) -> ProjectFacts {
     probe_with_path(root, &crate::shell::fresh_path())
@@ -676,8 +682,10 @@ pub fn render(facts: &ProjectFacts) -> String {
     lines.push(format!("root: {}", facts.root));
     lines.push(match facts.layout {
         Layout::Greenfield => "layout: 空项目(除 .kanzei 外没有文件)——就在这个目录搭工程,不要向用户索要「实际仓库路径」".to_string(),
-        Layout::Sparse => format!("layout: 几乎为空({} 个文件、无工程清单)——在这里搭工程", facts.files),
-        Layout::Existing => format!("layout: 已有工程(≥{} 个文件)", facts.files),
+        // 文件数只进 ProjectFacts(给界面),不进文本:bash 每跑完一条命令就作废缓存,agent 每建/删
+        // 一个文件都会改写系统提示,整段对话的 prompt 缓存随之失效(复核 major)。
+        Layout::Sparse => "layout: 几乎为空(无工程清单)——在这里搭工程".to_string(),
+        Layout::Existing => "layout: 已有工程".to_string(),
     });
     lines.push(match &facts.git {
         GitState::None => "git: 无——并行线/工作树、提交与差异不可用;需要时用 git 工具 action=init 建库".to_string(),
@@ -933,6 +941,45 @@ mod tests {
             first.chars().count()
         );
         assert!(first.ends_with("</project-state>"));
+    }
+
+    /// 复核 major:文件数进了文本,agent 每建一个文件系统提示就变,整段对话的 prompt 缓存失效。
+    /// 已有工程多一个源文件、几乎为空的目录多一个零星文件,渲染都必须逐字节不变。
+    #[test]
+    fn 渲染不随文件数变化_加一个文件文本逐字节不变() {
+        let root = temp_root("render-files");
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        for index in 0..5 {
+            std::fs::write(root.join("src").join(format!("m{index}.rs")), "").unwrap();
+        }
+        let before = probe_with_path(&root, &empty_path());
+        assert_eq!(before.layout, Layout::Existing);
+        std::fs::write(root.join("src").join("new_module.rs"), "pub fn f() {}").unwrap();
+        let after = probe_with_path(&root, &empty_path());
+        assert_ne!(
+            before.files, after.files,
+            "文件数照常进 ProjectFacts(界面用)"
+        );
+        assert_eq!(
+            render(&before),
+            render(&after),
+            "已有工程多一个文件不得改写文本"
+        );
+
+        let sparse = temp_root("render-sparse");
+        std::fs::write(sparse.join("notes.txt"), "x").unwrap();
+        let one = probe_with_path(&sparse, &empty_path());
+        std::fs::write(sparse.join("todo.txt"), "y").unwrap();
+        let two = probe_with_path(&sparse, &empty_path());
+        assert_eq!((one.layout, two.layout), (Layout::Sparse, Layout::Sparse));
+        assert_eq!(
+            render(&one),
+            render(&two),
+            "几乎为空的目录多一个文件不得改写文本"
+        );
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&sparse).ok();
     }
 
     #[test]

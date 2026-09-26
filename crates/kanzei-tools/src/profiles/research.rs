@@ -180,7 +180,8 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
         Some("research 档禁止 bash；实验命令请使用 `research_runner`，编译与绘图使用 `latex` 或 `plot`，或使用 read/glob/grep/files/git status|diff|log 读取事实"),
     );
     // research 允许观察 Git，但禁止任何会改写仓库或发布的结构化动作。
-    for subcommand in ["stage", "commit", "merge_ff", "finalize"] {
+    // UI2-0926 #13 复核:git 工具新增的 `init` 同样是改写(建库),独立课题工作区也不该被建成仓库。
+    for subcommand in ["stage", "commit", "merge_ff", "finalize", "init"] {
         draft.permissions.push_managed_hard_deny(
             rule("git", subcommand, Effect::Deny),
             None,
