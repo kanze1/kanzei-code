@@ -1097,6 +1097,8 @@ export const I18N_EN = {
   // ---- 分区:对话单列与输入区 ----
   // UI2-0926 #11 #12:本轮结束 notice 的计数模板(07-events.js kz:done)。
   "{n} 步": "{n} steps", "会话 {n} 条": "{n} messages in session",
+  // 输入区(#11):鞭挞菜单里的「继续文案」行说明。
+  "每轮结束自动发出的推进指令,留空用默认": "The nudge sent automatically after each round; leave empty for the default",
   // 工具组(05-chat-render.js toolGroupSummary):每族单复数两个 key,中文单数 key 即填好 1 的原文。
   "读取 {n} 个文件": "Read {n} files", "读取 1 个文件": "Read 1 file",
   "修改 {n} 个文件": "Edited {n} files", "修改 1 个文件": "Edited 1 file",

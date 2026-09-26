@@ -264,21 +264,23 @@ export function renderChangeBar(status) {
   const files = status?.files ?? [];
   const additions = status?.additions ?? 0;
   const deletions = status?.deletions ?? 0;
-  // 没有改动就整条收起来:它是「这一轮把工作树改成了什么样」的答案,没答案不占位置。
+  // UI2-0926 #11:分支住在上下文带左侧(项目名旁),没有改动时也要看得见,所以在早退之前写。
+  const branch = $("ctx-branch");
+  if (branch) branch.textContent = status?.branch ? `⎇ ${status.branch}` : "";
+  const box = $("change-bar-files");
+  // 没有改动就把改动按钮与清单都收起来:它是「这一轮把工作树改成了什么样」的答案,没答案不占位置。
   if (!files.length) {
     bar.classList.add("hidden");
+    box?.classList.add("hidden");
     return;
   }
   bar.classList.remove("hidden");
   $("change-bar-repo").textContent = `${files.length} ${t("个文件")}`;
-  $("change-bar-branch").textContent = status?.branch ? `⎇ ${status.branch}` : "";
   $("change-bar-add").textContent = `+${additions}`;
   $("change-bar-del").textContent = `−${deletions}`;
-  const box = $("change-bar-files");
   box.classList.toggle("hidden", !changeBarOpen);
+  // 箭头(.kz-chev)随 aria-expanded 旋转,不再改字形。
   $("change-bar-toggle").setAttribute("aria-expanded", String(changeBarOpen));
-  const caret = $("change-bar-toggle").querySelector(".change-bar-caret");
-  if (caret) caret.textContent = changeBarOpen ? "▾" : "▸";
   if (!changeBarOpen) return;
   box.replaceChildren();
   for (const file of files) {

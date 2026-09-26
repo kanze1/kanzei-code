@@ -179,10 +179,22 @@ export function renderAutoRun() {
   bar.classList.toggle("armed", armed);
   // #7:轮次上升时 tick 一次;无参重绘值不变,不会重复触发。
   motionCount($("auto-round-now"), String(autoRounds));
-  const progress = $("auto-progress");
-  progress.style.removeProperty("--auto-progress");
-  progress.setAttribute("aria-label", `${t("鞭挞轮次")} ${autoRounds}`);
   $("auto-phase").textContent = t(AUTO_PHASE_LABEL[phase]);
+  // UI2-0926 #11:「N 轮 · 阶段 ⌄」就是鞭挞设置的触发器(状态即入口)。未开时它收成纯箭头,读屏名只剩「鞭挞设置」;
+  // 开着时名字带上轮次与阶段(推进中阶段字被 CSS 收起,读屏仍读得到)。名字由这里写,静态 data-i18n-* 摘掉——
+  // 否则切语言时 applyDataI18nKeys 会把它冲回静态键。
+  // 只在名字变了时写:title 可能正被悬停提示层接管(挪进 data-kz-tip),每次重绘都写回会冒出原生提示。
+  const trigger = $("autorun-more");
+  const label = armed ? `${t("鞭挞设置")} · ${t("鞭挞轮次")} ${autoRounds} · ${t(AUTO_PHASE_LABEL[phase])}` : t("鞭挞设置");
+  if (trigger && trigger.dataset.kzLabel !== label) {
+    trigger.dataset.kzLabel = label;
+    delete trigger.dataset.i18nTitle;
+    delete trigger.dataset.i18nAriaLabel;
+    trigger.removeAttribute("data-i18n-title");
+    trigger.removeAttribute("data-i18n-aria-label");
+    trigger.setAttribute("aria-label", label);
+    trigger.title = label;
+  }
   // 原因槽:一次性提示优先(无动作/验收核查/未续跑),否则显示停机原因;推进中不显示。
   const reason = autoHint || (["off", "idle", "paused"].includes(phase) ? autoStopReason : "");
   const el = $("auto-status");

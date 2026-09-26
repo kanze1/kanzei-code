@@ -271,14 +271,23 @@ export function renderAttachments() {
   const box = $("attachments");
   box.innerHTML = "";
   box.classList.toggle("hidden", attachments.length === 0);
+  // UI2-0926 #11:芯片 = 名字(省略号截断,悬停看全名)+ 单独的 × 移除键。原先整颗是按钮、点哪都删,容易误触;
+  // 名字写进 inline-flex 的匿名文本也画不出省略号。
   attachments.forEach((item, index) => {
-    const chip = document.createElement("button");
-    chip.type = "button";
+    const chip = document.createElement("span");
     chip.className = "attachment-chip";
-    chip.textContent = `${item.file_name} ×`;
-    chip.title = t("移除附件");
-    chip.setAttribute("aria-label", `${t("移除附件")} ${item.file_name}`);
-    chip.addEventListener("click", () => { attachments.splice(index, 1); renderAttachments(); });
+    const name = document.createElement("span");
+    name.className = "attachment-name";
+    name.textContent = item.file_name;
+    name.title = item.file_name;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "attachment-remove";
+    remove.textContent = "×";
+    remove.title = t("移除附件");
+    remove.setAttribute("aria-label", `${t("移除附件")} ${item.file_name}`);
+    remove.addEventListener("click", () => { attachments.splice(index, 1); renderAttachments(); });
+    chip.append(name, remove);
     box.appendChild(chip);
   });
 }
@@ -605,7 +614,9 @@ export async function openSopPicker() {
     closeSurface(panel);
     return;
   }
-  openPopover($("sop-picker"), panel, { placement: "top-end" });
+  // UI2-0926 #11:SOP 住在「更多」菜单首项。菜单一关菜单项就不能当锚点,先收起菜单再以「更多」触发器为锚弹出。
+  closeSurface($("composer-more-menu"));
+  openPopover($("composer-more"), panel, { placement: "top-end" });
   list.replaceChildren();
   const loading = document.createElement("p");
   loading.className = "dim";
@@ -674,7 +685,11 @@ defer(() => {
     const open = panel.classList.toggle("hidden") === false;
     $("continue-toggle").setAttribute("aria-expanded", String(open));
     $("continue-toggle").textContent = t(open ? "收起文案" : "继续文案");
-    if (open) $("continue-prompt").focus();
+    // UI2-0926 #11:开关住在鞭挞菜单里;展开编辑区时先收起菜单,焦点落进输入框下方的编辑区。
+    if (open) {
+      closeSurface($("autorun-menu"));
+      $("continue-prompt").focus();
+    }
   });
 });
 // 鞭挞开关是线路级状态,唯一真源是 kz-process-auto-state(按 processId 分键)。

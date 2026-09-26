@@ -427,7 +427,6 @@ assert.match(js, /t\("实际差异"\)/);
   //    回退值只在 token 缺失时生效,token 被删/改名时它会静默顶替主题值)。白名单只放运行时由脚本写入的。
   const RUNTIME_TOKENS = new Set([
     "--cells", // 11-docs-list.js / 12-docs-pages.js 按批次数写入
-    "--auto-progress", // 08-auto.js 写鞭挞进度
     "--voice-level", // 23-voice.js 写音量
     "--kz-sync", // 01-core.js motionSync 写动画相位(动效分区)
     "--tf-progress", // 04-structured.js renderTrackerFields 写批次进度条宽度
@@ -940,6 +939,44 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
   ];
   const silent = counterexamples.filter(([, text]) => columnViolations(text).length === 0).map(([label]) => label);
   assert.deepEqual(silent, [], `对话单列判据没能命中自己的反例(恒绿):${silent.join(", ")}`);
+
+  // UI2-0926 #11 输入区控件几何(docs/design/ui_surface_stack.md「输入区控件几何」):一套 28px 静默盒子 .kz-ctl;
+  // 全部 select 垂直居中(base-select 的 UA 盒子 align-items 是 normal,固定高度时文字贴顶);鞭挞组容器不画框不加底
+  // (旧版容器边框与内部胶囊描边叠成双线);下拉箭头统一细 V 形遮罩;「继续」只在空闲、「排队」只在运行时出现。
+  // 像素级判据(等高、居中、无叠压、墨迹)在浏览器里量,见 scripts/ui-composer-geometry.mjs。
+  const surfaceText = (await readFile(resolve(root, "crates/kanzei-app/ui/surface.css"), "utf8")).replace(/\r\n/g, "\n");
+  const htmlText = html.replace(/\r\n/g, "\n");
+  const composerViolations = (text, surface, markup) => {
+    const out = [];
+    if (!bodiesOf(text, "select").some((body) => /align-items:\s*center/.test(body))) out.push("基础 select 规则缺 align-items: center(模式芯片文字贴在上半截)");
+    if (!/--ctl-h:\s*28px/.test(strip(text))) out.push("缺控件高度 token --ctl-h: 28px");
+    if (!bodiesOf(text, ".kz-ctl").some((body) => /height:\s*var\(--ctl-h\)/.test(body))) out.push(".kz-ctl 的高度不是 var(--ctl-h)");
+    for (const gone of ["ctx-select", "seg-btn", "seg-select", "composer-secondary", "composer-actions"]) {
+      if (new RegExp(`\\.${gone}\\b`).test(strip(text)) || new RegExp(`class="[^"]*\\b${gone}\\b`).test(markup)) out.push(`旧输入区类 .${gone} 仍在(第二套控件尺寸)`);
+    }
+    const autorun = bodiesOf(text, ".autorun-bar").join(";");
+    if (/background(?:-color)?:(?!\s*(?:none|transparent)\s*(?:;|$))/.test(autorun) || /border(?:-width)?:(?!\s*(?:0|none)\s*(?:;|$))/.test(autorun)) out.push(".autorun-bar 容器不得画框或加底(与内部胶囊描边叠成双线)");
+    for (const [label, body] of [["running", bodiesOf(text, '.autorun-bar[data-phase="running"]').join(";")], ["paused", bodiesOf(text, '.autorun-bar[data-phase="paused"]').join(";")]]) {
+      if (/border-color|background/.test(body)) out.push(`.autorun-bar[data-phase="${label}"] 不得给容器描边或加底(运行态只体现在开关圆点与活动行)`);
+    }
+    if (!/select::picker-icon\s*\{[^}]*var\(--icon-chevron\)/.test(strip(surface))) out.push("surface.css 的 select::picker-icon 没用 --icon-chevron 细 V 形(UA 实心 ▼ 字形基线不齐)");
+    if (!/html:not\(\[data-kz-activity="running"\], \[data-kz-activity="stopping"\]\) #delivery-select \{ display: none; \}/.test(text)) out.push("#delivery-select 没有按 html[data-kz-activity] 门控(空闲时不该出现「排队」)");
+    if (!/html:is\(\[data-kz-activity="running"\], \[data-kz-activity="stopping"\]\) #continue-btn \{ display: none; \}/.test(text)) out.push("#continue-btn 没有按 html[data-kz-activity] 门控(运行中不该出现「继续」)");
+    return out;
+  };
+  const composerFound = composerViolations(cssText, surfaceText, htmlText);
+  assert.deepEqual(composerFound, [], `输入区控件几何静态门禁未通过:\n - ${composerFound.join("\n - ")}`);
+  const composerCounterexamples = [
+    ["select 居中", swap("text-overflow: ellipsis; align-items: center;\n}", "text-overflow: ellipsis;\n}"), surfaceText, htmlText],
+    ["控件高度", swap("height: var(--ctl-h); min-height: 0;", "height: 30px; min-height: 0;"), surfaceText, htmlText],
+    ["旧类", `${cssText}\n.seg-btn { padding: 6px 10px; }`, surfaceText, htmlText],
+    ["鞭挞外框", `${cssText}\n.autorun-bar[data-phase="running"] { border-color: var(--accent); background: var(--statusbar-run); }`, surfaceText, htmlText],
+    ["鞭挞容器", swap("padding: 0; border: 0; border-radius: 0; background: none;", "padding: 3px 0; border: 1px solid transparent; border-radius: var(--radius); background: transparent;"), surfaceText, htmlText],
+    ["picker-icon", cssText, surfaceText.replace(/select::picker-icon \{[^}]*\}/, "select::picker-icon { color: var(--surface-muted); }"), htmlText],
+    ["继续门控", swap('html:is([data-kz-activity="running"], [data-kz-activity="stopping"]) #continue-btn { display: none; }', ""), surfaceText, htmlText],
+  ];
+  const composerSilent = composerCounterexamples.filter(([, text, surface, markup]) => composerViolations(text, surface, markup).length === 0).map(([label]) => label);
+  assert.deepEqual(composerSilent, [], `输入区控件几何判据没能命中自己的反例(恒绿):${composerSilent.join(", ")}`);
 }
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);

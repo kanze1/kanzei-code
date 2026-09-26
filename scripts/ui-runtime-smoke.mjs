@@ -405,6 +405,21 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*toolGroupRelocalize\(\);\r?\n/,
       replace: "",
     },
+    // UI2-0926 #11 输入区:分支写在早退之后,没有改动时上下文带里的分支消失。
+    ctxBranchEarly: {
+      pattern: /[ \t]*if \(branch\) branch\.textContent = [^\n]*\n/,
+      replace: "",
+    },
+    // 鞭挞设置触发器(状态即入口)的读屏名不再带轮次与阶段:未开时的纯箭头按钮读屏只剩空名。
+    autorunTriggerLabel: {
+      pattern: /[ \t]*trigger\.setAttribute\("aria-label", label\);\r?\n/,
+      replace: "",
+    },
+    // 语音键退回写 textContent:麦克风图标被文字冲掉。
+    voiceIconKeep: {
+      pattern: /button\.setAttribute\("aria-label", t\(voiceKey\)\);/,
+      replace: "button.textContent = t(voiceKey);",
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -6443,15 +6458,28 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   kzTest.cancelTimers();
 }
 
-// ---------- R-342 模式芯片常驻:选择器在上下文行,配色随档位 ----------
+// ---------- R-342 模式芯片常驻:选择器在工具行左段,配色随档位 ----------
 // 「区别不够明显」的根因不是缺一个旋钮,是唯一的旋钮埋在鞭挞设置弹层里——对话时
-// 根本不在视野内。这里锁两件事:①选择器留在 composer-context(不许再退回弹层);
-// ②data-mode 与 value 同步(配色靠它,漂了就等于没换色)。
+// 根本不在视野内。这里锁两件事:①选择器常驻输入区(UI2-0926 #11 起在底部工具行左段,与 Claude 的模式芯片
+// 同位),不许再退回任何弹层;②data-mode 与 value 同步(配色靠它,漂了就等于没换色)。
 {
-  const contextRow = html.slice(html.indexOf('id="composer-context"'), html.indexOf('id="attachments"'));
+  const leftStart = html.indexOf('<div class="composer-left">');
+  const leftRow = leftStart >= 0 ? html.slice(leftStart, html.indexOf('<div class="composer-right">', leftStart)) : "";
+  const selectAt = html.indexOf('id="profile-select"');
+  const inPopover = [...html.matchAll(/<div id="([\w-]+)"[^>]*popover=/g)].some((m) => {
+    const open = m.index;
+    let depth = 0;
+    const tag = /<\/?div\b/g;
+    tag.lastIndex = open;
+    for (let t = tag.exec(html); t; t = tag.exec(html)) {
+      depth += t[0] === "<div" ? 1 : -1;
+      if (depth === 0) return selectAt > open && selectAt < t.index;
+    }
+    return false;
+  });
   assert(
-    contextRow.includes('id="profile-select"') && contextRow.includes("ctx-mode"),
-    "R-342:模式选择器必须常驻输入框上方的上下文行(带 ctx-mode 芯片样式)",
+    leftRow.includes('id="profile-select"') && leftRow.includes("ctx-mode") && !inPopover,
+    "R-342:模式选择器必须常驻输入区工具行左段 .composer-left(带 ctx-mode 芯片样式),不得在任何弹层里",
   );
   const savedProfileR342 = byId.get("profile-select").value;
   for (const mode of ["dev-auto", "dev-pair"]) {
@@ -7300,7 +7328,8 @@ assert(
   assert(b9Key("回到最新") === "回到最新", "中文态回到最新应保持原文(前置失效)");
   assert(!sandbox.document.getElementById("process-tabs"), "中文态不应出现顶部进程切换条");
   assert(attrOf("prompt", "placeholder") === "想做什么?可粘贴/拖拽图片或 PDF", "中文态输入框 placeholder 应保持原文(前置失效)");
-  assert(b9Key("排队 queue") === "排队 queue", "中文态排队 queue option 应保持原文(前置失效)");
+  // UI2-0926 #11:交付方式选项去掉英文尾巴(「插入 steer」→「插入」),option 渲染点翻译照测。
+  assert(b9Key("插入") === "插入", "中文态插入 option 应保持原文(前置失效)");
 
   localStorageShim.setItem("kz-language", "en");
   sandbox.applyLanguage();
@@ -7324,7 +7353,7 @@ assert(
   assert(attrOf("ask-answer", "placeholder") === "Enter your answer", `英文态回答 placeholder 未翻译(渲染点属性补齐),实际 "${attrOf("ask-answer", "placeholder")}"`);
   assert(attrOf("viewer-external", "aria-label") === "Open in external editor", `英文态 viewer-external aria-label 未翻译,实际 "${attrOf("viewer-external", "aria-label")}"`);
   assert(attrOf("prompt", "placeholder") === "What would you like to do? Paste or drop images or PDFs", `英文态输入框 placeholder 未翻译,实际 "${attrOf("prompt", "placeholder")}"`);
-  assert(b9Key("排队 queue") === "Queue", `英文态「排队 queue」未翻译(option 渲染点),实际 "${b9Key("排队 queue")}"`);
+  assert(b9Key("插入") === "Steer", `英文态「插入」未翻译(option 渲染点),实际 "${b9Key("插入")}"`);
   assert(!sandbox.document.getElementById("process-tabs"), "英文态不应出现顶部进程切换条");
   // 动态元素不被静态 key 覆写:status-mode/status-text/live-turn 都不得带 data-i18n-key,
   // 它们的文案由 JS 渲染点(t()/localizeDynamic)负责,切语言不应被 applyDataI18nKeys 触碰。
@@ -7336,7 +7365,7 @@ assert(
   assert(b9Key("权限请求") === "权限请求", `切回中文后「权限请求」未回原文,实际 "${b9Key("权限请求")}"`);
   assert(b9Key("回到最新") === "回到最新", `切回中文后「回到最新」未回原文,实际 "${b9Key("回到最新")}"`);
   assert(attrOf("prompt", "placeholder") === "想做什么?可粘贴/拖拽图片或 PDF", `切回中文后输入框 placeholder 未回原文,实际 "${attrOf("prompt", "placeholder")}"`);
-  assert(b9Key("排队 queue") === "排队 queue", `切回中文后「排队 queue」未回原文,实际 "${b9Key("排队 queue")}"`);
+  assert(b9Key("插入") === "插入", `切回中文后「插入」未回原文,实际 "${b9Key("插入")}"`);
 
   localStorageShim.setItem("kz-language", priorLanguage);
   sandbox.applyLanguage();
@@ -12617,6 +12646,8 @@ const docsB = {
 // 搜索展开、窗口边界合并、切语言重算)、⎿ 摘要里的反引号成行内代码、notice 不挂复制、本轮结束 turn-end 模板。
 // 变异守卫:toolGroupLive / toolGroupHistory / toolGroupReasoning / toolGroupSync / toolSumInlineCode / paneUnits /
 // ctxToolGroup / searchExpandGroup / noticeNoActions / turnEndClass / earlierMerge / earlierHintTop / toolGroupI18n。
+// UI2-0926 #11 输入区(⑫⑬):上下文带 + 单行工具行的结构与 .kz-ctl、鞭挞触发器读屏名、无改动时的分支、语音键图标;
+// 变异守卫 ctxBranchEarly / autorunTriggerLabel / voiceIconKeep。像素级几何见 scripts/ui-composer-geometry.mjs。
 {
   const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
   const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
@@ -12812,6 +12843,79 @@ const docsB = {
     const turnEnd = pane.querySelectorAll(".msg.notice").find((el) => el.classList.contains("turn-end"));
     assert(turnEnd && turnEnd.textContent.includes("本轮结束 · 2 步 · 会话 5 条"), `本轮结束 notice 缺 turn-end 类或模板文案:${turnEnd?.textContent ?? "(无)"}`);
   });
+
+  // ⑫ 输入区结构(UI2-0926 #11,docs/design/ui_surface_stack.md「输入区控件几何」):上下文带 + 单行工具行,
+  //    左段 附件 · 模式 · 鞭挞,右段 模型 … 发送;带与工具行里的控件全是 .kz-ctl(发送是 .kz-ctl--round,菜单内部除外);
+  //    「N 轮 · 阶段」在鞭挞设置触发器里。假 DOM 是按 id 拍平的桩,结构只能对源码配对标签扫描。
+  {
+    const footer = html.slice(html.indexOf('<footer id="composer">'), html.indexOf("</footer>", html.indexOf('<footer id="composer">')));
+    // 去掉弹层(菜单/浮层)内部:它们的控件归 surface.css 的菜单外观,不在工具行几何里。
+    let flat = footer;
+    for (;;) {
+      const open = flat.search(/<div id="[\w-]+"[^>]*popover=/);
+      if (open < 0) break;
+      let depth = 0;
+      let close = -1;
+      const tag = /<\/?div\b/g;
+      tag.lastIndex = open;
+      for (let m = tag.exec(flat); m; m = tag.exec(flat)) {
+        depth += m[0] === "<div" ? 1 : -1;
+        if (depth === 0) { close = flat.indexOf(">", m.index) + 1; break; }
+      }
+      if (close < 0) break;
+      flat = flat.slice(0, open) + flat.slice(close);
+    }
+    const order = (block, ids) => ids.map((id) => block.indexOf(`id="${id}"`));
+    const left = flat.slice(flat.indexOf('<div class="composer-left">'), flat.indexOf('<div class="composer-right">'));
+    const right = flat.slice(flat.indexOf('<div class="composer-right">'));
+    const leftAt = order(left, ["attach", "profile-select", "autorun-bar"]);
+    const rightAt = order(right, ["model-picker-group", "task-options", "composer-more", "continue-btn", "delivery-select", "voice-toggle", "stop", "send"]);
+    const ascending = (list) => list.every((value, index) => value >= 0 && (index === 0 || value > list[index - 1]));
+    assert(ascending(leftAt), `输入区工具行左段应依次为 附件 · 模式 · 鞭挞组:${JSON.stringify(leftAt)}`);
+    assert(ascending(rightAt), `输入区工具行右段应依次为 模型 · 任务设置 · 更多 · 继续 · 排队 · 语音 · 停止 · 发送:${JSON.stringify(rightAt)}`);
+    const band = flat.slice(flat.indexOf('id="composer-context"'), flat.indexOf('id="change-bar-files"'));
+    const bar = flat.slice(flat.indexOf('id="composer-bar"'));
+    const bare = [...`${band}\n${bar}`.matchAll(/<(button|select|label)\b[^>]*>/g)]
+      .map(([tag]) => tag)
+      .filter((tag) => !/\bclass="[^"]*\bkz-ctl(?:--round)?\b/.test(tag))
+      .map((tag) => tag.match(/id="([\w-]+)"/)?.[1] ?? tag.slice(0, 40));
+    assert(bare.length === 0, `上下文带/工具行里的控件必须是 .kz-ctl(同一套 28px 盒子):${bare.join(", ")}`);
+    const trigger = flat.slice(flat.indexOf('id="autorun-more"'), flat.indexOf("</button>", flat.indexOf('id="autorun-more"')));
+    assert(trigger.includes('id="auto-progress"') && trigger.includes('id="auto-phase"') && trigger.includes('id="auto-round-now"'), "鞭挞设置触发器里应含轮次(#auto-progress/#auto-round-now)与阶段(#auto-phase):状态即入口");
+    assert(!/id="(?:hint|change-bar-branch)"|class="[^"]*\b(?:composer-actions|composer-secondary|seg-btn|seg-select|ctx-select)\b/.test(footer), "旧输入区结构(#hint、分段组、.ctx-select、改动条里的分支)不应再出现");
+    const moreMenu = footer.slice(footer.indexOf('id="composer-more-menu"'));
+    assert(moreMenu.indexOf('id="sop-picker"') >= 0 && moreMenu.indexOf('id="sop-picker"') < moreMenu.indexOf('id="summarize-btn"'), "SOP 应是「更多」菜单的首项");
+  }
+  // ⑬ 输入区行为:鞭挞触发器的读屏名带轮次与阶段;无改动时分支仍显示在上下文带;语音切换不冲掉图标。
+  {
+    const whip = byId.get("auto-continue");
+    const priorWhip = whip.checked;
+    whip.checked = true;
+    vm.runInContext("renderAutoRun()", sandbox);
+    const armedLabel = byId.get("autorun-more").getAttribute("aria-label") ?? "";
+    assert(armedLabel.startsWith("鞭挞设置 · 鞭挞轮次 ") && /\d/.test(armedLabel) && /· (推进中|等待下一轮|已暂停|待命)$/.test(armedLabel), `鞭挞开着时触发器读屏名应带轮次与阶段,实为「${armedLabel}」`);
+    whip.checked = false;
+    vm.runInContext("renderAutoRun()", sandbox);
+    assert(byId.get("autorun-more").getAttribute("aria-label") === "鞭挞设置" && byId.get("autorun-more").title === "鞭挞设置", `鞭挞关着时触发器读屏名应只剩「鞭挞设置」,实为「${byId.get("autorun-more").getAttribute("aria-label")}」`);
+    whip.checked = priorWhip;
+    vm.runInContext("renderAutoRun()", sandbox);
+    const views = esmModuleCache.get("15-views-misc.js")?.namespace;
+    views.renderChangeBar({ branch: "kanzei/ui2-chat", files: [], additions: 0, deletions: 0 });
+    assert(byId.get("ctx-branch")?.textContent === "⎇ kanzei/ui2-chat" && byId.get("change-bar").classList.contains("hidden"), `无改动时上下文带应仍显示分支且收起改动按钮:「${byId.get("ctx-branch")?.textContent}」`);
+    views.renderChangeBar({ branch: "kanzei/ui2-chat", files: [{ path: "a.rs", additions: 1, deletions: 0 }], additions: 1, deletions: 0 });
+    assert(!byId.get("change-bar").classList.contains("hidden") && byId.get("change-bar-repo").textContent.startsWith("1"), "有改动时上下文带右端应出现「N 个文件 +a −d」");
+    const voice = esmModuleCache.get("23-voice.js")?.namespace?.voiceConversation;
+    const voiceButton = byId.get("voice-toggle");
+    if (voice?.onState) {
+      const before = voiceButton.textContent;
+      voice.onState("listening");
+      assert(voiceButton.getAttribute("aria-label") === "结束语音" && voiceButton.getAttribute("aria-pressed") === "true" && voiceButton.textContent === before, `语音开始后按钮应只改读屏名/按下态,不得把文字写进图标按钮(textContent「${voiceButton.textContent}」)`);
+      voice.onState("off");
+      assert(voiceButton.getAttribute("aria-label") === "语音" && voiceButton.textContent === before, "语音结束后按钮读屏名应回到「语音」且图标不被冲掉");
+    } else {
+      fail("23-voice.js 未导出 voiceConversation(无法验证语音键图标)");
+    }
+  }
 
   sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
   vm.runInContext(`transitionSession(${JSON.stringify(SID)}, "idle")`, sandbox);

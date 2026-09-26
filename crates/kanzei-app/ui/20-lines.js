@@ -156,7 +156,8 @@ export async function loadLinesModelCatalog() {
 
 export function buildLineModelSelect(item) {
   const select = document.createElement("select");
-  select.className = "ctx-select line-model-select";
+  // UI2-0926 #11:.ctx-select 随输入区控件体系(.kz-ctl)删除;线路页的模型下拉回到普通 select 外观。
+  select.className = "line-model-select";
   select.title = t("模型改动下一轮生效");
   const current = item.model || "";
   const seen = new Set();

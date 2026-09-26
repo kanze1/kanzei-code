@@ -468,6 +468,14 @@ export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path
       await app.screenshot({ path: path.join(outDir, `${theme}-index.png`) });
       await appContext.close();
     }
+
+    // ── 分区:对话单列与输入区 ──
+    // 6 输入区控件几何(UI2-0926 #11,scripts/ui-composer-geometry.mjs):控件等高、全部 select 居中、同行无叠压且不越界、
+    //   模式芯片墨迹居中、满列单行;每次运行自带三种注入回归的自检。
+    const { runComposerGeometry } = await import("./ui-composer-geometry.mjs");
+    const geometry = await runComposerGeometry(browser, origin);
+    for (const failure of geometry.failures) fail(failure);
+    notes.push(...geometry.notes);
   } finally {
     await browser.close();
     await close();
