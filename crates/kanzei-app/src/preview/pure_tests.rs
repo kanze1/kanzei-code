@@ -761,3 +761,114 @@ fn 主窗口补回焦点归还与移动通知() {
     assert!(pane.contains("host::register_panel(&pane.webview, generation)"));
     assert!(pane.contains("host::release_panel_on_ui_thread(generation)"));
 }
+
+// ── 集成收尾:前端请后端补的两条(preview_pane.md「前端」§10 第 2、3 条) ──
+
+/// 顶层函数的函数体(从签名到第一个行首的 `}`)。
+fn top_level_fn<'a>(src: &'a str, signature: &str) -> &'a str {
+    let at = src
+        .find(signature)
+        .unwrap_or_else(|| panic!("缺 {signature}"));
+    let body = &src[at..];
+    &body[..body.find("\n}\n").map_or(body.len(), |end| end + 3)]
+}
+
+fn app_src(rel: &str) -> String {
+    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(rel))
+        .unwrap()
+        .replace("\r\n", "\n")
+}
+
+/// 主界面 F5 / Ctrl+R 重载后 Rust 侧的子 webview 还活着、还可见,新起的前端却从「没有面板」起步:
+/// 主 webview 的 PageLoadEvent::Started 收面板(前端启动 preview_close 的双保险)。
+/// 只认主 webview 的 Started;第一次启动的那次加载同样会来,此时 close 对空 slot 只递增代次就返回。
+#[test]
+fn 主界面开始重新加载时收面板_只认主webview的started() {
+    use tauri::webview::PageLoadEvent;
+    assert!(main_load_closes_pane(MAIN_LABEL, PageLoadEvent::Started));
+    assert!(
+        !main_load_closes_pane(MAIN_LABEL, PageLoadEvent::Finished),
+        "Finished 不收:错误页、同一次加载的收尾都会来"
+    );
+    assert!(
+        !main_load_closes_pane("preview-3", PageLoadEvent::Started),
+        "面板自己的加载绝不能把自己关掉"
+    );
+    assert!(!main_load_closes_pane("other", PageLoadEvent::Started));
+
+    // 接线:主窗口 builder 上挂 on_page_load,转给 preview::on_main_page_load(按 label 判)。
+    let main = app_src("src/main.rs");
+    let hook_at = main
+        .find(".on_page_load(")
+        .expect("main.rs 的主窗口 builder 缺 on_page_load");
+    let build_at = main.find("builder.build()").unwrap();
+    assert!(hook_at < build_at, "on_page_load 必须挂在 build 之前");
+    assert!(main[hook_at..build_at].contains("preview::on_main_page_load("));
+    let module = app_src("src/preview/mod.rs");
+    let handler = top_level_fn(&module, "pub(crate) fn on_main_page_load(");
+    let gate_at = handler
+        .find("main_load_closes_pane(")
+        .expect("先按 label 与事件判");
+    let close_at = handler.find("pane::close(").expect("判中后收面板");
+    assert!(gate_at < close_at);
+    assert!(
+        handler.contains("async_runtime::spawn"),
+        "不在主 webview 的 ContentLoading 回调里同步关另一个 webview"
+    );
+    // 首次加载无害:没有面板时 close 在 discard / 发事件之前就返回。
+    let pane = app_src("src/preview/pane.rs");
+    let close = top_level_fn(&pane, "pub(crate) fn close(app: &AppHandle)");
+    let empty_at = close
+        .find("let Some(pane) = pane else")
+        .expect("close 必须先判空");
+    assert!(empty_at < close.find("discard(").unwrap());
+    assert!(empty_at < close.find("emit_closed(").unwrap());
+}
+
+/// 批注点选完成时系统焦点还在子 webview 里,前端 promptBox.focus() 接不到键盘:发出 kz:preview-pick 后
+/// 把焦点还给主界面(get_webview("main") 的 set_focus),且只在 kanzei 就是前台程序时(不抢别的程序的焦点)。
+#[test]
+fn 批注完成后焦点还给主界面_只在kanzei是前台时() {
+    assert!(host::foreground_is_main(0x1234, 0x1234));
+    assert!(!host::foreground_is_main(0x9999, 0x1234), "别的程序在前台");
+    assert!(
+        !host::foreground_is_main(0, 0),
+        "主窗口句柄还没记下(attach 之前):一律不算前台"
+    );
+    assert!(!host::foreground_is_main(0x1234, 0));
+
+    let pane = app_src("src/preview/pane.rs");
+    let pick = top_level_fn(&pane, "async fn finish_pick(");
+    let emit_at = pick
+        .find("app.emit(\"kz:preview-pick\"")
+        .expect("finish_pick 发 kz:preview-pick");
+    let focus_at = pick
+        .find("return_focus_to_main(app)")
+        .expect("发出批注后必须把焦点还给主界面");
+    assert!(emit_at < focus_at, "先发事件(前端聚焦输入框)再还焦点");
+
+    let give_back = top_level_fn(&pane, "pub(crate) fn return_focus_to_main(");
+    assert!(
+        give_back.contains("app.get_webview(MAIN_LABEL)"),
+        "用 get_webview(\"main\"):第一次 add_child 之后 get_webview_window 是 None"
+    );
+    assert!(give_back.contains("run_on_main_thread("));
+    let foreground_at = give_back
+        .find("host::main_is_foreground()")
+        .expect("转交前必须查前台");
+    let focus_call_at = give_back.find(".set_focus()").expect("set_focus");
+    assert!(
+        foreground_at < focus_call_at,
+        "先查前台再 set_focus(MoveFocus 会把窗口拉到前台)"
+    );
+    let host_src = app_src("src/preview/host.rs");
+    let check_at = host_src.find("pub(crate) fn main_is_foreground()").unwrap();
+    let check = &host_src[check_at..];
+    let check = &check[..check.find("\n    }\n").unwrap_or(check.len())];
+    assert!(check.contains("GetForegroundWindow()"));
+    assert!(check.contains("foreground_is_main("));
+    assert!(
+        host_src.contains("MAIN_HWND.store(hwnd, Ordering::SeqCst)"),
+        "attach_main 要记下主窗口句柄"
+    );
+}

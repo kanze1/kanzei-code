@@ -864,7 +864,25 @@ async fn finish_pick(app: &AppHandle, generation: u64, backend_node_id: i64) -> 
         }
     };
     let _ = app.emit("kz:preview-pick", pick_payload(&info, png));
+    // 点选完成时系统焦点还在子 webview 里(用户刚在页面上点了一下),前端 addPickAttachment 里的
+    // promptBox.focus() 接不到键盘输入:把焦点还给主界面,补一句修改意见就能直接打字。
+    return_focus_to_main(app);
     Ok(())
+}
+
+/// 把键盘焦点还给主界面:`get_webview("main")` 的 `set_focus`(wry 里是 MoveFocus(PROGRAMMATIC),
+/// 会恢复主文档里原来聚焦的元素)。**只在 kanzei 就是前台程序时**做——B0 实测 MoveFocus 会把
+/// 窗口拉到前台,用户已经切去别的程序时不能把 kanzei 拽回来;判定与转交都在 UI 线程上连着做,
+/// 中间不给前台切换留空当。不用 get_webview_window:第一次 add_child 之后它是 None(§8)。
+pub(crate) fn return_focus_to_main(app: &AppHandle) {
+    let Some(main) = app.get_webview(MAIN_LABEL) else {
+        return;
+    };
+    let _ = app.run_on_main_thread(move || {
+        if host::main_is_foreground() {
+            let _ = main.set_focus();
+        }
+    });
 }
 
 /// 「清除本站数据」:只清当前源。**禁止**用清全部浏览数据的那个 API——面板与 kanzei 主界面共用

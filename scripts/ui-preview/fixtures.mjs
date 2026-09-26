@@ -675,14 +675,18 @@ function previewCommands(params) {
       pane.bounds = args;
       return null;
     },
+    // 与 pane.rs 同一语义(preview_pane.md §4 / §6):显示时按上报的 processId 覆盖绑定(null 即解绑),隐藏时保留绑定。
     preview_set_visible: (args) => {
       pane.visible = Boolean(args?.visible);
-      pane.processId = args?.processId ?? null;
+      if (pane.visible) pane.processId = args?.processId ?? null;
       return null;
     },
     preview_nav: () => null,
+    // 关闭 = 释放面板(后端发 visible:false、url:"" 的关闭态,绑定一并清掉)。
     preview_close: () => {
       pane.url = "";
+      pane.visible = false;
+      pane.processId = null;
       return null;
     },
     preview_capture: async () => ({ png: await previewPagePng(), width: 900, height: 600 }),

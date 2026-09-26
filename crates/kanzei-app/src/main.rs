@@ -156,6 +156,12 @@ fn main() {
                     ));
                 }
             }
+            // UI2-0926 #8:主界面开始(重新)加载(F5 / Ctrl+R)时收掉网页预览面板,
+            // 与前端启动时的 preview_close 互为双保险;第一次启动的加载无害(还没有面板)。
+            let page_app = app.handle().clone();
+            builder = builder.on_page_load(move |window, payload| {
+                preview::on_main_page_load(&page_app, window.label(), payload.event())
+            });
             let main_window = builder.build()?;
             // UI2-0926 #8:网页预览面板的装配(应用句柄 + DPI 变化重放边界 + 关窗收面板)。
             preview::install(app.handle(), &main_window);

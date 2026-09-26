@@ -16,11 +16,19 @@
 //! 仍然可见的预览面板优先。另加一道保险:只在主窗口就是前台窗口时才转交焦点——B0 实测
 //! MoveFocus(PROGRAMMATIC) 会把窗口拉到前台,后台时绝不能调。
 //!
-//! 全部状态都在 UI 线程上(thread_local),子类化回调与 GotFocus 回调也都在 UI 线程上跑。
+//! 全部状态都在 UI 线程上(thread_local),子类化回调与 GotFocus 回调也都在 UI 线程上跑;
+//! 唯一例外是主窗口句柄(原子量),供「kanzei 是不是前台程序」的判定在任何线程上读。
+
+/// 「kanzei 就是前台程序」:前台窗口正是主窗口(句柄非空)。预览面板与主界面都是主窗口里的
+/// 子窗口,前台窗口取的是顶层窗口;面板的 DevTools 窗口、别的程序在前台时都不算。
+pub(crate) fn foreground_is_main(foreground: isize, main: isize) -> bool {
+    main != 0 && foreground == main
+}
 
 #[cfg(windows)]
 mod imp {
     use std::cell::{Cell, RefCell};
+    use std::sync::atomic::{AtomicIsize, Ordering};
 
     use webview2_com::FocusChangedEventHandler;
     use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -35,6 +43,9 @@ mod imp {
 
     /// 子类化 id(`kzpv`)。
     const SUBCLASS_ID: usize = 0x6b7a_7076;
+
+    /// 主窗口句柄(attach_main 记下,窗口销毁时清零)。
+    static MAIN_HWND: AtomicIsize = AtomicIsize::new(0);
 
     thread_local! {
         static MAIN: RefCell<Option<ICoreWebView2Controller>> = const { RefCell::new(None) };
@@ -59,6 +70,7 @@ mod imp {
                 return;
             }
         };
+        MAIN_HWND.store(hwnd, Ordering::SeqCst);
         let queued = main_window.with_webview(move |platform| {
             let controller = platform.controller();
             let mut token = 0i64;
@@ -102,6 +114,13 @@ mod imp {
                 PANEL_FOCUSED.with(|flag| flag.set(false));
             }
         });
+    }
+
+    /// kanzei 的主窗口此刻是不是前台窗口(任何线程可调;attach 之前恒为 false)。
+    pub(crate) fn main_is_foreground() -> bool {
+        // SAFETY:无参 Win32 调用。
+        let foreground = unsafe { GetForegroundWindow() } as isize;
+        super::foreground_is_main(foreground, MAIN_HWND.load(Ordering::SeqCst))
     }
 
     /// 焦点该还给谁:面板拿过焦点且仍可见 → 面板;否则主界面。
@@ -155,6 +174,7 @@ mod imp {
                 unsafe { RemoveWindowSubclass(hwnd, Some(host_proc), SUBCLASS_ID) };
                 MAIN.with(|slot| slot.borrow_mut().take());
                 PANEL.with(|slot| slot.borrow_mut().take());
+                MAIN_HWND.store(0, Ordering::SeqCst);
             }
             _ => {}
         }
@@ -164,14 +184,20 @@ mod imp {
 }
 
 #[cfg(windows)]
-pub(crate) use imp::{attach_main, register_panel, release_panel_on_ui_thread};
+pub(crate) use imp::{attach_main, main_is_foreground, register_panel, release_panel_on_ui_thread};
 
 #[cfg(not(windows))]
 mod imp_stub {
     pub(crate) fn attach_main(_main_window: &tauri::WebviewWindow) {}
     pub(crate) fn register_panel(_webview: &tauri::Webview, _generation: u64) {}
     pub(crate) fn release_panel_on_ui_thread(_generation: u64) {}
+    /// 判定不了前台就当「不是」:宁可不还焦点,也不抢别的程序的焦点。
+    pub(crate) fn main_is_foreground() -> bool {
+        false
+    }
 }
 
 #[cfg(not(windows))]
-pub(crate) use imp_stub::{attach_main, register_panel, release_panel_on_ui_thread};
+pub(crate) use imp_stub::{
+    attach_main, main_is_foreground, register_panel, release_panel_on_ui_thread,
+};

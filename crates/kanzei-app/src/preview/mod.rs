@@ -76,6 +76,34 @@ pub(crate) fn install(app: &tauri::AppHandle, main_window: &tauri::WebviewWindow
     });
 }
 
+/// 主 webview 的页面加载事件(main.rs 在主窗口 builder 上挂 `on_page_load`)。
+///
+/// 主界面开始(重新)加载——F5 / Ctrl+R(wry 的浏览器加速键默认开着)、界面自己 reload——时收掉面板:
+/// Rust 侧的子 webview 还活着、还可见,新起的前端却从「没有面板」起步(`alive` 为 false),原生面板会
+/// 停在旧矩形上盖住对话列。这是前端启动时无条件 `preview_close` 的双保险(preview_pane.md「前端」§2)。
+///
+/// 第一次启动的那次加载同样会来:那时 slot 是空的,`pane::close` 只递增关闭代次就返回,不发事件、
+/// 不碰任何窗口(代次只影响「创建途中被关」的比对,而那时还没有任何创建)。
+/// 关闭放到异步任务里做,与 preview_close 命令同一条路径:回调本身跑在主 webview 的 ContentLoading
+/// COM 回调里,不在那里同步关另一个 webview。
+pub(crate) fn on_main_page_load(
+    app: &tauri::AppHandle,
+    label: &str,
+    event: tauri::webview::PageLoadEvent,
+) {
+    if !main_load_closes_pane(label, event) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move { pane::close(&app) });
+}
+
+/// 哪些页面加载事件要收面板:只有主 webview 的 `Started`(ContentLoading:新文档开始加载;
+/// pushState / 锚点跳转这类同文档导航不触发)。面板自己的加载、主界面的 `Finished` 都不算。
+pub(crate) fn main_load_closes_pane(label: &str, event: tauri::webview::PageLoadEvent) -> bool {
+    label == MAIN_LABEL && event == tauri::webview::PageLoadEvent::Started
+}
+
 /// 面板状态(`.manage`)。面板句柄可克隆,锁只在取/换句柄时持有,CDP 往返不持锁。
 #[derive(Default)]
 pub(crate) struct PreviewState {
