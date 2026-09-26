@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kanzei_core::{SessionStore, WorkProjection, WorkUnitStatus};
 use kanzei_harness::auto_run::WorkPriority;
 use serde::Serialize;
+use serde_json::json;
 
 use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 use crate::tracker::{
