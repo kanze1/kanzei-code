@@ -165,7 +165,7 @@ function mermaidConfig(tokens, theme) {
     themeVariables: themeVariablesFromTokens(tokens, theme),
     fontFamily: tokens.font || undefined,
     flowchart: { curve: "basis", padding: 12, nodeSpacing: 32, rankSpacing: 44, diagramPadding: 12, useMaxWidth: false, htmlLabels: false, wrappingWidth: 360 },
-    elk: { nodePlacementStrategy: "BRANDES_KOEPF", considerModelOrder: "NODES_AND_EDGES", mergeEdges: false },
+    elk: { nodePlacementStrategy: "BRANDES_KOEPF", considerModelOrder: "NODES_AND_EDGES", mergeEdges: true },
     sequence: { useMaxWidth: false },
     state: { useMaxWidth: false },
     class: { useMaxWidth: false },
