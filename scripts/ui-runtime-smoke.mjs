@@ -9894,6 +9894,9 @@ const docsB = {
   assert(chip.textContent.includes("codex:gpt-6-luna") && sourceOf(chip) === "line",
     `① 芯片应显示本线临时覆盖 codex:gpt-6-luna:"${chip.textContent}" / ${sourceOf(chip)}`);
   assert(chip.querySelector(".picker-fast"), "① Codex Fast mode 生效时芯片应带 ⚡");
+  // 输入区芯片的 ⚡ 就是用户看到的彩色闪电:必须带 U+FE0E(文字字形),才继承 .picker-fast 的颜色、随主题取色。
+  assert(chip.querySelector(".picker-fast").textContent === "⚡︎",
+    `① 芯片 ⚡ 必须是文字字形 "⚡\\uFE0E"(彩色 emoji 不受 CSS color 控制),实际:${JSON.stringify(chip.querySelector(".picker-fast").textContent)}`);
   assert(chip.tagName === "BUTTON" && chip.getAttribute("aria-haspopup") === "menu", "① 模型芯片应是带 aria-haspopup 的按钮(不再是原生 select)");
   assert(rchip.textContent.includes("超高") && sourceOf(rchip) === "line", `① 思考芯片应显示本线的超高/临时:"${rchip.textContent}"`);
   await openMenuOf("model");

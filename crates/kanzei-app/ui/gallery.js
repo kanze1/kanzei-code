@@ -251,24 +251,29 @@ function node(tag, className, text) {
   if (text) el.textContent = text;
   return el;
 }
-// 组件层 token 在 :root 上以 var() 引用语义层,计算值在 :root 就定死了;嵌套的 [data-theme="light"] 区块
-// 只换了语义层,组件层仍是暗色的计算值。静态矩阵要同屏对比两套主题,就在亮色区块上按样式表原文
-// 把组件层重声明一遍(只取值里带 var( 的——字面量值的是语义层,不能拿暗色值盖掉亮色值)。
+// :root 上以 var() 定义的 token(组件层 --surface-*,以及 --danger/--alert/--muted/--dot-idle 这类语义别名)
+// 计算值在 :root 就定死了;嵌套的 [data-theme="light"] 区块只换了字面量那一层,这些 token 仍是暗色的计算值
+// ——亮色矩阵里危险菜单项曾因此拿到暗色 --danger #ff7b72(白底 2.52:1)。静态矩阵要同屏对比两套主题,
+// 就在亮色区块上按样式表原文把 :root 里所有 var() 值重声明一遍,让它们在区块内按亮色语义层重新求值。
+// 亮色块自己给了值的名字不动(那是亮色的字面量,不能拿暗色的 var() 盖掉)。
 function componentTokenDeclarations() {
   const out = [];
+  const lightNames = new Set();
   const walk = (rules) => {
     for (const rule of rules) {
       if (rule.styleSheet) walk(rule.styleSheet.cssRules);
       else if (rule.style && rule.selectorText === ":root") {
         for (const name of rule.style) {
           const value = rule.style.getPropertyValue(name);
-          if (name.startsWith("--surface-") && value.includes("var(")) out.push([name, value]);
+          if (name.startsWith("--") && value.includes("var(")) out.push([name, value]);
         }
+      } else if (rule.style && rule.selectorText === '[data-theme="light"]') {
+        for (const name of rule.style) lightNames.add(name);
       } else if (rule.cssRules) walk(rule.cssRules);
     }
   };
   for (const sheet of document.styleSheets) walk(sheet.cssRules);
-  return out;
+  return out.filter(([name]) => !lightNames.has(name));
 }
 function renderMatrix(section) {
   if (section.dataset.theme) {

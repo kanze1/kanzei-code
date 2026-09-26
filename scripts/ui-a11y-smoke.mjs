@@ -540,6 +540,128 @@ assert.match(js, /t\("实际差异"\)/);
   assert.ok(!userBubble.some((body) => /border-left/.test(body)), ".msg.user 不得再有左竖条(border-left):用户消息是圆角灰气泡");
 }
 
+// ---------- UI2-0926 配色 ③b 叠色对比度:胶囊与卡片文字按合成后的底色算 ----------
+// ③ 只算 token 对 token(不透明底)。胶囊底多是半透明(--badge-soft / --accent-soft / --alert-soft),
+// 放在焦点卡(--panel2)上、悬停时卡片再叠一层 --surface-hover,字的真实底色是三层合成的结果:
+// 实测 --dim 叠 --badge-soft 叠焦点卡只有 3.98,悬停 3.42,而 ③ 全绿(复核 2026-09-26)。
+// 这里按宿主逐层合成:胶囊选择器与字色/底色从样式表按原文取(同一选择器多条规则按源码顺序合并),
+// 新增一种胶囊只要落在这些类族里就自动被算进来;底色不是 token 或 transparent 的直接报「无法计算」。
+const CHIP_HOSTS = {
+  // 文档类胶囊(状态/优先级/阻塞/待澄清):焦点卡、侧栏列表行、文档页列表行,各自带悬停。
+  doc: [
+    ["焦点卡", ["--panel2"]], ["焦点卡悬停", ["--panel2", "--surface-hover"]],
+    ["侧栏行", ["--sidebar-bg"]], ["侧栏行悬停", ["--sidebar-bg", "--surface-hover"]],
+    ["文档页行", ["--bg"]], ["文档页行悬停", ["--bg", "--surface-hover"]],
+  ],
+  // 项目卡运行状态胶囊:项目卡是 --surface-raised(悬停只加阴影与边框,不叠底色)。
+  workspace: [["项目卡", ["--surface-raised"]]],
+  // 焦点卡里的纯文字(编号、chip、阻塞原因、标题):没有自己的底,直接落在卡上。
+  focusText: [["焦点卡", ["--panel2"]], ["焦点卡悬停", ["--panel2", "--surface-hover"]]],
+};
+const CHIP_FAMILIES = [
+  [/^\.st-[a-z-]+$/, "doc"],
+  [/^\.pri-badge\.(?:P[0-3]|unset)$/, "doc"],
+  [/^\.(?:blocked|clarify)-badge$/, "doc"],
+  [/^\.workspace-status\.[a-z-]+$/, "workspace"],
+  [/^\.focus-[a-z-]+$/, "focusText"],
+];
+function chipContrastViolations(styleText) {
+  const clean = styleText.replace(/\/\*[\s\S]*?\*\//g, "");
+  const tokenBlock = (pattern) => Object.fromEntries(
+    [...(clean.match(pattern)?.[1] ?? "").matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]),
+  );
+  const dark = tokenBlock(/:root\s*\{([^}]*)\}/);
+  const themes = [["暗色", dark], ["亮色", { ...dark, ...tokenBlock(/\[data-theme="light"\]\s*\{([^}]*)\}/) }]];
+  const rules = [...clean.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map((m) => ({ branches: m[1].split(/,(?![^(]*\))/).map((b) => b.trim().replace(/\s+/g, " ")), body: m[2] }))
+    .filter((rule) => rule.branches[0] && !rule.branches[0].startsWith("@"));
+  const out = [];
+  // 值 → {rgb, alpha};transparent/none → 全透明;别名逐级解开;算不出返回 null。
+  const colorOf = (tokens, value, seen = new Set()) => {
+    if (value === undefined || /^(?:transparent|none)$/.test(value)) return { rgb: [0, 0, 0], alpha: 0 };
+    const alias = value.match(/^var\((--[a-z0-9-]+)\)$/);
+    if (alias) return seen.has(alias[1]) ? null : colorOf(tokens, tokens[alias[1]] ?? "", seen.add(alias[1]));
+    const hex = value.match(/^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/);
+    if (!hex) return null;
+    return { rgb: [0, 1, 2].map((i) => parseInt(hex[1].slice(i * 2, i * 2 + 2), 16)), alpha: hex[2] ? parseInt(hex[2], 16) / 255 : 1 };
+  };
+  const over = (top, base) => top.rgb.map((c, i) => c * top.alpha + base[i] * (1 - top.alpha));
+  const lum = (rgb) => rgb.reduce((sum, c, i) => {
+    const v = c / 255;
+    return sum + [0.2126, 0.7152, 0.0722][i] * (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  }, 0);
+  const ratio = (a, b) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const chips = new Map();
+  for (const { branches } of rules) {
+    for (const branch of branches) {
+      const family = CHIP_FAMILIES.find(([pattern]) => pattern.test(branch));
+      if (family && !chips.has(branch)) chips.set(branch, family[1]);
+    }
+  }
+  for (const [chip, host] of chips) {
+    // 同一选择器的多条规则按源码顺序合并(后写的覆盖先写的)。
+    const decl = {};
+    for (const { branches, body } of rules) {
+      if (!branches.includes(chip)) continue;
+      for (const m of body.matchAll(/(?:^|;)\s*(background(?:-color)?|color)\s*:\s*([^;]+)/g)) {
+        decl[m[1] === "color" ? "color" : "background"] = m[2].trim();
+      }
+    }
+    if (!decl.color) continue; // 没有自己的字色 = 继承宿主正文,已由 ③ 覆盖
+    for (const [theme, tokens] of themes) {
+      const fg = colorOf(tokens, decl.color);
+      const chipBg = colorOf(tokens, decl.background);
+      if (!fg || !chipBg) {
+        out.push(`③b ${theme} ${chip}:字色 "${decl.color}" / 底色 "${decl.background ?? "无"}" 不是 token 或 transparent,无法按合成底色计算对比度。改法:胶囊的字与底都用语义 token`);
+        continue;
+      }
+      for (const [label, layers] of CHIP_HOSTS[host]) {
+        let base = null;
+        for (const layer of layers) {
+          const c = colorOf(tokens, `var(${layer})`);
+          base = base ? over(c, base) : c.rgb;
+        }
+        const bg = over(chipBg, base);
+        const r = ratio(over(fg, bg), bg);
+        if (r < 4.5) {
+          out.push(`③b ${theme} ${chip}(${decl.color} 叠在 ${decl.background ?? "透明底"} 上,放在${label} ${layers.join(" + ")})合成后 ${r.toFixed(2)} < 4.5。改法:带半透明底的中性胶囊字色用 --fg 以上,或换不透明底;纯文字换更亮/更深的语义色`);
+        }
+      }
+    }
+  }
+  return out;
+}
+{
+  const violations = chipContrastViolations(css);
+  assert.deepEqual(violations, [], `叠色对比度(③b)未通过:\n${violations.join("\n")}`);
+  // 自测:复核实测的三种回退都必须红;类族找不到胶囊也红(判据定位失效)。
+  const counted = new Set();
+  for (const [pattern] of CHIP_FAMILIES) {
+    const hit = [...css.matchAll(/([^{}]+)\{/g)].some((m) => m[1].split(",").some((b) => pattern.test(b.trim())));
+    if (hit) counted.add(String(pattern));
+  }
+  assert.equal(counted.size, CHIP_FAMILIES.length, `③b 自测:有胶囊类族在 style.css 里一条规则都匹配不到(判据定位失效):${CHIP_FAMILIES.map(([p]) => String(p)).filter((p) => !counted.has(p)).join(", ")}`);
+  const rootStart = css.indexOf(":root {");
+  const rootEnd = css.indexOf("}", rootStart);
+  const setRoot = (name, value) => {
+    const block = css.slice(rootStart, rootEnd);
+    const pattern = new RegExp(`(${name}:\\s*)[^;]+;`);
+    assert.ok(pattern.test(block), `③b 自测::root 里找不到 ${name}`);
+    return css.slice(0, rootStart) + block.replace(pattern, `$1${value};`) + css.slice(rootEnd);
+  };
+  const counterexamples = [
+    ["P2 胶囊回到 --dim 叠 --badge-soft", `${css}\n.pri-badge.P2 { background: var(--badge-soft); color: var(--dim); }`],
+    ["待办胶囊字色单独改回 --dim(底色来自另一条规则)", `${css}\n.st-todo { color: var(--dim); }`],
+    ["项目卡空闲胶囊 --muted 叠 --badge-soft", `${css}\n.workspace-status.idle { color: var(--muted); }`],
+    ["暗色 --dim 回到 #9a9a9a(焦点卡悬停 4.37)", setRoot("--dim", "#9a9a9a")],
+  ];
+  const silent = counterexamples.filter(([, mutated]) => chipContrastViolations(mutated).length === 0).map(([label]) => label);
+  assert.deepEqual(silent, [], `叠色对比度判据没能命中自己的反例(恒绿):${silent.join(";")}`);
+}
+
 // ---------- UI-0926 配色 ⑥ 颜色语义:一种含义一种颜色(docs/design/ui_color_semantics.md) ----------
 // ①-⑤ 只管颜色有没有 token 化、够不够对比、选中/焦点是否中性,不管「这个颜色表达什么」:同一个琥珀
 // 同时是 P1、阻塞和运行中,绿色同时是空闲和完成,蓝色一处扛了十种含义,优先级在一行里画三遍,
@@ -554,17 +676,34 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     .map((m) => ({ branches: m[1].split(/,(?![^(]*\))/).map((b) => b.trim().replace(/\s+/g, " ")), body: m[2] }))
     .filter((rule) => rule.branches[0] && !rule.branches[0].startsWith("@"));
   const out = [];
-  // 中性语义的选择器:待办/空闲/可执行/被取得/身份/来源/工具单步成功/进度格/P1-P3 胶囊。
+  // 中性语义的选择器:待办/空闲/可执行/被取得/被读取/身份/来源/工具单步成功/进度格与进度条/P1-P3 胶囊/
+  // 记忆生效/排队投递/研究 V1。按前缀匹配(选择器本身及其后代、伪类、伪元素都算)。
   const NEUTRAL = [
-    ".st-todo", ".st-open", ".st-draft", ".backlog-stat.workable", ".doc-claim-fact", ".dep-layer-head.ready",
+    ".st-todo", ".st-open", ".st-draft", ".st-active", ".backlog-stat.workable", ".doc-claim-fact", ".dep-layer-head.ready",
     '.kz-dot[data-state="idle"]', '.kz-dot[data-state="stopping"]', '.kz-glyph[data-state="idle"]', '.kz-glyph[data-state="stopping"]',
-    ".doc-item .complexity-cell.filled", ".focus-card .complexity-cell.filled",
-    ".pri-badge.P1", ".pri-badge.P2", ".pri-badge.P3", ".pri-badge.unset",
+    ".doc-item .complexity-cell.filled", ".focus-card .complexity-cell.filled", ".tf-progress-fill",
+    ".pri-badge.P1", ".pri-badge.P2", ".pri-badge.P3", ".pri-badge.unset", ".workspace-status.idle",
     ".line-agent-code", ".sa-agent", ".picker-source",
     ".tool-msg.ok .tool-msg-status", ".tool-chip.ok .head::before", ".bg-entry.ok .bg-title::before",
     ".doc-archive-toggle", ".archived-entry",
+    ".memory-status-badge.active", ".memory-recall-hit.read .memory-recall-flag", ".queue-entry .queue-delivery", ".v-badge.v-v1",
   ];
+  // 编号/路径引用:平时中性,悬停/聚焦才变橙(语义表「引用中性 + 虚下划线,悬停才变橙」)。同样按前缀匹配,
+  // 但 :hover / :focus* 分支放行——.ref-link:hover 用 --accent-text 是合法的,只按前缀匹配会误判。
+  const NEUTRAL_AT_REST = [".ref-link", ".sv-chip.sv-ref", ".sv-chip.sv-path", "a.md-path"];
   const STATUS_VAR = /var\(--(?:ok|warn|alert|info|err|danger|accent|dot-run|line-[1-4]|badge-(?:ok|warn|info|alert|err))/;
+  // ⑥b 用:状态色 token,含别名与它们的 -soft/-text 变体。
+  const EDGE_STATUS_VAR = String.raw`var\(--(?:ok|warn|alert|info|err|danger|accent|dot-run|surface-attention|log-gold|arch-unindexed|diff-add|diff-del|badge-(?:ok|warn|info|alert|err))(?:-[a-z]+)?\)`;
+  // 列表行与卡片本身(选择器的主体 = 最后一个复合选择器):任何边框、box-shadow、::before/::after 底色都不准用状态色。
+  const ROW_CARD = /\.(?:doc-item|focus-card|memory-row|memory-candidate|work-unit-card|metrics-round)(?![\w-])/;
+  const ROW_CARD_EDGE = new RegExp(String.raw`(?:^|;)\s*(?:border(?:-left|-inline-start)?(?:-color)?|box-shadow)\s*:[^;]*` + EDGE_STATUS_VAR);
+  const PSEUDO_FILL = new RegExp(String.raw`(?:^|;)\s*background(?:-color)?\s*:[^;]*` + EDGE_STATUS_VAR);
+  // 全局:任何元素都不准用状态色画左侧竖条(border-left / border-inline-start / 横向偏移的 inset 阴影)。
+  // 显式例外(见 ui_color_semantics.md §7):活动面板子行 .bg-child 的左边框就是它的状态位;
+  // 自检失败项 .sv-check-fail 是引文式的缩进块。新增例外必须登记在这里并在设计文档写明理由。
+  const STRIPE = new RegExp(String.raw`(?:^|;)\s*(?:border-(?:left|inline-start)(?:-color)?\s*:[^;]*|box-shadow\s*:[^;]*\binset\s+-?(?:\d*\.)?\d*[1-9]\d*px\s+0(?:px)?\s+0(?:px)?\s[^;]*)` + EDGE_STATUS_VAR);
+  const STRIPE_EXCEPTIONS = new Set([".bg-child.warn", ".bg-child.err", ".bg-child.running", ".sv-check-fail"]);
+  const subjectOf = (branch) => branch.split(/\s*[>+~]\s*|\s+(?![^(]*\))/).pop();
   for (const { branches, body } of rules) {
     const selector = branches.join(", ");
     // (a) 优先级只编码一次(行内胶囊):不得再画竖条(::before)、给编号(.id)染色、给批次格换色。
@@ -573,10 +712,16 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
         out.push(`⑥a 优先级在胶囊之外又编码了一遍:${branch}。改法:优先级只写在 .pri-badge 上(P0 红,P1/P2 中性,P3 描边)`);
       }
     }
-    // (b) 列表行/卡片不画彩色左竖条(Codex 没有;五种颜色各说各话)。
-    if (/border-left(?:-color)?\s*:[^;]*var\(--(?:ok|warn|alert|info|err|danger|accent)(?:-[a-z]+)?\)/.test(body)
-      && branches.some((branch) => /\.(?:doc-item|focus-card|memory-row|memory-candidate|work-unit-card)(?![\w-])/.test(branch))) {
-      out.push(`⑥b 列表行/卡片上的彩色左竖条:${selector}。改法:状态用文字胶囊或字形表达,左边框保持中性`);
+    // (b) 列表行/卡片不画彩色竖条或描边(Codex 没有;五种颜色各说各话)。只查 border-left 拦不住换个写法:
+    //     box-shadow: inset 3px 0 0、整圈 border-color、border-inline-start、::before 底色条都算。
+    const rowCards = branches.filter((branch) => ROW_CARD.test(subjectOf(branch)));
+    const rowCardHits = rowCards.filter((branch) => ROW_CARD_EDGE.test(body) || (/::?(?:before|after)\b/.test(subjectOf(branch)) && PSEUDO_FILL.test(body)));
+    if (rowCardHits.length) {
+      out.push(`⑥b 列表行/卡片本身用状态色画了竖条/描边/阴影:${rowCardHits.join(", ")}。改法:状态用文字胶囊或字形表达,边框与阴影保持中性`);
+    }
+    const stripes = branches.filter((branch) => !STRIPE_EXCEPTIONS.has(branch) && !rowCards.includes(branch));
+    if (stripes.length && STRIPE.test(body)) {
+      out.push(`⑥b 彩色左竖条:${stripes.join(", ")}。改法:状态用文字胶囊或字形表达;确属「边框即状态位」的,登记进 STRIPE_EXCEPTIONS 并在 ui_color_semantics.md 写明`);
     }
     // (c) 蓝色不表达任何状态:var(--info)/--badge-info 只准出现在语法/JSON 着色选择器里。
     if (/var\(--(?:info|badge-info)\)/.test(body) && !branches.every((branch) => /\.sv-json|\.syntax|\.hl-|\.tok-/.test(branch))) {
@@ -584,7 +729,8 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     }
     // (d) 中性语义不得着状态色。
     for (const branch of branches) {
-      const hit = NEUTRAL.find((n) => branch === n || (branch.startsWith(n) && /^[\s:.[]/.test(branch.slice(n.length))));
+      const hit = NEUTRAL.find((n) => branch === n || (branch.startsWith(n) && /^[\s:.[]/.test(branch.slice(n.length))))
+        ?? NEUTRAL_AT_REST.find((n) => branch === n || (branch.startsWith(n) && /^(?:[\s.[]|:(?!hover|focus))/.test(branch.slice(n.length))));
       if (hit && STATUS_VAR.test(body)) out.push(`⑥d 中性语义 ${hit} 用了状态色:${branch} { ${body.trim()} }。改法:用 --dim/--fg/--fg-strong`);
     }
   }
@@ -654,6 +800,19 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
   if (!(lum("--code-bg") > lum("--bg"))) {
     out.push(`⑥g 代码块 --code-bg ${dark["--code-bg"]} 必须比主区 --bg ${dark["--bg"]} 亮,否则代码块在主区上看不见边`);
   }
+  // 只比大小拦不住「退回旧值」:旧主区 #1e1e1e 仍比侧栏 #1f1f1f 暗一级、旧输入区 #262626 仍比主区亮,
+  // 而这两个值正是「发灰」的根因(复核 2026-09-26 实测变异全绿)。所以再要求最小明度级差
+  // (WCAG 对比度同一公式):侧栏/代码块比主区 ≥ 1.05(Codex #1f1f1f:#181818 = 1.08),
+  // 输入区比主区 ≥ 1.3(Codex #303030:#181818 = 1.35,旧 #262626 只有 1.17)。
+  const step = (hi, lo) => (lum(hi) + 0.05) / (lum(lo) + 0.05);
+  for (const [hi, floor, why] of [
+    ["--sidebar-bg", 1.05, "侧栏要比主区亮一档,左右分得开"],
+    ["--code-bg", 1.05, "代码块要在主区上看得出边"],
+    ["--surface-raised", 1.3, "输入区要明显浮起"],
+  ]) {
+    const got = step(hi, "--bg");
+    if (!(got >= floor)) out.push(`⑥g 暗色表面级差不够:(L(${hi} ${dark[hi]})+.05)/(L(--bg ${dark["--bg"]})+.05) = ${got.toFixed(3)} < ${floor}(${why})`);
+  }
   return out;
 }
 {
@@ -682,15 +841,29 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     ["⑥a", `${css}\n.doc-item.pri-P1 .complexity-cell.filled { background: var(--warn); }`],
     ["⑥a", `${css}\n.doc-item.pri-P0::before { background: var(--err); }`],
     ["⑥b", `${css}\n.focus-card.blocked { border-left-color: var(--warn); }`],
+    // 复核实测的绕过写法:inset 阴影竖条、整圈描边、::before 底色条、度量页轮次行、行卡以外的 inline-start 竖条。
+    ["⑥b", `${css}\n.doc-item.agent-active { box-shadow: inset 3px 0 0 var(--accent); }`],
+    ["⑥b", `${css}\n.focus-card.blocked { border-color: var(--warn); }`],
+    ["⑥b", `${css}\n.doc-item.agent-active::before { content: ""; background: var(--accent); }`],
+    ["⑥b", `${css}\n.metrics-round.halted { border-left: 2px solid var(--warn); }`],
+    ["⑥b", `${css}\n.activity-row.failed { border-inline-start: 2px solid var(--err); }`],
+    ["⑥b", `${css}\n.activity-row.failed { box-shadow: inset 2px 0 0 var(--danger); }`],
     ["⑥c", `${css}\n.queue-entry .queue-delivery { color: var(--info); }`],
     ["⑥d", `${css}\n.kz-dot[data-state="idle"] { background: var(--ok); }`],
     ["⑥d", `${css}\n.backlog-stat.workable .backlog-num { color: var(--ok); }`],
+    // 引用超载强调橙(根因之一)、批次进度条部分完成也是绿:
+    ["⑥d", `${css}\n.ref-link { color: var(--accent-text); }`],
+    ["⑥d", `${css}\n.sv-chip.sv-ref { color: var(--accent-text); }`],
+    ["⑥d", `${css}\n.tf-progress-fill { background: var(--ok); }`],
     ["⑥e", withLight("--dot-idle: #1d7a3c;")],
     ["⑥t", withLight("/* 别名 --dot-*/--memory-flow 只在 :root 定义 */")],
     ["⑥e", mutateRoot("--alert", "#dcb45e")],
     ["⑥g", mutateRoot("--sidebar-bg", "#000000")],
     ["⑥g", mutateRoot("--code-bg", "#000000")],
     ["⑥g", mutateRoot("--surface-raised", "#2a2530")],
+    // 退回旧值(方案 tests 点名):主区 #1e1e1e、输入区 #262626——只比大小时两条都是绿的。
+    ["⑥g", mutateRoot("--bg", "#1e1e1e")],
+    ["⑥g", mutateRoot("--surface-raised", "#262626")],
     ["⑥p", dropRule(/\.backlog-stat\.is-zero \.backlog-num \{[^}]*\}/)],
     ["⑥p", dropRule(/\.kz-glyph\[data-state="attention"\] \{[^}]*\}/)],
   ];
@@ -699,6 +872,13 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     .filter(([, caught]) => !caught)
     .map(([label]) => label);
   assert.deepEqual(silent, [], `颜色语义判据没能命中自己的反例(恒绿):${silent.join(", ")}`);
+}
+// 彩色 emoji 绕过调色板:⚡ 必须带 U+FE0E 变成文字字形(HTML 里写 ⚡&#xFE0E;),才继承 CSS color、随主题取色。
+// 状态栏「自动放行」是静态 HTML;输入区芯片与状态栏 kz:meta 的 ⚡ 由 ui-runtime-smoke 实渲染断言。
+{
+  assert.ok(html.includes('id="status-auto-allow"') && /id="status-auto-allow"[^>]*>⚡&#xFE0E; /.test(html), "状态栏「自动放行」的 ⚡ 必须写成 ⚡&#xFE0E;(文字字形,随主题取色)");
+  const bareBolts = [...html.matchAll(/⚡(?!&#xFE0E;|︎)/g)].length;
+  assert.equal(bareBolts, 0, `index.html 里有 ${bareBolts} 处不带 U+FE0E 的 ⚡:彩色 emoji 不受 CSS color 控制,写成 ⚡&#xFE0E;`);
 }
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);

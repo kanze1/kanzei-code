@@ -390,6 +390,36 @@ export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path
       if (theme === "dark") {
         await page.locator("#demo-matrix").scrollIntoViewIfNeeded();
         await page.locator("#demo-matrix").screenshot({ path: path.join(outDir, "matrix.png") });
+        // 亮色矩阵是嵌套在暗色页面里的 [data-theme="light"] 区块::root 上以 var() 定义的 token(--danger/--alert/
+        // --dot-idle/组件层 --surface-*)在 :root 就求好了值,区块里不重声明就拿到暗色值(曾经危险菜单项
+        // #ff7b72 在白底上 2.52:1)。判据:区块上每个主题 token 的计算值 == html[data-theme=light] 上的计算值。
+        const drift = await page.evaluate(() => {
+          const names = new Set();
+          const walk = (rules) => {
+            for (const rule of rules) {
+              if (rule.styleSheet) walk(rule.styleSheet.cssRules);
+              else if (rule.style && (rule.selectorText === ":root" || rule.selectorText === '[data-theme="light"]')) {
+                for (const name of rule.style) if (name.startsWith("--")) names.add(name);
+              } else if (rule.cssRules) walk(rule.cssRules);
+            }
+          };
+          for (const sheet of document.styleSheets) walk(sheet.cssRules);
+          const section = document.querySelector('[data-matrix="light"]');
+          const html = document.documentElement;
+          const previous = html.getAttribute("data-theme");
+          html.setAttribute("data-theme", "light");
+          const want = Object.fromEntries([...names].map((name) => [name, getComputedStyle(html).getPropertyValue(name).trim()]));
+          html.setAttribute("data-theme", previous);
+          const got = Object.fromEntries([...names].map((name) => [name, getComputedStyle(section).getPropertyValue(name).trim()]));
+          return {
+            checked: names.size,
+            aliases: ["--danger", "--alert", "--dot-idle"].map((name) => `${name}=${got[name]}`),
+            mismatched: [...names].filter((name) => want[name] !== got[name]).map((name) => `${name}: 矩阵 ${got[name]} ≠ 亮色 ${want[name]}`),
+          };
+        });
+        if (drift.checked < 50) fail(`亮色矩阵 token 对照:只找到 ${drift.checked} 个主题 token,判据定位失效`);
+        if (drift.mismatched.length) fail(`亮色矩阵拿到了暗色 token(嵌套主题区块未重声明 :root 的 var() 值):\n${drift.mismatched.join("\n")}`);
+        notes.push(`亮色矩阵 ${drift.checked} 个主题 token 与 html[data-theme=light] 一致(${drift.aliases.join(" ")})`);
       }
 
       // 800×500 只查几何(与主题无关,只跑一遍):菜单/浮层/卡片/模态不越出小窗口

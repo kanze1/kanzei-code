@@ -14,11 +14,13 @@
   --surface-raised: #303030; --surface-overlay: #2c2c2c;
   --surface-hover: #ffffff0d; --surface-selected: #ffffff14;
   --border: #343434; --border-soft: #282828; --border-strong: #464646;
-  --fg: #e5e5e5; --fg-strong: #ffffff; --dim: #9a9a9a;
-  /* 唯一强调色:Codex 橙。填充 #d25e28(发送键同色,配白色图标),文字 #ff8549(所有表面 ≥ 5:1)。
+  /* --dim 取「悬停中的焦点卡」(--panel2 叠 --surface-hover ≈ #353535,全应用最亮的常见文字底)上仍 ≥ 4.5 的最暗值。 */
+  --fg: #e5e5e5; --fg-strong: #ffffff; --dim: #9e9e9e;
+  /* 唯一强调色:Codex 橙。填充 #d25e28(发送键同色,配白色图标),文字 #ff8c52(不透明表面 ≥ 5:1;
+     叠 --accent-soft 的「在做」胶囊放进悬停中的焦点卡也 ≥ 4.5)。
      强调色的含义只有一个:「正在进行」(运行中/在做/待续跑)+ 品牌 + 真链接 + 一次性的「看这里」闪烁。 */
   --accent: #d25e28; --accent-hover: #e2703a; --accent-soft: #d25e2829;
-  --accent-text: #ff8549;
+  --accent-text: #ff8c52;
   --memory-flow: var(--accent); --memory-flow-hot: var(--accent-text); --memory-flow-dim: var(--border-strong);
   /* 状态色:一种含义一种颜色(docs/design/ui_color_semantics.md)。
      warn = 需要注意(阻塞/卡住/等你/风险);ok = 一件工作成功收尾;err = 失败/错误/P0;
@@ -118,10 +120,11 @@
   --surface-hover: #00000009; --surface-selected: #0000000d;
   --border: #dcdcdc; --border-soft: #ebebeb; --border-strong: #c7c7c7;
   --fg: #2b2b2b; --fg-strong: #0d0d0d; --dim: #656565;
-  /* 强调色与暗色同一个填充值(品牌只有一个橙);文字值加深到白底 ≥ 5.9:1。 */
+  /* 强调色与暗色同一个填充值(品牌只有一个橙);文字值加深到白底 ≥ 6:1。accent-text 与 warn 的取值
+     让「在做」「阻塞」胶囊(半透明底)放进悬停中的焦点卡(--panel2 叠 --surface-hover)也 ≥ 4.5。 */
   --accent: #d25e28; --accent-hover: #b84f1f; --accent-soft: #d25e281a;
-  --accent-text: #a04b1a;
-  --ok: #1d7a3c; --err: #c62b2b; --warn: #8a5b00; --info: #2b64a4;
+  --accent-text: #9a4817;
+  --ok: #1d7a3c; --err: #c62b2b; --warn: #845700; --info: #2b64a4;
   --statusbar: #f7f7f7; --statusbar-run: #f4efeb;
   color-scheme: light;
   --chat-bg: #ffffff;
@@ -129,7 +132,7 @@
   --on-danger: #b42318;
   --badge-err: #fcebea; --badge-warn: #f8f0dd; --badge-info: #eaf1f9;
   --badge-ok: #e8f4ec;
-  --badge-err-soft: #c62b2b1f; --badge-warn-soft: #8a5b001f; --badge-soft: #0000000d;
+  --badge-err-soft: #c62b2b1f; --badge-warn-soft: #8457001f; --badge-soft: #0000000d;
   --badge-ok-soft: #1d7a3c1f;
   --activitybar: #f7f7f7; --sidebar-bg: #f7f7f7; --scrollbar: #d4d4d4; --scrollbar-hover: #b0b0b0;
   --activity-fg: #6b6b6b; --activity-active: #0d0d0d;
@@ -154,7 +157,7 @@
   --sunken: #00000008; --sunken-mid: #0000000b; --sunken-strong: #0000000f;
   --hover-wash: #00000009; --on-ok: #ffffff;
   --danger-btn-hover: #f9d9d6; --deny-hover: #ebebeb;
-  --danger-soft: #c62b2b14; --alert-soft: #8a5b0014;
+  --danger-soft: #c62b2b14; --alert-soft: #84570014;
   --border-on-accent: #0000001a;
 }
 /* ===== 主题 token 块结束:D-380 判据以此行为界(scripts/ui-a11y-smoke.mjs),勿改此行 ===== */
@@ -473,8 +476,10 @@ body {
 .workspace-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .workspace-status { padding: 2px 8px; border-radius: var(--r-pill); font-size: var(--fs-11); }
 .workspace-status.running { color: var(--accent-text); background: var(--accent-soft); }
-.workspace-status.failed { color: var(--danger); background: var(--badge-err-soft); }
-.workspace-status.idle { color: var(--muted); background: var(--badge-soft); }
+/* 项目卡是 --surface-raised(暗色最亮的一层):半透明底上的 --dim / --err 合成后都不到 4.5(③b),
+   失败用不透明 --badge-err(与 P0 同一对),空闲用 --fg。 */
+.workspace-status.failed { color: var(--danger); background: var(--badge-err); }
+.workspace-status.idle { color: var(--fg); background: var(--badge-soft); }
 .workspace-path, .workspace-summary, .workspace-activity, .workspace-meta { margin-top: 6px; font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 「复杂度:大」是中文界面文字,不该用等宽。 */
 .complexity-badge { color: var(--dim); font-size: var(--fs-10); font-family: inherit; flex-shrink: 0; }
@@ -563,11 +568,13 @@ body {
 /* 优先级只编码一次:行内胶囊。左侧色条与 ID 染色全部去掉(旧版同一信息画三遍:竖条 + ID + 胶囊)。 */
 .doc-item { position: relative; }
 .pri-badge { font-size: var(--fs-10); border-radius: var(--r-pill); padding: 0 6px; flex-shrink: 0; font-family: inherit; font-weight: 600; border: 0; cursor: pointer; }
-/* P0 = 红(紧急,与「失败」同属「立刻处理」);P1/P2 中性,靠亮度与字重分层;P3/未定只描边。
-   胶囊底用半透明 --badge-soft:焦点卡本身是 --panel2 底,不透明 panel2 会让胶囊消失。 */
+/* P0 = 红(紧急,与「失败」同属「立刻处理」);P1 实底亮字,P2 无底亮字,P3/未定描边灰字——三档靠底与字分层。
+   P1 底用半透明 --badge-soft:焦点卡本身是 --panel2 底,不透明 panel2 会让胶囊消失。
+   半透明底上的字按「胶囊底 ∘ 卡底 ∘ 悬停」合成后算对比度(ui-a11y-smoke ③b):--dim 在
+   --badge-soft 叠焦点卡上只有 4.0,悬停再叠一层降到 3.4,所以带底的中性胶囊一律用 --fg 以上。 */
 .pri-badge.P0 { background: var(--badge-err); color: var(--err); }
 .pri-badge.P1 { background: var(--badge-soft); color: var(--fg-strong); }
-.pri-badge.P2 { background: var(--badge-soft); color: var(--dim); }
+.pri-badge.P2 { background: transparent; color: var(--fg); }
 .pri-badge.P3, .pri-badge.unset { background: transparent; color: var(--dim); box-shadow: inset 0 0 0 1px var(--border); }
 /* brightness(1.3) 在亮色下会把徽标漂白;改成同色细描边。 */
 .pri-badge:hover { box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 35%, transparent); }
@@ -575,7 +582,8 @@ body {
 .st { font-size: var(--fs-10); border-radius: var(--r-pill); padding: 1px 7px; font-weight: 500; flex-shrink: 0; }
 /* 进行中 = 强调色(运行语义);待办类转中性,不再用蓝。 */
 .st-doing, .st-fixing { background: var(--accent-soft); color: var(--accent-text); }
-.st-todo, .st-open, .st-draft, .st-active { background: var(--badge-soft); color: var(--dim); }
+/* 待办类:半透明底 + --fg(--dim 叠在 --badge-soft 上过不了 4.5,见 .pri-badge 注释)。 */
+.st-todo, .st-open, .st-draft, .st-active { background: var(--badge-soft); color: var(--fg); }
 .st-done, .st-fixed, .st-confirmed { background: var(--badge-ok); color: var(--ok); }
 .st-dropped, .st-wontfix { background: var(--panel2); color: var(--dim); }
 
@@ -1495,7 +1503,7 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
 .metrics-cat-table th:first-child, .metrics-cat-table td:first-child, .metrics-cat-table th:nth-child(2), .metrics-cat-table td:nth-child(2) { text-align: left; }
 .metrics-cat-table th { font-weight: 600; color: var(--fg-strong); font-family: var(--sans); }
 
-.metrics-round.halted { border-left: 2px solid var(--warn); }
+/* 按停止收尾的轮次由轮次头里的结局文字(halted)表达,不画琥珀竖条(⑥b);.halted 只作钩子保留。 */
 .metrics-round-head { display: flex; justify-content: space-between; gap: 10px; font-size: var(--fs-11-5); }
 .metrics-round-prompt { font-size: var(--fs-11-5); margin: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .metrics-round-stats { font-size: var(--fs-11); font-family: var(--mono); }
@@ -1523,7 +1531,8 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); o
 .memory-recall-id { font-family: var(--mono); font-size: var(--fs-10-5); color: var(--dim); }
 .memory-recall-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .memory-recall-flag { color: var(--dim); font-size: var(--fs-10-5); }
-.memory-recall-hit.read .memory-recall-flag { color: var(--ok); }
+/* 「被读取」是中性事实(与「被取得」「记忆生效」同类):亮字区分,不用绿。 */
+.memory-recall-hit.read .memory-recall-flag { color: var(--fg); }
 .memory-recall-snippet { grid-column: 1 / -1; font-size: var(--fs-10-5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 长期零命中:淡出 + 标记,一眼看出哪些记忆从没被用到过 */
 .memory-row.dormant { opacity: .68; }
@@ -2868,7 +2877,8 @@ a.md-path { cursor: pointer; color: var(--fg); text-decoration: underline; text-
 .tf-meta-item { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px; min-width: 0; }
 .tf-meta-key { color: var(--dim); font-size: var(--fs-11); }
 .tf-progress { display: inline-block; width: 48px; height: 4px; overflow: hidden; vertical-align: middle; border-radius: var(--r-pill); background: var(--border-soft); }
-.tf-progress-fill { display: block; width: var(--tf-progress, 0%); height: 100%; background: var(--ok); }
+/* 批次进度是进度不是状态:部分完成与全部完成同一中性灰(绿只表示成功收尾,见语义表)。 */
+.tf-progress-fill { display: block; width: var(--tf-progress, 0%); height: 100%; background: var(--dim); }
 .tf-row { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 8px; }
 .tf-key { padding-top: 1px; color: var(--dim); font-size: var(--fs-11-5); overflow-wrap: anywhere; }
 .tf-val { min-width: 0; overflow-wrap: anywhere; }

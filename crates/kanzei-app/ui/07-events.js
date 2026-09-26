@@ -739,7 +739,7 @@ defer(() => {
       } else if (reason === "GoalMet") {
         // R-322 B3:目标达成由**模型**判定,后端已清除目标,前端同步清输入框。
         clearGoalInput();
-        addMessage("notice", `✓${t("目标已达成")}:${t("模型判定条件满足,目标已清除")}`);
+        addMessage("notice", `✓ ${t("目标已达成")}:${t("模型判定条件满足,目标已清除")}`);
         log(t("目标已达成,自动清除"));
         setAutoStopReason(t("目标已达成"));
       } else if (reason === "GoalUnreachable") {
@@ -768,14 +768,15 @@ defer(() => {
         applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
         const msg = t("需求与缺陷已清空，自动推进已停止");
         setAutoStopReason(msg, "completed");
-        addMessage("notice", `✓${msg}`);
+        addMessage("notice", `✓ ${msg}`);
         log(t("自动推进停止:需求与缺陷已清空"));
       } else if (reason === "ProfileMismatch") {
         // R-199:档位条件由引擎判定,前端只显示(不再持有否决权)。
         applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
         const msg = t("鞭挞已关闭,当前进程不是自主推进模式");
         setAutoStopReason(msg);
-        addMessage("notice", `✓${msg}`);
+        // 档位不匹配不是「成功」,不带 ✓:中性通知,原因文字本身就是信息。
+        addMessage("notice", msg);
         log(t("自动推进停止:当前模式不匹配"));
       } else if (reason === "RateLimited") {
         const msg = t("provider 限流(429)，自动推进已暂停，请等待后手动恢复");
