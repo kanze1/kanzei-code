@@ -45,11 +45,17 @@ for (const selector of ["activity-item", "rail-sidebar-toggle", "auto-continue",
   assert.ok(html.includes(`id="${selector}"`) || html.includes(`class="${selector}`), `缺少核心控件 ${selector}`);
 }
 assert.match(js, /activity-item[\s\S]*aria-current/);
-assert.match(js, /project-item[\s\S]*item\.click\(\)/);
+// UI2-0926 #1:项目切换只剩侧栏头部的项目卡菜单(菜单按钮语义 + click/方向键都打开 openProjectMenu);
+// 项目总览卡片是「标题真按钮 + ⋯ 菜单按钮」,重命名/移除在 ⋯ 里(读屏名称带项目名)。
+assert.match(html, /<button type="button" id="project-switch"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"/, "项目卡必须是带 aria-haspopup/aria-expanded 的菜单按钮");
+assert.doesNotMatch(html, /id="project-switch"[^>]*aria-controls=/, "项目卡不再是某个分区的开合把手(不得再带 aria-controls)");
+assert.match(js, /button\.addEventListener\("click", \(\) => openProjectMenu\(\)\)/, "项目卡点击未接 openProjectMenu");
+assert.match(js, /event\.key !== "ArrowDown" && event\.key !== "ArrowUp"[\s\S]{0,120}openProjectMenu\(\)/, "项目卡方向键未接 openProjectMenu");
 assert.match(js, /doc-row[\s\S]*aria-expanded/);
-assert.match(js, /workspace-card[\s\S]*card\.click\(\)/);
-assert.match(js, /remove\.setAttribute\("aria-label"/);
-assert.match(js, /rename\.setAttribute\("aria-label"/);
+assert.match(js, /open\.className = "workspace-card-open"/, "项目总览卡片缺标题真按钮 .workspace-card-open");
+assert.match(js, /open\.setAttribute\("aria-label", `\$\{t\("选择工作区项目"\)\} \$\{project\.name\}`\)/, "项目总览卡片标题按钮缺读屏名称");
+assert.match(js, /more\.className = "icon-btn workspace-card-more"[\s\S]{0,400}more\.setAttribute\("aria-haspopup", "menu"\)[\s\S]{0,200}more\.setAttribute\("aria-label", `\$\{t\("更多操作"\)\} \$\{project\.name\}`\)/, "项目总览卡片 ⋯ 缺菜单按钮语义或带项目名的读屏名称");
+assert.match(css, /\.workspace-card-open::after \{[^}]*inset: 0/, "项目总览卡片缺撑满整卡的点击覆盖层");
 // 胶囊开关把原生勾选框视觉隐藏,必须用 opacity:0 保留可聚焦——display:none 会把它
 // 从 tab 序里摘掉,键盘用户就切不动鞭挞。#auto-allow-wrap 已随鞭挞控制台改成菜单行,
 // 勾选框恢复可见,不再走这套隐藏;仍用胶囊的只剩 #auto-continue-wrap。
@@ -515,7 +521,7 @@ assert.match(js, /t\("实际差异"\)/);
   const rules = rulesOf(cssClean);
   const bodiesFor = (selector) => rules.filter((rule) => rule.branches.includes(selector)).map((rule) => rule.body);
   for (const selector of [
-    ".project-item.active", ".parallel-task-row.active", ".workspace-switcher button.active",
+    ".parallel-task-row.active", ".workspace-switcher button.active",
     ".research-page-nav button.active", ".palette-row.active", ".files-row.active", ".arch-entry.active",
     ".activity-item.active", ".memory-row.selected",
   ]) {

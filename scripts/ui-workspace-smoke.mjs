@@ -181,7 +181,9 @@ try {
   await space("research");
   await page.waitForFunction(() => document.querySelector("#research-topic-select").options.length === 3);
   assert.equal(await page.locator("#project-switch").isVisible(), false);
-  assert.equal(await page.locator("#projects-section").isVisible(), false);
+  // UI2-0926 #1:侧栏「项目」分区已删(项目切换只剩项目卡菜单);D-170 隔离告警住在 dev 专属的 .project-warn-slot,研究空间里整个槽隐藏。
+  assert.equal(await page.locator("#projects-section").count(), 0);
+  assert.equal(await page.locator(".project-warn-slot").evaluate((el) => el.classList.contains("hidden")), true);
   assert.equal(await page.locator('#profile-select').isVisible(), false);
   assert.equal(await page.locator('#focus-section').isVisible(), false);
   assert.equal(await page.locator('.activity-item[data-view="lines"]').isVisible(), false);

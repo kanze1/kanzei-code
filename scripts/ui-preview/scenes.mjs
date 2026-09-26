@@ -123,6 +123,14 @@ const SCENES = {
     document.activeElement?.blur?.();
     await ctx.sleep(60);
   },
+  /// UI2-0926 #1:侧栏项目卡展开的项目菜单(各项目 ✓ 当前 / 打开文件夹… / 新建项目… / 项目总览)。
+  async projects(ctx) {
+    $("#project-switch")?.click();
+    await waitFor(() => document.querySelector(".project-menu"));
+    // 合成点击没有真实指针,程序聚焦的菜单项会带键盘焦点环;截图要的是鼠标打开的样子。
+    document.activeElement?.blur?.();
+    await ctx.sleep(80);
+  },
   /// UI2-0926 #5:需求页列表本身(不展开详情),看行的字阶与明暗层级。docs 场景展开了 R-364 的详情,
   /// 详情占满一屏,列表行反而看不全。
   async doclist(ctx) {
@@ -163,7 +171,7 @@ const SCENES = {
     }
     if (dialog === "input") {
       const core = await import("/01-core.js");
-      void core.inputDialog({ title: "重命名项目", message: "只改侧栏显示名,不移动目录", value: "kanzei code" });
+      void core.inputDialog({ title: "重命名项目", message: "只改显示名,不移动目录", value: "kanzei code" });
       await waitFor(() => !isHidden("#input-overlay"));
       return;
     }

@@ -62,10 +62,11 @@
       </div>
       <!-- 工作区头:侧栏第一屏只回答两个问题——「我在哪个项目」「怎么开新对话」。
            顶栏被整条删掉后,新对话与项目身份都落在这里(CC 的侧栏同构)。
-           项目切换按钮不自带列表,它折叠/展开下面那个既有的 #projects-section,
-           复用 kz-collapse-projects 的持久化,不再造第二套弹层状态。 -->
+           UI2-0926 #1:项目卡就是唯一的项目切换入口——点开是 openMenu 项目菜单(最近项目带 ✓、
+           打开文件夹…、新建项目…、项目总览);侧栏不再另挂一份「项目」列表。
+           重命名/移除在项目总览页卡片的 ⋯ 菜单里。 -->
       <div id="workspace-bar" class="workspace-bar">
-        <button type="button" id="project-switch" data-space-only="dev" class="project-switch" aria-controls="projects-section" aria-expanded="true" title="切换项目" data-i18n-title="切换项目">
+        <button type="button" id="project-switch" data-space-only="dev" class="project-switch" aria-haspopup="menu" aria-expanded="false" title="切换项目" data-i18n-title="切换项目">
           <span class="project-switch-mark" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path d="M5 3.5v17M5 12.6 15.4 3.5M9.4 12.6 19 20.5M9.6 9.9 17.2 3.5M11.6 8.1 19 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"/></svg>
           </span>
@@ -82,15 +83,9 @@
           <span data-i18n-key="新对话">新对话</span>
         </button>
       </div>
-      <div class="sidebar-section" data-space-only="dev" data-collapse-key="projects" data-collapse-default="collapsed" id="projects-section">
-        <div class="section-title">
-          <span data-i18n-key="项目">项目</span>
-          <span>
-            <button id="project-init" class="icon-btn" title="初始化新项目目录" data-i18n-title="初始化新项目目录" aria-label="初始化新项目目录">✦</button>
-            <button id="project-add" class="icon-btn" title="添加项目目录" data-i18n-title="添加项目目录" aria-label="添加项目目录">＋</button>
-          </span>
-        </div>
-        <div id="project-list" class="project-list"></div>
+      <!-- D-170 项目隔离告警常驻在项目卡正下方(原先住在默认收起的「项目」分区里,平时看不见)。
+           外包一层 slot:03-workspaces 会对 [data-space-only] 元素无条件切 .hidden,告警自己的显隐要另管。 -->
+      <div class="project-warn-slot" data-space-only="dev">
         <div id="project-shared-warn" class="project-shared-warn hidden" role="alert"></div>
       </div>
       <section id="research-section" class="research-navigation hidden" data-space-only="research">
@@ -445,8 +440,18 @@
 
       <div id="view-workspace" class="view">
         <div id="workspace-scroll">
-          <h1 data-i18n-key="项目总览">项目总览</h1>
-          <p class="dim" data-i18n-key="统一查看项目、对话、运行状态和最近活动。">统一查看项目、对话、运行状态和最近活动。</p>
+          <!-- UI2-0926 #1:项目的增删改收在这一页(侧栏只剩项目卡菜单):页头两个入口,卡片 ⋯ 里是重命名/移除。
+               #project-add / #project-init 沿用原 id 与 title,命令面板与冒烟按 id 取。 -->
+          <header class="workspace-head">
+            <div class="workspace-head-text">
+              <h1 data-i18n-key="项目总览">项目总览</h1>
+              <p class="dim" data-i18n-key="统一查看项目、对话、运行状态和最近活动。">统一查看项目、对话、运行状态和最近活动。</p>
+            </div>
+            <div class="workspace-actions">
+              <button type="button" id="project-add" class="ghost" title="添加项目目录" data-i18n-title="添加项目目录"><span data-i18n-key="打开文件夹…">打开文件夹…</span></button>
+              <button type="button" id="project-init" class="ghost" title="初始化新项目目录" data-i18n-title="初始化新项目目录"><span data-i18n-key="新建项目…">新建项目…</span></button>
+            </div>
+          </header>
           <div id="workspace-projects" class="workspace-projects"></div>
         </div>
       </div>

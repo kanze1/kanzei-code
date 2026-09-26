@@ -267,6 +267,19 @@ async function choose(kind, spec) {
   else await setLineModel(spec.value);
 }
 
+/// 左侧勾选列:✓ 只跟「当前生效」那一项走。悬停/焦点只有中性底色,与生效项的底色只差几个百分点,
+/// 光靠底色分不出「鼠标在哪」和「哪项在生效」——这正是原生下拉被换掉的原因。
+/// 模型/思考芯片菜单与项目菜单(09-sessions.js openProjectMenu)共用这一份写法。
+export function addMenuCheckColumn(menu) {
+  for (const button of menu?.querySelectorAll?.(".k-menu-item") ?? []) {
+    const check = document.createElement("span");
+    check.className = "picker-check";
+    check.setAttribute("aria-hidden", "true");
+    check.textContent = button.getAttribute("aria-checked") === "true" ? "✓" : "";
+    button.prepend(check);
+  }
+}
+
 let menuHandle = null;
 export function closePicker() {
   menuHandle?.close?.();
@@ -302,14 +315,8 @@ export function openPicker(kind, { showAll = false } = {}) {
   menu.classList.add("picker-menu");
   menu.dataset.picker = kind;
   const actionable = specs.filter((spec) => spec && typeof spec === "object" && !spec.heading);
+  addMenuCheckColumn(menu);
   [...menu.querySelectorAll(".k-menu-item")].forEach((button, index) => {
-    // 左侧勾选列:✓ 只跟「当前生效」那一项走。悬停/焦点只有中性底色,与生效项的底色只差几个百分点,
-    // 光靠底色分不出「鼠标在哪」和「哪项在生效」——这正是原生下拉被换掉的原因。
-    const check = document.createElement("span");
-    check.className = "picker-check";
-    check.setAttribute("aria-hidden", "true");
-    check.textContent = button.getAttribute("aria-checked") === "true" ? "✓" : "";
-    button.prepend(check);
     const spec = actionable[index];
     if (!spec) return;
     if (spec.value !== undefined) button.dataset.value = spec.value;

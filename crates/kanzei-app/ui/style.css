@@ -248,7 +248,12 @@ body {
 }
 .project-switch-caret { flex: 0 0 auto; color: var(--dim); font-size: var(--fs-10); transition: transform .12s ease; }
 .project-switch[aria-expanded="true"] .project-switch-caret { transform: rotate(180deg); }
-/* 新对话 = 侧栏里的一行导航项(Codex 式):图标 + 文字左对齐,静止无底无框,悬停才出柔灰块。 */
+/* UI2-0926 #1:项目卡 = 唯一的项目切换入口,点开是 openMenu 现造的项目菜单(外观归 surface.css,
+   这里只给宽度:与项目卡同宽——min-width 归弹层层(.k-menu 200px,层序压过本文件),所以写 width)。
+   菜单开着时卡片保持中性按下态。 */
+.project-switch[aria-expanded="true"] { background: var(--surface-selected); }
+.project-menu { width: anchor-size(width); }
+/* 新对话 =侧栏里的一行导航项(Codex 式):图标 + 文字左对齐,静止无底无框,悬停才出柔灰块。 */
 .new-chat-btn {
   display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%;
   padding: 8px 10px; border-radius: var(--r-md); cursor: pointer; font: inherit;
@@ -304,20 +309,6 @@ body {
    ⌂ ☷ ❖ ＋ ↻ 这些字形中间会突兀得像贴上去的。 */
 .icon-btn svg { width: 14px; height: 14px; display: block; margin: 0 auto; }
 
-.project-list { display: flex; flex-direction: column; }
-.project-item {
-  padding: 8px 10px; margin: 1px 8px; min-height: 34px; border-radius: var(--r-md);
-  display: flex; align-items: center; gap: 8px; cursor: pointer;
-}
-.project-item:hover { background: var(--surface-hover); }
-.project-item.active { background: var(--surface-selected); }
-.project-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.project-item .name { font-weight: 500; color: var(--fg-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
-.project-item .path { display: none; }
-.project-item .remove, .project-item .rename { visibility: hidden; flex-shrink: 0; }
-.project-item:hover .remove, .project-item:hover .rename { visibility: visible; }
-.project-item:focus-within .remove, .project-item:focus-within .rename { visibility: visible; }
-
 .doc-filter {
   min-width: 84px; max-width: 160px; height: 26px; padding: 3px 8px;
   background: var(--input); color: var(--fg); border: 1px solid var(--border);
@@ -326,9 +317,9 @@ body {
 .doc-empty { padding: 2px 14px; color: var(--dim); font-size: var(--fs-12); }
 /* 被筛空要显眼:一片空白会被当成数据丢失 */
 .doc-filtered-empty { color: var(--warn); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 14px; }
-/* D-170:项目隔离失效的告警。数据串项目是最严重的一类问题,必须显眼 */
+/* D-170:项目隔离失效的告警。数据串项目是最严重的一类问题,必须显眼——常驻在项目卡正下方(.project-warn-slot)。 */
 .project-shared-warn {
-  margin: 4px 10px 6px; padding: 8px 10px; font-size: var(--fs-11); line-height: 1.5;
+  margin: 0 12px 8px; padding: 8px 10px; font-size: var(--fs-11); line-height: 1.5;
   color: var(--alert); background: var(--alert-soft);
   border: 1px solid color-mix(in srgb, var(--alert) 28%, transparent); border-radius: var(--r-md);
   display: flex; flex-direction: column; gap: 5px; align-items: flex-start;
@@ -472,8 +463,23 @@ body {
   content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px;
   border-radius: 0 3px 3px 0; background: var(--fg-strong);
 }
-.workspace-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* UI2-0926 #1:卡片与焦点卡同一种结构——标题是真按钮(.workspace-card-open,键盘可达、读屏有名),
+   ::after 撑满整卡当点击层;⋯ 叠在点击层之上。卡片大、数量少,⋯ 常显(暗色图标按钮),
+   平时隐形会让状态胶囊离右边缘空出一截,看着像没对齐。 */
 .workspace-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.workspace-card-open {
+  all: unset; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 600; color: var(--fg-strong); cursor: pointer;
+}
+.workspace-card-open::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.workspace-card:has(.workspace-card-open:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.workspace-card-head .workspace-status { margin-left: auto; }
+.workspace-card-more { position: relative; z-index: var(--z-raised); flex: 0 0 auto; width: 22px; height: 22px; }
+.workspace-card-more[aria-expanded="true"] { background: var(--surface-selected); color: var(--fg-strong); }
+.workspace-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; max-width: 1100px; margin-bottom: 16px; }
+.workspace-head-text { min-width: 0; }
+.workspace-head-text p.dim { max-width: 78ch; margin: 0; line-height: 1.6; }
+.workspace-actions { display: flex; gap: 6px; flex: 0 0 auto; }
 .workspace-status { padding: 2px 8px; border-radius: var(--r-pill); font-size: var(--fs-11); }
 .workspace-status.running { color: var(--accent-text); background: var(--accent-soft); }
 /* 项目卡是 --surface-raised(暗色最亮的一层):半透明底上的 --dim / --err 合成后都不到 4.5(③b),

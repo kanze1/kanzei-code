@@ -281,6 +281,29 @@ if (SMOKE_MUTATE) {
       replace: "jumpRevealId = ref;",
     },
 
+    // ── 分区:侧栏与需求页 ──
+    // UI2-0926 #1:项目卡点击打开项目菜单。删了它,侧栏就没有任何切项目入口(列表已删)。
+    projectSwitchMenu: {
+      pattern: /[ \t]*button\.addEventListener\("click", \(\) => openProjectMenu\(\)\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #1:项目菜单里非当前项目的切换。换成空操作,点了项目只收起菜单、项目不变。
+    projectMenuSwitch: {
+      pattern: /onSelect: entry\.current \? undefined : \(\) => void switchProject\(entry\.path\),/,
+      replace: "onSelect: undefined,",
+    },
+    // UI2-0926 #1:命令面板的项目候选读偏好数据。换成空集(等价于旧实现反扫已删的侧栏列表),面板里项目静默消失。
+    projectPaletteData: {
+      pattern: /for \(const project of projectMenuEntries\(\)\) \{/,
+      replace: "for (const project of []) {",
+    },
+    // UI2-0926 #1:项目总览卡片 ⋯ 的重命名。换成空操作,重命名入口(原侧栏 ✎)就此丢失。
+    workspaceCardRename: {
+      pattern: /onSelect: \(\) => void renameProject\(project\.path\) \},/,
+      replace: "onSelect: () => {} },",
+    },
+    // ── 分区:侧栏与需求页(完) ──
+
     // ---- 分区:动效 ----
     // #7:setTurnPhase 首行的后台渲染守卫。删了它,后台线的思考/工具事件会把活动线
     // 输入框上方的「思考中…」改写成别人的相位(串线)。
@@ -2165,7 +2188,8 @@ assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
   vm.runInContext("renderProjects({ current: null, projects: [], names: {} })", sandbox);
   await flush();
   assert(vm.runInContext("currentProject", sandbox) === null, "空项目偏好仍留下了当前项目");
-  assert(byId.get("project-list").children.length === 0, "空项目偏好仍渲染出项目卡片");
+  // UI2-0926 #1:侧栏项目列表已删,项目菜单/命令面板读的是 projectMenuEntries(偏好缓存)。
+  assert(vm.runInContext("projectMenuEntries().length", sandbox) === 0, "空项目偏好仍产出项目菜单项");
   assert(byId.get("project-label").textContent.includes("未选择项目"), "空项目状态未显示『未选择项目』");
   assert(byId.get("documents-project-select").disabled, "空项目状态下文档项目选择器仍可用");
   assert(
@@ -2185,11 +2209,17 @@ assert(
   "项目胶囊无障碍标签应保留完整路径",
 );
 // D-420:项目重命名与新建都走应用内输入弹窗,取消/确认语义仍由调用方消费。
+// UI2-0926 #1:重命名从侧栏列表行的 ✎ 挪进项目总览卡片的 ⋯ 菜单。
 {
-  const projectItem = byId.get("project-list").children[0];
-  assert(projectItem, "输入弹窗回归缺少项目卡片夹具");
+  sandbox.renderWorkspace({ projects: [{ path: PROJECT, name: "smoke", current: true, status: "idle", running_lines: 0, conversation: null, recent_activity: [], lines: [] }] });
+  const projectMore = byId.get("workspace-projects").querySelector(".workspace-card-more");
+  assert(projectMore, "输入弹窗回归缺少项目总览卡片的 ⋯");
   sandbox.__inputDialogResponses.push("重命名后的项目");
-  projectItem.querySelector(".rename").click();
+  projectMore.click();
+  const renameItem = [...(esmModuleCache.get("12-docs-pages.js")?.namespace?.workspaceMenuHandle?.el?.querySelectorAll(".k-menu-item") ?? [])]
+    .find((node) => node.textContent.includes("重命名项目"));
+  assert(renameItem, "项目总览卡片 ⋯ 菜单缺「重命名项目…」");
+  renameItem?.click();
   await flush();
   const renameCall = invokeArgs.findLast(({ cmd }) => cmd === "projects_rename");
   assert(renameCall?.args?.name === "重命名后的项目", "项目重命名未消费输入弹窗的值");
@@ -9367,6 +9397,177 @@ const docsB = {
   compatible(contract.docs_snapshot, shapeOf(payloads.docs_snapshot), "docs_snapshot", problems);
   for (const problem of problems) issues.push(`D-381 IPC 契约:${problem}`);
 }
+
+// ── 分区:侧栏与需求页 ──
+// ---------- UI2-0926 #1「两个项目切换按钮保存上一个就好了吧,而且我们还有单独的查看所有项目页面」 ----------
+// 侧栏只剩项目卡一个切换入口(openProjectMenu,弹层唯一写法 openMenu);重命名/移除在项目总览卡片 ⋯ 里;
+// 命令面板读偏好数据(不再反扫侧栏 DOM);D-170 隔离告警不再住在默认收起的分区里。
+// 变异守卫:projectSwitchMenu / projectMenuSwitch / projectPaletteData / workspaceCardRename(另 pickerCheckMark 共用 ✓ 列)。
+{
+  const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
+  const docsPagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  const surfaceNs = esmModuleCache.get("00-surface.js")?.namespace;
+  const paletteNs = esmModuleCache.get("21-palette.js")?.namespace;
+  assert(sessionsNs && docsPagesNs && surfaceNs && paletteNs, "UI2 #1 前置:09/12/00/21 模块命名空间未加载");
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  const saved = Object.fromEntries(["projects_get", "projects_select", "projects_rename", "projects_remove", "projects_init", "projects_pick", "workspace_snapshot"]
+    .map((cmd) => [cmd, payloads[cmd]]));
+  const priorConfirm = sandbox.confirmDialog;
+  const savedViewName = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
+  const prefsAB = { current: PROJECT, projects: [PROJECT, PROJECT_B], names: { [PROJECT]: "smoke", [PROJECT_B]: "smoke-b" } };
+  const prefsAt = (current) => ({ ...structuredClone(prefsAB), current });
+  const lastCall = (cmd) => invokeArgs.findLast((call) => call.cmd === cmd);
+  const callsOf = (cmd) => invokeArgs.filter((call) => call.cmd === cmd).length;
+  const menuEl = () => sessionsNs.projectMenuHandle?.el ?? null;
+  const menuItems = () => [...(menuEl()?.querySelectorAll(".k-menu-item") ?? [])];
+  const menuItem = (text) => menuItems().find((node) => node.textContent.includes(text));
+  const openProjectMenuByClick = async () => {
+    if (sessionsNs.projectMenuHandle) surfaceNs.closeSurface(sessionsNs.projectMenuHandle);
+    byId.get("project-switch").click();
+    await flush();
+    return menuEl();
+  };
+  try {
+    // 前面分区可能留着模态(查看器/命令面板):模态开着时之后弹出的菜单是惰性的,先收掉。
+    surfaceNs.closeSurface(byId.get("viewer-overlay"));
+    surfaceNs.closeSurface(byId.get("palette"));
+    payloads.projects_get = structuredClone(prefsAB);
+    sandbox.renderProjects(structuredClone(prefsAB));
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "UI2 #1 前置:当前项目应为 PROJECT");
+
+    // ① 结构:侧栏「项目」分区与列表删掉;项目卡是菜单按钮(不再是分区开合把手);告警常驻项目卡下方。
+    assert(!byId.has("projects-section") && !byId.has("project-list"), "侧栏仍有「项目」分区/列表(与项目卡重复的第二个切换器)");
+    const switchBtn = byId.get("project-switch");
+    assert(switchBtn?.getAttribute("aria-haspopup") === "menu" && !switchBtn.hasAttribute("aria-controls"), "项目卡必须是菜单按钮(aria-haspopup=menu,不再 aria-controls 某个分区)");
+    // 假 DOM 把按 id 建的节点拍平在 body 下,closest 判不了真实嵌套,这里按 HTML 原文判。
+    assert(/<div class="project-warn-slot" data-space-only="dev">\s*<div id="project-shared-warn"/.test(html), "D-170 隔离告警应在项目卡下方的 .project-warn-slot 里常驻(原先在默认收起的分区里,平时看不见)");
+    assert(!/data-collapse-default="collapsed"[^>]*>[\s\S]{0,800}id="project-shared-warn"/.test(html), "D-170 隔离告警又被放进了默认收起的分区");
+
+    // ② 点项目卡:openMenu 现造的 .k-menu.project-menu;项目项 = 偏好里的项目数,当前项 ✓;另有三个入口。
+    const menu = await openProjectMenuByClick();
+    assert(menu?.classList.contains("k-menu") && menu.classList.contains("project-menu"), "点项目卡没有打开 openMenu 项目菜单(.k-menu.project-menu)");
+    assert(switchBtn.getAttribute("aria-expanded") === "true", "项目菜单开着时项目卡 aria-expanded 应为 true");
+    const projectItems = menuItems().filter((node) => node.hasAttribute("aria-checked"));
+    assert(projectItems.length === 2, `项目菜单的项目项应与偏好一致(2),实得 ${projectItems.length}`);
+    const currentItem = projectItems.find((node) => node.getAttribute("aria-checked") === "true");
+    const otherItem = projectItems.find((node) => node.getAttribute("aria-checked") === "false");
+    assert(currentItem?.textContent.includes("smoke") && currentItem.dataset.path === PROJECT, "项目菜单当前项不是当前项目");
+    assert(currentItem?.querySelector(".picker-check")?.textContent === "✓" && otherItem?.querySelector(".picker-check")?.textContent === "", "项目菜单 ✓ 列应只标当前项目(与模型芯片共用 addMenuCheckColumn)");
+    assert(otherItem?.title === PROJECT_B, `项目项 title 应是完整路径,实为 ${otherItem?.title}`);
+    assert(otherItem?.querySelector(".k-menu-item-desc")?.textContent === sessionsNs.shortProjectPath(PROJECT_B), "项目项第二行应是缩短的路径");
+    for (const label of ["打开文件夹…", "新建项目…", "项目总览"]) assert(menuItem(label), `项目菜单缺「${label}」`);
+    // 再点项目卡 = 收起(openMenu 同锚点切换语义)。
+    switchBtn.click();
+    await flush();
+    assert(!sessionsNs.projectMenuHandle && switchBtn.getAttribute("aria-expanded") === "false", "再点项目卡应收起项目菜单");
+
+    // ③ 点非当前项目 → projects_select 切过去;再经 switchProject 切回,恢复夹具状态。
+    payloads.projects_select = () => prefsAt(PROJECT_B);
+    await openProjectMenuByClick();
+    menuItems().find((node) => node.dataset.path === PROJECT_B)?.click();
+    await flush();
+    assert(lastCall("projects_select")?.args?.path === PROJECT_B, "项目菜单点非当前项目未发 projects_select");
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT_B, "项目菜单切项目后 currentProject 未切换");
+    payloads.projects_select = () => prefsAt(PROJECT);
+    assert(await sessionsNs.switchProject(PROJECT) === true, "switchProject 切回失败");
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "切回原项目失败(后续用例的夹具会串项目)");
+    // 点当前项只收起,不发 projects_select。
+    const selectsBefore = callsOf("projects_select");
+    await openProjectMenuByClick();
+    menuItems().find((node) => node.dataset.path === PROJECT)?.click();
+    await flush();
+    assert(callsOf("projects_select") === selectsBefore && !sessionsNs.projectMenuHandle, "点当前项目应只收起菜单,不发 projects_select");
+
+    // ④ 「新建项目…」走既有初始化流程(两次输入);「打开文件夹…」走 projects_pick;「项目总览」进 ⌂ 页。
+    payloads.projects_init = () => structuredClone(prefsAB);
+    sandbox.__inputDialogResponses.push("C:/smoke/menu-new", "菜单新项目");
+    await openProjectMenuByClick();
+    menuItem("新建项目…")?.click();
+    await flush();
+    assert(lastCall("projects_init")?.args?.path === "C:/smoke/menu-new" && lastCall("projects_init")?.args?.name === "菜单新项目", "项目菜单「新建项目…」未走初始化流程(路径 + 显示名)");
+    const picksBefore = callsOf("projects_pick");
+    await openProjectMenuByClick();
+    menuItem("打开文件夹…")?.click();
+    await flush();
+    assert(callsOf("projects_pick") === picksBefore + 1, "项目菜单「打开文件夹…」未调 projects_pick");
+    const snapshotAB = {
+      current: PROJECT,
+      projects: [
+        { path: PROJECT, name: "smoke", current: true, status: "idle", running_lines: 0, conversation: null, recent_activity: [], lines: [] },
+        { path: PROJECT_B, name: "smoke-b", current: false, status: "idle", running_lines: 0, conversation: null, recent_activity: [], lines: [] },
+      ],
+    };
+    payloads.workspace_snapshot = structuredClone(snapshotAB);
+    await openProjectMenuByClick();
+    menuItem("项目总览")?.click();
+    await flush();
+    assert(byId.get("view-workspace").classList.contains("active"), "项目菜单「项目总览」未切到项目总览页");
+    assert(byId.get("workspace-projects").querySelectorAll(".workspace-card").length === 2, "项目总览页未按 workspace_snapshot 渲染卡片");
+
+    // ⑤ 命令面板:项目候选读偏好数据(不反扫侧栏 DOM),运行它走 switchProject;三个项目动作在列。
+    const entries = paletteNs.collectPaletteEntries();
+    const projectEntries = entries.filter((entry) => entry.group === "项目");
+    assert(projectEntries.length === 2 && projectEntries.map((entry) => entry.detail).join("|") === `${PROJECT}|${PROJECT_B}`, `命令面板项目候选应与偏好一致:${projectEntries.map((entry) => entry.detail).join("|")}`);
+    for (const label of ["切换项目", "打开文件夹…", "新建项目…"]) {
+      assert(entries.some((entry) => entry.group === "动作" && entry.label === label), `命令面板缺动作「${label}」`);
+    }
+    payloads.projects_select = () => prefsAt(PROJECT_B);
+    projectEntries.find((entry) => entry.detail === PROJECT_B)?.run();
+    await flush();
+    assert(lastCall("projects_select")?.args?.path === PROJECT_B && vm.runInContext("currentProject", sandbox) === PROJECT_B, "命令面板运行项目候选未切到该项目");
+    payloads.projects_select = () => prefsAt(PROJECT);
+    await sessionsNs.switchProject(PROJECT);
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "命令面板用例切回原项目失败");
+
+    // ⑥ 项目总览卡片:标题真按钮 + ⋯ 菜单按钮;⋯ 里重命名(输入弹窗)/移除(确认弹窗,危险项)。
+    docsPagesNs.renderWorkspace(structuredClone(snapshotAB));
+    const cards = [...byId.get("workspace-projects").querySelectorAll(".workspace-card")];
+    const cardB = cards.find((card) => card.dataset.path === PROJECT_B);
+    assert(cards.every((card) => card.querySelector(".workspace-card-open") && !card.hasAttribute("role")), "项目总览卡片应是「标题真按钮 + 撑满点击层」,整卡不再是 role=button");
+    const moreB = cardB?.querySelector(".workspace-card-more");
+    assert(moreB?.getAttribute("aria-haspopup") === "menu" && moreB.getAttribute("aria-label") === "更多操作 smoke-b", `卡片 ⋯ 缺菜单按钮语义或读屏名称:${moreB?.getAttribute("aria-label")}`);
+    assert(cards.find((card) => card.dataset.path === PROJECT)?.querySelector(".workspace-card-open")?.getAttribute("aria-current") === "page", "当前项目卡片标题按钮应带 aria-current=page");
+    const cardMenu = () => [...(docsPagesNs.workspaceMenuHandle?.el?.querySelectorAll(".k-menu-item") ?? [])];
+    payloads.projects_rename = ({ path, name }) => ({ ...structuredClone(prefsAB), names: { ...prefsAB.names, [path]: name } });
+    sandbox.__inputDialogResponses.push("B 新名");
+    moreB.click();
+    await flush();
+    assert(cardMenu().map((node) => node.textContent.trim()).join("|").startsWith("重命名项目…|移除项目"), `卡片 ⋯ 菜单应是 重命名/移除:${cardMenu().map((node) => node.textContent.trim()).join("|")}`);
+    assert(cardMenu()[1]?.dataset.tone === "danger", "「移除项目」应是危险项");
+    cardMenu()[0]?.click();
+    await flush();
+    assert(lastCall("projects_rename")?.args?.path === PROJECT_B && lastCall("projects_rename")?.args?.name === "B 新名", "卡片 ⋯「重命名项目…」未发 projects_rename {path,name}");
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "重命名非当前项目不该切项目");
+    vm.runInContext("confirmDialog = () => true", sandbox);
+    payloads.projects_remove = () => ({ current: PROJECT, projects: [PROJECT], names: { [PROJECT]: "smoke" } });
+    docsPagesNs.renderWorkspace(structuredClone(snapshotAB));
+    [...byId.get("workspace-projects").querySelectorAll(".workspace-card")].find((card) => card.dataset.path === PROJECT_B)?.querySelector(".workspace-card-more")?.click();
+    await flush();
+    cardMenu().find((node) => node.textContent.includes("移除项目"))?.click();
+    await flush();
+    assert(lastCall("projects_remove")?.args?.path === PROJECT_B, "卡片 ⋯「移除项目」未发 projects_remove");
+    assert(sessionsNs.projectMenuEntries().length === 1, "移除后项目菜单的数据源(偏好缓存)未更新");
+  } finally {
+    if (sessionsNs?.projectMenuHandle) surfaceNs.closeSurface(sessionsNs.projectMenuHandle);
+    if (docsPagesNs?.workspaceMenuHandle) surfaceNs.closeSurface(docsPagesNs.workspaceMenuHandle);
+    for (const [cmd, value] of Object.entries(saved)) {
+      if (value === undefined) delete payloads[cmd];
+      else payloads[cmd] = value;
+    }
+    sandbox.confirmDialog = priorConfirm;
+    sandbox.renderProjects(structuredClone(payloads.projects_get));
+    await flush();
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === savedViewName)?.click();
+    await flush();
+    if (priorLanguage === null) localStorageShim.removeItem("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+// ── 分区:侧栏与需求页(完) ──
 
 
 // ===== 分区:会话生命周期 =====

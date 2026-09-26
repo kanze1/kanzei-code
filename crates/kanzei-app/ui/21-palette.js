@@ -4,6 +4,7 @@ import { $, on, promptBox } from "./01-core.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import { log } from "./03-shell.js";
 import { state } from "./08-compose.js";
+import { projectMenuEntries, switchProject } from "./09-sessions.js";
 
 // ---------- 命令面板(Ctrl/Cmd+P) ----------
 // 这个应用有 10 个主视图、N 个项目、N 条并行线,外加一批散在各处的动作按钮。
@@ -39,10 +40,10 @@ export function collectPaletteEntries() {
     push(t("视图"), label, "", () => button.click());
   }
 
-  for (const item of document.querySelectorAll("#project-list .project-item")) {
-    const name = item.querySelector(".name")?.textContent?.trim();
-    const path = item.querySelector(".path")?.textContent?.trim();
-    push(t("项目"), name, path, () => item.click());
+  // UI2-0926 #1:侧栏不再有项目列表可点,项目读 projects_get 的偏好缓存;切换走 switchProject——
+  // 侧栏项目菜单、项目总览卡片、这里三处都调它,仍然是「一处实现」。
+  for (const project of projectMenuEntries()) {
+    push(t("项目"), project.name, project.path, () => void switchProject(project.path));
   }
 
   for (const row of document.querySelectorAll(".parallel-task-row")) {
@@ -65,6 +66,9 @@ export function collectPaletteEntries() {
     push(t("动作"), label, "", () => el.click());
   };
   action(t("新对话"), "new-chat");
+  action(t("切换项目"), "project-switch");
+  action(t("打开文件夹…"), "project-add");
+  action(t("新建项目…"), "project-init");
   action(t("停止"), "stop");
   action(t("总结"), "summarize-btn");
   action(t("复制上下文"), "copy-context");

@@ -17,7 +17,7 @@ import { splitTimeline } from "./04-structured-parse.js";
 import { normalizeTrackerFields } from "./04-structured.js";
 import { selectedWorkPriority } from "./08-auto.js";
 import { state } from "./08-compose.js";
-import { enterProject } from "./09-sessions.js";
+import { removeProject, renameProject, switchProject } from "./09-sessions.js";
 import { syncLineFocusLive } from "./09-sessions.js";
 import {
   NEUTRAL_DOC_FILTERS,
@@ -38,32 +38,62 @@ export function formatWorkspaceTime(value) {
 }
 
 export async function selectWorkspaceProject(path) {
-  try {
-    // D-355:Workspace 卡片与文档页下拉复用同一切换事务(enterProject)——
-    // 目标 process_list → active session → conversation_get 原子链一致。
-    await enterProject(await invoke("projects_select", { path }));
-    refreshWorkspace();
-  } catch (error) {
-    toastError(`${t("切换项目失败")}:${error}`);
-  }
+  // D-355:Workspace 卡片、文档页下拉、侧栏项目菜单、命令面板复用同一切换事务(switchProject → enterProject)——
+  // 目标 process_list → active session → conversation_get 原子链一致。
+  if (await switchProject(path)) refreshWorkspace();
+}
+
+// 卡片 ⋯:重命名/移除(UI2-0926 #1:项目的增删改收在项目总览页,侧栏只剩项目卡菜单)。
+export let workspaceMenuHandle = null;
+export function openWorkspaceCardMenu(anchor, project) {
+  const handle = openMenu(anchor, [
+    { label: `${t("重命名项目")}…`, onSelect: () => void renameProject(project.path) },
+    { label: t("移除项目"), desc: t("只解除登记,不会删除磁盘文件。"), danger: true, onSelect: () => void removeProject(project.path) },
+  ], {
+    placement: "bottom-end",
+    label: `${t("更多操作")} ${project.name}`,
+    onClose: () => {
+      if (workspaceMenuHandle === handle) workspaceMenuHandle = null;
+    },
+  });
+  workspaceMenuHandle = handle && !handle.closed ? handle : null;
+  return workspaceMenuHandle;
 }
 
 export let lastWorkspaceSnapshot = null;
 export function renderWorkspace(snapshot) {
   lastWorkspaceSnapshot = snapshot;
   const root = $("workspace-projects");
+  // 卡片要换了:开着的 ⋯ 菜单锚在旧节点上,先收起。
+  if (workspaceMenuHandle && !workspaceMenuHandle.closed) closeSurface(workspaceMenuHandle);
+  workspaceMenuHandle = null;
   root.replaceChildren();
   for (const project of snapshot.projects ?? []) {
     const card = document.createElement("section");
     card.className = `workspace-card${project.current ? " current" : ""}`;
-    card.setAttribute("role", "button");
-    card.tabIndex = 0;
-    card.setAttribute("aria-label", `${t("选择工作区项目")} ${project.name}`);
-    if (project.current) card.setAttribute("aria-current", "page");
+    card.dataset.path = project.path;
     const head = document.createElement("div");
     head.className = "workspace-card-head";
-    const title = document.createElement("strong");
-    title.textContent = project.name;
+    // 整卡的点击目标是标题这颗真按钮(::after 撑满整卡);⋯ 叠在它上面(同焦点卡的结构)。
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "workspace-card-open";
+    open.textContent = project.name;
+    open.setAttribute("aria-label", `${t("选择工作区项目")} ${project.name}`);
+    if (project.current) open.setAttribute("aria-current", "page");
+    open.addEventListener("click", () => void selectWorkspaceProject(project.path));
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "icon-btn workspace-card-more";
+    more.textContent = "⋯";
+    more.title = t("更多操作");
+    more.setAttribute("aria-haspopup", "menu");
+    more.setAttribute("aria-expanded", "false");
+    more.setAttribute("aria-label", `${t("更多操作")} ${project.name}`);
+    more.addEventListener("click", (event) => {
+      event.stopPropagation?.();
+      openWorkspaceCardMenu(more, project);
+    });
     const status = document.createElement("span");
     status.className = `workspace-status ${project.status}`;
     // 项目级状态用**线级事实**兜一层:会话 status 可能停在旧值,而「有几条线真在跑」
@@ -73,7 +103,7 @@ export function renderWorkspace(snapshot) {
       ? `${t("运行中")} · ${runningLines} ${t("条线")}`
       : project.status === "running" ? t("运行中") : project.status === "failed" ? t("失败") : t("空闲");
     if (runningLines) status.classList.add("running");
-    head.append(title, status);
+    head.append(open, status, more);
     const path = document.createElement("div");
     path.className = "dim workspace-path";
     path.textContent = project.path;
@@ -125,12 +155,6 @@ export function renderWorkspace(snapshot) {
       }
       card.appendChild(box);
     }
-    card.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      card.click();
-    });
-    card.addEventListener("click", () => selectWorkspaceProject(project.path));
     root.appendChild(card);
   }
 }
