@@ -2629,6 +2629,8 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .kz-diagram[data-state="error"] .kz-diagram-bar { display: none; }
 /* 页面模式把工具条放进宿主(架构页标签栏右侧),不压在图上。 */
 .kz-diagram-bar.is-docked { position: static; padding: 0; background: transparent; border: 0; }
+/* 图没画出来时缩放控件没有意义,只留「源码 / 复制」。 */
+.kz-diagram-bar:not([data-state="ready"]) :is([data-act="fit"], [data-act="zoom-in"], [data-act="zoom-out"], [data-act="actual"], .kz-diagram-zoom) { display: none; }
 .kz-diagram-btn {
   height: 24px; min-width: 24px; padding: 0 7px; border: 0; border-radius: var(--r-sm);
   background: transparent; color: var(--dim); font: inherit; font-size: var(--fs-12); line-height: 24px; cursor: pointer;

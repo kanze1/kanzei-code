@@ -593,6 +593,7 @@ export function mountDiagram(container, source, options = {}) {
   };
   function showError(error) {
     figure.dataset.state = "error";
+    bar.dataset.state = "error";
     status.classList.add("hidden");
     const localLine = error?.line ?? null;
     const fileLine = localLine && options.sourceLine ? options.sourceLine + localLine - 1 : localLine;
@@ -636,6 +637,7 @@ export function mountDiagram(container, source, options = {}) {
       return;
     }
     figure.dataset.state = "ready";
+    bar.dataset.state = "ready";
     status.classList.add("hidden");
     errorBox.classList.add("hidden");
     view.natural = naturalSize(svg);
@@ -648,6 +650,7 @@ export function mountDiagram(container, source, options = {}) {
   function rerender() {
     view.theme = currentDiagramTheme();
     figure.dataset.state = "loading";
+    bar.dataset.state = "loading";
     const hit = cachedDiagram(view.source, view.theme);
     if (hit) {
       showResult(hit);
