@@ -447,7 +447,9 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
       const slot = rel(empty.querySelector(".empty-art"));
       return { area, mode: "welcome", slot, ocInSlot: ocOn && Boolean(slot), copy: rel(empty.querySelector(".empty-copy")) };
     }
-    const recent = pane ? [...pane.children].slice(-16).map(rel) : [];
+    // 长对话里 pane 可能有上千个子元素:从末尾往回走 16 个,不整列展开。
+    const recent = [];
+    for (let el = pane?.lastElementChild; el && recent.length < 16; el = el.previousElementSibling) recent.push(rel(el));
     return {
       area,
       mode: "conversation",
@@ -669,6 +671,8 @@ export function createConstellationBackdrop(canvas, { getSessionId = () => null,
     const previous = current;
     current = normalizeBackdropPrefs(next);
     if (previous.enabled !== current.enabled || modelKey(previous) !== modelKey(current)) layout = null;
+    // 关掉再打开:连线按 BFS 顺序重新画出来,而不是突然整张出现。
+    if (!previous.enabled && current.enabled) drawInStart = clock();
     refresh();
   }
 
