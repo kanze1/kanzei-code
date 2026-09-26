@@ -455,8 +455,8 @@ assert.match(js, /t\("实际差异"\)/);
     .map(([name]) => name);
   assert.deepEqual(unaligned, [], `暗色块定义了颜色、亮色块没有跟上:${unaligned.join(", ")}。改法:在 [data-theme="light"] 里给同名 token 一个亮色值。`);
 
-  // ③ WCAG 2.x 对比度下限:文字 ≥ 4.5,焦点环(非文本)≥ 3。亮色 = :root 与亮色块合并后的结果;
-  //    半透明前景先按下层表面合成再算。
+  // ③ WCAG 2.x 对比度下限:文字 ≥ 4.5,焦点环与强调色填充等非文本 ≥ 3。亮色 = :root 与亮色块合并后的结果;
+  //    半透明前景先按下层表面合成再算。底色含 --surface-raised(输入区,暗色下是最亮的一层,dim 在它上面最紧)。
   const lightTokens = { ...darkTokens, ...lightOverrides };
   const resolveColor = (tokens, name, seen = new Set()) => {
     const value = tokens[name];
@@ -485,15 +485,20 @@ assert.match(js, /t\("实际差异"\)/);
   };
   const pairs = [];
   for (const fg of ["--fg", "--fg-strong", "--dim", "--accent-text", "--ok", "--err", "--warn", "--info"]) {
-    for (const bg of ["--bg", "--sidebar-bg", "--panel", "--panel2", "--surface-overlay"]) pairs.push([fg, bg, 4.5]);
+    for (const bg of ["--bg", "--sidebar-bg", "--panel", "--panel2", "--surface-overlay", "--surface-raised"]) pairs.push([fg, bg, 4.5]);
   }
   pairs.push(
     ["--statusbar-fg", "--statusbar", 4.5],
     ["--statusbar-run-fg", "--statusbar-run", 4.5],
     ["--primary-fg", "--primary-bg", 4.5],
     ["--on-danger", "--danger-btn", 4.5],
+    // rail 运行数徽标:主区色数字放在 accent-text 实心底上(徽标是文字)。
+    ["--bg", "--accent-text", 4.5],
   );
   for (const bg of ["--bg", "--panel", "--sidebar-bg"]) pairs.push(["--focus-ring", bg, 3]);
+  // 非文本:强调色填充(发送键、运行点、代号框)在主区与侧栏上可辨;发送键白色箭头在强调色填充上可辨。
+  // 强调色填充上不放正文字(白字在 #d25e28 上只有 3.9,只够图标)。
+  pairs.push(["--accent", "--bg", 3], ["--accent", "--sidebar-bg", 3], ["--on-accent", "--accent", 3]);
   const lowContrast = [];
   for (const [theme, tokens] of [["暗色", darkTokens], ["亮色", lightTokens]]) {
     for (const [fg, bg, floor] of pairs) {
@@ -501,7 +506,7 @@ assert.match(js, /t\("实际差异"\)/);
       if (ratio < floor) lowContrast.push(`${theme} ${fg} 在 ${bg} 上 ${ratio.toFixed(2)} < ${floor}`);
     }
   }
-  assert.deepEqual(lowContrast, [], `对比度低于 WCAG 下限(文字 4.5、焦点环 3):\n${lowContrast.join("\n")}`);
+  assert.deepEqual(lowContrast, [], `对比度低于 WCAG 下限(文字 4.5、焦点环/强调色填充/填充上的图标 3):\n${lowContrast.join("\n")}`);
 
   // ④ 选中/焦点一律中性:强调色只承载「运行中 / 链接 / 品牌 / 看这里」。
   const rulesOf = (text) => [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
@@ -533,6 +538,167 @@ assert.match(js, /t\("实际差异"\)/);
   const userBubble = bodiesFor(".msg.user");
   assert.ok(userBubble.length, "找不到 .msg.user 规则(判据定位失效)");
   assert.ok(!userBubble.some((body) => /border-left/.test(body)), ".msg.user 不得再有左竖条(border-left):用户消息是圆角灰气泡");
+}
+
+// ---------- UI-0926 配色 ⑥ 颜色语义:一种含义一种颜色(docs/design/ui_color_semantics.md) ----------
+// ①-⑤ 只管颜色有没有 token 化、够不够对比、选中/焦点是否中性,不管「这个颜色表达什么」:同一个琥珀
+// 同时是 P1、阻塞和运行中,绿色同时是空闲和完成,蓝色一处扛了十种含义,优先级在一行里画三遍,
+// 全都绿着通过。这里把语义表变成机械判据,并照 selfTestSurfaceRules 的做法给每条判据喂反例:
+// 判据恒绿就先在这里红。
+//   橙 = 进行中(+品牌/发送键/真链接/一次性「看这里」);琥珀 = 需要注意(含等你批准/回答);
+//   绿 = 一件工作成功收尾;红 = 失败与 P0;灰 = 其余一切;蓝(--info)只给代码/JSON 着色。
+function colorSemanticsViolations(styleText, surfaceText = "") {
+  const strip = (text) => text.replace(/\/\*[\s\S]*?\*\//g, "");
+  const clean = strip(styleText);
+  const rules = [...`${clean}\n${strip(surfaceText)}`.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map((m) => ({ branches: m[1].split(/,(?![^(]*\))/).map((b) => b.trim().replace(/\s+/g, " ")), body: m[2] }))
+    .filter((rule) => rule.branches[0] && !rule.branches[0].startsWith("@"));
+  const out = [];
+  // 中性语义的选择器:待办/空闲/可执行/被取得/身份/来源/工具单步成功/进度格/P1-P3 胶囊。
+  const NEUTRAL = [
+    ".st-todo", ".st-open", ".st-draft", ".backlog-stat.workable", ".doc-claim-fact", ".dep-layer-head.ready",
+    '.kz-dot[data-state="idle"]', '.kz-dot[data-state="stopping"]', '.kz-glyph[data-state="idle"]', '.kz-glyph[data-state="stopping"]',
+    ".doc-item .complexity-cell.filled", ".focus-card .complexity-cell.filled",
+    ".pri-badge.P1", ".pri-badge.P2", ".pri-badge.P3", ".pri-badge.unset",
+    ".line-agent-code", ".sa-agent", ".picker-source",
+    ".tool-msg.ok .tool-msg-status", ".tool-chip.ok .head::before", ".bg-entry.ok .bg-title::before",
+    ".doc-archive-toggle", ".archived-entry",
+  ];
+  const STATUS_VAR = /var\(--(?:ok|warn|alert|info|err|danger|accent|dot-run|line-[1-4]|badge-(?:ok|warn|info|alert|err))/;
+  for (const { branches, body } of rules) {
+    const selector = branches.join(", ");
+    // (a) 优先级只编码一次(行内胶囊):不得再画竖条(::before)、给编号(.id)染色、给批次格换色。
+    for (const branch of branches) {
+      if (/\.pri-P[0-3](?![\w-])/.test(branch) && /\.complexity-cell|::?before|\s\.id(?![\w-])/.test(branch)) {
+        out.push(`⑥a 优先级在胶囊之外又编码了一遍:${branch}。改法:优先级只写在 .pri-badge 上(P0 红,P1/P2 中性,P3 描边)`);
+      }
+    }
+    // (b) 列表行/卡片不画彩色左竖条(Codex 没有;五种颜色各说各话)。
+    if (/border-left(?:-color)?\s*:[^;]*var\(--(?:ok|warn|alert|info|err|danger|accent)(?:-[a-z]+)?\)/.test(body)
+      && branches.some((branch) => /\.(?:doc-item|focus-card|memory-row|memory-candidate|work-unit-card)(?![\w-])/.test(branch))) {
+      out.push(`⑥b 列表行/卡片上的彩色左竖条:${selector}。改法:状态用文字胶囊或字形表达,左边框保持中性`);
+    }
+    // (c) 蓝色不表达任何状态:var(--info)/--badge-info 只准出现在语法/JSON 着色选择器里。
+    if (/var\(--(?:info|badge-info)\)/.test(body) && !branches.every((branch) => /\.sv-json|\.syntax|\.hl-|\.tok-/.test(branch))) {
+      out.push(`⑥c --info 被当成状态色:${selector}。改法:状态走 ok/warn/err/accent 语义表,配置/分类签一律中性`);
+    }
+    // (d) 中性语义不得着状态色。
+    for (const branch of branches) {
+      const hit = NEUTRAL.find((n) => branch === n || (branch.startsWith(n) && /^[\s:.[]/.test(branch.slice(n.length))));
+      if (hit && STATUS_VAR.test(body)) out.push(`⑥d 中性语义 ${hit} 用了状态色:${branch} { ${body.trim()} }。改法:用 --dim/--fg/--fg-strong`);
+    }
+  }
+  // (p) 语义表里必须着色的几处:计数零灰/阻塞琥珀、需要你 = attention 琥珀、完成绿、P0 红。
+  const bodiesOf = (selector) => rules.filter((rule) => rule.branches.includes(selector)).map((rule) => rule.body).join(";");
+  for (const [selector, token] of [
+    [".backlog-stat.is-zero .backlog-num", "--dim"],
+    [".backlog-stat.blocked .backlog-num", "--warn"],
+    ['.kz-dot[data-state="attention"]', "--warn"],
+    ['.kz-glyph[data-state="attention"]', "--warn"],
+    ['.kz-dot[data-state="done"]', "--ok"],
+    [".pri-badge.P0", "--err"],
+  ]) {
+    if (!bodiesOf(selector).includes(`var(${token})`)) out.push(`⑥p ${selector} 必须用 var(${token})(语义表),实际:${bodiesOf(selector) || "找不到规则"}`);
+  }
+  // (e) 别名 token 在 :root 只定义一次、指向语义表里的那一个颜色,亮色块不得重给字面值——
+  //     重给就把「一种含义一种颜色」又拆回两套(旧版 --alert/--log-gold/--arch-unindexed 与 --warn 同值四个名)。
+  const tokenBlock = (pattern) => Object.fromEntries(
+    [...(clean.match(pattern)?.[1] ?? "").matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]),
+  );
+  const dark = tokenBlock(/:root\s*\{([^}]*)\}/);
+  const light = tokenBlock(/\[data-theme="light"\]\s*\{([^}]*)\}/);
+  // (t) 主题 token 块里只能有声明。注释里写了星号紧跟斜杠会提前结束注释,剩下的文字成了一条非法声明,
+  //     一直吞到下一个分号——实测曾把亮色块的 --bg: #ffffff 吞掉,文档页/线路页在亮色下整块是 #181818,
+  //     而上面按声明解析的判据照样读到 #ffffff、全绿。所以看剩余物:剥掉注释与全部声明后一个字都不能剩。
+  for (const [label, pattern] of [[":root", /:root\s*\{([^}]*)\}/], ['[data-theme="light"]', /\[data-theme="light"\]\s*\{([^}]*)\}/]]) {
+    const residue = (clean.match(pattern)?.[1] ?? "").replace(/(?:--[a-z0-9-]+|color-scheme)\s*:\s*[^;]+;/g, "").trim();
+    if (residue) out.push(`⑥t ${label} 主题块里有不是声明的残留(多半是注释被星号加斜杠提前结束,吞掉了后面的声明):${residue.slice(0, 80)}`);
+  }
+  const ALIASES = {
+    "--alert": "--warn", "--log-gold": "--warn", "--arch-unindexed": "--warn", "--surface-attention": "--warn",
+    "--badge-alert": "--badge-warn", "--dot-idle": "--dim", "--dot-run": "--accent",
+    "--memory-flow": "--accent", "--memory-flow-hot": "--accent-text",
+    "--statusbar-fg": "--dim", "--statusbar-run-fg": "--accent-text", "--diff-add": "--ok", "--diff-del": "--err",
+  };
+  for (const [name, target] of Object.entries(ALIASES)) {
+    if (dark[name] !== `var(${target})`) out.push(`⑥e ${name} 在 :root 必须是 var(${target}) 的别名,实际:${dark[name] ?? "未定义"}`);
+    if (name in light) out.push(`⑥e ${name} 是别名,不得在 [data-theme="light"] 里重给值(${light[name]})`);
+  }
+  for (const name of ["--line-1", "--line-2", "--line-3", "--line-4"]) {
+    if (name in dark && !/^var\(--/.test(dark[name])) out.push(`⑥e ${name} 已弃用(身份不用色),只准保留为中性别名,实际:${dark[name]}`);
+    if (name in light) out.push(`⑥e ${name} 不得在亮色块里重给值`);
+  }
+  // (g) 暗色表面只靠明度分层、对齐 Codex:主区最深 < 侧栏 < 输入区;代码块比主区亮(否则看不见边);全部 R=G=B。
+  const rgbOf = (name, seen = new Set()) => {
+    const value = dark[name];
+    const alias = value?.match(/^var\((--[a-z0-9-]+)\)$/);
+    if (alias && !seen.has(alias[1])) return rgbOf(alias[1], seen.add(name));
+    const hex = value?.match(/^#([0-9a-fA-F]{6})$/);
+    return hex ? [0, 1, 2].map((i) => parseInt(hex[1].slice(i * 2, i * 2 + 2), 16)) : null;
+  };
+  const lum = (name) => {
+    const rgb = rgbOf(name);
+    if (!rgb) return NaN;
+    const lin = (c) => ((c / 255) <= 0.03928 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+  };
+  const surfaces = ["--bg", "--sidebar-bg", "--surface-raised", "--code-bg", "--panel", "--panel2", "--surface-overlay"];
+  for (const name of surfaces) {
+    const rgb = rgbOf(name);
+    if (!rgb) out.push(`⑥g 暗色表面 ${name} 不是 6 位十六进制,无法校验层级:${dark[name] ?? "未定义"}`);
+    else if (!(rgb[0] === rgb[1] && rgb[1] === rgb[2])) out.push(`⑥g 暗色表面 ${name} 不是纯中性(R=G=B):${dark[name]}`);
+  }
+  if (!(lum("--bg") < lum("--sidebar-bg") && lum("--sidebar-bg") < lum("--surface-raised"))) {
+    out.push(`⑥g 暗色表面层级倒置:须 L(--bg ${dark["--bg"]}) < L(--sidebar-bg ${dark["--sidebar-bg"]}) < L(--surface-raised ${dark["--surface-raised"]})(主区最深、侧栏亮一档、输入区浮起——倒过来就是「发灰」)`);
+  }
+  if (!(lum("--code-bg") > lum("--bg"))) {
+    out.push(`⑥g 代码块 --code-bg ${dark["--code-bg"]} 必须比主区 --bg ${dark["--bg"]} 亮,否则代码块在主区上看不见边`);
+  }
+  return out;
+}
+{
+  const surfaceCss = await readFile(resolve(root, "crates/kanzei-app/ui/surface.css"), "utf8");
+  const violations = colorSemanticsViolations(css, surfaceCss);
+  assert.deepEqual(violations, [], `颜色语义门禁(⑥)未通过:\n${violations.join("\n")}`);
+  // 自测:每条判据喂一个反例,必须报出对应编号;锚点找不到也要红(判据定位失效)。
+  const rootStart = css.indexOf(":root {");
+  const rootEnd = css.indexOf("}", rootStart);
+  assert.ok(rootStart >= 0 && rootEnd > rootStart, "⑥ 自测:找不到 :root 块");
+  const mutateRoot = (name, value) => {
+    const block = css.slice(rootStart, rootEnd);
+    const pattern = new RegExp(`(${name}:\\s*)[^;]+;`);
+    assert.ok(pattern.test(block), `⑥ 自测::root 里找不到 ${name}`);
+    return css.slice(0, rootStart) + block.replace(pattern, `$1${value};`) + css.slice(rootEnd);
+  };
+  const lightOpen = '[data-theme="light"] {';
+  const lightAt = css.indexOf(lightOpen);
+  assert.ok(lightAt > 0, "⑥ 自测:找不到亮色块");
+  const withLight = (decl) => `${css.slice(0, lightAt + lightOpen.length)}\n  ${decl}${css.slice(lightAt + lightOpen.length)}`;
+  const dropRule = (pattern) => {
+    assert.ok(pattern.test(css), `⑥ 自测:找不到要删的规则 ${pattern}`);
+    return css.replace(pattern, "");
+  };
+  const counterexamples = [
+    ["⑥a", `${css}\n.doc-item.pri-P1 .complexity-cell.filled { background: var(--warn); }`],
+    ["⑥a", `${css}\n.doc-item.pri-P0::before { background: var(--err); }`],
+    ["⑥b", `${css}\n.focus-card.blocked { border-left-color: var(--warn); }`],
+    ["⑥c", `${css}\n.queue-entry .queue-delivery { color: var(--info); }`],
+    ["⑥d", `${css}\n.kz-dot[data-state="idle"] { background: var(--ok); }`],
+    ["⑥d", `${css}\n.backlog-stat.workable .backlog-num { color: var(--ok); }`],
+    ["⑥e", withLight("--dot-idle: #1d7a3c;")],
+    ["⑥t", withLight("/* 别名 --dot-*/--memory-flow 只在 :root 定义 */")],
+    ["⑥e", mutateRoot("--alert", "#dcb45e")],
+    ["⑥g", mutateRoot("--sidebar-bg", "#000000")],
+    ["⑥g", mutateRoot("--code-bg", "#000000")],
+    ["⑥g", mutateRoot("--surface-raised", "#2a2530")],
+    ["⑥p", dropRule(/\.backlog-stat\.is-zero \.backlog-num \{[^}]*\}/)],
+    ["⑥p", dropRule(/\.kz-glyph\[data-state="attention"\] \{[^}]*\}/)],
+  ];
+  const silent = counterexamples
+    .map(([id, mutated], index) => [`${id}#${index}`, colorSemanticsViolations(mutated, surfaceCss).some((v) => v.startsWith(id))])
+    .filter(([, caught]) => !caught)
+    .map(([label]) => label);
+  assert.deepEqual(silent, [], `颜色语义判据没能命中自己的反例(恒绿):${silent.join(", ")}`);
 }
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);

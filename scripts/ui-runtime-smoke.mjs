@@ -2635,6 +2635,15 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
     Number(total) === Number(reqReady) + Number(reqBlocked) + Number(defReady) + Number(defBlocked),
     `加法树失守:${total} ≠ ${reqReady}+${reqBlocked}+${defReady}+${defBlocked}`,
   );
+  // 配色语义(docs/design/ui_color_semantics.md):计数只有非零才着色,零挂 is-zero 一律灰——
+  // 「阻塞 0」染成琥珀等于在喊一件不存在的事。实渲染与直接调用两路都盯住(删掉 JS 里的三元就红)。
+  const statOf = (sel) => document.querySelector(`#focus-backlog ${sel}`);
+  assert(statOf('[data-kind="defect"] .backlog-stat.workable')?.classList.contains("is-zero"), "值为 0 的计数缺 is-zero(零也会按状态色着色)");
+  assert(statOf('[data-kind="req"] .backlog-stat.blocked') && !statOf('[data-kind="req"] .backlog-stat.blocked').classList.contains("is-zero"), "非零的阻塞计数不该带 is-zero(阻塞非零必须是琥珀)");
+  const tallyPagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  assert(typeof tallyPagesNs?.backlogStat === "function", "12-docs-pages.js 未导出 backlogStat");
+  assert(tallyPagesNs.backlogStat("阻塞", 0, "blocked").classList.contains("is-zero"), "阻塞=0 时 backlogStat 必须挂 is-zero");
+  assert(!tallyPagesNs.backlogStat("阻塞", 2, "blocked").classList.contains("is-zero"), "阻塞=2 时 backlogStat 不得挂 is-zero");
   // D-332:非法 lifecycle 引擎不取活,前端也不能悄悄算进总数——单列一行点名。
   payloads.docs_snapshot = {
     ...payloads.docs_snapshot,
@@ -12244,6 +12253,22 @@ const docsB = {
   await flush();
   assert(card?.querySelector(".sa-agent")?.textContent === "explore", `meta trace 后人格签应为 explore,实为 "${card?.querySelector(".sa-agent")?.textContent}"`);
   assert(card?.dataset.saState === "running", `首条进度后应转为运行中,实为 ${card?.dataset.saState}`);
+  // 配色语义(docs/design/ui_color_semantics.md):子代理「等待批准」属于「需要你」——字形 data-state=attention
+  // (琥珀慢呼吸),与主线「等首个 token」的 waiting(强调色,进行中)分开;#7 活动行那条 waiting 断言守后者。
+  // 人格签不再按角色哈希挂 line-accent-*:身份不用色,角色名即身份。
+  assert(saNs.subagentGlyph({ state: "waiting" })[1] === "attention", `子代理等待批准的字形应为 attention,实为 ${saNs.subagentGlyph({ state: "waiting" })[1]}`);
+  {
+    const run = saNs.subagentByKey("sess-smoke|call_00_ab12cd");
+    assert(run?.cardEl === card, "取不到卡片对应的子代理数据模型(判据定位失效)");
+    run.state = "waiting";
+    saNs.renderSubagentCard(run);
+    const glyph = card.querySelector(".sa-glyph");
+    assert(glyph?.dataset.state === "attention" && glyph.textContent === "⏸", `等待批准的卡片字形应为 ⏸ · attention,实为 ${glyph?.textContent} · ${glyph?.dataset.state}`);
+    run.state = "running";
+    saNs.renderSubagentCard(run);
+    assert(card.querySelector(".sa-glyph")?.dataset.state === "running", "恢复运行态后字形没有回到 running");
+  }
+  assert(!/line-accent/.test(card?.querySelector(".sa-agent")?.className ?? ""), `人格签不该再按角色哈希取色:${card?.querySelector(".sa-agent")?.className}`);
   assert(saNs.subagentDescription({ prompt: "Find where tokens are verified\nthen report" }) === "Find where tokens are verified", "没有 description 时应取 prompt 首句");
   assert(saNs.subagentDescription({ prompt: "复核 verify-policy.mjs 的门禁。再改代码" }) === "复核 verify-policy.mjs 的门禁", "描述切句把文件名里的点当成了句号");
   assert(saNs.subagentDescription({ prompt: "列出所有 **denial_hint** 文案" }) === "列出所有 denial_hint 文案", "去 markdown 时把标识符里的下划线也删了");
