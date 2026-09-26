@@ -386,6 +386,106 @@ export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path
         await kbd.close();
       }
 
+      // ── 分区:后台任务侧栏与可调框 ──
+      // 7 可调框(00-frame.js,UI2-0926 #4):真实鼠标拖边(从框外 3px 处按下)、拖标题栏、一步甩动、上边夹紧、
+      //   关掉再开保留几何、窗口缩小夹紧与恢复、双击标题复位、点遮罩照常关闭、Alt+Shift+→ 加宽、卡片拖标题与左缘加宽;
+      //   菜单/浮层/提示里没有手柄。
+      if (theme === "dark") {
+        await page.setViewportSize({ width: 1280, height: 840 });
+        await page.evaluate(() => { window.__gallery.closeAll(); window.__gallery.resetFrames(); });
+        await page.mouse.move(2, 2);
+        const frameBox = (selector) => page.evaluate((sel) => {
+          const r = document.querySelector(sel).getBoundingClientRect();
+          return { left: r.left, top: r.top, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+        }, selector);
+        const near = (a, b) => Math.abs(a - b) <= 1;
+        const drag = async (x0, y0, x1, y1, steps = 6) => {
+          await page.mouse.move(x0, y0);
+          await page.mouse.down();
+          await page.mouse.move(x1, y1, { steps });
+          await page.mouse.up();
+          await page.waitForTimeout(60);
+        };
+        const frames = await page.evaluate(() => window.__gallery.frames());
+        if (frames.join(",") !== "demo-lg,demo-card") fail(`dark/可调框:样例页的框清单应为 demo-lg,demo-card,实为 ${frames.join(",")}`);
+        await page.evaluate(() => window.__gallery.open("dialog-lg"));
+        await page.waitForTimeout(150);
+        const r0 = await frameBox("#demo-dialog-lg");
+        const depth0 = await page.evaluate(() => window.__gallery.stackDepth());
+        await drag(r0.right + 3, r0.top + r0.height / 2, r0.right + 103, r0.top + r0.height / 2);
+        const r1 = await frameBox("#demo-dialog-lg");
+        const alive = await page.evaluate(() => ({ open: document.querySelector("#demo-dialog-lg").open, depth: window.__gallery.stackDepth() }));
+        if (!near(r1.width, r0.width + 100) || !near(r1.left, r0.left) || !alive.open || alive.depth !== depth0) {
+          fail(`dark/可调框:从右边框外 3px 拖 +100 应只加宽 100、左缘不动、弹窗不被轻关闭 ${JSON.stringify({ r0, r1, alive })}`);
+        }
+        const head = await frameBox("#demo-dialog-lg .viewer-head");
+        await drag(head.left + 80, head.top + head.height / 2, head.left - 40, head.top + head.height / 2 - 50);
+        const r2 = await frameBox("#demo-dialog-lg");
+        if (!near(r2.width, r1.width) || !near(r2.height, r1.height) || !near(r2.left, r1.left - 120) || !near(r2.top, r1.top - 50)) {
+          fail(`dark/可调框:拖标题栏 (-120,-50) 应只移动不变尺寸 ${JSON.stringify({ r1, r2 })}`);
+        }
+        const head2 = await frameBox("#demo-dialog-lg .viewer-head");
+        await drag(head2.left + 80, head2.top + 10, head2.left + 280, head2.top + 110, 1);
+        const r3 = await frameBox("#demo-dialog-lg");
+        if (!near(r3.left, r2.left + 200) || !near(r3.top, r2.top + 100)) fail(`dark/可调框:一步甩动 (+200,+100) 没有移动到位 ${JSON.stringify({ r2, r3 })}`);
+        await drag(r3.left + r3.width / 2, r3.top - 3, r3.left + r3.width / 2, r3.top - 2003);
+        const r4 = await frameBox("#demo-dialog-lg");
+        if (!near(r4.top, 8) || !near(r4.bottom, r3.bottom)) fail(`dark/可调框:上边拖到窗外应夹在 8px、下缘不动 ${JSON.stringify({ r3, r4 })}`);
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(100);
+        await page.evaluate(() => window.__gallery.open("dialog-lg"));
+        await page.waitForTimeout(150);
+        const r5 = await frameBox("#demo-dialog-lg");
+        const stored = await page.evaluate(() => localStorage.getItem("kz-frame:demo-lg"));
+        if (!near(r5.left, r4.left) || !near(r5.width, r4.width) || !stored) fail(`dark/可调框:关掉再开应保留几何并记在存储里 ${JSON.stringify({ r4, r5, stored })}`);
+        await page.setViewportSize({ width: 800, height: 500 });
+        await page.waitForTimeout(150);
+        const small = await frameBox("#demo-dialog-lg");
+        if (small.left < 7 || small.top < 7 || small.right > 793 || small.bottom > 493) fail(`dark/可调框:窗口缩到 800×500 后框应夹进 [8,792]×[8,492] ${JSON.stringify(small)}`);
+        await page.setViewportSize({ width: 1280, height: 840 });
+        await page.waitForTimeout(150);
+        const r6 = await frameBox("#demo-dialog-lg");
+        if (!near(r6.left, r5.left) || !near(r6.width, r5.width) || !near(r6.height, r5.height)) fail(`dark/可调框:窗口恢复后应回到用户摆的几何 ${JSON.stringify({ r5, r6 })}`);
+        const head3 = await frameBox("#demo-dialog-lg .viewer-head");
+        await page.mouse.dblclick(head3.left + 80, head3.top + head3.height / 2);
+        await page.waitForTimeout(100);
+        const r7 = await frameBox("#demo-dialog-lg");
+        const cleared = await page.evaluate(() => localStorage.getItem("kz-frame:demo-lg"));
+        if (!near(r7.left, r0.left) || !near(r7.top, r0.top) || !near(r7.width, r0.width) || cleared) fail(`dark/可调框:双击标题栏应回到默认居中并清掉存储 ${JSON.stringify({ r0, r7, cleared })}`);
+        await page.focus("#demo-dialog-lg-close");
+        await page.keyboard.press("Alt+Shift+ArrowRight");
+        await page.waitForTimeout(80);
+        const r8 = await frameBox("#demo-dialog-lg");
+        if (!near(r8.width, r7.width + 24)) fail(`dark/可调框:Alt+Shift+→ 应加宽 24,实为 ${r7.width}→${r8.width}`);
+        await page.mouse.click(4, 4);
+        await page.waitForTimeout(150);
+        if (await page.evaluate(() => document.querySelector("#demo-dialog-lg").open)) fail("dark/可调框:点遮罩应照常关闭弹窗(closedby=any)");
+        await page.screenshot({ path: path.join(outDir, "dark-frame-dialog.png") });
+        await page.evaluate(() => { window.__gallery.resetFrames(); window.__gallery.open("card"); });
+        await page.waitForTimeout(150);
+        const c0 = await frameBox("#demo-card");
+        const cardHead = await frameBox("#demo-card .ask-head");
+        await drag(cardHead.left + 30, cardHead.top + cardHead.height / 2, cardHead.left - 170, cardHead.top + cardHead.height / 2 - 100);
+        const c1 = await frameBox("#demo-card");
+        if (!near(c1.left, c0.left - 200) || !near(c1.top, c0.top - 100) || !near(c1.width, c0.width)) fail(`dark/可调卡片:拖标题栏应移动且保持宽度 ${JSON.stringify({ c0, c1 })}`);
+        await drag(c1.left - 3, c1.top + c1.height / 2, c1.left - 83, c1.top + c1.height / 2);
+        const c2 = await frameBox("#demo-card");
+        if (!near(c2.width, c1.width + 80) || !near(c2.right, c1.right)) fail(`dark/可调卡片:左缘加宽 80 应右缘不动 ${JSON.stringify({ c1, c2 })}`);
+        const titleBox = await frameBox("#demo-card-title");
+        const clickPromise = page.evaluate(() => new Promise((resolve) => {
+          document.querySelector("#demo-card").addEventListener("click", (event) => resolve(event.target.closest(".ask-title") ? "title" : String(event.target.className || event.target.tagName)), { once: true });
+          setTimeout(() => resolve("none"), 800);
+        }));
+        await page.mouse.click(titleBox.left + 10, titleBox.top + titleBox.height / 2);
+        const clicked = await clickPromise;
+        if (clicked !== "title") fail(`dark/可调卡片:标题上的普通点击 target 应仍在标题内(越过阈值前不捕获指针),实为 ${clicked}`);
+        const stray = await page.evaluate(() => document.querySelectorAll(".k-menu .k-frame-edge, .k-popover .k-frame-edge, .k-tooltip .k-frame-edge, .k-toast .k-frame-edge").length);
+        if (stray) fail(`dark/可调框:菜单/浮层/提示/toast 里出现了 ${stray} 个调尺寸手柄(它们不是框)`);
+        await page.screenshot({ path: path.join(outDir, "dark-frame-card.png") });
+        await page.evaluate(() => { window.__gallery.closeAll(); window.__gallery.resetFrames(); });
+        notes.push("可调框:拖边/拖标题/甩动/夹紧/复位/键盘/卡片加宽均通过");
+      }
+
       // 静态矩阵(暗色页面下两套主题同屏)
       if (theme === "dark") {
         await page.locator("#demo-matrix").scrollIntoViewIfNeeded();
@@ -458,8 +558,15 @@ export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path
           try { if (el.matches(":popover-open, dialog:modal")) return false; } catch { /* 忽略 */ }
           return true;
         }).map((el) => el.id || el.className);
-        return { selects, bare, fixed, selectCount: document.querySelectorAll("select").length };
+        // ── 分区:后台任务侧栏与可调框 ── 应用里的框清单;可调尺寸的框只有一个内层容器(手柄与挂进来的菜单除外)。
+        const frameIds = [...document.querySelectorAll("[data-kz-frame]")].map((el) => el.dataset.kzFrame).sort();
+        const multiChild = [...document.querySelectorAll("[data-kz-frame-edges]")]
+          .filter((el) => [...el.children].filter((c) => !c.classList.contains("k-frame-edge") && !c.hasAttribute("popover")).length !== 1)
+          .map((el) => el.id);
+        return { selects, bare, fixed, selectCount: document.querySelectorAll("select").length, frameIds, multiChild };
       });
+      if (audit.frameIds.join(",") !== "ask,confirm,input,project-models,viewer") fail(`index.html(${theme}):可调框清单应为 ask,confirm,input,project-models,viewer,实为 ${audit.frameIds.join(",")}`);
+      if (audit.multiChild.length) fail(`index.html(${theme}):可调尺寸的框必须只有一个内层容器(裁剪与滚动下放到它):${audit.multiChild.join(", ")}`);
       if (audit.selects.length) fail(`index.html(${theme}):以下 select 不是 base-select:${audit.selects.join(", ")}`);
       if (audit.bare.length) fail(`index.html(${theme}):以下 dialog/[popover] 缺 .k-surface:${audit.bare.join(", ")}`);
       if (audit.fixed.length) fail(`index.html(${theme}):顶层以外出现 fixed 浮层(除 .resize-handle):${audit.fixed.join(", ")}`);

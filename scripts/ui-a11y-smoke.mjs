@@ -176,8 +176,13 @@ assert.match(js, /localStorage\.setItem\("kz-activity-panel"/);
 assert.doesNotMatch(js, /renderTodoPanel/, "renderTodoPanel 应随 todowrite 一并摘除");
 assert.match(js, /function bgAdd\(/);
 assert.match(js, /function syncActivityPanel\(\)/);
-assert.match(js, /const setWidth = \(width\)[\s\S]*localStorage\.setItem/);
-assert.match(js, /function setupResize\(/);
+// UI2-0926 #4:布局分隔条改走 00-frame.js 的 installSplit——尺寸写 <html> 上的 --kz-split-<id>、偏好经存储
+// (应用里是 ui_prefs 的 ui_layout),不再写元素内联 width(内联宽度压过 #sidebar.collapsed,收起后留空栏)。
+assert.match(js, /export function installSplit\(/, "布局分隔条的唯一入口 installSplit 丢失");
+assert.match(js, /rootStyle\.setProperty\(cssVar, `\$\{next\}px`\);\s*storeSet\("splits"/, "分隔条必须把尺寸写成 CSS 变量并经存储持久化");
+assert.doesNotMatch(js, /function setupResize\(/, "旧 setupResize(写内联 width)不得复活");
+assert.match(css, /#sidebar \{ width: var\(--kz-split-sidebar\); \}/, "#sidebar 宽度必须引用 --kz-split-sidebar");
+assert.match(css, /#sidebar\.collapsed \{ width: 0;/, "#sidebar.collapsed { width: 0 } 丢失(收起后会留空栏)");
 assert.match(js, /function setRunning\(value, statusText\)[\s\S]*send\.disabled = false/);
 assert.match(js, /已发送给 agent/);
 assert.match(js, /bgProgress\([\s\S]*appendDisplayBlock\(child\.row, trace\.display\)/);
@@ -431,6 +436,8 @@ assert.match(js, /t\("实际差异"\)/);
     "--voice-level", // 23-voice.js 写音量
     "--kz-sync", // 01-core.js motionSync 写动画相位(动效分区)
     "--tf-progress", // 04-structured.js renderTrackerFields 写批次进度条宽度
+    // ── 分区:后台任务侧栏与可调框 ── 00-frame.js 按用户拖出的几何写可调框的摆放变量(surface.css §10)。
+    "--kz-frame-l", "--kz-frame-r", "--kz-frame-t", "--kz-frame-b", "--kz-frame-w", "--kz-frame-h",
   ]);
   const definedTokens = new Set([...allClean.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
   const undefinedTokens = [...new Set([...allClean.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1]))]

@@ -339,6 +339,42 @@ if (SMOKE_MUTATE) {
       pattern: /const taskCall = entry \? null : orphanTaskCall\(message, part\.call_id\);/,
       replace: "const taskCall = null;",
     },
+    // ── 分区:后台任务侧栏与可调框 ──
+    // UI2-0926 #4:窗口缩小时框按偏好重新夹紧。去掉水平 clamp,窗口缩到 700 时框宽 684 左缘却还在 400,右半截出窗。
+    frameClamp: {
+      pattern: /const left = clamp\(pref\.l != null \? pref\.l : vw - \(pref\.r \?\? MARGIN\) - w, MARGIN, vw - MARGIN - w\);/,
+      replace: "const left = pref.l != null ? pref.l : vw - (pref.r ?? MARGIN) - w;",
+    },
+    // UI2-0926 #4:手势期间 pointermove 挂在 document 捕获阶段。挂回框上,一步甩出框外时收不到 move,框不动。
+    frameGestureDoc: {
+      pattern: /document\.addEventListener\("pointermove", onMove, true\);/,
+      replace: 'el.addEventListener("pointermove", onMove, true);',
+    },
+    // UI2-0926 #4:双击复位的判据是按下时记的「在拖动区里」。删掉标记,双击标题栏不再复位。
+    frameDblclickFlag: {
+      pattern: /[ \t]*frame\.downInMove = true;\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #4:不记住的框(确认框/输入框)关闭即复位。删掉监听,下次打开还停在拖过的位置。
+    frameTransientReset: {
+      pattern: /[ \t]*el\.addEventListener\("close", \(\) => resetFrame\(frame\)\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #4:存储读写吞异常(隐私模式、配额)。去掉 try/catch,存储一抛错安装与拖动就一起崩。
+    frameStorageGuard: {
+      pattern: /try \{ return store\.get\(kind, id, hint\); \} catch \{ return null; \}/,
+      replace: "return store.get(kind, id, hint);",
+    },
+    // UI2-0926 #4 缺陷 A:分隔条写 <html> 上的 CSS 变量。改回写内联 width,收起侧栏后留一整条空栏。
+    splitCssVar: {
+      pattern: /rootStyle\.setProperty\(cssVar, `\$\{next\}px`\);/,
+      replace: "pane.style.width = `${next}px`;",
+    },
+    // UI2-0926 #4:布局偏好经 ui_prefs 写后端(D-404 本机 localStorage 重启即丢)。删掉,几何只剩本地缓存。
+    layoutPersist: {
+      pattern: /[ \t]*void uiPrefsSave\(\{ ui_layout: patch \}\);\r?\n/,
+      replace: "",
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -761,7 +797,8 @@ class Element {
   focus() {}
   querySelector(selector) { return queryAllFrom(this, selector)[0] ?? null; }
   querySelectorAll(selector) { return queryAllFrom(this, selector); }
-  closest(selector) { let el = this; while (el) { if (matchesCompound(el, selector)) return el; el = el.parentElement; } return null; }
+  // 逗号分组(`closest("button, a[href], …")`)按任一分支命中;00-frame.js 用它排除拖动区里的按钮。
+  closest(selector) { const alts = String(selector).split(",").map((s) => s.trim()).filter(Boolean); let el = this; while (el) { if (alts.some((alt) => matchesCompound(el, alt))) return el; el = el.parentElement; } return null; }
   setPointerCapture() {}
   scrollIntoView() {}
   scrollTo() {}
@@ -930,6 +967,11 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
   if (popoverAttr) el.setAttribute("popover", popoverAttr[1] ?? "");
   for (const attribute of ["data-kz-menu", "data-placement", "data-size", "data-tone"]) {
     const value = attributes.match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
+    if (value !== undefined) el.setAttribute(attribute, value);
+  }
+  // ── 分区:后台任务侧栏与可调框 ── 可调框声明(bindFrames 扫描)、权限卡锚点、侧栏停靠/模式也要建到桩上。
+  for (const attribute of ["data-kz-frame", "data-kz-frame-move", "data-kz-frame-edges", "data-kz-frame-min", "data-kz-frame-stretch", "data-kz-frame-keep", "data-kz-frame-persist", "data-kz-anchor", "data-dock", "data-mode"]) {
+    const value = attributes.match(new RegExp(`(?<![\\w-])${attribute}="([^"]*)"`))?.[1];
     if (value !== undefined) el.setAttribute(attribute, value);
   }
   const tail = html.slice(match.index + match[0].length);
@@ -12541,6 +12583,193 @@ const docsB = {
 
   sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
   vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
+  await flush();
+}
+
+// ── 分区:后台任务侧栏与可调框 ──
+// UI2-0926 #4 可调框与分隔条(00-frame.js / 03-layout.js,docs/design/ui_surface_stack.md §4.6)。
+// 假 DOM 没有布局:指针用例靠打桩矩形与合成事件;真实命中、捕获、滚动条冲突由浏览器样例冒烟(步骤 7)兜底。
+// 变异守卫:frameClamp / frameGestureDoc / frameDblclickFlag / frameTransientReset / frameStorageGuard /
+// splitCssVar / layoutPersist(各自恰好命中一处被守护的源码,删掉后这里必须变红)。
+{
+  const frameNs = esmModuleCache.get("00-frame.js")?.namespace;
+  const layoutNs = esmModuleCache.get("03-layout.js")?.namespace;
+  assert(frameNs && typeof frameNs.installFrame === "function", "00-frame.js 未加载或未导出 installFrame");
+  assert(layoutNs && typeof layoutNs.setLayoutPref === "function", "03-layout.js 未加载或未导出 setLayoutPref");
+  assert(!/^\s*import\b/m.test(sources[scriptSrcs.indexOf("00-frame.js")] ?? "import"), "00-frame.js 必须零 import");
+  const rectStub = (el, rect) => {
+    el.getBoundingClientRect = () => ({ ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height });
+  };
+  const pointer = (type, target, x, y, id = 1) => ({ type, target, pointerId: id, button: 0, clientX: x, clientY: y, preventDefault() {}, stopPropagation() {} });
+  const docPointer = (type, x, y, id = 1) => document.dispatchEvent(pointer(type, documentElement, x, y, id));
+  const vars = (el) => Object.fromEntries(["l", "r", "t", "b", "w", "h"].map((k) => [k, el.style.getPropertyValue(`--kz-frame-${k}`)]).filter(([, v]) => v));
+
+  // ⑩a 启动接线:index.html 里声明的框全部接上,手柄数与 edges 一致;手柄不进 Tab 序。
+  const wired = { "viewer-overlay": ["viewer", 8], "project-models-overlay": ["project-models", 8], "confirm-overlay": ["confirm", 0], "input-overlay": ["input", 0], "ask-overlay": ["ask", 2] };
+  for (const [hostId, [frameId, edges]] of Object.entries(wired)) {
+    const host = byId.get(hostId);
+    assert(host?._kzFrame?.o.id === frameId, `#${hostId} 没有接成可调框 ${frameId}(bindFrames 没扫到 data-kz-frame)`);
+    const handles = host?.children.filter((c) => c.classList.contains("k-frame-edge")) ?? [];
+    assert(handles.length === edges, `#${hostId} 应有 ${edges} 个边缘手柄,实为 ${handles.length}`);
+    assert(handles.every((h) => h.getAttribute("aria-hidden") === "true" && h.getAttribute("tabindex") === null), `#${hostId} 的手柄必须 aria-hidden 且不进 Tab 序`);
+  }
+  assert(byId.get("ask-overlay")?._kzFrame?.o.keepW === true, "权限卡移动时要记下宽度(data-kz-frame-keep=w)");
+  assert(byId.get("confirm-overlay")?._kzFrame?.o.persist === false, "确认框不记住几何(data-kz-frame-persist=no)");
+  assert(!byId.get("palette")?._kzFrame, "命令面板不是可调框");
+
+  // ⑩b 纯函数:先分支 move("move" 里含 e)、夹紧、锚最近边、只记拖过的轴、非法偏好一律当没有。
+  const lim = { minW: 420, minH: 240, vw: 1280, vh: 800 };
+  const start = { left: 210, top: 60, width: 860, height: 680 };
+  const east = frameNs.dragRect(start, "e", 100, 0, lim);
+  assert(east.width === 960 && east.left === 210, `拖右边 +100 应宽 960 左缘不动,实为 ${JSON.stringify(east)}`);
+  const moved = frameNs.dragRect(start, "move", 50, 0, lim);
+  assert(moved.width === 860 && moved.left === 260, `移动不得改宽度(守 "move".includes("e")),实为 ${JSON.stringify(moved)}`);
+  assert(frameNs.dragRect(start, "w", 1000, 0, lim).width === 420, "拖左边越过下限应夹到最小宽 420");
+  const pref = frameNs.prefFromRect({ left: 210, top: 60, width: 960, height: 680 }, { vw: 1280, vh: 800, sized: { w: true } });
+  assert(pref.r === 110 && pref.t === 60 && pref.w === 960 && pref.l === undefined && pref.h === undefined, `右半边的框应锚右、只记宽,实为 ${JSON.stringify(pref)}`);
+  const clamped = frameNs.placeFromPref({ v: 1, l: 400, t: 20, w: 600, kh: 300 }, { vw: 700, vh: 800, minW: 420, minH: 240 });
+  assert(clamped.vars.l === 92, `窗口缩小后左缘应夹到 700-8-600=92,实为 ${clamped.vars.l}`);
+  for (const bad of [null, "null", "{", JSON.stringify({ v: 2, l: 1, t: 1 }), JSON.stringify({ v: 1, l: -5, t: 1 }), JSON.stringify({ v: 1, l: 1, r: 1, t: 1 }), JSON.stringify({ v: 1, l: 1 })]) {
+    assert(frameNs.parsePref(bad) === null, `非法偏好应当作没有:${bad}`);
+  }
+  assert(frameNs.parsePref({ v: 1, r: 4, b: 5 })?.r === 4, "对象形态的合法偏好应被接受(ui_layout 存的就是对象)");
+
+  // 合成一个可调框(与查看器同构:标题栏 + 按钮 + 正文)。
+  const created = [];
+  const synth = (id, opts = {}) => {
+    const host = document.createElement("dialog");
+    host.className = "k-surface k-dialog";
+    const head = document.createElement("div");
+    head.className = "viewer-head";
+    const button = document.createElement("button");
+    head.append(button);
+    const bodyEl = document.createElement("div");
+    host.append(head, bodyEl);
+    document.body.append(host);
+    created.push(host);
+    rectStub(host, { left: 210, top: 60, width: 860, height: 680 });
+    const frame = frameNs.installFrame(host, { id, move: ".viewer-head", edges: "all", min: "420 240", ...opts });
+    return { host, head, button, frame };
+  };
+  const invokeCountBefore = invokeArgs.filter((a) => a.cmd === "ui_prefs_set" && a.args?.ui_layout).length;
+
+  // ⑩c 边缘拖动:手势期间 move/up 挂在 document 捕获阶段;落地为 CSS 变量 + data-kz-placed,偏好进 ui_layout。
+  const a = synth("smoke-edge");
+  assert(a.head.hasAttribute("data-kz-frame-grip"), "拖动区应挂 data-kz-frame-grip(给移动光标)");
+  const eHandle = a.host.children.find((c) => c.dataset.edge === "e");
+  a.host.dispatchEvent(pointer("pointerdown", eHandle, 1070, 400));
+  docPointer("pointermove", 1170, 400);
+  docPointer("pointerup", 1170, 400);
+  assert(a.host.getAttribute("data-kz-placed") === "pos w", `拖右边后应落地为 "pos w",实为 ${a.host.getAttribute("data-kz-placed")}`);
+  assert(vars(a.host).r === "110px" && vars(a.host).w === "960px", `拖右边后变量不对:${JSON.stringify(vars(a.host))}`);
+  assert(layoutNs.layoutPref("frames", "smoke-edge")?.w === 960, "拖动后的几何没有进 ui_layout.frames");
+  assert(!documentElement.dataset.kzFrameDrag, "手势结束后 html[data-kz-frame-drag] 没清掉(光标会一直是调尺寸)");
+  await flush();
+  const layoutWrites = invokeArgs.filter((a) => a.cmd === "ui_prefs_set" && a.args?.ui_layout);
+  assert(layoutWrites.length > invokeCountBefore && layoutWrites.at(-1).args.ui_layout.frames?.["smoke-edge"]?.w === 960,
+    "拖动后的几何没有经 ui_prefs_set({ ui_layout }) 写后端(本机 localStorage 重启即丢,D-404)");
+
+  // ⑩d 移动阈值与甩动:按下后 2px 不算拖;一步甩出框外也要移动(move 监听在 document 上)。
+  const b = synth("smoke-move");
+  b.host.dispatchEvent(pointer("pointerdown", b.head, 400, 80));
+  docPointer("pointermove", 402, 80);
+  assert(!b.host.hasAttribute("data-kz-placed"), "按下后 2px 的抖动被当成了拖动");
+  docPointer("pointermove", 600, 130);
+  docPointer("pointerup", 600, 130);
+  assert(b.host.getAttribute("data-kz-placed") === "pos", `甩动一步移出框外也应移动(只记位置),实为 ${b.host.getAttribute("data-kz-placed")}`);
+  // 左上 (410,110)、860×680:中心在右下半区,两轴都锚最近的边(r = 1280-410-860, b = 800-110-680)。
+  assert(vars(b.host).r === "10px" && vars(b.host).b === "10px" && !vars(b.host).w, `移动后应锚右下且不记尺寸,实为 ${JSON.stringify(vars(b.host))}`);
+
+  // ⑩e 拖动区里的按钮照常是按钮;上一次手势没收到 up 时,新手势先收尾,不出现幽灵移动。
+  const c = synth("smoke-button");
+  c.host.dispatchEvent(pointer("pointerdown", c.button, 400, 80));
+  docPointer("pointermove", 700, 300);
+  docPointer("pointerup", 700, 300);
+  assert(!c.host.hasAttribute("data-kz-placed"), "在标题栏的按钮上按下再拖,框被挪动了(按钮应照常工作)");
+  c.host.dispatchEvent(pointer("pointerdown", c.head, 400, 80, 7)); // 这一下没等到 up
+  const cHandle = c.host.children.find((h) => h.dataset.edge === "s");
+  c.host.dispatchEvent(pointer("pointerdown", cHandle, 500, 740, 8));
+  docPointer("pointermove", 800, 300, 7); // 旧手势的指针再动:不得触发移动
+  assert(!c.host.hasAttribute("data-kz-placed"), "残留的旧手势被下一次指针移动误触发成了移动");
+  docPointer("pointerup", 500, 740, 8);
+
+  // ⑩f 双击标题栏复位:判据是按下时记的「在拖动区里」,不看 dblclick 的 target。
+  b.host.dispatchEvent(pointer("pointerdown", b.head, 400, 80));
+  docPointer("pointerup", 400, 80);
+  b.host.dispatchEvent({ type: "dblclick", target: b.host });
+  assert(!b.host.hasAttribute("data-kz-placed") && layoutNs.layoutPref("frames", "smoke-move") === null, "双击标题栏没有复位(几何与偏好都应清掉)");
+  a.host.dispatchEvent(pointer("pointerdown", a.host.children.at(-1), 1070, 740)); // 手柄上按下
+  docPointer("pointerup", 1070, 740);
+  a.host.dispatchEvent({ type: "dblclick", target: a.host });
+  assert(a.host.getAttribute("data-kz-placed") === "pos w", "在非拖动区(手柄)按下后的双击不该复位");
+
+  // ⑩g 窗口缩小:按偏好重新夹紧,不改写偏好;窗口变回来恢复用户摆的位置。
+  windowShim.innerWidth = 700;
+  for (const fn of windowListeners.get("resize") ?? []) fn({ type: "resize" });
+  const narrowW = Number.parseInt(vars(a.host).w, 10);
+  assert(narrowW <= 684, `窗口缩到 700 后框宽应夹到 ≤684,实为 ${narrowW}`);
+  assert(layoutNs.layoutPref("frames", "smoke-edge")?.w === 960, "窗口缩小时偏好被夹紧值改写了(变回来就回不去)");
+  windowShim.innerWidth = 1280;
+  for (const fn of windowListeners.get("resize") ?? []) fn({ type: "resize" });
+  assert(vars(a.host).w === "960px", `窗口恢复后应回到 960,实为 ${vars(a.host).w}`);
+
+  // ⑩h 不记住的框:关闭即复位,不写存储。
+  const d = synth("smoke-transient", { persist: false, move: ":scope", edges: "" });
+  d.host.dispatchEvent(pointer("pointerdown", d.host, 400, 300));
+  docPointer("pointermove", 200, 200);
+  docPointer("pointerup", 200, 200);
+  assert(d.host.getAttribute("data-kz-placed") === "pos", "整框可拖的确认框没有移动");
+  assert(layoutNs.layoutPref("frames", "smoke-transient") === null, "不记住的框把几何写进了存储");
+  d.host.dispatchEvent({ type: "close", target: d.host });
+  assert(!d.host.hasAttribute("data-kz-placed"), "不记住的框关闭后没有复位(下次打开还在拖过的位置)");
+
+  // ⑩i 存储抛错:隐私模式/配额——安装与拖动都不抛,本次会话照常可用。
+  frameNs.setFrameStore({ get() { throw new Error("boom"); }, set() { throw new Error("boom"); } });
+  let threw = null;
+  try {
+    const e = synth("smoke-throw");
+    e.host.dispatchEvent(pointer("pointerdown", e.head, 400, 80));
+    docPointer("pointermove", 500, 90);
+    docPointer("pointerup", 500, 90);
+    assert(e.host.getAttribute("data-kz-placed") === "pos", "存储抛错时拖动没有生效");
+  } catch (error) {
+    threw = error;
+  }
+  frameNs.setFrameStore(layoutNs.layoutFrameStore);
+  assert(threw === null, `存储抛错时 installFrame/拖动抛了异常:${threw}`);
+
+  // ⑩j 键盘:框内 Alt+Shift+→ 调宽(右半边的框向左长),Alt+Shift+Home 复位。
+  const k = synth("smoke-key");
+  k.host.dispatchEvent({ type: "keydown", key: "ArrowRight", altKey: true, shiftKey: true, target: k.button, preventDefault() {} });
+  assert(vars(k.host).w === "884px", `Alt+Shift+→ 应加宽 24,实为 ${vars(k.host).w}`);
+  k.host.dispatchEvent({ type: "keydown", key: "Home", altKey: true, shiftKey: true, target: k.button, preventDefault() {} });
+  assert(!k.host.hasAttribute("data-kz-placed"), "Alt+Shift+Home 没有复位");
+
+  // ⑩k 后端偏好到达:按 ui_layout 重放(查看器被摆过的位置在重启后还在)。
+  layoutNs.adoptLayout({ frames: { viewer: { v: 1, l: 90, t: 50, w: 880 } }, splits: {} });
+  const viewer = byId.get("viewer-overlay");
+  assert(viewer.getAttribute("data-kz-placed") === "pos w" && viewer.style.getPropertyValue("--kz-frame-l") === "90px", "后端 ui_layout 到达后查看器没有按记住的几何落位");
+  layoutNs.adoptLayout({});
+  assert(!viewer.hasAttribute("data-kz-placed"), "ui_layout 清空后查看器没有回到默认居中");
+
+  // ⑩l 侧栏分隔条(缺陷 A 回归):宽度写 <html> 上的 --kz-split-sidebar,不写内联 width;偏好进 ui_layout.splits。
+  const sidebar = byId.get("sidebar");
+  const split = sidebar?._kzSplit;
+  assert(split && split.handle.getAttribute("role") === "separator", "侧栏没有装上 installSplit 分隔条");
+  rectStub(sidebar, { left: 48, top: 0, width: 280, height: 800 });
+  split.handle.dispatchEvent(pointer("pointerdown", split.handle, 328, 300));
+  split.handle.dispatchEvent(pointer("pointermove", split.handle, 448, 300));
+  split.handle.dispatchEvent(pointer("pointerup", split.handle, 448, 300));
+  assert(documentElement.style.getPropertyValue("--kz-split-sidebar") === "400px", `拖侧栏分隔条后 --kz-split-sidebar 应为 400px,实为 "${documentElement.style.getPropertyValue("--kz-split-sidebar")}"`);
+  assert(!sidebar.style.width, "侧栏分隔条又写了内联 width(压过 #sidebar.collapsed,收起后留空栏)");
+  assert(layoutNs.layoutPref("splits", "sidebar") === 400, "侧栏宽度没有进 ui_layout.splits");
+  assert(/#sidebar \{ width: var\(--kz-split-sidebar\); \}/.test(style) && /#sidebar\.collapsed \{ width: 0;/.test(style), "style.css 的 #sidebar 宽度须引用 --kz-split-sidebar 且保留 .collapsed{width:0}");
+  split.handle.dispatchEvent({ type: "dblclick", target: split.handle });
+  assert(!documentElement.style.getPropertyValue("--kz-split-sidebar") && layoutNs.layoutPref("splits", "sidebar") === null, "双击分隔条没有回到默认宽度");
+  assert(byId.get("log-panel")?._kzSplit?.handle.getAttribute("aria-orientation") === "horizontal", "日志面板顶边没有装上横向分隔条");
+  assert(byId.get("files-side")?._kzSplit, "文件树没有装上分隔条");
+  for (const el of created) el.remove();
+  for (const id of ["smoke-edge", "smoke-move", "smoke-button", "smoke-throw", "smoke-key"]) layoutNs.setLayoutPref("frames", id, null);
   await flush();
 }
 

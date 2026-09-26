@@ -1,7 +1,9 @@
 // 弹层样例页脚本(UI-0926 #9,docs/design/ui_surface_stack.md §8)。
 // 只从 00-surface.js 引入,不依赖应用其它模块与 Tauri。暴露 window.__gallery 供
 // scripts/ui-surface-gallery-smoke.mjs 调用:demos() / open(id) / measure(id) / tokens() /
-// stackDepth() / closeAll() / setTheme(theme) / picks()(菜单项 onSelect 调用记录)。
+// stackDepth() / closeAll() / setTheme(theme) / picks()(菜单项 onSelect 调用记录)/
+// frames()(可调框 id 清单)/ resetFrames()(忘掉拖过的几何,00-frame.js 默认 localStorage 存储)。
+import { bindFrames, resetFrame } from "./00-frame.js";
 import {
   bindMenus,
   closeSurface,
@@ -347,7 +349,10 @@ function init() {
   for (const section of document.querySelectorAll("[data-matrix]")) renderMatrix(section);
   bindMenus(document);
   installTooltips(document);
+  bindFrames(document);
   window.__gallery = {
+    frames: () => [...document.querySelectorAll("[data-kz-frame]")].map((el) => el.dataset.kzFrame),
+    resetFrames: () => { for (const el of document.querySelectorAll("[data-kz-frame]")) resetFrame(el); },
     demos: () => Object.entries(DEMOS).map(([id, demo]) => ({ id, kind: demo.kind })),
     open,
     measure,

@@ -3249,3 +3249,20 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
   font-size: var(--fs-10); font-weight: 600; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums;
   box-shadow: 0 0 0 2px var(--activitybar); pointer-events: none;
 }
+
+/* ===== 分区:后台任务侧栏与可调框 ===== */
+/* UI2-0926 #4 布局分隔条:尺寸是 <html> 上的 --kz-split-<id>(00-frame.js installSplit 写入,03-layout.js 安装;
+   几何偏好经 ui_prefs 的 ui_layout 持久化)。默认值在这里;视图规则按同名变量取值——写在原规则之后,同特异性
+   后者生效,不改原行;#sidebar.collapsed { width: 0 } 特异性更高照样生效(旧版写内联 width 压过它,收起后留空栏)。 */
+:root { --kz-split-sidebar: 280px; --kz-split-log: 180px; --kz-split-files: 340px; --kz-split-memory: 320px; }
+#sidebar { width: var(--kz-split-sidebar); }
+#log-panel { height: var(--kz-split-log); }
+#files-side { width: var(--kz-split-files); min-width: 200px; }
+@container (min-width: 761px) {
+  .memory-manager-workspace { grid-template-columns: minmax(200px, var(--kz-split-memory)) minmax(0, 1fr); }
+}
+@container (max-width: 760px) {
+  .memory-list-pane > .resize-handle { display: none; }
+}
+/* 横向分隔条(日志面板顶边):手柄的 left/width/top 由 installSplit 按窗格矩形同步。 */
+.resize-handle[aria-orientation="horizontal"] { width: auto; height: 5px; cursor: row-resize; }

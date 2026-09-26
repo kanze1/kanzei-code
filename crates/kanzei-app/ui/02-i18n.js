@@ -1094,6 +1094,10 @@ export const I18N_EN = {
   "返回全部子代理": "Back to all subagents", "当前线路还没有子代理": "No subagents on this line yet",
   "停止这个子代理": "Stop this subagent", "子代理未给出回答": "The subagent returned no answer",
   "该子代理已滚出当前视图": "This subagent is no longer in the chat view", "要求结构化返回": "Structured answer required",
+
+  // ---- 分区:后台任务侧栏与可调框 ----
+  // UI2-0926 #4 可调框与分隔条(00-frame.js / 03-layout.js)。
+  "拖动调整面板高度": "Drag to adjust panel height", "调整面板高度": "Adjust panel height",
 };
 export const I18N_DYNAMIC_EN = {
   "完成提示音不可用": "Completion sound unavailable",

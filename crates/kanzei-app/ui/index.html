@@ -1231,7 +1231,7 @@
     </aside>
   </div>
 
-  <div id="ask-overlay" class="k-surface k-card hidden" popover="manual" data-tone="attention" role="dialog" aria-modal="false" aria-labelledby="ask-title">
+  <div id="ask-overlay" class="k-surface k-card hidden" popover="manual" data-tone="attention" role="dialog" aria-modal="false" aria-labelledby="ask-title" data-kz-anchor="composer" data-kz-frame="ask" data-kz-frame-move=".ask-head" data-kz-frame-edges="e w" data-kz-frame-min="360 120" data-kz-frame-keep="w">
     <div id="ask-dialog">
       <div class="ask-head">
         <div class="ask-title" id="ask-title" data-i18n-key="权限请求">权限请求</div>
@@ -1264,7 +1264,7 @@
   </div>
   <button id="ask-reopen" class="k-surface k-chip-float ask-reopen hidden" popover="manual" type="button" title="重新打开询问" data-i18n-title="重新打开询问" aria-label="重新打开询问" data-i18n-aria-label="重新打开询问" data-i18n-key="重新打开询问">重新打开询问</button>
 
-  <dialog id="viewer-overlay" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="viewer-title">
+  <dialog id="viewer-overlay" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="viewer-title" data-kz-frame="viewer" data-kz-frame-move=".viewer-head" data-kz-frame-edges="all" data-kz-frame-min="420 240">
     <div id="viewer-dialog">
       <div class="viewer-head">
         <span id="viewer-title"></span>
@@ -1277,7 +1277,7 @@
     </div>
   </dialog>
 
-  <dialog id="input-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="input-title">
+  <dialog id="input-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="input-title" data-kz-frame="input" data-kz-frame-move=":scope" data-kz-frame-persist="no">
     <div id="input-dialog">
       <div class="confirm-title" id="input-title" data-i18n-raw></div>
       <div id="input-message" class="input-message hidden" data-i18n-raw></div>
@@ -1290,7 +1290,7 @@
   </dialog>
 
   <!-- UI-0926 #3 项目模型配置:只写本项目 .kanzei/kanzei.toml 的 [models] 五个键(08-project-models.js)。 -->
-  <dialog id="project-models-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="project-models-title">
+  <dialog id="project-models-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="project-models-title" data-kz-frame="project-models" data-kz-frame-move=".pm-title" data-kz-frame-edges="all" data-kz-frame-min="420 260">
     <div id="project-models-dialog">
       <div class="confirm-title pm-title"><span id="project-models-title" data-i18n-key="项目模型配置">项目模型配置</span> <span id="project-models-name" class="dim" data-i18n-raw></span></div>
       <p class="dim pm-intro" data-i18n-key="只写本项目的配置文件;未覆盖的项继承全局默认。">只写本项目的配置文件;未覆盖的项继承全局默认。</p>
@@ -1303,7 +1303,7 @@
     </div>
   </dialog>
 
-  <dialog id="confirm-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="confirm-title">
+  <dialog id="confirm-overlay" class="k-surface k-dialog hidden" closedby="any" aria-labelledby="confirm-title" data-kz-frame="confirm" data-kz-frame-move=":scope" data-kz-frame-persist="no">
     <div id="confirm-dialog">
       <div class="confirm-title" id="confirm-title" data-i18n-raw></div>
       <div id="confirm-message" data-i18n-raw></div>
@@ -1330,9 +1330,11 @@
 
   <!-- 分区脚本:弹层与外观 -->
   <script type="module" src="00-surface.js"></script>
+  <script type="module" src="00-frame.js"></script>
   <script type="module" src="01-core.js"></script>
   <script type="module" src="02-i18n.js"></script>
   <script type="module" src="03-shell.js"></script>
+  <script type="module" src="03-layout.js"></script>
   <script type="module" src="03-workspaces.js"></script>
   <script type="module" src="04-markdown.js"></script>
   <!-- 分区脚本:工具行与结构化渲染 -->

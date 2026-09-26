@@ -22,73 +22,9 @@ import { refreshLines } from "./20-lines.js";
 import { active_space, remember_workspace_view, view_allowed } from "./03-workspaces.js";
 import { open_research_chat } from "./19-research-navigation.js";
 
-export function setupResize(elementId, key, side, min, max) {
-  const element = $(elementId);
-  if (!element) return;
-  const saved = Number.parseInt(localStorage.getItem(key), 10);
-  if (Number.isFinite(saved)) element.style.width = `${Math.min(max, Math.max(min, saved))}px`;
-  const handle = document.createElement("div");
-  handle.className = "resize-handle";
-  handle.title = t("拖动调整面板宽度");
-  handle.tabIndex = 0;
-  handle.setAttribute("role", "separator");
-  handle.setAttribute("aria-orientation", "vertical");
-  handle.setAttribute("aria-label", t("调整面板宽度"));
-  element.appendChild(handle);
-  const syncHandle = () => {
-    const rect = element.getBoundingClientRect();
-    handle.style.top = `${rect.top}px`;
-    handle.style.height = `${rect.height}px`;
-    handle.style.left = `${(side === "right" ? rect.right : rect.left) - 2}px`;
-  };
-  const setWidth = (width) => {
-    const next = Math.min(max, Math.max(min, Math.round(width)));
-    element.style.width = `${next}px`;
-    localStorage.setItem(key, String(next));
-    syncHandle();
-  };
-  const resetWidth = () => {
-    localStorage.removeItem(key);
-    element.style.width = "";
-    syncHandle();
-  };
-  syncHandle();
-  if ("ResizeObserver" in window) new ResizeObserver(syncHandle).observe(element);
-  window.addEventListener("resize", syncHandle);
-  let dragging = false;
-  handle.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    dragging = true;
-    handle.classList.add("dragging");
-    handle.setPointerCapture(event.pointerId);
-    document.body.style.cursor = "col-resize";
-  });
-  handle.addEventListener("pointermove", (event) => {
-    if (!dragging) return;
-    const rect = element.getBoundingClientRect();
-    setWidth(side === "right" ? event.clientX - rect.left : rect.right - event.clientX);
-  });
-  handle.addEventListener("keydown", (event) => {
-    if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
-    event.preventDefault();
-    if (event.key === "Home") return resetWidth();
-    const rect = element.getBoundingClientRect();
-    const delta = side === "right" ? (event.key === "ArrowRight" ? 8 : -8) : (event.key === "ArrowLeft" ? 8 : -8);
-    setWidth(rect.width + delta);
-  });
-  handle.addEventListener("dblclick", resetWidth);
-  const stop = () => {
-    dragging = false;
-    handle.classList.remove("dragging");
-    document.body.style.cursor = "";
-  };
-  handle.addEventListener("pointerup", stop);
-  handle.addEventListener("pointercancel", stop);
-  handle.addEventListener("lostpointercapture", stop);
-}
-defer(() => {
-  setupResize("sidebar", "kz-sidebar-width", "right", 220, 460);
-});
+// 布局分隔条(侧栏宽、日志高、文件树宽、记忆列表宽)归 00-frame.js 的 installSplit,在 03-layout.js 统一安装:
+// 尺寸写成 <html> 上的 --kz-split-<id>,不再写元素内联 width(内联宽度压过 #sidebar.collapsed{width:0},
+// 拖过宽度再收起侧栏会留一整条空栏——UI2-0926 #4 的缺陷 A)。
 export let activeProcessId = null;
 export function setActiveProcessId(v) { activeProcessId = v; }
 export let activeSessionId = null;
