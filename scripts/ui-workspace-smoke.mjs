@@ -399,6 +399,118 @@ try {
     }
     await page.screenshot({ path: path.join(artifact_root, `writing-${viewport.width}.png`) });
   }
+  // ── 分区:侧栏与需求页 ──
+  // UI2-0926 #1#5 复核:假 DOM 量不到版面,这三处对齐/落点在真浏览器里量。新开一页(独立 localStorage),开发空间。
+  //  ① 需求页状态列:英文 In progress 比中文状态词宽,列宽不够时 flex 项被内容撑宽,这一行标题右移——各行标题左缘
+  //     必须全等、状态词不被截断,展开的详情内容与标题左缘对齐(--doc-title-inset 与状态列同一个变量);
+  //  ② 项目菜单与项目卡两缘对齐(surface 层的横向偏移归零);
+  //  ③ 侧栏「查看全部隔离工作树 →」落在线路页的工作树清单顶端,而不是被随后画出的线路卡推到半路;
+  //  ④ 侧栏「各线当前在做」一行式的线:线路名很长时让位的是左边的身份,右边「未取得条目」(英文更长)不被截断。
+  {
+    const saved_workspace_state = workspace_state;
+    const saved_worktrees = payloads.worktree_list;
+    const saved_settings = payloads.settings_get;
+    const bg_process = payloads.process_list.find((item) => item.id === "p|bg");
+    const saved_bg_label = bg_process?.label;
+    if (bg_process) bg_process.label = "一条名字很长很长的并行线路,用来挤占焦点区一行式的宽度";
+    workspace_state = {};
+    payloads.worktree_list = Array.from({ length: 9 }, (_, index) => ({
+      path: `C:/smoke/wt-${index}`, branch: `kanzei/wt-${index}`, clean: index % 3 !== 0,
+      files: index % 3 ? [] : ["a.rs"], diff: "", bound_process: null,
+    }));
+    const sd_page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    sd_page.on("pageerror", (error) => errors.push(error.stack || error.message));
+    await sd_page.addInitScript(() => {
+      globalThis.__TAURI__ = { core: { invoke: async (cmd, args) => {
+        const result = await (await fetch("/ipc", { method: "POST", body: JSON.stringify({ cmd, args }) })).json();
+        if (result.error) throw new Error(result.error);
+        return result.value;
+      } }, event: { listen: async () => () => {} } };
+    });
+    try {
+      for (const language of ["en", "zh"]) {
+        // 语言的持久化真源是全局配置(settings_get.language),启动时以它为准。
+        payloads.settings_get = { ...saved_settings, language };
+        if (language === "zh") await sd_page.reload({ waitUntil: "networkidle" });
+        else await sd_page.goto(origin, { waitUntil: "networkidle" });
+        await sd_page.waitForFunction((lang) => document.documentElement.lang === lang, language === "en" ? "en" : "zh-CN");
+        await sd_page.locator('.activity-item[data-view="documents"]').click();
+        await sd_page.waitForFunction(() => document.querySelectorAll("#documents-req-list .doc-row .title").length >= 2);
+        for (const width of [1280, 1600, 2000]) {
+          await sd_page.setViewportSize({ width, height: 720 });
+          const rows = await sd_page.evaluate(() => [...document.querySelectorAll("#documents-req-list .doc-row")].map((row) => {
+            const st = row.querySelector(".st");
+            return { status: st?.textContent, title: row.querySelector(".title")?.getBoundingClientRect().left,
+              stWidth: st?.getBoundingClientRect().width, truncated: st ? st.scrollWidth > st.clientWidth : null };
+          }));
+          assert.ok(rows.some((row) => /In progress|doing/.test(row.status)) && rows.some((row) => /To do|todo/.test(row.status)), `需求页夹具应同时有在做与待做:${JSON.stringify(rows)}`);
+          assert.ok(rows.every((row) => Math.abs(row.title - rows[0].title) < 0.5),
+            `${language} ${width}px 需求页各行标题左缘必须全等(状态列被状态词撑宽了):${JSON.stringify(rows)}`);
+          assert.ok(rows.every((row) => row.truncated === false), `${language} ${width}px 状态词被截断(状态列宽不够):${JSON.stringify(rows)}`);
+        }
+        const compact = await sd_page.evaluate(() => [...document.querySelectorAll("#focus-body .line-focus-compact")].map((section) => {
+          const head = section.querySelector(".line-focus-head");
+          const empty = section.querySelector(".line-focus-empty");
+          return { head: head?.textContent, headTruncated: head ? head.scrollWidth > head.clientWidth : null,
+            empty: empty?.textContent, emptyTruncated: empty ? empty.scrollWidth > empty.clientWidth : null };
+        }));
+        assert.ok(compact.some((row) => row.headTruncated), `④ 前置:应有一条线路名长到被截断的一行式线:${JSON.stringify(compact)}`);
+        assert.ok(compact.every((row) => row.emptyTruncated === false), `${language} 一行式线的「未取得条目」被截断了(该让位的是左边的线路身份):${JSON.stringify(compact)}`);
+        const row = sd_page.locator('#documents-req-list .doc-item[data-doc-id="R-001"] .doc-row');
+        if (await row.getAttribute("aria-expanded") !== "true") await row.click();
+        const inset = await sd_page.evaluate(() => {
+          const item = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]');
+          return { title: item.querySelector(".doc-row .title").getBoundingClientRect().left, detail: item.querySelector(".doc-detail").getBoundingClientRect().left };
+        });
+        assert.ok(Math.abs(inset.title - inset.detail) < 0.5, `${language} 详情内容应与标题左缘对齐:${JSON.stringify(inset)}`);
+        // 键盘:Tab 到勾选框按空格要真勾上(行的 keydown 不吞),详情不跟着开合。
+        const pick = sd_page.locator('#documents-req-list .doc-item[data-doc-id="R-002"] .doc-pick');
+        const expanded_before = await sd_page.locator('#documents-req-list .doc-item[data-doc-id="R-002"] .doc-row').getAttribute("aria-expanded");
+        await pick.focus();
+        await sd_page.keyboard.press("Space");
+        assert.equal(await pick.isChecked(), true, `${language} 勾选框聚焦后按空格没勾上(被行的 keydown 吞了)`);
+        assert.equal(await sd_page.locator('#documents-req-list .doc-item[data-doc-id="R-002"] .doc-row').getAttribute("aria-expanded"), expanded_before, `${language} 勾选框上按空格不该开合详情`);
+        assert.equal(await sd_page.evaluate(() => document.querySelector("#documents-req-list").classList.contains("has-selection")), true);
+        await sd_page.keyboard.press("Space");
+        assert.equal(await pick.isChecked(), false);
+      }
+      await sd_page.setViewportSize({ width: 1280, height: 720 });
+      // ② 项目菜单两缘与项目卡对齐。
+      await sd_page.locator("#project-switch").click();
+      await sd_page.waitForFunction(() => document.querySelector(".k-menu.project-menu")?.matches(":popover-open"));
+      const menu_box = await sd_page.evaluate(() => {
+        const card = document.querySelector("#project-switch").getBoundingClientRect();
+        const menu = document.querySelector(".k-menu.project-menu").getBoundingClientRect();
+        return { card: [card.left, card.right, card.bottom], menu: [menu.left, menu.right, menu.top] };
+      });
+      assert.ok(Math.abs(menu_box.menu[0] - menu_box.card[0]) <= 1 && Math.abs(menu_box.menu[1] - menu_box.card[1]) <= 1,
+        `项目菜单左右缘应与项目卡对齐:${JSON.stringify(menu_box)}`);
+      assert.ok(menu_box.menu[2] >= menu_box.card[2], `项目菜单应在项目卡下方:${JSON.stringify(menu_box)}`);
+      await sd_page.keyboard.press("Escape");
+      // ③ 「查看全部隔离工作树 →」落点。
+      await sd_page.locator('.activity-item[data-view="chat"]').click();
+      await sd_page.waitForFunction(() => document.querySelector("#view-chat").classList.contains("active"));
+      await sd_page.locator("#worktree-list .worktree-more").click();
+      await sd_page.waitForFunction(() => document.querySelector("#view-lines").classList.contains("active") && document.querySelectorAll("#lines-list .line-lane").length > 0);
+      await sd_page.waitForTimeout(400);
+      const landing = await sd_page.evaluate(() => {
+        const scroller = document.querySelector("#lines-scroll");
+        return { target: document.querySelector("#lines-worktrees").getBoundingClientRect().top, scroller: scroller.getBoundingClientRect().top,
+          scrollTop: scroller.scrollTop, maxScroll: scroller.scrollHeight - scroller.clientHeight };
+      });
+      assert.ok(landing.maxScroll > 200, `落点前置:线路页应足够长,能滚:${JSON.stringify(landing)}`);
+      assert.ok(Math.abs(landing.target - landing.scroller) < 80, `「查看全部隔离工作树」应落在线路页工作树清单顶端,停在了半路:${JSON.stringify(landing)}`);
+      await sd_page.screenshot({ path: path.join(artifact_root, "sidebar-worktrees-landing.png") });
+    } finally {
+      await sd_page.close();
+      workspace_state = saved_workspace_state;
+      payloads.settings_get = saved_settings;
+      if (bg_process) bg_process.label = saved_bg_label;
+      if (saved_worktrees === undefined) delete payloads.worktree_list;
+      else payloads.worktree_list = saved_worktrees;
+    }
+  }
+  // ── 分区:侧栏与需求页(完) ──
   // 没有开发项目也能进入研究并创建独立课题。
   payloads.projects_get = { current: null, projects: [], names: {} };
   library_entries.length = 0;

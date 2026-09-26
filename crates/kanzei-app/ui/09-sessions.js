@@ -58,7 +58,7 @@ import {
   refreshGit,
   renderLineConversationHistory,
 } from "./15-views-misc.js";
-import { forProject, refreshLines } from "./20-lines.js";
+import { forProject, refreshLines, revealLinesSection } from "./20-lines.js";
 import { active_space, adopt_process_workspace, create_workspace_process, preferred_workspace_process, project_workspace, workspace_processes } from "./03-workspaces.js";
 
 import { sync_composer_scope } from "./03-workspaces.js";
@@ -120,8 +120,10 @@ export function renderWorktrees(items) {
     more.className = "worktree-more";
     more.textContent = `${t("查看全部隔离工作树")} (${ordered.length}) →`;
     more.addEventListener("click", () => {
+      // 落点等线路页这轮刷新画完线路卡再滚(见 revealLinesSection);已在线路页则就地滚。
+      const arriving = !$("view-lines")?.classList.contains("active");
       navigate_view("lines");
-      requestAnimationFrame(() => $("lines-worktrees")?.scrollIntoView?.({ block: "start" }));
+      revealLinesSection("lines-worktrees", { afterRefresh: arriving });
     });
     list.appendChild(more);
   }
@@ -962,12 +964,15 @@ export async function renameProject(path, prefs = lastProjectPrefs) {
 
 export async function removeProject(path, prefs = lastProjectPrefs) {
   const name = projectDisplayName(path, prefs);
+  // 移除入口在项目总览卡片 ⋯ 里:移除的恰是当前项目时要换到下一个项目,但用户仍在管理项目,
+  // 不能被 enterProject 带到下一个项目记住的视图(实测落在对话页),留在总览页并刷新卡片。
+  const wasOnOverview = Boolean($("view-workspace")?.classList.contains("active"));
   if (!(await confirmDialog({ title: t("移除项目"), message: `“${name}”吗？${t("只解除登记,不会删除磁盘文件。")}` }))) return;
   try {
     const wasCurrent = currentProject === path;
     const next = await invoke("projects_remove", { path });
     if (wasCurrent) {
-      await enterProject(next);
+      await enterProject(next, wasOnOverview ? { view: "workspace" } : {});
     } else {
       renderProjects(next);
     }
@@ -1128,8 +1133,9 @@ export async function enterProject(prefs, options = {}) {
   refreshGit();
   await refreshPendingInputs();
   if (previous !== currentProject) {
+    // options.view:调用方要留在某页(总览页里移除当前项目),否则回到目标项目记住的视图。
     const workspace = project_workspace();
-    navigate_view(workspace[workspace.space].view);
+    navigate_view(options.view ?? workspace[workspace.space].view);
   }
 }
 

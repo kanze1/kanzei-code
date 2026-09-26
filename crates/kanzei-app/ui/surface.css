@@ -48,6 +48,9 @@ dialog.k-dialog[data-size="palette"]::backdrop { background: var(--surface-backd
    这里放开菜单/浮层的 420px 宽度上限、高度回到原先的 220px、左右不留偏移(与输入框两边对齐)。
    本层写了的属性视图改不动,所以在这里写。 */
 .k-popover[role="listbox"] { padding: 4px; margin-inline: 0; max-width: calc(100vw - 16px); max-height: 220px; }
+/* 侧栏项目卡的项目菜单(UI2-0926 #1):宽度由 style.css 的 anchor-size(width) 跟项目卡走,左右同样不留偏移,
+   两缘与项目卡对齐;纵向仍留 --surface-offset 与卡片隔开。 */
+.k-menu.project-menu { margin-inline: 0; }
 .k-surface[data-placement="top-end"] { position-area: block-start span-inline-start; }
 .k-surface[data-placement="top-start"] { position-area: block-start span-inline-end; }
 .k-surface[data-placement="bottom-end"] { position-area: block-end span-inline-start; }

@@ -1231,6 +1231,10 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     });
     item.appendChild(detail);
     row.addEventListener("keydown", (event) => {
+      // 只认焦点落在行本身:行里的勾选框/优先级按钮按空格、回车是它们自己的动作(勾选、循环优先级),
+      // 冒泡上来若在这里 preventDefault,勾选框勾不上、按钮点不动,还白白开合了详情(与 click 里 pick 的
+      // stopPropagation 同一个口径)。
+      if (event.target !== row) return;
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       detail.classList.toggle("hidden");

@@ -962,7 +962,9 @@ export function renderFocusPanel(snapshot) {
     for (const { line, focus, active, claim, claimRef } of models) {
       const section = document.createElement("section");
       // UI2-0926 侧栏密度:没取得条目的线只占一行(身份在左、「未取得条目」在右),有卡片的线照旧两段。
-      section.className = active ? "line-focus" : "line-focus line-focus-compact";
+      // 工作树里有取活声明(claim)的线不算「没取得」:声明是条目名,压进一行会和线路身份一起被省略号截断,
+      // 照旧两段(身份一行、声明一行)。
+      section.className = active || claim ? "line-focus" : "line-focus line-focus-compact";
       if (line?.id) {
         section.dataset.processId = line.id;
         motionSync(section);

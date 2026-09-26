@@ -249,11 +249,12 @@ body {
 .project-switch-caret { flex: 0 0 auto; color: var(--dim); font-size: var(--fs-10); transition: transform .12s ease; }
 .project-switch[aria-expanded="true"] .project-switch-caret { transform: rotate(180deg); }
 /* UI2-0926 #1:项目卡 = 唯一的项目切换入口,点开是 openMenu 现造的项目菜单(外观归 surface.css,
-   这里只给宽度:与项目卡同宽——min-width 归弹层层(.k-menu 200px,层序压过本文件),所以写 width)。
+   这里只给宽度:与项目卡同宽——min-width 归弹层层(.k-menu 200px,层序压过本文件),所以写 width;
+   左右两缘与项目卡对齐靠 surface.css 的 .k-menu.project-menu { margin-inline: 0 },横向偏移归那一层)。
    菜单开着时卡片保持中性按下态。 */
 .project-switch[aria-expanded="true"] { background: var(--surface-selected); }
 .project-menu { width: anchor-size(width); }
-/* 新对话 =侧栏里的一行导航项(Codex 式):图标 + 文字左对齐,静止无底无框,悬停才出柔灰块。 */
+/* 新对话 = 侧栏里的一行导航项(Codex 式):图标 + 文字左对齐,静止无底无框,悬停才出柔灰块。 */
 .new-chat-btn {
   display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%;
   padding: 8px 10px; border-radius: var(--r-md); cursor: pointer; font: inherit;
@@ -381,10 +382,12 @@ body {
 .focus-block-reason { font-size: var(--fs-11); color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .focus-empty { padding: 2px; font-size: var(--fs-12); line-height: 1.5; color: var(--dim); }
 .line-focus-empty { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* UI2-0926 侧栏密度:没取得条目的线只占一行——身份在左(可省略号截断),「未取得条目」暗色小字靠右。 */
+/* UI2-0926 侧栏密度:没取得条目的线只占一行——身份在左(可省略号截断),「未取得条目」暗色小字靠右。
+   一行式只给真正没取得的线(有取活声明的线照旧两段),右边永远是这个短标签,所以它不缩、不截断
+   (英文 No claimed item 曾被 55% 上限截成 No claimed it…),让位只让左边的线路身份。 */
 .line-focus-compact { flex-direction: row; align-items: baseline; gap: 8px; }
 .line-focus-compact > .line-focus-head { flex: 1 1 auto; min-width: 0; }
-.line-focus-compact > .line-focus-empty { flex: 0 1 auto; max-width: 55%; font-size: var(--fs-11); }
+.line-focus-compact > .line-focus-empty { flex: 0 0 auto; font-size: var(--fs-11); }
 /* 「记需求 / 记缺陷」是分区标题旁的轻入口:去掉描边与底,悬停才出柔灰块(与分区标题同一明暗档)。 */
 #focus-section .section-title .ghost.mini { border-color: transparent; background: transparent; color: var(--dim); }
 #focus-section .section-title .ghost.mini:hover { background: var(--surface-hover); color: var(--fg-strong); }
@@ -3035,7 +3038,14 @@ html[lang="en"] .documents-list .doc-row .complexity-badge { flex-basis: 46px; }
 .documents-list .doc-row[aria-expanded="true"] { background: var(--surface-selected); }
 .documents-list .doc-row .title { color: var(--fg-strong); font-size: var(--fs-14); line-height: 20px; }
 /* 状态列:暗色 12px 文字;在做 = 强调色(语义表「橙 = 进行中」),完成 = 绿。 */
-.documents-list .doc-row .st { flex: 0 0 var(--doc-st-w); font-size: var(--fs-12); font-weight: 400; color: var(--dim); }
+/* 状态列宽按最长的状态词定:中文界面显示原词(doing/wontfix…,最宽约 46px),英文 In progress 在 12px 500
+   下约 61px,所以英文放宽到 68px(--doc-title-inset 随变量一起走,详情内容照样对齐标题)。min-width: 0 +
+   省略号兜底:列宽只由变量决定,不认识的状态词再长也只截断、不把这一行的标题推歪(全称在 tooltip)。 */
+html[lang="en"] .documents-list { --doc-st-w: 68px; }
+.documents-list .doc-row .st {
+  flex: 0 0 var(--doc-st-w); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-12); font-weight: 400; color: var(--dim);
+}
 .documents-list .doc-row :is(.st-doing, .st-fixing) { color: var(--accent-text); font-weight: 500; }
 .documents-list .doc-row :is(.st-done, .st-fixed, .st-confirmed) { color: var(--ok); }
 /* 右端三条定宽暗列。优先级胶囊的底与字仍归 .pri-badge.P*(P0 红、P1 实底亮字、P2 无底、P3 描边),这里只定列宽;

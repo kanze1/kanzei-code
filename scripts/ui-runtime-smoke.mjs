@@ -324,8 +324,28 @@ if (SMOKE_MUTATE) {
     },
     // UI2-0926 侧栏密度:没取得条目的线只占一行。改回一律两段,侧栏又被「未取得条目」一行行撑长。
     focusCompactLine: {
-      pattern: /section\.className = active \? "line-focus" : "line-focus line-focus-compact";/,
+      pattern: /section\.className = active \|\| claim \? "line-focus" : "line-focus line-focus-compact";/,
       replace: 'section.className = "line-focus";',
+    },
+    // UI2-0926 复核:工作树里有取活声明的线不压成一行。退回只看 active,声明(条目名)和线路身份挤进一行一起被截断。
+    focusClaimTwoPart: {
+      pattern: /section\.className = active \|\| claim \? "line-focus"/,
+      replace: 'section.className = active ? "line-focus"',
+    },
+    // UI2-0926 复核:「查看全部隔离工作树 →」等线路页这轮刷新画完再滚。退回切视图后下一帧就滚,线路卡随后插进来把目标段推下去。
+    worktreeMoreAnchor: {
+      pattern: /revealLinesSection\("lines-worktrees", \{ afterRefresh: arriving \}\);/,
+      replace: 'requestAnimationFrame(() => $("lines-worktrees")?.scrollIntoView?.({ block: "start" }));',
+    },
+    // UI2-0926 复核:在项目总览里移除当前项目后留在总览页。删了它,用户被带到下一个项目记住的视图(对话页)。
+    removeProjectStaysOnOverview: {
+      pattern: /await enterProject\(next, wasOnOverview \? \{ view: "workspace" \} : \{\}\);/,
+      replace: "await enterProject(next);",
+    },
+    // UI2-0926 复核:行的 keydown 只认焦点在行本身。删了它,勾选框上按空格被行吞掉(preventDefault + 开合详情),键盘勾不上。
+    docRowKeyTarget: {
+      pattern: /[ \t]*if \(event\.target !== row\) return;\r?\n/,
+      replace: "",
     },
     // UI2-0926 侧栏密度:工作树最多列 6 棵。去掉上限,12 棵树又把侧栏挤满。
     worktreeCap: {
@@ -9601,6 +9621,26 @@ const docsB = {
     await flush();
     assert(lastCall("projects_remove")?.args?.path === PROJECT_B, "卡片 ⋯「移除项目」未发 projects_remove");
     assert(sessionsNs.projectMenuEntries().length === 1, "移除后项目菜单的数据源(偏好缓存)未更新");
+    // ⑥b 在总览页里移除**当前**项目:换到下一个项目,但人留在总览页(不被带到下一个项目记住的对话页),卡片重拉。
+    //    变异守卫 removeProjectStaysOnOverview。
+    sandbox.renderProjects(structuredClone(prefsAB));
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === "workspace")?.click();
+    await flush();
+    assert(byId.get("view-workspace").classList.contains("active") && vm.runInContext("currentProject", sandbox) === PROJECT, "⑥b 前置:应在总览页、当前项目为 PROJECT");
+    docsPagesNs.renderWorkspace(structuredClone(snapshotAB));
+    payloads.projects_remove = () => ({ current: PROJECT_B, projects: [PROJECT_B], names: { [PROJECT_B]: "smoke-b" } });
+    [...byId.get("workspace-projects").querySelectorAll(".workspace-card")].find((card) => card.dataset.path === PROJECT)?.querySelector(".workspace-card-more")?.click();
+    await flush();
+    const snapshotsBeforeRemove = callsOf("workspace_snapshot");
+    cardMenu().find((node) => node.textContent.includes("移除项目"))?.click();
+    await flush();
+    assert(lastCall("projects_remove")?.args?.path === PROJECT && vm.runInContext("currentProject", sandbox) === PROJECT_B, "⑥b 移除当前项目后应换到下一个项目");
+    assert(byId.get("view-workspace").classList.contains("active"), `⑥b 在总览页移除当前项目后应留在总览页,实际在 ${document.querySelector(".view.active")?.id}`);
+    assert(callsOf("workspace_snapshot") > snapshotsBeforeRemove, "⑥b 移除后总览页应重拉 workspace_snapshot(卡片跟着换)");
+    payloads.projects_select = () => prefsAt(PROJECT);
+    assert(await sessionsNs.switchProject(PROJECT) === true, "⑥b 切回原项目失败");
+    await flush();
+    assert(vm.runInContext("currentProject", sandbox) === PROJECT, "⑥b 切回原项目失败(后续用例的夹具会串项目)");
   } finally {
     if (sessionsNs?.projectMenuHandle) surfaceNs.closeSurface(sessionsNs.projectMenuHandle);
     if (docsPagesNs?.workspaceMenuHandle) surfaceNs.closeSurface(docsPagesNs.workspaceMenuHandle);
@@ -9620,7 +9660,7 @@ const docsB = {
 // ---------- UI2-0926 #5「需求页面缺少字体之间的间隔和明暗关系」 ----------
 // 行结构的不变量在上面 D-362 那段(按新结构改写);这里钉住结构件:组头拆「组名 + 计数」、未设优先级写「—」
 // (字面「未设」进读屏名称)、批次格在定宽槽里、详情头拆编号/分隔/标题、「已有选中」时勾选框整列常显。
-// 变异守卫:docRowTailMeta / docMeterSlot / batchPickReveal / docGroupCount。
+// 变异守卫:docRowTailMeta / docMeterSlot / batchPickReveal / docGroupCount / docRowKeyTarget。
 {
   const listNs = esmModuleCache.get("11-docs-list.js")?.namespace;
   const coreNs = esmModuleCache.get("10-docs-core.js")?.namespace;
@@ -9674,6 +9714,21 @@ const docsB = {
     pick.checked = false;
     pick._listeners.change?.forEach((fn) => fn({ target: pick }));
     assert(!probe.classList.contains("has-selection") && !byId.get("documents-req-list").classList.contains("has-selection"), "取消全部选中后 has-selection 应撤掉");
+    // ⑥ 键盘:焦点在勾选框/优先级按钮上按空格、回车,是它们自己的动作——行的 keydown 不得 preventDefault
+    //    (否则勾选框勾不上、按钮点不动),也不得开合详情;焦点在行本身时回车/空格照旧开合。
+    const row2 = rowOf("R-U02");
+    const detail2 = probe.querySelector('.doc-item[data-doc-id="R-U02"] .doc-detail');
+    const hiddenBefore = detail2?.classList.contains("hidden");
+    for (const [target, key] of [[row2?.querySelector(".doc-pick"), " "], [row2?.querySelector(".pri-badge"), "Enter"]]) {
+      let prevented = false;
+      row2.dispatchEvent({ type: "keydown", key, target, preventDefault() { prevented = true; } });
+      assert(target && !prevented && detail2?.classList.contains("hidden") === hiddenBefore,
+        `焦点在 ${target?.className} 上按「${key}」被行的 keydown 吞掉了(preventDefault=${prevented},详情${detail2?.classList.contains("hidden") === hiddenBefore ? "未" : "被"}开合)`);
+    }
+    let rowPrevented = false;
+    row2.dispatchEvent({ type: "keydown", key: " ", target: row2, preventDefault() { rowPrevented = true; } });
+    assert(rowPrevented && detail2?.classList.contains("hidden") === !hiddenBefore && row2.getAttribute("aria-expanded") === String(hiddenBefore),
+      "焦点在行本身时按空格应开合详情并同步 aria-expanded");
   } finally {
     probe.remove();
     listNs?.batchSelection.clear();
@@ -9683,26 +9738,46 @@ const docsB = {
   }
 }
 // ---------- UI2-0926 侧栏密度:未取得条目的线一行;工作树一行一棵、有改动的排前、最多 6 棵 + 查看全部 ----------
-// 变异守卫:focusCompactLine / worktreeCap / worktreeDirtyFirst / worktreeCountClear。
+// 变异守卫:focusCompactLine / focusClaimTwoPart / worktreeCap / worktreeDirtyFirst / worktreeCountClear / worktreeMoreAnchor。
 {
   const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
-  assert(sessionsNs, "UI2 侧栏密度前置:09-sessions 模块命名空间未加载");
+  const pagesNs = esmModuleCache.get("12-docs-pages.js")?.namespace;
+  assert(sessionsNs && pagesNs, "UI2 侧栏密度前置:09-sessions / 12-docs-pages 模块命名空间未加载");
+  const focusOf = (processId) => [...document.querySelectorAll("#focus-body .line-focus")].find((node) => node.dataset.processId === processId);
   const priorLanguage = localStorageShim.getItem("kz-language");
   localStorageShim.setItem("kz-language", "zh");
   const savedWorktrees = structuredClone(sessionsNs.worktreeItems ?? []);
   const savedViewName = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
   try {
-    // ① 焦点区:有卡片的线照旧两段;没取得条目的线带 line-focus-compact(一行:身份 + 「未取得条目」)。
+    // ① 焦点区:有卡片的线照旧两段;真正「未取得条目」的线带 line-focus-compact(一行:身份 + 「未取得条目」);
+    //    工作树里有取活声明(claim)的线不算没取得,照旧两段(声明是条目名,压进一行会连身份一起被截断)。
     const sections = [...document.querySelectorAll("#focus-body .line-focus")];
     assert(sections.length > 0, "侧栏密度前置:焦点区没有线路分段");
+    const unclaimed = (section) => !section.querySelector(".focus-card") && !section.querySelector(".focus-claim-link")
+      && section.querySelector(".line-focus-empty")?.textContent === "未取得条目";
     for (const section of sections) {
-      const hasCard = Boolean(section.querySelector(".focus-card"));
-      assert(section.classList.contains("line-focus-compact") === !hasCard,
-        `焦点区线路 ${section.dataset.processId}:${hasCard ? "有卡片的线不该压成一行" : "没取得条目的线应只占一行(line-focus-compact)"}`);
-      if (!hasCard) assert(section.querySelector(".line-focus-head") && section.querySelector(".line-focus-empty"), "一行式线路分段应只有「身份」与「未取得条目」两段");
+      assert(section.classList.contains("line-focus-compact") === unclaimed(section),
+        `焦点区线路 ${section.dataset.processId}:${unclaimed(section) ? "没取得条目的线应只占一行(line-focus-compact)" : "有卡片/有取活声明的线不该压成一行"}`);
+      if (unclaimed(section)) assert(section.querySelector(".line-focus-head") && section.querySelector(".line-focus-empty"), "一行式线路分段应只有「身份」与「未取得条目」两段");
     }
     assert(sections.some((section) => section.classList.contains("line-focus-compact")) && sections.some((section) => section.querySelector(".focus-card")),
       "侧栏密度前置:夹具应同时有一条取得条目的线(卡片)与一条没取得的线(一行)");
+    // ①b 取活声明线:声明查得到(可点链接)与查不到(纯文字)两种,都照旧两段,声明独占第二段。
+    const claimLine = (claim) => ({ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", claim, phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, changed_files: [] });
+    try {
+      for (const [claim, linked] of [["R-002 冒烟需求二", true], ["R-9999 线路里新登记", false]]) {
+        sandbox.renderLines([claimLine(claim)]);
+        sandbox.renderFocusPanel(pagesNs.latestDocsSnapshot);
+        const section = focusOf("p|bg");
+        assert(section && !section.classList.contains("line-focus-compact"), `有取活声明的线(${claim})不该压成一行:${section?.className}`);
+        assert(Boolean(section?.querySelector(".focus-claim-link")) === linked && section?.querySelector(".line-focus-empty")?.textContent === claim,
+          `取活声明应独占第二段${linked ? "(查得到时是可点链接)" : "(查不到时是纯文字)"}:${section?.textContent}`);
+      }
+    } finally {
+      sandbox.renderLines(payloads.collaboration_snapshot);
+      sandbox.renderFocusPanel(pagesNs.latestDocsSnapshot);
+    }
+    assert(focusOf("p|bg")?.classList.contains("line-focus-compact"), "侧栏密度:恢复夹具后「未取得条目」的线应回到一行");
     // ② 工作树:9 棵(3 棵有改动,散在中间)→ 只列 6 行,有改动的 3 棵在前且保持原顺序,末尾一条「查看全部 (9)」。
     const trees = Array.from({ length: 9 }, (_, index) => ({
       path: `C:/smoke/wt-${index}`, branch: `kanzei/wt-${index}`, clean: ![2, 5, 8].includes(index),
@@ -9716,9 +9791,30 @@ const docsB = {
     assert(listText("worktree-count") === "9 · 3 棵有改动", `工作树计数应按全部 9 棵算:${listText("worktree-count")}`);
     const more = byId.get("worktree-list").querySelector(".worktree-more");
     assert(more?.textContent.includes("查看全部隔离工作树") && more.textContent.includes("(9)"), `超出上限时应有「查看全部隔离工作树 (9)」:${more?.textContent}`);
-    more?.click();
+    // 落点:从别的页跳过来时,要等线路页这轮 refreshLines(collaboration_snapshot 落地、线路卡画完)之后才滚到
+    // #lines-worktrees——先滚的话,随后插进来的线路卡把目标段推下去,停在半路(真机位置断言在 ui-workspace-smoke)。
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === "chat")?.click();
     await flush();
-    assert(byId.get("view-lines").classList.contains("active"), "「查看全部隔离工作树」应跳到并行线路页");
+    const target = byId.get("lines-worktrees");
+    const scrolls = [];
+    const priorScroll = target.scrollIntoView;
+    target.scrollIntoView = (options) => scrolls.push({ snapshots: invokeArgs.filter((call) => call.cmd === "collaboration_snapshot").length, options });
+    try {
+      const snapshotsBefore = invokeArgs.filter((call) => call.cmd === "collaboration_snapshot").length;
+      more?.click();
+      await flush();
+      assert(byId.get("view-lines").classList.contains("active"), "「查看全部隔离工作树」应跳到并行线路页");
+      assert(scrolls.length >= 1 && scrolls.every((scroll) => scroll.snapshots > snapshotsBefore),
+        `「查看全部隔离工作树」应在线路页这轮刷新(collaboration_snapshot)画完之后才滚到工作树清单:${JSON.stringify(scrolls)} / 刷新前 ${snapshotsBefore}`);
+      assert(scrolls.at(-1)?.options?.block === "start", "工作树清单应滚到顶端(block: start)");
+      // 已在线路页再点:切视图不触发刷新,就地滚一次。
+      const count = scrolls.length;
+      more?.click();
+      assert(scrolls.length === count + 1, "已在线路页时点「查看全部隔离工作树」应就地滚到工作树清单");
+      await flush();
+    } finally {
+      target.scrollIntoView = priorScroll;
+    }
     // ③ 不超上限时没有「查看全部」;空列表时计数一起清掉(原先停在旧值)。
     sessionsNs.renderWorktrees(trees.slice(0, 4));
     assert(!byId.get("worktree-list").querySelector(".worktree-more"), "不超过上限时不该有「查看全部」");
