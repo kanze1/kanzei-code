@@ -13,6 +13,8 @@
 
 // ── 分区:记忆图谱 ──
 import { MEMORY_GRAPH_FIXTURE, memoryEntriesFor, memoryEntryFor } from "./memory-graph-fixture.mjs";
+// ── 分区:架构图 ──
+import { archSnapshot } from "./arch-fixture.mjs";
 
 export const PROJECT = "C:/Users/kanzei/Documents/kanzei code";
 export const PROJECT_B = "C:/Users/kanzei/Documents/持续学习";
@@ -604,6 +606,8 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     uiPrefs: {
       theme, work_priority: {}, auto_max: null, continue_prompt: null, process_auto_state: {},
       workspace_state: {}, memory_view: null,
+      // ── 分区:架构图 ── 场景参数 tab=<标签 key>、full=1 落到 ui_layout.arch(架构页读它选标签与依赖范围)。
+      ...(params.tab || params.full ? { ui_layout: { arch: { ...(params.tab ? { diagram: params.tab } : {}), ...(params.full === "1" ? { deps_full: true } : {}) } } } : {}),
     },
     docs: buildDocsSnapshot(),
     fileDisk: previewFileDisk(), // ── 分区:文件编辑 ──
@@ -1047,6 +1051,8 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     // ── 分区:记忆图谱 ── 真实记忆子集(memory-graph-fixture.mjs);memory / memory-graph 场景读它。
     memory_entries: (args) => memoryEntriesFor(args?.scope ?? "project"),
     memory_graph: () => MEMORY_GRAPH_FIXTURE,
+    // ── 分区:架构图 ──
+    architecture_snapshot: () => archSnapshot(params),
     memory_entry_get: (args) => {
       const entry = memoryEntryFor(args?.scope, args?.id);
       if (!entry) throw `记忆 ${args?.id} 不存在(活动与归档里都没有)`;

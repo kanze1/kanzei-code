@@ -18,6 +18,11 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
+
+use crate::arch_diagram::{
+    crates_mermaid, render_issue, scan_diagrams, workspace_crates, DIAGRAM_DIR, MAX_EDGES,
+    MAX_NODES, SEMANTIC_CLASSES,
+};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -30,6 +35,7 @@ const MAX_INDEX_BYTES: usize = 1024 * 1024;
 #[derive(Deserialize, JsonSchema)]
 struct ArchitectureInput {
     /// get(读全文+hash) | check(只校验) | regenerate(按磁盘生成草稿,不写盘) | update(整文件替换)
+    /// | diagrams(只读:docs/architecture 下的架构图清单与 lint,附自动生成的 crate 依赖图源码)
     action: String,
     /// update 必填:索引全文
     #[serde(default)]
@@ -59,7 +65,24 @@ impl Tool for ArchitectureTool {
              index. update refuses if the hash is stale, the content is empty, it drops an entry \
              that was valid, or it introduces a validation issue the current index does not \
              already have; pre-existing issues do not block an update (they are echoed back as \
-             warnings)."
+             warnings).\n\
+             Action `diagrams` (read-only) lists the architecture DIAGRAMS and lints them. \
+             Conventions (docs/design/architecture_diagrams.md): one diagram per file \
+             `{DIAGRAM_DIR}/NN_snake_name.md` (two-digit prefix = tab order); line 1 `# Title`, then \
+             one short paragraph, then the FIRST ```mermaid fence is the diagram (edit it with plain \
+             write/edit; GitHub renders it too). Write `flowchart LR` or `flowchart TB`; quote every \
+             label: id[\"text\"], use <br/> for a second line (first line = name, second = file or \
+             role); never use `end`/`graph`/`click`/`style`/`class` as a node id. NO colors: no \
+             `style`, `classDef`, `linkStyle`, `%%{{init}}` or frontmatter `config` — theme and \
+             layout are injected by kanzei. Emphasis only via the semantic classes {classes}. \
+             Clickable nodes: `click <id> \"<project-relative path>[:line]\" \"<tooltip>\"`, or a \
+             tracker id as target (`click n \"R-123\"`); the target must exist. Keep a diagram under \
+             {MAX_NODES} nodes / {MAX_EDGES} edges — split by subsystem. The crate dependency graph \
+             is generated from Cargo manifests (group = `[package.metadata.kanzei] group`, label = \
+             `[package] description`) and is never written to disk. After editing run `diagrams` \
+             again: errors carry file:line and a one-line fix; rendering in the app is the final \
+             judge.",
+            classes = SEMANTIC_CLASSES.map(|c| format!(":::{c}")).join(" "),
         )
     }
 
@@ -71,13 +94,13 @@ impl Tool for ArchitectureTool {
         {
             action.insert(
                 "enum".into(),
-                serde_json::json!(["get", "check", "regenerate", "update"]),
+                serde_json::json!(["get", "check", "regenerate", "update", "diagrams"]),
             );
         }
         schema
     }
 
-    /// 权限资源 = 子动作,读写可分别授权(get/check/regenerate 只读,update 改盘)。
+    /// 权限资源 = 子动作,读写可分别授权(get/check/regenerate/diagrams 只读,update 改盘)。
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
         vec![input["action"].as_str().unwrap_or("*").to_string()]
     }
@@ -121,6 +144,9 @@ impl Tool for ArchitectureTool {
                     ToolOutput::error(report)
                 }
             }
+            // 图与 Cargo 清单是代码树里的文件:worktree 线(R-171)在自己的树里改图,自查必须读同一棵树
+            // (edit/write/read 的相对路径按 ctx.cwd 解析),不能读主根。get/check/update 仍管 .kanzei 托管的索引。
+            "diagrams" => diagrams_report(code_root(ctx)),
             "regenerate" => {
                 let current = read_index(&path);
                 ToolOutput::ok(format!(
@@ -220,9 +246,71 @@ impl Tool for ArchitectureTool {
                 }))
             }
             other => ToolOutput::error(format!(
-                "unknown action `{other}`; valid: get | check | regenerate | update"
+                "unknown action `{other}`; valid: get | check | regenerate | update | diagrams"
             )),
         }
+    }
+}
+
+/// 代码树根:worktree 线上是该线自己的工作树(ctx.cwd),没设 cwd 时退回项目根。
+fn code_root(ctx: &ToolCtx) -> &Path {
+    if ctx.cwd.as_os_str().is_empty() {
+        &ctx.project_root
+    } else {
+        &ctx.cwd
+    }
+}
+
+/// `diagrams` 动作:列出 docs/architecture 下每张图与 lint 结果,附自动生成的 crate 依赖图
+/// 源码(约简版)作为新图的起点。有 error 时整体判错(同 check),只有警告照常成功。
+/// `root` 是代码树根(见 code_root):图、click 目标与 Cargo 清单都按它读。
+fn diagrams_report(root: &Path) -> ToolOutput {
+    let docs = scan_diagrams(root);
+    let errors: usize = docs.iter().map(|d| d.errors()).sum();
+    let warnings = docs.iter().map(|d| d.issues.len()).sum::<usize>() - errors;
+    let mut out = format!(
+        "diagrams: {} file(s) in {DIAGRAM_DIR}/ · {errors} error(s) · {warnings} warning(s)\n",
+        docs.len()
+    );
+    if docs.is_empty() {
+        out.push_str(&format!(
+            "No diagrams yet. Create `{DIAGRAM_DIR}/01_overview.md`: `# Title`, one paragraph, \
+             then a ```mermaid fence (conventions are in this tool's description), and run \
+             `diagrams` again.\n"
+        ));
+    }
+    for doc in &docs {
+        let title = if doc.title.is_empty() {
+            "(no title)"
+        } else {
+            doc.title.as_str()
+        };
+        let status = if doc.issues.is_empty() {
+            "ok".to_string()
+        } else {
+            format!("{} issue(s)", doc.issues.len())
+        };
+        out.push_str(&format!(
+            "- {} 「{title}」 mermaid from line {}: {status}\n",
+            doc.path, doc.source_line
+        ));
+        for issue in &doc.issues {
+            out.push_str(&format!("  - {}\n", render_issue(&doc.path, issue)));
+        }
+    }
+    if let Some(ws) = workspace_crates(root) {
+        out.push_str(&format!(
+            "---\ncrate dependency graph (generated from Cargo manifests, never on disk; {} \
+             member(s), {} derivable edge(s) hidden). Reuse it as a starting point:\n```mermaid\n{}```\n",
+            ws.members.len(),
+            ws.hidden_transitive(),
+            crates_mermaid(&ws, false)
+        ));
+    }
+    if errors > 0 {
+        ToolOutput::error(out)
+    } else {
+        ToolOutput::ok(out)
     }
 }
 
@@ -940,6 +1028,125 @@ mod tests {
             original
         );
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// UI2-0926 #7:`diagrams` 只读动作——空目录给创建提示;有问题判错并给 file:行 + 修法;
+    /// 改好后成功;是 Cargo 工作区时附上生成的 crate 图源码。描述里写明图的约定。
+    #[tokio::test]
+    async fn diagrams_action_lints_and_offers_the_crate_graph() {
+        let root = temp_project("diagrams");
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let out = ArchitectureTool
+            .execute(json!({"action": "diagrams"}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("No diagrams yet"), "{}", out.content);
+
+        std::fs::create_dir_all(root.join("docs/architecture")).unwrap();
+        let bad = "# 流程\n\n说明。\n\n```mermaid\nflowchart LR\n  a[\"甲\"] --> b[\"乙\"]\n  style a fill:#f00\n  click a \"docs/design/gone.md\"\n```\n";
+        std::fs::write(root.join("docs/architecture/01_flow.md"), bad).unwrap();
+        let out = ArchitectureTool
+            .execute(json!({"action": "diagrams"}), &ctx)
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(
+            out.content
+                .contains("docs/architecture/01_flow.md:8 [D4 error]"),
+            "{}",
+            out.content
+        );
+        assert!(
+            out.content
+                .contains("docs/architecture/01_flow.md:9 [D5 error]"),
+            "{}",
+            out.content
+        );
+        assert!(out.content.contains("修法"), "{}", out.content);
+
+        let good = bad
+            .replace("  style a fill:#f00\n", "")
+            .replace("docs/design/gone.md", "docs/design/harness_m1.md");
+        std::fs::write(root.join(DESIGN_DIR).join("harness_m1.md"), "# x").unwrap();
+        std::fs::write(root.join("docs/architecture/01_flow.md"), good).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/a\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("crates/a/src")).unwrap();
+        std::fs::write(
+            root.join("crates/a/Cargo.toml"),
+            "[package]\nname = \"a\"\ndescription = \"甲\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("crates/a/src/lib.rs"), "").unwrap();
+        let out = ArchitectureTool
+            .execute(json!({"action": "diagrams"}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content
+                .contains("01_flow.md 「流程」 mermaid from line 6: ok"),
+            "{}",
+            out.content
+        );
+        assert!(
+            out.content.contains("crate dependency graph"),
+            "{}",
+            out.content
+        );
+        assert!(
+            out.content.contains("```mermaid\nflowchart LR\n"),
+            "{}",
+            out.content
+        );
+
+        let schema = ArchitectureTool.input_schema();
+        assert!(schema.to_string().contains("\"diagrams\""), "{schema}");
+        let description = ArchitectureTool.description();
+        for needle in [
+            "docs/architecture/NN_snake_name.md",
+            ":::focus",
+            "click <id>",
+            "classDef",
+        ] {
+            assert!(
+                description.contains(needle),
+                "描述缺约定 {needle}: {description}"
+            );
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 复核修复:worktree 线(cwd ≠ project_root)在自己的树里改图,`diagrams` 必须读这棵树——
+    /// 主根上没有这张图;报出的问题行号来自 worktree 里的文件,click 目标也按 worktree 核对。
+    #[tokio::test]
+    async fn diagrams_action_reads_the_worktree_not_the_main_root() {
+        let main = temp_project("diagrams-main");
+        let worktree = temp_project("diagrams-wt");
+        std::fs::create_dir_all(worktree.join("docs/architecture")).unwrap();
+        std::fs::write(worktree.join("crates_only_here.rs"), "").unwrap();
+        let doc = "# 线上的图\n\n说明。\n\n```mermaid\nflowchart LR\n  a[\"甲\"] --> b[\"乙\"]\n  click a \"crates_only_here.rs\"\n\n  style b fill:#f00\n```\n";
+        std::fs::write(worktree.join("docs/architecture/03_line.md"), doc).unwrap();
+        let ctx = ToolCtx::new(worktree.clone(), main.clone());
+        let out = ArchitectureTool
+            .execute(json!({"action": "diagrams"}), &ctx)
+            .await;
+        assert!(
+            out.content.contains("1 file(s)")
+                && out
+                    .content
+                    .contains("docs/architecture/03_line.md:10 [D4 error]"),
+            "应扫到 worktree 里的图并给出该文件的行号:{}",
+            out.content
+        );
+        assert!(
+            !out.content.contains("目标文件不存在"),
+            "click 目标只在 worktree 里,按主根核对会误报:{}",
+            out.content
+        );
+        std::fs::remove_dir_all(&main).ok();
+        std::fs::remove_dir_all(&worktree).ok();
     }
 
     #[test]

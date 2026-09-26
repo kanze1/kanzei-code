@@ -244,6 +244,24 @@ const SCENES = {
     await ctx.sleep(200);
   },
 
+  // ── 分区:架构图 ──
+  /// 架构页:上方图卡(crate 依赖图 / 手写图标签页)、下方文档树与索引。等 mermaid 懒加载并渲染完。
+  /// 参数:tab=<标签 key>(crates / 01_runtime_loop / 02_harness_registries …)、full=1(全部依赖)、
+  /// broken=1(追加一张写坏的图,配 tab=03_broken_example 看错误卡)、hover=<节点 id>(看邻域高亮)。
+  async arch(ctx) {
+    await openView(ctx, "arch");
+    const figure = () => $("#arch-diagram-canvas .kz-diagram");
+    await waitFor(() => figure() && figure().dataset.state !== "loading", 20000);
+    const hover = ctx.params.get("hover");
+    if (hover) {
+      const node = [...(figure()?.querySelectorAll("g.node") ?? [])].find((g) => new RegExp(`-flowchart-${hover}-\\d+$`).test(g.id));
+      node?.dispatchEvent(new PointerEvent("pointerenter"));
+    }
+    document.activeElement?.blur?.();
+    await ctx.sleep(160);
+    await ctx.settle();
+  },
+
   async empty(ctx) {
     // 走真实的「新对话」入口:它同时是缺陷 #2(旧内容残留)的复现路径。
     $("#new-chat")?.click();

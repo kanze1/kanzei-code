@@ -135,10 +135,10 @@ assistant_message_committed(message_id, final_hash)
 
 ```mermaid
 flowchart LR
-    E["Typed Session Events"] --> S["Surface Projection\n模型上下文"]
-    E --> T["Transcript Projection\n对话与中断草稿"]
-    E --> R["Trace Projection\n活动与审计"]
-    E --> M["Memory Provenance\n候选长期记忆"]
+    E["Typed Session Events"] --> S["Surface Projection<br/>模型上下文"]
+    E --> T["Transcript Projection<br/>对话与中断草稿"]
+    E --> R["Trace Projection<br/>活动与审计"]
+    E --> M["Memory Provenance<br/>候选长期记忆"]
 ```
 
 - Surface 只包含当前模型所需的任务定义、已提交消息、必要的 interrupted 诊断摘要、压缩纪要和近期工具事实。

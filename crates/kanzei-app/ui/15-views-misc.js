@@ -36,7 +36,8 @@ import {
   toast,
   toastError,
 } from "./03-shell.js";
-import { renderMarkdown } from "./04-markdown.js";
+import { mountDiagram, setDiagramHost } from "./04-diagram.js";
+import { renderMarkdownInto } from "./04-markdown.js";
 import {
   addMessage,
   applyRecoveredToolDurations,
@@ -220,7 +221,7 @@ export function openRuntimeMarkdown(title, content) {
   $("viewer-title").textContent = title;
   const body = $("viewer-body");
   body.className = "md";
-  body.innerHTML = renderMarkdown(content ?? "");
+  renderMarkdownInto(body, content ?? "");
   body.scrollTop = 0;
   $("viewer-external").classList.add("hidden");
   // <dialog> 模态经原语打开:原生惰性化背景、Esc/点外关闭、关闭后焦点归还;已开着则只换内容。
@@ -235,7 +236,7 @@ export async function openDocViewer(kind) {
     const body = $("viewer-body");
     if (doc.name.endsWith(".md")) {
       body.className = "md";
-      body.innerHTML = renderMarkdown(doc.content);
+      renderMarkdownInto(body, doc.content);
     } else {
       body.className = "";
       body.innerHTML = `<pre class="code">${escapeHtml(doc.content)}</pre>`;
@@ -246,8 +247,55 @@ export async function openDocViewer(kind) {
     toastError(String(err), { retry: () => openDocViewer(kind) });
   }
 }
+/// 源码查看(图的「查看源码」/错误卡):带文件行号的只读代码,出错行高亮并滚进视口。
+export function openRuntimeSource(title, source, { line = null, startLine = 1 } = {}) {
+  viewerKind = null;
+  $("viewer-title").textContent = title;
+  const body = $("viewer-body");
+  body.className = "kz-source-view";
+  body.replaceChildren();
+  const pre = document.createElement("pre");
+  pre.className = "code kz-source";
+  let target = null;
+  String(source ?? "").replace(/\r\n?/g, "\n").split("\n").forEach((text, index) => {
+    const row = document.createElement("span");
+    row.className = "kz-source-line";
+    const number = document.createElement("span");
+    number.className = "kz-source-no";
+    number.textContent = String(startLine + index);
+    const code = document.createElement("span");
+    code.textContent = text || " ";
+    row.append(number, code);
+    if (line && index + 1 === line) {
+      row.classList.add("is-error");
+      target = row;
+    }
+    pre.append(row);
+  });
+  body.append(pre);
+  body.scrollTop = 0;
+  $("viewer-external").classList.add("hidden");
+  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+  target?.scrollIntoView?.({ block: "center" });
+}
+/// 聊天/文档里的图「放大」:在查看器里按页面模式重挂一张(适应/缩放/平移)。
+export function openRuntimeDiagram(title, source, { path = null, sourceLine = 1 } = {}) {
+  viewerKind = null;
+  $("viewer-title").textContent = title;
+  const body = $("viewer-body");
+  body.className = "kz-diagram-viewer";
+  body.replaceChildren();
+  $("viewer-external").classList.add("hidden");
+  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
+  mountDiagram(body, source, { mode: "page", title, path, sourceLine });
+}
 defer(() => {
   $("viewer-close").addEventListener("click", () => closeSurface($("viewer-overlay")));
+  setDiagramHost({
+    openSource: ({ title, source, line, startLine, path }) => openRuntimeSource(`${t("图源码")} · ${path || title}`, source, { line, startLine }),
+    openLarge: ({ title, source, path, sourceLine }) => openRuntimeDiagram(title, source, { path, sourceLine }),
+    toast: (text, kind) => toast(text, { kind }),
+  });
 });
 defer(() => {
   $("viewer-external").addEventListener("click", () => {
@@ -715,7 +763,7 @@ export function renderMessageParts(items) {
       const el = addMessage(message.role === "assistant" ? "assistant md" : "user", "");
       if (message.role === "assistant") {
         el.dataset.raw = part.text;
-        el.querySelector(".message-body").innerHTML = renderMarkdown(part.text);
+        renderMarkdownInto(el.querySelector(".message-body"), part.text);
       } else {
         el.querySelector(".message-body").textContent = part.text;
       }

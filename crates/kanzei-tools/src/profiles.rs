@@ -808,6 +808,8 @@ mod tests {
         // 架构索引现在有了合法通道,而且读/校验默认放行。
         assert_eq!(snapshot.evaluate("architecture", "get"), Effect::Allow);
         assert_eq!(snapshot.evaluate("architecture", "check"), Effect::Allow);
+        // UI2-0926 #7:架构图 lint 是只读动作,默认放行(agent 改完图直接自查)。
+        assert_eq!(snapshot.evaluate("architecture", "diagrams"), Effect::Allow);
         assert_eq!(snapshot.evaluate("architecture", "update"), Effect::Ask);
 
         // conventions 的读动作默认放行、写动作(patch)逐次询问——与 architecture 同口径。

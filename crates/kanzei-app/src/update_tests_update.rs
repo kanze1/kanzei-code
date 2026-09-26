@@ -84,6 +84,68 @@ fn workspace图_从真实cargo_toml抽依赖边() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// UI2-0926 #7:architecture_snapshot 带上手写图(CRLF 索引与图文档下行号仍对)与 crate 图两份源码,
+/// 旧的 graph 兼容字段仍在。
+#[test]
+fn architecture_snapshot_带手写图与crate图() {
+    use super::docs::architecture_snapshot;
+    let root = std::env::temp_dir().join(format!(
+        "kz-arch-snapshot-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let write = |rel: &str, text: &str| {
+        let path = root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    write(
+        ".kanzei/project/architecture/README.md",
+        "# 索引\r\n\r\n## 现行基线\r\n\r\n- [`a.md`](../../../docs/design/a.md):甲。\r\n",
+    );
+    write("docs/design/a.md", "# 甲\r\n");
+    write(
+        "docs/architecture/01_flow.md",
+        "# 流程\r\n\r\n说明一句。\r\n\r\n```mermaid\r\nflowchart LR\r\n  a[\"甲\"] --> b[\"乙\"]\r\n  click a \"docs/design/a.md\" \"甲的设计\"\r\n```\r\n",
+    );
+    write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates/x\", \"crates/y\"]\n",
+    );
+    write(
+        "crates/x/Cargo.toml",
+        "[package]\nname = \"x\"\ndescription = \"入口\"\n[package.metadata.kanzei]\ngroup = \"入口\"\n[dependencies]\ny = { path = \"../y\" }\n",
+    );
+    write("crates/x/src/main.rs", "");
+    write("crates/y/Cargo.toml", "[package]\nname = \"y\"\n");
+    write("crates/y/src/lib.rs", "");
+
+    let snap = architecture_snapshot(root.display().to_string()).unwrap();
+    let diagrams = snap["diagrams"].as_array().unwrap();
+    assert_eq!(diagrams.len(), 1, "{snap}");
+    assert_eq!(diagrams[0]["id"], "01_flow");
+    assert_eq!(diagrams[0]["title"], "流程");
+    assert_eq!(diagrams[0]["source_line"], 6, "CRLF 下围栏起始行号");
+    assert!(
+        diagrams[0]["issues"].as_array().unwrap().is_empty(),
+        "{}",
+        diagrams[0]["issues"]
+    );
+    let reduced = snap["crates"]["mermaid"]["reduced"].as_str().unwrap();
+    assert!(reduced.contains("x --> y"), "{reduced}");
+    assert!(
+        reduced.contains("click x \"crates/x/src/main.rs\""),
+        "{reduced}"
+    );
+    assert_eq!(snap["crates"]["members"].as_array().unwrap().len(), 2);
+    assert_eq!(snap["crates"]["hidden_transitive"], 0);
+    assert!(snap["graph"].is_array(), "兼容字段 graph 仍在");
+    std::fs::remove_dir_all(&root).ok();
+}
+
 /// R-179 验收③:merge-tree 冲突输出解析——提取 CONFLICT 行的文件路径,/// R-179 验收③:merge-tree 冲突输出解析——提取 CONFLICT 行的文件路径,
 /// 供 UI 列出可读的冲突清单(而不是一句「有冲突」)。
 #[test]

@@ -108,7 +108,7 @@ import { refreshDocs, refreshDocsSoon } from "./14-docs-actions.js";
 import { refreshConversationList, refreshGit, refreshGitSoon } from "./15-views-misc.js";
 import { neuralFlowEmit } from "./22-neural-flow.js";
 // UI-0926 #10:权限卡资源、压缩纪要、上下文详情的结构化渲染。
-import { renderMarkdown } from "./04-markdown.js";
+import { renderMarkdownInto } from "./04-markdown.js";
 import { fillTemplate, permissionResourceText } from "./04-structured-parse.js";
 import { pathChip, renderPermissionResource, richText } from "./04-structured.js";
 import { toolResultSummary } from "./05-tool-summary.js";
@@ -211,7 +211,7 @@ export function addCompactionEntry(summary) {
   // UI-0926 #10:纪要本身是 markdown(标题/列表),按 markdown 渲染而不是原文堆字。
   const detail = document.createElement("div");
   detail.className = "bg-detail md sv-md";
-  detail.innerHTML = renderMarkdown(String(summary ?? ""));
+  renderMarkdownInto(detail, String(summary ?? ""));
   el.append(title, detail);
   title.addEventListener("click", () => {
     detail.classList.toggle("hidden");
@@ -236,7 +236,7 @@ export function addSummaryEntry(summary, path = "") {
   title.textContent = t("对话小总结 · 点击查看");
   const detail = document.createElement("div");
   detail.className = "bg-detail md sv-md";
-  detail.innerHTML = renderMarkdown(String(summary ?? ""));
+  renderMarkdownInto(detail, String(summary ?? ""));
   if (path) {
     const archived = document.createElement("div");
     archived.className = "sv-archived";
@@ -959,7 +959,7 @@ export function pumpAsk() {
     // UI-0926 #10:问题正文按 markdown 渲染(列表/代码/路径链接);注解里的编号/路径可点。
     const questionHost = $("ask-question");
     questionHost.classList.add("md", "sv-md");
-    questionHost.innerHTML = renderMarkdown(String(askActive.question ?? ""));
+    renderMarkdownInto(questionHost, String(askActive.question ?? ""));
     const multi = isMultiSelectAsk(askActive);
     askSelectedOptions.length = 0;
     const options = $("ask-options");
