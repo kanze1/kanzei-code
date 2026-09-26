@@ -4,7 +4,7 @@ import { motionOnce } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setTurnPhase, turnPhase } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
-import { chatAbortRunning, endReasoningLive, paneHasRunningTool, playToolOutcomeMotion } from "./05-chat-render.js";
+import { chatAbortRunning, endReasoningLive, paneHasRunningTool, playToolOutcomeMotion, setToolGroupExpanded } from "./05-chat-render.js";
 import { setCtxPending, setCtxTokens } from "./03-shell.js";
 import { setCtxLimit } from "./03-shell.js";
 import { showRunMeta } from "./03-shell.js";
@@ -110,7 +110,7 @@ import { refreshConversationList, refreshGit, refreshGitSoon } from "./15-views-
 import { neuralFlowEmit } from "./22-neural-flow.js";
 // UI-0926 #10:权限卡资源、压缩纪要、上下文详情的结构化渲染。
 import { renderMarkdown } from "./04-markdown.js";
-import { permissionResourceText } from "./04-structured-parse.js";
+import { fillTemplate, permissionResourceText } from "./04-structured-parse.js";
 import { pathChip, renderPermissionResource, richText } from "./04-structured.js";
 import { toolResultSummary } from "./05-tool-summary.js";
 // UI-0926 #8:task 不再走主对话工具块,改由子代理卡片承载(05-subagents.js)。
@@ -639,9 +639,10 @@ defer(() => {
     // 「3/34」下一帧就被它顶掉。正常完成时清空原因槽,阶段交给 renderAutoRun 算。
     setAutoStopReason(p.halted ? t("按停止/拒绝收尾") : "");
   
+    // UI2-0926 #12:本轮结束 = 列左缘一行小字(turn-end),不画线(契约 §4.2);「steps / 会话 N 条」中英混杂改走模板。
     addMessage(
-      "notice",
-      `${t("本轮结束")} · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? ` · ${t("按停止/拒绝收尾")}` : ""}`
+      "notice turn-end",
+      `${t("本轮结束")} · ${fillTemplate(t("{n} 步"), { n: p.steps })}${p.history ? ` · ${fillTemplate(t("会话 {n} 条"), { n: p.history })}` : ""}${p.halted ? ` · ${t("按停止/拒绝收尾")}` : ""}`
     );
     const elapsedSeconds = roundElapsedSeconds(p.elapsedMs);
     const duration = elapsedSeconds === null ? "" : ` · ${t("耗时")} ${elapsedSeconds.toFixed(1)}s`;
@@ -1135,6 +1136,12 @@ defer(() => {
 defer(() => {
   $("copy-context").addEventListener("click", async () => {
     const parts = [];
+    const reasoningPart = (el) => {
+      // 完整思维链:收起态也全量导出(dataset.raw 一直在),不再截首行 160 字——
+      // 摘要贴给别的 AI 没有用,断链的思考等于没复制。
+      const raw = el.querySelector(".reasoning-body")?.dataset.raw?.trim();
+      if (raw) parts.push(`### ${t("思考")}\n${raw.split("\n").map((line) => `> ${line}`).join("\n")}`);
+    };
     for (const el of activePane.children) {
       if (el.classList.contains("user")) {
         const text = (el.querySelector(".message-body")?.textContent ?? el.textContent).trim();
@@ -1143,10 +1150,20 @@ defer(() => {
         const raw = (el.dataset.raw ?? el.textContent).trim();
         if (raw) parts.push(`## ${t("助手")}\n${raw}`);
       } else if (el.classList.contains("reasoning")) {
-        // 完整思维链:收起态也全量导出(dataset.raw 一直在),不再截首行 160 字——
-        // 摘要贴给别的 AI 没有用,断链的思考等于没复制。
-        const raw = el.querySelector(".reasoning-body")?.dataset.raw?.trim();
-        if (raw) parts.push(`### ${t("思考")}\n${raw.split("\n").map((line) => `> ${line}`).join("\n")}`);
+        reasoningPart(el);
+      } else if (el.classList.contains("tool-group")) {
+        // UI2-0926 #12:工具组逐项导出(折叠态也全量):思考按思考格式,工具行按「> 工具:头 / > ⎿ 摘要」。
+        // 组不带 .msg 类,漏了这个分支整段工具轨迹会被静默丢掉。
+        for (const item of el.querySelector(".tool-group-body")?.children ?? []) {
+          if (item.classList.contains("reasoning")) {
+            reasoningPart(item);
+            continue;
+          }
+          if (!item.classList.contains("tool-msg")) continue;
+          const head = [item.querySelector(".tool-msg-name")?.textContent, item.querySelector(".tool-msg-arg")?.textContent].filter(Boolean).join(" ").trim();
+          const result = item.querySelector(".tool-msg-result")?.textContent?.trim();
+          if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
+        }
       } else if (el.classList.contains("tool-chip")) {
         const head = el.querySelector(".head")?.textContent?.trim();
         const result = el.querySelector(".result")?.textContent?.trim();
@@ -1193,6 +1210,9 @@ export function updateSearch() {
   if (searchMatches.length) {
     const current = searchMatches[searchIndex];
     current.classList.add("search-current");
+    // UI2-0926 #12:命中落在折叠的工具组里时先展开,否则 scrollIntoView 对 display:none 的行无效。
+    const group = current.closest?.(".tool-group");
+    if (group && group.dataset.expanded !== "1") setToolGroupExpanded(group, true);
     // 跳到搜索命中 = 用户明确在读某一处旧内容,不再跟随最新。这一步是**程序滚动**,
     // 跟随态的推断(05-chat-render.js)会把它当自己人忽略掉,所以在这里显式表态;
     // 否则新消息一来就把人从命中位置拽回底部,而且裁剪也不会让步。

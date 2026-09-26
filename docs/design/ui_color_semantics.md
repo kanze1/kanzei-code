@@ -88,7 +88,7 @@
 - **全局不画彩色左竖条**,显式例外两处(⑥b 的 STRIPE_EXCEPTIONS):活动面板子行 .bg-child.warn / .err / .running(左边框就是子行的状态位,暂保留,是否改中性待用户拍板),自检失败项 .sv-check-fail(引文式缩进块)。新增例外必须登记并写明理由。
 - **被读取 / 记忆生效 / 排队投递**:召回明细里「被读取」.memory-recall-hit.read 用 --fg 亮字区分,不用绿;.memory-status-badge.active、.queue-delivery 灰。
 - **引用**:编号 / 路径引用(.ref-link、.sv-ref、.sv-path、a.md-path)中性 + 虚下划线,悬停才变橙;正文链接(.msg.md a、.sv-md a、.link-btn、.research-open)保持 --accent-text。
-- **输入区芯片**:自主推进模式是强调色文字、不加底(Codex「完全访问」同款,引擎自己在推进 = 进行中家族);研究与结伴中性;模型来源标签全中性,「临时」用 --fg-strong 亮字区分;⚡ 快速档 --dim。
+- **输入区芯片**:自主推进模式是强调色文字、不加底(Codex「完全访问」同款,引擎自己在推进 = 进行中家族);研究与结伴中性;模型来源标签全中性,「临时」用 --fg-strong 亮字区分;⚡ 快速档 --dim。鞭挞开关圆点:开着待命中性(currentColor),推进中 / 等待下一轮强调色;阶段字「等待下一轮」--accent-text、「已暂停」--warn;不用绿(开关打开不是成功收尾。UI2-0926 #11 复核,门禁 ⑥w)。
 - **发送键**:#send 可用时 --accent 填充 + --on-accent 白色箭头(白在 #d25e28 上 3.9:1,只够图标,所以强调色填充上不放正文字);禁用态回落 button.primary 的中性样式。button.primary 其余用法仍是单色(⑤)。
 - **rail 运行数徽标**:--accent-text 底 + --bg 字(7.72:1)。
 - **kz 原语**:kz-dot idle / stopping 灰,done 绿,running / waiting / pending 强调色(pending 慢呼吸),attention 琥珀慢呼吸,failed 红;kz-glyph 同表。attention 是本轮新增的状态,专给「等你批准 / 回答」,与主线「等首个 token」的 waiting 分开;减少动效列表同步收录。
@@ -128,10 +128,11 @@
 | ⑥p | 必须着色的几处:is-zero 灰、阻塞琥珀、attention 点与字形琥珀、kz-dot done 绿、P0 胶囊红 | 删掉 is-zero 规则 |
 | ⑥e | 别名 token 在 :root 必须精确指向语义表(--alert / --log-gold / --arch-unindexed / --surface-attention → --warn,--badge-alert → --badge-warn,--dot-idle → --dim,--dot-run / --memory-flow → --accent,--memory-flow-hot / --statusbar-run-fg → --accent-text,--statusbar-fg → --dim,--diff-add → --ok,--diff-del → --err),且不得在亮色块里重给值;--line-1..4 只准是中性别名 | 亮色块写 `--dot-idle: #1d7a3c` |
 | ⑥g | 暗色表面 R=G=B;L(--bg) < L(--sidebar-bg) < L(--surface-raised);L(--code-bg) > L(--bg);最小级差 (L+.05)/(L(--bg)+.05):侧栏、代码块 ≥ 1.05,输入区 ≥ 1.3 | 侧栏改回 #181818、代码块改回 #171717、主区改回 #1e1e1e、输入区改回 #262626 |
+| ⑥w | 输入区鞭挞组(#auto-continue-wrap 圆点、.auto-progress、.auto-phase)不得引用 --ok;.autorun-bar[data-phase=running / pending] 的圆点背景必须是 var(--accent);pending 阶段字颜色必须是强调色家族。静息态(选择器不带 [data-phase])归 ⑥d 中性前缀 | `#auto-continue-wrap:has(> input:checked)::before { background: var(--ok) }`、`.autorun-bar:is([data-phase="pending"], [data-phase="paused"]) .auto-phase { color: var(--warn) }` |
 | ⑥t | :root 与亮色块剥掉注释和全部声明后不得有残留 | 注释里写了星号紧跟斜杠(如 `--dot-*` 后接 `/`),注释提前结束,剩下的文字成了非法声明、吞掉下一条声明 |
 
 - ⑥t 的来历:实施时亮色块注释里的别名列表写成了星号加斜杠的简写,浏览器把紧随其后的 `--bg: #ffffff` 吞进一条非法声明,文档页、线路页这类直接以 body 的 --bg 为底的页面在亮色下整块成了 #181818;对话页走 --chat-bg,所以只看对话页发现不了。①-⑤ 与 ⑥e 都按「声明」解析 token,照样读到 #ffffff,全绿。修复后另用浏览器实测核对:两套主题各 108 个颜色 token 的计算值与静态解析逐一相等。
-- 自测:照 selfTestSurfaceRules 的做法,每条判据喂反例(共 25 个;复核补了 ⑥b 六种绕过写法、⑥d 引用与进度条三个、⑥g 退回旧值两个),任何一条恒绿先红;锚点找不到也红。
+- 自测:照 selfTestSurfaceRules 的做法,每条判据喂反例(共 29 个;复核补了 ⑥b 六种绕过写法、⑥d 引用与进度条三个、⑥g 退回旧值两个;UI2-0926 #11 复核补 ⑥w 三个、⑥d 待命圆点一个),任何一条恒绿先红;锚点找不到也红。
 - 基线证据:同一套判据跑本轮之前的 style.css 报 120 条(a 21、b 19、c 15、d 23、e 33、g 5、p 4),跑上一版(0270de05)3 条(度量轮次琥珀竖条、被读取绿、批次进度条绿),跑现行样式表 0 条。
 - 批次格断言:已完成格必须是 `.doc-item .complexity-cell.filled, .focus-card .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }`,且不得再出现 `.pri-P*…complexity-cell`。
 

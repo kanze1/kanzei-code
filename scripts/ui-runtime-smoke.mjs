@@ -422,6 +422,133 @@ if (SMOKE_MUTATE) {
       pattern: /const taskCall = entry \? null : orphanTaskCall\(message, part\.call_id\);/,
       replace: "const taskCall = null;",
     },
+    // ── 分区:对话单列与输入区 ──
+    // UI2-0926 #12 工具组:实时入口退回逐行追加,连续调用不再成组。
+    toolGroupLive: {
+      pattern: /mountToolBlock\(block\);(\r?\n\s*chatToolBlocks\.set\(id, block\);)/,
+      replace: "appendToPane(block.wrap);$1",
+    },
+    // 历史回放入口退回逐行追加:实时与历史不再同构。
+    toolGroupHistory: {
+      pattern: /(block\.wrap\.dataset\.toolCallId = part\.id;\r?\n\s*)mountToolBlock\(block\);/,
+      replace: "$1appendToPane(block.wrap);",
+    },
+    // 思考块不再并入工具组:Codex 每步先给思考摘要,几乎每次调用各成一组。
+    toolGroupReasoning: {
+      pattern: /while \(tail\?\.classList\?\.contains\("reasoning"\)\)[^\n]*\n/,
+      replace: "",
+    },
+    // 收尾不同步组:组头停在运行中,失败数不出现。
+    toolGroupSync: {
+      pattern: /(block\.input = null;\r?\n)\s*syncToolGroupOf\(block\);/,
+      replace: "$1",
+    },
+    // ⎿ 摘要不再切行内代码:失败行原样露出 `k/N` 的反引号。
+    toolSumInlineCode: {
+      pattern: /groups = groups\.map\(\(group\) => group\.flatMap\(inlineCodeParts\)\);/,
+      replace: "",
+    },
+    // 裁剪按子节点计数:鞭挞长跑几百次调用只有十几个组,永远裁不掉。
+    paneUnits: {
+      pattern: /const unitsOf = [^\n]*\n/,
+      replace: "const unitsOf = () => 1;\n",
+    },
+    // 复制上下文漏掉工具组分支:整段工具轨迹静默丢失。
+    ctxToolGroup: {
+      pattern: /\} else if \(el\.classList\.contains\("tool-group"\)\) \{/,
+      replace: "} else if (false) {",
+    },
+    // 搜索命中折叠组里的行时不展开:scrollIntoView 对 display:none 无效,看起来「搜到了但没跳」。
+    searchExpandGroup: {
+      pattern: /if \(group && group\.dataset\.expanded !== "1"[^\n]*\n/,
+      replace: "",
+    },
+    // notice 又挂复制按钮(系统提示不该有复制)。
+    noticeNoActions: {
+      pattern: /if \(!String\(cls\)\.split\(\/\\s\+\/\)\.includes\("notice"\)\) \{/,
+      replace: "if (true) {",
+    },
+    // 本轮结束丢 turn-end 类(列左缘小字的样式钩子)。
+    turnEndClass: {
+      pattern: /"notice turn-end",/,
+      replace: '"notice",',
+    },
+    // 窗口边界不合并工具组:同一段工具活动在「载入更早的消息」后被切成两组。
+    earlierMerge: {
+      pattern: /if \(between\.every\(\(el\) => el\.classList\?\.contains\("earlier-hint"\)\)\) mergeAdjacentToolGroups\(lastNew, oldFirst\);/,
+      replace: "",
+    },
+    // 已有的「载入更早的消息」不挪回顶部:两窗以上时夹在中间。
+    earlierHintTop: {
+      pattern: /[ \t]*activePane\.prepend\(existing\);\r?\n/,
+      replace: "",
+    },
+    // 切语言不重算工具组标签:英文界面里组头还是中文。
+    toolGroupI18n: {
+      pattern: /[ \t]*toolGroupRelocalize\(\);\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #11 输入区:分支写在早退之后,没有改动时上下文带里的分支消失。
+    ctxBranchEarly: {
+      pattern: /[ \t]*if \(branch\) branch\.textContent = [^\n]*\n/,
+      replace: "",
+    },
+    // 鞭挞设置触发器(状态即入口)的读屏名不再带轮次与阶段:未开时的纯箭头按钮读屏只剩空名。
+    autorunTriggerLabel: {
+      pattern: /[ \t]*trigger\.setAttribute\("aria-label", label\);\r?\n/,
+      replace: "",
+    },
+    // 语音键退回写 textContent:麦克风图标被文字冲掉。
+    voiceIconKeep: {
+      pattern: /button\.setAttribute\("aria-label", t\(voiceKey\)\);/,
+      replace: "button.textContent = t(voiceKey);",
+    },
+    // 复核补守卫(UI2-0926 #11 #12):
+    // 历史回放没等到结果的调用不标 interrupted:组头不计「N 中断」,与实时停止收尾不同构。
+    histInterrupted: {
+      pattern: /(\/\/ 与实时停止收尾\(chatAbortRunning\)同形[^\n]*\n)[ \t]*block\.wrap\.classList\.add\("interrupted"\);\r?\n/,
+      replace: "$1",
+    },
+    // 标了 interrupted 但不同步组:组头停在「读取 1 个文件」,不计中断。
+    histInterruptedSync: {
+      pattern: /(block\.wrap\.classList\.add\("interrupted"\);\r?\n\s*block\.result\.textContent = [^\n]*\n\s*block\.result\.classList\.remove\("hidden"\);\r?\n)[ \t]*syncToolGroupOf\(block\);\r?\n(\s*\}\r?\n\}\r?\n\r?\nexport async function loadConversation)/,
+      replace: "$1$2",
+    },
+    // 窗口边界切在调用与结果之间时不配对:已完成的调用计成「1 中断」,另有一条孤儿「tool result」。
+    boundaryPair: {
+      pattern: /[ \t]*pairBoundaryOrphans\(holder, activePane\);\r?\n/,
+      replace: "",
+    },
+    // 超过 3 族不再收成「等 N 次调用」:组头把每一族都列出来,一行放不下。
+    groupSummaryEtc: {
+      pattern: /label = words\.slice\(0, 3\)\.join\(" · "\);/,
+      replace: 'label = words.join(" · ");',
+    },
+    // 窗口边界合并不看上限:合并后一组超过 30 行。
+    mergeCap: {
+      pattern: /[ \t]*if \(Number\(before\.dataset\.count\) \+ Number\(after\.dataset\.count\) > TOOL_GROUP_MAX\) return false;\r?\n/,
+      replace: "",
+    },
+    // SOP 列表退回以菜单项为锚:菜单一关锚点就不在了(弹层定位到左上角)。
+    sopAnchor: {
+      pattern: /openPopover\(\$\("composer-more"\), panel,/,
+      replace: 'openPopover($("sop-picker"), panel,',
+    },
+    // 展开继续文案时不收鞭挞菜单:菜单盖在编辑区上面。
+    continueClosesWhip: {
+      pattern: /[ \t]*closeSurface\(\$\("autorun-menu"\)\);\r?\n/,
+      replace: "",
+    },
+    // 附件芯片退回整颗点击即删:× 自己不再删除(点名字也删)。
+    attachRemove: {
+      pattern: /remove\.addEventListener\("click", \(\) => \{ attachments\.splice\(index, 1\); renderAttachments\(\); \}\);/,
+      replace: "chip.addEventListener(\"click\", () => { attachments.splice(index, 1); renderAttachments(); });",
+    },
+    // 同字不同义的中文显示(data-i18n-zh)失效:交付方式在中文界面显示成 key「排队 queue」。
+    i18nZhDisplay: {
+      pattern: /: \(el\.dataset\.i18nZh \|\| key\);/,
+      replace: ": key;",
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -649,6 +776,9 @@ function parseOptionsInto(el, fragment) {
     // 对 option 文本恒不生效,文档域的筛选下拉在冒烟里全是假通过。
     const keyValue = attributes.match(/\bdata-i18n-key="([^"]*)"/)?.[1];
     if (keyValue !== undefined) option.setAttribute("data-i18n-key", keyValue);
+    // 同字不同义的中文显示(交付方式「排队」,key「排队 queue」)。
+    const zhValue = attributes.match(/\bdata-i18n-zh="([^"]*)"/)?.[1];
+    if (zhValue !== undefined) option.setAttribute("data-i18n-zh", zhValue);
     const valueAttribute = attributes.match(/\bvalue="([^"]*)"/)?.[1];
     option.value = valueAttribute === undefined ? text : valueAttribute;
     // value setter 只写 _value;真实浏览器里 getAttribute("value") 也会返回该值,
@@ -4392,7 +4522,8 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
   h2Head.click();
   assert(h2Detail.classList.contains("hidden") && h2Head.getAttribute("aria-expanded") === "false", "再次点击工具行未收起详情");
   assert(!style.includes(".turn-divider"), "样式表仍残留无创建点的 .turn-divider");
-  assert(/\.msg\.tool-msg\s*\{[^}]*margin:\s*-4px\s+0/.test(style), "工具行间距未收紧");
+  // UI2-0926 #12:轨迹压紧改由列内节奏承担——相邻工具组/思考 6px(轮内),轮间 36px(下一条)。
+  assert(/#messages > \.msg-pane > :is\(\.tool-group, \.msg\.reasoning\) \+ :is\(\.tool-group, \.msg\.reasoning\)\s*\{[^}]*margin-top:\s*6px/.test(style), "工具行间距未收紧");
   assert(/\.msg\.user:not\(:first-child\)\s*\{[^}]*margin-top:\s*36px/.test(style), "轮间留白未显著拉开");
   const chatRenderer = esmModuleCache.get("05-chat-render.js")?.namespace;
   const activityRenderer = esmModuleCache.get("06-activity.js")?.namespace;
@@ -6473,15 +6604,28 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   kzTest.cancelTimers();
 }
 
-// ---------- R-342 模式芯片常驻:选择器在上下文行,配色随档位 ----------
+// ---------- R-342 模式芯片常驻:选择器在工具行左段,配色随档位 ----------
 // 「区别不够明显」的根因不是缺一个旋钮,是唯一的旋钮埋在鞭挞设置弹层里——对话时
-// 根本不在视野内。这里锁两件事:①选择器留在 composer-context(不许再退回弹层);
-// ②data-mode 与 value 同步(配色靠它,漂了就等于没换色)。
+// 根本不在视野内。这里锁两件事:①选择器常驻输入区(UI2-0926 #11 起在底部工具行左段,与 Claude 的模式芯片
+// 同位),不许再退回任何弹层;②data-mode 与 value 同步(配色靠它,漂了就等于没换色)。
 {
-  const contextRow = html.slice(html.indexOf('id="composer-context"'), html.indexOf('id="attachments"'));
+  const leftStart = html.indexOf('<div class="composer-left">');
+  const leftRow = leftStart >= 0 ? html.slice(leftStart, html.indexOf('<div class="composer-right">', leftStart)) : "";
+  const selectAt = html.indexOf('id="profile-select"');
+  const inPopover = [...html.matchAll(/<div id="([\w-]+)"[^>]*popover=/g)].some((m) => {
+    const open = m.index;
+    let depth = 0;
+    const tag = /<\/?div\b/g;
+    tag.lastIndex = open;
+    for (let t = tag.exec(html); t; t = tag.exec(html)) {
+      depth += t[0] === "<div" ? 1 : -1;
+      if (depth === 0) return selectAt > open && selectAt < t.index;
+    }
+    return false;
+  });
   assert(
-    contextRow.includes('id="profile-select"') && contextRow.includes("ctx-mode"),
-    "R-342:模式选择器必须常驻输入框上方的上下文行(带 ctx-mode 芯片样式)",
+    leftRow.includes('id="profile-select"') && leftRow.includes("ctx-mode") && !inPopover,
+    "R-342:模式选择器必须常驻输入区工具行左段 .composer-left(带 ctx-mode 芯片样式),不得在任何弹层里",
   );
   const savedProfileR342 = byId.get("profile-select").value;
   for (const mode of ["dev-auto", "dev-pair"]) {
@@ -7330,7 +7474,8 @@ assert(
   assert(b9Key("回到最新") === "回到最新", "中文态回到最新应保持原文(前置失效)");
   assert(!sandbox.document.getElementById("process-tabs"), "中文态不应出现顶部进程切换条");
   assert(attrOf("prompt", "placeholder") === "想做什么?可粘贴/拖拽图片或 PDF", "中文态输入框 placeholder 应保持原文(前置失效)");
-  assert(b9Key("排队 queue") === "排队 queue", "中文态排队 queue option 应保持原文(前置失效)");
+  // UI2-0926 #11:交付方式选项去掉英文尾巴(「插入 steer」→「插入」),option 渲染点翻译照测。
+  assert(b9Key("插入") === "插入", "中文态插入 option 应保持原文(前置失效)");
 
   localStorageShim.setItem("kz-language", "en");
   sandbox.applyLanguage();
@@ -7354,7 +7499,7 @@ assert(
   assert(attrOf("ask-answer", "placeholder") === "Enter your answer", `英文态回答 placeholder 未翻译(渲染点属性补齐),实际 "${attrOf("ask-answer", "placeholder")}"`);
   assert(attrOf("viewer-external", "aria-label") === "Open in external editor", `英文态 viewer-external aria-label 未翻译,实际 "${attrOf("viewer-external", "aria-label")}"`);
   assert(attrOf("prompt", "placeholder") === "What would you like to do? Paste or drop images or PDFs", `英文态输入框 placeholder 未翻译,实际 "${attrOf("prompt", "placeholder")}"`);
-  assert(b9Key("排队 queue") === "Queue", `英文态「排队 queue」未翻译(option 渲染点),实际 "${b9Key("排队 queue")}"`);
+  assert(b9Key("插入") === "Steer", `英文态「插入」未翻译(option 渲染点),实际 "${b9Key("插入")}"`);
   assert(!sandbox.document.getElementById("process-tabs"), "英文态不应出现顶部进程切换条");
   // 动态元素不被静态 key 覆写:status-mode/status-text/live-turn 都不得带 data-i18n-key,
   // 它们的文案由 JS 渲染点(t()/localizeDynamic)负责,切语言不应被 applyDataI18nKeys 触碰。
@@ -7366,7 +7511,7 @@ assert(
   assert(b9Key("权限请求") === "权限请求", `切回中文后「权限请求」未回原文,实际 "${b9Key("权限请求")}"`);
   assert(b9Key("回到最新") === "回到最新", `切回中文后「回到最新」未回原文,实际 "${b9Key("回到最新")}"`);
   assert(attrOf("prompt", "placeholder") === "想做什么?可粘贴/拖拽图片或 PDF", `切回中文后输入框 placeholder 未回原文,实际 "${attrOf("prompt", "placeholder")}"`);
-  assert(b9Key("排队 queue") === "排队 queue", `切回中文后「排队 queue」未回原文,实际 "${b9Key("排队 queue")}"`);
+  assert(b9Key("插入") === "插入", `切回中文后「插入」未回原文,实际 "${b9Key("插入")}"`);
 
   localStorageShim.setItem("kz-language", priorLanguage);
   sandbox.applyLanguage();
@@ -13004,6 +13149,419 @@ const docsB = {
 
   sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
   vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
+  await flush();
+}
+
+// ── 分区:对话单列与输入区 ──
+// UI2-0926 #12(docs/design/chat_presentation_contract.md §4.4):连续工具调用合成一行工具组(实时/历史同一入口
+// mountToolBlock、思考并入、正文/子代理断组、失败常驻、运行中组头、上限 30、停止收尾、裁剪按行计权、复制上下文与
+// 搜索展开、窗口边界合并、切语言重算)、⎿ 摘要里的反引号成行内代码、notice 不挂复制、本轮结束 turn-end 模板。
+// 变异守卫:toolGroupLive / toolGroupHistory / toolGroupReasoning / toolGroupSync / toolSumInlineCode / paneUnits /
+// ctxToolGroup / searchExpandGroup / noticeNoActions / turnEndClass / earlierMerge / earlierHintTop / toolGroupI18n。
+// UI2-0926 #11 输入区(⑫⑬):上下文带 + 单行工具行的结构与 .kz-ctl、鞭挞触发器读屏名、无改动时的分支、语音键图标;
+// 变异守卫 ctxBranchEarly / autorunTriggerLabel / voiceIconKeep。像素级几何见 scripts/ui-composer-geometry.mjs。
+// ⑭ 复核补守卫:历史回放中断、窗口边界配对、族措辞上限、合并上限、SOP 锚点、继续文案收菜单、附件 ×、同字不同义;
+// 变异守卫 histInterrupted / histInterruptedSync / boundaryPair / groupSummaryEtc / mergeCap / sopAnchor /
+// continueClosesWhip / attachRemove / i18nZhDisplay。
+{
+  const chatNs = esmModuleCache.get("05-chat-render.js")?.namespace;
+  const viewsNs = esmModuleCache.get("15-views-misc.js")?.namespace;
+  const summaryNs = esmModuleCache.get("05-tool-summary.js")?.namespace;
+  assert(chatNs && typeof chatNs.mountToolBlock === "function" && typeof chatNs.toolGroupSummary === "function", "05-chat-render.js 未导出工具组入口 mountToolBlock/toolGroupSummary");
+  assert(summaryNs && typeof summaryNs.inlineCodeParts === "function", "05-tool-summary.js 未导出 inlineCodeParts");
+  const toolStart = handlers.get("kz:tool-start");
+  const toolEnd = handlers.get("kz:tool-end");
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+  const SID = sandbox.activeSessionId;
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: SID } });
+  await flush();
+  chatNs.setFollowLatest(true);
+  let paneSeq = 0;
+  // 每个用例一块挂在 #messages 下的临时 pane(切语言重算按 #messages 找组;不污染真实会话 pane)。
+  const withPane = async (fn) => {
+    paneSeq += 1;
+    vm.runInContext(`globalThis.__colSave = activePane; activePane = document.createElement("div"); activePane.className = "msg-pane"; activePane.dataset.colCase = "${paneSeq}";`, sandbox);
+    const pane = sandbox.activePane;
+    byId.get("messages").appendChild(pane);
+    try {
+      await fn(pane);
+    } finally {
+      pane.remove();
+      vm.runInContext("activePane = globalThis.__colSave; delete globalThis.__colSave;", sandbox);
+    }
+  };
+  const top = (pane) => pane.children.filter((el) => !el.classList.contains("earlier-hint") && !el.classList.contains("pane-trimmed-hint"));
+  const kind = (el) => (el.classList.contains("tool-group") ? "group" : el.classList.contains("sa-group") ? "sa" : el.classList.contains("user") ? "user" : el.classList.contains("assistant") ? "assistant" : el.classList.contains("notice") ? "notice" : el.className);
+  const labelOf = (group) => group?.querySelector(".tool-group-label")?.textContent ?? "";
+  const failOf = (group) => group?.querySelector(".tool-group-fail");
+  let seq = 0;
+  const live = async (name, input, end) => {
+    seq += 1;
+    const id = `col-${seq}`;
+    toolStart({ payload: { sessionId: SID, id, name, summary: "", input } });
+    if (end) toolEnd({ payload: { sessionId: SID, id, name, ok: end.ok !== false, outcome: end.ok === false ? "failed" : "success", preview: end.content, content: end.content, contentBytes: end.content.length, contentTruncated: false, durationMs: 20 } });
+    await flush();
+    return id;
+  };
+  const READ = ["read", { path: "src/a.rs" }, { content: "     1\tfn a() {}\n     2\t" }];
+  const GLOB = ["glob", { pattern: "src/**/*.rs" }, { content: "src/a.rs\nsrc/b.rs" }];
+  const BASH_FAIL = ["bash", { command: "cargo test" }, { ok: false, content: "exit code: 101\nerror[E0425]: cannot find value" }];
+  const sig = (pane) => top(pane).map((el) => kind(el) === "group"
+    ? ["group", el.dataset.count, labelOf(el), failOf(el)?.textContent ?? "", [...el.querySelectorAll(".tool-msg")].map((row) => [row.querySelector(".tool-msg-name")?.textContent, row.querySelector(".tool-msg-result")?.textContent])]
+    : [kind(el)]);
+
+  // ① 实时:read → 思考(多行,可见)→ glob → bash(失败)合成一组;思考在组内;失败常驻、默认折叠。
+  let liveSig = null;
+  await withPane(async (pane) => {
+    await live(...READ);
+    handlers.get("kz:reasoning")({ payload: { sessionId: SID, text: "先看测试怎么挂的\n再决定改哪" } });
+    await flush();
+    await live(...GLOB);
+    await live(...BASH_FAIL);
+    const groups = top(pane).filter((el) => el.classList.contains("tool-group"));
+    assert(top(pane).length === 1 && groups.length === 1, `连续工具调用没有合成一个工具组:顶层 ${top(pane).map(kind).join(",")}`);
+    const group = groups[0];
+    assert(group?.dataset.count === "3", `工具组计数应为 3,实为 ${group?.dataset.count}`);
+    assert(group?.querySelector(".tool-group-body .reasoning"), "夹在两次调用之间的思考块没有并入工具组");
+    const label = labelOf(group);
+    assert(["读取 1 个文件", "搜索 1 次", "运行 1 条命令"].every((word) => label.includes(word)), `工具组标签不对:${label}`);
+    assert(failOf(group)?.textContent === "· 1 失败" && !failOf(group).classList.contains("hidden"), `工具组失败数不对:${failOf(group)?.textContent}`);
+    assert(group?.querySelector(".tool-group-head")?.getAttribute("aria-expanded") === "false" && group.dataset.expanded !== "1", "工具组应默认折叠");
+    assert(!group.dataset.running, "全部收尾后工具组仍标着运行中");
+    group.querySelector(".tool-group-head").click();
+    assert(group.dataset.expanded === "1" && group.querySelector(".tool-group-head").getAttribute("aria-expanded") === "true", "点组头没有展开工具组");
+    group.querySelector(".tool-group-head").click();
+    assert(group.dataset.expanded !== "1", "再点组头没有收起工具组");
+    liveSig = sig(pane);
+    // ② 断组:正文与子代理卡把组断开(组不再是 pane 末尾)。
+    handlers.get("kz:text")({ payload: { sessionId: SID, text: "测试挂在 registry。" } });
+    await flush();
+    await live(...READ);
+    toolStart({ payload: { sessionId: SID, id: "col-task-1", name: "task", summary: "复核", input: { description: "复核", prompt: "复核改动" } } });
+    await flush();
+    await live(...GLOB);
+    assert(top(pane).map(kind).join(",") === "group,assistant,group,sa,group", `正文/子代理卡没有断开工具组:${top(pane).map(kind).join(",")}`);
+    // ③ 复制上下文:组逐项导出(工具名、⎿ 摘要、组内思考),折叠态也不丢。
+    copiedResearchCitation = "";
+    byId.get("copy-context").click();
+    await flush();
+    assert(["read", "glob", "bash", "⎿", "> 先看测试怎么挂的"].every((part) => copiedResearchCitation.includes(part)), `复制上下文丢了工具组里的行或思考:${copiedResearchCitation.slice(0, 200)}`);
+    // ④ 搜索:命中只在折叠组的某一行时先展开那一组。
+    const firstGroup = top(pane)[0];
+    byId.get("chat-search-input").value = "cargo test";
+    vm.runInContext("searchIndex = 0; updateSearch()", sandbox);
+    const hit = firstGroup.querySelectorAll(".tool-msg").find((row) => row.classList.contains("search-current"));
+    assert(hit && firstGroup.dataset.expanded === "1", "搜索命中折叠工具组里的行时没有先展开该组");
+    byId.get("chat-search-input").value = "";
+    vm.runInContext("updateSearch()", sandbox);
+    chatNs.setFollowLatest(true);
+    // ⑤ 切语言:组标签在渲染点重算。
+    sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+    await flush();
+    assert(labelOf(firstGroup) === "Read 1 file · Searched once · Ran 1 command" && failOf(firstGroup)?.textContent === "· 1 failed", `切到英文后工具组标签未重算:${labelOf(firstGroup)} ${failOf(firstGroup)?.textContent}`);
+    sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+    await flush();
+  });
+
+  // ⑥ 实时与历史同构:同一序列经 renderMessagesInto 渲染,逐组签名(计数/标签/失败数/每行工具名与 ⎿)相等。
+  await withPane(async (pane) => {
+    const call = (id, [name, input]) => ({ type: "tool_call", id, name, input });
+    const result = (id, [, , end]) => ({ type: "tool_result", call_id: id, is_error: end.ok === false, content: end.content });
+    const items = [{ role: "assistant", parts: [
+      call("h1", READ), result("h1", READ),
+      { type: "reasoning", text: "先看测试怎么挂的\n再决定改哪" },
+      call("h2", GLOB), result("h2", GLOB),
+      call("h3", BASH_FAIL), result("h3", BASH_FAIL),
+    ] }];
+    viewsNs.renderMessagesInto(pane, items);
+    await flush();
+    assert(JSON.stringify(sig(pane)) === JSON.stringify(liveSig), `实时与历史回放的工具组不一致:\n实时 ${JSON.stringify(liveSig)}\n历史 ${JSON.stringify(sig(pane))}`);
+  });
+
+  // ⑦ 运行中组头:当前调用 + 已完成数;多个在跑时计数;30 行封顶另起一组;停止收尾标中断。
+  await withPane(async (pane) => {
+    for (let i = 0; i < 3; i += 1) await live(...READ);
+    await live("bash", { command: "node scripts/x.mjs" }, null);
+    const group = top(pane)[0];
+    assert(group?.dataset.running === "1", "有调用在跑时工具组没有标运行中");
+    assert(labelOf(group) === "bash node scripts/x.mjs · 已完成 3", `运行中组头应显示当前调用与已完成数,实为「${labelOf(group)}」`);
+    await live("bash", { command: "node scripts/y.mjs" }, null);
+    assert(labelOf(group) === "2 个工具运行中 · 已完成 3", `两个调用在跑时组头应计数,实为「${labelOf(group)}」`);
+    for (let i = 0; i < 25; i += 1) await live(...READ);
+    await live("bash", { command: "node scripts/z.mjs" }, null);
+    const groups = top(pane);
+    assert(groups.length === 2 && groups[0].dataset.count === "30" && groups[1].dataset.count === "1", `工具组应 30 行封顶另起一组:${groups.map((g) => g.dataset.count).join("+")}`);
+    chatNs.chatAbortRunning(pane);
+    assert(!groups[0].dataset.running && !groups[1].dataset.running, "停止收尾后工具组仍标着运行中");
+    assert(labelOf(groups[0]).includes("2 中断") && labelOf(groups[1]).includes("1 中断"), `停止收尾后组标签缺「N 中断」:${labelOf(groups[0])} / ${labelOf(groups[1])}`);
+  });
+
+  // ⑧ 裁剪按行计权:700 次调用(没有正文)也必须裁,裁剪计数按行,说明条只有一条。
+  await withPane(async (pane) => {
+    for (let i = 0; i < 700; i += 1) {
+      chatNs.chatToolStart(`trim-${i}`, "read", "", { path: `src/f${i % 7}.rs` });
+      chatNs.chatToolEnd(`trim-${i}`, true, "ok", null, "success", { content: "     1\tx", contentBytes: 8 });
+    }
+    const rows = top(pane).reduce((sum, el) => sum + Number(el.dataset.count || 0), 0);
+    assert(rows <= 601 && rows >= 400, `工具组裁剪没有按行计权:剩 ${rows} 行(应在 400~601)`);
+    assert(Number(pane.dataset.droppedLive || 0) > 0 && pane.querySelectorAll(".pane-trimmed-hint").length === 1, `工具组长跑没有裁剪或说明条不唯一(dropped=${pane.dataset.droppedLive})`);
+  });
+
+  // ⑨ 窗口化历史:窗口边界切开的同一段工具活动在补齐后合并成一组;「载入更早的消息」回到顶部。
+  {
+    const savedHistory = viewsNs.paneHistory.get(SID || "");
+    await withPane(async (pane) => {
+      const W = viewsNs.PANE_WINDOW_SIZE;
+      const total = 2 * W + 10;
+      const boundary = total - W; // 首屏渲染 items[boundary..],第一次补齐渲染 items[boundary-W..boundary)
+      const items = Array.from({ length: total }, (_, i) => (i >= boundary - 3 && i < boundary + 3)
+        ? { role: "assistant", parts: [{ type: "tool_call", id: `w${i}`, name: "read", input: { path: `src/w${i}.rs` } }, { type: "tool_result", call_id: `w${i}`, content: "     1\tx" }] }
+        : { role: i % 2 ? "user" : "assistant", parts: [{ type: "text", text: `m${i}` }] });
+      viewsNs.renderRecoveredMessages(items);
+      await flush();
+      const firstGroup = top(pane)[0];
+      assert(firstGroup?.classList.contains("tool-group") && firstGroup.dataset.count === "3", `窗口化首屏应以边界后的 3 行工具组开头:${kind(firstGroup ?? { classList: { contains: () => false } })}`);
+      vm.runInContext("loadEarlierMessages()", sandbox);
+      await flush();
+      const merged = [...pane.querySelectorAll(".tool-group")].find((group) => group.querySelectorAll(".tool-msg").some((row) => row.dataset.toolCallId === `w${boundary - 1}`));
+      assert(merged && merged.dataset.count === "6" && merged.querySelectorAll(".tool-msg").some((row) => row.dataset.toolCallId === `w${boundary}`), `窗口边界两侧的工具组没有合并:count=${merged?.dataset.count}`);
+      assert(pane.children[0]?.classList.contains("earlier-hint"), `补齐后「载入更早的消息」没有回到顶部:${pane.children[0]?.className}`);
+    });
+    if (savedHistory) viewsNs.paneHistory.set(SID || "", savedHistory);
+    else viewsNs.paneHistory.delete(SID || "");
+  }
+
+  // ⑩ ⎿ 行内代码:成对反引号成 code part,文本不再露反引号,悬停 title 保留原句;不成对的原样保留。
+  {
+    const raw = "批次字段要写成 `k/N`(如 `0/3`),实际收到 `批次: 0/5`";
+    const summary = summaryNs.toolResultSummary("req", { ok: false, outcome: "failed", content: raw });
+    const codes = summary.parts.filter((part) => part.k === "code").map((part) => part.v);
+    assert(["k/N", "0/3", "批次: 0/5"].every((value) => codes.includes(value)), `⎿ 摘要的反引号没有切成行内代码:${JSON.stringify(codes)}`);
+    assert(!summary.text.includes("`") && summary.title === raw, `⎿ 摘要文本仍含反引号或 title 丢了原句:${summary.text} / ${summary.title}`);
+    const el = document.createElement("span");
+    summaryNs.renderToolSummary(el, summary);
+    assert(el.querySelectorAll(".tool-sum-code").length === 3 && el.textContent === `⎿ ${summary.text}`, `renderToolSummary 没有把行内代码渲染成 .tool-sum-code:${el.textContent}`);
+    const odd = summaryNs.inlineCodeParts({ k: "text", v: "a `b" });
+    assert(odd.length === 1 && odd[0].v === "a `b", "不成对的反引号应原样保留");
+  }
+
+  // ⑪ notice 不挂复制;消息的复制按钮是图标 + 读屏名;本轮结束 = notice turn-end + 模板文案。
+  await withPane(async (pane) => {
+    const notice = chatNs.addMessage("notice", "x");
+    const reply = chatNs.addMessage("assistant md", "y");
+    assert(!notice.querySelector(".msg-actions"), "notice 不应挂复制按钮");
+    const copy = reply.querySelector(".msg-actions .copy-btn");
+    assert(copy && copy.querySelector(".sr-only")?.dataset.i18nKey === "复制" && copy.dataset.i18nTitle === "复制消息" && !copy.dataset.i18nKey, "复制按钮应是图标 + sr-only 读屏名(i18n key 挂在 span 上,切语言不冲掉图标)");
+    handlers.get("kz:done")({ payload: { sessionId: SID, steps: 2, halted: false, history: 5, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
+    await flush();
+    const turnEnd = pane.querySelectorAll(".msg.notice").find((el) => el.classList.contains("turn-end"));
+    assert(turnEnd && turnEnd.textContent.includes("本轮结束 · 2 步 · 会话 5 条"), `本轮结束 notice 缺 turn-end 类或模板文案:${turnEnd?.textContent ?? "(无)"}`);
+  });
+
+  // ⑫ 输入区结构(UI2-0926 #11,docs/design/ui_surface_stack.md「输入区控件几何」):上下文带 + 单行工具行,
+  //    左段 附件 · 模式 · 鞭挞,右段 模型 … 发送;带与工具行里的控件全是 .kz-ctl(发送是 .kz-ctl--round,菜单内部除外);
+  //    「N 轮 · 阶段」在鞭挞设置触发器里。假 DOM 是按 id 拍平的桩,结构只能对源码配对标签扫描。
+  {
+    const footer = html.slice(html.indexOf('<footer id="composer">'), html.indexOf("</footer>", html.indexOf('<footer id="composer">')));
+    // 去掉弹层(菜单/浮层)内部:它们的控件归 surface.css 的菜单外观,不在工具行几何里。
+    let flat = footer;
+    for (;;) {
+      const open = flat.search(/<div id="[\w-]+"[^>]*popover=/);
+      if (open < 0) break;
+      let depth = 0;
+      let close = -1;
+      const tag = /<\/?div\b/g;
+      tag.lastIndex = open;
+      for (let m = tag.exec(flat); m; m = tag.exec(flat)) {
+        depth += m[0] === "<div" ? 1 : -1;
+        if (depth === 0) { close = flat.indexOf(">", m.index) + 1; break; }
+      }
+      if (close < 0) break;
+      flat = flat.slice(0, open) + flat.slice(close);
+    }
+    const order = (block, ids) => ids.map((id) => block.indexOf(`id="${id}"`));
+    const left = flat.slice(flat.indexOf('<div class="composer-left">'), flat.indexOf('<div class="composer-right">'));
+    const right = flat.slice(flat.indexOf('<div class="composer-right">'));
+    const leftAt = order(left, ["attach", "profile-select", "autorun-bar"]);
+    const rightAt = order(right, ["model-picker-group", "task-options", "composer-more", "continue-btn", "delivery-select", "voice-toggle", "stop", "send"]);
+    const ascending = (list) => list.every((value, index) => value >= 0 && (index === 0 || value > list[index - 1]));
+    assert(ascending(leftAt), `输入区工具行左段应依次为 附件 · 模式 · 鞭挞组:${JSON.stringify(leftAt)}`);
+    assert(ascending(rightAt), `输入区工具行右段应依次为 模型 · 任务设置 · 更多 · 继续 · 排队 · 语音 · 停止 · 发送:${JSON.stringify(rightAt)}`);
+    const band = flat.slice(flat.indexOf('id="composer-context"'), flat.indexOf('id="change-bar-files"'));
+    const bar = flat.slice(flat.indexOf('id="composer-bar"'));
+    const bare = [...`${band}\n${bar}`.matchAll(/<(button|select|label)\b[^>]*>/g)]
+      .map(([tag]) => tag)
+      .filter((tag) => !/\bclass="[^"]*\bkz-ctl(?:--round)?\b/.test(tag))
+      .map((tag) => tag.match(/id="([\w-]+)"/)?.[1] ?? tag.slice(0, 40));
+    assert(bare.length === 0, `上下文带/工具行里的控件必须是 .kz-ctl(同一套 28px 盒子):${bare.join(", ")}`);
+    const trigger = flat.slice(flat.indexOf('id="autorun-more"'), flat.indexOf("</button>", flat.indexOf('id="autorun-more"')));
+    assert(trigger.includes('id="auto-progress"') && trigger.includes('id="auto-phase"') && trigger.includes('id="auto-round-now"'), "鞭挞设置触发器里应含轮次(#auto-progress/#auto-round-now)与阶段(#auto-phase):状态即入口");
+    assert(!/id="(?:hint|change-bar-branch)"|class="[^"]*\b(?:composer-actions|composer-secondary|seg-btn|seg-select|ctx-select)\b/.test(footer), "旧输入区结构(#hint、分段组、.ctx-select、改动条里的分支)不应再出现");
+    const moreMenu = footer.slice(footer.indexOf('id="composer-more-menu"'));
+    assert(moreMenu.indexOf('id="sop-picker"') >= 0 && moreMenu.indexOf('id="sop-picker"') < moreMenu.indexOf('id="summarize-btn"'), "SOP 应是「更多」菜单的首项");
+  }
+  // ⑬ 输入区行为:鞭挞触发器的读屏名带轮次与阶段;无改动时分支仍显示在上下文带;语音切换不冲掉图标。
+  {
+    const whip = byId.get("auto-continue");
+    const priorWhip = whip.checked;
+    whip.checked = true;
+    vm.runInContext("renderAutoRun()", sandbox);
+    const armedLabel = byId.get("autorun-more").getAttribute("aria-label") ?? "";
+    assert(armedLabel.startsWith("鞭挞设置 · 鞭挞轮次 ") && /\d/.test(armedLabel) && /· (推进中|等待下一轮|已暂停|待命)$/.test(armedLabel), `鞭挞开着时触发器读屏名应带轮次与阶段,实为「${armedLabel}」`);
+    whip.checked = false;
+    vm.runInContext("renderAutoRun()", sandbox);
+    assert(byId.get("autorun-more").getAttribute("aria-label") === "鞭挞设置" && byId.get("autorun-more").title === "鞭挞设置", `鞭挞关着时触发器读屏名应只剩「鞭挞设置」,实为「${byId.get("autorun-more").getAttribute("aria-label")}」`);
+    whip.checked = priorWhip;
+    vm.runInContext("renderAutoRun()", sandbox);
+    const views = esmModuleCache.get("15-views-misc.js")?.namespace;
+    views.renderChangeBar({ branch: "kanzei/ui2-chat", files: [], additions: 0, deletions: 0 });
+    assert(byId.get("ctx-branch")?.textContent === "⎇ kanzei/ui2-chat" && byId.get("change-bar").classList.contains("hidden"), `无改动时上下文带应仍显示分支且收起改动按钮:「${byId.get("ctx-branch")?.textContent}」`);
+    views.renderChangeBar({ branch: "kanzei/ui2-chat", files: [{ path: "a.rs", additions: 1, deletions: 0 }], additions: 1, deletions: 0 });
+    assert(!byId.get("change-bar").classList.contains("hidden") && byId.get("change-bar-repo").textContent.startsWith("1"), "有改动时上下文带右端应出现「N 个文件 +a −d」");
+    const voice = esmModuleCache.get("23-voice.js")?.namespace?.voiceConversation;
+    const voiceButton = byId.get("voice-toggle");
+    if (voice?.onState) {
+      const before = voiceButton.textContent;
+      voice.onState("listening");
+      assert(voiceButton.getAttribute("aria-label") === "结束语音" && voiceButton.getAttribute("aria-pressed") === "true" && voiceButton.textContent === before, `语音开始后按钮应只改读屏名/按下态,不得把文字写进图标按钮(textContent「${voiceButton.textContent}」)`);
+      voice.onState("off");
+      assert(voiceButton.getAttribute("aria-label") === "语音" && voiceButton.textContent === before, "语音结束后按钮读屏名应回到「语音」且图标不被冲掉");
+    } else {
+      fail("23-voice.js 未导出 voiceConversation(无法验证语音键图标)");
+    }
+  }
+
+  // ⑭ 复核补守卫(独立复核逐条删源码仍全绿的几处新行为)。
+  // ⑭a 历史回放:没等到结果的调用标 interrupted 并同步组头「N 中断」(与实时停止收尾同形)。
+  await withPane(async (pane) => {
+    viewsNs.renderMessagesInto(pane, [{ role: "assistant", parts: [
+      { type: "tool_call", id: "hi1", name: "read", input: { path: "src/a.rs" } },
+      { type: "tool_result", call_id: "hi1", content: "     1\tfn a() {}" },
+      { type: "tool_call", id: "hi2", name: "bash", input: { command: "cargo test" } },
+    ] }]);
+    await flush();
+    const group = top(pane)[0];
+    const row = group?.querySelectorAll(".tool-msg").find((el) => el.dataset.toolCallId === "hi2");
+    assert(row?.classList.contains("interrupted") && !row.classList.contains("running"), `历史回放里没等到结果的调用应标 interrupted:${row?.className}`);
+    assert(labelOf(group).includes("1 中断"), `历史回放的工具组头应计「1 中断」,实为「${labelOf(group)}」`);
+  });
+  // ⑭b 窗口边界切在「调用」与「结果」两条消息之间:补齐后两半配回一块(已完成、不计中断),孤儿结果块删掉,再与后一组合并。
+  {
+    const savedHistory = viewsNs.paneHistory.get(SID || "");
+    await withPane(async (pane) => {
+      const W = viewsNs.PANE_WINDOW_SIZE;
+      const boundary = 12;
+      const items = Array.from({ length: W + boundary }, (_, i) => {
+        if (i === boundary - 1) return { role: "assistant", parts: [{ type: "tool_call", id: "bp1", name: "read", input: { path: "src/p1.rs" } }] };
+        if (i === boundary) return { role: "user", parts: [{ type: "tool_result", call_id: "bp1", content: "     1\tp1" }] };
+        if (i === boundary + 1) return { role: "assistant", parts: [{ type: "tool_call", id: "bp2", name: "read", input: { path: "src/p2.rs" } }, { type: "tool_result", call_id: "bp2", content: "     1\tp2" }] };
+        return { role: i % 2 ? "user" : "assistant", parts: [{ type: "text", text: `b${i}` }] };
+      });
+      viewsNs.renderRecoveredMessages(items);
+      await flush();
+      const orphans = pane.querySelectorAll(".tool-msg").filter((row) => row.dataset.orphanCallId === "bp1").length;
+      assert(orphans === 1, `窗口边界切开调用与结果时首屏应有一条孤儿结果块,实得 ${orphans}`);
+      vm.runInContext("loadEarlierMessages()", sandbox);
+      await flush();
+      const rows = pane.querySelectorAll(".tool-msg");
+      const call = rows.find((row) => row.dataset.toolCallId === "bp1");
+      const group = call?.closest(".tool-group");
+      assert(call && !call.classList.contains("interrupted") && call.classList.contains("ok"), `补齐后被窗口边界切开的调用应配上结果(ok),实为 ${call?.className}`);
+      assert(!rows.some((row) => row.dataset.orphanCallId), "补齐后孤儿结果块应被删掉");
+      assert(group?.dataset.count === "2" && labelOf(group) === "读取 2 个文件", `配对后应与后一组合并为「读取 2 个文件」(2 行),实为「${labelOf(group)}」(${group?.dataset.count} 行)`);
+    });
+    if (savedHistory) viewsNs.paneHistory.set(SID || "", savedHistory);
+    else viewsNs.paneHistory.delete(SID || "");
+  }
+  // ⑭c 族措辞:超过 3 族只列前三族,追加「等 N 次调用」;3 族以内不追加。
+  {
+    const entries = [
+      { name: "read", state: "ok", argText: "a.rs" }, { name: "bash", state: "ok", argText: "ls" },
+      { name: "glob", state: "ok", argText: "*.rs" }, { name: "git", state: "ok", argText: "status" },
+    ];
+    const four = chatNs.toolGroupSummary(entries).label;
+    const three = chatNs.toolGroupSummary(entries.slice(0, 3)).label;
+    assert(four === "读取 1 个文件 · 运行 1 条命令 · 搜索 1 次 · 等 4 次调用", `4 族时组头应只列前三族并追加「等 4 次调用」,实为「${four}」`);
+    assert(three === "读取 1 个文件 · 运行 1 条命令 · 搜索 1 次", `3 族时组头不应追加「等 N 次调用」,实为「${three}」`);
+  }
+  // ⑭d 窗口边界合并的上限:合计超过 30 行不合并,两组原样保留;不超过才合并。
+  await withPane(async (pane) => {
+    for (let i = 0; i < 20; i += 1) await live(...READ);
+    chatNs.addMessage("notice", "断组");
+    for (let i = 0; i < 15; i += 1) await live(...READ);
+    const [a, , b] = top(pane);
+    assert(chatNs.mergeAdjacentToolGroups(a, b) === false && a.dataset.count === "20" && b.dataset.count === "15" && top(pane).length === 3, `合计 35 行的两组不应合并:${a?.dataset.count}+${b?.dataset.count},顶层 ${top(pane).length}`);
+    chatNs.addMessage("notice", "断组");
+    for (let i = 0; i < 10; i += 1) await live(...READ);
+    const c = top(pane)[4];
+    assert(chatNs.mergeAdjacentToolGroups(b, c) === true && b.dataset.count === "25" && top(pane).length === 4, `合计 25 行的两组应合并:${b?.dataset.count},顶层 ${top(pane).length}`);
+  });
+  // ⑭e SOP 在「更多」菜单首项:点它先收起菜单,再以「更多」触发器为锚弹出列表(菜单一关,菜单项就不能当锚点);
+  //     继续文案的开关住在鞭挞菜单里:展开编辑区时收起鞭挞菜单。
+  {
+    const surface = esmModuleCache.get("00-surface.js")?.namespace;
+    const compose = esmModuleCache.get("08-compose-runtime.js")?.namespace;
+    const more = byId.get("composer-more");
+    const moreMenu = byId.get("composer-more-menu");
+    const sopPanel = byId.get("sop-picker-panel");
+    surface.openPopover(more, moreMenu);
+    assert(surface.isSurfaceOpen(moreMenu), "前置:「更多」菜单没有打开");
+    const pendingSop = compose.openSopPicker();
+    assert(!surface.isSurfaceOpen(moreMenu) && surface.isSurfaceOpen(sopPanel), "点 SOP 后应先收起「更多」菜单、再弹出 SOP 列表");
+    assert(more.dataset.kzAnchor && sopPanel.style.getPropertyValue("position-anchor") === more.dataset.kzAnchor, `SOP 列表应以「更多」触发器为锚:${sopPanel.style.getPropertyValue("position-anchor")} ≠ ${more.dataset.kzAnchor}`);
+    await pendingSop;
+    await flush();
+    surface.closeSurface(sopPanel);
+    const whipMenu = byId.get("autorun-menu");
+    const continuePanel = byId.get("continue-panel");
+    const toggle = byId.get("continue-toggle");
+    if (!continuePanel.classList.contains("hidden")) toggle.click();
+    surface.openPopover(byId.get("autorun-more"), whipMenu);
+    assert(surface.isSurfaceOpen(whipMenu), "前置:鞭挞菜单没有打开");
+    toggle.click();
+    assert(!continuePanel.classList.contains("hidden") && !surface.isSurfaceOpen(whipMenu), "展开继续文案时应收起鞭挞菜单(否则菜单盖在编辑区上)");
+    toggle.click();
+    surface.closeSurface(whipMenu);
+  }
+  // ⑭f 附件芯片 = 名字 + 单独的 ×:点名字不删,点 × 删这一个。
+  {
+    const shell = esmModuleCache.get("03-shell.js")?.namespace;
+    const compose = esmModuleCache.get("08-compose-runtime.js")?.namespace;
+    const saved = shell.attachments.splice(0, shell.attachments.length);
+    shell.attachments.push({ file_name: "一个很长的附件名.pdf", media_type: "application/pdf" }, { file_name: "b.png", media_type: "image/png" });
+    compose.renderAttachments();
+    const box = byId.get("attachments");
+    assert(box.children.length === 2 && box.children.every((chip) => chip.querySelector(".attachment-name") && chip.querySelector(".attachment-remove")), "附件芯片应是 名字(.attachment-name)+ 单独的 × 移除键(.attachment-remove)");
+    box.children[0].querySelector(".attachment-name").click();
+    assert(shell.attachments.length === 2, "点附件名字不应删除附件(整颗点击即删容易误触)");
+    box.children[0].querySelector(".attachment-remove").click();
+    assert(shell.attachments.length === 1 && shell.attachments[0].file_name === "b.png", `点 × 应删除该附件,剩 ${shell.attachments.map((item) => item.file_name).join(",")}`);
+    shell.attachments.splice(0, shell.attachments.length, ...saved);
+    compose.renderAttachments();
+  }
+  // ⑭g 同字不同义:交付方式「排队」在英文里是动词 Queue(「排队」这个 key 已译作状态词 Queued),中文仍显示「排队」。
+  {
+    const i18n = esmModuleCache.get("02-i18n.js")?.namespace;
+    const probe = document.createElement("div");
+    const label = document.createElement("span");
+    label.setAttribute("data-i18n-key", "排队 queue");
+    label.setAttribute("data-i18n-zh", "排队");
+    probe.appendChild(label);
+    i18n.applyDataI18nKeys(probe, "en");
+    const en = label.textContent;
+    i18n.applyDataI18nKeys(probe, "zh");
+    assert(en === "Queue" && label.textContent === "排队", `data-i18n-zh:英文应为 Queue、中文应为「排队」,实为 ${en} / ${label.textContent}`);
+    const queue = byId.get("delivery-select").options.find((option) => option.value === "queue");
+    sandbox.setLanguagePreference("en", { persist: true, rerender: true });
+    const queueEn = queue?.textContent;
+    sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
+    assert(queueEn === "Queue" && queue?.textContent === "排队", `交付方式「排队」选项:英文应为 Queue、中文应为「排队」,实为 ${queueEn} / ${queue?.textContent}`);
+  }
+
+  sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
+  vm.runInContext(`transitionSession(${JSON.stringify(SID)}, "idle")`, sandbox);
+  chatNs.setFollowLatest(true);
   await flush();
 }
 

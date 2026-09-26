@@ -33,8 +33,13 @@ defer(() => {
     onState:(state, detail = "") => {
       currentState = state;
       const active = !["off", "error"].includes(state);
-      button.setAttribute("aria-pressed", String(active)); button.dataset.i18nKey = active ? "结束语音" : "语音";
-      button.textContent = t(button.dataset.i18nKey);
+      // UI2-0926 #11:语音键是麦克风图标按钮,文字不能再写进 textContent(会冲掉图标);名字走 title/aria-label,
+      // 并写回 data-i18n-*,切语言时由 applyDataI18nKeys 按它重算。
+      const voiceKey = active ? "结束语音" : "语音";
+      button.setAttribute("aria-pressed", String(active));
+      button.dataset.i18nTitle = button.dataset.i18nAriaLabel = voiceKey;
+      button.title = t(voiceKey);
+      button.setAttribute("aria-label", t(voiceKey));
       panel.classList.toggle("hidden", state === "off"); panel.dataset.voiceState = state;
       view.classList.toggle("voice-mode", active);
       view.dataset.voiceState = state;

@@ -140,3 +140,15 @@ if (gallery.failures.length) {
   process.exit(1);
 }
 console.log(`弹层样例浏览器冒烟通过:${gallery.notes.join(";")}`);
+
+// ── 分区:对话单列与输入区 ──
+// ③对话单列浏览器冒烟(UI2-0926 #12):正文/工具组/子代理卡/notice/活动行/输入区左右边在 1280/1600/2000@1 与
+// 1600@1.5 下逐像素重合,工具组折叠态失败行常驻,空态与输入区同轴;自带两种注入回归的自检。不新增 verify 步骤。
+const { runColumnLayoutSmoke } = await import("./ui-column-layout-smoke.mjs");
+const column = await runColumnLayoutSmoke();
+if (column.failures.length) {
+  console.error(`对话单列浏览器冒烟失败(${column.failures.length} 处):`);
+  for (const failure of column.failures) console.error(` - ${failure}`);
+  process.exit(1);
+}
+console.log(`对话单列浏览器冒烟通过:${column.notes.join(";")}`);

@@ -433,7 +433,6 @@ assert.match(js, /t\("实际差异"\)/);
   //    回退值只在 token 缺失时生效,token 被删/改名时它会静默顶替主题值)。白名单只放运行时由脚本写入的。
   const RUNTIME_TOKENS = new Set([
     "--cells", // 11-docs-list.js / 12-docs-pages.js 按批次数写入
-    "--auto-progress", // 08-auto.js 写鞭挞进度
     "--voice-level", // 23-voice.js 写音量
     "--kz-sync", // 01-core.js motionSync 写动画相位(动效分区)
     "--tf-progress", // 04-structured.js renderTrackerFields 写批次进度条宽度
@@ -693,6 +692,9 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     ".tool-msg.ok .tool-msg-status", ".tool-chip.ok .head::before", ".bg-entry.ok .bg-title::before",
     ".doc-archive-toggle", ".archived-entry",
     ".memory-status-badge.active", ".memory-recall-hit.read .memory-recall-flag", ".queue-entry .queue-delivery", ".v-badge.v-v1",
+    // 鞭挞开关圆点与阶段字的「静息态」(选择器不带 [data-phase] 前缀 = 开着但待命、或尚未开):中性。
+    // 推进中 / 等待下一轮以 .autorun-bar[data-phase=…] 开头,不在此列,由下面的 ⑥w 要求强调色。
+    "#auto-continue-wrap", ".auto-phase",
   ];
   // 编号/路径引用:平时中性,悬停/聚焦才变橙(语义表「引用中性 + 虚下划线,悬停才变橙」)。同样按前缀匹配,
   // 但 :hover / :focus* 分支放行——.ref-link:hover 用 --accent-text 是合法的,只按前缀匹配会误判。
@@ -751,6 +753,31 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     [".pri-badge.P0", "--err"],
   ]) {
     if (!bodiesOf(selector).includes(`var(${token})`)) out.push(`⑥p ${selector} 必须用 var(${token})(语义表),实际:${bodiesOf(selector) || "找不到规则"}`);
+  }
+  // (w) 输入区鞭挞组(UI2-0926 #11 复核):开关圆点 / 轮次 / 阶段字一律不得用绿——开关打开不是「一件工作成功收尾」;
+  //     推进中与等待下一轮(pending,待续跑)属进行中家族:圆点背景必须是 --accent,pending 阶段字的颜色必须是强调色家族。
+  //     复核实测圆点曾是 --ok、pending 阶段字曾是 --warn,⑥a-⑥t 都没覆盖这两个选择器。
+  {
+    const WHIP_SUBJECT = /^(?:#auto-continue-wrap|\.auto-phase|\.auto-progress)(?![\w-])/;
+    const OK_VAR = /var\(--(?:ok|badge-ok|diff-add)(?:-[a-z]+)?\)/;
+    // 主体取法同 subjectOf,但先把括号里的内容抹掉::has(> input:checked) 里的 > 不是组合符(subjectOf 会在那里切开)。
+    const whipSubject = (branch) => subjectOf(branch.replace(/\((?:[^()]|\([^()]*\))*\)/g, "()"));
+    const declValues = (body, prop) => [...body.matchAll(new RegExp(String.raw`(?:^|;)\s*${prop}\s*:\s*([^;]+)`, "g"))].map((m) => m[1].trim());
+    const phaseRules = (phase, subject) => rules.filter((rule) => rule.branches.some((branch) => branch.includes(`[data-phase="${phase}"]`) && whipSubject(branch) === subject));
+    for (const { branches, body } of rules) {
+      const whip = branches.filter((branch) => WHIP_SUBJECT.test(whipSubject(branch)));
+      if (whip.length && OK_VAR.test(body)) out.push(`⑥w 鞭挞组用了成功绿:${whip.join(", ")} { ${body.trim()} }。改法:开着待命 = 中性(currentColor),推进中/等待下一轮 = --accent`);
+    }
+    for (const phase of ["running", "pending"]) {
+      const fills = phaseRules(phase, "#auto-continue-wrap::before").flatMap((rule) => declValues(rule.body, "background(?:-color)?"));
+      if (!fills.some((value) => value === "var(--accent)") || fills.some((value) => value !== "var(--accent)")) {
+        out.push(`⑥w .autorun-bar[data-phase="${phase}"] 的开关圆点背景必须是 var(--accent)(进行中家族),实际:${fills.join(" / ") || "找不到规则"}`);
+      }
+    }
+    const pendingText = phaseRules("pending", ".auto-phase").flatMap((rule) => declValues(rule.body, "color"));
+    if (!pendingText.length || pendingText.some((value) => !/^var\(--accent(?:-text)?\)$/.test(value))) {
+      out.push(`⑥w 等待下一轮(pending)的阶段字颜色必须是 --accent-text(进行中家族,与活动行、kz-dot pending 一致),实际:${pendingText.join(" / ") || "找不到规则"}`);
+    }
   }
   // (e) 别名 token 在 :root 只定义一次、指向语义表里的那一个颜色,亮色块不得重给字面值——
   //     重给就把「一种含义一种颜色」又拆回两套(旧版 --alert/--log-gold/--arch-unindexed 与 --warn 同值四个名)。
@@ -872,6 +899,11 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
     ["⑥g", mutateRoot("--surface-raised", "#262626")],
     ["⑥p", dropRule(/\.backlog-stat\.is-zero \.backlog-num \{[^}]*\}/)],
     ["⑥p", dropRule(/\.kz-glyph\[data-state="attention"\] \{[^}]*\}/)],
+    // 输入区鞭挞组(复核):开关一开就是绿点、推进中圆点换成别的色、等待下一轮的阶段字用琥珀、待命圆点染强调色。
+    ["⑥w", `${css}\n#auto-continue-wrap:has(> input:checked)::before { border: 0; background: var(--ok); }`],
+    ["⑥w", dropRule(/\.autorun-bar:is\(\[data-phase="running"\], \[data-phase="pending"\]\) #auto-continue-wrap::before \{[^}]*\}/)],
+    ["⑥w", `${css}\n.autorun-bar:is([data-phase="pending"], [data-phase="paused"]) .auto-phase { color: var(--warn); }`],
+    ["⑥d", `${css}\n#auto-continue-wrap:has(> input:checked)::before { background: var(--accent); }`],
   ];
   const silent = counterexamples
     .map(([id, mutated], index) => [`${id}#${index}`, colorSemanticsViolations(mutated, surfaceCss).some((v) => v.startsWith(id))])
@@ -909,6 +941,108 @@ function colorSemanticsViolations(styleText, surfaceText = "") {
   assert.ok(html.includes('id="status-auto-allow"') && /id="status-auto-allow"[^>]*>⚡&#xFE0E; /.test(html), "状态栏「自动放行」的 ⚡ 必须写成 ⚡&#xFE0E;(文字字形,随主题取色)");
   const bareBolts = [...html.matchAll(/⚡(?!&#xFE0E;|︎)/g)].length;
   assert.equal(bareBolts, 0, `index.html 里有 ${bareBolts} 处不带 U+FE0E 的 ⚡:彩色 emoji 不受 CSS color 控制,写成 ⚡&#xFE0E;`);
+}
+
+// ── 分区:对话单列与输入区 ──
+// UI2-0926 #12(docs/design/chat_presentation_contract.md §4.4):对话区只有一条列宽真源。消息 pane、运行活动行、
+// 输入区三处宽度必须是同一个表达式;#messages 左右对称(不得再给 OC 立绘留右沟,旧版 222px 让整列左移 100px);
+// 工具组折叠态失败行常驻、单行组不显示组头;组头转圈守 #7 动效纪律。判据自带反例自测(每条喂一条必须命中的样本)。
+{
+  const COLUMN_EXPR = "min(var(--chat-col), 100cqi - 2 * var(--chat-gutter))";
+  const cssText = css.replace(/\r\n/g, "\n");
+  const strip = (text) => text.replace(/\/\*[\s\S]*?\*\//g, "");
+  const bodiesOf = (text, selector) => {
+    const out = [];
+    for (const match of strip(text).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selectors = match[1].split(/,(?![^(]*\))/).map((part) => part.trim().replace(/\s+/g, " "));
+      if (selectors.includes(selector)) out.push(match[2].replace(/\s+/g, " "));
+    }
+    return out;
+  };
+  const columnViolations = (text) => {
+    const out = [];
+    const clean = strip(text);
+    if (/padding-right:\s*222px/.test(clean)) out.push("#messages 仍给 OC 立绘预留 222px 右沟(OC 关着也整列左移)");
+    const view = bodiesOf(text, "#view-chat").join(";");
+    if (!/--chat-col:\s*768px/.test(view) || !/--chat-gutter:\s*\d+px/.test(view) || !/container-type:\s*inline-size/.test(view)) {
+      out.push("#view-chat 必须定义 --chat-col / --chat-gutter 并是 inline-size 容器(列宽唯一真源)");
+    }
+    for (const selector of ["#messages > .msg-pane", "#turn-activity", "#composer"]) {
+      const bodies = bodiesOf(text, selector);
+      if (!bodies.some((body) => body.includes(`width: ${COLUMN_EXPR}`))) out.push(`${selector} 的宽度不是列宽表达式 ${COLUMN_EXPR}`);
+      if (bodies.some((body) => /max-width:\s*1080px/.test(body))) out.push(`${selector} 仍自带 1080px 上限(第二个列宽真源)`);
+    }
+    const messages = bodiesOf(text, "#messages").join(";");
+    if (!/scrollbar-gutter:\s*stable both-edges/.test(messages)) out.push("#messages 缺 scrollbar-gutter: stable both-edges(滚动条让 pane 比输入区偏 4px)");
+    if (!/padding:\s*\d+px 0 \d+px/.test(messages)) out.push("#messages 左右内边距必须为 0(列宽由 pane 自己决定)");
+    // 复核:错误卡的「重试」常驻在流内(复制行悬停才显形,重试若跟着藏起来,出错时还得先找按钮)。
+    if (!bodiesOf(text, ".msg.error > .msg-actions").some((body) => /position:\s*static/.test(body) && /opacity:\s*1\b/.test(body))) out.push("错误卡的「重试」不再常驻:.msg.error > .msg-actions 须 position: static + opacity: 1");
+    if (!bodiesOf(text, '.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err)').some((body) => /display:\s*flex/.test(body))) {
+      out.push("工具组折叠态失败行不再常驻可见(契约 §4.1「错了不该藏起来」)");
+    }
+    if (!bodiesOf(text, '.tool-group[data-count="1"] > .tool-group-head').some((body) => /display:\s*none/.test(body))) out.push("单行工具组仍显示组头(1 次调用就是那一行)");
+    const motion = clean.slice(clean.indexOf("#turn-activity {"));
+    if (!/\.tool-group\[data-running="1"\] \.tool-group-spin\s*\{[^}]*animation:\s*kz-spin var\(--motion-spin\)/.test(motion)) out.push("工具组运行中转圈缺失、没走 --motion-spin 或不在动效分区");
+    if (!/prefers-reduced-motion[\s\S]*\.tool-group\[data-running="1"\] \.tool-group-spin[^{]*\{[^}]*kz-breathe/.test(clean)) out.push("减少动效时工具组转圈没有退化为慢呼吸");
+    return out;
+  };
+  const found = columnViolations(cssText);
+  assert.deepEqual(found, [], `对话单列静态门禁未通过:\n - ${found.join("\n - ")}`);
+  const swap = (from, to) => {
+    assert.ok(cssText.includes(from), `对话单列自测:样式表里找不到 ${from}`);
+    return cssText.replace(from, to);
+  };
+  const counterexamples = [
+    ["222px", `${cssText}\n#messages:not(:has(.empty-state)) { padding-right: 222px; }`],
+    ["列宽真源", swap("--chat-col: 768px;", "--chat-width: 768px;")],
+    ["pane 宽度", swap(`width: ${COLUMN_EXPR}; margin: 0 auto;\n}`, "width: 100%; max-width: 1080px; margin: 0 auto;\n}")],
+    ["活动行宽度", swap(`gap: 8px; width: ${COLUMN_EXPR};`, "gap: 8px; width: calc(100% - 48px); max-width: 1080px;")],
+    ["滚动条对称", swap("scrollbar-gutter: stable both-edges;", "")],
+    ["失败常驻", swap('.tool-group:not([data-expanded="1"], [data-count="1"]) > .tool-group-body:has(> .tool-msg.err) { display: flex; }', "")],
+    ["单行组头", swap('.tool-group[data-count="1"] > .tool-group-head { display: none; }', "")],
+    ["重试常驻", swap(".msg.error > .msg-actions { position: static; opacity: 1; margin-top: 8px; }", ".msg.error > .msg-actions { margin-top: 8px; }")],
+    ["组转圈", swap('.tool-group[data-running="1"] .tool-group-spin { display: inline-block; animation: kz-spin var(--motion-spin) linear infinite; }', '.tool-group[data-running="1"] .tool-group-spin { display: inline-block; }')],
+  ];
+  const silent = counterexamples.filter(([, text]) => columnViolations(text).length === 0).map(([label]) => label);
+  assert.deepEqual(silent, [], `对话单列判据没能命中自己的反例(恒绿):${silent.join(", ")}`);
+
+  // UI2-0926 #11 输入区控件几何(docs/design/ui_surface_stack.md「输入区控件几何」):一套 28px 静默盒子 .kz-ctl;
+  // 全部 select 垂直居中(base-select 的 UA 盒子 align-items 是 normal,固定高度时文字贴顶);鞭挞组容器不画框不加底
+  // (旧版容器边框与内部胶囊描边叠成双线);下拉箭头统一细 V 形遮罩;「继续」只在空闲、「排队」只在运行时出现。
+  // 像素级判据(等高、居中、无叠压、墨迹)在浏览器里量,见 scripts/ui-composer-geometry.mjs。
+  const surfaceText = (await readFile(resolve(root, "crates/kanzei-app/ui/surface.css"), "utf8")).replace(/\r\n/g, "\n");
+  const htmlText = html.replace(/\r\n/g, "\n");
+  const composerViolations = (text, surface, markup) => {
+    const out = [];
+    if (!bodiesOf(text, "select").some((body) => /align-items:\s*center/.test(body))) out.push("基础 select 规则缺 align-items: center(模式芯片文字贴在上半截)");
+    if (!/--ctl-h:\s*28px/.test(strip(text))) out.push("缺控件高度 token --ctl-h: 28px");
+    if (!bodiesOf(text, ".kz-ctl").some((body) => /height:\s*var\(--ctl-h\)/.test(body))) out.push(".kz-ctl 的高度不是 var(--ctl-h)");
+    for (const gone of ["ctx-select", "seg-btn", "seg-select", "composer-secondary", "composer-actions"]) {
+      if (new RegExp(`\\.${gone}\\b`).test(strip(text)) || new RegExp(`class="[^"]*\\b${gone}\\b`).test(markup)) out.push(`旧输入区类 .${gone} 仍在(第二套控件尺寸)`);
+    }
+    const autorun = bodiesOf(text, ".autorun-bar").join(";");
+    if (/background(?:-color)?:(?!\s*(?:none|transparent)\s*(?:;|$))/.test(autorun) || /border(?:-width)?:(?!\s*(?:0|none)\s*(?:;|$))/.test(autorun)) out.push(".autorun-bar 容器不得画框或加底(与内部胶囊描边叠成双线)");
+    for (const [label, body] of [["running", bodiesOf(text, '.autorun-bar[data-phase="running"]').join(";")], ["paused", bodiesOf(text, '.autorun-bar[data-phase="paused"]').join(";")]]) {
+      if (/border-color|background/.test(body)) out.push(`.autorun-bar[data-phase="${label}"] 不得给容器描边或加底(运行态只体现在开关圆点与活动行)`);
+    }
+    if (!/select::picker-icon\s*\{[^}]*var\(--icon-chevron\)/.test(strip(surface))) out.push("surface.css 的 select::picker-icon 没用 --icon-chevron 细 V 形(UA 实心 ▼ 字形基线不齐)");
+    if (!/html:not\(\[data-kz-activity="running"\], \[data-kz-activity="stopping"\]\) #delivery-select \{ display: none; \}/.test(text)) out.push("#delivery-select 没有按 html[data-kz-activity] 门控(空闲时不该出现「排队」)");
+    if (!/html:is\(\[data-kz-activity="running"\], \[data-kz-activity="stopping"\]\) #continue-btn \{ display: none; \}/.test(text)) out.push("#continue-btn 没有按 html[data-kz-activity] 门控(运行中不该出现「继续」)");
+    return out;
+  };
+  const composerFound = composerViolations(cssText, surfaceText, htmlText);
+  assert.deepEqual(composerFound, [], `输入区控件几何静态门禁未通过:\n - ${composerFound.join("\n - ")}`);
+  const composerCounterexamples = [
+    ["select 居中", swap("text-overflow: ellipsis; align-items: center;\n}", "text-overflow: ellipsis;\n}"), surfaceText, htmlText],
+    ["控件高度", swap("height: var(--ctl-h); min-height: 0;", "height: 30px; min-height: 0;"), surfaceText, htmlText],
+    ["旧类", `${cssText}\n.seg-btn { padding: 6px 10px; }`, surfaceText, htmlText],
+    ["鞭挞外框", `${cssText}\n.autorun-bar[data-phase="running"] { border-color: var(--accent); background: var(--statusbar-run); }`, surfaceText, htmlText],
+    ["鞭挞容器", swap("padding: 0; border: 0; border-radius: 0; background: none;", "padding: 3px 0; border: 1px solid transparent; border-radius: var(--radius); background: transparent;"), surfaceText, htmlText],
+    ["picker-icon", cssText, surfaceText.replace(/select::picker-icon \{[^}]*\}/, "select::picker-icon { color: var(--surface-muted); }"), htmlText],
+    ["继续门控", swap('html:is([data-kz-activity="running"], [data-kz-activity="stopping"]) #continue-btn { display: none; }', ""), surfaceText, htmlText],
+  ];
+  const composerSilent = composerCounterexamples.filter(([, text, surface, markup]) => composerViolations(text, surface, markup).length === 0).map(([label]) => label);
+  assert.deepEqual(composerSilent, [], `输入区控件几何判据没能命中自己的反例(恒绿):${composerSilent.join(", ")}`);
 }
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);

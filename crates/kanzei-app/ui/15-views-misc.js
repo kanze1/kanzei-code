@@ -45,10 +45,14 @@ import {
   currentReasoningHead,
   fillToolBlock,
   followLatest,
+  mergeAdjacentToolGroups,
+  mountToolBlock,
   noteProgrammaticScroll,
   renderReasoningBlock,
   setFollowLatest,
   scrollBottom,
+  syncToolGroup,
+  syncToolGroupOf,
   updateLatestButton,
 } from "./05-chat-render.js";
 import {
@@ -261,21 +265,23 @@ export function renderChangeBar(status) {
   const files = status?.files ?? [];
   const additions = status?.additions ?? 0;
   const deletions = status?.deletions ?? 0;
-  // 没有改动就整条收起来:它是「这一轮把工作树改成了什么样」的答案,没答案不占位置。
+  // UI2-0926 #11:分支住在上下文带左侧(项目名旁),没有改动时也要看得见,所以在早退之前写。
+  const branch = $("ctx-branch");
+  if (branch) branch.textContent = status?.branch ? `⎇ ${status.branch}` : "";
+  const box = $("change-bar-files");
+  // 没有改动就把改动按钮与清单都收起来:它是「这一轮把工作树改成了什么样」的答案,没答案不占位置。
   if (!files.length) {
     bar.classList.add("hidden");
+    box?.classList.add("hidden");
     return;
   }
   bar.classList.remove("hidden");
   $("change-bar-repo").textContent = `${files.length} ${t("个文件")}`;
-  $("change-bar-branch").textContent = status?.branch ? `⎇ ${status.branch}` : "";
   $("change-bar-add").textContent = `+${additions}`;
   $("change-bar-del").textContent = `−${deletions}`;
-  const box = $("change-bar-files");
   box.classList.toggle("hidden", !changeBarOpen);
+  // 箭头(.kz-chev)随 aria-expanded 旋转,不再改字形。
   $("change-bar-toggle").setAttribute("aria-expanded", String(changeBarOpen));
-  const caret = $("change-bar-toggle").querySelector(".change-bar-caret");
-  if (caret) caret.textContent = changeBarOpen ? "▾" : "▸";
   if (!changeBarOpen) return;
   box.replaceChildren();
   for (const file of files) {
@@ -406,6 +412,39 @@ export function renderMessagesInto(container, items) {
   }
 }
 
+/// 窗口边界恰好切在「调用」与「结果」两条消息之间时:较早一窗(holder)里的调用没等到结果、被标成 interrupted;
+/// 较新一窗(pane)里是一条配不上的孤儿「tool result」块(renderMessageParts 记下了它的调用 id 与结果)。
+/// 补出较早一窗后按调用 id 把两半配回一块:用孤儿的结果填调用块、删掉孤儿,孤儿所在的组只剩思考块就拆掉组壳、
+/// 思考块留在原位;两组各自重算。否则相邻合并后组头把已完成的调用计成「1 中断」,整行还是灰的。
+/// 只用 children / classList / dataset / closest / insertBefore:冒烟的假 DOM 同样支持。
+export function pairBoundaryOrphans(holder, pane) {
+  const orphans = new Map();
+  for (const row of pane?.querySelectorAll?.(".tool-msg") ?? []) {
+    if (row.dataset?.orphanCallId && row._kzOrphanResult) orphans.set(row.dataset.orphanCallId, row);
+  }
+  if (!orphans.size) return 0;
+  let paired = 0;
+  for (const row of holder?.querySelectorAll?.(".tool-msg") ?? []) {
+    const orphan = orphans.get(row.dataset?.toolCallId);
+    if (!orphan || !row.classList.contains("interrupted") || !row._kzToolBlock) continue;
+    orphans.delete(row.dataset.toolCallId);
+    row.classList.remove("interrupted");
+    fillToolBlock(row._kzToolBlock, orphan._kzOrphanResult);
+    const group = orphan.closest(".tool-group");
+    orphan.remove();
+    if (group?._kzGroup) {
+      const body = group._kzGroup.body;
+      if ([...body.children].some((el) => el.classList.contains("tool-msg"))) syncToolGroup(group);
+      else {
+        for (const el of [...body.children]) group.parentNode.insertBefore(el, group);
+        group.remove();
+      }
+    }
+    paired += 1;
+  }
+  return paired;
+}
+
 /// 向上补齐一窗。保持滚动位置:前插会把内容顶下去,按高度差回补 scrollTop,
 /// 否则用户每次触顶都会被弹到别处。
 export function loadEarlierMessages() {
@@ -424,7 +463,20 @@ export function loadEarlierMessages() {
     subagentPrependEnd();
   }
   const before = messages.scrollHeight;
+  // 边界切在「调用」与「结果」之间:先把两半按调用 id 配回一块(可能删掉只剩孤儿的组),再算相邻合并。
+  pairBoundaryOrphans(holder, activePane);
+  // UI2-0926 #12:窗口边界会把同一段工具活动切成两组。记下旧内容的第一个节点(跳过顶部提示条)
+  // 与新一窗的最后一个节点,前插之后两者相邻就合并(合计不超过上限),与实时渲染同构。
+  const isHint = (el) => el?.classList?.contains("earlier-hint") || el?.classList?.contains("pane-trimmed-hint");
+  const oldFirst = [...activePane.children].find((el) => !isHint(el)) ?? null;
+  const newKids = holder.children;
+  const lastNew = newKids[newKids.length - 1] ?? null;
   activePane.prepend(...[...holder.childNodes]);
+  // 中间只隔着「载入更早的消息」入口(下面 renderEarlierHint 会把它挪回顶部)才算相邻;隔着实时裁剪
+  // 说明条就是真断层(那段被裁掉了),不合并。
+  const kids = [...activePane.children];
+  const between = lastNew && oldFirst ? kids.slice(kids.indexOf(lastNew) + 1, kids.indexOf(oldFirst)) : [];
+  if (between.every((el) => el.classList?.contains("earlier-hint"))) mergeAdjacentToolGroups(lastNew, oldFirst);
   history.rendered += chunk.length;
   messages.scrollTop += messages.scrollHeight - before;
   // 这里**不能**去冲抵 droppedLive。补进来的 chunk 取自 history.items 里
@@ -472,6 +524,8 @@ export function renderEarlierHint() {
   const label = `${t("载入更早的消息")} · ${t("还有")} ${remaining} ${t("条")}`;
   if (existing) {
     existing.textContent = label;
+    // 补齐一窗是前插:已有的提示条会被新内容压到中间。挪回顶部(它是入口,必须在最上面)。
+    activePane.prepend(existing);
     return;
   }
   const hint = document.createElement("button");
@@ -561,7 +615,7 @@ export function renderMessageParts(items) {
         const block = buildToolBlock(part.name || "tool", part.input);
         // 轨迹里的耗时按调用 id 回填(applyRecoveredToolDurations)。
         if (part.id) block.wrap.dataset.toolCallId = part.id;
-        appendToPane(block.wrap);
+        mountToolBlock(block);
         if (part.id) pending.set(part.id, { block, input: part.input });
         continue;
       }
@@ -583,9 +637,14 @@ export function renderMessageParts(items) {
           anchoredTaskCalls.add(taskCall);
           subagentHistoryOrphan(activeSessionId, part.call_id, taskCall.input, { ok: !part.is_error, content: part.content });
         } else {
-          // 配对不上(历史被压缩过):独立成块,总比丢掉强。
+          // 配对不上(历史被压缩过,或窗口边界把调用切到了更早一窗):独立成块,总比丢掉强。
+          // 记下调用 id 与结果:补出更早一窗后 pairBoundaryOrphans 据此把两半配回一块。
           const orphan = buildToolBlock("tool result", {});
-          appendToPane(orphan.wrap);
+          if (part.call_id) {
+            orphan.wrap.dataset.orphanCallId = part.call_id;
+            orphan.wrap._kzOrphanResult = { ok: !part.is_error, content: part.content };
+          }
+          mountToolBlock(orphan);
           fillToolBlock(orphan, { ok: !part.is_error, content: part.content });
         }
         continue;
@@ -618,8 +677,11 @@ export function renderMessageParts(items) {
       continue;
     }
     block.wrap.classList.remove("running");
+    // 与实时停止收尾(chatAbortRunning)同形:标 interrupted,工具组标签据此计「N 中断」。
+    block.wrap.classList.add("interrupted");
     block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
     block.result.classList.remove("hidden");
+    syncToolGroupOf(block);
   }
 }
 

@@ -3,7 +3,8 @@
 //
 // 用法:
 //   node scripts/ui-preview/shoot.mjs [--out <dir>] [--scenes chat,settings] [--themes dark,light]
-//                                     [--dialogs ask,confirm] [--width 1440] [--height 900] [--dpr 1] [--lang zh|en] [--json]
+//                                     [--dialogs ask,confirm] [--width 1440] [--height 900] [--dpr 1.5] [--lang zh|en] [--json]
+// --dpr 是设备像素比(用户机器 1280@1.5、1600@1.25、2000@1 这类缩放档);非 1 时文件名追加 @<dpr>。
 // 默认输出 output/ui-preview/<scene>-<theme>.png;overlays 的非默认弹窗另存 overlays-<dialog>-<theme>.png。
 // --width/--height 是 CSS 像素,--dpr 是设备像素比(用户的三档:1280@1.5、1600@1.25、2000@1)。
 // --lang 是界面语言(默认 zh;en 用来查英文词更宽时的列对齐),同一目录下会覆盖同名截图,换语言请换 --out。
@@ -31,7 +32,8 @@ const themes = list(opt("--themes", "dark,light"));
 const dialogs = list(opt("--dialogs", "ask,question,confirm,input,viewer,palette"));
 const width = Number(opt("--width", "1440"));
 const height = Number(opt("--height", "900"));
-const dpr = Number(opt("--dpr", "1"));
+const dpr = Number(opt("--dpr", "1")) || 1;
+const dprTag = dpr === 1 ? "" : `@${dpr}`;
 const lang = opt("--lang", "zh") === "en" ? "en" : "zh";
 const wantJson = args.includes("--json");
 
@@ -40,10 +42,10 @@ for (const scene of scenes) {
   for (const theme of themes) {
     if (scene === "overlays") {
       for (const dialog of dialogs) {
-        shots.push({ scene, theme, dialog, file: dialog === "ask" ? `overlays-${theme}.png` : `overlays-${dialog}-${theme}.png` });
+        shots.push({ scene, theme, dialog, file: dialog === "ask" ? `overlays-${theme}${dprTag}.png` : `overlays-${dialog}-${theme}${dprTag}.png` });
       }
     } else {
-      shots.push({ scene, theme, file: `${scene}-${theme}.png` });
+      shots.push({ scene, theme, file: `${scene}-${theme}${dprTag}.png` });
     }
   }
 }
