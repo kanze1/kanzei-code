@@ -274,10 +274,13 @@ body {
 .section-title > .quickreq-form { flex: 1 0 100%; min-width: 0; }
 /* 分区标题文字可点击折叠;控件(筛选/按钮)不参与折叠切换 */
 .section-title > span:first-child { flex: 1 1 auto; min-width: 0; cursor: pointer; }
-.section-title > span:first-child::after { content: " ▾"; }
+/* 展开态的 ▾ 只在悬停/键盘聚焦标题时出现(Codex 式,常显的一排小三角是噪音);收起态的 ▸ 常显——
+   它是「这里还有内容」的唯一提示。 */
+.section-title > span:first-child::after { content: " ▾"; color: transparent; transition: color var(--motion-fast) var(--ease-out); }
+.section-title > span:first-child:is(:hover, :focus-visible)::after { color: var(--dim); }
 .section-title > span:first-child:hover { color: var(--fg-strong); }
 .sidebar-section.collapsed > *:not(.section-title) { display: none; }
-.sidebar-section.collapsed .section-title > span:first-child::after { content: " ▸"; }
+.sidebar-section.collapsed .section-title > span:first-child::after { content: " ▸"; color: var(--dim); }
 
 /* 当前进展:任务卡列表占满一行,下面只剩一行实时状态「轮次 · 当前工具」(UI-0926 #4:
    原先四行实时文字分别与任务卡阶段、对话流、焦点卡重复,删掉两行、剩下两段并成一行)。 */
@@ -375,6 +378,13 @@ body {
 .focus-block-reason { font-size: var(--fs-11); color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .focus-empty { padding: 2px; font-size: var(--fs-12); line-height: 1.5; color: var(--dim); }
 .line-focus-empty { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* UI2-0926 侧栏密度:没取得条目的线只占一行——身份在左(可省略号截断),「未取得条目」暗色小字靠右。 */
+.line-focus-compact { flex-direction: row; align-items: baseline; gap: 8px; }
+.line-focus-compact > .line-focus-head { flex: 1 1 auto; min-width: 0; }
+.line-focus-compact > .line-focus-empty { flex: 0 1 auto; max-width: 55%; font-size: var(--fs-11); }
+/* 「记需求 / 记缺陷」是分区标题旁的轻入口:去掉描边与底,悬停才出柔灰块(与分区标题同一明暗档)。 */
+#focus-section .section-title .ghost.mini { border-color: transparent; background: transparent; color: var(--dim); }
+#focus-section .section-title .ghost.mini:hover { background: var(--surface-hover); color: var(--fg-strong); }
 .focus-empty-global { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--fg); }
 @media (prefers-reduced-motion: reduce) { .focus-card, .focus-more { transition: none; } }
 /* 侧栏待办计数:总数一行 + 需求/缺陷各一行。三个数字构成加法树
@@ -2382,10 +2392,16 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; border-radius: var(--r-
 .tool-icon { flex: none; width: 15px; height: 15px; align-self: center; color: var(--dim); }
 .tool-icon svg { width: 15px; height: 15px; display: block; }
 
-/* 侧栏隔离工作树:只读两行(分支 / 归属与改动量),无按钮。 */
-.worktree-readonly .worktree-entry { display: flex; flex-direction: column; gap: 1px; padding: 3px 14px; }
-.worktree-readonly .worktree-branch { color: var(--fg); font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.worktree-readonly .worktree-meta { color: var(--dim); font-size: var(--fs-10-5); }
+/* 侧栏隔离工作树:只读一行(分支在左、改动量靠右),无操作按钮;最多 6 棵,其余一条「查看全部」跳线路页。 */
+.worktree-readonly .worktree-entry { display: flex; flex-direction: row; align-items: baseline; justify-content: space-between; gap: 8px; padding: 3px 16px; }
+.worktree-readonly .worktree-branch { flex: 1 1 auto; min-width: 0; color: var(--fg); font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worktree-readonly .worktree-meta { flex: 0 0 auto; margin-top: 0; color: var(--dim); font-size: var(--fs-10-5); font-variant-numeric: tabular-nums; }
+.worktree-more {
+  display: block; width: 100%; padding: 4px 16px; border: 0; background: transparent;
+  color: var(--dim); font: inherit; font-size: var(--fs-11); text-align: left; cursor: pointer;
+}
+.worktree-more:hover { color: var(--fg-strong); }
+.worktree-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .worktree-readonly .worktree-entry.dirty .worktree-meta { color: var(--fg); }
 /* 线路页的工作树操作台:一行一棵,右侧放操作。 */
 .lines-worktree-list { display: flex; flex-direction: column; gap: 6px; }

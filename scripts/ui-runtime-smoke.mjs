@@ -322,6 +322,26 @@ if (SMOKE_MUTATE) {
       pattern: /head\.append\(groupLabel, groupNum\);/,
       replace: "head.append(groupLabel);",
     },
+    // UI2-0926 侧栏密度:没取得条目的线只占一行。改回一律两段,侧栏又被「未取得条目」一行行撑长。
+    focusCompactLine: {
+      pattern: /section\.className = active \? "line-focus" : "line-focus line-focus-compact";/,
+      replace: 'section.className = "line-focus";',
+    },
+    // UI2-0926 侧栏密度:工作树最多列 6 棵。去掉上限,12 棵树又把侧栏挤满。
+    worktreeCap: {
+      pattern: /for \(const item of ordered\.slice\(0, SIDEBAR_WORKTREE_LIMIT\)\) \{/,
+      replace: "for (const item of ordered) {",
+    },
+    // UI2-0926 侧栏密度:有改动的工作树排前。退回 git 原顺序,要处理的树可能被上限挤到「查看全部」后面。
+    worktreeDirtyFirst: {
+      pattern: /const ordered = \[\.\.\.worktreeItems\.filter\(\(item\) => !item\.clean\), \.\.\.worktreeItems\.filter\(\(item\) => item\.clean\)\];/,
+      replace: "const ordered = [...worktreeItems];",
+    },
+    // UI2-0926 侧栏密度:空工作树列表清计数。删了它,切到没有工作树的项目后计数停在上一个项目的旧值。
+    worktreeCountClear: {
+      pattern: /[ \t]*if \(count\) count\.textContent = "";\r?\n/,
+      replace: "",
+    },
     // ── 分区:侧栏与需求页(完) ──
 
     // ---- 分区:动效 ----
@@ -9655,6 +9675,57 @@ const docsB = {
     probe.remove();
     listNs?.batchSelection.clear();
     listNs?.syncBatchBar();
+    if (priorLanguage === null) localStorageShim.removeItem("kz-language");
+    else localStorageShim.setItem("kz-language", priorLanguage);
+  }
+}
+// ---------- UI2-0926 侧栏密度:未取得条目的线一行;工作树一行一棵、有改动的排前、最多 6 棵 + 查看全部 ----------
+// 变异守卫:focusCompactLine / worktreeCap / worktreeDirtyFirst / worktreeCountClear。
+{
+  const sessionsNs = esmModuleCache.get("09-sessions.js")?.namespace;
+  assert(sessionsNs, "UI2 侧栏密度前置:09-sessions 模块命名空间未加载");
+  const priorLanguage = localStorageShim.getItem("kz-language");
+  localStorageShim.setItem("kz-language", "zh");
+  const savedWorktrees = structuredClone(sessionsNs.worktreeItems ?? []);
+  const savedViewName = document.querySelector(".view.active")?.id?.replace(/^view-/, "") || "chat";
+  try {
+    // ① 焦点区:有卡片的线照旧两段;没取得条目的线带 line-focus-compact(一行:身份 + 「未取得条目」)。
+    const sections = [...document.querySelectorAll("#focus-body .line-focus")];
+    assert(sections.length > 0, "侧栏密度前置:焦点区没有线路分段");
+    for (const section of sections) {
+      const hasCard = Boolean(section.querySelector(".focus-card"));
+      assert(section.classList.contains("line-focus-compact") === !hasCard,
+        `焦点区线路 ${section.dataset.processId}:${hasCard ? "有卡片的线不该压成一行" : "没取得条目的线应只占一行(line-focus-compact)"}`);
+      if (!hasCard) assert(section.querySelector(".line-focus-head") && section.querySelector(".line-focus-empty"), "一行式线路分段应只有「身份」与「未取得条目」两段");
+    }
+    assert(sections.some((section) => section.classList.contains("line-focus-compact")) && sections.some((section) => section.querySelector(".focus-card")),
+      "侧栏密度前置:夹具应同时有一条取得条目的线(卡片)与一条没取得的线(一行)");
+    // ② 工作树:9 棵(3 棵有改动,散在中间)→ 只列 6 行,有改动的 3 棵在前且保持原顺序,末尾一条「查看全部 (9)」。
+    const trees = Array.from({ length: 9 }, (_, index) => ({
+      path: `C:/smoke/wt-${index}`, branch: `kanzei/wt-${index}`, clean: ![2, 5, 8].includes(index),
+      files: [2, 5, 8].includes(index) ? ["a.rs"] : [], bound_process: null,
+    }));
+    sessionsNs.renderWorktrees(trees);
+    const rows = [...byId.get("worktree-list").querySelectorAll(".worktree-entry")];
+    assert(rows.length === sessionsNs.SIDEBAR_WORKTREE_LIMIT && rows.length === 6, `侧栏工作树应最多列 6 棵,实得 ${rows.length}`);
+    assert(rows.slice(0, 3).map((row) => row.querySelector(".worktree-branch")?.textContent).join(",") === "kanzei/wt-2,kanzei/wt-5,kanzei/wt-8",
+      `有改动的工作树应排在前面且保持原顺序:${rows.map((row) => row.querySelector(".worktree-branch")?.textContent).join(",")}`);
+    assert(listText("worktree-count") === "9 · 3 棵有改动", `工作树计数应按全部 9 棵算:${listText("worktree-count")}`);
+    const more = byId.get("worktree-list").querySelector(".worktree-more");
+    assert(more?.textContent.includes("查看全部隔离工作树") && more.textContent.includes("(9)"), `超出上限时应有「查看全部隔离工作树 (9)」:${more?.textContent}`);
+    more?.click();
+    await flush();
+    assert(byId.get("view-lines").classList.contains("active"), "「查看全部隔离工作树」应跳到并行线路页");
+    // ③ 不超上限时没有「查看全部」;空列表时计数一起清掉(原先停在旧值)。
+    sessionsNs.renderWorktrees(trees.slice(0, 4));
+    assert(!byId.get("worktree-list").querySelector(".worktree-more"), "不超过上限时不该有「查看全部」");
+    sessionsNs.renderWorktrees([]);
+    assert(listText("worktree-count") === "", `空工作树列表时计数应清空,实为「${listText("worktree-count")}」`);
+    assert(listText("worktree-list").includes("暂无隔离工作树"), "空工作树列表应显示空态");
+  } finally {
+    sessionsNs?.renderWorktrees(savedWorktrees);
+    document.querySelectorAll(".activity-item").find((node) => node.dataset.view === savedViewName)?.click();
+    await flush();
     if (priorLanguage === null) localStorageShim.removeItem("kz-language");
     else localStorageShim.setItem("kz-language", priorLanguage);
   }

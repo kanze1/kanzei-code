@@ -143,8 +143,8 @@
         <div id="focus-backlog" class="dim" role="group" title="可执行 = 引擎取活时能立刻推进的条数(未关闭、无阻塞字段、依赖已完成、无阶段门槛、不在依赖环上);阻塞 = 未关闭但被其中任一条挡住;总数 = 两队可执行与阻塞之和。口径与 kz work next / 自主推进完全一致。" data-i18n-title="可执行 = 引擎取活时能立刻推进的条数(未关闭、无阻塞字段、依赖已完成、无阶段门槛、不在依赖环上);阻塞 = 未关闭但被其中任一条挡住;总数 = 两队可执行与阻塞之和。口径与 kz work next / 自主推进完全一致。"></div>
       </div>
       <div class="sidebar-section" data-space-only="dev" data-collapse-key="worktrees" id="worktrees-section">
-        <!-- 只读呈现:一颗按钮都不放。差异/收活/放弃全在并行线路页(那里有线路上下文),
-             刷新跟着线路页的 ↻ 走。 -->
+        <!-- 只读呈现:不放操作按钮。差异/收活/放弃全在并行线路页(那里有线路上下文),
+             刷新跟着线路页的 ↻ 走。一行一棵、有改动的排前、最多 6 棵,多出的由「查看全部」跳过去。 -->
         <div class="section-title"><span><span data-i18n-key="隔离工作树">隔离工作树</span> <em id="worktree-count"></em></span></div>
         <div id="worktree-list" class="doc-list worktree-readonly"></div>
       </div>

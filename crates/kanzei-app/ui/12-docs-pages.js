@@ -961,7 +961,8 @@ export function renderFocusPanel(snapshot) {
     body.replaceChildren();
     for (const { line, focus, active, claim, claimRef } of models) {
       const section = document.createElement("section");
-      section.className = "line-focus";
+      // UI2-0926 侧栏密度:没取得条目的线只占一行(身份在左、「未取得条目」在右),有卡片的线照旧两段。
+      section.className = active ? "line-focus" : "line-focus line-focus-compact";
       if (line?.id) {
         section.dataset.processId = line.id;
         motionSync(section);

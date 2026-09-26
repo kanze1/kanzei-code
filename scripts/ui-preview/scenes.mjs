@@ -131,6 +131,12 @@ const SCENES = {
     document.activeElement?.blur?.();
     await ctx.sleep(80);
   },
+  /// UI2-0926 侧栏密度:侧栏滚到底——各线当前在做(未取得条目的线一行)、待办计数、隔离工作树(一行一棵、最多 6 棵)。
+  async sidebar(ctx) {
+    const sidebar = $("#sidebar");
+    if (sidebar) sidebar.scrollTop = sidebar.scrollHeight;
+    await ctx.sleep(60);
+  },
   /// UI2-0926 #5:需求页列表本身(不展开详情),看行的字阶与明暗层级。docs 场景展开了 R-364 的详情,
   /// 详情占满一屏,列表行反而看不全。
   async doclist(ctx) {

@@ -72,28 +72,36 @@ import { normalizeTrackerFields, renderTestRecordFields } from "./04-structured.
 export let worktreeItems = [];
 export let worktreeLineCreateInFlight = false;
 export let worktreeLineCreateSequence = 0;
+// UI2-0926 侧栏密度:侧栏最多列 6 棵(有改动的排前),其余一条「查看全部」跳到并行线路页的工作树清单。
+// 用户现场 12 棵树 × 两行,把「各线当前在做」挤出了一屏。
+export const SIDEBAR_WORKTREE_LIMIT = 6;
 export function renderWorktrees(items) {
   worktreeItems = items ?? [];
   const list = $("worktree-list");
   list.replaceChildren();
+  const count = $("worktree-count");
   if (!worktreeItems.length) {
+    // 计数一起清:空列表时它曾停在上一个项目的旧值上。线路页的清单也同步成空态。
+    if (count) count.textContent = "";
     const empty = document.createElement("div");
     empty.className = "doc-empty";
     empty.textContent = t("暂无隔离工作树");
     list.appendChild(empty);
+    if (typeof renderLinesWorktrees === "function") renderLinesWorktrees();
     return;
   }
-  // 侧栏只做**只读呈现**:分支 + 改动量,一颗按钮都不放。差异/收活/放弃全部迁到
+  // 侧栏只做**只读呈现**:分支 + 改动量,不放操作按钮(至多一条「查看全部」跳转)。差异/收活/放弃全部迁到
   // 并行线路页——那里才有线路上下文(哪条线在跑、收活六格在哪)。侧栏的职责是
   // 「扫一眼有几棵、脏不脏」;把三颗按钮塞进两百来像素宽的行里既挤又容易误点。
   const dirty = worktreeItems.filter((item) => !item.clean).length;
-  const count = $("worktree-count");
   if (count) {
     count.textContent = dirty
       ? `${worktreeItems.length} · ${dirty} ${t("棵有改动")}`
       : String(worktreeItems.length);
   }
-  for (const item of worktreeItems) {
+  // 有改动的排前(两组内各自保持 git worktree list 的原顺序):要处理的先看到。
+  const ordered = [...worktreeItems.filter((item) => !item.clean), ...worktreeItems.filter((item) => item.clean)];
+  for (const item of ordered.slice(0, SIDEBAR_WORKTREE_LIMIT)) {
     const row = document.createElement("div");
     row.className = `worktree-entry${item.clean ? "" : " dirty"}`;
     row.title = item.path;
@@ -105,6 +113,17 @@ export function renderWorktrees(items) {
     meta.textContent = item.clean ? t("干净") : `${item.files.length} ${t("项改动")}`;
     row.append(head, meta);
     list.appendChild(row);
+  }
+  if (ordered.length > SIDEBAR_WORKTREE_LIMIT) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "worktree-more";
+    more.textContent = `${t("查看全部隔离工作树")} (${ordered.length}) →`;
+    more.addEventListener("click", () => {
+      navigate_view("lines");
+      requestAnimationFrame(() => $("lines-worktrees")?.scrollIntoView?.({ block: "start" }));
+    });
+    list.appendChild(more);
   }
   if (typeof renderLinesWorktrees === "function") renderLinesWorktrees();
 }

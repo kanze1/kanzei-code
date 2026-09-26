@@ -754,6 +754,11 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       { path: "C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-r366-b2", branch: "kanzei/thread-r366-b2", clean: false, files: ["crates/kanzei-app/src/run/rewind.rs", "crates/kanzei-core/src/conversation.rs"], bound_process: IDS.lineProcess },
       { path: "C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-d759", branch: "kanzei/thread-d759", clean: true, files: [], bound_process: IDS.idleProcess },
       { path: "C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-r340-old", branch: "kanzei/thread-r340", clean: false, files: ["crates/kanzei-app/ui/13-memory.js"], bound_process: null },
+      // 用户现场是 12 棵、7 棵有改动:侧栏只列 6 棵(有改动的排前),其余「查看全部」。多给几棵孤儿树把上限撑出来。
+      ...["r301", "r318", "d702", "r355", "d731", "r362"].map((tag, index) => ({
+        path: `C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-${tag}`, branch: `kanzei/thread-${tag}`,
+        clean: index % 2 === 0, files: index % 2 === 0 ? [] : ["crates/kanzei-core/src/lib.rs", "docs/design/memory_control_plane.md"].slice(0, index % 3 + 1), bound_process: null,
+      })),
     ],
     worktree_harvest_candidates: [],
     pending_asks_get: () => {

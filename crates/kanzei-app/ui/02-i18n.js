@@ -707,7 +707,7 @@ export const I18N_EN = {
   "初始化新项目目录": "Initialize a new project directory",
   "添加项目目录": "Add project directory",
   // UI2-0926 #1 项目菜单与项目总览页头
-  "打开文件夹…": "Open folder…", "新建项目…": "New project…",
+  "打开文件夹…": "Open folder…", "新建项目…": "New project…", "查看全部隔离工作树": "View all worktrees",
   "删除勾选的对话": "Delete selected conversations",
   "视图": "View",
   "动作": "Action",
