@@ -58,7 +58,8 @@ async function replayRunningTurn(ctx) {
 const SCENES = {
   async chat(ctx) {
     await replayRunningTurn(ctx);
-    if (isHidden("#bg-panel")) $("#activity-toggle")?.click();
+    // UI2-0926 #14:不点任何按钮——子代理开跑后台任务侧栏自动停靠出来(窄窗口只亮徽标)。
+    await waitFor(() => !isHidden("#tasks-panel") || !isHidden("#tasks-badge"));
     await ctx.sleep(80);
   },
 
@@ -67,7 +68,7 @@ const SCENES = {
     // UI-0926 #8:从主对话里运行中的子代理卡片点 ↗,侧栏进该次委派的详情(指令/过程/结果)。
     const open = $('#messages .sa-card[data-sa-key$="|review_gate"] .sa-open') ?? $("#messages .sa-card .sa-open");
     open?.click();
-    await waitFor(() => !isHidden("#agent-panel") && $("#agent-panel")?.dataset.mode === "detail");
+    await waitFor(() => !isHidden("#tasks-panel") && $("#tasks-panel")?.dataset.mode === "detail");
     // 合成点击没有真实指针,程序聚焦「‹ 返回」会被当成键盘焦点弹出提示;截图不要它。
     document.activeElement?.blur?.();
     await ctx.sleep(80);
@@ -88,6 +89,41 @@ const SCENES = {
     emit("kz:step", e.step);
     await sleep(120);
     await ctx.settle();
+  },
+
+  // ── 分区:后台任务侧栏与可调框 ──
+  /// UI2-0926 #14:用户手动打开后台任务侧栏(rail 开关)。宽窗口停靠在右侧;对话列不足 600px(如 --width 1000,
+  /// 或 1280 且左侧栏开着)时是抽屉 + 遮罩。
+  async "tasks-drawer"(ctx) {
+    await replayRunningTurn(ctx);
+    if (isHidden("#tasks-panel")) $("#tasks-toggle")?.click();
+    await waitFor(() => !isHidden("#tasks-panel"));
+    document.activeElement?.blur?.();
+    await ctx.sleep(120);
+  },
+
+  /// UI2-0926 #14:一批并行委派里有一个失败——侧栏不自动收起,「需要关注」置顶,rail 徽标转红。
+  async "tasks-failure"(ctx) {
+    const { emit, fixtures, sleep } = ctx;
+    const e = fixtures.events;
+    emit("kz:meta", e.meta);
+    emit("kz:turn", e.turn);
+    emit("kz:status", e.status);
+    emit("kz:text", { ...e.text, text: "分三路并行勘察:调用点、刷新方案、相关测试。" });
+    await sleep(40);
+    for (const start of e.parallelStarts) emit("kz:tool-start", start);
+    for (const progress of e.parallelProgress) emit("kz:task-progress", progress);
+    emit("kz:tool-end", e.parallelEnd);
+    emit("kz:tool-end", { ...e.parallelEnd, id: "call_par_a", preview: "12 处调用点 (+12 lines)", content: "12 处调用点", durationMs: 31200 });
+    emit("kz:tool-end", {
+      ...e.parallelEnd, id: "call_par_b", ok: false, outcome: "failed", code: "subagent_timeout",
+      preview: "subagent timed out after the wall-clock safety limit", content: "", durationMs: 300000,
+    });
+    emit("kz:step", e.step);
+    await sleep(120);
+    await ctx.settle();
+    await waitFor(() => !isHidden("#tasks-panel") || $("#tasks-badge")?.dataset.tone === "err");
+    await ctx.sleep(80);
   },
 
   async settings(ctx) {

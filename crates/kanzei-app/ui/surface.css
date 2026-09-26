@@ -73,7 +73,7 @@ dialog.k-dialog[data-size="palette"]::backdrop { background: var(--surface-backd
 
 /* ---------- 3 停靠卡片(权限/提问)与浮动芯片:不轻关闭,不参与模态 ---------- */
 .k-card {
-  position: fixed; inset: auto 22px 18px auto; margin: 0;
+  position: fixed; inset: auto calc(22px + var(--kz-dock-right, 0px)) 18px auto; margin: 0;
   min-width: min(380px, calc(100vw - 44px)); max-width: min(560px, calc(100vw - 44px));
   max-height: 60vh; overflow: auto; padding: 16px 18px;
   box-shadow: var(--surface-shadow-3); font-size: var(--fs-13);
@@ -87,12 +87,13 @@ body:not([data-view]:not([data-view="chat"])) .k-card[data-kz-anchor="composer"]
   position-anchor: --kz-composer;
   top: auto;
   left: anchor(left, 50%); /* 回退值只能是长度:写 auto 整条声明无效(实测 Edge 153 退回收缩宽度) */
-  right: anchor(right, 22px);
+  right: anchor(right, calc(22px + var(--kz-dock-right, 0px)));
   bottom: calc(anchor(top, 8px) + 10px);
   width: auto; min-width: 0; max-width: none; /* popover 的 UA 宽度是 fit-content,不写 auto 就不会撑满左右锚点 */
 }
+/* 「重新打开询问」芯片与右下停靠的卡片按后台任务侧栏的停靠宽度让开(--kz-dock-right 由 06-agent-panel.js 写在 <html> 上)。 */
 .k-chip-float {
-  position: fixed; inset: auto 22px 18px auto; margin: 0;
+  position: fixed; inset: auto calc(22px + var(--kz-dock-right, 0px)) 18px auto; margin: 0;
   border-radius: var(--r-pill); padding: 7px 12px;
   color: var(--surface-fg-strong); font-size: var(--fs-12-5); cursor: pointer;
 }
@@ -152,6 +153,14 @@ option:disabled { color: var(--surface-muted); }
 
 /* ---------- 7 常驻侧面板:不进顶层,只共享外观;位置与尺寸仍写在 style.css ---------- */
 .k-panel { border-color: var(--surface-divider); }
+/* 后台任务侧栏(UI2-0926 #14)停靠:与左侧栏对称的一整列,无圆角无阴影,只有左侧一条分隔线;
+   抽屉(对话列不足 600px):同一个元素盖在对话上,加 3 档阴影;遮罩压一层浅色,点它关闭。 */
+.k-panel[data-dock="side"], .k-panel[data-dock="drawer"] {
+  background: var(--surface-panel-docked); border-width: 0 0 0 1px; border-radius: 0;
+}
+.k-panel[data-dock="side"] { box-shadow: none; }
+.k-panel[data-dock="drawer"] { box-shadow: var(--surface-shadow-3); }
+.k-scrim { background: var(--surface-backdrop-soft); }
 
 /* ---------- 8 入场动效(减少动效的全局 !important 规则会自动压平) ---------- */
 :where(dialog.k-surface, .k-surface[popover]:not(.k-toast-region, .k-tooltip), .k-toast) {
@@ -159,6 +168,11 @@ option:disabled { color: var(--surface-muted); }
 }
 @starting-style {
   :where(dialog.k-surface[open], .k-surface[popover]:popover-open:not(.k-toast-region, .k-tooltip), .k-toast) { opacity: 0; translate: 0 4px; }
+}
+/* 侧栏出现只淡入(不做宽度动画:对话列重排一次到位,滚动锚点才恢复得准)。 */
+:where(.k-panel[data-dock]) { transition: opacity var(--surface-motion); }
+@starting-style {
+  :where(.k-panel[data-dock]) { opacity: 0; }
 }
 
 /* ---------- 9 样例页静态预览:把顶层弹层按普通块画出来 ---------- */

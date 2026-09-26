@@ -1,23 +1,21 @@
 import { defer } from "./01-core.js";
-import { motionCount } from "./01-core.js";
 import { escapeHtml } from "./04-markdown.js";
-import { $, invoke, messages } from "./01-core.js";
+import { $, invoke, messages, renderingBackground } from "./01-core.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
   activeSessionId,
-  activityPanelOpen,
-  setActivityPanelOpen,
   currentProject,
   processItems,
   running,
+  sessionState,
   setStatus,
   statusRunning,
   statusTextSource,
-  syncActivityPanel,
   toast,
   toastError,
 } from "./03-shell.js";
+import { SIDE_TERMINAL_AUTO_MS } from "./06-side-policy.js";
 import { toolCallSummary } from "./05-chat-render.js";
 import { classifySubagentEnd, subagentDescription, subagentRelocalize, subagentReplayDuration, subagentReplayTrace } from "./05-subagents.js";
 import { cleanInline, cleanPaths, formatDuration, looksLikeNoise, parseJsonish, stripAnsi } from "./04-structured-parse.js";
@@ -27,8 +25,22 @@ import { renderContextDetail } from "./07-events.js";
 import { autoStopReason, renderAutoStatus } from "./08-auto.js";
 import { state } from "./08-compose.js";
 
-// ---------- 活动面板(R-037):完整工具活动入列,详情点击展开 ----------
-export const bgEntries = new Map(); // call_id -> {el, title, prog, meta, detail, startedAt, done}
+// ---------- 后台任务侧栏里的终端条目(R-037 → UI2-0926 #14):完整工具活动入列,详情点击展开 ----------
+// 侧栏的显隐、停靠与徽标归 06-agent-panel.js(reconcileTasksPanel);这里只维护条目,变化经 onBgChange 通知。
+// 只收活动线路的条目(缺陷 B:后台线路的 bash 曾经混进当前线路的列表)。
+export const bgEntries = new Map(); // call_id -> {el, title, prog, meta, detail, startedAt, done, cls, acked, replay}
+const bgListeners = new Set();
+/// 订阅条目变化:{ type: "entries" | "sections" } 重算段头与徽标;{ type: "work-start", entry } 终端命令跑满 3 秒;
+/// { type: "failure", entry } 跑满 3 秒后失败的终端命令(值得停留的失败)。
+export function onBgChange(fn) {
+  bgListeners.add(fn);
+  return () => bgListeners.delete(fn);
+}
+function notifyBg(event) {
+  for (const fn of bgListeners) {
+    try { fn(event); } catch (error) { console.warn(error); }
+  }
+}
 export const diffSummary = new Map();
 export const BG_MAX = 120;
 export function renderDiffSummary() {
@@ -116,40 +128,18 @@ export function appendDiffNode(container, node, depth) {
 }
 
 export function bgSync() {
-  // 面板开关只由用户控制;工具事件只能更新内容,不能擅自开关。
-  syncActivityPanel();
-  syncBgRoleFilterOptions();
+  // 显隐只归侧栏的 reconcileTasksPanel(自动开合策略 + 用户开关);工具事件只更新内容。
   applyBgFilters();
-  renderBgGroups();
   renderBgSections();
 }
 
-// R-184 P2:角色筛选下拉的选项随条目动态刷新(全部 + 当前有 role 的去重角色),
-// 选中值在重建时保留。放在 bgSync 里随条目增减一并维护,不单独监听。
-export function syncBgRoleFilterOptions() {
-  const select = $("bg-role-filter");
-  if (!select) return;
-  const current = select.value;
-  const roles = [...new Set([...bgEntries.values()].map((entry) => entry.role).filter(Boolean))].sort();
-  select.replaceChildren();
-  const all = document.createElement("option");
-  all.value = "all";
-  all.textContent = t("全部子代理");
-  select.appendChild(all);
-  for (const role of roles) {
-    const option = document.createElement("option");
-    option.value = role;
-    option.textContent = role;
-    select.appendChild(option);
-  }
-  select.value = roles.includes(current) || current === "all" ? current : "all";
-}
 // R-168(用户原话「不要在活动栏记录所有工具,edit啥的,只记录报错的和非工具的 bash」):
 // 活动栏只收**终端类调用**与**失败调用**。成功的 read/grep/edit/tracker 类走 bgStartQuiet 静默,
 // 失败时由 bgFinishQuiet 补建条目——「只记录报错的」靠的是收尾补建,不是入列时就全收。
-// R-173 开了唯一例外:编排派发的勘察/复核子代理 name 恒为 "task",不经模型 tool call,
-// 主对话没有内联工具块兜底,只看 name 会把它们连同模型自派的 task 一起静默。
-// —— c611f909(2026-08-12)曾把两个判据改成恒真/恒假,未带条目编号也未动 tracker,
+// R-173 曾开过一个例外(编排派发的勘察/复核子代理),UI2-0926 #14 起所有 task(模型自派与编排派发)
+// 都是主对话里的子代理卡片与后台任务侧栏里的委派卡,这里不再重复建条目——task 永远不进终端条目,
+// 失败也不补建(委派卡自己标失败)。
+// —— c611f909(2026-08-12)曾把判据改成恒真/恒假,未带条目编号也未动 tracker,
 // R-168 却一直显示 [done];D-729 按用户重申的原意恢复。要改口径请改 BG_TOOL_TYPES 或
 // 在此加显式集合,别再回到恒真——恒真等于没有判据。
 export const ORCH_PHASES = new Set(["scouting", "review"]);
@@ -162,8 +152,8 @@ export function orchPhaseLabel(phase) {
   // 查表写法(t(MAP[phase]))会整条绕过 key 覆盖率检查,英文界面上就地漏译。
   return phase === "scouting" ? t("勘察") : t("复核");
 }
-export function isActivityTool(name, input) {
-  return bgIsTerminal(name) || (name === "task" && orchPhaseOf(input) !== null);
+export function isActivityTool(name) {
+  return bgIsTerminal(name);
 }
 
 export const BG_TOOL_TYPES = {
@@ -176,11 +166,12 @@ export const BG_TOOL_TYPES = {
 // 静默调用先挂这里等收尾:成功就无声丢弃,失败由 bgFinishQuiet 补建真实条目。
 // R-168 的「只记录报错的」那一半就是靠它兑现的,不是靠入列判据。
 export const bgPending = new Map(); // call_id -> {name, summary, input, startedAt}
-export function bgQuiet(name, input) {
-  return !isActivityTool(name, input);
+export function bgQuiet(name) {
+  return !isActivityTool(name);
 }
 export function bgStartQuiet(id, name, summary, input) {
-  if (!id) return;
+  // 后台线路的调用不进活动线路的列表(缺陷 B);task 的成败归委派卡,不补建终端条目。
+  if (!id || renderingBackground || name === "task") return;
   bgPending.set(id, { name, summary, input, startedAt: Date.now() });
   // 悬挂上限:异常中断的静默调用不该无限累积。
   if (bgPending.size > BG_MAX) bgPending.delete(bgPending.keys().next().value);
@@ -188,6 +179,8 @@ export function bgStartQuiet(id, name, summary, input) {
 // 收尾历史兼容路径中的待定调用。成功返回 true；失败补建真实条目，
 // 让调用方继续走 bgEnd 把错误详情画出来。
 export function bgFinishQuiet(id, ok) {
+  // 后台线路的收尾不认领活动线路的待定调用(调用 id 可能在两条线上重名)。
+  if (renderingBackground) return false;
   const pending = bgPending.get(id);
   if (!pending) return false;
   bgPending.delete(id);
@@ -209,9 +202,6 @@ export function setBgDoneOpen(value) { bgDoneOpen = Boolean(value); }
 export const bgFilters = {
   type: localStorage.getItem("kz-bg-type") || "all",
   status: localStorage.getItem("kz-bg-status") || "all",
-  // R-184 P2:按子代理角色筛活动轨迹。只对编排派发(带 role)的条目生效,
-  // 其它工具一律通过——角色筛是活动面板里的一个维度,不是把活动栏变成子代理专用。
-  role: localStorage.getItem("kz-bg-role") || "all",
 };
 export function bgEntryStatus(entry) {
   if (!entry.done) return "running";
@@ -222,123 +212,69 @@ export function applyBgFilters() {
   for (const entry of bgEntries.values()) {
     const typeOk = bgFilters.type === "all" || entry.type === bgFilters.type;
     const statusOk = bgFilters.status === "all" || bgEntryStatus(entry) === bgFilters.status;
-    const roleOk = bgFilters.role === "all" || entry.role === bgFilters.role;
-    const visible = typeOk && statusOk && roleOk;
+    const visible = typeOk && statusOk;
     entry.el.classList.toggle("hidden", !visible);
     if (visible) shown += 1;
   }
-  const count = $("bg-count");
-  // 有筛选时同时给出"筛出/总数",否则看到 3 条会以为本轮只跑了 3 个工具。
-  if (count) {
-    count.textContent = bgEntries.size
-      ? shown === bgEntries.size
-        ? `· ${bgEntries.size}`
-        : `· ${shown}/${bgEntries.size}`
-      : "";
-  }
+  // 有筛选时同时给出"筛出/总数",否则看到 3 条会以为本轮只跑了 3 个工具(写在筛选按钮的提示里)。
+  const filter = $("tasks-filter");
+  if (filter) filter.dataset.filtered = String(shown !== bgEntries.size);
+  return { shown, total: bgEntries.size };
 }
 
-// R-173:编排派发的子代理按 input.phase 分区(勘察 / 复核)。这是用户要的 Running/
-// Finished 分区的雏形,复用 #bg-list 而不是另起一个平行面板——独立子代理面板归 R-174,
-// 本轮只把丢掉的信息接回来。
-export const bgGroups = new Map(); // `${section}|${phase}` -> {wrap, head, body}
 export const BG_SECTION_BODY = { running: "bg-running", attention: "bg-attention", done: "bg-done" };
 export let bgDoneOpen = localStorage.getItem("kz-bg-done-open") === "1";
 // 条目该落哪一段。成功判据只认 ToolEnd 的机器可读 outcome(经 activityOutcomeView
-// 折算成 cls),不看文案、不反推 DOM:成功与 noop 收进折叠区,其余(失败/需确认/
-// 需修正/超时)留在「需要关注」——收错地方比不收更糟。
+// 折算成 cls),不看文案、不反推 DOM:成功与 noop 收进已完成;其余(失败/需确认/需修正/超时)
+// 在用户确认之前留在「需要关注」——关掉侧栏、点「知道了」或发下一条消息都算确认(entry.acked),
+// 确认后挪进已完成(仍带 ✗ 标记)。历史回放的条目一律已确认。
 export function bgSectionFor(entry) {
   if (!entry.done) return "running";
-  return entry.cls === "ok" || entry.cls === "noop" ? "done" : "attention";
+  if (entry.cls === "ok" || entry.cls === "noop") return "done";
+  return entry.acked ? "done" : "attention";
 }
 export function bgPlace(entry) {
   const section = bgSectionFor(entry);
   if (entry.section === section && entry.el.parentNode) return;
   entry.section = section;
   entry.el.dataset.bgSection = section;
-  bgGroupBody(entry.phase, section).appendChild(entry.el);
+  ($(BG_SECTION_BODY[section]) ?? $("bg-list"))?.appendChild(entry.el);
 }
-export function bgGroupBody(phase, section = "running") {
-  const host = $(BG_SECTION_BODY[section]) ?? $("bg-list");
-  if (!phase) return host;
-  // 分组键带上段:同一个 phase 在三段里各有一份组容器,否则条目落位后又被组容器拽回去。
-  const key = `${section}|${phase}`;
-  let group = bgGroups.get(key);
-  if (!group) {
-    const wrap = document.createElement("div");
-    wrap.className = `bg-group bg-group-${phase}`;
-    wrap.dataset.bgPhase = phase;
-    wrap.dataset.bgSection = section;
-    const head = document.createElement("div");
-    head.className = "bg-group-head";
-    const body = document.createElement("div");
-    body.className = "bg-group-body";
-    wrap.append(head, body);
-    host.appendChild(wrap);
-    group = { wrap, head, body, phase, section };
-    bgGroups.set(key, group);
-  }
-  return group.body;
-}
-// 组标题给"完成数/总数",这是本轮最直接的推进度读数;整组被筛选清空就收起,
-// 不留一个指向空气的标题。
-export function renderBgGroups() {
-  for (const [key, group] of bgGroups) {
-    const mine = [...bgEntries.values()].filter((e) => e.phase === group.phase && e.section === group.section);
-    if (!mine.length) {
-      group.wrap.remove();
-      bgGroups.delete(key);
-      continue;
+/// 确认失败:该线路「需要关注」里的条目挪进已完成(关侧栏、「知道了」、下一条用户消息)。
+export function bgAck(sessionId = activeSessionId) {
+  let moved = 0;
+  for (const entry of bgEntries.values()) {
+    if (entry.acked || (sessionId && entry.sessionId && entry.sessionId !== sessionId)) continue;
+    if (!entry.done) continue;
+    entry.acked = true;
+    if (bgSectionFor(entry) !== entry.section) {
+      bgPlace(entry);
+      moved += 1;
     }
-    // 分母用**跨段**的全量:段内分母会让「勘察 · 0/2」和「勘察 · 3/3」同屏自相矛盾。
-    const all = [...bgEntries.values()].filter((e) => e.phase === group.phase);
-    const done = all.filter((entry) => entry.done).length;
-    group.head.textContent = `${orchPhaseLabel(group.phase)} · ${done}/${all.length}`;
-    group.wrap.dataset.bgGroupDone = `${done}/${all.length}`;
-    group.wrap.classList.toggle("hidden", !mine.some((entry) => !entry.el.classList.contains("hidden")));
   }
+  if (moved) renderBgSections();
+  return moved;
 }
-// #7:面板收起时 rail 开关右上角的运行徽标(CSS 按 data-running 呼吸;面板展开时不显示)。
-export function syncActivityRailRunning() {
-  const railToggle = $("activity-toggle");
-  if (railToggle) railToggle.dataset.running = String([...bgEntries.values()].some((e) => !e.done));
+/// 活动线路还在跑的终端条目数(侧栏徽标与自动收起的判据之一)。
+export function bgRunningCount(sessionId = activeSessionId) {
+  let count = 0;
+  for (const entry of bgEntries.values()) {
+    if (!entry.done && (!sessionId || !entry.sessionId || entry.sessionId === sessionId)) count += 1;
+  }
+  return count;
 }
-// 三段的计数、空态与折叠。运行中那段额外给出终端条数——用户开这个面板就是要看
-// 「现在有几个终端在跑、跑的是什么」。
+/// 三段里可见(未被筛掉)的终端条目数;侧栏段头把它与委派卡合并计数。
+export function bgSectionCounts() {
+  const counts = { running: 0, attention: 0, done: 0, total: bgEntries.size };
+  for (const entry of bgEntries.values()) {
+    if (entry.el.classList.contains("hidden") || !(entry.section in counts)) continue;
+    counts[entry.section] += 1;
+  }
+  return counts;
+}
+// 段头(计数、空态、折叠)由侧栏合并委派卡后统一渲染(06-agent-panel.js 的 onBgChange 监听)。
 export function renderBgSections() {
-  const visible = (section) => [...bgEntries.values()]
-    .filter((e) => e.section === section && !e.el.classList.contains("hidden"));
-  const running = visible("running");
-  const attention = visible("attention");
-  const done = visible("done");
-  const terminals = running.filter((e) => e.name === "bash" || e.type === "bash").length;
-  const runCount = $("bg-running-count");
-  if (runCount) {
-    motionCount(runCount, running.length
-      ? (terminals ? `${running.length} · ${t("终端")} ${terminals}` : String(running.length))
-      : "");
-  }
-  syncActivityRailRunning();
-  const emptyRow = $("bg-running-empty");
-  if (emptyRow) emptyRow.classList.toggle("hidden", running.length > 0);
-  const attentionSection = $("bg-section-attention");
-  if (attentionSection) attentionSection.classList.toggle("hidden", attention.length === 0);
-  const attentionCount = $("bg-attention-count");
-  if (attentionCount) attentionCount.textContent = attention.length ? String(attention.length) : "";
-  const doneSection = $("bg-section-done");
-  if (doneSection) doneSection.classList.toggle("hidden", done.length === 0);
-  const doneCount = $("bg-done-count");
-  if (doneCount) doneCount.textContent = done.length ? String(done.length) : "";
-  const doneBody = $("bg-done");
-  const toggle = $("bg-done-toggle");
-  if (doneBody) doneBody.classList.toggle("hidden", !bgDoneOpen);
-  if (toggle) {
-    toggle.setAttribute("aria-expanded", String(bgDoneOpen));
-    const caret = toggle.querySelector(".bg-section-caret");
-    if (caret) caret.textContent = bgDoneOpen ? "▾" : "▸";
-  }
-  const clear = $("bg-clear-done");
-  if (clear) clear.classList.toggle("hidden", done.length === 0);
+  notifyBg({ type: "sections" });
 }
 
 /// 差异汇总必须独立于活动面板的过滤:diff 来自 write/edit,而这两个工具已不进活动面板,
@@ -363,77 +299,31 @@ export function bgAppendArgs(entry, input) {
   entry.el.classList.add("has-detail");
 }
 
-// 当前正在用的工具名。工具结束后保留名字但转灰(.idle):子代理在两次工具调用之间
-// 是在思考,清空会让这一行大部分时间是空的,反而看不出它刚干了什么。
-export function bgSetCurrentTool(entry, name, running) {
-  if (!entry.current) return;
-  const label = String(name ?? "");
-  entry.current.textContent = label ? `⚙ ${label}` : "";
-  entry.current.classList.toggle("hidden", !label);
-  entry.current.classList.toggle("idle", Boolean(label) && !running);
-  // 写入去向探针:值断言看不出"写对了但写错了地方",dataset 把去向也钉死。
-  entry.el.dataset.bgCurrentTool = label;
-}
-
-// 运行中的元信息一行。编排派发的子代理要的是"跑了多久 + 内部调用了几次工具",
-// 只有秒数看不出它到底在推进还是卡死。1 秒心跳与建条时共用同一段,建条即可读。
+// 运行中的元信息一行:已运行秒数。1 秒心跳与建条时共用同一段,建条即可读。
+// 实时的终端命令跑满 3 秒(SIDE_TERMINAL_AUTO_MS)上报一次 work-start:后台任务侧栏据此自动打开
+// (短命令一闪而过不打扰);历史回放的条目不上报。
 export function bgTick(entry) {
-  const seconds = Math.round((Date.now() - entry.startedAt) / 1000);
+  const ms = Date.now() - entry.startedAt;
+  const seconds = Math.round(ms / 1000);
   entry.el.dataset.bgElapsed = String(seconds);
-  entry.meta.textContent = entry.phase
-    ? `${t("运行中")} · ${seconds}s · ${t("内部调用")} ${entry.children.size}`
-    : `${seconds}s`;
-}
-
-// 角色名就是 id,而角色跨轮复用(每个自主推进轮都有 architecture_scout)。同名角色
-// 再次派发时必须原地复位:被 bgEntries.has(id) 直接挡掉的话,第二轮的 progress/end
-// 会全写进上一轮那条已终态的行,面板从此定格在上一轮。
-export function bgRestart(id, summary, input, sessionId = activeSessionId) {
-  const entry = bgEntries.get(id);
-  if (!entry) return;
-  entry.done = false;
-  entry.startedAt = Date.now();
-  entry.children.clear();
-  entry.input = input;
-  entry.sessionId = sessionId;
-  entry.live = null;
-  entry.summary = toolCallSummary(entry.name, input) || String(summary ?? "");
-  entry.target.textContent = entry.summary;
-  entry.title.title = entry.summary;
-  entry.el.classList.remove("ok", "err", "timeout", "has-detail");
-  entry.el.classList.add("running");
-  entry.el.dataset.bgStatus = "running";
-  // 同名角色第二轮:从折叠区回到运行中段,否则重跑的东西藏在收起来的抽屉里。
-  entry.cls = null;
-  entry.outcomeState = null;
-  bgPlace(entry);
-  entry.prog.textContent = `… ${t("子代理启动中")}`;
-  entry.detail.innerHTML = "";
-  entry.detail.classList.add("hidden");
-  bgAppendArgs(entry, input);
-  bgSetCurrentTool(entry, null, false);
-  bgTick(entry);
-  bgRenderActions(id, entry);
-  bgSync();
+  entry.meta.textContent = `${seconds}s`;
+  if (!entry.done && !entry.replay && !entry.longReported && entry.type === "terminal" && ms >= SIDE_TERMINAL_AUTO_MS) {
+    entry.longReported = true;
+    notifyBg({ type: "work-start", entry });
+  }
 }
 
 export function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
-  if (!id) return;
-  const phase = name === "task" ? orchPhaseOf(input) : null;
-  if (bgEntries.has(id)) {
-    if (phase) bgRestart(id, summary, input, sessionId);
-    return;
-  }
+  if (!id || bgEntries.has(id)) return;
+  // 后台线路的调用不进活动线路的列表(缺陷 B):路由层把后台会话的 kz:tool-start 交给同一个处理函数时
+  // renderingBackground 为真;显式传入的 sessionId 与活动线路不同也不收。
+  if (renderingBackground || (sessionId && activeSessionId && sessionId !== activeSessionId)) return;
   const type = bgToolType(name);
   const el = document.createElement("div");
-  el.className = `bg-entry running bg-type-${type}${phase ? " bg-orch" : ""}`;
+  el.className = `bg-entry running bg-type-${type}`;
   el.dataset.bgId = id;
   el.dataset.bgTool = name;
   el.dataset.bgStatus = "running";
-  if (phase) {
-    el.dataset.bgPhase = phase;
-    el.dataset.bgRole = id;
-  }
   const title = document.createElement("button");
   title.type = "button";
   title.className = "bg-title";
@@ -443,10 +333,7 @@ export function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
   // 跑的是哪条命令——"打开也没啥用"的直接原因(R-095 验收 ⑤)。
   const toolName = document.createElement("span");
   toolName.className = "bg-tool";
-  // 编排派发的这批里,"task" 对所有 8 条都一样,毫无区分度;角色名才是身份。
-  toolName.textContent = phase ? id : name;
-  // 角色身份只靠角色名文本,不再配哈希取色的色点(ui_color_semantics.md:身份不用色——
-  // 4 种身份色正好撞上琥珀/绿这些状态色)。
+  toolName.textContent = name;
   const target = document.createElement("span");
   target.className = "bg-target";
   // 后端 summarize_input(kanzei-core/src/runner/compaction.rs)把整坨入参 JSON 截到 160 字,
@@ -456,20 +343,10 @@ export function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
   const shown = toolCallSummary(name, input) || String(summary ?? "");
   target.textContent = shown;
   title.append(toolName, target);
-  // 所属阶段随条目走,不只挂在组标题上:筛选/滚动之后单看一行也要知道它是勘察还是复核。
-  if (phase) {
-    const badge = document.createElement("span");
-    badge.className = "bg-phase-badge";
-    badge.textContent = orchPhaseLabel(phase);
-    title.append(badge);
-  }
   title.title = shown;
   const prog = document.createElement("div");
   prog.className = "bg-prog";
-  prog.textContent = name === "task" ? `… ${t("子代理启动中")}` : "…";
-  // 当前正在用的工具名单独一行:bg-meta 每秒被心跳整行重写,挂那儿会被冲掉。
-  const current = phase ? document.createElement("div") : null;
-  if (current) current.className = "bg-current hidden";
+  prog.textContent = "…";
   const meta = document.createElement("div");
   meta.className = "bg-meta";
   const actions = document.createElement("div");
@@ -482,22 +359,21 @@ export function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
       title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
     }
   });
-  el.append(title, prog, ...(current ? [current] : []), meta, actions, detail);
+  el.append(title, prog, meta, actions, detail);
   const entry = {
     // summary 存显示值:它的两个消费方(重跑填词、导出文件头)都是把它当"人类可读的一行标识"用,
     // 且都在同一段文本里另附了完整入参 JSON,存裸 JSON 只会变成两份 JSON 叠在一起。
-    el, title, target, prog, current, meta, detail, actions, type, name, phase, summary: shown, input, sessionId,
-    role: phase ? id : null, children: new Map(), startedAt: Date.now(), done: false,
+    el, title, target, prog, current: null, meta, detail, actions, type, name, summary: shown, input, sessionId,
+    children: new Map(), startedAt: Date.now(), done: false,
     // 落位判据存在条目上,不从 DOM class 反推(反推在 warn/noop 上一直是错的)。
-    cls: null, outcomeState: null, section: null,
+    // acked:用户确认过的失败挪进已完成;replay:历史回放的条目(不触发自动打开)。
+    cls: null, outcomeState: null, section: null, acked: false, replay: false, longReported: false,
   };
   bgEntries.set(id, entry);
   bgPlace(entry);
   bgAppendArgs(entry, input);
   bgTick(entry);
-  // 上限裁剪改按登记表走:条目现在可能嵌在分组容器里,再按 #bg-list 的直接子节点裁剪
-  // 会把整组连同其中多条一起摘掉、却只注销一个 id,剩下的 id 变成指向游离节点的幽灵条目。
-  // 优先摘已完成的:在跑的条目正是用户开着这个面板要看的东西,绝不能被裁掉。
+  // 上限裁剪按登记表走,优先摘已完成的:在跑的条目正是用户开着侧栏要看的东西,绝不能被裁掉。
   while (bgEntries.size > BG_MAX) {
     const victim = [...bgEntries].find(([, e]) => e.section === "done")
       ?? [...bgEntries].find(([, e]) => e.done);
@@ -916,55 +792,6 @@ export function traceArgText(name, input, summary) {
   return looksLikeNoise(clean) ? "" : clean;
 }
 
-export function bgProgress(id, text, trace) {
-  const entry = bgEntries.get(id);
-  if (!entry) return;
-  if (text) entry.prog.textContent = text;
-  if (!trace) {
-    // 纯轮次进度(trace 为 null)也让心跳行跟上,不必等下一次 1 秒 tick。
-    if (!entry.done) bgTick(entry);
-    return;
-  }
-  // UI-0926 #8:只有子工具的 start/end 改「当前工具」与子行。usage/text/meta 的 trace 没有工具名
-  // (或 name 是占位),此前照样走下去,把「⚙ assistant」之类写进当前工具行。
-  if (trace.phase !== "start" && trace.phase !== "end") {
-    if (!entry.done) bgTick(entry);
-    return;
-  }
-  entry.detail.classList.add("trace-detail");
-  bgSetCurrentTool(entry, trace.name, trace.phase === "start");
-  let child = entry.children.get(trace.child_id);
-  if (trace.phase === "start") {
-    if (!child) {
-      const row = document.createElement("div");
-      row.className = "bg-child running";
-      const head = document.createElement("div");
-      head.className = "bg-child-head";
-      head.textContent = `${trace.name} ${traceArgText(trace.name, trace.input, trace.summary)}`.trim();
-      const meta = document.createElement("div");
-      meta.className = "bg-child-meta";
-      row.append(head, meta);
-      entry.detail.appendChild(row);
-      // 入参随子行留存:收尾摘要要按它算(edit 的增删行、read 的 limit)。
-      child = { row, head, meta, name: trace.name, input: trace.input ?? null };
-      entry.children.set(trace.child_id, child);
-      entry.el.classList.add("has-detail");
-    }
-  } else if (child) {
-    const view = activityOutcomeView(trace.ok, trace.outcome);
-    child.row.classList.remove("running");
-    child.row.classList.add(view.cls);
-    child.row.dataset.toolOutcome = view.state;
-    // 子代理轨迹不带正文(TaskTrace 只有 preview),摘要器走降级口径——仍然不回显源码/JSON。
-    child.meta.textContent = toolResultSummary(trace.name || child.name, {
-      ok: trace.ok, outcome: trace.outcome, code: trace.code, preview: trace.preview, display: trace.display, input: child.input ?? undefined,
-    }).text;
-    appendDisplayBlock(child.row, trace.display);
-  }
-  // 调用数在 children 落定后再刷,先刷会永远少算一次。
-  if (!entry.done) bgTick(entry);
-}
-
 export function activityOutcomeView(ok, outcome) {
   const state = outcome || (ok ? "success" : "failed");
   if (state === "noop") return { state, cls: "noop" };
@@ -974,6 +801,8 @@ export function activityOutcomeView(ok, outcome) {
 
 /// extra = {content, contentTruncated, contentBytes, code, durationMs}(kz:tool-end 携带,见 chatToolEnd)。
 export function bgEnd(id, ok, preview, display, outcome, extra = {}) {
+  // 后台线路的收尾不碰活动线路的条目(调用 id 可能在两条线上重名,缺陷 B)。
+  if (renderingBackground) return;
   const entry = bgEntries.get(id);
   if (!entry) return;
   const view = activityOutcomeView(ok, outcome);
@@ -983,20 +812,17 @@ export function bgEnd(id, ok, preview, display, outcome, extra = {}) {
     entry.live = null;
   }
   entry.done = true;
-  // 落位判据存条目上:成功/noop 收进折叠区,其余留在「需要关注」。
+  // 落位判据存条目上:成功/noop 收进已完成,其余在确认前留在「需要关注」。
   entry.cls = view.cls;
   entry.outcomeState = view.state;
   entry.el.classList.remove("running");
   entry.el.classList.add(view.cls);
   entry.el.dataset.toolOutcome = view.state;
-  // 超时角色后端固定发 ok=false + preview「(超时,未产出结果)」。它与"跑了但失败"
-  // 是两回事:超时说明该角色被屏障砍掉、什么都没产出,视觉上必须能与失败分开。
+  // 超时与「跑了但失败」是两回事(什么都没产出),视觉上必须能分开。
   const timedOut = !ok && /超时/.test(String(preview ?? ""));
   if (timedOut) entry.el.classList.add("timeout");
   entry.el.dataset.bgStatus = timedOut ? "timeout" : view.cls;
-  // 超时归「需要关注」:cls 已是 err,bgSectionFor 自然把它留在可见处。
   bgPlace(entry);
-  bgSetCurrentTool(entry, null, false);
   // 截断时 preview 首行是 [tool_result_truncated …] 机器标记,换成按原因区分的人话;
   // 详情区另有提示块。
   const quota = quotaTruncation(display);
@@ -1014,9 +840,7 @@ export function bgEnd(id, ok, preview, display, outcome, extra = {}) {
       ok,
       outcome,
     }).text;
-  // 元信息一行说清:成败、耗时、子代理内部调用数。此前只有一个秒数,
-  // 看不出成没成,也看不出子代理到底干了多少活(R-095 验收 ⑤)。
-  // 耗时优先用后端量的 durationMs(不含前端事件排队延迟)。
+  // 元信息一行说清:成败与耗时(R-095 验收 ⑤)。耗时优先用后端量的 durationMs(不含前端事件排队延迟)。
   const measured = Number(extra.durationMs);
   const ms = extra.durationMs !== undefined && extra.durationMs !== null && Number.isFinite(measured)
     ? measured
@@ -1033,10 +857,8 @@ export function bgEnd(id, ok, preview, display, outcome, extra = {}) {
           : timedOut
             ? `⏱ ${t("超时")}`
             : `✕ ${t("失败")}`;
-  const bits = [statusText, elapsed];
-  if (entry.type === "agent") bits.push(`${t("内部调用")} ${entry.children.size}`);
-  entry.meta.textContent = bits.join(" · ");
-  // 结构化详情进面板内展开区(diff/终端/新建/todo)。
+  entry.meta.textContent = [statusText, elapsed].join(" · ");
+  // 结构化详情进侧栏内展开区(diff/终端/新建/todo)。
   const d = display;
   // 增减行数只能追加到 .bg-target 里:对整个 title 按钮做 textContent += 等于把
   // .bg-tool/.bg-target 两个子 span 拍平成单个文本节点,工具名/目标的分栏结构当场消失。
@@ -1052,13 +874,26 @@ export function bgEnd(id, ok, preview, display, outcome, extra = {}) {
   }
   if (entry.detail.children.length) entry.el.classList.add("has-detail");
   bgRenderActions(id, entry);
+  // 跑满 3 秒后失败的实时终端命令是「值得停留的失败」:侧栏不自动收起、徽标转红,直到用户确认。
+  // 普通工具偶发报错(读了个不存在的文件)只列进「需要关注」,不拦收起。
+  if (!ok && view.cls === "err" && entry.type === "terminal" && !entry.replay && ms >= SIDE_TERMINAL_AUTO_MS) {
+    notifyBg({ type: "failure", entry });
+  }
   bgSync();
 }
 // 历史轨迹回放(D-208)。run.trace 事件本来就带 name/summary/ok/durationMs,
 // 旧实现读的却是不存在的 event.text/event.trace,name 硬编码 "task"、标题硬编码
 // "历史子代理轨迹"——上百条同名条目,类型筛选也跟着失真;而且标终态后没重渲染
 // 动作区,停止按钮残留在早已结束的历史轨迹上。回放条目一律终态、无停止按钮。
+// UI2-0926 #14:回放条目写入落位判据(cls/outcomeState)并重新落位——此前只改 class,
+// 4 条回放全挂在「运行中」段、计数「4 · 终端 3」(缺陷 E);回放出来的失败一律算已确认,
+// 进已完成(保留 ✗ 标记),也不触发侧栏自动打开。
 export function renderRecoveredTraces(payloads) {
+  const markReplay = (id) => {
+    const entry = bgEntries.get(id);
+    if (entry) entry.replay = true;
+    return entry;
+  };
   for (const payload of payloads || []) {
     for (const event of payload.events || []) {
       if (!event.id) continue; // turn.started / context.compacted 等无 id 事件不进列表
@@ -1073,18 +908,22 @@ export function renderRecoveredTraces(payloads) {
       }
       if (event.kind === "tool.started") {
         if (!event.name) continue;
-        // 回放与实时路径一致:完整工具调用都进入活动面板。
+        // 回放与实时路径一致:终端进条目,其余静默待定(失败才补建)。
         if (bgQuiet(event.name)) {
           bgStartQuiet(event.id, event.name, event.summary || "", null);
         } else if (!bgEntries.has(event.id)) {
-          bgAdd(event.id, event.name || "task", event.summary || t("历史子代理轨迹"), null, activeSessionId);
+          bgAdd(event.id, event.name, event.summary || t("历史轨迹"), null, activeSessionId);
+          markReplay(event.id);
         }
       } else if (event.kind === "tool.completed") {
         if (bgFinishQuiet(event.id, event.ok !== false)) continue;
-        const entry = bgEntries.get(event.id);
+        const entry = markReplay(event.id);
         if (!entry) continue;
         const view = activityOutcomeView(event.ok !== false, event.outcome);
         entry.done = true;
+        entry.cls = view.cls;
+        entry.outcomeState = view.state;
+        entry.acked = true;
         entry.el.classList.remove("running");
         const failed = event.ok === false;
         entry.el.classList.add(view.cls);
@@ -1103,18 +942,32 @@ export function renderRecoveredTraces(payloads) {
           Number.isFinite(seconds) && seconds >= 1000
             ? `${t("回放")} · ${Math.round(seconds / 1000)}s`
             : t("回放");
+        bgPlace(entry);
         bgRenderActions(event.id, entry);
       }
     }
   }
-  // 只 started 没 completed 的(轮次中断):同样收敛终态,不留假 running 与停止按钮。
+  // 只 started 没 completed 的:线路**还在跑**时它们就是正在跑的调用,保留运行态(缺陷 F:切到在跑的
+  // 线路时它们曾一律被收成「中断」);线路已停才是轮次中断,收敛终态,不留假 running 与停止按钮。
+  const lineRunning = Boolean(activeSessionId) && sessionState(activeSessionId).running === true;
   for (const [id, entry] of bgEntries) {
     if (entry.done) continue;
+    if (lineRunning) {
+      // 真实的收尾事件还会来(bgEnd);只是不再因为「跑满 3 秒」触发自动打开——用户是自己切过来看的。
+      entry.replay = false;
+      entry.longReported = true;
+      continue;
+    }
     entry.done = true;
+    entry.cls = "err";
+    entry.outcomeState = "interrupted";
+    entry.acked = true;
     entry.el.classList.remove("running");
     entry.el.classList.add("err");
+    entry.el.dataset.bgStatus = "err";
     entry.prog.textContent = t("历史轨迹");
     entry.meta.textContent = `${t("回放")} · ${t("无结果(轮次中断)")}`;
+    bgPlace(entry);
     bgRenderActions(id, entry);
   }
   // 回放里没等到 completed 的兼容待定调用直接丢弃，不让残留 id 污染后续实时判定。
@@ -1126,10 +979,9 @@ export function bgClear() {
   for (const entry of bgEntries.values()) entry.el.remove();
   bgEntries.clear();
   bgPending.clear();
-  bgGroups.clear();
   diffSummary.clear();
   // 只清三段的**内容**,不能 innerHTML="" 整个 #bg-list——那会把三段骨架
-  // (段头/空态行/折叠按钮)一起冲掉,之后所有条目都无处可落,活动面板永久变空白。
+  // (段头/空态行/折叠按钮)与委派卡容器一起冲掉,之后所有条目都无处可落,侧栏永久变空白。
   for (const id of Object.values(BG_SECTION_BODY)) {
     const host = $(id);
     if (host) host.replaceChildren();
@@ -1137,20 +989,23 @@ export function bgClear() {
   renderDiffSummary();
   bgSync();
 }
-// 中止/出错时把仍在跑的条目标记为中止,不再空转。
+// 中止/出错时把仍在跑的条目标记为中止,不再空转;整轮停止/出错是用户看得见的事,
+// 这些条目算已确认,直接进已完成(带 ✗),停止按钮随之撤掉。
 export function bgAbortRunning(label) {
-  for (const entry of bgEntries.values()) {
-    if (!entry.done) {
-      entry.done = true;
-      entry.el.classList.remove("running");
-      entry.el.classList.add("err");
-      entry.el.dataset.bgStatus = "err";
-      bgSetCurrentTool(entry, null, false);
-      entry.prog.textContent = label;
-    }
+  for (const [id, entry] of bgEntries) {
+    if (entry.done) continue;
+    entry.done = true;
+    entry.cls = "err";
+    entry.outcomeState = "interrupted";
+    entry.acked = true;
+    entry.el.classList.remove("running");
+    entry.el.classList.add("err");
+    entry.el.dataset.bgStatus = "err";
+    entry.prog.textContent = label;
+    bgPlace(entry);
+    bgRenderActions(id, entry);
   }
-  renderBgGroups();
-  syncActivityRailRunning();
+  renderBgSections();
 }
 defer(() => {
   setInterval(() => {

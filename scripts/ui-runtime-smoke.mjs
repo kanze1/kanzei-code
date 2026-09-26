@@ -375,6 +375,46 @@ if (SMOKE_MUTATE) {
       pattern: /[ \t]*void uiPrefsSave\(\{ ui_layout: patch \}\);\r?\n/,
       replace: "",
     },
+    // UI2-0926 #14:用户在本次运行里关过侧栏(还有活时)→ 压制到下一条用户消息。删掉,关掉之后鞭挞下一轮马上又弹。
+    sideSuppressRun: {
+      pattern: /[ \t]*if \(\(event\.active \?\? 0\) > 0\) line\.suppressedRun = line\.userRun;\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #14:值得停留的失败保留侧栏、徽标转红。删掉,子代理超时 6 秒后侧栏照样收起、失败看不见。
+    sideFailureHold: {
+      pattern: /if \(event\.hold\) line\.holds\.add\(String\(event\.key\)\);/,
+      replace: "",
+    },
+    // UI2-0926 #14:自动打开的侧栏全部结束 6 秒后收起。到点不退出自动态,侧栏永远不收。
+    sideLinger: {
+      pattern: /if \(left <= 0\) line\.auto = false;/,
+      replace: "if (left <= 0) line.auto = true;",
+    },
+    // UI2-0926 #14 缺陷 B:终端条目只收活动线路。删掉守卫,后台线路的 bash 混进当前线路的列表。
+    sideLineScope: {
+      pattern: /[ \t]*if \(renderingBackground \|\| \(sessionId && activeSessionId && sessionId !== activeSessionId\)\) return;\r?\n/,
+      replace: "",
+    },
+    // UI2-0926 #14 缺陷 E:回放的终态条目重新落位。删掉,回放出来的条目全挂在「运行中」。
+    sideReplayPlace: {
+      pattern: /\r?\n[ \t]+bgPlace\(entry\);(\r?\n[ \t]+bgRenderActions\(event\.id, entry\);)/,
+      replace: "$1",
+    },
+    // UI2-0926 #14 缺陷 F:线路还在跑时只 started 的回放条目保留运行态。当作线路已停,在跑的命令被收成「中断」。
+    sideReplayRunning: {
+      pattern: /const lineRunning = Boolean\(activeSessionId\) && sessionState\(activeSessionId\)\.running === true;/,
+      replace: "const lineRunning = false;",
+    },
+    // UI2-0926 #14 缺陷 A:侧栏只在对话视图显示。去掉视图判据,非对话视图上工具事件把侧栏弹回来。
+    sideViewGate: {
+      pattern: /const visible = chat && \(model\.pinned \|\| autoShown\);/,
+      replace: "const visible = model.pinned || autoShown;",
+    },
+    // UI2-0926 #14:自动打开不抢焦点。打开时顺手聚焦侧栏,用户正在输入框打的字就跑进了侧栏。
+    sideNoFocusSteal: {
+      pattern: /(if \(decision\.visible && !wasVisible\) \{\r?\n)/,
+      replace: '$1    $("tasks-close")?.focus?.();\n',
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -992,20 +1032,29 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
   }
 }
 
-// 活动面板三段是真实嵌套:#bg-list > .bg-section > #bg-running|#bg-attention|#bg-done,
-// 条目落在段容器里而不再是 #bg-list 的直接子节点。扁平造的话所有 `#bg-list .bg-entry`
+// 后台任务侧栏三段是真实嵌套:#tasks-panel > #bg-list > .bg-section > 委派卡容器 #tasks-* 与终端条目容器 #bg-*,
+// 已完成段的两个容器再包在可折叠的 #bg-done-body 里。扁平造的话所有 `#bg-list .bg-entry`
 // 断言全部落空(与上面 TABLE→tbody 同一类缺口)。
-for (const [sectionId, bodyId] of [
-  ["bg-section-running", "bg-running"],
-  ["bg-section-attention", "bg-attention"],
-  ["bg-section-done", "bg-done"],
+// ── 分区:后台任务侧栏与可调框 ── UI2-0926 #14 起每段多一个委派卡容器,已完成段多一层折叠体。
+byId.get("bg-done-body")?.append(...["tasks-done", "bg-done"].map((id) => byId.get(id)).filter(Boolean));
+for (const [sectionId, bodyIds] of [
+  ["bg-section-running", ["tasks-running", "bg-running", "bg-running-empty"]],
+  ["bg-section-attention", ["tasks-attention", "bg-attention"]],
+  ["bg-section-done", ["bg-done-body"]],
 ]) {
   const section = byId.get(sectionId);
-  const sectionBody = byId.get(bodyId);
-
-  if (!section || !sectionBody) continue;
-  section.appendChild(sectionBody);
+  const bodies = bodyIds.map((id) => byId.get(id)).filter(Boolean);
+  if (!section || bodies.length !== bodyIds.length) continue;
+  section.append(...bodies);
   byId.get("bg-list")?.appendChild(section);
+}
+for (const id of ["agent-panel-status", "bg-list", "agent-detail"]) {
+  const node = byId.get(id);
+  if (node) byId.get("tasks-panel")?.appendChild(node);
+}
+for (const id of ["agent-audit", "diff-summary"]) {
+  const node = byId.get(id);
+  if (node) byId.get("bg-list")?.appendChild(node);
 }
 
 // 主视图切换按钮只有 class 没有 id,上面那轮按 id 造不出它们;这里按 class 补造,
@@ -4357,7 +4406,7 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
     assert(compactDisplay.querySelectorAll(".diff-row").length < longDiff.length, "主区 diff 仍渲染整份文件");
     assert(compactDisplay.querySelector(".diff-omitted"), "主区 diff 缺少省略上下文提示");
     assert(compactDisplay.textContent.includes("真正的一行改动"), "主区限定 diff 丢失真实变更行");
-    assert(compactBlock?.detail.querySelector(".tool-display-more")?.textContent === "去活动面板看全", "超限 diff 缺少活动面板出口");
+    assert(compactBlock?.detail.querySelector(".tool-display-more")?.textContent === "去后台任务侧栏看全", "超限 diff 缺少后台任务侧栏出口");
     assert(
       /\.tool-msg-detail > \.tool-display\s*\{[^}]*max-height:\s*420px[^}]*overflow:\s*auto/.test(style),
       "主区 tool-display 缺少 420px 滚动上限",
@@ -4367,9 +4416,14 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
     const fullDisplay = activityRenderer?.appendDisplayBlock(activityHost, display);
     assert(activityHost.querySelectorAll(".diff-row").length === longDiff.length, "活动面板默认全量 diff 消费被裁剪");
     byId.get("messages").appendChild(compactBlock.wrap);
-    byId.get("bg-panel").classList.add("hidden");
+    // UI2-0926 #14 缺陷 C:「去后台任务侧栏看全」只打开、不切换——侧栏已开着时点它也仍然开着。
+    const tasksPanelNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
+    tasksPanelNs?.closeTasksPanel();
     compactBlock.detail.querySelector(".tool-display-more").click();
-    assert(!byId.get("bg-panel").classList.contains("hidden"), "活动面板出口未打开真实活动面板");
+    assert(!byId.get("tasks-panel").classList.contains("hidden"), "「去后台任务侧栏看全」没有打开后台任务侧栏");
+    compactBlock.detail.querySelector(".tool-display-more").click();
+    assert(!byId.get("tasks-panel").classList.contains("hidden"), "缺陷 C:侧栏已开着时点「去后台任务侧栏看全」把它关掉了(应只开不切换)");
+    tasksPanelNs?.closeTasksPanel();
     compactBlock.wrap.remove();
     fullDisplay?.remove?.();
   }
@@ -4462,7 +4516,8 @@ assert(!document.querySelector("#bg-list .bg-entry[data-bg-id=T3]"), "不带 pha
   assert(isActivityToolFn("bash") === true, "R-168:bash 必须入活动栏");
   assert(isActivityToolFn("edit") === false, "R-168:成功 edit 不得入活动栏(判据被改成恒真了?)");
   assert(isActivityToolFn("read") === false, "R-168:成功 read 不得入活动栏");
-  assert(isActivityToolFn("task", { phase: "scouting" }) === true, "R-173:编排派发的 task 必须入活动栏");
+  // UI2-0926 #14:编排派发的 task 也是委派卡(主对话卡片 + 侧栏委派卡),不再重复进终端条目。
+  assert(isActivityToolFn("task", { phase: "scouting" }) === false, "UI2-0926 #14:编排派发的 task 由委派卡呈现,不得再进终端条目");
   assert(isActivityToolFn("task", { prompt: "x" }) === false, "R-168:模型自派的 task 不得入活动栏");
 }
 assert(
@@ -4485,10 +4540,10 @@ toolEnd({ payload: { id: "T3", name: "task", ok: false, preview: "子代理失�
 await flush();
 assert(bashEntry.querySelector(".bg-meta")?.textContent.includes("成功"), "结束后未在元信息里给出成败");
 assert(/\d+(\.\d+)?(ms|s)/.test(bashEntry.querySelector(".bg-meta")?.textContent ?? ""), "结束后未给出耗时");
-const taskEntry = document.querySelector("#bg-list .bg-entry[data-bg-tool=task]");
-assert(taskEntry.querySelector(".bg-meta")?.textContent.includes("内部调用"), "子代理条目未给出内部调用数");
+// UI2-0926 #14:task 的成败归委派卡(失败的子代理在卡上标红),失败也不补建终端条目。
+assert(!document.querySelector("#bg-list .bg-entry[data-bg-tool=task]"), "失败的 task 不该补建终端条目(委派卡自己标失败)");
 assert(
-  taskEntry.querySelectorAll(".bg-actions button").some((b) => b.textContent === "重跑"),
+  bashEntry.querySelectorAll(".bg-actions button").some((b) => b.textContent === "重跑"),
   "结束的条目缺少重跑入口",
 );
 // D-234:批次格由 Git 提交标题推导。直接 agent 与子 agent 提交都必须立即刷新快照，
@@ -4508,6 +4563,10 @@ assert(
   "子代理提交后未即时刷新 Git 推导的批次进度",
 );
 // 筛选:按类型与成败收敛,且计数要能看出"筛出/总数",否则会误以为本轮只跑了这几个工具。
+// 先补一条失败的静默工具(R-168:失败由 bgFinishQuiet 补建条目),让两种筛选都有东西可筛。
+toolStart({ payload: { id: "T-READ-FAIL", name: "read", summary: "missing.rs", input: { path: "missing.rs" }, sessionId: "sess-smoke" } });
+toolEnd({ payload: { id: "T-READ-FAIL", name: "read", ok: false, preview: "file not found: missing.rs", display: null, sessionId: "sess-smoke" } });
+await flush();
 const typeFilter = byId.get("bg-type-filter");
 typeFilter.value = "terminal";
 typeFilter._listeners.change?.forEach((fn) => fn({ target: typeFilter }));
@@ -4515,7 +4574,7 @@ assert(
   document.querySelectorAll("#bg-list .bg-entry").filter((n) => !n.classList.contains("hidden")).length === 1,
   "按类型筛选未生效",
 );
-assert(listText("bg-count").includes("/"), "筛选后未同时给出筛出数与总数");
+assert(byId.get("tasks-filter").title.includes("/"), "筛选后未同时给出筛出数与总数(写在「筛选与清理」按钮的提示里)");
 const statusFilter = byId.get("bg-status-filter");
 typeFilter.value = "all";
 typeFilter._listeners.change?.forEach((fn) => fn({ target: typeFilter }));
@@ -4523,147 +4582,88 @@ statusFilter.value = "err";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 assert(
   document.querySelectorAll("#bg-list .bg-entry").filter((n) => !n.classList.contains("hidden"))
-    .every((n) => n.dataset.bgTool === "task"),
+    .every((n) => n.dataset.bgTool === "read"),
   "按失败状态筛选未生效",
 );
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 
-// ---------- R-173 编排派发的勘察/复核子代理:实时进度必须落到面板上 ----------
-// 编排对象按角色表派发的这批子代理不经模型 tool call,主对话里没有内联工具块兜底,
-// 活动面板是它们唯一的可见处。此前 name 恒为 "task" 被 R-168 一刀切静默,于是 5 勘察 +
-// 3 复核的轮次/工具进度整批落空。区分依据是后端给的 input.phase(scouting/review)。
-const orchEntry = (role) => [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === role);
-// 活动面板分三段之后,同一个 phase 在「运行中/需要关注/已完成」里各有一份组容器
-// (跑完的勘察收进折叠区,还在跑的留在上面)。所以「这个阶段有几条」必须跨段求和,
-// 只看第一个组会随条目落位漂移;组头的完成数本来就是跨段算的,取任一份都一样。
-const orchGroups = (phase) => [...document.querySelectorAll(`.bg-group[data-bg-phase=${phase}]`)];
-const orchGroup = (phase) => orchGroups(phase)[0];
-const orchPhaseEntries = (phase) => orchGroups(phase).flatMap((g) => [...g.querySelectorAll(".bg-entry")]);
-const orchGroupHead = (phase) => orchGroups(phase)
-  .map((g) => g.querySelector(".bg-group-head")?.textContent ?? "").find((text) => text) ?? "";
+// ---------- R-173 → UI2-0926 #14 编排派发的勘察/复核子代理:实时进度落在后台任务侧栏的委派卡上 ----------
+// 编排对象按角色表派发的这批子代理不经模型 tool call;UI-0926 #8 起它们是主对话里的子代理卡片,
+// UI2-0926 #14 起侧栏里是一张委派卡(不再重复一份终端条目):阶段行「勘察 · done/N」+ 每个子代理一个进度点、
+// 每个角色一行(角色名 · 模型 · Token · 用时)、超时与失败分开标记,同名角色跨轮重派是新的一批、新的一张卡。
+const tasksNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
+assert(tasksNs && typeof tasksNs.openTasksPanel === "function", "06-agent-panel.js 未导出 openTasksPanel");
+tasksNs.openTasksPanel();
 const scoutRoles = ["architecture_scout", "runtime_scout", "test_scout"];
+const delegationCards = () => [...document.querySelectorAll(".tp-card")].filter((c) => c.dataset.kind === "delegation");
+const agentRow = (role, root = document) => root.querySelector(`.tp-agent-row[data-sa-key="sess-smoke|${role}"]`);
+const cardWithRole = (role) => delegationCards().find((c) => agentRow(role, c));
 // ① 契约时序:N 条 start 先全发完。派发瞬间就该全部可见,不能等各自跑完才冒出来。
 for (const role of scoutRoles) {
   toolStart({ payload: { id: role, name: "task", summary: `${role} · 勘察`, input: { prompt: `派给 ${role} 的完整指令`, phase: "scouting", role }, sessionId: "sess-smoke" } });
 }
-// 同一批里混一条模型自己派的 task(不带 phase):R-168 的静默口径不能被顺手打破。
+// 同一批里混一条模型自己派的 task(不带 phase):它是另一张卡,不串进编排批次。
 toolStart({ payload: { id: "MODEL_TASK", name: "task", summary: "模型自己派的子代理", input: { prompt: "review" }, sessionId: "sess-smoke" } });
 await flush();
 for (const role of scoutRoles) {
-  assert(orchEntry(role), `编排派发的勘察子代理 ${role} 没进活动面板(内部进度整批丢掉)`);
+  assert(!document.querySelector(`#bg-list .bg-entry[data-bg-id=${role}]`), `编排子代理 ${role} 不该再建终端条目(委派卡负责,不重复两份)`);
+  assert(agentRow(role), `编排派发的勘察子代理 ${role} 没进后台任务侧栏的委派卡`);
 }
-  assert(!orchEntry("MODEL_TASK"), "模型自己派的 task 被一起放行了(R-168 静默口径被打破)");
-// ② 分组:按 input.phase 分区,这是 Running/Finished 分区的雏形。
-assert(orchGroup("scouting"), "勘察子代理未按 input.phase 分组");
-assert(
-  orchGroup("scouting").querySelectorAll(".bg-entry").length === scoutRoles.length,
-  `勘察分组内条目数不对:${orchGroup("scouting").querySelectorAll(".bg-entry").length}`,
-);
-assert(orchGroupHead("scouting").includes("勘察"), `勘察分组标题缺阶段名,实得 "${orchGroupHead("scouting")}"`);
-assert(orchGroupHead("scouting").includes("0/3"), `勘察分组标题未给出完成数/总数,实得 "${orchGroupHead("scouting")}"`);
-// ③ 单条信息量:角色名(不是恒为 "task" 的工具名)、所属阶段、已运行时长与内部调用数。
-const scout = orchEntry("architecture_scout");
-assert(
-  scout.querySelector(".bg-tool")?.textContent === "architecture_scout",
-  `条目未以角色名标识,实得 "${scout.querySelector(".bg-tool")?.textContent}"(8 条都叫 task 等于没标识)`,
-);
-assert(
-  scout.querySelector(".bg-phase-badge")?.textContent === "勘察",
-  `条目未标出所属阶段,实得 "${scout.querySelector(".bg-phase-badge")?.textContent}"`,
-);
-assert(/运行中 · \d+s · 内部调用 \d+/.test(scout.querySelector(".bg-meta")?.textContent ?? ""),
-  `运行中未给出状态/已运行时长/内部调用数,实得 "${scout.querySelector(".bg-meta")?.textContent}"`);
-assert(scout.dataset.bgStatus === "running", `运行中状态未落到条目上,实得 "${scout.dataset.bgStatus}"`);
-// ④ 执行期进度:纯轮次进度(trace 为 null)与工具进度都要落到对应角色。
-taskProgress({ payload: { id: "architecture_scout", text: "第 3/12 轮", trace: null, sessionId: "sess-smoke" } });
+const scoutCard = cardWithRole("architecture_scout");
+assert(scoutCard && scoutRoles.every((role) => agentRow(role, scoutCard)), "同一批三个勘察角色没有落在同一张委派卡里");
+assert(!agentRow("MODEL_TASK", scoutCard ?? document.createElement("div")), "模型自派的 task 串进了编排批次的委派卡");
+// ② 阶段行:阶段名 + 完成数/总数 + 每个子代理一个进度点;在跑的卡在「运行中」段。
+assert(scoutCard?.querySelector(".tp-phase-label")?.textContent === "勘察", `委派卡阶段行缺阶段名,实得 "${scoutCard?.querySelector(".tp-phase-label")?.textContent}"`);
+assert(scoutCard?.querySelector(".tp-phase-count")?.textContent === "0/3", `委派卡阶段行未给出完成数/总数,实得 "${scoutCard?.querySelector(".tp-phase-count")?.textContent}"`);
+const scoutDots = [...(scoutCard?.querySelectorAll(".tp-dots i") ?? [])];
+assert(scoutDots.length === 3 && scoutDots.every((dot) => dot.dataset.s === "running"), `进度点应为 3 个在跑,实为 ${scoutDots.map((d) => d.dataset.s).join(",")}`);
+assert(scoutCard?.parentElement?.id === "tasks-running", `在跑的委派卡应在「运行中」段,实在 #${scoutCard?.parentElement?.id}`);
+assert(/3 个子代理|3 subagents/.test(scoutCard?.querySelector(".tp-card-stats")?.textContent ?? ""), `委派卡副行缺「3 个子代理」,实得 "${scoutCard?.querySelector(".tp-card-stats")?.textContent}"`);
+// ③ 单行信息量:角色名是身份;meta trace 给实际模型;usage 是累计值(替换不累加)。
+const scoutRow = agentRow("architecture_scout");
+assert(scoutRow?.querySelector(".tp-agent-label")?.textContent.includes("architecture_scout"), `委派卡的行未以角色名标识,实得 "${scoutRow?.querySelector(".tp-agent-label")?.textContent}"`);
+taskProgress({ payload: { id: "architecture_scout", text: "explore · qwen3:8b", trace: { child_id: "architecture_scout", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
+taskProgress({ payload: { id: "architecture_scout", text: "统计", trace: { child_id: "c1", phase: "usage", usage: { input: 1000, output: 200 } }, sessionId: "sess-smoke" } });
+taskProgress({ payload: { id: "architecture_scout", text: "统计", trace: { child_id: "c1", phase: "usage", usage: { input: 1200, output: 300 } }, sessionId: "sess-smoke" } });
 await flush();
-assert(scout.querySelector(".bg-prog")?.textContent === "第 3/12 轮",
-  `轮次进度未挂回角色条目,实得 "${scout.querySelector(".bg-prog")?.textContent}"`);
-// ⑤ 当前正在用的工具名 —— 用户点名要的那一项。值与写入去向都断言:
-// 只断言文本看不出"写对了内容却写错了元素",dataset 探针把去向也钉死。
-taskProgress({ payload: { id: "architecture_scout", text: "第 4/12 轮", trace: { child_id: "c1", phase: "start", name: "grep", summary: "phase_pipeline" }, sessionId: "sess-smoke" } });
-await flush();
-assert(scout.querySelector(".bg-current")?.textContent.includes("grep"),
-  `当前工具名未显示,实得 "${scout.querySelector(".bg-current")?.textContent}"`);
-assert(scout.dataset.bgCurrentTool === "grep", `当前工具名写错了地方,实得 "${scout.dataset.bgCurrentTool}"`);
-assert(!scout.querySelector(".bg-current")?.classList.contains("hidden"), "当前工具名所在行仍是隐藏的");
-assert(!scout.querySelector(".bg-current")?.classList.contains("idle"), "工具正在跑却标成了空闲态");
-taskProgress({ payload: { id: "architecture_scout", text: "第 4/12 轮", trace: { child_id: "c1", phase: "end", name: "grep", ok: true, preview: "命中 12 处" }, sessionId: "sess-smoke" } });
-taskProgress({ payload: { id: "architecture_scout", text: "第 5/12 轮", trace: { child_id: "c2", phase: "start", name: "read", summary: "phase_pipeline.rs" }, sessionId: "sess-smoke" } });
-await flush();
-assert(scout.dataset.bgCurrentTool === "read", `当前工具名未跟着换到下一个工具,实得 "${scout.dataset.bgCurrentTool}"`);
-assert(/内部调用 2/.test(scout.querySelector(".bg-meta")?.textContent ?? ""),
-  `工具调用次数未累计,实得 "${scout.querySelector(".bg-meta")?.textContent}"`);
-// ⑥ 终态:成功/失败/超时三分,完成的条目继续可见。
+assert(scoutRow?.querySelector(".tp-agent-model")?.textContent === "qwen3:8b", `模型列应取 meta 的实际模型,实得 "${scoutRow?.querySelector(".tp-agent-model")?.textContent}"`);
+assert(scoutRow?.querySelector(".tp-agent-tok")?.textContent === "1.5k", `Token 列应取最新累计值 1.5k(不相加),实得 "${scoutRow?.querySelector(".tp-agent-tok")?.textContent}"`);
+assert(!/\d+s\b/.test(scoutRow?.getAttribute("aria-label") ?? "0s"), `运行中的行可访问名不该带逐秒变化的耗时:"${scoutRow?.getAttribute("aria-label")}"`);
+// ④ 终态:成功/失败/超时三分,超时与失败分开标记;有失败的批次在确认前留在「需要关注」。
 toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "勘察简报首行", display: null, sessionId: "sess-smoke" } });
 toolEnd({ payload: { id: "runtime_scout", name: "task", ok: false, preview: "(超时,未产出结果)", display: null, sessionId: "sess-smoke" } });
 toolEnd({ payload: { id: "test_scout", name: "task", ok: false, preview: "子代理内部报错", display: null, sessionId: "sess-smoke" } });
 await flush();
-assert(orchEntry("architecture_scout")?.dataset.bgStatus === "ok", "成功角色终态不对");
-assert(orchEntry("test_scout")?.dataset.bgStatus === "err", "失败角色终态不对");
-assert(orchEntry("runtime_scout")?.dataset.bgStatus === "timeout",
-  `超时角色未与失败区分开,实得 "${orchEntry("runtime_scout")?.dataset.bgStatus}"`);
-assert(orchEntry("runtime_scout")?.classList.contains("timeout"), "超时角色缺少可视区分的样式钩子");
-assert(!orchEntry("test_scout")?.classList.contains("timeout"), "普通失败被误标成超时");
-assert(orchEntry("runtime_scout")?.querySelector(".bg-meta")?.textContent.includes("超时"),
-  `超时角色元信息未写明超时,实得 "${orchEntry("runtime_scout")?.querySelector(".bg-meta")?.textContent}"`);
-assert(orchEntry("test_scout")?.querySelector(".bg-meta")?.textContent.includes("失败"), "失败角色元信息未写明失败");
-assert(scout.dataset.bgCurrentTool === "", "角色收尾后当前工具名没清掉(会一直显示最后一个工具在跑)");
-for (const role of scoutRoles) {
-  assert(orchEntry(role) && !orchEntry(role).classList.contains("hidden"), `${role} 跑完就消失了(完成的条目必须保留可见)`);
-}
-assert(orchGroupHead("scouting").includes("3/3"), `勘察分组标题未跟随完成数,实得 "${orchGroupHead("scouting")}"`);
-// ⑦ 复核阶段单独一区,与勘察分开。
+const endedCard = cardWithRole("architecture_scout");
+assert(endedCard?.querySelector(".tp-phase-count")?.textContent === "3/3", `委派卡完成数未跟随,实得 "${endedCard?.querySelector(".tp-phase-count")?.textContent}"`);
+assert(agentRow("architecture_scout")?.dataset.s === "done", "成功角色行终态不对");
+assert(agentRow("runtime_scout")?.dataset.saState === "timeout" && agentRow("runtime_scout")?.dataset.s === "warn", `超时角色未与失败区分开:${agentRow("runtime_scout")?.dataset.saState}/${agentRow("runtime_scout")?.dataset.s}`);
+assert(agentRow("test_scout")?.dataset.s === "failed", "失败角色行没有标失败");
+assert(endedCard?.parentElement?.id === "tasks-attention", `有失败的一批应留在「需要关注」段直到确认,实在 #${endedCard?.parentElement?.id}`);
+assert(/2 (个)?失败|2 fail/i.test(endedCard?.querySelector(".tp-card-stats")?.textContent ?? ""), `委派卡副行应写明 2 失败,实得 "${endedCard?.querySelector(".tp-card-stats")?.textContent}"`);
+// ⑤ 复核阶段单独一张卡。
 for (const role of ["spec_reviewer", "risk_reviewer"]) {
   toolStart({ payload: { id: role, name: "task", summary: `${role} · 复核`, input: { prompt: `派给 ${role} 的完整指令`, phase: "review", role }, sessionId: "sess-smoke" } });
 }
 await flush();
-assert(orchGroup("review"), "复核子代理未单独分区");
-assert(orchPhaseEntries("review").length === 2, "复核分组内条目数不对");
-assert(orchGroupHead("review").includes("复核"), `复核分组标题缺阶段名,实得 "${orchGroupHead("review")}"`);
-assert(orchEntry("spec_reviewer")?.querySelector(".bg-phase-badge")?.textContent === "复核", "复核条目阶段标记不对");
-assert(
-  orchPhaseEntries("scouting").length === 3,
-  "复核条目串进了勘察分组",
-);
-// ⑧ 角色名跨轮复用:同名角色再次派发要原地复位,否则第二轮的进度全写进上一轮那条终态行。
+const reviewCard = cardWithRole("spec_reviewer");
+assert(reviewCard && reviewCard !== endedCard && reviewCard.querySelector(".tp-phase-label")?.textContent === "复核" && reviewCard.querySelectorAll(".tp-agent-row").length === 2, "复核子代理未单独成一张委派卡");
+// ⑥ 同名角色跨轮重派:新的一批、新的一张卡;上一批那张卡还在(上一轮结果不被覆写,D-725)。
 toolStart({ payload: { id: "architecture_scout", name: "task", summary: "architecture_scout · 勘察", input: { prompt: "第二轮指令", phase: "scouting", role: "architecture_scout" }, sessionId: "sess-smoke" } });
 await flush();
-assert(orchEntry("architecture_scout")?.dataset.bgStatus === "running",
-  `同名角色第二轮派发未复位,实得 "${orchEntry("architecture_scout")?.dataset.bgStatus}"(面板会定格在上一轮)`);
-assert(orchPhaseEntries("scouting").length === 3, "同名角色复位时把条目复制了一份");
-assert(orchGroupHead("scouting").includes("2/3"), `复位后完成数未回退,实得 "${orchGroupHead("scouting")}"`);
+const scoutDelegations = delegationCards().filter((card) => agentRow("architecture_scout", card));
+assert(scoutDelegations.length === 2 && scoutDelegations[0] !== endedCard && scoutDelegations[0].parentElement?.id === "tasks-running", `同名角色第二轮应是新的一张在跑的委派卡(新批次在上),实得 ${scoutDelegations.length} 张`);
 toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "第二轮简报", display: null, sessionId: "sess-smoke" } });
 await flush();
 
-// ---------- R-184 P2:活动记录按 agent 归属与折叠 ----------
-// ① 编排子代理轨迹以 .bg-tool 里的角色名为身份,不再配哈希取色的色点
-//    (ui_color_semantics.md:身份不用色——4 种身份色曾撞上琥珀/绿这些状态色)。
-assert(
-  orchEntry("architecture_scout")?.querySelector(".bg-tool")?.textContent === "architecture_scout",
-  `编排子代理轨迹应以角色名为身份,实得 "${orchEntry("architecture_scout")?.querySelector(".bg-tool")?.textContent}"`,
-);
-assert(!document.querySelector(".bg-dot"), "活动面板里还有角色色点(.bg-dot):身份只靠角色名文本");
-// ② 角色筛选下拉动态列出全部角色(全部 + 每个出现过的角色)。
-const roleFilter = document.querySelector("#bg-role-filter");
-assert(roleFilter, "活动面板缺角色筛选下拉");
-const roleOptions = [...roleFilter.options].map((o) => o.value);
-for (const role of [...scoutRoles, "spec_reviewer", "risk_reviewer"]) {
-  assert(roleOptions.includes(role), `角色筛选下拉缺选项 ${role},实得 ${roleOptions.join(",")}`);
-}
-// ③ 切到某角色 → 只剩该角色的条目可见;切回全部 → 全部恢复。
-roleFilter.value = "architecture_scout";
-roleFilter._listeners.change?.forEach((fn) => fn({ target: roleFilter }));
-await flush();
-const visibleAfterRole = [...document.querySelectorAll("#bg-list .bg-entry")].filter((n) => !n.classList.contains("hidden"));
-assert(
-  visibleAfterRole.length >= 1 && visibleAfterRole.every((n) => n.dataset.bgRole === "architecture_scout"),
-  `按角色筛选后应只剩 architecture_scout,实得 ${visibleAfterRole.map((n) => n.dataset.bgRole).join(",")}`,
-);
-roleFilter.value = "all";
-roleFilter._listeners.change?.forEach((fn) => fn({ target: roleFilter }));
-await flush();
+// ---------- R-184 P2 → UI2-0926 #14:子代理的角色归属 ----------
+// ① 编排子代理以角色名为身份,不配哈希取色的色点(ui_color_semantics.md:身份不用色)。
+assert(!document.querySelector(".bg-dot"), "侧栏里还有角色色点(.bg-dot):身份只靠角色名文本");
+// ② 角色筛选下拉随编排条目退出终端条目而删除:每个角色在委派卡的小表里各占一行。
+assert(!byId.get("bg-role-filter"), "角色筛选已并入委派卡(每个角色一行),不该再有 #bg-role-filter");
+for (const role of [...scoutRoles, "spec_reviewer", "risk_reviewer"]) assert(agentRow(role), `委派卡里缺角色 ${role} 的一行`);
+tasksNs.closeTasksPanel();
 // ④ UI-0926 #8(R-184 折叠组退役):主对话里的子代理按**派发批次**成组,不再按角色跨轮折叠。
 // 同一批勘察是一个组(组头带阶段名与人数),每个角色一张卡;同名角色第二轮重派是新的一批、新的卡,
 // 上一轮的结果留在上一轮那张卡里(D-725「同名重派不覆写」的语义由「每次派发一张新卡」继续满足)。
@@ -7289,9 +7289,10 @@ assert(
   assert(b9Key("回到最新") === "Jump to latest", `英文态「回到最新」未翻译,实际 "${b9Key("回到最新")}"`);
   assert(b9Key("全部类型") === "All types", `英文态「全部类型」未翻译(option 渲染点),实际 "${b9Key("全部类型")}"`);
   assert(b9Key("终端") === "terminal", `英文态「终端」未翻译(option 渲染点),实际 "${b9Key("终端")}"`);
-  // UI-0926 #8:子代理侧栏的「运行中/已完成/已关闭」三段已取消;侧栏静态文案改守「‹ 返回全部子代理」。
-  assert(attrOf("agent-back", "aria-label") === "Back to all subagents", `英文态子代理侧栏返回按钮 aria-label 未翻译,实际 "${attrOf("agent-back", "aria-label")}"`);
-  assert(b9Key("清空") === "Clear", `英文态「清空」未翻译,实际 "${b9Key("清空")}"`);
+  // UI2-0926 #14:后台任务侧栏的静态文案(‹ 返回、段头、清空已完成)按渲染点翻译。
+  assert(attrOf("agent-back", "aria-label") === "Back to all background tasks", `英文态后台任务侧栏返回按钮 aria-label 未翻译,实际 "${attrOf("agent-back", "aria-label")}"`);
+  assert(b9Key("后台任务") === "Background tasks", `英文态「后台任务」未翻译,实际 "${b9Key("后台任务")}"`);
+  assert(b9Key("清空已完成") === "Clear finished", `英文态「清空已完成」未翻译,实际 "${b9Key("清空已完成")}"`);
   assert(b9Key("权限请求") === "Permission request", `英文态「权限请求」未翻译,实际 "${b9Key("权限请求")}"`);
   assert(b9Key("拒绝") === "Deny", `英文态「拒绝」未翻译,实际 "${b9Key("拒绝")}"`);
   assert(b9Key("总是允许") === "Always allow", `英文态「总是允许」未翻译,实际 "${b9Key("总是允许")}"`);
@@ -7858,25 +7859,26 @@ const docsB = {
   await flush();
 }
 
-// ---------- R-174 → UI-0926 #8 子代理侧栏:列表/详情、六字段真实数据、单条停止、审计卡、与活动面板互斥 ----------
-// R-174 的名称/类型/时长/工具次数/token/当前工具、单条停止与 transcript 全部保留,只是搬到主对话卡片与侧栏;
-// 旧面板的「运行中/已完成/已关闭」三段与「关闭/删除/清空」按 subagent_presentation.md §5.6 有意取消
-// (它们只改本地视图、不碰后端)。本段守的护栏不变:面板互斥、单条停止走 stop_task(带 taskId)且不误调
-// stop_run、运行审计摘要卡、「打开运行轨迹」回到活动面板。
+// ---------- R-174 → UI-0926 #8 → UI2-0926 #14 后台任务侧栏:列表/详情、六字段真实数据、单条停止、审计卡 ----------
+// R-174 的名称/类型/时长/工具次数/token/当前工具、单条停止与 transcript 全部保留,搬到主对话卡片与后台任务侧栏;
+// 「活动」「子代理」两块浮层合成一个停靠侧栏(UI2-0926 #14),rail 上只剩 #tasks-toggle。本段守:开关只开关这一个侧栏、
+// ↗ 进详情、单条停止走 stop_task(带 taskId)且不误调 stop_run、运行审计摘要卡、「打开运行轨迹」回到同一侧栏的条目。
 {
-  const agentToggle = byId.get("agent-toggle");
-  assert(agentToggle, "子代理面板缺少 rail 开关");
-  const agentPanel = byId.get("agent-panel");
-  const bgPanel = byId.get("bg-panel");
-  const agentBadge = byId.get("agent-badge");
+  const tasksToggle = byId.get("tasks-toggle");
+  assert(tasksToggle, "后台任务侧栏缺少 rail 开关 #tasks-toggle");
+  const tasksPanel = byId.get("tasks-panel");
+  const tasksBadge = byId.get("tasks-badge");
   const agentDetail = byId.get("agent-detail");
-  const agentList = byId.get("agent-list");
-  agentToggle.click();
-  assert(!agentPanel.classList.contains("hidden"), "点击 agent-toggle 后 #agent-panel 未展开");
-  assert(bgPanel.classList.contains("hidden"), "子代理面板打开时活动面板未收起(互斥切换失败)");
-  assert(agentPanel.dataset.mode === "list", `从 rail 打开应是列表模式,实为 ${agentPanel.dataset.mode}`);
-  agentToggle.click(); // 收起
-  assert(agentPanel.classList.contains("hidden"), "再次点击 agent-toggle 后 #agent-panel 未收起");
+  const bgList = byId.get("bg-list");
+  const panelNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
+  assert(!byId.has("bg-panel") && !byId.has("agent-panel") && !byId.has("agent-toggle") && !byId.has("activity-toggle"), "旧的活动/子代理浮层与两个开关应已合进后台任务侧栏");
+  panelNs.closeTasksPanel();
+  tasksToggle.click();
+  assert(!tasksPanel.classList.contains("hidden"), "点击 #tasks-toggle 后 #tasks-panel 未展开");
+  assert(tasksPanel.dataset.mode === "list", `从 rail 打开应是列表模式,实为 ${tasksPanel.dataset.mode}`);
+  assert(tasksToggle.getAttribute("aria-expanded") === "true", "打开侧栏后 rail 开关 aria-expanded 未同步");
+  tasksToggle.click(); // 收起
+  assert(tasksPanel.classList.contains("hidden") && tasksToggle.getAttribute("aria-expanded") === "false", "再次点击 #tasks-toggle 后侧栏未收起");
   const sA = handlers.get("kz:tool-start");
   const pA = handlers.get("kz:task-progress");
   const eA = handlers.get("kz:tool-end");
@@ -7894,10 +7896,10 @@ const docsB = {
   assert(card, "运行中的子代理没有卡片");
   assert(card?.querySelector(".sa-agent")?.textContent === "my_scout", "编排派发的子代理未以角色名作身份签");
   assert(card?.dataset.saState === "starting", `刚派发的子代理应是启动中,实为 ${card?.dataset.saState}`);
-  // rail 徽标 = 当前线路运行中的子代理数(data-running 仍是 #7 rail 点共用的布尔)。
-  const runningNow = sandbox.subagentRunningCount("sess-smoke");
-  assert(runningNow >= 1 && agentToggle.dataset.running === "true", `子代理运行时 rail 开关没有点亮,运行数 ${runningNow}`);
-  assert(agentBadge.textContent === String(runningNow) && !agentBadge.classList.contains("hidden"), `rail 徽标应显示运行数 ${runningNow},实为 "${agentBadge.textContent}"`);
+  // rail 徽标 = 当前线路在跑的数量(子代理 + 终端,强调色);data-running 仍是 #7 rail 点共用的布尔。
+  const badgeNow = panelNs.tasksPanelState().badge;
+  assert(tasksToggle.dataset.running === "true" && badgeNow?.tone === "run" && badgeNow.count >= 1, `子代理运行时 rail 开关没有点亮:${JSON.stringify(badgeNow)}`);
+  assert(tasksBadge.textContent === String(badgeNow?.count) && tasksBadge.dataset.tone === "run" && !tasksBadge.classList.contains("hidden"), `rail 徽标应显示运行数 ${badgeNow?.count},实为 "${tasksBadge.textContent}"`);
   // 字段来自真实 trace:meta 给实际人格与模型,start/end 给工具次数与当前工具,usage 是累计值。
   pA({ payload: { id: "my_scout", text: "explore · qwen3:8b", trace: { child_id: "my_scout", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
   pA({ payload: { id: "my_scout", text: "读取中", trace: { child_id: "c1", phase: "start", name: "read", summary: "src/main.rs", input: { path: "src/main.rs" } }, sessionId: "sess-smoke" } });
@@ -7910,12 +7912,11 @@ const docsB = {
   const cardMeta = card?.querySelector(".sa-meta")?.textContent ?? "";
   assert(/1 (tool uses?|次工具)/.test(cardMeta), `卡片计数未显示工具次数,实得 "${cardMeta}"`);
   assert(/165 (tokens|token)/.test(cardMeta), `卡片计数未显示 token,实得 "${cardMeta}"`);
-  // ↗ 打开侧栏详情:与活动面板互斥;详情含描述、实际模型与 transcript(子工具行,不贴裸 JSON)。
-  bgPanel.classList.remove("hidden");
+  // ↗ 打开侧栏详情:详情含描述、实际模型与 transcript(子工具行,不贴裸 JSON)。
+  panelNs.closeTasksPanel();
   card?.querySelector(".sa-open")?.click();
-  assert(!agentPanel.classList.contains("hidden") && agentPanel.dataset.mode === "detail", `↗ 未打开侧栏详情(mode=${agentPanel.dataset.mode})`);
-  assert(bgPanel.classList.contains("hidden"), "打开子代理侧栏时活动面板未收起");
-  assert(!agentDetail.classList.contains("hidden") && agentList.classList.contains("hidden"), "详情模式下列表/详情显隐不对");
+  assert(!tasksPanel.classList.contains("hidden") && tasksPanel.dataset.mode === "detail", `↗ 未打开侧栏详情(mode=${tasksPanel.dataset.mode})`);
+  assert(!agentDetail.classList.contains("hidden") && bgList.classList.contains("hidden"), "详情模式下列表/详情显隐不对");
   assert(agentDetail.textContent.includes("勘察文件结构") && agentDetail.textContent.includes("qwen3:8b"), "侧栏详情缺描述或实际模型");
   const detailTool = agentDetail.querySelector(".tool-msg");
   assert(detailTool?.querySelector(".tool-msg-name")?.textContent === "read" && detailTool?.textContent.includes("src/main.rs"), "侧栏详情缺子工具调用(transcript)");
@@ -7939,25 +7940,34 @@ const docsB = {
   assert(card?.dataset.saState === "cancelled", `被停的子代理未收成已停止,实为 ${card?.dataset.saState}`);
   assert(/Stopped|已停止/.test(card?.querySelector(".sa-meta")?.textContent ?? ""), "被停的子代理计数行未写明已停止");
   assert(card?.querySelector(".sa-stop")?.disabled && agentDetail.querySelector(".sa-detail-stop")?.classList.contains("hidden"), "结束的子代理不应残留停止按钮");
-  const runningAfter = sandbox.subagentRunningCount("sess-smoke");
-  assert(agentBadge.textContent === (runningAfter ? String(runningAfter) : "") && agentBadge.classList.contains("hidden") === (runningAfter === 0), "子代理结束后 rail 徽标与实际运行数不符");
-  // Esc:详情回列表;列表里有当前线路的行;⌖ 定位回对话(卡片闪一下);点行再进详情;两次 Esc 关面板。
-  const escape = () => agentPanel.dispatchEvent({ type: "keydown", key: "Escape", preventDefault() {}, stopPropagation() {} });
+  const badgeAfter = panelNs.tasksPanelState().badge;
+  assert(tasksBadge.classList.contains("hidden") === !badgeAfter && tasksBadge.textContent === (badgeAfter ? String(badgeAfter.count) : ""), "子代理结束后 rail 徽标与实际状态不符");
+  // Esc:详情回列表;已完成段展开后列表里有这一批的委派卡与行;点行再进详情;⌖ 定位回对话;两次 Esc 关侧栏。
+  const escape = () => tasksPanel.dispatchEvent({ type: "keydown", key: "Escape", preventDefault() {}, stopPropagation() {} });
   escape();
-  assert(agentPanel.dataset.mode === "list" && !agentPanel.classList.contains("hidden"), "详情模式按 Esc 应回到列表而不是关面板");
-  const row = [...agentList.querySelectorAll(".sa-panel-row")].find((r) => r.dataset.saKey === "sess-smoke|my_scout");
-  assert(row, "列表模式缺当前线路的子代理行");
-  row?.querySelector(".sa-locate")?.click();
+  assert(tasksPanel.dataset.mode === "list" && !tasksPanel.classList.contains("hidden"), "详情模式按 Esc 应回到列表而不是关侧栏");
+  const doneWasOpen = !byId.get("bg-done-body").classList.contains("hidden");
+  if (!doneWasOpen) byId.get("bg-done-toggle").click();
+  await flush();
+  const scoutDelegation = [...tasksPanel.querySelectorAll(".tp-card")].find((c) => c.querySelector(".tp-card-title")?.textContent === "勘察文件结构");
+  assert(scoutDelegation, "已完成段展开后缺这一批的委派卡");
+  assert(scoutDelegation?.querySelector(".tp-phase-head")?.getAttribute("aria-expanded") === "false", "已完成的委派卡阶段行应默认收起");
+  scoutDelegation?.querySelector(".tp-phase-head")?.click();
+  const row = [...tasksPanel.querySelectorAll(".tp-agent-row")].find((r) => r.dataset.saKey === "sess-smoke|my_scout");
+  assert(row, "展开阶段行后缺这一批的委派卡行");
+  assert(row?.closest(".tp-card")?.parentElement?.id === "tasks-done", "被用户停止的一批(不算失败)应落在「已完成」段");
+  row?.click();
+  assert(tasksPanel.dataset.mode === "detail", "点委派卡的行没有进入详情");
+  agentDetail.querySelector(".sa-detail-locate")?.click();
   assert(card?.classList.contains("sa-flash"), "⌖ 定位到对话没有让卡片闪一下");
-  row?.querySelector(".sa-panel-main")?.click();
-  assert(agentPanel.dataset.mode === "detail", "点列表行没有进入详情");
   escape();
   escape();
-  assert(agentPanel.classList.contains("hidden"), "列表模式按 Esc 应关闭侧栏");
+  assert(tasksPanel.classList.contains("hidden"), "列表模式按 Esc 应关闭侧栏");
+  if (!doneWasOpen) byId.get("bg-done-toggle").click();
   await flush();
   handlers.get("kz:done")({ payload: { sessionId: "sess-smoke", steps: 1, history: 1, halted: false, autoAction: { type: "NoContinue" } } });
   await flush();
-  agentToggle.click();
+  tasksToggle.click();
   const auditCard = byId.get("agent-audit");
   assert(auditCard && !auditCard.classList.contains("hidden"), "运行结束后未显示运行审计摘要卡片");
   const auditText = byId.get("agent-audit-facts")?.textContent || "";
@@ -7967,42 +7977,26 @@ const docsB = {
   assert(auditText.includes("权限拒绝") || auditText.includes("Permission denials"), "审计摘要缺少权限拒绝统计");
   assert(modelText.includes("smoke-provider:main"), "审计摘要缺少主代理模型调用统计");
   assert(modelText.includes("qwen3:8b"), "审计摘要缺少子代理(实际模型)调用统计");
-  const traceButton = byId.get("agent-audit-trace");
-  traceButton.click();
-  assert(!bgPanel.classList.contains("hidden"), "运行审计摘要的运行轨迹入口未打开活动面板");
-  assert(agentPanel.classList.contains("hidden"), "打开运行轨迹后子代理侧栏未收起");
-  agentToggle.click();
-  assert(!agentPanel.classList.contains("hidden"), "打开运行轨迹后无法返回子代理面板");
-  byId.get("activity-toggle").click(); // 切换到活动面板时应立即收起子代理面板
-  assert(agentPanel.classList.contains("hidden"), "切换到活动面板后 #agent-panel 未自动收起");
-  byId.get("activity-toggle").click(); // 复位:活动面板收起
-  assert(bgPanel.classList.contains("hidden"), "断言结束后活动面板未收起");
+  // 「打开运行轨迹」= 同一个侧栏里的终端条目:留在列表模式、展开已完成段,侧栏不关。
+  byId.get("agent-audit-trace").click();
+  assert(!tasksPanel.classList.contains("hidden") && tasksPanel.dataset.mode === "list", "运行审计摘要的运行轨迹入口应留在后台任务侧栏的列表里");
+  assert(!byId.get("bg-done-body").classList.contains("hidden"), "运行轨迹入口没有展开已完成段");
+  byId.get("bg-done-toggle").click(); // 复位:已完成段收起
+  tasksToggle.click();
+  assert(tasksPanel.classList.contains("hidden"), "断言结束后侧栏未收起");
 }
-// ---------- D-350 面板 ✕ 关闭按钮:子代理面板头部的显式关闭入口 ----------
+// ---------- D-350 侧栏 ✕ 关闭按钮:后台任务侧栏头部的显式关闭入口 ----------
 {
-  // 子代理面板:展开后头部应有 ✕(#agent-close),点击后面板收起,且不误弹活动面板
-  // (agentClosePanel 只回到当前 activityPanelOpen 状态)。
-  const agentPanel = byId.get("agent-panel");
-  const bgPanel = byId.get("bg-panel");
-  const agentClose = byId.get("agent-close");
-  assert(agentClose, "D-350:子代理面板头部缺少 ✕ 关闭按钮(#agent-close)");
-  assert(
-    agentClose.title && agentClose.title.length > 0,
-    "D-350:#agent-close 缺少 title 提示",
-  );
-  byId.get("agent-toggle").click(); // 展开子代理面板
+  const tasksPanel = byId.get("tasks-panel");
+  const close = byId.get("tasks-close");
+  assert(close, "D-350:后台任务侧栏头部缺少 ✕ 关闭按钮(#tasks-close)");
+  assert(close.title && close.title.length > 0, "D-350:#tasks-close 缺少 title 提示");
+  byId.get("tasks-toggle").click();
   await flush();
-  assert(!agentPanel.classList.contains("hidden"), "D-350:前置失败——#agent-panel 未展开");
-  agentClose.click();
+  assert(!tasksPanel.classList.contains("hidden"), "D-350:前置失败——#tasks-panel 未展开");
+  close.click();
   await flush();
-  assert(agentPanel.classList.contains("hidden"), "D-350:点击 #agent-close 后 #agent-panel 未收起");
-  assert(
-    bgPanel.classList.contains("hidden"),
-    "D-350:agentClosePanel 误弹了活动面板(应回到 activityPanelOpen 状态)",
-  );
-  byId.get("agent-toggle").click(); // 复位互斥状态
-  await flush();
-
+  assert(tasksPanel.classList.contains("hidden"), "D-350:点击 #tasks-close 后 #tasks-panel 未收起");
 }
 
 // ---------- R-184 B 面:真实并列视图与合并前冲突预警 ----------
@@ -10942,19 +10936,24 @@ const docsB = {
       assert(traceProg("G4T-DECL") === "已拒绝", `历史轨迹里用户拒绝的 write 没说出原因:"${traceProg("G4T-DECL")}"`);
       assert(traceProg("G4T-READ") === "路径不存在 · crates/x.rs", `历史轨迹的 read 失败行未从报错首行取出相对路径:"${traceProg("G4T-READ")}"`);
 
-      // ---------- 子代理子行:参数与结果都不贴 JSON 片段 ----------
+      // ---------- 子代理的子工具行:参数与结果都不贴 JSON 片段 ----------
+      // UI2-0926 #14:编排子代理不再建终端条目,过程只在子代理卡片(尾迹与展开的「过程」)与委派卡详情里。
       toolStart({ payload: { id: "G4_SCOUT", name: "task", summary: "G4_SCOUT · 勘察", input: { prompt: "x", phase: "scouting", role: "G4_SCOUT" }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 1/3 轮", trace: { child_id: "g1", phase: "start", name: "bash", summary: '{"command":"cargo test -p kanzei-app --lib","workdir":"C:\\\\Users\\\\kanzei\\\\Documents\\\\kanzei cod' }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 1/3 轮", trace: { child_id: "g1", phase: "end", name: "bash", ok: true, preview: "exit code: 0 (+5 lines)" }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 2/3 轮", trace: { child_id: "g2", phase: "start", name: "read", summary: "{\"path\":\"crates/x.rs\"}" }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 2/3 轮", trace: { child_id: "g2", phase: "end", name: "read", ok: true, preview: "     1\tuse std; (+9 lines)" }, sessionId: SID } });
       await flush();
-      const scoutEntry = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4_SCOUT");
-      const childHeads = [...(scoutEntry?.querySelectorAll(".bg-child-head") ?? [])].map((n) => n.textContent);
-      const childMetas = [...(scoutEntry?.querySelectorAll(".bg-child-meta") ?? [])].map((n) => n.textContent);
-      assert(childHeads[0] === "bash cargo test -p kanzei-app --lib" && childHeads[1] === "read crates/x.rs", `子代理子行参数仍是后端入参 JSON:${JSON.stringify(childHeads)}`);
-      assert(childHeads.every((head) => !head.includes('{"')), `子代理子行 head 含 JSON 片段:${JSON.stringify(childHeads)}`);
-      assert(childMetas[0] === "退出码 0 · 输出 5 行" && childMetas[1] === "全文 10 行", `子代理子行结果未走摘要器降级口径:${JSON.stringify(childMetas)}`);
+      assert(![...document.querySelectorAll("#bg-list .bg-entry")].some((n) => n.dataset.bgId === "G4_SCOUT"), "编排子代理不该再建终端条目(过程归子代理卡片)");
+      const scoutCard = [...document.querySelectorAll(".sa-card")].find((c) => c.dataset.saKey?.endsWith("|G4_SCOUT"));
+      const childArgs = [...(scoutCard?.querySelectorAll(".sa-live .sa-line") ?? [])].map((n) => `${n.querySelector(".sa-line-name")?.textContent ?? ""} ${n.querySelector(".sa-line-arg")?.textContent ?? ""}`.trim());
+      assert(childArgs[0] === "bash cargo test -p kanzei-app --lib" && childArgs[1] === "read crates/x.rs", `子代理尾迹行参数仍是后端入参 JSON:${JSON.stringify(childArgs)}`);
+      assert(childArgs.every((head) => !head.includes('{"')), `子代理尾迹行含 JSON 片段:${JSON.stringify(childArgs)}`);
+      scoutCard?.querySelector(".sa-head")?.click();
+      await flush();
+      const childResults = [...(scoutCard?.querySelectorAll(".sa-steps .tool-msg-result") ?? [])].map((n) => n.textContent);
+      assert(childResults[0] === "⎿ 退出码 0 · 输出 5 行" && childResults[1] === "⎿ 全文 10 行", `子代理过程的子工具结果未走摘要器降级口径:${JSON.stringify(childResults)}`);
+      scoutCard?.querySelector(".sa-head")?.click();
       toolEnd({ payload: { id: "G4_SCOUT", name: "task", ok: true, preview: "勘察完成", display: null, sessionId: SID } });
       await flush();
 
@@ -12090,21 +12089,21 @@ const docsB = {
   sandbox.syncMotionVisibility();
   assert(html.dataset.kzMotion === "live", "#7 窗口恢复后动画没有恢复");
 
-  // ⑨ rail 徽标:面板收起时右上角提示「有东西在跑」。
+  // ⑨ rail 徽标:后台任务开关右上角提示「有东西在跑」(UI2-0926 #14 起一个开关管子代理与终端两类)。
   sandbox.bgAbortRunning("(动效冒烟前置)");
-  const activityToggle = byId.get("activity-toggle");
-  assert(activityToggle.dataset.running === "false", `#7 活动面板无运行项时徽标应熄灭,实为 ${activityToggle.dataset.running}`);
+  const tasksToggle = byId.get("tasks-toggle");
+  const bgRunningCountFn = esmModuleCache.get("06-activity.js")?.namespace?.bgRunningCount;
+  const anyRunning = () => sandbox.subagentRunningCount("sess-smoke") + (bgRunningCountFn?.("sess-smoke") ?? 0) > 0;
+  assert(tasksToggle.dataset.running === String(anyRunning()), `#7 rail 徽标与实际运行数不符(终端全部中止后),实为 ${tasksToggle.dataset.running}`);
   sandbox.bgAdd("MOT-BG-RAIL", "bash", "sleep 3", { command: "sleep 3" }, "sess-smoke");
-  assert(activityToggle.dataset.running === "true", "#7 活动面板有运行项时 rail 徽标未点亮");
+  assert(tasksToggle.dataset.running === "true", "#7 有终端在跑时 rail 徽标未点亮");
   sandbox.bgEnd("MOT-BG-RAIL", true, "ok", null, "success");
-  assert(activityToggle.dataset.running === "false", "#7 运行项结束后 rail 徽标未熄灭");
-  const agentToggle = byId.get("agent-toggle");
+  assert(tasksToggle.dataset.running === String(anyRunning()), "#7 终端结束后 rail 徽标未跟着实际运行数");
   // UI-0926 #8:子代理数据模型改归 05-subagents.js(旧 agentStart/agentEnd/agentEntries 已退役)。
   sandbox.subagentStart({ sessionId: "sess-smoke", id: "AG-MOTION", input: { prompt: "motion", description: "动效徽标" } });
-  assert(agentToggle.dataset.running === "true", "#7 子代理运行时 rail 徽标未点亮");
+  assert(tasksToggle.dataset.running === "true", "#7 子代理运行时 rail 徽标未点亮");
   sandbox.subagentEnd({ sessionId: "sess-smoke", id: "AG-MOTION", ok: true, outcome: "success", preview: "done" });
-  const stillRunningAgents = sandbox.subagentRunningCount("sess-smoke") > 0;
-  assert(agentToggle.dataset.running === String(stillRunningAgents), `#7 子代理结束后 rail 徽标与实际运行数不符:${agentToggle.dataset.running}`);
+  assert(tasksToggle.dataset.running === String(anyRunning()), `#7 子代理结束后 rail 徽标与实际运行数不符:${tasksToggle.dataset.running}`);
 
   // ⑩ 计数 tick:鞭挞轮次上升时 tick 一次,值不变的无参重绘不 tick。
   const roundNow = byId.get("auto-round-now");
@@ -12274,12 +12273,12 @@ const docsB = {
   const cardOf = (id, root = pane()) => [...root.querySelectorAll(".sa-card")].find((c) => c.dataset.saKey === `sess-smoke|${id}` || c.dataset.saKey?.endsWith(`|${id}`));
   const liveLines = (card) => [...(card?.querySelectorAll(".sa-live .sa-line") ?? [])];
 
-  // ① 静态:字形复用第一波 .kz-glyph 原语,本组不另写 keyframes / 无限动画;侧栏仍是 absolute 抽屉。
-  const saCss = style.split("/* ===== 分区:子代理 ===== */")[1] ?? "";
+  // ① 静态:字形复用第一波 .kz-glyph 原语,本组不另写 keyframes / 无限动画;侧栏停靠在 #main 网格第 2 列(UI2-0926 #14)。
+  const saCss = style.split("/* ===== 分区:子代理 ===== */")[1]?.split("/* ===== 分区:后台任务侧栏与可调框 ===== */")[0] ?? "";
   assert(saCss.includes(".sa-card") && saCss.includes(".sa-live"), "style.css 子代理分区缺卡片/尾迹样式");
   assert(!/@keyframes/.test(saCss) && !/\binfinite\b/.test(saCss), "子代理分区不得另写 keyframes 或无限动画(复用 .kz-glyph 原语)");
   assert(/className = "kz-glyph sa-glyph"/.test(source), "子代理字形没有复用 .kz-glyph 原语");
-  assert(/#agent-panel\s*\{[^}]*position: absolute/.test(style), "#agent-panel 必须仍是 position:absolute 的抽屉");
+  assert(/#main > #tasks-panel \{ grid-column: 2; grid-row: 1 \/ span 2; \}/.test(style) && /#main > #tasks-panel\[data-dock="drawer"\] \{[^}]*position: absolute/.test(style), "后台任务侧栏必须停靠在 #main 网格第 2 列,抽屉态 position:absolute");
   assert(coreNs?.BACKGROUND_RENDER_EVENTS?.has("kz:task-progress"), "kz:task-progress 不在后台渲染事件集合里:非活动线路的子代理卡片不会推进");
 
   // ② 单卡生命周期:卡片出现、描述是 description、永不显示调用 id;meta trace 带来实际人格。
@@ -12480,7 +12479,8 @@ const docsB = {
   assert(p4?.dataset.saState === "cancelled" && !p4?.querySelector(".sa-glyph")?.classList.contains("kz-pop"), "停止补发的 ToolEnd 改写了终态或又弹了一次");
   await flush();
   assert(document.documentElement.dataset.kzActivity !== "running", "停止补发的 ToolEnd 把全局相位翻回了运行中");
-  assert(sandbox.subagentRunningCount("sess-smoke") === 0 && byId.get("agent-toggle").dataset.running === "false", "停止后 rail 徽标仍显示有子代理在跑");
+  const bgStillRunning = (esmModuleCache.get("06-activity.js")?.namespace?.bgRunningCount?.("sess-smoke") ?? 0) > 0;
+  assert(sandbox.subagentRunningCount("sess-smoke") === 0 && byId.get("tasks-toggle").dataset.running === String(bgStillRunning), "停止后 rail 徽标仍显示有子代理在跑");
 
   // ⑬ 超额派发:后端逐个「start、end(subagent_limit)」紧跟在同批 ToolStart 之后发出。没跑起来的卡不封口,
   //    同一批 2 张在跑 + 2 张超额仍是一组;组内有进度之后照常封口。
@@ -12504,23 +12504,22 @@ const docsB = {
   await flush();
   assert(cardOf("call_q3")?.closest(".sa-group") !== qGroup, "组内有进度之后的新派发仍并进了超额那一组");
 
-  // ⑭ 侧栏行的可访问名与卡片同一口径:运行中不带逐秒变化的耗时,时间流逝只改计数文本;终态才带计数。
+  // ⑭ 侧栏委派卡里一行的可访问名与卡片同一口径:运行中不带逐秒变化的耗时,时间流逝只改「用时」一格;终态才带计数。
   const panelNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
   panelNs.openSubagentPanel(null);
   const q1Run = saNs.subagentByKey("sess-smoke|call_q1");
-  const q1Row = [...byId.get("agent-list").querySelectorAll(".sa-panel-row")].find((r) => r.dataset.saKey === "sess-smoke|call_q1");
-  const q1Main = q1Row?.querySelector(".sa-panel-main");
-  const q1Aria = q1Main?.getAttribute("aria-label") ?? "";
-  assert(/Quota one/.test(q1Aria) && /运行中/.test(q1Aria) && !/\d+s\b/.test(q1Aria), `运行中侧栏行的可访问名不对(不该带耗时):"${q1Aria}"`);
+  const q1RowOf = () => [...byId.get("tasks-panel").querySelectorAll(".tp-agent-row")].find((r) => r.dataset.saKey === "sess-smoke|call_q1");
+  const q1Aria = q1RowOf()?.getAttribute("aria-label") ?? "";
+  assert(/Quota one/.test(q1Aria) && /运行中/.test(q1Aria) && !/\d+s\b/.test(q1Aria), `运行中委派卡行的可访问名不对(不该带耗时):"${q1Aria}"`);
   q1Run.startedAt -= 7000;
-  saNs.updateSubagentRowMeta(q1Row, q1Run);
-  saNs.updateSubagentRow(q1Row, q1Run);
-  assert(/7s/.test(q1Row?.querySelector(".sa-meta")?.textContent ?? "") && q1Main?.getAttribute("aria-label") === q1Aria, "时间流逝后侧栏行的可访问名被重写了(读屏会反复播报)");
+  taskProgress({ payload: { id: "call_q1", text: "第 2/3 轮", trace: null, sessionId: "sess-smoke" } });
+  await flush();
+  assert(/7s/.test(q1RowOf()?.querySelector(".tp-agent-time")?.textContent ?? "") && q1RowOf()?.getAttribute("aria-label") === q1Aria, "时间流逝后委派卡行的可访问名被重写了(读屏会反复播报)");
   for (const id of ["call_q1", "call_q2", "call_q3"]) toolEnd({ payload: { id, name: "task", ok: true, outcome: "success", preview: "done", content: "done", durationMs: 9000, display: null, sessionId: "sess-smoke" } });
   await flush();
-  const q1Done = [...byId.get("agent-list").querySelectorAll(".sa-panel-row")].find((r) => r.dataset.saKey === "sess-smoke|call_q1")?.querySelector(".sa-panel-main")?.getAttribute("aria-label") ?? "";
-  assert(/完成/.test(q1Done) && /9s/.test(q1Done), `终态侧栏行的可访问名应带状态词与计数:"${q1Done}"`);
-  panelNs.agentClosePanel();
+  const q1Done = q1RowOf()?.getAttribute("aria-label") ?? "";
+  assert(/完成/.test(q1Done) && /9s/.test(q1Done), `终态委派卡行的可访问名应带状态词与计数:"${q1Done}"`);
+  panelNs.closeTasksPanel();
 
   // ⑮ 运行审计:用户主动停止的子代理(subagent_cancelled)记为已停止,不进「失败与超时」清单;超时照常列出。
   activityNs.agentAuditBegin("sess-sa-audit");
@@ -12577,9 +12576,16 @@ const docsB = {
   assert([...saCards("O1"), ...saCards("O2")].every((c) => c.dataset.saState === "done"), "补更早的一窗后已完成的子代理被标成了中断");
   assert(saCards("E1")[0]?.dataset.saState === "done", "补出的更早一批没有建卡");
   panelNs.openSubagentPanel(null);
-  const panelBatches = [...byId.get("agent-list").querySelectorAll(".sa-panel-batch")].map((section) => [...section.querySelectorAll(".sa-panel-row")].map((r) => r.dataset.saKey.split("|")[1]).join(","));
-  assert(panelBatches.join(" / ") === "N1 / O1,O2 / E1", `载入更早的消息后侧栏批次顺序不对(应最新在上):${panelBatches.join(" / ")}`);
-  panelNs.agentClosePanel();
+  // 回放出来的批次都已完成:展开「已完成」段与各卡的阶段行,按卡读出每一批的子代理。
+  const doneOpenBefore = !byId.get("bg-done-body").classList.contains("hidden");
+  if (!doneOpenBefore) byId.get("bg-done-toggle").click();
+  await flush();
+  const doneCards = [...byId.get("tasks-done").querySelectorAll(".tp-card")];
+  for (const doneCard of doneCards) doneCard.querySelector(".tp-phase-head")?.click();
+  const panelBatches = doneCards.map((doneCard) => [...doneCard.querySelectorAll(".tp-agent-row")].map((r) => r.dataset.saKey.split("|")[1]).join(","));
+  assert(panelBatches.slice(0, 3).join(" / ") === "N1 / O1,O2 / E1", `载入更早的消息后侧栏批次顺序不对(应最新在上):${panelBatches.join(" / ")}`);
+  if (!doneOpenBefore) byId.get("bg-done-toggle").click();
+  panelNs.closeTasksPanel();
 
   sandbox.setLanguagePreference(priorLanguage, { persist: true, rerender: true });
   vm.runInContext('transitionSession("sess-smoke", "idle"); transitionSession("sess-bg", "idle")', sandbox);
@@ -12770,6 +12776,330 @@ const docsB = {
   assert(byId.get("files-side")?._kzSplit, "文件树没有装上分隔条");
   for (const el of created) el.remove();
   for (const id of ["smoke-edge", "smoke-move", "smoke-button", "smoke-throw", "smoke-key"]) layoutNs.setLayoutPref("frames", id, null);
+  await flush();
+}
+
+// ── 分区:后台任务侧栏与可调框 ──
+// UI2-0926 #14 后台任务侧栏(docs/design/subagent_presentation.md §5.6/§7;用户原话「子代理也弄成侧栏,
+// 参考claude的结构呢？弹出也自动化一点」)。① 纯策略 06-side-policy.js 的 12+ 条场景;② 侧栏宿主的集成:
+// 自动打开不抢焦点、本次运行内用户关过就不再弹、6 秒延迟收起、失败保留与红徽标、悬停暂停、抽屉态不自动开、
+// 只在对话视图;③ 缺陷回归 A–F;④ 设置页两个开关经 ui_prefs 持久化。
+// 变异守卫:sideSuppressRun / sideFailureHold / sideLinger / sideLineScope / sideReplayPlace / sideReplayRunning /
+// sideViewGate / sideNoFocusSteal(各自恰好命中一处被守护的源码,删掉后这里必须变红)。
+{
+  const policy = esmModuleCache.get("06-side-policy.js")?.namespace;
+  const panelNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
+  const activityNs = esmModuleCache.get("06-activity.js")?.namespace;
+  const eventsNs = esmModuleCache.get("07-events.js")?.namespace;
+  const layoutNs = esmModuleCache.get("03-layout.js")?.namespace;
+  assert(policy && typeof policy.sideDecide === "function", "06-side-policy.js 未加载或未导出 sideDecide");
+  assert(!/^\s*import\b/m.test(sources[scriptSrcs.indexOf("06-side-policy.js")] ?? "import"), "06-side-policy.js 必须零 import(纯策略,时钟由调用方注入)");
+
+  // ① 纯策略场景(迁自调查期的 side-policy.test.mjs)。
+  {
+    const A = "ses_A";
+    const B = "ses_B";
+    const on = { autoOpen: true, autoClose: true };
+    const env = (o) => ({ sid: A, view: "chat", dock: "side", active: 0, now: 0, prefs: on, ...o });
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    let m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    let d = policy.sideDecide(m, env({ active: 1, now: 1000 }));
+    assert(d.visible && d.reason === "auto" && same(d.badge, { count: 1, tone: "run" }), `策略①:首个实时子代理开始应自动打开,实为 ${JSON.stringify(d)}`);
+    d = policy.sideDecide(m, env({ active: 0, now: 2000 }));
+    assert(d.visible && d.lingerMs === policy.SIDE_AUTO_CLOSE_MS, `策略②:全部结束后应先保留 6 秒,实为 ${JSON.stringify(d)}`);
+    assert(policy.sideDecide(m, env({ active: 0, now: 2000 + policy.SIDE_AUTO_CLOSE_MS - 1 })).visible, "策略②:6 秒内不该收起");
+    d = policy.sideDecide(m, env({ active: 0, now: 2000 + policy.SIDE_AUTO_CLOSE_MS }));
+    assert(!d.visible && d.badge === null, `策略②:6 秒到点应收起、徽标清空,实为 ${JSON.stringify(d)}`);
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    policy.sideEvent(m, { type: "user-close", sid: A, active: 2 });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on); // 鞭挞下一轮又派了子代理
+    d = policy.sideDecide(m, env({ active: 1, now: 30 }));
+    assert(!d.visible && same(d.badge, { count: 1, tone: "run" }), `策略③:本次运行里关过(含鞭挞续轮)不该再弹,徽标照常计数,实为 ${JSON.stringify(d)}`);
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    assert(policy.sideDecide(m, env({ active: 1, now: 40 })).visible, "策略④:下一条用户消息应解除压制");
+    policy.sideEvent(m, { type: "failure", sid: A, key: "call_x", hold: true });
+    d = policy.sideDecide(m, env({ active: 0, now: 100 + policy.SIDE_AUTO_CLOSE_MS * 5 }));
+    assert(d.visible && same(d.badge, { count: 1, tone: "err" }) && d.lingerMs === null, `策略⑤:未确认的失败应保留、徽标转红,实为 ${JSON.stringify(d)}`);
+    policy.sideEvent(m, { type: "ack", sid: A, key: "call_y" });
+    assert(same(policy.sideDecide(m, env({ active: 0, now: 200 })).badge, { count: 1, tone: "err" }), "策略⑤:确认别的失败不该清掉这一条");
+    policy.sideEvent(m, { type: "user-close", sid: A, active: 0 });
+    d = policy.sideDecide(m, env({ active: 0, now: 200000 }));
+    assert(!d.visible && d.badge === null, "策略⑤:关闭 = 确认,之后不显示、徽标清空");
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-open", sid: A });
+    assert(policy.sideDecide(m, env({ active: 0, now: 999999 })).reason === "pinned", "策略⑥:手动打开不自动收起");
+    m = policy.createSideModel();
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, on);
+    d = policy.sideDecide(m, env({ dock: "drawer", active: 1, now: 5 }));
+    assert(!d.visible && same(d.badge, { count: 1, tone: "run" }), "策略⑦:抽屉态不自动打开,只亮徽标");
+    assert(policy.sideDecide(m, env({ dock: "side", active: 1, now: 6 })).visible, "策略⑦:变宽后仍在自动态就显示");
+    assert(!policy.sideDecide(m, env({ sid: B, active: 0, now: 7 })).visible && policy.sideDecide(m, env({ sid: A, active: 1, now: 8 })).visible, "策略⑧:按线路记状态(A 自动开着,空闲的 B 不显示,切回 A 仍显示)");
+    assert(!policy.sideDecide(m, env({ view: "files", active: 1, now: 9 })).visible && policy.sideDecide(m, env({ active: 1, now: 10 })).visible, "策略⑨:非对话视图不显示,状态不丢");
+    policy.sideEvent(m, { type: "interact", sid: A, on: true });
+    policy.sideDecide(m, env({ active: 0, now: 100 }));
+    assert(policy.sideDecide(m, env({ active: 0, now: 100 + policy.SIDE_AUTO_CLOSE_MS * 3 })).visible, "策略⑩:悬停期间不收起");
+    policy.sideEvent(m, { type: "interact", sid: A, on: false, now: 100 + policy.SIDE_AUTO_CLOSE_MS * 3 });
+    assert(!policy.sideDecide(m, env({ active: 0, now: 100 + policy.SIDE_AUTO_CLOSE_MS * 4 })).visible, "策略⑩:离开后重新计时,到点收起");
+    m = policy.createSideModel();
+    const off = { autoOpen: false, autoClose: true };
+    policy.sideEvent(m, { type: "user-run", sid: A });
+    policy.sideEvent(m, { type: "work-start", sid: A }, off);
+    d = policy.sideDecide(m, env({ active: 1, now: 1, prefs: off }));
+    assert(!d.visible && same(d.badge, { count: 1, tone: "run" }), "策略⑪:设置关闭自动弹出后只有徽标");
+    assert(policy.sideDockMode({ mainWidth: 1272, panelWidth: 416 }) === "side" && policy.sideDockMode({ mainWidth: 952, panelWidth: 400 }) === "drawer"
+      && policy.sideDockMode({ mainWidth: 1232, panelWidth: 360 }) === "side" && policy.sideDockMode({ mainWidth: 672, panelWidth: 360 }) === "drawer", "策略⑫:停靠判据(主区宽 − 侧栏宽 ≥ 600)");
+    assert(policy.sideClampWidth(900, 1272) === 672 && policy.sideClampWidth(100, 1272) === 320 && policy.sideClampWidth(900, 2600) === 760, "策略⑫:宽度夹在 [320, min(760, 主区 − 600)]");
+    assert(policy.sideDefaultWidth(1600) === 416 && policy.sideDefaultWidth(2000) === 520 && policy.sideDefaultWidth(1000) === 360, "策略⑫:默认宽 clamp(360, 26vw, 520)");
+  }
+
+  // ② 集成:注入时钟与焦点探针;用一条独立线路 sess-tp,不碰前面各分区的状态。
+  const tasksPanel = byId.get("tasks-panel");
+  const tasksBadge = byId.get("tasks-badge");
+  const main = byId.get("main");
+  const prompt = byId.get("prompt");
+  const toolStart = handlers.get("kz:tool-start");
+  const toolEnd = handlers.get("kz:tool-end");
+  const priorSession = sandbox.activeSessionId;
+  const priorFocus = Element.prototype.focus;
+  let fakeNow = 1_800_000_000_000;
+  panelNs.setTasksPanelClock(() => fakeNow);
+  Element.prototype.focus = function focusProbe() { document.activeElement = this; };
+  const settleAll = async () => { await flush(); panelNs.reconcileTasksPanel(); };
+  const visible = () => !tasksPanel.classList.contains("hidden");
+  const startTask = (id, extra = {}) => toolStart({ payload: { id, name: "task", summary: "", input: { prompt: id, description: `任务 ${id}`, ...extra }, sessionId: "sess-tp" } });
+  const endTask = (id, fields = {}) => toolEnd({ payload: { id, name: "task", ok: true, outcome: "success", preview: "done", content: "done", durationMs: 1200, display: null, sessionId: "sess-tp", ...fields } });
+  sandbox.activeSessionId = "sess-tp";
+  document.body.dataset.view = "chat";
+  panelNs.closeTasksPanel();
+  panelNs.tasksPanelUserRun("sess-tp");
+  await settleAll();
+  assert(!visible(), "集成前置:新线路上侧栏应是关着的");
+  assert(/if \(!auto\) tasksPanelUserRun\(activeSessionId\);/.test(source), "sendText 的非鞭挞分支必须上报「用户发消息 = 新的一次运行」(鞭挞续轮不算)");
+
+  // 自动打开:实时子代理开跑 → 停靠出来;不抢焦点(用户正在输入框打字)。
+  document.activeElement = prompt;
+  startTask("tp-1");
+  await settleAll();
+  assert(visible() && panelNs.tasksPanelState().reason === "auto", `实时子代理开跑后侧栏应自动打开,实为 ${JSON.stringify(panelNs.tasksPanelState())}`);
+  assert(main.dataset.side === "docked" && tasksPanel.dataset.dock === "side", `宽窗口应停靠,实为 side=${main.dataset.side} dock=${tasksPanel.dataset.dock}`);
+  assert(/^\d+px$/.test(documentElement.style.getPropertyValue("--kz-dock-right")) && documentElement.style.getPropertyValue("--kz-dock-right") !== "0px", "停靠时 <html> 上应写 --kz-dock-right(权限卡与芯片据此让开侧栏)");
+  assert(document.activeElement === prompt, `自动打开抢了焦点(用户正在打字),焦点落在 #${document.activeElement?.id}`);
+  assert(tasksBadge.dataset.tone === "run" && tasksBadge.textContent === "1", `在跑时徽标应为强调色计数 1,实为 ${tasksBadge.dataset.tone}/${tasksBadge.textContent}`);
+
+  // 压制:本次运行里用户关过 → 同一次运行(含鞭挞续轮)再派子代理也不弹,徽标照常计数;下一条用户消息解除。
+  panelNs.closeTasksPanel();
+  startTask("tp-2");
+  await settleAll();
+  assert(!visible(), "用户在本次运行里关过侧栏,同一次运行里再派子代理又弹出来了(应压制到下一条用户消息)");
+  assert(tasksBadge.textContent === "2" && tasksBadge.dataset.tone === "run", `压制期间徽标应照常计数 2,实为 ${tasksBadge.textContent}`);
+  endTask("tp-1");
+  endTask("tp-2");
+  await settleAll();
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-3");
+  await settleAll();
+  assert(visible(), "下一条用户消息之后,新派的子代理应重新自动打开侧栏");
+
+  // 6 秒延迟收起:全部结束后先留着,到点收起、徽标清空;悬停期间暂停。
+  endTask("tp-3");
+  await settleAll();
+  assert(visible(), "全部结束后应先保留 6 秒(不是立即收起)");
+  tasksPanel.dispatchEvent({ type: "pointerenter" });
+  fakeNow += 30_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible(), "指针停在侧栏上时不该自动收起");
+  tasksPanel.dispatchEvent({ type: "pointerleave" });
+  fakeNow += 3_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible(), "指针离开后应重新计时(3 秒时还不该收起)");
+  fakeNow += 3_100;
+  panelNs.reconcileTasksPanel();
+  assert(!visible() && tasksBadge.classList.contains("hidden"), "全部结束 6 秒后自动打开的侧栏应收起、徽标清空");
+  assert(main.dataset.side === "closed" && documentElement.style.getPropertyValue("--kz-dock-right") === "0px", "收起后 #main[data-side] 与 --kz-dock-right 没有复位");
+
+  // 失败保留:值得停留的失败(超时)让侧栏不收起、「需要关注」置顶、徽标转红;关闭 = 确认。
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-4");
+  startTask("tp-5");
+  await settleAll();
+  endTask("tp-4");
+  endTask("tp-5", { ok: false, outcome: "failed", code: "subagent_timeout", preview: "subagent timed out" });
+  await settleAll();
+  fakeNow += 60_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible(), "有未确认的失败时自动打开的侧栏不该收起");
+  assert(tasksBadge.dataset.tone === "err" && !tasksBadge.classList.contains("hidden"), `有未确认的失败时徽标应转红,实为 ${tasksBadge.dataset.tone}`);
+  const failCard = [...byId.get("tasks-attention").querySelectorAll(".tp-card")].find((card) => card.querySelector('[data-sa-key="sess-tp|tp-5"]'));
+  assert(failCard, "有失败的一批应在「需要关注」段");
+  assert(!byId.get("bg-section-attention").classList.contains("hidden"), "「需要关注」段没有显示");
+  panelNs.closeTasksPanel();
+  await settleAll();
+  assert(!visible() && tasksBadge.classList.contains("hidden"), "关闭侧栏应确认失败、徽标清空");
+  panelNs.openTasksPanel();
+  await settleAll();
+  assert(byId.get("bg-section-attention").classList.contains("hidden"), "确认过的失败应挪出「需要关注」");
+  // 手动打开(pinned)不自动收起。
+  fakeNow += 120_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible() && panelNs.tasksPanelState().reason === "pinned", "手动打开的侧栏不该自动收起");
+
+  // 缺陷 A:切到别的视图侧栏隐藏,下一条工具事件不会把它弹回来;切回对话按状态恢复(手动打开的仍开着)。
+  eventsNs && sandbox.navigate_view("files");
+  await settleAll();
+  assert(!visible(), "切到文件视图后侧栏应隐藏");
+  toolStart({ payload: { id: "tp-bash-a", name: "bash", summary: "sleep 1", input: { command: "sleep 1" }, sessionId: "sess-tp" } });
+  await settleAll();
+  assert(!visible() && document.body.dataset.view === "files", "缺陷 A:非对话视图上一条工具事件把侧栏弹回来了");
+  assert(!tasksBadge.classList.contains("hidden"), "非对话视图上 rail 徽标照常亮(开关在所有视图都显示)");
+  sandbox.navigate_view("chat");
+  await settleAll();
+  assert(visible(), "切回对话后手动打开的侧栏应恢复显示");
+  toolEnd({ payload: { id: "tp-bash-a", name: "bash", ok: true, preview: "exit code: 0", display: null, sessionId: "sess-tp" } });
+  await settleAll();
+
+  // 缺陷 B:后台线路的 bash 不进活动线路的列表。
+  toolStart({ payload: { id: "tp-bash-bg", name: "bash", summary: "sleep 9", input: { command: "sleep 9" }, sessionId: "sess-tp-other" } });
+  await settleAll();
+  assert(!document.querySelector("#bg-list .bg-entry[data-bg-id=tp-bash-bg]"), "缺陷 B:另一条线路的 bash 混进了当前线路的后台任务列表");
+  assert(activityNs.bgRunningCount("sess-tp") === 0, "另一条线路的 bash 被算进了当前线路的在跑数");
+
+  // 终端命令跑满 3 秒才自动打开(短命令一闪而过不打扰)。
+  panelNs.closeTasksPanel();
+  panelNs.tasksPanelUserRun("sess-tp");
+  toolStart({ payload: { id: "tp-bash-long", name: "bash", summary: "cargo test", input: { command: "cargo test" }, sessionId: "sess-tp" } });
+  await settleAll();
+  assert(!visible(), "刚开始的终端命令不该立刻弹出侧栏(跑满 3 秒才算长命令)");
+  const longEntry = activityNs.bgEntries.get("tp-bash-long");
+  longEntry.startedAt -= 3_100;
+  activityNs.bgTick(longEntry);
+  await settleAll();
+  assert(visible() && panelNs.tasksPanelState().reason === "auto", "终端命令跑满 3 秒后侧栏应自动打开");
+  toolEnd({ payload: { id: "tp-bash-long", name: "bash", ok: false, outcome: "failed", preview: "exit code: 101", display: null, sessionId: "sess-tp" } });
+  await settleAll();
+  fakeNow += 60_000;
+  panelNs.reconcileTasksPanel();
+  assert(visible() && tasksBadge.dataset.tone === "err", "跑满 3 秒后失败的终端命令是值得停留的失败:侧栏保留、徽标转红");
+  assert(document.querySelector("#bg-attention .bg-entry[data-bg-id=tp-bash-long]"), "失败的长命令应在「需要关注」段");
+  panelNs.closeTasksPanel();
+  await settleAll();
+  assert(document.querySelector("#bg-done .bg-entry[data-bg-id=tp-bash-long]"), "关闭侧栏(确认)后失败的长命令应挪进「已完成」");
+
+  // 抽屉态(对话列不足 600px)不自动打开,只亮徽标;窗口变宽后若仍在自动态就停靠出来。
+  panelNs.tasksPanelUserRun("sess-tp");
+  windowShim.innerWidth = 900;
+  startTask("tp-6");
+  await settleAll();
+  assert(!visible() && !tasksBadge.classList.contains("hidden"), "抽屉态不该自动打开,只亮徽标");
+  windowShim.innerWidth = 1280;
+  await settleAll();
+  assert(visible() && main.dataset.side === "docked", "窗口变宽后仍在自动态应停靠出来");
+  // 用户在窄窗口手动打开 = 抽屉 + 遮罩,焦点进侧栏头部。
+  panelNs.closeTasksPanel();
+  windowShim.innerWidth = 900;
+  panelNs.openTasksPanel();
+  await settleAll();
+  assert(visible() && tasksPanel.dataset.dock === "drawer" && !byId.get("tasks-scrim").classList.contains("hidden"), "窄窗口手动打开应是抽屉 + 遮罩");
+  assert(main.dataset.side === "drawer" && documentElement.style.getPropertyValue("--kz-dock-right") === "0px", "抽屉不占网格列,不该写停靠宽度");
+  assert(document.activeElement === byId.get("tasks-close"), "抽屉态手动打开时焦点应进侧栏头部(✕)");
+  byId.get("tasks-scrim").click();
+  await settleAll();
+  assert(!visible() && byId.get("tasks-scrim").classList.contains("hidden"), "点遮罩应关闭抽屉");
+  windowShim.innerWidth = 1280;
+  endTask("tp-6");
+  await settleAll();
+
+  // 缺陷 D:上下文详情里的压缩纪要入口只打开这一个侧栏(没有第二块面板可以同屏)。
+  eventsNs.addCompactionEntry("## 纪要\n- 保留了关键决定");
+  eventsNs.renderContextDetail();
+  await settleAll();
+  assert(visible() && !byId.has("bg-panel") && !byId.has("agent-panel"), "缺陷 D:压缩纪要入口应只打开后台任务侧栏");
+  eventsNs.hideContextDetail();
+  panelNs.closeTasksPanel();
+
+  // 缺陷 E:回放出来的终态条目落在「已完成」,「运行中」为空;缺陷 F:线路还在跑时只 started 的保留运行态。
+  activityNs.bgClear();
+  vm.runInContext('transitionSession("sess-tp", "idle")', sandbox);
+  activityNs.renderRecoveredTraces([{ events: [
+    { id: "tp-r1", kind: "tool.started", name: "bash", summary: "cargo build" },
+    { id: "tp-r1", kind: "tool.completed", name: "bash", ok: true, outcome: "success", preview: "exit code: 0", durationMs: 4000 },
+    { id: "tp-r2", kind: "tool.started", name: "bash", summary: "cargo test" },
+    { id: "tp-r2", kind: "tool.completed", name: "bash", ok: false, outcome: "failed", preview: "exit code: 101", durationMs: 9000 },
+    { id: "tp-r3", kind: "tool.started", name: "bash", summary: "cargo clippy" },
+  ] }]);
+  await settleAll();
+  assert(!byId.get("bg-running").querySelector(".bg-entry"), `缺陷 E:回放出来的条目还挂在「运行中」:${byId.get("bg-running").querySelectorAll(".bg-entry").map((n) => n.dataset.bgId).join(",")}`);
+  assert(["tp-r1", "tp-r2", "tp-r3"].every((id) => activityNs.bgEntries.get(id)?.section === "done"), "缺陷 E:回放的终态条目应落在「已完成」(失败也算看过了)");
+  assert(!byId.get("bg-running-count").textContent, `缺陷 E:回放后「运行中」计数应为空,实为 "${byId.get("bg-running-count").textContent}"`);
+  activityNs.bgClear();
+  vm.runInContext('transitionSession("sess-tp", "running")', sandbox);
+  activityNs.renderRecoveredTraces([{ events: [{ id: "tp-live", kind: "tool.started", name: "bash", summary: "cargo test --workspace" }] }]);
+  await settleAll();
+  const liveEntry = activityNs.bgEntries.get("tp-live");
+  assert(liveEntry && !liveEntry.done && liveEntry.section === "running", `缺陷 F:线路还在跑时回放把在跑的命令收成了「中断」:${liveEntry?.section}/${liveEntry?.done}`);
+  toolEnd({ payload: { id: "tp-live", name: "bash", ok: true, preview: "exit code: 0", display: null, sessionId: "sess-tp" } });
+  vm.runInContext('transitionSession("sess-tp", "idle")', sandbox);
+  await settleAll();
+  assert(activityNs.bgEntries.get("tp-live")?.section === "done", "缺陷 F:真实收尾事件到了之后条目应进「已完成」");
+
+  // 委派卡:派发前那段助手话的首句作标题;主对话组头「查看全部 ↗」打开侧栏并定位到这一批。
+  // 上面缺陷 F 的用例把线路收敛成了 idle:新一轮由 kz:turn 解除收敛(收敛后的进度事件按设计会被丢弃)。
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: "sess-tp" } });
+  panelNs.tasksPanelUserRun("sess-tp");
+  sandbox.setCurrentAssistant(null);
+  handlers.get("kz:text")({ payload: { text: "分三路并行勘察:调用点、刷新方案、相关测试。", sessionId: "sess-tp" } });
+  startTask("tp-p1");
+  startTask("tp-p2");
+  startTask("tp-p3");
+  await settleAll();
+  const parCard = [...byId.get("tasks-running").querySelectorAll(".tp-card")].find((card) => card.querySelector('[data-sa-key="sess-tp|tp-p1"]'));
+  assert(parCard?.querySelector(".tp-card-title")?.textContent === "分三路并行勘察", `并行委派卡标题应取派发前那段话的首句,实为 "${parCard?.querySelector(".tp-card-title")?.textContent}"`);
+  assert(parCard?.querySelectorAll(".tp-agent-row").length === 3 && parCard?.querySelector(".tp-phase-count")?.textContent === "0/3", "并行委派卡应有 3 行、阶段 0/3");
+  panelNs.closeTasksPanel();
+  const group = [...document.querySelectorAll(".sa-group")].find((g) => g.querySelector('.sa-card[data-sa-key="sess-tp|tp-p1"]'));
+  group?.querySelector(".sa-group-open")?.click();
+  // 闪烁 1.2 秒后自己撤掉(flush 会立即跑完计时器),点完当场断言。
+  const revealed = [...byId.get("tasks-running").querySelectorAll(".tp-card")].find((card) => card.querySelector('[data-sa-key="sess-tp|tp-p1"]'));
+  assert(visible() && revealed?.classList.contains("tp-flash"), "组头「查看全部 ↗」应打开侧栏并定位(闪一下描边)到这一批的委派卡");
+  await settleAll();
+  for (const id of ["tp-p1", "tp-p2", "tp-p3"]) endTask(id);
+  await settleAll();
+  panelNs.closeTasksPanel();
+
+  // 设置页两个开关:勾选即时保存到 ui_prefs 的 ui_layout.side_panel;关掉「自动弹出」后只亮徽标。
+  const autoOpen = byId.get("set-side-auto-open");
+  assert(autoOpen && byId.get("set-side-auto-close"), "设置页缺「后台任务侧栏」两个开关");
+  autoOpen.checked = false;
+  autoOpen.dispatchEvent({ type: "change", target: autoOpen });
+  await flush();
+  const sideWrite = invokeArgs.filter((a) => a.cmd === "ui_prefs_set" && a.args?.ui_layout?.side_panel).at(-1);
+  assert(sideWrite?.args.ui_layout.side_panel.auto_open === false, "关掉「自动弹出」没有经 ui_prefs_set({ ui_layout: { side_panel } }) 持久化(本机 localStorage 重启即丢)");
+  panelNs.tasksPanelUserRun("sess-tp");
+  startTask("tp-7");
+  await settleAll();
+  assert(!visible() && !tasksBadge.classList.contains("hidden"), "关掉「自动弹出」后子代理开跑只该亮徽标");
+  endTask("tp-7");
+  autoOpen.checked = true;
+  autoOpen.dispatchEvent({ type: "change", target: autoOpen });
+  await flush();
+  layoutNs.adoptLayout({ side_panel: { auto_open: false, auto_close: false } });
+  assert(!autoOpen.checked && !byId.get("set-side-auto-close").checked, "后端 ui_layout 到达后设置页开关没有回填");
+  layoutNs.adoptLayout({});
+  assert(autoOpen.checked, "ui_layout 清空后「自动弹出」应回到默认开");
+
+  // 复位:时钟、焦点探针、活动线路。
+  await settleAll();
+  panelNs.closeTasksPanel();
+  panelNs.setTasksPanelClock(null);
+  Element.prototype.focus = priorFocus;
+  document.activeElement = null;
+  sandbox.activeSessionId = priorSession;
+  panelNs.agentPanelSync();
   await flush();
 }
 

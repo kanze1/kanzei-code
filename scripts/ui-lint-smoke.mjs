@@ -140,3 +140,6 @@ if (gallery.failures.length) {
   process.exit(1);
 }
 console.log(`弹层样例浏览器冒烟通过:${gallery.notes.join(";")}`);
+// ── 分区:后台任务侧栏与可调框 ── ③ 窗口尺寸 × 左侧栏 × 后台任务侧栏的真实布局冒烟(UI2-0926 #14 起侧栏停靠进
+// #main 网格,停靠/抽屉的判据要在真浏览器里量;接在这里让它进 verify 的 ui_lint 步骤)。
+await import("./ui-narrow-layout-smoke.mjs");

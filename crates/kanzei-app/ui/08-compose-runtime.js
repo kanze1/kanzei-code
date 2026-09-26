@@ -37,6 +37,7 @@ import {
 import { addMessage, addUserMessage, outputChars, reportError } from "./05-chat-render.js";
 import { setOutputChars } from "./05-chat-render.js";
 import { hideAsk } from "./07-events.js";
+import { tasksPanelUserRun } from "./06-agent-panel.js";
 import {
   DEFAULT_AUTO_CONTINUE_MAX,
   DEFAULT_CONTINUE_PROMPT,
@@ -342,6 +343,8 @@ export async function sendText(prompt, { auto = false, promptAttachments = [] } 
     return;
   }
   if (!auto) void ensureNotificationPermission();
+  // UI2-0926 #14:用户手动发消息 = 新的一次运行(后台任务侧栏解除本次运行的压制、确认上次的失败);鞭挞续轮不算。
+  if (!auto) tasksPanelUserRun(activeSessionId);
   if (running) {
     addMessage("user", prompt);
     log(`${t("运行中")}${delivery === "steer" ? t("插入") : t("排队")}:${prompt.slice(0, 80)}`);

@@ -2,6 +2,7 @@ import { defer } from "./01-core.js";
 import { messagePanes, motionOnce } from "./01-core.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { appendDisplayBlock, compactDiffLines, quotaNoticeHeadline, quotaTruncation } from "./06-activity.js";
+import { openTasksPanel } from "./06-agent-panel.js";
 import { $, activePane, promptBox, appendToPane, messages, trimLivePane } from "./01-core.js";
 import { t } from "./02-i18n.js";
 import { attachments, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
@@ -354,12 +355,12 @@ export function appendActivityNotice(parent) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "ghost mini tool-display-more";
-  button.textContent = t("去活动面板看全");
-  button.title = t("去活动面板看全");
+  button.textContent = t("去后台任务侧栏看全");
+  button.title = t("去后台任务侧栏看全");
   button.addEventListener("click", (event) => {
     event.stopPropagation();
-    // 复用活动面板唯一真实开关,保持互斥面板和持久化状态由既有消费者处理。
-    $("activity-toggle")?.click();
+    // UI2-0926 #14:只打开、不切换——此前复用 rail 开关的 click,侧栏已开着时反而把它关掉(缺陷 C)。
+    openTasksPanel({ invoker: button });
   });
   parent.appendChild(button);
 }

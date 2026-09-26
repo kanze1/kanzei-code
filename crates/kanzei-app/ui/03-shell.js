@@ -5,7 +5,7 @@ import { I18N_EN, localizeDynamic, t } from "./02-i18n.js";
 import { parseErrorText } from "./04-structured-parse.js";
 import { renderErrorDetail } from "./04-structured.js";
 import { fastStatusText } from "./06-activity.js";
-import { agentClosePanel } from "./06-agent-panel.js";
+import { reconcileTasksPanel } from "./06-agent-panel.js";
 import { autoContinueTimers, clearStoppingWatchdog } from "./08-auto.js";
 import { send } from "./08-compose-runtime.js";
 import { state } from "./08-compose.js";
@@ -79,12 +79,9 @@ export function navigate_view(view) {
   const item = document.querySelector(`.activity-item[data-view="${view}"]`);
   if (!item || !$(`view-${view}`)) return;
   document.body.dataset.view = view;
-  if (view !== "chat") {
-    // UI-0926 #8:经 agentClosePanel 收起,agentPanelOpen 与 DOM 保持一致(先关子代理面板,
-    // 它会按 activityPanelOpen 同步活动面板;随后照旧把活动面板也收起)。
-    agentClosePanel();
-    $("bg-panel")?.classList.add("hidden");
-  }
+  // UI2-0926 #14:后台任务侧栏只在对话视图显示。切视图只触发重算、不改侧栏状态——此前只给面板加
+  // hidden、开关状态不变,下一条工具事件又把它弹回来,浮在文件等视图上(缺陷 A)。切回对话按状态恢复。
+  reconcileTasksPanel();
   remember_workspace_view(view);
   document.querySelectorAll(".activity-item[data-view]").forEach((i) => {
     i.classList.remove("active");
@@ -261,38 +258,7 @@ defer(() => {
 defer(() => {
   window.addEventListener("focus", resetTitleOnFocus);
 });
-export let activityPanelOpen = localStorage.getItem("kz-activity-panel") === "1";
-export function setActivityPanelOpen(value) { activityPanelOpen = Boolean(value); }
-
-export function syncActivityPanel() {
-  $("bg-panel").classList.toggle("hidden", !activityPanelOpen);
-  const toggle = $("activity-toggle");
-  toggle.classList.toggle("active", activityPanelOpen);
-  // 开关搬到 rail 后按钮内容是 SVG:再写 textContent 会把图标整个抹掉,
-  // 状态只走 class + aria-pressed + title。
-  toggle.setAttribute("aria-pressed", activityPanelOpen ? "true" : "false");
-  toggle.title = activityPanelOpen ? t("隐藏右侧活动面板") : t("显示右侧活动面板");
-}
-
-export function closeActivityPanel() {
-  activityPanelOpen = false;
-  localStorage.setItem("kz-activity-panel", "0");
-  syncActivityPanel();
-  $("activity-toggle")?.focus();
-}
-
-defer(() => {
-  $("activity-toggle").addEventListener("click", () => {
-    activityPanelOpen = !activityPanelOpen;
-    localStorage.setItem("kz-activity-panel", activityPanelOpen ? "1" : "0");
-    if (activityPanelOpen) agentClosePanel();
-    syncActivityPanel();
-  });
-  $("bg-close")?.addEventListener("click", closeActivityPanel);
-});
-defer(() => {
-  syncActivityPanel();
-});
+// 活动面板与子代理面板合成了后台任务侧栏(UI2-0926 #14),开关、自动开合与徽标归 06-agent-panel.js。
 
 export let sidebarCollapsed = localStorage.getItem("kz-sidebar-collapsed") === "1";
 export function setSidebarCollapsed(value) { sidebarCollapsed = Boolean(value); }

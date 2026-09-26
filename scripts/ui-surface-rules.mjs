@@ -27,7 +27,7 @@ const NAMED = /(?<![\w-])(?:white|black|red|green|blue|gray|grey|silver|orange|y
 const SURFACE_SEL = /(?:^|[\s,>+~(])(?:dialog(?![\w-])|::backdrop|::picker\(|:popover-open|\[popover|\.k-[a-z][\w-]*|option(?![\w-]))/;
 const LEGACY = /^(?:#(?:ask-overlay|ask-dialog|ask-reopen|viewer-overlay|viewer-dialog|confirm-overlay|confirm-dialog|input-overlay|input-dialog|palette|toast|sop-picker-panel|context-detail|file-suggestions|composer-more-menu|task-options-menu|autorun-menu|voice-settings-panel|kz-tip|kz-surface-root)|\.(?:palette|palette-box|composer-menu-panel|task-options-panel|autorun-menu|context-detail|file-suggestions|sop-picker-panel|voice-settings-panel))(?![\w-])/;
 const CHROME = /(?:^|[;{\s])(?:background(?:-color)?|box-shadow|border(?:-radius|-color)?|backdrop-filter|z-index|position|inset)\s*:/;
-const PANEL = /^#(?:bg-panel|agent-panel)(?![\w-])/;
+const PANEL = /^#tasks-panel(?![\w-])/;
 const PANEL_CHROME = /(?:^|[;{\s])(?:background(?:-color)?|box-shadow|border(?:-radius|-color)?)\s*:/;
 const FIXED = /position:\s*fixed/;
 const HIGH_Z = /z-index:\s*var\(--z-(?:float|overlay|dialog|toast)\)/;
@@ -243,8 +243,8 @@ function checkHtml(html, violations) {
   for (const m of text.matchAll(/<(\w+)\b([^>]*)\brole="(dialog|alertdialog|menu|tooltip)"([^>]*)>/g)) {
     const attrs = `${m[2]} ${m[4]}`;
     const id = attrs.match(/\bid="([^"]+)"/)?.[1];
-    if (m[1].toLowerCase() === "dialog" || /\spopover(?:[\s=>]|$)/.test(` ${attrs}`) || id === "bg-panel" || id === "agent-panel") continue;
-    violations.push({ rule: "H", ...at(m.index), fix: `role="${m[3]}" 的宿主必须是 <dialog>(模态)或带 popover 属性的弹层(由 00-surface 开关);常驻工具窗白名单只有 #bg-panel/#agent-panel。` });
+    if (m[1].toLowerCase() === "dialog" || /\spopover(?:[\s=>]|$)/.test(` ${attrs}`)) continue;
+    violations.push({ rule: "H", ...at(m.index), fix: `role="${m[3]}" 的宿主必须是 <dialog>(模态)或带 popover 属性的弹层(由 00-surface 开关);常驻侧栏 #tasks-panel 是 <aside> 地标(${id ? `#${id}` : "此处"}不写 role=dialog)。` });
   }
   for (const m of text.matchAll(/<dialog\b[^>]*>|<[a-z][\w-]*\s[^>]*\bpopover\b[^>]*>/g)) {
     if (/class="[^"]*\bk-surface\b/.test(m[0])) continue;
@@ -374,6 +374,7 @@ export function selfTestSurfaceRules() {
     "T1 未定义 token": { css: root, surfaceCss: ".k-surface { color: var(--nope); }" },
     "S1 dialog 选择器": { css: `${root}dialog { padding: 0; }` },
     "S1 宿主外观": { css: `${root}#confirm-overlay { background: var(--panel); }` },
+    "S1 侧栏外观": { css: `${root}#tasks-panel[data-dock="side"] { box-shadow: var(--elev-3); }` },
     "S1 fixed 浮层": { css: `${root}.floaty { position: fixed; }` },
     "S1 details 下拉": { css: `${root}.dd { position: absolute; }`, html: '<details class="dd"></details>' },
     "H popover 缺 k-surface": { html: '<div id="m" popover class="menu"></div>' },

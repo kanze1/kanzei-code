@@ -307,7 +307,13 @@ function renderMatrix(section) {
   }
   const tip = node("div", "k-surface k-tooltip k-static", t("打开低频操作菜单"));
   const panel = node("div", "k-surface k-panel k-static g-panel", t("活动"));
-  section.replaceChildren(dialog, menu, popover, card, chip, toasts, tip, panel);
+  // UI2-0926 #14 后台任务侧栏:停靠(无圆角无阴影、左分隔线)、抽屉(3 档阴影)与抽屉遮罩。
+  const docked = node("div", "k-surface k-panel k-static g-panel", t("后台任务"));
+  docked.dataset.dock = "side";
+  const drawer = node("div", "k-surface k-panel k-static g-panel", t("后台任务"));
+  drawer.dataset.dock = "drawer";
+  const scrim = node("div", "k-scrim g-scrim");
+  section.replaceChildren(dialog, menu, popover, card, chip, toasts, tip, panel, docked, drawer, scrim);
 }
 
 async function openEach() {

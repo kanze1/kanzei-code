@@ -69,6 +69,7 @@ export function collectPaletteEntries() {
   action(t("总结"), "summarize-btn");
   action(t("复制上下文"), "copy-context");
   action(t("搜索"), "chat-search-toggle");
+  action(t("后台任务"), "tasks-toggle");
   action(t("切换主题"), "theme-toggle");
   action(t("创建隔离 Git 工作树线程"), "worktree-add");
   action(t("记需求"), "req-quick");
