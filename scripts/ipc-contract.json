@@ -12,6 +12,7 @@
     },
     "conventions": {
       "exists": "bool",
+      "has_proposal": "bool",
       "headings": [
         "string"
       ]

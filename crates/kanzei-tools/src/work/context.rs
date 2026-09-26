@@ -125,3 +125,49 @@ pub(super) fn conditional_guidance(state: &super::ResolvedControlState) -> Strin
         )
     }
 }
+
+pub fn resolved_control_prompt(
+    cwd: &std::path::Path,
+    project_root: &std::path::Path,
+    priority: kanzei_harness::auto_run::WorkPriority,
+) -> String {
+    let state = super::resolve_work_selection(cwd, project_root, priority);
+    let tests = state
+        .as_ref()
+        .ok()
+        .and_then(|state| state.selected.as_ref())
+        .map(|selected| recent_test_evidence(project_root, &selected.id))
+        .unwrap_or_default();
+    let mut prompt = resolved_control_prompt_of(state);
+    if !tests.is_empty() {
+        prompt.push_str(&format!(
+            "\n<current-test-evidence>\n{}\n</current-test-evidence>\n\
+             These are recorded outcomes, refreshed automatically with the worktree facts. \
+             Do not copy them into progress after every test. Their applicability still depends \
+             on the source version and test scope; preserve that distinction at acceptance.\n",
+            serde_json::to_string(&tests).unwrap_or_default()
+        ));
+    }
+    prompt
+}
+
+/// 把**已算好**的裁决渲染成注入块。
+///
+/// 拆出来是为了让一轮之内只算一次:`resolve_work_decision` 内部有 4 次 git 调用
+/// (含 `git diff --binary HEAD`),而同一份裁决既要进 system prompt,也要作为
+/// 任务上下文灌给勘察/复核角色。算两次除了浪费,还会出现主代理与角色看到不同
+/// 条目的可能——尤其复核发生在实现段之后,重算会选到下一条。
+pub fn resolved_control_prompt_of(state: Result<super::ResolvedControlState, String>) -> String {
+    let guidance = state
+        .as_ref()
+        .ok()
+        .map(conditional_guidance)
+        .unwrap_or_default();
+    let state = state
+        .map(super::output::structured_control_output)
+        .map(|state| serde_json::to_string_pretty(&state).unwrap_or_else(|_| "{}".into()))
+        .unwrap_or_else(|error| {
+            serde_json::json!({"decision": "error", "reason": error}).to_string()
+        });
+    format!("\n\n<resolved-control-state>\n{state}\n</resolved-control-state>\n{guidance}")
+}

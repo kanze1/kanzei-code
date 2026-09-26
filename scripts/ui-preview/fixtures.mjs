@@ -174,7 +174,7 @@ function buildDocsSnapshot() {
     warnings: [],
     work_units: [smokeWorkUnit],
     archived: { req: 351, defect: 742, idea: 12, source: 0, finding: 0 },
-    conventions: { exists: true, headings: ["开发规则", "测试要求", "提交规范"] },
+    conventions: { exists: true, has_proposal: false, headings: ["开发规则", "测试要求", "提交规范"] },
   };
 }
 

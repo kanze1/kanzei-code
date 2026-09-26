@@ -2040,7 +2040,7 @@ const payloads = {
     warnings: [],
     work_units: [smokeWorkUnit],
     archived: { req: 1, defect: 2, idea: 0, source: 0, finding: 0 },
-    conventions: { exists: true, headings: ["开发规则", "测试要求"] },
+    conventions: { exists: true, has_proposal: false, headings: ["开发规则", "测试要求"] },
   },
   research_workflow_get: () => null,
   research_plan_get: (args) => args?.topic === "alpha-study"

@@ -1,5 +1,5 @@
 //! 驱动域(R-155 B8):run_once / run_once_with_parts 整体搬迁,不动内部。
-//! 设计 §C B8:本批只搬主体,任何抽函数动作都不在本条目做;
+//! R-155 B8 完成整体搬迁；后续把工具目录与消息提交拆到独立模块。
 //! calls[i]↔results[i] 下标对齐不变式跨 tool_exec/redundancy/drive 三文件。
 //! 设计 §C 要点 1:run_once 是动态分发边界——驱动、subagent、tool_exec 的所有
 //! 异步递归都经它(子代理递归经 dyn Box 断开无限类型,见 subagent.rs)。
@@ -9,90 +9,10 @@
 use super::*;
 
 mod question;
-
-fn tool_spec(tool: &dyn Tool) -> ToolSpec {
-    ToolSpec {
-        name: tool.name().to_owned(),
-        description: tool.description(),
-        input_schema: tool.input_schema(),
-    }
-}
-
-fn append_tool_spec(
-    tool: &dyn Tool,
-    specs: &mut Vec<ToolSpec>,
-    context_report: &mut Vec<(String, usize)>,
-) -> bool {
-    let spec = tool_spec(tool);
-    if specs.iter().any(|loaded| loaded.name == spec.name) {
-        return false;
-    }
-    context_report.push((format!("tools/loaded:{}", spec.name), spec.char_len()));
-    specs.push(spec);
-    true
-}
-
-fn auto_load_deferred_tool(
-    snapshot: &HarnessSnapshot,
-    name: &str,
-    specs: &mut Vec<ToolSpec>,
-    context_report: &mut Vec<(String, usize)>,
-) {
-    if !snapshot.is_deferred(name) {
-        return;
-    }
-    if let Some(tool) = snapshot
-        .deferred_tools()
-        .into_iter()
-        .find(|tool| tool.name() == name)
-    {
-        append_tool_spec(tool.as_ref(), specs, context_report);
-    }
-}
-
-fn run_tool_search(
-    snapshot: &HarnessSnapshot,
-    input: &serde_json::Value,
-    specs: &mut Vec<ToolSpec>,
-    context_report: &mut Vec<(String, usize)>,
-) -> kanzei_harness::ToolOutput {
-    let Some(query) = input.get("query").and_then(serde_json::Value::as_str) else {
-        return kanzei_harness::ToolOutput::needs_correction(
-            "TOOL_SEARCH_QUERY",
-            "tool_search requires a string `query`; use keywords or `select:name1,name2`.",
-        );
-    };
-    let limit = match input.get("limit") {
-        None => None,
-        Some(value) => match value.as_u64().and_then(|value| usize::try_from(value).ok()) {
-            Some(limit) => Some(limit),
-            None => {
-                return kanzei_harness::ToolOutput::needs_correction(
-                    "TOOL_SEARCH_LIMIT",
-                    "tool_search `limit` must be a positive integer no greater than 10.",
-                );
-            }
-        },
-    };
-    let deferred = snapshot.deferred_tools();
-    let available_names: std::collections::HashSet<String> =
-        specs.iter().map(|spec| spec.name.clone()).collect();
-    let mut result = kanzei_harness::tool_search::search(query, limit, &deferred, &available_names);
-    let mut selected = Vec::new();
-    for tool in std::mem::take(&mut result.selected) {
-        if append_tool_spec(tool.as_ref(), specs, context_report) {
-            selected.push(tool);
-        } else {
-            result.already_available.push(tool.name().to_owned());
-        }
-    }
-    result.selected = selected;
-    let mut seen = std::collections::HashSet::new();
-    result
-        .already_available
-        .retain(|name| seen.insert(name.clone()));
-    kanzei_harness::tool_search::render_result(&result)
-}
+mod tool_catalog;
+use tool_catalog::{auto_load_deferred_tool, run_tool_search, tool_spec};
+mod history;
+use history::{commit_assistant_message, commit_tool_results, record_round_message};
 
 mod task_results;
 use task_results::{tool_result_part, tool_result_part_with_images};
@@ -133,51 +53,6 @@ fn append_halted_tool_results(
             content: "cancelled: run stopped by user before this tool executed".into(),
             is_error: true,
         });
-    }
-}
-
-fn commit_assistant_message(
-    messages: &mut Vec<Message>,
-    parts: Vec<Part>,
-    step: u32,
-    on_event: &mut (dyn FnMut(RunEvent) + Send),
-) {
-    let message = Message::assistant(parts);
-    on_event(RunEvent::AssistantMessageCommitted {
-        step,
-        message: message.clone(),
-    });
-    messages.push(message);
-}
-
-/// R-249:`images` 追加在**所有** ToolResult 之后。
-///
-/// Anthropic 要求 tool_result 块位于 user 消息最前,图片前插会 400;而 results
-/// 内部的 `results[i] ↔ calls[i]` 对齐由 note_step 的 debug_assert 锁着,也不允许
-/// 在中间插入。两条约束合起来,唯一合法位置就是尾部。
-fn commit_tool_results(
-    messages: &mut Vec<Message>,
-    results: Vec<Part>,
-    images: Vec<Part>,
-    step: u32,
-    on_event: &mut (dyn FnMut(RunEvent) + Send),
-) {
-    let mut results = results;
-    results.extend(images);
-    let message = Message::tool_results(results);
-    on_event(RunEvent::ToolResultsCommitted {
-        step,
-        message: message.clone(),
-    });
-    messages.push(message);
-}
-
-/// D-655:只记录主 runner 提交的本轮消息;事件发生在消息进入可压缩 history 前。
-fn record_round_message(round_messages: &mut Vec<Message>, event: &RunEvent) {
-    match event {
-        RunEvent::AssistantMessageCommitted { message, .. }
-        | RunEvent::ToolResultsCommitted { message, .. } => round_messages.push(message.clone()),
-        _ => {}
     }
 }
 
@@ -1175,7 +1050,6 @@ async fn execute_tool_calls(
     for (_, name, _, _) in calls {
         auto_load_deferred_tool(snapshot, name, specs, context_report);
     }
-    // R-171 批2:writer 阶段(ReadWriteSerial)强制普通工具串行——
     // R-171 批2:writer 阶段(ReadWriteSerial)强制普通工具串行——
     // max in-flight=1 且结果按模型调用顺序归位(验收③)。设计文档不变量 5。
     let serial_writer = config.execution_policy.is_serial_writer();
