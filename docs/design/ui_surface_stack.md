@@ -257,8 +257,8 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
 ```
 
 - SOP 是「更多」菜单首项(点开后收起菜单、以「更多」触发器为锚弹出 SOP 列表);继续文案是鞭挞菜单「刹车」分区末尾一行。
-- 「继续」与「排队」占同一个位置,只读 `html[data-kz-activity]`:运行/停止中显示交付方式,其余显示「继续」(鞭挞轮间 pending 显示「继续」,与 sendText 在 running=false 时不看交付方式一致)。交付方式选项去掉英文尾巴(「排队」「插入」),完整说明在悬停提示。
-- 来源标签只标偏离默认的来源(全局/内置不占位,完整来源仍在 title / aria-label / 菜单里)。
+- 「继续」与「排队」占同一个位置,只读 `html[data-kz-activity]`:运行/停止中显示交付方式,其余显示「继续」(鞭挞轮间 pending 显示「继续」,与 sendText 在 running=false 时不看交付方式一致)。交付方式选项去掉英文尾巴(「排队」「插入」),完整说明在悬停提示。「排队」这个 key 已译作状态词 Queued(工作区卡片「排队 N 条」),交付方式要的是动词 Queue:选项 key 写「排队 queue」,中文显示走 `data-i18n-zh="排队"`(02-i18n.js `applyDataI18nKeys`:同字不同义时中文显示与 key 分开写)。
+- 来源标签只标偏离默认的来源(全局/内置不占位,完整来源仍在 title / aria-label / 菜单里):临时 / 项目级 / Agent。项目级只在运行态收起(见 §11.3 窄宽),空闲态照常显示。
 - 模式芯片不再有实底:自主推进是强调色文字(进行中家族),结伴与研究中性(语义色表见 ui_color_semantics.md)。
 - 停机原因是纯文字(`inline-block` + `line-height: 28px` 才画得出省略号,上限 24ch);附件芯片 = 名字(省略号)+ 单独的 × 移除键。
 - 语音键是麦克风图标:23-voice.js 只写 title / aria-label / data-i18n-*,不再写 textContent(会冲掉图标)。
@@ -269,16 +269,18 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
 - `.kz-ctl`:`inline-flex`、居中、高 28、左右 10、胶囊、透明底、无边框、12px、字重 400、单行。悬停 `--surface-hover` + `--fg-strong`;`[aria-expanded=true]` / `[aria-pressed=true]` / `:has(> input:checked)` 用 `--surface-selected`;焦点 2px `--focus-ring` 内描边。一律中性,不染强调色。
 - 变体:`.kz-ctl--icon` 28×28(svg 16px);`.kz-ctl--round` 32 圆(发送,强调色填充归「发送键」规则);`#stop` 同高胶囊 + `--danger` 字 / `--danger-soft` 底,保留文字。
 - 箭头:`.kz-chev`、`.picker-btn::after`、`select::picker-icon` 共用 10px 细 V 形,展开翻转。
-- 鞭挞组:容器不画框不加底(`.autorun-bar` 的 border / background 只准 0 / none);开关的 `::before` 是 7px 圆点(关 = 1.5px 空心描边,开 = `--ok` 实心,推进中呼吸);触发器未开时收成 28×28 纯箭头,开着显示「N 轮 · 阶段」,推进中不重复「推进中」(活动行已说),等下一轮/暂停的阶段字用 `--warn`。触发器的读屏名由 08-auto.js 写(「鞭挞设置 · 鞭挞轮次 N · 阶段」),静态 data-i18n-* 摘掉以免切语言被冲回。
-- 窄宽以 composer 自身为查询容器(列宽由对话列 token 决定,视口宽度不再代表 composer 宽度):≤860px 收项目级来源标签、模型芯片上限 200px;≤640px 收全部来源标签、模型 150 / 思考 110;再窄右段整体换行。768 列宽下运行态为单行。
+- 鞭挞组:容器不画框不加底(`.autorun-bar` 的 border / background 只准 0 / none);开关的 `::before` 是 7px 圆点——关 = 1.5px 空心描边;开着待命 = 中性实心(`currentColor`,胶囊的 `--surface-selected` 底已说「开着」);推进中 / 等待下一轮 = `--accent` 实心(进行中家族,推进中呼吸)。绿只表示「一件工作成功收尾」,开关打开不是收尾(ui_color_semantics.md §3;复核前圆点是 `--ok`)。触发器未开时收成 28×28 纯箭头,开着显示「N 轮 · 阶段」,推进中不重复「推进中」(活动行已说);等待下一轮的阶段字 `--accent-text`(与活动行、kz-dot pending 一致),已暂停 `--warn`。触发器的读屏名由 08-auto.js 写(「鞭挞设置 · 鞭挞轮次 N · 阶段」),静态 data-i18n-* 摘掉以免切语言被冲回。
+- 窄宽以 composer 自身为查询容器(列宽由对话列 token 决定,视口宽度不再代表 composer 宽度):≤860px 模型芯片上限 200px;≤640px 收全部来源标签、模型 150 / 思考 110;再窄右段整体换行。项目级来源标签只在运行态收起(`html[data-kz-activity=running|stopping]`):运行态右段多出 [排队 ⌄] 与 [停止],768 列宽里只剩约 30px 空位;空闲态约 127px,放得下。复核前它挂在 860 容器查询里,输入区最宽 768 → 任何宽度都看不到。768 列宽下中文空闲态与运行态都是单行。
+- 英文界面:「Self-directed progress」「Auto-run」「0 rounds」偏长,1280@1.5、1600@1.25、2000@1 三档下 768 列宽都放不下一行(超出约 140px),按上面的设计回退——右段整体换到第二行靠右,不隐藏任何控件。这是有意的:用户主用中文,英文不为一行去截断模式名。
 - 上下文带与文件清单用 `margin-inline: calc(-1 * var(--composer-px))` + `max-width: none` 通栏到卡片边缘,文字左缘与输入框正文对齐(`--composer-px + 6px`);选择器写成 `#composer > :is(#composer-context, #change-bar-files)`(2,0,0),压过 `#composer > *:where(…)` 的 auto 外边距与 `max-width: 100%`。
 - 删除:`.ctx-select`、`.seg-btn` / `.seg-select`、`.composer-actions`、`.composer-secondary`、`#hint`、改动条里的分支与 ▸ 字形、`.auto-progress::after` 进度条与扫光、`.ctx-project::after` 死规则;线路页的模型下拉回到普通 select 外观。
 
 ### 11.4 门禁
 
-- **浏览器几何**(`scripts/ui-composer-geometry.mjs`,由 ui-surface-gallery-smoke §6 调用,§7.3 第 7 项):① `#composer` 内可见 `.kz-ctl` 高 28±0.5、`.kz-ctl--round` 高 32±0.5;② 页面里全部 select 的 `align-items` 计算值为 center;③ 输入区可见控件(`.kz-ctl`、发送、项目名、分支、停机原因)包围盒两两不交且都在 `#composer` 内,超长项目名必须截断;④ 模式芯片元素截图在页内用 `createImageBitmap` + `OffscreenCanvas` 找墨迹纵向范围,中心偏离盒中线 ≤1.5 CSS px;⑤ 输入区占满列宽(≥760)时工具行单行。测量期间收起 toast(只影响测量)。每次运行都注入三种回归(`select { align-items: normal }`、`#model-picker { height: 30px }`、`#profile-select { margin-left: -24px }`),任一没被判红即报「测量判据失效」。基线(改前)在 1600@1.25 上 ② ④ 为红(51 个 select 为 normal,墨迹偏离 4.31px)。
+- **浏览器几何**(`scripts/ui-composer-geometry.mjs`,由 ui-surface-gallery-smoke §6 调用,§7.3 第 7 项):① `#composer` 内可见 `.kz-ctl` 高 28±0.5、`.kz-ctl--round` 高 32±0.5;② 页面里全部 select 的 `align-items` 计算值为 center;③ 输入区可见控件(`.kz-ctl`、发送、项目名、分支、停机原因)包围盒两两不交且都在 `#composer` 内,超长项目名必须截断;④ 模式芯片元素截图在页内用 `createImageBitmap` + `OffscreenCanvas` 找墨迹纵向范围,中心偏离盒中线 ≤1.5 CSS px(只量中文:拉丁字母的升部/降部让墨迹天然不对称,居中的英文芯片也偏 1.7~2px);⑤ 输入区占满列宽(≥760)时工具行单行,英文界面改量「至多两行」;⑥ 交付方式「排队」选项中文显示「排队」、英文显示 Queue;⑦ 项目级来源标签空闲态显示、运行态收起。组合含英文 1280@1.5(运行 / 空闲)与 2000@1 亮色运行。测量期间收起 toast(只影响测量)。每次运行都注入四种回归(`select { align-items: normal }`、`#model-picker { height: 30px }`、`#profile-select { margin-left: -24px }`、项目级标签一律藏起[空闲态量]),任一没被判红即报「测量判据失效」;⑥ 另做过手工变异(去掉 `data-i18n-zh` 支持 / 选项 key 改回「排队」)实跑为红。基线(改前)在 1600@1.25 上 ② ④ 为红(51 个 select 为 normal,墨迹偏离 4.31px)。
+- **颜色语义**(ui-a11y-smoke ⑥,ui_color_semantics.md §5):⑥d 中性前缀加 `#auto-continue-wrap`、`.auto-phase`(不带 `[data-phase]` 的静息态 = 待命,中性);⑥w 鞭挞组的圆点 / 轮次 / 阶段字不得引用 `--ok`,running / pending 的圆点背景必须是 `var(--accent)`,pending 阶段字必须是强调色家族。自带 4 个反例(待命绿点、删掉进行中圆点规则、pending 阶段字琥珀、待命圆点染强调色)。
 - **静态**(ui-a11y-smoke「分区:对话单列与输入区」):基础 select 有 `align-items: center`;`--ctl-h: 28px` 存在且 `.kz-ctl` 高度走它;旧类(`.ctx-select` / `.seg-*` / `.composer-secondary` / `.composer-actions`)不再出现;`.autorun-bar` 与其 running/paused 变体不画框不加底;surface.css 的 `select::picker-icon` 用 `--icon-chevron`;`#delivery-select` 与 `#continue-btn` 各有一条按 `html[data-kz-activity]` 门控的规则。自带 7 个反例。
-- **运行时**(ui-runtime-smoke 同分区 ⑫⑬):源码配对标签扫描左右段控件顺序、带与工具行控件全是 `.kz-ctl`、「N 轮 · 阶段」在触发器里、SOP 是「更多」首项;行为断言触发器读屏名、无改动时的分支、语音键不冲掉图标;变异守卫 `ctxBranchEarly` / `autorunTriggerLabel` / `voiceIconKeep`。R-342 断言改为「模式芯片在工具行左段、不在任何弹层」。
+- **运行时**(ui-runtime-smoke 同分区 ⑫⑬⑭):源码配对标签扫描左右段控件顺序、带与工具行控件全是 `.kz-ctl`、「N 轮 · 阶段」在触发器里、SOP 是「更多」首项;行为断言触发器读屏名、无改动时的分支、语音键不冲掉图标;⑭(复核补)点 SOP 先收起「更多」菜单并以「更多」触发器为锚、展开继续文案时收起鞭挞菜单、附件芯片点名字不删 / 点 × 删、`data-i18n-zh` 与交付方式选项的中英文;变异守卫 `ctxBranchEarly` / `autorunTriggerLabel` / `voiceIconKeep` / `sopAnchor` / `continueClosesWhip` / `attachRemove` / `i18nZhDisplay`。R-342 断言改为「模式芯片在工具行左段、不在任何弹层」。
 
 ### 11.5 接缝
 
@@ -290,6 +292,7 @@ playwright-core `channel: "msedge"` 无头模式;页面经 `scripts/ui-preview/s
 
 - 2026-09-26:起草并实施(release/2026-09-26-ui 分支,G3「弹层与外观」)。相对最初方案的调整:不引入 `--c-*` 原始层(组件层直接引用语义层);菜单/浮层用 `popover="manual"` + 模块统一点外关闭(替代 `popover="auto"`,理由见 §4.4);保留 `#viewer-dialog`/`#confirm-dialog`/`#input-dialog`/`#ask-dialog` 为纯排版容器以保住全部元素 id;浏览器冒烟新增「确认框排队」用例并据此修掉迟到 close 事件关掉排队弹窗的时序缺陷。
 - 2026-09-26(UI2-0926 #11,ui2/chat 分支):§4.5 补 base-select 的两处坑(全局 `align-items: center`、`::picker-icon` 细 V 形遮罩);§5 决策表加输入区 `.kz-ctl` 一行;§7.3 加第 7 项输入区几何;新增 §11「输入区控件几何」。
+- 2026-09-26(UI2-0926 #11 复核修复):鞭挞圆点待命改中性、推进中 / 等待下一轮改强调色,pending 阶段字回到 `--accent-text`(配色语义表落地后的口径;原方案「开 = --ok」写于配色落地之前),门禁 ⑥w;项目级来源标签改为只在运行态收起;交付方式英文改动词 Queue(`data-i18n-zh`);英文工具行两行回退写明并入几何测量;几何加 ⑥⑦ 与四种自检回归;运行时 ⑭ 补守卫。
 - 2026-09-26(评审修正):弹窗里的菜单挂进锚点所在的 dialog(原先挂 body,模态开着时惰性、点不动)+ 门禁 H 组与模态外弹层告警;停靠卡片让位卡片外输入框/Monaco 的局部 Esc;程序化聚焦不弹 tooltip;补全列表放开 420px 宽度上限;toast 改浅底 + 软边;J1 覆盖局部变量写法。样例页与两份冒烟各补对应用例,手工变异均已实跑变红。
 
 ## 验证证据
